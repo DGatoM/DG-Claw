@@ -107,114 +107,154 @@ Agora **abra o `AGENT.md`** e substitua o bloco `{{PERSONALIDADE}}` pela
 descricao que a pessoa deu (use o Edit/Write). Leia de volta pra ela confirmar
 que ficou com a cara certa. Deixe ela ajustar o texto se quiser.
 
-## Passo 5 — Criar o bot no Telegram
+## Passo 5 — Criar o bot, subir e parear (automatico)
 
-Explique e conduza (passo a passo, esperando a pessoa fazer cada um):
+A ideia: o assistente **conecta primeiro**, voce manda uma mensagem pro bot, e o
+proprio assistente **captura quem e voce** e libera o acesso. Sem caçar ID em
+@userinfobot (que e o que mais trava leigos).
+
+### 5.1 Criar o bot no BotFather
+
+Conduza, esperando a pessoa fazer cada passo:
 
 1. No Telegram, abra conversa com **@BotFather** e mande `/newbot`.
 2. Ele pede um **nome** (pode ter espaco, ex: "Tina Assistente").
-3. Depois pede um **@username** unico terminando em `bot` (ex: `tina_dg_bot`).
-4. O BotFather responde com um **token** tipo `123456789:AAH...`. Peca esse token.
-5. Peca tambem o **ID numerico** dela no Telegram: abrir conversa com
-   **@userinfobot** e copiar o numero (ex: `969847482`). Isso garante que SO ela
-   fala com o bot.
+3. Depois um **@username** unico terminando em `bot` (ex: `tina_dg_bot`).
+4. Ele responde com um **token** tipo `123456789:AAH...`. Peca esse token.
 
-Com token e ID em maos, grave o estado isolado do canal (cada assistente tem o
-seu, pra rodar varios bots na mesma maquina sem conflito):
+### 5.2 Gravar token + config e subir o bot
 
 ```bash
 STATE_DIR="$HOME/.claude/dgclaw-channels/$SLUG/telegram"
 mkdir -p "$STATE_DIR/inbox"
 
 TOKEN="123456789:AAH..."   # cole o do BotFather
-MEU_ID="969847482"         # cole o do @userinfobot
-
 printf 'TELEGRAM_BOT_TOKEN=%s\n' "$TOKEN" > "$STATE_DIR/.env"
 chmod 600 "$STATE_DIR/.env"
 
-sed -e "s/\"dmPolicy\": \"pairing\"/\"dmPolicy\": \"allowlist\"/" \
-    -e "s/\"allowFrom\": \[\]/\"allowFrom\": [\"$MEU_ID\"]/" \
-    "$PLUGIN_ROOT/templates/access.json.tmpl" > "$STATE_DIR/access.json"
-```
+# access.json comeca em modo "pairing" (template ja vem assim): o bot responde
+# um codigo pra quem mandar msg, e a gente aprova logo abaixo.
+cp "$PLUGIN_ROOT/templates/access.json.tmpl" "$STATE_DIR/access.json"
 
-Explique: com `allowlist` + o ID dela, ninguem mais consegue acionar o bot.
-
-## Passo 6 — Memoria
-
-Explique as 3 camadas em 3 frases (curto prazo `working-memory.md`, longo prazo
-`MEMORY.md`, e a busca semantica que "acende sozinha"). Os dois arquivos ja foram
-criados no Passo 4 — a memoria em arquivo **ja funciona**.
-
-A busca semantica (opcional) deixa o assistente lembrar de coisas por
-semelhanca, mesmo sem palavra exata. Ela precisa de uma chave gratis do Google
-(Gemini). Pergunte se a pessoa quer ligar agora:
-
-- **Quer ligar:** peca a chave em https://aistudio.google.com/apikey (free tier),
-  e rode o primeiro indice:
-  ```bash
-  export GEMINI_API_KEY="AIza..."
-  DGCLAW_WORKSPACE="$WORKSPACE" GEMINI_API_KEY="$GEMINI_API_KEY" \
-      python3 "$PLUGIN_ROOT/scripts/memory_index/reindex.py" --workspace "$WORKSPACE"
-  ```
-  Guarde a chave pra config do Passo 7.
-- **Nao quer agora:** tudo bem, a memoria em arquivo funciona. Da pra ligar
-  depois com `/dgclaw:memory`.
-
-## Passo 7 — Gravar a config do assistente
-
-```bash
+# config do assistente (o servico le isto)
 cat > "$WORKSPACE/.dgclaw/config.sh" <<EOF
-# Config do assistente DG Claw "$NOME"
 export DGCLAW_NAME="$NOME"
 export DGCLAW_SLUG="$SLUG"
 export DGCLAW_WORKSPACE="$WORKSPACE"
 export TELEGRAM_STATE_DIR="$STATE_DIR"
 export DGCLAW_PLUGIN_ROOT="$PLUGIN_ROOT"
-# Opcional — busca semantica de memoria:
-$( [ -n "${GEMINI_API_KEY:-}" ] && echo "export GEMINI_API_KEY=\"$GEMINI_API_KEY\"" || echo "# export GEMINI_API_KEY=\"...\"" )
-# Opcional — caminho do bun, se nao estiver no PATH padrao:
 # export BUN_BIN_DIR="\$HOME/.bun/bin"
 EOF
 chmod 600 "$WORKSPACE/.dgclaw/config.sh"
-cat "$WORKSPACE/.dgclaw/config.sh"
-```
 
-## Passo 8 — Subir o servico 24/7
-
-Explique: o systemd e o que mantem o assistente ligado e o reinicia se cair.
-Precisa de sudo/root.
-
-```bash
+# sobe o servico 24/7 (precisa sudo). O bot fica online pra receber sua msg.
 sudo bash "$PLUGIN_ROOT/scripts/install-service.sh" "$WORKSPACE/.dgclaw/config.sh"
-sleep 4
-systemctl status "dgclaw-$SLUG" --no-pager | head -20
+sleep 5
+systemctl is-active "dgclaw-$SLUG" && echo "bot online" || journalctl -u "dgclaw-$SLUG" --no-pager -n 20
 ```
 
-Confira nas toras que conectou no Telegram:
+### 5.3 Pedir a mensagem e parear sozinho
+
+Diga: **"Agora abre o seu bot @<username> no Telegram e manda qualquer mensagem
+(ex: 'oi'). Ele vai te responder um codigo — nao precisa copiar nada, eu pego."**
+
+Espere a pessoa avisar que mandou, entao leia o pareamento pendente e **aprove
+automaticamente** (poll ate aparecer, ~30s):
 
 ```bash
-journalctl -u "dgclaw-$SLUG" --no-pager -n 30
+for i in $(seq 1 15); do
+  RES=$(python3 - "$STATE_DIR/access.json" <<'PY'
+import json,sys
+f=sys.argv[1]
+try: d=json.load(open(f))
+except Exception: print("WAIT"); sys.exit()
+p=d.get("pending",{})
+if not p: print("WAIT"); sys.exit()
+code=next(iter(p)); sender=p[code]["senderId"]
+d["dmPolicy"]="allowlist"
+d["allowFrom"]=sorted(set(d.get("allowFrom",[])+[str(sender)]))
+d["pending"]={}
+json.dump(d,open(f,"w"),indent=2)
+print("APPROVED", sender)
+PY
+)
+  echo "$RES"; case "$RES" in APPROVED*) break;; esac
+  sleep 2
+done
+
+# reinicia pra carregar a allowlist nova
+sudo systemctl restart "dgclaw-$SLUG"
 ```
 
-Peca pra pessoa **mandar um "oi" pro bot dela no Telegram** e confirmar que
-respondeu. Se nao responder, cheque os logs e o token.
+- Se saiu `APPROVED <id>`: diga "achei voce (id `<id>`), liberei seu acesso e
+  travei o bot pra so voce". 
+- Se ficou em `WAIT`: a msg ainda nao chegou — confirme que ela mandou pro bot
+  certo e que o servico esta `active`; tente o bloco de novo.
 
-## Passo 9 — Conectar Google (opcional)
+### 5.4 Confirmar
+
+Peca pra ela **mandar outra mensagem** pro bot. Agora quem responde e o
+assistente (com o nome e personalidade dele), nao mais o codigo. Confirmado isso,
+o canal esta pronto.
+
+## Passo 6 — Memoria (tudo no Claude, sem API externa)
+
+Explique em 3 frases:
+- **Curto prazo** (`working-memory.md`): o "agora" — tarefas e contexto recente.
+- **Longo prazo** (`MEMORY.md`): o que vale pra sempre. Sobrevive ao `/reset`.
+- **Recall automatico**: antes de responder, o assistente procura nesses arquivos
+  por linhas relacionadas a sua mensagem e "lembra" sozinho. **E local, sem
+  chave nenhuma** — nao usa servico externo.
+
+Os arquivos ja foram criados no Passo 4 e o recall ja vem ligado (e um hook do
+plugin). **Nao precisa configurar nada aqui** — a memoria ja funciona.
+
+### Consolidacao noturna (recomendado)
+
+Pra memoria nao virar bagunca, todo dia de madrugada o **proprio assistente**
+(Claude, sem API externa) le o `working-memory.md`, promove o que e duradouro pro
+`MEMORY.md` e limpa o resto. Pergunte se quer ligar (recomende que sim) e o
+horario (default 04:00):
+
+```bash
+sudo bash "$PLUGIN_ROOT/scripts/install-consolidate-timer.sh" "$WORKSPACE/.dgclaw/config.sh" 04:00
+# testar agora (opcional):
+sudo systemctl start "dgclaw-$SLUG-consolidate.service"
+cat "$WORKSPACE/.dgclaw/logs/consolidate.log"
+```
+
+Explique: e o "sono" do assistente — ele organiza as memorias enquanto voce dorme.
+
+## Passo 7 — Painel de memoria (opcional)
+
+Um mini site pra voce **ver e editar** a memoria pelo navegador (curto prazo,
+longo prazo e notas), salvando direto nos arquivos. Pergunte se quer ligar:
+
+```bash
+sudo bash "$PLUGIN_ROOT/scripts/install-panel-service.sh" "$WORKSPACE/.dgclaw/config.sh" 8200
+```
+
+O script mostra a **URL com token** (`http://SEU_IP:8200/?t=...`). Passe essa URL
+pra pessoa abrir no navegador. Diga que o que ela editar e salvar ali vale na
+proxima conversa do assistente.
+
+## Passo 8 — Conectar Google (opcional)
 
 Pergunte se ela quer que o assistente acesse Drive/Gmail/Calendar. Se sim,
 chame a skill `/dgclaw:connect` (ela guia os connectors nativos do Claude).
 Se nao, siga.
 
-## Passo 10 — Resumo final
+## Passo 9 — Resumo final
 
 Feche com um resumo simples e util:
 
 - Como conversar: e so mandar mensagem pro bot no Telegram.
-- A memoria: ele anota sozinho; voce pode pedir "lembra que ...".
+- A memoria: ele anota sozinho, lembra sozinho e consolida toda noite. Voce pode
+  pedir "lembra que ..." ou editar pelo painel.
 - `/reset` ou `/new` no Telegram zera a conversa, mas a memoria em arquivo fica.
 - Onde mora tudo: `WORKSPACE` (mostre o path).
 - Comandos uteis: `/dgclaw:service` (liga/desliga/status/logs),
-  `/dgclaw:memory` (memoria), `/dgclaw:connect` (Google).
+  `/dgclaw:memory` (memoria/painel/consolidacao), `/dgclaw:connect` (Google).
 - Pra mudar a personalidade depois: edite `AGENT.md` e
   `systemctl restart dgclaw-$SLUG`.
 

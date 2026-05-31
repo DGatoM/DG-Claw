@@ -38,7 +38,7 @@ que os assistentes de producao (Isa/Jarbas) usam — **Claude Code Channels**.
    |                                                             |
    |  Workspace ~/dgclaw/<slug>/                                |
    |     AGENT.md  CLAUDE.md  MEMORY.md  working-memory.md       |
-   |     memory/   memory_index/chunks.db   .dgclaw/config.sh   |
+   |     memory/   .dgclaw/config.sh   .dgclaw/logs/             |
    +-------------------------------------------------------------+
 ```
 
@@ -75,9 +75,9 @@ usuario, entao as duas sessoes enxergam suas skills e hooks.
         <channel source="telegram" chat_id="123">oi</channel>
   3. HOOK UserPromptSubmit dispara (memory-recall.sh):
         - tira o wrapper <channel>
-        - ve se tem palavra "fora do comum"
-        - se tiver + houver indice: embedding + cosine no chunks.db
-        - se achar algo relevante -> injeta "MEMORIA ERRANTE: ..."
+        - pega as palavras "fora do comum" da mensagem
+        - procura essas palavras nos arquivos de memoria (local, sem API)
+        - se achar linhas relacionadas -> injeta "MEMORIA RELACIONADA: ..."
   4. Claude le tudo (system prompt + CLAUDE.md + msg + memoria injetada)
   5. PRIMEIRA acao: chama a tool reply (senao voce nao recebe nada!)
   6. Faz o trabalho (Bash, arquivos, Google...) e manda reply com o resultado
@@ -86,32 +86,33 @@ usuario, entao as duas sessoes enxergam suas skills e hooks.
 
 ---
 
-## A memoria semantica por dentro
+## A memoria por dentro (tudo local, sem API externa)
+
+Recall (a cada mensagem) e consolidacao (toda noite) — nenhum servico de fora:
 
 ```
-  reindex.py  (roda quando voce manda ou periodicamente)
-     |
-     |  le MEMORY.md, working-memory.md, memory/*.md
-     |  quebra em pedacos (~200 palavras, com sobreposicao)
-     |  pra cada pedaco: pede um EMBEDDING ao Gemini (vetor de 768 numeros)
+  RECALL (memory_recall_local.py, no hook UserPromptSubmit)
+     |  pega palavras "fora do comum" da sua mensagem
+     |  procura (sem acento, case-insensitive) nas linhas de
+     |  MEMORY.md + working-memory.md + memory/*.md
      v
-  chunks.db (SQLite)         [ pedaco de texto | vetor | data | fonte ]
-                                          ^
-                                          |
-  memory_search_fast.py  <----------------+
-     |  transforma sua pergunta em vetor (Gemini)
-     |  compara com todos os pedacos (similaridade do cosseno)
-     |  o mais parecido, se passar do limite (0.70), e o "lembrete"
+  injeta as linhas que casaram -> "MEMORIA RELACIONADA: ..." -> Claude "lembra"
+  (busca por palavra-chave: instantanea, gratis, zero dependencia)
+
+  CONSOLIDACAO (consolidate.sh, via timer systemd ~04:00)
+     |  o PROPRIO claude (claude -p, sem API externa) le os arquivos
+     |  promove o que e duradouro: working-memory.md --> MEMORY.md
+     |  limpa o working-memory (tira o que ja foi feito/obsoleto)
      v
-  hook injeta esse lembrete no contexto -> Claude "lembra"
+  MEMORY.md fica enxuto e organizado pro recall do dia seguinte
 ```
 
-- **Embedding** = transformar texto num vetor de numeros que captura o
-  *significado*. Textos parecidos -> vetores proximos. E o que permite achar por
-  semelhanca em vez de palavra exata.
-- **Degrada sozinho:** sem `GEMINI_API_KEY` ou sem `chunks.db`, o hook nao faz
-  nada e a conversa segue normal (a memoria em arquivo continua funcionando).
-- O embedding usa o **free tier** do Google AI Studio — custo praticamente zero.
+- **Por que sem embeddings?** Pra nao depender de nenhuma chave/servico externo
+  (ex: Google). A memoria de um assistente pessoal e pequena e curada — busca por
+  palavra-chave + consolidacao noturna do proprio Claude da conta.
+- **Degrada sozinho:** sem arquivos de memoria, o hook nao faz nada e a conversa
+  segue normal.
+- **Custo:** recall = zero (local). Consolidacao = uma chamada Claude por noite.
 
 ---
 
@@ -125,11 +126,9 @@ usuario, entao as duas sessoes enxergam suas skills e hooks.
   +-- MEMORY.md           memoria de longo prazo
   +-- working-memory.md   memoria de curto prazo
   +-- memory/             notas/diarios extras (opcional)
-  +-- memory_index/
-  |     +-- chunks.db      indice semantico (gerado)
   +-- .dgclaw/
-        +-- config.sh      NAME, SLUG, WORKSPACE, STATE_DIR, GEMINI_API_KEY
-        +-- logs/          logs do hook de memoria
+        +-- config.sh      NAME, SLUG, WORKSPACE, STATE_DIR
+        +-- logs/          logs do recall e da consolidacao
 
   ~/.claude/dgclaw-channels/<slug>/telegram/
   |
@@ -155,9 +154,11 @@ O `TELEGRAM_STATE_DIR` ser separado por assistente e o que permite rodar
   +-- skills/  setup, memory, connect, service   (os comandos /dgclaw:*)
   +-- hooks/   hooks.json + memory-recall.sh      (recall automatico)
   +-- scripts/ launch.sh, install-service.sh, bootstrap-identity.sh,
-  |            memory_index/*.py
+  |            consolidate.sh, install-consolidate-timer.sh,
+  |            panel.py, install-panel-service.sh,
+  |            memory_index/memory_recall_local.py
   +-- templates/  AGENT/CLAUDE/MEMORY/working-memory/access (modelos)
-  +-- docs/    COMO-FUNCIONA, ARQUITETURA, AULA
+  +-- docs/    COMO-FUNCIONA, ARQUITETURA, AULA, FLUXOS-AULA
 ```
 
 ---

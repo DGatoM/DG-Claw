@@ -8,7 +8,6 @@
 # A config (gerada pelo wizard /dgclaw:setup) deve exportar pelo menos:
 #   DGCLAW_NAME, DGCLAW_SLUG, DGCLAW_WORKSPACE, TELEGRAM_STATE_DIR
 # E opcionalmente:
-#   GEMINI_API_KEY      (liga a busca semantica de memoria)
 #   CLAUDE_BIN          (path do binario claude; default = autodetect)
 #   BUN_BIN_DIR         (dir do bun; default = ~/.bun/bin)
 
@@ -28,7 +27,6 @@ source "$CONFIG"
 : "${TELEGRAM_STATE_DIR:?config sem TELEGRAM_STATE_DIR}"
 
 export DGCLAW_WORKSPACE TELEGRAM_STATE_DIR
-[ -n "${GEMINI_API_KEY:-}" ] && export GEMINI_API_KEY
 
 # Bun no PATH (o MCP server do plugin telegram roda em Bun)
 BUN_BIN_DIR="${BUN_BIN_DIR:-$HOME/.bun/bin}"

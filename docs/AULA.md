@@ -93,21 +93,30 @@ Pegue tambem o seu **ID numerico**:
 
 ---
 
-## Passo 4 — Instalar o plugin DG Claw
+## Passo 4 — Instalar o plugin DG Claw (a partir do .zip)
 
-Volte pra VPS e abra o Claude:
+Baixe o **`DG-Claw.zip`** (link na area do curso) e envie pra VPS — ou baixe
+direto nela. Descompacte numa pasta:
+
+```bash
+mkdir -p ~/dgclaw-plugin && cd ~/dgclaw-plugin
+unzip ~/DG-Claw-v0.1.0.zip      # ajuste o caminho do zip que voce baixou
+ls                              # deve aparecer a pasta DG-Claw/
+```
+
+Abra o Claude e instale o plugin apontando pra essa pasta:
 
 ```bash
 claude
 ```
-
-Dentro da sessao, rode (sao comandos do Claude, comecam com `/`):
-
 ```
-/plugin marketplace add DGatoM/DG-Claw
+/plugin marketplace add ~/dgclaw-plugin/DG-Claw
 /plugin install dgclaw@dgclaw
 /reload-plugins
 ```
+
+> Dica: voce nem precisa decorar isso — pode simplesmente dizer ao Claude
+> *"instale o plugin que esta no zip ~/DG-Claw-v0.1.0.zip"* que ele faz os passos.
 
 O DG Claw usa o plugin oficial do Telegram como ponte. Instale-o tambem:
 
@@ -135,14 +144,15 @@ O wizard te conduz, um passo de cada vez. Ele vai:
 - conferir pre-requisitos (e instalar o **Bun**, que o Telegram precisa);
 - perguntar o **nome** e a **personalidade** do seu assistente;
 - pedir o **token** do BotFather e o seu **ID**;
-- criar a **memoria** (e, se voce quiser, ligar a busca semantica com uma chave
-  gratis do Gemini);
+- montar a **memoria** (recall automatico local + consolidacao noturna) — sem
+  precisar de chave nenhuma;
+- (opcional) ligar o **painel** pra ver/editar a memoria no navegador;
 - subir o **servico 24/7** no systemd.
 
-So vá respondendo. Quando ele pedir token/ID/chave, cole o que voce separou.
+So vá respondendo. Quando ele pedir o token do BotFather, cole o que voce separou.
 
-> Se for ligar a busca semantica: pegue a chave gratis em
-> https://aistudio.google.com/apikey (e o "free tier", nao cobra).
+> A memoria do DG Claw e 100% local / no proprio Claude — nao precisa de chave de
+> Gemini nem de nenhum servico externo.
 
 ---
 
@@ -183,8 +193,8 @@ Ele guia voce a autorizar Drive/Gmail/Calendar com a sua conta Google (via
     systemctl restart dgclaw-<slug>         reiniciar (apos editar AGENT.md)
 
   Dentro do Claude (sessao):
-    /plugin marketplace add DGatoM/DG-Claw  adicionar a "loja"
-    /plugin install dgclaw@dgclaw           instalar o DG Claw
+    /plugin marketplace add ~/dgclaw-plugin/DG-Claw   adicionar (pasta do zip)
+    /plugin install dgclaw@dgclaw                     instalar o DG Claw
     /dgclaw:setup                           wizard de instalacao
     /dgclaw:service                         ligar/desligar/status/logs
     /dgclaw:memory                          memoria
@@ -204,4 +214,5 @@ Ele guia voce a autorizar Drive/Gmail/Calendar com a sua conta Google (via
 | Bot nao responde | token errado / Bun fora do PATH | `/dgclaw:service` + ver logs |
 | "nao autorizado" no bot | seu ID nao esta no allowlist | rever `access.json` (Passo 5) |
 | Wizard nao acha o plugin | esqueceu `/reload-plugins` | rodar e tentar de novo |
-| Busca semantica nao acende | sem chave Gemini ou sem indice | `/dgclaw:memory` -> reindexar |
+| Memoria nao "lembra" | anotacoes vazias / palavra curta | conversar mais; ver `/dgclaw:memory` |
+| Consolidacao nao roda | timer nao instalado | `/dgclaw:memory` -> ligar consolidacao |

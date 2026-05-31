@@ -86,33 +86,38 @@ O assistente tem **tres tipos de memoria**, igual a gente:
   |  "o que vale pra sempre": seu nome, suas preferencias,         |
   |  pessoas e projetos importantes. Nao some nunca.               |
   +----------------------------------------------------------------+
-  |  MEMORIA QUE ACENDE SOZINHA  ->  busca semantica (opcional)    |
-  |  Lembra de coisas POR SEMELHANCA, mesmo sem a palavra exata.   |
+  |  MEMORIA QUE ACENDE SOZINHA  ->  recall automatico (local)     |
+  |  Antes de responder, ele varre as anotacoes e "lembra" do      |
+  |  que tem a ver com o que voce falou. Tudo local, sem internet.  |
+  +----------------------------------------------------------------+
+  |  SONO (consolidacao noturna) ->  toda madrugada ele organiza   |
+  |  a memoria: o que e duradouro sobe pro MEMORY, o resto sai.     |
   +----------------------------------------------------------------+
 ```
 
 ### Como a "memoria que acende sozinha" funciona
 
-Imagine que voce tem milhares de bilhetes guardados. Quando voce fala um
-assunto, um ajudante super-rapido procura nos bilhetes os que tem A VER com o
-que voce disse — e cochicha no ouvido do assistente: "psst, lembra disso aqui".
+Imagine que voce tem varios bilhetes guardados. Quando voce fala um assunto, um
+ajudante super-rapido varre os bilhetes atras das palavras que voce citou e
+cochicha no ouvido do assistente: "psst, lembra disso aqui".
 
 ```
   Voce diz:  "como foi a conversa sobre o Zarvanito?"
        |
        v
-  [ ajudante rapido ]  -- procura por SIGNIFICADO, nao por palavra --
+  [ ajudante rapido ]  -- procura "Zarvanito" nas anotacoes (local) --
        |
-       |  acha um bilhete de 3 meses atras que fala do assunto
+       |  acha o bilhete que fala do assunto
        v
-  [ cochicha pro assistente: "voces falaram disso em fevereiro: ..." ]
+  [ cochicha pro assistente: "tem isso aqui sobre Zarvanito: ..." ]
        |
        v
-  Assistente responde ja sabendo do contexto antigo.
+  Assistente responde ja sabendo do contexto.
 ```
 
-Isso e o que faz ele parecer que "te conhece de verdade". E opcional (precisa de
-uma chave gratis do Google), mas e o efeito que mais impressiona.
+Isso e o que faz ele parecer que "te conhece de verdade" — e roda **tudo na sua
+maquina, sem internet e sem nenhuma chave/servico de fora**. E a consolidacao da
+noite mantem as anotacoes arrumadas pra esse "lembrar" ficar cada vez melhor.
 
 ---
 
