@@ -1,0 +1,18 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "dgclaw",
+  "description": "Marketplace do DG Claw — um assistente pessoal no Telegram, com memoria, pra rodar 24/7 na sua VPS via Claude Code.",
+  "owner": {
+    "name": "DG Medeiros",
+    "url": "https://github.com/DGatoM"
+  },
+  "plugins": [
+    {
+      "name": "dgclaw",
+      "source": "./",
+      "category": "productivity",
+      "description": "Assistente pessoal no Telegram com memoria persistente. Inclui o wizard /dgclaw:setup que instala tudo: cria o bot do Telegram, da nome e personalidade, configura memoria curta/longa + busca semantica, conecta Google e sobe o servico 24/7 no systemd.",
+      "homepage": "https://github.com/DGatoM/DG-Claw"
+    }
+  ]
+}

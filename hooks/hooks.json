@@ -1,0 +1,16 @@
+{
+  "description": "DG Claw — recall semantico de memoria antes do assistente responder no Telegram. No-op se nao houver indice ou GEMINI_API_KEY.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/memory-recall.sh\"",
+            "timeout": 8
+          }
+        ]
+      }
+    ]
+  }
+}

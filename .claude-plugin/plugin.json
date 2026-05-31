@@ -1,0 +1,11 @@
+{
+  "name": "dgclaw",
+  "description": "DG Claw — instala e gerencia um assistente pessoal seu no Telegram, com memoria persistente, rodando 24/7 na sua VPS via Claude Code Channels. O wizard /dgclaw:setup cria o bot, da nome e personalidade ao assistente, configura a memoria e conecta servicos Google (Drive/Gmail/Calendar).",
+  "version": "0.1.0",
+  "author": {
+    "name": "DG Medeiros",
+    "url": "https://github.com/DGatoM/DG-Claw"
+  },
+  "homepage": "https://github.com/DGatoM/DG-Claw",
+  "keywords": ["telegram", "assistant", "memory", "channels", "vps", "wizard", "assistente"]
+}

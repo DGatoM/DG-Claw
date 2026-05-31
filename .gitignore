@@ -1,0 +1,7 @@
+# Estado de runtime / nada disso deve ir pro repo
+*.pyc
+__pycache__/
+*.db
+.env
+*.log
+node_modules/
