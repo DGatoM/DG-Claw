@@ -1,5 +1,5 @@
 {
-  "description": "DG Claw — recall semantico de memoria antes do assistente responder no Telegram. No-op se nao houver indice ou GEMINI_API_KEY.",
+  "description": "DG Claw — memoria local: recall por palavra-chave antes de responder, registro do fio do Telegram, e re-injecao de contexto no inicio/pos-compactacao. Tudo local, sem API externa.",
   "hooks": {
     "UserPromptSubmit": [
       {
@@ -7,6 +7,29 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/memory-recall.sh\"",
+            "timeout": 8
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "mcp__.*telegram.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/log-reply.sh\"",
+            "timeout": 6
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-context.sh\"",
             "timeout": 8
           }
         ]

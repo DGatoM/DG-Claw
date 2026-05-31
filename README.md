@@ -44,6 +44,7 @@ veja [`docs/AULA.md`](docs/AULA.md).
 | `/dgclaw:service` | Liga, desliga, reinicia, status e logs |
 | `/dgclaw:memory` | Explica/gerencia a memoria; consolidacao noturna e painel |
 | `/dgclaw:connect` | Conecta Google Drive/Gmail/Calendar (connectors nativos do Claude) |
+| `/dgclaw:doctor` | Diagnostica e conserta o assistente (servico, plugin, trust, pareamento) |
 
 ## Como funciona
 

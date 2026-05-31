@@ -18,6 +18,7 @@ Abrir: http://SEU_IP:8200/?t=abc
 import html
 import os
 import re
+import socket
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -141,11 +142,26 @@ class H(BaseHTTPRequestHandler):
         pass
 
 
+class DualStackServer(ThreadingHTTPServer):
+    """Escuta em IPv4 e IPv6 ao mesmo tempo."""
+    address_family = socket.AF_INET6
+
+    def server_bind(self):
+        try:
+            self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+        except OSError:
+            pass
+        super().server_bind()
+
+
 def main():
     if not WS.exists():
         raise SystemExit(f"workspace nao existe: {WS}")
-    srv = ThreadingHTTPServer(("0.0.0.0", PORT), H)
-    print(f"painel DG Claw em http://0.0.0.0:{PORT}/  (workspace: {WS})")
+    try:
+        srv = DualStackServer(("::", PORT), H)
+    except OSError:
+        srv = ThreadingHTTPServer(("0.0.0.0", PORT), H)  # fallback so-IPv4
+    print(f"painel DG Claw na porta {PORT} (IPv4+IPv6)  (workspace: {WS})")
     srv.serve_forever()
 
 
