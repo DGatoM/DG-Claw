@@ -73,6 +73,17 @@ json.dump(d, open(path, "w"), indent=2)
 print(f"   skip-dangerous ok em {path}")
 PY
 
+# --- Fix needs-auth (regressao do Claude Code): limpa a chave global do canal
+# telegram do mcp-needs-auth-cache.json ANTES de cada start, senao o canal e
+# pulado em silencio e o bot fica mudo a partir do 2o start/reboot.
+# Copia estavel do prestart no workspace (sobrevive a reinstall do plugin) e
+# resolve o config dir igual ao launch.sh (custom, ou o default /root/.claude).
+mkdir -p "$DGCLAW_WORKSPACE/.dgclaw"
+PRESTART="$DGCLAW_WORKSPACE/.dgclaw/prestart-clear-tg-authcache.sh"
+cp "$SCRIPT_DIR/prestart-clear-tg-authcache.sh" "$PRESTART"
+chmod +x "$PRESTART"
+CFGDIR="${DGCLAW_CLAUDE_CONFIG_DIR:-/root/.claude}"
+
 UNIT="/etc/systemd/system/dgclaw-${DGCLAW_SLUG}.service"
 cat > "$UNIT" <<EOF
 [Unit]
@@ -87,6 +98,9 @@ Environment=HOME=/root
 Environment=IS_SANDBOX=1
 Environment=TERM=xterm-256color
 WorkingDirectory=${DGCLAW_WORKSPACE}
+# Mitiga regressao do Claude Code: limpa o needs-auth do canal telegram antes de
+# cada start (prefixo `-` = ignora erro, nunca bloqueia o boot).
+ExecStartPre=-/bin/bash ${PRESTART} ${CFGDIR}
 # PTY obrigatorio: sem TTY o claude --channels cai em modo --print e morre.
 # `script` aloca um pty descartavel; -e propaga o exit code pro Restart.
 ExecStart=/usr/bin/script -qfec "/bin/bash ${LAUNCH} ${CONFIG}" /dev/null
@@ -107,5 +121,10 @@ else
     echo "==> servico nao subiu — ultimas linhas do log:" >&2
     journalctl -u "dgclaw-${DGCLAW_SLUG}" --no-pager -n 25 >&2
 fi
+# --- Watchdog de runtime do canal (cobre o poller morrendo com o service ativo) ---
+echo "==> instalando watchdog do canal telegram (timer a cada 2 min)"
+bash "$SCRIPT_DIR/install-channel-watchdog.sh" "$CONFIG" || \
+    echo "   (aviso: watchdog nao instalou — rode depois: install-channel-watchdog.sh \"$CONFIG\")" >&2
+
 echo "Status:  systemctl status dgclaw-${DGCLAW_SLUG}"
 echo "Logs:    journalctl -u dgclaw-${DGCLAW_SLUG} -f"

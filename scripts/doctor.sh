@@ -6,6 +6,7 @@
 # conserta as deterministicas (trust, skip-dangerous) e diz o que falta.
 
 set -uo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG="${1:?Uso: doctor.sh <config.sh>}"
 [ -f "$CONFIG" ] || { echo "config nao encontrada: $CONFIG"; exit 1; }
 # shellcheck disable=SC1090
@@ -82,6 +83,39 @@ if systemctl is-active --quiet "dgclaw-$SLUG" 2>/dev/null; then
     ok "servico dgclaw-$SLUG ativo"
 else
     bad "servico dgclaw-$SLUG NAO esta ativo"
+fi
+
+# 6b. fix needs-auth do canal (ExecStartPre) — bot fica mudo apos restart sem isso
+if [ -f "$UNIT" ] && grep -q "prestart-clear-tg-authcache" "$UNIT"; then
+    ok "fix needs-auth do canal presente (ExecStartPre limpa o cache antes do start)"
+else
+    bad "fix needs-auth do canal AUSENTE no unit (bot pode ficar mudo apos restart) -> reinstale com install-service.sh"
+fi
+
+# 6c. chave needs-auth presa AGORA no cache (canal sera pulado no proximo start ate limpar)
+CACHEDIR="${DGCLAW_CLAUDE_CONFIG_DIR:-/root/.claude}"
+CACHE="$CACHEDIR/mcp-needs-auth-cache.json"
+if [ -f "$CACHE" ] && grep -q 'plugin:telegram:telegram' "$CACHE" 2>/dev/null; then
+    bash "$SCRIPT_DIR/prestart-clear-tg-authcache.sh" "$CACHEDIR" 2>/dev/null && fix "chave needs-auth do telegram estava presa no cache — limpei (reinicie dgclaw-$SLUG)"
+else
+    ok "cache needs-auth limpo (sem plugin:telegram:telegram preso)"
+fi
+
+# 6d. watchdog de runtime do canal (auto-instala se faltar)
+WDTIMER="dgclaw-${SLUG}-channel-watchdog.timer"
+if systemctl is-active --quiet "$WDTIMER" 2>/dev/null; then
+    ok "watchdog do canal ativo ($WDTIMER, a cada 2 min)"
+else
+    bash "$SCRIPT_DIR/install-channel-watchdog.sh" "$CONFIG" >/dev/null 2>&1 && fix "watchdog do canal instalado/ativado ($WDTIMER)" || bad "watchdog do canal AUSENTE -> rode install-channel-watchdog.sh \"$CONFIG\""
+fi
+
+# 6e. veredito REAL do canal (nao basta is-active): poller telegram vivo?
+if systemctl is-active --quiet "dgclaw-$SLUG" 2>/dev/null; then
+    if bash "$SCRIPT_DIR/channel-health.sh" "$CONFIG" >/dev/null 2>&1; then
+        ok "canal telegram conectado de verdade (poller vivo)"
+    else
+        bad "servico ATIVO mas canal telegram NAO conectou (bot mudo) — o watchdog deve reiniciar em <=2 min; ou: systemctl restart dgclaw-$SLUG"
+    fi
 fi
 
 # 7. pareamento (allowlist)
