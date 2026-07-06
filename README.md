@@ -1,26 +1,52 @@
 # DG Claw
 
-> Seu assistente pessoal no Telegram, com memoria, rodando 24/7 na sua VPS.
+> Seu agente pessoal no Telegram, com nome, personalidade e memória — rodando
+> no **seu computador** (modo local) ou 24/7 numa **VPS** (modo servidor).
 
-DG Claw e um plugin do **Claude Code** que instala e gerencia um assistente
-pessoal: voce conversa por um bot do Telegram, ele lembra das suas coisas
-(memoria curta, longa e recall automatico local) e fica sempre ligado via systemd.
-Um wizard guiado (`/dgclaw:setup`) monta tudo — ideal pra quem nunca programou.
+DG Claw é um plugin do **Claude Code**. Um wizard guiado (`/dgclaw:setup`)
+monta tudo: check-up da máquina, bot do Telegram, persona, memória e launcher.
+Ideal pra quem nunca programou.
 
-E o **ancestral simples** dos assistentes de producao (Isa/Jarbas): mesma
-arquitetura de base (Claude Code Channels), sem o sistema de personalidade/
-emocoes deles — mas com a memoria completa.
+## Modo Local vs Modo Servidor
 
-```
-   VOCE  <--Telegram-->  [ BOT ]  <-->  [ Claude Code ]
-                                              |
-                                       [ memoria em arquivos ]
-                                       [ vive 24/7 no systemd ]
-```
+| | 🖥️ **Modo Local** (v0.2) | ☁️ **Modo Servidor** (v0.1) |
+|---|---|---|
+| Onde roda | Seu Windows/Mac (ou Linux desktop) | VPS Linux, systemd |
+| O que precisa | Só assinatura Pro/Max (sem API key, sem servidor) | VPS com root |
+| Disponibilidade | Enquanto o computador estiver ligado | 24/7 |
+| Como liga | Dois cliques no launcher `Iniciar <Nome>` | serviço systemd |
+| Pra quem | Alunos/iniciantes; a Imersão usa este | Quem já tem VPS |
 
-## Instalacao rapida
+O wizard detecta o ambiente e conduz o modo certo.
 
-Numa VPS Linux, com o Claude Code ja instalado e logado:
+## O pitch honesto (modo local)
+
+O motor do agente é **100% Claude Code nativo**: a sessão
+`claude --continue --channels plugin:telegram@claude-plugins-official` numa
+pasta É o agente — Telegram e terminal caem na mesma conversa contínua, a
+memória persistente e a compactação automática são nativas, tarefas agendadas
+são nativas. **A pasta é o agente.**
+
+O DG Claw agrega a camada que o nativo não tem:
+
+- **Wizard leigo** com check-up da máquina (`/dgclaw:setup`)
+- **Persona pronta** (CLAUDE.md com regras de canal, memória e proatividade)
+- **Hooks Bun** (cross-platform) que preservam o fio literal da conversa do
+  Telegram através das compactações e avisam o dono antes de compactar
+- **Launcher de 1 clique** por sistema (.command / .bat)
+- **Painel web local** (http://localhost:8200): status, memória editável, fio
+  da conversa (`/dgclaw:panel`)
+- **notify.ts**: ponte "qualquer coisa → Telegram" (tarefas agendadas avisam
+  o dono sem conflitar com o canal)
+- **Doctor** que conserta os defeitos conhecidos (`/dgclaw:doctor`) +
+  `TROUBLESHOOTING.md` pra leigo na pasta do agente
+
+Limitações francas: computador desligado/dormindo = agente dormindo; mensagem
+mandada com ele offline se perde (reenviar); nunca abrir o launcher 2×.
+
+## Instalação rápida
+
+Com o Claude Code instalado e logado (Pro/Max):
 
 ```
 /plugin marketplace add DGatoM/DG-Claw
@@ -30,62 +56,43 @@ Numa VPS Linux, com o Claude Code ja instalado e logado:
 /dgclaw:setup
 ```
 
-O wizard cuida do resto: nome e personalidade, criacao do bot no Telegram,
-memoria, conectores Google e o servico 24/7.
-
-Passo a passo completo (do zero, incluindo alugar a VPS e criar o bot):
-veja [`docs/AULA.md`](docs/AULA.md).
+O wizard cuida do resto. Modo servidor do zero (incluindo alugar a VPS):
+[`docs/AULA.md`](docs/AULA.md). Roteiro da Imersão: [`docs/IMERSAO.md`](docs/IMERSAO.md).
 
 ## Comandos
 
-| Comando | O que faz |
-|---|---|
-| `/dgclaw:setup` | Wizard de instalacao do assistente |
-| `/dgclaw:service` | Liga, desliga, reinicia, status e logs |
-| `/dgclaw:memory` | Explica/gerencia a memoria; consolidacao noturna e painel |
-| `/dgclaw:connect` | Conecta Google Drive/Gmail/Calendar (connectors nativos do Claude) |
-| `/dgclaw:doctor` | Diagnostica e conserta o assistente (servico, plugin, trust, pareamento) |
-
-## Como funciona
-
-- **Para leigos:** [`docs/COMO-FUNCIONA.md`](docs/COMO-FUNCIONA.md) — sem jargao, com desenhos.
-- **Tecnico:** [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md) — diagramas, fluxos, anatomia do workspace.
-
-## Requisitos
-
-- VPS Linux (Ubuntu 22.04+ recomendado), com acesso root/sudo.
-- Claude Code instalado e logado (Pro ou Max).
-- Telegram (pra criar o bot via BotFather).
-- Plugin `telegram@claude-plugins-official` (o wizard ajuda a instalar).
-- Bun (o wizard instala se faltar).
-- **Nenhuma API externa:** memoria, recall e consolidacao sao 100% locais / no
-  proprio Claude. Nenhuma chave de terceiros.
-
-## Memoria
-
-| Camada | Arquivo | Papel |
+| Comando | O que faz | Modo |
 |---|---|---|
-| Curto prazo | `working-memory.md` | o "agora": tarefas e contexto recente |
-| Longo prazo | `MEMORY.md` | fatos duraveis; sobrevive a `/reset` |
-| Recall automatico | (hook local) | antes de responder, acha linhas relacionadas |
-| Consolidacao noturna | (timer + Claude) | promove o duradouro e limpa o working-memory |
+| `/dgclaw:setup` | Wizard de instalação (detecta local × servidor) | ambos |
+| `/dgclaw:doctor` | Diagnostica e conserta (token, 409, cache mudo, hooks…) | ambos |
+| `/dgclaw:panel` | Liga/desliga o painel local (localhost:8200) | local |
+| `/dgclaw:service` | Liga/desliga/status do serviço systemd | servidor |
+| `/dgclaw:memory` | Gerencia memória; consolidação noturna e painel | servidor |
+| `/dgclaw:connect` | Conecta Google Drive/Gmail/Calendar | ambos |
 
-**Tudo local / no proprio Claude — sem API externa.** O recall e por
-palavra-chave nos arquivos (instantaneo) e a consolidacao noturna e feita pelo
-proprio `claude`. Um mini **painel** web deixa ver/editar a memoria no navegador.
+## Memória (modo local)
+
+| Camada | Onde | Papel |
+|---|---|---|
+| Curto prazo | `working-memory.md` na pasta | o "agora"; editável no painel |
+| Longo prazo | memória nativa do Claude Code | automática; o CLAUDE.md ensina O QUE anotar (preferências, pessoas, fatos de vida) |
+| Fio do Telegram | `.dgclaw/chat-tail.md` (hook) | as últimas mensagens reais sobrevivem à compactação |
+
+**Nenhuma API externa. Nenhuma chave de terceiros.**
 
 ## Estrutura do plugin
 
 ```
 .claude-plugin/   plugin.json + marketplace.json
-skills/           setup, memory, connect, service
-hooks/            recall local de memoria (UserPromptSubmit)
-scripts/          launch, install-service, bootstrap-identity, consolidate,
-                  panel.py, memory_index/memory_recall_local.py
-templates/        AGENT, CLAUDE, MEMORY, working-memory, access
-docs/             COMO-FUNCIONA, ARQUITETURA, AULA, FLUXOS-AULA
+skills/           setup (LOCAL.md + SERVIDOR.md), doctor, panel, memory, connect, service
+local/            MODO LOCAL: hooks Bun, painel, scripts (scaffold, notify,
+                  checkup, doctor), templates (persona, launcher, troubleshooting)
+hooks/            hooks de plugin do modo servidor (dispatch.ts + bash v0.1)
+scripts/          modo servidor v0.1: install-service, doctor.sh, panel.py, ...
+templates/        modo servidor v0.1: AGENT, CLAUDE, MEMORY, working-memory, access
+docs/             COMO-FUNCIONA, ARQUITETURA, AULA, FLUXOS-AULA, IMERSAO
 ```
 
-## Licenca
+## Licença
 
 MIT (veja LICENSE).

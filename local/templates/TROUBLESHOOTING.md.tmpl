@@ -1,0 +1,66 @@
+# Socorro — quando o {{NOME}} não responde
+
+> Guia rápido pra você mesmo(a) resolver, sem precisar de ninguém técnico.
+> Regra de ouro: 90% dos problemas se resolvem FECHANDO TUDO e abrindo o
+> launcher (`Iniciar {{NOME}}`) de novo. A conversa NÃO se perde.
+
+## O bot ficou mudo no Telegram
+
+Cheque nesta ordem:
+
+1. **A janela do terminal do {{NOME}} está aberta?**
+   O {{NOME}} vive dentro daquela janela que o launcher abre. Fechou a janela =
+   bot mudo. Abra o launcher de novo.
+
+2. **O computador dormiu ou foi desligado?**
+   Computador dormindo = {{NOME}} dormindo. Acorde o computador; se não voltar
+   sozinho em 1 minuto, feche a janela e abra o launcher de novo.
+
+3. **Ainda mudo?** Abra o terminal na pasta do {{NOME}} e rode:
+
+       bun .dgclaw/scripts/doctor.ts
+
+   Ele diagnostica e conserta sozinho o que der (inclusive um problema
+   conhecido de "cache" que deixa o canal mudo depois de reiniciar). Siga o
+   que ele mandar. (Ou abra o Claude Code na pasta e rode `/dgclaw:doctor`.)
+
+4. **O doctor falou em "outro processo usando o token" (erro 409)?**
+   Você abriu o launcher duas vezes. Feche TODAS as janelas do {{NOME}} e abra
+   o launcher UMA vez só. Nunca rode dois ao mesmo tempo.
+
+## "Mandei mensagem e ele não respondeu nunca"
+
+Se o {{NOME}} estava desligado quando você mandou, a mensagem **se perde** (não
+tem fila). Com ele ligado de novo, é só **reenviar a mensagem**.
+
+## Como reiniciar do jeito certo
+
+1. Feche a janela do terminal do {{NOME}} (pode fechar sem medo).
+2. Abra o launcher `Iniciar {{NOME}}` de novo.
+3. A conversa volta de onde parou (é o `--continue` que garante isso).
+
+## Windows: "bun não é reconhecido" logo após instalar
+
+O terminal aberto ANTES da instalação não enxerga o Bun. Feche o terminal e
+abra outro. Se persistir, reinicie o computador.
+
+## Windows: aviso de firewall/Defender na primeira vez
+
+Pode aparecer um aviso do Windows perguntando se o Bun/Claude pode acessar a
+rede. Clique em **Permitir acesso** — sem isso o bot não fala com o Telegram.
+
+## O {{NOME}} disse que ia "organizar a memória"
+
+Normal! De tempos em tempos ele compacta a conversa pra caber mais coisa na
+cabeça. Ele avisa antes, some por alguns segundos e volta lembrando de tudo
+que importa. Não precisa fazer nada.
+
+## Quero ver/editar a memória dele
+
+Abra o Claude Code na pasta do {{NOME}} e rode `/dgclaw:panel` — abre um painel
+no navegador (http://localhost:{{PORTA}}), só visível neste computador.
+
+## Nada disso resolveu
+
+Abra o Claude Code na pasta do {{NOME}}, rode `/dgclaw:doctor` e cole o
+resultado pra quem estiver te ajudando (ou pro próprio Claude resolver).
