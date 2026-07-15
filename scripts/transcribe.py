@@ -53,7 +53,14 @@ def to_mp3(src):
     return out
 
 
+# O Cloudflare da Groq bloqueia o User-Agent default do urllib ("Python-urllib/3.x")
+# com 403 "error code: 1010" — assinatura de cliente. curl passa, urllib nao. Um UA
+# qualquer resolve. Inofensivo nos outros providers, entao vai em todo request.
+UA = "dgclaw-transcribe/1.0"
+
+
 def _post(url, data, headers, timeout=180):
+    headers = {"User-Agent": UA, **headers}
     req = urllib.request.Request(url, data=data, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:

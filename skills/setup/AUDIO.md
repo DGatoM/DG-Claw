@@ -17,7 +17,7 @@ Se a pessoa disser que não usa áudio, **pule** — dá pra ligar depois rodand
 
 | # | Caminho | Custo real | Qualidade PT-BR | Setup |
 |---|---|---|---|---|
-| **1** | **Groq** (recomendado) | **grátis** na prática | ótima | chave, 2 min |
+| **1** | **Groq** (recomendado) | **grátis** na prática | ótima (melhor medida) | chave, 2 min |
 | 2 | OpenAI / ElevenLabs / Gemini* | centavos a $18/mês | ótima | chave, 2 min |
 | 3 | Local (faster-whisper) | **$0**, roda na máquina | boa | pesado, sem chave |
 
@@ -35,6 +35,17 @@ estado da arte) e o free tier é generoso. Limites **oficiais** do plano free
 Uso pessoal (dezenas de áudios/dia) não chega perto disso — a conta **não sai do
 grátis**. Se estourar, é ~$0.04 por hora de áudio (~$2/mês pra 20 áudios de
 5 min por dia). O teto real aqui é o de **8h de áudio/dia**, não o de requests.
+
+**Medido de verdade** (mesmo áudio de 7 min, PT-BR, 15/07/2026):
+
+| | Groq turbo | Gemini 2.5 Flash |
+|---|---|---|
+| tempo | **9,7s** | 26,2s |
+| nome próprio | acertou | trocou por outro |
+| "Claude" | acertou | escreveu "cloud" **6/6** |
+
+O erro `Claude`→`cloud` é sistemático no Gemini e chato pra quem fala de IA o
+dia todo. Mais um motivo do Groq ser o default.
 
 Fale isso com honestidade: *"tem um caminho grátis e bom (Groq), um pago pra
 quem já tem chave (OpenAI/ElevenLabs), e um 100% offline que não manda seu
@@ -83,9 +94,43 @@ máquina"). Aí seja honesta sobre o preço disso:
 
 ## Executar — caminho 1 ou 2 (chave de API)
 
-Onde pegar a chave (mande o link, deixe a pessoa colar):
-- **Groq** → https://console.groq.com/keys (login Google, chave `gsk_...`)
-- Gemini → https://aistudio.google.com/apikey (chave `AIza...`)
+### ⚠️ ANTES de mandar o link: a aula de chave de API (não pule)
+
+Muita gente que instala isso nunca criou uma chave de API. **Explique isto ANTES**,
+com suas palavras — não deixe a pessoa descobrir sozinha num alerta em inglês:
+
+> "Chave de API é igual a senha: ela dá acesso à sua conta e **gasta pelo seu
+> cartão** se for uma conta paga. Nunca mostre pra ninguém, não manda por
+> WhatsApp/e-mail, não cola em site nenhum e não põe em print. Se vazar, você
+> apaga ela lá no painel e cria outra — isso é normal, não é problema.
+>
+> E o mais importante: **ela aparece UMA vez só.** Quando você clicar em criar,
+> a chave vai aparecer na tela com um aviso em inglês dizendo que não será
+> mostrada de novo. Copie na hora. Se fechar a janela sem copiar, não tem
+> recuperação — é só apagar e criar outra."
+
+Se a pessoa perder a chave, **não a faça sofrer**: mande criar outra, leva 30s.
+
+### Passo a passo do Groq (o caminho recomendado)
+
+Mande o link e vá narrando — testado, é rápido:
+
+1. Abra **https://console.groq.com/keys**
+2. Ele vai pedir login. **Pode entrar com o Gmail** (é o caminho mais fácil).
+   Quem ainda não tem conta cria nessa mesma tela, com o mesmo login Google —
+   não tem etapa de cartão nem de pagamento.
+3. Já com login, ele cai **direto na página de API Keys**.
+4. Clique no botão **`+ Create API Key`**.
+5. Ele pede um **nome** pra chave (é só um apelido pra você saber pra que serve
+   — sugira algo como "meu assistente").
+6. A chave aparece (começa com `gsk_`). **Copie agora** — é aqui que vem o
+   alerta em inglês dizendo que ela não será exibida de novo.
+
+Peça pra colar a chave pra você e siga. Se a pessoa colar num lugar errado, ou
+mandar print pro grupo da turma, mande **apagar e criar outra** — sem drama.
+
+Outros providers (só se ela fizer questão):
+- Gemini → https://aistudio.google.com/apikey (⚠️ **só com billing ativo** — ver Privacidade)
 - OpenAI → https://platform.openai.com/api-keys (chave `sk-...`, exige crédito)
 - ElevenLabs → https://elevenlabs.io/app/settings/api-keys (só vale se já paga TTS)
 
@@ -131,12 +176,15 @@ O `transcribe.py` **sempre** converte o áudio pra mp3 16kHz antes de mandar —
 é o que garante que todo provider aceita (o Telegram entrega `ogg/opus`, que
 nem todo serviço engole).
 
-> Por que isso não é paranoia: o Telegram manda container **ogg** com codec
-> **opus**. A doc do Groq lista `ogg` entre os formatos aceitos, mas **não diz
-> o codec** — e a lista dela (igual à da OpenAI) não cita `opus`. Não dá pra
-> saber pela doc se ogg/opus passa direto. Convertendo antes, a pergunta some:
-> mp3 está em todas as listas. É 1s de CPU por áudio, e ainda derruba o tamanho
-> (importa no teto de 25MB do Groq free e no base64 do Gemini).
+> **Por que isso não é paranoia — testado em 15/07/2026, com prova:** o Telegram
+> entrega o arquivo com extensão **`.oga`**. A Groq valida por **extensão, não
+> por conteúdo**: mandar o `.oga` cru dá **HTTP 400** (`file must be one of the
+> following types: [flac mp3 mp4 mpeg mpga m4a ogg opus wav webm]` — repare que
+> `.oga` não está na lista). O **mesmo arquivo, byte-a-byte**, renomeado pra
+> `.ogg` passa com 200. Ou seja: quem "otimizar" a conversão fora do caminho
+> quebra o áudio de todo mundo — e o erro vai parecer problema de codec, quando
+> é só o nome do arquivo. Convertendo pra mp3, a armadilha some, e de quebra o
+> arquivo encolhe (importa no teto de 25MB do Groq free e no base64 do Gemini).
 
 Então ffmpeg é obrigatório nos 3 caminhos:
 
@@ -169,6 +217,8 @@ sudo -u "$AGENT_USER" bash -c 'source '"$WORKSPACE"'/.dgclaw/config.sh && \
 | `ffmpeg nao encontrado` | falta ffmpeg | instale |
 | `sem <X>_API_KEY` | chave não exportada ou provider errado | confira o par provider↔chave |
 | `HTTP 401` | chave inválida/revogada | gere outra |
+| `HTTP 403: error code: 1010` | Cloudflare da Groq barrando o cliente | o script já manda `User-Agent`; se voltar, é rede/proxy — teste com `curl` pra isolar |
+| `HTTP 400 file must be one of...` | mandou `.oga` cru (sem converter) | é a armadilha da extensão — o script converte sozinho; se aparecer, alguém tirou o ffmpeg do caminho |
 | `HTTP 429` | estourou o free tier | espere ou troque de provider |
 | `faster-whisper nao instalado` | provider=local sem a lib | `pip install faster-whisper` |
 | Transcreve mas vem resumido | só no Gemini: é LLM, não ASR | normal; o prompt já pede verbatim |
