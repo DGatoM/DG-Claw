@@ -18,8 +18,10 @@ Se a pessoa disser que não usa áudio, **pule** — dá pra ligar depois rodand
 | # | Caminho | Custo real | Qualidade PT-BR | Setup |
 |---|---|---|---|---|
 | **1** | **Groq** (recomendado) | **grátis** na prática | ótima | chave, 2 min |
-| 2 | Gemini / OpenAI / ElevenLabs | centavos a $18/mês | ótima | chave, 2 min |
+| 2 | OpenAI / ElevenLabs / Gemini* | centavos a $18/mês | ótima | chave, 2 min |
 | 3 | Local (faster-whisper) | **$0**, roda na máquina | boa | pesado, sem chave |
+
+\* Gemini **só** com billing ativo — a chave grátis treina com o áudio. Ver Privacidade.
 
 **Por que Groq é o default:** usa o Whisper large v3 turbo (mesma família do
 estado da arte) e o free tier é generoso. Limites **oficiais** do plano free
@@ -37,6 +39,38 @@ grátis**. Se estourar, é ~$0.04 por hora de áudio (~$2/mês pra 20 áudios de
 Fale isso com honestidade: *"tem um caminho grátis e bom (Groq), um pago que
 você já pode ter chave (Gemini/OpenAI), e um 100% offline que não manda seu
 áudio pra ninguém, mas é lento e come RAM."*
+
+### ⚠️ Privacidade — leia ANTES de sugerir Gemini
+
+Nota de voz é dado **pessoal**. Isso elimina uma opção que parece óbvia:
+
+**NÃO ofereça chave gratuita do Gemini (AI Studio) pra transcrever áudio.** Os
+termos da Gemini API (Unpaid Services, conferidos 15/07/2026) dizem literalmente:
+
+> "Google uses the content you submit to the Services and any generated
+> responses to provide, improve, and develop Google products and services and
+> machine learning technologies"
+>
+> "**Do not submit sensitive, confidential, or personal information to the
+> Unpaid Services.**"
+
+E ainda: *"human reviewers may read, annotate, and process your API input and
+output"*. Não existe opt-out no free tier. Mandar a nota de voz do dono pra lá
+é ir contra a instrução explícita do fornecedor — e, no Brasil, problema de
+LGPD. Fonte: https://ai.google.dev/gemini-api/terms
+
+**Gemini só entra se a chave vier de um projeto com billing ativo** (aí vira
+"Paid Services", e os termos garantem *"Google doesn't use your prompts... or
+responses to improve our products"*). Cartão cadastrado em algum lugar não
+basta: tem que ser um Cloud Project com billing ligado. Na dúvida, **não use**.
+
+**Groq não tem esse problema** — a doc dela (console.groq.com/docs/your-data)
+diz *"By default, Groq does not retain customer data for inference requests"* e
+não usa Inputs/Outputs pra treinar/fine-tunar, **sem distinguir free de pago**.
+É por isso que ela é o default: mais barata E mais limpa de privacidade.
+
+Resumo pra falar com a pessoa: *"o caminho grátis do Groq não treina com seu
+áudio; o caminho grátis do Google treina — então esse eu nem ofereço."*
 
 ### Quando recomendar o LOCAL em vez do Groq
 Só se a pessoa levantar **privacidade** ("não quero meu áudio saindo da
