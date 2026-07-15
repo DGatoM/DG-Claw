@@ -7,6 +7,10 @@ cd "$(dirname "$0")" || exit 1
 export PATH="$HOME/.bun/bin:$PATH"
 export TELEGRAM_STATE_DIR="$PWD/.dgclaw/telegram"
 
+# Chaves/config opcionais (ex: transcricao de audio). Criado pelo wizard no
+# passo de Audio; se nao existir, o agente sobe igual — so sem ouvido.
+[ -f ".dgclaw/env.sh" ] && . ".dgclaw/env.sh"
+
 echo "🐾 Acordando {{NOME}}... (feche esta janela pra colocá-lo pra dormir)"
 
 if [ -f ".dgclaw/first-run-done" ]; then

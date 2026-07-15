@@ -20,6 +20,7 @@ INSTALACAO DO DG CLAW — progresso
 [ ] 2. Nome e personalidade
 [ ] 3. Usuario + workspace do agente
 [ ] 4. Bot do Telegram criado + servico no ar
+[ ] 4a. Audio: transcricao ligada (pulavel)
 [ ] 5. Pareamento (so voce fala com ele)
 [ ] 6. Memoria + consolidacao noturna
 [ ] 7. Painel de memoria (opcional)
@@ -172,6 +173,14 @@ done
 O servidor rele o access.json sozinho (nao precisa restart). Se `APPROVED <id>`:
 diga "achei voce (id `<id>`), travei o bot pra so voce" e **marque [5]**. Peca pra
 ela mandar outra msg — agora responde o assistente.
+
+## Passo 5.5 — Audio (transcricao)  → marca [4a]
+
+O assistente ja enxerga imagem e le documento de fabrica. So o **audio** precisa
+de servico. **Leia `AUDIO.md` nesta pasta e siga** — tem a pergunta pronta, os 3
+caminhos (Groq gratis / chave paga / local offline) e o teste.
+
+Pulavel: quem nao usa audio pode ligar depois. Nada quebra sem isso.
 
 ## Passo 6 — Memoria + consolidacao noturna  → marque [6]
 

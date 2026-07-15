@@ -18,6 +18,7 @@ INSTALAÇÃO DO AGENTE (MODO LOCAL) — progresso
 [ ] 3. Bot do Telegram criado (token salvo)
 [ ] 4. Primeira partida (launcher) + pareamento
 [ ] 5. Teste de fogo (conversa de verdade)
+[ ] 5a. Áudio: transcrição ligada (pulável)
 [ ] 6. Canal de avisos (notify) funcionando
 [ ] 7. Painel no navegador
 [ ] 8. Checagem final (doctor) + os 3 gestos do dia a dia
@@ -119,6 +120,37 @@ Peça pra pessoa mandar de novo um "oi" no Telegram — agora quem responde é o
 agente, com a personalidade escolhida. Espere ela confirmar que a resposta
 chegou (e que apareceu o 👀 na mensagem dela). Se não respondeu:
 `bun .dgclaw/scripts/doctor.ts` na pasta do agente e siga o que ele mandar.
+
+## Passo 5a — Áudio (transcrição)  → marca [5a]
+
+O agente já enxerga imagem e lê documento de fábrica. Só o **áudio** precisa de
+serviço. **Leia `AUDIO.md` nesta pasta e siga** — tem a pergunta pronta, os 3
+caminhos (Groq grátis / chave paga / local offline) e o teste.
+
+Diferenças do MODO LOCAL (o `AUDIO.md` é escrito pro servidor):
+
+- **Não existe `config.sh`.** O launcher carrega um env opcional. Crie com Write
+  (só um dos dois, conforme o sistema):
+
+  **Mac/Linux** → `<pasta do agente>/.dgclaw/env.sh` (depois `chmod 600`):
+  ```bash
+  export DGCLAW_TRANSCRIBE_PROVIDER="groq"
+  export TRANSCRIBE_LANG="pt"
+  export GROQ_API_KEY="gsk_..."
+  ```
+  **Windows** → `<pasta do agente>\.dgclaw\env.bat`:
+  ```bat
+  set "DGCLAW_TRANSCRIBE_PROVIDER=groq"
+  set "TRANSCRIBE_LANG=pt"
+  set "GROQ_API_KEY=gsk_..."
+  ```
+- O script é `.dgclaw/scripts/transcribe.py` (já copiado no scaffold).
+- **Reiniciar** = fechar a janela do agente e dar dois cliques em
+  `Iniciar <Nome>` de novo.
+- No Windows, `ffmpeg` não vem instalado: `winget install ffmpeg` (ou avise que
+  sem ffmpeg o áudio não funciona e siga sem).
+
+Pulável: quem não usa áudio liga depois. Nada quebra sem isso.
 
 ## Passo 6 — Canal de avisos (notify)  → marca [6]
 

@@ -7,6 +7,10 @@ title {{NOME}}
 cd /d "%~dp0"
 set "TELEGRAM_STATE_DIR=%~dp0.dgclaw\telegram"
 
+rem Chaves/config opcionais (ex: transcricao de audio). Criado pelo wizard no
+rem passo de Audio; se nao existir, o agente sobe igual — so sem ouvido.
+if exist ".dgclaw\env.bat" call ".dgclaw\env.bat"
+
 echo Acordando {{NOME}}... (feche esta janela pra coloca-lo pra dormir)
 
 if exist ".dgclaw\first-run-done" (

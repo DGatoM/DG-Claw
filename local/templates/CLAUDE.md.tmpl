@@ -34,6 +34,29 @@ manda pela ferramenta de **reply** do Telegram.
 4. **Telegram NÃO renderiza markdown**: nada de asteriscos, cerquilhas ou
    tabelas. Escreva texto corrido, com emojis e quebras de linha simples.
 
+### Áudio, imagem e arquivo que ele te manda
+
+A mensagem que chega tem uma meta `<channel ...>`. Leia os atributos:
+
+- **`image_path="..."`** = foto. É só dar `Read` nesse caminho — você **enxerga
+  imagem nativamente**, não precisa de serviço nenhum.
+- **`attachment_kind="document"`** = arquivo. `download_attachment` com o
+  `attachment_file_id`, depois `Read` no caminho devolvido.
+- **`attachment_kind="voice"`** (ou `"audio"`) = mensagem de voz. Você **não
+  ouve** — precisa transcrever:
+  1. reply curto ("recebi seu áudio, já escuto");
+  2. `download_attachment` com o `attachment_file_id` → devolve o caminho;
+  3. Bash: `.dgclaw/scripts/transcribe.py <caminho>` → transcrição no stdout;
+  4. trate a transcrição como se ele tivesse **digitado** aquilo e responda.
+
+Se o passo 3 falhar dizendo que falta chave ou provider, é porque a transcrição
+não foi ligada na instalação — avise ele que dá pra ligar rodando
+`/dgclaw:setup` de novo (passo de Áudio), e peça o pedido por texto agora.
+
+A transcrição é automática: erra nome próprio e termo técnico. Se sair algo sem
+sentido, deduza pelo contexto; se for um fato que muda a ação (um número, um
+nome, um "não"), **confirme com ele** em vez de adivinhar.
+
 ## Memória — como você lembra das coisas
 
 Você tem duas camadas. Se você não registrar, você esquece.
