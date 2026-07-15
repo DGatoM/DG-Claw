@@ -21,10 +21,18 @@ Se a pessoa disser que não usa áudio, **pule** — dá pra ligar depois rodand
 | 2 | Gemini / OpenAI / ElevenLabs | centavos a $18/mês | ótima | chave, 2 min |
 | 3 | Local (faster-whisper) | **$0**, roda na máquina | boa | pesado, sem chave |
 
-**Por que Groq é o default:** free tier de 2.000 requests/dia sem cartão, e usa
-o Whisper large v3 turbo (mesma família do estado da arte). Pra uso pessoal
-(dezenas de áudios/dia) a conta **nunca sai do grátis**. Se estourar, é ~$0.04
-por hora de áudio — ~$2/mês pra 20 áudios de 5 min por dia.
+**Por que Groq é o default:** usa o Whisper large v3 turbo (mesma família do
+estado da arte) e o free tier é generoso. Limites **oficiais** do plano free
+(console.groq.com/docs/rate-limits, conferidos em 15/07/2026):
+
+| | limite free |
+|---|---|
+| requests | 20/min · **2.000/dia** |
+| áudio | 2h/hora · **8h/dia** |
+
+Uso pessoal (dezenas de áudios/dia) não chega perto disso — a conta **não sai do
+grátis**. Se estourar, é ~$0.04 por hora de áudio (~$2/mês pra 20 áudios de
+5 min por dia). O teto real aqui é o de **8h de áudio/dia**, não o de requests.
 
 Fale isso com honestidade: *"tem um caminho grátis e bom (Groq), um pago que
 você já pode ter chave (Gemini/OpenAI), e um 100% offline que não manda seu
@@ -42,7 +50,7 @@ máquina"). Aí seja honesta sobre o preço disso:
 ## Executar — caminho 1 ou 2 (chave de API)
 
 Onde pegar a chave (mande o link, deixe a pessoa colar):
-- **Groq** → https://console.groq.com/keys (login Google, chave `gsk_...`, sem cartão)
+- **Groq** → https://console.groq.com/keys (login Google, chave `gsk_...`)
 - Gemini → https://aistudio.google.com/apikey (chave `AIza...`)
 - OpenAI → https://platform.openai.com/api-keys (chave `sk-...`, exige crédito)
 - ElevenLabs → https://elevenlabs.io/app/settings/api-keys (só vale se já paga TTS)
@@ -87,7 +95,16 @@ Avise: **a primeira transcrição demora mais** (baixa o modelo, ~500MB).
 
 O `transcribe.py` **sempre** converte o áudio pra mp3 16kHz antes de mandar —
 é o que garante que todo provider aceita (o Telegram entrega `ogg/opus`, que
-nem todo serviço engole). Então ffmpeg é obrigatório nos 3 caminhos:
+nem todo serviço engole).
+
+> Por que isso não é paranoia: o Telegram manda container **ogg** com codec
+> **opus**. A doc do Groq lista `ogg` entre os formatos aceitos, mas **não diz
+> o codec** — e a lista dela (igual à da OpenAI) não cita `opus`. Não dá pra
+> saber pela doc se ogg/opus passa direto. Convertendo antes, a pergunta some:
+> mp3 está em todas as listas. É 1s de CPU por áudio, e ainda derruba o tamanho
+> (importa no teto de 25MB do Groq free e no base64 do Gemini).
+
+Então ffmpeg é obrigatório nos 3 caminhos:
 
 ```bash
 which ffmpeg || sudo apt install -y ffmpeg    # Linux
