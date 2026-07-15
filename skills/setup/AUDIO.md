@@ -36,8 +36,8 @@ Uso pessoal (dezenas de áudios/dia) não chega perto disso — a conta **não s
 grátis**. Se estourar, é ~$0.04 por hora de áudio (~$2/mês pra 20 áudios de
 5 min por dia). O teto real aqui é o de **8h de áudio/dia**, não o de requests.
 
-Fale isso com honestidade: *"tem um caminho grátis e bom (Groq), um pago que
-você já pode ter chave (Gemini/OpenAI), e um 100% offline que não manda seu
+Fale isso com honestidade: *"tem um caminho grátis e bom (Groq), um pago pra
+quem já tem chave (OpenAI/ElevenLabs), e um 100% offline que não manda seu
 áudio pra ninguém, mas é lento e come RAM."*
 
 ### ⚠️ Privacidade — leia ANTES de sugerir Gemini
