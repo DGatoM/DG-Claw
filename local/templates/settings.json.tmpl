@@ -1,0 +1,51 @@
+{
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "Bash(bun .dgclaw/scripts/notify.ts:*)",
+      "Bash(bun .dgclaw/scripts/doctor.ts:*)",
+      "Bash(bun .dgclaw/scripts/checkup.ts:*)",
+      "Bash(bun .dgclaw/panel/panel.ts:*)",
+      "WebFetch(domain:api.telegram.org)"
+    ]
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "command": "bun .dgclaw/hooks/dgclaw-hooks.ts user-prompt", "timeout": 8 }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "mcp__.*telegram.*",
+        "hooks": [
+          { "type": "command", "command": "bun .dgclaw/hooks/dgclaw-hooks.ts post-tool", "timeout": 6 }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          { "type": "command", "command": "bun .dgclaw/hooks/dgclaw-hooks.ts session-start", "timeout": 8 }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          { "type": "command", "command": "bun .dgclaw/hooks/dgclaw-hooks.ts pre-compact", "timeout": 10 }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "bun .dgclaw/hooks/dgclaw-hooks.ts stop", "timeout": 5 }
+        ]
+      }
+    ]
+  }
+}

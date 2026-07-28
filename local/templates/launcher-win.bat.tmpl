@@ -1,0 +1,25 @@
+@echo off
+rem Iniciar {{NOME}} — clique duas vezes pra acordar seu agente.
+rem NUNCA abra este launcher duas vezes ao mesmo tempo (o Telegram so aceita
+rem um {{NOME}} por vez). A conversa continua de onde parou (--continue).
+
+title {{NOME}}
+cd /d "%~dp0"
+set "TELEGRAM_STATE_DIR=%~dp0.dgclaw\telegram"
+
+rem Chaves/config opcionais (ex: transcricao de audio). Criado pelo wizard no
+rem passo de Audio; se nao existir, o agente sobe igual — so sem ouvido.
+if exist ".dgclaw\env.bat" call ".dgclaw\env.bat"
+
+echo Acordando {{NOME}}... (feche esta janela pra coloca-lo pra dormir)
+
+if exist ".dgclaw\first-run-done" (
+  claude --continue --channels plugin:telegram@claude-plugins-official
+) else (
+  echo ok> ".dgclaw\first-run-done"
+  claude --channels plugin:telegram@claude-plugins-official
+)
+
+echo.
+echo {{NOME}} foi dormir. Pode fechar esta janela.
+pause

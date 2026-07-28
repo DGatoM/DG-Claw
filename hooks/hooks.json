@@ -1,12 +1,12 @@
 {
-  "description": "DG Claw — memoria local: recall por palavra-chave antes de responder, registro do fio do Telegram, e re-injecao de contexto no inicio/pos-compactacao. Tudo local, sem API externa.",
+  "description": "DG Claw — hooks de plugin do MODO SERVIDOR (v0.1): recall por palavra-chave, registro do fio do Telegram e re-injecao pos-compactacao. O dispatch.ts garante que eles SO agem dentro de um workspace DG Claw servidor (Linux) — em qualquer outra sessao/SO saem em silencio. O modo LOCAL nao usa estes hooks: registra os proprios no .claude/settings.json do workspace do agente.",
   "hooks": {
     "UserPromptSubmit": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/memory-recall.sh\"",
+            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch.ts\" user-prompt",
             "timeout": 8
           }
         ]
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/log-reply.sh\"",
+            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch.ts\" post-tool",
             "timeout": 6
           }
         ]
@@ -29,7 +29,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-context.sh\"",
+            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch.ts\" session-start",
             "timeout": 8
           }
         ]

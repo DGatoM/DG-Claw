@@ -1,0 +1,25 @@
+#!/bin/bash
+# Iniciar {{NOME}} — clique duas vezes pra acordar seu agente.
+# NUNCA abra este launcher duas vezes ao mesmo tempo (o Telegram só aceita
+# um {{NOME}} por vez). A conversa continua de onde parou (--continue).
+
+cd "$(dirname "$0")" || exit 1
+export PATH="$HOME/.bun/bin:$PATH"
+export TELEGRAM_STATE_DIR="$PWD/.dgclaw/telegram"
+
+# Chaves/config opcionais (ex: transcricao de audio). Criado pelo wizard no
+# passo de Audio; se nao existir, o agente sobe igual — so sem ouvido.
+[ -f ".dgclaw/env.sh" ] && . ".dgclaw/env.sh"
+
+echo "🐾 Acordando {{NOME}}... (feche esta janela pra colocá-lo pra dormir)"
+
+if [ -f ".dgclaw/first-run-done" ]; then
+  claude --continue --channels plugin:telegram@claude-plugins-official
+else
+  touch ".dgclaw/first-run-done"
+  claude --channels plugin:telegram@claude-plugins-official
+fi
+
+echo ""
+echo "{{NOME}} foi dormir. Pode fechar esta janela."
+read -r -n 1 -p "(pressione qualquer tecla pra fechar)"

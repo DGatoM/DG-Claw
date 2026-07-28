@@ -6,11 +6,42 @@ user-invocable: true
 
 # /dgclaw:doctor — Diagnostico e conserto
 
+Fale em portugues e seja didatico. Primeiro descubra o MODO do agente:
+
+- **MODO LOCAL** (computador da pessoa; existe `.dgclaw/config.json` na pasta
+  do agente) → siga "Modo local" logo abaixo.
+- **MODO SERVIDOR** (VPS/systemd; existe `.dgclaw/config.sh`) → siga
+  "Modo servidor" mais abaixo (fluxo v0.1, inalterado).
+
+## Modo local
+
+Na pasta do agente (procure `Agente*/.dgclaw/config.json` no home se preciso):
+
+```bash
+cd "<pasta do agente>" && bun .dgclaw/scripts/doctor.ts
+```
+
+Ele valida token (getMe), limpa sozinho o cache needs-auth que deixa o canal
+mudo, detecta 409 (launcher aberto 2x), sessao fechada, hooks nao registrados
+e pareamento pendente. Interprete cada [FALTA] em linguagem simples:
+
+- **token invalido/ausente** → refazer o passo do BotFather do wizard.
+- **sessao nao esta rodando** → abrir o launcher `Iniciar <Nome>`.
+- **outro processo no token (409)** → fechar TODAS as janelas do agente e
+  abrir o launcher UMA vez.
+- **[CONSERTADO] cache needs-auth** → fechar e reabrir o launcher.
+- **hooks nao registrados** → rodar o scaffold do wizard de novo (nao apaga
+  nada que ja existe: pareamento e memoria ficam).
+
+Se tudo `[ OK ]`: "esta tudo certo, manda uma mensagem pro bot".
+
+## Modo servidor
+
 Roda uma bateria de checks nas travas conhecidas do `claude --channels` sob
 systemd e conserta as automaticas (trust, skip-dangerous), apontando o que ainda
-falta. Fale em portugues e seja didatico.
+falta.
 
-## Localizar o assistente
+### Localizar o assistente
 
 ```bash
 ls -d "$HOME"/dgclaw/*/ /home/*/.dgclaw 2>/dev/null
@@ -19,7 +50,7 @@ Ache o `config.sh` do agente (geralmente `<workspace>/.dgclaw/config.sh`). Se
 houver mais de um, pergunte qual. Descubra o plugin:
 `PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(d=$(find "$HOME/.claude/plugins" -path '*dgclaw*/.claude-plugin/plugin.json' | head -1); cd "$(dirname "$(dirname "$d")")" && pwd)}"`.
 
-## Rodar o doctor
+### Rodar o doctor
 
 ```bash
 sudo bash "$PLUGIN_ROOT/scripts/doctor.sh" "<workspace>/.dgclaw/config.sh"
@@ -28,7 +59,7 @@ sudo bash "$PLUGIN_ROOT/scripts/doctor.sh" "<workspace>/.dgclaw/config.sh"
 Ele imprime cada item como `[ OK ]`, `[CONSERTADO]` ou `[FALTA]`, conserta o que
 da (trust + skipDangerousModePermissionPrompt) e reinicia o servico.
 
-## Interpretar e agir
+### Interpretar e agir
 
 Para cada `[FALTA]`, explique em linguagem simples e resolva:
 
