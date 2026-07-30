@@ -233,26 +233,26 @@ casa — ele relê o dia, atualiza o caderninho, guarda o que virou permanente n
 livro de memória e escreve um diário curto daquele dia" — e esse diário importa
 porque o histórico bruto da conversa é apagado pelo sistema depois de um tempo.
 
-**A rotina automática (o jeito bonito).** Peça pra pessoa mandar pro agente,
-**pelo Telegram**:
+**Ele mesmo se lembra (não precisa configurar nada).** O agente guarda, no
+topo do working-memory, a data da última manutenção — e ele sempre sabe o dia
+de hoje. Passaram 3 dias ou mais? Ele mesmo avisa, no fim de uma resposta
+qualquer: "faz X dias que não faço minha manutenção de memória, me autoriza?
+É rapidinho". A pessoa diz "autorizo" e ele faz na hora — e anota a data nova.
+Diga isso a ela com todas as letras: **"você não precisa lembrar de nada; ele
+te pede quando estiver na hora, e só mexe nas memórias com a sua autorização"**.
 
-> "cria uma rotina sua diária, às 22h, de fazer a sua manutenção de memória
-> conforme o seu CLAUDE.md"
-
-O horário é a gosto dela. E venha a conversa franca junto: **isso só roda com o
-computador ligado e a janela do agente aberta.** Se o computador dela costuma
-estar desligado à noite, tem dois caminhos honestos:
-
-- escolher um horário em que ele com certeza esteja ligado (ex.: 12h30); **ou**
-- não criar rotina nenhuma e usar só o gatilho manual (abaixo).
-
-**O gatilho manual (o fallback que sempre funciona).** Ensine a frase:
+**O gatilho manual (pra quando ela quiser).** Ensine a frase:
 
 > "faz sua manutenção de memória"
 
-De vez em quando, é só mandar isso pelo Telegram. Bom hábito: no fim de semana,
-ou quando ela sentir que ele está "cheio de coisa". Peça pra ela mandar agora
-mesmo, só pra ver o ritual acontecendo — ele volta com um resumo curtinho.
+Peça pra ela mandar isso agora mesmo, pelo Telegram, só pra ver o ritual
+acontecendo — ele volta com um resumo curtinho e atualiza a data da última
+manutenção no working-memory. Mostre a linha atualizada pra ela: é assim que
+ele "sabe" quando cobrar a próxima.
+
+(Quem fizer questão de horário fixo pode, opcionalmente, pedir uma rotina
+agendada diária — mas ela só roda com o computador ligado e a janela aberta.
+O lembrete automático acima funciona sempre; por isso ele é o padrão.)
 
 Mencione de passagem: se um dia ele parecer estranho, lento ou esquecido,
 existe o `/dgclaw-lite:doctor`, que faz um diagnóstico completo.
