@@ -1,0 +1,18 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "dgclaw-lite",
+  "description": "Marketplace do DG Claw Lite — agente pessoal no Telegram 100% nativo do Claude Code, sem instalar nenhum programa extra.",
+  "owner": {
+    "name": "DG Medeiros",
+    "url": "https://github.com/DGatoM"
+  },
+  "plugins": [
+    {
+      "name": "dgclaw-lite",
+      "source": "./",
+      "category": "productivity",
+      "description": "Agente pessoal no Telegram 100% nativo — sem Bun, sem hooks, sem launcher, sem painel: so o que o Claude Code ja faz de fabrica. O wizard /dgclaw-lite:setup da nome, personalidade e memoria ao agente e ensina a cerimonia de religar. Ideal pra aprender como funciona por dentro e pra aulas ao vivo.",
+      "homepage": "https://github.com/DGatoM/DG-Claw-Lite"
+    }
+  ]
+}

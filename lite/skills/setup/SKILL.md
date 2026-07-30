@@ -33,7 +33,8 @@ MEU AGENTE (MODO NATIVO) — progresso
 [ ] 4. Primeira partida + pareamento
 [ ] 5. Teste de fogo + memória
 [ ] 6. Rotina de teste (tarefa agendada)
-[ ] 7. A cerimônia de religar (o comando + atalho opcional)
+[ ] 7. Manutenção diária da memória (a reflexão dele)
+[ ] 8. A cerimônia de religar (o comando + atalho opcional)
 ```
 
 ---
@@ -225,7 +226,40 @@ Diga também que a partir de agora é só pedir em linguagem natural: "todo dia
 
 ---
 
-## Passo 7 — A cerimônia de religar  → marca [7]
+## Passo 7 — Manutenção diária da memória (a reflexão dele)  → marca [7]
+
+Explique, em 2 linhas: "todo agente que lembra bem tem um ritual de arrumar a
+casa — ele relê o dia, atualiza o caderninho, guarda o que virou permanente no
+livro de memória e escreve um diário curto daquele dia" — e esse diário importa
+porque o histórico bruto da conversa é apagado pelo sistema depois de um tempo.
+
+**A rotina automática (o jeito bonito).** Peça pra pessoa mandar pro agente,
+**pelo Telegram**:
+
+> "cria uma rotina sua diária, às 22h, de fazer a sua manutenção de memória
+> conforme o seu CLAUDE.md"
+
+O horário é a gosto dela. E venha a conversa franca junto: **isso só roda com o
+computador ligado e a janela do agente aberta.** Se o computador dela costuma
+estar desligado à noite, tem dois caminhos honestos:
+
+- escolher um horário em que ele com certeza esteja ligado (ex.: 12h30); **ou**
+- não criar rotina nenhuma e usar só o gatilho manual (abaixo).
+
+**O gatilho manual (o fallback que sempre funciona).** Ensine a frase:
+
+> "faz sua manutenção de memória"
+
+De vez em quando, é só mandar isso pelo Telegram. Bom hábito: no fim de semana,
+ou quando ela sentir que ele está "cheio de coisa". Peça pra ela mandar agora
+mesmo, só pra ver o ritual acontecendo — ele volta com um resumo curtinho.
+
+Mencione de passagem: se um dia ele parecer estranho, lento ou esquecido,
+existe o `/dgclaw-lite:doctor`, que faz um diagnóstico completo.
+
+---
+
+## Passo 8 — A cerimônia de religar  → marca [8]
 
 Esse é o passo que faz o agente durar. Ensine **O comando**:
 
@@ -265,4 +299,4 @@ Encerre com isto, sem drama e sem letra miúda:
 - Quer o agente **sempre ligado**, com transcrição de áudio, painel e launcher
   de 1 clique? Isso é o plugin `dgclaw` completo (v0.2) e o modo servidor.
 
-Marque o `[x] 7`, mostre o checklist inteiro completo e parabenize. 🎉
+Marque o `[x] 8`, mostre o checklist inteiro completo e parabenize. 🎉

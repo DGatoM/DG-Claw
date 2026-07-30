@@ -1,11 +1,25 @@
 {
   "name": "dgclaw-lite",
-  "description": "DG Claw Lite — cria um agente pessoal seu no Telegram usando SO o que o Claude Code ja faz nativamente: sessao viva com o canal telegram, compactacao automatica, auto-memoria e tarefas agendadas. Sem Bun, sem hooks, sem scripts, sem launcher e sem painel. O wizard /dgclaw-lite:setup faz o check-up, cria o bot no BotFather, escreve os arquivos de identidade do agente (CLAUDE.md, working-memory, TROUBLESHOOTING) e ensina a cerimonia de religar. Ideal pra aulas ao vivo e pra entender como um agente pessoal funciona por dentro.",
-  "version": "0.1.0",
+  "description": "DG Claw Lite — cria um agente pessoal seu no Telegram usando SO o que o Claude Code ja faz nativamente: sessao viva com o canal telegram, compactacao automatica, auto-memoria e tarefas agendadas. Sem Bun, sem hooks, sem scripts, sem launcher e sem painel. O wizard /dgclaw-lite:setup faz o check-up, cria o bot no BotFather, escreve os arquivos de identidade do agente (CLAUDE.md, working-memory, TROUBLESHOOTING), configura a manutencao diaria de memoria (o agente rele o dia, organiza o livro de memoria e escreve um diario) e ensina a cerimonia de religar. O /dgclaw-lite:doctor faz o diagnostico e a faxina de memoria quando algo sai do lugar, e gera um relatorio tecnico sem dados pessoais. Ideal pra aulas ao vivo e pra entender como um agente pessoal funciona por dentro.",
+  "version": "0.2.0",
   "author": {
     "name": "DG Medeiros",
-    "url": "https://github.com/DGatoM/DG-Claw"
+    "url": "https://github.com/DGatoM/DG-Claw-Lite"
   },
-  "homepage": "https://github.com/DGatoM/DG-Claw",
-  "keywords": ["telegram", "assistant", "memory", "channels", "nativo", "lite", "local", "windows", "mac", "wizard", "assistente", "agente", "aula"]
+  "homepage": "https://github.com/DGatoM/DG-Claw-Lite",
+  "keywords": [
+    "telegram",
+    "assistant",
+    "memory",
+    "channels",
+    "nativo",
+    "lite",
+    "local",
+    "windows",
+    "mac",
+    "wizard",
+    "assistente",
+    "agente",
+    "aula"
+  ]
 }

@@ -15,12 +15,15 @@ e pra aula ao vivo, onde nada pode dar errado por causa de dependência.
 Dentro do Claude Code:
 
 ```
-/plugin marketplace add DGatoM/DG-Claw
-/plugin install dgclaw-lite@dgclaw
+/plugin marketplace add DGatoM/DG-Claw-Lite
+/plugin install dgclaw-lite@dgclaw-lite
 /plugin install telegram@claude-plugins-official
 /reload-plugins
 /dgclaw-lite:setup
 ```
+
+Recebeu esta pasta num **.zip**? Veja o `INSTALAR.md` — dá até pra pedir pro
+próprio Claude: "descompacta e instala seguindo o INSTALAR.md".
 
 O wizard cuida do resto: check-up, nome e personalidade, bot no BotFather,
 primeira partida, teste de memória e a rotina agendada.
@@ -41,6 +44,19 @@ Quer dois cliques em vez de comando? Peça pro próprio agente: *"cria um atalho
 na minha área de trabalho pra te acordar"* — ele escreve o `.bat` (Windows) ou
 o `.command` (Mac) pra você.
 
+## Manutenção e socorro
+
+Todo dia (ou quando você pedir *"faz sua manutenção de memória"*), o agente
+arruma a casa: relê o dia, atualiza o caderninho, promove o que virou permanente
+pro livro de memória e escreve um diário curto — o registro que sobra depois que
+o sistema apaga o histórico bruto da conversa.
+
+Se algo parecer errado — ele mudo, lento ou esquecido —, rode
+`/dgclaw-lite:doctor` (ou peça pra ele: *"roda seu diagnóstico"*). Ele confere a
+estrutura, arruma a memória bagunçada perguntando antes de mudar e salva um
+`diagnostico-<data>.md` **sem nenhum dado pessoal**, pronto pra você mandar pra
+quem te deu o plugin.
+
 ## Limitações — conversa franca
 
 - Computador desligado ou dormindo = agente dormindo. **Não é 24/7.**
@@ -55,7 +71,7 @@ português e sem jargão.
 ## E se eu quiser mais?
 
 - **Hooks garantidos, launcher de 1 clique, painel no navegador e transcrição
-  de áudio** → use o plugin `dgclaw` (v0.2), no mesmo marketplace:
-  `/plugin install dgclaw@dgclaw`.
+  de áudio** → use o plugin `dgclaw` (v0.2), no repo irmão:
+  https://github.com/DGatoM/DG-Claw.
 - **Agente ligado 24/7**, respondendo mesmo com seu computador desligado →
   modo SERVIDOR (VPS) do `dgclaw`.
