@@ -13,6 +13,13 @@
       "category": "productivity",
       "description": "Agente pessoal no Telegram com memoria persistente. Modo LOCAL (seu computador Windows/Mac, so assinatura, launcher de 1 clique) ou SERVIDOR (24/7 no systemd de uma VPS). O wizard /dgclaw:setup faz o check-up da maquina, cria o bot, da nome e personalidade e deixa tudo pronto.",
       "homepage": "https://github.com/DGatoM/DG-Claw"
+    },
+    {
+      "name": "dgclaw-lite",
+      "source": "./lite",
+      "category": "productivity",
+      "description": "Agente pessoal no Telegram 100% nativo — sem Bun, sem hooks, sem launcher, sem painel: so o que o Claude Code ja faz de fabrica. O wizard /dgclaw-lite:setup da nome, personalidade e memoria ao agente e ensina a cerimonia de religar. Ideal pra aprender como funciona por dentro e pra aulas ao vivo.",
+      "homepage": "https://github.com/DGatoM/DG-Claw"
     }
   ]
 }

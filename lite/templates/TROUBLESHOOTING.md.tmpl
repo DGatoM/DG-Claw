@@ -1,0 +1,90 @@
+# Socorro — quando o {{NOME}} não responde
+
+> Guia rápido pra você mesmo(a) resolver, sem precisar de ninguém técnico.
+> Regra de ouro: quase tudo se resolve FECHANDO a janela do {{NOME}} e abrindo
+> ela de novo com o comando de sempre. A conversa NÃO se perde.
+
+O comando de sempre (o que acorda o {{NOME}}):
+
+    cd "<a pasta do {{NOME}}>"
+    claude --continue --channels plugin:telegram@claude-plugins-official
+
+---
+
+## 1. O bot ficou mudo no Telegram
+
+Cheque nesta ordem:
+
+**A janela do {{NOME}} está aberta?**
+O {{NOME}} vive dentro daquela janela preta do terminal. Fechou a janela = bot
+mudo. O computador dormiu ou desligou = bot mudo. Abra a janela de novo com o
+comando de sempre.
+
+**Você rodou o comando COM o `--channels`?**
+Este pedaço aqui:
+
+    --channels plugin:telegram@claude-plugins-official
+
+Sem ele, o Claude Code abre normalmente — mas o Telegram **não liga**. Fica
+tudo parecendo certo e o bot mudo. Feche a janela e rode o comando completo.
+
+## 2. "Já tentei e ele continua mudo" (erro 409)
+
+Isso quase sempre é **duas janelas abertas ao mesmo tempo**. Dois {{NOME}}s
+brigando pelo mesmo bot = nenhum dos dois responde.
+
+Feche **TODAS** as janelas de terminal que estiverem abertas e abra **UMA** só,
+com o comando de sempre.
+
+## 3. Ficou mudo depois de reiniciar o computador, e aparece um aviso tipo "1 setup issue: MCP"
+
+É um probleminha conhecido: fica um arquivo de "cache" travado e o Telegram é
+pulado ao ligar. Conserto (uma linha):
+
+- **Mac/Linux** — no terminal:
+
+      rm ~/.claude/mcp-needs-auth-cache.json
+
+- **Windows** — apague o arquivo:
+
+      C:\Users\<seu nome>\.claude\mcp-needs-auth-cache.json
+
+  (dá pra apagar pelo Explorador de Arquivos mesmo — cole esse caminho na
+  barra de endereço, achou o arquivo, delete.)
+
+Depois é só abrir o {{NOME}} de novo com o comando de sempre.
+
+## 4. "Ele esqueceu do que a gente falou"
+
+**Você religou com `--continue`?** É esse pedacinho do comando que faz ele
+retomar a MESMA conversa. Sem ele, o {{NOME}} começa uma conversa nova e
+parece que perdeu a memória.
+
+Se religou certo e mesmo assim ele parece perdido, é só pedir pra ele, no
+Telegram: *"dá uma olhada no seu working-memory antes de responder"*. Ele lê o
+caderninho de memória dele e volta ao normal.
+
+## 5. "Mandei mensagem e ele nunca respondeu"
+
+Se o {{NOME}} estava desligado (janela fechada / computador desligado) na hora
+em que você mandou, a mensagem **se perde** — não existe fila de espera. É
+normal e não quebrou nada.
+
+Acorde ele com o comando de sempre e **mande a mensagem de novo**.
+
+## 6. Windows: apareceu um aviso do Defender/firewall
+
+Clique em **Permitir acesso**. Sem isso, o {{NOME}} não consegue falar com o
+Telegram.
+
+## 7. Ele avisou que ia "organizar a cabeça"
+
+Normal! De tempos em tempos ele resume a conversa pra caber mais coisa na
+memória. Some por alguns segundos e volta lembrando do que importa. Não precisa
+fazer nada.
+
+## Nada disso resolveu
+
+Abra o Claude Code na pasta do {{NOME}} e conte o que está acontecendo — ele
+mesmo consegue investigar. Ou chame quem te ajudou a instalar, mandando: qual
+item desta lista você já tentou e o que apareceu na tela.
