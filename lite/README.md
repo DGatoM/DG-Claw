@@ -46,10 +46,12 @@ o `.command` (Mac) pra você.
 
 ## Manutenção e socorro
 
-Todo dia (ou quando você pedir *"faz sua manutenção de memória"*), o agente
-arruma a casa: relê o dia, atualiza o caderninho, promove o que virou permanente
-pro livro de memória e escreve um diário curto — o registro que sobra depois que
-o sistema apaga o histórico bruto da conversa.
+De tempos em tempos o agente arruma a casa: relê o dia, atualiza o caderninho,
+promove o que virou permanente pro livro de memória e escreve um diário curto —
+o registro que sobra depois que o sistema apaga o histórico bruto da conversa.
+**Ele mesmo controla o prazo**: guarda a data da última manutenção e, passados
+3+ dias, pede sua autorização na própria conversa ("me autoriza? é rapidinho").
+Também funciona sob demanda: *"faz sua manutenção de memória"*.
 
 Se algo parecer errado — ele mudo, lento ou esquecido —, rode
 `/dgclaw-lite:doctor` (ou peça pra ele: *"roda seu diagnóstico"*). Ele confere a

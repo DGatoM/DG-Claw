@@ -99,6 +99,14 @@ Mostre uma tabelinha simples. Referências de "inchado":
 | qualquer seção (`familia.md`, `trabalho.md`…) | mais de ~200 linhas |
 | `diario/*.md` | **isento** — é histórico, cresce mesmo, não mexa |
 
+**B1b. A data da última manutenção.** Confira a linha "Última manutenção de
+memória" no topo do `working-memory.md`:
+
+- **Não existe?** Recrie (com a data de hoje, ao final desta faxina).
+- **Tem mais de 7 dias?** Os lembretes automáticos não estão acontecendo —
+  confira se a seção "Manutenção diária" sumiu do `CLAUDE.md` (Parte A2) e
+  faça a manutenção completa como parte desta faxina.
+
 **B2. Leia procurando bagunça.** Com os arquivos abertos, cace duas coisas:
 
 - **Redundância** — o mesmo fato escrito em 2 ou 3 lugares diferentes.
