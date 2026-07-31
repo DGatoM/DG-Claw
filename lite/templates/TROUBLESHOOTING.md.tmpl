@@ -4,10 +4,15 @@
 > Regra de ouro: quase tudo se resolve FECHANDO a janela do {{NOME}} e abrindo
 > ela de novo com o comando de sempre. A conversa NÃO se perde.
 
-O comando de sempre (o que acorda o {{NOME}}):
+O comando de sempre (o que acorda o {{NOME}}) — é **uma linha só**, colada de
+uma vez. No Windows, abra o **Prompt de Comando** (aperte a tecla Windows,
+digite `cmd`, Enter):
 
-    cd "<a pasta do {{NOME}}>"
-    claude --continue --channels plugin:telegram@claude-plugins-official
+    cd /d "<a pasta do {{NOME}}>" && claude --continue --channels plugin:telegram@claude-plugins-official
+
+No Mac/Linux, é a mesma linha sem o `/d`:
+
+    cd "<a pasta do {{NOME}}>" && claude --continue --channels plugin:telegram@claude-plugins-official
 
 ---
 
@@ -77,7 +82,14 @@ Acorde ele com o comando de sempre e **mande a mensagem de novo**.
 Clique em **Permitir acesso**. Sem isso, o {{NOME}} não consegue falar com o
 Telegram.
 
-## 7. Ele avisou que ia "organizar a cabeça"
+## 7. A rotina diária dele parou de chegar
+
+O {{NOME}} agenda as rotinas em corrente: cada rodada faz o trabalho e marca a
+próxima. Se o computador estava desligado na hora, o elo seguinte não foi
+criado — e a corrente parou. Não quebrou nada: é só falar com ele e pedir *"a
+rotina de X parou, remarca pra mim"*. Ele recria o próximo elo na hora.
+
+## 8. Ele avisou que ia "organizar a cabeça"
 
 Normal! De tempos em tempos ele resume a conversa pra caber mais coisa na
 memória. Some por alguns segundos e volta lembrando do que importa. Não precisa
