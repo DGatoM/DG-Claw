@@ -32,11 +32,12 @@ Depois rode as três partes **em sequência**, contando o que achou em cada uma.
 
 ## Parte A — Saúde do plugin
 
-Verifique os 5 itens abaixo sozinho e **mostre o resultado** como checklist,
+Verifique os 6 itens abaixo sozinho e **mostre o resultado** como checklist,
 com ✅ ou ❌ em cada linha. Não peça permissão pra ler arquivos — só leia.
 
 **A1. Os arquivos da pasta existem?**
-`CLAUDE.md`, `working-memory.md`, `TROUBLESHOOTING.md`.
+`CLAUDE.md`, `working-memory.md`, `TROUBLESHOOTING.md` e a pasta `memoria/`
+(com o sumário `memoria/MEMORY.md` dentro).
 Faltou algum? Diga qual e ofereça recriar a partir de
 `${CLAUDE_PLUGIN_ROOT}/templates/` (o `.tmpl` correspondente).
 
@@ -54,19 +55,41 @@ explique em 1 linha o que aquela seção faz e ofereça restaurá-la a partir de
 falta, preservando a personalidade e o resto do que a pessoa escreveu** — nunca
 sobrescreva o `CLAUDE.md` inteiro.
 
-**A3. O sumário `MEMORY.md` está sendo sumário?**
+**A3. O livro de memória está na pasta — e o ponteiro está no lugar?**
+
+O desenho certo é: **o livro mora em `<pasta do agente>/memoria/`** (sumário
+`memoria/MEMORY.md` + as seções `familia.md`, `trabalho.md`…), e o arquivo de
+auto-memória nativa `~/.claude/projects/<slug>/memory/MEMORY.md` é **só um
+ponteiro** de 3 linhas apontando pra lá. O `<slug>` é o caminho da pasta do
+agente com os separadores virando traços — procure a entrada correspondente
+dentro de `~/.claude/projects/`.
+
+Confira e marque:
+
+- O ponteiro nativo existe? E é **só ponteiro** (curto, apontando pra
+  `memoria/`, sem memória escrita dentro)? Se não existir, ofereça criá-lo. Se
+  tiver virado depósito de memória, marque ❌ e trate na migração abaixo.
+- **Migração (versões antigas do plugin).** Achou o livro no **local antigo**
+  (seções e sumário dentro de `~/.claude/projects/<slug>/memory/`) e a pasta
+  `memoria/` vazia ou inexistente? Explique em 2 linhas o que mudou ("agora o
+  livro fica visível na sua pasta, você pode abrir e ler") e **ofereça mover**:
+  copie sumário e seções pra `<pasta>/memoria/`, confira que chegaram inteiros,
+  apague os originais e deixe no lugar o ponteiro de 3 linhas. Só mova com o
+  "pode" do dono.
+
+**A4. O sumário `memoria/MEMORY.md` está sendo sumário?**
 Ele existe? E é um **índice** (uma linha por assunto apontando pro arquivo) ou
 virou um documentão com o conteúdo dentro? Se virou documentão, marque ❌ — a
 Parte B conserta.
 
-**A4. Os transcripts existem?**
+**A5. Os transcripts existem?**
 Confira se há uma pasta deste projeto em `~/.claude/projects/` (no Windows,
 `C:\Users\<nome>\.claude\projects\`) com arquivos `.jsonl`. É onde mora o
 histórico literal da conversa. Se não achar nada, marque ❌ e explique sem
 drama: o histórico bruto é apagado pelo sistema depois de um tempo — por isso
 existe o diário.
 
-**A5. Se o bot anda mudo, os suspeitos de sempre:**
+**A6. Se o bot anda mudo, os suspeitos de sempre:**
 Só levante estes se o sintoma relatado for silêncio/queda. Pergunte, um por vez:
 
 - A janela do agente está aberta? (fechou = ele dorme)
@@ -88,15 +111,15 @@ problema deve ser memória" ou "achei X, vamos consertar".
 É aqui que mora o problema mais comum: memória que cresceu bagunçada. Vá com
 calma e **nunca apague nada sem aprovação**.
 
-**B1. Meça os arquivos.** Conte as linhas de cada arquivo de memória (o
-`working-memory.md` da pasta, o `MEMORY.md` e as seções da auto-memória).
-Mostre uma tabelinha simples. Referências de "inchado":
+**B1. Meça os arquivos.** Conte as linhas de cada arquivo de memória: o
+`working-memory.md` da pasta, o sumário `memoria/MEMORY.md` e cada seção de
+`memoria/`. Mostre uma tabelinha simples. Referências de "inchado":
 
 | Arquivo | Sinal de inchaço |
 |---|---|
 | `working-memory.md` | mais de ~100 linhas |
-| `MEMORY.md` (sumário) | mais de ~40 linhas, **ou** com conteúdo em vez de índice |
-| qualquer seção (`familia.md`, `trabalho.md`…) | mais de ~200 linhas |
+| `memoria/MEMORY.md` (sumário) | mais de ~40 linhas, **ou** com conteúdo em vez de índice |
+| qualquer seção (`memoria/familia.md`…) | mais de ~200 linhas |
 | `diario/*.md` | **isento** — é histórico, cresce mesmo, não mexa |
 
 **B1b. A data da última manutenção.** Confira a linha "Última manutenção de
@@ -128,18 +151,18 @@ perguntar, mas **avise** o que juntou.
 
 - **dedupe**: um fato mora em um lugar só;
 - **working-memory → seção**: o que já virou permanente sai do caderninho e vai
-  pra seção certa do livro;
-- **sumário → seção**: conteúdo que está no `MEMORY.md` desce pra uma seção; o
-  sumário volta a ser só índice;
+  pra seção certa do livro, em `memoria/`;
+- **sumário → seção**: conteúdo que está no `memoria/MEMORY.md` desce pra uma
+  seção; o sumário volta a ser só índice;
 - **seção gigante → duas**: divida por assunto e registre as duas no sumário;
 - **atualize o sumário** no fim, sempre.
 
 **B5. Mostre o antes/depois** em linhas por arquivo:
 
 ```
-working-memory.md   142 → 38 linhas
-MEMORY.md            96 → 22 linhas (voltou a ser índice)
-trabalho.md         210 → 120 linhas (+ clientes.md, 84 linhas)
+working-memory.md     142 → 38 linhas
+memoria/MEMORY.md      96 → 22 linhas (voltou a ser índice)
+memoria/trabalho.md   210 → 120 linhas (+ clientes.md, 84 linhas)
 ```
 
 ---
@@ -159,7 +182,7 @@ Conteúdo do arquivo:
 1. **Cabeçalho** — data de hoje; versão do plugin (leia o `version` de
    `${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json`); sistema operacional;
    versão do Claude Code (`claude --version`).
-2. **Parte A** — o checklist dos 5 itens com ✅/❌, uma linha cada.
+2. **Parte A** — o checklist dos 6 itens com ✅/❌, uma linha cada.
 3. **Parte B** — as métricas: linhas por arquivo (antes → depois), quantas
    redundâncias e quantas contradições foram achadas, e quantas foram
    resolvidas.
