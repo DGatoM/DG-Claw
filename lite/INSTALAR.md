@@ -4,31 +4,44 @@
 > **"instala o plugin desta pasta seguindo o INSTALAR.md dele"**. O próprio
 > Claude faz tudo.
 
-## 🤖 Se você é o CLAUDE lendo isto: instale VOCÊ MESMO, agora
+## 🤖 Se você é o CLAUDE lendo isto: instale você mesmo (com o fallback certo)
 
-Não peça pro usuário digitar comando nenhum. A instalação é sua, pela CLI
-(validada em instalação real — funciona no terminal comum):
+**Degrau 1 — CLI (tente primeiro, UMA vez cada):**
 
 1. `claude plugin marketplace add "<caminho da pasta extraída>"` (a pasta que
    contém este arquivo)
 2. `claude plugin install dgclaw-lite@dgclaw-lite`
-3. `claude plugin install telegram@claude-plugins-official` (pule se
-   `claude plugin list` mostrar que já existe)
-4. `claude plugin list` pra confirmar os dois instalados.
+3. `claude plugin install telegram@claude-plugins-official`
+4. `claude plugin list` pra confirmar.
 
-**Onde o zip foi extraído NÃO importa pra instalação.** Se ele estiver dentro
-da pasta que vai ser do agente, NÃO mova nada agora — instale dali mesmo e,
-só no FIM do setup, recomende ao usuário apagar/mover o instalador (a pasta
-do agente idealmente fica só com os arquivos dele).
+**Degrau 2 — se QUALQUER comando for bloqueado por permissão** (o Claude Code
+trata mexer na própria configuração como ação sensível; acontece em muitas
+máquinas e é normal): **não tente de novo, não explique arquitetura de
+segurança, não desista.** Diga apenas: *"essa parte o Claude Code exige que
+venha de você — cola estas 3 linhas aqui no chat, UMA por vez, esperando cada
+uma terminar"* e entregue exatamente:
 
-**Depois de instalar, siga DIRETO pro wizard — sem reiniciar nada:**
+```
+/plugin marketplace add <caminho da pasta extraída>
+/plugin install dgclaw-lite@dgclaw-lite
+/plugin install telegram@claude-plugins-official
+```
+
+Comando de barra digitado pelo dono no chat **sempre funciona** — não passa
+por permissão nem hook. Depois confirme com `claude plugin list` (só leitura,
+você pode rodar) e siga em frente.
+
+**Onde o zip foi extraído NÃO importa.** Se estiver dentro da pasta que vai
+ser do agente, NÃO mova nada agora — instale dali e, só no FIM do setup,
+recomende apagar/mover o instalador.
+
+**Instalou? Siga DIRETO pro wizard — sem reiniciar nada:**
 
 - Tente a skill `/dgclaw-lite:setup`. Se vier **"Unknown skill"** (normal
   quando o plugin foi instalado no meio da sessão), **não trave e não mande
-  o usuário reiniciar**: abra `skills/setup/SKILL.md` na pasta extraída e
-  **siga o wizard manualmente, passo a passo** — o resultado é idêntico
-  (validado em instalação real). O comando de barra passa a existir nas
-  próximas sessões.
+  reiniciar**: abra `skills/setup/SKILL.md` na pasta extraída e **siga o
+  wizard manualmente, passo a passo** — o resultado é idêntico (validado em
+  instalação real). O comando de barra passa a existir nas próximas sessões.
 
 ## 🧑 Se você é um humano instalando na mão (sem pedir pro Claude)
 
