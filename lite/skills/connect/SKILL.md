@@ -42,7 +42,8 @@ Fale em português do Brasil, tom acolhedor, um passo por mensagem.
    cd /d "<a pasta do agente>" && claude --continue --channels plugin:telegram@claude-plugins-official
    ```
 
-   (no Mac/Linux, a mesma linha sem o `/d`). As conexões valem **por sessão**:
+   (no Mac/Linux, a mesma linha sem o `/d`; quem usa só o terminal roda a mesma
+   linha sem o `--channels ...`). As conexões valem **por sessão**:
    a janela que já estava aberta continua sem enxergar as ferramentas novas. É
    só religar que ele passa a usar — a conversa não se perde.
 

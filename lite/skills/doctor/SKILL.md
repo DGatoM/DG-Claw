@@ -33,8 +33,8 @@ Depois rode as três partes **em sequência**, contando o que achou em cada uma.
 
 ## Parte A — Saúde do plugin
 
-Verifique os 7 itens abaixo sozinho e **mostre o resultado** como checklist,
-com ✅ ou ❌ em cada linha. Não peça permissão pra ler arquivos — só leia.
+Leia os arquivos da pasta do agente, verifique os 7 itens abaixo e **mostre o
+resultado** como checklist, com ✅ ou ❌ em cada linha.
 
 **A1. Os arquivos da pasta existem?**
 `CLAUDE.md`, `working-memory.md`, `TROUBLESHOOTING.md` e a pasta `memoria/`

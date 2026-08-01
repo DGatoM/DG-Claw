@@ -1,66 +1,58 @@
 # Como instalar o DG Claw Lite
 
-> Se você recebeu esta pasta num .zip, abra o Claude Code e peça:
-> **"instala o plugin desta pasta seguindo o INSTALAR.md dele"**. O próprio
-> Claude faz tudo.
+O DG Claw Lite é uma **skill**: um manual de instruções em texto que o Claude Code
+lê e vai executando junto com você, passo a passo. Nada é instalado no seu sistema.
 
-## 🤖 Se você é o CLAUDE lendo isto: instale você mesmo (com o fallback certo)
+## Onde rodar
 
-**Degrau 1 — CLI (tente primeiro, UMA vez cada):**
+Ele roda dentro do **Claude Code** — o Claude que trabalha na sua máquina. Você
+abre o Claude Code no terminal (no Windows: aperte a tecla **Windows**, digite
+`cmd`, dê **Enter**) ou na aba **Claude Code** do aplicativo Claude Desktop.
 
-1. `claude plugin marketplace add "<caminho da pasta extraída>"` (a pasta que
-   contém este arquivo)
-2. `claude plugin install dgclaw-lite@dgclaw-lite`
-3. `claude plugin install telegram@claude-plugins-official`
-4. `claude plugin list` pra confirmar.
+No chat comum do site ou do app (fora do Claude Code) os comandos de barra, como
+`/plugin`, não existem e não há acesso aos arquivos do seu computador.
 
-**Degrau 2 — se QUALQUER comando for bloqueado por permissão** (o Claude Code
-trata mexer na própria configuração como ação sensível; acontece em muitas
-máquinas e é normal): **não tente de novo, não explique arquitetura de
-segurança, não desista.** Diga apenas: *"essa parte o Claude Code exige que
-venha de você — cola estas 3 linhas aqui no chat, UMA por vez, esperando cada
-uma terminar"* e entregue exatamente:
+## Instalação recomendada — pela skill
+
+1. Descompacte o `.zip` numa pasta qualquer (a de Downloads serve).
+2. Abra o Claude Code **na pasta onde você quer criar o seu agente**.
+3. Cole este pedido no chat:
 
 ```
-/plugin marketplace add <caminho da pasta extraída>
+Vá até a pasta de downloads, pegue o zip que eu acabei de baixar — é um plugin chamado DG Claw —, traga pra cá e instale seguindo a skill de setup.
+```
+
+O wizard de instalação é o arquivo `skills/setup/SKILL.md`, dentro do pacote. É
+ele que o Claude Code lê e segue com você: check-up da máquina, nome e
+personalidade do agente, memória, bot do Telegram (se você quiser) e o comando de
+religar. Não é preciso instalar plugin nenhum pra isso funcionar.
+
+## O que aumenta a chance de dar certo de primeira
+
+Observação de instalações reais: usar o modelo **Opus 5** e deixar ligado o **modo
+de aprovação automática de ações** reduz bastante as idas e vindas. Com aprovação
+manual funciona igual — só que você precisa autorizar cada passo na tela.
+
+## Instalação opcional como plugin
+
+Isto não é necessário. Serve só pra deixar o comando `/dgclaw-lite:setup`
+disponível nas próximas sessões do Claude Code. Digite você mesmo, no Claude Code,
+**um comando por vez**, esperando cada um terminar:
+
+```
+/plugin marketplace add <caminho da pasta descompactada>
 /plugin install dgclaw-lite@dgclaw-lite
 /plugin install telegram@claude-plugins-official
 ```
 
-Comando de barra digitado pelo dono no chat **sempre funciona** — não passa
-por permissão nem hook. Depois confirme com `claude plugin list` (só leitura,
-você pode rodar) e siga em frente.
-
-**Onde o zip foi extraído NÃO importa.** Se estiver dentro da pasta que vai
-ser do agente, NÃO mova nada agora — instale dali e, só no FIM do setup,
-recomende apagar/mover o instalador.
-
-**Instalou? Siga DIRETO pro wizard — sem reiniciar nada:**
-
-- Tente a skill `/dgclaw-lite:setup`. Se vier **"Unknown skill"** (normal
-  quando o plugin foi instalado no meio da sessão), **não trave e não mande
-  reiniciar**: abra `skills/setup/SKILL.md` na pasta extraída e **siga o
-  wizard manualmente, passo a passo** — o resultado é idêntico (validado em
-  instalação real). O comando de barra passa a existir nas próximas sessões.
-
-## 🧑 Se você é um humano instalando na mão (sem pedir pro Claude)
-
-Dentro do Claude Code, um comando por vez:
-
-```
-/plugin marketplace add <caminho da pasta extraída — ou DGatoM/DG-Claw-Lite pra vir do GitHub>
-/plugin install dgclaw-lite@dgclaw-lite
-/plugin install telegram@claude-plugins-official
-```
-
-Depois feche e reabra o Claude Code (ou rode `/reload-plugins`) e rode:
-
-```
-/dgclaw-lite:setup
-```
+Depois rode `/reload-plugins`, ou feche e reabra o Claude Code.
 
 ## Requisitos
 
-- Claude Code instalado e logado (assinatura Pro ou Max) — https://claude.com/claude-code
-- Telegram no celular
-- Windows, Mac ou Linux — **nenhum outro programa é necessário**
+- **Claude Code** instalado e logado, com assinatura Pro ou Max —
+  https://claude.com/claude-code
+- **Telegram é opcional.** Dá pra conversar com o agente só pelo terminal do
+  computador; o wizard pergunta o que você prefere.
+- **bun** (https://bun.sh) — necessário **apenas** se você for usar o Telegram, que
+  é o programa que faz o canal funcionar. O wizard confere e ajuda a instalar.
+- Windows, Mac ou Linux.
