@@ -16,6 +16,20 @@ No Mac/Linux, é a mesma linha sem o `/d`:
 
 ---
 
+## 0. Ainda na instalação? Os tropeços mais comuns
+
+**"claude não é reconhecido como comando" / "command not found: claude"** — o
+computador ainda não sabe onde o Claude Code foi instalado. Feche a janela preta
+no **X** e abra uma nova (veja "Como reiniciar as coisas", no fim deste guia). Se
+continuar, instale o Claude Code de novo por https://claude.com/claude-code.
+
+**"/plugin isn't available in this environment"** — você não está no Claude Code,
+e sim no chat comum do site ou do aplicativo. Abra o Claude Code pelo terminal ou
+pela aba **Claude Code** do aplicativo Claude Desktop.
+
+**"Confiança no workspace necessária"** — ele está perguntando se você confia nos
+arquivos dessa pasta. É a sua própria pasta: responda que **sim, confia**.
+
 ## 1. O bot ficou mudo no Telegram
 
 Cheque nesta ordem:
@@ -25,6 +39,15 @@ O {{NOME}} vive dentro daquela janela preta do terminal. Fechou a janela = bot
 mudo. O computador dormiu ou desligou = bot mudo. Abra a janela de novo com o
 comando de sempre.
 
+**O `bun` está instalado?**
+O Telegram do {{NOME}} roda em cima de um programa chamado **bun**. Sem ele o bot
+fica mudo e **nenhuma mensagem de erro aparece**. Na janela preta, digite
+`bun --version`: respondeu um número, está tudo certo. Deu erro, instale e
+**feche e reabra a janela** depois:
+
+    winget install Oven-sh.Bun                 (Windows)
+    curl -fsSL https://bun.sh/install | bash   (Mac/Linux)
+
 **Você rodou o comando COM o `--channels`?**
 Este pedaço aqui:
 
@@ -33,13 +56,16 @@ Este pedaço aqui:
 Sem ele, o Claude Code abre normalmente — mas o Telegram **não liga**. Fica
 tudo parecendo certo e o bot mudo. Feche a janela e rode o comando completo.
 
-## 2. "Já tentei e ele continua mudo" (erro 409)
+## 2. "Ele fica digitando e não responde" (ou o código de pareamento não chega)
 
-Isso quase sempre é **duas janelas abertas ao mesmo tempo**. Dois {{NOME}}s
-brigando pelo mesmo bot = nenhum dos dois responde.
+Isso quase sempre é **duas janelas abertas ao mesmo tempo** (o erro 409). Dois
+{{NOME}}s brigando pelo mesmo bot = nenhum dos dois responde, e o código de
+pareamento também não aparece.
 
 Feche **TODAS** as janelas de terminal que estiverem abertas e abra **UMA** só,
-com o comando de sempre.
+com o comando de sempre. Depois mande `/start` pro bot no Telegram. Se o código
+de pareamento ainda não vier, tente pelo Telegram do **celular** (ou pelo
+**Desktop**) — trocar de aparelho costuma resolver.
 
 ## 3. Ficou mudo depois de reiniciar o computador, e aparece um aviso tipo "1 setup issue: MCP"
 
@@ -50,12 +76,10 @@ pulado ao ligar. Conserto (uma linha):
 
       rm ~/.claude/mcp-needs-auth-cache.json
 
-- **Windows** — apague o arquivo:
+- **Windows** — apague o arquivo (dá pra apagar pelo Explorador de Arquivos: cole
+  o caminho na barra de endereço, ache o arquivo e delete):
 
       C:\Users\<seu nome>\.claude\mcp-needs-auth-cache.json
-
-  (dá pra apagar pelo Explorador de Arquivos mesmo — cole esse caminho na
-  barra de endereço, achou o arquivo, delete.)
 
 Depois é só abrir o {{NOME}} de novo com o comando de sempre.
 
@@ -92,8 +116,7 @@ rotina de X parou, remarca pra mim"*. Ele recria o próximo elo na hora.
 ## 8. Ele avisou que ia "organizar a cabeça"
 
 Normal! De tempos em tempos ele resume a conversa pra caber mais coisa na
-memória. Some por alguns segundos e volta lembrando do que importa. Não precisa
-fazer nada.
+memória. Some por alguns segundos e volta lembrando do que importa.
 
 ## 9. Mandei um áudio e ele não entendeu (ou disse que não escuta)
 
@@ -114,6 +137,20 @@ Quase sempre é só isto: **as conexões só entram quando a janela é aberta de
 novo**. Feche a janela do {{NOME}} e abra com o comando de sempre. Se ainda
 assim ele não enxergar, rode `/dgclaw-lite:connect` na janela dele e confira, no
 `/mcp`, se as conexões do Google aparecem como conectadas.
+
+## Como reiniciar as coisas (passo a passo)
+
+- **Fechar a janela do {{NOME}}:** clique no **X** no canto da janela preta. Pode
+  fechar sem medo — a conversa dele não se perde.
+- **Abrir o Prompt de Comando (Windows):** aperte a tecla **Windows**, digite
+  `cmd`, aperte **Enter**. A janela preta que abrir é onde os comandos são
+  colados.
+- **Abrir o Terminal (Mac):** aperte **Cmd + Espaço**, digite `Terminal`, Enter.
+- **Colar um comando:** clique dentro da janela preta, aperte **Ctrl + V** (no
+  Mac, **Cmd + V**) e depois **Enter**. Cole a linha inteira de uma vez só.
+- **"Feche e reabra o terminal"** (o que pedem depois de instalar um programa
+  novo): feche a janela preta no **X** e abra outra pelos passos acima. Programa
+  recém-instalado só passa a existir em janela nova — na antiga, não aparece.
 
 ## Nada disso resolveu
 
