@@ -99,10 +99,10 @@ Environment=IS_SANDBOX=1
 Environment=TERM=xterm-256color
 WorkingDirectory=${DGCLAW_WORKSPACE}
 # Mitiga regressao do Claude Code: limpa o needs-auth do canal telegram antes de
-# cada start (prefixo `-` = ignora erro, nunca bloqueia o boot).
+# cada start (o prefixo "-" no ExecStartPre ignora erro, nunca bloqueia o boot).
 ExecStartPre=-/bin/bash ${PRESTART} ${CFGDIR}
 # PTY obrigatorio: sem TTY o claude --channels cai em modo --print e morre.
-# `script` aloca um pty descartavel; -e propaga o exit code pro Restart.
+# o util script aloca um pty descartavel; -e propaga o exit code pro Restart.
 ExecStart=/usr/bin/script -qfec "/bin/bash ${LAUNCH} ${CONFIG}" /dev/null
 Restart=always
 RestartSec=5
