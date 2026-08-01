@@ -40,10 +40,9 @@ fala que eu rodo pra você"*.
   recomende fechar e reabrir a janela na mão.
 
 **Windows = Prompt de Comando (CMD).** Ao mandar abrir um terminal no Windows,
-diga assim: *"aperta a tecla Windows, digita `cmd`, Enter"*. Nunca PowerShell.
-
-**Todo bloco pra colar é UMA LINHA SÓ.** Nunca dê dois comandos em linhas
-separadas: a pessoa cola o bloco inteiro de uma vez e quebra. Sempre
+diga assim: *"aperta a tecla Windows, digita `cmd`, Enter"*. Nunca PowerShell. E
+**todo bloco pra colar é UMA LINHA SÓ**: nunca dê dois comandos em linhas
+separadas, porque a pessoa cola o bloco inteiro de uma vez e quebra — sempre
 `cd ... && claude ...` numa linha.
 
 ## Checklist — MOSTRE e vá marcando
@@ -58,6 +57,8 @@ MEU AGENTE (MODO NATIVO) — progresso
 [ ] 3. Bot no BotFather (token)
 [ ] 4. Primeira partida + pareamento (e a tranca)
 [ ] 5. Teste de fogo + memória
+[ ] 5a. Áudio: ele escuta suas mensagens de voz? (opcional)
+[ ] 5b. Conectar o Google: Drive, Gmail e Agenda (opcional)
 [ ] 6. Rotina de teste (tarefa agendada)
 [ ] 7. Manutenção diária da memória (a reflexão dele)
 [ ] 8. A cerimônia de religar (o comando + atalho opcional)
@@ -68,11 +69,9 @@ MEU AGENTE (MODO NATIVO) — progresso
 Explique: "antes de tudo eu confiro se está tudo no lugar — não vamos instalar
 nada, só conferir".
 
-**1.1 Claude Code em dia** — rode `claude --version`. Se estiver desatualizado
-(ou a pessoa não lembrar da última vez), rode `claude update`.
-
-**1.2 Login feito** — se esta sessão está rodando e respondendo, está OK. Se
-aparecer pedido de login, a pessoa só segue o que a tela pedir.
+**1.1 Claude Code em dia** — rode `claude --version`; se estiver desatualizado
+(ou ela não lembrar da última vez), rode `claude update`. **1.2 Login feito** —
+se esta sessão responde, está OK; se pedir login, ela só segue o que a tela diz.
 
 **1.3 Plugin telegram instalado** — confira se o plugin oficial está presente
 (`/plugin` lista os instalados). Se faltar, peça pra rodar **nesta sessão**:
@@ -100,14 +99,13 @@ Pergunte **UM de cada vez**, esperando a resposta:
 `C:\Users\<nome>\Agente<Nome>`). Respeite outro lugar — mas diga com todas as letras:
 
 - **Essa pasta é SÓ do agente**: nada de zip do instalador, arquivos do plugin
-  ou outros projetos dentro dela. Se o instalador já estiver lá dentro, **NÃO
-  mova nem apague nada agora** (não interrompa o setup pra arrumação) — só
-  anote e, no FIM do wizard, recomende ao dono apagar/mover o instalador.
-- Se você perceber que **esta sessão de setup está rodando DENTRO da pasta
-  escolhida**, alerte: o religar usa `--continue`, que retoma **a sessão mais
-  recente daquela pasta** — sessões avulsas ali dentro podem ser retomadas por
-  engano no lugar do agente. Recomendação: terminar o setup, **fechar esta
-  sessão** e não abrir outras sessões soltas na pasta do agente.
+  ou outros projetos dentro dela. Se o instalador já estiver lá, **NÃO mova nem
+  apague nada agora** (não interrompa o setup pra arrumação) — anote e, no FIM
+  do wizard, recomende ao dono apagar/mover o instalador.
+- Percebeu que **esta sessão de setup está rodando DENTRO da pasta escolhida**?
+  Alerte: o religar usa `--continue`, que retoma **a sessão mais recente daquela
+  pasta** — sessões avulsas ali podem ser retomadas no lugar do agente. Termine
+  o setup, **feche esta sessão** e não abra outras sessões soltas na pasta dele.
 
 **Escreva os arquivos com a tool Write** — nunca com `echo`, `cat` ou heredoc:
 no Windows as aspas e os acentos quebram. A Write já cria as pastas sozinha (não
@@ -175,19 +173,17 @@ Conduza, com paciência, um passo por mensagem:
 Aviso importante pra dizer: "esse token é a chave do seu bot — não manda pra
 ninguém, não posta em grupo".
 
-**Configurar o token no plugin telegram.** Use o fluxo do próprio plugin
-oficial — ele muda de versão pra versão, então seja adaptativo. Se a skill
+**Configurar o token no plugin telegram.** Use o fluxo do próprio plugin oficial
+— ele muda de versão pra versão, então seja adaptativo. Se a skill
 `/telegram:configure` existir, conduza a pessoa por ela (caminho preferido) e
-cole o token onde ela pedir. Se não existir, siga direto pro Passo 4: na
-primeira partida com o canal ligado o próprio plugin pede o token no terminal.
+cole o token onde ela pedir; se não existir, siga direto pro Passo 4, que na
+primeira partida o próprio plugin pede o token no terminal.
 
 **Se a gravação do token FALHAR, não insista.** Aconteceu em teste real: um hook
-de proteção do próprio usuário bloqueou a escrita do `.env`. Nesse caso **não
-peça pra desativar proteção nenhuma** — use o fallback: siga pro Passo 4 sem
-gravar; o plugin pede o token no terminal na primeira partida.
-
-**Não trave o wizard aqui.** Se a UX do plugin estiver diferente do descrito,
-leia o que a tela está pedindo e conduza a pessoa por aquilo, com calma.
+de proteção do próprio usuário bloqueou a escrita do `.env`. **Não peça pra
+desativar proteção nenhuma** — use o mesmo fallback: siga pro Passo 4 sem gravar.
+E se a UX do plugin estiver diferente do descrito, **não trave o wizard**: leia o
+que a tela está pedindo e conduza a pessoa por aquilo, com calma.
 
 ## Passo 4 — Primeira partida + pareamento (e a tranca)  → marca [4]
 
@@ -204,13 +200,10 @@ cd /d "<pasta do agente>" && claude --channels plugin:telegram@claude-plugins-of
 Ofereça ajuda ("se não souber onde colar, me fala") — mas lembre da regra do
 "Como conduzir": a preferência é **ela** abrir a janela. E diga com todas as
 letras: **"essa janela É o `<Nome>` acordado. Enquanto ela estiver aberta, ele
-está vivo. Fechou a janela, ele dorme."**
-
-Avisos pra dar ANTES de a pessoa reclamar:
-- **Windows**: pode aparecer o aviso do Defender/firewall — é **Permitir
-  acesso**. Sem isso o bot não fala com o Telegram.
-- **Nunca abra duas janelas com o canal ao mesmo tempo.** Dois processos
-  disputando o mesmo bot dá erro 409 e o bot fica mudo. Uma janela só.
+está vivo. Fechou a janela, ele dorme."** Dois avisos ANTES de ela reclamar: no
+**Windows** pode aparecer o aviso do Defender/firewall — é **Permitir acesso**,
+sem isso o bot não fala com o Telegram; e **nunca duas janelas com o canal ao
+mesmo tempo** — dois processos disputando o mesmo bot dão erro 409 e bot mudo.
 
 Agora o pareamento — **que já tranca a porta no mesmo ato**:
 
@@ -239,13 +232,111 @@ genérica, algo do CLAUDE.md não pegou — confira o arquivo e reinicie a janel
 
 **5.2 É a MESMA conversa nos dois lugares.** Peça pra ela **digitar direto na
 janela do terminal**: "de que a gente estava falando?". Ele responde ali,
-lembrando do "oi" do Telegram. Explique: "Telegram e terminal são a mesma
-cabeça — muda só a porta de entrada".
+lembrando do "oi" do Telegram: "são a mesma cabeça, muda só a porta de entrada".
 
 **5.3 Ele anota o que importa.** Peça pra ela contar um fato pessoal pelo
 Telegram ("meu cachorro chama Bidu", "tenho reunião toda terça 9h"). Depois abra
 o `<pasta>/working-memory.md` e mostre: o fato está lá, escrito por ele. Esse é
 o momento mágico do setup — deixe a pessoa ver.
+
+## Passo 5a — Áudio: ele escuta seus áudios?  → marca [5a]
+
+Passo **opcional**. Explique em 2 frases: *"ele já enxerga foto e lê documento de
+fábrica; só o áudio precisa de ajuda, porque o Claude não tem ouvido — a gente
+pluga um serviço que vira voz em texto. Sem isso ele responde honesto que não
+consegue ouvir."* Pergunte **"você costuma mandar áudio no Telegram?"** e ofereça
+três saídas: **(1) Groq**, a recomendada — grátis na prática, sem cartão, uma
+chave e 2 minutos; **(2) local** — $0 e o áudio não sai do computador, mas
+precisa de Python; **(3) pular** — aí grave o `audio.json` (formato abaixo) com
+`"provider": "off"` e diga que ligar depois é só pedir ao agente *"liga a
+transcrição de áudio"*. ⚠️ **Nada aqui pode travar o wizard**: qualquer erro
+(chave recusada, Python ausente, `pip` bloqueado) → grave `off`, diga em 1 linha
+que dá pra ligar depois e **siga pro 5b**.
+
+### Caminho 1 — Groq (o recomendado)
+
+Faixa grátis generosa: **2.000 transcrições e 8 horas de áudio por dia** (limites
+oficiais do plano free, em console.groq.com/docs/rate-limits) — uso pessoal não
+chega perto disso. **Antes do link, a aula de chave de API**, que muita gente
+nunca criou: *"chave de API é igual a senha, quem tem ela usa a sua conta — não
+manda pra ninguém, não posta em grupo, não põe em print. E ela **aparece UMA vez
+só**: copie na hora; se fechar sem copiar, é só apagar e criar outra, leva 30s."*
+
+Conduza um passo por mensagem: (1) abrir **https://console.groq.com/keys**; (2)
+fazer login — **pode entrar com o Gmail**, e quem não tem conta cria nessa mesma
+tela, **sem etapa de cartão**; (3) logada, ela cai direto na página **API Keys**;
+(4) clicar em **`+ Create API Key`**; (5) dar um **nome** à chave (é só um
+apelido — sugira "meu agente"); (6) copiar a chave, que começa com **`gsk_`** —
+é aqui que aparece o alerta em inglês de que ela não será mostrada de novo.
+
+Peça pra ela **colar a chave aqui no chat** e grave `<pasta>/audio.json` **com a
+tool Write** (nunca `echo`/heredoc), avisando que a chave mora só nesse arquivo —
+não na personalidade dele nem na memória dele:
+
+```json
+{ "provider": "groq", "groq_api_key": "gsk_...", "modelo_local": "small" }
+```
+
+### Caminho 2 — Local (na máquina dela, sem chave)
+
+Conversa franca antes, sem vender facilidade: *"é grátis e privado, o áudio não
+sai daqui; em troca precisa de **Python** instalado, na primeira vez baixa um
+modelo de **~500 MB** e, sem placa de vídeo NVIDIA, fica **lento** (um áudio de 5
+min pode levar alguns minutos). É o mesmo motor do app **DG Scribe**."*
+
+Confira o Python com `python --version` (se falhar, `python3 --version`) — sem
+Python, ofereça o Groq e, se ela não quiser, grave `off` e siga. **Peça
+autorização** e rode `pip install faster-whisper`. Depois **escreva com a tool
+Write** o arquivo `<pasta>/transcrever.py`:
+
+```python
+#!/usr/bin/env python3
+# Transcreve um audio, 100% nesta maquina. Uso: python transcrever.py <audio>
+import json, os, sys
+from faster_whisper import WhisperModel
+
+cfg = os.path.join(os.path.dirname(os.path.abspath(__file__)), "audio.json")
+try:
+    modelo = json.load(open(cfg, encoding="utf-8")).get("modelo_local") or "small"
+except Exception:
+    modelo = "small"
+try:                                  # usa a placa NVIDIA, se houver
+    m = WhisperModel(modelo, device="cuda", compute_type="float16")
+except Exception:                     # senao, CPU mesmo
+    m = WhisperModel(modelo, device="cpu", compute_type="int8")
+segs, _ = m.transcribe(sys.argv[1], language="pt", vad_filter=True)
+print(" ".join(s.text.strip() for s in segs).strip())
+```
+
+Grave o mesmo `audio.json` com `"provider": "local"` (a chave fica vazia) — o
+`.oga` do Telegram o faster-whisper lê direto, sem converter nada.
+
+### Testar na hora (caminhos 1 e 2 — não pule)
+
+Ele lê o `audio.json` só na hora do áudio, então nem precisa religar: peça **"me
+manda um áudio de voz pro seu bot agora, qualquer coisa"**. Ele deve responder
+reconhecendo o que ela falou. Não veio? Confira o caminho do `audio.json`, se a
+chave começa com `gsk_`, ou se o `transcrever.py` está na pasta — persistindo,
+**grave `off` e siga**. No local, avise que a **primeira transcrição demora** (é
+o download do modelo). E diga a verdade sobre privacidade: no Groq o áudio vai
+pro servidor deles; no local, não sai da máquina.
+
+## Passo 5b — Conectar o Google (Drive, Gmail, Agenda)  → marca [5b]
+
+Também **opcional**. Pergunte: *"quer que ele enxergue seu Google — arquivos do
+Drive, e-mails do Gmail, compromissos da Agenda?"* Não quis? Siga em frente: dá
+pra ligar depois com `/dgclaw-lite:connect` ou pedindo *"conecta meu Google"*.
+
+Quis? Conduza pela skill `/dgclaw-lite:connect` (leia
+`${CLAUDE_PLUGIN_ROOT}/skills/connect/SKILL.md`). O resumo: (1) rode `/mcp` nesta
+janela; (2) autorize **Google Drive**, **Gmail** e **Google Calendar** — um de
+cada vez, no navegador, com a conta dela, só os que ela quiser; (3) confira no
+`/mcp` que ficaram conectados; (4) **feche a janela do agente e religue com o
+comando de sempre**, que é o que faz a sessão dele enxergar as ferramentas novas;
+(5) teste pelo Telegram: *"vê meus próximos eventos da agenda"*. Nenhum connector
+do Google apareceu no `/mcp`? Diga a verdade: a conta ou o plano dela pode não
+ter os connectors habilitados — **não é defeito do plugin**; registre como
+pendente e siga o wizard.
 
 ## Passo 6 — Rotina de teste (tarefa agendada)  → marca [6]
 
@@ -266,9 +357,9 @@ proatividade dele. Explique por que é assim (e não "tarefa repetitiva"):
   `curl` — que já vem no Windows 10+ e no Mac, nada pra instalar.
 
 A conversa franca que vem junto: **tarefa agendada só roda com o computador
-ligado.** Desligado na hora, aquela rodada não acontece — e a corrente é
-recriada na próxima oportunidade. Diga também que a partir de agora é só pedir
-em linguagem natural: "todo dia às 8h me manda a previsão do tempo".
+ligado** — desligado na hora, aquela rodada não acontece, e a corrente é
+recriada na próxima oportunidade. Diga também que daqui pra frente é só pedir em
+linguagem natural: "todo dia às 8h me manda a previsão do tempo".
 
 ## Passo 7 — Manutenção diária da memória (a reflexão dele)  → marca [7]
 
@@ -286,17 +377,14 @@ que não faço minha manutenção de memória, me autoriza? É rapidinho". Ela d
 **"você não precisa lembrar de nada; ele te pede na hora certa, e só mexe nas
 memórias com a sua autorização"**.
 
-**O gatilho manual (pra quando ela quiser).** Ensine a frase:
-
-> "faz sua manutenção de memória"
-
-Peça pra ela mandar isso agora mesmo, pelo Telegram, só pra ver o ritual
-acontecendo — ele volta com um resumo curtinho e atualiza a data no
-working-memory. Mostre a linha atualizada: é assim que ele "sabe" quando cobrar.
-(Quem fizer questão de horário fixo pode pedir uma corrente diária agendada —
-mas ela só roda com o computador ligado; o lembrete automático funciona sempre,
-por isso é o padrão.) Mencione de passagem: se um dia ele parecer estranho,
-lento ou esquecido, existe o `/dgclaw-lite:doctor`, o diagnóstico completo.
+**O gatilho manual (pra quando ela quiser).** Ensine a frase **"faz sua
+manutenção de memória"** e peça pra ela mandar isso agora mesmo, pelo Telegram,
+só pra ver o ritual acontecendo — ele volta com um resumo curtinho e atualiza a
+data no working-memory. Mostre a linha atualizada: é assim que ele "sabe" quando
+cobrar. (Quem fizer questão de horário fixo pode pedir uma corrente diária
+agendada — mas ela só roda com o computador ligado; o lembrete automático
+funciona sempre, por isso é o padrão.) Mencione de passagem: se um dia ele
+parecer estranho, lento ou esquecido, existe o `/dgclaw-lite:doctor`.
 
 ## Passo 8 — A cerimônia de religar  → marca [8]
 
@@ -336,7 +424,7 @@ Encerre com isto, sem drama e sem letra miúda:
   `--continue` retomaria a sessão errada.
 - Se ele ficar mudo ou estranho, o **`TROUBLESHOOTING.md`** na pasta dele
   resolve quase tudo — está em português, pra leigo.
-- Quer o agente **sempre ligado**, com transcrição de áudio, painel e launcher
-  de 1 clique? Isso é o plugin `dgclaw` completo (v0.2) e o modo servidor.
+- Quer o agente **sempre ligado**, com painel no navegador e launcher de 1
+  clique? Isso é o plugin `dgclaw` completo (v0.2) e o modo servidor.
 
 Marque o `[x] 8`, mostre o checklist inteiro completo e parabenize. 🎉
