@@ -1,7 +1,7 @@
 {
   "name": "dgclaw-lite",
   "description": "DG Claw Lite — cria um agente pessoal seu no Telegram usando SO o que o Claude Code ja faz nativamente: sessao viva com o canal telegram, compactacao automatica, memoria em arquivos e tarefas agendadas. Sem Bun, sem hooks, sem scripts, sem launcher e sem painel. O livro de memoria de longo prazo fica VISIVEL na pasta do agente (memoria/MEMORY.md como sumario + uma secao por assunto), com um ponteiro na auto-memoria nativa apontando pra la. O wizard /dgclaw-lite:setup faz o check-up, cria o bot no BotFather, escreve os arquivos de identidade do agente (CLAUDE.md, working-memory, TROUBLESHOOTING), monta o livro de memoria, pareia o Telegram ja trancando o acesso e ensina a cerimonia de religar. O /dgclaw-lite:doctor faz o diagnostico, migra memoria antiga pra pasta, faz a faxina quando algo sai do lugar e gera um relatorio tecnico sem dados pessoais. Ideal pra aulas ao vivo e pra entender como um agente pessoal funciona por dentro.",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "author": {
     "name": "DG Medeiros",
     "url": "https://github.com/DGatoM/DG-Claw-Lite"
