@@ -100,7 +100,9 @@ Pergunte **UM de cada vez**, esperando a resposta:
 `C:\Users\<nome>\Agente<Nome>`). Respeite outro lugar — mas diga com todas as letras:
 
 - **Essa pasta é SÓ do agente**: nada de zip do instalador, arquivos do plugin
-  ou outros projetos dentro dela.
+  ou outros projetos dentro dela. Se o instalador já estiver lá dentro, **NÃO
+  mova nem apague nada agora** (não interrompa o setup pra arrumação) — só
+  anote e, no FIM do wizard, recomende ao dono apagar/mover o instalador.
 - Se você perceber que **esta sessão de setup está rodando DENTRO da pasta
   escolhida**, alerte: o religar usa `--continue`, que retoma **a sessão mais
   recente daquela pasta** — sessões avulsas ali dentro podem ser retomadas por
