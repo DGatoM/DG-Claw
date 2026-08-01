@@ -29,6 +29,21 @@ neutra, nunca dentro da pasta que será do agente).
 O wizard cuida do resto: check-up, nome e personalidade, pasta e memória, bot
 no BotFather, primeira partida com pareamento já trancado e os testes.
 
+## Dois extras opcionais (o wizard pergunta, você decide)
+
+**Áudio — ele escuta suas mensagens de voz** (Passo 5a). Dois caminhos: a
+**Groq**, recomendada, com faixa grátis generosa (2.000 transcrições e 8h de
+áudio por dia) e sem cartão — é só criar uma chave; ou **100% local**, com o
+`faster-whisper`, em que o áudio não sai do seu computador (precisa de Python e,
+sem placa NVIDIA, fica lento). A escolha mora num `audio.json` na pasta do
+agente. Não quis? Ele avisa honesto que não escuta e pede por texto — e você liga
+depois pedindo *"liga a transcrição de áudio"*.
+
+**Google — Drive, Gmail e Agenda** (Passo 5b, ou `/dgclaw-lite:connect` quando
+quiser). Usa os **connectors nativos** do Claude Code: você autoriza sua conta
+no navegador, sem Google Cloud e sem OAuth na mão. Depois de autorizar, **religue
+a janela** do agente pra ele enxergar as ferramentas novas.
+
 ## A cerimônia de religar
 
 Toda vez que quiser acordar seu agente, abra o **Prompt de Comando** (tecla
@@ -72,7 +87,9 @@ quem te deu o plugin.
 - Computador desligado ou dormindo = agente dormindo. **Não é 24/7.**
 - Mensagem mandada com ele desligado **se perde**. É só reenviar depois.
 - **Nunca duas janelas** do agente ao mesmo tempo (erro 409, bot mudo).
-- **Não escuta áudio** (mensagem de voz). Ele avisa e pede por texto.
+- **Áudio e Google são opcionais e ficam desligados** até você ligar (Passos 5a
+  e 5b). Sem áudio ligado, ele avisa que não escuta e pede por texto; sem Google
+  conectado, ele diz que dá pra conectar em vez de inventar resposta.
 - Tarefa agendada só roda com o computador ligado.
 - **Agendamento repetitivo nativo é evitado** (bug conhecido: para de rodar em
   silêncio). O agente usa uma **corrente de avulsos** — cada rodada entrega o
@@ -83,8 +100,7 @@ português e sem jargão.
 
 ## E se eu quiser mais?
 
-- **Hooks garantidos, launcher de 1 clique, painel no navegador e transcrição
-  de áudio** → use o plugin `dgclaw` (v0.2), no repo irmão:
-  https://github.com/DGatoM/DG-Claw.
+- **Hooks garantidos, launcher de 1 clique e painel no navegador** → use o
+  plugin `dgclaw` (v0.2), no repo irmão: https://github.com/DGatoM/DG-Claw.
 - **Agente ligado 24/7**, respondendo mesmo com seu computador desligado →
   modo SERVIDOR (VPS) do `dgclaw`.

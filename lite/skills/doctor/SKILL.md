@@ -12,7 +12,8 @@ relatório técnico que ele pode mandar pra quem entregou o plugin.
 
 Fale em português do Brasil, tom acolhedor de quem está ajudando — nada de
 jargão. **Você não instala nada e não roda script nenhum**: tudo aqui é ler e
-escrever arquivos. O único comando externo permitido é `claude --version`.
+escrever arquivos. Os únicos comandos externos permitidos são `claude --version`
+e, no item A7, `python --version`.
 
 **Antes de começar**, diga em 2 linhas o que vai acontecer e pergunte:
 
@@ -32,7 +33,7 @@ Depois rode as três partes **em sequência**, contando o que achou em cada uma.
 
 ## Parte A — Saúde do plugin
 
-Verifique os 6 itens abaixo sozinho e **mostre o resultado** como checklist,
+Verifique os 7 itens abaixo sozinho e **mostre o resultado** como checklist,
 com ✅ ou ❌ em cada linha. Não peça permissão pra ler arquivos — só leia.
 
 **A1. Os arquivos da pasta existem?**
@@ -100,6 +101,24 @@ Só levante estes se o sintoma relatado for silêncio/queda. Pergunte, um por ve
 
 Pra cada "sim" suspeito, aponte o conserto que está no `TROUBLESHOOTING.md` da
 pasta (item correspondente) em vez de reexplicar tudo aqui.
+
+**A7. O áudio está ligado do jeito certo?**
+Só vale se existir `<pasta>/audio.json` — sem ele, marque ✅ e diga que é o
+padrão (ele avisa honesto que não escuta e pede por texto). Existindo, leia o
+`provider` e confira **a via que ele escolheu**:
+
+- **`groq`** — tem `groq_api_key` e ela começa com `gsk_`? Vazia ou torta, ❌:
+  o conserto é criar outra chave em console.groq.com/keys (leva 30s) e regravar
+  o arquivo. Chave certa mas ele continua sem transcrever? Quase sempre é chave
+  revogada — vale criar uma nova antes de qualquer outra coisa.
+- **`local`** — o `transcrever.py` está na pasta e o `python --version`
+  responde? Faltou o script, recrie rodando só o **Passo 5a** do
+  `/dgclaw-lite:setup`; a biblioteca é que falhou, o conserto é
+  `pip install faster-whisper` (com autorização do dono).
+- **`off`** — ✅, está desligado de propósito.
+
+Não deu pra consertar na hora? Grave `"provider": "off"` e avise: ele volta a
+pedir por texto, e o resto do agente continua funcionando normalmente.
 
 Feche a Parte A com o checklist ✅/❌ e uma frase do tipo: "estrutura ok, o
 problema deve ser memória" ou "achei X, vamos consertar".
@@ -182,7 +201,7 @@ Conteúdo do arquivo:
 1. **Cabeçalho** — data de hoje; versão do plugin (leia o `version` de
    `${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json`); sistema operacional;
    versão do Claude Code (`claude --version`).
-2. **Parte A** — o checklist dos 6 itens com ✅/❌, uma linha cada.
+2. **Parte A** — o checklist dos 7 itens com ✅/❌, uma linha cada.
 3. **Parte B** — as métricas: linhas por arquivo (antes → depois), quantas
    redundâncias e quantas contradições foram achadas, e quantas foram
    resolvidas.

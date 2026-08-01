@@ -95,6 +95,26 @@ Normal! De tempos em tempos ele resume a conversa pra caber mais coisa na
 memória. Some por alguns segundos e volta lembrando do que importa. Não precisa
 fazer nada.
 
+## 9. Mandei um áudio e ele não entendeu (ou disse que não escuta)
+
+Só vale se você ligou a transcrição no setup. Abra o arquivo `audio.json`, na
+pasta do {{NOME}}, e veja o que está escrito em `provider`:
+
+- **`"groq"`** — a chave (`groq_api_key`) pode ter sido apagada ou revogada.
+  Crie outra em **console.groq.com/keys** (leva 30 segundos, é grátis) e peça
+  pro {{NOME}}: *"troca minha chave de áudio, é essa aqui: gsk_..."*.
+- **`"local"`** — confira se o `transcrever.py` ainda está na pasta.
+- **`"off"`** — está desligado mesmo. Peça: *"liga a transcrição de áudio"*.
+
+Enquanto isso ele continua respondendo tudo por texto, normalmente.
+
+## 10. Conectei o Google e ele diz que não vê meu Gmail/Agenda/Drive
+
+Quase sempre é só isto: **as conexões só entram quando a janela é aberta de
+novo**. Feche a janela do {{NOME}} e abra com o comando de sempre. Se ainda
+assim ele não enxergar, rode `/dgclaw-lite:connect` na janela dele e confira, no
+`/mcp`, se as conexões do Google aparecem como conectadas.
+
 ## Nada disso resolveu
 
 Peça um diagnóstico ao próprio {{NOME}} — pelo Telegram ou digitando na janela
