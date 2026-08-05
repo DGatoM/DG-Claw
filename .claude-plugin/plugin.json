@@ -1,7 +1,7 @@
 {
   "name": "dgclaw",
   "description": "DG Claw — instala e gerencia um agente pessoal seu no Telegram, com nome, personalidade e memoria persistente. Dois modos: LOCAL (roda no seu proprio computador Windows/Mac, so com a assinatura Pro/Max, sem servidor e sem API key) e SERVIDOR (24/7 numa VPS Linux via systemd). O wizard /dgclaw:setup detecta o ambiente, faz o check-up da maquina, cria o bot, da nome e personalidade ao agente e deixa tudo pronto com um launcher de 1 clique.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "author": {
     "name": "DG Medeiros",
     "url": "https://github.com/DGatoM/DG-Claw"
