@@ -1,0 +1,191 @@
+# Imagem do agente do DG Claw v1: uma "VPS pequena" (systemd, cron, sudo) com as
+# ferramentas que os agentes de verdade usam, o runner e o plugin já dentro.
+#
+# Contexto de build = raiz do repositório:
+#   podman build --ignorefile container/ignore \
+#     -t localhost/dgclaw-agente:<versao> -t localhost/dgclaw-agente:latest \
+#     -f container/Containerfile .
+# Perfil pesado (Chromium + Xvfb): acrescente --build-arg COM_NAVEGADOR=1.
+# Detalhes, tamanhos e montagens em container/README.md.
+
+# ---------------------------------------------------------------------------
+# Estágio 1: compila o runner. O node-pty é nativo e precisa de python3, make
+# e g++; eles ficam AQUI e não chegam à imagem final.
+# ---------------------------------------------------------------------------
+FROM docker.io/library/ubuntu:24.04 AS runner-build
+
+ENV DEBIAN_FRONTEND=noninteractive
+ARG NODE_MAJOR=22
+
+# Node 22 pela NodeSource, com a chave conferida (nada de "curl | bash").
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates curl gnupg python3 make g++ \
+    && curl --proto '=https' --tlsv1.2 -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+       | gpg --dearmor -o /usr/share/keyrings/nodesource.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${NODE_MAJOR}.x nodistro main" \
+       > /etc/apt/sources.list.d/nodesource.list \
+    && apt-get update && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build/runner
+COPY runner/ ./
+# prune deixa só as dependências de produção, mas mantém o node-pty já compilado.
+RUN npm ci && npm run build && npm prune --omit=dev && npm cache clean --force
+
+# ---------------------------------------------------------------------------
+# Estágio 2 (base): tudo da máquina, sem o código do DG Claw. Dá para construir
+# só até aqui com --target base (útil para validar a imagem sem o runner).
+# ---------------------------------------------------------------------------
+FROM docker.io/library/ubuntu:24.04 AS base
+
+ARG DGCLAW_VERSAO=dev
+ARG COM_NAVEGADOR=0
+ARG NODE_MAJOR=22
+# Versões fixadas: a imagem tem que sair igual hoje e daqui a seis meses.
+ARG CLAUDE_CODE_VERSAO=2.1.296
+ARG CODEX_VERSAO=0.162.1
+ARG BUN_VERSAO=1.4.3
+
+LABEL org.opencontainers.image.title="DG Claw agente" \
+      org.opencontainers.image.version="${DGCLAW_VERSAO}" \
+      org.opencontainers.image.source="https://github.com/DGatoM/DG-Claw"
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=America/Sao_Paulo
+
+# systemd + as ferramentas de uma máquina de trabalho. Lista decidida pela pesquisa
+# de uso dos agentes (ffmpeg para áudio e vídeo, poppler para PDF, fontes para
+# imagem sem quadradinho, gawk/bc/xz para os scripts dos alunos). Nenhum compilador.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      systemd systemd-sysv dbus dbus-user-session \
+      cron sudo tzdata locales \
+      ca-certificates gnupg curl wget git ripgrep jq unzip zip xz-utils \
+      python3 python3-pip python3-venv sqlite3 \
+      less nano vim-tiny procps psmisc iproute2 iputils-ping dnsutils \
+      openssh-client rsync file tini \
+      ffmpeg poppler-utils fontconfig fonts-liberation fonts-noto-color-emoji \
+      gawk bc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Unidades que só fazem sentido em máquina com hardware. Deixadas de pé, enchem o log
+# de erro e fazem o is-system-running responder "degraded" para sempre, o que
+# estraga o sinal que o vigia do agente lê.
+RUN systemctl mask \
+      systemd-udevd.service systemd-udevd-kernel.socket systemd-udevd-control.socket \
+      systemd-modules-load.service sys-kernel-config.mount sys-kernel-debug.mount \
+      sys-kernel-tracing.mount systemd-journald-audit.socket \
+      getty.target console-getty.service \
+    && rm -f /lib/systemd/system/multi-user.target.wants/systemd-logind.service
+
+# Fuso e idioma: pt_BR e en_US (alguns scripts pedem en_US).
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone \
+    && sed -i 's/^# *pt_BR.UTF-8/pt_BR.UTF-8/; s/^# *en_US.UTF-8/en_US.UTF-8/' /etc/locale.gen \
+    && locale-gen
+
+# Node 22 (NodeSource) e GitHub CLI: repositórios oficiais, cada um com a sua chave
+# baixada por HTTPS e conferida pelo apt (signed-by). Nada de "curl | bash".
+RUN curl --proto '=https' --tlsv1.2 -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+      | gpg --dearmor -o /usr/share/keyrings/nodesource.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${NODE_MAJOR}.x nodistro main" \
+      > /etc/apt/sources.list.d/nodesource.list \
+    && curl --proto '=https' --tlsv1.2 -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+      -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+      > /etc/apt/sources.list.d/github-cli.list \
+    && apt-get update && apt-get install -y --no-install-recommends nodejs gh \
+    && rm -rf /var/lib/apt/lists/*
+
+# Claude Code e Codex CLI globais. A credencial não vem junto: cada agente faz o
+# próprio login e ela fica na casa dele. O Bun entra porque o plugin oficial do
+# Telegram roda nele; fica em /usr/bin, portanto no PATH do agente e das unidades.
+# O plugin em si NÃO vai na imagem: a casa /home/agente é montada do host e esconderia
+# a instalação, então quem a faz é o "dgclaw agente criar".
+RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSAO}" "@openai/codex@${CODEX_VERSAO}" "bun@${BUN_VERSAO}" \
+    && npm cache clean --force
+
+# venv Python padrão. Existe para contornar o bloqueio PEP 668 do Ubuntu sem
+# --break-system-packages: o agente instala o que precisar com "pip install" normal.
+# playwright entra só como pacote; o navegador é do perfil COM_NAVEGADOR=1.
+# yt-dlp vem do pip porque é o jeito que recebe atualização (o do apt envelhece).
+RUN python3 -m venv /opt/venv \
+    && /opt/venv/bin/pip install --no-cache-dir \
+      'Pillow==12.3.0' 'requests==2.34.2' 'numpy==2.5.4' 'pyyaml==6.0.3' \
+      'openpyxl==3.1.5' 'pymupdf==1.28.2' 'playwright==1.63.0' 'yt-dlp==2026.8.19'
+ENV PATH=/opt/venv/bin:$PATH
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
+
+# Perfil pesado, só com --build-arg COM_NAVEGADOR=1: Chromium do Playwright com as
+# bibliotecas do sistema, e Xvfb para quem precisa de uma tela. Acrescenta cerca de
+# 500 a 600 MB. O diretório fica legível para o usuário agente.
+RUN if [ "$COM_NAVEGADOR" = "1" ]; then \
+      apt-get update \
+      && apt-get install -y --no-install-recommends xvfb x11-utils \
+      && python -m playwright install --with-deps chromium \
+      && chmod -R a+rX /opt/playwright \
+      && rm -rf /var/lib/apt/lists/*; \
+    fi
+
+# O agente não é root, mas TEM sudo: é a diferença entre "caixa" e "VPS". Ele instala o
+# que precisar dentro da própria máquina, e isso não vaza porque esse root, visto do
+# host, é um uid alto que não existe em lugar nenhum (mapa de uid do podman).
+RUN useradd -m -u 1001 -s /bin/bash agente \
+    && echo 'agente ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/agente \
+    && chmod 440 /etc/sudoers.d/agente \
+    && usermod -aG crontab agente
+
+# Cron ligado desde o boot; senão o agente cria a tarefa e ela nunca roda.
+RUN systemctl enable cron.service
+
+# O que o agente vê ao entrar, e o que os timers dele herdam.
+RUN printf '%s\n' \
+      'export HOME=/home/agente' \
+      'export CLAUDE_CONFIG_DIR=/home/agente/.claude' \
+      'export CODEX_HOME=/home/agente/.codex' \
+      'export TZ=America/Sao_Paulo' \
+      'export PLAYWRIGHT_BROWSERS_PATH=/opt/playwright' \
+      'export DGCLAW_RUNNER_URL=http://127.0.0.1:4300' \
+      'export RUNNER_TOKEN_FILE=/run/dgclaw/segredos/runner.token' \
+      'export PATH=/opt/venv/bin:/home/agente/.local/bin:$PATH' \
+      > /etc/profile.d/agente.sh
+ENV HOME=/home/agente
+ENV CLAUDE_CONFIG_DIR=/home/agente/.claude
+ENV CODEX_HOME=/home/agente/.codex
+ENV LANG=pt_BR.UTF-8
+
+# Conferência de build: se uma ferramenta prometida não ficou no PATH, a imagem não sai.
+RUN for c in node npm claude codex bun gh yt-dlp ffmpeg pdftotext jq rg sqlite3 python; do \
+      command -v "$c" >/dev/null || { echo "ERRO: '$c' não está no PATH da imagem" >&2; exit 1; }; \
+    done \
+    && node --version && bun --version && claude --version && codex --version && gh --version | head -1
+
+STOPSIGNAL SIGRTMIN+3
+CMD ["/sbin/init"]
+
+# ---------------------------------------------------------------------------
+# Estágio 3 (final): o código do DG Claw por cima da máquina.
+# ---------------------------------------------------------------------------
+FROM base AS final
+
+# As duas unidades do contrato. No build não há systemd rodando: "systemctl enable"
+# só cria os links, e é isso que queremos. O ConditionPathExists de cada uma segura
+# a subida até o "dgclaw agente criar" entregar runner.json e painel.env.
+COPY container/units/dgclaw-runner.service container/units/dgclaw-painel.service /etc/systemd/system/
+# Ponto de montagem (somente leitura, vindo do host) do runner.json do agente.
+RUN mkdir -p /etc/dgclaw-runner && chmod 755 /etc/dgclaw-runner
+RUN systemctl enable dgclaw-runner.service dgclaw-painel.service
+
+# O plugin inteiro (o que container/ignore deixar passar). O runner vem do estágio de
+# build, então o código-fonte que veio junto sai antes de ele entrar.
+COPY . /opt/dgclaw/app
+RUN rm -rf /opt/dgclaw/app/runner /opt/dgclaw/app/container
+COPY --from=runner-build /build/runner/dist /opt/dgclaw/app/runner/dist
+COPY --from=runner-build /build/runner/node_modules /opt/dgclaw/app/runner/node_modules
+COPY --from=runner-build /build/runner/package.json /opt/dgclaw/app/runner/package.json
+
+# O painel é JavaScript puro (express e afins), sem parte nativa: instala aqui, sem compilador.
+# CLI que roda DENTRO do container (o bin/dgclaw do host não entra no PATH). O link nasce
+# mesmo que o arquivo ainda não exista; fica pendente até o plugin trazer o bin/dgclaw-agente.
+RUN ln -s /opt/dgclaw/app/bin/dgclaw-agente /usr/local/bin/dgclaw-agente
+
+RUN cd /opt/dgclaw/app/panel && npm install --omit=dev --no-audit --no-fund && npm cache clean --force

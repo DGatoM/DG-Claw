@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Conversa - DG Claw</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#2f9e5e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="DG Claw">
+<script>
+/* App instalado (Tela de Início) ou navegador? Decidido antes da primeira
+   pintura: no navegador a barra precisa ficar acima da barra do Safari; no app
+   instalado não existe essa barra, e a folga virava uma faixa branca embaixo. */
+if (navigator.standalone === true ||
+    (window.matchMedia && matchMedia('(display-mode: standalone)').matches)) {
+  document.documentElement.classList.add('pwa');
+}
+</script>
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="icon" href="/icons/icon-192.png">
+<link rel="stylesheet" href="/chat.css">
+<link rel="stylesheet" href="/conversa.css">
+</head>
+<body>
+
+<!-- Erro de carga (agente que não existe, lista que não veio): o JS mostra aqui -->
+<div class="erroconfig" id="erroTela" hidden>
+  <h1 id="erroTelaTit">Não consegui abrir essa conversa</h1>
+  <p id="erroTelaTxt"></p>
+  <p id="erroTelaLinks"></p>
+</div>
+
+<header data-tour="header" id="cabecalho">
+  <button class="btn ghost" id="btnMenu" aria-label="Abrir o menu" data-tour="menu">☰</button>
+  <div class="av" id="av" aria-hidden="true"></div>
+  <div class="who" id="who" data-tour="titulo">
+    <b id="nomeAgente">DG Claw</b>
+    <span id="estado">conectando…</span>
+  </div>
+  <button class="btn" id="btnTutorial" type="button" title="Visita guiada desta tela: o que é cada parte e por que está aqui">Tutorial</button>
+  <div class="ferr" id="ferr">
+    <div class="tools" id="tools" role="toolbar" aria-label="Ferramentas da conversa">
+      <button id="btnLer" class="btn" title="Ler as respostas em voz alta" data-tour="ler">🔊 <span class="lbl">ler</span></button>
+      <button id="btnContinua" class="btn" type="button" aria-pressed="false"
+              aria-label="Conversa contínua: desligada"
+              title="Conversa contínua: ao terminar de tocar a resposta, grava de novo">🔁 <span class="lbl">contínua</span></button>
+      <button id="btnParar" class="btn" type="button" style="display:none">parar</button>
+    </div>
+    <i class="ferr-sombra esq" id="ferrEsq" aria-hidden="true"></i>
+    <i class="ferr-sombra dir" id="ferrDir" aria-hidden="true"></i>
+  </div>
+</header>
+
+<div id="overlayMenu"></div>
+<aside id="menu" aria-label="Menu do DG Claw">
+  <button class="fechar" id="btnFechaMenu" aria-label="Fechar o menu">✕</button>
+  <div class="gm-topo" data-tour="gm-marca"><span class="gm-emoji" aria-hidden="true">🦞</span><b>DG Claw</b><button type="button" class="gm-tut" id="gmTutorial" title="Visita guiada: o que é cada parte e por que está aqui">Tutorial</button></div>
+  <div class="gm-conversa" id="gmConversa" data-tour="gm-conversa">
+    <button type="button" class="gm-item ativo" id="gmIrConversa"><span class="gm-ic" aria-hidden="true">💬</span><span class="gm-tx"><b>Conversa</b><small id="gmConversaSub"></small></span></button>
+  </div>
+  <h2 id="menuAgentesTit">Agentes</h2>
+  <div class="agentes" id="listaAgentes" data-tour="agentes"></div>
+  <div class="gm-corpo" id="gmCorpo">
+    <section class="gm-sec" id="gmSecPainel" data-tour="gm-painel" aria-label="Painel do agente" hidden>
+      <h3 id="gmPainelTit">Painel</h3>
+      <a class="gm-item" id="gmPainel" href="#"><span class="gm-ic" aria-hidden="true">🦞</span><span class="gm-tx"><b id="gmPainelNome">Painel</b><small>status, memória e custos</small></span></a>
+    </section>
+  </div>
+  <div class="pe">
+    <div class="conta">
+      <form method="post" action="/sair" id="formSair"><button type="submit" class="sair">Sair</button></form>
+    </div>
+  </div>
+</aside>
+
+<div id="chat" data-tour="thread"><div class="wrap" id="wrap"></div></div>
+
+<button id="btnFim" class="seta-fim" aria-label="Ir para a mensagem mais nova"
+        title="Ir para a mensagem mais nova" hidden>↓<span
+        id="fimNovas" class="fimnovas" hidden></span></button>
+
+<div class="faixa" id="faixaErro"><span class="txt"></span>
+  <button class="x" aria-label="Fechar aviso">✕</button></div>
+<div class="faixa" id="faixaAviso"><span class="txt"></span>
+  <button class="x" aria-label="Fechar aviso">✕</button></div>
+<div class="faixa" id="faixaAudio" aria-live="polite"><span class="txt"></span></div>
+
+<div id="atividade" hidden data-tour="atividade"><i class="atv-ponto" aria-hidden="true"></i><span class="atv-txt"><span class="atv-nome"></span><span class="atv-sep"> · </span><span class="atv-acao"></span></span></div>
+
+<div class="barra" data-tour="barra">
+  <div id="anexoChip" hidden><div id="anexoLista" role="list" aria-label="Anexos desta mensagem"></div><div id="anexoInfo" aria-live="polite"></div></div>
+  <div id="avisoAdmin" hidden>Comandos como <code>/compact</code> e <code>/clear</code> funcionam aqui.</div>
+  <div class="linha1">
+    <button id="btnAnexo" aria-label="Anexar fotos, vídeos, áudios ou PDFs"
+            title="Anexar fotos, vídeos, áudios ou PDFs (vários de uma vez)" data-tour="anexo">📎</button>
+    <input type="file" id="arquivo" multiple
+           accept="image/*,video/*,audio/*,.pdf,application/pdf">
+    <div class="campo" data-tour="campo"><textarea id="entrada" rows="1" placeholder="Escrever mensagem"
+              autocomplete="off" enterkeyhint="send"></textarea><span id="micTxt" aria-live="polite"></span></div>
+    <button id="btnMic" aria-label="Gravar áudio" data-tour="mic">🎤</button>
+    <button id="btnEnviar" aria-label="Enviar">➤</button>
+  </div>
+</div>
+
+<audio id="player" preload="auto" playsinline></audio>
+
+<div id="lightbox" aria-label="Arquivo em tamanho cheio">
+  <div class="lbtopo">
+    <span class="lbnome" id="lbNome"></span>
+    <a id="lbBaixar" href="#" download>baixar</a>
+    <button id="lbFechar" aria-label="Fechar">✕</button>
+  </div>
+  <div class="lbcorpo" id="lbCorpo"></div>
+</div>
+
+<script src="/tour.js"></script>
+<script src="/conversa.js"></script>
+<script>
+/* Teclado do iPhone (o teclado, a barra de sugestões ou a de preenchimento
+   podia cobrir a caixa de texto).
+   No iOS o teclado NÃO encolhe a página: o sistema só desliza a parte visível
+   pra cima. A versão antiga voltava a janela pro topo a cada mudança de tamanho
+   e desfazia esse deslize; quando a barra de sugestões aparecia depois do
+   foco, a caixa ia parar atrás dela. Agora a tela segue a área visível de
+   verdade (visualViewport): o corpo tem a altura e a posição dela, então a
+   barra de digitar fica sempre logo acima do que subir de baixo. */
+(function(){
+  var vv = window.visualViewport, raiz = document.documentElement;
+  if (!vv) return;
+  var chat = document.getElementById('chat');
+  var agendado = false;
+  function ajusta(){
+    agendado = false;
+    // com zoom de pinça a área visível encolhe por causa do zoom, não do
+    // teclado: aí a tela volta ao normal em vez de espremer o corpo
+    if (Math.abs((vv.scale || 1) - 1) > 0.01) {
+      raiz.classList.remove('vv', 'teclado');
+      return;
+    }
+    /* Sem campo em foco não existe teclado: a tela volta pro tamanho cheio do
+       CSS (100dvh ou o fixed do app instalado). Antes a altura medida ficava
+       valendo depois do teclado fechar e, quando o iOS não avisava a volta, a
+       tela ficava presa curta com um branco embaixo . */
+    var ativo = document.activeElement;
+    var digitando = !!ativo && (ativo.isContentEditable ||
+      /^(INPUT|TEXTAREA|SELECT)$/.test(ativo.tagName));
+    if (!digitando) {
+      raiz.classList.remove('vv', 'teclado');
+      if (window.scrollY || vv.offsetTop) { try { window.scrollTo(0, 0); } catch(e){} }
+      return;
+    }
+    var perto = chat ? chat.scrollHeight - chat.scrollTop - chat.clientHeight < 80 : false;
+    var h = Math.round(vv.height), topo = Math.round(vv.offsetTop);
+    var teclado = window.innerHeight - h > 120;
+    raiz.style.setProperty('--app-h', h + 'px');
+    raiz.style.setProperty('--app-top', topo + 'px');
+    raiz.classList.add('vv');
+    raiz.classList.toggle('teclado', teclado);
+    // fechou o teclado e a janela ficou deslocada: volta pro zero
+    if (!teclado && (window.scrollY || topo)) { try { window.scrollTo(0, 0); } catch(e){} }
+    if (perto && chat) chat.scrollTop = chat.scrollHeight;
+  }
+  function agenda(){ if (!agendado) { agendado = true; requestAnimationFrame(ajusta); } }
+  vv.addEventListener('resize', agenda);
+  vv.addEventListener('scroll', agenda);
+  window.addEventListener('orientationchange', function(){ setTimeout(ajusta, 300); });
+  /* A barra de sugestões e a de preenchimento entram DEPOIS do foco e nem
+     sempre avisam. Enquanto um campo está em foco, confere a área visível a
+     cada 0,4 s e só reajusta se ela mudou (custa uma leitura de número). */
+  var vigia = null, visto = '';
+  function confere(){
+    var agora = Math.round(vv.height) + ':' + Math.round(vv.offsetTop) + ':' + vv.scale;
+    if (agora !== visto) { visto = agora; ajusta(); }
+  }
+  document.addEventListener('focusin', function(){
+    [50, 250].forEach(function(ms){ setTimeout(ajusta, ms); });
+    if (!vigia) vigia = setInterval(confere, 400);
+  });
+  document.addEventListener('focusout', function(){
+    if (vigia) { clearInterval(vigia); vigia = null; }
+    [80, 400, 900, 1600].forEach(function(ms){ setTimeout(ajusta, ms); });
+  });
+  window.addEventListener('pageshow', function(){ setTimeout(ajusta, 50); });
+  document.addEventListener('visibilitychange', function(){
+    if (!document.hidden) setTimeout(ajusta, 50);
+  });
+  ajusta();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+. "$(dirname "$0")/_comum.sh"
+registrar "$@"
+args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do
+    [ "${args[$i]}" = -o ] && echo "keyring-falso" >"${args[$((i + 1))]}"
+done
+exit 0

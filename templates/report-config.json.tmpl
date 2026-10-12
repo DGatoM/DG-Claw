@@ -1,0 +1,18 @@
+{
+  "_comment": "Envs do canal de REPORT do DG Claw (/dgclaw:report). Tudo opcional — defaults seguros, SEM rede automatica. Exporte no .dgclaw/config.sh do agente.",
+
+  "DGCLAW_REPORT_ENDPOINT": {
+    "default": "",
+    "desc": "Se setado, o report.py faz POST do bundle ja sanitizado (text/plain) pra esta URL quando o dono der --consent. Vazio = nao usa rede; cai no GitHub/fallback."
+  },
+  "DGCLAW_REPORT_GITHUB_REPO": {
+    "default": "DGatoM/DG-Claw",
+    "desc": "Repo do AUTOR pra abrir issue. Com gh logado: cria a issue. Sem gh: gera URL de issue prefillada pro dono colar o bundle. O default aponta pro repo oficial do plugin."
+  },
+  "DGCLAW_AUTHOR_CONTACT": {
+    "default": "",
+    "desc": "Contato livre do autor (ex: email ou link) mostrado no fallback de envio manual. Se vazio, o fallback aponta pro repo GitHub. NUNCA coloque aqui um telegram id pessoal como destino automatico — este campo e so exibicao."
+  },
+
+  "_privacidade": "O bundle NUNCA inclui SOUL/MEMORY/working-memory/persona, tokens/keys, nem o nome do dono / telegram id. Tudo passa por um scrubber. Nada e enviado sem --consent."
+}

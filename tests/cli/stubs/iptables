@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+echo "iptables $*" >> "${STUB_LOG:?}"
+exit 0

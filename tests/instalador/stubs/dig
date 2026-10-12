@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Devolve DGCLAW_STUB_DIG_IP para nomes .hstgr.cloud (vazio = o DNS publico nao conhece o nome).
+. "$(dirname "$0")/_comum.sh"
+registrar "$@"
+for a in "$@"; do
+    case "$a" in *.hstgr.cloud) [ -n "${DGCLAW_STUB_DIG_IP:-}" ] && echo "$DGCLAW_STUB_DIG_IP" ;; esac
+done
+exit 0

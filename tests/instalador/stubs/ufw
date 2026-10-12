@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+. "$(dirname "$0")/_comum.sh"
+registrar "$@"
+e="$(estado_dir)"
+case "${1:-}" in
+    status) if [ -f "$e/ufw-ativo" ]; then echo "Status: active"; else echo "Status: inactive"; fi ;;
+    allow) grep -qxF "$2" "$e/ufw-regras" 2>/dev/null || echo "$2" >>"$e/ufw-regras" ;;
+    --force) if [ "${2:-}" = enable ]; then touch "$e/ufw-ativo"; fi ;;
+esac
+exit 0

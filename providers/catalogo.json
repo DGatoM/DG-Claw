@@ -1,0 +1,152 @@
+{
+  "versao": 1,
+  "provedores": {
+    "claude": {
+      "nome": "Claude",
+      "disponivel": true,
+      "binario": "claude",
+      "instalar": "curl -fsSL https://claude.ai/install.sh | bash",
+      "auth": {
+        "assinatura": {
+          "nome": "na assinatura",
+          "explica": "Você paga um valor fixo por mês (planos Pro ou Max do Claude) e usa à vontade, dentro do limite do plano. O agente entra com a sua conta uma vez, por um link que a tela mostra. É o único jeito em que os conectores do Claude (Gmail, Agenda, Drive) funcionam no agente.",
+          "conferir": "claude auth status --json",
+          "logar": "claude auth login",
+          "limpar": [
+            "CLAUDE_CODE_OAUTH_TOKEN",
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_AUTH_TOKEN",
+            "ANTHROPIC_BASE_URL"
+          ]
+        },
+        "token": {
+          "nome": "na assinatura, sem conectores",
+          "explica": "Também usa o seu plano Pro ou Max, mas por um código de acesso de longa duração. Serve para agente que não precisa de Gmail, Agenda ou Drive: os conectores do Claude não carregam neste modo.",
+          "variavel": "CLAUDE_CODE_OAUTH_TOKEN",
+          "logar": "claude setup-token",
+          "limpar": [
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_AUTH_TOKEN",
+            "ANTHROPIC_BASE_URL"
+          ]
+        },
+        "api": {
+          "nome": "na API",
+          "explica": "Você paga só pelo que usar, contado em tokens (pedaços de texto), direto na conta de desenvolvedor da Anthropic. Não tem limite de plano, mas a conta pode crescer se o agente trabalhar muito. Precisa de uma chave, que fica guardada no Cofre do painel.",
+          "variavel": "ANTHROPIC_API_KEY",
+          "ondeCriar": "https://console.anthropic.com/settings/keys",
+          "limpar": [
+            "CLAUDE_CODE_OAUTH_TOKEN",
+            "ANTHROPIC_AUTH_TOKEN",
+            "ANTHROPIC_BASE_URL"
+          ]
+        }
+      },
+      "canaisTelegram": true,
+      "modeloPadrao": "claude-opus-5-5",
+      "modelos": [
+        {
+          "id": "claude-opus-5-5",
+          "nome": "Claude Opus 5.5",
+          "apelidos": [
+            "opus"
+          ]
+        },
+        {
+          "id": "claude-sonnet-5-5",
+          "nome": "Claude Sonnet 5.5",
+          "apelidos": [
+            "sonnet"
+          ]
+        },
+        {
+          "id": "claude-haiku-5-5",
+          "nome": "Claude Haiku 5.5",
+          "apelidos": [
+            "haiku"
+          ]
+        }
+      ]
+    },
+    "codex": {
+      "nome": "Codex",
+      "disponivel": true,
+      "binario": "codex",
+      "instalar": "npm install -g @openai/codex",
+      "auth": {
+        "assinatura": {
+          "nome": "na assinatura",
+          "explica": "Você paga um valor fixo por mês no ChatGPT (Plus, Pro e similares) e o Codex usa esse plano, dentro do limite dele. Entre com a sua conta do ChatGPT uma vez, por código no navegador.",
+          "conferir": "codex login status",
+          "logar": "codex login --device-auth",
+          "limpar": [
+            "OPENAI_API_KEY",
+            "CODEX_API_KEY",
+            "OPENAI_BASE_URL",
+            "OPENAI_API_BASE"
+          ]
+        },
+        "api": {
+          "nome": "na API",
+          "explica": "Você paga só pelo que usar, contado em tokens (pedaços de texto), direto na conta de desenvolvedor da OpenAI. Não tem limite de plano, mas a conta pode crescer se o agente trabalhar muito. Precisa de uma chave, que fica guardada no Cofre do painel.",
+          "variavel": "OPENAI_API_KEY",
+          "ondeCriar": "https://platform.openai.com/api-keys",
+          "limpar": [
+            "CODEX_API_KEY",
+            "OPENAI_BASE_URL",
+            "OPENAI_API_BASE"
+          ]
+        }
+      },
+      "canaisTelegram": false,
+      "modeloPadrao": "",
+      "modelosDe": "codex_models_cache",
+      "modelos": [
+        {
+          "id": "gpt-5.6-terra",
+          "nome": "GPT-5.6 Terra",
+          "apelidos": []
+        },
+        {
+          "id": "gpt-5.6-sol",
+          "nome": "GPT-5.6 Sol",
+          "apelidos": []
+        },
+        {
+          "id": "gpt-6.1-sol",
+          "nome": "GPT-6.1 Sol",
+          "apelidos": []
+        },
+        {
+          "id": "gpt-5.5",
+          "nome": "GPT-5.5",
+          "apelidos": []
+        }
+      ]
+    },
+    "gemini": {
+      "nome": "Gemini CLI",
+      "disponivel": false,
+      "motivo": "desenhado, entra depois do sábado",
+      "binario": "gemini",
+      "instalar": "npm install -g @google/gemini-cli",
+      "auth": {
+        "assinatura": {
+          "nome": "na assinatura",
+          "explica": "Entrar com a sua conta Google e usar a cota gratuita ou do seu plano Google.",
+          "conferir": "",
+          "logar": "gemini"
+        },
+        "api": {
+          "nome": "na API",
+          "explica": "Pagar só pelo que usar, direto na conta de desenvolvedor do Google. Precisa de uma chave, que fica no Cofre do painel.",
+          "variavel": "GEMINI_API_KEY",
+          "ondeCriar": "https://aistudio.google.com/apikey"
+        }
+      },
+      "canaisTelegram": false,
+      "modeloPadrao": "",
+      "modelos": []
+    }
+  }
+}

@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# podman de mentira: registra o argv e simula so o estado que os testes consultam.
+echo "podman $*" >> "${STUB_LOG:?}"
+est="${STUB_ESTADO:?}"
+case "${1:-}" in
+    image)
+        [ "$2" = exists ] && [ ! -f "$est/sem-imagem" ]; exit $? ;;
+    container)
+        [ "$2" = exists ] && [ -f "$est/c-$3" ]; exit $? ;;
+    network)
+        case "$2" in
+            exists) [ -f "$est/n-$3" ]; exit $? ;;
+            create) touch "$est/n-${*: -1}"; echo "rede-id" ;;
+            rm) rm -f "$est/n-$3" ;;
+        esac ;;
+    create)
+        while [ $# -gt 0 ]; do [ "$1" = --name ] && nome="$2"; shift; done
+        echo created > "$est/c-$nome"; echo "container-id" ;;
+    start) echo running > "$est/c-$2" ;;
+    stop) [ -f "$est/c-$2" ] && echo exited > "$est/c-$2" ;;
+    rm) rm -f "$est/c-$2" ;;
+    inspect)
+        nome="${*: -1}"
+        [ -f "$est/c-$nome" ] || exit 1
+        cat "$est/c-$nome" ;;
+    exec)
+        # `exec -i <container> bash -s` recebe o script por STDIN: guarda para o teste ler.
+        if printf '%s ' "$@" | grep -q -- ' -i '; then cat >> "$STUB_LOG.stdin"; fi
+        if printf '%s ' "$@" | grep -q is-system-running; then echo running; fi
+        if [ "${*: -1}" = env ] && [ -f "$est/exec-proxy" ]; then echo "HTTPS_PROXY=http://127.0.0.1:3128"; fi
+        if printf '%s ' "$@" | grep -q api.anthropic.com && [ -f "$est/sem-internet" ]; then
+            echo "curl: (6) Could not resolve host: api.anthropic.com" >&2; exit 6
+        fi
+        [ -f "$est/exec-falha" ] && exit 1
+        exit 0 ;;
+    build) echo "build simulado" ;;
+esac
+exit 0

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+. "$(dirname "$0")/_comum.sh"
+registrar "$@"
+if [ "${1:-}" = image ] && [ "${2:-}" = exists ]; then
+    [ "${DGCLAW_STUB_IMAGEM_PRONTA:-0}" = 1 ]
+    exit $?
+fi
+exit 0

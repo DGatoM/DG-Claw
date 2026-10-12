@@ -1,0 +1,58 @@
+{
+  "description": "DG Claw — hooks de plugin do MODO SERVIDOR (v0.1): recall por palavra-chave, registro do fio do Telegram e re-injecao pos-compactacao. O dispatch.ts garante que eles SO agem dentro de um workspace DG Claw servidor (Linux) — em qualquer outra sessao/SO saem em silencio. O modo LOCAL nao usa estes hooks: registra os proprios no .claude/settings.json do workspace do agente. O quadro de avisos da equipe (avisos.py) tem entrada propria, com timeout proprio, pra nao comer os 8 s do recall.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch.ts\" user-prompt",
+            "timeout": 8
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch.ts\" avisos",
+            "timeout": 6
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "mcp__.*telegram.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch.ts\" post-tool",
+            "timeout": 6
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch.ts\" session-start",
+            "timeout": 8
+          }
+        ]
+      },
+      {
+        "matcher": "compact|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch.ts\" avisos-reset",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

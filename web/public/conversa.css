@@ -1,0 +1,444 @@
+  /* a barra de baixo tem duas fileiras (campo + mic, e a linha de estado escrito),
+     então o chat precisa parar mais alto que o cabeçalho */
+  :root{--barra-h:104px}
+  body{overscroll-behavior:none}
+
+  /* ── Barra de baixo ── */
+  .barra{position:fixed;bottom:0;left:0;right:0;background:var(--header);z-index:22;
+         border-top:1px solid var(--line);padding:8px 10px;
+         padding-bottom:calc(8px + env(safe-area-inset-bottom));
+         display:flex;flex-direction:column;gap:6px}
+  .linha1{display:flex;align-items:center;gap:8px}
+  .linha1.cresceu{align-items:flex-end}
+  /* textarea de 1 linha que cresce até 4 ao colar ou escrever texto longo (JS
+     ajustaCampo); passou disso, rola por dentro. 16px: menos que isso o iPhone
+     dá zoom no foco e a tela ganha rolagem pro lado. */
+  .campo{position:relative;flex:1;min-width:0;display:flex}
+  #entrada{flex:1;min-width:0;border:1px solid var(--line);border-radius:20px;
+           padding:12px 14px;font:inherit;font-size:16px;line-height:20px;
+           background:#f4f8f4;color:var(--txt);height:46px;min-height:46px;
+           outline:none;resize:none;overflow-y:hidden;display:block;
+           box-sizing:border-box}
+  #entrada:focus{border-color:var(--accent);background:#fff}
+  #entrada::placeholder{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #btnEnviar{flex:0 0 46px;width:46px;height:46px;border-radius:50%;border:0;
+             background:var(--accent);color:#fff;font-size:18px;cursor:pointer}
+  #btnEnviar:disabled{opacity:.45}
+  #btnMic{flex:0 0 56px;width:56px;height:56px;border-radius:50%;border:0;
+          background:var(--accent);color:#fff;font-size:24px;cursor:pointer;
+          display:flex;align-items:center;justify-content:center}
+  #btnMic.gravando{background:#c0392b}
+  #btnMic:disabled{opacity:.45}
+  /* Sem segunda linha no rodapé (10/10/2026): o estado do microfone fica DENTRO
+     do campo ("● 0:07" gravando, "transcrevendo…"), sem mudar a altura dele. */
+  #micTxt{position:absolute;right:14px;top:0;bottom:0;display:flex;align-items:center;
+          max-width:calc(100% - 28px);padding-left:8px;background:#f4f8f4;border-radius:20px;
+          font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;
+          text-overflow:ellipsis;pointer-events:none}
+  #micTxt:empty{display:none}
+  #micTxt.vivo{color:#c0392b;font-weight:600}
+  #btnAnexo.cancela{background:#fdecec;border-color:#e8b4b0;color:#c0392b;font-weight:700}
+  .mini{border:1px solid var(--line);background:#f2f6f2;color:#38523f;border-radius:14px;
+        padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;min-height:36px;
+        white-space:nowrap}
+  .mini.on{background:var(--accent);color:#fff;border-color:transparent}
+  .mini:active{opacity:.7}
+
+  /* ── Anexo: botão da barra de baixo ── */
+  #btnAnexo{flex:0 0 44px;width:44px;height:44px;border-radius:50%;border:1px solid var(--line);
+            background:#f2f6f2;color:#38523f;font-size:20px;cursor:pointer;
+            display:flex;align-items:center;justify-content:center;padding:0}
+  #btnAnexo:active{opacity:.7}
+  #btnAnexo:disabled{opacity:.45}
+  #arquivo{display:none}
+  /* prints colados, arquivos arrastados ou escolhidos, esperando o Enter: um
+     cartão por anexo, na ordem, rolando na horizontal quando não cabem (05/10/2026) */
+  #anexoChip{display:block;padding:6px 6px 4px;border:1px solid var(--line);min-width:0;
+             border-radius:12px;background:#f2f6f2;font-size:13px;color:#38523f}
+  #anexoChip[hidden]{display:none}
+  #anexoLista{display:flex;gap:8px;overflow-x:auto;overflow-y:hidden;min-width:0;
+              padding-bottom:2px;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity}
+  .anx{flex:0 0 96px;width:96px;position:relative;scroll-snap-align:start;
+       display:flex;flex-direction:column;gap:2px}
+  .anxmid{position:relative;width:96px;height:72px;border-radius:8px;overflow:hidden;
+          background:#dbe6dc;display:flex;align-items:center;justify-content:center}
+  .anxmid img,.anxmid video{width:100%;height:100%;object-fit:cover;display:block}
+  .anxico{font-size:30px;line-height:1}
+  .anxplay{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);color:#fff;
+           font-size:18px;text-shadow:0 1px 3px rgba(0,0,0,.6);pointer-events:none}
+  .anxest{position:absolute;left:0;right:0;bottom:0;background:rgba(10,24,16,.62);color:#fff;
+          font-size:11.5px;font-weight:600;text-align:center;padding:2px 0}
+  .anx[data-estado="pronto"] .anxest{background:rgba(31,122,72,.78)}
+  .anx[data-estado="falhou"] .anxest{background:#c0392b}
+  .anx[data-estado="falhou"] .anxmid{outline:2px solid #c0392b;outline-offset:-2px}
+  .anxnome,.anxtam{font-size:11.5px;line-height:1.25;overflow:hidden;text-overflow:ellipsis;
+                   white-space:nowrap}
+  .anxtam{color:#6b7f70}
+  .anxx{position:absolute;top:-2px;right:-2px;width:32px;height:32px;border-radius:50%;
+        border:0;background:rgba(10,24,16,.7);color:#fff;font-size:14px;cursor:pointer;
+        display:flex;align-items:center;justify-content:center;padding:0}
+  .anxde{border:1px solid #e5b4ae;background:#fdecea;color:#a3271b;border-radius:10px;
+         font-size:11.5px;font-weight:600;min-height:32px;padding:0 4px;cursor:pointer}
+  .anxde[hidden]{display:none}
+  #anexoInfo{font-size:12px;color:#5b7062;padding:4px 2px 0;overflow-wrap:anywhere}
+  #anexoInfo.erro{color:#c0392b;font-weight:600}
+  /* balão otimista com vários anexos: grade de duas colunas */
+  .midgrade{display:block}
+  .midgrade.varios{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:6px}
+  .midgrade.varios .mid{margin:0}
+  .midgrade.varios .mid img,.midgrade.varios .mid video{height:120px;width:100%;
+                                                        object-fit:cover;display:block}
+  .midgrade.varios .midoff{grid-column:1 / -1;margin:0}
+  .mid video{display:block;width:100%;max-height:260px}
+
+  /* ── Mídia dentro do balão ── */
+  .mid{display:block;width:100%;margin:0 0 6px;padding:0;border:0;background:#dbe6dc;
+       border-radius:10px;overflow:hidden;cursor:pointer;position:relative}
+  .mid img{display:block;width:100%;max-height:260px;object-fit:cover}
+  .mid.semthumb img{display:none}
+  .midfb{display:none;align-items:center;gap:8px;padding:12px;font-size:13.5px;
+         color:#38523f;text-align:left;min-height:44px}
+  .mid.semthumb .midfb{display:flex}
+  .mid .lupa{position:absolute;right:7px;bottom:7px;background:rgba(10,24,16,.62);color:#fff;
+             font-size:11.5px;padding:3px 8px;border-radius:10px}
+  .midaudio{display:block;width:100%;margin:0 0 6px}
+  .midaudio audio{display:block;width:100%;min-height:40px}
+  .midoff{display:block;background:#e8ebe8;border:1px solid var(--line);border-radius:10px;
+          padding:10px 12px;margin-bottom:6px;font-size:13px;color:#5d6b60}
+  .midpct{position:absolute;left:0;right:0;bottom:0;background:rgba(10,24,16,.62);color:#fff;
+          font-size:12px;padding:4px 8px;text-align:center}
+
+  /* ── Lightbox (mídia em tamanho cheio) ── */
+  #lightbox{position:fixed;inset:0;z-index:70;background:#0b160f;
+            display:none;flex-direction:column}
+  #lightbox.abre{display:flex}
+  .lbtopo{display:flex;align-items:center;gap:10px;padding:8px 10px;
+          padding-top:calc(8px + env(safe-area-inset-top));color:#fff}
+  .lbnome{flex:1;min-width:0;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;
+          white-space:nowrap;opacity:.85}
+  .lbtopo button[hidden]{display:none}
+  .lbtopo button:disabled{opacity:.55}
+  .lbtopo a,.lbtopo button{border:1px solid rgba(255,255,255,.3);background:transparent;
+          color:#fff;border-radius:16px;padding:9px 14px;font-size:13.5px;font-weight:600;
+          min-height:44px;display:flex;align-items:center;cursor:pointer;text-decoration:none}
+  .lbcorpo{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;
+           padding:8px;padding-bottom:calc(8px + env(safe-area-inset-bottom))}
+  .lbcorpo img,.lbcorpo video{max-width:100%;max-height:100%;object-fit:contain}
+  .lbcorpo iframe{width:100%;height:100%;border:0;background:#fff;border-radius:8px}
+  .lbcorpo audio{width:min(100%,520px)}
+  .lbcorpo p{color:#cfe0d4;font-size:14px;text-align:center;max-width:26em}
+
+  /* ── Faixas de aviso e de erro (nunca erro mudo) ── */
+  .faixa{position:fixed;left:8px;right:8px;bottom:calc(var(--barra-h) + 8px);z-index:30;
+         border-radius:10px;padding:10px 12px;font-size:13.5px;display:none;
+         box-shadow:0 2px 10px rgba(0,0,0,.18);line-height:1.4}
+  .faixa.aparece{display:flex;gap:8px;align-items:flex-start}
+  .faixa .txt{flex:1}
+  .faixa .x{border:0;background:transparent;color:inherit;font-size:16px;cursor:pointer;
+            min-width:32px;min-height:32px}
+  #faixaErro{background:#fbe0e0;color:#8f2f2f;border:1px solid #f0bcbc}
+  #faixaAviso{background:#fdf3d0;color:#7a5c12;border:1px solid #efe0a8;
+              bottom:calc(var(--barra-h) + 8px)}
+  #faixaErro.aparece + #faixaAviso.aparece{bottom:calc(var(--barra-h) + 66px)}
+  /* botões dentro da faixa ("Tentar de novo", "Descartar"): numa linha própria
+     embaixo do texto, que quebra em vez de empurrar a tela pro lado em 390 px */
+  .faixa.aparece{flex-wrap:wrap}
+  .faixa .acoes{order:3;flex:1 0 100%;display:flex;flex-wrap:wrap;gap:8px}
+  .faixa .acoes .mini{min-height:36px}
+  /* áudio que ficou no aparelho sem transcrição (05/10/2026); o JS põe a
+     faixa em cima das outras duas quando elas aparecem juntas */
+  #faixaAudio{background:#fdf3d0;color:#7a5c12;border:1px solid #efe0a8}
+
+  #btnMenu{position:relative}
+  /* ── Cabeçalho: alvos de toque de verdade (eram 26 a 38 px) ── */
+  header .btn{min-height:44px;min-width:44px}
+  #btnMenu{font-size:20px}
+
+  /* ── Faixa de ferramentas (10/10/2026) ──
+     Celular: linha 1 do cabeçalho = ☰, foto, nome inteiro e status; linha 2 = os
+     botões, em ícones, rolando para o lado dentro da própria faixa (cabem 15 ou
+     mais). A sombra na borda só aparece do lado que ainda tem ícone escondido
+     (o JS marca .tem-esq e .tem-dir). Tela larga: os botões voltam para a linha
+     do cabeçalho, como eram. */
+  .ferr{display:contents}
+  .ferr-sombra{display:none}
+  .tools .btn{flex:0 0 auto}
+  #btnContinua.on{background:var(--accent);color:#fff;border-color:transparent}
+  #btnContinua:not(.on){opacity:.75}
+  @media (max-width:700px){
+    header{flex-wrap:wrap;row-gap:0;gap:0 8px;padding-left:6px;padding-right:6px}
+    header .who{flex:1 1 0;min-width:0}
+    .who b{overflow:visible;text-overflow:clip;white-space:normal;line-height:1.2}
+    .ferr{display:block;position:relative;order:9;flex:0 0 100%;min-width:0;margin-top:2px}
+    .ferr .tools{display:flex;gap:6px;overflow-x:auto;overflow-y:hidden;padding:7px 2px 5px;
+                 scrollbar-width:none;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+    .ferr .tools::-webkit-scrollbar{display:none}
+    header .tools .btn{min-height:40px;min-width:40px;padding:4px 8px;font-size:18px;
+                       display:inline-flex;align-items:center;justify-content:center;gap:4px;position:relative}
+    header .tools .lbl{display:none}
+    header .tools #btnParar{font-size:13px;padding:4px 12px}
+    .ferr-sombra{display:block;position:absolute;top:0;bottom:0;width:22px;pointer-events:none;
+                 opacity:0;transition:opacity .15s;z-index:2}
+    .ferr-sombra.esq{left:0;background:linear-gradient(90deg,var(--header),rgba(255,255,255,0))}
+    .ferr-sombra.dir{right:0;background:linear-gradient(270deg,var(--header),rgba(255,255,255,0))}
+    .ferr.tem-esq .esq,.ferr.tem-dir .dir{opacity:1}
+  }
+
+  /* ── Rolagem pra cima ── */
+  .topo{text-align:center;font-size:12px;color:var(--muted);padding:6px 0 2px}
+
+  /* ── Citação, reação, código ── */
+  .cita{border-left:3px solid var(--accent);background:rgba(47,158,94,.08);border-radius:6px;
+        padding:4px 8px;margin:0 0 6px;font-size:13px;color:#4a6152;
+        overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+  .cita b{display:block;font-size:12px;color:var(--accent)}
+  .reac{display:inline-block;margin-top:4px;font-size:15px;background:rgba(0,0,0,.05);
+        border-radius:12px;padding:1px 7px}
+  .bub code{font-family:ui-monospace,Menlo,monospace;font-size:13.5px;background:rgba(0,0,0,.06);
+            border-radius:4px;padding:0 4px}
+  .bub code.pre{display:block;white-space:pre-wrap;padding:6px 8px}
+  /* ```bloco```: a "caixa de texto" pronta pra colar. Fundo um pouco mais
+     escuro que o balão e o quadradinho de copiar no canto . */
+  .cod{position:relative;margin:8px 0 4px;background:rgba(0,0,0,.075);
+       border:1px solid rgba(0,0,0,.06);border-radius:8px}
+  .p + .cod{margin-top:10px}
+  .cod + .p{margin-top:10px}
+  .cod pre{margin:0;padding:9px 44px 9px 11px;white-space:pre-wrap;
+           overflow-wrap:anywhere;font-family:ui-monospace,Menlo,monospace;
+           font-size:13.5px;line-height:1.45;color:#1d2e23}
+  .codcopia{position:absolute;top:4px;right:4px;width:34px;height:34px;padding:0;
+            border:0;border-radius:8px;background:rgba(255,255,255,.75);color:#38523f;
+            display:flex;align-items:center;justify-content:center;cursor:pointer;
+            -webkit-user-select:none;user-select:none}
+  .codcopia:active{background:#fff}
+  .codcopia.ok{background:var(--accent);color:#fff}
+
+  /* ── Vídeo: o ▶ diz que não é foto ── */
+  .mid .play{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:54px;height:54px;
+             border-radius:50%;background:rgba(10,24,16,.6);color:#fff;font-size:22px;
+             display:flex;align-items:center;justify-content:center;padding-left:4px}
+  .mid.semthumb .play{display:none}
+  /* o player de áudio espremia no computador (só um traço e três pontos) */
+  .midaudio{min-width:min(260px,62vw)}
+
+  /* ── Seta verde durante a gravação: "envia direto" ── */
+  #btnEnviar.direto{background:#1f7a47;box-shadow:0 0 0 3px rgba(47,158,94,.3)}
+
+  /* ── BL-365: seta pro fim, busca e painel de compartilhados ── */
+  /* A seta fica acima da barra E das faixas: a posição sai do JS (posicionaSeta),
+     porque a barra muda de altura com o chip de anexo e as faixas vêm e vão. */
+  .seta-fim{position:fixed;right:14px;bottom:120px;z-index:31;width:48px;height:48px;
+            border-radius:50%;border:1px solid var(--line);background:#fff;color:#38523f;
+            font-size:22px;line-height:1;box-shadow:0 2px 8px rgba(0,0,0,.22);cursor:pointer;
+            display:flex;align-items:center;justify-content:center;padding:0}
+  .seta-fim[hidden]{display:none}
+  .fimnovas{position:absolute;top:-9px;left:50%;transform:translateX(-50%);min-width:22px;
+            height:22px;border-radius:11px;background:var(--accent);color:#fff;font-size:12px;
+            font-weight:700;padding:0 6px;display:flex;align-items:center;justify-content:center}
+  .fimnovas[hidden]{display:none}
+  /* Indicador "O agente está trabalhando · rodando um comando": faixa em fluxo
+     entre a última mensagem e o campo de digitar (a área de mensagens encolhe,
+     nada cobre balão). Uma linha só, com reticências. O ".who span" do chat.css
+     não alcança mais aqui, mas #estado precisa respeitar o hidden. */
+  .who #estado[hidden]{display:none}
+  #atividade{flex:0 0 auto;display:flex;align-items:center;gap:8px;cursor:pointer;
+             padding:7px 14px;background:#cfe3c8;color:#38523f;font-size:13.5px;font-weight:600;
+             border-top:1px solid rgba(0,0,0,.05)}
+  #atividade[hidden]{display:none}
+  #atividade .atv-txt{display:block;min-width:0;flex:1 1 auto;white-space:nowrap;overflow:hidden;
+                text-overflow:ellipsis}
+  #atividade .atv-acao{transition:opacity .15s}
+  #atividade .atv-acao.troca{opacity:0}
+  .atv-ponto{flex:0 0 auto;width:8px;height:8px;border-radius:50%;background:#23784a;
+             animation:atvPulsa 1.6s ease-in-out infinite}
+  #atividade.atv-longa .atv-ponto{animation-duration:3s}
+  #atividade.atv-alerta .atv-ponto,#atividade.atv-cinza .atv-ponto{animation:none}
+  #atividade.atv-alerta .atv-ponto{background:#b7791f}
+  #atividade.atv-cinza .atv-ponto{background:#8a948d}
+  #atividade.atv-alerta .atv-txt{color:#8a5a0f}
+  #atividade.atv-cinza .atv-txt{color:#6f7a72}
+  @keyframes atvPulsa{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.7)}}
+  @media (prefers-reduced-motion:reduce){
+    .atv-ponto{animation:none}
+    #atividade .atv-acao{transition:none}
+  }
+  .erroconfig{max-width:600px;margin:0 auto;padding:28px 18px;
+              padding-top:calc(28px + env(safe-area-inset-top))}
+  .erroconfig h1{font-size:21px;margin:0 0 10px}
+  .erroconfig p{color:#4a6152}
+  .erroconfig a{color:var(--accent);font-weight:600}
+
+  /* ── Modo standalone do iPhone (app instalado pela Tela de Início), BL-265 ──
+     Com viewport-fit=cover o inset de cima vale ~59pt, e o header do chat.css tem
+     height fixa de 58px com box-sizing:border-box: o padding do inset engolia a
+     altura toda, o conteúdo do header vazava por cima da thread e o #chat começava
+     embaixo dele . Em vez de remendar cada
+     position:fixed, esta tela vira uma coluna flex do tamanho do viewport visível
+     (100dvh): header, thread e barra são itens estáticos, e os insets viram
+     padding do header e da barra. Nada aqui depende de animação. */
+  /* Girar o iPhone pro lado e voltar fazia o Safari "inflar" o texto da thread
+     e não desinflar mais . */
+  html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+  body{display:flex;flex-direction:column;height:100vh;height:100dvh;overflow:hidden}
+  header{position:static;flex:0 0 auto;height:auto;min-height:var(--header-h);
+         padding-top:calc(4px + env(safe-area-inset-top));padding-bottom:4px}
+  #chat{position:static;flex:1 1 auto;min-height:0;overflow-y:auto;
+        -webkit-overflow-scrolling:touch}
+  .barra{position:static;flex:0 0 auto}
+  /* App instalado: a tela ocupa a altura real (o 100dvh do iOS no modo app
+     sobra mais curto que a tela e deixava uma faixa branca embaixo da barra), e
+     a barra desce até o indicador de início, com só o respiro pra ele. */
+  html.pwa body{position:fixed;top:0;left:0;right:0;bottom:0;height:auto}
+  html.pwa .barra{padding-bottom:max(6px, calc(env(safe-area-inset-bottom) - 14px))}
+  /* Com o visualViewport medido (script no fim da página), o corpo tem a altura
+     e a posição da área VISÍVEL: com teclado aberto a barra fica logo acima
+     dele. Teclado aberto: o respiro do indicador de início sobra, sai. */
+  html.vv body{position:fixed;left:0;right:0;top:var(--app-top,0px);bottom:auto;
+               height:var(--app-h,100dvh)}
+  html.teclado .barra{padding-bottom:8px}
+  html.teclado .faixa{bottom:calc(var(--barra-h) + 8px)}
+  html.teclado #faixaErro.aparece + #faixaAviso.aparece{bottom:calc(var(--barra-h) + 66px)}
+  /* Nada rola pro lado. O #chat rola em y, e com isso o x virava auto: um link
+     ou bloco largo dava rolagem lateral. Pinça também sai da conversa (zoom sem
+     querer no app instalado deixa a tela deslizando pro lado); a foto aberta
+     no visor continua com zoom. */
+  html,body{overflow-x:hidden;max-width:100%}
+  #chat{overflow-x:hidden;touch-action:pan-y}
+  .bub{overflow-wrap:anywhere;min-width:0}
+  .bub img,.bub video,.bub audio{max-width:100%}
+  .faixa{bottom:calc(var(--barra-h) + 8px + env(safe-area-inset-bottom))}
+  #faixaErro.aparece + #faixaAviso.aparece{
+    bottom:calc(var(--barra-h) + 66px + env(safe-area-inset-bottom))}
+</style>
+</head>
+
+/* ── Menu lateral: base ── */
+  /* ── Menu lateral ── */
+  #overlayMenu{position:fixed;inset:0;background:rgba(10,24,16,.45);z-index:40;display:none}
+  #overlayMenu.abre{display:block}
+  aside{position:fixed;top:0;bottom:0;left:0;width:min(84vw,310px);background:#fff;z-index:41;
+        display:flex;flex-direction:column;box-shadow:2px 0 14px rgba(0,0,0,.2);
+        transform:translateX(-102%);transition:transform .22s ease;
+        padding-top:env(safe-area-inset-top);
+        padding-bottom:env(safe-area-inset-bottom)}
+  aside.abre{transform:translateX(0)}
+  aside h2{font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);
+           margin:16px 16px 8px;font-weight:700}
+  .agentes{flex:1;overflow-y:auto}
+  .item{display:flex;align-items:center;gap:11px;padding:11px 16px;text-decoration:none;
+        color:var(--txt);min-height:58px;border-left:3px solid transparent}
+  .item.ativo{background:#f0f8f2;border-left-color:var(--accent)}
+  .item .av{width:38px;height:38px;flex:0 0 38px;font-size:16px;background:#2f9e5e}
+  .item b{display:block;font-size:15px;font-weight:600}
+  .item small{display:block;font-size:12.5px;color:var(--muted)}
+  .item .agora{font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase}
+  .item .meio{flex:1;min-width:0}
+  .item .meio small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .av img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block}
+  .pe{flex:0 0 auto;border-top:1px solid var(--line);padding:4px 8px 2px}
+  .pe .conta{display:flex;align-items:center;justify-content:space-between;gap:8px;
+        min-height:36px;padding:0 4px 0 8px}
+  .fechar{position:absolute;top:calc(8px + env(safe-area-inset-top));right:8px;
+          border:0;background:transparent;font-size:20px;color:var(--muted);
+          min-width:44px;min-height:44px;cursor:pointer}
+
+
+/* ── Pedaços que antes eram montados pelo JS (agora fixos aqui) ── */
+.lnkbaixa{display:inline-flex;align-items:center;justify-content:center;min-width:30px;height:26px;
+  margin:0 3px;padding:0 8px;border:1px solid rgba(31,122,71,.35);border-radius:13px;background:#eef6f0;
+  color:#1f7a47;font-size:14px;line-height:1;vertical-align:middle;cursor:pointer;position:relative}
+.midcx{position:relative;display:block}
+.midcx .mid.semthumb .midfb{padding-right:52px}
+.midcx .mid.semthumb .lupa{right:52px}
+.midbx{position:absolute;top:6px;right:6px;width:36px;height:36px;border:0;border-radius:50%;
+  background:rgba(10,24,16,.62);color:#fff;font-size:17px;line-height:1;cursor:pointer;z-index:2;
+  display:flex;align-items:center;justify-content:center;padding:0;text-decoration:none}
+.midcx .mid.semthumb + .midbx{top:50%;transform:translateY(-50%);margin-top:-3px}
+.midbx:active{background:rgba(10,24,16,.85)}
+.midaudio.combx{display:flex;align-items:center;gap:6px}
+.midaudio.combx audio{flex:1 1 auto;min-width:0}
+.midaudio.combx .midbx{position:static;flex:0 0 auto;background:#dbe6dc;color:#1f7a47}
+.anx[data-estado="subindo"]::after{content:"";position:absolute;left:0;bottom:0;height:3px;z-index:3;
+  width:var(--pct,0%);background:#2f9e5e;border-radius:0 2px 2px 0;transition:width .3s}
+
+/* ── Conversa vazia: o agente ainda está acordando ── */
+.vazio{max-width:26em;margin:28px auto;padding:22px 20px;border-radius:16px;text-align:center;
+  background:rgba(255,255,255,.92);box-shadow:0 1px 4px rgba(0,0,0,.12);color:#38523f}
+.vazio .vz-ico{font-size:34px;line-height:1;margin-bottom:8px}
+.vazio b{display:block;font-size:16.5px;color:var(--txt);margin-bottom:6px}
+.vazio small{display:block;font-size:13.5px;line-height:1.45;color:var(--muted)}
+
+/* ── Visor de arquivos (foto, vídeo, áudio, documento) ── */
+#lightbox .lbtopo{flex:0 0 auto;gap:8px;padding-left:max(10px,env(safe-area-inset-left));
+  padding-right:max(10px,env(safe-area-inset-right))}
+#lightbox .lbtopo a[hidden],#lightbox .lbtopo button[hidden]{display:none}
+#lbFechar{min-width:44px;justify-content:center;font-size:18px;padding:0 12px;flex:0 0 auto}
+.lbcorpo .vcard{background:#fff;color:#1d2a21;border-radius:16px;width:calc(100% - 32px);max-width:26em;
+  padding:24px 20px;text-align:center;box-sizing:border-box;overflow-wrap:anywhere}
+.lbcorpo .vcard .ico{font-size:46px;line-height:1}
+.lbcorpo .vcard b{display:block;margin:12px 0 4px;font-size:16px}
+.lbcorpo .vcard small{display:block;color:#5d6b60;font-size:13px;line-height:1.45}
+.lbcorpo .vcard a{display:inline-block;margin-top:16px;border-radius:12px;background:#1f7a47;color:#fff;
+  padding:12px 18px;font-weight:600;text-decoration:none;min-height:44px;box-sizing:border-box}
+.lbcorpo .vcard a.sec{background:#eef3ef;color:#1f7a47;margin-left:6px}
+
+/* ── Menu do DG Claw (gaveta do ☰) ──
+   Marca no topo, Conversa ativa, a lista de agentes (Admin primeiro), o painel
+   do agente e, no rodapé, o Sair. Tudo com prefixo gm-. */
+.gm-topo{display:flex;align-items:center;gap:8px;padding:12px 56px 6px 16px;min-height:48px}
+.gm-topo .gm-emoji{font-size:20px;line-height:1}
+.gm-topo b{font-size:15px;font-weight:700;color:var(--txt);white-space:nowrap}
+.gm-tut{margin-left:auto;min-height:32px;padding:0 12px;border-radius:16px;border:1px solid var(--line);
+  background:#fff;color:#38523f;font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit}
+.gm-conversa{padding:2px 8px 4px}
+.gm-item{display:flex;align-items:center;gap:11px;width:100%;box-sizing:border-box;min-height:48px;
+  padding:6px 10px;border:0;border-left:3px solid transparent;border-radius:8px;background:transparent;
+  color:var(--txt);text-decoration:none;text-align:left;font-family:inherit;cursor:pointer}
+.gm-item.ativo{background:#f0f8f2;border-left-color:var(--accent)}
+.gm-item:active{background:#f0f8f2}
+.gm-ic{flex:0 0 28px;font-size:20px;text-align:center;line-height:1}
+.gm-tx{min-width:0;flex:1}
+.gm-tx b{display:block;font-size:15px;font-weight:600}
+.gm-tx small{display:block;font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gm-corpo{flex:0 1 auto;overflow-y:auto;border-top:1px solid var(--line);padding:2px 8px 6px}
+.gm-corpo:empty{display:none}
+.gm-sec h3{margin:10px 8px 4px;font-size:12px;text-transform:uppercase;letter-spacing:.6px;
+  color:var(--muted);font-weight:700}
+.gm-sec[hidden]{display:none}
+.selo{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:9px;background:#e3ece5;
+  color:#38523f;font-size:10.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
+  vertical-align:middle}
+.pe form{margin:0;margin-left:auto}
+.pe .sair{min-height:34px;padding:0 16px;font-size:13px;font-weight:600;color:#38523f;border:1px solid var(--line);background:#fff;border-radius:17px;cursor:pointer;font-family:inherit}
+
+/* Aviso discreto do Admin, em cima do campo */
+#avisoAdmin{font-size:12px;line-height:1.3;color:var(--muted);padding:0 8px 2px}
+#avisoAdmin[hidden]{display:none}
+#avisoAdmin code{font-family:ui-monospace,Menlo,monospace;background:rgba(0,0,0,.06);border-radius:4px;padding:0 3px}
+
+/* Os botões que dependem de microfone ou voz só aparecem quando o servidor libera */
+.sem-mic #btnMic,.sem-voz #btnLer,.sem-voz #btnContinua,.sem-mic #btnContinua{display:none}
+#btnTutorial{font-size:13px}
+.sem-mic .linha1 .campo{margin-right:0}
+
+/* ── Visita guiada (tour.js) ── */
+#tourFundo{position:fixed;inset:0;z-index:90}
+#tourLuz{position:fixed;z-index:91;border-radius:10px;pointer-events:none;
+  box-shadow:0 0 0 9999px rgba(10,24,16,.66);outline:2px solid #fff}
+#tourCaixa{position:fixed;z-index:92;left:12px;right:12px;max-width:400px;margin:0 auto;background:#fff;
+  color:var(--txt);border-radius:14px;padding:14px 16px;box-shadow:0 6px 28px rgba(0,0,0,.35);
+  font-size:14px;line-height:1.45;max-height:70dvh;overflow-y:auto}
+#tourCaixa:focus{outline:none}
+#tourCaixa h4{margin:0 0 2px;font-size:15.5px}
+#tourCaixa .tour-n{font-size:11.5px;color:var(--muted);margin-bottom:6px}
+#tourCaixa p{margin:0 0 6px}
+#tourCaixa p b{color:#1f7a45}
+#tourCaixa .tour-acoes{display:flex;gap:8px;justify-content:flex-end;margin-top:10px;flex-wrap:wrap}
+#tourCaixa button{min-height:36px;padding:0 14px;border-radius:18px;border:1px solid var(--line);
+  background:#fff;font-size:13.5px;font-weight:600;cursor:pointer;font-family:inherit;color:#38523f}
+#tourCaixa button.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+#tourCaixa button:disabled{opacity:.4;cursor:default}
+#tourCaixa .tour-x{margin-right:auto}
+
+/* O atributo hidden sempre esconde, mesmo em elementos com display definido */
+[hidden]{display:none !important}

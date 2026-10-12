@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Mostra as portas "ocupadas" listadas (uma por linha) em $STUB_ESTADO/ss.
+echo "State  Recv-Q Send-Q Local Address:Port Peer Address:Port"
+if [ -f "${STUB_ESTADO:?}/ss" ]; then
+    while read -r p; do echo "LISTEN 0 128 127.0.0.1:$p 0.0.0.0:*"; done < "$STUB_ESTADO/ss"
+fi

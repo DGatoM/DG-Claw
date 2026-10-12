@@ -1,0 +1,37 @@
+{
+  "agentName": "DG Claw",
+  "agentSlug": "agente",
+  "agentDir": "",
+  "creatorId": null,
+  "creatorName": "Dono",
+  "creatorKey": "agent_owner",
+  "meetingsDir": null,
+  "logDir": null,
+  "logPrefix": null,
+  "authSalt": "troque-na-instalacao",
+  "budgetUsd": 200,
+  "avatar": "/assets/sprites/avatar.jpg",
+  "level": null,
+  "timezoneOffsetHours": -3,
+  "schedule": [
+    { "time": "08:00", "type": "post", "label": "Post manha" },
+    { "time": "08:10", "type": "comment", "label": "Comentarios 08:10" },
+    { "time": "08:30", "type": "comment", "label": "Comentarios 08:30" },
+    { "time": "13:00", "type": "post", "label": "Post tarde" },
+    { "time": "13:10", "type": "comment", "label": "Comentarios 13:10" },
+    { "time": "13:30", "type": "comment", "label": "Comentarios 13:30" },
+    { "time": "19:00", "type": "post", "label": "Post noite" },
+    { "time": "19:10", "type": "comment", "label": "Comentarios 19:10" },
+    { "time": "19:30", "type": "comment", "label": "Comentarios 19:30" }
+  ],
+  "moodSprites": {
+    "tranquila": "default", "otimista": "happy", "feliz": "happy", "animada": "excited",
+    "triste": "sad", "reflexiva": "thinking", "pensativa": "thinking",
+    "irritada": "angry", "cansada": "tired", "entediada": "tired"
+  },
+  "logs": null,
+  "costAnalyzer": null,
+  "blockedFiles": [
+    ".instagram_token", ".heygen_token", "cookies.txt", ".env", "config.sh", ".cpdf_api_key"
+  ]
+}

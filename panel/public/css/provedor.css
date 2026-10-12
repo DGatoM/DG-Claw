@@ -1,0 +1,67 @@
+/* provedor.css: o cartão "Modelo e autenticação" da aba Status e a janela "Trocar"
+ * (js/provedor.js). No celular a janela ocupa a tela toda e nada passa da largura. */
+
+.prov-cartao{margin-bottom:14px}
+.prov-rotulo{font-size:22px;font-weight:600;line-height:1.3;overflow-wrap:anywhere}
+.prov-modo{cursor:help;text-decoration:underline dotted;text-underline-offset:4px}
+.prov-conferido{margin-top:4px;font-size:13px;color:var(--fraco);cursor:help;overflow-wrap:anywhere}
+.prov-conferido.atencao{color:var(--espera);font-weight:600}
+.prov-aviso{margin-top:10px;border-left:3px solid var(--espera);background:var(--fundo2);border-radius:8px;
+  padding:10px 12px;font-size:14px;overflow-wrap:anywhere}
+.prov-aviso[hidden],.prov-login[hidden],.prov-j-erro[hidden]{display:none}
+.prov-detalhe{color:var(--fraco)}
+.prov-acoes{margin-top:12px;display:flex;flex-wrap:wrap;gap:8px}
+
+.prov-btn{cursor:pointer;min-height:36px;padding:6px 16px;border-radius:9px;border:0;font-weight:600;
+  color:#fff;background:linear-gradient(135deg,var(--acento1),var(--acento2))}
+.prov-btn.leve{background:var(--painel);color:var(--texto);border:1px solid var(--linha);font-weight:500}
+.prov-btn.leve:hover{background:var(--fundo2)}
+.prov-btn[disabled]{opacity:.55;cursor:default}
+.prov-btn[hidden]{display:none}
+
+.prov-login{margin-top:12px;border:1px solid var(--linha);background:var(--fundo2);border-radius:10px;
+  padding:12px 14px;display:grid;gap:8px;overflow-wrap:anywhere}
+.prov-login p{margin:0}
+.prov-link{font-weight:600}
+.prov-codigo-linha{display:flex;flex-wrap:wrap;gap:8px}
+.prov-codigo-linha input{flex:1 1 220px;min-width:0;min-height:36px;padding:6px 10px;border-radius:8px;
+  border:1px solid var(--linha);background:var(--painel)}
+.prov-codigo-grande{font-size:34px;font-weight:700;letter-spacing:.12em;font-family:ui-monospace,monospace;
+  padding:8px 0;overflow-wrap:anywhere}
+.prov-login-pe{display:flex;flex-wrap:wrap;gap:8px}
+.prov-fraco{color:var(--fraco);font-size:13px}
+.prov-erro{color:var(--erro)}
+.prov-ok{color:var(--ok);font-weight:600}
+
+/* a janela */
+.prov-fundo{position:fixed;inset:0;z-index:90;background:rgba(10,12,20,.55);backdrop-filter:blur(3px);
+  display:flex;align-items:center;justify-content:center;padding:16px}
+.prov-janela{background:var(--painel);border:1px solid var(--linha);border-radius:var(--raio);
+  width:min(560px,100%);max-height:calc(100vh - 32px);display:flex;flex-direction:column;box-shadow:var(--sombra);outline:none}
+.prov-j-topo{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px;
+  border-bottom:1px solid var(--linha)}
+.prov-j-topo h3{margin:0;font-size:16px}
+.prov-fechar{cursor:pointer;background:none;border:0;color:var(--fraco);font-size:24px;line-height:1;
+  min-width:36px;min-height:36px}
+.prov-j-corpo{padding:14px 18px;overflow:auto;display:grid;gap:12px}
+.prov-j-corpo fieldset{border:1px solid var(--linha);border-radius:10px;margin:0;padding:8px 12px;display:grid;gap:4px;min-width:0}
+.prov-j-corpo legend{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--fraco);padding:0 6px}
+.prov-op{display:flex;gap:10px;align-items:flex-start;padding:6px 0;min-height:32px;cursor:pointer}
+.prov-op input{margin-top:4px;flex:none}
+.prov-op span{display:grid;gap:2px;min-width:0}
+.prov-op.desligada{opacity:.6;cursor:not-allowed}
+.prov-explica{color:var(--fraco);font-size:13px;line-height:1.45}
+.prov-campo{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--fraco);margin-bottom:-6px}
+.prov-janela select,.prov-chave input{width:100%;min-height:36px;padding:6px 10px;border-radius:8px;
+  border:1px solid var(--linha);background:var(--painel)}
+.prov-chave{display:grid;gap:4px}
+.prov-aviso-troca{border-left:3px solid var(--espera);background:var(--fundo2);border-radius:8px;padding:10px 12px;font-size:14px}
+.prov-j-erro{border-left:3px solid var(--erro);background:var(--fundo2);border-radius:8px;padding:10px 12px;font-size:14px;overflow-wrap:anywhere}
+.prov-j-pe{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:8px;padding:12px 18px;border-top:1px solid var(--linha)}
+
+@media (max-width:600px){
+  .prov-fundo{padding:0}
+  .prov-janela{width:100%;height:100%;max-height:none;border-radius:0;border:0}
+  .prov-rotulo{font-size:19px}
+  .prov-codigo-grande{font-size:28px}
+}

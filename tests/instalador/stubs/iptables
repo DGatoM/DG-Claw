@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Guarda cadeias e regras em arquivos para o teste de idempotencia do firewall.sh.
+. "$(dirname "$0")/_comum.sh"
+registrar "$@"
+e="$(estado_dir)"
+args=(); for a in "$@"; do [ "$a" = -w ] || args+=("$a"); done
+set -- "${args[@]}"
+case "$1" in
+    -L) grep -qxF "$2" "$e/ipt-cadeias" 2>/dev/null ;;
+    -N) if grep -qxF "$2" "$e/ipt-cadeias" 2>/dev/null; then exit 1; fi; echo "$2" >>"$e/ipt-cadeias" ;;
+    -F) grep -vF "|$2|" "$e/ipt-regras" >"$e/ipt-regras.novo" 2>/dev/null || true; mv -f "$e/ipt-regras.novo" "$e/ipt-regras" ;;
+    -A) c="$2"; shift 2; echo "|$c| $*" >>"$e/ipt-regras" ;;
+    -I) c="$2"; shift 3; echo "|$c| $*" >>"$e/ipt-regras" ;;
+    -C) c="$2"; shift 2; grep -qxF "|$c| $*" "$e/ipt-regras" 2>/dev/null ;;
+esac

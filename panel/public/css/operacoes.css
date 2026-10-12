@@ -1,0 +1,102 @@
+/* operacoes.css: a aba Operações (a página de status) e a linha dela na home.
+ *
+ * Os quadradinhos usam as MESMAS variáveis de cor do resto do painel (--ok,
+ * --erro, --espera, --neutro), que o main.css troca no tema escuro. Assim o verde
+ * da fileira é o verde do selo e o vermelho é o vermelho do erro, nos dois temas.
+ *
+ * A FILEIRA NUNCA ROLA PARA O LADO. Ela é flex em ordem invertida (o mais recente
+ * fica à direita) com o excesso cortado: no celular aparecem menos quadradinhos, e
+ * os que somem são os mais antigos, pela esquerda.
+ */
+
+/* ─── topo: o resumo e o alternador ─────────────────────────────────────── */
+.op-topo{display:flex;align-items:stretch;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:16px}
+.op-resumo{flex:1;min-width:min(100%,320px);display:flex;align-items:center;gap:14px;
+  background:var(--painel);border:1px solid var(--linha);border-radius:var(--raio);padding:14px 16px;box-shadow:var(--sombra)}
+.op-resumo-icone{width:38px;height:38px;border-radius:50%;flex-shrink:0;display:grid;place-items:center;
+  font-weight:700;font-size:18px;color:#fff;background:var(--neutro)}
+.op-resumo.ok .op-resumo-icone{background:var(--ok)}
+.op-resumo.atencao .op-resumo-icone{background:var(--espera)}
+.op-resumo.indisponivel .op-resumo-icone{background:var(--erro)}
+.op-resumo-texto{flex:1;min-width:0}
+.op-resumo-frase{font-size:17px;font-weight:600;line-height:1.35;overflow-wrap:anywhere}
+.op-resumo-frase a{color:inherit;text-decoration:underline dotted;text-underline-offset:3px}
+.op-resumo-pe{font-size:12.5px;color:var(--fraco);margin-top:3px;cursor:help}
+.op-atualizar{flex-shrink:0;min-height:32px}
+
+.op-alternar{display:inline-flex;align-self:center;background:var(--fundo2);border:1px solid var(--linha);
+  border-radius:12px;padding:3px;gap:2px}
+.op-alternar button{cursor:pointer;border:0;background:none;border-radius:9px;padding:0 16px;min-height:34px;
+  font-size:13.5px;color:var(--fraco)}
+.op-alternar button.ativo{background:var(--painel);color:var(--texto);box-shadow:var(--sombra);font-weight:600}
+
+/* ─── legenda ───────────────────────────────────────────────────────────── */
+.op-legenda{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;font-size:12.5px;color:var(--fraco);margin:0 0 6px}
+.op-legenda > span{display:inline-flex;align-items:center;gap:6px;cursor:help}
+.op-legenda .opq{height:14px;width:8px}
+.op-legenda-dica{margin-left:auto;cursor:default!important}
+
+/* ─── grupos e linhas ───────────────────────────────────────────────────── */
+.op-grupo{margin-top:20px}
+.op-grupo > .section-title{margin-bottom:4px;cursor:help}
+.op-grupo > .ajuda-secao{margin:0 0 10px}
+.op-linha{display:grid;grid-template-columns:minmax(220px,34%) 1fr;grid-template-areas:"cabeca fileira" "cabeca semana" "detalhe detalhe";
+  column-gap:18px;row-gap:4px;align-items:center;background:var(--painel);border:1px solid var(--linha);
+  border-radius:12px;padding:12px 14px;margin-bottom:8px;transition:box-shadow .3s ease}
+.op-linha.destacada{box-shadow:0 0 0 3px color-mix(in srgb,var(--acento1) 45%,transparent)}
+.op-cabeca{grid-area:cabeca;display:flex;align-items:flex-start;gap:10px;min-width:0}
+.op-sinal{width:10px;height:10px;border-radius:50%;flex-shrink:0;margin-top:6px;background:var(--neutro);opacity:.6}
+.op-sinal.ok{background:var(--ok);opacity:1} .op-sinal.falha{background:var(--erro);opacity:1}
+.op-sinal.atencao{background:var(--espera);opacity:1}
+.op-textos{min-width:0}
+.op-nome{font-size:14.5px;font-weight:600;line-height:1.35;cursor:help;overflow-wrap:anywhere}
+.op-essencial{display:inline-block;font-size:10.5px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--acento1);border:1px solid color-mix(in srgb,var(--acento1) 40%,var(--linha));border-radius:999px;padding:0 7px;
+  margin-left:4px;vertical-align:2px;cursor:help}
+html[data-tema="escuro"] .op-essencial{color:var(--acento2)}
+.op-quando{font-size:12.5px;color:var(--fraco);margin-top:2px;overflow-wrap:anywhere}
+.op-semana{grid-area:semana;font-size:11.5px;color:var(--fraco);text-align:right}
+.op-detalhe{grid-area:detalhe;font-size:12.5px;white-space:pre-wrap;background:var(--fundo2);border-radius:9px;
+  padding:7px 10px;margin-top:6px;overflow-wrap:anywhere}
+.op-linha.estado-falha{border-color:color-mix(in srgb,var(--erro) 45%,var(--linha))}
+.op-linha.estado-atencao{border-color:color-mix(in srgb,var(--espera) 50%,var(--linha))}
+
+/* ─── a fileira e os quadradinhos ───────────────────────────────────────── */
+.op-fileira{grid-area:fileira;display:flex;flex-direction:row-reverse;justify-content:flex-start;align-items:center;
+  gap:3px;overflow:hidden;min-width:0;padding:4px 2px;border-radius:8px;cursor:pointer;outline:none}
+.op-fileira:focus-visible{box-shadow:0 0 0 2px var(--acento1)}
+.opq{display:inline-block;flex:0 0 auto;width:9px;height:28px;border-radius:3px;background:var(--neutro)}
+.opq.verde{background:var(--ok)}
+.opq.vermelho{background:var(--erro)}
+.opq.amarelo{background:var(--espera)}
+.opq.cinza{background:color-mix(in srgb,var(--neutro) 40%,var(--fundo2))}
+/* "Não rodou quando devia": amarelo listrado, para não ser confundido com "rodou com aviso". */
+.opq.amarelo.falta{background:repeating-linear-gradient(135deg,var(--espera) 0 3px,color-mix(in srgb,var(--espera) 45%,transparent) 3px 6px)}
+.opq:hover{filter:brightness(1.12);transform:scaleY(1.08)}
+.opq.sel{outline:2px solid var(--texto);outline-offset:1px}
+.opq-vazia{font-size:12px;color:var(--fraco);padding:6px 0}
+
+/* ─── a linha da home ───────────────────────────────────────────────────── */
+.home-operacoes{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--painel);border:1px solid var(--linha);
+  border-radius:var(--raio);padding:12px 16px;margin-bottom:16px;box-shadow:var(--sombra);font-size:14px;cursor:help}
+.home-operacoes .hop-icone{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:13px;font-weight:700;
+  color:#fff;background:var(--neutro);flex-shrink:0}
+.home-operacoes.ok .hop-icone{background:var(--ok)}
+.home-operacoes.atencao .hop-icone{background:var(--espera)}
+.home-operacoes.indisponivel .hop-icone{background:var(--erro)}
+.home-operacoes .link-aba{margin-left:auto;cursor:pointer;min-height:32px;display:inline-flex;align-items:center}
+
+/* ─── celular ───────────────────────────────────────────────────────────── */
+@media (max-width:860px){
+  .op-linha{grid-template-columns:1fr;grid-template-areas:"cabeca" "fileira" "semana" "detalhe";padding:11px 12px}
+  .op-semana{text-align:left}
+  .op-legenda-dica{margin-left:0;flex-basis:100%}
+}
+@media (max-width:560px){
+  .opq{width:8px;height:26px}
+  .op-resumo{padding:12px}
+  .op-resumo-frase{font-size:15.5px}
+  .op-alternar{width:100%}
+  .op-alternar button{flex:1}
+  .home-operacoes .link-aba{margin-left:34px}
+}

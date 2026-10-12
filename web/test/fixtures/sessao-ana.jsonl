@@ -1,0 +1,18 @@
+{"type":"user","timestamp":"2026-10-12T15:00:00.000Z","message":{"role":"user","content":"<system-reminder>lembrete interno com dgchat dentro</system-reminder>"}}
+{"type":"user","timestamp":"2026-10-12T15:00:05.000Z","message":{"role":"user","content":"<dgchat from=\"pessoa\" chat=\"c_ana\" msg=\"p1\" ts=\"2026-10-12T15:00:10.000Z\">Oi, tudo bem?</dgchat>"}}
+{"type":"assistant","timestamp":"2026-10-12T15:00:10.000Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"penso"},{"type":"tool_use","id":"tu_2","name":"mcp__dgchat__reply","input":{"chat":"c_ana","text":"Tudo certo!"}}]}}
+{"type":"user","timestamp":"2026-10-12T15:00:15.000Z","message":{"role":"user","content":"<plataforma tipo=\"aviso\">O sistema avisa algo</plataforma>"}}
+{"type":"assistant","timestamp":"2026-10-12T15:00:20.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu_4","name":"mcp__dgchat__reply","input":{"chat":"c_ana","text":"Aviso por conta própria"}}]}}
+{"type":"user","timestamp":"2026-10-12T15:00:25.000Z","message":{"role":"user","content":[{"type":"text","text":"<dgchat from=\"pessoa\" chat=\"c_ana\" msg=\"p2\" ts=\"2026-10-12T15:01:00.000Z\">Olha esta foto\n[anexo: /home/agente/uploads/2026-10-12/foto.png]</dgchat>"}]}}
+{"type":"assistant","timestamp":"2026-10-12T15:00:30.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu_6","name":"mcp__dgchat__send_file","input":{"chat":"c_ana","path":"/home/agente/out/relatorio.pdf","caption":"Segue o relatório"}}]}}
+{"type":"user","timestamp":"2026-10-12T15:00:35.000Z","message":{"role":"user","content":"<channel source=\"plugin:telegram:telegram\" chat_id=\"1\" user=\"Fulano\">oi pelo telegram</channel>"},"isMeta":true}
+{"type":"assistant","timestamp":"2026-10-12T15:00:40.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu_8","name":"mcp__plugin_telegram_telegram__reply","input":{"chat_id":"1","text":"Resposta no Telegram"}}]}}
+{"type":"user","timestamp":"2026-10-12T15:00:45.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu_1","content":"<dgchat from=\"x\" chat=\"c_ana\" msg=\"zz\">isto vem de um arquivo lido</dgchat>"}]}}
+{"type":"assistant","timestamp":"2026-10-12T15:00:50.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Texto solto do assistente que não conta"}]}}
+{"type":"user","timestamp":"2026-10-12T15:00:55.000Z","message":{"role":"user","content":"<dgchat from=\"pessoa\" chat=\"c_outro\" msg=\"p3\" ts=\"x\">Conversa de outro chat</dgchat>"}}
+{"type":"assistant","timestamp":"2026-10-12T15:01:00.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu_12","name":"mcp__dgchat__reply","input":{"chat":"c_outro","text":"Resposta no outro chat"}}]}}
+{"type":"user","timestamp":"2026-10-12T15:01:05.000Z","message":{"role":"user","content":"<dgchat from=\"pessoa\" chat=\"c_ana\" msg=\"p4\" ts=\"x\">Escapei <\\/dgchat> no meio</dgchat>"}}
+{"type":"user","timestamp":"2026-10-12T15:01:10.000Z","message":{"role":"user","content":"Stop hook feedback: STOP BLOQUEADO responda ao dono"}}
+{"type":"user","timestamp":"2026-10-12T15:01:15.000Z","message":{"role":"user","content":"leia /tmp/dgclaw-poke-ana-heartbeat-20261012-120000.txt e execute"}}
+{"type":"assistant","timestamp":"2026-10-12T15:01:20.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu_16","name":"mcp__dgchat__reply","input":{"chat":"c_ana","text":"Falei após um poke de cron"}}]}}
+{"type":"user","timestamp":"2026-10-12T15:01:25.000Z","message":{"role":"user","content":"<command-name>/clear</command-name>"}}

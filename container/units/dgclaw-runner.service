@@ -1,0 +1,34 @@
+[Unit]
+Description=DG Claw runner (o processo que é o agente: abre o terminal do Claude/Codex e fala HTTP com o painel)
+After=network.target
+# O runner.json vem de uma montagem somente leitura do host (o agente não o reescreve).
+# Sem ele o agente ainda não foi configurado: a unidade fica quieta em vez de falhar.
+ConditionPathExists=/etc/dgclaw-runner/runner.json
+
+[Service]
+Type=simple
+User=agente
+Environment=HOME=/home/agente
+Environment=RUNNER_AGENT_FILE=/etc/dgclaw-runner/runner.json
+Environment=RUNNER_STATE_FILE=/home/agente/.plataforma/runner-state.json
+Environment=RUNNER_PORT=4300
+Environment=RUNNER_BIND=0.0.0.0
+Environment=RUNNER_LOG=/home/agente/.dgclaw/logs/runner.log
+Environment=RUNNER_TOKEN_FILE=/run/dgclaw/segredos/runner.token
+Environment=CLAUDE_CONFIG_DIR=/home/agente/.claude
+Environment=CODEX_HOME=/home/agente/.codex
+# O runner junta esta frase ao aviso de "ainda não fez login" que o dono vê.
+Environment="RUNNER_LOGIN_HINT=Abra o painel do agente e use o botão Entrar com a assinatura."
+# Cofre do agente (chaves de API). O "-" deixa a unidade subir mesmo sem o arquivo.
+EnvironmentFile=-/run/dgclaw/cofre/cofre.env
+# Variáveis que o Claude Code põe no ambiente de quem o chama. Se o runner as herdasse,
+# o claude que ele abre se acharia filho de outra sessão e se comportaria como tal.
+UnsetEnvironment=CLAUDECODE CLAUDE_CODE_SESSION_ID CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_EXECPATH CLAUDE_PID
+WorkingDirectory=/home/agente
+ExecStartPre=/bin/mkdir -p /home/agente/.dgclaw/logs
+ExecStart=/usr/bin/node /opt/dgclaw/app/runner/dist/index.js
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

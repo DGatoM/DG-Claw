@@ -1,0 +1,625 @@
+/* main.css: o painel do DG Claw.
+ *
+ * Desenho "Sereno": menu lateral fixo com o retrato do agente no topo, conteudo em
+ * cartoes com respiro, acento em gradiente frio e sombra bem fraca. Tema claro e escuro,
+ * o do sistema por padrao, com botao pra trocar.
+ *
+ * Nenhuma fonte ou folha de estilo vem de fora: o painel abre igual numa VPS sem internet
+ * de saida, e nao vaza pra CDN nenhuma qual agente esta sendo aberto.
+ */
+
+:root{
+  --raio:14px;
+  --acento1:#4f46e5; --acento2:#8b5cf6;
+  --bg:#f6f7fb; --painel:#ffffff; --fundo2:#f0f2f8; --linha:#e6e8f0;
+  --texto:#1a1c25; --fraco:#6b7185;
+  --sombra:0 1px 2px rgba(16,20,40,.04), 0 8px 24px rgba(16,20,40,.06);
+  --ok:#15a06a; --erro:#dc2b46; --espera:#c98a08; --neutro:#8b90a0;
+  --lado:236px;
+}
+/* Apelidos antigos: o painel nasceu com outra paleta e ainda ha telas citando
+ * --text-dim, --green e companhia. Ficam como atalho pras cores de agora, pra
+ * texto secundario nao virar texto normal por causa de um nome que sumiu. */
+:root,html[data-tema="escuro"]{
+  --text:var(--texto); --text-dim:var(--fraco); --text-bright:var(--texto);
+  --green:var(--ok); --red:var(--erro); --yellow:var(--espera);
+  --cyan:var(--acento1); --purple:var(--acento2); --pink:var(--acento2); --blue:var(--acento1);
+  --bg-card:var(--painel); --bg-panel:var(--fundo2); --border:var(--linha);
+}
+html[data-tema="escuro"]{
+  --bg:#0e1017; --painel:#161923; --fundo2:#1c2030; --linha:#262b3a;
+  --texto:#e9ebf2; --fraco:#9aa1b5;
+  --sombra:0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+  --ok:#3ddc9a; --erro:#ff6b81; --espera:#f0b429; --neutro:#7d8497;
+}
+@media (prefers-color-scheme:dark){
+  html:not([data-tema="claro"]){
+    --bg:#0e1017; --painel:#161923; --fundo2:#1c2030; --linha:#262b3a;
+    --texto:#e9ebf2; --fraco:#9aa1b5;
+    --sombra:0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+    --ok:#3ddc9a; --erro:#ff6b81; --espera:#f0b429; --neutro:#7d8497;
+  }
+}
+
+*{box-sizing:border-box}
+/* O atributo `hidden` esconde SEMPRE. Sem esta linha, qualquer classe com display:flex
+   (a barra do ditado, a faixa de aviso da Conversa, o recado do leitor) ganhava do
+   estilo do navegador e aparecia com `hidden` e tudo. */
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--texto);
+     font:15px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+     -webkit-font-smoothing:antialiased}
+a{color:inherit}
+button,input,select{font:inherit;color:inherit}
+.num,.val,td.num{font-variant-numeric:tabular-nums}
+
+/* ─── esqueleto ─────────────────────────────────────────────────────────── */
+.app{display:grid;grid-template-columns:var(--lado) 1fr;min-height:100vh}
+.lado{background:var(--painel);border-right:1px solid var(--linha);padding:22px 14px 18px;
+      display:flex;flex-direction:column;gap:18px;position:sticky;top:0;height:100vh;overflow:auto}
+.principal{min-width:0;display:flex;flex-direction:column}
+.content{padding:22px 26px 60px;max-width:1280px;width:100%}
+
+/* ─── retrato do agente ─────────────────────────────────────────────────── */
+.marca{display:flex;flex-direction:column;align-items:center;text-align:center;gap:2px}
+.moldura{position:relative;width:124px;height:124px;display:grid;place-items:center;margin-bottom:12px}
+.moldura::before{content:"";position:absolute;inset:0;border-radius:50%;
+  background:conic-gradient(from 210deg,var(--acento1),var(--acento2),var(--acento1))}
+.moldura::after{content:"";position:absolute;inset:5px;border-radius:50%;background:var(--painel)}
+.sprite-gif{position:relative;z-index:1;width:106px;height:106px;border-radius:50%;object-fit:cover;
+  background:var(--fundo2);box-shadow:0 6px 22px color-mix(in srgb,var(--acento1) 24%,transparent)}
+.mood-badge{position:absolute;z-index:2;bottom:0;right:2px;background:var(--painel);
+  border:1px solid var(--linha);border-radius:999px;padding:3px 11px;font-size:11px;
+  letter-spacing:.02em;box-shadow:var(--sombra);text-transform:lowercase;white-space:nowrap;max-width:120px;overflow:hidden;text-overflow:ellipsis}
+.mood-badge.sad{color:var(--fraco)} .mood-badge.angry{color:var(--erro)}
+.mood-badge.happy,.mood-badge.excited{color:var(--ok)}
+.char-name{font-size:19px;font-weight:600;letter-spacing:-.01em;line-height:1.25}
+.char-papel,.char-level{font-size:12px;color:var(--fraco)}
+
+/* seletor de agente */
+.troca{position:relative;width:100%;margin-top:12px}
+.troca > button{cursor:pointer;width:100%;display:flex;align-items:center;gap:8px;justify-content:center;
+  padding:7px 10px;border:1px solid var(--linha);border-radius:10px;background:none;font-size:12.5px;color:var(--fraco)}
+.troca > button:hover{background:var(--fundo2);color:var(--texto)}
+.troca .mini{width:22px;height:22px;border-radius:50%;object-fit:cover;background:var(--fundo2)}
+.troca .seta{opacity:.7}
+.troca .lista{position:absolute;z-index:30;top:calc(100% + 6px);left:0;right:0;background:var(--painel);
+  border:1px solid var(--linha);border-radius:12px;box-shadow:var(--sombra);padding:6px;display:none;max-height:60vh;overflow:auto}
+.troca.aberto .lista{display:block}
+.troca .lista a,.troca .lista span.item{display:flex;align-items:center;gap:9px;padding:8px;border-radius:9px;
+  font-size:13px;text-decoration:none;cursor:pointer}
+.troca .lista a:hover{background:var(--fundo2)}
+.troca .lista .quem{display:flex;flex-direction:column;line-height:1.3;text-align:left;min-width:0}
+.troca .lista .quem small{color:var(--fraco);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.troca .lista .aqui{margin-left:auto;font-size:11px;color:var(--fraco)}
+.troca .lista .vazio{padding:9px;color:var(--fraco);font-size:12.5px;line-height:1.45}
+
+/* ─── navegacao ─────────────────────────────────────────────────────────── */
+.tabs{display:flex;flex-direction:column;gap:2px}
+.tab{display:flex;align-items:center;gap:10px;padding:9px 10px;border:0;border-radius:10px;background:none;
+     font-size:14px;color:var(--fraco);cursor:pointer;text-align:left;width:100%}
+.tab:hover{background:var(--fundo2);color:var(--texto)}
+.tab.active{background:linear-gradient(135deg,var(--acento1),var(--acento2));color:#fff;box-shadow:var(--sombra)}
+.tab .ico{width:18px;text-align:center;opacity:.9;flex-shrink:0}
+.tab.locked{opacity:.5;cursor:not-allowed}
+
+.rodape-lado{margin-top:auto;display:flex;flex-direction:column;gap:10px;font-size:12px;color:var(--fraco);padding:0 4px}
+.footer-stats{display:flex;flex-wrap:wrap;gap:8px 14px}
+.footer-stat .val{color:var(--texto);font-weight:600}
+.rodape-acoes{display:flex;align-items:center;gap:10px;border-top:1px solid var(--linha);padding-top:10px}
+.rodape-acoes a{text-decoration:none;color:var(--fraco)}
+.rodape-acoes a:hover{color:var(--texto)}
+.form-sair{margin:0}
+.btn-sair{cursor:pointer;background:none;border:0;padding:5px 4px;font:inherit;font-size:12px;color:var(--fraco)}
+.btn-sair:hover{color:var(--texto)}
+.btn-tema{cursor:pointer;background:none;border:1px solid var(--linha);border-radius:9px;padding:5px 11px;
+          font-size:12px;color:var(--fraco)}
+.btn-tema:hover{color:var(--texto);background:var(--fundo2)}
+
+/* ─── cabecalho da area principal ───────────────────────────────────────── */
+.header{position:sticky;top:0;z-index:9;background:color-mix(in srgb,var(--bg) 86%,transparent);
+        backdrop-filter:blur(8px);border-bottom:1px solid var(--linha);
+        display:flex;align-items:flex-start;justify-content:space-between;gap:18px;flex-wrap:wrap;
+        padding:18px 26px 14px}
+.header-titulo{font-size:22px;margin:0 0 3px;letter-spacing:-.01em}
+.header-sub{margin:0;color:var(--fraco);font-size:13.5px}
+/* O título e o botão de tutorial na mesma linha. O botão é discreto de propósito:
+   ele precisa estar sempre à mão e nunca competir com o título da tela. */
+.header-titulo-linha{display:flex;align-items:center;gap:10px;min-width:0}
+.btn-tutorial-aba{
+  font:inherit;font-size:12px;line-height:1;cursor:pointer;white-space:nowrap;
+  background:transparent;border:1px solid var(--linha);color:var(--fraco);
+  border-radius:8px;padding:0 10px;min-height:28px;flex-shrink:0;
+}
+.btn-tutorial-aba:hover{border-color:var(--acento1);color:var(--acento1)}
+.header-status{display:flex;gap:8px;flex-wrap:wrap}
+.selo{display:inline-flex;align-items:center;gap:7px;background:var(--painel);border:1px solid var(--linha);
+      border-radius:999px;padding:5px 12px;font-size:12.5px;box-shadow:var(--sombra);color:var(--fraco)}
+.status-dot{width:8px;height:8px;border-radius:50%;background:var(--neutro);display:inline-block}
+.status-dot.green{background:var(--ok)} .status-dot.red{background:var(--erro)}
+.status-dot.yellow{background:var(--espera)}
+
+/* ─── paineis e cartoes ─────────────────────────────────────────────────── */
+.panel{display:none;animation:entra .16s ease}
+.panel.active{display:block}
+@keyframes entra{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
+.cartao{background:var(--painel);border:1px solid var(--linha);border-radius:var(--raio);
+        padding:18px 20px;box-shadow:var(--sombra);margin-bottom:16px}
+/* ─── a home (Status) ───────────────────────────────────────────────────────
+ * Faixa de quatro numeros em cima, duas colunas INDEPENDENTES no meio e a parte
+ * de operacao embaixo. As colunas sao caixas empilhadas, nao uma grade unica:
+ * assim a coluna mais alta nao estica a vizinha nem abre buraco do lado.
+ */
+.faixa{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr));gap:14px;margin-bottom:16px}
+/* auto-fit, e não "4 colunas": sem o DG Alive o cartão de humor some e os outros três
+   ocupam a largura toda, sem a quarta coluna vazia que parecia defeito. */
+.faixa > .ext-off{display:none}
+.destaque{background:var(--painel);border:1px solid var(--linha);border-radius:var(--raio);
+  padding:13px 16px 14px;box-shadow:var(--sombra);min-width:0}
+.destaque .rot{display:block;font-size:11px;font-weight:600;letter-spacing:.05em;
+  text-transform:uppercase;color:var(--fraco)}
+.destaque .num{display:block;font-size:27px;font-weight:600;letter-spacing:-.02em;line-height:1.2;
+  margin:3px 0 2px;font-variant-numeric:tabular-nums}
+.destaque .num.palavra{font-size:23px;text-transform:capitalize;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.destaque .num.apagado{font-size:19px;color:var(--fraco);font-weight:500}
+.destaque .pe{display:block;font-size:12.5px;color:var(--fraco);line-height:1.4}
+.destaque .pe.ok{color:var(--ok)} .destaque .pe.ruim{color:var(--erro)}
+
+.status-cols,.status-baixo{display:grid;grid-template-columns:1fr 1fr;gap:0 16px;align-items:start}
+.status-cols > .coluna{min-width:0;display:flex;flex-direction:column}
+.status-baixo > .cartao{min-width:0}
+
+.barras-duplas{display:grid;grid-template-columns:1fr 1fr;gap:0 20px;align-items:start}
+
+.vazio-util{color:var(--fraco);font-size:13px;line-height:1.5}
+
+.section-title,.stat-group-title{font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
+  color:var(--fraco);margin:0 0 12px}
+.stat-group-title{margin-top:18px}
+.stat-group-title:first-child,.cartao > .section-title:first-child{margin-top:0}
+.section-updated,.updated-tag{font-size:11.5px;color:var(--fraco)}
+.section-updated{margin-top:12px}
+
+/* ─── barras ────────────────────────────────────────────────────────────────
+ * Duas linhas por barra, nunca tres: o nome e o numero dividem a MESMA linha e a
+ * barra fica embaixo. Com 8 emocoes e 5 necessidades isso e a diferenca entre um
+ * cartao curto e uma coluna sem fim.
+ */
+.rpg-bar,.stat-block{margin-bottom:10px}
+.rpg-bar-label,.stat-label{display:flex;align-items:baseline;justify-content:space-between;gap:10px;
+  font-size:13px;margin-bottom:4px}
+.rpg-bar-label > span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rpg-bar-value,.stat-val{font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap}
+.rpg-bar-track{height:7px;border-radius:99px;background:var(--fundo2);overflow:hidden}
+.rpg-bar-fill{display:block;height:100%;border-radius:99px;
+  background:linear-gradient(90deg,var(--acento1),var(--acento2));transition:width .4s ease}
+.rpg-bar-fill.joy,.rpg-bar-fill.trust{background:linear-gradient(90deg,var(--ok),var(--acento1))}
+.rpg-bar-fill.sadness,.rpg-bar-fill.fear{background:linear-gradient(90deg,var(--neutro),var(--acento2))}
+.rpg-bar-fill.anger,.rpg-bar-fill.disgust{background:linear-gradient(90deg,var(--erro),var(--espera))}
+.big-five-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:0 26px}
+
+.delta-badge{font-size:11px;padding:1px 7px;border-radius:999px;background:var(--fundo2);color:var(--fraco);margin-left:6px}
+.delta-badge.up{color:var(--ok)} .delta-badge.down{color:var(--erro)}
+
+/* ─── tabelas ───────────────────────────────────────────────────────────── */
+.pixel-table{width:100%;border-collapse:collapse;font-size:13.5px}
+.pixel-table th{text-align:left;font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;
+  color:var(--fraco);font-weight:600;padding:0 10px 9px}
+.pixel-table td{padding:10px;border-top:1px solid var(--linha);vertical-align:top}
+.pixel-table tr:hover td{background:var(--fundo2)}
+.pixel-table a{color:var(--acento1);text-decoration:none}
+.pixel-table a:hover{text-decoration:underline}
+
+.linha-filtro{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:12px;font-size:13px;color:var(--fraco)}
+.linha-filtro input,.linha-filtro select,.reunioes-search{background:var(--bg);color:var(--texto);
+  border:1px solid var(--linha);border-radius:9px;padding:6px 10px;font-size:13px}
+.btn-leve,.back-btn,.haiku-analysis-btn{cursor:pointer;background:var(--painel);border:1px solid var(--linha);
+  border-radius:9px;padding:6px 12px;font-size:12.5px;color:var(--fraco)}
+.btn-leve:hover,.back-btn:hover,.haiku-analysis-btn:hover{background:var(--fundo2);color:var(--texto)}
+
+/* ─── listas e cartoes de conteudo ──────────────────────────────────────── */
+.posts-stats,.info-blocos{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:16px}
+.posts-stats > div,.info-blocos > div{background:var(--painel);border:1px solid var(--linha);border-radius:12px;
+  padding:14px 16px;box-shadow:var(--sombra)}
+.posts-stats .pct,.posts-stats b,.info-blocos b{display:block;font-size:22px;font-weight:600;font-variant-numeric:tabular-nums}
+.posts-stats span,.info-blocos span{font-size:12px;color:var(--fraco)}
+
+.cards-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px}
+.follower-card,.opinion-card,.thought-box,.lingering-item,.goal-item,.memory-item{
+  background:var(--painel);border:1px solid var(--linha);border-radius:12px;padding:13px 15px;box-shadow:var(--sombra)}
+.thought-box,.lingering-item,.goal-item{margin-bottom:10px;font-size:13.5px}
+.lingering-item{border-style:dashed}
+.quote{color:var(--fraco);font-size:12.5px;margin-top:5px}
+.fc-name,.pname{font-weight:600}
+.fc-tier,.fc-detail,.op-topic,.op-position,.counts,.pslots{font-size:12.5px;color:var(--fraco)}
+.op-topic{font-weight:600;color:var(--texto);margin-bottom:3px}
+.opinion-card{margin-bottom:10px}
+
+.memory-list{display:flex;flex-direction:column;gap:10px}
+.memory-item{display:flex;align-items:center;gap:12px;cursor:pointer}
+.memory-item:hover{border-color:color-mix(in srgb,var(--acento1) 40%,var(--linha))}
+.mi-icon{font-size:17px;opacity:.8}
+.mi-name{font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.mi-size,.mi-date{font-size:12px;color:var(--fraco);white-space:nowrap}
+
+.working-memory-box{background:var(--fundo2);border-radius:10px;padding:13px 15px;font-size:13px;
+  line-height:1.6;max-height:360px;overflow:auto;word-break:break-word}
+.wm-sec{font-weight:600;font-size:13.5px;margin:14px 0 5px}
+.wm-sec:first-child{margin-top:0}
+.wm-item{padding-left:14px;position:relative;margin-bottom:3px}
+.wm-item::before{content:"·";position:absolute;left:4px;color:var(--fraco)}
+.wm-linha{margin-bottom:3px}
+
+.lista-eventos{font-size:12.5px;color:var(--fraco);max-height:170px;overflow:auto;line-height:1.7}
+
+/* ─── rotinas do dia ────────────────────────────────────────────────────── */
+.crons-timeline{display:flex;flex-direction:column;gap:8px}
+.cron-slot{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:11px;background:var(--fundo2)}
+.cron-time{font-variant-numeric:tabular-nums;font-size:13px;color:var(--fraco);min-width:46px}
+.cron-info{flex:1;min-width:0}
+.cron-label{font-size:13.5px}
+.cron-steps,.cron-duration,.cron-errors{font-size:12px;color:var(--fraco)}
+.cron-errors{color:var(--erro)}
+.step-badge{display:inline-block;font-size:11px;padding:1px 8px;border-radius:999px;background:var(--painel);
+  border:1px solid var(--linha);margin-right:5px;color:var(--fraco)}
+.step-badge.ok,.check{color:var(--ok)} .step-badge.fail{color:var(--erro)} .uncheck{color:var(--neutro)}
+.status-ok{color:var(--ok)} .status-warn{color:var(--espera)} .status-err{color:var(--erro)}
+.green{color:var(--ok)}
+
+/* ─── agenda (espelho dos timers do systemd) ────────────────────────────── */
+.ajuda-secao{margin:-6px 0 14px;font-size:12.5px;color:var(--fraco);line-height:1.5}
+.rotina{background:var(--fundo2);border-radius:11px;padding:11px 13px;margin-bottom:8px}
+.rotina.alerta{background:color-mix(in srgb,var(--erro) 8%,var(--fundo2));
+  border:1px dashed color-mix(in srgb,var(--erro) 45%,var(--linha))}
+.rotina-topo{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.rotina-nome{font-size:13.5px;font-weight:600;min-width:0}
+.rotina-quando{font-size:12.5px;color:var(--acento1);white-space:nowrap}
+html[data-tema="escuro"] .rotina-quando{color:var(--acento2)}
+.rotina-recado{font-size:12.5px;color:var(--fraco);margin-top:5px;font-style:italic}
+.rotina-desc{font-size:12.5px;color:var(--fraco);margin-top:5px}
+.rotina-pe{font-size:11.5px;color:var(--fraco);margin-top:5px;font-variant-numeric:tabular-nums}
+
+/* (o bloco do Pulso saiu em 01/10/2026: a aba virou Operações, ver css/operacoes.css) */
+
+/* ─── registros ─────────────────────────────────────────────────────────── */
+.log-viewer{background:var(--fundo2);border-radius:10px;padding:14px 16px;
+  font:12.5px/1.7 ui-monospace,"SF Mono",Menlo,Consolas,monospace;white-space:pre-wrap;word-break:break-word;
+  max-height:440px;overflow:auto}
+.log-viewer.curto{max-height:220px}
+
+/* ─── reunioes ──────────────────────────────────────────────────────────── */
+.reunioes-header{display:flex;align-items:center;gap:14px;justify-content:space-between;flex-wrap:wrap;margin-bottom:14px}
+.reunioes-search{min-width:280px;flex:1;max-width:420px}
+.reunioes-list{display:flex;flex-direction:column;gap:10px}
+.reuniao-card{background:var(--painel);border:1px solid var(--linha);border-radius:12px;padding:14px 16px;
+  box-shadow:var(--sombra);cursor:pointer}
+.reuniao-card:hover{border-color:color-mix(in srgb,var(--acento1) 40%,var(--linha))}
+.reuniao-head,.reuniao-detail-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.reuniao-title{font-weight:600}
+.reuniao-date,.reuniao-dur,.reuniao-cost,.reuniao-mode,.reuniao-participants,.reuniao-meta,.reuniao-sub{
+  font-size:12.5px;color:var(--fraco)}
+.reuniao-tldr,.rt-tldr{font-size:13.5px;margin-top:8px}
+.reuniao-tabs,.reuniao-detail{margin-top:14px}
+.rt-tab{cursor:pointer;background:none;border:0;border-bottom:2px solid transparent;padding:8px 12px;
+  font-size:13px;color:var(--fraco)}
+.rt-tab.active{color:var(--texto);border-bottom-color:var(--acento1)}
+.rt-panel{display:none;padding-top:12px} .rt-panel.active{display:block}
+.rt-cost-table{width:100%;border-collapse:collapse;font-size:13px}
+.rt-cost-table td,.rt-cost-table th{padding:8px 10px;border-top:1px solid var(--linha);text-align:left}
+.rt-total{font-weight:600}
+.tr-container{display:flex;flex-direction:column;gap:10px;max-height:520px;overflow:auto}
+.tr-block{background:var(--fundo2);border-radius:10px;padding:11px 13px;font-size:13px}
+.tr-ts,.tr-spk{font-size:12px;color:var(--fraco)}
+.tr-spk{font-weight:600;color:var(--texto)}
+.tr-text{margin-top:4px}
+.tr-tool,.tr-audio,.tr-chat,.tr-agent-chat{font-size:12.5px;color:var(--fraco)}
+
+/* ─── extensao desligada ────────────────────────────────────────────────────
+ * Desde 01/10/2026 o bloco de uma extensão que não está instalada SOME inteiro: sem
+ * nota "isso só aparece com o DG Alive", sem caixa apagada. O dono de um DG Claw puro
+ * não precisa ver anúncio do que não tem. Os layouts em volta são de grade
+ * automática, então o sumiço não deixa buraco. */
+[data-ext].ext-off{display:none!important}
+
+/* ─── modal ─────────────────────────────────────────────────────────────── */
+.modal-overlay{position:fixed;inset:0;background:rgba(10,12,20,.55);backdrop-filter:blur(3px);
+  display:none;align-items:center;justify-content:center;padding:24px;z-index:100}
+.modal-overlay.active{display:flex}
+.modal-box{background:var(--painel);border:1px solid var(--linha);border-radius:var(--raio);
+  box-shadow:0 20px 60px rgba(0,0,0,.3);width:min(860px,100%);max-height:86vh;display:flex;flex-direction:column}
+.modal-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;
+  border-bottom:1px solid var(--linha)}
+.modal-title{font-weight:600}
+.modal-close{cursor:pointer;background:none;border:0;color:var(--fraco);font-size:17px;line-height:1}
+.modal-close:hover{color:var(--texto)}
+.modal-body{padding:18px 20px;overflow:auto;white-space:pre-wrap;word-break:break-word;
+  font:13px/1.7 ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+
+/* ─── conversa ────────────────────────────────────────────────────────────
+ * A altura e medida em svh (small viewport height), NAO em vh. No celular a barra
+ * do navegador entra e sai; com 100vh a caixa de escrever fica meio dedo abaixo da
+ * borda, onde o polegar nao alcanca. No palco pequeno quem limita e a ALTURA, nao
+ * a largura, e e por isso que aqui nao ha nenhuma media query de largura.
+ */
+/* Com a Conversa aberta, o palco vai até a borda de baixo. A altura é repartida por
+ * flex em vez de descontada por um número mágico: qualquer "calc(100svh - 150px)"
+ * erra assim que o cabeçalho muda de tamanho, e sobra branca embaixo empurra a caixa
+ * de escrever para longe do polegar. */
+.principal:has(#panel-conversa.active){height:100svh}
+/* A conversa usa a LARGURA INTEIRA do palco, sem o teto de leitura que o resto do
+ * painel tem. Aqui havia um max-width de 900px, e numa tela grande ele desenhava uma
+ * coluna vazia à direita que parecia defeito: o cabeçalho e as abas iam até a borda,
+ * a conversa parava no meio do caminho. Quem lê continua protegido pela bolha, que é
+ * capada em 62ch: a linha não estica, só o palco. */
+.content:has(#panel-conversa.active){flex:1;min-height:0;display:flex;flex-direction:column;
+  padding-bottom:0;max-width:none}
+.conversa-panel.active{display:flex;flex:1;min-height:0;padding:0}
+.conversa{display:flex;flex-direction:column;gap:12px;flex:1;min-height:0;width:100%}
+/* Sem scroll-behavior:smooth de propósito: a lista pula direto para o fim. O
+ * deslizamento animado ainda estava correndo quando a resposta seguinte chegava, e a
+ * última mensagem aparecia cortada pela metade. */
+.conversa-lista{flex:1;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;gap:12px;
+  padding:4px 2px 8px}
+.conversa-vazia{color:var(--fraco);font-size:13.5px;text-align:center;margin:auto;max-width:38ch;line-height:1.6}
+
+.bolha{max-width:min(78%,62ch);padding:10px 14px;border-radius:16px;font-size:14.5px;
+  line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere;box-shadow:var(--sombra)}
+.bolha.de-voce{align-self:flex-end;border-bottom-right-radius:5px;color:#fff;
+  background:linear-gradient(135deg,var(--acento1),var(--acento2))}
+.bolha.de-agente{align-self:flex-start;border-bottom-left-radius:5px;
+  background:var(--painel);border:1px solid var(--linha)}
+/* Falou por conta propria: puxado por uma rotina, nao e resposta a voce. Sem esta
+ * marca a pessoa le como resposta a ultima coisa que ela disse. */
+.bolha.sozinho{border-left:3px solid var(--acento2)}
+.bolha-pe{display:block;margin-top:6px;font-size:11px;opacity:.65;letter-spacing:.01em}
+.bolha.de-voce .bolha-pe{color:#f0eeff}
+.bolha-arquivo{display:inline-flex;align-items:center;gap:7px;font-size:13px}
+
+.conversa-recado{border:1px solid var(--erro);border-radius:12px;padding:10px 14px;font-size:13.5px;
+  background:color-mix(in srgb,var(--erro) 8%,transparent);color:var(--texto)}
+.conversa-recado b{display:block;margin-bottom:2px}
+
+.conversa-rodape{display:flex;flex-direction:column;gap:8px;padding-bottom:14px}
+.conversa-sinal{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--fraco);min-height:24px}
+.sinal-ponto{width:8px;height:8px;border-radius:50%;background:var(--neutro);flex-shrink:0}
+.sinal-ponto.trabalhando{background:var(--acento1);animation:pulsa 1.4s ease-in-out infinite}
+.sinal-ponto.pronto{background:var(--ok)}
+.sinal-ponto.fora{background:var(--erro)}
+.sinal-ponto.autorizacao{background:var(--espera)}
+@keyframes pulsa{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.72)}}
+.btn-parar{margin-left:auto;cursor:pointer;border:1px solid var(--linha);background:var(--painel);
+  border-radius:999px;padding:4px 14px;font-size:12px;color:var(--texto);box-shadow:var(--sombra);
+  min-height:32px}
+.btn-parar:hover{border-color:var(--erro);color:var(--erro)}
+.btn-parar[disabled]{opacity:.5;cursor:default}
+/* O botão de acordar. Mesma forma do "parar" (os dois moram na linha do sinal e nunca
+ * aparecem juntos), mas pintado de acento: parar é freio, acordar é a única coisa que
+ * a dona do agente pode fazer quando a sessão caiu. */
+.btn-reativar{margin-left:auto;cursor:pointer;border:0;border-radius:999px;padding:5px 16px;
+  font-size:12px;color:#fff;min-height:32px;box-shadow:var(--sombra);
+  background:linear-gradient(135deg,var(--acento1),var(--acento2))}
+.btn-reativar[disabled]{opacity:.55;cursor:default}
+
+.conversa-escrever{display:flex;align-items:flex-end;gap:8px;background:var(--painel);
+  border:1px solid var(--linha);border-radius:18px;padding:7px 7px 7px 14px;box-shadow:var(--sombra)}
+.conversa-escrever textarea{flex:1;border:0;background:none;outline:none;resize:none;
+  font-size:15px;line-height:1.5;max-height:9em;padding:6px 0;color:var(--texto)}
+.btn-enviar{cursor:pointer;border:0;border-radius:50%;width:38px;height:38px;flex-shrink:0;
+  display:grid;place-items:center;font-size:17px;color:#fff;
+  background:linear-gradient(135deg,var(--acento1),var(--acento2))}
+.btn-enviar[disabled]{opacity:.45;cursor:default}
+
+/* ─── ditado por voz ──────────────────────────────────────────────────────
+ * O microfone tem o MESMO tamanho de alvo do enviar (38px), e não um ícone
+ * pequeno ao lado do texto: no celular quem dita está quase sempre com uma mão
+ * só, e alvo pequeno ali erra e manda mensagem pela metade.
+ */
+.btn-microfone{cursor:pointer;border:1px solid var(--linha);border-radius:50%;
+  width:38px;height:38px;flex-shrink:0;display:grid;place-items:center;font-size:16px;
+  background:var(--fundo);color:var(--texto);line-height:1}
+.btn-microfone:hover{border-color:var(--acento1)}
+.btn-microfone[disabled]{opacity:.45;cursor:default}
+/* Gravando: o botão vira o botão de PARAR de gravar, e diz isso pela cor e pelo
+ * pulso. Um microfone parado e um microfone gravando não podem ter a mesma cara. */
+.btn-microfone.gravando{background:var(--erro);border-color:var(--erro);color:#fff;
+  animation:pulsa 1.4s ease-in-out infinite}
+
+.ditado-barra{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--fraco);
+  padding:2px 4px 0}
+.ditado-ponto{width:8px;height:8px;border-radius:50%;background:var(--erro);flex-shrink:0;
+  animation:pulsa 1.4s ease-in-out infinite}
+.ditado-barra.transcrevendo .ditado-ponto{background:var(--acento1)}
+.ditado-cancelar{margin-left:auto;cursor:pointer;border:1px solid var(--linha);
+  background:var(--painel);border-radius:999px;padding:4px 14px;font-size:12px;
+  color:var(--texto);min-height:32px}
+.ditado-cancelar:hover{border-color:var(--erro);color:var(--erro)}
+
+/* ─── aviso curto ───────────────────────────────────────────────────────── */
+#dg-toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--painel);
+  color:var(--texto);border:1px solid var(--linha);border-radius:10px;padding:10px 16px;font-size:13px;
+  box-shadow:var(--sombra);z-index:200;display:none}
+
+/* ─── botao sanduiche e veu (so aparecem no celular) ────────────────────── */
+.btn-menu{display:none;cursor:pointer;background:var(--painel);border:1px solid var(--linha);
+  border-radius:11px;width:40px;height:40px;align-items:center;justify-content:center;
+  font-size:17px;color:var(--texto);box-shadow:var(--sombra);flex-shrink:0}
+/* ─── setinha de voltar para a estante (so atras da fachada) ─────────────
+ * Fica no cabecalho, ao lado do sanduiche, e nao dentro da gaveta: no celular a
+ * gaveta esta fechada, e uma saida que exige abrir o menu nao e uma saida. Altura
+ * de 40px pra bater com o sanduiche e ficar acima do minimo de toque.
+ */
+.btn-voltar{display:inline-flex;align-items:center;gap:7px;flex-shrink:0;height:40px;padding:0 13px;
+  background:var(--painel);border:1px solid var(--linha);border-radius:11px;box-shadow:var(--sombra);
+  color:var(--fraco);font-size:13px;text-decoration:none;line-height:1}
+.btn-voltar:hover{color:var(--texto);background:var(--fundo2)}
+.veu{position:fixed;inset:0;background:rgba(10,12,20,.5);backdrop-filter:blur(2px);z-index:55;
+  opacity:0;visibility:hidden;transition:opacity .22s ease,visibility .22s}
+body.menu-aberto .veu{opacity:1;visibility:visible}
+
+/* ─── celular ─────────────────────────────────────────────────────────────
+ * O menu vira gaveta: fica escondido fora da tela e desliza quando voce toca no
+ * sanduiche. Nada de lista aberta empurrando o conteudo pra baixo.
+ */
+@media (max-width:1080px){
+  .status-cols,.status-baixo{grid-template-columns:1fr}
+}
+@media (max-width:860px){
+  .app{grid-template-columns:1fr}
+  .lado{position:fixed;top:0;left:0;bottom:0;width:min(284px,86vw);height:100%;z-index:60;
+        border-right:1px solid var(--linha);box-shadow:0 0 44px rgba(10,12,20,.28);
+        transform:translateX(-103%);transition:transform .26s cubic-bezier(.32,.72,0,1)}
+  body.menu-aberto .lado{transform:none}
+  .btn-menu{display:inline-flex}
+  /* No celular a setinha vira so o simbolo: o texto ao lado empurraria o titulo da
+     aba para fora e o cabecalho quebraria em duas linhas. O aria-label continua
+     dizendo para onde ela vai, entao quem usa leitor de tela nao perde nada. */
+  .btn-voltar{padding:0;width:40px;justify-content:center;gap:0}
+  .btn-voltar-texto{display:none}
+  .header{position:sticky;top:0;padding:14px 16px;align-items:center;gap:12px;justify-content:flex-start}
+  .header-left{flex:1;min-width:0}
+  /* O selo de saúde e a hora desceram para uma segunda linha. Na mesma linha do
+     título eles empurravam o botão Tutorial para debaixo do selo: o botão existia,
+     mas ninguém conseguia tocar nele (vistoria de 08/10/2026, celular de 390px). */
+  .header-status{flex:1 1 100%;order:5}
+  /* "ver Operações", "ver no Status" e afins tinham 15 px de altura: alvo de toque de
+     32 px no mínimo (vistoria de 08/10/2026). */
+  .link-aba{display:inline-flex;align-items:center;min-height:32px}
+  .header-titulo{font-size:19px}
+  .content{padding:16px 16px 50px}
+  .big-five-grid{grid-template-columns:1fr}
+  .reunioes-search{min-width:0;max-width:none;width:100%}
+  /* TABELA VIRA CARTÃO, E NÃO TABELA QUE ROLA PARA O LADO.
+   *
+   * Era `display:block; overflow-x:auto; white-space:nowrap`, ou seja, sete
+   * colunas espremidas numa faixa que rola na horizontal. Num celular isso quer
+   * dizer que as colunas da direita (na de Custos, justamente Duração e CUSTO)
+   * ficam fora da tela, e ninguém rola uma tabela para o lado sem saber que
+   * existe algo lá. O padrão de construção do Danilo é explícito: sem rolagem
+   * horizontal, tabela vira cartão.
+   *
+   * O rótulo de cada campo vem do `data-rot` que o `rotularTabelas()` do
+   * js/app.js copia do cabeçalho da própria tabela, então isto funciona em toda
+   * tabela do painel sem ninguém precisar escrever rótulo duas vezes. Coluna sem
+   * título (a dos botões) fica sem rótulo, que é o certo. */
+  .pixel-table{display:block;white-space:normal}
+  .pixel-table thead{display:none}
+  .pixel-table tbody,.pixel-table tr,.pixel-table td{display:block;width:auto}
+  .pixel-table tr{
+    border:1px solid var(--linha);border-radius:10px;padding:10px 12px;
+    margin-bottom:10px;background:var(--painel);
+  }
+  .pixel-table td{border:0;padding:5px 0}
+  .pixel-table td[data-rot]::before{
+    content:attr(data-rot);display:block;
+    font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--fraco);
+    margin-bottom:2px;
+  }
+  .pixel-table tr:hover td{background:transparent}
+}
+@media (max-width:560px){
+  .faixa{grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr));gap:10px}
+  .destaque{padding:11px 13px 12px}
+  .destaque .num{font-size:23px} .destaque .num.palavra{font-size:19px}
+  .barras-duplas{grid-template-columns:1fr}
+  .header-sub{display:none}
+}
+/* Quem prefere menos animacao no sistema nao ganha a gaveta deslizando. */
+@media (prefers-reduced-motion:reduce){
+  .lado{transition:none} .veu{transition:none} .panel{animation:none}
+}
+
+/* ─── visualizador de arquivo (js/visualizador.js) ───────────────────────
+ * A janela que abre por cima da tela para ver UMA imagem, video, audio ou PDF.
+ * Mora aqui, e nao em apps.css, porque duas abas usam a mesma janela: a Apps
+ * (o material de um conteudo) e a Pasta (um arquivo qualquer do agente).
+ *
+ * O tamanho da midia e limitado pela JANELA, nao pelo arquivo: uma foto de
+ * 4000px de largura tem que caber na tela do celular sem esticar nada para o
+ * lado, e a regra que faz isso e o max-width/max-height em unidade de viewport.
+ */
+.dgv-fundo{position:fixed;inset:0;z-index:950;background:rgba(8,10,16,.82);
+  display:flex;align-items:center;justify-content:center;padding:16px}
+.dgv-janela{display:flex;flex-direction:column;gap:10px;max-width:min(1100px,100%);
+  max-height:100%;min-width:0}
+.dgv-topo{display:flex;align-items:center;gap:10px;flex-shrink:0;color:#f2f3f8}
+.dgv-nome{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.dgv-bytes{font-size:11.5px;opacity:.7;flex-shrink:0}
+.dgv-baixar{margin-left:auto;flex-shrink:0;font-size:12px;text-decoration:none;color:#f2f3f8;
+  border:1px solid rgba(255,255,255,.35);border-radius:8px;padding:0 12px;height:32px;
+  display:inline-flex;align-items:center}
+.dgv-baixar:hover{border-color:#fff;background:rgba(255,255,255,.1)}
+.dgv-x{flex-shrink:0;width:32px;height:32px;padding:0;border-radius:8px;cursor:pointer;
+  background:transparent;border:1px solid rgba(255,255,255,.35);color:#f2f3f8;font-size:20px;line-height:1}
+.dgv-x:hover{border-color:#fff;background:rgba(255,255,255,.1)}
+.dgv-corpo{min-height:0;display:flex;align-items:center;justify-content:center}
+.dgv-midia{max-width:100%;max-height:calc(100vh - 110px);border-radius:10px;display:block;background:#000}
+.dgv-audio{width:min(520px,100%);background:var(--painel);border:1px solid var(--linha);
+  border-radius:12px;padding:16px}
+.dgv-audio audio{width:100%}
+.dgv-pdf{width:min(1000px,90vw);height:calc(100vh - 130px);border:0;border-radius:10px;background:#fff}
+/* O formato que nenhum navegador abre. Diz isso com todas as letras, em vez de
+ * mostrar um quadro cinza que a pessoa confunde com o painel travado. */
+.dgv-sem-previa{background:var(--painel);border:1px solid var(--linha);border-radius:12px;
+  padding:20px 22px;max-width:520px;color:var(--texto)}
+.dgv-sem-previa strong{display:block;margin-bottom:8px;font-size:14px}
+.dgv-sem-previa p{margin:0;font-size:13px;line-height:1.6;color:var(--fraco)}
+.dgv-sem-previa code{background:var(--fundo2);border-radius:5px;padding:1px 6px;font-size:12px}
+@media (max-width:640px){
+  .dgv-fundo{padding:10px}
+  .dgv-midia{max-height:calc(100vh - 96px)}
+  .dgv-pdf{width:100%;height:calc(100vh - 110px)}
+  /* No celular o nome inteiro nao cabe ao lado dos dois botoes: ele quebra para
+     a linha de cima e os controles ficam onde o dedo espera, na direita. */
+  .dgv-topo{flex-wrap:wrap}
+  .dgv-nome{flex-basis:100%;white-space:normal;word-break:break-word}
+}
+
+
+/* ─── Explicar a tela dentro da tela (26/08/2026) ───────────────────────────
+   Três peças pequenas que existem para o painel responder sozinho o que cada
+   coisa é, em vez de depender de alguém explicar por fora. */
+
+/* O link que leva de uma aba para outra ("os registros ficam em Operações").
+   Sublinhado pontilhado porque ele não sai do painel: ele anda dentro dele. */
+.link-aba {
+  color: var(--blue);
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.link-aba:hover { text-decoration: underline solid; }
+
+
+/* Número de poder desligado. Some sem deixar buraco no layout: o rodapé é
+   flex, então display:none fecha o espaço em vez de deixar a lacuna. */
+.footer-stat.escondido { display: none; }
+
+
+/* ── Texto rico (12/10/2026) ────────────────────────────────────────────────
+ * POR QUE: o pensamento do agente chegava como um bloco cru, com asteriscos e
+ * crases à mostra, endereço enorme e "- " grudado (Danilo, 12/10). Agora todo
+ * texto livre curto passa por DGMarkdown.rico/ricoLinha (js/markdown.js) e cai
+ * aqui. Regra de ouro: nada rola na horizontal em 390 px, então tudo quebra. */
+.rt{white-space:normal;overflow-wrap:anywhere;word-break:break-word;max-width:100%;min-width:0;line-height:1.55}
+.rt p{margin:0 0 8px}
+.rt>:last-child{margin-bottom:0}
+.rt ul,.rt ol{margin:0 0 8px;padding-left:20px}
+.rt li{margin:0 0 4px}
+.rt li:last-child{margin-bottom:0}
+.rt h3,.rt h4,.rt h5,.rt h6{margin:0 0 6px;font-size:1em}
+.rt-titulo{font-weight:700;color:var(--acento1);margin-bottom:6px;letter-spacing:.01em}
+html[data-tema="escuro"] .rt-titulo{color:var(--acento2)}
+.rt code,.rt-linha code,.thought-box code,.lingering-item code,.rotina code,.op-position code,.goal-item code{
+  background:var(--fundo2);border-radius:5px;padding:1px 5px;font-size:.92em;
+  overflow-wrap:anywhere;word-break:break-word;white-space:pre-wrap}
+.rt a,.thought-box a,.lingering-item a,.rotina a,.op-position a,.goal-item a,.bolha a{overflow-wrap:anywhere;word-break:break-word}
+.rt pre.app-code{white-space:pre-wrap;overflow-wrap:anywhere;max-width:100%}
+.rt-mais{display:inline-block;margin-top:6px;padding:2px 0;min-height:32px;background:none;border:0;
+  color:var(--acento1);font:inherit;font-size:12.5px;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+.rt-mais:hover{color:var(--acento2)}
+/* Os cartões de pensamento tinham o texto em itálico/cru; aqui o parágrafo manda. */
+.thought-box,.lingering-item{white-space:normal;font-style:normal;overflow-wrap:anywhere;min-width:0}
+/* Bolha da conversa: o texto agora é rico, e o pre-wrap da bolha duplicaria o espaço entre blocos. */
+.bolha .rt{white-space:normal}
+.bolha.de-voce a,.bolha.de-voce .rt-titulo{color:inherit;text-decoration:underline}
+.bolha.de-voce code{background:rgba(255,255,255,.2)}

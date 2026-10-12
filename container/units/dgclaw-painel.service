@@ -1,0 +1,17 @@
+[Unit]
+Description=DG Claw painel (a tela do dono do agente)
+After=network.target
+# O painel.env é gerado pelo "dgclaw agente criar". Sem ele a unidade fica quieta.
+ConditionPathExists=/run/dgclaw/config/painel.env
+
+[Service]
+Type=simple
+User=agente
+EnvironmentFile=/run/dgclaw/config/painel.env
+WorkingDirectory=/opt/dgclaw/app/panel
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

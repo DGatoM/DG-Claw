@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# is-active responde pelo estado: "enable --now" e "start" (sem --no-block) e "restart" ligam a unidade.
+. "$(dirname "$0")/_comum.sh"
+registrar "$@"
+ativar() { echo "$1" >>"$(estado_dir)/ativos"; }
+case "${1:-}" in
+    is-active)
+        u=""; for a in "$@"; do case "$a" in -*|is-active) ;; *) u="$a" ;; esac; done
+        quieto=0; for a in "$@"; do [ "$a" = --quiet ] && quieto=1; done
+        if esta_na_lista ativos "$u" "${DGCLAW_STUB_ATIVOS:-}"; then [ "$quieto" = 1 ] || echo active; exit 0; fi
+        [ "$quieto" = 1 ] || echo inactive; exit 3 ;;
+    enable) if [ "${2:-}" = --now ]; then ativar "${3:-}"; fi ;;
+    start|restart)
+        case " $* " in *" --no-block "*) ;; *) ativar "${!#}" ;; esac ;;
+esac
+exit 0

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+. "$(dirname "$0")/_comum.sh"
+registrar "$@"
+[ -n "${DGCLAW_STUB_SS:-}" ] && printf '%s\n' "$DGCLAW_STUB_SS"
+exit 0

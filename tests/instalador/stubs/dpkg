@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+. "$(dirname "$0")/_comum.sh"
+registrar "$@"
+if [ "${1:-}" = -s ] && esta_na_lista instalados "${2:-}" "${DGCLAW_STUB_INSTALADOS:-}"; then
+    printf 'Package: %s\nStatus: install ok installed\n' "$2"
+    exit 0
+fi
+exit 1

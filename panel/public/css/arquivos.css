@@ -1,0 +1,151 @@
+/* arquivos.css — a aba Pasta.
+ *
+ * Arquivo separado pelo mesmo motivo do apps.css: a aba nasceu como módulo para
+ * poder ser mexida sem disputar linha com quem estiver no resto do painel. Usa as
+ * variáveis de tema do main.css, então acompanha o claro e o escuro sem saber qual
+ * está ligado, e pega emprestado do apps.css o cabeçalho (.app-cabeca), o botão de
+ * tutorial e as caixas de vazio e de erro, que já são os mesmos em toda tela.
+ *
+ * CELULAR: a lista NÃO é tabela. Cada linha é uma faixa em coluna, e em tela
+ * estreita nome, tamanho e botões se empilham em vez de espremer três colunas em
+ * 390px. Nada aqui rola para o lado; quem rola é o texto do arquivo aberto, dentro
+ * da própria caixa. Todo alvo de toque fica em 32px ou mais.
+ */
+
+#panel-arquivos { padding-bottom: 40px; }
+
+/* ─── Trilha de navegação ──────────────────────────────────── */
+
+.arq-trilha {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px;
+  margin-bottom: 12px; font-size: 13px;
+}
+.arq-trilha-item {
+  background: transparent; border: 0; color: var(--acento1); font: inherit; font-size: 13px;
+  cursor: pointer; padding: 5px 7px; border-radius: 7px; min-height: 32px;
+}
+.arq-trilha-item:hover { background: var(--fundo2); }
+.arq-trilha-item.atual { color: var(--texto); font-weight: 600; cursor: default; }
+.arq-trilha-sep { color: var(--fraco); opacity: .6; }
+
+/* ─── Barra do upload ──────────────────────────────────────── */
+
+.arq-barra {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.arq-barra-dica { font-size: 12px; color: var(--fraco); }
+.arq-subir {
+  margin-left: auto; font: inherit; font-size: 13px; cursor: pointer;
+  border: 1px solid var(--acento1); color: var(--acento1); background: transparent;
+  border-radius: 9px; padding: 0 15px; min-height: 36px;
+}
+.arq-subir:hover { background: var(--fundo2); }
+
+/* ─── Avisos de operação (subiu, salvou, apagou) ───────────── */
+
+.arq-aviso-ok, .arq-aviso-andando {
+  border: 1px solid var(--linha); border-radius: 10px; padding: 10px 14px;
+  margin: 0 0 12px; font-size: 13px; background: var(--painel);
+}
+.arq-aviso-ok { border-color: var(--ok); color: var(--ok); }
+.arq-aviso-andando { color: var(--fraco); }
+
+/* ─── A lista ──────────────────────────────────────────────── */
+
+.arq-lista { list-style: none; margin: 0; padding: 0; }
+.arq-linha {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 9px 0; border-bottom: 1px solid var(--linha);
+}
+.arq-linha-nome {
+  display: flex; align-items: center; gap: 9px; min-width: 0; flex: 1;
+  background: transparent; border: 0; color: inherit; font: inherit; font-size: 13.5px;
+  cursor: pointer; text-align: left; padding: 0; min-height: 32px;
+}
+.arq-linha-nome:hover .arq-nome { color: var(--acento1); }
+.arq-ico { color: var(--fraco); flex-shrink: 0; }
+.arq-nome { min-width: 0; overflow-wrap: anywhere; }
+.arq-meta { font-size: 11.5px; color: var(--fraco); white-space: nowrap; flex-shrink: 0; }
+.arq-tag {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--fraco);
+  border: 1px solid var(--linha); border-radius: 4px; padding: 2px 7px;
+}
+
+.arq-linha-acoes { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex-shrink: 0; }
+.arq-btn {
+  font: inherit; font-size: 12px; cursor: pointer; line-height: 1; text-decoration: none;
+  border: 1px solid var(--linha); border-radius: 8px; padding: 0 11px; min-height: 32px;
+  background: transparent; color: var(--texto);
+  display: inline-flex; align-items: center;
+}
+.arq-btn:hover { border-color: var(--acento1); color: var(--acento1); }
+.arq-btn.principal { border-color: var(--acento1); color: var(--acento1); }
+/* Apagar fica cinza até o mouse chegar. Botão vermelho o tempo todo vira paisagem,
+ * e paisagem é justamente o que ninguém lê antes de clicar. */
+.arq-btn.perigo:hover { border-color: var(--erro); color: var(--erro); }
+.arq-btn[disabled] { opacity: .5; cursor: default; }
+
+/* ─── Arquivo aberto: leitura e edição ─────────────────────── */
+
+.arq-aberto-caixa {
+  border: 1px solid var(--linha); border-radius: 12px; padding: 14px;
+  margin-top: 14px; background: var(--painel);
+}
+.arq-aberto-topo { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.arq-aberto-topo strong { font-size: 13.5px; overflow-wrap: anywhere; }
+.arq-aberto-topo .arq-btn { margin-left: auto; }
+
+/* O texto do arquivo rola dentro da própria caixa, nos dois eixos: linha longa de
+ * um .log não pode empurrar a página inteira para o lado no celular. */
+.arq-texto {
+  margin: 0; max-height: 60vh; overflow: auto; -webkit-overflow-scrolling: touch;
+  background: var(--fundo2); border: 1px solid var(--linha); border-radius: 9px;
+  padding: 12px 14px; font-size: 12.5px; line-height: 1.6; white-space: pre;
+}
+.arq-editor {
+  width: 100%; box-sizing: border-box; min-height: 340px; resize: vertical;
+  background: var(--fundo2); border: 1px solid var(--linha); border-radius: 9px;
+  color: var(--texto); padding: 12px 14px; font-size: 12.5px; line-height: 1.6;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.arq-editor:focus { outline: none; border-color: var(--acento1); }
+.arq-editor-acoes { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.arq-editor-recado { font-size: 12.5px; color: var(--fraco); }
+.arq-editor-recado.ruim { color: var(--erro); }
+
+@media (max-width: 640px) {
+  /* A linha vira cartão: nome em cima, tamanho e data embaixo, botões na terceira
+   * linha. Em três colunas os botões ficavam com 20px cada e ninguém acertava. */
+  .arq-linha { flex-direction: column; align-items: stretch; gap: 7px; padding: 11px 0; }
+  .arq-meta { white-space: normal; }
+  .arq-linha-acoes { justify-content: flex-start; }
+  .arq-btn { flex: 1; justify-content: center; min-width: 68px; }
+  .arq-subir { margin-left: 0; width: 100%; justify-content: center; }
+  .arq-barra { gap: 8px; }
+  .arq-editor { min-height: 260px; }
+}
+
+
+/* ─── Miniatura de imagem na lista ──────────────────────────────────────────
+   O quadrado tem tamanho FIXO e a imagem é recortada por `cover` para caber
+   nele. Sem isso, um print 3000x200 e um ícone quadrado dariam alturas de linha
+   diferentes, e a lista passaria a pular conforme as miniaturas fossem
+   chegando, justamente enquanto a pessoa tenta clicar em uma. */
+.arq-ico-img {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--linha);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.arq-ico-img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}

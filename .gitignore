@@ -1,0 +1,13 @@
+# Estado de runtime / nada disso deve ir pro repo
+*.pyc
+__pycache__/
+*.db
+.env
+.env.*
+!.env.example
+*.log
+node_modules/
+
+# Prints do QA de navegador: o relatorio vai pro repo, as imagens nao.
+qa/**/*.png
+qa/**/*.jpg

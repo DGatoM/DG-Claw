@@ -1,0 +1,142 @@
+/* cofre.css — a aba Cofre.
+ *
+ * Arquivo separado pelo mesmo motivo do apps.css e do arquivos.css: a aba é um
+ * módulo, e assim ela pode ser mexida sem disputar linha com quem estiver no
+ * resto do painel. Usa as variáveis de tema do main.css (acompanha claro e
+ * escuro sem saber qual está ligado) e pega emprestado do apps.css o cabeçalho
+ * (.app-cabeca), o botão de tutorial e as caixas de vazio e de erro.
+ *
+ * CELULAR: A TABELA VIRA CARTÃO, e não uma tabela que rola para o lado.
+ * O `.pixel-table` do main.css resolve tela estreita com `overflow-x: auto`, que
+ * serve para a tabela de custos, onde a pessoa passa o olho. Aqui não serve: ela
+ * precisa ler QUAL chave é antes de clicar em revogar, e uma coluna escondida
+ * fora da tela é exatamente a que some. Cada linha vira um bloco, com o nome da
+ * coluna ao lado do valor (o `data-rot` que o js/cofre.js escreve).
+ *
+ * O CAMPO DA CHAVE NASCE COMO SENHA, e o botão de mostrar é opt-in. Numa tela que
+ * alguém pode abrir num escritório, com outra pessoa passando atrás, o padrão
+ * honesto é a chave escondida.
+ */
+
+#panel-cofre { padding-bottom: 40px; }
+
+/* ─── Avisos de operação (guardou, revogou, aplicou) ───────── */
+
+.cofre-aviso { margin-bottom: 14px; }
+.cofre-ok {
+  border: 1px solid var(--ok); border-radius: 10px; padding: 10px 14px;
+  margin: 0 0 14px; font-size: 13px; background: var(--painel); color: var(--ok);
+}
+.cofre-ok p { margin: 0; }
+
+/* ─── O aviso de quem paga ─────────────────────────────────── */
+/* Ele vem PRIMEIRO na tela, antes da lista e antes do formulário, porque é a
+ * informação que muda a decisão de cadastrar ou não. Depois do formulário, seria
+ * um aviso que a pessoa lê quando já cadastrou. */
+.cofre-conta { border-color: var(--acento1); }
+.cofre-conta .ajuda-secao { margin-bottom: 0; }
+
+/* ─── A lista ──────────────────────────────────────────────── */
+
+.cofre-tabela code {
+  font-size: 12.5px; background: var(--fundo2); border: 1px solid var(--linha);
+  border-radius: 5px; padding: 2px 6px; overflow-wrap: anywhere;
+}
+.cofre-mascara { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .06em; }
+.cofre-quando { font-size: 11.5px; color: var(--fraco); white-space: nowrap; }
+
+.cofre-selo {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em;
+  border: 1px solid var(--linha); border-radius: 4px; padding: 2px 7px; white-space: nowrap;
+}
+.cofre-selo.ativa { color: var(--ok); border-color: var(--ok); }
+/* Revogada fica CINZA e não vermelha: revogar é o caminho certo de quem trocou
+ * uma chave, e não um defeito. Vermelho aqui transformaria higiene em alarme. */
+.cofre-selo.revogada { color: var(--fraco); }
+
+.cofre-linha-acoes { display: flex; gap: 6px; flex-wrap: wrap; }
+.cofre-revogar:hover { border-color: var(--erro); color: var(--erro); }
+
+/* ─── O formulário ─────────────────────────────────────────── */
+
+.cofre-campo { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; max-width: 520px; }
+.cofre-campo label { font-size: 12px; font-weight: 600; letter-spacing: .03em; color: var(--fraco); }
+.cofre-campo input, .cofre-campo select {
+  font: inherit; font-size: 13.5px; color: var(--texto);
+  background: var(--fundo2); border: 1px solid var(--linha); border-radius: 9px;
+  padding: 0 12px; min-height: 38px; width: 100%; box-sizing: border-box;
+}
+.cofre-campo input:focus, .cofre-campo select:focus { outline: none; border-color: var(--acento1); }
+.cofre-campo input[type="password"], #cofre-valor {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.cofre-onde { margin: -6px 0 14px; overflow-wrap: anywhere; }
+.cofre-onde a { color: var(--acento1); }
+
+.cofre-botoes { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+
+/* O botão que faz a coisa acontecer. Existe aqui e não no main.css porque esta
+ * foi a primeira tela do painel a ter uma ação de escrita com peso: guardar uma
+ * credencial e reiniciar o agente. Quando a segunda aparecer, ele sobe. */
+.btn-principal {
+  font: inherit; font-size: 13px; cursor: pointer; line-height: 1;
+  border: 1px solid var(--acento1); background: var(--acento1); color: #fff;
+  border-radius: 9px; padding: 0 16px; min-height: 38px;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.btn-principal:hover { filter: brightness(1.08); }
+.btn-principal[disabled] { opacity: .5; cursor: default; filter: none; }
+
+/* ─── Chaves de API ────────────────────────────────────────── */
+
+.cofre-selo.origem { margin-left: 6px; text-transform: none; color: var(--fraco); }
+.cofre-api .cofre-tabela { margin-bottom: 14px; }
+.cofre-api-nova { margin-top: 6px; }
+
+/* O token novo é o único momento em que ele existe na tela: chama atenção de
+ * propósito, e o campo é monoespaçado para quebrar por caractere no celular. */
+.cofre-token-novo {
+  border: 1px solid var(--acento1); border-radius: 10px; padding: 12px 14px; margin: 0 0 14px;
+  background: var(--painel);
+}
+.cofre-token-linha { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.cofre-token-linha input {
+  flex: 1 1 260px; min-width: 0; font: inherit; font-size: 12.5px; color: var(--texto);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: var(--fundo2); border: 1px solid var(--linha); border-radius: 9px;
+  padding: 0 12px; min-height: 38px; box-sizing: border-box;
+}
+
+/* ─── Como fica guardada ───────────────────────────────────── */
+
+.cofre-guarda-lista { margin: 0; padding-left: 18px; font-size: 12.5px; color: var(--fraco); line-height: 1.65; }
+.cofre-guarda-lista li { margin-bottom: 6px; }
+
+/* ─── Celular ──────────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  /* Desfaz o `overflow-x: auto` que o main.css põe em toda .pixel-table e monta
+   * cartão. O `!important` é para vencer aquela regra sem editá-la: ela vale para
+   * as outras tabelas do painel, onde rolar para o lado é aceitável. */
+  .cofre-tabela { display: block !important; overflow-x: visible !important; white-space: normal !important; }
+  .cofre-tabela thead { display: none; }
+  .cofre-tabela tbody, .cofre-tabela tr, .cofre-tabela td { display: block; width: auto; }
+  .cofre-tabela tr {
+    border: 1px solid var(--linha); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px;
+    background: var(--painel);
+  }
+  .cofre-tabela td { border: 0; padding: 5px 0; }
+  .cofre-tabela td[data-rot]::before {
+    content: attr(data-rot); display: block;
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--fraco);
+    margin-bottom: 2px;
+  }
+  .cofre-tabela tr:hover td { background: transparent; }
+  .cofre-quando { white-space: normal; }
+  .cofre-linha-acoes .btn-leve, .btn-principal { min-height: 38px; }
+  .cofre-botoes .btn-leve, .cofre-botoes .btn-principal { flex: 1; justify-content: center; }
+  .cofre-token-linha .btn-leve, .cofre-token-linha .btn-principal { flex: 1; justify-content: center; }
+  .cofre-selo.origem { margin-left: 0; display: inline-block; margin-top: 3px; }
+  .cofre-campo { max-width: none; }
+}

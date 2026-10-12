@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DG Claw - Painel</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%234f46e5'/%3E%3Cstop offset='1' stop-color='%238b5cf6'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='url(%23g)'/%3E%3Ccircle cx='16' cy='16' r='6' fill='white'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="{{BASE}}/css/main.css">
+  <link rel="stylesheet" href="{{BASE}}/css/apps.css">
+  <link rel="stylesheet" href="{{BASE}}/css/arquivos.css">
+  <link rel="stylesheet" href="{{BASE}}/css/cofre.css">
+  <link rel="stylesheet" href="{{BASE}}/css/socorro.css">
+  <link rel="stylesheet" href="{{BASE}}/css/operacoes.css">
+  <link rel="stylesheet" href="{{BASE}}/css/sessoes.css">
+  <link rel="stylesheet" href="{{BASE}}/css/leitura.css">
+  <link rel="stylesheet" href="{{BASE}}/css/wm-status.css">
+  <link rel="stylesheet" href="{{BASE}}/css/provedor.css">
+</head>
+<body>
+  <div id="app" class="app">
+
+    <!-- Veu do menu no celular: escurece o conteudo e fecha a gaveta no toque -->
+    <div class="veu" id="veu" aria-hidden="true"></div>
+
+    <!-- Menu lateral: o agente e a navegacao -->
+    <aside class="lado">
+      <div class="marca">
+        <div class="moldura">
+          <img src="{{BASE}}/assets/sprites/default.gif" alt="retrato do agente" class="sprite-gif" id="sprite-img">
+          <span class="mood-badge" id="mood-badge" data-ext="alive">--</span>
+        </div>
+        <div class="char-name" id="char-name">--</div>
+        <div class="char-level" id="char-level" style="display:none">Lv. --</div>
+        <div class="char-papel" id="header-title">DG Claw</div>
+
+        <!-- Nasce ESCONDIDO e só aparece se houver mesmo para onde ir. Antes ele
+             nascia visível e o JavaScript o escondia quando a lista voltava com um
+             agente só: entre uma coisa e outra, quem estava no painel via um botão
+             de "trocar de agente" piscar na tela. Atrás da fachada isso é pior do
+             que feio, porque anuncia à dona de um agente que existem outros. -->
+        <div class="troca" id="troca" style="display:none">
+          <button type="button" id="btn-troca">
+            <img src="{{BASE}}/assets/sprites/avatar.jpg" alt="" class="mini" id="header-avatar">
+            <span>trocar de agente</span>
+            <span class="seta" aria-hidden="true">▾</span>
+          </button>
+          <div class="lista" id="lista-agentes"></div>
+        </div>
+      </div>
+
+      <nav class="tabs" id="tabs">
+        <!-- Conversa é o PRIMEIRO item e abre por padrão: é o que a dona vem fazer aqui.
+             O resto do painel é sobre o agente; esta aba é o agente. -->
+        <button class="tab active" data-tab="conversa"><span class="ico">◔</span>Conversa</button>
+        <button class="tab" data-tab="status"><span class="ico">◉</span>Status</button>
+        <button class="tab" data-tab="memory"><span class="ico">▤</span>Memória</button>
+        <!-- Operações e Pulso viraram UMA aba em 01/10/2026: nem o Danilo sabia
+             dizer a diferença entre as duas. Ver panel/docs/OPERACOES.md. -->
+        <button class="tab" data-tab="operations"><span class="ico">⚙</span>Operações</button>
+        <!-- Sessões (12/10/2026): nasce escondida; js/sessoes.js mostra quando /api/sessoes-config diz ligado:true. -->
+        <button class="tab" data-tab="sessoes" hidden><span class="ico">◫</span>Sessões</button>
+        <button class="tab" data-tab="costs"><span class="ico">◇</span>Custos</button>
+        <button class="tab" data-tab="como"><span class="ico">◎</span>Como funciona</button>
+        <button class="tab" data-tab="identity"><span class="ico">◈</span>Identidade</button>
+        <button class="tab" data-tab="personality"><span class="ico">◐</span>Personalidade</button>
+        <!-- O balão de cada aba mora no EXPLICACAO_ABA do js/app.js, e é aplicado no
+             boot. Fonte única: escrever aqui também criaria dois textos para a mesma
+             aba, e um dia eles discordam. -->
+        <button class="tab" data-tab="apps"><span class="ico">▨</span>Apps</button>
+        <button class="tab" data-tab="arquivos"><span class="ico">▢</span>Pasta</button>
+        <!-- A aba Socorro (outra frente) entra aqui, antes do Cofre. -->
+        <button class="tab" data-tab="socorro"><span class="ico">✚</span>Socorro</button>
+        <button class="tab" data-tab="cofre"><span class="ico">⚿</span>Cofre</button>
+        <button class="tab" data-tab="posts" data-power="instagram"><span class="ico">▣</span>Posts</button>
+        <button class="tab" data-tab="followers" data-power="instagram"><span class="ico">◍</span>Seguidores</button>
+        <button class="tab" data-tab="reunioes" data-power="meetings"><span class="ico">▷</span>Reuniões</button>
+      </nav>
+
+      <div class="rodape-lado">
+        <!-- POSTS E PENDENTES SÃO NÚMEROS DE INSTAGRAM, e por isso entraram no
+             `data-power`. "Posts 0/3" mede publicações contra uma meta fixa de três
+             por dia, que veio da persona de rede social e não é objetivo de agente
+             DG Claw nenhum: a Ana e o Bento não publicam nada. O que estava ali
+             era um zero permanente, contra uma meta que ninguém combinou, no canto de
+             uma tela que a pessoa olha todo dia. Com o poder de Instagram ligado, os
+             dois voltam a fazer sentido e reaparecem sozinhos. -->
+        <div class="footer-stats" id="footer-stats">
+          <span class="footer-stat" data-power="instagram">Posts <span class="val" id="ft-posts">--</span></span>
+          <span class="footer-stat" data-power="instagram">Pendentes <span class="val" id="ft-pending">--</span></span>
+          <span class="footer-stat" data-ext="alive">Alegria <span class="val" id="ft-joy">--</span></span>
+          <span class="footer-stat" data-ext="alive">Energia <span class="val" id="ft-energy">--</span></span>
+        </div>
+        <div class="rodape-acoes">
+          <button type="button" class="btn-tema" id="btn-tema">tema</button>
+          <form method="post" action="{{BASE}}/logout" class="form-sair"><button type="submit" class="btn-sair" title="Encerra a sua entrada neste navegador. Para entrar de novo, use a senha.">sair</button></form>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Area principal -->
+    <div class="principal">
+      <header class="header">
+        <button type="button" class="btn-menu" id="btn-menu" aria-label="abrir o menu" aria-expanded="false">☰</button>
+        <!-- A setinha de voltar fica AQUI, no cabeçalho, e não dentro da gaveta: no
+             celular a gaveta está fechada, e uma saída que exige abrir o menu para ser
+             encontrada não é uma saída. Só aparece quando o painel é servido pela
+             plataforma; ver {{VOLTAR}} no server.js. -->
+        {{VOLTAR}}
+        <div class="header-left">
+          <div class="header-titulo-linha">
+            <h1 class="header-titulo" id="titulo-aba">Conversa</h1>
+            <!-- UM botão de tutorial, sempre no MESMO lugar, para todas as abas.
+                 Ele nasce escondido e o js/app.js o mostra quando a aba aberta tem
+                 visita guiada. Nas três abas que desenham a si mesmas (Apps, Pasta
+                 e Cofre) ele clica no botão interno delas; nas outras, abre a lista
+                 de passos de js/tutoriais.js. Botão que muda de lugar conforme a
+                 aba é botão que a pessoa procura toda vez. -->
+            <button type="button" class="btn-tutorial-aba" id="btn-tutorial-aba" hidden
+                    title="Uma visita guiada por esta tela, passo a passo.">Tutorial</button>
+          </div>
+          <p class="header-sub" id="subtitulo-aba">fale com ele por aqui</p>
+        </div>
+        <div class="header-status" id="header-status">
+          <!-- Nasce NEUTRO e escrito "verificando", nunca verde e "Online". Este selo
+               passou a vida inteira sendo um adesivo: verde no HTML e sem ninguem
+               escrevendo nele. Quem o preenche agora e o atualizaSaude(), com o que
+               a rota /api/saude mediu. -->
+          <!-- O selo virou botão em 01/10/2026: no celular não existe "passar o mouse",
+               e a frase que explica o estado precisa abrir com um toque. -->
+          <div class="saude-wrap" id="saude-wrap">
+            <button type="button" class="selo selo-saude" id="health-selo" aria-expanded="false" aria-controls="health-pop"
+                    title="Como o agente está agora. O painel pergunta a cada 30 segundos. Toque para ver o detalhe.">
+              <span class="status-dot" id="health-dot"></span> <span id="health-label">verificando</span>
+            </button>
+            <span class="saude-frase" id="health-frase"></span>
+            <div class="saude-pop" id="health-pop" hidden></div>
+          </div>
+          <span class="selo" id="header-mood" data-ext="alive">--</span>
+          <span class="selo" id="header-time"></span>
+        </div>
+      </header>
+
+      <!-- A faixa que diz quando uma leitura falhou, com o motivo que o servidor mandou.
+           Antes o erro virava null e a tela congelava calada. Ver avisarErroApi no js/api.js. -->
+      <div class="aviso-api" id="aviso-api" role="alert" hidden></div>
+
+      <main class="content">
+        <!-- CONVERSA -->
+        <!-- Uma conversa só, sem "novo chat": a sessão do agente é uma e continua.
+             Um botão de começar do zero prometeria um recomeço que não existe. -->
+        <div class="panel active conversa-panel" id="panel-conversa">
+          <div class="conversa">
+            <!-- A faixa do diagnóstico: só aparece quando ele está inativo ou pedindo
+                 atenção, com a frase, o que fazer e o botão certo para aquele caso. -->
+            <div class="faixa-saude" id="conversa-faixa" hidden></div>
+            <div class="conversa-lista" id="conversa-lista" aria-live="polite">
+              <div class="conversa-vazia">carregando a conversa...</div>
+            </div>
+
+            <div class="conversa-recado" id="conversa-recado" hidden></div>
+
+            <div class="conversa-rodape">
+              <div class="conversa-sinal" id="conversa-sinal">
+                <span class="sinal-ponto" id="sinal-ponto"></span>
+                <span id="sinal-frase">carregando...</span>
+                <button type="button" class="btn-parar" id="btn-parar" hidden title="Interrompe o que ele está fazendo agora. A conversa continua guardada e você pode mandar outra mensagem em seguida.">parar</button>
+                <!-- Só aparece com o terminal caído. É a única saída que a dona do
+                     agente tem nesse estado: sem ele, a tela dizia que a conversa
+                     estava guardada e não dizia como voltar a usá-la. -->
+                <button type="button" class="btn-reativar" id="btn-reativar" hidden title="Religa o agente a partir da conversa guardada. Leva alguns segundos.">acordar</button>
+              </div>
+              <!-- O ditado. Fica ANTES do enviar, na ordem em que a coisa acontece:
+                   falar, ler o que saiu, mandar. O texto transcrito cai na mesma
+                   caixa de escrever de sempre, e não sai sozinho: quem dita revisa
+                   e aperta enviar, igual a quem digita. -->
+              <form class="conversa-escrever" id="conversa-form">
+                <textarea id="conversa-texto" rows="1" placeholder="Escreva aqui..."
+                          aria-label="sua mensagem"></textarea>
+                <button type="button" class="btn-microfone" id="btn-microfone"
+                        aria-label="gravar um áudio" title="falar em vez de escrever">🎤</button>
+                <button type="submit" class="btn-enviar" id="btn-enviar" aria-label="enviar">↑</button>
+              </form>
+              <!-- A linha que só existe enquanto grava ou transcreve. Ela mostra o
+                   tempo correndo, porque gravação sem relógio é a forma mais fácil de
+                   mandar um áudio de oito minutos sem perceber. -->
+              <div class="ditado-barra" id="ditado-barra" hidden>
+                <span class="ditado-ponto" aria-hidden="true"></span>
+                <span id="ditado-frase">gravando...</span>
+                <button type="button" class="ditado-cancelar" id="ditado-cancelar">descartar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- STATUS -->
+        <!-- A página inicial do dono (reorganizada em 01/10/2026): os números de cima,
+             UMA linha sobre as operações do sistema (o detalhe é na aba Operações), o
+             raio-X da memória dele, e as rotinas que o DONO pediu. As rotinas do
+             sistema saíram daqui: elas são da máquina, não do dono. -->
+        <div class="panel" id="panel-status">
+
+          <!-- Aviso de saúde: só aparece quando o diagnóstico diz que ele não está respondendo
+               (login vencido, sessão muda...). Mesmo componente da faixa da Conversa, sem o
+               botão de reiniciar: aqui a pessoa só precisa saber, e quem resolve é descrito
+               no "como resolver". Vazio e escondido quando está tudo bem. -->
+          <div class="faixa-saude inativo" id="status-faixa" hidden
+               title="Aviso do sistema: ele conferiu as respostas do agente e viu que ele não está conseguindo responder. O texto diz o motivo e o que fazer."></div>
+
+          <!-- Modelo e autenticação (12/10/2026): qual cérebro o agente usa e como se paga por ele.
+               A estrutura é fixa aqui e o js/provedor.js preenche. -->
+          <section class="cartao prov-cartao">
+            <div class="section-title" title="Qual modelo de IA o agente usa (o cérebro dele) e como isso é pago: pela assinatura do Claude ou do ChatGPT, ou por uma chave de API. O painel mostra o que está escolhido e o que o programa do agente confirma.">Modelo e autenticação</div>
+            <p class="ajuda-secao">O cérebro que o agente usa e como ele é pago. Se algo estiver diferente do escolhido, a linha de baixo fica amarela e diz o que fazer.</p>
+            <div id="prov-status">
+              <div class="prov-rotulo" id="prov-rotulo">Conferindo o modelo...</div>
+              <div class="prov-conferido" id="prov-conferido"></div>
+              <div class="prov-aviso" id="prov-aviso" hidden></div>
+              <div class="prov-acoes">
+                <button type="button" class="prov-btn" id="prov-trocar" hidden title="Abre a janela para escolher outro provedor, outro modelo ou outra forma de pagar. O agente reinicia numa conversa nova; a memória dele continua.">Trocar</button>
+                <button type="button" class="prov-btn" id="prov-entrar" hidden title="O agente não está logado na sua assinatura. Este botão mostra o link de login e, quando precisar, o código para digitar. Você não usa terminal.">Entrar com a assinatura</button>
+              </div>
+              <div class="prov-login" id="prov-login" hidden></div>
+            </div>
+          </section>
+
+          <!-- Faixa de cima: os números que respondem "está tudo bem?" -->
+          <div class="faixa">
+            <div class="destaque" data-ext="alive">
+              <span class="rot">Humor</span>
+              <b class="num palavra" id="dest-humor">--</b>
+              <span class="pe" id="dest-humor-pe">carregando</span>
+            </div>
+            <div class="destaque">
+              <span class="rot">Custo do mês</span>
+              <b class="num" id="dest-custo">--</b>
+              <span class="pe" id="dest-custo-pe">carregando</span>
+            </div>
+            <div class="destaque">
+              <span class="rot" title="As rotinas que você pediu a ele, como 'todo sábado às 9h me manda o resumo'. As do sistema ficam na aba Operações.">Suas rotinas</span>
+              <b class="num" id="dest-rotinas">--</b>
+              <span class="pe" id="dest-rotinas-pe">carregando</span>
+            </div>
+            <div class="destaque">
+              <span class="rot">Último sinal</span>
+              <b class="num" id="dest-sessao">--</b>
+              <span class="pe" id="dest-sessao-pe">carregando</span>
+            </div>
+          </div>
+
+          <div class="home-operacoes" id="home-operacoes">Conferindo as operações do sistema...</div>
+
+          <!-- A memória de trabalho, em uma olhada (Danilo, 05/10/2026): ele abriu o painel e
+               achou que o agente não tinha working memory. O conteúdo fica no raio-X logo
+               abaixo e na aba Memória; aqui fica o estado dela (js/wm-status.js). -->
+          <section class="cartao wms-cartao">
+            <div class="section-title" title="A memória de trabalho (em inglês, working memory) é o bloco de anotações do momento: o que ele está fazendo, o que ficou pendente e o que combinou com você há pouco. Ele lê este arquivo no começo de toda conversa.">Memória de trabalho (working memory)</div>
+            <p class="ajuda-secao">Se ela está em dia, quando foi atualizada, quanto do teto ocupa, se a remontagem das 7h rodou hoje e o que ele anotou como pendente. O texto inteiro fica na aba Memória.</p>
+            <div id="wm-status"><div class="vazio-util">Conferindo a memória de trabalho...</div></div>
+          </section>
+
+          <section class="cartao cerebro">
+            <div class="section-title" title="Os arquivos de memória que ele está usando agora, lidos do disco na hora. Clique em qualquer um para ler inteiro e corrigir à mão.">O que ele sabe agora</div>
+            <p class="ajuda-secao">Os arquivos que ele lê para lembrar de você: o que está fazendo, o que sabe sobre você, as tarefas e os assuntos que separou. Clique num cartão para ler inteiro; se algo estiver errado, corrija ali mesmo.</p>
+            <div class="cerebro-grade" id="cerebro-grid"><div class="vazio-util">Lendo a memória dele...</div></div>
+          </section>
+
+          <!-- Mosaico: os cartões se encaixam em colunas sem deixar buraco. Os da
+               extensão DG Alive somem inteiros quando ela não está instalada. -->
+          <div class="status-mosaico">
+            <div class="cartao" data-ext="alive">
+              <div class="section-title">O que ele anda pensando</div>
+              <div id="thoughts-present"></div>
+              <div class="section-title" style="margin-top:16px">Reflexões que voltam</div>
+              <div id="thoughts-lingering"></div>
+            </div>
+            <div class="cartao" data-ext="alive">
+              <div class="section-title">Emoções</div>
+              <div id="emotion-bars" class="barras-duplas"></div>
+              <div class="stat-group-title">Necessidades</div>
+              <div id="needs-bars" class="barras-duplas"></div>
+            </div>
+            <div class="cartao" data-ext="alive">
+              <div class="section-title">Acontecimentos recentes</div>
+              <div id="recent-events" class="lista-eventos"></div>
+            </div>
+            <div class="cartao">
+              <div class="section-title">Metas</div>
+              <div id="goals-short"></div>
+              <div class="section-updated" id="last-update"></div>
+            </div>
+          </div>
+
+          <div class="cartao">
+            <div class="section-title" title="Só as rotinas que você pediu a ele. As do sistema (batimento, reflexão, vigia) ficam na aba Operações.">Suas rotinas</div>
+            <p class="ajuda-secao">O que você pediu para ele fazer sozinho, de tempos em tempos: quando roda, a próxima vez, e se a última deu certo.</p>
+            <div id="home-rotinas"><div class="vazio-util">Carregando...</div></div>
+          </div>
+        </div>
+
+        <!-- POSTS -->
+        <div class="panel" id="panel-posts">
+          <div class="posts-stats" id="posts-stats"></div>
+          <div class="cartao">
+            <div class="linha-filtro">
+              <label for="posts-date">Data</label>
+              <input type="date" id="posts-date">
+            </div>
+            <table class="pixel-table">
+              <thead><tr><th></th><th>Data</th><th>Hora</th><th>Tema</th><th>Tipo</th><th>Link</th></tr></thead>
+              <tbody id="posts-table"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- SEGUIDORES -->
+        <div class="panel" id="panel-followers">
+          <div class="posts-stats" id="followers-stats"></div>
+          <div class="section-title">Com quem ele mais fala</div>
+          <div class="cards-grid" id="followers-grid"></div>
+        </div>
+
+        <!-- MEMORIA -->
+        <div class="panel" id="panel-memory">
+          <div class="section-title">Arquivos de memória</div>
+          <div class="memory-list" id="memory-list"></div>
+        </div>
+
+        <!-- PERSONALIDADE -->
+        <div class="panel" id="panel-personality">
+          <div class="cartao">
+            <div class="section-title" title="Os cinco traços que a psicologia usa para descrever personalidade. Cada barra vai de 0 a 100 e mexe num aspecto do jeito dele.">Big Five</div>
+            <div class="big-five-grid" id="big-five"></div>
+          </div>
+          <div class="cartao">
+            <div class="section-title">Comportamento</div>
+            <div id="proactivity-bars"></div>
+          </div>
+          <!-- Sem o DG Alive este bloco some inteiro (sem nota, sem buraco). -->
+          <div data-ext="alive">
+            <div class="cartao">
+              <div class="section-title">Opiniões formadas</div>
+              <div id="opinions-list"></div>
+            </div>
+            <div class="cartao">
+              <div class="section-title">Como ele mudou</div>
+              <div id="personality-changelog" class="log-viewer curto"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- OPERACOES -->
+        <!-- Operações + Pulso numa aba só (01/10/2026). Situação: uma fileira de
+             quadradinhos por operação, como uma página de status. Registros: o
+             leitor de log e a sessão viva. Desenhada por js/operacoes.js; o dado vem
+             de /api/operacoes (lib/operacoes.js), que lê o diário do sistema. -->
+        <div class="panel" id="panel-operations">
+          <div class="op-topo">
+            <div class="op-resumo" id="op-resumo">Lendo o diário do sistema...</div>
+            <div class="op-alternar" id="op-alternar" role="tablist" aria-label="O que ver nesta aba">
+              <button type="button" role="tab" class="ativo" data-vista="situacao" aria-selected="true"
+                      title="Cada operação do sistema com a fileira das últimas execuções. Responde: está tudo funcionando?">Situação</button>
+              <button type="button" role="tab" data-vista="registros" aria-selected="false"
+                      title="O que cada rotina escreveu enquanto rodava, e a sessão viva. É técnico: serve para copiar e mandar para quem cuida dele.">Registros</button>
+            </div>
+          </div>
+
+          <div id="op-situacao">
+            <div class="op-legenda" id="op-legenda">
+              <span title="Rodou e deu certo."><span class="opq verde"></span> deu certo</span>
+              <span title="Rodou e terminou com erro, ou o registro dela diz que falhou. Serviço contínuo: caiu ou ficou fora do ar naquela hora."><span class="opq vermelho"></span> falhou</span>
+              <span title="Não rodou quando devia, foi cancelada, rodou com aviso, ou (serviço contínuo) reiniciou naquela hora."><span class="opq amarelo"></span> pede atenção</span>
+              <span title="Não há dado para aquele momento. Cinza nunca conta como sucesso."><span class="opq cinza"></span> sem dado</span>
+              <span class="op-legenda-dica">o mais recente fica à direita · toque na fileira para ver cada um</span>
+            </div>
+            <div id="op-grupos"></div>
+          </div>
+
+          <div id="op-registros" hidden>
+            <div class="cartao">
+              <!-- "Sessão" é a palavra mais técnica que sobrou nesta tela, e o balão
+                   existe para quem passa o olho e não vai abrir o tutorial. -->
+              <div class="section-title" title="Uma sessão é uma conversa contínua em que ele lembra do que foi dito antes. Preenchido aqui quer dizer que ele está de pé agora.">Sessão viva</div>
+              <div id="session-info" class="info-blocos"></div>
+            </div>
+            <div class="cartao">
+              <div class="section-title" title="O texto que cada rotina escreve enquanto roda. É técnico de propósito: serve para copiar e mandar para quem cuida dele quando algo der errado.">Registros</div>
+              <div class="linha-filtro" id="log-buttons"></div>
+              <div class="log-viewer" id="log-viewer">Escolha um registro acima.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- APPS -->
+        <!-- A tela inteira é desenhada por js/apps.js: o que existe aqui é só o
+             lugar onde ela nasce. A lista de apps vem do agente, não do painel. -->
+        <div class="panel" id="panel-apps">
+          <div id="apps-root">Carregando...</div>
+        </div>
+
+        <!-- PASTA -->
+        <!-- Também desenhada inteira por js/arquivos.js. A raiz que esta aba
+             enxerga é travada em <agentDir>/arquivos no servidor, e o porquê
+             está no topo de panel/lib/arquivos.js. -->
+        <div class="panel" id="panel-arquivos">
+          <div id="arquivos-root">Carregando...</div>
+        </div>
+
+        <!-- COMO FUNCIONA -->
+        <!-- A radiografia do agente: o mapa vivo com os números dele, e o texto
+             docs/RADIOGRAFIA.md do plugin renderizado. Desenhada por js/cerebro.js. -->
+        <div class="panel" id="panel-como">
+          <section class="cartao">
+            <div class="section-title" title="Os números de verdade deste agente, lidos agora: o tamanho de cada camada da memória, as operações do sistema, as suas rotinas e a sessão.">O mapa dele, agora</div>
+            <p class="ajuda-secao">O texto abaixo explica as peças. Aqui em cima, as mesmas peças com os números dele neste instante.</p>
+            <div class="mapa-vivo" id="como-mapa"></div>
+          </section>
+          <section class="cartao">
+            <div class="section-title">Como ele funciona</div>
+            <div id="como-doc"><div class="vazio-util">Carregando...</div></div>
+          </section>
+        </div>
+
+        <!-- SESSÕES: desenhada inteira por js/sessoes.js (ver o cabeçalho dele). -->
+        <div class="panel" id="panel-sessoes"><div id="sessoes-root"></div></div>
+
+        <!-- COFRE -->
+        <!-- Desenhada inteira por js/cofre.js. As regras do que pode ser
+             guardado moram no SERVIDOR, em lib/cofre.js, com o motivo de cada
+             recusa escrito lá: a tela só mostra a frase que o servidor mandou. -->
+        <!-- SOCORRO: desenhada inteira por js/socorro.js (ver o cabeçalho dele). -->
+        <div class="panel" id="panel-socorro"><div id="socorro-root"></div></div>
+
+        <div class="panel" id="panel-cofre">
+          <div id="cofre-root">Carregando...</div>
+        </div>
+
+        <!-- CUSTOS -->
+        <div class="panel" id="panel-costs">
+          <div class="section-title">Este mês</div>
+          <div id="costs-summary"></div>
+          <div class="cartao">
+            <div class="section-title">Por categoria</div>
+            <div id="costs-categories"></div>
+          </div>
+          <div class="cartao">
+            <div class="section-title">Rotinas que mais custam no mês</div>
+            <div id="costs-top-crons"></div>
+          </div>
+          <div class="cartao">
+            <div class="section-title">Execuções recentes</div>
+            <div class="linha-filtro">
+              <label for="costs-hours">Janela</label>
+              <select id="costs-hours" title="Até quanto tempo para trás a lista de execuções olha.">
+                <option value="6">6 horas</option>
+                <option value="24" selected>24 horas</option>
+                <option value="72">3 dias</option>
+                <option value="168">7 dias</option>
+              </select>
+              <button type="button" id="costs-refresh" class="btn-leve" title="Lê de novo a lista de execuções, com a janela escolhida ao lado.">atualizar</button>
+            </div>
+            <table class="pixel-table">
+              <thead><tr><th title="Dia e hora em que a rotina rodou.">Quando</th><th title="O nome da rotina que rodou.">Rotina</th><th title="Uma etiqueta que o sistema põe para agrupar execuções parecidas.">Tag</th><th title="Qual modelo de inteligência artificial fez o trabalho.">Modelo</th><th title="Quantas idas e vindas ele teve com o modelo nesta execução.">Turnos</th><th title="Quanto tempo a execução levou.">Duração</th><th title="Quanto esta execução custou, em dólar.">Custo</th></tr></thead>
+              <tbody id="costs-executions"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- REUNIOES -->
+        <div class="panel" id="panel-reunioes">
+          <div class="reunioes-header">
+            <div class="section-title">Reuniões</div>
+            <input type="search" id="reunioes-search" class="reunioes-search" placeholder="Buscar por participante, assunto ou conteúdo...">
+          </div>
+          <div id="reunioes-list" class="reunioes-list">Carregando...</div>
+          <div id="reunioes-detail" class="reunioes-detail" style="display:none"></div>
+        </div>
+
+        <!-- IDENTIDADE -->
+        <div class="panel" id="panel-identity">
+          <div class="section-title">Arquivos de identidade</div>
+          <div id="identity-files"></div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Modal de arquivo -->
+  <div class="modal-overlay" id="modal">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span class="modal-title" id="modal-title">Arquivo</span>
+        <button class="modal-close" onclick="closeModal()">✕</button>
+      </div>
+      <div class="modal-body" id="modal-body"></div>
+    </div>
+  </div>
+
+  <!-- window.DGCLAW_BASE precisa existir ANTES de api.js/app.js: os dois leem no
+       carregamento do script pra montar toda chamada e todo caminho de asset. -->
+  <script>window.DGCLAW_BASE={{BASE_JSON}}</script>
+  <script src="{{BASE}}/js/api.js"></script>
+  <!-- Os dois compartilhados vêm ANTES das abas que os usam: o visualizador de
+       arquivo e o motor do tutorial servem tanto a aba Apps quanto a aba Pasta. -->
+  <script src="{{BASE}}/js/tutorial.js"></script>
+  <!-- Os PASSOS das abas que o app.js desenha. Vem depois do motor e antes do
+       app.js, que é quem liga o botão do cabeçalho. -->
+  <script src="{{BASE}}/js/tutoriais.js"></script>
+  <script src="{{BASE}}/js/visualizador.js"></script>
+  <!-- O renderizador de markdown vem antes de tudo que desenha texto: o apps.js, a
+       página de compartilhar, o leitor de memória e o raio-X usam o MESMO. Ver o
+       cabeçalho de js/markdown.js. -->
+  <script src="{{BASE}}/js/markdown.js"></script>
+  <!-- Leitor/editor de memória, a aba Operações e o raio-X (01/10/2026). Vêm antes
+       do app.js porque ele os chama ao abrir as abas. -->
+  <script src="{{BASE}}/js/leitor.js"></script>
+  <script src="{{BASE}}/js/operacoes.js"></script>
+  <script src="{{BASE}}/js/cerebro.js"></script>
+  <script src="{{BASE}}/js/wm-status.js"></script>
+  <script src="{{BASE}}/js/provedor.js"></script>
+  <script src="{{BASE}}/js/app.js"></script>
+  <script src="{{BASE}}/js/apps.js"></script>
+  <script src="{{BASE}}/js/arquivos.js"></script>
+  <script src="{{BASE}}/js/cofre.js"></script>
+  <script src="{{BASE}}/js/socorro.js"></script>
+  <script src="{{BASE}}/js/sessoes.js"></script>
+</body>
+</html>

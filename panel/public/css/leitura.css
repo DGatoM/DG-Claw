@@ -1,0 +1,202 @@
+/* leitura.css: tudo o que existe para LER bem (01/10/2026).
+ *
+ * O leitor/editor de memória (js/leitor.js), o raio-X do cérebro na Status, a aba
+ * "Como funciona", o selo de saúde com a frase, a faixa de aviso da Conversa, as
+ * etiquetas de canal nos balões e a faixa de erro de leitura.
+ *
+ * A REGRA DA TIPOGRAFIA DE LEITURA (.md-leitura): corpo de 16px, entrelinha 1.6 e
+ * linha de no máximo ~72 caracteres. É o que um livro faz e o que cansa menos. A
+ * caixa antiga da memória era letra de código de 13px, e o Danilo a chamou de
+ * "ruim, feia, pequenininha".
+ */
+
+/* ─── o texto renderizado ───────────────────────────────────────────────── */
+.md-leitura{font-size:16px;line-height:1.6;max-width:72ch;color:var(--texto);overflow-wrap:anywhere}
+.md-leitura > :first-child{margin-top:0}
+.md-leitura h3,.md-leitura h4,.md-leitura h5,.md-leitura h6{line-height:1.3;margin:1.4em 0 .5em;letter-spacing:-.005em}
+.md-leitura h3{font-size:1.35em} .md-leitura h4{font-size:1.15em} .md-leitura h5{font-size:1.02em}
+.md-leitura h6{font-size:.92em;text-transform:uppercase;letter-spacing:.04em;color:var(--fraco)}
+.md-leitura p{margin:0 0 .7em}
+.md-leitura ul,.md-leitura ol{margin:0 0 .8em;padding-left:1.5em}
+.md-leitura li{margin:.2em 0}
+.md-leitura li > ul,.md-leitura li > ol{margin:.2em 0 .3em}
+.md-leitura li.md-tarefa{list-style:none;margin-left:-1.4em}
+.md-leitura li.md-tarefa input{margin:0 .45em 0 0;vertical-align:-2px;accent-color:var(--ok)}
+.md-leitura li.md-tarefa.feita{color:var(--fraco)}
+.md-leitura blockquote{margin:0 0 .8em;padding:.5em .9em;border-left:3px solid color-mix(in srgb,var(--acento1) 55%,var(--linha));
+  background:var(--fundo2);border-radius:0 8px 8px 0;color:var(--texto)}
+.md-leitura code{font:.88em/1.4 ui-monospace,"SF Mono",Menlo,Consolas,monospace;background:var(--fundo2);
+  border:1px solid var(--linha);border-radius:5px;padding:.08em .35em}
+.md-leitura pre.app-code{font:13.5px/1.55 ui-monospace,"SF Mono",Menlo,Consolas,monospace;background:var(--fundo2);
+  border:1px solid var(--linha);border-radius:10px;padding:12px 14px;overflow-x:auto;white-space:pre;margin:0 0 .9em}
+.md-leitura hr{border:0;border-top:1px solid var(--linha);margin:1.4em 0}
+.md-leitura a{color:var(--acento1);text-underline-offset:2px}
+html[data-tema="escuro"] .md-leitura a{color:var(--acento2)}
+.md-leitura del{color:var(--fraco)}
+.md-leitura .app-tabela-rolagem{overflow-x:auto;margin:.4em 0 1em}
+.md-leitura .app-tabela{border-collapse:collapse;width:100%;font-size:14px}
+.md-leitura .app-tabela th,.md-leitura .app-tabela td{border:1px solid var(--linha);padding:7px 10px;text-align:left;vertical-align:top}
+.md-leitura .app-tabela th{background:var(--fundo2);font-weight:600}
+/* A versão compacta, para a prévia dentro de cartão. */
+.md-leitura.compacto{font-size:14px;line-height:1.55;max-width:none}
+.md-leitura.compacto h3{font-size:1.12em} .md-leitura.compacto h4{font-size:1.05em}
+.md-leitura.compacto h3,.md-leitura.compacto h4,.md-leitura.compacto h5{margin:.9em 0 .35em}
+.md-leitura.compacto p,.md-leitura.compacto ul,.md-leitura.compacto ol{margin-bottom:.5em}
+.md-leitura.compacto pre.app-code{font-size:12.5px;max-height:220px;overflow:auto}
+
+/* ─── o leitor/editor (js/leitor.js) ────────────────────────────────────── */
+body.dgl-aberto{overflow:hidden}
+.dgl-fundo{position:fixed;inset:0;z-index:960;background:rgba(10,12,20,.6);backdrop-filter:blur(3px);
+  display:flex;align-items:center;justify-content:center;padding:20px}
+.dgl-janela{background:var(--painel);border:1px solid var(--linha);border-radius:var(--raio);
+  box-shadow:0 24px 70px rgba(0,0,0,.35);width:min(980px,100%);height:min(92vh,1100px);display:flex;flex-direction:column;min-width:0}
+.dgl-topo{display:flex;align-items:flex-start;gap:12px;padding:16px 18px 12px;border-bottom:1px solid var(--linha);flex-wrap:wrap}
+.dgl-topo-texto{flex:1;min-width:min(100%,240px)}
+.dgl-titulo{margin:0;font-size:19px;line-height:1.3;letter-spacing:-.01em;overflow-wrap:anywhere}
+.dgl-sub{font-size:12.5px;color:var(--fraco);margin-top:3px;display:flex;flex-wrap:wrap;gap:4px 10px}
+.dgl-sub code{font-size:12px;background:var(--fundo2);border-radius:5px;padding:1px 6px;overflow-wrap:anywhere}
+.dgl-meta{cursor:help}
+.dgl-acoes{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.dgl-btn{cursor:pointer;min-height:36px;padding:0 16px;border-radius:10px;border:1px solid var(--linha);background:var(--painel);
+  color:var(--texto);font-size:14px}
+.dgl-btn:hover{background:var(--fundo2)}
+.dgl-btn.principal{border:0;color:#fff;background:linear-gradient(135deg,var(--acento1),var(--acento2))}
+.dgl-btn[disabled]{opacity:.55;cursor:default}
+.dgl-so-leitura{font-size:12.5px;color:var(--fraco);border:1px dashed var(--linha);border-radius:999px;padding:4px 12px;cursor:help}
+.dgl-x{cursor:pointer;width:36px;height:36px;border-radius:10px;border:1px solid var(--linha);background:none;
+  color:var(--fraco);font-size:21px;line-height:1;flex-shrink:0}
+.dgl-x:hover{color:var(--texto);background:var(--fundo2)}
+.dgl-recado{margin:12px 18px 0;padding:10px 14px;border-radius:11px;font-size:14px;line-height:1.5;display:flex;flex-direction:column;gap:3px}
+.dgl-recado.ok{background:color-mix(in srgb,var(--ok) 12%,transparent);border:1px solid color-mix(in srgb,var(--ok) 45%,var(--linha))}
+.dgl-recado.erro{background:color-mix(in srgb,var(--erro) 10%,transparent);border:1px solid color-mix(in srgb,var(--erro) 50%,var(--linha))}
+.dgl-recado-botoes{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.dgl-corpo{flex:1;min-height:0;overflow:auto;padding:18px 22px 26px;display:flex;flex-direction:column}
+.dgl-corpo .md-leitura{margin:0 auto 0 0}
+.dgl-aviso{font-size:13.5px;color:var(--fraco);background:var(--fundo2);border-radius:10px;padding:9px 12px;margin:0 0 14px;max-width:72ch}
+.dgl-alerta{color:var(--erro)}
+.dgl-vazio{color:var(--fraco)}
+.dgl-texto{font:14px/1.6 ui-monospace,"SF Mono",Menlo,Consolas,monospace;white-space:pre-wrap;margin:0}
+.dgl-json{max-height:none!important}
+.dgl-rotulo-editor{font-size:12.5px;color:var(--fraco);margin-bottom:6px}
+/* O editor: grande, monoespaçado, 15px. `flex:1` faz ele ocupar a janela inteira
+ * em vez de uma caixinha de quatro linhas. */
+.dgl-editor{flex:1;min-height:55vh;width:100%;resize:vertical;font:15px/1.6 ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  color:var(--texto);background:var(--bg);border:1px solid var(--linha);border-radius:12px;padding:14px 16px;tab-size:2}
+.dgl-editor:focus{outline:none;border-color:var(--acento1);box-shadow:0 0 0 3px color-mix(in srgb,var(--acento1) 18%,transparent)}
+@media (max-width:640px){
+  .dgl-fundo{padding:0}
+  .dgl-janela{height:100%;border-radius:0;border:0}
+  .dgl-topo{padding:12px 12px 10px}
+  .dgl-acoes{order:3;flex-basis:100%}
+  .dgl-acoes .dgl-btn{flex:1}
+  .dgl-corpo{padding:14px 14px 22px}
+  .dgl-editor{min-height:50vh;font-size:15px}
+  .dgl-recado{margin:10px 12px 0}
+}
+
+/* ─── o raio-X do cérebro (Status) ──────────────────────────────────────── */
+.cerebro .ajuda-secao{margin-top:-4px}
+.cerebro-grade{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));gap:12px}
+.cb-cartao{display:flex;flex-direction:column;min-width:0;background:var(--fundo2);border:1px solid var(--linha);border-radius:12px;
+  padding:13px 15px 10px;cursor:pointer;transition:border-color .15s ease,transform .15s ease}
+.cb-cartao:hover,.cb-cartao:focus-visible{border-color:color-mix(in srgb,var(--acento1) 50%,var(--linha));outline:none}
+.cb-cartao.grande{grid-column:1/-1}
+.cb-cartao.grande .cb-corpo{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:4px 22px;max-height:none}
+.cb-topo{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.cb-titulo{margin:0;font-size:15.5px;line-height:1.3;cursor:help}
+.cb-meta{font-size:12px;color:var(--fraco);cursor:help}
+.cb-corpo{flex:1;max-height:260px;overflow:hidden;position:relative;-webkit-mask-image:linear-gradient(#000 80%,transparent);mask-image:linear-gradient(#000 80%,transparent)}
+.cb-cartao.grande .cb-corpo{-webkit-mask-image:none;mask-image:none}
+.cb-secao{min-width:0;margin-bottom:8px}
+.cb-secao-titulo{font-size:11.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--fraco);margin:6px 0 4px}
+.cb-secao .md-leitura{max-height:190px;overflow:hidden}
+.cb-secao-vazia{font-size:13px;color:var(--fraco);font-style:italic}
+.cb-mais{font-size:12px;color:var(--fraco)}
+.cb-nota{grid-column:1/-1;font-size:12.5px;color:var(--fraco);border-top:1px dashed var(--linha);padding-top:8px;margin-top:4px;cursor:help}
+.cb-pe{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px;font-size:12px;color:var(--fraco);min-height:28px}
+.cb-pe code{font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.cb-pe span{color:var(--acento1);white-space:nowrap}
+html[data-tema="escuro"] .cb-pe span{color:var(--acento2)}
+
+/* ─── o mosaico da Status: colunas que não deixam buraco ────────────────── */
+.status-mosaico{column-width:360px;column-gap:16px}
+.status-mosaico > .cartao{break-inside:avoid;display:inline-block;width:100%}
+.status-mosaico > .cartao.ext-off{display:none}
+
+/* ─── Como funciona ─────────────────────────────────────────────────────── */
+.mapa-vivo{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:12px}
+.mapa-caixa{background:var(--fundo2);border:1px solid var(--linha);border-radius:12px;padding:12px 14px;min-width:0;cursor:help}
+.mapa-caixa.larga{grid-column:span 2}
+.mapa-rot{font-size:11.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--fraco)}
+.mapa-num{font-size:21px;font-weight:600;margin:4px 0 2px;line-height:1.25}
+.mapa-num.ok{color:var(--ok)} .mapa-num.atencao{color:var(--espera)} .mapa-num.falha{color:var(--erro)} .mapa-num.sem{color:var(--fraco)}
+.mapa-pe{font-size:12.5px;color:var(--fraco);overflow-wrap:anywhere}
+.mapa-camadas{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:4px;font-size:13.5px}
+.mapa-camadas li{display:flex;justify-content:space-between;gap:10px;border-bottom:1px dotted var(--linha);padding-bottom:3px}
+.mapa-camadas b{font-variant-numeric:tabular-nums;white-space:nowrap}
+.como-origem{font-size:12px;color:var(--fraco);margin-top:16px}
+@media (max-width:560px){ .mapa-caixa.larga{grid-column:auto} }
+
+/* ─── selo de saúde (cabeçalho) ─────────────────────────────────────────── */
+.saude-wrap{position:relative;display:inline-flex;align-items:center;gap:8px;max-width:100%}
+.selo-saude{cursor:pointer;font-size:14px;font-weight:600;padding:6px 14px;min-height:34px;color:var(--texto)}
+.selo-saude .status-dot{width:10px;height:10px}
+.selo-saude[data-estado="ativo"]{background:color-mix(in srgb,var(--ok) 12%,var(--painel));border-color:color-mix(in srgb,var(--ok) 45%,var(--linha))}
+.selo-saude[data-estado="atencao"]{background:color-mix(in srgb,var(--espera) 14%,var(--painel));border-color:color-mix(in srgb,var(--espera) 55%,var(--linha))}
+.selo-saude[data-estado="inativo"]{background:color-mix(in srgb,var(--erro) 12%,var(--painel));border-color:color-mix(in srgb,var(--erro) 50%,var(--linha))}
+.saude-frase{font-size:12.5px;color:var(--fraco);max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.saude-pop{position:absolute;top:calc(100% + 8px);right:0;z-index:40;width:min(360px,90vw);background:var(--painel);
+  border:1px solid var(--linha);border-radius:12px;box-shadow:var(--sombra);padding:12px 14px;font-size:13.5px;line-height:1.5}
+.saude-pop p{margin:0 0 6px}
+.sp-trecho{margin:6px 0;padding:6px 10px;border-left:3px solid var(--linha);background:var(--fundo2);border-radius:0 8px 8px 0;
+  font-size:13px;color:var(--fraco);overflow-wrap:anywhere}
+.sp-pe{font-size:12px;color:var(--fraco)}
+@media (max-width:1080px){ .saude-frase{display:none} }
+
+/* ─── faixa de aviso da Conversa ────────────────────────────────────────── */
+.faixa-saude{display:flex;gap:14px;align-items:center;justify-content:space-between;flex-wrap:wrap;
+  border-radius:12px;padding:12px 14px;font-size:14px;line-height:1.5}
+.faixa-saude.inativo{background:color-mix(in srgb,var(--erro) 10%,var(--painel));border:1px solid color-mix(in srgb,var(--erro) 50%,var(--linha))}
+.faixa-saude.atencao{background:color-mix(in srgb,var(--espera) 12%,var(--painel));border:1px solid color-mix(in srgb,var(--espera) 55%,var(--linha))}
+.fs-texto{flex:1;min-width:min(100%,260px)}
+.fs-texto b{display:block}
+.fs-trecho{margin:6px 0;padding:4px 10px;border-left:3px solid var(--linha);color:var(--fraco);font-size:13px;overflow-wrap:anywhere}
+.fs-como,.fs-explica{margin:4px 0 0}
+.fs-explica{font-size:13px;color:var(--fraco)}
+.fs-acoes{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.fs-acoes .btn-reativar{margin-left:0;min-height:36px;font-size:13px}
+.fs-acoes .btn-leve{min-height:34px}
+.fs-pergunta,.fs-erro,.fs-ok{font-size:13.5px;display:inline-flex;align-items:center;gap:8px}
+.fs-erro{color:var(--erro);display:inline}
+.fs-ok{color:var(--ok);font-weight:600}
+
+/* ─── etiqueta de canal nos balões ──────────────────────────────────────── */
+.bolha-canal{display:inline-block;font-size:10.5px;font-weight:600;letter-spacing:.03em;line-height:1;
+  border-radius:999px;padding:3px 8px 3px 7px;margin:0 0 6px;white-space:nowrap;cursor:help}
+.bolha-canal::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:currentColor;margin-right:5px;vertical-align:1px}
+.bolha.de-agente .bolha-canal.canal-telegram{color:#1c8ac2;background:color-mix(in srgb,#229ED9 14%,transparent)}
+.bolha.de-agente .bolha-canal.canal-whatsapp{color:#128c4a;background:color-mix(in srgb,#25D366 16%,transparent)}
+.bolha.de-voce .bolha-canal{color:#fff;background:rgba(255,255,255,.18)}
+.bolha.de-voce .bolha-canal.canal-telegram::before{background:#7fd3ff}
+.bolha.de-voce .bolha-canal.canal-whatsapp::before{background:#7dffb0}
+html[data-tema="escuro"] .bolha.de-agente .bolha-canal.canal-telegram{color:#6cc6f2}
+html[data-tema="escuro"] .bolha.de-agente .bolha-canal.canal-whatsapp{color:#5fe39a}
+.bolha > .bolha-canal{display:table;white-space:nowrap}
+
+/* ─── faixa de erro de leitura ──────────────────────────────────────────── */
+.aviso-api{display:flex;align-items:flex-start;gap:12px;margin:12px 26px 0;padding:10px 14px;border-radius:11px;font-size:13.5px;
+  background:color-mix(in srgb,var(--erro) 9%,var(--painel));border:1px solid color-mix(in srgb,var(--erro) 45%,var(--linha))}
+.aviso-api span{flex:1;min-width:0;overflow-wrap:anywhere}
+.aviso-api-x{cursor:pointer;background:none;border:0;color:var(--fraco);font-size:20px;line-height:1;width:32px;height:32px;flex-shrink:0}
+@media (max-width:860px){ .aviso-api{margin:10px 16px 0} }
+
+/* ─── listas de arquivo (Memória e Identidade), agora botões ────────────── */
+button.memory-item{width:100%;text-align:left;font:inherit;color:inherit;min-height:44px}
+.mi-dica{display:block;font-weight:400;font-size:12.5px;color:var(--fraco);white-space:normal}
+.vazio-util.convite b{color:var(--texto);font-weight:600}
+
+/* O histórico da Personalidade: texto renderizado numa caixa que rola por dentro. */
+.historico-rolagem{max-height:340px;overflow:auto;background:var(--fundo2);border-radius:10px;padding:12px 14px}
+/* O balão do selo no celular: de margem a margem, logo abaixo dele (o `top` vem do JS). */
+.saude-pop.largo{position:fixed;left:12px;right:12px;width:auto}
+#status-faixa{margin-bottom:14px}

@@ -1,0 +1,219 @@
+# Integração contínua do DG Claw.
+#
+# Cada job cobre uma parte do repositório e roda sozinho, para que uma falha
+# apareça com o nome da parte que quebrou. Nada aqui precisa de segredo, de
+# podman real ou de acesso a conta de provedor: os testes usam servidores e
+# comandos de mentira.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# O CI só lê o código. Sem permissão de escrita, um PR de fora não consegue
+# mexer no repositório por esta via.
+permissions:
+  contents: read
+
+# Um push novo na mesma branch cancela a rodada anterior, para não gastar minutos à toa.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22"
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Painel (panel/): Express, sem lockfile no repositório, por isso `npm install`.
+  # ---------------------------------------------------------------------------
+  panel:
+    name: panel
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: panel
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Instalar dependências
+        run: npm install --no-audit --no-fund
+      - name: Rodar os testes do painel (panel/test-*.mjs)
+        shell: bash
+        run: |
+          set -uo pipefail
+          falhou=0
+          for t in test-*.mjs; do
+            echo "::group::$t"
+            node "$t"
+            rc=$?
+            echo "::endgroup::"
+            if [ "$rc" -eq 0 ]; then
+              echo "ok      $t"
+            elif [ "$rc" -eq 3 ] && [ "$t" = "test-provedor.mjs" ]; then
+              # Este teste fala com provedor de verdade e sai 3 quando faltam as chaves
+              # DGCLAW_TESTE_CHAVE_*. No CI não há chaves, então conta como pulado.
+              echo "pulado  $t (sem DGCLAW_TESTE_CHAVE_*)"
+            else
+              echo "::error file=panel/$t::$t saiu com código $rc. Rode 'node $t' dentro de panel/ para ver o motivo."
+              falhou=1
+            fi
+          done
+          exit "$falhou"
+
+  # ---------------------------------------------------------------------------
+  # DG Claw Web (web/): zero dependências, só o test runner nativo do Node.
+  # ---------------------------------------------------------------------------
+  web:
+    name: web
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Rodar os testes do web
+        run: node --test web/test/
+
+  # ---------------------------------------------------------------------------
+  # Runner (runner/): TypeScript com node-pty (compila módulo nativo no install).
+  # ---------------------------------------------------------------------------
+  runner:
+    name: runner
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: runner
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: runner/package-lock.json
+      - name: Instalar dependências (lockfile exato)
+        run: npm ci --no-audit --no-fund
+      - name: Conferir os tipos
+        run: npx tsc --noEmit
+      - name: Rodar os testes do runner, se existirem
+        shell: bash
+        run: |
+          # Hoje o package.json do runner não tem o script "test"; outro card vai pôr.
+          # Quando ele aparecer, este passo passa a rodar sem ninguém mexer no CI.
+          if node -e 'process.exit(require("./package.json").scripts?.test ? 0 : 1)'; then
+            npm test
+          else
+            echo "pulado: runner/package.json ainda não tem o script test"
+          fi
+
+  # ---------------------------------------------------------------------------
+  # Python: os testes são scripts executáveis (saem com código diferente de zero
+  # se falharem), não suítes unittest. Por isso cada arquivo roda direto.
+  # ---------------------------------------------------------------------------
+  python:
+    name: python
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Rodar os testes Python
+        shell: bash
+        run: |
+          set -uo pipefail
+          falhou=0
+          for t in scripts/_lib/test_*.py scripts/test_*.py scripts/memory_index/test_*.py; do
+            [ -e "$t" ] || continue
+            echo "::group::$t"
+            python3 "$t"
+            rc=$?
+            echo "::endgroup::"
+            if [ "$rc" -eq 0 ]; then
+              echo "ok      $t"
+            else
+              echo "::error file=$t::$t saiu com código $rc. Rode 'python3 $t' na raiz do repositório para ver o motivo."
+              falhou=1
+            fi
+          done
+          exit "$falhou"
+
+  # ---------------------------------------------------------------------------
+  # Shell: shellcheck (já vem instalado no ubuntu-24.04).
+  #
+  # Arquivos da v1 (lib/, bin/dgclaw, bin/dgclaw-agente, install.sh, tests/cli)
+  # passam na severidade padrão. Os scripts/*.sh herdados passam na severidade
+  # "warning" (erros e avisos, sem as sugestões de estilo).
+  #
+  # Ficam fora, por acusarem avisos antigos que ainda não foram tratados:
+  #   scripts/bootstrap-identity.sh        SC2064 (trap com aspas duplas)
+  #   scripts/launch.sh                    SC2064 (trap com aspas duplas)
+  #   scripts/install-core.sh              SC1090 (source de caminho dinâmico)
+  #   scripts/migrate-alive.sh             SC1090 (source de caminho dinâmico)
+  #   scripts/reflection.sh                SC2034 (variável sem uso)
+  #   scripts/memory_index/hook-memory-inject.sh   SC2034 (variável sem uso)
+  #   bin/test/dgclaw-agente.test.sh       23 avisos (teste da v1, a limpar)
+  # Quando um deles ficar limpo, tire da lista abaixo.
+  # ---------------------------------------------------------------------------
+  shell:
+    name: shell
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Versão do shellcheck
+        run: shellcheck --version
+      - name: shellcheck nos arquivos da v1
+        shell: bash
+        run: |
+          set -euo pipefail
+          arquivos=(lib/*.sh bin/dgclaw bin/dgclaw-agente tests/cli/*.sh)
+          # install.sh vem de outro card: só entra quando existir.
+          [ -f install.sh ] && arquivos+=(install.sh)
+          shellcheck -x "${arquivos[@]}"
+      - name: shellcheck nos scripts herdados (severidade warning)
+        shell: bash
+        run: |
+          set -euo pipefail
+          antigos=(
+            scripts/bootstrap-identity.sh
+            scripts/launch.sh
+            scripts/install-core.sh
+            scripts/migrate-alive.sh
+            scripts/reflection.sh
+            scripts/memory_index/hook-memory-inject.sh
+          )
+          arquivos=()
+          while IFS= read -r f; do
+            pular=0
+            for a in "${antigos[@]}"; do [ "$f" = "$a" ] && pular=1; done
+            [ "$pular" -eq 0 ] && arquivos+=("$f")
+          done < <(git ls-files 'scripts/*.sh')
+          echo "conferindo ${#arquivos[@]} scripts"
+          shellcheck -x -S warning "${arquivos[@]}"
+
+  # ---------------------------------------------------------------------------
+  # CLI: testes de bin/dgclaw e bin/dgclaw-agente com podman e systemctl de mentira
+  # (tests/cli/stubs). Nada toca o sistema do runner.
+  # ---------------------------------------------------------------------------
+  cli:
+    name: cli
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Testes do dgclaw (tests/cli)
+        run: bash tests/cli/rodar.sh
+      - name: Testes do dgclaw-agente
+        run: bash bin/test/dgclaw-agente.test.sh

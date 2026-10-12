@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+echo "systemctl $*" >> "${STUB_LOG:?}"
+est="${STUB_ESTADO:?}"
+if [ "$1" = is-active ]; then
+    estado="inactive"; [ -f "$est/svc-$2" ] && estado="$(cat "$est/svc-$2")"
+    echo "$estado"; [ "$estado" = active ]; exit $?
+fi
+exit 0

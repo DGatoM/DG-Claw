@@ -1,0 +1,1263 @@
+#!/usr/bin/env bash
+# dgclaw: a linha de comando do DG Claw v1.
+#
+# Quem usa: o Admin (o agente de sistema), o DG Claw Web e a pessoa no terminal.
+# Cria e cuida dos agentes (cada um numa maquina propria, um container), a imagem
+# deles, a senha do painel e o "esta tudo de pe?". Por que bash: ver bin/README.md.
+#
+# Raiz falsa (testes): DGCLAW_RAIZ=<pasta> faz todo caminho de sistema morar dentro
+# dela (lib/comum.sh). Nunca rode `agente criar` de verdade sem saber que a maquina
+# e a certa: ele cria container, rede e regra de firewall.
+
+# shellcheck source-path=SCRIPTDIR/..
+set -euo pipefail
+
+# A CLI e chamada por um symlink (/usr/local/bin/dgclaw); a raiz do app e a pasta
+# acima de bin/ do arquivo REAL, venha a chamada de onde vier.
+DGCLAW_BIN_REAL="$(readlink -f "${BASH_SOURCE[0]}")"
+APP_DIR="$(cd "$(dirname "$DGCLAW_BIN_REAL")/.." && pwd)"
+
+# shellcheck source=lib/comum.sh
+. "$APP_DIR/lib/comum.sh"
+# shellcheck source=lib/agentes.sh
+. "$APP_DIR/lib/agentes.sh"
+
+# Tempo maximo de espera (segundos) do systemd e do /api/saude de dentro do agente.
+# Variavel so para os testes nao esperarem um minuto de verdade.
+TEMPO_ESPERA="${DGCLAW_TEMPO_ESPERA:-60}"
+
+UID_DENTRO=1001      # uid do usuario `agente` dentro do container
+FAIXA_UID=65536
+PRIMEIRA_FAIXA=1000000
+PORTA_RUNNER_DE=4311; PORTA_RUNNER_ATE=4399
+PORTA_PAINEL_DE=8311; PORTA_PAINEL_ATE=8399
+DG_PORTAS="$DG_ETC/portas.tsv"
+DG_APOSENTADOS="$DG_LIB/aposentados"
+DG_CASAS="$DG_LIB/agentes"
+
+# --- ajuda ---------------------------------------------------------------------
+ajuda() {
+    cat <<'FIM'
+dgclaw: cria e cuida dos agentes do DG Claw.
+
+Uso:  dgclaw [--ensaio] <comando> [opcoes]
+
+  --ensaio    mostra o que faria, passo a passo, sem mudar nada (vale em qualquer comando)
+  --ajuda     mostra este texto
+
+Agentes
+  dgclaw agente criar <slug> --nome "<Nome>" [opcoes]
+      Cria um agente novo: uma maquina propria, com painel e conversa. Opcoes:
+        --provedor claude|codex          (padrao: claude)
+        --auth assinatura|api            (padrao: assinatura)
+        --modelo <modelo>                (padrao: o da conta)
+        --papel "<o que ele faz>"        --jeito "<como ele fala>"
+        --dono "<como ele chama voce>"   --canal chat|telegram|whatsapp (padrao: chat)
+        --avatar <emoji ou letra>        --cor "#3b82f6"
+      Exemplo:  dgclaw agente criar ana --nome "Ana" --papel "organiza a minha agenda" --dono "Marta"
+      Rodar de novo o mesmo comando continua de onde parou, sem duplicar nada.
+
+  dgclaw agente listar [--json]          lista os agentes e se estao de pe
+      Exemplo:  dgclaw agente listar
+
+  dgclaw agente parar|iniciar|reiniciar <slug>
+      Exemplo:  dgclaw agente reiniciar ana
+
+  dgclaw agente reparar <slug>           refaz so a parte de dentro (runner, painel e rotinas)
+      Exemplo:  dgclaw agente reparar ana
+
+  dgclaw agente remover <slug> [--sim]   tira o agente do ar. Nao apaga: a casa dele vai
+      para /var/lib/dgclaw/aposentados/. Pede confirmacao quando ha terminal.
+      Exemplo:  dgclaw agente remover ana --sim
+
+Imagem dos agentes
+  dgclaw imagem status                   diz se a imagem esta pronta, construindo ou falhou
+  dgclaw imagem construir [--agora]      constroi a imagem (em segundo plano, ou aqui com --agora)
+
+Painel
+  dgclaw senha trocar                    troca a senha do painel (a nova senha vem pelo STDIN)
+      Exemplo:  printf '%s\n' "minha senha nova" | dgclaw senha trocar
+
+Geral
+  dgclaw status                          confere se tudo esta de pe (sai com erro se algo essencial caiu)
+FIM
+}
+
+# --- utilitarios ---------------------------------------------------------------
+
+# exigir_ferramentas <nome...>: falha cedo, com o nome do que falta.
+exigir_ferramentas() {
+    local f
+    for f in "$@"; do
+        command -v "$f" >/dev/null 2>&1 \
+            || falha "o programa '$f' nao foi encontrado nesta maquina." \
+                     "rode o instalador de novo (ele instala o que falta): sudo ./install.sh --usuario <nome>"
+    done
+}
+
+# criar_pasta <modo> <uid:gid> <caminho...>: cria (se faltar) e deixa com modo e dono certos.
+criar_pasta() {
+    local modo="$1" quem="$2" p; shift 2
+    for p in "$@"; do
+        if [ "$ENSAIO" = 1 ]; then
+            printf '   [ensaio] pasta %s (modo %s, dono %s)\n' "$p" "$modo" "$quem"
+            continue
+        fi
+        mkdir -p "$p"
+        chmod "$modo" "$p"
+        dono "$quem" "$p"
+    done
+}
+
+# copiar_segredo <origem> <destino> <modo> <uid:gid>: copia o segredo do host para
+# dentro da casa do agente. Sempre a partir do original do host (a fonte da verdade).
+copiar_segredo() {
+    local origem="$1" destino="$2" modo="$3" quem="$4"
+    if [ "$ENSAIO" = 1 ]; then
+        printf '   [ensaio] copiaria o segredo %s para %s (modo %s)\n' "$(basename "$origem")" "$destino" "$modo"
+        return 0
+    fi
+    [ -s "$origem" ] || falha "o segredo $origem nao existe ou esta vazio." "rode de novo: dgclaw agente criar $C_SLUG"
+    escrever_arquivo "$destino" "$modo" "$quem" <"$origem"
+}
+
+# escrever_se_mudou <caminho> <modo> <uid:gid>: como escrever_arquivo, mas deixa o
+# arquivo em paz quando o conteudo e o mesmo. Importa para arquivo montado direto no
+# container: trocar o arquivo (mv) troca o inode, e o container continuaria vendo o
+# antigo ate ser recriado.
+escrever_se_mudou() {
+    local alvo="$1" modo="$2" quem="$3" novo
+    novo="$(cat)"
+    if [ "$ENSAIO" != 1 ] && [ -f "$alvo" ] && [ "$(cat "$alvo")" = "$novo" ]; then
+        return 0
+    fi
+    printf '%s\n' "$novo" | escrever_arquivo "$alvo" "$modo" "$quem"
+}
+
+# escrever_se_novo <caminho> <modo> <uid:gid>: so escreve se o arquivo ainda nao existe
+# (arquivos que a pessoa ou o proprio agente editam depois, como a identidade).
+escrever_se_novo() {
+    local alvo="$1" modo="$2" quem="$3"
+    if [ -e "$alvo" ]; then
+        cat >/dev/null
+        return 0
+    fi
+    escrever_arquivo "$alvo" "$modo" "$quem"
+}
+
+# uma_linha <texto>: troca quebras de linha por espaco (valores de uma linha so).
+uma_linha() { local v="$1"; v="${v//$'\n'/ }"; printf '%s' "${v//$'\r'/ }"; }
+
+# sed_esc <texto>: escapa o texto para ir no lado direito de um `s|a|b|` do sed.
+sed_esc() { printf '%s' "$1" | sed -e 's/[\\&|]/\\&/g'; }
+
+# --- registro de faixa de uid e de portas ----------------------------------------
+
+# portas_em_uso: uma porta por linha. Junta o que o agentes.json e o portas.tsv ja
+# reservaram com o que o sistema esta escutando agora (ss).
+portas_em_uso() {
+    local ss_saida
+    if [ -s "$DG_AGENTES_JSON" ]; then
+        jq -r '.agentes[] | ((.porta_painel // empty | tostring), ((.runner // "") | sub("^.*:"; "") | select(test("^[0-9]+$"))))' \
+            "$DG_AGENTES_JSON"
+    fi
+    if [ -f "$DG_PORTAS" ]; then awk -F'\t' '{print $2; print $3}' "$DG_PORTAS"; fi
+    ss_saida="$(ss -ltn)" || falha "o comando 'ss -ltn' falhou, e sem ele nao sei quais portas estao ocupadas." \
+        "confira se o pacote iproute2 esta instalado e rode de novo."
+    printf '%s\n' "$ss_saida" | awk 'NR>1 {n=split($4, a, ":"); print a[n]}'
+}
+
+# primeira_livre <de> <ate> <lista de ocupadas>
+primeira_livre() {
+    local de="$1" ate="$2" usadas="$3" p
+    for ((p = de; p <= ate; p++)); do
+        if ! printf '%s\n' "$usadas" | grep -qx "$p"; then printf '%s' "$p"; return 0; fi
+    done
+    return 1
+}
+
+# alocar_recursos <slug>: imprime "uid_base N porta_runner porta_painel". Roda DENTRO
+# da trava (com_trava), porque dois `agente criar` ao mesmo tempo nao podem pegar a
+# mesma faixa nem a mesma porta. Quem ja tem linha no registro reaproveita a sua.
+alocar_recursos() {
+    local slug="$1" linha="" base n maior maior_n pr="" pp="" proprias="" usadas
+
+    if [ -f "$DG_REGISTRO" ]; then
+        linha="$(awk -F'\t' -v s="$slug" '$1 == s {print $2 " " $3; exit}' "$DG_REGISTRO")"
+    fi
+    if [ -n "$linha" ]; then
+        read -r base n <<<"$linha"
+    else
+        # A PROXIMA FAIXA VEM DO MAIOR JA DADO, NUNCA DA CONTAGEM DE LINHAS: se alguem
+        # tirar uma linha do registro, a contagem devolveria a faixa de um agente vivo.
+        # Pelo maior, a faixa de quem saiu (aposentado) fica queimada de proposito.
+        maior=0; maior_n=0
+        if [ -f "$DG_REGISTRO" ]; then
+            maior="$(awk -F'\t' 'NF >= 2 && $2 + 0 > m {m = $2 + 0} END {print m + 0}' "$DG_REGISTRO")"
+            maior_n="$(awk -F'\t' 'NF >= 3 && $3 + 0 > m {m = $3 + 0} END {print m + 0}' "$DG_REGISTRO")"
+        fi
+        if [ "$maior" -gt 0 ]; then base=$((maior + FAIXA_UID)); else base=$PRIMEIRA_FAIXA; fi
+        n=$((maior_n + 1))
+        [ "$n" -le 250 ] || falha "o registro $DG_REGISTRO ja usou os 250 numeros de agente possiveis." \
+            "esta maquina chegou ao limite de agentes; remova a ideia de criar mais um aqui."
+        if [ "$ENSAIO" != 1 ]; then
+            ( umask 077; mkdir -p "$DG_ETC"; printf '%s\t%s\t%s\n' "$slug" "$base" "$n" >>"$DG_REGISTRO" )
+            chmod 600 "$DG_REGISTRO"
+        fi
+    fi
+
+    # Portas que o agente ja tem (do registro de portas ou do agentes.json) sao dele.
+    if [ -f "$DG_PORTAS" ]; then
+        proprias="$(awk -F'\t' -v s="$slug" '$1 == s {print $2 " " $3; exit}' "$DG_PORTAS")"
+    fi
+    if [ -z "$proprias" ] && [ -s "$DG_AGENTES_JSON" ]; then
+        proprias="$(jq -r --arg s "$slug" '.agentes[] | select(.slug == $s)
+            | "\((.runner // "") | sub("^.*:"; "")) \(.porta_painel // "")"' "$DG_AGENTES_JSON")"
+    fi
+    if [ -n "$proprias" ]; then read -r pr pp <<<"$proprias"; fi
+    if ! [[ "$pr" =~ ^[0-9]+$ && "$pp" =~ ^[0-9]+$ ]]; then
+        usadas="$(portas_em_uso)"
+        pr="$(primeira_livre "$PORTA_RUNNER_DE" "$PORTA_RUNNER_ATE" "$usadas")" \
+            || falha "nao ha porta livre para o runner entre $PORTA_RUNNER_DE e $PORTA_RUNNER_ATE." \
+                     "veja o que ocupa essas portas com: ss -ltnp"
+        pp="$(primeira_livre "$PORTA_PAINEL_DE" "$PORTA_PAINEL_ATE" "$usadas")" \
+            || falha "nao ha porta livre para o painel entre $PORTA_PAINEL_DE e $PORTA_PAINEL_ATE." \
+                     "veja o que ocupa essas portas com: ss -ltnp"
+        if [ "$ENSAIO" != 1 ]; then
+            ( umask 077; mkdir -p "$DG_ETC"; printf '%s\t%s\t%s\n' "$slug" "$pr" "$pp" >>"$DG_PORTAS" )
+            chmod 600 "$DG_PORTAS"
+        fi
+    fi
+    printf '%s %s %s %s\n' "$base" "$n" "$pr" "$pp"
+}
+
+# liberar_portas <slug>: tira a reserva de portas do agente aposentado (a faixa de
+# uid, essa, continua queimada).
+liberar_portas() {
+    [ -f "$DG_PORTAS" ] || return 0
+    local novo
+    novo="$(awk -F'\t' -v s="$1" '$1 != s' "$DG_PORTAS")"
+    ( umask 077; if [ -n "$novo" ]; then printf '%s\n' "$novo"; fi >"$DG_PORTAS" )
+}
+
+# --- identidade: templates, runner.json, config.sh, painel -------------------------
+
+TEXTO_PAPEL_NEUTRO="Assistente de uso geral: ajuda no que for pedido, com clareza e sem enrolar."
+TEXTO_JEITO_NEUTRO="Educado, direto e objetivo. Fala em portugues do Brasil, em frases curtas e sem formalidade exagerada."
+
+# renderizar_template <arquivo.tmpl>: imprime o template com os campos preenchidos.
+# Todo {{CAMPO}} que sobrar sai do texto: campo cru na identidade do agente faria ele
+# repetir chaves para o dono.
+renderizar_template() {
+    local tmpl="$1"
+    local nome dono slug papel jeito
+    nome="$(sed_esc "$C_NOME")"; dono="$(sed_esc "$C_DONO_TEXTO")"; slug="$(sed_esc "$C_SLUG")"
+    papel="$(sed_esc "$C_PAPEL")"; jeito="$(sed_esc "$C_JEITO")"
+    sed \
+        -e 's|^Voce conversa pelo Telegram e vive 24/7 numa VPS\.$|Voce conversa com {{DONO}} pelo painel (aba Conversa) e vive 24/7 num servidor.\n\n## Seu papel\n\n{{PAPEL}}|' \
+        -e 's|^- So o {{DONO}} fala com voce (a lista de permissao do Telegram garante isso)\.|- So o {{DONO}} fala com voce, pelo painel.|' \
+        -e 's|systemctl restart dgclaw-{{SLUG}}\.service|systemctl restart dgclaw-runner.service|' \
+        -e "s|{{NOME}}|$nome|g" \
+        -e "s|{{SLUG}}|$slug|g" \
+        -e "s|{{DONO}}|$dono|g" \
+        -e "s|{{DATA}}|$C_DATA|g" \
+        -e "s|{{PAPEL}}|$papel|g" \
+        -e "s|{{PERSONALIDADE}}|$jeito|g" \
+        -e "s|{{WORKSPACE}}|/home/agente|g" \
+        -e "s|{{SCRIPTS_DIR}}|/opt/dgclaw/app/scripts|g" \
+        -e "s|{{TIMEZONE}}|America/Sao_Paulo|g" \
+        -e "s|{{CANAL_OFICIAL}}|o painel (aba Conversa)|g" \
+        -e 's|{{[A-Za-z_]*}}||g' \
+        "$tmpl"
+}
+
+# regra_canal_dgchat: o trecho fixo da identidade que ensina o agente a responder pela
+# tool do chat. Adaptado de scripts/bootstrap-identity.sh, so com o canal do painel.
+regra_canal_dgchat() {
+    cat <<EOF
+# === REGRA ZERO DO CANAL DG CHAT (o painel) ===
+
+Voce conversa com ${C_DONO_TEXTO} pela aba Conversa do painel.
+
+${C_DONO_TEXTO} NAO ve o que voce escreve nem o seu raciocinio. A unica coisa que chega
+e o que passa pela tool \`mcp__dgchat__reply\` (e arquivos, pela
+\`mcp__dgchat__send_file\`). Todo o resto fica invisivel: some, e ${C_DONO_TEXTO} fica
+olhando para uma tela muda sem saber se voce recebeu a mensagem.
+
+Em TODA mensagem que chegar dentro de um envelope <dgchat ...>:
+1. A PRIMEIRA acao do turno e chamar \`reply\`, reconhecendo o pedido. Uma linha
+   basta ("ja vou ver isso"), mas tem que sair ANTES do trabalho.
+2. So DEPOIS faca o trabalho de fundo: ler arquivo, rodar comando, pesquisar.
+3. Terminou? Mande OUTRO \`reply\` com o resultado.
+4. NUNCA encerre um turno com pedido em aberto sem ter chamado \`reply\`.
+
+O \`chat\` que a tool pede vem no envelope, assim:
+
+    <dgchat from="${C_DONO_TEXTO}" chat="c_${C_SLUG}" msg="p41" ts="...">o texto</dgchat>
+
+Use exatamente o valor de \`chat\` que veio. Nao invente e nao decore: leia no
+envelope da mensagem que voce esta respondendo.
+
+O ERRO MAIS COMUM: escrever a resposta bonita como texto e achar que respondeu.
+Do seu lado parece que a conversa aconteceu. Do lado de ${C_DONO_TEXTO}, nao chegou
+nada.
+
+E o que passa pelo \`reply\` e mensagem de conversa, nao relatorio de execucao:
+nada de despejar log, saida de comando ou lista de arquivos tocados, a menos que
+${C_DONO_TEXTO} peca. Diga o que mudou e o que isso significa, em portugues, como voce
+diria em voz alta.
+EOF
+}
+
+gerar_identidade() {
+    local h="$C_HOME" ug="$C_UG" tpl="$APP_DIR/templates" f
+    for f in AGENT CLAUDE AGENTS MEMORY; do
+        [ -f "$tpl/$f.md.tmpl" ] || falha "o modelo $tpl/$f.md.tmpl nao existe." \
+            "a copia do DG Claw em $APP_DIR esta incompleta; reinstale com o instalador."
+    done
+    renderizar_template "$tpl/AGENT.md.tmpl" | escrever_se_novo "$h/AGENT.md" 644 "$ug"
+    renderizar_template "$tpl/CLAUDE.md.tmpl" | escrever_se_novo "$h/CLAUDE.md" 644 "$ug"
+    renderizar_template "$tpl/AGENTS.md.tmpl" | escrever_se_novo "$h/AGENTS.md" 644 "$ug"
+    renderizar_template "$tpl/MEMORY.md.tmpl" | escrever_se_novo "$h/MEMORY.md" 644 "$ug"
+
+    # identidade.md e o que o runner injeta: o AGENT.md mais a regra do canal. Le o
+    # AGENT.md que esta no disco (a pessoa pode ter editado), nao o recem-gerado.
+    {
+        if [ -f "$h/AGENT.md" ]; then cat "$h/AGENT.md"; else renderizar_template "$tpl/AGENT.md.tmpl"; fi
+        printf '\n---\n\n'
+        regra_canal_dgchat
+    } | escrever_se_novo "$h/.plataforma/identidade.md" 644 "$ug"
+}
+
+gerar_runner_json() {
+    local provider="local-cli"
+    [ "$C_PROVEDOR" = codex ] && provider="codex-cli"
+    # shellcheck disable=SC2016 # os $ sao variaveis do jq
+    jq -n \
+        --arg slug "$C_SLUG" --arg nome "$C_NOME" --arg provider "$provider" \
+        --arg modelo "$C_MODELO" --arg auth "$C_AUTH" '
+        {id: $slug, slug: $slug,
+         config: {name: $nome, cwd: "/home/agente", provider: $provider, model: $modelo,
+                  auth: $auth, permissionMode: "bypassPermissions", initialPrompt: "",
+                  mcpConfig: "/home/agente/.plataforma/dgchat.mcp.json",
+                  identidadeArquivo: "/home/agente/.plataforma/identidade.md",
+                  allowTools: ["mcp__dgchat__reply", "mcp__dgchat__send_file"],
+                  envExtra: {DGCHAT_AGENT: $slug,
+                             DGCHAT_OUTBOUND: "/home/agente/.plataforma/dgchat/outbound.jsonl",
+                             DGCHAT_ENTREGA: "disco",
+                             CODEX_HOME: "/home/agente/.codex",
+                             DGCLAW_WORKSPACE: "/home/agente",
+                             DGCLAW_CONFIG: "/home/agente/.dgclaw/config.sh",
+                             DGCLAW_AGENTE_ID: $slug,
+                             DGCLAW_RUNNER_URL: "http://127.0.0.1:4300",
+                             RUNNER_TOKEN_FILE: "/run/dgclaw/segredos/runner.token"},
+                  tags: ["dgclaw", $slug], cofre: []}}'
+}
+
+gerar_mcp_json() {
+    # shellcheck disable=SC2016 # o $slug e variavel do jq
+    jq -n --arg slug "$C_SLUG" '
+        {mcpServers: {dgchat: {command: "node",
+            args: ["/opt/dgclaw/app/scripts/dgchat-mcp/server.mjs"],
+            env: {DGCHAT_AGENT: $slug,
+                  DGCHAT_OUTBOUND: "/home/agente/.plataforma/dgchat/outbound.jsonl"}}}}'
+}
+
+# Escolhido o minimo que os scripts do plugin exigem (DGCLAW_SLUG, WORKSPACE, NAME) mais
+# o que eles leem para falar com o dono e achar o servico. Sem Telegram: o canal do
+# agente e o painel. Aspas simples nos valores: nome e dono vem da pessoa e podem
+# ter `$` ou crase.
+gerar_config_sh() {
+    local nome dono
+    nome="${C_NOME//\'/\'\\\'\'}"; dono="${C_DONO_TEXTO//\'/\'\\\'\'}"
+    cat <<EOF
+# Config da camada DG Claw do agente ${C_SLUG}. Gerado por: dgclaw agente criar.
+export DGCLAW_NAME='${nome}'
+export DGCLAW_SLUG='${C_SLUG}'
+export DGCLAW_WORKSPACE='/home/agente'
+export DGCLAW_PLUGIN_ROOT='/opt/dgclaw/app'
+export DGCLAW_OWNER='${dono}'
+export DGCLAW_CHAT_ID='c_${C_SLUG}'
+export DGCLAW_SERVICE='dgclaw-runner.service'
+# O runner cobra Bearer em toda rota; rotinas e scripts do plugin leem o token deste arquivo.
+export RUNNER_TOKEN_FILE='/run/dgclaw/segredos/runner.token'
+export DGCLAW_PROVEDOR='${C_PROVEDOR}'
+export DGCLAW_AUTH='${C_AUTH}'
+export DGCLAW_MODEL='${C_MODELO}'
+export DGCLAW_TZ='America/Sao_Paulo'
+export DGCLAW_AUTO_RECOVERY='on'
+EOF
+}
+
+# O minimo que o panel/server.js usa: nome, slug, pasta do agente, quem e o dono, o
+# sal do login, o id da conversa e qual unidade reiniciar quando o cofre muda. O resto
+# cai nos padroes seguros do panel/lib/config.js.
+gerar_painel_config() {
+    local sal
+    sal="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+    # shellcheck disable=SC2016 # os $ sao variaveis do jq
+    jq -n --arg nome "$C_NOME" --arg slug "$C_SLUG" --arg dono "$C_DONO_TEXTO" --arg sal "$sal" '
+        {agentName: $nome, agentSlug: $slug, agentDir: "/home/agente", creatorName: $dono,
+         authSalt: $sal, chat: ("c_" + $slug), cofreUnidade: "dgclaw-runner.service",
+         bunkerCard: $slug, bunkerUrl: "http://127.0.0.1:4300",
+         runnerTokenFile: "/run/dgclaw/segredos/runner.token",
+         timezoneOffsetHours: -3, schedule: []}'
+}
+
+gerar_painel_env() {
+    cat <<EOF
+DGCLAW_PANEL_PORT=8300
+DGCLAW_PANEL_HOST=0.0.0.0
+DGCLAW_PANEL_BASE=/p/${C_SLUG}
+DGCLAW_PANEL_PROXY_SECRET_FILE=/run/dgclaw/segredos/proxy.segredo
+DGCLAW_PANEL_CONFIG=/home/agente/.dgclaw/panel/config.json
+DGCLAW_BUNKER_URL=http://127.0.0.1:4300
+DGCLAW_BUNKER_CARD=${C_SLUG}
+RUNNER_TOKEN_FILE=/run/dgclaw/segredos/runner.token
+HOME=/home/agente
+TZ=America/Sao_Paulo
+EOF
+}
+
+# --- etapas do `agente criar` ---------------------------------------------------------
+
+etapa() { C_ETAPA="$1"; passo "$1"; }
+
+montar_casa() {
+    local casa="$C_CASA" h="$C_HOME" ug="$C_UG" ub="$C_UID_BASE"
+    criar_pasta 711 0:0 "$DG_CASAS" "$casa"
+    # runner/ fica FORA da casa do agente, de dono root do host e so leitura la dentro:
+    # o runner.json diz o que o agente pode (permissionMode, ferramentas) e nao pode ser
+    # reescrito por ele. O estado do runner vai para home/.plataforma/runner-state.json.
+    criar_pasta 755 0:0 "$casa/runner"
+    criar_pasta 700 "$ug" "$h" "$casa/segredos" "$h/.claude" "$h/.codex"
+    criar_pasta 755 "$ug" "$h/.plataforma" "$h/.plataforma/dgchat" "$h/.dgclaw/logs" \
+        "$h/.dgclaw/panel" "$h/memory"
+    # .dgclaw e do agente e so dele (700): o dgclaw-agente grava canais.json ali dentro.
+    criar_pasta 700 "$ug" "$h/.dgclaw"
+    ok "casa do agente em $casa (dono: uid $C_UID_HOST, visto de fora)"
+
+    # settings.json nasce pronto e de dono root DO HOST (la dentro aparece como
+    # "nobody"): arquivo que nao existe e lugar vago, e quem esta dentro pode ocupar
+    # com um hook. Ver a licao no README da jaula de agentes.
+    if [ "$ENSAIO" = 1 ]; then
+        printf '   [ensaio] escreveria %s/.claude/settings.json (dono 0:0, modo 444)\n' "$h"
+    else
+        if [ ! -s "$h/.claude/settings.json" ]; then
+            # shellcheck disable=SC2016 # $comentario e texto do JSON, nao variavel
+            printf '{\n  "$comentario": "Nasce pronto de proposito: arquivo de hook que nao existe e porta destrancada.",\n  "hooks": {}\n}\n' \
+                | escrever_arquivo "$h/.claude/settings.json" 444 0:0
+        fi
+        dono 0:0 "$h/.claude/settings.json"
+        chmod 444 "$h/.claude/settings.json"
+    fi
+
+    # cofre.env e painel.env moram em PASTAS montadas, nunca como arquivo solto. O Web
+    # reescreve o cofre de forma atomica (temporario + mv), o que troca o inode; uma
+    # montagem de arquivo unico continuaria presa ao inode antigo, e o agente seguiria
+    # com a chave velha mesmo depois do reinicio. Montando a pasta, o container ve o
+    # arquivo novo na hora.
+    criar_pasta 700 "$ub:$ub" "$casa/cofre"
+    criar_pasta 755 "$ub:$ub" "$casa/config"
+    # O Web reescreve o cofre; aqui so garante que existe (vazio) e e do root do container.
+    if [ ! -e "$casa/cofre/cofre.env" ]; then : | escrever_arquivo "$casa/cofre/cofre.env" 600 "$ub:$ub"; fi
+    gerar_painel_env | escrever_se_mudou "$casa/config/painel.env" 644 "$ub:$ub"
+}
+
+montar_identidade() {
+    local h="$C_HOME" ug="$C_UG"
+    gerar_identidade
+    gerar_runner_json | escrever_arquivo "$C_CASA/runner/runner.json" 444 0:0
+    gerar_mcp_json | escrever_arquivo "$h/.plataforma/dgchat.mcp.json" 644 "$ug"
+    gerar_config_sh | escrever_arquivo "$h/.dgclaw/config.sh" 644 "$ug"
+    if [ "$ENSAIO" = 1 ] || [ ! -e "$h/.dgclaw/panel/config.json" ]; then
+        gerar_painel_config | escrever_arquivo "$h/.dgclaw/panel/config.json" 644 "$ug"
+    fi
+    # Canais externos (Telegram, WhatsApp) quem liga e a skill de canais; aqui so fica anotado.
+    if [ "$C_CANAL" != chat ]; then
+        printf '%s\n' "$C_CANAL" | escrever_arquivo "$h/.dgclaw/canal-desejado" 644 "$ug"
+    fi
+    ok "identidade, configuracao do runner e do painel escritas"
+    gmail_so_leitura
+}
+
+# O conector do Gmail nasce so leitura (+ rascunho): as regras deny ficam no
+# .claude/settings.local.json da casa, que o agente pode editar quando o dono liberar o
+# envio. Roda no host, como root, ANTES de o agente ligar. So na primeira vez: rodar o
+# criar de novo nao pode desfazer uma liberacao que o dono ja deu.
+gmail_so_leitura() {
+    local h="$C_HOME" ug="$C_UG" alvo script cfg rc=0
+    alvo="$h/.claude/settings.local.json"
+    script="$APP_DIR/scripts/gmail-permissao.sh"
+    if [ "$ENSAIO" = 1 ]; then
+        info "[ensaio] deixaria o Gmail so leitura: bash $script <config> leitura, gravando $alvo (dono $ug, modo 644)"
+        return 0
+    fi
+    if [ -e "$alvo" ]; then
+        info "Gmail: $alvo ja existe, regras mantidas (para ver: podman exec -u agente dgclaw-$C_SLUG bash /opt/dgclaw/app/scripts/gmail-permissao.sh /home/agente/.dgclaw/config.sh estado)"
+        return 0
+    fi
+    [ -f "$script" ] || falha "nao achei $script, que deixa o Gmail do agente so leitura." \
+        "atualize o DG Claw (esse arquivo vem junto) e rode de novo o mesmo comando; ele continua de onde parou."
+    exigir_ferramentas python3
+    # O config.sh da casa fala em /home/agente (caminho de dentro). Aqui fora o script
+    # precisa da casa vista do host, senao o registro iria parar num /home/agente do host.
+    cfg="$(mktemp "$C_CASA/.gmail-config.XXXXXX")"
+    printf "export DGCLAW_WORKSPACE='%s'\n" "$h" >"$cfg"
+    DGCLAW_GMAIL_SETTINGS="$alvo" DGCLAW_GMAIL_SEM_AVISO=1 bash "$script" "$cfg" leitura >/dev/null || rc=$?
+    rm -f "$cfg"
+    [ "$rc" -eq 0 ] || falha "o $script terminou com codigo $rc ao gravar $alvo." \
+        "leia a mensagem dele acima; depois rode de novo o mesmo comando. Sem isso o agente poderia enviar e-mail sem o dono liberar."
+    chmod 644 "$alvo"
+    dono "$ug" "$alvo"
+    # O script tambem anota a mudanca no registro da casa; o registro e do agente.
+    if [ -e "$h/.dgclaw/logs/permissoes.log" ]; then dono "$ug" "$h/.dgclaw/logs/permissoes.log"; fi
+    ok "Gmail so leitura (enviar, responder e apagar bloqueados em $alvo)"
+}
+
+montar_segredos() {
+    local ug="$C_UG" casa="$C_CASA"
+    criar_pasta 700 0:0 "$DG_ETC/runner" "$DG_ETC/proxy"
+    gerar_segredo "$DG_ETC/runner/$C_SLUG.token"
+    gerar_segredo "$DG_ETC/proxy/$C_SLUG.segredo"
+    copiar_segredo "$DG_ETC/runner/$C_SLUG.token" "$casa/segredos/runner.token" 600 "$ug"
+    copiar_segredo "$DG_ETC/proxy/$C_SLUG.segredo" "$casa/segredos/proxy.segredo" 600 "$ug"
+    ok "token do runner e segredo do painel prontos (nunca aparecem em tela nem em log)"
+}
+
+criar_rede() {
+    local rede="dgclaw-$C_SLUG"
+    if [ "$ENSAIO" != 1 ] && podman network exists "$rede" >/dev/null 2>&1; then
+        info "a rede $rede ja existe"
+        return 0
+    fi
+    # Sem DNS e uma faixa so dele: dois agentes na mesma ponte se enxergam.
+    executar podman network create --disable-dns --subnet "10.89.$C_N.0/24" "$rede" >/dev/null
+    ok "rede $rede (10.89.$C_N.0/24)"
+}
+
+criar_container() {
+    local c="dgclaw-$C_SLUG" casa="$C_CASA" ub="$C_UID_BASE"
+    if [ "$ENSAIO" != 1 ] && podman container exists "$c" >/dev/null 2>&1; then
+        info "o container $c ja existe, so garanto que esta ligado"
+    else
+        local args=(create
+            --name "$c" --hostname "$C_SLUG"
+            --uidmap "0:$ub:$FAIXA_UID" --gidmap "0:$ub:$FAIXA_UID"
+            --volume "$casa/home:/home/agente:rw"
+            --volume "$casa/runner:/etc/dgclaw-runner:ro"
+            --volume "$casa/segredos:/run/dgclaw/segredos:ro"
+            --volume "$casa/cofre:/run/dgclaw/cofre:ro"
+            --volume "$casa/config:/run/dgclaw/config:ro"
+            --network "dgclaw-$C_SLUG"
+            --publish "127.0.0.1:$C_PORTA_RUNNER:4300"
+            --publish "127.0.0.1:$C_PORTA_PAINEL:8300"
+            --memory 2g --cpus 1.0 --pids-limit 1024 --restart unless-stopped
+            # O podman copia as variaveis de proxy de quem roda o comando para dentro do
+            # container. Um proxy local do host (127.0.0.1:...) nao existe la dentro, e todo
+            # curl do agente falharia com "connection refused".
+            --http-proxy=false
+            --tmpfs /run --tmpfs /run/lock --systemd always
+            --env "DGCLAW_SLUG=$C_SLUG" --env "TZ=America/Sao_Paulo"
+            "$DGCLAW_IMAGEM")
+        executar podman "${args[@]}" >/dev/null
+        ok "container $c criado (portas so em 127.0.0.1: runner $C_PORTA_RUNNER, painel $C_PORTA_PAINEL)"
+    fi
+    executar podman start "$c" >/dev/null
+}
+
+rodar_firewall() {
+    if [ -n "${DGCLAW_FIREWALL_CMD:-}" ]; then
+        executar bash -c "$DGCLAW_FIREWALL_CMD"
+    elif [ -n "$R" ]; then
+        info "raiz falsa em uso (DGCLAW_RAIZ): firewall nao aplicado"
+    elif [ -f "$APP_DIR/lib/firewall.sh" ]; then
+        executar bash "$APP_DIR/lib/firewall.sh" >/dev/null
+        ok "regras de firewall aplicadas"
+    else
+        aviso "$APP_DIR/lib/firewall.sh nao existe nesta copia: o agente subiu SEM as regras que o isolam da rede do servidor. Rode o instalador de novo para recoloca-las."
+    fi
+}
+
+# esperar_systemd <container>: o systemd de dentro precisa terminar o boot antes de
+# qualquer `systemctl`, senao o proximo comando pega a maquina no meio e falha por
+# um motivo que nao e o de verdade.
+esperar_systemd() {
+    local c="$1" estado="" i
+    [ "$ENSAIO" = 1 ] && { info "[ensaio] esperaria o systemd de $c subir (ate ${TEMPO_ESPERA}s)"; return 0; }
+    for ((i = 0; i < TEMPO_ESPERA; i++)); do
+        # `is-system-running` sai com codigo != 0 em "degraded" e "starting"; o que
+        # interessa e o texto, por isso o erro e tolerado aqui.
+        estado="$(podman exec "$c" systemctl is-system-running 2>/dev/null || true)"
+        case "$estado" in running|degraded) return 0 ;; esac
+        sleep 1
+    done
+    aviso "o systemd de dentro de $c nao ficou pronto em ${TEMPO_ESPERA}s (estado: ${estado:-sem resposta}). Vou tentar instalar a parte de dentro mesmo assim."
+    return 0
+}
+
+# esperar_saude <porta> <slug>: 0 se o runner responde, 1 se nao respondeu a tempo.
+esperar_saude() {
+    local porta="$1" i
+    [ "$ENSAIO" = 1 ] && { info "[ensaio] esperaria http://127.0.0.1:$porta/api/saude responder (ate ${TEMPO_ESPERA}s)"; return 0; }
+    for ((i = 0; i < TEMPO_ESPERA; i++)); do
+        if curl -fsS --max-time 3 "http://127.0.0.1:$porta/api/saude" >/dev/null 2>&1; then return 0; fi
+        sleep 1
+    done
+    return 1
+}
+
+# O que roda DENTRO do agente: as rotinas (timers) do plugin e a subida do runner e do
+# painel. Vai por STDIN (podman exec -i ... bash -s) porque `podman cp` quebra com
+# "value too large for defined data type" quando o mapa de uid e alto.
+vida_script() {
+    cat <<'DENTRO'
+set -euo pipefail
+CASA=/home/agente
+CONFIG="$CASA/.dgclaw/config.sh"
+INST=/opt/dgclaw/app/scripts/install-timers.sh
+[ -f "$CONFIG" ] || { echo "falta $CONFIG dentro do agente (a casa dele nao foi montada)." >&2; exit 1; }
+[ -f "$INST" ] || { echo "falta $INST dentro da imagem (a imagem esta incompleta ou velha)." >&2; exit 1; }
+
+bash "$INST" "$CONFIG" >/dev/null </dev/null  # sem o STDIN: ele e o resto deste script
+# O install-timers cria a pasta de logs como root; a casa e do agente.
+chown -R agente:agente "$CASA/.dgclaw/logs"
+
+# As unidades das rotinas nascem com User=root e HOME=/root (no host o DG Claw roda
+# como root). Aqui viram do proprio agente, senao cada script escreve na casa dele
+# com dono root e, dois dias depois, ele nao consegue mais editar a propria memoria.
+for u in /etc/systemd/system/dgclaw-*.service; do
+    [ -f "$u" ] || continue
+    sed -i 's|^User=root$|User=agente|; s|^Environment=HOME=/root$|Environment=HOME=/home/agente|' "$u"
+done
+systemctl daemon-reload
+# --now porque o container ja esta de pe: so `enable` deixaria o runner esperando um
+# reboot que ninguem vai dar.
+systemctl enable --now dgclaw-runner.service dgclaw-painel.service >/dev/null
+echo "rotinas, runner e painel instalados"
+DENTRO
+}
+
+# Pre-instala o plugin oficial do Telegram para o `--channels` funcionar sem pedir nada
+# ao aluno. Roda como o usuario agente, com a casa dele. Idempotente: se ja esta
+# instalado, nao faz nada. Agente do Codex nao usa o plugin do Claude e e pulado.
+plugin_telegram_script() {
+    cat <<'DENTRO'
+set -euo pipefail
+CONFIG=/home/agente/.dgclaw/config.sh
+# shellcheck disable=SC1090
+[ -f "$CONFIG" ] && . "$CONFIG"
+if [ "${DGCLAW_PROVEDOR:-claude}" != claude ]; then echo "agente do Codex: o plugin do Telegram nao se aplica"; exit 0; fi
+command -v claude >/dev/null || { echo "o programa 'claude' nao esta na imagem" >&2; exit 1; }
+# </dev/null: este script chega por STDIN (bash -s). Um comando que lesse a entrada
+# (uma pergunta de confirmacao, por exemplo) comeria as linhas seguintes do script.
+como_agente() { runuser -u agente -- env HOME=/home/agente CLAUDE_CONFIG_DIR=/home/agente/.claude "$@" </dev/null; }
+if como_agente claude plugin list 2>/dev/null | grep -q 'telegram@claude-plugins-official'; then
+    echo "plugin do Telegram ja instalado"; exit 0
+fi
+if ! como_agente claude plugin marketplace list 2>/dev/null | grep -q 'claude-plugins-official'; then
+    como_agente claude plugin marketplace add anthropics/claude-plugins-official
+fi
+como_agente claude plugin install telegram@claude-plugins-official --scope user
+echo "plugin do Telegram instalado"
+DENTRO
+}
+
+instalar_vida() {
+    local c="dgclaw-$1"
+    if [ "$ENSAIO" = 1 ]; then
+        info "[ensaio] instalaria dentro de $c as rotinas (install-timers.sh) e ligaria dgclaw-runner e dgclaw-painel"
+        return 0
+    fi
+    local rc=0
+    vida_script | podman exec -i "$c" bash -s || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        aviso "a parte de dentro do agente (rotinas, runner, painel) nao terminou (codigo $rc). O agente continua criado. Para refazer so isso: dgclaw agente reparar $1"
+        return 1
+    fi
+    # O Telegram e opcional: se o plugin nao instalar, o agente segue de pe e o canal
+    # pode ser ligado depois.
+    rc=0
+    plugin_telegram_script | podman exec -i "$c" bash -s || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        aviso "nao consegui pre-instalar o plugin do Telegram no agente $1 (codigo $rc). O agente funciona pelo painel; o Telegram pode ser ligado depois. Para tentar de novo: dgclaw agente reparar $1"
+    fi
+    return 0
+}
+
+# O agente precisa falar com o provedor direto, sem proxy. Duas conferencias, de dentro:
+# nenhuma variavel de proxy no ambiente (o podman copia as do host se esquecer o
+# --http-proxy=false) e o api.anthropic.com respondendo. Nao para o criar: o agente
+# fica de pe e o aviso diz o que olhar.
+conferir_saida_internet() {
+    local c="dgclaw-$1" proxies rc=0
+    if [ "$ENSAIO" = 1 ]; then
+        info "[ensaio] conferiria dentro de $c: env | grep -i proxy vazio e curl https://api.anthropic.com respondendo"
+        return 0
+    fi
+    proxies="$(podman exec --user agente "$c" env 2>/dev/null | grep -i '_proxy=' | cut -d= -f1 | tr '\n' ' ' || true)"
+    if [ -n "$proxies" ]; then
+        aviso "o agente $1 nasceu com variavel de proxy no ambiente ($proxies). Um proxy do host nao existe la dentro e as chamadas ao provedor vao falhar. Confira se o container foi criado com --http-proxy=false (podman inspect $c --format '{{.Config.Env}}') e recrie: dgclaw agente remover $1 && dgclaw agente criar $1 ..."
+    else
+        ok "sem variavel de proxy dentro do agente"
+    fi
+    podman exec --user agente "$c" curl -sS -o /dev/null --max-time 15 https://api.anthropic.com 2>"$C_CASA/.curl-erro" || rc=$?
+    if [ "$rc" -eq 0 ]; then
+        ok "o agente alcanca https://api.anthropic.com"
+    else
+        aviso "de dentro do agente $1, o curl em https://api.anthropic.com falhou (codigo $rc: $(head -c 200 "$C_CASA/.curl-erro" | tr '\n' ' ')). Sem isso ele nao conversa. Confira o DNS e a saida do servidor (curl https://api.anthropic.com no host) e as regras do firewall: dgclaw status. Depois: dgclaw agente reiniciar $1"
+    fi
+    rm -f "$C_CASA/.curl-erro"
+}
+
+rodar_isolamento() {
+    local slug="$1" cmd
+    if [ -n "${DGCLAW_ISOLAMENTO_CMD:-}" ]; then
+        cmd="$DGCLAW_ISOLAMENTO_CMD"
+    elif [ -n "$R" ]; then
+        info "raiz falsa em uso (DGCLAW_RAIZ): teste de isolamento nao executado"
+        return 0
+    elif [ -f "$APP_DIR/scripts/teste-isolamento.sh" ]; then
+        cmd="bash $APP_DIR/scripts/teste-isolamento.sh"
+    else
+        aviso "scripts/teste-isolamento.sh nao existe nesta copia: nao deu para provar que o agente esta isolado. Rode o instalador de novo para recolocar o teste."
+        return 0
+    fi
+    if [ "$ENSAIO" = 1 ]; then info "[ensaio] rodaria o teste de isolamento: $cmd $slug"; return 0; fi
+    local rc=0
+    bash -c "$cmd \"\$1\"" _ "$slug" || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        # Isolamento nao se negocia: um agente que nao passou fica parado.
+        podman stop "dgclaw-$slug" >/dev/null 2>&1 \
+            || aviso "nao consegui parar o container dgclaw-$slug depois da falha de isolamento; pare na mao: podman stop dgclaw-$slug"
+        falha "o teste de isolamento do agente $slug falhou (codigo $rc), e o agente foi parado." \
+              "leia as linhas acima para ver qual barreira cedeu; nao ligue este agente antes de corrigir. Depois: dgclaw agente iniciar $slug"
+    fi
+    ok "teste de isolamento passou"
+}
+
+registrar_agente() {
+    local transcripts
+    if [ "$C_PROVEDOR" = codex ]; then transcripts="$C_HOME/.codex/sessions"
+    else transcripts="$C_HOME/.claude/projects/-home-agente"; fi
+    if [ "$ENSAIO" = 1 ]; then
+        info "[ensaio] registraria o agente $C_SLUG em $DG_AGENTES_JSON"
+        return 0
+    fi
+    # shellcheck disable=SC2016 # os $ sao variaveis do jq
+    jq -n \
+        --arg slug "$C_SLUG" --arg nome "$C_NOME" --arg runner "http://127.0.0.1:$C_PORTA_RUNNER" \
+        --arg avatar "$C_AVATAR" --arg cor "$C_COR" --arg prov "$C_PROVEDOR" --arg modelo "$C_MODELO" \
+        --arg td "$transcripts" --argjson pp "$C_PORTA_PAINEL" \
+        --arg psa "$DG_ETC/proxy/$C_SLUG.segredo" --arg rta "$DG_ETC/runner/$C_SLUG.token" \
+        --arg hh "$C_HOME" --arg cofre "${C_HOME%/home}/cofre/cofre.env" '
+        {slug: $slug, nome: $nome, tipo: "agente", runner: $runner, agente_id: $slug,
+         chat_id: ("c_" + $slug), avatar: $avatar, cor: $cor, provedor: $prov, modelo: $modelo,
+         transcripts_dir: $td, porta_painel: $pp, proxy_segredo_arquivo: $psa,
+         runner_token_arquivo: $rta, home_host: $hh, home_container: "/home/agente",
+         cofre_arquivo: $cofre}' \
+        | agentes_registrar
+}
+
+# Se o criar morre no meio, a pessoa precisa saber o que ficou de pe e como seguir.
+_criar_ao_sair() {
+    local rc=$?
+    [ "$rc" -eq 0 ] && return 0
+    {
+        printf '\nO agente %s NAO ficou pronto (parou em: %s).\n' "$C_SLUG" "${C_ETAPA:-validacao}"
+        printf 'O que ficou criado ate aqui:\n'
+        [ -d "${C_CASA:-/nao-existe}" ] && printf '  - a casa do agente: %s\n' "$C_CASA"
+        if podman network exists "dgclaw-$C_SLUG" >/dev/null 2>&1; then printf '  - a rede dgclaw-%s\n' "$C_SLUG"; fi
+        if podman container exists "dgclaw-$C_SLUG" >/dev/null 2>&1; then printf '  - o container dgclaw-%s\n' "$C_SLUG"; fi
+        printf 'Para continuar de onde parou, rode de novo o mesmo comando (ele nao duplica nada):\n'
+        printf '  dgclaw agente criar %s --nome "%s" ...\n' "$C_SLUG" "$C_NOME"
+    } >&2
+}
+
+agente_criar() {
+    [ $# -ge 1 ] || falha "faltou o nome curto (slug) do agente." 'exemplo: dgclaw agente criar ana --nome "Ana"'
+    C_SLUG="$1"; shift
+    C_NOME=""; C_PROVEDOR=claude; C_AUTH=assinatura; C_MODELO=""; C_PAPEL=""; C_JEITO=""
+    local dono="" canal=chat avatar="" cor=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --nome|--provedor|--auth|--modelo|--papel|--jeito|--dono|--canal|--avatar|--cor)
+                [ $# -ge 2 ] || falha "a opcao $1 precisa de um valor." "exemplo: $1 \"valor\"; veja dgclaw --ajuda"
+                case "$1" in
+                    --nome) C_NOME="$(uma_linha "$2")" ;;
+                    --provedor) C_PROVEDOR="$2" ;;
+                    --auth) C_AUTH="$2" ;;
+                    --modelo) C_MODELO="$2" ;;
+                    --papel) C_PAPEL="$(uma_linha "$2")" ;;
+                    --jeito) C_JEITO="$(uma_linha "$2")" ;;
+                    --dono) dono="$(uma_linha "$2")" ;;
+                    --canal) canal="$2" ;;
+                    --avatar) avatar="$(uma_linha "$2")" ;;
+                    --cor) cor="$2" ;;
+                esac
+                shift 2 ;;
+            *) falha "opcao desconhecida: $1" "veja as opcoes de 'agente criar' com: dgclaw --ajuda" ;;
+        esac
+    done
+
+    [[ "$C_SLUG" =~ ^[a-z0-9][a-z0-9-]{1,30}$ ]] \
+        || falha "o nome curto '$C_SLUG' nao serve: use 2 a 31 caracteres, so letras minusculas, numeros e hifen, comecando por letra ou numero." \
+                 "exemplo: ana, suporte-vendas"
+    [ "$C_SLUG" != admin ] || falha "o nome curto 'admin' e reservado ao agente de sistema." "escolha outro nome curto."
+    [ -n "$C_NOME" ] || falha "faltou o nome do agente (--nome)." "exemplo: dgclaw agente criar $C_SLUG --nome \"Ana\""
+    case "$C_PROVEDOR" in claude|codex) ;; *) falha "provedor '$C_PROVEDOR' nao existe." "use --provedor claude ou --provedor codex." ;; esac
+    case "$C_AUTH" in assinatura|api) ;; *) falha "autenticacao '$C_AUTH' nao existe." "use --auth assinatura ou --auth api." ;; esac
+    case "$canal" in chat|telegram|whatsapp) ;; *) falha "canal '$canal' nao existe." "use --canal chat, telegram ou whatsapp." ;; esac
+    C_CANAL="$canal"
+    if [ -z "$cor" ]; then cor="#3b82f6"; fi
+    [[ "$cor" =~ ^#[0-9a-fA-F]{6}$ ]] || falha "a cor '$cor' nao e valida." "use o formato #rrggbb, por exemplo --cor \"#3b82f6\"."
+    C_COR="$cor"
+    if [ -z "$avatar" ]; then avatar="${C_NOME:0:1}"; avatar="${avatar^}"; fi
+    C_AVATAR="$avatar"
+    [ -n "$C_PAPEL" ] || C_PAPEL="$TEXTO_PAPEL_NEUTRO"
+    [ -n "$C_JEITO" ] || C_JEITO="$TEXTO_JEITO_NEUTRO"
+    # Os modelos de identidade falam "do {{DONO}}" e "o {{DONO}}": sem nome, "dono" encaixa.
+    C_DONO_TEXTO="${dono:-dono}"
+    C_DATA="$(date +%Y-%m-%d)"
+
+    exigir_ferramentas jq podman ss curl
+    C_ETAPA="validacao"
+    carregar_env_dgclaw
+    if ! podman image exists "$DGCLAW_IMAGEM" >/dev/null 2>&1; then
+        falha "a imagem dos agentes ($DGCLAW_IMAGEM) ainda nao existe nesta maquina." \
+              "ela e construida em segundo plano pelo instalador; espere ficar pronta: dgclaw imagem status (para construir agora: dgclaw imagem construir)"
+    fi
+
+    C_CASA="$DG_CASAS/$C_SLUG"
+    C_HOME="$C_CASA/home"
+
+    [ "$ENSAIO" = 1 ] || trap _criar_ao_sair EXIT
+
+    etapa "Reservando a faixa de uid e as portas do agente $C_SLUG"
+    local aloc
+    aloc="$(com_trava alocar_recursos "$C_SLUG")"
+    read -r C_UID_BASE C_N C_PORTA_RUNNER C_PORTA_PAINEL <<<"$aloc"
+    C_UID_HOST=$((C_UID_BASE + UID_DENTRO))
+    C_UG="$C_UID_HOST:$C_UID_HOST"
+    ok "faixa de uid $C_UID_BASE (numero $C_N); portas: runner $C_PORTA_RUNNER, painel $C_PORTA_PAINEL"
+
+    etapa "Montando a casa do agente"
+    montar_casa
+    etapa "Escrevendo a identidade e a configuracao"
+    montar_identidade
+    etapa "Gerando os segredos"
+    montar_segredos
+    etapa "Criando a rede e o container"
+    criar_rede
+    criar_container
+    etapa "Aplicando as regras de firewall"
+    rodar_firewall
+    etapa "Esperando a maquina do agente ligar"
+    esperar_systemd "dgclaw-$C_SLUG"
+    etapa "Instalando as rotinas, o runner e o painel dentro do agente"
+    local vida_ok=1
+    instalar_vida "$C_SLUG" || vida_ok=0
+    etapa "Esperando o agente responder"
+    if esperar_saude "$C_PORTA_RUNNER"; then
+        ok "o runner respondeu em http://127.0.0.1:$C_PORTA_RUNNER/api/saude"
+    else
+        aviso "o runner nao respondeu em ${TEMPO_ESPERA}s em http://127.0.0.1:$C_PORTA_RUNNER/api/saude. Veja o log: podman exec dgclaw-$C_SLUG journalctl -u dgclaw-runner -n 50  (ou o arquivo $C_HOME/.dgclaw/logs/runner.log). Para refazer a parte de dentro: dgclaw agente reparar $C_SLUG"
+    fi
+    conferir_saida_internet "$C_SLUG"
+    etapa "Testando o isolamento"
+    rodar_isolamento "$C_SLUG"
+    etapa "Registrando o agente"
+    registrar_agente
+    trap - EXIT
+
+    local base
+    if [ -n "${DGCLAW_DOMINIO:-}" ]; then base="https://$DGCLAW_DOMINIO"; else base="http://127.0.0.1:8300"; fi
+    printf '\n%s esta criado.\n' "$C_NOME"
+    printf '  Provedor: %s (%s)\n' "$C_PROVEDOR" "$C_AUTH"
+    printf '  Painel: %s/p/%s\n' "$base" "$C_SLUG"
+    [ "$vida_ok" = 1 ] || printf '  Atencao: a parte de dentro nao terminou. Rode: dgclaw agente reparar %s\n' "$C_SLUG"
+    printf '  Falta entrar na conta: o painel mostra o botao.\n'
+    if [ "$C_CANAL" != chat ]; then printf '  O canal %s foi anotado; quem liga e a skill de canais.\n' "$C_CANAL"; fi
+}
+
+# --- demais comandos de agente ---------------------------------------------------------
+
+# slug_valido_ou_falha <slug>
+exigir_slug() {
+    local s="${1:-}"
+    [ -n "$s" ] || falha "faltou o nome curto (slug) do agente." "exemplo: dgclaw agente $2 ana"
+    [[ "$s" =~ ^[a-z0-9][a-z0-9-]{1,30}$ ]] || falha "o nome curto '$s' nao e valido." "use so letras minusculas, numeros e hifen."
+    [ "$s" != admin ] || falha "o 'admin' nao e um agente de container; ele e cuidado pelo instalador." "use systemctl restart dgclaw-admin."
+}
+
+# existe_agente <slug>: ele esta no agentes.json ou ao menos tem container.
+existe_agente() {
+    [ -n "$(agentes_obter "$1" 2>/dev/null)" ] || podman container exists "dgclaw-$1" >/dev/null 2>&1
+}
+
+agente_acao() {
+    local acao="$1"; shift
+    exigir_slug "${1:-}" "$acao"
+    local slug="$1" c="dgclaw-$1"
+    exigir_ferramentas jq podman
+    existe_agente "$slug" || falha "nao conheco o agente '$slug' (nao esta no agentes.json e nao tem container)." \
+        "veja os que existem com: dgclaw agente listar"
+    case "$acao" in
+        parar)
+            executar podman stop "$c" >/dev/null
+            ok "agente $slug parado"
+            ;;
+        iniciar)
+            executar podman start "$c" >/dev/null
+            rodar_firewall
+            ok "agente $slug iniciado"
+            ;;
+        reiniciar)
+            if [ "$ENSAIO" != 1 ] && [ "$(podman inspect -f '{{.State.Status}}' "$c" 2>/dev/null)" != running ]; then
+                falha "o agente $slug esta parado, nao tem o que reiniciar." "ligue com: dgclaw agente iniciar $slug"
+            fi
+            # So o runner: e ele que le o cofre.env. O container inteiro nao precisa cair.
+            executar podman exec "$c" systemctl restart dgclaw-runner >/dev/null
+            ok "runner do agente $slug reiniciado"
+            ;;
+    esac
+}
+
+agente_reparar() {
+    exigir_slug "${1:-}" reparar
+    local slug="$1" c="dgclaw-$1" obj porta
+    exigir_ferramentas jq podman curl
+    obj="$(agentes_obter "$slug")"
+    [ -n "$obj" ] || falha "o agente '$slug' nao esta no agentes.json." \
+        "se a criacao nao terminou, rode de novo: dgclaw agente criar $slug --nome \"...\""
+    if [ "$ENSAIO" != 1 ] && [ "$(podman inspect -f '{{.State.Status}}' "$c" 2>/dev/null)" != running ]; then
+        falha "o container $c nao esta ligado." "ligue com: dgclaw agente iniciar $slug"
+    fi
+    porta="$(printf '%s' "$obj" | jq -r '.runner | sub("^.*:"; "")')"
+    passo "Refazendo a parte de dentro do agente $slug"
+    esperar_systemd "$c"
+    instalar_vida "$slug" || falha "a parte de dentro do agente $slug nao terminou." \
+        "leia as linhas acima; se o erro citar a imagem, reconstrua: dgclaw imagem construir --agora"
+    if esperar_saude "$porta"; then ok "o runner respondeu"; else
+        falha "o runner do agente $slug nao respondeu em ${TEMPO_ESPERA}s em http://127.0.0.1:$porta/api/saude." \
+              "veja o log: podman exec $c journalctl -u dgclaw-runner -n 50"
+    fi
+}
+
+# estado_container <slug>: running, exited... ou ausente.
+estado_container() {
+    local e
+    e="$(podman inspect -f '{{.State.Status}}' "dgclaw-$1" 2>/dev/null)" || { printf 'ausente'; return 0; }
+    printf '%s' "${e:-ausente}"
+}
+
+saude_runner() {
+    local porta="$1" estado="$2"
+    if [ "$estado" != running ]; then printf '-'; return 0; fi
+    if curl -fsS --max-time 3 "http://127.0.0.1:$porta/api/saude" >/dev/null 2>&1; then printf 'ok'; else printf 'sem resposta'; fi
+}
+
+agente_listar() {
+    local json=0
+    case "${1:-}" in --json) json=1 ;; "") ;; *) falha "opcao desconhecida: $1" "use: dgclaw agente listar [--json]" ;; esac
+    exigir_ferramentas jq podman curl
+    local linhas="" slug nome prov runner porta estado saude
+    while IFS=$'\t' read -r slug nome prov runner; do
+        [ -n "$slug" ] || continue
+        porta="${runner##*:}"
+        estado="$(estado_container "$slug")"
+        saude="$(saude_runner "$porta" "$estado")"
+        linhas+="$(jq -cn --arg slug "$slug" --arg nome "$nome" --arg prov "$prov" --arg estado "$estado" \
+            --arg porta "$porta" --arg saude "$saude" \
+            '{slug: $slug, nome: $nome, provedor: $prov, estado: $estado, porta_runner: ($porta | tonumber? // null), saude: $saude}')"$'\n'
+    done < <(agentes_ler | jq -r '.agentes[] | select(.tipo == "agente") | [.slug, .nome, .provedor, .runner] | @tsv')
+    if [ "$json" = 1 ]; then
+        printf '%s' "$linhas" | jq -s .
+        return 0
+    fi
+    if [ -z "$linhas" ]; then
+        printf 'Nenhum agente criado ainda. Crie o primeiro com: dgclaw agente criar <nome-curto> --nome "<Nome>"\n'
+        return 0
+    fi
+    { printf 'SLUG\tNOME\tPROVEDOR\tCONTAINER\tPORTA\tSAUDE\n'
+      printf '%s' "$linhas" | jq -r '[.slug, .nome, .provedor, .estado, (.porta_runner | tostring), .saude] | @tsv'
+    } | awk -F'\t' '{for (i = 1; i <= NF; i++) {if (length($i) > w[i]) w[i] = length($i); c[NR, i] = $i} n = NR; nf = NF}
+        END {for (r = 1; r <= n; r++) {for (i = 1; i <= nf; i++) printf "%-*s  ", w[i], c[r, i]; printf "\n"}}'
+}
+
+agente_remover() {
+    local slug="" sim=0 a
+    for a in "$@"; do
+        case "$a" in
+            --sim) sim=1 ;;
+            -*) falha "opcao desconhecida: $a" "use: dgclaw agente remover <slug> [--sim]" ;;
+            *) slug="$a" ;;
+        esac
+    done
+    exigir_slug "$slug" remover
+    exigir_ferramentas jq podman
+    local c="dgclaw-$slug" casa="$DG_CASAS/$slug"
+    existe_agente "$slug" || [ -d "$casa" ] || falha "nao conheco o agente '$slug'." "veja os que existem com: dgclaw agente listar"
+
+    if [ "$ENSAIO" != 1 ] && [ "$sim" = 0 ] && [ -t 0 ]; then
+        printf 'Vou tirar o agente %s do ar. A casa dele NAO e apagada: vai para %s/.\nDigite o nome curto (%s) para confirmar: ' \
+            "$slug" "$DG_APOSENTADOS" "$slug" >&2
+        local resp; read -r resp
+        [ "$resp" = "$slug" ] || falha "a confirmacao nao confere (digitado: '$resp')." "nada foi feito. Rode de novo e digite $slug."
+    fi
+
+    local destino
+    destino="$DG_APOSENTADOS/$slug-$(date +%Y%m%d-%H%M%S)"
+    passo "Removendo o agente $slug (a casa vai para $destino)"
+    if [ "$ENSAIO" = 1 ] || podman container exists "$c" >/dev/null 2>&1; then
+        executar podman stop "$c" >/dev/null
+        executar podman rm "$c" >/dev/null
+        ok "container parado e removido (os dados estao na casa, que fica guardada)"
+    else
+        info "o container $c ja nao existia"
+    fi
+    if [ "$ENSAIO" = 1 ] || podman network exists "dgclaw-$slug" >/dev/null 2>&1; then
+        executar podman network rm "dgclaw-$slug" >/dev/null
+    fi
+    criar_pasta 700 0:0 "$DG_APOSENTADOS"
+    if [ -d "$casa" ] || [ "$ENSAIO" = 1 ]; then
+        executar mv "$casa" "$destino"
+        ok "casa guardada em $destino"
+    else
+        info "a casa $casa ja nao estava no lugar"
+        criar_pasta 700 0:0 "$destino"
+    fi
+    local seg
+    for seg in "$DG_ETC/runner/$slug.token" "$DG_ETC/proxy/$slug.segredo"; do
+        if [ -e "$seg" ] || [ "$ENSAIO" = 1 ]; then
+            criar_pasta 700 0:0 "$destino/segredos-do-host"
+            executar mv "$seg" "$destino/segredos-do-host/$(basename "$seg")"
+        fi
+    done
+    if [ "$ENSAIO" = 1 ]; then
+        info "[ensaio] tiraria $slug do agentes.json e das portas reservadas (a faixa de uid fica queimada)"
+    else
+        agentes_remover "$slug"
+        com_trava liberar_portas "$slug"
+    fi
+    ok "agente $slug removido do registro. A faixa de uid dele fica queimada de proposito: ninguem herda os arquivos dele."
+}
+
+agente_main() {
+    local sub="${1:-}"; shift || true
+    case "$sub" in
+        criar) agente_criar "$@" ;;
+        listar) agente_listar "$@" ;;
+        parar|iniciar|reiniciar) agente_acao "$sub" "$@" ;;
+        reparar) agente_reparar "$@" ;;
+        remover) agente_remover "$@" ;;
+        "") falha "faltou dizer o que fazer com os agentes." "use: criar, listar, parar, iniciar, reiniciar, reparar ou remover (veja dgclaw --ajuda)." ;;
+        *) falha "'agente $sub' nao existe." "use: criar, listar, parar, iniciar, reiniciar, reparar ou remover (veja dgclaw --ajuda)." ;;
+    esac
+}
+
+# --- imagem ---------------------------------------------------------------------------------
+
+imagem_status() {
+    exigir_ferramentas podman
+    carregar_env_dgclaw
+    local ativo=""
+    if podman image exists "$DGCLAW_IMAGEM" >/dev/null 2>&1; then
+        ok "imagem dos agentes pronta ($DGCLAW_IMAGEM)"
+        return 0
+    fi
+    # `is-active` sai com codigo != 0 quando a unidade nao esta ativa; o texto basta.
+    ativo="$(systemctl is-active dgclaw-imagem.service 2>/dev/null || true)"
+    case "$ativo" in
+        active|activating)
+            printf 'A imagem esta sendo construida agora (pode levar uns 10 a 20 minutos). Ultimas linhas do log:\n'
+            [ -f "$DG_LOG/imagem.log" ] && tail -n 5 "$DG_LOG/imagem.log" | sed 's/^/   /'
+            return 1
+            ;;
+        *)
+            printf 'A imagem dos agentes NAO esta pronta (estado da construcao: %s).\n' "${ativo:-desconhecido}"
+            if [ -f "$DG_LOG/imagem.log" ]; then
+                printf 'Ultimas linhas de %s:\n' "$DG_LOG/imagem.log"
+                tail -n 15 "$DG_LOG/imagem.log" | sed 's/^/   /'
+            else
+                printf 'Ainda nao existe log de construcao (%s).\n' "$DG_LOG/imagem.log"
+            fi
+            printf 'Para construir: dgclaw imagem construir\n'
+            return 1
+            ;;
+    esac
+}
+
+imagem_construir() {
+    exigir_ferramentas podman
+    carregar_env_dgclaw
+    case "${1:-}" in
+        "")
+            executar systemctl start --no-block dgclaw-imagem.service
+            ok "construcao da imagem iniciada em segundo plano. Acompanhe com: dgclaw imagem status"
+            ;;
+        --agora)
+            local ctx="$APP_DIR" log="$DG_LOG/imagem.log" tags=(-t "$DGCLAW_IMAGEM")
+            [ -f "$ctx/container/Containerfile" ] || falha "nao achei $ctx/container/Containerfile." "reinstale o DG Claw com o instalador."
+            [ -n "${DGCLAW_VERSAO:-}" ] && tags+=(-t "localhost/dgclaw-agente:$DGCLAW_VERSAO")
+            criar_pasta 750 0:0 "$DG_LOG"
+            if [ "$ENSAIO" = 1 ]; then
+                info "[ensaio] podman build --http-proxy=false ${tags[*]} --ignorefile $ctx/container/ignore -f $ctx/container/Containerfile $ctx (log em $log)"
+                return 0
+            fi
+            passo "Construindo a imagem (log em $log)"
+            local rc=0
+            # Mesmo motivo do --http-proxy=false do create: um proxy local do host nao existe
+            # dentro do build, e o apt e o npm de la falhariam com "connection refused".
+            podman build --http-proxy=false "${tags[@]}" --ignorefile "$ctx/container/ignore" -f "$ctx/container/Containerfile" "$ctx" 2>&1 | tee -a "$log" || rc=$?
+            [ "$rc" -eq 0 ] || falha "a construcao da imagem falhou (codigo $rc)." "leia o fim de $log; rodar de novo e seguro."
+            ok "imagem pronta"
+            ;;
+        *) falha "opcao desconhecida: $1" "use: dgclaw imagem construir [--agora]" ;;
+    esac
+}
+
+imagem_main() {
+    local sub="${1:-}"; shift || true
+    case "$sub" in
+        status) imagem_status "$@" ;;
+        construir) imagem_construir "$@" ;;
+        *) falha "faltou dizer o que fazer com a imagem." "use: dgclaw imagem status  ou  dgclaw imagem construir [--agora]" ;;
+    esac
+}
+
+# --- senha ---------------------------------------------------------------------------------------
+
+senha_trocar() {
+    local web_env="$DG_ETC/web.env" senha="" conf="" hash
+    [ "$ENSAIO" = 1 ] && {
+        info "[ensaio] leria a nova senha do STDIN, geraria o hash, trocaria a linha DGCLAW_PANEL_PASSWORD_HASH de $web_env e reiniciaria dgclaw-web"
+        return 0
+    }
+    [ -f "$web_env" ] || falha "nao achei $web_env." "o DG Claw Web ainda nao foi instalado; rode o instalador."
+    if [ -t 0 ]; then
+        printf 'Nova senha do painel (minimo 12 caracteres, nada aparece enquanto digita): ' >&2
+        read -rs senha; printf '\n' >&2
+        printf 'Repita a senha: ' >&2
+        read -rs conf; printf '\n' >&2
+        [ "$senha" = "$conf" ] || falha "as duas senhas digitadas sao diferentes." "nada foi trocado; rode de novo."
+    else
+        IFS= read -r senha || [ -n "$senha" ] || falha "a senha nova nao chegou pelo STDIN." \
+            "envie assim: printf '%s\\n' \"senha nova\" | dgclaw senha trocar"
+    fi
+    [ "${#senha}" -ge 12 ] || falha "a senha tem ${#senha} caracteres e o minimo e 12." "escolha uma senha maior; nada foi trocado."
+
+    if [ -n "$R" ] && [ -n "${DGCLAW_SENHA_HASH_CMD:-}" ]; then
+        hash="$(printf '%s\n' "$senha" | bash -c "$DGCLAW_SENHA_HASH_CMD")" \
+            || falha "o comando de hash de teste falhou." "isso so existe nos testes."
+    else
+        [ -f "$APP_DIR/panel/bin/senha-hash.js" ] || falha "nao achei $APP_DIR/panel/bin/senha-hash.js, que gera o hash da senha." \
+            "atualize o DG Claw (esse arquivo vem junto) e rode de novo; a senha NAO foi gravada em texto puro."
+        exigir_ferramentas node
+        hash="$(printf '%s\n' "$senha" | node "$APP_DIR/panel/bin/senha-hash.js")" \
+            || falha "o gerador de hash recusou a senha." "confira se ela tem 12 caracteres ou mais."
+    fi
+    senha=""; conf=""
+    [ -n "$hash" ] && [[ "$hash" != *"'"* && "$hash" != *$'\n'* ]] \
+        || falha "o gerador de hash devolveu um valor invalido." "isso e um erro do DG Claw; a senha nao foi trocada."
+
+    # O hash entra no awk pelo ambiente, nao pelo argv: o hash tem `$` e `\` que o -v interpretaria.
+    HASH_NOVO="$hash" awk '
+        BEGIN {linha = "DGCLAW_PANEL_PASSWORD_HASH=\047" ENVIRON["HASH_NOVO"] "\047"}
+        /^DGCLAW_PANEL_PASSWORD_HASH=/ {print linha; feito = 1; next}
+        {print}
+        END {if (!feito) print linha}' "$web_env" | escrever_arquivo "$web_env" 600
+    executar systemctl restart dgclaw-web
+    ok "senha do painel trocada"
+}
+
+senha_main() {
+    case "${1:-}" in
+        trocar) shift; senha_trocar "$@" ;;
+        *) falha "faltou dizer o que fazer com a senha." "use: dgclaw senha trocar" ;;
+    esac
+}
+
+# --- status ---------------------------------------------------------------------------------------
+
+S_FALHAS=0
+s_ok()    { printf '  ok     %s\n' "$1"; }
+s_aviso() { printf '  aviso  %s\n' "$1"; }
+s_mal()   { printf '  FALHOU %s\n' "$1"; S_FALHAS=$((S_FALHAS + 1)); }
+
+status_geral() {
+    exigir_ferramentas jq podman curl
+    carregar_env_dgclaw
+    printf 'Situacao do DG Claw\n'
+
+    if [ -n "${DGCLAW_DOMINIO:-}" ]; then s_ok "dominio: $DGCLAW_DOMINIO"; else s_aviso "dominio: nao definido em $DG_ETC/dgclaw.env"; fi
+
+    local u
+    for u in caddy dgclaw-web dgclaw-admin; do
+        if [ "$(systemctl is-active "$u" 2>/dev/null)" = active ]; then s_ok "servico $u de pe"
+        else s_mal "servico $u parado. Veja: systemctl status $u  (ligar: systemctl start $u)"; fi
+    done
+    if curl -s -o /dev/null --max-time 3 http://127.0.0.1:8300/; then s_ok "Web responde em 127.0.0.1:8300"
+    else s_mal "o Web nao responde em 127.0.0.1:8300. Veja: journalctl -u dgclaw-web -n 50"; fi
+    if curl -fsS -o /dev/null --max-time 3 http://127.0.0.1:4300/api/saude; then s_ok "Admin responde (/api/saude em 127.0.0.1:4300)"
+    else s_mal "o Admin nao responde em 127.0.0.1:4300/api/saude. Veja: journalctl -u dgclaw-admin -n 50"; fi
+
+    if podman image exists "$DGCLAW_IMAGEM" >/dev/null 2>&1; then s_ok "imagem dos agentes pronta"
+    else s_aviso "imagem dos agentes ainda nao esta pronta (veja: dgclaw imagem status)"; fi
+
+    local cadeia faltou=""
+    for cadeia in DGCLAW_HOST DGCLAW_EGRESS; do
+        iptables -n -L "$cadeia" >/dev/null 2>&1 || faltou+=" $cadeia"
+    done
+    if [ -z "$faltou" ]; then s_ok "firewall com as cadeias DGCLAW_HOST e DGCLAW_EGRESS"
+    else s_mal "firewall sem a(s) cadeia(s):$faltou. Reaplique: bash $APP_DIR/lib/firewall.sh"; fi
+
+    local slug runner estado saude
+    while IFS=$'\t' read -r slug runner; do
+        [ -n "$slug" ] || continue
+        estado="$(estado_container "$slug")"
+        saude="$(saude_runner "${runner##*:}" "$estado")"
+        if [ "$estado" != running ]; then s_aviso "agente $slug: container $estado (ligar: dgclaw agente iniciar $slug)"
+        elif [ "$saude" = ok ]; then s_ok "agente $slug: de pe e respondendo"
+        else s_aviso "agente $slug: container de pe, mas o runner nao responde (tente: dgclaw agente reparar $slug)"; fi
+    done < <(agentes_ler | jq -r '.agentes[] | select(.tipo == "agente") | [.slug, .runner] | @tsv')
+
+    if [ "$S_FALHAS" -gt 0 ]; then
+        printf '\n%s coisa(s) essencial(is) fora do ar. Veja as linhas FALHOU acima.\n' "$S_FALHAS" >&2
+        return 1
+    fi
+    printf '\nTudo essencial esta de pe.\n'
+}
+
+# --- main ---------------------------------------------------------------------------------------------
+
+main() {
+    local args=() a pede_ajuda=0
+    for a in "$@"; do
+        case "$a" in
+            --ensaio) ENSAIO=1 ;;
+            --ajuda|-h|--help) pede_ajuda=1 ;;
+            *) args+=("$a") ;;
+        esac
+    done
+    if [ "$pede_ajuda" = 1 ] || [ "${#args[@]}" -eq 0 ] || [ "${args[0]}" = ajuda ]; then
+        ajuda
+        return 0
+    fi
+
+    if [ -z "$R" ] && [ "$(id -u)" -ne 0 ]; then
+        falha "o dgclaw precisa rodar como root (voce e o uid $(id -u))." "rode com sudo: sudo dgclaw ${args[*]}"
+    fi
+
+    local cmd="${args[0]}"
+    set -- "${args[@]:1}"
+    case "$cmd" in
+        agente) agente_main "$@" ;;
+        imagem) imagem_main "$@" ;;
+        senha) senha_main "$@" ;;
+        status) status_geral "$@" ;;
+        *) falha "o comando '$cmd' nao existe." "veja os comandos com: dgclaw --ajuda" ;;
+    esac
+}
+
+main "$@"

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Entrar - DG Claw</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#2f9e5e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="DG Claw">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="icon" href="/icons/icon-192.png">
+<link rel="stylesheet" href="/login.css">
+</head>
+<body>
+<main class="cartao">
+  <div class="marca"><span class="emoji" aria-hidden="true">🦞</span><h1>DG Claw</h1></div>
+  <p class="sub">Entre para falar com os seus agentes.</p>
+  <div id="erro" class="erro" role="alert" hidden></div>
+  <form method="post" action="/login" id="form" autocomplete="on">
+    <input type="hidden" name="next" id="next" value="/">
+    <label for="usuario">Usuário</label>
+    <input id="usuario" name="usuario" type="text" autocomplete="username" autocapitalize="none"
+           autocorrect="off" spellcheck="false" required autofocus>
+    <label for="campoSenha">Senha</label>
+    <input id="campoSenha" name="senha" type="password" autocomplete="current-password" required>
+    <button type="submit" id="entrar">Entrar</button>
+  </form>
+</main>
+<script src="/login.js"></script>
+</body>
+</html>

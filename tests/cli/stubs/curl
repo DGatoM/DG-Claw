@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+echo "curl $*" >> "${STUB_LOG:?}"
+[ -f "${STUB_ESTADO:?}/curl-falha" ] && exit 22
+exit 0

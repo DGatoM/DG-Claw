@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+. "$(dirname "$0")/_comum.sh"
+registrar "$@"
+url=""; saida=""
+args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do
+    case "${args[$i]}" in
+        -o) saida="${args[$((i + 1))]}" ;;
+        http*) url="${args[$i]}" ;;
+        @-) cat >/dev/null ;;
+    esac
+done
+case " $* " in *" @- "*) cat >/dev/null ;; esac
+case "$url" in
+    https://api.ipify.org|https://ifconfig.me) printf '%s' "${DGCLAW_STUB_IP:-203.0.113.7}" ;;
+    *gpg*|*gpgkey*) [ -n "$saida" ] && echo "chave-falsa" >"$saida" ;;
+esac
+exit 0

@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "updatedAt": "{{DATA_ISO}}",
+  "powers": [
+    {
+      "id": "core",
+      "name": "Nucleo (memoria + personalidade + operacao)",
+      "enabled": true,
+      "locked": true,
+      "tabs": ["status", "memory", "personality", "identity", "operations", "costs"]
+    },
+    {
+      "id": "instagram",
+      "name": "Instagram (influencer)",
+      "enabled": false,
+      "tabs": ["posts", "followers"],
+      "cron_timers": [],
+      "config": ".dgclaw/instagram.json",
+      "locked_reason": "Rode /dgclaw:powers install instagram pra ativar."
+    },
+    {
+      "id": "meetings",
+      "name": "Reunioes (Recall.ai)",
+      "enabled": false,
+      "tabs": ["reunioes"],
+      "cron_timers": [],
+      "locked_reason": "Poder ainda nao acoplado nesta versao."
+    },
+    {
+      "id": "crm",
+      "name": "CRM (WhatsApp / vendas)",
+      "enabled": false,
+      "tabs": [],
+      "cron_timers": [],
+      "locked_reason": "Poder ainda nao acoplado nesta versao."
+    },
+    {
+      "id": "secretary",
+      "name": "Secretaria (Gmail / Agenda)",
+      "enabled": false,
+      "tabs": [],
+      "cron_timers": [],
+      "depends_on": ["google_connect"],
+      "locked_reason": "Poder ainda nao acoplado nesta versao."
+    }
+  ]
+}

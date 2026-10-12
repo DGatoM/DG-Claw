@@ -1,0 +1,12 @@
+{
+  "_comment": "Allowlist editavel do security-audit. Copiada pro workspace em .dgclaw/security-allowlist.json no 1o run (NUNCA edite este .tmpl pra adicionar dominio de instancia — edite a copia no workspace). Dominios fora desta lista que aparecerem em egress/conteudo viram alerta. localhost/127.0.0.1 e subdominios (*.dom) ja entram por padrao.",
+  "schema": 1,
+  "allowed_domains": [
+    "localhost",
+    "127.0.0.1",
+    "api.telegram.org",
+    "api.anthropic.com"
+  ],
+  "_telegram_comment": "IDs de chat permitidos pro bot mandar mensagem. Vazio = qualquer target conta como anormal exceto o do dono (resolvido via DGCLAW_OWNER_TELEGRAM_ID em runtime).",
+  "allowed_telegram_targets": []
+}

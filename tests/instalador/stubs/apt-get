@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+. "$(dirname "$0")/_comum.sh"
+registrar "$@"
+if [ "${1:-}" = install ]; then
+    shift
+    for p in "$@"; do
+        case "$p" in -*) ;; *) echo "$p" >>"$(estado_dir)/instalados" ;; esac
+    done
+fi
+exit 0

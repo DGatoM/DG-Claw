@@ -1,0 +1,52 @@
+/* wm-status.css: o cartão "Memória de trabalho" da aba Status (js/wm-status.js).
+ * No celular (390px) os quatro números viram duas colunas e nada passa da largura:
+ * texto longo quebra, inclusive caminho de arquivo. */
+
+.wms-topo{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-bottom:12px}
+.wms-selo{display:inline-flex;align-items:center;gap:7px;padding:4px 11px;border-radius:999px;
+  font-size:13px;font-weight:600;border:1px solid var(--linha);background:var(--fundo2);cursor:help}
+.wms-selo i{width:9px;height:9px;border-radius:50%;background:var(--neutro);flex:none}
+.wms-selo.ok{color:var(--ok)} .wms-selo.ok i{background:var(--ok)}
+.wms-selo.atencao{color:var(--espera)} .wms-selo.atencao i{background:var(--espera)}
+.wms-selo.falha{color:var(--erro)} .wms-selo.falha i{background:var(--erro)}
+.wms-frase{flex:1 1 220px;min-width:0;overflow-wrap:anywhere}
+
+.wms-problema{border-left:3px solid var(--espera);background:var(--fundo2);border-radius:8px;
+  padding:10px 12px;margin-bottom:12px;font-size:14px;display:grid;gap:4px;overflow-wrap:anywhere}
+.wms-problema.falha{border-left-color:var(--erro)}
+
+.wms-grade{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.wms-item{background:var(--fundo2);border-radius:10px;padding:10px 12px;min-width:0;
+  display:flex;flex-direction:column;gap:2px}
+.wms-rot{font-size:12px;color:var(--fraco);text-transform:uppercase;letter-spacing:.04em;cursor:help;
+  text-decoration:underline dotted;text-underline-offset:3px;width:fit-content}
+.wms-val{font-size:19px;line-height:1.25;overflow-wrap:anywhere}
+.wms-val .ok{color:var(--ok)} .wms-val .ruim{color:var(--erro)}
+.wms-pe{font-size:13px;color:var(--fraco);overflow-wrap:anywhere}
+.wms-nao{font-size:15px;color:var(--fraco);font-weight:500}
+.wms-barra{display:block;height:6px;border-radius:3px;background:var(--linha);margin-top:6px;overflow:hidden}
+.wms-barra i{display:block;height:100%;background:var(--ok)}
+.wms-barra i.atencao{background:var(--espera)} .wms-barra i.falha{background:var(--erro)}
+
+.wms-pend{margin-top:12px;display:grid;gap:4px}
+.wms-pend-texto{font-size:14px;overflow-wrap:anywhere}
+.wms-fraco{color:var(--fraco)}
+.wms-aviso{margin-top:10px;font-size:13px;color:var(--espera);overflow-wrap:anywhere}
+
+.wms-rodape{margin-top:12px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 12px}
+.wms-ir-memoria{font-weight:600;min-height:32px;display:inline-flex;align-items:center}
+.wms-rodape code{font-size:12px;color:var(--fraco);overflow-wrap:anywhere}
+
+@media (max-width:900px){.wms-grade{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:340px){.wms-grade{grid-template-columns:1fr}}
+
+/* Painéis instalados antes de 01/10 põem o cartão numa coluna de meia largura: lá o
+   contêiner leva .wms-estreito e os quatro números ficam sempre em duas colunas. */
+.wms-estreito .wms-grade{grid-template-columns:repeat(2,minmax(0,1fr))}
+@media (max-width:340px){.wms-estreito .wms-grade{grid-template-columns:1fr}}
+.wms-pend-lista{margin:6px 0 0;padding-left:20px;line-height:1.5}
+.wms-pend-lista li{margin-bottom:6px}
+/* Texto rico nas pendências (12/10/2026): assunto em negrito, código e link sem estourar a largura. */
+.wms-pend-assunto{font-weight:700}
+.wms-pend-texto code{background:rgba(127,127,127,.15);padding:0 4px;border-radius:3px;font-size:.92em;overflow-wrap:anywhere}
+.wms-pend-texto a{overflow-wrap:anywhere;word-break:break-word}

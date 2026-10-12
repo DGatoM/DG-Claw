@@ -1,0 +1,548 @@
+#!/usr/bin/env node
+'use strict';
+// DG Claw Web: login, conversa com os agentes, proxy dos painéis. Node 22, sem dependências.
+
+const fs = require('node:fs');
+const path = require('node:path');
+const http = require('node:http');
+
+const H = require('./lib/http');
+const { carregaConfig } = require('./lib/config');
+const { criarRegistro } = require('./lib/registro');
+const { criarRunner } = require('./lib/runner');
+const { criarAuth } = require('./lib/auth');
+const { criarMidia } = require('./lib/media');
+const { criarLeitor, paraContainer } = require('./lib/thread');
+const { criarConversa, RX_CLIENTE_ID } = require('./lib/conversa');
+const { lerMultipart, nomeSeguro, gravaSemSobrescrever } = require('./lib/uploads');
+const { abrirStream } = require('./lib/sse');
+const { criarProxy } = require('./lib/proxy');
+const { criarVoz } = require('./lib/voz');
+
+const METODOS_QUE_ESCREVEM = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+const TIPOS_ESTATICOS = {
+  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.webmanifest': 'application/manifest+json',
+  '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
+  '.webp': 'image/webp', '.ico': 'image/x-icon', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf',
+  '.txt': 'text/plain; charset=utf-8', '.map': 'application/json', '.mp3': 'audio/mpeg', '.wav': 'audio/wav',
+};
+const RX_SLUG_ROTA = /^[a-z0-9][a-z0-9-]{0,31}$/;
+
+const LOGIN_RESERVA = '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Entrar</title>' +
+  '<style>body{font-family:system-ui,sans-serif;max-width:22rem;margin:14vh auto;padding:0 1rem}input,button{display:block;width:100%;margin:.5rem 0;padding:.6rem;font-size:1rem}</style></head><body>' +
+  '<h1>DG Claw</h1><p id="e" style="color:#b00"></p><form method="post" action="/login"><input name="usuario" placeholder="Usuário" autocomplete="username" required>' +
+  '<input name="senha" type="password" placeholder="Senha" autocomplete="current-password" required><input type="hidden" name="next" value=""><button>Entrar</button></form>' +
+  '<script>var q=new URLSearchParams(location.search);document.getElementById("e").textContent=q.get("erro")||"";document.querySelector("[name=next]").value=q.get("next")||"/"</script></body></html>';
+
+/** `next` só vale se for caminho relativo do próprio site. */
+function proximoSeguro(v) {
+  const s = typeof v === 'string' ? v : '';
+  if (!s.startsWith('/') || s.startsWith('//') || s.startsWith('/\\') || /[\x00-\x1f]/.test(s) || s.startsWith('/login') || s.startsWith('/sair')) return '/';
+  return s;
+}
+
+function criarServidor(opcoes) {
+  opcoes = opcoes || {};
+  const log = opcoes.log || H.logPadrao;
+  const config = carregaConfig(opcoes, log);
+
+  try {
+    fs.mkdirSync(config.dataDir, { recursive: true, mode: 0o700 });
+    fs.chmodSync(config.dataDir, 0o700);
+  } catch (e) {
+    log('erro', `Não consegui preparar a pasta de dados ${config.dataDir} (${e.code || e.message}). Crie-a com permissão 700 ou aponte DGCLAW_WEB_DATA para um lugar gravável; as sessões não serão salvas.`);
+  }
+
+  const registro = criarRegistro({ caminho: config.agentesPath, log });
+  const runner = criarRunner({ log, timeoutMs: opcoes.timeoutRunnerMs });
+  const auth = criarAuth({ config, log, agora: opcoes.agora });
+  const midia = criarMidia({ dataDir: config.dataDir, log, registro });
+  const leitor = criarLeitor({ log, tz: config.tz, canalTelegram: config.canalTelegram, midia });
+  const conversa = criarConversa({ config, runner, leitor, midia, log, agora: opcoes.agora });
+  const proxy = criarProxy({ config, registro, log });
+  const voz = criarVoz({ env: config.env, log });
+
+  let versaoJsCache = { ts: 0, valor: '0' };
+  /** Versão da tela: mtime de conversa.js. A tela compara com a que carregou e se recarrega sozinha. */
+  function versaoJs() {
+    if (Date.now() - versaoJsCache.ts < 5000) return versaoJsCache.valor;
+    let valor = '0';
+    try { valor = Math.round(fs.statSync(path.join(config.publicDir, 'conversa.js')).mtimeMs).toString(36); } catch (_) { /* tela ausente: versão 0 */ }
+    versaoJsCache = { ts: Date.now(), valor };
+    return valor;
+  }
+
+  // ── arquivos estáticos e páginas ─────────────────────────────────────────
+  function servirArquivo(req, res, caminho, cache) {
+    let st;
+    try { st = fs.statSync(caminho); } catch (_) { return false; }
+    if (!st.isFile()) return false;
+    const etag = `"${st.size.toString(16)}-${Math.round(st.mtimeMs).toString(16)}"`;
+    const tipo = TIPOS_ESTATICOS[path.extname(caminho).toLowerCase()] || 'application/octet-stream';
+    const cab = { 'Content-Type': tipo, ETag: etag, 'Cache-Control': cache || 'no-cache', 'X-Content-Type-Options': 'nosniff' };
+    if (path.basename(caminho) === 'sw.js') cab['Service-Worker-Allowed'] = '/';
+    if (req.headers['if-none-match'] === etag) { res.writeHead(304, cab); res.end(); return true; }
+    cab['Content-Length'] = st.size;
+    res.writeHead(200, cab);
+    if (req.method === 'HEAD') { res.end(); return true; }
+    const s = fs.createReadStream(caminho);
+    s.on('error', (e) => { log('erro', `Falha lendo o arquivo estático ${caminho} (${e.code || e.message}).`); res.destroy(); });
+    s.pipe(res);
+    return true;
+  }
+
+  function arquivoPublico(urlPath) {
+    let rel;
+    try { rel = decodeURIComponent(urlPath); } catch (_) { return null; }
+    if (rel.includes('\0')) return null;
+    const raiz = path.resolve(config.publicDir);
+    const alvo = path.resolve(raiz, '.' + rel);
+    if (alvo !== raiz && !alvo.startsWith(raiz + path.sep)) return null;
+    let real; let raizReal;
+    try { real = fs.realpathSync(alvo); raizReal = fs.realpathSync(raiz); } catch (_) { return null; }
+    if (!real.startsWith(raizReal + path.sep)) return null;
+    return real;
+  }
+
+  const ehMutacao = (req) => METODOS_QUE_ESCREVEM.has(req.method);
+
+  function origemOk(req) {
+    const o = req.headers.origin;
+    if (!o || o === 'null') return false;
+    const norm = String(o).replace(/\/+$/, '');
+    return norm === H.origemPropria(req, config.proxiesConfiaveis) || config.origensExtras.has(norm);
+  }
+
+  const querHtml = (req) => /\btext\/html\b/.test(String(req.headers.accept || ''));
+
+  function semSessaoPagina(req, res, url) {
+    res.writeHead(302, { Location: `/login?next=${encodeURIComponent(url.pathname + url.search)}`, 'Cache-Control': 'no-store' });
+    res.end();
+  }
+
+  function falhaDoRegistro(req, res, api) {
+    const est = registro.estado();
+    if (est.ok) return false;
+    if (api) H.erroJson(res, 503, est.erro); else H.paginaErro(res, 503, 'Lista de agentes indisponível', est.erro);
+    return true;
+  }
+
+  // ── login ────────────────────────────────────────────────────────────────
+  // Formulário (navegador): erro volta como 302 para /login?erro=<código>&next=...
+  // Códigos: credenciais, limite, origem, campos, bloqueado. JSON (Accept/Content-Type): status e {ok,erro}.
+  function voltaAoLogin(res, codigo, next, usuario) {
+    let destino = `/login?erro=${codigo}`;
+    if (next && next !== '/') destino += `&next=${encodeURIComponent(next)}`;
+    if (usuario && usuario.length < 80) destino += `&usuario=${encodeURIComponent(usuario)}`;
+    res.writeHead(302, { Location: destino, 'Cache-Control': 'no-store' });
+    res.end();
+  }
+
+  async function postLogin(req, res, url) {
+    const ip = H.ipDoPedido(req, config.proxiesConfiaveis);
+    const corpoJson = /application\/json/i.test(String(req.headers['content-type'] || ''));
+    const json = corpoJson || (/application\/json/i.test(String(req.headers.accept || '')) && !querHtml(req));
+    let campos = {};
+    try {
+      const buf = await H.lerCorpo(req, 16 * 1024);
+      const texto = buf.toString('utf8');
+      if (corpoJson) campos = JSON.parse(texto || '{}');
+      else campos = Object.fromEntries(new URLSearchParams(texto));
+    } catch (e) {
+      return json ? H.erroJson(res, e.status || 400, 'Não entendi o corpo do login. Mande usuario e senha.') : voltaAoLogin(res, 'campos', '/');
+    }
+    const next = proximoSeguro(campos.next);
+    const usuarioDigitado = String(campos.usuario == null ? '' : campos.usuario);
+    if (!usuarioDigitado || !campos.senha) {
+      return json ? H.erroJson(res, 400, 'Preencha o usuário e a senha.') : voltaAoLogin(res, 'campos', next, usuarioDigitado);
+    }
+    const r = await auth.verificaSenha(usuarioDigitado, String(campos.senha), ip);
+    if (r.ok) {
+      const s = auth.criaSessao(r.usuario, req);
+      log('info', `Login de ${r.usuario} (ip ${ip}).`);
+      const cab = { 'Set-Cookie': s.cookie, 'Cache-Control': 'no-store' };
+      if (json) return H.enviaJson(res, 200, { ok: true, destino: next }, cab);
+      res.writeHead(303, Object.assign({ Location: next }, cab));
+      return res.end();
+    }
+    if (r.limite) {
+      log('aviso', `Login bloqueado por excesso de tentativas (ip ${ip}); libera em ${r.retryAfter} s.`);
+      if (json) return H.erroJson(res, 429, r.erro, { retryAfter: r.retryAfter }, { 'Retry-After': String(r.retryAfter) });
+      res.setHeader('Retry-After', String(r.retryAfter));
+      return voltaAoLogin(res, 'limite', next, usuarioDigitado);
+    }
+    if (r.trancado) {
+      log('aviso', `Tentativa de login com o acesso trancado (ip ${ip}).`);
+      return json ? H.erroJson(res, 403, r.erro, { trancado: true }) : voltaAoLogin(res, 'bloqueado', next);
+    }
+    log('aviso', `Login recusado (ip ${ip}): usuário ou senha incorretos.`);
+    if (json) return H.erroJson(res, 401, r.erro);
+    return voltaAoLogin(res, 'credenciais', next, usuarioDigitado);
+  }
+
+  // ── API ──────────────────────────────────────────────────────────────────
+  function avatarDe(a) {
+    const av = a.avatar || '';
+    if (/^https:\/\//i.test(av)) return { avatar: (a.nome[0] || '?').toUpperCase(), avatar_img: av };
+    return { avatar: av || (a.nome[0] || '?').toUpperCase(), avatar_img: null };
+  }
+
+  async function agentePublico(a) {
+    const rotulo = await conversa.rotuloProvedor(a);
+    return Object.assign({
+      id: a.slug, nome: a.nome, subtitulo: a.subtitulo || rotulo, cor: a.cor, tipo: a.tipo,
+      provedor: a.provedor, modelo: a.modelo, rotulo_provedor: rotulo,
+      tem_painel: !!a.porta_painel, painel_url: a.porta_painel ? `/p/${a.slug}/` : null,
+      voz: voz.vozDoAgente(a), tem_voz: voz.vozDoAgente(a), microfone: voz.microfone,
+    }, avatarDe(a));
+  }
+
+  function agenteOuErro(res, id) {
+    const a = registro.obter(id);
+    if (!a) { H.erroJson(res, 404, `Não existe agente com o id "${id}". Veja GET /api/v1/agents.`); return null; }
+    return a;
+  }
+
+  function numeroOuErro(res, nome, bruto, pad, min, max) {
+    if (bruto == null || bruto === '') return pad;
+    const n = Number(bruto);
+    if (!Number.isFinite(n) || (min != null && n < min) || (max != null && n > max)) {
+      H.erroJson(res, 400, `O parâmetro "${nome}" precisa ser um número${min != null ? ` entre ${min} e ${max}` : ''}. Recebi: ${String(bruto).slice(0, 40)}.`);
+      return undefined;
+    }
+    return n;
+  }
+
+  async function api(req, res, url, sessao) {
+    const p = url.pathname;
+    const m = req.method;
+
+    if (p === '/api/v1/eu' && m === 'GET') return H.enviaJson(res, 200, { ok: true, usuario: sessao.usuario });
+
+    if (p === '/api/v1/agents' && m === 'GET') {
+      if (falhaDoRegistro(req, res, true)) return undefined;
+      const lista = await Promise.all(registro.estado().agentes.map(agentePublico));
+      return H.enviaJson(res, 200, { ok: true, agentes: lista, voz: lista.some((a) => a.voz), microfone: voz.microfone, usuario: sessao.usuario });
+    }
+
+    let mm = /^\/api\/v1\/agents\/([^/]+)(?:\/([a-z]+))?$/.exec(p);
+    if (mm) {
+      if (falhaDoRegistro(req, res, true)) return undefined;
+      const agente = agenteOuErro(res, decodeURIComponent(mm[1]));
+      if (!agente) return undefined;
+      const acao = mm[2] || '';
+      if (acao === '' && m === 'GET') return H.enviaJson(res, 200, { ok: true, agente: await agentePublico(agente) });
+      if (acao === 'messages' && m === 'GET') return mensagens(req, res, url, agente);
+      if (acao === 'stream' && m === 'GET') return stream(req, res, url, agente);
+      if (acao === 'wait' && m === 'GET') return esperar(req, res, url, agente);
+      if (acao === 'send' && m === 'POST') return enviar(req, res, agente);
+      if (acao === 'upload' && m === 'POST') return upload(req, res, agente);
+      return H.erroJson(res, ['messages', 'stream', 'wait', 'send', 'upload', ''].includes(acao) ? 405 : 404, `Não existe ${m} ${p}.`);
+    }
+
+    mm = /^\/api\/v1\/media\/([0-9a-f]{16})(?:\/(thumb))?$/.exec(p);
+    if (mm && (m === 'GET' || m === 'HEAD')) return midia.servir(req, res, mm[1], mm[2] ? 'thumb' : 'arquivo', url.searchParams.get('baixar') === '1');
+
+    if (p === '/api/v1/transcribe' && m === 'POST') return transcrever(req, res);
+    if (p === '/api/v1/tts' && m === 'POST') return falar(req, res);
+    if (p === '/api/v1/tts/cota' && m === 'GET') {
+      const r = await voz.cota();
+      if (r.erro) return H.erroJson(res, r.status, r.erro);
+      return H.enviaJson(res, 200, Object.assign({ ok: true }, r));
+    }
+    return H.erroJson(res, 404, `Não existe ${m} ${p}. A lista de rotas está no README do Web.`);
+  }
+
+  async function mensagens(req, res, url, agente) {
+    const q = url.searchParams;
+    const t = await conversa.thread(agente);
+    const todas = t.msgs;
+    if (q.get('after') != null) {
+      const after = numeroOuErro(res, 'after', q.get('after'), 0);
+      if (after === undefined) return undefined;
+      const limite = numeroOuErro(res, 'limit', q.get('limit'), 80, 1, 500);
+      if (limite === undefined) return undefined;
+      const mais = todas.filter((x) => x.ep > after);
+      return H.enviaJson(res, 200, { ok: true, msgs: mais.slice(0, limite), avisos: t.avisos, mais_novas: mais.length > limite, limit: limite, after });
+    }
+    const limite = numeroOuErro(res, 'limit', q.get('limit'), 60, 1, 500);
+    if (limite === undefined) return undefined;
+    const before = q.get('before') != null && q.get('before') !== '' ? numeroOuErro(res, 'before', q.get('before'), null) : null;
+    if (before === undefined) return undefined;
+    const base = before == null ? todas : todas.filter((x) => x.ep < before);
+    const msgs = base.slice(Math.max(0, base.length - limite));
+    return H.enviaJson(res, 200, { ok: true, msgs, avisos: t.avisos, mais_antigas: base.length > limite, before, limit: limite });
+  }
+
+  async function esperar(req, res, url, agente) {
+    const q = url.searchParams;
+    const since = numeroOuErro(res, 'since', q.get('since'), 0);
+    if (since === undefined) return undefined;
+    if (!(since > 0)) return H.erroJson(res, 400, 'O parâmetro "since" é obrigatório: o epoch (número) a partir do qual procuro mensagem nova. Use o ep_enviado do /send.');
+    let timeout = numeroOuErro(res, 'timeout', q.get('timeout'), 25);
+    if (timeout === undefined) return undefined;
+    timeout = Math.max(1, Math.min(28, timeout));
+    const fim = Date.now() + timeout * 1000;
+    let fechou = false;
+    res.on('close', () => { fechou = true; });
+    for (;;) {
+      const t = await conversa.thread(agente);
+      const novas = t.msgs.filter((x) => x.ep > since);
+      const doAgente = novas.some((x) => x.origin === 'agente');
+      if (doAgente || Date.now() >= fim || fechou) {
+        if (fechou) return undefined;
+        return H.enviaJson(res, 200, { ok: true, msgs: novas, timeout: !doAgente, avisos: t.avisos });
+      }
+      await new Promise((r) => setTimeout(r, 700));
+    }
+  }
+
+  function stream(req, res, url, agente) {
+    let since = null;
+    const ultimo = req.headers['last-event-id'];
+    if (ultimo) { const n = Number(ultimo); if (Number.isFinite(n)) since = n; else log('aviso', `Stream de ${agente.slug}: Last-Event-ID inválido (${String(ultimo).slice(0, 30)}); uso o parâmetro since.`); }
+    if (since == null && url.searchParams.get('since') != null && url.searchParams.get('since') !== '') {
+      const n = Number(url.searchParams.get('since'));
+      if (!Number.isFinite(n)) return H.erroJson(res, 400, `O parâmetro "since" precisa ser o epoch (número) da última mensagem que você já tem. Recebi: ${url.searchParams.get('since').slice(0, 40)}.`);
+      since = n;
+    }
+    if (since == null || since <= 0) since = Date.now() / 1000 - 60;
+    abrirStream({
+      req, res, agente, since, log, tickMs: opcoes.tickSseMs,
+      fontes: { thread: conversa.thread, atividade: conversa.atividade, versaoJs },
+    });
+    return undefined;
+  }
+
+  async function lerEnvio(req, res) {
+    try { return await H.lerJson(req, 256 * 1024); } catch (e) { H.erroJson(res, e.status || 400, e.message); return null; }
+  }
+
+  async function enviar(req, res, agente) {
+    const corpo = await lerEnvio(req, res);
+    if (!corpo) return undefined;
+    const cid = corpo.cliente_id;
+    if (cid != null && cid !== '' && !(typeof cid === 'string' && RX_CLIENTE_ID.test(cid))) {
+      return H.erroJson(res, 400, `O "cliente_id" veio como ${JSON.stringify(String(cid).slice(0, 80))}, que não vale: use de 8 a 64 caracteres entre letras, números, "-" e "_". Nada foi enviado.`);
+    }
+    const r = await conversa.umaVez(agente, 'send', cid || null, () => conversa.enviar(agente, corpo));
+    return H.enviaJson(res, r.status, r.corpo);
+  }
+
+  async function upload(req, res, agente) {
+    if (!agente.home_host) return H.erroJson(res, 503, `O agente ${agente.nome} não tem home_host no registro, então não há onde guardar anexos.`);
+    let mp;
+    try { mp = await lerMultipart(req, config.maxUploadBytes); } catch (e) { return H.erroJson(res, e.status || 400, e.message); }
+    const arq = mp.arquivos.find((a) => a.campo === 'file');
+    if (!arq || !arq.nome) return H.erroJson(res, 400, 'Mande o arquivo num multipart, no campo "file". Não veio nenhum arquivo.');
+    const cid = mp.campos.cliente_id;
+    if (cid && !RX_CLIENTE_ID.test(cid)) return H.erroJson(res, 400, 'O "cliente_id" não vale: use de 8 a 64 caracteres entre letras, números, "-" e "_".');
+    if (!arq.dados.length) return H.erroJson(res, 400, `O arquivo "${arq.nome}" chegou com 0 byte. Escolha o arquivo de novo.`);
+    const soGuardar = /^(0|false|nao|não|no)$/i.test((mp.campos.enviar || '').trim());
+    const legenda = (mp.campos.legenda || '').trim();
+    const r = await conversa.umaVez(agente, 'upload', cid || null, async () => {
+      const dia = new Intl.DateTimeFormat('en-CA', { timeZone: config.tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+      const pasta = path.join(agente.home_host, 'uploads', dia);
+      let destino;
+      try {
+        fs.mkdirSync(pasta, { recursive: true, mode: 0o755 });
+        destino = gravaSemSobrescrever(pasta, nomeSeguro(arq.nome), arq.dados);
+      } catch (e) {
+        log('erro', `Upload para ${agente.slug}: não gravei em ${pasta} (${e.code || e.message}).`);
+        return { status: 500, corpo: { ok: false, erro: `Não consegui gravar o arquivo em ${pasta} (${e.code || e.message}). Confira espaço em disco e permissão da pasta do agente.` } };
+      }
+      const visto = paraContainer(destino, agente);
+      const media = midia.registrar(agente.slug, destino, { visto, nome: path.basename(destino) });
+      const marcador = `[anexo: ${visto}]`;
+      const anexo = { id: media.id, kind: media.kind, nome: arq.nome, bytes: arq.dados.length, path: visto, url: media.url };
+      log('info', `Upload para ${agente.slug}: ${arq.nome} (${media.kind}, ${arq.dados.length} bytes) salvo em ${destino}.`);
+      if (soGuardar) {
+        return { status: 201, corpo: { ok: true, enviado: false, agente: agente.slug, anexo, marcador, media } };
+      }
+      const e = await conversa.entregar(agente, [legenda, marcador].filter(Boolean).join('\n'), { cru: false });
+      if (e.status >= 300) return Object.assign(e, { corpo: Object.assign({ arquivo_salvo: visto }, e.corpo) });
+      return { status: 201, corpo: Object.assign({}, e.corpo, { enviado: true, kind: media.kind, texto: legenda, anexo, marcador, media }) };
+    });
+    return H.enviaJson(res, r.status, r.corpo);
+  }
+
+  async function transcrever(req, res) {
+    if (!voz.microfone) return H.erroJson(res, 503, voz.semChaveMic, { microfone: false });
+    let mp;
+    try { mp = await lerMultipart(req, 25 * 1024 * 1024); } catch (e) { return H.erroJson(res, e.status || 400, e.message); }
+    const a = mp.arquivos.find((x) => x.campo === 'audio');
+    if (!a) return H.erroJson(res, 400, 'Mande o áudio num multipart, no campo "audio".');
+    if (a.dados.length < 1024) return H.erroJson(res, 400, `O áudio chegou com ${a.dados.length} bytes, que é menos de 1 KB: a gravação veio vazia. Toque para falar, diga algo e toque de novo.`);
+    const r = await voz.transcrever(a.dados, a.nome, a.tipo);
+    if (r.erro) return H.erroJson(res, r.status, r.erro);
+    return H.enviaJson(res, 200, { ok: true, text: r.texto, bytes: a.dados.length, audio_id: null });
+  }
+
+  async function falar(req, res) {
+    const corpo = await lerEnvio(req, res);
+    if (!corpo) return undefined;
+    const slug = typeof corpo.agent_id === 'string' ? corpo.agent_id : (registro.estado().agentes[0] || {}).slug;
+    const agente = registro.obter(slug);
+    if (!agente) return H.erroJson(res, 404, `Não existe agente com o id "${String(slug).slice(0, 40)}".`);
+    const r = await voz.falar(agente, corpo.text, typeof corpo.voice_id === 'string' ? corpo.voice_id : null);
+    if (r.erro) return H.erroJson(res, r.status, r.erro);
+    const cab = { 'Content-Type': 'audio/mpeg', 'Content-Length': r.audio.length, 'Cache-Control': 'no-store', 'X-TTS-Chars': String(r.chars) };
+    if (r.cortado) cab['X-TTS-Cortado'] = '1';
+    res.writeHead(200, cab);
+    return res.end(r.audio);
+  }
+
+  // ── despacho ─────────────────────────────────────────────────────────────
+  async function tratar(req, res) {
+    let url;
+    try { url = new URL(req.url, 'http://local'); } catch (_) { return H.paginaErro(res, 400, 'Endereço inválido', 'Não entendi o endereço pedido.'); }
+    const p = url.pathname;
+    const m = req.method;
+
+    if (p === '/api/saude' && (m === 'GET' || m === 'HEAD')) {
+      const est = registro.estado();
+      return H.enviaJson(res, 200, { ok: true, agentes: est.ok ? est.agentes.length : null, registro_ok: est.ok, login_trancado: auth.trancado });
+    }
+    if (p === '/api/login-estado' && m === 'GET') {
+      return H.enviaJson(res, 200, { ok: true, trancado: auth.trancado, mensagem: auth.trancado ? `O acesso está trancado: ${auth.motivoTrancado} Rode o gerador de hash do instalador e coloque o resultado no web.env.` : null });
+    }
+
+    if (!p.startsWith('/p/')) {
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Referrer-Policy', 'same-origin');
+      res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    }
+
+    // CSRF: toda escrita exige Origin igual à do próprio Web.
+    if (ehMutacao(req) && !origemOk(req)) {
+      const visto = req.headers.origin ? String(req.headers.origin).slice(0, 80) : '(sem Origin)';
+      log('aviso', `Pedido ${m} ${p} recusado: Origin ${visto} não é a deste Web (${H.origemPropria(req, config.proxiesConfiaveis)}).`);
+      const motivo = `Pedido recusado: a origem ${visto} não é a deste site. Abra o DG Claw pelo endereço normal e tente de novo.`;
+      const jsonPedido = /application\/json/i.test(String(req.headers['content-type'] || '')) || /application\/json/i.test(String(req.headers.accept || ''));
+      if (p === '/login' && !jsonPedido) return voltaAoLogin(res, 'origem', '/');
+      return querHtml(req) && !p.startsWith('/api/') ? H.paginaErro(res, 403, 'Pedido recusado', motivo) : H.erroJson(res, 403, motivo);
+    }
+
+    if (p === '/login' && m === 'GET') {
+      if (auth.sessaoDoPedido(req)) { res.writeHead(302, { Location: proximoSeguro(url.searchParams.get('next')) }); return res.end(); }
+      if (!servirArquivo(req, res, path.join(config.publicDir, 'login.html'), 'no-store')) {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+        res.end(LOGIN_RESERVA);
+      }
+      return undefined;
+    }
+    if (p === '/login' && m === 'POST') return postLogin(req, res, url);
+    if (p === '/sair' && (m === 'GET' || m === 'POST')) {
+      auth.encerra(req, res);
+      res.writeHead(303, { Location: '/login', 'Set-Cookie': res.getHeader('Set-Cookie'), 'Cache-Control': 'no-store' });
+      return res.end();
+    }
+
+    const sessao = auth.sessaoDoPedido(req);
+
+    if (p.startsWith('/api/')) {
+      if (!sessao) return H.erroJson(res, 401, 'Você precisa entrar para usar a API. Faça login em /login.');
+      return api(req, res, url, sessao);
+    }
+
+    const pp = /^\/p\/([^/]+)(\/.*)?$/.exec(p);
+    if (pp) {
+      if (!sessao) {
+        if (querHtml(req)) return semSessaoPagina(req, res, url);
+        return H.erroJson(res, 401, 'Você precisa entrar para abrir o painel. Faça login em /login.');
+      }
+      if (!pp[2]) { res.writeHead(302, { Location: `/p/${pp[1]}/${url.search}` }); return res.end(); }
+      return proxy.responder(req, res, pp[1], sessao.usuario);
+    }
+
+    if (p === '/' && (m === 'GET' || m === 'HEAD')) {
+      if (!sessao) return semSessaoPagina(req, res, url);
+      if (falhaDoRegistro(req, res, false)) return undefined;
+      res.writeHead(302, { Location: `/a/${registro.estado().agentes[0].slug}`, 'Cache-Control': 'no-store' });
+      return res.end();
+    }
+
+    const pa = /^\/a\/([^/]+)\/?$/.exec(p);
+    if (pa && (m === 'GET' || m === 'HEAD')) {
+      if (!sessao) return semSessaoPagina(req, res, url);
+      if (falhaDoRegistro(req, res, false)) return undefined;
+      const slug = decodeURIComponent(pa[1]);
+      if (!RX_SLUG_ROTA.test(slug) || !registro.obter(slug)) {
+        return H.paginaErro(res, 404, 'Agente não encontrado', `Não existe agente chamado "${H.escapaHtml(slug.slice(0, 40))}". Volte ao início para ver a lista.`);
+      }
+      if (!servirArquivo(req, res, path.join(config.publicDir, 'conversa.html'), 'no-store')) {
+        log('erro', `A tela da conversa não está instalada: falta ${path.join(config.publicDir, 'conversa.html')}.`);
+        H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela da conversa não foi encontrado no servidor. Reinstale o DG Claw Web.');
+      }
+      return undefined;
+    }
+
+    if (m === 'GET' || m === 'HEAD') {
+      const arq = arquivoPublico(p);
+      if (arq) {
+        const ehHtml = arq.endsWith('.html');
+        const livre = path.basename(arq) === 'login.html';
+        if (ehHtml && !livre && !sessao) return semSessaoPagina(req, res, url);
+        if (servirArquivo(req, res, arq)) return undefined;
+      }
+      return H.paginaErro(res, 404, 'Página não encontrada', 'Esse endereço não existe neste servidor.');
+    }
+    return H.erroJson(res, 405, `Não existe ${m} ${p}.`);
+  }
+
+  const servidor = http.createServer((req, res) => {
+    tratar(req, res).catch((e) => {
+      log('erro', `Erro inesperado em ${req.method} ${String(req.url).split('?')[0]}: ${e && e.stack ? e.stack.split('\n').slice(0, 3).join(' | ') : e}`);
+      if (!res.headersSent) H.erroJson(res, 500, 'Erro interno do servidor. O detalhe foi registrado no log; tente de novo e, se repetir, avise quem instalou.');
+      else res.destroy();
+    });
+  });
+
+  servidor.on('upgrade', (req, socket, head) => {
+    try {
+      const url = new URL(req.url, 'http://local');
+      const pp = /^\/p\/([^/]+)(\/.*)?$/.exec(url.pathname);
+      const sessao = auth.sessaoDoPedido(req);
+      const nega = (status, motivo) => { socket.write(`HTTP/1.1 ${status} Recusado\r\nConnection: close\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${motivo}`); socket.destroy(); };
+      if (!pp) return nega(404, 'Só o painel (/p/<agente>/) aceita WebSocket.');
+      if (!sessao) return nega(401, 'Você precisa entrar antes.');
+      if (!origemOk(req)) {
+        log('aviso', `WebSocket em ${url.pathname} recusado: Origin ${String(req.headers.origin || '(sem Origin)').slice(0, 80)} não é a deste Web.`);
+        return nega(403, 'Origem não permitida.');
+      }
+      return proxy.upgrade(req, socket, head, pp[1], sessao.usuario);
+    } catch (e) {
+      log('erro', `Falha no upgrade de ${String(req.url).split('?')[0]}: ${e.message}`);
+      socket.destroy();
+      return undefined;
+    }
+  });
+
+  return {
+    servidor, config, registro, auth, midia, conversa, log,
+    ouvir(porta, host) {
+      return new Promise((resolve, reject) => {
+        servidor.once('error', reject);
+        servidor.listen(porta == null ? config.porta : porta, host || config.host, () => {
+          servidor.off('error', reject);
+          resolve(servidor.address());
+        });
+      });
+    },
+    fechar() { return new Promise((resolve) => { proxy.fecharTudo(); servidor.closeAllConnections && servidor.closeAllConnections(); servidor.close(() => resolve()); }); },
+  };
+}
+
+module.exports = { criarServidor, proximoSeguro };
+
+if (require.main === module) {
+  const s = criarServidor();
+  s.ouvir().then((a) => {
+    s.log('info', `DG Claw Web escutando em http://${a.address}:${a.port} (agentes: ${s.config.agentesPath}, dados: ${s.config.dataDir}).`);
+  }).catch((e) => {
+    s.log('erro', `Não consegui escutar em ${s.config.host}:${s.config.porta} (${e.code || e.message}). Veja se outra coisa usa a porta ou mude DGCLAW_WEB_PORT.`);
+    process.exit(1);
+  });
+  for (const sinal of ['SIGINT', 'SIGTERM']) process.on(sinal, () => { s.fechar().then(() => process.exit(0)); });
+}

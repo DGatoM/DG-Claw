@@ -1,0 +1,12 @@
+# Lista do que NÃO entra no contexto de build da imagem do agente.
+# Usada com: podman build --ignorefile container/ignore -f container/Containerfile .
+# (o podman só lê .containerignore/.dockerignore da raiz do contexto; ver container/README.md)
+# runner/ NÃO pode ser excluído: o estágio runner-build precisa do código-fonte dele.
+.git
+**/node_modules
+tests
+qa
+lite
+local
+panel-redesign
+**/*.log

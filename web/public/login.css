@@ -1,0 +1,29 @@
+/* login.css: a tela de entrada do DG Claw (celular primeiro, mesma paleta da conversa). */
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+:root{--accent:#2f9e5e;--txt:#0f1c14;--muted:#6c8172;--line:rgba(0,0,0,.12)}
+html,body{height:100%}
+body{margin:0;color:var(--txt);display:flex;align-items:center;justify-content:center;
+  padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right))
+          max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));
+  font:15.5px/1.46 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+  background:
+    radial-gradient(ellipse at 15% 0%,rgba(255,255,255,.55),transparent 55%),
+    radial-gradient(ellipse at 90% 100%,rgba(139,196,146,.40),transparent 55%),
+    linear-gradient(165deg,#e6f2df 0%,#d8ead1 45%,#cde3c6 100%);
+  background-attachment:fixed}
+.cartao{width:100%;max-width:380px;background:#fff;border-radius:18px;padding:26px 22px 24px;
+  box-shadow:0 4px 22px rgba(0,0,0,.16)}
+.marca{display:flex;align-items:center;gap:10px}
+.marca .emoji{font-size:34px;line-height:1}
+.marca h1{margin:0;font-size:24px;font-weight:700}
+.sub{margin:6px 0 16px;color:var(--muted);font-size:14.5px}
+.erro{margin:0 0 14px;padding:10px 12px;border-radius:10px;background:#fbe0e0;color:#8f2f2f;
+  border:1px solid #f0bcbc;font-size:14px;line-height:1.4}
+.erro[hidden]{display:none}
+label{display:block;margin:12px 0 5px;font-size:13px;font-weight:600;color:#38523f}
+input[type=text],input[type=password]{width:100%;min-height:46px;padding:11px 14px;border:1px solid var(--line);
+  border-radius:12px;font:inherit;font-size:16px;background:#f4f8f4;color:var(--txt);outline:none}
+input:focus{border-color:var(--accent);background:#fff}
+button{width:100%;margin-top:20px;min-height:48px;border:0;border-radius:24px;background:var(--accent);
+  color:#fff;font:inherit;font-size:16px;font-weight:700;cursor:pointer}
+button:active{opacity:.85}

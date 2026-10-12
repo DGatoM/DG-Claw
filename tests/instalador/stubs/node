@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+. "$(dirname "$0")/_comum.sh"
+registrar "$@"
+if [ "${1:-}" = -v ]; then
+    if esta_na_lista instalados nodejs; then echo "v22.11.0"; else echo "${DGCLAW_STUB_NODE_V:-v18.19.0}"; fi
+fi
+exit 0

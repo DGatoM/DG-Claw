@@ -1,0 +1,212 @@
+#!/usr/bin/env bash
+# dgclaw-agente: comandos do agente DG Claw que rodam DENTRO do container, como usuario "agente".
+#
+# Uso:
+#   dgclaw-agente canal telegram token              (token do bot pelo stdin)
+#   dgclaw-agente canal telegram parear [--confirmar <chat_id>]
+#   dgclaw-agente canal telegram ligar
+#   dgclaw-agente canal telegram desligar [--apagar]
+#   dgclaw-agente canal status
+#
+# Variaveis de ambiente:
+#   HOME                       casa do agente (estado em $HOME/.dgclaw)
+#   DGCLAW_TIPO                "admin" bloqueia o comando (Admin nao tem canal externo)
+#   DGCLAW_RUNNER_URL          endereco do runner (ex.: http://127.0.0.1:4100)
+#   DGCLAW_AGENTE_ID           id do agente no runner
+#   RUNNER_TOKEN_FILE          arquivo com o Bearer do runner (DGCLAW_RUNNER_TOKEN_FILE também vale)
+#   DGCLAW_TELEGRAM_API        base da API do Telegram (padrao https://api.telegram.org)
+#   DGCLAW_UID                 so para testes: substitui o resultado de "id -u"
+#
+# Codigos de saida: 0 ok, 1 erro de uso ou de dado, 2 recusado (Admin), 3 canal salvo mas
+# o reinicio nao foi pedido (sem arquivo de acesso ao runner), 4 canal salvo mas o runner
+# nao respondeu.
+set -euo pipefail
+umask 077
+
+API="${DGCLAW_TELEGRAM_API:-https://api.telegram.org}"
+API="${API%/}"
+DIR="$HOME/.dgclaw"
+TGDIR="$DIR/telegram"
+ENVF="$TGDIR/.env"
+ACCESS="$TGDIR/access.json"
+CANAIS="$DIR/canais.json"
+PADRAO_BOT='^[0-9]{6,12}:[A-Za-z0-9_-]{30,}$'
+
+erro() { echo "dgclaw-agente: $*" >&2; }
+die() { erro "$*"; exit "${CODIGO:-1}"; }
+
+# Recusa no Admin
+uid="${DGCLAW_UID:-$(id -u)}"
+if [ "${DGCLAW_TIPO:-}" = "admin" ] || [ "$uid" = "0" ]; then
+  CODIGO=2 die "o Admin nao tem canal externo. Canais como Telegram sao dos agentes de trabalho. Abra o agente de trabalho que vai receber o canal e peca la."
+fi
+
+command -v node >/dev/null || die "o node nao foi encontrado no container, e ele e necessario para ler as respostas do Telegram. Avise quem mantem a imagem do agente."
+command -v curl >/dev/null || die "o curl nao foi encontrado no container. Avise quem mantem a imagem do agente."
+
+# Le o valor salvo em .env (so dentro do script; nunca vai para argv nem para a saida)
+ler_salvo() {
+  [ -f "$ENVF" ] || return 1
+  local l; l="$(grep -m1 '^TELEGRAM_BOT_TOKEN=' "$ENVF" || true)"
+  [ -n "$l" ] || return 1
+  printf '%s' "${l#TELEGRAM_BOT_TOKEN=}"
+}
+
+# Chama a API do Telegram sem pôr o segredo no argv: a URL vai para o curl pelo stdin (-K -).
+tg() { # $1 = metodo ; segredo do bot em $BOT
+  printf 'url = "%s/bot%s/%s"\n' "$API" "$BOT" "$1" | curl -sS --max-time 20 -K - 2>/dev/null
+}
+
+# Le um JSON (stdin) e avalia o corpo JS recebido, com o JSON em "d"
+js() {
+  node -e '
+    let s = "";
+    process.stdin.on("data", c => { s += c; }).on("end", () => {
+      let d;
+      try { d = JSON.parse(s); } catch (e) { console.log(""); return; }
+      const f = new Function("d", process.argv[1]);
+      const r = f(d);
+      console.log(r === undefined || r === null ? "" : r);
+    });' "$1"
+}
+
+escrever_atomico() { # $1 destino ; conteudo no stdin
+  local dest="$1" tmp
+  mkdir -p "$(dirname "$dest")"
+  tmp="$(mktemp "$dest.XXXXXX")"
+  cat > "$tmp"
+  chmod 600 "$tmp"
+  mv -f "$tmp" "$dest"
+}
+
+garantir_pasta_tg() { mkdir -p "$TGDIR"; chmod 700 "$DIR" "$TGDIR"; }
+
+cmd_token() {
+  local entrada
+  IFS= read -r entrada || true
+  entrada="${entrada%$'\r'}"
+  [ -n "$entrada" ] || die "nenhum token chegou pelo stdin. Passe o token do BotFather por pipe, sem colocar no comando."
+  if ! [[ "$entrada" =~ $PADRAO_BOT ]]; then
+    die "o texto recebido nao parece um token do BotFather (formato esperado: numeros, dois pontos e letras, como 123456789:AAH...). Peca ao dono para copiar o token inteiro da mensagem do @BotFather."
+  fi
+  BOT="$entrada"
+  local resp ok user
+  resp="$(tg getMe)" || die "nao consegui falar com o Telegram em $API. Confira a conexao do container com a internet e tente de novo."
+  ok="$(printf '%s' "$resp" | js 'return d.ok')"
+  if [ "$ok" != "true" ]; then
+    die "o Telegram recusou o token (getMe nao retornou ok). Provavelmente o token foi copiado errado ou o bot foi apagado no BotFather. Peca ao dono para conferir ou gerar outro com /token."
+  fi
+  user="$(printf '%s' "$resp" | js 'return d.result && d.result.username')"
+  [ -n "$user" ] || die "o Telegram aceitou o token mas nao informou o @username do bot. Tente de novo."
+  garantir_pasta_tg
+  printf 'TELEGRAM_BOT_TOKEN=%s\n' "$entrada" | escrever_atomico "$ENVF"
+  echo "@$user"
+}
+
+cmd_parear() {
+  if [ "${1:-}" = "--confirmar" ]; then
+    local chat="${2:-}"
+    [[ "$chat" =~ ^-?[0-9]+$ ]] || die "o chat_id para confirmar deve ser um numero (recebido: '${chat}'). Rode 'canal telegram parear' para ver os ids."
+    garantir_pasta_tg
+    CHAT="$chat" node -e '
+      const a = { dmPolicy: "allowlist", allowFrom: [process.env.CHAT], groups: {}, pending: {} };
+      process.stdout.write(JSON.stringify(a, null, 2) + "\n");' | escrever_atomico "$ACCESS"
+    echo "Pareado: so o chat $chat pode falar com o agente pelo Telegram."
+    return 0
+  fi
+  BOT="$(ler_salvo)" || die "ainda nao ha token salvo. Rode antes 'canal telegram token' com o token do BotFather."
+  local resp ok n
+  resp="$(tg getUpdates)" || die "nao consegui falar com o Telegram em $API. Confira a conexao do container e tente de novo."
+  ok="$(printf '%s' "$resp" | js 'return d.ok')"
+  [ "$ok" = "true" ] || die "o Telegram nao devolveu as mensagens (getUpdates falhou). Se o canal ja estiver ligado, desligue antes de parear. Se nao, confira se o token continua valido."
+  n="$(printf '%s' "$resp" | js 'return (d.result||[]).filter(u=>u.message&&u.message.chat&&u.message.chat.type==="private").length')"
+  if [ "$n" = "0" ]; then
+    die "ninguem escreveu para o bot ainda. Peca ao dono para abrir o bot no Telegram, tocar em Iniciar e mandar um 'oi', e rode de novo."
+  fi
+  printf '%s' "$resp" | js '
+    const seen = {}; const out = [];
+    for (const u of d.result || []) {
+      const m = u.message;
+      if (!m || !m.chat || m.chat.type !== "private") continue;
+      const f = m.from || m.chat; const id = String(m.chat.id);
+      if (seen[id]) continue; seen[id] = 1;
+      out.push({ chat_id: id, nome: [f.first_name, f.last_name].filter(Boolean).join(" "), username: f.username ? "@" + f.username : null });
+    }
+    return JSON.stringify({ pessoas: out }, null, 2);'
+}
+
+salvar_canais() { # $1 true|false
+  mkdir -p "$DIR"; chmod 700 "$DIR"
+  LIGADO="$1" ESTADO="$TGDIR" ARQ="$CANAIS" node -e '
+    const fs = require("fs"); let c = {};
+    try { c = JSON.parse(fs.readFileSync(process.env.ARQ, "utf8")); } catch (e) {}
+    c.versao = 1;
+    c.telegram = Object.assign({}, c.telegram, { ligado: process.env.LIGADO === "true", estado_dir: process.env.ESTADO });
+    process.stdout.write(JSON.stringify(c, null, 2) + "\n");' | escrever_atomico "$CANAIS"
+}
+
+pedir_reinicio() {
+  local url="${DGCLAW_RUNNER_URL:-}" id="${DGCLAW_AGENTE_ID:-}" arq="" bearer code
+  # RUNNER_TOKEN_FILE é o nome que o runner e o instalador usam; o outro fica por compatibilidade
+  for c in "${RUNNER_TOKEN_FILE:-}" "${DGCLAW_RUNNER_TOKEN_FILE:-}"; do
+    if [ -n "$c" ] && [ -r "$c" ]; then arq="$c"; break; fi
+  done
+  if [ -z "$url" ] || [ -z "$id" ] || [ -z "$arq" ] || [ ! -r "$arq" ]; then
+    erro "o canal foi salvo, mas nao consegui pedir o reinicio ao runner (falta DGCLAW_RUNNER_URL, DGCLAW_AGENTE_ID ou um arquivo legivel em RUNNER_TOKEN_FILE). Peca ao dono para tocar no botao 'Reiniciar' do painel; a mudanca vale a partir do proximo inicio."
+    return 3
+  fi
+  bearer="$(tr -d '\r\n' < "$arq")"
+  code="$(printf 'url = "%s/api/agents/%s/reiniciar"\nrequest = "POST"\nheader = "Authorization: Bearer %s"\nwrite-out = "%%{http_code}"\noutput = "/dev/null"\n' "${url%/}" "$id" "$bearer" | curl -sS --max-time 20 -K - 2>/dev/null)" || code="000"
+  case "$code" in
+    2??) echo "Reinicio pedido ao runner: a sessao volta em alguns segundos, na mesma conversa." ;;
+    000) erro "o canal foi salvo, mas o runner nao respondeu em $url. Peca ao dono para tocar em 'Reiniciar' no painel."; return 4 ;;
+    *) erro "o canal foi salvo, mas o runner respondeu HTTP $code ao pedido de reinicio. Peca ao dono para tocar em 'Reiniciar' no painel."; return 4 ;;
+  esac
+}
+
+cmd_ligar() {
+  ler_salvo >/dev/null || die "nao posso ligar: falta o token do bot. Rode 'canal telegram token' primeiro."
+  [ -f "$ACCESS" ] || die "nao posso ligar: falta a allowlist (quem pode falar com o agente). Rode 'canal telegram parear' e depois 'parear --confirmar <chat_id>'."
+  local n; n="$(js 'return (d.allowFrom||[]).length' < "$ACCESS")"
+  [ "${n:-0}" -ge 1 ] 2>/dev/null || die "nao posso ligar: a allowlist esta vazia. Rode 'canal telegram parear --confirmar <chat_id>'."
+  salvar_canais true
+  echo "Telegram ligado."
+  pedir_reinicio || exit $?
+}
+
+cmd_desligar() {
+  salvar_canais false
+  if [ "${1:-}" = "--apagar" ]; then
+    # TGDIR e sempre $HOME/.dgclaw/telegram, a pasta que este comando mesmo cria
+    rm -rf -- "$TGDIR"
+    echo "Telegram desligado e dados apagados (token e allowlist)."
+  else
+    echo "Telegram desligado. Token e allowlist continuam guardados."
+  fi
+  pedir_reinicio || exit $?
+}
+
+cmd_status() {
+  local l=""
+  if [ -f "$CANAIS" ]; then l="$(js 'return d.telegram&&d.telegram.ligado' < "$CANAIS")"; fi
+  if [ "$l" = "true" ]; then echo "Telegram: ligado"
+  elif ler_salvo >/dev/null 2>&1; then echo "Telegram: desligado (bot configurado)"
+  else echo "Telegram: desligado (nao configurado)"; fi
+  echo "WhatsApp: indisponivel por enquanto"
+}
+
+[ "${1:-}" = "canal" ] || die "uso: dgclaw-agente canal telegram (token|parear|ligar|desligar) | canal status"
+shift
+case "${1:-}" in
+  status) cmd_status ;;
+  telegram)
+    shift
+    case "${1:-}" in
+      token) cmd_token ;;
+      parear) shift; cmd_parear "$@" ;;
+      ligar) cmd_ligar ;;
+      desligar) shift; cmd_desligar "$@" ;;
+      *) die "subcomando do Telegram desconhecido: '${1:-}'. Use token, parear, ligar ou desligar." ;;
+    esac ;;
+  *) die "canal desconhecido: '${1:-}'. Use 'telegram' ou 'status'." ;;
+esac

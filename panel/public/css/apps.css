@@ -1,0 +1,383 @@
+/* apps.css — a aba Apps.
+ *
+ * Arquivo separado do main.css de propósito: a aba nasceu como módulo para poder
+ * ser mexida sem disputar linha com quem estiver no painel. Só usa as variáveis de
+ * tema que o main.css já define, então ela acompanha o tema claro e o escuro sem
+ * saber qual está ligado.
+ *
+ * CELULAR: a régua de etapas é grid de largura mínima, não linha fixa. Em tela
+ * estreita as três etapas viram três cartões empilhados, e nada aqui rola para o
+ * lado. Alvo de toque das etapas fica acima de 44px de altura.
+ */
+
+#panel-apps { padding-bottom: 40px; }
+
+.app-carregando { color: var(--muted, #8a8f98); padding: 16px 0; font-size: 14px; }
+
+/* ─── Vazio e erro: nunca uma tela muda ─────────────────────── */
+
+.app-vazio,
+.app-erro {
+  border: 1px solid var(--border, #2a2e35);
+  border-radius: 10px;
+  padding: 16px 18px;
+  margin: 12px 0;
+  background: var(--card, rgba(255, 255, 255, 0.02));
+}
+.app-vazio strong, .app-erro strong { display: block; margin-bottom: 6px; font-size: 14px; }
+.app-vazio p, .app-erro p { margin: 0; font-size: 13px; line-height: 1.55; color: var(--muted, #8a8f98); }
+.app-erro { border-color: var(--danger, #d9534f); }
+.app-erro strong { color: var(--danger, #d9534f); }
+
+/* ─── Seletor de app e cabeçalho ────────────────────────────── */
+
+.app-seletor { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.app-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 14px; min-height: 36px;
+  border: 1px solid var(--border, #2a2e35); border-radius: 999px;
+  background: transparent; color: inherit; cursor: pointer; font-size: 13px;
+}
+.app-chip.ativo { border-color: var(--accent, #4a9eff); color: var(--accent, #4a9eff); }
+.app-chip .ico { opacity: .8; }
+
+.app-cabeca { margin-bottom: 16px; }
+.app-cabeca h2 { margin: 0 0 4px; font-size: 17px; font-weight: 600; }
+.app-cabeca p { margin: 0; font-size: 13px; color: var(--muted, #8a8f98); }
+
+/* ─── O cartão de um conteúdo ───────────────────────────────── */
+
+.app-card {
+  border: 1px solid var(--border, #2a2e35);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 14px;
+  background: var(--card, rgba(255, 255, 255, 0.02));
+}
+.app-card-topo {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 12px; margin-bottom: 14px;
+}
+.app-card-topo h3 { margin: 0 0 4px; font-size: 15px; font-weight: 600; line-height: 1.35; }
+.app-card-meta { font-size: 11.5px; color: var(--muted, #8a8f98); word-break: break-word; }
+.app-progresso {
+  flex-shrink: 0; font-size: 12px; font-variant-numeric: tabular-nums;
+  color: var(--muted, #8a8f98); border: 1px solid var(--border, #2a2e35);
+  border-radius: 999px; padding: 3px 10px;
+}
+.app-selo-deduzido {
+  display: inline-block; margin-left: 6px; padding: 1px 7px;
+  border: 1px dashed var(--border, #2a2e35); border-radius: 999px;
+  font-size: 10.5px; color: var(--muted, #8a8f98); white-space: nowrap;
+}
+
+/* ─── A régua de etapas ─────────────────────────────────────── */
+
+.app-regua {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+}
+.app-etapa {
+  display: flex; flex-direction: column; gap: 6px; align-items: stretch;
+  text-align: left; padding: 12px; min-height: 64px;
+  border: 1px solid var(--border, #2a2e35); border-radius: 10px;
+  background: transparent; color: inherit; cursor: pointer;
+  font: inherit; transition: border-color .15s ease;
+}
+.app-etapa:hover { border-color: var(--accent, #4a9eff); }
+.app-etapa-topo { display: flex; align-items: center; gap: 7px; }
+.app-etapa-nome { font-size: 13px; font-weight: 600; }
+.app-etapa-status { font-size: 11px; color: var(--muted, #8a8f98); margin-left: auto; white-space: nowrap; }
+.app-etapa-resumo {
+  font-size: 12px; line-height: 1.45; color: var(--muted, #8a8f98);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.app-etapa-resumo.vazio { opacity: .5; font-style: italic; }
+
+/* A bolinha, com o mesmo vocabulário de status do content_stages do DG Social. */
+.app-bolinha { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; background: var(--border, #2a2e35); }
+.st-pendente .app-bolinha { background: transparent; border: 1px solid var(--border, #4a4f57); }
+.st-em_producao .app-bolinha { background: #e0a458; }
+.st-aguardando_aprovacao .app-bolinha { background: #4a9eff; }
+.st-concluido .app-bolinha { background: #46b96a; }
+.st-reprovado .app-bolinha { background: #d9534f; }
+.st-nao_aplicavel .app-bolinha { background: transparent; border: 1px dashed var(--border, #4a4f57); }
+.st-aguardando_aprovacao { border-color: rgba(74, 158, 255, .5); }
+
+/* ─── A etapa aberta ────────────────────────────────────────── */
+
+.app-etapa-aberta:not(:empty) {
+  margin-top: 14px; padding-top: 14px;
+  border-top: 1px solid var(--border, #2a2e35);
+}
+.app-etapa-cabeca { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.app-etapa-cabeca strong { font-size: 14px; }
+.app-etapa-meta { font-size: 11.5px; color: var(--muted, #8a8f98); }
+.app-feedback {
+  border-left: 3px solid #d9534f; padding: 8px 12px; margin-bottom: 12px;
+  font-size: 13px; line-height: 1.5; background: rgba(217, 83, 79, .07);
+}
+.app-arquivo-nome {
+  font-size: 11.5px; color: var(--muted, #8a8f98);
+  margin: 10px 0 6px; font-variant-numeric: tabular-nums;
+}
+.app-extras { font-size: 12px; color: var(--muted, #8a8f98); margin-bottom: 8px; }
+.app-extra {
+  border: 1px solid var(--border, #2a2e35); border-radius: 6px;
+  background: transparent; color: inherit; cursor: pointer;
+  font: inherit; font-size: 12px; padding: 3px 9px; margin-right: 4px;
+}
+.app-extra:hover { border-color: var(--accent, #4a9eff); }
+.app-extra-corpo { margin-top: 12px; }
+
+/* ─── O material da etapa de assets ─────────────────────────── */
+
+.app-assets { margin-bottom: 12px; }
+.app-assets-topo { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.app-assets-titulo { font-size: 12px; color: var(--muted, #8a8f98); }
+
+/* ── Grade de miniaturas ─────────────────────────────────────────────────
+ * `auto-fill` com largura minima, e nao um numero fixo de colunas: a mesma
+ * regra serve o desktop largo e o celular estreito, e em nenhum dos dois a
+ * grade empurra a pagina para o lado.
+ *
+ * `object-fit: cover` num quadro de proporcao fixa porque o agente baixa foto
+ * deitada e foto em pe na mesma pasta. Sem isso, a grade viraria uma escada de
+ * alturas diferentes e o olho perderia a linha.
+ */
+.app-assets-grade {
+  display: grid; gap: 10px; margin-bottom: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+}
+.app-asset-mini {
+  display: flex; flex-direction: column; gap: 4px; padding: 0; text-align: left;
+  background: transparent; border: 0; color: inherit; font: inherit; cursor: pointer;
+  min-width: 0;
+}
+.app-asset-mini-quadro {
+  display: block; aspect-ratio: 4 / 3; overflow: hidden; border-radius: 9px;
+  border: 1px solid var(--linha, #2a2e35); background: var(--fundo2, rgba(255, 255, 255, .03));
+}
+.app-asset-mini img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.app-asset-mini:hover .app-asset-mini-quadro { border-color: var(--acento1, #4a9eff); }
+.app-asset-mini-nome {
+  font-size: 11.5px; line-height: 1.35; word-break: break-word;
+  /* Duas linhas e reticencias: nome de arquivo do agente passa dos 60 caracteres
+   * com facilidade, e um nome inteiro embaixo de cada miniatura desmontava a grade. */
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.app-asset-mini-bytes { font-size: 11px; color: var(--muted, #8a8f98); }
+
+/* ── Lista do que nao e imagem ───────────────────────────────────────────── */
+.app-assets-lista { list-style: none; margin: 0; padding: 0; }
+.app-asset-linha {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px;
+  background: transparent; border: 0; color: inherit; font: inherit; cursor: pointer;
+  padding: 0; min-height: 32px; text-align: left;
+}
+.app-asset-linha:hover .app-asset-nome { color: var(--acento1, #4a9eff); }
+.app-asset-nome { min-width: 0; overflow-wrap: anywhere; font-size: 12.5px; }
+.app-asset-baixar {
+  flex-shrink: 0; font-size: 11.5px; color: var(--muted, #8a8f98); text-decoration: none;
+  border: 1px solid var(--linha, #2a2e35); border-radius: 7px; padding: 5px 10px; line-height: 1;
+  display: inline-flex; align-items: center; min-height: 32px;
+}
+.app-asset-baixar:hover { border-color: var(--acento1, #4a9eff); color: var(--acento1, #4a9eff); }
+.app-assets-lista li {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 6px 0; font-size: 13px; border-bottom: 1px solid var(--border, #2a2e35);
+}
+.app-asset-tipo {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--muted, #8a8f98); border: 1px solid var(--border, #2a2e35);
+  border-radius: 4px; padding: 1px 6px;
+}
+.app-asset-bytes { margin-left: auto; font-size: 11.5px; color: var(--muted, #8a8f98); white-space: nowrap; }
+
+/* ─── O markdown que a etapa produziu ───────────────────────── */
+
+.app-markdown {
+  font-size: 13.5px; line-height: 1.65;
+  max-height: 520px; overflow-y: auto;
+  padding: 14px; border: 1px solid var(--border, #2a2e35); border-radius: 8px;
+  background: var(--bg, rgba(0, 0, 0, .12));
+  overflow-wrap: break-word;
+}
+.app-markdown h3, .app-markdown h4, .app-markdown h5, .app-markdown h6 {
+  margin: 14px 0 6px; font-size: 13.5px; font-weight: 600;
+}
+.app-markdown h3:first-child, .app-markdown h4:first-child { margin-top: 0; }
+.app-markdown p { margin: 0 0 9px; }
+.app-markdown ul { margin: 0 0 9px; padding-left: 20px; }
+.app-markdown li { margin-bottom: 3px; }
+.app-markdown blockquote {
+  margin: 0 0 9px; padding-left: 12px;
+  border-left: 3px solid var(--border, #2a2e35); color: var(--muted, #8a8f98);
+}
+.app-markdown code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px; padding: 1px 5px; border-radius: 4px;
+  background: var(--card, rgba(255, 255, 255, .06));
+}
+/* Bloco de código é o único que pode rolar para o lado, e rola DENTRO da caixa
+ * dele: o corpo da página nunca ganha rolagem horizontal por causa disto. */
+.app-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px; line-height: 1.5; margin: 0 0 9px;
+  padding: 10px 12px; border-radius: 6px; overflow-x: auto;
+  background: var(--card, rgba(255, 255, 255, .06));
+}
+.app-markdown a { color: var(--accent, #4a9eff); }
+
+/* ── Tabela vinda do markdown ────────────────────────────────────────────
+ * O catalogo de assets e uma tabela. A caixa de fora e quem rola na
+ * horizontal, nunca a pagina: no celular a tabela sai do lugar sozinha em
+ * vez de empurrar a tela inteira para o lado.
+ */
+.app-card-cantos { display: flex; align-items: center; gap: 8px; }
+
+.app-tabela-rolagem { overflow-x: auto; margin: 10px 0; -webkit-overflow-scrolling: touch; }
+.app-tabela {
+  border-collapse: collapse; width: 100%; min-width: 460px; font-size: 12.5px;
+}
+.app-tabela th, .app-tabela td {
+  border: 1px solid var(--border, #2a2e35);
+  padding: 7px 9px; text-align: left; vertical-align: top; line-height: 1.5;
+}
+.app-tabela th { font-weight: 600; background: var(--card, rgba(255, 255, 255, 0.04)); }
+.app-tabela td { color: inherit; }
+.app-tabela tbody tr:nth-child(even) td { background: var(--card, rgba(255, 255, 255, 0.02)); }
+
+/* ── Tutorial da tela ────────────────────────────────────────────────────
+ * Holofote sem biblioteca: o retangulo do alvo fica limpo e uma sombra de
+ * 9999px apaga o resto da pagina. O balao e posicionado por JS, preso dentro
+ * da janela nos dois lados.
+ */
+.app-cabeca-linha { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.app-cabeca-linha h2 { margin: 0; }
+
+.app-tutorial-abrir {
+  border: 1px solid var(--border, #2a2e35); background: transparent; cursor: pointer;
+  color: inherit; font: inherit; font-size: 12px; padding: 4px 11px; border-radius: 999px;
+  min-height: 32px;
+}
+.app-tutorial-abrir:hover { border-color: var(--accent, #4a9eff); color: var(--accent, #4a9eff); }
+
+.app-ajuda-secao {
+  border: 1px solid var(--border, #2a2e35); background: transparent; cursor: pointer;
+  color: var(--muted, #8a8f98); font: inherit; font-size: 12px; line-height: 1;
+  width: 32px; height: 32px; min-width: 32px; border-radius: 50%; padding: 0;
+}
+.app-ajuda-secao:hover { border-color: var(--accent, #4a9eff); color: var(--accent, #4a9eff); }
+
+/* O fundo e transparente quando existe holofote: quem apaga a tela e a sombra
+ * de 9999px em volta do alvo. No passo que fala da tela inteira nao ha alvo, e
+ * ai o veu vem daqui, senao o passo apareceria com a pagina toda acesa atras. */
+.app-tut-fundo { position: fixed; inset: 0; z-index: 900; }
+.app-tut-fundo.sem-alvo { background: rgba(0, 0, 0, .72); }
+.app-tut-holofote {
+  position: fixed; border-radius: 10px; pointer-events: none;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, .72);
+  outline: 2px solid var(--accent, #4a9eff); outline-offset: 0;
+  transition: top .18s ease, left .18s ease, width .18s ease, height .18s ease;
+}
+.app-tut-balao {
+  position: fixed; width: min(340px, calc(100vw - 20px)); box-sizing: border-box;
+  background: var(--bg, #14171c); color: inherit;
+  border: 1px solid var(--accent, #4a9eff); border-radius: 10px;
+  padding: 14px 16px 12px; box-shadow: 0 12px 34px rgba(0, 0, 0, .5); z-index: 901;
+}
+.app-tut-balao h4 { margin: 0 22px 7px 0; font-size: 14.5px; line-height: 1.35; }
+.app-tut-corpo { margin: 0 0 8px; font-size: 13px; line-height: 1.55; }
+.app-tut-porque { margin: 0 0 11px; font-size: 12.5px; line-height: 1.55; color: var(--muted, #8a8f98); }
+.app-tut-porque strong { color: inherit; }
+.app-tut-rodape { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.app-tut-conta { font-size: 11.5px; color: var(--muted, #8a8f98); }
+.app-tut-botoes { display: flex; gap: 7px; }
+.app-tut-botoes button {
+  font: inherit; font-size: 12.5px; cursor: pointer; padding: 6px 13px; min-height: 32px;
+  border-radius: 7px; border: 1px solid var(--border, #2a2e35);
+  background: transparent; color: inherit;
+}
+.app-tut-botoes .app-tut-proximo { border-color: var(--accent, #4a9eff); color: var(--accent, #4a9eff); }
+.app-tut-botoes button[disabled] { opacity: .4; cursor: default; }
+.app-tut-x {
+  position: absolute; top: 7px; right: 9px; background: transparent; border: 0;
+  color: var(--muted, #8a8f98); font-size: 20px; line-height: 1; cursor: pointer;
+  width: 32px; height: 32px; padding: 0;
+}
+
+@media (max-width: 640px) {
+  .app-card { padding: 13px; }
+  .app-regua { grid-template-columns: 1fr; }
+  .app-card-topo { flex-direction: column; gap: 8px; }
+  /* Contador e "?" na mesma linha: em coluna, cada um puxava uma linha inteira
+   * do cartao so para si. */
+  .app-card-cantos { align-self: flex-start; }
+  .app-markdown { max-height: 60vh; padding: 12px; }
+  /* Duas miniaturas por linha num celular de 390px, com folga para o nome. */
+  .app-assets-grade { grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); gap: 8px; }
+  /* No celular o balao vira uma faixa presa embaixo: seguir o alvo numa tela
+   * estreita jogaria o texto para fora da janela na metade dos passos. */
+  .app-tut-balao {
+    top: auto !important; bottom: 10px; left: 10px !important;
+    width: calc(100vw - 20px); transform: none !important;
+  }
+}
+
+
+/* ─── O aviso de quando a pasta discorda do rótulo (26/08/2026) ─────────────
+   Aparece no cartão da etapa quando o servidor manda um `porQue`: hoje, o caso
+   do catálogo escrito com a pasta vazia. Tom de atenção e não de erro, porque
+   não é defeito nenhum: é trabalho que começou e não terminou, e a diferença
+   entre as duas coisas é o que a pessoa precisa ler. */
+.app-etapa-aviso {
+  display: block;
+  margin-top: 6px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--yellow, #d9a441);
+  border-left: 2px solid var(--yellow, #d9a441);
+  padding-left: 8px;
+  text-align: left;
+}
+
+
+/* ─── Gerar link do roteiro para o cliente (26/08/2026) ─────────────────────
+   Fica no cabeçalho da etapa Roteiro aberta. Empurrado para a direita porque a
+   informação da etapa (nome, status, data) é o que a pessoa lê primeiro; a ação
+   vem depois de ela ter lido. */
+.app-compartilhar {
+  margin-left: auto;
+  font: inherit; font-size: 12.5px;
+  padding: 5px 12px; min-height: 32px;
+  background: transparent; color: var(--texto, inherit);
+  border: 1px solid var(--accent, #4a9eff); border-radius: 8px; cursor: pointer;
+}
+.app-compartilhar:hover:not(:disabled) { color: var(--accent, #4a9eff); }
+.app-compartilhar:disabled { opacity: .55; cursor: progress; }
+
+.app-compartilhar-saida:empty { display: none; }
+.app-compartilhar-ok {
+  margin: 10px 0 4px; padding: 12px 14px;
+  border: 1px solid var(--linha); border-radius: 10px; background: var(--fundo2, transparent);
+}
+/* No celular a linha vira coluna: um campo de URL espremido entre dois botões
+   não dá para ler nem para copiar com o polegar. */
+.app-compartilhar-linha { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.app-compartilhar-linha input {
+  flex: 1 1 260px; min-width: 0; min-height: 34px;
+  font: inherit; font-size: 12.5px; padding: 6px 10px;
+  border: 1px solid var(--linha); border-radius: 8px;
+  background: var(--fundo2, transparent); color: inherit;
+}
+.app-btn-copiar, .app-btn-abrir {
+  font: inherit; font-size: 12.5px; padding: 6px 12px; min-height: 34px;
+  display: inline-flex; align-items: center;
+  border: 1px solid var(--linha); border-radius: 8px;
+  background: transparent; color: inherit; cursor: pointer; text-decoration: none;
+}
+.app-btn-copiar:hover, .app-btn-abrir:hover { border-color: var(--accent, #4a9eff); color: var(--accent, #4a9eff); }
+.app-compartilhar-nota { margin: 10px 0 0; font-size: 12px; line-height: 1.5; color: var(--fraco); }
+.app-compartilhar-como { margin-top: 8px; font-size: 12.5px; line-height: 1.5; color: var(--fraco); }
