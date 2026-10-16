@@ -32,7 +32,7 @@ function abrirStream({ req, res, agente, since, fontes, log, tickMs }) {
   res.write('retry: 3000\n\n');
 
   let ultimoId = since;
-  const visto = new Set();
+  const visto = new Map();
   let versaoVista = -1;
   let chaveAtiv = null;
   let ultimoEnvio = Date.now();
@@ -59,10 +59,10 @@ function abrirStream({ req, res, agente, since, fontes, log, tickMs }) {
         if (primeiro) {
           novas = atuais.filter((m) => m.ep > since);
         } else {
-          novas = atuais.filter((m) => !visto.has(m.id));
-          sumidas = [...visto].filter((id) => !ids.has(id));
+          novas = atuais.filter((m) => visto.get(m.id) !== JSON.stringify(m));
+          sumidas = [...visto.keys()].filter((id) => !ids.has(id));
         }
-        visto.clear(); ids.forEach((i) => visto.add(i));
+        visto.clear(); atuais.forEach(m => visto.set(m.id, JSON.stringify(m)));
         versaoVista = t.versao;
         if (novas.length) ultimoId = novas.reduce((a, m) => Math.max(a, m.ep), ultimoId);
         if (primeiro || novas.length || sumidas.length) {

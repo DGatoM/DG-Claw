@@ -1234,9 +1234,11 @@ function integra(d) {
     msgs = msgs.filter(m => !fora.has(m.id));
   }
   const vistos = new Set(msgs.map(m => m.id));
+  const posicoes = new Map(msgs.map((m, i) => [m.id, i]));
   // a seta conta a resposta que chegou com a pessoa lendo lá em cima
   const longe = distanciaDoFim() >= 160, topoAntes = maiorEp();
   for (const m of novas) {
+    if (posicoes.has(m.id)) { msgs[posicoes.get(m.id)] = m; continue; }
     if (!vistos.has(m.id)) {
       msgs.push(m);
       vistos.add(m.id);

@@ -222,3 +222,19 @@ test('thread: envio pelo WhatsApp sem tool_result por mais de 10 min sai da fila
   r = leitor.ler(f, agente);
   assert.equal(r.eventos.length, 0, 'o resultado tardio de um pendente descartado não ressuscita o balão');
 });
+
+test('fila real: enqueue chega antes da reply, attachment e blobs não duplicam o dono', () => {
+  const { agente, leitor } = preparar();
+  const fixture = fs.readFileSync(path.join(__dirname, 'fixtures/fila-durante-resposta.jsonl'), 'utf8');
+  const tmp = path.join(pastaTemp('fila-real'), 'sessao.jsonl');
+  const linhas = fixture.trim().split('\n');
+  const fim = linhas.findIndex(l => l.includes('Resposta reply-5'));
+  fs.writeFileSync(tmp, linhas.slice(0, fim + 1).join('\n') + '\n');
+  let r = leitor.ler(tmp, agente);
+  assert.equal(r.eventos.at(-1).origin, 'agente', 'a reply anterior ao attachment já deve ser direta');
+  fs.appendFileSync(tmp, linhas.slice(fim + 1).join('\n') + '\n');
+  r = leitor.ler(tmp, agente);
+  assert.equal(r.eventos.filter(e => e.origin === 'dono').length, 3);
+  assert.equal(r.eventos.filter(e => e.origin === 'agente').length, 6);
+  assert.equal(r.eventos.filter(e => e.origin === 'rotina').length, 0);
+});

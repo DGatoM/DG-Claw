@@ -1,0 +1,36 @@
+{"type": "queue-operation", "operation": "enqueue", "content": "<channel source=\"plugin:telegram:telegram\" message_id=\"46531\" user=\"dono\">leia /tmp/dgclaw-poke-modo-monitor-15h35-20261016-153504.txt</channel>", "timestamp": "2026-10-16T18:35:08.462Z"}
+{"type": "user", "message": {"content": "<channel source=\"plugin:telegram:telegram\" message_id=\"46531\" user=\"dono\">leia /tmp/dgclaw-poke-modo-monitor-15h35-20261016-153504.txt</channel>"}, "timestamp": "2026-10-16T18:35:08.571Z"}
+{"type": "queue-operation", "operation": "enqueue", "content": "<channel source=\"plugin:telegram:telegram\" message_id=\"46532\" user=\"dono\">Pergunta 46532</channel>", "timestamp": "2026-10-16T18:35:28.646Z"}
+{"type": "queue-operation", "operation": "remove", "content": "<channel source=\"plugin:telegram:telegram\" message_id=\"46532\" user=\"dono\">Pergunta 46532</channel>", "timestamp": "2026-10-16T18:35:30.694Z"}
+{"type": "api-request-blob", "message": {"content": [{"type": "text", "text": "A message arrived from plugin:telegram:telegram while you were working:\n<channel source=\"plugin:telegram:telegram\" message_id=\"46532\" user=\"dono\">Pergunta 46532</channel>"}]}}
+{"type": "attachment", "attachment": {"type": "queued_command", "prompt": "<channel source=\"plugin:telegram:telegram\" message_id=\"46532\" user=\"dono\">Pergunta 46532</channel>"}, "timestamp": "2026-10-16T18:35:28.645Z"}
+{"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "reply-1", "name": "mcp__plugin_telegram_telegram__reply", "input": {"text": "Resposta reply-1"}}]}, "timestamp": "2026-10-16T18:35:33.688Z"}
+{"type": "api-request-blob", "message": {"content": [{"type": "tool_result", "tool_use_id": "reply-1", "content": "sent (id: 46533)"}]}}
+{"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "reply-1", "content": "sent (id: 46533)"}]}, "timestamp": "2026-10-16T18:35:34.150Z"}
+{"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "reply-3", "name": "mcp__plugin_telegram_telegram__reply", "input": {"text": "Resposta reply-3"}}]}, "timestamp": "2026-10-16T18:35:50.317Z"}
+{"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "reply-3", "content": "sent (id: 46534)"}]}, "timestamp": "2026-10-16T18:35:50.762Z"}
+{"type": "api-request-blob", "message": {"content": [{"type": "tool_use", "id": "reply-3", "name": "mcp__plugin_telegram_telegram__reply", "input": {"text": "Resposta reply-3"}}]}}
+{"type": "api-request-blob", "message": {"content": [{"type": "tool_result", "tool_use_id": "reply-3", "content": "sent (id: 46534)"}]}}
+{"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "reply-4", "name": "mcp__plugin_telegram_telegram__reply", "input": {"text": "Resposta reply-4"}}]}, "timestamp": "2026-10-16T18:36:43.346Z"}
+{"type": "api-request-blob", "message": {"content": [{"type": "tool_result", "tool_use_id": "reply-4", "content": "sent (id: 46536)"}]}}
+{"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "reply-4", "content": "sent (id: 46536)"}]}, "timestamp": "2026-10-16T18:36:43.752Z"}
+{"type": "queue-operation", "operation": "enqueue", "content": "<channel source=\"plugin:telegram:telegram\" message_id=\"46538\" user=\"dono\">leia /tmp/dgclaw-poke-organizap-watchdog-evidencias-disconnected-20261016-1536-20261016-153718.txt</channel>", "timestamp": "2026-10-16T18:37:20.762Z"}
+{"type": "user", "message": {"content": "<channel source=\"plugin:telegram:telegram\" message_id=\"46538\" user=\"dono\">leia /tmp/dgclaw-poke-organizap-watchdog-evidencias-disconnected-20261016-1536-20261016-153718.txt</channel>"}, "timestamp": "2026-10-16T18:37:20.872Z"}
+{"type": "queue-operation", "operation": "enqueue", "content": "<channel source=\"plugin:telegram:telegram\" message_id=\"46539\" user=\"dono\">Pergunta 46539</channel>", "timestamp": "2026-10-16T18:37:31.796Z"}
+{"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "reply-5", "name": "mcp__plugin_telegram_telegram__reply", "input": {"text": "Resposta reply-5"}}]}, "timestamp": "2026-10-16T18:37:35.001Z"}
+{"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "reply-5", "content": "sent (id: 46540)"}]}, "timestamp": "2026-10-16T18:37:35.408Z"}
+{"type": "queue-operation", "operation": "remove", "content": "<channel source=\"plugin:telegram:telegram\" message_id=\"46539\" user=\"dono\">Pergunta 46539</channel>", "timestamp": "2026-10-16T18:37:36.563Z"}
+{"type": "api-request-blob", "message": {"content": [{"type": "text", "text": "A message arrived from plugin:telegram:telegram while you were working:\n<channel source=\"plugin:telegram:telegram\" message_id=\"46539\" user=\"dono\">Pergunta 46539</channel>"}]}}
+{"type": "attachment", "attachment": {"type": "queued_command", "prompt": "<channel source=\"plugin:telegram:telegram\" message_id=\"46539\" user=\"dono\">Pergunta 46539</channel>"}, "timestamp": "2026-10-16T18:37:31.796Z"}
+{"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "reply-7", "name": "mcp__plugin_telegram_telegram__reply", "input": {"text": "Resposta reply-7"}}]}, "timestamp": "2026-10-16T18:37:46.370Z"}
+{"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "reply-7", "content": "sent (id: 46541)"}]}, "timestamp": "2026-10-16T18:37:46.762Z"}
+{"type": "api-request-blob", "message": {"content": [{"type": "tool_use", "id": "reply-7", "name": "mcp__plugin_telegram_telegram__reply", "input": {"text": "Resposta reply-7"}}]}}
+{"type": "api-request-blob", "message": {"content": [{"type": "tool_result", "tool_use_id": "reply-7", "content": "sent (id: 46541)"}]}}
+{"type": "queue-operation", "operation": "enqueue", "content": "<channel source=\"plugin:telegram:telegram\" message_id=\"46542\" user=\"dono\">Pergunta 46542</channel>", "timestamp": "2026-10-16T18:37:54.945Z"}
+{"type": "queue-operation", "operation": "remove", "content": "<channel source=\"plugin:telegram:telegram\" message_id=\"46542\" user=\"dono\">Pergunta 46542</channel>", "timestamp": "2026-10-16T18:38:05.646Z"}
+{"type": "api-request-blob", "message": {"content": [{"type": "text", "text": "A message arrived from plugin:telegram:telegram while you were working:\n<channel source=\"plugin:telegram:telegram\" message_id=\"46542\" user=\"dono\">Pergunta 46542</channel>"}]}}
+{"type": "attachment", "attachment": {"type": "queued_command", "prompt": "<channel source=\"plugin:telegram:telegram\" message_id=\"46542\" user=\"dono\">Pergunta 46542</channel>"}, "timestamp": "2026-10-16T18:37:54.945Z"}
+{"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "reply-9", "name": "mcp__plugin_telegram_telegram__reply", "input": {"text": "Resposta reply-9"}}]}, "timestamp": "2026-10-16T18:38:12.987Z"}
+{"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "reply-9", "content": "sent (id: 46543)"}]}, "timestamp": "2026-10-16T18:38:13.397Z"}
+{"type": "api-request-blob", "message": {"content": [{"type": "tool_use", "id": "reply-9", "name": "mcp__plugin_telegram_telegram__reply", "input": {"text": "Resposta reply-9"}}]}}
+{"type": "api-request-blob", "message": {"content": [{"type": "tool_result", "tool_use_id": "reply-9", "content": "sent (id: 46543)"}]}}

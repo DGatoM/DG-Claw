@@ -323,7 +323,7 @@ function criarLeitor({ log, tz, canalTelegram, midia }) {
 
   function processaLinha(estado, agente, linha) {
     // Pré-filtro barato: a maioria das linhas (tool_result gigantes, thinking) não interessa.
-    if (!(linha.includes('"type":"user"') || linha.includes('"type":"assistant"'))) return;
+    if (!/"type"\s*:\s*"(?:user|assistant|attachment|queue-operation)"/.test(linha)) return;
     // O tool_result do WhatsApp não menciona "whatsapp" (só o tool_use_id), então com envio
     // pendente as linhas de tool_result também passam. Sem pendentes, o filtro continua barato.
     const resultadoPendente = estado.waPendentes.size > 0 && linha.includes('"tool_result"');
@@ -334,47 +334,56 @@ function criarLeitor({ log, tz, canalTelegram, midia }) {
     if (!o || o.isSidechain === true) return;
     if (estado.waPendentes.size > 0) descartaPendentesVelhos(estado, agente, o.timestamp);
     const m = o.message || {};
-    const cont = m.content;
+    const fila = o.type === 'attachment' && o.attachment?.type === 'queued_command'
+      || o.type === 'queue-operation' && o.operation === 'enqueue';
+    const cont = fila ? (o.type === 'attachment' ? o.attachment.prompt : o.content) : m.content;
 
-    if (o.type === 'user') {
+    if (o.type === 'user' || fila) {
       if (Array.isArray(cont) && estado.waPendentes.size > 0) resolvePendentesWhatsapp(estado, agente, cont);
       let txt = textoDosBlocos(cont).replace(REMINDER, '').trim();
       if (!txt) return;
       if (RETORNO_SISTEMA.test(txt) || txt.includes('STOP BLOQUEADO')) return;
       if (ECO_COMANDO.test(txt)) return;
-      if (txt.startsWith('<plataforma ')) { estado.trigger = 'cron'; return; } // aviso do sistema: o agente que fala depois age por conta própria
+      if (txt.startsWith('<plataforma ')) { if (!fila) estado.trigger = 'cron'; return; } // aviso do sistema: o agente que fala depois age por conta própria
       const pk = POKE.exec(txt);
-      if (pk) { estado.trigger = 'cron'; return; }
+      if (pk) {
+        if (pk[1].startsWith('retomada')) estado.trigger = 'owner';
+        else if (!fila) estado.trigger = 'cron';
+        return;
+      }
 
       const dg = parseDgchat(txt);
       if (dg) {
         estado.chatCorrente = dg.attrs.chat;
-        estado.trigger = 'owner';
         if (dg.attrs.chat !== agente.chat_id) return;
         if (dg.attrs.msg) {
           if (estado.msgsVistas.has(dg.attrs.msg)) return;
           estado.msgsVistas.add(dg.attrs.msg);
         }
+        estado.trigger = 'owner';
         empurraDono(estado, agente, dg, epDe(o.timestamp, estado));
         return;
       }
 
       const ce = parseCanalExterno(txt);
       if (ce) {
-        estado.trigger = 'owner';
         if (ce.attrs.msg) {
           const k = 'wa:' + ce.attrs.msg;
           if (estado.msgsVistas.has(k)) return;
           estado.msgsVistas.add(k);
         }
+        estado.trigger = 'owner';
         empurraDonoWhatsapp(estado, agente, ce, epDe(o.timestamp, estado));
         return;
       }
 
       const tg = parseCanalTelegram(txt, canalTelegram);
       if (tg) {
-        estado.trigger = 'owner';
         if (!tg.interno) return;
+        const id = /\bmessage_id="([^"]+)"/.exec(txt)?.[1];
+        if (id && estado.msgsVistas.has('tg:' + id)) return;
+        if (id) estado.msgsVistas.add('tg:' + id);
+        estado.trigger = 'owner';
         const ep = epDe(o.timestamp, estado);
         empurra(estado, agente, { ep, origin: 'dono', text: tg.interno, caminhos: [], via: 'telegram', quem: tg.user });
       }
