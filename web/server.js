@@ -12,6 +12,7 @@ const { criarRegistro } = require('./lib/registro');
 const { criarRunner } = require('./lib/runner');
 const { criarAuth } = require('./lib/auth');
 const { criarMidia } = require('./lib/media');
+const { criarCompartilhados } = require('./lib/compartilhados');
 const { criarLeitor, paraContainer } = require('./lib/thread');
 const { criarLeitorRollout } = require('./lib/rollout');
 const { criarConversa, RX_CLIENTE_ID } = require('./lib/conversa');
@@ -66,6 +67,7 @@ function criarServidor(opcoes) {
   const leitorRollout = criarLeitorRollout({ log, tz: config.tz, midia });
   const alertas = agente => criarAlertas(path.join(config.dataDir, 'alertas', agente.slug + '.json'), agente.chat_id);
   const conversa = criarConversa({ alertas, config, runner, leitor, leitorRollout, midia, log, agora: opcoes.agora, gravaToken: opcoes.gravaToken });
+  const compartilhados = criarCompartilhados(conversa);
   const cofreAgente = criarCofreAgente({ config, log, reiniciar: opcoes.reiniciarCofre });
   const cofreRotas = criarCofreRotas({ config, runner, cofre: cofreAgente, log });
   const proxy = criarProxy({ config, registro, log, cofreRotas });
@@ -234,6 +236,11 @@ function criarServidor(opcoes) {
       return H.enviaJson(res, 200, { ok: true, agentes: lista, voz: lista.some((a) => a.voz), microfone: voz.microfone, usuario: sessao.usuario });
     }
 
+    if (p === '/api/v1/compartilhados/docs.md' && m === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store' });
+      return res.end(fs.readFileSync(path.join(__dirname, 'docs', 'MIDIAS-CACHE.md')));
+    }
+
     if (p === '/api/v1/alertas/docs.md' && m === 'GET') {
       res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store' });
       return res.end(fs.readFileSync(path.join(__dirname, 'docs', 'ALERTAS.md'), 'utf8'));
@@ -276,6 +283,18 @@ function criarServidor(opcoes) {
       if (!agente) return undefined;
       const acao = mm[2] || '';
       if (acao === '' && m === 'GET') return H.enviaJson(res, 200, { ok: true, agente: await agentePublico(agente) });
+      if (acao === 'compartilhados' && m === 'GET') {
+        try {
+          if (url.searchParams.has('mensagem')) {
+            const t = await conversa.thread(agente), id = url.searchParams.get('mensagem');
+            const origem = t.msgs.find(x => x.id === id);
+            if (!origem) return H.erroJson(res, 404, 'A mensagem não está nesta sessão. Atualize a lista.');
+            return H.enviaJson(res, 200, { ok: true, mensagem: origem, msgs: t.msgs.filter(x => x.ep >= origem.ep) });
+          }
+          return H.enviaJson(res, 200, await compartilhados(agente, url.searchParams));
+        }
+        catch (e) { log('aviso', `Acervo de ${agente.slug}: ${e.message}`); return H.erroJson(res, 400, e.message); }
+      }
       if (acao === 'messages' && m === 'GET') return mensagens(req, res, url, agente);
       if (acao === 'stream' && m === 'GET') return stream(req, res, url, agente);
       if (acao === 'wait' && m === 'GET') return esperar(req, res, url, agente);

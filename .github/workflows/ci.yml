@@ -82,6 +82,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+      - name: Preparar geração real de miniaturas
+        run: command -v ffmpeg >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y ffmpeg)
       - name: Rodar os testes do web
         run: node --test web/test/
 

@@ -5,6 +5,32 @@
 
 const crypto = require('node:crypto');
 const fs = require('node:fs');
+const { execFile } = require('node:child_process');
+const { promisify } = require('node:util');
+const executar = promisify(execFile);
+const thumbsEmCurso = new Map();
+let thumbsAtivas = 0;
+const filaThumbs = [];
+async function geraMiniatura(real, destino) {
+  if (thumbsEmCurso.has(destino)) return thumbsEmCurso.get(destino);
+  const promessa = (async () => {
+    if (thumbsAtivas >= 2) await new Promise(r => filaThumbs.push(r));
+    thumbsAtivas++;
+    const tmp = destino + '.tmp.jpg';
+    try {
+      await fs.promises.mkdir(path.dirname(destino), { recursive: true, mode: 0o700 });
+      await executar('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-nostdin', '-y', '-i', real,
+        '-frames:v', '1', '-vf', 'scale=320:320:force_original_aspect_ratio=decrease', '-q:v', '5', '-threads', '1', tmp], { timeout: 15000, maxBuffer: 65536 });
+      await fs.promises.rename(tmp, destino);
+    } finally {
+      thumbsAtivas--; const proximo = filaThumbs.shift(); if (proximo) proximo();
+      try { await fs.promises.unlink(tmp); } catch (e) { if (e.code !== 'ENOENT') console.warn('miniatura: temporário não removido:', e.message); }
+    }
+  })();
+  thumbsEmCurso.set(destino, promessa);
+  try { return await promessa; } finally { thumbsEmCurso.delete(destino); }
+}
+
 const path = require('node:path');
 const { erroJson, escapaHtml } = require('./http');
 
@@ -173,7 +199,7 @@ function criarMidia({ dataDir, log, registro, publicDir }) {
       return {
         id, kind: k, nome, bytes, disponivel,
         url: lexico ? `/api/v1/media/${id}${versao}` : null,
-        thumb: lexico && k === 'photo' ? `/api/v1/media/${id}/thumb${versao}` : null,
+        thumb: lexico && ['photo', 'video'].includes(k) ? `/api/v1/media/${id}/thumb${versao}` : null,
         path: o.visto || null,
       };
     },
@@ -220,14 +246,14 @@ function criarMidia({ dataDir, log, registro, publicDir }) {
     },
 
     /** Serve o arquivo. `modo` é 'arquivo' ou 'thumb'. */
-    servir(req, res, id, modo, baixar) {
+    async servir(req, res, id, modo, baixar) {
       const e = reg.get(id);
       if (!e) {
         erroJson(res, 404, 'Não conheço esta mídia. Ela pode ter sido registrada antes de o servidor reiniciar: recarregue a conversa para ela voltar.');
         return;
       }
-      if (modo === 'thumb' && e.kind !== 'photo') {
-        erroJson(res, 404, 'Só fotos têm miniatura. Abra o arquivo inteiro.');
+      if (modo === 'thumb' && !['photo', 'video'].includes(e.kind)) {
+        erroJson(res, 404, 'Este tipo de arquivo não tem miniatura.');
         return;
       }
       const real = caminhoPermitido(e.slug, e.path);
@@ -242,6 +268,20 @@ function criarMidia({ dataDir, log, registro, publicDir }) {
         return;
       }
       if (!st.isFile()) { erroJson(res, 404, 'O caminho registrado não é um arquivo.'); return; }
+      if (modo === 'thumb') {
+        const versao = `${id}-${st.mtimeMs}-${st.size}`;
+        const thumb = path.join(dataDir, 'miniaturas', versao + '.jpg');
+        try {
+          if (!fs.existsSync(thumb)) await geraMiniatura(real, thumb);
+          const buf = await fs.promises.readFile(thumb);
+          res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': buf.length,
+            'Cache-Control': 'private, max-age=86400', 'X-Content-Type-Options': 'nosniff' });
+          return res.end(req.method === 'HEAD' ? undefined : buf);
+        } catch (err) {
+          log('erro', `Miniatura ${id}: ${err.code || err.message}. Confira ffmpeg e permissões da pasta miniaturas.`);
+          return erroJson(res, 503, 'Não consegui gerar a miniatura. Confira ffmpeg e a pasta de dados. O arquivo original só é baixado ao abrir.');
+        }
+      }
       const total = st.size;
       const cab = {
         'Content-Type': e.mime,

@@ -290,7 +290,7 @@ baixar_chave() {
 instalar_pacotes() {
     passo "Instalando os pacotes"
     local base=(curl ca-certificates gnupg) faltam=() p
-    local todos=(podman uidmap slirp4netns git jq ufw dnsutils rsync python3 build-essential)
+    local todos=(podman uidmap slirp4netns git jq ufw dnsutils rsync python3 build-essential ffmpeg)
     local precisa_caddy=0 precisa_node=0 repos_novos=0
     local chave_caddy="$R/usr/share/keyrings/caddy-stable-archive-keyring.gpg"
     local lista_caddy="$R/etc/apt/sources.list.d/caddy-stable.list"
