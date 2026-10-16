@@ -366,6 +366,70 @@ def _find_live_transcript(session_dir: Path, channel: str):
     return None
 
 
+def _codex_homes(codex_home=None) -> list:
+    """Onde o rollout pode estar, visto de DENTRO do container (o painel roda la):
+    o CODEX_HOME que o runner informou, o do ambiente, a pasta por sessao do modo api
+    e o ~/.codex da assinatura. O que o runner informa so vale dentro da casa do agente."""
+    casa = Path.home().resolve()
+    homes = []
+    if codex_home:
+        p = Path(str(codex_home)).resolve()
+        if p == casa or casa in p.parents:
+            homes.append(p)
+        else:
+            print(f"[dgclaw-inject] o CODEX_HOME informado pelo runner ({codex_home}) cai fora "
+                  f"de {casa}; ignorei", file=sys.stderr)
+    env = os.environ.get("CODEX_HOME")
+    if env:
+        homes.append(Path(env))
+    api = casa / ".plataforma" / "codex-api"
+    if api.is_dir():
+        homes.extend(sorted(d for d in api.iterdir() if d.is_dir()))
+    homes.append(casa / ".codex")
+    return homes
+
+
+def _dentro_da_casa(alvo: Path, raiz_real: Path) -> bool:
+    try:
+        real = alvo.resolve(strict=True)
+    except (OSError, RuntimeError):
+        return False
+    return real == raiz_real or raiz_real in real.parents
+
+
+def find_codex_rollout(session_id: str, codex_home=None):
+    """<CODEX_HOME>/sessions/AAAA/MM/DD/rollout-*-<sessionId>.jsonl, ou None.
+    A pasta de sessoes e o arquivo final precisam ter o realpath dentro de realpath($HOME):
+    atalho plantado para fora e recusado (aviso no stderr, nada e lido)."""
+    import re
+    if not session_id or not re.fullmatch(r"[0-9a-fA-F-]{8,64}", str(session_id)):
+        return None
+    sufixo = f"-{str(session_id).lower()}.jsonl"
+    vistos = set()
+    casa = Path.home().resolve()
+    for h in _codex_homes(codex_home):
+        if h in vistos:
+            continue
+        vistos.add(h)
+        raiz = h / "sessions"
+        if not raiz.exists():
+            continue
+        if not _dentro_da_casa(raiz, casa):
+            print(f"[dgclaw-inject] recusei a pasta de sessoes do Codex {raiz}: o realpath "
+                  f"cai fora de {casa}; nada foi lido", file=sys.stderr)
+            continue
+        try:
+            achados = [f for f in raiz.glob("*/*/*/rollout-*.jsonl") if f.name.lower().endswith(sufixo)]
+        except OSError:
+            continue
+        for f in sorted(achados, reverse=True):
+            if _dentro_da_casa(f, casa):
+                return str(f.resolve())
+            print(f"[dgclaw-inject] recusei o registro Codex {f}: o atalho aponta para "
+                  f"{f.resolve()}, fora de {casa}; nada foi lido", file=sys.stderr)
+    return None
+
+
 def live_transcript(slug: str, name: str = None):
     """O caminho do .jsonl da sessao viva, ou None. Existe para que UM lugar so saiba
     achar a sessao: o painel e o extrator de thread perguntam aqui em vez de cada um
@@ -387,7 +451,12 @@ def live_transcript(slug: str, name: str = None):
             return None
         encoded = str(Path(cwd).resolve()).replace("/", "-")
         p = Path.home() / ".claude" / "projects" / encoded / f"{sid}.jsonl"
-        return str(p) if p.exists() else None
+        if p.exists():
+            return str(p)
+        # Agente com o motor Codex: a conversa fica no rollout dele, nao no transcript do
+        # Claude. O id da sessao decide (um id de Codex nunca existe como .jsonl do Claude),
+        # entao nao precisa perguntar o provedor ao runner.
+        return find_codex_rollout(sid, card.get("codexHome"))
     p = _find_live_transcript(_resolve_session_dir(), name)
     return str(p) if p else None
 

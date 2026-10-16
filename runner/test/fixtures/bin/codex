@@ -1,0 +1,162 @@
+#!/usr/bin/env node
+// Codex FALSO, só para os testes do runner. Emula `login status`, `login --with-api-key`
+// (a chave só pelo stdin), `login --device-auth` e o TUI interativo, que grava o rollout
+// (session_meta, task_started, mensagens, task_complete) e chama o `notify` do -c.
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+const cp = require("child_process");
+const crypto = require("crypto");
+
+const argv = process.argv.slice(2);
+const VALORES_SEGUROS = ["CODEX_HOME", "TELEGRAM_STATE_DIR", "HOME", "DGCHAT_AGENT"];
+const home = () => process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
+
+function registrar(extra) {
+  if (!process.env.FAKE_LOG) return;
+  const valores = {};
+  for (const k of VALORES_SEGUROS) if (process.env[k] !== undefined) valores[k] = process.env[k];
+  fs.appendFileSync(
+    process.env.FAKE_LOG,
+    JSON.stringify({ bin: "codex", argv, cwd: process.cwd(), env: Object.keys(process.env).sort(), valores, ...extra }) + "\n",
+  );
+}
+
+function lerStdin() {
+  return new Promise((resolve) => {
+    let b = "";
+    process.stdin.on("data", (d) => (b += d));
+    process.stdin.on("end", () => resolve(b));
+  });
+}
+
+(async () => {
+  if (argv[0] === "login" && argv[1] === "status") {
+    registrar({ modo: "login-status" });
+    const f = path.join(home(), "auth.json");
+    const forcado = process.env.FAKE_CODEX_STATUS;
+    let conteudo = null;
+    try { conteudo = JSON.parse(fs.readFileSync(f, "utf8")); } catch (e) {}
+    if (forcado === "none" || (!forcado && !conteudo)) {
+      process.stderr.write("Not logged in\n");
+      process.exit(1);
+    }
+    if (forcado === "chatgpt" || (!forcado && !conteudo.OPENAI_API_KEY)) {
+      // O Codex real (0.162.1, visto no B6 em 12/10/2026) escreve o status no stderr.
+      process.stderr.write("Logged in using ChatGPT\n");
+      process.exit(0);
+    }
+    const k = (conteudo && conteudo.OPENAI_API_KEY) || "CHAVE-DE-TESTE-0123456789";
+    process.stderr.write(`Logged in using an API key - ${k.slice(0, 10)}***${k.slice(-6)}\n`);
+    process.exit(0);
+  }
+
+  if (argv[0] === "login" && argv[1] === "--with-api-key") {
+    const chave = (await lerStdin()).trim();
+    registrar({ modo: "login-api-key", stdinSha256: crypto.createHash("sha256").update(chave).digest("hex"), stdinTamanho: chave.length });
+    // Imita o Codex de verdade, que repete um pedaço da chave na saída.
+    process.stdout.write(`Logged in using an API key - ${chave.slice(0, 10)}***${chave.slice(-6)}\n`);
+    if (process.env.FAKE_CODEX_LOGIN_FAIL) {
+      process.stderr.write(`erro com ${chave.slice(0, 10)}***\n`);
+      process.exit(1);
+    }
+    fs.mkdirSync(home(), { recursive: true });
+    fs.writeFileSync(path.join(home(), "auth.json"), JSON.stringify({ OPENAI_API_KEY: chave }), { mode: 0o600 });
+    process.exit(0);
+  }
+
+  if (argv[0] === "login" && argv.includes("--device-auth")) {
+    registrar({ modo: "login-device" });
+    process.stdout.write("\u001b[1mWelcome to Codex\u001b[0m\r\n");
+    process.stdout.write("1. Open this link in your browser and sign in\r\n   https://auth.openai.com/codex/device\r\n");
+    process.stdout.write("2. Enter this one-time code\r\n   \u001b[94mABCD-12345\u001b[0m\r\n");
+    setTimeout(() => {
+      if (process.env.FAKE_LOGIN_FAIL) process.exit(1);
+      fs.mkdirSync(home(), { recursive: true });
+      fs.writeFileSync(path.join(home(), "auth.json"), JSON.stringify({ tokens: { access_token: "x" } }), { mode: 0o600 });
+      process.exit(0);
+    }, Number(process.env.FAKE_DEVICE_MS || 700));
+    setInterval(() => {}, 1000);
+    return;
+  }
+
+  // --- TUI interativo ---
+  registrar({ modo: "interativo" });
+  const iResume = argv.indexOf("resume");
+  let id = iResume === 0 ? argv[1] : null;
+  const notifyArg = argv.find((a) => a.startsWith("notify="));
+  let ignorar = Number(process.env.FAKE_CODEX_IGNORE_ENTERS || 0);
+
+  const dia = new Date();
+  const dir = path.join(home(), "sessions", String(dia.getFullYear()), String(dia.getMonth() + 1).padStart(2, "0"), String(dia.getDate()).padStart(2, "0"));
+  function arquivoDoRollout() {
+    if (id) {
+      for (const f of fs.existsSync(dir) ? fs.readdirSync(dir) : []) if (f.endsWith(`-${id}.jsonl`)) return path.join(dir, f);
+      // retomada: procura em qualquer dia
+      const raiz = path.join(home(), "sessions");
+      const achar = (d) => {
+        for (const e of fs.existsSync(d) ? fs.readdirSync(d, { withFileTypes: true }) : []) {
+          const p = path.join(d, e.name);
+          if (e.isDirectory()) { const r = achar(p); if (r) return r; }
+          else if (e.name.endsWith(`-${id}.jsonl`)) return p;
+        }
+        return null;
+      };
+      const r = achar(raiz);
+      if (r) return r;
+    }
+    id = id || process.env.FAKE_CODEX_ID || crypto.randomUUID();
+    fs.mkdirSync(dir, { recursive: true });
+    const f = path.join(dir, `rollout-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}-${id}.jsonl`);
+    const meta = { timestamp: new Date().toISOString(), type: "session_meta", payload: { id, session_id: id, cwd: process.cwd(), base_instructions: "x".repeat(2000) } };
+    fs.writeFileSync(f, JSON.stringify(meta) + "\n");
+    return f;
+  }
+  const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
+  function reg(f, type, payload) {
+    fs.appendFileSync(f, JSON.stringify({ timestamp: new Date().toISOString(), type, payload }) + "\n");
+  }
+
+  async function turno(texto) {
+    const f = arquivoDoRollout();
+    if (!fs.readFileSync(f, "utf8").includes("<environment_context>")) {
+      reg(f, "response_item", { type: "message", role: "developer", content: [{ type: "input_text", text: "instrucoes do sistema" }] });
+      reg(f, "response_item", { type: "message", role: "user", content: [{ type: "input_text", text: "<environment_context>\n<cwd>x</cwd>\n</environment_context>" }] });
+    }
+    reg(f, "event_msg", { type: "task_started" });
+    reg(f, "response_item", { type: "message", role: "user", content: [{ type: "input_text", text: texto }] });
+    await esperar(Number(process.env.FAKE_TURN_MS || 200));
+    reg(f, "response_item", { type: "function_call", name: "shell", call_id: "c1", arguments: "{}" });
+    await esperar(100);
+    reg(f, "response_item", { type: "message", role: "assistant", content: [{ type: "output_text", text: "resposta de teste para: " + texto }] });
+    reg(f, "event_msg", { type: "task_complete" });
+    if (notifyArg) {
+      try {
+        const arr = JSON.parse(notifyArg.slice("notify=".length));
+        cp.spawnSync(arr[0], [...arr.slice(1), JSON.stringify({ type: "agent-turn-complete", "thread-id": id })], { timeout: 5000 });
+      } catch (e) {
+        process.stderr.write("fake codex: notify invalido: " + e.message + "\n");
+      }
+    }
+  }
+
+  process.stdout.write("fake codex pronto\r\n");
+  let linha = "";
+  if (process.stdin.isTTY) process.stdin.setRawMode(true);
+  process.stdin.on("data", (d) => {
+    for (const ch of d.toString()) {
+      if (ch === "\r" || ch === "\n") {
+        const texto = linha.trim();
+        if (!texto) { linha = ""; continue; }
+        if (ignorar > 0) { ignorar -= 1; continue; } // o texto continua na caixa, como no Codex de verdade
+        linha = "";
+        registrar({ modo: "prompt", texto });
+        turno(texto);
+      } else {
+        linha += ch;
+      }
+    }
+  });
+  process.on("SIGTERM", () => process.exit(0));
+  setInterval(() => {}, 1000);
+})();

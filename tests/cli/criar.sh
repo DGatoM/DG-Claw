@@ -29,6 +29,15 @@ jq -n '{versao:1, agentes:[{slug:"outro", tipo:"agente", runner:"http://127.0.0.
 criar_agente eva --nome "Eva"
 igual "pula as portas que o ss mostra e as do agentes.json" "4314 8313" "$(jq -r '.agentes[] | select(.slug=="eva") | "\(.runner|sub("^.*:";"")) \(.porta_painel)"' "$ETC/agentes.json")"
 
+echo "criar: porta ocupada no topo de uma lista grande (SIGPIPE do grep -q sob pipefail)"
+# Com `printf | grep -q`, a lista maior que o buffer do pipe (64 KiB) garante o SIGPIPE: o
+# grep acha a porta na 1a linha e sai, o printf morre com 141 e a porta ocupada passava por
+# livre. Aqui o resultado e deterministico, sem depender da carga da maquina.
+preparar
+{ printf '4311\n8311\n'; seq 10000 29999; } >"$STUB_ESTADO/ss"
+criar_agente fabi --nome "Fabi"
+igual "porta ocupada no topo de lista grande continua ocupada" "4312 8312" "$(jq -r '.agentes[] | select(.slug=="fabi") | "\(.runner|sub("^.*:";"")) \(.porta_painel)"' "$ETC/agentes.json")"
+
 echo "criar: agentes.json"
 preparar
 criar_agente ana --nome "Ana Silva" --papel "organiza a agenda" --jeito "calma e direta" --dono "Marta" --avatar "C" --cor "#10b981"
@@ -36,7 +45,7 @@ AJ="$ETC/agentes.json"
 afirma "agentes.json e um JSON valido" jq -e . "$AJ"
 igual "versao 1" "1" "$(jq -r .versao "$AJ")"
 igual "campos exatamente os do contrato, na ordem" \
-    "slug,nome,tipo,runner,agente_id,chat_id,avatar,cor,provedor,modelo,transcripts_dir,porta_painel,proxy_segredo_arquivo,runner_token_arquivo,home_host,home_container,cofre_arquivo" \
+    "slug,nome,tipo,runner,agente_id,chat_id,avatar,cor,provedor,modelo,transcripts_dir,porta_painel,proxy_segredo_arquivo,runner_token_arquivo,home_host,home_container,cofre_arquivo,container" \
     "$(jq -r '.agentes[0] | keys_unsorted | join(",")' "$AJ")"
 igual "tipo agente" "agente" "$(jq -r '.agentes[0].tipo' "$AJ")"
 igual "chat_id c_<slug>" "c_ana" "$(jq -r '.agentes[0].chat_id' "$AJ")"
@@ -114,8 +123,12 @@ afirma "identidade.md leva a regra do canal com o chat c_ana" grep -q 'chat="c_a
 nega "identidade.md nao fala de Telegram" grep -qi telegram "$H/.plataforma/identidade.md"
 afirma "config.sh tem o slug" grep -q "DGCLAW_SLUG='ana'" "$H/.dgclaw/config.sh"
 afirma "config.sh aponta o plugin para /opt/dgclaw/app" grep -q "DGCLAW_PLUGIN_ROOT='/opt/dgclaw/app'" "$H/.dgclaw/config.sh"
+afirma "config.sh manda o inject.py para o runner do container" grep -q "DGCLAW_INJECT_MODE='bunker'" "$H/.dgclaw/config.sh"
+afirma "config.sh aponta o card do runner pelo slug" grep -q "DGCLAW_BUNKER_CARD='ana'" "$H/.dgclaw/config.sh"
+afirma "config.sh aponta o runner de dentro do container" grep -q "DGCLAW_BUNKER_URL='http://127.0.0.1:4300'" "$H/.dgclaw/config.sh"
 igual "panel/config.json: slug" "ana" "$(jq -r .agentSlug "$H/.dgclaw/panel/config.json")"
 igual "painel.env: base /p/ana" "1" "$(grep -c '^DGCLAW_PANEL_BASE=/p/ana$' "$LIB/agentes/ana/config/painel.env")"
+igual "painel.env: cofre em modo host" "1" "$(grep -c '^DGCLAW_COFRE_NOMES=/run/dgclaw/config/cofre-nomes$' "$LIB/agentes/ana/config/painel.env")"
 preparar
 criar_agente sem-papel --nome "Sem Papel"
 nega "papel e jeito vazios viram texto neutro (sem campo cru)" grep -q '{{' "$LIB/agentes/sem-papel/home/AGENT.md"
@@ -170,5 +183,29 @@ afirma "ensaio anuncia o que faria" grep -q 'ensaio' "$TMP/ensaio.txt"
 preparar
 dgclaw agente criar ana --nome "Ana" --ensaio >/dev/null 2>&1
 nega "--ensaio vale tambem depois do subcomando" test -e "$ETC/registro.tsv"
+
+echo "criar de novo: link na casa do agente e recusado"
+preparar
+criar_agente bia --nome "Bia"
+HB="$LIB/agentes/bia/home"
+mkdir -p "$TMP/fora-bia"
+mv "$HB/.dgclaw" "$TMP/dgclaw-bia-guardada"
+ln -s "$TMP/fora-bia" "$HB/.dgclaw"
+criar_agente bia --nome "Bia"
+nega "criar de novo com .dgclaw em link nao sai com 0" test "$?" = 0
+afirma "explica o link e o que fazer" grep -q "nao gravo como root fora da casa" "$TMP/saida.txt"
+igual "nada foi gravado fora da casa" "" "$(ls -A "$TMP/fora-bia")"
+rm "$HB/.dgclaw" && mv "$TMP/dgclaw-bia-guardada" "$HB/.dgclaw"
+# Arquivo trocado por link: o chown dele daria ao agente a posse do alvo.
+printf 'alvo do servidor\n' >"$TMP/alvo-bia"
+rm -f "$HB/.dgclaw/logs/permissoes.log"
+ln -s "$TMP/alvo-bia" "$HB/.dgclaw/logs/permissoes.log"
+criar_agente bia --nome "Bia"
+nega "criar de novo com permissoes.log em link nao sai com 0" test "$?" = 0
+afirma "cita o arquivo que e link" grep -q "permissoes.log, na casa do agente bia, e um link" "$TMP/saida.txt"
+nega "o alvo do link nao foi tocado pelo chown" grep -q "alvo-bia" "$DGCLAW_RAIZ/.chown-simulado"
+rm "$HB/.dgclaw/logs/permissoes.log"
+criar_agente bia --nome "Bia"
+igual "sem o link, criar de novo volta a passar" "0" "$?"
 
 fim

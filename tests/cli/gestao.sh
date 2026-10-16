@@ -101,5 +101,96 @@ afirma "status diz qual servico caiu" grep -q "FALHOU servico dgclaw-web" "$TMP/
 for u in caddy dgclaw-web dgclaw-admin; do echo active >"$STUB_ESTADO/svc-$u"; done
 dgclaw status >"$TMP/o.txt" 2>&1
 igual "status com tudo de pe sai com 0" "0" "$?"
+nega "status sem cofre antigo nao avisa dele" grep -q 'cofre antigo' "$TMP/o.txt"
+igual "o criar grava o nome do container no agentes.json" "dgclaw-beto" \
+    "$(jq -r '.agentes[] | select(.slug == "beto") | .container' "$ETC/agentes.json")"
+
+echo "status: cofre antigo do painel que sobrou na casa"
+VELHO="$LIB/agentes/beto/home/.dgclaw"
+mkdir -p "$VELHO/cofre/segredos"
+printf 'sk-teste-chave-de-cifra' >"$VELHO/cofre.chave"
+printf 'sk-teste-conteudo-cifrado' >"$VELHO/cofre/segredos/OPENAI_API_KEY.enc"
+printf 'sk-teste-conteudo-cifrado' >"$VELHO/cofre/segredos/GEMINI_API_KEY.enc"
+dgclaw status >"$TMP/o.txt" 2>&1
+igual "cofre antigo e aviso, nao falha: status sai 0" "0" "$?"
+afirma "avisa o cofre antigo com o nome do agente" grep -q 'aviso  agente beto: sobrou o cofre antigo' "$TMP/o.txt"
+afirma "lista os nomes das chaves" grep -q 'chaves: GEMINI_API_KEY, OPENAI_API_KEY' "$TMP/o.txt"
+afirma "diz como guardar de novo" grep -q 'dgclaw agente cofre beto guardar NOME' "$TMP/o.txt"
+afirma "diz o que apagar" grep -q "apague $VELHO/cofre.chave" "$TMP/o.txt"
+nega "nao imprime o conteudo dos arquivos" grep -q 'sk-teste' "$TMP/o.txt"
+afirma "nao apaga nada sozinho" test -f "$VELHO/cofre/segredos/OPENAI_API_KEY.enc"
+nega "nao avisa de agente sem cofre antigo" grep -q 'agente cida: sobrou' "$TMP/o.txt"
+rm -rf "$VELHO/cofre" "$VELHO/cofre.chave"
+
+echo "status: cofre antigo trocado por atalho nao e seguido"
+mkdir -p "$TMP/fora-da-casa/segredos"
+printf 'x' >"$TMP/fora-da-casa/segredos/SEGREDO_DE_FORA.enc"
+ln -s "$TMP/fora-da-casa" "$VELHO/cofre"
+dgclaw status >"$TMP/o.txt" 2>&1
+igual "atalho no cofre: status sai 0" "0" "$?"
+afirma "avisa que e um atalho e nao seguiu" grep -q "agente beto: $VELHO/cofre e um atalho" "$TMP/o.txt"
+nega "nao lista nomes de fora da casa" grep -q 'SEGREDO_DE_FORA' "$TMP/o.txt"
+rm -f "$VELHO/cofre"
+mkdir -p "$VELHO/cofre"
+ln -s "$TMP/fora-da-casa/segredos" "$VELHO/cofre/segredos"
+dgclaw status >"$TMP/o.txt" 2>&1
+afirma "atalho em cofre/segredos tambem nao e seguido" grep -q "$VELHO/cofre/segredos e um atalho" "$TMP/o.txt"
+nega "nem lista os nomes de la" grep -q 'SEGREDO_DE_FORA' "$TMP/o.txt"
+rm -rf "$VELHO/cofre"
+
+echo "reparar: regrava o config.sh"
+rm -f "$STUB_ESTADO/sem-imagem"
+criar_agente cida --nome "Cida" --dono "Marta"
+CFG="$LIB/agentes/cida/home/.dgclaw/config.sh"
+cp "$CFG" "$TMP/config-original.sh"
+sed -i '/^export DGCLAW_INJECT_MODE=/d;/^export DGCLAW_BUNKER_URL=/d;/^export DGCLAW_BUNKER_CARD=/d' "$CFG"
+nega "config.sh antigo nao tem DGCLAW_INJECT_MODE" grep -q DGCLAW_INJECT_MODE "$CFG"
+dgclaw agente reparar cida >"$TMP/o.txt" 2>&1
+igual "reparar sai com 0" "0" "$?"
+afirma "reparar diz que regravou" grep -q "config.sh do agente regravado" "$TMP/o.txt"
+afirma "DGCLAW_INJECT_MODE voltou" grep -q "^export DGCLAW_INJECT_MODE='bunker'" "$CFG"
+afirma "DGCLAW_BUNKER_URL voltou" grep -q "^export DGCLAW_BUNKER_URL=" "$CFG"
+afirma "DGCLAW_BUNKER_CARD voltou" grep -q "^export DGCLAW_BUNKER_CARD='cida'" "$CFG"
+afirma "DGCLAW_NAME continua o do criar" grep -q "^export DGCLAW_NAME='Cida'" "$CFG"
+afirma "DGCLAW_OWNER continua o do criar" grep -q "^export DGCLAW_OWNER='Marta'" "$CFG"
+igual "o arquivo ficou igual ao do criar" "$(cat "$TMP/config-original.sh")" "$(cat "$CFG")"
+igual "modo 644" "644" "$(stat -c '%a' "$CFG")"
+touch -d '2020-01-01' "$CFG"
+dgclaw agente reparar cida >"$TMP/o.txt" 2>&1
+afirma "segundo reparar diz que ja estava atualizado" grep -q "config.sh do agente ja estava atualizado" "$TMP/o.txt"
+igual "segundo reparar nao mexe no arquivo (mtime)" "2020-01-01" "$(date -r "$CFG" +%F)"
+
+echo "reparar: nome com aspas e cifrao"
+criar_agente duda --nome "D'Avila \$HOME \`x\`" --dono "O'Neil \$USER"
+CFG2="$LIB/agentes/duda/home/.dgclaw/config.sh"
+cp "$CFG2" "$TMP/config-duda.sh"
+dgclaw agente reparar duda >"$TMP/o.txt" 2>&1
+igual "reparar de nome estranho sai com 0" "0" "$?"
+afirma "nome com aspas e cifrao ja estava atualizado (ida e volta exata)" grep -q "ja estava atualizado" "$TMP/o.txt"
+igual "config.sh identico" "$(cat "$TMP/config-duda.sh")" "$(cat "$CFG2")"
+igual "o nome lido do arquivo e o original" "D'Avila \$HOME \`x\`" "$(bash -c ". '$CFG2'; printf '%s' \"\$DGCLAW_NAME\"")"
+
+echo "reparar: o runner.json manda"
+RJ="$LIB/agentes/cida/runner/runner.json"
+jq '.config.provider = "codex-cli"' "$RJ" >"$TMP/rj.json" && cat "$TMP/rj.json" >"$RJ"
+dgclaw agente reparar cida >"$TMP/o.txt" 2>&1
+igual "reparar com runner.json trocado sai com 0" "0" "$?"
+afirma "config.sh reflete o provedor do runner.json" grep -q "^export DGCLAW_PROVEDOR='codex'" "$CFG"
+
+echo "reparar: sem panel/config.json o dono vem do config.sh antigo"
+rm -f "$LIB/agentes/duda/home/.dgclaw/panel/config.json"
+dgclaw agente reparar duda >"$TMP/o.txt" 2>&1
+igual "dono com aspas e cifrao sobrevive pelo config.sh antigo" "O'Neil \$USER" "$(bash -c ". '$CFG2'; printf '%s' \"\$DGCLAW_OWNER\"")"
+
+echo "reparar: .dgclaw trocada por link e recusada"
+H3="$LIB/agentes/cida/home"
+mkdir -p "$TMP/fora"
+mv "$H3/.dgclaw" "$TMP/dgclaw-cida-guardada"
+ln -s "$TMP/fora" "$H3/.dgclaw"
+dgclaw agente reparar cida >"$TMP/o.txt" 2>&1
+nega "reparar com .dgclaw em link nao sai com 0" test "$?" = 0
+afirma "explica que a pasta e um link" grep -q "nao gravo como root fora da casa" "$TMP/o.txt"
+nega "nada foi gravado fora da casa" test -e "$TMP/fora/config.sh"
+rm "$H3/.dgclaw" && mv "$TMP/dgclaw-cida-guardada" "$H3/.dgclaw"
 
 fim

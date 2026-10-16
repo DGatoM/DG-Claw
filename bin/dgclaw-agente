@@ -3,9 +3,15 @@
 #
 # Uso:
 #   dgclaw-agente canal telegram token              (token do bot pelo stdin)
+#   dgclaw-agente canal telegram conferir          (confere o token guardado em $HOME/.dgclaw/telegram/.env e imprime o @ do bot)
 #   dgclaw-agente canal telegram parear [--confirmar <chat_id>]
 #   dgclaw-agente canal telegram ligar
 #   dgclaw-agente canal telegram desligar [--apagar]
+#   dgclaw-agente canal whatsapp parear <numero-secundario>   (imprime so o codigo de pareamento)
+#   dgclaw-agente canal whatsapp permitir <numero-do-dono>
+#   dgclaw-agente canal whatsapp remover <numero>
+#   dgclaw-agente canal whatsapp ligar
+#   dgclaw-agente canal whatsapp desligar [--apagar]
 #   dgclaw-agente canal status
 #
 # Variaveis de ambiente:
@@ -15,9 +21,13 @@
 #   DGCLAW_AGENTE_ID           id do agente no runner
 #   RUNNER_TOKEN_FILE          arquivo com o Bearer do runner (DGCLAW_RUNNER_TOKEN_FILE também vale)
 #   DGCLAW_TELEGRAM_API        base da API do Telegram (padrao https://api.telegram.org)
+#   DGCLAW_WHATSAPP_PONTE      caminho do ponte.mjs (padrao: canais/whatsapp/ponte.mjs ao lado deste repo,
+#                              com reserva em /opt/dgclaw/app/canais/whatsapp/ponte.mjs)
+#   DGCLAW_SYSTEMCTL           comando do systemctl, lido como palavras (padrao "sudo -n systemctl")
+#   DGCLAW_WHATSAPP_ESPERA     segundos de espera pelo codigo de pareamento (padrao 45)
 #   DGCLAW_UID                 so para testes: substitui o resultado de "id -u"
 #
-# Codigos de saida: 0 ok, 1 erro de uso ou de dado, 2 recusado (Admin), 3 canal salvo mas
+# Codigos de saida (valem para todos os canais): 0 ok, 1 erro de uso ou de dado, 2 recusado (Admin), 3 canal salvo mas
 # o reinicio nao foi pedido (sem arquivo de acesso ao runner), 4 canal salvo mas o runner
 # nao respondeu.
 set -euo pipefail
@@ -30,6 +40,9 @@ TGDIR="$DIR/telegram"
 ENVF="$TGDIR/.env"
 ACCESS="$TGDIR/access.json"
 CANAIS="$DIR/canais.json"
+WADIR="$DIR/whatsapp"
+WALOG="$DIR/logs/whatsapp-pareamento.log"
+UNIDADE="dgclaw-whatsapp"
 PADRAO_BOT='^[0-9]{6,12}:[A-Za-z0-9_-]{30,}$'
 
 erro() { echo "dgclaw-agente: $*" >&2; }
@@ -101,6 +114,26 @@ cmd_token() {
   garantir_pasta_tg
   printf 'TELEGRAM_BOT_TOKEN=%s\n' "$entrada" | escrever_atomico "$ENVF"
   echo "@$user"
+}
+
+# Confere o token que o DG Claw Web guardou no .env (o agente nunca ve o token cru).
+cmd_conferir() {
+  [ -f "$ENVF" ] || die "nenhum token guardado ainda; peca ao dono para colar o token do BotFather na conversa do DG Claw. Ele e guardado sozinho e o token nao passa por aqui."
+  BOT="$(ler_salvo)" || die "o arquivo $ENVF existe, mas nao tem a linha TELEGRAM_BOT_TOKEN=. Peca ao dono para colar o token do BotFather na conversa do DG Claw de novo."
+  local modo; modo="$(stat -c %a "$ENVF" 2>/dev/null || true)"
+  if [ -n "$modo" ] && [ "$modo" != "600" ]; then
+    erro "aviso: $ENVF esta com permissao $modo e deveria ser 600. Rode 'chmod 600 $ENVF'. O conteudo nao foi mostrado."
+  fi
+  local resp ok user
+  resp="$(tg getMe)" || die "nao consegui falar com o Telegram em $API. Confira a conexao do container com a internet e tente de novo."
+  ok="$(printf '%s' "$resp" | js 'return d.ok')"
+  if [ "$ok" != "true" ]; then
+    die "o Telegram recusou o token (getMe nao retornou ok). Provavelmente o token foi copiado errado ou o bot foi apagado no BotFather. Peca ao dono para conferir ou gerar outro com /token."
+  fi
+  user="$(printf '%s' "$resp" | js 'return d.result && d.result.username')"
+  [ -n "$user" ] || die "o Telegram aceitou o token mas nao informou o @username do bot. Tente de novo."
+  echo "@$user"
+  echo "ok: o token guardado e valido."
 }
 
 cmd_parear() {
@@ -186,16 +219,257 @@ cmd_desligar() {
   pedir_reinicio || exit $?
 }
 
+# ---------------------------------------------------------------- WhatsApp
+
+# Acha a ponte: variavel de teste, depois o repo deste script (pelo realpath), depois a reserva da imagem.
+achar_ponte() {
+  local aqui
+  if [ -n "${DGCLAW_WHATSAPP_PONTE:-}" ]; then PONTE="$DGCLAW_WHATSAPP_PONTE"; return 0; fi
+  aqui="$(cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")" && pwd)"
+  PONTE="$aqui/../canais/whatsapp/ponte.mjs"
+  [ -f "$PONTE" ] || PONTE="/opt/dgclaw/app/canais/whatsapp/ponte.mjs"
+}
+
+# Monta o comando do systemctl como palavras (padrao: sudo -n systemctl)
+montar_systemctl() { read -r -a SC <<< "${DGCLAW_SYSTEMCTL:-sudo -n systemctl}"; }
+
+# Normaliza um numero para so digitos com codigo de pais (a saida e sem "+"). Erra dizendo o que recebeu.
+normalizar() { # $1 = o que o dono digitou
+  local bruto="$1" d
+  d="$(printf '%s' "$bruto" | tr -d ' \t.()+-')"
+  if ! [[ "$d" =~ ^[0-9]{10,15}$ ]]; then
+    die "numero de WhatsApp invalido: recebi '${bruto:0:40}'. Preciso de 10 a 15 digitos com DDD, no formato +55 11 98765-4321 (espacos, tracos e parenteses podem ficar)."
+  fi
+  # sem "+" e com 10 ou 11 digitos: e um numero brasileiro sem o codigo do pais. Com "+" o dono ja deu o codigo.
+  if [ "${#d}" -le 11 ] && [[ "$bruto" != *+* ]]; then d="55$d"; fi
+  printf '%s' "$d"
+}
+
+# Chave de comparacao: no Brasil o 9 do celular pode faltar em contas antigas (55 + DDD + 9 + 8 digitos = 55 + DDD + 8 digitos)
+chave_numero() { # $1 = so digitos
+  local d="${1#+}"
+  if [[ "$d" =~ ^55[0-9]{2}9[0-9]{8}$ ]]; then printf '%s' "${d:0:4}${d:5}"; else printf '%s' "$d"; fi
+}
+
+garantir_pasta_wa() {
+  mkdir -p "$WADIR"; chmod 700 "$DIR" "$WADIR"
+}
+
+# Verdadeiro se sessao/creds.json existe e diz registered: true (nunca imprime nada da sessao)
+sessao_pareada() {
+  local f="$WADIR/sessao/creds.json"
+  [ -f "$f" ] || return 1
+  [ "$(js 'return d.registered === true ? "sim" : ""' < "$f")" = "sim" ]
+}
+
+# Preenche o array LISTA com os numeros de permitidos.json (+55...). Arquivo ilegivel e erro, nao lista vazia.
+ler_permitidos() {
+  LISTA=()
+  local f="$WADIR/permitidos.json" ok
+  [ -f "$f" ] || return 0
+  ok="$(js 'return Array.isArray(d.numeros) ? "ok" : ""' < "$f")"
+  [ "$ok" = "ok" ] || die "o arquivo $f existe mas nao e uma lista valida (esperado {\"versao\":1,\"numeros\":[...]}). Corrija ou apague o arquivo e rode 'canal whatsapp permitir' de novo."
+  mapfile -t LISTA < <(js 'return d.numeros.map(String).join("\n")' < "$f")
+  if [ "${#LISTA[@]}" -eq 1 ] && [ -z "${LISTA[0]}" ]; then LISTA=(); fi
+}
+
+gravar_permitidos() { # usa LISTA
+  garantir_pasta_wa
+  if [ "${#LISTA[@]}" -eq 0 ]; then
+    node -e 'process.stdout.write(JSON.stringify({ versao: 1, numeros: [] }, null, 2) + "\n")'
+  else
+    printf '%s\n' "${LISTA[@]}" | node -e '
+      const l = require("fs").readFileSync(0, "utf8").split("\n").filter(Boolean);
+      process.stdout.write(JSON.stringify({ versao: 1, numeros: l }, null, 2) + "\n");'
+  fi | escrever_atomico "$WADIR/permitidos.json"
+}
+
+# Texto "+55..., +55..." da lista (ou "nenhum")
+lista_texto() { # usa LISTA
+  local x out=""
+  for x in "${LISTA[@]}"; do out+="${out:+, }$x"; done
+  printf '%s' "${out:-nenhum}"
+}
+
+mostrar_permitidos() { echo "Permitidos: $(lista_texto)"; }
+
+cmd_wa_permitir() {
+  [ -n "${1:-}" ] || die "uso: dgclaw-agente canal whatsapp permitir <numero-do-dono>  (exemplo: +55 11 98765-4321)"
+  local d n k item achou=""
+  d="$(normalizar "$1")"; n="+$d"; k="$(chave_numero "$d")"
+  ler_permitidos
+  for item in "${LISTA[@]}"; do
+    [ "$(chave_numero "$item")" = "$k" ] && achou="$item"
+  done
+  if [ -n "$achou" ]; then
+    echo "O numero $n ja estava na lista (como $achou). Nada mudou."
+  else
+    LISTA+=("$n")
+    gravar_permitidos
+    echo "Numero $n permitido."
+  fi
+  mostrar_permitidos
+}
+
+cmd_wa_remover() {
+  [ -n "${1:-}" ] || die "uso: dgclaw-agente canal whatsapp remover <numero>"
+  local d n k item novos=() tirou=""
+  d="$(normalizar "$1")"; n="+$d"; k="$(chave_numero "$d")"
+  ler_permitidos
+  for item in "${LISTA[@]}"; do
+    if [ "$(chave_numero "$item")" = "$k" ]; then tirou=1; else novos+=("$item"); fi
+  done
+  if [ -z "$tirou" ]; then
+    mostrar_permitidos >&2
+    die "o numero $n nao esta na lista de permitidos, entao nada foi removido. Confira o numero."
+  fi
+  LISTA=("${novos[@]}")
+  gravar_permitidos
+  echo "Numero $n removido."
+  mostrar_permitidos
+}
+
+# Le estado/motivo do estado.json para mensagens de erro: "estado=X motivo=Y"
+resumo_estado() {
+  local f="$WADIR/estado.json" e m
+  [ -f "$f" ] || { printf 'a ponte nao chegou a registrar nenhum estado'; return 0; }
+  e="$(js 'return d.estado' < "$f")"; m="$(js 'return d.motivo' < "$f")"
+  printf 'estado: %s%s' "${e:-desconhecido}" "${m:+; motivo: $m}"
+}
+
+cmd_wa_parear() {
+  [ -n "${1:-}" ] || die "uso: dgclaw-agente canal whatsapp parear <numero-secundario>  (exemplo: +55 11 98765-4321)"
+  local d pid i max="${DGCLAW_WHATSAPP_ESPERA:-45}"
+  d="$(normalizar "$1")"
+  [[ "$max" =~ ^[0-9]+$ ]] || die "DGCLAW_WHATSAPP_ESPERA deve ser um numero de segundos (recebido: '$max')."
+  achar_ponte
+  [ -f "$PONTE" ] || die "nao encontrei a ponte do WhatsApp em $PONTE. Avise quem mantem a imagem do agente."
+  montar_systemctl
+  if "${SC[@]}" is-active --quiet "$UNIDADE" 2>/dev/null; then
+    die "o WhatsApp ja esta ligado e usando a conexao. Desligue antes de parear: dgclaw-agente canal whatsapp desligar"
+  fi
+  if sessao_pareada; then
+    die "este agente ja esta pareado com um WhatsApp. Para trocar de numero, apague a conexao antiga: dgclaw-agente canal whatsapp desligar --apagar, e rode parear de novo."
+  fi
+  garantir_pasta_wa
+  mkdir -p "$DIR/logs"; chmod 700 "$DIR/logs"
+  rm -f "$WADIR/codigo" "$WADIR/estado.json"
+  : > "$WALOG"; chmod 600 "$WALOG"
+  setsid nohup node "$PONTE" --parear "$d" >> "$WALOG" 2>&1 < /dev/null &
+  pid=$!
+  disown "$pid" 2>/dev/null || true
+  for ((i = 0; i < max * 2; i++)); do
+    if [ -s "$WADIR/codigo" ]; then
+      tr -d '\r\n' < "$WADIR/codigo"; echo
+      return 0
+    fi
+    if ! kill -0 "$pid" 2>/dev/null; then
+      sleep 0.2
+      if [ -s "$WADIR/codigo" ]; then tr -d '\r\n' < "$WADIR/codigo"; echo; return 0; fi
+      die "a ponte de pareamento parou antes de gerar o codigo ($(resumo_estado)). Veja o log em $WALOG e tente de novo."
+    fi
+    sleep 0.5
+  done
+  kill "$pid" 2>/dev/null || true
+  die "o codigo de pareamento nao apareceu em ${max}s ($(resumo_estado)). Confira a internet do container, veja o log em $WALOG e tente de novo."
+}
+
+cmd_wa_ligar() {
+  sessao_pareada || die "nao posso ligar: este agente ainda nao esta pareado com um WhatsApp. Rode antes 'canal whatsapp parear <numero-secundario>'."
+  ler_permitidos
+  [ "${#LISTA[@]}" -ge 1 ] || die "nao posso ligar: a lista de quem pode falar com o agente esta vazia. Rode 'canal whatsapp permitir <numero-do-dono>'."
+  montar_systemctl
+  garantir_pasta_wa
+  : > "$WADIR/ligado"; chmod 600 "$WADIR/ligado"
+  local saida rc=0
+  saida="$("${SC[@]}" enable --now "$UNIDADE" 2>&1)" || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    rm -f "$WADIR/ligado"
+    erro "o systemctl falhou (codigo $rc) ao ligar a unidade $UNIDADE: ${saida:-sem mensagem}"
+    die "o WhatsApp NAO foi ligado. Veja o motivo com: journalctl -u $UNIDADE (ou peca a quem mantem a maquina para conferir o sudo e a unidade)."
+  fi
+  echo "WhatsApp ligado."
+  echo "Agora, do seu numero pessoal, mande um 'oi' para o numero secundario (o que foi pareado). A resposta volta pelo mesmo caminho."
+}
+
+cmd_wa_desligar() {
+  local apagar=""
+  case "${1:-}" in
+    "") ;;
+    --apagar) apagar=1 ;;
+    *) die "opcao desconhecida: '${1}'. Use 'canal whatsapp desligar' ou 'canal whatsapp desligar --apagar'." ;;
+  esac
+  if [ -n "$apagar" ] && [ -L "$WADIR" ]; then
+    die "$WADIR e um atalho (link), nao uma pasta de verdade. Por seguranca nao apago nada. Confira quem criou esse atalho."
+  fi
+  if [ -n "$apagar" ] && [ -e "$WADIR" ]; then
+    # Um atalho mais acima ($HOME/.dgclaw, por exemplo) faria o rm -rf apagar OUTRA pasta.
+    local real_wadir esperado
+    real_wadir="$(realpath -- "$WADIR" 2>/dev/null)" || die "nao consegui resolver o caminho real de $WADIR. Por seguranca nao apago nada."
+    esperado="$(realpath -- "$HOME" 2>/dev/null)/.dgclaw/whatsapp"
+    if [ "$real_wadir" != "$esperado" ]; then
+      die "$WADIR aponta para $real_wadir, e nao para $esperado. Alguma pasta do caminho e um atalho. Por seguranca nao apago nada; confira quem criou esse atalho."
+    fi
+  fi
+  montar_systemctl
+  local saida rc=0
+  saida="$("${SC[@]}" disable --now "$UNIDADE" 2>&1)" || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    erro "aviso: o systemctl falhou (codigo $rc) ao desligar a unidade $UNIDADE: ${saida:-sem mensagem}. Sigo desligando; confira com 'journalctl -u $UNIDADE' se a ponte parou."
+  fi
+  rm -f "$WADIR/ligado"
+  if [ -z "$apagar" ]; then
+    echo "WhatsApp desligado. A conexao e a lista de permitidos continuam guardadas; basta 'canal whatsapp ligar' para voltar."
+    return 0
+  fi
+  if [ ! -d "$WADIR" ]; then
+    echo "WhatsApp desligado. Nao havia nada guardado para apagar."
+    return 0
+  fi
+  if [ -e "$WADIR/sessao/creds.json" ]; then
+    achar_ponte
+    if [ ! -f "$PONTE" ] || ! timeout 30 node "$PONTE" --logout >> "$DIR/logs/whatsapp-logout.log" 2>&1; then
+      erro "aviso: nao consegui desconectar o aparelho no WhatsApp (log em $DIR/logs/whatsapp-logout.log). O aparelho pode continuar em Aparelhos conectados; remova pelo celular."
+    fi
+  fi
+  # WADIR e sempre $HOME/.dgclaw/whatsapp, a pasta que este comando mesmo cria (e nao e link: conferido acima)
+  rm -rf -- "$WADIR"
+  echo "WhatsApp desligado e dados apagados (conexao e lista de permitidos). Os arquivos recebidos em ~/uploads/whatsapp ficaram."
+}
+
+status_whatsapp() {
+  montar_systemctl
+  local ativo="" l e m desde nb
+  "${SC[@]}" is-active --quiet "$UNIDADE" 2>/dev/null && ativo=1
+  if [ -f "$WADIR/ligado" ] && [ -n "$ativo" ]; then echo "WhatsApp: ligado"
+  elif [ -f "$WADIR/ligado" ]; then echo "WhatsApp: ligado, mas a unidade nao esta rodando (veja journalctl -u $UNIDADE)"
+  elif [ -d "$WADIR" ]; then echo "WhatsApp: desligado"
+  else echo "WhatsApp: desligado (nao configurado)"; fi
+  [ -d "$WADIR" ] || return 0
+  l="$WADIR/estado.json"
+  if [ -f "$l" ]; then
+    e="$(js 'return d.estado' < "$l")"; m="$(js 'return d.motivo' < "$l")"
+    desde="$(js 'return d.desde' < "$l")"; nb="$(js 'return d.numero_bot' < "$l")"
+    echo "  estado: ${e:-desconhecido}${desde:+ (desde $desde)}"
+    [ -z "$m" ] || echo "  motivo: $m"
+    [ -z "$nb" ] || echo "  numero do agente: $nb"
+  else
+    echo "  estado: sem registro da ponte ainda"
+  fi
+  ler_permitidos
+  echo "  permitidos: $(lista_texto)"
+}
+
 cmd_status() {
   local l=""
   if [ -f "$CANAIS" ]; then l="$(js 'return d.telegram&&d.telegram.ligado' < "$CANAIS")"; fi
   if [ "$l" = "true" ]; then echo "Telegram: ligado"
   elif ler_salvo >/dev/null 2>&1; then echo "Telegram: desligado (bot configurado)"
   else echo "Telegram: desligado (nao configurado)"; fi
-  echo "WhatsApp: indisponivel por enquanto"
+  status_whatsapp
 }
 
-[ "${1:-}" = "canal" ] || die "uso: dgclaw-agente canal telegram (token|parear|ligar|desligar) | canal status"
+[ "${1:-}" = "canal" ] || die "uso: dgclaw-agente canal telegram (token|conferir|parear|ligar|desligar) | canal whatsapp (parear|permitir|remover|ligar|desligar) | canal status"
 shift
 case "${1:-}" in
   status) cmd_status ;;
@@ -203,10 +477,21 @@ case "${1:-}" in
     shift
     case "${1:-}" in
       token) cmd_token ;;
+      conferir) cmd_conferir ;;
       parear) shift; cmd_parear "$@" ;;
       ligar) cmd_ligar ;;
       desligar) shift; cmd_desligar "$@" ;;
-      *) die "subcomando do Telegram desconhecido: '${1:-}'. Use token, parear, ligar ou desligar." ;;
+      *) die "subcomando do Telegram desconhecido: '${1:-}'. Use token, conferir, parear, ligar ou desligar." ;;
     esac ;;
-  *) die "canal desconhecido: '${1:-}'. Use 'telegram' ou 'status'." ;;
+  whatsapp)
+    shift
+    case "${1:-}" in
+      parear) shift; cmd_wa_parear "$@" ;;
+      permitir) shift; cmd_wa_permitir "$@" ;;
+      remover) shift; cmd_wa_remover "$@" ;;
+      ligar) cmd_wa_ligar ;;
+      desligar) shift; cmd_wa_desligar "$@" ;;
+      *) die "subcomando do WhatsApp desconhecido: '${1:-}'. Use parear, permitir, remover, ligar ou desligar." ;;
+    esac ;;
+  *) die "canal desconhecido: '${1:-}'. Use 'telegram', 'whatsapp' ou 'status'." ;;
 esac

@@ -374,7 +374,7 @@ else
     if [ "$DIAS_SEM" -le 1 ]; then
         P "a reflexao da noite esta escrevendo o diario (ultimo: $ULTIMO_DIARIO)"
     else
-        B "a reflexao da noite nao escreve o diario ha $DIAS_SEM dias (ultimo: $ULTIMO_DIARIO). O recado das 23:30 sai, mas a sessao nao executa: veja a secao 6 e o docs/EMERGENCIA.md (sessao travada? login vencido?)"
+        B "a reflexao da noite nao escreve o diario ha $DIAS_SEM dias (ultimo: $ULTIMO_DIARIO). O recado das 23:30 sai, mas a sessao nao executa: veja a secao 6 acima e o docs/EMERGENCIA.md, secoes 3.3 (login vencido ou outro erro no ultimo turno) e 3.7 (sessao travada)"
     fi
 fi
 

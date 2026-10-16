@@ -1,0 +1,27 @@
+[Unit]
+Description=DG Claw ponte do WhatsApp (liga o numero secundario do dono ao agente pelo Baileys)
+After=network-online.target dgclaw-runner.service
+Wants=network-online.target
+# Esta unidade vem na imagem mas NAO e habilitada nela: quem liga e o dono, com
+# "dgclaw-agente canal whatsapp ligar", que cria o arquivo "ligado" e roda o enable.
+# O ConditionPathExists segura a subida: sem o arquivo (WhatsApp nunca ligado, ou desligado
+# de proposito) a unidade fica quieta em vez de falhar a cada boot.
+ConditionPathExists=/home/agente/.dgclaw/whatsapp/ligado
+
+[Service]
+Type=simple
+User=agente
+Environment=HOME=/home/agente
+Environment=DGCLAW_RUNNER_URL=http://127.0.0.1:4300
+Environment=RUNNER_TOKEN_FILE=/run/dgclaw/segredos/runner.token
+Environment=DGCLAW_RUNNER_JSON=/etc/dgclaw-runner/runner.json
+# Nada que a ponte crie (sessao, socket, log) fica legivel para grupo ou outros.
+UMask=0077
+NoNewPrivileges=yes
+WorkingDirectory=/opt/dgclaw/app/canais/whatsapp
+ExecStart=/usr/bin/node /opt/dgclaw/app/canais/whatsapp/ponte.mjs
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

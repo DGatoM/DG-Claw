@@ -19,6 +19,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 
 const AQUI = path.dirname(fileURLToPath(import.meta.url));
@@ -93,8 +94,8 @@ const linhasDo = (arquivo) =>
 {
   const { respostas } = await conversar([{ jsonrpc: '2.0', id: 1, method: 'tools/list' }]);
   const nomes = (respostas[0]?.result?.tools || []).map((t) => t.name).sort();
-  if (JSON.stringify(nomes) === JSON.stringify(['reply', 'send_file'])) {
-    ok('2. tools/list traz exatamente reply e send_file (os nomes que o thread_log.py casa)');
+  if (JSON.stringify(nomes) === JSON.stringify(['reply', 'send_file', 'whatsapp_reply', 'whatsapp_send_file'])) {
+    ok('2. tools/list traz reply, send_file e as duas do WhatsApp (os nomes que o thread_log.py casa)');
   } else {
     falhou(`2. tools/list trouxe ${JSON.stringify(nomes)}`);
   }
@@ -267,6 +268,166 @@ const linhasDo = (arquivo) =>
     falhou(`10. ids=${JSON.stringify(ids)} erro=${erro.slice(0, 200)}`);
   }
 }
+
+// ── 11 a 17. WhatsApp: tools que falam com o socket da ponte ────────────────
+/** Servidor unix falso: guarda cada linha recebida e responde o que o caso mandar. */
+function pontaFalsa(arquivo, resposta) {
+  const recebidas = [];
+  const srv = net.createServer((c) => {
+    let b = '';
+    c.on('data', (d) => {
+      b += d;
+      const i = b.indexOf('\n');
+      if (i < 0) return;
+      recebidas.push(b.slice(0, i));
+      b = '';
+      const r = typeof resposta === 'function' ? resposta() : resposta;
+      if (r === null) return; // nao responde nunca (caso de timeout/travado)
+      c.end(r + '\n');
+    });
+    c.on('error', () => {});
+  });
+  return new Promise((res) => srv.listen(arquivo, () => res({ srv, recebidas })));
+}
+const texto0 = (r) => r?.content?.[0]?.text || '';
+const dirSock = fs.mkdtempSync(path.join(os.tmpdir(), 'dgwa-'));
+
+// 11. socket ausente
+{
+  const { outbound } = casa('wa-ausente');
+  const { respostas } = await conversar([
+    chamar('whatsapp_reply', { texto: 'oi' }, 1),
+    chamar('whatsapp_send_file', { caminho: '/etc/hostname' }, 2),
+  ], { DGCLAW_WHATSAPP_SOCK: path.join(dirSock, 'nao-existe.sock'), DGCHAT_OUTBOUND: outbound });
+  const a = respostas.find((r) => r.id === 1)?.result;
+  const b = respostas.find((r) => r.id === 2)?.result;
+  if (a?.isError && b?.isError && /O WhatsApp está desligado; fale pelo chat do DG Claw \(tool reply\)/.test(texto0(a) + texto0(b))) {
+    ok('11. socket ausente: as duas tools falham dizendo que o WhatsApp esta desligado');
+  } else {
+    falhou(`11. ausente devolveu ${JSON.stringify([a, b])}`);
+  }
+  if (linhasDo(outbound).length === 0) ok('11b. falha nao entra no registro de entrega');
+  else falhou('11b. falha foi registrada como entrega');
+}
+
+// 12. socket presente, ok:true, e a linha que chegou
+{
+  const sock = path.join(dirSock, 'ok.sock');
+  const { srv, recebidas } = await pontaFalsa(sock, JSON.stringify({ ok: true, para: '+5511987654321', id: 'ABC' }));
+  const { dir, outbound } = casa('wa-ok');
+  const arq = path.join(dir, 'a.pdf');
+  fs.writeFileSync(arq, 'x');
+  const { respostas } = await conversar([
+    chamar('whatsapp_reply', { texto: 'ola', para: '+5511987654321' }, 1),
+    chamar('whatsapp_reply', { texto: 'sem destino' }, 2),
+    chamar('whatsapp_send_file', { caminho: arq, legenda: 'o pdf' }, 3),
+    chamar('whatsapp_send_file', { caminho: arq }, 4),
+  ], { DGCLAW_WHATSAPP_SOCK: sock, DGCHAT_OUTBOUND: outbound, DGCHAT_AGENT: 'ana' });
+  srv.close();
+  const r1 = respostas.find((r) => r.id === 1)?.result;
+  const r3 = respostas.find((r) => r.id === 3)?.result;
+  if (!r1?.isError && /Mensagem entregue no WhatsApp de \+5511987654321/.test(texto0(r1))
+      && !r3?.isError && /Arquivo entregue no WhatsApp de \+5511987654321/.test(texto0(r3))) {
+    ok('12. ponte responde ok: as tools dizem "entregue no WhatsApp de +55..."');
+  } else {
+    falhou(`12. ok devolveu ${JSON.stringify([r1, r3])}`);
+  }
+  const l = recebidas.map((x) => JSON.parse(x));
+  if (l[0].acao === 'enviar' && l[0].para === '+5511987654321' && l[0].texto === 'ola' && Object.keys(l[0]).length === 3) {
+    ok('12b. a linha JSON de enviar chegou na ponte como o contrato manda');
+  } else falhou(`12b. enviar chegou ${JSON.stringify(l[0])}`);
+  if (!('para' in l[1])) ok('12c. "para" omitido nao vai na linha');
+  else falhou(`12c. para vazio foi enviado: ${JSON.stringify(l[1])}`);
+  if (l[2].acao === 'arquivo' && l[2].caminho === arq && l[2].legenda === 'o pdf' && Object.keys(l[2]).length === 3
+      && !('legenda' in l[3]) && !('para' in l[3])) {
+    ok('12d. arquivo chega com legenda quando ha, sem legenda e sem para quando nao ha');
+  } else falhou(`12d. arquivo chegou ${JSON.stringify(l.slice(2))}`);
+  const regs = linhasDo(outbound);
+  if (regs.length === 4 && regs[0].kind === 'whatsapp_text' && regs[0].source === 'tool:whatsapp_reply'
+      && regs[2].kind === 'whatsapp_file' && regs[2].source === 'tool:whatsapp_send_file') {
+    ok('12e. o registro de entrega leva kind e source do WhatsApp');
+  } else falhou(`12e. registros ${JSON.stringify(regs)}`);
+}
+
+// 13. ok:false
+{
+  const sock = path.join(dirSock, 'nao.sock');
+  const { srv } = await pontaFalsa(sock, JSON.stringify({ ok: false, codigo: 'FORA_DA_LISTA', erro: 'o numero nao esta na lista' }));
+  const { outbound } = casa('wa-nao');
+  const { respostas } = await conversar([chamar('whatsapp_reply', { texto: 'oi', para: '+5511900000000' })],
+    { DGCLAW_WHATSAPP_SOCK: sock, DGCHAT_OUTBOUND: outbound });
+  srv.close();
+  const r = respostas[0]?.result;
+  if (r?.isError && /NÃO foi entregue/.test(texto0(r)) && /FORA_DA_LISTA/.test(texto0(r)) && /o numero nao esta na lista/.test(texto0(r))) {
+    ok('13. ok:false vira falha com o codigo e o erro da ponte, dizendo que NAO foi entregue');
+  } else falhou(`13. ok:false devolveu ${JSON.stringify(r)}`);
+  if (linhasDo(outbound).length === 0) ok('13b. recusa da ponte nao entra no registro');
+  else falhou('13b. recusa registrada como entrega');
+}
+
+// 14. resposta que nao e JSON
+{
+  const sock = path.join(dirSock, 'lixo.sock');
+  const { srv } = await pontaFalsa(sock, 'isto nao e json');
+  const { respostas } = await conversar([chamar('whatsapp_reply', { texto: 'oi' })],
+    { DGCLAW_WHATSAPP_SOCK: sock, DGCHAT_OUTBOUND: casa('wa-lixo').outbound });
+  srv.close();
+  const r = respostas[0]?.result;
+  if (r?.isError && /não repita às cegas/i.test(texto0(r)) && /pode ou não ter saído/i.test(texto0(r))) {
+    ok('14. resposta que nao e JSON: falha explicando que pode ou nao ter saido');
+  } else falhou(`14. nao-JSON devolveu ${JSON.stringify(r)}`);
+}
+
+// 15. sessao paralela recusa e nem toca no socket
+{
+  const sock = path.join(dirSock, 'par.sock');
+  const { srv, recebidas } = await pontaFalsa(sock, JSON.stringify({ ok: true, para: '+5511987654321', id: 'X' }));
+  const { respostas } = await conversar([
+    chamar('whatsapp_reply', { texto: 'oi' }, 1),
+    chamar('whatsapp_send_file', { caminho: '/etc/hostname' }, 2),
+  ], { DGCLAW_WHATSAPP_SOCK: sock, DGCHAT_SESSAO_ID: 's_2', DGCHAT_OUTBOUND: casa('wa-par').outbound });
+  srv.close();
+  const rs = respostas.map((r) => r.result);
+  if (rs.every((r) => r?.isError && /Só a sessão principal fala pelo WhatsApp\. Responda pelo reply do chat desta sessão\./.test(texto0(r)))
+      && recebidas.length === 0) {
+    ok('15. sessao paralela: as duas recusam e nada chega na ponte');
+  } else falhou(`15. paralela devolveu ${JSON.stringify(rs)} recebidas=${recebidas.length}`);
+}
+
+// 16. sem chat as do WhatsApp funcionam; reply continua exigindo chat
+{
+  const sock = path.join(dirSock, 'semchat.sock');
+  const { srv } = await pontaFalsa(sock, JSON.stringify({ ok: true, para: '+5511987654321', id: 'Y' }));
+  const { respostas } = await conversar([
+    chamar('whatsapp_reply', { texto: 'sem chat' }, 1),
+    chamar('reply', { text: 'sem chat' }, 2),
+  ], { DGCLAW_WHATSAPP_SOCK: sock, DGCHAT_OUTBOUND: casa('wa-semchat').outbound });
+  srv.close();
+  const a = respostas.find((r) => r.id === 1)?.result;
+  const b = respostas.find((r) => r.id === 2)?.result;
+  if (!a?.isError && b?.isError && /envelope/.test(texto0(b))) {
+    ok('16. whatsapp_reply nao exige chat, e o reply continua exigindo');
+  } else falhou(`16. semchat devolveu ${JSON.stringify([a, b])}`);
+}
+
+// 17. validacoes antes do socket
+{
+  const sock = path.join(dirSock, 'valida.sock');
+  const { srv, recebidas } = await pontaFalsa(sock, JSON.stringify({ ok: true, para: '+55', id: 'Z' }));
+  const { respostas } = await conversar([
+    chamar('whatsapp_reply', { texto: '  ' }, 1),
+    chamar('whatsapp_reply', { texto: 'x'.repeat(32_001) }, 2),
+    chamar('whatsapp_send_file', { caminho: 'relativo.pdf' }, 3),
+    chamar('whatsapp_send_file', { caminho: '/tmp/nao-existe-nunca.pdf' }, 4),
+  ], { DGCLAW_WHATSAPP_SOCK: sock, DGCHAT_OUTBOUND: casa('wa-valida').outbound });
+  srv.close();
+  const rs = [1, 2, 3, 4].map((i) => respostas.find((r) => r.id === i)?.result);
+  if (rs.every((r) => r?.isError) && recebidas.length === 0 && /absoluto/.test(texto0(rs[2])) && /não existe/.test(texto0(rs[3]))) {
+    ok('17. texto vazio, texto gigante, caminho relativo e inexistente sao recusados antes do socket');
+  } else falhou(`17. validacao devolveu ${JSON.stringify(rs)} recebidas=${recebidas.length}`);
+}
+
+fs.rmSync(dirSock, { recursive: true, force: true });
 
 fs.rmSync(raiz, { recursive: true, force: true });
 

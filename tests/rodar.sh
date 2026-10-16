@@ -6,8 +6,13 @@
 #   3. web/test         o DG Claw Web (node --test)
 #   4. painel           panel/test-*.mjs, um por um (saida 3 = parte pulada, ex.: sem chave de teste)
 #   5. python           scripts/_lib/test_*.py, um por um
+#   5b. bin             bin/test/*.test.sh (dgclaw-agente e dgclaw-card, com Telegram e runner falsos)
 #   6. runner           compila numa pasta temporaria e roda os *.test.js do dist
-#   7. shellcheck       nos scripts do instalador, da CLI e dos testes
+#   7. cofre            scripts/test-cofre-nomes.sh e as duas linhas dele na unidade do runner
+#   8. shellcheck       nos scripts do instalador, da CLI e dos testes
+#   9. whatsapp         canais/whatsapp/test (node --test): a ponte do WhatsApp com Baileys e runner falsos,
+#                       mais a conferencia do package-lock.json
+#  10. mcp              scripts/dgchat-mcp/test-server.mjs: a bancada do servidor MCP do DG Chat
 #
 # Nada aqui encosta no sistema de verdade: nao cria container, rede nem unidade.
 #
@@ -49,12 +54,10 @@ testes_runner() {
         cd "$tmp" || exit 1
         npm ci --no-audit --no-fund >"$tmp/npm.log" 2>&1 \
             || { echo "npm ci do runner falhou; fim do log:" >&2; tail -20 "$tmp/npm.log" >&2; exit 1; }
-        npm run build >>"$tmp/npm.log" 2>&1 \
-            || { echo "a compilacao do runner (tsc) falhou; fim do log:" >&2; tail -20 "$tmp/npm.log" >&2; exit 1; }
-        shopt -s nullglob
-        local t=(dist/*.test.js)
-        [ "${#t[@]}" -gt 0 ] || { echo "o runner compilou, mas nao achei nenhum dist/*.test.js" >&2; exit 1; }
-        node --test "${t[@]}"
+        # O "build" do runner usa o tsconfig.build.json, que deixa os testes de fora da
+        # imagem; quem compila COM os testes e roda e o "npm test" (tsc + node --test).
+        # Fora do repo o caminho relativo do catalogo nao existe: aponta o do repo.
+        DGCLAW_CATALOGO="$REPO/providers/catalogo.json" npm test
     ) || rc=$?
     rm -rf "$tmp"
     return "$rc"
@@ -92,15 +95,37 @@ testes_python() {
     return "$ruins"
 }
 
+testes_cofre() {
+    bash "$REPO/scripts/test-cofre-nomes.sh" || return 1
+    # Sem estas duas linhas na unidade, o runner do container nao le os nomes do cofre e
+    # tira do agente as chaves que vieram dele (a OPENAI_API_KEY, por exemplo).
+    local u="$REPO/container/units/dgclaw-runner.service" ruins=0
+    grep -q '^Environment=DGCLAW_COFRE_ARQUIVO=/run/dgclaw-cofre-nomes$' "$u" \
+        || { echo "FALHOU: $u sem Environment=DGCLAW_COFRE_ARQUIVO=/run/dgclaw-cofre-nomes"; ruins=1; }
+    grep -q '^ExecStartPre=+-/bin/bash /opt/dgclaw/app/scripts/cofre-nomes.sh ' "$u" \
+        || { echo "FALHOU: $u sem o ExecStartPre=+- do cofre-nomes.sh (roda como root antes do runner)"; ruins=1; }
+    [ "$ruins" = 0 ] && echo "  ok     a unidade do runner chama o cofre-nomes e aponta o arquivo"
+    return "$ruins"
+}
+
 testes_shellcheck() {
     local sc="${SHELLCHECK:-shellcheck}"
     command -v "$sc" >/dev/null || { echo "nao achei o shellcheck ('$sc'); instale, aponte SHELLCHECK=<binario> ou rode com DGCLAW_TESTES_PULAR=shellcheck" >&2; return 1; }
     (
         cd "$REPO" || exit 1
         arquivos=(install.sh bin/dgclaw lib/*.sh tests/rodar.sh tests/cli/*.sh tests/cli/stubs/*
-                  tests/instalador/*.sh)
+                  tests/instalador/*.sh scripts/cofre-nomes.sh scripts/test-cofre-nomes.sh)
         "$sc" -x "${arquivos[@]}"
     )
+}
+
+testes_bin() {
+    local t ruins=0
+    for t in "$REPO"/bin/test/*.test.sh; do
+        printf -- '--- bin/test/%s\n' "$(basename "$t")"
+        bash "$t" || { echo "FALHOU: bin/test/$(basename "$t")"; ruins=1; }
+    done
+    return "$ruins"
 }
 
 parte cli bash "$REPO/tests/cli/rodar.sh"
@@ -108,8 +133,12 @@ parte instalador bash "$REPO/tests/instalador/rodar.sh"
 parte web node --test "$REPO/web/test/"
 parte painel testes_painel
 parte python testes_python
+parte bin testes_bin
 parte runner testes_runner
+parte cofre testes_cofre
 parte shellcheck testes_shellcheck
+parte whatsapp node --test "$REPO/canais/whatsapp/test/"
+parte mcp node "$REPO/scripts/dgchat-mcp/test-server.mjs"
 
 printf '\n'
 [ "${#PULADOS[@]}" -eq 0 ] || printf 'Pulado: %s\n' "${PULADOS[@]}"

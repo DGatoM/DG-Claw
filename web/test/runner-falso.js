@@ -5,7 +5,7 @@
 const http = require('node:http');
 
 function criarRunnerFalso(opcoes) {
-  const o = Object.assign({ agenteId: 'ag1', token: null, sessionId: 'sess-0001-aaaa', status: 'idle', currentTool: null, provedor: null, atrasoProvedorMs: 0, falhaInput: null }, opcoes || {});
+  const o = Object.assign({ agenteId: 'ag1', token: null, sessionId: 'sess-0001-aaaa', status: 'idle', currentTool: null, provedor: null, codexHome: null, atrasoProvedorMs: 0, falhaInput: null }, opcoes || {});
   const rec = { inputs: [], cabecalhos: [], estadoPedidos: 0, provedorPedidos: 0 };
   const servidor = http.createServer((req, res) => {
     const json = (status, corpo) => { const t = JSON.stringify(corpo); res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(t); };
@@ -14,7 +14,7 @@ function criarRunnerFalso(opcoes) {
     const rota = req.url.split('?')[0];
     if (rota === `/api/agents/${o.agenteId}` && req.method === 'GET') {
       rec.estadoPedidos += 1;
-      return json(200, { success: true, data: { id: o.agenteId, status: o.status, sessionId: o.sessionId, currentTool: o.currentTool, updatedAt: Date.now() } });
+      return json(200, { success: true, data: { id: o.agenteId, status: o.status, sessionId: o.sessionId, currentTool: o.currentTool, updatedAt: Date.now(), codexHome: o.codexHome } });
     }
     if (rota === `/api/agents/${o.agenteId}/input` && req.method === 'POST') {
       const partes = [];

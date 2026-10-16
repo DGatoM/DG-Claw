@@ -53,6 +53,7 @@ After=dgclaw-${SLUG}.service
 
 [Service]
 Type=oneshot
+# Plugin classico, onde o agente roda como root. Nenhum fluxo da v1 instala este vigia (so o plugin classico, pela documentacao).
 User=root
 Environment=HOME=/root
 # o script da source no config.sh (que exporta TELEGRAM_STATE_DIR etc).

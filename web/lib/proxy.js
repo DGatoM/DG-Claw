@@ -25,7 +25,7 @@ function valorSeguro(v) {
   return /^[\x20-\x7e]*$/.test(s) ? s : encodeURIComponent(s);
 }
 
-function criarProxy({ config, registro, log }) {
+function criarProxy({ config, registro, log, cofreRotas }) {
   const cacheSegredo = new Map(); // caminho -> { mtimeMs, valor }
   const socketsAbertos = new Set(); // conexões WebSocket, para fechar junto com o servidor
 
@@ -74,7 +74,26 @@ function criarProxy({ config, registro, log }) {
     return h;
   }
 
+  /**
+   * Agente da v1 (com cofre_arquivo): as rotas do cofre e a troca de modelo com chave são
+   * respondidas pelo Web (./cofre-rotas) e nunca chegam ao painel. Se o Web leu o corpo para
+   * decidir e a rota é do painel, o corpo lido segue como Buffer.
+   */
   function responder(req, res, slug, usuario) {
+    const agente = cofreRotas ? registro.obter(slug) : null;
+    const qual = agente && agente.cofre_arquivo ? cofreRotas.casa(req, slug) : null;
+    if (!qual) return encaminhar(req, res, slug, usuario, null);
+    cofreRotas.tratar(req, res, agente, usuario, qual).then((repasse) => {
+      if (repasse && repasse.corpo) encaminhar(req, res, slug, usuario, repasse.corpo);
+    }).catch((e) => {
+      log('erro', `Proxy /p/${slug}: o tratamento do cofre quebrou (${e && e.message}).`);
+      if (!res.headersSent) erroJson(res, 500, 'Não consegui atender o pedido do cofre. Veja o registro do DG Claw Web.');
+      else res.destroy();
+    });
+    return undefined;
+  }
+
+  function encaminhar(req, res, slug, usuario, corpoLido) {
     const d = destino(slug);
     if (d.status) {
       if (/\btext\/html\b/.test(String(req.headers.accept || ''))) paginaErro(res, d.status, 'Painel indisponível', d.motivo);
@@ -86,6 +105,7 @@ function criarProxy({ config, registro, log }) {
       host: '127.0.0.1', port: agente.porta_painel, method: req.method, path: req.url,
       headers: cabecalhosParaPainel(req, usuario, segredo, agente),
     };
+    if (corpoLido) opcoes.headers['content-length'] = String(corpoLido.length);
     const preq = http.request(opcoes, (pres) => {
       const h = {};
       for (const [k, v] of Object.entries(pres.headers)) if (!HOP.has(k.toLowerCase())) h[k] = v;
@@ -101,7 +121,7 @@ function criarProxy({ config, registro, log }) {
       else erroJson(res, 502, motivo);
     });
     res.on('close', () => { if (!res.writableEnded) preq.destroy(); });
-    req.pipe(preq);
+    if (corpoLido) preq.end(corpoLido); else req.pipe(preq);
   }
 
   /** WebSocket/Upgrade: abre a mesma conexão no painel e liga os dois lados. */

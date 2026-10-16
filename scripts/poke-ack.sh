@@ -25,3 +25,18 @@ LEDGER="$SCRIPT_DIR/_lib/poke_ledger.py"
 WS="${DGCLAW_WORKSPACE:-$(cd "$SCRIPT_DIR/../../.." && pwd)}"
 
 python3 "$LEDGER" ack --ws "$WS" --key "$KEY"
+ACK_RC=$?
+
+# Reflexao concluida: confere se o MEMORY.md nao encolheu demais na consolidacao (e restaura
+# a copia de antes se encolheu). Falha aqui nao muda o rc do recibo, mas fica no log.
+case "$KEY" in
+    reflection-*)
+        REFLOG="$WS/.dgclaw/logs/reflection.log"
+        mkdir -p "$(dirname "$REFLOG")" 2>/dev/null
+        if ! python3 "$SCRIPT_DIR/_lib/memoria_guarda.py" conferir --ws "$WS" >> "$REFLOG" 2>&1; then
+            echo "[$(date '+%F %T')] poke-ack ($KEY): a conferencia do MEMORY.md saiu com codigo diferente de 0 (3 = restaurou a versao anterior; outro = nao consegui conferir). Detalhes nas linhas acima." >> "$REFLOG"
+        fi
+        ;;
+esac
+
+exit "$ACK_RC"

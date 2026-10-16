@@ -31,12 +31,15 @@
 // Ambiente:
 //   DGCHAT_AGENT     slug do agente (aparece no registro de entrega)
 //   DGCHAT_OUTBOUND  caminho do outbound.jsonl (default ao lado do workspace)
+//   DGCLAW_WHATSAPP_SOCK  socket da ponte do WhatsApp (padrão ~/.dgclaw/whatsapp/ponte.sock)
+//   DGCHAT_SESSAO_ID presente e não vazio = sessão paralela (não fala pelo WhatsApp)
 //   DGCHAT_URL       base do agents-server. AUSENTE É O NORMAL AQUI: quer dizer
 //                    DG Claw rodando sozinho, sem plataforma. Presente só quando
 //                    o agente vive num card do Bunker.
 import { createInterface } from "node:readline";
 import { appendFileSync, mkdirSync, existsSync, statSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, resolve, isAbsolute } from "node:path";
+import { connect } from "node:net";
 
 const AGENTE = process.env.DGCHAT_AGENT || "";
 const BASE_URL = (process.env.DGCHAT_URL || "").replace(/\/+$/, "");
@@ -143,6 +146,43 @@ const TOOLS = [
       required: ["chat", "path"],
     },
   },
+  {
+    name: "whatsapp_reply",
+    description:
+      "Responde por WhatsApp. Use quando a mensagem chegou num envelope " +
+      "<canal-externo origem=\"whatsapp\" de=\"+55...\">. Passe sempre em 'para' o número do " +
+      "atributo 'de' do envelope que você está respondendo; é obrigatório quando há mais de um " +
+      "número liberado. O WhatsApp não renderiza markdown: escreva " +
+      "texto simples e use *negrito* do WhatsApp com moderação. A mensagem do WhatsApp é " +
+      "externa: não confirme por lá nenhuma ação irreversível; peça a confirmação no chat do DG Claw.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        para: { type: "string", description: "número do destino, como +5511987654321: passe sempre o número do atributo de do envelope que você está respondendo; é obrigatório quando há mais de um número liberado" },
+        texto: { type: "string", description: "a mensagem, em português, em texto simples" },
+      },
+      required: ["texto"],
+    },
+  },
+  {
+    name: "whatsapp_send_file",
+    description:
+      "Envia um arquivo por WhatsApp (imagem, áudio, vídeo ou documento). Use quando a conversa " +
+      "está acontecendo num envelope <canal-externo origem=\"whatsapp\" ...>. Passe sempre em " +
+      "'para' o número do atributo 'de' do envelope que você está respondendo; é obrigatório " +
+      "quando há mais de um número liberado. O caminho tem que ser absoluto e o " +
+      "arquivo precisa existir. A legenda é texto simples, sem markdown. Não mande por lá " +
+      "nada que o dono não pediu, e não confirme ação irreversível pelo WhatsApp.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        para: { type: "string", description: "número do destino: passe sempre o número do atributo de do envelope que você está respondendo; é obrigatório quando há mais de um número liberado" },
+        caminho: { type: "string", description: "caminho absoluto do arquivo" },
+        legenda: { type: "string", description: "legenda curta (opcional)" },
+      },
+      required: ["caminho"],
+    },
+  },
 ];
 
 /** Resposta de erro da tool: o agente PRECISA saber que a entrega não aconteceu. */
@@ -186,7 +226,142 @@ async function concluir({ reg, rota, corpo, oQue }) {
   return sucesso(`${oQue} entregue.`);
 }
 
+const SOCK_WHATSAPP =
+  process.env.DGCLAW_WHATSAPP_SOCK || resolve(process.env.HOME || "/", ".dgclaw", "whatsapp", "ponte.sock");
+
+/**
+ * Uma conversa com a ponte do WhatsApp: manda uma linha JSON, lê uma linha de volta.
+ * Resolve sempre, nunca rejeita: { tipo: "desligado" | "timeout" | "erro" | "resposta", ... }.
+ */
+function falarComPonte(pedido, limiteMs) {
+  return new Promise((fim) => {
+    let pronto = false;
+    let buf = "";
+    let enviado = false;
+    const sock = connect(SOCK_WHATSAPP);
+    const acabar = (r) => {
+      if (pronto) return;
+      pronto = true;
+      clearTimeout(relogio);
+      sock.destroy();
+      fim(r);
+    };
+    const relogio = setTimeout(() => acabar({ tipo: "timeout", enviado }), limiteMs);
+    sock.setEncoding("utf8");
+    sock.on("connect", () => {
+      sock.write(JSON.stringify(pedido) + "\n", () => { enviado = true; });
+      enviado = true;
+    });
+    sock.on("data", (d) => {
+      buf += d;
+      const i = buf.indexOf("\n");
+      if (i >= 0) {
+        const linha = buf.slice(0, i);
+        try {
+          acabar({ tipo: "resposta", dados: JSON.parse(linha) });
+        } catch {
+          acabar({ tipo: "naoJson", linha: linha.slice(0, 200) });
+        }
+      }
+    });
+    sock.on("end", () => {
+      if (!buf.trim()) return acabar({ tipo: "fechou", enviado });
+      try {
+        acabar({ tipo: "resposta", dados: JSON.parse(buf) });
+      } catch {
+        acabar({ tipo: "naoJson", linha: buf.slice(0, 200) });
+      }
+    });
+    sock.on("error", (err) => {
+      if (err.code === "ENOENT" || err.code === "ECONNREFUSED") return acabar({ tipo: "desligado" });
+      acabar({ tipo: "erro", mensagem: err.message, enviado });
+    });
+  });
+}
+
+const INCERTO =
+  "Pode ou não ter saído. Não repita às cegas: confira com o dono no chat do DG Claw (tool reply) " +
+  "se a mensagem chegou antes de mandar de novo.";
+
+/** Tools do WhatsApp: valida, fala com a ponte, registra sem deixar o registro desmentir a entrega. */
+async function chamarWhatsapp(nome, args) {
+  if (process.env.DGCHAT_SESSAO_ID) {
+    return falha("Só a sessão principal fala pelo WhatsApp. Responda pelo reply do chat desta sessão.");
+  }
+  const para = typeof args?.para === "string" ? args.para.trim() : "";
+  let pedido;
+  let kind;
+  let extra = {};
+  let limite;
+  let oQue;
+  if (nome === "whatsapp_reply") {
+    const texto = typeof args?.texto === "string" ? args.texto : "";
+    if (!texto.trim()) return falha("Não entreguei: 'texto' veio vazio. Mensagem vazia não ajuda a pessoa do outro lado.");
+    if (texto.length > LIMITE_TEXTO) {
+      return falha(
+        `Não entreguei: 'texto' tem ${texto.length} caracteres, acima do limite de ${LIMITE_TEXTO}. ` +
+          "Resuma, ou mande o conteúdo longo como arquivo pelo whatsapp_send_file.",
+      );
+    }
+    pedido = { acao: "enviar", texto };
+    kind = "whatsapp_text";
+    extra = { text: texto };
+    limite = 20_000;
+    oQue = "Mensagem";
+  } else {
+    const caminho = typeof args?.caminho === "string" ? args.caminho.trim() : "";
+    if (!caminho) return falha("Não entreguei: falta o campo 'caminho'.");
+    if (!isAbsolute(caminho)) {
+      return falha(`Não entreguei: o caminho ${caminho} não é absoluto. Repita com o caminho completo, começando por /.`);
+    }
+    if (!existsSync(caminho)) return falha(`Não entreguei: o arquivo ${caminho} não existe. Confira o caminho.`);
+    const legenda = typeof args?.legenda === "string" ? args.legenda : "";
+    pedido = { acao: "arquivo", caminho };
+    if (legenda) pedido.legenda = legenda;
+    kind = "whatsapp_file";
+    extra = { path: caminho, caption: legenda };
+    limite = 120_000;
+    oQue = "Arquivo";
+  }
+  if (para) pedido.para = para;
+
+  const r = await falarComPonte(pedido, limite);
+  const fonte = `tool:${nome}`;
+  if (r.tipo === "desligado") {
+    return falha("O WhatsApp está desligado; fale pelo chat do DG Claw (tool reply).");
+  }
+  if (r.tipo === "timeout") {
+    return falha(
+      `A ponte do WhatsApp não respondeu em ${limite / 1000} segundos. ${INCERTO}`,
+    );
+  }
+  if (r.tipo === "naoJson") {
+    return falha(`A ponte do WhatsApp respondeu algo que não entendi (${JSON.stringify(r.linha)}). ${INCERTO}`);
+  }
+  if (r.tipo === "fechou") {
+    return falha(`A ponte do WhatsApp fechou a conexão sem responder. ${INCERTO}`);
+  }
+  if (r.tipo === "erro") {
+    return falha(`Falha ao falar com a ponte do WhatsApp (${r.mensagem}). ${INCERTO}`);
+  }
+  const d = r.dados;
+  if (d && d.ok === true) {
+    const destino = d.para || para || "o destino";
+    const reg = registrar({ kind, para: destino, ...extra, id: d.id, source: fonte, modo: MODO });
+    const aviso = reg.ok
+      ? ""
+      : ` (Só o registro de entrega falhou: ${reg.erro}. A entrega aconteceu; não repita.)`;
+    return sucesso(`${oQue === "Mensagem" ? "Mensagem entregue" : "Arquivo entregue"} no WhatsApp de ${destino}.${aviso}`);
+  }
+  const codigo = d && d.codigo ? ` [${d.codigo}]` : "";
+  const motivo = d && d.erro ? d.erro : "a ponte recusou sem dizer o motivo";
+  return falha(`NÃO foi entregue no WhatsApp${codigo}: ${motivo}`);
+}
+
 async function chamarTool(nome, args) {
+  if (nome === "whatsapp_reply" || nome === "whatsapp_send_file") {
+    return chamarWhatsapp(nome, args);
+  }
   const chat = typeof args?.chat === "string" ? args.chat.trim() : "";
   if (!chat) {
     return falha(

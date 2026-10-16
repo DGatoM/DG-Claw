@@ -81,7 +81,7 @@ async function subirWeb(opcoes) {
     DGCLAW_PANEL_PASSWORD_HASH: o.semHash ? '' : gerarHash(senha),
   }, o.env || {});
   const cap = capturaLog();
-  const web = criarServidor({ env, agentesPath, dataDir: dados, publicDir: publico, log: cap.log, tz: 'America/Sao_Paulo', tickSseMs: 80 });
+  const web = criarServidor({ env, agentesPath, dataDir: dados, publicDir: publico, log: cap.log, tz: 'America/Sao_Paulo', tickSseMs: 80, reiniciarCofre: o.reiniciarCofre });
   const addr = await web.ouvir(0, '127.0.0.1');
   const c = cliente(addr.port);
   return {

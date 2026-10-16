@@ -229,6 +229,14 @@ module.exports = function registrarRotasDeProvedor(router, { CONFIG, cofre, serv
       const variavel = modo.variavel || null;
       const corpoRunner = { provedor: escolha.provedor, auth: escolha.auth, modelo: escolha.modelo };
 
+      // Modo "host" (v1): quem guarda a chave e reinicia é o DG Claw Web. Recusa ANTES de
+      // falar com o runner, para a escolha não ficar gravada sem a chave e sem o reinício.
+      if (variavel && cofre.modoHost) {
+        const h = cofre.recusaDoHost();
+        console.error(`[provedor] POST /api/provedor: este agente guarda chave pelo DG Claw Web; recusei com 409 (entrada: ${limpar(JSON.stringify(entrada), chave)})`);
+        return res.status(h.status).json({ error: h.erro, howToFix: h.howToFix });
+      }
+
       // Modo sem chave (assinatura): o runner grava e reinicia sozinho.
       if (!variavel) {
         const r = await runner('POST', '/api/provedor', { ...corpoRunner, reiniciar: true });
@@ -248,7 +256,7 @@ module.exports = function registrarRotasDeProvedor(router, { CONFIG, cofre, serv
           });
         }
         const g = cofre.guardar({
-          envName: variavel, valor: chave, provedor: escolha.provedor === 'claude' ? 'anthropic' : 'openai',
+          envName: variavel, valor: chave, provedor: escolha.provedor === 'codex' ? 'openai' : (escolha.auth === 'token' ? 'claude-assinatura' : 'anthropic'),
           quem: CONFIG.creatorName || 'Dono',
         });
         if (g && g.erro) {
@@ -319,3 +327,6 @@ module.exports = function registrarRotasDeProvedor(router, { CONFIG, cofre, serv
   router.post('/api/provedor/login/codigo', repasse('POST', '/api/provedor/login/codigo', true));
   router.delete('/api/provedor/login', repasse('DELETE', '/api/provedor/login', false));
 };
+
+module.exports.FORMA_DA_CHAVE = FORMA_DA_CHAVE;
+module.exports.limpar = limpar;

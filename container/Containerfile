@@ -174,6 +174,10 @@ COPY container/units/dgclaw-runner.service container/units/dgclaw-painel.service
 # Ponto de montagem (somente leitura, vindo do host) do runner.json do agente.
 RUN mkdir -p /etc/dgclaw-runner && chmod 755 /etc/dgclaw-runner
 RUN systemctl enable dgclaw-runner.service dgclaw-painel.service
+# A ponte do WhatsApp vem na imagem, mas FICA DE FORA do "systemctl enable" de propósito:
+# só sobe quando o dono liga o canal ("dgclaw-agente canal whatsapp ligar"), que cria o
+# arquivo "ligado" (o ConditionPathExists da unidade) e habilita a unidade.
+COPY container/units/dgclaw-whatsapp.service /etc/systemd/system/
 
 # O plugin inteiro (o que container/ignore deixar passar). O runner vem do estágio de
 # build, então o código-fonte que veio junto sai antes de ele entrar.
@@ -183,9 +187,17 @@ COPY --from=runner-build /build/runner/dist /opt/dgclaw/app/runner/dist
 COPY --from=runner-build /build/runner/node_modules /opt/dgclaw/app/runner/node_modules
 COPY --from=runner-build /build/runner/package.json /opt/dgclaw/app/runner/package.json
 
-# O painel é JavaScript puro (express e afins), sem parte nativa: instala aqui, sem compilador.
-# CLI que roda DENTRO do container (o bin/dgclaw do host não entra no PATH). O link nasce
-# mesmo que o arquivo ainda não exista; fica pendente até o plugin trazer o bin/dgclaw-agente.
-RUN ln -s /opt/dgclaw/app/bin/dgclaw-agente /usr/local/bin/dgclaw-agente
+# CLIs que rodam DENTRO do container (o bin/dgclaw do host não entra no PATH). O link nasce
+# mesmo que o arquivo ainda não exista; fica pendente até o plugin trazer o arquivo.
+# dgclaw-card: o agente abre um card em outro provedor (a skill cai no caminho completo se
+# o link faltar).
+RUN ln -s /opt/dgclaw/app/bin/dgclaw-agente /usr/local/bin/dgclaw-agente \
+ && ln -s /opt/dgclaw/app/bin/dgclaw-card /usr/local/bin/dgclaw-card
 
+# O painel é JavaScript puro (express e afins), sem parte nativa: instala aqui, sem compilador.
 RUN cd /opt/dgclaw/app/panel && npm install --omit=dev --no-audit --no-fund && npm cache clean --force
+
+# A ponte do WhatsApp (Baileys + pino): versões exatas e "integrity" no package-lock.json.
+# --ignore-scripts impede que qualquer script de instalação de dependência rode no build.
+# Não precisa de git nem de GitHub: o libsignal vem do registro npm ("overrides" no package.json).
+RUN cd /opt/dgclaw/app/canais/whatsapp && npm ci --omit=dev --ignore-scripts --no-audit --no-fund && npm cache clean --force

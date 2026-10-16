@@ -1,0 +1,325 @@
+#!/usr/bin/env bash
+# dgclaw-card: o agente abre um "card" em outro provedor (ex.: uma sessao Codex/GPT enquanto ele
+# e Claude), manda um pedido, espera, le a resposta e fecha. Roda DENTRO do container, como "agente".
+#
+# Uso:
+#   dgclaw-card abrir --provedor codex|claude [--auth assinatura|api|token] [--modelo M] --titulo "T"
+#                     (--pedido "texto" | --pedido-arquivo F | pedido pelo stdin)
+#   dgclaw-card mandar <id> (texto | --arquivo F | stdin)
+#   dgclaw-card estado <id>
+#   dgclaw-card esperar <id> [--max SEGUNDOS]        (padrao 900; olha a cada 5 s)
+#   dgclaw-card ler <id> [--n N]                     (padrao 4 mensagens)
+#   dgclaw-card listar                               (so os cards criados por esta via)
+#   dgclaw-card fechar <id>
+#   dgclaw-card ajuda
+#
+# Variaveis de ambiente:
+#   RUNNER_TOKEN_FILE   arquivo com o Bearer do runner (obrigatorio; o token NUNCA vem por argumento)
+#   RUNNER_PORT         porta do runner em 127.0.0.1 (padrao 4300; tem de ser numero)
+#   DGCLAW_CARD_INTERVALO  so para testes: segundos entre olhadas do "esperar" (padrao 5)
+#
+# O endereco do runner e FIXO: http://127.0.0.1:$RUNNER_PORT. Nenhuma URL vinda de argumento,
+# de variavel ou de arquivo e usada: um e-mail ou pagina nao consegue apontar este comando para fora.
+#
+# Seguranca do token: ele so existe dentro do script. Vai para o curl pelo stdin (-K -), montado
+# com o printf (builtin do bash, nao vira processo), entao nao aparece em argv, nem no "ps",
+# nem em saida, nem em log.
+#
+# Codigos de saida:
+#   0  ok
+#   1  erro de uso ou de dado (argumento faltando, id invalido, arquivo ilegivel)
+#   2  o runner nao respondeu (fora do ar, reiniciando)
+#   3  o token nao esta disponivel ou o runner o recusou (401)
+#   4  limite de cards abertos atingido (429)
+#   5  o provedor deste agente ainda nao esta conectado (sem login ou sem chave)
+#   6  outro erro devolvido pelo runner (a mensagem dele e mostrada)
+#   7  "esperar" estourou o tempo: a sessao segue trabalhando
+#      Se o "abrir" criar o card e falhar ao entregar o pedido, a saida e a do erro (2, 3, 4 ou 6) e a
+#      mensagem diz o id do card que ficou aberto; sem login, o card recem criado e fechado sozinho.
+set -euo pipefail
+umask 077
+
+erro() { echo "dgclaw-card: $*" >&2; }
+die() { local c="${CODIGO:-1}"; erro "$*"; exit "$c"; }
+
+command -v curl >/dev/null || die "o curl nao foi encontrado no container. Avise quem mantem a imagem do agente."
+command -v jq >/dev/null || die "o jq nao foi encontrado no container. Avise quem mantem a imagem do agente."
+
+PORTA="${RUNNER_PORT:-4300}"
+[[ "$PORTA" =~ ^[0-9]+$ ]] && [ "$PORTA" -ge 1 ] && [ "$PORTA" -le 65535 ] \
+  || die "RUNNER_PORT precisa ser um numero de 1 a 65535 (recebido: '$PORTA'). Corrija a variavel ou deixe-a vazia para usar a porta 4300."
+BASE="http://127.0.0.1:$PORTA"
+
+# --- token ----------------------------------------------------------------
+TOKEN=""
+carregar_token() {
+  local arq="${RUNNER_TOKEN_FILE:-}"
+  [ -n "$arq" ] || CODIGO=3 die "RUNNER_TOKEN_FILE nao esta definida, entao nao tenho como me identificar ao runner. Peca ao dono para reiniciar o agente pelo painel (o instalador define essa variavel)."
+  [ -r "$arq" ] || CODIGO=3 die "nao consegui ler o arquivo de token apontado por RUNNER_TOKEN_FILE ($arq). Peca ao dono para reiniciar o agente pelo painel; se continuar, o instalador precisa ser rodado de novo."
+  TOKEN="$(tr -d '\r\n' < "$arq")"
+  [ -n "$TOKEN" ] || CODIGO=3 die "o arquivo de token ($arq) esta vazio. Peca ao dono para reiniciar o agente pelo painel; se continuar, o instalador precisa ser rodado de novo."
+  # O token entra numa linha de configuracao do curl: so caracteres seguros, nada que feche a aspa.
+  [[ "$TOKEN" =~ ^[A-Za-z0-9._~+/=-]+$ ]] || CODIGO=3 die "o arquivo de token ($arq) tem caracteres que um token do runner nao tem. Peca ao dono para reiniciar o agente pelo painel."
+}
+
+# --- chamada ao runner ----------------------------------------------------
+# chamar METODO CAMINHO [CORPO_JSON]  ->  preenche HTTP (codigo) e RESP (corpo). Retorna 2 se o runner nao respondeu.
+HTTP=""; RESP=""
+chamar() {
+  local metodo="$1" caminho="$2" corpo="${3:-}" cfg saida
+  cfg="$(printf 'url = "%s%s"\nrequest = "%s"\nheader = "Authorization: Bearer %s"\nmax-time = 60\nwrite-out = "\\n%%{http_code}"\n' "$BASE" "$caminho" "$metodo" "$TOKEN")"
+  if [ -n "$corpo" ]; then
+    corpo="${corpo//\\/\\\\}"; corpo="${corpo//\"/\\\"}"
+    cfg+="$(printf '\nheader = "Content-Type: application/json"\ndata = "%s"' "$corpo")"
+  fi
+  if ! saida="$(printf '%s\n' "$cfg" | curl -sS -K - 2>/dev/null)"; then
+    HTTP="000"; RESP=""
+    return 2
+  fi
+  HTTP="${saida##*$'\n'}"
+  RESP="${saida%$'\n'*}"
+  return 0
+}
+
+# Como chamar, mas ja trata as falhas gerais (runner fora, 401, 429, outros) e sai. Em sucesso (2xx) volta.
+# $1 = metodo, $2 = caminho, $3 = corpo, e a variavel QUEM (nome do provedor) ajuda na frase de "sem login".
+chamar_ou_sair() {
+  chamar "$@" || falha_geral
+  case "$HTTP" in
+    2??) return 0 ;;
+    *) falha_geral ;;
+  esac
+}
+
+campo() { printf '%s' "$RESP" | jq -r "$1 // empty" 2>/dev/null || true; }
+
+nome_do_provedor() { # $1 = codex|claude|vazio
+  case "$1" in codex) echo "Codex" ;; claude) echo "Claude" ;; *) echo "provedor" ;; esac
+}
+
+# Fala do jeito que o agente pode repassar ao dono, e sai com o codigo certo.
+falha_geral() {
+  local code err fix prov
+  if [ "$HTTP" = "000" ]; then
+    CODIGO=2 die "o runner deste agente nao respondeu em 127.0.0.1:$PORTA. Ele pode estar reiniciando: espere cerca de um minuto e tente de novo. Se continuar assim, peca ao dono para tocar em Reiniciar no painel."
+  fi
+  code="$(campo .code)"; err="$(campo .error)"; fix="$(campo .howToFix)"
+  case "$HTTP:$code" in
+    401:*|403:*)
+      CODIGO=3 die "o runner recusou o acesso (token invalido). Isso e um problema de instalacao, nao do pedido. Peca ao dono para reiniciar o agente pelo painel; se continuar, o instalador precisa ser rodado de novo." ;;
+    429:*|*:LIMITE_DE_SESSOES)
+      CODIGO=4 die "${err:-Ja ha cards demais abertos.} Para liberar uma vaga, feche um card que nao precisa mais: veja com 'dgclaw-card listar' e feche com 'dgclaw-card fechar <id>'. Se o dono quiser mais vagas, o limite sobe em RUNNER_MAX_SESSOES_EXTRAS na unidade do runner." ;;
+    *:SEM_LOGIN|*:SEM_CHAVE)
+      prov="$(nome_do_provedor "${QUEM:-}")"
+      CODIGO=5 die "o $prov deste agente ainda nao esta conectado. Peca ao dono para abrir o painel, aba Status, cartao Modelo e autenticacao, e usar Entrar com a assinatura (ou colar a chave de API). Depois que ele conectar, e so repetir o pedido." ;;
+  esac
+  local msg="${err:-o runner respondeu HTTP $HTTP sem explicar}"
+  [ -z "$fix" ] || msg="$msg. O que fazer: $fix"
+  [ -z "$code" ] || msg="$msg [$code]"
+  if [ -z "$err" ]; then
+    local cru; cru="$(printf '%s' "$RESP" | head -c 200 | tr '\n' ' ')"
+    [ -z "$cru" ] || msg="$msg (resposta: $cru)"
+  fi
+  CODIGO=6 die "$msg"
+}
+
+validar_id() {
+  [ -n "${1:-}" ] || die "falta o id do card. Veja os ids com 'dgclaw-card listar'."
+  [[ "$1" =~ ^[A-Za-z0-9._-]+$ ]] || die "id de card invalido: '$1'. Ele so tem letras, numeros, ponto, hifen e sublinhado; veja os ids com 'dgclaw-card listar'."
+}
+
+# Le o texto do pedido: argumento, arquivo ou stdin. Resultado em TEXTO.
+TEXTO=""
+ler_texto() { # $1 = texto|"" ; $2 = arquivo|"" ; $3 = rotulo para a mensagem
+  if [ -n "$1" ]; then TEXTO="$1"
+  elif [ -n "$2" ]; then
+    [ -r "$2" ] || die "nao consegui ler o arquivo '$2'. Confira o caminho e a permissao."
+    TEXTO="$(cat -- "$2")"
+  elif [ ! -t 0 ]; then
+    TEXTO="$(cat)"
+  else
+    die "faltou o texto do $3. Passe-o como argumento, com --arquivo/--pedido-arquivo, ou por pipe (echo ... | dgclaw-card ...)."
+  fi
+  [ -n "${TEXTO//[[:space:]]/}" ] || die "o texto do $3 esta vazio. Escreva o que a outra sessao deve fazer."
+}
+
+enviar_texto() { # $1 id ; texto em TEXTO
+  local corpo
+  corpo="$(printf '%s' "$TEXTO" | jq -Rsc '{text: ., submit: true}')"
+  chamar_ou_sair POST "/api/agents/$1/input" "$corpo"
+}
+
+# --- subcomandos ----------------------------------------------------------
+cmd_abrir() {
+  local provedor="" auth="" modelo="" titulo="" pedido="" arquivo=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --provedor) provedor="${2:-}"; shift 2 || die "falta o valor de --provedor." ;;
+      --auth) auth="${2:-}"; shift 2 || die "falta o valor de --auth." ;;
+      --modelo) modelo="${2:-}"; shift 2 || die "falta o valor de --modelo." ;;
+      --titulo) titulo="${2:-}"; shift 2 || die "falta o valor de --titulo." ;;
+      --pedido) pedido="${2:-}"; shift 2 || die "falta o valor de --pedido." ;;
+      --pedido-arquivo) arquivo="${2:-}"; shift 2 || die "falta o valor de --pedido-arquivo." ;;
+      *) die "opcao desconhecida em 'abrir': '$1'. Veja 'dgclaw-card ajuda'." ;;
+    esac
+  done
+  case "$provedor" in codex|claude) ;; *) die "--provedor precisa ser codex ou claude (recebido: '${provedor}')." ;; esac
+  case "$auth" in ""|assinatura|api|token) ;; *) die "--auth precisa ser assinatura, api ou token (recebido: '$auth')." ;; esac
+  [ -n "$titulo" ] || die "falta --titulo: um nome curto para o card aparecer no painel (ex.: --titulo \"Revisao do contrato\")."
+  ler_texto "$pedido" "$arquivo" "pedido"
+  QUEM="$provedor"
+
+  local corpo id
+  corpo="$(jq -nc --arg p "$provedor" --arg a "$auth" --arg m "$modelo" --arg t "$titulo" \
+    '{tipo: "card", provedor: $p, titulo: $t} + (if $a != "" then {auth: $a} else {} end) + (if $m != "" then {modelo: $m} else {} end)')"
+  chamar_ou_sair POST /api/sessoes "$corpo"
+  id="$(campo .data.id)"
+  [ -n "$id" ] || CODIGO=6 die "o runner criou o card mas nao devolveu o id (resposta inesperada). Veja 'dgclaw-card listar'."
+
+  # O /input pode falhar depois do card existir. Sem login, o card nao serve para nada: fecha para nao ocupar vaga.
+  chamar POST "/api/agents/$id/input" "$(printf '%s' "$TEXTO" | jq -Rsc '{text: ., submit: true}')" || true
+  case "$HTTP" in
+    2??) ;;
+    *)
+      # Guarda a resposta do /input: o DELETE logo abaixo sobrescreve HTTP e RESP.
+      local http_input="$HTTP" resp_input="$RESP" code
+      code="$(campo .code)"
+      if [ "$code" = "SEM_LOGIN" ] || [ "$code" = "SEM_CHAVE" ]; then
+        chamar DELETE "/api/sessoes/$id" || true
+      else
+        erro "o card $id foi criado, mas o pedido nao foi entregue. Reenvie com: dgclaw-card mandar $id --arquivo <arquivo do pedido>, ou feche com: dgclaw-card fechar $id."
+      fi
+      HTTP="$http_input"; RESP="$resp_input"
+      falha_geral ;;
+  esac
+  echo "$id"
+  echo "Card aberto em $(nome_do_provedor "$provedor"). Para acompanhar: dgclaw-card esperar $id && dgclaw-card ler $id"
+}
+
+cmd_mandar() {
+  local id="${1:-}" texto="" arquivo=""
+  validar_id "$id"; shift
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --arquivo) arquivo="${2:-}"; shift 2 || die "falta o valor de --arquivo." ;;
+      *) [ -z "$texto" ] || die "texto demais em 'mandar': coloque o texto entre aspas, ou use --arquivo."; texto="$1"; shift ;;
+    esac
+  done
+  ler_texto "$texto" "$arquivo" "texto a mandar"
+  QUEM="$(provedor_do "$id")"
+  enviar_texto "$id"
+  echo "Texto enviado ao card $id. Para acompanhar: dgclaw-card esperar $id && dgclaw-card ler $id"
+}
+
+# Provedor de uma sessao (codex|claude|vazio), sem sair se falhar: so serve para a frase de erro.
+provedor_do() {
+  local p=""
+  if chamar GET "/api/provedor?sessao=$1" 2>/dev/null; then
+    case "$HTTP" in 2??) p="$(campo .provedor)" ;; esac
+  fi
+  printf '%s' "$p"
+}
+
+cmd_estado() {
+  validar_id "${1:-}"
+  local id="$1" status titulo fila reason prov auth modelo
+  chamar_ou_sair GET "/api/agents/$id"
+  status="$(campo .data.status)"; titulo="$(campo .data.sessao.titulo)"; fila="$(campo .data.sessao.fila)"
+  reason="$(campo .data.error)"
+  chamar_ou_sair GET "/api/provedor?sessao=$id"
+  prov="$(campo .provedor)"; auth="$(campo .auth)"; modelo="$(campo .modelo)"
+  echo "$id: ${status:-desconhecido}${fila:+ (na fila: $fila)}${titulo:+ | titulo: $titulo}"
+  echo "provedor: ${prov:-?} | auth: ${auth:-?} | modelo: ${modelo:-padrao}"
+  [ -z "$reason" ] || echo "aviso do runner: $reason"
+}
+
+cmd_esperar() {
+  local id="${1:-}" max=900 visto=0 seguidas=0 status fila ultimo passo="${DGCLAW_CARD_INTERVALO:-5}"
+  validar_id "$id"; shift
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --max) max="${2:-}"; shift 2 || die "falta o valor de --max." ;;
+      *) die "opcao desconhecida em 'esperar': '$1'. Use --max SEGUNDOS." ;;
+    esac
+  done
+  [[ "$max" =~ ^[0-9]+$ ]] || die "--max precisa ser um numero de segundos (recebido: '$max')."
+  local inicio=$SECONDS
+  while :; do
+    chamar_ou_sair GET "/api/agents/$id"
+    status="$(campo .data.status)"; fila="$(campo .data.sessao.fila)"; fila="${fila:-0}"
+    case "$status" in
+      working) visto=1; seguidas=0 ;;
+      errored)
+        CODIGO=6 die "o card $id parou com erro: $(campo .data.error). Veja 'dgclaw-card estado $id'; se for falta de login, peca ao dono para conectar o provedor no painel." ;;
+      idle|completed|resumable|stopped)
+        if [ "$fila" = "0" ]; then
+          # Fim do turno: o Stop do Claude/Codex vira "idle" no runner. Voltar a idle depois de ter
+          # visto "working" basta. Sem ter visto (o turno foi mais rapido que a olhada), vale a
+          # ultima mensagem ser do assistente, confirmada em duas olhadas seguidas.
+          if [ "$visto" = 1 ] && [ "$status" = idle ]; then echo "O card $id terminou o turno. Leia com: dgclaw-card ler $id"; return 0; fi
+          chamar_ou_sair GET "/api/agents/$id/conversation?limit=2"
+          ultimo="$(printf '%s' "$RESP" | jq -r '.data | last | .role // empty' 2>/dev/null || true)"
+          if [ "$ultimo" = "assistant" ]; then
+            seguidas=$((seguidas+1))
+            if [ "$seguidas" -ge 2 ]; then echo "O card $id terminou o turno. Leia com: dgclaw-card ler $id"; return 0; fi
+          else seguidas=0; fi
+        else seguidas=0; fi ;;
+      *) seguidas=0 ;;
+    esac
+    if [ $((SECONDS - inicio)) -ge "$max" ]; then
+      CODIGO=7 die "passaram $max segundos e o card $id ainda nao terminou: ele segue trabalhando. Espere mais com 'dgclaw-card esperar $id --max <segundos>', ou leia o que ja existe com 'dgclaw-card ler $id'."
+    fi
+    sleep "$passo"
+  done
+}
+
+cmd_ler() {
+  local id="${1:-}" n=4
+  validar_id "$id"; shift
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --n) n="${2:-}"; shift 2 || die "falta o valor de --n." ;;
+      *) die "opcao desconhecida em 'ler': '$1'. Use --n N." ;;
+    esac
+  done
+  [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -ge 1 ] || die "--n precisa ser um numero maior que zero (recebido: '$n')."
+  chamar_ou_sair GET "/api/agents/$id/conversation?limit=$n"
+  if [ "$(printf '%s' "$RESP" | jq '.data | length' 2>/dev/null || echo 0)" = "0" ]; then
+    echo "O card $id ainda nao tem mensagens. Se acabou de ser aberto, espere com: dgclaw-card esperar $id"
+    return 0
+  fi
+  printf '%s' "$RESP" | jq -r '.data[] | (if .role == "assistant" then "[resposta]" else "[pedido]" end) + "\n" + .text + "\n"'
+}
+
+cmd_listar() {
+  local linhas id titulo status prov achou=0
+  chamar_ou_sair GET "/api/agents?todas=1"
+  linhas="$(printf '%s' "$RESP" | jq -r '.data[] | select(.sessao.tipo == "card") | [.id, (.sessao.titulo // "-"), (.status // "?")] | @tsv' 2>/dev/null || true)"
+  while IFS=$'\t' read -r id titulo status; do
+    [ -n "$id" ] || continue
+    achou=1
+    prov="$(provedor_do "$id")"
+    printf '%s\t%s\t%s\t%s\n' "$id" "$titulo" "${prov:-?}" "$status"
+  done <<< "$linhas"
+  [ "$achou" = 1 ] || echo "Nenhum card aberto."
+}
+
+cmd_fechar() {
+  validar_id "${1:-}"
+  chamar_ou_sair DELETE "/api/sessoes/$1"
+  echo "Card $1 fechado. A conversa dele continua guardada no disco."
+}
+
+cmd_ajuda() {
+  sed -n '2,/^set -euo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'
+}
+
+sub="${1:-ajuda}"
+[ $# -eq 0 ] || shift
+case "$sub" in
+  ajuda|-h|--help) cmd_ajuda; exit 0 ;;
+  abrir|mandar|estado|esperar|ler|listar|fechar) ;;
+  *) die "subcomando desconhecido: '$sub'. Use abrir, mandar, estado, esperar, ler, listar, fechar ou ajuda." ;;
+esac
+carregar_token
+"cmd_$sub" "$@"

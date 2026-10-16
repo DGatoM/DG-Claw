@@ -50,7 +50,8 @@ Sem chave de voz, `voz` e `microfone` saem `false` em `/api/v1/agents` (a tela e
   "avatar":"🛠","cor":"#4A5D78","provedor":"claude","modelo":"opus",
   "transcripts_dir":"/root/.claude/projects",
   "porta_painel":null,"proxy_segredo_arquivo":null,"runner_token_arquivo":null,
-  "home_host":"/opt/dgclaw/admin","home_container":"/opt/dgclaw/admin"
+  "home_host":"/opt/dgclaw/admin","home_container":"/opt/dgclaw/admin",
+  "cofre_arquivo":null,"container":null,"dono":null
 }]}
 ```
 
@@ -61,6 +62,7 @@ Sem chave de voz, `voz` e `microfone` saem `false` em `/api/v1/agents` (a tela e
 - `home_host` e `home_container`: a pasta do agente vista pelo host e por dentro do container. Anexos são gravados em `<home_host>/uploads/AAAA-MM-DD/` e o agente recebe o caminho traduzido para `home_container`.
 - `porta_painel` e `proxy_segredo_arquivo`: o painel do agente (porta local) e o arquivo com o segredo de confiança do proxy. O Admin não tem painel.
 - `voz`: id da voz do agente (ElevenLabs).
+- `cofre_arquivo`: o `cofre.env` do agente no host (`<casa>/cofre/cofre.env`). Só quem tem esse campo está no layout da v1 e tem o cofre gravado pelo Web (ver "Cofre dos agentes da v1"). `container` é o nome do container (padrão `dgclaw-<slug>`) e `dono` o nome que a tela do cofre mostra (padrão `Dono`).
 - Um agente inválido é ignorado, com um aviso no log que diz qual e por quê. Arquivo ausente ou ilegível: a API responde **503 com o motivo**, nunca uma lista vazia calada.
 
 ## Rotas
@@ -81,7 +83,8 @@ API (todas com sessão; erros sempre `{ok:false, erro:"motivo em português"}`):
 | `GET /api/v1/agents/:id/wait?since&timeout` | Reserva do SSE (long-poll de até 28 s). |
 | `POST /api/v1/agents/:id/send` | `{text, anexos?, cliente_id?}`; idempotente por `cliente_id`. |
 | `POST /api/v1/agents/:id/upload` | Multipart (`file`, `enviar`, `legenda`, `cliente_id`). |
-| `GET /api/v1/media/:id` e `/thumb` | Arquivo registrado, com `Range`. `?baixar=1` força o download. |
+| `GET /api/v1/media/:id` e `/thumb` | Arquivo registrado, com `Range`. `?baixar=1` força o download. HTML, SVG, XML e JS abertos direto saem com CSP `sandbox` e `nosniff`. |
+| `GET` e `HEAD /api/v1/media/:id/visual?tema=claro` (ou `escuro`) | Documento do visual (`vis-*.html` do agente, com a base `dgvis` na frente), com CSP `sandbox allow-scripts` no cabeçalho. Erro vem como página HTML com o motivo (404, 410, 413, 415, 500). Ver `docs/VISUAIS.md`. |
 | `POST /api/v1/transcribe` | Multipart com `audio`. Resposta `{ok, text}`. |
 | `POST /api/v1/tts` | `{agent_id, text}`; responde o áudio (`audio/mpeg`). `X-TTS-Cortado: 1` quando o texto foi cortado. |
 | `GET /api/v1/tts/cota` | Uso da cota de voz. |
@@ -102,6 +105,33 @@ API (todas com sessão; erros sempre `{ok:false, erro:"motivo em português"}`):
 
 **Rótulo do provedor:** `rotulo_provedor` vem de `GET <runner>/api/provedor` (campo `rotulo`), com cache de 60 s por agente e espera máxima de 1,5 s. Se a rota não existir, falhar ou demorar, vale a reserva montada do registro (`provedor, modelo`), com uma linha de log dizendo o motivo.
 
+## Cofre dos agentes da v1
+
+Na v1 o painel roda dentro do container e não pode guardar chave (o agente a leria). Quem grava é o Web, no host, em `lib/cofre-agente.js`. Para agente com `cofre_arquivo`, estas rotas do painel são respondidas pelo próprio Web (`lib/cofre-rotas.js`) e **nunca chegam ao painel**; o formato das respostas e dos erros (`{error, howToFix}`) é o do painel, porque é a tela dele que as lê:
+
+| Rota | Faz |
+|---|---|
+| `GET /p/<slug>/api/cofre` | Estado: chaves (só os 4 últimos caracteres), provedores, onde fica a chave. |
+| `POST` ou `PUT /p/<slug>/api/cofre` | `{envName, valor, provedor, aplicar}`. Guarda; com `aplicar:true` também reinicia. Se o reinício falhar, a chave continua guardada e a resposta traz `guardado` e `aplicado:{ok:false}`. |
+| `DELETE /p/<slug>/api/cofre?envName=X` | Revoga (tira do cofre e data o registro). |
+| `POST /p/<slug>/api/cofre/aplicar` | Reinicia o agente: `podman exec <container> systemctl restart dgclaw-runner`, porque o runner só lê o cofre quando parte. |
+| `POST /p/<slug>/api/provedor` | O Web assume quando o modo de pagar usa chave ou token: guarda a chave, manda a escolha ao runner (`reiniciar:false`) e reinicia. A chave nunca vai ao painel nem ao runner. Modo de assinatura (sem variável) segue para o painel com o corpo intacto (sem o campo `chave`, se veio um). |
+
+Só essas rotas exatas leem o corpo (até 64 KB; acima disso, 413). O caminho é comparado depois de `/p/<slug>`, sem olhar maiúscula, barra final nem query string. Tudo o mais, e todo agente sem `cofre_arquivo`, passa pelo proxy como sempre. A sessão e o CSRF continuam sendo conferidos antes.
+
+Onde fica cada coisa: o valor em `<casa>/cofre/cofre.env` (uma linha `NOME='valor'`), a lista de nomes em `<casa>/config/cofre-nomes` (644, o que o painel de dentro lê) e os metadados (quem cadastrou, quando, últimos 4) em `<DGCLAW_WEB_DATA>/cofre/<slug>.json` (600, fora da casa). Toda escrita usa `lib/grava-seguro.js`. Duas gravações ao mesmo tempo não perdem linha (trava por agente). Segredo nunca vai a log, a erro nem a resposta.
+
+### Linha de comando
+
+```bash
+printf %s "$CHAVE" | node web/bin/cofre.js guardar <agente> OPENAI_API_KEY --provedor openai [--aplicar] [--quem "texto"] [--json]
+node web/bin/cofre.js revogar <agente> OPENAI_API_KEY [--quem "texto"] [--json]
+node web/bin/cofre.js listar  <agente> [--json]
+node web/bin/cofre.js aplicar <agente> [--json]
+```
+
+O valor do `guardar` entra sempre pelo stdin; valor em argumento e stdin de teclado são recusados. Usa `DGCLAW_WEB_ENV`, `DGCLAW_AGENTES` e `DGCLAW_WEB_DATA`. Saída 0 (deu certo), 1 (recusa, com o motivo), 2 (uso errado). É o que `dgclaw agente cofre` chama.
+
 ## Segurança
 
 - **Senha:** scrypt com `crypto.scrypt`, N máximo de 2^20, comparação com `timingSafeEqual`; o usuário também é comparado em tempo constante. O scrypt roda mesmo com o usuário errado, para o tempo não revelar qual dos dois falhou. Sem hash válido, o login fica trancado (ninguém entra) e a tela diz que falta rodar o gerador de hash do instalador.
@@ -111,6 +141,17 @@ API (todas com sessão; erros sempre `{ok:false, erro:"motivo em português"}`):
 - **Proxy dos painéis:** só logado; apaga do pedido `X-DGClaw-Proxy` e `X-DGClaw-Usuario` (em qualquer caixa) e acrescenta os dois, com o segredo lido de `proxy_segredo_arquivo` e o usuário logado; tira o cookie da sessão do Web do que vai ao painel; repassa em stream (SSE, corpo grande) e WebSocket. O segredo não aparece em log nem em resposta. Painel fora do ar: 502 com motivo. Agente sem painel: 404 com motivo.
 - **Mídia:** só sai arquivo dentro do `home_host` do agente dono (ou de `DGCLAW_WEB_DATA`), conferido com `realpath` a cada pedido; link simbólico para fora é recusado. Arquivos estáticos: sem listar pasta e sem sair de `web/public/`.
 - **Logs:** nunca levam senha, token, cookie ou segredo.
+
+## Token do Telegram colado no chat
+
+Se a mensagem enviada for **só** um token do BotFather (`^[0-9]{6,12}:[A-Za-z0-9_-]{30,}$`, depois do `trim`), o Web não repassa o texto ao runner. Em `lib/token-telegram.js`:
+
+- No Admin: responde 400, sem gravar nada (o Admin não tem canal externo).
+- Em agente de trabalho: grava `<home_host>/.dgclaw/telegram/.env` (`TELEGRAM_BOT_TOKEN=...`, pastas 700, arquivo 600), preserva as outras linhas do `.env` e manda ao agente só `[token do Telegram guardado com segurança, final XXXX]`.
+- A gravação roda num processo filho com o uid/gid do dono de `home_host` (`lib/grava-token-filho.js`, token pelo stdin, nunca por argv nem ambiente), porque a pasta é do agente e ele poderia trocá-la por um atalho: como o filho não é root, o kernel só deixa escrever onde o próprio agente já pode. Casa pertencendo ao root é recusada.
+- A resposta do `/send` traz `token_guardado: true` e `mascarado` (`123456789:••••••XXXX`); a tela troca o balão pelo mascarado. Com `cliente_id` repetido, devolve a mesma resposta sem regravar.
+- Mensagem com outras palavras junto não é interceptada. O token nunca entra em log, em erro nem no registro de idempotência.
+- O agente confere com `dgclaw-agente canal telegram conferir`.
 
 ## Como testar
 

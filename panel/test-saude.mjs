@@ -149,9 +149,12 @@ ok(!tudo.includes(WS) && !tudo.includes(HOME), 'nenhum caminho do servidor desce
 ok(!tudo.includes('/opt/segredo'), 'caminho citado DENTRO do trecho também é tirado');
 ok(r.corpo.modoSeguro && r.corpo.modoSeguro.ativo === false, 'modoSeguro desligado antes de qualquer reinício');
 
-const t0 = Date.now();
-await chamar('GET', '/api/saude');
-ok(Date.now() - t0 < 300, 'a segunda leitura sai do cache (20 s), sem rodar o diagnóstico de novo');
+// Prova por contagem, não por relógio: o cache devolve o MESMO objeto, e uma medição
+// nova seria outro objeto, com outro verificadoEm (o Python grava até o microssegundo).
+// Medir o tempo da segunda leitura falhava com a máquina carregada.
+const rCache = await chamar('GET', '/api/saude');
+ok(rCache.corpo.diagnostico === r.corpo.diagnostico && rCache.corpo.diagnostico.verificadoEm === d.verificadoEm,
+  `a segunda leitura sai do cache (20 s), sem rodar o diagnóstico de novo (verificadoEm ${d.verificadoEm} e ${rCache.corpo.diagnostico && rCache.corpo.diagnostico.verificadoEm})`);
 
 console.log('\nPOST /api/saude/reiniciar');
 r = await chamar('POST', '/api/saude/reiniciar', { body: { modo: 'qualquer' } });

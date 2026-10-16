@@ -38,4 +38,14 @@ if [ "${2:-}" != "--agora-only" ] && [ -f "$PLUGIN/scripts/conversas-fts.sh" ]; 
     bash "$PLUGIN/scripts/conversas-fts.sh" "$CONFIG" \
         || echo "build-wm: o reindex da busca em conversas falhou; ver $DGCLAW_WORKSPACE/.dgclaw/logs/conversas-fts.log" >&2
 fi
+
+# Rede de seguranca da memoria: se a reflexao da noite consolidou o MEMORY.md na sessao viva
+# e ninguem conferiu (a persona esqueceu o recibo), confere agora. So no build completo.
+# Idempotente: se o poke-ack ja conferiu, esta chamada nao faz nada.
+if [ "${2:-}" != "--agora-only" ] && [ -f "$PLUGIN/scripts/_lib/memoria_guarda.py" ]; then
+    REFLOG="$DGCLAW_WORKSPACE/.dgclaw/logs/reflection.log"
+    mkdir -p "$(dirname "$REFLOG")" 2>/dev/null
+    python3 "$PLUGIN/scripts/_lib/memoria_guarda.py" conferir --ws "$DGCLAW_WORKSPACE" >> "$REFLOG" 2>&1 \
+        || echo "[$(date '+%F %T')] build-wm: a conferencia do MEMORY.md saiu com codigo diferente de 0 (3 = restaurou a versao anterior; outro = nao consegui conferir). Detalhes nas linhas acima." >> "$REFLOG"
+fi
 exit "$RC"

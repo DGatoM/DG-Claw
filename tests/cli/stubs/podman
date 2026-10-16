@@ -16,13 +16,20 @@ case "${1:-}" in
     create)
         while [ $# -gt 0 ]; do [ "$1" = --name ] && nome="$2"; shift; done
         echo created > "$est/c-$nome"; echo "container-id" ;;
-    start) echo running > "$est/c-$2" ;;
+    start)
+        echo running > "$est/c-$2"
+        # Simula o container que cai na partida (falta de inotify): estado exited, codigo 255.
+        if [ -f "$est/saida-255" ]; then echo exited > "$est/c-$2"; echo 255 > "$est/codigo-$2"; fi ;;
     stop) [ -f "$est/c-$2" ] && echo exited > "$est/c-$2" ;;
     rm) rm -f "$est/c-$2" ;;
     inspect)
         nome="${*: -1}"
         [ -f "$est/c-$nome" ] || exit 1
-        cat "$est/c-$nome" ;;
+        if printf '%s ' "$@" | grep -q ExitCode; then
+            printf '%s %s\n' "$(cat "$est/c-$nome")" "$(cat "$est/codigo-$nome" 2>/dev/null || echo 0)"
+        else
+            cat "$est/c-$nome"
+        fi ;;
     exec)
         # `exec -i <container> bash -s` recebe o script por STDIN: guarda para o teste ler.
         if printf '%s ' "$@" | grep -q -- ' -i '; then cat >> "$STUB_LOG.stdin"; fi

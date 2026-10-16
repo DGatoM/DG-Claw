@@ -63,7 +63,7 @@ tail -20 "$WS/.dgclaw/logs/build-wm.log"        # a remontagem reclamou de algo?
 
 **A prova de que a reflexao rodou e o diario de ontem** (`memory/<ontem>.md`), nao o log. O log
 diz que o recado foi ENTREGUE na sessao; se o diario nao apareceu, a sessao nao executou (veja
-`docs/EMERGENCIA.md`, secao da reflexao). O `doctor.sh` confere isso sozinho.
+`docs/EMERGENCIA.md`, secao 3.9, "a memoria parou"). O `doctor.sh` confere isso sozinho.
 
 ## 4. Editar
 

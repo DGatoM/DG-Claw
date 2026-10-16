@@ -19,17 +19,20 @@ guardada e o assistente passa a usar essas ferramentas quando precisar.
 
 ## Passos
 
-1. Liste os connectors / MCP disponiveis na sessao:
-   ```
-   /mcp
-   ```
-2. Procure os connectors **Google Drive**, **Gmail** e **Google Calendar** e
-   siga o fluxo de **autorizar/login** de cada um (abre uma URL do Google pra
-   aprovar). Use a conta Google que o assistente deve enxergar.
-3. Confirme que ficaram conectados (no `/mcp` aparecem como conectados/ativos).
+1. **O assistente precisa estar na assinatura.** Conectores so carregam com login de
+   assinatura (login assistido do painel, ou `/login`). Com token do `claude setup-token`,
+   chave de API ou `--bare` nao aparece nenhum conector. Se for o caso, oriente o dono a
+   entrar pelo login assistido do painel (tela Provedor).
+2. **O dono liga o conector no navegador**, com a mesma conta do claude.ai:
+   `https://claude.ai/customize/connectors`, ligar **Gmail**, **Google Calendar** e/ou
+   **Google Drive** e autorizar a conta Google que o assistente deve enxergar. Conector novo
+   so se liga pela web; nao da para ligar daqui de dentro.
+3. Depois de ligado, confira com `/mcp`: aparecem como `claude.ai Gmail` etc., conectados.
+   Se um aparecer pedindo autorizacao (expirou ou foi revogado), rode como o usuario do
+   assistente `claude mcp login "claude.ai Gmail" --no-browser`: ele imprime um link do
+   claude.ai; o dono abre, autoriza e pronto (nao precisa colar nada de volta).
 
-> Numa VPS sem navegador, o fluxo de login mostra uma URL pra abrir no navegador
-> do seu computador e colar o codigo de volta. Oriente a pessoa nesse vai-e-volta.
+Passo a passo para o dono: `docs/GMAIL-NO-AGENTE.md`.
 
 ## Gmail: comeca so lendo
 
@@ -81,14 +84,11 @@ bash "$PLUGIN/scripts/gmail-permissao.sh" "$CFG" leitura
 
 ## Importante pro assistente (servico 24/7)
 
-Os connectors valem pra **sessao** do Claude. O assistente roda como uma sessao
-longeva no systemd — entao a autorizacao precisa existir para o usuario que roda
-o servico (o mesmo HOME). Depois de conectar, **reinicie o servico** pra sessao
-do bot enxergar os connectors:
+Os connectors entram quando a sessao abre. Se o dono ligou um conector com o assistente
+ja rodando, a sessao viva so enxerga depois de reiniciar o agente. No servidor:
 
 ```bash
-SLUG=ana    # ajuste
-sudo systemctl restart "dgclaw-$SLUG"
+dgclaw agente reiniciar <slug>
 ```
 
 ## Teste

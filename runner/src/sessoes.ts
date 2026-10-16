@@ -9,21 +9,30 @@
 // tempo ociosas, para poupar a RAM do container (que é um só e é do cliente).
 import fs from "node:fs";
 import path from "node:path";
+import { randomBytes } from "node:crypto";
 import {
   AGENT_FILE,
   NOTAS_PADRAO,
+  PASTA_DE_ESTADO,
   STATE_FILE,
+  validarSessao,
   validarSessoes,
   type ConfigDoRunner,
   type DescritorDoAgente,
+  type SessaoParalelaDescrita,
   type SessaoParalelaValida,
 } from "./config-runner.js";
+import { carregar, validar, ErroCatalogo } from "./provedores/catalogo.js";
+import { gravarJsonAtomico } from "./provedores/arquivos.js";
+import { gravarProvedorJson, provedorDoVocabulario } from "./provedores/escolha.js";
 import { calcularCapacidade, descreverMemoria, type Capacidade } from "./capacidade.js";
 import { Sessao } from "./sessao.js";
 import { log } from "./logger.js";
 
 const NOTA_INTERVALO_MS = 30 * 60_000;
 const LACO_PADRAO_MS = 60_000;
+/** Quantas sessões criadas por API podem existir ao mesmo tempo, se RUNNER_MAX_SESSOES_EXTRAS não disser. */
+const MAX_EXTRAS_PADRAO = 3;
 
 /** Por que uma sessão paralela não pôde acordar. */
 export interface Recusa {
@@ -104,6 +113,8 @@ export function configDaSessao(
     allowTools: [...new Set(allow)],
     extraArgs,
     promptHooks: s.promptHooks ?? [],
+    // A persona da principal não se herda: a paralela tem a dela (identidade).
+    identidadeArquivo: undefined,
   };
 }
 
@@ -111,46 +122,280 @@ function caminhoDasNotas(d: DescritorDoAgente): string {
   return path.resolve(d.config.cwd, d.notasPrincipal?.trim() || NOTAS_PADRAO);
 }
 
+/** O pedido de uma sessão criada em tempo de execução (POST /api/sessoes). */
+export type PedidoDeSessaoExtra = Record<string, unknown>;
+
+export type ResultadoDeSessaoExtra =
+  | { ok: true; sessao: Sessao }
+  | { ok: false; status: number; error: string; howToFix: string; code: string };
+
+const falhaDeExtra = (status: number, code: string, error: string, howToFix: string) =>
+  ({ ok: false, status, code, error, howToFix }) as const;
+
 export class GerenteDeSessoes {
   readonly principal: Sessao;
   private readonly mapaParalelas = new Map<string, Sessao>();
+  /** As paralelas criadas por API (sessoes-extras.json). As do descritor não saem por API. */
+  private readonly extras = new Map<string, SessaoParalelaDescrita>();
   private ultimaNotaEm = 0;
   private laco: NodeJS.Timeout | null = null;
+  private aoCriar: Array<(s: Sessao) => void> = [];
 
-  constructor(readonly descritor: DescritorDoAgente, porta: number) {
+  constructor(readonly descritor: DescritorDoAgente, private readonly porta: number, private readonly pastaDeEstado: string = PASTA_DE_ESTADO) {
     this.principal = new Sessao(
       { id: descritor.id, slug: descritor.slug, config: descritor.config },
       porta,
+      { pastaDeEstado, idsEmUso: () => this.idsDeSessaoEmUso() },
     );
-    for (const s of validarSessoes(descritor)) {
-      const config = configDaSessao(descritor, s, STATE_FILE);
-      if (!config) continue;
-      const arquivoDeEstado = path.join(path.dirname(AGENT_FILE), "sessoes", s.id, "runner-state.json");
-      try {
-        fs.mkdirSync(path.dirname(arquivoDeEstado), { recursive: true });
-        fs.mkdirSync(path.dirname(config.envExtra!.DGCHAT_OUTBOUND), { recursive: true });
-      } catch (err) {
+    for (const s of validarSessoes(descritor)) this.registrar(s, "boot");
+    this.carregarExtras();
+  }
+
+  /** O arquivo das sessões criadas por API: na pasta de estado, porque o runner.json é só leitura. */
+  arquivoDasExtras(): string {
+    return path.join(this.pastaDeEstado, "sessoes-extras.json");
+  }
+
+  private idsDeSessaoEmUso(): Set<string> {
+    const ids = new Set<string>();
+    for (const x of this.todas()) {
+      if (x.estado.sessionId) ids.add(x.estado.sessionId);
+      if (x.estado.previousSessionId) ids.add(x.estado.previousSessionId);
+    }
+    return ids;
+  }
+
+  /** Cria a Sessao paralela e a põe no mapa. false = a config dela não pôde existir (já registrado no log). */
+  private registrar(s: SessaoParalelaValida, origem: "boot" | "extra"): boolean {
+    const config = configDaSessao(this.descritor, s, STATE_FILE);
+    if (!config) return false;
+    const arquivoDeEstado = path.join(this.pastaDeEstado, "sessoes", s.id, "runner-state.json");
+    try {
+      fs.mkdirSync(path.dirname(arquivoDeEstado), { recursive: true });
+      fs.mkdirSync(path.dirname(config.envExtra!.DGCHAT_OUTBOUND), { recursive: true });
+    } catch (err) {
+      log.erro(
+        "config",
+        `sessoes (${s.id}) ignorada: não consegui criar as pastas dela: ${err instanceof Error ? err.message : err}`,
+        `conferir permissão de escrita em ${path.dirname(arquivoDeEstado)} e em ${path.dirname(config.envExtra!.DGCHAT_OUTBOUND)}`,
+      );
+      return false;
+    }
+    const sessao = new Sessao({ id: s.id, slug: s.slug, config }, this.porta, {
+      arquivoDeEstado,
+      pastaDeEstado: this.pastaDeEstado,
+      papel: "paralela",
+      tipo: s.tipo,
+      chat: s.chat,
+      titulo: s.titulo,
+      promptHooks: s.promptHooks ?? [],
+      ociosoMinutos: s.ociosoMinutos,
+      identidade: s.identidade,
+      escolhaDescrita: { provider: s.provider, model: s.model, auth: s.auth },
+      idsEmUso: () => this.idsDeSessaoEmUso(),
+    });
+    this.mapaParalelas.set(s.id, sessao);
+    log.info("boot", `sessão paralela ${s.id} (${s.tipo}, chat ${s.chat}${origem === "extra" ? ", criada por API" : ""}) registrada, dormindo até alguém escrever`);
+    for (const f of this.aoCriar) f(sessao);
+    return true;
+  }
+
+  // --- sessões criadas por API (POST /api/sessoes) -------------------------
+
+  private carregarExtras(): void {
+    const arquivo = this.arquivoDasExtras();
+    let cru: string;
+    try {
+      cru = fs.readFileSync(arquivo, "utf8");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
         log.erro(
           "config",
-          `sessoes (${s.id}) ignorada: não consegui criar as pastas dela: ${err instanceof Error ? err.message : err}`,
-          `conferir permissão de escrita em ${path.dirname(arquivoDeEstado)} e em ${path.dirname(config.envExtra!.DGCHAT_OUTBOUND)}`,
+          `não consegui ler ${arquivo}: ${err instanceof Error ? err.message : err}`,
+          "conferir a permissão de leitura; as sessões criadas por API não vão existir até lá (as conversas continuam no disco)",
         );
+      }
+      return;
+    }
+    let lista: SessaoParalelaDescrita[];
+    try {
+      const o = JSON.parse(cru) as { sessoes?: unknown };
+      if (!Array.isArray(o.sessoes)) throw new Error('falta a lista "sessoes"');
+      lista = o.sessoes as SessaoParalelaDescrita[];
+    } catch (err) {
+      log.erro(
+        "config",
+        `${arquivo} não é um JSON válido de sessões extras: ${err instanceof Error ? err.message : err}`,
+        "conferir o arquivo (ele é escrito só pelo runner); as sessões criadas por API não vão existir até lá",
+      );
+      return;
+    }
+    for (const bruta of lista) {
+      const r = validarSessao(this.descritor, bruta, new Set(this.todas().map((x) => x.id)));
+      if (!r.ok) {
+        log.erro("config", `sessão extra ignorada em ${arquivo}: ${r.motivo}`, `${r.comoResolver}. As outras sessões sobem normalmente`);
         continue;
       }
-      this.mapaParalelas.set(
-        s.id,
-        new Sessao({ id: s.id, slug: s.slug, config }, porta, {
-          arquivoDeEstado,
-          papel: "paralela",
-          tipo: s.tipo,
-          chat: s.chat,
-          promptHooks: s.promptHooks ?? [],
-          ociosoMinutos: s.ociosoMinutos,
-          identidade: s.identidade,
-        }),
-      );
-      log.info("boot", `sessão paralela ${s.id} (${s.tipo}, chat ${s.chat}) registrada, dormindo até alguém escrever`);
+      if (this.registrar(r.valida, "extra")) this.extras.set(r.valida.id, bruta);
     }
+  }
+
+  private gravarExtras(): void {
+    gravarJsonAtomico(this.arquivoDasExtras(), { versao: 1, sessoes: [...this.extras.values()] });
+  }
+
+  /** Avisa quem quiser saber (o servidor liga os eventos de WebSocket) quando nasce uma sessão. */
+  aoNovaSessao(f: (s: Sessao) => void): void {
+    this.aoCriar.push(f);
+  }
+
+  ehExtra(id: string): boolean {
+    return this.extras.has(id);
+  }
+
+  /**
+   * O teto de sessões criadas por API (RUNNER_MAX_SESSOES_EXTRAS, inteiro >= 0, padrão 3).
+   * Lido a cada criação para o valor poder mudar sem recompilar nada; o aviso de valor
+   * inválido sai uma vez só por valor, para não encher o log.
+   */
+  limiteDeExtras(): number {
+    const cru = process.env.RUNNER_MAX_SESSOES_EXTRAS?.trim();
+    if (cru === undefined || cru === "") return MAX_EXTRAS_PADRAO;
+    if (/^\d+$/.test(cru)) return Number.parseInt(cru, 10);
+    if (this.limiteInvalidoAvisado !== cru) {
+      this.limiteInvalidoAvisado = cru;
+      log.aviso(
+        "config",
+        `RUNNER_MAX_SESSOES_EXTRAS="${cru}" não é um inteiro maior ou igual a 0; usei o padrão ${MAX_EXTRAS_PADRAO}. Corrija o valor na unidade do runner se quiser outro limite`,
+      );
+    }
+    return MAX_EXTRAS_PADRAO;
+  }
+  private limiteInvalidoAvisado: string | null = null;
+
+  criarExtra(p: PedidoDeSessaoExtra): ResultadoDeSessaoExtra {
+    // O teto vem antes de tudo: cada sessão acordada é um CLI inteiro na RAM do container do cliente.
+    const limite = this.limiteDeExtras();
+    if (this.extras.size >= limite) {
+      return falhaDeExtra(
+        429,
+        "LIMITE_DE_SESSOES",
+        `Já existem ${this.extras.size} sessões criadas por API e o limite é ${limite}. Não criei outra.`,
+        "fechar uma que não precisa mais com DELETE /api/sessoes/<id> (pelo comando: dgclaw-card fechar <id>), ou aumentar RUNNER_MAX_SESSOES_EXTRAS na unidade do runner",
+      );
+    }
+    const texto = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+    const d = this.descritor;
+    const id = texto(p.id) ?? (() => {
+      for (;;) {
+        const novo = `card-${randomBytes(3).toString("hex")}`;
+        if (!this.porId(novo)) return novo;
+      }
+    })();
+    if (p.id !== undefined && typeof p.id !== "string") {
+      return falhaDeExtra(400, "ID_INVALIDO", `O campo "id" precisa ser texto (veio ${typeof p.id}).`, "mandar o id como texto, ou omitir para o runner escolher");
+    }
+    if (typeof p.provedor !== "string" || !p.provedor.trim()) {
+      return falhaDeExtra(400, "PROVEDOR_OBRIGATORIO", 'Falta o campo "provedor" (claude ou codex).', "mandar { provedor, auth, modelo } no corpo");
+    }
+    const nomeProvedor = provedorDoVocabulario(p.provedor);
+    if (!nomeProvedor) {
+      return falhaDeExtra(400, "PROVEDOR_INVALIDO", `O provedor '${p.provedor}' não existe.`, "usar claude ou codex");
+    }
+    let escolha;
+    try {
+      escolha = validar(
+        carregar(),
+        nomeProvedor,
+        texto(p.auth) ?? "assinatura",
+        typeof p.modelo === "string" ? p.modelo.trim() : "",
+        { codexHome: this.descritor.config.envExtra?.CODEX_HOME?.trim() || process.env.CODEX_HOME?.trim() || undefined },
+      );
+    } catch (err) {
+      if (err instanceof ErroCatalogo) {
+        return falhaDeExtra(400, "ESCOLHA_INVALIDA", err.message, "ver as opções em GET /api/provedor e no catálogo de provedores");
+      }
+      throw err;
+    }
+    const identidade = Array.isArray(p.identidade) ? p.identidade : p.identidade === undefined ? [] : [p.identidade];
+    if (!identidade.every((x) => typeof x === "string" && x.trim())) {
+      return falhaDeExtra(400, "IDENTIDADE_INVALIDA", 'O campo "identidade" precisa ser um caminho de arquivo (ou uma lista deles).', "mandar o caminho relativo à casa do agente");
+    }
+    const bruta: SessaoParalelaDescrita = {
+      id,
+      tipo: texto(p.tipo) ?? "card",
+      slug: `${d.slug}-${id}`,
+      chat: texto(p.chat) ?? `c_${d.slug}-${id}`,
+      ...(texto(p.titulo) ? { titulo: texto(p.titulo) } : {}),
+      ...(identidade.length ? { identidade: (identidade as string[]).map((x) => x.trim()) } : {}),
+    };
+    const r = validarSessao(d, bruta, new Set(this.todas().map((x) => x.id)));
+    if (!r.ok) {
+      return falhaDeExtra(
+        r.motivo.includes("aparece mais de uma vez") ? 409 : 400,
+        "SESSAO_INVALIDA",
+        `Não criei a sessão: ${r.motivo}.`,
+        r.comoResolver,
+      );
+    }
+    try {
+      gravarProvedorJson(path.join(this.pastaDeEstado, "sessoes", id, "provedor.json"), escolha as { provedor: "claude" | "codex"; auth: string; modelo: string });
+    } catch (err) {
+      return falhaDeExtra(
+        500,
+        "NAO_GRAVOU",
+        `Não consegui gravar a escolha de provedor da sessão ${id}: ${err instanceof Error ? err.message : err}`,
+        `conferir a permissão de escrita em ${this.pastaDeEstado}`,
+      );
+    }
+    if (!this.registrar(r.valida, "extra")) {
+      return falhaDeExtra(400, "SESSAO_NAO_PODE_EXISTIR", `A sessão ${id} (${r.valida.tipo}) não pôde ser criada neste agente.`, "ver o log do runner (área config) para o motivo");
+    }
+    this.extras.set(id, bruta);
+    try {
+      this.gravarExtras();
+    } catch (err) {
+      this.extras.delete(id);
+      this.mapaParalelas.get(id)?.parar("criação desfeita");
+      this.mapaParalelas.delete(id);
+      return falhaDeExtra(
+        500,
+        "NAO_GRAVOU",
+        `Não consegui gravar ${this.arquivoDasExtras()}: ${err instanceof Error ? err.message : err}. A sessão ${id} não foi criada.`,
+        `conferir a permissão de escrita em ${this.pastaDeEstado}`,
+      );
+    }
+    this.iniciarLaco();
+    return { ok: true, sessao: this.mapaParalelas.get(id)! };
+  }
+
+  removerExtra(id: string): { ok: true } | { ok: false; status: number; error: string; howToFix: string; code: string } {
+    const s = this.mapaParalelas.get(id);
+    if (!s) {
+      return falhaDeExtra(404, "SESSAO_INEXISTENTE", `Este runner não tem a sessão ${id}.`, "ver as sessões em GET /api/agents?todas=1");
+    }
+    if (!this.extras.has(id)) {
+      return falhaDeExtra(
+        409,
+        "SESSAO_DO_DESCRITOR",
+        `A sessão ${id} é declarada no descritor do agente e não sai por API.`,
+        "só sessões criadas por POST /api/sessoes podem ser removidas; para suspender esta, use POST /api/agents/<id>/suspend",
+      );
+    }
+    s.parar("sessão removida por API");
+    this.extras.delete(id);
+    this.mapaParalelas.delete(id);
+    try {
+      this.gravarExtras();
+    } catch (err) {
+      return falhaDeExtra(
+        500,
+        "NAO_GRAVOU",
+        `O terminal da sessão ${id} foi encerrado, mas não consegui regravar ${this.arquivoDasExtras()}: ${err instanceof Error ? err.message : err}. Ela voltaria no próximo boot.`,
+        `conferir a permissão de escrita em ${this.pastaDeEstado} e repetir o DELETE`,
+      );
+    }
+    return { ok: true };
   }
 
   porId(id: string): Sessao | undefined {

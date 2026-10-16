@@ -83,6 +83,11 @@ function criarRunner({ log, timeoutMs }) {
       if (!dados || typeof dados !== 'object') return { ok: false, erro: `O runner de ${agente.nome} respondeu /api/provedor sem corpo útil.` };
       return { ok: true, dados };
     },
+    /**
+     * Chamada genérica (para rotas que o Web só repassa, como POST /api/provedor). Devolve
+     * { ok, status, corpo, texto } quando o runner respondeu, ou { ok:false, erro } quando nem chegou lá.
+     */
+    pedir(agente, metodo, caminho, corpo, timeoutPedido) { return chamar(agente, metodo, caminho, corpo, timeoutPedido); },
     /** Digita no agente. Devolve { ok, status, enfileirado } ou { ok:false, status, erro }. */
     async input(agente, corpo) {
       const r = await chamar(agente, 'POST', `/api/agents/${encodeURIComponent(agente.agente_id)}/input`, corpo);
@@ -103,4 +108,4 @@ function motivoDoRunner(agente, r) {
   return partes.join(' ');
 }
 
-module.exports = { criarRunner };
+module.exports = { criarRunner, motivoDoRunner };

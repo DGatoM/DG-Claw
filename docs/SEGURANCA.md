@@ -79,6 +79,13 @@ sem tela.
   gravar um apelido no lugar do valor.
 - `scripts/cofre-injetar.sh` guarda por API. Ele sai com 0 quando deu certo, 1 quando não
   guardou e 3 quando guardou mas não conseguiu reiniciar o agente.
+- **Chave do cofre passa, chave herdada não.** O runner tira do ambiente do agente as chaves de
+  modelo (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` e afins) que ele herdou de quem
+  o iniciou, mas deixa passar as que o dono guardou no cofre. A exceção são as variáveis que
+  passariam por cima da forma de pagar escolhida (a lista `limpar` de cada modo em
+  `providers/catalogo.json`): num agente Claude na assinatura a `ANTHROPIC_API_KEY` do cofre fica
+  de fora, e a `OPENAI_API_KEY` para gerar imagem entra. Limitação conhecida: num agente Codex na
+  assinatura, a `OPENAI_API_KEY` do cofre fica de fora, porque disputaria com o login do ChatGPT.
 - Detalhes da tela em `panel/docs/COFRE.md`.
 
 ## Isolamento entre agentes
@@ -111,6 +118,12 @@ um por agente. Sem esse arquivo, o runner recusa tudo com 401, menos a verifica�
 (`GET /api/saude`) e o aviso de estado da sessão (`/api/agent-hook`), que é protegido por um
 número aleatório de 256 bits sorteado a cada sessão e só muda o estado mostrado: nunca injeta
 texto nem dispara comando.
+
+O que o terminal do agente imprime passa por uma máscara (`runner/src/mascara.ts`, porte do
+detector de vazamento do DG AI Bunker) antes de ir para a tela e para o histórico: os valores do
+cofre e qualquer coisa com cara de chave viram `[segredo oculto]`. É uma segunda barreira. Um
+programa de tela cheia que redesenha a tela pode intercalar códigos de cor no meio do segredo, e
+aí a máscara não o reconhece.
 
 ## Canais
 

@@ -4,6 +4,9 @@
 # Sem API externa: usa o claude CLI (mesma assinatura do assistente) pra ler o
 # working-memory.md, promover o que e duradouro pro MEMORY.md e limpar o resto.
 #
+# ATENCAO: este script esta DESLIGADO na v1 (nada o instala; a consolidacao e a reflexao
+# noturna, reflection.sh). Se alguem religar, ele ja nasce com copia de seguranca do MEMORY.md.
+#
 # Uso:  bash consolidate.sh <config.sh>
 # Roda pelo timer systemd dgclaw-<slug>-consolidate.timer (ver install-consolidate-timer.sh).
 
@@ -33,10 +36,16 @@ Tarefa:
 
 Regra: na duvida, preserve. Nunca invente fatos que nao estao escritos.'
 
+GUARDA="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_lib/memoria_guarda.py"
 echo "[$(date '+%F %T')] iniciando consolidacao em $DGCLAW_WORKSPACE" >> "$LOG"
+if ! python3 "$GUARDA" guardar --ws "$DGCLAW_WORKSPACE" >> "$LOG" 2>&1; then
+    echo "[$(date '+%F %T')] NAO consegui guardar a copia do MEMORY.md (motivo na linha acima). A consolidacao vai rodar SEM copia de seguranca." >> "$LOG"
+fi
 "$CLAUDE_BIN" --print \
     --no-session-persistence \
     --permission-mode bypassPermissions \
     --add-dir "$DGCLAW_WORKSPACE" \
     -p "$PROMPT" >> "$LOG" 2>&1
 echo "[$(date '+%F %T')] consolidacao terminou (rc=$?)" >> "$LOG"
+python3 "$GUARDA" conferir --ws "$DGCLAW_WORKSPACE" >> "$LOG" 2>&1 \
+    || echo "[$(date '+%F %T')] a conferencia do MEMORY.md saiu com codigo diferente de 0 (3 = restaurou a versao anterior; outro = nao consegui conferir). Detalhes nas linhas acima." >> "$LOG"

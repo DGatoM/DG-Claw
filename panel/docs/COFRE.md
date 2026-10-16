@@ -158,6 +158,16 @@ O `config.sh` não recebe o valor direto porque é script de shell: valor com
 `$(...)`, crase ou aspas dentro dele deixa de ser configuração e vira comando
 rodando na inicialização do agente.
 
+## Na v1: quem grava é o DG Claw Web
+
+No DG Claw v1 o agente roda num container. Se o painel de dentro guardasse a chave, o agente conseguiria lê-la (a chave mestra ficaria na casa dele). Por isso, nesse layout, **quem guarda e reinicia é o DG Claw Web, no servidor**, e o painel de dentro só mostra.
+
+- **De onde vem o dado.** O valor fica em `<casa>/cofre/cofre.env`, numa pasta que só o administrador da máquina lê. O painel de dentro recebe apenas os nomes, em `/run/dgclaw/config/cofre-nomes` (montado só para leitura; a variável `DGCLAW_COFRE_NOMES` liga esse modo). Quem cadastrou, quando e os 4 últimos caracteres ficam num registro do Web fora da casa do agente.
+- **Por que o painel de dentro recusa.** Com `DGCLAW_COFRE_NOMES` definida, guardar, revogar, aplicar e materializar devolvem 409 com o caminho certo, e nada é gravado em disco (nem pasta de cofre, nem chave mestra). O `POST /api/provedor` com chave também devolve 409.
+- **Como o dono usa.** Abrindo o painel pelo endereço do DG Claw (o do site, com o login), e não pela porta direta. A aba Cofre é a mesma: o Web responde `/p/<agente>/api/cofre` por conta própria.
+- **Como a chave passa a valer.** O runner lê o cofre só quando parte. Guardar não reinicia; "aplicar e reiniciar" (ou `aplicar: true` no mesmo pedido) roda `systemctl restart dgclaw-runner` dentro do container.
+- **Pelo servidor.** `printf %s "$CHAVE" | dgclaw agente cofre <agente> guardar NOME_API_KEY --aplicar`. O valor sempre vem pelo stdin. Detalhes das rotas e da linha de comando em `web/README.md`.
+
 ## Para quem for mexer
 
 Leia antes as regras de segurança do cofre, as regras

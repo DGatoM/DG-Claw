@@ -21,6 +21,15 @@ Environment=CODEX_HOME=/home/agente/.codex
 Environment="RUNNER_LOGIN_HINT=Abra o painel do agente e use o botão Entrar com a assinatura."
 # Cofre do agente (chaves de API). O "-" deixa a unidade subir mesmo sem o arquivo.
 EnvironmentFile=-/run/dgclaw/cofre/cofre.env
+# O runner precisa saber QUAIS variáveis vieram do cofre para entregá-las ao agente (as
+# herdadas ele tira). O cofre.env é do root e o runner roda como agente, então um passo
+# como root (o "+") copia só os NOMES para um arquivo legível. O "-" deixa o agente subir
+# se o passo falhar; o motivo fica no journal da unidade.
+Environment=DGCLAW_COFRE_ARQUIVO=/run/dgclaw-cofre-nomes
+ExecStartPre=+-/bin/bash /opt/dgclaw/app/scripts/cofre-nomes.sh /run/dgclaw/cofre/cofre.env /run/dgclaw-cofre-nomes
+# Catálogo dos provedores (Claude, Codex). O runner já o acha sozinho por este mesmo
+# caminho; fica explícito para não depender de onde o dist foi parar.
+Environment=DGCLAW_CATALOGO=/opt/dgclaw/app/providers/catalogo.json
 # Variáveis que o Claude Code põe no ambiente de quem o chama. Se o runner as herdasse,
 # o claude que ele abre se acharia filho de outra sessão e se comportaria como tal.
 UnsetEnvironment=CLAUDECODE CLAUDE_CODE_SESSION_ID CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_EXECPATH CLAUDE_PID

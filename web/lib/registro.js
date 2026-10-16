@@ -43,6 +43,9 @@ function normaliza(bruto, indice) {
       runner_token_arquivo: textoOuNull(bruto.runner_token_arquivo) || textoOuNull(bruto.tokenArquivo),
       home_host: textoOuNull(bruto.home_host),
       home_container: textoOuNull(bruto.home_container) || textoOuNull(bruto.home_host),
+      cofre_arquivo: textoOuNull(bruto.cofre_arquivo),
+      container: textoOuNull(bruto.container),
+      dono: textoOuNull(bruto.dono),
     },
   };
 }

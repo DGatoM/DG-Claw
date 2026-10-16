@@ -449,6 +449,7 @@ function htmlMidia(m) {
     return `<span class="midoff">${rot} (o arquivo não está mais disponível)` +
            `<br><small>${esc(md.nome || '')}</small></span>`;
   }
+  if (ehVisual(md)) return htmlVisual(m, md);
   if (md.kind === 'audio' || md.kind === 'voice') {
     // data-aud: é por ele que o render reconhece o player que já está tocando e
     // reaproveita o mesmo nó, em vez de criar outro do zero a cada poll.
@@ -596,6 +597,25 @@ function legendaUtil(m) {
   return m.text;
 }
 
+/* Selo do canal: só WhatsApp e Telegram levam; "plataforma" (o próprio painel) é o normal e fica sem. */
+const CANAIS_SELO = { whatsapp: 'WhatsApp', telegram: 'Telegram' };
+function htmlSelo(m) {
+  const nome = CANAIS_SELO[m.via];
+  if (!nome) return '';
+  const dono = ehDono(m);
+  const num = dono && m.via === 'whatsapp' && m.quem && /^\+?\d[\d ()-]*$/.test(m.quem) ? ' (número ' + m.quem + ')' : '';
+  const dica = dono ? 'Mensagem que veio pelo ' + nome + num : 'Resposta enviada pelo ' + nome;
+  return `<span class="selo-canal ${esc(m.via)}" title="${esc(dica)}">${esc(nome)}</span>`;
+}
+
+/* Mensagem que o dono mandou pelo toque num visual começa com
+   "[do visual <titulo>] ". Na tela vira uma etiqueta e o texto sem o prefixo; o
+   texto bruto (m.text) não muda, porque o casamento com o pendente compara ele. */
+function separaDoVisual(txt) {
+  const r = /^\[do visual ([^\]\n]*)\] ([\s\S]*)$/.exec(String(txt || ''));
+  return r ? { titulo: r[1].trim(), texto: r[2] } : null;
+}
+
 function htmlCorpo(m) {
   let midia = '';
   if (m.local && m.local.anexos) {
@@ -608,13 +628,19 @@ function htmlCorpo(m) {
   }
   const cita = m.cita ? `<div class="cita"><b>${ehDono({ origin: m.cita.origin }) ? 'Você' :
       esc(AGENTE.nome)}</b>${esc(m.cita.texto)}</div>` : '';
-  const leg = legendaUtil(m);
-  const corpo = leg ? paragrafos(leg, m.fmt) : '';
+  let leg = legendaUtil(m);
+  let doVisual = '';
+  const dv = ehDono(m) ? separaDoVisual(leg) : null;
+  if (dv) {
+    leg = dv.texto;
+    doVisual = `<div class="dovisual">📊 do visual${dv.titulo ? ': ' + esc(dv.titulo) : ''}</div>`;
+  }
+  const corpo = leg ? doVisual + paragrafos(leg, m.fmt) : doVisual;
   const reac = (m.reacoes && m.reacoes.length)
     ? `<span class="reac">${m.reacoes.map(esc).join(' ')}</span>` : '';
   const meta = m.pendente ? metaPendente(m.local)
     : `<span class="meta">${m.editada ? 'editada · ' : ''}${esc(m.hhmm)}</span>`;
-  return cita + midia + corpo + reac + meta;
+  return htmlSelo(m) + cita + midia + corpo + reac + meta;
 }
 
 /* Conversa vazia: nunca tela em branco. */
@@ -653,7 +679,7 @@ function render(opt) {
     }
     const lado = ehDono(m) ? 'me' : 'her';
     const troca = anterior !== null && anterior !== lado ? ' gap' : '';
-    itens.push([m.id, `<div class="row ${lado}${troca}" data-msg="${esc(m.id)}">` +
+    itens.push([m.id, `<div class="row ${lado}${ehVisual(m.media) ? ' vis' : ''}${troca}" data-msg="${esc(m.id)}">` +
                       `<div class="bub">${htmlCorpo(m)}</div></div>`]);
     anterior = lado;
   }
@@ -686,6 +712,7 @@ function render(opt) {
   // lendo (a altura nova vai toda pra cima do que ele vê).
   const alturaAntes = chat.scrollHeight, topoAntes = chat.scrollTop;
   aplicaNos(nos);
+  visuaisAposRender();
   if (opt.segurarPosicao) chat.scrollTop = topoAntes + (chat.scrollHeight - alturaAntes);
   else if (perto && !opt.semRolar) chat.scrollTop = chat.scrollHeight;
   respiroDasFaixas();
@@ -708,6 +735,464 @@ function aplicaNos(nos) {
   }
 }
 
+/* ── Visuais na conversa (12/10/2026, docs/ESPEC-VISUAIS.md) ──────────────
+   A agente manda um vis-<assunto>.html e o balão vira o visual desenhado num
+   <iframe sandbox="allow-scripts"> (origem opaca: sem cookie, sem storage, sem
+   acesso ao app). O iframe é território inimigo: tudo o que ele manda por
+   postMessage é conferido (fonte, número preso, texto cortado) e nada dele vira
+   HTML. O <iframe> NÃO entra na string de HTML do render: é criado aqui, quando
+   o balão chega perto da tela, e fica no nó enquanto o nó existir (o render
+   reaproveita o nó quando o HTML é o mesmo, então os polls não recarregam nada).
+   Se o nó for refeito (mensagem editada, destaque da busca), o visual recarrega
+   na altura que já tinha, para a conversa não pular. */
+const RX_VISUAL = /^vis-[^\/]*\.html?$/i;
+const ehVisual = md => !!(md && md.kind === 'document' && RX_VISUAL.test(md.nome || ''));
+const VIS_PRONTO_MS = 12000;
+const VIS_ALT_MIN = 40;
+const visuais = new Map();          // contentWindow -> estado (balão e tela cheia)
+const visEstados = new Set();       // estados dos balões na conversa
+const visPorCaixa = new WeakMap();  // .visq -> estado
+const visAlturas = new Map();       // id da mídia -> última altura (sobrevive ao nó refeito)
+
+const temaApp = () => document.documentElement.dataset.tema === 'escuro' ? 'escuro' : 'claro';
+/* Teto alto de propósito (12/10/2026): com 80% da tela, o relatório inteiro rolava
+   DENTRO do balão, e no iPhone o dedo em cima do visual rolava o visual e não a
+   conversa. O visual ocupa a altura que precisa; só um gigante rola por dentro. */
+const tetoVisual = () => Math.max(2400, Math.floor(window.innerHeight * 3));
+
+/* O que se vê no balão até o <title> chegar: o nome do arquivo sem "vis-" e sem
+   extensão, hífen e sublinhado viram espaço. */
+function tituloProvisorio(nome) {
+  const t = String(nome || '').replace(/^vis-/i, '').replace(/\.html?$/i, '')
+    .replace(/[-_]+/g, ' ').trim();
+  return t ? t.charAt(0).toUpperCase() + t.slice(1) : 'Visual';
+}
+
+function urlVisual(md) {
+  let v = '';
+  try { v = new URL(md.url, location.href).searchParams.get('v') || ''; }
+  catch (e) { console.warn('visual: url de mídia ilegível:', md.url, e.message); }
+  return '/api/v1/media/' + encodeURIComponent(md.id) + '/visual?tema=' + temaApp() +
+         (v ? '&v=' + encodeURIComponent(v) : '');
+}
+
+function htmlVisual(m, md) {
+  const tit = tituloProvisorio(md.nome);
+  return `<div class="visb"><div class="vish">` +
+    `<span class="vist">📊 <span class="visn" data-visn="${esc(md.id)}">${esc(tit)}</span></span>` +
+    `<button type="button" class="visfull" data-visfull="${esc(md.id)}" ` +
+    `title="Abrir em tela cheia" aria-label="Abrir o visual em tela cheia">⛶</button>` +
+    `${botaoBaixaMidia(md, ROTULO_MIDIA.document)}</div>` +
+    `<div class="visq" data-vis="${esc(md.id)}"><span class="visq-msg">carregando o visual…</span></div>` +
+    `</div>`;
+}
+
+function enviaAoVisual(est, obj) {
+  if (!est.win) return;
+  try { est.win.postMessage(Object.assign({ dgvis: 1 }, obj), '*'); }
+  catch (e) { console.warn('visual: não consegui avisar o iframe (' + obj.tipo + '):', e.message); }
+}
+function enviaVisivel(est) {
+  enviaAoVisual(est, { tipo: 'visivel',
+    v: !!(est.noViewport && document.visibilityState === 'visible') });
+}
+
+function mostraTarjaVisual(est, texto) {
+  if (est.tarja) { est.tarja.textContent = texto; est.tarja.hidden = !texto; return; }
+  if (!texto) return;
+  const t = document.createElement('div');
+  t.className = 'vistarja';
+  t.setAttribute('role', 'alert');
+  t.textContent = texto;      // texto do iframe: nunca HTML
+  est.tarja = t;
+  if (est.cheia) est.caixa.parentElement.insertBefore(t, est.caixa);
+  else (est.barraEl || est.caixa).after(t);   // a barrinha de envio fica entre a caixa e a tarja
+}
+
+function semPronto(est) {
+  if (est.pronto || est.falhou) return;
+  mostraTarjaVisual(est, 'O visual não respondeu em ' + (VIS_PRONTO_MS / 1000) +
+    ' s: o script dele travou ou o arquivo não é um visual. Use ⬇ para ver o arquivo.');
+  est.semPronto = true;
+  console.warn('visual ' + est.md.id + ' (' + est.md.nome + '): sem "pronto" em ' +
+               (VIS_PRONTO_MS / 1000) + ' s depois do load');
+}
+
+/* Cria o iframe dentro da caixa (balão ou tela cheia). Só aqui, nunca no HTML. */
+function carregaVisual(est) {
+  if (est.iframe) return;
+  const f = document.createElement('iframe');
+  f.setAttribute('sandbox', 'allow-scripts');       // NUNCA allow-same-origin
+  f.setAttribute('referrerpolicy', 'no-referrer');
+  f.setAttribute('allow', '');
+  f.setAttribute('title', 'Visual: ' + tituloProvisorio(est.md.nome));
+  f.className = 'visf';
+  f.addEventListener('load', () => {
+    clearTimeout(est.relogio);
+    est.relogio = setTimeout(() => semPronto(est), VIS_PRONTO_MS);
+  });
+  f.src = urlVisual(est.md);
+  est.iframe = f;
+  est.caixa.appendChild(f);
+  est.win = f.contentWindow;
+  if (est.win) visuais.set(est.win, est);
+  else console.warn('visual ' + est.md.id + ': o iframe não tem janela depois de inserido');
+}
+
+function desmontaVisual(est) {
+  clearTimeout(est.relogio);
+  fechaBarraDe(est);
+  if (est.win) visuais.delete(est.win);
+  if (est.caixa) { ioVisCarrega.unobserve(est.caixa); ioVisVisivel.unobserve(est.caixa); }
+  if (est.iframe) est.iframe.remove();
+  if (est.tarja) est.tarja.remove();
+  est.iframe = null; est.win = null;
+  visEstados.delete(est);
+}
+
+const ioVisCarrega = new IntersectionObserver(es => {
+  for (const e of es) {
+    if (!e.isIntersecting) continue;
+    const est = visPorCaixa.get(e.target);
+    ioVisCarrega.unobserve(e.target);
+    if (est) carregaVisual(est);
+  }
+}, { root: chat, rootMargin: '600px 0px' });
+const ioVisVisivel = new IntersectionObserver(es => {
+  for (const e of es) {
+    const est = visPorCaixa.get(e.target);
+    if (!est) continue;
+    est.noViewport = e.isIntersecting;
+    enviaVisivel(est);
+  }
+}, { root: chat, rootMargin: '0px' });
+
+/* Chamado depois de cada render que mexeu no DOM: dá estado e observadores às
+   caixas novas e solta as que saíram da conversa. */
+function visuaisAposRender() {
+  for (const cx of wrap.querySelectorAll('.visq[data-vis]')) {
+    if (visPorCaixa.has(cx)) continue;
+    const md = midias[cx.getAttribute('data-vis')];
+    if (!md) { console.warn('visual: mídia desconhecida na caixa', cx.getAttribute('data-vis')); continue; }
+    const est = { md, caixa: cx, iframe: null, win: null, pronto: false, falhou: false,
+                  noViewport: false, relogio: null, tarja: null, cheia: false };
+    visPorCaixa.set(cx, est);
+    visEstados.add(est);
+    const h = visAlturas.get(md.id);
+    if (h) cx.style.height = Math.min(h, tetoVisual()) + 'px';
+    ioVisCarrega.observe(cx);
+    ioVisVisivel.observe(cx);
+  }
+  for (const est of Array.from(visEstados)) if (!est.caixa.isConnected) desmontaVisual(est);
+}
+
+function aplicaAlturaVisual(est, h) {
+  const perto = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 160;
+  est.h = h;
+  est.caixa.style.height = Math.min(h, tetoVisual()) + 'px';
+  visAlturas.set(est.md.id, h);
+  if (perto) chat.scrollTop = chat.scrollHeight;
+}
+
+/* ── Pergunta do visual (BL-544, docs/VISUAIS.md) ──────────
+   O iframe é território inimigo e o app não tem como saber se houve toque de
+   verdade dentro dele. Por isso o visual NUNCA manda mensagem sozinho: ele só
+   PEDE (tipo 'pergunta'). O pedido abre uma barrinha no DOM do app, fora do
+   iframe, com o texto exato; só o toque do dono em "Enviar" manda. O ramo da
+   mensagem abaixo não chama enviarTexto: o envio fica no handler do botão. */
+const VIS_PERG_MAX = 500;            // caracteres, depois da limpeza (acima disso recusa, não corta)
+const VIS_PERG_RAPIDO_MS = 3000;     // entre dois pedidos aceitos do mesmo visual
+const VIS_PERG_LIMITE = 5;           // pedidos aceitos sem nenhum toque do dono na barrinha
+const VIS_PERG_ARMA_MS = 400;        // Enviar nasce desligado: um toque que era para o visual não cai nele
+const RX_HTML_PERG = /<\s*[a-z!\/?]/i;
+/* Estado por id da mídia (não por nó): sobrevive ao balão refeito, e o balão e a
+   tela cheia do mesmo visual dividem o mesmo contador. */
+const visLimites = new Map();       // id da mídia -> { ultimo, pedidos, avisou, barra }
+
+function limitesDe(mediaId) {
+  let l = visLimites.get(mediaId);
+  if (!l) { l = { ultimo: 0, pedidos: 0, avisou: false, barra: null }; visLimites.set(mediaId, l); }
+  return l;
+}
+
+/* Devolve { texto } limpo ou { motivo, msg } quando recusa. */
+function limpaPergunta(bruto) {
+  if (typeof bruto !== 'string') return { motivo: 'vazio', msg: 'O visual não mandou texto nenhum.' };
+  const t = bruto.replace(/\r\n/g, '\n').replace(/[\u0000-\u0009\u000B-\u001F\u007F]/g, '')
+    .replace(/\n{3,}/g, '\n\n').trim();
+  if (!t) return { motivo: 'vazio', msg: 'O pedido veio sem texto.' };
+  if (t.length > VIS_PERG_MAX) {
+    return { motivo: 'longo', msg: 'O texto passa de ' + VIS_PERG_MAX + ' caracteres.' };
+  }
+  if (RX_HTML_PERG.test(t)) return { motivo: 'html', msg: 'O texto não pode ter HTML.' };
+  return { texto: t };
+}
+
+const tituloDoEnvio = est => (est.titulo || tituloProvisorio(est.md.nome))
+  .replace(/[\[\]]/g, '').replace(/\s*[\r\n]+\s*/g, ' ').trim().slice(0, 60) || 'Visual';
+
+function recusaPergunta(est, id, motivo, msg) {
+  enviaAoVisual(est, { tipo: 'pergunta-erro', id, motivo, msg });
+}
+
+function fechaBarra(lim) {
+  const b = lim.barra;
+  if (!b) return;
+  clearTimeout(b.relogio);
+  b.est.barraEl = null;
+  b.el.remove();
+  lim.barra = null;
+}
+/* Balão desmontado ou tela cheia fechada: a barrinha some sem mandar nada. */
+function fechaBarraDe(est) {
+  const lim = est.md && visLimites.get(est.md.id);
+  if (lim && lim.barra && lim.barra.est === est) fechaBarra(lim);
+}
+
+function abreBarra(est, lim, id, texto) {
+  const el = document.createElement('div');
+  el.className = 'vispede' + (est.cheia ? ' vispede-cheia' : '');
+  el.setAttribute('role', 'group');
+  el.setAttribute('aria-label', 'Confirmar envio do visual');
+  const rot = document.createElement('div');
+  rot.className = 'vispede-rot';
+  rot.textContent = 'Mandar para o ' + AGENTE.nome + ':';
+  const tx = document.createElement('div');
+  tx.className = 'vispede-txt';
+  tx.textContent = '“' + texto + '”';        // texto do iframe: nunca HTML
+  const bts = document.createElement('div');
+  bts.className = 'vispede-bts';
+  const ok = document.createElement('button');
+  ok.type = 'button';
+  ok.className = 'vispede-ok';
+  ok.textContent = 'Enviar';
+  ok.disabled = true;
+  const nao = document.createElement('button');
+  nao.type = 'button';
+  nao.className = 'vispede-nao';
+  nao.textContent = '✕';
+  nao.setAttribute('aria-label', 'Cancelar');
+  bts.append(ok, nao);
+  el.append(rot, tx, bts);
+  const b = { el, est, id, texto, relogio: setTimeout(() => { ok.disabled = false; }, VIS_PERG_ARMA_MS) };
+  lim.barra = b;
+  est.barraEl = el;
+  if (est.cheia) visTelaEl.appendChild(el);
+  else {
+    est.caixa.after(el);
+    // QA de 12/10: com a conversa rolada para cima, a barrinha nascia abaixo da borda
+    // do #chat e o "confirme no app" apontava para um Enviar invisível. Rola só o
+    // #chat (scrollIntoView poderia mexer na página inteira no iPhone).
+    const r = el.getBoundingClientRect(), c = chat.getBoundingClientRect();
+    if (r.bottom > c.bottom - 8) chat.scrollTop += r.bottom - c.bottom + 8;
+  }
+  ok.addEventListener('click', () => enviaPergunta(lim, b));
+  nao.addEventListener('click', () => {
+    if (lim.barra !== b) return;
+    lim.pedidos = 0; lim.avisou = false;
+    fechaBarra(lim);
+    recusaPergunta(est, id, 'cancelado', 'Você cancelou o envio.');
+  });
+}
+
+/* Único lugar onde a pergunta de um visual vira mensagem: o toque do dono. */
+function enviaPergunta(lim, b) {
+  if (lim.barra !== b || b.el.querySelector('.vispede-ok').disabled) return;
+  const { est, id, texto } = b;
+  lim.pedidos = 0; lim.avisou = false;
+  fechaBarra(lim);
+  const aoEntregar = (ok, motivo) => {
+    // se a tela cheia já fechou, quem recebe a resposta é o balão do mesmo visual
+    const alvo = est.win && visuais.get(est.win) === est ? est
+      : Array.from(visEstados).find(e => e.md.id === est.md.id && e.win);
+    if (!alvo) return;
+    if (ok) enviaAoVisual(alvo, { tipo: 'pergunta-ok', id });
+    else recusaPergunta(alvo, id, 'envio', 'Não consegui mandar: ' + motivo);
+  };
+  enviarTexto('[do visual ' + tituloDoEnvio(est) + '] ' + texto, null, { aoEntregar })
+    .catch(e => console.warn('visual ' + est.md.id + ': o envio da pergunta falhou:', e));
+  if (est.cheia) fechaTelaVisual();
+}
+
+/* Trata o pedido. `d.id` já veio validado (inteiro >= 0). */
+function tratarPergunta(est, d, id) {
+  const v = limpaPergunta(d.texto);
+  if (!v.texto) return recusaPergunta(est, id, v.motivo, v.msg);
+  if (document.visibilityState !== 'visible' || (!est.cheia && !est.noViewport)) {
+    return recusaPergunta(est, id, 'fora', 'O visual não está à vista agora.');
+  }
+  const lim = limitesDe(est.md.id);
+  if (lim.barra) return recusaPergunta(est, id, 'ocupado', 'Já tem um pedido esperando sua confirmação.');
+  if (lim.pedidos >= VIS_PERG_LIMITE) {
+    if (!lim.avisou) {
+      lim.avisou = true;
+      console.warn('visual ' + est.md.id + ' (' + est.md.nome + '): ' + VIS_PERG_LIMITE +
+                   ' pedidos sem nenhum toque do dono; recusando os próximos até ele tocar');
+    }
+    return recusaPergunta(est, id, 'limite', 'Muitos pedidos sem resposta sua. Toque no visual de novo mais tarde.');
+  }
+  if (Date.now() - lim.ultimo < VIS_PERG_RAPIDO_MS) {
+    return recusaPergunta(est, id, 'rapido', 'Espere alguns segundos entre um pedido e outro.');
+  }
+  lim.ultimo = Date.now();
+  lim.pedidos++;
+  abreBarra(est, lim, id, v.texto);
+  enviaAoVisual(est, { tipo: 'pergunta-espera', id });
+}
+
+/* O único ouvinte de mensagens do iframe. `origin` vem "null" (origem opaca) e não
+   prova nada: quem vale é `ev.source` ser a janela de um iframe que EU criei. */
+window.addEventListener('message', ev => {
+  const d = ev.data;
+  if (!d || typeof d !== 'object' || d.dgvis !== 1 || typeof d.tipo !== 'string') return;
+  const est = visuais.get(ev.source);
+  if (!est) return;
+  if (d.tipo === 'pronto') {
+    est.pronto = true;
+    clearTimeout(est.relogio);
+    if (est.semPronto) { est.semPronto = false; mostraTarjaVisual(est, ''); }
+    est.caixa.classList.add('on');
+    const tit = typeof d.titulo === 'string' ? d.titulo.trim().slice(0, 120) : '';
+    const desc = typeof d.descricao === 'string' ? d.descricao.trim().slice(0, 300) : '';
+    if (tit) {
+      est.titulo = tit;
+      if (est.cheia) { if (visTelaNome) visTelaNome.textContent = '📊 ' + tit; }
+      else {
+        const n = est.caixa.parentElement.querySelector('.visn');
+        if (n) n.textContent = tit;
+        est.iframe.setAttribute('title', 'Visual: ' + tit);
+      }
+    }
+    if (desc && !est.cheia) est.caixa.parentElement.querySelector('.vist').setAttribute('title', desc);
+    enviaAoVisual(est, { tipo: 'tema', valor: temaApp() });
+    if (est.cheia) enviaAoVisual(est, { tipo: 'tela', cheia: true });
+    enviaVisivel(est);
+  } else if (d.tipo === 'altura') {
+    if (est.cheia) return;
+    const n = Number(d.h);
+    if (!isFinite(n)) return;
+    est.caixa.classList.add('on');
+    aplicaAlturaVisual(est, Math.max(VIS_ALT_MIN, Math.ceil(n)));
+  } else if (d.tipo === 'pergunta') {
+    const id = Number(d.id);
+    if (!isFinite(id) || id < 0 || Math.floor(id) !== id) return;
+    tratarPergunta(est, d, id);
+  } else if (d.tipo === 'erro') {
+    est.caixa.classList.add('on');
+    const msg = typeof d.msg === 'string' ? d.msg.slice(0, 400) : 'erro sem mensagem';
+    const linha = Number(d.linha);
+    const doServidor = isFinite(Number(d.status)) && d.status !== undefined && d.status !== null;
+    if (doServidor) est.falhou = true;      // a página de erro da rota já explica dentro do iframe
+    clearTimeout(est.relogio);
+    console.warn('visual ' + est.md.id + ' (' + est.md.nome + '): ' + msg +
+                 (isFinite(linha) && linha > 0 ? ' (linha ' + linha + ')' : ''));
+    if (doServidor) return;
+    if (d.vazio === true) { est.falhou = true; mostraTarjaVisual(est, 'O visual chegou vazio: o arquivo não desenhou nada.'); return; }
+    mostraTarjaVisual(est, '⚠️ O visual teve um erro: ' + msg +
+                           (isFinite(linha) && linha > 0 ? ' (linha ' + linha + ')' : ''));
+  }
+});
+
+document.addEventListener('visibilitychange', () => {
+  for (const est of visEstados) enviaVisivel(est);
+  if (visTelaEst) enviaVisivel(visTelaEst);
+});
+window.addEventListener('resize', () => {
+  for (const est of visEstados) if (est.h) est.caixa.style.height = Math.min(est.h, tetoVisual()) + 'px';
+});
+
+/* Tela cheia: camada por cima da conversa com um SEGUNDO iframe (mesma rota, mesmo
+   sandbox). O voltar do sistema fecha, no mesmo padrão do visor de arquivos. */
+let visTelaEl = null, visTelaCorpo = null, visTelaNome = null, visTelaBaixa = null;
+let visTelaEst = null, visTelaNoHist = false, visTelaVoltaPend = false, visTelaVoltaRelogio = null;
+const visTelaAberta = () => !!(visTelaEl && visTelaEl.classList.contains('abre'));
+
+function montaTelaVisual() {
+  if (visTelaEl) return;
+  visTelaEl = document.createElement('div');
+  visTelaEl.id = 'visTela';
+  visTelaEl.setAttribute('role', 'dialog');
+  visTelaEl.setAttribute('aria-label', 'Visual em tela cheia');
+  visTelaEl.innerHTML = '<div class="vtctopo"><span class="vtcnome" id="visTelaNome"></span>' +
+    '<span id="visTelaBaixa"></span>' +
+    '<button type="button" class="vtcfecha" id="visTelaFecha" aria-label="Fechar">✕</button></div>' +
+    '<div class="vtccorpo" id="visTelaCorpo"></div>';
+  document.body.appendChild(visTelaEl);
+  visTelaCorpo = document.getElementById('visTelaCorpo');
+  visTelaNome = document.getElementById('visTelaNome');
+  visTelaBaixa = document.getElementById('visTelaBaixa');
+  document.getElementById('visTelaFecha').onclick = () => fechaTelaVisual();
+}
+
+function limpaTelaVisual() {
+  if (!visTelaEst) return;
+  clearTimeout(visTelaEst.relogio);
+  fechaBarraDe(visTelaEst);
+  if (visTelaEst.win) {
+    enviaAoVisual(visTelaEst, { tipo: 'tela', cheia: false });
+    visuais.delete(visTelaEst.win);
+  }
+  if (visTelaEst.tarja) visTelaEst.tarja.remove();
+  visTelaCorpo.innerHTML = '';
+  visTelaEst = null;
+}
+
+function abreTelaVisual(md) {
+  montaTelaVisual();
+  const jaAberta = visTelaAberta();
+  limpaTelaVisual();
+  midias[md.id] = md;
+  visTelaNome.textContent = '📊 ' + tituloProvisorio(md.nome);
+  visTelaBaixa.innerHTML = botaoBaixaMidia(md, ROTULO_MIDIA.document);
+  const est = { md, caixa: visTelaCorpo, iframe: null, win: null, pronto: false, falhou: false,
+                noViewport: true, relogio: null, tarja: null, cheia: true };
+  visTelaEst = est;
+  visTelaEl.classList.add('abre');
+  if (!jaAberta) {
+    try {
+      history.pushState(Object.assign({}, history.state || {}, { dgtgVisual: 1 }), '');
+      visTelaNoHist = true;
+    } catch (e) {
+      visTelaNoHist = false;
+      console.warn('tela cheia do visual sem entrada no histórico:', e.message);
+    }
+  }
+  carregaVisual(est);
+}
+
+function fechaTelaVisual(peloHistorico) {
+  if (!visTelaAberta()) return;
+  visTelaEl.classList.remove('abre');
+  limpaTelaVisual();
+  if (peloHistorico !== true && visTelaNoHist) {
+    visTelaNoHist = false;
+    visTelaVoltaPend = true;
+    clearTimeout(visTelaVoltaRelogio);
+    visTelaVoltaRelogio = setTimeout(() => { visTelaVoltaPend = false; }, 1500);
+    history.back();
+  }
+}
+/* Registrado antes do popstate do visor de arquivos: se o visor estiver aberto por
+   cima (ex.: ⬇ no celular), este voltar é DELE e a tela cheia continua. */
+window.addEventListener('popstate', () => {
+  if (visTelaVoltaPend) { visTelaVoltaPend = false; clearTimeout(visTelaVoltaRelogio); return; }
+  if (visTelaAberta() && visTelaNoHist && !visorAberto()) {
+    visTelaNoHist = false;
+    fechaTelaVisual(true);
+  }
+});
+document.addEventListener('keydown', ev => {
+  if (ev.key === 'Escape' && visTelaAberta() && !visorAberto()) fechaTelaVisual();
+});
+
+wrap.addEventListener('click', ev => {
+  const bt = ev.target.closest ? ev.target.closest('button[data-visfull]') : null;
+  if (!bt) return;
+  const md = midias[bt.getAttribute('data-visfull')];
+  if (md) abreTelaVisual(md);
+  else mostraErro('Não reconheci este visual para abrir em tela cheia. Recarregue a conversa.');
+});
+
 const normaliza = s => String(s == null ? '' : s).trim().replace(/\s+/g, ' ');
 
 /* Some com o balão otimista quando a mensagem de verdade aparece na thread.
@@ -727,7 +1212,7 @@ function limpaPendentes() {
       m.ep >= piso &&
       ((p.path && m.media && m.media.path === p.path) ||
        (p.anexos && m.media && p.anexos.some(a => a.path === m.media.path)) ||
-       (p.texto && normaliza(m.text) === normaliza(p.texto))));
+       (p.texto && normaliza(m.text) === normaliza(p.casa || p.texto))));
     if (!achou) return true;
     consumidas.add(achou.id);
     soltaPrevias(p);
@@ -1082,9 +1567,11 @@ function cartaoDoc(md) {
     `<a class="sec" href="${esc(md.url)}" download="${esc(md.nome || '')}">Baixar</a></div>`;
 }
 
-function abreLightbox(mid) {
+function abreLightbox(mid, opt) {
   const md = midias[mid];
   if (!md) return;
+  // visual (vis-*.html) abre desenhado, em tela cheia; `texto` pede o visor de arquivo
+  if (ehVisual(md) && !(opt && opt.texto)) { abreTelaVisual(md); return; }
   const jaAberto = visorAberto();
   lbCorpo.innerHTML = '';
   lbMid = mid;
@@ -2095,14 +2582,16 @@ function entregue(p, d) {
   return true;
 }
 
-/* `anexosMsg`: arquivos que já subiram e vão juntos com o texto. */
-async function enviarTexto(texto, anexosMsg) {
+/* `anexosMsg`: arquivos que já subiram e vão juntos com o texto. `opts.aoEntregar(ok, motivo)`
+   (visuais) é chamado assim que o /send responde, sem esperar a agente. */
+async function enviarTexto(texto, anexosMsg, opts) {
   texto = (texto || '').trim();
   const comAnexos = !!(anexosMsg && anexosMsg.length);
   if (!texto && !comAnexos) return;
   mostraErro('');
   const pend = novoPendente(texto);
   if (comAnexos) pend.anexos = anexosMsg;
+  if (opts && opts.aoEntregar) pend.aoEntregar = opts.aoEntregar;
   pendentes.push(pend);
   await mandaTexto(pend);
 }
@@ -2110,6 +2599,12 @@ async function enviarTexto(texto, anexosMsg) {
 /* O relay do servidor desiste em 60 s; 75 s aqui cobre isso com folga.
    Devolve true se a mensagem foi entregue. `semEsperar`: não fica esperando
    a resposta depois do envio. */
+function avisaEntrega(pend, ok, motivo) {
+  if (!pend.aoEntregar) return;
+  try { pend.aoEntregar(ok, motivo); }
+  catch (e) { console.warn('aoEntregar do pendente ' + pend.n + ' falhou:', e); }
+}
+
 async function mandaTexto(pend, semEsperar) {
   const tentativa = comecaTentativa(pend);
   render();
@@ -2125,12 +2620,20 @@ async function mandaTexto(pend, semEsperar) {
                                    timeoutMs: pend.anexos ? 120000 : 75000 });
   } catch (e) {
     falhouTentativa(pend, tentativa, 'Não consegui entregar a mensagem: ', e.message);
+    avisaEntrega(pend, false, e.message);
     return false;
   } finally {
     btnEnviar.disabled = false;
   }
   // o /send respondeu: a mensagem foi entregue, falta só a cópia na thread
-  if (!entregue(pend, d)) return true;
+  if (d && d.mascarado) {   // era um token: o balão passa a mostrar só a versão mascarada
+    pend.texto = d.mascarado;
+    pend.casa = d.marca || null;   // o que vai aparecer na thread, para o balão otimista sumir
+    pend.anexos = null;
+  }
+  const ficou = entregue(pend, d);
+  avisaEntrega(pend, true);
+  if (!ficou) return true;
   if (!semEsperar && !esperando) await esperaResposta(d.ep_enviado);
   return true;
 }
@@ -2235,7 +2738,9 @@ let filaFala = Promise.resolve();
 
 function falaNovas() {
   if (!escuta || !lerRespostas || Date.now() > escuta.ate) return;
-  const novas = msgs.filter(m => ehResposta(m, escuta.since) && !faladas.has(m.id));
+  // visual (vis-*.html) é desenho: não tem o que ler em voz alta
+  const novas = msgs.filter(m => ehResposta(m, escuta.since) && !faladas.has(m.id) &&
+                              !ehVisual(m.media));
   if (!novas.length) return;
   for (const m of novas) faladas.add(m.id);
   filaFala = filaFala.then(async () => {
@@ -2516,7 +3021,7 @@ function passosTutorial() {
       porque: 'Assim você escolhe com quem falar sem sair desta tela. O Admin cuida da instalação e dos ajustes; os outros fazem o trabalho do dia a dia.' },
     { alvo: '#chat', antes: fechaM, titulo: 'A conversa',
       oque: 'Aqui aparece tudo o que você e ' + nome + ' já escreveram, na ordem, como num aplicativo de mensagens.',
-      como: 'As respostas chegam sozinhas, sem precisar atualizar a página. Role para cima para ver as mensagens mais antigas; a seta no canto leva de volta para a mais nova.',
+      como: 'As respostas chegam sozinhas, sem precisar atualizar a página. Role para cima para ver as mensagens mais antigas; a seta no canto leva de volta para a mais nova. Quando uma mensagem veio ou foi respondida pelo WhatsApp ou pelo Telegram, ela ganha um selinho com o nome do canal; passe o dedo ou o mouse nele para ver os detalhes.',
       porque: 'É o histórico do seu trabalho com o agente. Nada se perde quando você fecha a tela.' },
     { alvo: '.campo', titulo: 'O campo de mensagem',
       oque: 'O lugar onde você escreve para ' + nome + '.',

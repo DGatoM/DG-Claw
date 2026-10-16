@@ -93,3 +93,77 @@ select.btn{-webkit-appearance:none;appearance:none;padding-right:26px;
   .bub{max-width:87%}
   #chat{padding:12px 8px}
 }
+
+/* ── Visuais na conversa (12/10/2026, docs/ESPEC-VISUAIS.md) ──
+   O balão do visual ocupa a largura útil; o iframe nasce com 220 px reservados e
+   segue a altura que o próprio visual informa (teto de 80% da janela, em JS). */
+.row.vis .bub{max-width:min(94%,720px);width:min(94%,720px);padding:8px 8px 7px}
+.visb{display:block;min-width:0}
+.vish{display:flex;align-items:center;gap:6px;margin:0 0 6px;min-width:0}
+.vist{flex:1;min-width:0;font-size:13.5px;font-weight:700;color:#38523f;overflow:hidden;
+      text-overflow:ellipsis;white-space:nowrap}
+.vish .visfull,.vish .midbx{position:static;transform:none;margin:0;flex:0 0 auto;width:32px;
+      height:32px;border:1px solid var(--line);border-radius:50%;background:#f2f6f2;color:#38523f;
+      font-size:16px;line-height:1;cursor:pointer;display:flex;align-items:center;
+      justify-content:center;padding:0;font-family:inherit}
+.vish .visfull:active,.vish .midbx:active{opacity:.7}
+.visq{position:relative;display:block;width:100%;height:220px;border-radius:10px;
+      overflow:hidden;background:#f6f8f6;max-width:100%}
+.visq .visf{position:absolute;inset:0;width:100%;height:100%;border:0;background:transparent;
+            display:block}
+.visq-msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+          padding:12px;text-align:center;font-size:13px;color:var(--muted)}
+.visq.on{background:transparent}
+.visq.on .visq-msg{display:none}
+.visq-capa{height:auto;min-height:64px;cursor:pointer;border:0;padding:0}
+.visq-capa .visq-msg{position:static;min-height:64px}
+.vistarja{margin:6px 0 0;padding:8px 10px;border-radius:10px;background:#fdecea;
+          border:1px solid #e5b4ae;color:#a3271b;font-size:13px;line-height:1.35;
+          overflow-wrap:anywhere}
+@media(max-width:520px){
+  .row.vis .bub{max-width:100%;width:100%}
+}
+
+/* Tela cheia: abaixo do visor de arquivos (z 70), que o ⬇ do celular pode abrir por cima. */
+#visTela{position:fixed;inset:0;z-index:68;background:#fff;display:none;flex-direction:column;
+         padding-top:env(safe-area-inset-top);padding-left:env(safe-area-inset-left);
+         padding-right:env(safe-area-inset-right)}
+#visTela.abre{display:flex}
+.vtctopo{flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:8px 10px;
+         border-bottom:1px solid var(--line);background:var(--header)}
+.vtcnome{flex:1;min-width:0;font-size:14.5px;font-weight:700;color:var(--txt);overflow:hidden;
+         text-overflow:ellipsis;white-space:nowrap}
+.vtctopo .midbx,.vtcfecha{position:static;transform:none;margin:0;width:36px;height:36px;
+      border:1px solid var(--line);border-radius:50%;background:#f2f6f2;color:#38523f;
+      font-size:17px;line-height:1;cursor:pointer;display:flex;align-items:center;
+      justify-content:center;padding:0;font-family:inherit}
+#visTela .vistarja{margin:0;border-radius:0;border-width:0 0 1px}
+.vtccorpo{position:relative;flex:1;min-height:0;padding-bottom:env(safe-area-inset-bottom)}
+.vtccorpo .visf{position:absolute;inset:0;width:100%;height:100%;border:0;background:transparent}
+.vtccorpo .visq-msg{display:none}
+
+/* Barrinha de confirmação do visual (BL-544): é do APP, fora do iframe. O visual só
+   pede; quem envia é o toque nela. Cola no balão logo abaixo da caixa do visual. */
+.vispede{margin:6px 0 0;padding:8px 10px;border-radius:10px;background:#eef6ef;
+         border:1px solid var(--accent);color:var(--txt);font-size:13.5px;line-height:1.35;
+         min-width:0;max-width:100%}
+.vispede-rot{font-size:12px;font-weight:700;color:#38523f}
+.vispede-txt{margin:3px 0 8px;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word}
+.vispede-bts{display:flex;gap:8px;justify-content:flex-end}
+.vispede-ok,.vispede-nao{min-height:40px;border-radius:20px;font-size:14px;font-weight:700;
+         font-family:inherit;cursor:pointer;border:1px solid var(--line);padding:0 16px}
+.vispede-ok{background:var(--accent);color:#fff;border-color:transparent;min-width:96px}
+.vispede-ok:disabled{opacity:.45;cursor:default}
+.vispede-nao{background:#f2f6f2;color:#38523f;min-width:48px;padding:0 12px}
+.vispede-ok:not(:disabled):active,.vispede-nao:active{opacity:.7}
+#visTela .vispede-cheia{flex:0 0 auto;margin:0;border-radius:0;border-width:1px 0 0;
+         padding:10px calc(10px + env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom)) 10px;
+         background:#eef6ef}
+.vtccorpo:has(+ .vispede){padding-bottom:0}
+
+/* Etiqueta da mensagem do dono que saiu de um visual. */
+.dovisual{display:inline-block;margin:0 0 4px;padding:2px 8px;border-radius:10px;
+          background:rgba(0,0,0,.07);font-size:11.5px;font-weight:700;color:#38523f;
+          max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+          vertical-align:top}
+

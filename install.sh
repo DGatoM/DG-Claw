@@ -115,7 +115,7 @@ validar_args() {
 # env_valor <VARIAVEL>: le um valor do dgclaw.env sem dar `source` (o arquivo e so dado).
 env_valor() {
     [ -f "$DG_ETC/dgclaw.env" ] || return 0
-    sed -n "s/^$1=//p" "$DG_ETC/dgclaw.env" | head -n 1
+    sed -n "s/^$1=//p;T;q" "$DG_ETC/dgclaw.env"
 }
 
 # fonte_tem <caminho relativo>: o arquivo existe no repo que esta sendo instalado?
@@ -372,7 +372,9 @@ dns_publico_aponta() {
     for servidor in 1.1.1.1 8.8.8.8; do
         # Sem resposta (timeout, sem internet para o DNS) significa "nao aponta": cai no sslip.io.
         resp="$(dig +short +time=3 +tries=1 "@$servidor" "$host" A 2>/dev/null)" || resp=""
-        if ! printf '%s\n' "$resp" | grep -qx "$ip"; then return 1; fi
+        # Here-string, sem pipe: com pipefail, `printf | grep -q` pode devolver 141 (SIGPIPE)
+        # mesmo achando o IP, e isso viraria um falso "o dominio nao aponta para ca".
+        if ! grep -qFx -- "$ip" <<<"$resp"; then return 1; fi
     done
     return 0
 }
@@ -427,7 +429,7 @@ instalar_codigo() {
         if tem_jq; then
             VERSAO="$(jq -r '.version // "0"' "$SCRIPT_DIR/.claude-plugin/plugin.json")"
         else
-            VERSAO="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$SCRIPT_DIR/.claude-plugin/plugin.json" | head -n 1)"
+            VERSAO="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p;T;q' "$SCRIPT_DIR/.claude-plugin/plugin.json")"
         fi
     else
         aviso "nao achei .claude-plugin/plugin.json; a versao vai constar como 0."
@@ -532,6 +534,46 @@ FIM
     executar systemctl restart dgclaw-firewall.service
 }
 
+# --- 5b. folga de inotify ---------------------------------------------------------
+# Sem isto o Ubuntu 24.04 (max_user_instances=128) nao aguenta mais de uns 20 agentes e o
+# container sai com 255 sem log; ver lib/comum.sh. Nunca abaixa um valor que ja e maior.
+maior_de() { # maior_de <minimo> <valor-atual-ou-vazio>
+    local min="$1" atual="${2:-}"
+    case "$atual" in ''|*[!0-9]*) atual=0 ;; esac
+    if [ "$atual" -gt "$min" ]; then printf '%s' "$atual"; else printf '%s' "$min"; fi
+}
+
+configurar_inotify() {
+    passo "Dando folga de inotify aos containers"
+    local conf="$R/etc/sysctl.d/90-dgclaw-inotify.conf" inst watches novo
+    inst="$(maior_de 1024 "$(cat "$R/proc/sys/fs/inotify/max_user_instances" 2>/dev/null || true)")"
+    watches="$(maior_de 524288 "$(cat "$R/proc/sys/fs/inotify/max_user_watches" 2>/dev/null || true)")"
+    novo="$(printf '%s\n' \
+        '# DG Claw: cada agente gasta de 5 a 6 instancias de inotify do root do host.' \
+        '# Com o padrao de 128 o container sai com codigo 255 e sem log.' \
+        "fs.inotify.max_user_instances=$inst" \
+        "fs.inotify.max_user_watches=$watches")"
+    if [ "$ENSAIO" != 1 ] && [ -f "$conf" ] && [ "$(cat "$conf")" = "$novo" ]; then
+        ok "$conf ja esta certo (instancias $inst, watches $watches)"
+    else
+        printf '%s\n' "$novo" | escrever_arquivo "$conf" 644
+    fi
+    # -p com o arquivo, nunca --system: o --system reaplicaria tudo o que outros deixaram.
+    if [ "$ENSAIO" = 1 ]; then
+        printf '   [ensaio] sysctl -p %s\n' "$conf"
+        return 0
+    fi
+    # A folga e desejavel, nao essencial: numa VPS em container (LXC, OpenVZ) o sysctl e do
+    # provedor e falha sempre. Por isso aqui nao se usa o `executar`, que abortaria o install.
+    local erro atual
+    if erro="$(sysctl -p "$conf" 2>&1)"; then
+        ok "inotify: $inst instancias e $watches watches por usuario"
+    else
+        atual="$(inotify_limite)"
+        aviso "nao consegui aplicar o limite de inotify (sysctl -p $conf: $(printf '%s' "$erro" | tail -1)). O arquivo ficou gravado. O limite atual e ${atual:-desconhecido}; esta VPS provavelmente e um container e quem manda nesse limite e o provedor. Com 5 a 6 instancias por agente, cabem uns $(( ${atual:-0} / 6 )) agentes. Se precisar de mais, peca ao provedor fs.inotify.max_user_instances=1024."
+    fi
+}
+
 # --- 7. usuario e senha ---------------------------------------------------------
 gerar_hash() {
     local cmd hash
@@ -563,7 +605,7 @@ configurar_senha() {
         SENHA=""
         ok "senha nova guardada como hash (a senha em si nao e gravada em lugar nenhum)"
     elif [ -s "$web_env" ]; then
-        hash="$(sed -n "s/^DGCLAW_PANEL_PASSWORD_HASH='\(.*\)'$/\1/p" "$web_env" | head -n 1)"
+        hash="$(sed -n "s/^DGCLAW_PANEL_PASSWORD_HASH='\(.*\)'$/\1/p;T;q" "$web_env")"
         [ -n "$hash" ] || falha "nao consegui ler o hash atual em ${web_env#"$R"}." \
             "mande uma senha nova pelo STDIN e rode de novo: read -rs SENHA; printf '%s\n' \"\$SENHA\" | sudo ./install.sh --usuario $USUARIO"
         aviso "nenhuma senha nova chegou; a senha atual do painel continua valendo."
@@ -872,6 +914,7 @@ main() {
     instalar_codigo
     configurar_caddy
     configurar_firewall
+    configurar_inotify
     configurar_senha
     configurar_web
     configurar_admin

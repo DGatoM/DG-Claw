@@ -26,7 +26,15 @@ import { log } from "./logger.js";
 /** O AgentConfig do shared não conhece `promptHooks` (comandos extras do evento
  *  UserPromptSubmit). Estendido aqui, e não no shared, para o runner continuar
  *  compilando sem que o resto do monorepo precise mudar junto. */
-export type ConfigDoRunner = AgentConfig & { promptHooks?: string[] };
+export type ConfigDoRunner = AgentConfig & {
+  promptHooks?: string[];
+  /** Forma de pagar (assinatura | token | api). O `provider` e o `model` já são do AgentConfig. */
+  auth?: string;
+  /** Arquivo de identidade (persona) da sessão principal, relativo ao cwd ou absoluto.
+   *  Vale para os dois provedores: o Claude o recebe por `--append-system-prompt-file`,
+   *  o Codex por `developer_instructions`. */
+  identidadeArquivo?: string;
+};
 
 /** Uma sessão paralela declarada no descritor: outra conversa do MESMO agente
  *  (mesma casa, mesma memória, mesmo login), com PTY e sessionId próprios. */
@@ -40,6 +48,13 @@ export interface SessaoParalelaDescrita {
   envExtra?: Record<string, string>;
   allowTools?: string[];
   promptHooks?: string[];
+  /** Escolha de provedor desta sessão (nível 2 da precedência). Aceita `claude`/`codex`
+   *  e também o vocabulário do runner (`local-cli`/`codex-cli`). */
+  provider?: string;
+  model?: string;
+  auth?: string;
+  /** Nome para humanos (sessões criadas por POST /api/sessoes). */
+  titulo?: string;
 }
 
 export interface CapacidadeDescrita {
@@ -80,76 +95,89 @@ export interface SessaoParalelaValida extends SessaoParalelaDescrita {
   ociosoMinutos: number;
 }
 
+export type ResultadoDaValidacao =
+  | { ok: true; valida: SessaoParalelaValida }
+  | { ok: false; motivo: string; comoResolver: string };
+
+/**
+ * Valida UMA sessão paralela contra o descritor. É a regra única: a lista do
+ * descritor e as sessões criadas em tempo de execução (POST /api/sessoes) passam
+ * por aqui, e por isso uma extra nunca entra com um id ou um chat que o boot recusaria.
+ * `vistos` leva os ids já aceitos antes dela.
+ */
+export function validarSessao(d: DescritorDoAgente, s: SessaoParalelaDescrita, vistos: ReadonlySet<string>): ResultadoDaValidacao {
+  const chatPrincipal = d.chatPrincipal?.trim() || `c_${d.slug}`;
+  const falha = (motivo: string, comoResolver: string): ResultadoDaValidacao => ({ ok: false, motivo, comoResolver });
+  if (!s || typeof s !== "object") {
+    return falha(`o item não é um objeto (veio ${JSON.stringify(s)})`, "corrigir o item no descritor");
+  }
+  if (typeof s.id !== "string" || !/^[A-Za-z0-9_-]+$/.test(s.id)) {
+    return falha(
+      `id inválido: ${JSON.stringify(s.id)}`,
+      "usar só letras, números, hífen e sublinhado (o id vira nome de pasta e de arquivo)",
+    );
+  }
+  if (s.id === d.id) {
+    return falha(`o id ${s.id} é o mesmo da sessão principal`, "dar um id próprio à sessão paralela");
+  }
+  if (vistos.has(s.id)) {
+    return falha(`o id ${s.id} aparece mais de uma vez`, "cada sessão paralela precisa de um id único");
+  }
+  if (typeof s.tipo !== "string" || !s.tipo.trim()) {
+    return falha("falta o campo tipo", 'preencher tipo (ex.: "bastidores")');
+  }
+  if (typeof s.chat !== "string" || !s.chat.trim()) {
+    return falha("falta o campo chat", "preencher chat com o id do chat dessa sessão no canal");
+  }
+  if (s.chat.trim() === chatPrincipal) {
+    return falha(
+      `o chat ${s.chat} é o mesmo da principal`,
+      "a sessão paralela precisa de um chat próprio, senão as respostas dela cairiam na conversa do cliente",
+    );
+  }
+  const ocioso = s.ociosoMinutos;
+  if (ocioso !== undefined && !(typeof ocioso === "number" && Number.isFinite(ocioso) && ocioso > 0)) {
+    return falha(`ociosoMinutos inválido: ${JSON.stringify(ocioso)}`, "usar um número maior que zero (minutos)");
+  }
+  return {
+    ok: true,
+    valida: {
+      ...s,
+      tipo: s.tipo.trim(),
+      chat: s.chat.trim(),
+      slug: s.slug?.trim() || `${d.slug}-${s.tipo.trim()}`,
+      ociosoMinutos: ocioso ?? OCIOSO_MINUTOS_PADRAO,
+    },
+  };
+}
+
 /**
  * Valida as sessões paralelas do descritor. Sessão inválida é registrada e
  * PULADA: a principal (o agente que o cliente usa) sobe de qualquer jeito, que é
  * a degradação certa. Derrubar o runner por causa de uma sessão de bastidores
  * deixaria o cliente sem agente por um erro de configuração que não é dele.
  */
-export function validarSessoes(d: DescritorDoAgente): SessaoParalelaValida[] {
+export function validarSessoes(d: DescritorDoAgente, origem: string = AGENT_FILE): SessaoParalelaValida[] {
   if (d.sessoes === undefined) return [];
   if (!Array.isArray(d.sessoes)) {
     log.erro(
       "config",
-      `"sessoes" no descritor ${AGENT_FILE} não é uma lista (veio ${typeof d.sessoes})`,
+      `"sessoes" no descritor ${origem} não é uma lista (veio ${typeof d.sessoes})`,
       "corrigir para um array de objetos { id, tipo, chat }; nenhuma sessão paralela vai existir até lá",
     );
     return [];
   }
-  const chatPrincipal = d.chatPrincipal?.trim() || `c_${d.slug}`;
   const vistos = new Set<string>();
   const validas: SessaoParalelaValida[] = [];
   d.sessoes.forEach((s, i) => {
     const nome = `sessoes[${i}]${s && typeof s.id === "string" ? ` (${s.id})` : ""}`;
-    const pular = (motivo: string, comoResolver: string) =>
-      log.erro("config", `${nome} ignorada: ${motivo}`, `${comoResolver}. As outras sessões e a principal sobem normalmente`);
-    if (!s || typeof s !== "object") {
-      pular(`o item não é um objeto (veio ${JSON.stringify(s)})`, "corrigir o item no descritor");
+    const r = validarSessao(d, s, vistos);
+    if (!r.ok) {
+      log.erro("config", `${nome} ignorada: ${r.motivo}`, `${r.comoResolver}. As outras sessões e a principal sobem normalmente`);
       return;
     }
-    if (typeof s.id !== "string" || !/^[A-Za-z0-9_-]+$/.test(s.id)) {
-      pular(
-        `id inválido: ${JSON.stringify(s.id)}`,
-        "usar só letras, números, hífen e sublinhado (o id vira nome de pasta e de arquivo)",
-      );
-      return;
-    }
-    if (s.id === d.id) {
-      pular(`o id ${s.id} é o mesmo da sessão principal`, "dar um id próprio à sessão paralela");
-      return;
-    }
-    if (vistos.has(s.id)) {
-      pular(`o id ${s.id} aparece mais de uma vez`, "cada sessão paralela precisa de um id único");
-      return;
-    }
-    if (typeof s.tipo !== "string" || !s.tipo.trim()) {
-      pular("falta o campo tipo", 'preencher tipo (ex.: "bastidores")');
-      return;
-    }
-    if (typeof s.chat !== "string" || !s.chat.trim()) {
-      pular("falta o campo chat", "preencher chat com o id do chat dessa sessão no canal");
-      return;
-    }
-    if (s.chat.trim() === chatPrincipal) {
-      pular(
-        `o chat ${s.chat} é o mesmo da principal`,
-        "a sessão paralela precisa de um chat próprio, senão as respostas dela cairiam na conversa do cliente",
-      );
-      return;
-    }
-    const ocioso = s.ociosoMinutos;
-    if (ocioso !== undefined && !(typeof ocioso === "number" && Number.isFinite(ocioso) && ocioso > 0)) {
-      pular(`ociosoMinutos inválido: ${JSON.stringify(ocioso)}`, "usar um número maior que zero (minutos)");
-      return;
-    }
-    vistos.add(s.id);
-    validas.push({
-      ...s,
-      tipo: s.tipo.trim(),
-      chat: s.chat.trim(),
-      slug: s.slug?.trim() || `${d.slug}-${s.tipo.trim()}`,
-      ociosoMinutos: ocioso ?? OCIOSO_MINUTOS_PADRAO,
-    });
+    vistos.add(r.valida.id);
+    validas.push(r.valida);
   });
   return validas;
 }
@@ -159,6 +187,10 @@ export interface EstadoPersistido {
   previousSessionId: string | null;
   status: AgentStatus | null;
   atualizadoEm: number;
+  /** Provedor, forma de pagar e modelo do último spawn. O id da sessão só vale para o
+   *  CLI e a conta que o criaram, então uma mudança de provedor ou de auth no boot
+   *  abre conversa nova (ver Sessao.subir). */
+  escolha?: { provedor: string; auth: string; modelo: string } | null;
 }
 
 function exigir(nome: string): string {
@@ -184,6 +216,11 @@ export const PORTA = Number.parseInt(exigir("RUNNER_PORT"), 10);
 export const BIND = process.env.RUNNER_BIND?.trim() || "127.0.0.1";
 export const STATE_FILE =
   process.env.RUNNER_STATE_FILE?.trim() || path.join(path.dirname(AGENT_FILE), "runner-state.json");
+/** Tudo o que o runner GRAVA vai para esta pasta (estado das paralelas, runner-hooks/,
+ *  provedor.json, sessoes-extras.json), nunca para `dirname(AGENT_FILE)`. No container o
+ *  descritor fica numa montagem SÓ LEITURA do root e o estado em outro lugar; no Admin
+ *  (host) as duas pastas coincidem. */
+export const PASTA_DE_ESTADO = path.dirname(STATE_FILE);
 
 if (!Number.isFinite(PORTA) || PORTA <= 0 || PORTA > 65535) {
   log.erro(

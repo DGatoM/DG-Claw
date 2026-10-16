@@ -9,7 +9,9 @@
 # poke de proatividade e INJETADO na sessao --channels viva do agente (assinatura flat) — NAO
 # mais via `claude -p` (que queima credito de API). A propria persona decide se avisa o dono e
 # manda a mensagem pela tool de canal dela. Se a sessao nao estiver no ar (dono desligou o bot
-# 24/7 pra poupar), o heartbeat LOGA "sessao nao ativa, pulando" e sai 0 (no-op gracioso).
+# 24/7 pra poupar), o heartbeat registra "erro" no Pulso (com o que fazer) e sai 2, a CADA batimento
+# (checagem logo depois do passo 1, antes do "nada a fazer"). Sessao ocupada: "ok", o poke fica
+# pro proximo batimento.
 #
 # So injeta SE houver motivo:
 #   (a) a secao "Quero Falar com o <dono> Sobre" tem linha real (nao comentario/placeholder), ou
@@ -37,7 +39,7 @@ WM="$DGCLAW_WORKSPACE/working-memory.md"
 cd "$DGCLAW_WORKSPACE" || exit 1
 
 # Pulso: registra ok/erro no ledger (rc final via trap EXIT). Degrada gracioso se a lib
-# nao existir. rc 2 (sessao morta) sai 0 -> conta como "ok" (no-op gracioso esperado).
+# nao existir. Sessao morta registra "erro" explicito e sai 2 (antes saia 0 e parecia "ok").
 # shellcheck disable=SC1091
 source "$PLUGIN/scripts/_lib/pulso-lib.sh" 2>/dev/null && pulso_auto heartbeat
 
@@ -56,6 +58,19 @@ if [ -d "$EXT_DIR" ]; then
     done < <(find "$EXT_DIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
 fi
 python3 "$PLUGIN/scripts/build-working-memory.py" --agora-only >/dev/null 2>&1 || true
+
+# --- 1.5 a sessao do agente esta no ar? (barato) ---
+# Antes esta checagem ficava depois do "nada a fazer" e do sorteio, e na maioria dos batimentos
+# o script saia 0 sem nunca olhar a sessao: agente desligado aparecia como "ok" verde no Pulso.
+# shellcheck disable=SC1091
+source "$PLUGIN/scripts/_lib/inject.sh"
+if ! is_session_alive "$SLUG"; then
+    HORA="$(date '+%H:%M')"
+    MSG="a sessão do agente não estava no ar às ${HORA}, então o batimento não pôde conferir nem avisar nada. O que fazer: ligar o agente (no painel, ou com 'dgclaw agente iniciar ${SLUG}' no servidor) e conferir de novo no Pulso"
+    echo "[$(date '+%F %T')] heartbeat: FALHA, ${MSG}" >> "$LOG"
+    declare -F pulso >/dev/null && pulso erro "$MSG"
+    exit 2
+fi
 
 # --- 2. tem algo pra falar com o dono? ---
 HAS_NEWS=0
@@ -94,13 +109,6 @@ if [ "$STALE" = "0" ] && [ "${DGCLAW_HEARTBEAT_FORCE:-0}" != "1" ]; then
 fi
 
 # --- 4. ha motivo: injeta o poke de proatividade na sessao viva (fire-and-forget) ---
-# shellcheck disable=SC1091
-source "$PLUGIN/scripts/_lib/inject.sh"
-
-# No-op gracioso ANTES de montar/injetar: se a sessao nao esta viva, nem tenta.
-if ! require_live_session "$SLUG" "heartbeat (news=$HAS_NEWS stale=$STALE)" >> "$LOG" 2>&1; then
-    exit 0
-fi
 
 NAME="${DGCLAW_NAME:-a assistente}"
 PROMPT="Voce e ${NAME}, num batimento interno (heartbeat). NAO e o dono falando com voce.
@@ -115,12 +123,21 @@ inject_session "$SLUG" heartbeat <<< "$PROMPT" >> "$LOG" 2>&1
 RC=$?
 case "$RC" in
     0) echo "[$(date '+%F %T')] heartbeat: poke injetado (rc=0)" >> "$LOG" ;;
-    2) echo "[$(date '+%F %T')] heartbeat: sessao nao ativa — pulando (no-op gracioso)" >> "$LOG" ;;
+    2)
+        # A sessao caiu entre a checagem do passo 1.5 e a injecao: mesmo tratamento de morta.
+        MSG="a sessão do agente caiu às $(date '+%H:%M') na hora de injetar o batimento. O que fazer: ligar o agente e conferir de novo no Pulso"
+        echo "[$(date '+%F %T')] heartbeat: FALHA, ${MSG}" >> "$LOG"
+        declare -F pulso >/dev/null && pulso erro "$MSG"
+        exit 2
+        ;;
+    75)
+        echo "[$(date '+%F %T')] heartbeat: sessao ocupada (turno em voo), o poke fica para o proximo batimento" >> "$LOG"
+        declare -F pulso >/dev/null && pulso ok "sessão ocupada, o poke fica para o próximo batimento"
+        exit 0
+        ;;
     *) echo "[$(date '+%F %T')] heartbeat: FALHA ao injetar (rc=$RC)" >> "$LOG" ;;
 esac
 
-# rc 2 (sessao morta) e um no-op gracioso esperado -> exit 0.
 # rc 1/3/4 (falha REAL: lock timeout, PermissionError, erro de injecao) -> propaga como erro,
 # pra o systemd/admin enxergar a colisao/deadlock em vez de falhar em silencio.
-[ "$RC" = "2" ] && exit 0
 exit "$RC"

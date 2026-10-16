@@ -5,9 +5,10 @@
   "type": "module",
   "description": "O dono do processo do CLI (Claude Code ou Codex) de UM agente do DG Claw. Fala o mesmo protocolo HTTP/WS do DG AI Bunker.",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
+    "test": "tsc && node --test \"dist/**/*.test.js\"",
     "clean": "rm -rf dist"
   },
   "dependencies": {

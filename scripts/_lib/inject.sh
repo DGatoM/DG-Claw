@@ -9,7 +9,8 @@
 #   is_session_alive <slug>            -> rc 0 se a sessao --channels esta viva, !=0 se morta
 #   require_live_session <slug> <ctx>  -> loga e retorna 2 se a sessao esta morta (no-op gracioso)
 #   inject_session <slug> <tag>        -> monta poke (idempotencia) e injeta (prompt via stdin)
-#                                          rc 0 = injetado | 2 = sessao morta | 1 = falha de injecao
+#                                          rc 0 = injetado | 2 = sessao morta | 75 = sessao ocupada
+#                                          (turno em voo; adiado, NAO e erro) | outro = falha de injecao
 #
 # Uso tipico num cron:
 #   source "$(dirname "$0")/_lib/inject.sh"
@@ -54,6 +55,9 @@ require_live_session() {
 }
 
 # inject_session <slug> <tag>  (prompt via stdin)
+# Retorno: 0 injetado | 2 sessao morta | 75 sessao ocupada (adiado) | outro = falha.
+#   Morta e ocupada tinham o mesmo rc 2 e o chamador nao sabia dizer "nao rodou" de "vai rodar
+#   daqui a pouco"; por isso o 75 (o mesmo do inject.py) passa adiante sem conversao.
 # Faz: (1) checa a sessao viva (morta -> loga e retorna 2);
 #      (2) escreve o prompt num poke file UNICO em /tmp (sem clobber), com cabecalho de
 #          idempotencia (tag/slot/data + "se ja executou, nao repita");
@@ -143,7 +147,7 @@ inject_session() {
         # poluir /tmp; o proximo disparo do cron tenta de novo (poke e idempotente).
         echo "[dgclaw-inject] sessao '${slug}' ocupada — adiei ${tag} (poke descartado, tenta no proximo disparo)" >&2
         rm -f "$pokefile"
-        return 2
+        return 75
     fi
     if [ "$rc" != "0" ]; then
         echo "[dgclaw-inject] FALHA ao injetar ${tag} em '${slug}' (rc=${rc}, poke em ${pokefile})" >&2

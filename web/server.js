@@ -13,10 +13,13 @@ const { criarRunner } = require('./lib/runner');
 const { criarAuth } = require('./lib/auth');
 const { criarMidia } = require('./lib/media');
 const { criarLeitor, paraContainer } = require('./lib/thread');
+const { criarLeitorRollout } = require('./lib/rollout');
 const { criarConversa, RX_CLIENTE_ID } = require('./lib/conversa');
 const { lerMultipart, nomeSeguro, gravaSemSobrescrever } = require('./lib/uploads');
 const { abrirStream } = require('./lib/sse');
 const { criarProxy } = require('./lib/proxy');
+const { criarCofreAgente } = require('./lib/cofre-agente');
+const { criarCofreRotas } = require('./lib/cofre-rotas');
 const { criarVoz } = require('./lib/voz');
 
 const METODOS_QUE_ESCREVEM = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -57,10 +60,13 @@ function criarServidor(opcoes) {
   const registro = criarRegistro({ caminho: config.agentesPath, log });
   const runner = criarRunner({ log, timeoutMs: opcoes.timeoutRunnerMs });
   const auth = criarAuth({ config, log, agora: opcoes.agora });
-  const midia = criarMidia({ dataDir: config.dataDir, log, registro });
+  const midia = criarMidia({ dataDir: config.dataDir, log, registro, publicDir: config.publicDir });
   const leitor = criarLeitor({ log, tz: config.tz, canalTelegram: config.canalTelegram, midia });
-  const conversa = criarConversa({ config, runner, leitor, midia, log, agora: opcoes.agora });
-  const proxy = criarProxy({ config, registro, log });
+  const leitorRollout = criarLeitorRollout({ log, tz: config.tz, midia });
+  const conversa = criarConversa({ config, runner, leitor, leitorRollout, midia, log, agora: opcoes.agora, gravaToken: opcoes.gravaToken });
+  const cofreAgente = criarCofreAgente({ config, log, reiniciar: opcoes.reiniciarCofre });
+  const cofreRotas = criarCofreRotas({ config, runner, cofre: cofreAgente, log });
+  const proxy = criarProxy({ config, registro, log, cofreRotas });
   const voz = criarVoz({ env: config.env, log });
 
   let versaoJsCache = { ts: 0, valor: '0' };
@@ -240,6 +246,9 @@ function criarServidor(opcoes) {
       if (acao === 'upload' && m === 'POST') return upload(req, res, agente);
       return H.erroJson(res, ['messages', 'stream', 'wait', 'send', 'upload', ''].includes(acao) ? 405 : 404, `Não existe ${m} ${p}.`);
     }
+
+    mm = /^\/api\/v1\/media\/([0-9a-f]{16})\/visual$/.exec(p);
+    if (mm && (m === 'GET' || m === 'HEAD')) return midia.servirVisual(req, res, mm[1], url.searchParams.get('tema'));
 
     mm = /^\/api\/v1\/media\/([0-9a-f]{16})(?:\/(thumb))?$/.exec(p);
     if (mm && (m === 'GET' || m === 'HEAD')) return midia.servir(req, res, mm[1], mm[2] ? 'thumb' : 'arquivo', url.searchParams.get('baixar') === '1');

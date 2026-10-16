@@ -6,7 +6,7 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
-const { erroJson } = require('./http');
+const { erroJson, escapaHtml } = require('./http');
 
 const MIMES = {
   '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp',
@@ -22,6 +22,38 @@ const MIMES = {
 const EXT_FOTO = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic', '.avif', '.bmp']);
 const EXT_VIDEO = new Set(['.mp4', '.mov', '.webm', '.mkv', '.m4v']);
 const EXT_AUDIO = new Set(['.mp3', '.m4a', '.ogg', '.oga', '.opus', '.wav', '.aac', '.flac']);
+
+// Visuais na conversa (docs/VISUAIS.md): o balão mostra um vis-<assunto>.html num iframe
+// sandbox. A rota /visual monta o documento e leva o CSP no cabeçalho, então o isolamento
+// vale mesmo se alguém abrir a URL direto numa aba. Texto igual ao CSP_VISUAL do DG Telegram.
+const VISUAL_MAX_BYTES = 2 * 1024 * 1024;
+const CDNS_VISUAL = 'https://cdn.jsdelivr.net https://cdnjs.cloudflare.com';
+const CSP_VISUAL = 'sandbox allow-scripts; default-src \'none\'; ' +
+  `script-src 'unsafe-inline' 'unsafe-eval' ${CDNS_VISUAL}; ` +
+  `style-src 'unsafe-inline' ${CDNS_VISUAL}; ` +
+  'img-src data: blob:; media-src data: blob:; ' +
+  `font-src data: ${CDNS_VISUAL}; ` +
+  'connect-src \'none\'; form-action \'none\'; base-uri \'none\'; frame-src \'none\'; ' +
+  'worker-src \'none\'; manifest-src \'none\'; frame-ancestors \'self\'';
+const CABECALHOS_VISUAL = {
+  'Content-Security-Policy': CSP_VISUAL,
+  'Content-Type': 'text/html; charset=utf-8',
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'no-referrer',
+  'Cache-Control': 'private, no-store, no-transform',
+  'Cross-Origin-Resource-Policy': 'same-origin',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), clipboard-read=(), clipboard-write=()',
+};
+// Arquivo que o navegador EXECUTA quando a URL é aberta direto. Aqui o .html já sai como
+// text/plain, mas decidimos pela extensão também: se alguém mudar o mime, o sandbox continua.
+const EXT_ATIVA = new Set(['.html', '.htm', '.xhtml', '.svg', '.xml', '.js', '.mjs']);
+const MIME_ATIVO = new Set(['text/html', 'application/xhtml+xml', 'image/svg+xml', 'text/xml', 'application/xml', 'text/javascript', 'application/javascript']);
+const CSP_MIDIA_ATIVA = 'sandbox; default-src \'none\'; style-src \'unsafe-inline\'; img-src data:';
+
+function ehAtiva(caminho, mime) {
+  return EXT_ATIVA.has(path.extname(caminho || '').toLowerCase()) ||
+    MIME_ATIVO.has(String(mime || '').split(';')[0].trim().toLowerCase());
+}
 
 function kindDe(caminho) {
   const e = path.extname(caminho || '').toLowerCase();
@@ -39,8 +71,56 @@ function dentro(raiz, alvo) {
   return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
 }
 
-function criarMidia({ dataDir, log, registro }) {
+function criarMidia({ dataDir, log, registro, publicDir }) {
   const reg = new Map(); // id -> { path, kind, mime, nome, slug }
+  const baseVisual = new Map(); // nome do arquivo -> { mtime, texto }
+
+  /** Texto de public/<nome>, com cache pela mtime (editar a base vale sem restart). Ausente: log e '' (o visual sai sem a base). */
+  function lerBase(nome) {
+    const caminho = path.join(publicDir || path.join(__dirname, '..', 'public'), nome);
+    try {
+      const mt = fs.statSync(caminho).mtimeMs;
+      const c = baseVisual.get(nome);
+      if (c && c.mtime === mt) return c.texto;
+      const texto = fs.readFileSync(caminho, 'utf8');
+      baseVisual.set(nome, { mtime: mt, texto });
+      return texto;
+    } catch (err) {
+      log('erro', `Visual: não li a base public/${nome} (${err.code || err.message}); o visual sai SEM ela (sem peças dv-* nem window.dgvis). Confira se o arquivo existe.`);
+      return '';
+    }
+  }
+
+  function paginaVisual(corpo, tema) {
+    // um "</style" ou "</script" dentro da base fecharia a tag antes da hora
+    const css = lerBase('dgvis.css').replace(/<\/(style)/gi, '<\\/$1');
+    const js = lerBase('dgvis.js').replace(/<\/(script)/gi, '<\\/$1');
+    // linhas que vêm antes do arquivo da agente, pro dgvis.js dizer a linha DO ARQUIVO dela
+    const linhas = 2 + (css.match(/\n/g) || []).length + (js.match(/\n/g) || []).length;
+    return '<!doctype html>\n' +
+      `<html lang="pt-BR" data-tema="${tema}" data-dgvis="1" data-linhas-base="${linhas}"><head>` +
+      '<meta charset="utf-8">' +
+      '<meta name="viewport" content="width=device-width,initial-scale=1">' +
+      `<style id="dgvis-css">${css}</style>` +
+      `<script id="dgvis-js">${js}</script>\n${corpo}`;
+  }
+
+  function enviaPagina(req, res, status, html) {
+    const buf = Buffer.from(html, 'utf8');
+    res.writeHead(status, Object.assign({}, CABECALHOS_VISUAL, { 'Content-Length': buf.length }));
+    res.end(req.method === 'HEAD' ? undefined : buf);
+  }
+
+  /** Página de erro DENTRO do iframe, que também avisa o app por postMessage. Nunca JSON nem página em branco. */
+  function erroVisual(req, res, status, msg, tema, nome) {
+    log('aviso', `Visual${nome ? ' ' + nome : ''}: ${msg} (status ${status})`);
+    const aviso = JSON.stringify({ dgvis: 1, tipo: 'erro', msg: msg.slice(0, 400), status }).replace(/</g, '\\u003c');
+    const corpo = '<div class="dv-cartao dv-alerta" style="margin:12px">' +
+      '<strong>Não deu para mostrar o visual.</strong>' +
+      `<p>${escapaHtml(msg)}</p></div>` +
+      `<script>try{parent.postMessage(${aviso},"*")}catch(e){}</script>`;
+    enviaPagina(req, res, status, paginaVisual(corpo, tema));
+  }
 
   function raizesDe(slug) {
     const raizes = [];
@@ -100,6 +180,45 @@ function criarMidia({ dataDir, log, registro }) {
 
     obter(id) { return reg.get(id) || null; },
 
+    /** GET|HEAD /api/v1/media/<id>/visual?tema=claro|escuro (ver docs/VISUAIS.md). */
+    servirVisual(req, res, id, temaPedido) {
+      const tema = temaPedido === 'escuro' ? 'escuro' : 'claro';
+      const e = reg.get(id);
+      if (!e) {
+        erroVisual(req, res, 404, 'Não conheço esta mídia. Ela pode ter sido registrada antes de o servidor reiniciar: recarregue a conversa para ela voltar.', tema);
+        return;
+      }
+      const nome = e.nome;
+      if (!/\.html?$/i.test(e.path)) {
+        erroVisual(req, res, 415, `'${nome}' não é um arquivo .html, então não dá para desenhar como visual. Peça ao agente um arquivo vis-<assunto>.html, ou use o botão de baixar.`, tema, nome);
+        return;
+      }
+      const real = caminhoPermitido(e.slug, e.path);
+      if (!real) {
+        const sumiu = !fs.existsSync(e.path);
+        erroVisual(req, res, sumiu ? 410 : 404, sumiu
+          ? `'${nome}' saiu do disco (foi apagado ou movido). Peça ao agente para mandar de novo.`
+          : `'${nome}' está fora da pasta permitida do agente e não será aberto.`, tema, nome);
+        return;
+      }
+      let st;
+      try { st = fs.statSync(real); } catch (err) {
+        erroVisual(req, res, 410, `Não consegui ler o tamanho de '${nome}' (${err.code || err.message}). O arquivo pode ter saído do disco.`, tema, nome);
+        return;
+      }
+      if (!st.isFile()) { erroVisual(req, res, 404, `O caminho de '${nome}' não é um arquivo.`, tema, nome); return; }
+      if (st.size > VISUAL_MAX_BYTES) {
+        erroVisual(req, res, 413, `'${nome}' tem ${(st.size / 1048576).toFixed(1).replace('.', ',')} MB, acima do teto de ${VISUAL_MAX_BYTES / 1048576} MB de um visual. Peça ao agente para enxugar (imagem grande vai fora do arquivo) ou use o botão de baixar.`, tema, nome);
+        return;
+      }
+      let texto;
+      try { texto = fs.readFileSync(real).toString('utf8').replace(/^\uFEFF/, ''); } catch (err) {
+        erroVisual(req, res, 500, `Não consegui abrir '${nome}' (${err.code || err.message}).`, tema, nome);
+        return;
+      }
+      enviaPagina(req, res, 200, paginaVisual(texto, tema));
+    },
+
     /** Serve o arquivo. `modo` é 'arquivo' ou 'thumb'. */
     servir(req, res, id, modo, baixar) {
       const e = reg.get(id);
@@ -131,6 +250,8 @@ function criarMidia({ dataDir, log, registro }) {
         'X-Content-Type-Options': 'nosniff',
         'Content-Disposition': `${baixar ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(e.nome)}`,
       };
+      // html/svg/xml/js abertos direto rodariam na origem do app, com a sessão: o sandbox isola
+      if (ehAtiva(e.path, e.mime)) cab['Content-Security-Policy'] = CSP_MIDIA_ATIVA;
       let inicio = 0; let fim = total - 1; let status = 200;
       const faixa = req.headers.range;
       if (faixa) {
@@ -160,4 +281,4 @@ function criarMidia({ dataDir, log, registro }) {
   };
 }
 
-module.exports = { criarMidia, kindDe, mimeDe, idDe, dentro };
+module.exports = { CSP_VISUAL, CSP_MIDIA_ATIVA, VISUAL_MAX_BYTES, criarMidia, kindDe, mimeDe, idDe, dentro };

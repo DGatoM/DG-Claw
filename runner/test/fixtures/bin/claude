@@ -1,0 +1,114 @@
+#!/usr/bin/env node
+// Claude Code FALSO, só para os testes do runner. Grava o argv e os NOMES das variáveis de
+// ambiente em FAKE_LOG (nunca os valores, exceto uma lista curta de variáveis sem segredo),
+// emula `auth status --json`, `auth login` (com hiperlink OSC 8) e o TUI interativo, que
+// dispara os hooks do --settings como o Claude de verdade faz.
+const fs = require("fs");
+const cp = require("child_process");
+
+const argv = process.argv.slice(2);
+const VALORES_SEGUROS = ["CLAUDE_CONFIG_DIR", "TELEGRAM_STATE_DIR", "IS_SANDBOX", "BROWSER", "HOME", "DGCHAT_AGENT"];
+
+function registrar(extra) {
+  if (!process.env.FAKE_LOG) return;
+  const valores = {};
+  for (const k of VALORES_SEGUROS) if (process.env[k] !== undefined) valores[k] = process.env[k];
+  fs.appendFileSync(
+    process.env.FAKE_LOG,
+    JSON.stringify({ bin: "claude", argv, cwd: process.cwd(), env: Object.keys(process.env).sort(), valores, ...extra }) + "\n",
+  );
+}
+
+if (argv[0] === "auth" && argv[1] === "status") {
+  registrar({ modo: "auth-status" });
+  process.stdout.write(
+    process.env.FAKE_CLAUDE_STATUS ||
+      JSON.stringify({
+        loggedIn: true,
+        authMethod: "claude.ai",
+        apiProvider: "firstParty",
+        email: "fulano.de.tal@example.com",
+        orgId: "org-0123456789abcdef",
+        orgName: "Organizacao Exemplo",
+        subscriptionType: "max",
+      }) + "\n",
+  );
+  process.exit(0);
+}
+
+if (argv[0] === "auth" && argv[1] === "login") {
+  registrar({ modo: "auth-login" });
+  const link = "https://claude.com/cai/oauth/authorize?code=true&client_id=abc123&state=xyz789";
+  process.stdout.write("Opening browser to sign in...\n");
+  process.stdout.write(`\u001b]8;;${link}\u0007If the browser did not open, visit: ${link}\u001b]8;;\u0007\n`);
+  process.stdout.write("Paste code here if prompted > ");
+  let buf = "";
+  process.stdin.on("data", (d) => {
+    buf += d.toString();
+    if (!/[\r\n]/.test(buf)) return;
+    const codigo = buf.trim();
+    registrar({ modo: "auth-login-codigo", codigo });
+    if (process.env.FAKE_LOGIN_FAIL) process.exit(1);
+    const dir = process.env.CLAUDE_CONFIG_DIR;
+    if (dir) {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(dir + "/.credentials.json", '{"claudeAiOauth":{"accessToken":"x"}}');
+    }
+    process.exit(0);
+  });
+  setInterval(() => {}, 1000);
+  return;
+}
+
+// --- TUI interativo ---
+registrar({ modo: "interativo" });
+const iSettings = argv.indexOf("--settings");
+let hooks = {};
+if (iSettings >= 0) {
+  try {
+    hooks = JSON.parse(fs.readFileSync(argv[iSettings + 1], "utf8")).hooks || {};
+  } catch (e) {
+    process.stderr.write("fake claude: settings ilegivel: " + e.message + "\n");
+  }
+}
+const iSid = argv.indexOf("--session-id") >= 0 ? argv.indexOf("--session-id") : argv.indexOf("--resume");
+const sessionId = iSid >= 0 ? argv[iSid + 1] : "sem-id";
+
+function disparar(evento, extra) {
+  const grupo = (hooks[evento] || [])[0];
+  if (!grupo) return;
+  for (const h of grupo.hooks) {
+    cp.spawnSync("/bin/sh", ["-c", h.command], { input: JSON.stringify({ session_id: sessionId, cwd: process.cwd(), ...extra }), timeout: 5000 });
+  }
+}
+
+process.stdout.write("fake claude pronto\r\n");
+if (process.env.FAKE_IMPRIMIR) {
+  // O texto sai em dois pedaços, com um intervalo no meio, como um segredo partido na saída do PTY.
+  const t = process.env.FAKE_IMPRIMIR;
+  const meio = Math.floor(t.length / 2);
+  process.stdout.write(t.slice(0, meio));
+  setTimeout(() => process.stdout.write(t.slice(meio) + "\r\ntexto final sk-"), 30);
+}
+setTimeout(() => disparar("SessionStart", { source: "startup" }), Number(process.env.FAKE_SESSIONSTART_MS || 150));
+
+let linha = "";
+if (process.stdin.isTTY) process.stdin.setRawMode(true);
+process.stdin.on("data", (d) => {
+  for (const ch of d.toString()) {
+    if (ch === "\r" || ch === "\n") {
+      const texto = linha.trim();
+      linha = "";
+      if (!texto) continue; // Enter com a caixa vazia não faz nada
+      registrar({ modo: "prompt", texto });
+      disparar("UserPromptSubmit", {});
+      setTimeout(() => disparar("Stop", {}), Number(process.env.FAKE_TURN_MS || 150));
+    } else {
+      linha += ch;
+    }
+  }
+});
+process.on("SIGTERM", () => process.exit(0));
+// Teimoso: ignora o SIGHUP que o node-pty manda no kill(), como um CLI que não larga o terminal.
+if (process.env.FAKE_IGNORAR_HUP) process.on("SIGHUP", () => {});
+setInterval(() => {}, 1000);

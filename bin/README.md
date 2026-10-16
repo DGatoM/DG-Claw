@@ -20,6 +20,7 @@ logica mais pesada chama um script Node do app (como a geracao do hash da senha)
 | `dgclaw agente listar [--json]` | agentes, estado do container e saude do runner |
 | `dgclaw agente parar\|iniciar\|reiniciar <slug>` | `reiniciar` reinicia so o runner por dentro (e o que o cofre pede) |
 | `dgclaw agente reparar <slug>` | refaz so a parte de dentro (rotinas, runner, painel, plugin do Telegram) |
+| `dgclaw agente cofre <slug> guardar\|revogar\|listar\|aplicar [NOME] [opcoes]` | chaves de API do agente. O valor vem SEMPRE pelo STDIN. Sai 0 (deu certo), 1 (recusa, com o motivo) ou 2 (uso errado) |
 | `dgclaw agente remover <slug> [--sim]` | tira do ar e MOVE a casa para `/var/lib/dgclaw/aposentados/`. Nunca apaga; a faixa de uid fica queimada |
 | `dgclaw imagem status` | pronta, construindo ou falhou (com a cauda do log) |
 | `dgclaw imagem construir [--agora]` | constroi a imagem em segundo plano, ou aqui com `--agora` |

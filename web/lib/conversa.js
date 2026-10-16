@@ -5,6 +5,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { paraContainer } = require('./thread');
+const { criaInterceptor } = require('./token-telegram');
+const { acharRollout, ehRollout, confinar } = require('./rollout');
 
 const RX_SESSION = /^[A-Za-z0-9_-]{8,80}$/;
 const TTL_RUNNER_MS = 2000;
@@ -25,10 +27,12 @@ function montarEnvelope({ from, chat, msg, ts, text }) {
   return `<dgchat from="${atributo(from) || 'pessoa'}" chat="${atributo(chat)}" msg="${atributo(msg)}" ts="${atributo(ts)}">${corpo}</dgchat>`;
 }
 
-function criarConversa({ config, runner, leitor, midia, log, agora }) {
+function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agora, gravaToken }) {
+  const tokenTelegram = criaInterceptor({ gravaToken });
   const relogio = agora || (() => Date.now());
   const estadoRunner = new Map();   // slug -> { ts, promessa, valor }
   const arquivoPorSessao = new Map(); // `${slug}|${sessionId}` -> caminho
+  const rolloutPorSessao = new Map(); // `${slug}|${sessionId}` -> rollout do Codex
   const ultimoArquivo = new Map();  // slug -> caminho (para quando o runner some)
   const atividadeAnterior = new Map(); // slug -> { chave, desde }
   const rotulos = new Map();        // slug -> { ts, valor }
@@ -90,25 +94,62 @@ function criarConversa({ config, runner, leitor, midia, log, agora }) {
     return melhor;
   }
 
+  /** Codex: o rollout da sessão. Cache por sessão. Devolve { arquivo, procurados, erro }. */
+  function achaRolloutDaSessao(agente, sessionId, codexHome) {
+    const chave = `${agente.slug}|${sessionId}`;
+    const guardado = rolloutPorSessao.get(chave);
+    if (guardado && fs.existsSync(guardado)) return { arquivo: guardado, procurados: [] };
+    const r = acharRollout(agente, sessionId, codexHome);
+    if (r.arquivo) rolloutPorSessao.set(chave, r.arquivo);
+    return r;
+  }
+
   /** { msgs, versao, avisos } da thread do agente. Nunca lança: problema vira aviso. */
   async function thread(agente) {
     const avisos = [];
     const r = await estado(agente);
     let arquivo = null;
     if (r.ok && r.estado.sessionId) {
-      arquivo = achaPorSessao(agente, String(r.estado.sessionId));
+      const sid = String(r.estado.sessionId);
+      const codexHome = typeof r.estado.codexHome === 'string' && r.estado.codexHome.trim() ? r.estado.codexHome.trim() : null;
+      // Com codexHome o motor é o Codex. Sem ele, o transcript do Claude vem primeiro e o rollout é a segunda chance.
+      if (!codexHome) arquivo = achaPorSessao(agente, sid);
+      let rol = null;
       if (!arquivo) {
-        avisos.push(`Não achei o registro da sessão ${r.estado.sessionId} em ${agente.transcripts_dir || '(transcripts_dir não configurado)'}.`);
-        avisaUmaVez(`arq|${agente.slug}`, 'aviso', `Thread de ${agente.nome}: o runner diz que a sessão é ${r.estado.sessionId}, mas não há ${r.estado.sessionId}.jsonl sob ${agente.transcripts_dir || '(transcripts_dir não configurado)'}. Confira transcripts_dir no registro de agentes.`);
+        rol = achaRolloutDaSessao(agente, sid, codexHome);
+        arquivo = rol.arquivo;
+      }
+      if (!arquivo) {
+        const onde = agente.transcripts_dir || '(transcripts_dir não configurado)';
+        let motivo;
+        if (rol && rol.erro) motivo = `Não consegui localizar o registro Codex da sessão ${sid}: ${rol.erro}`;
+        else if (codexHome) motivo = `Não achei o registro Codex da sessão ${sid}. Procurei em ${rol.procurados.join(', ')}.`;
+        else motivo = `Não achei o registro da sessão ${sid} em ${onde}.${rol && rol.procurados.length ? ` Também procurei o rollout do Codex em ${rol.procurados.join(', ')}.` : ''}`;
+        avisos.push(motivo);
+        avisaUmaVez(`arq|${agente.slug}`, 'aviso', `Thread de ${agente.nome}: o runner diz que a sessão é ${sid}, mas ${motivo.charAt(0).toLowerCase()}${motivo.slice(1)} Confira transcripts_dir e home_host no registro de agentes.`);
       } else esquece(`arq|${agente.slug}`);
     } else if (!r.ok) {
       avisos.push(`O runner não respondeu (${r.erro}). Mostro a última conversa conhecida.`);
     }
     if (!arquivo) arquivo = ultimoArquivo.get(agente.slug) || (r.ok && !r.estado.sessionId ? maisRecente(agente) : null) || (!r.ok ? maisRecente(agente) : null);
     if (!arquivo) return { msgs: [], versao: 0, avisos, arquivo: null };
+    // Última guarda: o arquivo final, com realpath, precisa ficar dentro da raiz (atalho para fora é recusado).
+    const eRollout = ehRollout(arquivo);
+    {
+      const raiz = eRollout ? agente.home_host : agente.transcripts_dir;
+      const c = raiz ? confinar(arquivo, raiz, eRollout ? 'o registro Codex' : 'o transcript do Claude') : { erro: `Recusei ler ${arquivo}: o registro de ${agente.nome} não tem ${eRollout ? 'home_host' : 'transcripts_dir'} para conferir. Nada foi lido.` };
+      if (c.erro) {
+        avisos.push(c.erro);
+        avisaUmaVez(`conf|${agente.slug}`, 'aviso', `Thread de ${agente.nome}: ${c.erro}`);
+        ultimoArquivo.delete(agente.slug);
+        return { msgs: [], versao: 0, avisos, arquivo: null };
+      }
+      arquivo = c.real;
+    }
     ultimoArquivo.set(agente.slug, arquivo);
     try {
-      const { eventos, versao } = leitor.ler(arquivo, agente);
+      const fonte = eRollout && leitorRollout ? leitorRollout : leitor;
+      const { eventos, versao } = fonte.ler(arquivo, agente);
       return { msgs: eventos, versao, avisos, arquivo };
     } catch (e) {
       log('erro', `Thread de ${agente.nome}: falhou ao ler ${arquivo}: ${e.message}`);
@@ -240,6 +281,18 @@ function criarConversa({ config, runner, leitor, midia, log, agora }) {
     if (ids.length > MAX_ANEXOS) return erro(413, `Vieram ${ids.length} anexos e o limite é ${MAX_ANEXOS} por mensagem. Mande o resto em outra.`);
     if (new Set(ids).size !== ids.length) return erro(400, 'Há ids repetidos em "anexos". Cada arquivo entra uma vez só.');
     if (!texto && !ids.length) return erro(400, 'Mande o texto em "text" (ou os ids dos arquivos em "anexos"). Recebi vazio.');
+    // Token do BotFather colado sozinho: vai para o .env do agente e nunca para o runner.
+    if (!ids.length && tokenTelegram.ehToken(texto)) {
+      const g = await tokenTelegram.guardar(agente, texto);
+      if (g.erro) {
+        log('aviso', `Token do Telegram colado na conversa de ${agente.slug} não foi guardado: ${g.erro.corpo.erro}`);
+        return g.erro;
+      }
+      const r = await entregar(agente, g.marca, { cru: false });
+      if (r.status >= 300) return r;
+      log('info', `Token do Telegram de ${agente.slug} guardado no .env do agente (${g.mascarado}).`);
+      return { status: 200, corpo: Object.assign({}, r.corpo, { token_guardado: true, mascarado: g.mascarado, marca: g.marca }) };
+    }
     if (texto.length > config.maxTexto) return erro(413, `O texto tem ${texto.length} caracteres e o limite é ${config.maxTexto} por mensagem. Divida em partes.`);
     const marcadores = []; const faltam = [];
     for (const id of ids) {

@@ -1,0 +1,209 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const http = require('node:http');
+const os = require('node:os');
+const path = require('node:path');
+const { subirWeb } = require('./ajuda');
+
+// Valores falsos, só para o teste. Começam com "sk-" porque a troca de modelo da OpenAI confere o prefixo.
+const CHAVE = 'sk-teste-valor-secreto-de-teste-9999aaaa';
+const OUTRA = 'sk-teste-outro-valor-secreto-de-teste-7777bbbb';
+
+/** Servidor falso que guarda tudo o que recebe (serve de painel e de runner). */
+function falso(resposta) {
+  const visto = [];
+  const servidor = http.createServer((req, res) => {
+    const partes = [];
+    req.on('data', (c) => partes.push(c));
+    req.on('end', () => {
+      visto.push({ metodo: req.method, url: req.url, headers: req.headers, corpo: Buffer.concat(partes).toString('utf8') });
+      const r = resposta ? resposta(req) : { status: 200, corpo: { ok: true } };
+      res.writeHead(r.status, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(r.corpo));
+    });
+  });
+  return {
+    visto,
+    ouvir: () => new Promise((r) => servidor.listen(0, '127.0.0.1', () => r(servidor.address().port))),
+    fechar: () => new Promise((r) => { servidor.closeAllConnections(); servidor.close(() => r()); }),
+  };
+}
+
+async function cenario(opcoes) {
+  const o = opcoes || {};
+  const painel = falso();
+  const runner = falso((req) => (req.url === '/api/provedor' && req.method === 'POST'
+    ? (o.runnerResposta || { status: 200, corpo: { ok: true, rotulo: 'Codex, pela chave de API' } })
+    : { status: 404, corpo: { error: 'sem rota' } }));
+  const pPainel = await painel.ouvir();
+  const pRunner = await runner.ouvir();
+  const raiz = fs.mkdtempSync(path.join(os.tmpdir(), 'cofre-rotas-'));
+  const casa = path.join(raiz, 'casa-ana');
+  fs.mkdirSync(path.join(casa, 'cofre'), { recursive: true }); fs.mkdirSync(path.join(casa, 'config'));
+  fs.chmodSync(casa, 0o711); fs.chmodSync(path.join(casa, 'cofre'), 0o700); fs.chmodSync(path.join(casa, 'config'), 0o755);
+  const segredo = path.join(raiz, 'proxy.txt'); fs.writeFileSync(segredo, 'segredo-do-proxy\n');
+  const reinicios = [];
+  const agentes = [
+    { slug: 'admin', nome: 'Admin', tipo: 'admin', runner: 'http://127.0.0.1:1', agente_id: 'a0' },
+    { slug: 'ana', nome: 'Ana', runner: `http://127.0.0.1:${pRunner}`, agente_id: 'a1', porta_painel: pPainel, proxy_segredo_arquivo: segredo, cofre_arquivo: path.join(casa, 'cofre', 'cofre.env') },
+    { slug: 'velha', nome: 'Velha', runner: `http://127.0.0.1:${pRunner}`, agente_id: 'a2', porta_painel: pPainel, proxy_segredo_arquivo: segredo },
+  ];
+  const t = await subirWeb({ agentes, reiniciarCofre: o.reiniciar || (async (a) => { reinicios.push(a.slug); }) });
+  await t.login();
+  return {
+    t, painel, runner, casa, reinicios, cofreEnv: path.join(casa, 'cofre', 'cofre.env'),
+    tudo: () => JSON.stringify(painel.visto) + JSON.stringify(runner.visto),
+    fechar: async () => { await t.fechar(); await painel.fechar(); await runner.fechar(); fs.rmSync(raiz, { recursive: true, force: true }); },
+  };
+}
+
+test('GET/POST/DELETE em /p/ana/api/cofre são respondidos pelo Web e nunca chegam ao painel', async () => {
+  const s = await cenario();
+  try {
+    const g0 = await s.t.c.get('/p/ana/api/cofre');
+    assert.equal(g0.status, 200); assert.equal(g0.json.guarda.motor, 'host'); assert.deepEqual(g0.json.chaves, []);
+    assert.equal(g0.headers['cache-control'], 'no-store');
+    const p = await s.t.c.post('/p/ana/api/cofre', { json: { envName: 'OPENAI_API_KEY', valor: OUTRA, provedor: 'openai' } });
+    assert.equal(p.status, 200, p.texto); assert.equal(p.json.ok, true); assert.equal(p.json.ultimos4, 'bbbb');
+    assert.ok(!p.texto.includes(OUTRA));
+    assert.equal(fs.readFileSync(s.cofreEnv, 'utf8'), `OPENAI_API_KEY='${OUTRA}'\n`);
+    const g1 = await s.t.c.get('/p/ana/api/cofre');
+    assert.equal(g1.json.chaves[0].cadastradaPor, 'dono'); assert.equal(g1.json.chaves[0].origem, 'tela');
+    assert.ok(!g1.texto.includes(OUTRA));
+    const put = await s.t.c.pedir('PUT', '/p/ana/api/cofre', { json: { envName: 'OPENAI_API_KEY', valor: OUTRA.replace('7777', '8888') } });
+    assert.equal(put.json.trocada, true);
+    const ruim = await s.t.c.post('/p/ana/api/cofre', { json: { envName: 'NODE_OPTIONS', valor: OUTRA } });
+    assert.equal(ruim.status, 400); assert.ok(ruim.json.error && ruim.json.howToFix);
+    const d = await s.t.c.pedir('DELETE', '/p/ana/api/cofre?envName=openai_api_key');
+    assert.equal(d.status, 200); assert.equal(fs.readFileSync(s.cofreEnv, 'utf8'), '');
+    assert.equal((await s.t.c.pedir('DELETE', '/p/ana/api/cofre?envName=OPENAI_API_KEY')).status, 409);
+    assert.equal(s.painel.visto.length, 0, 'o painel não recebeu nada');
+    assert.ok(!s.t.log.texto().includes(OUTRA));
+    // caixa diferente e barra final também são pegas
+    assert.equal((await s.t.c.get('/p/ana/API/Cofre/')).json.guarda.motor, 'host');
+    assert.equal(s.painel.visto.length, 0);
+  } finally { await s.fechar(); }
+});
+
+test('aplicar:true guarda e reinicia; falha do reinício mantém a chave e diz as duas coisas; /aplicar reinicia', async () => {
+  const s = await cenario();
+  try {
+    const r = await s.t.c.post('/p/ana/api/cofre', { json: { envName: 'OPENAI_API_KEY', valor: OUTRA, aplicar: true } });
+    assert.equal(r.status, 200); assert.equal(r.json.aplicado.ok, true); assert.deepEqual(s.reinicios, ['ana']);
+    const a = await s.t.c.post('/p/ana/api/cofre/aplicar', { json: {} });
+    assert.equal(a.status, 200); assert.match(a.json.feito, /reiniciado/); assert.deepEqual(s.reinicios, ['ana', 'ana']);
+    assert.equal(s.painel.visto.length, 0);
+  } finally { await s.fechar(); }
+  const f = await cenario({ reiniciar: async () => { throw Object.assign(new Error('x'), { code: 'ENOENT' }); } });
+  try {
+    const r = await f.t.c.post('/p/ana/api/cofre', { json: { envName: 'OPENAI_API_KEY', valor: OUTRA, aplicar: true } });
+    assert.equal(r.status, 500); assert.match(r.json.error, /^A chave foi guardada\./);
+    assert.equal(r.json.guardado.ok, true); assert.equal(r.json.aplicado.ok, false);
+    assert.ok(fs.readFileSync(f.cofreEnv, 'utf8').includes(OUTRA));
+    assert.ok(!r.texto.includes(OUTRA));
+    const a = await f.t.c.post('/p/ana/api/cofre/aplicar', { json: {} });
+    assert.equal(a.status, 500); assert.match(a.json.error, /podman/);
+  } finally { await f.fechar(); }
+});
+
+test('POST /api/provedor com chave: o Web guarda, fala com o runner, reinicia; a chave não chega ao painel nem ao runner', async () => {
+  const s = await cenario();
+  try {
+    const r = await s.t.c.post('/p/ana/api/provedor', { json: { provedor: 'codex', auth: 'api', modelo: '', chave: CHAVE } });
+    assert.equal(r.status, 200, r.texto);
+    assert.equal(r.json.ok, true); assert.equal(r.json.reiniciando, true); assert.equal(r.json.rotulo, 'Codex, pela chave de API'); assert.match(r.json.feito, /reiniciado/);
+    assert.deepEqual(s.reinicios, ['ana']);
+    assert.equal(fs.readFileSync(s.cofreEnv, 'utf8'), `OPENAI_API_KEY='${CHAVE}'\n`);
+    assert.equal(s.painel.visto.length, 0);
+    assert.equal(s.runner.visto.length, 1);
+    const corpo = JSON.parse(s.runner.visto[0].corpo);
+    assert.deepEqual(Object.keys(corpo).sort(), ['auth', 'modelo', 'provedor', 'reiniciar', 'sessao']);
+    assert.equal(corpo.sessao, 'ana'); assert.equal(corpo.reiniciar, false); assert.equal(corpo.provedor, 'codex'); assert.equal(corpo.auth, 'api');
+    assert.ok(!s.tudo().includes(CHAVE));
+    assert.ok(!r.texto.includes(CHAVE) && !s.t.log.texto().includes(CHAVE));
+    const meta = fs.readdirSync(path.join(s.t.dados, 'cofre'));
+    assert.deepEqual(meta, ['ana.json']);
+    // sem chave, mas ela já está no cofre: também resolvido pelo Web
+    const r2 = await s.t.c.post('/p/ana/api/provedor', { json: { provedor: 'codex', auth: 'api', modelo: '' } });
+    assert.equal(r2.status, 200, r2.texto); assert.equal(s.painel.visto.length, 0); assert.equal(s.runner.visto.length, 2);
+  } finally { await s.fechar(); }
+});
+
+test('POST /api/provedor: prefixo errado, chave ausente do cofre e runner que recusa', async () => {
+  const s = await cenario({ runnerResposta: { status: 409, corpo: { error: 'o agente está ocupado', howToFix: 'espere' } } });
+  try {
+    const errada = await s.t.c.post('/p/ana/api/provedor', { json: { provedor: 'claude', auth: 'api', chave: OUTRA } });
+    assert.equal(errada.status, 400); assert.match(errada.json.error, /Anthropic/); assert.ok(!errada.texto.includes(OUTRA));
+    assert.equal(fs.existsSync(s.cofreEnv), false);
+    const falta = await s.t.c.post('/p/ana/api/provedor', { json: { provedor: 'codex', auth: 'api' } });
+    assert.equal(falta.status, 409); assert.equal(falta.json.precisaChave, 'OPENAI_API_KEY');
+    const recusa = await s.t.c.post('/p/ana/api/provedor', { json: { provedor: 'codex', auth: 'api', chave: CHAVE } });
+    assert.equal(recusa.status, 409); assert.match(recusa.json.error, /ocupado/); assert.match(recusa.json.howToFix, /já ficou guardada/);
+    assert.deepEqual(s.reinicios, []);
+    assert.equal(s.painel.visto.length, 0);
+    assert.ok(!s.tudo().includes(CHAVE) && !recusa.texto.includes(CHAVE));
+    const invalido = await s.t.c.post('/p/ana/api/provedor', { json: { provedor: 'codex', auth: 'api', modelo: 'modelo-que-nao-existe', chave: CHAVE } });
+    assert.equal(invalido.status, 400);
+  } finally { await s.fechar(); }
+});
+
+test('POST /api/provedor sem chave segue para o painel com o corpo intacto; assinatura com chave leva o corpo sem ela', async () => {
+  const s = await cenario();
+  try {
+    const exato = '{"provedor":"claude","auth":"assinatura","modelo":""}';
+    const r = await s.t.c.pedir('POST', '/p/ana/api/provedor', { corpo: exato, headers: { 'Content-Type': 'application/json' } });
+    assert.equal(r.status, 200);
+    assert.equal(s.painel.visto.length, 1);
+    assert.equal(s.painel.visto[0].corpo, exato);
+    assert.equal(s.painel.visto[0].headers['content-length'], String(Buffer.byteLength(exato)));
+    assert.equal(s.painel.visto[0].headers['x-dgclaw-proxy'], 'segredo-do-proxy');
+    const r2 = await s.t.c.post('/p/ana/api/provedor', { json: { provedor: 'claude', auth: 'assinatura', modelo: '', chave: CHAVE } });
+    assert.equal(r2.status, 200);
+    assert.equal(s.painel.visto.length, 2);
+    assert.deepEqual(JSON.parse(s.painel.visto[1].corpo), { provedor: 'claude', auth: 'assinatura', modelo: '' });
+    assert.equal(s.painel.visto[1].headers['content-length'], String(Buffer.byteLength(s.painel.visto[1].corpo)));
+    assert.ok(!s.tudo().includes(CHAVE));
+    assert.equal(s.runner.visto.length, 0);
+    // as outras rotas do painel passam como sempre
+    assert.equal((await s.t.c.get('/p/ana/api/status')).status, 200);
+    assert.equal((await s.t.c.get('/p/ana/api/provedor')).status, 200);
+    assert.equal(s.painel.visto.length, 4);
+  } finally { await s.fechar(); }
+});
+
+test('agente sem cofre_arquivo: tudo repassa ao painel, inclusive o cofre', async () => {
+  const s = await cenario();
+  try {
+    assert.equal((await s.t.c.get('/p/velha/api/cofre')).status, 200);
+    assert.equal((await s.t.c.post('/p/velha/api/cofre', { json: { envName: 'OPENAI_API_KEY', valor: OUTRA } })).status, 200);
+    assert.equal((await s.t.c.post('/p/velha/api/provedor', { json: { provedor: 'codex', auth: 'api', chave: CHAVE } })).status, 200);
+    assert.equal(s.painel.visto.length, 3);
+    assert.equal(s.runner.visto.length, 0);
+  } finally { await s.fechar(); }
+});
+
+test('corpo acima de 64 KB nessas rotas: 413 claro, sem chegar ao painel', async () => {
+  const s = await cenario();
+  try {
+    const r = await s.t.c.post('/p/ana/api/cofre', { json: { envName: 'OPENAI_API_KEY', valor: 'x'.repeat(70 * 1024) } });
+    assert.equal(r.status, 413); assert.match(r.json.error, /64 KB/);
+    const r2 = await s.t.c.post('/p/ana/api/provedor', { json: { provedor: 'codex', auth: 'api', chave: 'x'.repeat(70 * 1024) } });
+    assert.equal(r2.status, 413);
+    const r3 = await s.t.c.pedir('POST', '/p/ana/api/cofre', { corpo: '{quebrado', headers: { 'Content-Type': 'application/json' } });
+    assert.equal(r3.status, 400); assert.match(r3.json.error, /JSON/);
+    assert.equal(s.painel.visto.length, 0);
+  } finally { await s.fechar(); }
+});
+
+test('sem sessão ou com Origin de fora, nada do cofre responde', async () => {
+  const s = await cenario();
+  try {
+    const anon = require('./ajuda').cliente(s.t.porta);
+    assert.equal((await anon.get('/p/ana/api/cofre')).status, 401);
+    assert.equal((await anon.post('/p/ana/api/cofre', { json: { envName: 'OPENAI_API_KEY', valor: OUTRA } })).status, 401);
+    assert.equal((await s.t.c.post('/p/ana/api/cofre', { json: { envName: 'OPENAI_API_KEY', valor: OUTRA }, origin: 'http://evil.example' })).status, 403);
+    assert.equal(fs.existsSync(s.cofreEnv), false);
+  } finally { await s.fechar(); }
+});

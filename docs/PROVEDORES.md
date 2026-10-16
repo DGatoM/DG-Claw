@@ -148,9 +148,76 @@ chave), então essa variável **precisa** sair do ambiente no modo assinatura. M
 tirar também `OPENAI_API_KEY`, `OPENAI_BASE_URL` e `OPENAI_API_BASE` (o `OPENAI_BASE_URL`
 muda para onde vão os pedidos e não foi testado).
 
+### 5. Codex como root: o flag de bypass é aceito (13/10/2026, Codex 0.162.1)
+
+O runner do Admin roda como root no host, e o Claude recusa `--dangerously-skip-permissions` sob
+root (por isso usa `--permission-mode bypassPermissions` e `IS_SANDBOX=1`). Com o Codex rodando como
+root, numa pasta temporária e com confiança por `-c`:
+
+```
+codex --dangerously-bypass-approvals-and-sandbox -c 'projects."<pasta>".trust_level="trusted"'
+```
+
+o Codex abriu normalmente (a tela mostra `permissions: YOLO mode`) e executou um prompt. **Não é
+preciso `IS_SANDBOX` nem outro truque no Codex.**
+
+### 6. Codex: um Enter extra com a caixa vazia não faz nada
+
+Depois de um turno concluído, um `\r` a mais com a caixa de entrada vazia só redesenhou a tela
+(86 bytes de controle) e o rollout continuou com **um** `task_started`. Por isso o runner pode
+repetir o Enter até 3 vezes quando o rollout não mostra o turno, sem risco de abrir turno duplicado.
+O que dá certo para enviar: texto, pausa de 500 ms, `\r`; o texto e o Enter juntos, ou rápido demais,
+são tratados como colagem.
+
+### 7. `claude auth status --json`: o que o runner usa
+
+Conforme a especificação do runner (a saída real não foi reexecutada nesta rodada): o JSON traz
+`loggedIn`, `authMethod` (`claude.ai` = assinatura, `oauth_token` = token de longa duração,
+`api_key` = chave de API, `none`), `subscriptionType` e também dados pessoais (e-mail, `orgId`,
+`orgName`). O runner lê **só** os três primeiros campos e descarta o resto. Com chave falsa o
+comando também diz `loggedIn: true` (ele não valida a chave), então a tela fala em "chave
+configurada", nunca em "chave válida".
+
+### 8. Rollout do Codex: o que o runner lê
+
+`<CODEX_HOME>/sessions/AAAA/MM/DD/rollout-<data>-<uuid>.jsonl`, uma linha JSON por registro:
+`session_meta` (traz `id`, `cwd` e `timestamp`; a primeira linha chega a dezenas de KB por causa do
+`base_instructions`), `event_msg` com `task_started` e `task_complete`/`task_aborted`/`turn_aborted`,
+`response_item` com `function_call`/`custom_tool_call` e `message` (papéis `developer`, `user`,
+`assistant`). O rollout só nasce no primeiro turno. O id da sessão é descoberto por cwd, mtime e pelo
+`timestamp` do `session_meta` (a conversa nova nasce depois do spawn), excluindo os ids que outras
+sessões do runner já usam.
+
+## Cards em outro provedor
+
+O agente principal (Claude) abre uma sessão paralela em outro provedor, por exemplo o Codex (GPT),
+manda um pedido, espera, lê a resposta e fecha. O dono diz "abre um card no GPT para revisar isso" e
+o agente cuida do resto. É a skill `cards` (`/dgclaw:cards`) usando o comando `bin/dgclaw-card`
+(`abrir`, `mandar`, `estado`, `esperar`, `ler`, `listar`, `fechar`), que fala com as rotas
+`POST /api/sessoes`, `/input`, `/conversation` e `DELETE /api/sessoes/<id>` do runner.
+
+**Limite:** no máximo 3 cards abertos ao mesmo tempo (`RUNNER_MAX_SESSOES_EXTRAS` na unidade do
+runner, inteiro >= 0). A 4ª recebe 429 `LIMITE_DE_SESSOES`, e o comando diz como fechar um.
+
+**As quatro condições de segurança** (aprovadas pelo card de segurança):
+
+1. O token do runner nunca vai no argv nem na saída. O comando monta a configuração do curl com o
+   `printf` (builtin do bash) e a entrega pelo stdin (`curl -K -`), como o `dgclaw-agente` faz.
+2. O endereço é fixo, `http://127.0.0.1:${RUNNER_PORT:-4300}`. Qualquer URL vinda de argumento ou de
+   variável (como `DGCLAW_RUNNER_URL`) é ignorada, e `RUNNER_PORT` precisa ser numérico.
+3. O runner limita as sessões criadas por API (o teto acima), para um card em laço não esgotar a RAM
+   do container do cliente.
+4. O card herda as travas da principal: roda no mesmo `cwd` (`/home/agente`), onde ficam as regras
+   `deny` do Gmail em `.claude/settings.local.json`. O comando não tem opção de outro `cwd`.
+
+O card no Codex não tem os conectores do claude.ai (Gmail, Agenda, Drive) nem o Telegram: o que
+precisa deles fica na principal.
+
 ## Em aberto
 
 - `provedor.sh definir/estado`, adaptadores bash e o `launch.sh` ficaram de fora: a sessão
   passa a ser subida pelo agent-runner.
 - Codex na API com chave real nunca foi exercitado (só chave falsa, sem prompt).
-- `claude auth status --json` não foi testado nesta rodada.
+- Duas sessões Codex que sobem no mesmo segundo, na mesma casa, podem trocar os rollouts na
+  descoberta (a descoberta é por cwd e hora). O runner exclui os ids já reivindicados, mas a corrida
+  na primeira descoberta não tem como ser eliminada sem o Codex aceitar um id pré-fixado.

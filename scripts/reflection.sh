@@ -5,7 +5,9 @@
 # DOIS MODOS (DGCLAW_REFLECT_MODE):
 #   inject   (default) ONDA A: fire-and-forget. O cron monta o prompt e INJETA um poke na
 #            sessao --channels viva (assinatura FLAT — nao queima credito de API). A propria
-#            persona executa a reflexao na sessao dela. Sessao morta -> no-op gracioso (exit 0).
+#            persona executa a reflexao na sessao dela. Sessao morta -> FALHA visivel (pulso erro,
+#            exit 2): a reflexao nao rodou e o dono precisa saber. Sessao ocupada -> adiada (o
+#            verificador de pokes re-injeta), pulso "aguardando", exit 0.
 #   headless SONO/VIGILIA: roda a consolidacao via `claude --print` (sincrono, model opus,
 #            identidade via AGENT.md do workspace) e, ao terminar com sucesso, dispara o
 #            RESTART-FRESH (auto-compact em modo restart) pra a persona "dormir" e "acordar"
@@ -31,7 +33,8 @@ mkdir -p "$(dirname "$LOG")" 2>/dev/null
 cd "$DGCLAW_WORKSPACE" || exit 1
 
 # Pulso: registra ok/erro no ledger (rc final via trap EXIT). Degrada gracioso se a lib
-# nao existir. rc 2 (sessao morta) sai 0 -> conta como "ok" (no-op gracioso esperado).
+# nao existir. Sessao morta registra "erro" explicito (nao e mais "ok"); ocupada registra
+# "aguardando" (o verificador de pokes tenta de novo).
 # shellcheck disable=SC1091
 source "$PLUGIN/scripts/_lib/pulso-lib.sh" 2>/dev/null && pulso_auto reflection
 
@@ -280,6 +283,19 @@ No fim, escreva UMA linha de resumo do que mudou (apenas texto; nao mande pro ca
 # resto da vida segue na assinatura flat. Default continua 'inject' (nao quebra instalacoes).
 REFLECT_MODE="$(printf '%s' "${DGCLAW_REFLECT_MODE:-inject}" | tr 'A-Z' 'a-z')"
 
+# ─── copia de seguranca do MEMORY.md (vale para os DOIS modos) ──────────────────
+# A consolidacao reescreve o MEMORY.md e ele nao esta no Git: se o modelo apagar demais, so
+# esta foto traz de volta. A conferencia (e a restauracao, se sumir mais de 25%) acontece
+# depois: aqui mesmo no modo headless, e no modo inject em poke-ack.sh e no build-wm.sh das 7h.
+# Na re-injecao do verificador (DGCLAW_REFLECT_DATE vem preenchida) NAO tira foto nova: a
+# persona pode ter reescrito metade do MEMORY.md na primeira tentativa, e a foto nova viraria
+# a referencia da conferencia, escondendo o estrago. Vale a foto do primeiro disparo.
+if [ -n "${DGCLAW_REFLECT_DATE:-}" ]; then
+    echo "[$(date '+%F %T')] reflexao ${TODAY}: re-injecao, mantenho a copia do MEMORY.md tirada no primeiro disparo" >> "$LOG"
+elif ! python3 "$PLUGIN/scripts/_lib/memoria_guarda.py" guardar --ws "$DGCLAW_WORKSPACE" >> "$LOG" 2>&1; then
+    echo "[$(date '+%F %T')] reflexao ${TODAY}: NAO consegui guardar a copia do MEMORY.md (motivo na linha acima). A reflexao vai rodar SEM copia de seguranca; se a memoria encolher, nao havera de onde restaurar." >> "$LOG"
+fi
+
 if [ "$REFLECT_MODE" = "headless" ]; then
     export PATH="${BUN_BIN_DIR:-$HOME/.bun/bin}:$HOME/.local/bin:$PATH"
     CLAUDE_BIN="${CLAUDE_BIN:-$(command -v claude || echo "$HOME/.local/bin/claude")}"
@@ -295,6 +311,16 @@ if [ "$REFLECT_MODE" = "headless" ]; then
         -p "$PROMPT" >> "$LOG" 2>&1
     RC=$?
     echo "[$(date '+%F %T')] reflexao ${TODAY}: consolidacao concluida (exit $RC)" >> "$LOG"
+
+    # Confere se o MEMORY.md nao encolheu demais. rc 3 = restaurou a versao anterior (o aviso
+    # ao dono ja saiu de dentro do script); outro rc != 0 = nao conseguiu conferir.
+    python3 "$PLUGIN/scripts/_lib/memoria_guarda.py" conferir --ws "$DGCLAW_WORKSPACE" >> "$LOG" 2>&1
+    GRC=$?
+    case "$GRC" in
+        0) ;;
+        3) echo "[$(date '+%F %T')] reflexao ${TODAY}: o MEMORY.md encolheu demais; a versao anterior foi RESTAURADA e o dono avisado (detalhes acima)" >> "$LOG" ;;
+        *) echo "[$(date '+%F %T')] reflexao ${TODAY}: NAO consegui conferir o MEMORY.md (rc=$GRC, motivo acima)" >> "$LOG" ;;
+    esac
 
     # DORMIR -> ACORDAR FRESCA: so reinicia se a consolidacao deu certo (exit 0). Senao
     # PRESERVA a sessao (nao perde estado) e alerta o dono. O restart-fresh reusa o
@@ -336,12 +362,28 @@ echo "[$(date '+%F %T')] reflexao: injetando poke (verificavel) na sessao viva d
 inject_session "$SLUG" reflection <<< "$PROMPT" >> "$LOG" 2>&1
 RC=$?
 
+HORA="$(date '+%H:%M')"
 case "$RC" in
-    0) echo "[$(date '+%F %T')] reflexao ${TODAY}: poke injetado na sessao viva (rc=0)" >> "$LOG" ;;
-    2) echo "[$(date '+%F %T')] reflexao ${TODAY}: sessao morta ou ocupada (turno em voo) — pulando/adiando (no-op gracioso)" >> "$LOG" ;;
-    *) echo "[$(date '+%F %T')] reflexao ${TODAY}: FALHA ao injetar (rc=$RC)" >> "$LOG" ;;
+    0)
+        echo "[$(date '+%F %T')] reflexao ${TODAY}: poke injetado na sessao viva (rc=0)" >> "$LOG"
+        exit 0
+        ;;
+    75)
+        # O poke ja ficou como pendente no verificador (DGCLAW_POKE_VERIFY=1), que re-injeta.
+        echo "[$(date '+%F %T')] reflexao ${TODAY}: sessao ocupada (turno em voo); o verificador re-injeta em 20 min" >> "$LOG"
+        declare -F pulso >/dev/null && pulso aguardando "sessão ocupada às ${HORA}, o verificador tenta de novo em 20 min"
+        exit 0
+        ;;
+    2)
+        MSG="a sessão do agente não estava no ar às ${HORA} e a reflexão de ${TODAY} não rodou. O que fazer: ligar o agente e rodar de novo com 'bash ${PLUGIN}/scripts/reflection.sh ${CONFIG}'"
+        echo "[$(date '+%F %T')] reflexao ${TODAY}: FALHA, ${MSG}" >> "$LOG"
+        declare -F pulso >/dev/null && pulso erro "$MSG"
+        exit 2
+        ;;
+    *)
+        MSG="falha ao injetar a reflexão de ${TODAY} na sessão (rc=${RC}). O que fazer: ver o log em ${LOG} e rodar de novo com 'bash ${PLUGIN}/scripts/reflection.sh ${CONFIG}'"
+        echo "[$(date '+%F %T')] reflexao ${TODAY}: FALHA, ${MSG}" >> "$LOG"
+        declare -F pulso >/dev/null && pulso erro "$MSG"
+        exit "$RC"
+        ;;
 esac
-
-# rc 2 (sessao morta) e um no-op gracioso esperado -> exit 0
-[ "$RC" = "2" ] && exit 0
-exit "$RC"

@@ -9,6 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { log } from "./logger.js";
+import { mascarar } from "./mascara.js";
 
 export interface Mensagem {
   role: string;
@@ -61,8 +62,13 @@ function textoDoConteudo(conteudo: unknown): string {
   return partes.join("");
 }
 
-/** As últimas `quantas` mensagens de texto da sessão, mais antiga primeiro. */
-export function ultimasMensagens(sessionId: string, quantas = 6, configDir?: string | null): Mensagem[] | null {
+/** As últimas `quantas` mensagens de texto da sessão, mais antiga primeiro, com os segredos mascarados. */
+export function ultimasMensagens(
+  sessionId: string,
+  quantas = 6,
+  configDir?: string | null,
+  segredos?: Iterable<string>,
+): Mensagem[] | null {
   const arquivo = acharArquivoDaSessao(sessionId, configDir);
   if (!arquivo) {
     log.info("conversa", `não achei o arquivo da sessão ${sessionId} (a conversa pode ainda não ter primeira troca)`);
@@ -98,7 +104,8 @@ export function ultimasMensagens(sessionId: string, quantas = 6, configDir?: str
     if (!texto) continue;
     // O system-reminder e os comandos locais são ruído de mecanismo, não fala.
     if (texto.startsWith("<system-reminder>") || texto.startsWith("<command-name>")) continue;
-    fora.push({ role: msg.role, text: texto });
+    // O histórico também é tela: valor do cofre que o agente tenha escrito não sai daqui.
+    fora.push({ role: msg.role, text: mascarar(texto, segredos) });
   }
   return fora.slice(-Math.max(1, quantas));
 }

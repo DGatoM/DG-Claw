@@ -119,7 +119,9 @@ dono() {
         printf '%s %s\n' "$quem" "$*" >>"$R/.chown-simulado"
         return 0
     fi
-    chown "$quem" "$@"
+    # -h: se o caminho for um link, muda o link e nunca o alvo (um link plantado na casa
+    # de um agente nao pode dar a ele a posse de um arquivo do servidor).
+    chown -h "$quem" "$@"
 }
 
 # com_trava <comando...>
@@ -142,4 +144,37 @@ carregar_env_dgclaw() {
         . "$DG_ETC/dgclaw.env"
     fi
     DGCLAW_IMAGEM="${DGCLAW_IMAGEM:-$DG_IMAGEM_PADRAO}"
+}
+
+# --- inotify ---------------------------------------------------------------------
+# Os containers dos agentes sao criados pelo root (podman rootful, --uidmap
+# 0:<uid_base>:65536) e os ucounts do kernel sao hierarquicos por user namespace: as
+# instancias de inotify de dentro de cada container contam para o root do host. Cada
+# agente gasta de 5 a 6. O padrao do Ubuntu 24.04 e 128; sem folga o container sai
+# com codigo 255 e sem log ("Failed to create control group inotify object").
+
+# inotify_limite: imprime o max_user_instances atual; vazio se nao der para ler.
+inotify_limite() {
+    local arq="$R/proc/sys/fs/inotify/max_user_instances" v=""
+    if [ -r "$arq" ]; then
+        v="$(tr -d '[:space:]' <"$arq" 2>/dev/null)" || v="" # arquivo que sumiu no meio: trata como ilegivel
+    fi
+    case "$v" in ''|0|*[!0-9]*) v="" ;; esac
+    printf '%s' "$v"
+}
+
+# inotify_uso_root: imprime quantas instancias de inotify pesam no root, ou seja, as
+# abertas por processos de uid 0 ou de uid >= 1000000 (a faixa dos agentes).
+# E uma aproximacao POR CIMA: um fd herdado por fork conta duas vezes.
+# O 2>/dev/null do find e dos awk e proposital: processo que morre durante a varredura
+# faz o /proc/<pid> sumir e o find reclamar, e isso nao e erro de quem le.
+inotify_uso_root() {
+    local total=0 n dir pid uid
+    while read -r n dir; do
+        pid="${dir%/fd}"; pid="${pid##*/}"
+        uid="$(awk '/^Uid:/ { print $2; exit }' "$R/proc/$pid/status" 2>/dev/null)" || uid=""
+        case "$uid" in ''|*[!0-9]*) continue ;; esac
+        if [ "$uid" -eq 0 ] || [ "$uid" -ge 1000000 ]; then total=$((total + n)); fi
+    done < <(find "$R/proc" -mindepth 3 -maxdepth 3 -path "$R/proc/[0-9]*/fd/*" -lname 'anon_inode:inotify' -printf '%h\n' 2>/dev/null | sort | uniq -c)
+    printf '%s' "$total"
 }

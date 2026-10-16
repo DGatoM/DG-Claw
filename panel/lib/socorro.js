@@ -125,10 +125,14 @@ function buildSocorro(CONFIG, serverDir) {
         ? `PRIMEIRO, leia o manual de emergência: ${EMERGENCIA}. Siga o que ele manda.`
         : `O manual de emergência (${EMERGENCIA || 'docs/EMERGENCIA.md'}) ainda não existe nesta instalação: diga isso ao dono uma vez e siga o roteiro abaixo.`,
       temSkill ? `Leia também a skill de socorro: ${SKILL}.` : '',
-      'ONDE OLHAR, nesta ordem: o diagnóstico do vigia em .dgclaw/logs/saude.json; '
+      'ONDE VOCÊ ESTÁ: se o comando `podman` não existir, você roda DENTRO do container do agente, sem root. '
+        + 'A seção 0.1 do manual traduz os comandos dele para cá; o que só se resolve no servidor, você explica ao dono '
+        + 'e diz que quem cuida do servidor precisa agir.',
+      'ONDE OLHAR, nesta ordem: a saúde do runner com `curl -s http://127.0.0.1:4300/api/saude` (dentro do container); '
+        + 'o diagnóstico do vigia em .dgclaw/logs/saude.json; '
         + `o diagnóstico de agora com \`python3 ${lib}/saude_sessao.py --json\` (as variáveis DGCLAW_* já estão no ambiente); `
-        + 'a marca .dgclaw/modo-seguro.json, se existir; os registros .dgclaw/logs/watchdog.log, reinicio.log, '
-        + 'notify-owner.log e session-context.log; o Pulso em .dgclaw/logs/pulso/.',
+        + 'a marca .dgclaw/modo-seguro.json, se existir; os registros .dgclaw/logs/runner.log, watchdog.log, reinicio.log, '
+        + 'notify-owner.log e session-context.log.',
       'REGRAS, sem exceção:',
       '1. Por conta própria você só LÊ e diagnostica.',
       '2. Antes de QUALQUER ação que mude algo (reiniciar o agente, restaurar backup, editar, mover ou apagar arquivo, '
@@ -137,7 +141,8 @@ function buildSocorro(CONFIG, serverDir) {
       `3. Para reiniciar (depois do sim): \`python3 ${lib}/reinicio.py normal --origem manual --json\` volta na mesma `
         + `conversa; \`python3 ${lib}/reinicio.py seguro --origem manual --json\` volta SEM a conversa anterior, que é o `
         + 'certo quando a Anthropic bloqueou uma resposta ou a conversa ficou grande demais. Login vencido não se resolve '
-        + 'reiniciando: diga ao dono que quem cuida do sistema precisa refazer o login.',
+        + 'reiniciando: se a tela do agente tiver o botão "Entrar com a assinatura", é por ele que o dono refaz o login '
+        + '(a tela mostra um link e um código); se não tiver, diga ao dono que quem cuida do sistema precisa refazer o login.',
       '4. Nunca leia nem mostre segredo: .env, credenciais, .credentials.json, config.sh, o cofre, tokens.',
       '5. Não abra a pasta .dgclaw/quarentena e nunca reenvie o conteúdo dela ao agente: é o texto que fez ele travar.',
       '6. Transcript (.jsonl) pode ter dezenas de MB: nunca leia inteiro, use tail, grep ou o saude_sessao.py.',

@@ -86,6 +86,9 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent / "_lib"))
+import dono_agente  # noqa: E402  (ajudante comum com o install-ig-timers.sh)
+
 # ─── constantes / marcadores ──────────────────────────────────────────────────
 
 SELF_INFIX = "self"  # dgclaw-<slug>-self-<name> — a fronteira do bloco da persona
@@ -107,6 +110,66 @@ def log_err(msg: str):
 def die(msg: str, code: int = 1):
     log_err(f"ERRO: {msg}")
     sys.exit(code)
+
+
+# ─── quem roda a rotina, elevacao e dono dos arquivos ───────────────────────
+
+def dono_do_workspace(c):
+    """(uid, gid) do dono da pasta do agente (logica em _lib/dono_agente.py)."""
+    try:
+        return dono_agente.dono_do_workspace(c["ws"])
+    except dono_agente.ErroDono as e:
+        die(str(e))
+
+
+def usuario_da_rotina(c):
+    """(usuario, home) da unit da rotina (regra e motivo em _lib/dono_agente.py)."""
+    try:
+        return dono_agente.usuario_da_rotina(c["ws"])
+    except dono_agente.ErroDono as e:
+        die(str(e))
+
+
+def chown_dono(c, path):
+    """Devolve o arquivo ao dono da pasta do agente quando rodamos como root (via sudo)."""
+    try:
+        dono_agente.chown_dono(c["ws"], path)
+    except dono_agente.ErroDono as e:
+        die(str(e))
+
+
+VARS_ELEVADO = "DGCLAW_CRON_MGR_ELEVADO"
+
+
+def _gravavel(pasta: str) -> bool:
+    """A pasta (ou o ancestral mais proximo que existe, se ela ainda nao existe) aceita escrita?"""
+    p = Path(pasta)
+    while not p.exists() and p != p.parent:
+        p = p.parent
+    return os.access(p, os.W_OK)
+
+
+def elevar_se_preciso(c):
+    """Gravar unit e rodar systemctl exige root. O agente da v1 nao e root, mas tem sudo sem
+    senha: re-executa este mesmo comando com sudo. Roda antes de tocar no manifesto, para nao
+    deixar meio caminho feito."""
+    if os.geteuid() == 0 or _gravavel(c["unit_dir"]):
+        return
+    pasta = c["unit_dir"]
+    if os.environ.get(VARS_ELEVADO) == "1":
+        die(f"tentei gravar a rotina em {pasta} com sudo e mesmo assim a pasta nao aceita escrita. "
+            f"Confira as permissoes dessa pasta (ou DGCLAW_SYSTEMD_DIR) com quem administra o servidor.")
+    r = subprocess.run(["sudo", "-n", "true"], capture_output=True, text=True)
+    if r.returncode != 0:
+        die(f"tentei gravar a unit da rotina em {pasta}, mas este usuario nao e root e nao tem sudo "
+            f"sem senha ({(r.stderr or r.stdout).strip() or 'sudo -n true falhou'}). "
+            f"Rode o comando com sudo, ou peca ao dono do servidor para liberar.")
+    log_err(f"este usuario nao e root e {pasta} nao aceita escrita; vou repetir o comando com sudo")
+    os.environ[VARS_ELEVADO] = "1"
+    nomes = sorted(k for k in os.environ if k.startswith("DGCLAW_") or k == "RUNNER_TOKEN_FILE")
+    cmd = ["sudo", "-n", f"--preserve-env={','.join(nomes)}",
+           sys.executable, os.path.abspath(sys.argv[0]), *sys.argv[1:]]
+    os.execvp("sudo", cmd)
 
 
 # ─── carga de config (env DGCLAW_*) ─────────────────────────────────────────
@@ -224,6 +287,8 @@ def manifest_lock(c):
     c["dgdir"].mkdir(parents=True, exist_ok=True)
     lock_path = c["dgdir"] / ".self-crons.lock"
     fh = open(lock_path, "w")
+    chown_dono(c, c["dgdir"])
+    chown_dono(c, lock_path)
     deadline = time.monotonic() + 30
     while True:
         try:
@@ -276,9 +341,12 @@ def backup_manifest(c):
         return None
     bdir: Path = c["backup_dir"]
     bdir.mkdir(parents=True, exist_ok=True)
+    chown_dono(c, bdir.parent)
+    chown_dono(c, bdir)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
     dst = bdir / f"{stamp}.json"
     dst.write_text(mf.read_text(encoding="utf-8"), encoding="utf-8")
+    chown_dono(c, dst)
     # rotacao
     backups = sorted(bdir.glob("*.json"))
     excess = len(backups) - c["n_backups"]
@@ -304,6 +372,7 @@ def write_manifest(c, data: dict):
     )
     tmp = mf.with_suffix(".json.tmp")
     tmp.write_text(content, encoding="utf-8")
+    chown_dono(c, tmp)
     os.replace(tmp, mf)
 
 
@@ -396,7 +465,12 @@ def validate_poke(poke: str):
 def exec_line(c, poke: str) -> str:
     """A linha ExecStart de um cron self. NUNCA roda comando arbitrario: so chama o inject.py
     do plugin com o texto-poke. O config.sh e sourciado pra exportar os DGCLAW_* que o
-    inject.py le (slug, modo, etc)."""
+    inject.py le (slug, modo, etc).
+
+    Passa --require-idle: a rotina agendada nao pode digitar por cima de um turno em voo. Nos
+    modos tiocsti/tmux o inject.py sai com 75 quando a sessao esta ocupada e NAO injeta; o
+    .service gerado por install_units manda o systemd tentar de novo (RestartForceExitStatus=75).
+    No modo bunker o proprio painel enfileira a mensagem ate a sessao ficar livre."""
     inject = f"{c['plugin']}/scripts/_lib/inject.py"
     cfg = c["config"]
     src = f"set -a; source {shlex.quote(cfg)}; set +a; " if cfg else ""
@@ -408,7 +482,7 @@ def exec_line(c, poke: str) -> str:
     return (
         "/bin/bash -c " + shlex.quote(
             f"{src}exec python3 {shlex.quote(inject)} "
-            f"--slug {shlex.quote(c['slug'])} --envelope {shlex.quote(env_envelope)} {shlex.quote(poke)}"
+            f"--slug {shlex.quote(c['slug'])} --envelope {shlex.quote(env_envelope)} --require-idle {shlex.quote(poke)}"
         )
     )
 
@@ -419,17 +493,27 @@ def install_units(c, name: str, calendar: str | None, every: str | None, poke: s
     svc = Path(c["unit_dir"]) / f"{base}.service"
     tmr = Path(c["unit_dir"]) / f"{base}.timer"
 
+    usuario, home = usuario_da_rotina(c)
     svc.write_text(
         "[Unit]\n"
         f"Description=DG Claw self-cron '{name}': {c['slug']}\n\n"
         "[Service]\n"
-        "Type=oneshot\n"
-        "User=root\n"
-        "Environment=HOME=/root\n"
+        "Type=simple\n"
+        f"User={usuario}\n"
+        f"Environment=HOME={home}\n"
         "Environment=IS_SANDBOX=1\n"
         f"Environment=TZ={c['tz']}\n"
         f"WorkingDirectory={c['ws']}\n"
-        f"ExecStart={exec_line(c, poke)}\n",
+        f"ExecStart={exec_line(c, poke)}\n"
+        # Type=simple e nao oneshot: o systemd 255 RECUSA RestartForceExitStatus= em oneshot
+        # ("which isn't allowed for Type=oneshot services. Refusing"); o programa sai logo, entao
+        # na pratica se comporta igual. Testado com unit transiente (exit 75 duas vezes, depois 0).
+        # Sessao ocupada (inject.py sai 75): sem isto o lembrete se perderia ate o proximo
+        # disparo do timer. O 75 forca nova tentativa a cada 2 min ate a sessao ficar livre
+        # (cada adiamento fica no journal com a frase "OCUPADA ... NAO injetei"). Sessao morta
+        # (exit 2) e qualquer outra falha NAO entram aqui: falham de verdade, sem retry infinito.
+        "RestartForceExitStatus=75\n"
+        "RestartSec=120\n",
         encoding="utf-8",
     )
 
@@ -624,6 +708,10 @@ def main():
     a = ap.parse_args()
     load_config(a.config)
     c = ctx()
+
+    # create/edit/remove de verdade precisam de root; list e --dry-run nao.
+    if a.cmd in ("create", "edit", "remove") and not a.dry_run:
+        elevar_se_preciso(c)
 
     if a.cmd == "create":
         cmd_create(c, a, edit=False)

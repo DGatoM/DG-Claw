@@ -105,6 +105,19 @@ test('send: envelope dgchat com escape de </dgchat>, e o Bearer vai ao runner se
   } finally { await s.fechar(); }
 });
 
+test('send: texto "[do visual ...]" (pergunta de dentro de um visual) vai ao runner dentro do envelope e não é tratado como token', async () => {
+  const s = await cenario({ ana: {} });
+  try {
+    const texto = '[do visual Plano da semana] 123456789:AAH-teste_de_token_falso_de_trinta_e_cinco_x';
+    const r = await s.t.c.post('/api/v1/agents/ana/send', { json: { text: texto, cliente_id: 'cid-0000002' } });
+    assert.equal(r.status, 200, r.texto);
+    assert.equal(r.json.token_guardado, undefined, 'o prefixo impede o texto de ser lido como token puro');
+    const entrada = s.rAna.rec.inputs[0];
+    assert.ok(entrada.text.startsWith('<dgchat from="pessoa" chat="c_ana"'));
+    assert.ok(entrada.text.endsWith('>' + texto + '</dgchat>'), entrada.text);
+  } finally { await s.fechar(); }
+});
+
 test('send: runner que exige Bearer sem arquivo configurado responde 401 e o Web explica', async () => {
   const s = await cenario({ ana: { token: CREDENCIAL_FALSA } });
   try {

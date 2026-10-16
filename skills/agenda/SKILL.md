@@ -85,6 +85,10 @@ python3 "$MGR" --config "$CFG" edit   --name <apelido> ... (mesma assinatura do 
 python3 "$MGR" --config "$CFG" remove --name <apelido>
 ```
 
+Se você não é root (o agente que roda no container da v1), o gerenciador pede `sudo` sozinho
+quando precisa gravar a rotina. Não precisa fazer nada. A rotina roda como o dono da pasta do
+agente, não como root.
+
 - `--name`: apelido curto em kebab-case (`resumo-do-dia`, `cobranca-cliente`). É a identidade
   da rotina: é por ele que se edita e se remove.
 - `--calendar` **ou** `--every`, nunca os dois:

@@ -17,6 +17,7 @@ preparar() {
     export STUB_ESTADO="$TMP/estado"
     export STUB_LOG="$TMP/podman.log"
     export DGCLAW_TEMPO_ESPERA=2
+    export DGCLAW_TEMPO_PARTIDA=1
     export NO_COLOR=1
     mkdir -p "$DGCLAW_RAIZ/etc/dgclaw" "$STUB_ESTADO"
     : >"$STUB_LOG"

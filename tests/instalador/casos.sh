@@ -272,3 +272,79 @@ caso_firewall_da_cerca_e_idempotente() {
     igual "$(contar "$TMP/estado/ipt-regras" '|DGCLAW_HOST|')" 2 || { echo "      FALHOU: regras da cadeia HOST duplicadas"; FALHAS=$((FALHAS + 1)); }
     limpar_cenario
 }
+
+# proc_inotify <instancias> <watches>: poe os limites atuais no /proc falso da raiz.
+proc_inotify() {
+    mkdir -p "$RAIZ/proc/sys/fs/inotify"
+    printf '%s\n' "$1" >"$RAIZ/proc/sys/fs/inotify/max_user_instances"
+    printf '%s\n' "$2" >"$RAIZ/proc/sys/fs/inotify/max_user_watches"
+}
+
+caso_inotify_sobe_o_padrao_do_ubuntu() {
+    novo_cenario
+    local conf="$RAIZ/etc/sysctl.d/90-dgclaw-inotify.conf"
+    proc_inotify 128 65536
+    afirma "instala" instalacao_basica
+    afirma "instancias subiram para 1024" tem "$conf" "fs.inotify.max_user_instances=1024"
+    afirma "watches subiram para 524288" tem "$conf" "fs.inotify.max_user_watches=524288"
+    afirma "arquivo com modo 644" modo_e "$conf" 644
+    afirma "sysctl chamado com -p e o arquivo" tem "$STUB_LOG" "sysctl -p $conf"
+    nega "nunca com --system" tem "$STUB_LOG" "sysctl --system"
+    limpar_cenario
+}
+
+caso_inotify_nunca_abaixa() {
+    novo_cenario
+    local conf="$RAIZ/etc/sysctl.d/90-dgclaw-inotify.conf"
+    proc_inotify 4096 1048576
+    afirma "instala" instalacao_basica
+    afirma "mantem as instancias maiores (4096)" tem "$conf" "fs.inotify.max_user_instances=4096"
+    afirma "mantem os watches maiores" tem "$conf" "fs.inotify.max_user_watches=1048576"
+    limpar_cenario
+}
+
+caso_inotify_sem_proc_usa_o_minimo() {
+    novo_cenario
+    local conf="$RAIZ/etc/sysctl.d/90-dgclaw-inotify.conf"
+    afirma "instala sem /proc falso" instalacao_basica
+    afirma "usa 1024" tem "$conf" "fs.inotify.max_user_instances=1024"
+    afirma "usa 524288" tem "$conf" "fs.inotify.max_user_watches=524288"
+    limpar_cenario
+}
+
+caso_inotify_ensaio_nao_grava_nem_aplica() {
+    novo_cenario
+    proc_inotify 128 65536
+    afirma "ensaio termina" instalar "$PAINEL_PW" --usuario maria --provedor claude --ensaio
+    nega "nao gravou o arquivo" test -e "$RAIZ/etc/sysctl.d/90-dgclaw-inotify.conf"
+    nega "nao chamou o sysctl" tem "$STUB_LOG" "sysctl"
+    afirma "anuncia o sysctl -p" tem "$SAIDA" "[ensaio] sysctl -p"
+    limpar_cenario
+}
+
+caso_inotify_sysctl_recusado_nao_derruba_o_install() {
+    novo_cenario
+    local conf="$RAIZ/etc/sysctl.d/90-dgclaw-inotify.conf"
+    proc_inotify 128 65536
+    mkdir -p "$TMP/estado"; touch "$TMP/estado/sysctl-falha"
+    afirma "instala mesmo com o sysctl recusado (VPS em container)" instalacao_basica
+    afirma "o arquivo ficou gravado" tem "$conf" "fs.inotify.max_user_instances=1024"
+    afirma "avisa que nao aplicou" tem "$SAIDA" "nao consegui aplicar o limite de inotify"
+    afirma "diz o limite atual e quantos agentes cabem" tem "$SAIDA" "O limite atual e 128"
+    afirma "faz a conta de agentes" tem "$SAIDA" "cabem uns 21 agentes"
+    afirma "a instalacao chegou ao fim (Admin configurado depois)" test -f "$RAIZ/etc/systemd/system/dgclaw-admin.service"
+    limpar_cenario
+}
+
+caso_inotify_rodar_duas_vezes_nao_muda() {
+    novo_cenario
+    local conf="$RAIZ/etc/sysctl.d/90-dgclaw-inotify.conf"
+    proc_inotify 128 65536
+    afirma "primeira rodada" instalacao_basica
+    cp "$conf" "$TMP/conf1"
+    touch -d '2020-01-01' "$conf"
+    afirma "segunda rodada" instalar "" --usuario maria --provedor claude
+    afirma "conteudo igual" cmp "$TMP/conf1" "$conf"
+    afirma "nem reescreveu o arquivo (data intacta)" test "$(stat -c %Y "$conf")" = "$(date -d '2020-01-01' +%s)"
+    limpar_cenario
+}

@@ -60,6 +60,12 @@ E o que passa pelo \`reply\` e mensagem de conversa, nao relatorio de execucao:
 nada de despejar log, saida de comando ou lista de arquivos tocados, a menos que
 ${_DONO} peca. Diga o que mudou e o que isso significa, em portugues, como voce
 diria em voz alta.
+
+Quando um desenho explicar melhor que texto (fluxo, comparacao, numeros, passo a
+passo), monte um arquivo \`vis-<assunto>.html\` (so o miolo, sem <html> nem
+<head>) e mande pela \`send_file\`: o chat do DG Claw desenha dentro da conversa, com as
+classes prontas dv-* (dv-cartao, dv-grade, dv-fluxo, dv-passos, dv-barras) e o
+objeto window.dgvis. Nada de rede la dentro (fetch e bloqueado); ate 2 MB.
 EOF
 
 # --- O canal do TELEGRAM (plugue opcional) -----------------------------------

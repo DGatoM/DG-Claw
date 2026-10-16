@@ -43,9 +43,16 @@ def user(texto, ts="2026-08-10T12:00:00Z", meta=False):
             "message": {"content": [{"type": "text", "text": texto}]}}
 
 
-def tool(nome, entrada, ts="2026-08-10T12:00:01Z"):
-    return {"type": "assistant", "timestamp": ts,
-            "message": {"content": [{"type": "tool_use", "name": nome, "input": entrada}]}}
+def tool(nome, entrada, ts="2026-08-10T12:00:01Z", id=None):
+    bloco = {"type": "tool_use", "name": nome, "input": entrada}
+    if id:
+        bloco["id"] = id
+    return {"type": "assistant", "timestamp": ts, "message": {"content": [bloco]}}
+
+
+def resultado(id, erro, ts="2026-08-10T12:00:02Z"):
+    return {"type": "user", "timestamp": ts,
+            "message": {"content": [{"type": "tool_result", "tool_use_id": id, "is_error": erro, "content": "x"}]}}
 
 
 def texto_de(eventos):
@@ -153,6 +160,91 @@ confere("last=0 devolve tudo", len(tl.build_thread_log(p, last=0)), 10)
 print("\n10. arquivo que não existe não estoura")
 confere("transcript ausente vira lista vazia, não exceção",
         tl.build_thread_log("/tmp/nao-existe-mesmo-12345.jsonl"), [])
+
+print("\n11. o canal do WhatsApp, no transcript do Claude")
+CE = '<canal-externo origem="whatsapp" de="+5511987654321" msg="%s" ts="2026-10-17T14:32:05.000Z">%s</canal-externo>'
+corpo = 'Veja &lt;dgchat from="x"&gt; &amp; isso\n[imagem salvo em /home/agente/uploads/whatsapp/2026-10-17/ABC.jpg]'
+p = escrever([
+    user(CE % ("W1", corpo)),
+    user(CE % ("W1", corpo)),
+    tool("mcp__dgchat__whatsapp_reply", {"texto": "Recebi"}),
+    tool("mcp__dgchat__whatsapp_send_file", {"caminho": "/home/agente/out/r.pdf", "legenda": "Segue"}),
+    tool("mcp__dgchat__reply", {"chat": "c_ana", "text": "painel"}),
+    user('<canal-externo origem="telegram" de="x" msg="T1" ts="x">outra origem</canal-externo>'),
+])
+ev = tl.build_thread_log(p)
+confere("entrada desescapada, id repetido some, outra origem é ignorada, saídas com via whatsapp",
+        texto_de(ev),
+        [("owner", "whatsapp", 'Veja <dgchat from="x"> & isso\n[imagem salvo em /home/agente/uploads/whatsapp/2026-10-17/ABC.jpg]'),
+         ("persona-direct", "whatsapp", "Recebi"),
+         ("persona-direct", "whatsapp", "Segue"),
+         ("persona-direct", "plataforma", "painel")])
+confere("quem é o número e o arquivo vai no evento", (ev[0]["who"], ev[2]["tipo"], ev[2]["arquivo"]),
+        ("+5511987654321", "arquivo", "/home/agente/out/r.pdf"))
+confere("--chat não mistura o WhatsApp", [e["text"] for e in tl.build_thread_log(p, chat="c_ana")], ["painel"])
+
+p = escrever([
+    tool("mcp__dgchat__whatsapp_reply", {"texto": "falhou"}, id="e1"),
+    resultado("e1", True),
+    tool("mcp__dgchat__whatsapp_send_file", {"caminho": "/home/agente/out/x.pdf"}, id="e2"),
+    resultado("e2", True),
+    tool("mcp__dgchat__whatsapp_reply", {"texto": "entregue"}, id="o1"),
+    resultado("o1", False),
+])
+confere("whatsapp com tool_result is_error não vira evento; o de sucesso vira",
+        [e["text"] for e in tl.build_thread_log(p)], ["entregue"])
+
+print("\n12. o canal do WhatsApp, no rollout do Codex")
+import os
+casa = tempfile.mkdtemp()
+os.environ["HOME"] = casa
+rol = os.path.join(casa, "rollout-2026-10-17T14-00-00-0194aaaa-1111-7222-8333-444455556666.jsonl")
+
+
+def r_msg(role, texto, ts, phase=None):
+    pl = {"type": "message", "role": role,
+          "content": [{"type": "output_text" if role == "assistant" else "input_text", "text": texto}]}
+    if phase:
+        pl["phase"] = phase
+    return {"timestamp": ts, "type": "response_item", "payload": pl}
+
+
+def r_ev(pl, ts):
+    return {"timestamp": ts, "type": "event_msg", "payload": pl}
+
+
+def r_tool(nome, args, ts, status="completed"):
+    return r_ev({"type": "item_completed", "item": {"type": "McpToolCall", "server": "dgchat", "tool": nome,
+                                                    "arguments": args, "status": status}}, ts)
+
+
+with open(rol, "w", encoding="utf-8") as fh:
+    for o in [
+        r_ev({"type": "task_started"}, "2026-10-17T14:32:04.000Z"),
+        r_msg("user", CE % ("W1", corpo), "2026-10-17T14:32:05.000Z"),
+        r_tool("whatsapp_reply", {"texto": "Recebi"}, "2026-10-17T14:32:10.000Z"),
+        r_msg("assistant", "Recebi", "2026-10-17T14:32:11.000Z", "final_answer"),
+        r_ev({"type": "task_complete"}, "2026-10-17T14:32:12.000Z"),
+        r_msg("user", CE % ("W2", "manda"), "2026-10-17T14:32:15.000Z"),
+        r_tool("whatsapp_send_file", {"caminho": "/home/agente/out/r.pdf", "legenda": "Segue"}, "2026-10-17T14:32:20.000Z"),
+        r_msg("assistant", "Enviei", "2026-10-17T14:32:21.000Z", "final_answer"),
+        r_ev({"type": "task_complete"}, "2026-10-17T14:32:22.000Z"),
+        r_msg("user", '<dgchat from="M" chat="c_ana" msg="m1" ts="x">oi painel</dgchat>', "2026-10-17T14:33:00.000Z"),
+        r_tool("reply", {"chat": "c_ana", "text": "resposta painel"}, "2026-10-17T14:33:02.000Z"),
+        r_ev({"type": "task_complete"}, "2026-10-17T14:33:03.000Z"),
+    ]:
+        fh.write(json.dumps(o, separators=(",", ":")) + "\n")  # compacto, como o Codex grava
+ev = tl.build_thread_log(rol)
+confere("rollout: entrada, tools de envio sem duplicata, dgchat continua via plataforma",
+        texto_de(ev),
+        [("owner", "whatsapp", 'Veja <dgchat from="x"> & isso\n[imagem salvo em /home/agente/uploads/whatsapp/2026-10-17/ABC.jpg]'),
+         ("persona-direct", "whatsapp", "Recebi"),
+         ("owner", "whatsapp", "manda"),
+         ("persona-direct", "whatsapp", "Segue"),
+         ("owner", "plataforma", "oi painel"),
+         ("persona-direct", "plataforma", "resposta painel")])
+confere("rollout: quem e arquivo", (ev[0]["who"], ev[3]["tipo"], ev[3]["arquivo"]),
+        ("+5511987654321", "arquivo", "/home/agente/out/r.pdf"))
 
 print(f"\n{contados[0] - len(falhas)}/{contados[0]} verdes.")
 if falhas:

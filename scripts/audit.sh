@@ -131,7 +131,8 @@ inject_session "$SLUG" audit <<< "$AUDIT_PROMPT" >> "$LOG" 2>&1
 ARC=$?
 case "$ARC" in
     0) echo "[$(date '+%F %T')] audit semantica: poke injetado (rc=0)" >> "$LOG" ;;
-    2) echo "[$(date '+%F %T')] audit semantica: sessao morta ou ocupada (turno em voo) — pulando/adiando (no-op gracioso)" >> "$LOG" ;;
+    2) echo "[$(date '+%F %T')] audit semantica: sessao morta (agente fora do ar), a auditoria semantica NAO rodou hoje" >> "$LOG" ;;
+    75) echo "[$(date '+%F %T')] audit semantica: sessao ocupada (turno em voo), adiada para a proxima rodada" >> "$LOG" ;;
     *) echo "[$(date '+%F %T')] audit semantica: FALHA ao injetar (rc=$ARC)" >> "$LOG" ;;
 esac
 

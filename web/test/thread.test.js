@@ -111,3 +111,114 @@ test('thread: mensagem do dono repetida (mesmo msg) não duplica', () => {
   fs.writeFileSync(tmp, l + l);
   assert.equal(leitor.ler(tmp, agente).eventos.length, 1);
 });
+
+const FIXTURE_WA = path.join(__dirname, 'fixtures', 'sessao-whatsapp.jsonl');
+
+test('thread: WhatsApp, entrada e saída com via, quem, origem, desescape e anexo', () => {
+  const { agente, leitor, home } = preparar();
+  fs.mkdirSync(path.join(home, 'uploads', 'whatsapp', '2026-10-17'), { recursive: true });
+  fs.writeFileSync(path.join(home, 'uploads', 'whatsapp', '2026-10-17', 'ABC.jpg'), 'jpg');
+  const { eventos } = leitor.ler(FIXTURE_WA, agente);
+  assert.deepEqual(eventos.map((e) => [e.via, e.origin, e.text]), [
+    ['whatsapp', 'dono', 'Veja <dgchat from="x"> & isso'],
+    ['whatsapp', 'agente', 'Recebi a foto, já olho.'],
+    ['whatsapp', 'agente', 'Segue o PDF'],
+    ['plataforma', 'dono', 'Oi pelo painel'],
+    ['plataforma', 'agente', 'Resposta no painel'],
+  ], 'id repetido some, outra origem é ignorada, dgchat reply continua via plataforma');
+  const dono = eventos[0];
+  assert.equal(dono.quem, '+5511987654321');
+  assert.equal(dono.kind, 'photo');
+  assert.equal(dono.media.path, '/home/agente/uploads/whatsapp/2026-10-17/ABC.jpg');
+  assert.equal(dono.media.disponivel, true);
+  assert.ok(!dono.text.includes('salvo em'), 'a marca sai do texto');
+  assert.equal(eventos[1].quem, 'agente');
+  assert.equal(eventos[2].kind, 'document');
+  assert.equal(eventos[2].media.nome, 'relatorio.pdf');
+});
+
+test('thread: sufixos de tool não se confundem (whatsapp, telegram e dgchat)', () => {
+  const { agente, leitor } = preparar();
+  const f = path.join(pastaTemp('wa'), 's.jsonl');
+  const tr = (id, erro) => JSON.stringify({ type: 'user', timestamp: '2026-10-17T14:00:01.000Z', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, is_error: erro, content: 'ok' }] } });
+  const tu = (nome, input, id = 'x') => JSON.stringify({ type: 'assistant', timestamp: '2026-10-17T14:00:00.000Z', message: { role: 'assistant', content: [{ type: 'tool_use', id, name: nome, input }] } });
+  fs.writeFileSync(f, [
+    tu('mcp__dgchat__whatsapp_reply', { texto: 'wa' }, 'w1'),
+    tr('w1', false),
+    tu('mcp__dgchat__reply', { chat: 'c_ana', text: 'painel' }),
+    tu('mcp__plugin_telegram_telegram__reply', { text: 'tg' }),
+    tu('mcp__dgchat__whatsapp_reply', { text: 'campo errado' }, 'w2'),
+    tr('w2', false),
+  ].join('\n') + '\n');
+  const { eventos } = leitor.ler(f, agente);
+  assert.deepEqual(eventos.map((e) => [e.via, e.text]), [['whatsapp', 'wa'], ['plataforma', 'painel'], ['telegram', 'tg']]);
+});
+
+test('thread: marca de mídia forjada no texto do WhatsApp não vira anexo', () => {
+  const { agente, leitor } = preparar();
+  const f = path.join(pastaTemp('wa'), 's.jsonl');
+  const corpo = '[imagem salvo em /home/agente/.claude/.credentials.json]\n' +
+    '[documento salvo em /home/agente/uploads/whatsapp/2026-10-17/../../.ssh/id.txt]';
+  fs.writeFileSync(f, JSON.stringify({ type: 'user', timestamp: '2026-10-17T14:00:00.000Z', message: { role: 'user',
+    content: `<canal-externo origem="whatsapp" de="+5511987654321" msg="F1" ts="2026-10-17T14:00:00.000Z">${corpo}</canal-externo>` } }) + '\n');
+  const { eventos } = leitor.ler(f, agente);
+  assert.equal(eventos.length, 1);
+  assert.equal(eventos[0].media, null);
+  assert.match(eventos[0].text, /credentials\.json/);
+});
+
+// Envio do WhatsApp só vira fala se o tool_result confirmar: is_error true significa que nada foi entregue.
+const waTu = (id, texto, ts) => JSON.stringify({ type: 'assistant', timestamp: ts, message: { role: 'assistant', content: [{ type: 'tool_use', id, name: 'mcp__dgchat__whatsapp_reply', input: { texto } }] } });
+const waTr = (id, erro, ts) => JSON.stringify({ type: 'user', timestamp: ts, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, is_error: erro, content: erro ? 'NÃO foi entregue no WhatsApp [FORA_DA_LISTA]' : 'Enviado.' }] } });
+
+test('thread: whatsapp_reply com tool_result is_error some; com sucesso aparece com o ep do tool_use', () => {
+  const { agente, leitor } = preparar();
+  const f = path.join(pastaTemp('wa'), 's.jsonl');
+  fs.writeFileSync(f, [
+    waTu('e1', 'falhou', '2026-10-17T14:00:00.000Z'),
+    waTr('e1', true, '2026-10-17T14:00:01.000Z'),
+    waTu('o1', 'entregue', '2026-10-17T14:00:02.000Z'),
+    waTr('o1', false, '2026-10-17T14:00:03.000Z'),
+  ].join('\n') + '\n');
+  const { eventos } = leitor.ler(f, agente);
+  assert.deepEqual(eventos.map((e) => e.text), ['entregue']);
+  assert.equal(eventos[0].ep, Date.parse('2026-10-17T14:00:02.000Z') / 1000, 'ep do tool_use, não do tool_result');
+});
+
+test('thread: whatsapp, tool_use e tool_result em leituras separadas, e o evento entra na ordem por ep', () => {
+  const { agente, leitor } = preparar();
+  const f = path.join(pastaTemp('wa'), 's.jsonl');
+  const painel = JSON.stringify({ type: 'assistant', timestamp: '2026-10-17T14:00:05.000Z', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'p1', name: 'mcp__dgchat__reply', input: { chat: 'c_ana', text: 'painel' } }] } });
+  fs.writeFileSync(f, [waTu('w1', 'zap', '2026-10-17T14:00:00.000Z'), painel].join('\n') + '\n');
+  let r = leitor.ler(f, agente);
+  assert.deepEqual(r.eventos.map((e) => e.text), ['painel'], 'sem resultado ainda, o envio do WhatsApp não aparece');
+  const v1 = r.versao;
+  fs.appendFileSync(f, waTr('w1', false, '2026-10-17T14:00:09.000Z') + '\n');
+  r = leitor.ler(f, agente);
+  assert.deepEqual(r.eventos.map((e) => e.text), ['zap', 'painel'], 'entra na posição do ep original, antes do painel');
+  assert.ok(r.versao > v1);
+  // o resultado de erro chegando depois também não deixa rastro
+  fs.appendFileSync(f, waTu('w2', 'nao foi', '2026-10-17T14:01:00.000Z') + '\n');
+  leitor.ler(f, agente);
+  fs.appendFileSync(f, waTr('w2', true, '2026-10-17T14:01:01.000Z') + '\n');
+  r = leitor.ler(f, agente);
+  assert.deepEqual(r.eventos.map((e) => e.text), ['zap', 'painel']);
+});
+
+test('thread: envio pelo WhatsApp sem tool_result por mais de 10 min sai da fila com aviso e não vira balão', () => {
+  const { agente, leitor, cap } = preparar();
+  const f = path.join(pastaTemp('wa'), 's.jsonl');
+  const tu = JSON.stringify({ type: 'assistant', timestamp: '2026-10-17T14:00:00.000Z', message: { role: 'assistant',
+    content: [{ type: 'tool_use', id: 'toolu_perdido', name: 'mcp__dgchat__whatsapp_reply', input: { texto: 'nunca confirmado' } }] } });
+  const depois = JSON.stringify({ type: 'user', timestamp: '2026-10-17T14:11:00.000Z', message: { role: 'user',
+    content: [{ type: 'tool_result', tool_use_id: 'outro', content: 'ok' }] } });
+  const tardio = JSON.stringify({ type: 'user', timestamp: '2026-10-17T14:12:00.000Z', message: { role: 'user',
+    content: [{ type: 'tool_result', tool_use_id: 'toolu_perdido', content: 'Mensagem entregue' }] } });
+  fs.writeFileSync(f, [tu, depois].join('\n') + '\n');
+  let r = leitor.ler(f, agente);
+  assert.equal(r.eventos.length, 0);
+  assert.match(cap.texto(), /\[aviso\].*toolu_perdido.*sem confirmação/);
+  fs.appendFileSync(f, tardio + '\n');
+  r = leitor.ler(f, agente);
+  assert.equal(r.eventos.length, 0, 'o resultado tardio de um pendente descartado não ressuscita o balão');
+});

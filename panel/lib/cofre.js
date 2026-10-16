@@ -263,7 +263,180 @@ function temSystemdCreds() {
   }
 }
 
+/**
+ * A validação inteira de uma chave que vai ser guardada, sem tocar em disco.
+ *
+ * Existe separada para que o painel (`guardar` abaixo) e o DG Claw Web, que na v1 é
+ * quem grava no host, recusem EXATAMENTE as mesmas coisas, com as mesmas frases.
+ * Duas cópias desta régua divergem no primeiro ajuste. `extras` é o conjunto de
+ * nomes liberados à mão por quem administra a máquina (`cofreNomesExtras`).
+ *
+ * Devolve `{ nome, valor, provedor }` quando passa, ou o objeto de recusa
+ * `{ erro, status, howToFix }`. A recusa nunca repete o valor.
+ */
+function validarChave(pedido, extras) {
+  const EXTRAS = extras || new Set();
+  const nome = String((pedido && pedido.envName) || '').trim().toUpperCase();
+  const valor = typeof (pedido && pedido.valor) === 'string' ? pedido.valor.trim() : '';
+  const provedor = String((pedido && pedido.provedor) || 'outro');
+
+  if (!nome) {
+    return recusa('Faltou o nome da variável, que é como o agente encontra a chave.', 400,
+      'Escolha o serviço na lista: ele preenche o nome certo sozinho.');
+  }
+  if (!NOME_FORMA_OK.test(nome)) {
+    return recusa(
+      `"${nome}" não serve como nome de variável. Ele precisa começar com letra maiúscula e ter só letras maiúsculas, números e sublinhado.`,
+      400,
+      'Escolha o serviço na lista acima, que já traz o nome no formato certo.',
+    );
+  }
+  if (RESERVADOS.has(nome)) {
+    return recusa(
+      `"${nome}" é um nome que o próprio sistema usa para dizer ao agente onde ele mora e por onde ele roda, então o cofre não pode ocupá-lo.`,
+      409,
+      'Se o serviço exige exatamente esse nome, fale com quem administra a máquina do agente: isso precisa de outro caminho.',
+    );
+  }
+  // O deny vem ANTES do allow: um nome que case com os dois é recusado, que é o
+  // ponto inteiro de ele existir.
+  if (NOME_EXATO_PROIBIDO.has(nome) ||
+      (!NOME_EXATO_LIBERADO.has(nome) && NOME_PREFIXO_PROIBIDO.some((p) => nome.startsWith(p)))) {
+    return recusa(
+      `"${nome}" não é uma chave de serviço: é um nome que muda o jeito como o próprio agente roda, ` +
+      'e por isso o cofre não guarda nenhum com esse começo.',
+      400,
+      'Se o serviço que você está ligando exige exatamente esse nome, fale com quem administra a máquina do agente: ' +
+      'esse caso precisa ser avaliado um por um, e não pela tela.',
+    );
+  }
+  if (!NOME_PERMITIDO.some((re) => re.test(nome)) && !EXTRAS.has(nome)) {
+    return recusa(
+      `"${nome}" não parece nome de chave de serviço, e este campo só aceita chave de serviço.`,
+      400,
+      'Nome de credencial costuma terminar em _API_KEY, _TOKEN, _SECRET, _KEY, _PASSWORD, _ID, _URL ou _ACCOUNT. ' +
+      'Escolher o serviço na lista acima preenche o nome certo. ' +
+      'Se o seu serviço usa mesmo um nome fora desse padrão, ele pode ser liberado: peça a quem administra a máquina do agente, ' +
+      'que é quem consegue avaliar se aquele nome é inofensivo.',
+    );
+  }
+  if (!valor) {
+    return recusa('Faltou a chave. Nada foi alterado no cofre.', 400,
+      'Cole a chave que você gerou no painel do serviço.');
+  }
+  if (!VALOR_OK.test(valor)) {
+    // A recusa NÃO REPETE O VALOR, nem um pedaço dele. Ver regra 5.
+    return recusa(
+      'Essa chave tem caractere que não pode entrar aqui, ou é curta demais (menos de 8 caracteres). ' +
+      'Quebra de linha, acento, apóstrofo e caractere invisível costumam vir junto quando a chave é copiada ' +
+      'de um PDF, de uma mensagem ou de um site que troca aspas por aspas curvas.',
+      400,
+      'Copie a chave direto do painel do serviço, sem selecionar o espaço em volta, e cole de novo.',
+    );
+  }
+  // Referência de outro cofre ("vault:..."): só vale atrás do proxy que a troca pela
+  // chave verdadeira. Guardada aqui, o agente receberia um texto que nenhum serviço aceita.
+  if (/^vault:/i.test(valor)) {
+    return recusa(
+      'Isso é uma referência de cofre (começa com "vault:"), e não a chave. Dentro do agente ela não vale nada.',
+      400,
+      'Pegue a chave verdadeira na fonte onde ela fica guardada (ou no painel do serviço) e mande essa.',
+    );
+  }
+
+  return { nome, valor, provedor };
+}
+
+// ─── O modo "host" (DG Claw v1) ──────────────────────────────────────────────
+//
+// Na v1 o agente roda num contêiner e quem guarda a chave é o DG Claw Web, no host,
+// num arquivo que o agente não alcança (`web/lib/cofre-agente.js`). Este painel, de
+// dentro, só consegue LER os nomes das chaves (o Web os escreve em
+// `/run/dgclaw/config/cofre-nomes`, pasta montada só para leitura).
+//
+// POR QUE RECUSAR EM VEZ DE CAIR NO MOTOR LOCAL: o motor local guarda a chave
+// mestra na casa do agente, e o agente a lê. Chave cifrada com uma chave que está
+// ao lado dela não está guardada, está escondida. Uma versão anterior fez isso sem
+// querer (o cofre do host dava EACCES e o painel guardou `OPENAI_API_KEY.enc` mais
+// `cofre.chave` na casa). Neste modo NADA é escrito em disco: nem pasta, nem chave
+// mestra, nem arquivo de segredo.
+function buildCofreHost(config, arquivoDeNomes) {
+  const slug = String(config.agentSlug || 'agente');
+
+  function recusaDoHost() {
+    return recusa(
+      'Neste agente quem guarda a chave e reinicia o agente é o DG Claw Web, e não este painel. Nada foi guardado.',
+      409,
+      'Abra o painel pelo endereço do DG Claw (o do site, com o login), e não pela porta direta do painel. ' +
+      'Quem administra o servidor também pode usar "dgclaw agente cofre <agente> guardar NOME" nele.',
+    );
+  }
+
+  /** Os nomes das chaves ativas, na ordem do arquivo. Arquivo ausente = nenhuma chave. */
+  function nomes() {
+    let texto;
+    try {
+      texto = fs.readFileSync(arquivoDeNomes, 'utf-8');
+    } catch (err) {
+      if (err && err.code === 'ENOENT') return [];
+      console.error(`[cofre:${slug}] não consegui ler a lista de nomes ${arquivoDeNomes} (${err.code || err.message}); mostro o cofre como vazio.`);
+      return [];
+    }
+    const vistos = [];
+    for (const linha of texto.split(/\r?\n/)) {
+      const m = /^\s*(?:export\s+)?([A-Z][A-Z0-9_]{0,63})=/.exec(linha);
+      if (m && !vistos.includes(m[1])) vistos.push(m[1]);
+    }
+    return vistos;
+  }
+
+  function estado() {
+    return {
+      agente: { slug, nome: config.agentName || slug, dono: config.creatorName || 'Dono' },
+      chaves: nomes().map((n) => ({
+        envName: n,
+        provedor: 'outro',
+        provedorNome: (PROVEDORES.find((p) => p.sugestao === n) || {}).nome || 'Outro serviço',
+        ultimos4: '',
+        cadastradaPor: 'DG Claw Web',
+        origem: 'host',
+        cadastradaEm: null,
+        revogadaEm: null,
+        motor: 'host',
+      })),
+      provedores: PROVEDORES,
+      guarda: {
+        motor: 'host',
+        motorExplicacao: 'A chave fica num arquivo do servidor, fora da pasta do agente, que só o administrador da máquina lê. O agente recebe o valor quando é reiniciado.',
+        emMemoria: false,
+        emMemoriaExplicacao: 'Aqui este painel só mostra os nomes das chaves. Guardar e reiniciar são feitos pelo DG Claw Web.',
+      },
+      aplicar: {
+        pode: false,
+        motivo: 'Neste agente quem guarda a chave e reinicia o agente é o DG Claw Web.',
+        howToFix: 'Abra o painel pelo endereço do DG Claw (o do site, com o login) para guardar a chave e aplicar.',
+      },
+      arquivoDeAmbiente: '/run/dgclaw/cofre/cofre.env',
+    };
+  }
+
+  function tem(envName) {
+    const nome = String(envName || '').trim().toUpperCase();
+    return NOME_FORMA_OK.test(nome) && nomes().includes(nome);
+  }
+
+  return {
+    modoHost: true,
+    recusaDoHost,
+    estado, tem,
+    guardar: recusaDoHost, revogar: recusaDoHost, aplicar: recusaDoHost, materializar: recusaDoHost,
+    DIR: null, ENV_DO_AGENTE: null, PROVEDORES, EXTRAS: new Set(),
+  };
+}
+
 function buildCofre(config) {
+  const NOMES_HOST = config.cofreNomesArquivo || process.env.DGCLAW_COFRE_NOMES || null;
+  if (NOMES_HOST) return buildCofreHost(config, String(NOMES_HOST));
   const slug = String(config.agentSlug || 'agente');
   const AGENTE = config.agentDir;
 
@@ -597,74 +770,11 @@ function buildCofre(config) {
    * revogar antes, e o agente ficaria sem chave nenhuma no meio do caminho.
    */
   function guardar(pedido) {
-    const nome = String((pedido && pedido.envName) || '').trim().toUpperCase();
-    const valor = typeof (pedido && pedido.valor) === 'string' ? pedido.valor.trim() : '';
-    const provedor = String((pedido && pedido.provedor) || 'outro');
     const quem = String((pedido && pedido.quem) || config.creatorName || 'Dono').slice(0, 80);
 
-    if (!nome) {
-      return recusa('Faltou o nome da variável, que é como o agente encontra a chave.', 400,
-        'Escolha o serviço na lista: ele preenche o nome certo sozinho.');
-    }
-    if (!NOME_FORMA_OK.test(nome)) {
-      return recusa(
-        `"${nome}" não serve como nome de variável. Ele precisa começar com letra maiúscula e ter só letras maiúsculas, números e sublinhado.`,
-        400,
-        'Escolha o serviço na lista acima, que já traz o nome no formato certo.',
-      );
-    }
-    if (RESERVADOS.has(nome)) {
-      return recusa(
-        `"${nome}" é um nome que o próprio sistema usa para dizer ao agente onde ele mora e por onde ele roda, então o cofre não pode ocupá-lo.`,
-        409,
-        'Se o serviço exige exatamente esse nome, fale com quem administra a máquina do agente: isso precisa de outro caminho.',
-      );
-    }
-    // O deny vem ANTES do allow: um nome que case com os dois é recusado, que é o
-    // ponto inteiro de ele existir.
-    if (NOME_EXATO_PROIBIDO.has(nome) ||
-        (!NOME_EXATO_LIBERADO.has(nome) && NOME_PREFIXO_PROIBIDO.some((p) => nome.startsWith(p)))) {
-      return recusa(
-        `"${nome}" não é uma chave de serviço: é um nome que muda o jeito como o próprio agente roda, ` +
-        'e por isso o cofre não guarda nenhum com esse começo.',
-        400,
-        'Se o serviço que você está ligando exige exatamente esse nome, fale com quem administra a máquina do agente: ' +
-        'esse caso precisa ser avaliado um por um, e não pela tela.',
-      );
-    }
-    if (!NOME_PERMITIDO.some((re) => re.test(nome)) && !EXTRAS.has(nome)) {
-      return recusa(
-        `"${nome}" não parece nome de chave de serviço, e este campo só aceita chave de serviço.`,
-        400,
-        'Nome de credencial costuma terminar em _API_KEY, _TOKEN, _SECRET, _KEY, _PASSWORD, _ID, _URL ou _ACCOUNT. ' +
-        'Escolher o serviço na lista acima preenche o nome certo. ' +
-        'Se o seu serviço usa mesmo um nome fora desse padrão, ele pode ser liberado: peça a quem administra a máquina do agente, ' +
-        'que é quem consegue avaliar se aquele nome é inofensivo.',
-      );
-    }
-    if (!valor) {
-      return recusa('Faltou a chave. Nada foi alterado no cofre.', 400,
-        'Cole a chave que você gerou no painel do serviço.');
-    }
-    if (!VALOR_OK.test(valor)) {
-      // A recusa NÃO REPETE O VALOR, nem um pedaço dele. Ver regra 5.
-      return recusa(
-        'Essa chave tem caractere que não pode entrar aqui, ou é curta demais (menos de 8 caracteres). ' +
-        'Quebra de linha, acento, apóstrofo e caractere invisível costumam vir junto quando a chave é copiada ' +
-        'de um PDF, de uma mensagem ou de um site que troca aspas por aspas curvas.',
-        400,
-        'Copie a chave direto do painel do serviço, sem selecionar o espaço em volta, e cole de novo.',
-      );
-    }
-    // Referência de outro cofre ("vault:..."): só vale atrás do proxy que a troca pela
-    // chave verdadeira. Guardada aqui, o agente receberia um texto que nenhum serviço aceita.
-    if (/^vault:/i.test(valor)) {
-      return recusa(
-        'Isso é uma referência de cofre (começa com "vault:"), e não a chave. Dentro do agente ela não vale nada.',
-        400,
-        'Pegue a chave verdadeira na fonte onde ela fica guardada (ou no painel do serviço) e mande essa.',
-      );
-    }
+    const v = validarChave(pedido, EXTRAS);
+    if (v.erro) return v;
+    const { nome, valor, provedor } = v;
 
     let cifrado;
     try {
@@ -899,5 +1009,5 @@ function buildCofre(config) {
 module.exports = {
   buildCofre,
   NOME_FORMA_OK, NOME_PERMITIDO, NOME_PREFIXO_PROIBIDO, NOME_EXATO_PROIBIDO, NOME_EXATO_LIBERADO,
-  RESERVADOS, VALOR_OK, SLUG_OK, PROVEDORES, linhaDeAmbiente,
+  RESERVADOS, VALOR_OK, SLUG_OK, PROVEDORES, linhaDeAmbiente, validarChave, recusa,
 };

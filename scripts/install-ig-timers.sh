@@ -8,7 +8,8 @@
 #   dgclaw-<slug>-comments.timer   10/30min apos cada post + de hora em hora
 #                                                        -> dgclaw-comentarios.sh
 #
-# Cada .service: User=root, HOME=/root, IS_SANDBOX=1, TZ=America/Sao_Paulo
+# Cada .service: User= e HOME= do DONO DA PASTA DO AGENTE (root no plugin classico, `agente` na
+#   v1; ver scripts/_lib/dono_agente.py), IS_SANDBOX=1, TZ=America/Sao_Paulo
 #   (TZ obrigatorio: sem ele OnCalendar dispara em UTC e os horarios saem errados).
 # ExecStart aponta pra $DGCLAW_PLUGIN_ROOT/scripts/cron/ (caminho estavel).
 #
@@ -44,19 +45,32 @@ SLUG="$DGCLAW_SLUG"
 WS="$DGCLAW_WORKSPACE"
 PLUGIN="${DGCLAW_PLUGIN_ROOT:-$WS/.dgclaw/plugin}"
 ABS_CONFIG="$(readlink -f "$CONFIG")"
+# Pasta das units; em producao e a do systemd, nos testes aponta para uma pasta falsa.
+UNIT_DIR="${DGCLAW_SYSTEMD_DIR:-/etc/systemd/system}"
+# O ajudante vem do lugar deste proprio script, nao de $PLUGIN: na v1 o plugin fica fora do
+# workspace (/opt/dgclaw/app) e $PLUGIN depende do config.sh, que pode estar velho.
+DONO_PY="$(dirname "${BASH_SOURCE[0]}")/_lib/dono_agente.py"
 IG_JSON="$WS/.dgclaw/instagram.json"
 CRON_DIR="$PLUGIN/scripts/cron"
 
 # Lista de timers que este script gerencia (preenchida abaixo).
 TIMER_NAMES=()
 
+# Devolve ao dono da pasta do agente o que este script (rodando como root, via sudo) criou ou
+# mexeu dentro do workspace; sem isso o agente nao consegue mais escrever nesses arquivos.
+devolver_ao_dono() {
+    python3 "$DONO_PY" chown --ws "$WS" "$@" || {
+        echo "AVISO: nao consegui devolver ao dono da pasta do agente: $*. Rode o chown do aviso acima." >&2
+    }
+}
+
 # ---------- modo OFF: parar/remover tudo e travar o poder ----------
 if [ "$MODE" = "off" ]; then
     echo "==> desativando poder instagram para ${SLUG}"
-    for unit in /etc/systemd/system/dgclaw-${SLUG}-post-*.timer \
-                /etc/systemd/system/dgclaw-${SLUG}-post-*.service \
-                /etc/systemd/system/dgclaw-${SLUG}-comments.timer \
-                /etc/systemd/system/dgclaw-${SLUG}-comments.service; do
+    for unit in "${UNIT_DIR}"/dgclaw-"${SLUG}"-post-*.timer \
+                "${UNIT_DIR}"/dgclaw-"${SLUG}"-post-*.service \
+                "${UNIT_DIR}"/dgclaw-"${SLUG}"-comments.timer \
+                "${UNIT_DIR}"/dgclaw-"${SLUG}"-comments.service; do
         [ -e "$unit" ] || continue
         base="$(basename "$unit")"
         if [[ "$base" == *.timer ]]; then
@@ -66,6 +80,7 @@ if [ "$MODE" = "off" ]; then
     done
     systemctl daemon-reload
     python3 "$PLUGIN/scripts/powers.py" --file "$WS/.dgclaw/powers.json" disable instagram || true
+    devolver_ao_dono "$WS/.dgclaw/powers.json"
     echo "==> timers removidos e poder instagram travado (abas POSTS/FOLLOWERS voltam a travar)."
     echo "    Dados preservados (data/posts.jsonl, persona/followers/, etc)."
     exit 0
@@ -88,24 +103,30 @@ print(" ".join(times))
 fi
 [ -z "$POST_TIMES" ] && POST_TIMES="08:00 13:00 19:00"
 
+# Descobre o usuario da unit ANTES de gravar qualquer coisa: se falhar, nada fica pela metade.
+UNIT_DONO="$(python3 "$DONO_PY" unidade --ws "$WS")" || {
+    echo "ERRO: nao consegui decidir com que usuario os timers do Instagram rodam (veja a mensagem acima)." >&2
+    exit 1
+}
+
 mkdir -p "$WS/.dgclaw/logs"
+devolver_ao_dono "$WS/.dgclaw" "$WS/.dgclaw/logs"
 
 make_post_unit() {
     local label="$1" hhmm="$2"   # label ex: 8h ; hhmm ex: 08:00
-    cat > "/etc/systemd/system/dgclaw-${SLUG}-post-${label}.service" <<EOF
+    cat > "${UNIT_DIR}/dgclaw-${SLUG}-post-${label}.service" <<EOF
 [Unit]
 Description=DG Claw Instagram post ${label}: ${SLUG}
 
 [Service]
 Type=oneshot
-User=root
-Environment=HOME=/root
+${UNIT_DONO}
 Environment=IS_SANDBOX=1
 Environment=TZ=${TZ_VAL}
 WorkingDirectory=${WS}
 ExecStart=/bin/bash ${CRON_DIR}/dgclaw-post.sh ${ABS_CONFIG} ${label}
 EOF
-    cat > "/etc/systemd/system/dgclaw-${SLUG}-post-${label}.timer" <<EOF
+    cat > "${UNIT_DIR}/dgclaw-${SLUG}-post-${label}.timer" <<EOF
 [Unit]
 Description=DG Claw Instagram post ${label} (timer): ${SLUG}
 
@@ -134,14 +155,13 @@ done
 COMMENT_ONCALENDAR+=("*-*-* *:05:00")
 
 # ---------- timer de comentarios (multiplos OnCalendar) ----------
-cat > "/etc/systemd/system/dgclaw-${SLUG}-comments.service" <<EOF
+cat > "${UNIT_DIR}/dgclaw-${SLUG}-comments.service" <<EOF
 [Unit]
 Description=DG Claw Instagram comentarios: ${SLUG}
 
 [Service]
 Type=oneshot
-User=root
-Environment=HOME=/root
+${UNIT_DONO}
 Environment=IS_SANDBOX=1
 Environment=TZ=${TZ_VAL}
 WorkingDirectory=${WS}
@@ -160,7 +180,7 @@ EOF
     echo
     echo "[Install]"
     echo "WantedBy=timers.target"
-} > "/etc/systemd/system/dgclaw-${SLUG}-comments.timer"
+} > "${UNIT_DIR}/dgclaw-${SLUG}-comments.timer"
 TIMER_NAMES+=("dgclaw-${SLUG}-comments.timer")
 
 # ---------- ativar ----------
@@ -175,5 +195,6 @@ systemctl list-timers "dgclaw-${SLUG}-post-*" "dgclaw-${SLUG}-comments*" --no-pa
 # ---------- marcar o poder como ativo ----------
 TIMERS_CSV=$(IFS=,; echo "${TIMER_NAMES[*]}")
 python3 "$PLUGIN/scripts/powers.py" --file "$WS/.dgclaw/powers.json" enable instagram --timers "$TIMERS_CSV"
+devolver_ao_dono "$WS/.dgclaw/powers.json"
 echo "==> poder instagram ativado (abas POSTS/FOLLOWERS destravadas no painel)."
 echo "    timers: $TIMERS_CSV"

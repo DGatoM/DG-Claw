@@ -120,6 +120,7 @@ Description=DG Claw ${desc}: ${SLUG}
 
 [Service]
 Type=oneshot
+# Nasce como root; o vida_script do bin/dgclaw troca para User=agente/HOME=/home/agente na criacao do agente na v1.
 User=root
 Environment=HOME=/root
 Environment=IS_SANDBOX=1

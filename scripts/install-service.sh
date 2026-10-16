@@ -93,6 +93,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+# Plugin classico, onde o agente roda como root. Na v1 a sessao e o dgclaw-runner.service do container (User=agente) e este script nao e chamado.
 User=root
 Environment=HOME=/root
 Environment=IS_SANDBOX=1

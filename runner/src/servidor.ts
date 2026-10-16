@@ -18,48 +18,26 @@ import type { GerenteDeSessoes, Recusa } from "./sessoes.js";
 import { ultimasMensagens } from "./transcript.js";
 import { log } from "./logger.js";
 import { carregarTokenDoRunner, exigirTokenDoRunner, verificarClienteWs } from "./autenticacao.js";
-
-const CORPO_MAX = 5 * 1024 * 1024;
-
-function json(res: http.ServerResponse, corpo: unknown, status = 200): void {
-  const texto = JSON.stringify(corpo);
-  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
-  res.end(texto);
-}
-
-async function lerCorpo(req: http.IncomingMessage): Promise<Record<string, unknown>> {
-  return new Promise((resolve, reject) => {
-    let dados = "";
-    req.on("data", (pedaco: Buffer) => {
-      dados += pedaco.toString();
-      if (dados.length > CORPO_MAX) {
-        reject(new Error(`corpo acima de ${CORPO_MAX} bytes`));
-        req.destroy();
-      }
-    });
-    req.on("end", () => {
-      if (!dados.trim()) return resolve({});
-      try {
-        resolve(JSON.parse(dados) as Record<string, unknown>);
-      } catch (err) {
-        reject(new Error(`corpo não é JSON válido: ${err instanceof Error ? err.message : err}`));
-      }
-    });
-    req.on("error", reject);
-  });
-}
+import { erro as erroHttp, json, lerCorpo } from "./http-util.js";
+import { Conferidor } from "./provedores/conferido.js";
+import { LoginAssistido } from "./provedores/login.js";
+import { tratarRotasDeProvedor } from "./provedores/rotas.js";
+import { acharRolloutPorId, mensagensDoRollout } from "./provedores/codex-rollout.js";
 
 /** O estado de uma sessão como o painel e a API o veem. A paralela leva o campo
  *  extra `sessao`; a principal só o leva quando pedido (`?todas=1`), para a
  *  resposta de sempre continuar idêntica. */
 function visao(s: Sessao, comMeta: boolean): Record<string, unknown> {
-  if (!comMeta && s.papel === "principal") return s.estado as unknown as Record<string, unknown>;
+  // `codexHome` é só leitura: o CODEX_HOME que o último spawn usou, para quem lê o rollout do disco.
+  if (!comMeta && s.papel === "principal") return { ...s.estado, codexHome: s.codexHome() };
   return {
     ...s.estado,
+    codexHome: s.codexHome(),
     sessao: {
       papel: s.papel,
       tipo: s.tipo,
       chat: s.chat,
+      titulo: s.titulo,
       fila: s.tamanhoDaFila(),
       ociosoHaMin: ociosoHaMin(s),
     },
@@ -81,6 +59,8 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
   // Bearer do RUNNER_TOKEN_FILE, lido uma vez aqui (ver autenticacao.ts).
   const credencial = carregarTokenDoRunner();
   const autorizado = exigirTokenDoRunner(credencial);
+  const login = new LoginAssistido();
+  const conferidor = new Conferidor();
   const servidor = http.createServer((req, res) => {
     if (!autorizado(req, res)) return;
     const rota = (req.url || "/").split("?")[0].replace(/\/+$/, "") || "/";
@@ -157,6 +137,39 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
         }
         const r = dona.receberHook(corpo as Parameters<Sessao["receberHook"]>[0]);
         json(res, { success: r.ok, ...(r.motivo ? { reason: r.motivo } : {}) });
+        return;
+      }
+
+      // --- provedor (Claude/Codex), login assistido e sessões criadas por API ---
+      if (await tratarRotasDeProvedor(req, res, rota, metodo, { gerente, login, conferidor })) return;
+
+      if (rota === "/api/sessoes" && metodo === "POST") {
+        const corpo = await lerCorpo(req).catch((err: Error) => ({ __erro: err.message }));
+        if (typeof (corpo as { __erro?: string }).__erro === "string") {
+          erroHttp(res, 400, "CORPO_INVALIDO", (corpo as { __erro: string }).__erro, "mandar um objeto JSON { provedor, auth, modelo, ... }");
+          return;
+        }
+        const r = gerente.criarExtra(corpo);
+        if (!r.ok) {
+          erroHttp(res, r.status, r.code, r.error, r.howToFix);
+          return;
+        }
+        json(res, { success: true, data: visao(r.sessao, false) }, 201);
+        return;
+      }
+
+      const casaSessao = rota.match(/^\/api\/sessoes\/([^/]+)$/);
+      if (casaSessao && metodo === "DELETE") {
+        const r = gerente.removerExtra(decodeURIComponent(casaSessao[1]));
+        if (!r.ok) {
+          erroHttp(res, r.status, r.code, r.error, r.howToFix);
+          return;
+        }
+        json(res, {
+          success: true,
+          data: { removida: true },
+          aviso: "O terminal foi encerrado e a sessão saiu da lista. A conversa continua no disco.",
+        });
         return;
       }
 
@@ -251,18 +264,20 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
           // isso que ele serve como a distinção: quem manda tecla não está
           // fechando um turno.
           if (enviar || quandoOcioso) {
-            const semLogin = sessao.motivoSemLogin();
-            if (semLogin) {
+            const recusa = sessao.recusaDeEntrada();
+            if (recusa) {
               json(
                 res,
                 {
                   success: false,
-                  error: semLogin,
+                  error: recusa.mensagem,
                   howToFix:
-                    "Fazer o login da conta deste agente, pelo terminal do cartão ou por " +
-                    "lib/login-agente.sh. Depois disso o runner troca a sessão do login por uma " +
-                    "limpa sozinho, e a mensagem pode ser reenviada.",
-                  code: "SEM_LOGIN",
+                    recusa.tipo === "chave"
+                      ? `${recusa.comoResolver}. Depois disso a mensagem pode ser reenviada.`
+                      : "Fazer o login da conta deste agente, pelo painel (Provedor do agente), pelo terminal do cartão ou por " +
+                        "lib/login-agente.sh. Depois disso o runner troca a sessão do login por uma " +
+                        "limpa sozinho, e a mensagem pode ser reenviada.",
+                  code: recusa.tipo === "chave" ? "SEM_CHAVE" : "SEM_LOGIN",
                 },
                 409,
               );
@@ -330,6 +345,23 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
           return;
         }
 
+        if (acao === "/reiniciar" && metodo === "POST") {
+          // A MESMA conversa, com argumentos e ambiente remontados (pega o canais.json novo, a
+          // chave nova do cofre, o provedor.json). Se o provedor ou a forma de pagar mudou desde
+          // o último spawn, Sessao.subir abre conversa nova sozinha e o `modo` diz isso.
+          if (sessao.papel === "paralela" && !sessao.temPtyVivo()) {
+            const recusa = gerente.verificarCapacidade(sessao);
+            if (recusa) {
+              respostaDeRecusa(res, recusa);
+              return;
+            }
+          }
+          sessao.parar("reinicio pedido por API");
+          const modo = await sessao.subir("retomar");
+          json(res, { ok: true, sessao: sessao.id, modo }, 202);
+          return;
+        }
+
         if (acao === "/suspend" && metodo === "POST") {
           if (sessao.papel === "principal") {
             json(
@@ -389,11 +421,15 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
             json(res, { success: true, data: [], aviso: "este agente ainda não tem sessão registrada" });
             return;
           }
-          const msgs = ultimasMensagens(
-            sessao.estado.sessionId,
-            Number.isFinite(quantas) ? quantas : 6,
-            sessao.estado.config.envExtra?.CLAUDE_CONFIG_DIR,
-          );
+          const limite = Number.isFinite(quantas) ? quantas : 6;
+          let msgs;
+          if (sessao.escolhaAtual().provedor === "codex") {
+            // O Codex grava a conversa no rollout, e não no transcript do Claude.
+            const arquivo = acharRolloutPorId(sessao.estado.sessionId, sessao.codexHomeAtual());
+            msgs = arquivo ? mensagensDoRollout(arquivo, limite, sessao.segredosParaMascara()) : null;
+          } else {
+            msgs = ultimasMensagens(sessao.estado.sessionId, limite, sessao.estado.config.envExtra?.CLAUDE_CONFIG_DIR, sessao.segredosParaMascara());
+          }
           json(res, { success: true, data: msgs ?? [] });
           return;
         }
@@ -405,8 +441,9 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
             error: `O runner não tem a rota ${metodo} ${rota}.`,
             howToFix:
               "o runner implementa o que um agente entregue usa: GET /api/agents, GET /api/agents/:id, " +
-              "POST /input, POST /resume, POST /revive, POST /suspend (só paralelas), DELETE /remove, " +
-              "GET /conversation, GET /api/capacidade, GET /api/saude e POST /api/agent-hook. " +
+              "POST /input, POST /resume, POST /revive, POST /reiniciar, POST /suspend (só paralelas), DELETE /remove, " +
+              "GET /conversation, GET /api/capacidade, GET /api/saude, POST /api/agent-hook, " +
+              "GET/POST /api/provedor (+ /login), POST /api/sessoes e DELETE /api/sessoes/<id>. " +
               "O resto (cofre, worktree, board, handoff) é do Bunker e não existe aqui",
             code: "ROTA_INEXISTENTE",
           },
@@ -515,12 +552,16 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
     ws.on("error", (err) => log.aviso("ws", `socket reclamou: ${err.message}`));
   });
 
-  for (const s of gerente.todas()) {
+  const ligar = (s: Sessao): void => {
     s.on("estado", () => paraSessao(s.id, { type: "agent_update", agent: visao(s, false) }));
     s.on("terminal", (dados: string, seq: number) =>
       paraSessao(s.id, { type: "terminal_data", agentId: s.id, data: dados, seq }),
     );
-  }
+  };
+  for (const s of gerente.todas()) ligar(s);
+  // As criadas por POST /api/sessoes depois do boot também precisam dos eventos.
+  gerente.aoNovaSessao(ligar);
+  servidor.on("close", () => login.pararTudo());
 
   return servidor;
 }

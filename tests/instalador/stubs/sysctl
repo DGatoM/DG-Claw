@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# sysctl de mentira: so registra a chamada. Nada e aplicado de verdade.
+. "$(dirname "$0")/_comum.sh"
+registrar "$@"
+# sysctl-falha simula VPS em container (LXC, OpenVZ), onde o sysctl e do provedor.
+if [ -e "$(estado_dir)/sysctl-falha" ]; then
+    echo "sysctl: permission denied on key 'fs.inotify.max_user_instances'" >&2
+    exit 1
+fi
+exit 0

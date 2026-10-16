@@ -380,6 +380,7 @@ After=network.target
 
 [Service]
 Type=simple
+# Plugin classico, onde o agente roda como root. Na v1 o painel nao sobe por este script (chamado so por skills/setup e skills/panel).
 User=root
 Environment=HOME=/root
 Environment=DGCLAW_PANEL_PORT=${PORT}

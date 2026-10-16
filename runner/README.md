@@ -47,7 +47,7 @@ rotinas mudam uma linha do `config.sh` (`DGCLAW_BUNKER_URL`).
 | Rota | Para quê |
 |---|---|
 | `GET /api/agents` | a lista (com um item só) |
-| `GET /api/agents/:id` | o estado |
+| `GET /api/agents/:id` | o estado, mais `codexHome` (só leitura): o CODEX_HOME do último spawn, para ler o rollout do disco; `null` no Claude e antes do primeiro spawn |
 | `POST /api/agents/:id/input` | digitar (`submit`, `injectWhenIdle`) |
 | `POST /api/agents/:id/resume` | acordar o terminal caído, MESMA conversa |
 | `POST /api/agents/:id/revive` | conversa nova, guardando a anterior |
@@ -59,7 +59,7 @@ rotinas mudam uma linha do `config.sh` (`DGCLAW_BUNKER_URL`).
 
 ### O que ele NÃO tem, de propósito
 
-Cofre, criação de agente, projetos, worktree, board, handoff, codex. Tudo isso é
+Cofre, criação de agente, projetos, worktree, board, handoff. Tudo isso é
 do Bunker. Rota que não existe responde 404 **com o motivo**, não com 500.
 
 ## Sessões paralelas
@@ -98,6 +98,114 @@ Suspensão: a cada 60 s, paralela em `idle`, com fila vazia e parada além de
 input a acorda com `--resume`). `working`, `waiting_input` e `spawning` nunca são
 suspensas. A fila de ocioso agora é FIFO (antes o segundo texto apagava o primeiro).
 
+## Provedores (Claude e Codex)
+
+Cada sessão (a principal e as paralelas) roda o CLI que o dono escolheu: **Claude Code**
+(`claude`) ou **Codex** (`codex`). O que muda de um para o outro mora em `src/provedores/`
+(um `Motor` por CLI); o resto da `Sessao` é igual. O catálogo de provedores, formas de pagar
+e modelos é `providers/catalogo.json` (caminho por `DGCLAW_CATALOGO`; sem ela, `../providers/`
+a partir da pasta do runner).
+
+**Vocabulário.** No painel e no catálogo: `claude`, `codex`. No `runner.json`
+(`config.provider`): `local-cli`, `codex-cli`. Forma de pagar (`auth`): `assinatura` (padrão),
+`token` (só Claude, `CLAUDE_CODE_OAUTH_TOKEN`) e `api`. `modelo` vazio = o padrão do provedor
+(não passa `--model`/`-m`).
+
+**Precedência da escolha** (a primeira válida vence; uma inválida é registrada com o que veio,
+de onde, e o que fazer, e cai para a seguinte, sem derrubar a principal):
+
+1. `provedor.json` da sessão (`<pasta de estado>/provedor.json`; paralela em
+   `sessoes/<id>/provedor.json`), escrito só pelo runner;
+2. `sessoes[].provider/model/auth` no descritor (só paralelas);
+3. `config.provider/model/auth` do descritor;
+4. padrão: Claude, assinatura, modelo padrão.
+
+**Troca de provedor.** O `runner-state.json` grava `escolha {provedor, auth, modelo}` a cada
+spawn. No boot (`subir("retomar")`), se o provedor OU a forma de pagar mudaram, o id guardado
+é de outro CLI ou de outra conta e a sessão sobe **nova** (o id antigo vai para
+`previousSessionId`). Só o modelo diferente retoma a mesma conversa com a flag nova.
+
+**Ambiente por modo.** Parte do `process.env` (que traz o cofre do agente) mais o `envExtra`:
+sai o que for da lista `limpar` do modo escolhido no catálogo, e sai a chave de LLM
+**herdada** que não esteja no cofre (`DGCLAW_COFRE_ARQUIVO`, padrão
+`/run/dgclaw/cofre/cofre.env`, só os nomes são lidos). A variável do modo (`api`, `token`)
+fica. Modo `api`/`token` sem a variável: a sessão vai para `errored` com
+`statusReason: "runner:sem-chave"`, o PTY **não** sobe e nunca cai na assinatura; `POST /input`
+responde 409 `SEM_CHAVE`. Limitação conhecida: no Codex na assinatura a `OPENAI_API_KEY` sai
+(está no `limpar`), mesmo vinda do cofre.
+
+**O que muda no Codex.** Sem hooks do Claude: o status vem do `notify` (`-c notify=[...]`) e
+da leitura do rollout (`<CODEX_HOME>/sessions/AAAA/MM/DD/`, a cada 1 s). O id da sessão é
+descoberto no rollout (cwd + hora do spawn), e retomar é `codex resume <uuid>`. MCP e
+identidade (`developer_instructions`) entram por `-c`. A confiança de pasta também vai por `-c`, mas
+o Codex 0.162.1 a ignora na tela "Trust this folder?" (B6, 12/10/2026), então o runner acrescenta
+`[projects."<cwd>"]` com `trust_level = "trusted"` ao fim do `<CODEX_HOME>/config.toml` (sem reescrever
+o resto) e, por garantia, responde 1 + Enter se essa tela aparecer antes de digitar um texto. O servidor MCP não recebe o ambiente do Codex: cada servidor de comando ganha,
+na pasta de hooks, um `.env` (600) e um `.sh` (700) apagados quando o PTY sai. O Enter vai
+500 ms depois do texto e é repetido (até 3 vezes) se o rollout não mostrar o turno. Ignorados
+com um aviso por spawn: `stopHooks`, `promptHooks`, `allowTools/askTools/denyTools`,
+`extraArgs` e `--channels`. Identidade acima de 120 000 bytes: `errored`
+(`runner:identidade-grande`), nunca trunca.
+
+**Canal Telegram na principal.** Fonte única: `<casa>/.dgclaw/canais.json` (lista fechada de
+campos, `estado_dir` tem que ficar dentro de `<casa>/.dgclaw/`). Principal Claude com canal
+ligado leva `--channels` e `TELEGRAM_STATE_DIR`; todos os outros casos tiram o
+`TELEGRAM_BOT_TOKEN`. `POST /api/agents/<id>/reiniciar` para e sobe de novo com `retomar`
+(responde 202 `{ok, sessao, modo}`; `modo` é `nova` se o provedor mudou).
+
+### Rotas de provedor
+
+Todas aceitam `?sessao=<id>` (GET/DELETE) ou `sessao` no corpo (POST); sem isso, a principal.
+Erro sempre `{success:false, error, howToFix, code}`.
+
+| Rota | Para quê |
+|---|---|
+| `GET /api/provedor` | escolha efetiva, rótulo, origem, `conferido` (comando do próprio CLI, cache de 60 s, nunca espera mais de 3 s), `login` e, na principal, `canais` |
+| `POST /api/provedor` | `{provedor, auth, modelo, reiniciar=true}`: valida pelo catálogo, grava o `provedor.json` e reinicia (conversa nova). Recusa com 400 qualquer corpo com chave ou segredo: a chave vai pelo Cofre do painel |
+| `POST /api/provedor/login` | inicia o login assistido (só `assinatura`) num PTY à parte |
+| `GET /api/provedor/login` | `{estado, link?, codigoDispositivo?, mensagem?}` |
+| `POST /api/provedor/login/codigo` | `{codigo}`: só em `aguardando_codigo` (Claude) |
+| `DELETE /api/provedor/login` | cancela |
+| `POST /api/agents/<id>/reiniciar` | reinicia o CLI da sessão |
+| `POST /api/sessoes` | cria uma sessão paralela em tempo de execução (ver abaixo) |
+| `DELETE /api/sessoes/<id>` | remove uma sessão criada por API |
+
+O `conferido` nunca repassa a saída crua do CLI: do `claude auth status --json` só entram
+`loggedIn`, `authMethod` e `subscriptionType` (e-mail, orgId e nome da organização são
+descartados); do `codex login status` (que escreve no stderr) só se procura a palavra `ChatGPT` ou `API key` (a linha
+da API traz um pedaço da chave).
+
+### Login assistido
+
+Claude: `claude auth login` num PTY à parte, com `BROWSER=/bin/true`; o runner lê o link de
+autorização (tirando as sequências ANSI e OSC 8), o estado vai de `aguardando_link` para
+`aguardando_codigo`, e o painel manda o código colado pela página. Codex:
+`codex login --device-auth`; o estado é `aguardando_navegador` com `link` e `codigoDispositivo`.
+Um login por vez no runner (outro: 409 `LOGIN_EM_ANDAMENTO`); 15 min sem concluir mata o
+processo. Saída 0: `concluido`, o cache da conferência é invalidado e, se a sessão estava
+parada por falta de login, ela é trocada por uma limpa na hora. A saída do CLI fica só em
+memória e nunca vai para o log (só "login iniciado/concluído/falhou, código de saída N").
+
+### Sessões criadas em tempo de execução
+
+`POST /api/sessoes {id?, tipo="card", titulo?, chat?, provedor, auth?, modelo?, identidade?}`
+cria uma paralela sem mexer no `runner.json` (que é só leitura): ela vai para
+`<pasta de estado>/sessoes-extras.json` (atômico), passa pela mesma validação das sessões do
+descritor, e nasce dormindo (acorda no primeiro `POST /input`, com a mesma regra de capacidade).
+`id` padrão `card-<6 hex>`, `chat` padrão `c_<slug>-<id>`. Resposta 201 no formato de
+`GET /api/agents/<id>`. `DELETE /api/sessoes/<id>` só vale para as criadas por API (as do
+descritor: 409) e a conversa fica no disco. No boot as extras sobem junto, dormindo.
+
+O teto de sessões criadas por API é `RUNNER_MAX_SESSOES_EXTRAS` (inteiro >= 0, padrão 3, lido a cada
+criação): a que passa do limite recebe 429 `LIMITE_DE_SESSOES`, com o jeito de liberar vaga
+(`DELETE /api/sessoes/<id>` ou `dgclaw-card fechar <id>`); valor inválido cai no 3 e vai para o log.
+
+### Testes
+
+`npm test` (compila e roda `node --test` sobre `dist/**/*.test.js`). Os CLIs falsos ficam em
+`test/fixtures/bin/` e vão na frente do PATH; os testes usam chave falsa montada sem o
+literal do prefixo real e provam que nenhum valor de chave aparece em log, argv ou resposta HTTP.
+
 ## Os arquivos de um agente
 
 ```
@@ -105,11 +213,23 @@ suspensas. A fila de ocioso agora é FIFO (antes o segundo texto apagava o prime
                                        entra no ambiente do claude, e nada mais.
 <casa>/.plataforma/runner.json         o QUE ele é (id, slug, AgentConfig).
                                        Escrito pelo provisionamento; só leitura.
-<casa>/.plataforma/runner-state.json   o que ele VIVEU (sessão atual e anterior).
+<pasta de estado>/runner-state.json    o que ele VIVEU (sessão atual e anterior,
+                                       e a escolha de provedor do último spawn).
                                        Escrito só pelo runner.
-<casa>/.plataforma/runner-hooks/       handler e settings de hook por spawn.
+<pasta de estado>/runner-hooks/        handler e settings de hook por spawn, e os
+                                       arquivos de MCP do Codex (apagados na saída).
+<pasta de estado>/provedor.json        a escolha de provedor feita pelo painel.
+<pasta de estado>/sessoes/<id>/        estado (e provedor.json) das paralelas.
+<pasta de estado>/sessoes-extras.json  as sessões criadas por POST /api/sessoes.
+<casa>/.dgclaw/canais.json             canais ligados na principal (Telegram).
 /var/log/dg-bunker/runner-<slug>.log   o log (RUNNER_LOG_DIR muda a pasta).
 ```
+
+A **pasta de estado** é `dirname(RUNNER_STATE_FILE)`: tudo o que o runner GRAVA vai
+para ela, nunca para a pasta do descritor. No container o descritor fica numa
+montagem só leitura (`RUNNER_AGENT_FILE=/etc/dgclaw-runner/runner.json`) e o estado
+em `RUNNER_STATE_FILE=/home/agente/.plataforma/runner-state.json`; no Admin (host) as
+duas pastas coincidem.
 
 A separação entre `runner.json` e `runner-state.json` não é organização: quem
 provisiona reescreve o descritor, e se o `sessionId` morasse lá o agente

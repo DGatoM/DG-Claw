@@ -2,8 +2,9 @@
 
 ## Como relatar uma vulnerabilidade
 
-Escreva para **seguranca@dgmedeiros.com.br** (A CONFIRMAR: o dono do projeto valida este endereço
-antes da publicação).
+Use o botão **Report a vulnerability**, na aba **Security** deste repositório no GitHub
+(https://github.com/DGatoM/DG-Claw/security/advisories/new). O relato chega em privado só para quem
+mantém o projeto.
 
 **Não abra issue pública** para falhas de segurança. Uma issue pública avisa todo mundo antes de
 existir correção.
@@ -16,7 +17,7 @@ No relato, mande:
 - a saída de `dgclaw status`, sem senhas, chaves ou tokens;
 - se já sabe como corrigir, a sugestão.
 
-Tentamos responder em até 7 dias corridos (A CONFIRMAR). É uma intenção de boa-fé, não um acordo de
+Tentamos responder em até 7 dias corridos. É uma intenção de boa-fé, não um acordo de
 nível de serviço: o projeto é mantido por poucas pessoas. Quando a falha se confirmar, combinamos
 com você a correção e a data de divulgação, e damos o crédito a quem quiser aparecer.
 
@@ -38,14 +39,14 @@ com você a correção e a data de divulgação, e damos o crédito a quem quise
 - configurações que a própria pessoa alterou, como liberar o envio de e-mail pelo agente ou abrir
   portas no firewall;
 - o plugin antigo do Claude Code (versão 0.x), que a v1 substituiu e que não faz parte deste
-  repositório (A CONFIRMAR se ele ainda recebe correções de segurança).
+  repositório. Ele não recebe mais correções de segurança: quem usa deve migrar para a v1.
 
 ## Versões suportadas
 
 | Versão | Recebe correções de segurança |
 | --- | --- |
 | 1.x | sim |
-| 0.x (plugin antigo) | não, A CONFIRMAR |
+| 0.x (plugin antigo) | não; migre para a v1 |
 
 ## Para saber mais
 

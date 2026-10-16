@@ -11,7 +11,7 @@
 #   senao "erro". O id default vem de $(basename "$0" .sh). Passe um id explicito
 #   pra casar com o nome da unit (ex.: pulso_auto reflection).
 #
-# pulso <ok|erro> [detalhe]: registro explicito. Util onde o script faz `exit 0`
+# pulso <ok|erro|aguardando> [detalhe]: registro explicito. Util onde o script faz `exit 0`
 #   mascarando uma falha. O ultimo estado explicito vence o do trap.
 #
 # Append-only, defensivo, nunca derruba o script chamador (|| true em tudo).
@@ -43,8 +43,11 @@ pulso_write() {
   file="$PULSO_LEDGER_DIR/$day.jsonl"
   # escapa aspas e barras invertidas do detalhe pra JSON valido
   det="${det//\\/\\\\}"; det="${det//\"/\\\"}"; det="${det//$'\n'/ }"
-  printf '{"ts":"%s","id":"%s","status":"%s","detalhe":"%s"}\n' \
-    "$ts" "$id" "$status" "$det" >> "$file" 2>/dev/null || true
+  # Chaves duplicadas de proposito: ts/id/detalhe sao as de sempre; component/timestamp/detail
+  # sao as que o leitor (pulso-status.py, read_ledger) procura. Sem elas a linha era ignorada
+  # e o Pulso caia no estado do systemd, onde exit 0 vira "ok" verde mesmo com a rotina falha.
+  printf '{"ts":"%s","id":"%s","status":"%s","detalhe":"%s","component":"%s","timestamp":"%s","detail":"%s"}\n' \
+    "$ts" "$id" "$status" "$det" "$id" "$ts" "$det" >> "$file" 2>/dev/null || true
 }
 
 # pulso <ok|erro> [detalhe] — registro explicito p/ o id corrente

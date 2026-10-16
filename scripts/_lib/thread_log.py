@@ -10,25 +10,22 @@ DUAS ORIGENS, UMA LISTA SO (10/08/2026)
       (<dgchat ...> na entrada, tool mcp__dgchat__reply na saida).
   Como os dois vivem na mesma sessao, ler o transcript uma vez ja devolve a conversa
   inteira em ordem, sem sincronizar nada e sem migrar dado nenhum. Cada evento sai
-  marcado com `via` ("telegram" ou "plataforma"), pra quem le poder mostrar de onde veio.
+  marcado com `via` ("telegram", "plataforma" ou "whatsapp"), pra quem le poder mostrar de onde veio.
   Quem nao plugou Telegram tem so os eventos do painel; plugar depois nao perde nada,
   porque a fonte sempre foi o transcript.
 
-ONDE UM CANAL NOVO SE PLUGA (ex.: WhatsApp) — so documentacao, 01/10/2026
-  O painel ja sabe desenhar `via: "whatsapp"` (etiqueta verde no balao, ver CANAIS
-  no panel/public/js/app.js). Do lado de ca, um canal novo precisa de tres coisas,
-  e nenhuma delas existe ainda:
-    1. ENTRADA: reconhecer o envelope do canal no user turn. Hoje so ha um canal
-       externo, lido por _parse_incoming() com DGCLAW_CHANNEL_SOURCE; um segundo
-       canal pede uma lista de (source, via) em vez de uma string so, e o
-       events.append do bloco "inc = _parse_incoming(...)" passa a gravar o `via`
-       daquele source, no lugar do "telegram" fixo.
-    2. SAIDA: a tool de envio do canal entra em _send_tool_hints(), e o
-       events.append do fim do laco (o do `via: "telegram"` fixo) passa a decidir o
-       `via` pelo nome da tool que casou.
-    3. O valor de `via` e o id curto do canal ("whatsapp"), o mesmo que o painel
-       usa como chave. Valor que o painel nao conhece aparece sem etiqueta, como se
-       fosse do proprio painel: nada quebra, mas a origem some da tela.
+O WHATSAPP (peca 3 do canal, 2026)
+  Terceira origem, no mesmo transcript, marcada com `via: "whatsapp"`:
+    - ENTRADA: user turn com <canal-externo origem="whatsapp" de="+55..." msg=".." ts="..">
+      corpo escapado</canal-externo>. O corpo chega com &amp; &lt; &gt; escapados e aqui
+      volta ao texto original. Vira evento do dono (`who` = o numero do atributo `de`).
+    - SAIDA: tool cujo nome termina em __whatsapp_reply (input {para?, texto}) ou
+      __whatsapp_send_file (input {para?, caminho, legenda?}). No Codex, o item
+      McpToolCall do servidor dgchat com tool whatsapp_reply / whatsapp_send_file.
+  O valor de `via` e o id curto do canal, o mesmo que o painel usa como chave (CANAIS no
+  panel/public/js/app.js). Valor que o painel nao conhece aparece sem etiqueta.
+  Vias possiveis hoje: "plataforma", "telegram", "whatsapp". Como o WhatsApp nao tem id de
+  conversa do painel, os eventos dele so entram quando `chat` e None (como o Telegram).
 
 Por que existe (requisito da "dieta de contexto" / sono-vigilia):
   O DONO so ve a THREAD do canal (ex.: o chat do Telegram). A persona ve a sessao
@@ -90,6 +87,7 @@ import glob
 import json
 import os
 import re
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -149,6 +147,13 @@ _DGCHAT_CLOSE = "</dgchat>"
 # num host diferente nao quebra a leitura.
 _DGCHAT_TOOL_TEXTO = "__dgchat__reply"
 _DGCHAT_TOOL_ARQUIVO = "__dgchat__send_file"
+_WA_TOOL_TEXTO = "__whatsapp_reply"
+_WA_TOOL_ARQUIVO = "__whatsapp_send_file"
+
+# O canal do WhatsApp: <canal-externo origem="whatsapp" de=".." msg=".." ts="..">corpo escapado</canal-externo>
+_EXTERNO_OPEN = re.compile(r'^<canal-externo\b([^>]*)>')
+_EXTERNO_ATTR = re.compile(r'\b(origem|de|msg|ts)="([^"]*)"')
+_EXTERNO_CLOSE = re.compile(r'</canal-externo>\s*$')
 
 # Recado do SISTEMA que chega como user turn e nao e nem dono nem instrucao nossa.
 _RETORNO_DO_SISTEMA = re.compile(
@@ -174,6 +179,25 @@ def _parse_dgchat(text):
     # desfaz o escape do corpo (quem digita "</dgchat>" nao fecha o envelope)
     inner = inner.replace(r"<\/dgchat>", _DGCHAT_CLOSE).strip()
     return attrs, inner
+
+
+def _desescapa(t):
+    """Desfaz o escape do corpo: &lt; e &gt; antes de &amp; (senao &amp;lt; viraria <)."""
+    return t.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+
+
+def _parse_canal_externo(text):
+    """<canal-externo origem="whatsapp" ...>corpo</canal-externo> -> (attrs, corpo desescapado).
+    Origem diferente de whatsapp (ou envelope sem abertura) -> None."""
+    t = text.strip()
+    m = _EXTERNO_OPEN.match(t)
+    if not m:
+        return None
+    attrs = {k: v for k, v in _EXTERNO_ATTR.findall(m.group(1))}
+    if attrs.get("origem") != "whatsapp":
+        return None
+    inner = _EXTERNO_CLOSE.sub("", t[m.end():])
+    return attrs, _desescapa(inner).strip()
 
 
 def find_session(label, session_dir: Path = None):
@@ -229,19 +253,262 @@ def _parse_incoming(text, channel_source, owner):
     return user, inner
 
 
+# ─── o motor Codex (rollout) ──────────────────────────────────────────────────
+# O Codex nao grava o transcript do Claude: grava um "rollout"
+# (<CODEX_HOME>/sessions/AAAA/MM/DD/rollout-<data>-<sessionId>.jsonl), uma linha JSON por
+# registro com `timestamp`, `type` e `payload`. A conversa sai assim:
+#   - fala do dono: mensagem `user` com o envelope <dgchat ...> ou <canal-externo origem="whatsapp">;
+#   - fala do agente: o registro event_msg/item_completed com item McpToolCall do servidor
+#     "dgchat" (tool reply = texto, send_file = arquivo; whatsapp_reply / whatsapp_send_file valem como
+#     tools de envio, com via "whatsapp"). O Codex chama a tool por dentro de
+#     um `exec`, entao nao existe um function_call com o nome dela;
+#   - duplicata, POR TURNO (do envelope do dono ao proximo): se o turno chamou reply/send_file,
+#     so elas contam; se nao chamou nenhuma, vale a ULTIMA mensagem do assistente (o texto
+#     final), que so aparece quando o turno acaba (task_complete, task_aborted, turn_aborted)
+#     ou quando o turno seguinte comeca, para nao mostrar rascunho. Rollout sem nenhum
+#     sinal de turno mostra a ultima fala mesmo assim;
+#   - some: contexto injetado (AGENTS.md, environment_context...), user sem envelope que
+#     comece com <plataforma, texto final de turno de rotina e linha truncada no fim.
+_ROLLOUT_CONTEXTO = ("<environment_context>", "<user_instructions>", "# AGENTS.md")
+_ROLLOUT_FIM_DE_TURNO = ("task_complete", "task_aborted", "turn_aborted")
+_ROLLOUT_TOOLS = {"reply": False, "send_file": True,
+                   "whatsapp_reply": False, "whatsapp_send_file": True}  # tool -> e arquivo?
+_ROLLOUT_TOOLS_WA = ("whatsapp_reply", "whatsapp_send_file")
+
+
+def _is_rollout(path) -> bool:
+    nome = os.path.basename(str(path))
+    return nome.startswith("rollout-") and nome.endswith(".jsonl")
+
+
+def _rollout_text(content) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(b.get("text", "") for b in content
+                       if isinstance(b, dict) and isinstance(b.get("text"), str))
+    return ""
+
+
+def _rollout_dentro_da_casa(jsonl_path) -> bool:
+    """O realpath do rollout precisa cair dentro de realpath($HOME): atalho plantado
+    para fora da casa do agente e recusado, com aviso, e nada e lido."""
+    try:
+        casa = Path.home().resolve()
+        real = Path(jsonl_path).resolve(strict=True)
+    except (OSError, RuntimeError) as e:
+        sys.stderr.write(f"[thread_log] recusei o registro Codex {jsonl_path}: nao consegui resolver o "
+                         f"caminho real ({e}); nada foi lido\n")
+        return False
+    if real == casa or casa in real.parents:
+        return True
+    sys.stderr.write(f"[thread_log] recusei o registro Codex {jsonl_path}: o atalho aponta para {real}, "
+                     f"fora de {casa}; nada foi lido\n")
+    return False
+
+
+def _build_rollout_log(jsonl_path, last=14, chat=None):
+    if not _rollout_dentro_da_casa(jsonl_path):
+        return []
+    owner = _owner_name()
+    events = []
+    seen_msgs = set()
+    turno = None            # dict(dono, cron, tem_chamada, final)
+    chat_corrente = ""
+    tem_sinal = False       # o rollout avisa quando o turno acaba?
+
+    def solta_final():
+        nonlocal turno
+        if not turno or not turno["final"]:
+            return
+        ts, texto = turno["final"]
+        turno["final"] = None
+        if turno["dono"] and not turno["tem_chamada"]:
+            events.append({"origin": "persona-direct", "who": "persona", "text": texto,
+                           "ts": ts, "via": "plataforma", "tipo": "texto",
+                           "chat": chat_corrente})
+
+    def abre_turno(dono, cron):
+        nonlocal turno
+        solta_final()
+        turno = {"dono": dono, "cron": cron, "tem_chamada": False, "final": None}
+
+    try:
+        f = open(jsonl_path)
+    except Exception:
+        return []
+    with f:
+        for line in f:
+            # o session_meta e o world_state sao gigantes e nao interessam
+            if '"type":"response_item"' not in line[:200] and '"type":"event_msg"' not in line[:200]:
+                continue
+            try:
+                o = json.loads(line)
+            except Exception:
+                continue  # linha truncada (o CLI esta escrevendo agora) nao derruba a leitura
+            p = o.get("payload")
+            if not isinstance(p, dict):
+                continue
+            ts = (o.get("timestamp") or "")[:19]
+            typ = o.get("type")
+
+            if typ == "event_msg":
+                pt = p.get("type")
+                if pt == "task_started":
+                    tem_sinal = True
+                elif pt in _ROLLOUT_FIM_DE_TURNO:
+                    tem_sinal = True
+                    solta_final()
+                elif pt == "item_completed":
+                    it = p.get("item")
+                    if not isinstance(it, dict) or it.get("type") != "McpToolCall":
+                        continue
+                    if str(it.get("server", "")).lower() != "dgchat":
+                        continue
+                    tool = it.get("tool")
+                    if tool not in _ROLLOUT_TOOLS:
+                        continue
+                    if it.get("status") and it.get("status") != "completed":
+                        continue  # a entrega falhou: nao chegou a pessoa
+                    args = it.get("arguments")
+                    if isinstance(args, str):
+                        try:
+                            args = json.loads(args)
+                        except Exception:
+                            args = {}
+                    if not isinstance(args, dict):
+                        args = {}
+                    if turno:
+                        turno["tem_chamada"] = True
+                    origin = "persona-cron" if (turno and turno["cron"]) else "persona-direct"
+                    if tool in _ROLLOUT_TOOLS_WA:
+                        if chat is not None:
+                            continue  # o WhatsApp nao pertence a conversa nenhuma do painel
+                        if tool == "whatsapp_reply":
+                            texto = args.get("texto") or ""
+                            if not isinstance(texto, str) or not texto.strip():
+                                continue
+                            events.append({"origin": origin, "who": "persona", "text": texto.strip(),
+                                           "ts": ts, "via": "whatsapp", "tipo": "texto"})
+                        else:
+                            arquivo = (args.get("caminho") or "").strip()
+                            if not arquivo:
+                                continue
+                            legenda = (args.get("legenda") or "").strip()
+                            events.append({"origin": origin, "who": "persona",
+                                           "text": legenda or f"[arquivo: {arquivo.rsplit('/', 1)[-1]}]",
+                                           "ts": ts, "via": "whatsapp", "tipo": "arquivo",
+                                           "arquivo": arquivo})
+                        continue
+                    chat_do_bloco = args.get("chat") or chat_corrente
+                    if chat is not None and chat_do_bloco != chat:
+                        continue
+                    if not _ROLLOUT_TOOLS[tool]:
+                        texto = args.get("text") or ""
+                        if not isinstance(texto, str) or not texto.strip():
+                            continue
+                        events.append({"origin": origin, "who": "persona", "text": texto.strip(),
+                                       "ts": ts, "via": "plataforma", "tipo": "texto",
+                                       "chat": chat_do_bloco})
+                    else:
+                        arquivo = (args.get("path") or "").strip()
+                        if not arquivo:
+                            continue
+                        legenda = (args.get("caption") or "").strip()
+                        events.append({"origin": origin, "who": "persona",
+                                       "text": legenda or f"[arquivo: {arquivo.rsplit('/', 1)[-1]}]",
+                                       "ts": ts, "via": "plataforma", "tipo": "arquivo",
+                                       "chat": chat_do_bloco, "arquivo": arquivo})
+                continue
+
+            if typ != "response_item" or p.get("type") != "message":
+                continue
+            txt = _rollout_text(p.get("content")).strip()
+            if not txt:
+                continue
+            role = p.get("role")
+            if role == "user":
+                if txt.startswith(_ROLLOUT_CONTEXTO):
+                    continue
+                dg = _parse_dgchat(txt)
+                if dg:
+                    attrs, inner = dg
+                    chat_corrente = attrs["chat"]
+                    abre_turno(chat is None or attrs["chat"] == chat, False)
+                    msg_id = attrs.get("msg")
+                    if msg_id:
+                        if msg_id in seen_msgs:
+                            continue
+                        seen_msgs.add(msg_id)
+                    if inner and (chat is None or attrs["chat"] == chat):
+                        events.append({"origin": "owner", "who": attrs.get("from") or owner,
+                                       "text": inner, "ts": ts, "via": "plataforma",
+                                       "tipo": "texto", "chat": attrs["chat"]})
+                elif _parse_canal_externo(txt):
+                    attrs, inner = _parse_canal_externo(txt)
+                    abre_turno(True, False)
+                    msg_id = attrs.get("msg")
+                    if msg_id:
+                        if "wa:" + msg_id in seen_msgs:
+                            continue
+                        seen_msgs.add("wa:" + msg_id)
+                    if inner and chat is None:
+                        events.append({"origin": "owner", "who": attrs.get("de") or owner,
+                                       "text": inner, "ts": ts, "via": "whatsapp", "tipo": "texto"})
+                elif txt.startswith("<plataforma ") or _POKE_RE.search(txt):
+                    abre_turno(False, True)
+            elif role == "assistant":
+                if not turno or not turno["dono"] or p.get("phase") == "commentary":
+                    continue
+                turno["final"] = (ts, txt)
+
+    if not tem_sinal:
+        solta_final()
+    return events[-last:] if last else events
+
+
+def _wa_ids_com_erro(jsonl_path):
+    """Ids dos tool_use do WhatsApp cujo tool_result veio com is_error true (WhatsApp desligado,
+    destino fora da lista). O transcript e relido inteiro a cada chamada, entao uma passada previa
+    juntando os ids basta: o tool_result sempre vem DEPOIS do tool_use no arquivo."""
+    ids = set()
+    try:
+        f = open(jsonl_path)
+    except Exception:
+        return ids
+    with f:
+        for line in f:
+            if '"tool_result"' not in line or '"is_error"' not in line:
+                continue
+            try:
+                o = json.loads(line)
+            except Exception:
+                continue
+            cont = (o.get("message", {}) or {}).get("content")
+            if not isinstance(cont, list):
+                continue
+            for b in cont:
+                if (isinstance(b, dict) and b.get("type") == "tool_result"
+                        and b.get("is_error") is True and b.get("tool_use_id")):
+                    ids.add(b["tool_use_id"])
+    return ids
+
+
 def build_thread_log(jsonl_path, last=14, chat=None):
     """Le o transcript e devolve a lista de eventos da thread do dono, em ordem de
     arquivo (= ordem real), misturando o Telegram e o painel.
 
     Cada evento: dict(origin, who, text, ts, via, tipo[, chat, arquivo]).
       origin in {'owner','persona-direct','persona-cron'}
-      via    in {'telegram','plataforma'}
+      via    in {'telegram','plataforma','whatsapp'}
       tipo   in {'texto','arquivo'}
 
     `chat` filtra por conversa (so faz sentido no canal do painel, que carrega o id).
     Os campos `via`/`tipo`/`chat` sao ADITIVOS: quem so lia origin/who/text/ts (o
     auto-compact e o inject-telegram-thread) continua funcionando sem mudar nada.
     """
+    if _is_rollout(jsonl_path):
+        return _build_rollout_log(jsonl_path, last, chat)
     channel_source = _channel_source()
     send_hints = _send_tool_hints()
     owner = _owner_name()
@@ -249,6 +516,8 @@ def build_thread_log(jsonl_path, last=14, chat=None):
     events = []
     last_trigger = "owner"  # gatilho corrente: 'owner' ou 'cron:<tag>'
     chat_corrente = ""      # ultimo chat visto, pra atribuir a saida que nao repete o id
+    seen_wa = set()         # ids de mensagem do WhatsApp ja vistos (entrega repetida)
+    wa_com_erro = _wa_ids_com_erro(jsonl_path)  # envios do WhatsApp que a tool recusou
     try:
         f = open(jsonl_path)
     except Exception:
@@ -295,6 +564,20 @@ def build_thread_log(jsonl_path, last=14, chat=None):
                         })
                     continue
 
+                ce = _parse_canal_externo(txt)
+                if ce:
+                    attrs, inner = ce
+                    last_trigger = "owner"
+                    msg_id = attrs.get("msg")
+                    if msg_id:
+                        if "wa:" + msg_id in seen_wa:
+                            continue
+                        seen_wa.add("wa:" + msg_id)
+                    if inner and chat is None:
+                        events.append({"origin": "owner", "who": attrs.get("de") or owner,
+                                       "text": inner, "ts": ts, "via": "whatsapp", "tipo": "texto"})
+                    continue
+
                 inc = _parse_incoming(txt, channel_source, owner)
                 if inc:
                     user, inner = inc
@@ -337,6 +620,29 @@ def build_thread_log(jsonl_path, last=14, chat=None):
                                 "ts": ts, "via": "plataforma", "tipo": "arquivo",
                                 "chat": chat_do_bloco, "arquivo": arquivo,
                             })
+                        continue
+
+                    if name.endswith(_WA_TOOL_TEXTO) or name.endswith(_WA_TOOL_ARQUIVO):
+                        if chat is not None:
+                            continue  # o WhatsApp nao pertence a conversa nenhuma do painel
+                        if b.get("id") in wa_com_erro:
+                            continue  # tool_result is_error: nada foi entregue no WhatsApp
+                        if name.endswith(_WA_TOOL_TEXTO):
+                            text = inp.get("texto") or ""
+                            if not isinstance(text, str) or not text.strip():
+                                continue
+                            events.append({"origin": origin, "who": "persona",
+                                           "text": text.strip(), "ts": ts,
+                                           "via": "whatsapp", "tipo": "texto"})
+                        else:
+                            arquivo = (inp.get("caminho") or "").strip()
+                            if not arquivo:
+                                continue
+                            legenda = (inp.get("legenda") or "").strip()
+                            events.append({"origin": origin, "who": "persona",
+                                           "text": legenda or f"[arquivo: {arquivo.rsplit('/', 1)[-1]}]",
+                                           "ts": ts, "via": "whatsapp", "tipo": "arquivo",
+                                           "arquivo": arquivo})
                         continue
 
                     if not any(h in name for h in send_hints):
