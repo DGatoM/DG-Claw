@@ -45,19 +45,23 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: Rodar os testes do painel (panel/test-*.mjs)
         shell: bash
+        env:
+          # O teste usa runner HTTP falso e exige este marcador para recusar chaves reais.
+          DGCLAW_TESTE_CHAVE_ANTHROPIC: sk-ant-SEGREDO-DE-TESTE-1234567890abcdef
+          DGCLAW_TESTE_CHAVE_OPENAI: sk-SEGREDO-DE-TESTE-9876543210
         run: |
           set -uo pipefail
           falhou=0
           for t in test-*.mjs; do
             echo "::group::$t"
-            node "$t"
-            rc=$?
+            rc=0
+            node "$t" || rc=$?
             echo "::endgroup::"
             if [ "$rc" -eq 0 ]; then
               echo "ok      $t"
             elif [ "$rc" -eq 3 ] && [ "$t" = "test-provedor.mjs" ]; then
-              # Este teste fala com provedor de verdade e sai 3 quando faltam as chaves
-              # DGCLAW_TESTE_CHAVE_*. No CI não há chaves, então conta como pulado.
+              # Saída 3 indica cobertura incompleta; as chaves acima são apenas fixtures.
+              # Mantém o motivo visível caso o contrato do teste mude.
               echo "pulado  $t (sem DGCLAW_TESTE_CHAVE_*)"
             else
               echo "::error file=panel/$t::$t saiu com código $rc. Rode 'node $t' dentro de panel/ para ver o motivo."
@@ -214,6 +218,8 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: Testes do dgclaw (tests/cli)
-        run: bash tests/cli/rodar.sh
+        # A bancada confere uid 0 e arquivos 0444 numa raiz temporária com comandos falsos.
+        # Precisa de root para exercitar essas permissões, sem instalar serviços no runner.
+        run: sudo env "PATH=$PATH" bash tests/cli/rodar.sh
       - name: Testes do dgclaw-agente
         run: bash bin/test/dgclaw-agente.test.sh
