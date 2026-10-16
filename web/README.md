@@ -178,3 +178,8 @@ curl -s -b jar http://127.0.0.1:8399/api/v1/agents
 
 Veja [a marcação, a API e a persistência](docs/ALERTAS.md). Prefixos `[ENTREGA]`
 e `[PEDIDO]` geram ícones e balões coloridos em todos os chats desta instalação.
+
+## Acervo com cache no aparelho
+
+Toque na foto do agente para abrir Mídias, Links e Arquivos, com cache por conta,
+paginação incremental e miniaturas reais. Contrato e limites: [MIDIAS-CACHE.md](docs/MIDIAS-CACHE.md).

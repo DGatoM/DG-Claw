@@ -80,7 +80,7 @@ async function boot() {
   }
   // voz e microfone: o servidor diz por agente (ou, se preferir, uma vez para todos)
   const cap = nome => (ag[nome] !== undefined ? ag[nome] : d[nome]) === true;
-  iniciaTela(ag, lista, { voz: cap('voz'), microfone: cap('microfone') });
+  iniciaTela(ag, lista, { voz: cap('voz'), microfone: cap('microfone'), conta: d.usuario });
 }
 
 function iniciaTela(AGENTE, agentesLista, caps) {
@@ -1386,10 +1386,13 @@ function leCache() {
   return null;
 }
 /* Sair apaga o que ficou guardado neste aparelho. */
-$('formSair').addEventListener('submit', () => {
+$('formSair').addEventListener('submit', async ev => {
+  ev.preventDefault();
   try {
     for (const k of Object.keys(localStorage)) if (k.indexOf('dgclaw:') === 0) localStorage.removeItem(k);
   } catch (e) { console.warn('não consegui limpar o aparelho ao sair:', e.message); }
+  await cacheMidias.limpar();
+  ev.target.submit();
 });
 
 /* ── Stream: as mensagens chegam sozinhas (SSE) ──────────────────────────── */
@@ -3065,6 +3068,7 @@ function passosTutorial() {
       porque: 'A conversa serve para pedir coisas; o painel serve para acompanhar e ajustar o agente.' });
   }
   passos.push(passoAlertas());
+  passos.push(passoAcervo());
   return passos;
 }
 
@@ -3096,6 +3100,76 @@ $('gmTutorial').onclick = iniciaTutorial;
     attributeFilter: ['hidden', 'style'] });
   confere();
 })();
+
+/* Acervo: a lista local aparece antes da revalidação da rede. */
+const acPainel = $('acervoPainel'), acLista = $('acervoLista');
+let acAba = 'midias';
+const cacheMidias = DGMidias.criar({ conta: caps.conta, agente: AGENTE.id, base: API,
+  mudou: aba => { if (aba === acAba) pintaAcervo(); } });
+function pintaAcervo() {
+  if (acPainel.hidden) return;
+  const d = cacheMidias.estado(acAba);
+  $('acervoEstado').textContent = d.erro ? 'Não consegui atualizar: ' + d.erro :
+    (!d.carregou ? 'Carregando os itens recentes…' : d.itens.length + ' itens carregados' + (d.carregando ? ' · atualizando…' : '')) +
+    (d.avisoCache ? ' · ' + d.avisoCache : '');
+  let html = acAba === 'midias' ? '<div class="acgrade">' : '';
+  for (const it of d.itens) {
+    let corpo;
+    if (acAba === 'links') corpo = `<a class="aclinha" href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.dominio)}<small>${esc(it.url)}</small></a>`;
+    else {
+      const md = it.media; midias[md.id] = md;
+      const img = md.disponivel && md.thumb ? `<img src="${esc(md.thumb)}" loading="lazy" decoding="async" width="320" height="320" alt="${esc(md.nome)}" onerror="this.hidden=true">` : '';
+      corpo = `<button class="${acAba === 'midias' ? 'acfoto' : 'aclinha'}" data-midia="${esc(md.id)}">${esc(md.kind === 'video' ? '▶ ' : '📎 ')}${esc(md.nome)}${img}</button>`;
+    }
+    html += `<div class="acitem">${corpo}<button class="acir" data-origem="${esc(it.msg_id)}" title="Ir para a mensagem de origem">${esc(it.dia || '')} ${esc(it.hhmm || '')} ↪</button></div>`;
+  }
+  if (acAba === 'midias') html += '</div>';
+  if (d.erro) html += '<button class="acmais" data-tentar>Atualizar novamente</button>';
+  if (d.proximo) html += `<button class="acmais" data-mais ${d.carregando ? 'disabled' : ''}>${d.carregando ? 'Carregando…' : 'Carregar anteriores'}</button>`;
+  else if (d.carregou && !d.itens.length) html += '<p>Nenhum item deste tipo na conversa disponível.</p>';
+  acLista.innerHTML = html;
+}
+function abreAcervo(aba = acAba) {
+  acAba = aba; acPainel.hidden = false;
+  for (const b of acPainel.querySelectorAll('[data-aba]')) b.setAttribute('aria-selected', String(b.dataset.aba === aba));
+  pintaAcervo(); cacheMidias.abrir(aba);
+}
+function fechaAcervo() { acPainel.hidden = true; cacheMidias.fechar(); }
+$('who').addEventListener('click', () => abreAcervo());
+$('who').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abreAcervo(); } });
+$('av').addEventListener('click', () => abreAcervo());
+$('acervoFechar').onclick = fechaAcervo;
+document.addEventListener('keydown', e => { if (e.key === 'Escape') fechaAcervo(); });
+acPainel.querySelector('nav').onclick = e => { const b = e.target.closest('[data-aba]'); if (b) { acLista.scrollTop = 0; abreAcervo(b.dataset.aba); } };
+acLista.addEventListener('scroll', () => {
+  if (acLista.scrollHeight - acLista.scrollTop - acLista.clientHeight < 250) cacheMidias.mais(acAba);
+}, { passive: true });
+acLista.onclick = async e => {
+  if (e.target.closest('[data-mais]')) return cacheMidias.mais(acAba);
+  if (e.target.closest('[data-tentar]')) return cacheMidias.abrir(acAba);
+  const md = e.target.closest('[data-midia]'); if (md) return abreLightbox(md.dataset.midia);
+  const origem = e.target.closest('[data-origem]'); if (!origem) return;
+  try {
+    const d = await api(API + '/compartilhados?mensagem=' + encodeURIComponent(origem.dataset.origem));
+    const porId = new Map([...(d.msgs || []), ...msgs].map(m => [m.id, m]));
+    msgs = [...porId.values()].sort((a, b) => a.ep - b.ep); fechaAcervo(); render({ semRolar: true });
+    const el = wrap.querySelector('[data-msg="' + CSS.escape(d.mensagem.id) + '"]');
+    if (!el) throw new Error('A mensagem não apareceu. Atualize a conversa.');
+    el.scrollIntoView({ block: 'center', behavior: 'instant' }); el.classList.add('alerta-destaque');
+    setTimeout(() => el.classList.remove('alerta-destaque'), 3000);
+  } catch (err) { mostraErro(err.message); }
+};
+function passoAcervo() {
+  return { alvo: '#acervoLista', antes: () => abreAcervo(), titulo: 'Mídias, links e arquivos',
+    oque: 'Tudo o que foi compartilhado na conversa disponível, separado por tipo.',
+    como: 'O aparelho mostra o que já guardou e busca novidades em segundo plano. Carrega 20 por vez, até 60 itens ou 30 dias; role para buscar os anteriores. Só miniaturas aparecem na grade.',
+    porque: 'Reabrir o painel fica rápido e economiza dados. O arquivo completo só abre quando você toca nele.' };
+}
+$('acervoAjuda').onclick = () => window.DGTour.inicia({ passos: [passoAcervo()] });
+document.addEventListener('click', async e => {
+  const a = e.target.closest('a[href="/sair"]'); if (!a) return;
+  e.preventDefault(); await cacheMidias.limpar(); location.href = a.href;
+});
 
 /* ── Partida ──────────────────────────────────────────────────────────────── */
 pintaLer();

@@ -36,7 +36,7 @@ if (navigator.standalone === true ||
 <header data-tour="header" id="cabecalho">
   <button class="btn ghost" id="btnMenu" aria-label="Abrir o menu" data-tour="menu">☰</button>
   <div class="av" id="av" aria-hidden="true"></div>
-  <div class="who" id="who" data-tour="titulo">
+  <div class="who" id="who" data-tour="titulo" role="button" tabindex="0" title="Mídias, links e arquivos desta conversa">
     <b id="nomeAgente">DG Claw</b>
     <span id="estado">conectando…</span>
   </div>
@@ -120,6 +120,12 @@ if (navigator.standalone === true ||
   <div class="lbcorpo" id="lbCorpo"></div>
 </div>
 
+<section id="acervoPainel" aria-label="Mídias, links e arquivos" hidden>
+  <header><b>Compartilhados</b><button id="acervoAjuda" title="Tutorial dos compartilhados" aria-label="Tutorial dos compartilhados">?</button><button id="acervoFechar" aria-label="Fechar compartilhados">✕</button></header>
+  <nav role="tablist" aria-label="Tipo de item"><button data-aba="midias" role="tab" aria-selected="true">Mídias</button><button data-aba="links" role="tab" aria-selected="false">Links</button><button data-aba="docs" role="tab" aria-selected="false">Arquivos</button></nav>
+  <p id="acervoEstado" role="status"></p><div id="acervoLista" data-tour="acervo"></div>
+</section>
+<script src="/midias-cache.js"></script>
 <script src="/tour.js"></script>
 <script src="/conversa.js"></script>
 <script>

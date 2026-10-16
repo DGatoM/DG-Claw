@@ -465,3 +465,14 @@ html[data-tema="escuro"] .row.alerta-pedido .bub{border-color:#e5bd4c;background
   html:not([data-tema="claro"]) .row.alerta-entrega .bub{border-color:#63c883;background:#193a28;color:#e2f5e8}
   html:not([data-tema="claro"]) .row.alerta-pedido .bub{border-color:#e5bd4c;background:#3c341b;color:#fff3c8}
 }
+
+/* Compartilhados: painel com rolagem própria e alvos de toque no celular. */
+#acervoPainel{position:fixed;inset:0 0 0 auto;width:min(100%,540px);z-index:90;background:var(--header);color:var(--txt);display:flex;flex-direction:column;box-shadow:0 0 0 100vw #0005}
+#acervoPainel[hidden]{display:none}#acervoPainel header{position:static;display:flex;gap:8px;padding:10px;border-bottom:1px solid var(--line)}
+#acervoPainel header b{flex:1}#acervoPainel button{min-height:44px;min-width:44px;font:inherit;color:inherit;background:transparent;border:1px solid var(--line);border-radius:8px;cursor:pointer}
+#acervoPainel nav{display:flex}#acervoPainel nav button{flex:1;border-radius:0}#acervoPainel [aria-selected="true"]{border-bottom:3px solid var(--accent)}
+#acervoEstado{font-size:13px;margin:10px;overflow-wrap:anywhere}#acervoLista{flex:1;min-height:0;overflow:auto;padding:8px;overscroll-behavior:contain}
+#acervoLista .acgrade{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px}#acervoLista .acitem{min-width:0;position:relative;margin-bottom:6px}
+#acervoLista .acfoto{width:100%;aspect-ratio:1;overflow:hidden;position:relative}#acervoLista .acfoto img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+#acervoLista .aclinha{display:block;width:100%;text-align:left;padding:10px;overflow-wrap:anywhere}#acervoLista .acir{font-size:12px;width:100%}#acervoLista small{display:block;color:var(--muted)}
+#acervoLista .acmais{display:block;margin:14px auto;padding:8px 18px}#who[role="button"],#av{cursor:pointer}
