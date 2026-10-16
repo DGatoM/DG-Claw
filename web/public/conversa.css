@@ -447,3 +447,21 @@
 
 /* O atributo hidden sempre esconde, mesmo em elementos com display definido */
 [hidden]{display:none !important}
+
+/* Alertas: o ícone some ao tocar, a cor da mensagem permanece. */
+#alertasMensagem{position:fixed;right:16px;bottom:calc(var(--barra-h) + 80px);z-index:31;display:flex;flex-direction:column;gap:6px}
+#alertasMensagem[hidden]{display:none}
+#alertasPilha{display:flex;flex-direction:column;gap:6px;max-height:max(40px,calc(100dvh - 360px));overflow-y:auto;overscroll-behavior:contain}
+#alertasMensagem button{width:40px;height:40px;flex-shrink:0;border-radius:50%;border:1px solid var(--line);background:var(--header);color:var(--txt);font-size:18px;cursor:pointer}
+#alertasMensagem button:focus-visible{outline:3px solid var(--accent)}
+.row.alerta-entrega .bub{border:2px solid #218344;background:#eaf8ee}
+.row.alerta-pedido .bub{border:2px solid #aa7900;background:#fff8db}
+html[data-tema="escuro"] .row.alerta-entrega .bub{border-color:#63c883;background:#193a28;color:#e2f5e8}
+html[data-tema="escuro"] .row.alerta-pedido .bub{border-color:#e5bd4c;background:#3c341b;color:#fff3c8}
+.row.alerta-destaque .bub{outline:3px solid var(--accent);outline-offset:3px}
+@media(prefers-reduced-motion:reduce){.row.alerta-destaque .bub{animation:none!important;transition:none!important}#chat{scroll-behavior:auto!important}}
+
+@media(prefers-color-scheme:dark){
+  html:not([data-tema="claro"]) .row.alerta-entrega .bub{border-color:#63c883;background:#193a28;color:#e2f5e8}
+  html:not([data-tema="claro"]) .row.alerta-pedido .bub{border-color:#e5bd4c;background:#3c341b;color:#fff3c8}
+}

@@ -173,3 +173,8 @@ curl -si -c jar -H 'Origin: http://127.0.0.1:8399' -H 'Content-Type: application
   -d '{"usuario":"admin","senha":"minha-senha"}' http://127.0.0.1:8399/login
 curl -s -b jar http://127.0.0.1:8399/api/v1/agents
 ```
+
+## Alertas de entrega e pedido
+
+Veja [a marcação, a API e a persistência](docs/ALERTAS.md). Prefixos `[ENTREGA]`
+e `[PEDIDO]` geram ícones e balões coloridos em todos os chats desta instalação.

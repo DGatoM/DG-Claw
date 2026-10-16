@@ -97,3 +97,11 @@ vale tanto para o primeiro agente quanto para os seguintes ("cria um agente novo
 O Codex não carrega skills do Claude sozinho. O roteiro fica em
 `/opt/dgclaw/admin/.claude/skills/criar-agente/SKILL.md` (e os detalhes em `referencia.md`, na mesma
 pasta), e o Admin o lê ao receber o recado de primeiro boot e sempre que o dono pedir um agente novo.
+
+## Alertas de entrega e pedido no chat
+
+Ao responder pela tool habitual, comece com `[ENTREGA] ` quando uma entrega
+importante estiver pronta, ou `[PEDIDO] ` se o trabalho parou esperando uma decisão
+ou autorização do dono. Não marque progresso. O chat retira a tag, colore o balão
+e guarda um ícone até o dono tocar. Tocar não autoriza o pedido: aguarde a resposta.
+Documentação: `GET /api/v1/alertas/docs.md` no Web, com a sessão autenticada.

@@ -1371,8 +1371,9 @@ senha_trocar() {
             || falha "o gerador de hash recusou a senha." "confira se ela tem 12 caracteres ou mais."
     fi
     senha=""; conf=""
-    [ -n "$hash" ] && [[ "$hash" != *"'"* && "$hash" != *$'\n'* ]] \
-        || falha "o gerador de hash devolveu um valor invalido." "isso e um erro do DG Claw; a senha nao foi trocada."
+    if [[ -z "$hash" || "$hash" == *"'"* || "$hash" == *$'\n'* ]]; then
+        falha "o gerador de hash devolveu um valor invalido." "isso e um erro do DG Claw; a senha nao foi trocada."
+    fi
 
     # O hash entra no awk pelo ambiente, nao pelo argv: o hash tem `$` e `\` que o -v interpretaria.
     HASH_NOVO="$hash" awk '

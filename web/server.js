@@ -20,6 +20,7 @@ const { abrirStream } = require('./lib/sse');
 const { criarProxy } = require('./lib/proxy');
 const { criarCofreAgente } = require('./lib/cofre-agente');
 const { criarCofreRotas } = require('./lib/cofre-rotas');
+const { criarAlertas } = require('./lib/alertas');
 const { criarVoz } = require('./lib/voz');
 
 const METODOS_QUE_ESCREVEM = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -63,7 +64,8 @@ function criarServidor(opcoes) {
   const midia = criarMidia({ dataDir: config.dataDir, log, registro, publicDir: config.publicDir });
   const leitor = criarLeitor({ log, tz: config.tz, canalTelegram: config.canalTelegram, midia });
   const leitorRollout = criarLeitorRollout({ log, tz: config.tz, midia });
-  const conversa = criarConversa({ config, runner, leitor, leitorRollout, midia, log, agora: opcoes.agora, gravaToken: opcoes.gravaToken });
+  const alertas = agente => criarAlertas(path.join(config.dataDir, 'alertas', agente.slug + '.json'), agente.chat_id);
+  const conversa = criarConversa({ alertas, config, runner, leitor, leitorRollout, midia, log, agora: opcoes.agora, gravaToken: opcoes.gravaToken });
   const cofreAgente = criarCofreAgente({ config, log, reiniciar: opcoes.reiniciarCofre });
   const cofreRotas = criarCofreRotas({ config, runner, cofre: cofreAgente, log });
   const proxy = criarProxy({ config, registro, log, cofreRotas });
@@ -230,6 +232,41 @@ function criarServidor(opcoes) {
       if (falhaDoRegistro(req, res, true)) return undefined;
       const lista = await Promise.all(registro.estado().agentes.map(agentePublico));
       return H.enviaJson(res, 200, { ok: true, agentes: lista, voz: lista.some((a) => a.voz), microfone: voz.microfone, usuario: sessao.usuario });
+    }
+
+    if (p === '/api/v1/alertas/docs.md' && m === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store' });
+      return res.end(fs.readFileSync(path.join(__dirname, 'docs', 'ALERTAS.md'), 'utf8'));
+    }
+    const ar = /^\/api\/v1\/agents\/([^/]+)\/alertas(?:\/([a-f0-9]{24})\/(visto|mensagem))?$/.exec(p);
+    if (ar) {
+      if (falhaDoRegistro(req, res, true)) return;
+      const agente = agenteOuErro(res, decodeURIComponent(ar[1]));
+      if (!agente) return;
+      try {
+        const loja = alertas(agente);
+        if (!ar[2] && m === 'GET') {
+          const t = await conversa.thread(agente);
+          return H.enviaJson(res, 200, { ok: true, alertas: loja.listar(), avisos: t.avisos });
+        }
+        if (ar[3] === 'visto' && m === 'POST') {
+          if (!loja.reconhecer(ar[2])) return H.erroJson(res, 404, 'Esse alerta não existe nesta conversa. Atualize a página.');
+          return H.enviaJson(res, 200, { ok: true });
+        }
+        if (ar[3] === 'mensagem' && m === 'GET') {
+          const t = await conversa.thread(agente);
+          const mensagem = loja.mensagem(ar[2]);
+          if (!mensagem) return H.erroJson(res, 404, 'Esse alerta não existe nesta conversa. Atualize a página.');
+          // Carrega a origem e a sequência até o fim, sem lacuna na rolagem.
+          const atuais = t.msgs.filter(x => x.ep >= mensagem.ep);
+          if (!atuais.some(x => x.id === mensagem.id)) atuais.unshift(mensagem);
+          return H.enviaJson(res, 200, { ok: true, mensagem, msgs: atuais, mais_antigas: t.msgs.some(x => x.ep < mensagem.ep), avisos: t.avisos });
+        }
+        return H.erroJson(res, 405, 'Método inválido para este alerta. Use GET para consultar ou POST para reconhecer.');
+      } catch (e) {
+        log('erro', `Alertas de ${agente.slug}: ${m} ${p} falhou: ${e.message}. Confira a pasta de dados do Web.`);
+        return H.erroJson(res, 503, `Não consegui acessar os alertas. Tente novamente: ${e.message}`);
+      }
     }
 
     let mm = /^\/api\/v1\/agents\/([^/]+)(?:\/([a-z]+))?$/.exec(p);

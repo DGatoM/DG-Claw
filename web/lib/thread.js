@@ -17,6 +17,7 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const { marcar } = require('./alertas');
 
 const DGCHAT_ABRE = /<dgchat\b[^>]*>/;
 const DGCHAT_ATTR = /\b(from|chat|msg|ts)="([^"]*)"/g;
@@ -144,11 +145,11 @@ function criarMontagem({ tz, midia }) {
   function monta(estado, agente, { ep, origin, text, kind, media, via, quem }) {
     const { hhmm, dia } = fmtHoraDia(ep, tz);
     const caminho = media && media.id ? media.id : '';
-    return {
+    return marcar({
       id: crypto.createHash('sha1').update(`${ep}|${text}|${caminho}|${via}`).digest('hex').slice(0, 16),
       ep, hhmm, dia, origin, text, kind, media: media || null,
       fmt: 'text', editada: false, reacoes: [], cita: null, via, quem,
-    };
+    });
   }
 
   /** Cria 1..N mensagens a partir de texto + lista de caminhos de mídia (host). */

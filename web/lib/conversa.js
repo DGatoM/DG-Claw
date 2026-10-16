@@ -27,7 +27,8 @@ function montarEnvelope({ from, chat, msg, ts, text }) {
   return `<dgchat from="${atributo(from) || 'pessoa'}" chat="${atributo(chat)}" msg="${atributo(msg)}" ts="${atributo(ts)}">${corpo}</dgchat>`;
 }
 
-function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agora, gravaToken }) {
+function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agora, gravaToken, alertas }) {
+  const alertasVersao = new Map();
   const tokenTelegram = criaInterceptor({ gravaToken });
   const relogio = agora || (() => Date.now());
   const estadoRunner = new Map();   // slug -> { ts, promessa, valor }
@@ -150,6 +151,12 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     try {
       const fonte = eRollout && leitorRollout ? leitorRollout : leitor;
       const { eventos, versao } = fonte.ler(arquivo, agente);
+      const assinatura = `${arquivo}|${versao}`;
+      const observado = alertasVersao.get(agente.slug);
+      if (alertas && (!observado || observado.assinatura !== assinatura || observado.eventos !== eventos)) {
+        alertas(agente).observar(eventos);
+        alertasVersao.set(agente.slug, { assinatura, eventos });
+      }
       return { msgs: eventos, versao, avisos, arquivo };
     } catch (e) {
       log('erro', `Thread de ${agente.nome}: falhou ao ler ${arquivo}: ${e.message}`);

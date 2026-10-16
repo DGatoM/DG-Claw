@@ -678,7 +678,8 @@ function render(opt) {
       anterior = null;
     }
     const lado = ehDono(m) ? 'me' : 'her';
-    const troca = anterior !== null && anterior !== lado ? ' gap' : '';
+    const troca = (anterior !== null && anterior !== lado ? ' gap' : '') +
+      (['entrega', 'pedido'].includes(m.alerta) ? ' alerta-' + m.alerta : '');
     itens.push([m.id, `<div class="row ${lado}${ehVisual(m.media) ? ' vis' : ''}${troca}" data-msg="${esc(m.id)}">` +
                       `<div class="bub">${htmlCorpo(m)}</div></div>`]);
     anterior = lado;
@@ -3063,6 +3064,7 @@ function passosTutorial() {
       como: 'Toque em "Painel de ' + nome + '" e a página abre na mesma janela. Para voltar à conversa, use o voltar do navegador.',
       porque: 'A conversa serve para pedir coisas; o painel serve para acompanhar e ajustar o agente.' });
   }
+  passos.push(passoAlertas());
   return passos;
 }
 
@@ -3113,6 +3115,68 @@ if (caps.voz) conferecota();
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch(e => console.warn('sw:', e.message));
 }
+/* Alertas de mensagem. O servidor guarda o reconhecimento entre aparelhos. */
+const alertasPilha = $('alertasPilha'), alertasCaixa = $('alertasMensagem');
+let alertasLista = [], alertasLendo = false, alertasRevisao = 0;
+const alertasEmCurso = new Set();
+function posicionaAlertas() {
+  alertasCaixa.style.bottom = Math.round(fundoLivre() + 74) + 'px';
+}
+function desenhaAlertas() {
+  alertasPilha.replaceChildren();
+  for (const a of alertasLista) {
+    if (alertasEmCurso.has(a.id)) continue;
+    const b = document.createElement('button');
+    b.type = 'button'; b.textContent = a.tipo === 'entrega' ? '✅' : '⚠️';
+    b.title = (a.tipo === 'entrega' ? 'Entrega pronta' : 'Pedido esperando sua decisão') + ': ir até a mensagem e retirar o aviso';
+    b.setAttribute('aria-label', b.title);
+    b.onclick = async () => {
+      alertasRevisao++; alertasEmCurso.add(a.id); desenhaAlertas();
+      try {
+        const d = await api(API + '/alertas/' + encodeURIComponent(a.id) + '/mensagem');
+        // Mescla também o que chegou pelo SSE enquanto a origem era carregada.
+        const porId = new Map([...(d.msgs || []), ...msgs].map(m => [m.id, m]));
+        porId.set(d.mensagem.id, d.mensagem);
+        msgs = Array.from(porId.values()).sort((a, b) => a.ep - b.ep);
+        maisAntigas = !!d.mais_antigas;
+        render({ semRolar: true });
+        const el = wrap.querySelector('[data-msg="' + CSS.escape(d.mensagem.id) + '"]');
+        if (!el) throw new Error('A mensagem não foi encontrada na tela. Tente novamente.');
+        el.classList.add('alerta-destaque');
+        el.scrollIntoView({ block: 'center', behavior: 'instant' });
+        setTimeout(() => el.classList.remove('alerta-destaque'), 3000);
+        await api(API + '/alertas/' + encodeURIComponent(a.id) + '/visto', { method: 'POST', body: {} });
+        alertasLista = alertasLista.filter(x => x.id !== a.id);
+      } catch (e) { mostraErro('O alerta foi mantido: ' + e.message); }
+      finally { alertasRevisao++; alertasEmCurso.delete(a.id); desenhaAlertas(); }
+    };
+    alertasPilha.append(b);
+  }
+  alertasCaixa.hidden = !alertasPilha.childElementCount;
+  posicionaAlertas();
+}
+function passoAlertas() {
+  return { alvo: '[data-tour="alertas"]', titulo: 'Entregas e pedidos',
+    oque: '✅ Uma entrega importante ficou pronta. ⚠️ O agente espera uma decisão sua.',
+    como: 'Cada ícone corresponde a uma mensagem marcada pelo agente. Toque para ir até ela e retirar o aviso em todos os aparelhos. A cor do balão permanece. Retirar um pedido não significa autorizá-lo: responda na conversa.',
+    porque: 'A pilha lembra o que merece atenção, mesmo depois de fechar o app. Você limpa um aviso por vez, sem uma tela de gestão.' };
+}
+$('alertasAjuda').onclick = () => window.DGTour.inicia({ passos: [passoAlertas()] });
+async function consultaAlertas() {
+  if (alertasLendo || document.hidden) return;
+  alertasLendo = true;
+  const revisao = alertasRevisao;
+  try {
+    const d = await api(API + '/alertas');
+    if (revisao === alertasRevisao) { alertasLista = d.alertas || []; desenhaAlertas(); }
+    if (d.avisos && d.avisos.length) mostraAviso(d.avisos.join(' '));
+  } catch (e) { mostraErro('Não consegui atualizar os alertas: ' + e.message); }
+  finally { alertasLendo = false; }
+}
+consultaAlertas(); setInterval(consultaAlertas, 10000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) consultaAlertas(); });
+window.addEventListener('resize', posicionaAlertas);
+
 }   // fim de iniciaTela
 
 boot();

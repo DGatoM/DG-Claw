@@ -93,3 +93,11 @@ Depois espera a resposta do dono e segue a skill `criar-agente`.
 
 A skill `criar-agente` conduz a criação, uma pergunta por vez, até o teste real do agente novo. Ela
 vale tanto para o primeiro agente quanto para os seguintes ("cria um agente novo pra mim").
+
+## Alertas de entrega e pedido no chat
+
+Ao responder pela tool habitual, comece com `[ENTREGA] ` quando uma entrega
+importante estiver pronta, ou `[PEDIDO] ` se o trabalho parou esperando uma decisão
+ou autorização do dono. Não marque progresso. O chat retira a tag, colore o balão
+e guarda um ícone até o dono tocar. Tocar não autoriza o pedido: aguarde a resposta.
+Documentação: `GET /api/v1/alertas/docs.md` no Web, com a sessão autenticada.
