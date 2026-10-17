@@ -43,3 +43,15 @@ A [arquitetura](docs/ARQUITETURA.md) descreve o funcionamento e os limites entre
 - **Versão.** A v1.0.0 é a versão publicada e em uso. Os testes de instalação completa da equipe
   rodam em VPS separadas, conforme o [roteiro de QA](web/docs/QA-PRIMEIRO-AGENTE.md); isso não muda
   nada para quem instala na própria VPS.
+
+## Regras do projeto
+
+- **Atualizar nunca apaga configuração do usuário.** Rodar o `install.sh` de novo, atualizar a
+  versão ou reconstruir a imagem tem que preservar tudo o que a pessoa já configurou: chaves
+  (`GROQ_API_KEY`, `ELEVENLABS_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` e qualquer outra),
+  opções do `web.env`, cofre, agentes, memória e conversas. Arquivo de configuração que já existe
+  se edita linha a linha (troca só as linhas que o instalador controla e mantém o resto, na ordem);
+  nunca se reescreve inteiro. Todo código novo que grava em arquivo de configuração vem com um
+  teste que monta o arquivo com uma linha alheia e confere que ela sobreviveu.
+  *Por quê:* em 17/10/2026 o instalador regravava o `web.env` só com o usuário e a senha do
+  painel, e cada atualização desligava o microfone dos agentes. O Admin percebeu antes de aplicar.
