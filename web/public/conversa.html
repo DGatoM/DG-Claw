@@ -50,6 +50,9 @@ if (navigator.standalone === true ||
   <button class="btn" id="btnTutorial" type="button" title="Visita guiada desta tela: o que é cada parte e por que está aqui">Tutorial</button>
   <div class="ferr" id="ferr">
     <div class="tools" id="tools" role="toolbar" aria-label="Ferramentas da conversa">
+      <a id="btnPainel" class="btn" href="#" hidden data-tour="btn-painel" title="Abrir o painel deste agente (status, memória, custos)" aria-label="Abrir o painel deste agente">🦞 <span class="lbl">Painel</span></a>
+      <a id="btnMesa" class="btn" href="/mesa" data-tour="btn-mesa" title="Abrir a Mesa de tarefas" aria-label="Abrir a Mesa de tarefas">📋 <span class="lbl">Mesa</span></a>
+      <a id="btnLembretes" class="btn" href="/lembretes" data-tour="btn-lembretes" title="Abrir os lembretes" aria-label="Abrir os lembretes">⏰ <span class="lbl">Lembretes</span></a>
       <button id="btnLer" class="btn" title="Ler as respostas em voz alta" data-tour="ler">🔊 <span class="lbl">ler</span></button>
       <button id="btnContinua" class="btn" type="button" aria-pressed="false"
               aria-label="Conversa contínua: desligada"

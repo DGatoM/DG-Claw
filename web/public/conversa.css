@@ -163,6 +163,8 @@
   .ferr{display:contents}
   .ferr-sombra{display:none}
   .tools .btn{flex:0 0 auto}
+  .tools a.btn{text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:4px;color:#38523f;white-space:nowrap}
+  .tools a.btn[hidden]{display:none}
   #btnContinua.on{background:var(--accent);color:#fff;border-color:transparent}
   #btnContinua:not(.on){opacity:.75}
   @media (max-width:700px){

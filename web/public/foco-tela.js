@@ -112,16 +112,23 @@
       const menuDir = menu && menu.getBoundingClientRect ? Math.max(0, menu.getBoundingClientRect().right) : 0;
       return modoLayout(esq, menuDir);
     }
+    /* painel: solto no body (fixo à esquerda). Faixa: item do fluxo flex do body, logo depois do
+       cabeçalho (e da faixa de lembretes, se existir), então empurra a conversa sozinha. */
+    function colocaRaiz(painel) {
+      const cab = !painel && doc.querySelector ? doc.querySelector('header') : null;
+      if (!cab || !cab.parentNode) { if (raizEl.parentNode !== doc.body) doc.body.appendChild(raizEl); return; }
+      let ref = cab;
+      const lem = doc.getElementById('faixaLembretes');
+      if (lem && lem.parentNode === cab.parentNode) ref = lem;
+      if (raizEl.previousSibling !== ref || raizEl.parentNode !== cab.parentNode) cab.parentNode.insertBefore(raizEl, ref.nextSibling);
+    }
     function posiciona() {
       est.modo = est.erro && !exibida() ? { tipo: 'faixa' } : mede();
       const painel = est.modo.tipo === 'painel';
-      if (raizEl.parentNode !== doc.body) doc.body.appendChild(raizEl);
+      colocaRaiz(painel);
       raizEl.className = 'foco ' + (painel ? 'foco-painel' : 'foco-faixa') + (estaAberto() ? ' aberto' : '') + (est.erro && !exibida() ? ' foco-so-erro' : '');
       if (painel) { raizEl.style.width = est.modo.largura + 'px'; raizEl.style.left = est.modo.esq + 'px'; }
       else { raizEl.style.width = ''; raizEl.style.left = ''; }
-      // a faixa ocupa a linha de baixo do cabeçalho: o chat desce o tamanho dela
-      const reserva = !raizEl.hidden && !painel ? '36px' : '0px';
-      if (doc.documentElement && doc.documentElement.style) doc.documentElement.style.setProperty('--foco-h', reserva);
     }
 
     function desenha() {

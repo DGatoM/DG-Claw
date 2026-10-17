@@ -64,7 +64,6 @@ test('lista vazia ou null: nada aparece', () => {
   const t = monta();
   t.f.recebe({ agente: 'ana', lista: lista([]) });
   assert.equal(t.f._raiz.hidden, true);
-  assert.equal(t.html.style['--foco-h'], '0px');
   t.f.recebe({ agente: 'ana', lista: null, erro: undefined });
   assert.equal(t.f._raiz.hidden, false, 'lista null sem motivo ainda explica o que houve');
 });
@@ -92,12 +91,12 @@ test('contador, progresso, ordem por "ordem" e item feito marcado', () => {
   assert.equal(porClasse(feitos[0], 'foco-caixa')[0].textContent, '✓');
 });
 
-test('sem espaço: faixa recolhida que reserva 36 px; tocar abre e guarda no aparelho', () => {
+test('sem espaço: faixa recolhida; tocar abre e guarda no aparelho', () => {
   const t = monta({ wrapEsq: 8 });
   t.f.recebe({ agente: 'ana', lista: tres() });
   const r = t.f._raiz;
   assert.ok(tem(r, 'foco-faixa')); assert.ok(!tem(r, 'aberto'));
-  assert.equal(t.html.style['--foco-h'], '36px');
+  assert.ok(!('--foco-h' in t.html.style), 'a faixa é item do fluxo: nada de variável para empurrar o chat');
   porClasse(r, 'foco-abre')[0].clica();
   assert.ok(tem(r, 'aberto')); assert.equal(t.guardado['dgclaw:foco:aberto:ana'], '1');
   porClasse(r, 'foco-abre')[0].clica();
@@ -110,7 +109,6 @@ test('com espaço: painel aberto, posicionado ao lado da coluna; escolha guardad
   let r = t.f._raiz;
   assert.ok(tem(r, 'foco-painel')); assert.ok(tem(r, 'aberto'));
   assert.equal(r.style.width, '300px'); assert.equal(r.style.left, '292px');
-  assert.equal(t.html.style['--foco-h'], '0px');
   const t2 = monta({ wrapEsq: 600, menuDir: 240, armazenado: { 'dgclaw:foco:aberto:ana': '0' } });
   t2.f.recebe({ agente: 'ana', lista: tres() });
   assert.ok(!tem(t2.f._raiz, 'aberto'));
@@ -208,4 +206,16 @@ test('conversa.html, conversa.js e sw.js ligam o modo foco; sem travessão nos a
   assert.match(c, /window\.DGFoco\.passoTutorial\(\)/);
   assert.match(pub('sw.js'), /'\/foco-tela\.js', '\/foco-tela\.css'/);
   for (const n of ['foco-tela.js', 'foco-tela.css', '../test/foco-tela.test.js']) assert.doesNotMatch(pub(n), /[\u2014\u2013]/, n);
+});
+
+test('foco-tela.css não posiciona o #chat com top (a faixa é item do fluxo flex)', () => {
+  const css = require('node:fs').readFileSync(require('node:path').join(__dirname, '../public/foco-tela.css'), 'utf8');
+  assert.ok(!/#chat\s*\{/.test(css), '#chat não pode ser mexido pelo foco');
+  assert.ok(/\.foco-faixa\{position:relative;/.test(css));
+});
+
+test('conversa.html tem os botões Painel, Mesa e Lembretes antes do ler', () => {
+  const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../public/conversa.html'), 'utf8');
+  const i = ['btnPainel', 'btnMesa', 'btnLembretes', 'btnLer'].map(id => html.indexOf('id="' + id + '"'));
+  assert.ok(i.every(n => n > 0) && i.every((n, k) => k === 0 || n > i[k - 1]));
 });

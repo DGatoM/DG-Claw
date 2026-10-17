@@ -177,6 +177,12 @@ const btnFim = $('btnFim'), fimNovas = $('fimNovas');
 const API = '/api/v1/agents/' + encodeURIComponent(AGENTE.id);
 const AQUI = location.pathname + location.search;
 const EH_ADMIN = AGENTE.tipo === 'admin';
+(function () {
+  const b = $('btnPainel');
+  if (!b || !AGENTE.tem_painel) return;
+  b.href = AGENTE.painel_url || ('/p/' + encodeURIComponent(AGENTE.id) + '/');
+  b.hidden = false;
+})();
 if (window.campoCofre) window.campoCofre.configurar({ agente: AGENTE.id, enviar: texto => new Promise((resolve, reject) => { enviarTexto(texto, null, { aoEntregar: (ok, motivo) => ok ? resolve() : reject(new Error(motivo || 'O agente não recebeu a mensagem.')) }); }) });
 if (window.DGOnboarding) window.DGOnboarding.iniciar({ agente: AGENTE, enviar: texto => new Promise((resolve, reject) => { enviarTexto(texto, null, { aoEntregar: (ok, motivo) => ok ? resolve() : reject(new Error(motivo || 'O Admin não recebeu a mensagem.')) }); }), refazer: () => render({ semRolar: true }) });
 if (window.DGBarra) window.DGBarra.liga(entrada, { url: API + '/comandos' });   // lista de comandos ao digitar /
@@ -3656,6 +3662,20 @@ function passosTutorial() {
     oque: 'Um cartão que aparece no fim da conversa quando ' + nome + ' ainda não tem a sua conta do Claude ou do Codex conectada. O que você vê agora é só um exemplo.',
     como: 'Toque em Conectar, abra a página de login, entre com a sua conta e, no Claude, cole aqui o código que ela mostrar no fim. A tela confere sozinha e avisa quando terminar. Para abrir o cartão a qualquer hora, escreva /login no campo de mensagem e envie: nada vai para o agente.',
     porque: 'Sem conta conectada o agente não consegue responder. Assim você resolve aqui mesmo, sem abrir terminal.' });
+  if (!$('btnPainel').hidden) {
+    passos.push({ alvo: '#btnPainel', titulo: 'O botão Painel',
+      oque: 'Um atalho para o painel de ' + nome + ', com Status, Memória, Operações, Custos e as outras páginas.',
+      como: 'Toque nele e o painel abre na mesma janela. Para voltar, use o item Conversa do menu do painel ou o voltar do navegador.',
+      porque: 'Fica no topo para você passar da conversa ao painel com um toque, sem abrir o menu.' });
+  }
+  passos.push({ alvo: '#btnMesa', titulo: 'O botão Mesa',
+    oque: 'Um atalho para a Mesa de tarefas, onde ficam as tarefas de todos os agentes.',
+    como: 'Toque nele e a Mesa abre na mesma janela. Lá você acompanha o que está pendente e o que já foi feito.',
+    porque: 'Você confere o andamento do trabalho sem sair procurando no menu.' });
+  passos.push({ alvo: '#btnLembretes', titulo: 'O botão Lembretes',
+    oque: 'Um atalho para a tela de lembretes.',
+    como: 'Toque nele e a lista abre na mesma janela. Lá você cria, confirma e apaga lembretes.',
+    porque: 'Lembrete que insiste até você confirmar só ajuda se for fácil de achar, por isso fica no topo.' });
   if (window.DGSigilo) passos.push(window.DGSigilo.passoTour());
   passos.push(passoAlertas());
   if (window.DGFoco) passos.push(window.DGFoco.passoTutorial());
