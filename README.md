@@ -70,7 +70,7 @@ A senha nunca aparece no terminal. `sudo dgclaw primeiro-acesso` gera um link no
 troca a senha. O Admin usa o motor escolhido na instalação, Claude Code ou Codex, e reaproveita o login
 correspondente que já existe no root desta VPS. A opção `--provedor claude` ou `--provedor codex`
 define a escolha; sem opção, a configuração anterior é preservada e, em instalação nova,
-o instalador procura Claude primeiro e depois o login do Codex.
+o instalador procura primeiro um login (Claude, depois Codex) e só então o programa instalado.
 
 ## Seu primeiro agente
 

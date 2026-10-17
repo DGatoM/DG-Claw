@@ -137,6 +137,28 @@ caso_provedor_codex() {
     limpar_cenario
 }
 
+# Sem --provedor, o login vence o programa instalado: o comando claude pode existir no PATH
+# (o caso poe um claude falso nele) sem login, e quem so tem o Codex logado precisa cair no Codex.
+caso_sem_opcao_so_codex_logado_escolhe_codex() {
+    novo_cenario
+    mkdir -p "$RAIZ/root/.codex" "$TMP/bin" && echo '{}' > "$RAIZ/root/.codex/auth.json"
+    printf '#!/bin/sh\nexit 0\n' > "$TMP/bin/claude"; chmod +x "$TMP/bin/claude"
+    EXTRA_ENV=("PATH=$TMP/bin:$AQUI/stubs:/usr/bin:/bin")
+    afirma "instala sem --provedor" instalar "$PAINEL_PW" --usuario maria
+    afirma "runner.json usa codex-cli" jq -e '.config.provider == "codex-cli"' "$RAIZ/opt/dgclaw/admin/.plataforma/runner.json"
+    afirma "provedor do admin no env" tem "$RAIZ/etc/dgclaw/dgclaw.env" "DGCLAW_PROVEDOR_ADMIN=codex"
+    limpar_cenario
+}
+
+caso_sem_opcao_os_dois_logados_escolhe_claude() {
+    novo_cenario
+    mkdir -p "$RAIZ/root/.codex" "$RAIZ/root/.claude"
+    echo '{}' > "$RAIZ/root/.codex/auth.json"; echo '{}' > "$RAIZ/root/.claude/.credentials.json"
+    afirma "instala sem --provedor" instalar "$PAINEL_PW" --usuario maria
+    afirma "runner.json usa local-cli" jq -e '.config.provider == "local-cli"' "$RAIZ/opt/dgclaw/admin/.plataforma/runner.json"
+    limpar_cenario
+}
+
 caso_rodar_duas_vezes_nao_duplica() {
     novo_cenario
     afirma "primeira rodada" instalacao_basica

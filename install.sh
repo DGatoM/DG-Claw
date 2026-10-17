@@ -478,9 +478,15 @@ detectar_provedor() {
     atual="$(env_valor DGCLAW_PROVEDOR_ADMIN)"
     if [ -n "$PROVEDOR_ARG" ]; then PROVEDOR="$PROVEDOR_ARG"; return 0; fi
     if [ -n "$atual" ]; then PROVEDOR="$atual"; return 0; fi
-    if [ -f "$R/root/.claude/.credentials.json" ] || command -v claude >/dev/null 2>&1; then
+    # O login decide antes do programa: quem so tem a assinatura do ChatGPT pode ter o Claude Code
+    # instalado sem login, e o Admin nasceria num motor que nao conversa (aluno da imersao, 17/10/2026).
+    if [ -f "$R/root/.claude/.credentials.json" ]; then
         PROVEDOR=claude
     elif [ -f "$R/root/.codex/auth.json" ]; then
+        PROVEDOR=codex
+    elif command -v claude >/dev/null 2>&1; then
+        PROVEDOR=claude
+    elif command -v codex >/dev/null 2>&1; then
         PROVEDOR=codex
     else
         PROVEDOR=claude
