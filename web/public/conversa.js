@@ -177,6 +177,14 @@ const btnFim = $('btnFim'), fimNovas = $('fimNovas');
 const API = '/api/v1/agents/' + encodeURIComponent(AGENTE.id);
 const AQUI = location.pathname + location.search;
 const EH_ADMIN = AGENTE.tipo === 'admin';
+/* A Mesa e os Lembretes levam o agente junto (?a=), para o menu deles ser o deste agente. */
+(function () {
+  try { localStorage.setItem('dgclaw:agente', AGENTE.id); } catch (_) { /* sem armazenamento: a casca usa o primeiro agente */ }
+  [['btnMesa', '/mesa'], ['btnLembretes', '/lembretes']].forEach(([id, href]) => {
+    const el = $(id);
+    if (el) el.href = window.DGMenuLado.comAgente(href, AGENTE.id);
+  });
+})();
 (function () {
   const b = $('btnPainel');
   if (!b || !AGENTE.tem_painel) return;
@@ -3590,14 +3598,7 @@ function passosTutorial() {
   const abreM = () => abreMenu(true), fechaM = () => abreMenu(false);
   const nome = AGENTE.nome;
   const passos = [
-    { alvo: '#mlMoldura', antes: abreM, titulo: 'O menu do agente',
-      oque: 'A foto, o nome e as páginas de ' + nome + ', sempre no lado esquerdo. No computador ele fica aberto o tempo todo; no celular abre pelo botão ☰.',
-      como: 'O item Conversa (esta tela) fica no alto. Os outros itens levam às páginas do painel dele. O Tutorial, aqui em cima, repete esta visita.',
-      porque: 'Assim a conversa e o painel de cada agente ficam no mesmo lugar, sem link escondido.' },
-    ...(agentesMenu.length > 1 ? [{ alvo: '#mlTroca', antes: abreM, titulo: 'Trocar de agente',
-      oque: 'Um seletor com todos os agentes que trabalham para você, cada um com a sua foto. O Admin vem primeiro, com o selo "admin"; o agente em que você está aparece marcado com "aqui".',
-      como: 'Toque em "trocar de agente" e escolha um da lista: a conversa e o menu passam a ser dele. Cada agente tem a própria conversa e a própria memória.',
-      porque: 'Você escolhe com quem falar sem sair desta tela. O Admin cuida da instalação e dos ajustes; os outros fazem o trabalho do dia a dia.' }] : []),
+    ...window.DGMenuLado.passosMenu({ nome, abre: abreM, fecha: fechaM, comTroca: agentesMenu.length > 1, naConversa: true }),
     { alvo: '#chat', antes: fechaM, titulo: 'A conversa',
       oque: 'Aqui aparece tudo o que você e ' + nome + ' já escreveram, na ordem, como num aplicativo de mensagens.',
       como: 'As respostas chegam sozinhas, sem precisar atualizar a página. Role para cima para ver as mensagens mais antigas; a seta no canto leva de volta para a mais nova. Quando uma mensagem veio ou foi respondida pelo WhatsApp ou pelo Telegram, ela ganha um selinho com o nome do canal; passe o dedo ou o mouse nele para ver os detalhes.',

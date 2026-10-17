@@ -1,0 +1,75 @@
+/* casca.css: o cabeçalho e a gaveta do menu da tela de Conversa, para as outras telas (Mesa, Lembretes,
+   Avisos e o painel do agente). Montados pelo casca.js. Carregue este arquivo ANTES do menu-lado.css:
+   as regras da gaveta aqui têm a mesma força das do computador (barra fixa) lá, e a última vence. O visual do cabeçalho e da gaveta é copiado do
+   conversa.css/chat.css de propósito: aqueles arquivos têm regras globais (html,body{overflow:hidden},
+   header{position:fixed}) que quebrariam estas telas. Tudo aqui vale só com html.casca.
+   O menu em si (retrato, seletor, itens) continua sendo o menu-lado.css, carregado junto. */
+
+html.casca{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+
+/* cabeçalho: a mesma altura, fonte e cores da Conversa; fica colado no topo ao rolar a página */
+html.casca #cabecalho,html.casca #cabecalho *,aside#menu,aside#menu *,#overlayMenu{
+  box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html.casca #cabecalho,aside#menu{
+  --line:rgba(0,0,0,.08);--muted:#6c8172;--txt:#0f1c14;
+  font:15.5px/1.46 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;color:var(--txt)}
+html.casca #cabecalho{position:sticky;top:0;z-index:20;min-height:58px;background:#fff;
+  border-bottom:1px solid var(--line);box-shadow:0 1px 4px rgba(0,0,0,.08);
+  display:flex;align-items:center;gap:10px;padding:4px 12px;padding-top:calc(4px + env(safe-area-inset-top))}
+html.casca #cabecalho .av{width:40px;height:40px;border-radius:50%;flex:0 0 40px;display:flex;align-items:center;
+  justify-content:center;font-size:18px;font-weight:600;color:#fff;background:linear-gradient(180deg,#57c98a,#2f9e5e);overflow:hidden}
+html.casca #cabecalho .av img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block}
+html.casca #cabecalho .who{flex:1;min-width:0}
+html.casca #cabecalho .who b{display:block;font-size:15.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+html.casca #cabecalho .who span{display:block;font-size:12.5px;color:var(--accent,#2f9e5e);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+html.casca #cabecalho .btn{border:1px solid var(--line);border-radius:18px;padding:8px 12px;font:inherit;font-size:13px;
+  font-weight:600;cursor:pointer;background:#f2f6f2;color:#38523f;white-space:nowrap;min-height:44px;min-width:44px}
+html.casca #cabecalho .btn:active{opacity:.7}
+html.casca #cabecalho .btn.ghost{background:transparent;border-color:transparent;color:var(--muted);padding:8px;font-size:20px}
+@media (max-width:700px){
+  html.casca #cabecalho{padding-left:6px;padding-right:6px;gap:8px}
+  html.casca #cabecalho .who b{white-space:normal;overflow:visible;line-height:1.2}
+}
+
+/* gaveta do menu (celular) e véu */
+#overlayMenu{position:fixed;inset:0;background:rgba(10,24,16,.45);z-index:40;display:none}
+#overlayMenu.abre{display:block}
+aside#menu{position:fixed;top:0;bottom:0;left:0;width:min(84vw,310px);background:#fff;z-index:41;
+  display:flex;flex-direction:column;box-shadow:2px 0 14px rgba(0,0,0,.2);
+  transform:translateX(-102%);transition:transform .22s ease}
+aside#menu.abre{transform:translateX(0)}
+aside#menu .pe{flex:0 0 auto;border-top:1px solid var(--line);padding:4px 8px 2px}
+aside#menu .pe .conta{display:flex;align-items:center;justify-content:space-between;gap:8px;
+  min-height:36px;padding:0 4px 0 8px}
+aside#menu .pe form{margin:0;margin-left:auto}
+aside#menu .pe .sair{min-height:36px;padding:0 16px;font:inherit;font-size:13px;font-weight:600;color:#38523f;
+  border:1px solid var(--line);background:#fff;border-radius:18px;cursor:pointer}
+aside#menu .fechar{position:absolute;top:calc(8px + env(safe-area-inset-top));right:8px;
+  border:0;background:transparent;font-size:20px;color:var(--muted);min-width:44px;min-height:44px;cursor:pointer}
+aside#menu .gm-tut{min-height:36px;padding:0 12px;border-radius:18px;border:1px solid var(--line);
+  background:#fff;color:#38523f;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer}
+
+/* computador: barra fixa, sem ☰ (o body ganha padding-left:240px no menu-lado.css, que precisa vir DEPOIS deste arquivo) */
+
+/* a página que a casca envolve nunca rola para o lado */
+html.casca,html.casca body{max-width:100%;overflow-x:hidden}
+
+/* visita guiada (tour.js): o painel não tem estas regras; nas outras telas elas já existem com os mesmos valores */
+html.casca #tourFundo{position:fixed;inset:0;z-index:90}
+html.casca #tourLuz{position:fixed;z-index:91;border-radius:10px;pointer-events:none;
+  box-shadow:0 0 0 9999px rgba(10,24,16,.66);outline:2px solid #fff}
+html.casca #tourCaixa{position:fixed;z-index:92;left:12px;right:12px;max-width:400px;margin:0 auto;background:#fff;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;color:#0f1c14;border-radius:14px;padding:14px 16px;box-shadow:0 6px 28px rgba(0,0,0,.35);
+  font-size:14px;line-height:1.45;max-height:70dvh;overflow-y:auto}
+html.casca #tourCaixa:focus{outline:none}
+html.casca #tourCaixa h4{margin:0 0 2px;font-size:15.5px}
+html.casca #tourCaixa .tour-n{font-size:11.5px;color:#6c8172;margin-bottom:6px}
+html.casca #tourCaixa p{margin:0 0 6px}
+html.casca #tourCaixa p b{color:#1f7a45}
+html.casca #tourCaixa .tour-acoes{display:flex;gap:8px;justify-content:flex-end;margin-top:10px;flex-wrap:wrap}
+html.casca #tourCaixa button{min-height:36px;padding:0 14px;border-radius:18px;border:1px solid #e1e8e3;
+  background:#fff;font-size:13.5px;font-weight:600;cursor:pointer;font-family:inherit;color:#38523f}
+html.casca #tourCaixa button.pri{background:#2f9e5e;border-color:#2f9e5e;color:#fff}
+html.casca #tourCaixa button:disabled{opacity:.4;cursor:default}
+html.casca #tourCaixa .tour-x{margin-right:auto}

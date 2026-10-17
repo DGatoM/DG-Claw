@@ -728,7 +728,8 @@
     abasIniciadas = true;
     for (const a of abas) criaAba(a);
     escolheAba(abaDesejada());
-    $('mzTutorial').onclick = () => {
+    // o botão Tutorial agora fica no cabeçalho da casca (casca.js), que chama esta função
+    raiz.DGMesaTutorial = () => {
       if (abaAtual !== 'tarefas') escolheAba('tarefas', true);
       iniciaPassos(passosPagina());
     };

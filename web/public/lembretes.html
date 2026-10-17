@@ -9,14 +9,10 @@
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 <link rel="icon" href="/icons/icon-192.png">
 <link rel="stylesheet" href="/lembretes.css">
+<link rel="stylesheet" href="/casca.css">
+<link rel="stylesheet" href="/menu-lado.css">
 </head>
 <body class="lp">
-<header class="lp-topo" data-tour="topo">
-  <a class="lp-voltar" href="/">← Conversa</a>
-  <h1>⏰ Lembretes</h1>
-  <button type="button" class="lp-btn" id="btnTutorial" title="Visita guiada desta tela: o que é cada parte e por que está aqui">Tutorial</button>
-</header>
-
 <main class="lp-main">
   <p class="lp-msg erro" id="msgGeral" role="alert" hidden></p>
 
@@ -103,6 +99,11 @@
 
 <script src="/avisos-aparelho.js"></script>
 <script src="/tour.js"></script>
+<script src="/menu-lado.js"></script>
+<script src="/casca.js"></script>
 <script src="/lembretes.js"></script>
+<script>
+DGCasca.monta({ pagina: 'lembretes', titulo: 'Lembretes', aoTutorial: function () { if (window.DGLembretesTutorial) window.DGLembretesTutorial(); } });
+</script>
 </body>
 </html>

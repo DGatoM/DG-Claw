@@ -287,6 +287,7 @@ function abrirAba(tab, botao) {
   document.getElementById(`panel-${tab}`).classList.add('active');
   currentTab = tab;
   tituloDaAba(tab, botao);
+  if (NA_PLATAFORMA && window.DGCasca) window.DGCasca.ativa(tab, (document.getElementById('titulo-aba') || {}).textContent || '');
   loadPanel(tab);
   // replaceState: trocar de aba não empilha histórico, e o link da barra fica compartilhável.
   if (NA_PLATAFORMA) history.replaceState(null, '', `#aba=${tab}`);
@@ -323,6 +324,56 @@ function abaInicialDaPlataforma() {
   if (pedida) console.warn(`[painel] aba "${pedida}" pedida em #aba= não existe aqui (ou é a conversa, que fica no chat). Abrindo status. Abas válidas: ${ABAS_VALIDAS.join(', ')}.`);
   return 'status';
 }
+
+// ─── Casca da Conversa (cabeçalho e menu iguais aos da Conversa) ───────────────
+// Sob a plataforma o menu lateral e o cabeçalho de cima são os da Conversa (web/public/casca.js, carregado
+// pelo {{CASCA}} do index.html). O menu das abas do painel passa a ser o dela; estes botões ficam escondidos.
+
+// Nome da aba como aparece no menu (sem o ícone colado no texto).
+function rotuloDaAba(botao) {
+  return [...botao.childNodes]
+    .filter((n) => !(n.nodeType === 1 && n.classList && (n.classList.contains('ico') || n.classList.contains('lock'))))
+    .map((n) => n.textContent).join('').trim();
+}
+
+// Abas que o menu da casca não conhece de fábrica: Sessões (só quando ligada) e as dos poderes (só quando instalados).
+const ABAS_EXTRAS_CASCA = ['sessoes', 'posts', 'followers', 'reunioes'];
+function sincronizaCasca() {
+  if (!NA_PLATAFORMA || !window.DGCasca) return;
+  const itens = [];
+  for (const chave of ABAS_EXTRAS_CASCA) {
+    const b = document.querySelector(`.tab[data-tab="${chave}"]`);
+    if (!b || b.hidden || b.classList.contains('locked')) continue;
+    const ico = b.querySelector('.ico');
+    itens.push({ chave, ico: ico ? ico.textContent : '•', nome: rotuloDaAba(b) });
+  }
+  const assinatura = JSON.stringify(itens);
+  if (sincronizaCasca._ultima === assinatura) return;
+  sincronizaCasca._ultima = assinatura;
+  window.DGCasca.extras(itens);
+}
+
+// O botão Tutorial do cabeçalho da casca abre o tutorial da aba; sem tutorial na aba, o do menu.
+function tutorialDaCasca() {
+  const btn = document.getElementById('btn-tutorial-aba');
+  if (btn && !btn.hidden) btn.click();
+  else if (window.DGCasca) window.DGCasca.tutorialMenu();
+}
+
+// Clicar num item do menu da casca estando já no painel só muda o #aba= (a página não recarrega).
+window.addEventListener('hashchange', () => {
+  if (!NA_PLATAFORMA) return;
+  const m = location.hash.match(/^#aba=([^&]*)/);
+  const pedida = m ? decodeURIComponent(m[1]) : '';
+  if (!pedida || pedida === currentTab) return;
+  const botao = document.querySelector(`.tab[data-tab="${pedida}"]`);
+  if (!botao || pedida === 'conversa') {
+    console.warn(`[painel] aba "${pedida}" pedida em #aba= não existe aqui. Abas válidas: ${ABAS_VALIDAS.join(', ')}.`);
+    return;
+  }
+  if (botao.classList.contains('locked')) { showToast(`Poder ${POWER_LABELS[botao.dataset.power] || botao.dataset.power} não instalado`); return; }
+  abrirAba(pedida, botao);
+});
 
 // Titulo e subtitulo da area principal: quem manda e a aba escolhida no menu.
 const SUBTITULO_ABA = {
@@ -2346,6 +2397,18 @@ async function initPowers() {
   // veria que existe visita guiada.
   const abaInicial = NA_PLATAFORMA ? abaInicialDaPlataforma() : 'conversa';
   atualizarBotaoTutorial(abaInicial);
+  if (NA_PLATAFORMA && window.DGCasca) {
+    const bi = document.querySelector(`.tab[data-tab="${abaInicial}"]`);
+    window.DGCasca.monta({ pagina: abaInicial, titulo: bi ? rotuloDaAba(bi) : '', aoTutorial: tutorialDaCasca });
+    sincronizaCasca();
+    // Sessões e os poderes aparecem e somem depois do boot: o menu acompanha as abas
+    const tabs = document.getElementById('tabs');
+    if (tabs && window.MutationObserver) {
+      new MutationObserver(sincronizaCasca).observe(tabs, { attributes: true, subtree: true, attributeFilter: ['hidden', 'class'] });
+    }
+  } else if (NA_PLATAFORMA) {
+    console.warn('[painel] a casca da Conversa (/casca.js) não carregou: o painel usa o menu antigo. Confira se o Web serve /casca.js.');
+  }
 
   // A saúde começa ANTES da conversa: é ela que decide se a faixa de aviso aparece
   // e, com ela, se o botão "acordar" fica ou sai. Não espero: a conversa não depende.

@@ -8,17 +8,25 @@
 <meta name="theme-color" content="#2f9e5e">
 <link rel="icon" href="/icons/icon-192.png">
 <link rel="stylesheet" href="/avisos.css">
+<link rel="stylesheet" href="/casca.css">
+<link rel="stylesheet" href="/menu-lado.css">
 <style>
-  body{margin:0;background:#f4f8f4;font:15px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;color:#0f1c14}
-  .av-barra{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:12px;min-height:48px;padding:0 14px;
-    background:#fff;border-bottom:1px solid #e1e8e3}
-  .av-barra a{display:inline-flex;align-items:center;min-height:36px;color:#2f9e5e;font-weight:600;text-decoration:none}
+  body{margin:0;background:#f4f8f4;font:15.5px/1.46 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;color:#0f1c14}
+  /* o título e o Tutorial desta tela agora ficam no cabeçalho da casca */
+  body .av-cab{display:none}
 </style>
 </head>
 <body>
-<nav class="av-barra" aria-label="Navegação"><a href="/">← Conversa</a></nav>
 <div id="avisosRaiz"></div>
 <script src="/tour.js"></script>
+<script src="/menu-lado.js"></script>
+<script src="/casca.js"></script>
 <script src="/avisos.js"></script>
+<script>
+DGCasca.monta({ pagina: 'avisos', titulo: 'Quadro de avisos', aoTutorial: function () {
+  var b = document.querySelector('[data-av-tutorial="pagina"]');
+  if (b) b.click();
+} });
+</script>
 </body>
 </html>

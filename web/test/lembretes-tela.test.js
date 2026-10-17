@@ -22,9 +22,9 @@ test('conversa.html inclui a faixa com uma linha de script e uma de css', () => 
   assert.ok(h.indexOf('/tour.js') < h.indexOf('/lembretes-faixa.js'), 'a faixa usa o DGTour');
 });
 
-test('sw.js guarda os estáticos dos lembretes e está na v18', () => {
+test('sw.js guarda os estáticos dos lembretes e está na v19 ou mais', () => {
   const s = pub('sw.js');
-  assert.match(s, /dgclaw-estaticos-v18\b/);
+  assert.match(s, /dgclaw-estaticos-v(1[9]|[2-9][0-9])\b/);
   for (const u of ['/lembretes-faixa.js', '/lembretes.js', '/lembretes.css']) assert.ok(s.includes(`'${u}'`), u);
 });
 
@@ -32,7 +32,10 @@ test('lembretes.html carrega avisos, tour e a tela, com Tutorial e ? por seção
   const h = pub('lembretes.html');
   for (const src of ['/avisos-aparelho.js', '/tour.js', '/lembretes.js']) assert.ok(h.includes(`<script src="${src}">`), src);
   assert.ok(h.includes('href="/lembretes.css"'));
-  assert.match(h, /id="btnTutorial"/);
+  // o Tutorial e o título agora vêm do cabeçalho da casca; a página não tem mais cabeçalho próprio
+  assert.match(h, /DGCasca\.monta\(\{ pagina: 'lembretes'/);
+  assert.doesNotMatch(h, /lp-voltar|lp-topo/);
+  assert.ok(h.indexOf('href="/casca.css"') < h.indexOf('href="/menu-lado.css"'), 'casca.css vem antes do menu-lado.css');
   assert.equal((h.match(/data-ajuda="/g) || []).length, 3);
   assert.match(h, /Ativar avisos neste aparelho/);
   assert.match(h, /Mandar aviso de teste/);

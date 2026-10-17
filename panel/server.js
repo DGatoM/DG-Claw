@@ -385,6 +385,18 @@ const VOLTAR_HTML =
   `<a class="btn-voltar" href="${URL_CONVERSA}" aria-label="voltar para a conversa">` +
   '<span aria-hidden="true">←</span><span class="btn-voltar-texto">conversa</span></a>';
 
+// {{CASCA}}: o cabeçalho e o menu da Conversa também no painel (web/public/casca.js).
+// Só sob a plataforma (BASE preenchido): os arquivos são servidos pelo Web, na raiz da MESMA origem,
+// por isso os caminhos são absolutos e não levam o prefixo. Painel solto não tem esses arquivos:
+// vira vazio e a tela fica exatamente como era. O casca.css vem ANTES do menu-lado.css (a ordem importa).
+const CASCA_HTML = [
+  '<link rel="stylesheet" href="/casca.css">',
+  '<link rel="stylesheet" href="/menu-lado.css">',
+  '<script src="/tour.js"></script>',
+  '<script src="/menu-lado.js"></script>',
+  '<script src="/casca.js"></script>',
+].join('\n  ');
+
 // Devolve o HTML já com {{BASE}} trocado, ou null se o arquivo não existe.
 function carregarTemplate(filePath) {
   let mtimeMs;
@@ -396,6 +408,7 @@ function carregarTemplate(filePath) {
   const cached = _htmlCache.get(filePath);
   if (cached && cached.mtimeMs === mtimeMs) return cached.html;
   const html = fs.readFileSync(filePath, 'utf-8')
+    .split('{{CASCA}}').join(BASE ? CASCA_HTML : '')
     .split('{{VOLTAR}}').join(BASE ? VOLTAR_HTML : '')
     .split('{{BASE_JSON}}').join(JSON.stringify(BASE))
     .split('{{BASE}}').join(BASE);

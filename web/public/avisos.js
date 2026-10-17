@@ -472,8 +472,13 @@
 
   function tour(chave) {
     if (!window.DGTour) { status('O modo tutorial não carregou nesta página.', 'erro'); return; }
-    const passos = chave === 'pagina'
+    let passos = chave === 'pagina'
       ? [].concat(PASSOS.pagina, PASSOS.postar, PASSOS.filtros, PASSOS.lista) : PASSOS[chave];
+    // Na tela /avisos o título e o Tutorial moram no cabeçalho da casca e o .av-cab fica escondido: o passo do título aponta para lá.
+    const cab = raizEl && raizEl.querySelector('.av-cab');
+    if (chave === 'pagina' && cab && cab.offsetParent === null && document.getElementById('cabecalho')) {
+      passos = passos.map(p => (p.alvo === '[data-av-tour="titulo"]' ? Object.assign({}, p, { alvo: '#cabecalho' }) : p));
+    }
     window.DGTour.inicia({ passos });
   }
 

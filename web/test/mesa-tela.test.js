@@ -106,10 +106,14 @@ test('histórico aceita formatos diferentes e escapa', () => {
   assert.doesNotMatch(h, /<x>/);
 });
 
-test('mesa.html: ordem dos scripts, link de volta e o Quadro de avisos ligado', () => {
+test('mesa.html: ordem dos scripts, casca no lugar do cabeçalho antigo e o Quadro de avisos ligado', () => {
   const h = pub('mesa.html');
   assert.ok(h.indexOf('<script src="/tour.js">') < h.indexOf('<script src="/mesa.js">'));
-  assert.match(h, /<a class="mz-volta" href="\/"[^>]*>← Conversas<\/a>/);
+  assert.ok(h.indexOf('<script src="/menu-lado.js">') < h.indexOf('<script src="/casca.js">'));
+  assert.ok(h.indexOf('<script src="/casca.js">') < h.indexOf('<script src="/mesa.js">'));
+  assert.ok(h.indexOf('href="/casca.css"') < h.indexOf('href="/menu-lado.css"'), 'casca.css vem antes do menu-lado.css');
+  assert.match(h, /DGCasca\.monta\(\{ pagina: 'mesa', titulo: 'Mesa de tarefas'/);
+  assert.doesNotMatch(h, /mz-volta|mz-topo/);
   assert.match(h, /^<link rel="stylesheet" href="\/avisos\.css">$/m);
   assert.match(h, /^<script src="\/avisos\.js"><\/script>$/m);
 });

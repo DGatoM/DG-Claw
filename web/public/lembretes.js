@@ -313,14 +313,15 @@
     if (!window.DGTour) { msg('msgGeral', 'A visita guiada não carregou. Recarregue a página.', 'erro'); return; }
     window.DGTour.inicia({
       passos: [
-        { alvo: '[data-tour="topo"]', titulo: 'Lembretes', oque: 'A tela de todos os lembretes que insistem até você confirmar.', como: 'O DG Claw confere a cada 15 segundos. Na hora marcada, avisa na faixa da conversa, no aparelho e pelo agente, e repete até você tocar Feito ou Adiar.', porque: 'Para nada que você pediu para lembrar ficar esquecido.' },
+        { alvo: '#cabecalho', titulo: 'Lembretes', oque: 'A tela de todos os lembretes que insistem até você confirmar.', como: 'O DG Claw confere a cada 15 segundos. Na hora marcada, avisa na faixa da conversa, no aparelho e pelo agente, e repete até você tocar Feito ou Adiar.', porque: 'Para nada que você pediu para lembrar ficar esquecido.' },
         PASSOS.avisos, PASSOS.novo, PASSOS.lista,
       ],
     });
   }
 
   function inicia() {
-    $('btnTutorial').onclick = iniciaTutorial;
+    // o botão Tutorial fica no cabeçalho da casca (casca.js), que chama esta função
+    window.DGLembretesTutorial = iniciaTutorial;
     document.querySelectorAll('[data-ajuda]').forEach(b => { b.onclick = () => ajuda(b.dataset.ajuda); });
     $('btnAtivar').onclick = () => acaoAvisos($('btnAtivar'), () => window.DGClawAvisos.ativar(), () => 'Pronto: os avisos estão ativos neste aparelho.');
     $('btnDesativar').onclick = () => acaoAvisos($('btnDesativar'), () => window.DGClawAvisos.desativar(), () => 'Avisos desligados neste aparelho.');

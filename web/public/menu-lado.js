@@ -27,6 +27,55 @@
   /* Entrada fixa do menu: a tela de lembretes (vale para qualquer agente). */
   const LINK_LEMBRETES = { nome: 'Lembretes', ico: '⏰', href: '/lembretes' };
 
+  /* Páginas fora do painel (Mesa, Lembretes) não têm o agente no caminho: levam ?a=<slug> para a
+     tela saber de quem é o menu. */
+  function comAgente(href, id) {
+    if (!id) return href;
+    return href + (href.indexOf('?') >= 0 ? '&' : '?') + 'a=' + encodeURIComponent(id);
+  }
+
+  /* Qual item do menu o link representa: 'mesa', 'lembretes', a chave de #aba=... ou '' (outro). */
+  function chaveDoHref(href) {
+    const h = String(href || '');
+    const aba = /#aba=([^&]*)/.exec(h);
+    if (aba) return decodeURIComponent(aba[1]);
+    const caminho = h.split(/[?#]/)[0].replace(/\/+$/, '');
+    if (caminho === '/mesa') return 'mesa';
+    if (caminho === '/lembretes') return 'lembretes';
+    if (/^\/a\/[^/]+$/.test(caminho)) return 'conversa';
+    return '';
+  }
+
+  /* Itens extras do painel que dependem do que está ligado (Sessões e os poderes). Cada um: { chave, ico, nome }. */
+  function linksExtras(a, extras) {
+    if (!a || !a.tem_painel || !Array.isArray(extras)) return [];
+    const base = a.painel_url || ('/p/' + encodeURIComponent(a.id) + '/');
+    return extras.filter(x => x && x.chave && x.nome).map(x => ({ nome: x.nome, ico: x.ico || '•', href: base + '#aba=' + x.chave }));
+  }
+
+  /* Passos da visita guiada do menu, os mesmos na Conversa e nas outras telas.
+     o = { nome, abre(), fecha(), comTroca, naConversa } */
+  function passosMenu(o) {
+    const nome = o.nome;
+    const abre = o.abre || function () {};
+    const passos = [{
+      alvo: '#mlMoldura', antes: abre, titulo: 'O menu do agente',
+      oque: 'A foto, o nome e as páginas de ' + nome + ', sempre no lado esquerdo. No computador ele fica aberto o tempo todo; no celular abre pelo botão ☰.',
+      como: (o.naConversa ? 'O item Conversa (esta tela) fica no alto.' : 'O item Conversa, no alto, leva de volta ao chat.') +
+        ' Os outros itens levam à Mesa, aos Lembretes e às páginas do painel dele. O Tutorial, aqui em cima, repete esta visita.',
+      porque: 'Assim a conversa e o painel de cada agente ficam no mesmo lugar, sem link escondido.',
+    }];
+    if (o.comTroca) {
+      passos.push({
+        alvo: '#mlTroca', antes: abre, titulo: 'Trocar de agente',
+        oque: 'Um seletor com todos os agentes que trabalham para você, cada um com a sua foto. O Admin vem primeiro, com o selo "admin"; o agente em que você está aparece marcado com "aqui".',
+        como: 'Toque em "trocar de agente" e escolha um da lista: a conversa e o menu passam a ser dele. Cada agente tem a própria conversa e a própria memória.',
+        porque: 'Você escolhe com quem falar sem sair desta tela. O Admin cuida da instalação e dos ajustes; os outros fazem o trabalho do dia a dia.',
+      });
+    }
+    return passos;
+  }
+
   /* A foto vem SEMPRE do próprio agente do item. Sem foto, círculo com a cor dele e a letra. */
   function fotoDe(a) {
     const img = a.avatar_img || (/^https:\/\//i.test(a.avatar || '') ? a.avatar : '');
@@ -61,7 +110,7 @@
     return { tipo: 'sem', texto: 'Este navegador não oferece a instalação por aqui. No Chrome ou no Edge, abra o menu do navegador e procure Instalar app. No Firefox para computador, o recurso não existe.' };
   }
 
-  if (!raiz.document) return { ABAS_PAINEL, LINK_LEMBRETES, itemAgente, linksPainel, instrucaoInstalar };
+  if (!raiz.document) return { ABAS_PAINEL, LINK_LEMBRETES, itemAgente, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar };
 
   /* ── Parte com DOM ─────────────────────────────────────────────────────── */
   const $ = id => document.getElementById(id);
@@ -138,7 +187,33 @@
     }
   }
 
-  /* opcoes: { agente, agentes (a lista já carregada), fecha() (fecha a gaveta) } */
+  let agenteAtual = null;
+
+  /* Marca o item da página aberta (.ativo e aria-current). chave: 'conversa', 'mesa', 'lembretes' ou a de uma aba do painel.
+     Chave sem item no menu (ex.: 'avisos') não marca nenhum. */
+  let chaveAtiva = '';
+  function marca(chave) {
+    chaveAtiva = chave;
+    document.querySelectorAll('#mlTabs .ml-tab').forEach(el => {
+      const ativo = !!chave && chaveDoHref(el.getAttribute('href') || (el.id === 'gmIrConversa' ? '/a/x' : '')) === chave;
+      el.classList.toggle('ativo', ativo);
+      if (ativo) el.setAttribute('aria-current', 'page'); else el.removeAttribute('aria-current');
+    });
+  }
+
+  /* Troca os itens extras do painel (Sessões, Posts...): chamado de novo quando o que está ligado muda. */
+  function extras(lista) {
+    const painel = $('mlPainel');
+    if (!painel || !agenteAtual) return;
+    painel.querySelectorAll('[data-extra]').forEach(el => el.remove());
+    const links = linksExtras(agenteAtual, lista);
+    painel.insertAdjacentHTML('beforeend', links.map(l => `<a class="ml-tab" data-extra="1" href="${esc(l.href)}">` +
+      `<span class="ml-ico" aria-hidden="true">${esc(l.ico)}</span>${esc(l.nome)}</a>`).join(''));
+    painel.hidden = !painel.children.length;
+    marca(chaveAtiva);
+  }
+
+  /* opcoes: { agente, agentes (a lista já carregada), fecha() (fecha a gaveta), ativo (chave da página aberta; padrão 'conversa'), extras (itens extras do painel), erroLista (texto: a lista de agentes falhou) } */
   function inicia(opcoes) {
     const ag = opcoes.agente;
     $('mlMoldura').innerHTML = `<span class="ml-foto" style="background:${esc(ag.cor || '#2f9e5e')}">${fotoDe(ag)}</span>`;
@@ -153,7 +228,8 @@
     document.addEventListener('keydown', ev => {
       if (ev.key === 'Escape' && troca.classList.contains('aberto')) { abre(false); ev.stopPropagation(); }
     }, true);
-    if (Array.isArray(opcoes.agentes)) pintaLista(ag, opcoes.agentes, null);
+    if (opcoes.erroLista) { pintaLista(ag, [], opcoes.erroLista); abre(true); }   // a lista não veio: o erro aparece já aberto
+    else if (Array.isArray(opcoes.agentes)) pintaLista(ag, opcoes.agentes, null);
     else recarrega(ag);
     /* Agente criado ou apagado em outra aba aparece sem recarregar a página: a cada 30 s e quando a aba volta a ficar visível. */
     const atualiza = () => { if (document.visibilityState === 'visible') recarrega(ag, true); };
@@ -164,15 +240,31 @@
     painel.innerHTML = links.map(l => `<a class="ml-tab" href="${esc(l.href)}">` +
       `<span class="ml-ico" aria-hidden="true">${l.ico}</span>${esc(l.nome)}</a>`).join('');
     painel.hidden = !links.length;
-    $('mlTabs').insertAdjacentHTML('beforeend', `<div data-tour="gm-lembretes"><a class="ml-tab" href="${LINK_LEMBRETES.href}">` +
+    $('mlTabs').insertAdjacentHTML('beforeend', `<div data-tour="gm-lembretes"><a class="ml-tab" href="${comAgente(LINK_LEMBRETES.href, ag.id)}">` +
       `<span class="ml-ico" aria-hidden="true">${LINK_LEMBRETES.ico}</span>${LINK_LEMBRETES.nome}</a></div>`);
+    // a Mesa já está no HTML com href="/mesa": passa a levar o agente junto
+    const mesa = document.querySelector('#mlTabs a[href="/mesa"]');
+    if (mesa) mesa.setAttribute('href', comAgente('/mesa', ag.id));
+    agenteAtual = ag;
+    if (Array.isArray(opcoes.extras)) extras(opcoes.extras);
 
-    $('gmIrConversa').onclick = () => opcoes.fecha();
+    /* Fora da Conversa, o item Conversa vira link para ela; na Conversa, só fecha a gaveta. */
+    const irConversa = $('gmIrConversa');
+    if (opcoes.ativo && opcoes.ativo !== 'conversa') {
+      const a = document.createElement('a');
+      a.className = 'ml-tab'; a.id = 'gmIrConversa';
+      a.href = ag.id ? '/a/' + encodeURIComponent(ag.id) : '/';
+      a.innerHTML = '<span class="ml-ico" aria-hidden="true">◔</span>Conversa';
+      irConversa.replaceWith(a);
+    } else {
+      irConversa.onclick = () => opcoes.fecha();
+    }
+    marca(opcoes.ativo || 'conversa');
     $('mlInstalar').onclick = aoInstalar;
     // escolher uma página fecha a gaveta (a navegação em seguida troca a tela)
     $('mlTabs').addEventListener('click', ev => { if (ev.target.closest('a')) opcoes.fecha(); });
     pintaInstalar();
   }
 
-  return { ABAS_PAINEL, LINK_LEMBRETES, itemAgente, linksPainel, instrucaoInstalar, inicia };
+  return { ABAS_PAINEL, LINK_LEMBRETES, itemAgente, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar, inicia, marca, extras };
 });

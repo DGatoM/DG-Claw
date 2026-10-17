@@ -70,8 +70,16 @@ ok(/<a class="btn-voltar" href="\/a\/ana" aria-label="voltar para a conversa">/.
 ok(sob.includes('btn-voltar-texto">conversa<'), 'sob a plataforma: o rótulo é "conversa"');
 ok(!sob.includes('meus assistentes'), 'sob a plataforma: sumiu "meus assistentes"');
 
+// {{CASCA}}: sob a plataforma o index.html carrega o cabeçalho e o menu da Conversa (casca.js)
+ok(sob.includes('<link rel="stylesheet" href="/casca.css">') && sob.includes('<link rel="stylesheet" href="/menu-lado.css">'), 'sob a plataforma: links do casca.css e do menu-lado.css');
+ok(sob.indexOf('/casca.css') < sob.indexOf('/menu-lado.css'), 'sob a plataforma: casca.css vem antes do menu-lado.css');
+ok(['/tour.js', '/menu-lado.js', '/casca.js'].every((u) => sob.includes(`<script src="${u}"></script>`)), 'sob a plataforma: scripts tour, menu-lado e casca');
+ok(sob.indexOf('/menu-lado.js') < sob.indexOf('/casca.js') && sob.indexOf('/casca.js') < sob.indexOf('/js/app.js'), 'sob a plataforma: a casca carrega antes do app.js');
+ok(!sob.includes('{{CASCA}}'), 'sob a plataforma: placeholder trocado');
+
 const solto = await paginaInicial('');
 ok(solto != null && !solto.includes('btn-voltar'), 'painel solto: sem botão de voltar, como antes');
+ok(solto != null && !/casca|menu-lado/.test(solto), 'painel solto: nada da casca (sem links nem placeholder)');
 
 fs.rmSync(RAIZ, { recursive: true, force: true });
 console.log(falhas ? `\n${falhas} falha(s)` : '\ntudo certo');

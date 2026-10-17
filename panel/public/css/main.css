@@ -623,3 +623,18 @@ html[data-tema="escuro"] .rt-titulo{color:var(--acento2)}
 .bolha .rt{white-space:normal}
 .bolha.de-voce a,.bolha.de-voce .rt-titulo{color:inherit;text-decoration:underline}
 .bolha.de-voce code{background:rgba(255,255,255,.2)}
+
+/* ─── sob a plataforma: a casca da Conversa (web/public/casca.js) assume o menu e o cabeçalho ───
+   Só vale com html.casca, que o casca.js liga. Painel solto não carrega a casca e não passa por aqui.
+   O menu lateral próprio (.lado), o véu, o ☰ e o "← conversa" saem; o cabeçalho do painel (título da
+   aba, Tutorial, selo de saúde) vira uma faixa de título dentro da área de conteúdo. */
+html.casca .lado,html.casca .veu,html.casca .btn-menu,html.casca .btn-voltar{display:none!important}
+html.casca .app{display:block;min-height:0}
+html.casca .principal{min-width:0}
+html.casca .header{position:static;backdrop-filter:none;padding:14px 20px 12px;background:var(--bg)}
+@media (max-width:860px){
+  html.casca .header{padding:12px 14px 10px}
+  html.casca .content{padding-left:14px;padding-right:14px}
+}
+/* o Tutorial da aba é o do cabeçalho da casca (que clica neste botão); dois botões iguais confundem */
+html.casca .btn-tutorial-aba{display:none!important}

@@ -13,16 +13,12 @@
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 <link rel="icon" href="/icons/icon-192.png">
 <link rel="stylesheet" href="/mesa.css">
+<link rel="stylesheet" href="/casca.css">
+<link rel="stylesheet" href="/menu-lado.css">
 <!-- Quadro de avisos (frente 5) -->
 <link rel="stylesheet" href="/avisos.css">
 </head>
 <body>
-
-<header class="mz-topo" data-tour="mz-cabecalho">
-  <a class="mz-volta" href="/" title="Voltar para as conversas">← Conversas</a>
-  <h1 class="mz-titulo">Mesa de tarefas</h1>
-  <button class="mz-btn" id="mzTutorial" type="button" title="Visita guiada: o que é cada parte e por que está aqui">Tutorial</button>
-</header>
 
 <nav class="mz-abas" id="mzAbas" role="tablist" aria-label="Frentes da mesa" data-tour="mz-abas"></nav>
 
@@ -31,8 +27,13 @@
 </main>
 
 <script src="/tour.js"></script>
+<script src="/menu-lado.js"></script>
+<script src="/casca.js"></script>
 <script src="/mesa.js"></script>
 <!-- Quadro de avisos (frente 5) -->
 <script src="/avisos.js"></script>
+<script>
+DGCasca.monta({ pagina: 'mesa', titulo: 'Mesa de tarefas', aoTutorial: function () { if (window.DGMesaTutorial) window.DGMesaTutorial(); } });
+</script>
 </body>
 </html>
