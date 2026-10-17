@@ -642,6 +642,21 @@ gerar_hash() {
     printf '%s' "$hash"
 }
 
+# gravar_web_env_senha <usuario> <hash>: grava usuario e hash no web.env SEM apagar o resto.
+# O usuario pode ter posto ali as chaves de voz (GROQ_API_KEY, ELEVENLABS_API_KEY...) e outros
+# ajustes; reescrever o arquivo inteiro a cada atualizacao as perdia. Filtra com grep -v (o hash
+# tem $ e outros caracteres especiais, entao nada de sed com ele) e escreve com printf '%s'.
+gravar_web_env_senha() {
+    local usuario="$1" hash="$2" web_env="$DG_ETC/web.env" resto=""
+    if [ -f "$web_env" ]; then
+        resto="$(grep -v -e '^DGCLAW_PANEL_USER=' -e '^DGCLAW_PANEL_PASSWORD_HASH=' "$web_env" || true)"
+    fi
+    {
+        [ -n "$resto" ] && printf '%s\n' "$resto"
+        printf "DGCLAW_PANEL_USER=%s\nDGCLAW_PANEL_PASSWORD_HASH='%s'\n" "$usuario" "$hash"
+    } | escrever_arquivo "$web_env" 600
+}
+
 configurar_senha() {
     passo "Guardando o usuario e a senha do painel"
     local web_env="$DG_ETC/web.env" hash="" tem=0
@@ -669,12 +684,12 @@ configurar_senha() {
         if [ "$tem" = 1 ]; then
             hash="$(sed -n "s/^DGCLAW_PANEL_PASSWORD_HASH='\(.*\)'$/\1/p;T;q" "$web_env")"
         fi
-        printf "DGCLAW_PANEL_USER=%s\nDGCLAW_PANEL_PASSWORD_HASH='%s'\n" "$USUARIO" "$hash" | escrever_arquivo "$web_env" 600
+        gravar_web_env_senha "$USUARIO" "$hash"
         PRIMEIRO_ACESSO_TOKEN="$(gerar_primeiro_acesso "$USUARIO")"
         ok "link de primeiro acesso gerado (vale 30 min, uso unico)"
         return 0
     fi
-    printf "DGCLAW_PANEL_USER=%s\nDGCLAW_PANEL_PASSWORD_HASH='%s'\n" "$USUARIO" "$hash" | escrever_arquivo "$web_env" 600
+    gravar_web_env_senha "$USUARIO" "$hash"
 }
 
 # --- 8. web ---------------------------------------------------------------------

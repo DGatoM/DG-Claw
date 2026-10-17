@@ -167,6 +167,22 @@ caso_rodar_duas_vezes_nao_duplica() {
     limpar_cenario
 }
 
+caso_reinstalar_preserva_chaves_do_web_env() {
+    novo_cenario
+    afirma "primeira rodada" instalacao_basica
+    local e="$RAIZ/etc/dgclaw/web.env"
+    printf 'GROQ_API_KEY=x\nDGCLAW_WEB_AVISOS=off\n' >>"$e"
+    afirma "segunda rodada sem senha nova" instalar "" --usuario maria --provedor claude
+    afirma "GROQ_API_KEY continua" grep -qx 'GROQ_API_KEY=x' "$e"
+    afirma "DGCLAW_WEB_AVISOS continua" grep -qx 'DGCLAW_WEB_AVISOS=off' "$e"
+    igual "$(contar "$e" 'DGCLAW_PANEL_USER=')" 1 || { echo "      FALHOU: usuario duplicado"; FALHAS=$((FALHAS + 1)); }
+    igual "$(contar "$e" 'DGCLAW_PANEL_PASSWORD_HASH=')" 1 || { echo "      FALHOU: hash duplicado"; FALHAS=$((FALHAS + 1)); }
+    afirma "usuario certo" grep -qx 'DGCLAW_PANEL_USER=maria' "$e"
+    afirma "hash no formato" grep -qE "^DGCLAW_PANEL_PASSWORD_HASH='scrypt[$]teste[$][0-9a-f]{64}'$" "$e"
+    afirma "ainda 600" modo_e "$e" 600
+    limpar_cenario
+}
+
 caso_senha_nova_troca_o_hash() {
     novo_cenario
     afirma "primeira rodada" instalacao_basica
