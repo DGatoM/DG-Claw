@@ -104,7 +104,7 @@ const chat = $('chat'), wrap = $('wrap'), estadoEl = $('estado'), entrada = $('e
    ResizeObserver roda depois do layout e antes de pintar: nenhum quadro sai fora do lugar. */
 const rolagem = (() => {
   const R = window.DGRolagem;
-  const est = { noFim: true, ancora: null };
+  const est = { noFim: true, ancora: null, top: 0 };
   const nosVistos = new WeakSet();
   const itens = () => {
     const l = Array.from(wrap.children);
@@ -112,6 +112,7 @@ const rolagem = (() => {
     return l.filter(e => !e.hidden && e.offsetHeight > 0);
   };
   function captura() {
+    est.top = chat.scrollTop;
     est.noFim = R.estaNoFim(chat.scrollTop, chat.scrollHeight, chat.clientHeight);
     est.ancora = null;
     if (est.noFim) return;
@@ -151,8 +152,11 @@ const rolagem = (() => {
     new MutationObserver(ms => { for (const m of ms) for (const n of m.addedNodes) observa(n); })
       .observe(chat, { childList: true });
   }
-  // passivo: só mede. A posição de quem está rolando nunca é tocada aqui.
-  chat.addEventListener('scroll', captura, { passive: true });
+  // passivo: só mede. A posição de quem está rolando nunca é tocada aqui. O evento de scroll chega
+  // um quadro DEPOIS do scrollTop que nós mesmos pusemos (aoFim, aplica); se o conteúdo cresceu nesse
+  // meio tempo (visual, imagem), medir de novo daria "não estou no fim" e a conversa ficaria para trás.
+  // Por isso só mede quando o scrollTop mudou de verdade desde a última captura.
+  chat.addEventListener('scroll', () => { if (R.moveuDeVerdade(est.top, chat.scrollTop)) captura(); }, { passive: true });
   captura();
   return {
     captura,

@@ -378,6 +378,26 @@ async function testeBalao(browser, base, opts, { w, h }, dir, rotulo) {
       corpoRola: document.documentElement.scrollHeight > innerHeight + 1,
       faixas: [...document.querySelectorAll('#faixaLembretes, .foco')].filter((e) => !e.hidden && e.getBoundingClientRect().height).map((e) => ({ id: e.id || e.className, h: Math.round(e.getBoundingClientRect().height) })) };
   }, forcaRolar);
+  // Visual/imagem que CRESCE logo depois de a conversa rolar ao fim (o caso do dgvis e das imagens): o scrollTop é posto
+  // e, no mesmo quadro, o conteúdo cresce, antes do evento de scroll chegar. Quem estava no fim tem de continuar no fim.
+  const crescimento = await page.evaluate(async () => {
+    const chat = document.querySelector('#chat'), wrap = document.querySelector('#wrap');
+    if (!wrap) return null;
+    const espaco = document.createElement('div');
+    espaco.style.cssText = 'height:0;flex:none';
+    wrap.appendChild(espaco);
+    await new Promise((r) => setTimeout(r, 200));
+    chat.scrollTop = 0;                                  // sai do fim (senão o scroll nem dispara)
+    await new Promise((r) => setTimeout(r, 300));
+    document.querySelector('#btnFim').click();           // vai ao fim pelo mesmo caminho do primeiro carregamento (rolagem.aoFim)
+    espaco.style.height = '1200px';                      // e o conteúdo cresce antes do evento de scroll
+    await new Promise((r) => setTimeout(r, 600));
+    const falta = Math.round(chat.scrollHeight - chat.clientHeight - chat.scrollTop);
+    espaco.remove();
+    return falta;
+  });
+  console.log(`  crescimento depois do fim: faltam ${crescimento}px`);
+  if (crescimento != null && crescimento > 80) falha(rotulo, tela, 'conteúdo que cresce depois de a conversa rolar ao fim deixou a conversa para trás', 'falta <= 80px para o fim', `faltam ${crescimento}px`);
   const antes = await medeBalao(false);
   await page.screenshot({ path: path.join(dir, '98-balao-antes-das-faixas.png') });
   await page.waitForSelector('#faixaLembretes:not([hidden])', { timeout: 15000 }).catch(() => avisa(rotulo, tela, 'A faixa de lembretes não apareceu.'));
