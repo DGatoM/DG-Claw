@@ -46,6 +46,9 @@ html[data-tema="escuro"]{
    (a barra do ditado, a faixa de aviso da Conversa, o recado do leitor) ganhava do
    estilo do navegador e aparecia com `hidden` e tudo. */
 [hidden]{display:none!important}
+/* sem fundo no html, o app instalado no iPhone mostrava uma faixa branca no pé */
+html{background:var(--bg);min-height:100%}
+body{min-height:100dvh}
 body{margin:0;background:var(--bg);color:var(--texto);
      font:15px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
      -webkit-font-smoothing:antialiased}
@@ -273,7 +276,8 @@ button,input,select{font:inherit;color:inherit}
   border:1px dashed color-mix(in srgb,var(--erro) 45%,var(--linha))}
 .rotina-topo{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .rotina-nome{font-size:13.5px;font-weight:600;min-width:0}
-.rotina-quando{font-size:12.5px;color:var(--acento1);white-space:nowrap}
+/* agenda longa ("em 13-17/10, às 00:00, 05:00, ...") quebra dentro do cartão em vez de vazar no celular */
+.rotina-quando{font-size:12.5px;color:var(--acento1);white-space:normal;overflow-wrap:anywhere;min-width:0}
 html[data-tema="escuro"] .rotina-quando{color:var(--acento2)}
 .rotina-recado{font-size:12.5px;color:var(--fraco);margin-top:5px;font-style:italic}
 .rotina-desc{font-size:12.5px;color:var(--fraco);margin-top:5px}
