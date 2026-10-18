@@ -1,0 +1,456 @@
+{
+  "versao": 1,
+  "niveis": [
+    "pessoal",
+    "escritorio",
+    "empresa",
+    "regulado"
+  ],
+  "chaves": {
+    "multiusuario": {
+      "tipo": "bool",
+      "descricao": "Várias pessoas, cada uma com seu login e seu papel",
+      "como": "O painel passa a ter usuários, papéis e a lista de agentes que cada um enxerga",
+      "porque": "Num escritório ou empresa, cada pessoa precisa de login próprio para saber quem fez o quê e para limitar o que cada um vê",
+      "valores": [
+        false,
+        true
+      ],
+      "forte": true,
+      "nivel": {
+        "pessoal": false,
+        "escritorio": true,
+        "empresa": true,
+        "regulado": true
+      },
+      "travado": {
+        "escritorio": true,
+        "empresa": true,
+        "regulado": true
+      }
+    },
+    "2fa": {
+      "tipo": "enum",
+      "descricao": "Segundo fator (código do aplicativo autenticador) no login",
+      "como": "Depois da senha, o painel pede um código de 6 dígitos que muda a cada 30 segundos",
+      "porque": "Fecha o maior buraco: quem descobre ou rouba a senha ainda não consegue entrar",
+      "valores": [
+        "nao",
+        "ti",
+        "todos"
+      ],
+      "nivel": {
+        "pessoal": "nao",
+        "escritorio": "ti",
+        "empresa": "todos",
+        "regulado": "todos"
+      },
+      "travado": {
+        "escritorio": true,
+        "empresa": true,
+        "regulado": true
+      }
+    },
+    "sessao_horas": {
+      "tipo": "numero",
+      "min": 1,
+      "descricao": "Por quantas horas o login continua valendo",
+      "como": "Passado esse tempo o painel pede a senha de novo",
+      "porque": "Quanto menor o prazo, menos tempo um computador esquecido aberto ou um cookie roubado serve para alguma coisa",
+      "nivel": {
+        "pessoal": 720,
+        "escritorio": 168,
+        "empresa": 72,
+        "regulado": 12
+      },
+      "travado": {}
+    },
+    "auditoria": {
+      "tipo": "enum",
+      "descricao": "Registro de tudo o que as pessoas fazem no sistema",
+      "como": "Cada ação administrativa vira uma linha numa trilha encadeada, em que mexer numa linha antiga quebra as seguintes",
+      "porque": "Para saber quem fez o quê e provar que o registro não foi alterado depois",
+      "valores": [
+        "nao",
+        "basica",
+        "completa",
+        "externa"
+      ],
+      "nivel": {
+        "pessoal": "nao",
+        "escritorio": "basica",
+        "empresa": "completa",
+        "regulado": "externa"
+      },
+      "travado": {
+        "escritorio": true,
+        "empresa": true,
+        "regulado": true
+      }
+    },
+    "admin_isolado": {
+      "tipo": "bool",
+      "descricao": "O agente Admin roda separado dos outros agentes",
+      "como": "O Admin fica num ambiente próprio, sem acesso às pastas e aos segredos dos demais",
+      "porque": "O Admin tem poderes de sistema. Se ele errar ou for enganado, o estrago não pode chegar nos agentes das pessoas",
+      "valores": [
+        false,
+        true
+      ],
+      "forte": true,
+      "nivel": {
+        "pessoal": false,
+        "escritorio": true,
+        "empresa": true,
+        "regulado": true
+      },
+      "travado": {
+        "escritorio": true,
+        "empresa": true,
+        "regulado": true
+      }
+    },
+    "admin_llm": {
+      "tipo": "bool",
+      "descricao": "O Admin conversa por inteligência artificial",
+      "como": "O Admin usa o modelo de linguagem para entender os pedidos. Desligar deixa só os comandos fixos",
+      "porque": "Quem não quer nenhuma decisão de sistema nas mãos de um modelo pode desligar",
+      "valores": [
+        false,
+        true
+      ],
+      "forte": false,
+      "nivel": {
+        "pessoal": true,
+        "escritorio": true,
+        "empresa": true,
+        "regulado": true
+      },
+      "travado": {}
+    },
+    "container_endurecido": {
+      "tipo": "bool",
+      "descricao": "Container do agente com menos privilégios",
+      "como": "O container perde capacidades do Linux que o agente não usa, ganha limites extras e não pode ganhar privilégios novos",
+      "porque": "Se o agente for enganado e executar algo malicioso, ele encontra menos ferramentas para fugir do container",
+      "valores": [
+        false,
+        true
+      ],
+      "forte": true,
+      "nivel": {
+        "pessoal": false,
+        "escritorio": true,
+        "empresa": true,
+        "regulado": true
+      },
+      "travado": {
+        "escritorio": true,
+        "empresa": true,
+        "regulado": true
+      }
+    },
+    "runtime": {
+      "tipo": "enum",
+      "descricao": "Tipo de isolamento do container",
+      "como": "Com gvisor, o container conversa com um núcleo de sistema intermediário em vez do núcleo do servidor",
+      "porque": "Uma camada a mais entre o agente e o servidor. Custa um pouco de velocidade e vale onde o risco é alto",
+      "valores": [
+        "runc",
+        "gvisor"
+      ],
+      "nivel": {
+        "pessoal": "runc",
+        "escritorio": "runc",
+        "empresa": "runc",
+        "regulado": "gvisor"
+      },
+      "travado": {}
+    },
+    "cofre_cifrado": {
+      "tipo": "bool",
+      "descricao": "Cofre de chaves cifrado",
+      "como": "As chaves dos agentes ficam cifradas no disco e só são abertas na hora de usar",
+      "porque": "Quem copiar o disco ou um backup não leva as chaves junto",
+      "valores": [
+        false,
+        true
+      ],
+      "forte": true,
+      "nivel": {
+        "pessoal": false,
+        "escritorio": true,
+        "empresa": true,
+        "regulado": true
+      },
+      "travado": {
+        "escritorio": true,
+        "empresa": true,
+        "regulado": true
+      }
+    },
+    "disco_cifrado": {
+      "tipo": "enum",
+      "descricao": "Disco do servidor cifrado",
+      "como": "Verifica e exige que a pasta de dados fique num volume cifrado. Com externo, a chave fica fora do servidor",
+      "porque": "Servidor roubado, devolvido ou descartado não entrega os dados de ninguém",
+      "valores": [
+        "nao",
+        "auto",
+        "externo"
+      ],
+      "nivel": {
+        "pessoal": "nao",
+        "escritorio": "auto",
+        "empresa": "auto",
+        "regulado": "externo"
+      },
+      "travado": {
+        "escritorio": true,
+        "empresa": true,
+        "regulado": true
+      }
+    },
+    "backup": {
+      "tipo": "bool",
+      "descricao": "Cópia de segurança automática",
+      "como": "Uma rotina diária copia a configuração e os dados dos agentes para um lugar protegido",
+      "porque": "Disco que quebra ou erro humano não podem apagar o trabalho da empresa",
+      "valores": [
+        false,
+        true
+      ],
+      "forte": true,
+      "nivel": {
+        "pessoal": false,
+        "escritorio": true,
+        "empresa": true,
+        "regulado": true
+      },
+      "travado": {
+        "escritorio": true,
+        "empresa": true,
+        "regulado": true
+      }
+    },
+    "backup_retencao_dias": {
+      "tipo": "numero",
+      "min": 1,
+      "descricao": "Por quantos dias as cópias de segurança ficam guardadas",
+      "como": "As cópias mais velhas que esse prazo são apagadas sozinhas",
+      "porque": "Guardar para sempre acumula dados que ninguém mais precisa. Guardar pouco demais impede recuperar um erro antigo",
+      "nivel": {
+        "pessoal": 30,
+        "escritorio": 30,
+        "empresa": 30,
+        "regulado": 14
+      },
+      "travado": {}
+    },
+    "travas_externas": {
+      "tipo": "bool",
+      "descricao": "Travas contra o agente agir sozinho em coisas externas",
+      "como": "Ações como mandar e-mail, publicar ou pagar passam por confirmação de uma pessoa",
+      "porque": "Um agente enganado por um texto malicioso não consegue gastar dinheiro nem falar em nome da empresa sem ninguém ver",
+      "valores": [
+        false,
+        true
+      ],
+      "forte": true,
+      "nivel": {
+        "pessoal": false,
+        "escritorio": true,
+        "empresa": true,
+        "regulado": true
+      },
+      "travado": {
+        "escritorio": true,
+        "empresa": true,
+        "regulado": true
+      }
+    },
+    "https_endurecido": {
+      "tipo": "bool",
+      "descricao": "Conexão segura com regras mais rígidas",
+      "como": "O painel só aceita conexão moderna e manda cabeçalhos que impedem o navegador de abrir o site de forma insegura",
+      "porque": "Fecha brechas conhecidas de interceptação e de uso do painel dentro de páginas de terceiros",
+      "valores": [
+        false,
+        true
+      ],
+      "forte": true,
+      "nivel": {
+        "pessoal": false,
+        "escritorio": true,
+        "empresa": true,
+        "regulado": true
+      },
+      "travado": {
+        "escritorio": true,
+        "empresa": true,
+        "regulado": true
+      }
+    },
+    "retencao_dias": {
+      "tipo": "numero",
+      "min": 0,
+      "descricao": "Por quantos dias as conversas ficam guardadas (0 = sem prazo)",
+      "como": "As conversas e os registros mais velhos que o prazo são apagados sozinhos",
+      "porque": "Dado que não existe mais não pode vazar nem ser pedido na Justiça. O prazo vem da política da empresa",
+      "nivel": {
+        "pessoal": 0,
+        "escritorio": 180,
+        "empresa": 90,
+        "regulado": 30
+      },
+      "travado": {}
+    },
+    "monitoramento": {
+      "tipo": "bool",
+      "descricao": "Monitoramento e alertas do sistema",
+      "como": "Uma rotina confere a saúde dos serviços, do disco e dos agentes e avisa quando algo sai do normal",
+      "porque": "Descobrir o problema antes de alguém reclamar",
+      "valores": [
+        false,
+        true
+      ],
+      "forte": true,
+      "nivel": {
+        "pessoal": false,
+        "escritorio": true,
+        "empresa": true,
+        "regulado": true
+      },
+      "travado": {
+        "escritorio": true,
+        "empresa": true,
+        "regulado": true
+      }
+    },
+    "politicas_claude": {
+      "tipo": "bool",
+      "descricao": "Regras da empresa aplicadas ao Claude Code",
+      "como": "Instala as configurações gerenciadas do Claude Code, que valem para todos os agentes e não podem ser desfeitas por eles",
+      "porque": "Garante o mesmo conjunto de regras de segurança em todos os agentes, sem depender de cada pessoa",
+      "valores": [
+        false,
+        true
+      ],
+      "forte": true,
+      "nivel": {
+        "pessoal": false,
+        "escritorio": true,
+        "empresa": true,
+        "regulado": true
+      },
+      "travado": {
+        "escritorio": true,
+        "empresa": true,
+        "regulado": true
+      }
+    },
+    "credencial_empresa": {
+      "tipo": "bool",
+      "descricao": "Os agentes usam a conta da empresa, não a de uma pessoa",
+      "como": "O login dos agentes é da organização da empresa. O modo de uso por token fica indisponível e o setor usa a chave de API",
+      "porque": "Quando alguém sai da empresa, os agentes não ficam presos à conta pessoal dele",
+      "valores": [
+        false,
+        true
+      ],
+      "forte": true,
+      "nivel": {
+        "pessoal": false,
+        "escritorio": true,
+        "empresa": true,
+        "regulado": true
+      },
+      "travado": {
+        "escritorio": true,
+        "empresa": true,
+        "regulado": true
+      }
+    },
+    "sigilo_externo": {
+      "tipo": "bool",
+      "descricao": "O modo escondido pode mandar texto para fora para ser analisado",
+      "como": "Ligado, parte do texto vai a um modelo externo para achar nomes e dados. Desligado, só o filtro local age",
+      "porque": "Texto de cliente não deve sair do servidor sem que a empresa tenha decidido isso. Ligado = pode mandar para fora",
+      "valores": [
+        false,
+        true
+      ],
+      "forte": false,
+      "nivel": {
+        "pessoal": true,
+        "escritorio": false,
+        "empresa": false,
+        "regulado": false
+      },
+      "travado": {
+        "regulado": true
+      }
+    },
+    "sso": {
+      "tipo": "enum",
+      "descricao": "Entrar com a conta da empresa (login único)",
+      "como": "O painel aceita entrar pelo provedor de identidade da empresa. Em obrigatório, a senha local deixa de funcionar",
+      "porque": "Quem sai da empresa perde o acesso no mesmo instante, e a TI controla tudo em um lugar só",
+      "valores": [
+        "nao",
+        "opcional",
+        "padrao",
+        "obrigatorio"
+      ],
+      "nivel": {
+        "pessoal": "nao",
+        "escritorio": "opcional",
+        "empresa": "padrao",
+        "regulado": "obrigatorio"
+      },
+      "travado": {
+        "regulado": true
+      }
+    },
+    "saida": {
+      "tipo": "enum",
+      "descricao": "Controle do que os agentes mandam para a internet",
+      "como": "Em registro, cada destino acessado é anotado. Em bloqueio, só sai para os endereços liberados na lista",
+      "porque": "Mostra ou impede que um agente enganado envie dados da empresa para um endereço desconhecido",
+      "valores": [
+        "livre",
+        "registro",
+        "bloqueio"
+      ],
+      "nivel": {
+        "pessoal": "livre",
+        "escritorio": "registro",
+        "empresa": "registro",
+        "regulado": "bloqueio"
+      },
+      "travado": {
+        "regulado": true
+      }
+    },
+    "kit_sensivel": {
+      "tipo": "bool",
+      "descricao": "Kit de proteção para dados sensíveis",
+      "como": "Ativa avisos e bloqueios extras para dados pessoais, financeiros e de saúde nas conversas e nos arquivos",
+      "porque": "Reduz o risco de dado sensível ir parar onde não deveria",
+      "valores": [
+        false,
+        true
+      ],
+      "forte": true,
+      "nivel": {
+        "pessoal": false,
+        "escritorio": false,
+        "empresa": true,
+        "regulado": true
+      },
+      "travado": {
+        "regulado": true
+      }
+    }
+  }
+}
