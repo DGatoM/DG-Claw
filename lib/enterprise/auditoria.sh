@@ -87,3 +87,11 @@ auditar() {
     rmdir "$arq.trava" 2>/dev/null || aviso "nao consegui soltar a trava ${arq#"$R"}.trava (ja tinha sumido?)."
     return "$rc"
 }
+
+# auditar_aviso <evento> [<json-dados>]
+# Como `auditar`, para quem ja fez a acao: se a trilha nao aceitou, a acao continua valendo e a
+# pessoa fica sabendo que ela nao ficou registrada (a mensagem de motivo vem de `auditar`).
+auditar_aviso() {
+    auditar "$@" || aviso "a acao foi feita, mas nao ficou registrada na auditoria (veja o motivo acima)."
+    return 0
+}

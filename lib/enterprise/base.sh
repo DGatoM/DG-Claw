@@ -12,12 +12,17 @@
 #   etapa do instalador ent_instalar_<bloco>
 #   `protecoes aplicar` ent_aplicar_<bloco>
 #
+# O gancho de argumentos do podman recebe o nome do array com `local -n` (use um nome de
+# referencia diferente de `args`, senao o bash acusa referencia circular) e so ACRESCENTA
+# opcoes: a imagem entra depois de todos os ganchos.
+#
 # Os ganchos de um prefixo rodam em ordem alfabetica do nome. Cada gancho consulta o nivel
 # (protecao_ligada) e nao faz nada quando a protecao dele esta desligada: no nivel pessoal a
 # CLI se comporta como antes.
 
 # ent_despachar <comando> [argumentos...]
-# Chama ent_cmd_<comando>. Devolve 127 se nao existe, para quem chamou mostrar o erro de sempre.
+# Chama ent_cmd_<comando>. Devolve 127 se nao existe, para quem chamou mostrar o erro de sempre
+# (por isso um comando enterprise nunca deve terminar com 127 por conta propria).
 ent_despachar() {
     local cmd="${1:-}" fn
     if [ "$#" -gt 0 ]; then shift; fi

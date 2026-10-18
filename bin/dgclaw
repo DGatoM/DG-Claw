@@ -23,6 +23,16 @@ APP_DIR="$(cd "$(dirname "$DGCLAW_BIN_REAL")/.." && pwd)"
 . "$APP_DIR/lib/agentes.sh"
 # shellcheck source=lib/atualizar.sh
 . "$APP_DIR/lib/atualizar.sh"
+# Enterprise: o nivel de protecao e os recursos de cada bloco. Os arquivos so definem funcoes;
+# no nivel pessoal (sem /etc/dgclaw/protecoes.json) nenhuma delas muda o que a CLI faz.
+# shellcheck source=lib/protecoes.sh
+. "$APP_DIR/lib/protecoes.sh"
+for _ent_lib in "$APP_DIR"/lib/enterprise/*.sh; do
+    [ -e "$_ent_lib" ] || continue
+    # shellcheck source=/dev/null
+    . "$_ent_lib"
+done
+unset _ent_lib
 
 # Tempo maximo de espera (segundos) do systemd e do /api/saude de dentro do agente.
 # Variavel so para os testes nao esperarem um minuto de verdade.
@@ -686,8 +696,11 @@ criar_container() {
             # curl do agente falharia com "connection refused".
             --http-proxy=false
             --tmpfs /run --tmpfs /run/lock --systemd always
-            --env "DGCLAW_SLUG=$C_SLUG" --env "TZ=America/Sao_Paulo"
-            "$DGCLAW_IMAGEM")
+            --env "DGCLAW_SLUG=$C_SLUG" --env "TZ=America/Sao_Paulo")
+        # Gancho enterprise: cada bloco acrescenta ao array `args` (por nome) as opcoes que a
+        # protecao dele pede (ver lib/enterprise/base.sh). A imagem entra por ultimo, depois delas.
+        ent_rodar_ganchos ent_args_container_ args "$C_SLUG"
+        args+=("$DGCLAW_IMAGEM")
         executar podman "${args[@]}" >/dev/null
         ok "container $c criado (portas so em 127.0.0.1: runner $C_PORTA_RUNNER, painel $C_PORTA_PAINEL)"
     fi
@@ -1051,6 +1064,8 @@ agente_criar() {
     etapa "Registrando o agente"
     registrar_agente
     trap - EXIT
+    ent_rodar_ganchos ent_depois_de_criar_ "$C_SLUG"
+    auditar_aviso agente.criar "$(jq -nc --arg s "$C_SLUG" --arg p "$C_PROVEDOR" '{slug: $s, provedor: $p}')"
 
     local base
     if [ -n "${DGCLAW_DOMINIO:-}" ]; then base="https://$DGCLAW_DOMINIO"; else base="http://127.0.0.1:8300"; fi
@@ -1536,6 +1551,7 @@ agente_remover() {
         com_trava liberar_portas "$slug"
     fi
     ok "agente $slug removido do registro. A faixa de uid dele fica queimada de proposito: ninguem herda os arquivos dele."
+    auditar_aviso agente.remover "$(jq -nc --arg s "$slug" '{slug: $s}')"
 }
 
 # falha_uso "<o que falhou, com que entrada>" "<o que fazer>": igual ao `falha`, mas sai com 2
@@ -1724,6 +1740,7 @@ senha_trocar() {
     rm -f "$DG_ETC/primeiro-acesso.json"
     executar systemctl restart dgclaw-web
     ok "senha do painel trocada"
+    auditar_aviso senha.trocar '{}'
 }
 
 primeiro_acesso() {
@@ -1824,6 +1841,7 @@ dominio_trocar() {
     executar systemctl reload caddy
     dominio_gravar_env "$novo"
     ok "dominio gravado em $DG_ETC/dgclaw.env"
+    auditar_aviso dominio.trocar "$(jq -nc --arg d "$novo" '{dominio: $d}')"
 
     if [ "$ENSAIO" = 1 ]; then
         info "[ensaio] esperaria https://$novo/ responder (ate 90s) e mostraria o link novo do painel"
@@ -1903,6 +1921,10 @@ status_geral() {
     printf 'Situacao do DG Claw\n'
 
     if [ -n "${DGCLAW_DOMINIO:-}" ]; then s_ok "dominio: $DGCLAW_DOMINIO"; else s_aviso "dominio: nao definido em $DG_ETC/dgclaw.env"; fi
+
+    # Versao e nivel de protecao: a primeira coisa que o suporte pergunta.
+    s_ok "versao $(cat "$APP_DIR/VERSION" 2>/dev/null || echo desconhecida), nivel de protecao: $(protecao_nivel)"
+    ent_rodar_ganchos ent_status_ || s_mal "um gancho de status enterprise falhou (veja a mensagem acima)"
 
     local u
     for u in caddy dgclaw-web dgclaw-admin; do
@@ -1985,7 +2007,15 @@ main() {
         primeiro-acesso) primeiro_acesso "$@" ;;
         status) status_geral "$@" ;;
         atualizar) atualizar_main "$@" ;;
-        *) falha "o comando '$cmd' nao existe." "veja os comandos com: dgclaw --ajuda" ;;
+        *)
+            # Comandos enterprise (ent_cmd_<comando>, em lib/enterprise/). 127 = ninguem tem esse comando.
+            local rc=0
+            ent_despachar "$cmd" "$@" || rc=$?
+            if [ "$rc" -eq 127 ]; then
+                falha "o comando '$cmd' nao existe." "veja os comandos com: dgclaw --ajuda"
+            fi
+            return "$rc"
+            ;;
     esac
 }
 
