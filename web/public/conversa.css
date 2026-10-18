@@ -251,17 +251,28 @@
                 text-overflow:ellipsis}
   #atividade .atv-acao{transition:opacity .15s}
   #atividade .atv-acao.troca{opacity:0}
-  .atv-ponto{flex:0 0 auto;width:8px;height:8px;border-radius:50%;background:#23784a;
-             animation:atvPulsa 1.6s ease-in-out infinite}
-  #atividade.atv-longa .atv-ponto{animation-duration:3s}
-  #atividade.atv-alerta .atv-ponto,#atividade.atv-cinza .atv-ponto{animation:none}
-  #atividade.atv-alerta .atv-ponto{background:#b7791f}
-  #atividade.atv-cinza .atv-ponto{background:#8a948d}
+  /* "Está trabalhando" vivo (Danilo, 18/10/2026): três pontinhos em onda e um brilho
+     atravessando o texto, como o "pensando" do ChatGPT. Com Reduzir Movimento ligado só o pulo
+     dos pontinhos sai e fica a onda de opacidade. Alerta e cinza ficam parados. O brilho é verde
+     claro, não branco: o branco puxava o olho no meio da letra. */
+  .atv-pts{flex:0 0 auto;display:inline-flex;gap:3px;align-items:center}
+  .atv-pts i{width:6px;height:6px;border-radius:50%;background:#2f9e5e;animation:atvPt 1.2s ease-in-out infinite}
+  .atv-pts i:nth-child(2){animation-delay:.2s}
+  .atv-pts i:nth-child(3){animation-delay:.4s}
+  @keyframes atvPt{0%,80%,100%{opacity:.25;transform:translateY(0)}40%{opacity:1;transform:translateY(-3px)}}
+  @keyframes atvPtSoOpacidade{0%,80%,100%{opacity:.25}40%{opacity:1}}
+  #atividade .atv-txt{background:linear-gradient(90deg,#38523f 0%,#38523f 38%,#5cb883 50%,#38523f 62%,#38523f 100%);
+    background-size:250% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;
+    animation:atvBrilho 2.4s linear infinite}
+  @keyframes atvBrilho{from{background-position:100% 0}to{background-position:-150% 0}}
+  #atividade.atv-alerta .atv-pts i,#atividade.atv-cinza .atv-pts i{animation:none;opacity:1}
+  #atividade.atv-alerta .atv-pts i{background:#b7791f}
+  #atividade.atv-cinza .atv-pts i{background:#8a948d}
+  #atividade.atv-alerta .atv-txt,#atividade.atv-cinza .atv-txt{background:none;animation:none}
   #atividade.atv-alerta .atv-txt{color:#8a5a0f}
   #atividade.atv-cinza .atv-txt{color:#6f7a72}
-  @keyframes atvPulsa{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.7)}}
   @media (prefers-reduced-motion:reduce){
-    .atv-ponto{animation:none}
+    .atv-pts i{animation-name:atvPtSoOpacidade}
     #atividade .atv-acao{transition:none}
   }
   .erroconfig{max-width:600px;margin:0 auto;padding:28px 18px;
