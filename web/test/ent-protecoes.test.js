@@ -107,6 +107,15 @@ test('resumo traz o valor efetivo, o padrão, a trava e os três textos', () => 
   assert.ok(f.descricao && f.como && f.porque);
   assert.deepEqual(f.valores, ['nao', 'ti', 'todos']);
   assert.equal(r.chaves.find((c) => c.chave === 'sessao_horas').travado, false);
+  assert.equal(f.protegendo, true);
+  assert.equal(r.chaves.find((c) => c.chave === 'sessao_horas').protegendo, null, 'parâmetro não liga nem desliga');
+  assert.equal(r.chaves.find((c) => c.chave === 'sigilo_externo').protegendo, true, 'false é o lado protegido');
+  assert.equal(r.chaves.find((c) => c.chave === 'retencao_dias').protegendo, true);
+});
+
+test('no pessoal nenhuma chave está protegendo', () => {
+  const { p } = cenario();
+  assert.deepEqual(p.resumo().chaves.filter((c) => c.protegendo), []);
 });
 
 test('o bash e o Node concordam em todas as chaves de todos os níveis', () => {

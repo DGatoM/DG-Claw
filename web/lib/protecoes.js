@@ -121,6 +121,14 @@ function criarProtecoes(opcoes) {
     return e;
   }
 
+  /** A proteção está de fato protegendo? true/false; null para parâmetro (número que não liga nem desliga nada). */
+  function protegendoValor(c, valor) {
+    if (c.tipo === 'bool') return valor === (Object.hasOwn(c, 'forte') ? c.forte : true);
+    if (c.tipo === 'enum') return c.valores.indexOf(valor) > 0;
+    if (c.parametro) return null;
+    return valor !== (c.desligado_em == null ? 0 : c.desligado_em);
+  }
+
   function ligadaValor(c, valor) {
     if (c.tipo === 'bool') return valor === true;
     if (c.tipo === 'enum') return !DESLIGADOS.has(valor);
@@ -151,6 +159,7 @@ function criarProtecoes(opcoes) {
             ajustado: e.ajustado,
             travado: !!(c.travado && c.travado[l.nivel] === true),
             ligada: ligadaValor(c, e.valor),
+            protegendo: protegendoValor(c, e.valor),
             descricao: c.descricao,
             como: c.como,
             porque: c.porque,

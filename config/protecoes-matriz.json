@@ -63,7 +63,8 @@
         "empresa": 72,
         "regulado": 12
       },
-      "travado": {}
+      "travado": {},
+      "parametro": true
     },
     "auditoria": {
       "tipo": "enum",
@@ -245,7 +246,8 @@
         "empresa": 30,
         "regulado": 14
       },
-      "travado": {}
+      "travado": {},
+      "parametro": true
     },
     "travas_externas": {
       "tipo": "bool",
@@ -303,7 +305,8 @@
         "empresa": 90,
         "regulado": 30
       },
-      "travado": {}
+      "travado": {},
+      "desligado_em": 0
     },
     "monitoramento": {
       "tipo": "bool",
