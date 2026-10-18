@@ -52,6 +52,9 @@ function carregaConfig(opcoes, log) {
     porta: opcoes.porta != null ? opcoes.porta : num(env.DGCLAW_WEB_PORT, 8300),
     agentesPath: opcoes.agentesPath || env.DGCLAW_AGENTES || '/etc/dgclaw/agentes.json',
     dataDir: opcoes.dataDir || env.DGCLAW_WEB_DATA || '/var/lib/dgclaw/web',
+    // Enterprise: onde ficam a escolha de nível e a trilha de auditoria (ausentes = nível pessoal).
+    protecoesPath: opcoes.protecoesPath || env.DGCLAW_PROTECOES || '/etc/dgclaw/protecoes.json',
+    auditoriaPath: opcoes.auditoriaPath || env.DGCLAW_AUDITORIA || '/var/log/dgclaw/auditoria.jsonl',
     publicDir: opcoes.publicDir || path.join(__dirname, '..', 'public'),
     origensExtras: new Set(String(env.DGCLAW_WEB_ORIGENS || '').split(',').map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean)),
     proxiesConfiaveis: new Set(String(env.DGCLAW_WEB_PROXIES_CONFIAVEIS || '').split(',').map((s) => s.trim()).filter(Boolean)),

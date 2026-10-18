@@ -34,6 +34,9 @@ const { criarPush } = require('./lib/push');
 const { criarLembretes } = require('./lib/lembretes');
 const { criarMesa } = require('./lib/mesa');
 const { criarAvisos } = require('./lib/avisos');
+const { criarProtecoes } = require('./lib/protecoes');
+const { criarAuditoria } = require('./lib/auditoria');
+const { criarEnterprise } = require('./lib/ent');
 
 const METODOS_QUE_ESCREVEM = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const TIPOS_ESTATICOS = {
@@ -101,6 +104,12 @@ function criarServidor(opcoes) {
   caixa.permitir('/api/v1/tarefas');
   const avisos = criarAvisos({ config, registro, runner, caixa, log, agora: opcoes.agora });
   caixa.permitir('/api/v1/avisos');
+
+  // Enterprise (docs/enterprise/DESENHO.md §3): o nível de proteção e os blocos de web/lib/ent/. No nível
+  // pessoal nenhum bloco muda o que o Web faz.
+  const protecoes = opcoes.protecoes || criarProtecoes({ caminho: config.protecoesPath, log });
+  const auditoria = opcoes.auditoria || criarAuditoria({ caminho: config.auditoriaPath, protecoes, log, agora: opcoes.agora });
+  const ent = criarEnterprise({ config, registro, auth, log, protecoes, auditoria, servirArquivo, semSessaoPagina });
 
   let versaoJsCache = { ts: 0, valor: '0' };
   /** Versão da tela: mtime de conversa.js. A tela compara com a que carregou e se recarrega sozinha. */
@@ -699,6 +708,9 @@ function criarServidor(opcoes) {
 
     const sessao = slugCaixa ? { usuario: 'agente:' + slugCaixa, via: 'caixa', agente: slugCaixa } : auth.sessaoDoPedido(req);
 
+    // Enterprise: rotas e recusas dos blocos de web/lib/ent/ (devolve true quando já respondeu).
+    if (await ent.antes(req, res, url, sessao)) return undefined;
+
     if (p.startsWith('/api/')) {
       if (!sessao) return H.erroJson(res, 401, 'Você precisa entrar para usar a API. Faça login em /login.');
       return api(req, res, url, sessao);
@@ -805,7 +817,7 @@ function criarServidor(opcoes) {
   });
 
   return {
-    servidor, config, registro, auth, midia, conversa, log, caixa, push, lembretes, avisos,
+    servidor, config, registro, auth, midia, conversa, log, caixa, push, lembretes, avisos, ent, protecoes, auditoria,
     ouvir(porta, host) {
       return new Promise((resolve, reject) => {
         servidor.once('error', reject);
