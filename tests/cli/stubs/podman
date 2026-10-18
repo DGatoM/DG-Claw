@@ -4,6 +4,8 @@ echo "podman $*" >> "${STUB_LOG:?}"
 est="${STUB_ESTADO:?}"
 case "${1:-}" in
     image)
+        # `image inspect -f {{.Id}}`: o id da imagem "atual" (muda quando o teste escreve estado/imagem-id).
+        if [ "$2" = inspect ]; then cat "$est/imagem-id" 2>/dev/null || echo imagem-nova; exit 0; fi
         [ "$2" = exists ] && [ ! -f "$est/sem-imagem" ]; exit $? ;;
     container)
         [ "$2" = exists ] && [ -f "$est/c-$3" ]; exit $? ;;
@@ -15,16 +17,47 @@ case "${1:-}" in
         esac ;;
     create)
         while [ $# -gt 0 ]; do [ "$1" = --name ] && nome="$2"; shift; done
-        echo created > "$est/c-$nome"; echo "container-id" ;;
+        echo created > "$est/c-$nome"
+        # O container nasce com a imagem que estava "atual" na hora (para o `agente recriar` comparar).
+        cat "$est/imagem-id" 2>/dev/null > "$est/img-$nome" || echo imagem-nova > "$est/img-$nome"
+        echo "container-id" ;;
     start)
         echo running > "$est/c-$2"
         # Simula o container que cai na partida (falta de inotify): estado exited, codigo 255.
         if [ -f "$est/saida-255" ]; then echo exited > "$est/c-$2"; echo 255 > "$est/codigo-$2"; fi ;;
-    stop) [ -f "$est/c-$2" ] && echo exited > "$est/c-$2" ;;
-    rm) rm -f "$est/c-$2" ;;
+    stop)
+        nome="${*: -1}"
+        [ -f "$est/c-$nome" ] || exit 0
+        # stop-trava-<container> = N: o stop devolve, mas o estado fica "stopping" por N consultas
+        # (depois vira exited); = sempre: fica "stopping" para sempre (o caso real do podman 4.9.3).
+        if [ -f "$est/stop-trava-$nome" ]; then
+            echo stopping > "$est/c-$nome"; cp "$est/stop-trava-$nome" "$est/stopping-resta-$nome"
+        else echo exited > "$est/c-$nome"; fi ;;
+    rm)
+        nome="${*: -1}"; forca=0
+        for a in "$@"; do [ "$a" = -f ] && forca=1; done
+        # Como o podman de verdade: sem -f, nao remove container ligado ou parando.
+        if [ -f "$est/c-$nome" ] && [ "$forca" = 0 ] && grep -qx 'running\|stopping' "$est/c-$nome"; then
+            echo "Error: cannot remove container $nome as it is $(cat "$est/c-$nome") - running or paused containers cannot be removed without force: container state improper" >&2
+            exit 2
+        fi
+        rm -f "$est/c-$nome" ;;
     inspect)
         nome="${*: -1}"
         [ -f "$est/c-$nome" ] || exit 1
+        if printf '%s ' "$@" | grep -q '\.Mounts'; then
+            if [ -f "$est/mounts-volume" ]; then echo "bind volume "; else echo "bind bind bind bind bind "; fi
+            exit 0
+        fi
+        # Consulta de estado de um container "stopping": conta ate virar exited.
+        if [ "$(cat "$est/c-$nome")" = stopping ] && [ -f "$est/stopping-resta-$nome" ]; then
+            resta="$(cat "$est/stopping-resta-$nome")"
+            if [ "$resta" != sempre ]; then
+                if [ "$resta" -le 0 ]; then echo exited > "$est/c-$nome"; rm -f "$est/stopping-resta-$nome"
+                else echo $((resta - 1)) > "$est/stopping-resta-$nome"; fi
+            fi
+        fi
+        if printf '%s ' "$@" | grep -q '{{.Image}}'; then cat "$est/img-$nome" 2>/dev/null || echo imagem-velha; exit 0; fi
         if printf '%s ' "$@" | grep -q ExitCode; then
             printf '%s %s\n' "$(cat "$est/c-$nome")" "$(cat "$est/codigo-$nome" 2>/dev/null || echo 0)"
         else

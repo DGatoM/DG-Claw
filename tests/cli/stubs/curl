@@ -1,5 +1,14 @@
 #!/usr/bin/env bash
 echo "curl $*" >> "${STUB_LOG:?}"
+# Para os testes conferirem o que seguiria pela rede sem o segredo estar no argv: guarda o corpo
+# (--data-binary @-) e o arquivo de configuracao (--config, onde o curl real le o cabecalho).
+args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do
+    case "${args[$i]}" in
+        --config) cat "${args[$((i + 1))]}" >> "$STUB_LOG.curl-config" 2>/dev/null ;;
+        @-) cat >> "$STUB_LOG.curl-stdin" ;;
+    esac
+done
 [ -f "${STUB_ESTADO:?}/curl-falha" ] && exit 22
 # Descoberta do IP publico: devolve o IP de mentira.
 case "$*" in *ipify*|*ifconfig.me*) echo "${STUB_IP:-203.0.113.7}"; exit 0 ;; esac
