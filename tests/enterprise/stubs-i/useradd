@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# useradd de mentira: anota a linha e marca o usuario como existente (o getent de mentira le essa marca).
+echo "useradd $*" >>"${STUB_LOG:?}"
+: >"${STUB_ESTADO:?}/usuario-ferramentas"

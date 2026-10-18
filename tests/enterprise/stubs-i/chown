@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# chown de mentira: o usuario dgclaw-ferramentas nao existe de verdade nos testes. So anota.
+echo "chown $*" >>"${STUB_LOG:?}"
