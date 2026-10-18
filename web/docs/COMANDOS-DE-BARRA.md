@@ -135,11 +135,36 @@ Toda skill tem `espera_resposta: true`.
 - Comando recusado (404 ou 422): o balão fica marcado como recusado, com o motivo e o que fazer
   escritos nele, só com o botão de descartar. "Reenviar" não aparece, porque reenviar daria o
   mesmo erro.
-- Na conversa, o comando aparece como fala sua (`/compact`), e o que o terminal respondeu (por
-  exemplo a tabela do `/context`) aparece como um bloco "resultado do comando", fechado, que abre
-  ao tocar. No Codex o terminal não grava a resposta desses comandos: o balão do comando fica
+- Na conversa, o comando aparece como fala sua (por exemplo `/context`), e o que o terminal respondeu
+  (a tabela do `/context`) aparece como um bloco "resultado do comando", fechado, que abre ao tocar.
+  O `/compact` é a exceção (próxima seção). No Codex o terminal não grava a resposta desses comandos: o balão do comando fica
   na tela até ela ser recarregada.
 - O tutorial da conversa (botão Tutorial) tem um passo sobre a barra.
+
+## O `/compact` na conversa
+
+Compactar resume a conversa e leva cerca de um minuto, tempo em que a agente fica sem responder. O Claude
+Code grava o `/compact` como se fosse fala do dono e depois um "resultado" quase vazio, o que na tela
+seria um balão seu com `/compact` e um bloco sem utilidade. Por isso a conversa troca os dois por dois
+avisos curtos **da própria agente** (balão do lado dela):
+
+- ao começar: `Tô compactando a conversa pra voltar mais leve... já volto`
+- ao terminar: `Voltei, conversa compactada.`
+
+Como o servidor decide (`web/lib/thread.js`, a partir do transcript):
+
+- **Início:** a linha `/compact` crua que o Claude Code grava assim que a compactação começa. Se a versão
+  não gravar essa linha, vale o eco `<command-name>/compact</command-name>`. Nunca sai duas vezes.
+- **Fim:** a linha `compact_boundary` (sinal estrutural, que não depende do texto da saída). Vale também
+  para a compactação automática que o próprio Claude Code faz sem comando: aí saem os dois avisos juntos,
+  o de início um milésimo de segundo antes.
+- **Falha:** se o terminal devolver erro (`stderr`, ou saída com cara de erro logo depois do `/compact`),
+  a agente avisa `Não consegui compactar a conversa: <primeira linha do erro>` e não diz "Voltei".
+- **Compactação sem fim:** um `/compact` que nunca terminou mostra só o aviso de início. Passados 10
+  minutos, um novo `/compact` conta como uma compactação nova.
+- O resumo que o Claude Code injeta depois (`isCompactSummary`) e o eco do comando nunca aparecem.
+- Os avisos não geram notificação no aparelho (o servidor só notifica por Mesa, lembretes e foco) e não contam
+  como resposta para quem espera a agente pela API (`GET /wait`): têm o campo `sistema: "compactacao"`.
 
 ## Telegram e WhatsApp
 
@@ -248,7 +273,7 @@ curl -s -b cookies.txt -H 'Content-Type: application/json' \
 | --- | --- |
 | `web/lib/comandos.js` | Catálogo (nativos por provedor, skills do disco), reconhecimento da barra e montagem do que vai ao runner |
 | `web/lib/conversa.js` | `enviar()` consulta o `comandos.js` antes de montar o envelope |
-| `web/lib/thread.js` | Mostra o comando como fala do dono e o resultado do terminal como "resultado do comando" |
+| `web/lib/thread.js` | Mostra o comando como fala do dono e o resultado do terminal como "resultado do comando"; troca o `/compact` pelos avisos da agente |
 | `web/server.js` | Rotas `GET /comandos`, `POST /comando` e `GET /api/v1/comandos/docs.md` |
 | `web/public/barra.js`, `web/public/barra.css` | A lista de sugestões no campo |
 | `templates/CLAUDE.md.tmpl` | A regra da barra no Telegram |
