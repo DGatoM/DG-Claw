@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# useradd de mentira: so registra a chamada. Nenhum usuario e criado de verdade (o bloco H cria o dgclaw-saida).
+. "$(dirname "$0")/_comum.sh"
+registrar "$@"
+exit 0

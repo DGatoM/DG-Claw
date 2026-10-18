@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# getent de mentira: o usuario e o grupo dgclaw-saida "nao existem" (o teste nao pode depender da maquina onde roda);
+# o resto vai para o getent de verdade.
+if [ "${2:-}" = dgclaw-saida ]; then exit 2; fi
+exec /usr/bin/getent "$@"

@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# iptables de mentira COM ESTADO, para provar a ORDEM das regras. Cada cadeia e um arquivo em
+# $STUB_ESTADO/ipt/<tabela>__<cadeia>, uma regra por linha, exatamente como foi pedida (sem normalizar).
+# Cadeias de base (INPUT, OUTPUT, FORWARD) existem sempre. Todo comando entra em $STUB_LOG.
+# Operacoes: -L -N -F -X -S -A -I (com ou sem posicao) -D (por numero ou por regra) -C.
+echo "iptables $*" >>"${STUB_LOG:?}"
+dir="${STUB_ESTADO:?}/ipt"
+mkdir -p "$dir"
+tabela=filter
+args=()
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -w) shift ;;
+        -t) tabela="$2"; shift 2 ;;
+        *) args+=("$1"); shift ;;
+    esac
+done
+set -- "${args[@]}"
+op="$1"; cadeia="$2"; shift 2 || true
+f="$dir/${tabela}__${cadeia}"
+base=0
+case "$cadeia" in INPUT|OUTPUT|FORWARD) base=1; [ -f "$f" ] || : >"$f" ;; esac
+case "$op" in
+    -L) [ -f "$f" ] ;;
+    -N) [ -f "$f" ] && { echo "iptables: Chain already exists." >&2; exit 1; }; : >"$f" ;;
+    -X) [ -f "$f" ] || { echo "iptables: No chain/target/match by that name." >&2; exit 1; }
+        [ "$base" = 1 ] && exit 1
+        # nao apaga cadeia ainda referenciada por algum salto
+        if cat "$dir/${tabela}__"* 2>/dev/null | grep -qE -- "-j $cadeia\$"; then echo "iptables: Too many links." >&2; exit 1; fi
+        rm -f "$f" ;;
+    -F) [ -f "$f" ] || exit 1; : >"$f" ;;
+    -S) [ -f "$f" ] || exit 1
+        [ "$base" = 1 ] && echo "-P $cadeia ACCEPT" || echo "-N $cadeia"
+        while IFS= read -r r; do echo "-A $cadeia $r"; done <"$f" ;;
+    -A) [ -f "$f" ] || exit 1; echo "$*" >>"$f" ;;
+    -I) [ -f "$f" ] || exit 1
+        pos=1
+        if [[ "${1:-}" =~ ^[0-9]+$ ]]; then pos="$1"; shift; fi
+        n=$(grep -c '' "$f" || true)
+        if [ "$pos" -gt $((n + 1)) ]; then echo "iptables: Index of insertion too big." >&2; exit 1; fi
+        { head -n $((pos - 1)) "$f"; echo "$*"; tail -n +"$pos" "$f"; } >"$f.n"; mv "$f.n" "$f" ;;
+    -D) [ -f "$f" ] || exit 1
+        if [[ "${1:-}" =~ ^[0-9]+$ ]]; then
+            n=$(grep -c '' "$f" || true)
+            if [ "$1" -lt 1 ] || [ "$1" -gt "$n" ]; then echo "iptables: Index of deletion too big." >&2; exit 1; fi
+            sed -i "${1}d" "$f"
+        else
+            grep -qxF -- "$*" "$f" || { echo "iptables: Bad rule (does a matching rule exist in that chain?)." >&2; exit 1; }
+            linha=$(grep -nxF -- "$*" "$f" | head -n 1 | cut -d: -f1)
+            sed -i "${linha}d" "$f"
+        fi ;;
+    -C) [ -f "$f" ] && grep -qxF -- "$*" "$f" ;;
+    *) echo "iptables (stub): operacao $op nao suportada" >&2; exit 1 ;;
+esac
