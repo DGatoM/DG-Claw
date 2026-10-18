@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# curl de mentira do teste de atualizar: o do instalador, mais um defeito sob encomenda.
+# Se existir QUEBRADO na pasta do app instalado, GET /api/saude do Web falha (a versao "nova" nao sobe).
+# So essa rota: o resto do instalador precisa passar para o teste chegar na etapa de saude.
+AQUI="$(cd "$(dirname "$0")" && pwd)"
+if [ -e "${DGCLAW_RAIZ:?}/opt/dgclaw/app/QUEBRADO" ]; then
+    case "$*" in *127.0.0.1:8300/api/saude*) echo "curl $* (QUEBRADO)" >>"${DGCLAW_STUB_LOG:?}"; exit 22 ;; esac
+fi
+exec "$AQUI/../../instalador/stubs/curl" "$@"
