@@ -118,6 +118,8 @@ protegendo de fato: true, false, ou null para parâmetro). A tela usa `protegend
 - Uma etapa `ent_instalar` no fim do `main`, que roda as funções `ent_instalar_*` definidas em
   `lib/enterprise/instalar-*.sh`. No nível `pessoal` nenhuma roda.
 - `ENSAIO=1` e `DGCLAW_RAIZ` continuam valendo em tudo o que for novo.
+- O gerador do Caddyfile (`bloco_caddy`, `lib/comum.sh`) chama `ent_caddy_extra` (se existir) para acrescentar linhas dentro do bloco
+  do site; no nível `pessoal` ela não imprime nada (`lib/enterprise/https.sh`, `docs/enterprise/TRAVAS.md`).
 
 ### Web (`web/server.js`)
 

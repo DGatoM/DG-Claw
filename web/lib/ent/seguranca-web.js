@@ -116,7 +116,9 @@ module.exports = {
       antesDaSessao(req, res, url) {
         if (!protecoes.ligada('https_endurecido')) return false;
         const painel = url.pathname.startsWith('/p/');
-        res.setHeader('Content-Security-Policy', painel ? POLITICA_PAINEL : politica());
+        // Arquivos de mídia (PDF, imagem, vídeo) ficam sem CSP do Web: o visualizador de PDF do Chrome dentro de iframe quebra com
+        // `object-src 'none'`. Os que executam (HTML, SVG) já saem de web/lib/media.js com `sandbox; default-src 'none'`.
+        if (!url.pathname.startsWith('/api/v1/media/')) res.setHeader('Content-Security-Policy', painel ? POLITICA_PAINEL : politica());
         res.setHeader('Permissions-Policy', PERMISSIONS_POLICY);
         res.setHeader('X-Content-Type-Options', 'nosniff');
         if (esquema(req) === 'https') res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');

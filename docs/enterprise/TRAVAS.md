@@ -117,6 +117,7 @@ e o hash dos parâmetros), mais `acoes.instagram.configurar` (sem o token).
   | service worker do push | `sw.js` | `worker-src 'self'` |
   | fontes, CDN, fetch de outro site | nenhum | nada externo é carregado |
   | arquivos ativos (HTML/SVG enviados pelo agente) | `media.js` | já levam `sandbox; default-src 'none'`; a política deles vale |
+  | PDF, imagem e vídeo em `/api/v1/media/` | `media.js` | **sem a CSP do Web** (só `nosniff` e `Permissions-Policy`): o visualizador de PDF do Chrome dentro de iframe quebra com `object-src 'none'` |
   | painel do agente | `/p/<slug>/` (Express do container, via proxy) | **política própria**: `script-src 'self' 'unsafe-inline'`, porque o painel tem `<script>` com dados da página (`window.DGCLAW_BASE`) e `onclick=""`. É a mais firme que não o quebra. Fica registrado como limite aceito |
 
   Limite conhecido: o HTML de reserva da tela de login (`LOGIN_RESERVA` em `server.js`, usado só se o `login.html` sumir) tem um

@@ -125,3 +125,13 @@ test('cookie __Host-: aceita o nome antigo por enquanto e o logout apaga os dois
     assert.match(apagados, /(^|\n)dgclaw_sessao=; .*Max-Age=0/);
   }, { web: { env: { DGCLAW_WEB_PROXIES_CONFIAVEIS: '127.0.0.1,::1,::ffff:127.0.0.1' } } });
 });
+
+test('arquivos de mídia (/api/v1/media/) não levam a CSP do Web, para o PDF em iframe abrir; o resto do cabeçalho de segurança vale', async () => {
+  await com('escritorio', async (c) => {
+    const cli = (await c.entrar('dono', c.senhaTi)).cli;
+    const r = await cli.get('/api/v1/media/' + '0'.repeat(16));
+    assert.equal(r.headers['content-security-policy'], undefined);
+    assert.equal(r.headers['x-content-type-options'], 'nosniff');
+    assert.match(r.headers['permissions-policy'], /microphone=\(self\)/);
+  });
+});
