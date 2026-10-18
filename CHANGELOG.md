@@ -151,6 +151,14 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
   `dgclaw agente criar --uso pessoa|setor`, modo `token` recusado e a pergunta de uso no formulário de criação. Guias em
   `docs/enterprise/TRAVAS.md`, `docs/enterprise/POLITICAS.md` e `docs/enterprise/CREDENCIAL.md`.
 <!-- fim bloco E -->
+- Bloco J da versão enterprise (nível regulado): runtime reforçado com gVisor (`runsc` pelo repositório apt oficial, com o
+  fingerprint da chave conferido no código; o agente só nasce sob o `runsc` depois de uma prova de systemd, cron e portas do
+  runner e do painel, e cai para runc com aviso, auditoria e lista no `dgclaw status` quando a prova falha; `dgclaw agente
+  testar-runtime`); chave do disco cifrado fora da VPS por Tang (Clevis, com thumbprint confirmado) ou frase digitada, adicionada,
+  testada e só então, com `--confirmar`, tirada a chave local (`dgclaw disco chave externa tang|manual`, `dgclaw disco
+  desbloquear`; sem a chave a VPS sobe com os dados trancados e o Web explica); Admin desligável (`dgclaw admin desligar|ligar`,
+  formulário `/novo-agente` que cria pelo serviço de controle); relatório do teste de restauração mensal com o `sha256` na
+  auditoria. Documento: `docs/enterprise/REGULADO.md`.
 
 ## [1.0.0] - 2026-10-17
 
