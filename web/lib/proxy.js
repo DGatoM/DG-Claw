@@ -7,7 +7,7 @@
 const fs = require('node:fs');
 const http = require('node:http');
 const { erroJson, paginaErro, ipDoPedido, esquemaDoPedido, hostDoPedido } = require('./http');
-const { NOME_COOKIE } = require('./auth');
+const { NOME_COOKIE, NOME_COOKIE_HOST } = require('./auth');
 
 const HOP = new Set(['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'proxy-connection']);
 const PROIBIDOS_DO_NAVEGADOR = new Set(['x-dgclaw-proxy', 'x-dgclaw-usuario']);
@@ -15,7 +15,7 @@ const PROIBIDOS_DO_NAVEGADOR = new Set(['x-dgclaw-proxy', 'x-dgclaw-usuario']);
 /** Tira o cookie de sessão do Web do que vai para o painel (ele não precisa do nosso token). */
 function limpaCookie(c) {
   if (!c) return null;
-  const resto = String(c).split(';').map((p) => p.trim()).filter((p) => p && !p.startsWith(`${NOME_COOKIE}=`));
+  const resto = String(c).split(';').map((p) => p.trim()).filter((p) => p && !p.startsWith(`${NOME_COOKIE}=`) && !p.startsWith(`${NOME_COOKIE_HOST}=`));
   return resto.length ? resto.join('; ') : null;
 }
 

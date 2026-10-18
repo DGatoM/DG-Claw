@@ -10,6 +10,8 @@ const path = require('node:path');
 const { parseCookies, ipDoPedido, esquemaDoPedido } = require('./http');
 
 const NOME_COOKIE = 'dgclaw_sessao';
+// Enterprise (https_endurecido): com HTTPS o cookie ganha o prefixo __Host-, que o navegador só aceita com Secure, Path=/ e sem Domain.
+const NOME_COOKIE_HOST = '__Host-dgclaw_sessao';
 const MAX_N = 2 ** 20;
 const TENTATIVAS_MAX = 5;
 const JANELA_MS = 15 * 60 * 1000;
@@ -74,6 +76,7 @@ function criarAuth({ config, log, agora }) {
   // Ganchos do enterprise; sem eles (nível pessoal) nada muda.
   let horasDaSessao = null;   // () => número de horas, ou null para usar config.sessaoDias
   let sessaoValida = null;    // (sessao crua) => boolean
+  let cookieEndurecido = null; // () => boolean (enterprise: cookie com prefixo __Host-)
   // hash falso para gastar o scrypt quando o usuário não existe (o tempo não pode revelar quem existe)
   const hashFalso = Object.assign({}, SCRYPT_NOVO, { sal: crypto.randomBytes(16), hash: crypto.randomBytes(32) });
   let trancado = !usuario || !!parsed.erro;
@@ -238,7 +241,7 @@ function criarAuth({ config, log, agora }) {
      * `{ incluirMeia: true }`: para o resto do Web ela é como se não existisse.
      */
     sessaoDoPedido(req, opcoes) {
-      const token = parseCookies(req.headers.cookie)[NOME_COOKIE];
+      const token = tokenDoPedido(req);
       if (!token || token.length > 200) return null;
       const chaveSessao = sha256hex(token);
       const s = sessoes.get(chaveSessao);
@@ -294,6 +297,8 @@ function criarAuth({ config, log, agora }) {
       return n;
     },
 
+    /** Enterprise: () => boolean, se o cookie de sessão leva o prefixo __Host- (protecao https_endurecido). */
+    definirCookieEndurecido(fn) { cookieEndurecido = fn; },
     /** Enterprise: prazo da sessão vindo da matriz (`sessao_horas`). */
     definirHorasDaSessao(fn) { horasDaSessao = fn; },
     /** Enterprise: recusa sessões que o multiusuário não reconhece (criadas antes dele ligar, por exemplo). */
@@ -303,17 +308,32 @@ function criarAuth({ config, log, agora }) {
 
     /** Apaga a sessão do pedido e manda o cookie expirar. */
     encerra(req, res) {
-      const token = parseCookies(req.headers.cookie)[NOME_COOKIE];
+      const token = tokenDoPedido(req);
       if (token && sessoes.delete(sha256hex(token))) salva();
-      res.setHeader('Set-Cookie', montaCookie('', 0, req));
+      // Com o cookie endurecido ligado, apaga os dois nomes (o antigo pode ter ficado de antes da proteção).
+      res.setHeader('Set-Cookie', cookieEndurecidoLigado() ? [montaCookie('', 0, req), montaCookie('', 0, req, true)] : montaCookie('', 0, req));
     },
   };
 
-  function montaCookie(valor, maxAge, req) {
-    let c = `${NOME_COOKIE}=${valor}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}`;
-    if (req && esquemaDoPedido(req, config.proxiesConfiaveis) === 'https') c += '; Secure';
+  /** O token do cookie: o nome com __Host- tem a vez; o nome antigo continua valendo (sessões de antes da proteção). */
+  function tokenDoPedido(req) {
+    const c = parseCookies(req.headers.cookie);
+    return c[NOME_COOKIE_HOST] || c[NOME_COOKIE];
+  }
+
+  function cookieEndurecidoLigado() {
+    if (!cookieEndurecido) return false;
+    try { return cookieEndurecido() === true; } catch (_) { return false; }
+  }
+
+  /** `forcaAntigo`: monta o cookie com o nome antigo mesmo com a proteção ligada (para apagá-lo). */
+  function montaCookie(valor, maxAge, req, forcaAntigo) {
+    const https = !!req && esquemaDoPedido(req, config.proxiesConfiaveis) === 'https';
+    const host = !forcaAntigo && https && cookieEndurecidoLigado();
+    let c = `${host ? NOME_COOKIE_HOST : NOME_COOKIE}=${valor}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}`;
+    if (https) c += '; Secure';
     return c;
   }
 }
 
-module.exports = { criarAuth, parseHash, NOME_COOKIE, TENTATIVAS_MAX };
+module.exports = { criarAuth, parseHash, NOME_COOKIE, NOME_COOKIE_HOST, TENTATIVAS_MAX };

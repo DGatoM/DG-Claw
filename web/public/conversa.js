@@ -926,7 +926,7 @@ function htmlMidia(m) {
   if (md.thumb) {
     return `<span class="midcx"><button class="mid" data-mid="${esc(md.id)}" aria-label="Abrir ${rot}">` +
            `<img loading="lazy" alt="${rot}" src="${esc(md.thumb)}" ` +
-           `onerror="semThumb(this)">` +
+           `data-erro="thumb">` +
            `<span class="midfb">${rot} ${legenda}</span>` +
            (md.kind === 'video' ? '<span class="play" aria-hidden="true">▶</span>' : '') +
            `<span class="lupa">${md.kind === 'video' ? 'vídeo' : 'toque para abrir'}</span></button>` +
@@ -978,6 +978,14 @@ function semThumb(img) {
   if (caixa) caixa.classList.add('semthumb');
 }
 window.semThumb = semThumb;
+/* O erro de carga de imagem não borbulha, mas a captura pega. Isto troca o onerror="" inline de antes, que a política de
+   conteúdo do HTTPS endurecido (script-src sem 'unsafe-inline') bloquearia. */
+document.addEventListener('error', function (ev) {
+  const t = ev.target;
+  if (!t || t.tagName !== 'IMG' || !t.dataset) return;
+  if (t.dataset.erro === 'thumb') semThumb(t);
+  else if (t.dataset.erro === 'ocultar') t.hidden = true;
+}, true);
 
 /* As prévias do balão otimista com vários anexos (já subiram; falta a mensagem
    sair e a cópia de verdade voltar na thread). */
@@ -3790,7 +3798,7 @@ function pintaAcervo() {
     if (acAba === 'links') corpo = `<a class="aclinha" href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.dominio)}<small>${esc(it.url)}</small></a>`;
     else {
       const md = it.media; midias[md.id] = md;
-      const img = md.disponivel && md.thumb ? `<img src="${esc(md.thumb)}" loading="lazy" decoding="async" width="320" height="320" alt="${esc(md.nome)}" onerror="this.hidden=true">` : '';
+      const img = md.disponivel && md.thumb ? `<img src="${esc(md.thumb)}" loading="lazy" decoding="async" width="320" height="320" alt="${esc(md.nome)}" data-erro="ocultar">` : '';
       corpo = `<button class="${acAba === 'midias' ? 'acfoto' : 'aclinha'}" data-midia="${esc(md.id)}">${esc(md.kind === 'video' ? '▶ ' : '📎 ')}${esc(md.nome)}${img}</button>`;
     }
     html += `<div class="acitem">${corpo}<button class="acir" data-origem="${esc(it.msg_id)}" title="Ir para a mensagem de origem">${esc(it.dia || '')} ${esc(it.hhmm || '')} ↪</button></div>`;
