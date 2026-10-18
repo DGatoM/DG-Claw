@@ -23,6 +23,12 @@ Princípios: uma pergunta por vez; o agente só é dado como pronto depois que r
 4. **Cérebro.** Veja o provedor que os outros usam em `agentes.listar` (campo `provedor`). Pergunte: "Seu
    agente usa o mesmo, na assinatura?" Só use `--provedor codex` ou `--auth api` se o TI pedir. Chave de API
    nunca vem pelo chat: o TI a cola no cofre do painel do agente.
+   **Se a proteção `credencial_empresa` estiver ligada** (o nível empresa em diante), pergunte também: "Este agente
+   é de uma pessoa ou de um setor?" e explique por quê: o assento do Team ou do Enterprise é pessoal e
+   intransferível. Agente de **pessoa** entra com o assento da própria pessoa: use `--uso pessoa --usuario <login>`
+   (o login vem de `dgclaw-controle usuario.listar`, ou pergunte ao TI) e `--auth assinatura`. Agente de **setor** usa
+   a chave de API da empresa: `--uso setor --auth api`, e a chave é colada pelo TI no cofre do painel. Sem o `--uso`,
+   a criação é recusada.
 5. **Canal.** "Por onde você quer falar com ele? Aqui no chat do DG Claw é o mais simples." Valores de
    `--canal`: `chat`, `telegram`, `whatsapp`. Telegram e WhatsApp quem liga é o próprio agente, depois de criado.
 6. **Resumo.** Mostre o que vai criar, em poucas linhas, e pergunte "Posso criar?". Sem um "sim", nada é criado.

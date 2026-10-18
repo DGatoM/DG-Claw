@@ -31,7 +31,10 @@ const SEM_RUNNER = {
 
 const LIMITE_AUDIO = 25 * 1024 * 1024;
 
-function criarCofreRotas({ config, runner, cofre, voz, log }) {
+function criarCofreRotas({ config, runner, cofre, voz, log, protecoes }) {
+  // Versão empresa: o modo "token" (CLAUDE_CODE_OAUTH_TOKEN) não é oferecido nem gravado. Texto igual ao de lib/enterprise/credencial.sh.
+  const MOTIVO_TOKEN = 'na versão empresa, cada pessoa entra com o próprio assento do Team ou do Enterprise, ou o agente usa a chave de API da empresa';
+  const semToken = () => !!protecoes && protecoes.ligada('credencial_empresa');
   let catalogoCache = null;
   async function catalogo() {
     if (catalogoCache) return catalogoCache;
@@ -96,6 +99,11 @@ function criarCofreRotas({ config, runner, cofre, voz, log }) {
   async function guardarRota(req, res, agente, usuario) {
     const p = await lerJsonDoPedido(req, res, agente.slug); if (!p) return;
     const b = p.json;
+    if (b.envName === 'CLAUDE_CODE_OAUTH_TOKEN' && semToken()) {
+      log('aviso', `Cofre /p/${agente.slug}: recusei guardar CLAUDE_CODE_OAUTH_TOKEN (credencial_empresa ligada).`);
+      enviaJson(res, 403, { error: `Este código de acesso de longa duração não pode ser guardado: ${MOTIVO_TOKEN}.`, howToFix: 'Entre pela assinatura (login assistido do painel) ou use a chave de API da empresa (ANTHROPIC_API_KEY) em um agente de setor.' });
+      return;
+    }
     const g = cofre.guardar(agente, { envName: b.envName, valor: b.valor, provedor: b.provedor, quem: usuario, origem: 'tela' });
     if (g.erro || b.aplicar !== true) return recusarOuJson(res, g);
     const a = await cofre.aplicar(agente);
@@ -175,6 +183,11 @@ function criarCofreRotas({ config, runner, cofre, voz, log }) {
       return undefined;
     }
 
+    if (escolha.auth === 'token' && semToken()) {
+      log('aviso', `Cofre /p/${agente.slug}: recusei o modo token (credencial_empresa ligada).`);
+      enviaJson(res, 403, { error: `Este modo de pagar não está disponível: ${MOTIVO_TOKEN}.`, howToFix: 'Escolha "na assinatura" (cada pessoa entra com o próprio assento) ou "na API" (chave da organização, para agente de setor). Nada foi alterado.' });
+      return undefined;
+    }
     const modo = c.cat.provedores[escolha.provedor].auth[escolha.auth];
     const variavel = modo.variavel || null;
     if (!variavel) return repassarSemChave();

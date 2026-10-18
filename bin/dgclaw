@@ -66,6 +66,7 @@ Agentes
         --papel "<o que ele faz>"        --jeito "<como ele fala>"
         --dono "<como ele chama voce>"   --canal chat|telegram|whatsapp (padrao: chat)
         --avatar <emoji ou letra>        --cor "#3b82f6"
+        --uso pessoa|setor               (versao empresa: de quem e o agente; --usuario <login> para pessoa)
       Exemplo:  dgclaw agente criar ana --nome "Ana" --papel "organiza a minha agenda" --dono "Marta"
       Rodar de novo o mesmo comando continua de onde parou, sem duplicar nada.
 
@@ -1028,10 +1029,11 @@ agente_criar() {
     [ $# -ge 1 ] || falha "faltou o nome curto (slug) do agente." 'exemplo: dgclaw agente criar ana --nome "Ana"'
     C_SLUG="$1"; shift
     C_NOME=""; C_PROVEDOR=claude; C_AUTH=assinatura; C_MODELO=""; C_PAPEL=""; C_JEITO=""
+    C_USO=""; C_USUARIO=""   # enterprise (credencial_empresa): lib/enterprise/credencial.sh
     local dono="" canal=chat avatar="" cor=""
     while [ $# -gt 0 ]; do
         case "$1" in
-            --nome|--provedor|--auth|--modelo|--papel|--jeito|--dono|--canal|--avatar|--cor)
+            --nome|--provedor|--auth|--modelo|--papel|--jeito|--dono|--canal|--avatar|--cor|--uso|--usuario)
                 [ $# -ge 2 ] || falha "a opcao $1 precisa de um valor." "exemplo: $1 \"valor\"; veja dgclaw --ajuda"
                 case "$1" in
                     --nome) C_NOME="$(uma_linha "$2")" ;;
@@ -1044,6 +1046,8 @@ agente_criar() {
                     --canal) canal="$2" ;;
                     --avatar) avatar="$(uma_linha "$2")" ;;
                     --cor) cor="$2" ;;
+                    --uso) C_USO="$2" ;;
+                    --usuario) C_USUARIO="$2" ;;
                 esac
                 shift 2 ;;
             *) falha "opcao desconhecida: $1" "veja as opcoes de 'agente criar' com: dgclaw --ajuda" ;;
@@ -1060,6 +1064,7 @@ agente_criar() {
     case "$C_AUTH" in assinatura|api) ;; *) falha "autenticacao '$C_AUTH' nao existe." "use --auth assinatura ou --auth api." ;; esac
     case "$canal" in chat|telegram|whatsapp) ;; *) falha "canal '$canal' nao existe." "use --canal chat, telegram ou whatsapp." ;; esac
     C_CANAL="$canal"
+    ent_credencial_validar   # enterprise: uso pessoa|setor obrigatorio com credencial_empresa (nada no nivel pessoal)
     if [ -z "$cor" ]; then cor="#3b82f6"; fi
     [[ "$cor" =~ ^#[0-9a-fA-F]{6}$ ]] || falha "a cor '$cor' nao e valida." "use o formato #rrggbb, por exemplo --cor \"#3b82f6\"."
     C_COR="$cor"
@@ -1128,6 +1133,7 @@ agente_criar() {
     if [ -n "${DGCLAW_DOMINIO:-}" ]; then base="https://$DGCLAW_DOMINIO"; else base="http://127.0.0.1:8300"; fi
     printf '\n%s esta criado.\n' "$C_NOME"
     printf '  Provedor: %s (%s)\n' "$C_PROVEDOR" "$C_AUTH"
+    if [ -n "$C_USO" ]; then printf '  Uso: %s%s\n' "$C_USO" "${C_USUARIO:+ (dono: $C_USUARIO)}"; fi
     printf '  Painel: %s/p/%s\n' "$base" "$C_SLUG"
     [ "$vida_ok" = 1 ] || printf '  Atencao: a parte de dentro nao terminou. Rode: dgclaw agente reparar %s\n' "$C_SLUG"
     printf '  Falta entrar na conta: o painel mostra o botao.\n'

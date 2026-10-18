@@ -334,12 +334,15 @@ const OPS = {
       canal: { tipo: 'enum', valores: ['chat', 'telegram', 'whatsapp'], padrao: 'chat', rotulo: 'o canal' },
       avatar: { tipo: 'texto', max: 8, rotulo: 'o avatar' },
       cor: { tipo: 'cor', rotulo: 'a cor' },
+      // Versão empresa (credencial_empresa): de quem é o agente. Pessoa entra com o assento dela (auth assinatura); setor usa a chave de API.
+      uso: { tipo: 'enum', valores: ['pessoa', 'setor'], rotulo: 'o uso', ajuda: 'pessoa ou setor; obrigatório quando a proteção credencial_empresa está ligada' },
+      usuario: { tipo: 'texto', max: 64, rotulo: 'o login da pessoa dona', ajuda: 'o login do usuário (veja com dgclaw usuario listar); vale para uso pessoa' },
     },
-    descrever: (p) => `Criar o agente \`${p.slug}\` (nome "${p.nome}", provedor ${p.provedor}).`,
+    descrever: (p) => `Criar o agente \`${p.slug}\` (nome "${p.nome}", provedor ${p.provedor}${p.uso ? `, uso ${p.uso}${p.usuario ? ` da pessoa ${p.usuario}` : ''}` : ''}).`,
     chave: (p) => p.slug,
     cli(p) {
       const a = ['agente', 'criar', p.slug, '--nome', p.nome, '--provedor', p.provedor, '--auth', p.auth, '--canal', p.canal];
-      for (const [flag, k] of [['--modelo', 'modelo'], ['--papel', 'papel'], ['--jeito', 'jeito'], ['--dono', 'dono'], ['--avatar', 'avatar'], ['--cor', 'cor']]) {
+      for (const [flag, k] of [['--modelo', 'modelo'], ['--papel', 'papel'], ['--jeito', 'jeito'], ['--dono', 'dono'], ['--avatar', 'avatar'], ['--cor', 'cor'], ['--uso', 'uso'], ['--usuario', 'usuario']]) {
         if (p[k] !== undefined) a.push(flag, p[k]);
       }
       return a;

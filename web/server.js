@@ -93,7 +93,7 @@ function criarServidor(opcoes) {
   // Criada antes do sigilo porque o modo escondido consulta `sigilo_externo` (web/lib/ent/sigilo.js).
   const protecoes = opcoes.protecoes || criarProtecoes({ caminho: config.protecoesPath, log });
   const sigilo = opcoes.sigilo || criarSigilo({ env: config.env, registro, dataDir: config.dataDir, log, timeoutMs: opcoes.timeoutSigiloMs, protecoes });
-  const cofreRotas = criarCofreRotas({ config, runner, cofre: cofreAgente, voz, log });
+  const cofreRotas = criarCofreRotas({ config, runner, cofre: cofreAgente, voz, log, protecoes });
   const proxy = criarProxy({ config, registro, log, cofreRotas });
   const caixa = criarCaixaAgente({ config, registro, log, porta: () => servidor.address().port, agora: opcoes.agora });
   const push = criarPush({ dataDir: config.dataDir, log, agora: opcoes.agora, enviarHttp: opcoes.enviarPush });
@@ -322,7 +322,7 @@ function criarServidor(opcoes) {
     if (p === '/api/v1/onboarding') {
       if (falhaDoRegistro(req, res, true)) return;
       try {
-        if (m === 'GET') return H.enviaJson(res, 200, { ok: true, ...await onboarding.estado() });
+        if (m === 'GET') return H.enviaJson(res, 200, { ok: true, ...await onboarding.estado(), credencial_empresa: protecoes.ligada('credencial_empresa') });
         if (m === 'POST') {
           const corpo = await H.lerJson(req, 8 * 1024);
           return H.enviaJson(res, 200, { ok: true, ...await onboarding.solicitar(corpo, sessao.usuario) });

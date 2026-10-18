@@ -194,6 +194,7 @@
       { alvo:'[data-tour="nas-nome"]', titulo:'Nome do seu agente', oque:'É como ele vai aparecer na conversa e no menu.', como:'Você escolhe o nome. O Admin cuida do cadastro.', porque:'Você reconhece seu agente pelo nome, sem precisar lidar com códigos.' },
       { alvo:'[data-tour="nas-papel"]', titulo:'Função e tom', oque:'O trabalho que você quer delegar e o jeito de conversar.', como:'Essas respostas entram na identidade do agente. Não existe uma nota ou cálculo.', porque:'Ele começa sabendo como pode ajudar você.' },
       { alvo:'[data-tour="nas-foto"]', titulo:'Foto opcional', oque:'A imagem que identifica seu agente.', como:'Suba PNG, JPEG ou WebP de até 5 MB, ou gere um avatar ilustrado aqui. A geração é local e não usa IA nem envia dados a outro serviço. Sem foto, usamos um avatar neutro.', porque:'A foto ajuda a reconhecer o agente. Você pode começar sem ela.' },
+      { alvo:'[data-tour="nas-uso"]', titulo:'De quem é este agente', oque:'Se o agente é de uma pessoa ou de um setor da empresa.', como:'Agente de pessoa entra com o assento (Team ou Enterprise) da própria pessoa. Agente de setor usa a chave de API da empresa, guardada no Cofre do painel dele.', porque:'O assento é pessoal e intransferível: por isso cada agente precisa dizer de quem é.' },
       { alvo:'[data-tour="nas-estado"]', titulo:'Preparação e boas-vindas', oque:'A etapa real da criação.', como:'O Admin prepara o agente, você conecta sua assinatura e ele testa uma resposta. Só depois a caixa abre.', porque:'Assim você sabe se precisa fazer algo e quando já pode conversar.' }
     ];
     function tutorial(seletor) { if (window.DGTour) window.DGTour.inicia({ passos: seletor ? passos.filter(p=>p.alvo===seletor) : passos }); }
@@ -230,6 +231,20 @@
         catch (e) { erro(e.message); bot.disabled = false; }
       };
     }
+    // Versão empresa (credencial_empresa): pergunta se o agente é de uma pessoa ou de um setor. Sem a proteção, o bloco nem aparece.
+    async function usoDaEmpresa() {
+      let d;
+      try { d = await json('/api/v1/onboarding'); } catch (e) { return; }
+      const f = host.querySelector('#nasForm');
+      if (!d || !d.credencial_empresa || !f || f.querySelector('[data-tour="nas-uso"]')) return;
+      const sec = document.createElement('section');
+      sec.setAttribute('data-tour', 'nas-uso');
+      sec.innerHTML = '<div class="nas-rotulo"><label>Este agente é de uma pessoa ou de um setor?</label><button type="button" data-ajuda="[data-tour=&quot;nas-uso&quot;]" aria-label="Ajuda sobre o uso do agente">?</button></div>' +
+        '<label><input type="radio" name="uso" value="pessoa" checked> De uma pessoa (entra com o assento dela)</label>' +
+        '<label><input type="radio" name="uso" value="setor"> De um setor (usa a chave de API da empresa)</label>';
+      f.querySelector('.nas-nota').before(sec);
+      sec.querySelector('[data-ajuda]').onclick = () => tutorial('[data-tour="nas-uso"]');
+    }
     // Só a caixa do modal rola (o chat por trás não é tocado). Chamado quando o formulário abre.
     function topoDoFormulario() { rolo.scrollTop = 0; }
     function formulario() {
@@ -242,6 +257,7 @@
       abreModal();
       ligarAjuda();
       topoDoFormulario();
+      usoDaEmpresa();
       host.querySelector('#nasFoto').onchange = () => {
         const f = host.querySelector('#nasFoto').files[0]; foto = null;
         const prev = host.querySelector('#nasPrevia'); prev.textContent = '◉';
@@ -274,6 +290,7 @@
           let fotoId = null;
           if (foto) { const fd = new FormData(); fd.append('file',foto); fd.append('enviar','0'); fd.append('cliente_id',id+'-foto'); const up = await json('/api/v1/agents/'+encodeURIComponent(agente.id)+'/upload',{method:'POST',body:fd}); fotoId = up.anexo.id; }
           const pedido = { id, dono:f.elements.dono.value.trim() || undefined, nome:f.elements.nome.value.trim(), papel:f.elements.papel.value.trim().replace(/\s+/g,' '), jeito:f.elements.jeito.value, foto:fotoId };
+          if (f.elements.uso && f.elements.uso.value) pedido.uso = f.elements.uso.value;
           const d = await json('/api/v1/onboarding',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(pedido)});
           preenchendo = false; mostrar(d);
         } catch(e) { erro(e.message); bot.disabled = false; bot.textContent = 'Tentar enviar novamente'; }
