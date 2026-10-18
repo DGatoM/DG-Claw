@@ -5,6 +5,10 @@
 # Uso:
 #   dgclaw-card abrir --provedor codex|claude [--auth assinatura|api|token] [--modelo M] --titulo "T"
 #                     (--pedido "texto" | --pedido-arquivo F | pedido pelo stdin)
+#                     [--monitor --entregue "criterio de entregue" [--cada MIN]]
+#                     --monitor liga o MODO MONITOR neste card (docs/MODO-MONITOR.md): um vigia sem modelo
+#                     que so acorda voce quando o card para, pede algo, trava ou erra. --entregue e
+#                     obrigatorio com --monitor; --cada e o intervalo em minutos (padrao 10).
 #   dgclaw-card mandar <id> (texto | --arquivo F | stdin)
 #   dgclaw-card estado <id>
 #   dgclaw-card esperar <id> [--max SEGUNDOS]        (padrao 900; olha a cada 5 s)
@@ -36,6 +40,9 @@
 #   7  "esperar" estourou o tempo: a sessao segue trabalhando
 #      Se o "abrir" criar o card e falhar ao entregar o pedido, a saida e a do erro (2, 3, 4 ou 6) e a
 #      mensagem diz o id do card que ficou aberto; sem login, o card recem criado e fechado sozinho.
+#      Se o card abriu mas o "dgclaw-monitor add" falhou, a saida e 8: o card esta aberto e SEM monitor,
+#      e a mensagem traz o comando para ligar o monitor a mao.
+#   8  (so no "abrir --monitor") o card abriu e o pedido foi entregue, mas o monitor nao ligou
 set -euo pipefail
 umask 077
 
@@ -151,7 +158,7 @@ enviar_texto() { # $1 id ; texto em TEXTO
 
 # --- subcomandos ----------------------------------------------------------
 cmd_abrir() {
-  local provedor="" auth="" modelo="" titulo="" pedido="" arquivo=""
+  local provedor="" auth="" modelo="" titulo="" pedido="" arquivo="" monitor=0 entregue="" cada=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --provedor) provedor="${2:-}"; shift 2 || die "falta o valor de --provedor." ;;
@@ -160,11 +167,21 @@ cmd_abrir() {
       --titulo) titulo="${2:-}"; shift 2 || die "falta o valor de --titulo." ;;
       --pedido) pedido="${2:-}"; shift 2 || die "falta o valor de --pedido." ;;
       --pedido-arquivo) arquivo="${2:-}"; shift 2 || die "falta o valor de --pedido-arquivo." ;;
+      --monitor) monitor=1; shift ;;
+      --entregue) entregue="${2:-}"; shift 2 || die "falta o valor de --entregue." ;;
+      --cada) cada="${2:-}"; shift 2 || die "falta o valor de --cada." ;;
       *) die "opcao desconhecida em 'abrir': '$1'. Veja 'dgclaw-card ajuda'." ;;
     esac
   done
   case "$provedor" in codex|claude) ;; *) die "--provedor precisa ser codex ou claude (recebido: '${provedor}')." ;; esac
   case "$auth" in ""|assinatura|api|token) ;; *) die "--auth precisa ser assinatura, api ou token (recebido: '$auth')." ;; esac
+  # Confere o monitor ANTES de criar o card: erro de uso nao pode deixar card aberto para tras.
+  if [ "$monitor" = 1 ]; then
+    [ -n "${entregue//[[:space:]]/}" ] || die "--monitor precisa de --entregue \"criterio de entregue\": diga como saber que o card terminou (ex.: --entregue \"o relatorio salvo em /home/agente/relatorio.md\"). Nenhum card foi aberto."
+    [ -z "$cada" ] || { [[ "$cada" =~ ^[0-9]+$ ]] && [ "$cada" -ge 1 ]; } || die "--cada precisa ser um numero inteiro de minutos, maior que zero (recebido: '$cada'). Nenhum card foi aberto."
+  else
+    [ -z "$entregue$cada" ] || die "--entregue e --cada so valem junto com --monitor. Acrescente --monitor, ou tire essas opcoes."
+  fi
   [ -n "$titulo" ] || die "falta --titulo: um nome curto para o card aparecer no painel (ex.: --titulo \"Revisao do contrato\")."
   ler_texto "$pedido" "$arquivo" "pedido"
   QUEM="$provedor"
@@ -194,6 +211,23 @@ cmd_abrir() {
   esac
   echo "$id"
   echo "Card aberto em $(nome_do_provedor "$provedor"). Para acompanhar: dgclaw-card esperar $id && dgclaw-card ler $id"
+  [ "$monitor" = 0 ] || ligar_monitor "$id" "$entregue" "$cada"
+}
+
+# Liga o modo monitor num card que acabou de abrir. O dgclaw-monitor mora ao lado deste script.
+# Se falhar, o card segue aberto (o pedido ja foi entregue): avisa claro e sai com 8.
+ligar_monitor() { # $1 id ; $2 criterio ; $3 minutos|vazio
+  local mon args out
+  mon="$(dirname "$(readlink -f "$0")")/dgclaw-monitor"
+  args=(add "$1" --entregue "$2")
+  [ -z "$3" ] || args+=(--cada "$3")
+  if [ ! -x "$mon" ]; then
+    CODIGO=8 die "o card $1 esta aberto, mas SEM monitor: nao achei o dgclaw-monitor ($mon). Avise quem mantem a imagem do agente. Quando existir, ligue com: dgclaw-monitor add $1 --entregue \"...\""
+  fi
+  if ! out="$("$mon" "${args[@]}" 2>&1)"; then
+    CODIGO=8 die "o card $1 esta aberto e o pedido foi entregue, mas o monitor NAO ligou: ${out:-sem mensagem}. Para ligar a mao: dgclaw-monitor add $1 --entregue \"<criterio de entregue>\" [--cada MIN]"
+  fi
+  echo "$out"
 }
 
 cmd_mandar() {

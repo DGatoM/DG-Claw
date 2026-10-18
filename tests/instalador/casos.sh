@@ -40,7 +40,7 @@ caso_instalacao_cria_arquivos_com_os_modos_certos() {
     afirma "skill criar-agente copiada" test -f "$a/admin/.claude/skills/criar-agente/SKILL.md"
     afirma "skill trocar-dominio copiada" test -f "$a/admin/.claude/skills/trocar-dominio/SKILL.md"
     afirma "runner.json 444" modo_e "$a/admin/.plataforma/runner.json" 444
-    afirma "runner.json do admin" jq -e '.id == "admin" and .config.provider == "local-cli" and .config.cwd == "/opt/dgclaw/admin" and .config.identidadeArquivo == "" and .config.envExtra.CODEX_HOME == "/root/.codex"' "$a/admin/.plataforma/runner.json"
+    afirma "runner.json do admin" jq -e '.id == "admin" and .config.provider == "local-cli" and .config.cwd == "/opt/dgclaw/admin" and .config.identidadeArquivo == "/opt/dgclaw/admin/.plataforma/ambiente.md" and .config.envExtra.CODEX_HOME == "/root/.codex"' "$a/admin/.plataforma/runner.json"
     afirma "dgchat.mcp.json do admin" jq -e '.mcpServers.dgchat.command == "node" and .mcpServers.dgchat.args[0] == "/opt/dgclaw/app/scripts/dgchat-mcp/server.mjs"' "$a/admin/.plataforma/dgchat.mcp.json"
     afirma "codigo copiado" test -f "$a/app/install.sh"
     nega "tests nao vai para o app" test -e "$a/app/tests"

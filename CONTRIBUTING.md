@@ -53,6 +53,10 @@ ficar vermelho, a causa está no log do job que falhou.
 - Segredos ficam fora de argumentos de comando (argv), de logs e do repositório. Arquivos de segredo
   têm permissão 600.
 - Commits só com os arquivos da própria mudança, nomeados um a um. Nada de `git add -A`.
+- Toda feature nova que o agente precisa conhecer para usar ou oferecer entra TAMBÉM em
+  `templates/ambiente/agente.md` (e em `admin.md`, se o Admin a usa), no mesmo commit/PR. Feature
+  puramente visual que o agente não usa (por exemplo, animação de carregando) não precisa. Doc de
+  capacidade novo entra também em `templates/ambiente/capacidades.txt`.
 
 ## Padrão de commit
 

@@ -34,6 +34,49 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
   `/api/v1/foco/<agente>` (lista, itens, eventos com cursor e `docs.md`), evento `foco` no stream da
   conversa, gancho `foco-hook` (`promptHooks` do `runner.json`) que avisa o agente dos tiques do dono no
   começo do turno, e a skill `foco`. Contrato em `web/docs/MODO-FOCO.md`.
+- Mesa de tarefas (tela `/mesa`): o dono vê numa tela só o que cada agente está fazendo, o que travou e o
+  que espera por ele, e também cria, responde, conclui e reabre tarefas. O agente mexe nela pelo comando
+  `dgclaw-mesa`, e o que espera pelo dono chega como aviso no celular.
+- Quadro de avisos entre agentes (tela `/avisos`): os agentes deixam recados curtos uns para os outros
+  (decisões, preferências do dono, entregas, aprendizados) e o dono lê tudo numa tela. Guia em
+  `docs/QUADRO-DE-AVISOS.md`.
+- Lembretes que insistem (tela `/lembretes`): o agente agenda o lembrete, o painel avisa na conversa e no
+  celular, com botões Feito e Adiar, e repete até o dono responder. Dá para ativar os avisos no aparelho.
+- Comandos de barra na conversa: digitar `/` abre a lista de comandos (`/compact`, `/clear`, `/context`) e das
+  skills do agente, para todos os agentes.
+- Anexar qualquer arquivo na conversa: o balão mostra um cartão com o arquivo, e o agente abre zips com o
+  `dgclaw-abrir-zip`. Subir arquivo na raiz da pasta do agente cria a pasta `arquivos/` se ela não existir.
+- Lousa: o agente desenha gráficos, tabelas e esquemas interativos direto na conversa. Todo texto feito para
+  copiar vem numa caixinha com botão Copiar.
+- Skill `lista-rapida`: o agente responde com uma síntese leve e um visual na conversa.
+- Campo de senha na conversa: quando o agente precisa de uma chave, a tela mostra um campo de senha que
+  grava direto no cofre, sem a chave passar pelo chat.
+- Menu único: a conversa é a tela principal e o menu da esquerda leva às outras páginas, que agora têm o
+  mesmo cabeçalho. A conversa ganhou os botões Painel, Mesa e Lembretes no topo.
+- Abas Skills e Rotinas no painel de cada agente. Em Rotinas, o botão editar abre a conversa com o pedido
+  pronto, e lembrete de uma vez aparece com a data completa.
+- Skills de fábrica no agente: slides, sites, vídeos, transcrição com Groq, Gemini e visuais. Elas já
+  nascem em `~/.claude/skills` de cada agente.
+- Primeiro agente pela conversa com o Admin: animação durante a criação e uma mensagem com os próximos passos.
+- `dgclaw dominio`: troca o endereço do painel por um domínio próprio, com conferência do DNS. O Admin tem a
+  skill `trocar-dominio` para fazer isso por conversa.
+- Quando o agente compacta a conversa, ele mesmo avisa ("Tô compactando a conversa pra voltar mais leve") e
+  avisa de novo quando volta. O histórico não mostra mais as linhas de "rodou:".
+- Seção "Onde você está e o que você consegue fazer" no prompt de todo agente e do Admin: eles passam a saber
+  em que máquina estão, o que enxergam e o que podem pedir ou fazer por conta própria.
+- Modo monitor de cards: `dgclaw-card abrir --monitor` abre um card vigiado pelo `dgclaw-monitor`, um vigia
+  sem modelo que confere o card de tempos em tempos e só chama o agente quando o critério de entregue aparece
+  ou quando algo trava. Guia em `docs/MODO-MONITOR.md`.
+- Aviso de novidades depois de atualizar: na primeira conversa depois que o DG Claw é atualizado, o agente (e
+  o Admin) conta ao dono, em poucas linhas, o que veio de novo e dá para usar. Cada agente avisa uma vez só,
+  e agente criado depois da atualização não recebe aviso do que já nasceu com ele. Guia em `docs/NOVIDADES.md`.
+
+### Corrigido
+
+- Atualizar o DG Claw não apaga mais as chaves do `web.env`.
+- O instalador escolhe o motor do Admin (Claude ou Codex) pelo login que existe, não pelo programa instalado.
+- Campos de texto com 16px ou mais no celular: o app instalado não dá mais zoom ao tocar num campo.
+- Ubuntu 26.04 passa com aviso, e os problemas da instalação ao vivo de 17/10 foram acertados.
 
 ## [1.0.0] - 2026-10-17
 

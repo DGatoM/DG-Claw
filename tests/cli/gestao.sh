@@ -219,6 +219,7 @@ jq '.config.promptHooks = ["echo meu-gancho"]' "$RJ" >"$TMP/rj.json" && cat "$TM
 dgclaw agente reparar cida >"$TMP/o.txt" 2>&1
 igual "reparar sem o gancho sai com 0" "0" "$?"
 igual "acrescenta o gancho que faltava" "1" "$(jq --arg g "$GANCHO" '[.config.promptHooks[] | select(. == $g)] | length' "$RJ")"
+igual "agente reparado ganha tambem o gancho de novidades" "1" "$(jq '[.config.promptHooks[] | select(. == "node /opt/dgclaw/app/scripts/novidades-hook.mjs")] | length' "$RJ")"
 igual "preserva os outros promptHooks" "echo meu-gancho" "$(jq -r '.config.promptHooks[0]' "$RJ")"
 igual "preserva o resto do runner.json" "codex-cli" "$(jq -r .config.provider "$RJ")"
 afirma "diz o que fez e como reiniciar" grep -q "dgclaw agente reiniciar cida" "$TMP/o.txt"

@@ -55,3 +55,9 @@ A [arquitetura](docs/ARQUITETURA.md) descreve o funcionamento e os limites entre
   teste que monta o arquivo com uma linha alheia e confere que ela sobreviveu.
   *Por quê:* em 17/10/2026 o instalador regravava o `web.env` só com o usuário e a senha do
   painel, e cada atualização desligava o microfone dos agentes. O Admin percebeu antes de aplicar.
+
+- **O agente precisa conhecer o que é novo.** Toda feature nova que o agente precisa conhecer para
+  usar ou oferecer entra TAMBÉM em `templates/ambiente/agente.md` (e em `admin.md`, se o Admin a
+  usa), no mesmo commit/PR. Feature puramente visual que o agente não usa (por exemplo, animação de
+  carregando) não precisa. Se for um doc de capacidade, acrescente-o a `templates/ambiente/capacidades.txt`
+  (o teste `tests/ambiente` confere que cada um está citado no `agente.md`).

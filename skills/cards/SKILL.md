@@ -52,6 +52,36 @@ dgclaw-card ler "$id" --n 2
 - `dgclaw-card estado "$id"` mostra provedor, auth, modelo e situação. `dgclaw-card listar` mostra
   os cards abertos.
 
+## Tarefa longa: o card nasce SEMPRE com monitor
+
+Se o card vai levar mais que alguns minutos (construir, migrar, levantar, revisar muita coisa),
+ligue o modo monitor no mesmo comando que abre o card, com `--monitor` e o critério de entregue:
+
+```bash
+id="$(dgclaw-card abrir --provedor codex --titulo "Relatório de vendas" --pedido-arquivo /tmp/pedido.md \
+  --monitor --entregue "o arquivo /home/agente/relatorio.md existe e tem as três seções" | head -1)"
+```
+
+O `--entregue` diz como saber que terminou (obrigatório com `--monitor`); `--cada MIN` muda o
+intervalo (padrão 10). Depois disso você não precisa ficar em `esperar`: o monitor, que não gasta
+modelo, só acorda você quando o card parar, pedir algo, travar ou errar. Detalhes em
+`docs/MODO-MONITOR.md`. Se a saída for 8, o card abriu mas o monitor não ligou: rode o comando
+`dgclaw-monitor add` que a mensagem mostra.
+
+### Quando chegar uma mensagem `MODO MONITOR`
+
+Ela vem em um envelope `<plataforma recado="modo-monitor">` e não foi digitada por uma pessoa. Para
+cada card ela traz o id, o que aconteceu, o que ele pediu, a última fala e o critério de entregue.
+Faça assim:
+
+1. Avise o dono pelo canal dele, em linguagem simples: o card tal parou por causa disto, ele pediu
+   tal coisa, posso continuar?
+2. Com o "pode" do dono, responda no card com `dgclaw-card mandar <id> "..."`. Permissão destrutiva
+   só com o aval dele.
+3. Se a entrega bateu o critério de entregue: confira o resultado, conte ao dono e rode
+   `dgclaw-monitor rm <id>` (depois feche o card com `dgclaw-card fechar <id>`).
+4. Se não há nada a fazer, fique quieto.
+
 ## Passo 5: traga o resultado e feche
 
 Conte ao dono o que o card respondeu, com as palavras dele, dizendo que veio do GPT (ou do
