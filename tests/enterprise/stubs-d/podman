@@ -17,6 +17,11 @@ if [ "${1:-}" = inspect ]; then
         [ -f "$est/c-$nome" ] || exit 1
         cat "$est/secopt-$nome" 2>/dev/null || echo "[]"; exit 0
     fi
+    if printf '%s ' "$@" | grep -q 'Config.Env'; then
+        echo "podman $*" >>"${STUB_LOG:?}"
+        [ -f "$est/c-$nome" ] || exit 1
+        cat "$est/env-$nome" 2>/dev/null; exit 0
+    fi
     if printf '%s ' "$@" | grep -q '.Mounts'; then
         echo "podman $*" >>"${STUB_LOG:?}"
         [ -f "$est/c-$nome" ] || exit 1
@@ -30,10 +35,15 @@ if [ "${1:-}" = create ]; then
         [ "$prev" = --name ] && nome="$a"
         prev="$a"
     done
-    : >"$est/mounts-$nome"; echo "[]" >"$est/secopt-$nome"
+    : >"$est/mounts-$nome"; echo "[]" >"$est/secopt-$nome"; : >"$est/env-$nome"
     prev=""
     for a in "$@"; do
-        [ "$prev" = --volume ] && printf '%s\n' "${a%%:*}" >>"$est/mounts-$nome"
+        # a origem E o destino de cada volume: o inspect de verdade lista os dois, em formatos diferentes
+        if [ "$prev" = --volume ]; then
+            printf '%s\n' "${a%%:*}" >>"$est/mounts-$nome"
+            resto="${a#*:}"; printf '%s\n' "${resto%%:*}" >>"$est/mounts-$nome"
+        fi
+        [ "$prev" = --env ] && printf '[%s]\n' "$a" >>"$est/env-$nome"
         [ "$prev" = --security-opt ] && echo "[$a]" >"$est/secopt-$nome"
         prev="$a"
     done

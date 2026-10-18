@@ -25,7 +25,7 @@ afirma "status funciona e fala a verdade" grep -q "protecao = nao" "$TMP/o.txt"
 
 echo "disco: cifrar no escritorio, com um agente ligado"
 novo escritorio
-"$CLI_COPIA" agente criar ana --nome "Ana" >/dev/null 2>&1
+"$CLI_COPIA" agente criar ana --nome "Ana" --uso setor --auth api >/dev/null 2>&1
 echo "conteudo da memoria" >"$AGENTES/ana/home/memory/nota.txt"
 : >"$STUB_LOG"
 "$CLI_COPIA" disco cifrar --tamanho 64M >"$TMP/o.txt" 2>&1

@@ -45,7 +45,8 @@ ent_credencial_validar() {
     esac
 }
 
-# Grava uso e dono no agentes.json (o Web le) e acrescenta o agente na lista da pessoa.
+# Grava uso e dono no agentes.json (o Web le) e acrescenta o agente na lista da pessoa. A auditoria da criacao leva uso e dono
+# dentro do proprio evento agente.criar (bin/dgclaw); `dgclaw agente uso` audita o seu proprio evento.
 ent_depois_de_criar_credencial() {
     local slug="$1" dono_login
     [ "$ENSAIO" != 1 ] || return 0
@@ -62,7 +63,6 @@ ent_depois_de_criar_credencial() {
         _usr_mudar '.usuarios |= map(if ((.usuario | ascii_downcase) == ($u | ascii_downcase)) and .papel != "ti" and ((.agentes // []) | index($s) | not) then .agentes = ((.agentes // []) + [$s]) else . end)' \
             --arg u "$dono_login" --arg s "$slug"
     fi
-    auditar_aviso agente.uso "$(jq -nc --arg s "$slug" --arg u "$C_USO" --arg d "$dono_login" '{slug: $s, uso: $u, dono: (if $d == "" then null else $d end)}')"
 }
 
 # Marca para o painel do agente: com a protecao ligada o painel nao oferece o modo de longa duracao. O arquivo mora na
@@ -123,4 +123,5 @@ ent_cmd_agente_uso() {
     fi
     C_USO="$uso"; C_USUARIO="$usuario"
     ent_depois_de_criar_credencial "$slug"
+    auditar_aviso agente.uso "$(jq -nc --arg s "$slug" --arg u "$uso" --arg d "$usuario" '{slug: $s, uso: $u, dono: (if $d == "" then null else $d end)}')"
 }

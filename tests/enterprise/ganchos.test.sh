@@ -78,7 +78,7 @@ ent_args_container_zz() {
 }
 FIM
 nivel_na_raiz escritorio
-"$CLI_COPIA" agente criar ana --nome "Ana" --dono "Marta" >"$TMP/saida.txt" 2>&1
+"$CLI_COPIA" agente criar ana --nome "Ana" --dono "Marta" --uso setor --auth api >"$TMP/saida.txt" 2>&1
 igual "escritorio: agente criou" 0 "$?"
 linha="$(grep '^podman create' "$STUB_LOG")"
 afirma "escritorio: o gancho acrescentou a opcao" bash -c "[[ '$linha' == *'--security-opt no-new-privileges'* ]]"
@@ -98,7 +98,7 @@ afirma "status chama os ganchos ent_status_" grep -q "linha do gancho de status"
 echo "ganchos: auditoria das acoes da CLI"
 preparar
 nivel_na_raiz empresa
-dgclaw agente criar ana --nome "Ana" >/dev/null 2>&1
+dgclaw agente criar ana --nome "Ana" --uso setor --auth api >/dev/null 2>&1
 dgclaw agente remover ana --sim >/dev/null 2>&1
 LOGA="$DGCLAW_RAIZ/var/log/dgclaw/auditoria.jsonl"
 igual "criar e remover foram auditados" "agente.criar agente.remover" "$(jq -r .evento "$LOGA" | paste -sd' ')"

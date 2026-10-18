@@ -1127,7 +1127,8 @@ agente_criar() {
     registrar_agente
     trap - EXIT
     ent_rodar_ganchos ent_depois_de_criar_ "$C_SLUG"
-    auditar_aviso agente.criar "$(jq -nc --arg s "$C_SLUG" --arg p "$C_PROVEDOR" '{slug: $s, provedor: $p}')"
+    auditar_aviso agente.criar "$(jq -nc --arg s "$C_SLUG" --arg p "$C_PROVEDOR" --arg u "$C_USO" --arg d "$C_USUARIO" \
+        '{slug: $s, provedor: $p} + (if $u != "" then {uso: $u} else {} end) + (if $d != "" then {dono: $d} else {} end)')"
 
     local base
     if [ -n "${DGCLAW_DOMINIO:-}" ]; then base="https://$DGCLAW_DOMINIO"; else base="http://127.0.0.1:8300"; fi

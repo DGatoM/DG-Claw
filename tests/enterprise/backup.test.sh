@@ -15,7 +15,7 @@ AUD="$DGCLAW_RAIZ/var/log/dgclaw/auditoria.jsonl"
 echo "backup: monta uma maquina com um agente"
 nivel_na_raiz escritorio
 printf 'DGCLAW_PANEL_USER=maria\n' >"$ETC/web.env"
-"$CLI_COPIA" agente criar ana --nome "Ana" >/dev/null 2>&1
+"$CLI_COPIA" agente criar ana --nome "Ana" --uso setor --auth api >/dev/null 2>&1
 CASA="$LIB/agentes/ana"
 mkdir -p "$CASA/home/.claude/projects/-home-agente" "$CASA/home/memory" "$CASA/home/app/node_modules/x"
 echo '{"msg":"oi"}' >"$CASA/home/.claude/projects/-home-agente/sessao1.jsonl"

@@ -68,7 +68,7 @@ afirma "a mensagem diz que o cofre nao foi tocado" grep -q "nao foi tocado" "$TM
 rm -f "$CLARO"
 
 echo "cofre: agente novo nasce com o cofre cifrado e a pasta em memoria"
-"$CLI_COPIA" agente criar bia --nome "Bia" >/dev/null 2>&1
+"$CLI_COPIA" agente criar bia --nome "Bia" --uso setor --auth api >/dev/null 2>&1
 igual "criou" 0 "$?"
 afirma "bia: .cred e nada em claro" bash -c "[ -s '$LIB/agentes/bia/cofre/cofre.env.cred' ] && [ ! -e '$LIB/agentes/bia/cofre/cofre.env' ]"
 afirma "bia: pasta em memoria existe" test -d "$DGCLAW_RAIZ/run/dgclaw/cofres/bia"

@@ -172,7 +172,10 @@ export async function iniciar(opcoes = {}) {
   const dirDgclaw = path.join(home, '.dgclaw');
   const dir = path.join(dirDgclaw, 'whatsapp');
   const dirSessao = path.join(dir, 'sessao');
-  const arqPermitidos = path.join(dir, 'permitidos.json');
+  const arqPermitidosAgente = path.join(dir, 'permitidos.json');
+  // Versao empresa (travas_externas): a lista do TI mora na pasta de configuracao que o host monta so leitura no container.
+  // Existindo, ela MANDA e a do agente (que ele pode editar) e ignorada. Ver docs/enterprise/TRAVAS.md.
+  const arqPermitidosTI = opcoes.arqPermitidosTI || env.DGCLAW_WHATSAPP_PERMITIDOS_TI || '/run/dgclaw/config/whatsapp-permitidos.json';
   const arqEstado = path.join(dir, 'estado.json');
   const arqCodigo = path.join(dir, 'codigo');
   const arqUltimo = path.join(dir, 'ultimo.json');
@@ -431,17 +434,28 @@ export async function iniciar(opcoes = {}) {
 
   function lerPermitidos() {
     let st;
+    // Lista do TI existindo (ou ilegivel por outro motivo que nao "nao existe"), ela manda: ilegivel fecha tudo, nunca cai na do agente.
+    let arqPermitidos = arqPermitidosAgente;
+    try {
+      fs.statSync(arqPermitidosTI);
+      arqPermitidos = arqPermitidosTI;
+    } catch (e) {
+      if (e.code !== 'ENOENT') arqPermitidos = arqPermitidosTI;
+    }
+    const comoCorrigir = arqPermitidos === arqPermitidosTI
+      ? 'O TI corrige com "dgclaw acoes whatsapp permitir <agente> <numero>" no servidor'
+      : 'Rode "dgclaw-agente canal whatsapp permitir <numero>"';
     try {
       st = fs.statSync(arqPermitidos);
     } catch (e) {
       const chave = 'ausente:' + e.code;
       if (listaCache.chave !== chave) {
         listaCache = { chave, numeros: [] };
-        registrar(`a lista de permitidos nao pode ser lida (${arqPermitidos}: ${motivoErro(e)}); ninguem pode falar com o agente. Rode "dgclaw-agente canal whatsapp permitir <numero>".`);
+        registrar(`a lista de permitidos nao pode ser lida (${arqPermitidos}: ${motivoErro(e)}); ninguem pode falar com o agente. ${comoCorrigir}.`);
       }
       return listaCache.numeros;
     }
-    const chave = `${st.mtimeMs}:${st.size}:${st.ino}`;
+    const chave = `${arqPermitidos}:${st.mtimeMs}:${st.size}:${st.ino}`;
     if (listaCache.chave === chave) return listaCache.numeros;
     let numeros = [];
     try {
@@ -453,11 +467,11 @@ export async function iniciar(opcoes = {}) {
         if (norm) numeros.push(norm); else invalidos.push(String(n).slice(0, 30));
       }
       if (invalidos.length) {
-        registrar(`a lista de permitidos (${arqPermitidos}) tem ${invalidos.length} numero(s) invalido(s) que foram ignorados. Rode "dgclaw-agente canal whatsapp remover <numero>" e permita de novo no formato +5511987654321.`);
+        registrar(`a lista de permitidos (${arqPermitidos}) tem ${invalidos.length} numero(s) invalido(s) que foram ignorados. ${comoCorrigir}: remova o numero e permita de novo no formato +5511987654321.`);
       }
     } catch (e) {
       numeros = [];
-      registrar(`a lista de permitidos esta ilegivel (${arqPermitidos}: ${motivoErro(e)}); ninguem pode falar com o agente. Rode "dgclaw-agente canal whatsapp permitir <numero>" para refazer.`);
+      registrar(`a lista de permitidos esta ilegivel (${arqPermitidos}: ${motivoErro(e)}); ninguem pode falar com o agente. ${comoCorrigir} para refazer.`);
     }
     const mudou = listaCache.chave !== null;
     listaCache = { chave, numeros };

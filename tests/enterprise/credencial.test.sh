@@ -45,7 +45,7 @@ igual "o registro tem o dono" '"fran"' "$(agente_json ana | jq -c '.dono')"
 igual "o agente entrou na lista da fran" '["ana"]' "$(jq -c '.usuarios[] | select(.usuario == "fran") | .agentes' "$LIB/web/usuarios.json")"
 afirma "a marca para o painel existe no config do agente" bash -c "[ -s '$LIB/agentes/ana/config/credencial-empresa' ]"
 afirma "a marca explica o motivo em portugues" grep -q "assento" "$LIB/agentes/ana/config/credencial-empresa"
-afirma "auditou o uso" bash -c "jq -e 'select(.evento == \"agente.uso\" and .dados.slug == \"ana\" and .dados.uso == \"pessoa\")' '$DGCLAW_RAIZ/var/log/dgclaw/auditoria.jsonl'"
+afirma "o agente.criar da auditoria leva uso e dono" bash -c "jq -e 'select(.evento == \"agente.criar\" and .dados.slug == \"ana\" and .dados.uso == \"pessoa\" and .dados.dono == \"fran\")' '$DGCLAW_RAIZ/var/log/dgclaw/auditoria.jsonl'"
 
 echo "credencial: agente de setor"
 "$CLI_COPIA" agente criar sac --nome "SAC" --uso setor --auth api >"$TMP/o.txt" 2>&1
@@ -59,6 +59,7 @@ nega "uso pessoa sem --usuario e recusado" "$CLI_COPIA" agente uso sac pessoa
 afirma "a mensagem pede o --usuario" grep -q "precisa de --usuario" "$TMP/o.txt"
 "$CLI_COPIA" agente uso sac setor >"$TMP/o.txt" 2>&1
 igual "agente uso setor funciona" 0 "$?"
+afirma "agente uso audita o proprio evento" bash -c "jq -e 'select(.evento == \"agente.uso\" and .dados.slug == \"sac\" and .dados.uso == \"setor\")' '$DGCLAW_RAIZ/var/log/dgclaw/auditoria.jsonl'"
 nega "agente que nao existe" "$CLI_COPIA" agente uso zzz setor
 nega "uso que nao existe" "$CLI_COPIA" agente uso sac familia
 

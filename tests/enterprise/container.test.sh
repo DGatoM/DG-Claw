@@ -27,7 +27,7 @@ afirma "ulimit nofile" bash -c "[[ '$linha' == *'--ulimit nofile=4096:8192'* ]]"
 
 echo "container: agente criado no escritorio (cofre cifrado + container endurecido)"
 app_copia
-"$CLI_COPIA" agente criar ana --nome "Ana" --dono "Marta" >"$TMP/saida.txt" 2>&1
+"$CLI_COPIA" agente criar ana --nome "Ana" --dono "Marta" --uso setor --auth api >"$TMP/saida.txt" 2>&1
 igual "agente criou" 0 "$?"
 grep '^podman create' "$STUB_LOG" | sed "s#$DGCLAW_RAIZ#@RAIZ@#g" >"$TMP/create.txt"
 igual "escritorio: a linha do podman create e a esperada (golden)" "$(cat "$REPO/tests/enterprise/golden/podman-create-escritorio.txt")" "$(cat "$TMP/create.txt")"
