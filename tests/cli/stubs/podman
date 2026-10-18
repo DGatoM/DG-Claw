@@ -4,6 +4,8 @@ echo "podman $*" >> "${STUB_LOG:?}"
 est="${STUB_ESTADO:?}"
 case "${1:-}" in
     image)
+        # `image inspect -f {{.Id}}`: o id da imagem "atual" (muda quando o teste escreve estado/imagem-id).
+        if [ "$2" = inspect ]; then cat "$est/imagem-id" 2>/dev/null || echo imagem-nova; exit 0; fi
         [ "$2" = exists ] && [ ! -f "$est/sem-imagem" ]; exit $? ;;
     container)
         [ "$2" = exists ] && [ -f "$est/c-$3" ]; exit $? ;;
@@ -15,7 +17,10 @@ case "${1:-}" in
         esac ;;
     create)
         while [ $# -gt 0 ]; do [ "$1" = --name ] && nome="$2"; shift; done
-        echo created > "$est/c-$nome"; echo "container-id" ;;
+        echo created > "$est/c-$nome"
+        # O container nasce com a imagem que estava "atual" na hora (para o `agente recriar` comparar).
+        cat "$est/imagem-id" 2>/dev/null > "$est/img-$nome" || echo imagem-nova > "$est/img-$nome"
+        echo "container-id" ;;
     start)
         echo running > "$est/c-$2"
         # Simula o container que cai na partida (falta de inotify): estado exited, codigo 255.
@@ -25,6 +30,7 @@ case "${1:-}" in
     inspect)
         nome="${*: -1}"
         [ -f "$est/c-$nome" ] || exit 1
+        if printf '%s ' "$@" | grep -q '{{.Image}}'; then cat "$est/img-$nome" 2>/dev/null || echo imagem-velha; exit 0; fi
         if printf '%s ' "$@" | grep -q ExitCode; then
             printf '%s %s\n' "$(cat "$est/c-$nome")" "$(cat "$est/codigo-$nome" 2>/dev/null || echo 0)"
         else

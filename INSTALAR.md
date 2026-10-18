@@ -75,6 +75,14 @@ A caixa abre, apresenta seu agente e leva à conversa dele.
 O botão **Tutorial** explica cada etapa. Telegram, outras conexões e áudio podem ser configurados
 com o agente quando você precisar. O acesso à assinatura de cada agente é feito no painel dele.
 
+## Atualizar para uma versão nova
+
+Para atualizar um DG Claw já instalado, peça ao Admin: **"atualiza o DG Claw"**. Ele segue o roteiro
+[docs/ATUALIZAR.md](docs/ATUALIZAR.md) e usa `sudo dgclaw atualizar`, que faz um backup datado em
+`/var/backups/dgclaw/`, baixa a versão nova, reinstala, recria a máquina de cada agente e confere que
+chaves, senha, memória, conversas, cofres e rotinas continuam como estavam. `sudo dgclaw atualizar --simular`
+mostra tudo sem mudar nada, e `sudo dgclaw atualizar --voltar <pasta-do-backup>` desfaz.
+
 ## Se algo precisar de atenção
 
 - **Motor sem login no root:** entre no Claude Code ou Codex, conforme a escolha, no root da VPS

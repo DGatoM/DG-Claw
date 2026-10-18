@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# systemd-run de mentira: so registra o argv (o teste confere o agendamento do reinicio do Admin).
+echo "systemd-run $*" >> "${STUB_LOG:?}"
+exit 0
