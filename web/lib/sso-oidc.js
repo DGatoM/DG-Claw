@@ -205,7 +205,19 @@ function criarOidc(opcoes) {
     return { email, nome: typeof c.name === 'string' ? c.name : '', sub: String(c.sub || ''), hd: c.hd || null, tid: c.tid || null };
   }
 
-  return { descobrir, urlDeAutorizacao, trocarCodigo, validarIdToken, limparCache() { discovery.clear(); jwks.clear(); } };
+  /** Para `dgclaw sso testar`: busca a descoberta e o JWKS e diz o que achou. Lança ErroOidc com o motivo. */
+  async function conferir(cfg) {
+    const doc = await descobrir(cfg);
+    const reg = await carregarJwks(doc.jwks_uri);
+    const n = reg.chaves.size + reg.sem_kid.length;
+    if (!n) throw new ErroOidc('provedor', `O JWKS ${doc.jwks_uri} não tem nenhuma chave de assinatura RSA ou EC que eu consiga usar.`);
+    return {
+      emissor: emissorEfetivo(cfg), authorization_endpoint: doc.authorization_endpoint, token_endpoint: doc.token_endpoint,
+      jwks_uri: doc.jwks_uri, chaves: n, algoritmos: doc.id_token_signing_alg_values_supported || null,
+    };
+  }
+
+  return { descobrir, conferir, urlDeAutorizacao, trocarCodigo, validarIdToken, limparCache() { discovery.clear(); jwks.clear(); } };
 }
 
 function seguroIgual(a, b) {

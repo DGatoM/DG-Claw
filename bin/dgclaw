@@ -152,6 +152,14 @@ Protecao e versao
   dgclaw usuario criar <usuario> --papel ti|funcionario [--agentes a,b]   cria e imprime o link de senha
   dgclaw usuario desativar|link|zerar-2fa <usuario>   o socorro de quem perdeu a senha ou o celular
       Exemplo:  dgclaw usuario criar ana.silva --papel funcionario --agentes luna,marina
+  dgclaw sso configurar|testar|emergencia|status   login unico por OIDC (Google, Microsoft Entra ou outro provedor)
+      O segredo do aplicativo vem pelo STDIN ou por arquivo, nunca na linha. O modo (opcional, padrao, obrigatorio)
+      vem do nivel: dgclaw nivel ajustar sso padrao. Exemplo:
+        printf %s "$SEGREDO" | dgclaw sso configurar --provedor google --client-id <id> --dominios empresa.com.br --segredo-stdin
+  dgclaw auditoria verificar|selo|exportar|externa|retencao   trilha de auditoria (completa e externa)
+      verificar confere a corrente inteira e diz em que linha ela quebrou. exportar filtra por data, evento e pessoa
+      (--formato jsonl|csv). externa configurar|testar|status|enviar leva a trilha para fora da VPS (HTTP ou syslog TLS).
+      Exemplo:  dgclaw auditoria exportar --de 2026-10-01 --ate 2026-10-31 --formato csv --saida /root/auditoria-outubro.csv
   dgclaw versao                          mostra a versao instalada
 
 Admin sem root (protecao admin_isolado)

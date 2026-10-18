@@ -290,6 +290,8 @@ _mon_verificar() {
     _mon_checar_servicos
     _mon_checar_backup
     _mon_checar_memoria
+    # bloco G: fila da auditoria externa (a funcao vem de lib/enterprise/auditoria-cli.sh; sem ela nada acontece)
+    if declare -F _mon_checar_auditoria_externa >/dev/null; then _mon_checar_auditoria_externa; fi
 
     agora_s="$(_mon_agora_s)"
     quantos="${#MON_PROBLEMAS[@]}"
