@@ -37,6 +37,11 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
   disco cifrado LUKS2 em arquivo (`dgclaw disco cifrar`, desbloqueio no boot); backup cifrado fora da VPS com restic
   (`dgclaw backup ...`, `dgclaw restaurar`, teste de restauração automático por timer). Documento:
   `docs/enterprise/CONTAINER-ENDURECIDO.md`.
+- Enterprise, multiusuário (níveis `escritorio` em diante): vários usuários com papel `ti` ou `funcionario` (o funcionário vê só os
+  agentes liberados para ele, nunca o Admin), segundo fator TOTP (RFC 6238) com 10 códigos de reserva, sessões que o usuário e o TI
+  encerram, bloqueio da conta depois de 10 falhas e os eventos do login na auditoria. Telas `/usuarios`, `/conta` e `/login/2fa`,
+  API `/api/v1/usuarios` e `/api/v1/eu`, e o socorro `dgclaw usuario listar|criar|desativar|link|zerar-2fa`. No nível pessoal
+  nada muda. Guia em `web/docs/USUARIOS.md`.
 - CI de segurança (gitleaks, CodeQL, varredura da imagem com Trivy e SBOM), Dependabot, CODEOWNERS e modelo de PR.
 - Modo escondido (botão 👁 no cabeçalho da conversa): troca por asteriscos nomes, empresas, valores,
   e-mails, telefones, documentos e chaves de todas as mensagens da tela, para o dono mostrar a conversa numa

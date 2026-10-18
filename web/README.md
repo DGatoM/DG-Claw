@@ -87,6 +87,7 @@ API (todas com sessão; erros sempre `{ok:false, erro:"motivo em português"}`):
 | `POST /api/v1/agents/:id/send` | `{text, anexos?, cliente_id?}`; idempotente por `cliente_id`. |
 | `POST /api/v1/agents/:id/upload` | Multipart (`file`, `enviar`, `legenda`, `cliente_id`). |
 | `GET`/`POST`/`DELETE /api/v1/agents/:id/login`, `POST .../login/codigo`, `POST .../login/oi` | Login assistido do Claude/Codex pela conversa (repasse ao runner) e o primeiro oi. Docs em `GET /api/v1/login/docs.md` (fonte: `docs/LOGIN-NA-CONVERSA.md`). |
+| `GET /api/v1/eu` e, só com o multiusuário ligado (enterprise), `/api/v1/usuarios...`, `/api/v1/eu/...`, `GET /usuarios`, `GET /conta`, `GET /login/2fa` | Usuários, papéis, segundo fator e sessões. Guia em `docs/USUARIOS.md`. |
 | `GET /api/v1/media/:id` e `/thumb` | Arquivo registrado, com `Range`. `?baixar=1` força o download. HTML, SVG, XML e JS abertos direto saem com CSP `sandbox` e `nosniff`. |
 | `GET` e `HEAD /api/v1/media/:id/visual?tema=claro` (ou `escuro`) | Documento do visual (`vis-*.html` do agente, com a base `dgvis` na frente), com CSP `sandbox allow-scripts` no cabeçalho. Erro vem como página HTML com o motivo (404, 410, 413, 415, 500). Ver `docs/VISUAIS.md`. |
 | `POST /api/v1/transcribe` | Multipart com `audio`. Resposta `{ok, text}`. |
