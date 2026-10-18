@@ -18,7 +18,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { marcar } = require('./alertas');
-const { descreveUso, descreveResultado } = require('./trilha');
+const { descreveUso } = require('./trilha');
 
 const DGCHAT_ABRE = /<dgchat\b[^>]*>/;
 const DGCHAT_ATTR = /\b(from|chat|msg|ts)="([^"]*)"/g;
@@ -44,6 +44,23 @@ const SAIDA_COMANDO = /^<local-command-(stdout|stderr)>([\s\S]*?)(?:<\/local-com
 const TAG_NOME_COMANDO = /<command-name>([\s\S]*?)<\/command-name>/;
 const TAG_ARGS_COMANDO = /<command-args>([\s\S]*?)<\/command-args>/;
 const MAX_SAIDA_COMANDO = 4000;
+// Compactação (/compact). O Claude Code grava o /compact como se fosse fala do dono e depois um "resultado do
+// comando" quase vazio; para o dono isso é ruído. No lugar entram dois avisos curtos DA AGENTE (balão do lado dela),
+// na voz dela, porque é a agente que "some" por uns 45 segundos enquanto resume a conversa.
+const AVISO_COMPACTANDO = 'Tô compactando a conversa pra voltar mais leve... já volto';
+const AVISO_COMPACTADA = 'Voltei, conversa compactada.';
+// Compactação dada como interrompida: chegou um turno normal (fala do dono ou da agente) depois do "/compact" cru e
+// sem compact_boundary, ou o prazo venceu. Sem este aviso o "já volto" ficaria pendurado para sempre (sessão que caiu).
+const AVISO_COMPACTACAO_INTERROMPIDA = 'A compactação não terminou, sigo com a conversa como estava.';
+const avisoFalhaCompactacao = (motivo) => `Não consegui compactar a conversa: ${motivo}`;
+// Linha user que o Claude Code grava NO INÍCIO da compactação: conteúdo string pura "/compact" (ou "/compact instruções").
+const LINHA_COMPACT = /^\/compact(?:\s[\s\S]*)?$/;
+const NOME_COMPACT = /^\/?compact$/;
+// Uma tentativa de /compact que nunca terminou (sessão caiu, comando cancelado) não pode engolir o aviso de início
+// da próxima: passado esse prazo, um novo /compact conta como compactação nova.
+const PRAZO_COMPACTACAO_S = 600;
+// Saída do terminal que, vinda de um /compact, indica falha (o stderr já indica por si).
+const FALHA_COMPACT = /\b(error|erro|fail|falh|cancel|abort|not enough|cannot|could not)/i;
 const REMINDER = /<system-reminder>[\s\S]*?<\/system-reminder>/g;
 const ANEXO_LINHA = /^\[anexo:\s*(.+?)\]\s*$/gm;
 const ROTULO_EMOJI = { photo: '📷 foto', video: '🎬 vídeo', audio: '🎤 áudio', document: '📄 arquivo' };
@@ -227,24 +244,6 @@ function criarMontagem({ tz, midia }) {
   }
 
   /**
-   * Um item da trilha de comandos (o que o agente rodou). Entra na posição certa por ep: o resultado só
-   * chega depois do tool_use, e outras falas podem ter entrado no meio (a tela diffa por id).
-   * Não passa por `marcar`: o texto é de máquina, nunca vira alerta.
-   */
-  function empurraTrilha(estado, { id, ep, uso, res }) {
-    const { hhmm, dia } = fmtHoraDia(ep, tz);
-    const item = {
-      id: crypto.createHash('sha1').update(`trilha|${ep}|${id}|${uso.titulo}`).digest('hex').slice(0, 16),
-      ep, hhmm, dia, origin: 'trilha', text: `rodou: ${uso.titulo}`, kind: 'text', media: null,
-      fmt: 'text', editada: false, reacoes: [], cita: null, via: 'plataforma', quem: 'agente',
-      trilha: { ferramenta: uso.ferramenta, titulo: uso.titulo, comando: uso.comando, saida: res.saida, cortado: res.cortado, erro: res.erro },
-    };
-    let i = estado.eventos.length;
-    while (i > 0 && estado.eventos[i - 1].ep > item.ep) i--;
-    estado.eventos.splice(i, 0, item);
-  }
-
-  /**
    * O resultado de um comando de barra que o terminal imprimiu (<local-command-stdout>): sem códigos ANSI,
    * cortado em 4000 caracteres com aviso. Como a trilha, é texto de máquina: não passa por `marcar`.
    */
@@ -264,7 +263,17 @@ function criarMontagem({ tz, midia }) {
     });
   }
 
-  return { epDe, monta, empurra, empurraDono, empurraAgente, empurraDonoWhatsapp, empurraAgenteWhatsapp, empurraTrilha, empurraComando };
+  /**
+   * Aviso curto da própria agente (hoje: compactação). Mesmo formato de uma fala dela, para o balão ir do lado da
+   * agente sem mexer na tela. `sistema` marca que não é resposta a um pedido (o /wait da API não o conta como resposta).
+   * Push: o servidor não dispara notificação a partir da thread (só a Mesa, os lembretes e o foco chamam push.enviar),
+   * então este aviso não notifica nem conta como mensagem nova do dono (origin nunca é 'dono').
+   */
+  function empurraAviso(estado, agente, { ep, text, sistema }) {
+    estado.eventos.push({ ...monta(estado, agente, { ep, origin: 'agente', text, kind: 'text', media: null, via: 'plataforma', quem: 'agente' }), sistema });
+  }
+
+  return { epDe, monta, empurra, empurraDono, empurraAgente, empurraDonoWhatsapp, empurraAgenteWhatsapp, empurraComando, empurraAviso };
 }
 
 /**
@@ -318,10 +327,10 @@ function criarLeitor({ log, tz, canalTelegram, midia }) {
   const estados = new Map(); // chave -> estado incremental
 
   function novoEstado() {
-    return { offset: 0, ino: null, trigger: 'owner', chatCorrente: '', eventos: [], versao: 0, ultimoEp: 0, msgsVistas: new Set(), waPendentes: new Map(), restoParcial: Buffer.alloc(0), trilhaPend: new Map() };
+    return { offset: 0, ino: null, trigger: 'owner', chatCorrente: '', eventos: [], versao: 0, ultimoEp: 0, msgsVistas: new Set(), waPendentes: new Map(), restoParcial: Buffer.alloc(0), trilhaPend: new Map(), compactandoEp: null, fimCompactEp: 0, ecoCompact: false };
   }
 
-  const { epDe, empurra, empurraDono, empurraAgente, empurraDonoWhatsapp, empurraAgenteWhatsapp, empurraTrilha, empurraComando } = criarMontagem({ tz, midia });
+  const { epDe, empurra, empurraDono, empurraAgente, empurraDonoWhatsapp, empurraAgenteWhatsapp, empurraComando, empurraAviso } = criarMontagem({ tz, midia });
 
   /**
    * Casa os tool_result de um turno user com os envios de WhatsApp pendentes. Sucesso: o evento
@@ -346,14 +355,17 @@ function criarLeitor({ log, tz, canalTelegram, midia }) {
     }
   }
 
-  /** Casa os tool_result com os comandos pendentes da trilha. O que ainda não tem resultado fica em `trilhaPend` (o cartão de permissão lê dali). */
+  /**
+   * Casa os tool_result com os comandos pendentes da trilha. O que ainda não tem resultado fica em `trilhaPend`
+   * (o cartão de permissão lê dali). Resolvido, o comando só sai do Map: NÃO vira item no histórico. O dono pediu
+   * que as linhas "rodou: ..." saíssem da conversa; a atividade aparece só na barrinha de status.
+   */
   function resolvePendentesTrilha(estado, blocos) {
     for (const b of blocos) {
       if (!b || b.type !== 'tool_result') continue;
       const pend = estado.trilhaPend.get(b.tool_use_id);
       if (!pend) continue;
       estado.trilhaPend.delete(b.tool_use_id);
-      empurraTrilha(estado, { id: b.tool_use_id, ep: pend.ep, uso: pend.uso, res: descreveResultado(b) });
     }
   }
 
@@ -385,17 +397,76 @@ function criarLeitor({ log, tz, canalTelegram, midia }) {
     }
   }
 
+  /**
+   * Um turno normal (fala do dono por qualquer canal, ou linha da agente) com compactação em andamento prova que ela
+   * não vai terminar. Na sequência real nada de turno aparece entre o "/compact" cru e o boundary (eco, stdout, resumo
+   * e caveat não contam). O aviso entra logo antes do evento que provou a interrupção.
+   */
+  function interrompeCompactacao(estado, agente, ep) {
+    if (estado.compactandoEp === null) return;
+    estado.compactandoEp = null;
+    empurraAviso(estado, agente, { ep: ep - 0.0005, text: AVISO_COMPACTACAO_INTERROMPIDA, sistema: 'compactacao' });
+  }
+
+  /** Início da compactação. Não duplica enquanto uma estiver em andamento (e recente). */
+  function inicioCompactacao(estado, agente, ep) {
+    if (estado.compactandoEp !== null) {
+      if (ep - estado.compactandoEp < PRAZO_COMPACTACAO_S) return;
+      interrompeCompactacao(estado, agente, ep); // a anterior nunca terminou: fecha antes de abrir a nova
+    }
+    estado.compactandoEp = ep;
+    empurraAviso(estado, agente, { ep, text: AVISO_COMPACTANDO, sistema: 'compactacao' });
+  }
+
+  /**
+   * Saída do terminal que pertence ao /compact: some como "resultado do comando". Só uma falha vira aviso.
+   * Decisão de robustez: o dono é quem ficaria no escuro se a compactação desse erro, então stderr (sempre) e
+   * stdout que cheire a erro (logo após o eco do /compact) viram "Não consegui compactar..." com a primeira
+   * linha do erro, e a compactação deixa de estar "em andamento". O sucesso não gera nada aqui: quem diz
+   * "Voltei" é o compact_boundary, que é o sinal estrutural (o texto do stdout muda entre versões).
+   */
+  function saidaDeCompactacao(estado, agente, ep, saida, texto) {
+    const limpo = String(texto).replace(ANSI, '').trim();
+    const falha = saida === 'stderr' || (!/^Compacted\b/.test(limpo) && FALHA_COMPACT.test(limpo));
+    estado.ecoCompact = false;
+    if (!falha) return;
+    const linha = (limpo.split('\n').find((l) => l.trim()) || '').trim().slice(0, 300) || 'o terminal não explicou o motivo';
+    estado.compactandoEp = null;
+    empurraAviso(estado, agente, { ep, text: avisoFalhaCompactacao(linha), sistema: 'compactacao' });
+  }
+
+  /** compact_boundary: a compactação terminou (manual ou automática). Garante o aviso de início antes do de fim. */
+  function fimCompactacao(estado, agente, ep) {
+    if (estado.compactandoEp === null) {
+      // Sem início (compactação automática, ou versão que só grava o eco depois): sintetiza o início logo antes.
+      empurraAviso(estado, agente, { ep: ep - 0.001, text: AVISO_COMPACTANDO, sistema: 'compactacao' });
+    }
+    estado.compactandoEp = null;
+    estado.fimCompactEp = ep;
+    empurraAviso(estado, agente, { ep, text: AVISO_COMPACTADA, sistema: 'compactacao' });
+  }
+
   function processaLinha(estado, agente, linha) {
     // Pré-filtro barato: a maioria das linhas (tool_result gigantes, thinking) não interessa.
-    if (!/"type"\s*:\s*"(?:user|assistant|attachment|queue-operation)"/.test(linha)) return;
+    // A linha system do compact_boundary também passa (é o sinal de fim da compactação).
+    if (!/"type"\s*:\s*"(?:user|assistant|attachment|queue-operation)"/.test(linha) && !linha.includes('"compact_boundary"')) return;
     // O tool_result do WhatsApp não menciona "whatsapp" (só o tool_use_id), então com envio
     // pendente as linhas de tool_result também passam. Sem pendentes, o filtro continua barato.
     const resultadoPendente = (estado.waPendentes.size > 0 || estado.trilhaPend.size > 0) && linha.includes('"tool_result"');
-    if (!resultadoPendente && !/dgchat|<channel|canal-externo|plataforma|dgclaw-poke|command-name|local-command-std|telegram__|__whatsapp_|"name":"(?:Bash|Write|Edit|MultiEdit|NotebookEdit)"/.test(linha)) return;
+    // Com compactação em andamento, qualquer fala da agente passa: é ela que prova que a compactação morreu no
+    // meio (a sessão voltou a responder sem compact_boundary). Sem isso, uma resposta em texto puro, sem dgchat
+    // nem ferramenta, era descartada aqui e o "já volto" ficava pendurado até vencer o prazo.
+    const provaInterrupcao = estado.compactandoEp !== null && /"type"\s*:\s*"assistant"/.test(linha);
+    if (!resultadoPendente && !provaInterrupcao && !/dgchat|<channel|canal-externo|plataforma|dgclaw-poke|command-name|local-command-std|compact_boundary|"content"\s*:\s*"\s*\/compact|telegram__|__whatsapp_|"name":"(?:Bash|Write|Edit|MultiEdit|NotebookEdit)"/.test(linha)) return;
 
     let o;
     try { o = JSON.parse(linha); } catch (_) { return; } // linha truncada (transcript sendo escrito) não derruba nada
     if (!o || o.isSidechain === true) return;
+    if (o.isCompactSummary === true) return; // o resumo que o Claude Code injeta depois de compactar: nunca é fala
+    if (o.type === 'system') {
+      if (o.subtype === 'compact_boundary') fimCompactacao(estado, agente, epDe(o.timestamp, estado));
+      return;
+    }
     if (estado.waPendentes.size > 0) descartaPendentesVelhos(estado, agente, o.timestamp);
     const m = o.message || {};
     const fila = o.type === 'attachment' && o.attachment?.type === 'queued_command'
@@ -408,12 +479,27 @@ function criarLeitor({ log, tz, canalTelegram, midia }) {
       let txt = textoDosBlocos(cont).replace(REMINDER, '').trim();
       if (!txt) return;
       if (RETORNO_SISTEMA.test(txt) || txt.includes('STOP BLOQUEADO')) return;
+      // Início de uma compactação: o Claude Code grava o "/compact" cru (string pura) em tempo real, na hora em que começa.
+      if (!fila && typeof cont === 'string' && LINHA_COMPACT.test(txt)) {
+        inicioCompactacao(estado, agente, epDe(o.timestamp, estado));
+        return;
+      }
       if (ECO_COMANDO.test(txt)) {
         // Eco de comando de barra: o que a pessoa digitou vira fala dela; o que o terminal imprimiu vira
         // "resultado do comando". O resto (command-message sozinho, caveat) continua escondido.
         const nome = TAG_NOME_COMANDO.exec(txt);
         if (nome && !fila) {
           const n = nome[1].trim();
+          if (n && NOME_COMPACT.test(n)) {
+            // O eco do /compact não é fala do dono. Ele leva o timestamp do INÍCIO da compactação, mas o Claude Code
+            // o grava junto com o fim. Se o início já saiu (linha "/compact" crua) ou se o compact_boundary desta
+            // mesma compactação já passou (eco com ep <= fim), não repete o aviso.
+            const ep = epDe(o.timestamp, estado);
+            estado.ecoCompact = true;
+            if (ep > estado.fimCompactEp) inicioCompactacao(estado, agente, ep);
+            return;
+          }
+          estado.ecoCompact = false;
           if (n) {
             const a = TAG_ARGS_COMANDO.exec(txt);
             const args = a ? a[1].trim() : '';
@@ -423,7 +509,12 @@ function criarLeitor({ log, tz, canalTelegram, midia }) {
           return;
         }
         const saida = SAIDA_COMANDO.exec(txt);
-        if (saida && !fila) empurraComando(estado, { ep: epDe(o.timestamp, estado), texto: saida[2], saida: saida[1] });
+        if (saida && !fila) {
+          const ep = epDe(o.timestamp, estado);
+          // Resultado de /compact: pelo eco anterior, ou pelo texto "Compacted" (versões sem eco).
+          if (estado.ecoCompact || /^Compacted\b/.test(saida[2].replace(ANSI, '').trim())) saidaDeCompactacao(estado, agente, ep, saida[1], saida[2]);
+          else empurraComando(estado, { ep, texto: saida[2], saida: saida[1] });
+        }
         return;
       }
       if (txt.startsWith('<plataforma ')) { if (!fila) estado.trigger = 'cron'; return; } // aviso do sistema: o agente que fala depois age por conta própria
@@ -443,7 +534,9 @@ function criarLeitor({ log, tz, canalTelegram, midia }) {
           estado.msgsVistas.add(dg.attrs.msg);
         }
         estado.trigger = 'owner';
-        empurraDono(estado, agente, dg, epDe(o.timestamp, estado));
+        const epDg = epDe(o.timestamp, estado);
+        if (!fila) interrompeCompactacao(estado, agente, epDg);
+        empurraDono(estado, agente, dg, epDg);
         return;
       }
 
@@ -455,7 +548,9 @@ function criarLeitor({ log, tz, canalTelegram, midia }) {
           estado.msgsVistas.add(k);
         }
         estado.trigger = 'owner';
-        empurraDonoWhatsapp(estado, agente, ce, epDe(o.timestamp, estado));
+        const epCe = epDe(o.timestamp, estado);
+        if (!fila) interrompeCompactacao(estado, agente, epCe);
+        empurraDonoWhatsapp(estado, agente, ce, epCe);
         return;
       }
 
@@ -467,12 +562,14 @@ function criarLeitor({ log, tz, canalTelegram, midia }) {
         if (id) estado.msgsVistas.add('tg:' + id);
         estado.trigger = 'owner';
         const ep = epDe(o.timestamp, estado);
+        if (!fila) interrompeCompactacao(estado, agente, ep);
         empurra(estado, agente, { ep, origin: 'dono', text: tg.interno, caminhos: [], via: 'telegram', quem: tg.user });
       }
       return;
     }
 
     if (o.type === 'assistant' && Array.isArray(cont)) {
+      if (cont.length) interrompeCompactacao(estado, agente, epDe(o.timestamp, estado));
       for (const b of cont) {
         if (!b || b.type !== 'tool_use') continue;
         const nome = String(b.name || '');

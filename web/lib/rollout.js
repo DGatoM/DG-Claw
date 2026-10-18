@@ -24,7 +24,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { criarMontagem, lerIncremental, parseDgchat, parseCanalExterno, paraHost } = require('./thread');
-const { descreveUso, descreveResultado } = require('./trilha');
+const { descreveUso } = require('./trilha');
 
 const CONTEXTO_INJETADO = ['<environment_context>', '<user_instructions>', '# AGENTS.md'];
 const POKE = /\/tmp\/dgclaw-poke-([a-zA-Z0-9_.-]+?)-\d{8}-\d{6}\.txt/;
@@ -194,17 +194,8 @@ function criarLeitorRollout({ log, tz, midia }) {
       if (uso) estado.trilhaPend.set(p.call_id, { ep, uso });
       return;
     }
-    const pend = estado.trilhaPend.get(p.call_id);
-    if (!pend) return;
     estado.trilhaPend.delete(p.call_id);
-    let texto = typeof p.output === 'string' ? p.output : '';
-    let erro = false;
-    try {
-      const j = JSON.parse(texto);
-      if (j && typeof j.output === 'string') { texto = j.output; erro = !!(j.metadata && j.metadata.exit_code); }
-    } catch (_) { /* saída em texto puro */ }
-    const res = descreveResultado({ content: texto, is_error: erro });
-    m.empurraTrilha(estado, { id: p.call_id, ep: pend.ep, uso: pend.uso, res });
+    // Resolvido: só sai do Map. Não vira item no histórico (a atividade fica na barrinha de status).
   }
 
   function abreTurno(estado, agente, dono, origin) {

@@ -57,6 +57,7 @@
         <div class="app-tut-rodape">
           <span class="app-tut-conta"></span>
           <span class="app-tut-botoes">
+            <button type="button" class="app-tut-pular">Pular</button>
             <button type="button" class="app-tut-voltar">Voltar</button>
             <button type="button" class="app-tut-proximo">Próximo</button>
           </span>
@@ -119,6 +120,8 @@
       balao.querySelector('.app-tut-porque span').textContent = passo.porque;
       balao.querySelector('.app-tut-conta').textContent = `${i + 1} de ${passos.length}`;
       balao.querySelector('.app-tut-voltar').disabled = i === 0;
+      // Pular fica sempre na fileira, menos no último passo (ali já existe o "Entendi").
+      balao.querySelector('.app-tut-pular').hidden = i === passos.length - 1;
       balao.querySelector('.app-tut-proximo').textContent = i === passos.length - 1 ? 'Entendi' : 'Próximo';
       // Espera o scroll suave assentar antes de medir o alvo.
       posicionar();
@@ -134,6 +137,7 @@
     balao.querySelector('.app-tut-proximo').addEventListener('click', () => ir(1));
     balao.querySelector('.app-tut-voltar').addEventListener('click', () => ir(-1));
     balao.querySelector('.app-tut-x').addEventListener('click', fechar);
+    balao.querySelector('.app-tut-pular').addEventListener('click', fechar);
     fundo.addEventListener('click', (ev) => { if (ev.target === fundo) fechar(); });
 
     const tecla = (ev) => {

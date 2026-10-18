@@ -2,19 +2,23 @@
 
 Três coisas que a conversa mostra para que o dono nunca fique no escuro quando o agente mexe na máquina.
 
-## 1. Trilha de comandos
+## 1. Trilha de comandos (não aparece mais no histórico)
 
-Tudo que o agente roda no terminal aparece na conversa, no lugar cronológico certo, como uma linha discreta:
-`rodou: <descrição>`. Comandos seguidos, sem mensagem no meio, formam um bloco só ("rodou 5 comandos"), fechado
-por padrão. Aberto, cada comando mostra o texto do comando e as primeiras linhas do resultado. Se deu erro, a
-linha começa com "falhou:" e fica em vermelho.
+Até 18/10/2026 tudo que o agente rodava no terminal aparecia na conversa como linhas cinzas ("rodou: ...",
+"falhou: ...", "rodou 5 comandos"). O dono pediu para tirar: a conversa fica só com as falas. A atividade do
+agente continua visível na barrinha de status ("<agente> está trabalhando · Bash"), que some quando ele termina.
+
+O servidor **não empurra mais itens `origin: "trilha"`** em `GET /messages` nem no evento `msgs`. Continua vivo o
+controle interno dos comandos ainda sem resultado (`trilhaPend`), que alimenta o cartão de permissão (seção 2):
+o `tool_use` entra no controle e o `tool_result` tira. O código que desenha o bloco em `public/conversa.js` e
+`public/trilha-tela.js` ficou sem uso, porque a tela nunca recebe o item.
+
+O que a trilha reconhece (vale para o cartão de permissão):
 
 - Entram: `Bash` (usa a `description` que o agente escreveu, ou o próprio comando), `Write`, `Edit`, `MultiEdit` e
   `NotebookEdit` (resumo: "gravou <arquivo>", "editou <arquivo>"). Leituras (`Read`, `Grep`, `Glob`) e as
   ferramentas da própria conversa ficam de fora.
-- Fonte: o transcript da sessão (`tool_use` e `tool_result`). O item só nasce quando o resultado chega, na posição
-  do comando. Por isso vem do histórico ao recarregar e do stream ao vivo, do mesmo jeito que as mensagens
-  (campo `origin: "trilha"` e objeto `trilha` em `GET /messages` e no evento `msgs`).
+- Fonte: o transcript da sessão (`tool_use` e `tool_result`).
 - Limites: comando até 1200 caracteres, resultado até 8 linhas e 700 caracteres (o corte aparece como "…").
 - Segredos: comando e resultado passam por `lib/mascara.js` antes de sair do servidor (chaves de API, Bearer,
   token de bot, `NOME_DA_CHAVE=valor`, `"password": "..."`). É porte dos padrões de `runner/src/mascara.ts`; o Web
