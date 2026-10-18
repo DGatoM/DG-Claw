@@ -43,6 +43,10 @@ a animação que explica e desligue o enfeite), `visivel`, `on(evento, fn)`, `co
 `anima(el)` e `formata(n, opts)`. A sintaxe de cada peça está nos exemplos de
 `docs/VISUAIS-EXEMPLOS/` (`vis-catalogo-pecas.html` mostra todas).
 
+Campo de texto (`input`, `textarea`, `select`) sempre com 16px ou mais: abaixo disso o iPhone dá
+zoom no foco. A base já força 16px nos campos, então um `.cx{font:15px ...}` do visual não
+consegue diminuir.
+
 ## Perguntar de dentro do visual
 
 O visual nunca manda mensagem sozinho: ele só PEDE. Qualquer elemento com `data-pergunta="texto"`

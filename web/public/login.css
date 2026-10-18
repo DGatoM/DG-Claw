@@ -27,3 +27,6 @@ input:focus{border-color:var(--accent);background:#fff}
 button{width:100%;margin-top:20px;min-height:48px;border:0;border-radius:24px;background:var(--accent);
   color:#fff;font:inherit;font-size:16px;font-weight:700;cursor:pointer}
 button:active{opacity:.85}
+
+/* No iPhone, campo com fonte abaixo de 16px dá zoom quando recebe o foco. Regra: nada dá zoom no app instalado. */
+@media (pointer:coarse){input,textarea,select{font-size:16px!important}}

@@ -638,3 +638,6 @@ html.casca .header{position:static;backdrop-filter:none;padding:14px 20px 12px;b
 }
 /* o Tutorial da aba é o do cabeçalho da casca (que clica neste botão); dois botões iguais confundem */
 html.casca .btn-tutorial-aba{display:none!important}
+
+/* No iPhone, campo com fonte abaixo de 16px dá zoom quando recebe o foco. Regra: nada dá zoom no app instalado. */
+@media (pointer:coarse){input,textarea,select{font-size:16px!important}}
