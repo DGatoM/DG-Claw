@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# df de mentira. $STUB_ESTADO/df tem linhas "<sufixo do caminho> <uso%> <montagem>"; a primeira que casa vale.
+# Sem linha que case: 50% montado em "/".
+est="${STUB_ESTADO:?}"
+caminho="${*: -1}"
+uso=50; mont="/"
+if [ -f "$est/df" ]; then
+    while read -r suf u m; do
+        case "$caminho" in *"$suf") uso="$u"; mont="$m"; break ;; esac
+    done <"$est/df"
+fi
+echo "Filesystem 1024-blocks Used Available Capacity Mounted on"
+echo "/dev/vda1 1000000 500000 500000 ${uso}% $mont"

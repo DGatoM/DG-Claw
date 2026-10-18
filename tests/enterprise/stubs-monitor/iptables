@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# iptables de mentira: as cadeias DGCLAW_* "existem" se $STUB_ESTADO/cerca existir; criar cadeia (-N) ou saltar (-I) cria.
+# iptables-falha: tudo falha (reaplicar nao funciona).
+est="${STUB_ESTADO:?}"
+echo "iptables $*" >>"${STUB_LOG:?}"
+[ -f "$est/iptables-falha" ] && exit 1
+for a in "$@"; do
+    case "$a" in
+        -L) [ -f "$est/cerca" ]; exit $? ;;
+        -N|-I) touch "$est/cerca"; exit 0 ;;
+    esac
+done
+exit 0
