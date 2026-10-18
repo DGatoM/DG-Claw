@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# runsc de mentira. Fica numa pasta a parte para o teste poder simular "runsc nao instalado".
+echo "runsc $*" >>"${STUB_LOG:?}"
+[ "${1:-}" = --version ] && echo "runsc version release-20260101.0"
+exit 0

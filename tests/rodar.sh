@@ -120,7 +120,7 @@ testes_shellcheck() {
         cd "$REPO" || exit 1
         arquivos=(install.sh bin/dgclaw lib/*.sh tests/rodar.sh tests/cli/*.sh tests/cli/stubs/*
                   tests/instalador/*.sh tests/novidades/*.sh tests/monitor/*.sh scripts/cofre-nomes.sh scripts/test-cofre-nomes.sh
-                  lib/enterprise/*.sh tests/enterprise/*.sh tests/enterprise/stubs/* tests/enterprise/stubs-monitor/* tests/enterprise/stubs-d/* tests/enterprise/stubs-h/* scripts/enterprise/*.sh)
+                  lib/enterprise/*.sh tests/enterprise/*.sh tests/enterprise/stubs/* tests/enterprise/stubs-monitor/* tests/enterprise/stubs-d/* tests/enterprise/stubs-h/* tests/enterprise/stubs-j/* tests/enterprise/stubs-j-runsc/* scripts/enterprise/*.sh)
         "$sc" -x "${arquivos[@]}"
     )
 }

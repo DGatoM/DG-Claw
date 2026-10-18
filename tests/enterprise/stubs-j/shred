@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# shred de mentira: registra e apaga (-u). Nunca encosta em nada fora do que o teste mandou.
+echo "shred $*" >>"${STUB_LOG:?}"
+alvo="${*: -1}"
+case " $* " in *" -u "*) rm -f "$alvo" ;; esac
+exit 0

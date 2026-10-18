@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# gpg de mentira: --show-keys devolve o fingerprint que o teste escolher (STUB_GPG_FPR); --dearmor copia a entrada.
+echo "gpg $*" >>"${STUB_LOG:?}"
+case " $* " in
+    *" --show-keys "*) echo "pub:-:4096:1:6FC6D554E32BD943:1562802182:::-:::scSC::::::23::0:"
+        echo "fpr:::::::::${STUB_GPG_FPR:-6F1DF85E3A71C24918E727D56FC6D554E32BD943}:" ;;
+    *" --dearmor "*) saida=""; prev=""; for a in "$@"; do [ "$prev" = -o ] && saida="$a"; prev="$a"; done; cat >"$saida" ;;
+esac
+exit 0

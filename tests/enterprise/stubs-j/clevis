@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# clevis de mentira (so `clevis luks bind|list|pass|unlock`). Os slots do Clevis moram no mesmo <volume>.slots do
+# cryptsetup de mentira; a lista fica em <volume>.clevis. A "senha" do slot N e TANG-SECRET-N.
+# STUB_TANG_OFFLINE=1: pass e unlock falham (sem rede para o Tang). STUB_TANG_THP: o thumbprint "verdadeiro" do servidor.
+echo "clevis $*" >>"${STUB_LOG:?}"
+AQUI="$(cd "$(dirname "$0")" && pwd)"
+[ "${1:-}" = luks ] || { echo "stub: so luks" >&2; exit 2; }
+sub="${2:-}"; shift 2 || true
+dev=""; slot=""; chave=""; pos=()
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -d) dev="$2"; shift 2 ;;
+        -s) slot="$2"; shift 2 ;;
+        -n) shift 2 ;;
+        -k) chave="$2"; shift 2 ;;
+        -f|-y) shift ;;
+        *) pos+=("$1"); shift ;;
+    esac
+done
+thp_ok="${STUB_TANG_THP:-thumbprintdotangdotangdotang1}"
+case "$sub" in
+    bind)
+        cfg="${pos[1]:-}"
+        thp="$(jq -r '.thp // empty' <<<"$cfg")"
+        [ "$thp" = "$thp_ok" ] || { echo "stub: o thumbprint $thp nao e o do servidor" >&2; exit 1; }
+        [ "${STUB_TANG_OFFLINE:-}" != 1 ] || { echo "stub: Tang fora do ar" >&2; exit 1; }
+        "$AQUI/cryptsetup" open --test-passphrase --key-file "$chave" "$dev" || exit 1
+        prox=$(( $(awk 'BEGIN{m=-1} {if ($1>m) m=$1} END{print m}' "$dev.slots") + 1 ))
+        printf '%s %s\n' "$prox" "$(printf 'TANG-SECRET-%s' "$prox" | sha256sum | cut -d' ' -f1)" >>"$dev.slots"
+        printf "%s: tang '%s'\n" "$prox" "$cfg" >>"$dev.clevis" ;;
+    list) cat "$dev.clevis" 2>/dev/null ;;
+    pass)
+        [ "${STUB_TANG_OFFLINE:-}" != 1 ] || { echo "stub: Tang fora do ar" >&2; exit 1; }
+        grep -q "^$slot: tang" "$dev.clevis" 2>/dev/null || { echo "stub: slot $slot sem Clevis" >&2; exit 1; }
+        printf 'TANG-SECRET-%s' "$slot" ;;
+    unlock)
+        [ "${STUB_TANG_OFFLINE:-}" != 1 ] || { echo "stub: Tang fora do ar" >&2; exit 1; }
+        [ -s "$dev.clevis" ] || { echo "stub: volume sem Clevis" >&2; exit 1; }
+        if [ -d "${DGCLAW_DISCO_MAPPER:?}.fechado" ]; then mv "$DGCLAW_DISCO_MAPPER.fechado" "$DGCLAW_DISCO_MAPPER"; else mkdir -p "$DGCLAW_DISCO_MAPPER"; fi ;;
+    *) echo "stub: clevis luks $sub nao suportado" >&2; exit 2 ;;
+esac
+exit 0

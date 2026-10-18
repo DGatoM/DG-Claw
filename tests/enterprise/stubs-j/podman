@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# podman de mentira do bloco J: acrescenta ao do bloco D o que a prova do gVisor usa (image inspect, run, rm -f,
+# exec no container de prova, inspect do OCIRuntime) e guarda o runtime pedido em `create`/`run`.
+# Variaveis: STUB_RT_RUN_FALHA=1 (o podman run sob runsc falha); STUB_RT_FALHA=systemd|cron|node (a prova acha esse defeito).
+AQUI="$(cd "$(dirname "$0")" && pwd)"
+est="${STUB_ESTADO:?}"
+log() { echo "podman $*" >>"${STUB_LOG:?}"; }
+runtime_do_argv() { local prev=""; for a in "$@"; do [ "$prev" = --runtime ] && { echo "$a"; return; }; prev="$a"; done; }
+nome_do_argv() { local prev=""; for a in "$@"; do [ "$prev" = --name ] && { echo "$a"; return; }; prev="$a"; done; }
+case "${1:-}" in
+    image)
+        if [ "${2:-}" = inspect ]; then log "$@"; echo "sha256:${STUB_IMAGEM_ID:-imagem-de-teste}"; exit 0; fi ;;
+    run)
+        log "$@"
+        if [ "${STUB_RT_RUN_FALHA:-}" = 1 ]; then echo "Error: runsc: nao deu para criar o sandbox (stub)" >&2; exit 126; fi
+        n="$(nome_do_argv "$@")"; echo running >"$est/c-$n"; runtime_do_argv "$@" >"$est/runtime-$n"; echo "id-do-container"; exit 0 ;;
+    rm)
+        if [ "${2:-}" = -f ]; then log "$@"; rm -f "$est/c-$3" "$est/runtime-$3"; exit 0; fi ;;
+    exec)
+        if [[ "${2:-}" == dgclaw-prova-* ]]; then
+            log "$@"
+            args=" $* "
+            case "$args" in
+                *is-system-running*) if [ "${STUB_RT_FALHA:-}" = systemd ]; then echo offline; exit 1; fi; echo running; exit 0 ;;
+                *" cron"*) [ "${STUB_RT_FALHA:-}" != cron ] || exit 3; exit 0 ;;
+                *" node "*) if [ "${STUB_RT_FALHA:-}" = node ]; then echo "listen EACCES (stub)" >&2; exit 1; fi; exit 0 ;;
+            esac
+            exit 0
+        fi ;;
+    inspect)
+        if printf '%s ' "$@" | grep -q 'OCIRuntime'; then
+            log "$@"; n="${*: -1}"
+            [ -f "$est/c-$n" ] || exit 1
+            cat "$est/runtime-$n" 2>/dev/null || echo runc; exit 0
+        fi ;;
+    create)
+        n="$(nome_do_argv "$@")"; r="$(runtime_do_argv "$@")"
+        if [ -n "$n" ]; then echo "${r:-runc}" >"$est/runtime-$n"; fi ;;
+esac
+exec "$AQUI/../stubs-d/podman" "$@"
