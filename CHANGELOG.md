@@ -42,6 +42,14 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
   encerram, bloqueio da conta depois de 10 falhas e os eventos do login na auditoria. Telas `/usuarios`, `/conta` e `/login/2fa`,
   API `/api/v1/usuarios` e `/api/v1/eu`, e o socorro `dgclaw usuario listar|criar|desativar|link|zerar-2fa`. No nível pessoal
   nada muda. Guia em `web/docs/USUARIOS.md`.
+- Bloco C da versão enterprise (Admin sem root), tudo atrás da proteção `admin_isolado` e sem efeito no nível
+  `pessoal`: serviço de controle (`controle/`, Node sem dependências, socket `/run/dgclaw/controle.sock`, sem nenhum
+  modelo de linguagem) com uma lista fechada de operações em três classes (leitura, reversível, perigosa); fila de
+  aprovações genérica para os outros blocos (`web/lib/ent/aprovacoes.js`, tela `/aprovacoes`, 2FA feito há menos de 15
+  minutos para aprovar, prazo de 24 horas, aviso no celular e auditoria); o Admin em container (`dgclaw admin isolar`,
+  `dgclaw admin host`, `bin/dgclaw-controle`, `templates/admin-isolado/`), a manutenção de emergência que liga o Admin
+  antigo por até 60 minutos e fecha sozinha, e o inventário do que impede o Web de rodar sem root
+  (`docs/enterprise/WEB-SEM-ROOT.md`). Guia: `docs/enterprise/CONTROLE.md`.
 - CI de segurança (gitleaks, CodeQL, varredura da imagem com Trivy e SBOM), Dependabot, CODEOWNERS e modelo de PR.
 - Modo escondido (botão 👁 no cabeçalho da conversa): troca por asteriscos nomes, empresas, valores,
   e-mails, telefones, documentos e chaves de todas as mensagens da tela, para o dono mostrar a conversa numa
