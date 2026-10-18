@@ -36,8 +36,8 @@ const FORMA_DA_CHAVE = {
 };
 
 const SEM_RUNNER = {
-  error: 'O agente ainda não sabe informar o modelo',
-  howToFix: 'A plataforma que roda o agente é de uma versão antiga, sem a escolha de modelo. Peça a quem cuida da instalação para atualizá-la; enquanto isso o agente segue funcionando como estava.',
+  error: 'A versão do agente ainda não informa o provedor',
+  howToFix: 'A plataforma que roda o agente é de uma versão antiga, sem a escolha de modelo. Atualize o DG Claw para ver esta parte (peça ao Admin, ou a quem cuida da instalação); enquanto isso o agente segue funcionando como estava.',
 };
 
 /** Tira de um texto qualquer o que parece chave (e a chave exata, se for dada). */
@@ -101,7 +101,9 @@ module.exports = function registrarRotasDeProvedor(router, { CONFIG, cofre, serv
     }
     let json = {};
     try { json = await r.json(); } catch { /* resposta sem json */ }
-    if (r.status === 404 && !(json && (json.error || json.erro))) return { fora: true, motivo: 'rota não existe (404)' };
+    // O runner antigo não tem a rota e responde 404 "Not found" cru; o novo, quando recusa com 404 (ex.: sessão que não
+    // existe), sempre manda `code`. 404 sem `code` = runner antigo, e a tela recebe a explicação em português.
+    if (r.status === 404 && !(json && json.code)) return { fora: true, motivo: `rota não existe (404${json && (json.error || json.erro) ? ': ' + limpar(json.error || json.erro) : ''})` };
     return { status: r.status, corpo: json || {} };
   }
 

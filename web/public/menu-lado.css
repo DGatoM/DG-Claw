@@ -87,3 +87,10 @@ aside#menu .pe{margin-top:auto;padding-top:6px}
   /* as faixas são fixed e nasciam coladas na borda da tela, por baixo do menu */
   .faixa{left:248px}
 }
+
+/* Bolinha de pedidos das Sessões (item do menu e botão 🖥 do cabeçalho): há sessão esperando o dono decidir */
+.sx-bol{display:inline-block;width:9px;height:9px;border-radius:50%;background:#e0453a;flex:0 0 auto}
+.sx-bol[hidden]{display:none}
+.ml-tab .sx-bol{margin-left:auto}
+#btnSessoes{position:relative}
+#btnSessoes .sx-bol{position:absolute;top:6px;right:5px}

@@ -22,13 +22,23 @@ test('agente da casca: caminho /p/<slug> vence, depois ?a=, depois o guardado, d
   assert.equal(C.escolheAgente([], { caminho: '/mesa', busca: '' }), null);
 });
 
-test('a casca tem o cabeçalho e o menu com a mesma marcação do conversa.html', () => {
+test('o menu tem uma fonte só: a conversa.html não repete a marcação, usa o ponto de montagem da casca', () => {
   const conversa = pub('conversa.html');
-  for (const id of ['btnMenu', 'av', 'nomeAgente', 'estado', 'btnTutorial', 'overlayMenu', 'btnFechaMenu', 'mlMoldura', 'mlNome',
-    'mlSub', 'gmTutorial', 'mlTroca', 'mlTrocaBtn', 'mlLista', 'mlTabs', 'gmIrConversa', 'mlPainel', 'mlConfig', 'mlInstalar',
-    'mlInstalarSub', 'mlInstalarAjuda', 'formSair']) {
+  // nenhum id do menu escrito à mão na conversa.html (só o ponto de montagem)
+  for (const id of ['overlayMenu', 'btnFechaMenu', 'mlMoldura', 'mlNome', 'mlSub', 'gmTutorial', 'mlTroca', 'mlTrocaBtn', 'mlLista',
+    'mlTabs', 'gmIrConversa', 'mlPainel', 'mlConfig', 'mlInstalar', 'mlInstalarSub', 'mlInstalarAjuda', 'formSair']) {
+    assert.ok(!conversa.includes(`id="${id}"`), 'conversa.html repete o menu da casca: ' + id);
+    assert.ok(C.MARCACAO_MENU.includes(`id="${id}"`), 'a casca não tem ' + id);
+  }
+  assert.doesNotMatch(conversa, /<aside id="menu"/);
+  assert.match(conversa, /<div id="menuPonto"><\/div>/);
+  assert.match(conversa, /DGCasca\.injetaMenu\("menuPonto"\)/);
+  // a casca vem antes do conversa.js (que usa os ids do menu logo ao carregar) e depois do menu-lado.js
+  assert.ok(conversa.indexOf('/casca.js') > conversa.indexOf('/menu-lado.js') && conversa.indexOf('/casca.js') < conversa.indexOf('/conversa.js'));
+  // o que a Conversa e o menu-lado.js usam continua existindo (ids da casca)
+  for (const id of ['btnMenu', 'av', 'nomeAgente', 'estado', 'btnTutorial', 'btnSessoes']) {
     assert.ok(conversa.includes(`id="${id}"`), 'conversa.html sem ' + id);
-    assert.ok((C.MARCACAO_CABECALHO + C.MARCACAO_MENU).includes(`id="${id}"`), 'casca sem ' + id);
+    assert.ok(C.MARCACAO_CABECALHO.includes(`id="${id}"`), 'casca sem ' + id);
   }
   assert.match(C.MARCACAO_MENU, /href="\/mesa"/);
   assert.match(C.MARCACAO_MENU, /action="\/sair"/);
@@ -40,7 +50,10 @@ test('menu: ?a=<slug> nos links da Mesa e dos Lembretes', () => {
   assert.equal(M.comAgente('/mesa', ''), '/mesa');
   const conversaJs = pub('conversa.js');
   assert.match(conversaJs, /\['btnMesa', '\/mesa'\], \['btnLembretes', '\/lembretes'\]/);
-  assert.match(conversaJs, /dgclaw:agente/);
+  assert.match(conversaJs, /DGCasca\.guardaAgente\(AGENTE\.id\)/);
+  // o último agente vai para o localStorage (a casca) e para o cookie que o servidor lê na rota "/"
+  assert.match(pub('casca.js'), /dgclaw:agente/);
+  assert.match(pub('casca.js'), /dgclaw_agente=.*SameSite=Lax/);
 });
 
 test('menu: opção ativo marca o item certo (chave do href)', () => {
@@ -49,16 +62,37 @@ test('menu: opção ativo marca o item certo (chave do href)', () => {
   assert.equal(M.chaveDoHref('/lembretes?a=tina'), 'lembretes');
   assert.equal(M.chaveDoHref('/p/tina/#aba=cofre'), 'cofre');
   assert.equal(M.chaveDoHref('/a/tina'), 'conversa');
-  assert.equal(M.chaveDoHref('/avisos'), '');
+  assert.equal(M.chaveDoHref('/avisos?a=tina'), 'avisos');
+  assert.equal(M.chaveDoHref('/outra'), '');
   // toda aba do painel do menu tem chave própria
   for (const l of M.linksPainel({ id: 'tina', tem_painel: true })) assert.ok(M.chaveDoHref(l.href));
 });
 
 test('menu: itens extras do painel (Sessões e poderes) viram links #aba=', () => {
-  const l = M.linksExtras({ id: 'tina', tem_painel: true }, [{ chave: 'sessoes', ico: '◫', nome: 'Sessões' }, { chave: '', nome: 'x' }]);
-  assert.deepEqual(l, [{ nome: 'Sessões', ico: '◫', href: '/p/tina/#aba=sessoes' }]);
+  const l = M.linksExtras({ id: 'tina', tem_painel: true }, [{ chave: 'posts', ico: '◫', nome: 'Posts' }, { chave: '', nome: 'x' }]);
+  assert.deepEqual(l, [{ nome: 'Posts', ico: '◫', href: '/p/tina/#aba=posts' }]);
   assert.deepEqual(M.linksExtras({ id: 'admin', tem_painel: false }, [{ chave: 'posts', nome: 'Posts' }]), []);
-  assert.equal(M.chaveDoHref(l[0].href), 'sessoes');
+  assert.equal(M.chaveDoHref(l[0].href), 'posts');
+  // Sessões é item fixo: um painel antigo que ainda a mande como extra não a duplica no menu
+  assert.deepEqual(M.linksExtras({ id: 'tina', tem_painel: true }, [{ chave: 'sessoes', nome: 'Sessões' }]), []);
+});
+
+test('menu: Sessões é item fixo de todo agente com painel, e Avisos é item fixo de todos', () => {
+  const s = M.linkSessoes({ id: 'tina', tem_painel: true });
+  assert.equal(s.nome, 'Sessões');
+  assert.equal(s.ico, '🖥');
+  assert.equal(s.href, '/p/tina/#aba=sessoes');
+  assert.equal(s.config, '/p/tina/api/sessoes-config');
+  assert.equal(M.chaveDoHref(s.href), 'sessoes');
+  assert.equal(M.linkSessoes({ id: 'tina', tem_painel: true, painel_url: '/p/tina' }).href, '/p/tina/#aba=sessoes', 'painel_url sem a barra final');
+  assert.equal(M.linkSessoes({ id: 'admin', tem_painel: false }), null, 'o Admin não tem painel, então não tem Sessões');
+  assert.equal(M.LINK_AVISOS.href, '/avisos');
+  assert.equal(M.chaveDoHref(M.comAgente(M.LINK_AVISOS.href, 'tina')), 'avisos');
+  // a marcação do menu-lado.js põe Sessões logo depois da Mesa e esconde só com ligado:false
+  const js = pub('menu-lado.js');
+  assert.match(js, /mesa\.parentElement\.insertAdjacentHTML\('afterend'/);
+  assert.match(js, /c\.ligado === false/);
+  assert.match(js, /Deixei o item no menu/);
 });
 
 test('menu: passos do tutorial do menu respondem o que é, como e por quê', () => {

@@ -73,7 +73,7 @@ test("a pasta de estado recebe tudo e o descritor continua sozinho na pasta dele
 test("GET /api/provedor: formato, conferência sem e-mail nem orgId, login e canais", async () => {
   const r = await req("GET", "/api/provedor");
   assert.equal(r.status, 200);
-  assert.deepEqual(Object.keys(r.corpo).sort(), ["auth", "canais", "conferido", "login", "modelo", "origem", "provedor", "rotulo", "sessao"]);
+  assert.deepEqual(Object.keys(r.corpo).sort(), ["auth", "canais", "conferido", "disponiveis", "login", "modelo", "origem", "provedor", "rotulo", "sessao"]);
   assert.equal(r.corpo.sessao, ID);
   assert.equal(r.corpo.provedor, "claude");
   assert.equal(r.corpo.auth, "assinatura");
@@ -83,6 +83,8 @@ test("GET /api/provedor: formato, conferência sem e-mail nem orgId, login e can
   assert.equal(r.corpo.conferido.metodo, "assinatura");
   assert.equal(r.corpo.conferido.detalhe, "Conta do Claude conectada (plano max).");
   assert.deepEqual(r.corpo.login, { estado: "nenhum" });
+  // os CLIs falsos do teste (claude e codex) estão no PATH, então os dois provedores liberados do catálogo aparecem
+  assert.deepEqual(r.corpo.disponiveis, ["claude", "codex"]);
   assert.deepEqual(r.corpo.canais, { telegram: "desligado" });
   const texto = JSON.stringify(r.corpo);
   for (const p of ["fulano", "example.com", "org-0123", "Organizacao"]) assert.equal(texto.includes(p), false, p);
@@ -424,4 +426,21 @@ test("POST /api/agents/:id/permissao: decisão inválida é 400 e agente que nã
   assert.equal(fora.status, 409);
   assert.equal(fora.corpo.code, "NAO_ESPERA_PERMISSAO");
   assert.match(fora.corpo.howToFix, /atualizar a tela/);
+});
+
+test("provedoresDisponiveis: precisa estar liberado no catálogo E ter o programa no PATH", async () => {
+  const { provedoresDisponiveis } = await import("./provedores/rotas.js");
+  const { carregar } = await import("./provedores/catalogo.js");
+  const cat = carregar();
+  const pasta = fs.mkdtempSync(path.join(amb.raiz, "bins-"));
+  fs.writeFileSync(path.join(pasta, "claude"), "#!/bin/sh\n", { mode: 0o755 });
+  fs.writeFileSync(path.join(pasta, "codex"), "#!/bin/sh\n", { mode: 0o644 }); // sem permissão de executar: não conta
+  assert.deepEqual(provedoresDisponiveis(cat, pasta), ["claude"]);
+  fs.chmodSync(path.join(pasta, "codex"), 0o755);
+  assert.deepEqual(provedoresDisponiveis(cat, pasta), ["claude", "codex"]);
+  assert.deepEqual(provedoresDisponiveis(cat, ""), [], "PATH vazio: nenhum");
+  assert.deepEqual(provedoresDisponiveis(cat, undefined), []);
+  // gemini está no catálogo como indisponível: nunca entra, mesmo com o programa instalado
+  fs.writeFileSync(path.join(pasta, "gemini"), "#!/bin/sh\n", { mode: 0o755 });
+  assert.equal(provedoresDisponiveis(cat, pasta).includes("gemini"), false);
 });

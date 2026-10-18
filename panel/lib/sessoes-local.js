@@ -510,15 +510,46 @@ function registrar(router, { CONFIG }) {
     return nome.trim();
   }
 
-  async function criarCard({ nome, prompt, pasta, por }) {
-    const absoluta = resolverPasta(pasta);
+  const NOME_DO_PROVEDOR = { claude: 'Claude', codex: 'Codex' };
+
+  /** O provedor da conversa principal e os que um card novo pode usar. O runner informa `disponiveis`; um runner
+   *  antigo que não informa só deixa o da principal (não adivinho um motor que talvez nem esteja instalado). */
+  async function lerProvedores() {
     const prov = (await runner('GET', '/api/provedor', undefined, 'ler o provedor da sessão principal')).json || {};
     if (typeof prov.provedor !== 'string' || !prov.provedor) {
       throw new ErroLocal(502, 'O runner não disse qual é o provedor da sessão principal (faltou "provedor" em GET /api/provedor).', { code: 'RUNNER_FORMATO' });
     }
-    const corpo = { tipo: 'card', provedor: prov.provedor, titulo: nome };
-    if (prov.auth) corpo.auth = prov.auth;
-    if (prov.modelo) corpo.modelo = prov.modelo;
+    const lista = Array.isArray(prov.disponiveis) ? prov.disponiveis.filter((x) => typeof x === 'string' && x) : [];
+    const disponiveis = lista.includes(prov.provedor) ? lista : [prov.provedor, ...lista];
+    return { prov, disponiveis };
+  }
+
+  async function rotaProvedores(req, res) {
+    const { prov, disponiveis } = await lerProvedores();
+    enviarJson(res, 200, {
+      ok: true, principal: prov.provedor,
+      disponiveis: disponiveis.map((id) => ({ id, nome: NOME_DO_PROVEDOR[id] || id })),
+    });
+  }
+
+  async function criarCard({ nome, prompt, pasta, por, provedor }) {
+    const absoluta = resolverPasta(pasta);
+    const { prov, disponiveis } = await lerProvedores();
+    let escolhido = prov.provedor;
+    if (provedor !== undefined && provedor !== null && provedor !== '') {
+      if (typeof provedor !== 'string' || !disponiveis.includes(provedor)) {
+        throw new ErroLocal(400, `O provedor ${JSON.stringify(provedor)} não está disponível neste agente.`, {
+          como_resolver: `Use um destes: ${disponiveis.join(', ')}. Sem o campo "provedor", o card usa o da conversa principal (${prov.provedor}).`, code: 'PROVEDOR_INVALIDO',
+        });
+      }
+      escolhido = provedor;
+    }
+    const corpo = { tipo: 'card', provedor: escolhido, titulo: nome };
+    // Forma de pagar e modelo são do provedor da principal: noutro provedor o runner usa o padrão (assinatura, modelo padrão).
+    if (escolhido === prov.provedor) {
+      if (prov.auth) corpo.auth = prov.auth;
+      if (prov.modelo) corpo.modelo = prov.modelo;
+    }
     const criada = await runner('POST', '/api/sessoes', corpo, 'criar a sessão');
     const ag = criada.json && criada.json.data;
     if (!ag || typeof ag.id !== 'string') {
@@ -554,7 +585,7 @@ function registrar(router, { CONFIG }) {
     if (typeof d.prompt !== 'string' || !d.prompt.trim() || d.prompt.trim().length > PROMPT_MAX) {
       throw new ErroLocal(400, `O campo "prompt" é obrigatório (1 a ${PROMPT_MAX} caracteres).`);
     }
-    const it = await criarCard({ nome, prompt: d.prompt.trim(), pasta: d.pasta, por: quemPediu(req) });
+    const it = await criarCard({ nome, prompt: d.prompt.trim(), pasta: d.pasta, por: quemPediu(req), provedor: d.provedor });
     log(`criar ${it.id} por ${quemPediu(req)}`);
     enviarJson(res, 201, { ok: true, item: it });
   }
@@ -993,6 +1024,7 @@ function registrar(router, { CONFIG }) {
     if (!escrita) {
       if (!a) return rotaLista(req, res, query);
       if (a === 'docs.md' && !acao) return rotaDocsMd(req, res);
+      if (a === 'provedores' && !acao) return rotaProvedores(req, res);
       checarId(a);
       if (!acao) { const it = await itemPorId(a); return enviarJson(res, 200, { ok: true, item: it, fonte: FONTE }); }
       if (acao === 'conversa') return rotaConversa(req, res, a, query);

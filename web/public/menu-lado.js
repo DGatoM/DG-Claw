@@ -24,8 +24,19 @@
   ];
 
 
-  /* Entrada fixa do menu: a tela de lembretes (vale para qualquer agente). */
+  /* Entradas fixas do menu: a tela de lembretes e a de avisos (valem para qualquer agente). */
   const LINK_LEMBRETES = { nome: 'Lembretes', ico: '⏰', href: '/lembretes' };
+  const LINK_AVISOS = { nome: 'Avisos', ico: '🔔', href: '/avisos' };
+
+  /* Sessões é item fixo para todo agente com painel (a tela fica no painel dele). Devolve o link do menu e os
+     endereços que o menu consulta (config: a aba está ligada? pedidos: quantas sessões esperam o dono), ou null. */
+  function linkSessoes(a) {
+    if (!a || !a.tem_painel) return null;
+    const base0 = a.painel_url || ('/p/' + encodeURIComponent(a.id) + '/');
+    const base = base0.replace(/\/*$/, '/');
+    return { nome: 'Sessões', ico: '🖥', href: base + '#aba=sessoes',
+      config: base + 'api/sessoes-config', pedidos: base + 'api/sessoes?grupo=esperando_voce&limite=1' };
+  }
 
   /* Páginas fora do painel (Mesa, Lembretes) não têm o agente no caminho: levam ?a=<slug> para a
      tela saber de quem é o menu. */
@@ -42,6 +53,7 @@
     const caminho = h.split(/[?#]/)[0].replace(/\/+$/, '');
     if (caminho === '/mesa') return 'mesa';
     if (caminho === '/lembretes') return 'lembretes';
+    if (caminho === '/avisos') return 'avisos';
     if (/^\/a\/[^/]+$/.test(caminho)) return 'conversa';
     return '';
   }
@@ -50,7 +62,8 @@
   function linksExtras(a, extras) {
     if (!a || !a.tem_painel || !Array.isArray(extras)) return [];
     const base = a.painel_url || ('/p/' + encodeURIComponent(a.id) + '/');
-    return extras.filter(x => x && x.chave && x.nome).map(x => ({ nome: x.nome, ico: x.ico || '•', href: base + '#aba=' + x.chave }));
+    // Sessões é item fixo (linkSessoes): um painel de versão antiga que ainda a mande como extra não a duplica
+    return extras.filter(x => x && x.chave && x.chave !== 'sessoes' && x.nome).map(x => ({ nome: x.nome, ico: x.ico || '•', href: base + '#aba=' + x.chave }));
   }
 
   /* Passos da visita guiada do menu, os mesmos na Conversa e nas outras telas.
@@ -62,7 +75,7 @@
       alvo: '#mlMoldura', antes: abre, titulo: 'O menu do agente',
       oque: 'A foto, o nome e as páginas de ' + nome + ', sempre no lado esquerdo. No computador ele fica aberto o tempo todo; no celular abre pelo botão ☰.',
       como: (o.naConversa ? 'O item Conversa (esta tela) fica no alto.' : 'O item Conversa, no alto, leva de volta ao chat.') +
-        ' Os outros itens levam à Mesa, aos Lembretes e às páginas do painel dele. O Tutorial, aqui em cima, repete esta visita.',
+        ' Os outros itens levam à Mesa, às Sessões de trabalho dele, aos Lembretes, aos Avisos e às páginas do painel dele. O Tutorial, aqui em cima, repete esta visita.',
       porque: 'Assim a conversa e o painel de cada agente ficam no mesmo lugar, sem link escondido.',
     }];
     if (o.comTroca) {
@@ -110,7 +123,7 @@
     return { tipo: 'sem', texto: 'Este navegador não oferece a instalação por aqui. No Chrome ou no Edge, abra o menu do navegador e procure Instalar app. No Firefox para computador, o recurso não existe.' };
   }
 
-  if (!raiz.document) return { ABAS_PAINEL, LINK_LEMBRETES, itemAgente, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar };
+  if (!raiz.document) return { ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, linkSessoes, itemAgente, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar };
 
   /* ── Parte com DOM ─────────────────────────────────────────────────────── */
   const $ = id => document.getElementById(id);
@@ -189,6 +202,69 @@
 
   let agenteAtual = null;
 
+  /* ── Sessões: o item do menu e o botão 🖥 do cabeçalho ──────────────────────
+     Perguntamos UMA vez por agente se a aba está ligada (GET <painel>/api/sessoes-config), sem travar a tela.
+     Só ligado:false esconde o item e o botão. Erro de rede ou resposta estranha NÃO esconde: o item fica e o
+     motivo vai para o console, porque sumir com a porta por causa de um tropeço seria pior que mostrá-la. */
+  const consultaSessoes = new Map();   // id do agente -> Promise<{ ligado: boolean|null }>
+  function configSessoes(l, id) {
+    if (!consultaSessoes.has(id)) {
+      consultaSessoes.set(id, fetch(l.config, { cache: 'no-store', credentials: 'same-origin' })
+        .then(async r => {
+          const d = await r.json().catch(() => null);
+          if (!r.ok || !d) throw new Error('o painel respondeu ' + r.status + ' a ' + l.config);
+          return { ligado: d.ligado === false ? false : true };
+        })
+        .catch(e => {
+          console.warn('menu-lado: não consegui saber se a aba Sessões está ligada (' + e.message + '). Deixei o item no menu.');
+          return { ligado: null };
+        }));
+    }
+    return consultaSessoes.get(id);
+  }
+
+  /* Bolinha de pedidos: quantas sessões esperam uma decisão do dono. Sem contagem na resposta, sem bolinha. */
+  async function contaPedidos(l) {
+    const r = await fetch(l.pedidos, { cache: 'no-store', credentials: 'same-origin' });
+    const d = await r.json().catch(() => null);
+    if (!r.ok || !d || !d.contagem) throw new Error('o painel respondeu ' + r.status + ' a ' + l.pedidos);
+    return Number(d.contagem.esperando_voce) || 0;
+  }
+
+  function ligaSessoes(ag) {
+    const l = linkSessoes(ag);
+    if (!l) return;
+    const itens = [$('mlSessoes'), $('btnSessoes')].filter(Boolean);
+    const btn = $('btnSessoes');
+    if (btn) { btn.href = l.href; btn.hidden = true; }
+    const pinta = n => itens.forEach(el => {
+      let b = el.querySelector('.sx-bol');
+      if (n > 0 && !b) { b = document.createElement('i'); b.className = 'sx-bol'; b.setAttribute('aria-hidden', 'true'); el.appendChild(b); }
+      if (b) b.hidden = !(n > 0);
+      el.title = n > 0 ? 'Sessões (' + n + (n === 1 ? ' pedido esperando você)' : ' pedidos esperando você)') : 'Sessões de trabalho deste agente';
+    });
+    let avisouPedidos = false;
+    const atualiza = () => {
+      if (document.visibilityState !== 'visible') return;
+      contaPedidos(l).then(pinta, e => {
+        if (!avisouPedidos) { avisouPedidos = true; console.warn('menu-lado: sem a contagem de pedidos das Sessões (' + e.message + '); a bolinha fica apagada.'); }
+      });
+    };
+    configSessoes(l, ag.id).then(c => {
+      if (c.ligado === false) {
+        const item = $('mlSessoes');
+        if (item) item.parentElement.remove();
+        if (btn) btn.remove();
+        marca(chaveAtiva);
+        return;
+      }
+      if (btn) btn.hidden = false;
+      atualiza();
+      document.addEventListener('visibilitychange', atualiza);
+      setInterval(atualiza, 45000);
+    });
+  }
+
   /* Marca o item da página aberta (.ativo e aria-current). chave: 'conversa', 'mesa', 'lembretes' ou a de uma aba do painel.
      Chave sem item no menu (ex.: 'avisos') não marca nenhum. */
   let chaveAtiva = '';
@@ -242,9 +318,18 @@
     painel.hidden = !links.length;
     $('mlTabs').insertAdjacentHTML('beforeend', `<div data-tour="gm-lembretes"><a class="ml-tab" href="${comAgente(LINK_LEMBRETES.href, ag.id)}">` +
       `<span class="ml-ico" aria-hidden="true">${LINK_LEMBRETES.ico}</span>${LINK_LEMBRETES.nome}</a></div>`);
+    $('mlTabs').insertAdjacentHTML('beforeend', `<div data-tour="gm-avisos"><a class="ml-tab" href="${comAgente(LINK_AVISOS.href, ag.id)}">` +
+      `<span class="ml-ico" aria-hidden="true">${LINK_AVISOS.ico}</span>${LINK_AVISOS.nome}</a></div>`);
     // a Mesa já está no HTML com href="/mesa": passa a levar o agente junto
     const mesa = document.querySelector('#mlTabs a[href="/mesa"]');
     if (mesa) mesa.setAttribute('href', comAgente('/mesa', ag.id));
+    // Sessões logo depois da Mesa, para todo agente com painel, em todas as telas
+    const sess = linkSessoes(ag);
+    if (sess && mesa) {
+      mesa.parentElement.insertAdjacentHTML('afterend', `<div data-tour="gm-sessoes"><a class="ml-tab" id="mlSessoes" href="${esc(sess.href)}">` +
+        `<span class="ml-ico" aria-hidden="true">${sess.ico}</span>${sess.nome}</a></div>`);
+    }
+    ligaSessoes(ag);
     agenteAtual = ag;
     if (Array.isArray(opcoes.extras)) extras(opcoes.extras);
 
@@ -266,5 +351,5 @@
     pintaInstalar();
   }
 
-  return { ABAS_PAINEL, LINK_LEMBRETES, itemAgente, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar, inicia, marca, extras };
+  return { ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, linkSessoes, itemAgente, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar, inicia, marca, extras };
 });

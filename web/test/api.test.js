@@ -508,7 +508,12 @@ test('registro: relido quando o mtime muda; sinônimo tokenArquivo; arquivo ause
 test('páginas: / vai para o Admin, /a/<slug> serve a conversa e slug inexistente leva 404 com motivo', async () => {
   const s = await cenario();
   try {
-    assert.equal((await s.t.c.get('/')).headers.location, '/a/admin');
+    // sem cookie, "/" abre o primeiro agente que não é o Admin; com o cookie do último usado, abre esse; cookie de agente que sumiu não quebra
+    assert.equal((await s.t.c.get('/')).headers.location, '/a/ana');
+    assert.equal((await s.t.c.get('/', { headers: { Cookie: 'dgclaw_agente=admin' } })).headers.location, '/a/admin');
+    assert.equal((await s.t.c.get('/', { headers: { Cookie: 'dgclaw_agente=ana' } })).headers.location, '/a/ana');
+    assert.equal((await s.t.c.get('/', { headers: { Cookie: 'dgclaw_agente=fantasma' } })).headers.location, '/a/ana');
+    assert.equal((await s.t.c.get('/', { headers: { Cookie: 'dgclaw_agente=%E0%A4%A' } })).headers.location, '/a/ana');
     const ok = await s.t.c.get('/a/ana');
     assert.equal(ok.status, 200); assert.match(ok.texto, /conversa de teste/);
     const nao = await s.t.c.get('/a/fantasma');
