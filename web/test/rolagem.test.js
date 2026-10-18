@@ -43,3 +43,10 @@ test('primeiroVisivel: busca binária pelo primeiro item com fundo abaixo do top
   assert.equal(R.primeiroVisivel(5, f, 580), -1);
   assert.equal(R.primeiroVisivel(0, f, 0), -1);
 });
+
+test('moveuDeVerdade: o eco do scroll que nós fizemos não conta como a pessoa rolar', () => {
+  assert.equal(R.moveuDeVerdade(9625, 9625), false);
+  assert.equal(R.moveuDeVerdade(9625, 9625.3), false);
+  assert.equal(R.moveuDeVerdade(9625, 9100), true);
+  assert.equal(R.moveuDeVerdade(0, 40), true);
+});

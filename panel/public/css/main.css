@@ -46,6 +46,9 @@ html[data-tema="escuro"]{
    (a barra do ditado, a faixa de aviso da Conversa, o recado do leitor) ganhava do
    estilo do navegador e aparecia com `hidden` e tudo. */
 [hidden]{display:none!important}
+/* sem fundo no html, o app instalado no iPhone mostrava uma faixa branca no pé */
+html{background:var(--bg);min-height:100%}
+body{min-height:100dvh}
 body{margin:0;background:var(--bg);color:var(--texto);
      font:15px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
      -webkit-font-smoothing:antialiased}
@@ -273,7 +276,8 @@ button,input,select{font:inherit;color:inherit}
   border:1px dashed color-mix(in srgb,var(--erro) 45%,var(--linha))}
 .rotina-topo{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .rotina-nome{font-size:13.5px;font-weight:600;min-width:0}
-.rotina-quando{font-size:12.5px;color:var(--acento1);white-space:nowrap}
+/* agenda longa ("em 13-17/10, às 00:00, 05:00, ...") quebra dentro do cartão em vez de vazar no celular */
+.rotina-quando{font-size:12.5px;color:var(--acento1);white-space:normal;overflow-wrap:anywhere;min-width:0}
 html[data-tema="escuro"] .rotina-quando{color:var(--acento2)}
 .rotina-recado{font-size:12.5px;color:var(--fraco);margin-top:5px;font-style:italic}
 .rotina-desc{font-size:12.5px;color:var(--fraco);margin-top:5px}
@@ -631,11 +635,20 @@ html[data-tema="escuro"] .rt-titulo{color:var(--acento2)}
 html.casca .lado,html.casca .veu,html.casca .btn-menu,html.casca .btn-voltar{display:none!important}
 html.casca .app{display:block;min-height:0}
 html.casca .principal{min-width:0}
-html.casca .header{position:static;backdrop-filter:none;padding:14px 20px 12px;background:var(--bg)}
+/* o segundo cabeçalho sai; o selo de estado e a frase da aba vão para a faixa discreta no alto do conteúdo
+   (moveEstadoParaConteudo, js/app.js). O .header escondido guarda só o título e o botão Tutorial da aba. */
+html.casca .header{display:none!important}
+html.casca .faixa-estado{display:flex;align-items:center;justify-content:space-between;gap:8px 16px;flex-wrap:wrap;margin:0 0 14px}
+html.casca .faixa-estado .header-sub{flex:1 1 220px;min-width:0;margin:0}
+html.casca .faixa-estado .header-status{flex:0 1 auto;margin-left:auto}
 @media (max-width:860px){
-  html.casca .header{padding:12px 14px 10px}
   html.casca .content{padding-left:14px;padding-right:14px}
+  html.casca .faixa-estado .header-sub{display:block;flex-basis:100%;font-size:13px}
+  html.casca .faixa-estado .header-status{flex:1 1 100%;margin-left:0}
 }
+/* fonte e cor: as da casca (a pilha --fonte do casca.css e a cor do agente, --accent). Sem isto o painel seria roxo e de outra fonte. */
+html.casca body{font-family:var(--fonte)}
+html.casca{--acento1:var(--accent,#2f9e5e);--acento2:color-mix(in srgb,var(--accent,#2f9e5e) 70%,#1d3b8f)}
 /* o Tutorial da aba é o do cabeçalho da casca (que clica neste botão); dois botões iguais confundem */
 html.casca .btn-tutorial-aba{display:none!important}
 

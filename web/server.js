@@ -160,6 +160,18 @@ function criarServidor(opcoes) {
     res.end();
   }
 
+  /* A rota "/" abre o último agente usado (cookie dgclaw_agente, gravado pela casca), se ele ainda existe no registro;
+     senão o primeiro que não é o Admin (é com ele que a pessoa trabalha); senão o Admin. */
+  function agenteInicial(req) {
+    const agentes = registro.estado().agentes;
+    let guardado = H.parseCookies(req.headers.cookie).dgclaw_agente;
+    try { guardado = guardado && decodeURIComponent(guardado); } catch (_) { guardado = null; /* cookie ilegível: cai no primeiro agente */ }
+    const doCookie = guardado && agentes.find((a) => a.slug === guardado);
+    if (doCookie) return doCookie.slug;
+    const trabalho = agentes.find((a) => a.tipo !== 'admin');
+    return (trabalho || agentes[0]).slug;
+  }
+
   function falhaDoRegistro(req, res, api) {
     const est = registro.estado();
     if (est.ok) return false;
@@ -705,7 +717,7 @@ function criarServidor(opcoes) {
     if (p === '/' && (m === 'GET' || m === 'HEAD')) {
       if (!sessao) return semSessaoPagina(req, res, url);
       if (falhaDoRegistro(req, res, false)) return undefined;
-      res.writeHead(302, { Location: `/a/${registro.estado().agentes[0].slug}`, 'Cache-Control': 'no-store' });
+      res.writeHead(302, { Location: `/a/${agenteInicial(req)}`, 'Cache-Control': 'no-store' });
       return res.end();
     }
 

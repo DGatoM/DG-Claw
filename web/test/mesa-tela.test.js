@@ -119,5 +119,6 @@ test('mesa.html: ordem dos scripts, casca no lugar do cabeçalho antigo e o Quad
 });
 
 test('o menu da conversa tem o item Mesa de tarefas', () => {
-  assert.match(pub('conversa.html'), /<a class="ml-tab" href="\/mesa"><span class="ml-ico" aria-hidden="true">▦<\/span>Mesa de tarefas<\/a>/);
+  // o menu é o da casca (uma fonte só); a conversa.html monta ele pelo ponto de montagem
+  assert.match(require('../public/casca').MARCACAO_MENU, /<a class="ml-tab" href="\/mesa"><span class="ml-ico" aria-hidden="true">▦<\/span>Mesa de tarefas<\/a>/);
 });

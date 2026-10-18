@@ -5,6 +5,9 @@
    header{position:fixed}) que quebrariam estas telas. Tudo aqui vale só com html.casca.
    O menu em si (retrato, seletor, itens) continua sendo o menu-lado.css, carregado junto. */
 
+/* A pilha de fontes das telas do agente: o cabeçalho, o menu, o tour e o corpo do painel (main.css, html.casca body) usam esta. */
+:root{--fonte:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif}
+
 html.casca{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 
 /* cabeçalho: a mesma altura, fonte e cores da Conversa; fica colado no topo ao rolar a página */
@@ -12,7 +15,7 @@ html.casca #cabecalho,html.casca #cabecalho *,aside#menu,aside#menu *,#overlayMe
   box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html.casca #cabecalho,aside#menu{
   --line:rgba(0,0,0,.08);--muted:#6c8172;--txt:#0f1c14;
-  font:15.5px/1.46 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;color:var(--txt)}
+  font:15.5px/1.46 var(--fonte);color:var(--txt)}
 html.casca #cabecalho{position:sticky;top:0;z-index:20;min-height:58px;background:#fff;
   border-bottom:1px solid var(--line);box-shadow:0 1px 4px rgba(0,0,0,.08);
   display:flex;align-items:center;gap:10px;padding:4px 12px;padding-top:calc(4px + env(safe-area-inset-top))}
@@ -27,7 +30,10 @@ html.casca #cabecalho .btn{border:1px solid var(--line);border-radius:18px;paddi
   font-weight:600;cursor:pointer;background:#f2f6f2;color:#38523f;white-space:nowrap;min-height:44px;min-width:44px}
 html.casca #cabecalho .btn:active{opacity:.7}
 html.casca #cabecalho .btn.ghost{background:transparent;border-color:transparent;color:var(--muted);padding:8px;font-size:20px}
+html.casca #cabecalho a.btn{display:inline-flex;align-items:center;justify-content:center;gap:4px;text-decoration:none}
+html.casca #cabecalho .btn[hidden]{display:none}
 @media (max-width:700px){
+  html.casca #cabecalho #btnSessoes .lbl{display:none}   /* falta espaço: fica só o ícone (alvo de 44px) */
   html.casca #cabecalho{padding-left:6px;padding-right:6px;gap:8px}
   html.casca #cabecalho .who b{white-space:normal;overflow:visible;line-height:1.2}
 }
@@ -60,7 +66,7 @@ html.casca #tourFundo{position:fixed;inset:0;z-index:90}
 html.casca #tourLuz{position:fixed;z-index:91;border-radius:10px;pointer-events:none;
   box-shadow:0 0 0 9999px rgba(10,24,16,.66);outline:2px solid #fff}
 html.casca #tourCaixa{position:fixed;z-index:92;left:12px;right:12px;max-width:400px;margin:0 auto;background:#fff;
-  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;color:#0f1c14;border-radius:14px;padding:14px 16px;box-shadow:0 6px 28px rgba(0,0,0,.35);
+  font-family:var(--fonte);color:#0f1c14;border-radius:14px;padding:14px 16px;box-shadow:0 6px 28px rgba(0,0,0,.35);
   font-size:14px;line-height:1.45;max-height:70dvh;overflow-y:auto}
 html.casca #tourCaixa:focus{outline:none}
 html.casca #tourCaixa h4{margin:0 0 2px;font-size:15.5px}
