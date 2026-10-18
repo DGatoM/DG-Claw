@@ -51,6 +51,23 @@ Valor efetivo = ajuste (se permitido pela trava) senão padrão do nível. Leito
 `resumo()` para a tela). Ajuste inválido ou abaixo da trava é ignorado com aviso no log que diz qual
 chave, qual valor e por quê.
 
+### Campos da matriz além dos do exemplo
+
+Acrescentados na construção da fundação, lidos igual por `lib/protecoes.sh` e `web/lib/protecoes.js`:
+
+- `tipo`: `bool`, `enum` ou `numero`. Em `enum`, `valores` vem do mais fraco para o mais forte.
+- `forte` (bool): qual valor protege. Padrão `true`; é `false` em `admin_llm` e `sigilo_externo`. A trava
+  de uma chave bool impede trocar o valor pelo oposto de `forte`.
+- `min` (número): menor valor aceito (`retencao_dias` aceita 0, que quer dizer "sem prazo").
+- `parametro` (número): `sessao_horas` e `backup_retencao_dias` são ajustes, não liga/desliga. A tela mostra
+  "parâmetro" e não os conta entre as proteções ligadas. `desligado_em`: valor numérico que equivale a
+  desligado (`retencao_dias`: 0).
+- `descricao`, `como`, `porque`: os textos da tela Proteções, em português simples.
+
+O resumo do Web (`resumo()`) devolve, por chave, `valor`, `padrao`, `ajustado`, `travado`, `ligada` (regra
+literal: bool true, enum fora de nao/livre/runc, número maior que zero) e `protegendo` (se a chave está
+protegendo de fato: true, false, ou null para parâmetro). A tela usa `protegendo`.
+
 ### Chaves
 
 | Chave | Valores | pessoal | escritorio | empresa | regulado |

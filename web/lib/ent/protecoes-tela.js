@@ -4,6 +4,7 @@
 //   GET /protecoes          a página (web/public/protecoes.html)
 // Só leitura: mudar o nível é com `dgclaw nivel` no servidor.
 
+const path = require('node:path');
 const H = require('../http');
 
 module.exports = {
@@ -11,7 +12,6 @@ module.exports = {
   ordem: 50,
   criar(ctx) {
     const { protecoes, servirArquivo, semSessaoPagina, config, log } = ctx;
-    const path = require('node:path');
 
     return {
       antes(req, res, url, sessao) {
