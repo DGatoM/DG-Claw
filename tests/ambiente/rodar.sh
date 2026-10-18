@@ -19,6 +19,9 @@ done
 for t in agente admin; do
     igual "$t.md so usa os campos NOME, DONO e SLUG" "" "$(grep -o '{{[^}]*}}' "$AMB/$t.md" | sort -u | grep -vxE '\{\{(NOME|DONO|SLUG)\}\}')"
 done
+# O install.sh junta o admin.md cru no CLAUDE.md do Admin, sem renderizar: campo ali chegaria
+# literal ao prompt dele.
+nega "admin.md sem campo {{...}} (o instalador nao renderiza)" grep -q '{{' "$AMB/admin.md"
 
 echo "ambiente: toda doc de capacidade esta citada no agente.md"
 while IFS= read -r doc; do
