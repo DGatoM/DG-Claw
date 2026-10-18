@@ -6,6 +6,13 @@
 //   antes            roda, na ordem (`ordem` e depois o nome), antes do roteamento da API e das páginas, logo
 //                    depois de calculada a sessão. Devolve true quando já respondeu (rota enterprise, recusa por
 //                    papel) e aí os seguintes não rodam. Pode ser async.
+//   antesDaSessao    como `antes`, mas roda ANTES do login e da sessão: (req, res, url) => true | false. Serve às rotas
+//                    de quem ainda não tem sessão completa (tela do segundo fator, link de senha nova). Pode ser async.
+//   login            (usuario, senha, ip, req) => resultado do login | null (null = não cuido, vale o login de sempre).
+//                    O primeiro módulo que devolve diferente de null decide. Resultado: { ok, usuario, sessao?: { cookie },
+//                    destino?, limite?, retryAfter?, erro? }.
+//   aoSair           (req, sessao) => void, chamada em /sair antes de encerrar a sessão.
+//   aoNegar          (req, sessao, recurso) => void, chamada quando o server.js recusa um agente (403) por causa de podeVerAgente.
 //   podeVerAgente    a regra única de acesso a agente: todos os módulos que a definem precisam concordar.
 //                    Sem nenhum módulo que a defina, vale true (nível pessoal: todo mundo vê tudo).
 //
@@ -48,9 +55,13 @@ function criarEnterprise(ctx, opcoes) {
     } catch (e) {
       throw new Error(`O módulo enterprise "${m.nome}" (${m.arquivo}) falhou ao iniciar: ${e.message}`);
     }
-    instancias.push({ nome: m.nome, antes: inst.antes, podeVerAgente: inst.podeVerAgente });
+    instancias.push({ nome: m.nome, antes: inst.antes, antesDaSessao: inst.antesDaSessao, login: inst.login, aoSair: inst.aoSair, aoNegar: inst.aoNegar, podeVerAgente: inst.podeVerAgente });
   }
   const comAntes = instancias.filter((i) => typeof i.antes === 'function');
+  const comAntesDaSessao = instancias.filter((i) => typeof i.antesDaSessao === 'function');
+  const comLogin = instancias.filter((i) => typeof i.login === 'function');
+  const comSaida = instancias.filter((i) => typeof i.aoSair === 'function');
+  const comNegacao = instancias.filter((i) => typeof i.aoNegar === 'function');
   const comRegra = instancias.filter((i) => typeof i.podeVerAgente === 'function');
 
   return {
@@ -61,6 +72,21 @@ function criarEnterprise(ctx, opcoes) {
       }
       return false;
     },
+    async antesDaSessao(req, res, url) {
+      for (const i of comAntesDaSessao) {
+        if (await i.antesDaSessao(req, res, url)) return true;
+      }
+      return false;
+    },
+    async login(usuario, senha, ip, req) {
+      for (const i of comLogin) {
+        const r = await i.login(usuario, senha, ip, req);
+        if (r != null) return r;
+      }
+      return null;
+    },
+    aoSair(req, sessao) { for (const i of comSaida) i.aoSair(req, sessao); },
+    aoNegar(req, sessao, recurso) { for (const i of comNegacao) i.aoNegar(req, sessao, recurso); },
     podeVerAgente(sessao, slug) {
       return comRegra.every((i) => i.podeVerAgente(sessao, slug) === true);
     },
