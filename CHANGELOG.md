@@ -120,6 +120,15 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
   externa (entrega a coletor HTTP ou syslog sobre TLS, selo por hora, retomada pelo hash e alerta no monitor quando a fila passa de
   1 hora; `dgclaw auditoria externa configurar|testar|status|enviar`). A trilha aceita a origem `controle`. Guia em
   `docs/enterprise/SSO-AUDITORIA.md`.
+- Bloco I da versão enterprise (kit "skill com dado sensível"), atrás da proteção `kit_sensivel` e sem efeito no nível
+  `pessoal`: o agente aciona uma ferramenta fechada (`dgclaw-ferramenta`) e recebe só um resultado agregado, pseudonimizado
+  e conferido, sem nunca ver a credencial nem o dado bruto. Serviço `dgclaw-ferramentas` no host (`ferramentas/`, Node sem
+  dependência, usuário sem privilégio, socket só para o Web), executor em processo filho de ambiente limpo com tempo, memória
+  e pasta temporária própria, verificador de saída (CPF, CNPJ, e-mail, telefone, data de nascimento, cartão e nomes da base
+  bloqueiam a resposta inteira), biblioteca de pipeline (`pseudonimizar`, `agregar` com supressão de grupo pequeno), rotas
+  `/api/v1/ferramentas`, registro de acesso `ferramenta_usada` na auditoria, relatório com prazo na pasta de entregas e
+  `dgclaw ferramenta criar|listar|testar|credencial|abrir|chave|ficha|skill`. Traz a ferramenta de exemplo `carteira.resumo`
+  com base sintética, o modelo de skill e a ficha do RIPD. Guias: `docs/enterprise/KIT-SENSIVEL.md` e `SKILL-SENSIVEL.md`.
 
 <!-- Bloco H (saída controlada): entrada própria, para o merge com os outros blocos não brigar por linha. -->
 - Bloco H da versão enterprise (saída controlada para a internet, proteção `saida`): um proxy por agente
