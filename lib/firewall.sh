@@ -108,6 +108,14 @@ main() {
     if [ -f "$fw6" ]; then
         bash "$fw6" || { echo "dgclaw-firewall: a cerca IPv6 (enterprise) falhou; leia a mensagem acima. As regras IPv4 ja estao aplicadas." >&2; exit 1; }
     fi
+
+    # Enterprise: cerca da saida controlada (lib/enterprise/firewall-saida.sh). Roda por ultimo: recoloca o salto dela
+    # depois do DGCLAW_EGRESS (mangle) e no topo do INPUT. No nivel pessoal nao faz nada e nao toca no iptables.
+    local fws
+    fws="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/enterprise/firewall-saida.sh"
+    if [ -f "$fws" ]; then
+        bash "$fws" || { echo "dgclaw-firewall: a cerca da saida controlada (enterprise) falhou; leia a mensagem acima. As regras anteriores ja estao aplicadas." >&2; exit 1; }
+    fi
 }
 
 main "$@"

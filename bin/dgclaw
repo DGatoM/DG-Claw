@@ -175,6 +175,10 @@ Dados pessoais e monitoramento
   dgclaw titular buscar <termo> [--termo <outro>] [--agente <slug>]   onde esta o dado de uma pessoa (nome, CPF, e-mail, telefone)
   dgclaw titular apagar <termo>... --confirmar [--apagar-anexos]     tira o dado dela de transcripts, indices, memoria e logs
   dgclaw monitor verificar|configurar|testar   alertas de disco, certificado, cerca, servicos, backup e memoria
+  dgclaw saida [mostrar <agente>]        saida dos agentes para a internet (livre, registro ou bloqueio)
+  dgclaw saida permitir|remover <agente> <dominio>   lista de destinos do agente (aceita *.empresa.com.br)
+  dgclaw saida modo <agente> <registro|bloqueio>     endurece um agente (nunca afrouxa abaixo do nivel)
+  dgclaw saida relatorio <agente> [--dias 7]         destinos mais acessados, para montar a lista antes do bloqueio
 
 Geral
   dgclaw status                          confere se tudo esta de pe (sai com erro se algo essencial caiu)
@@ -933,7 +937,10 @@ conferir_saida_internet() {
         return 0
     fi
     proxies="$(podman exec --user agente "$c" env 2>/dev/null | grep -i '_proxy=' | cut -d= -f1 | tr '\n' ' ' || true)"
-    if [ -n "$proxies" ]; then
+    # Enterprise (saida controlada): com o proxy do DG Claw esperado, as variaveis de proxy sao de proposito.
+    if [ -n "$proxies" ] && declare -F ent_saida_proxy_esperado >/dev/null && ent_saida_proxy_esperado "$1"; then
+        ok "o proxy de saida do DG Claw esta no ambiente do agente (saida controlada)"
+    elif [ -n "$proxies" ]; then
         aviso "o agente $1 nasceu com variavel de proxy no ambiente ($proxies). Um proxy do host nao existe la dentro e as chamadas ao provedor vao falhar. Confira se o container foi criado com --http-proxy=false (podman inspect $c --format '{{.Config.Env}}') e recrie: dgclaw agente remover $1 && dgclaw agente criar $1 ..."
     else
         ok "sem variavel de proxy dentro do agente"
@@ -963,6 +970,8 @@ rodar_isolamento() {
     if [ "$ENSAIO" = 1 ]; then info "[ensaio] rodaria o teste de isolamento: $cmd $slug"; return 0; fi
     local rc=0
     bash -c "$cmd \"\$1\"" _ "$slug" || rc=$?
+    # Enterprise (saida controlada): a prova do proxy e da lista, de dentro do container. Nao faz nada com a saida livre.
+    if [ "$rc" -eq 0 ] && declare -F ent_saida_testar >/dev/null; then ent_saida_testar "$slug" || rc=$?; fi
     if [ "$rc" -ne 0 ]; then
         # Isolamento nao se negocia: um agente que nao passou fica parado.
         podman stop "dgclaw-$slug" >/dev/null 2>&1 \
