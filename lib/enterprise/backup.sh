@@ -355,7 +355,10 @@ _bk_testar() {
     fi
     rm -rf "$tmp" "$tmp.erro"
     _bk_gravar_estado ultimo-teste.json true "$snap" ""
-    auditar_aviso backup.teste_restauracao "$(jq -nc --arg s "$snap" --argjson n "$n" '{ok: true, snapshot: $s, verificados: $n}')"
+    # Regulado: relatorio do teste com o sha256 dentro do evento da auditoria (lib/enterprise/regulado.sh).
+    local rel_sha=""
+    if declare -F regulado_relatorio_teste >/dev/null; then rel_sha="$(regulado_relatorio_teste "$snap" "$n")"; fi
+    auditar_aviso backup.teste_restauracao "$(jq -nc --arg s "$snap" --argjson n "$n" --arg r "$rel_sha" '{ok: true, snapshot: $s, verificados: $n} + (if $r == "" then {} else {relatorio_sha256: $r} end)')"
     ok "snapshot $snap restaurado e conferido: $n arquivo(s) com o sha256 do manifesto"
 }
 
