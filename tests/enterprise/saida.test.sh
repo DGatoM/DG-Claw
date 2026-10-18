@@ -133,7 +133,7 @@ afirma "NO_PROXY mantem o local fora do proxy" bash -c "[[ '$linha' == *'--env N
 echo "saida/sincronizacao e comandos: pessoal"
 ambiente ""
 app_copia_h
-"$CLI_COPIA" agente criar ana --nome "Ana" >/dev/null 2>&1
+"$CLI_COPIA" agente criar ana --nome "Ana" --uso setor --auth api >/dev/null 2>&1
 igual "pessoal: agente criou" 0 "$?"
 afirma "pessoal: nenhum arquivo em /etc/dgclaw/saida" test ! -e "$ETC/saida"
 afirma "pessoal: nenhuma pasta de registro" test ! -e "$DGCLAW_RAIZ/var/log/dgclaw/saida"
@@ -155,7 +155,7 @@ app_copia_h
 export DGCLAW_FIREWALL_SAIDA_CMD="echo cerca-saida >>'$TMP/cerca.log'"
 export DGCLAW_SAIDA_TESTE_CMD="printf '%s\n' \"\$*\" >>'$TMP/teste-saida.log'; true"
 export DGCLAW_ISOLAMENTO_CMD="true"
-"$CLI_COPIA" agente criar ana --nome "Ana" >"$TMP/o.txt" 2>&1
+"$CLI_COPIA" agente criar ana --nome "Ana" --uso setor --auth api >"$TMP/o.txt" 2>&1
 igual "agente criou" 0 "$?"
 grep '^podman create' "$STUB_LOG" | sed "s#$DGCLAW_RAIZ#@RAIZ@#g" >"$TMP/create.txt"
 afirma "podman create com HTTPS_PROXY no gateway" grep -q -- "--env HTTPS_PROXY=http://10.89.11.1:3128" "$TMP/create.txt"
@@ -170,7 +170,7 @@ echo "saida/escritorio: teste de dentro que falha para o agente"
 ambiente escritorio
 app_copia_h
 export DGCLAW_SAIDA_TESTE_CMD="exit 1"
-"$CLI_COPIA" agente criar ana --nome "Ana" >"$TMP/o.txt" 2>&1
+"$CLI_COPIA" agente criar ana --nome "Ana" --uso setor --auth api >"$TMP/o.txt" 2>&1
 igual "agente criar falha" 1 "$?"
 afirma "e o container foi parado" grep -q "^podman stop dgclaw-ana" "$STUB_LOG"
 export DGCLAW_SAIDA_TESTE_CMD="true"
@@ -181,7 +181,7 @@ ambiente escritorio
 app_copia_h
 export DGCLAW_FIREWALL_SAIDA_CMD="echo cerca-saida >>'$TMP/cerca.log'"
 export DGCLAW_ISOLAMENTO_CMD="true"
-"$CLI_COPIA" agente criar ana --nome "Ana" >/dev/null 2>&1
+"$CLI_COPIA" agente criar ana --nome "Ana" --uso setor --auth api >/dev/null 2>&1
 : >"$TMP/cerca.log"
 "$CLI_COPIA" saida permitir ana '*.Empresa.com.br' >"$TMP/o.txt" 2>&1
 igual "permitir" 0 "$?"
