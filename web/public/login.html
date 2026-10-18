@@ -29,6 +29,11 @@
     <input id="campoSenha" name="senha" type="password" autocomplete="current-password" required>
     <button type="submit" id="entrar">Entrar</button>
   </form>
+  <!-- Enterprise (login único): o login.js só mostra isto quando /api/login-estado traz `sso`. -->
+  <div id="sso" class="sso" hidden>
+    <a id="ssoBotao" class="sso-botao" href="/sso/entrar"></a>
+    <button type="button" id="ssoSenha" class="sso-senha" hidden></button>
+  </div>
 </main>
 <script src="/login.js"></script>
 </body>

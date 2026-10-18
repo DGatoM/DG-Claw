@@ -32,7 +32,7 @@ const idDe = (token) => sha256hex(token).slice(0, 16);
 function b64urlParaBuffer(s) { return Buffer.from(String(s), 'base64url'); }
 
 // Campos que o multiusuário acrescenta à sessão; no nível pessoal nenhum deles existe.
-const CAMPOS_EXTRAS = ['papel', 'fa2_em', 'com_2fa', 'meia', 'etapa', 'ip', 'ua', 'ultimo_uso'];
+const CAMPOS_EXTRAS = ['papel', 'fa2_em', 'com_2fa', 'meia', 'etapa', 'ip', 'ua', 'ultimo_uso', 'via'];
 const GRAVA_USO_A_CADA_MS = 60 * 1000;
 
 /** Lê "scrypt$N$r$p$sal$hash". Devolve { N, r, p, sal, hash } ou { erro }. */

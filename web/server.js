@@ -112,7 +112,7 @@ function criarServidor(opcoes) {
   // Enterprise (docs/enterprise/DESENHO.md §3): o nível de proteção e os blocos de web/lib/ent/. No nível
   // pessoal nenhum bloco muda o que o Web faz.
   const auditoria = opcoes.auditoria || criarAuditoria({ caminho: config.auditoriaPath, protecoes, log, agora: opcoes.agora });
-  const ent = criarEnterprise({ config, registro, auth, log, protecoes, auditoria, servirArquivo, semSessaoPagina, caixa, push, agora: opcoes.agora });
+  const ent = criarEnterprise({ config, registro, auth, log, protecoes, auditoria, servirArquivo, semSessaoPagina, caixa, push, agora: opcoes.agora, sso: opcoes.sso });
 
   let versaoJsCache = { ts: 0, valor: '0' };
   /** Versão da tela: mtime de conversa.js. A tela compara com a que carregou e se recarrega sozinha. */
@@ -243,9 +243,9 @@ function criarServidor(opcoes) {
       log('aviso', `Tentativa de login com o acesso trancado (ip ${ip}).`);
       return json ? H.erroJson(res, 403, r.erro, { trancado: true }) : voltaAoLogin(res, 'bloqueado', next);
     }
-    log('aviso', `Login recusado (ip ${ip}): usuário ou senha incorretos.`);
+    log('aviso', `Login recusado (ip ${ip}): ${r.codigo ? 'senha não vale neste nível (SSO obrigatório)' : 'usuário ou senha incorretos'}.`);
     if (json) return H.erroJson(res, 401, r.erro);
-    return voltaAoLogin(res, 'credenciais', next, usuarioDigitado);
+    return voltaAoLogin(res, r.codigo || 'credenciais', next, usuarioDigitado);   // r.codigo: só o enterprise (SSO obrigatório)
   }
 
   // ── primeiro acesso (link de uso único, sem sessão) ──────────────────────
@@ -686,7 +686,7 @@ function criarServidor(opcoes) {
       }
       const estado = { ok: true, trancado: auth.trancado, sem_senha: false, mensagem: auth.trancado ? `O acesso está trancado: ${auth.motivoTrancado} Rode o gerador de hash do instalador e coloque o resultado no web.env.` : null };
       if (protecoes.ligada('multiusuario')) estado.multiusuario = true;   // a tela de link de senha não avisa "este painel já tem senha"
-      return H.enviaJson(res, 200, estado);
+      return H.enviaJson(res, 200, ent.loginEstado(estado));   // enterprise: o SSO acrescenta `sso` (botão de entrar)
     }
 
     if (!p.startsWith('/p/')) {
