@@ -73,7 +73,7 @@ são **demoradas**: respondem na hora com um identificador de tarefa e rodam em 
 | `dominio.trocar` | Trocar o endereço do painel para `x`. O painel muda de endereço e um certificado novo é pedido. |
 | `nivel.ajustar` | Ajustar a proteção `x` para `y`. |
 | `manutencao.abrir` | Abrir a manutenção de emergência por N minutos (de 5 a 60). |
-| `travas.liberar` | Liberar as travas de ações externas do agente `x` por N minutos. Para o bloco E: o comando `dgclaw travas liberar` é dele. Até existir, a CLI responde que o comando não existe. |
+| `travas.liberar` | Liberar as travas de ações externas do agente `x` por N minutos. Chama `dgclaw travas liberar <agente> --minutos N` (bloco E, `docs/enterprise/TRAVAS.md`): tira o `deny` do envio de e-mail do managed settings e a trava volta sozinha. |
 
 Não existe operação de cofre pelo Admin. A chave de serviço é colada pelo TI no painel e nunca passa pelo modelo.
 
@@ -233,4 +233,5 @@ Lista de teste manual (os testes automáticos usam raiz falsa, podman e systemct
   `agente.status`. O teste real com o runner do agente novo (token do runner) é do host e fica fora do Admin isolado.
 - O monitor (`dgclaw monitor`) olha o container dos agentes de trabalho; o container do Admin aparece no `dgclaw status`
   (`ent_status_admin`), mas não gera alerta próprio.
-- `travas.liberar` espera o comando do bloco E.
+- `travas.liberar` chama `dgclaw travas liberar` (bloco E). Com `travas_externas` desligada o comando recusa dizendo isso.
+- `agente.criar` ganhou os parâmetros `uso` (`pessoa` ou `setor`) e `usuario`, que a proteção `credencial_empresa` exige (`docs/enterprise/CREDENCIAL.md`).

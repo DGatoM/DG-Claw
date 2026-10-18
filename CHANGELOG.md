@@ -139,6 +139,18 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
   resolve o DNS sozinho e recusa destino que aponta para rede interna. Comandos `dgclaw saida mostrar|permitir|remover|modo|relatorio`
   e prova de dentro do container no `agente criar` (`scripts/enterprise/teste-saida.sh`). Sem efeito no nível `pessoal`.
   Documento: `docs/enterprise/SAIDA.md`.
+<!-- bloco E -->
+- Bloco E da versão enterprise (travas de ação externa, HTTPS endurecido, políticas do Claude Code e credencial da empresa), tudo
+  atrás do nível de proteção e sem efeito no nível `pessoal`: managed settings por agente (`<casa>/politicas/managed-settings.json`,
+  montado só leitura em `/etc/claude-code`, com `forceLoginOrgUUID`, `forceLoginMethod`, `cleanupPeriodDays` e o `deny` das
+  ferramentas de envio do Gmail); `dgclaw travas liberar|fechar|conferir|status` (a operação `travas.liberar` do controle, com
+  volta sozinha por timer); Instagram com o token no cofre do host e publicação aprovada pelo TI na tela de aprovações
+  (`dgclaw acoes instagram configurar|testar`, `POST /api/v1/acoes/instagram`, token no corpo do POST e nunca na URL, prévia da mídia
+  buscada pelo servidor com defesa contra SSRF, `ig-publish.py` em modo travado); lista de números do WhatsApp mantida pelo TI
+  (`dgclaw acoes whatsapp`); Caddy com HSTS e cabeçalhos, política de conteúdo (CSP) e cookie `__Host-` no Web;
+  `dgclaw agente criar --uso pessoa|setor`, modo `token` recusado e a pergunta de uso no formulário de criação. Guias em
+  `docs/enterprise/TRAVAS.md`, `docs/enterprise/POLITICAS.md` e `docs/enterprise/CREDENCIAL.md`.
+<!-- fim bloco E -->
 
 ## [1.0.0] - 2026-10-17
 
