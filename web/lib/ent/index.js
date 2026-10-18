@@ -16,7 +16,8 @@
 //   podeVerAgente    a regra única de acesso a agente: todos os módulos que a definem precisam concordar.
 //                    Sem nenhum módulo que a defina, vale true (nível pessoal: todo mundo vê tudo).
 //
-// ctx: config, registro, auth, log, protecoes, auditoria (e o que o server.js acrescentar, como servirArquivo).
+// ctx: config, registro, auth, log, protecoes, auditoria, servirArquivo, semSessaoPagina, caixa, push, agora (e o que um módulo
+// anterior pendurar nele: web/lib/ent/aprovacoes.js, de ordem 20, põe ctx.aprovacoes para os blocos com ação perigosa).
 
 const fs = require('node:fs');
 const path = require('node:path');

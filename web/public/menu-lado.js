@@ -349,6 +349,12 @@
     // escolher uma página fecha a gaveta (a navegação em seguida troca a tela)
     $('mlTabs').addEventListener('click', ev => { if (ev.target.closest('a')) opcoes.fecha(); });
     pintaInstalar();
+    /* Enterprise (bloco C): "Aprovações" no menu do TI e o aviso de manutenção aberta. Se calam sozinhos fora do enterprise. */
+    if (!$('entControleScript')) {
+      const sc = document.createElement('script');
+      sc.id = 'entControleScript'; sc.src = '/ent-controle.js';
+      document.body.appendChild(sc);
+    }
     /* Enterprise: "Minha conta" e "Usuários" no menu. O script se cala sozinho quando o multiusuário está desligado. */
     if (!$('entContaScript')) {
       const sc = document.createElement('script');
