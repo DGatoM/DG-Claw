@@ -11,8 +11,8 @@ Para relatar uma falha, siga o `SECURITY.md` na raiz do repositório.
    nem os vizinhos. O `scripts/teste-isolamento.sh` prova isso em segundos.
 3. Chave de serviço (OpenAI, Gemini e outras) entra no cofre do agente, vale só para ele e
    nunca aparece inteira na tela, na API nem no log. Isso protege contra vazamento acidental
-  (permissões de arquivo, valor fora do contexto da conversa), mas não contra o próprio agente:
-  dentro do container ele tem `sudo` sem senha e consegue ler o arquivo de ambiente que recebe.
+   (permissões de arquivo, valor fora do contexto da conversa), mas não contra o próprio agente:
+   dentro do container ele tem `sudo` sem senha e consegue ler o arquivo de ambiente que recebe.
 4. O login do painel usa hash scrypt, sessão que vence, limite de tentativas e proteção contra
    CSRF. Quem opera sem tela usa chave de API do painel, guardada só como hash.
 5. O agente começa com poderes limitados (o Gmail nasce só lendo) e o dono libera aos poucos.
