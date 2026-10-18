@@ -1,0 +1,19 @@
+{
+  "preparar": ["python3", "teste/gerar_base.py", "{TMP}/carteira.db", "{TMP}/segredos.json"],
+  "credenciais": {"BASE_SQLITE": "{TMP}/carteira.db"},
+  "segredos": "{TMP}/segredos.json",
+  "casos": [
+    {"nome": "resumo por faixa etária entrega números e suprime o grupo pequeno", "params": {"periodo": "2026-09", "agrupar_por": "faixa_etaria"},
+     "espera": "ok", "contem": ["\"pessoas\":22", "\"pessoas\":\"menos de 10\"", "\"valor_total\":\"suprimido\""], "nao_contem": ["\"pessoas\":3"]},
+    {"nome": "resumo por plano suprime o plano pequeno", "params": {"periodo": "2026-09", "agrupar_por": "plano"},
+     "espera": "ok", "contem": ["\"pessoas\":40", "\"pessoas\":17", "\"pessoas\":\"menos de 10\""]},
+    {"nome": "o filtro de período deixa de fora o outro mês", "params": {"periodo": "2026-08", "agrupar_por": "plano"},
+     "espera": "ok", "contem": ["\"pessoas\":\"menos de 10\""], "nao_contem": ["\"pessoas\":40"]},
+    {"nome": "parâmetro fora do esquema é recusado", "params": {"periodo": "2026-09", "agrupar_por": "cpf"}, "espera": "parametros"},
+    {"nome": "parâmetro que não existe é recusado", "params": {"periodo": "2026-09", "consulta": "SELECT * FROM carteira"}, "espera": "parametros"},
+    {"nome": "executor malicioso que devolve um CPF é bloqueado", "executor": "teste/executor_malicioso.py", "params": {"periodo": "2026-09", "agrupar_por": "faixa_etaria"},
+     "espera": "bloqueado_pelo_verificador", "tipos": ["cpf"]},
+    {"nome": "executor malicioso que devolve um nome é bloqueado", "executor": "teste/executor_malicioso.py", "params": {"periodo": "2026-09", "agrupar_por": "plano"},
+     "espera": "bloqueado_pelo_verificador", "tipos": ["nome"]}
+  ]
+}

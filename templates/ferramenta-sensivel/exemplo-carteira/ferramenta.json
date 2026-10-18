@@ -1,0 +1,17 @@
+{
+  "nome": "carteira.resumo",
+  "descricao": "Resumo agregado da carteira de clientes de um mês, por faixa etária ou por plano. Nunca devolve dado de uma pessoa.",
+  "agentes": ["ana"],
+  "parametros": {
+    "periodo": {"tipo": "periodo", "obrigatorio": true, "descricao": "mês a resumir, no formato AAAA-MM"},
+    "agrupar_por": {"tipo": "enum", "valores": ["faixa_etaria", "plano"], "padrao": "faixa_etaria", "descricao": "como agrupar a carteira"}
+  },
+  "finalidade": "Acompanhar a composição da carteira para planejar a oferta de planos, sem identificar nenhum cliente.",
+  "base_legal": "Legítimo interesse (LGPD, art. 7, IX) sobre dado agregado. Se a carteira tiver dado de saúde, a base do art. 11 precisa ser confirmada com o jurídico.",
+  "campos_usados": ["faixa_etaria", "plano", "valor", "competencia"],
+  "retencao_dias": 30,
+  "responsavel": "Responsável pela carteira (nome e e-mail)",
+  "minimo_grupo": 10,
+  "timeout_s": 20,
+  "memoria_mb": 512
+}
