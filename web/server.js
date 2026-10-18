@@ -88,7 +88,9 @@ function criarServidor(opcoes) {
   const login = criarLogin({ runner, conversa, log, agora: opcoes.agora, oiPrazoMs: opcoes.loginOiPrazoMs, oiPassoMs: opcoes.loginOiPassoMs });
   const cofreAgente = criarCofreAgente({ config, log, reiniciar: opcoes.reiniciarCofre });
   const voz = opcoes.voz || criarVoz({ env: config.env, log });
-  const sigilo = opcoes.sigilo || criarSigilo({ env: config.env, registro, dataDir: config.dataDir, log, timeoutMs: opcoes.timeoutSigiloMs });
+  // Criada antes do sigilo porque o modo escondido consulta `sigilo_externo` (web/lib/ent/sigilo.js).
+  const protecoes = opcoes.protecoes || criarProtecoes({ caminho: config.protecoesPath, log });
+  const sigilo = opcoes.sigilo || criarSigilo({ env: config.env, registro, dataDir: config.dataDir, log, timeoutMs: opcoes.timeoutSigiloMs, protecoes });
   const cofreRotas = criarCofreRotas({ config, runner, cofre: cofreAgente, voz, log });
   const proxy = criarProxy({ config, registro, log, cofreRotas });
   const caixa = criarCaixaAgente({ config, registro, log, porta: () => servidor.address().port, agora: opcoes.agora });
@@ -107,7 +109,6 @@ function criarServidor(opcoes) {
 
   // Enterprise (docs/enterprise/DESENHO.md §3): o nível de proteção e os blocos de web/lib/ent/. No nível
   // pessoal nenhum bloco muda o que o Web faz.
-  const protecoes = opcoes.protecoes || criarProtecoes({ caminho: config.protecoesPath, log });
   const auditoria = opcoes.auditoria || criarAuditoria({ caminho: config.auditoriaPath, protecoes, log, agora: opcoes.agora });
   const ent = criarEnterprise({ config, registro, auth, log, protecoes, auditoria, servirArquivo, semSessaoPagina });
 

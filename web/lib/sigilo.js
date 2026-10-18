@@ -17,6 +17,8 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { gravaArquivoSeguro } = require('./grava-seguro');
+// Gancho enterprise: com `sigilo_externo` desligado nenhum texto sai para modelo externo (ver ent/sigilo.js).
+const { externoPermitido, MENSAGEM_BLOQUEIO } = require('./ent/sigilo');
 
 const MAX_ITENS = 600;
 const LOTE = 12;
@@ -70,7 +72,7 @@ function limpaSegredo(texto, chave) {
   return s.replace(/\b(?:sk|pk|ghp|gho|xoxb)-[A-Za-z0-9_-]{6,}/g, '[chave]').replace(/\s+/g, ' ');
 }
 
-function criarSigilo({ env, registro, dataDir, log, timeoutMs, dono }) {
+function criarSigilo({ env, registro, dataDir, log, timeoutMs, dono, protecoes }) {
   env = env || {};
   const chaveClaude = env.ANTHROPIC_API_KEY || '';
   const chaveOpenai = env.OPENAI_API_KEY || '';
@@ -88,6 +90,9 @@ function criarSigilo({ env, registro, dataDir, log, timeoutMs, dono }) {
   const semChave = 'Sem chave de modelo, só o filtro automático (e-mail, valor, CPF, telefone, chave) está escondendo. ' +
     'Nomes de pessoas e empresas passam. Para ligar, peça ao Admin: "liga o modo escondido completo" ' +
     '(ele copia ANTHROPIC_API_KEY ou OPENAI_API_KEY do cofre para o web.env).';
+
+  /** Enterprise: lido a cada chamada, porque `dgclaw nivel ajustar` vale sem reiniciar o Web. */
+  const bloqueado = () => !externoPermitido(protecoes, log);
 
   /** Nomes que nunca somem: dono, agentes do registro, plataformas conhecidas e o que o dono listou. */
   function liberados() {
@@ -136,6 +141,8 @@ function criarSigilo({ env, registro, dataDir, log, timeoutMs, dono }) {
 
   // ── chamada ao modelo ──────────────────────────────────────────────────
   async function chamaApi(usuario) {
+    // Segunda trava: mesmo que algum caminho novo chegue aqui, com `sigilo_externo` desligado o texto não sai.
+    if (bloqueado()) throw new Error(MENSAGEM_BLOQUEIO);
     let url; let init;
     if (provedor === 'anthropic') {
       url = `${urlClaude}/v1/messages`;
@@ -234,11 +241,18 @@ function criarSigilo({ env, registro, dataDir, log, timeoutMs, dono }) {
   const tipoDe = (v) => (v === null ? 'null' : Array.isArray(v) ? 'lista' : typeof v);
 
   return {
-    modelo, provedor, soRegex: !provedor, semChave, validaEntrada, liberados,
-    estado() { return { modelo, provedor, so_regex: !provedor, aviso: provedor ? null : semChave }; },
+    modelo, provedor, semChave, validaEntrada, liberados,
+    get soRegex() { return !provedor || bloqueado(); },
+    estado() {
+      if (bloqueado()) return { modelo: null, provedor: null, so_regex: true, aviso: MENSAGEM_BLOQUEIO, bloqueado_por: 'sigilo_externo' };
+      return { modelo, provedor, so_regex: !provedor, aviso: provedor ? null : semChave };
+    },
 
     /** { trechos, avisos, analisados, modelo, so_regex } */
     async analisar(textos) {
+      if (bloqueado()) {
+        return { trechos: textos.map(() => []), avisos: [MENSAGEM_BLOQUEIO], analisados: 0, modelo: null, so_regex: true };
+      }
       if (!provedor) {
         return { trechos: textos.map(() => []), avisos: [semChave], analisados: 0, modelo: null, so_regex: true };
       }

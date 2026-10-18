@@ -78,3 +78,13 @@ já foi visto.
 - O modelo recebe o texto das mensagens da tela, então o provedor escolhido passa a ver esse texto.
 - O endereço dos links (`href`) e o texto alternativo das imagens não são alterados. O texto visível do link é.
 - A faixa de atividade ("Ana está fazendo...") fica borrada enquanto o modo está ligado.
+
+## Versão enterprise: sem enviar texto para fora
+
+Nos níveis `escritorio`, `empresa` e `regulado` a proteção `sigilo_externo` fica desligada, e o modo escondido
+**não manda texto da conversa para nenhum serviço**, mesmo que exista `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY` no
+`web.env`. Fica só o filtro automático da tela (e-mail, valor, CPF, telefone, chave), e a tela mostra o aviso de que
+nomes de pessoas e empresas passam, porque escondê-los exige um modelo rodando neste servidor (esta versão ainda não
+inclui). `GET /api/v1/sigilo/estado` devolve `bloqueado_por: "sigilo_externo"`. A leitura é feita a cada chamada, então
+`dgclaw nivel ajustar sigilo_externo true` (permitido em `escritorio` e `empresa`; no `regulado` a chave é travada)
+vale sem reiniciar o Web. No nível `pessoal` nada muda. Código: `web/lib/ent/sigilo.js`.
