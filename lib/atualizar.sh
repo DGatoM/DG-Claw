@@ -25,6 +25,9 @@ ATU_REPO=""
 ATU_ETAPA=""
 ATU_BACKUP=""
 ATU_PROBLEMAS=0
+ATU_AGENTES_FALHOS=""   # slugs que nao foram recriados ou nao responderam no fim (separados por espaco)
+ATU_COMMIT_ANTIGO=""    # o commit que estava INSTALADO antes desta atualizacao (nao o HEAD do clone)
+ATU_COMMIT_ORIGEM=""
 
 # _git <argumentos>: git no clone da atualizacao.
 _git() { git_do_clone "$ATU_REPO" "$@"; }
@@ -184,7 +187,7 @@ atualizar_backup() {
         printf 'criado_em=%s\n' "$(date '+%Y-%m-%d %H:%M:%S %z')"
         printf 'motivo=%s\n' "$motivo"
         printf 'repo=%s\n' "$ATU_REPO"
-        printf 'commit=%s\n' "$(_git rev-parse HEAD 2>/dev/null || true)"
+        printf 'commit=%s\n' "${ATU_COMMIT_ANTIGO:-$(_git rev-parse HEAD 2>/dev/null || true)}"
         printf 'ramo=%s\n' "$(_git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
         printf 'versao=%s\n' "${DGCLAW_VERSAO:-desconhecida}"
         printf 'commit_instalado=%s\n' "$(_env_de "$DG_ETC/dgclaw.env" DGCLAW_COMMIT)"
@@ -351,11 +354,11 @@ atualizar_aplicar() {
     while IFS= read -r slug; do
         [ -n "$slug" ] || continue
         printf '\n   agente %s\n' "$slug"
-        if ! "$DGCLAW_BIN_REAL" "${extra[@]}" agente recriar "$slug"; then falhou+=" $slug"; fi
+        if ! "$DGCLAW_BIN_REAL" "${extra[@]}" agente recriar "$slug"; then falhou+=" $slug"; ATU_AGENTES_FALHOS+=" $slug"; fi
     done < <(agentes_ler | jq -r '.agentes[] | select(.tipo == "agente") | .slug')
     if [ -n "$falhou" ]; then
         ATU_PROBLEMAS=$((ATU_PROBLEMAS + 1))
-        printf '   FALHOU  nao consegui recriar:%s (leia as mensagens acima; a casa deles esta intacta)\n' "$falhou" >&2
+        printf '   FALHOU  nao consegui recriar:%s (leia as mensagens acima; a casa deles esta intacta). Para refazer cada um: dgclaw agente recriar <slug> --forcar\n' "$falhou" >&2
     fi
 }
 
@@ -371,34 +374,105 @@ atualizar_checar_vida() {
     while IFS=$'\t' read -r slug runner; do
         [ -n "$slug" ] || continue
         estado="$(estado_container "$slug")"
+        if [ "$estado" = stopping ]; then
+            _atu_problema "agente $slug: o container esta preso em 'stopping'. Refaca com: dgclaw agente recriar $slug --forcar"
+            ATU_AGENTES_FALHOS+=" $slug"
+            continue
+        fi
         if [ "$estado" != running ]; then
             aviso "agente $slug: container $estado (ele ja nao estava ligado ou nao subiu). Ligue com: dgclaw agente iniciar $slug"
             continue
         fi
         saude="$(saude_runner "${runner##*:}" "$estado")"
         if [ "$saude" = ok ]; then ok "agente $slug responde"
-        else _atu_problema "agente $slug: o container esta de pe, mas o runner nao responde. Tente: dgclaw agente reparar $slug"; fi
+        else
+            _atu_problema "agente $slug: o container esta de pe, mas o runner nao responde. Tente: dgclaw agente reparar $slug"
+            ATU_AGENTES_FALHOS+=" $slug"
+        fi
     done < <(agentes_ler | jq -r '.agentes[] | select(.tipo == "agente") | [.slug, .runner] | @tsv')
 }
 
-# atualizar_agendar_reinicio_do_admin: o Admin pode ser quem esta rodando este comando; reiniciar
-# na hora o mataria no meio da mensagem final. O systemd-run cria um temporizador separado.
+# atualizar_agendar_reinicio_do_admin <arquivo do resumo> <log>: o Admin pode ser quem esta rodando
+# este comando; reiniciar na hora o mataria no meio da mensagem final. O systemd-run cria um
+# temporizador separado que, daqui a DGCLAW_ESPERA_REINICIO segundos (padrao 20, o tempo do Admin
+# contar ao dono que vai reiniciar), roda lib/reiniciar-admin.sh: reinicia o Admin, espera ele
+# responder e manda a ELE uma mensagem pedindo que leia o resumo e conte o resultado ao dono.
+# O token do Admin nao passa por aqui: o script le o arquivo, recebendo so o caminho dele.
 atualizar_agendar_reinicio_do_admin() {
-    local unidade
+    local resumo="$1" log="$2" unidade espera="${DGCLAW_ESPERA_REINICIO:-20}" script
     unidade="dgclaw-admin-restart-$(date +%Y%m%d-%H%M%S)"
+    script="$APP_DIR/lib/reiniciar-admin.sh"
     if [ ! -f "$DG_UNITS/dgclaw-admin.service" ] && [ "$ENSAIO" != 1 ]; then
         aviso "nao ha unidade dgclaw-admin.service em $DG_UNITS; nao ha Admin para reiniciar."
         return 0
     fi
     if [ "$ENSAIO" = 1 ]; then
-        info "[ensaio] agendaria: systemd-run --on-active=5 --unit=$unidade systemctl restart dgclaw-admin"
+        info "[ensaio] agendaria: systemd-run --on-active=$espera --unit=$unidade bash $script (reinicia o Admin, espera ele responder e manda o resumo da atualizacao a ele)"
         return 0
     fi
+    [ -f "$script" ] || falha "nao achei $script, o roteiro que reinicia o Admin e avisa o resultado." \
+        "o resto ja foi feito. Reinicie o Admin voce mesmo, de fora do chat dele: systemctl restart dgclaw-admin"
     exigir_ferramentas systemd-run
-    systemd-run --on-active=5 --unit="$unidade" systemctl restart dgclaw-admin >/dev/null 2>&1 \
+    systemd-run --on-active="$espera" --unit="$unidade" --collect \
+        --setenv="PATH=$PATH" ${R:+--setenv="DGCLAW_RAIZ=$R"} \
+        bash "$script" "$resumo" "$log" "$DG_ETC/runner/admin.token" >/dev/null 2>&1 \
         || falha "o systemd-run nao conseguiu agendar o reinicio do Admin (unidade $unidade)." \
                  "o resto ja foi feito. Reinicie o Admin voce mesmo, de fora do chat dele: systemctl restart dgclaw-admin"
-    ok "reinicio do Admin agendado para daqui a 5 segundos (unidade $unidade)"
+    ok "reinicio do Admin agendado para daqui a ${espera} segundos (unidade $unidade); ao voltar, ele recebe o resumo para contar a voce"
+}
+
+# atualizar_descobrir_commit_antigo: define ATU_COMMIT_ANTIGO com o commit que estava INSTALADO.
+# O HEAD do clone nao serve sozinho: se alguem mudou o clone a mao (checkout/pull) antes do
+# comando, o HEAD ja e o commit novo e o --voltar voltaria para a versao errada. Ordem:
+#   1. DGCLAW_COMMIT do dgclaw.env (o instalador anota o commit que instalou);
+#   2. o hash curto embutido em DGCLAW_VERSAO (formato v1-<12 hex>), resolvido no clone;
+#   3. o HEAD do clone, com aviso (pode estar errado).
+atualizar_descobrir_commit_antigo() {
+    local env="$DG_ETC/dgclaw.env" c v h head
+    c="$(_env_de "$env" DGCLAW_COMMIT)"
+    if [[ "$c" =~ ^[0-9a-f]{40}$ ]] && _git cat-file -e "${c}^{commit}" 2>/dev/null; then
+        ATU_COMMIT_ANTIGO="$c"; ATU_COMMIT_ORIGEM="DGCLAW_COMMIT do dgclaw.env"
+    else
+        v="$(_env_de "$env" DGCLAW_VERSAO)"; v="${v:-${DGCLAW_VERSAO:-}}"
+        if [[ "$v" =~ ^v[0-9]+-([0-9a-f]{7,40})$ ]] && h="$(_git rev-parse --verify -q "${BASH_REMATCH[1]}^{commit}" 2>/dev/null)" && [ -n "$h" ]; then
+            ATU_COMMIT_ANTIGO="$h"; ATU_COMMIT_ORIGEM="o hash da versao instalada ($v)"
+        else
+            ATU_COMMIT_ANTIGO="$(_git rev-parse HEAD 2>/dev/null || true)"; ATU_COMMIT_ORIGEM="HEAD do clone"
+            aviso "nao achei o commit instalado (sem DGCLAW_COMMIT valido nem hash em DGCLAW_VERSAO='${v:-vazia}'); uso o HEAD do clone (${ATU_COMMIT_ANTIGO:0:10}) como 'antes'. Se o clone foi mudado a mao antes deste comando, o --voltar pode voltar para a versao errada."
+        fi
+    fi
+    head="$(_git rev-parse HEAD 2>/dev/null || true)"
+    if [ -n "$head" ] && [ "$head" != "$ATU_COMMIT_ANTIGO" ]; then
+        info "o clone ja estava em ${head:0:10}, mas o instalado e ${ATU_COMMIT_ANTIGO:0:10} ($ATU_COMMIT_ORIGEM); registro o instalado como a versao de antes."
+    fi
+}
+
+# atualizar_montar_resumo <resultado> <versao antiga> <versao nova> <commit novo> <reinicia 1|0>
+# Escreve o resumo final no STDOUT. O mesmo texto vai para o arquivo do resumo, que o Admin le
+# depois do reinicio para contar o resultado ao dono.
+atualizar_montar_resumo() {
+    local resultado="$1" va="$2" vn="$3" cn="$4" reinicia="$5" slug oks=""
+    while IFS= read -r slug; do
+        [ -n "$slug" ] || continue
+        case " $ATU_AGENTES_FALHOS " in *" $slug "*) ;; *) oks+="${oks:+, }$slug" ;; esac
+    done < <(agentes_ler | jq -r '.agentes[] | select(.tipo == "agente") | .slug')
+    printf '%s\n' "$resultado"
+    printf '  Versao:  %s (%s) -> %s (%s)\n' "$va" "${ATU_COMMIT_ANTIGO:0:10}" "$vn" "${cn:0:10}"
+    printf '  Backup:  %s\n' "$ATU_BACKUP"
+    printf '  Para voltar atras: sudo dgclaw atualizar --voltar %s\n' "$ATU_BACKUP"
+    printf '  Agentes que ficaram bem: %s\n' "${oks:-nenhum}"
+    if [ -n "${ATU_AGENTES_FALHOS// /}" ]; then
+        printf '  Agentes COM PROBLEMA:%s\n' "$ATU_AGENTES_FALHOS"
+        for slug in $ATU_AGENTES_FALHOS; do printf '    para refazer: dgclaw agente recriar %s --forcar\n' "$slug"; done
+    fi
+    if [ "$ATU_PROBLEMAS" -gt 0 ] && [ -z "${ATU_AGENTES_FALHOS// /}" ]; then
+        printf '  A conferencia acusou %s problema(s) (linhas FALHOU no log).\n' "$ATU_PROBLEMAS"
+    fi
+    if [ "$reinicia" = 1 ]; then
+        printf '  O Admin reinicia em alguns segundos e volta com o codigo novo. Se o chat parar, e isso; espere uns 20 segundos e recarregue a pagina.\n'
+    else
+        printf '  O Admin NAO foi reiniciado: ele precisa continuar de pe para consertar o que falhou, e segue com o codigo velho ate o reinicio.\n'
+    fi
 }
 
 # --- o comando ------------------------------------------------------------------------------
@@ -447,9 +521,9 @@ atualizar_main() {
 
     if [ -n "$voltar" ]; then atualizar_voltar "$voltar" "$sem_homes" "$mesmo_assim"; return 0; fi
 
-    local versao_antiga commit_antigo commit_novo versao_nova
+    local versao_antiga commit_novo versao_nova resumo_arq log_arq reinicia=0 resultado resumo_txt
     versao_antiga="${DGCLAW_VERSAO:-desconhecida}"
-    commit_antigo="$(_git rev-parse HEAD 2>/dev/null || true)"
+    atualizar_descobrir_commit_antigo
 
     ATU_ETAPA="conferindo o espaco em disco"
     atualizar_checar_disco "$sem_homes"
@@ -471,36 +545,46 @@ atualizar_main() {
     atualizar_checar_vida
 
     ATU_ETAPA="agendando o reinicio do Admin"
-    passo "Reiniciando o Admin (por ultimo)"
-    if [ "$ATU_PROBLEMAS" -gt 0 ]; then
-        aviso "houve $ATU_PROBLEMAS problema(s) na conferencia; deixo o Admin como esta, para voce nao perder o chat enquanto resolve."
-    else
-        atualizar_agendar_reinicio_do_admin
-    fi
-
     carregar_env_dgclaw
     versao_nova="${DGCLAW_VERSAO:-desconhecida}"
     commit_novo="$(_git rev-parse HEAD 2>/dev/null || true)"
+    log_arq="${DGCLAW_ATUALIZAR_LOG:-$DG_LOG/dgclaw-atualizar-$(date +%Y%m%d-%H%M%S).log}"
+    resumo_arq="${log_arq%.log}.resumo.txt"
+    if [ "$ATU_PROBLEMAS" -eq 0 ] && [ -z "${ATU_AGENTES_FALHOS// /}" ]; then reinicia=1; fi
+    if [ "$reinicia" = 1 ]; then
+        resultado="Atualizacao concluida."
+    elif [ -n "${ATU_AGENTES_FALHOS// /}" ]; then
+        resultado="Atualizacao INCOMPLETA: agente(s) com problema (veja as linhas FALHOU acima)."
+    else
+        resultado="Atualizacao INCOMPLETA: $ATU_PROBLEMAS problema(s) na conferencia (veja as linhas FALHOU acima)."
+    fi
+    resumo_txt="$(atualizar_montar_resumo "$resultado" "$versao_antiga" "$versao_nova" "$commit_novo" "$reinicia")"
+    if [ "$ENSAIO" != 1 ]; then
+        # O resumo vai para um arquivo ANTES de agendar o reinicio: e ele que o Admin le quando voltar.
+        ( umask 027; mkdir -p "$DG_LOG"; { printf '%s\n' "$resumo_txt"; printf '  Log completo: %s\n' "$log_arq"; } >"$resumo_arq" ) \
+            || falha "nao consegui gravar o resumo em $resumo_arq." "confira o espaco e a permissao de $DG_LOG; a atualizacao em si ja terminou."
+    fi
+
+    passo "Reiniciando o Admin (por ultimo)"
+    if [ "$reinicia" = 1 ]; then
+        atualizar_agendar_reinicio_do_admin "$resumo_arq" "$log_arq"
+    elif [ -n "${ATU_AGENTES_FALHOS// /}" ]; then
+        aviso "NAO vou reiniciar o Admin: o(s) agente(s)${ATU_AGENTES_FALHOS} nao ficou(aram) bem, e o Admin precisa continuar de pe, com o chat funcionando, para consertar."
+    else
+        aviso "houve $ATU_PROBLEMAS problema(s) na conferencia; deixo o Admin como esta, para voce nao perder o chat enquanto resolve."
+    fi
+
     trap - EXIT
     printf '\n'
     if [ "$ENSAIO" = 1 ]; then
         printf 'Simulacao terminada: nada foi mudado. Para atualizar de verdade: sudo dgclaw atualizar\n'
         return 0
     fi
-    if [ "$ATU_PROBLEMAS" -gt 0 ]; then
-        {
-            printf 'A atualizacao terminou COM %s PROBLEMA(S) (veja as linhas FALHOU acima).\n' "$ATU_PROBLEMAS"
-            printf '  Versao:  %s (%s) -> %s (%s)\n' "$versao_antiga" "${commit_antigo:0:10}" "$versao_nova" "${commit_novo:0:10}"
-            printf '  Backup:  %s\n' "$ATU_BACKUP"
-            printf '  Para voltar atras: sudo dgclaw atualizar --voltar %s\n' "$ATU_BACKUP"
-        } >&2
+    if [ "$reinicia" != 1 ]; then
+        printf '%s\n  Resumo gravado em: %s\n' "$resumo_txt" "$resumo_arq" >&2
         return 1
     fi
-    printf 'Atualizacao concluida.\n'
-    printf '  Versao:  %s (%s) -> %s (%s)\n' "$versao_antiga" "${commit_antigo:0:10}" "$versao_nova" "${commit_novo:0:10}"
-    printf '  Backup:  %s\n' "$ATU_BACKUP"
-    printf '  Para voltar atras: sudo dgclaw atualizar --voltar %s\n' "$ATU_BACKUP"
-    printf '  O Admin reinicia em alguns segundos e volta com o codigo novo. Se o chat parar, e isso; espere uns 20 segundos e recarregue a pagina.\n'
+    printf '%s\n  Resumo gravado em: %s\n' "$resumo_txt" "$resumo_arq"
 }
 
 # atualizar_pasta_backup: imprime a pasta nova (data e hora; ganha sufixo se ja existir).
@@ -584,7 +668,7 @@ atualizar_segundo_plano() {
     ( umask 027; mkdir -p "$DG_LOG" )
     systemd-run --unit="$unidade" --collect \
         --property="StandardOutput=append:$log" --property="StandardError=append:$log" \
-        --setenv="PATH=$PATH" --setenv="NO_COLOR=1" ${R:+--setenv="DGCLAW_RAIZ=$R"} \
+        --setenv="PATH=$PATH" --setenv="NO_COLOR=1" --setenv="DGCLAW_ATUALIZAR_LOG=$log" ${R:+--setenv="DGCLAW_RAIZ=$R"} \
         "$DGCLAW_BIN_REAL" atualizar "${args[@]}" >/dev/null \
         || falha "o systemd-run nao conseguiu iniciar a atualizacao em segundo plano (unidade $unidade)." \
                  "rode direto no terminal, sem --segundo-plano: sudo dgclaw atualizar"
@@ -596,7 +680,7 @@ atualizar_segundo_plano() {
 
 # atualizar_voltar <backup> <sem-homes> <mesmo-assim>
 atualizar_voltar() {
-    local b="$1" sem_homes="$2" mesmo_assim="$3" commit_alvo ramo_novo extras="" slug backup_agora
+    local b="$1" sem_homes="$2" mesmo_assim="$3" commit_alvo ramo_novo extras="" slug backup_agora log_arq resumo_arq
     ATU_ETAPA="conferindo o backup a restaurar"
     if [ ! -f "$b/MANIFESTO.txt" ] || [ ! -f "$b/config.tar.gz" ]; then
         falha "'$b' nao parece um backup do DG Claw (falta a pasta, o MANIFESTO.txt ou o config.tar.gz)." \
@@ -663,9 +747,17 @@ atualizar_voltar() {
     ATU_ETAPA="agendando o reinicio do Admin"
     passo "Reiniciando o Admin (por ultimo)"
     if [ "$ATU_PROBLEMAS" -gt 0 ]; then
-        aviso "houve $ATU_PROBLEMAS problema(s) na conferencia; deixo o Admin como esta."
+        aviso "houve $ATU_PROBLEMAS problema(s) na conferencia; deixo o Admin como esta (ele precisa continuar de pe para consertar)."
     else
-        atualizar_agendar_reinicio_do_admin
+        log_arq="${DGCLAW_ATUALIZAR_LOG:-$DG_LOG/dgclaw-voltar-$(date +%Y%m%d-%H%M%S).log}"
+        resumo_arq="${log_arq%.log}.resumo.txt"
+        if [ "$ENSAIO" != 1 ]; then
+            ( umask 027; mkdir -p "$DG_LOG"
+              printf 'Voltei para a versao de %s (commit %s).\n  Clone na branch: %s\n  Backup do estado de antes de voltar: %s\n  Todos os agentes ficaram bem.\n  Log completo: %s\n' \
+                  "$(_env_de "$b/MANIFESTO.txt" criado_em)" "${commit_alvo:0:10}" "$ramo_novo" "$backup_agora" "$log_arq" >"$resumo_arq" ) \
+                || falha "nao consegui gravar o resumo em $resumo_arq." "confira o espaco e a permissao de $DG_LOG; a volta em si ja terminou."
+        fi
+        atualizar_agendar_reinicio_do_admin "$resumo_arq" "$log_arq"
     fi
     printf '\n'
     trap - EXIT

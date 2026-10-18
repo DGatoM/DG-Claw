@@ -185,17 +185,41 @@ afirma "o backup guarda a conversa do Admin" bash -c "tar -xzOf '$B1/transcricoe
 
 afirma "reconstruiu a imagem" grep -q '^podman build ' "$STUB_LOG"
 for s in ana beto; do
-    afirma "$s: container parado e removido" bash -c "grep -q '^podman stop dgclaw-$s' '$STUB_LOG' && grep -q '^podman rm dgclaw-$s' '$STUB_LOG'"
+    afirma "$s: container parado e removido" bash -c "grep -q '^podman stop -t 60 dgclaw-$s' '$STUB_LOG' && grep -q '^podman rm dgclaw-$s' '$STUB_LOG'"
     afirma "$s: container criado de novo com a mesma casa" grep -q "^podman create .*--name dgclaw-$s .*--volume $LIB/agentes/$s/home:/home/agente:rw" "$STUB_LOG"
     afirma "$s: o cofre continua montado" grep -q "^podman create .*--name dgclaw-$s .*--volume $LIB/agentes/$s/cofre:/run/dgclaw/cofre:ro" "$STUB_LOG"
     afirma "$s: guardou as rotinas antes de trocar" grep -q "^podman exec dgclaw-$s sh -c cd /etc/systemd/system" "$STUB_LOG"
 done
 igual "so dois containers removidos" "2" "$(grep -c '^podman rm ' "$STUB_LOG")"
 nega "nunca apagou volume nem rede" grep -q '^podman \(volume rm\|network rm\|system prune\|image rm\|rmi\)' "$STUB_LOG"
-afirma "agendou o reinicio do Admin desacoplado" grep -q '^systemd-run --on-active=5 --unit=dgclaw-admin-restart-.* systemctl restart dgclaw-admin' "$STUB_LOG"
+afirma "agendou o reinicio do Admin desacoplado (20 s) com o roteiro que avisa o resultado" grep -q '^systemd-run --on-active=20 --unit=dgclaw-admin-restart-.* bash .*lib/reiniciar-admin.sh .*\.resumo\.txt .*\.log .*runner/admin.token' "$STUB_LOG"
+nega "o token do Admin nao aparece na linha de comando do agendamento" grep -q "$(cat "$ETC/runner/admin.token")" "$STUB_LOG"
+RESUMO="$(find "$RAIZ/var/log/dgclaw" -name '*.resumo.txt' | head -n 1)"
+afirma "o resumo foi gravado em arquivo antes do reinicio" test -s "$RESUMO"
+afirma "o resumo traz versao antiga -> nova, backup e como voltar" bash -c "grep -q 'Atualizacao concluida' '$RESUMO' && grep -q -- '-> ' '$RESUMO' && grep -q 'Backup:' '$RESUMO' && grep -q -- '--voltar' '$RESUMO' && grep -q 'ana, beto' '$RESUMO'"
+afirma "o resumo mostra o commit de antes certo (${COMMIT_V1:0:10})" grep -q "(${COMMIT_V1:0:10}) ->" "$RESUMO"
 nega "nao reiniciou o Admin direto (ele pode ser quem roda o comando)" grep -q '^systemctl restart dgclaw-admin' "$STUB_LOG"
 ult="$(grep -n '^systemd-run' "$STUB_LOG" | tail -n 1 | cut -d: -f1)"; bld="$(grep -n '^podman build' "$STUB_LOG" | tail -n 1 | cut -d: -f1)"
 afirma "o reinicio do Admin e o ultimo passo (depois do build)" test "${ult:-0}" -gt "${bld:-1}"
+
+echo "o roteiro que reinicia o Admin e avisa o resultado"
+: >"$STUB_LOG"; rm -f "$STUB_LOG.curl-stdin" "$STUB_LOG.curl-config"
+bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinicio.log" "$ETC/runner/admin.token" >/dev/null 2>&1; rc=$?
+igual "reiniciar-admin.sh sai com 0" "0" "$rc"
+afirma "reinicia o servico do Admin" grep -q '^systemctl restart dgclaw-admin' "$STUB_LOG"
+afirma "espera o /api/saude do Admin" grep -q 'curl .*127.0.0.1:4300/api/saude' "$STUB_LOG"
+afirma "avisa o Admin por POST em /api/agents/admin/input" grep -q 'curl .*-X POST .*http://127.0.0.1:4300/api/agents/admin/input' "$STUB_LOG"
+afirma "o aviso cita o resumo e pede que conte ao dono" bash -c "grep -q 'resumo.txt' '$STUB_LOG.curl-stdin' && grep -q 'conte ao dono' '$STUB_LOG.curl-stdin' && grep -qF 'submit' '$STUB_LOG.curl-stdin'"
+afirma "o token vai no arquivo de configuracao do curl" grep -q "Authorization: Bearer $(cat "$ETC/runner/admin.token")" "$STUB_LOG.curl-config"
+nega "o token nunca aparece na linha de comando (STUB_LOG)" grep -q "$(cat "$ETC/runner/admin.token")" "$STUB_LOG"
+nega "o token nunca aparece no log do roteiro" grep -q "$(cat "$ETC/runner/admin.token")" "$TMP/reinicio.log"
+touch "$STUB_ESTADO/curl-falha"
+: >"$STUB_LOG"
+DGCLAW_ESPERA_ADMIN=2 bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinicio2.log" "$ETC/runner/admin.token" >/dev/null 2>&1; rc=$?
+rm -f "$STUB_ESTADO/curl-falha"
+igual "se o Admin nao volta, sai com erro" "1" "$rc"
+afirma "o log diz que ele nao respondeu e onde esta o resumo" grep -q 'nao respondeu em 2s.*resumo' "$TMP/reinicio2.log"
+nega "sem o Admin de pe, nao tenta o POST" grep -q 'X POST' "$STUB_LOG"
 
 echo "repetir sem novidade"
 : >"$STUB_LOG"
@@ -245,5 +269,58 @@ nega "o valor da chave nunca aparece na saida" grep -q 'gsk_chave_da_marta' "$TM
 afirma "--forcar-local guardou a sujeira do aluno no stash" bash -c "git -C '$CLONE' stash list | grep -q 'dgclaw-atualizar-'"
 nega "a anotacao saiu do clone para o stash, mas nao foi perdida" test -e "$CLONE/anotacao.txt"
 afirma "a anotacao esta no stash" bash -c "git -C '$CLONE' stash show -u -p stash@{0} | grep -q 'sujeira do aluno'"
+
+
+echo "um agente que nao recria: a atualizacao diz INCOMPLETA e nao reinicia o Admin"
+# Volta ao instalador bom (reverte a sabotagem) e devolve a chave que ela apagou.
+git -C "$TRAB" revert --no-edit HEAD >/dev/null 2>&1; git -C "$TRAB" push -q origin main
+printf 'GROQ_API_KEY=gsk_chave_da_marta\n' >>"$ETC/web.env"
+echo imagem-v4 >"$STUB_ESTADO/imagem-id"
+echo sempre >"$STUB_ESTADO/stop-trava-dgclaw-ana"   # o stop da Ana devolve e o container fica em 'stopping'
+touch "$STUB_ESTADO/mounts-volume"                     # com volume do podman o 'rm -f' e proibido: a Ana nao recria
+: >"$STUB_LOG"
+DGCLAW_TEMPO_PARADA=2 dgclaw atualizar --forcar-local >"$TMP/o8.txt" 2>&1; rc=$?
+[ "$rc" -ne 0 ] || sed 's/^/      | /' "$TMP/o8.txt" | tail -n 30
+nega "sai com codigo diferente de 0" test "$rc" -eq 0
+afirma "diz INCOMPLETA" grep -q 'Atualizacao INCOMPLETA' "$TMP/o8.txt"
+nega "nao diz concluida" grep -q 'Atualizacao concluida' "$TMP/o8.txt"
+afirma "lista o agente com problema" grep -q 'Agentes COM PROBLEMA: ana' "$TMP/o8.txt"
+afirma "traz o comando para refazer o agente" grep -q 'dgclaw agente recriar ana --forcar' "$TMP/o8.txt"
+afirma "o Beto, que recriou, aparece como bem" grep -q 'Agentes que ficaram bem: beto' "$TMP/o8.txt"
+afirma "explica por que o Admin nao reinicia" grep -q 'NAO vou reiniciar o Admin' "$TMP/o8.txt"
+nega "nao agenda o reinicio do Admin" grep -q '^systemd-run' "$STUB_LOG"
+afirma "o resumo INCOMPLETA tambem foi gravado" grep -rq 'Atualizacao INCOMPLETA' "$RAIZ/var/log/dgclaw"
+afirma "o container do Beto foi trocado" grep -q '^podman create .*--name dgclaw-beto ' "$STUB_LOG"
+fotografar >"$TMP/depois.txt"
+igual "os arquivos do aluno continuam intactos" "" "$(diff "$TMP/antes.txt" "$TMP/depois.txt")"
+
+echo "refazer o agente travado com 'agente recriar --forcar'"
+rm -f "$STUB_ESTADO/mounts-volume"
+DGCLAW_TEMPO_PARADA=2 dgclaw agente recriar ana --forcar >"$TMP/o9.txt" 2>&1; rc=$?
+igual "recriar --forcar sai com 0" "0" "$rc"
+afirma "a Ana voltou a rodar" grep -qx running "$STUB_ESTADO/c-dgclaw-ana"
+rm -f "$STUB_ESTADO/stop-trava-dgclaw-ana"
+
+echo "o commit de antes vem do instalado, nao do HEAD do clone (clone mudado a mao)"
+COMMIT_ANTES="$(git -C "$CLONE" rev-parse HEAD)"
+git -C "$TRAB" commit -q --allow-empty -m v5; git -C "$TRAB" push -q origin main
+git -C "$CLONE" pull -q --ff-only                   # o aluno (ou o Admin) puxou a mao, antes do comando
+COMMIT_NOVO="$(git -C "$CLONE" rev-parse HEAD)"
+afirma "o clone ja esta no commit novo" test "$COMMIT_NOVO" != "$COMMIT_ANTES"
+sed -i '/^DGCLAW_COMMIT=/d; s/^DGCLAW_VERSAO=.*/DGCLAW_VERSAO=v1-'"${COMMIT_ANTES:0:12}"'/' "$ETC/dgclaw.env"
+: >"$STUB_LOG"
+dgclaw atualizar --sem-baixar >"$TMP/o10.txt" 2>&1; rc=$?
+igual "atualizar --sem-baixar sai com 0" "0" "$rc"
+[ "$rc" -eq 0 ] || sed 's/^/      | /' "$TMP/o10.txt" | tail -n 30
+afirma "algum manifesto grava o commit antigo certo" grep -rqx "commit=$COMMIT_ANTES" "$BACKUPS"
+nega "nenhum manifesto grava o commit novo como o antigo" grep -rqx "commit=$COMMIT_NOVO" "$BACKUPS"
+afirma "o resumo mostra o commit antigo certo" grep -q "(${COMMIT_ANTES:0:10}) ->" "$TMP/o10.txt"
+afirma "avisa que o clone ja estava em outro commit" grep -q 'o clone ja estava em' "$TMP/o10.txt"
+
+echo "sem DGCLAW_COMMIT nem hash na versao: usa o HEAD e avisa"
+sed -i '/^DGCLAW_COMMIT=/d; s/^DGCLAW_VERSAO=.*/DGCLAW_VERSAO=desconhecida/' "$ETC/dgclaw.env"
+dgclaw atualizar --sem-baixar >"$TMP/o11.txt" 2>&1; rc=$?
+igual "sai com 0" "0" "$rc"
+afirma "avisa que usou o HEAD do clone" grep -q 'uso o HEAD do clone' "$TMP/o11.txt"
 
 fim

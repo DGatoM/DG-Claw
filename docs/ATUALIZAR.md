@@ -62,6 +62,25 @@ system prune --volumes`, `podman rm` de container sem passar por `dgclaw agente 
    Se a simulação já parar com um erro (clone com alteração, clone não encontrado, disco curto), resolva
    pelo capítulo "Conflitos" antes de seguir.
 
+## Não mexa no clone antes do comando
+
+Quando o dono pede só "atualiza", **não faça `git checkout`, `git pull` nem `git fetch` no clone antes**.
+O `dgclaw atualizar` baixa a versão nova sozinho. Se o clone for mudado à mão antes, o comando ainda
+descobre qual versão estava instalada (ver o capítulo "O commit de antes"), mas é uma complicação
+que não precisa existir.
+
+Se o dono pedir uma **branch específica**, não existe opção própria para isso. O jeito é preparar o clone
+e dizer ao comando para não baixar de novo:
+
+```bash
+git -C <clone> fetch origin
+git -C <clone> checkout -B <branch> origin/<branch>
+sudo dgclaw atualizar --sem-baixar
+```
+
+O commit de antes continua certo (item abaixo), então o `--voltar` volta para a versão que estava
+instalada, e não para a branch que você acabou de puxar.
+
 ## Rodar
 
 O Admin tem tempo limite por comando, e a atualização demora por causa da imagem. Rode **solta do
@@ -80,8 +99,9 @@ systemctl is-active dgclaw-atualizar-<data>              # "inactive" = terminou
 ```
 
 Olhe o log a cada poucos minutos e conte ao dono em que passo está. O fim do log traz
-`Atualizacao concluida.` (deu certo) ou `A atualizacao parou em: ...` / `COM N PROBLEMA(S)` (veja
-"Conflitos"). Se o terminal aguentar, `sudo dgclaw atualizar` faz o mesmo em primeiro plano.
+`Atualizacao concluida.` (deu certo), `Atualizacao INCOMPLETA` (algum agente ficou com problema, ver
+adiante) ou `A atualizacao parou em: ...` (veja "Conflitos"). Se o terminal aguentar,
+`sudo dgclaw atualizar` faz o mesmo em primeiro plano.
 
 Opções que você usa só quando preciso:
 
@@ -114,15 +134,48 @@ Opções que você usa só quando preciso:
 7. **Reconstrói a imagem** dos agentes (`dgclaw imagem construir --agora`). É o passo mais longo.
 8. **Recria o container de cada agente** (`dgclaw agente recriar <slug>`): guarda as rotinas que o agente
    criou, para e remove **só o container**, cria de novo com a imagem nova e os **mesmos** volumes, portas e
-   rede, devolve as rotinas e espera o agente responder. Casa, cofre e segredos não são tocados. Agente
-   parado fica parado e com a imagem velha. Se o container já usa a imagem atual, nada é recriado.
+   rede, devolve as rotinas e espera o agente responder. Casa, cofre e segredos não são tocados. Antes de
+   remover, o comando para o container (`podman stop -t 60`) e espera até 90 segundos (`DGCLAW_TEMPO_PARADA`)
+   ele sair de `running`/`stopping`. Se o podman deixar o container preso em `stopping`, ele remove só o
+   container com `podman rm -f` (a casa, o cofre e os segredos são pastas do servidor, não volumes do
+   podman, e ficam intactos; se algum dia houver volume do podman, o comando não usa `-f` e explica).
+   Agente que o dono deixou parado fica parado e com a imagem velha (só `--forcar` recria). Se o container
+   já usa a imagem atual, nada é recriado.
 9. **Confere**: toda linha que existia no `web.env`/`dgclaw.env` continua lá com o mesmo valor; os
    registros dos agentes em `agentes.json` são idênticos; tokens, segredos, cofres e `CLAUDE.md` do Admin
    personalizado estão intactos; roda `dgclaw status`; cada agente ligado responde. Reprova se algo sumiu.
-10. **Reinicia o Admin por último**, de forma agendada (`systemd-run --on-active=5`), porque este comando
-    pode estar rodando dentro do próprio Admin. Se a conferência acusou problema, o Admin **não** é
-    reiniciado, para o dono não perder o chat enquanto você resolve.
-11. Imprime o resumo: versão antiga e nova, onde ficou o backup e o comando para voltar atrás.
+10. **Grava o resumo** num arquivo (`/var/log/dgclaw/dgclaw-atualizar-<data>.resumo.txt`, ao lado do log) e
+    **agenda o reinício do Admin** para 20 segundos depois (`systemd-run --on-active=20`), porque este
+    comando pode estar rodando dentro do próprio Admin. Se qualquer agente falhou ou a conferência acusou
+    problema, o Admin **não** é reiniciado: ele precisa continuar de pé, com o chat funcionando, para
+    consertar.
+11. Imprime o resumo: versão antiga e nova (com o commit de antes certo), onde ficou o backup, o comando
+    para voltar atrás e quais agentes ficaram bem ou com problema.
+
+### O commit de antes
+
+O manifesto do backup (e, portanto, o `--voltar`) usa o commit que estava **instalado**, não o `HEAD`
+do clone no momento do comando. Ordem: `DGCLAW_COMMIT` do `dgclaw.env`; se não houver, o hash curto
+que está em `DGCLAW_VERSAO` (formato `v1-<12 hex>`); só em último caso o `HEAD`, e então o comando avisa
+que pode estar errado. Assim, mesmo que o clone tenha sido puxado à mão antes, o `--voltar` leva para a
+versão certa.
+
+## Atualização INCOMPLETA (algum agente não foi recriado)
+
+Se **qualquer** agente falhar ao recriar, ou não responder no fim, o resumo diz
+`Atualizacao INCOMPLETA` (nunca "concluída"), lista os agentes com problema, traz o comando para refazer
+cada um e o comando sai com código diferente de 0. O Admin **não** é reiniciado.
+
+O que você faz e diz ao dono:
+
+1. Leia as linhas `FALHOU` e a mensagem do agente (ela diz se o container antigo continua lá, em que
+   estado, e que a casa está intacta).
+2. Refaça cada agente: `sudo dgclaw agente recriar <slug> --forcar`. Ele também recria container que ficou
+   parado, preso em `stopping` ou que sumiu, com os mesmos volumes e portas.
+3. Confira com `sudo dgclaw agente listar` e conte ao dono, em palavras simples: "A atualização terminou, mas
+   a caixa do agente <nome> não subiu de primeira. Os dados dele estão intactos. Já refiz a caixa e ele
+   voltou." (ou, se não conseguiu: "ainda não consegui; posso voltar tudo à versão de antes").
+4. Só depois que todos estiverem bem, reinicie o Admin como na seção "O reinício do Admin".
 
 ## Conflitos possíveis e como resolver
 
@@ -168,6 +221,12 @@ pode é uma linha de antes sumir ou mudar de valor. A conferência olha isso e r
 (`tar -xzOf <backup>/config.tar.gz etc/dgclaw/web.env`, com o cuidado de não imprimir os valores no chat) ou
 volte tudo com `--voltar`.
 
+**Container preso em `stopping`.** O `podman stop` devolve, mas o estado fica `stopping` e o `podman rm`
+recusa ("running or paused containers cannot be removed"). O `agente recriar` já trata sozinho (espera e
+usa `rm -f` só do container). Se mesmo assim falhar, a mensagem diz que o container **antigo** continua
+lá e em que estado; nada foi removido. Rode `sudo dgclaw agente recriar <slug> --forcar` (recria também
+um container preso em `stopping`).
+
 **Container de um agente que não sobe.** O comando diz qual agente. A casa dele está intacta. Veja:
 `podman logs --tail 40 dgclaw-<slug>`. Se terminar com código 255, é falta de inotify: `sysctl -w
 fs.inotify.max_user_instances=1024` (o instalador grava `/etc/sysctl.d/90-dgclaw-inotify.conf`). Depois
@@ -208,13 +267,26 @@ O comando já confere, mas confirme com os próprios olhos antes de dizer "pront
 
 ## O reinício do Admin
 
-Até o reinício, o Admin continua rodando o código velho. O comando agenda o reinício para 5 segundos
-depois do fim e avisa. Quando ele ocorrer, o chat do Admin fica fora do ar por uns 20 segundos e volta com
-o código novo e com o `CLAUDE.md` novo. Diga isso ao dono **antes**: "Vou reiniciar o meu próprio serviço
-no fim; se o chat parar, espere uns 20 segundos e recarregue a página."
+Até o reinício, o Admin continua rodando o código velho. O comando agenda o reinício para **20 segundos**
+depois do fim. Esse intervalo é para você, Admin, mandar ao dono o resumo **antes** de cair.
 
-Nunca reinicie o Admin com `systemctl restart dgclaw-admin` de dentro do chat dele. Se precisar, só pelo
-`systemd-run --on-active=5 --unit=dgclaw-admin-restart-<data> systemctl restart dgclaw-admin`.
+**Antes do reinício** (assim que o comando terminar): mande ao dono, pelo chat, o resumo (versão de antes
+e nova, backup, como voltar, agentes ok ou com problema) e diga: "Vou reiniciar em instantes e volto
+contando o resultado. Se o chat parar, espere uns 20 segundos e recarregue a página."
+
+**Depois do reinício**: o Admin reiniciado recebe sozinho uma mensagem da plataforma
+(`<plataforma recado="atualizacao-terminou">`) com o caminho do resumo
+(`/var/log/dgclaw/dgclaw-atualizar-<data>.resumo.txt`) e do log. Quando ela chegar, **leia o arquivo do
+resumo e responda ao dono**: o resultado em palavras simples (versão de antes -> nova, onde ficou o
+backup, como voltar, quais agentes estão bem e quais têm problema e o que você vai fazer). Isso existe
+porque o reinício mata a sessão do Admin no meio, e antes o dono nunca recebia o fim da história. Se a
+mensagem não chegar em 1 minuto, leia o resumo mesmo assim e conte; o log do roteiro que reinicia fica
+no fim do `dgclaw-atualizar-<data>.log`.
+
+Nunca reinicie o Admin com `systemctl restart dgclaw-admin` de dentro do chat dele. O caminho certo é o do
+comando, que usa `systemd-run` e o roteiro `lib/reiniciar-admin.sh` (reinicia, espera o Admin responder em
+`127.0.0.1:4300` e entrega a mensagem; o token é lido de `/etc/dgclaw/runner/admin.token` dentro do
+roteiro e nunca aparece em log nem na linha de comando).
 
 ## Voltar atrás
 

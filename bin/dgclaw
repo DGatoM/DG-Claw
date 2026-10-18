@@ -1183,7 +1183,11 @@ agente_reparar() {
 #     sao unidades do systemd) e guardado antes e devolvido depois;
 #   - o que alguem instalou dentro do container com apt/pip fora da casa nao volta (a imagem
 #     nova e o que vale). A casa, onde mora o trabalho do agente, nao e tocada.
-# Agente parado nao e mexido: a decisao de te-lo desligado e de quem desligou.
+# Agente que alguem desligou (exited/created) nao e mexido sem --forcar: a decisao de te-lo
+# desligado e de quem desligou. Com --forcar, qualquer estado (exited, created, stopping, ausente)
+# e recriado; "ausente" cria do zero com os mesmos volumes e portas. Um container preso em
+# "stopping" nao e decisao de ninguem: e uma troca anterior que travou, entao e recriado mesmo
+# sem --forcar. Quanto espera o container parar: DGCLAW_TEMPO_PARADA (segundos, padrao 90).
 agente_recriar() {
     local forcar=0 slug="" a
     for a in "$@"; do
@@ -1208,10 +1212,18 @@ agente_recriar() {
     fi
 
     estado="$(estado_container "$slug")"
-    if [ "$estado" != running ]; then
-        info "agente $slug: container $estado; deixei como esta (ligue com: dgclaw agente iniciar $slug e rode isto de novo)."
-        return 0
-    fi
+    case "$estado" in
+        running) ;;
+        stopping)
+            info "agente $slug: o container esta preso em 'stopping' (uma troca anterior travou); vou recriar."
+            forcar=1 ;;
+        *)
+            if [ "$forcar" = 0 ]; then
+                info "agente $slug: container $estado; deixei como esta (ligue com: dgclaw agente iniciar $slug e rode isto de novo, ou recrie mesmo assim com: dgclaw agente recriar $slug --forcar)."
+                return 0
+            fi
+            info "agente $slug: container $estado; com --forcar eu recrio mesmo assim." ;;
+    esac
     img_atual="$(podman inspect -f '{{.Image}}' "$c" 2>/dev/null || true)"
     img_nova="$(podman image inspect -f '{{.Id}}' "$DGCLAW_IMAGEM" 2>/dev/null || true)"
     if [ "$forcar" = 0 ] && [ -n "$img_nova" ] && [ "$img_atual" = "$img_nova" ]; then
@@ -1224,17 +1236,22 @@ agente_recriar() {
     read -r C_UID_BASE C_N C_PORTA_RUNNER C_PORTA_PAINEL <<<"$aloc"
     exigir_casa_sem_link "$C_CASA" "$C_HOME" "$slug" "dgclaw agente recriar $slug"
 
-    passo "Guardando as rotinas do agente $slug"
     unidades="$C_CASA/.unidades-self.tar"
-    guardar_unidades_self "$slug" "$unidades"
+    if [ "$estado" = running ]; then
+        passo "Guardando as rotinas do agente $slug"
+        guardar_unidades_self "$slug" "$unidades"
+    else
+        aviso "o container nao esta ligado, entao nao da para guardar as rotinas de dentro dele (dgclaw-$slug-self-*). A lista delas fica na casa (.dgclaw/self-crons.json) e o 'reparar' tenta recolocar."
+        rm -f "$unidades"
+    fi
 
     passo "Trocando o container do agente $slug pelo da imagem atual"
-    C_RECRIANDO="$slug"
+    C_RECRIANDO="$slug"; C_RECRIOU=0
     trap '_recriar_ao_sair' EXIT
-    executar podman stop "$c" >/dev/null
-    executar podman rm "$c" >/dev/null
+    _recriar_remover_container "$slug"
     criar_rede
     criar_container
+    C_RECRIOU=1
     rodar_firewall
     C_RECRIANDO=""
     trap - EXIT
@@ -1244,15 +1261,80 @@ agente_recriar() {
     ok "agente $slug recriado com a imagem atual (casa, cofre e portas intactos)"
 }
 
-# Se a troca morre depois de o container velho sair, a pessoa precisa saber que os dados estao la.
+# _recriar_remover_container <slug>: para e remove SO o container, esperando ele sair de verdade.
+# O podman as vezes devolve do `stop` com o container ainda em "stopping" (visto no podman 4.9.3
+# com systemd dentro): o `rm` normal recusa ("running or paused containers cannot be removed")
+# e o container fica preso. Por isso: stop -t 60, espera o estado sair de running/stopping
+# (consulta a cada 1 s, ate DGCLAW_TEMPO_PARADA, padrao 90 s) e so entao remove.
+# Se esgotou o tempo e continua "stopping", usa `podman rm -f`. E seguro porque o -f so remove
+# o container: a casa, o cofre, os segredos, o runner e a config sao bind mounts de pastas do
+# host em /var/lib/dgclaw/agentes/<slug> (ver criar_container), nao volumes do podman, e o
+# `rm` nao apaga bind mounts. Se algum dia houver volume nomeado no container, NAO usamos -f
+# (o -f poderia levar o volume junto, ou esconder dado): falha explicando.
+_recriar_remover_container() {
+    local slug="$1" c="dgclaw-$1" est i tempo="${DGCLAW_TEMPO_PARADA:-90}" montagens
+    if [ "$ENSAIO" = 1 ]; then
+        executar podman stop -t 60 "$c"
+        executar podman rm "$c"
+        return 0
+    fi
+    est="$(estado_container "$slug")"
+    if [ "$est" = ausente ]; then
+        info "o container $c nao existe mais; so crio o novo."
+        return 0
+    fi
+    case "$est" in
+        running|stopping)
+            podman stop -t 60 "$c" >/dev/null 2>&1 \
+                || aviso "o 'podman stop -t 60 $c' devolveu erro; vou esperar o estado do container mesmo assim."
+            for ((i = 0; i < tempo; i++)); do
+                est="$(estado_container "$slug")"
+                case "$est" in running|stopping) sleep 1 ;; *) break ;; esac
+            done ;;
+    esac
+    est="$(estado_container "$slug")"
+    case "$est" in
+        ausente) return 0 ;;
+        running)
+            falha "o container $c continua ligado depois de 'podman stop -t 60' e ${tempo}s de espera." \
+                  "nada foi removido. Veja: podman ps -a --filter name=$c; podman logs --tail 40 $c; depois rode: dgclaw agente recriar $slug --forcar" ;;
+        stopping)
+            montagens="$(podman inspect -f '{{range .Mounts}}{{.Type}} {{end}}' "$c" 2>/dev/null || true)"
+            case " $montagens " in
+                *" volume "*)
+                    falha "o container $c ficou preso em 'stopping' e tem volume do podman, entao nao uso 'rm -f' (ele poderia levar o volume junto)." \
+                          "nada foi removido. Veja os volumes: podman inspect $c; peca ajuda antes de forcar a remocao." ;;
+            esac
+            aviso "o container $c continua em 'stopping' depois de ${tempo}s; removo so o container com 'podman rm -f' (a casa, o cofre e os segredos sao pastas do host e ficam intactos)."
+            executar podman rm -f "$c" >/dev/null ;;
+        *) executar podman rm "$c" >/dev/null ;;
+    esac
+    if podman container exists "$c" >/dev/null 2>&1; then
+        falha "o container $c ainda existe depois de removido (estado $(estado_container "$slug"))." \
+              "nada do agente foi apagado. Veja: podman ps -a --filter name=$c; depois rode: dgclaw agente recriar $slug --forcar"
+    fi
+}
+
+# Se a troca morre no meio, a pessoa precisa saber o que de fato aconteceu com o container e
+# que os dados estao la. A mensagem confere o estado real: nunca diz "removido" sem ter sido.
 _recriar_ao_sair() {
-    local rc=$?
+    local rc=$? s est
     [ "$rc" -eq 0 ] && return 0
     [ -n "${C_RECRIANDO:-}" ] || return 0
+    s="$C_RECRIANDO"
     {
-        printf '\nO container do agente %s foi removido e o novo NAO terminou de subir.\n' "$C_RECRIANDO"
-        printf 'Os dados dele estao inteiros em %s (casa, cofre e segredos); nada disso foi apagado.\n' "$DG_CASAS/$C_RECRIANDO"
-        printf 'Para refazer o container: dgclaw agente recriar %s --forcar\n' "$C_RECRIANDO"
+        if ! podman container exists "dgclaw-$s" >/dev/null 2>&1; then
+            printf '\nO container do agente %s foi removido e o novo NAO terminou de subir.\n' "$s"
+        else
+            est="$(estado_container "$s")"
+            if [ "${C_RECRIOU:-0}" = 1 ]; then
+                printf '\nO container NOVO do agente %s foi criado (estado %s), mas um passo depois dele falhou.\n' "$s" "$est"
+            else
+                printf '\nO container ANTIGO do agente %s continua la, no estado %s. Nada foi removido e o novo nao foi criado.\n' "$s" "$est"
+            fi
+        fi
+        printf 'Os dados dele estao inteiros em %s (casa, cofre e segredos); nada disso foi apagado.\n' "$DG_CASAS/$s"
+        printf 'Para tentar de novo: dgclaw agente recriar %s --forcar\n' "$s"
     } >&2
 }
 
