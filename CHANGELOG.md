@@ -111,6 +111,15 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 - O instalador escolhe o motor do Admin (Claude ou Codex) pelo login que existe, não pelo programa instalado.
 - Campos de texto com 16px ou mais no celular: o app instalado não dá mais zoom ao tocar num campo.
 - Ubuntu 26.04 passa com aviso, e os problemas da instalação ao vivo de 17/10 foram acertados.
+- Bloco G da versão enterprise (login único e auditoria completa), tudo atrás do nível de proteção e sem efeito no nível
+  `pessoal`: login único por OIDC (Google Workspace, Microsoft Entra ID ou outro provedor, com PKCE, JWKS e conferência de
+  `iss`, `aud`, `exp`, `nonce`, `tid` e `hd`; modos `opcional`, `padrao` e `obrigatorio`, este com uma conta de emergência do TI que
+  só entra com senha e 2FA; `dgclaw sso configurar|testar|emergencia|status`); auditoria completa (toda mutação da API, painel
+  aberto, mídia baixada, comandos dos agentes e exportações, rotação por mês com a corrente atravessando os arquivos, `dgclaw
+  auditoria verificar|selo|exportar|retencao`, tela `/auditoria` e `/api/v1/auditoria` só para o TI, retenção de 5 anos); auditoria
+  externa (entrega a coletor HTTP ou syslog sobre TLS, selo por hora, retomada pelo hash e alerta no monitor quando a fila passa de
+  1 hora; `dgclaw auditoria externa configurar|testar|status|enviar`). A trilha aceita a origem `controle`. Guia em
+  `docs/enterprise/SSO-AUDITORIA.md`.
 
 ## [1.0.0] - 2026-10-17
 
