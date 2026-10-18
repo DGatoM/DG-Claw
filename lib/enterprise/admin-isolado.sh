@@ -47,6 +47,11 @@ _adm_isolado_agora() {
 # ja esta em container, o proprio dgclaw-admin enquanto ele ainda roda no host (inclusive com a protecao ligada e o
 # isolar ainda por fazer; nesse caso o `dgclaw status` avisa por ent_status_admin).
 ent_admin_unidades() {
+    # Admin desligado de proposito (lib/enterprise/admin-llm.sh): so o controle precisa estar de pe, se existir.
+    if ent_admin_desligado; then
+        if protecao_ligada admin_isolado; then printf 'dgclaw-controle'; fi
+        return 0
+    fi
     if _adm_isolado_agora; then printf 'dgclaw-controle'; else printf 'dgclaw-admin'; fi
 }
 
@@ -330,6 +335,10 @@ _adm_manut_status() {
 }
 
 _adm_status() {
+    if ent_admin_desligado; then
+        printf 'Admin: DESLIGADO de proposito (admin_llm = false). Para religar: dgclaw admin ligar\n'
+        return 0
+    fi
     if _adm_isolado_agora; then
         printf 'Admin: em container (isolado). Pede ao servico de controle; o perigoso espera o TI aprovar no painel.\n'
         printf 'Servico de controle: %s\n' "$(systemctl is-active "${_ADM_UNID_CONTROLE%.service}" 2>/dev/null || true)"
@@ -346,6 +355,8 @@ ent_cmd_admin() {
     case "$sub" in
         isolar) _adm_isolar "$@" ;;
         host) _adm_host "$@" ;;
+        desligar) admin_llm_desligar "$@" ;;   # lib/enterprise/admin-llm.sh
+        ligar) admin_llm_ligar "$@" ;;
         status) _adm_status ;;
         manutencao)
             local acao="${1:-status}"
@@ -361,7 +372,7 @@ ent_cmd_admin() {
                 status) _adm_manut_status ;;
                 *) falha "'admin manutencao $acao' nao existe." "use: dgclaw admin manutencao abrir <minutos> | fechar | status" ;;
             esac ;;
-        *) falha "'admin $sub' nao existe." "use: dgclaw admin isolar | host | status | manutencao abrir|fechar|status" ;;
+        *) falha "'admin $sub' nao existe." "use: dgclaw admin isolar | host | desligar | ligar | status | manutencao abrir|fechar|status" ;;
     esac
 }
 
@@ -401,6 +412,7 @@ ent_depois_de_criar_admin_isolado() {
 # ent_instalar_controle garante o servico de controle, a unidade de manutencao e o sandbox do Web, mesmo sem isolar.
 ent_instalar_admin_isolado() {
     protecao_ligada admin_isolado || return 0
+    ent_admin_desligado && return 0   # admin_llm = false: ninguem recria o Admin (lib/enterprise/admin-llm.sh)
     passo "Admin isolado"
     if _adm_isolado_agora; then
         info "o Admin ja esta em container."
@@ -426,6 +438,7 @@ ent_instalar_controle() {
 
 ent_aplicar_admin_isolado() {
     protecao_ligada admin_isolado || return 0
+    if ent_admin_desligado; then _adm_instalar_unidades; return 0; fi
     if [ -z "$(agentes_obter admin 2>/dev/null)" ]; then
         info "admin isolado: nao ha Admin no registro de agentes, entao nao ha o que isolar (o instalador cria o Admin do host)."
         return 0
@@ -436,6 +449,11 @@ ent_aplicar_admin_isolado() {
 
 ent_status_admin() {
     protecao_ligada admin_isolado || return 0
+    if ent_admin_desligado; then
+        if [ "$(systemctl is-active "${_ADM_UNID_CONTROLE%.service}" 2>/dev/null)" = active ]; then s_ok "servico de controle de pe"
+        else s_mal "o servico de controle esta parado. Veja: journalctl -u dgclaw-controle -n 50  (ligar: systemctl restart dgclaw-controle)"; fi
+        return 0
+    fi
     if _adm_isolado_agora; then
         if [ "$(estado_container admin)" = running ]; then s_ok "Admin em container (isolado)"
         else s_mal "o container do Admin esta $(estado_container admin). Veja: podman logs dgclaw-admin"; fi

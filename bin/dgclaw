@@ -2010,7 +2010,9 @@ status_geral() {
     else s_mal "o Web nao responde em 127.0.0.1:8300. Veja: journalctl -u dgclaw-web -n 50"; fi
     local porta_admin
     porta_admin="$(ent_admin_porta)"
-    if curl -fsS -o /dev/null --max-time 3 "http://127.0.0.1:$porta_admin/api/saude"; then s_ok "Admin responde (/api/saude em 127.0.0.1:$porta_admin)"
+    # Enterprise (admin_llm = false): Admin desligado de proposito nao e defeito; o ent_status_admin_llm ja avisou.
+    if ent_admin_desligado; then :
+    elif curl -fsS -o /dev/null --max-time 3 "http://127.0.0.1:$porta_admin/api/saude"; then s_ok "Admin responde (/api/saude em 127.0.0.1:$porta_admin)"
     else s_mal "o Admin nao responde em 127.0.0.1:$porta_admin/api/saude. Veja: journalctl -u dgclaw-admin -n 50 (Admin isolado: podman logs dgclaw-admin)"; fi
 
     if podman image exists "$DGCLAW_IMAGEM" >/dev/null 2>&1; then s_ok "imagem dos agentes pronta"
