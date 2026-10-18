@@ -121,6 +121,16 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
   1 hora; `dgclaw auditoria externa configurar|testar|status|enviar`). A trilha aceita a origem `controle`. Guia em
   `docs/enterprise/SSO-AUDITORIA.md`.
 
+<!-- Bloco H (saída controlada): entrada própria, para o merge com os outros blocos não brigar por linha. -->
+- Bloco H da versão enterprise (saída controlada para a internet, proteção `saida`): um proxy por agente
+  (`dgclaw-saida`, Node sem dependência, usuário sem privilégio) que escuta no gateway de cada rede de agente
+  (`10.89.N.1:3128`), com HTTPS em túnel sem abrir o TLS. Modo `registro` anota cada destino em
+  `/var/log/dgclaw/saida/<agente>.jsonl` (sem URL e sem cabeçalho); modo `bloqueio` só deixa passar a lista do agente
+  mais a base do provedor, e a cerca de rede (cadeia `DGCLAW-SAIDA`, sem mexer na ordem da mangle) fecha o resto. O proxy
+  resolve o DNS sozinho e recusa destino que aponta para rede interna. Comandos `dgclaw saida mostrar|permitir|remover|modo|relatorio`
+  e prova de dentro do container no `agente criar` (`scripts/enterprise/teste-saida.sh`). Sem efeito no nível `pessoal`.
+  Documento: `docs/enterprise/SAIDA.md`.
+
 ## [1.0.0] - 2026-10-17
 
 A v1 troca o plugin do Claude Code por uma plataforma completa: um instalador, um painel web com
