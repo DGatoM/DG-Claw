@@ -507,7 +507,7 @@ function criarServidor(opcoes) {
     for (;;) {
       const t = await conversa.thread(agente);
       const novas = t.msgs.filter((x) => x.ep > since);
-      const doAgente = novas.some((x) => x.origin === 'agente');
+      const doAgente = novas.some((x) => x.origin === 'agente' && !x.sistema); // aviso de sistema (compactação) não é resposta
       if (doAgente || Date.now() >= fim || fechou) {
         if (fechou) return undefined;
         return H.enviaJson(res, 200, { ok: true, msgs: novas, timeout: !doAgente, avisos: t.avisos });

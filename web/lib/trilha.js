@@ -1,6 +1,7 @@
 'use strict';
-// Trilha de comandos: transforma tool_use/tool_result do transcript em itens que a tela mostra
-// como "rodou: ..." (recolhíveis). Só o que mexe na máquina entra. Tudo passa pela máscara e é cortado.
+// Trilha de comandos: descreve o tool_use/tool_result do transcript (o que o agente vai rodar). Serve ao cartão
+// de permissão e à barrinha de status. Desde 18/10/2026 NÃO vira mais item no histórico da conversa (as linhas
+// "rodou: ..." saíram a pedido do dono). Só o que mexe na máquina entra. Tudo passa pela máscara e é cortado.
 
 const { mascarar } = require('./mascara');
 
