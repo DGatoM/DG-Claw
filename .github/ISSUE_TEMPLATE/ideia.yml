@@ -1,0 +1,32 @@
+name: Ideia ou melhoria
+description: Sugira algo novo ou uma melhoria para o DG Claw
+title: "[Ideia] "
+labels: ["melhoria"]
+body:
+  - type: textarea
+    id: problema
+    attributes:
+      label: Que problema isso resolve
+      description: Conte a situação em que você sentiu falta disso.
+    validations:
+      required: true
+  - type: textarea
+    id: proposta
+    attributes:
+      label: Como você imagina a solução
+    validations:
+      required: true
+  - type: textarea
+    id: alternativas
+    attributes:
+      label: O que você faz hoje no lugar
+      description: Alternativas ou contornos que você já tentou.
+    validations:
+      required: false
+  - type: input
+    id: versao
+    attributes:
+      label: Versão do DG Claw
+      description: Rode `git -C ~/DG-Claw rev-parse --short HEAD` na VPS (ajuste a pasta do clone).
+    validations:
+      required: false
