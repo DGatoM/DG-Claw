@@ -68,7 +68,9 @@ echo "protecoes aplicar"
 dgclaw nivel definir escritorio >/dev/null 2>&1
 dgclaw protecoes aplicar >"$TMP/o.txt" 2>&1
 igual "sem ganchos sai com 0" 0 "$?"
-afirma "diz que nada precisa ser levado" grep -q "nenhuma protecao desta versao" "$TMP/o.txt"
+# Cada bloco enterprise que entra (retencao, monitor...) traz o proprio ent_aplicar_*: com ganchos a
+# mensagem e "protecoes aplicadas"; sem nenhum, "nenhuma protecao desta versao".
+afirma "diz que aplicou, ou que nada precisa ser levado" grep -qE "nenhuma protecao desta versao|protecoes aplicadas" "$TMP/o.txt"
 nega "subcomando desconhecido" dgclaw protecoes xpto
 app_copia
 cat >"$TMP/app/lib/enterprise/zz-teste.sh" <<'FIM'
