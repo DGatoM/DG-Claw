@@ -129,14 +129,14 @@ function criarExterna(opcoes) {
     };
     if (estado.hash) {
       const tentativa = arquivos.findIndex((a) => a.nome === estado.arquivo);
-      const confere = (ls, n) => n >= 1 && n <= ls.length && corrente.RX_HASH.exec(ls[n - 1]) && corrente.RX_HASH.exec(ls[n - 1])[1] === estado.hash;
+      const confere = (ls, n) => n >= 1 && n <= ls.length && corrente.hashConferido(ls[n - 1]) === estado.hash;
       if (tentativa >= 0 && confere(linhasDe(arquivos[tentativa]), estado.linhas)) {
         comecaEm = { i: tentativa, linha: estado.linhas }; achou = true;
       } else {
         // o arquivo vivo foi fechado no virar do mês (mudou de nome): procura o hash nos arquivos
         for (let i = 0; i < arquivos.length && !achou; i += 1) {
           const ls = linhasDe(arquivos[i]);
-          const n = ls.findIndex((l) => { const m = corrente.RX_HASH.exec(l); return m && m[1] === estado.hash; });
+          const n = ls.findIndex((l) => corrente.hashConferido(l) === estado.hash);
           if (n >= 0) { comecaEm = { i, linha: n + 1 }; achou = true; }
         }
       }

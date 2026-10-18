@@ -165,6 +165,15 @@ function ultimoHash(base) {
   return null;
 }
 
+/** O hash que a linha declara, se o conteúdo dela ainda produz esse hash. null se a linha foi mexida ou não tem hash. */
+function hashConferido(linha) {
+  const m = RX_HASH.exec(linha);
+  if (!m) return null;
+  let obj;
+  try { obj = JSON.parse(linha); } catch (_) { return null; }
+  return sha(String(obj.ant) + linha.slice(0, m.index) + '}') === m[1] ? m[1] : null;
+}
+
 /** Marca barata para saber se a corrente mudou (nome, tamanho e mtime de cada arquivo). */
 function marcaDaCorrente(base) {
   return arquivosDaCorrente(base).map((a) => {
@@ -244,6 +253,6 @@ function exportar(base, filtro, formato) {
 
 module.exports = {
   ZERO, RX_HASH, RETENCAO_PADRAO_DIAS, RETENCAO_MIN_DIAS,
-  arquivosDaCorrente, rotacionar, mesDe, ultimaLinha, hashAnterior, lerPoda, verificar, ultimoHash, marcaDaCorrente,
+  arquivosDaCorrente, rotacionar, mesDe, ultimaLinha, hashAnterior, lerPoda, verificar, ultimoHash, hashConferido, marcaDaCorrente,
   inicioDoDia, lerEventos, exportar, sha,
 };
