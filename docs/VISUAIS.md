@@ -54,6 +54,32 @@ limite, ocupado, fora, cancelado, envio). Peças novas que também emitem evento
 `.dv-passos[data-play]`, `.dv-acordeao`, `.dv-slider`, `.dv-opcoes` e `.dv-botao`. O exemplo
 completo está em `docs/VISUAIS-EXEMPLOS/vis-exemplo-interativo.html`.
 
+## Texto pra copiar = caixinha com botão Copiar
+
+Sempre que o agente passar ao dono um texto que ele vai copiar e colar em outro lugar
+(comando, frase, prompt, mensagem pronta, configuração, link com parâmetro), manda num visual
+com **uma caixinha por trecho e um botão Copiar em cada uma**. Texto solto no balão obriga o
+dono a selecionar com o dedo, um por um, e no celular isso quase nunca sai certo. Uma frase
+curta no `caption` diz o que é cada caixinha.
+
+O iframe não tem permissão de área de transferência, por isso o botão usa `execCommand('copy')`
+com o `navigator.clipboard` como reserva, e a caixinha é um `textarea` somente leitura, que
+continua aceitando "tocar e segurar" se as duas falharem:
+
+```html
+<title>Comandos pra colar</title>
+<p class="dv-rotulo">1. Cole no terminal</p>
+<textarea class="cx" readonly rows="2">npm run build</textarea>
+<button class="dv-botao" onclick="copiar(this)">Copiar</button>
+<style>.cx{width:100%;box-sizing:border-box;font:14px/1.4 ui-monospace,monospace;padding:8px;border-radius:8px}</style>
+<script>
+function copiar(b){const t=b.previousElementSibling;t.focus();t.select();
+  let ok=false;try{ok=document.execCommand('copy')}catch(e){}
+  if(!ok&&navigator.clipboard){navigator.clipboard.writeText(t.value).then(()=>{b.textContent='Copiado ✓'}).catch(()=>{b.textContent='Toque e segure pra copiar'});return}
+  b.textContent=ok?'Copiado ✓':'Toque e segure pra copiar';}
+</script>
+```
+
 ## O que a caixa bloqueia
 
 O visual roda num `<iframe sandbox="allow-scripts">` (origem opaca) e a rota
