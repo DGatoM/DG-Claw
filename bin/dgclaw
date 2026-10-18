@@ -144,6 +144,12 @@ Protecao e versao
   dgclaw protecoes aplicar               leva as protecoes do nivel aos agentes que ja existem
   dgclaw versao                          mostra a versao instalada
 
+Dados pessoais e monitoramento
+  dgclaw retencao aplicar [--agente <slug>]  apaga o que passou do prazo (retencao_dias); --ensaio so lista
+  dgclaw titular buscar <termo> [--termo <outro>] [--agente <slug>]   onde esta o dado de uma pessoa (nome, CPF, e-mail, telefone)
+  dgclaw titular apagar <termo>... --confirmar [--apagar-anexos]     tira o dado dela de transcripts, indices, memoria e logs
+  dgclaw monitor verificar|configurar|testar   alertas de disco, certificado, cerca, servicos, backup e memoria
+
 Geral
   dgclaw status                          confere se tudo esta de pe (sai com erro se algo essencial caiu)
 FIM

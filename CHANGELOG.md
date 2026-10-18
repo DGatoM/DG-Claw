@@ -23,6 +23,13 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
   `dgclaw atualizar` (cópia de segurança, instalador novo, conferência de saúde e rollback); instalador com
   `--nivel`; trilha de auditoria encadeada por hash (bash e Node na mesma corrente); tela Proteções em
   `/protecoes`; pontos de extensão da CLI, do instalador e do Web. Sem o arquivo de nível tudo continua como antes.
+- Bloco F da versão enterprise (LGPD e monitoramento): `dgclaw retencao aplicar` (prazo `retencao_dias`: apaga
+  transcripts, anexos e logs velhos, troca o texto de mensagens velhas por um marcador sem quebrar a corrente do
+  `--resume`, limpa o `conversas.db`), `dgclaw titular buscar|apagar` (exclusão por titular em transcripts, índices,
+  memória, anexos, logs e dados do Web, com recibo sem o termo em claro), `dgclaw monitor` (disco, certificado,
+  cerca de rede, serviços, backup e memória, com alerta por webhook, Telegram e ping externo), timer diário da
+  retenção, `logrotate` e o modo escondido sem enviar texto para fora quando `sigilo_externo` está desligado.
+  Inventário em `docs/enterprise/DADOS-PESSOAIS.md` e plano de resposta a incidente em `docs/enterprise/INCIDENTE.md`.
 - CI de segurança (gitleaks, CodeQL, varredura da imagem com Trivy e SBOM), Dependabot, CODEOWNERS e modelo de PR.
 - Modo escondido (botão 👁 no cabeçalho da conversa): troca por asteriscos nomes, empresas, valores,
   e-mails, telefones, documentos e chaves de todas as mensagens da tela, para o dono mostrar a conversa numa
