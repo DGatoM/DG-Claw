@@ -17,6 +17,13 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
   Admin em `docs/ATUALIZAR.md`. O instalador agora anota `DGCLAW_REPO` e `DGCLAW_COMMIT` no `dgclaw.env`,
   edita esse arquivo linha a linha e não sobrescreve mais um `CLAUDE.md` ou `AGENTS.md` do Admin que foi
   personalizado (grava o modelo novo ao lado, como `.novo`).
+- Fundação da versão enterprise (branch `enterprise`, desenho em `docs/enterprise/DESENHO.md`): níveis de
+  proteção (`pessoal`, `escritorio`, `empresa`, `regulado`) lidos de `/etc/dgclaw/protecoes.json` e de uma matriz
+  única em `config/protecoes-matriz.json`; comandos `dgclaw nivel`, `dgclaw protecoes aplicar`, `dgclaw versao` e
+  `dgclaw atualizar` (cópia de segurança, instalador novo, conferência de saúde e rollback); instalador com
+  `--nivel`; trilha de auditoria encadeada por hash (bash e Node na mesma corrente); tela Proteções em
+  `/protecoes`; pontos de extensão da CLI, do instalador e do Web. Sem o arquivo de nível tudo continua como antes.
+- CI de segurança (gitleaks, CodeQL, varredura da imagem com Trivy e SBOM), Dependabot, CODEOWNERS e modelo de PR.
 - Modo escondido (botão 👁 no cabeçalho da conversa): troca por asteriscos nomes, empresas, valores,
   e-mails, telefones, documentos e chaves de todas as mensagens da tela, para o dono mostrar a conversa numa
   aula sem expor cliente. Um filtro automático age na hora e um modelo (Claude Haiku com `ANTHROPIC_API_KEY`, ou
