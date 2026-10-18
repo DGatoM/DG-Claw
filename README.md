@@ -49,7 +49,7 @@ O instalador mostra cada etapa em português e pode ser executado de novo sem es
 
 ## Instalação
 
-O procedimento de instalação está em [INSTALAR.md](INSTALAR.md). No Claude Code da VPS, você pode escrever:
+O procedimento de instalação está em [INSTALL.md](INSTALL.md). No Claude Code da VPS, você pode escrever:
 
 > Baixa, analisa e instala o DG Claw: https://github.com/DGatoM/DG-Claw
 
@@ -111,7 +111,7 @@ Nada do DG Claw fica fora das pastas e dos serviços listados acima. Para tirar 
 ## Modo antigo
 
 A versão anterior do DG Claw (plugin do Claude Code com o assistente `/dgclaw:setup`, em modo local ou
-servidor) foi substituída por esta instalação. O caminho atual está em [INSTALAR.md](INSTALAR.md).
+servidor) foi substituída por esta instalação. O caminho atual está em [INSTALL.md](INSTALL.md).
 
 ## Licença
 

@@ -1,7 +1,7 @@
 # DG Claw: estrutura do repositório
 
 O DG Claw instala um painel web com chat, um Admin e a infraestrutura para agentes de trabalho
-em containers separados. O [README](README.md) apresenta o produto e o [INSTALAR.md](INSTALAR.md)
+em containers separados. O [README](README.md) apresenta o produto e o [INSTALL.md](INSTALL.md)
 contém o procedimento de instalação.
 
 ## Componentes

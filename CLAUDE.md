@@ -1,7 +1,7 @@
 # DG Claw: estrutura do repositório
 
 O DG Claw instala um painel web com chat, um Admin e a infraestrutura para agentes de trabalho
-em containers separados. O [README](README.md) apresenta o produto e o [INSTALAR.md](INSTALAR.md)
+em containers separados. O [README](README.md) apresenta o produto e o [INSTALL.md](INSTALL.md)
 contém o procedimento de instalação.
 
 ## Componentes
@@ -29,7 +29,7 @@ A [arquitetura](docs/ARQUITETURA.md) descreve o funcionamento e os limites entre
   rodar e instalar ali mesmo, com `sudo ./install.sh`. A pasta clonada na VPS é, portanto, a
   instalação de destino, e não uma cópia de desenvolvimento.
 - **Quem instala.** Na maioria dos casos é uma pessoa que não é programadora, seguindo uma aula ou o
-  [COMO-INSTALAR.md](COMO-INSTALAR.md) com a ajuda do próprio Claude Code ou Codex no terminal da VPS.
+  [INSTALL.md](INSTALL.md) com a ajuda do próprio Claude Code ou Codex no terminal da VPS.
 - **GitHub.** O repositório é público. O clone funciona com `git` puro, sem `gh` e sem login no
   GitHub; o `gh` só aparece dentro da imagem dos agentes, para quem quiser publicar código depois.
 - **Por que o Admin roda como root.** O Admin é a peça que instala, atualiza, cria e conserta os
