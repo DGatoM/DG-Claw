@@ -1,6 +1,6 @@
 // operacoes.js — a aba Operações: uma página de status das rotinas do sistema.
 //
-// POR QUE ESTA TELA É ASSIM (Danilo, 01/10/2026). Havia duas abas, "Operações" (o
+// POR QUE ESTA TELA É ASSIM (01/10/2026). Havia duas abas, "Operações" (o
 // que está marcado) e "Pulso" (se rodou certo), e nem quem mandou construir sabia
 // a diferença. Agora é uma aba só, no formato que todo mundo já conhece de página
 // de status: cada operação aparece uma vez, com o nome, de quanto em quanto tempo

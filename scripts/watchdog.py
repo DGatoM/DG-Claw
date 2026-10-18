@@ -21,7 +21,7 @@ Duas coberturas, ambas com o MESMO cap anti-storm:
      horas) seria reiniciada a toa — por isso so reiniciamos travamento quando havia trabalho
      pendente em voo.
 
-  3) A RESPOSTA (01/10/2026): o processo de pe nao prova que ele responde. A Isa ficou
+  3) A RESPOSTA (01/10/2026): o processo de pe nao prova que ele responde. A agente de referência ficou
      muda 56 min por um corte do filtro de seguranca da Anthropic, e dois agentes entregues
      ficaram uma semana mudos por login vencido, com este vigia dizendo "VIVA e saudavel"
      ~1.500 vezes. Agora cada rodada pergunta ao _lib/saude_sessao.py como foi o ULTIMO

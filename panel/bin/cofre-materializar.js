@@ -13,7 +13,7 @@
 // o texto puro nasce em `/run` (memória), com modo 600, e some quando a máquina
 // desliga. O que fica no disco é só o cifrado.
 //
-// O CÓDIGO DE SAÍDA IMPORTA, e é a regra 9 dos padrões de construção do Danilo:
+// O CÓDIGO DE SAÍDA IMPORTA, e é a regra 9 dos padrões de construção do mantenedor:
 // erro que se explica sozinho. Se o cofre não abrir, este script sai com código
 // diferente de zero e a mensagem diz o que houve. O agente NÃO sobe achando que
 // tem chave. Sair com zero e um arquivo pela metade seria o pior dos mundos: o

@@ -3,11 +3,11 @@
  * operacoes.js: a aba Operações, com uma fileira de quadradinhos por operação.
  *
  * ╔══════════════════════════════════════════════════════════════════════════╗
- * ║  POR QUE ESTE ARQUIVO EXISTE (Danilo, 01/10/2026)                        ║
+ * ║  POR QUE ESTE ARQUIVO EXISTE (01/10/2026)                        ║
  * ╚══════════════════════════════════════════════════════════════════════════╝
  *
  * O painel tinha duas abas para a mesma pergunta: "Operações" (o que está
- * marcado) e "Pulso" (se rodou certo). O próprio Danilo, que mandou construir as
+ * marcado) e "Pulso" (se rodou certo). O próprio mantenedor, que mandou construir as
  * duas, não sabia dizer a diferença. Agora é uma aba só, desenhada como uma
  * página de status: cada operação aparece UMA vez, com o nome, a cadência e uma
  * fileira de quadradinhos das últimas execuções. Verde rodou e deu certo,

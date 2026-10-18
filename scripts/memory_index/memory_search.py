@@ -17,7 +17,7 @@ stderr e pro campo reason. A busca pelo termo exato continua valendo se o indice
 Indice feito com outro provedor tambem nao entra na conta (vetores nao se comparam): o
 motivo pede o reindex. Nada quebra; a sessao segue.
 
-BUSCA HIBRIDA (05/10/2026): nome proprio raro nao tem significado para o embedding. Na Isa,
+BUSCA HIBRIDA (05/10/2026): nome proprio raro nao tem significado para o embedding. Na agente de referência,
 o vetor de "Jev" trouxe trechos de HeyGen e o Haiku inventou que o Jev era uma pessoa, com
 "JEV (TypeSafe AI)" escrito com todas as letras num diario. Por isso o termo exato vem
 antes do vetor, e o prompt de decisao proibe deduzir o que nao esta escrito.

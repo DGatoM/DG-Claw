@@ -7,7 +7,7 @@ DOIS REINICIOS, PORQUE SAO DOIS PROBLEMAS
           (--resume); no modo classico (claude --channels pelo launch.sh, que nao usa
           --resume) e sessao nova com a memoria e o fio reinjetados pelo
           hooks/session-context.sh.
-  seguro  o problema ESTA na conversa. Foi o que aconteceu com a Isa em 30/09/2026: o
+  seguro  o problema ESTA na conversa. Foi o que aconteceu com a agente de referência em 30/09/2026: o
           filtro de seguranca da Anthropic cortou uma resposta sobre um tema que parecia
           ciberataque, e toda retomada que reenviava a conversa (ou mandava ela reler o
           transcript morto) devolvia o texto envenenado ao contexto e era cortada de novo.
@@ -307,7 +307,7 @@ def _parse_ts(s):
 
 def separar_fio(transcript, corte_iso):
     """O fio da conversa (thread_log) dividido no ponto de corte: (seguro, quarentena).
-    corte None = nada desta sessao e seguro (no segundo corte da Isa, a sessao inteira
+    corte None = nada desta sessao e seguro (no segundo corte da agente de referência, a sessao inteira
     nasceu do poke que mandou reler o veneno)."""
     import thread_log
     if not transcript or not os.path.exists(transcript):

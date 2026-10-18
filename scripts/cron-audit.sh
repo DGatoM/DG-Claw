@@ -1,7 +1,7 @@
 #!/bin/bash
 # cron-audit.sh (DG Claw) — auditoria noturna (23:55) dos crons/timers da pessoa virtual.
 #
-# Generalizacao da isa-cron-audit do ClaudeClaw. NADA e hardcoded com nomes de um agente
+# Generalizacao da auditoria de cron do ClaudeClaw. NADA e hardcoded com nomes de um agente
 # especifico: a LISTA de componentes a monitorar e DESCOBERTA dinamicamente de tres fontes:
 #   1. timers systemd  dgclaw-<slug>-*.timer   (vida: reflection/audit/build-wm/heartbeat/
 #                                                  pulso-report/cron-audit + ondas de poderes)

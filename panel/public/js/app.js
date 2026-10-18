@@ -429,7 +429,7 @@ const SUBTITULO_ABA = {
  *
  * Das doze abas, só duas tinham `title` (Apps e Pasta, escritas quando essas
  * telas nasceram). As outras dez eram uma palavra e um símbolo, e a única forma
- * de descobrir o que "Operações" mostrava era clicar e adivinhar. O Danilo
+ * de descobrir o que "Operações" mostrava era clicar e adivinhar. O mantenedor
  * abriu o painel e perguntou qual era a diferença entre Pulso e Operações: se
  * quem construiu o sistema precisa perguntar, o cliente não tem chance.
  *
@@ -1385,7 +1385,7 @@ function destaque(id, num, pe, classeNum, classePe) {
 function renderDestaqueHumor(data) {
   // Sem o DG Alive o cartão de humor some inteiro (data-ext="alive"), e nada é escrito
   // nele: um "sem emoções" escondido viraria anúncio do que o dono não tem no dia em
-  // que alguém mexer no CSS (Danilo, 05/10/2026: "parece que o agente é um Goku").
+  // que alguém mexer no CSS (05/10/2026: "parece que o agente é um Goku").
   if (!aliveOn()) return;
   if (!data || !data.mood || !data.mood.current) {
     return destaque('humor', '--', 'o agente ainda não registrou humor nenhum', 'apagado');
@@ -2345,7 +2345,7 @@ async function initConfig() {
 /**
  * Acende ou apaga os blocos que dependem de extensão.
  *
- * MUDOU EM 01/10/2026 (Danilo): sem a extensão, o bloco SOME inteiro. Antes ele
+ * MUDOU EM 01/10/2026: sem a extensão, o bloco SOME inteiro. Antes ele
  * aparecia apagado com um bilhete "isso aqui só aparece com o DG Alive", e o dono de
  * um DG Claw puro via a tela cheia de anúncio de uma coisa que ele não tem e não
  * pediu. Com a extensão instalada, tudo volta a aparecer, no mesmo lugar. Quem

@@ -131,7 +131,7 @@ if not sd.is_dir():
     sys.exit(0)
 try:
     # A conversa que travou o agente (modo de seguranca) nao volta pela reflexao: este
-    # recado e digitado na sessao viva, e foi um recado assim que travou a Isa de novo.
+    # recado e digitado na sessao viva, e foi um recado assim que travou a agente de referência de novo.
     import quarentena
     regras = quarentena.carregar()
 except Exception as e:  # noqa: BLE001
@@ -329,7 +329,7 @@ if [ "$REFLECT_MODE" = "headless" ]; then
     if [ "$RC" -eq 0 ]; then
         echo "[$(date '+%F %T')] reflexao ${TODAY}: restart-fresh pos-consolidacao (teto ${RESTART_THRESHOLD})" >> "$LOG"
         # --ignore-cooldown: o auto-compact do timer pode ter rodado minutos antes e o
-        # cooldown bloqueava o restart noturno (bug visto na Isa em 30/06). A checagem
+        # cooldown bloqueava o restart noturno (bug visto na agente de referência em 30/06). A checagem
         # de ociosidade continua valendo (nao corta conversa tarde da noite).
         DGCLAW_COMPACT_MODE=restart python3 "$PLUGIN/scripts/auto-compact.py" \
             --threshold "$RESTART_THRESHOLD" --ignore-cooldown >> "$LOG" 2>&1

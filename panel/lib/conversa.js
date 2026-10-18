@@ -17,7 +17,7 @@
 // dos dois: ele os chama. Assim o painel, os crons de vida e os self-crons da persona
 // enxergam exatamente a mesma sessão, e um conserto vale para os três.
 //
-// Precedente em produção: o `dg-telegram` (Flask :4045) serve a thread da Isa assim
+// Precedente em produção: o `dg-telegram` (Flask :4045) serve a thread da agente de referência assim
 // desde 01/08/2026.
 
 const { execFile, execFileSync } = require('child_process');

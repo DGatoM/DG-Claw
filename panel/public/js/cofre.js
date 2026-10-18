@@ -7,7 +7,7 @@
 //
 // TRÊS COISAS QUE ESTA TELA PRECISA DIZER, e que não são detalhe de implementação:
 //
-//   1. A CHAVE É DE QUEM CADASTRA, E A FATURA TAMBÉM. Foi decisão do Danilo em
+//   1. A CHAVE É DE QUEM CADASTRA, E A FATURA TAMBÉM. Foi decisão do mantenedor em
 //      07/09/2026, e ela resolveu de graça o pior cenário: chave dele num agente
 //      de terceiro, com um limite de gasto mal configurado, viraria prejuízo dele
 //      por uso alheio. Quem gera a chave é o dono do agente, na conta dele.

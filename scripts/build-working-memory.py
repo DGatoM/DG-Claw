@@ -7,7 +7,7 @@ entra no inicio de cada sessao e depois de cada compactacao. E por aqui que o "a
 agente chega na conversa, sem precisar de hook novo no caminho quente.
 
 A ORDEM DO ARQUIVO (01/10/2026)
-  O Danilo exigiu que a working memory mostre SEMPRE, logo no topo, quatro coisas sobre o
+  O mantenedor exigiu que a working memory mostre SEMPRE, logo no topo, quatro coisas sobre o
   DONO (e nao sobre o agente): o que ele quer alcancar, as frentes que ele toca em paralelo,
   o que o agente sabe dele e o que ele falou por ultimo. A ordem e esta:
 
@@ -53,7 +53,7 @@ TETO DE TAMANHO: 9000 bytes (antes 6500)
   As quatro secoes novas tem teto proprio (somam no maximo ~5,6 KB, tipicamente ~2,5 KB).
   O arquivo entra no contexto no inicio da sessao e depois de cada compactacao, nao a cada
   mensagem, e fica em cache; 9 KB sao ~2.300 tokens. Subir o teto foi o preco de as quatro
-  coisas que o Danilo exigiu caberem sem expulsar o resto. As secoes volateis genericas
+  coisas que o mantenedor exigiu caberem sem expulsar o resto. As secoes volateis genericas
   continuam sendo as primeiras a encolher.
 
 Roda pelo timer build-wm (07:00) e, com --agora-only, pelo batimento a cada 30 min (que

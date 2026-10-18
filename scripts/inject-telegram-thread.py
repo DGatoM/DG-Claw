@@ -2,7 +2,7 @@
 """
 inject-telegram-thread.py (DG Claw) — UserPromptSubmit hook da sessao --channels viva.
 
-PROBLEMA QUE RESOLVE (backport da Isa, pedido do Danilo 30/06 e 17/07/2026):
+PROBLEMA QUE RESOLVE (backport da agente de referência, pedido do mantenedor 30/06 e 17/07/2026):
   O DONO so ve a THREAD do canal (o chat do Telegram). Quando ele responde "pode
   resumir", ele se refere as ULTIMAS mensagens que apareceram pra ele — INCLUSIVE as
   que os crons postaram (relatorios, ronda, digest). A sessao viva da persona, porem,
@@ -111,7 +111,7 @@ def _load_config():
 _load_config()
 
 
-# ─── Config (com defaults iguais aos da Isa) ──────────────────────────────────
+# ─── Config (com defaults iguais aos da agente de referência) ──────────────────────────────────
 
 def _env(name, default=""):
     return os.environ.get(name, default)

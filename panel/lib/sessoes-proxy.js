@@ -108,7 +108,7 @@ function registrar(router, { CONFIG }) {
     return res;
   }
 
-  // Env ganha do config.json. Painel sem Cloudflare Access na frente (o da Isa) fica só leitura.
+  // Env ganha do config.json. Painel sem Cloudflare Access na frente (o da agente de referência) fica só leitura.
   function ehSoLeitura() {
     const env = (process.env.DGCLAW_PANEL_SESSOES_SO_LEITURA || '').trim().toLowerCase();
     if (env) return ['1', 'true', 'sim', 'yes'].includes(env);

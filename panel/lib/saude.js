@@ -3,7 +3,7 @@
 // POR QUE ESTE MÓDULO EXISTE (01/10/2026). O selo do cabeçalho media o PROCESSO: o
 // terminal está de pé? Dois agentes passaram uma semana mudos por login
 // vencido com o runner dizendo "working", o watchdog dizendo "VIVA" e o selo verde.
-// A Isa, agente irmã, ficou 56 minutos muda porque o filtro de segurança da Anthropic
+// A agente de referência, agente irmã, ficou 56 minutos muda porque o filtro de segurança da Anthropic
 // cortou uma resposta, e ninguém viu. Processo de pé que só devolve recusa está, para
 // quem fala com ele, tão fora do ar quanto um processo morto.
 //

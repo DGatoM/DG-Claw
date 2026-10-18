@@ -232,7 +232,7 @@
   }
 
   // ─── Texto livre dos campos do painel (12/10/2026) ──────────────────────────
-  // O Danilo abriu a aba Status e viu o pensamento do agente como um bloco cru:
+  // O mantenedor abriu a aba Status e viu o pensamento do agente como um bloco cru:
   // asteriscos e crases à mostra, endereço enorme, "- " grudado. Estes helpers
   // são o jeito ÚNICO de mostrar texto livre curto (pensamento, pendência,
   // recado, motivo). A segurança é a de md(): escapa tudo antes de criar tag.

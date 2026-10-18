@@ -2,7 +2,7 @@
 /**
  * memoria.js: o raio-X do cérebro do agente, e a edição à mão da memória dele.
  *
- * O PEDIDO (Danilo, 01/10/2026): "um raio-X do cérebro dele, eu conseguir ver
+ * O PEDIDO (01/10/2026): "um raio-X do cérebro dele, eu conseguir ver
  * todos os arquivos que ele está usando ali referentes à atividade do usuário:
  * pesquisa, tarefas, preferências... sempre renderizado em markdown correto,
  * bonito, e o usuário pode clicar e editar à mão, e fica salvo como principal
@@ -114,7 +114,7 @@ function secaoVazia(corpo) {
 /**
  * As seções da memória de trabalho que merecem destaque no raio-X.
  *
- * As quatro primeiras são as que o Danilo pediu e que outra frente está
+ * As quatro primeiras são as que o mantenedor pediu e que outra frente está
  * criando no gerador (scripts/build-working-memory.py). Enquanto elas não
  * existem, entram as que já existem hoje e dizem a mesma coisa de outro jeito.
  * O casamento é pelo começo do título, sem acento: o gerador escreve "Na minha

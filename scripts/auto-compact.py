@@ -47,7 +47,7 @@ Modos (DGCLAW_COMPACT_MODE):
            expect/script). Verifica pela saude do systemd (PID novo + active estavel).
 
            ⚠️ PRE-REQUISITO, e o erro mais caro de cometer aqui: o modo restart SO baixa
-           o contexto se o launcher da sessao subir SEM `--resume`. E o caso da Isa e do
+           o contexto se o launcher da sessao subir SEM `--resume`. E o caso da agente de referência e do
            outros agentes pessoais (`claude --channels ...`), onde reiniciar nasce sessao nova. NAO e o
            caso de supervisor que guarda o sessionId e retoma: o agent-runner do DG Claw
            monta `claude --resume <sessionId>` no boot, entao restart ali MATA O TERMINAL
@@ -487,7 +487,7 @@ def background_tasks(transcript: Path) -> list:
     """Trabalho que ainda vai ACORDAR a sessão: tarefa em segundo plano sem aviso de
     término, ou aviso que já chegou na fila e ela ainda não leu.
 
-    Conserto de 25/09/2026, trazido da Isa, em duas rodadas. So importa no modo restart:
+    Conserto de 25/09/2026, trazido da agente de referência, em duas rodadas. So importa no modo restart:
     o /compact injetado nao mata processo. O turn_snapshot só enxerga o turno: ela
     dispara trabalho em segundo plano, diz "te mando assim que sair" e FECHA o turno.
     Para o snapshot ela está parada, o idle-guard libera e o restart mata o trabalho
@@ -599,13 +599,13 @@ def background_tasks(transcript: Path) -> list:
             pass
         # So viva e fresca segura o restart. Orfa (sem aviso ha max_age) e subagente
         # cuja conversa propria parou de mudar ha stale_min (travado; caso de 25/09 na
-        # Isa: parou 22:57 e segurou a dieta ate 01:30) NAO seguram, mas continuam na
+        # agente de referência: parou 22:57 e segurou a dieta ate 01:30) NAO seguram, mas continuam na
         # lista por 24h, porque o poke precisa contar que ficou coisa devendo.
         if idade is not None and idade > 24 * 60:
             continue
         t["idade_min"], t["segura"], t["motivo"] = idade, True, ""
         # Subagente tem sinal de vida proprio (a conversa dele), entao vale ele e NAO a
-        # idade: na Isa, em 27 e 28/09, dois treinos de RL de mais de 3h, escrevendo 2 a
+        # idade: na agente de referência, em 27 e 28/09, dois treinos de RL de mais de 3h, escrevendo 2 a
         # 8 min antes, foram cortados pela regra de idade. A idade fica so pro que nao tem
         # sinal de vida (comando em segundo plano, monitor, fila).
         parado = None
@@ -989,7 +989,7 @@ def service_main_pid(svc: str) -> int:
 def pid_da_sessao(svc: str, channel: str = None) -> int:
     """PID que prova "sessao nova subiu", para QUALQUER tipo de unidade.
 
-    Conserto de 16/09/2026, vindo de um caso real na Isa. O MainPID sozinho so serve
+    Conserto de 16/09/2026, vindo de um caso real na agente de referência. O MainPID sozinho so serve
     para unidade `Type=simple`. Unidade `Type=forking` com `RemainAfterExit=yes` (o
     ExecStart e um `tmux new-session -d`, que devolve na hora) faz o systemd reportar
     **MainPID=0 SEMPRE**, entao a condicao `new_pid != old_pid` nunca podia ser
@@ -1284,7 +1284,7 @@ def do_restart_compact(workspace: Path, slug: str, channel: str, ctx: int, thres
     name = env("DGCLAW_NAME") or slug
     log(f"{ctx // 1000}k > teto -> carry-over + restart-com-verificacao ({svc})")
     # Carry-over ANTES do aviso e seguido de reconferencia (25/09/2026). Montar o bloco
-    # leva ate ~18s, e na Isa era nessa janela que ela acordava sem ninguem ver. O bloco
+    # leva ate ~18s, e na agente de referência era nessa janela que ela acordava sem ninguem ver. O bloco
     # e idempotente, entao escrever e depois desistir nao suja nada.
     write_carryover(workspace, channel, ctx, threshold, dry_run=dry_run)
     bg, bg_todas = [], []
@@ -1499,7 +1499,7 @@ def main():
     # Transcript MORTO (so modo restart): a sessao fresca pos-restart fica ociosa e
     # nao materializa transcript novo ate a 1a mensagem. Medir o transcript da sessao
     # ANTIGA (contexto alto congelado) causava LOOP de restart a cada timer (bug visto
-    # na Isa em 01/07/2026: 48 restarts/dia silenciosos). Se o arquivo achado e o mesmo
+    # na agente de referência em 01/07/2026: 48 restarts/dia silenciosos). Se o arquivo achado e o mesmo
     # registrado como morto no ultimo restart, esperamos o novo aparecer.
     st = load_state(state_file)
     dead = st.get("dead_transcript")
@@ -1515,7 +1515,7 @@ def main():
     # MODO DE SEGURANCA (01/10/2026): se a sessao foi reiniciada sem a conversa anterior
     # (ver _lib/reinicio.py), um poke de retomada nascido ANTES disso manda a persona
     # voltar ao assunto que a travou. Foi exatamente o caminho por onde o veneno voltou
-    # na Isa em 30/09: o poke de retomada mandou ela reler o transcript morto. Poke assim
+    # na agente de referência em 30/09: o poke de retomada mandou ela reler o transcript morto. Poke assim
     # e descartado, com registro, e nunca entregue.
     if pend:
         marca_ms = _modo_seguro(workspace)
@@ -1569,7 +1569,7 @@ def main():
 
     # 4) ociosidade COM ESCALADA. Antes a checagem era binaria: se a sessao parecia
     # ocupada, adiava, e ponto. Numa conversa viva isso adia TODO ciclo e o contexto sobe
-    # sem teto (caso real na Isa em 19/08/2026: de 150k a 604k sem uma compactacao). Agora
+    # sem teto (caso real na agente de referência em 19/08/2026: de 150k a 604k sem uma compactacao). Agora
     # a espera encolhe conforme o excesso, e no nivel critico compacta mesmo com turno em
     # voo, porque o poke de retomada devolve a tarefa.
     snap = turn_snapshot(transcript)
@@ -1593,7 +1593,7 @@ def main():
     if resolve_compact_mode() == "restart":
         # Trabalho em segundo plano segura o restart igual turno em voo segura (fix
         # 25/09/2026, ver background_tasks), mas SO no nivel normal. Segurar ate o
-        # critico deixou a Isa de 4 a 5h/dia acima de 300k; como o poke de retomada
+        # critico deixou a agente de referência de 4 a 5h/dia acima de 300k; como o poke de retomada
         # funcionou em 9 de 9 cortes reais, do nivel quente em diante compensa compactar
         # e deixar a persona relancar (08/10/2026).
         bg = [t for t in background_tasks(transcript) if t["segura"]]

@@ -33,7 +33,7 @@
 // não enxergar: o NOME da variável é vetor de execução de código. `NODE_OPTIONS`
 // passa em `^[A-Z][A-Z0-9_]*$`, e `NODE_OPTIONS=--require /pasta/dele/x.js` faz o
 // runner (`/usr/bin/node dist/index.js`) executar o arquivo do dono do agente
-// como root, na máquina do Danilo. `LD_PRELOAD` faz o mesmo com qualquer binário,
+// como root, na máquina do mantenedor. `LD_PRELOAD` faz o mesmo com qualquer binário,
 // e `BASH_ENV` faz o mesmo no agente de plugin, que sobe por um script de shell.
 // Por isso o nome passa por LISTA DE PERMITIDOS (`NOME_PERMITIDO`), e não por
 // lista de proibidos: numa lista de proibidos, o nome perigoso seguinte é sempre
@@ -83,7 +83,7 @@ const NOME_FORMA_OK = /^[A-Z][A-Z0-9_]{0,63}$/;
  * arquivo explica o ataque que ela fecha.
  *
  * A SEGUNDA METADE DA LISTA CUSTOU UMA CONFERÊNCIA CONTRA AS 88 CHAVES REAIS do
- * vault do Danilo, e ela existe porque credencial quase sempre vem em PAR. Só com
+ * vault do mantenedor, e ela existe porque credencial quase sempre vem em PAR. Só com
  * os sufixos de "segredo" (`_API_KEY`, `_TOKEN`, `_SECRET`), doze chaves legítimas
  * ficavam de fora, entre elas `HOTMART_CLIENT_ID`, `KIWIFY_ACCOUNT_ID`,
  * `META_APP_ID`, `DATABASE_URL` e `TWILIO_ACCOUNT_SID`. Sem o `CLIENT_ID` o

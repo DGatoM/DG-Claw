@@ -498,7 +498,7 @@ body.menu-aberto .veu{opacity:1;visibility:visible}
    * colunas espremidas numa faixa que rola na horizontal. Num celular isso quer
    * dizer que as colunas da direita (na de Custos, justamente Duração e CUSTO)
    * ficam fora da tela, e ninguém rola uma tabela para o lado sem saber que
-   * existe algo lá. O padrão de construção do Danilo é explícito: sem rolagem
+   * existe algo lá. O padrão de construção do mantenedor é explícito: sem rolagem
    * horizontal, tabela vira cartão.
    *
    * O rótulo de cada campo vem do `data-rot` que o `rotularTabelas()` do
@@ -601,7 +601,7 @@ body.menu-aberto .veu{opacity:1;visibility:visible}
 
 /* ── Texto rico (12/10/2026) ────────────────────────────────────────────────
  * POR QUE: o pensamento do agente chegava como um bloco cru, com asteriscos e
- * crases à mostra, endereço enorme e "- " grudado (Danilo, 12/10). Agora todo
+ * crases à mostra, endereço enorme e "- " grudado (12/10). Agora todo
  * texto livre curto passa por DGMarkdown.rico/ricoLinha (js/markdown.js) e cai
  * aqui. Regra de ouro: nada rola na horizontal em 390 px, então tudo quebra. */
 .rt{white-space:normal;overflow-wrap:anywhere;word-break:break-word;max-width:100%;min-width:0;line-height:1.55}

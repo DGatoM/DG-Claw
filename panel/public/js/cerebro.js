@@ -1,6 +1,6 @@
 // cerebro.js — o raio-X do cérebro (aba Status) e a aba "Como funciona".
 //
-// O RAIO-X (Danilo, 01/10/2026): "eu conseguir ver todos os arquivos que ele está
+// O RAIO-X (01/10/2026): "eu conseguir ver todos os arquivos que ele está
 // usando ali referentes à atividade do usuário: pesquisa, tarefas, preferências...
 // sempre renderizado em markdown correto, bonito, e o usuário pode clicar e editar
 // à mão". Um cartão por arquivo vivo da memória, com quando mudou e quem escreve, e

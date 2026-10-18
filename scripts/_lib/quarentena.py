@@ -6,13 +6,13 @@ sem a conversa que travou e guarda a mensagem culpada em <ws>/.dgclaw/quarentena
 conversa antiga continua no disco, e varias rotinas leem o disco e entregam o que acharam
 ao agente: a working memory ("Ultimas conversas", "Agora", "Ontem"), a reflexao da noite
 ("o que se falou hoje"), a busca em conversas do recall e a memoria semantica. Qualquer
-uma delas traria o texto envenenado de volta, e foi exatamente assim que a Isa travou a
+uma delas traria o texto envenenado de volta, e foi exatamente assim que a agente de referência travou a
 segunda vez em 30/09: um recado mandou ela reler a conversa morta. Este modulo e a regra
 unica que todas essas portas consultam.
 
 O QUE CONTA COMO QUARENTENA
   1. Sessao e horario: o que a sessao anterior registrou DEPOIS do ponto de corte
-     (`cortarDepoisDe`). Corte vazio quer dizer a sessao inteira (no segundo corte da Isa,
+     (`cortarDepoisDe`). Corte vazio quer dizer a sessao inteira (no segundo corte da agente de referência,
      a sessao toda nasceu do recado que mandou reler o veneno). Vale para quem sabe de
      que sessao e de que hora veio o trecho (thread_log, indice da busca em conversas).
   2. Texto: qualquer trecho que repita 6 palavras seguidas de uma mensagem em quarentena

@@ -1,7 +1,7 @@
 // socorro.js — A sessão de SOCORRO: um Claude neutro, fora do agente, que o dono chama
 // quando "aconteceu alguma coisa com o meu agente, vê aí".
 //
-// POR QUE ELA EXISTE (Danilo, 01/10/2026). Quando o agente trava, a pessoa que tem o
+// POR QUE ELA EXISTE (01/10/2026). Quando o agente trava, a pessoa que tem o
 // problema é justamente a que não tem a quem perguntar: o agente é quem ela consultaria,
 // e ele está mudo. Esta aba dá a ela um técnico de plantão que lê os registros, explica
 // em português o que houve e propõe o conserto, sem ser o agente e sem carregar a

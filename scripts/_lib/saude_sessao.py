@@ -2,7 +2,7 @@
 """saude_sessao.py (DG Claw) — O agente esta respondendo NORMALMENTE? Se nao, por que?
 
 POR QUE ESTE ARQUIVO EXISTE (30/09/2026)
-  A Isa, agente irma do DG Claw, ficou 56 minutos muda. O Danilo mandou um audio
+  A agente de referência, agente irma do DG Claw, ficou 56 minutos muda. O mantenedor mandou um audio
   sobre um assunto que o filtro de seguranca da Anthropic leu como ciberataque, a
   resposta dela foi cortada no meio ("Ouvi os dois audios. Vou por part") e a sessao
   congelou. Ninguem percebeu: o vigia que existia so olhava erro de API, e o corte do
@@ -32,7 +32,7 @@ O QUE ELE DEVOLVE (contrato, a tela do painel e o watchdog dependem dele)
 AS ASSINATURAS (levantadas nos transcripts reais em 01/10/2026; relatorio completo em
 docs/interno/dgclaw-assinaturas-erro-api-2026-10-01.md)
   - Recusa do filtro de seguranca: NAO e erro de API. Tres registros, e nem sempre os
-    tres aparecem (no segundo corte da Isa o primeiro nem foi gravado):
+    tres aparecem (no segundo corte da agente de referência o primeiro nem foi gravado):
       assistant normal com message.stop_reason == "refusal" e stop_details.explanation;
       system/informational "...safeguards stopped the response above...";
       user isMeta "Your response above was stopped by a safety classifier...".
@@ -46,7 +46,7 @@ docs/interno/dgclaw-assinaturas-erro-api-2026-10-01.md)
     regex desses dois sao INFERIDAS (do texto que o Claude Code costuma mostrar) e
     largas de proposito. Quando aparecer um caso real, conferir aqui.
 
-AS REGRAS DE ESTADO (decisao do Danilo, 01/10/2026)
+AS REGRAS DE ESTADO (decisao do mantenedor, 01/10/2026)
   recusa       -> inativo + modo_seguro (reiniciar normal reenvia o veneno)
   contexto     -> inativo + modo_seguro
   login        -> inativo + refazer_login (reiniciar NAO resolve, e a frase diz isso)
@@ -104,7 +104,7 @@ TAIL_BYTES = _env_int("DGCLAW_SAUDE_TAIL_KB", 300) * 1024
 SEM_RESPOSTA_MIN = _env_int("DGCLAW_SAUDE_SEM_RESPOSTA_MIN", 10)
 PERSISTE_MIN = _env_int("DGCLAW_SAUDE_PERSISTE_MIN", 30)
 # O Claude Code tenta continuar sozinho UMA vez depois de um corte ("continuing once
-# with that noted"). Nas sessoes interativas isso funciona; na Isa nao funcionou.
+# with that noted"). Nas sessoes interativas isso funciona; na agente de referência nao funcionou.
 # Antes deste prazo, um corte recente e "atencao"; depois, sem resposta, e inativo.
 RECUSA_CARENCIA_S = _env_int("DGCLAW_SAUDE_RECUSA_CARENCIA_S", 120)
 # Registros do mesmo tipo a menos disto um do outro sao UM incidente (um corte grava
@@ -327,7 +327,7 @@ def evento(o):
 
     if tipo == "queue-operation" and o.get("operation") == "enqueue":
         # A mensagem que chegou enquanto a sessao estava ocupada (ou congelada) fica
-        # aqui, e nao como user turn. Na Isa, todas as cobrancas do Danilo depois do
+        # aqui, e nao como user turn. Na agente de referência, todas as cobrancas do mantenedor depois do
         # corte ("Que aconteceu? Travou?") so existem neste formato.
         c = o.get("content")
         texto = c if isinstance(c, str) else _texto(c)
@@ -479,7 +479,7 @@ def analisar(registros, agora=None, mtime=None, sid_arquivo=None):
         if tipo == "recusa":
             # A explicacao oficial (stop_details) e o trecho mais claro; o companheiro
             # isMeta repete em ingles o que a gente ja diz na frase.
-            # Na falta dela (no segundo corte da Isa o registro com stop_details nem foi
+            # Na falta dela (no segundo corte da agente de referência o registro com stop_details nem foi
             # gravado), o aviso do proprio Claude Code ("safeguards stopped...").
             oficial = next((e for e in reversed(do_tipo) if e.get("categoria") or "Usage Policy" in (e.get("trecho") or "")), None) \
                 or next((e for e in reversed(do_tipo) if "safeguards stopped" in (e.get("trecho") or "")), None)

@@ -12,7 +12,7 @@
 //     Aprovar e Negar (só com login; chave de API não decide);
 //   - modo "proxy": os cards vêm do DG Telegram (lib/sessoes-proxy.js), que guarda a chave
 //     da agente do lado do servidor. Lá decidir pedido, mandar tecla e mexer no cofre só se
-//     faz no DG Telegram, com o login do Danilo; a tela leva até lá por um botão.
+//     faz no DG Telegram, com o login do mantenedor; a tela leva até lá por um botão.
 // A aba SOME quando /api/sessoes-config diz ligado:false.
 //
 // O QUE A FONTE NÃO SABE FAZER A TELA ESCONDE, olhando `fonte.recursos` (apagar, decidir...).
@@ -363,7 +363,7 @@
   const rascunhos = new Map();
   let novaRascunho = { nome: '', prompt: '', pasta: '', permissao: 'auto', provedor: '' };
 
-  // Painel sem Cloudflare Access na frente (o da Isa): a aba só lê. O servidor recusa toda escrita
+  // Painel sem Cloudflare Access na frente (o da agente de referência): a aba só lê. O servidor recusa toda escrita
   // com 403; aqui a tela esconde o que não funcionaria, em vez de mostrar botão que só dá erro.
   const soLeitura = () => !!(cfg && cfg.soLeitura);
   const TEXTO_SO_LEITURA_PROXY = 'Neste painel a aba Sessões é só para ler: as ações (recado, criar, arquivar, renomear...) ficam no DG Telegram, porque este painel não tem a proteção de login do Cloudflare na frente.';
