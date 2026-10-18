@@ -8,43 +8,22 @@
 // escapam alguns caracteres de jeitos diferentes, e a conferência não pode depender disso.
 // Trava: `mkdir <arquivo>.trava`. Trava com mais de 30 s é de processo morto: sai com aviso.
 // A corrente prova que nada foi alterado ou apagado no MEIO da trilha; cortar o fim só se
-// descobre guardando o último hash fora do servidor (nível `externa`, outro bloco).
+// descobre guardando o último hash fora do servidor (nível `externa`, web/lib/auditoria-externa.js).
+// Nível completo em diante: o arquivo vira auditoria-AAAA-MM.jsonl por mês e a corrente atravessa os arquivos
+// (regras em web/lib/auditoria-corrente.js). `caminho` continua sendo o auditoria.jsonl; é ele que dá nome à trava.
 
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const ZERO = '0'.repeat(64);
-const RX_HASH = /,"hash":"([0-9a-f]{64})"\}$/;
+const corrente = require('./auditoria-corrente');
+
+const { ZERO, RX_HASH } = corrente;
 const TRAVA_VELHA_MS = 30 * 1000;
 const DORME = new Int32Array(new SharedArrayBuffer(4));
 
 const sha = (texto) => crypto.createHash('sha256').update(texto).digest('hex');
 const dormir = (ms) => Atomics.wait(DORME, 0, 0, ms);
-
-function ultimaLinha(caminho) {
-  const fd = fs.openSync(caminho, 'r');
-  try {
-    let fim = fs.fstatSync(fd).size;
-    if (fim === 0) return '';
-    let pedaco = 4096;
-    let texto = '';
-    while (fim > 0) {
-      const ini = Math.max(0, fim - pedaco);
-      const buf = Buffer.alloc(fim - ini);
-      fs.readSync(fd, buf, 0, buf.length, ini);
-      texto = buf.toString('utf8') + texto;
-      const limpo = texto.replace(/\n+$/, '');
-      const i = limpo.lastIndexOf('\n');
-      if (i >= 0 || ini === 0) return limpo.slice(i + 1);
-      fim = ini;
-      pedaco *= 2;
-    }
-    return '';
-  } finally {
-    fs.closeSync(fd);
-  }
-}
 
 function criarAuditoria(opcoes) {
   const o = opcoes || {};
@@ -92,25 +71,34 @@ function criarAuditoria(opcoes) {
     fs.mkdirSync(path.dirname(caminho), { recursive: true, mode: 0o750 });
     pegarTrava();
     try {
-      let ant = ZERO;
-      if (fs.existsSync(caminho)) {
-        const ultima = ultimaLinha(caminho);
+      const instante = agora();
+      const nivel = protecoes ? protecoes.valor('auditoria') : null;
+      if (nivel === 'completa' || nivel === 'externa') corrente.rotacionar(caminho, instante, log);
+      const alvo = caminho;
+      let ant = null;
+      if (fs.existsSync(alvo)) {
+        const ultima = corrente.ultimaLinha(alvo);
         if (ultima) {
           const m = RX_HASH.exec(ultima);
           if (m) ant = m[1];
-          else log('aviso', `A última linha de ${caminho} não tem hash válido (arquivo cortado ou editado); recomecei a corrente aqui. A conferência vai apontar essa linha.`);
+          else {
+            ant = ZERO;
+            log('aviso', `A última linha de ${alvo} não tem hash válido (arquivo cortado ou editado); recomecei a corrente aqui. A conferência vai apontar essa linha.`);
+          }
         }
       }
+      // arquivo vivo novo ou vazio (primeiro evento do mês): a corrente continua do último hash do arquivo fechado
+      if (ant === null) ant = corrente.hashAnterior(caminho);
       const corpo = JSON.stringify({
-        ts: new Date(agora()).toISOString(), evento, quem: quem || process.env.DGCLAW_QUEM || process.env.USER || 'desconhecido',
+        ts: new Date(instante).toISOString(), evento, quem: quem || process.env.DGCLAW_QUEM || process.env.USER || 'desconhecido',
         origem: origem || 'web', dados: d, ant,
       });
       const hash = sha(ant + corpo);
       const linha = `${corpo.slice(0, -1)},"hash":"${hash}"}`;
-      const novo = !fs.existsSync(caminho);
+      const novo = !fs.existsSync(alvo);
       let prefixo = '';
-      if (!novo && fs.statSync(caminho).size > 0) {
-        const lido = fs.openSync(caminho, 'r');
+      if (!novo && fs.statSync(alvo).size > 0) {
+        const lido = fs.openSync(alvo, 'r');
         try {
           const b = Buffer.alloc(1);
           fs.readSync(lido, b, 0, 1, fs.fstatSync(lido).size - 1);
@@ -119,7 +107,7 @@ function criarAuditoria(opcoes) {
           fs.closeSync(lido);
         }
       }
-      const fd = fs.openSync(caminho, 'a', 0o600);
+      const fd = fs.openSync(alvo, 'a', 0o600);
       try {
         fs.writeSync(fd, `${prefixo}${linha}\n`);
         fs.fsyncSync(fd);
@@ -133,26 +121,9 @@ function criarAuditoria(opcoes) {
     }
   }
 
-  /** Percorre a trilha e confere a corrente. { ok, linhas } ou { ok:false, linhas, quebradaEm, motivo }. */
+  /** Confere a corrente inteira (todos os arquivos). { ok, linhas } ou { ok:false, linhas, quebradaEm, arquivo, motivo }. */
   function verificar() {
-    if (!fs.existsSync(caminho)) return { ok: true, linhas: 0 };
-    const texto = fs.readFileSync(caminho, 'utf8');
-    const linhas = texto.split('\n');
-    if (linhas[linhas.length - 1] === '') linhas.pop();
-    let esperado = ZERO;
-    for (let i = 0; i < linhas.length; i += 1) {
-      const linha = linhas[i];
-      const quebra = (motivo) => ({ ok: false, linhas: i, quebradaEm: i + 1, motivo });
-      const m = RX_HASH.exec(linha);
-      if (!m) return quebra('a linha não termina com o campo hash');
-      let obj;
-      try { obj = JSON.parse(linha); } catch (e) { return quebra(`a linha não é JSON válido (${e.message})`); }
-      if (obj.ant !== esperado) return quebra('o campo ant não bate com o hash da linha anterior (linha apagada, trocada ou reordenada)');
-      const corpo = `${linha.slice(0, m.index)}}`;
-      if (sha(obj.ant + corpo) !== m[1]) return quebra('o hash não bate com o conteúdo (a linha foi alterada)');
-      esperado = m[1];
-    }
-    return { ok: true, linhas: linhas.length };
+    return corrente.verificar(caminho);
   }
 
   return { registrar, verificar, caminho };
