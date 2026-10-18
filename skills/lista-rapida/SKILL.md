@@ -1,6 +1,6 @@
 ---
 name: lista-rapida
-description: Resume os pedidos da pessoa em uma lista curta, numerada e agrupada por status, com texto e visual HTML no chat. Use quando pedir "lista rápida", "lista rapida de hoje", "ontem e hoje", "esta semana" ou "lista rápida desde uma data". Consulta conversa, memória, Mesa e diário com um modelo leve.
+description: Resume os pedidos da pessoa em uma lista curta, numerada e agrupada por status, com texto e a lousa (visual HTML) no chat. Use quando pedir "lista rápida", "lista rapida de hoje", "ontem e hoje", "esta semana" ou "lista rápida desde uma data". Consulta conversa, memória, Mesa e diário com um modelo leve.
 ---
 
 # Lista rápida
@@ -92,7 +92,7 @@ ocioso não prova entrega. Sem evidência de andamento, use **Travado** com "sem
 confirmação de status". Espera de terceiro fica em **Travado**, com motivo curto.
 Não ressuscite pedidos cancelados ou substituídos.
 
-Gere o texto e o visual da mesma lista validada:
+Gere o texto e a lousa (o visual) da mesma lista validada:
 
 ```bash
 python3 <pasta-da-skill>/scripts/lista_rapida.py renderizar \

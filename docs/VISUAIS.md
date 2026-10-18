@@ -1,4 +1,6 @@
-# Visuais na conversa
+# Lousa (visuais na conversa)
+
+**Nome oficial: lousa.** É assim que o dono e os agentes chamam o visual interativo que aparece dentro do balão ("me explica isso na lousa", "manda a visão na lousa"). O arquivo continua com o prefixo `vis-`.
 
 O agente pode explicar com desenho, número ou animação dentro do balão do chat do DG Claw
 Web, em vez de despejar um textão. Ele escreve um arquivo `.html`, manda pelo `send_file` do
