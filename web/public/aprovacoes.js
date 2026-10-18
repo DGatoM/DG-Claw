@@ -45,10 +45,18 @@
     return t ? '<p class="ap-resultado">' + esc(String(t).slice(0, 400)) + '</p>' : '';
   }
 
+  /* Pedido do Instagram com mídia: a imagem vem do servidor (que a busca com defesa contra endereço interno). A tela nunca carrega
+     o endereço que o agente escolheu, a política de conteúdo do HTTPS endurecido não deixaria e o IP do TI não deve ir para lá. */
+  function htmlPrevia(p) {
+    if (p.tipo !== 'instagram' || !p.params || !p.params.imagem_url) return '';
+    return '<figure class="ap-previa"><img src="/api/v1/acoes/instagram/' + esc(p.id) + '/previa" alt="Prévia da imagem do post" loading="lazy">' +
+      '<figcaption class="ap-meta">Prévia buscada pelo servidor. Se não aparecer, o endereço da mídia está nos detalhes do pedido.</figcaption></figure>';
+  }
+
   function htmlPedido(p) {
     const pendente = p.estado === 'pendente';
     return '<li class="ap-item ap-' + esc(p.estado) + '" data-id="' + esc(p.id) + '">' +
-      '<p class="ap-desc">' + frase(p.descricao) + '</p>' +
+      '<p class="ap-desc">' + frase(p.descricao) + '</p>' + htmlPrevia(p) +
       '<p class="ap-meta"><span class="ap-selo ap-s-' + esc(p.estado) + '">' + esc(rotuloEstado(p.estado)) + '</span> ' +
       'Pedido por ' + esc(p.pedido_por) + ' em ' + esc(quando(p.pedido_em)) + (pendente ? ', vale até ' + esc(quando(p.expira_em)) : '') +
       (p.decidido_por ? '. Decidido por ' + esc(p.decidido_por) + ' em ' + esc(quando(p.decidido_em)) : '') + '</p>' +
@@ -100,7 +108,7 @@
     ],
   };
 
-  const puros = { esc, ESTADOS, rotuloEstado, quando, frase, htmlParametros, htmlResultado, htmlPedido, htmlLista, htmlCorpo, PASSOS };
+  const puros = { esc, ESTADOS, rotuloEstado, quando, frase, htmlParametros, htmlResultado, htmlPrevia, htmlPedido, htmlLista, htmlCorpo, PASSOS };
 
   if (!raiz.document) return puros;
 

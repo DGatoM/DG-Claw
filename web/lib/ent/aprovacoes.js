@@ -17,7 +17,8 @@
 //   const r = ctx.aprovacoes.pedir({ tipo: 'instagram', op: 'post.publicar', params, pedido_por: 'agente:luna' });
 //   // r.id é o identificador; responda ao agente { pendente: true, aprovacao: r.id }.
 //
-//   registrarTipo(tipo, { descrever(params, op) -> texto, executar(params, aprovacao) -> objeto })
+//   registrarTipo(tipo, { descrever(params, op) -> texto, executar(params, aprovacao) -> objeto, descricaoMax? })
+//       `descricaoMax` (opcional, padrão 500): quando a frase precisa mostrar um texto inteiro, como a legenda de um post.
 //       `tipo` é minúsculo com a-z, 0-9, _ e -, de 2 a 31 caracteres. Registrar o mesmo tipo duas vezes é erro.
 //   pedir({ tipo, op, params, pedido_por }) -> pedido público (estado "pendente")
 //       `op` é o nome da ação dentro do tipo; `params` é um objeto JSON simples e JÁ VALIDADO por quem pede.
@@ -147,7 +148,7 @@ module.exports = {
       if (typeof op !== 'string' || !op) throw new TypeError('pedir precisa do nome da operação (op).');
       if (typeof pedidoPor !== 'string' || !pedidoPor) throw new TypeError('pedir precisa de pedido_por ("agente:<slug>" ou "ti:<usuario>").');
       const p = params == null ? {} : params;
-      const descricao = String(def.descrever(p, op)).slice(0, 500);
+      const descricao = String(def.descrever(p, op)).slice(0, def.descricaoMax || 500);
       const t = relogio();
       const reg = {
         id: armazem().novoId(), tipo, op, params: p, params_hash: hashParams(p), descricao, pedido_por: pedidoPor,

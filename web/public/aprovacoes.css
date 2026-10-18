@@ -42,3 +42,8 @@
 .ap-codigo p{margin:0;flex-basis:100%;font-size:14px}
 .ap-codigo input{min-height:36px;width:9em;padding:0 10px;border:1px solid var(--ap-linha);border-radius:10px;font:inherit;font-size:18px;letter-spacing:.2em;text-align:center}
 .ap-resultado{margin:8px 0 0;font-size:13px;color:var(--ap-fraco)}
+
+/* Prévia da mídia de um pedido do Instagram (a imagem vem do servidor, não do endereço do agente). */
+.ap-previa{margin:8px 0;padding:0}
+.ap-previa img{display:block;max-width:min(100%,360px);max-height:360px;height:auto;border-radius:10px;border:1px solid rgba(0,0,0,.12);background:#fff}
+.ap-previa figcaption{margin-top:4px}

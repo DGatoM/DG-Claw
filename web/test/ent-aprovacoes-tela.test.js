@@ -75,3 +75,13 @@ test('arquivos ligados: a página carrega tour, casca e o script; o menu carrega
   assert.match(css, /min-height:36px/, 'alvo de toque');
   for (const n of ['aprovacoes.js', 'aprovacoes.html', 'ent-controle.js']) assert.ok(!/[—–]/.test(pub(n)), `${n} sem travessão`);
 });
+
+test('pedido do Instagram com mídia mostra a prévia pela rota do servidor, nunca pelo endereço do agente', () => {
+  const T = require('../public/aprovacoes.js');
+  const p = { id: 'a'.repeat(24), tipo: 'instagram', op: 'post.publicar', descricao: 'Publicar', estado: 'pendente', pedido_por: 'agente:ana', pedido_em: '2026-10-18T12:00:00Z', expira_em: '2026-10-19T12:00:00Z', params: { imagem_url: 'https://rastreador.exemplo/pixel.png?x=1' } };
+  const html = T.htmlPedido(p);
+  assert.ok(html.includes('src="/api/v1/acoes/instagram/' + 'a'.repeat(24) + '/previa"'));
+  assert.ok(!/<img[^>]*rastreador/.test(html), 'o endereço do agente não vira src de imagem');
+  assert.equal(T.htmlPrevia({ ...p, tipo: 'controle' }), '');
+  assert.equal(T.htmlPrevia({ ...p, params: {} }), '');
+});
