@@ -55,6 +55,7 @@ const srv = http.createServer((req, res) => {
     runner.recebidos.push({ metodo: req.method, caminho: url.pathname, query: url.search, corpo });
     const json = (st, o) => { res.writeHead(st, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(o)); };
     if (runner.modo === 'antigo') return json(404, {});
+    if (runner.modo === 'antigo-cru') return json(404, { success: false, error: 'Not found' });
     if (url.pathname === '/api/provedor' && req.method === 'GET') {
       return json(200, {
         sessao: 'cardX', ...runner.escolha, rotulo: 'Claude Opus 5.5, na assinatura',
@@ -125,7 +126,10 @@ console.log('\nGET com runner fora do ar ou antigo');
 {
   runner.modo = 'antigo';
   const r = await chamar('GET /api/provedor');
-  ok(r.status === 503 && r.corpo.error === 'O agente ainda não sabe informar o modelo' && r.corpo.howToFix, 'runner antigo (404): 503 amigável');
+  ok(r.status === 503 && r.corpo.error === 'A versão do agente ainda não informa o provedor' && /Atualize o DG Claw/.test(r.corpo.howToFix), 'runner antigo (404): 503 amigável');
+  runner.modo = 'antigo-cru';
+  const rc = await chamar('GET /api/provedor');
+  ok(rc.status === 503 && rc.corpo.error === 'A versão do agente ainda não informa o provedor' && !/Not found/.test(JSON.stringify(rc.corpo)), 'runner antigo que responde "Not found" cru: o painel traduz, o texto cru não chega à tela');
   runner.modo = 'ok';
   const url = CONFIG.bunkerUrl; CONFIG.bunkerUrl = 'http://127.0.0.1:1';
   const r2 = await chamar('GET /api/provedor');

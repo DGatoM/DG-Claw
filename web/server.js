@@ -45,7 +45,7 @@ const TIPOS_ESTATICOS = {
 };
 const RX_SLUG_ROTA = /^[a-z0-9][a-z0-9-]{0,31}$/;
 
-const LOGIN_RESERVA = '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Entrar</title>' +
+const LOGIN_RESERVA = '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><title>Entrar</title>' +
   '<style>body{font-family:system-ui,sans-serif;max-width:22rem;margin:14vh auto;padding:0 1rem}input,button{display:block;width:100%;margin:.5rem 0;padding:.6rem;font-size:1rem}</style></head><body>' +
   '<h1>DG Claw</h1><p id="e" style="color:#b00"></p><form method="post" action="/login"><input name="usuario" placeholder="Usuário" autocomplete="username" required>' +
   '<input name="senha" type="password" placeholder="Senha" autocomplete="current-password" required><input type="hidden" name="next" value=""><button>Entrar</button></form>' +
@@ -158,6 +158,18 @@ function criarServidor(opcoes) {
   function semSessaoPagina(req, res, url) {
     res.writeHead(302, { Location: `/login?next=${encodeURIComponent(url.pathname + url.search)}`, 'Cache-Control': 'no-store' });
     res.end();
+  }
+
+  /* A rota "/" abre o último agente usado (cookie dgclaw_agente, gravado pela casca), se ele ainda existe no registro;
+     senão o primeiro que não é o Admin (é com ele que a pessoa trabalha); senão o Admin. */
+  function agenteInicial(req) {
+    const agentes = registro.estado().agentes;
+    let guardado = H.parseCookies(req.headers.cookie).dgclaw_agente;
+    try { guardado = guardado && decodeURIComponent(guardado); } catch (_) { guardado = null; /* cookie ilegível: cai no primeiro agente */ }
+    const doCookie = guardado && agentes.find((a) => a.slug === guardado);
+    if (doCookie) return doCookie.slug;
+    const trabalho = agentes.find((a) => a.tipo !== 'admin');
+    return (trabalho || agentes[0]).slug;
   }
 
   function falhaDoRegistro(req, res, api) {
@@ -705,7 +717,7 @@ function criarServidor(opcoes) {
     if (p === '/' && (m === 'GET' || m === 'HEAD')) {
       if (!sessao) return semSessaoPagina(req, res, url);
       if (falhaDoRegistro(req, res, false)) return undefined;
-      res.writeHead(302, { Location: `/a/${registro.estado().agentes[0].slug}`, 'Cache-Control': 'no-store' });
+      res.writeHead(302, { Location: `/a/${agenteInicial(req)}`, 'Cache-Control': 'no-store' });
       return res.end();
     }
 

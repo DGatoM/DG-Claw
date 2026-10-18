@@ -238,6 +238,54 @@ com_trava() {
     ) 9>"$DG_TRAVA"
 }
 
+# definir_linha_env <arquivo> <CHAVE> <valor> [modo]
+# Poe CHAVE=valor num arquivo de configuracao (dgclaw.env, web.env...) sem reescrever o resto:
+# troca a linha no lugar se ela ja existe, acrescenta no fim se nao existe, e deixa TODAS as
+# outras linhas (inclusive as que a pessoa poe la, como chaves de API) na ordem em que estavam.
+# Regra do projeto: arquivo de configuracao que ja existe se edita linha a linha.
+definir_linha_env() {
+    local arq="$1" chave="$2" valor="$3" modo="${4:-644}"
+    if [ ! -f "$arq" ]; then
+        printf '%s=%s\n' "$chave" "$valor" | escrever_arquivo "$arq" "$modo"
+        return 0
+    fi
+    # O modo do arquivo que ja existe vence: web.env e 600 e nao pode virar 644 por aqui.
+    modo="$(stat -c '%a' "$arq")"
+    NOVO_K="$chave" NOVO_V="$valor" awk '
+        BEGIN {k = ENVIRON["NOVO_K"]; linha = k "=" ENVIRON["NOVO_V"]}
+        index($0, k "=") == 1 {if (!feito) print linha; feito = 1; next}
+        {print}
+        END {if (!feito) print linha}' "$arq" | escrever_arquivo "$arq" "$modo"
+}
+
+# git_do_clone <pasta> <argumentos do git...>: git em outro clone, sem pergunta de senha e sem
+# o bloqueio "dubious ownership" (o clone pode ser de outro usuario, e quem roda aqui e o root).
+git_do_clone() {
+    local repo="$1"; shift
+    GIT_TERMINAL_PROMPT=0 git -c safe.directory="$repo" -C "$repo" "$@"
+}
+
+# modelo_admin_sha_de_fabrica <sha256> <CLAUDE.md|AGENTS.md> <clone>
+# Sai com 0 se esse conteudo e exatamente o de alguma versao ja publicada do modelo do Admin
+# (a do clone agora ou qualquer uma do historico dele). E assim que se distingue o arquivo que
+# veio de fabrica (pode ser trocado pelo novo) do que a pessoa personalizou (nao pode).
+# Sem historico git (zip), so a versao do clone conta: o resto cai em "personalizado", o lado
+# seguro, porque nesse caso o instalador grava o novo ao lado, como <arquivo>.novo.
+modelo_admin_sha_de_fabrica() {
+    local sha="$1" nome="$2" repo="$3" atual rev
+    if [ -f "$repo/templates/admin/$nome" ]; then
+        atual="$(sha256sum <"$repo/templates/admin/$nome" | cut -d' ' -f1)"
+        if [ "$atual" = "$sha" ]; then return 0; fi
+    fi
+    git_do_clone "$repo" rev-parse --git-dir >/dev/null 2>&1 || return 1
+    while read -r rev; do
+        [ -n "$rev" ] || continue
+        atual="$(git_do_clone "$repo" show "$rev:templates/admin/$nome" 2>/dev/null | sha256sum | cut -d' ' -f1)"
+        if [ "$atual" = "$sha" ]; then return 0; fi
+    done < <(git_do_clone "$repo" log --all --format=%H -- "templates/admin/$nome" 2>/dev/null)
+    return 1
+}
+
 # carregar_env_dgclaw: le o /etc/dgclaw/dgclaw.env se existir (dominio, imagem...).
 carregar_env_dgclaw() {
     if [ -f "$DG_ETC/dgclaw.env" ]; then

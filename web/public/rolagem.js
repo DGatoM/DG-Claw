@@ -45,5 +45,10 @@
     return r;
   }
 
-  return { TOLERANCIA, estaNoFim, novaPosicao, primeiroVisivel };
+  /** O scrollTop saiu do lugar desde a última captura? Falso para o eco do scroll que nós mesmos fizemos. */
+  function moveuDeVerdade(topCapturado, topAgora) {
+    return Math.abs(topAgora - topCapturado) > 0.5;
+  }
+
+  return { TOLERANCIA, estaNoFim, moveuDeVerdade, novaPosicao, primeiroVisivel };
 });

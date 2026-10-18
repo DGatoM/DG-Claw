@@ -43,7 +43,7 @@ function portaLivre() {
 const agora = Date.now();
 const sessoes = new Map();
 const chamadas = [];
-const flags = { limite: false, semLogin: false };
+const flags = { limite: false, semLogin: false, soClaude: false, runnerAntigo: false };
 let proximoId = 1;
 
 function nova(id, over) {
@@ -88,7 +88,7 @@ async function subirRunner() {
       if (req.headers.authorization !== `Bearer ${SEGREDO_DO_RUNNER}`) return json(401, { success: false, error: 'sem token', code: 'NAO_AUTORIZADO' });
       const vista = (s) => { const { msgs, ...resto } = s; return resto; };
       if (caminho === '/api/agents' && url.searchParams.get('todas') === '1') return json(200, { success: true, data: [...sessoes.values()].map(vista) });
-      if (caminho === '/api/provedor') return json(200, { sessao: 'luna', provedor: 'claude', auth: 'assinatura', modelo: 'sonnet-teste' });
+      if (caminho === '/api/provedor') return json(200, { sessao: 'luna', provedor: 'claude', auth: 'assinatura', modelo: 'sonnet-teste', ...(flags.runnerAntigo ? {} : { disponiveis: flags.soClaude ? ['claude'] : ['claude', 'codex'] }) });
       if (caminho === '/api/sessoes' && req.method === 'POST') {
         if (flags.limite) return json(429, { success: false, error: 'Já existem 8 sessões criadas por API e o limite é 8. Não criei outra.', howToFix: 'fechar uma', code: 'LIMITE_DE_SESSOES' });
         const id = `card-n${proximoId++}`;
@@ -245,6 +245,30 @@ try {
     ok(naoHa.status === 400 && /não existe/.test(naoHa.json.erro), 'pasta que não existe: 400');
     ok((await lerJson(await p.json('/api/sessoes', { nome: '', prompt: 'y' }))).status === 400, 'sem nome: 400');
     ok((await lerJson(await p.json('/api/sessoes', { nome: 'a', prompt: '' }))).status === 400, 'sem prompt: 400');
+
+    // escolha do provedor do card (Claude ou Codex)
+    const pv = await lerJson(await p.pedir('/api/sessoes/provedores'));
+    ok(pv.status === 200 && pv.json.principal === 'claude' && pv.json.disponiveis.map((x) => x.id).join() === 'claude,codex' && pv.json.disponiveis[1].nome === 'Codex', 'GET /api/sessoes/provedores: principal e os disponíveis, com nome');
+    const a1 = chamadas.length;
+    const cx = await lerJson(await p.json('/api/sessoes', { nome: 'No Codex', prompt: 'olá', provedor: 'codex' }));
+    const postCx = chamadas.slice(a1).find((c) => c.metodo === 'POST' && c.caminho === '/api/sessoes');
+    ok(cx.status === 201 && postCx.corpo.provedor === 'codex' && !('auth' in postCx.corpo) && !('modelo' in postCx.corpo), 'provedor codex: repassado ao runner, sem a forma de pagar e o modelo do Claude');
+    const a2 = chamadas.length;
+    await p.json('/api/sessoes', { nome: 'Claude explícito', prompt: 'olá', provedor: 'claude' });
+    const postCl = chamadas.slice(a2).find((c) => c.metodo === 'POST' && c.caminho === '/api/sessoes');
+    ok(postCl.corpo.provedor === 'claude' && postCl.corpo.modelo === 'sonnet-teste', 'provedor igual ao da principal: mantém forma de pagar e modelo');
+    const ruim = await lerJson(await p.json('/api/sessoes', { nome: 'x', prompt: 'y', provedor: 'gemini' }));
+    ok(ruim.status === 400 && ruim.json.code === 'PROVEDOR_INVALIDO' && /claude, codex/.test(ruim.json.como_resolver) && /gemini/.test(ruim.json.erro), 'provedor que não vale: 400 em português dizendo quais valem');
+    ok((await lerJson(await p.json('/api/sessoes', { nome: 'x', prompt: 'y', provedor: 5 }))).status === 400, 'provedor que não é texto: 400');
+    flags.soClaude = true;
+    const so = await lerJson(await p.json('/api/sessoes', { nome: 'x', prompt: 'y', provedor: 'codex' }));
+    const pv1 = await lerJson(await p.pedir('/api/sessoes/provedores'));
+    flags.soClaude = false;
+    ok(so.status === 400 && /claude\b/.test(so.json.como_resolver) && !/codex,/.test(so.json.como_resolver) && pv1.json.disponiveis.length === 1, 'só o Claude disponível: codex é recusado e a lista tem um só');
+    flags.runnerAntigo = true;
+    const pv2 = await lerJson(await p.pedir('/api/sessoes/provedores'));
+    flags.runnerAntigo = false;
+    ok(pv2.json.disponiveis.map((x) => x.id).join() === 'claude', 'runner antigo (sem "disponiveis"): só o provedor da principal');
 
     flags.limite = true;
     const lim = await lerJson(await p.json('/api/sessoes', { nome: 'a', prompt: 'b' }));

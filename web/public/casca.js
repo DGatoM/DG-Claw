@@ -41,10 +41,11 @@
     '<button class="btn ghost" id="btnMenu" type="button" aria-label="Abrir o menu" data-tour="casca-menu">☰</button>' +
     '<div class="av" id="av" aria-hidden="true"></div>' +
     '<div class="who" id="who" data-tour="casca-titulo"><b id="nomeAgente">DG Claw</b><span id="estado"></span></div>' +
+    '<a class="btn" id="btnSessoes" href="#" hidden data-tour="casca-sessoes" aria-label="Abrir as Sessões deste agente" title="Sessões de trabalho deste agente">🖥 <span class="lbl">Sessões</span></a>' +
     '<button class="btn" id="btnTutorial" type="button" title="Visita guiada desta tela: o que é cada parte e por que está aqui">Tutorial</button>' +
     '</header>';
 
-  /* A mesma marcação do menu do conversa.html (menu-lado.js mexe nestes ids). */
+  /* A única marcação do menu: a Conversa (conversa.html) e as outras telas (monta) usam esta (menu-lado.js mexe nestes ids). */
   const MARCACAO_MENU =
     '<div id="overlayMenu"></div>' +
     '<aside id="menu" aria-label="Menu do agente">' +
@@ -66,6 +67,16 @@
     '<p class="ml-ajuda" id="mlInstalarAjuda" role="status" hidden></p></section>' +
     '<div class="pe"><div class="conta"><form method="post" action="/sair" id="formSair"><button type="submit" class="sair">Sair</button></form></div></div>' +
     '</aside>';
+
+  /* Cookie não sensível com o último agente aberto: o servidor usa na rota "/" (localStorage ele não enxerga). */
+  function guardaAgente(id) {
+    if (!id) return;
+    try { localStorage.setItem('dgclaw:agente', id); } catch (_) { /* sem armazenamento: o cookie ainda vale */ }
+    try {
+      document.cookie = 'dgclaw_agente=' + encodeURIComponent(id) + '; Path=/; Max-Age=31536000; SameSite=Lax' +
+        (location.protocol === 'https:' ? '; Secure' : '');
+    } catch (e) { console.warn('casca: não consegui gravar o cookie do último agente:', e.message); }
+  }
 
   if (!raiz.document) return { escolheAgente, MARCACAO_CABECALHO, MARCACAO_MENU };
 
@@ -109,6 +120,10 @@
         oque: 'A foto e o nome do agente, e embaixo o nome da página em que você está. O botão Tutorial, aqui no cabeçalho, explica a página.',
         como: 'O cabeçalho é o mesmo em todas as telas: Conversa, Mesa, Lembretes e as páginas do painel. A cor e a foto são as de ' + nome + '.',
         porque: 'Assim você sabe de quem é a tela e nunca fica sem saber onde está.' },
+      ...($('btnSessoes') && !$('btnSessoes').hidden ? [{ alvo: '#btnSessoes', antes: () => abreMenu(false), titulo: 'O botão Sessões',
+        oque: 'Um atalho para as sessões de trabalho de ' + nome + ': os cards que andam em paralelo com a conversa principal. Uma bolinha vermelha avisa quando alguma espera uma decisão sua.',
+        como: 'Toque nele e a tela de Sessões abre dentro do painel do agente, na mesma janela. No celular o texto some e fica só o ícone 🖥.',
+        porque: 'É o mini-Bunker do agente: você acompanha e cria trabalhos longos sem sair procurando no menu.' }] : []),
       { alvo: '#btnMenu', antes: () => abreMenu(false), titulo: 'O botão do menu',
         oque: 'No celular, o botão ☰ abre o menu do agente. No computador ele não aparece, porque o menu já fica fixo à esquerda.',
         como: 'Toque nele para ir a outra página, trocar de agente ou sair. Toque fora do menu, no ✕ ou na tecla Esc para fechar.',
@@ -134,6 +149,14 @@
     const d = await r.json().catch(() => null);
     if (!r.ok || !d || d.ok === false) throw new Error((d && d.erro) || ('a API respondeu ' + r.status));
     return Array.isArray(d.agentes) ? d.agentes : [];
+  }
+
+  /* A Conversa tem o próprio cabeçalho, mas o menu é este: troca o ponto <div id="menuPonto"> do conversa.html pela marcação. */
+  function injetaMenu(idPonto) {
+    const ponto = $(idPonto || 'menuPonto');
+    if (!ponto) { console.error('casca: o conversa.html não tem o ponto de montagem do menu (#' + (idPonto || 'menuPonto') + '); o menu não foi criado.'); return; }
+    ponto.insertAdjacentHTML('beforebegin', MARCACAO_MENU);
+    ponto.remove();
   }
 
   function monta(opcoes) {
@@ -166,7 +189,7 @@
         if (!ag) ag = { id: erro ? slug : '', nome: 'DG Claw', cor: '#2f9e5e', avatar: 'D' };
         est.agente = ag;
         pintaCabecalho(ag);
-        if (!erro) { try { localStorage.setItem('dgclaw:agente', ag.id); } catch (_) { /* sem armazenamento */ } }
+        if (!erro) guardaAgente(ag.id);
         if (!raiz.DGMenuLado) {
           console.warn('casca: menu-lado.js não carregou; o menu fica sem conteúdo. Carregue /menu-lado.js antes de /casca.js.');
           return;
@@ -194,5 +217,5 @@
     if (est.pronto && raiz.DGMenuLado) raiz.DGMenuLado.extras(lista);
   }
 
-  return { monta, ativa, extras, escolheAgente, abreMenu, tutorialMenu };
+  return { monta, ativa, extras, escolheAgente, abreMenu, tutorialMenu, injetaMenu, guardaAgente };
 });

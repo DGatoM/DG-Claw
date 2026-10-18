@@ -88,5 +88,12 @@ aside#menu .pe{margin-top:auto;padding-top:6px}
   .faixa{left:248px}
 }
 
+/* Bolinha de pedidos das Sessões (item do menu e botão 🖥 do cabeçalho): há sessão esperando o dono decidir */
+.sx-bol{display:inline-block;width:9px;height:9px;border-radius:50%;background:#e0453a;flex:0 0 auto}
+.sx-bol[hidden]{display:none}
+.ml-tab .sx-bol{margin-left:auto}
+#btnSessoes{position:relative}
+#btnSessoes .sx-bol{position:absolute;top:6px;right:5px}
+
 /* No iPhone, campo com fonte abaixo de 16px dá zoom quando recebe o foco. Regra: nada dá zoom no app instalado. */
 @media (pointer:coarse){input,textarea,select{font-size:16px!important}}

@@ -8,7 +8,7 @@
                  depois(): roda ao sair do passo (ex.: desfazer uma demonstração) }
 
    O holofote é uma caixa transparente com uma sombra enorme em volta: o resto
-   da tela escurece e o elemento em foco fica claro. Anterior, Próximo e Fechar
+   da tela escurece e o elemento em foco fica claro. Anterior, Próximo e Pular
    funcionam por toque; Esc também fecha. Nada aqui depende de animação. */
 (function () {
   let estado = null;      // { passos, i, aoFechar }
@@ -120,10 +120,11 @@
     cx.appendChild(linha('Por que está aqui:', passo.porque));
     const acoes = el('div');
     acoes.className = 'tour-acoes';
-    const bFechar = el('button', 'tourFechar', 'Fechar');
-    bFechar.type = 'button';
-    bFechar.className = 'tour-x';
-    bFechar.onclick = fecha;
+    const bPular = el('button', 'tourPular', 'Pular');
+    bPular.type = 'button';
+    bPular.className = 'tour-x';
+    bPular.onclick = fecha;
+    bPular.hidden = ultimo;
     const bAnt = el('button', 'tourAnterior', 'Anterior');
     bAnt.type = 'button';
     bAnt.disabled = estado.i === 0;
@@ -132,7 +133,7 @@
     bProx.type = 'button';
     bProx.className = 'pri';
     bProx.onclick = () => (ultimo ? fecha() : vai(1));
-    acoes.append(bFechar, bAnt, bProx);
+    acoes.append(bPular, bAnt, bProx);
     cx.appendChild(acoes);
     posiciona();
     // depois do rolar e do menu deslizar, a posição pode mudar

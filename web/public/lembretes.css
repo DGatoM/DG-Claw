@@ -96,7 +96,7 @@ body.lp #tourCaixa h4{margin:0 0 2px;font-size:15.5px}
 body.lp #tourCaixa .tour-n{font-size:11.5px;color:var(--lp-fraco);margin-bottom:6px}
 body.lp #tourCaixa p{margin:0 0 6px}
 body.lp #tourCaixa p b{color:#1f7a45}
-body.lp #tourCaixa .tour-acoes{display:flex;gap:8px;justify-content:flex-end;margin-top:10px;flex-wrap:wrap}
+body.lp #tourCaixa .tour-acoes{display:flex;gap:8px;justify-content:flex-end;margin-top:10px;flex-wrap:wrap;position:sticky;bottom:0;background:#fff;padding:8px 0 0}
 body.lp #tourCaixa button{min-height:36px;padding:0 14px;border-radius:18px;border:1px solid var(--lp-linha);background:#fff;font-size:13.5px;font-weight:600;cursor:pointer;font-family:inherit;color:#38523f}
 body.lp #tourCaixa button.pri{background:var(--lp-acento);border-color:var(--lp-acento);color:#fff}
 body.lp #tourCaixa button:disabled{opacity:.4;cursor:default}

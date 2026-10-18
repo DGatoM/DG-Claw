@@ -548,13 +548,38 @@ instalar_codigo() {
     imagem="$(env_valor DGCLAW_IMAGEM)"
     imagem="${imagem:-$DG_IMAGEM_PADRAO}"
     detectar_provedor
-    {
-        printf 'DGCLAW_DOMINIO=%s\n' "$DOMINIO"
-        printf 'DGCLAW_VERSAO=%s\n' "$VERSAO"
-        printf 'DGCLAW_IMAGEM=%s\n' "$imagem"
-        printf 'DGCLAW_PROVEDOR_ADMIN=%s\n' "$PROVEDOR"
-        printf 'DGCLAW_USUARIO=%s\n' "$USUARIO"
-    } | escrever_arquivo "$DG_ETC/dgclaw.env" 644
+    # Linha a linha, nunca o arquivo inteiro: o que a pessoa (ou o Admin) acrescentou ao dgclaw.env
+    # sobrevive a cada atualizacao. Cria o arquivo se ele ainda nao existe.
+    gravar_dgclaw_env DGCLAW_DOMINIO "$DOMINIO"
+    gravar_dgclaw_env DGCLAW_VERSAO "$VERSAO"
+    gravar_dgclaw_env DGCLAW_IMAGEM "$imagem"
+    gravar_dgclaw_env DGCLAW_PROVEDOR_ADMIN "$PROVEDOR"
+    gravar_dgclaw_env DGCLAW_USUARIO "$USUARIO"
+    registrar_clone
+}
+
+# gravar_dgclaw_env <CHAVE> <valor>: uma linha do dgclaw.env (no ensaio, so anuncia).
+gravar_dgclaw_env() {
+    if [ "$ENSAIO" = 1 ]; then
+        printf '   [ensaio] poria %s=%s em %s\n' "$1" "$2" "${DG_ETC#"$R"}/dgclaw.env"
+        return 0
+    fi
+    definir_linha_env "$DG_ETC/dgclaw.env" "$1" "$2" 644
+}
+
+# registrar_clone: guarda onde esta o clone do repositorio (DGCLAW_REPO) e qual commit foi
+# instalado (DGCLAW_COMMIT). E assim que `dgclaw atualizar` acha o clone sem perguntar nada.
+# Caminho com espaco ou caractere estranho nao e gravado: o dgclaw.env e lido com `source`.
+registrar_clone() {
+    local commit=""
+    if [[ "$SCRIPT_DIR" =~ ^[A-Za-z0-9._/+-]+$ ]]; then
+        gravar_dgclaw_env DGCLAW_REPO "$SCRIPT_DIR"
+    else
+        aviso "o clone esta em '$SCRIPT_DIR', que tem espaco ou caractere especial no nome, e eu nao gravo esse caminho. Para atualizar depois, use: dgclaw atualizar --repo '$SCRIPT_DIR'"
+    fi
+    # Sem git (instalou de um zip) o commit simplesmente nao existe; nao e erro.
+    commit="$(git_do_clone "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null)" || commit=""
+    if [[ "$commit" =~ ^[0-9a-f]{40}$ ]]; then gravar_dgclaw_env DGCLAW_COMMIT "$commit"; fi
 }
 
 # --- 5. caddy -------------------------------------------------------------------
@@ -761,6 +786,33 @@ FIM
 }
 
 # --- 9. admin -------------------------------------------------------------------
+
+# instalar_modelo_admin <CLAUDE.md|AGENTS.md>: poe o modelo do Admin em /opt/dgclaw/admin SEM
+# passar por cima de um arquivo que a pessoa (ou o proprio Admin) personalizou:
+#   - nao existe, ou e igual ao modelo novo: grava / nao mexe;
+#   - e exatamente uma versao antiga do modelo (nunca foi editado): troca pelo novo;
+#   - qualquer outra coisa (personalizado): nao toca; grava o modelo novo ao lado, como
+#     <arquivo>.novo, e avisa. Quem junta os dois e o Admin, seguindo docs/ATUALIZAR.md.
+instalar_modelo_admin() {
+    local arq="$1" origem="$SCRIPT_DIR/templates/admin/$1" alvo="$DG_ADMIN/$1" sha
+    if [ ! -e "$alvo" ]; then
+        executar install -m 644 "$origem" "$alvo"
+    elif cmp -s "$origem" "$alvo"; then
+        ok "$arq do Admin ja esta na versao atual"
+        executar rm -f "$alvo.novo"
+    else
+        sha="$(sha256sum <"$alvo" | cut -d' ' -f1)"
+        if modelo_admin_sha_de_fabrica "$sha" "$arq" "$SCRIPT_DIR"; then
+            executar install -m 644 "$origem" "$alvo"
+            executar rm -f "$alvo.novo"
+            ok "$arq do Admin atualizado (estava como veio de fabrica)"
+        else
+            executar install -m 644 "$origem" "$alvo.novo"
+            aviso "o $arq do Admin foi personalizado, entao NAO o troquei. A versao nova ficou ao lado, em ${alvo#"$R"}.novo. Junte as novidades ao seu arquivo (docs/ATUALIZAR.md explica como) e depois apague o .novo."
+        fi
+    fi
+}
+
 configurar_admin() {
     passo "Ligando o Admin (agente de sistema)"
     local p_admin="${DG_ADMIN#"$R"}" p_etc="${DG_ETC#"$R"}" p_app="${DG_APP#"$R"}"
@@ -782,7 +834,7 @@ configurar_admin() {
     local arq
     for arq in CLAUDE.md AGENTS.md; do
         if fonte_tem "templates/admin/$arq"; then
-            executar install -m 644 "$SCRIPT_DIR/templates/admin/$arq" "$DG_ADMIN/$arq"
+            instalar_modelo_admin "$arq"
         else
             aviso "templates/admin/$arq ainda nao existe neste repositorio; o Admin vai subir sem esse arquivo de identidade. Rode ./install.sh de novo quando ele chegar."
         fi

@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
 <title>Conversa - DG Claw</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="theme-color" content="#2f9e5e">
@@ -30,6 +30,8 @@ if (navigator.standalone === true ||
 <link rel="stylesheet" href="/sigilo.css">
 <link rel="stylesheet" href="/lembretes.css">
 <link rel="stylesheet" href="/foco-tela.css">
+<link rel="stylesheet" href="/sem-zoom.css">
+<script src="/sem-zoom.js"></script>
 </head>
 <body>
 
@@ -52,6 +54,7 @@ if (navigator.standalone === true ||
     <div class="tools" id="tools" role="toolbar" aria-label="Ferramentas da conversa">
       <a id="btnPainel" class="btn" href="#" hidden data-tour="btn-painel" title="Abrir o painel deste agente (status, memória, custos)" aria-label="Abrir o painel deste agente">🦞 <span class="lbl">Painel</span></a>
       <a id="btnMesa" class="btn" href="/mesa" data-tour="btn-mesa" title="Abrir a Mesa de tarefas" aria-label="Abrir a Mesa de tarefas">📋 <span class="lbl">Mesa</span></a>
+      <a id="btnSessoes" class="btn" href="#" hidden data-tour="btn-sessoes" title="Sessões de trabalho deste agente" aria-label="Abrir as Sessões deste agente">🖥 <span class="lbl">Sessões</span></a>
       <a id="btnLembretes" class="btn" href="/lembretes" data-tour="btn-lembretes" title="Abrir os lembretes" aria-label="Abrir os lembretes">⏰ <span class="lbl">Lembretes</span></a>
       <button id="btnLer" class="btn" title="Ler as respostas em voz alta" data-tour="ler">🔊 <span class="lbl">ler</span></button>
       <button id="btnContinua" class="btn" type="button" aria-pressed="false"
@@ -64,35 +67,8 @@ if (navigator.standalone === true ||
   </div>
 </header>
 
-<div id="overlayMenu"></div>
-<aside id="menu" aria-label="Menu do agente">
-  <button class="fechar" id="btnFechaMenu" aria-label="Fechar o menu">✕</button>
-  <div class="ml-marca" data-tour="gm-marca">
-    <div class="ml-moldura" id="mlMoldura" aria-hidden="true"></div>
-    <div class="ml-nome" id="mlNome">DG Claw</div>
-    <div class="ml-sub" id="mlSub"></div>
-    <button type="button" class="gm-tut" id="gmTutorial" title="Visita guiada: o que é cada parte e por que está aqui">Tutorial</button>
-    <div class="ml-troca" id="mlTroca" data-tour="agentes" hidden>
-      <button type="button" id="mlTrocaBtn" aria-haspopup="true" aria-expanded="false"><span>trocar de agente</span><span class="ml-seta" aria-hidden="true">▾</span></button>
-      <div class="ml-lista" id="mlLista" role="menu"></div>
-    </div>
-  </div>
-  <nav class="ml-tabs" id="mlTabs" aria-label="Páginas do agente">
-    <div data-tour="gm-conversa"><button type="button" class="ml-tab ativo" id="gmIrConversa" aria-current="page"><span class="ml-ico" aria-hidden="true">◔</span>Conversa</button></div>
-    <div data-tour="gm-mesa"><a class="ml-tab" href="/mesa"><span class="ml-ico" aria-hidden="true">▦</span>Mesa de tarefas</a></div>
-    <div id="mlPainel" data-tour="gm-painel" hidden></div>
-  </nav>
-  <section class="ml-config" id="mlConfig" data-tour="gm-config" aria-label="Configurações">
-    <h3>Configurações</h3>
-    <button type="button" class="ml-tab" id="mlInstalar"><span class="ml-ico" aria-hidden="true">⤓</span><span class="ml-tx">Instalar o app<small id="mlInstalarSub"></small></span></button>
-    <p class="ml-ajuda" id="mlInstalarAjuda" role="status" hidden></p>
-  </section>
-  <div class="pe">
-    <div class="conta">
-      <form method="post" action="/sair" id="formSair"><button type="submit" class="sair">Sair</button></form>
-    </div>
-  </div>
-</aside>
+<!-- O menu vem da marcação da casca (casca.js, MARCACAO_MENU): uma fonte só para todas as telas -->
+<div id="menuPonto"></div>
 
 <div id="chat" data-tour="thread"><div class="wrap" id="wrap"></div>
   <section id="loginCartao" class="lc" role="region" aria-label="Conectar a sua conta" tabindex="-1" hidden></section>
@@ -112,7 +88,7 @@ if (navigator.standalone === true ||
   <button class="x" aria-label="Fechar aviso">✕</button></div>
 <div class="faixa" id="faixaAudio" aria-live="polite"><span class="txt"></span></div>
 
-<div id="atividade" hidden data-tour="atividade"><i class="atv-ponto" aria-hidden="true"></i><span class="atv-txt"><span class="atv-nome"></span><span class="atv-sep"> · </span><span class="atv-acao"></span></span></div>
+<div id="atividade" hidden data-tour="atividade"><span class="atv-pts" aria-hidden="true"><i></i><i></i><i></i></span><span class="atv-txt"><span class="atv-nome"></span><span class="atv-sep"> · </span><span class="atv-acao"></span></span></div>
 
 <div class="barra" data-tour="barra">
   <div id="anexoChip" hidden><div id="anexoLista" role="list" aria-label="Anexos desta mensagem"></div><div id="anexoInfo" aria-live="polite"></div></div>
@@ -150,6 +126,8 @@ if (navigator.standalone === true ||
 <script src="/rolagem.js"></script>
 <script src="/tour.js"></script>
 <script src="/menu-lado.js"></script>
+<script src="/casca.js"></script>
+<script>window.DGCasca.injetaMenu("menuPonto");</script>
 <script src="/onboarding.js"></script>
 <script src="/campo-cofre.js"></script>
 <script src="/barra.js"></script>

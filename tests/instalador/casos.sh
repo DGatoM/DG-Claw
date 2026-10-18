@@ -439,3 +439,60 @@ caso_claude_inexistente_com_provedor_codex_nao_exige() {
     nega "nao reclama do claude" tem "$SAIDA" "o Claude Code nao foi encontrado"
     limpar_cenario
 }
+
+caso_reinstalar_preserva_linhas_alheias_do_dgclaw_env_e_anota_o_clone() {
+    novo_cenario
+    mkdir -p "$RAIZ/etc/dgclaw"
+    printf 'DGCLAW_DOMINIO=antigo.exemplo.org\nLINHA_DA_MARTA=oi\nDGCLAW_VERSAO=0.9\n' >"$RAIZ/etc/dgclaw/dgclaw.env"
+    chmod 640 "$RAIZ/etc/dgclaw/dgclaw.env"
+    afirma "reinstala" instalacao_basica
+    local env="$RAIZ/etc/dgclaw/dgclaw.env"
+    afirma "a linha alheia sobreviveu" grep -qx 'LINHA_DA_MARTA=oi' "$env"
+    afirma "o dominio de antes foi mantido" grep -qx 'DGCLAW_DOMINIO=antigo.exemplo.org' "$env"
+    afirma "a versao foi trocada no lugar" grep -qx 'DGCLAW_VERSAO=1.0.0-teste' "$env"
+    igual "so uma linha de versao" 1 "$(grep -c '^DGCLAW_VERSAO=' "$env")"
+    afirma "a ordem das linhas antigas foi mantida" bash -c "[ \"\$(grep -n -e '^DGCLAW_DOMINIO=' -e '^LINHA_DA_MARTA=' -e '^DGCLAW_VERSAO=' '$env' | cut -d: -f1 | tr '\n' ' ')\" = '1 2 3 ' ]"
+    afirma "anota onde esta o clone" grep -qx "DGCLAW_REPO=$FALSO" "$env"
+    afirma "o modo do arquivo que ja existia foi mantido" modo_e "$env" 640
+    limpar_cenario
+}
+
+caso_admin_personalizado_nao_e_sobrescrito_e_o_de_fabrica_e_atualizado() {
+    novo_cenario
+    rm -rf "$FALSO/.git"
+    local g=(git -C "$FALSO" -c user.name=t -c user.email=t@t)
+    "${g[@]}" init -q
+    "${g[@]}" add -A
+    "${g[@]}" commit -q -m v1
+    afirma "primeira instalacao" instalacao_basica
+    local adm="$RAIZ/opt/dgclaw/admin"
+    afirma "CLAUDE.md de fabrica" tem "$adm/CLAUDE.md" "# Admin (Claude)"
+    printf '# Meu Admin personalizado\nDona Marta.\n' >"$adm/CLAUDE.md"
+    printf '# Admin (Claude) v2\n' >"$FALSO/templates/admin/CLAUDE.md"
+    printf '# Admin (Codex) v2\n' >"$FALSO/templates/admin/AGENTS.md"
+    "${g[@]}" add -A
+    "${g[@]}" commit -q -m v2
+    afirma "segunda instalacao" instalacao_basica
+    afirma "o CLAUDE.md personalizado nao foi tocado" tem "$adm/CLAUDE.md" "Dona Marta"
+    nega "o CLAUDE.md personalizado nao virou o modelo novo" tem "$adm/CLAUDE.md" "v2"
+    afirma "o modelo novo ficou ao lado" tem "$adm/CLAUDE.md.novo" "# Admin (Claude) v2"
+    afirma "o aviso diz que foi personalizado" tem "$SAIDA" "foi personalizado"
+    afirma "o AGENTS.md de fabrica (versao antiga do historico) foi atualizado" tem "$adm/AGENTS.md" "# Admin (Codex) v2"
+    nega "o AGENTS.md atualizado nao deixa .novo" test -e "$adm/AGENTS.md.novo"
+    # Rodar de novo com o modelo ja igual limpa o .novo de um arquivo que voltou ao modelo.
+    cp "$FALSO/templates/admin/CLAUDE.md" "$adm/CLAUDE.md"
+    afirma "terceira instalacao" instalacao_basica
+    nega "arquivo igual ao modelo apaga o .novo" test -e "$adm/CLAUDE.md.novo"
+    limpar_cenario
+}
+
+caso_admin_sem_historico_git_e_diferente_do_modelo_vira_novo() {
+    novo_cenario
+    afirma "primeira instalacao" instalacao_basica
+    local adm="$RAIZ/opt/dgclaw/admin"
+    printf '# Admin (Claude) v2\n' >"$FALSO/templates/admin/CLAUDE.md"
+    afirma "segunda instalacao (zip, sem historico)" instalacao_basica
+    afirma "sem como provar que e de fabrica, o lado seguro: nao troca" tem "$adm/CLAUDE.md" "# Admin (Claude)"
+    afirma "e deixa o novo ao lado" tem "$adm/CLAUDE.md.novo" "v2"
+    limpar_cenario
+}

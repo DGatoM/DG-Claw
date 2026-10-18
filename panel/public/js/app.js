@@ -279,6 +279,14 @@ const SLUG_PLATAFORMA = (BASE.match(/^\/p\/([^/]+)/) || [])[1] || '';
 const URL_CONVERSA = SLUG_PLATAFORMA ? `/a/${SLUG_PLATAFORMA}` : '/';
 const ABAS_VALIDAS = [...document.querySelectorAll('.tab[data-tab]')].map((t) => t.dataset.tab);
 
+// O retrato grande do menu antigo (.lado). Sob a plataforma a foto do agente é UMA só, a da casca
+// (vinda do registro, /api/v1/agents): o painel não pinta outra em lugar nenhum.
+function pintaRetratoProprio(src) {
+  if (NA_PLATAFORMA) return;
+  const sp = document.getElementById('sprite-img');
+  if (sp) sp.src = src;
+}
+
 // Abre a aba: marca o botão, mostra o painel, carrega. Usado pelo clique e pelo deep link.
 function abrirAba(tab, botao) {
   document.querySelectorAll('.tab[data-tab]').forEach(t => t.classList.remove('active'));
@@ -336,8 +344,9 @@ function rotuloDaAba(botao) {
     .map((n) => n.textContent).join('').trim();
 }
 
-// Abas que o menu da casca não conhece de fábrica: Sessões (só quando ligada) e as dos poderes (só quando instalados).
-const ABAS_EXTRAS_CASCA = ['sessoes', 'posts', 'followers', 'reunioes'];
+// Abas que o menu da casca não conhece de fábrica: as dos poderes (só quando instalados). Sessões não entra aqui:
+// é item fixo do menu (web/public/menu-lado.js), que pergunta sozinho se a aba está ligada.
+const ABAS_EXTRAS_CASCA = ['posts', 'followers', 'reunioes'];
 function sincronizaCasca() {
   if (!NA_PLATAFORMA || !window.DGCasca) return;
   const itens = [];
@@ -351,6 +360,26 @@ function sincronizaCasca() {
   if (sincronizaCasca._ultima === assinatura) return;
   sincronizaCasca._ultima = assinatura;
   window.DGCasca.extras(itens);
+}
+
+// Sob a casca o segundo cabeçalho do painel (.header) some: o título da página já está no cabeçalho da casca.
+// O que só existe nele continua à mão, numa faixa discreta no alto do conteúdo: o selo de estado do agente (que
+// abre o detalhe), o humor e a hora, e a frase que explica a aba. O botão Tutorial da aba fica no .header
+// escondido e é clicado pelo botão Tutorial da casca (tutorialDaCasca). Os ids não mudam: só os elementos se mudam de lugar.
+function moveEstadoParaConteudo() {
+  const main = document.querySelector('main.content');
+  const status = document.getElementById('header-status');
+  const sub = document.getElementById('subtitulo-aba');
+  if (!main || !status || document.getElementById('faixa-estado')) {
+    if (!main || !status) console.warn('[painel] não achei o conteúdo ou o selo de estado para montar a faixa de estado sob a casca; o selo fica no cabeçalho escondido.');
+    return;
+  }
+  const faixa = document.createElement('div');
+  faixa.className = 'faixa-estado';
+  faixa.id = 'faixa-estado';
+  if (sub) faixa.appendChild(sub);
+  faixa.appendChild(status);
+  main.insertBefore(faixa, main.firstChild);
 }
 
 // O botão Tutorial do cabeçalho da casca abre o tutorial da aba; sem tutorial na aba, o do menu.
@@ -1497,7 +1526,7 @@ function renderEmotions(data) {
   // Sem a extensão DG Alive não existe humor pra mostrar: o retrato fica parado, o
   // selo diz que a área está desligada e o resto do painel segue normal.
   if (!aliveOn()) {
-    document.getElementById('sprite-img').src = APP_CONFIG.avatar || BASE + '/assets/sprites/default.gif';
+    pintaRetratoProprio(APP_CONFIG.avatar || BASE + '/assets/sprites/default.gif');
     // O selo de humor tem data-ext="alive" e some inteiro sem a extensão: não há
     // mais o que escrever nele.
     const hm = document.getElementById('header-mood');
@@ -1508,7 +1537,7 @@ function renderEmotions(data) {
   // Sprite & mood
   const moodText = mood.current || 'desconhecido';
   const spriteKey = moodSpriteFor(moodText);
-  document.getElementById('sprite-img').src = `${BASE}/assets/sprites/${spriteKey}.gif`;
+  pintaRetratoProprio(`${BASE}/assets/sprites/${spriteKey}.gif`);
   const badge = document.getElementById('mood-badge');
   badge.textContent = moodText.toUpperCase();
   badge.className = 'mood-badge ' + getMoodColor(moodText);
@@ -2284,7 +2313,7 @@ async function initConfig() {
   if (cfg.avatar) {
     // APP_CONFIG.avatar (não cfg.avatar): já veio prefixado pelo BASE duas linhas acima.
     const av = document.getElementById('header-avatar');
-    if (av) av.src = APP_CONFIG.avatar;
+    if (av && !NA_PLATAFORMA) av.src = APP_CONFIG.avatar;
   }
   if (cfg.level != null && cfg.level !== '') {
     const lv = document.getElementById('char-level');
@@ -2310,10 +2339,7 @@ async function initConfig() {
   // proprio agente. (O mini avatar do cabecalho acertava por acaso: o HTML ja
   // nasce apontando para avatar.jpg.) Com DG Alive instalado nada muda aqui, o
   // sprite de humor assume depois, como sempre.
-  if (!aliveOn() && APP_CONFIG.avatar) {
-    const sp = document.getElementById('sprite-img');
-    if (sp) sp.src = APP_CONFIG.avatar;
-  }
+  if (!aliveOn() && APP_CONFIG.avatar) pintaRetratoProprio(APP_CONFIG.avatar);
 }
 
 /**
@@ -2400,6 +2426,7 @@ async function initPowers() {
   if (NA_PLATAFORMA && window.DGCasca) {
     const bi = document.querySelector(`.tab[data-tab="${abaInicial}"]`);
     window.DGCasca.monta({ pagina: abaInicial, titulo: bi ? rotuloDaAba(bi) : '', aoTutorial: tutorialDaCasca });
+    moveEstadoParaConteudo();
     sincronizaCasca();
     // Sessões e os poderes aparecem e somem depois do boot: o menu acompanha as abas
     const tabs = document.getElementById('tabs');

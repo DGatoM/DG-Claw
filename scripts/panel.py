@@ -60,7 +60,7 @@ def safe_path(rel: str) -> Path | None:
 
 
 PAGE = """<!doctype html><html lang=pt-br><head><meta charset=utf-8>
-<meta name=viewport content="width=device-width, initial-scale=1">
+<meta name=viewport content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Memoria — {name}</title>
 <style>
  body{{font:15px/1.5 system-ui,sans-serif;max-width:860px;margin:0 auto;padding:18px;background:#0f1115;color:#e6e6e6}}

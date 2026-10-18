@@ -104,7 +104,7 @@ const chat = $('chat'), wrap = $('wrap'), estadoEl = $('estado'), entrada = $('e
    ResizeObserver roda depois do layout e antes de pintar: nenhum quadro sai fora do lugar. */
 const rolagem = (() => {
   const R = window.DGRolagem;
-  const est = { noFim: true, ancora: null };
+  const est = { noFim: true, ancora: null, top: 0 };
   const nosVistos = new WeakSet();
   const itens = () => {
     const l = Array.from(wrap.children);
@@ -112,6 +112,7 @@ const rolagem = (() => {
     return l.filter(e => !e.hidden && e.offsetHeight > 0);
   };
   function captura() {
+    est.top = chat.scrollTop;
     est.noFim = R.estaNoFim(chat.scrollTop, chat.scrollHeight, chat.clientHeight);
     est.ancora = null;
     if (est.noFim) return;
@@ -151,8 +152,11 @@ const rolagem = (() => {
     new MutationObserver(ms => { for (const m of ms) for (const n of m.addedNodes) observa(n); })
       .observe(chat, { childList: true });
   }
-  // passivo: só mede. A posição de quem está rolando nunca é tocada aqui.
-  chat.addEventListener('scroll', captura, { passive: true });
+  // passivo: só mede. A posição de quem está rolando nunca é tocada aqui. O evento de scroll chega
+  // um quadro DEPOIS do scrollTop que nós mesmos pusemos (aoFim, aplica); se o conteúdo cresceu nesse
+  // meio tempo (visual, imagem), medir de novo daria "não estou no fim" e a conversa ficaria para trás.
+  // Por isso só mede quando o scrollTop mudou de verdade desde a última captura.
+  chat.addEventListener('scroll', () => { if (R.moveuDeVerdade(est.top, chat.scrollTop)) captura(); }, { passive: true });
   captura();
   return {
     captura,
@@ -179,7 +183,8 @@ const AQUI = location.pathname + location.search;
 const EH_ADMIN = AGENTE.tipo === 'admin';
 /* A Mesa e os Lembretes levam o agente junto (?a=), para o menu deles ser o deste agente. */
 (function () {
-  try { localStorage.setItem('dgclaw:agente', AGENTE.id); } catch (_) { /* sem armazenamento: a casca usa o primeiro agente */ }
+  // localStorage para a casca das outras telas; o cookie é o que o servidor lê na rota "/" (abre o último agente usado)
+  window.DGCasca.guardaAgente(AGENTE.id);
   [['btnMesa', '/mesa'], ['btnLembretes', '/lembretes']].forEach(([id, href]) => {
     const el = $(id);
     if (el) el.href = window.DGMenuLado.comAgente(href, AGENTE.id);
@@ -2156,6 +2161,54 @@ function cartaoDoc(md) {
     `<a class="sec" href="${esc(md.url)}" download="${esc(md.nome || '')}">Baixar</a></div>`;
 }
 
+/* Zoom só da FOTO aberta no visor (a página nunca amplia; ver sem-zoom.js).
+   Pinça de dois dedos de 1x a 4x, um dedo arrasta quando ampliada, duplo toque
+   alterna 1x/2x. Cada abertura cria uma <img> nova, então volta a 1x ao fechar. */
+function ativaZoomImagem(img) {
+  img.dataset.zoomProprio = '1';
+  img.draggable = false;
+  img.style.touchAction = 'none';
+  img.style.transformOrigin = 'center center';
+  let esc = 1, tx = 0, ty = 0;
+  let dist0 = 0, esc0 = 1, ini = null, ultimoToque = 0, moveu = false;
+  const dist = t => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  const aplica = () => {
+    if (esc <= 1.02) { esc = 1; tx = 0; ty = 0; }
+    const mx = img.offsetWidth * (esc - 1) / 2, my = img.offsetHeight * (esc - 1) / 2;
+    tx = Math.max(-mx, Math.min(mx, tx));
+    ty = Math.max(-my, Math.min(my, ty));
+    img.style.transform = esc === 1 ? '' : 'translate(' + tx + 'px,' + ty + 'px) scale(' + esc + ')';
+  };
+  const alterna = () => { esc = esc > 1 ? 1 : 2; tx = 0; ty = 0; aplica(); };
+  img.addEventListener('touchstart', ev => {
+    moveu = false;
+    if (ev.touches.length === 2) { dist0 = dist(ev.touches) || 1; esc0 = esc; ini = null; }
+    else if (ev.touches.length === 1) ini = { x: ev.touches[0].clientX, y: ev.touches[0].clientY, tx, ty };
+  }, { passive: true });
+  img.addEventListener('touchmove', ev => {
+    ev.preventDefault();
+    if (ev.touches.length === 2 && dist0) {
+      moveu = true;
+      esc = Math.max(1, Math.min(4, esc0 * dist(ev.touches) / dist0));
+      aplica();
+    } else if (ev.touches.length === 1 && ini && esc > 1) {
+      const dx = ev.touches[0].clientX - ini.x, dy = ev.touches[0].clientY - ini.y;
+      if (Math.abs(dx) + Math.abs(dy) > 6) moveu = true;
+      tx = ini.tx + dx; ty = ini.ty + dy;
+      aplica();
+    }
+  }, { passive: false });
+  img.addEventListener('touchend', ev => {
+    if (ev.touches.length) { ini = null; return; }
+    ini = null;
+    if (moveu) { ultimoToque = 0; return; }
+    const agora = Date.now();
+    if (agora - ultimoToque < 300) { ultimoToque = 0; ev.preventDefault(); alterna(); }
+    else ultimoToque = agora;
+  }, { passive: false });
+  if (!ehToque) img.addEventListener('dblclick', alterna);
+}
+
 function abreLightbox(mid, opt) {
   const md = midias[mid];
   if (!md) return;
@@ -2173,6 +2226,7 @@ function abreLightbox(mid, opt) {
     img.alt = md.nome || 'foto';
     img.src = md.url;
     img.onerror = () => { lbCorpo.innerHTML = cartaoDoc(md); };
+    ativaZoomImagem(img);
     lbCorpo.appendChild(img);
   } else if (md.kind === 'video') {
     const v = document.createElement('video');
@@ -3663,6 +3717,12 @@ function passosTutorial() {
     oque: 'Um cartão que aparece no fim da conversa quando ' + nome + ' ainda não tem a sua conta do Claude ou do Codex conectada. O que você vê agora é só um exemplo.',
     como: 'Toque em Conectar, abra a página de login, entre com a sua conta e, no Claude, cole aqui o código que ela mostrar no fim. A tela confere sozinha e avisa quando terminar. Para abrir o cartão a qualquer hora, escreva /login no campo de mensagem e envie: nada vai para o agente.',
     porque: 'Sem conta conectada o agente não consegue responder. Assim você resolve aqui mesmo, sem abrir terminal.' });
+  if ($('btnSessoes') && !$('btnSessoes').hidden) {
+    passos.push({ alvo: '#btnSessoes', titulo: 'O botão Sessões',
+      oque: 'Um atalho para as sessões de trabalho de ' + nome + ': os cards que andam em paralelo com esta conversa. Uma bolinha vermelha avisa quando alguma espera uma decisão sua.',
+      como: 'Toque nele e a tela de Sessões abre dentro do painel do agente, na mesma janela. No celular o texto some e fica só o ícone 🖥.',
+      porque: 'É o mini-Bunker do agente: você acompanha e cria trabalhos longos sem sair procurando no menu, e o botão fica no topo, em todas as telas.' });
+  }
   if (!$('btnPainel').hidden) {
     passos.push({ alvo: '#btnPainel', titulo: 'O botão Painel',
       oque: 'Um atalho para o painel de ' + nome + ', com Status, Memória, Operações, Custos e as outras páginas.',

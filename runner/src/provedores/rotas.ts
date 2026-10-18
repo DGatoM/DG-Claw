@@ -9,7 +9,8 @@ import path from "node:path";
 import { erro, json, lerCorpo } from "../http-util.js";
 import type { GerenteDeSessoes } from "../sessoes.js";
 import type { Sessao } from "../sessao.js";
-import { ErroCatalogo, rotulo, validar } from "./catalogo.js";
+import { ErroCatalogo, rotulo, validar, type Catalogo } from "./catalogo.js";
+import { provedorDoVocabulario } from "./escolha.js";
 import { lerCanais } from "./canais.js";
 import { Conferidor, conferirProvedor } from "./conferido.js";
 import { ErroDeLogin, LoginAssistido } from "./login.js";
@@ -66,6 +67,31 @@ function rotuloSeguro(
   }
 }
 
+function binarioNoPath(nome: string, pathDoAmbiente: string | undefined): boolean {
+  for (const pasta of (pathDoAmbiente ?? "").split(path.delimiter)) {
+    if (!pasta) continue;
+    try {
+      fs.accessSync(path.join(pasta, nome), fs.constants.X_OK);
+      return true;
+    } catch {
+      // não há um executável com esse nome nesta pasta do PATH: segue para a próxima
+    }
+  }
+  return false;
+}
+
+/**
+ * Os provedores que um card novo pode usar neste agente: estão liberados no catálogo e o programa do
+ * provedor está instalado (no PATH do mesmo ambiente com que o agente sobe). Não confere o login
+ * (seria um comando de vários segundos por provedor); se faltar login, criar o card responde
+ * SEM_LOGIN com o que fazer. A ordem é a do catálogo.
+ */
+export function provedoresDisponiveis(cat: Catalogo, pathDoAmbiente: string | undefined): string[] {
+  return Object.entries(cat.provedores)
+    .filter(([id, p]) => p.disponivel && provedorDoVocabulario(id) !== null && binarioNoPath(p.binario, pathDoAmbiente))
+    .map(([id]) => id);
+}
+
 /** Devolve true quando a rota era do provedor (e já respondeu). */
 export async function tratarRotasDeProvedor(
   req: http.IncomingMessage,
@@ -115,6 +141,7 @@ export async function tratarRotasDeProvedor(
       modelo: escolha.modelo,
       rotulo: rotuloSeguro(catalogo, escolha.provedor, escolha.auth, escolha.modelo, home),
       origem: escolha.origem,
+      disponiveis: provedoresDisponiveis(catalogo, amb.env.PATH ?? process.env.PATH),
       conferido,
       login: login.visao(s.id),
       ...canais,
