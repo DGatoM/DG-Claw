@@ -71,7 +71,7 @@ function escapaHtml(s) {
 /** Página de erro mínima, em português, para quem abriu o endereço no navegador. */
 function paginaErro(res, status, titulo, motivo, cabecalhos) {
   const html = '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">' +
-    '<meta name="viewport" content="width=device-width,initial-scale=1">' +
+    '<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">' +
     `<title>${escapaHtml(titulo)}</title>` +
     '<style>body{font-family:system-ui,sans-serif;max-width:34rem;margin:12vh auto;padding:0 1rem;color:#222}' +
     'h1{font-size:1.3rem}a{color:#1a56db}</style></head><body>' +

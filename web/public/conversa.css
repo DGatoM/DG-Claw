@@ -412,7 +412,7 @@
 #tourCaixa .tour-n{font-size:11.5px;color:var(--muted);margin-bottom:6px}
 #tourCaixa p{margin:0 0 6px}
 #tourCaixa p b{color:#1f7a45}
-#tourCaixa .tour-acoes{display:flex;gap:8px;justify-content:flex-end;margin-top:10px;flex-wrap:wrap}
+#tourCaixa .tour-acoes{display:flex;gap:8px;justify-content:flex-end;margin-top:10px;flex-wrap:wrap;position:sticky;bottom:0;background:#fff;padding:8px 0 0}
 #tourCaixa button{min-height:36px;padding:0 14px;border-radius:18px;border:1px solid var(--line);
   background:#fff;font-size:13.5px;font-weight:600;cursor:pointer;font-family:inherit;color:#38523f}
 #tourCaixa button.pri{background:var(--accent);border-color:var(--accent);color:#fff}

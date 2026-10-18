@@ -1,0 +1,7 @@
+/* sem-zoom.css: nada dá zoom no app (regra do produto, 18/10/2026).
+   O iPhone amplia a página em três casos: toque duplo rápido, pinça e foco em campo
+   com fonte menor que 16px. Aqui ficam os dois primeiros e o terceiro no celular.
+   Vem com o sem-zoom.js e com o "maximum-scale=1, user-scalable=no" do viewport. */
+html{touch-action:manipulation;-webkit-text-size-adjust:100%;text-size-adjust:100%}
+a,button,input,select,textarea,label,[role=button]{touch-action:manipulation}
+@media (pointer:coarse){input,select,textarea{font-size:16px!important}}

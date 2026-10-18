@@ -62,7 +62,7 @@ function leitorDe() {
   return { agente, leitor: criarLeitor({ log: cap.log, tz: 'America/Sao_Paulo', canalTelegram: 'plugin:telegram', midia }) };
 }
 
-test('trilha: comandos entram no lugar cronológico, com resumo do resultado, erro e máscara', () => {
+test('trilha: comandos NÃO viram item no histórico (só dono e agente aparecem) e a pendência é resolvida pelo tool_result', () => {
   const { agente, leitor } = leitorDe();
   const arq = path.join(pastaTemp('tr'), 's.jsonl');
   fs.writeFileSync(arq, [
@@ -75,19 +75,26 @@ test('trilha: comandos entram no lugar cronológico, com resumo do resultado, er
     resposta('2026-10-16T10:00:06.000Z', 'Pronto'),
   ].join('\n') + '\n');
   const { eventos } = leitor.ler(arq, agente);
-  assert.deepEqual(eventos.map((e) => e.origin), ['dono', 'trilha', 'trilha', 'agente']);
-  const [, a, b] = eventos;
-  assert.equal(a.text, 'rodou: Roda os testes');
-  assert.equal(a.trilha.comando, 'npm test');
-  assert.equal(a.trilha.erro, false);
-  assert.equal(a.trilha.cortado, true);
-  assert.equal(a.trilha.saida.split('\n').length, 8);
-  assert.equal(b.trilha.erro, true);
-  assert.ok(!b.trilha.saida.includes('valor-falso-de-teste'), b.trilha.saida);
-  assert.ok(a.ep < b.ep);
+  assert.deepEqual(eventos.map((e) => e.origin), ['dono', 'agente']);
+  assert.ok(!JSON.stringify(eventos).includes('rodou:'));
+  assert.equal(leitor.pendente(arq, 'ana'), null); // os dois tool_result chegaram: nada pendente
 });
 
-test('trilha: resultado que chega depois entra na posição do comando; pendente aparece até o resultado chegar', () => {
+test('trilha: tool_use Bash sem resultado não gera item, mas fica pendente (cartão de permissão) até o tool_result', () => {
+  const { agente, leitor } = leitorDe();
+  const arq = path.join(pastaTemp('tr'), 's.jsonl');
+  fs.writeFileSync(arq, [
+    dono('2026-10-16T10:00:00.000Z', 'm1', 'roda'),
+    uso('2026-10-16T10:00:01.000Z', 'tu1', 'Bash', { command: 'npm test', description: 'Roda os testes' }),
+  ].join('\n') + '\n');
+  assert.deepEqual(leitor.ler(arq, agente).eventos.map((e) => e.origin), ['dono']);
+  assert.equal(leitor.pendente(arq, 'ana').titulo, 'Roda os testes');
+  fs.appendFileSync(arq, resultado('2026-10-16T10:00:03.000Z', 'tu1', 'ok') + '\n');
+  assert.deepEqual(leitor.ler(arq, agente).eventos.map((e) => e.origin), ['dono']);
+  assert.equal(leitor.pendente(arq, 'ana'), null);
+});
+
+test('trilha: pendente aparece até o resultado chegar, e o resultado não cria item no histórico', () => {
   const { agente, leitor } = leitorDe();
   const arq = path.join(pastaTemp('tr'), 's.jsonl');
   fs.writeFileSync(arq, [
@@ -101,7 +108,7 @@ test('trilha: resultado que chega depois entra na posição do comando; pendente
   assert.equal(pend.titulo, 'gravou /home/agente/config.json');
   fs.appendFileSync(arq, [dono('2026-10-16T10:00:02.000Z', 'm2', 'e aí?'), resultado('2026-10-16T10:05:00.000Z', 'tu1', 'File created')].join('\n') + '\n');
   const depois = leitor.ler(arq, agente);
-  assert.deepEqual(depois.eventos.map((e) => e.origin), ['dono', 'trilha', 'dono']);
+  assert.deepEqual(depois.eventos.map((e) => e.origin), ['dono', 'dono']);
   assert.equal(leitor.pendente(arq, 'ana'), null);
 });
 

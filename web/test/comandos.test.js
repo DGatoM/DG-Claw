@@ -168,14 +168,14 @@ async function threadDe(linhas) {
 test('thread: o eco do comando vira fala do dono, o stdout vira "comando" sem ANSI e o caveat some', async () => {
   const t = await threadDe([
     linhaUser(0, '<local-command-caveat>Caveat: mensagens abaixo foram geradas pelo usuário</local-command-caveat>'),
-    linhaUser(1, '<command-name>/compact</command-name>\n<command-message>compact</command-message>\n<command-args>foque em X</command-args>'),
+    linhaUser(1, '<command-name>/context</command-name>\n<command-message>context</command-message>\n<command-args>foque em X</command-args>'),
     linhaUser(2, '<local-command-stdout>\u001b[1mContexto\u001b[22m: \u001b[32m12%\u001b[0m usado</local-command-stdout>'),
     linhaUser(3, [{ type: 'text', text: '<command-message>agenda is running…</command-message>\n<command-name>/agenda</command-name>\n<command-args>amanhã às 9h</command-args>' }]),
     linhaUser(4, '<local-command-stdout></local-command-stdout>'),
     linhaUser(5, '<local-command-stderr>falhou: x</local-command-stderr>'),
   ]);
   assert.deepEqual(t.msgs.map((m) => [m.origin, m.text]), [
-    ['dono', '/compact foque em X'],
+    ['dono', '/context foque em X'],
     ['comando', 'Contexto: 12% usado'],
     ['dono', '/agenda amanhã às 9h'],
     ['comando', 'falhou: x'],
@@ -195,6 +195,105 @@ test('thread: saída muito longa é cortada em 4000 caracteres com aviso', async
   assert.equal(m.origin, 'comando'); assert.equal(m.comando.cortado, true);
   assert.ok(m.text.startsWith('a'.repeat(4000) + '\n[saída cortada'));
   assert.match(m.text, /5000 caracteres/);
+});
+
+// ── compactação: avisos da agente no lugar do eco e do "resultado do comando" ──────────────────
+
+const cts = (s) => new Date(Date.UTC(2026, 9, 18, 19, 6, 31, 464) + s * 1000).toISOString();
+const compactInicio = (s = 0) => linhaUserEm(cts(s), '/compact');
+const linhaUserEm = (iso, content, extra) => JSON.stringify(Object.assign({ type: 'user', timestamp: iso, message: { role: 'user', content } }, extra)) + '\n';
+const boundary = (s, trigger = 'manual') => JSON.stringify({ type: 'system', subtype: 'compact_boundary', content: 'Conversation compacted', timestamp: cts(s), compactMetadata: { trigger } }) + '\n';
+const ecoCompact = (s = 0) => linhaUserEm(cts(s), '<command-name>/compact</command-name>\n <command-message>compact</command-message>\n <command-args></command-args>');
+const stdoutCompact = (s) => linhaUserEm(cts(s), '<local-command-stdout>\u001b[2mCompacted (ctrl+o to see full summary)\u001b[22m\n\u001b[2mPreCompact [runner-hook.mjs] completed successfully\u001b[22m</local-command-stdout>');
+const resumo = (s) => linhaUserEm(cts(s), 'This session is being continued from a previous conversation... <dgchat from="x" chat="c_ana" msg="1">oi</dgchat>', { isCompactSummary: true });
+const caveat = (s) => linhaUserEm(cts(s), '<local-command-caveat>Caveat: x</local-command-caveat>', { isMeta: true });
+const resumoMsgs = (t) => t.msgs.map((m) => [m.origin, m.text]);
+const AVISOS = [['agente', 'Tô compactando a conversa pra voltar mais leve... já volto'], ['agente', 'Voltei, conversa compactada.']];
+
+test('compactação: a sequência real vira dois avisos da agente, sem balão do dono nem "resultado do comando"', async () => {
+  const t = await threadDe([compactInicio(0), boundary(45.8), resumo(45.5), caveat(0.008), ecoCompact(0.008), stdoutCompact(45.9)]);
+  assert.deepEqual(resumoMsgs(t), AVISOS);
+  assert.equal(t.msgs[0].via, 'plataforma'); assert.equal(t.msgs[0].quem, 'agente');
+  assert.ok(t.msgs[0].ep < t.msgs[1].ep);
+});
+
+test('compactação: só o eco e a saída (sem a linha "/compact" inicial) também dão dois avisos, na ordem certa', async () => {
+  // ordem real do arquivo: boundary primeiro, eco (com o timestamp do início) depois
+  const a = await threadDe([boundary(45.8), resumo(45.5), caveat(0.008), ecoCompact(0.008), stdoutCompact(45.9)]);
+  assert.deepEqual(resumoMsgs(a), AVISOS);
+  assert.ok(a.msgs[0].ep < a.msgs[1].ep);
+  // versão que grava o eco ANTES do fim
+  const b = await threadDe([ecoCompact(0), stdoutCompact(45.9), boundary(45.8)]);
+  assert.deepEqual(resumoMsgs(b), AVISOS);
+});
+
+test('compactação: compact_boundary automático sozinho dá os dois avisos', async () => {
+  const t = await threadDe([boundary(10, 'auto'), resumo(9)]);
+  assert.deepEqual(resumoMsgs(t), AVISOS);
+  assert.ok(t.msgs[0].ep < t.msgs[1].ep);
+});
+
+test('compactação: "/compact" inicial sem boundary só mostra o aviso de início, e não duplica', async () => {
+  const t = await threadDe([compactInicio(0), compactInicio(5)]);
+  assert.deepEqual(resumoMsgs(t), [AVISOS[0]]);
+});
+
+const INTERROMPIDA = ['agente', 'A compactação não terminou, sigo com a conversa como estava.'];
+
+test('compactação: uma tentativa que nunca terminou (prazo) é fechada como interrompida antes da próxima', async () => {
+  const t = await threadDe([compactInicio(0), compactInicio(3600), boundary(3640)]);
+  assert.deepEqual(resumoMsgs(t), [AVISOS[0], INTERROMPIDA, AVISOS[0], AVISOS[1]]);
+});
+
+test('compactação: "/compact" cru seguido de fala do dono = início + interrompida, sem "Voltei"', async () => {
+  const dono = linhaUserEm(cts(30), '<dgchat from="Danilo" chat="c_ana" msg="m9" ts="1">oi, voltou?</dgchat>');
+  const t = await threadDe([compactInicio(0), dono]);
+  assert.deepEqual(resumoMsgs(t), [AVISOS[0], INTERROMPIDA, ['dono', 'oi, voltou?']]);
+  assert.ok(t.msgs[1].ep < t.msgs[2].ep);
+  assert.equal(t.msgs[1].sistema, 'compactacao');
+});
+
+test('compactação: resposta da agente em texto puro (sem dgchat nem ferramenta) também prova a interrupção', async () => {
+  // Caso real da Tina (18/10/2026): a caixa foi trocada no meio do /compact e a próxima linha útil foi uma
+  // resposta em texto puro, que o pré-filtro descartava; o "já volto" ficava pendurado até vencer o prazo.
+  const fala = JSON.stringify({ type: 'assistant', timestamp: cts(120), message: { role: 'assistant', content: [{ type: 'text', text: 'No response requested.' }] } }) + '\n';
+  const t = await threadDe([compactInicio(0), fala]);
+  assert.deepEqual(resumoMsgs(t), [AVISOS[0], INTERROMPIDA]);
+});
+
+test('compactação: outro comando de barra (/context) segue como fala do dono e "resultado do comando"', async () => {
+  const t = await threadDe([
+    linhaUserEm(cts(0), '<command-name>/context</command-name>\n<command-message>context</command-message>\n<command-args></command-args>'),
+    linhaUserEm(cts(1), '<local-command-stdout>12% usado</local-command-stdout>'),
+  ]);
+  assert.deepEqual(resumoMsgs(t), [['dono', '/context'], ['comando', '12% usado']]);
+});
+
+test('compactação: falha (stderr) vira aviso da agente com a primeira linha do erro, sem "Voltei"', async () => {
+  const t = await threadDe([compactInicio(0), ecoCompact(0.008), linhaUserEm(cts(5), '<local-command-stderr>\u001b[31mError: Not enough messages to compact.\u001b[0m\nmais detalhe</local-command-stderr>')]);
+  assert.deepEqual(resumoMsgs(t), [AVISOS[0], ['agente', 'Não consegui compactar a conversa: Error: Not enough messages to compact.']]);
+});
+
+test('compactação: o resultado do /compact não vaza para o comando seguinte', async () => {
+  const t = await threadDe([ecoCompact(0), stdoutCompact(1), boundary(1), linhaUserEm(cts(100), '<local-command-stdout>12% usado</local-command-stdout>')]);
+  assert.deepEqual(resumoMsgs(t), [...AVISOS, ['comando', '12% usado']]);
+});
+
+test('compactação: reconstrução do zero dá o mesmo resultado da leitura incremental', () => {
+  const { criarLeitor: criar } = require('../lib/thread');
+  const raiz = pastaTemp('inc');
+  const arq = path.join(raiz, 's.jsonl');
+  const agente = { slug: 'ana', nome: 'Ana', chat_id: 'c_ana', home_host: raiz, home_container: '/home/agente' };
+  const cap = capturaLog();
+  const midia = criarMidia({ dataDir: pastaTemp('dados'), log: cap.log, registro: { obter: () => agente } });
+  const novo = () => criar({ log: cap.log, tz: 'America/Sao_Paulo', canalTelegram: 'plugin:telegram', midia });
+  const partes = [compactInicio(0), boundary(45.8), resumo(45.5), caveat(0.008), ecoCompact(0.008), stdoutCompact(45.9)];
+  const inc = novo();
+  fs.writeFileSync(arq, '');
+  for (const p of partes) { fs.appendFileSync(arq, p); inc.ler(arq, agente); }
+  const completo = novo().ler(arq, agente).eventos;
+  assert.deepEqual(inc.ler(arq, agente).eventos, completo);
+  assert.deepEqual(completo.map((m) => m.text), AVISOS.map((a) => a[1]));
 });
 
 // ── rotas ──────────────────────────────────────────────────────────────────
