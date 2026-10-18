@@ -448,7 +448,8 @@ function criarLembretes({ config, registro, runner, push, log, agora }) {
 
   // ── rotas ──────────────────────────────────────────────────────────────────
   const quemTexto = (quem) => (quem.tipo === 'agente' ? `agente:${quem.slug}` : `dono:${quem.usuario || '?'}`);
-  const visivel = (quem, o) => quem.tipo === 'dono' || o.agente === quem.slug;
+  // quem.pode (enterprise): o funcionário só enxerga os lembretes dos agentes liberados para ele
+  const visivel = (quem, o) => (quem.tipo === 'dono' ? !quem.pode || quem.pode(o.agente) : o.agente === quem.slug);
 
   function erroDeCampos(res, resumo, erros) {
     const lista = Object.entries(erros).map(([c, m]) => `${c}: ${m}`).join('; ');
@@ -473,11 +474,12 @@ function criarLembretes({ config, registro, runner, push, log, agora }) {
     const est = registro.estado();
     if (!est.ok) { H.erroJson(res, 503, est.erro); return null; }
     if (slug) {
+      if (quem.pode && !quem.pode(slug)) { H.erroJson(res, 403, `Você não tem acesso ao agente "${slug.slice(0, 40)}", então não mexe em lembrete dele. Peça ao TI para liberar.`); return null; }
       if (!registro.obter(slug)) { H.erroJson(res, 404, `Não existe agente "${slug}". Veja os ids em GET /api/v1/agents.`); return null; }
       return slug;
     }
     if (!exigir) return undefined;
-    const so = est.agentes.filter((a) => a.tipo === 'agente');
+    const so = est.agentes.filter((a) => a.tipo === 'agente' && (!quem.pode || quem.pode(a.slug)));
     if (so.length === 1) return so[0].slug;
     erroDeCampos(res, 'Faltou dizer de qual agente é o lembrete.', {
       agente: so.length ? `faltou. Há ${so.length} agentes; mande um destes: ${so.map((a) => a.slug).join(', ')}` : 'faltou, e não há nenhum agente criado ainda. Crie um agente antes de agendar lembretes',
@@ -495,6 +497,10 @@ function criarLembretes({ config, registro, runner, push, log, agora }) {
 
   function achaLembrete(res, quem, id) {
     const l = RX_LEMBRETE.test(id) ? lembretes.get(id) : null;
+    if (l && quem.tipo === 'dono' && !visivel(quem, l)) {
+      H.erroJson(res, 403, `Esse lembrete é de um agente a que você não tem acesso. Peça ao TI para liberar.`);
+      return null;
+    }
     if (!l || !visivel(quem, l)) {
       H.erroJson(res, 404, `Não existe o lembrete "${id.slice(0, 40)}". Veja os existentes em GET ${BASE}.`);
       return null;
@@ -504,6 +510,10 @@ function criarLembretes({ config, registro, runner, push, log, agora }) {
 
   function achaOcorrencia(res, quem, id) {
     const o = RX_OCORRENCIA.test(id) ? ocorrencias.get(id) : null;
+    if (o && quem.tipo === 'dono' && !visivel(quem, o)) {
+      H.erroJson(res, 403, `Essa ocorrência é de um agente a que você não tem acesso. Peça ao TI para liberar.`);
+      return null;
+    }
     if (!o || !visivel(quem, o)) {
       H.erroJson(res, 404, `Não existe a ocorrência "${id.slice(0, 60)}". Veja as ocorrências de um lembrete em GET ${BASE}/<id>/ocorrencias.`);
       return null;
@@ -593,6 +603,9 @@ function criarLembretes({ config, registro, runner, push, log, agora }) {
     const filtroEstado = q.get('estado');
     if (filtroEstado && !['ativo', 'pausado', 'encerrado'].includes(filtroEstado)) {
       return H.erroJson(res, 400, `O filtro "estado" aceita ativo, pausado ou encerrado; recebi "${filtroEstado.slice(0, 40)}".`);
+    }
+    if (filtroAgente && quem.tipo === 'dono' && quem.pode && !quem.pode(filtroAgente)) {
+      return H.erroJson(res, 403, `Você não tem acesso ao agente "${filtroAgente.slice(0, 40)}", então não vê lembretes dele. Peça ao TI para liberar.`);
     }
     if (filtroAgente && quem.tipo === 'agente' && filtroAgente !== quem.slug) {
       return H.erroJson(res, 404, `Não existe agente "${filtroAgente.slice(0, 40)}" para você: um agente só vê os lembretes dele.`);

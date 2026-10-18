@@ -30,7 +30,10 @@ const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 /** Quem fez o pedido: o dono (sessão do navegador) ou um agente (pela caixa). */
 function quemChamou(sessao) {
   if (sessao && sessao.via === 'caixa') return { tipo: 'agente', slug: sessao.agente };
-  return { tipo: 'dono', usuario: sessao ? sessao.usuario : null };
+  // `pode` (enterprise): função (slug) => boolean que o server.js pendura na sessão; só existe para quem é dono. Sem ela, vê tudo.
+  const dono = { tipo: 'dono', usuario: sessao ? sessao.usuario : null };
+  if (sessao && typeof sessao.pode === 'function') dono.pode = sessao.pode;
+  return dono;
 }
 
 function criarCaixaAgente({ config, registro, log, porta, agora }) {
