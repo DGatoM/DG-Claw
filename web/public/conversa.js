@@ -2156,6 +2156,54 @@ function cartaoDoc(md) {
     `<a class="sec" href="${esc(md.url)}" download="${esc(md.nome || '')}">Baixar</a></div>`;
 }
 
+/* Zoom só da FOTO aberta no visor (a página nunca amplia; ver sem-zoom.js).
+   Pinça de dois dedos de 1x a 4x, um dedo arrasta quando ampliada, duplo toque
+   alterna 1x/2x. Cada abertura cria uma <img> nova, então volta a 1x ao fechar. */
+function ativaZoomImagem(img) {
+  img.dataset.zoomProprio = '1';
+  img.draggable = false;
+  img.style.touchAction = 'none';
+  img.style.transformOrigin = 'center center';
+  let esc = 1, tx = 0, ty = 0;
+  let dist0 = 0, esc0 = 1, ini = null, ultimoToque = 0, moveu = false;
+  const dist = t => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  const aplica = () => {
+    if (esc <= 1.02) { esc = 1; tx = 0; ty = 0; }
+    const mx = img.offsetWidth * (esc - 1) / 2, my = img.offsetHeight * (esc - 1) / 2;
+    tx = Math.max(-mx, Math.min(mx, tx));
+    ty = Math.max(-my, Math.min(my, ty));
+    img.style.transform = esc === 1 ? '' : 'translate(' + tx + 'px,' + ty + 'px) scale(' + esc + ')';
+  };
+  const alterna = () => { esc = esc > 1 ? 1 : 2; tx = 0; ty = 0; aplica(); };
+  img.addEventListener('touchstart', ev => {
+    moveu = false;
+    if (ev.touches.length === 2) { dist0 = dist(ev.touches) || 1; esc0 = esc; ini = null; }
+    else if (ev.touches.length === 1) ini = { x: ev.touches[0].clientX, y: ev.touches[0].clientY, tx, ty };
+  }, { passive: true });
+  img.addEventListener('touchmove', ev => {
+    ev.preventDefault();
+    if (ev.touches.length === 2 && dist0) {
+      moveu = true;
+      esc = Math.max(1, Math.min(4, esc0 * dist(ev.touches) / dist0));
+      aplica();
+    } else if (ev.touches.length === 1 && ini && esc > 1) {
+      const dx = ev.touches[0].clientX - ini.x, dy = ev.touches[0].clientY - ini.y;
+      if (Math.abs(dx) + Math.abs(dy) > 6) moveu = true;
+      tx = ini.tx + dx; ty = ini.ty + dy;
+      aplica();
+    }
+  }, { passive: false });
+  img.addEventListener('touchend', ev => {
+    if (ev.touches.length) { ini = null; return; }
+    ini = null;
+    if (moveu) { ultimoToque = 0; return; }
+    const agora = Date.now();
+    if (agora - ultimoToque < 300) { ultimoToque = 0; ev.preventDefault(); alterna(); }
+    else ultimoToque = agora;
+  }, { passive: false });
+  if (!ehToque) img.addEventListener('dblclick', alterna);
+}
+
 function abreLightbox(mid, opt) {
   const md = midias[mid];
   if (!md) return;
@@ -2173,6 +2221,7 @@ function abreLightbox(mid, opt) {
     img.alt = md.nome || 'foto';
     img.src = md.url;
     img.onerror = () => { lbCorpo.innerHTML = cartaoDoc(md); };
+    ativaZoomImagem(img);
     lbCorpo.appendChild(img);
   } else if (md.kind === 'video') {
     const v = document.createElement('video');
