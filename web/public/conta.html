@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Minha conta - DG Claw</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#2f9e5e">
+<link rel="icon" href="/icons/icon-192.png">
+<link rel="stylesheet" href="/conta.css">
+<link rel="stylesheet" href="/casca.css">
+<link rel="stylesheet" href="/menu-lado.css">
+<style>
+  body{margin:0;background:#f4f8f4;font:15.5px/1.46 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;color:#0f1c14}
+  body .cn-cab{display:none}
+</style>
+</head>
+<body>
+<div id="contaRaiz"></div>
+<script src="/tour.js"></script>
+<script src="/menu-lado.js"></script>
+<script src="/casca.js"></script>
+<script src="/conta-comum.js"></script>
+<script src="/conta.js"></script>
+<script>
+DGCasca.monta({ pagina: 'conta', titulo: 'Minha conta', aoTutorial: function () {
+  var b = document.querySelector('[data-cn-tutorial="pagina"]');
+  if (b) b.click();
+} });
+</script>
+</body>
+</html>

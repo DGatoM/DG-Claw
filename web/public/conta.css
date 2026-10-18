@@ -1,0 +1,48 @@
+/* conta.css: Minha conta e Usuários (classes cn-). Celular primeiro: cartões, sem rolagem horizontal, alvos de ~36px. */
+.cn-raiz{--cn-linha:#e1e8e3;--cn-texto:#0f1c14;--cn-fraco:#6c8172;--cn-fundo2:#f0f4f1;--cn-acento:#2f9e5e;
+  max-width:860px;margin:0 auto;padding:12px 12px 40px;color:var(--cn-texto);box-sizing:border-box;overflow-wrap:anywhere;word-break:break-word}
+.cn-raiz *{box-sizing:border-box}
+.cn-cab{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+.cn-cab h1{margin:0;font-size:22px;letter-spacing:-.01em}
+.cn-sec{background:#fff;border:1px solid var(--cn-linha);border-radius:14px;padding:12px 14px;margin:12px 0}
+.cn-sec h2{display:flex;align-items:center;gap:8px;margin:0 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:var(--cn-fraco)}
+.cn-btn{min-height:36px;padding:0 14px;border:1px solid var(--cn-linha);border-radius:18px;background:#fff;font:inherit;font-size:14px;color:var(--cn-texto);cursor:pointer}
+.cn-btn:hover{background:var(--cn-fundo2)}
+.cn-btn.cn-forte{background:var(--cn-acento);border-color:var(--cn-acento);color:#fff;font-weight:600}
+.cn-btn.cn-perigo{color:#a33;border-color:#e3c2c2}
+.cn-btn[disabled]{opacity:.55;cursor:default}
+.cn-mini{min-height:32px;padding:0 12px;font-size:13px;margin-top:6px}
+.cn-ajuda{width:32px;height:32px;border-radius:50%;border:1px solid var(--cn-linha);background:#fff;color:var(--cn-fraco);font:inherit;font-size:14px;font-weight:700;cursor:pointer;padding:0}
+.cn-ajuda:hover{background:var(--cn-fundo2);color:var(--cn-texto)}
+.cn-status{margin:6px 0 0;font-size:14px}
+.cn-status:empty{display:none}
+.cn-erro{color:#c0392b}
+.cn-ok{color:#1e6b3f}
+.cn-fraco{color:var(--cn-fraco);font-size:13px}
+.cn-vazio{margin:0;padding:10px 12px;border-radius:10px;background:var(--cn-fundo2)}
+.cn-lista{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:1fr;gap:10px}
+@media (min-width:720px){.cn-lista.cn-duas{grid-template-columns:1fr 1fr}}
+.cn-item{border:1px solid var(--cn-linha);border-left:4px solid #b9c4bc;border-radius:10px;padding:10px 12px;background:#fff}
+.cn-item.cn-atual,.cn-item.cn-ativo{border-left-color:var(--cn-acento)}
+.cn-item.cn-inativo{opacity:.7}
+.cn-linha{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px}
+.cn-selo{display:inline-block;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:600;background:var(--cn-fundo2);color:var(--cn-fraco)}
+.cn-selo.cn-on{background:#e8f5ec;color:#1e6b3f}
+.cn-selo.cn-off{background:#f3eeee;color:#8a5a5a}
+.cn-selo.cn-aviso{background:#fff4de;color:#8a6212}
+.cn-form{display:grid;gap:8px;max-width:420px}
+.cn-form label{font-size:13px;font-weight:600;color:#38523f}
+.cn-form input[type=text],.cn-form input[type=password],.cn-form input[type=email],.cn-form select{width:100%;min-height:42px;padding:8px 12px;border:1px solid var(--cn-linha);border-radius:10px;font:inherit;font-size:16px;background:#f4f8f4;color:var(--cn-texto)}
+.cn-form input:focus,.cn-form select:focus{outline:2px solid var(--cn-acento);background:#fff}
+.cn-checks{display:grid;grid-template-columns:1fr;gap:4px}
+.cn-checks label{display:flex;align-items:center;gap:8px;min-height:32px;font-weight:400;color:var(--cn-texto)}
+.cn-acoes{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.cn-chave{font:600 18px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.06em;background:var(--cn-fundo2);padding:8px 12px;border-radius:10px;user-select:all}
+.cn-codigos{list-style:none;margin:8px 0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:6px;font:600 15px ui-monospace,SFMono-Regular,Menlo,monospace}
+.cn-codigos li{background:var(--cn-fundo2);padding:6px 10px;border-radius:8px;text-align:center}
+.cn-link{background:#eef7f0;border:1px solid #bcdcc4;border-radius:10px;padding:10px 12px;margin:10px 0}
+.cn-link code{display:block;margin:6px 0;font-size:13px;user-select:all}
+.cn-det{margin:0;display:grid;grid-template-columns:1fr;gap:2px}
+.cn-det dt{font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.4px;color:var(--cn-fraco);margin-top:6px}
+.cn-det dd{margin:0}
+@media (min-width:720px){.cn-det{grid-template-columns:180px 1fr;gap:4px 12px}.cn-det dt{margin-top:0}}

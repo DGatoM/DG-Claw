@@ -12,7 +12,7 @@
 
   fetch('/api/login-estado', { cache: 'no-store' }).then((r) => r.json()).then((j) => {
     if (j && j.usuario) document.getElementById('quem').textContent = 'Usuário: ' + j.usuario;
-    if (j && j.sem_senha === false) mostra('Este painel já tem senha. Se o link foi usado, entre pelo login normal. Se não foi você, rode no servidor: sudo dgclaw senha');
+    if (j && j.sem_senha === false && !j.multiusuario) mostra('Este painel já tem senha. Se o link foi usado, entre pelo login normal. Se não foi você, rode no servidor: sudo dgclaw senha');
   }).catch(() => { /* a tela continua valendo sem o nome do usuário */ });
 
   if (!token) {

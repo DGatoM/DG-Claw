@@ -349,6 +349,12 @@
     // escolher uma página fecha a gaveta (a navegação em seguida troca a tela)
     $('mlTabs').addEventListener('click', ev => { if (ev.target.closest('a')) opcoes.fecha(); });
     pintaInstalar();
+    /* Enterprise: "Minha conta" e "Usuários" no menu. O script se cala sozinho quando o multiusuário está desligado. */
+    if (!$('entContaScript')) {
+      const sc = document.createElement('script');
+      sc.id = 'entContaScript'; sc.src = '/ent-conta.js';
+      document.body.appendChild(sc);
+    }
   }
 
   return { ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, linkSessoes, itemAgente, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar, inicia, marca, extras };
