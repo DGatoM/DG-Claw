@@ -202,6 +202,8 @@ RUN ln -s /opt/dgclaw/app/bin/dgclaw-agente /usr/local/bin/dgclaw-agente \
  && ln -s /opt/dgclaw/app/bin/dgclaw-api /usr/local/bin/dgclaw-api
 # dgclaw-mesa: o agente cria e atualiza as tarefas da Mesa (fala com o Web pela caixa, dgclaw-api).
 RUN ln -s /opt/dgclaw/app/bin/dgclaw-mesa /usr/local/bin/dgclaw-mesa
+# dgclaw-controle: o Admin em container (enterprise) pede operacoes ao servico de controle do host, pela caixa. Em agente comum nao serve para nada.
+RUN ln -s /opt/dgclaw/app/bin/dgclaw-controle /usr/local/bin/dgclaw-controle
 
 # O painel é JavaScript puro (express e afins), sem parte nativa: instala aqui, sem compilador.
 RUN cd /opt/dgclaw/app/panel && npm install --omit=dev --no-audit --no-fund && npm cache clean --force

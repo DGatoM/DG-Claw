@@ -1,0 +1,177 @@
+#!/usr/bin/env bash
+# dgclaw-controle: o Admin pede ao servidor, pelo servico de controle, uma operacao da lista fechada. Roda DENTRO do
+# container do Admin e fala pela caixa (dgclaw-api), como os outros comandos do agente. Nao ha outro jeito de o Admin
+# mexer na maquina: ele nao tem root, nao tem podman e nao tem sudo.
+#
+# Uso:
+#   dgclaw-controle <operacao> [--parametro valor ...] [--espera S]
+#   dgclaw-controle pedido <id>        estado de um pedido que ficou esperando o TI aprovar
+#   dgclaw-controle tarefa <id>        estado de uma operacao demorada que foi para o segundo plano
+#   dgclaw-controle ops                a lista de operacoes e dos parametros (markdown)
+#   dgclaw-controle ajuda
+#
+#   Exemplos:  dgclaw-controle agentes.listar
+#              dgclaw-controle agente.criar --slug ana --nome "Ana" --papel "organiza a agenda"
+#              dgclaw-controle agente.remover --agente ana        (perigosa: espera o TI aprovar no painel)
+#
+#   --espera S   quantos segundos esperar uma operacao demorada terminar (padrao 20, de 0 a 600)
+#
+# Operacoes perigosas nao executam: viram um pedido que uma pessoa do TI aprova no painel (/aprovacoes). O comando diz o
+# identificador do pedido; acompanhe com "dgclaw-controle pedido <id>". Cada aprovacao vale uma vez e por 24 horas.
+#
+# Variaveis de ambiente:
+#   DGCLAW_API   so para testes: caminho do dgclaw-api (padrao: o que fica ao lado deste arquivo)
+#
+# Codigos de saida: 0 deu certo (inclui "ficou pendente de aprovacao"); 1 erro de uso; 2 e 3 vem do dgclaw-api (o Web nao
+# respondeu; a caixa nao esta disponivel); 4 o controle recusou o pedido (leia o motivo); 5 erro do lado do servidor;
+# 6 a operacao demorada terminou com erro.
+set -euo pipefail
+
+erro() { echo "dgclaw-controle: $*" >&2; }
+die() { local c="${CODIGO:-1}"; erro "$*"; exit "$c"; }
+
+cmd_ajuda() {
+  sed -n '2,/^set -euo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'
+}
+
+case "${1:-ajuda}" in ajuda|-h|--help) cmd_ajuda; exit 0 ;; esac
+
+command -v jq >/dev/null || die "o jq nao foi encontrado no container. Avise quem mantem a imagem do agente."
+QUEM_AQUI="$(readlink -f "${BASH_SOURCE[0]}")"
+API="${DGCLAW_API:-$(dirname "$QUEM_AQUI")/dgclaw-api}"
+[ -x "$API" ] || die "nao achei o dgclaw-api em $API. Avise quem mantem a imagem do agente."
+
+# chama <metodo> <rota> [corpo]: imprime o JSON {status, corpo} da resposta e devolve o codigo do dgclaw-api.
+chama() {
+  local rc=0
+  if [ $# -ge 3 ]; then "$API" "$1" "$2" "$3" --com-status --espera 25 || rc=$?
+  else "$API" "$1" "$2" --com-status --espera 25 || rc=$?
+  fi
+  return "$rc"
+}
+
+# separa a resposta: STATUS e CORPO. Em erro de caixa (codigos 2 e 3) o dgclaw-api ja explicou no stderr.
+le_resposta() {
+  local texto="$1"
+  STATUS="$(printf '%s' "$texto" | jq -r '.status // empty' 2>/dev/null || true)"
+  CORPO="$(printf '%s' "$texto" | jq -c '.corpo // empty' 2>/dev/null || true)"
+}
+
+mostra_resultado() {
+  # Resultado so com texto (saida de um comando) sai cru; o resto, como JSON.
+  printf '%s' "$1" | jq -r 'if (type == "object") and (keys == ["saida"]) and (.saida | type == "string") then .saida else tojson end'
+}
+
+# espera_tarefa <id> <segundos>: acompanha uma tarefa em segundo plano. Devolve 0 (ok), 6 (erro) ou 0 com aviso (ainda rodando).
+espera_tarefa() {
+  local id="$1" limite="$2" t=0 texto estado rc
+  while :; do
+    rc=0
+    texto="$(chama POST /api/v1/controle/tarefa.ver "$(jq -nc --arg id "$id" '{params: {id: $id}}')")" || rc=$?
+    if [ "$rc" -ne 0 ]; then
+      le_resposta "$texto"
+      printf '%s\n' "${CORPO:-$texto}"
+      return "$rc"
+    fi
+    le_resposta "$texto"
+    estado="$(printf '%s' "$CORPO" | jq -r '.resultado.tarefa.estado // empty')"
+    case "$estado" in
+      ok)
+        mostra_resultado "$(printf '%s' "$CORPO" | jq -c '.resultado.tarefa.resultado')"
+        return 0 ;;
+      erro)
+        erro "$(printf '%s' "$CORPO" | jq -r '.resultado.tarefa.erro')"
+        return 6 ;;
+    esac
+    if [ "$t" -ge "$limite" ]; then
+      printf '{"tarefa":"%s","estado":"rodando"}\n' "$id"
+      erro "a operacao continua em segundo plano. Acompanhe com: dgclaw-controle tarefa $id"
+      return 0
+    fi
+    sleep 3
+    t=$((t + 3))
+  done
+}
+
+OP="$1"; shift
+
+case "$OP" in
+  ops)
+    rc=0
+    TEXTO="$("$API" GET /api/v1/controle/docs.md)" || rc=$?
+    printf '%s\n' "$TEXTO"
+    exit "$rc" ;;
+  pedido)
+    [ $# -eq 1 ] || die "use: dgclaw-controle pedido <id>"
+    [[ "$1" =~ ^[0-9a-f]{24}$ ]] || die "o identificador '$1' nao e de um pedido (sao 24 caracteres entre 0-9 e a-f, o que voltou quando o pedido ficou pendente)."
+    rc=0
+    TEXTO="$(chama GET "/api/v1/aprovacoes/$1")" || rc=$?
+    le_resposta "$TEXTO"
+    printf '%s\n' "${CORPO:-$TEXTO}"
+    if [ "$rc" -ne 0 ]; then exit "$rc"; fi
+    ESTADO="$(printf '%s' "$CORPO" | jq -r '.aprovacao.estado // empty')"
+    case "$ESTADO" in
+      pendente) erro "o pedido ainda espera uma pessoa do TI decidir em /aprovacoes. Nada foi executado; consulte de novo mais tarde." ;;
+      aprovada) erro "o TI aprovou e a execucao esta em andamento. Consulte de novo em instantes." ;;
+      executada) erro "o TI aprovou e a operacao foi executada (o resultado esta no JSON acima; se vier uma tarefa, acompanhe com: dgclaw-controle tarefa <id>)." ;;
+      recusada) erro "o TI recusou este pedido. Nao tente de novo sem falar com ele." ;;
+      expirada) erro "o pedido venceu sem decisao (valem 24 horas). Se ainda for preciso, peca de novo." ;;
+      falhou) erro "o TI aprovou, mas a execucao falhou (motivo no JSON acima)." ;;
+    esac
+    exit 0 ;;
+  tarefa)
+    [ $# -eq 1 ] || die "use: dgclaw-controle tarefa <id>"
+    espera_tarefa "$1" 0
+    exit $? ;;
+esac
+
+[[ "$OP" =~ ^[a-z]+\.[a-z]+$ ]] || die "'$OP' nao e uma operacao (elas tem a forma agente.criar). Veja a lista com: dgclaw-controle ops"
+
+PARAMS='{}'
+ESPERA=20
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --espera)
+      [ $# -ge 2 ] || die "falta o valor de --espera."
+      ESPERA="$2"; shift 2 ;;
+    --*)
+      NOME="${1#--}"
+      [[ "$NOME" =~ ^[a-z_]+$ ]] || die "o parametro '$1' nao vale: use letras minusculas e sublinhado (veja: dgclaw-controle ops)."
+      [ $# -ge 2 ] || die "falta o valor de --$NOME."
+      PARAMS="$(printf '%s' "$PARAMS" | jq -c --arg k "$NOME" --arg v "$2" '. + {($k): $v}')"
+      shift 2 ;;
+    *) die "nao entendi '$1'. Os parametros sao --nome valor (veja: dgclaw-controle ops)." ;;
+  esac
+done
+if ! [[ "$ESPERA" =~ ^[0-9]+$ ]] || [ "$ESPERA" -gt 600 ]; then
+  die "--espera precisa ser um numero de segundos de 0 a 600 (recebido: '$ESPERA')."
+fi
+
+RC=0
+TEXTO="$(chama POST "/api/v1/controle/$OP" "$(jq -nc --argjson p "$PARAMS" '{params: $p}')")" || RC=$?
+le_resposta "$TEXTO"
+if [ "$RC" -ne 0 ]; then
+  [ -z "${CORPO:-}" ] || printf '%s\n' "$CORPO"
+  exit "$RC"
+fi
+
+if [ "$STATUS" = 202 ] && [ "$(printf '%s' "$CORPO" | jq -r '.pendente // false')" = true ]; then
+  ID="$(printf '%s' "$CORPO" | jq -r '.aprovacao')"
+  printf '%s\n' "$CORPO"
+  erro "esta operacao e perigosa e NAO foi executada: ficou como pedido $ID esperando uma pessoa do TI aprovar no painel (/aprovacoes). Avise o TI e acompanhe com: dgclaw-controle pedido $ID"
+  exit 0
+fi
+
+TAREFA="$(printf '%s' "$CORPO" | jq -r '.resultado.tarefa // empty')"
+if [ -n "$TAREFA" ] && [ "$(printf '%s' "$CORPO" | jq -r '.resultado.estado // empty')" = rodando ]; then
+  if [ "$ESPERA" -eq 0 ]; then
+    printf '%s\n' "$(printf '%s' "$CORPO" | jq -c '.resultado')"
+    erro "a operacao segue em segundo plano. Acompanhe com: dgclaw-controle tarefa $TAREFA"
+    exit 0
+  fi
+  espera_tarefa "$TAREFA" "$ESPERA"
+  exit $?
+fi
+
+mostra_resultado "$(printf '%s' "$CORPO" | jq -c '.resultado')"
+exit 0

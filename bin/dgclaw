@@ -154,6 +154,14 @@ Protecao e versao
       Exemplo:  dgclaw usuario criar ana.silva --papel funcionario --agentes luna,marina
   dgclaw versao                          mostra a versao instalada
 
+Admin sem root (protecao admin_isolado)
+  dgclaw admin isolar                    cria o Admin em container e desliga o Admin do host; ele passa a pedir ao servico de controle
+  dgclaw admin host                      volta ao Admin do host (so onde a protecao nao e travada)
+  dgclaw admin status                    em que modo o Admin esta
+  dgclaw admin manutencao abrir <5 a 60> [--por <quem>]   liga o Admin antigo (root) por N minutos; fecha sozinho
+  dgclaw admin manutencao fechar|status
+      Detalhes e o fluxo de aprovacao: docs/enterprise/CONTROLE.md
+
 Dados pessoais e monitoramento
   dgclaw retencao aplicar [--agente <slug>]  apaga o que passou do prazo (retencao_dias); --ensaio so lista
   dgclaw titular buscar <termo> [--termo <outro>] [--agente <slug>]   onde esta o dado de uma pessoa (nome, CPF, e-mail, telefone)
@@ -965,18 +973,22 @@ registrar_agente() {
         info "[ensaio] registraria o agente $C_SLUG em $DG_AGENTES_JSON"
         return 0
     fi
+    # Admin em container (enterprise, bloco C): tipo "admin" e papel "admin" no registro; agente comum continua tipo "agente".
+    local tipo=agente papel=""
+    if ent_admin_criando; then tipo="admin"; papel="admin"; fi
     # shellcheck disable=SC2016 # os $ sao variaveis do jq
-    jq -n \
+    jq -n --arg tipo "$tipo" --arg papel "$papel" \
         --arg slug "$C_SLUG" --arg nome "$C_NOME" --arg runner "http://127.0.0.1:$C_PORTA_RUNNER" \
         --arg avatar "$C_AVATAR" --arg cor "$C_COR" --arg prov "$C_PROVEDOR" --arg modelo "$C_MODELO" \
         --arg td "$transcripts" --argjson pp "$C_PORTA_PAINEL" \
         --arg psa "$DG_ETC/proxy/$C_SLUG.segredo" --arg rta "$DG_ETC/runner/$C_SLUG.token" \
         --arg hh "$C_HOME" --arg cofre "${C_HOME%/home}/cofre/cofre.env" '
-        {slug: $slug, nome: $nome, tipo: "agente", runner: $runner, agente_id: $slug,
+        {slug: $slug, nome: $nome, tipo: $tipo, runner: $runner, agente_id: $slug,
          chat_id: ("c_" + $slug), avatar: $avatar, cor: $cor, provedor: $prov, modelo: $modelo,
          transcripts_dir: $td, porta_painel: $pp, proxy_segredo_arquivo: $psa,
          runner_token_arquivo: $rta, home_host: $hh, home_container: "/home/agente",
-         cofre_arquivo: $cofre, container: ("dgclaw-" + $slug)}' \
+         cofre_arquivo: $cofre, container: ("dgclaw-" + $slug)}
+        + (if $papel != "" then {papel: $papel} else {} end)' \
         | agentes_registrar
 }
 
@@ -1024,7 +1036,8 @@ agente_criar() {
     [[ "$C_SLUG" =~ ^[a-z0-9][a-z0-9-]{1,30}$ ]] \
         || falha "o nome curto '$C_SLUG' nao serve: use 2 a 31 caracteres, so letras minusculas, numeros e hifen, comecando por letra ou numero." \
                  "exemplo: ana, suporte-vendas"
-    [ "$C_SLUG" != admin ] || falha "o nome curto 'admin' e reservado ao agente de sistema." "escolha outro nome curto."
+    # Enterprise (bloco C): so o `dgclaw admin isolar` cria o Admin em container, e ele avisa por ent_admin_criando.
+    [ "$C_SLUG" != admin ] || ent_admin_criando || falha "o nome curto 'admin' e reservado ao agente de sistema." "escolha outro nome curto."
     [ -n "$C_NOME" ] || falha "faltou o nome do agente (--nome)." "exemplo: dgclaw agente criar $C_SLUG --nome \"Ana\""
     case "$C_PROVEDOR" in claude|codex) ;; *) falha "provedor '$C_PROVEDOR' nao existe." "use --provedor claude ou --provedor codex." ;; esac
     case "$C_AUTH" in assinatura|api) ;; *) falha "autenticacao '$C_AUTH' nao existe." "use --auth assinatura ou --auth api." ;; esac
@@ -1963,14 +1976,18 @@ status_geral() {
     ent_rodar_ganchos ent_status_ || s_mal "um gancho de status enterprise falhou (veja a mensagem acima)"
 
     local u
-    for u in caddy dgclaw-web dgclaw-admin; do
+    local unidades_admin
+    read -ra unidades_admin <<<"$(ent_admin_unidades)"   # enterprise: com o Admin isolado, quem precisa estar de pe e o controle
+    for u in caddy dgclaw-web "${unidades_admin[@]}"; do
         if [ "$(systemctl is-active "$u" 2>/dev/null)" = active ]; then s_ok "servico $u de pe"
         else s_mal "servico $u parado. Veja: systemctl status $u  (ligar: systemctl start $u)"; fi
     done
     if curl -s -o /dev/null --max-time 3 http://127.0.0.1:8300/; then s_ok "Web responde em 127.0.0.1:8300"
     else s_mal "o Web nao responde em 127.0.0.1:8300. Veja: journalctl -u dgclaw-web -n 50"; fi
-    if curl -fsS -o /dev/null --max-time 3 http://127.0.0.1:4300/api/saude; then s_ok "Admin responde (/api/saude em 127.0.0.1:4300)"
-    else s_mal "o Admin nao responde em 127.0.0.1:4300/api/saude. Veja: journalctl -u dgclaw-admin -n 50"; fi
+    local porta_admin
+    porta_admin="$(ent_admin_porta)"
+    if curl -fsS -o /dev/null --max-time 3 "http://127.0.0.1:$porta_admin/api/saude"; then s_ok "Admin responde (/api/saude em 127.0.0.1:$porta_admin)"
+    else s_mal "o Admin nao responde em 127.0.0.1:$porta_admin/api/saude. Veja: journalctl -u dgclaw-admin -n 50 (Admin isolado: podman logs dgclaw-admin)"; fi
 
     if podman image exists "$DGCLAW_IMAGEM" >/dev/null 2>&1; then s_ok "imagem dos agentes pronta"
     else s_aviso "imagem dos agentes ainda nao esta pronta (veja: dgclaw imagem status)"; fi

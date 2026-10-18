@@ -26,6 +26,7 @@ logica mais pesada chama um script Node do app (como a geracao do hash da senha)
 | `dgclaw imagem construir [--agora]` | constroi a imagem em segundo plano, ou aqui com `--agora` |
 | `dgclaw senha trocar` | nova senha do painel pelo STDIN (minimo 12 caracteres) |
 | `dgclaw status` | tudo de pe? Sai com erro se algo essencial caiu |
+| `dgclaw-controle <operacao> [--parametro valor]` | (dentro do container do Admin isolado) pede uma operacao ao servico de controle; perigosa vira pedido de aprovacao do TI. Ver `docs/enterprise/CONTROLE.md` |
 
 `--ensaio` (antes ou depois do subcomando) mostra o que faria sem mudar nada.
 `--ajuda` mostra exemplos de cada comando.

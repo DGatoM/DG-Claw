@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# O teste do bloco C confere o que o rsync deixa de fora (--exclude), entao usa o de verdade; o stub do bloco D
+# (stubs-d/rsync) copia tudo e ignora as opcoes.
+exec "$(PATH=/usr/bin:/bin command -v rsync)" "$@"

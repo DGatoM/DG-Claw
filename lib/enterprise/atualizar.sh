@@ -159,7 +159,8 @@ _atu_defeito() {
             else
                 aviso "a versao $antes foi restaurada, mas ainda nao responde: veja journalctl -u dgclaw-web -n 50"
             fi
-            systemctl restart dgclaw-admin || aviso "nao consegui reiniciar o dgclaw-admin; rode: systemctl restart dgclaw-admin"
+            read -ra unid_admin <<<"$(ent_admin_unidades)"
+            systemctl restart "${unid_admin[@]}" || aviso "nao consegui reiniciar ${unid_admin[*]}; rode: systemctl restart ${unid_admin[*]}"
         else
             printf '%sO rollback tambem falhou:%s %s\n' "$_C_ER" "$_C_0" "$msg" >&2
         fi

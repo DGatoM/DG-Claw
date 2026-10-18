@@ -139,8 +139,9 @@ _mon_checar_cerca() {
 }
 
 _mon_checar_servicos() {
-    local u slug estado
-    for u in dgclaw-web dgclaw-admin caddy; do
+    local u slug estado unid_admin
+    read -ra unid_admin <<<"$(ent_admin_unidades)"   # Admin isolado: o que precisa estar de pe e o servico de controle
+    for u in dgclaw-web "${unid_admin[@]}" caddy; do
         if [ "$(systemctl is-active "$u" 2>/dev/null)" != active ]; then
             _mon_problema "servico:$u" "O servico $u nao esta de pe." "Veja o motivo: journalctl -u $u -n 50. Para ligar: systemctl restart $u"
         fi
