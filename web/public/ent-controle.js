@@ -21,7 +21,7 @@
     if (!m || !m.aberta || document.getElementById('entManutencaoFaixa')) return;
     const faixa = document.createElement('a');
     faixa.id = 'entManutencaoFaixa';
-    faixa.href = m.link || '/a/admin-manutencao';
+    faixa.href = /^\/a\/[a-z0-9-]{2,31}$/.test(m.link || '') ? m.link : '/a/admin-manutencao';
     faixa.style.cssText = 'display:block;position:sticky;top:0;z-index:50;padding:8px 12px;background:#c0392b;color:#fff;font:600 14px/1.3 -apple-system,Segoe UI,Roboto,sans-serif;text-align:center;text-decoration:none';
     faixa.textContent = 'Manutenção de emergência aberta: o Admin antigo roda como root no servidor por mais ' + m.minutos_restantes + ' min' + (m.por ? ' (aberta por ' + m.por + ')' : '') + '. Toque para abrir a conversa.';
     document.body.insertBefore(faixa, document.body.firstChild);

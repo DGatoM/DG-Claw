@@ -136,6 +136,9 @@ A manutenção grava `manutencao_aberta` e `manutencao_fechada`; isolar e voltar
    do Claude em `/root/.claude` não é levado);
 6. desliga e desabilita `dgclaw-admin.service`.
 
+Se o container do Admin quebrar, `dgclaw admin isolar` de novo refaz o que faltar sem duplicar nada (o
+`dgclaw agente reparar` não vale para o `admin`), e a manutenção de emergência é o caminho quando nem isso resolve.
+
 A conta do Claude do Admin é o assento do próprio TI: depois de isolar, ele abre o painel do Admin e usa **Entrar com a
 assinatura**, como em qualquer agente.
 

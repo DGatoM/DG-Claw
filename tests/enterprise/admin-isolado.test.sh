@@ -29,7 +29,7 @@ chamou() { grep -q -- "$1" "$STUB_LOG"; }
 echo "admin: nivel pessoal nao muda nada"
 igual "unidades esperadas: so o Admin do host" "dgclaw-admin" "$(lib_d ent_admin_unidades)"
 igual "porta do Admin: 4300" "4300" "$(lib_d ent_admin_porta)"
-afirma "gancho de instalar nao faz nada" lib_d ent_instalar_admin_isolado
+afirma "ganchos de instalar nao fazem nada" bash -c "$(declare -f lib_d); REPO='$REPO'; lib_d ent_instalar_admin_isolado && lib_d ent_instalar_controle"
 afirma "gancho de status nao diz nada" bash -c "[ -z \"\$(DGCLAW_RAIZ='$DGCLAW_RAIZ' bash -c '. \"$REPO/lib/comum.sh\"; . \"$REPO/lib/agentes.sh\"; . \"$REPO/lib/protecoes.sh\"; for f in \"$REPO\"/lib/enterprise/*.sh; do . \"\$f\"; done; ent_status_admin')\" ]"
 nega "o gancho do agente criar recusa o nome admin sem o aviso" "$CLI_COPIA" agente criar admin --nome Admin
 afirma "o nome admin continua reservado (a mensagem)" bash -c "'$CLI_COPIA' agente criar admin --nome Admin 2>&1 | grep -q 'reservado ao agente de sistema'"
@@ -179,7 +179,9 @@ printf '{"versao": 1, "agentes": [%s]}\n' "$ADMIN_HOST" >"$AGENTES"
 nivel_na_raiz escritorio
 touch "$STUB_ESTADO/sem-imagem"
 lib_d ent_instalar_admin_isolado >"$TMP/inst1.txt" 2>&1
-igual "instalar sem imagem pronta nao falha" 0 "$?"
+igual "instalar o Admin sem imagem pronta nao falha" 0 "$?"
+lib_d ent_instalar_controle >>"$TMP/inst1.txt" 2>&1
+igual "instalar o controle nao falha" 0 "$?"
 afirma "escreveu as unidades" test -f "$UNITS/dgclaw-controle.service"
 afirma "avisou que o Admin continua no host e como terminar" grep -q "dgclaw admin isolar" "$TMP/inst1.txt"
 igual "o Admin continua o do host" "" "$(jq -r '.agentes[] | select(.slug=="admin") | .container // empty' "$AGENTES")"
@@ -189,9 +191,9 @@ rm -f "$STUB_ESTADO/sem-imagem"
 lib_d ent_instalar_admin_isolado >"$TMP/inst2.txt" 2>&1
 igual "instalar com imagem pronta isola" 0 "$?"
 igual "agora em container" "dgclaw-admin" "$(jq -r '.agentes[] | select(.slug=="admin") | .container' "$AGENTES")"
-lib_d ent_instalar_admin_isolado >/dev/null 2>&1
+lib_d ent_instalar_admin_isolado >/dev/null 2>&1 && lib_d ent_instalar_controle >/dev/null 2>&1
 igual "instalar de novo e seguro" 0 "$?"
-afirma "ensaio nao muda nada" bash -c "rm -rf '$UNITS'; cd '$TMP' && DGCLAW_RAIZ='$DGCLAW_RAIZ' ENSAIO=1 bash -c '. \"$REPO/lib/comum.sh\"; . \"$REPO/lib/agentes.sh\"; . \"$REPO/lib/protecoes.sh\"; for f in \"$REPO\"/lib/enterprise/*.sh; do . \"\$f\"; done; ent_instalar_admin_isolado' >/dev/null 2>&1; test ! -e '$UNITS/dgclaw-controle.service'"
+afirma "ensaio nao muda nada" bash -c "rm -rf '$UNITS'; cd '$TMP' && DGCLAW_RAIZ='$DGCLAW_RAIZ' ENSAIO=1 bash -c '. \"$REPO/lib/comum.sh\"; . \"$REPO/lib/agentes.sh\"; . \"$REPO/lib/protecoes.sh\"; for f in \"$REPO\"/lib/enterprise/*.sh; do . \"\$f\"; done; ent_instalar_admin_isolado; ent_instalar_controle' >/dev/null 2>&1; test ! -e '$UNITS/dgclaw-controle.service'"
 
 echo "admin: protecoes aplicar"
 printf '{"versao": 1, "agentes": []}\n' >"$AGENTES"

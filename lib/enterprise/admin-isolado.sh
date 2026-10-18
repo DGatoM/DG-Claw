@@ -396,10 +396,12 @@ ent_depois_de_criar_admin_isolado() {
     ok "identidade do Admin isolado escrita (fala com a maquina so pelo dgclaw-controle)"
 }
 
+# Etapa do instalador, em duas funcoes (os ganchos rodam em ordem alfabetica): ent_instalar_admin_isolado cria o Admin em
+# container quando a imagem dos agentes ja esta pronta (o `admin isolar` instala as unidades por conta propria) e
+# ent_instalar_controle garante o servico de controle, a unidade de manutencao e o sandbox do Web, mesmo sem isolar.
 ent_instalar_admin_isolado() {
     protecao_ligada admin_isolado || return 0
-    passo "Admin isolado (servico de controle)"
-    _adm_instalar_unidades
+    passo "Admin isolado"
     if _adm_isolado_agora; then
         info "o Admin ja esta em container."
         return 0
@@ -414,6 +416,12 @@ ent_instalar_admin_isolado() {
     else
         aviso "a imagem dos agentes ainda esta sendo construida, entao o Admin continua no host por enquanto. Quando ela ficar pronta (dgclaw imagem status), rode: dgclaw admin isolar"
     fi
+}
+
+ent_instalar_controle() {
+    protecao_ligada admin_isolado || return 0
+    passo "Servico de controle do servidor"
+    _adm_instalar_unidades
 }
 
 ent_aplicar_admin_isolado() {
