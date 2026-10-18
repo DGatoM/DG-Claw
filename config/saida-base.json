@@ -1,0 +1,24 @@
+{
+  "versao": 1,
+  "fonte": "https://code.claude.com/docs/en/network-config (secao Network access requirements), consultado em 18/10/2026. Codex: a documentacao publica da OpenAI nao lista os enderecos de rede do CLI (https://learn.chatgpt.com/docs/security consultado em 18/10/2026), entao a lista do Codex vem do que o CLI usa para entrar e conversar e DEVE ser confirmada numa VPS real com 'dgclaw saida relatorio' antes de ligar o bloqueio.",
+  "comuns": [],
+  "claude": [
+    "api.anthropic.com",
+    "claude.ai",
+    "claude.com",
+    "platform.claude.com",
+    "mcp-proxy.anthropic.com",
+    "downloads.claude.ai",
+    "storage.googleapis.com",
+    "registry.npmjs.org",
+    "github.com",
+    "raw.githubusercontent.com",
+    "code.claude.com"
+  ],
+  "codex": [
+    "api.openai.com",
+    "auth.openai.com",
+    "chatgpt.com",
+    "registry.npmjs.org"
+  ]
+}
