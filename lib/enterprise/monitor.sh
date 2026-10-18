@@ -292,6 +292,9 @@ _mon_verificar() {
     _mon_checar_memoria
     # bloco G: fila da auditoria externa (a funcao vem de lib/enterprise/auditoria-cli.sh; sem ela nada acontece)
     if declare -F _mon_checar_auditoria_externa >/dev/null; then _mon_checar_auditoria_externa; fi
+    # bloco J: dados trancados (disco com chave externa) e agentes sem o runtime reforcado
+    if declare -F _mon_checar_disco_trancado >/dev/null; then _mon_checar_disco_trancado; fi
+    if declare -F _mon_checar_runtime >/dev/null; then _mon_checar_runtime; fi
 
     agora_s="$(_mon_agora_s)"
     quantos="${#MON_PROBLEMAS[@]}"

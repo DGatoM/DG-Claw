@@ -87,7 +87,7 @@ nega "tamanho sem unidade" "$CLI_COPIA" disco cifrar --tamanho 40
 nega "tamanho com lixo" "$CLI_COPIA" disco cifrar --tamanho '40G;rm'
 nivel_na_raiz regulado
 "$CLI_COPIA" disco cifrar --tamanho 64M >"$TMP/o.txt" 2>&1
-afirma "regulado (externo) diz que e da Fase 3" grep -q "Fase 3" "$TMP/o.txt"
+afirma "regulado (externo): cifra com a chave local transitoria e manda trocar por uma externa" grep -q "dgclaw disco chave externa" "$TMP/o.txt"
 
 echo "disco: instalador"
 novo escritorio

@@ -34,8 +34,8 @@ FIM
 }
 
 # disco_obter_chave: imprime o CAMINHO de um arquivo com a chave do volume. No modo auto e o arquivo fixo em
-# /etc/dgclaw. O modo `externo` (Fase 3) vai buscar a chave fora da maquina, gravar num arquivo em RAM e
-# imprimir esse caminho: quem chama (abrir, cifrar) nao muda.
+# /etc/dgclaw. O modo `externo` (lib/enterprise/disco-externo.sh) busca a chave fora da maquina (Tang) ou usa a frase
+# que o TI digitou, grava num arquivo em RAM e imprime esse caminho: quem chama (abrir, cifrar) nao muda.
 disco_obter_chave() {
     local modo chave
     modo="$(protecao_valor disco_cifrado)" || return 1
@@ -44,9 +44,7 @@ disco_obter_chave() {
             chave="$(_disco_chave)"
             [ -s "$chave" ] || { printf 'Nao deu certo: nao achei a chave do disco em %s.\nO que fazer: restaure o arquivo do backup (ele vai em /etc/dgclaw) ou, se o volume nunca foi criado, rode: dgclaw disco cifrar\n' "${chave#"$R"}" >&2; return 1; }
             printf '%s' "$chave" ;;
-        externo)
-            printf 'Nao deu certo: o modo externo do disco cifrado ainda nao existe nesta versao (e da Fase 3).\nO que fazer: use o modo auto: dgclaw nivel ajustar disco_cifrado auto\n' >&2
-            return 1 ;;
+        externo) disco_externo_chave ;;
         *) printf 'Nao deu certo: valor inesperado de disco_cifrado: %s.\nO que fazer: veja dgclaw nivel.\n' "$modo" >&2; return 1 ;;
     esac
 }
@@ -81,13 +79,29 @@ _disco_tamanho_ok() { [[ "$1" =~ ^[1-9][0-9]{0,4}[GM]$ ]]; }
 _disco_abrir_mapper() {
     local chave
     _disco_aberto && return 0
+    # Modo externo com Tang: o proprio Clevis abre (clevis luks unlock); nao ha chave em arquivo.
+    if disco_externo_tang_ativo; then disco_externo_abrir_tang; return 0; fi
     chave="$(disco_obter_chave)" || return 1
     cryptsetup open --type luks2 --key-file "$chave" "$(_disco_arq)" "$(_disco_nome)" \
-        || falha "o cryptsetup nao abriu $(_disco_arq)." \
-                 "confira se a chave $(_disco_chave) e a do volume e se o arquivo esta inteiro (cryptsetup luksDump $(_disco_arq))."
+        || { disco_chave_limpar "$chave"; falha "o cryptsetup nao abriu $(_disco_arq)." \
+                 "confira se a chave ou a frase e a do volume e se o arquivo esta inteiro (cryptsetup luksDump $(_disco_arq))."; }
+    # Chave vinda de fora fica so em RAM e some assim que o volume abre (no modo auto o arquivo e o de /etc/dgclaw e fica).
+    disco_chave_limpar "$chave"
 }
 
+# _disco_abrir [--boot]: --boot e da unidade do systemd no modo externo. Se nao conseguir abrir (Tang fora do ar,
+# frase ainda nao digitada), NAO derruba o boot: avisa, audita e sai com 0 deixando a pasta dos agentes sem montar
+# (o drop-in do podman-restart impede os containers de subirem no disco comum).
 _disco_abrir() {
+    if [ "${1:-}" = "--boot" ]; then
+        local rc=0
+        ( _disco_abrir ) || rc=$?
+        if [ "$rc" -ne 0 ]; then
+            aviso "DADOS TRANCADOS: o disco cifrado nao abriu no boot. Os agentes nao vao subir ate alguem abrir. Rode: dgclaw disco desbloquear (motivo acima)."
+            auditar_aviso disco.trancado "$(jq -nc '{origem: "boot"}')"
+        fi
+        return 0
+    fi
     _disco_exigir_ligado
     [ -e "$(_disco_arq)" ] || falha "o volume cifrado $(_disco_arq) nao existe." "crie com: dgclaw disco cifrar"
     ent_exigir cryptsetup mount
@@ -170,7 +184,6 @@ _disco_cifrar() {
     [ ! -e "$chave" ] || falha "ja existe uma chave de disco em $chave, mas nao ha volume em $arq." \
         "ela pode ser de um volume guardado em outro lugar; mova-a para outra pasta (nao a apague) e repita."
     [ ! -e "$arq" ] || falha "ja existe um volume cifrado em $arq." "se ele e o seu, abra com: dgclaw disco abrir. Se e lixo de uma tentativa antiga, mova-o para outra pasta e repita."
-    if [ "$(protecao_valor disco_cifrado)" = externo ]; then disco_obter_chave >/dev/null || return 1; fi
     livre="$(_disco_livre_m "$(dirname "$arq")")"
     if [[ "$livre" =~ ^[0-9]+$ ]]; then
         local pedido_m="${tamanho%[GM]}"
@@ -246,12 +259,17 @@ _disco_cifrar() {
     printf '\n'
     _disco_aviso_honestidade
     info "Quando tiver conferido que tudo funciona, apague a copia antiga (ela esta SEM cifra): $velho"
+    if [ "$(protecao_valor disco_cifrado)" = externo ]; then
+        info "Este nivel pede a chave do disco FORA da maquina. A chave local e transitoria; troque agora: dgclaw disco chave externa tang <url> --thp <thumbprint>   ou   dgclaw disco chave externa manual"
+    fi
     auditar_aviso disco.cifrar "$(jq -nc --arg t "$tamanho" --arg v "$velho" --argjson n "$b" '{tamanho: $t, copia_antiga: $v, itens: $n}')"
 }
 
 # disco_instalar_unidade: a unidade que abre e monta o volume no boot, antes de tudo que usa os agentes.
 disco_instalar_unidade() {
-    cat <<'FIM' | escrever_arquivo "$(_disco_unidade)" 644
+    local boot=""
+    if [ "$(protecao_valor disco_cifrado)" = externo ]; then boot=" --boot"; fi
+    cat <<'FIM' | sed "s|@BOOT@|$boot|" | escrever_arquivo "$(_disco_unidade)" 644
 [Unit]
 Description=DG Claw: abre e monta o disco cifrado dos agentes
 After=local-fs.target
@@ -261,7 +279,8 @@ Before=dgclaw-web.service dgclaw-admin.service dgclaw-firewall.service dgclaw-co
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/usr/local/bin/dgclaw disco abrir
+ExecStart=/usr/local/bin/dgclaw disco abrir@BOOT@
+TimeoutStartSec=180
 
 [Install]
 WantedBy=multi-user.target
@@ -297,8 +316,9 @@ ent_cmd_disco() {
     case "$sub" in
         status) _disco_status ;;
         cifrar) _disco_cifrar "$@" ;;
-        abrir) _disco_abrir ;;
-        *) falha "o subcomando 'disco $sub' nao existe." "use: dgclaw disco status | cifrar [--tamanho 40G] | abrir" ;;
+        abrir) _disco_abrir "$@" ;;
+        chave|desbloquear) disco_externo_comando "$sub" "$@" ;;   # lib/enterprise/disco-externo.sh
+        *) falha "o subcomando 'disco $sub' nao existe." "use: dgclaw disco status | cifrar [--tamanho 40G] | abrir | chave externa tang|manual | desbloquear" ;;
     esac
 }
 
@@ -311,7 +331,11 @@ ent_status_disco() {
     elif _disco_montado; then
         s_ok "disco cifrado aberto e montado em $(_disco_destino | sed "s|^$R||")"
     else
-        s_mal "o disco cifrado existe mas NAO esta montado: os agentes estariam gravando no disco comum. Rode: dgclaw disco abrir"
+        if [ "$(protecao_valor disco_cifrado)" = externo ]; then
+            s_mal "DADOS TRANCADOS: o disco cifrado nao esta montado e os agentes ficam fora do ar ate alguem abrir. Rode: dgclaw disco desbloquear (Tang: confira a rede ate ele)"
+        else
+            s_mal "o disco cifrado existe mas NAO esta montado: os agentes estariam gravando no disco comum. Rode: dgclaw disco abrir"
+        fi
     fi
 }
 
