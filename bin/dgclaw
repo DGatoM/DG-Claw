@@ -148,6 +148,10 @@ Protecao e versao
   dgclaw disco status|cifrar|abrir       disco cifrado (LUKS) para os dados dos agentes
   dgclaw backup configurar|agora|listar|testar|status   backup cifrado fora da VPS (restic)
   dgclaw restaurar <snapshot|latest> [--destino <pasta>] [--agente <slug>] [--confirmar]
+  dgclaw usuario listar                  usuarios do painel (so com o multiusuario ligado: escritorio em diante)
+  dgclaw usuario criar <usuario> --papel ti|funcionario [--agentes a,b]   cria e imprime o link de senha
+  dgclaw usuario desativar|link|zerar-2fa <usuario>   o socorro de quem perdeu a senha ou o celular
+      Exemplo:  dgclaw usuario criar ana.silva --papel funcionario --agentes luna,marina
   dgclaw versao                          mostra a versao instalada
 
 Dados pessoais e monitoramento
