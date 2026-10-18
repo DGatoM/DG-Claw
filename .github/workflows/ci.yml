@@ -225,3 +225,25 @@ jobs:
         run: sudo env "PATH=$PATH" bash tests/cli/rodar.sh
       - name: Testes do dgclaw-agente
         run: bash bin/test/dgclaw-agente.test.sh
+
+  # ---------------------------------------------------------------------------
+  # Enterprise: níveis de proteção, auditoria, atualizar com rollback e a tela Proteções.
+  # Tudo em raiz falsa e com comandos de mentira (tests/enterprise/stubs); nada toca o runner.
+  # ---------------------------------------------------------------------------
+  enterprise:
+    name: enterprise
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Ferramentas dos testes (jq, rsync e git já vêm no runner)
+        run: command -v jq >/dev/null && command -v rsync >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y jq rsync)
+      - name: shellcheck nos arquivos enterprise
+        run: shellcheck -x lib/protecoes.sh lib/enterprise/*.sh tests/enterprise/*.sh tests/enterprise/stubs/*
+      - name: Testes bash enterprise
+        run: bash tests/enterprise/rodar.sh
+      - name: Testes Node enterprise
+        run: node --test web/test/ent-*.test.js
