@@ -112,7 +112,7 @@ function criarServidor(opcoes) {
   // Enterprise (docs/enterprise/DESENHO.md §3): o nível de proteção e os blocos de web/lib/ent/. No nível
   // pessoal nenhum bloco muda o que o Web faz.
   const auditoria = opcoes.auditoria || criarAuditoria({ caminho: config.auditoriaPath, protecoes, log, agora: opcoes.agora });
-  const ent = criarEnterprise({ config, registro, auth, log, protecoes, auditoria, servirArquivo, semSessaoPagina, caixa, push, agora: opcoes.agora, sso: opcoes.sso });
+  const ent = criarEnterprise({ config, registro, auth, log, protecoes, auditoria, servirArquivo, semSessaoPagina, caixa, push, agora: opcoes.agora, sso: opcoes.sso, auditoriaExterna: opcoes.auditoriaExterna });
 
   let versaoJsCache = { ts: 0, valor: '0' };
   /** Versão da tela: mtime de conversa.js. A tela compara com a que carregou e se recarrega sozinha. */

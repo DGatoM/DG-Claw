@@ -18,7 +18,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { marcar } = require('./alertas');
-const { descreveUso } = require('./trilha');
+const { descreveUso, avisaUso } = require('./trilha');
 
 const DGCHAT_ABRE = /<dgchat\b[^>]*>/;
 const DGCHAT_ATTR = /\b(from|chat|msg|ts)="([^"]*)"/g;
@@ -577,7 +577,11 @@ function criarLeitor({ log, tz, canalTelegram, midia }) {
         const origin = estado.trigger === 'cron' ? 'rotina' : 'agente';
         const uso = descreveUso(nome, inp);
         if (uso) {
-          if (typeof b.id === 'string' && b.id) estado.trilhaPend.set(b.id, { ep: epDe(o.timestamp, estado), uso });
+          if (typeof b.id === 'string' && b.id) {
+            const epUso = epDe(o.timestamp, estado);
+            estado.trilhaPend.set(b.id, { ep: epUso, uso });
+            avisaUso(agente.slug, b.id, epUso, uso);   // enterprise: auditoria completa
+          }
           continue;
         }
         if (nome.endsWith(TOOL_TEXTO) || nome.endsWith(TOOL_ARQUIVO)) {

@@ -60,4 +60,13 @@ function resumoPendente(uso) {
   return uso ? { ferramenta: uso.ferramenta, titulo: uso.titulo, comando: uso.comando } : null;
 }
 
-module.exports = { descreveUso, descreveResultado, resumoPendente, textoDoResultado, FERRAMENTAS };
+// Enterprise (auditoria completa): quem quiser saber de cada comando que um agente vai rodar se inscreve aqui.
+// O leitor de transcript avisa uma vez por tool_use; como o leitor relê o arquivo depois de um restart, quem escuta
+// é que evita duplicata (web/lib/ent/auditoria-completa.js). Sem ouvinte (nível pessoal) isto não faz nada.
+let ouvinteDeUso = null;
+function definirOuvinteDeUso(fn) { ouvinteDeUso = typeof fn === 'function' ? fn : null; }
+function avisaUso(slug, id, ep, uso) {
+  if (ouvinteDeUso && uso && typeof id === 'string' && id) ouvinteDeUso({ slug, id, ep, uso });
+}
+
+module.exports = { definirOuvinteDeUso, avisaUso, descreveUso, descreveResultado, resumoPendente, textoDoResultado, FERRAMENTAS };
