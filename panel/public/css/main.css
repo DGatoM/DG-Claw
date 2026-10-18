@@ -651,3 +651,6 @@ html.casca body{font-family:var(--fonte)}
 html.casca{--acento1:var(--accent,#2f9e5e);--acento2:color-mix(in srgb,var(--accent,#2f9e5e) 70%,#1d3b8f)}
 /* o Tutorial da aba é o do cabeçalho da casca (que clica neste botão); dois botões iguais confundem */
 html.casca .btn-tutorial-aba{display:none!important}
+
+/* No iPhone, campo com fonte abaixo de 16px dá zoom quando recebe o foco. Regra: nada dá zoom no app instalado. */
+@media (pointer:coarse){input,textarea,select{font-size:16px!important}}

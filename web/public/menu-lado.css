@@ -94,3 +94,6 @@ aside#menu .pe{margin-top:auto;padding-top:6px}
 .ml-tab .sx-bol{margin-left:auto}
 #btnSessoes{position:relative}
 #btnSessoes .sx-bol{position:absolute;top:6px;right:5px}
+
+/* No iPhone, campo com fonte abaixo de 16px dá zoom quando recebe o foco. Regra: nada dá zoom no app instalado. */
+@media (pointer:coarse){input,textarea,select{font-size:16px!important}}
