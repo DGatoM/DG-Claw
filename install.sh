@@ -782,19 +782,19 @@ configurar_admin() {
     local arq
     for arq in CLAUDE.md AGENTS.md; do
         if fonte_tem "templates/admin/$arq"; then
-            # O arquivo do Admin = o modelo de templates/admin/ + a secao "Onde voce esta e o
-            # que voce consegue fazer" (templates/ambiente/admin.md), regravado a cada execucao.
-            if fonte_tem templates/ambiente/admin.md; then
-                { cat "$SCRIPT_DIR/templates/admin/$arq"; printf '\n'; cat "$SCRIPT_DIR/templates/ambiente/admin.md"; } \
-                    | escrever_arquivo "$DG_ADMIN/$arq" 644
-            else
-                aviso "templates/ambiente/admin.md ainda nao existe neste repositorio; o Admin vai subir sem a secao 'Onde voce esta'. Rode ./install.sh de novo quando ele chegar."
-                executar install -m 644 "$SCRIPT_DIR/templates/admin/$arq" "$DG_ADMIN/$arq"
-            fi
+            executar install -m 644 "$SCRIPT_DIR/templates/admin/$arq" "$DG_ADMIN/$arq"
         else
             aviso "templates/admin/$arq ainda nao existe neste repositorio; o Admin vai subir sem esse arquivo de identidade. Rode ./install.sh de novo quando ele chegar."
         fi
     done
+    # A secao "Onde voce esta e o que voce consegue fazer" do Admin vai num arquivo proprio, que o
+    # runner injeta como system prompt (identidadeArquivo; Claude e Codex). Fica fora do CLAUDE.md
+    # e do AGENTS.md de proposito: esses o dono pode personalizar, e este e regravado sempre.
+    if fonte_tem templates/ambiente/admin.md; then
+        executar install -m 644 "$SCRIPT_DIR/templates/ambiente/admin.md" "$DG_ADMIN/.plataforma/ambiente.md"
+    else
+        aviso "templates/ambiente/admin.md nao existe neste repositorio; o Admin vai subir sem a secao 'Onde voce esta'. Rode ./install.sh de novo quando ele chegar."
+    fi
     local skill
     for skill in criar-agente trocar-dominio; do
         if fonte_tem "skills/$skill"; then
@@ -830,7 +830,7 @@ configurar_admin() {
              config: {name: "Admin", cwd: $admin, provider: $prov, model: "", auth: "assinatura",
                       permissionMode: "bypassPermissions", initialPrompt: "",
                       mcpConfig: ($admin + "/.plataforma/dgchat.mcp.json"),
-                      identidadeArquivo: "",
+                      identidadeArquivo: ($admin + "/.plataforma/ambiente.md"),
                       allowTools: ["mcp__dgchat__reply", "mcp__dgchat__send_file"],
                       envExtra: {DGCHAT_AGENT: "admin",
                                  DGCHAT_OUTBOUND: ($admin + "/.plataforma/dgchat/outbound.jsonl"),
