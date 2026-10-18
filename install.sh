@@ -521,10 +521,25 @@ instalar_codigo() {
     # que o npm instalou la dentro numa rodada anterior.
     executar rsync -a --delete --exclude=.git --exclude=node_modules --exclude=tests --exclude=qa "$SCRIPT_DIR/" "$DG_APP/"
 
+    # O rsync --delete acima apaga qualquer VERSAO velha, entao ela e gravada depois. A imagem dos agentes
+    # copia o app inteiro, entao cada container le a versao da imagem em que esta: o aviso de novidades
+    # (scripts/novidades-hook.mjs) so dispara quando a imagem nova chega, que e quando as novidades chegam.
+    printf '%s\n' "$VERSAO" | escrever_arquivo "$DG_APP/VERSAO" 644
+
     if fonte_tem bin/dgclaw; then
         criar_pasta 755 "$DG_BIN"
         executar ln -sfn "$DG_APP/bin/dgclaw" "$DG_BIN/dgclaw"
         ok "comando dgclaw em ${DG_BIN#"$R"}/dgclaw"
+        # O Admin abre cards e liga o monitor pelo nome, como os agentes fazem dentro da caixa
+        # (templates/ambiente/admin.md). Sem o link ele teria de decorar o caminho completo.
+        local cmd
+        for cmd in dgclaw-card dgclaw-monitor; do
+            if fonte_tem "bin/$cmd"; then
+                executar ln -sfn "$DG_APP/bin/$cmd" "$DG_BIN/$cmd"
+            else
+                aviso "bin/$cmd nao existe neste repositorio; o Admin vai ficar sem esse comando no PATH. Rode ./install.sh de novo quando ele chegar."
+            fi
+        done
     else
         aviso "bin/dgclaw ainda nao existe neste repositorio, entao o comando 'dgclaw' nao foi instalado. Rode ./install.sh de novo quando ele chegar."
     fi
@@ -767,7 +782,15 @@ configurar_admin() {
     local arq
     for arq in CLAUDE.md AGENTS.md; do
         if fonte_tem "templates/admin/$arq"; then
-            executar install -m 644 "$SCRIPT_DIR/templates/admin/$arq" "$DG_ADMIN/$arq"
+            # O arquivo do Admin = o modelo de templates/admin/ + a secao "Onde voce esta e o
+            # que voce consegue fazer" (templates/ambiente/admin.md), regravado a cada execucao.
+            if fonte_tem templates/ambiente/admin.md; then
+                { cat "$SCRIPT_DIR/templates/admin/$arq"; printf '\n'; cat "$SCRIPT_DIR/templates/ambiente/admin.md"; } \
+                    | escrever_arquivo "$DG_ADMIN/$arq" 644
+            else
+                aviso "templates/ambiente/admin.md ainda nao existe neste repositorio; o Admin vai subir sem a secao 'Onde voce esta'. Rode ./install.sh de novo quando ele chegar."
+                executar install -m 644 "$SCRIPT_DIR/templates/admin/$arq" "$DG_ADMIN/$arq"
+            fi
         else
             aviso "templates/admin/$arq ainda nao existe neste repositorio; o Admin vai subir sem esse arquivo de identidade. Rode ./install.sh de novo quando ele chegar."
         fi
@@ -798,7 +821,11 @@ configurar_admin() {
             falha "o jq nao esta instalado, e ele e necessario para escrever os arquivos do Admin." "rode: apt-get install -y jq; depois ./install.sh de novo."
         fi
     else
-        jq -n --arg prov "$provider_runner" --arg admin "$p_admin" '
+        # Admin que ainda nao tinha runner.json e instalacao nova: nasce sabendo as novidades. Admin antigo
+        # (arquivo ja existe, sem "visto") recebe o aviso uma vez na primeira conversa depois da atualizacao.
+        local admin_novo=0
+        [ -e "$DG_ADMIN/.plataforma/runner.json" ] || admin_novo=1
+        jq -n --arg prov "$provider_runner" --arg admin "$p_admin" --arg app "$p_app" '
             {id: "admin", slug: "admin",
              config: {name: "Admin", cwd: $admin, provider: $prov, model: "", auth: "assinatura",
                       permissionMode: "bypassPermissions", initialPrompt: "",
@@ -810,9 +837,19 @@ configurar_admin() {
                                  DGCHAT_ENTREGA: "disco",
                                  CODEX_HOME: "/root/.codex",
                                  DGCLAW_WORKSPACE: $admin,
-                                 DGCLAW_CONFIG: ($admin + "/.dgclaw/config.sh")},
+                                 DGCLAW_CONFIG: ($admin + "/.dgclaw/config.sh"),
+                                 DGCLAW_MONITOR_DONO: "admin",
+                                 DGCLAW_MONITOR_ESTADO: ($admin + "/.dgclaw/estado/modo-monitor.json"),
+                                 DGCLAW_MONITOR_LOG: ($admin + "/.dgclaw/logs/modo-monitor.log")},
+                      promptHooks: [("node " + $app + "/scripts/novidades-hook.mjs")],
                       tags: ["dgclaw", "admin"], cofre: []}}' \
             | escrever_arquivo "$DG_ADMIN/.plataforma/runner.json" 444
+        if [ "$admin_novo" = 1 ] && [ "$ENSAIO" != 1 ]; then
+            if command -v node >/dev/null 2>&1 && [ ! -e "$DG_ADMIN/.dgclaw/novidades-visto.json" ]; then
+                DGCLAW_WORKSPACE="$DG_ADMIN" DGCLAW_APP="$DG_APP" node "$DG_APP/scripts/novidades-hook.mjs" --semear \
+                    || aviso "nao consegui marcar as novidades como vistas pelo Admin (veja ${DG_ADMIN#"$R"}/.dgclaw/logs/novidades-hook.log); ele pode avisar de novidades na primeira conversa."
+            fi
+        fi
         # O Admin roda como root em bypassPermissions: sem esta chave o Claude Code abre o aviso
         # "Bypass Permissions mode" e o Enter do runner escolhe "No, exit" (loop, 16/10/2026).
         if [ "$PROVEDOR" != codex ]; then
@@ -863,6 +900,47 @@ FIM
              home_host: $admin, home_container: $admin}' \
             | agentes_registrar
     fi
+    configurar_monitor_admin
+}
+
+# configurar_monitor_admin: o MODO MONITOR do Admin (docs/MODO-MONITOR.md). Um timer de 5 min que
+# roda `dgclaw-monitor run` como root. Mesmo estado e mesmo log que a sessao do Admin usa nos
+# comandos `add`/`rm` (as tres DGCLAW_MONITOR_* tambem estao no envExtra do runner.json do Admin):
+# sem isso o timer olharia um arquivo e o Admin gravaria em outro.
+configurar_monitor_admin() {
+    local p_admin="${DG_ADMIN#"$R"}" p_etc="${DG_ETC#"$R"}" p_app="${DG_APP#"$R"}"
+    criar_pasta 700 "$DG_ADMIN/.dgclaw"
+    criar_pasta 700 "$DG_ADMIN/.dgclaw/estado"
+    criar_pasta 700 "$DG_ADMIN/.dgclaw/logs"
+    cat <<FIM | escrever_arquivo "$DG_UNITS/dgclaw-admin-monitor.service" 644
+[Unit]
+Description=DG Claw modo monitor dos cards do Admin
+After=dgclaw-admin.service
+
+[Service]
+Type=oneshot
+User=root
+Environment=HOME=/root
+Environment=RUNNER_PORT=4300
+Environment=RUNNER_TOKEN_FILE=$p_etc/runner/admin.token
+Environment=DGCLAW_MONITOR_DONO=admin
+Environment=DGCLAW_MONITOR_ESTADO=$p_admin/.dgclaw/estado/modo-monitor.json
+Environment=DGCLAW_MONITOR_LOG=$p_admin/.dgclaw/logs/modo-monitor.log
+ExecStart=/usr/bin/python3 $p_app/bin/dgclaw-monitor run
+FIM
+    cat <<'FIM' | escrever_arquivo "$DG_UNITS/dgclaw-admin-monitor.timer" 644
+[Unit]
+Description=DG Claw modo monitor dos cards do Admin (a cada 5 minutos)
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+FIM
+    ligar_unidade dgclaw-admin-monitor.timer
 }
 
 # --- 10. imagem -----------------------------------------------------------------
@@ -1005,6 +1083,35 @@ mensagem_final() {
     fi
 }
 
+# --- 9b. identidade dos agentes ---------------------------------------------------
+# Agente criado antes da secao "Onde voce esta e o que voce consegue fazer" nao a tem. Regrava
+# o identidade.md de cada agente (dgclaw agente identidade): so o arquivo, nada e reiniciado,
+# vale na proxima sessao. Falha de um agente vira aviso e o instalador segue.
+atualizar_identidades() {
+    passo "Atualizando a identidade dos agentes"
+    local cli="$DG_APP/bin/dgclaw" slug n=0 rc
+    if [ "$ENSAIO" = 1 ]; then
+        info "[ensaio] rodaria 'dgclaw agente identidade <slug>' para cada agente do agentes.json"
+        return 0
+    fi
+    if ! tem_jq || [ ! -s "$DG_AGENTES_JSON" ] || [ ! -x "$cli" ]; then
+        info "nenhum agente para atualizar ainda"
+        return 0
+    fi
+    while IFS= read -r slug; do
+        [ -n "$slug" ] || continue
+        n=$((n + 1))
+        rc=0
+        "$cli" agente identidade "$slug" >/dev/null 2>"$DG_LOG/identidade-$slug.err" || rc=$?
+        if [ "$rc" -ne 0 ]; then
+            aviso "nao consegui regravar a identidade do agente $slug (codigo $rc; detalhes em $DG_LOG/identidade-$slug.err). O agente segue funcionando com a identidade antiga. Para refazer: dgclaw agente identidade $slug"
+        else
+            rm -f "$DG_LOG/identidade-$slug.err"
+        fi
+    done < <(jq -r '.agentes[] | select(.tipo == "agente") | .slug' "$DG_AGENTES_JSON")
+    ok "identidade conferida em $n agente(s)"
+}
+
 # --- main -----------------------------------------------------------------------
 main() {
     parse_args "$@"
@@ -1031,6 +1138,7 @@ main() {
     configurar_senha
     configurar_web
     configurar_admin
+    atualizar_identidades
     construir_imagem
     testar_fim
     mensagem_final

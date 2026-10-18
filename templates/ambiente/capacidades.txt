@@ -1,0 +1,14 @@
+docs/MESA-DE-TAREFAS.md
+docs/QUADRO-DE-AVISOS.md
+docs/MEMORIA-SEMANTICA.md
+docs/CAIXA-DO-AGENTE.md
+docs/CANAL-WHATSAPP.md
+docs/POKES.md
+docs/VISUAIS.md
+web/docs/MODO-FOCO.md
+web/docs/LEMBRETES.md
+web/docs/ALERTAS.md
+web/docs/MESA.md
+panel/docs/COFRE.md
+panel/docs/SESSOES.md
+docs/MODO-MONITOR.md

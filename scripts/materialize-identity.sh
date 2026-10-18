@@ -18,6 +18,10 @@
 # gancho hooks/identity.sh (e assim que o DG Alive encaixa o SOUL.md, sem que o nucleo
 # precise saber que existe alma).
 #
+# A secao "Onde voce esta e o que voce consegue fazer" NAO entra aqui. Em container ela vem
+# no identidade.md (bin/dgclaw, regravar_identidade_md, a partir de templates/ambiente/agente.md);
+# colocar aqui duplicaria o texto no prompt.
+#
 # Uso:  bash materialize-identity.sh <workspace> [--include-ops]
 # Idempotente: pode rodar quantas vezes quiser (a reflexao noturna chama isto quando a
 # personalidade muda). So cria o .bak uma vez (nao sobrescreve o backup original).

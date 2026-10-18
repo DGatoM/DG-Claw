@@ -148,16 +148,16 @@ garantir_pular_aviso_bypass() {
     printf '%s\n' "$novo" | escrever_arquivo "$alvo" "${modo:-644}" "$quem"
 }
 
-# garantir_gancho_foco <runner.json> [slug]
-# Poe "node /opt/dgclaw/app/scripts/foco-hook.mjs" em .config.promptHooks do runner.json, sem
-# perder os outros itens nem o resto do arquivo. Por que: agentes criados antes do Modo foco nao
-# tem o gancho, e o `agente reparar` e o caminho para eles ganharem sem recriar.
-# - arquivo ausente: nao faz nada (o criar escreve ja com o gancho);
+# garantir_gancho_runner <runner.json> <slug> <comando> <rotulo>
+# Poe <comando> em .config.promptHooks do runner.json, sem perder os outros itens nem o resto do
+# arquivo. Por que: agentes criados antes de um gancho existir nao o tem, e o `agente reparar` e o
+# caminho para eles ganharem sem recriar.
+# - arquivo ausente: nao faz nada (o criar escreve ja com os ganchos);
 # - ja tem o gancho: nao toca no arquivo;
 # - JSON ilegivel (ou promptHooks que nao e lista): falha dizendo onde e o que fazer, sem sobrescrever;
 # - o runner so le o arquivo ao iniciar: avisa qual comando reinicia.
-garantir_gancho_foco() {
-    local alvo="$1" slug="${2:-<slug>}" gancho="node /opt/dgclaw/app/scripts/foco-hook.mjs" novo
+garantir_gancho_runner() {
+    local alvo="$1" slug="${2:-<slug>}" gancho="$3" rotulo="$4" novo
     [ -f "$alvo" ] || return 0
     if ! jq -e '(.config | type) == "object" and ((.config.promptHooks // []) | type) == "array"' "$alvo" >/dev/null 2>&1; then
         falha "o runner.json $alvo nao e um JSON valido com \"config\" e, se houver, \"promptHooks\" como lista; nao mexi nele." \
@@ -167,14 +167,26 @@ garantir_gancho_foco() {
         return 0
     fi
     if [ "$ENSAIO" = 1 ]; then
-        printf '   [ensaio] poria o gancho do Modo foco em promptHooks de %s (sem apagar o que ja existe)\n' "$alvo"
+        printf '   [ensaio] poria o gancho %s em promptHooks de %s (sem apagar o que ja existe)\n' "$rotulo" "$alvo"
         return 0
     fi
     novo="$(jq --arg g "$gancho" '.config.promptHooks = ((.config.promptHooks // []) + [$g])' "$alvo")" \
         || falha "o jq nao conseguiu acrescentar o gancho em $alvo." "confira se o arquivo e um JSON valido (jq . $alvo) e rode de novo."
     printf '%s\n' "$novo" | escrever_arquivo "$alvo" 444 0:0
-    ok "gancho do Modo foco acrescentado ao runner.json"
+    ok "gancho $rotulo acrescentado ao runner.json"
     info "ele entra quando o runner reiniciar: dgclaw agente reiniciar $slug"
+}
+
+# garantir_gancho_foco <runner.json> [slug]
+garantir_gancho_foco() {
+    garantir_gancho_runner "$1" "${2:-<slug>}" "node /opt/dgclaw/app/scripts/foco-hook.mjs" "do Modo foco"
+}
+
+# garantir_gancho_novidades <runner.json> [slug]
+# O aviso de novidades depois de atualizar (docs/NOVIDADES.md). Agente antigo, sem arquivo de visto,
+# recebe o aviso uma vez na primeira conversa depois que o runner reiniciar com o gancho.
+garantir_gancho_novidades() {
+    garantir_gancho_runner "$1" "${2:-<slug>}" "node /opt/dgclaw/app/scripts/novidades-hook.mjs" "de novidades"
 }
 
 # gerar_segredo <caminho> [uid:gid]

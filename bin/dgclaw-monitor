@@ -1,0 +1,575 @@
+#!/usr/bin/env python3
+"""dgclaw-monitor: o MODO MONITOR. Um vigia SEM modelo para os cards (sessoes paralelas do runner).
+
+Uma tarefa longa vira um card (`dgclaw-card abrir ... --monitor --entregue "..."`). De tempos em
+tempos o timer chama `dgclaw-monitor run`: ele confere cada card monitorado no runner (so HTTP
+local, nenhuma chamada de modelo) e so cutuca a sessao dona quando ha evento. Rodada sem
+evento nao digita nada em lugar nenhum, entao nao gasta nada.
+
+Uso:
+  dgclaw-monitor add <id> [--cada MIN] --entregue "<criterio de entregue>"   (padrao --cada 10)
+  dgclaw-monitor rm <id>
+  dgclaw-monitor list
+  dgclaw-monitor run [--dry]      a rodada (e o que o timer chama); --dry so mostra o que faria
+  dgclaw-monitor ajuda
+
+Variaveis de ambiente:
+  RUNNER_TOKEN_FILE        arquivo com o Bearer do runner (obrigatorio; o token NUNCA vai por argumento)
+  RUNNER_PORT              porta do runner em 127.0.0.1 (padrao 4300; tem de ser numero)
+  DGCLAW_MONITOR_DONO      id da sessao a acordar. Se vazio: DGCLAW_AGENTE_ID (no agente, o id da sessao
+                           principal e o slug); se vazio tambem: "admin" (o runner do Admin chama a
+                           principal de "admin")
+  DGCLAW_MONITOR_ESTADO    arquivo de estado (padrao $HOME/.dgclaw/estado/modo-monitor.json)
+  DGCLAW_MONITOR_LOG       arquivo de log (padrao $HOME/.dgclaw/logs/modo-monitor.log; so escreve
+                           quando algo acontece)
+
+O endereco do runner e FIXO: http://127.0.0.1:$RUNNER_PORT. Nenhuma URL vinda de argumento, de
+variavel ou de arquivo e usada. O token so vai no cabecalho Authorization: nunca em argv, em
+saida ou em log.
+
+Codigos de saida:
+  0  ok (inclui rodada sem evento)
+  1  erro de uso ou de dado (argumento faltando, id invalido, estado ilegivel)
+  2  o runner nao respondeu (fora do ar, reiniciando)
+  3  o token nao esta disponivel ou o runner o recusou (401/403)
+  6  outro erro devolvido pelo runner (a mensagem dele e mostrada)
+"""
+import fcntl
+import html
+import json
+import os
+import re
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.request
+from datetime import datetime, timezone
+
+STALE_MIN = 20               # "trabalhando" sem atualizar por mais que isto = travado
+RUNNER_FORA_RODADAS = 3      # rodadas seguidas sem runner antes de tentar avisar a dona
+FOLGA_S = 45                 # o intervalo vence mesmo com o timer atrasado alguns segundos
+MAX_ASSINATURAS = 30
+TRECHO = 600                 # tamanho maximo do trecho da ultima mensagem do card
+TRABALHANDO = ("working", "spawning")
+PARADO = ("idle", "waiting_input", "completed", "stopped")
+
+AQUI = os.path.dirname(os.path.realpath(__file__))
+# Caminhos completos nos textos injetados: o Admin pode nao ter estes comandos no PATH.
+CMD_CARD = os.path.join(AQUI, "dgclaw-card")
+CMD_MON = os.path.realpath(__file__)
+
+
+class Saida(Exception):
+    def __init__(self, codigo, msg):
+        super().__init__(msg)
+        self.codigo, self.msg = codigo, msg
+
+
+def die(msg, codigo=1):
+    raise Saida(codigo, msg)
+
+
+# ---------- caminhos ----------
+def _casa():
+    return os.environ.get("HOME") or os.path.expanduser("~")
+
+
+def caminho_estado():
+    return os.environ.get("DGCLAW_MONITOR_ESTADO") or os.path.join(_casa(), ".dgclaw", "estado", "modo-monitor.json")
+
+
+def caminho_log():
+    return os.environ.get("DGCLAW_MONITOR_LOG") or os.path.join(_casa(), ".dgclaw", "logs", "modo-monitor.log")
+
+
+def dono():
+    return os.environ.get("DGCLAW_MONITOR_DONO") or os.environ.get("DGCLAW_AGENTE_ID") or "admin"
+
+
+def agora_iso():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def log(msg):
+    """So chamado quando algo acontece. Nunca recebe o token."""
+    arq = caminho_log()
+    try:
+        os.makedirs(os.path.dirname(arq), mode=0o700, exist_ok=True)
+        fd = os.open(arq, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+        with os.fdopen(fd, "a") as f:
+            f.write(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}\n")
+    except OSError as e:
+        print(f"dgclaw-monitor: aviso: nao consegui escrever o log {arq} ({e}). Confira a permissao da pasta.", file=sys.stderr)
+
+
+# ---------- estado ----------
+def vazio():
+    return {"cards": {}, "runner_falhas": 0, "runner_cutucado": False}
+
+
+def carregar():
+    arq = caminho_estado()
+    if not os.path.exists(arq):
+        return vazio()
+    try:
+        with open(arq) as f:
+            st = json.load(f)
+        if not isinstance(st, dict) or not isinstance(st.get("cards"), dict):
+            raise ValueError("faltam os cards")
+        st.setdefault("runner_falhas", 0)
+        st.setdefault("runner_cutucado", False)
+        return st
+    except (json.JSONDecodeError, OSError, ValueError) as e:
+        die(f"o arquivo de estado {arq} esta ilegivel ({e}). Conserte o JSON ou apague o arquivo e cadastre os cards de novo com 'dgclaw-monitor add'.")
+
+
+def gravar(st):
+    """Atomico (temporario na mesma pasta + rename) e com permissao 600."""
+    arq = caminho_estado()
+    pasta = os.path.dirname(arq)
+    try:
+        os.makedirs(pasta, mode=0o700, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=pasta, prefix=".modo-monitor-")
+        with os.fdopen(fd, "w") as f:
+            json.dump(st, f, ensure_ascii=False, indent=1)
+        os.chmod(tmp, 0o600)
+        os.rename(tmp, arq)
+    except OSError as e:
+        die(f"nao consegui gravar o estado em {arq} ({e}). Confira a permissao da pasta e se ha espaco em disco.")
+
+
+class Trava:
+    """Evita que um 'add' no meio de uma rodada perca o que a rodada grava (e o inverso)."""
+
+    def __enter__(self):
+        arq = caminho_estado() + ".lock"
+        try:
+            os.makedirs(os.path.dirname(arq), mode=0o700, exist_ok=True)
+            self.fd = os.open(arq, os.O_RDWR | os.O_CREAT, 0o600)
+            fcntl.flock(self.fd, fcntl.LOCK_EX)
+        except OSError as e:
+            die(f"nao consegui travar o estado em {arq} ({e}). Confira a permissao da pasta.")
+        return self
+
+    def __exit__(self, *a):
+        os.close(self.fd)
+
+
+# ---------- runner ----------
+_TOKEN = None
+_BASE = None
+
+
+def _preparar():
+    global _TOKEN, _BASE
+    if _TOKEN is not None:
+        return
+    porta = os.environ.get("RUNNER_PORT") or "4300"
+    if not (porta.isdigit() and 1 <= int(porta) <= 65535):
+        die(f"RUNNER_PORT precisa ser um numero de 1 a 65535 (recebido: '{porta}'). Corrija a variavel ou deixe-a vazia para usar a porta 4300.")
+    arq = os.environ.get("RUNNER_TOKEN_FILE") or ""
+    if not arq:
+        die("RUNNER_TOKEN_FILE nao esta definida, entao nao tenho como me identificar ao runner. Peca ao dono para reiniciar o agente pelo painel (o instalador define essa variavel).", 3)
+    try:
+        with open(arq) as f:
+            tok = f.read().strip()
+    except OSError as e:
+        die(f"nao consegui ler o arquivo de token apontado por RUNNER_TOKEN_FILE ({arq}: {e.strerror}). Peca ao dono para reiniciar o agente pelo painel; se continuar, o instalador precisa ser rodado de novo.", 3)
+    if not tok:
+        die(f"o arquivo de token ({arq}) esta vazio. Peca ao dono para reiniciar o agente pelo painel; se continuar, o instalador precisa ser rodado de novo.", 3)
+    if not re.fullmatch(r"[A-Za-z0-9._~+/=-]+", tok):
+        die(f"o arquivo de token ({arq}) tem caracteres que um token do runner nao tem. Peca ao dono para reiniciar o agente pelo painel.", 3)
+    _TOKEN, _BASE = tok, f"http://127.0.0.1:{porta}"
+
+
+def chamar(metodo, caminho, corpo=None, timeout=20):
+    """Devolve (http, json). Levanta Saida(2) se o runner nao respondeu. Nao interpreta o status."""
+    _preparar()
+    dados = json.dumps(corpo).encode() if corpo is not None else None
+    cab = {"Authorization": f"Bearer {_TOKEN}"}
+    if dados is not None:
+        cab["Content-Type"] = "application/json"
+    req = urllib.request.Request(_BASE + caminho, data=dados, method=metodo, headers=cab)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            codigo, bruto = r.status, r.read()
+    except urllib.error.HTTPError as e:
+        codigo, bruto = e.code, e.read()
+    except (urllib.error.URLError, OSError) as e:
+        motivo = getattr(e, "reason", e)
+        die(f"o runner nao respondeu em {_BASE} ({motivo}). Ele pode estar reiniciando: espere cerca de um minuto. Se continuar, peca ao dono para tocar em Reiniciar no painel.", 2)
+    try:
+        return codigo, json.loads(bruto.decode() or "{}")
+    except (ValueError, UnicodeDecodeError):
+        return codigo, {"__cru": bruto[:200].decode(errors="replace")}
+
+
+def explicar(codigo, resp, o_que):
+    """Frase de erro para uma resposta nao-2xx."""
+    if codigo in (401, 403):
+        return Saida(3, "o runner recusou o acesso (token invalido). Isso e um problema de instalacao. Peca ao dono para reiniciar o agente pelo painel; se continuar, o instalador precisa ser rodado de novo.")
+    err = resp.get("error") if isinstance(resp, dict) else None
+    fix = resp.get("howToFix") if isinstance(resp, dict) else None
+    cod = resp.get("code") if isinstance(resp, dict) else None
+    msg = f"{o_que}: o runner respondeu HTTP {codigo}" + (f" ({err})" if err else f" sem explicar ({resp.get('__cru', '')})")
+    if fix:
+        msg += f". O que fazer: {fix}"
+    if cod:
+        msg += f" [{cod}]"
+    return Saida(6, msg)
+
+
+def exigir_2xx(codigo, resp, o_que):
+    if not 200 <= codigo < 300:
+        raise explicar(codigo, resp, o_que)
+
+
+def listar_sessoes():
+    """dict id -> sessao, de GET /api/agents?todas=1."""
+    codigo, resp = chamar("GET", "/api/agents?todas=1")
+    exigir_2xx(codigo, resp, "ao listar as sessoes (GET /api/agents?todas=1)")
+    dados = resp.get("data") if isinstance(resp, dict) else None
+    if not isinstance(dados, list):
+        die(f"o runner devolveu uma lista de sessoes em formato inesperado ({str(resp)[:200]}). Confira a versao do runner.", 6)
+    return {a["id"]: a for a in dados if isinstance(a, dict) and "id" in a}
+
+
+def titulo_de(s):
+    return ((s or {}).get("sessao") or {}).get("titulo") or (s or {}).get("config", {}).get("name") or "?"
+
+
+def trecho_ultima_mensagem(cid, card):
+    """Um trecho curto da ultima fala do card. Nunca falha a rodada por causa disto."""
+    try:
+        codigo, resp = chamar("GET", f"/api/agents/{cid}/conversation?limit=2")
+        if 200 <= codigo < 300:
+            msgs = [m for m in (resp.get("data") or []) if isinstance(m, dict) and m.get("text")]
+            dele = [m for m in msgs if m.get("role") == "assistant"] or msgs
+            if dele:
+                return " ".join(str(dele[-1]["text"]).split())[:TRECHO]
+    except Saida as e:
+        log(f"aviso: nao li a conversa do card {cid} ({e.msg}); sigo com o lastMessage do estado")
+    return " ".join(str((card or {}).get("lastMessage") or "").split())[:TRECHO]
+
+
+# ---------- decisao (pura) ----------
+def resumo_perm(p):
+    txt = f"ferramenta {p.get('toolName', '?')}"
+    desc = (p.get("description") or "").strip()
+    if desc:
+        txt += f", descricao: {desc[:200]}"
+    txt += f", entrada: {json.dumps(p.get('toolInput', {}), ensure_ascii=False)[:300]}"
+    return txt
+
+
+def assina(*partes):
+    return ":".join(str(p) for p in partes)
+
+
+def decidir(card, reg, agora_ms):
+    """Devolve {acao: silencio|cutucar|retomar, tipo, assinatura, detalhe, ler}.
+    `ler` diz se vale buscar a ultima mensagem do card para o texto."""
+    feitas = set(reg.get("assinaturas", []))
+
+    def cutuca(tipo, sig, detalhe, ler=False):
+        if sig in feitas:
+            return {"acao": "silencio", "tipo": tipo, "assinatura": sig}
+        return {"acao": "cutucar", "tipo": tipo, "assinatura": sig, "detalhe": detalhe, "ler": ler}
+
+    if card is None:
+        return cutuca("sumiu", "sumiu", "o card sumiu da lista do runner (foi fechado ou o id mudou)")
+
+    status = card.get("status")
+    upd = int(card.get("updatedAt") or 0)
+    perm = card.get("pendingPermission")
+
+    if perm:
+        # Assinatura com o conteudo do pedido: outro pedido no mesmo card e outro evento.
+        import hashlib
+        h = hashlib.sha1(json.dumps(perm, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:10]
+        return cutuca("permissao", assina("perm", upd, h), "pediu permissao: " + resumo_perm(perm))
+
+    if status == "resumable":
+        if reg.get("ultimo_status") in TRABALHANDO:
+            return {"acao": "retomar", "tipo": "caiu", "assinatura": assina("caiu", upd),
+                    "detalhe": "estava trabalhando e apareceu como retomavel (o runner reiniciou ou o terminal caiu)"}
+        # Ja estava parado quando o monitor viu: o runner so suspendeu a sessao ociosa. Reusa o
+        # updatedAt da ultima olhada para nao tratar a suspensao como novidade.
+        if reg.get("ultimo_upd"):
+            upd = int(reg["ultimo_upd"])
+        status = "idle"
+
+    if status in TRABALHANDO:
+        idade = (agora_ms - upd) / 60000.0
+        if upd and idade > STALE_MIN:
+            return cutuca("travado", assina("travado", upd),
+                          f"parece travado: status {status} sem atualizacao ha {int(idade)} min", ler=True)
+        return {"acao": "silencio", "tipo": "trabalhando", "assinatura": None}
+
+    if status in PARADO:
+        return cutuca("parou", assina("parou", upd),
+                      f"parou (status {status}): veja se entregou o que foi pedido ou se esta esperando uma resposta", ler=True)
+
+    if status == "errored":
+        return cutuca("erro", assina("erro", upd), f"deu erro: {str(card.get('error'))[:300]}", ler=True)
+
+    return cutuca("desconhecido", assina("status", status, upd), f"status que o monitor nao conhece: {status!r}", ler=True)
+
+
+# ---------- o texto injetado ----------
+def montar_texto(eventos):
+    n = len(eventos)
+    linhas = ["MODO MONITOR: " + (f"{n} cards precisam da sua atencao." if n > 1 else "1 card precisa da sua atencao."), ""]
+    for cid, reg, d, ultima in eventos:
+        linhas.append(f'Card {cid} ("{reg.get("titulo", "?")}")')
+        linhas.append(f"O que aconteceu: {d['detalhe']}")
+        if ultima:
+            linhas.append(f"Ultima mensagem do card: {ultima}")
+        linhas.append(f"Criterio de entregue: {reg.get('entregue') or '(nao informado)'}")
+        linhas.append("")
+    linhas += [
+        "O que fazer:",
+        "1. Se o card parou, pediu algo ou deu erro: avise o dono pelo canal que ele usa com voce, em linguagem simples "
+        "(o card tal parou por causa disto, ele pediu isto, posso continuar?). Se o card pediu uma permissao, o dono tambem pode "
+        "aprovar pela aba Sessoes do painel.",
+        f'2. Com o "pode" do dono, responda no card: {CMD_CARD} mandar <id> "..."',
+        f"3. Se a entrega bateu o criterio de entregue: confira o resultado, avise o dono e pare o monitor deste card com "
+        f"{CMD_MON} rm <id>.",
+        "4. Se nao ha nada a fazer, fique quieto: este aviso nao vem de uma pessoa.",
+    ]
+    return "\n".join(linhas)
+
+
+def envelope(corpo):
+    # Mesmo formato de scripts/_lib/inject.py e web/lib/lembretes.js: o leitor da conversa sabe que
+    # ninguem digitou aquilo. < > & escapados para o corpo nunca fechar o envelope.
+    seguro = html.escape(corpo, quote=False)
+    return f'<plataforma recado="modo-monitor" tipo="aviso" ts="{agora_iso()}">{seguro}</plataforma>'
+
+
+def injetar(texto):
+    """Cutuca a sessao dona. Devolve (ok, motivo)."""
+    try:
+        codigo, resp = chamar("POST", f"/api/agents/{dono()}/input", {"text": envelope(texto), "injectWhenIdle": True})
+    except Saida as e:
+        return False, e.msg
+    if 200 <= codigo < 300:
+        return True, ""
+    return False, explicar(codigo, resp, f"ao cutucar a sessao '{dono()}'").msg
+
+
+def retomar(cid):
+    try:
+        codigo, resp = chamar("POST", f"/api/agents/{cid}/resume", {}, timeout=60)
+    except Saida as e:
+        return False, e.msg
+    if 200 <= codigo < 300:
+        return True, ""
+    return False, explicar(codigo, resp, "ao retomar o card").msg
+
+
+# ---------- subcomandos ----------
+ID_OK = re.compile(r"[A-Za-z0-9._-]+")
+
+
+def validar_id(i):
+    if not i:
+        die("falta o id do card. Veja os ids com 'dgclaw-card listar'.")
+    if not ID_OK.fullmatch(i):
+        die(f"id de card invalido: '{i}'. Ele so tem letras, numeros, ponto, hifen e sublinhado; veja os ids com 'dgclaw-card listar'.")
+
+
+def pegar_valor(args, i, opcao):
+    if i + 1 >= len(args):
+        die(f"falta o valor de {opcao}.")
+    return args[i + 1]
+
+
+def cmd_add(args):
+    cid, cada, entregue, i = None, 10, None, 0
+    while i < len(args):
+        a = args[i]
+        if a == "--cada":
+            v = pegar_valor(args, i, a)
+            if not v.isdigit() or int(v) < 1:
+                die(f"--cada precisa ser um numero inteiro de minutos, maior que zero (recebido: '{v}').")
+            cada, i = int(v), i + 2
+        elif a == "--entregue":
+            entregue, i = pegar_valor(args, i, a), i + 2
+        elif a.startswith("--"):
+            die(f"opcao desconhecida em 'add': '{a}'. Veja 'dgclaw-monitor ajuda'.")
+        elif cid is None:
+            cid, i = a, i + 1
+        else:
+            die(f"argumento a mais em 'add': '{a}'. O criterio de entregue vai entre aspas, depois de --entregue.")
+    validar_id(cid)
+    if not entregue or not entregue.strip():
+        die('falta --entregue "<criterio de entregue>": diga como saber que o card terminou (ex.: --entregue "o relatorio salvo em /home/agente/relatorio.md").')
+    sessoes = listar_sessoes()
+    card = sessoes.get(cid)
+    if card is None:
+        die(f"o card '{cid}' nao existe no runner, entao nao ha o que monitorar. Veja os ids com 'dgclaw-card listar'.")
+    if ((card.get("sessao") or {}).get("papel") == "principal") or cid == dono():
+        die(f"'{cid}' e a sessao principal (a que recebe os avisos); so cards abertos com 'dgclaw-card abrir' podem ser monitorados.")
+    status, upd = card.get("status"), int(card.get("updatedAt") or 0)
+    reg = {"titulo": titulo_de(card), "cada": cada, "entregue": entregue.strip(), "ultimo_check": 0,
+           "ultimo_status": status, "ultimo_upd": upd, "assinaturas": [], "criado": agora_iso()}
+    # Card que ja estava parado quando o monitor entrou: nada novo aconteceu ainda.
+    if status in PARADO or status == "resumable":
+        reg["assinaturas"].append(assina("parou", upd))
+    with Trava():
+        st = carregar()
+        st["cards"][cid] = reg
+        gravar(st)
+    log(f"add {cid} ({reg['titulo'][:80]}) a cada {cada} min; entregue: {reg['entregue'][:200]}")
+    print(f"Monitorando o card {cid} ({reg['titulo']}) a cada {cada} min. Para parar: dgclaw-monitor rm {cid}")
+
+
+def cmd_rm(args):
+    if len(args) != 1:
+        die("uso: dgclaw-monitor rm <id>")
+    cid = args[0]
+    validar_id(cid)
+    with Trava():
+        st = carregar()
+        if cid not in st["cards"]:
+            die(f"o card '{cid}' nao esta sendo monitorado. Veja os monitorados com 'dgclaw-monitor list'.")
+        titulo = st["cards"].pop(cid).get("titulo", "?")
+        gravar(st)
+    log(f"rm {cid} ({str(titulo)[:80]})")
+    print(f"Parei de monitorar o card {cid} ({titulo}).")
+
+
+def cmd_list(args):
+    if args:
+        die("'list' nao recebe argumentos.")
+    st = carregar()
+    if not st["cards"]:
+        print("Nenhum card monitorado.")
+        return
+    for cid, r in st["cards"].items():
+        ult = r.get("ultimo_check") or 0
+        quando = datetime.fromtimestamp(ult).strftime("%Y-%m-%d %H:%M:%S") if ult else "ainda nao olhei"
+        print(f"{cid}\t{r.get('titulo', '?')}\ta cada {r.get('cada')} min\testado: {r.get('ultimo_status') or '?'}\tultima olhada: {quando}")
+        print(f"    entregue: {r.get('entregue')}")
+
+
+def cmd_run(args):
+    dry = False
+    for a in args:
+        if a == "--dry":
+            dry = True
+        else:
+            die(f"opcao desconhecida em 'run': '{a}'. Use 'run' ou 'run --dry'.")
+    with Trava():
+        _rodada(dry)
+
+
+def _rodada(dry):
+    st = carregar()
+    agora = time.time()
+    vencidos = [c for c, r in st["cards"].items() if agora - r.get("ultimo_check", 0) >= r.get("cada", 10) * 60 - FOLGA_S]
+    if not vencidos:
+        return  # sem cards (ou nenhum vencido): nem toca no runner
+
+    try:
+        sessoes = listar_sessoes()
+    except Saida as e:
+        if e.codigo != 2:
+            raise  # token ruim ou erro do runner: precisa aparecer, nao e "runner fora"
+        st["runner_falhas"] += 1
+        log(f"runner fora ({st['runner_falhas']}a rodada seguida): {e.msg}")
+        if st["runner_falhas"] >= RUNNER_FORA_RODADAS and not st["runner_cutucado"]:
+            txt = (f"MODO MONITOR: o runner esta fora do ar ha {st['runner_falhas']} rodadas seguidas e eu nao consigo vigiar os cards. "
+                   f"Erro: {e.msg[:300]} Avise o dono se nao voltar.")
+            if dry:
+                print("[DRY] avisaria:\n" + txt)
+            else:
+                ok, motivo = injetar(txt)
+                # Com o runner fora, injetar tambem falha: fica registrado e tenta na rodada seguinte.
+                log("aviso de runner fora: " + ("entregue" if ok else f"nao entregue ({motivo}); tento de novo na proxima rodada"))
+                st["runner_cutucado"] = ok
+        if not dry:
+            gravar(st)
+        raise
+
+    if st["runner_falhas"] or st["runner_cutucado"]:
+        log("o runner voltou a responder")
+    st["runner_falhas"], st["runner_cutucado"] = 0, False
+
+    eventos = []
+    agora_ms = int(agora * 1000)
+    for cid in vencidos:
+        reg = st["cards"][cid]
+        card = sessoes.get(cid)
+        d = decidir(card, reg, agora_ms)
+        if d["acao"] == "retomar":
+            if dry:
+                print(f"[DRY] retomaria {cid} ({reg.get('titulo', '?')[:60]}): {d['detalhe']}")
+            else:
+                ok, motivo = retomar(cid)
+                log(f"{cid} ({reg.get('titulo', '?')[:60]}): {d['detalhe']}; resume {'ok' if ok else 'FALHOU: ' + motivo}")
+                reg["assinaturas"] = (reg["assinaturas"] + [d["assinatura"]])[-MAX_ASSINATURAS:]
+                if not ok:
+                    d = {"acao": "cutucar", "tipo": "resume-falhou", "assinatura": d["assinatura"] + ":falha", "ler": True,
+                         "detalhe": f"caiu e o resume automatico falhou ({motivo}). Tente 'POST /api/agents/{cid}/resume' de novo ou fale com o dono"}
+                    eventos.append((cid, reg, card, d))
+        elif d["acao"] == "cutucar":
+            eventos.append((cid, reg, card, d))
+        elif dry:
+            print(f"[DRY] {cid}: {d['tipo']}, silencio")
+        if not dry:
+            reg["ultimo_check"] = agora
+            if card:
+                reg["ultimo_status"] = card.get("status")
+                if card.get("status") != "resumable":
+                    reg["ultimo_upd"] = int(card.get("updatedAt") or 0)
+
+    if eventos:
+        completos = [(cid, reg, d, trecho_ultima_mensagem(cid, card) if d.get("ler") and card else "")
+                     for cid, reg, card, d in eventos]
+        texto = montar_texto(completos)
+        resumo = "; ".join(f"{c}={d['tipo']}" for c, _, d, _ in completos)
+        if dry:
+            print("[DRY] cutucaria a sessao dona com:\n" + texto)
+        else:
+            ok, motivo = injetar(texto)
+            if ok:
+                for cid, reg, d, _ in completos:
+                    reg["assinaturas"] = (reg["assinaturas"] + [d["assinatura"]])[-MAX_ASSINATURAS:]
+                log(f"cutucou '{dono()}' ({resumo})")
+            else:
+                log(f"FALHA ao cutucar '{dono()}' ({resumo}): {motivo}. A assinatura nao foi gravada: tento de novo na proxima rodada.")
+                for cid, *_ in completos:
+                    st["cards"][cid]["ultimo_check"] = 0
+                gravar(st)
+                print(f"dgclaw-monitor: nao consegui cutucar a sessao '{dono()}': {motivo}", file=sys.stderr)
+                raise Saida(6, "o aviso nao foi entregue; sera repetido na proxima rodada.")
+    if not dry:
+        gravar(st)
+
+
+def cmd_ajuda(_):
+    print((__doc__ or "").strip())
+
+
+COMANDOS = {"add": cmd_add, "rm": cmd_rm, "list": cmd_list, "run": cmd_run, "ajuda": cmd_ajuda, "-h": cmd_ajuda, "--help": cmd_ajuda}
+
+
+def main():
+    args = sys.argv[1:]
+    sub = args[0] if args else "ajuda"
+    if sub not in COMANDOS:
+        print(f"dgclaw-monitor: subcomando desconhecido: '{sub}'. Use add, rm, list, run ou ajuda.", file=sys.stderr)
+        return 1
+    try:
+        COMANDOS[sub](args[1:])
+    except Saida as e:
+        print(f"dgclaw-monitor: {e.msg}", file=sys.stderr)
+        return e.codigo
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -189,11 +189,13 @@ COPY --from=runner-build /build/runner/package.json /opt/dgclaw/app/runner/packa
 
 # CLIs que rodam DENTRO do container (o bin/dgclaw do host não entra no PATH). O link nasce
 # mesmo que o arquivo ainda não exista; fica pendente até o plugin trazer o arquivo.
+# dgclaw-monitor: o vigia sem modelo dos cards (docs/MODO-MONITOR.md); o timer dele nasce no install-timers.sh.
 # dgclaw-card: o agente abre um card em outro provedor (a skill cai no caminho completo se
 # o link faltar). dgclaw-api: o agente chama a API do Web pela caixa de arquivos (docs/CAIXA-DO-AGENTE.md).
 # dgclaw-abrir-zip: extrai zip recebido como anexo numa pasta nova, com as travas contra zip slip e zip bomba.
 RUN ln -s /opt/dgclaw/app/bin/dgclaw-agente /usr/local/bin/dgclaw-agente \
  && ln -s /opt/dgclaw/app/bin/dgclaw-card /usr/local/bin/dgclaw-card \
+ && ln -s /opt/dgclaw/app/bin/dgclaw-monitor /usr/local/bin/dgclaw-monitor \
  && ln -s /opt/dgclaw/app/bin/dgclaw-abrir-zip /usr/local/bin/dgclaw-abrir-zip \
  && ln -s /opt/dgclaw/app/bin/dgclaw-api /usr/local/bin/dgclaw-api
 # dgclaw-mesa: o agente cria e atualiza as tarefas da Mesa (fala com o Web pela caixa, dgclaw-api).

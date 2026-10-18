@@ -66,6 +66,10 @@ Agentes
   dgclaw agente reparar <slug>           regrava o config.sh e refaz a parte de dentro (runner, painel e rotinas)
       Exemplo:  dgclaw agente reparar ana
 
+  dgclaw agente identidade <slug>        regrava so o identidade.md (AGENT.md + regra do canal + "Onde voce esta e o que voce consegue fazer")
+      Nao reinicia nada: vale na proxima sessao do agente.
+      Exemplo:  dgclaw agente identidade ana
+
   dgclaw agente cofre <slug> guardar|revogar|listar|aplicar [NOME] [opcoes]
       Guarda, revoga ou lista as chaves de API do agente (o valor vem SEMPRE pelo STDIN, nunca na linha).
       aplicar reinicia o agente para ele passar a usar o cofre. Opcoes: --provedor <id> --aplicar --quem "<texto>" --json
@@ -367,13 +371,26 @@ gerar_identidade() {
     renderizar_template "$tpl/AGENTS.md.tmpl" | escrever_se_novo "$h/AGENTS.md" 644 "$ug"
     renderizar_template "$tpl/MEMORY.md.tmpl" | escrever_se_novo "$h/MEMORY.md" 644 "$ug"
 
-    # identidade.md e o que o runner injeta: o AGENT.md mais a regra do canal. Le o
-    # AGENT.md que esta no disco (a pessoa pode ter editado), nao o recem-gerado.
+    regravar_identidade_md
+}
+
+# regravar_identidade_md: monta o identidade.md, o que o runner injeta em toda sessao:
+# o AGENT.md (do disco, a pessoa pode ter editado) + a regra do canal + a secao "Onde voce
+# esta e o que voce consegue fazer" (templates/ambiente/agente.md). O arquivo e DERIVADO:
+# o que a pessoa edita e o AGENT.md, entao ele e regravado sempre (so se o conteudo mudou).
+# Usa C_HOME, C_UG, C_SLUG, C_NOME e C_DONO_TEXTO do chamador.
+regravar_identidade_md() {
+    local h="$C_HOME" ug="$C_UG" tpl="$APP_DIR/templates"
+    local C_PAPEL="${C_PAPEL:-$TEXTO_PAPEL_NEUTRO}" C_JEITO="${C_JEITO:-$TEXTO_JEITO_NEUTRO}" C_DATA="${C_DATA:-$(date +%F)}"
+    [ -f "$tpl/ambiente/agente.md" ] || falha "o modelo $tpl/ambiente/agente.md nao existe." \
+        "a copia do DG Claw em $APP_DIR esta incompleta; reinstale com o instalador."
     {
         if [ -f "$h/AGENT.md" ]; then cat "$h/AGENT.md"; else renderizar_template "$tpl/AGENT.md.tmpl"; fi
         printf '\n---\n\n'
         regra_canal_dgchat
-    } | escrever_se_novo "$h/.plataforma/identidade.md" 644 "$ug"
+        printf '\n---\n\n'
+        renderizar_template "$tpl/ambiente/agente.md"
+    } | escrever_se_mudou "$h/.plataforma/identidade.md" 644 "$ug"
 }
 
 gerar_runner_json() {
@@ -399,7 +416,8 @@ gerar_runner_json() {
                              DGCLAW_AGENTE_ID: $slug,
                              DGCLAW_RUNNER_URL: "http://127.0.0.1:4300",
                              RUNNER_TOKEN_FILE: "/run/dgclaw/segredos/runner.token"},
-                  promptHooks: ["node /opt/dgclaw/app/scripts/foco-hook.mjs"],
+                  promptHooks: ["node /opt/dgclaw/app/scripts/foco-hook.mjs",
+                                "node /opt/dgclaw/app/scripts/novidades-hook.mjs"],
                   tags: ["dgclaw", $slug], cofre: []}}'
 }
 
@@ -525,6 +543,28 @@ montar_casa() {
     gerar_painel_env | escrever_se_mudou "$casa/config/painel.env" 644 "$ub:$ub"
 }
 
+# O agente que nasce agora ja conhece tudo o que o CHANGELOG diz: sem este "visto" ele receberia, na
+# primeira conversa, o aviso de uma atualizacao que nunca aconteceu para ele. Agente antigo, sem o
+# arquivo, recebe o aviso uma vez (docs/NOVIDADES.md). Nao troca um visto que ja exista.
+semear_novidades() {
+    local h="$C_HOME" visto="$C_HOME/.dgclaw/novidades-visto.json"
+    [ "$ENSAIO" = 1 ] && { printf '   [ensaio] gravaria %s com a versao atual\n' "$visto"; return 0; }
+    [ -e "$visto" ] && return 0
+    if [ ! -f "$APP_DIR/VERSAO" ]; then
+        info "sem $APP_DIR/VERSAO (copia de desenvolvimento, sem instalar); nao marquei as novidades como vistas."
+        return 0
+    fi
+    if ! command -v node >/dev/null 2>&1; then
+        aviso "o node nao esta instalado aqui, entao nao marquei as novidades como vistas; o agente $C_SLUG vai avisar das novidades na primeira conversa. Instale o node e rode: dgclaw agente reparar $C_SLUG."
+        return 0
+    fi
+    if DGCLAW_WORKSPACE="$h" DGCLAW_APP="$APP_DIR" node "$APP_DIR/scripts/novidades-hook.mjs" --semear; then
+        chown "$C_UG" "$visto" 2>/dev/null || aviso "nao consegui dar o arquivo $visto ao agente; ele nao conseguira atualizar o que ja viu."
+    else
+        aviso "nao consegui gravar o que o agente $C_SLUG ja viu das novidades (leia o fim de $h/.dgclaw/logs/novidades-hook.log); na primeira conversa ele pode avisar de novidades que ja nasceram com ele."
+    fi
+}
+
 montar_identidade() {
     local h="$C_HOME" ug="$C_UG"
     gerar_identidade
@@ -539,6 +579,7 @@ montar_identidade() {
         printf '%s\n' "$C_CANAL" | escrever_arquivo "$h/.dgclaw/canal-desejado" 644 "$ug"
     fi
     ok "identidade, configuracao do runner e do painel escritas"
+    semear_novidades
     gmail_so_leitura
 }
 
@@ -1061,7 +1102,8 @@ config_sh_valor() {
 # regravar_config_sh <slug> <objeto do agentes.json>: refaz o config.sh do agente com o
 # gerar_config_sh do criar. Valores, em ordem: runner.json (o que o runner usa de
 # verdade), panel/config.json (dono), config.sh antigo, agentes.json e, por fim, o padrao
-# do criar. Idempotente: se nada mudou, nao reescreve.
+# do criar. Idempotente: se nada mudou, nao reescreve. Com o 3o argumento "identidade",
+# resolve os mesmos valores mas so regrava o identidade.md (dgclaw agente identidade).
 regravar_config_sh() {
     local slug="$1" obj="$2"
     local C_SLUG="$slug" C_CASA="$DG_CASAS/$slug" C_HOME C_NOME C_DONO_TEXTO C_PROVEDOR C_AUTH C_MODELO
@@ -1115,6 +1157,11 @@ regravar_config_sh() {
 
     exigir_casa_sem_link "$C_CASA" "$C_HOME" "$slug" "dgclaw agente reparar $slug"
 
+    if [ "${3:-}" = identidade ]; then
+        regravar_identidade_md
+        return 0
+    fi
+
     novo="$(gerar_config_sh)"
     if [ "$ENSAIO" != 1 ] && [ -f "$alvo" ] && [ ! -L "$alvo" ] && [ "$(cat "$alvo")" = "$novo" ]; then
         ok "config.sh do agente ja estava atualizado"
@@ -1137,8 +1184,13 @@ agente_reparar() {
     porta="$(printf '%s' "$obj" | jq -r '.runner | sub("^.*:"; "")')"
     passo "Garantindo o gancho do Modo foco no runner.json"
     garantir_gancho_foco "$DG_CASAS/$slug/runner/runner.json" "$slug"
+    passo "Garantindo o gancho do aviso de novidades no runner.json"
+    garantir_gancho_novidades "$DG_CASAS/$slug/runner/runner.json" "$slug"
     passo "Regravando o config.sh do agente $slug"
     regravar_config_sh "$slug" "$obj"
+    passo "Regravando a identidade do agente $slug"
+    regravar_config_sh "$slug" "$obj" identidade
+    ok "identidade.md regravado (vale na proxima sessao do agente)"
     passo "Refazendo a parte de dentro do agente $slug"
     esperar_systemd "$c"
     instalar_vida "$slug" || falha "a parte de dentro do agente $slug nao terminou." \
@@ -1147,6 +1199,19 @@ agente_reparar() {
         falha "o runner do agente $slug nao respondeu em ${TEMPO_ESPERA}s em http://127.0.0.1:$porta/api/saude." \
               "veja o log: podman exec $c journalctl -u dgclaw-runner -n 50"
     fi
+}
+
+# agente_identidade <slug>: regrava so o identidade.md (AGENT.md + regra do canal + a secao
+# do ambiente). Nao reinicia nada: o runner le o arquivo ao abrir a proxima sessao.
+agente_identidade() {
+    exigir_slug "${1:-}" identidade
+    local slug="$1" obj
+    exigir_ferramentas jq
+    obj="$(agentes_obter "$slug")"
+    [ -n "$obj" ] || falha "o agente '$slug' nao esta no agentes.json." \
+        "veja os agentes que existem com: dgclaw agente listar"
+    regravar_config_sh "$slug" "$obj" identidade
+    ok "identidade do agente $slug regravada. Vale na proxima sessao dele (nada foi reiniciado)."
 }
 
 # estado_container <slug>: running, exited... ou ausente.
@@ -1295,10 +1360,11 @@ agente_main() {
         listar) agente_listar "$@" ;;
         parar|iniciar|reiniciar) agente_acao "$sub" "$@" ;;
         reparar) agente_reparar "$@" ;;
+        identidade) agente_identidade "$@" ;;
         cofre) agente_cofre "$@" ;;
         remover) agente_remover "$@" ;;
-        "") falha "faltou dizer o que fazer com os agentes." "use: criar, listar, parar, iniciar, reiniciar, reparar, cofre ou remover (veja dgclaw --ajuda)." ;;
-        *) falha "'agente $sub' nao existe." "use: criar, listar, parar, iniciar, reiniciar, reparar, cofre ou remover (veja dgclaw --ajuda)." ;;
+        "") falha "faltou dizer o que fazer com os agentes." "use: criar, listar, parar, iniciar, reiniciar, reparar, identidade, cofre ou remover (veja dgclaw --ajuda)." ;;
+        *) falha "'agente $sub' nao existe." "use: criar, listar, parar, iniciar, reiniciar, reparar, identidade, cofre ou remover (veja dgclaw --ajuda)." ;;
     esac
 }
 
@@ -1591,6 +1657,20 @@ avisar_cofre_antigo() {
     s_aviso "agente $slug: sobrou o cofre antigo do painel dentro da casa, que o proprio agente consegue ler (chaves: ${nomes:-nenhum .enc, so a chave de cifra}). Guarde cada chave de novo com: printf %s \"\$CHAVE\" | dgclaw agente cofre $slug guardar NOME. Depois apague $chave e a pasta $pasta/"
 }
 
+# avisar_identidade_antiga <slug> <casa>: o identidade.md (o que o runner injeta) precisa ter
+# a secao "Onde voce esta e o que voce consegue fazer". Agente criado antes dela nao tem.
+# A casa e gravavel pelo agente: se o arquivo ou a pasta for atalho, nao leio (root).
+avisar_identidade_antiga() {
+    local slug="$1" casa="$2" arq="$2/.plataforma/identidade.md"
+    if [ -L "$casa/.plataforma" ] || [ -L "$arq" ]; then
+        s_aviso "agente $slug: $arq e um atalho e eu nao segui. Refaca com: dgclaw agente identidade $slug"
+        return 0
+    fi
+    if [ ! -f "$arq" ] || ! grep -qxF '## Onde você está e o que você consegue fazer' "$arq" 2>/dev/null; then
+        s_aviso "agente $slug: a identidade dele ainda nao tem a secao \"Onde voce esta e o que voce consegue fazer\". Regrave com: dgclaw agente identidade $slug (vale na proxima sessao, nao reinicia nada)"
+    fi
+}
+
 status_geral() {
     exigir_ferramentas jq podman curl
     carregar_env_dgclaw
@@ -1639,7 +1719,7 @@ status_geral() {
         if [ "$estado" != running ]; then s_aviso "agente $slug: container $estado (ligar: dgclaw agente iniciar $slug)"
         elif [ "$saude" = ok ]; then s_ok "agente $slug: de pe e respondendo"
         else s_aviso "agente $slug: container de pe, mas o runner nao responde (tente: dgclaw agente reparar $slug)"; fi
-        if [ -n "$casa" ]; then avisar_cofre_antigo "$slug" "$casa"; fi
+        if [ -n "$casa" ]; then avisar_cofre_antigo "$slug" "$casa"; avisar_identidade_antiga "$slug" "$casa"; fi
     done < <(agentes_ler | jq -r '.agentes[] | select(.tipo == "agente") | [.slug, .runner, (.home_host // "")] | @tsv')
 
     if [ "$S_FALHAS" -gt 0 ]; then
