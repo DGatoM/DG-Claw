@@ -30,6 +30,13 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
   cerca de rede, serviços, backup e memória, com alerta por webhook, Telegram e ping externo), timer diário da
   retenção, `logrotate` e o modo escondido sem enviar texto para fora quando `sigilo_externo` está desligado.
   Inventário em `docs/enterprise/DADOS-PESSOAIS.md` e plano de resposta a incidente em `docs/enterprise/INCIDENTE.md`.
+- Bloco D da versão enterprise (container, cofre, disco e backup), tudo atrás do nível de proteção e sem efeito
+  no nível `pessoal`: container endurecido (`--cap-drop=ALL` com 11 capacidades devolvidas, `no-new-privileges`,
+  `--ulimit nofile`, cerca IPv6 em `lib/enterprise/firewall6.sh`), `dgclaw agente pacote` e `dgclaw agente recriar`;
+  cofre dos agentes cifrado com `systemd-creds` (cópia em claro só em `/run/dgclaw/cofres`, `dgclaw cofre migrar`);
+  disco cifrado LUKS2 em arquivo (`dgclaw disco cifrar`, desbloqueio no boot); backup cifrado fora da VPS com restic
+  (`dgclaw backup ...`, `dgclaw restaurar`, teste de restauração automático por timer). Documento:
+  `docs/enterprise/CONTAINER-ENDURECIDO.md`.
 - CI de segurança (gitleaks, CodeQL, varredura da imagem com Trivy e SBOM), Dependabot, CODEOWNERS e modelo de PR.
 - Modo escondido (botão 👁 no cabeçalho da conversa): troca por asteriscos nomes, empresas, valores,
   e-mails, telefones, documentos e chaves de todas as mensagens da tela, para o dono mostrar a conversa numa
