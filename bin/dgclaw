@@ -135,6 +135,15 @@ Atualizar o DG Claw
       um backup do estado de agora), reinstala e reinicia. Os dados dos agentes nao sao tocados.
       Exemplo:  sudo dgclaw atualizar --voltar /var/backups/dgclaw/20261018-093000
 
+Protecao e versao
+  dgclaw nivel [mostrar]                 mostra o nivel de protecao e o valor de cada protecao
+  dgclaw nivel definir <pessoal|escritorio|empresa|regulado>
+  dgclaw nivel ajustar <chave> <valor>   sobe (nunca abaixo da trava do nivel) uma protecao
+      Exemplo:  dgclaw nivel ajustar sessao_horas 24
+  dgclaw nivel org <uuid>                fixa a organizacao do Claude (forceLoginOrgUUID)
+  dgclaw protecoes aplicar               leva as protecoes do nivel aos agentes que ja existem
+  dgclaw versao                          mostra a versao instalada
+
 Geral
   dgclaw status                          confere se tudo esta de pe (sai com erro se algo essencial caiu)
 FIM
