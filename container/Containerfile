@@ -12,6 +12,8 @@
 # Estágio 1: compila o runner. O node-pty é nativo e precisa de python3, make
 # e g++; eles ficam AQUI e não chegam à imagem final.
 # ---------------------------------------------------------------------------
+# A imagem base deve ficar presa por digest (FROM ubuntu:24.04@sha256:...), para sair igual hoje e daqui a
+# seis meses. Para fixar ou atualizar o digest: bash scripts/enterprise/fixar-digest-ubuntu.sh --aplicar
 FROM docker.io/library/ubuntu:24.04 AS runner-build
 
 ENV DEBIAN_FRONTEND=noninteractive

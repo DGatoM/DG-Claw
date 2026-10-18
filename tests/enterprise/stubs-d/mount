@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# mount de mentira: <dispositivo-pasta> <pasta>. "Monta" trocando a pasta vazia por um atalho para a pasta do dispositivo.
+echo "mount $*" >>"${STUB_LOG:?}"
+dev="$1"; dir="$2"
+[ -d "$dev" ] || { echo "mount: $dev nao e um dispositivo (stub)" >&2; exit 32; }
+[ -L "$dir" ] && { echo "mount: $dir ja esta montado (stub)" >&2; exit 32; }
+[ -z "$(ls -A "$dir" 2>/dev/null)" ] || { echo "stub: $dir nao esta vazia" >&2; exit 32; }
+rmdir "$dir" && ln -s "$dev" "$dir"

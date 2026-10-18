@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+echo "losetup $*" >>"${STUB_LOG:?}"

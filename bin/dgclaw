@@ -142,6 +142,12 @@ Protecao e versao
       Exemplo:  dgclaw nivel ajustar sessao_horas 24
   dgclaw nivel org <uuid>                fixa a organizacao do Claude (forceLoginOrgUUID)
   dgclaw protecoes aplicar               leva as protecoes do nivel aos agentes que ja existem
+  dgclaw agente pacote <slug> <pacote...>   instala pacote Debian num agente sem sudo (container endurecido)
+  dgclaw agente recriar <slug> --sim     refaz o container com as protecoes do nivel (a casa do agente fica)
+  dgclaw cofre status|migrar|abrir       cofre dos agentes cifrado em repouso (chaves so em memoria)
+  dgclaw disco status|cifrar|abrir       disco cifrado (LUKS) para os dados dos agentes
+  dgclaw backup configurar|agora|listar|testar|status   backup cifrado fora da VPS (restic)
+  dgclaw restaurar <snapshot|latest> [--destino <pasta>] [--agente <slug>] [--confirmar]
   dgclaw versao                          mostra a versao instalada
 
 Dados pessoais e monitoramento
@@ -719,6 +725,8 @@ criar_container() {
         executar podman "${args[@]}" >/dev/null
         ok "container $c criado (portas so em 127.0.0.1: runner $C_PORTA_RUNNER, painel $C_PORTA_PAINEL)"
     fi
+    # Gancho enterprise: o que precisa estar pronto no host antes de o container ligar (cofre em RAM, disco).
+    ent_rodar_ganchos ent_antes_de_iniciar_ "$C_SLUG"
     executar podman start "$c" >/dev/null
 }
 
@@ -1120,6 +1128,7 @@ agente_acao() {
             ok "agente $slug parado"
             ;;
         iniciar)
+            ent_rodar_ganchos ent_antes_de_iniciar_ "$slug"
             executar podman start "$c" >/dev/null
             if [ "$ENSAIO" != 1 ]; then
                 local t
@@ -1544,6 +1553,7 @@ agente_remover() {
     if [ "$ENSAIO" = 1 ] || podman network exists "dgclaw-$slug" >/dev/null 2>&1; then
         executar podman network rm "dgclaw-$slug" >/dev/null
     fi
+    ent_rodar_ganchos ent_depois_de_remover_ "$slug"
     criar_pasta 700 0:0 "$DG_APOSENTADOS"
     if [ -d "$casa" ] || [ "$ENSAIO" = 1 ]; then
         executar mv "$casa" "$destino"
@@ -1621,7 +1631,14 @@ agente_main() {
         cofre) agente_cofre "$@" ;;
         remover) agente_remover "$@" ;;
         "") falha "faltou dizer o que fazer com os agentes." "use: criar, listar, parar, iniciar, reiniciar, reparar, recriar, identidade, cofre ou remover (veja dgclaw --ajuda)." ;;
-        *) falha "'agente $sub' nao existe." "use: criar, listar, parar, iniciar, reiniciar, reparar, recriar, identidade, cofre ou remover (veja dgclaw --ajuda)." ;;
+        *)
+            # Subcomandos enterprise (ent_cmd_agente_<sub>, em lib/enterprise/). 127 = ninguem tem esse.
+            local rc=0
+            ent_despachar "agente-$sub" "$@" || rc=$?
+            if [ "$rc" -eq 127 ]; then
+                falha "'agente $sub' nao existe." "use: criar, listar, parar, iniciar, reiniciar, reparar, recriar, identidade, cofre ou remover (veja dgclaw --ajuda)."
+            fi
+            return "$rc" ;;
     esac
 }
 

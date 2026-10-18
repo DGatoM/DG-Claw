@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# systemd-creds de mentira: "cifra" com base64 e um marcador que carrega o --name (como o de verdade, o
+# nome tem de bater na decifragem). Registra os argumentos (nunca a entrada) em $STUB_LOG, se definido.
+# STUB_CREDS_FALHA=1 faz encrypt/decrypt falharem.
+[ -z "${STUB_LOG:-}" ] || echo "systemd-creds $*" >>"$STUB_LOG"
+cmd="${1:-}"; shift || true
+nome=""; pos=()
+for a in "$@"; do
+    case "$a" in
+        --name=*) nome="${a#--name=}" ;;
+        --*) ;;
+        *) pos+=("$a") ;;
+    esac
+done
+entrada="${pos[0]:--}"; saida="${pos[1]:--}"
+if [ "$cmd" = "--version" ]; then echo "systemd 255 (stub)"; exit 0; fi
+if [ "${STUB_CREDS_FALHA:-}" = 1 ]; then echo "Failed to ${cmd} (stub)" >&2; exit 1; fi
+ler() { if [ "$entrada" = - ]; then cat; else cat "$entrada"; fi; }
+gravar() { if [ "$saida" = - ]; then cat; else cat >"$saida"; fi; }
+case "$cmd" in
+    encrypt) { printf 'FAKECRED:%s:' "$nome"; ler | base64 -w0; printf '\n'; } | gravar ;;
+    decrypt)
+        corpo="$(ler)"
+        case "$corpo" in
+            "FAKECRED:$nome:"*) printf '%s' "${corpo#"FAKECRED:$nome:"}" | base64 -d | gravar ;;
+            *) echo "Failed to decrypt: nome da credencial nao bate ou blob invalido (stub)" >&2; exit 1 ;;
+        esac ;;
+    *) echo "stub: comando $cmd nao suportado" >&2; exit 2 ;;
+esac

@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# cryptsetup de mentira: o "arquivo LUKS" ganha um marcador; o dispositivo aberto e uma PASTA ($DGCLAW_DISCO_MAPPER)
+# que faz o papel do sistema de arquivos (o mount de mentira liga uma pasta a ela).
+# Registra os argumentos em $STUB_LOG. Nunca imprime nem registra o conteudo da chave.
+echo "cryptsetup $*" >>"${STUB_LOG:?}"
+cmd="${1:-}"; shift || true
+chave=""; pos=()
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --key-file) chave="$2"; shift 2 ;;
+        --type|--cipher) shift 2 ;;
+        --*) shift ;;
+        *) pos+=("$1"); shift ;;
+    esac
+done
+case "$cmd" in
+    luksFormat)
+        [ -s "$chave" ] || { echo "stub: sem chave" >&2; exit 1; }
+        [ "$(stat -c %s "$chave")" = 64 ] || { echo "stub: a chave nao tem 64 bytes" >&2; exit 1; }
+        printf 'LUKS-FAKE\n' >"${pos[0]}"
+        sha256sum <"$chave" | cut -d' ' -f1 >"${pos[0]}.chave-sha" ;;
+    open)
+        arq="${pos[0]}"
+        [ -f "$arq" ] || { echo "stub: volume inexistente" >&2; exit 1; }
+        [ "$(sha256sum <"$chave" | cut -d' ' -f1)" = "$(cat "$arq.chave-sha")" ] || { echo "No key available with this passphrase." >&2; exit 2; }
+        mkdir -p "${DGCLAW_DISCO_MAPPER:?}" ;;
+    close) : ;;   # a "pasta do dispositivo" fica (o conteudo e o que o teste inspeciona)
+    *) echo "stub: comando $cmd nao suportado" >&2; exit 2 ;;
+esac
+exit 0

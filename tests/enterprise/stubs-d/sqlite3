@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# sqlite3 de mentira: so `sqlite3 <banco> ".timeout N" ".backup 'destino'"`; copia o banco.
+echo "sqlite3 $*" >>"${STUB_LOG:?}"
+db="$1"; cmd="${*: -1}"
+case "$cmd" in
+    ".backup '"*) dest="${cmd#.backup \'}"; dest="${dest%\'}"; dest="${dest//\'\'/\'}"
+                  [ "${STUB_SQLITE_FALHA:-}" = 1 ] && { echo "database is locked (stub)" >&2; exit 5; }
+                  cp -p "$db" "$dest" ;;
+    *) echo "stub: comando nao suportado: $cmd" >&2; exit 2 ;;
+esac

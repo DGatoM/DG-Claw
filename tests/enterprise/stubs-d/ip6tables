@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# ip6tables de mentira: guarda as cadeias em arquivos de $STUB_ESTADO/v6-<cadeia> (uma regra por linha).
+echo "ip6tables $*" >>"${STUB_LOG:?}"
+est="${STUB_ESTADO:?}"
+args=(); for a in "$@"; do [ "$a" = -w ] || args+=("$a"); done
+set -- "${args[@]}"
+op="$1"; ch="$2"; shift 2 || true
+f="$est/v6-$ch"
+case "$op" in
+    -L) [ -f "$f" ] ;;
+    -N) [ -f "$f" ] && exit 1; : >"$f" ;;
+    -F) : >"$f" ;;
+    -A) echo "$*" >>"$f" ;;
+    -C) [ -f "$f" ] && grep -qxF -- "$*" "$f" ;;
+    -D) [ -f "$f" ] || exit 1; grep -vxF -- "$*" "$f" >"$f.n"; mv "$f.n" "$f" ;;
+    -I) shift; { echo "$*"; cat "$f" 2>/dev/null; } >"$f.n"; mv "$f.n" "$f" ;;
+    *) exit 0 ;;
+esac
