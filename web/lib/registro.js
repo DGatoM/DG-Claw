@@ -46,6 +46,8 @@ function normaliza(bruto, indice) {
       cofre_arquivo: textoOuNull(bruto.cofre_arquivo),
       container: textoOuNull(bruto.container),
       dono: textoOuNull(bruto.dono),
+      // Enterprise (bloco C): `papel: "admin"` marca o Admin que roda em container; só ele usa o controle do servidor.
+      papel: textoOuNull(bruto.papel),
     },
   };
 }
@@ -99,8 +101,9 @@ function criarRegistro({ caminho, log }) {
       falha(`O registro de agentes ${caminho} não tem nenhum agente válido. Confira os avisos acima no log e o formato do arquivo.`);
       return;
     }
-    // Admin primeiro; o resto na ordem do arquivo.
-    agentes.sort((a, b) => (b.tipo === 'admin') - (a.tipo === 'admin'));
+    // Admin primeiro (tipo ou papel "admin"); o resto na ordem do arquivo.
+    const ehAdmin = (a) => a.tipo === 'admin' || a.papel === 'admin';
+    agentes.sort((a, b) => ehAdmin(b) - ehAdmin(a));
     estado = { ok: true, erro: null, agentes };
     ultimoErroLogado = null;
     log('info', `Registro de agentes carregado de ${caminho}: ${agentes.map((a) => a.slug).join(', ')}.`);

@@ -155,9 +155,11 @@ module.exports = {
     const contaAcertou = (k) => contas.delete(k);
 
     // ── regras de acesso ───────────────────────────────────────────────────
+    // O Admin é o de tipo "admin" (modo host) ou o que tem papel "admin" (container, bloco C): funcionário nunca vê nenhum dos dois.
+    const ehAdmin = (a) => a.tipo === 'admin' || a.papel === 'admin';
     function agentesDeTrabalho() {
       const est = registro.estado();
-      return est.ok ? est.agentes.filter((a) => a.tipo !== 'admin') : null;
+      return est.ok ? est.agentes.filter((a) => !ehAdmin(a)) : null;
     }
 
     /** A regra única: o TI vê tudo; o funcionário só os agentes da sua lista, nunca o Admin. */
@@ -169,7 +171,7 @@ module.exports = {
       if (!vivo(rec)) return false;
       if (rec.papel === 'ti') return true;
       const ag = registro.obter(slug);
-      if (!ag || ag.tipo === 'admin') return false;
+      if (!ag || ehAdmin(ag)) return false;
       return rec.agentes.includes(slug);
     }
 

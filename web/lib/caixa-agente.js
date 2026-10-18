@@ -76,7 +76,8 @@ function criarCaixaAgente({ config, registro, log, porta, agora }) {
     const slug = req.headers['x-dgclaw-agente'];
     if (typeof slug !== 'string') return null;
     const ag = registro.obter(slug);
-    return ag && ag.tipo === 'agente' ? slug : null;
+    // O Admin em container (enterprise, papel "admin") também usa a caixa: é por ela que chega ao controle do servidor.
+    return ag && (ag.tipo === 'agente' || ag.papel === 'admin') ? slug : null;
   }
 
   // ── caminhos e dono da casa ────────────────────────────────────────────────
@@ -359,7 +360,7 @@ function criarCaixaAgente({ config, registro, log, porta, agora }) {
     if (!est.ok) return;
     const tarefas = [];
     for (const ag of est.agentes) {
-      if (ag.tipo !== 'agente' || !ag.home_host || ocupados.has(ag.slug)) continue;
+      if (!(ag.tipo === 'agente' || ag.papel === 'admin') || !ag.home_host || ocupados.has(ag.slug)) continue;
       ocupados.add(ag.slug);
       tarefas.push(voltaDoAgente(ag).catch((e) => {
         log('erro', `Caixa de ${ag.slug}: a volta falhou (${e && e.message}). Confira a casa ${ag.home_host}.`);
