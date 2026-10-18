@@ -301,7 +301,9 @@ function criarOnboarding({ config, registro, conversa, midia, log = () => {}, im
 // Pedido vindo da CONVERSA: o dono respondeu ao Admin no chat em vez de usar o formulário.
 // Grava o mesmo arquivo que o formulário grava, para `criar atual` e `testar atual` funcionarem igual
 // e o painel mostrar a animação. Não escreve ao Admin: quem chama já é o Admin.
-function registrarPedido({ config, registro, dados }) {
+// semAdmin: o Admin está desligado de propósito (admin_llm = false, web/lib/ent/admin-desligado.js) e o formulário do Web
+// cria o agente pelo controle; sem Admin cadastrado o provedor é o pedido em dados.provedor (claude ou codex) ou claude.
+function registrarPedido({ config, registro, dados, semAdmin = false }) {
   if (!dados || typeof dados !== 'object' || Array.isArray(dados)) throw erro('Faltou o JSON com nome, papel, jeito e dono do agente.');
   const db = loja(config.dataDir);
   const ultimo = db.ultimo();
@@ -309,12 +311,13 @@ function registrarPedido({ config, registro, dados }) {
   const { dono, nome, papel, jeito, uso } = escolhas(dados, dados.dono);
   if (dono === undefined) throw erro('Preencha seu nome com até 70 caracteres, sem quebras de linha.');
   const admin = registro.estado().agentes.find(a => a.tipo === 'admin');
-  if (!admin) throw erro('O Admin não está cadastrado. Peça para conferir a instalação.', 503);
+  if (!admin && !semAdmin) throw erro('O Admin não está cadastrado. Peça para conferir a instalação.', 503);
+  const provedor = admin ? (admin.provedor === 'codex' ? 'codex' : 'claude') : (dados.provedor === 'codex' ? 'codex' : 'claude');
   const id = crypto.randomBytes(16).toString('hex');
   let slug = slugNome(nome);
   if (registro.obter(slug)) slug = slug.slice(0, 22) + '-' + id.slice(0, 6);
   return db.gravar({ id, criado: new Date().toISOString(), nome, papel, jeito, dono, uso, usuario: typeof dados.usuario === 'string' ? dados.usuario : undefined, slug, foto: null, fotoPath: null,
-    provedor: admin.provedor === 'codex' ? 'codex' : 'claude', fase: 'solicitado', origem: 'conversa',
-    mensagem: 'O Admin recebeu suas escolhas pela conversa e vai preparar seu agente.' });
+    provedor, fase: 'solicitado', origem: semAdmin ? 'formulario' : 'conversa',
+    mensagem: semAdmin ? 'Recebi suas escolhas e vou preparar seu agente.' : 'O Admin recebeu suas escolhas pela conversa e vai preparar seu agente.' });
 }
 module.exports = { criarOnboarding, registrarPedido, loja, slugNome, RX_ID, limpar };

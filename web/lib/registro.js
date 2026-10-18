@@ -52,7 +52,7 @@ function normaliza(bruto, indice) {
   };
 }
 
-function criarRegistro({ caminho, log }) {
+function criarRegistro({ caminho, log, vazioOk = () => false }) {
   let assinatura = null;       // "mtimeMs:size" ou "ausente"
   let estado = { ok: false, erro: 'o registro ainda não foi lido', agentes: [] };
   let ultimoErroLogado = null;
@@ -97,6 +97,14 @@ function criarRegistro({ caminho, log }) {
       vistos.add(r.agente.slug);
       agentes.push(r.agente);
     });
+    // Admin desligado de propósito (admin_llm = false, bloco J): ainda sem nenhum agente, a lista vazia é o estado certo,
+    // não um arquivo quebrado. A tela leva o TI ao formulário de novo agente.
+    if (!agentes.length && json.agentes.length === 0 && vazioOk()) {
+      estado = { ok: true, erro: null, agentes: [] };
+      ultimoErroLogado = null;
+      log('info', `Registro de agentes carregado de ${caminho}: vazio (o Admin está desligado; crie o primeiro agente em /novo-agente).`);
+      return;
+    }
     if (!agentes.length) {
       falha(`O registro de agentes ${caminho} não tem nenhum agente válido. Confira os avisos acima no log e o formato do arquivo.`);
       return;

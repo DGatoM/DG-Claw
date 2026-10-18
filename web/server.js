@@ -75,7 +75,9 @@ function criarServidor(opcoes) {
     log('erro', `Não consegui preparar a pasta de dados ${config.dataDir} (${e.code || e.message}). Crie-a com permissão 700 ou aponte DGCLAW_WEB_DATA para um lugar gravável; as sessões não serão salvas.`);
   }
 
-  const registro = criarRegistro({ caminho: config.agentesPath, log });
+  // Criada antes do registro porque a lista vazia só é válida com o Admin desligado de propósito (web/lib/ent/admin-desligado.js).
+  const protecoes = opcoes.protecoes || criarProtecoes({ caminho: config.protecoesPath, log });
+  const registro = criarRegistro({ caminho: config.agentesPath, log, vazioOk: () => protecoes.valor('admin_llm') === false });
   const runner = criarRunner({ log, timeoutMs: opcoes.timeoutRunnerMs });
   const auth = criarAuth({ config, log, agora: opcoes.agora });
   const primeiroAcesso = criarPrimeiroAcesso({ config, auth, log, agora: opcoes.agora });
@@ -90,8 +92,6 @@ function criarServidor(opcoes) {
   const login = criarLogin({ runner, conversa, log, agora: opcoes.agora, oiPrazoMs: opcoes.loginOiPrazoMs, oiPassoMs: opcoes.loginOiPassoMs });
   const cofreAgente = criarCofreAgente({ config, log, reiniciar: opcoes.reiniciarCofre });
   const voz = opcoes.voz || criarVoz({ env: config.env, log });
-  // Criada antes do sigilo porque o modo escondido consulta `sigilo_externo` (web/lib/ent/sigilo.js).
-  const protecoes = opcoes.protecoes || criarProtecoes({ caminho: config.protecoesPath, log });
   const sigilo = opcoes.sigilo || criarSigilo({ env: config.env, registro, dataDir: config.dataDir, log, timeoutMs: opcoes.timeoutSigiloMs, protecoes });
   const cofreRotas = criarCofreRotas({ config, runner, cofre: cofreAgente, voz, log, protecoes });
   const proxy = criarProxy({ config, registro, log, cofreRotas });
@@ -112,7 +112,7 @@ function criarServidor(opcoes) {
   // Enterprise (docs/enterprise/DESENHO.md §3): o nível de proteção e os blocos de web/lib/ent/. No nível
   // pessoal nenhum bloco muda o que o Web faz.
   const auditoria = opcoes.auditoria || criarAuditoria({ caminho: config.auditoriaPath, protecoes, log, agora: opcoes.agora });
-  const ent = criarEnterprise({ config, registro, auth, log, protecoes, auditoria, servirArquivo, semSessaoPagina, caixa, push, agora: opcoes.agora, sso: opcoes.sso, auditoriaExterna: opcoes.auditoriaExterna, instagram: opcoes.instagram });
+  const ent = criarEnterprise({ config, registro, auth, log, protecoes, auditoria, conversa, onboarding, servirArquivo, semSessaoPagina, caixa, push, agora: opcoes.agora, sso: opcoes.sso, auditoriaExterna: opcoes.auditoriaExterna, instagram: opcoes.instagram });
 
   let versaoJsCache = { ts: 0, valor: '0' };
   /** Versão da tela: mtime de conversa.js. A tela compara com a que carregou e se recarrega sozinha. */

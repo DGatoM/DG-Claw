@@ -1,0 +1,26 @@
+/* novo-agente.css: a tela Novo agente (classes na-). Celular primeiro: uma coluna, sem rolagem horizontal, alvos de toque de 40px. */
+.na-raiz{--na-linha:#e1e8e3;--na-texto:#0f1c14;--na-fraco:#6c8172;--na-fundo2:#f0f4f1;--na-acento:#2f9e5e;
+  max-width:640px;margin:0 auto;padding:12px 12px 40px;color:var(--na-texto);box-sizing:border-box;overflow-wrap:anywhere;word-break:break-word}
+.na-raiz *{box-sizing:border-box}
+.na-cab{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+.na-cab h1{margin:0;font-size:22px}
+.na-sec{background:#fff;border:1px solid var(--na-linha);border-radius:14px;padding:14px;margin:12px 0}
+.na-sec h2{margin:0 0 6px;font-size:17px}
+.na-fraco{color:var(--na-fraco);font-size:13px;margin:4px 0 0}
+.na-campo{display:block;margin:12px 0 0}
+.na-rotulo{display:flex;align-items:center;justify-content:space-between;gap:8px;font-weight:600;font-size:14px;margin-bottom:4px}
+.na-campo input,.na-campo textarea{width:100%;min-height:40px;padding:8px 10px;border:1px solid var(--na-linha);border-radius:10px;font:inherit;background:#fff;color:var(--na-texto)}
+.na-campo textarea{min-height:72px;resize:vertical}
+.na-btn{min-height:40px;padding:0 16px;border:1px solid var(--na-linha);border-radius:20px;background:#fff;font:inherit;font-size:14px;color:var(--na-texto);cursor:pointer}
+.na-btn:hover{background:var(--na-fundo2)}
+.na-btn.na-principal{background:var(--na-acento);border-color:var(--na-acento);color:#fff;font-weight:600}
+.na-btn[disabled]{opacity:.55;cursor:default}
+.na-acoes{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.na-ajuda{width:32px;height:32px;border-radius:50%;border:1px solid var(--na-linha);background:#fff;color:var(--na-fraco);font:inherit;font-size:14px;font-weight:700;cursor:pointer;padding:0}
+.na-status{margin:6px 0 0;font-size:13px}
+.na-status:empty{display:none}
+.na-erro{color:#c0392b}
+.na-barra{height:10px;border-radius:5px;background:var(--na-fundo2);overflow:hidden;margin:10px 0 6px}
+.na-barra>i{display:block;height:100%;background:var(--na-acento);transition:width .6s}
+.na-aviso{margin:10px 0 0;padding:10px 12px;border-radius:10px;background:#fff4de;color:#6b4d0e;font-size:14px}
+.na-aviso.na-ruim{background:#fbeaea;color:#8a2b2b}
