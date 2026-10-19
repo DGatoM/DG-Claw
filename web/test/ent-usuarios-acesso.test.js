@@ -166,7 +166,8 @@ test('TI: nenhuma rota de agente recusa por acesso (200 ou o erro natural da rot
       const r = await pede(ti, rota);
       assert.notEqual(r.status, 403, `${rota[1]} recusou o TI`);
     }
-    assert.equal((await ti.get('/', HTML)).headers.location, '/a/admin');
+    // a raiz é a do main: o último agente do cookie, senão o primeiro que não é o Admin
+    assert.equal((await ti.get('/', HTML)).headers.location, '/a/ana');
     assert.deepEqual((await ti.get('/api/v1/agents')).json.agentes.map((a) => a.id), ['admin', 'ana', 'marina']);
   } finally { await c.fechar(); }
 });
@@ -178,6 +179,11 @@ test('funcionário: no que é dele tudo funciona; as listas e a raiz mostram só
     const raiz = await fran.get('/', HTML);
     assert.equal(raiz.status, 302);
     assert.equal(raiz.headers.location, '/a/ana');
+    // o cookie do último agente (do main) não pode apontar para um agente que o funcionário não vê
+    const comCookie = await fran.get('/', { headers: { Accept: 'text/html', Cookie: 'dgclaw_agente=marina' } });
+    assert.equal(comCookie.headers.location, '/a/ana');
+    const cookieValido = await fran.get('/', { headers: { Accept: 'text/html', Cookie: 'dgclaw_agente=ana' } });
+    assert.equal(cookieValido.headers.location, '/a/ana');
     assert.equal((await fran.get('/a/ana', HTML)).status, 200);
     assert.equal((await fran.get('/api/v1/agents/ana')).status, 200);
     assert.equal((await fran.get('/api/v1/agents/ana/messages')).status, 200);

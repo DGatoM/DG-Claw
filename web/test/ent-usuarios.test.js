@@ -35,7 +35,8 @@ test('nível pessoal: nada muda. Sem arquivo de usuários, sem rotas novas, logi
     assert.equal((await cli.get('/api/v1/protecoes')).status, 200);
     assert.notEqual((await cli.get('/api/v1/avisos')).status, 403);
     assert.equal((await cli.get('/a/marina', HTML)).status, 200);
-    assert.equal((await cli.get('/', HTML)).headers.location, '/a/admin');
+    // a raiz é a do main: o último agente do cookie, senão o primeiro que não é o Admin
+    assert.equal((await cli.get('/', HTML)).headers.location, '/a/ana');
     // a sessão de sempre vale 30 dias (sessao_horas = 720)
     const l = await login(c, 'dono', c.senhaTi);
     assert.match(l.headers['set-cookie'][0], /Max-Age=2592000/);
