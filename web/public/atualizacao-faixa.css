@@ -1,0 +1,15 @@
+/* Faixa de nova versão (atualizacao-faixa.js): uma linha discreta, sem rolagem horizontal no celular. */
+.af{background:#eef5ff;border-bottom:1px solid #c3d8f4;color:#1c3557;font-size:13px;padding:4px 12px;max-width:100%;box-sizing:border-box}
+.af[hidden]{display:none}
+.af-linha{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;min-height:34px}
+.af-tit{flex:1 1 220px;min-width:0;overflow-wrap:anywhere}
+.af-acoes{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.af-btn{min-height:32px;padding:0 12px;border-radius:16px;border:1px solid #9bbbe6;background:#fff;color:#1c3557;font:inherit;font-weight:600;cursor:pointer}
+.af-btn.af-instalar{background:#1f5fae;border-color:#1f5fae;color:#fff}
+.af-btn:disabled{opacity:.6;cursor:default}
+.af-ajuda{width:32px;height:32px;border-radius:50%;border:1px solid #9bbbe6;background:#fff;color:#1c3557;font-size:15px;font-weight:700;cursor:pointer;flex:0 0 auto}
+.af-lista{margin:4px 0 6px;padding:0 0 0 18px;max-height:40vh;overflow-y:auto;overflow-wrap:anywhere}
+.af-lista[hidden]{display:none}
+.af-lista li{margin:2px 0}
+.af-erro{margin:4px 0;color:#9b1c1c;overflow-wrap:anywhere}
+.af-erro[hidden]{display:none}

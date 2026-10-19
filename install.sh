@@ -999,6 +999,67 @@ FIM
     ligar_unidade dgclaw-admin-monitor.timer
 }
 
+# --- 9b. aviso de nova versao -----------------------------------------------------
+# configurar_aviso_atualizacao: o AVISO DE NOVA VERSAO (docs/AVISO-DE-ATUALIZACAO.md). Um timer de 6 h roda
+# scripts/checar-atualizacao.mjs, que so le o GitHub publico e guarda o resumo em
+# /var/lib/dgclaw/web/atualizacao/ para o painel mostrar a faixa. Nao baixa nem instala nada.
+# Quem desliga e a linha DGCLAW_AVISO_ATUALIZACAO=0 do dgclaw.env: o instalador a respeita e NUNCA
+# a reescreve nem a cria (sem a linha, o aviso fica ligado).
+configurar_aviso_atualizacao() {
+    local p_app="${DG_APP#"$R"}" p_lib="${DG_LIB#"$R"}" p_log="${DG_LOG#"$R"}" desligar
+    desligar="$(env_valor DGCLAW_AVISO_ATUALIZACAO)"
+    desligar="${desligar//[\'\"]/}"
+    criar_pasta 700 "$DG_LIB/web"
+    criar_pasta 700 "$DG_LIB/web/atualizacao"
+    criar_pasta 750 "$DG_LOG"
+    # Alvo do flock que serializa as checagens (unidade e CLI). So existe, nunca e apagado nem recriado:
+    # `install`/`mv` trocariam o arquivo no meio de uma checagem e quebrariam a trava.
+    executar touch "$DG_LIB/web/atualizacao/.trava"
+    executar chmod 600 "$DG_LIB/web/atualizacao/.trava"
+    cat <<FIM | escrever_arquivo "$DG_UNITS/dgclaw-checar-atualizacao.service" 644
+[Unit]
+Description=DG Claw confere se saiu versao nova (so le o GitHub, nao instala nada)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/bin/flock -w 90 -E 75 $p_lib/web/atualizacao/.trava /usr/bin/node $p_app/scripts/checar-atualizacao.mjs
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=$p_lib/web/atualizacao $p_log
+PrivateTmp=yes
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+TimeoutStartSec=120
+FIM
+    cat <<'FIM' | escrever_arquivo "$DG_UNITS/dgclaw-checar-atualizacao.timer" 644
+[Unit]
+Description=DG Claw confere se saiu versao nova (a cada 6 horas)
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=6h
+RandomizedDelaySec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+FIM
+    if [ "$desligar" = 0 ]; then
+        executar systemctl daemon-reload
+        executar systemctl disable --now dgclaw-checar-atualizacao.timer
+        info "aviso de nova versao instalado, mas desligado (DGCLAW_AVISO_ATUALIZACAO=0 no dgclaw.env). Para ligar: dgclaw atualizar --aviso ligar"
+        return 0
+    fi
+    ligar_unidade dgclaw-checar-atualizacao.timer
+    # Confere logo: depois de atualizar, o estado velho ("tem versao nova") nao pode ficar ate a proxima rodada.
+    executar systemctl start --no-block dgclaw-checar-atualizacao.service
+}
+
 # --- 10. imagem -----------------------------------------------------------------
 imagem_pronta() { podman image exists "localhost/dgclaw-agente:$VERSAO" >/dev/null 2>&1; }
 
@@ -1194,6 +1255,7 @@ main() {
     configurar_senha
     configurar_web
     configurar_admin
+    configurar_aviso_atualizacao
     atualizar_identidades
     construir_imagem
     testar_fim

@@ -161,6 +161,15 @@
     ponto.remove();
   }
 
+  /* A faixa de "nova versão" aparece em todas as telas que usam a casca (a Conversa a carrega no próprio HTML). */
+  function carregaFaixaAtualizacao() {
+    if (raiz.DGAtualizacaoFaixa) return;
+    const s = document.createElement('script');
+    s.src = '/atualizacao-faixa.js';
+    s.onerror = () => console.warn('casca: a faixa de nova versão (/atualizacao-faixa.js) não carregou; as telas seguem sem ela.');
+    document.head.appendChild(s);
+  }
+
   function monta(opcoes) {
     const o = opcoes || {};
     est.pagina = o.pagina || '';
@@ -171,6 +180,7 @@
     document.documentElement.classList.add('casca');
     document.body.insertAdjacentHTML('afterbegin', MARCACAO_CABECALHO + MARCACAO_MENU);
     pintaTitulo();
+    carregaFaixaAtualizacao();
     $('btnMenu').onclick = () => abreMenu(true);
     $('btnFechaMenu').onclick = () => abreMenu(false);
     $('overlayMenu').onclick = () => abreMenu(false);

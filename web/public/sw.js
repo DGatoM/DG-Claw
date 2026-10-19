@@ -14,6 +14,7 @@ const ESTATICOS = [
   '/sigilo.js', '/sigilo.css',
   '/avisos-aparelho.js',
   '/lembretes-faixa.js', '/lembretes.js', '/lembretes.css',
+  '/atualizacao-faixa.js', '/atualizacao-faixa.css',
   '/foco-tela.js', '/foco-tela.css',
   '/login.css', '/login.js', '/sem-zoom.css', '/sem-zoom.js',
   '/manifest.webmanifest',

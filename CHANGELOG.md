@@ -132,6 +132,13 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 - Aviso de novidades depois de atualizar: na primeira conversa depois que o DG Claw é atualizado, o agente (e
   o Admin) conta ao dono, em poucas linhas, o que veio de novo e dá para usar. Cada agente avisa uma vez só,
   e agente criado depois da atualização não recebe aviso do que já nasceu com ele. Guia em `docs/NOVIDADES.md`.
+- Aviso de versão nova: quando sai uma atualização do DG Claw no GitHub oficial, o painel mostra uma faixa
+  discreta ("Nova versão disponível", com o resumo do que mudou, "Instalar" e "Agora não") e o Admin conta
+  ao dono, no chat, que saiu versão nova e pergunta se ele quer instalar (o resumo fica só na faixa). Nada é baixado nem instalado sem o ok do
+  dono: o `dgclaw atualizar` continua manual. A checagem é uma leitura pública do GitHub a cada 6 horas, sem
+  token e sem enviar dados da instalação. `dgclaw atualizar --checar` confere na hora,
+  `dgclaw atualizar --aviso desligar` desliga e `dgclaw status` mostra a situação. Guia em
+  `docs/AVISO-DE-ATUALIZACAO.md`.
 
 ### Corrigido
 

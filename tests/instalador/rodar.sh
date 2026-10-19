@@ -10,6 +10,8 @@ set -uo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/ajuda.sh"
 # shellcheck source=tests/instalador/casos.sh
 . "$AQUI/casos.sh"
+# shellcheck source=tests/instalador/aviso-atualizacao.sh
+. "$AQUI/aviso-atualizacao.sh"
 
 main() {
     local filtro="${1:-}" total=0 ruins=0 caso rc

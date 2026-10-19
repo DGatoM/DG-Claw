@@ -34,6 +34,7 @@ const { criarPush } = require('./lib/push');
 const { criarLembretes } = require('./lib/lembretes');
 const { criarMesa } = require('./lib/mesa');
 const { criarAvisos } = require('./lib/avisos');
+const { criarAtualizacao } = require('./lib/atualizacao');
 
 const METODOS_QUE_ESCREVEM = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const TIPOS_ESTATICOS = {
@@ -101,6 +102,8 @@ function criarServidor(opcoes) {
   caixa.permitir('/api/v1/tarefas');
   const avisos = criarAvisos({ config, registro, runner, caixa, log, agora: opcoes.agora });
   caixa.permitir('/api/v1/avisos');
+  // Aviso de versão nova: só o dono, pelo painel. De propósito NÃO entra em caixa.permitir (agente em container não usa).
+  const atualizacao = criarAtualizacao({ dataDir: config.dataDir, log });
 
   let versaoJsCache = { ts: 0, valor: '0' };
   /** Versão da tela: mtime de conversa.js. A tela compara com a que carregou e se recarrega sozinha. */
@@ -293,6 +296,8 @@ function criarServidor(opcoes) {
     if (await foco.tratarRota(req, res, url, sessao)) return undefined;
 
     if ((p === '/api/v1/lembretes' || p.startsWith('/api/v1/lembretes/')) && await lembretes.rotas(req, res, url, sessao)) return undefined;
+
+    if ((p === '/api/v1/atualizacao' || p.startsWith('/api/v1/atualizacao/')) && await atualizacao.rotas(req, res, url, sessao)) return undefined;
 
     if (p === '/api/v1/onboarding') {
       if (falhaDoRegistro(req, res, true)) return;
