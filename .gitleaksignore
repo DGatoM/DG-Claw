@@ -1,4 +1,4 @@
-# Impressão digital de UM achado do histórico (commit:arquivo:regra:linha). O commit b7d74ef (bloco E) trouxe um
+# Impressão digital de UM achado do histórico (commit:arquivo:regra:linha). O commit 941d27a (bloco E, hash depois do rebase no main) trouxe um
 # código de acesso inventado para teste; o arquivo já foi corrigido para montar o valor em execução, mas o gitleaks
 # examina cada commit e o commit antigo continua na história. Não é segredo: é a string de mentira do teste.
-b7d74ef93ec47b65a13a601157b1a34ebc339486:web/test/ent-credencial.test.js:generic-api-key:14
+941d27ac31a25360a63954125dbd30a008d06d09:web/test/ent-credencial.test.js:generic-api-key:14
