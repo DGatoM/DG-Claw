@@ -23,7 +23,7 @@ sem consultar a conta.
 }}
 ```
 
-- `agentes` tem uma chave por agente do registro (o `slug`), o Admin inclusive.
+- `agentes` tem uma chave por agente do registro (o `slug`), o Admin inclusive. Pedido feito por um agente (pela caixa, `dgclaw-api`) recebe só a chave dele: um agente não vê o uso dos outros.
 - `sessao_5h` e `semanal` são `{usado_pct, zera_em, vencida}` ou `null`. **`null` quer dizer "não
   medido"**, nunca zero por cento. `usado_pct` vai de 0 a 100; `zera_em` é um horário ISO em UTC.
 - `vencida: true`: o horário de zerar já passou. O valor velho continua na resposta, mas não vale

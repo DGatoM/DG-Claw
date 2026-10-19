@@ -48,6 +48,17 @@ test('GET /api/v1/uso: um agente medido, outro nunca medido (null, nunca 0) e o 
   } finally { await s.fechar(); }
 });
 
+test('GET /api/v1/uso pela caixa de um agente: só o uso dele, nunca o dos outros', async () => {
+  const s = await cenario({ uso: USO_ANA });
+  try {
+    assert.equal(s.t.web.caixa.rotaPermitida('/api/v1/uso'), true);
+    const cab = { 'x-dgclaw-caixa': s.t.web.caixa.segredo, 'x-dgclaw-agente': 'bia' };
+    const r = await cliente(s.t.porta).pedir('GET', '/api/v1/uso', { headers: cab });
+    assert.equal(r.status, 200, r.texto);
+    assert.deepEqual(Object.keys(r.json.agentes), ['bia']);
+  } finally { await s.fechar(); }
+});
+
 test('GET /api/v1/uso: um runner com erro vira erro só dele, e os outros seguem', async () => {
   const s = await cenario({ uso: USO_ANA }, { falhaUso: { status: 500, corpo: { success: false, error: 'o medidor quebrou', howToFix: 'reiniciar o runner' } } });
   try {

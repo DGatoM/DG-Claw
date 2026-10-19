@@ -16,10 +16,13 @@ function criarUso({ registro, runner, log, timeoutMs }) {
     return r.motivo ? { uso: r.uso, motivo: r.motivo } : { uso: r.uso };
   }
 
-  /** { <slug>: { uso, motivo? } | { uso:null, erro } } para todos os agentes do registro, em paralelo. */
-  async function consultar() {
+  /** { <slug>: { uso, motivo? } | { uso:null, erro } } para todos os agentes do registro, em paralelo.
+   *  Com `soSlug`, só aquele agente: é o caso do pedido que chega pela caixa de um agente, que não
+   *  tem por que ver o uso (nem o nome) dos outros. */
+  async function consultar(soSlug) {
     const est = registro.estado();
-    const agentes = est.ok ? est.agentes : [];
+    const todos = est.ok ? est.agentes : [];
+    const agentes = soSlug ? todos.filter((a) => a.slug === soSlug) : todos;
     const pares = await Promise.all(agentes.map(async (a) => {
       try {
         return [a.slug, await deUm(a)];

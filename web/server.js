@@ -104,7 +104,8 @@ function criarServidor(opcoes) {
   caixa.permitir('/api/v1/tarefas');
   const naoLidas = criarNaoLidas({ arquivo: path.join(config.dataDir, 'nao-lidas.json'), conversa, registro, log, relogio: opcoes.agora, lerThread: conversa.threadCompartilhada });
   const uso = criarUso({ registro, runner, log, timeoutMs: opcoes.timeoutUsoMs });
-  // O Admin consulta o uso das assinaturas pela caixa (dgclaw-api GET /api/v1/uso).
+  // O agente consulta o uso da PRÓPRIA assinatura pela caixa (dgclaw-api GET /api/v1/uso); a rota
+  // filtra pelo slug da caixa, então ele nunca vê os outros. O Admin, no host, usa a API normal.
   caixa.permitir('/api/v1/uso');
   const avisos = criarAvisos({ config, registro, runner, caixa, log, agora: opcoes.agora });
   caixa.permitir('/api/v1/avisos');
@@ -359,7 +360,7 @@ function criarServidor(opcoes) {
     if (p === '/api/v1/uso') {
       if (falhaDoRegistro(req, res, true)) return undefined;
       if (m !== 'GET') return H.erroJson(res, 405, 'Use GET para ver quanto da assinatura de cada agente já foi usado.');
-      try { return H.enviaJson(res, 200, { ok: true, agentes: await uso.consultar() }); } catch (e) {
+      try { return H.enviaJson(res, 200, { ok: true, agentes: await uso.consultar(caixa.ehPedidoDaCaixa(req)) }); } catch (e) {
         return H.erroJson(res, e.status || 500, `Não consegui juntar o uso das assinaturas (${e.message}).`);
       }
     }
