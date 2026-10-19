@@ -18,10 +18,10 @@
 // Modo `--semear`: grava o "visto" com a versão e o CHANGELOG de agora, sem imprimir aviso. É o que o
 // `dgclaw agente criar` (e a primeira instalação do Admin) usam para o agente NOVO não receber aviso
 // de coisas que já nasceram com ele. Agente antigo, sem arquivo de visto, recebe o aviso uma vez.
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { digital, itensDoChangelog } from './novidades-lib.mjs';
 
 const LIMITE = 2500;
 const LIMITE_ITEM = 220;
@@ -40,31 +40,6 @@ function anota(motivo) {
   } catch (e) {
     process.stderr.write(`novidades-hook: ${motivo} (e não consegui anotar em ${logArq}: ${e.message})\n`);
   }
-}
-
-function digital(texto) {
-  return crypto.createHash('sha1').update(texto).digest('hex').slice(0, 12);
-}
-
-/** Itens do CHANGELOG: cada "- " na margem, com as linhas de continuação coladas, e a seção de origem. */
-function itensDoChangelog(texto) {
-  const itens = [];
-  let secao = '';
-  let atual = null;
-  const fecha = () => {
-    if (atual) itens.push({ secao: atual.secao, texto: atual.partes.join(' ').replace(/\s+/g, ' ').trim() });
-    atual = null;
-  };
-  for (const linha of texto.split(/\r?\n/)) {
-    const titulo = /^##\s+(.*)$/.exec(linha);
-    if (titulo) { fecha(); secao = titulo[1].trim(); continue; }
-    if (/^#{3,}\s/.test(linha)) { fecha(); continue; }
-    if (/^-\s+/.test(linha)) { fecha(); atual = { secao, partes: [linha.replace(/^-\s+/, '')] }; continue; }
-    if (atual && /^\s+\S/.test(linha)) { atual.partes.push(linha.trim()); continue; }
-    fecha();
-  }
-  fecha();
-  return itens.filter(i => i.texto);
 }
 
 function lerVersao() {

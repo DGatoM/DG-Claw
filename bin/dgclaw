@@ -27,6 +27,8 @@ APP_DIR="$(cd "$(dirname "$DGCLAW_BIN_REAL")/.." && pwd)"
 . "$APP_DIR/lib/atualizar.sh"
 # shellcheck source=lib/versao.sh
 . "$APP_DIR/lib/versao.sh"
+# shellcheck source=lib/aviso-atualizacao.sh
+. "$APP_DIR/lib/aviso-atualizacao.sh"
 
 # Tempo maximo de espera (segundos) do systemd e do /api/saude de dentro do agente.
 # Variavel so para os testes nao esperarem um minuto de verdade.
@@ -126,6 +128,11 @@ Atualizar o DG Claw
                                 (o padrao e voltar sozinho ao backup; agente que nao sobe NUNCA faz voltar)
         --segundo-plano         roda solto do terminal (recomendado para o Admin) e deixa o log em /var/log/dgclaw/
       Exemplo:  sudo dgclaw atualizar --simular
+  dgclaw atualizar --checar              confere agora se saiu versao nova (so le o GitHub; nao baixa nem instala)
+  dgclaw atualizar --aviso ligar|desligar  liga ou desliga o aviso automatico de versao nova (a cada 6 horas)
+      O aviso aparece como uma faixa no painel e como um recado ao Admin. Nada e instalado sem o seu ok.
+      O que ele consulta e como desligar: docs/AVISO-DE-ATUALIZACAO.md
+      Exemplo:  sudo dgclaw atualizar --checar
   dgclaw atualizar --voltar <pasta-do-backup> [--mesmo-assim] [--simular]
       Volta o clone para o commit do backup, restaura a configuracao e o Admin do backup (antes, faz
       um backup do estado de agora), reinstala e reinicia. Os dados dos agentes nao sao tocados.
@@ -1967,6 +1974,8 @@ status_geral() {
         if [ -n "$casa" ]; then avisar_cofre_antigo "$slug" "$casa"; avisar_identidade_antiga "$slug" "$casa"; fi
     done < <(agentes_ler | jq -r '.agentes[] | select(.tipo == "agente") | [.slug, .runner, (.home_host // "")] | @tsv')
 
+    aviso_atualizacao_status
+
     if [ "$S_FALHAS" -gt 0 ]; then
         printf '\n%s coisa(s) essencial(is) fora do ar. Veja as linhas FALHOU acima.\n' "$S_FALHAS" >&2
         return 1
@@ -2003,7 +2012,11 @@ main() {
         dominio) dominio_main "$@" ;;
         primeiro-acesso) primeiro_acesso "$@" ;;
         status) status_geral "$@" ;;
-        atualizar) atualizar_main "$@" ;;
+        atualizar)
+            case "${1:-}" in
+                --checar|--aviso) aviso_atualizacao_main "$@" ;;
+                *) atualizar_main "$@" ;;
+            esac ;;
         backup) backup_main "$@" ;;
         restaurar) restaurar_main "$@" ;;
         versao|--version) versao_main "$@" ;;
