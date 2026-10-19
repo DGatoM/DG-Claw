@@ -10,6 +10,11 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 Duas ideias trazidas do Orca (https://github.com/stablyai/orca, licença MIT; crédito no `NOTICE`): o
 medidor de uso da assinatura e o aviso de que um agente precisa de você.
 
+Agora dá para responder pelo chat a pergunta de escolha que o agente faz (aquela com opções para marcar): a
+pergunta aparece num cartão acima da caixa de mensagem, com as opções, um campo para outra resposta e o botão de
+cancelar. A mensagem digitada enquanto ele espera essa resposta não fica mais presa em silêncio: a tela avisa, mantém o seu texto na
+caixa e manda você responder a pergunta primeiro.
+
 ### Como atualizar
 
 1. **Peça ao Admin, no chat: "atualiza o DG Claw".** A atualização reconstrói a imagem e recria os

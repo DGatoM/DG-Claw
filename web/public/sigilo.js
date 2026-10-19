@@ -198,7 +198,7 @@
     let ligado = false;
     try { ligado = win.localStorage.getItem(CHAVE) === '1'; } catch (e) { console.warn('modo escondido: não consegui ler o estado guardado:', e.message); }
 
-    const raizes = [wrap, doc.getElementById('acervoLista'), doc.getElementById('permCartao'), doc.getElementById('lbNome')].filter(Boolean);
+    const raizes = [wrap, doc.getElementById('acervoLista'), doc.getElementById('permCartao'), doc.getElementById('perguntaCartao'), doc.getElementById('lbNome')].filter(Boolean);
     const origem = new WeakMap();      // nó de texto -> original
     const feito = new WeakMap();       // nó de texto -> o que eu pus nele
     const reveladosId = new Set();     // ids de mensagem reveladas (um toque)
@@ -218,7 +218,7 @@
         const p = e.parentElement;
         if (p === wrap) return e;
         if (p && p.id === 'acervoLista') return e;
-        if (e.id === 'permCartao' || e.id === 'lbNome') return e;
+        if (e.id === 'permCartao' || e.id === 'perguntaCartao' || e.id === 'lbNome') return e;
         e = p;
       }
       return null;
@@ -339,7 +339,7 @@
         }
         const soMeu = (lista) => lista.length > 0 && Array.from(lista).every((x) => x.nodeType === 1 && x.classList && x.classList.contains('sigx'));
         if (soMeu(r.addedNodes) || soMeu(r.removedNodes)) continue;     // o meu botão
-        if (raizes.includes(r.target) && r.target !== doc.getElementById('permCartao') && r.target !== doc.getElementById('lbNome')) {
+        if (raizes.includes(r.target) && r.target !== doc.getElementById('permCartao') && r.target !== doc.getElementById('perguntaCartao') && r.target !== doc.getElementById('lbNome')) {
           for (const x of r.addedNodes) if (x.nodeType === 1) us.add(x);
           continue;
         }

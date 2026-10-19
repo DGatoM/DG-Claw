@@ -33,6 +33,7 @@ function criarRunnerFalso(opcoes) {
       req.on('end', () => {
         const corpo = JSON.parse(Buffer.concat(partes).toString('utf8'));
         rec.inputs.push(corpo);
+        if (o.falhaInputNaChamada === rec.inputs.length) return json(500, { success: false, error: 'o terminal sumiu no meio', howToFix: 'reinicie o agente' });
         if (o.falhaInput) return json(o.falhaInput.status, o.falhaInput.corpo);
         return json(202, { success: true, data: { enfileirado: true, aguardando: 'idle' } });
       });

@@ -373,6 +373,7 @@ function integraAtividade(d) {
   lcSincroniza();
   leSincroniza();
   pcSincroniza();
+  pqSincroniza();
   filaSincroniza();
 }
 if (atividadeEl) {
@@ -917,6 +918,166 @@ async function pcDecide(decisao) {
   } finally {
     pc.ocupado = false;
     pcSincroniza();
+  }
+}
+
+/* ── Cartão "O agente fez uma pergunta de escolha" ───────────────────────
+   Aparece quando a foto de atividade traz alerta 'pergunta' (o agente chamou AskUserQuestion e a tela dele espera
+   a resposta). Com `pergunta` na foto desenha as escolhas (única: botões de rádio + "Outra resposta"; múltipla:
+   caixinhas) e manda POST /pergunta com o tool_use_id; o servidor digita as teclas no terminal. Sem `pergunta`
+   (formato que o servidor não conseguiu ler) o cartão só manda a pessoa para o terminal na aba Sessões.
+   As escolhas ficam em `pq` e os eventos mexem no DOM direto: a foto chega a cada poucos segundos e redesenhar
+   apagaria o que a pessoa está digitando. */
+const pqEl = $('perguntaCartao');
+const pq = { aberto: false, ocupado: false, feito: '', erro: '', id: '', chave: '', sel: [], texto: [], btnEnvia: null };
+
+function pqReinicia() {
+  Object.assign(pq, { aberto: false, ocupado: false, feito: '', erro: '', id: '', chave: '', sel: [], texto: [], btnEnvia: null });
+  if (pqEl) { pqEl.hidden = true; pqEl.textContent = ''; }
+}
+
+function pqSincroniza() {
+  if (!pqEl) return;
+  const est = window.atividadeFoto && window.atividadeFoto.agentes ? window.atividadeFoto.agentes[AGENTE.id] : null;
+  const pede = !!est && est.alerta === 'pergunta' && streamAberto;
+  if (!pede) { if (pq.aberto) pqReinicia(); return; }
+  const perg = est.pergunta || null;
+  const id = perg ? perg.id : '';
+  if (pq.aberto && pq.id !== id) pqReinicia();   // outra pergunta no lugar da anterior: começa limpo
+  const chave = JSON.stringify([est.desde, id, pq.ocupado, pq.feito, pq.erro]);
+  if (pq.aberto && chave === pq.chave) return;
+  const novo = !pq.aberto;
+  if (novo) {
+    pq.id = id; pq.feito = ''; pq.erro = '';
+    pq.sel = perg ? perg.perguntas.map(q => (q.multipla ? [] : null)) : [];
+    pq.texto = perg ? perg.perguntas.map(() => '') : [];
+  }
+  pq.aberto = true;
+  pq.chave = chave;
+  pqDesenha(perg, novo);
+}
+
+/* Cada pergunta tem uma resposta quando: múltipla com pelo menos uma caixinha; única com opção ou texto. */
+function pqCompleto(perg) {
+  return perg.perguntas.every((q, i) => (q.multipla ? pq.sel[i].length > 0 : (pq.sel[i] != null || pq.texto[i].trim() !== '')));
+}
+
+function pqDesenha(perg, abrindo) {
+  const filho = (tag, classe, texto) => {
+    const e = document.createElement(tag);
+    if (classe) e.className = classe;
+    if (texto != null) e.textContent = texto;
+    return e;
+  };
+  const travado = pq.ocupado || !!pq.feito;
+  pqEl.textContent = '';
+  pqEl.appendChild(filho('strong', 'pc-titulo', AGENTE.nome + ' fez uma pergunta para você'));
+  if (!perg) {
+    pqEl.appendChild(filho('p', 'pc-texto', 'Não consegui ler a pergunta para mostrar as escolhas aqui. Responda pelo terminal do agente, na aba Sessões.'));
+    const sess = $('btnSessoes');
+    if (sess && !sess.hidden && sess.getAttribute('href') && sess.getAttribute('href') !== '#') {
+      const a = filho('a', 'pc-btn pc-nega pq-link', 'Abrir a aba Sessões');
+      a.href = sess.getAttribute('href');
+      pqEl.appendChild(a);
+    }
+    pqEl.hidden = false;
+    pqEl.classList.toggle('entra', !!abrindo);
+    return;
+  }
+  pqEl.appendChild(filho('p', 'pc-texto', 'Ele parou até você responder. Mensagens enviadas pelo chat ficam bloqueadas enquanto isso.'));
+  const atualizaEnvio = () => { if (pq.btnEnvia) pq.btnEnvia.disabled = travado || !pqCompleto(perg); };
+  perg.perguntas.forEach((q, i) => {
+    const caixa = filho('fieldset', 'pq-bloco');
+    caixa.disabled = travado;
+    const leg = filho('legend', 'pq-pergunta');
+    if (q.cabecalho) leg.appendChild(filho('span', 'pq-cabecalho', q.cabecalho));
+    leg.appendChild(document.createTextNode(q.pergunta));
+    caixa.appendChild(leg);
+    const campoTexto = q.multipla ? null : filho('input', 'pq-texto');
+    q.opcoes.forEach((o, k) => {
+      const num = k + 1;
+      const rot = filho('label', 'pq-opcao');
+      const inp = document.createElement('input');
+      inp.type = q.multipla ? 'checkbox' : 'radio';
+      inp.name = 'pq-' + i;
+      inp.checked = q.multipla ? pq.sel[i].includes(num) : pq.sel[i] === num;
+      inp.addEventListener('change', () => {
+        if (q.multipla) {
+          pq.sel[i] = inp.checked ? pq.sel[i].concat(num).sort((a, b) => a - b) : pq.sel[i].filter(x => x !== num);
+        } else {
+          pq.sel[i] = num; pq.texto[i] = ''; campoTexto.value = '';
+        }
+        atualizaEnvio();
+      });
+      rot.appendChild(inp);
+      const txt = filho('span', 'pq-rotulo');
+      txt.appendChild(filho('span', 'pq-nome', o.rotulo));
+      if (o.descricao) txt.appendChild(filho('span', 'pq-desc', o.descricao));
+      rot.appendChild(txt);
+      caixa.appendChild(rot);
+    });
+    if (campoTexto) {
+      campoTexto.type = 'text';
+      campoTexto.maxLength = 2000;
+      campoTexto.placeholder = 'Outra resposta (escreva em uma linha)';
+      campoTexto.setAttribute('aria-label', 'Outra resposta para a pergunta ' + (i + 1));
+      campoTexto.value = pq.texto[i];
+      campoTexto.addEventListener('input', () => {
+        pq.texto[i] = campoTexto.value;
+        if (campoTexto.value.trim()) {
+          pq.sel[i] = null;
+          for (const r of caixa.querySelectorAll('input[type=radio]')) r.checked = false;
+        }
+        atualizaEnvio();
+      });
+      caixa.appendChild(campoTexto);
+    }
+    pqEl.appendChild(caixa);
+  });
+  if (pq.erro) pqEl.appendChild(filho('p', 'pc-erro', pq.erro));
+  const linha = filho('div', 'pc-botoes');
+  const envia = filho('button', 'pc-btn pc-aprova', 'Enviar resposta');
+  envia.type = 'button';
+  envia.addEventListener('click', () => pqEnvia(perg, false));
+  const cancela = filho('button', 'pc-btn pc-nega', 'Cancelar pergunta');
+  cancela.type = 'button';
+  cancela.disabled = travado;
+  cancela.addEventListener('click', () => pqEnvia(perg, true));
+  pq.btnEnvia = envia;
+  linha.appendChild(envia);
+  linha.appendChild(cancela);
+  pqEl.appendChild(linha);
+  atualizaEnvio();
+  const msg = pq.feito === 'cancelada' ? 'Pergunta cancelada. Aguardando o agente continuar…'
+    : pq.feito ? 'Resposta enviada. Aguardando o agente continuar…'
+    : (pq.ocupado ? 'Enviando a sua resposta (leva alguns segundos)…' : '');
+  const vivo = filho('p', 'pc-status', msg);
+  vivo.setAttribute('role', 'status');
+  pqEl.appendChild(vivo);
+  pqEl.hidden = false;
+  pqEl.classList.toggle('entra', !!abrindo);
+}
+
+async function pqEnvia(perg, cancelar) {
+  if (pq.ocupado || pq.feito) return;
+  if (!cancelar && !pqCompleto(perg)) return;
+  const body = cancelar ? { tool_use_id: pq.id, cancelar: true } : {
+    tool_use_id: pq.id,
+    respostas: perg.perguntas.map((q, i) => (q.multipla ? { opcoes: pq.sel[i] }
+      : pq.sel[i] != null ? { opcao: pq.sel[i] } : { texto: pq.texto[i].trim() })),
+  };
+  pq.ocupado = true; pq.erro = '';
+  pqSincroniza();
+  try {
+    // o servidor espera ~350 ms entre as teclas; várias perguntas somam alguns segundos
+    await api(API + '/pergunta', { method: 'POST', body, timeoutMs: 45000 });
+    pq.feito = cancelar ? 'cancelada' : 'respondida';
+  } catch (e) {
+    pq.erro = 'Não consegui ' + (cancelar ? 'cancelar' : 'enviar') + ' a resposta: ' + e.message;
+  } finally {
+    pq.ocupado = false;
+    pq.chave = '';   // força o redesenho com o resultado
+    pqSincroniza();
   }
 }
 
@@ -3641,6 +3802,23 @@ async function mandaTexto(pend, semEsperar) {
         mostraErro('Comando recusado: ' + motivo + ' Toque em "descartar" no balão.');
       }
       avisaEntrega(pend, false, motivo);
+      return false;
+    }
+    if (e.codigo === 'PERGUNTA_PENDENTE') {
+      // O agente espera a resposta de uma pergunta de escolha e a mensagem NÃO foi enviada: o texto volta ao campo
+      // (antes de qualquer coisa que a pessoa já tenha digitado) e o erro diz o que fazer.
+      const quando = pendentes.includes(pend) && pend.tentativa === tentativa;
+      if (quando && !pend.anexos) {
+        descartar(pend);
+        const novo = entrada.value.trim();
+        entrada.value = novo ? pend.texto + '\n' + entrada.value : pend.texto;
+        ajustaCampo();
+      } else if (quando) {
+        marcaFalhou(pend, e.message, 'Não consegui entregar a mensagem: ');
+      }
+      const how = e.dados && e.dados.howToFix ? ' ' + e.dados.howToFix : '';
+      mostraErro(e.message + how);
+      avisaEntrega(pend, false, e.message);
       return false;
     }
     if (e.codigo === 'LOGIN_EXPIRADO' && !pend.anexos) {

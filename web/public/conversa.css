@@ -633,6 +633,21 @@ html[data-tema="escuro"] .pc-erro{background:#4a1f1b;color:#ffd9d4}
   html:not([data-tema="claro"]) .pc-erro{background:#4a1f1b;color:#ffd9d4}
 }
 @media(prefers-reduced-motion:reduce){.pc.entra{animation:none}}
+.pq-bloco{margin:0 0 12px;padding:0;border:0;min-width:0}
+.pq-pergunta{display:block;width:100%;margin:0 0 6px;padding:0;font-size:15px;font-weight:700;line-height:1.4}
+.pq-cabecalho{display:inline-block;margin:0 8px 0 0;padding:1px 8px;border-radius:10px;background:rgba(0,0,0,.1);font-size:12px;font-weight:700}
+.pq-opcao{display:flex;align-items:flex-start;gap:10px;min-height:44px;padding:6px 8px;box-sizing:border-box;border-radius:10px;cursor:pointer}
+.pq-opcao:active{background:rgba(0,0,0,.07)}
+.pq-opcao input{flex:none;width:22px;height:22px;margin:2px 0 0}
+.pq-rotulo{display:flex;flex-direction:column;min-width:0;font-size:14.5px;line-height:1.4}
+.pq-nome{font-weight:600}
+.pq-desc{font-size:13px;opacity:.85}
+.pq-texto{display:block;width:100%;min-height:40px;margin:4px 0 0;padding:0 12px;box-sizing:border-box;border:1px solid #aa7900;border-radius:10px;
+  background:#fff;color:#222;font:inherit;font-size:16px}
+.pq-link{text-decoration:none}
+.pq fieldset:disabled{opacity:.6}
+html[data-tema="escuro"] .pq-texto{background:#2a2412;color:#fff3c8;border-color:#e5bd4c}
+@media(prefers-color-scheme:dark){html:not([data-tema="claro"]) .pq-texto{background:#2a2412;color:#fff3c8;border-color:#e5bd4c}}
 .meta.fila{color:#8a5a00;font-weight:600}
 
 /* Cartão de arquivo que não é mídia (zip, planilha, texto, código...). Usa as mesmas

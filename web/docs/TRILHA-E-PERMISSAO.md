@@ -60,6 +60,35 @@ confere de novo e só então digita:
 Não há texto do hook `Notification` no cartão: o handler de hook do runner não repassa a mensagem. O pedido
 mostrado vem do transcript.
 
+### Pergunta de escolha (`AskUserQuestion`)
+
+Quando o agente chama a ferramenta de pergunta, o runner fica em `waiting_input` com `motivo: "pergunta"` e a
+atividade traz `alerta: "pergunta"` e `pergunta`: `{id, perguntas:[{pergunta, cabecalho, multipla, opcoes:[{rotulo, descricao}]}]}`
+lida do transcript (o `id` é o `tool_use_id`), ou `null` se não deu para ler (a tela manda responder pelo terminal,
+na aba Sessões). O Codex não tem essa ferramenta: lá é sempre `null`. Textos passam pela máscara de segredos.
+
+#### `POST /api/v1/agents/<slug>/pergunta`
+
+Corpo: `{"tool_use_id":"<pergunta.id>","respostas":[...]}` com uma resposta por pergunta, na ordem:
+`{"opcao":2}` (escolha única, número de 1 a N), `{"opcoes":[1,3]}` (múltipla escolha, sem repetir) ou
+`{"texto":"..."}` (escolha única com outra resposta: uma linha, até 2000 caracteres, sem caractere de controle).
+Para cancelar: `{"tool_use_id":"...","cancelar":true}`. Exige sessão e `Origin`.
+
+| Status | Quando | O que fazer |
+| --- | --- | --- |
+| 200 | `{ok:true, agente, tool_use_id}` | Nada. O agente continua sozinho. |
+| 400 | Corpo inválido (resposta faltando, número fora do intervalo, texto vazio/longo/com quebra de linha, texto numa pergunta de múltipla escolha) | Corrigir o corpo. Nada foi digitado. |
+| 409 | O agente não está esperando uma pergunta, ou o `tool_use_id` não é o da pergunta atual | Atualizar a conversa. Nada foi digitado. |
+| 502 | Uma tecla falhou no meio (o erro diz em que passo) | Conferir o terminal na aba Sessões: a pergunta pode ter ficado pela metade. |
+| 503 | Não consegui falar com o runner | Conferir o serviço do agente e tentar de novo. Nada foi enviado. |
+
+O Web digita as teclas no terminal (`POST /api/agents/<id>/input` do runner com `submit:false`), com 350 ms entre
+uma e outra: escolha única = o dígito da opção; texto livre = o dígito `opções+1` ("Type something"), o texto e
+Enter; múltipla = um dígito por opção marcada e Tab; com mais de uma pergunta, ou com a última de múltipla
+escolha, a tela "Review your answers" aparece e o `1` envia; cancelar = Esc. Protocolo conferido no Claude Code
+2.1.304. Enquanto a pergunta está aberta, `POST /send` responde 409 `PERGUNTA_PENDENTE` e não enfileira
+a mensagem (ela nunca seria lida, porque o agente só fica ocioso depois da resposta).
+
 ## 3. Fila
 
 O Web sempre entrega pelo `/input` com `injectWhenIdle`, e o runner responde 202 mesmo quando vai segurar o
@@ -75,6 +104,6 @@ fração de segundo, o aviso pode faltar ou sobrar.
 - Trilha vazia com o agente trabalhando: confira `transcripts_dir` no registro (o aviso da conversa já diz).
 - Cartão sem o comando: o transcript não tinha `tool_use` pendente (diálogo de outra origem). O cartão ainda
   deixa aprovar ou negar.
-- Arquivos: `lib/trilha.js`, `lib/mascara.js`, `lib/thread.js`, `lib/conversa.js` (`permissao`, `entregar`),
+- Arquivos: `lib/trilha.js`, `lib/mascara.js`, `lib/thread.js`, `lib/conversa.js` (`permissao`, `responderPergunta`, `teclasDaResposta`, `entregar`),
   `public/trilha-tela.js` (parte pura), `public/conversa.js` e `conversa.css` (desenho). Testes em
   `test/trilha.test.js`.

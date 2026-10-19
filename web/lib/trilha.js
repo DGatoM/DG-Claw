@@ -37,6 +37,34 @@ function descreveUso(nome, inp) {
   return { ferramenta: nome, titulo: corta(mascarar(titulo), MAX_TITULO), comando: corta(mascarar(`${titulo}${detalhe ? ` (${detalhe})` : ''}`), MAX_COMANDO) };
 }
 
+// Limites da pergunta de escolha. O Claude Code aceita de 1 a 4 perguntas com 2 a 4 opções; aceitamos até 8
+// opções porque o atalho é um dígito só (o "Type something" é opções+1, e precisa continuar sendo um dígito).
+const MAX_PERGUNTAS = 4;
+const MIN_OPCOES = 2;
+const MAX_OPCOES = 8;
+
+/**
+ * O input do AskUserQuestion como [{ pergunta, cabecalho, multipla, opcoes:[{rotulo, descricao}] }], mascarado e cortado,
+ * ou null se não tem o formato esperado (a tela então manda a pessoa para o terminal, em vez de chutar teclas).
+ */
+function descrevePerguntas(inp) {
+  const qs = inp && Array.isArray(inp.questions) ? inp.questions : null;
+  if (!qs || !qs.length || qs.length > MAX_PERGUNTAS) return null;
+  const texto = (v, n) => corta(mascarar(umaLinha(typeof v === 'string' ? v : '')), n);
+  const saida = [];
+  for (const q of qs) {
+    if (!q || typeof q !== 'object' || typeof q.question !== 'string' || !q.question.trim()) return null;
+    if (!Array.isArray(q.options) || q.options.length < MIN_OPCOES || q.options.length > MAX_OPCOES) return null;
+    const opcoes = [];
+    for (const o of q.options) {
+      if (!o || typeof o.label !== 'string' || !o.label.trim()) return null;
+      opcoes.push({ rotulo: texto(o.label, 200), descricao: texto(o.description, 400) });
+    }
+    saida.push({ pergunta: texto(q.question, 600), cabecalho: texto(q.header, 40), multipla: q.multiSelect === true, opcoes });
+  }
+  return saida;
+}
+
 /** O conteúdo de um tool_result como texto simples. */
 function textoDoResultado(c) {
   if (typeof c === 'string') return c;
@@ -60,4 +88,4 @@ function resumoPendente(uso) {
   return uso ? { ferramenta: uso.ferramenta, titulo: uso.titulo, comando: uso.comando } : null;
 }
 
-module.exports = { descreveUso, descreveResultado, resumoPendente, textoDoResultado, FERRAMENTAS };
+module.exports = { descreveUso, descrevePerguntas, descreveResultado, resumoPendente, textoDoResultado, FERRAMENTAS };

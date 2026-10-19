@@ -85,7 +85,7 @@ function criarServidor(opcoes) {
   const leitorRollout = criarLeitorRollout({ log, tz: config.tz, midia });
   const alertas = agente => criarAlertas(path.join(config.dataDir, 'alertas', agente.slug + '.json'), agente.chat_id);
   const comandos = criarComandos({ runner, log, agora: opcoes.agora });
-  const conversa = criarConversa({ comandos, alertas, config, runner, leitor, leitorRollout, midia, log, agora: opcoes.agora, gravaToken: opcoes.gravaToken });
+  const conversa = criarConversa({ comandos, alertas, config, runner, leitor, leitorRollout, midia, log, agora: opcoes.agora, gravaToken: opcoes.gravaToken, pausaTeclaMs: opcoes.pausaTeclaMs });
   const compartilhados = criarCompartilhados(conversa);
   const onboarding = criarOnboarding({ config, registro, conversa, midia, log, imagem: opcoes.imagem });
   const login = criarLogin({ runner, conversa, log, agora: opcoes.agora, oiPrazoMs: opcoes.loginOiPrazoMs, oiPassoMs: opcoes.loginOiPassoMs });
@@ -514,6 +514,12 @@ function criarServidor(opcoes) {
         const r = await conversa.permissao(agente, corpo.decisao);
         return H.enviaJson(res, r.status, r.corpo);
       }
+      if (acao === 'pergunta' && m === 'POST') {
+        const corpo = await lerEnvio(req, res);
+        if (!corpo) return undefined;
+        const r = await conversa.responderPergunta(agente, corpo);
+        return H.enviaJson(res, r.status, r.corpo);
+      }
       if (acao === 'reiniciar' && m === 'POST') {
         const r = await conversa.reiniciar(agente);
         return H.enviaJson(res, r.status, r.corpo);
@@ -545,7 +551,7 @@ function criarServidor(opcoes) {
       if (acao === 'upload' && m === 'POST') return upload(req, res, agente);
       if (acao === 'comandos' && m === 'GET') return H.enviaJson(res, 200, Object.assign({ ok: true, agente: agente.slug }, await comandos.catalogo(agente)));
       if (acao === 'comando' && m === 'POST') return comandoPost(req, res, agente);
-      return H.erroJson(res, ['messages', 'stream', 'wait', 'send', 'upload', 'permissao', 'reiniciar', 'lido', 'nao-lido', 'vendo', 'comandos', 'comando', ''].includes(acao) ? 405 : 404, `Não existe ${m} ${p}.`);
+      return H.erroJson(res, ['messages', 'stream', 'wait', 'send', 'upload', 'permissao', 'pergunta', 'reiniciar', 'lido', 'nao-lido', 'vendo', 'comandos', 'comando', ''].includes(acao) ? 405 : 404, `Não existe ${m} ${p}.`);
     }
 
     mm = /^\/api\/v1\/media\/([0-9a-f]{16})\/visual$/.exec(p);
