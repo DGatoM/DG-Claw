@@ -1,0 +1,20 @@
+/* uso.css: o cartão "Uso da assinatura" da aba Status (js/uso.js). Sem rolagem horizontal. */
+
+.uso-cartao{margin-bottom:14px}
+.uso-lista{display:grid;gap:18px}
+.uso-item{display:grid;gap:6px}
+.uso-topo{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.uso-nome{font-weight:600}
+.uso-pct{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
+.uso-pct.verde{color:var(--ok)}
+.uso-pct.ambar{color:var(--espera)}
+.uso-pct.vermelho{color:var(--erro)}
+.uso-pct.sem{font-size:16px;font-weight:600;color:var(--fraco)}
+.uso-barra{height:12px;border-radius:999px;background:var(--fundo2);border:1px solid var(--linha);overflow:hidden}
+.uso-barra i{display:block;height:100%;border-radius:999px;background:var(--ok);transition:width .3s}
+.uso-barra.ambar i{background:var(--espera)}
+.uso-barra.vermelho i{background:var(--erro)}
+.uso-pe{font-size:13px;color:var(--fraco);overflow-wrap:anywhere}
+.uso-fraco{color:var(--fraco);font-size:14px;margin:0;overflow-wrap:anywhere}
+.uso-aviso{margin:0;border-left:3px solid var(--espera);background:var(--fundo2);border-radius:8px;
+  padding:10px 12px;font-size:14px;overflow-wrap:anywhere}
