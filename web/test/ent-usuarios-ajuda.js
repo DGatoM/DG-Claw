@@ -15,6 +15,10 @@ async function cenarioEnt(opcoes) {
   const protecoesPath = path.join(dirNivel, 'protecoes.json');
   if (o.nivel !== 'pessoal') fs.writeFileSync(protecoesPath, JSON.stringify({ nivel: o.nivel, ajustes: o.ajustes }));
   const auditoriaPath = path.join(dirNivel, 'auditoria.jsonl');
+  // Sem isto o cofre cifrado usa o systemd-creds e o /run/dgclaw/cofres de verdade: como root cifra com o segredo da
+  // máquina e suja o /run, sem root dá "Permission denied". Quem já definiu (o teste do cofre cifrado) manda.
+  if (!process.env.DGCLAW_COFRES_RAM) process.env.DGCLAW_COFRES_RAM = pastaTemp('cofres-ram');
+  if (!process.env.DGCLAW_SYSTEMD_CREDS) process.env.DGCLAW_SYSTEMD_CREDS = path.join(__dirname, '../../tests/enterprise/stubs-d/systemd-creds');
   let agora = Date.parse('2026-10-18T12:00:00Z');
   const tempo = { agora: () => agora, avanca: (ms) => { agora += ms; }, ms: () => agora };
 
