@@ -23,6 +23,11 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
   o `dgclaw atualizar` do `main` ganha auditoria e, acima do nível pessoal, backup sem segredos nem conversas e
   retenção dos backups; instalador com `--nivel`; trilha de auditoria encadeada por hash (bash e Node na mesma corrente); tela Proteções em
   `/protecoes`; pontos de extensão da CLI, do instalador e do Web. Sem o arquivo de nível tudo continua como antes.
+- Versão enterprise sobre o `main` de 18/10/2026: o `dgclaw agente recriar` é o do `main` (`--forcar` leva as
+  proteções novas a um container antigo e a auditoria `agente.recriar` entra por gancho); as telas Aprovações,
+  Auditoria, Minha conta, Novo agente, Proteções e Usuários usam a casca única e não dão zoom; o agente fica
+  sabendo das proteções do nível dele no `identidade.md` (caixa sem sudo, travas, ferramentas fechadas, Admin
+  isolado), sem mudar nada no nível pessoal; `dgclaw --ajuda` lista todos os comandos enterprise.
 - Bloco F da versão enterprise (LGPD e monitoramento): `dgclaw retencao aplicar` (prazo `retencao_dias`: apaga
   transcripts, anexos e logs velhos, troca o texto de mensagens velhas por um marcador sem quebrar a corrente do
   `--resume`, limpa o `conversas.db`), `dgclaw titular buscar|apagar` (exclusão por titular em transcripts, índices,

@@ -152,6 +152,24 @@ Opções que você usa só quando preciso:
 11. Imprime o resumo: versão antiga e nova (com o commit de antes certo), onde ficou o backup, o comando
     para voltar atrás e quais agentes ficaram bem ou com problema.
 
+### Nos níveis de proteção acima de `pessoal` (versão enterprise)
+
+O comando é o mesmo; o enterprise acrescenta, por gancho (`docs/enterprise/DESENHO.md`):
+
+- cada atualização, volta e falha fica na trilha de auditoria (`atualizar.inicio`, `atualizar.sucesso`,
+  `atualizar.falha`, `atualizar.rollback`);
+- o backup sai **sem** os segredos do enterprise (`disco.chave`, `backup.env`, `alertas.env`,
+  `auditoria-externa.json`, `acoes-externas/`), sem as casas dos agentes (como `--sem-backup-agentes`), sem as
+  conversas do painel e sem as pastas de estado do backup externo. A atualização não mexe nesses dados e o
+  `--voltar` não precisa deles; as casas ficam com o backup externo (`dgclaw backup`);
+- depois de uma atualização completa, backups mais velhos que `backup_retencao_dias` são apagados (os dois
+  mais novos ficam sempre);
+- o reinício agendado do Admin usa o serviço certo: `dgclaw-controle` quando o Admin está isolado, e nada
+  quando o Admin está desligado de propósito.
+
+Depois de subir o nível de proteção, um container criado antes só ganha as opções novas com
+`dgclaw agente recriar <slug> --forcar` (sem o `--forcar` o comando diz "nada a recriar").
+
 ### O commit de antes
 
 O manifesto do backup (e, portanto, o `--voltar`) usa o commit que estava **instalado**, não o `HEAD`
