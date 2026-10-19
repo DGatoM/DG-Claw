@@ -49,6 +49,9 @@ aside#menu{
 .ml-quem b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ml-quem small{color:var(--ml-fraco);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ml-aqui{margin-left:auto;font-size:11px;color:var(--ml-fraco)}
+/* a hora vai à direita; se o "aqui" já ocupou o margin-left:auto, ela só ganha um respiro */
+.ml-hora{margin-left:auto;font-size:11.5px;color:var(--ml-fraco);white-space:nowrap}
+.ml-aqui + .ml-hora{margin-left:6px}
 .ml-vazio{padding:9px;color:var(--ml-fraco);font-size:12.5px;line-height:1.45}
 .ml-vazio button{margin-top:6px;min-height:40px;padding:0 12px;border:1px solid var(--ml-linha);
   border-radius:10px;background:var(--ml-painel);font:inherit;cursor:pointer}

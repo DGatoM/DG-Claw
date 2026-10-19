@@ -96,6 +96,19 @@
     return esc(a.avatar || (a.nome || '?').slice(0, 1));
   }
 
+  /* Hora da última mensagem: "hh:mm" se foi hoje, "ontem" ou "dd/mm". ts em epoch ms; sem ts (null,
+     0 ou inválido) devolve '' e o item fica sem hora, porque "não sei" não é "meia-noite de 1970". */
+  function horaCurta(ts, agora) {
+    if (typeof ts !== 'number' || !isFinite(ts) || ts <= 0) return '';
+    const d = new Date(ts), hoje = agora ? new Date(agora) : new Date();
+    const dia = x => x.getFullYear() * 10000 + x.getMonth() * 100 + x.getDate();
+    const p2 = n => String(n).padStart(2, '0');
+    if (dia(d) === dia(hoje)) return p2(d.getHours()) + ':' + p2(d.getMinutes());
+    const ontem = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() - 1);
+    if (dia(d) === dia(ontem)) return 'ontem';
+    return p2(d.getDate()) + '/' + p2(d.getMonth() + 1);
+  }
+
   function itemAgente(a, atualId) {
     const aqui = a.id === atualId;
     const sub = a.subtitulo || [a.provedor, a.modelo].filter(Boolean).join(' · ');
@@ -103,7 +116,8 @@
       `${aqui ? ' aria-current="page"' : ''}>` +
       `<span class="ml-mini" style="background:${esc(a.cor || '#2f9e5e')}">${fotoDe(a)}</span>` +
       `<span class="ml-quem"><b>${esc(a.nome)}</b><small>${esc(sub)}</small></span>` +
-      `${aqui ? '<span class="ml-aqui">aqui</span>' : ''}</a>`;
+      `${aqui ? '<span class="ml-aqui">aqui</span>' : ''}` +
+      `${horaCurta(a.ultima_ts) ? `<span class="ml-hora">${esc(horaCurta(a.ultima_ts))}</span>` : ''}</a>`;
   }
 
   function linksPainel(a) {
@@ -123,7 +137,7 @@
     return { tipo: 'sem', texto: 'Este navegador não oferece a instalação por aqui. No Chrome ou no Edge, abra o menu do navegador e procure Instalar app. No Firefox para computador, o recurso não existe.' };
   }
 
-  if (!raiz.document) return { ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, linkSessoes, itemAgente, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar };
+  if (!raiz.document) return { ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, linkSessoes, itemAgente, horaCurta, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar };
 
   /* ── Parte com DOM ─────────────────────────────────────────────────────── */
   const $ = id => document.getElementById(id);

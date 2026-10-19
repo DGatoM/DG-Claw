@@ -346,3 +346,25 @@ test('SSE pelo Web: o primeiro tique traz a lista do agente e a mudança chega d
     assert.equal(eventos[1].lista.feitos, 1); assert.equal(eventos[1].lista.versao, 2);
   } finally { if (req) req.destroy(); await s.fechar(); }
 });
+
+test('DELETE da lista com ?versao: versão velha dá 409 com a lista atual e não apaga; versão atual limpa', async () => {
+  const s = await subirFoco();
+  try {
+    await s.pedir('PUT', '/api/v1/foco/ana', { itens: ['a', 'b'] });
+    const vista = (await s.pedir('GET', '/api/v1/foco/ana')).json.lista.versao;
+    await s.pedir('POST', '/api/v1/foco/ana/itens', { texto: 'novo do agente' });
+    let r = await s.pedir('DELETE', '/api/v1/foco/ana?versao=' + vista);
+    assert.equal(r.status, 409);
+    assert.equal(r.json.ok, false);
+    assert.match(r.json.erro, /mudou desde a versão/);
+    assert.equal(r.json.lista.total, 3);
+    assert.equal((await s.pedir('GET', '/api/v1/foco/ana')).json.lista.total, 3, 'nada foi apagado');
+    r = await s.pedir('DELETE', '/api/v1/foco/ana?versao=' + r.json.lista.versao);
+    assert.equal(r.status, 200); assert.equal(r.json.lista.total, 0);
+    r = await s.pedir('DELETE', '/api/v1/foco/ana?versao=abc');
+    assert.equal(r.status, 400); assert.match(r.json.erro, /"versao"/);
+    // sem o parâmetro, limpa como sempre
+    await s.pedir('PUT', '/api/v1/foco/ana', { itens: ['x'] });
+    assert.equal((await s.pedir('DELETE', '/api/v1/foco/ana')).json.lista.total, 0);
+  } finally { s.fechar(); }
+});

@@ -5,6 +5,8 @@ const fs = require('node:fs');
 const http = require('node:http');
 const https = require('node:https');
 
+const ERROS_ANTES_DO_ENVIO = new Set(['ECONNREFUSED', 'ENOTFOUND', 'EHOSTUNREACH', 'ENETUNREACH', 'EAI_AGAIN']);
+
 function criarRunner({ log, timeoutMs }) {
   const limite = timeoutMs || 6000;
   const cacheToken = new Map(); // caminho -> { mtimeMs, valor }
@@ -33,10 +35,10 @@ function criarRunner({ log, timeoutMs }) {
   function chamar(agente, metodo, caminho, corpo, timeoutPedido) {
     return new Promise((resolve) => {
       const t = lerToken(agente);
-      if (t.erro) { log('erro', t.erro); resolve({ ok: false, erro: t.erro }); return; }
+      if (t.erro) { log('erro', t.erro); resolve({ ok: false, erro: t.erro, antesDoEnvio: true }); return; }
       let url;
       try { url = new URL(agente.runner + caminho); } catch (e) {
-        resolve({ ok: false, erro: `A URL do runner de ${agente.nome} (${agente.runner}) é inválida.` });
+        resolve({ ok: false, erro: `A URL do runner de ${agente.nome} (${agente.runner}) é inválida.`, antesDoEnvio: true });
         return;
       }
       const dados = corpo == null ? null : Buffer.from(JSON.stringify(corpo));
@@ -58,7 +60,9 @@ function criarRunner({ log, timeoutMs }) {
         res.on('error', (e) => fim({ ok: false, erro: `A resposta do runner de ${agente.nome} foi interrompida (${e.code || e.message}).` }));
       });
       req.on('timeout', () => { req.destroy(); fim({ ok: false, erro: `O runner de ${agente.nome} (${agente.runner}) não respondeu em ${Math.round((timeoutPedido || limite) / 100) / 10} s.` }); });
-      req.on('error', (e) => fim({ ok: false, erro: `Não consegui falar com o runner de ${agente.nome} em ${agente.runner} (${e.code || e.message}). Confira se o serviço do agente está rodando.` }));
+      // antesDoEnvio: a conexão nem abriu, então o pedido com certeza não chegou. Timeout e conexão
+      // derrubada no meio (ECONNRESET, EPIPE) ficam sem a marca: o runner pode ter recebido.
+      req.on('error', (e) => fim({ ok: false, antesDoEnvio: ERROS_ANTES_DO_ENVIO.has(e.code), erro: `Não consegui falar com o runner de ${agente.nome} em ${agente.runner} (${e.code || e.message}). Confira se o serviço do agente está rodando.` }));
       if (dados) req.write(dados);
       req.end();
     });

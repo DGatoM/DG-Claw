@@ -7,6 +7,19 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Como atualizar
+
+- **Instrução nova para os agentes que você já tem.** Nesta versão os agentes aprendem a lidar com a
+  mensagem falada que chega marcada como `[áudio transcrito]` (ela pode ter erro de transcrição). A
+  instrução fica na parte das instruções que o próprio DG Claw mantém, e a atualização não regrava essa
+  parte nos agentes que já existem. Por isso, depois de atualizar, regrave a identidade de cada agente com
+  `sudo dgclaw agente identidade <agente>`. O comando não mexe no `CLAUDE.md`, no `AGENT.md` nem na
+  memória que você personalizou; só refaz o texto de plataforma. Agentes criados depois desta versão já
+  nascem com a instrução, e o Admin recebe a dele sozinho na reinstalação.
+- **Recarregue o app no celular depois de atualizar.** A conversa ganhou um arquivo novo
+  (`conversa-puro.js`); o app instalado busca a versão nova sozinho, mas se a conversa abrir com aviso
+  de erro, feche e abra o app de novo.
+
 ### Adicionado
 
 - Versão instalada: o arquivo `VERSION` (1.0.0) é a fonte única, o instalador grava `DGCLAW_VERSAO` e
@@ -24,6 +37,28 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 - `dgclaw atualizar` agora volta sozinho ao backup quando o `install.sh` da versão nova falha ou a conferência
   de configuração reprova, explicando o que deu errado, o que foi desfeito e o que fazer. Agente que não sobe
   nunca faz voltar (o conserto é `dgclaw agente recriar <slug> --forcar`). `--sem-voltar-sozinho` desliga.
+- Botão "Reiniciar sessão" no menu da conversa: quando um agente trava, o dono confirma, o processo dele é
+  refeito e a conversa continua de onde estava. Uma faixa no topo mostra "reiniciando", "de volta" ou o motivo
+  da falha. Também existe como rota de API (`POST /api/v1/agents/<agente>/reiniciar`).
+- Mensagem falada que vai direto, sem revisão (botão de microfone no envio direto e conversa contínua), chega ao
+  agente marcada como `[áudio transcrito]`, para ele saber que pode haver erro de transcrição e deduzir pelo
+  contexto. Na tela, o balão mostra só um 🎤 pequeno no rodapé. Texto que vai para o campo e é revisado não leva
+  a marca. Os agentes e o Admin ganharam a instrução correspondente.
+- Celular: uma fileira de avatares embaixo da barra de escrever troca de agente com o polegar. A conversa atual
+  fica com um anel na cor do agente. A fileira some com o teclado aberto e quando só existe um agente.
+- Mesa de tarefas: busca (sem diferenciar acento) e filtros por estado, agente, tipo e dia, com a contagem em
+  cada opção e um botão "Limpar filtros". A escolha fica guardada no aparelho.
+- Modo foco: quando tudo está ticado aparece "Tudo ticado 🎉" com o botão Concluir, que limpa a lista e esconde o
+  foco. Recolhido ao lado da conversa, o foco vira uma pílula pequena, com animação (desligada para quem pede
+  menos movimento no aparelho).
+- Lista "trocar de agente" do menu mostra a hora da última mensagem de cada um (hora, "ontem" ou dia). A rota
+  `GET /api/v1/agents` ganhou o campo `ultima_ts` (vazio quando não há conversa).
+- Painel, aba Status: as "Pendências ativas" da memória de trabalho aparecem como lista, um item por linha, com o
+  título de cada item em negrito e a nota de revisão em cinza acima. A API continua com `texto` e ganhou `itens` e
+  `nota`.
+- Regra do projeto: passo de atualização que o `dgclaw atualizar` não faz sozinho vai numa subseção
+  "Como atualizar" do CHANGELOG, escrita para o dono, e o roteiro `docs/ATUALIZAR.md` passou a ler essas
+  subseções antes de aplicar. Um teste (`tests/changelog`) reprova frase dirigida ao modelo.
 - `dgclaw atualizar`: atualiza o DG Claw sem perder nada do dono. Faz backup datado em
   `/var/backups/dgclaw/`, baixa a versão nova (`git pull --ff-only`), roda o instalador, reconstrói a
   imagem, recria o container de cada agente (`dgclaw agente recriar`) mantendo casa, cofre e rotinas,
@@ -88,12 +123,26 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ### Corrigido
 
+- O menu ☰ fechava só no ✕ e não ao tocar fora dele: um resto de marcação dentro da folha de estilo da conversa
+  derrubava a regra do fundo escuro. Um teste novo impede que isso volte a acontecer.
+- Aviso amarelo (por exemplo o da cota de voz) fechado no ✕ descansa 48 horas antes de voltar. Números diferentes
+  na mesma frase (92% e 93%) contam como o mesmo aviso.
+- A faixa "não respondeu em 3 minutos" saiu: a resposta chega sozinha quando o agente mandar, e a conversa
+  continua escutando.
+- Fundo verde da conversa fica parado no puxão elástico do iPhone, sem faixa branca no fim da rolagem.
+- App instalado no iPhone: a faixa branca embaixo da tela some (o fundo da página usa a cor da barra).
+- Se o app abrir com uma página antiga guardada, sem o módulo de mídias, a conversa continua funcionando e a aba
+  de arquivos pede para recarregar, em vez de a tela ficar em branco.
+- Foto aberta no visor: o gesto de ampliar com os dedos não seleciona mais a imagem nem abre o menu de segurar.
+
 - Atualizar o DG Claw não apaga mais as chaves do `web.env`.
 - O instalador escolhe o motor do Admin (Claude ou Codex) pelo login que existe, não pelo programa instalado.
 - Campos de texto com 16px ou mais no celular: o app instalado não dá mais zoom ao tocar num campo.
 - Ubuntu 26.04 passa com aviso, e os problemas da instalação ao vivo de 17/10 foram acertados.
 
 ### Alterado
+
+- O botão 🦞 Painel saiu do cabeçalho da conversa: o menu lateral já leva ao painel do agente.
 
 - A versão instalada passou a ser a do arquivo `VERSION` (1.0.0), em vez de `v1-<commit>`; o commit continua
   anotado à parte em `DGCLAW_COMMIT`. O `runner` foi de 0.1.0 para 1.0.0, igual ao painel.

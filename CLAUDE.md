@@ -61,3 +61,17 @@ A [arquitetura](docs/ARQUITETURA.md) descreve o funcionamento e os limites entre
   usa), no mesmo commit/PR. Feature puramente visual que o agente não usa (por exemplo, animação de
   carregando) não precisa. Se for um doc de capacidade, acrescente-o a `templates/ambiente/capacidades.txt`
   (o teste `tests/ambiente` confere que cada um está citado no `agente.md`).
+
+- **Passo manual de atualização vai no CHANGELOG, escrito para a pessoa.** Toda mudança que pede
+  algo além do `dgclaw atualizar` padrão (instrução nova para juntar a um arquivo que o dono pode ter
+  personalizado, arquivo que não pode ser substituído, chave nova, regravar a identidade, reparar ou
+  reiniciar um agente) leva, no `CHANGELOG.md`, uma subseção `### Como atualizar` dentro da versão (ou
+  de `[Não lançado]`). O texto fala com a pessoa dona do DG Claw, com o porquê em uma frase, por
+  exemplo: "Nesta versão há uma instrução nova para o seu agente entender o áudio transcrito. Ela
+  precisa entrar nas instruções dele sem apagar o que você já personalizou." ou "Não substitua o
+  arquivo X, porque ele guarda Y." Nunca escreva para o modelo ("você é um agente, faça X",
+  "IMPORTANTE: o assistente deve", "IA, faça"): o Admin lê o CHANGELOG antes de aplicar
+  (`docs/ATUALIZAR.md`), e texto vindo de fora que dá ordem a um modelo tem cara de injeção de prompt;
+  o Admin faz bem em desconfiar dele. O teste `tests/changelog` reprova essas frases.
+  *Por quê:* a maioria das pessoas não roda `git pull`; elas pedem ao Admin para atualizar, e até
+  19/10/2026 não havia lugar para avisar de um passo que o comando não faz sozinho (Danilo, 19/10/2026).

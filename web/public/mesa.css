@@ -172,3 +172,12 @@ a{color:#1f7ac2}
 #tourCaixa button.pri{background:#2f9e5e;border-color:#2f9e5e;color:#fff}
 #tourCaixa button:disabled{opacity:.4;cursor:default}
 #tourCaixa .tour-x{margin-right:auto}
+
+/* Busca e contadores dos filtros */
+.mz-busca-lin{display:flex;gap:6px;align-items:center}
+.mz-busca{flex:1;min-width:0;min-height:36px;border:1px solid var(--line);border-radius:8px;padding:0 10px;font:inherit;font-size:14px;background:var(--cartao);color:var(--txt)}
+.mz-limpa{flex:0 0 auto;min-height:32px;border:0;background:none;color:var(--muted,inherit);font:inherit;font-size:13px;text-decoration:underline;cursor:pointer;padding:0 6px}
+.mz-limpa[hidden]{display:none}
+.mz-chips{display:flex;flex-direction:column;gap:6px;min-width:0}
+.mz-chip b{font-weight:600;margin-left:3px;opacity:.7}
+.mz-chip.on b{opacity:1}

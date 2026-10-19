@@ -52,7 +52,6 @@ if (navigator.standalone === true ||
   <button class="btn" id="btnTutorial" type="button" title="Visita guiada desta tela: o que é cada parte e por que está aqui">Tutorial</button>
   <div class="ferr" id="ferr">
     <div class="tools" id="tools" role="toolbar" aria-label="Ferramentas da conversa">
-      <a id="btnPainel" class="btn" href="#" hidden data-tour="btn-painel" title="Abrir o painel deste agente (status, memória, custos)" aria-label="Abrir o painel deste agente">🦞 <span class="lbl">Painel</span></a>
       <a id="btnMesa" class="btn" href="/mesa" data-tour="btn-mesa" title="Abrir a Mesa de tarefas" aria-label="Abrir a Mesa de tarefas">📋 <span class="lbl">Mesa</span></a>
       <a id="btnSessoes" class="btn" href="#" hidden data-tour="btn-sessoes" title="Sessões de trabalho deste agente" aria-label="Abrir as Sessões deste agente">🖥 <span class="lbl">Sessões</span></a>
       <a id="btnLembretes" class="btn" href="/lembretes" data-tour="btn-lembretes" title="Abrir os lembretes" aria-label="Abrir os lembretes">⏰ <span class="lbl">Lembretes</span></a>
@@ -82,6 +81,12 @@ if (navigator.standalone === true ||
         title="Ir para a mensagem mais nova" hidden>↓<span
         id="fimNovas" class="fimnovas" hidden></span></button>
 
+<div id="faixaReinicio" role="status" aria-live="polite" hidden><span class="rico" aria-hidden="true">↻</span><span class="rtxt"></span></div>
+<dialog id="dlgReinicio" aria-labelledby="dlgReinicioTit" aria-describedby="dlgReinicioTxt">
+  <h2 id="dlgReinicioTit">Reiniciar a sessão?</h2>
+  <p id="dlgReinicioTxt">Isto reinicia o processo do agente quando ele travar. A conversa continua de onde estava.</p>
+  <div class="dacoes"><button type="button" id="dlgReinicioNao">Cancelar</button><button type="button" class="perigo" id="dlgReinicioSim">Reiniciar</button></div>
+</dialog>
 <div class="faixa" id="faixaErro"><span class="txt"></span>
   <button class="x" aria-label="Fechar aviso">✕</button></div>
 <div class="faixa" id="faixaAviso"><span class="txt"></span>
@@ -102,6 +107,8 @@ if (navigator.standalone === true ||
     <button id="btnMic" aria-label="Gravar áudio" data-tour="mic">🎤</button>
     <button id="btnEnviar" aria-label="Enviar">➤</button>
   </div>
+  <!-- celular: fileira das agentes no lugar do respiro em branco do rodapé; o conversa.js preenche -->
+  <nav id="trocaBaixo" class="troca-baixo" aria-label="Trocar de agente" data-tour="troca-baixo"></nav>
 </div>
 
 <audio id="player" preload="auto" playsinline></audio>
@@ -124,6 +131,7 @@ if (navigator.standalone === true ||
 <script src="/login-cartao.js"></script>
 <script src="/trilha-tela.js"></script>
 <script src="/rolagem.js"></script>
+<script src="/conversa-puro.js"></script>
 <script src="/tour.js"></script>
 <script src="/menu-lado.js"></script>
 <script src="/casca.js"></script>

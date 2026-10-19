@@ -52,6 +52,16 @@ test('GET /api/v1/agents: Admin primeiro, formato esperado e voz/microfone falso
   } finally { await s.fechar(); }
 });
 
+test('GET /api/v1/agents: ultima_ts em epoch ms da última mensagem; null (nunca 0) sem conversa', async () => {
+  const s = await cenario();
+  try {
+    const ag = (await s.t.c.get('/api/v1/agents')).json.agentes;
+    const ana = ag.find((x) => x.id === 'ana'), admin = ag.find((x) => x.id === 'admin');
+    assert.ok(Number.isFinite(ana.ultima_ts) && ana.ultima_ts > 1.7e12, `ultima_ts da Ana: ${ana.ultima_ts}`);
+    assert.equal(admin.ultima_ts, null);
+  } finally { await s.fechar(); }
+});
+
 test('rotulo_provedor: usa a rota do runner, guarda 60 s em cache', async () => {
   const s = await cenario({ ana: { provedor: { sessao: 's', provedor: 'claude', rotulo: 'Claude Opus 5.5, na assinatura' } } });
   try {
