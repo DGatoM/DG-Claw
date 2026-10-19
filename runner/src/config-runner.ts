@@ -34,6 +34,9 @@ export type ConfigDoRunner = AgentConfig & {
    *  Vale para os dois provedores: o Claude o recebe por `--append-system-prompt-file`,
    *  o Codex por `developer_instructions`. */
   identidadeArquivo?: string;
+  /** `statusLine` próprio do agente. Se existir, o runner não instala o medidor de uso do Claude
+   *  (a linha de status é uma só) e avisa no log. */
+  statusLine?: unknown;
 };
 
 /** Uma sessão paralela declarada no descritor: outra conversa do MESMO agente

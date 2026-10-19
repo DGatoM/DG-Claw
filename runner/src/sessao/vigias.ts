@@ -104,5 +104,9 @@ export function vigiarRolloutDoCodex(s: Sessao, esteProc: pty.IPty, ctx: CtxMoto
       if (s.proc !== esteProc) return;
       aplicarEvento(s, { event: e.evento satisfies EventoInterno, toolName: e.ferramenta ?? null });
     },
+    aoUso: (u) => {
+      if (s.proc !== esteProc) return;
+      s.uso.registrar("codex", u.leitura, "rollout", u.em);
+    },
   });
 }

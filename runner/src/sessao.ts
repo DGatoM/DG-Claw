@@ -38,6 +38,7 @@ import { parar, pararEEsperar, subir, suspender, trocarPorSessaoLimpa } from "./
 import { ctxLeve, montarAmbienteBase } from "./sessao/configuracao.js";
 import { QUIETO_PARA_OLHAR_TRANSCRIPT_MS, VIGIA_LOGIN_EXPIRADO_MS } from "./sessao/constantes.js";
 import { digitarEEnviar, vencerTelaDeConfianca } from "./sessao/digitacao.js";
+import { MedidorDeUso } from "./uso.js";
 import { type PayloadDeHook, receberHook } from "./sessao/eventos.js";
 import { enfileirarQuandoOcioso, talvezSoltarFila } from "./sessao/fila.js";
 import { encerrarIncidenteDeLogin, entregarRecadoDeLogin, marcarLoginExpirado, retomarAposLoginExpirado } from "./sessao/login.js";
@@ -153,6 +154,8 @@ export class Sessao extends EventEmitter {
   readonly identidade: string[];
   readonly escolhaDescrita: CamposDeEscolha | undefined;
   readonly idsEmUso: () => ReadonlySet<string>;
+  /** O último uso da assinatura medido nesta sessão (ver uso.ts). */
+  readonly uso: MedidorDeUso;
 
   constructor(
     readonly descritor: IdentidadeDaSessao,
@@ -181,6 +184,7 @@ export class Sessao extends EventEmitter {
     this.identidade = opcoes.identidade ?? [];
     this.escolhaDescrita = opcoes.escolhaDescrita;
     this.idsEmUso = opcoes.idsEmUso ?? (() => new Set());
+    this.uso = new MedidorDeUso(path.join(path.dirname(this.arquivoDeEstado), "uso.json"), Date.now, this.a("uso"));
     const inicial = this.lerEscolha();
     this.escolhaVigente = inicial.escolha;
     this.motor = motorDe(inicial.escolha.provedor);

@@ -12,6 +12,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { log } from "../logger.js";
 import { mascarar } from "../mascara.js";
+import { type Leitura, usoDaLinhaDoRollout } from "../uso.js";
 
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const ROLLOUT_UUID_RE = new RegExp(`rollout-.*-(${UUID})\\.jsonl$`, "i");
@@ -189,6 +190,9 @@ export interface OpcoesDoVigia {
   /** Eventos mais antigos que isto são do passado (de antes do spawn) e são ignorados. */
   desdeMs: number;
   aoEvento: (e: EventoDoRollout) => void;
+  /** Chamado a cada `token_count` com `rate_limits`, inclusive os de antes do spawn: o uso da
+   *  assinatura vale mesmo que a medição seja de uma conversa anterior. */
+  aoUso?: (u: { leitura: Leitura; em: number }) => void;
   intervaloMs?: number;
 }
 
@@ -235,6 +239,8 @@ export function vigiarRollout(op: OpcoesDoVigia): () => void {
         }
         const ev = eventoDoRollout(reg);
         if (ev && ev.em >= op.desdeMs && !parado) op.aoEvento(ev);
+        const uso = op.aoUso ? usoDaLinhaDoRollout(reg) : null;
+        if (uso && !parado) op.aoUso?.(uso);
       }
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") {

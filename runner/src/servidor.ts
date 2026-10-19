@@ -22,6 +22,8 @@ import { erro as erroHttp, json, lerCorpo } from "./http-util.js";
 import { Conferidor } from "./provedores/conferido.js";
 import { LoginAssistido } from "./provedores/login.js";
 import { tratarRotasDeProvedor } from "./provedores/rotas.js";
+import { MOTIVO_SEM_MEDICAO, deStatusline, paraResposta } from "./uso.js";
+import { nonceConfere } from "./sessao/telas.js";
 import { acharRolloutPorId, mensagensDoRollout } from "./provedores/codex-rollout.js";
 
 /** O estado de uma sessão como o painel e a API o veem. A paralela leva o campo
@@ -140,6 +142,29 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
         return;
       }
 
+      // --- o medidor de uso: o statusLine do Claude manda só o rate_limits, com o nonce do spawn ---
+      if (rota === "/api/agent-uso" && metodo === "POST") {
+        const corpo = await lerCorpo(req).catch((err: Error) => ({ __erro: err.message }));
+        if (typeof (corpo as { __erro?: string }).__erro === "string") {
+          erroHttp(res, 400, "CORPO_INVALIDO", (corpo as { __erro: string }).__erro, "mandar um objeto JSON { agentId, nonce, rate_limits }");
+          return;
+        }
+        const alvo = (corpo as { agentId?: unknown }).agentId;
+        const dona = typeof alvo === "string" ? gerente.porId(alvo) : undefined;
+        if (!dona) {
+          erroHttp(res, 404, "AGENTE_DE_OUTRO_RUNNER", `agentId ${String(alvo)} não é de nenhuma sessão deste runner`, "conferir o --agent do comando statusLine no settings do agente");
+          return;
+        }
+        if (!nonceConfere(dona.nonce, (corpo as { nonce?: unknown }).nonce)) {
+          erroHttp(res, 401, "NONCE_INVALIDO", "nonce de um spawn antigo ou de outro processo", "reiniciar o agente para o Claude pegar o settings novo");
+          return;
+        }
+        const leitura = deStatusline({ rate_limits: (corpo as { rate_limits?: unknown }).rate_limits });
+        const guardou = leitura ? dona.uso.registrar("claude", leitura, "statusline") : false;
+        json(res, { ok: true, guardou });
+        return;
+      }
+
       // --- provedor (Claude/Codex), login assistido e sessões criadas por API ---
       if (await tratarRotasDeProvedor(req, res, rota, metodo, { gerente, login, conferidor })) return;
 
@@ -228,6 +253,16 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
 
         if (acao === "" && metodo === "GET") {
           json(res, { success: true, data: visao(sessao, false) });
+          return;
+        }
+
+        if (acao === "/uso" && metodo === "GET") {
+          const uso = sessao.uso.atual(sessao.escolhaAtual().provedor);
+          json(res, {
+            ok: true,
+            uso: paraResposta(uso, Date.now()),
+            ...(uso.medido_em === null ? { motivo: MOTIVO_SEM_MEDICAO } : {}),
+          });
           return;
         }
 

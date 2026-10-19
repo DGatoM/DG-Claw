@@ -1,9 +1,11 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import type { Sessao } from "../sessao.js";
 import { randomBytes } from "node:crypto";
 import { HOOK_HANDLER_SOURCE } from "../hook-handler-source.js";
 import { log } from "../logger.js";
+import { USO_HANDLER_SOURCE } from "../uso-handler-source.js";
 import { type ResultadoDoAmbiente, montarAmbiente, nomesDoCofre } from "../provedores/ambiente.js";
 import { lerCanais, pastaTelegramDesligado } from "../provedores/canais.js";
 import type { Catalogo } from "../provedores/catalogo.js";
@@ -152,6 +154,37 @@ export function pastaDeHooks(s: Sessao): string {
   return path.join(s.pastaDeEstado, "runner-hooks");
 }
 
+/** Quem já define um statusLine para este agente: o descritor, o settings do usuário do Claude ou
+ *  o do projeto. Devolve o lugar, ou null. Um `--settings` de spawn ganharia de todos eles, e
+ *  trocar a linha de status que o dono escolheu seria uma surpresa. */
+function statusLineDeOutroDono(s: Sessao): string | null {
+  const cfg = s.descritor.config;
+  if (cfg.statusLine) return "campo statusLine do descritor";
+  const claudeDir = cfg.envExtra?.CLAUDE_CONFIG_DIR?.trim() || process.env.CLAUDE_CONFIG_DIR?.trim() || path.join(os.homedir(), ".claude");
+  const candidatos = [
+    path.join(claudeDir, "settings.json"),
+    path.join(cfg.cwd, ".claude", "settings.json"),
+    path.join(cfg.cwd, ".claude", "settings.local.json"),
+  ];
+  for (const arq of candidatos) {
+    let cru: string;
+    try {
+      cru = fs.readFileSync(arq, "utf8");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+        log.aviso(s.a("uso"), `não consegui ler ${arq} para saber se há statusLine: ${err instanceof Error ? err.message : err}; sigo e instalo o medidor`);
+      }
+      continue;
+    }
+    try {
+      if ((JSON.parse(cru) as { statusLine?: unknown }).statusLine) return arq;
+    } catch (err) {
+      log.aviso(s.a("uso"), `${arq} não é JSON válido (${err instanceof Error ? err.message : err}); sigo e instalo o medidor`);
+    }
+  }
+  return null;
+}
+
 export function escreverSettings(s: Sessao, nonce: string): string | null {
   try {
     const dir = pastaDeHooks(s);
@@ -203,6 +236,24 @@ export function escreverSettings(s: Sessao, nonce: string): string | null {
         StopFailure: para("StopFailure"),
       },
     };
+    if (s.motor.provedor === "claude") {
+      const dono = statusLineDeOutroDono(s);
+      if (dono) {
+        log.aviso(
+          s.a("uso"),
+          `o agente já tem um statusLine próprio (${dono}); não instalei o medidor de uso da assinatura, ` +
+            `então o Status do painel vai mostrar "sem dado". Para medir, tire o statusLine de lá`,
+        );
+      } else {
+        const usoHandler = path.join(dir, "runner-uso.mjs");
+        const usoAtual = fs.existsSync(usoHandler) ? fs.readFileSync(usoHandler, "utf8") : "";
+        if (usoAtual !== USO_HANDLER_SOURCE) fs.writeFileSync(usoHandler, USO_HANDLER_SOURCE, "utf8");
+        settings.statusLine = {
+          type: "command",
+          command: `"${process.execPath}" "${usoHandler}" --agent ${s.descritor.id} --port ${s.porta} --nonce ${nonce}`,
+        };
+      }
+    }
     const limpar = (r?: string[] | null) =>
       (r ?? []).filter((x) => typeof x === "string" && x.trim()).map((x) => x.trim());
     const allow = limpar(cfg.allowTools);
