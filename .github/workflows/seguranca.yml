@@ -1,0 +1,109 @@
+# Segurança do DG Claw: segredos no histórico, análise estática do código, e a imagem dos agentes
+# (vulnerabilidades e lista de componentes). Roda em todo PR, em todo push na main e uma vez por
+# semana (CVE novo aparece mesmo sem commit novo).
+#
+# As ações estão fixadas pelo SHA completo do commit (o comentário diz a versão). Para trocar de
+# versão: gh api repos/<dono>/<repo>/commits/<tag> --jq .sha. O dependabot propõe as atualizações.
+name: Segurança
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 5 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: seguranca-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Segredos: varre o histórico inteiro. Chave que entrou num commit antigo continua valendo
+  # para quem baixar o repositório, mesmo depois de apagada.
+  # ---------------------------------------------------------------------------
+  gitleaks:
+    name: gitleaks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ---------------------------------------------------------------------------
+  # CodeQL: JavaScript/TypeScript (web, painel, runner, canais) e Python (scripts).
+  # ---------------------------------------------------------------------------
+  codeql:
+    name: codeql (${{ matrix.linguagem }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        linguagem: [javascript-typescript, python]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
+        with:
+          languages: ${{ matrix.linguagem }}
+          build-mode: none
+      - uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
+        with:
+          category: "/language:${{ matrix.linguagem }}"
+
+  # ---------------------------------------------------------------------------
+  # Imagem dos agentes: constrói do jeito do instalador (podman, com o container/ignore), varre
+  # com o Trivy e gera a lista de componentes (SBOM).
+  # O Trivy só reprova CRITICAL que já tem correção publicada: o que ainda não tem correção
+  # não dá para resolver atualizando, e reprovar por isso só ensina a ignorar o alarme.
+  # ---------------------------------------------------------------------------
+  imagem:
+    name: imagem
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Construir a imagem dos agentes
+        run: |
+          set -euo pipefail
+          podman build --ignorefile container/ignore \
+            -t localhost/dgclaw-agente:ci -f container/Containerfile .
+          podman save --format docker-archive -o "$RUNNER_TEMP/dgclaw-agente.tar" localhost/dgclaw-agente:ci
+      - name: Varrer a imagem (falha só em CRITICAL com correção)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          input: ${{ runner.temp }}/dgclaw-agente.tar
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          trivyignores: .trivyignore.yaml
+          format: table
+      - name: Lista de componentes (SBOM)
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          image: docker-archive:${{ runner.temp }}/dgclaw-agente.tar
+          format: spdx-json
+          output-file: ${{ runner.temp }}/dgclaw-agente.sbom.spdx.json
+          upload-artifact: false
+      - name: Guardar o SBOM como artefato
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sbom-dgclaw-agente
+          path: ${{ runner.temp }}/dgclaw-agente.sbom.spdx.json
+          retention-days: 90

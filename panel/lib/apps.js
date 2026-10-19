@@ -286,7 +286,7 @@ function buildApps(config) {
       // `assets/` sem um único arquivo. O catálogo DESCREVE o material; ele não é
       // o material.
       //
-      // O custo disso foi real (26/08/2026): o Danilo abriu o painel de um dono,
+      // O custo disso foi real (26/08/2026): o mantenedor abriu o painel de um dono,
       // leu "Assets · concluído · 15 assets", e passou três rodadas procurando
       // por que as prévias não apareciam. Não havia o que prever. A tela o mandou
       // procurar uma coisa que ela mesma tinha inventado.

@@ -1,6 +1,6 @@
 // wm-status.js: o cartão "Memória de trabalho" da aba Status.
 //
-// O PEDIDO (Danilo, 05/10/2026, "importantíssimo"): ele abriu o painel e achou que o
+// O PEDIDO (05/10/2026, "importantíssimo"): ele abriu o painel e achou que o
 // agente não tinha working memory, porque ela só aparecia na aba Memória. Este cartão
 // responde na página inicial, sem abrir outra aba: ela existe, está em dia, quando foi
 // atualizada, quanto do teto ocupa, se a remontagem das 7h rodou hoje e o que está

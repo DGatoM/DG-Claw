@@ -17,7 +17,7 @@
 #
 # MODO DE SEGURANCA (01/10/2026). Com <ws>/.dgclaw/modo-seguro.json presente, a sessao
 # acabou de ser reiniciada SEM a conversa anterior, porque algo nela fazia o agente
-# travar (a recusa do filtro da Anthropic que deixou a Isa muda em 30/09). Aqui e a
+# travar (a recusa do filtro da Anthropic que deixou a agente de referência muda em 30/09). Aqui e a
 # porta por onde o texto envenenado voltaria: o chat-tail.md. Entao, nesse modo:
 #   - o chat-tail so e reinjetado se o reinicio o REFEZ (marca chatTailRefeito=true),
 #     e o arquivo refeito so tem o fio ate `cortarDepoisDe`; sem a marca, nao entra;

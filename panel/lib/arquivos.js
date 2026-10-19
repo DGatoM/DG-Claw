@@ -9,7 +9,7 @@
 //
 // A tentação é óbvia: `agentDir` já é a raiz de tudo, o `lib/sanitize.js` já é
 // ancorado nele, e apontar esta aba para lá daria "acesso à pasta do agente",
-// que foi literalmente o que o Danilo pediu. Só que a pasta do agente tem
+// que foi literalmente o que o mantenedor pediu. Só que a pasta do agente tem
 // `.dgclaw/creds`, `.plataforma/identidade.md`, `.claude/` e os arquivos de alma
 // dele. Quem abre este painel é a Marta e o Paulo, e nenhum dos dois pediu para
 // ver credencial nenhuma: eles querem ver o material do trabalho.

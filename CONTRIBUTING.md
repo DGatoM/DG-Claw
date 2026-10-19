@@ -60,15 +60,40 @@ ficar vermelho, a causa está no log do job que falhou.
 
 ## Padrão de commit
 
-O histórico do projeto segue um padrão simples:
+Os commits seguem o [Conventional Commits](https://www.conventionalcommits.org/pt-br/v1.0.0/),
+escritos em português:
 
-- Mensagem curta, em português, começando em minúscula, dizendo o que mudou.
-- Prefixo com a área quando ajuda a localizar: `runner:`, `painel:`, `agente criar:`, `cofre:`,
-  `docs/SEGURANCA.md:`. Exemplo real: `runner: autenticacao.ts (Bearer do RUNNER_TOKEN_FILE, livres so
-  GET /api/saude e POST /api/agent-hook) e teste`.
+```
+tipo(escopo opcional): descrição curta
+```
+
+- **Tipos:** `feat` (funcionalidade nova), `fix` (correção), `docs` (só documentação),
+  `refactor` (muda o código sem mudar o comportamento), `test` (testes), `ci` (workflows e
+  automação do GitHub), `chore` (manutenção que não cabe nos outros) e `perf` (desempenho).
+- **Escopo** é opcional e diz a área: `runner`, `painel`, `web`, `cli`, `cofre`, `instalador`.
+- **Descrição** no presente ou no imperativo, em português, começando em minúscula, sem ponto
+  final e dizendo o que a mudança faz.
 - Um commit por entrega. Se a mudança tem duas partes que se explicam sozinhas, são dois commits.
 - Quando houver coautoria (por exemplo, trabalho feito com um assistente de IA), a última linha é um
-  `Co-Authored-By: Nome <e-mail>`.
+  `Co-Authored-By: Nome <e-mail>`, depois de uma linha em branco.
+
+Exemplos:
+
+```
+feat(painel): mostra a cobertura de testes na aba Saúde
+fix(runner): recusa token com quebra de linha no meio
+docs: explica como restaurar um backup
+refactor(web): separa a leitura do cofre em função própria
+test(cli): cobre o dgclaw atualizar com a raiz falsa
+ci: fixa as actions pelo SHA do commit
+chore: remove nomes pessoais de comentários
+perf(web): lê a lista de conversas uma vez só
+```
+
+A `main` é protegida: ninguém grava nela direto. Toda mudança entra por pull request, com os checks
+do CI verdes. O merge é do tipo squash, então o **título do pull request vira a mensagem do commit
+na `main`** e precisa seguir o padrão acima. Os commits da sua branch podem ser livres, mas o título
+do PR não.
 
 ## Abrir uma issue
 

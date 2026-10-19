@@ -10,7 +10,9 @@ Para relatar uma falha, siga o `SECURITY.md` na raiz do repositório.
 2. Cada agente vive no próprio container, com o próprio cofre de chaves, e não enxerga o host
    nem os vizinhos. O `scripts/teste-isolamento.sh` prova isso em segundos.
 3. Chave de serviço (OpenAI, Gemini e outras) entra no cofre do agente, vale só para ele e
-   nunca aparece inteira na tela, na API nem no log.
+   nunca aparece inteira na tela, na API nem no log. Isso protege contra vazamento acidental
+   (permissões de arquivo, valor fora do contexto da conversa), mas não contra o próprio agente:
+   dentro do container ele tem `sudo` sem senha e consegue ler o arquivo de ambiente que recebe.
 4. O login do painel usa hash scrypt, sessão que vence, limite de tentativas e proteção contra
    CSRF. Quem opera sem tela usa chave de API do painel, guardada só como hash.
 5. O agente começa com poderes limitados (o Gmail nasce só lendo) e o dono libera aos poucos.
@@ -77,6 +79,9 @@ sem tela.
   Compartilhar com outro agente é guardar de novo no outro, por decisão de quem administra.
 - A tela e a API mostram quem guardou, quando e os 4 últimos caracteres. Nunca o valor.
 - O valor chega ao agente por um arquivo de ambiente montado só leitura dentro do container.
+  O agente precisa do valor para usar a chave, então um agente com `sudo` dentro do container (é o
+  padrão da imagem) consegue lê-lo. O cofre evita o vazamento acidental, não um agente comprometido.
+  Por isso a chave de cada agente vale só para ele e deve ter limite de gasto no provedor.
   A escrita é atômica, então o agente nunca lê um arquivo pela metade.
 - O cofre recusa referência `vault:...` (o nome de uma chave guardada em outro cofre) para não
   gravar um apelido no lugar do valor.
@@ -181,7 +186,7 @@ atende outra pessoa usa a credencial dela.
 | Item | Risco | Situação |
 | --- | --- | --- |
 | Saída livre para a internet | um agente comprometido por prompt injection consegue mandar o que tem no container para qualquer endereço | aceito na v1; a correção é um proxy de saída com lista de destinos |
-| Instalação por `curl ... \| bash` | quem controlar um dos endereços de onde o instalador baixa executa código na máquina | fontes oficiais com HTTPS; fixar versão e conferir hash fica para depois |
+| Instalação baixa pacotes e a chave do repositório do Node | quem controlar um dos endereços de onde o instalador baixa pacotes executa código na máquina | o DG Claw em si se instala por `git clone` do repositório público e `sudo ./install.sh`, sem `curl \| bash`; as fontes externas usam HTTPS (`curl --proto '=https' --tlsv1.2`); fixar versão e conferir hash fica para depois |
 | Cabeçalhos contra iframe no painel | uma página hostil poderia carregar o painel num iframe e induzir cliques | o painel precisa abrir dentro de outra página em algumas instalações; o login com `SameSite` e a checagem de `Origin` seguram as ações |
 | Escrita de arquivo pelo painel | entre conferir o caminho e gravar, um agente malicioso poderia trocar uma pasta por atalho | exige um agente já comprometido dentro do próprio container |
 | Token do runner e segredo do proxy dentro do container | quem controla o agente consegue falar com o próprio runner | aceitável na v1: cada token vale só para aquele agente, e o token do Admin nunca entra em container |

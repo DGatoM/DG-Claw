@@ -2,7 +2,7 @@
 /**
  * wm-status.js: a saúde da memória de trabalho (working memory), para a aba Status.
  *
- * O PEDIDO (Danilo, 05/10/2026): ele abriu o painel e achou que o DG Claw não tinha
+ * O PEDIDO (05/10/2026): ele abriu o painel e achou que o DG Claw não tinha
  * working memory, porque ela só aparecia na aba Memória, e na Status vinha com outro
  * nome ("Memória de curto prazo") mostrando só a linha "Agora". Esta rota responde,
  * numa leitura só, as perguntas que ele tinha: ela existe? está em dia? quando foi
@@ -42,7 +42,7 @@
  *
  * Este módulo não depende de nenhuma outra lib do painel, de propósito: ele é levado à
  * mão para painéis instalados antes da reorganização de 01/10 (Lara, Marina, Luna) e
- * para o painel da Isa, e precisa funcionar sozinho nos dois lugares.
+ * para o painel da agente de referência, e precisa funcionar sozinho nos dois lugares.
  */
 
 const fs = require('fs');
@@ -152,7 +152,7 @@ function buildWmStatus(config, opcoes = {}) {
     }
     const n = numeroDoScript(path.join(PLUGIN, 'scripts', 'build-working-memory.py'), 'MAX_BYTES');
     if (n) return { bytes: n, fonte: 'MAX_BYTES do scripts/build-working-memory.py instalado neste agente' };
-    // A working memory da Isa (ClaudeClaw) escreve o próprio teto no cabeçalho:
+    // A working memory da agente de referência (ClaudeClaw) escreve o próprio teto no cabeçalho:
     // "*Ocupação: 5123B/6500B*".
     const m = texto && texto.match(/Ocupa[çc][ãa]o:\s*\d+\s*B?\s*\/\s*(\d+)\s*B/i);
     if (m) return { bytes: Number(m[1]), fonte: 'a linha "Ocupação" do cabeçalho do próprio arquivo' };
@@ -242,7 +242,7 @@ function buildWmStatus(config, opcoes = {}) {
       }
     }
 
-    // 3) log configurado (quem roda a remontagem por cron, como a Isa)
+    // 3) log configurado (quem roda a remontagem por cron, como a agente de referência)
     if (config.wmRebuildLog) {
       try {
         const st = fs.statSync(config.wmRebuildLog);

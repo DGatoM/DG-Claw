@@ -3,7 +3,7 @@
 
 POR QUE EXISTE (01/10/2026)
   A memoria "semantica" do DG Claw depende de GEMINI_API_KEY, que o wizard nunca pede.
-  Resultado: ela vem desligada de fabrica e o dono nem sabe. O Danilo: "essa experiencia
+  Resultado: ela vem desligada de fabrica e o dono nem sabe. O mantenedor: "essa experiencia
   ja esta ruim". Esta busca e o piso que funciona sempre: um indice SQLite FTS5 (do Python
   padrao, sem instalar nada, sem rede, sem custo) sobre
 
@@ -13,7 +13,7 @@ POR QUE EXISTE (01/10/2026)
     2. os arquivos de MEMORIA: MEMORY.md e tudo em memory/ (diario, pastas por assunto,
        skills aprendidas, transbordo da working-memory).
 
-  E a mesma ideia da busca de sessoes do Hermes e do transcripts_fts.py da Isa: o
+  E a mesma ideia da busca de sessoes do Hermes e do transcripts_fts.py da agente de referência: o
   embedding borra nome proprio, data e jargao; a busca literal acha exato. Com a chave do
   Gemini, a busca semantica continua existindo como complemento, nao como requisito.
 

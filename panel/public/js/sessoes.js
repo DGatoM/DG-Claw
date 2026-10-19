@@ -12,7 +12,7 @@
 //     Aprovar e Negar (só com login; chave de API não decide);
 //   - modo "proxy": os cards vêm do DG Telegram (lib/sessoes-proxy.js), que guarda a chave
 //     da agente do lado do servidor. Lá decidir pedido, mandar tecla e mexer no cofre só se
-//     faz no DG Telegram, com o login do Danilo; a tela leva até lá por um botão.
+//     faz no DG Telegram, com o login do mantenedor; a tela leva até lá por um botão.
 // A aba SOME quando /api/sessoes-config diz ligado:false.
 //
 // O QUE A FONTE NÃO SABE FAZER A TELA ESCONDE, olhando `fonte.recursos` (apagar, decidir...).
@@ -230,7 +230,7 @@
         return Object.assign({}, p, {
           titulo: 'Abrir no DG Telegram',
           corpo: 'O botão leva ao mesmo card no DG Telegram (no pedido, se houver um esperando você), onde ficam handoff, retomar, arquivar, renomear e o recado.',
-          porque: 'Este painel só lê. As ações ficam onde o login do Danilo as protege.',
+          porque: 'Este painel só lê. As ações ficam onde o login do dono as protege.',
         });
       }
       return p;
@@ -279,7 +279,7 @@
         alvo: '#sx-lista .sx-pedido',
         titulo: 'Card esperando você',
         corpo: 'Quando um card para pedindo permissão (por exemplo, para apagar uma pasta), a linha mostra o pedido. O botão "Decidir no DG Telegram" abre, numa aba nova, a tela onde você aprova ou nega aquele pedido.',
-        porque: 'A decisão não é tomada aqui de propósito: um card não pode aprovar o próprio pedido, e só o login do Danilo no DG Telegram pode decidir. O painel mostra o pedido e leva você até lá.',
+        porque: 'A decisão não é tomada aqui de propósito: um card não pode aprovar o próprio pedido, e só o login do dono no DG Telegram pode decidir. O painel mostra o pedido e leva você até lá.',
       },
       {
         chave: 'cofre',
@@ -300,7 +300,7 @@
         alvo: '#sx-vista-det .sx-info',
         titulo: 'O card aberto',
         corpo: 'No alto ficam o nome, o estado e a pasta. A estrela marca como favorito e o lápis renomeia. Ao renomear, o prefixo de status que o card já tinha (▶️, ✅ ou ⏳) é mantido; você muda só o resto do nome.',
-        porque: 'O prefixo é como o Danilo e as outras agentes reconhecem o estado do card pelo nome. Perder esse prefixo bagunçaria a lista de quem olha o Bunker.',
+        porque: 'O prefixo é como o dono e os outros agentes reconhecem o estado do card pelo nome. Perder esse prefixo bagunçaria a lista de quem olha o Bunker.',
       },
       {
         chave: 'acoes',
@@ -363,7 +363,7 @@
   const rascunhos = new Map();
   let novaRascunho = { nome: '', prompt: '', pasta: '', permissao: 'auto', provedor: '' };
 
-  // Painel sem Cloudflare Access na frente (o da Isa): a aba só lê. O servidor recusa toda escrita
+  // Painel sem Cloudflare Access na frente (o da agente de referência): a aba só lê. O servidor recusa toda escrita
   // com 403; aqui a tela esconde o que não funcionaria, em vez de mostrar botão que só dá erro.
   const soLeitura = () => !!(cfg && cfg.soLeitura);
   const TEXTO_SO_LEITURA_PROXY = 'Neste painel a aba Sessões é só para ler: as ações (recado, criar, arquivar, renomear...) ficam no DG Telegram, porque este painel não tem a proteção de login do Cloudflare na frente.';
@@ -503,8 +503,8 @@
     return el('div', { class: 'sx-pedido' }, cab, texto,
       link ? el('a', {
         class: 'sx-btn prim', href: link, target: '_blank', rel: 'noopener',
-        title: 'A decisão não é tomada aqui: um card não pode aprovar o próprio pedido. Abre o DG Telegram, onde só o login do Danilo decide.',
-      }, 'Decidir no DG Telegram') : el('p', { class: 'sx-ped-nota' }, 'Decida no DG Telegram, com o login do Danilo.'));
+        title: 'A decisão não é tomada aqui: um card não pode aprovar o próprio pedido. Abre o DG Telegram, onde só o login do dono decide.',
+      }, 'Decidir no DG Telegram') : el('p', { class: 'sx-ped-nota' }, 'Decida no DG Telegram, com o login do dono.'));
   }
 
   function itemDaLista(it) {

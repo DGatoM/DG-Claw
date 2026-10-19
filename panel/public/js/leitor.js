@@ -1,6 +1,6 @@
 // leitor.js — a janela que abre UM arquivo de memória, renderizado, e deixa editar.
 //
-// POR QUE ELE EXISTE (Danilo, 01/10/2026). Clicar num arquivo da aba Memória abria
+// POR QUE ELE EXISTE (01/10/2026). Clicar num arquivo da aba Memória abria
 // uma caixa com o texto cru, em letra de código de 13px: "ruim, feia,
 // pequenininha". E a memória dele é justamente o que o dono mais precisa conseguir
 // LER, porque é ali que se descobre se o agente entendeu errado alguma coisa.

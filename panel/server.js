@@ -117,7 +117,7 @@ function quemFez(req) {
 
 // ─── Powers (poderes travados) ────────────────────────────────
 // DGCLAW_PANEL_POWERS aponta outro arquivo de poderes. Serve para o painel que
-// mostra um agente que não nasceu do plugin (o painel da Isa, por exemplo), que
+// mostra um agente que não nasceu do plugin (o painel da agente de referência, por exemplo), que
 // guarda o powers.json fora de <agente>/.dgclaw/.
 const POWERS_FILE = process.env.DGCLAW_PANEL_POWERS || path.join(CONFIG.agentDir, '.dgclaw', 'powers.json');
 const DEFAULT_POWERS = {

@@ -5,9 +5,9 @@
 // NEUTRO, que não é o agente, lê os registros dele, explica em português o que houve e
 // propõe o conserto. Antes de mudar qualquer coisa, ele pergunta e espera o "sim".
 //
-// POR QUE ELA EXISTE (Danilo, 01/10/2026): quando o agente trava, a pessoa perde
-// justamente quem ela consultaria. A Isa ficou 56 minutos muda por um bloqueio da
-// Anthropic, e a única saída foi o Danilo abrir um terminal. O dono de um agente de
+// POR QUE ELA EXISTE (01/10/2026): quando o agente trava, a pessoa perde
+// justamente quem ela consultaria. A agente de referência ficou 56 minutos muda por um bloqueio da
+// Anthropic, e a única saída foi o mantenedor abrir um terminal. O dono de um agente de
 // cliente não tem terminal nem sabe o que procurar.
 //
 // TRÊS COISAS QUE A TELA PRECISA DIZER, e que não são detalhe:

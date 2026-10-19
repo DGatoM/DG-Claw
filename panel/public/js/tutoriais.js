@@ -14,7 +14,7 @@
 // `porque` é obrigatório por regra do repo. Passo sem o "por que" vira legenda, e
 // legenda a pessoa já tinha no tooltip.
 //
-// QUEM LÊ ISTO NÃO É DESENVOLVEDOR e não é o Danilo: é a Marta, é o Paulo, o
+// QUEM LÊ ISTO NÃO É DESENVOLVEDOR e não é o mantenedor: é a Marta, é o Paulo, o
 // dono do agente, que abre a tela para saber se está tudo bem. Por isso nenhum
 // passo diz "endpoint", "cron", "systemd" ou "sessão": diz o que a pessoa vê e o
 // que ela faz com aquilo.

@@ -251,7 +251,7 @@
                 text-overflow:ellipsis}
   #atividade .atv-acao{transition:opacity .15s}
   #atividade .atv-acao.troca{opacity:0}
-  /* "Está trabalhando" vivo (Danilo, 18/10/2026): três pontinhos em onda e um brilho
+  /* "Está trabalhando" vivo (18/10/2026): três pontinhos em onda e um brilho
      atravessando o texto, como o "pensando" do ChatGPT. Com Reduzir Movimento ligado só o pulo
      dos pontinhos sai e fica a onda de opacidade. Alerta e cinza ficam parados. O brilho é verde
      claro, não branco: o branco puxava o olho no meio da letra. */

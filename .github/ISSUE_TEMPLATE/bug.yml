@@ -1,0 +1,59 @@
+name: Problema (bug)
+description: Algo no DG Claw não funciona como deveria
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Antes de enviar, procure se já existe uma issue igual. Apague senhas, chaves de API, tokens e
+        endereços que você não quer expor de qualquer saída que colar aqui. Vulnerabilidade não vai
+        aqui: use o link "Reportar vulnerabilidade com sigilo".
+  - type: textarea
+    id: descricao
+    attributes:
+      label: O que aconteceu
+      description: Descreva o problema com as suas palavras.
+    validations:
+      required: true
+  - type: textarea
+    id: passos
+    attributes:
+      label: Passos para reproduzir
+      description: O que você fez, na ordem.
+      placeholder: |
+        1. Abri o painel
+        2. Cliquei em ...
+        3. Apareceu ...
+    validations:
+      required: true
+  - type: textarea
+    id: esperado
+    attributes:
+      label: O que você esperava que acontecesse
+    validations:
+      required: true
+  - type: input
+    id: versao
+    attributes:
+      label: Versão do DG Claw
+      description: Rode `git -C ~/DG-Claw rev-parse --short HEAD` na VPS (ajuste a pasta do clone) e cole o resultado. A versão publicada também aparece no CHANGELOG.md.
+      placeholder: "ex.: v1.0.0 ou 36c8c2f"
+    validations:
+      required: true
+  - type: textarea
+    id: ambiente
+    attributes:
+      label: Ambiente
+      description: Sistema do servidor (por exemplo, Ubuntu 24.04), provedor da VPS, e se o agente usa Claude ou Codex.
+      placeholder: "Ubuntu 24.04, VPS de 4 GB, agente Claude"
+    validations:
+      required: true
+  - type: textarea
+    id: status
+    attributes:
+      label: Saída de `dgclaw status`
+      description: Cole a saída, sem dados sensíveis.
+      render: text
+    validations:
+      required: false

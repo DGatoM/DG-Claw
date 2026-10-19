@@ -4,7 +4,7 @@
 Registrar hash, máquina, horário, navegador e resultado de cada linha. Não executar na VPS principal.
 
 - [ ] Começar com VPS Ubuntu limpa, Claude Code instalado e login de assinatura feito pelo dono.
-- [ ] Executar os três comandos do COMO-INSTALAR. Conferir endereço do painel, usuário e link de primeiro acesso na saída (sem senha). Abrir o link, cadastrar a senha e cair no Admin; o mesmo link não pode abrir de novo.
+- [ ] Executar os três comandos do INSTALL.md. Conferir endereço do painel, usuário e link de primeiro acesso na saída (sem senha). Abrir o link, cadastrar a senha e cair no Admin; o mesmo link não pode abrir de novo.
 - [ ] Abrir o HTTPS externo, conferir certificado e formulário de login, entrar com as credenciais.
 - [ ] Ver Admin no menu desde o primeiro acesso e a pergunta sobre o nome. Enviar nome pela conversa.
 - [ ] Preencher função, tom e foto. Abrir Tutorial e cada `?`. Conferir 390 px sem corte horizontal.
@@ -24,7 +24,7 @@ Registrar hash, máquina, horário, navegador e resultado de cada linha. Não ex
 ## Entrada simplificada e instalação rápida
 
 - Pedidos de instalação: testar “baixa, analisa e instala” com link e “instala” na pasta aberta,
-  acompanhando as etapas de INSTALAR.md. README permanece escrito para a pessoa.
+  acompanhando as etapas de INSTALL.md. README permanece escrito para a pessoa.
 - Sem `--com-imagem`, o painel e o Admin sobem sem construir a imagem; a unidade existe para
   o Admin iniciá-la depois. Conferir `--com-imagem` como caminho opcional.
 - O botão “Quero criar meu primeiro agente” envia exatamente essa frase. A pergunta do nome

@@ -101,7 +101,7 @@ function portaDoPainel(slug) {
  *   `soOAtual` corta a lista no agente deste painel e nada mais. E o modo de quando o
  *   painel esta atras da fachada da plataforma: quem entrou ali entrou pelo cartao de UM
  *   agente, e a maquina por baixo e compartilhada com os agentes de outras pessoas (e com
- *   os do Danilo). Sem esse corte a rota conta para a dona de um agente que existem o
+ *   os do mantenedor). Sem esse corte a rota conta para a dona de um agente que existem o
  *   Bento e outros, com nome e slug, e ainda oferece link para eles. Nao e uma
  *   falha de tela: e a rota devolvendo o que nao e da pessoa, entao o corte e aqui, antes
  *   de montar qualquer coisa sobre os outros.

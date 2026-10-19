@@ -305,7 +305,7 @@ def timer_state(unit):
     instalado, que nunca rodou uma vez na vida, aparecia verde no painel do
     cliente, e o painel abria com 100% de saude sem ter perguntado nada a
     ninguem. O alarme media EXECUCAO, e o que a pessoa le como "ok" e
-    RESULTADO. Foi assim que a Isa ficou 5 h muda com o pulso todo verde.
+    RESULTADO. Foi assim que a agente de referência ficou 5 h muda com o pulso todo verde.
 
     Agora sao quatro desfechos, e cada um diz por que:
       SEM_SINAL   o timer existe mas nao esta armado. Nao vai rodar.
@@ -498,7 +498,7 @@ def discover_components():
 # Quem abre o painel do agente e a Marta e o Paulo, e nenhum dos dois sabe
 # (nem tem por que saber) o que e um "build-wm" ou um "poke-verify". Ate hoje a
 # tela mostrava esses nomes crus, uma bolinha colorida e mais nada, e a unica
-# forma de descobrir o que aquilo era, era perguntar pro Danilo.
+# forma de descobrir o que aquilo era, era perguntar pro mantenedor.
 #
 # Cada entrada responde DUAS perguntas: o que e, e por que esta ali. A TERCEIRA
 # pergunta ("de quanto em quanto tempo roda") NAO mora aqui de proposito: ela e
