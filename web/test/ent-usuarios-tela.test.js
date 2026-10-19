@@ -29,7 +29,7 @@ test('htmlSessoes: marca a atual, escapa o texto e põe o botão só quando pedi
   const h = C.htmlSessoes(lista, { botao: 'Sair desta sessão' });
   assert.match(h, /esta aqui/);
   assert.match(h, /data-acao="sair-sessao" data-id="a{16}"/);
-  assert.doesNotMatch(h, /<script>/);
+  assert.ok(!h.includes('<script'), 'o texto da sessão não pode virar tag');
   assert.match(h, /último uso nunca/);
   assert.doesNotMatch(C.htmlSessoes(lista), /data-acao="sair-sessao"/);
   assert.match(C.htmlSessoes([]), /Nenhuma sessão aberta/);

@@ -86,9 +86,9 @@ test('a conferência atravessa os arquivos e aponta o arquivo e a linha quando a
 test('bash e Node continuam a mesma corrente na virada do mês', () => {
   const c = cenario('empresa', '2026-01-10T12:00:00Z');
   c.aud.registrar('node1', {}, 'ana');
-  const env = { ...process.env, DGCLAW_RAIZ: c.raiz, NO_COLOR: '1', DGCLAW_QUEM: 'bash' };
+  const env = { ...process.env, DGCLAW_RAIZ: c.raiz, NO_COLOR: '1', DGCLAW_QUEM: 'bash', REPO_DGCLAW: REPO };
   // o relógio do Node está em janeiro de 2026 e o do bash é o de verdade: o bash fecha o mês de janeiro
-  execFileSync('bash', ['-c', `set -euo pipefail; APP_DIR="${REPO}"; . "${REPO}/lib/comum.sh"; . "${REPO}/lib/protecoes.sh"; . "${REPO}/lib/enterprise/auditoria.sh"; auditar bash1`], { env });
+  execFileSync('bash', ['-c', `set -euo pipefail; APP_DIR="$REPO_DGCLAW"; . "$REPO_DGCLAW/lib/comum.sh"; . "$REPO_DGCLAW/lib/protecoes.sh"; . "$REPO_DGCLAW/lib/enterprise/auditoria.sh"; auditar bash1`], { env });
   assert.deepEqual(nomes(c.pasta), ['auditoria-2026-01.jsonl', 'auditoria.jsonl']);
   assert.deepEqual(corrente.verificar(c.caminho), { ok: true, linhas: 2 });
   const viva = JSON.parse(fs.readFileSync(c.caminho, 'utf8').trim());
@@ -100,13 +100,13 @@ test('origem "controle": a auditoria aceita, no Node e no bash (DGCLAW_AUDITORIA
   const c = cenario('empresa', new Date().toISOString());
   const l = JSON.parse(c.aud.registrar('controle.executou', { acao: 'agente.criar' }, 'controle', 'controle'));
   assert.equal(l.origem, 'controle');
-  const env = { ...process.env, DGCLAW_RAIZ: c.raiz, NO_COLOR: '1', DGCLAW_AUDITORIA_ORIGEM: 'controle' };
-  execFileSync('bash', ['-c', `set -euo pipefail; APP_DIR="${REPO}"; . "${REPO}/lib/comum.sh"; . "${REPO}/lib/protecoes.sh"; . "${REPO}/lib/enterprise/auditoria.sh"; auditar controle.aprovou`], { env });
+  const env = { ...process.env, DGCLAW_RAIZ: c.raiz, NO_COLOR: '1', DGCLAW_AUDITORIA_ORIGEM: 'controle', REPO_DGCLAW: REPO };
+  execFileSync('bash', ['-c', `set -euo pipefail; APP_DIR="$REPO_DGCLAW"; . "$REPO_DGCLAW/lib/comum.sh"; . "$REPO_DGCLAW/lib/protecoes.sh"; . "$REPO_DGCLAW/lib/enterprise/auditoria.sh"; auditar controle.aprovou`], { env });
   const ls = fs.readFileSync(c.caminho, 'utf8').trim().split('\n').map((x) => JSON.parse(x));
   assert.deepEqual(ls.map((x) => x.origem), ['controle', 'controle']);
   assert.equal(corrente.verificar(c.caminho).ok, true);
   const ruim = { ...env, DGCLAW_AUDITORIA_ORIGEM: 'Con trole!' };
-  assert.throws(() => execFileSync('bash', ['-c', `set -euo pipefail; APP_DIR="${REPO}"; . "${REPO}/lib/comum.sh"; . "${REPO}/lib/protecoes.sh"; . "${REPO}/lib/enterprise/auditoria.sh"; auditar x`], { env: ruim, stdio: 'pipe' }), /origem/);
+  assert.throws(() => execFileSync('bash', ['-c', `set -euo pipefail; APP_DIR="$REPO_DGCLAW"; . "$REPO_DGCLAW/lib/comum.sh"; . "$REPO_DGCLAW/lib/protecoes.sh"; . "$REPO_DGCLAW/lib/enterprise/auditoria.sh"; auditar x`], { env: ruim, stdio: 'pipe' }), /origem/);
 });
 
 test('exportar: filtros por data, evento e quem; jsonl devolve as linhas originais; csv protege fórmulas', () => {

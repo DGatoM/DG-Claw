@@ -126,8 +126,8 @@ test('o bash e o Node concordam em todas as chaves de todos os níveis', () => {
     fs.copyFileSync(caminho, path.join(raiz, 'etc', 'dgclaw', 'protecoes.json'));
     const matriz = JSON.parse(fs.readFileSync(MATRIZ, 'utf8'));
     for (const chave of Object.keys(matriz.chaves)) {
-      const bash = execFileSync('bash', ['-c', `. "${REPO}/lib/comum.sh"; APP_DIR="${REPO}"; . "${REPO}/lib/protecoes.sh"; protecao_valor "$1"`, '_', chave],
-        { env: { ...process.env, DGCLAW_RAIZ: raiz, NO_COLOR: '1' }, encoding: 'utf8' });
+      const bash = execFileSync('bash', ['-c', 'APP_DIR="$REPO_DGCLAW"; . "$REPO_DGCLAW/lib/comum.sh"; . "$REPO_DGCLAW/lib/protecoes.sh"; protecao_valor "$1"', '_', chave],
+        { env: { ...process.env, DGCLAW_RAIZ: raiz, NO_COLOR: '1', REPO_DGCLAW: REPO }, encoding: 'utf8' });
       assert.equal(bash, String(p.valor(chave)), `${nivel}/${chave}`);
     }
   }

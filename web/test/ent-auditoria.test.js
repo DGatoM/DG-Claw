@@ -116,8 +116,8 @@ test('trava velha (mais de 30 s) é removida com aviso; trava recente faz espera
 });
 
 function bash(raiz, script, args) {
-  const env = { ...process.env, DGCLAW_RAIZ: raiz, NO_COLOR: '1', DGCLAW_QUEM: 'bash' };
-  return { env, cmd: ['-c', `set -euo pipefail; APP_DIR="${REPO}"; . "${REPO}/lib/comum.sh"; . "${REPO}/lib/protecoes.sh"; . "${REPO}/lib/enterprise/auditoria.sh"; ${script}`, '_', ...(args || [])] };
+  const env = { ...process.env, DGCLAW_RAIZ: raiz, NO_COLOR: '1', DGCLAW_QUEM: 'bash', REPO_DGCLAW: REPO };
+  return { env, cmd: ['-c', `set -euo pipefail; APP_DIR="$REPO_DGCLAW"; . "$REPO_DGCLAW/lib/comum.sh"; . "$REPO_DGCLAW/lib/protecoes.sh"; . "$REPO_DGCLAW/lib/enterprise/auditoria.sh"; ${script}`, '_', ...(args || [])] };
 }
 
 test('bash e Node escrevem na mesma corrente sem quebrá-la (em sequência)', () => {

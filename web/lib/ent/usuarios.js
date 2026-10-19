@@ -39,9 +39,8 @@ function proximoSeguro(v) {
 }
 
 function codigoReservaNovo() {
-  const b = crypto.randomBytes(12);
   let t = '';
-  for (let i = 0; i < 12; i += 1) t += ALFABETO_RESERVA[b[i] % ALFABETO_RESERVA.length];
+  for (let i = 0; i < 12; i += 1) t += ALFABETO_RESERVA[crypto.randomInt(ALFABETO_RESERVA.length)];
   return `${t.slice(0, 4)}-${t.slice(4, 8)}-${t.slice(8)}`;
 }
 const normalizaReserva = (v) => String(v == null ? '' : v).toLowerCase().replace(/[^a-z0-9]/g, '');
