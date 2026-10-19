@@ -453,6 +453,8 @@ export class Sessao extends EventEmitter {
   // --- estado ----------------------------------------------------------------
 
   mudar(campos: Partial<AgentState>): void {
+    // O motivo só vale enquanto o status que o pediu vale: trocou de status sem dizer o motivo, ele cai.
+    if (campos.status && campos.status !== this.estado.status && !("motivo" in campos)) campos = { ...campos, motivo: null };
     Object.assign(this.estado, campos, { updatedAt: Date.now() });
     if ("sessionId" in campos || "previousSessionId" in campos || "status" in campos) {
       gravarEstado(

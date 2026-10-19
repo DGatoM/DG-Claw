@@ -198,6 +198,8 @@ export function escreverSettings(s: Sessao, nonce: string): string | null {
         UserPromptSubmit: prompt,
         PreToolUse: para("PreToolUse"),
         Notification: para("Notification", "permission_prompt"),
+        // Só a ferramenta de pergunta: a resposta da pessoa é o que tira o agente de waiting_input.
+        PostToolUse: para("PostToolUse", "AskUserQuestion"),
         PreCompact: para("PreCompact"),
         Stop: [{ matcher: "", hooks: stop }],
         StopFailure: para("StopFailure"),
