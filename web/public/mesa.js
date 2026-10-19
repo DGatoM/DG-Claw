@@ -35,6 +35,28 @@
     return { texto: String(e || 'sem estado'), classe: 'outro' };
   }
 
+  /* Chave do grupo "Estado" dos filtros: "parada" é fazendo + parada, não um estado do servidor. */
+  function estadoFiltro(t) {
+    const e = normEstado(t && t.estado);
+    return e === 'fazendo' && t.parada ? 'parada' : e;
+  }
+
+  const semAcento = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+  /* Filtro de tela: dentro de um grupo (estado, agente, tipo) vale "ou"; entre grupos, "e". `ignora`
+     tira um grupo da conta, para contar os chips daquele grupo com os outros já aplicados. O filtro
+     de dia fica no servidor e não entra aqui. */
+  function passaFiltro(t, f, ignora) {
+    if (ignora !== 'estado' && f.estado.size && !f.estado.has(estadoFiltro(t))) return false;
+    if (ignora !== 'agente' && f.agente.size && !f.agente.has(t.agente)) return false;
+    if (ignora !== 'tipo' && f.tipo.size && !f.tipo.has(t.tipo)) return false;
+    const q = semAcento(f.q).trim();
+    if (q && !semAcento([t.titulo, t.origem, t.nota, t.motivo].filter(Boolean).join(' ')).includes(q)) return false;
+    return true;
+  }
+
+  const filtroAtivo = f => !!(f.estado.size || f.agente.size || f.tipo.size || f.q.trim());
+
   /* null (não medido) nunca vira 0%: 0 é "medido e deu zero". */
   function textoProgresso(p) {
     if (p == null || typeof p !== 'number' || !isFinite(p)) return 'sem medida';
@@ -215,7 +237,7 @@
     return h + '</article>';
   }
 
-  const puras = { esc, rotuloEstado, textoProgresso, haMin, agrupaPorAgente, textoOrigem, urlSegura, fraseErro, htmlCartao, htmlHistorico, htmlFormCartao, formataQuando };
+  const puras = { esc, estadoFiltro, semAcento, passaFiltro, filtroAtivo, rotuloEstado, textoProgresso, haMin, agrupaPorAgente, textoOrigem, urlSegura, fraseErro, htmlCartao, htmlHistorico, htmlFormCartao, formataQuando };
   if (typeof document === 'undefined') return puras;
 
   /* ───────────── navegador ───────────── */
@@ -230,6 +252,23 @@
     } catch (e) { console.warn('mesa: localStorage indisponível:', e.message); }
     return null;
   }
+
+  /* Memória do filtro no aparelho. O prefixo dgclaw: é o que a conversa limpa ao sair da conta. */
+  const CHAVE_FILTRO = 'dgclaw:mesa-filtro';
+  function lerFiltroGuardado() {
+    let o = null;
+    try { o = JSON.parse(guardado(CHAVE_FILTRO) || 'null'); }
+    catch (e) { console.warn('mesa: filtro guardado ilegível, comecei sem filtro:', e.message); }
+    if (!o || typeof o !== 'object') return;
+    const lista = v => (Array.isArray(v) ? v.map(String) : []);
+    E.filtroAgentes = new Set(lista(o.agente)); E.filtroEstados = new Set(lista(o.estado));
+    E.filtroTipos = new Set(lista(o.tipo)); E.busca = typeof o.q === 'string' ? o.q.slice(0, 80) : '';
+  }
+  function guardaFiltro() {
+    guardado(CHAVE_FILTRO, JSON.stringify({ agente: [...E.filtroAgentes], estado: [...E.filtroEstados],
+      tipo: [...E.filtroTipos], q: E.busca }));
+  }
+  const filtroDaTela = () => ({ estado: E.filtroEstados, agente: E.filtroAgentes, tipo: E.filtroTipos, q: E.busca });
 
   /* ── Registro de abas ── */
   const abas = [];           // { id, titulo, montar, bolinhaFn, botao, painel, montada }
@@ -312,7 +351,7 @@
   /* ── Aba Tarefas ── */
   const E = {
     agentes: [], tarefas: [], contagem: null, etag: null,
-    filtroAgentes: new Set(), dia: 'hoje',
+    filtroAgentes: new Set(), filtroEstados: new Set(), filtroTipos: new Set(), busca: '', dia: 'hoje',
     abertos: new Set(), eventos: {}, form: null, msg: {},
     mostraVazios: false, demo: false, pendente: false, ocupado: false,
     focoId: null, ativa: false, jaCarregou: false,
@@ -342,6 +381,9 @@
       throw new Error('Não consegui carregar a lista de agentes: ' + fraseErro(d, r.status).texto);
     }
     E.agentes = d.agentes;
+    // agente guardado no filtro que não existe mais esconderia tudo sem o dono entender por quê
+    const ids = new Set(E.agentes.map(a => a.id));
+    for (const a of [...E.filtroAgentes]) if (!ids.has(a)) E.filtroAgentes.delete(a);
   }
 
   /* forca = ignora o ETag. Devolve true se a tela mudou. */
@@ -387,7 +429,8 @@
         passos: [{ texto: 'pesquisa', feito: true }, { texto: 'roteiro', feito: false }], origem: 'Dono, 05/10 15h42: faz o roteiro do reels',
         versao: '0', atualizada_ha_min: 3, _demo: true }];
     }
-    return E.tarefas.filter(t => !E.filtroAgentes.size || E.filtroAgentes.has(t.agente));
+    const f = filtroDaTela();
+    return E.tarefas.filter(t => passaFiltro(t, f, null));
   }
 
   function avatar(a) {
@@ -439,15 +482,42 @@
       item(c.paradas, 'paradas', 'parada') + item(c.abertas, 'abertas', 'abertas');
   }
 
-  function renderFiltros() {
-    const chips = E.agentes.map(a => `<button type="button" class="mz-chip${E.filtroAgentes.has(a.id) ? ' on' : ''}" data-acao="chip" data-agente="${esc(a.id)}" aria-pressed="${E.filtroAgentes.has(a.id)}">${esc(a.nome)}</button>`).join('');
-    const ehData = /^\d{4}-\d{2}-\d{2}$/.test(E.dia);
+  const ESTADOS_CHIP = [['esperando_dono', 'Esperando por mim'], ['travada', 'Travadas'], ['fazendo', 'Fazendo'],
+    ['parada', 'Paradas?'], ['concluida', 'Concluídas'], ['cancelada', 'Canceladas']];
+
+  /* A caixa de busca é criada uma vez só: se renderFiltros a recriasse a cada tecla, o campo perderia o foco. */
+  function montaCascaFiltros() {
     els.filtros.innerHTML =
-      `<div class="mz-grupo" role="group" aria-label="Filtrar por agente">${chips}</div>` +
-      '<div class="mz-grupo" role="group" aria-label="Filtrar por dia">' +
-      `<button type="button" class="mz-chip${E.dia === 'hoje' ? ' on' : ''}" data-acao="dia" data-dia="hoje">Hoje</button>` +
+      '<div class="mz-busca-lin"><input type="search" id="mzBusca" class="mz-busca" maxlength="80" autocomplete="off" ' +
+      'placeholder="Buscar em título, pedido, nota e motivo" aria-label="Buscar nas tarefas">' +
+      '<button type="button" class="mz-limpa" data-acao="limpar-filtros" hidden>Limpar filtros</button></div>' +
+      '<div id="mzChips" class="mz-chips"></div>';
+    els.busca = $('mzBusca'); els.chips = $('mzChips'); els.limpa = els.filtros.querySelector('[data-acao="limpar-filtros"]');
+    els.busca.value = E.busca;
+    els.busca.addEventListener('input', () => { E.busca = els.busca.value; guardaFiltro(); renderFiltros(); render(); });
+  }
+
+  function renderFiltros() {
+    if (!els.chips) montaCascaFiltros();
+    const f = filtroDaTela();
+    const base = E.tarefas;
+    // o número de cada chip é quantas tarefas sobrariam ao tocá-lo, com os outros grupos já aplicados
+    const conta = (g, ok) => base.filter(t => passaFiltro(t, f, g) && ok(t)).length;
+    const chip = (acao, attr, on, rot, n) => `<button type="button" class="mz-chip${on ? ' on' : ''}" data-acao="${acao}" ${attr} aria-pressed="${on}">${esc(rot)}${n == null ? '' : ` <b>${n}</b>`}</button>`;
+    const grupo = (tit, itens) => `<div class="mz-grupo" role="group" aria-label="${esc(tit)}">${itens}</div>`;
+    const estados = ESTADOS_CHIP.map(([v, r]) => chip('chip-estado', `data-v="${v}"`, E.filtroEstados.has(v), r, conta('estado', t => estadoFiltro(t) === v))).join('');
+    // agentes e tipos vêm dos dados, mais o que estiver escolhido (para dar para desmarcar)
+    const tipos = [...new Set(base.map(t => t.tipo).concat([...E.filtroTipos]))].filter(Boolean).sort();
+    const tiposHtml = tipos.map(v => chip('chip-tipo', `data-v="${esc(v)}"`, E.filtroTipos.has(v), v, conta('tipo', t => t.tipo === v))).join('');
+    const agentes = E.agentes.map(a => chip('chip', `data-agente="${esc(a.id)}"`, E.filtroAgentes.has(a.id), a.nome, conta('agente', t => t.agente === a.id))).join('');
+    const ehData = /^\d{4}-\d{2}-\d{2}$/.test(E.dia);
+    const dia = `<button type="button" class="mz-chip${E.dia === 'hoje' ? ' on' : ''}" data-acao="dia" data-dia="hoje">Hoje</button>` +
       `<button type="button" class="mz-chip${E.dia === 'todos' ? ' on' : ''}" data-acao="dia" data-dia="todos">Todos</button>` +
-      `<input type="date" class="mz-data${ehData ? ' on' : ''}" id="mzData" aria-label="Escolher um dia" value="${ehData ? esc(E.dia) : ''}"></div>`;
+      `<input type="date" class="mz-data${ehData ? ' on' : ''}" id="mzData" aria-label="Escolher um dia" value="${ehData ? esc(E.dia) : ''}">`;
+    const html = grupo('Filtrar por estado', estados) + grupo('Filtrar por agente', agentes) +
+      (tiposHtml ? grupo('Filtrar por tipo', tiposHtml) : '') + grupo('Filtrar por dia', dia);
+    if (els.chips.__html !== html) { els.chips.innerHTML = html; els.chips.__html = html; }
+    els.limpa.hidden = !filtroAtivo(f);
   }
 
   function focaTarefa(id) {
@@ -603,8 +673,17 @@
       case 'chip': {
         const a = b.dataset.agente;
         if (E.filtroAgentes.has(a)) E.filtroAgentes.delete(a); else E.filtroAgentes.add(a);
-        renderFiltros(); render(); break;
+        guardaFiltro(); renderFiltros(); render(); break;
       }
+      case 'chip-estado': case 'chip-tipo': {
+        const conj = acao === 'chip-estado' ? E.filtroEstados : E.filtroTipos, v = b.dataset.v;
+        if (conj.has(v)) conj.delete(v); else conj.add(v);
+        guardaFiltro(); renderFiltros(); render(); break;
+      }
+      case 'limpar-filtros':
+        E.filtroAgentes.clear(); E.filtroEstados.clear(); E.filtroTipos.clear(); E.busca = '';
+        if (els.busca) els.busca.value = '';
+        guardaFiltro(); renderFiltros(); render(); break;
       case 'dia': E.dia = b.dataset.dia; E.etag = null; renderFiltros(); atualiza(true); break;
       case 'vazios': E.mostraVazios = !E.mostraVazios; render(); break;
       case 'recarregar': E.agentes = []; atualiza(true); break;
@@ -630,10 +709,10 @@
     oque: 'Quantas tarefas pedem a sua atenção agora: esperando você, travadas, paradas e o total de abertas.',
     como: 'O servidor conta a mesa inteira, de todos os agentes. "Parada" é uma tarefa em "fazendo" que ninguém atualiza há 45 minutos.',
     porque: 'Você vê de relance se alguém está esperando uma resposta sua, sem precisar abrir cartão por cartão.' });
-  const passoFiltros = () => ({ alvo: '#mzFiltros', titulo: 'Filtros por agente e por dia',
-    oque: 'Os botões com o nome dos agentes mostram só o trabalho deles. Hoje, Todos e a data escolhem o dia das tarefas já fechadas.',
-    como: 'Marque um ou mais agentes. As tarefas abertas aparecem sempre; o dia só vale para as concluídas e canceladas (pelo dia em que foram fechadas).',
-    porque: 'Com muitos agentes a mesa fica longa. O filtro deixa só o que você quer olhar agora.' });
+  const passoFiltros = () => ({ alvo: '#mzFiltros', titulo: 'Filtros, busca e dia',
+    oque: 'A busca acha palavras no título, no pedido, na nota e no motivo (sem ligar para acento). Os botões filtram por estado, agente, tipo e dia, e o número de cada um diz quantas tarefas sobram ao tocá-lo.',
+    como: 'Dentro de um grupo vale "ou" (Travadas e Fazendo juntas); entre grupos vale "e". Só o dia vem do servidor: as tarefas abertas aparecem sempre e o dia vale para as concluídas e canceladas. "Limpar filtros" zera tudo menos o dia. A escolha fica guardada neste aparelho.',
+    porque: 'Com muitos agentes e tarefas a mesa fica longa. O filtro deixa só o que você quer olhar agora, e a escolha volta do jeito que você deixou.' });
   function passosCartao() {
     const abre = () => { const t = tarefasVisiveis()[0]; if (t) { E.abertos.add(t.id); render(); } };
     const fecha = () => { const t = tarefasVisiveis()[0]; if (t) { E.abertos.delete(t.id); render(); } };
@@ -699,6 +778,7 @@
     el.addEventListener('change', ev => {
       if (ev.target.id === 'mzData') { E.dia = ev.target.value || 'hoje'; E.etag = null; renderFiltros(); atualiza(true); }
     });
+    lerFiltroGuardado();
     renderContagem(); renderFiltros();
     E.ativa = true;
     atualiza(true).then(aplicaHashTarefa);

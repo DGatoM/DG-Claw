@@ -63,7 +63,7 @@ Escritas com sessão exigem o `Origin` aceito pelo Web, como as outras rotas.
 | `POST /api/v1/foco/<agente>/itens` | acrescenta um item no fim (201) |
 | `PATCH /api/v1/foco/<agente>/itens/<id>` | tica, destica e/ou troca o texto |
 | `DELETE /api/v1/foco/<agente>/itens/<id>` | apaga um item |
-| `DELETE /api/v1/foco/<agente>` | limpa a lista (o título volta ao padrão) |
+| `DELETE /api/v1/foco/<agente>[?versao=N]` | limpa a lista (o título volta ao padrão). Com `versao`, só limpa se a lista ainda estiver nessa versão; senão responde 409 com a `lista` atual e não apaga nada |
 | `GET /api/v1/foco/<agente>/eventos?desde_id=N` | o que mudou, em ordem crescente de id |
 
 Toda resposta de sucesso é `{"ok": true, ...}` e traz a `lista` já atualizada (a de eventos

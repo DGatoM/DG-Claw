@@ -25,13 +25,23 @@
   // renderizador do painel está carregado. Este arquivo é levado à mão para painéis
   // antigos e precisa funcionar sozinho, então sem ele cai no escape de sempre.
   const rl = (s) => (window.DGMarkdown && window.DGMarkdown.ricoLinha ? window.DGMarkdown.ricoLinha(s) : esc(s));
-  // Cada pendência costuma abrir com o assunto em CAIXA ALTA ("PINGENTE BL-254: ...").
-  // O assunto vira negrito na frente, para o olho achar onde começa cada uma.
+  // Rótulo do começo de uma pendência: a letra "(K)" e/ou o assunto em MAIÚSCULAS até o
+  // primeiro ":" ("(K) PUBLICADOR TIKTOK: falta..." -> rotulo "(K) PUBLICADOR TIKTOK:").
+  // Função pura: só devolve texto, quem desenha escapa.
+  function rotuloPendencia(s) {
+    const t = String(s == null ? '' : s).trim();
+    const m = t.match(/^(\([A-Z]\)\s+)?(?:([A-ZÀ-ÖØ-Þ0-9][A-ZÀ-ÖØ-Þ0-9 ,\/&+'"().-]{2,}?:)(?=\s|$))?/);
+    const rotulo = m ? `${m[1] || ''}${m[2] || ''}`.trim() : '';
+    return { rotulo, corpo: t.slice(rotulo.length).trim() };
+  }
+  // O rótulo vai em negrito (<b>) com escape; o resto passa pelo renderizador, que escapa tudo.
   const pendItem = (s) => {
+    const { rotulo, corpo } = rotuloPendencia(s);
+    if (rotulo) return `<b class="wms-pend-assunto">${esc(rotulo)}</b> ${rl(corpo)}`;
     const D = window.DGMarkdown;
     if (!D || !D.tituloCaixaAlta) return rl(s);
-    const { titulo, corpo } = D.tituloCaixaAlta(s);
-    return titulo ? `<b class="wms-pend-assunto">${rl(titulo)}</b> ${rl(corpo)}` : rl(s);
+    const r = D.tituloCaixaAlta(s);
+    return r.titulo ? `<b class="wms-pend-assunto">${rl(r.titulo)}</b> ${rl(r.corpo)}` : rl(s);
   };
   const num = (n) => (n == null ? null : Number(n).toLocaleString('pt-BR'));
 
@@ -135,17 +145,24 @@
     let pend;
     const p = s.pendencias || {};
     if (p.existe && !p.nenhuma) {
-      // A linha vem do arquivo com marcas de Markdown (** e `) e com " | " separando
-      // os assuntos. Cru, o dono lia asteriscos e uma parede de texto (vistoria de
-      // 08/10/2026): aqui as marcas saem e cada assunto vira um item de lista.
-      // Com o renderizador carregado (12/10/2026) as marcas viram negrito e código de
-      // verdade; sem ele, saem como antes.
+      // O servidor já separa os itens (itens, nota). Cada um vira uma linha de lista, com
+      // o rótulo do começo ("(K) ASSUNTO:") em negrito. Sem itens, segue parágrafo.
+      // Com o renderizador carregado (12/10/2026) as marcas de Markdown viram negrito e
+      // código de verdade; sem ele, saem como antes.
       const temMd = !!(window.DGMarkdown && window.DGMarkdown.ricoLinha);
-      const itens = (temMd ? String(p.texto || '') : String(p.texto || '').replace(/\*\*/g, '').replace(/`/g, ''))
-        .split(/\s+\|\s+/).map((t) => t.trim()).filter(Boolean);
-      pend = itens.length > 1
-        ? `<ul class="wms-pend-texto wms-pend-lista">${itens.map((t) => `<li>${pendItem(t)}</li>`).join('')}</ul>`
-        : `<div class="wms-pend-texto">${pendItem(itens[0] || '')}</div>`;
+      const limpa = (t) => (temMd ? String(t || '') : String(t || '').replace(/\*\*/g, '').replace(/`/g, ''));
+      let itens = Array.isArray(p.itens) ? p.itens.map(limpa).filter(Boolean) : [];
+      const nota = p.nota || null;
+      if (!itens.length && !Array.isArray(p.itens)) {
+        // Resposta de servidor antigo, sem `itens`: separa só pelo " | " como antes.
+        itens = limpa(p.texto).split(/\s+\|\s+/).map((t) => t.trim()).filter(Boolean);
+        if (itens.length < 2) itens = [];
+      }
+      if (itens.length) {
+        pend = `${nota ? `<div class="wms-pend-nota">${rl(nota)}</div>` : ''}<ul class="wms-pend-texto wms-pend-lista">${itens.map((t) => `<li>${pendItem(t)}</li>`).join('')}</ul>`;
+      } else {
+        pend = `<div class="wms-pend-texto">${pendItem(limpa(p.texto))}</div>`;
+      }
     }
     else if (p.existe) pend = '<div class="wms-pend-texto wms-fraco">Nenhuma pendência ativa anotada.</div>';
     else pend = `<div class="wms-pend-texto wms-fraco">${s.arquivo && s.arquivo.existe ? 'A memória dele não tem a linha de pendências ativas.' : '--'}</div>`;
@@ -196,5 +213,5 @@
     return r.corpo;
   }
 
-  window.DGWmStatus = { carregar, TIP };
+  window.DGWmStatus = { carregar, TIP, rotuloPendencia };
 })();

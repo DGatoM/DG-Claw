@@ -122,3 +122,34 @@ test('o menu da conversa tem o item Mesa de tarefas', () => {
   // o menu é o da casca (uma fonte só); a conversa.html monta ele pelo ponto de montagem
   assert.match(require('../public/casca').MARCACAO_MENU, /<a class="ml-tab" href="\/mesa"><span class="ml-ico" aria-hidden="true">▦<\/span>Mesa de tarefas<\/a>/);
 });
+
+const filtroVazio = () => ({ estado: new Set(), agente: new Set(), tipo: new Set(), q: '' });
+
+test('filtros: estado "parada" é fazendo + parada, e esperando_danilo vale esperando_dono', () => {
+  assert.equal(M.estadoFiltro(base), 'fazendo');
+  assert.equal(M.estadoFiltro({ ...base, parada: true }), 'parada');
+  assert.equal(M.estadoFiltro({ ...base, estado: 'esperando_danilo' }), 'esperando_dono');
+  const f = { ...filtroVazio(), estado: new Set(['parada']) };
+  assert.equal(M.passaFiltro({ ...base, parada: true }, f, null), true);
+  assert.equal(M.passaFiltro(base, f, null), false);
+});
+
+test('filtros: "ou" dentro do grupo, "e" entre grupos, e ignora tira um grupo da conta', () => {
+  const lista = [{ ...base, id: 1, agente: 'luna', tipo: 'roteiro' }, { ...base, id: 2, agente: 'lara', tipo: 'roteiro' },
+    { ...base, id: 3, agente: 'luna', tipo: 'post', estado: 'travada' }];
+  const f = { ...filtroVazio(), agente: new Set(['luna', 'lara']), tipo: new Set(['roteiro']) };
+  assert.deepEqual(lista.filter(t => M.passaFiltro(t, f, null)).map(t => t.id), [1, 2]);
+  assert.deepEqual(lista.filter(t => M.passaFiltro(t, f, 'tipo')).map(t => t.id), [1, 2, 3]);
+  assert.equal(M.filtroAtivo(filtroVazio()), false);
+  assert.equal(M.filtroAtivo(f), true);
+});
+
+test('filtros: busca ignora acento e caixa, em título, origem, nota e motivo', () => {
+  const t = { ...base, titulo: 'Roteiro do Reels', nota: null, origem: null, motivo: 'Decisão pendente' };
+  const com = q => M.passaFiltro(t, { ...filtroVazio(), q }, null);
+  assert.equal(com('decisao'), true);
+  assert.equal(com('ROTEIRO'), true);
+  assert.equal(com('  '), true);
+  assert.equal(com('inexistente'), false);
+  assert.equal(M.passaFiltro({ ...t, nota: 'escrevendo o gancho' }, { ...filtroVazio(), q: 'gancho' }, null), true);
+});

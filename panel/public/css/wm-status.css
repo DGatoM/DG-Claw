@@ -45,7 +45,9 @@
 .wms-estreito .wms-grade{grid-template-columns:repeat(2,minmax(0,1fr))}
 @media (max-width:340px){.wms-estreito .wms-grade{grid-template-columns:1fr}}
 .wms-pend-lista{margin:6px 0 0;padding-left:20px;line-height:1.5}
-.wms-pend-lista li{margin-bottom:6px}
+.wms-pend-lista li{margin-bottom:6px;overflow-wrap:anywhere}
+.wms-pend-nota{font-size:12px;color:#8a8f98;margin-top:4px;overflow-wrap:anywhere}
+@media (max-width:480px){.wms-pend-lista{padding-left:16px}}
 /* Texto rico nas pendências (12/10/2026): assunto em negrito, código e link sem estourar a largura. */
 .wms-pend-assunto{font-weight:700}
 .wms-pend-texto code{background:rgba(127,127,127,.15);padding:0 4px;border-radius:3px;font-size:.92em;overflow-wrap:anywhere}

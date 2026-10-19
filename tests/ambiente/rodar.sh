@@ -30,6 +30,11 @@ while IFS= read -r doc; do
     afirma "agente.md cita $doc" grep -qF "$doc" "$AMB/agente.md"
 done <"$AMB/capacidades.txt"
 
+echo "ambiente: instrucao do audio transcrito"
+for t in agente admin; do
+    afirma "$t.md explica a marca [áudio transcrito]" grep -qF '[áudio transcrito]' "$AMB/$t.md"
+done
+
 echo "ambiente: dgclaw agente identidade"
 criar_agente ana --nome "Ana" --dono "Marta"
 ID="$DGCLAW_RAIZ/var/lib/dgclaw/agentes/ana/home/.plataforma/identidade.md"

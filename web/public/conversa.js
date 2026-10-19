@@ -18,6 +18,19 @@
 
 const $ = id => document.getElementById(id);
 
+/* Regras puras da conversa (conversa-puro.js). Se o arquivo não carregar, a tela segue de pé com
+   versões mínimas que não separam nada: o render não pode quebrar por causa de um arquivo auxiliar. */
+const PURO = window.DGConversaPuro || (() => {
+  console.warn('conversa-puro.js não carregou (a página não encontrou /conversa-puro.js). A conversa abre, mas o áudio transcrito aparece sem o 🎤, os avisos fechados não descansam e o Reiniciar não confirma a volta do agente. Recarregue a página; se persistir, confira se o arquivo existe em web/public.');
+  return {
+    avisoDescansando: () => false,
+    registraFechamento: mapa => mapa || {},
+    separaAudio: texto => ({ audio: false, texto: String(texto == null ? '' : texto) }),
+    textoDaFala: texto => String(texto),
+    avaliaVolta: () => ({ acao: 'indeterminado' }),
+  };
+})();
+
 /* ── Partida: quem é o agente desta página? ───────────────────────────────
    O endereço é /a/<slug>. A lista de agentes vem da API; o agente da página é o
    da lista com esse id. Sem lista ou sem agente, a tela explica o que houve. */
@@ -189,12 +202,6 @@ const EH_ADMIN = AGENTE.tipo === 'admin';
     const el = $(id);
     if (el) el.href = window.DGMenuLado.comAgente(href, AGENTE.id);
   });
-})();
-(function () {
-  const b = $('btnPainel');
-  if (!b || !AGENTE.tem_painel) return;
-  b.href = AGENTE.painel_url || ('/p/' + encodeURIComponent(AGENTE.id) + '/');
-  b.hidden = false;
 })();
 if (window.campoCofre) window.campoCofre.configurar({ agente: AGENTE.id, enviar: texto => new Promise((resolve, reject) => { enviarTexto(texto, null, { aoEntregar: (ok, motivo) => ok ? resolve() : reject(new Error(motivo || 'O agente não recebeu a mensagem.')) }); }) });
 if (window.DGOnboarding) window.DGOnboarding.iniciar({ agente: AGENTE, enviar: texto => new Promise((resolve, reject) => { enviarTexto(texto, null, { aoEntregar: (ok, motivo) => ok ? resolve() : reject(new Error(motivo || 'O Admin não recebeu a mensagem.')) }); }), refazer: () => render({ semRolar: true }) });
@@ -791,9 +798,29 @@ function respiroDasFaixas() {
   posicionaSeta();
 }
 const mostraErro = t => faixa(fErro, t);
-const mostraAviso = t => faixa(fAviso, t);
 fErro.querySelector('.x').onclick = () => faixa(fErro, '');
-fAviso.querySelector('.x').onclick = () => faixa(fAviso, '');
+
+/* Aviso amarelo fechado no ✕ descansa 48 h (a cota de voz voltava toda hora). Passou o prazo
+   e o problema continua, ele volta. Sem localStorage, o aviso só deixa de ser silenciado.
+   Não confundir com fechaAviso, que é outra coisa. */
+const CHAVE_DESCANSO = 'dgclaw:avisos-fechados';
+function avisosFechados() {
+  try { return JSON.parse(localStorage.getItem(CHAVE_DESCANSO) || '{}') || {}; }
+  catch (e) { return {}; }
+}
+function fechaFaixaAviso() {
+  const t = fAviso.querySelector('.txt').textContent;
+  if (t) {
+    try { localStorage.setItem(CHAVE_DESCANSO, JSON.stringify(PURO.registraFechamento(avisosFechados(), t, Date.now()))); }
+    catch (e) { console.warn('aviso: não consegui guardar o fechamento (' + e.message + ')'); }
+  }
+  faixa(fAviso, '');
+}
+const mostraAviso = t => {
+  if (t && PURO.avisoDescansando(avisosFechados(), t, Date.now())) return;
+  faixa(fAviso, t);
+};
+fAviso.querySelector('.x').onclick = fechaFaixaAviso;
 
 /* Avisos que vêm da thread (ex.: "Nenhum transcript...") valem enquanto o
    servidor manda. Lista vazia limpa a faixa, mas só se o que está nela é o aviso
@@ -1134,9 +1161,17 @@ function htmlCorpo(m) {
     // veio marcado como mídia e o arquivo não chegou até aqui: o rótulo explica o que era
     midia = `<span class="midia">${ROTULO_MIDIA[m.kind]} (não baixada)</span>`;
   }
-  const cita = m.cita ? `<div class="cita"><b>${ehDono({ origin: m.cita.origin }) ? 'Você' :
-      esc(AGENTE.nome)}</b>${esc(m.cita.texto)}</div>` : '';
+  // a marca de áudio transcrito é para o agente: na tela vira um 🎤 no rodapé do balão
+  const citaDono = !!m.cita && ehDono({ origin: m.cita.origin });
+  const cita = m.cita ? `<div class="cita"><b>${citaDono ? 'Você' :
+      esc(AGENTE.nome)}</b>${esc(citaDono ? PURO.separaAudio(m.cita.texto).texto : m.cita.texto)}</div>` : '';
   let leg = legendaUtil(m);
+  let viaAudio = false;
+  if (leg && ehDono(m)) {
+    const sa = PURO.separaAudio(leg);
+    viaAudio = sa.audio;
+    leg = sa.texto;
+  }
   let doVisual = '';
   const dv = ehDono(m) ? separaDoVisual(leg) : null;
   if (dv) {
@@ -1149,8 +1184,9 @@ function htmlCorpo(m) {
   const corpo = leg ? doVisual + htmlLeg : doVisual;
   const reac = (m.reacoes && m.reacoes.length)
     ? `<span class="reac">${m.reacoes.map(esc).join(' ')}</span>` : '';
-  const meta = m.pendente ? metaPendente(m.local)
+  let meta = m.pendente ? metaPendente(m.local)
     : `<span class="meta">${m.editada ? 'editada · ' : ''}${esc(m.hhmm)}</span>`;
+  if (viaAudio) meta = meta.replace(/^<span class="meta"[^>]*>/, '$&<span title="Falado e transcrito automaticamente">🎤</span> · ');
   return htmlSelo(m) + cita + midia + corpo + reac + meta;
 }
 
@@ -1980,7 +2016,7 @@ $('formSair').addEventListener('submit', async ev => {
   try {
     for (const k of Object.keys(localStorage)) if (k.indexOf('dgclaw:') === 0) localStorage.removeItem(k);
   } catch (e) { console.warn('não consegui limpar o aparelho ao sair:', e.message); }
-  await cacheMidias.limpar();
+  if (cacheMidias) await cacheMidias.limpar();
   ev.target.submit();
 });
 
@@ -2785,6 +2821,32 @@ document.addEventListener('keydown', ev => {
 /* Foto, seletor de agentes, páginas do painel e Configurações: tudo no menu-lado.js.
    A lista já veio do boot, então não é buscada de novo. */
 window.DGMenuLado.inicia({ agente: AGENTE, agentes: agentesMenu, fecha: () => abreMenu(false) });
+
+/* Celular: a mesma lista do menu vira uma fileira de avatares embaixo, com a agente atual
+   destacada. O link é o mesmo do menu (/a/<id>). Com uma agente só, a fileira fica vazia e o CSS a esconde. */
+function pintaTrocaBaixo() {
+  const baixo = $('trocaBaixo');
+  if (!baixo) return;
+  document.body.classList.toggle('com-troca', agentesMenu.length >= 2);
+  if (agentesMenu.length < 2) { baixo.innerHTML = ''; return; }
+  baixo.innerHTML = agentesMenu.map(a => {
+    const atual = a.id === AGENTE.id;
+    const foto = a.avatar_img || (/^https:\/\//i.test(a.avatar || '') ? a.avatar : '');
+    const av = foto ? `<img src="${esc(foto)}" alt="">` : esc(a.avatar || (a.nome || '?').slice(0, 1));
+    const rot = a.nome + (a.subtitulo ? ', ' + a.subtitulo : '');
+    return `<a href="/a/${encodeURIComponent(a.id)}" title="${esc(rot)}" ` +
+      (atual ? `class="atual" aria-current="page" style="--cor-troca:${esc(a.cor || '#2f9e5e')}" ` : '') +
+      `aria-label="Abrir a conversa com ${esc(rot)}"><div class="av" style="background:${esc(a.cor || '#2f9e5e')}">${av}</div></a>`;
+  }).join('');
+  centralizaTrocaBaixo();
+}
+// sem scrollIntoView: ele rolaria a página toda
+function centralizaTrocaBaixo() {
+  const baixo = $('trocaBaixo'), atual = baixo && baixo.querySelector('.atual');
+  if (atual && baixo.clientWidth) baixo.scrollLeft = atual.offsetLeft - (baixo.clientWidth - atual.offsetWidth) / 2;
+}
+pintaTrocaBaixo();
+window.addEventListener('resize', centralizaTrocaBaixo);
 // ?texto=... chega do painel (ex.: "editar" numa rotina): o pedido já vem escrito no campo, sem
 // enviar sozinho, e o parâmetro sai da barra para não reaparecer ao recarregar.
 try {
@@ -3109,7 +3171,8 @@ async function entregaTranscricao(texto, manda) {
     setEstado('transcrição no campo: revise e envie');
     return;
   }
-  await enviarTexto(texto);
+  // envio direto sem revisão: o agente fica sabendo que pode haver erro de transcrição
+  await enviarTexto(PURO.textoDaFala(texto, true));
 }
 
 /* Botões dentro de uma faixa. A faixa() limpa os botões a cada texto novo,
@@ -3423,9 +3486,8 @@ async function esperaResposta(since) {
     mostraAviso('Parei de esperar. A mensagem foi entregue: a resposta aparece ' +
                 'aqui sozinha quando ela mandar.');
   } else if (!respostas.length) {
-    setEstado('sem resposta ainda');
-    mostraAviso('A ' + AGENTE.nome + ' não respondeu em 3 minutos. A mensagem foi ' +
-                'entregue: a resposta aparece aqui sozinha quando ela mandar.');
+    // sem faixa de propósito: a resposta chega sozinha pelo stream, e a escuta continua
+    estadoOcioso();
     if (lerRespostas) escuta = { since: since, ate: Date.now() + ESCUTA_MS };
   } else if (lerRespostas) {
     escuta = { since: since, ate: Date.now() + ESCUTA_MS };
@@ -3694,6 +3756,12 @@ function passosTutorial() {
     oque: 'No celular, o botão ☰ abre o menu do agente. No computador ele não aparece, porque o menu já fica fixo à esquerda.',
     como: 'Toque nele quando quiser trocar de agente, abrir uma página do painel ou sair. Toque fora do menu, no ✕ ou na tecla Esc para fechar.',
     porque: 'Mantém a tela da conversa limpa: o que não é conversa fica guardado no menu.' });
+  if ($('trocaBaixo') && $('trocaBaixo').offsetParent !== null) {
+    passos.push({ alvo: '#trocaBaixo', antes: fechaM, titulo: 'A fileira de agentes',
+      oque: 'Um avatar por agente, logo abaixo da barra de escrever. A conversa em que você está fica com um anel na cor dela.',
+      como: 'Toque no avatar de outro agente para abrir a conversa com ele. Arraste para o lado se não couberem todos. Ela some enquanto o teclado está aberto.',
+      porque: 'Trocar de agente com o polegar, sem abrir o menu ☰.' });
+  }
   if (!EH_ADMIN) {
     passos.push({ alvo: '#mlPainel', antes: abreM, titulo: 'As páginas do painel de ' + nome,
       oque: 'Status, Memória, Operações, Custos e as outras páginas que mostram como ' + nome + ' está, o que ele guarda e quanto gasta.',
@@ -3705,6 +3773,12 @@ function passosTutorial() {
       oque: 'Hoje tem um item: Instalar o app, que coloca o DG Claw como aplicativo na tela inicial do aparelho.',
       como: 'No Android e no computador, com Chrome ou Edge, o toque abre o pedido de instalação do navegador. No iPhone e no iPad, o item mostra o caminho: Compartilhar e depois Adicionar à Tela de Início. O item some sozinho quando o app já está instalado.',
       porque: 'O app instalado abre sem a barra do navegador e fica a um toque, como qualquer outro aplicativo.' });
+  }
+  if ($('mlSessao') && !$('mlSessao').hidden) {
+    passos.push({ alvo: '#mlSessao', antes: abreM, titulo: 'Reiniciar a sessão',
+      oque: 'O botão que reinicia o processo de ' + nome + ' quando ele trava, sem você abrir terminal.',
+      como: 'Pede a sua confirmação, reinicia e mostra uma faixa no topo até ele voltar. A conversa continua de onde estava, porque o agente retoma a mesma sessão.',
+      porque: 'Quando o agente para de responder, reiniciar costuma resolver, e aqui é um toque.' });
   }
   passos.push({ alvo: '#loginCartao', titulo: 'Conectar a sua conta',
     antes: () => {
@@ -3722,12 +3796,6 @@ function passosTutorial() {
       oque: 'Um atalho para as sessões de trabalho de ' + nome + ': os cards que andam em paralelo com esta conversa. Uma bolinha vermelha avisa quando alguma espera uma decisão sua.',
       como: 'Toque nele e a tela de Sessões abre dentro do painel do agente, na mesma janela. No celular o texto some e fica só o ícone 🖥.',
       porque: 'É o mini-Bunker do agente: você acompanha e cria trabalhos longos sem sair procurando no menu, e o botão fica no topo, em todas as telas.' });
-  }
-  if (!$('btnPainel').hidden) {
-    passos.push({ alvo: '#btnPainel', titulo: 'O botão Painel',
-      oque: 'Um atalho para o painel de ' + nome + ', com Status, Memória, Operações, Custos e as outras páginas.',
-      como: 'Toque nele e o painel abre na mesma janela. Para voltar, use o item Conversa do menu do painel ou o voltar do navegador.',
-      porque: 'Fica no topo para você passar da conversa ao painel com um toque, sem abrir o menu.' });
   }
   passos.push({ alvo: '#btnMesa', titulo: 'O botão Mesa',
     oque: 'Um atalho para a Mesa de tarefas, onde ficam as tarefas de todos os agentes.',
@@ -3776,12 +3844,21 @@ $('gmTutorial').onclick = iniciaTutorial;
 /* Acervo: a lista local aparece antes da revalidação da rede. */
 const acPainel = $('acervoPainel'), acLista = $('acervoLista');
 let acAba = 'midias';
-const cacheMidias = DGMidias.criar({ conta: caps.conta, agente: AGENTE.id, base: API,
-  mudou: aba => { if (aba === acAba) pintaAcervo(); } });
+// O HTML pode vir do cache do app de antes de uma atualização, sem o módulo de mídias: isso
+// nunca pode derrubar a conversa inteira. Sem o módulo, só o acervo avisa para recarregar.
+const cacheMidias = typeof DGMidias !== 'undefined'
+  ? DGMidias.criar({ conta: caps.conta, agente: AGENTE.id, base: API,
+    mudou: aba => { if (aba === acAba) pintaAcervo(); } })
+  : null;
+const ACERVO_SEM_MODULO = 'A página foi atualizada. Recarregue.';
+function dadosAcervo(aba) {
+  return cacheMidias ? cacheMidias.estado(aba)
+    : { itens: [], carregou: true, carregando: false, proximo: null, erro: ACERVO_SEM_MODULO };
+}
 function pintaAcervo() {
   if (acPainel.hidden) return;
-  const d = cacheMidias.estado(acAba);
-  $('acervoEstado').textContent = d.erro ? 'Não consegui atualizar: ' + d.erro :
+  const d = dadosAcervo(acAba);
+  $('acervoEstado').textContent = !cacheMidias ? ACERVO_SEM_MODULO : d.erro ? 'Não consegui atualizar: ' + d.erro :
     (!d.carregou ? 'Carregando os itens recentes…' : d.itens.length + ' itens carregados' + (d.carregando ? ' · atualizando…' : '')) +
     (d.avisoCache ? ' · ' + d.avisoCache : '');
   let html = acAba === 'midias' ? '<div class="acgrade">' : '';
@@ -3796,17 +3873,17 @@ function pintaAcervo() {
     html += `<div class="acitem">${corpo}<button class="acir" data-origem="${esc(it.msg_id)}" title="Ir para a mensagem de origem">${esc(it.dia || '')} ${esc(it.hhmm || '')} ↪</button></div>`;
   }
   if (acAba === 'midias') html += '</div>';
-  if (d.erro) html += '<button class="acmais" data-tentar>Atualizar novamente</button>';
+  if (d.erro && cacheMidias) html += '<button class="acmais" data-tentar>Atualizar novamente</button>';
   if (d.proximo) html += `<button class="acmais" data-mais ${d.carregando ? 'disabled' : ''}>${d.carregando ? 'Carregando…' : 'Carregar anteriores'}</button>`;
-  else if (d.carregou && !d.itens.length) html += '<p>Nenhum item deste tipo na conversa disponível.</p>';
+  else if (cacheMidias && d.carregou && !d.itens.length) html += '<p>Nenhum item deste tipo na conversa disponível.</p>';
   acLista.innerHTML = html;
 }
 function abreAcervo(aba = acAba) {
   acAba = aba; acPainel.hidden = false;
   for (const b of acPainel.querySelectorAll('[data-aba]')) b.setAttribute('aria-selected', String(b.dataset.aba === aba));
-  pintaAcervo(); cacheMidias.abrir(aba);
+  pintaAcervo(); if (cacheMidias) cacheMidias.abrir(aba);
 }
-function fechaAcervo() { acPainel.hidden = true; cacheMidias.fechar(); }
+function fechaAcervo() { acPainel.hidden = true; if (cacheMidias) cacheMidias.fechar(); }
 $('who').addEventListener('click', () => abreAcervo());
 $('who').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abreAcervo(); } });
 $('av').addEventListener('click', () => abreAcervo());
@@ -3814,9 +3891,10 @@ $('acervoFechar').onclick = fechaAcervo;
 document.addEventListener('keydown', e => { if (e.key === 'Escape') fechaAcervo(); });
 acPainel.querySelector('nav').onclick = e => { const b = e.target.closest('[data-aba]'); if (b) { acLista.scrollTop = 0; abreAcervo(b.dataset.aba); } };
 acLista.addEventListener('scroll', () => {
-  if (acLista.scrollHeight - acLista.scrollTop - acLista.clientHeight < 250) cacheMidias.mais(acAba);
+  if (cacheMidias && acLista.scrollHeight - acLista.scrollTop - acLista.clientHeight < 250) cacheMidias.mais(acAba);
 }, { passive: true });
 acLista.onclick = async e => {
+  if (!cacheMidias) return;
   if (e.target.closest('[data-mais]')) return cacheMidias.mais(acAba);
   if (e.target.closest('[data-tentar]')) return cacheMidias.abrir(acAba);
   const md = e.target.closest('[data-midia]'); if (md) return abreLightbox(md.dataset.midia);
@@ -3840,7 +3918,7 @@ function passoAcervo() {
 $('acervoAjuda').onclick = () => window.DGTour.inicia({ passos: [passoAcervo()] });
 document.addEventListener('click', async e => {
   const a = e.target.closest('a[href="/sair"]'); if (!a) return;
-  e.preventDefault(); await cacheMidias.limpar(); location.href = a.href;
+  e.preventDefault(); if (cacheMidias) await cacheMidias.limpar(); location.href = a.href;
 });
 
 /* ── Partida ──────────────────────────────────────────────────────────────── */
@@ -3922,6 +4000,105 @@ async function consultaAlertas() {
 consultaAlertas(); setInterval(consultaAlertas, 10000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) consultaAlertas(); });
 window.addEventListener('resize', posicionaAlertas);
+
+/* ── Reiniciar sessão do agente ─────────────────────────────────────────────
+   O item #gmReiniciar mora no menu (casca.js) e nasce escondido: só a Conversa o mostra.
+   Fluxo: diálogo de confirmação, POST /reiniciar (o runner refaz o processo e retoma a MESMA
+   conversa), faixa no topo e acompanhamento pela foto de atividade que o stream já traz.
+   "De volta" = o agente deixou de estar sem sinal por 2 leituras seguidas. Teto de 150 s. */
+(function () {
+  const faixaR = $('faixaReinicio'), dlg = $('dlgReinicio'), item = $('gmReiniciar');
+  if (!faixaR || !dlg || !item) { console.warn('reinício: faltam elementos na página (faixa, diálogo ou item do menu); o botão não foi ligado.'); return; }
+  const URL_REINICIO = API + '/reiniciar';
+  const txt = faixaR.querySelector('.rtxt'), ico = faixaR.querySelector('.rico');
+  let tempo = null, sumir = null, emCurso = false;
+  item.closest('section').hidden = false;
+
+  function mostra(tipo, texto, acoes) {
+    clearTimeout(sumir);
+    faixaR.className = tipo;
+    faixaR.hidden = false;
+    ico.textContent = tipo === 'ok' ? '✓' : tipo === 'erro' ? '!' : '↻';
+    txt.textContent = texto;
+    faixaR.querySelectorAll('.racoes').forEach(e => e.remove());
+    if (acoes && acoes.length) {
+      const caixa = document.createElement('div');
+      caixa.className = 'racoes';
+      for (const a of acoes) {
+        const b = document.createElement('button');
+        b.type = 'button'; b.textContent = a.rotulo; b.onclick = a.fn;
+        caixa.appendChild(b);
+      }
+      faixaR.appendChild(caixa);
+    }
+  }
+  const esconde = () => { clearTimeout(sumir); clearTimeout(tempo); faixaR.hidden = true; faixaR.className = ''; };
+  const falha = causa => mostra('erro', 'Não consegui reiniciar a sessão de ' + AGENTE.nome + ': ' + causa, [
+    { rotulo: 'Fechar', fn: esconde }, { rotulo: 'Tentar de novo', fn: dispara }]);
+
+  function acompanha(textoInicial) {
+    clearTimeout(tempo);
+    const ini = Date.now();
+    // Só vale retrato do servidor posterior ao pedido: a foto que já estava na tela pode ser antiga
+    // e ainda mostrar o agente "vivo" (ou "sem login") de antes do reinício.
+    const marco = atvAgoraMs() / 1000;
+    let vivas = 0, ultimoAgora = null;
+    mostra('rodando', textoInicial || 'Reiniciando a sessão de ' + AGENTE.nome + '…');
+    const volta = () => {
+      const v = PURO.avaliaVolta({ marco, ultimoAgora, vivas, foto: window.atividadeFoto, agenteId: AGENTE.id, streamAberto, decorridoMs: Date.now() - ini });
+      vivas = v.vivas; ultimoAgora = v.ultimoAgora;
+      if (v.acao === 'indeterminado') {
+        emCurso = false;
+        mostra('ok', 'Pedi o reinício da sessão de ' + AGENTE.nome + ', mas não consigo confirmar quando ele volta (o arquivo conversa-puro.js não carregou). Recarregue a página para conferir.');
+        sumir = setTimeout(esconde, 12000);
+        return;
+      }
+      if (v.acao === 'sem_login') {
+        emCurso = false;
+        return falha('o agente voltou, mas está sem a conta do Claude/Codex conectada. ' + (v.motivo || 'Conecte a conta pelo cartão que aparece na conversa.'));
+      }
+      if (v.acao === 'voltou') {
+        emCurso = false;
+        mostra('ok', AGENTE.nome + ' voltou. A conversa continua daqui, de onde estava.');
+        sumir = setTimeout(esconde, 8000);
+        return;
+      }
+      if (Date.now() - ini > 150000) {
+        emCurso = false;
+        return falha('passaram 150 s e o agente não voltou a responder. Peça ao Admin para conferir o serviço dele (dgclaw status).');
+      }
+      tempo = setTimeout(volta, 2000);
+    };
+    tempo = setTimeout(volta, 2000);
+  }
+
+  async function dispara() {
+    if (emCurso) return;
+    emCurso = true;
+    mostra('rodando', 'Reiniciando a sessão de ' + AGENTE.nome + '…');
+    try {
+      await api(URL_REINICIO, { method: 'POST', body: {}, timeoutMs: 40000 });
+    } catch (e) {
+      // 504: o pedido pode ter chegado ao runner. Oferecer "Tentar de novo" já reiniciaria duas vezes,
+      // então a faixa mostra o aviso e passa a acompanhar até o agente responder.
+      if (e.status === 504) return acompanha(e.message);
+      emCurso = false;
+      return falha(e.message);
+    }
+    acompanha();
+  }
+
+  function abreDialogo() {
+    abreMenu(false);
+    if (emCurso) return;
+    if (dlg.showModal) dlg.showModal(); else dlg.setAttribute('open', '');
+    $('dlgReinicioNao').focus();
+  }
+  const fechaDialogo = () => { if (dlg.close) dlg.close(); else dlg.removeAttribute('open'); };
+  $('dlgReinicioNao').onclick = fechaDialogo;
+  $('dlgReinicioSim').onclick = () => { fechaDialogo(); dispara(); };
+  item.onclick = abreDialogo;
+})();
 
 }   // fim de iniciaTela
 

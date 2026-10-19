@@ -9,7 +9,7 @@ function criarRunnerFalso(opcoes) {
     statusReason: null, erroEstado: null,
     // login assistido: o estado que GET/POST /api/provedor/login devolvem (o teste muda à vontade)
     login: { estado: 'nenhum' }, loginRecusa: null }, opcoes || {});
-  const rec = { permissoes: [], inputs: [], cabecalhos: [], estadoPedidos: 0, provedorPedidos: 0, loginPosts: 0, loginDeletes: 0, codigos: [] };
+  const rec = { reinicios: 0, permissoes: [], inputs: [], cabecalhos: [], estadoPedidos: 0, provedorPedidos: 0, loginPosts: 0, loginDeletes: 0, codigos: [] };
   const servidor = http.createServer((req, res) => {
     const json = (status, corpo) => { const t = JSON.stringify(corpo); res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(t); };
     rec.cabecalhos.push({ metodo: req.method, url: req.url, authorization: req.headers.authorization || null });
@@ -42,6 +42,13 @@ function criarRunnerFalso(opcoes) {
         return json(200, { success: true, data: { decisao: corpo.decisao } });
       });
       return undefined;
+    }
+    if (rota === `/api/agents/${o.agenteId}/reiniciar` && req.method === 'POST') {
+      if (o.semRotaReiniciar) return json(404, { success: false, error: 'sem rota' });
+      if (o.derrubaReiniciar) { req.socket.destroy(); return undefined; }
+      if (o.falhaReiniciar) return json(o.falhaReiniciar.status, o.falhaReiniciar.corpo);
+      rec.reinicios += 1;
+      return json(202, { ok: true, sessao: o.sessionId, modo: 'retomar' });
     }
     if (rota === '/api/provedor' && req.method === 'GET') {
       rec.provedorPedidos += 1;

@@ -328,7 +328,7 @@ function criarServidor(opcoes) {
 
     if (p === '/api/v1/agents' && m === 'GET') {
       if (falhaDoRegistro(req, res, true)) return undefined;
-      const lista = await Promise.all(registro.estado().agentes.map(agentePublico));
+      const lista = await Promise.all(registro.estado().agentes.map(async (a) => Object.assign(await agentePublico(a), { ultima_ts: await conversa.ultimaMensagemTs(a) })));
       return H.enviaJson(res, 200, { ok: true, agentes: lista, voz: lista.some((a) => a.voz), microfone: voz.microfone, limite_upload_bytes: config.maxUploadBytes, usuario: sessao.usuario });
     }
 
@@ -448,10 +448,14 @@ function criarServidor(opcoes) {
         const r = await conversa.permissao(agente, corpo.decisao);
         return H.enviaJson(res, r.status, r.corpo);
       }
+      if (acao === 'reiniciar' && m === 'POST') {
+        const r = await conversa.reiniciar(agente);
+        return H.enviaJson(res, r.status, r.corpo);
+      }
       if (acao === 'upload' && m === 'POST') return upload(req, res, agente);
       if (acao === 'comandos' && m === 'GET') return H.enviaJson(res, 200, Object.assign({ ok: true, agente: agente.slug }, await comandos.catalogo(agente)));
       if (acao === 'comando' && m === 'POST') return comandoPost(req, res, agente);
-      return H.erroJson(res, ['messages', 'stream', 'wait', 'send', 'upload', 'permissao', 'comandos', 'comando', ''].includes(acao) ? 405 : 404, `Não existe ${m} ${p}.`);
+      return H.erroJson(res, ['messages', 'stream', 'wait', 'send', 'upload', 'permissao', 'reiniciar', 'comandos', 'comando', ''].includes(acao) ? 405 : 404, `Não existe ${m} ${p}.`);
     }
 
     mm = /^\/api\/v1\/media\/([0-9a-f]{16})\/visual$/.exec(p);

@@ -197,6 +197,47 @@ test('passoTutorial: campos completos e funciona com lista vazia (exemplo tempor
   assert.equal(t.win.tourPassos[0].alvo, '[data-tour="foco"]');
 });
 
+test('tudo ticado: a barra dá lugar a "Tudo ticado" com Concluir; com itens pendentes não aparece', () => {
+  const t = monta({ wrapEsq: 600, menuDir: 240 });
+  t.f.recebe({ agente: 'ana', lista: tres() });
+  const r = t.f._raiz;
+  assert.equal(porClasse(r, 'foco-ok')[0].hidden, true);
+  assert.equal(porClasse(r, 'foco-barra')[0].hidden, false);
+  t.f.recebe({ agente: 'ana', lista: lista([[1, 'A', true], [2, 'B', true]], 2) });
+  assert.equal(porClasse(r, 'foco-ok')[0].hidden, false);
+  assert.equal(porClasse(r, 'foco-barra')[0].hidden, true);
+  assert.match(porClasse(r, 'foco-ok')[0].children[0].textContent, /Tudo ticado/);
+});
+
+test('Concluir: DELETE na URL da lista e o foco some quando a lista volta vazia', async () => {
+  const t = monta({ wrapEsq: 600, menuDir: 240, resposta: () => ({ status: 200, corpo: { ok: true, mudou: true, lista: lista([], 3) } }) });
+  t.f.recebe({ agente: 'ana', lista: lista([[1, 'A', true], [2, 'B', true]], 2) });
+  assert.equal(t.f._raiz.hidden, false);
+  await t.f._conclui();
+  assert.deepEqual(t.chamadas[0], { url: '/api/v1/foco/ana?versao=2', metodo: 'DELETE', corpo: null, cred: 'same-origin' });
+  assert.equal(t.f._raiz.hidden, true);
+});
+
+test('Concluir que falha: mantém a lista e mostra o motivo', async () => {
+  const t = monta({ wrapEsq: 600, menuDir: 240, resposta: () => ({ status: 500, corpo: { ok: false, erro: 'disco cheio em /d/foco' } }) });
+  t.f.recebe({ agente: 'ana', lista: lista([[1, 'A', true]], 2) });
+  const antes = console.warn; console.warn = () => {};
+  try { await t.f._conclui(); } finally { console.warn = antes; }
+  assert.equal(t.f._raiz.hidden, false);
+  assert.equal(porClasse(t.f._raiz, 'foco-texto').length, 1);
+  const aviso = porClasse(t.f._raiz, 'foco-aviso')[0];
+  assert.match(aviso.textContent, /Não consegui concluir a lista: disco cheio em \/d\/foco/);
+  assert.equal(porClasse(t.f._raiz, 'foco-conclui')[0].disabled, false);
+});
+
+test('css do foco: recolhe animado em pílula e respeita prefers-reduced-motion', () => {
+  const css = pub('foco-tela.css');
+  assert.match(css, /grid-template-rows:0fr/);
+  assert.match(css, /\.foco-painel:not\(\.aberto\)[^{]*\{width:132px!important/);
+  assert.match(css, /@media \(prefers-reduced-motion:reduce\)/);
+  assert.match(css, /\.foco \.foco-conclui\{/);
+});
+
 test('conversa.html, conversa.js e sw.js ligam o modo foco; sem travessão nos arquivos', () => {
   const h = pub('conversa.html');
   assert.match(h, /<link rel="stylesheet" href="\/foco-tela\.css">/);
@@ -214,8 +255,21 @@ test('foco-tela.css não posiciona o #chat com top (a faixa é item do fluxo fle
   assert.ok(/\.foco-faixa\{position:relative;/.test(css));
 });
 
-test('conversa.html tem os botões Painel, Mesa e Lembretes antes do ler', () => {
+test('conversa.html tem os botões Mesa e Lembretes antes do ler, e o Painel fica só no menu', () => {
   const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../public/conversa.html'), 'utf8');
-  const i = ['btnPainel', 'btnMesa', 'btnLembretes', 'btnLer'].map(id => html.indexOf('id="' + id + '"'));
+  // o 🦞 do cabeçalho saiu em 19/10/2026: o menu lateral (seção mlPainel) já leva ao painel
+  assert.ok(!html.includes('id="btnPainel"'));
+  const i = ['btnMesa', 'btnLembretes', 'btnLer'].map(id => html.indexOf('id="' + id + '"'));
   assert.ok(i.every(n => n > 0) && i.every((n, k) => k === 0 || n > i[k - 1]));
+});
+
+test('Concluir com 409: aplica a lista nova, avisa e não esconde o foco', async () => {
+  const nova = lista([[1, 'A', true], [2, 'B', true], [3, 'novo do agente', false]], 3);
+  const t = monta({ wrapEsq: 600, menuDir: 240, resposta: () => ({ status: 409, corpo: { ok: false, erro: 'A lista mudou', lista: nova } }) });
+  t.f.recebe({ agente: 'ana', lista: lista([[1, 'A', true], [2, 'B', true]], 2) });
+  await t.f._conclui();
+  assert.equal(t.chamadas[0].url, '/api/v1/foco/ana?versao=2');
+  assert.equal(t.f._raiz.hidden, false);
+  assert.equal(porClasse(t.f._raiz, 'foco-texto').length, 3);
+  assert.match(porClasse(t.f._raiz, 'foco-aviso')[0].textContent, /A lista mudou enquanto você olhava; confira os itens novos antes de concluir\./);
 });

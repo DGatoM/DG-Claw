@@ -46,7 +46,7 @@
     const { doc, win, storage, agente } = amb;
     const URL_LISTA = '/api/v1/foco/' + encodeURIComponent(agente);
     const CHAVE = 'dgclaw:foco:aberto:' + agente;
-    const est = { lista: null, erro: '', aviso: '', demo: false, aberto: null, emVoo: new Set(), modo: { tipo: 'faixa' } };
+    const est = { lista: null, erro: '', aviso: '', demo: false, aberto: null, emVoo: new Set(), concluindo: false, modo: { tipo: 'faixa' } };
 
     const h = (tag, cls, texto) => {
       const e = doc.createElement(tag);
@@ -80,10 +80,20 @@
     barra.setAttribute('aria-valuemin', '0'); barra.setAttribute('aria-valuemax', '100');
     const enche = h('i', 'foco-enche');
     barra.appendChild(enche);
+    const okEl = h('div', 'foco-ok');
+    okEl.hidden = true;
+    okEl.appendChild(h('span', null, 'Tudo ticado 🎉'));
+    const btnConclui = h('button', 'foco-conclui', 'Concluir');
+    btnConclui.type = 'button';
+    btnConclui.title = 'Limpa a lista e o modo foco some';
+    okEl.appendChild(btnConclui);
     const ul = h('ul', 'foco-lista');
     const avisoEl = h('p', 'foco-aviso');
     avisoEl.setAttribute('role', 'alert');
-    corpo.appendChild(barra); corpo.appendChild(ul); corpo.appendChild(avisoEl);
+    // .foco-int é quem encolhe (overflow:hidden) quando o corpo recolhe animado
+    const interno = h('div', 'foco-int');
+    interno.appendChild(barra); interno.appendChild(okEl); interno.appendChild(ul); interno.appendChild(avisoEl);
+    corpo.appendChild(interno);
     raizEl.appendChild(cab); raizEl.appendChild(corpo);
 
     const exibida = () => (est.demo ? EXEMPLO : est.lista);
@@ -151,7 +161,10 @@
         seta.textContent = '';
         return;
       }
-      btnAjuda.hidden = false; barra.hidden = false;
+      btnAjuda.hidden = false;
+      const tudoFeito = c.total > 0 && c.feitos === c.total;
+      barra.hidden = tudoFeito; okEl.hidden = !tudoFeito;
+      btnConclui.disabled = est.concluindo;
       rotulo.textContent = '🎯 ' + (l.titulo || 'Foco');
       placar.textContent = c.feitos + ' de ' + c.total;
       seta.textContent = aberto ? '▴' : '▾';
@@ -205,7 +218,9 @@
       try { d = await r.json(); } catch (e) { d = null; }
       if (!r.ok || (d && d.ok === false)) {
         const base = (d && d.erro) || ('a API respondeu ' + r.status);
-        throw new Error(r.status === 401 ? base + ' (entre de novo: a sessão expirou)' : base);
+        const erro = new Error(r.status === 401 ? base + ' (entre de novo: a sessão expirou)' : base);
+        erro.status = r.status; erro.dados = d;
+        throw erro;
       }
       return d || {};
     }
@@ -246,6 +261,33 @@
       }
     }
 
+    /** Com tudo ticado, o botão Concluir limpa a lista (DELETE); a lista volta vazia e o foco some. */
+    async function conclui() {
+      if (est.demo || est.concluindo) return;
+      est.concluindo = true; est.aviso = '';
+      desenha();
+      try {
+        // manda a versão que a tela mostra: se o agente acrescentou itens, o servidor recusa (409)
+        const v = est.lista && typeof est.lista.versao === 'number' ? '?versao=' + est.lista.versao : '';
+        const d = await pede(URL_LISTA + v, { method: 'DELETE' });
+        est.concluindo = false;
+        if (!d.lista) throw new Error('o servidor não devolveu a lista atualizada');
+        aplica(d.lista);
+        desenha();
+      } catch (e) {
+        est.concluindo = false;
+        if (e.status === 409 && e.dados && e.dados.lista) {
+          aplica(e.dados.lista);
+          est.aviso = 'A lista mudou enquanto você olhava; confira os itens novos antes de concluir.';
+          desenha();
+          return;
+        }
+        console.warn('foco: DELETE ' + URL_LISTA + ' falhou:', e.message);
+        est.aviso = 'Não consegui concluir a lista: ' + e.message + '. Ela continua aqui; toque em Concluir de novo para tentar.';
+        desenha();
+      }
+    }
+
     // ── Tutorial ──
     function passoTutorial() {
       return {
@@ -254,13 +296,14 @@
         antes: () => { if (!temItens()) { est.demo = true; desenha(); } },
         depois: () => { if (est.demo) { est.demo = false; desenha(); } },
         titulo: 'O modo foco',
-        oque: 'Uma lista curta do que você quer fechar agora, pendurada ao lado da conversa (ou numa faixa no alto, no celular). Mostra o placar, como "3 de 6", e uma barra de progresso. Ela só aparece quando o agente monta uma lista.',
-        como: 'Peça ao agente algo como "monta meu foco de hoje". Ele cria a lista e ela surge aqui sozinha. Toque num item para marcar como feito (de novo para desmarcar). O agente fica sabendo do que você marcou na sua próxima mensagem, ou quando ele conferir. Para recolher ou abrir a lista, toque no título.',
+        oque: 'Uma lista curta do que você quer fechar agora, pendurada ao lado da conversa (ou numa faixa no alto, no celular). Mostra o placar, como "3 de 6", e uma barra de progresso. Quando tudo está ticado, a barra dá lugar a "Tudo ticado" com o botão Concluir, que limpa a lista e esconde o modo foco. Ela só aparece quando o agente monta uma lista.',
+        como: 'Peça ao agente algo como "monta meu foco de hoje". Ele cria a lista e ela surge aqui sozinha. Toque num item para marcar como feito (de novo para desmarcar). O agente fica sabendo do que você marcou na sua próxima mensagem, ou quando ele conferir. Para recolher ou abrir a lista, toque no título: no painel ela encolhe numa pílula.',
         porque: 'Assim você vê de relance o que falta, sem perder a conversa de vista, e o agente trabalha olhando para a mesma lista que você.',
       };
     }
 
     btnAbre.addEventListener('click', alternar);
+    btnConclui.addEventListener('click', conclui);
     btnAjuda.addEventListener('click', () => {
       if (win.DGTour) win.DGTour.inicia({ passos: [passoTutorial()] });
       else { est.aviso = 'A visita guiada não carregou. Recarregue a página e tente de novo.'; desenha(); }
@@ -270,7 +313,7 @@
       win.addEventListener('dgclaw:foco', ev => recebe(ev && ev.detail));
     }
 
-    return { passoTutorial, recebe, carrega, _est: est, _raiz: raizEl, _tica: tica, _desenha: desenha };
+    return { passoTutorial, recebe, carrega, _est: est, _raiz: raizEl, _tica: tica, _conclui: conclui, _desenha: desenha };
   }
 
   /** No navegador: descobre o agente pela URL (/a/<slug>), liga tudo e faz a carga inicial. */

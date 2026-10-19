@@ -17,7 +17,7 @@ import path from 'node:path';
 
 const require = createRequire(import.meta.url);
 const AQUI = path.dirname(new URL(import.meta.url).pathname);
-const { buildWmStatus, registrar } = require('./lib/wm-status');
+const { buildWmStatus, registrar, separarPendencias } = require('./lib/wm-status');
 
 let falhas = 0;
 function ok(cond, oQue, extra) {
@@ -226,6 +226,37 @@ console.log('\na rota');
   ok(status === 200 && corpo && corpo.arquivo && corpo.arquivo.existe === true, 'responde 200 com o estado', { status, corpo });
 }
 
+// ── separar as pendências em itens ─────────────────────────────────────────
+console.log('\nseparar pendências');
+{
+  const luna = separarPendencias('(revisada 18/10 23h30; versão completa em working-memory.md) (K) PUBLICADOR TIKTOK: falta o token (L) MESA: ajustar a lousa (M) Revisar o plano (ver nota) com a Carla');
+  ok(luna.nota === 'revisada 18/10 23h30; versão completa em working-memory.md', 'Luna: nota separada, sem quebrar no ";"', luna);
+  ok(luna.itens.length === 3 && luna.itens[0].startsWith('(K) PUBLICADOR') && luna.itens[2].startsWith('(M) Revisar'), 'Luna: itens (K)(L)(M)', luna);
+  ok(luna.itens[2].includes('(ver nota)'), 'Luna: parênteses no meio da frase ficam no item', luna);
+
+  const isa = separarPendencias('Responder X | Mandar Y; depois Z | Pagar W');
+  ok(isa.itens.length === 3 && isa.itens[1] === 'Mandar Y; depois Z' && isa.nota === null, 'Isa: separa por " | " e o ";" fica dentro do item', isa);
+
+  const pv = separarPendencias('Ligar para o fornecedor; Conferir o estoque; Pagar a conta');
+  ok(pv.itens.length === 3 && pv.itens[2] === 'Pagar a conta', 'só com "; " separa por "; "', pv);
+
+  const sem = separarPendencias('Responder o fornecedor X e depois ligar');
+  ok(sem.itens.length === 0 && sem.nota === null, 'sem separador: sem itens', sem);
+
+  const meio = separarPendencias('Falar com o João (A) sobre o preço e com a Ana (B) sobre o prazo');
+  ok(meio.itens.length === 0, 'marcador no meio da frase não quebra', meio);
+
+  const soNota = separarPendencias('(revisada 18/10) Fechar o contrato com a Ana');
+  ok(soNota.itens.length === 0 && soNota.nota === null, 'nota sem itens segue como parágrafo', soNota);
+
+  const comMd = separarPendencias('(A) **X**: fazer a; coisa (B) Y');
+  ok(comMd.itens.length === 2 && comMd.itens[0] === '(A) **X**: fazer a; coisa', 'marcadores têm prioridade sobre "; "', comMd);
+
+  const ws = agente({ wm: '- **Agora:** segunda, 05/10/2026 09:50\n⚡ PENDÊNCIAS ATIVAS: (A) Um (B) Dois\n' });
+  const r = await st(ws, '2026-10-05T10:00:00-03:00');
+  ok(r.pendencias.texto === '(A) Um (B) Dois' && r.pendencias.itens.length === 2 && r.pendencias.nota === null, 'a API mantém texto e ganha itens e nota', r.pendencias);
+}
+
 // ── o cartão ────────────────────────────────────────────────────────────────
 console.log('\no cartão');
 {
@@ -254,6 +285,24 @@ console.log('\no cartão');
   resposta = await st(agente({}), '2026-10-05T10:00:00-03:00');
   await janela.DGWmStatus.carregar(el);
   ok(/Ausente/.test(el.innerHTML) && /O que fazer/.test(el.innerHTML), 'ausente aparece com o que fazer');
+
+  // pendências em lista, rótulo em negrito, sem injetar HTML cru
+  const wsP = agente({ wm: WM('05/10/2026 09:50') });
+  resposta = await st(wsP, '2026-10-05T10:00:00-03:00');
+  resposta.pendencias = { existe: true, nenhuma: false, texto: 'x', nota: 'revisada 18/10', itens: ['(K) PUBLICADOR TIKTOK: falta o <img src=x onerror=1> token', '(L) outra coisa'] };
+  await janela.DGWmStatus.carregar(el);
+  ok(/class="wms-pend-nota"/.test(el.innerHTML) && /<ul class="wms-pend-texto wms-pend-lista">/.test(el.innerHTML), 'itens: nota pequena e lista');
+  ok((el.innerHTML.match(/<li>/g) || []).length === 2, 'um <li> por item');
+  ok(/<b class="wms-pend-assunto">\(K\) PUBLICADOR TIKTOK:<\/b>/.test(el.innerHTML), 'rótulo (K) + assunto em negrito');
+  ok(!/<img/.test(el.innerHTML), 'texto do item não vira HTML cru');
+  resposta.pendencias = { existe: true, nenhuma: false, texto: 'Um parágrafo sem separador', itens: [], nota: null };
+  await janela.DGWmStatus.carregar(el);
+  ok(!/<ul class="wms-pend-texto/.test(el.innerHTML) && /Um parágrafo sem separador/.test(el.innerHTML), 'sem itens segue parágrafo');
+  const R = janela.DGWmStatus.rotuloPendencia;
+  ok(R('(K) PUBLICADOR TIKTOK: falta').rotulo === '(K) PUBLICADOR TIKTOK:', 'rótulo: letra e assunto');
+  ok(R('(L) falta tudo: hoje').rotulo === '(L)', 'rótulo: só a letra quando o resto é minúsculo');
+  ok(R('PINGENTE BL-254: x').rotulo === 'PINGENTE BL-254:', 'rótulo: só o assunto');
+  ok(R('Responder o fornecedor').rotulo === '', 'rótulo: nenhum');
 }
 
 fs.rmSync(RAIZ, { recursive: true, force: true });

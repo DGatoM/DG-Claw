@@ -188,7 +188,8 @@ function buildWmStatus(config, opcoes = {}) {
     if (!m) return { existe: false, texto: null, nenhuma: null };
     const t = m[1].trim();
     const nenhuma = !t || /^\(?\s*nenhuma/i.test(t);
-    return { existe: true, texto: t, nenhuma };
+    const { itens, nota } = nenhuma ? { itens: [], nota: null } : separarPendencias(t);
+    return { existe: true, texto: t, nenhuma, itens, nota };
   }
 
   /** Entradas build-wm do registro do pulso num dia. null = registro ilegível/inexistente. */
@@ -419,4 +420,34 @@ function registrar(router, { CONFIG }) {
   });
 }
 
-module.exports = { buildWmStatus, registrar };
+/**
+ * Separa a linha de pendências em itens, para a tela desenhar uma lista em vez de um
+ * parágrafo corrido (a Luna escrevia "(K) ... (L) ... (M) ..." tudo colado).
+ * Prioridade dos separadores: " | " (formato da Isa); marcadores "(A) ".."(Z) " (uma
+ * letra maiúscula sozinha entre parênteses), só se o texto COMEÇAR por um, para não
+ * quebrar "(revisada ...)" nem parênteses no meio de frase; "; " só se nenhum dos dois
+ * aparecer. Um prefixo entre parênteses que não seja uma letra só ("(revisada 18/10;
+ * versão completa em ...)") sai como `nota`, e o ";" dentro dele não conta.
+ * Sem separador nenhum: itens vazio e nota null, e a tela segue com o parágrafo.
+ */
+function separarPendencias(texto) {
+  const vazio = { itens: [], nota: null };
+  let resto = String(texto == null ? '' : texto).trim();
+  if (!resto) return vazio;
+  let nota = null;
+  const n = resto.match(/^\((?![A-Z]\))([^()]*)\)\s*/);
+  if (n && n[1].trim() && resto.length > n[0].length) {
+    nota = n[1].trim();
+    resto = resto.slice(n[0].length);
+  }
+  let itens;
+  if (/\s\|\s/.test(resto)) itens = resto.split(/\s+\|\s+/);
+  else if (/^\([A-Z]\)\s/.test(resto)) itens = resto.split(/\s+(?=\([A-Z]\)\s)/);
+  else if (/;\s/.test(resto)) itens = resto.split(/;\s+/);
+  else return vazio;
+  itens = itens.map((i) => i.trim()).filter(Boolean);
+  if (!itens.length || (itens.length < 2 && !/^\([A-Z]\)\s/.test(itens[0]))) return vazio;
+  return { itens, nota };
+}
+
+module.exports = { buildWmStatus, registrar, separarPendencias };

@@ -314,7 +314,19 @@ function criarFoco({ dir, tz, log, registro, gravaRetrato, push, quemChamou, ago
       if (!sub) {
         if (m === 'GET') { H.enviaJson(res, 200, { ok: true, lista: lista(slug) }); return true; }
         if (m === 'PUT') saida = opSubstituir(slug, await lerCorpoObjeto(req, true), por);
-        else saida = opLimpar(slug, por);
+        else {
+          // ?versao=N: a versão que a tela mostrava ao tocar em Concluir. Se o agente mexeu na lista
+          // depois disso, limpar apagaria itens que a pessoa nunca viu. Sem o parâmetro, limpa sempre.
+          const bruto = url.searchParams.get('versao');
+          if (bruto !== null) {
+            if (!/^\d+$/.test(bruto)) throw falta(400, `O parâmetro "versao" precisa ser um inteiro maior ou igual a zero. Recebi: ${bruto.slice(0, 40)}. Use o campo "versao" de GET /api/v1/foco/${slug}.`);
+            if (Number(bruto) !== versao(slug)) {
+              H.erroJson(res, 409, `A lista de ${slug} mudou desde a versão ${bruto} (agora está na ${versao(slug)}). Nada foi apagado: confira os itens atuais e peça de novo com a versão nova.`, { lista: lista(slug) });
+              return true;
+            }
+          }
+          saida = opLimpar(slug, por);
+        }
       } else if (sub === 'eventos') {
         const bruto = url.searchParams.get('desde_id');
         if (bruto !== null && !/^\d+$/.test(bruto)) throw falta(400, `O parâmetro "desde_id" precisa ser um inteiro maior ou igual a zero. Recebi: ${bruto.slice(0, 40)}.`);

@@ -16,6 +16,7 @@
 #  10. mcp              scripts/dgchat-mcp/test-server.mjs: a bancada do servidor MCP do DG Chat
 #  11. novidades        tests/novidades: o gancho do aviso de novidades depois de atualizar
 #  12. monitor         tests/monitor: o dgclaw-monitor (modo monitor) e o dgclaw-card abrir --monitor, com runner falso
+#  13. changelog        tests/changelog: o CHANGELOG fala com a pessoa, sem frase dirigida ao modelo
 #
 # Nada aqui encosta no sistema de verdade: nao cria container, rede nem unidade.
 #
@@ -117,7 +118,7 @@ testes_shellcheck() {
     (
         cd "$REPO" || exit 1
         arquivos=(install.sh bin/dgclaw lib/*.sh tests/rodar.sh tests/cli/*.sh tests/cli/stubs/*
-                  tests/instalador/*.sh tests/novidades/*.sh tests/monitor/*.sh scripts/cofre-nomes.sh scripts/test-cofre-nomes.sh)
+                  tests/instalador/*.sh tests/novidades/*.sh tests/changelog/*.sh tests/monitor/*.sh scripts/cofre-nomes.sh scripts/test-cofre-nomes.sh)
         "$sc" -x "${arquivos[@]}"
     )
 }
@@ -145,6 +146,7 @@ parte shellcheck testes_shellcheck
 parte whatsapp node --test "$REPO/canais/whatsapp/test/"
 parte mcp node "$REPO/scripts/dgchat-mcp/test-server.mjs"
 parte novidades bash "$REPO/tests/novidades/rodar.sh"
+parte changelog bash "$REPO/tests/changelog/rodar.sh"
 
 printf '\n'
 [ "${#PULADOS[@]}" -eq 0 ] || printf 'Pulado: %s\n' "${PULADOS[@]}"

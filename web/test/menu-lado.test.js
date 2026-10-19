@@ -67,3 +67,19 @@ test('manifesto instalável: standalone, start_url, ícones 192/512 e maskable e
   for (const i of m.icons) assert.ok(fs.existsSync(path.join(__dirname, '../public', i.src)), i.src);
   assert.ok(m.icons.some(i => i.sizes === '192x192') && m.icons.some(i => i.sizes === '512x512'));
 });
+
+test('hora da última mensagem: hh:mm hoje, "ontem", dd/mm antes, e vazio quando não se sabe', () => {
+  const agora = new Date(2026, 9, 19, 15, 0).getTime();
+  assert.equal(M.horaCurta(new Date(2026, 9, 19, 9, 5).getTime(), agora), '09:05');
+  assert.equal(M.horaCurta(new Date(2026, 9, 18, 23, 59).getTime(), agora), 'ontem');
+  assert.equal(M.horaCurta(new Date(2026, 9, 3, 12, 0).getTime(), agora), '03/10');
+  assert.equal(M.horaCurta(new Date(2026, 8, 30, 12, 0).getTime(), new Date(2026, 9, 1, 8, 0).getTime()), 'ontem', 'vira o mês');
+  for (const nada of [null, undefined, 0, NaN, '12']) assert.equal(M.horaCurta(nada, agora), '');
+});
+
+test('seletor: mostra a hora em .ml-hora só quando há ultima_ts, escapada', () => {
+  const com = M.itemAgente({ id: 'a', nome: 'A', ultima_ts: Date.now() }, 'b');
+  assert.match(com, /<span class="ml-hora">\d\d:\d\d<\/span>/);
+  assert.doesNotMatch(M.itemAgente({ id: 'a', nome: 'A', ultima_ts: null }, 'b'), /ml-hora/);
+  assert.match(pub('menu-lado.css'), /\.ml-aqui \+ \.ml-hora\{margin-left:6px\}/);
+});
