@@ -45,7 +45,7 @@ _atualizar_ao_sair() {
     [ "$rc" -eq 0 ] && return 0
     {
         printf '\nA atualizacao parou em: %s.\n' "${ATU_ETAPA:-inicio}"
-        if [ -n "$ATU_BACKUP" ] && [ -d "$ATU_BACKUP" ]; then
+        if [ -n "$ATU_BACKUP" ] && [ -f "$ATU_BACKUP/MANIFESTO.txt" ]; then
             printf 'Seus dados estao salvos no backup %s (nada foi apagado).\n' "$ATU_BACKUP"
             printf 'Para tentar de novo (rodar de novo e seguro): sudo dgclaw atualizar --sem-baixar\n'
             printf 'Para voltar ao que era antes: sudo dgclaw atualizar --voltar %s\n' "$ATU_BACKUP"
@@ -355,6 +355,7 @@ atualizar_montar_resumo() {
     printf '  Backup:  %s\n' "$ATU_BACKUP"
     printf '  Para voltar atras: sudo dgclaw atualizar --voltar %s\n' "$ATU_BACKUP"
     printf '  Agentes que ficaram bem: %s\n' "${oks:-nenhum}"
+    personalizacoes_linha_resumo
     if [ -n "${ATU_AGENTES_FALHOS// /}" ]; then
         printf '  Agentes COM PROBLEMA:%s\n' "$ATU_AGENTES_FALHOS"
         for slug in $ATU_AGENTES_FALHOS; do printf '    para refazer: dgclaw agente recriar %s --forcar\n' "$slug"; done
@@ -373,7 +374,7 @@ atualizar_montar_resumo() {
 
 atualizar_main() {
     local repo_arg="" voltar="" segundo_plano=0 sem_homes=0 mesmo_assim=0 a
-    ATU_FORCAR_LOCAL=0; ATU_SEM_BAIXAR=0; ATU_MODO=atualizar; ATU_SEM_VOLTAR=0
+    ATU_FORCAR_LOCAL=0; ATU_SEM_BAIXAR=0; ATU_MODO=atualizar; ATU_SEM_VOLTAR=0; ATU_OK_DONO=0; ATU_SEM_PERS=0
     local repassar=("$@")
     while [ $# -gt 0 ]; do
         a="$1"
@@ -385,6 +386,8 @@ atualizar_main() {
             --sem-baixar) ATU_SEM_BAIXAR=1 ;;
             --sem-backup-agentes) sem_homes=1 ;;
             --segundo-plano) segundo_plano=1 ;;
+            --ok-do-dono) export ATU_OK_DONO=1 ;;
+            --sem-personalizacoes) export ATU_SEM_PERS=1 ;;
             --mesmo-assim) mesmo_assim=1 ;;
             --sem-voltar-sozinho) ATU_SEM_VOLTAR=1 ;;
             --voltar) [ $# -ge 2 ] || falha "a opcao --voltar precisa da pasta do backup." "exemplo: sudo dgclaw atualizar --voltar /var/backups/dgclaw/20261018-093000"; voltar="$2"; ATU_MODO=voltar; shift ;;
@@ -415,10 +418,12 @@ atualizar_main() {
     atualizar_checar_clone
 
     if [ -n "$voltar" ]; then atualizar_voltar "$voltar" "$sem_homes" "$mesmo_assim"; return 0; fi
+    personalizacoes_conferir
 
     local versao_antiga commit_novo versao_nova resumo_arq log_arq reinicia=0 resultado resumo_txt
     versao_antiga="${DGCLAW_VERSAO:-desconhecida}"
     atualizar_descobrir_commit_antigo
+    atualizar_o_que_muda
 
     ATU_ETAPA="conferindo o espaco em disco"
     atualizar_checar_disco "$sem_homes"
@@ -567,6 +572,7 @@ atualizar_checar_disco() {
 
 # atualizar_baixar: git fetch + pull --ff-only (ou nada, com --sem-baixar).
 atualizar_baixar() {
+    if [ "${PERS_ATIVO:-0}" = 1 ]; then personalizacoes_baixar; return 0; fi
     if [ "$ATU_SEM_BAIXAR" = 1 ]; then
         info "--sem-baixar: uso o clone como esta (commit $(_git rev-parse --short HEAD 2>/dev/null || printf 'desconhecido'))."
         return 0
@@ -575,7 +581,7 @@ atualizar_baixar() {
         info "[ensaio] rodaria: git fetch  e depois  git pull --ff-only  em $ATU_REPO"
         return 0
     fi
-    local antes depois novos ramo
+    local antes depois novos ramo alvo
     ramo="$(_git rev-parse --abbrev-ref HEAD)"
     [ "$ramo" != HEAD ] || falha "o clone $ATU_REPO esta com a cabeca solta (sem branch), e nao ha de onde puxar a versao nova." \
         "volte para a branch principal: cd $ATU_REPO && git switch main (ou rode com --sem-baixar se atualizou os arquivos a mao). O backup ja foi feito."
@@ -586,9 +592,11 @@ atualizar_baixar() {
     _git fetch >/dev/null 2>&1 \
         || falha "o 'git fetch' falhou em $ATU_REPO (sem internet, ou o GitHub nao respondeu)." \
                  "confira a internet (curl -I https://github.com) e rode de novo. O backup ja foi feito; nada mais foi mudado."
-    novos="$(_git rev-list --count 'HEAD..@{u}')"
-    if ! _git pull --ff-only >/dev/null 2>&1; then
-        falha "o clone $ATU_REPO divergiu do GitHub (tem commits seus que nao estao la, ou o historico mudou), entao o 'git pull --ff-only' recusou. Nao fiz merge nem reset." \
+    # Instala EXATAMENTE a versao que o relatorio "o que muda" mostrou ao dono (ATU_DESTINO), nao o que o GitHub tem agora.
+    alvo="${ATU_DESTINO:-}"; [ -n "$alvo" ] || alvo='@{u}'
+    novos="$(_git rev-list --count "HEAD..$alvo")"
+    if ! _git merge --ff-only "$alvo" >/dev/null 2>&1; then
+        falha "o clone $ATU_REPO divergiu do GitHub (tem commits seus que nao estao la, ou o historico mudou), entao o 'git merge --ff-only' recusou. Nao fiz merge nem reset." \
               "veja a diferenca: cd $ATU_REPO && git log --oneline --graph --all -20. Guarde seus commits em outra branch (git branch minha-copia) e deixe o clone igual ao GitHub, ou peca ajuda. Depois rode de novo. O backup ja foi feito; nada mais foi mudado."
     fi
     depois="$(_git rev-parse HEAD)"

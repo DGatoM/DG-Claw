@@ -25,6 +25,24 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
   (`conversa-puro.js`); o app instalado busca a versão nova sozinho, mas se a conversa abrir com aviso
   de erro, feche e abra o app de novo.
 
+- **Nesta versão as personalizações ganham um registro.** Quem tinha o DG Claw de 17/10/2026 ainda não
+  tem o `dgclaw atualizar`; a atualização acontece pelo `install.sh` do clone. O instalador novo guarda,
+  antes de copiar o programa, tudo o que foi mudado direto em `/opt/dgclaw/app` (em
+  `/opt/dgclaw/admin/personalizacoes-migracao/<data>/`) e deixa um levantamento pendente. Depois de
+  atualizar, o Admin roda `sudo dgclaw personalizacoes levantar`, conta a você o que achou, confirma cada
+  mudança, reaplica na branch `personalizacoes` do jeito mais compatível com a arquitetura, registra em
+  `/opt/dgclaw/admin/PERSONALIZACOES.md` e fecha com `sudo dgclaw personalizacoes concluir`. O passo a passo
+  está no capítulo "Quem já tinha o DG Claw antes desta versão" do `docs/PERSONALIZAR.md`.
+- **As instruções do Admin ganharam a seção "Personalizar o programa do DG Claw".** Se o `CLAUDE.md` ou o
+  `AGENTS.md` do Admin foi personalizado, a atualização não o troca e grava o modelo novo ao lado, como
+  `.novo`. A seção nova precisa entrar no seu arquivo sem apagar o que você escreveu, para o Admin seguir o
+  guia e o registro em toda conversa.
+- **A partir desta versão, toda atualização passa pelo seu ok.** Cada DG Claw é usado de um jeito e pode
+  guardar informações sensíveis, então antes de instalar o Admin lê o que mudou e conta a você se vê risco
+  para os seus arquivos, dados e personalizações. O comando só instala com `--ok-do-dono`. Como as
+  instruções do Admin personalizadas não são trocadas, este parágrafo também precisa entrar na seção
+  "Atualizar o DG Claw" do seu `CLAUDE.md` ou `AGENTS.md`, junto da seção de personalização.
+
 ### Adicionado
 
 - Versão instalada: o arquivo `VERSION` (1.0.0) é a fonte única, o instalador grava `DGCLAW_VERSAO` e
@@ -55,6 +73,21 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
   agente. A conversa em que você está nunca mostra bolinha, e ela só conta como lida quando você chega ao fim dela. Quem guarda o que já foi lido é o servidor, então o
   celular e o computador concordam. Ao atualizar, ninguém aparece com tudo aceso: cada agente começa zerado. Também
   existe como rota de API (`GET /api/v1/nao-lidas` e `POST /api/v1/agents/<agente>/lido`).
+- **Mudança muito importante para quem personaliza o DG Claw.** O seu DG Claw vai ser personalizado por
+  você e continuar sendo atualizado pelo Danilo. Para manter a estabilidade e preservar as suas
+  alterações, daqui para frente toda personalização do programa (um botão novo, uma cor, um comportamento
+  diferente) segue duas regras: o Admin lê antes o guia `docs/PERSONALIZAR.md`, que mostra a arquitetura
+  em uma página e onde a mudança deve entrar, e anota cada personalização no registro
+  `/opt/dgclaw/admin/PERSONALIZACOES.md` (data, o que você pediu, arquivos, por quê e como testar). Na hora
+  de atualizar, o `dgclaw atualizar` confere esse registro contra a versão nova: se nada cruza, reaplica as
+  suas personalizações por cima; se algo cruza, para antes de mexer e o Admin pergunta se pode ajustar.
+  Quem já usava o DG Claw passa por uma migração na primeira atualização: o que tinha sido mudado direto
+  no programa é guardado antes de a versão nova entrar, e o Admin levanta e registra tudo com você
+  (`dgclaw personalizacoes levantar`).
+- Antes de instalar uma versão nova, o `dgclaw atualizar` mostra o que muda: os commits, os itens novos do
+  CHANGELOG e os pontos de atenção (instalador, firewall, credenciais, banco de dados, rotas do painel e os
+  arquivos que você personalizou). O Admin lê, conta a você se vê algum risco para os seus arquivos, dados e
+  personalizações, e só instala com o seu ok (`--ok-do-dono`).
 - Botão "Reiniciar sessão" no menu da conversa: quando um agente trava, o dono confirma, o processo dele é
   refeito e a conversa continua de onde estava. Uma faixa no topo mostra "reiniciando", "de volta" ou o motivo
   da falha. Também existe como rota de API (`POST /api/v1/agents/<agente>/reiniciar`).

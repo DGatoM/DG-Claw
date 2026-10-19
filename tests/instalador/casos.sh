@@ -458,7 +458,7 @@ caso_reinstalar_preserva_linhas_alheias_do_dgclaw_env_e_anota_o_clone() {
     afirma "a linha alheia sobreviveu" grep -qx 'LINHA_DA_MARTA=oi' "$env"
     afirma "o dominio de antes foi mantido" grep -qx 'DGCLAW_DOMINIO=antigo.exemplo.org' "$env"
     afirma "a versao foi trocada no lugar" grep -qx 'DGCLAW_VERSAO=1.0.0-teste' "$env"
-    igual "so uma linha de versao" 1 "$(grep -c '^DGCLAW_VERSAO=' "$env")"
+    afirma "so uma linha de versao" igual 1 "$(grep -c '^DGCLAW_VERSAO=' "$env")"
     afirma "a ordem das linhas antigas foi mantida" bash -c "[ \"\$(grep -n -e '^DGCLAW_DOMINIO=' -e '^LINHA_DA_MARTA=' -e '^DGCLAW_VERSAO=' '$env' | cut -d: -f1 | tr '\n' ' ')\" = '1 2 3 ' ]"
     afirma "anota onde esta o clone" grep -qx "DGCLAW_REPO=$FALSO" "$env"
     afirma "o modo do arquivo que ja existia foi mantido" modo_e "$env" 640
@@ -502,5 +502,240 @@ caso_admin_sem_historico_git_e_diferente_do_modelo_vira_novo() {
     afirma "segunda instalacao (zip, sem historico)" instalacao_basica
     afirma "sem como provar que e de fabrica, o lado seguro: nao troca" tem "$adm/CLAUDE.md" "# Admin (Claude)"
     afirma "e deixa o novo ao lado" tem "$adm/CLAUDE.md.novo" "v2"
+    limpar_cenario
+}
+
+# --- personalizacoes: o rsync --delete nao pode levar embora o que o Admin mexeu no app ---------
+
+# repo_git_falso: torna o repositorio falso um git de verdade (com PERSONALIZAR.md no oficial).
+repo_git_falso() {
+    rm -rf "$FALSO/.git"
+    mkdir -p "$FALSO/docs"
+    echo '# personalizar' >"$FALSO/docs/PERSONALIZAR.md"
+    printf '# Personalizações do meu DG Claw\n\nCaderno.\n' >"$FALSO/templates/admin/PERSONALIZACOES.md"
+    echo 'oficial' >"$FALSO/web/apagar-depois.js"
+    GIT_F=(git -C "$FALSO" -c user.name=t -c user.email=t@t)
+    "${GIT_F[@]}" init -q
+    "${GIT_F[@]}" add -A
+    "${GIT_F[@]}" commit -q -m v1
+}
+
+caso_app_alterado_a_mao_vai_para_a_pasta_de_migracao() {
+    novo_cenario
+    repo_git_falso
+    afirma "primeira instalacao" instalacao_basica
+    local app="$RAIZ/opt/dgclaw/app" adm="$RAIZ/opt/dgclaw/admin"
+    afirma "instalacao nova nao cria pasta de migracao" test ! -e "$adm/personalizacoes-migracao"
+    printf '// editado pelo Admin\n' >>"$app/web/server.js"
+    echo 'novo' >"$app/web/extra.js"
+    rm -f "$app/web/apagar-depois.js"
+    afirma "segunda instalacao" instalacao_basica
+    local pasta lista
+    pasta="$(find "$adm/personalizacoes-migracao" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+    lista="$pasta/LISTA.txt"
+    afirma "criou a pasta de migracao" test -d "$pasta"
+    afirma "a pasta e so do root (700)" modo_e "$pasta" 700
+    afirma "LISTA tem M do arquivo editado" grep -qxP 'M\tweb/server.js' "$lista"
+    afirma "LISTA tem A do arquivo acrescentado" grep -qxP 'A\tweb/extra.js' "$lista"
+    afirma "LISTA tem D do arquivo apagado" grep -qxP 'D\tweb/apagar-depois.js' "$lista"
+    afirma "LISTA so tem as 3 linhas" igual 3 "$(grep -c . "$lista")"
+    afirma "o patch tem a edicao" tem "$pasta/diff.patch" "+// editado pelo Admin"
+    afirma "o tar abre e guarda o arquivo novo" bash -c "tar -tzf '$pasta/app-antes.tar.gz' | grep -q 'web/extra.js'"
+    afirma "o tar guarda a edicao" bash -c "tar -xzOf '$pasta/app-antes.tar.gz' ./web/server.js | grep -q 'editado pelo Admin'"
+    afirma "tem o LEIA.txt" test -s "$pasta/LEIA.txt"
+    afirma "o PENDENTE existe" test -s "$adm/personalizacoes-migracao/PENDENTE"
+    afirma "o aviso aparece na saida" tem "$SAIDA" "dgclaw personalizacoes levantar"
+    afirma "o app voltou a ser igual ao oficial (editado)" bash -c "! grep -q 'editado pelo Admin' '$app/web/server.js'"
+    afirma "o app voltou a ser igual ao oficial (acrescentado)" test ! -e "$app/web/extra.js"
+    afirma "o app voltou a ser igual ao oficial (apagado)" test -f "$app/web/apagar-depois.js"
+    limpar_cenario
+}
+
+caso_reinstalar_sem_diferenca_nao_cria_pasta_nem_pendente() {
+    novo_cenario
+    repo_git_falso
+    afirma "primeira instalacao" instalacao_basica
+    local adm="$RAIZ/opt/dgclaw/admin"
+    afirma "o registro nasceu do modelo" test -s "$adm/PERSONALIZACOES.md"
+    afirma "segunda instalacao" instalacao_basica
+    afirma "terceira instalacao" instalacao_basica
+    afirma "nenhuma pasta de migracao" test ! -e "$adm/personalizacoes-migracao"
+    afirma "nenhum PENDENTE" test ! -e "$adm/personalizacoes-migracao/PENDENTE"
+    limpar_cenario
+}
+
+caso_instalacao_anterior_ao_registro_deixa_pendente() {
+    novo_cenario
+    repo_git_falso
+    # versao do programa sem docs/PERSONALIZAR.md (como as distribuidas antes desta funcionalidade)
+    "${GIT_F[@]}" rm -q -f docs/PERSONALIZAR.md
+    "${GIT_F[@]}" commit -q -m sem-doc
+    afirma "primeira instalacao" instalacao_basica
+    local adm="$RAIZ/opt/dgclaw/admin"
+    rm -f "$adm/PERSONALIZACOES.md"
+    afirma "segunda instalacao" instalacao_basica
+    afirma "o PENDENTE existe" test -s "$adm/personalizacoes-migracao/PENDENTE"
+    afirma "o PENDENTE diz o motivo" tem "$adm/personalizacoes-migracao/PENDENTE" "instalacao anterior ao registro de personalizacoes"
+    afirma "sem diferenca no app nao cria pasta datada" test -z "$(find "$adm/personalizacoes-migracao" -mindepth 1 -type d)"
+    afirma "o registro foi criado" test -s "$adm/PERSONALIZACOES.md"
+    limpar_cenario
+}
+
+caso_registro_existente_nao_e_sobrescrito() {
+    novo_cenario
+    repo_git_falso
+    mkdir -p "$RAIZ/opt/dgclaw/admin"
+    printf '# meu registro\n## 2026-10-19 - Algo\n' >"$RAIZ/opt/dgclaw/admin/PERSONALIZACOES.md"
+    afirma "instalacao" instalacao_basica
+    afirma "o registro existente foi mantido" tem "$RAIZ/opt/dgclaw/admin/PERSONALIZACOES.md" "# meu registro"
+    nega "e nao virou o modelo" tem "$RAIZ/opt/dgclaw/admin/PERSONALIZACOES.md" "Personalizações do meu DG Claw"
+    limpar_cenario
+}
+
+caso_versao_sem_hash_guarda_copia_sem_base() {
+    novo_cenario
+    repo_git_falso
+    afirma "primeira instalacao" instalacao_basica
+    local app="$RAIZ/opt/dgclaw/app" adm="$RAIZ/opt/dgclaw/admin" env="$RAIZ/etc/dgclaw/dgclaw.env"
+    sed -i 's/^DGCLAW_VERSAO=.*/DGCLAW_VERSAO=v1/; /^DGCLAW_COMMIT=/d' "$env"
+    printf '// editado\n' >>"$app/web/server.js"
+    # Simula a instalacao de antes do registro (zip de 17/10): o app ainda nao tinha o guia.
+    rm -f "$app/docs/PERSONALIZAR.md"
+    afirma "segunda instalacao" instalacao_basica
+    local pasta
+    pasta="$(find "$adm/personalizacoes-migracao" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+    afirma "criou a pasta" test -d "$pasta"
+    afirma "LISTA diz que nao ha base" tem "$pasta/LISTA.txt" "sem base de comparacao"
+    nega "nao ha diff.patch" test -e "$pasta/diff.patch"
+    afirma "o tar do app abre e tem a edicao" bash -c "tar -xzOf '$pasta/app-antes.tar.gz' ./web/server.js | grep -q editado"
+    afirma "o PENDENTE existe" test -s "$adm/personalizacoes-migracao/PENDENTE"
+    limpar_cenario
+}
+
+# sem_base: apaga o commit anotado no dgclaw.env (a instalacao seguinte nao tem com o que comparar).
+sem_base() { sed -i 's/^DGCLAW_VERSAO=.*/DGCLAW_VERSAO=v1/; /^DGCLAW_COMMIT=/d' "$RAIZ/etc/dgclaw/dgclaw.env"; }
+
+
+caso_sem_base_com_guia_guarda_copia_e_nao_acumula_copias_iguais() {
+    novo_cenario
+    repo_git_falso
+    afirma "primeira instalacao" instalacao_basica
+    local app="$RAIZ/opt/dgclaw/app" adm="$RAIZ/opt/dgclaw/admin" mig
+    mig="$adm/personalizacoes-migracao"
+    sem_base
+    afirma "segunda instalacao" instalacao_basica
+    afirma "sem base, mesmo com o guia, guarda uma copia" igual 1 "$(find "$mig" -mindepth 1 -maxdepth 1 -type d | wc -l)"
+    local pasta; pasta="$(find "$mig" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+    afirma "a copia tem a IMPRESSAO" test -s "$pasta/IMPRESSAO"
+    afirma "a copia tem o tar" bash -c "tar -tzf '$pasta/app-antes.tar.gz' >/dev/null"
+    afirma "o PENDENTE existe" test -s "$mig/PENDENTE"
+    sem_base
+    afirma "terceira instalacao (app igual)" instalacao_basica
+    afirma "app igual: nao cria outra copia" igual 1 "$(find "$mig" -mindepth 1 -maxdepth 1 -type d | wc -l)"
+    afirma "diz numa linha que e identico" tem "$SAIDA" "identico ao da ultima copia"
+    printf '// mexido\n' >>"$app/web/server.js"
+    sem_base
+    afirma "quarta instalacao (app mudou)" instalacao_basica
+    afirma "app diferente: cria outra copia" igual 2 "$(find "$mig" -mindepth 1 -maxdepth 1 -type d | wc -l)"
+    limpar_cenario
+}
+
+caso_env_e_banco_nao_somem_sem_copia_mas_artefatos_regeneraveis_sim() {
+    novo_cenario
+    repo_git_falso
+    # O .gitignore do repositorio ignora .env e *.db: isso NAO pode esconder o arquivo da copia.
+    printf '.env\n*.db\nrunner/dist/\n' >"$FALSO/.gitignore"
+    "${GIT_F[@]}" add -A
+    "${GIT_F[@]}" commit -q -m gitignore
+    afirma "primeira instalacao" instalacao_basica
+    local app="$RAIZ/opt/dgclaw/app" adm="$RAIZ/opt/dgclaw/admin" lista
+    printf 'CHAVE=segredo\n' >"$app/.env"
+    printf 'dados\n' >"$app/web/dados.db"
+    mkdir -p "$app/runner/dist" "$app/web/__pycache__"
+    printf 'js\n' >"$app/runner/dist/x.js"
+    printf 'pyc\n' >"$app/web/__pycache__/a.pyc"
+    printf 'pyc\n' >"$app/web/solto.pyc"
+    afirma "segunda instalacao" instalacao_basica
+    lista="$(find "$adm/personalizacoes-migracao" -mindepth 2 -maxdepth 2 -name LISTA.txt | head -n 1)"
+    afirma "LISTA.txt existe" test -s "$lista"
+    afirma ".env entra na lista" grep -qxP 'A\t\.env' "$lista"
+    afirma "*.db entra na lista" grep -qxP 'A\tweb/dados.db' "$lista"
+    nega "runner/dist nao entra" grep -q 'runner/dist' "$lista"
+    nega "__pycache__ nao entra" grep -q '__pycache__' "$lista"
+    nega "*.pyc nao entra" grep -q 'pyc' "$lista"
+    afirma ".env esta no tar da copia" bash -c "tar -xzOf '$(dirname "$lista")/app-antes.tar.gz' ./.env | grep -q segredo"
+    limpar_cenario
+}
+
+caso_permissao_e_link_trocado_sao_detectados() {
+    novo_cenario
+    repo_git_falso
+    ln -s server.js "$FALSO/web/atalho"
+    ln -s server.js "$FALSO/web/atalho2"
+    "${GIT_F[@]}" add -A
+    "${GIT_F[@]}" commit -q -m links
+    afirma "primeira instalacao" instalacao_basica
+    local app="$RAIZ/opt/dgclaw/app" adm="$RAIZ/opt/dgclaw/admin" lista
+    chmod +x "$app/web/package.json"
+    ln -sfn outro-alvo.js "$app/web/atalho"
+    rm -f "$app/web/atalho2"
+    ln -s server.js "$app/web/novo-link"
+    afirma "segunda instalacao" instalacao_basica
+    lista="$(find "$adm/personalizacoes-migracao" -mindepth 2 -maxdepth 2 -name LISTA.txt | head -n 1)"
+    afirma "a mudanca so de permissao e P" grep -qxP 'P\tweb/package.json' "$lista"
+    afirma "link trocado e L" grep -qxP 'L\tweb/atalho' "$lista"
+    afirma "link apagado e L" grep -qxP 'L\tweb/atalho2' "$lista"
+    afirma "link novo e L" grep -qxP 'L\tweb/novo-link' "$lista"
+    afirma "so essas 4 linhas" igual 4 "$(grep -c . "$lista")"
+    afirma "o LEIA.txt explica as letras" tem "$(dirname "$lista")/LEIA.txt" "P  so a permissao mudou"
+    afirma "o app voltou ao oficial (sem o +x)" test ! -x "$app/web/package.json"
+    limpar_cenario
+}
+
+caso_comparacao_que_falha_guarda_copia_e_marca_pendente() {
+    novo_cenario
+    repo_git_falso
+    afirma "primeira instalacao" instalacao_basica
+    local app="$RAIZ/opt/dgclaw/app" adm="$RAIZ/opt/dgclaw/admin" pasta
+    mkdir -p "$TMP/bin"
+    printf '#!/bin/sh\ncase "$*" in *-rlpcni*) echo "rsync: falha de mentira" >&2; exit 23 ;; esac\nexec /usr/bin/rsync "$@"\n' >"$TMP/bin/rsync"
+    chmod +x "$TMP/bin/rsync"
+    printf '// editado\n' >>"$app/web/server.js"
+    EXTRA_ENV=("PATH=$TMP/bin:$AQUI/stubs:/usr/bin:/bin")
+    afirma "segunda instalacao (comparacao falha)" instalacao_basica
+    pasta="$(find "$adm/personalizacoes-migracao" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+    afirma "guardou a copia" test -s "$pasta/app-antes.tar.gz"
+    afirma "a LISTA diz que nao deu para comparar" tem "$pasta/LISTA.txt" "nao deu para comparar"
+    afirma "o PENDENTE existe" test -s "$adm/personalizacoes-migracao/PENDENTE"
+    afirma "o aviso cita o codigo do rsync" tem "$SAIDA" "codigo 23"
+    nega "nao ha diff.patch" test -e "$pasta/diff.patch"
+    limpar_cenario
+}
+
+caso_link_quebrado_no_app_nao_trava_a_reinstalacao() {
+    novo_cenario
+    repo_git_falso
+    afirma "primeira instalacao" instalacao_basica
+    local app="$RAIZ/opt/dgclaw/app" adm="$RAIZ/opt/dgclaw/admin" pasta
+    ln -s /nao/existe/mesmo "$app/web/quebrado"
+    printf '// editado\n' >>"$app/web/server.js"
+    afirma "segunda instalacao termina" instalacao_basica
+    pasta="$(find "$adm/personalizacoes-migracao" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+    afirma "o tar guardou o link quebrado" bash -c "tar -tzf '$pasta/app-antes.tar.gz' | grep -q 'web/quebrado'"
+    afirma "o link quebrado esta na LISTA como L" grep -qxP 'L\tweb/quebrado' "$pasta/LISTA.txt"
+    afirma "o patch tem a edicao do arquivo regular" tem "$pasta/diff.patch" "+// editado"
+    nega "o patch nao fala do link" tem "$pasta/diff.patch" "quebrado"
+    limpar_cenario
+}
+
+caso_ensaio_nao_grava_pasta_de_migracao() {
+    novo_cenario
+    repo_git_falso
+    afirma "primeira instalacao" instalacao_basica
+    printf '// editado\n' >>"$RAIZ/opt/dgclaw/app/web/server.js"
+    afirma "ensaio" instalacao_basica --ensaio
+    afirma "o ensaio anuncia a copia" tem "$SAIDA" "guardaria uma copia"
+    afirma "nenhuma pasta de migracao" test ! -e "$RAIZ/opt/dgclaw/admin/personalizacoes-migracao"
+    afirma "a edicao continua no app" tem "$RAIZ/opt/dgclaw/app/web/server.js" "// editado"
     limpar_cenario
 }

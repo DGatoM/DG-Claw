@@ -140,6 +140,8 @@ Opções que você usa só quando preciso:
 |---|---|
 | `--repo <pasta>` | o instalador não anotou onde está o clone (instalação antiga). Procure com `find / -name install.sh -path '*DG-Claw*' 2>/dev/null` |
 | `--forcar-local` | o clone tem alteração local e o dono autorizou guardá-la num stash datado |
+| `--ok-do-dono` | o dono leu o relatório "o que muda" e disse sim. Vale para a versão que ele viu: se a versão de destino mudou desde o relatório, o comando para e mostra o novo |
+| `--sem-personalizacoes` | **só se o dono decidiu** instalar a versão oficial sem as personalizações, com o clone fora da branch `personalizacoes`. Sem esta opção, o comando para antes do backup |
 | `--sem-baixar` | o clone já foi atualizado à mão (ou veio de um zip novo); só reinstala o que está na pasta |
 | `--sem-backup-agentes` | **só se o dono pedir explicitamente** (disco curto): o backup não leva as casas dos agentes. O resto do backup entra sempre |
 | `--sem-voltar-sozinho` | desliga a volta automática (ver "Quando a atualização volta sozinha"): o comando para no erro e deixa como está |
@@ -155,7 +157,8 @@ Opções que você usa só quando preciso:
 3. **Confere o disco**: precisa do tamanho do backup mais uns 6 GB para a imagem nova.
 4. **Backup datado** em `/var/backups/dgclaw/<AAAAMMDD-HHMMSS>/` (pasta 700, só root): `config.tar.gz`
    (`/etc/dgclaw`), `dados.tar.gz` (`/var/lib/dgclaw` inteiro), `admin.tar.gz` (`/opt/dgclaw/admin`),
-   `transcricoes-admin.tar.gz` (a conversa do Admin) e o `MANIFESTO.txt` (commit anterior, lista de
+   `transcricoes-admin.tar.gz` (a conversa do Admin), `app.tar.gz` (o programa instalado em `/opt/dgclaw/app`,
+   para o `--voltar` também achar o programa de antes) e o `MANIFESTO.txt` (commit anterior, lista de
    agentes, sha256 dos arquivos de configuração e das identidades). Cada tar é aberto (`tar -tzf`) antes
    de seguir: se não abrir, o comando para e nada foi mudado.
 5. **Baixa a versão nova**: `git fetch` e `git pull --ff-only`. Se o clone divergiu, para e explica;
@@ -227,6 +230,82 @@ como se essa opção estivesse ligada.
 
 Veja também `docs/BACKUP.md` para os backups manuais (`dgclaw backup`) e a restauração (`dgclaw restaurar`).
 
+## Ler o que muda antes de instalar
+
+Cada DG Claw é personalizado e usado de um jeito, e pode guardar informações sensíveis do dono. Por isso,
+antes de instalar qualquer atualização, quem cuida dela (quase sempre o Admin) lê o que mudou e verifica
+se a versão nova pode trazer dano ou risco aos arquivos, aos dados e às personalizações de agora. Se
+encontrar risco, por exemplo uma função nova que abre acesso a dados ou ao banco, avisa o dono antes e não
+instala sem o ok dele.
+
+O `dgclaw atualizar` força esse passo:
+
+1. `sudo dgclaw atualizar --simular` busca a versão nova (só as referências do git, sem mudar arquivos) e
+   grava o relatório `/var/log/dgclaw/dgclaw-atualizar-<data>.o-que-muda.txt`: os commits novos, o tamanho
+   da mudança, os itens novos do CHANGELOG e os **pontos de atenção** (arquivos alterados em áreas
+   sensíveis: instalador, firewall, caixa dos agentes, ganchos de segurança, credenciais, banco de dados,
+   rotas do painel, arquivos que você personalizou).
+2. O Admin lê o relatório (e, nos pontos de atenção, o próprio diff:
+   `git -C <clone> diff <commit instalado> <versão nova> -- <arquivo>`) e conta ao dono, em linguagem
+   simples, o que vem e se vê risco. Exemplo: "A versão nova traz o aviso de atualização no painel e muda
+   o instalador para criar um timer. Não vi nada que abra acesso aos seus dados. Posso instalar?"
+3. Só com o ok do dono: `sudo dgclaw atualizar --ok-do-dono --segundo-plano`. Sem `--ok-do-dono`, e havendo
+   algo novo, o comando para antes do backup e não muda nada.
+
+## Personalizações do dono
+
+Quem personalizou o próprio DG Claw (um botão, uma cor, um comportamento do painel) tem essas mudanças
+guardadas como commits na branch `personalizacoes` do clone e anotadas em
+`/opt/dgclaw/admin/PERSONALIZACOES.md`. O guia completo está em `docs/PERSONALIZAR.md`. A atualização
+nunca pode levar embora uma personalização sem o dono saber, e o `dgclaw atualizar` cuida disso sozinho
+quando o clone está nessa branch:
+
+1. Antes do backup, ele busca a versão nova (`git fetch`, que não muda os arquivos) e cruza os arquivos
+   que ela muda com os arquivos personalizados (pelo git e pelo registro). A simulação já mostra esse
+   cruzamento, e `sudo dgclaw personalizacoes conferir` mostra o mesmo a qualquer momento.
+2. **Sem cruzamento:** faz o backup, guarda uma cópia da branch em `personalizacoes-antes-<data>`,
+   reaplica as personalizações por cima da versão nova (`git rebase origin/main`), instala e segue. O
+   resumo final diz quantas foram reaplicadas. Depois, cada uma é testada pelo "Como testar" do registro,
+   e o dono fica sabendo do resultado.
+3. **Com cruzamento:** para antes de mexer em qualquer coisa e mostra uma frase pronta para o dono, no
+   espírito de "A personalização X tem uma inconsistência com esta atualização: a versão nova também mexe
+   em tal arquivo. Posso ajustar para você atualizar e manter tudo funcionando?". Nada foi mudado.
+
+### Personalização que cruza com a versão nova
+
+O ajuste só começa depois do sim do dono. Se ele preferir, a atualização espera, ou a personalização é
+desfeita (`git revert`, entrada marcada como `desfeita`). Com o sim:
+
+```bash
+git -C <clone> branch personalizacoes-antes-<data>      # cópia de segurança da branch
+git -C <clone> fetch origin
+git -C <clone> rebase origin/main                       # para em cada conflito
+# resolver cada conflito mantendo a novidade oficial e refazendo a personalização por cima dela;
+# git -C <clone> add <arquivo> e git -C <clone> rebase --continue
+```
+
+Se o conflito ficar grande, `git -C <clone> rebase --abort` devolve tudo ao que era. Quase sempre vale
+aproveitar para refazer a personalização de um jeito que cruze menos (arquivo novo próprio, ou ponto de
+extensão), como sugere a arquitetura do `PERSONALIZAR.md`. Depois: atualize a entrada do registro
+(arquivos e commit), rode `sudo dgclaw atualizar --simular` (o cruzamento deve sumir, porque a branch já
+está por cima da versão nova) e então `sudo dgclaw atualizar --ok-do-dono --segundo-plano`. No fim, teste a
+personalização pelo "Como testar" e conte ao dono. Nunca `reset --hard`, nunca apagar a branch de cópia.
+
+### Primeira atualização vinda de uma versão sem o registro
+
+As instalações anteriores a esta versão (a de 17/10/2026, por exemplo) não tinham o registro, e alguma
+mudança pode ter sido feita direto em `/opt/dgclaw/app`. O instalador novo cuida disso antes de copiar o
+programa: compara `/opt/dgclaw/app` com a versão oficial que estava instalada e guarda o que foi mudado
+em `/opt/dgclaw/admin/personalizacoes-migracao/<data>/` (lista, diferenças e uma cópia completa da pasta
+de antes). Também deixa marcado `/opt/dgclaw/admin/personalizacoes-migracao/PENDENTE`. Nada se perde.
+
+Depois dessa atualização vem o levantamento, antes de qualquer outra mudança no programa:
+`sudo dgclaw personalizacoes levantar` junta o que foi mudado direto no programa, o que está alterado ou
+commitado no clone, os stashes `dgclaw-atualizar-*` e os arquivos que o Admin editou segundo as conversas
+dele. O passo a passo com o dono (confirmar cada mudança, reaplicar na branch do jeito mais compatível,
+registrar, testar e rodar `sudo dgclaw personalizacoes concluir`) está no capítulo "Quem já tinha o DG
+Claw antes desta versão" do `PERSONALIZAR.md`.
+
 ## Atualização INCOMPLETA (algum agente não foi recriado)
 
 Se **qualquer** agente falhar ao recriar, ou não responder no fim, o resumo diz
@@ -247,8 +326,9 @@ O que você faz e diz ao dono:
 ## Conflitos possíveis e como resolver
 
 **Clone com alteração local.** O comando para e lista os arquivos. Pergunte ao dono se aquilo é dele.
-Se não for (costuma ser um arquivo que o próprio Admin editou numa sessão antiga), rode com
-`--forcar-local`: nada se perde, fica no stash. Para devolver depois: `cd <clone> && git stash list` e
+Se for uma personalização que ficou sem commit, ela entra na branch `personalizacoes` e no registro
+(`docs/PERSONALIZAR.md`) antes de atualizar. Se não for de ninguém (costuma ser um arquivo que o próprio
+Admin editou numa sessão antiga), rode com `--forcar-local`: nada se perde, fica no stash. Para devolver depois: `cd <clone> && git stash list` e
 `git stash apply <stash>`. Se for trabalho do dono, não force: peça para ele decidir.
 
 **Clone não encontrado.** O erro diz como passar `--repo`. Instalações feitas antes desta função não
@@ -378,8 +458,9 @@ Se existirem agentes criados **depois** do backup, o comando para e lista quais:
 `agentes.json` os tiraria do painel (as pastas ficam). Se o dono quer voltar mesmo assim, use
 `--mesmo-assim`; senão escolha um backup mais recente.
 
-Para atualizar de novo depois de voltar, volte o clone para a branch principal (`cd <clone> && git switch
-main`) e rode `dgclaw atualizar`.
+Para atualizar de novo depois de voltar, volte o clone para a branch `personalizacoes`, se ela existir, ou
+senão para a `main` (`cd <clone> && git switch personalizacoes`, ou `git switch main`), e rode
+`dgclaw atualizar`.
 
 ## O que dizer ao dono em cada etapa
 
@@ -400,6 +481,11 @@ Frases curtas e sem jargão. Container vira "a caixa do agente".
   meu serviço agora; se o chat parar, espere uns 20 segundos e recarregue a página."
 - **Problema**: "Parei no meio por causa de <causa em uma frase>. Seus dados estão salvos. Vou <o que fará>.
   Se preferir, volto à versão de antes."
+- **Personalização que cruza**: "A personalização <nome> tem uma inconsistência com esta atualização: a versão
+  nova também mexe em <onde>. Posso ajustar para você atualizar e manter <nome> funcionando? Até agora
+  nada foi mudado." (só ajuste depois do sim)
+- **Personalizações reaplicadas**: "Atualizei e reapliquei as suas N personalizações por cima da versão nova.
+  Testei cada uma: <resultado>."
 
 ## Quando a plataforma avisa que tem versão nova
 

@@ -29,6 +29,8 @@ APP_DIR="$(cd "$(dirname "$DGCLAW_BIN_REAL")/.." && pwd)"
 . "$APP_DIR/lib/versao.sh"
 # shellcheck source=lib/aviso-atualizacao.sh
 . "$APP_DIR/lib/aviso-atualizacao.sh"
+# shellcheck source=lib/personalizacoes.sh
+. "$APP_DIR/lib/personalizacoes.sh"
 
 # Tempo maximo de espera (segundos) do systemd e do /api/saude de dentro do agente.
 # Variavel so para os testes nao esperarem um minuto de verdade.
@@ -118,7 +120,10 @@ Atualizar o DG Claw
       Faz, nesta ordem: confere o clone, faz o backup datado em /var/backups/dgclaw/, baixa a versao
       nova (git pull so se for simples), roda o instalador, reconstroi a imagem, recria o container de
       cada agente (casa, cofre e rotinas ficam), confere que nada do que existia sumiu ou mudou e
-      reinicia o Admin por ultimo. Opcoes:
+      reinicia o Admin por ultimo. Se o clone estiver na branch `personalizacoes`, confere o registro
+      de personalizacoes contra a versao nova: para se algo cruzar e reaplica por cima se nao cruzar
+      (--simular ja mostra o cruzamento). Antes do backup, mostra o relatorio "O que muda" (commits,
+      CHANGELOG, pontos de atencao; gravado em /var/log/dgclaw/) e so segue com --ok-do-dono. Opcoes:
         --simular               mostra tudo o que faria, sem mudar nada
         --repo <pasta>          onde esta o clone do DG Claw (o instalador anota; so precisa se ele nao souber)
         --forcar-local          se o clone tiver alteracao local, guarda num stash datado e segue
@@ -126,6 +131,7 @@ Atualizar o DG Claw
         --sem-backup-agentes    pula o backup das casas dos agentes (so se a pessoa pedir; o resto entra)
         --sem-voltar-sozinho    se o instalador novo ou a conferencia falharem, para e deixa como esta
                                 (o padrao e voltar sozinho ao backup; agente que nao sobe NUNCA faz voltar)
+        --ok-do-dono            o dono leu o relatorio "O que muda" e autorizou; sem isso a atualizacao de verdade nao segue
         --segundo-plano         roda solto do terminal (recomendado para o Admin) e deixa o log em /var/log/dgclaw/
       Exemplo:  sudo dgclaw atualizar --simular
   dgclaw atualizar --checar              confere agora se saiu versao nova (so le o GitHub; nao baixa nem instala)
@@ -148,6 +154,13 @@ Backup e restauracao
       Devolve configuracao, dados e Admin do backup (antes, faz um backup do estado de agora, para voce
       poder desfazer). So restaura backup da mesma versao instalada; para voltar codigo e dados juntos
       use 'dgclaw atualizar --voltar'. Exemplo:  sudo dgclaw restaurar /var/backups/dgclaw/20261018-093000-manual
+
+Personalizacoes do programa (o que o Admin mudou no DG Claw)
+  dgclaw personalizacoes levantar        lista o que foi personalizado: registro, clone, copias do instalador e conversas do Admin
+      Grava LEVANTAMENTO.md em /opt/dgclaw/admin/personalizacoes-migracao/ (so caminhos e datas, nunca conteudo).
+  dgclaw personalizacoes conferir        confere o registro contra a versao nova (git fetch) e diz se algo cruza; nao muda nada
+  dgclaw personalizacoes concluir        marca o levantamento pendente como concluido (exige o registro)
+      Exemplo:  sudo dgclaw personalizacoes conferir
 
 Geral
   dgclaw versao                          mostra a versao e o commit instalados (tambem: dgclaw --version)
@@ -2020,6 +2033,7 @@ main() {
         backup) backup_main "$@" ;;
         restaurar) restaurar_main "$@" ;;
         versao|--version) versao_main "$@" ;;
+        personalizacoes) personalizacoes_main "$@" ;;
         *) falha "o comando '$cmd' nao existe." "veja os comandos com: dgclaw --ajuda" ;;
     esac
 }
