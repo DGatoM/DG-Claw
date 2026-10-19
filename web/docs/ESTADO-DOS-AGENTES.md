@@ -73,8 +73,9 @@ O módulo `lib/vigia-atencao.js` olha o estado de cada agente a cada 5 s e manda
 
 - entrou em `precisa_de_voce`: "**Nome** precisa de você", corpo = o `resumo`, tag `atencao-<slug>`,
   abre `/a/<slug>`, fica na tela até tocar;
-- estava trabalhando e ficou ocioso **com resposta nova do agente**: "**Nome** terminou", corpo = a primeira
-  linha curta da resposta (mascarada) ou "Respondeu na conversa", tag `fim-<slug>`.
+- estava trabalhando e ficou ocioso **com resposta nova do agente**: "**Nome** terminou", corpo sempre
+  "Respondeu na conversa", tag `fim-<slug>`. O texto da resposta nunca vai para o aviso: a tela
+  bloqueada não pede senha, e nenhum filtro reconhece uma senha escrita em texto comum.
 
 Regras: a primeira leitura depois de ligar o Web só grava o estado (reiniciar nunca dispara aviso); sem sinal do
 runner não é transição; no máximo 1 aviso por agente e por tipo a cada 60 s; **nenhum aviso de uma conversa que

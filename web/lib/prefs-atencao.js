@@ -24,17 +24,24 @@ function criarPrefsAtencao({ arquivo, log }) {
       if (e.code === 'ENOENT') { dados = {}; return dados; }
       throw erro503(`Não consegui ler ${arquivo} (${e.code || e.message}). Não gravei nada para não apagar suas preferências. Confira as permissões da pasta ${pasta}.`);
     }
+    // Valida o documento inteiro numa variável temporária e só então troca o cache (revisão adversarial
+    // do PR #58): um usuário malformado no meio deixava `dados` pela metade, e a gravação seguinte
+    // apagava as escolhas que vinham depois dele.
+    let novo;
     try {
       const j = JSON.parse(bruto);
-      if (!j || typeof j !== 'object' || Array.isArray(j) || !j.usuarios || typeof j.usuarios !== 'object') throw new Error('falta o campo "usuarios"');
-      dados = {};
+      if (!j || typeof j !== 'object' || Array.isArray(j) || !j.usuarios || typeof j.usuarios !== 'object' || Array.isArray(j.usuarios)) throw new Error('falta o campo "usuarios"');
+      novo = {};
       for (const u of Object.keys(j.usuarios)) {
-        dados[u] = {};
-        for (const t of TIPOS) if (typeof j.usuarios[u][t] === 'boolean') dados[u][t] = j.usuarios[u][t];
+        const prefs = j.usuarios[u];
+        if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs)) throw new Error(`as preferências de "${u}" não são um objeto`);
+        novo[u] = {};
+        for (const t of TIPOS) if (typeof prefs[t] === 'boolean') novo[u][t] = prefs[t];
       }
     } catch (e) {
       throw erro503(`O arquivo ${arquivo} está ilegível (${e.message}). Não o apaguei: conserte-o ou renomeie-o e as preferências voltam ao padrão (tudo ligado).`);
     }
+    dados = novo;
     return dados;
   }
 
@@ -69,10 +76,12 @@ function criarPrefsAtencao({ arquivo, log }) {
     return de(usuario);
   }
 
-  /** O vigia pergunta: alguém quer este tipo de aviso? Se o arquivo estiver ilegível, o aviso sai (melhor avisar a mais). */
+  /** O vigia pergunta: alguém quer este tipo de aviso? Se o arquivo não pôde ser lido, o aviso NÃO sai:
+   *  sem saber o que a pessoa escolheu, mandar seria religar por conta própria um aviso que ela pode ter
+   *  desligado. O motivo já foi para o log pelo erro503 (revisão adversarial do PR #58). */
   function alguemQuer(tipo) {
     let d;
-    try { d = carrega(); } catch (e) { return true; }
+    try { d = carrega(); } catch (e) { return false; }
     const usuarios = Object.keys(d);
     if (!usuarios.length) return true;
     return usuarios.some((u) => d[u][tipo] !== false);

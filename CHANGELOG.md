@@ -46,7 +46,9 @@ medidor de uso da assinatura e o aviso de que um agente precisa de você.
   escolha ou perde o login. Pela API: `GET /api/v1/estados`. Documento em
   `web/docs/ESTADO-DOS-AGENTES.md`.
 - **Aviso no celular** quando um agente precisa de você ou termina uma resposta. O aviso não sai
-  quando você já está olhando aquela conversa, e sai no máximo um por agente a cada minuto. Os dois
+  quando você já está olhando aquela conversa, e sai no máximo um por agente a cada minuto. O aviso de
+  "terminou" diz só "Respondeu na conversa", sem nada do texto, porque a tela bloqueada do celular não
+  pede senha. Os dois
   tipos se ligam e desligam na tela de Lembretes. O aviso não aprova nada: para aprovar uma permissão
   é preciso abrir a conversa.
 - **Marcar como não lida.** No menu ☰ (botão ⋯ ou toque longo no agente) e no cabeçalho da conversa.

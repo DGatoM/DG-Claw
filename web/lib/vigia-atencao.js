@@ -1,7 +1,7 @@
 'use strict';
 // Vigia de atenção: olha o estado de cada agente a cada 5 s e manda aviso ao aparelho nas TRANSIÇÕES:
 //   * entrou em "precisa de você"  -> "<Nome> precisa de você" (corpo = o resumo seguro do estado)
-//   * trabalhava e ficou ocioso, com resposta nova do agente -> "<Nome> terminou" (corpo = 1ª linha da resposta)
+//   * trabalhava e ficou ocioso, com resposta nova do agente -> "<Nome> terminou" (corpo genérico, nunca o texto da resposta)
 //
 // Regras que mantêm o aviso útil em vez de chato:
 //   * a primeira leitura de cada agente só grava o estado: reiniciar o Web nunca dispara nada;
@@ -12,8 +12,6 @@
 // Não há botão de aprovar ou negar no aviso: aprovar uma permissão exige abrir a conversa já autenticada.
 // O relógio e o intervalo são injetados para os testes andarem no tempo sem esperar.
 
-const { mascarar } = require('./mascara');
-const { resumoSeguro } = require('./estados');
 
 const INTERVALO_MS = 5000;
 const VISTO_RECENTE_MS = 45000;
@@ -21,17 +19,10 @@ const ANTI_SPAM_MS = 60000;
 const FOLGA_RESPOSTA_MS = 2000;
 const ESPERA_THREAD_MS = 3000;
 
-/** Primeira linha útil de uma resposta, mascarada, sem marcação de markdown e curta.
- *  A ordem importa (revisão adversarial do PR #58): mascarar ANTES de tirar a marcação. Tirar o `_`
- *  primeiro deforma tokens como `ghp_...`, o mascarador deixa de reconhecê-los e o segredo inteiro
- *  iria para a tela bloqueada do celular. */
-function primeiraLinha(texto) {
-  for (const bruta of mascarar(String(texto == null ? '' : texto).slice(0, 4000)).split('\n')) {
-    const linha = bruta.replace(/^[#>*\-\s]+/, '').replace(/[*_`]+/g, '').trim();
-    if (linha) return resumoSeguro(linha);
-  }
-  return '';
-}
+// O corpo do "terminou" é sempre genérico (revisão adversarial do PR #58): a tela bloqueada do celular
+// não pede login, e o mascarador só reconhece formatos conhecidos de chave, não uma senha ou um dado
+// pessoal escrito em texto comum. O conteúdo fica na conversa, atrás da senha do painel.
+const CORPO_TERMINOU = 'Respondeu na conversa';
 
 function criarVigiaAtencao({ registro, estados, lerThread, push, prefs, relogio, log, intervaloMs }) {
   const agora = relogio || Date.now;
@@ -108,7 +99,7 @@ function criarVigiaAtencao({ registro, estados, lerThread, push, prefs, relogio,
       if (!resposta) return;
       await enviar(agente, 'terminou', {
         titulo: `${agente.nome} terminou`,
-        corpo: primeiraLinha(resposta.text) || 'Respondeu na conversa',
+        corpo: CORPO_TERMINOU,
         tag: `fim-${agente.slug}`,
         url: `/a/${agente.slug}`,
       });
@@ -140,4 +131,4 @@ function criarVigiaAtencao({ registro, estados, lerThread, push, prefs, relogio,
   return { tick, iniciar, parar, vendo };
 }
 
-module.exports = { criarVigiaAtencao, primeiraLinha, INTERVALO_MS, VISTO_RECENTE_MS, ANTI_SPAM_MS };
+module.exports = { criarVigiaAtencao, CORPO_TERMINOU, INTERVALO_MS, VISTO_RECENTE_MS, ANTI_SPAM_MS };

@@ -2,9 +2,10 @@
 // Vigia de atenção: transições, supressão por "vendo", anti-spam, primeira leitura, preferências e resumo sem segredo.
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const path = require('node:path');
 const { pastaTemp } = require('./ajuda');
-const { criarVigiaAtencao, primeiraLinha } = require('../lib/vigia-atencao');
+const { criarVigiaAtencao, CORPO_TERMINOU } = require('../lib/vigia-atencao');
 const { criarPrefsAtencao } = require('../lib/prefs-atencao');
 
 const CHAVE_FALSA = ['sk', 'ant', 'api03'].join('-') + '-' + 'Y'.repeat(95);
@@ -60,16 +61,17 @@ test('entrou em precisa_de_voce: aviso com resumo, tag, url e exigir_interacao; 
   assert.equal(a.acoes, undefined);
 });
 
-test('terminou: working -> ocioso com resposta nova manda a 1ª linha mascarada; sem resposta nova não manda', async () => {
+test('terminou: working -> ocioso com resposta nova manda só o texto genérico, nunca a resposta; sem resposta nova não manda', async () => {
   const t = montar();
   await t.vigia.tick();
   t.muda('trabalhando'); t.passa(5000); await t.vigia.tick();
   t.passa(5000);
-  t.fala(`## Pronto\nlinha dois\n${CHAVE_FALSA}`);
+  t.fala(`Sua senha é TesteLocal!42\n${CHAVE_FALSA}`);
   t.muda('ocioso'); await t.vigia.tick();
   assert.equal(t.enviados.length, 1);
   assert.equal(t.enviados[0].titulo, 'Ana terminou');
-  assert.equal(t.enviados[0].corpo, 'Pronto');
+  assert.equal(t.enviados[0].corpo, CORPO_TERMINOU);
+  assert.ok(!JSON.stringify(t.enviados[0]).includes('TesteLocal'), 'nada da resposta vai para a tela bloqueada');
   assert.equal(t.enviados[0].tag, 'fim-ana');
   assert.equal(t.enviados[0].exigir_interacao, undefined);
 
@@ -78,16 +80,6 @@ test('terminou: working -> ocioso com resposta nova manda a 1ª linha mascarada;
   t.muda('trabalhando'); await t.vigia.tick();
   t.passa(5000); t.muda('ocioso'); await t.vigia.tick();
   assert.equal(t.enviados.length, 1);
-});
-
-test('terminou: resposta que só tem segredo cai no texto padrão; linha longa é cortada', () => {
-  assert.equal(primeiraLinha('x'.repeat(300)).length, 80);
-  assert.ok(!primeiraLinha(`token ${CHAVE_FALSA}`).includes('YYYYY'));
-  assert.equal(primeiraLinha('   \n\n'), '');
-  // Revisão adversarial do PR #58: tirar o "_" antes de mascarar deixava passar token do GitHub.
-  const ghp = 'ghp_' + 'a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8';
-  assert.ok(!primeiraLinha(`Pronto: ${ghp}`).includes('a1B2c3D4'), 'token com _ não pode ir para o aviso');
-  assert.ok(!primeiraLinha(`**Pronto** \`${ghp}\``).includes('a1B2c3D4'), 'nem dentro de markdown');
 });
 
 test('supressão: quem está olhando a conversa (vendo há menos de 45 s) não recebe aviso', async () => {
@@ -158,4 +150,18 @@ test('push que falha não derruba o vigia: registra o erro e segue', async () =>
   estado = 'precisa_de_voce'; agora += 5000;
   await vigia.tick();
   assert.ok(logs.some((l) => l.startsWith('erro') && l.includes('não saiu') && l.includes('arquivo de chaves ilegível')), logs.join('\n'));
+});
+
+test('preferências ilegíveis: avisos suspensos, gravação recusada e nenhuma escolha apagada', () => {
+  // Revisão adversarial do PR #58: um usuário malformado deixava o cache pela metade e a gravação
+  // seguinte apagava o "terminou: false" do dono; e a falha de leitura religava os avisos.
+  const arquivo = path.join(pastaTemp('prefs'), 'preferencias.json');
+  const original = JSON.stringify({ versao: 1, usuarios: { falho: null, dono: { terminou: false } } });
+  fs.writeFileSync(arquivo, original);
+  const prefs = criarPrefsAtencao({ arquivo, log: () => {} });
+  assert.equal(prefs.alguemQuer('terminou'), false);
+  assert.equal(prefs.alguemQuer('terminou'), false, 'a segunda consulta também não religa');
+  assert.equal(prefs.alguemQuer('precisa_de_voce'), false);
+  assert.throws(() => prefs.grava('dono', { precisa_de_voce: true }), (e) => e.status === 503);
+  assert.equal(fs.readFileSync(arquivo, 'utf8'), original, 'o arquivo não foi reescrito');
 });
