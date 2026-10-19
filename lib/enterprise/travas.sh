@@ -230,7 +230,7 @@ _trv_ig_configurar() {
     fi
     rm -f -- "$arq"
     ok "token do Instagram do agente $slug movido para o cofre do host (${destino#"$R"}); o arquivo ${arq#"$R"} do agente foi apagado"
-    info "o agente passa a pedir a publicacao pela caixa (DGCLAW_TRAVAS=1) e o TI aprova em /aprovacoes. Container antigo: dgclaw agente recriar $slug --sim"
+    info "o agente passa a pedir a publicacao pela caixa (DGCLAW_TRAVAS=1) e o TI aprova em /aprovacoes. Container antigo: dgclaw agente recriar $slug --forcar"
     auditar_aviso acoes.instagram.configurar "$(jq -nc --arg s "$slug" --arg c "$conta" --argjson cif "$(protecao_ligada cofre_cifrado && echo true || echo false)" '{slug: $s, conta: $c, cifrado: $cif}')"
 }
 
@@ -412,7 +412,7 @@ ent_aplicar_travas() {
         fi
         if ! podman inspect -f '{{.Config.Env}}' "dgclaw-$slug" 2>/dev/null | grep -q 'DGCLAW_TRAVAS=1'; then
             if podman container exists "dgclaw-$slug" >/dev/null 2>&1; then
-                aviso "o container do agente $slug foi criado antes das travas e nao sabe que as acoes externas passam pela caixa. Para recriar (a casa fica): dgclaw agente recriar $slug --sim"
+                aviso "o container do agente $slug foi criado antes das travas e nao sabe que as acoes externas passam pela caixa. Para recriar (a casa fica): dgclaw agente recriar $slug --forcar"
             fi
         fi
     done < <(agentes_ler | jq -r '.agentes[] | select(.tipo == "agente") | .slug')

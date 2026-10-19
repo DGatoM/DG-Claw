@@ -56,7 +56,7 @@ nega "testar-runtime de agente que nao existe" "$CLI_COPIA" agente testar-runtim
 echo exited >"$STUB_ESTADO/c-dgclaw-ana"; rm "$STUB_ESTADO/runtime-dgclaw-ana"; echo runc >"$STUB_ESTADO/runtime-dgclaw-ana"; echo running >"$STUB_ESTADO/c-dgclaw-ana"
 nega "agente que esta em runc faz o testar-runtime falhar" "$CLI_COPIA" agente testar-runtime ana
 "$CLI_COPIA" agente testar-runtime ana >"$TMP/o.txt" 2>&1
-afirma "e diz como recriar" grep -q "dgclaw agente recriar ana --sim" "$TMP/o.txt"
+afirma "e diz como recriar" grep -q "dgclaw agente recriar ana --forcar" "$TMP/o.txt"
 
 echo "gvisor: a prova falha (systemd nao sobe) e o agente cai para runc"
 novo regulado
@@ -81,7 +81,7 @@ echo "gvisor: corrigido o defeito, testar-runtime passa e recriar volta ao runsc
 "$CLI_COPIA" agente testar-runtime ana >"$TMP/o.txt" 2>&1
 afirma "agora a prova passa, mas o agente avisa que ainda esta em runc" grep -q "esta marcado como SEM o runtime reforcado" "$TMP/o.txt"
 : >"$STUB_LOG"
-"$CLI_COPIA" agente recriar ana --sim >"$TMP/o.txt" 2>&1
+"$CLI_COPIA" agente recriar ana --forcar >"$TMP/o.txt" 2>&1
 igual "recriar termina" 0 "$?"
 afirma "o novo create leva --runtime runsc" bash -c "grep '^podman create .*--name dgclaw-ana ' '$STUB_LOG' | grep -q -- '--runtime runsc'"
 afirma "a marca de queda sumiu" test ! -e "$ETC/runtime-sem-reforco/ana"

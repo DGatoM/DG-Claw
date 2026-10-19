@@ -51,8 +51,10 @@ audita (`agente.pacote`). Só funciona com `container_endurecido` ligado; no ní
 ### Agentes que já existiam
 
 O container de um agente criado antes não ganha as opções novas sozinho. `dgclaw protecoes aplicar` lista quais
-estão defasados, e `dgclaw agente recriar <slug> --sim` refaz o container. A casa do agente (memória, conversas,
-arquivos) é uma pasta do host e fica. Perde-se o que só morava na camada do container: pacotes instalados com
+estão defasados, e `dgclaw agente recriar <slug> --forcar` refaz o container. O `--forcar` é necessário:
+sem ele o comando do `main` responde "nada a recriar" quando o container já usa a imagem atual, que é justamente o
+caso de quem acabou de subir o nível. A casa do agente (memória, conversas,
+arquivos) é uma pasta do host e fica. Perde-se o que ficava só na camada do container: pacotes instalados com
 `apt`, o que ele instalou em `/opt`, e as rotinas (que o próprio comando reinstala, como o `reparar`).
 
 ## 2. Cofre cifrado

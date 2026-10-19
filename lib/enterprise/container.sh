@@ -85,49 +85,13 @@ _cont_defasado() {
     printf '%s' "$falta"
 }
 
-# dgclaw agente recriar <slug> --sim
-# Refaz o container com as protecoes do nivel atual. A casa (/home/agente, memoria, conversas) fica: e
-# uma pasta do host. O que mora so na camada do container se perde: pacotes que o agente instalou com
-# apt, o que ele instalou em /opt e as rotinas (as rotinas voltam sozinhas, pelo reparar embutido aqui).
-ent_cmd_agente_recriar() {
-    local slug="" sim=0 a c
-    for a in "$@"; do
-        case "$a" in
-            --sim) sim=1 ;;
-            -*) falha "opcao desconhecida: $a" "use: dgclaw agente recriar <slug> --sim" ;;
-            *) slug="$a" ;;
-        esac
-    done
-    exigir_slug "$slug" recriar
-    exigir_ferramentas jq podman
-    existe_agente "$slug" || falha "nao conheco o agente '$slug'." "veja os que existem com: dgclaw agente listar"
-    c="dgclaw-$slug"
-    if [ "$sim" != 1 ]; then
-        falha "recriar o agente $slug apaga o container e cria outro; falta o --sim para eu seguir." \
-            "a casa do agente (memoria, conversas, arquivos) NAO e apagada. Perde-se o que o agente instalou fora dela (apt, /opt). Se estiver de acordo: dgclaw agente recriar $slug --sim"
-    fi
-    carregar_env_dgclaw
-    podman image exists "$DGCLAW_IMAGEM" >/dev/null 2>&1 || falha "a imagem dos agentes ($DGCLAW_IMAGEM) nao existe nesta maquina." "veja: dgclaw imagem status"
-    local aloc
-    # As variaveis C_* sao lidas por criar_container e criar_rede (bin/dgclaw).
-    # shellcheck disable=SC2034
-    C_SLUG="$slug"
-    # shellcheck disable=SC2034
-    C_CASA="$DG_CASAS/$slug"
-    aloc="$(com_trava alocar_recursos "$slug")"
-    # shellcheck disable=SC2034 # idem
-    read -r C_UID_BASE C_N C_PORTA_RUNNER C_PORTA_PAINEL <<<"$aloc"
-    passo "Recriando o container do agente $slug"
-    executar podman stop "$c" >/dev/null
-    executar podman rm "$c" >/dev/null
-    ok "container antigo removido (a casa do agente ficou como estava)"
-    criar_rede
-    criar_container
-    rodar_firewall
-    esperar_systemd "$c"
-    instalar_vida "$slug" || aviso "a parte de dentro do agente $slug nao terminou; rode: dgclaw agente reparar $slug"
-    ok "agente $slug recriado com as protecoes do nivel $(protecao_nivel)"
-    auditar_aviso agente.recriar "$(jq -nc --arg s "$slug" '{slug: $s}')"
+# `dgclaw agente recriar <slug> --forcar` e do main (agente_recriar, bin/dgclaw): refaz o container com as
+# protecoes do nivel atual. A casa (/home/agente, memoria, conversas) fica, porque e uma pasta do host; o que
+# o agente instalou so na camada do container (apt, /opt) se perde. As rotinas voltam sozinhas. Sem --forcar o
+# main responde "nada a recriar" quando a imagem e a atual, e e exatamente o caso de quem acabou de subir o
+# nivel de protecao: por isso as mensagens deste arquivo mandam usar --forcar. O gancho abaixo so audita.
+ent_depois_de_recriar_auditoria() {
+    auditar_aviso agente.recriar "$(jq -nc --arg s "${1:-}" '{slug: $s}')"
 }
 
 # `dgclaw protecoes aplicar`: nao recria sozinho (derrubaria os agentes e levaria o que eles instalaram);
@@ -139,7 +103,7 @@ ent_aplicar_container() {
         falta="$(_cont_defasado "$slug")"
         if [ -n "$falta" ]; then
             alguma=1
-            aviso "o container do agente $slug foi criado antes e esta sem: $falta. Para recriar (a casa fica): dgclaw agente recriar $slug --sim"
+            aviso "o container do agente $slug foi criado antes e esta sem: $falta. Para recriar (a casa fica): dgclaw agente recriar $slug --forcar"
         fi
     done < <(agentes_ler | jq -r '.agentes[] | select(.tipo == "agente") | .slug')
     [ "$alguma" = 1 ] || ok "todos os containers ja estao com as protecoes do nivel"
@@ -150,6 +114,6 @@ ent_status_container() {
     protecao_ligada container_endurecido || return 0
     while IFS= read -r slug; do
         falta="$(_cont_defasado "$slug")"
-        if [ -n "$falta" ]; then s_aviso "agente $slug: container criado antes das protecoes, sem: $falta (dgclaw agente recriar $slug --sim)"; fi
+        if [ -n "$falta" ]; then s_aviso "agente $slug: container criado antes das protecoes, sem: $falta (dgclaw agente recriar $slug --forcar)"; fi
     done < <(agentes_ler | jq -r '.agentes[] | select(.tipo == "agente") | .slug')
 }

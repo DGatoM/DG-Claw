@@ -79,7 +79,7 @@ afirma "reiniciou o runner do sac" grep -q "^podman exec dgclaw-sac systemctl re
 echo "politicas: container criado antes da protecao nao tem a montagem"
 : >"$STUB_ESTADO/mounts-dgclaw-ana"
 "$CLI_COPIA" protecoes aplicar >"$TMP/o.txt" 2>&1
-afirma "avisa e diz o comando para recriar" grep -q "dgclaw agente recriar ana --sim" "$TMP/o.txt"
+afirma "avisa e diz o comando para recriar" grep -q "dgclaw agente recriar ana --forcar" "$TMP/o.txt"
 "$CLI_COPIA" status >"$TMP/s.txt" 2>&1
 afirma "o status lista o agente sem a politica montada" grep -q "sem a politica montada: ana" "$TMP/s.txt"
 

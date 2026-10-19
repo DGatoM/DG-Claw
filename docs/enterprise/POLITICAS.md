@@ -14,7 +14,7 @@ chave dele. O DG Claw escreve esse arquivo **no host**, por agente, e o containe
 | Arquivo no host | `<casa>/politicas/managed-settings.json`, dono root do host, 644 (a pasta é 755) |
 | Montagem no container | `<casa>/politicas` em `/etc/claude-code`, `:ro` (gancho `ent_args_container_politicas`) |
 | Reaplicar | `dgclaw protecoes aplicar` (`ent_aplicar_politicas`): regrava, e reinicia o runner só dos agentes cujo arquivo mudou |
-| Container criado antes da proteção | não tem a montagem: o `aplicar` e o `dgclaw status` avisam e dão o comando `dgclaw agente recriar <slug> --sim` (não recriamos sozinhos: derrubaria o agente e levaria o que ele instalou fora da casa) |
+| Container criado antes da proteção | não tem a montagem: o `aplicar` e o `dgclaw status` avisam e dão o comando `dgclaw agente recriar <slug> --forcar` (não recriamos sozinhos: derrubaria o agente e levaria o que ele instalou fora da casa) |
 
 Fontes conferidas em 18/10/2026: `https://code.claude.com/docs/en/managed-settings` ("Linux and WSL:
 `/etc/claude-code/managed-settings.json`"; o diretório `managed-settings.d/` também é lido) e

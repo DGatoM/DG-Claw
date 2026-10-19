@@ -50,7 +50,7 @@ chama a Graph API de dentro do container. Com `travas_externas`:
    pelo mesmo mecanismo do bloco D. Antes de apagar o arquivo do agente, confere que o cofre do host devolve o mesmo token.
    Recusa atalho no lugar do arquivo, `tokenPath` fora da casa do agente e `igAccountId` inválido. `dgclaw acoes instagram testar
    <agente>` confere que o token está lá (não chama a Graph API).
-2. O container recebe `DGCLAW_TRAVAS=1` (gancho `ent_args_container_travas`; container antigo: `dgclaw agente recriar <slug> --sim`).
+2. O container recebe `DGCLAW_TRAVAS=1` (gancho `ent_args_container_travas`; container antigo: `dgclaw agente recriar <slug> --forcar`).
    Nesse modo o `ig-publish.py` **não chama a Graph API e não lê o token**: manda o pedido por `dgclaw-api POST /api/v1/acoes/instagram`
    e espera a decisão do TI consultando a aprovação (`--espera`, padrão 600 s). Saídas: 0 publicado; 1 recusado, vencido ou falhou;
    3 ainda esperando (o JSON traz o id; `ig-publish.py status --aprovacao <id>` consulta depois). O `validate` explica que o token

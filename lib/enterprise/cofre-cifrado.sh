@@ -145,7 +145,7 @@ ent_cmd_cofre() {
                 if [ -e "$(_cofre_casa "$slug")/cofre/cofre.env" ]; then cofre_migrar_um "$slug"; feitos=$((feitos + 1)); fi
             done < <(_cofre_slugs)
             [ "$feitos" -gt 0 ] || info "nenhum cofre em claro: tudo o que existe ja esta cifrado."
-            info "os agentes que ja existem so passam a ler da copia em memoria quando o container for recriado (dgclaw protecoes aplicar mostra quais; recriar: dgclaw agente recriar <slug> --sim)." ;;
+            info "os agentes que ja existem so passam a ler da copia em memoria quando o container for recriado (dgclaw protecoes aplicar mostra quais; recriar: dgclaw agente recriar <slug> --forcar)." ;;
         abrir)
             _cofre_exigir_ligado
             if [ "$#" -gt 0 ]; then cofre_abrir_um "$1"

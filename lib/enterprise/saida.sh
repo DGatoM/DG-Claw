@@ -175,7 +175,7 @@ _sai_avisar_defasados() {
     while read -r slug n; do
         [ -n "$slug" ] || continue
         if [ "$(saida_modo_agente "$slug")" != livre ] && _sai_defasado "$slug"; then
-            aviso "o container do agente $slug foi criado antes da saida controlada e esta sem o proxy no ambiente (no bloqueio ele fica sem internet). Para recriar (a casa fica): dgclaw agente recriar $slug --sim"
+            aviso "o container do agente $slug foi criado antes da saida controlada e esta sem o proxy no ambiente (no bloqueio ele fica sem internet). Para recriar (a casa fica): dgclaw agente recriar $slug --forcar"
         fi
     done < <(saida_agentes)
 }
@@ -273,7 +273,7 @@ ent_status_saida() {
     while read -r slug n; do
         [ -n "$slug" ] || continue
         if [ "$(saida_modo_agente "$slug")" != livre ] && _sai_defasado "$slug"; then
-            s_aviso "agente $slug: container criado antes da saida controlada, sem o proxy no ambiente (dgclaw agente recriar $slug --sim)"
+            s_aviso "agente $slug: container criado antes da saida controlada, sem o proxy no ambiente (dgclaw agente recriar $slug --forcar)"
         fi
     done < <(saida_agentes)
 }

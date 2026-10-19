@@ -55,7 +55,7 @@ funcione sob o gVisor. Por isso o código não presume que funciona:
    nessa situação, com o comando para consertar.
 3. `dgclaw agente testar-runtime [<agente>]` refaz a prova a pedido. Com o nome de um agente, confere também que o container dele
    roda sob o runsc e que o runner, o painel e o cron respondem.
-4. Depois de consertar, `dgclaw agente recriar <agente> --sim` refaz o container (a casa fica) e a marca some.
+4. Depois de consertar, `dgclaw agente recriar <agente> --forcar` refaz o container (a casa fica) e a marca some.
 
 ### Teste manual na VPS real
 

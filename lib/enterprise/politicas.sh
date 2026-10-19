@@ -183,7 +183,7 @@ ent_aplicar_politicas() {
         if _pol_ligada; then
             if ! _pol_montado "$slug"; then
                 alguma=1
-                aviso "o container do agente $slug foi criado antes das politicas e nao tem a montagem de $POL_CLAUDE_DESTINO. Para recriar (a casa fica): dgclaw agente recriar $slug --sim"
+                aviso "o container do agente $slug foi criado antes das politicas e nao tem a montagem de $POL_CLAUDE_DESTINO. Para recriar (a casa fica): dgclaw agente recriar $slug --forcar"
             elif [ "$rc" -eq 0 ]; then
                 _pol_reiniciar_runner "$slug"
             fi
@@ -207,7 +207,7 @@ ent_status_politicas() {
             defasados="${defasados:+$defasados, }$slug"
         fi
     done < <(agentes_ler | jq -r '.agentes[] | select(.tipo == "agente") | .slug')
-    if [ -n "$defasados" ]; then s_aviso "politicas do Claude Code: agente(s) sem a politica montada: $defasados (dgclaw protecoes aplicar; depois dgclaw agente recriar <slug> --sim)"
+    if [ -n "$defasados" ]; then s_aviso "politicas do Claude Code: agente(s) sem a politica montada: $defasados (dgclaw protecoes aplicar; depois dgclaw agente recriar <slug> --forcar)"
     else s_ok "politicas do Claude Code montadas so leitura em todos os agentes"; fi
     if protecao_ligada politicas_claude && [ -z "$(protecao_org)" ]; then
         s_aviso "organizacao (forceLoginOrgUUID) nao definida: o login pessoal do Claude NAO esta bloqueado. Defina com: dgclaw nivel org <uuid>"

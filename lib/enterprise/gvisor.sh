@@ -164,7 +164,7 @@ _rt_marcar_queda() {
     local slug="$1" motivo="$2"
     mkdir -p "$(_rt_marcas)"; chmod 700 "$(_rt_marcas)"
     jq -nc --arg m "$motivo" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '{motivo: $m, em: $t}' | escrever_arquivo "$(_rt_marcas)/$slug" 600
-    aviso "ATENCAO: o agente $slug vai nascer SEM o runtime reforcado (runc em vez de gVisor). Motivo: $motivo. O nivel regulado pede gVisor; este agente NAO tem a protecao extra de kernel. Isso fica na auditoria e no dgclaw status. Para tentar de novo depois de corrigir: dgclaw agente testar-runtime $slug && dgclaw agente recriar $slug --sim"
+    aviso "ATENCAO: o agente $slug vai nascer SEM o runtime reforcado (runc em vez de gVisor). Motivo: $motivo. O nivel regulado pede gVisor; este agente NAO tem a protecao extra de kernel. Isso fica na auditoria e no dgclaw status. Para tentar de novo depois de corrigir: dgclaw agente testar-runtime $slug && dgclaw agente recriar $slug --forcar"
     auditar_aviso runtime.queda "$(jq -nc --arg s "$slug" --arg m "$motivo" '{slug: $s, motivo: $m, runtime: "runc"}')"
 }
 
@@ -212,7 +212,7 @@ ent_cmd_agente_testar_runtime() {
         if [ "$runtime" = runsc ]; then ok "o container $cont roda sob o runsc"
         else
             problemas=1
-            aviso "o container $cont roda em '${runtime:-desconhecido}', nao em runsc. $([ "$prova_rc" -eq 0 ] && echo "A prova passou, entao recriar resolve: dgclaw agente recriar $slug --sim" || echo "Enquanto a prova falhar, ele continua em runc.")"
+            aviso "o container $cont roda em '${runtime:-desconhecido}', nao em runsc. $([ "$prova_rc" -eq 0 ] && echo "A prova passou, entao recriar resolve: dgclaw agente recriar $slug --forcar" || echo "Enquanto a prova falhar, ele continua em runc.")"
         fi
         obj="$(agentes_obter "$slug")"
         runner="$(jq -r '.runner // empty' <<<"$obj")"; painel="$(jq -r '.porta_painel // empty' <<<"$obj")"
@@ -254,7 +254,7 @@ ent_aplicar_runtime() {
     while IFS=$'\t' read -r slug motivo; do
         [ -n "$slug" ] || continue
         alguma=1
-        aviso "agente $slug sem o runtime reforcado: $motivo. Para recriar sob o gVisor (a casa fica): dgclaw agente recriar $slug --sim"
+        aviso "agente $slug sem o runtime reforcado: $motivo. Para recriar sob o gVisor (a casa fica): dgclaw agente recriar $slug --forcar"
     done < <(_rt_fora_do_runsc)
     [ "$alguma" = 1 ] || ok "todos os agentes rodam sob o gVisor"
 }
@@ -266,7 +266,7 @@ ent_status_runtime() {
     else s_mal "o nivel pede gVisor mas o runsc nao esta instalado. Rode: ./install.sh --nivel regulado (veja docs/enterprise/REGULADO.md)"; fi
     while IFS=$'\t' read -r slug motivo; do
         [ -n "$slug" ] || continue
-        s_aviso "agente $slug SEM o runtime reforcado: $motivo (dgclaw agente testar-runtime $slug; dgclaw agente recriar $slug --sim)"
+        s_aviso "agente $slug SEM o runtime reforcado: $motivo (dgclaw agente testar-runtime $slug; dgclaw agente recriar $slug --forcar)"
     done < <(_rt_fora_do_runsc)
 }
 
@@ -277,6 +277,6 @@ _mon_checar_runtime() {
     while IFS=$'\t' read -r slug motivo; do
         [ -n "$slug" ] || continue
         _mon_problema "runtime:$slug" "O agente $slug esta SEM o runtime reforcado: $motivo." \
-            "Rode: dgclaw agente testar-runtime $slug. Se a prova passar: dgclaw agente recriar $slug --sim. Se nao passar, a falta de gVisor e uma decisao do responsavel (veja docs/enterprise/REGULADO.md)."
+            "Rode: dgclaw agente testar-runtime $slug. Se a prova passar: dgclaw agente recriar $slug --forcar. Se nao passar, a falta de gVisor e uma decisao do responsavel (veja docs/enterprise/REGULADO.md)."
     done < <(_rt_fora_do_runsc)
 }

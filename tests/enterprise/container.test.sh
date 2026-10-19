@@ -89,12 +89,13 @@ app_copia
 "$CLI_COPIA" agente criar ana --nome "Ana" >/dev/null 2>&1
 nivel_na_raiz escritorio
 "$CLI_COPIA" protecoes aplicar >"$TMP/o.txt" 2>&1
-afirma "aplicar avisa que o container esta defasado" grep -q "agente recriar ana --sim" "$TMP/o.txt"
-nega "recriar sem --sim recusa" "$CLI_COPIA" agente recriar ana
+afirma "aplicar avisa que o container esta defasado" grep -q "agente recriar ana --forcar" "$TMP/o.txt"
+"$CLI_COPIA" agente recriar ana >"$TMP/o.txt" 2>&1
+afirma "recriar sem --forcar e o do main: com a imagem atual nao faz nada" grep -q "nada a recriar" "$TMP/o.txt"
 : >"$STUB_LOG"
-"$CLI_COPIA" agente recriar ana --sim >"$TMP/o.txt" 2>&1
-igual "recriar com --sim" 0 "$?"
-afirma "parou, removeu e criou de novo" bash -c "grep -q '^podman stop dgclaw-ana' '$STUB_LOG' && grep -q '^podman rm dgclaw-ana' '$STUB_LOG' && grep -q '^podman create.*--cap-drop=ALL' '$STUB_LOG'"
+"$CLI_COPIA" agente recriar ana --forcar >"$TMP/o.txt" 2>&1
+igual "recriar com --forcar" 0 "$?"
+afirma "parou, removeu e criou de novo" bash -c "grep -q '^podman stop .*dgclaw-ana' '$STUB_LOG' && grep -q '^podman rm dgclaw-ana' '$STUB_LOG' && grep -q '^podman create.*--cap-drop=ALL' '$STUB_LOG'"
 afirma "a casa do agente continua la" test -d "$LIB/agentes/ana/home"
 afirma "foi auditado" bash -c "jq -e 'select(.evento == \"agente.recriar\")' '$DGCLAW_RAIZ/var/log/dgclaw/auditoria.jsonl'"
 "$CLI_COPIA" protecoes aplicar >"$TMP/o.txt" 2>&1

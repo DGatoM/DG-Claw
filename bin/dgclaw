@@ -144,7 +144,7 @@ Protecao e versao
   dgclaw nivel org <uuid>                fixa a organizacao do Claude (forceLoginOrgUUID)
   dgclaw protecoes aplicar               leva as protecoes do nivel aos agentes que ja existem
   dgclaw agente pacote <slug> <pacote...>   instala pacote Debian num agente sem sudo (container endurecido)
-  dgclaw agente recriar <slug> --sim     refaz o container com as protecoes do nivel (a casa do agente fica)
+  dgclaw agente recriar <slug> --forcar     refaz o container com as protecoes do nivel (a casa do agente fica)
   dgclaw cofre status|migrar|abrir       cofre dos agentes cifrado em repouso (chaves so em memoria)
   dgclaw disco status|cifrar|abrir       disco cifrado (LUKS) para os dados dos agentes
   dgclaw backup configurar|agora|listar|testar|status   backup cifrado fora da VPS (restic)
@@ -1391,6 +1391,7 @@ agente_recriar() {
     agente_reparar "$slug"
     devolver_unidades_self "$slug" "$unidades"
     ok "agente $slug recriado com a imagem atual (casa, cofre e portas intactos)"
+    ent_rodar_ganchos ent_depois_de_recriar_ "$slug"
 }
 
 # _recriar_remover_container <slug>: para e remove SO o container, esperando ele sair de verdade.

@@ -107,7 +107,7 @@ No `agente criar` (e no `agente recriar`), os modos registro e bloqueio acrescen
 `HTTP_PROXY`, `HTTPS_PROXY`, `http_proxy` e `https_proxy` apontando para `http://10.89.N.1:3128`, e `NO_PROXY` /
 `no_proxy` com `localhost,127.0.0.1,::1`. O `--http-proxy=false` de hoje continua (ele cuida do proxy do HOST).
 Container criado antes de ligar a saída não tem essas variáveis: `dgclaw protecoes aplicar` e `dgclaw status` avisam,
-e a correção é `dgclaw agente recriar <agente> --sim` (a casa fica).
+e a correção é `dgclaw agente recriar <agente> --forcar` (a casa fica).
 
 ### Prova no `agente criar`
 
