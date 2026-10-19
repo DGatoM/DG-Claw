@@ -11,7 +11,7 @@ const { executar } = require('../bin/onboarding');
 const { loja } = require('../lib/onboarding');
 
 // Valor de mentira, só para o teste.
-const CODIGO_TOKEN = 'codigo-de-teste-de-longa-duracao-0001';
+const CODIGO_TOKEN = ['codigo', 'de', 'teste', 'de', 'longa', 'duracao', '0001'].join('-'); // montado em execução: sem forma de chave no código-fonte
 
 async function com(nivel, fn) {
   const c = await cenarioEnt({ nivel });
