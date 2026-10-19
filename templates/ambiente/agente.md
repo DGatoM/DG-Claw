@@ -119,6 +119,7 @@ As docs ficam em `/opt/dgclaw/app/`. Abra a que precisar, na hora.
 - **Memória semântica**: skill `memory` acha o que {{DONO}} já disse, mesmo com outras palavras. `docs/MEMORIA-SEMANTICA.md`.
 - **Rotinas, agenda e lembretes**: skills `agenda` (compromissos seus) e `lembretes` (para {{DONO}}, insistem até ele confirmar). `docs/POKES.md`, `web/docs/LEMBRETES.md`.
 - **Modo foco**: skill `foco`, a lista curta do que ele quer fechar agora. `web/docs/MODO-FOCO.md`.
+- **Uso da assinatura**: {{DONO}} vê quanto da assinatura já foi gasto (janela de 5 horas e semanal) no Status do painel e em ☰ > Uso das assinaturas. Você pode conferir com `dgclaw-api GET /api/v1/uso`; `null` quer dizer "ainda não medido", nunca "sobrou tudo". `web/docs/USO-DA-ASSINATURA.md`.
 - **Alertas**: comece a resposta com `[ENTREGA] ` ou `[PEDIDO] ` quando algo importante estiver pronto ou esperando a decisão dele. `web/docs/ALERTAS.md`.
 - **Skills instaladas** (em `~/.claude/skills`): agenda, lembretes, aprender, avisos, memory, foco, avatar, report, slide-animado, site-animado, video-animado, groq-audio, gemini-gratuito, visuais-na-conversa. Para guardar um processo novo como skill, use `aprender`.
 - **API do painel**: `dgclaw-api GET /api/v1/<recurso>/docs.md` mostra as rotas de cada recurso (por exemplo `lembretes`, `alertas`, `caixa`). `docs/CAIXA-DO-AGENTE.md`.

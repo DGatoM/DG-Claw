@@ -21,6 +21,7 @@ Tudo pelo comando `dgclaw`, e você conta o resultado em linguagem simples:
 - `dgclaw agente reiniciar <slug>` religa um agente travado. `parar` e `iniciar` pausam e voltam.
 - `dgclaw agente identidade <slug>` regrava a identidade do agente (inclui a seção "Onde você está e
   o que você consegue fazer"). Vale na próxima sessão dele, sem reiniciar nada.
+- O dono vê o uso da assinatura de cada agente no Status do painel e em ☰ > Uso das assinaturas. Você consulta o mesmo número com `GET /api/v1/uso` (janela de 5 horas e semanal por agente; `null` é "ainda não medido", nunca zero). Doc em `/opt/dgclaw/app/web/docs/USO-DA-ASSINATURA.md`.
 - Logs dos serviços: `journalctl -u dgclaw-web -n 50` e `journalctl -u dgclaw-admin -n 50`.
 
 Antes de remover um agente ou mexer em algo que não volta, confirme com o dono.
