@@ -28,7 +28,7 @@ afirma "pessoal: a mensagem diz que e do regulado" grep -q "nivel regulado" "$TM
 
 echo "gvisor: regulado com a prova passando"
 novo regulado
-"$CLI_COPIA" agente criar ana --nome "Ana" >"$TMP/o.txt" 2>&1
+"$CLI_COPIA" agente criar ana --nome "Ana" --uso setor --auth api >"$TMP/o.txt" 2>&1
 igual "regulado: agente criou" 0 "$?"
 linha="$(create_do ana)"
 afirma "o podman create leva --runtime runsc" bash -c "[[ '$linha' == *'--runtime runsc'* ]]"
@@ -44,7 +44,7 @@ afirma "a prova conferiu as portas 4300 e 8300 com o node" bash -c "grep 'podman
 afirma "o container de prova foi apagado" grep -q "^podman rm -f dgclaw-prova-runtime" "$STUB_LOG"
 afirma "a prova ficou guardada como ok, com a imagem e a versao do runsc" jq -e '.ok == true and .imagem == "sha256:imagem-de-teste" and (.runsc | test("release"))' "$LIB/runtime-prova.json"
 afirma "nenhuma marca de queda" test ! -e "$ETC/runtime-sem-reforco/ana"
-"$CLI_COPIA" agente criar bia --nome "Bia" >/dev/null 2>&1
+"$CLI_COPIA" agente criar bia --nome "Bia" --uso setor --auth api >/dev/null 2>&1
 igual "o segundo agente nao repete a prova (so uma subida de container)" 1 "$(grep -c '^podman run -d --name dgclaw-prova-runtime' "$STUB_LOG")"
 afirma "o segundo agente tambem leva --runtime runsc" bash -c "[[ \"\$(grep '^podman create .*--name dgclaw-bia ' '$STUB_LOG')\" == *'--runtime runsc'* ]]"
 "$CLI_COPIA" agente testar-runtime ana >"$TMP/o.txt" 2>&1
@@ -60,7 +60,7 @@ afirma "e diz como recriar" grep -q "dgclaw agente recriar ana --sim" "$TMP/o.tx
 
 echo "gvisor: a prova falha (systemd nao sobe) e o agente cai para runc"
 novo regulado
-STUB_RT_FALHA=systemd "$CLI_COPIA" agente criar ana --nome "Ana" >"$TMP/o.txt" 2>&1
+STUB_RT_FALHA=systemd "$CLI_COPIA" agente criar ana --nome "Ana" --uso setor --auth api >"$TMP/o.txt" 2>&1
 igual "o agente criou mesmo assim" 0 "$?"
 linha="$(create_do ana)"
 afirma "sem --runtime no create" bash -c "[[ '$linha' != *'--runtime'* ]]"
@@ -71,7 +71,7 @@ afirma "marca de queda gravada" jq -e '.motivo | test("prova do gVisor")' "$ETC/
 afirma "a prova falha ficou guardada" jq -e '.ok == false' "$LIB/runtime-prova.json"
 afirma "queda registrada na auditoria" jq -e 'select(.evento == "runtime.queda" and .dados.slug == "ana" and .dados.runtime == "runc")' "$LOGA"
 afirma "o container de prova foi apagado mesmo com a falha" grep -q "^podman rm -f dgclaw-prova-runtime" "$STUB_LOG"
-"$CLI_COPIA" agente criar bia --nome "Bia" >/dev/null 2>&1
+"$CLI_COPIA" agente criar bia --nome "Bia" --uso setor --auth api >/dev/null 2>&1
 igual "a falha fica guardada: o segundo agente nao repete a prova" 1 "$(grep -c '^podman run -d --name dgclaw-prova-runtime' "$STUB_LOG")"
 "$CLI_COPIA" status >"$TMP/o.txt" 2>&1
 afirma "dgclaw status lista o agente sem o runtime reforcado" grep -q "agente ana SEM o runtime reforcado" "$TMP/o.txt"
@@ -89,16 +89,16 @@ afirma "a marca de queda sumiu" test ! -e "$ETC/runtime-sem-reforco/ana"
 echo "gvisor: cada defeito da prova e pego"
 for defeito in cron node; do
     novo regulado
-    STUB_RT_FALHA=$defeito "$CLI_COPIA" agente criar ana --nome "Ana" >"$TMP/o.txt" 2>&1
+    STUB_RT_FALHA=$defeito "$CLI_COPIA" agente criar ana --nome "Ana" --uso setor --auth api >"$TMP/o.txt" 2>&1
     afirma "defeito $defeito: cai para runc" bash -c "[[ \"\$(grep '^podman create .*--name dgclaw-ana ' '$STUB_LOG')\" != *'--runtime'* ]]"
 done
 afirma "defeito node: o aviso fala das portas do runner e do painel" grep -q "portas 4300 e 8300" "$TMP/o.txt"
 novo regulado
-STUB_RT_RUN_FALHA=1 "$CLI_COPIA" agente criar ana --nome "Ana" >"$TMP/o.txt" 2>&1
+STUB_RT_RUN_FALHA=1 "$CLI_COPIA" agente criar ana --nome "Ana" --uso setor --auth api >"$TMP/o.txt" 2>&1
 afirma "o podman recusar o runsc: cai para runc" bash -c "[[ \"\$(grep '^podman create .*--name dgclaw-ana ' '$STUB_LOG')\" != *'--runtime'* ]]"
 afirma "e conta o que o podman disse" grep -q "nao conseguiu criar o container sob o runsc" "$TMP/o.txt"
 novo regulado sem-runsc
-"$CLI_COPIA" agente criar ana --nome "Ana" >"$TMP/o.txt" 2>&1
+"$CLI_COPIA" agente criar ana --nome "Ana" --uso setor --auth api >"$TMP/o.txt" 2>&1
 igual "sem runsc instalado o agente nasce" 0 "$?"
 afirma "sem runsc: cai para runc" bash -c "[[ \"\$(grep '^podman create .*--name dgclaw-ana ' '$STUB_LOG')\" != *'--runtime'* ]]"
 afirma "diz que o runsc nao esta instalado" grep -q "runsc nao esta instalado" "$TMP/o.txt"

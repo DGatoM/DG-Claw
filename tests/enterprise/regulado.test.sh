@@ -26,7 +26,7 @@ igual "admin_llm continua ligado por padrao (desligar e escolha)" true "$(lib pr
 "$CLI_COPIA" protecoes aplicar >"$TMP/o.txt" 2>&1
 afirma "protecoes aplicar nao quebra e fala do disco externo sem metodo" grep -q "disco esta no modo externo sem metodo configurado" "$TMP/o.txt"
 printf 'DGCLAW_PANEL_USER=maria\n' >"$ETC/web.env"
-"$CLI_COPIA" agente criar ana --nome "Ana" >"$TMP/o.txt" 2>&1
+"$CLI_COPIA" agente criar ana --nome "Ana" --uso setor --auth api >"$TMP/o.txt" 2>&1
 igual "agente criou" 0 "$?"
 linha="$(grep '^podman create .*--name dgclaw-ana ' "$STUB_LOG" | head -n 1)"
 afirma "o array do podman tem --runtime runsc" bash -c "[[ '$linha' == *'--runtime runsc'* ]]"
@@ -43,7 +43,7 @@ for nivel in escritorio empresa; do
     novo
     nivel_na_raiz "$nivel"
     printf 'DGCLAW_PANEL_USER=maria\n' >"$ETC/web.env"
-    "$CLI_COPIA" agente criar ana --nome "Ana" >/dev/null 2>&1
+    "$CLI_COPIA" agente criar ana --nome "Ana" --uso setor --auth api >/dev/null 2>&1
     afirma "$nivel: sem --runtime" bash -c "! grep -q -- '--runtime' '$STUB_LOG'"
     afirma "$nivel: nenhuma prova do gVisor" bash -c "! grep -q 'dgclaw-prova-runtime' '$STUB_LOG'"
     afirma "$nivel: nenhum arquivo do bloco J criado" bash -c "[ ! -e '$ETC/disco-externo.json' ] && [ ! -e '$ETC/runtime-sem-reforco' ] && [ ! -e '$ETC/agentes.json.admin-desligado' ]"
@@ -55,7 +55,7 @@ echo "regulado: teste de restauracao mensal com relatorio assinado pela auditori
 novo
 nivel_na_raiz regulado
 printf 'DGCLAW_PANEL_USER=maria\n' >"$ETC/web.env"
-"$CLI_COPIA" agente criar ana --nome "Ana" >/dev/null 2>&1
+"$CLI_COPIA" agente criar ana --nome "Ana" --uso setor --auth api >/dev/null 2>&1
 mkdir -p "$LIB/agentes/ana/home/memory"; echo "lembrar" >"$LIB/agentes/ana/home/memory/a.md"
 printf 'AWS_ACCESS_KEY_ID=AKIAEXEMPLO\nAWS_SECRET_ACCESS_KEY=chave-secreta-123456\n' >"$TMP/cred.txt"
 "$CLI_COPIA" backup configurar --repositorio "s3:https://s3.exemplo.com/bucket" --credenciais "$TMP/cred.txt" >/dev/null 2>&1 </dev/null
@@ -78,7 +78,7 @@ echo "escritorio: o teste de restauracao nao gera relatorio nem hash extra"
 novo
 nivel_na_raiz escritorio
 printf 'DGCLAW_PANEL_USER=maria\n' >"$ETC/web.env"
-"$CLI_COPIA" agente criar ana --nome "Ana" >/dev/null 2>&1
+"$CLI_COPIA" agente criar ana --nome "Ana" --uso setor --auth api >/dev/null 2>&1
 mkdir -p "$LIB/agentes/ana/home/memory"; echo "lembrar" >"$LIB/agentes/ana/home/memory/a.md"
 "$CLI_COPIA" backup configurar --repositorio "s3:https://s3.exemplo.com/bucket" --credenciais "$TMP/cred.txt" >/dev/null 2>&1 </dev/null
 "$CLI_COPIA" backup agora >/dev/null 2>&1
