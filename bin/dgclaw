@@ -144,9 +144,13 @@ Protecao e versao
   dgclaw nivel org <uuid>                fixa a organizacao do Claude (forceLoginOrgUUID)
   dgclaw protecoes aplicar               leva as protecoes do nivel aos agentes que ja existem
   dgclaw agente pacote <slug> <pacote...>   instala pacote Debian num agente sem sudo (container endurecido)
-  dgclaw agente recriar <slug> --forcar     refaz o container com as protecoes do nivel (a casa do agente fica)
+  dgclaw agente recriar <slug> --forcar     depois de subir o nivel, e o que leva as protecoes novas ao container (a casa fica)
+  dgclaw agente testar-runtime [<slug>]  prova que o agente roda no runtime reforcado (gVisor, nivel regulado)
+  dgclaw agente uso <slug> pessoa|setor [--usuario <login>]   diz de quem e o agente (pessoa leva o login do dono; setor usa chave de API)
   dgclaw cofre status|migrar|abrir       cofre dos agentes cifrado em repouso (chaves so em memoria)
   dgclaw disco status|cifrar|abrir       disco cifrado (LUKS) para os dados dos agentes
+  dgclaw disco chave status|externa tang <url> --thp <thumbprint>|externa manual   tira a chave do disco da propria maquina
+  dgclaw disco desbloquear               abre o disco depois de um reinicio, quando a chave e externa
   dgclaw backup configurar|agora|listar|testar|status   backup cifrado fora da VPS (restic)
   dgclaw restaurar <snapshot|latest> [--destino <pasta>] [--agente <slug>] [--confirmar]
   dgclaw usuario listar                  usuarios do painel (so com o multiusuario ligado: escritorio em diante)
@@ -166,10 +170,21 @@ Protecao e versao
 Admin sem root (protecao admin_isolado)
   dgclaw admin isolar                    cria o Admin em container e desliga o Admin do host; ele passa a pedir ao servico de controle
   dgclaw admin host                      volta ao Admin do host (so onde a protecao nao e travada)
+  dgclaw admin desligar|ligar            desliga o Admin (o agente de conversa) de proposito, ou liga de volta (protecao admin_llm)
   dgclaw admin status                    em que modo o Admin esta
   dgclaw admin manutencao abrir <5 a 60> [--por <quem>]   liga o Admin antigo (root) por N minutos; fecha sozinho
   dgclaw admin manutencao fechar|status
       Detalhes e o fluxo de aprovacao: docs/enterprise/CONTROLE.md
+
+Acoes externas, HTTPS e dado sensivel
+  dgclaw travas status|conferir          mostra e confere as travas de e-mail, Instagram e WhatsApp (protecao travas_externas)
+  dgclaw travas liberar <agente> --minutos <5 a 240>   libera o envio de e-mail por um tempo; volta sozinho. fechar <agente> fecha antes
+  dgclaw acoes instagram configurar|testar <agente>    tira o token do agente e passa a publicar pela fila de aprovacoes
+  dgclaw acoes whatsapp permitir|remover|listar <agente> [numero]   numeros com quem o canal pode conversar
+  dgclaw https cabecalhos                mostra os cabecalhos de seguranca que o Caddy acrescenta (protecao https_endurecido)
+  dgclaw ferramenta criar|listar|testar|credencial|abrir|chave|ficha|skill   kit de ferramenta para dado sensivel
+      Detalhes: docs/enterprise/KIT-SENSIVEL.md e docs/enterprise/TRAVAS.md
+      Exemplo:  dgclaw ferramenta criar carteira --agente ana --responsavel "Marta"
 
 Dados pessoais e monitoramento
   dgclaw retencao aplicar [--agente <slug>]  apaga o que passou do prazo (retencao_dias); --ensaio so lista
