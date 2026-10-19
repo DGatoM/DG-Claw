@@ -84,6 +84,10 @@ test('terminou: resposta que só tem segredo cai no texto padrão; linha longa �
   assert.equal(primeiraLinha('x'.repeat(300)).length, 80);
   assert.ok(!primeiraLinha(`token ${CHAVE_FALSA}`).includes('YYYYY'));
   assert.equal(primeiraLinha('   \n\n'), '');
+  // Revisão adversarial do PR #58: tirar o "_" antes de mascarar deixava passar token do GitHub.
+  const ghp = 'ghp_' + 'a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8';
+  assert.ok(!primeiraLinha(`Pronto: ${ghp}`).includes('a1B2c3D4'), 'token com _ não pode ir para o aviso');
+  assert.ok(!primeiraLinha(`**Pronto** \`${ghp}\``).includes('a1B2c3D4'), 'nem dentro de markdown');
 });
 
 test('supressão: quem está olhando a conversa (vendo há menos de 45 s) não recebe aviso', async () => {

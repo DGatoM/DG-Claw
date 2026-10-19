@@ -223,13 +223,24 @@ export function escreverSettings(s: Sessao, nonce: string): string | null {
             `então o Status do painel vai mostrar "sem dado". Para medir, tire o statusLine de lá`,
         );
       } else {
+        // O medidor é opcional: falha aqui desliga só o statusLine. Deixar a exceção subir derrubaria
+        // o settings inteiro, e o agente nasceria sem as regras de permissão (revisão adversarial, PR #58).
         const usoHandler = path.join(dir, "runner-uso.mjs");
-        const usoAtual = fs.existsSync(usoHandler) ? fs.readFileSync(usoHandler, "utf8") : "";
-        if (usoAtual !== USO_HANDLER_SOURCE) fs.writeFileSync(usoHandler, USO_HANDLER_SOURCE, "utf8");
-        settings.statusLine = {
-          type: "command",
-          command: `"${process.execPath}" "${usoHandler}" --agent ${s.descritor.id} --port ${s.porta} --nonce ${nonce}`,
-        };
+        try {
+          const usoAtual = fs.existsSync(usoHandler) ? fs.readFileSync(usoHandler, "utf8") : "";
+          if (usoAtual !== USO_HANDLER_SOURCE) fs.writeFileSync(usoHandler, USO_HANDLER_SOURCE, "utf8");
+          settings.statusLine = {
+            type: "command",
+            command: `"${process.execPath}" "${usoHandler}" --agent ${s.descritor.id} --port ${s.porta} --nonce ${nonce}`,
+          };
+        } catch (err) {
+          log.erro(
+            s.a("uso"),
+            `não consegui preparar ${usoHandler}: ${err instanceof Error ? err.message : err}`,
+            `o agente sobe normalmente, com as regras de permissão, mas sem o medidor de uso ` +
+              `(o Status mostra "sem dado"). Conferir se esse caminho é um arquivo gravável e reiniciar o agente`,
+          );
+        }
       }
     }
     const limpar = (r?: string[] | null) =>

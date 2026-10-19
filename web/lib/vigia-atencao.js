@@ -21,11 +21,14 @@ const ANTI_SPAM_MS = 60000;
 const FOLGA_RESPOSTA_MS = 2000;
 const ESPERA_THREAD_MS = 3000;
 
-/** Primeira linha útil de uma resposta, sem marcação de markdown, mascarada e curta. */
+/** Primeira linha útil de uma resposta, mascarada, sem marcação de markdown e curta.
+ *  A ordem importa (revisão adversarial do PR #58): mascarar ANTES de tirar a marcação. Tirar o `_`
+ *  primeiro deforma tokens como `ghp_...`, o mascarador deixa de reconhecê-los e o segredo inteiro
+ *  iria para a tela bloqueada do celular. */
 function primeiraLinha(texto) {
-  for (const bruta of String(texto == null ? '' : texto).slice(0, 600).split('\n')) {
+  for (const bruta of mascarar(String(texto == null ? '' : texto).slice(0, 4000)).split('\n')) {
     const linha = bruta.replace(/^[#>*\-\s]+/, '').replace(/[*_`]+/g, '').trim();
-    if (linha) return resumoSeguro(mascarar(linha));
+    if (linha) return resumoSeguro(linha);
   }
   return '';
 }

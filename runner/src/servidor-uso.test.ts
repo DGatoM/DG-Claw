@@ -106,3 +106,24 @@ test("settings do Claude levam o statusLine do medidor, sem sobrescrever o de ou
   assert.equal(arquivo().statusLine, undefined, "statusLine do descritor é respeitado");
   assert.match(fs.readFileSync(amb.logDoRunner, "utf8"), /statusLine próprio/);
 });
+
+test("falha no arquivo do medidor desliga só o statusLine e mantém as regras de permissão", () => {
+  // Revisão adversarial do PR #58: antes, a exceção derrubava o settings inteiro.
+  const cfg = principal.descritor.config as { statusLine?: unknown; denyTools?: string[] };
+  delete cfg.statusLine;
+  cfg.denyTools = ["Bash(rm:*)"];
+  const usoHandler = path.join(amb.estado, "runner-hooks", "runner-uso.mjs");
+  fs.rmSync(usoHandler, { force: true });
+  fs.mkdirSync(usoHandler); // um diretório no lugar do arquivo: ler e gravar falham
+  try {
+    const arquivo = escreverSettings(principal, NONCE);
+    assert.ok(arquivo, "o settings continua sendo escrito");
+    const st = JSON.parse(fs.readFileSync(arquivo!, "utf8"));
+    assert.equal(st.statusLine, undefined);
+    assert.deepEqual(st.permissions.deny, ["Bash(rm:*)"]);
+    assert.ok(st.hooks.PreToolUse);
+  } finally {
+    fs.rmSync(usoHandler, { recursive: true, force: true });
+    delete cfg.denyTools;
+  }
+});
