@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import type { Sessao } from "../sessao.js";
 import { randomBytes } from "node:crypto";
@@ -154,35 +153,12 @@ export function pastaDeHooks(s: Sessao): string {
   return path.join(s.pastaDeEstado, "runner-hooks");
 }
 
-/** Quem já define um statusLine para este agente: o descritor, o settings do usuário do Claude ou
- *  o do projeto. Devolve o lugar, ou null. Um `--settings` de spawn ganharia de todos eles, e
- *  trocar a linha de status que o dono escolheu seria uma surpresa. */
+/** O descritor pode declarar um statusLine próprio; aí o medidor não entra. O settings do usuário
+ *  e o do projeto não contam: conferido em 19/10/2026 com o Claude Code 2.1.304, o `--settings` do
+ *  spawn ganha deles, e o terminal do agente nem aparece para ninguém. Recuar por causa deles só
+ *  deixaria o Status em "sem dado" sem motivo. */
 function statusLineDeOutroDono(s: Sessao): string | null {
-  const cfg = s.descritor.config;
-  if (cfg.statusLine) return "campo statusLine do descritor";
-  const claudeDir = cfg.envExtra?.CLAUDE_CONFIG_DIR?.trim() || process.env.CLAUDE_CONFIG_DIR?.trim() || path.join(os.homedir(), ".claude");
-  const candidatos = [
-    path.join(claudeDir, "settings.json"),
-    path.join(cfg.cwd, ".claude", "settings.json"),
-    path.join(cfg.cwd, ".claude", "settings.local.json"),
-  ];
-  for (const arq of candidatos) {
-    let cru: string;
-    try {
-      cru = fs.readFileSync(arq, "utf8");
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-        log.aviso(s.a("uso"), `não consegui ler ${arq} para saber se há statusLine: ${err instanceof Error ? err.message : err}; sigo e instalo o medidor`);
-      }
-      continue;
-    }
-    try {
-      if ((JSON.parse(cru) as { statusLine?: unknown }).statusLine) return arq;
-    } catch (err) {
-      log.aviso(s.a("uso"), `${arq} não é JSON válido (${err instanceof Error ? err.message : err}); sigo e instalo o medidor`);
-    }
-  }
-  return null;
+  return s.descritor.config.statusLine ? "campo statusLine do descritor" : null;
 }
 
 export function escreverSettings(s: Sessao, nonce: string): string | null {

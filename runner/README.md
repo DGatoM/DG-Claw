@@ -217,9 +217,10 @@ e sem rede. Duas fontes, as duas só leem o que o próprio CLI já entrega:
   lado de `runner-hook.mjs`). O Claude Code (2.1.80 ou mais novo) passa no stdin um JSON que inclui
   `rate_limits.five_hour` e `rate_limits.seven_day`. O handler envia **só** o `rate_limits` (o resto do
   JSON tem caminho e custo e nunca sai do processo), no máximo um POST a cada 15 s (carimbo
-  `<id>.uso.carimbo`), sempre sai com 0 e imprime nada. Se o descritor (`statusLine`), o settings do
-  usuário do Claude ou o do projeto já definem um `statusLine`, o runner não instala o dele e avisa no
-  log (o Status do painel então mostra "sem dado").
+  `<id>.uso.carimbo`), sempre sai com 0 e imprime nada. Se o descritor declara um `statusLine` próprio,
+  o runner não instala o dele e avisa no log (o Status do painel então mostra "sem dado"). O settings
+  do usuário e o do projeto não contam: o `--settings` do spawn ganha deles (conferido em 19/10/2026
+  com o Claude Code 2.1.304, que entrega `rate_limits.five_hour` e `seven_day` ao statusLine).
 - **Codex:** o vigia do rollout lê os eventos `token_count` com `rate_limits`. Cada janela é
   classificada pela duração (`window_minutes` <= 360 é a de 5 horas, >= 1440 é a semanal), não pela
   posição. Aceita `resets_at` (epoch em segundos) e o antigo `resets_in_seconds` (somado ao horário do

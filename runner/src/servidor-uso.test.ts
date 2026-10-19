@@ -95,13 +95,14 @@ test("settings do Claude levam o statusLine do medidor, sem sobrescrever o de ou
   assert.match(sl.command, /runner-uso\.mjs" --agent .* --port \d+ --nonce [0-9a-f]{64}/);
   assert.ok(fs.existsSync(path.join(amb.estado, "runner-hooks", "runner-uso.mjs")));
 
+  // O settings do usuário não conta: o --settings do spawn ganha dele no Claude Code real.
   fs.writeFileSync(path.join(amb.claudeDir, "settings.json"), JSON.stringify({ statusLine: { type: "command", command: "echo oi" } }));
   escreverSettings(principal, NONCE);
-  assert.equal(arquivo().statusLine, undefined, "statusLine do usuário é respeitado");
-  assert.match(fs.readFileSync(amb.logDoRunner, "utf8"), /statusLine próprio/);
+  assert.match(arquivo().statusLine.command, /runner-uso\.mjs/, "medidor entra mesmo com statusLine no settings do usuário");
   fs.rmSync(path.join(amb.claudeDir, "settings.json"));
 
   (principal.descritor.config as { statusLine?: unknown }).statusLine = { type: "command", command: "echo oi" };
   escreverSettings(principal, NONCE);
   assert.equal(arquivo().statusLine, undefined, "statusLine do descritor é respeitado");
+  assert.match(fs.readFileSync(amb.logDoRunner, "utf8"), /statusLine próprio/);
 });
