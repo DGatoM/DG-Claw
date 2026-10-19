@@ -32,6 +32,9 @@ const { criarPrimeiroAcesso } = require('./lib/primeiro-acesso');
 const { criarCaixaAgente, quemChamou } = require('./lib/caixa-agente');
 const { criarPush } = require('./lib/push');
 const { criarLembretes } = require('./lib/lembretes');
+const { criarEstados } = require('./lib/estados');
+const { criarPrefsAtencao } = require('./lib/prefs-atencao');
+const { criarVigiaAtencao } = require('./lib/vigia-atencao');
 const { criarMesa } = require('./lib/mesa');
 const { criarAvisos } = require('./lib/avisos');
 const { criarAtualizacao } = require('./lib/atualizacao');
@@ -105,6 +108,11 @@ function criarServidor(opcoes) {
   const avisos = criarAvisos({ config, registro, runner, caixa, log, agora: opcoes.agora });
   caixa.permitir('/api/v1/avisos');
   // Aviso de versão nova: só o dono, pelo painel. De propósito NÃO entra em caixa.permitir (agente em container não usa).
+  const estados = criarEstados({ conversa, naoLidas, registro, log });
+  const prefsAtencao = criarPrefsAtencao({ arquivo: path.join(config.dataDir, 'push', 'preferencias.json'), log });
+  const vigiaAtencao = criarVigiaAtencao({ registro, estados, lerThread: conversa.threadCompartilhada, push: opcoes.push || push, prefs: prefsAtencao, relogio: opcoes.agora, log, intervaloMs: opcoes.vigiaIntervaloMs });
+  // O Admin consulta o estado dos agentes pela caixa. Só ele: um agente de trabalho não enxerga os vizinhos.
+  caixa.permitir('/api/v1/estados');
   const atualizacao = criarAtualizacao({ dataDir: config.dataDir, log });
 
   let versaoJsCache = { ts: 0, valor: '0' };
@@ -347,6 +355,35 @@ function criarServidor(opcoes) {
       }
     }
 
+    if (p === '/api/v1/estados/docs.md' && m === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store' });
+      return res.end(fs.readFileSync(path.join(__dirname, 'docs', 'ESTADO-DOS-AGENTES.md'), 'utf8'));
+    }
+    if (p === '/api/v1/estados') {
+      if (falhaDoRegistro(req, res, true)) return undefined;
+      if (m !== 'GET') return H.erroJson(res, 405, 'Use GET para ver o estado de cada agente (trabalhando, precisa de você, terminou, ocioso ou sem sinal).');
+      const daCaixa = sessao.via === 'caixa';
+      if (daCaixa) {
+        const quem = registro.obter(sessao.agente);
+        if (!quem || quem.tipo !== 'admin') return H.erroJson(res, 403, 'Só o Admin pode consultar o estado dos agentes pela caixa. Um agente de trabalho enxerga só a própria casa.');
+      }
+      try { return H.enviaJson(res, 200, { ok: true, agentes: await estados.todos(daCaixa ? null : sessao.usuario) }); } catch (e) {
+        return H.erroJson(res, e.status || 500, e.status ? e.message : `Não consegui montar o estado dos agentes (${e.message}).`);
+      }
+    }
+    if (p === '/api/v1/push/preferencias') {
+      if (sessao.via === 'caixa') return H.erroJson(res, 403, 'As preferências de aviso do aparelho são só do dono, pelo painel.');
+      if (m === 'GET') {
+        try { return H.enviaJson(res, 200, { ok: true, preferencias: prefsAtencao.de(sessao.usuario) }); } catch (e) { return H.erroJson(res, e.status || 500, e.message); }
+      }
+      if (m !== 'POST') return H.erroJson(res, 405, 'Use GET para ler e POST com {"precisa_de_voce": true, "terminou": false} para mudar.');
+      let corpo;
+      try { corpo = await H.lerJson(req, 1024); } catch (e) { return H.erroJson(res, e.status || 400, e.message); }
+      try { return H.enviaJson(res, 200, { ok: true, preferencias: prefsAtencao.grava(sessao.usuario, corpo) }); } catch (e) {
+        return H.erroJson(res, e.status || 500, e.status ? e.message : `Não consegui guardar a preferência (${e.message}).`);
+      }
+    }
+
     if (p === '/api/v1/compartilhados/docs.md' && m === 'GET') {
       res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store' });
       return res.end(fs.readFileSync(path.join(__dirname, 'docs', 'MIDIAS-CACHE.md')));
@@ -434,7 +471,7 @@ function criarServidor(opcoes) {
       return res.end(fs.readFileSync(path.join(__dirname, 'docs', 'TRILHA-E-PERMISSAO.md'), 'utf8'));
     }
 
-    let mm = /^\/api\/v1\/agents\/([^/]+)(?:\/([a-z]+))?$/.exec(p);
+    let mm = /^\/api\/v1\/agents\/([^/]+)(?:\/([a-z-]+))?$/.exec(p);
     if (mm) {
       if (falhaDoRegistro(req, res, true)) return undefined;
       const agente = agenteOuErro(res, decodeURIComponent(mm[1]));
@@ -470,18 +507,31 @@ function criarServidor(opcoes) {
       if (acao === 'lido' && m === 'POST') {
         let corpo;
         try { corpo = await H.lerJson(req, 1024); } catch (e) { return H.erroJson(res, e.status || 400, e.message); }
-        const ep = corpo && typeof corpo.ep === 'number' ? corpo.ep : NaN;
-        if (!Number.isFinite(ep) || ep < 0) {
+        const abriu = !!corpo && corpo.abriu === true;
+        const ep = corpo && typeof corpo.ep === 'number' ? corpo.ep : (abriu && (corpo.ep === undefined || corpo.ep === null) ? null : NaN);
+        if (ep !== null && (!Number.isFinite(ep) || ep < 0)) {
           return H.erroJson(res, 400, `O campo "ep" precisa ser um número maior ou igual a zero (o ep da última mensagem que apareceu na tela). Recebi: ${JSON.stringify(corpo && corpo.ep === undefined ? null : corpo && corpo.ep).slice(0, 40)}.`);
         }
-        try { return H.enviaJson(res, 200, { ok: true, visto_ep: naoLidas.marcar(sessao.usuario, agente.slug, ep) }); } catch (e) {
+        try { return H.enviaJson(res, 200, { ok: true, visto_ep: naoLidas.marcar(sessao.usuario, agente.slug, ep, { abriu }) }); } catch (e) {
           return H.erroJson(res, e.status || 500, e.status ? e.message : `Não consegui guardar que a conversa foi lida (${e.message}).`);
         }
+      }
+      if (acao === 'nao-lido' && (m === 'POST' || m === 'DELETE')) {
+        try {
+          naoLidas.marcarNaoLida(sessao.usuario, agente.slug, m === 'POST');
+          return H.enviaJson(res, 200, { ok: true, marcada_nao_lida: m === 'POST' });
+        } catch (e) {
+          return H.erroJson(res, e.status || 500, e.status ? e.message : `Não consegui ${m === 'POST' ? 'marcar' : 'desmarcar'} a conversa como não lida (${e.message}).`);
+        }
+      }
+      if (acao === 'vendo' && m === 'POST') {
+        vigiaAtencao.vendo(agente.slug);
+        return H.enviaJson(res, 200, { ok: true });
       }
       if (acao === 'upload' && m === 'POST') return upload(req, res, agente);
       if (acao === 'comandos' && m === 'GET') return H.enviaJson(res, 200, Object.assign({ ok: true, agente: agente.slug }, await comandos.catalogo(agente)));
       if (acao === 'comando' && m === 'POST') return comandoPost(req, res, agente);
-      return H.erroJson(res, ['messages', 'stream', 'wait', 'send', 'upload', 'permissao', 'reiniciar', 'lido', 'comandos', 'comando', ''].includes(acao) ? 405 : 404, `Não existe ${m} ${p}.`);
+      return H.erroJson(res, ['messages', 'stream', 'wait', 'send', 'upload', 'permissao', 'reiniciar', 'lido', 'nao-lido', 'vendo', 'comandos', 'comando', ''].includes(acao) ? 405 : 404, `Não existe ${m} ${p}.`);
     }
 
     mm = /^\/api\/v1\/media\/([0-9a-f]{16})\/visual$/.exec(p);
@@ -835,7 +885,7 @@ function criarServidor(opcoes) {
   });
 
   return {
-    servidor, config, registro, auth, midia, conversa, log, caixa, push, lembretes, avisos,
+    servidor, config, registro, auth, midia, conversa, log, caixa, push, lembretes, avisos, estados, vigiaAtencao, prefsAtencao,
     ouvir(porta, host) {
       return new Promise((resolve, reject) => {
         servidor.once('error', reject);
@@ -844,11 +894,12 @@ function criarServidor(opcoes) {
           caixa.iniciar();
           lembretes.iniciar();
           avisos.iniciar();
+          vigiaAtencao.iniciar();
           resolve(servidor.address());
         });
       });
     },
-    fechar() { return new Promise((resolve) => { caixa.parar(); lembretes.parar(); avisos.parar(); proxy.fecharTudo(); servidor.closeAllConnections && servidor.closeAllConnections(); servidor.close(() => resolve()); }); },
+    fechar() { return new Promise((resolve) => { caixa.parar(); lembretes.parar(); avisos.parar(); vigiaAtencao.parar(); proxy.fecharTudo(); servidor.closeAllConnections && servidor.closeAllConnections(); servidor.close(() => resolve()); }); },
   };
 }
 

@@ -18,7 +18,7 @@ function criarRunnerFalso(opcoes) {
     if (rota === `/api/agents/${o.agenteId}` && req.method === 'GET') {
       rec.estadoPedidos += 1;
       if (o.falhaEstado) return json(503, { success: false, error: 'runner indisponível no teste' });
-      return json(200, { success: true, data: { id: o.agenteId, status: o.status, sessionId: o.sessionId, currentTool: o.currentTool, updatedAt: Date.now(), codexHome: o.codexHome, statusReason: o.statusReason, error: o.erroEstado } });
+      return json(200, { success: true, data: { id: o.agenteId, status: o.status, sessionId: o.sessionId, currentTool: o.currentTool, updatedAt: Date.now(), codexHome: o.codexHome, statusReason: o.statusReason, error: o.erroEstado, motivo: o.motivo } });
     }
     if (rota === `/api/agents/${o.agenteId}/input` && req.method === 'POST') {
       const partes = [];
