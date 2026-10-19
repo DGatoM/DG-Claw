@@ -7,41 +7,49 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [1.0.0] - 2026-10-19
+
+A v1 troca o plugin do Claude Code por uma plataforma completa: um instalador, um painel web com
+chat e agentes que rodam isolados em containers. É a primeira versão publicada com tag, e traz também a
+versão instalada à vista (`dgclaw versao`), backup e restauração (`dgclaw backup` e `dgclaw restaurar`),
+atualização que volta sozinha quando algo dá errado, aviso de versão nova e personalizações que
+sobrevivem à atualização.
+
 ### Como atualizar
 
-- **Instrução nova para os agentes que você já tem.** Nesta versão os agentes aprendem a lidar com a
-  mensagem falada que chega marcada como `[áudio transcrito]` (ela pode ter erro de transcrição). A
-  instrução fica na parte das instruções que o próprio DG Claw mantém, e a atualização não regrava essa
-  parte nos agentes que já existem. Por isso, depois de atualizar, regrave a identidade de cada agente com
-  `sudo dgclaw agente identidade <agente>`. O comando não mexe no `CLAUDE.md`, no `AGENT.md` nem na
-  memória que você personalizou; só refaz o texto de plataforma. Agentes criados depois desta versão já
-  nascem com a instrução, e o Admin recebe a dele sozinho na reinstalação.
-- **Reinicie os agentes depois de atualizar.** O aviso de login expirado depende de uma mudança no runner
-  (o processo que mantém cada agente vivo) e de um hook novo nas configurações que ele gera a cada subida.
-  Um agente que continua com o runner antigo segue mudo quando o login do Claude morre. Reiniciar o agente
-  (`sudo dgclaw agente reiniciar <agente>`, ou o botão "Reiniciar sessão" da conversa) já carrega as duas
-  coisas, e a conversa continua de onde estava.
-- **Recarregue o app no celular depois de atualizar.** A conversa ganhou um arquivo novo
-  (`conversa-puro.js`); o app instalado busca a versão nova sozinho, mas se a conversa abrir com aviso
-  de erro, feche e abra o app de novo.
+Para quem já tem o DG Claw instalado, na ordem:
 
-- **Nesta versão as personalizações ganham um registro.** Quem tinha o DG Claw de 17/10/2026 ainda não
-  tem o `dgclaw atualizar`; a atualização acontece pelo `install.sh` do clone. O instalador novo guarda,
-  antes de copiar o programa, tudo o que foi mudado direto em `/opt/dgclaw/app` (em
-  `/opt/dgclaw/admin/personalizacoes-migracao/<data>/`) e deixa um levantamento pendente. Depois de
-  atualizar, o Admin roda `sudo dgclaw personalizacoes levantar`, conta a você o que achou, confirma cada
-  mudança, reaplica na branch `personalizacoes` do jeito mais compatível com a arquitetura, registra em
-  `/opt/dgclaw/admin/PERSONALIZACOES.md` e fecha com `sudo dgclaw personalizacoes concluir`. O passo a passo
-  está no capítulo "Quem já tinha o DG Claw antes desta versão" do `docs/PERSONALIZAR.md`.
-- **As instruções do Admin ganharam a seção "Personalizar o programa do DG Claw".** Se o `CLAUDE.md` ou o
-  `AGENTS.md` do Admin foi personalizado, a atualização não o troca e grava o modelo novo ao lado, como
-  `.novo`. A seção nova precisa entrar no seu arquivo sem apagar o que você escreveu, para o Admin seguir o
-  guia e o registro em toda conversa.
-- **A partir desta versão, toda atualização passa pelo seu ok.** Cada DG Claw é usado de um jeito e pode
-  guardar informações sensíveis, então antes de instalar o Admin lê o que mudou e conta a você se vê risco
-  para os seus arquivos, dados e personalizações. O comando só instala com `--ok-do-dono`. Como as
-  instruções do Admin personalizadas não são trocadas, este parágrafo também precisa entrar na seção
-  "Atualizar o DG Claw" do seu `CLAUDE.md` ou `AGENTS.md`, junto da seção de personalização.
+1. **Peça ao Admin, no chat: "atualiza o DG Claw".** Ele faz a simulação, conta em palavras simples o
+   que muda e só instala depois do seu ok. Pelo terminal, o caminho é `sudo dgclaw atualizar --simular`
+   e, depois de ler o relatório, `sudo dgclaw atualizar --ok-do-dono --segundo-plano`. Se o seu DG Claw é
+   anterior a esta versão (instalado até 19/10/2026), o comando que você tem ainda não conhece o
+   `--ok-do-dono`: rode só `sudo dgclaw atualizar --segundo-plano`. A partir desta versão, toda
+   atualização passa pelo seu ok.
+2. **Reinicie os agentes.** O aviso de login expirado depende de uma mudança no runner (o processo que
+   mantém cada agente vivo) e de um hook novo que ele grava a cada subida. Um agente com o runner antigo
+   continua mudo quando o login do Claude morre. Reinicie cada um com
+   `sudo dgclaw agente reiniciar <agente>` ou pelo botão "Reiniciar sessão" da conversa; a conversa
+   continua de onde estava.
+3. **Regrave a identidade dos agentes que você já tem.** Nesta versão eles aprendem a lidar com a
+   mensagem falada que chega marcada como `[áudio transcrito]` (ela pode ter erro de transcrição). A
+   instrução fica na parte que o próprio DG Claw mantém, e a atualização não regrava essa parte sozinha.
+   Rode `sudo dgclaw agente identidade <agente>` para cada um. O comando não mexe no `CLAUDE.md`, no
+   `AGENT.md` nem na memória que você personalizou; só refaz o texto de plataforma. Agentes criados
+   depois desta versão já nascem com a instrução, e o Admin recebe a dele na reinstalação.
+4. **Recarregue o app no celular.** A conversa ganhou arquivos novos; o app instalado busca a versão
+   nova sozinho, mas se a conversa abrir com aviso de erro, feche e abra o app de novo.
+5. **Se você personalizou o `CLAUDE.md` ou o `AGENTS.md` do Admin,** a atualização não troca o seu
+   arquivo e grava o modelo novo ao lado, como `.novo`. Leve para o seu arquivo duas seções do `.novo`,
+   sem apagar o que você escreveu: "Personalizar o programa do DG Claw" e o parágrafo do ok do dono na
+   seção "Atualizar o DG Claw". Sem elas o Admin não segue o registro de personalizações nem pede o seu
+   ok antes de atualizar.
+6. **Se alguém mudou o programa direto em `/opt/dgclaw/app`,** nada se perde: antes de copiar o
+   programa novo, o instalador guarda tudo o que foi mudado em
+   `/opt/dgclaw/admin/personalizacoes-migracao/<data>/` e deixa um levantamento pendente. Depois de
+   atualizar, o Admin roda `sudo dgclaw personalizacoes levantar`, conta a você o que achou, confirma
+   cada mudança, reaplica na branch `personalizacoes`, registra em `/opt/dgclaw/admin/PERSONALIZACOES.md`
+   e fecha com `sudo dgclaw personalizacoes concluir`. O passo a passo está no capítulo "Quem já tinha o
+   DG Claw antes desta versão" do `docs/PERSONALIZAR.md`.
 
 ### Adicionado
 
@@ -178,42 +186,6 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
   token e sem enviar dados da instalação. `dgclaw atualizar --checar` confere na hora,
   `dgclaw atualizar --aviso desligar` desliga e `dgclaw status` mostra a situação. Guia em
   `docs/AVISO-DE-ATUALIZACAO.md`.
-
-### Corrigido
-
-- O menu ☰ fechava só no ✕ e não ao tocar fora dele: um resto de marcação dentro da folha de estilo da conversa
-  derrubava a regra do fundo escuro. Um teste novo impede que isso volte a acontecer.
-- Aviso amarelo (por exemplo o da cota de voz) fechado no ✕ descansa 48 horas antes de voltar. Números diferentes
-  na mesma frase (92% e 93%) contam como o mesmo aviso.
-- A faixa "não respondeu em 3 minutos" saiu: a resposta chega sozinha quando o agente mandar, e a conversa
-  continua escutando.
-- Fundo verde da conversa fica parado no puxão elástico do iPhone, sem faixa branca no fim da rolagem.
-- App instalado no iPhone: a faixa branca embaixo da tela some (o fundo da página usa a cor da barra).
-- Se o app abrir com uma página antiga guardada, sem o módulo de mídias, a conversa continua funcionando e a aba
-  de arquivos pede para recarregar, em vez de a tela ficar em branco.
-- Foto aberta no visor: o gesto de ampliar com os dedos não seleciona mais a imagem nem abre o menu de segurar.
-
-- Atualizar o DG Claw não apaga mais as chaves do `web.env`.
-- O instalador escolhe o motor do Admin (Claude ou Codex) pelo login que existe, não pelo programa instalado.
-- Campos de texto com 16px ou mais no celular: o app instalado não dá mais zoom ao tocar num campo.
-- Ubuntu 26.04 passa com aviso, e os problemas da instalação ao vivo de 17/10 foram acertados.
-
-### Alterado
-
-- O botão 🦞 Painel saiu do cabeçalho da conversa: o menu lateral já leva ao painel do agente.
-
-- A versão instalada passou a ser a do arquivo `VERSION` (1.0.0), em vez de `v1-<commit>`; o commit continua
-  anotado à parte em `DGCLAW_COMMIT`. O `runner` foi de 0.1.0 para 1.0.0, igual ao painel.
-- `dgclaw atualizar` passou a desfazer sozinho quando o instalador novo ou a conferência de configuração
-  falham (antes parava e pedia o `--voltar`). `--sem-voltar-sozinho` traz o comportamento antigo.
-
-## [1.0.0] - 2026-10-17
-
-A v1 troca o plugin do Claude Code por uma plataforma completa: um instalador, um painel web com
-chat e agentes que rodam isolados em containers.
-
-### Adicionado
-
 - Primeiro acesso por link: o instalador não pede mais senha. No fim mostra o link do painel e um link
   de primeiro acesso, de uso único e válido por 30 minutos, onde a pessoa cadastra a senha no navegador
   e já entra no chat do Admin. A senha nunca aparece no terminal. `--senha-stdin` e a pergunta
@@ -244,11 +216,34 @@ chat e agentes que rodam isolados em containers.
 
 ### Alterado
 
+- O botão 🦞 Painel saiu do cabeçalho da conversa: o menu lateral já leva ao painel do agente.
+- A versão instalada passou a ser a do arquivo `VERSION` (1.0.0), em vez de `v1-<commit>`; o commit continua
+  anotado à parte em `DGCLAW_COMMIT`. O `runner` foi de 0.1.0 para 1.0.0, igual ao painel.
+- `dgclaw atualizar` passou a desfazer sozinho quando o instalador novo ou a conferência de configuração
+  falham (antes parava e pedia o `--voltar`). `--sem-voltar-sozinho` traz o comportamento antigo.
 - O login do painel usa hash scrypt, sessão que vence, limite de tentativas e proteção contra CSRF.
 - O token do Telegram não passa mais pelos argumentos do `curl`; vai pela entrada padrão.
 - O Gmail do agente nasce só com leitura e rascunho; o envio é liberado a pedido do dono, com aviso.
 - Compartilhar arquivos nasce sem comando de publicar; sem configuração, o erro diz o que configurar.
 - O README e o INSTALL.md passam a descrever a instalação em servidor com o instalador.
+
+### Corrigido
+
+- O menu ☰ fechava só no ✕ e não ao tocar fora dele: um resto de marcação dentro da folha de estilo da conversa
+  derrubava a regra do fundo escuro. Um teste novo impede que isso volte a acontecer.
+- Aviso amarelo (por exemplo o da cota de voz) fechado no ✕ descansa 48 horas antes de voltar. Números diferentes
+  na mesma frase (92% e 93%) contam como o mesmo aviso.
+- A faixa "não respondeu em 3 minutos" saiu: a resposta chega sozinha quando o agente mandar, e a conversa
+  continua escutando.
+- Fundo verde da conversa fica parado no puxão elástico do iPhone, sem faixa branca no fim da rolagem.
+- App instalado no iPhone: a faixa branca embaixo da tela some (o fundo da página usa a cor da barra).
+- Se o app abrir com uma página antiga guardada, sem o módulo de mídias, a conversa continua funcionando e a aba
+  de arquivos pede para recarregar, em vez de a tela ficar em branco.
+- Foto aberta no visor: o gesto de ampliar com os dedos não seleciona mais a imagem nem abre o menu de segurar.
+- Atualizar o DG Claw não apaga mais as chaves do `web.env`.
+- O instalador escolhe o motor do Admin (Claude ou Codex) pelo login que existe, não pelo programa instalado.
+- Campos de texto com 16px ou mais no celular: o app instalado não dá mais zoom ao tocar num campo.
+- Ubuntu 26.04 passa com aviso, e os problemas da instalação ao vivo de 17/10 foram acertados.
 
 ### Segurança
 
