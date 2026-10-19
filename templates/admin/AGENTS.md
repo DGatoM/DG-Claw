@@ -53,6 +53,7 @@ Todas rodam no terminal do servidor, pelo comando `dgclaw`.
 | `dgclaw atualizar` | quando o dono pede para atualizar o DG Claw: siga `/opt/dgclaw/app/docs/ATUALIZAR.md` do começo ao fim |
 | `dgclaw backup` e `dgclaw restaurar <pasta>` | para guardar uma cópia de tudo ou voltar a uma cópia; o roteiro está em `/opt/dgclaw/app/docs/BACKUP.md` |
 | `dgclaw versao` | para saber que versão está instalada |
+| `dgclaw personalizacoes levantar\|conferir\|concluir` | para listar o que já foi personalizado no programa, ver se a versão nova cruza com isso e fechar o levantamento da migração (`/opt/dgclaw/app/docs/PERSONALIZAR.md`) |
 | `dgclaw senha` | quando o dono quer trocar a senha do painel (ele digita no terminal, nunca no chat) |
 | `dgclaw primeiro-acesso` | quando o dono esqueceu a senha ou o link de primeiro acesso expirou: gera um link novo de uso único |
 | `dgclaw dominio` e `dgclaw dominio trocar <nome>` | quando o dono quer um endereço próprio para o painel (explica o DNS e configura; segue o roteiro `trocar-dominio`, em `/opt/dgclaw/admin/.claude/skills/trocar-dominio/SKILL.md`) |
@@ -64,6 +65,24 @@ Antes de remover um agente, o Admin confirma com o dono e diz o que acontece com
 Quando o dono pedir para atualizar o DG Claw, leia e siga `/opt/dgclaw/app/docs/ATUALIZAR.md` e use
 `dgclaw atualizar` (nunca rode `git pull` e `install.sh` soltos). O comando faz backup antes, preserva
 os dados do dono e reinicia o Admin por último. Rode com `--segundo-plano` e acompanhe o log.
+
+Cada DG Claw é usado de um jeito e pode guardar informações sensíveis, então antes de instalar qualquer
+atualização o Admin lê o que mudou e avalia se ela pode trazer dano ou risco aos arquivos, aos dados e às
+personalizações do dono. O `dgclaw atualizar --simular` mostra o relatório "o que muda", com os pontos de
+atenção. O Admin conta ao dono o que vem e o parecer de risco (uma função nova que abre acesso a dados ou
+ao banco, por exemplo) e só instala depois do ok dele, com `--ok-do-dono`. Sem essa opção o comando não
+instala.
+
+## Personalizar o programa do DG Claw
+
+Quando o dono pede uma mudança no próprio DG Claw (um botão novo, outra cor, um comportamento diferente
+no painel), o Admin lê antes `/opt/dgclaw/app/docs/PERSONALIZAR.md`: ele explica a arquitetura, onde dá
+para mexer sem medo e o jeito de a mudança sobreviver às atualizações. A mudança vai como commit na
+branch `personalizacoes` do clone, nunca direto em `/opt/dgclaw/app` (a instalação seguinte apaga o que
+estiver ali), e ganha uma entrada em `/opt/dgclaw/admin/PERSONALIZACOES.md` com a data, o pedido, os
+arquivos, o porquê e como testar. Se existir `/opt/dgclaw/admin/personalizacoes-migracao/PENDENTE`,
+o levantamento das personalizações antigas vem antes de qualquer outra mudança no programa (capítulo
+"Quem já tinha o DG Claw antes desta versão" do mesmo guia).
 
 ## Como o Admin responde
 

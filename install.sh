@@ -494,6 +494,249 @@ detectar_provedor() {
     fi
 }
 
+# --- 4a. proteger o que o Admin mexeu no programa ---------------------------------
+# O rsync --delete de instalar_codigo deixa /opt/dgclaw/app igual ao clone: qualquer arquivo que o
+# Admin editou direto la some. Antes dele, guardar_app_alterado compara o app com o commit que foi
+# instalado e, se achar diferenca (ou nao tiver como comparar), guarda uma copia em
+# $DG_ADMIN/personalizacoes-migracao/<data>/ e deixa o marcador PENDENTE para o Admin levantar o que
+# era personalizacao (dgclaw personalizacoes levantar). Se nao conseguir gravar a copia, PARA antes
+# do rsync: nada e sobrescrito.
+
+# _migracao_base: imprime o commit instalado antes (existente no clone), ou nada.
+_migracao_base() {
+    local c h
+    c="$(env_valor DGCLAW_COMMIT)"
+    if [[ "$c" =~ ^[0-9a-f]{40}$ ]] && git_do_clone "$SCRIPT_DIR" cat-file -e "$c^{commit}" 2>/dev/null; then
+        printf '%s' "$c"; return 0
+    fi
+    c="$(env_valor DGCLAW_VERSAO)"
+    if [[ "$c" =~ ^v[0-9]+-([0-9a-f]{7,40})$ ]]; then
+        h="$(git_do_clone "$SCRIPT_DIR" rev-parse --verify -q "${BASH_REMATCH[1]}^{commit}" 2>/dev/null)" || h=""
+        if [ -n "$h" ]; then printf '%s' "$h"; fi
+    fi
+    return 0
+}
+
+# O que a compilacao ou o Python recriam sozinhos: nunca e personalizacao e nao entra na lista nem
+# na comparacao. Todo o resto (.env, *.db, chaves, arquivos soltos) entra na lista e na copia.
+_MIGRACAO_EXCLUI=(--exclude=.git --exclude=node_modules --exclude=tests --exclude=qa --exclude=/VERSAO
+    --exclude=/runner/dist/ --exclude=__pycache__/ '--exclude=*.pyc')
+
+# _migracao_diferencas <base_extraida>: linhas "<letra><TAB>caminho" do app em relacao a base.
+# Compara do jeito que o rsync real vai sobrescrever (rsync -rlpcni --delete: sem tempo, dono e
+# grupo; so conteudo, links e permissoes) e classifica pelo itemize:
+#   A  arquivo que so existe no app (acrescentado)     D  arquivo da base que sumiu do app
+#   M  conteudo diferente                              P  so a permissao mudou (chmod +x e afins)
+#   L  link simbolico criado, trocado ou sumido        X  outro tipo (dispositivo, socket, fifo)
+# Em P so conta o bit de execucao: o resto da permissao depende do umask de quem clonou.
+# Se o rsync falhar, nao imprime lista: imprime o motivo e sai com 1 (quem chama NAO pode seguir
+# como se nao houvesse diferenca).
+_migracao_diferencas() {
+    local tmp="$1" saida erro rc=0 linha p x y t lista="" ma mb
+    saida="$(mktemp)"; erro="$(mktemp)"
+    rsync -rlpcni --delete "${_MIGRACAO_EXCLUI[@]}" "$tmp/" "$DG_APP/" >"$saida" 2>"$erro" || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        printf 'o rsync de comparacao saiu com codigo %s: %s' "$rc" "$(head -n 2 "$erro" | tr '\n' ' ')"
+        rm -f "$saida" "$erro"
+        return 1
+    fi
+    while IFS= read -r linha; do
+        case "$linha" in
+            '*deleting '*)
+                p="${linha#\*deleting }"; p="${p#"${p%%[![:space:]]*}"}"
+                case "$p" in */) continue ;; esac
+                if [ -L "$DG_APP/$p" ]; then lista+="L"$'\t'"$p"$'\n'
+                elif [ -f "$DG_APP/$p" ]; then lista+="A"$'\t'"$p"$'\n'
+                else lista+="X"$'\t'"$p"$'\n'; fi ;;
+            ???????????' '*)
+                x="${linha%% *}"; p="${linha#* }"; y="${x:0:1}"; t="${x:1:1}"
+                case "$t" in
+                    f)
+                        if [ "$y" = ">" ]; then
+                            case "$x" in *++++++++*) lista+="D"$'\t'"$p"$'\n' ;; *) lista+="M"$'\t'"$p"$'\n' ;; esac
+                        elif [ "$y" = "." ] && [ "${x:5:1}" = "p" ]; then
+                            ma="$(stat -c %a "$tmp/$p" 2>/dev/null || printf 777)"; mb="$(stat -c %a "$DG_APP/$p" 2>/dev/null || printf 0)"
+                            if [ $((8#$ma & 8#111)) -ne $((8#$mb & 8#111)) ]; then lista+="P"$'\t'"$p"$'\n'; fi
+                        fi ;;
+                    L) if [ "$y" != "." ]; then lista+="L"$'\t'"${p%% -> *}"$'\n'; fi ;;
+                    D|S) if [ "$y" != "." ]; then lista+="X"$'\t'"$p"$'\n'; fi ;;
+                esac ;;
+        esac
+    done <"$saida"
+    rm -f "$saida" "$erro"
+    printf '%s' "$lista"
+}
+
+# _migracao_impressao: sha256 de uma lista ordenada com o sha256 de cada arquivo (sem node_modules e sem
+# os regeneraveis), o destino de cada link e o modo de cada arquivo. Dois apps iguais dao a mesma impressao.
+_migracao_impressao() {
+    (
+        cd "$DG_APP" || exit 1
+        find . -name node_modules -prune -o -name __pycache__ -prune -o -path ./runner/dist -prune -o \
+            \( -type f -o -type l \) ! -name '*.pyc' -print0 | LC_ALL=C sort -z \
+            | while IFS= read -r -d '' f; do
+                if [ -L "$f" ]; then printf 'L %s -> %s\n' "$f" "$(readlink "$f")"
+                else printf '%s %s %s\n' "$(stat -c %a "$f")" "$(sha256sum <"$f" | cut -d' ' -f1)" "$f"; fi
+            done | sha256sum | cut -d' ' -f1
+    )
+}
+
+# _migracao_ultima_impressao <pasta de migracao>: a IMPRESSAO da pasta "sem base" mais recente, ou nada.
+_migracao_ultima_impressao() {
+    local f
+    f="$(find "$1" -mindepth 2 -maxdepth 2 -name IMPRESSAO 2>/dev/null | sort | tail -n 1)"
+    if [ -n "$f" ]; then cat "$f"; fi
+}
+
+# _so_regular <caminho>: sai com 0 se nao existe ou e arquivo regular (nao link, nao especial).
+_so_regular() { [ ! -L "$1" ] && { [ ! -e "$1" ] || [ -f "$1" ]; }; }
+
+# _migracao_gravar <pasta> <comparou 1|0> <base_extraida> <texto do LISTA.txt> <impressao ou vazio>:
+# grava a copia. Primeiro o tar (o que mais importa), depois a lista e o patch. Se algo falhar, diz
+# em "PASSO: ..." (stderr) qual passo foi e sai com erro.
+_migracao_gravar() {
+    local pasta="$1" comparou="$2" tmp="$3" lista="$4" impressao="$5" x p rc
+    umask 077
+    tar -C "$DG_APP" --exclude=node_modules -czf "$pasta/app-antes.tar.gz" . \
+        || { printf 'PASSO: gravar app-antes.tar.gz\n' >&2; return 1; }
+    tar -tzf "$pasta/app-antes.tar.gz" >/dev/null \
+        || { printf 'PASSO: conferir que app-antes.tar.gz abre\n' >&2; return 1; }
+    printf '%s' "$lista" >"$pasta/LISTA.txt" || { printf 'PASSO: gravar LISTA.txt\n' >&2; return 1; }
+    if [ -n "$impressao" ]; then printf '%s\n' "$impressao" >"$pasta/IMPRESSAO" || { printf 'PASSO: gravar IMPRESSAO\n' >&2; return 1; }; fi
+    if [ "$comparou" = 1 ]; then
+        : >"$pasta/diff.patch" || { printf 'PASSO: gravar diff.patch\n' >&2; return 1; }
+        while IFS=$'\t' read -r x p; do
+            [ -n "$p" ] || continue
+            case "$x" in M|A|D) ;; *) continue ;; esac
+            # Patch so de arquivo regular nos dois lados; link e arquivo especial ficam so na LISTA.txt.
+            if ! _so_regular "$tmp/$p" || ! _so_regular "$DG_APP/$p"; then continue; fi
+            rc=0
+            diff -uN --label "a/$p" --label "b/$p" "$tmp/$p" "$DG_APP/$p" >>"$pasta/diff.patch" || rc=$?
+            [ "$rc" -le 1 ] || { printf 'PASSO: gravar o diff de %s no diff.patch (diff saiu com %s)\n' "$p" "$rc" >&2; return 1; }
+        done <<<"$lista"
+    fi
+    cat >"$pasta/LEIA.txt" <<LEIA || { printf 'PASSO: gravar LEIA.txt\n' >&2; return 1; }
+Esta pasta foi criada pelo instalador do DG Claw em $(date '+%d/%m/%Y %H:%M:%S').
+
+Antes de atualizar o programa em ${DG_APP#"$R"}, o instalador viu que ele
+pode ter sido alterado a mao (ou nao teve como comparar com a versao oficial). Como a atualizacao
+troca o programa inteiro, ele guardou aqui o que havia:
+
+  app-antes.tar.gz  o programa inteiro como estava antes da atualizacao (sem node_modules)
+  LISTA.txt         um arquivo por linha, "letra, tab, caminho", em relacao ao oficial:
+                      M  conteudo alterado          A  arquivo acrescentado
+                      D  arquivo apagado            P  so a permissao mudou (chmod +x)
+                      L  link simbolico criado, trocado ou apagado
+                      X  outro tipo de arquivo (dispositivo, socket)
+  diff.patch        as diferencas linha a linha dos arquivos comuns M, A e D (nao existe quando
+                    nao havia como comparar; links e arquivos especiais ficam so na LISTA.txt)
+  IMPRESSAO         so quando nao havia como comparar: uma impressao digital do programa, para o
+                    instalador nao guardar a mesma copia de novo se nada mudou
+
+Nada disto foi reaplicado sozinho. O Admin levanta o que era personalizacao e, com o seu sim, refaz
+por cima da versao nova: dgclaw personalizacoes levantar
+LEIA
+}
+
+guardar_app_alterado() {
+    [ -d "$DG_APP" ] || return 0
+    [ -n "$(find "$DG_APP" -mindepth 1 -maxdepth 1 -not -name node_modules 2>/dev/null | head -n 1)" ] || return 0
+    local base tmp="" lista="" motivo="" antigo="" pasta="" stamp n=1 n_lista=0 dir_mig="$DG_ADMIN/personalizacoes-migracao"
+    local comparou=0 texto_lista="" impressao="" anterior="" erro_cmp="" erro_grav="" passo_erro
+    base="$(_migracao_base)"
+    if [ -n "$base" ]; then
+        tmp="$(mktemp -d)"
+        if ! { git_do_clone "$SCRIPT_DIR" archive "$base" | tar -x -p -C "$tmp"; } 2>/dev/null; then
+            rm -rf "$tmp"
+            falha "nao consegui extrair o commit instalado antes (${base:0:12}) do clone $SCRIPT_DIR para comparar com ${DG_APP#"$R"}." \
+                  "confira o clone (git -C $SCRIPT_DIR status) e rode ./install.sh de novo. Nada foi mudado em ${DG_APP#"$R"}."
+        fi
+        if lista="$(_migracao_diferencas "$tmp")"; then
+            comparou=1; texto_lista="$lista"
+            if [ -n "$lista" ]; then
+                lista+=$'\n'; texto_lista="$lista"; n_lista="$(printf '%s' "$lista" | grep -c .)"
+                motivo="o app instalado difere do commit instalado antes (${base:0:12}) em $n_lista arquivo(s)"
+            fi
+        else
+            erro_cmp="$lista"; lista=""
+            texto_lista="nao deu para comparar: $erro_cmp"$'\n'
+            motivo="nao deu para comparar o app com o commit instalado antes (${base:0:12}): $erro_cmp. Copia do app inteiro"
+        fi
+    else
+        texto_lista=$'sem base de comparacao\n'
+        motivo="sem base de comparacao (nao ha git ou commit anotado no dgclaw.env): copia do app inteiro"
+    fi
+    if [ "$comparou" = 0 ] && [ -n "$motivo" ]; then
+        # Sem como comparar nao da para saber o que mudou, entao sempre guarda; mas reinstalar o mesmo app
+        # nao acumula copias identicas: a impressao digital da ultima copia "sem base" decide.
+        impressao="$(_migracao_impressao)" || impressao=""
+        anterior="$(_migracao_ultima_impressao "$dir_mig")"
+        if [ -n "$impressao" ] && [ "$impressao" = "$anterior" ]; then
+            info "o programa instalado em ${DG_APP#"$R"} e identico ao da ultima copia 'sem base' guardada em ${dir_mig#"$R"}; nao guardo outra."
+            motivo=""
+        fi
+    fi
+    if [ ! -f "$DG_APP/docs/PERSONALIZAR.md" ] && [ ! -f "$DG_ADMIN/PERSONALIZACOES.md" ]; then
+        antigo="instalacao anterior ao registro de personalizacoes: levantar o que ja foi personalizado"
+    fi
+    if [ -z "$motivo" ] && [ -z "$antigo" ]; then
+        if [ -n "$tmp" ]; then rm -rf "$tmp"; fi
+        return 0
+    fi
+
+    if [ "$ENSAIO" = 1 ]; then
+        if [ -n "$tmp" ]; then rm -rf "$tmp"; fi
+        if [ -n "$motivo" ]; then printf '   [ensaio] guardaria uma copia em %s/<data>/: %s\n' "${dir_mig#"$R"}" "$motivo"; fi
+        if [ -n "$antigo" ]; then printf '   [ensaio] deixaria o levantamento de personalizacoes PENDENTE: %s\n' "$antigo"; fi
+        return 0
+    fi
+
+    if [ -n "$motivo" ]; then
+        stamp="$(date +%Y%m%d-%H%M%S)"
+        pasta="$dir_mig/$stamp"
+        if ! ( umask 077; install -d -m 700 "$DG_ADMIN" "$dir_mig" ); then
+            if [ -n "$tmp" ]; then rm -rf "$tmp"; fi
+            falha "nao consegui criar ${dir_mig#"$R"} para guardar a copia de seguranca do programa." \
+                  "corrija a permissao ou o espaco (df -h; ls -ld ${DG_ADMIN#"$R"}) e rode ./install.sh de novo. Nada foi sobrescrito."
+        fi
+        # mkdir sem -p reserva a pasta de forma atomica: dois instaladores no mesmo segundo nao dividem pasta.
+        while ! ( umask 077; mkdir "$pasta" ) 2>/dev/null; do
+            if [ ! -e "$pasta" ]; then
+                if [ -n "$tmp" ]; then rm -rf "$tmp"; fi
+                falha "nao consegui criar a pasta ${pasta#"$R"} para a copia de seguranca do programa (disco cheio ou sem permissao)." \
+                      "libere espaco ou corrija a permissao de ${dir_mig#"$R"} (df -h; ls -ld ${dir_mig#"$R"}) e rode ./install.sh de novo. Nada foi sobrescrito."
+            fi
+            n=$((n + 1)); pasta="$dir_mig/$stamp-$n"
+        done
+        if ! erro_grav="$( ( _migracao_gravar "$pasta" "$comparou" "$tmp" "$texto_lista" "$impressao" ) 2>&1 >/dev/null )"; then
+            if [ -n "$tmp" ]; then rm -rf "$tmp"; fi
+            passo_erro="$(printf '%s\n' "$erro_grav" | sed -n 's/^PASSO: //p' | head -n 1)"
+            falha "nao consegui gravar a copia de seguranca do programa em ${pasta#"$R"} (passo que falhou: ${passo_erro:-desconhecido}; disco cheio ou sem permissao), e o programa instalado difere do oficial ou nao deu para comparar." \
+                  "libere espaco ou corrija a permissao de ${dir_mig#"$R"} (df -h; ls -ld ${dir_mig#"$R"}) e rode ./install.sh de novo. Nada foi sobrescrito: parei antes de copiar o programa novo."
+        fi
+        aviso "o programa instalado em ${DG_APP#"$R"} nao era igual ao oficial ($motivo). Guardei uma copia em ${pasta#"$R"} antes de atualizar; o Admin deve levantar o que era personalizacao: dgclaw personalizacoes levantar"
+    fi
+    if [ -n "$tmp" ]; then rm -rf "$tmp"; fi
+    (
+        umask 077
+        install -d -m 700 "$DG_ADMIN" "$dir_mig"
+        if [ -n "$motivo" ]; then printf '%s\t%s\t%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$motivo" "${pasta#"$R"}" >>"$dir_mig/PENDENTE"; fi
+        if [ -n "$antigo" ]; then printf '%s\t%s\t%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$antigo" "${pasta:+${pasta#"$R"}}" >>"$dir_mig/PENDENTE"; fi
+    ) || falha "nao consegui gravar o marcador ${dir_mig#"$R"}/PENDENTE." \
+               "confira a permissao e o espaco de ${dir_mig#"$R"} e rode ./install.sh de novo (a copia, se houve, ja esta guardada)."
+}
+
+# instalar_registro_personalizacoes: o caderno das personalizacoes nasce de um modelo e nunca e sobrescrito.
+instalar_registro_personalizacoes() {
+    local alvo="$DG_ADMIN/PERSONALIZACOES.md"
+    if [ -f "$alvo" ]; then return 0; fi
+    if fonte_tem templates/admin/PERSONALIZACOES.md; then
+        escrever_arquivo "$alvo" 600 <"$SCRIPT_DIR/templates/admin/PERSONALIZACOES.md"
+    else
+        aviso "templates/admin/PERSONALIZACOES.md nao existe neste repositorio; o Admin fica sem o caderno de personalizacoes ate ele chegar. Rode ./install.sh de novo."
+    fi
+}
+
 # --- 4. codigo ------------------------------------------------------------------
 instalar_codigo() {
     passo "Copiando o DG Claw para ${DG_APP#"$R"}"
@@ -521,6 +764,7 @@ instalar_codigo() {
     criar_pasta 755 "$DG_ETC"
     criar_pasta 755 "$DG_OPT"
     criar_pasta 755 "$DG_APP"
+    guardar_app_alterado
     # node_modules fica de fora nos dois sentidos: o rsync nao copia e, por estar excluido, tambem nao apaga o
     # que o npm instalou la dentro numa rodada anterior.
     executar rsync -a --delete --exclude=.git --exclude=node_modules --exclude=tests --exclude=qa "$SCRIPT_DIR/" "$DG_APP/"
@@ -843,6 +1087,7 @@ configurar_admin() {
             aviso "templates/admin/$arq ainda nao existe neste repositorio; o Admin vai subir sem esse arquivo de identidade. Rode ./install.sh de novo quando ele chegar."
         fi
     done
+    instalar_registro_personalizacoes
     # A secao "Onde voce esta e o que voce consegue fazer" do Admin vai num arquivo proprio, que o
     # runner injeta como system prompt (identidadeArquivo; Claude e Codex). Fica fora do CLAUDE.md
     # e do AGENTS.md de proposito: esses o dono pode personalizar, e este e regravado sempre.

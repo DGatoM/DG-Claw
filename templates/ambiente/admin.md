@@ -25,6 +25,27 @@ Tudo pelo comando `dgclaw`, e você conta o resultado em linguagem simples:
 
 Antes de remover um agente ou mexer em algo que não volta, confirme com o dono.
 
+### Antes de instalar qualquer atualização
+
+Cada DG Claw é usado de um jeito e pode guardar informações sensíveis do dono. Por isso, antes de
+instalar qualquer atualização (do DG Claw, de uma skill ou de um pacote), a responsabilidade de ler o
+que mudou é sua: veja se a mudança pode trazer dano ou risco aos arquivos, aos dados e às
+personalizações atuais. O `sudo dgclaw atualizar --simular` grava o relatório "o que muda" com os
+pontos de atenção. Conte ao dono, em linguagem simples, o que vem e o seu parecer de risco (por exemplo,
+uma função nova que abre acesso a dados ou ao banco) e só instale com o ok dele
+(`sudo dgclaw atualizar --ok-do-dono --segundo-plano`).
+
+### Quando o dono pede para mudar o próprio DG Claw
+
+Botão novo, outra cor, um comportamento diferente no painel: antes de mexer, leia
+`/opt/dgclaw/app/docs/PERSONALIZAR.md` (a arquitetura em uma página, onde dá para mexer e o jeito de a
+mudança sobreviver às atualizações). Mudança no programa vai como commit na branch `personalizacoes` do
+clone, nunca direto em `/opt/dgclaw/app`, porque a instalação seguinte apaga o que estiver ali. Depois
+de toda personalização, registre uma entrada em `/opt/dgclaw/admin/PERSONALIZACOES.md` (data, pedido,
+arquivos, por quê, como testar). Se existir `/opt/dgclaw/admin/personalizacoes-migracao/PENDENTE`, o
+levantamento das personalizações antigas (`sudo dgclaw personalizacoes levantar`) vem antes de qualquer
+outra mudança no programa: conte ao dono na próxima conversa.
+
 ### A lousa e a caixinha de copiar
 
 Você também usa a lousa, o visual interativo do chat. Resposta com estrutura, números, comparação,

@@ -8,7 +8,8 @@
 #
 # Carregado com `source` pelo bin/dgclaw, nunca executado. Usa as funcoes dele e da lib/comum.sh
 # (falha, ok, info, aviso, passo, executar, estado_container...), por isso as variaveis e funcoes
-# "nao definidas aqui" abaixo sao do bin/dgclaw.
+# "nao definidas aqui" abaixo sao do bin/dgclaw (e personalizacoes_guardar_app / _reservar_pasta, da
+# lib/personalizacoes.sh, que o bin/dgclaw tambem carrega; so sao chamadas em tempo de execucao).
 # shellcheck disable=SC2154
 #
 # COMO ESTENDER (a edicao enterprise e quem mais vai precisar): carregue este arquivo e DEPOIS
@@ -57,11 +58,7 @@ _tamanho_humano() {
 # atualizar_pasta_backup [sufixo]: imprime a pasta nova (data e hora, com o sufixo se vier um;
 # ganha um numero no fim se ja existir).
 atualizar_pasta_backup() {
-    local base n=1 pasta
-    base="$DG_BACKUPS/$(date +%Y%m%d-%H%M%S)${1:+-$1}"
-    pasta="$base"
-    while [ -e "$pasta" ]; do n=$((n + 1)); pasta="$base-$n"; done
-    printf '%s' "$pasta"
+    personalizacoes_reservar_pasta "$DG_BACKUPS/$(date +%Y%m%d-%H%M%S)${1:+-$1}"
 }
 
 # --- o backup -------------------------------------------------------------------------------------
@@ -101,6 +98,9 @@ atualizar_backup() {
 
     # admin.tar.gz: a pasta do Admin (CLAUDE.md, AGENTS.md, uploads, skills).
     if [ -d "$DG_ADMIN" ]; then _tar_backup "$dest/admin.tar.gz" "$(_rel "$DG_ADMIN")"; fi
+
+    # app.tar.gz: o programa instalado inteiro (vale para atualizar, restaurar e --voltar).
+    personalizacoes_guardar_app "$dest"
 
     # transcricoes-admin.tar.gz: a conversa do Admin (Claude ou Codex).
     for f in "$R/root/.claude/projects/-opt-dgclaw-admin" "$R/root/.codex/sessions"; do
@@ -144,6 +144,7 @@ atualizar_backup() {
         printf 'commit_instalado=%s\n' "$(_env_de "$DG_ETC/dgclaw.env" DGCLAW_COMMIT)"
         printf 'imagem=%s\n' "${DGCLAW_IMAGEM:-}"
         printf 'agentes=%s\n' "$agentes"
+        if [ -f "$dest/app.tar.gz" ]; then printf 'app_tar_gz_sha256=%s\n' "$(_sha "$dest/app.tar.gz")"; fi
         printf 'casas_dos_agentes_no_backup=%s\n' "$([ "$sem_homes" = 1 ] && printf nao || printf sim)"
         printf '\n[sha256]\n'
         atualizar_hashes_do_manifesto

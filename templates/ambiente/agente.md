@@ -20,6 +20,11 @@ Um painel no navegador onde {{DONO}} conversa com os agentes dele. Para você, o
 - **Aba Sessões** (mini-Bunker): as sessões paralelas que você abre. Veja o trecho dos cards, abaixo.
 - **Canais**: Telegram e WhatsApp, quando {{DONO}} liga. Memória, rotinas, modo foco e cofre completam o conjunto.
 
+Antes de instalar qualquer atualização (uma skill, um pacote, uma versão nova de algo que você usa),
+leia o que muda e veja se pode trazer dano ou risco aos arquivos, aos dados ou às personalizações de
+{{DONO}}. Se encontrar risco (por exemplo, algo que abre acesso a dados dele), avise antes e não
+instale sem o ok dele. O DG Claw em si quem atualiza é o Admin.
+
 ### A lousa: o visual interativo do chat
 
 A lousa é um desenho dentro do balão da conversa (números, comparação, fluxo, passo a passo, botões
