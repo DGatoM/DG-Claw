@@ -117,7 +117,28 @@
       `<span class="ml-mini" style="background:${esc(a.cor || '#2f9e5e')}">${fotoDe(a)}</span>` +
       `<span class="ml-quem"><b>${esc(a.nome)}</b><small>${esc(sub)}</small></span>` +
       `${aqui ? '<span class="ml-aqui">aqui</span>' : ''}` +
-      `${horaCurta(a.ultima_ts) ? `<span class="ml-hora">${esc(horaCurta(a.ultima_ts))}</span>` : ''}</a>`;
+      `${horaCurta(a.ultima_ts) ? `<span class="ml-hora">${esc(horaCurta(a.ultima_ts))}</span>` : ''}` +
+      `${bolinhaMenu(a, aqui)}</a>`;
+  }
+
+  /* Bolinha de não lidas. `a.nao_lidas` é número (a contagem do servidor), `a.mais` marca "passou do teto".
+     null (não medido), 0 e o agente em que a pessoa já está não mostram nada: sumir é melhor que mentir. */
+  function bolinhaMenu(a, aqui) {
+    const n = a.nao_lidas;
+    if (aqui || typeof n !== 'number' || !isFinite(n) || n <= 0) return '';
+    const texto = (a.mais || n > 99) ? '99+' : String(n);
+    const rot = n + (n === 1 ? ' mensagem não lida' : ' mensagens não lidas') + (a.mais ? ' ou mais' : '');
+    return `<span class="ml-nl" role="img" aria-label="${esc(rot)}">${texto}</span>`;
+  }
+
+  /* Soma das não lidas dos OUTROS agentes. null (não medido) entra como nada, nunca como número. */
+  function totalNaoLidas(lista, contagens, atualId) {
+    let total = 0;
+    for (const a of lista || []) {
+      const n = contagens && contagens[a.id] && contagens[a.id].nao_lidas;
+      if (a.id !== atualId && typeof n === 'number' && isFinite(n) && n > 0) total += n;
+    }
+    return total;
   }
 
   function linksPainel(a) {
@@ -137,7 +158,7 @@
     return { tipo: 'sem', texto: 'Este navegador não oferece a instalação por aqui. No Chrome ou no Edge, abra o menu do navegador e procure Instalar app. No Firefox para computador, o recurso não existe.' };
   }
 
-  if (!raiz.document) return { ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, linkSessoes, itemAgente, horaCurta, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar };
+  if (!raiz.document) return { ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, linkSessoes, itemAgente, bolinhaMenu, totalNaoLidas, horaCurta, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar };
 
   /* ── Parte com DOM ─────────────────────────────────────────────────────── */
   const $ = id => document.getElementById(id);
@@ -198,7 +219,32 @@
     // sem outro agente para onde ir, o seletor só atrapalha
     troca.hidden = lista.length < 2;
     const ordem = lista.filter(a => a.tipo === 'admin').concat(lista.filter(a => a.tipo !== 'admin'));
-    caixa.innerHTML = ordem.map(a => itemAgente(a, ag.id)).join('');
+    ultimaLista = { ag, lista };
+    caixa.innerHTML = ordem.map(a => itemAgente(contagens[a.id] ? Object.assign({}, a, { nao_lidas: contagens[a.id].nao_lidas, mais: contagens[a.id].mais }) : a, ag.id)).join('');
+    pintaTotalTroca(totalNaoLidas(lista, contagens, ag.id));
+  }
+
+  /* A lista vem recolhida: sem o total no botão, a bolinha de cada agente só aparece depois do toque. */
+  function pintaTotalTroca(total) {
+    const btn = $('mlTrocaBtn');
+    if (!btn) return;
+    let marca = $('mlTrocaNl');
+    if (!marca) {
+      marca = document.createElement('span');
+      marca.id = 'mlTrocaNl'; marca.className = 'ml-nl'; marca.setAttribute('role', 'img');
+      btn.insertBefore(marca, btn.querySelector('.ml-seta'));
+    }
+    marca.style.display = total > 0 ? '' : 'none';
+    marca.textContent = total > 99 ? '99+' : String(total);
+    marca.setAttribute('aria-label', total + (total === 1 ? ' mensagem não lida' : ' mensagens não lidas') + ' em outros agentes');
+  }
+
+  /* Contagens de não lidas por agente (slug -> objeto do servidor). Guardadas aqui para a lista de 30 s
+     também pintar a bolinha, e repintada quando a tela entrega uma contagem nova. */
+  let contagens = {}, ultimaLista = null;
+  function defineNaoLidas(mapa) {
+    contagens = mapa && typeof mapa === 'object' ? mapa : {};
+    if (ultimaLista) pintaLista(ultimaLista.ag, ultimaLista.lista, null);
   }
 
   /* silencioso: nas buscas automáticas uma falha de rede passageira não troca a lista por um erro. */
@@ -365,5 +411,5 @@
     pintaInstalar();
   }
 
-  return { ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, linkSessoes, itemAgente, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar, inicia, marca, extras };
+  return { ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, linkSessoes, itemAgente, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar, inicia, marca, extras, defineNaoLidas, totalNaoLidas };
 });

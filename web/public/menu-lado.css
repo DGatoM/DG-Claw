@@ -52,6 +52,9 @@ aside#menu{
 /* a hora vai à direita; se o "aqui" já ocupou o margin-left:auto, ela só ganha um respiro */
 .ml-hora{margin-left:auto;font-size:11.5px;color:var(--ml-fraco);white-space:nowrap}
 .ml-aqui + .ml-hora{margin-left:6px}
+/* bolinha de não lidas: à direita, depois da hora */
+.ml-nl{flex:0 0 auto;margin-left:8px;min-width:18px;height:18px;padding:0 5px;box-sizing:border-box;border-radius:9px;
+  background:#d93025;color:#fff;font-size:11px;font-weight:700;line-height:18px;text-align:center}
 .ml-vazio{padding:9px;color:var(--ml-fraco);font-size:12.5px;line-height:1.45}
 .ml-vazio button{margin-top:6px;min-height:40px;padding:0 12px;border:1px solid var(--ml-linha);
   border-radius:10px;background:var(--ml-painel);font:inherit;cursor:pointer}

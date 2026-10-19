@@ -35,6 +35,7 @@ const { criarLembretes } = require('./lib/lembretes');
 const { criarMesa } = require('./lib/mesa');
 const { criarAvisos } = require('./lib/avisos');
 const { criarAtualizacao } = require('./lib/atualizacao');
+const { criarNaoLidas } = require('./lib/nao-lidas');
 
 const METODOS_QUE_ESCREVEM = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const TIPOS_ESTATICOS = {
@@ -100,6 +101,7 @@ function criarServidor(opcoes) {
   const mesa = criarMesa({ arquivo: path.join(config.dataDir, 'mesa', 'tarefas.json'), registro, runner, log, agora: opcoes.agora, tz: config.tz, avisarDono: (aviso) => push.enviar(aviso) });
   // O agente fala com a Mesa pelo dgclaw-mesa, que passa pela caixa: a rota precisa estar liberada.
   caixa.permitir('/api/v1/tarefas');
+  const naoLidas = criarNaoLidas({ arquivo: path.join(config.dataDir, 'nao-lidas.json'), conversa, registro, log, relogio: opcoes.agora, lerThread: conversa.threadCompartilhada });
   const avisos = criarAvisos({ config, registro, runner, caixa, log, agora: opcoes.agora });
   caixa.permitir('/api/v1/avisos');
   // Aviso de versão nova: só o dono, pelo painel. De propósito NÃO entra em caixa.permitir (agente em container não usa).
@@ -337,6 +339,14 @@ function criarServidor(opcoes) {
       return H.enviaJson(res, 200, { ok: true, agentes: lista, voz: lista.some((a) => a.voz), microfone: voz.microfone, limite_upload_bytes: config.maxUploadBytes, usuario: sessao.usuario });
     }
 
+    if (p === '/api/v1/nao-lidas') {
+      if (falhaDoRegistro(req, res, true)) return undefined;
+      if (m !== 'GET') return H.erroJson(res, 405, 'Use GET para ver quantas mensagens não lidas cada agente tem.');
+      try { return H.enviaJson(res, 200, { ok: true, agentes: await naoLidas.contar(sessao.usuario) }); } catch (e) {
+        return H.erroJson(res, e.status || 500, e.status ? e.message : `Não consegui contar as mensagens não lidas (${e.message}).`);
+      }
+    }
+
     if (p === '/api/v1/compartilhados/docs.md' && m === 'GET') {
       res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store' });
       return res.end(fs.readFileSync(path.join(__dirname, 'docs', 'MIDIAS-CACHE.md')));
@@ -457,10 +467,21 @@ function criarServidor(opcoes) {
         const r = await conversa.reiniciar(agente);
         return H.enviaJson(res, r.status, r.corpo);
       }
+      if (acao === 'lido' && m === 'POST') {
+        let corpo;
+        try { corpo = await H.lerJson(req, 1024); } catch (e) { return H.erroJson(res, e.status || 400, e.message); }
+        const ep = corpo && typeof corpo.ep === 'number' ? corpo.ep : NaN;
+        if (!Number.isFinite(ep) || ep < 0) {
+          return H.erroJson(res, 400, `O campo "ep" precisa ser um número maior ou igual a zero (o ep da última mensagem que apareceu na tela). Recebi: ${JSON.stringify(corpo && corpo.ep === undefined ? null : corpo && corpo.ep).slice(0, 40)}.`);
+        }
+        try { return H.enviaJson(res, 200, { ok: true, visto_ep: naoLidas.marcar(sessao.usuario, agente.slug, ep) }); } catch (e) {
+          return H.erroJson(res, e.status || 500, e.status ? e.message : `Não consegui guardar que a conversa foi lida (${e.message}).`);
+        }
+      }
       if (acao === 'upload' && m === 'POST') return upload(req, res, agente);
       if (acao === 'comandos' && m === 'GET') return H.enviaJson(res, 200, Object.assign({ ok: true, agente: agente.slug }, await comandos.catalogo(agente)));
       if (acao === 'comando' && m === 'POST') return comandoPost(req, res, agente);
-      return H.erroJson(res, ['messages', 'stream', 'wait', 'send', 'upload', 'permissao', 'reiniciar', 'comandos', 'comando', ''].includes(acao) ? 405 : 404, `Não existe ${m} ${p}.`);
+      return H.erroJson(res, ['messages', 'stream', 'wait', 'send', 'upload', 'permissao', 'reiniciar', 'lido', 'comandos', 'comando', ''].includes(acao) ? 405 : 404, `Não existe ${m} ${p}.`);
     }
 
     mm = /^\/api\/v1\/media\/([0-9a-f]{16})\/visual$/.exec(p);

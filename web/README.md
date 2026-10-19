@@ -84,6 +84,8 @@ API (todas com sessão; erros sempre `{ok:false, erro:"motivo em português"}`):
 | `GET /api/v1/agents/:id/messages?limit&before&after` | Thread: `{ok, msgs, avisos, mais_antigas, before, limit}`. Padrão: as 60 mais novas. |
 | `GET /api/v1/agents/:id/stream?since` | SSE: `ola`, `msgs {novas, sumidas, avisos}` (id = maior `ep`; respeita `Last-Event-ID`), `atividade`. `: ping` a cada 15 s, fecha em 50 min. |
 | `GET /api/v1/agents/:id/wait?since&timeout` | Reserva do SSE (long-poll de até 28 s). |
+| `GET /api/v1/nao-lidas` | Bolinha de não lidas: `{ok, agentes: {<slug>: {nao_lidas, mais?, visto_ep, ultima_ep, marco_novo?, erro?}}}`. Conta só mensagens do agente (sem avisos de sistema) com `ep` maior que o `visto_ep` guardado no servidor para o usuário da sessão. Teto 99 (com `mais: true`). Agente sem marco ganha um na hora, com `marco_novo: true` e contagem 0. Conversa que não respondeu em 1,5 s vem com `nao_lidas: null` e `erro` (nunca 0) e sem marco. |
+| `POST /api/v1/agents/:id/lido` | `{ep}`: marca a conversa como lida até esse `ep` e devolve `{ok, visto_ep}`. O marco só avança (um `ep` menor não recua). `ep` inválido: 400. Estado em `<dados>/nao-lidas.json` (permissão 600). |
 | `POST /api/v1/agents/:id/send` | `{text, anexos?, cliente_id?}`; idempotente por `cliente_id`. |
 | `POST /api/v1/agents/:id/upload` | Multipart (`file`, `enviar`, `legenda`, `cliente_id`). |
 | `GET`/`POST`/`DELETE /api/v1/agents/:id/login`, `POST .../login/codigo`, `POST .../login/oi` | Login assistido do Claude/Codex pela conversa (repasse ao runner) e o primeiro oi. Docs em `GET /api/v1/login/docs.md` (fonte: `docs/LOGIN-NA-CONVERSA.md`). |

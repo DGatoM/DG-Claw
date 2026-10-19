@@ -83,3 +83,22 @@ test('seletor: mostra a hora em .ml-hora só quando há ultima_ts, escapada', ()
   assert.doesNotMatch(M.itemAgente({ id: 'a', nome: 'A', ultima_ts: null }, 'b'), /ml-hora/);
   assert.match(pub('menu-lado.css'), /\.ml-aqui \+ \.ml-hora\{margin-left:6px\}/);
 });
+
+test('seletor: bolinha de não lidas em .ml-nl com número, 99+, e sem ela no atual, em 0 e em null', () => {
+  assert.match(M.itemAgente({ id: 'a', nome: 'A', nao_lidas: 3 }, 'b'), /<span class="ml-nl"[^>]*aria-label="3 mensagens não lidas">3<\/span>/);
+  assert.match(M.itemAgente({ id: 'a', nome: 'A', nao_lidas: 1 }, 'b'), /aria-label="1 mensagem não lida">1</);
+  assert.match(M.itemAgente({ id: 'a', nome: 'A', nao_lidas: 99, mais: true }, 'b'), />99\+<\/span>/);
+  assert.doesNotMatch(M.itemAgente({ id: 'a', nome: 'A', nao_lidas: 5 }, 'a'), /ml-nl/);
+  assert.doesNotMatch(M.itemAgente({ id: 'a', nome: 'A', nao_lidas: null }, 'b'), /ml-nl/);
+  assert.doesNotMatch(M.itemAgente({ id: 'a', nome: 'A', nao_lidas: 0 }, 'b'), /ml-nl/);
+  assert.doesNotMatch(M.itemAgente({ id: 'a', nome: 'A' }, 'b'), /ml-nl/);
+  assert.match(pub('menu-lado.css'), /\.ml-nl\{[^}]*background:#d93025/);
+});
+
+test('totalNaoLidas soma só os outros agentes e ignora null', () => {
+  const lista = [{ id: 'admin' }, { id: 'ana' }, { id: 'bia' }, { id: 'caio' }];
+  const contagens = { admin: { nao_lidas: 5 }, ana: { nao_lidas: 2 }, bia: { nao_lidas: null }, caio: { nao_lidas: 0 } };
+  assert.equal(M.totalNaoLidas(lista, contagens, 'admin'), 2);
+  assert.equal(M.totalNaoLidas(lista, {}, 'admin'), 0);
+  assert.equal(M.totalNaoLidas(lista, { bia: { nao_lidas: null } }, 'admin'), 0);
+});

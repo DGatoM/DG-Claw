@@ -188,7 +188,8 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
       avisos.push(`O runner não respondeu (${r.erro}). Mostro a última conversa conhecida.`);
     }
     if (!arquivo) arquivo = ultimoArquivo.get(agente.slug) || (r.ok && !r.estado.sessionId ? maisRecente(agente) : null) || (!r.ok ? maisRecente(agente) : null);
-    if (!arquivo) return { msgs: [], versao: 0, avisos, arquivo: null };
+    // incompleta: não deu para ler a conversa (há aviso e nada veio). Sem aviso, vazio é agente que nunca conversou.
+    if (!arquivo) return { msgs: [], versao: 0, avisos, arquivo: null, incompleta: avisos.length > 0 };
     // Última guarda: o arquivo final, com realpath, precisa ficar dentro da raiz (atalho para fora é recusado).
     const eRollout = ehRollout(arquivo);
     {
@@ -198,7 +199,7 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
         avisos.push(c.erro);
         avisaUmaVez(`conf|${agente.slug}`, 'aviso', `Thread de ${agente.nome}: ${c.erro}`);
         ultimoArquivo.delete(agente.slug);
-        return { msgs: [], versao: 0, avisos, arquivo: null };
+        return { msgs: [], versao: 0, avisos, arquivo: null, incompleta: true };
       }
       arquivo = c.real;
     }
