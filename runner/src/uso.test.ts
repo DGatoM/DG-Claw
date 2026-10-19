@@ -232,3 +232,11 @@ test("handler: stdin vazio, lixo, sem rate_limits e runner fora do ar saem com 0
   assert.equal(fora.codigo, 0, "runner fora do ar não pode falhar o Claude");
   assert.equal(spawnSync(process.execPath, ["--check", outro]).status, 0);
 });
+
+test("horário fora do intervalo do Date vira null, sem lançar", () => {
+  const avisos: string[] = [];
+  assert.equal(instanteEmIso(8640000000000001, "teste", (m) => avisos.push(m)), null);
+  assert.equal(avisos.length, 1);
+  const l = deRolloutRateLimits({ primary: { used_percent: 5, window_minutes: 300, resets_in_seconds: 1e20 } }, Date.now(), () => {});
+  assert.equal(l?.sessao_5h ?? null, null);
+});

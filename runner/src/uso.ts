@@ -71,6 +71,13 @@ export function percentualValido(v: unknown, onde: string, avisar: Avisar = avis
   return n;
 }
 
+/** ISO de um instante em ms, ou null se o Date não aceita o número (acima de 8,64e15 ms o
+ *  toISOString lança RangeError; revisão adversarial do PR #58). */
+function isoOuNull(ms: number): string | null {
+  const d = new Date(ms);
+  return Number.isFinite(d.getTime()) ? d.toISOString() : null;
+}
+
 /** Horário em ISO a partir de epoch em segundos, epoch em ms (heurística: > 1e10) ou texto ISO. */
 export function instanteEmIso(v: unknown, onde: string, avisar: Avisar = avisarNoLog): string | null {
   if (v === null || v === undefined) return null;
@@ -83,11 +90,12 @@ export function instanteEmIso(v: unknown, onde: string, avisar: Avisar = avisarN
       ms = n > 1e10 ? n : n * 1000;
     } else ms = Date.parse(t);
   }
-  if (!Number.isFinite(ms) || ms <= 0) {
+  const iso = Number.isFinite(ms) && ms > 0 ? isoOuNull(ms) : null;
+  if (iso === null) {
     avisar(`horário de zerar inválido em ${onde}: ${JSON.stringify(v)} (esperado epoch em segundos ou ms, ou data ISO); descartei a janela`);
     return null;
   }
-  return new Date(ms).toISOString();
+  return iso;
 }
 
 function janelaDoStatusline(bruta: unknown, nome: string, avisar: Avisar): Janela {
@@ -125,7 +133,8 @@ export function deRolloutRateLimits(obj: unknown, tsEvento: number, avisar: Avis
     if (j.resets_at !== undefined && j.resets_at !== null) {
       zera = instanteEmIso(j.resets_at, `rate_limits.${nome}.resets_at`, avisar);
     } else if (typeof j.resets_in_seconds === "number" && Number.isFinite(j.resets_in_seconds) && Number.isFinite(tsEvento)) {
-      zera = new Date(tsEvento + j.resets_in_seconds * 1000).toISOString();
+      zera = isoOuNull(tsEvento + j.resets_in_seconds * 1000);
+      if (zera === null) avisar(`rate_limits.${nome}.resets_in_seconds fora do intervalo de datas: ${j.resets_in_seconds}; descartei a janela`);
     }
     if (pct === null || zera === null) continue;
     if (minutos === null) {
@@ -231,7 +240,7 @@ export class MedidorDeUso {
       sessao_5h: leitura.sessao_5h,
       semanal: leitura.semanal,
       plano: leitura.plano ?? guardado?.plano ?? null,
-      medido_em: new Date(emMs).toISOString(),
+      medido_em: isoOuNull(emMs) ?? new Date(this.agora()).toISOString(),
       fonte,
     };
     this.gravar();

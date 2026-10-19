@@ -239,8 +239,16 @@ export function vigiarRollout(op: OpcoesDoVigia): () => void {
         }
         const ev = eventoDoRollout(reg);
         if (ev && ev.em >= op.desdeMs && !parado) op.aoEvento(ev);
-        const uso = op.aoUso ? usoDaLinhaDoRollout(reg) : null;
-        if (uso && !parado) op.aoUso?.(uso);
+        // A medição de uso é acessória: um registro estranho nela não pode derrubar o lote e levar
+        // junto o fim de turno que vem depois (revisão adversarial do PR #58).
+        if (op.aoUso && !parado) {
+          try {
+            const uso = usoDaLinhaDoRollout(reg);
+            if (uso) op.aoUso(uso);
+          } catch (err) {
+            log.aviso("uso", `ignorei uma medição de uso do rollout que não consegui ler: ${err instanceof Error ? err.message : err}; os eventos da sessão seguem`);
+          }
+        }
       }
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
