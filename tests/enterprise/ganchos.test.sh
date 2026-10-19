@@ -109,4 +109,11 @@ rm -f "$LOGA"
 dgclaw agente criar bia --nome "Bia" >/dev/null 2>&1
 nega "no pessoal a CLI nao cria arquivo de auditoria" test -e "$LOGA"
 
+echo "ganchos: a ajuda lista todo comando enterprise"
+AJUDA="$(dgclaw --ajuda)"
+while IFS= read -r fn; do
+    cmd="${fn#ent_cmd_}"; cmd="${cmd//_/[ -]}"   # agente_testar_runtime = "agente testar-runtime"
+    afirma "a ajuda fala de 'dgclaw ${cmd//\[ -\]/ }'" bash -c "grep -qE 'dgclaw $cmd' <<<\"\$1\"" _ "$AJUDA"
+done < <(grep -hoE '^ent_cmd_[a-z_]+\(\)' "$REPO"/lib/enterprise/*.sh | tr -d '()' | LC_ALL=C sort)
+
 fim
