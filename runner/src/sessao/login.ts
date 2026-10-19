@@ -66,6 +66,7 @@ export function marcarLoginExpirado(s: Sessao, origem: string, quando: number | 
     status: "errored",
     error: mensagem,
     statusReason: "runner:login-expirado",
+    motivo: "login",
     loginExpiradoEm: new Date(em).toISOString(),
     hookLatched: true,
     currentTool: null,

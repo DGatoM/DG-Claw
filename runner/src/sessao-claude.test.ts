@@ -181,6 +181,43 @@ test("Stop perdido: waiting_input mudo não muda, mesmo com o fim do turno no tr
   assert.equal(s.estado.status, "waiting_input");
 });
 
+test("AskUserQuestion: PreToolUse vira waiting_input/pergunta, a resposta (PostToolUse) volta a working e zera o motivo", async () => {
+  const { s, hook } = await novaComRedeCurta(60_000);
+  const settings = JSON.parse(fs.readFileSync(path.join(amb.estado, s.id, "runner-hooks", `${s.id}.settings.json`), "utf8"));
+  assert.equal(settings.hooks.PostToolUse[0].matcher, "AskUserQuestion", "só a ferramenta de pergunta dispara o PostToolUse");
+  hook("UserPromptSubmit");
+  hook("PreToolUse", { toolName: "AskUserQuestion" });
+  assert.equal(s.estado.status, "waiting_input");
+  assert.equal(s.estado.motivo, "pergunta");
+  hook("Notification");
+  assert.equal(s.estado.motivo, "pergunta", "a permissão não rebaixa a pergunta aberta");
+  hook("PostToolUse", { toolName: "AskUserQuestion" });
+  assert.equal(s.estado.status, "working");
+  assert.equal(s.estado.motivo, null);
+});
+
+test("permissão: Notification põe motivo permissao, e sair de waiting_input limpa o motivo", async () => {
+  const { s, hook } = await novaComRedeCurta(60_000);
+  hook("UserPromptSubmit");
+  hook("PreToolUse", { toolName: "Bash" });
+  assert.equal(s.estado.motivo ?? null, null);
+  hook("Notification");
+  assert.equal(s.estado.status, "waiting_input");
+  assert.equal(s.estado.motivo, "permissao");
+  hook("UserPromptSubmit");
+  assert.equal(s.estado.status, "working");
+  assert.equal(s.estado.motivo, null);
+});
+
+test("pergunta dispensada: o Stop sem PostToolUse não deixa o agente preso em waiting_input", async () => {
+  const { s, hook } = await novaComRedeCurta(60_000);
+  hook("UserPromptSubmit");
+  hook("PreToolUse", { toolName: "AskUserQuestion" });
+  hook("Stop");
+  assert.equal(s.estado.status, "working", "volta a working e o Stop confirmado leva a idle");
+  assert.equal(s.estado.motivo, null);
+});
+
 test("modelo escolhido vai em --model (id canônico, também pelo apelido)", async () => {
   logarClaude(amb);
   const { s, pasta, id } = await nova();
@@ -412,6 +449,7 @@ test("login expirado: StopFailure authentication_failed tira de working, vira er
   hook("StopFailure", { error: "authentication_failed", lastAssistantMessage: "Failed to authenticate: OAuth session expired and could not be refreshed" });
   assert.equal(s.estado.status, "errored");
   assert.equal(s.estado.statusReason, "runner:login-expirado");
+  assert.equal(s.estado.motivo, "login");
   assert.match(s.estado.loginExpiradoEm ?? "", /^\d{4}-\d\d-\d\dT/);
   assert.match(s.estado.error ?? "", /expirou às \d\d:\d\d/);
   assert.match(s.estado.error ?? "", /O que fazer/);

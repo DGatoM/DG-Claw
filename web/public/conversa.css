@@ -178,6 +178,9 @@
 
   #btnMenu{position:relative}
   /* bolinha do ☰: soma das não lidas dos outros agentes (no computador a fileira de avatares não aparece) */
+  /* ☰ com agente que precisa de você: a bolinha vira o selo âmbar com "!" */
+  #btnMenu.precisa .bolinha-menu{width:16px;height:16px;top:1px;right:1px;background:#e8890c;color:#fff;
+    font-size:11px;font-weight:800;line-height:12px;text-align:center;box-sizing:border-box}
   #btnMenu .bolinha-menu{position:absolute;top:4px;right:4px;width:10px;height:10px;border-radius:50%;background:#d93025;border:2px solid var(--header,#fff);pointer-events:none}
   /* ── Cabeçalho: alvos de toque de verdade (eram 26 a 38 px) ── */
   header .btn{min-height:44px;min-width:44px}
@@ -384,6 +387,16 @@
   .troca-baixo a.atual{box-shadow:0 0 0 2px var(--cor-troca,var(--accent))}
   .troca-baixo a.atual .av{opacity:1}
   /* bolinha de não lidas no canto do avatar; a borda na cor do fundo a recorta do avatar */
+  /* precisa de você: âmbar com "!"; trabalhando: ponto verde que respira (parado para quem pede menos movimento) */
+  .troca-baixo .selo-aten{position:absolute;top:-3px;right:-4px;width:18px;height:18px;border-radius:50%;
+    box-sizing:border-box;background:#e8890c;color:#fff;font-size:12px;font-weight:800;line-height:14px;
+    text-align:center;border:2px solid var(--header,#fff);pointer-events:none}
+  .troca-baixo .selo-trab{position:absolute;top:0;right:-1px;width:10px;height:10px;border-radius:50%;
+    background:#2f9e5e;border:2px solid var(--header,#fff);box-sizing:content-box;pointer-events:none;
+    animation:seloTrab 1.4s ease-in-out infinite}
+  .troca-baixo .bolinha-nl.ponto{min-width:10px;width:10px;height:10px;padding:0;top:0}
+  @keyframes seloTrab{0%,100%{opacity:.35}50%{opacity:1}}
+  @media (prefers-reduced-motion:reduce){.troca-baixo .selo-trab{animation:none;opacity:.8}}
   .troca-baixo .bolinha-nl{position:absolute;top:-2px;right:-3px;min-width:18px;height:18px;padding:0 4px;
     box-sizing:border-box;border-radius:9px;background:#d93025;color:#fff;font-size:11px;font-weight:700;
     line-height:14px;text-align:center;border:2px solid var(--header,#fff);pointer-events:none}

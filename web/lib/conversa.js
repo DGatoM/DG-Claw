@@ -272,6 +272,9 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
       const ultimo = typeof e.updatedAt === 'number' ? iso(e.updatedAt) : null;
       if (e.status === 'working') {
         est = { estado: 'trabalhando', acao: e.currentTool || 'pensando', detalhe: null, ultimo_sinal: ultimo, alerta: null, motivo: null };
+      } else if (e.status === 'waiting_input' && e.motivo === 'pergunta') {
+        // Pergunta de escolha (AskUserQuestion): a pessoa responde no terminal/na conversa, não há cartão de Aprovar/Negar.
+        est = { estado: 'trabalhando', acao: 'esperando a sua resposta', detalhe: null, ultimo_sinal: ultimo, alerta: 'pergunta', motivo: null };
       } else if (e.status === 'waiting_input') {
         // O que ele quer fazer é o último comando do transcript que ainda não tem resultado.
         const pend = await pendenteDe(agente);
@@ -424,7 +427,7 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     const epEnviado = relogio() / 1000 - 2;
     // O runner responde 202 "enfileirado" sempre; quem sabe se vai esperar é o estado de AGORA (sem o cache de 2 s).
     const antes = await runner.estado(agente);
-    const motivoFila = antes.ok && antes.estado.status === 'waiting_input' ? 'permissao'
+    const motivoFila = antes.ok && antes.estado.status === 'waiting_input' ? (antes.estado.motivo === 'pergunta' ? 'pergunta' : 'permissao')
       : antes.ok && antes.estado.status === 'working' ? 'resposta' : null;
     const r = await runner.input(agente, { text: payload, submit: true, injectWhenIdle: true });
     if (!r.ok) {

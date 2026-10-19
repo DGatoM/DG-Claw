@@ -300,6 +300,13 @@ export interface AgentState {
   hookActive?: boolean;
   /** Debug: what signal triggered the last status change */
   statusReason?: string;
+  /**
+   * Por que o agente precisa da pessoa: `permissao` (diálogo de ferramenta), `pergunta` (a ferramenta
+   * AskUserQuestion, pergunta de escolha) ou `login` (a conta deixou de autenticar). `null` quando não
+   * precisa. Codex não tem como informar: fica sempre `null`. É zerado a cada troca de `status`
+   * (ver Sessao.mudar), então ninguém precisa lembrar de limpar.
+   */
+  motivo?: "permissao" | "pergunta" | "login" | null;
   /** ISO de quando o login da conta morreu (statusReason "runner:login-expirado"); null nos outros estados. */
   loginExpiradoEm?: string | null;
   /** Transient: current phase of an in-progress automated handoff (botão 🤝). */
