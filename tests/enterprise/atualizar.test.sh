@@ -1,148 +1,126 @@
 #!/usr/bin/env bash
-# dgclaw atualizar: sucesso, falha com rollback, preservacao do web.env e dos cofres, --sem-rollback e
-# as 3 copias. Raiz falsa; os stubs sao os do instalador, com o curl de tests/enterprise/stubs.
-# O git e o de verdade, apontando para um repositorio local feito aqui (nada sai da maquina).
+# dgclaw atualizar do main + ganchos enterprise (lib/enterprise/atualizar.sh): no nivel pessoal o backup
+# e o do main; acima dele sai sem segredos e sem conversas, a auditoria registra o comando e a
+# retencao apaga os backups velhos. O fluxo inteiro do comando (instalar, imagem, agentes, --voltar) e
+# testado em tests/cli/atualizar.sh. Raiz falsa, sem git e sem rede.
 set -uo pipefail
-AQUI_ENT="$(cd "$(dirname "$0")" && pwd)"
-# shellcheck source=tests/instalador/ajuda.sh
-. "$AQUI_ENT/../instalador/ajuda.sh"
+# shellcheck source=tests/enterprise/_comum.sh
+. "$(dirname "$0")/_comum.sh"
+preparar
+BACKUPS="$DGCLAW_RAIZ/var/backups/dgclaw"
+AUD="$DGCLAW_RAIZ/var/log/dgclaw/auditoria.jsonl"
 
-TOTAL=0
-verifica() {
-    local desc="$1"; shift
-    TOTAL=$((TOTAL + 1))
-    if "$@" >/dev/null 2>&1; then printf '  ok     %s\n' "$desc"; else printf '  FALHOU %s\n' "$desc"; FALHAS=$((FALHAS + 1)); fi
-}
-mesmo() { # mesmo "<descricao>" <esperado> <obtido>
-    TOTAL=$((TOTAL + 1))
-    if [ "$2" = "$3" ]; then printf '  ok     %s\n' "$1"; else printf '  FALHOU %s (esperado "%s", veio "%s")\n' "$1" "$2" "$3"; FALHAS=$((FALHAS + 1)); fi
-}
-
-novo_cenario
-export GIT_AUTHOR_NAME=teste GIT_AUTHOR_EMAIL=t@exemplo.org GIT_COMMITTER_NAME=teste GIT_COMMITTER_EMAIL=t@exemplo.org
-cp "$REPO/bin/dgclaw" "$FALSO/bin/dgclaw"
-cp "$REPO/VERSION" "$FALSO/VERSION"
-cp -r "$REPO/config" "$FALSO/config"
-echo "1.0.0" >"$FALSO/VERSION"
-# O PATH do cenario ganha o curl com defeito sob encomenda na frente, e a espera de saude encurta.
-for i in "${!ENV_BASE[@]}"; do
-    case "${ENV_BASE[$i]}" in PATH=*) ENV_BASE[i]="PATH=$AQUI_ENT/stubs:${ENV_BASE[$i]#PATH=}" ;; esac
-done
-ENV_BASE+=("DGCLAW_TEMPO_ESPERA=2" "GIT_AUTHOR_NAME=teste" "GIT_AUTHOR_EMAIL=t@exemplo.org" "GIT_COMMITTER_NAME=teste" "GIT_COMMITTER_EMAIL=t@exemplo.org")
-ETC_R="$RAIZ/etc/dgclaw"
-APP="$RAIZ/opt/dgclaw/app"
-AUD="$RAIZ/var/log/dgclaw/auditoria.jsonl"
-SNAPS="$RAIZ/var/lib/dgclaw/atualizacoes"
-
-dgc() { env -i "${ENV_BASE[@]}" bash "$APP/bin/dgclaw" "$@" </dev/null; }
-
-# versao_origem <tag> <o que fazer na pasta antes do commit>: cria o repositorio da versao nova.
-ORIGEM="$TMP/origem"
-git init -q -b main "$ORIGEM"
-cp -r "$FALSO/." "$ORIGEM/"
-rm -rf "$ORIGEM/.git" "$ORIGEM/web/node_modules"
-git -C "$ORIGEM" init -q -b main
-publicar() { # publicar <tag> <versao> [comando-de-ajuste]
-    echo "$2" >"$ORIGEM/VERSION"
-    if [ -n "${3:-}" ]; then ( cd "$ORIGEM" && eval "$3" ); fi
-    git -C "$ORIGEM" add -A >/dev/null
-    git -C "$ORIGEM" commit -q -m "versao $2" --allow-empty
-    git -C "$ORIGEM" tag "$1"
+# at <funcao> [args]: carrega a CLI como o bin/dgclaw faz (comum, agentes, atualizar, protecoes e enterprise).
+at() {
+    bash -c 'set -euo pipefail
+        REPO="$1"; shift; APP_DIR="$REPO"; ATU_REPO=""; ATU_MODO=atualizar; exigir_ferramentas() { :; }
+        . "$REPO/lib/comum.sh"; DG_CASAS="$DG_LIB/agentes"; . "$REPO/lib/agentes.sh"; . "$REPO/lib/atualizar.sh"; . "$REPO/lib/protecoes.sh"
+        shopt -s nullglob
+        for f in "$REPO"/lib/enterprise/*.sh; do . "$f"; done
+        "$@"' _ "$REPO" "$@"
 }
 
-echo "atualizar: instalacao inicial e dados do dono"
-verifica "instalacao inicial" instalar "$PAINEL_PW" --usuario maria --provedor claude --nivel empresa
-printf 'GROQ_API_KEY=gsk_segredo_de_teste\nOUTRA_COISA=1\n' >>"$ETC_R/web.env"
-verifica "reinstala para o web.env ficar na ordem canonica do instalador" instalar "" --usuario maria
-mkdir -p "$ETC_R/proxy" "$RAIZ/var/lib/dgclaw/agentes/ana/cofre"
-echo "segredo-do-proxy" >"$ETC_R/proxy/ana.segredo"
-echo "OPENAI_API_KEY=sk-de-teste" >"$RAIZ/var/lib/dgclaw/agentes/ana/cofre/cofre.env"
-SOMA_ANTES="$(cd "$RAIZ" && sha256sum etc/dgclaw/web.env etc/dgclaw/protecoes.json etc/dgclaw/runner/admin.token etc/dgclaw/proxy/ana.segredo var/lib/dgclaw/agentes/ana/cofre/cofre.env)"
-mesmo "versao instalada" 1.0.0 "$(jq -r .versao "$ETC_R/versao")"
+# Uma instalacao falsa com os arquivos que o backup precisa decidir se leva.
+mkdir -p "$ETC/runner" "$LIB/web" "$LIB/backup" "$LIB/agentes/ana/home/memory" "$LIB/agentes/ana/cofre" "$DGCLAW_RAIZ/opt/dgclaw/admin"
+printf 'DGCLAW_USUARIO=maria\n' >>"$ETC/dgclaw.env"
+echo '{"versao":1,"agentes":[{"slug":"ana","nome":"Ana","tipo":"agente"}]}' >"$ETC/agentes.json"
+echo "USUARIO=maria" >"$ETC/web.env"
+echo "token" >"$ETC/runner/ana.token"
+echo "chave-do-disco" >"$ETC/disco.chave"
+echo "RESTIC_PASSWORD=segredo" >"$ETC/backup.env"
+echo "conversa do painel" >"$LIB/web/sessoes.json"
+echo "memoria da ana" >"$LIB/agentes/ana/home/memory/nota.md"
+echo "estado" >"$LIB/backup/ultimo-backup.json"
+echo "# Admin" >"$DGCLAW_RAIZ/opt/dgclaw/admin/CLAUDE.md"
+chmod 600 "$ETC"/*
 
-echo "atualizar: ensaio e entradas ruins"
-publicar v1.1.0 1.1.0
-dgc --ensaio atualizar --origem "$ORIGEM" --ref v1.1.0 >"$SAIDA" 2>&1
-mesmo "ensaio sai com 0" 0 "$?"
-verifica "ensaio nao cria copia" test ! -e "$SNAPS"
-verifica "ensaio nao mexe na versao" test "$(tr -d '[:space:]' <"$APP/VERSION")" = 1.0.0
-dgc atualizar --ref '--evil' >"$SAIDA" 2>&1; mesmo "ref com hifen recusado" 1 "$?"
-dgc atualizar --foo >"$SAIDA" 2>&1; mesmo "opcao desconhecida recusada" 1 "$?"
-verifica "a recusa diz o que fazer" tem "$SAIDA" "O que fazer"
+lista() { tar -tzf "$1" | LC_ALL=C sort; }
 
-echo "atualizar: sucesso"
-dgc atualizar --origem "$ORIGEM" --ref v1.1.0 >"$SAIDA" 2>&1
-mesmo "atualizar sai com 0" 0 "$?"
-mesmo "o app passou a ser 1.1.0" 1.1.0 "$(tr -d '[:space:]' <"$APP/VERSION")"
-mesmo "o registro de versao e 1.1.0" 1.1.0 "$(jq -r .versao "$ETC_R/versao")"
-verifica "o registro de versao tem o commit (a pasta baixada tem git)" jq -e '.commit | test("^[0-9a-f]{7,}")' "$ETC_R/versao"
-SOMA_DEPOIS="$(cd "$RAIZ" && sha256sum etc/dgclaw/web.env etc/dgclaw/protecoes.json etc/dgclaw/runner/admin.token etc/dgclaw/proxy/ana.segredo var/lib/dgclaw/agentes/ana/cofre/cofre.env)"
-mesmo "web.env, nivel, token, segredo do proxy e cofre ficaram byte a byte iguais" "$SOMA_ANTES" "$SOMA_DEPOIS"
-verifica "o web.env ainda tem a chave de voz" tem "$ETC_R/web.env" "GROQ_API_KEY=gsk_segredo_de_teste"
-snaps() { local d; for d in "$SNAPS"/[0-9]*; do basename "$d"; done; }
-SNAP1="$(snaps | head -1)"
-verifica "a copia de seguranca existe com app, etc e unidades" test -s "$SNAPS/$SNAP1/app.tar" -a -s "$SNAPS/$SNAP1/etc.tar" -a -s "$SNAPS/$SNAP1/unidades.tar"
-verifica "a pasta das copias e 700" modo_e "$SNAPS" 700
-verifica "a copia e 700 e os arquivos 600" bash -c "[ \"\$(stat -c %a '$SNAPS/$SNAP1')\" = 700 ] && [ \"\$(stat -c %a '$SNAPS/$SNAP1/etc.tar')\" = 600 ] && [ \"\$(stat -c %a '$SNAPS/$SNAP1/app.tar')\" = 600 ]"
-verifica "a copia do etc tem o web.env de antes (com a chave de voz)" bash -c "tar -xOf '$SNAPS/$SNAP1/etc.tar' etc/dgclaw/web.env | grep -q gsk_segredo_de_teste"
-verifica "a copia guarda a versao anterior" jq -e '.versao_anterior == "1.0.0"' "$SNAPS/$SNAP1/info.json"
-verifica "nenhuma pasta temporaria sobrou" bash -c "[ -z \"\$(find '$SNAPS' -maxdepth 1 -name '.novo*')\" ]"
-verifica "o log da atualizacao existe e e 600" bash -c "f=\$(ls '$RAIZ'/var/log/dgclaw/atualizar-*.log | head -1); [ \"\$(stat -c %a \$f)\" = 600 ]"
-verifica "auditoria: inicio e sucesso" bash -c "jq -r .evento '$AUD' | grep -x atualizar.inicio >/dev/null && jq -r .evento '$AUD' | grep -x atualizar.sucesso >/dev/null"
-verifica "o Web foi consultado em /api/saude" tem "$STUB_LOG" "127.0.0.1:8300/api/saude"
-verifica "a senha nao foi pedida nem aparece em argv" bash -c "! grep -q '$PAINEL_PW' '$STUB_LOG'"
+echo "atualizar: nivel pessoal, o backup e o do main"
+at atualizar_backup "$BACKUPS/pessoal" atualizar 0 >"$TMP/o.txt" 2>&1
+igual "pessoal: o backup sai com 0" 0 "$?"
+afirma "pessoal: leva a chave do disco" bash -c "tar -tzf '$BACKUPS/pessoal/config.tar.gz' | grep -q 'etc/dgclaw/disco.chave'"
+afirma "pessoal: leva as conversas do painel" bash -c "tar -tzf '$BACKUPS/pessoal/dados.tar.gz' | grep -q 'web/sessoes.json'"
+afirma "pessoal: leva a casa do agente" bash -c "tar -tzf '$BACKUPS/pessoal/dados.tar.gz' | grep -q 'home/memory/nota.md'"
+afirma "pessoal: o manifesto diz que as casas entraram" grep -qx 'casas_dos_agentes_no_backup=sim' "$BACKUPS/pessoal/MANIFESTO.txt"
+nega "pessoal: nao cria arquivo de auditoria" test -e "$AUD"
+at ent_antes_de_atualizar_auditoria atualizar >/dev/null 2>&1
+at ent_depois_de_atualizar_auditoria atualizar ok v1 v2 "" >/dev/null 2>&1
+nega "pessoal: os ganchos de auditoria nao gravam nada" test -e "$AUD"
 
-echo "atualizar: a saude falha, volta sozinho"
-publicar v1.2.0 1.2.0 "touch QUEBRADO"
-dgc atualizar --origem "$ORIGEM" --ref v1.2.0 >"$SAIDA" 2>&1
-mesmo "falha: sai com 1" 1 "$?"
-verifica "diz a etapa" tem "$SAIDA" 'na etapa "saude"'
-verifica "diz que voltou e para qual versao" tem "$SAIDA" "voltei para a versao 1.1.0"
-verifica "diz onde esta o log" tem "$SAIDA" "atualizar-"
-mesmo "o app voltou para 1.1.0" 1.1.0 "$(tr -d '[:space:]' <"$APP/VERSION")"
-verifica "o arquivo QUEBRADO da versao falha nao esta mais no app" test ! -e "$APP/QUEBRADO"
-mesmo "o registro de versao voltou" 1.1.0 "$(jq -r .versao "$ETC_R/versao")"
-mesmo "web.env e demais segredos iguais depois do rollback" "$SOMA_ANTES" "$(cd "$RAIZ" && sha256sum etc/dgclaw/web.env etc/dgclaw/protecoes.json etc/dgclaw/runner/admin.token etc/dgclaw/proxy/ana.segredo var/lib/dgclaw/agentes/ana/cofre/cofre.env)"
-SNAP2="$(snaps | tail -1)"
-verifica "o estado que falhou ficou guardado para estudo" test -e "$SNAPS/$SNAP2/app-que-falhou/QUEBRADO" -a -d "$SNAPS/$SNAP2/etc-que-falhou"
-verifica "os servicos foram reiniciados" tem "$STUB_LOG" "restart dgclaw-web"
-verifica "auditoria: falha e rollback" bash -c "jq -r .evento '$AUD' | tail -n 3 | paste -sd' ' | grep -q 'atualizar.inicio atualizar.falha atualizar.rollback'"
-verifica "a trilha continua inteira depois do rollback" node -e '
-    const { criarAuditoria } = require(process.argv[1] + "/web/lib/auditoria");
-    const r = criarAuditoria({ caminho: process.argv[2] }).verificar(); console.log(JSON.stringify(r)); process.exit(r.ok ? 0 : 1)' "$REPO" "$AUD"
+echo "atualizar: nivel escritorio, o backup sai sem segredos e sem conversas"
+nivel_na_raiz escritorio
+at atualizar_backup "$BACKUPS/escritorio" atualizar 0 >"$TMP/o.txt" 2>&1
+igual "escritorio: o backup sai com 0" 0 "$?"
+afirma "escritorio: diz o que ficou de fora" grep -q "sem os segredos do enterprise" "$TMP/o.txt"
+nega "escritorio: com o backup externo configurado nao avisa" grep -q "backup externo ainda nao esta configurado" "$TMP/o.txt"
+nega "escritorio: a chave do disco nao vai" bash -c "tar -tzf '$BACKUPS/escritorio/config.tar.gz' | grep -q 'disco.chave'"
+nega "escritorio: o segredo do restic nao vai" bash -c "tar -tzf '$BACKUPS/escritorio/config.tar.gz' | grep -q 'backup.env'"
+afirma "escritorio: o resto da configuracao vai (web.env, token, agentes.json)" bash -c "tar -tzf '$BACKUPS/escritorio/config.tar.gz' | grep -q 'etc/dgclaw/web.env' && tar -tzf '$BACKUPS/escritorio/config.tar.gz' | grep -q 'runner/ana.token' && tar -tzf '$BACKUPS/escritorio/config.tar.gz' | grep -q 'agentes.json'"
+nega "escritorio: as conversas do painel nao vao" bash -c "tar -tzf '$BACKUPS/escritorio/dados.tar.gz' | grep -q 'web/sessoes.json'"
+nega "escritorio: a casa do agente nao vai" bash -c "tar -tzf '$BACKUPS/escritorio/dados.tar.gz' | grep -q 'home/memory'"
+nega "escritorio: o estado do backup externo nao vai" bash -c "tar -tzf '$BACKUPS/escritorio/dados.tar.gz' | grep -q 'ultimo-backup.json'"
+afirma "escritorio: o manifesto diz que as casas ficaram de fora" grep -qx 'casas_dos_agentes_no_backup=nao' "$BACKUPS/escritorio/MANIFESTO.txt"
+afirma "escritorio: o manifesto ainda confere a chave do disco (a conferencia final compara com o arquivo vivo)" grep -q 'etc/dgclaw/disco.chave' "$BACKUPS/escritorio/MANIFESTO.txt"
+mv "$ETC/backup.env" "$TMP/backup.env.guardado"
+at ent_preparar_backup_atualizar_protecao >"$TMP/o2.txt" 2>&1
+afirma "escritorio: sem backup externo configurado, avisa que as casas ficam sem copia" grep -q "backup externo ainda nao esta configurado" "$TMP/o2.txt"
+mv "$TMP/backup.env.guardado" "$ETC/backup.env"
+igual "escritorio: a pasta do backup e 700" 700 "$(stat -c %a "$BACKUPS/escritorio")"
 
-echo "atualizar: o instalador novo apaga uma chave do web.env"
-publicar v1.3.0 1.3.0 "printf '#!/usr/bin/env bash\nsed -i \"/^GROQ_API_KEY=/d\" \"\$DGCLAW_RAIZ/etc/dgclaw/web.env\"\nexit 0\n' >install.sh; rm -f QUEBRADO"
-dgc atualizar --origem "$ORIGEM" --ref v1.3.0 >"$SAIDA" 2>&1
-mesmo "sai com 1" 1 "$?"
-verifica "diz a etapa e QUAL chave sumiu, sem mostrar o valor" bash -c "grep -q 'etapa \"preservacao\"' '$SAIDA' && grep -q 'web.env:GROQ_API_KEY' '$SAIDA' && ! grep -q gsk_segredo_de_teste '$SAIDA'"
-verifica "o web.env voltou com a chave" tem "$ETC_R/web.env" "GROQ_API_KEY=gsk_segredo_de_teste"
-mesmo "o app voltou para 1.1.0" 1.1.0 "$(tr -d '[:space:]' <"$APP/VERSION")"
+echo "atualizar: a auditoria registra inicio, sucesso, rollback e falha"
+at ent_antes_de_atualizar_auditoria atualizar >/dev/null 2>&1
+at ent_depois_de_atualizar_auditoria atualizar ok v1 v2 "" >/dev/null 2>&1
+at ent_antes_de_atualizar_auditoria voltar >/dev/null 2>&1
+at ent_depois_de_atualizar_auditoria voltar ok "" abc1234567 "" >/dev/null 2>&1
+at ent_depois_de_atualizar_auditoria atualizar falha "" "" "rodando o instalador" >/dev/null 2>&1
+igual "eventos na ordem" "atualizar.inicio atualizar.sucesso atualizar.inicio atualizar.rollback atualizar.falha" "$(jq -r .evento "$AUD" | paste -sd' ')"
+igual "o sucesso leva de e para" "v1>v2" "$(jq -r 'select(.evento=="atualizar.sucesso") | .dados.de + ">" + .dados.para' "$AUD" 2>/dev/null || jq -r 'select(.evento=="atualizar.sucesso") | .de + ">" + .para' "$AUD")"
+igual "a falha leva a etapa" "rodando o instalador" "$(jq -r 'select(.evento=="atualizar.falha") | (.dados.etapa // .etapa)' "$AUD")"
+before="$(wc -l <"$AUD")"
+ENSAIO=1 at ent_antes_de_atualizar_auditoria atualizar >/dev/null 2>&1
+igual "simulacao nao audita" "$before" "$(wc -l <"$AUD")"
 
-echo "atualizar: o instalador novo quebra"
-publicar v1.4.0 1.4.0 "printf '#!/usr/bin/env bash\necho \"vou falhar\"; exit 5\n' >install.sh"
-dgc atualizar --origem "$ORIGEM" --ref v1.4.0 >"$SAIDA" 2>&1
-mesmo "sai com 1" 1 "$?"
-verifica "diz o codigo do instalador" tem "$SAIDA" "terminou com codigo 5"
-verifica "voltou" tem "$SAIDA" "voltei para a versao 1.1.0"
+echo "atualizar: retencao dos backups (backup_retencao_dias = 30 no escritorio)"
+rm -rf "$BACKUPS"; mkdir -p "$BACKUPS"
+velho1="$(date -d '90 days ago' +%Y%m%d)-100000"; velho2="$(date -d '60 days ago' +%Y%m%d)-100000"
+velho3="$(date -d '45 days ago' +%Y%m%d)-100000"; recente="$(date -d '2 days ago' +%Y%m%d)-100000"
+hoje="$(date +%Y%m%d)-100000"
+for d in "$velho1" "$velho2" "$velho3" "$recente" "$hoje" "nao-e-backup"; do mkdir -p "$BACKUPS/$d"; echo x >"$BACKUPS/$d/MANIFESTO.txt"; done
+at ent_depois_de_atualizar_retencao voltar ok >/dev/null 2>&1
+igual "voltar nao apaga nada" 6 "$(find "$BACKUPS" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')"
+at ent_depois_de_atualizar_retencao atualizar incompleta >/dev/null 2>&1
+igual "atualizacao incompleta nao apaga nada" 6 "$(find "$BACKUPS" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')"
+at ent_depois_de_atualizar_retencao atualizar ok >"$TMP/o.txt" 2>&1
+igual "apaga so os 3 mais velhos que o prazo" "nao-e-backup $hoje $recente" "$(find "$BACKUPS" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort -r | paste -sd' ')"
+afirma "diz quantos apagou" grep -q "apaguei 3 pasta" "$TMP/o.txt"
+afirma "audita a retencao" bash -c "jq -r .evento '$AUD' | tail -n 1 | grep -qx atualizar.retencao"
+# Mesmo com prazo curto, as duas mais novas ficam (e delas que o --voltar precisa).
+nivel_na_raiz escritorio '{"backup_retencao_dias":1}'
+rm -rf "$BACKUPS"; mkdir -p "$BACKUPS/$velho1" "$BACKUPS/$velho2"
+at ent_depois_de_atualizar_retencao atualizar ok >/dev/null 2>&1
+igual "as duas mais novas ficam sempre" 2 "$(find "$BACKUPS" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')"
+nivel_na_raiz pessoal
+rm -rf "$BACKUPS"; mkdir -p "$BACKUPS/$velho1" "$BACKUPS/$velho2" "$BACKUPS/$velho3"
+at ent_depois_de_atualizar_retencao atualizar ok >/dev/null 2>&1
+igual "pessoal: a retencao nao apaga nada" 3 "$(find "$BACKUPS" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')"
 
-echo "atualizar: ref que nao existe"
-dgc atualizar --origem "$ORIGEM" --ref v9.9.9 >"$SAIDA" 2>&1
-mesmo "sai com 1" 1 "$?"
-verifica "diz que o git nao baixou" tem "$SAIDA" 'etapa "download"'
-mesmo "nada mudou" 1.1.0 "$(tr -d '[:space:]' <"$APP/VERSION")"
+echo "atualizar: o reinicio do Admin usa as unidades certas"
+mkdir -p "$DGCLAW_RAIZ/etc/systemd/system"
+: >"$DGCLAW_RAIZ/etc/systemd/system/dgclaw-admin.service"; : >"$DGCLAW_RAIZ/etc/systemd/system/dgclaw-controle.service"
+echo resumo >"$TMP/resumo.txt"
+: >"$STUB_LOG"
+at atualizar_agendar_reinicio_do_admin "$TMP/resumo.txt" "$TMP/log.txt" >/dev/null 2>&1
+afirma "pessoal: reinicia o dgclaw-admin, como o main" grep -q "DGCLAW_UNIDADES_ADMIN=dgclaw-admin " "$STUB_LOG"
+nivel_na_raiz empresa '{"admin_llm":false}'
+: >"$STUB_LOG"
+at atualizar_agendar_reinicio_do_admin "$TMP/resumo.txt" "$TMP/log.txt" >/dev/null 2>&1
+afirma "Admin desligado com controle: reinicia so o dgclaw-controle" grep -q "DGCLAW_UNIDADES_ADMIN=dgclaw-controle " "$STUB_LOG"
+afirma "Admin desligado: o roteiro nao tenta mandar o resumo ao Admin" grep -q "DGCLAW_SEM_AVISO_ADMIN=1" "$STUB_LOG"
+nivel_na_raiz pessoal
 
-echo "atualizar: --sem-rollback deixa como esta"
-publicar v1.5.0 1.5.0 "git show v1.1.0:install.sh >install.sh; touch QUEBRADO"
-dgc atualizar --origem "$ORIGEM" --ref v1.5.0 --sem-rollback >"$SAIDA" 2>&1
-mesmo "sai com 1" 1 "$?"
-verifica "diz que nada foi desfeito e onde esta a copia" bash -c "grep -q 'nada foi desfeito' '$SAIDA' && grep -q 'etc.tar' '$SAIDA'"
-mesmo "o app ficou na versao nova (sem rollback)" 1.5.0 "$(tr -d '[:space:]' <"$APP/VERSION")"
-verifica "nao registrou rollback" bash -c "! jq -r .evento '$AUD' | tail -n 2 | grep -q atualizar.rollback"
+echo "atualizar: o comando e o do main, sem comando duplicado no enterprise"
+nega "nao existe mais ent_cmd_atualizar" bash -c "grep -rq 'ent_cmd_atualizar' '$REPO/lib'"
+afirma "a CLI chama atualizar_main antes do despacho enterprise" bash -c "grep -n 'atualizar) atualizar_main' '$REPO/bin/dgclaw'"
 
-echo "atualizar: guarda so as 3 copias mais novas"
-mesmo "tres copias" 3 "$(snaps | wc -l | tr -d ' ')"
-
-limpar_cenario
-printf 'atualizar.test.sh: %s verificacoes, %s falharam\n' "$TOTAL" "$FALHAS"
-[ "$FALHAS" -eq 0 ]
+fim

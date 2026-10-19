@@ -111,6 +111,25 @@ protegendo de fato: true, false, ou null para parâmetro). A tela usa `protegend
 - Toda ação administrativa chama `auditar <evento> <json>` (de `lib/enterprise/auditoria.sh`), que no
   nível `pessoal` não grava nada.
 
+- `dgclaw atualizar` e o do main (`lib/atualizar.sh`, `atualizar_main`); o enterprise não tem comando
+  próprio. O main chama `atualizar_gancho <prefixo>`, que roda as funções `ent_*` de
+  `lib/enterprise/atualizar.sh`: `ent_antes_de_atualizar_*`, `ent_preparar_backup_atualizar_*` e
+  `ent_depois_de_atualizar_*` (modos `atualizar` e `voltar`; resultados `ok`, `incompleta`, `falha`).
+  Eles auditam `atualizar.inicio`, `atualizar.sucesso`, `atualizar.falha`, `atualizar.rollback`, cuidam do
+  backup (abaixo) e escolhem a unidade do Admin que o reinício agendado usa (`ent_admin_unidades`).
+- **Backup do `dgclaw atualizar`.** O backup do main grava `/etc/dgclaw` e `/var/lib/dgclaw` inteiros em
+  `/var/backups/dgclaw/<data>/`, o que levaria para fora da retenção, da exclusão por titular e do restic
+  os segredos do enterprise e as conversas. Decisão: acima do nível `pessoal`, o backup sai sem
+  `disco.chave`, `backup.env`, `alertas.env`, `auditoria-externa.json` e `acoes-externas/`, sem as casas dos
+  agentes (equivale a `--sem-backup-agentes`), sem `web/sessoes.json` e sem as pastas de estado de `backup/`,
+  `restauracoes/` e `titulares/`. A atualização e o `--voltar` não tocam nesses dados (o instalador
+  preserva os segredos), então nada disso faz falta para voltar atrás; as casas têm o backup do restic
+  (`dgclaw backup`), e o aviso diz isso quando ele não está configurado. O `web.env` continua no backup,
+  porque o `--voltar` o restaura. Depois de uma atualização completa, `backup_retencao_dias` apaga os
+  backups mais velhos que o prazo, sempre guardando os dois mais novos. A conferência final do main segue
+  valendo para os arquivos excluídos (o manifesto guarda o hash do arquivo vivo). No nível `pessoal` o
+  backup é exatamente o do main.
+
 ### Instalador (`install.sh`)
 
 - Opção `--nivel <pessoal|escritorio|empresa|regulado>`. Sem ela, a instalação nova continua sem

@@ -28,6 +28,19 @@ ATU_PROBLEMAS=0
 ATU_AGENTES_FALHOS=""   # slugs que nao foram recriados ou nao responderam no fim (separados por espaco)
 ATU_COMMIT_ANTIGO=""    # o commit que estava INSTALADO antes desta atualizacao (nao o HEAD do clone)
 ATU_COMMIT_ORIGEM=""
+# Pontos de extensao (os ganchos enterprise, em lib/enterprise/atualizar.sh, preenchem; no nivel pessoal ficam vazios).
+ATU_SEM_HOMES=0         # 1 = o gancho pediu que as casas dos agentes fiquem fora do backup
+ATU_EXCLUIR_CONFIG=()   # opcoes --exclude do tar de /etc/dgclaw (caminhos relativos a raiz)
+ATU_EXCLUIR_DADOS=()    # idem para o tar de /var/lib/dgclaw
+
+# atualizar_gancho <prefixo> [argumentos...]: roda os ganchos enterprise com esse prefixo (ver
+# lib/enterprise/atualizar.sh). Sem eles, ou no nivel pessoal, onde cada gancho se cala, nao faz nada.
+# Quem diz o que deu errado e o proprio ent_rodar_ganchos; um gancho com defeito nunca derruba a atualizacao.
+atualizar_gancho() {
+    declare -F ent_rodar_ganchos >/dev/null || return 0
+    ent_rodar_ganchos "$@" || true
+    return 0
+}
 
 # _git <argumentos>: git no clone da atualizacao.
 _git() { git_do_clone "$ATU_REPO" "$@"; }
@@ -56,6 +69,7 @@ _atu_problema() { ATU_PROBLEMAS=$((ATU_PROBLEMAS + 1)); printf '   FALHOU  %s\n'
 _atualizar_ao_sair() {
     local rc=$?
     [ "$rc" -eq 0 ] && return 0
+    atualizar_gancho ent_depois_de_atualizar_ "$ATU_MODO" falha "" "" "${ATU_ETAPA:-inicio}"
     {
         printf '\nA atualizacao parou em: %s.\n' "${ATU_ETAPA:-inicio}"
         if [ -n "$ATU_BACKUP" ] && [ -d "$ATU_BACKUP" ]; then
@@ -149,6 +163,9 @@ _tar_backup() {
 atualizar_backup() {
     local dest="$1" motivo="$2" sem_homes="$3" casa agentes="" f
     local caminhos=() transc=()
+    ATU_SEM_HOMES=0; ATU_EXCLUIR_CONFIG=(); ATU_EXCLUIR_DADOS=()
+    atualizar_gancho ent_preparar_backup_atualizar_
+    if [ "$ATU_SEM_HOMES" = 1 ]; then sem_homes=1; fi
     if [ "$ENSAIO" = 1 ]; then
         info "[ensaio] criaria o backup em $dest com: etc/dgclaw, var/lib/dgclaw$([ "$sem_homes" = 1 ] && printf ' (sem as casas dos agentes)'), opt/dgclaw/admin, transcricoes do Admin e o MANIFESTO.txt"
         return 0
@@ -158,7 +175,7 @@ atualizar_backup() {
 
     # config.tar.gz: /etc/dgclaw inteiro (chaves, hash da senha, agentes.json, tokens).
     [ -d "$DG_ETC" ] || falha "nao existe $DG_ETC; o DG Claw nao parece instalado." "instale primeiro: sudo ./install.sh --usuario <nome>"
-    _tar_backup "$dest/config.tar.gz" "$(_rel "$DG_ETC")"
+    _tar_backup "$dest/config.tar.gz" "${ATU_EXCLUIR_CONFIG[@]}" "$(_rel "$DG_ETC")"
 
     # admin.tar.gz: a pasta do Admin (CLAUDE.md, AGENTS.md, uploads, skills).
     if [ -d "$DG_ADMIN" ]; then _tar_backup "$dest/admin.tar.gz" "$(_rel "$DG_ADMIN")"; fi
@@ -173,9 +190,9 @@ atualizar_backup() {
     if [ -d "$DG_LIB" ]; then
         caminhos=("$(_rel "$DG_LIB")")
         if [ "$sem_homes" = 1 ]; then
-            _tar_backup "$dest/dados.tar.gz" "--exclude=$(_rel "$DG_LIB")/agentes/*/home" "${caminhos[@]}"
+            _tar_backup "$dest/dados.tar.gz" "--exclude=$(_rel "$DG_LIB")/agentes/*/home" "${ATU_EXCLUIR_DADOS[@]}" "${caminhos[@]}"
         else
-            _tar_backup "$dest/dados.tar.gz" "${caminhos[@]}"
+            _tar_backup "$dest/dados.tar.gz" "${ATU_EXCLUIR_DADOS[@]}" "${caminhos[@]}"
         fi
     fi
 
@@ -285,6 +302,9 @@ atualizar_conferir() {
                         _atu_problema "agentes.json: o Admin nao esta mais registrado"
                     fi
                 fi ;;
+            etc/dgclaw/versao)
+                # O instalador regrava a versao instalada a cada rodada: mudar e o esperado.
+                ;;
             etc/dgclaw/primeiro-acesso.json)
                 if [ "$sha_atual" != "$hash" ]; then
                     aviso "$rel mudou: o instalador gerou um link de primeiro acesso novo (a senha ainda nao tinha sido cadastrada). Gere o link com: sudo dgclaw primeiro-acesso"
@@ -400,10 +420,22 @@ atualizar_checar_vida() {
 # O token do Admin nao passa por aqui: o script le o arquivo, recebendo so o caminho dele.
 atualizar_agendar_reinicio_do_admin() {
     local resumo="$1" log="$2" unidade espera="${DGCLAW_ESPERA_REINICIO:-20}" script
+    local unidades_admin=(dgclaw-admin) porta_admin="" sem_aviso=0
     unidade="dgclaw-admin-restart-$(date +%Y%m%d-%H%M%S)"
     script="$APP_DIR/lib/reiniciar-admin.sh"
-    if [ ! -f "$DG_UNITS/dgclaw-admin.service" ] && [ "$ENSAIO" != 1 ]; then
-        aviso "nao ha unidade dgclaw-admin.service em $DG_UNITS; nao ha Admin para reiniciar."
+    # Enterprise: com o Admin isolado quem roda o codigo novo e o servico de controle, e com o Admin
+    # desligado nao ha quem receba o resumo. No nivel pessoal tudo isto devolve o de sempre.
+    if declare -F ent_admin_unidades >/dev/null; then
+        read -ra unidades_admin <<<"$(ent_admin_unidades)"
+        porta_admin="$(ent_admin_porta)"
+        if ent_admin_desligado; then sem_aviso=1; fi
+    fi
+    if [ "${#unidades_admin[@]}" -eq 0 ]; then
+        aviso "o Admin esta desligado de proposito e nao ha servico de controle; nao ha o que reiniciar."
+        return 0
+    fi
+    if [ ! -f "$DG_UNITS/${unidades_admin[0]}.service" ] && [ "$ENSAIO" != 1 ]; then
+        aviso "nao ha unidade ${unidades_admin[0]}.service em $DG_UNITS; nao ha Admin para reiniciar."
         return 0
     fi
     if [ "$ENSAIO" = 1 ]; then
@@ -415,6 +447,8 @@ atualizar_agendar_reinicio_do_admin() {
     exigir_ferramentas systemd-run
     systemd-run --on-active="$espera" --unit="$unidade" --collect \
         --setenv="PATH=$PATH" ${R:+--setenv="DGCLAW_RAIZ=$R"} \
+        --setenv="DGCLAW_UNIDADES_ADMIN=${unidades_admin[*]}" ${porta_admin:+--setenv="DGCLAW_ADMIN_URL=http://127.0.0.1:$porta_admin"} \
+        ${sem_aviso:+--setenv="DGCLAW_SEM_AVISO_ADMIN=$sem_aviso"} \
         bash "$script" "$resumo" "$log" "$DG_ETC/runner/admin.token" >/dev/null 2>&1 \
         || falha "o systemd-run nao conseguiu agendar o reinicio do Admin (unidade $unidade)." \
                  "o resto ja foi feito. Reinicie o Admin voce mesmo, de fora do chat dele: systemctl restart dgclaw-admin"
@@ -518,6 +552,7 @@ atualizar_main() {
     passo "Achando o clone do DG Claw e conferindo que esta limpo"
     atualizar_achar_repo "$repo_arg"
     atualizar_checar_clone
+    atualizar_gancho ent_antes_de_atualizar_ "$ATU_MODO"
 
     if [ -n "$voltar" ]; then atualizar_voltar "$voltar" "$sem_homes" "$mesmo_assim"; return 0; fi
 
@@ -581,9 +616,11 @@ atualizar_main() {
         return 0
     fi
     if [ "$reinicia" != 1 ]; then
+        atualizar_gancho ent_depois_de_atualizar_ atualizar incompleta "$versao_antiga" "$versao_nova" "$ATU_ETAPA"
         printf '%s\n  Resumo gravado em: %s\n' "$resumo_txt" "$resumo_arq" >&2
         return 1
     fi
+    atualizar_gancho ent_depois_de_atualizar_ atualizar ok "$versao_antiga" "$versao_nova" ""
     printf '%s\n  Resumo gravado em: %s\n' "$resumo_txt" "$resumo_arq"
 }
 
@@ -763,9 +800,11 @@ atualizar_voltar() {
     trap - EXIT
     if [ "$ENSAIO" = 1 ]; then printf 'Simulacao terminada: nada foi mudado.\n'; return 0; fi
     if [ "$ATU_PROBLEMAS" -gt 0 ]; then
+        atualizar_gancho ent_depois_de_atualizar_ voltar incompleta "" "${commit_alvo:0:10}" "$ATU_ETAPA"
         printf 'Voltei, mas com %s problema(s) (linhas FALHOU acima). O backup do estado anterior ao --voltar esta em %s.\n' "$ATU_PROBLEMAS" "$backup_agora" >&2
         exit 1
     fi
+    atualizar_gancho ent_depois_de_atualizar_ voltar ok "" "${commit_alvo:0:10}" ""
     printf 'Voltei para a versao de %s (commit %s).\n' "$(_env_de "$b/MANIFESTO.txt" criado_em)" "${commit_alvo:0:10}"
     printf '  Clone na branch: %s\n  Backup do estado de antes de voltar: %s\n' "$ramo_novo" "$backup_agora"
     printf '  O Admin reinicia em alguns segundos.\n'

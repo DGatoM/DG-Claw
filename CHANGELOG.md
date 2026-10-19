@@ -19,9 +19,9 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
   personalizado (grava o modelo novo ao lado, como `.novo`).
 - Fundação da versão enterprise (branch `enterprise`, desenho em `docs/enterprise/DESENHO.md`): níveis de
   proteção (`pessoal`, `escritorio`, `empresa`, `regulado`) lidos de `/etc/dgclaw/protecoes.json` e de uma matriz
-  única em `config/protecoes-matriz.json`; comandos `dgclaw nivel`, `dgclaw protecoes aplicar`, `dgclaw versao` e
-  `dgclaw atualizar` (cópia de segurança, instalador novo, conferência de saúde e rollback); instalador com
-  `--nivel`; trilha de auditoria encadeada por hash (bash e Node na mesma corrente); tela Proteções em
+  única em `config/protecoes-matriz.json`; comandos `dgclaw nivel`, `dgclaw protecoes aplicar`, `dgclaw versao`;
+  o `dgclaw atualizar` do `main` ganha auditoria e, acima do nível pessoal, backup sem segredos nem conversas e
+  retenção dos backups; instalador com `--nivel`; trilha de auditoria encadeada por hash (bash e Node na mesma corrente); tela Proteções em
   `/protecoes`; pontos de extensão da CLI, do instalador e do Web. Sem o arquivo de nível tudo continua como antes.
 - Bloco F da versão enterprise (LGPD e monitoramento): `dgclaw retencao aplicar` (prazo `retencao_dias`: apaga
   transcripts, anexos e logs velhos, troca o texto de mensagens velhas por um marcador sem quebrar a corrente do
