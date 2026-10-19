@@ -1,0 +1,15 @@
+# Configuração do gitleaks (workflow Segurança). Mantém todas as regras padrão e libera só
+# valores de teste conhecidos, por regra E por arquivo. Se um segredo de verdade aparecer em
+# qualquer outro lugar (ou em outra regra), o gitleaks continua reprovando.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Valores falsos de teste do enterprise: nonce público de handshake WebSocket, chaves de mentira 'valor-falso-...' e 'xai-teste-...'"
+targetRules = ["generic-api-key"]
+condition = "OR"
+paths = [
+  '''^web/test/ent-usuarios-acesso\.test\.js$''',
+  '''^web/test/ent-sigilo\.test\.js$''',
+  '''^tests/enterprise/cofre-cifrado\.test\.sh$''',
+]
