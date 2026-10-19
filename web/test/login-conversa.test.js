@@ -59,6 +59,34 @@ test('atividade: errored + runner:sem-login vira sem_sinal com alerta sem_login'
   } finally { await s.fechar(); }
 });
 
+test('atividade: errored + runner:login-expirado vira alerta login_expirado (distinto de sem_login), com expirou_em e provedor', async () => {
+  const s = await cenario({ status: 'errored', statusReason: 'runner:login-expirado', erroEstado: 'O login expirou às 14:05.' });
+  try {
+    const a = await s.t.web.conversa.atividade(s.t.web.registro.obter('ana'));
+    assert.equal(a.estado, 'sem_sinal'); assert.equal(a.alerta, 'login_expirado'); assert.equal(a.motivo, 'O login expirou às 14:05.');
+    assert.equal(a.provedor, 'claude'); assert.equal(a.expirou_em, null, 'o runner falso não manda loginExpiradoEm: sem inventar hora');
+    assert.ok(a.desde, 'tem desde');
+  } finally { await s.fechar(); }
+});
+
+test('login: com o login expirado o GET diz precisa_login, para o cartão oferecer Conectar', async () => {
+  const s = await cenario({ status: 'errored', statusReason: 'runner:login-expirado' });
+  try {
+    const r = await s.t.c.get('/api/v1/agents/ana/login');
+    assert.equal(r.status, 200); assert.equal(J(r).precisa_login, true);
+  } finally { await s.fechar(); }
+});
+
+test('enviar: o 409 LOGIN_EXPIRADO do runner chega à tela com codigo e com a causa em português', async () => {
+  const s = await cenario({ status: 'errored', statusReason: 'runner:login-expirado',
+    falhaInput: { status: 409, corpo: { success: false, error: 'O login da conta do Claude de ana expirou às 14:05.', howToFix: 'reconectar a conta do agente', code: 'LOGIN_EXPIRADO' } } });
+  try {
+    const r = await s.t.c.post('/api/v1/agents/ana/send', { json: { text: 'oi, tudo bem?' } });
+    assert.equal(r.status, 409); assert.equal(J(r).ok, false); assert.equal(J(r).codigo, 'LOGIN_EXPIRADO');
+    assert.match(J(r).erro, /expirou às 14:05/); assert.match(J(r).erro, /reconectar a conta/);
+  } finally { await s.fechar(); }
+});
+
 test('login: POST começa, codigo e DELETE repassam ao runner', async () => {
   const s = await cenario({ status: 'errored', statusReason: 'runner:sem-login' });
   try {

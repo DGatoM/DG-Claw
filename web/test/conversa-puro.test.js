@@ -95,3 +95,15 @@ test('avaliaVolta: só conta retrato novo, posterior ao pedido e diferente do an
   v = P.avaliaVolta(Object.assign({}, base, { foto: foto(110, 'ocioso', { alerta: 'sem_login', motivo: 'conecte' }) }));
   assert.deepEqual([v.acao, v.motivo], ['sem_login', 'conecte']);
 });
+
+test('avaliaVolta: login_expirado só falha depois dos 3 s (antes pode ser retrato do estado de antes do reinício)', () => {
+  const foto = (agora, extra) => ({ agora, agentes: { ana: Object.assign({ estado: 'sem_sinal' }, extra) } });
+  const base = { marco: 100, ultimoAgora: null, vivas: 0, agenteId: 'ana', streamAberto: true };
+  const exp = { alerta: 'login_expirado', motivo: 'o login expirou' };
+  let v = P.avaliaVolta(Object.assign({}, base, { decorridoMs: 1000, foto: foto(101, exp) }));
+  assert.deepEqual([v.acao, v.vivas], ['esperar', 0]);
+  v = P.avaliaVolta(Object.assign({}, base, { decorridoMs: 4000, foto: foto(105, exp) }));
+  assert.deepEqual([v.acao, v.motivo], ['login_expirado', 'o login expirou']);
+  // retrato anterior ao pedido nunca conta
+  assert.equal(P.avaliaVolta(Object.assign({}, base, { decorridoMs: 4000, foto: foto(90, exp) })).acao, 'esperar');
+});

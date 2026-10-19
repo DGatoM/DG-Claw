@@ -36,10 +36,11 @@ import type { CtxMotor, Motor, Recusa } from "./provedores/motor.js";
 import { motorDe } from "./provedores/motores.js";
 import { parar, pararEEsperar, subir, suspender, trocarPorSessaoLimpa } from "./sessao/ciclo.js";
 import { ctxLeve, montarAmbienteBase } from "./sessao/configuracao.js";
-import { QUIETO_PARA_OLHAR_TRANSCRIPT_MS } from "./sessao/constantes.js";
+import { QUIETO_PARA_OLHAR_TRANSCRIPT_MS, VIGIA_LOGIN_EXPIRADO_MS } from "./sessao/constantes.js";
 import { digitarEEnviar, vencerTelaDeConfianca } from "./sessao/digitacao.js";
 import { type PayloadDeHook, receberHook } from "./sessao/eventos.js";
 import { enfileirarQuandoOcioso, talvezSoltarFila } from "./sessao/fila.js";
+import { encerrarIncidenteDeLogin, entregarRecadoDeLogin, marcarLoginExpirado, retomarAposLoginExpirado } from "./sessao/login.js";
 import { ESC } from "./sessao/telas.js";
 import { guardarEEmitir } from "./sessao/terminal.js";
 import type { AgentState } from "./tipos.js";
@@ -66,6 +67,8 @@ export interface OpcoesDaSessao {
   titulo?: string;
   /** Quanto o terminal fica mudo antes de olharmos o transcript (rede do Stop perdido, Claude). Testes usam valor curto. */
   quietoParaOlharTranscriptMs?: number;
+  /** De quanto em quanto tempo se olha a credencial com o login expirado. Testes usam valor curto. */
+  vigiaLoginExpiradoMs?: number;
   /** Comandos extras do evento UserPromptSubmit, depois do hook do runner. */
   promptHooks?: string[];
   ociosoMinutos?: number;
@@ -94,6 +97,12 @@ export class Sessao extends EventEmitter {
   quietoDeBoot: NodeJS.Timeout | null = null;
   vigiaDoStopPerdido: NodeJS.Timeout | null = null;
   readonly quietoParaOlharTranscriptMs: number;
+  readonly vigiaLoginExpiradoMs: number;
+  /** Quando o login expirou (ms). Presente só enquanto o estado for runner:login-expirado. */
+  loginExpiradoEmMs: number | null = null;
+  vigiaDoLoginExpirado: NodeJS.Timeout | null = null;
+  /** O incidente que acabou de ser resolvido e ainda não foi contado ao agente (ver entregarRecadoDeLogin). */
+  recadoDeLogin: { expirouEm: number; voltouEm: number } | null = null;
   /** Quando o turno atual começou (UserPromptSubmit/PreToolUse vindo de fora de working): a linha
    *  turn_duration só vale como "acabou" se for posterior a isto. */
   turnoComecouEm = 0;
@@ -157,6 +166,7 @@ export class Sessao extends EventEmitter {
     this.titulo = opcoes.titulo ?? null;
     this.ociosoMinutos = opcoes.ociosoMinutos ?? null;
     this.quietoParaOlharTranscriptMs = opcoes.quietoParaOlharTranscriptMs ?? QUIETO_PARA_OLHAR_TRANSCRIPT_MS;
+    this.vigiaLoginExpiradoMs = opcoes.vigiaLoginExpiradoMs ?? VIGIA_LOGIN_EXPIRADO_MS;
     this.arquivoDeEstado = opcoes.arquivoDeEstado ?? STATE_FILE;
     this.pastaDeEstado = opcoes.pastaDeEstado ?? PASTA_DE_ESTADO;
     this.arquivoDaFila = caminhoDaFila(this.pastaDeEstado, descritor.id);
@@ -343,6 +353,18 @@ export class Sessao extends EventEmitter {
    * 27/08/2026, com o dono esperando resposta de um agente que nunca ia responder.
    */
   recusaDeEntrada(): Recusa | null {
+    if (this.estado.status === "errored" && this.estado.statusReason === "runner:login-expirado") {
+      return {
+        tipo: "login-expirado",
+        mensagem: this.estado.error ?? `O login da conta de ${this.slug} expirou.`,
+        comoResolver: "reconectar a conta do agente pela conversa (cartão de login) ou digitando /login no terminal dele",
+      };
+    }
+    return this.recusaDoMotor();
+  }
+
+  /** Só a falta de login ou de chave (a checagem do motor), sem o login expirado, que tem ciclo próprio. */
+  recusaDoMotor(): Recusa | null {
     const motor = this.ctxVivo ? this.motor : motorDe(this.lerEscolha().escolha.provedor);
     return motor.motivoSemLogin(this.ctxVivo ?? ctxLeve(this));
   }
@@ -358,6 +380,8 @@ export class Sessao extends EventEmitter {
   aposLoginConcluido(): void {
     if (this.estado.status === "errored" && this.estado.statusReason === "runner:sem-login") {
       trocarPorSessaoLimpa(this);
+    } else if (this.estado.status === "errored" && this.estado.statusReason === "runner:login-expirado") {
+      retomarAposLoginExpirado(this, "login assistido concluído");
     }
   }
 
@@ -444,7 +468,10 @@ export class Sessao extends EventEmitter {
       log.info(this.a("estado"), `${campos.status}${campos.statusReason ? ` (${campos.statusReason})` : ""}`);
     }
     this.emit("estado", this.estado);
-    if (campos.status === "idle") talvezSoltarFila(this);
+    if (campos.status === "idle") {
+      entregarRecadoDeLogin(this);
+      talvezSoltarFila(this);
+    }
   }
 
   // --- montagem do spawn -----------------------------------------------------
@@ -490,6 +517,11 @@ export class Sessao extends EventEmitter {
   /** Guarda no buffer da tela e entrega a quem ouve (ver sessao/terminal.ts). Os testes de tela chamam por aqui. */
   guardarEEmitir(texto: string): void {
     guardarEEmitir(this, texto);
+  }
+
+  /** Entra em login expirado e passa a vigiar a credencial (ver sessao/login.ts). */
+  marcarLoginExpirado(origem: string, quando: number | null, detalhe: string | null): void {
+    marcarLoginExpirado(this, origem, quando, detalhe);
   }
 
   /** Recebe o POST do handler de hook (ver sessao/eventos.ts). */

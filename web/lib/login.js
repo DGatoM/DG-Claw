@@ -51,7 +51,7 @@ function criarLogin({ runner, conversa, log, agora, oiPrazoMs, oiPassoMs }) {
       conversa.estado(agente),
     ]);
     if (!lg.ok) return falha(agente, lg, 'consulta');
-    const semLogin = est.ok && est.estado.status === 'errored' && est.estado.statusReason === 'runner:sem-login';
+    const semLogin = est.ok && est.estado.status === 'errored' && (est.estado.statusReason === 'runner:sem-login' || est.estado.statusReason === 'runner:login-expirado');
     const precisa = semLogin || (prov.conferido != null && prov.conferido.ok === false);
     return { status: 200, corpo: Object.assign({}, lg.corpo, { ok: true, provedor: prov.provedor, auth: prov.auth, conferido: prov.conferido, precisa_login: precisa }) };
   }

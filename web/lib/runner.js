@@ -96,7 +96,7 @@ function criarRunner({ log, timeoutMs }) {
     async input(agente, corpo) {
       const r = await chamar(agente, 'POST', `/api/agents/${encodeURIComponent(agente.agente_id)}/input`, corpo);
       if (!r.ok && r.erro) return r;
-      if (!r.ok) return { ok: false, status: r.status, erro: motivoDoRunner(agente, r) };
+      if (!r.ok) return { ok: false, status: r.status, erro: motivoDoRunner(agente, r), code: r.corpo && typeof r.corpo.code === 'string' ? r.corpo.code : undefined };
       return { ok: true, status: r.status, dados: r.corpo && r.corpo.data };
     },
   };

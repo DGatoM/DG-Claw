@@ -292,6 +292,11 @@ function atvFrase(est) {
     return { nome: nome + ' sem sinal: falta conectar a conta', acao: '', classe: 'atv-cinza',
              titulo: est.motivo || '' };
   }
+  if (est.alerta === 'login_expirado') {
+    const h = atvHora(est.expirou_em || est.desde);
+    return { nome: nome + ' parado: o login expirou' + (h ? ' às ' + h : ''), acao: '', classe: 'atv-cinza',
+             titulo: est.motivo || '' };
+  }
   if (est.estado === 'sem_sinal') {
     const h = atvHora(est.ultimo_sinal);
     return { nome: nome + ' sem sinal' + (h ? ' desde ' + h : ''), acao: '', classe: 'atv-cinza',
@@ -363,6 +368,7 @@ function integraAtividade(d) {
   if (telaOciosa()) estadoOcioso();
   else pintaAtividade();
   lcSincroniza();
+  leSincroniza();
   pcSincroniza();
   filaSincroniza();
 }
@@ -391,7 +397,7 @@ const LC = window.DGLoginCartao;
 const lcEl = $('loginCartao');
 const lc = { aberto: false, manual: false, iniciado: false, demo: false, dispensado: false,
              carregando: false, ocupado: false, dados: null, erro: '', codigo: '', copiado: false,
-             timer: null, conferindo: false, chave: '', fechaTimer: null };
+             timer: null, conferindo: false, chave: '', fechaTimer: null, expirado: false };
 const LOGIN_API = API + '/login';
 
 function lcVisao() {
@@ -529,10 +535,11 @@ function lcFecha(dispensar) {
   clearTimeout(lc.fechaTimer);
   if (dispensar) lc.dispensado = true;
   Object.assign(lc, { aberto: false, manual: false, iniciado: false, demo: false, carregando: false,
-                      ocupado: false, erro: '', codigo: '', copiado: false });
+                      ocupado: false, erro: '', codigo: '', copiado: false, expirado: false });
   const era = !lcEl.hidden;
   lcDesenha();
   if (era) estadoOcioso();
+  leAoFecharCartao();
 }
 function lcEmAndamento() {
   const e = lc.dados && lc.dados.estado;
@@ -569,9 +576,13 @@ async function lcConfere() {
 function lcConcluiu() {
   if (lc.fechaTimer) return;
   lcPara();
-  // O oi é pedido já: o servidor espera o agente subir (até 60 s) e entrega uma vez só.
-  api(LOGIN_API + '/oi', { method: 'POST', body: {}, timeoutMs: 75000 })
-    .catch(e => mostraAviso('A conta foi conectada, mas não consegui pedir o oi do agente: ' + e.message + '. Escreva um oi na conversa.'));
+  leLoginConcluido();
+  // O oi é pedido já: o servidor espera o agente subir (até 60 s) e entrega uma vez só. Com o login
+  // EXPIRADO não há oi: o runner reinicia a mesma sessão e entrega o recado "login-reconectado".
+  if (!lc.expirado) {
+    api(LOGIN_API + '/oi', { method: 'POST', body: {}, timeoutMs: 75000 })
+      .catch(e => mostraAviso('A conta foi conectada, mas não consegui pedir o oi do agente: ' + e.message + '. Escreva um oi na conversa.'));
+  }
   lc.fechaTimer = setTimeout(() => { lc.fechaTimer = null; lcFecha(false); }, 1500);
 }
 
@@ -628,20 +639,22 @@ async function lcCopia(texto) {
 }
 
 /* Abre o cartão. `manual`: veio do /login (fica mesmo com a conta conectada). */
-function lcAbre(manual) {
+function lcAbre(manual, semConferir) {
   if (lc.aberto) { if (manual) { lc.manual = true; lc.dispensado = false; } lcDesenha(); return; }
-  Object.assign(lc, { aberto: true, manual: !!manual, iniciado: false, erro: '', codigo: '', carregando: true,
+  Object.assign(lc, { aberto: true, manual: !!manual, iniciado: false, erro: '', codigo: '', carregando: !semConferir,
                       dados: { estado: 'nenhum', provedor: AGENTE.provedor, precisa_login: !manual } });
   lcDesenha();
-  lcConfere();
+  if (!semConferir) lcConfere();
 }
 
 /* Chamado a cada foto de atividade: abre o cartão quando falta conta e o fecha quando a falta some. */
 function lcSincroniza() {
   if (lc.demo) return;
   const est = window.atividadeFoto && window.atividadeFoto.agentes ? window.atividadeFoto.agentes[AGENTE.id] : null;
-  const semLogin = !!est && est.alerta === 'sem_login';
+  const expirado = !!est && est.alerta === 'login_expirado';
+  const semLogin = !!est && (est.alerta === 'sem_login' || expirado);
   if (!semLogin) lc.dispensado = false;
+  if (expirado) lc.expirado = true;
   if (semLogin && !lc.aberto && !lc.dispensado) lcAbre(false);
   else if (!semLogin && lc.aberto && !lc.manual && !lc.iniciado) lcFecha(false);
 }
@@ -653,6 +666,182 @@ function lcInterceptaLogin(texto) {
   return true;
 }
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') lcConfere(); });
+
+/* ── Pop-up "Seu login do Claude expirou" ──────────────────────────────────
+   A conta ESTAVA conectada e a credencial morreu (alerta 'login_expirado' da foto de atividade):
+   o agente parou de responder e nada aparecia na conversa. Este <dialog> modal explica o que houve
+   e oferece o caminho: reconectar (o cartão de login, que é levado para dentro do pop-up, em vez
+   de reescrito), reiniciar a sessão (o Reiniciar do menu, com a mesma faixa de acompanhamento) ou
+   "Agora não" (dispensa só ESTE incidente, guardado por agente + instante em sessionStorage; o
+   cartão no fim da conversa continua). Depois do login o runner reinicia a MESMA sessão sozinho: o
+   pop-up só espera o agente voltar. Quando decide e o que diz vem de login-expirado.js (com teste). */
+const LE = window.DGLoginExpirado;
+const leDlg = $('dlgLoginExpirado');
+const le = { aberto: false, fase: 'aviso', est: null, erro: '', timer: null, concluiu: false, origemCartao: null };
+const LE_DISPENSADOS = 'dgclaw-login-expirado-dispensados';
+let reiniciaSessao = null;   // ligado pelo bloco "Reiniciar sessão do agente", mais abaixo
+
+function leEstAtual() {
+  return window.atividadeFoto && window.atividadeFoto.agentes ? window.atividadeFoto.agentes[AGENTE.id] || null : null;
+}
+function leDispensados() {
+  try { return JSON.parse(sessionStorage.getItem(LE_DISPENSADOS) || '{}') || {}; }
+  catch (e) { console.warn('pop-up de login: não consegui ler os incidentes dispensados (' + e.message + '); mostro o pop-up de novo.'); return {}; }
+}
+function leDispensa() {
+  try { sessionStorage.setItem(LE_DISPENSADOS, JSON.stringify(LE.dispensar(leDispensados(), AGENTE.id, le.est || {}))); }
+  catch (e) { console.warn('pop-up de login: não guardei o "Agora não" (' + e.message + '); ele volta se a página recarregar.'); }
+}
+function leTextos() {
+  const est = le.est || leEstAtual() || {};
+  return LE.textos({ nome: AGENTE.nome, provedor: est.provedor || AGENTE.provedor, expirouEm: est.expirou_em, motivo: le.erro });
+}
+
+function leDesenha() {
+  if (!leDlg) return;
+  const t = leTextos(), f = le.fase;
+  $('leTit').textContent = f === 'pronto' ? t.pronto : t.titulo;
+  const txt = $('leTxt');
+  txt.textContent = t.corpo;
+  txt.hidden = f !== 'aviso';
+  $('leCartao').hidden = f !== 'cartao';
+  const estado = $('leEstado');
+  estado.textContent = f === 'reiniciando' ? t.reiniciando : f === 'pronto' ? t.pronto : '';
+  estado.hidden = !estado.textContent;
+  const erro = $('leErro');
+  erro.textContent = f === 'nao_voltou' ? t.naoVoltou : le.erro;
+  erro.hidden = !erro.textContent;
+  const prim = $('lePrimario'), sec = $('leSecundario'), nao = $('leAgoraNao');
+  prim.textContent = t.primario; sec.textContent = t.secundario;
+  prim.hidden = f !== 'aviso';
+  sec.hidden = !(f === 'aviso' || f === 'nao_voltou');
+  nao.hidden = f === 'pronto';
+  nao.textContent = f === 'aviso' || f === 'cartao' ? t.agoraNao : 'Fechar';
+}
+
+function leAbre() {
+  if (!LE || !leDlg || le.aberto) return;
+  le.est = leEstAtual();
+  Object.assign(le, { aberto: true, fase: 'aviso', erro: '', concluiu: false });
+  leDesenha();
+  if (leDlg.showModal) leDlg.showModal(); else leDlg.setAttribute('open', '');
+  try { $('lePrimario').focus({ preventScroll: true }); } catch (e) { console.warn('pop-up de login: não consegui pôr o foco no botão:', e.message); }
+}
+
+function leFecha(dispensar) {
+  if (!le.aberto) return;
+  clearTimeout(le.timer);
+  if (dispensar) leDispensa();
+  leDevolveCartao();
+  le.aberto = false;
+  if (leDlg.close) leDlg.close(); else leDlg.removeAttribute('open');
+}
+
+/* O cartão de login muda de lugar (do fim da conversa para dentro do pop-up) e volta depois. */
+function leLevaCartao() {
+  if (le.origemCartao || !lcEl) return;
+  le.origemCartao = { pai: lcEl.parentNode, depois: lcEl.nextSibling };
+  $('leCartao').appendChild(lcEl);
+}
+function leDevolveCartao() {
+  const o = le.origemCartao;
+  if (!o) return;
+  le.origemCartao = null;
+  o.pai.insertBefore(lcEl, o.depois && o.depois.parentNode === o.pai ? o.depois : null);
+}
+
+async function leReconectar() {
+  le.erro = '';
+  le.fase = 'cartao';
+  le.concluiu = false;
+  leLevaCartao();
+  leDesenha();
+  lc.expirado = true;
+  if (!lc.aberto) lcAbre(false, true);
+  else lcDesenha();
+  await lcComeca();
+}
+
+/* O cartão fechou: ou o login terminou (segue para esperar a volta) ou a pessoa cancelou (volta à pergunta). */
+function leAoFecharCartao() {
+  if (!le.aberto || le.fase !== 'cartao') return;
+  leDevolveCartao();
+  if (le.concluiu) leComecaVolta();
+  else { le.fase = 'aviso'; leDesenha(); try { $('lePrimario').focus({ preventScroll: true }); } catch (e) { /* o botão acabou de ser mostrado */ } }
+}
+function leLoginConcluido() {
+  if (le.aberto && le.fase === 'cartao') le.concluiu = true;
+}
+
+/* Espera o agente voltar a responder. Reaproveita a mesma regra do Reiniciar (avaliaVolta). */
+function leComecaVolta() {
+  clearTimeout(le.timer);
+  le.fase = 'reiniciando'; le.erro = '';
+  leDesenha();
+  const ini = Date.now();
+  const marco = atvAgoraMs() / 1000;
+  let vivas = 0, ultimoAgora = null;
+  const olha = () => {
+    if (!le.aberto || le.fase !== 'reiniciando') return;
+    const v = PURO.avaliaVolta({ marco, ultimoAgora, vivas, foto: window.atividadeFoto, agenteId: AGENTE.id, streamAberto, decorridoMs: Date.now() - ini });
+    vivas = v.vivas; ultimoAgora = v.ultimoAgora;
+    if (v.acao === 'voltou') return lePronto();
+    if (v.acao === 'login_expirado' || v.acao === 'sem_login') return leNaoVoltou(v.motivo || 'A conta continua sem login. Reconecte de novo.');
+    if (v.acao === 'indeterminado') return leNaoVoltou('A tela não consegue confirmar a volta (conversa-puro.js não carregou). Recarregue a página.');
+    if (Date.now() - ini > LE.PRAZO_VOLTA_MS) return leNaoVoltou('');
+    le.timer = setTimeout(olha, 2000);
+  };
+  le.timer = setTimeout(olha, 2000);
+}
+function leNaoVoltou(motivo) {
+  le.fase = 'nao_voltou'; le.erro = motivo;
+  leDesenha();
+  try { $('leSecundario').focus({ preventScroll: true }); } catch (e) { /* botão recém-mostrado */ }
+}
+function lePronto() {
+  le.fase = 'pronto'; le.erro = '';
+  leDesenha();
+  le.timer = setTimeout(() => leFecha(false), LE.FECHA_PRONTO_MS);
+}
+
+function leReiniciar() {
+  if (!reiniciaSessao) {
+    le.erro = 'O botão de reiniciar não carregou nesta página. Recarregue a página ou use o menu da conversa, "Reiniciar a sessão".';
+    leDesenha();
+    return;
+  }
+  leFecha(true);
+  reiniciaSessao();
+}
+
+/* A cada foto de atividade: abre quando o alerta aparece; com o alerta sumido (login feito pelo
+   terminal, ou o runner reiniciou sozinho) passa a esperar o "voltou". */
+function leSincroniza() {
+  if (!LE || !leDlg) return;
+  const est = leEstAtual();
+  if (LE.expirado(est)) le.est = est;
+  const d = LE.decisao({ aberto: le.aberto, fase: le.fase, agenteId: AGENTE.id, est, dispensados: leDispensados() });
+  if (d === 'abrir') leAbre();
+  else if (d === 'aguardar_volta') { leDevolveCartao(); leComecaVolta(); }
+}
+
+/* Mensagem recusada com LOGIN_EXPIRADO: a pessoa acabou de tentar falar, então abre mesmo se dispensou. */
+function leAbreAoRecusar() {
+  if (!LE || !leDlg) { mostraErro('O login da conta expirou, mas o pop-up de reconectar não carregou. Recarregue a página e use o cartão de login.'); return; }
+  const est = leEstAtual();
+  if (le.aberto) return;
+  if (est && LE.expirado(est)) { lc.expirado = true; }
+  leAbre();
+}
+
+if (leDlg && LE) {
+  $('lePrimario').onclick = () => { leReconectar(); };
+  $('leSecundario').onclick = leReiniciar;
+  $('leAgoraNao').onclick = () => leFecha(true);
+  leDlg.addEventListener('cancel', ev => { ev.preventDefault(); leFecha(true); });
+} else {
+  console.warn('pop-up de login expirado: ' + (!LE ? 'login-expirado.js não carregou' : 'falta #dlgLoginExpirado na página') + '. O cartão de login no fim da conversa continua funcionando.');
+}
 
 /* ── Cartão "O agente está esperando a sua permissão" ─────────────────────
    Aparece quando a foto de atividade traz alerta 'permissao' (o runner está em waiting_input).
@@ -3315,7 +3504,18 @@ async function mandaTexto(pend, semEsperar) {
       avisaEntrega(pend, false, motivo);
       return false;
     }
+    if (e.codigo === 'LOGIN_EXPIRADO' && !pend.anexos) {
+      // O texto não se perde: sai do balão de erro e volta ao campo (se a pessoa já não escreveu outra coisa).
+      if (pendentes.includes(pend) && pend.tentativa === tentativa) {
+        descartar(pend);
+        if (!entrada.value.trim()) { entrada.value = pend.texto; ajustaCampo(); }
+      }
+      leAbreAoRecusar();
+      avisaEntrega(pend, false, e.message);
+      return false;
+    }
     falhouTentativa(pend, tentativa, 'Não consegui entregar a mensagem: ', e.message);
+    if (e.codigo === 'LOGIN_EXPIRADO') leAbreAoRecusar();
     avisaEntrega(pend, false, e.message);
     return false;
   } finally {
@@ -3789,8 +3989,8 @@ function passosTutorial() {
     },
     depois: () => { if (lc.demo) lcFecha(false); },
     oque: 'Um cartão que aparece no fim da conversa quando ' + nome + ' ainda não tem a sua conta do Claude ou do Codex conectada. O que você vê agora é só um exemplo.',
-    como: 'Toque em Conectar, abra a página de login, entre com a sua conta e, no Claude, cole aqui o código que ela mostrar no fim. A tela confere sozinha e avisa quando terminar. Para abrir o cartão a qualquer hora, escreva /login no campo de mensagem e envie: nada vai para o agente.',
-    porque: 'Sem conta conectada o agente não consegue responder. Assim você resolve aqui mesmo, sem abrir terminal.' });
+    como: 'Toque em Conectar, abra a página de login, entre com a sua conta e, no Claude, cole aqui o código que ela mostrar no fim. A tela confere sozinha e avisa quando terminar. Para abrir o cartão a qualquer hora, escreva /login no campo de mensagem e envie: nada vai para o agente. Se a conta JÁ estava conectada e o login expirou, a tela abre na frente um aviso "Seu login do Claude expirou" com os botões Reconectar conta, Reiniciar a sessão e Agora não; depois do login, ' + nome + ' volta sozinho, na mesma conversa.',
+    porque: 'Sem conta conectada o agente não consegue responder. Assim você resolve aqui mesmo, sem abrir terminal, e o que você mandou durante a queda não se perde: o campo guarda o texto e ' + nome + ' responde o que ficou pendente.' });
   if ($('btnSessoes') && !$('btnSessoes').hidden) {
     passos.push({ alvo: '#btnSessoes', titulo: 'O botão Sessões',
       oque: 'Um atalho para as sessões de trabalho de ' + nome + ': os cards que andam em paralelo com esta conversa. Uma bolinha vermelha avisa quando alguma espera uma decisão sua.',
@@ -4053,7 +4253,7 @@ window.addEventListener('resize', posicionaAlertas);
         sumir = setTimeout(esconde, 12000);
         return;
       }
-      if (v.acao === 'sem_login') {
+      if (v.acao === 'sem_login' || v.acao === 'login_expirado') {
         emCurso = false;
         return falha('o agente voltou, mas está sem a conta do Claude/Codex conectada. ' + (v.motivo || 'Conecte a conta pelo cartão que aparece na conversa.'));
       }
@@ -4098,6 +4298,7 @@ window.addEventListener('resize', posicionaAlertas);
   $('dlgReinicioNao').onclick = fechaDialogo;
   $('dlgReinicioSim').onclick = () => { fechaDialogo(); dispara(); };
   item.onclick = abreDialogo;
+  reiniciaSessao = dispara;   // o pop-up de login expirado usa o mesmo reinício e a mesma faixa
 })();
 
 }   // fim de iniciaTela

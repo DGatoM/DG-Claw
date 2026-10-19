@@ -200,6 +200,7 @@ export function escreverSettings(s: Sessao, nonce: string): string | null {
         Notification: para("Notification", "permission_prompt"),
         PreCompact: para("PreCompact"),
         Stop: [{ matcher: "", hooks: stop }],
+        StopFailure: para("StopFailure"),
       },
     };
     const limpar = (r?: string[] | null) =>

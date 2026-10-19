@@ -196,7 +196,7 @@ _RE_CONTEXTO = re.compile(
 _RE_LOGIN = re.compile(
     r"/login|login expired|not logged in|please log ?in|invalid api key|"
     r"authentication|unauthori[sz]ed|\b401\b|oauth|organization membership|\b403\b|"
-    r"invalid x-api-key|credentials", re.I)
+    r"invalid x-api-key|credentials|could not be refreshed|failed to authenticate", re.I)
 # INFERIDO: nenhum caso real em 30 dias. Largo de proposito.
 _RE_LIMITE = re.compile(
     r"usage limit|hit your limit|limit reached|limit will reset|rate.?limit|"
@@ -579,6 +579,13 @@ def estado_do_login(config_dir=None, cache_s=300):
 
     Devolve {"logado": True|False|None, "motivo": str}. None = nao medi (sem binario,
     timeout, saida estranha): e nunca vira "esta logado".
+
+    LIMITE MEDIDO (19/10/2026, Claude Code 2.1.303): `logado: true` NAO prova que o login
+    funciona. Quando o OAuth morre (token vencido e o refresh falha) o arquivo
+    .credentials.json continua no disco e `claude auth status --json` segue dizendo
+    loggedIn:true, enquanto todo turno falha com "Failed to authenticate: OAuth session
+    expired and could not be refreshed". Quem detecta esse caso e o runner (hook
+    StopFailure e a linha sintetica "Login expired" do transcript), nao esta funcao.
 
     CUIDADO COM O DIRETORIO: o login mora no config dir do claude DO AGENTE. Se este
     processo olhar outro (HOME diferente, CLAUDE_CONFIG_DIR diferente), a resposta e

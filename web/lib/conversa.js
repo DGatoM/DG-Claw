@@ -278,6 +278,13 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
                 ultimo_sinal: ultimo, alerta: 'permissao', motivo: null, permissao: pend };
       } else if (e.status === 'idle') {
         est = { estado: 'ocioso', acao: null, detalhe: null, ultimo_sinal: ultimo, alerta: null, motivo: null };
+      } else if (e.status === 'errored' && e.statusReason === 'runner:login-expirado') {
+        // A conta ESTAVA conectada e a credencial morreu: a sessão tem conversa e volta por retomada.
+        // Alerta próprio (não 'sem_login') para a tela dizer o que aconteceu e desde quando.
+        est = { estado: 'sem_sinal', acao: null, detalhe: null, ultimo_sinal: ultimo, alerta: 'login_expirado',
+                motivo: e.error ? String(e.error) : `O login da conta de ${agente.nome} expirou.`,
+                expirou_em: typeof e.loginExpiradoEm === 'string' ? e.loginExpiradoEm : null,
+                provedor: /codex/i.test(String(agente.provedor || '')) ? 'codex' : 'claude' };
       } else if (e.status === 'errored' && e.statusReason === 'runner:sem-login') {
         // O motor não tem conta conectada: a tela oferece o cartão de login.
         est = { estado: 'sem_sinal', acao: null, detalhe: null, ultimo_sinal: ultimo, alerta: 'sem_login', motivo: e.error ? String(e.error) : `${agente.nome} não está logado no Claude/Codex.` };
@@ -421,7 +428,8 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     const r = await runner.input(agente, { text: payload, submit: true, injectWhenIdle: true });
     if (!r.ok) {
       log('erro', `Envio para ${agente.slug} não entregue (${cru ? 'comando cru' : `${textoFinal.length} caracteres`}): ${r.erro}`);
-      return erro(r.status === 409 ? 409 : 502, `Não consegui entregar a mensagem a ${agente.nome}: ${r.erro}`);
+      // O código do runner (LOGIN_EXPIRADO) segue até a tela, que abre o pop-up de reconectar em vez de só dar erro.
+      return erro(r.status === 409 ? 409 : 502, `Não consegui entregar a mensagem a ${agente.nome}: ${r.erro}`, r.code ? { codigo: r.code } : undefined);
     }
     log('info', `Mensagem entregue a ${agente.slug} (${cru ? 'comando cru' : `${textoFinal.length} caracteres`}).`);
     const corpo = { ok: true, ep_enviado: epEnviado, agente: agente.slug };

@@ -231,6 +231,45 @@ test("login assistido pelas rotas: link, código, concluído, e a sessão presa 
   assert.equal(lerTexto(amb.logDoRunner).includes("abc123-xyz"), false);
 });
 
+test("login expirado: o turno é recusado com 409 LOGIN_EXPIRADO, a tecla passa, e o login assistido retoma a MESMA sessão", async () => {
+  logarClaude(amb);
+  await req("POST", `/api/agents/${ID}/reiniciar`);
+  await esperarAte(() => principal.estado.status === "idle", 8_000, "idle com a conta conectada");
+  const sessionId = principal.estado.sessionId!;
+  (principal as unknown as { marcarLoginExpirado(o: string, q: number | null, d: string | null): void }).marcarLoginExpirado("teste", null, null);
+
+  const g = await req("GET", `/api/agents/${ID}`);
+  assert.equal(g.corpo.data.status, "errored");
+  assert.equal(g.corpo.data.statusReason, "runner:login-expirado");
+  assert.match(g.corpo.data.loginExpiradoEm, /^\d{4}-\d\d-\d\dT/);
+  const recusado = await req("POST", `/api/agents/${ID}/input`, { text: "oi" });
+  assert.equal(recusado.status, 409);
+  assert.equal(recusado.corpo.code, "LOGIN_EXPIRADO");
+  assert.match(recusado.corpo.error, /expirou/);
+  assert.match(recusado.corpo.howToFix, /reconectar a conta/);
+  assert.equal((await req("POST", `/api/agents/${ID}/input`, { text: "x", injectWhenIdle: true })).corpo.code, "LOGIN_EXPIRADO");
+  assert.equal((await req("POST", `/api/agents/${ID}/input`, { text: "\u001b", submit: false })).status, 200, "tecla crua continua passando");
+
+  const antes = ptys().length;
+  await req("POST", "/api/provedor/login", {});
+  await esperarAte(async () => (await req("GET", "/api/provedor/login")).corpo.estado === "aguardando_codigo", 6_000, "o link");
+  await req("POST", "/api/provedor/login/codigo", { codigo: "abc123-xyz" });
+  // O log dos CLIs falsos é escrito enquanto o teste lê: uma linha pela metade não é erro, é "ainda não".
+  const comoEsta = () => {
+    try {
+      return ptys();
+    } catch {
+      return [];
+    }
+  };
+  await esperarAte(() => comoEsta().length > antes, 8_000, "o runner reiniciar depois do login");
+  await dormir(200);
+  const reinicio = ptys().at(-1)!;
+  assert.equal(reinicio.argv[reinicio.argv.indexOf("--resume") + 1], sessionId, "retomou a conversa, não abriu outra");
+  await esperarAte(() => principal.estado.status === "idle", 8_000);
+  assert.equal(principal.estado.sessionId, sessionId);
+});
+
 test("login só existe na assinatura: na API responde 409 com o caminho certo", async () => {
   process.env.ANTHROPIC_API_KEY = ANT;
   test.after(() => void delete process.env.ANTHROPIC_API_KEY);

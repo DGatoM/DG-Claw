@@ -112,6 +112,23 @@ export function ultimasMensagens(
 
 const CAUDA_DO_TRANSCRIPT = 16 * 1024;
 
+/** Os últimos ~16 KB do arquivo, começando numa linha inteira. Lança se não conseguir ler. */
+function lerCauda(arquivo: string): string {
+  const fd = fs.openSync(arquivo, "r");
+  try {
+    const { size } = fs.fstatSync(fd);
+    const inicio = Math.max(0, size - CAUDA_DO_TRANSCRIPT);
+    const buf = Buffer.alloc(size - inicio);
+    fs.readSync(fd, buf, 0, buf.length, inicio);
+    let cauda = buf.toString("utf8");
+    // Começar no meio do arquivo corta a primeira linha ao meio: descarta.
+    if (inicio > 0) cauda = cauda.slice(cauda.indexOf("\n") + 1);
+    return cauda;
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 /**
  * O turno acabou? O Claude Code grava `system/turn_duration` (logo depois de `stop_hook_summary`) ao
  * fim de todo turno. Lê só os últimos ~16 KB e olha a ÚLTIMA linha JSON válida: se for uma dessas e
@@ -127,18 +144,7 @@ export function turnoEncerradoNoTranscript(
   if (!arquivo) return { encerrado: false, motivo: `transcript da sessão ${sessionId} não encontrado` };
   let cauda: string;
   try {
-    const fd = fs.openSync(arquivo, "r");
-    try {
-      const { size } = fs.fstatSync(fd);
-      const inicio = Math.max(0, size - CAUDA_DO_TRANSCRIPT);
-      const buf = Buffer.alloc(size - inicio);
-      fs.readSync(fd, buf, 0, buf.length, inicio);
-      cauda = buf.toString("utf8");
-      // Começar no meio do arquivo corta a primeira linha ao meio: descarta.
-      if (inicio > 0) cauda = cauda.slice(cauda.indexOf("\n") + 1);
-    } finally {
-      fs.closeSync(fd);
-    }
+    cauda = lerCauda(arquivo);
   } catch (err) {
     log.aviso("conversa", `não consegui ler o fim de ${arquivo}: ${err instanceof Error ? err.message : err}`);
     return { encerrado: false, motivo: "transcript ilegível" };
@@ -162,4 +168,62 @@ export function turnoEncerradoNoTranscript(
     return { encerrado: true, motivo: `última linha é ${rotulo}` };
   }
   return { encerrado: false, motivo: "nenhuma linha JSON válida no fim do transcript" };
+}
+
+/** O texto que o Claude Code mostra (e devolve em `claude -p`) quando o OAuth da conta morreu. */
+export const RX_LOGIN_EXPIRADO =
+  /login expired|please run \/login|oauth session expired|could not be refreshed|failed to authenticate|invalid api key/i;
+
+/**
+ * O fim do transcript é a linha sintética de "login expirado"? Quando o OAuth morre, o Claude Code
+ * grava uma linha assistant com `message.model "<synthetic>"`, `isApiErrorMessage true`, `error
+ * "authentication_failed"` e o texto "Login expired · Please run /login", e NÃO dispara o hook Stop.
+ *
+ * Olha a ÚLTIMA linha de mensagem (user/assistant; as `system` e outras de bookkeeping são puladas):
+ * se for a sintética, expirou; se for qualquer outra coisa, o agente já falou depois. Só vale se a
+ * linha for mais nova que `maisNovaQue` (ms): a data da credencial, porque um login refeito depois
+ * do erro deixa a linha velha no arquivo para sempre e ela não pode derrubar o agente de novo.
+ */
+export function loginExpiradoNoFimDoTranscript(
+  sessionId: string,
+  maisNovaQue: number,
+  configDir?: string | null,
+): { expirado: boolean; quando: number | null; motivo: string } {
+  const arquivo = acharArquivoDaSessao(sessionId, configDir);
+  if (!arquivo) return { expirado: false, quando: null, motivo: `transcript da sessão ${sessionId} não encontrado` };
+  let cauda: string;
+  try {
+    cauda = lerCauda(arquivo);
+  } catch (err) {
+    log.aviso("conversa", `não consegui ler o fim de ${arquivo}: ${err instanceof Error ? err.message : err}`);
+    return { expirado: false, quando: null, motivo: "transcript ilegível" };
+  }
+  const linhas = cauda.split("\n");
+  for (let i = linhas.length - 1; i >= 0; i--) {
+    if (!linhas[i].trim()) continue;
+    let o: {
+      type?: string;
+      timestamp?: string;
+      isApiErrorMessage?: boolean;
+      error?: string;
+      message?: { model?: string; content?: unknown };
+    };
+    try {
+      o = JSON.parse(linhas[i]);
+    } catch {
+      continue;
+    }
+    if (o.type !== "assistant" && o.type !== "user") continue;
+    if (o.type === "user") return { expirado: false, quando: null, motivo: "a última mensagem é do usuário ou de uma ferramenta" };
+    const sintetica = o.message?.model === "<synthetic>" && o.isApiErrorMessage === true;
+    const texto = textoDoConteudo(o.message?.content);
+    if (!sintetica || !(o.error === "authentication_failed" || RX_LOGIN_EXPIRADO.test(texto))) {
+      return { expirado: false, quando: null, motivo: "a última mensagem não é o erro de login" };
+    }
+    const quando = o.timestamp ? Date.parse(o.timestamp) : NaN;
+    if (!Number.isFinite(quando)) return { expirado: false, quando: null, motivo: "o erro de login não tem timestamp válido" };
+    if (quando <= maisNovaQue) return { expirado: false, quando, motivo: "o erro de login é anterior à credencial atual" };
+    return { expirado: true, quando, motivo: "a última mensagem é o erro sintético de login expirado" };
+  }
+  return { expirado: false, quando: null, motivo: "nenhuma mensagem no fim do transcript" };
 }

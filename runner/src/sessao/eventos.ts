@@ -1,8 +1,11 @@
 import type { Sessao } from "../sessao.js";
 import { log } from "../logger.js";
+import { mascarar } from "../mascara.js";
+import { RX_LOGIN_EXPIRADO } from "../transcript.js";
 import { spawn } from "./ciclo.js";
 import { STOP_CONFIRM_MS } from "./constantes.js";
 import { talvezSoltarFila } from "./fila.js";
+import { conferirLoginExpiradoNoTranscript, marcarLoginExpirado } from "./login.js";
 import { nonceConfere } from "./telas.js";
 
 /** O que o handler de hook (Claude) ou o `notify` (Codex) manda ao runner. */
@@ -11,6 +14,8 @@ export interface PayloadDeEvento {
   sessionId?: string | null;
   toolName?: string | null;
   source?: string | null;
+  error?: string | null;
+  lastAssistantMessage?: string | null;
 }
 
 export interface PayloadDeHook extends PayloadDeEvento {
@@ -42,7 +47,7 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
     });
   }
 
-  if (["UserPromptSubmit", "PreToolUse", "Stop", "PreCompact"].includes(payload.event ?? "")) s.marcarAtividade();
+  if (["UserPromptSubmit", "PreToolUse", "Stop", "StopFailure", "PreCompact"].includes(payload.event ?? "")) s.marcarAtividade();
   s.hooksVivos = true;
   if (!s.estado.hookActive) s.estado.hookActive = true;
 
@@ -62,7 +67,11 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
         log.info(s.a("hook"), "fim do compact (SessionStart source=compact): volto para idle depois da janela quieta");
         agendarStop(s);
       }
-      if (s.estado.status === "spawning") s.mudar({ status: "idle", statusReason: "hook:SessionStart" });
+      if (s.estado.status === "spawning") {
+        // Retomada de uma sessão que já tinha morrido por login expirado (runner reiniciado nesse meio tempo).
+        if (s.retomando && conferirLoginExpiradoNoTranscript(s, 0, "retomada")) break;
+        s.mudar({ status: "idle", statusReason: "hook:SessionStart" });
+      }
       break;
     case "UserPromptSubmit":
       cancelarStopPendente(s);
@@ -107,6 +116,26 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
     case "Stop":
       agendarStop(s);
       break;
+    case "StopFailure": {
+      // O turno terminou com erro da API e o hook Stop NÃO dispara: sem este ramo o agente fica
+      // "working" para sempre. Medido no Claude Code 2.1.303.
+      const texto = mascarar(payload.lastAssistantMessage ?? "", s.segredosParaMascara());
+      if (payload.error === "authentication_failed" || RX_LOGIN_EXPIRADO.test(texto)) {
+        marcarLoginExpirado(s, "hook StopFailure", null, texto || payload.error || null);
+        break;
+      }
+      log.aviso(
+        s.a("hook"),
+        `o turno terminou com erro da API (${payload.error ?? "sem código"}${texto ? `: "${texto}"` : ""}); ` +
+          `o agente volta a idle e a mensagem não foi respondida. Se repetir, ver o status da API do provedor e os limites da conta`,
+      );
+      cancelarStopPendente(s);
+      if (s.estado.status === "working") {
+        s.mudar({ status: "idle", hookLatched: true, currentTool: null, statusReason: `hook:StopFailure ${payload.error ?? ""}`.trim() });
+      }
+      talvezSoltarFila(s);
+      break;
+    }
     default:
       log.debug(s.a("hook"), `evento sem tratamento: ${payload.event}`);
   }

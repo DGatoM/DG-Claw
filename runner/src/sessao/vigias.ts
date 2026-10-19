@@ -8,6 +8,7 @@ import { turnoEncerradoNoTranscript } from "../transcript.js";
 import { CONFERE_TRANSCRIPT_A_CADA_MS, ROLLOUT_AUSENTE_MS } from "./constantes.js";
 import { aplicarEvento, cancelarStopPendente } from "./eventos.js";
 import { talvezSoltarFila } from "./fila.js";
+import { conferirLoginExpiradoNoTranscript } from "./login.js";
 
 /** Claude: se o hook Stop se perder, o agente ficaria "working" para sempre e a fila de ocioso
  *  nunca soltaria. Com o terminal mudo, olha o fim do transcript: turno encerrado lá e hook
@@ -26,6 +27,9 @@ export function vigiarStopPerdido(s: Sessao, esteProc: pty.IPty): void {
     if (s.estado.statusReason === "hook:PreCompact" || !s.estado.sessionId) return;
     const quietoHa = Date.now() - s.ultimaSaidaEm;
     if (quietoHa < s.quietoParaOlharTranscriptMs) return;
+    // O turno que morreu por login expirado não grava turn_duration nem dispara Stop: sem esta
+    // checagem ele ficaria "working" para sempre.
+    if (conferirLoginExpiradoNoTranscript(s, s.turnoComecouEm, "terminal mudo")) return;
     const prova = turnoEncerradoNoTranscript(
       s.estado.sessionId,
       s.turnoComecouEm,
