@@ -42,6 +42,8 @@ const payload = JSON.stringify({
   sessionId: ev.session_id || process.env.CLAUDE_CODE_SESSION_ID || null,
   toolName: ev.tool_name || null,
   source: ev.source || null,
+  error: ev.error || null,
+  lastAssistantMessage: typeof ev.last_assistant_message === "string" ? ev.last_assistant_message.slice(0, 500) : null,
 });
 
 // Sem destino válido, não faz nada e sai limpo.

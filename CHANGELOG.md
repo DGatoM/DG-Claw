@@ -16,6 +16,11 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
   `sudo dgclaw agente identidade <agente>`. O comando não mexe no `CLAUDE.md`, no `AGENT.md` nem na
   memória que você personalizou; só refaz o texto de plataforma. Agentes criados depois desta versão já
   nascem com a instrução, e o Admin recebe a dele sozinho na reinstalação.
+- **Reinicie os agentes depois de atualizar.** O aviso de login expirado depende de uma mudança no runner
+  (o processo que mantém cada agente vivo) e de um hook novo nas configurações que ele gera a cada subida.
+  Um agente que continua com o runner antigo segue mudo quando o login do Claude morre. Reiniciar o agente
+  (`sudo dgclaw agente reiniciar <agente>`, ou o botão "Reiniciar sessão" da conversa) já carrega as duas
+  coisas, e a conversa continua de onde estava.
 - **Recarregue o app no celular depois de atualizar.** A conversa ganhou um arquivo novo
   (`conversa-puro.js`); o app instalado busca a versão nova sozinho, mas se a conversa abrir com aviso
   de erro, feche e abra o app de novo.
@@ -37,6 +42,13 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 - `dgclaw atualizar` agora volta sozinho ao backup quando o `install.sh` da versão nova falha ou a conferência
   de configuração reprova, explicando o que deu errado, o que foi desfeito e o que fazer. Agente que não sobe
   nunca faz voltar (o conserto é `dgclaw agente recriar <slug> --forcar`). `--sem-voltar-sozinho` desliga.
+- Login do Claude que expira: quando a conta estava conectada e a credencial morre (token vencido e a renovação
+  falhou), o agente passa a mostrar isso na hora em vez de ficar mudo. A conversa abre na frente o aviso "Seu login
+  do Claude expirou", com os botões Reconectar conta, Reiniciar a sessão e Agora não. Depois do login o runner
+  reinicia a MESMA sessão sozinho (a conversa não é trocada por uma nova) e o agente recebe um recado para
+  responder o que ficou pendente. Enquanto o login está expirado, o envio de mensagem responde 409 com o código
+  `LOGIN_EXPIRADO`, o texto digitado fica no campo, e o estado do agente traz `statusReason "runner:login-expirado"`
+  e `loginExpiradoEm`. A foto de atividade ganhou o alerta `login_expirado`.
 - Botão "Reiniciar sessão" no menu da conversa: quando um agente trava, o dono confirma, o processo dele é
   refeito e a conversa continua de onde estava. Uma faixa no topo mostra "reiniciando", "de volta" ou o motivo
   da falha. Também existe como rota de API (`POST /api/v1/agents/<agente>/reiniciar`).

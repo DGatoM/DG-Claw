@@ -23,6 +23,7 @@ if (navigator.standalone === true ||
 <link rel="icon" href="/icons/icon-192.png">
 <link rel="stylesheet" href="/chat.css">
 <link rel="stylesheet" href="/conversa.css">
+<link rel="stylesheet" href="/login-expirado.css">
 <link rel="stylesheet" href="/onboarding.css">
 <link rel="stylesheet" href="/menu-lado.css">
 <link rel="stylesheet" href="/campo-cofre.css">
@@ -87,6 +88,18 @@ if (navigator.standalone === true ||
   <p id="dlgReinicioTxt">Isto reinicia o processo do agente quando ele travar. A conversa continua de onde estava.</p>
   <div class="dacoes"><button type="button" id="dlgReinicioNao">Cancelar</button><button type="button" class="perigo" id="dlgReinicioSim">Reiniciar</button></div>
 </dialog>
+<dialog id="dlgLoginExpirado" class="le" role="dialog" aria-modal="true" aria-labelledby="leTit" aria-describedby="leTxt">
+  <h2 id="leTit"></h2>
+  <p id="leTxt"></p>
+  <div id="leCartao"></div>
+  <p id="leErro" role="alert" hidden></p>
+  <p id="leEstado" role="status" aria-live="polite" hidden></p>
+  <div class="le-acoes">
+    <button type="button" id="lePrimario" class="le-primario"></button>
+    <button type="button" id="leSecundario" class="le-secundario"></button>
+    <button type="button" id="leAgoraNao" class="le-link"></button>
+  </div>
+</dialog>
 <div class="faixa" id="faixaErro"><span class="txt"></span>
   <button class="x" aria-label="Fechar aviso">✕</button></div>
 <div class="faixa" id="faixaAviso"><span class="txt"></span>
@@ -129,6 +142,7 @@ if (navigator.standalone === true ||
 </section>
 <script src="/midias-cache.js"></script>
 <script src="/login-cartao.js"></script>
+<script src="/login-expirado.js"></script>
 <script src="/trilha-tela.js"></script>
 <script src="/rolagem.js"></script>
 <script src="/conversa-puro.js"></script>

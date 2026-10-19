@@ -121,20 +121,20 @@ test("digitar e enviar: o Enter vira turno pelo recibo do hook, e a sessão volt
 });
 
 /** Sobe a sessão com o gatilho do Stop perdido num prazo curto; devolve o hook falso e um escritor de transcript. */
-async function novaComRedeCurta(prazoMs: number) {
+async function novaComRedeCurta(prazoMs: number, opcoes: Record<string, unknown> = {}) {
   logarClaude(amb);
-  const { s, pasta, hooks } = await nova({}, { quietoParaOlharTranscriptMs: prazoMs });
+  const { s, pasta, hooks, id } = await nova({}, { quietoParaOlharTranscriptMs: prazoMs, ...opcoes });
   await s.subir("nova");
   await esperarAte(() => s.estado.status === "idle", 8_000);
   const settings = JSON.parse(fs.readFileSync(path.join(pasta, "runner-hooks", `${s.id}.settings.json`), "utf8"));
   const nonce: string = settings.hooks.Stop[0].hooks[0].command.match(/--nonce ([0-9a-f]+)/)[1];
-  const hook = (event: string) => s.receberHook({ agentId: s.id, event, nonce });
+  const hook = (event: string, extra: Record<string, unknown> = {}) => s.receberHook({ agentId: s.id, event, nonce, ...extra });
   const arquivo = path.join(process.env.CLAUDE_CONFIG_DIR?.trim() || path.join(os.homedir(), ".claude"), "projects", "proj-teste", `${s.estado.sessionId}.jsonl`);
   fs.mkdirSync(path.dirname(arquivo), { recursive: true });
   /** Grava o transcript; `em` é o deslocamento em ms em relação a agora. */
   const transcript = (linhas: Array<[Record<string, unknown>, number]>) =>
     fs.writeFileSync(arquivo, linhas.map(([o, em]) => JSON.stringify({ ...o, timestamp: new Date(Date.now() + em).toISOString() })).join("\n") + "\n");
-  return { s, hooks, hook, transcript };
+  return { s, hooks, hook, transcript, id };
 }
 const FIM_DO_TURNO = { type: "system", subtype: "turn_duration" };
 
@@ -372,4 +372,135 @@ test("aviso do modo Bypass: com a chave no settings por spawn o fake não abre o
   } finally {
     delete process.env.FAKE_AVISO_BYPASS;
   }
+});
+
+// --- login expirado (caso real de 19/10/2026) --------------------------------------------------
+
+const ERRO_DE_LOGIN = {
+  type: "assistant",
+  isApiErrorMessage: true,
+  error: "authentication_failed",
+  message: { model: "<synthetic>", role: "assistant", content: [{ type: "text", text: "Login expired · Please run /login" }] },
+};
+/** Quantas subidas do CLI falso esta sessão já teve; uma linha do log pela metade (escrita agora) conta como "ainda não". */
+const subidasDe = (id: string) => {
+  try {
+    return entradasDe(id).length;
+  } catch {
+    return -1;
+  }
+};
+const recadosDeLogin = (): Array<Record<string, any>> => {
+  try {
+    return lerLinhasJson(amb.logDosClis).filter((l) => l.modo === "prompt" && String(l.texto).includes("login-reconectado"));
+  } catch {
+    return [];
+  }
+};
+const CREDENCIAL = () => path.join(amb.claudeDir, ".credentials.json");
+/** Põe a data da credencial `emMs` à frente de agora, como se o login tivesse sido refeito. */
+const renovarCredencial = (emMs = 5_000) => {
+  logarClaude(amb);
+  const t = new Date(Date.now() + emMs);
+  fs.utimesSync(CREDENCIAL(), t, t);
+};
+
+test("login expirado: StopFailure authentication_failed tira de working, vira errored/login-expirado e recusa turno", async () => {
+  const { s, hook } = await novaComRedeCurta(60_000);
+  hook("UserPromptSubmit");
+  assert.equal(s.estado.status, "working");
+  hook("StopFailure", { error: "authentication_failed", lastAssistantMessage: "Failed to authenticate: OAuth session expired and could not be refreshed" });
+  assert.equal(s.estado.status, "errored");
+  assert.equal(s.estado.statusReason, "runner:login-expirado");
+  assert.match(s.estado.loginExpiradoEm ?? "", /^\d{4}-\d\d-\d\dT/);
+  assert.match(s.estado.error ?? "", /expirou às \d\d:\d\d/);
+  assert.match(s.estado.error ?? "", /O que fazer/);
+  const recusa = s.recusaDeEntrada();
+  assert.equal(recusa?.tipo, "login-expirado");
+  assert.ok(lerTexto(amb.logDoRunner).includes("login expirado detectado por hook StopFailure"));
+  assert.equal(s.temPtyVivo(), true, "o terminal continua vivo para o /login");
+});
+
+test("StopFailure por outro motivo (rate_limit): sai de working para idle, sem login expirado", async () => {
+  const { s, hook } = await novaComRedeCurta(60_000);
+  hook("UserPromptSubmit");
+  hook("StopFailure", { error: "rate_limit", lastAssistantMessage: "Rate limit reached" });
+  assert.equal(s.estado.status, "idle");
+  assert.equal(s.estado.statusReason, "hook:StopFailure rate_limit");
+  assert.equal(s.recusaDeEntrada(), null);
+  assert.ok(lerTexto(amb.logDoRunner).includes("o turno terminou com erro da API (rate_limit"));
+});
+
+test("login expirado: o erro sintético no fim do transcript, com o terminal mudo, tem o mesmo efeito", async () => {
+  const { s, hook, transcript } = await novaComRedeCurta(600);
+  renovarCredencial(-60_000);
+  hook("UserPromptSubmit");
+  transcript([[{ type: "user", message: { role: "user", content: "oi" } }, 50], [ERRO_DE_LOGIN, 100]]);
+  await esperarAte(() => s.estado.statusReason === "runner:login-expirado", 5_000, "a rede de segurança achar o erro de login");
+  assert.equal(s.estado.status, "errored");
+});
+
+test("login expirado: com a credencial renovada DEPOIS do erro, a linha velha no transcript não derruba o agente", async () => {
+  const { s, hook, transcript } = await novaComRedeCurta(600);
+  hook("UserPromptSubmit");
+  transcript([[ERRO_DE_LOGIN, 100]]);
+  renovarCredencial(60_000);
+  await dormir(1_500);
+  assert.equal(s.estado.status, "working", "o erro é anterior à credencial: não conta (e este turno não tem turn_duration)");
+});
+
+test("login expirado: credencial mais nova que o erro reinicia RETOMANDO a mesma sessão e entrega UM recado", async () => {
+  logarClaude(amb);
+  const { s, hook, id } = await novaComRedeCurta(60_000, { vigiaLoginExpiradoMs: 100 });
+  const sessionId = s.estado.sessionId!;
+  hook("UserPromptSubmit");
+  hook("StopFailure", { error: "authentication_failed" });
+  assert.equal(s.estado.statusReason, "runner:login-expirado");
+  const spawnsAntes = entradasDe(id).length;
+  renovarCredencial();
+  await esperarAte(() => subidasDe(id) > spawnsAntes, 8_000, "o runner reiniciar sozinho");
+  await dormir(200);
+  const reinicio = entradasDe(id).at(-1)!;
+  assert.equal(reinicio.argv[reinicio.argv.indexOf("--resume") + 1], sessionId, "retomou a MESMA sessão");
+  assert.equal(reinicio.argv.includes("--session-id"), false, "não abriu sessão nova");
+  await esperarAte(() => s.estado.status === "idle", 8_000, "voltar a idle");
+  assert.equal(s.estado.loginExpiradoEm, null);
+  assert.equal(s.recusaDeEntrada(), null);
+  const recado = recadosDeLogin;
+  await esperarAte(() => recado().length === 1, 12_000, "o recado de login reconectado chegar ao CLI");
+  assert.match(recado()[0].texto, /expirou às \d\d:\d\d e voltou às \d\d:\d\d/);
+  await dormir(1_500);
+  assert.equal(recado().length, 1, "uma vez por incidente");
+});
+
+test("login expirado: aposLoginConcluido (login assistido) também retoma a mesma sessão", async () => {
+  logarClaude(amb);
+  const { s, hook, id } = await novaComRedeCurta(60_000);
+  const sessionId = s.estado.sessionId!;
+  hook("UserPromptSubmit");
+  hook("StopFailure", { error: "authentication_failed" });
+  const spawnsAntes = entradasDe(id).length;
+  renovarCredencial();
+  s.aposLoginConcluido();
+  await esperarAte(() => subidasDe(id) > spawnsAntes, 8_000, "o reinício depois do login");
+  await dormir(200);
+  const reinicio = entradasDe(id).at(-1)!;
+  assert.equal(reinicio.argv[reinicio.argv.indexOf("--resume") + 1], sessionId);
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  assert.equal(s.estado.sessionId, sessionId);
+});
+
+test("login expirado: reiniciar SEM renovar a credencial não conta recado e deixa o motivo no log", async () => {
+  logarClaude(amb);
+  const { s, hook } = await novaComRedeCurta(60_000);
+  const recados = () => recadosDeLogin().length;
+  const antes = recados();
+  hook("UserPromptSubmit");
+  hook("StopFailure", { error: "authentication_failed" });
+  s.parar("teste");
+  await s.subir("retomar");
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  assert.ok(lerTexto(amb.logDoRunner).includes("sem que a credencial tenha sido renovada"));
+  await dormir(1_000);
+  assert.equal(recados(), antes, "nenhum recado novo");
 });

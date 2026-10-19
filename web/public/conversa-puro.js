@@ -48,7 +48,7 @@
   /**
    * Reinício da sessão: decide a cada olhada se o agente voltou. Só conta retrato NOVO do servidor
    * (`foto.agora`, em segundos): maior que o `marco` do pedido e diferente do último já contado.
-   * Devolve { acao: 'esperar'|'voltou'|'sem_login', vivas, ultimoAgora, motivo? }.
+   * Devolve { acao: 'esperar'|'voltou'|'sem_login'|'login_expirado', vivas, ultimoAgora, motivo? }.
    * "Voltou" = 2 retratos novos seguidos com o agente fora de sem_sinal, stream aberto e 3 s passados.
    */
   function avaliaVolta({ marco, ultimoAgora, vivas, foto, agenteId, streamAberto, decorridoMs }) {
@@ -56,6 +56,12 @@
     if (!foto || typeof foto.agora !== 'number' || !(foto.agora > marco) || foto.agora === ultimoAgora) return parado;
     const est = foto.agentes ? foto.agentes[agenteId] : null;
     if (est && est.alerta === 'sem_login') return { acao: 'sem_login', vivas: 0, ultimoAgora: foto.agora, motivo: est.motivo || null };
+    // O login ainda (ou de novo) expirado. Nos primeiros 3 s um retrato com este alerta pode ser o do
+    // estado de ANTES do reinício, ainda em cache: espera, como espera a volta.
+    if (est && est.alerta === 'login_expirado') {
+      if (decorridoMs < 3000) return { acao: 'esperar', vivas: 0, ultimoAgora: foto.agora };
+      return { acao: 'login_expirado', vivas: 0, ultimoAgora: foto.agora, motivo: est.motivo || null };
+    }
     const n = est && est.estado !== 'sem_sinal' && streamAberto && decorridoMs >= 3000 ? (vivas || 0) + 1 : 0;
     return { acao: n >= 2 ? 'voltou' : 'esperar', vivas: n, ultimoAgora: foto.agora };
   }

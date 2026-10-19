@@ -300,6 +300,8 @@ export interface AgentState {
   hookActive?: boolean;
   /** Debug: what signal triggered the last status change */
   statusReason?: string;
+  /** ISO de quando o login da conta morreu (statusReason "runner:login-expirado"); null nos outros estados. */
+  loginExpiradoEm?: string | null;
   /** Transient: current phase of an in-progress automated handoff (botão 🤝). */
   handoffPhase?: string | null;
   /** Set when a handoff has spawned its successor — lets the UI open it. */

@@ -9,6 +9,7 @@ import { motorDe } from "../provedores/motores.js";
 import { montarCtx } from "./configuracao.js";
 import { RESUME_MORREU_CEDO_MS } from "./constantes.js";
 import { cancelarQuietoDeBoot, cancelarStopPendente } from "./eventos.js";
+import { conferirLoginExpiradoNoTranscript, encerrarIncidenteDeLogin } from "./login.js";
 import { aoReceberDados, descarregarMascara } from "./terminal.js";
 import { pararVigiaDoStopPerdido, vigiarRolloutDoCodex, vigiarStopPerdido } from "./vigias.js";
 
@@ -30,6 +31,7 @@ export async function subir(s: Sessao, modo: "retomar" | "nova"): Promise<"retom
     return s.modoDoUltimoSpawn ?? modo;
   }
   s.marcarAtividade();
+  encerrarIncidenteDeLogin(s);
 
   const { escolha, problemas, catalogo } = s.lerEscolha();
   for (const p of problemas) log.erro(s.a("escolha"), p.motivo, p.comoResolver);
@@ -227,11 +229,14 @@ export async function spawn(s: Sessao, ctx: CtxMotor, args: string[]): Promise<v
     if (s.estado.status !== "spawning" || s.proc !== esteProc) return;
     // Um agente sem credencial não está `idle`: ele está parado numa tela de
     // login. Dizer `idle` aqui foi o que fez o painel mentir por horas.
-    const semLogin = s.recusaDeEntrada();
+    const semLogin = s.recusaDoMotor();
     if (semLogin) {
       s.mudar({ status: "errored", error: semLogin.mensagem, statusReason: "runner:sem-login" });
       return;
     }
+    // A credencial existe, mas o fim do transcript pode já dizer que ela morreu (runner reiniciado
+    // com a conta expirada): idle aqui seria o mesmo silêncio que este incidente nasceu para acabar.
+    if (conferirLoginExpiradoNoTranscript(s, 0, "boot-timer")) return;
     s.mudar({ status: "idle", statusReason: "runner:boot-timer 8s" });
   }, 8_000).unref();
 }
@@ -250,7 +255,7 @@ export async function spawn(s: Sessao, ctx: CtxMotor, args: string[]): Promise<v
 export function esperarLogin(s: Sessao): void {
   if (s.esperandoLogin) return;
   s.esperandoLogin = setInterval(() => {
-    if (s.recusaDeEntrada()) return;
+    if (s.recusaDoMotor()) return;
     trocarPorSessaoLimpa(s);
   }, 60_000);
   // Não segura o processo de pé só por causa deste relógio.
