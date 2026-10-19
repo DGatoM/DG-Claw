@@ -26,6 +26,18 @@ de teste separada, conforme o [roteiro de QA](web/docs/QA-PRIMEIRO-AGENTE.md).
 
 ## Regras do projeto
 
+- **Segurança: toda mudança é feita, testada e revisada pelo Codex em modo adversarial antes do
+  merge.** O DG Claw roda na VPS de quem não é programador, com um Admin root; uma vulnerabilidade
+  expõe servidor, chaves e conversas de quem confiou no projeto. Todo PR (inclusive de documentação)
+  segue [docs/REVISAO-ADVERSARIAL.md](docs/REVISAO-ADVERSARIAL.md): teste verde e conferido de
+  verdade; revisão adversarial do Codex com foco em injeção, exposição de segredo, permissão, rota sem
+  autenticação, path traversal, execução de coisa baixada, XSS e dados sensíveis; cada ponto
+  corrigido ou recusado com justificativa e a revisão repetida até sair limpa; o corpo do PR registra
+  o que o Codex apontou e o que foi feito. **Merge só com o ok do dono do projeto**: nenhum agente
+  mergeia por conta própria.
+  *Por quê:* o projeto é mantido por quem não é programador, e a reputação dele depende de não ter
+  vulnerabilidade. Um segundo modelo, procurando ativamente como quebrar, acha o que o autor não vê.
+
 - **Atualizar nunca apaga configuração do usuário.** Rodar o `install.sh` de novo, atualizar a
   versão ou reconstruir a imagem tem que preservar tudo o que a pessoa já configurou: chaves
   (`GROQ_API_KEY`, `ELEVENLABS_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` e qualquer outra),

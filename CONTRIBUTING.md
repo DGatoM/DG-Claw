@@ -118,6 +118,22 @@ que você não quer expor.
    pull request.
 4. Descreva o que mudou e por quê. Se mexeu em tela do painel, diga como conferir (veja a regra
    abaixo).
+5. Espere a revisão adversarial de segurança (próxima seção). O merge só acontece com ela limpa e
+   com o ok de quem mantém o projeto.
+
+## Revisão adversarial de segurança (obrigatória)
+
+Todo pull request, inclusive os só de documentação, passa por uma revisão adversarial feita pelo
+Codex (o agente de código da OpenAI) antes do merge. Ele lê a mudança procurando como quebrá-la:
+injeção de comando ou de prompt, segredo em argumento, log ou resposta, permissão errada, rota sem
+autenticação, path traversal, execução de coisa baixada, XSS no painel e dado sensível no
+repositório. Cada ponto que ele aponta é corrigido ou recusado com justificativa escrita, e a revisão
+roda de novo até sair limpa. O resultado fica registrado no corpo do PR, na seção "Revisão
+adversarial (Codex)".
+
+Você não precisa ter o Codex: quem mantém roda a revisão e comenta no PR. Se tiver, o roteiro e o
+comando estão em [docs/REVISAO-ADVERSARIAL.md](docs/REVISAO-ADVERSARIAL.md), e rodar antes de abrir o
+PR acelera tudo.
 
 ## Regra do painel: nada nasce mudo
 
