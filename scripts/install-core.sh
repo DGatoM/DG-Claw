@@ -33,6 +33,7 @@ arg() { # arg <flag> <default> — busca <flag> no array global ARGS e ecoa o va
     echo "$def"
 }
 
+# sem argumentos o shift falha: CMD fica vazio e o case final mostra o uso
 CMD="${1:-}"; shift 2>/dev/null || true
 ARGS=("$@")
 
@@ -49,6 +50,7 @@ archetype_dirs() {
         [ -n "$ws" ] || [ "$d" = "$PLUGIN_SRC/templates/archetypes" ] || continue
         [ -d "$d" ] && echo "$d"
     done
+    # find/ls de pasta de extensao: se sumir no meio, o resultado vazio so significa "sem extensoes"
     if [ -n "$ws" ] && [ -d "$ws/.dgclaw/ext" ]; then
         while IFS= read -r e; do
             [ -d "$e/archetypes" ] && echo "$e/archetypes"
@@ -69,6 +71,7 @@ archetype_path() {
 manifest_get() {
     local f="$1" path="$2" def="${3:-}"
     [ -f "$f" ] || { echo "$def"; return; }
+    # manifest ilegivel ou sem o campo: devolve o padrao, que e o contrato desta funcao
     python3 - "$f" "$path" "$def" <<'PY' 2>/dev/null || echo "$def"
 import json, sys
 f, path, default = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -89,7 +92,10 @@ PY
 ws_chown() { # alinha ownership se o workspace e de usuario dedicado
     local ws="$1"; local owner
     owner=$(stat -c '%U' "$ws" 2>/dev/null || echo root)
-    [ "$owner" != "root" ] && chown -R "$owner":"$(stat -c '%G' "$ws")" "$ws/.dgclaw" 2>/dev/null || true
+    if [ "$owner" != "root" ]; then
+        chown -R "$owner":"$(stat -c '%G' "$ws")" "$ws/.dgclaw" \
+            || echo "  aviso: nao consegui passar $ws/.dgclaw para o usuario $owner; o agente pode nao conseguir gravar nela. Rode como root: chown -R $owner $ws/.dgclaw" >&2
+    fi
 }
 
 cmd_bootstrap() {
@@ -102,6 +108,7 @@ cmd_bootstrap() {
     # maquina. Isso precisa ficar EXPLICITO na config: VPS costuma nascer em UTC, e um
     # assistente que nao sabe o fuso do dono marca compromisso na hora errada.
     tz=$(arg --tz "")
+    # cada fonte de fuso e opcional (maquina sem systemd, sem /etc/timezone); no fim cai em UTC
     [ -n "$tz" ] || tz=$(timedatectl show -p Timezone --value 2>/dev/null || cat /etc/timezone 2>/dev/null || echo "UTC")
     [ -f "$dgcfg" ] || { echo "bootstrap: --dgclaw-config invalido: $dgcfg" >&2; exit 1; }
 
@@ -122,6 +129,7 @@ cmd_bootstrap() {
 
     # versao do plugin (carimba no agent.json) — lida do plugin.json pra nao drift-ar.
     local plugin_ver
+    # plugin.json ausente: usa a versao padrao logo abaixo
     plugin_ver=$(grep '"version"' "$PLUGIN_SRC/.claude-plugin/plugin.json" 2>/dev/null | head -1 | sed -E 's/.*"version"[: ]+"([^"]+)".*/\1/')
     [ -n "$plugin_ver" ] || plugin_ver="0.3.0"
 
@@ -143,11 +151,15 @@ cmd_bootstrap() {
     # hooks/ vai junto desde 05/10/2026: agente instalado a mao (sem o plugin habilitado no
     # Claude) pendura o hook do quadro de avisos pelo .claude/settings.json do workspace,
     # apontando pra esta copia (docs/QUADRO-DE-AVISOS.md).
-    cp -r "$PLUGIN_SRC/scripts" "$PLUGIN_SRC/skills" "$PLUGIN_SRC/templates" "$PLUGIN_SRC/powers" "$PLUGIN_SRC/docs" "$PLUGIN_SRC/hooks" "$newdir/" 2>/dev/null
+    if ! cp_err=$(cp -r "$PLUGIN_SRC/scripts" "$PLUGIN_SRC/skills" "$PLUGIN_SRC/templates" "$PLUGIN_SRC/powers" "$PLUGIN_SRC/docs" "$PLUGIN_SRC/hooks" "$newdir/" 2>&1); then
+        echo "  aviso: a copia do plugin para $newdir ficou incompleta (${cp_err:0:300}). Confira se $PLUGIN_SRC tem scripts, skills, templates, powers, docs e hooks, e rode o bootstrap de novo." >&2
+    fi
     # painel: leva o fonte sem node_modules (o install-panel-service.sh instala as deps depois).
     if [ -d "$PLUGIN_SRC/panel" ]; then
         mkdir -p "$newdir/panel"
-        ( cd "$PLUGIN_SRC/panel" && tar -cf - --exclude=node_modules . ) | ( cd "$newdir/panel" && tar -xf - ) 2>/dev/null
+        if ! tar_err=$( { ( cd "$PLUGIN_SRC/panel" && tar -cf - --exclude=node_modules . ) | ( cd "$newdir/panel" && tar -xf - ); } 2>&1 ); then
+            echo "  aviso: nao consegui copiar o painel de $PLUGIN_SRC/panel para $newdir/panel (${tar_err:0:300}). O painel pode nao subir; confira o espaco em disco e rode o bootstrap de novo." >&2
+        fi
     fi
     # Se ja havia uma copia como pasta de verdade (instalacao antiga), tira ela do caminho
     # antes de criar o atalho, senao o atalho iria parar dentro dela.
@@ -181,6 +193,7 @@ cmd_bootstrap() {
     # desligaria a mesa em silencio. A chave nunca aparece na tela: vai direto de um arquivo pro outro.
     local mesa_keep=""
     if [ -f "$AL/config.sh" ]; then
+        # sem as linhas da mesa (grep sem achados) a mesa simplesmente nao estava ligada
         mesa_keep=$(grep -E '^export DGCLAW_MESA_(URL|KEY)=' "$AL/config.sh" 2>/dev/null || true)
     fi
 
@@ -371,7 +384,10 @@ PY
     # preenchidos, pra o materialize-identity compor o AGENT.md. O wizard enriquece depois.
     subst "$T/LAWS.md.tmpl"             "$ws/LAWS.md"
     # LAWS.md sao leis imutaveis -> read-only (o proprio template pede chmod 444).
-    [ -f "$ws/LAWS.md" ] && chmod 444 "$ws/LAWS.md" 2>/dev/null || true
+    if [ -f "$ws/LAWS.md" ]; then
+        chmod 444 "$ws/LAWS.md" \
+            || echo "  aviso: nao consegui deixar $ws/LAWS.md somente leitura; as leis podem ser editadas. Rode: chmod 444 $ws/LAWS.md" >&2
+    fi
     subst "$T/CREATOR.md.tmpl"          "$ws/CREATOR.md"
 
     # Do perfil pronto, o nucleo instancia so o que e neutro: a etica de trabalho (ETHICS.md),
@@ -443,6 +459,7 @@ cmd_status() {
     echo "agent.json:  $([ -f "$AL/agent.json" ] && echo presente || echo AUSENTE)"
     echo "config.sh:   $([ -f "$AL/config.sh" ] && echo presente || echo AUSENTE)"
     echo "powers.json: $([ -f "$AL/powers.json" ] && echo presente || echo AUSENTE)"
+    # AGENT.md ausente so quer dizer "nao materializado" (o grep falha e cai em "nao")
     echo "AGENT.md materializado: $(head -1 "$ws/AGENT.md" 2>/dev/null | grep -q 'GERADO PELO DG CLAW' && echo sim || echo nao)"
     echo "backup AGENT: $([ -f "$ws/AGENT.md.bak" ] && echo presente || echo ausente)"
     local e n=0

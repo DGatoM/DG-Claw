@@ -133,7 +133,9 @@ if [ -n "${TELEGRAM_STATE_DIR:-}" ]; then
         echo "   (aviso: watchdog nao instalou — rode depois: install-channel-watchdog.sh \"$CONFIG\")" >&2
 else
     echo "==> sem Telegram nesta config: o watchdog do canal nao se aplica (a vigia e o watchdog da sessao)"
-    bash "$SCRIPT_DIR/install-channel-watchdog.sh" "$CONFIG" --off >/dev/null 2>&1 || true
+    if ! SAIDA_OFF="$(bash "$SCRIPT_DIR/install-channel-watchdog.sh" "$CONFIG" --off 2>&1)"; then
+        echo "   (aviso: nao consegui desligar o watchdog do canal: ${SAIDA_OFF:0:200}. Rode depois: install-channel-watchdog.sh \"$CONFIG\" --off)" >&2
+    fi
 fi
 
 echo "Status:  systemctl status dgclaw-${DGCLAW_SLUG}"

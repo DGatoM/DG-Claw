@@ -209,12 +209,14 @@ for t in "${NAMES[@]}"; do
 done
 
 echo "==> timers de vida instalados e ativos:"
+# So exibicao: se a listagem falhar, os timers ja foram habilitados acima.
 systemctl list-timers "dgclaw-${SLUG}-*" --no-pager 2>/dev/null | head -10 || true
 
 # Desativa a consolidacao simples do DG Claw, se existir (a reflexao do Alive ja consolida).
 if systemctl list-unit-files "dgclaw-${SLUG}-consolidate.timer" >/dev/null 2>&1; then
     if systemctl is-enabled --quiet "dgclaw-${SLUG}-consolidate.timer" 2>/dev/null; then
-        systemctl disable --now "dgclaw-${SLUG}-consolidate.timer" 2>/dev/null || true
+        systemctl disable --now "dgclaw-${SLUG}-consolidate.timer" \
+            || echo "aviso: nao consegui desativar dgclaw-${SLUG}-consolidate.timer; ele continua rodando junto com a reflexao. Rode: systemctl disable --now dgclaw-${SLUG}-consolidate.timer" >&2
         echo "==> consolidacao simples do DG Claw (dgclaw-${SLUG}-consolidate.timer) desativada"
         echo "    (a reflexao noturna do Alive assume a consolidacao, de forma mais rica)"
     fi

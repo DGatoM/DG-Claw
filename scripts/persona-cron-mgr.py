@@ -353,8 +353,9 @@ def backup_manifest(c):
     for old in backups[:max(0, excess)]:
         try:
             old.unlink()
-        except OSError:
-            pass
+        except OSError as e:
+            log_err(f"nao consegui apagar o backup antigo {old}: {e}. "
+                    "Apague o arquivo na mao para o limite de backups voltar a valer.")
     return dst
 
 

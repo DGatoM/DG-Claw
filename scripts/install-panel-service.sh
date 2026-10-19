@@ -97,6 +97,8 @@ gen_hex() {
 # systemd (systemctl show), que reflete o unit carregado de verdade; se o unit foi escrito
 # em disco mas nunca passou por daemon-reload (instalacao anterior interrompida no meio),
 # systemctl nao acha nada, ai cai pro grep direto no arquivo do unit.
+# Os dois `|| true` abaixo: grep sem resultado e o caso normal (variavel ainda nao definida
+# no unit), e quem chama trata valor vazio como "nao encontrei".
 unit_env() {
   local key="$1" val=""
   if [ -f "$UNIT_FILE" ]; then
@@ -120,7 +122,7 @@ if [ -f "$CONFIG_JSON" ]; then
       const c = JSON.parse(require("fs").readFileSync(process.argv[1], "utf-8"));
       if (c && typeof c.authSalt === "string" && c.authSalt) process.stdout.write(c.authSalt);
     } catch { /* config.json ausente ou invalido: trata como se nao existisse */ }
-  ' "$CONFIG_JSON" 2>/dev/null || true)"
+  ' "$CONFIG_JSON" 2>/dev/null || true)"  # node ausente ou erro: sem salto antigo, gera um novo
 fi
 
 EXISTING_PANEL_SECRET="$(unit_env DGCLAW_PANEL_PASSWORD)"
@@ -148,6 +150,8 @@ fi
 
 # Porta: pode vir preservada do unit, ou (numa instalacao NOVA) escolhida agora. Nunca
 # sobe em silencio por cima de outro processo que ja esteja ouvindo nela.
+# ss falhando (comando ausente) conta como porta livre; se houver conflito real, o start do
+# service logo abaixo falha e o systemd mostra o motivo.
 porta_ocupada() {
   [ -n "$(ss -ltn "sport = :$1" 2>/dev/null | tail -n +2)" ]
 }
@@ -363,7 +367,8 @@ echo "==> dependências instaladas"
 OLD_SVC="dgclaw-${SLUG}-panel.service"
 if systemctl list-unit-files "$OLD_SVC" >/dev/null 2>&1 && systemctl is-active --quiet "$OLD_SVC"; then
   echo "==> desativando painel antigo $OLD_SVC (rollback: systemctl enable --now $OLD_SVC)"
-  systemctl disable --now "$OLD_SVC" || true
+  systemctl disable --now "$OLD_SVC" \
+    || echo "aviso: nao consegui desativar o painel antigo $OLD_SVC; ele pode disputar a porta com o painel novo. Rode: systemctl disable --now $OLD_SVC" >&2
 fi
 
 # ── 7. Cria e sobe o service novo ────────────────────────────
@@ -399,7 +404,8 @@ UNIT
 chmod 600 "$UNIT_FILE"
 
 systemctl daemon-reload
-systemctl enable "$SVC" >/dev/null 2>&1 || true
+systemctl enable "$SVC" >/dev/null 2>&1 \
+  || echo "aviso: nao consegui habilitar $SVC; ele sobe agora mas nao volta sozinho apos reiniciar a maquina. Rode: systemctl enable $SVC" >&2
 # restart, nao "enable --now": com o service JA ativo, o --now nao faz nada, e o passo 3
 # acabou de trocar o codigo do painel embaixo de um processo que continua rodando o codigo
 # velho. Reinstalar pra ATUALIZAR e o caminho normal de quem ja tem o painel, e ate
@@ -410,6 +416,7 @@ systemctl restart "$SVC"
 echo "==> service $SVC ativo (reiniciado com o codigo recem-copiado)"
 
 # ── 8. Ecoa URL + senha (senha SO impressa quando foi criada agora) ──────────
+# hostname -I falha em maquina sem rede configurada; o IP so enfeita a mensagem final, com texto-padrao logo abaixo.
 IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 [ -n "$IP" ] || IP="<IP-DA-VPS>"
 if [ "$HOST_FINAL" = "127.0.0.1" ]; then

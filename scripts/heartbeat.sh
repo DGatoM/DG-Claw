@@ -34,13 +34,15 @@ export DGCLAW_OWNER DGCLAW_NAME
 SLUG="$DGCLAW_SLUG"
 PLUGIN="${DGCLAW_PLUGIN_ROOT:-$DGCLAW_WORKSPACE/.dgclaw/plugin}"
 LOG="$DGCLAW_WORKSPACE/.dgclaw/logs/heartbeat.log"
-mkdir -p "$(dirname "$LOG")" 2>/dev/null
+mkdir -p "$(dirname "$LOG")" 2>/dev/null \
+    || echo "aviso: nao consegui criar a pasta do log $(dirname "$LOG"); o batimento segue sem log. Confira a permissao do workspace." >&2
 WM="$DGCLAW_WORKSPACE/working-memory.md"
 cd "$DGCLAW_WORKSPACE" || exit 1
 
 # Pulso: registra ok/erro no ledger (rc final via trap EXIT). Degrada gracioso se a lib
 # nao existir. Sessao morta registra "erro" explicito e sai 2 (antes saia 0 e parecia "ok").
 # shellcheck disable=SC1091
+# lib ausente em instalacao antiga: o batimento roda igual, so sem registrar no ledger
 source "$PLUGIN/scripts/_lib/pulso-lib.sh" 2>/dev/null && pulso_auto heartbeat
 
 # --- 1. sempre: ganchos das extensoes + refresh do "Agora" (barato, sem Claude) ---
@@ -55,9 +57,12 @@ if [ -d "$EXT_DIR" ]; then
              timeout 20 bash "$hook" >>"$LOG" 2>&1; then
             echo "$(date '+%F %T') heartbeat: a extensao '$(basename "$ext")' falhou no gancho heartbeat.sh (veja as linhas acima). O batimento seguiu sem ela." >> "$LOG"
         fi
+    # a pasta pode sumir entre o teste -d e o find; sem extensoes, nao ha gancho a rodar
     done < <(find "$EXT_DIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
 fi
-python3 "$PLUGIN/scripts/build-working-memory.py" --agora-only >/dev/null 2>&1 || true
+if ! AGORA_SAIDA="$(python3 "$PLUGIN/scripts/build-working-memory.py" --agora-only 2>&1)"; then
+    echo "$(date '+%F %T') heartbeat: build-working-memory.py --agora-only falhou; o 'Agora' de $WM pode estar velho. Ultimas linhas: $(printf '%s' "$AGORA_SAIDA" | tail -3 | tr '\n' ' ')" >> "$LOG"
+fi
 
 # --- 1.5 a sessao do agente esta no ar? (barato) ---
 # Antes esta checagem ficava depois do "nada a fazer" e do sorteio, e na maioria dos batimentos

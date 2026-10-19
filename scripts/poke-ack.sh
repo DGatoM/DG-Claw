@@ -32,6 +32,7 @@ ACK_RC=$?
 case "$KEY" in
     reflection-*)
         REFLOG="$WS/.dgclaw/logs/reflection.log"
+        # se a pasta nao puder ser criada, a gravacao logo abaixo falha com a mensagem do proprio shell
         mkdir -p "$(dirname "$REFLOG")" 2>/dev/null
         if ! python3 "$SCRIPT_DIR/_lib/memoria_guarda.py" conferir --ws "$WS" >> "$REFLOG" 2>&1; then
             echo "[$(date '+%F %T')] poke-ack ($KEY): a conferencia do MEMORY.md saiu com codigo diferente de 0 (3 = restaurou a versao anterior; outro = nao consegui conferir). Detalhes nas linhas acima." >> "$REFLOG"

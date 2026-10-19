@@ -21,119 +21,23 @@
 // So builtins do node + Baileys + pino. Os testes injetam um Baileys falso em iniciar().
 
 import fs from 'node:fs';
-import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { criarEntrada } from './lib/entrada.mjs';
+import { criarEntregaRunner } from './lib/entrega-runner.mjs';
+import { criarEnvioArquivo } from './lib/envio-arquivo.mjs';
+import { criarLids } from './lib/lids.mjs';
+import { motivoNumeroInvalido, normalizar, numeroDeJid } from './lib/numeros.mjs';
+import { criarPedidos } from './lib/pedidos.mjs';
+import { criarPermitidos } from './lib/permitidos.mjs';
+import { subirSocketUnix } from './lib/servidor-unix.mjs';
+import { formatarCodigo, motivoErro } from './lib/util.mjs';
 
-const FUSO = 'America/Sao_Paulo';
-const LIMITE_MIDIA_ENTRADA = 25 * 1024 * 1024;
-const LIMITE_ARQUIVO_SAIDA = 64 * 1024 * 1024;
-const LIMITE_LINHA_SOCKET = 64 * 1024;
-const LIMITE_TEXTO = 32000;
-const GUARDAR_IDS = 500;
+// A API que os testes e os outros arquivos importam daqui.
+export { mesmoNumero, motivoNumeroInvalido, normalizar } from './lib/numeros.mjs';
+export { escaparCorpo } from './lib/util.mjs';
 
-// ---------------------------------------------------------------------------
-// Numeros
-// ---------------------------------------------------------------------------
-
-/**
- * Entrada humana para E.164 com "+". Aceita espaco, traco, parenteses e ponto. Sem "+" e
- * com 10 ou 11 digitos, e Brasil (prefixo 55). Fora de 10 a 15 digitos: null.
- * @param {unknown} entrada
- * @returns {string|null}
- */
-export function normalizar(entrada) {
-  if (typeof entrada !== 'string' && typeof entrada !== 'number') return null;
-  const bruto = String(entrada).trim();
-  if (!/^\+?[\d\s().-]+$/.test(bruto)) return null;
-  let d = bruto.replace(/\D/g, '');
-  if (!bruto.startsWith('+') && (d.length === 10 || d.length === 11)) d = '55' + d;
-  if (d.length < 10 || d.length > 15) return null;
-  return '+' + d;
-}
-
-/**
- * Por que a entrada nao serve, em portugues, para a mensagem de erro ao dono.
- * @param {unknown} entrada
- */
-export function motivoNumeroInvalido(entrada) {
-  return `o numero "${String(entrada).slice(0, 40)}" nao e valido: use o formato +5511987654321 ` +
-    '(DDD e numero; de 10 a 15 digitos no total)';
-}
-
-/**
- * Dois numeros sao o mesmo? Alem da igualdade, vale a equivalencia do nono digito do Brasil:
- * 55 + DDD + 9 + 8 digitos e 55 + DDD + os mesmos 8 digitos (contas antigas no WhatsApp).
- */
-export function mesmoNumero(a, b) {
-  const x = normalizar(a);
-  const y = normalizar(b);
-  if (!x || !y) return false;
-  if (x === y) return true;
-  const longo = x.length >= y.length ? x : y;
-  const curto = x.length >= y.length ? y : x;
-  // "+55" + DDD(2) + 9 + 8 = 14 caracteres; sem o 9 sao 13.
-  if (!/^\+55\d{11}$/.test(longo) || !/^\+55\d{10}$/.test(curto)) return false;
-  return longo.slice(3, 5) === curto.slice(3, 5) && longo[5] === '9' && longo.slice(6) === curto.slice(5);
-}
-
-/** "5511987654321:12@s.whatsapp.net" -> "+5511987654321"; outra coisa -> null. */
-function numeroDeJid(jid) {
-  if (typeof jid !== 'string') return null;
-  const m = /^(\d{8,20})(?::\d+)?@(s\.whatsapp\.net|c\.us)$/.exec(jid);
-  return m ? '+' + m[1] : null;
-}
-
-// ---------------------------------------------------------------------------
-// Pequenos utilitarios
-// ---------------------------------------------------------------------------
-
-/** Escapa o corpo para nenhum texto de fora fechar o envelope nem forjar um <dgchat>. */
-export function escaparCorpo(s) {
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-function horaLocal(data) {
-  return new Intl.DateTimeFormat('pt-BR', { timeZone: FUSO, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
-    .format(data);
-}
-
-function dataLocal(data) {
-  // en-CA formata como AAAA-MM-DD.
-  return new Intl.DateTimeFormat('en-CA', { timeZone: FUSO, year: 'numeric', month: '2-digit', day: '2-digit' })
-    .format(data);
-}
-
-function numeroDe(x) {
-  if (x == null) return NaN;
-  if (typeof x === 'object') return Number(x.toString());
-  return Number(x);
-}
-
-function formatarCodigo(bruto) {
-  const c = String(bruto).replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-  return c.length === 8 ? `${c.slice(0, 4)}-${c.slice(4)}` : c;
-}
-
-function motivoErro(e) {
-  return e && e.message ? String(e.message) : String(e);
-}
-
-const EXT_POR_MIME = {
-  'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp',
-  'audio/ogg': 'ogg', 'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'video/mp4': 'mp4',
-  'application/pdf': 'pdf',
-};
-
-function extensaoDe(mimetype, nomeArquivo) {
-  const doNome = nomeArquivo ? path.extname(String(nomeArquivo)).slice(1) : '';
-  if (/^[A-Za-z0-9]{1,8}$/.test(doNome)) return doNome.toLowerCase();
-  const mime = String(mimetype || '').split(';')[0].trim().toLowerCase();
-  if (EXT_POR_MIME[mime]) return EXT_POR_MIME[mime];
-  const sub = mime.split('/')[1] || '';
-  return /^[a-z0-9]{1,5}$/.test(sub) ? sub : 'bin';
-}
 
 // ---------------------------------------------------------------------------
 // A ponte
@@ -361,586 +265,48 @@ export async function iniciar(opcoes = {}) {
     }
   }
 
-  // ===========================================================================
-  // Mapa LID -> numero (lids.json). O WhatsApp pode entregar o remetente como "123@lid" e nem
-  // sempre manda o numero junto; sem este mapa o dono permitido seria recusado como oculto.
-  // ===========================================================================
-  const arqLids = path.join(dir, 'lids.json');
-  const lids = new Map();
-  try {
-    const j = JSON.parse(fs.readFileSync(arqLids, 'utf8'));
-    for (const [lid, n] of Object.entries((j && j.lids) || {})) {
-      const norm = normalizar(n);
-      if (/@lid$/.test(lid) && norm) lids.set(lid, norm);
-    }
-  } catch (e) {
-    if (e.code !== 'ENOENT') registrar(`o ${arqLids} esta ilegivel (${motivoErro(e)}); o mapa de LID recomeca vazio e se refaz sozinho.`);
-  }
-
-  function aprenderLid(lid, numero) {
-    const norm = normalizar(numero);
-    if (typeof lid !== 'string' || !lid.endsWith('@lid') || !norm) return;
-    if (lids.get(lid) === norm) return;
-    lids.delete(lid);
-    lids.set(lid, norm);
-    if (lids.size > 5000) lids.delete(lids.keys().next().value);
-    try {
-      gravarAtomico(arqLids, JSON.stringify({ versao: 1, lids: Object.fromEntries(lids) }) + '\n');
-    } catch (e) {
-      registrar(`nao consegui gravar ${arqLids}: ${motivoErro(e)}. O mapa vale so ate a ponte reiniciar.`);
-    }
-  }
-
-  let sincronizandoLids = false;
-  let sincronizarDeNovo = false;
-  /** Pergunta ao WhatsApp o LID de cada numero da lista de permitidos. Falha vira linha de log. */
-  async function sincronizarLids() {
-    const sock = sockAtual;
-    if (!sock || !conectado) return;
-    if (sincronizandoLids) { sincronizarDeNovo = true; return; }
-    sincronizandoLids = true;
-    try {
-      do {
-        sincronizarDeNovo = false;
-        for (const numero of lerPermitidos()) {
-          try {
-            const r = await sock.onWhatsApp(numero.slice(1));
-            const achado = Array.isArray(r) ? r.find((x) => x && x.exists !== false && x.lid) : null;
-            if (achado) aprenderLid(String(achado.lid).includes('@') ? String(achado.lid) : `${achado.lid}@lid`, numero);
-          } catch (e) {
-            registrar(`nao consegui perguntar ao WhatsApp o LID de ${numero}: ${motivoErro(e)}. Se ele escrever e for recusado como numero oculto, mande a mensagem de novo depois de a ponte reconectar.`);
-          }
-        }
-      } while (sincronizarDeNovo && !encerrando);
-    } finally {
-      sincronizandoLids = false;
-    }
-  }
-
-  function agendarSincronizacaoLids() {
-    const p = sincronizarLids()
-      .catch((e) => registrar(`erro ao sincronizar os LID: ${motivoErro(e)}`))
-      .finally(() => pendentes.delete(p));
-    pendentes.add(p);
-  }
 
   // ===========================================================================
-  // Lista de permitidos (relida quando o mtime muda)
+  // Pecas da ponte (lib/): cada uma recebe so o que usa
   // ===========================================================================
-  let listaCache = { chave: null, numeros: [] };
-
-  function lerPermitidos() {
-    let st;
-    try {
-      st = fs.statSync(arqPermitidos);
-    } catch (e) {
-      const chave = 'ausente:' + e.code;
-      if (listaCache.chave !== chave) {
-        listaCache = { chave, numeros: [] };
-        registrar(`a lista de permitidos nao pode ser lida (${arqPermitidos}: ${motivoErro(e)}); ninguem pode falar com o agente. Rode "dgclaw-agente canal whatsapp permitir <numero>".`);
-      }
-      return listaCache.numeros;
-    }
-    const chave = `${st.mtimeMs}:${st.size}:${st.ino}`;
-    if (listaCache.chave === chave) return listaCache.numeros;
-    let numeros = [];
-    try {
-      const j = JSON.parse(fs.readFileSync(arqPermitidos, 'utf8'));
-      if (!j || !Array.isArray(j.numeros)) throw new Error('faltou o campo "numeros" (esperado {"versao":1,"numeros":["+5511987654321"]})');
-      const invalidos = [];
-      for (const n of j.numeros) {
-        const norm = normalizar(n);
-        if (norm) numeros.push(norm); else invalidos.push(String(n).slice(0, 30));
-      }
-      if (invalidos.length) {
-        registrar(`a lista de permitidos (${arqPermitidos}) tem ${invalidos.length} numero(s) invalido(s) que foram ignorados. Rode "dgclaw-agente canal whatsapp remover <numero>" e permita de novo no formato +5511987654321.`);
-      }
-    } catch (e) {
-      numeros = [];
-      registrar(`a lista de permitidos esta ilegivel (${arqPermitidos}: ${motivoErro(e)}); ninguem pode falar com o agente. Rode "dgclaw-agente canal whatsapp permitir <numero>" para refazer.`);
-    }
-    const mudou = listaCache.chave !== null;
-    listaCache = { chave, numeros };
-    // Lista nova com a ponte conectada: confere de novo o LID de cada numero.
-    if (mudou && conectado && sockAtual) agendarSincronizacaoLids();
-    return numeros;
-  }
-
-  const estaPermitido = (numero) => lerPermitidos().some((p) => mesmoNumero(p, numero));
-
-  // ===========================================================================
-  // Entrada: WhatsApp -> agente
-  // ===========================================================================
-  const idsVistos = new Set();
   const pendentes = new Set();
-
-  const recusasRecentes = new Map();
-  const intervaloRecusa = opcoes.intervaloRecusaMs ?? 600000;
-  function deveLogarRecusa(chave) {
-    const t = agora().getTime();
-    const ultima = recusasRecentes.get(chave);
-    if (ultima !== undefined && t - ultima < intervaloRecusa) return false;
-    recusasRecentes.delete(chave);
-    recusasRecentes.set(chave, t);
-    if (recusasRecentes.size > 1000) recusasRecentes.delete(recusasRecentes.keys().next().value);
-    return true;
-  }
-
-  function jaVisto(id) {
-    if (!id) return false;
-    if (idsVistos.has(id)) return true;
-    idsVistos.add(id);
-    if (idsVistos.size > GUARDAR_IDS) idsVistos.delete(idsVistos.values().next().value);
-    return false;
-  }
-
-  function desembrulhar(m) {
-    let atual = m;
-    for (let i = 0; i < 4 && atual; i++) {
-      const dentro = atual.ephemeralMessage?.message || atual.viewOnceMessage?.message ||
-        atual.viewOnceMessageV2?.message || atual.viewOnceMessageV2Extension?.message ||
-        atual.documentWithCaptionMessage?.message || atual.editedMessage?.message;
-      if (!dentro) break;
-      atual = dentro;
-    }
-    return atual;
-  }
-
-  function remetente(key) {
-    const jid = key.remoteJid;
-    if (typeof jid !== 'string') return null;
-    if (jid.endsWith('@lid')) {
-      // Em LID o numero de verdade pode vir em outro campo (e entao aprendemos o par), ou estar no
-      // mapa que a ponte foi guardando. Sem nenhum dos dois, nao ha como conferir a lista.
-      const pn = numeroDeJid(key.senderPn) || numeroDeJid(key.participantPn) || numeroDeJid(key.remoteJidAlt);
-      if (pn) { aprenderLid(jid, pn); return pn; }
-      return lids.get(jid) || null;
-    }
-    return numeroDeJid(jid);
-  }
-
-  const ROTULO_MIDIA = { imageMessage: 'imagem', audioMessage: 'áudio', videoMessage: 'vídeo', documentMessage: 'documento' };
-
-  async function montarCorpo(msg, conteudo, tipo, id) {
-    if (tipo === 'conversation') return String(conteudo.conversation);
-    if (tipo === 'extendedTextMessage') return String(conteudo.extendedTextMessage.text || '');
-    if (ROTULO_MIDIA[tipo]) {
-      const m = conteudo[tipo];
-      const rotulo = ROTULO_MIDIA[tipo];
-      const legenda = m.caption ? String(m.caption) : '';
-      const tamanho = numeroDe(m.fileLength);
-      let marca;
-      if (Number.isFinite(tamanho) && tamanho > LIMITE_MIDIA_ENTRADA) {
-        marca = `[${rotulo} acima de 25 MB, que a ponte não baixa]`;
-      } else {
-        try {
-          const buf = await downloadMediaMessage(msg, 'buffer', {});
-          if (buf.length > LIMITE_MIDIA_ENTRADA) {
-            marca = `[${rotulo} acima de 25 MB, que a ponte não guarda]`;
-          } else {
-            const pasta = path.join(dirUploads, dataLocal(agora()));
-            fs.mkdirSync(pasta, { recursive: true, mode: 0o700 });
-            const arq = path.join(pasta, `${id}.${extensaoDe(m.mimetype, m.fileName)}`);
-            fs.writeFileSync(arq, buf, { mode: 0o600 });
-            fs.chmodSync(arq, 0o600);
-            marca = `[${rotulo} salvo em ${arq}]`;
-          }
-        } catch (e) {
-          registrar(`nao consegui baixar a midia ${id} (${rotulo}): ${motivoErro(e)}. A mensagem segue sem o arquivo.`);
-          marca = `[${rotulo} que a ponte não conseguiu baixar]`;
-        }
-      }
-      return legenda ? `${marca}\n${legenda}` : marca;
-    }
-    return `[mensagem do tipo ${tipo}, que a ponte ainda não lê]`;
-  }
-
-  async function lerTokenEAgente() {
-    let token;
-    try {
-      token = fs.readFileSync(tokenFile, 'utf8').trim();
-    } catch (e) {
-      throw new Error(`nao consegui ler o token do runner em ${tokenFile} (${motivoErro(e)}); confira se o agente esta ligado`);
-    }
-    if (!token) throw new Error(`o arquivo de token ${tokenFile} esta vazio; reinicie o agente`);
-    let id = opcoes.agenteId || env.DGCLAW_AGENTE_ID;
-    if (!id) {
-      try {
-        id = JSON.parse(fs.readFileSync(runnerJson, 'utf8')).id;
-      } catch (e) {
-        throw new Error(`nao achei o id do agente: DGCLAW_AGENTE_ID nao esta definido e ${runnerJson} nao pôde ser lido (${motivoErro(e)})`);
-      }
-    }
-    if (!id) throw new Error(`o campo "id" falta em ${runnerJson}`);
-    return { token, id };
-  }
-
-  /** Um POST ao runner. Devolve { ok, definitivo, motivo }. Nunca loga corpo nem token. */
-  async function postar(envelope) {
-    let credenciais;
-    try {
-      credenciais = await lerTokenEAgente();
-    } catch (e) {
-      return { ok: false, definitivo: false, motivo: motivoErro(e) };
-    }
-    try {
-      const r = await fetch(`${runnerUrl}/api/agents/${encodeURIComponent(credenciais.id)}/input`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${credenciais.token}` },
-        body: JSON.stringify({ text: envelope, submit: true, injectWhenIdle: true }),
-        signal: AbortSignal.timeout(15000),
-      });
-      await r.arrayBuffer().catch(() => {});
-      if (r.status >= 200 && r.status < 300) return { ok: true };
-      if (r.status === 409) {
-        return { ok: false, definitivo: true, status: 409, motivo: 'o runner respondeu 409: o agente esta sem login ou sem chave. Abra o painel do DG Claw e entre com a assinatura' };
-      }
-      if (r.status >= 500) return { ok: false, definitivo: false, motivo: `o runner respondeu ${r.status}` };
-      return { ok: false, definitivo: true, status: r.status, motivo: `o runner recusou com ${r.status}` };
-    } catch (e) {
-      return { ok: false, definitivo: false, motivo: `nao consegui falar com o runner em ${runnerUrl} (${motivoErro(e)})` };
-    }
-  }
-
-  async function entregar(envelope) {
-    let ultimo = null;
-    for (let i = 0; i <= esperasEntrega.length; i++) {
-      ultimo = await postar(envelope);
-      if (ultimo.ok || ultimo.definitivo || encerrando) return ultimo;
-      if (i < esperasEntrega.length) await dormir(esperasEntrega[i]);
-    }
-    return ultimo;
-  }
-
-  async function processarMensagem(sock, msg) {
-    const key = msg && msg.key;
-    if (!key || key.fromMe) return;
-    const jid = key.remoteJid;
-    if (typeof jid !== 'string') return;
-    if (jid.endsWith('@g.us') || jid.endsWith('@broadcast') || jid.endsWith('@newsletter')) return;
-    if (!msg.message) return;
-    const conteudo = desembrulhar(msg.message);
-    if (!conteudo) return;
-    const tipo = Object.keys(conteudo).find((k) => k !== 'messageContextInfo' && k !== 'senderKeyDistributionMessage');
-    if (!tipo || tipo === 'reactionMessage' || tipo === 'protocolMessage') return;
-    const numero = remetente(key);
-    if (!numero || !estaPermitido(numero)) {
-      // No maximo uma linha por numero a cada 10 minutos: um desconhecido insistente nao
-      // enche o log. O id dele tambem nao entra no Set de ids vistos (so aceitos entram).
-      if (deveLogarRecusa(numero || 'oculto')) {
-        const hora = horaLocal(agora());
-        registrar(numero ? `recusado ${numero} às ${hora}` : `recusado (número oculto) às ${hora}`);
-      }
-      return;
-    }
-    if (jaVisto(key.id)) return;
-
-    const id = String(key.id || '').replace(/[^A-Za-z0-9_-]/g, '') || 'sem-id';
-    const corpo = await montarCorpo(msg, conteudo, tipo, id);
-    const seg = numeroDe(msg.messageTimestamp);
-    const quando = Number.isFinite(seg) && seg > 0 ? new Date(seg * 1000) : agora();
-    const envelope = `<canal-externo origem="whatsapp" de="${numero}" msg="${id}" ts="${quando.toISOString()}">${escaparCorpo(corpo)}</canal-externo>`;
-
-    const r = await entregar(envelope);
-    if (!r.ok) {
-      registrar(`nao entreguei a mensagem ${id} de ${numero} ao agente: ${r.motivo}`);
-      const aviso = r.status === 409
-        ? 'Sua mensagem não chegou ao agente: ele está sem login ou sem chave. Avise o dono para abrir o painel do DG Claw.'
-        : 'Sua mensagem não chegou ao agente agora. Tente de novo daqui a pouco.';
-      try {
-        await sock.sendMessage(jid, { text: aviso });
-      } catch (e) {
-        registrar(`nao consegui avisar ${numero} que a mensagem ${id} falhou: ${motivoErro(e)}`);
-      }
-      return;
-    }
-    try {
-      gravarAtomico(arqUltimo, JSON.stringify({ numero, ts: agora().toISOString() }) + '\n');
-    } catch (e) {
-      registrar(`nao consegui gravar ${arqUltimo}: ${motivoErro(e)}. Respostas sem destino explicito podem falhar.`);
-    }
-    try {
-      await sock.readMessages([key]);
-    } catch (e) {
-      registrar(`nao consegui marcar a mensagem ${id} como lida: ${motivoErro(e)}`);
-    }
-  }
-
-  function aoReceber(sock, { messages, type }) {
-    if (type !== 'notify' || !Array.isArray(messages)) return;
-    for (const msg of messages) {
-      const p = processarMensagem(sock, msg)
-        .catch((e) => registrar(`erro ao tratar uma mensagem recebida: ${motivoErro(e)}`))
-        .finally(() => pendentes.delete(p));
-      pendentes.add(p);
-    }
-  }
-
-  // ===========================================================================
-  // Saida: agente -> WhatsApp (socket unix)
-  // ===========================================================================
   let conectado = false;
-  const jids = new Map();
 
-  function falha(codigo, erro) { return { ok: false, codigo, erro }; }
-
-  // Sem "para", so ha destino padrao quando a lista tem exatamente um numero. Com dois ou mais,
-  // "quem mandou a ultima mensagem" seria um palpite: uma resposta ao dono podia sair para outra
-  // pessoa liberada. O agente passa sempre o "para" do envelope que esta respondendo.
-  function destinoPadrao() {
-    const lista = lerPermitidos();
-    return lista.length === 1 ? lista[0] : null;
-  }
-
-  // Lista de PERMITIDAS, nao de proibidas: o arquivo tem que estar na casa do agente e nenhum
-  // pedaco do caminho, a partir da raiz, pode comecar com ponto. Isso barra ~/.dgclaw, ~/.claude,
-  // ~/.codex, ~/.ssh, ~/.config e qualquer segredo futuro sem precisar lembrar de cada um.
-  // So a casa e raiz: nada de pasta em /tmp, que qualquer processo poderia trocar por um atalho.
-  // A raiz tem que ser ela mesma (realpath igual ao caminho); raiz que e atalho e recusada.
+  const { lerPermitidos, estaPermitido } = criarPermitidos({
+    arqPermitidos,
+    registrar,
+    // Lista nova com a ponte conectada: confere de novo o LID de cada numero.
+    aoMudarLista: () => { if (conectado && sockAtual) agendarSincronizacaoLids(); },
+  });
+  const { lids, aprenderLid, agendarSincronizacaoLids } = criarLids({
+    dir,
+    registrar,
+    gravarAtomico,
+    lerPermitidos,
+    obterSocketConectado: () => (conectado ? sockAtual : null),
+    estaEncerrando: () => encerrando,
+    pendentes,
+  });
+  const { entregar } = criarEntregaRunner({
+    opcoes, env, runnerUrl, tokenFile, runnerJson, esperasEntrega, dormir, estaEncerrando: () => encerrando,
+  });
+  const { aoReceber } = criarEntrada({
+    opcoes, registrar, agora, lids, aprenderLid, estaPermitido, entregar, gravarAtomico,
+    arqUltimo, dirUploads, downloadMediaMessage, pendentes,
+  });
   const raizesArquivo = opcoes.raizesArquivo || [home];
-
-  function dentroDeRaizPermitida(alvo) {
-    return raizesArquivo.some((r) => {
-      const rel = path.relative(path.resolve(r), alvo);
-      if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return false;
-      return !rel.split(path.sep).some((parte) => parte.startsWith('.'));
-    });
-  }
-
-  /**
-   * Valida e ABRE o arquivo uma vez so. Devolve { fd, tamanho } (quem chama fecha o fd) ou
-   * { erro }. Depois da abertura tudo o que se confere e se le vem do fd, nunca do caminho:
-   * trocar o arquivo por um atalho entre a conferencia e a leitura nao muda nada.
-   */
-  function validarArquivo(caminho) {
-    const ondeFica = 'copie o arquivo para uma pasta da sua casa que nao comece com ponto, como ~/saida/, e envie de la';
-    const recusa = (msg) => ({ erro: falha('ARQUIVO', msg) });
-    if (typeof caminho !== 'string' || !path.isAbsolute(caminho)) {
-      return recusa(`o caminho "${String(caminho).slice(0, 80)}" nao e absoluto; informe o caminho completo, como ${home}/saida/relatorio.pdf`);
-    }
-    for (const r of raizesArquivo) {
-      let real;
-      try { real = fs.realpathSync(r); } catch { continue; }
-      if (real !== path.resolve(r)) {
-        return recusa(`a pasta liberada ${r} e um atalho para ${real}; por seguranca nada sai por ela. Avise o dono para conferir quem criou esse atalho`);
-      }
-    }
-    const pedido = path.resolve(caminho);
-    let lst;
-    let real;
-    try {
-      lst = fs.lstatSync(pedido);
-      real = fs.realpathSync(pedido);
-    } catch (e) {
-      return recusa(`nao achei o arquivo ${caminho} (${e.code || motivoErro(e)}); confira o caminho`);
-    }
-    if (!dentroDeRaizPermitida(pedido) || !dentroDeRaizPermitida(real)) {
-      return recusa(`${caminho} fica fora das pastas liberadas para envio (a sua casa, sem pastas que comecem com ponto); ${ondeFica}`);
-    }
-    if (!lst.isFile()) {
-      return recusa(`${caminho} nao e um arquivo comum (e pasta, atalho, fila ou dispositivo); envie o arquivo em si`);
-    }
-    let fd = null;
-    try {
-      // O_NOFOLLOW: se alguem trocou o arquivo por um atalho agora, a abertura falha.
-      fd = fs.openSync(real, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
-      const st = fs.fstatSync(fd);
-      if (!st.isFile()) return recusa(`${caminho} nao e um arquivo comum; envie o arquivo em si`);
-      if (st.dev !== lst.dev || st.ino !== lst.ino) {
-        return recusa(`${caminho} mudou enquanto era conferido; tente de novo`);
-      }
-      if (st.nlink > 1) {
-        return recusa(`${caminho}: o arquivo tem mais de um nome no disco; copie para ~/saida/ com cp e mande a copia`);
-      }
-      if (st.size > LIMITE_ARQUIVO_SAIDA) {
-        return recusa(`${caminho} tem ${Math.round(st.size / 1048576)} MB e o limite e 64 MB; envie uma versao menor`);
-      }
-      // Onde o fd aponta de verdade agora (o kernel responde, nao o nome).
-      const doFd = fs.realpathSync(`/proc/self/fd/${fd}`);
-      if (!dentroDeRaizPermitida(doFd)) {
-        return recusa(`${caminho} aponta para fora das pastas liberadas; ${ondeFica}`);
-      }
-      const aberto = fd;
-      fd = null;
-      return { fd: aberto, tamanho: st.size };
-    } catch (e) {
-      return recusa(`nao consegui abrir ${caminho} com seguranca (${e.code || motivoErro(e)}); confira se e um arquivo comum da sua casa`);
-    } finally {
-      if (fd !== null) fs.closeSync(fd);
-    }
-  }
-
-  async function resolverJid(sock, numero) {
-    const chave = numero.replace(/\D/g, '');
-    if (jids.has(chave)) return jids.get(chave);
-    const r = await sock.onWhatsApp(chave);
-    const achado = Array.isArray(r) ? r.find((x) => x && x.exists !== false && x.jid) : null;
-    if (!achado) return null;
-    jids.set(chave, achado.jid);
-    return achado.jid;
-  }
-
-  const MIME_AUDIO = { ogg: 'audio/ogg; codecs=opus', opus: 'audio/ogg; codecs=opus', mp3: 'audio/mpeg', m4a: 'audio/mp4' };
-  const MIME_DOC = { pdf: 'application/pdf', txt: 'text/plain', csv: 'text/csv', zip: 'application/zip' };
-
-  function montarEnvioArquivo(fd, nomeOriginal, legenda) {
-    const buf = fs.readFileSync(fd);
-    const ext = path.extname(nomeOriginal).slice(1).toLowerCase();
-    const cap = legenda ? { caption: legenda } : {};
-    if (['jpg', 'jpeg', 'png', 'webp'].includes(ext)) return { image: buf, ...cap };
-    if (MIME_AUDIO[ext]) return { audio: buf, mimetype: MIME_AUDIO[ext] };
-    if (ext === 'mp4') return { video: buf, ...cap };
-    return { document: buf, mimetype: MIME_DOC[ext] || 'application/octet-stream', fileName: path.basename(nomeOriginal), ...cap };
-  }
-
-  async function tratarPedido(linha) {
-    let p;
-    try {
-      p = JSON.parse(linha);
-    } catch (e) {
-      return falha('PEDIDO_INVALIDO', `a linha nao e JSON valido (${motivoErro(e)}); mande uma linha como {"acao":"enviar","texto":"..."}`);
-    }
-    if (!p || typeof p !== 'object' || Array.isArray(p)) return falha('PEDIDO_INVALIDO', 'o pedido tem que ser um objeto JSON');
-    if (p.acao !== 'enviar' && p.acao !== 'arquivo') {
-      return falha('PEDIDO_INVALIDO', `acao "${String(p.acao).slice(0, 30)}" desconhecida; use "enviar" ou "arquivo"`);
-    }
-    if (p.acao === 'enviar') {
-      if (typeof p.texto !== 'string' || !p.texto.trim()) return falha('PEDIDO_INVALIDO', 'o texto esta vazio; escreva a mensagem');
-      if (p.texto.length > LIMITE_TEXTO) return falha('PEDIDO_INVALIDO', `o texto tem ${p.texto.length} caracteres e o limite e ${LIMITE_TEXTO}; divida em mensagens menores`);
-    } else {
-      if (typeof p.caminho !== 'string' || !p.caminho) return falha('PEDIDO_INVALIDO', 'falta o campo "caminho" (caminho absoluto do arquivo)');
-      if (p.legenda != null && typeof p.legenda !== 'string') return falha('PEDIDO_INVALIDO', 'a legenda tem que ser texto');
-    }
-
-    let numero;
-    if (p.para != null && p.para !== '') {
-      numero = normalizar(p.para);
-      if (!numero) return falha('PEDIDO_INVALIDO', motivoNumeroInvalido(p.para));
-      if (!estaPermitido(numero)) {
-        return falha('FORA_DA_LISTA', `${numero} nao esta na lista de permitidos; so o dono pode liberar, com "dgclaw-agente canal whatsapp permitir ${numero}"`);
-      }
-    } else {
-      numero = destinoPadrao();
-      if (!numero) {
-        const n = lerPermitidos().length;
-        return falha('SEM_DESTINO', n === 0
-          ? 'a lista de permitidos esta vazia; o dono libera um numero com "dgclaw-agente canal whatsapp permitir <numero>"'
-          : 'ha mais de um numero na lista; passe em "para" o numero do atributo "de" do envelope que voce esta respondendo');
-      }
-    }
-
-    let arq = null;
-    if (p.acao === 'arquivo') {
-      arq = validarArquivo(p.caminho);
-      if (arq.erro) return arq.erro;
-    }
-    // O fd fecha em qualquer saida daqui para baixo (erro, DESCONECTADO, sucesso).
-    try {
-      const sock = sockAtual;
-      if (!conectado || !sock) {
-        return falha('DESCONECTADO', 'a ponte nao esta conectada ao WhatsApp agora (reconectando ou deslogada); tente de novo em instantes ou confira "dgclaw-agente canal status"');
-      }
-
-      let jid;
-      try {
-        jid = await resolverJid(sock, numero);
-      } catch (e) {
-        return falha('FALHA_ENVIO', `nao consegui perguntar ao WhatsApp se ${numero} tem conta (${motivoErro(e)}); tente de novo`);
-      }
-      if (!jid) return falha('SEM_WHATSAPP', `${numero} nao tem conta no WhatsApp; confira o numero`);
-
-      try {
-        const conteudo = p.acao === 'enviar'
-          ? { text: p.texto }
-          : montarEnvioArquivo(arq.fd, p.caminho, p.legenda);
-        const r = await sock.sendMessage(jid, conteudo);
-        return { ok: true, para: numero, id: (r && r.key && r.key.id) || null };
-      } catch (e) {
-        return falha('FALHA_ENVIO', `o WhatsApp recusou o envio para ${numero} (${motivoErro(e)}); tente de novo`);
-      }
-    } finally {
-      if (arq && arq.fd != null) fs.closeSync(arq.fd);
-    }
-  }
-
-  function subirSocketUnix() {
-    return new Promise((resolve, reject) => {
-      try {
-        const st = fs.lstatSync(arqSocket);
-        if (!st.isSocket()) {
-          reject(new Error(`${arqSocket} existe e nao e um socket; apague-o a mao ou rode "dgclaw-agente canal whatsapp desligar"`));
-          return;
-        }
-        fs.unlinkSync(arqSocket);
-      } catch (e) {
-        if (e.code !== 'ENOENT') { reject(e); return; }
-      }
-      const srv = net.createServer((c) => {
-        let buf = Buffer.alloc(0);
-        let respondido = false;
-        const responder = (obj) => {
-          if (respondido) return;
-          respondido = true;
-          clearTimeout(timeout);
-          c.end(JSON.stringify(obj) + '\n');
-        };
-        // Prazo para o cliente mandar a linha. Cai assim que a linha chega; a execucao do
-        // pedido tem prazo proprio, maior (enviar arquivo grande demora).
-        const timeout = setTimeout(() => {
-          responder(falha('PEDIDO_INVALIDO', `a conexao ficou ${Math.round(timeoutLeitura / 1000)} segundos sem mandar a linha do pedido`));
-        }, timeoutLeitura);
-        timeout.unref();
-        let timeoutExec = null;
-        const tratar = (bytes) => {
-          clearTimeout(timeout);
-          const linha = bytes.toString('utf8').trim();
-          let acao = null;
-          try { acao = JSON.parse(linha).acao; } catch { /* o tratarPedido explica a linha invalida */ }
-          const limite = acao === 'arquivo' ? timeoutExecArquivo : timeoutExecTexto;
-          const estouro = new Promise((r) => {
-            timeoutExec = setTimeout(() => r(falha('FALHA_ENVIO', `o envio passou de ${Math.round(limite / 1000)} segundos sem resposta; a mensagem pode ou nao ter saido. Nao repita as cegas: confira no celular antes de mandar de novo`)), limite);
-          });
-          Promise.race([
-            tratarPedido(linha).catch((e) => {
-              registrar(`erro inesperado ao tratar um pedido do socket: ${motivoErro(e)}`);
-              return falha('FALHA_ENVIO', `erro inesperado na ponte (${motivoErro(e)}); veja ${arqLog}`);
-            }),
-            estouro,
-          ]).then((r) => { clearTimeout(timeoutExec); responder(r); });
-        };
-        let recebido = false;
-        c.on('data', (parte) => {
-          if (respondido || recebido) return;
-          buf = Buffer.concat([buf, parte]);
-          const nl = buf.indexOf(0x0a);
-          if (nl >= 0) { recebido = true; tratar(buf.subarray(0, nl)); return; }
-          if (buf.length > LIMITE_LINHA_SOCKET) {
-            responder(falha('PEDIDO_INVALIDO', `a linha passou de ${LIMITE_LINHA_SOCKET} bytes; para arquivos use a acao "arquivo" com o caminho`));
-          }
-        });
-        c.on('end', () => {
-          // Cliente que fechou sem enviar "\n": trata o que veio.
-          if (respondido || recebido) return;
-          if (buf.length > 0) { recebido = true; tratar(buf); } else {
-            responder(falha('PEDIDO_INVALIDO', 'a conexao fechou sem mandar nenhum pedido'));
-          }
-        });
-        c.on('error', (e) => registrar(`erro numa conexao do socket ${arqSocket}: ${motivoErro(e)}`));
-      });
-      srv.once('error', reject);
-      srv.listen(arqSocket, () => {
-        try {
-          fs.chmodSync(arqSocket, 0o600);
-        } catch (e) {
-          srv.close();
-          reject(new Error(`nao consegui fechar a permissao de ${arqSocket} (${motivoErro(e)})`));
-          return;
-        }
-        servidor = srv;
-        resolve();
-      });
-    });
-  }
+  const { validarArquivo, montarEnvioArquivo } = criarEnvioArquivo({ home, raizesArquivo });
+  const { tratarPedido } = criarPedidos({
+    lerPermitidos,
+    estaPermitido,
+    validarArquivo,
+    montarEnvioArquivo,
+    ligacao: () => ({ conectado, sock: sockAtual }),
+  });
+  const abrirServidorUnix = () => subirSocketUnix({
+    arqSocket, arqLog, timeoutLeitura, timeoutExecTexto, timeoutExecArquivo, tratarPedido, registrar,
+    aoSubir: (srv) => { servidor = srv; },
+  });
 
   // ===========================================================================
   // Conexao
@@ -1012,7 +378,7 @@ export async function iniciar(opcoes = {}) {
       numeroBot = numeroDoUser(state.creds.me);
     }
     try {
-      await subirSocketUnix();
+      await abrirServidorUnix();
     } catch (e) {
       registrar(`nao consegui abrir o socket ${arqSocket}: ${motivoErro(e)}`);
       definirEstado('erro', `nao consegui abrir o socket (${motivoErro(e)})`);

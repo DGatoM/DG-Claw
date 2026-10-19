@@ -250,7 +250,7 @@ function loadPrevValues() {
 }
 
 function savePrevValues() {
-  try { localStorage.setItem('isa_prev_values', JSON.stringify(prevValues)); } catch {}
+  try { localStorage.setItem('isa_prev_values', JSON.stringify(prevValues)); } catch { /* sem localStorage (bloqueado ou cheio): os valores anteriores só deixam de ser lembrados */ }
 }
 
 function getDelta(key, newVal) {

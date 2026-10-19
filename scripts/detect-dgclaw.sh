@@ -14,7 +14,8 @@ set -uo pipefail
 
 WANT="${1:-}"
 
-# Junta candidatos dos dois layouts conhecidos, sem duplicar.
+# Junta candidatos dos dois layouts conhecidos, sem duplicar. O ls falha quando o padrao
+# nao casa com nada (layout que esta maquina nao usa); isso e esperado, entao o erro some.
 mapfile -t CONFIGS < <(
   { ls -1 /root/dgclaw/*/.dgclaw/config.sh 2>/dev/null
     ls -1 /home/dgclaw-*/.dgclaw/config.sh 2>/dev/null

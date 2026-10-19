@@ -67,7 +67,7 @@ def pulso_write(pid: str, status: str, detalhe: str = "") -> None:
         with open(os.path.join(ledger, f"{day}.jsonl"), "a") as f:
             f.write(json.dumps(rec, ensure_ascii=False, separators=(",", ":")) + "\n")
     except Exception:
-        pass  # nunca derruba o chamador
+        pass  # o ledger e auxiliar: falhar em gravar nao pode derrubar quem chamou
 
 
 def pulso(status: str, detalhe: str = "", pid: str = None) -> None:

@@ -150,7 +150,7 @@ class DualStackServer(ThreadingHTTPServer):
         try:
             self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
         except OSError:
-            pass
+            pass  # sistema sem IPv6 dual: escuta so no que o kernel permitir
         super().server_bind()
 
 

@@ -33,6 +33,9 @@ pid_is_poller() { # $1=pid -> 0 se for mesmo o `bun ... server.ts` (evita pid re
     [[ "$cmd" == *server.ts* ]]
 }
 
+# Em check_once, todo erro suprimido (processo que sumiu, log ausente, arquivo ilegivel) significa
+# apenas "este sinal nao confirma o canal": a funcao passa ao proximo sinal e, no fim, devolve 1,
+# e quem chama trata isso como canal fora do ar.
 check_once() {
     # Sinal PRIMARIO: bot.pid do state-dir aponta pra um poller vivo.
     if [ -n "$STATE_DIR" ] && [ -f "$STATE_DIR/bot.pid" ]; then

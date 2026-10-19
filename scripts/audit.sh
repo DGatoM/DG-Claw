@@ -27,14 +27,18 @@ export TELEGRAM_STATE_DIR DGCLAW_OWNER_TELEGRAM_ID
 SLUG="$DGCLAW_SLUG"
 PLUGIN="${DGCLAW_PLUGIN_ROOT:-$DGCLAW_WORKSPACE/.dgclaw/plugin}"
 LOG="$DGCLAW_WORKSPACE/.dgclaw/logs/audit.log"
-mkdir -p "$(dirname "$LOG")" 2>/dev/null
+mkdir -p "$(dirname "$LOG")" || echo "audit: nao consegui criar a pasta do log ($LOG). A auditoria roda, mas sem registro; confira permissao e espaco em disco." >&2
 TODAY=$(date '+%Y-%m-%d')
 DIARY="$DGCLAW_WORKSPACE/memory/${TODAY}.md"
 RLOG="$DGCLAW_WORKSPACE/.dgclaw/logs/reflection.log"
 
 # Pulso: registra ok/erro deste cron no ledger (DGCLAW_PULSO_DIR / <ws>/.dgclaw/logs/pulso).
 # shellcheck disable=SC1091
-source "$PLUGIN/scripts/_lib/pulso-lib.sh" 2>/dev/null && pulso_auto audit
+if source "$PLUGIN/scripts/_lib/pulso-lib.sh"; then
+    pulso_auto audit
+else
+    echo "audit: nao consegui carregar $PLUGIN/scripts/_lib/pulso-lib.sh. A auditoria roda, mas o Pulso fica sem o registro; reinstale o plugin do agente." >&2
+fi
 
 # shellcheck disable=SC1091
 source "$PLUGIN/scripts/_lib/inject.sh"
@@ -45,6 +49,7 @@ LIVE=0
 is_session_alive "$SLUG" && LIVE=1
 
 problem=""
+# reflection.log pode nao existir ainda (reflexao nunca rodou); o teste -f abaixo ja trata isso.
 RTAIL="$(tail -5 "$RLOG" 2>/dev/null)"
 
 if [ "$LIVE" = "0" ]; then
@@ -68,7 +73,8 @@ fi
 if [ -n "$problem" ]; then
     MSG="oi! passando pra avisar: minha reflexao da noite teve um problema de infra — ${problem}. quando puder, da uma olhada 🌙"
     echo "[$(date '+%F %T')] AUDIT FALHA (infra): $problem" >> "$LOG"
-    bash "$PLUGIN/scripts/notify-owner.sh" "$MSG" >> "$LOG" 2>&1 || true
+    bash "$PLUGIN/scripts/notify-owner.sh" "$MSG" >> "$LOG" 2>&1 \
+        || echo "[$(date '+%F %T')] AUDIT: notify-owner.sh falhou, o dono NAO foi avisado do problema acima. Confira o canal do bot e reenvie o aviso." >> "$LOG"
 else
     echo "[$(date '+%F %T')] audit operacional ok (live=$LIVE, diario=$([ -s "$DIARY" ] && echo presente || echo pendente))" >> "$LOG"
 fi
@@ -82,12 +88,14 @@ SEC_LEVEL="${DGCLAW_AUDIT_LEVEL:-full}"
 if SEC_REPORT="$(DGCLAW_PLUGIN_ROOT="$PLUGIN" python3 "$PLUGIN/scripts/security-audit.py" --level "$SEC_LEVEL" 2>>"$LOG")"; then
     # Componente proprio no Pulso (id distinto de "audit", via pulso_write — nao mexe no
     # trap do cron audit nem seta PULSO_EXPLICIT).
-    pulso_write security-audit ok "deterministico OK (nivel=$SEC_LEVEL)" 2>/dev/null || true
+    pulso_write security-audit ok "deterministico OK (nivel=$SEC_LEVEL)" \
+        || echo "audit: nao consegui registrar security-audit no Pulso (pulso-lib ausente?)." >&2
 else
     SEC_REPORT="## Auditoria de Seguranca (deterministica)
 
 [ERRO] security-audit.py falhou — ver audit.log"
-    pulso_write security-audit erro "security-audit.py falhou (ver audit.log)" 2>/dev/null || true
+    pulso_write security-audit erro "security-audit.py falhou (ver audit.log)" \
+        || echo "audit: nao consegui registrar a falha do security-audit no Pulso (pulso-lib ausente?)." >&2
 fi
 echo "[$(date '+%F %T')] security-audit deterministico concluido (nivel=$SEC_LEVEL)" >> "$LOG"
 {

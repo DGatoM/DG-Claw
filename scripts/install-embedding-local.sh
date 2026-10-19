@@ -63,6 +63,7 @@ for prog in curl tar sha256sum python3; do
 done
 
 # memoria e disco: avisa cedo em vez de falhar no meio
+# sem /proc/meminfo legivel o valor cai em 0 e a checagem de RAM abaixo e pulada
 MEM_MB=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0)
 if [ "$MEM_MB" -gt 0 ] && [ "$MEM_MB" -lt 1500 ]; then
     falha "a maquina tem ${MEM_MB} MB de RAM; o modelo precisa de ~600 MB livres durante a busca. Com menos de 1,5 GB no total, prefira o Gemini (DGCLAW_EMBED_PROVIDER=gemini)."
@@ -90,6 +91,7 @@ baixar() {  # baixar <url> <destino> <sha256> <o que e>
 }
 
 # 1) llama.cpp
+# sem o arquivo VERSAO (primeira instalacao) a comparacao falha e o llama.cpp e baixado
 if [ "$REINSTALAR" = "1" ] || [ ! -x "$DIR/llama/llama-server" ] || [ "$(cat "$DIR/llama/VERSAO" 2>/dev/null)" != "$LLAMA_TAG" ]; then
     TGZ="$DIR/llama-$LLAMA_TAG-$ARQ.tar.gz"
     baixar "https://github.com/ggml-org/llama.cpp/releases/download/$LLAMA_TAG/llama-$LLAMA_TAG-bin-ubuntu-$ARQ.tar.gz" \
@@ -112,7 +114,8 @@ else
 fi
 
 # os agentes rodam com usuario proprio (dgclaw-<slug>): precisam ler e executar
-chmod -R a+rX "$DIR" 2>/dev/null
+chmod -R a+rX "$DIR" \
+    || echo "aviso: nao consegui liberar a leitura de $DIR para os outros usuarios; os agentes (usuario dgclaw-<slug>) podem nao achar o modelo. Rode como root: chmod -R a+rX $DIR" >&2
 
 # 3) prova de vida: sobe, embeda uma frase, desce
 echo "==> testando"

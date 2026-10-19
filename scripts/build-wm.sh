@@ -16,11 +16,16 @@ PLUGIN="${DGCLAW_PLUGIN_ROOT:-$DGCLAW_WORKSPACE/.dgclaw/plugin}"
 
 # Pulso: registra ok/erro deste cron no ledger (componente "build-wm").
 # shellcheck disable=SC1091
-source "$PLUGIN/scripts/_lib/pulso-lib.sh" 2>/dev/null && pulso_auto build-wm
+if source "$PLUGIN/scripts/_lib/pulso-lib.sh"; then
+    pulso_auto build-wm
+else
+    echo "build-wm: nao consegui carregar $PLUGIN/scripts/_lib/pulso-lib.sh. O build roda, mas o Pulso fica sem o registro; reinstale o plugin do agente." >&2
+fi
 
 python3 "$PLUGIN/scripts/build-working-memory.py" "${2:-}"
 RC=$?
 
+# Sem o dono da pasta (stat falhou), assume root e pula o chown: nada a corrigir nesse caso.
 WS_OWNER=$(stat -c '%U' "$DGCLAW_WORKSPACE" 2>/dev/null || echo root)
 if [ "$WS_OWNER" != "root" ]; then
     for f in working-memory.md memory/wm-transbordo.md; do
@@ -44,7 +49,7 @@ fi
 # Idempotente: se o poke-ack ja conferiu, esta chamada nao faz nada.
 if [ "${2:-}" != "--agora-only" ] && [ -f "$PLUGIN/scripts/_lib/memoria_guarda.py" ]; then
     REFLOG="$DGCLAW_WORKSPACE/.dgclaw/logs/reflection.log"
-    mkdir -p "$(dirname "$REFLOG")" 2>/dev/null
+    mkdir -p "$(dirname "$REFLOG")" || echo "build-wm: nao consegui criar a pasta de $REFLOG. A conferencia do MEMORY.md roda, mas o resultado dela nao sera registrado; confira permissao e espaco em disco." >&2
     python3 "$PLUGIN/scripts/_lib/memoria_guarda.py" conferir --ws "$DGCLAW_WORKSPACE" >> "$REFLOG" 2>&1 \
         || echo "[$(date '+%F %T')] build-wm: a conferencia do MEMORY.md saiu com codigo diferente de 0 (3 = restaurou a versao anterior; outro = nao consegui conferir). Detalhes nas linhas acima." >> "$REFLOG"
 fi

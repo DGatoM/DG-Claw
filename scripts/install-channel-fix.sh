@@ -26,8 +26,9 @@ PRESTART="$WS/.dgclaw/prestart-clear-tg-authcache.sh"
 
 if [ "$OFF" = "1" ]; then
     rm -f "$DROPIN" "$PRESTART"
+    # A pasta pode nao existir ou ter outros drop-ins; nos dois casos nao ha o que remover.
     rmdir --ignore-fail-on-non-empty "$DROPDIR" 2>/dev/null || true
-    systemctl daemon-reload 2>/dev/null || true
+    systemctl daemon-reload || echo "install-channel-fix: o systemctl daemon-reload falhou. O drop-in foi removido do disco, mas o systemd ainda pode usar a versao antiga; rode 'systemctl daemon-reload' como root." >&2
     echo "channel-fix removido (drop-in + prestart)."
     exit 0
 fi

@@ -497,7 +497,7 @@ def rodada() -> str:
             with log_path.open("a") as f:
                 f.write(msg + "\n")
         except Exception:
-            pass
+            pass  # o log nao tem onde registrar a propria falha; a linha segue no stdout abaixo
         print(msg, flush=True)
 
     enabled = service_is_enabled(service)

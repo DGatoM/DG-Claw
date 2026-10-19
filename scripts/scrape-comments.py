@@ -75,8 +75,9 @@ def resolve_cookie_files(argv, ws):
             cp = cfg.get("cookiesPath")
             if cp:
                 files.append(Path(cp))
-        except (json.JSONDecodeError, OSError):
-            pass
+        except (json.JSONDecodeError, OSError) as e:
+            print(f"AVISO: nao consegui ler {ig_json}: {e}. Sigo sem o cookiesPath dele; "
+                  "corrija o JSON para usar o cookie configurado.", file=sys.stderr)
     # default
     files.append(ws / ".dgclaw" / "creds" / "cookies.txt")
     # de-dup preservando ordem

@@ -1,0 +1,13 @@
+{
+  "name": "dgclaw-lint",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Só o lint de JavaScript do repositório (web/, panel/, canais/, scripts/). Não instala nem roda o DG Claw.",
+  "scripts": {
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "eslint": "10.13.0",
+    "globals": "17.13.0"
+  }
+}

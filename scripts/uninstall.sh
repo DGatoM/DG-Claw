@@ -60,6 +60,7 @@ else
 fi
 
 # Lista o que sera desligado, ANTES de desligar (o dono ve o tamanho do estrago).
+# Sem systemctl ou sem unidades, a lista fica vazia e o script diz "nenhuma" logo abaixo; o dono ve isso antes de confirmar.
 mapfile -t UNITS < <(systemctl list-unit-files "dgclaw-${SLUG}.service" "dgclaw-${SLUG}-*" "dgclaw-panel-${SLUG}*" 2>/dev/null \
     | awk '/^dgclaw-/{print $1}' | sort -u)
 echo "   vai desligar ${#UNITS[@]} unidade(s) do systemd:"
@@ -82,18 +83,28 @@ fi
 # arquivos das unidades sao GUARDADOS numa pasta de backup. Assim, se o dono se arrepender
 # (ou se a desinstalacao for so pra mudar de maquina), da pra devolver tudo copiando de volta.
 BACKUP="$WS/.dgclaw-desinstalado-$(date '+%Y-%m-%d-%H%M%S')"
-mkdir -p "$BACKUP/units" 2>/dev/null
+# Sem a pasta de backup, as unidades sao desligadas sem copia guardada (os mv abaixo avisam um a um).
+mkdir -p "$BACKUP/units" \
+    || echo "uninstall: nao consegui criar $BACKUP/units; as unidades vao ser desligadas SEM copia guardada. Confira permissao e espaco em disco de $WS." >&2
 echo "-> desligando servico, rotinas e painel..."
 for u in "${UNITS[@]}"; do
-    systemctl disable --now "$u" >/dev/null 2>&1 || true
-    [ -f "/etc/systemd/system/$u" ] && mv -f "/etc/systemd/system/$u" "$BACKUP/units" 2>/dev/null
+    systemctl disable --now "$u" >/dev/null 2>&1 \
+        || echo "uninstall: o systemctl nao conseguiu desligar $u. Confira com 'systemctl status $u' e, se estiver ativa, rode 'systemctl disable --now $u' como root." >&2
+    if [ -f "/etc/systemd/system/$u" ]; then
+        mv -f "/etc/systemd/system/$u" "$BACKUP/units" \
+            || echo "uninstall: nao consegui guardar /etc/systemd/system/$u em $BACKUP/units. O arquivo continua la; copie-o a mao se quiser o backup." >&2
+    fi
 done
 DROPDIR="/etc/systemd/system/dgclaw-${SLUG}.service.d"
 if [ -d "$DROPDIR" ]; then
-    mv -f "$DROPDIR" "$BACKUP/units" 2>/dev/null
-    echo "   ajustes extras do servico (drop-ins) guardados no backup."
+    if mv -f "$DROPDIR" "$BACKUP/units"; then
+        echo "   ajustes extras do servico (drop-ins) guardados no backup."
+    else
+        echo "uninstall: nao consegui guardar $DROPDIR em $BACKUP/units. A pasta continua no lugar; mova-a a mao se quiser tirar esses ajustes." >&2
+    fi
 fi
-systemctl daemon-reload 2>/dev/null || true
+systemctl daemon-reload \
+    || echo "uninstall: o systemctl daemon-reload falhou. O systemd ainda pode listar as unidades antigas; rode 'systemctl daemon-reload' como root." >&2
 echo "   ${#UNITS[@]} unidade(s) desligada(s). Copia guardada em $BACKUP/units"
 
 # 2. Purge dos dados, se pedido.
@@ -104,20 +115,36 @@ if [ "$PURGE" = "1" ]; then
     cd "$WS" || { echo "uninstall: nao consegui entrar em $WS, entao nada foi movido." >&2; exit 1; }
     mkdir -p "$BACKUP/dados" || { echo "uninstall: nao consegui criar $BACKUP/dados, entao nada foi movido." >&2; exit 1; }
     echo "-> tirando os dados do caminho..."
+    # LAWS.md pode nao existir (ou nao ser nosso); se o chmod falhar, o mv logo abaixo avisa se o arquivo ficou para tras.
     chmod 644 ./LAWS.md 2>/dev/null || true
+    FALHOU=0
     for item in AGENT.md AGENT.md.bak SOUL.md SOUL-addendum.md PERSONALITY.md IDENTITY.md \
                 ETHICS.md CREATOR.md LAWS.md MEMORY.md working-memory.md \
                 persona planning memory data .dgclaw; do
         [ -e "./$item" ] || continue
-        mv -f "./$item" "$BACKUP/dados" 2>/dev/null && echo "     movido: $item"
+        if mv -f "./$item" "$BACKUP/dados"; then
+            echo "     movido: $item"
+        else
+            echo "uninstall: nao consegui mover $WS/$item para $BACKUP/dados. Ele continua no lugar; confira permissao e espaco em disco e mova-o a mao." >&2
+            FALHOU=1
+        fi
     done
-    echo "   tudo o que era do agente esta guardado em $BACKUP/dados"
+    if [ "$FALHOU" = "1" ]; then
+        echo "   ATENCAO: nem tudo foi movido (veja os avisos acima). O que foi movido esta em $BACKUP/dados"
+    else
+        echo "   tudo o que era do agente esta guardado em $BACKUP/dados"
+    fi
     echo "   Confira com calma e, quando tiver certeza, apague essa pasta voce mesmo."
 else
     # So a maquinaria: a copia estavel dos scripts e recriada na reinstalacao.
-    [ -d "$WS/.dgclaw/plugin" ] && mv -f "$WS/.dgclaw/plugin" "$BACKUP" 2>/dev/null
     echo "-> preservados: identidade, memoria, diarios, credenciais e arquivos das extensoes."
-    echo "   a copia dos scripts saiu do caminho (ela e recriada quando voce reinstalar)."
+    if [ ! -d "$WS/.dgclaw/plugin" ]; then
+        echo "   a copia dos scripts ja nao estava no workspace (ela e recriada quando voce reinstalar)."
+    elif mv -f "$WS/.dgclaw/plugin" "$BACKUP"; then
+        echo "   a copia dos scripts saiu do caminho (ela e recriada quando voce reinstalar)."
+    else
+        echo "uninstall: nao consegui mover $WS/.dgclaw/plugin para $BACKUP. A copia dos scripts continua la; mova-a a mao se quiser tira-la do caminho." >&2
+    fi
 fi
 
 echo

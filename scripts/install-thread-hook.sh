@@ -34,6 +34,7 @@ if [ "$OFF" != "1" ] && [ ! -f "$HOOK" ]; then
     echo "hook nao encontrado: $HOOK" >&2; exit 1
 fi
 
+# Se a pasta nao puder ser criada, o python logo abaixo falha ao gravar e explica o motivo.
 mkdir -p "$(dirname "$SETTINGS")" 2>/dev/null || true
 
 # Comando literal (paths absolutos resolvidos no install — nao depende de expansao de env

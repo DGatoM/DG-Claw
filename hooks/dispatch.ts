@@ -60,5 +60,6 @@ async function main() {
 }
 
 main()
-  .catch(() => {})
+  // Um hook nunca pode derrubar a sessão: o erro vai para o stderr e o processo sai com 0.
+  .catch((e) => console.error(`dgclaw dispatch (${process.argv[2] ?? "?"}): o hook falhou e foi ignorado: ${e && e.message ? e.message : e}. A sessão segue; rode o script do hook à mão para ver o motivo.`))
   .finally(() => process.exit(0));

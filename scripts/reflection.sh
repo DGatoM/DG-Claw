@@ -29,7 +29,8 @@ source "$CONFIG"
 SLUG="$DGCLAW_SLUG"
 PLUGIN="${DGCLAW_PLUGIN_ROOT:-$DGCLAW_WORKSPACE/.dgclaw/plugin}"
 LOG="$DGCLAW_WORKSPACE/.dgclaw/logs/reflection.log"
-mkdir -p "$(dirname "$LOG")" 2>/dev/null
+mkdir -p "$(dirname "$LOG")" \
+    || echo "reflection.sh: nao consegui criar a pasta do log $(dirname "$LOG"); a reflexao segue sem registro em arquivo" >&2
 cd "$DGCLAW_WORKSPACE" || exit 1
 
 # Pulso: registra ok/erro no ledger (rc final via trap EXIT). Degrada gracioso se a lib
@@ -43,6 +44,7 @@ NAME="${DGCLAW_NAME:-a assistente}"
 # virar (senao escreveria o diario do dia errado e a chave de verificacao mudaria). O retrigger
 # passa DGCLAW_REFLECT_DATE com a data do 1o disparo.
 TODAY="${DGCLAW_REFLECT_DATE:-$(date '+%Y-%m-%d')}"
+# date -d falha com data fora do formato esperado; o `||` cai no dia de hoje.
 DOW=$(date -d "$TODAY" '+%d' 2>/dev/null || date '+%d')
 
 # ─── eco do passado (Module 4): memory_search sobre a working-memory de hoje ────
@@ -196,7 +198,7 @@ if [ -d "$EXT_DIR" ]; then
             EXT_BLOCK="${EXT_BLOCK}
 ${n}. ${linha}"
         done < <(grep -vE '^\s*(#|$)' "$f")
-    done < <(find "$EXT_DIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
+    done < <(find "$EXT_DIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)  # a pasta pode sumir entre o teste acima e a leitura: sem ela, nao ha extensoes
 fi
 
 # ─── prep deterministico: monta o prompt de reflexao (sem chamar claude) ───────
@@ -336,7 +338,8 @@ if [ "$REFLECT_MODE" = "headless" ]; then
     else
         echo "[$(date '+%F %T')] reflexao ${TODAY}: consolidacao FALHOU (exit $RC) — NAO reinicio (preservo a sessao)" >> "$LOG"
         bash "$PLUGIN/scripts/notify-owner.sh" \
-            "⚠️ Reflexao noturna ${TODAY}: consolidacao falhou (exit $RC). Sessao NAO reiniciada. Ver reflection.log." >/dev/null 2>&1 || true
+            "⚠️ Reflexao noturna ${TODAY}: consolidacao falhou (exit $RC). Sessao NAO reiniciada. Ver reflection.log." >/dev/null 2>&1 \
+            || echo "[$(date '+%F %T')] reflexao ${TODAY}: o aviso ao dono NAO saiu (notify-owner.sh falhou)" >> "$LOG"
     fi
     echo "[$(date '+%F %T')] reflexao ${TODAY}: fim (headless)" >> "$LOG"
     exit "$RC"

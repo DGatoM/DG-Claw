@@ -102,4 +102,9 @@ function todayStr(offsetHours) {
   return local.toISOString().split('T')[0];
 }
 
-module.exports = { readJSON, readJSONL, readJSONLLast, readFile, readFileTail, listDir, todayStr };
+// ISO da última modificação do arquivo, ou null se ele não existe (fica fora do painel como "sem data").
+function fileMtime(filePath) {
+  try { return fs.statSync(filePath).mtime.toISOString(); } catch { return null; }
+}
+
+module.exports = { fileMtime, readJSON, readJSONL, readJSONLLast, readFile, readFileTail, listDir, todayStr };

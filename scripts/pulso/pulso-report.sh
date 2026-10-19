@@ -29,9 +29,9 @@ PLUGIN="${DGCLAW_PLUGIN_ROOT:-$DGCLAW_WORKSPACE/.dgclaw/plugin}"
 NOTIFY="$PLUGIN/scripts/notify-owner.sh"
 [ -f "$NOTIFY" ] || NOTIFY="$HERE/../notify-owner.sh"
 
-STATUS_JSON="$(python3 "$HERE/pulso-status.py" --json 2>/dev/null)"
+STATUS_JSON="$(python3 "$HERE/pulso-status.py" --json)"
 if [ -z "$STATUS_JSON" ]; then
-  echo "pulso-report: status vazio" >&2
+  echo "pulso-report: o pulso-status.py --json nao devolveu nada (veja o erro acima, se houver). Rode 'python3 $HERE/pulso-status.py --json' na mao para ver o motivo." >&2
   exit 1
 fi
 

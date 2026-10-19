@@ -21,7 +21,8 @@ source "$CONFIG"
 export PATH="${BUN_BIN_DIR:-$HOME/.bun/bin}:$HOME/.local/bin:$PATH"
 CLAUDE_BIN="${CLAUDE_BIN:-$(command -v claude || echo "$HOME/.local/bin/claude")}"
 LOG="$DGCLAW_WORKSPACE/.dgclaw/logs/consolidate.log"
-mkdir -p "$(dirname "$LOG")" 2>/dev/null
+mkdir -p "$(dirname "$LOG")" 2>/dev/null \
+  || echo "aviso: nao consegui criar a pasta do log $(dirname "$LOG"); a consolidacao segue sem log. Confira a permissao do workspace." >&2
 
 cd "$DGCLAW_WORKSPACE" || exit 1
 

@@ -44,6 +44,7 @@ esac
 WS_OWNER=$(stat -c '%U' "$DGCLAW_WORKSPACE" 2>/dev/null || echo root)
 DB="$DGCLAW_WORKSPACE/.dgclaw/memory_index/conversas.db"
 if [ "$WS_OWNER" != "root" ] && [ "$(id -u)" = "0" ] && [ -f "$DB" ]; then
+    # -wal e -shm so existem com o banco aberto; a falta deles e esperada. Falha no $DB aparece na linha seguinte.
     chown "$WS_OWNER" "$DB" "$DB-wal" "$DB-shm" 2>/dev/null
     chown "$WS_OWNER" "$DB" || echo "[$(date '+%F %T')] nao consegui passar $DB para o usuario $WS_OWNER" >> "$LOG"
 fi

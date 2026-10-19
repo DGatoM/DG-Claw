@@ -156,7 +156,7 @@ function criarMidia({ dataDir, log, registro, publicDir }) {
     const corpo = '<div class="dv-cartao dv-alerta" style="margin:12px">' +
       '<strong>Não deu para mostrar o visual.</strong>' +
       `<p>${escapaHtml(msg)}</p></div>` +
-      `<script>try{parent.postMessage(${aviso},"*")}catch(e){}</script>`;
+      `<script>try{parent.postMessage(${aviso},"*")}catch(e){/* sem janela pai: o erro já está escrito na página */}</script>`;
     enviaPagina(req, res, status, paginaVisual(corpo, tema));
   }
 

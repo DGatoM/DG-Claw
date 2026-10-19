@@ -2,12 +2,13 @@
 # log-reply.sh — PostToolUse hook: registra as respostas que a agente mandou no
 # Telegram, pra alimentar o chat-tail.md (usado pelo session-context no pos-compact).
 #
-# Casa com a tool de reply do plugin telegram. Falha silenciosa.
+# Casa com a tool de reply do plugin telegram. Nunca bloqueia a resposta: se algo falhar,
+# avisa em stderr (o stdout de hook pode virar contexto do agente) e sai com 0.
 
 set +e
 WORKSPACE="${DGCLAW_WORKSPACE:-$PWD}"
 TAIL="$WORKSPACE/.dgclaw/chat-tail.md"
-mkdir -p "$(dirname "$TAIL")" 2>/dev/null
+mkdir -p "$(dirname "$TAIL")" || echo "log-reply: nao consegui criar a pasta de $TAIL. As respostas do bot nao entram no chat-tail.md; confira permissao e espaco em disco." >&2
 
 HOOK_INPUT=$(cat)
 
@@ -34,7 +35,7 @@ try:
     lines = open(TAIL).read().splitlines()
     if len(lines) > 80:
         open(TAIL, 'w').write(chr(10).join(lines[-80:]) + chr(10))
-except Exception:
-    pass
-" 2>/dev/null
+except Exception as e:
+    sys.stderr.write('log-reply: nao consegui gravar em ' + TAIL + ' (' + type(e).__name__ + '). As respostas do bot nao entram no chat-tail.md; confira permissao e espaco em disco.' + chr(10))
+"
 exit 0

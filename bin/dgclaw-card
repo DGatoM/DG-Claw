@@ -79,6 +79,7 @@ chamar() {
     corpo="${corpo//\\/\\\\}"; corpo="${corpo//\"/\\\"}"
     cfg+="$(printf '\nheader = "Content-Type: application/json"\ndata = "%s"' "$corpo")"
   fi
+  # stderr do curl suprimido: a mensagem pode citar o Bearer. A falha vira HTTP=000 e falha_geral explica o que fazer.
   if ! saida="$(printf '%s\n' "$cfg" | curl -sS -K - 2>/dev/null)"; then
     HTTP="000"; RESP=""
     return 2
@@ -98,6 +99,7 @@ chamar_ou_sair() {
   esac
 }
 
+# Campo ausente ou resposta sem JSON viram texto vazio; cada chamador ja trata o vazio (erro, valor padrao ou nova tentativa).
 campo() { printf '%s' "$RESP" | jq -r "$1 // empty" 2>/dev/null || true; }
 
 nome_do_provedor() { # $1 = codex|claude|vazio
@@ -194,6 +196,7 @@ cmd_abrir() {
   [ -n "$id" ] || CODIGO=6 die "o runner criou o card mas nao devolveu o id (resposta inesperada). Veja 'dgclaw-card listar'."
 
   # O /input pode falhar depois do card existir. Sem login, o card nao serve para nada: fecha para nao ocupar vaga.
+  # Se a chamada falhar, HTTP fica 000 e o case abaixo cai no ramo de erro, que avisa e sai.
   chamar POST "/api/agents/$id/input" "$(printf '%s' "$TEXTO" | jq -Rsc '{text: ., submit: true}')" || true
   case "$HTTP" in
     2??) ;;
@@ -202,7 +205,7 @@ cmd_abrir() {
       local http_input="$HTTP" resp_input="$RESP" code
       code="$(campo .code)"
       if [ "$code" = "SEM_LOGIN" ] || [ "$code" = "SEM_CHAVE" ]; then
-        chamar DELETE "/api/sessoes/$id" || true
+        chamar DELETE "/api/sessoes/$id" || erro "aviso: o card $id ficou aberto porque o runner nao respondeu ao pedido de fechamento. Feche com: dgclaw-card fechar $id."
       else
         erro "o card $id foi criado, mas o pedido nao foi entregue. Reenvie com: dgclaw-card mandar $id --arquivo <arquivo do pedido>, ou feche com: dgclaw-card fechar $id."
       fi
@@ -248,7 +251,7 @@ cmd_mandar() {
 # Provedor de uma sessao (codex|claude|vazio), sem sair se falhar: so serve para a frase de erro.
 provedor_do() {
   local p=""
-  if chamar GET "/api/provedor?sessao=$1" 2>/dev/null; then
+  if chamar GET "/api/provedor?sessao=$1"; then
     case "$HTTP" in 2??) p="$(campo .provedor)" ;; esac
   fi
   printf '%s' "$p"
@@ -292,6 +295,7 @@ cmd_esperar() {
           # ultima mensagem ser do assistente, confirmada em duas olhadas seguidas.
           if [ "$visto" = 1 ] && [ "$status" = idle ]; then echo "O card $id terminou o turno. Leia com: dgclaw-card ler $id"; return 0; fi
           chamar_ou_sair GET "/api/agents/$id/conversation?limit=2"
+          # Sem a ultima mensagem (resposta sem JSON), segue esperando; o limite de --max encerra com erro.
           ultimo="$(printf '%s' "$RESP" | jq -r '.data | last | .role // empty' 2>/dev/null || true)"
           if [ "$ultimo" = "assistant" ]; then
             seguidas=$((seguidas+1))
@@ -318,6 +322,7 @@ cmd_ler() {
   done
   [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -ge 1 ] || die "--n precisa ser um numero maior que zero (recebido: '$n')."
   chamar_ou_sair GET "/api/agents/$id/conversation?limit=$n"
+  # Resposta sem JSON conta como conversa vazia; ler de novo mostra o conteudo quando o runner voltar ao normal.
   if [ "$(printf '%s' "$RESP" | jq '.data | length' 2>/dev/null || echo 0)" = "0" ]; then
     echo "O card $id ainda nao tem mensagens. Se acabou de ser aberto, espere com: dgclaw-card esperar $id"
     return 0
@@ -328,7 +333,8 @@ cmd_ler() {
 cmd_listar() {
   local linhas id titulo status prov achou=0
   chamar_ou_sair GET "/api/agents?todas=1"
-  linhas="$(printf '%s' "$RESP" | jq -r '.data[] | select(.sessao.tipo == "card") | [.id, (.sessao.titulo // "-"), (.status // "?")] | @tsv' 2>/dev/null || true)"
+  linhas="$(printf '%s' "$RESP" | jq -r '.data[] | select(.sessao.tipo == "card") | [.id, (.sessao.titulo // "-"), (.status // "?")] | @tsv' 2>/dev/null)" \
+    || erro "aviso: a resposta do runner para a lista de cards nao veio no formato esperado, entao a lista abaixo pode estar incompleta. Tente de novo com: dgclaw-card listar"
   while IFS=$'\t' read -r id titulo status; do
     [ -n "$id" ] || continue
     achou=1

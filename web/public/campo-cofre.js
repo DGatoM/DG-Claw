@@ -101,6 +101,7 @@
         body: JSON.stringify({ envName, valor, aplicar: true }),
       });
       status = r.status;
+      // Resposta que não é JSON: segue com corpo nulo e a mensagem abaixo mostra o código do status.
       corpo = await r.json().catch(() => null);
     } catch (e) { falhaRede = (e && e.message) || 'sem conexão'; }
     finally { card.dataset.enviando = ''; btn.disabled = false; btn.textContent = 'Salvar no cofre'; }

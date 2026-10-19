@@ -34,6 +34,7 @@ while IFS= read -r ext; do
     if ! DGCLAW_WORKSPACE="$WS" timeout 15 bash "$hook" "$EVENTO" "$DADOS" >/dev/null 2>&1; then
         echo "ext-event: a extensao '$(basename "$ext")' falhou ao tratar o evento '$EVENTO'. O resto seguiu normalmente. Pra ver o erro dela: DGCLAW_WORKSPACE='$WS' bash '$hook' '$EVENTO'" >&2
     fi
+# EXT_DIR ja foi conferido acima; o stderr do find so mostraria uma pasta que sumiu entre as duas linhas.
 done < <(find "$EXT_DIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
 
 exit 0

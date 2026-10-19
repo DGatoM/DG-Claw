@@ -47,7 +47,7 @@ def main():
             with open(logpath, "a") as f:
                 f.write(line + "\n")
         except OSError:
-            pass
+            pass  # a linha ja saiu no stderr acima; o arquivo de log e complementar
 
     def notify_owner(msg):
         script = os.path.join(plugin, "scripts", "notify-owner.sh")

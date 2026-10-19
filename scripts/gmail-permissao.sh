@@ -158,6 +158,7 @@ if [ "$ANTES" = "$DEPOIS" ] && [ "$ANTES" = "$ACAO" ]; then
     exit 0
 fi
 
+# Se a pasta do registro nao puder ser criada, a gravacao logo abaixo falha e avisa na tela.
 mkdir -p "$LOGDIR" 2>/dev/null || true
 echo "[$(date '+%F %T')] gmail: $ANTES -> $DEPOIS (pedido: $ACAO)" >> "$LOG" 2>/dev/null \
     || echo "aviso: nao consegui gravar o registro em $LOG" >&2
@@ -170,9 +171,11 @@ if [ "$DEPOIS" = "envio" ]; then
         MSG="Aviso de seguranca: o envio de e-mail pelo Gmail foi liberado para o agente agora ($AGORA). Se nao foi voce que pediu, diga ao agente 'bloqueia o envio de e-mail' ou rode gmail-permissao.sh leitura."
         if bash "$AQUI/notify-owner.sh" "$MSG" >/dev/null 2>&1; then
             echo "O dono recebeu um aviso de que o envio foi liberado."
-            echo "[$(date '+%F %T')] gmail: aviso ao dono enviado" >> "$LOG" 2>/dev/null || true
+            echo "[$(date '+%F %T')] gmail: aviso ao dono enviado" >> "$LOG" 2>/dev/null \
+                || echo "aviso: nao consegui gravar o registro em $LOG" >&2
         else
-            echo "[$(date '+%F %T')] gmail: FALHA ao avisar o dono (notify-owner.sh)" >> "$LOG" 2>/dev/null || true
+            echo "[$(date '+%F %T')] gmail: FALHA ao avisar o dono (notify-owner.sh)" >> "$LOG" 2>/dev/null \
+                || echo "aviso: nao consegui gravar o registro em $LOG" >&2
             echo "ATENCAO: o aviso ao dono NAO saiu (notify-owner.sh falhou). Avise o dono voce mesmo. Detalhe no registro $LOG." >&2
         fi
     fi

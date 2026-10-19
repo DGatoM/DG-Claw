@@ -55,6 +55,11 @@ F(){ echo "  [consertado] $1"; fixed=$((fixed+1)); }
 I(){ echo "  [info]  $1"; }
 TITULO(){ echo; echo "-- $1"; }
 
+# Convencao deste arquivo: os `2>/dev/null` abaixo ficam em sondagens (systemctl, grep, stat,
+# python de leitura, find) cujo resultado vira P/W/B/I logo em seguida. O erro cru nao diz
+# nada alem do que a mensagem do proprio teste ja diz (unidade ausente, arquivo ausente,
+# JSON invalido). Onde uma falha de escrita ou limpeza mudaria o diagnostico, ela vira aviso.
+
 echo "== DG Claw doctor: $NOME ($SLUG) em $WS =="
 [ "$FIX" = "1" ] && I "modo --fix: vou consertar o que der, nao so reportar."
 
@@ -78,6 +83,7 @@ TITULO "2. Permissoes que travam o Claude sob systemd"
 if python3 -c "import json,sys; d=json.load(open('$CFGJSON')); p=d.get('projects',{}).get('$WS',{}); sys.exit(0 if p.get('hasTrustDialogAccepted') else 1)" 2>/dev/null; then
     P "workspace marcado como confiavel"
 else
+    # Traceback omitido: se a gravacao falhar, o B logo abaixo diz o arquivo e as causas provaveis.
     if python3 - "$CFGJSON" "$WS" <<'PY' 2>/dev/null
 import json,sys
 path,ws=sys.argv[1],sys.argv[2]
@@ -124,6 +130,7 @@ else
     B "o servico $SVC nao existe -> rode install-service.sh"
 fi
 
+# is-enabled/is-active saem com codigo != 0 para unidade desligada ou ausente; o texto ("?") vai no I abaixo.
 EN=$(systemctl is-enabled "$SVC" 2>/dev/null); EN="${EN:-?}"
 AC=$(systemctl is-active  "$SVC" 2>/dev/null); AC="${AC:-?}"
 I "$SVC -> liga no boot: $EN | rodando agora: $AC"
@@ -263,7 +270,8 @@ if [ -f "$WS/MEMORY.md" ] && ! grep -q "^## Regras aprendidas" "$WS/MEMORY.md"; 
     fi
 fi
 if [ "$FIX" = "1" ] && [ "$WS_OWNER" != "root" ]; then
-    chown "$WS_OWNER:" "$WS/CLAUDE.md" "$WS/MEMORY.md" 2>/dev/null
+    chown "$WS_OWNER:" "$WS/CLAUDE.md" "$WS/MEMORY.md" \
+        || W "nao consegui passar CLAUDE.md e MEMORY.md para o usuario $WS_OWNER (o agente pode nao conseguir gravar neles) -> rode como root"
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -370,6 +378,7 @@ done
 if [ -z "$ULTIMO_DIARIO" ]; then
     I "nenhum diario escrito ainda (normal no primeiro dia de vida)"
 else
+    # date -d falha com nome de diario fora do formato de data; cai em "hoje" (0 dias) em vez de abortar.
     DIAS_SEM=$(( ( $(date +%s) - $(date -d "$ULTIMO_DIARIO" +%s 2>/dev/null || date +%s) ) / 86400 ))
     if [ "$DIAS_SEM" -le 1 ]; then
         P "a reflexao da noite esta escrevendo o diario (ultimo: $ULTIMO_DIARIO)"
@@ -435,11 +444,15 @@ if ( : > "/tmp/dgclaw-inject-${SLUG}.lock" ) 2>/dev/null; then
 else
     B "nao consigo escrever /tmp/dgclaw-inject-${SLUG}.lock (duas rotinas podem falar juntas e embaralhar o texto)"
 fi
+# find sem permissao em algum item de /tmp so reduz a contagem; a limpeza abaixo avisa se falhar.
 ORPHANS=$(find /tmp -maxdepth 1 -name "dgclaw-poke-${SLUG}-*.txt" -mtime +1 2>/dev/null | wc -l)
 if [ "$ORPHANS" -gt 0 ]; then
     if [ "$FIX" = "1" ]; then
-        find /tmp -maxdepth 1 -name "dgclaw-poke-${SLUG}-*.txt" -mtime +1 -delete 2>/dev/null
-        F "limpei $ORPHANS recado(s) antigo(s) esquecido(s) em /tmp"
+        if find /tmp -maxdepth 1 -name "dgclaw-poke-${SLUG}-*.txt" -mtime +1 -delete; then
+            F "limpei $ORPHANS recado(s) antigo(s) esquecido(s) em /tmp"
+        else
+            W "nao consegui apagar os $ORPHANS recado(s) antigo(s) em /tmp (permissao?) -> apague a mao: /tmp/dgclaw-poke-${SLUG}-*.txt"
+        fi
     else
         W "$ORPHANS recado(s) antigo(s) esquecido(s) em /tmp (rode com --fix pra limpar)"
     fi
@@ -606,7 +619,8 @@ if [ -f "$WS/CLAUDE.md" ]; then
             [ -f "$WS/CLAUDE.md.bak-$(date +%Y%m%d)-mesa" ] || cp -p "$WS/CLAUDE.md" "$WS/CLAUDE.md.bak-$(date +%Y%m%d)-mesa"
             { echo; awk '/^## /{f=($0 ~ /^## Mesa de tarefas *$/)} f' "$PLUGIN/templates/CLAUDE.md.tmpl" \
                 | sed "s/{{DONO}}/${DGCLAW_OWNER:-dono}/g"; } >> "$WS/CLAUDE.md"
-            [ "$WS_OWNER" != "root" ] && chown "$WS_OWNER:" "$WS/CLAUDE.md" 2>/dev/null
+            [ "$WS_OWNER" != "root" ] && { chown "$WS_OWNER:" "$WS/CLAUDE.md" \
+                || W "nao consegui passar o CLAUDE.md para o usuario $WS_OWNER (o agente pode nao conseguir gravar nele) -> rode como root"; }
             F "secao Mesa de tarefas acrescentada no fim do CLAUDE.md (backup ao lado; vale na proxima leitura)"
         fi
     fi
@@ -622,6 +636,7 @@ elif [ -z "$MESA_URL" ] || [ -z "$MESA_KEY" ]; then
     if [ -z "$MESA_URL" ]; then MESA_FALTA="DGCLAW_MESA_URL"; else MESA_FALTA="DGCLAW_MESA_KEY"; fi
     B "mesa de tarefas pela metade: falta $MESA_FALTA no config.sh, e sem as duas o agente nao usa a mesa -> docs/MESA-DE-TAREFAS.md"
 else
+    # curl mudo de proposito: a falha de conexao vira HTTP 000 e o case abaixo explica.
     MESA_HTTP=$(printf 'Authorization: Bearer %s\n' "$MESA_KEY" \
         | curl -s --noproxy '*' -m 8 -o /dev/null -w '%{http_code}' -H @- "${MESA_URL%/}?agente=${SLUG}" 2>/dev/null)
     case "$MESA_HTTP" in
@@ -641,7 +656,8 @@ else
             [ -f "$WS/CLAUDE.md.bak-$(date +%Y%m%d)-mesa" ] || cp -p "$WS/CLAUDE.md" "$WS/CLAUDE.md.bak-$(date +%Y%m%d)-mesa"
             { echo; SECAO="$SECAO" awk '/^## /{f=(index($0, "## " ENVIRON["SECAO"]) == 1)} f' "$PLUGIN/templates/CLAUDE.md.tmpl" \
                 | sed "s/{{DONO}}/${DGCLAW_OWNER:-dono}/g"; } >> "$WS/CLAUDE.md"
-            [ "$WS_OWNER" != "root" ] && chown "$WS_OWNER:" "$WS/CLAUDE.md" 2>/dev/null
+            [ "$WS_OWNER" != "root" ] && { chown "$WS_OWNER:" "$WS/CLAUDE.md" \
+                || W "nao consegui passar o CLAUDE.md para o usuario $WS_OWNER (o agente pode nao conseguir gravar nele) -> rode como root"; }
             F "secao $SECAO acrescentada no fim do CLAUDE.md (backup ao lado; vale na proxima leitura)"
         fi
         break
@@ -692,7 +708,8 @@ if [ -f "$WS/CLAUDE.md" ] && ! grep -q "^## Quadro de avisos da equipe" "$WS/CLA
         [ -f "$WS/CLAUDE.md.bak-$(date +%Y%m%d)-avisos" ] || cp -p "$WS/CLAUDE.md" "$WS/CLAUDE.md.bak-$(date +%Y%m%d)-avisos"
         { echo; awk '/^## /{f=(index($0, "## Quadro de avisos da equipe") == 1)} f' "$PLUGIN/templates/CLAUDE.md.tmpl" \
             | sed "s/{{DONO}}/${DGCLAW_OWNER:-dono}/g"; } >> "$WS/CLAUDE.md"
-        [ "$WS_OWNER" != "root" ] && chown "$WS_OWNER:" "$WS/CLAUDE.md" 2>/dev/null
+        [ "$WS_OWNER" != "root" ] && { chown "$WS_OWNER:" "$WS/CLAUDE.md" \
+                || W "nao consegui passar o CLAUDE.md para o usuario $WS_OWNER (o agente pode nao conseguir gravar nele) -> rode como root"; }
         F "secao Quadro de avisos da equipe acrescentada no fim do CLAUDE.md (backup ao lado; vale na proxima leitura)"
     fi
 fi
@@ -707,7 +724,9 @@ fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 TITULO "11. Log recente"
-if journalctl -u "$SVC" --no-pager -n 40 2>/dev/null \
+if ! LOG_RECENTE=$(journalctl -u "$SVC" --no-pager -n 40 2>&1); then
+    W "nao consegui ler o log de $SVC (journalctl falhou: $(printf '%s' "$LOG_RECENTE" | head -1 | cut -c1-120)) -> rode como root ou com acesso ao journal"
+elif printf '%s\n' "$LOG_RECENTE" \
    | grep -qiE "cannot be used with root|Input must be provided|plugin not installed|trust dialog"; then
     B "o log mostra um erro conhecido -> journalctl -u $SVC -n 40"
 else

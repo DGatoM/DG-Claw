@@ -30,9 +30,9 @@ const nonce = arg("--nonce") || "";
 
 // Lê o JSON do evento do stdin (best-effort; pode vir vazio no Stop).
 let stdin = "";
-try { stdin = fs.readFileSync(0, "utf8"); } catch {}
+try { stdin = fs.readFileSync(0, "utf8"); } catch { /* stdin fechado ou vazio: o evento segue só com os argumentos */ }
 let ev = {};
-try { ev = JSON.parse(stdin) || {}; } catch {}
+try { ev = JSON.parse(stdin) || {}; } catch { /* corpo que não é JSON: segue sem os campos extras do evento */ }
 
 const payload = JSON.stringify({
   agentId,
@@ -69,7 +69,7 @@ function enviar(tentativa) {
     },
   );
   const falhou = () => {
-    try { req.destroy(); } catch {}
+    try { req.destroy(); } catch { /* a conexão já caiu: não há o que destruir */ }
     if (tentativa === 1) setTimeout(() => enviar(2), 300);
     else process.exit(0);
   };

@@ -99,7 +99,7 @@ def main():
             try:
                 ff.stdin.close()
             except Exception:
-                pass
+                pass  # stdin do ffmpeg ja fechado (ele pode ter morrido); o wait() abaixo cobre o erro
         if ff.wait() != 0:
             erro("o ffmpeg terminou com erro ao gerar o MP4. Rode de novo e confira o espaço em disco.")
         nav.close()

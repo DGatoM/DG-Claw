@@ -21,7 +21,7 @@ source "$CONFIG"
 set -u
 : "${DGCLAW_WORKSPACE:?config sem DGCLAW_WORKSPACE}"
 export DGCLAW_WORKSPACE DGCLAW_SLUG DGCLAW_MEMORY_INDEX_DIR DGCLAW_EMBED_PROVIDER DGCLAW_EMBED_DIR \
-       DGCLAW_EMBED_THREADS GEMINI_API_KEY 2>/dev/null
+       DGCLAW_EMBED_THREADS GEMINI_API_KEY
 PLUGIN="${DGCLAW_PLUGIN_ROOT:-$DGCLAW_WORKSPACE/.dgclaw/plugin}"
 [ -d "$PLUGIN/scripts/memory_index" ] || PLUGIN="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOG="$DGCLAW_WORKSPACE/.dgclaw/logs/memory-reindex.log"
@@ -49,9 +49,12 @@ tail -n 3 "$LOG"
 
 # O indice e do agente: se o workspace tem dono proprio, o banco tambem (o timer roda como
 # root e um banco do root o agente nao conseguiria atualizar).
+# Sem o dono da pasta (stat falhou), assume root e pula o chown: nada a corrigir nesse caso.
 WS_OWNER=$(stat -c '%U' "$DGCLAW_WORKSPACE" 2>/dev/null || echo root)
 IDX="${DGCLAW_MEMORY_INDEX_DIR:-$DGCLAW_WORKSPACE/.dgclaw/memory_index}"
 if [ "$WS_OWNER" != "root" ] && [ "$(id -u)" = "0" ] && [ -f "$IDX/chunks.db" ]; then
+    # Os arquivos -wal, -shm, lock e baseline podem nao existir ainda, entao o erro deste chown em lote
+    # e esperado; o chunks.db, que e o que importa, tem chown proprio logo abaixo, com aviso.
     chown "$WS_OWNER" "$IDX" "$IDX/chunks.db" "$IDX/chunks.db-wal" "$IDX/chunks.db-shm" "$IDX/reindex.lock" "$IDX/baseline-vocab.json" 2>/dev/null
     chown "$WS_OWNER" "$IDX/chunks.db" || echo "[$(date '+%F %T')] nao consegui passar $IDX/chunks.db para o usuario $WS_OWNER" >> "$LOG"
 fi

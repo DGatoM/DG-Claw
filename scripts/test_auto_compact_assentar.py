@@ -23,6 +23,8 @@ AQUI = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location("auto_compact", AQUI / "auto-compact.py")
 ac = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ac)
+# O aviso ao dono é importado por cada módulo que o usa: o teste troca onde ele é chamado.
+from auto_compact import ciclo, poke  # noqa: E402
 
 
 def _iso(delta_s=0):
@@ -115,8 +117,9 @@ class FechamentoNoMesmoRun(unittest.TestCase):
 
         with mock.patch.dict(os.environ, {"DGCLAW_COMPACT_SETTLE_WAIT_S": str(limite),
                                           "DGCLAW_NAME": "Luna"}), \
-             mock.patch.object(ac.time, "sleep", side_effect=sono), \
-             mock.patch.object(ac, "notify_owner", side_effect=self.avisos.append):
+             mock.patch.object(time, "sleep", side_effect=sono), \
+             mock.patch.object(ciclo, "notify_owner", side_effect=self.avisos.append), \
+             mock.patch.object(poke, "notify_owner", side_effect=self.avisos.append):
             ac.esperar_assentar_e_fechar(self.st, self.state, self.dir, "luna", "dgclaw-luna",
                                          self.dir, 45)
 

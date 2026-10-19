@@ -19,7 +19,9 @@ CFGDIR="${1:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}"
 CACHE="$CFGDIR/mcp-needs-auth-cache.json"
 [ -f "$CACHE" ] || exit 0
 
-python3 - "$CACHE" <<'PY' 2>/dev/null || true
+# Cache ilegivel ou invalido e esperado (o Claude o regenera): o python sai em silencio nesse caso.
+# Qualquer outra falha (ex.: sem permissao para gravar) aparece no journal da unit.
+python3 - "$CACHE" <<'PY' || echo "prestart-clear-tg-authcache: nao consegui limpar a chave do telegram em $CACHE; o canal pode ficar mudo. Apague a chave plugin:telegram:telegram desse arquivo e reinicie o servico." >&2
 import json, sys
 f = sys.argv[1]
 try:
