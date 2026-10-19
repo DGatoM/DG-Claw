@@ -287,5 +287,8 @@ test('tela: só marca como lido perto do fim e reavalia ao rolar; o poll só rod
   assert.match(js, /!msgs\.length \|\| !pertoDoFim\(\)\) return;/);
   assert.match(js, /document\.visibilityState !== 'visible' \|\| !pertoDoFim\(\)\) return;/);
   assert.match(js, /chat\.addEventListener\('scroll', agendaLido/);
-  assert.match(js, /setInterval\(\(\) => \{ if \(document\.visibilityState === 'visible'\) atualizaNaoLidas\(\); \}, 60000\);/);
+  // o poll agora traz também o estado dos agentes: 10 s com a aba visível, 60 s escondida
+  assert.match(js, /if \(document\.visibilityState !== 'visible' && agora - ultimoEstados < 60000\) return;/);
+  assert.match(js, /atualizaNaoLidas\(\);\n\}, 10000\);/);
+  assert.match(js, /api\('\/api\/v1\/estados'/);
 });

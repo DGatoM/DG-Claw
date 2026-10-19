@@ -55,6 +55,30 @@ aside#menu{
 /* bolinha de não lidas: à direita, depois da hora */
 .ml-nl{flex:0 0 auto;margin-left:8px;min-width:18px;height:18px;padding:0 5px;box-sizing:border-box;border-radius:9px;
   background:#d93025;color:#fff;font-size:11px;font-weight:700;line-height:18px;text-align:center}
+/* marca "não lida" sem mensagem nova: só um ponto, para não inventar número */
+.ml-nl-ponto{min-width:10px;width:10px;height:10px;padding:0}
+/* precisa de você: âmbar com "!" (cor + forma + texto acessível, nunca só a cor) */
+.ml-aten{flex:0 0 auto;margin-left:8px;width:20px;height:20px;border-radius:50%;box-sizing:border-box;
+  background:#e8890c;color:#fff;font-size:13px;font-weight:800;line-height:20px;text-align:center}
+.ml-ag.precisa .ml-quem small{color:#9a5b05;font-weight:600}
+/* trabalhando: três pontinhos discretos; sem animação para quem pediu menos movimento */
+.ml-trab{flex:0 0 auto;margin-left:8px;display:inline-flex;gap:3px;align-items:center}
+.ml-trab i{width:5px;height:5px;border-radius:50%;background:#2f9e5e;animation:mlTrab 1.2s ease-in-out infinite}
+.ml-trab i:nth-child(2){animation-delay:.2s}
+.ml-trab i:nth-child(3){animation-delay:.4s}
+@keyframes mlTrab{0%,100%{opacity:.25}50%{opacity:1}}
+@media (prefers-reduced-motion:reduce){.ml-trab i{animation:none;opacity:.7}}
+/* item + botão ⋯ + ações */
+.ml-linha{display:flex;flex-wrap:wrap;align-items:center}
+.ml-linha > .ml-ag{flex:1 1 0;min-width:0}
+.ml-mais{flex:0 0 34px;width:34px;height:34px;border:0;border-radius:9px;background:none;color:var(--ml-fraco);
+  font:inherit;font-size:18px;line-height:1;cursor:pointer}
+.ml-mais:hover,.ml-mais[aria-expanded="true"]{background:var(--ml-fundo2);color:var(--ml-texto)}
+.ml-acoes{flex:0 0 100%;padding:0 8px 6px 49px}
+.ml-acoes[hidden]{display:none}
+.ml-acoes button{min-height:34px;padding:0 12px;border:1px solid var(--ml-linha);border-radius:9px;background:var(--ml-painel);
+  font:inherit;font-size:12.5px;color:var(--ml-texto);cursor:pointer;max-width:100%;overflow-wrap:anywhere;text-align:left}
+.ml-acoes button:disabled{opacity:.6}
 .ml-vazio{padding:9px;color:var(--ml-fraco);font-size:12.5px;line-height:1.45}
 .ml-vazio button{margin-top:6px;min-height:40px;padding:0 12px;border:1px solid var(--ml-linha);
   border-radius:10px;background:var(--ml-painel);font:inherit;cursor:pointer}

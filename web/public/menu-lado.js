@@ -109,16 +109,54 @@
     return p2(d.getDate()) + '/' + p2(d.getMonth() + 1);
   }
 
+  /* O selo de atenção de um agente. `a` traz o que o servidor diz (GET /api/v1/estados): estado, resumo,
+     nao_lidas, marcada_nao_lida. Prioridade: precisa de você > não lido > trabalhando. O agente em que a pessoa
+     já está não ganha selo (a própria conversa mostra o que ele faz). Devolve { tipo, rotulo, resumo } ou null.
+     `nao_lidas` null (não medido) não vira bolinha; "sem sinal" também não vira selo nenhum. */
+  function seloDe(a, aqui) {
+    if (!a || aqui) return null;
+    if (a.estado === 'precisa_de_voce') {
+      return { tipo: 'precisa', rotulo: 'precisa de você' + (a.resumo ? ': ' + a.resumo : ''), resumo: a.resumo || '' };
+    }
+    const n = a.nao_lidas;
+    const temN = typeof n === 'number' && isFinite(n) && n > 0;
+    if (temN) return { tipo: 'nao_lido', rotulo: n + (n === 1 ? ' mensagem não lida' : ' mensagens não lidas') + (a.mais ? ' ou mais' : ''), n };
+    if (a.marcada_nao_lida === true) return { tipo: 'marcada', rotulo: 'marcada como não lida' };
+    if (a.estado === 'trabalhando') return { tipo: 'trabalhando', rotulo: 'trabalhando' };
+    return null;
+  }
+
+  function seloMenu(a, aqui) {
+    const s = seloDe(a, aqui);
+    if (!s) return '';
+    if (s.tipo === 'precisa') return `<span class="ml-aten" role="img" aria-label="${esc(s.rotulo)}">!</span>`;
+    if (s.tipo === 'nao_lido') return bolinhaMenu(a, aqui);
+    if (s.tipo === 'marcada') return `<span class="ml-nl ml-nl-ponto" role="img" aria-label="${esc(s.rotulo)}"></span>`;
+    return `<span class="ml-trab" role="img" aria-label="${esc(s.rotulo)}"><i></i><i></i><i></i></span>`;
+  }
+
   function itemAgente(a, atualId) {
     const aqui = a.id === atualId;
-    const sub = a.subtitulo || [a.provedor, a.modelo].filter(Boolean).join(' · ');
-    return `<a class="ml-ag${aqui ? ' atual' : ''}" role="menuitem" href="/a/${encodeURIComponent(a.id)}"` +
+    const selo = seloDe(a, aqui);
+    // quem precisa de você mostra o motivo no lugar do subtítulo: é a razão de olhar para ele agora
+    const sub = selo && selo.tipo === 'precisa' && selo.resumo ? selo.resumo
+      : (a.subtitulo || [a.provedor, a.modelo].filter(Boolean).join(' · '));
+    const link = `<a class="ml-ag${aqui ? ' atual' : ''}${selo && selo.tipo === 'precisa' ? ' precisa' : ''}" role="menuitem" href="/a/${encodeURIComponent(a.id)}"` +
       `${aqui ? ' aria-current="page"' : ''}>` +
       `<span class="ml-mini" style="background:${esc(a.cor || '#2f9e5e')}">${fotoDe(a)}</span>` +
       `<span class="ml-quem"><b>${esc(a.nome)}</b><small>${esc(sub)}</small></span>` +
       `${aqui ? '<span class="ml-aqui">aqui</span>' : ''}` +
       `${horaCurta(a.ultima_ts) ? `<span class="ml-hora">${esc(horaCurta(a.ultima_ts))}</span>` : ''}` +
-      `${bolinhaMenu(a, aqui)}</a>`;
+      `${seloMenu(a, aqui)}</a>`;
+    if (aqui) return link;
+    // O ⋯ é a via acessível para marcar como não lida (o toque longo no item faz o mesmo).
+    const marcada = a.marcada_nao_lida === true;
+    const id = esc(a.id);
+    return `<div class="ml-linha">${link}` +
+      `<button type="button" class="ml-mais" data-mais="${id}" aria-haspopup="true" aria-expanded="${a.acoes_abertas ? 'true' : 'false'}" ` +
+      `aria-label="Mais ações de ${esc(a.nome)}" title="Mais ações">⋯</button>` +
+      `<div class="ml-acoes"${a.acoes_abertas ? '' : ' hidden'}>` +
+      `<button type="button" data-nao-lida="${id}" data-ligar="${marcada ? '0' : '1'}">${marcada ? 'Desmarcar como não lida' : 'Marcar como não lida'}</button></div></div>`;
   }
 
   /* Bolinha de não lidas. `a.nao_lidas` é número (a contagem do servidor), `a.mais` marca "passou do teto".
@@ -131,12 +169,26 @@
     return `<span class="ml-nl" role="img" aria-label="${esc(rot)}">${texto}</span>`;
   }
 
-  /* Soma das não lidas dos OUTROS agentes. null (não medido) entra como nada, nunca como número. */
+  /* Soma das não lidas dos OUTROS agentes. null (não medido) entra como nada, nunca como número.
+     Conversa marcada como não lida, sem mensagem nova, conta como 1. */
   function totalNaoLidas(lista, contagens, atualId) {
     let total = 0;
     for (const a of lista || []) {
-      const n = contagens && contagens[a.id] && contagens[a.id].nao_lidas;
-      if (a.id !== atualId && typeof n === 'number' && isFinite(n) && n > 0) total += n;
+      const c = contagens && contagens[a.id];
+      const n = c && c.nao_lidas;
+      if (a.id === atualId) continue;
+      if (typeof n === 'number' && isFinite(n) && n > 0) total += n;
+      else if (c && c.marcada_nao_lida === true) total += 1;
+    }
+    return total;
+  }
+
+  /* Quantos dos OUTROS agentes precisam de você agora (liga o selo âmbar do ☰). */
+  function totalPrecisam(lista, contagens, atualId) {
+    let total = 0;
+    for (const a of lista || []) {
+      const c = contagens && contagens[a.id];
+      if (a.id !== atualId && c && c.estado === 'precisa_de_voce') total += 1;
     }
     return total;
   }
@@ -158,7 +210,7 @@
     return { tipo: 'sem', texto: 'Este navegador não oferece a instalação por aqui. No Chrome ou no Edge, abra o menu do navegador e procure Instalar app. No Firefox para computador, o recurso não existe.' };
   }
 
-  if (!raiz.document) return { ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, linkSessoes, itemAgente, bolinhaMenu, totalNaoLidas, horaCurta, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar };
+  if (!raiz.document) return { ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, linkSessoes, itemAgente, bolinhaMenu, seloDe, totalNaoLidas, totalPrecisam, horaCurta, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar };
 
   /* ── Parte com DOM ─────────────────────────────────────────────────────── */
   const $ = id => document.getElementById(id);
@@ -220,14 +272,26 @@
     troca.hidden = lista.length < 2;
     const ordem = lista.filter(a => a.tipo === 'admin').concat(lista.filter(a => a.tipo !== 'admin'));
     ultimaLista = { ag, lista };
-    caixa.innerHTML = ordem.map(a => itemAgente(contagens[a.id] ? Object.assign({}, a, { nao_lidas: contagens[a.id].nao_lidas, mais: contagens[a.id].mais }) : a, ag.id)).join('');
-    pintaTotalTroca(totalNaoLidas(lista, contagens, ag.id));
+    caixa.innerHTML = ordem.map(a => {
+      const c = contagens[a.id];
+      const base = c ? Object.assign({}, a, { nao_lidas: c.nao_lidas, mais: c.mais, estado: c.estado, resumo: c.resumo, marcada_nao_lida: c.marcada_nao_lida }) : a;
+      return itemAgente(Object.assign(base, { acoes_abertas: acoesAbertaDe === a.id }), ag.id);
+    }).join('');
+    pintaTotalTroca(totalNaoLidas(lista, contagens, ag.id), totalPrecisam(lista, contagens, ag.id));
   }
 
   /* A lista vem recolhida: sem o total no botão, a bolinha de cada agente só aparece depois do toque. */
-  function pintaTotalTroca(total) {
+  function pintaTotalTroca(total, precisam) {
     const btn = $('mlTrocaBtn');
     if (!btn) return;
+    let aten = $('mlTrocaAten');
+    if (!aten) {
+      aten = document.createElement('span');
+      aten.id = 'mlTrocaAten'; aten.className = 'ml-aten'; aten.setAttribute('role', 'img'); aten.textContent = '!';
+      btn.insertBefore(aten, btn.querySelector('.ml-seta'));
+    }
+    aten.style.display = precisam > 0 ? '' : 'none';
+    aten.setAttribute('aria-label', precisam + (precisam === 1 ? ' agente precisa de você' : ' agentes precisam de você'));
     let marca = $('mlTrocaNl');
     if (!marca) {
       marca = document.createElement('span');
@@ -241,7 +305,7 @@
 
   /* Contagens de não lidas por agente (slug -> objeto do servidor). Guardadas aqui para a lista de 30 s
      também pintar a bolinha, e repintada quando a tela entrega uma contagem nova. */
-  let contagens = {}, ultimaLista = null;
+  let contagens = {}, ultimaLista = null, acoesAbertaDe = null;
   function defineNaoLidas(mapa) {
     contagens = mapa && typeof mapa === 'object' ? mapa : {};
     if (ultimaLista) pintaLista(ultimaLista.ag, ultimaLista.lista, null);
@@ -349,6 +413,48 @@
     marca(chaveAtiva);
   }
 
+  /* O ⋯ de cada item e o toque longo abrem "Marcar como não lida". A lista é repintada a cada contagem nova,
+     então qual item está com as ações abertas fica guardado (acoesAbertaDe) e a repintura o mantém aberto. */
+  function ligaAcoes(opcoes, troca) {
+    const caixa = $('mlLista');
+    const repinta = () => { if (ultimaLista) pintaLista(ultimaLista.ag, ultimaLista.lista, null); };
+    caixa.addEventListener('click', async ev => {
+      const mais = ev.target.closest('[data-mais]');
+      if (mais) { acoesAbertaDe = acoesAbertaDe === mais.dataset.mais ? null : mais.dataset.mais; repinta(); return; }
+      const acao = ev.target.closest('[data-nao-lida]');
+      if (!acao) return;
+      const slug = acao.dataset.naoLida, ligar = acao.dataset.ligar === '1';
+      acao.disabled = true;
+      try {
+        if (typeof opcoes.marcarNaoLida !== 'function') throw new Error('esta tela não sabe marcar como não lida');
+        await opcoes.marcarNaoLida(slug, ligar);
+        acoesAbertaDe = null;
+      } catch (e) {
+        console.warn('menu-lado: não consegui ' + (ligar ? 'marcar' : 'desmarcar') + ' ' + slug + ' como não lida:', e.message);
+        acao.disabled = false;
+        acao.textContent = 'Não consegui: ' + e.message;
+        return;
+      }
+      repinta();
+    });
+    /* Toque longo (~0,5 s) no item: abre as ações em vez de navegar. O clique que vem logo depois do
+       soltar é engolido uma vez, senão a pessoa seria levada para a conversa. */
+    let timer = null, longo = false;
+    const cancela = () => { clearTimeout(timer); timer = null; };
+    caixa.addEventListener('pointerdown', ev => {
+      const item = ev.target.closest('a.ml-ag'); if (!item || item.classList.contains('atual')) return;
+      longo = false; cancela();
+      timer = setTimeout(() => {
+        longo = true;
+        const m = item.parentElement && item.parentElement.querySelector('[data-mais]');
+        if (m) { acoesAbertaDe = m.dataset.mais; repinta(); }
+      }, 500);
+    });
+    for (const nome of ['pointerup', 'pointerleave', 'pointercancel', 'scroll']) caixa.addEventListener(nome, cancela, true);
+    caixa.addEventListener('click', ev => { if (longo && ev.target.closest('a.ml-ag')) { ev.preventDefault(); ev.stopPropagation(); } longo = false; }, true);
+    caixa.addEventListener('contextmenu', ev => { if (ev.target.closest('a.ml-ag')) ev.preventDefault(); });
+  }
+
   /* opcoes: { agente, agentes (a lista já carregada), fecha() (fecha a gaveta), ativo (chave da página aberta; padrão 'conversa'), extras (itens extras do painel), erroLista (texto: a lista de agentes falhou) } */
   function inicia(opcoes) {
     const ag = opcoes.agente;
@@ -364,6 +470,7 @@
     document.addEventListener('keydown', ev => {
       if (ev.key === 'Escape' && troca.classList.contains('aberto')) { abre(false); ev.stopPropagation(); }
     }, true);
+    ligaAcoes(opcoes, troca);
     if (opcoes.erroLista) { pintaLista(ag, [], opcoes.erroLista); abre(true); }   // a lista não veio: o erro aparece já aberto
     else if (Array.isArray(opcoes.agentes)) pintaLista(ag, opcoes.agentes, null);
     else recarrega(ag);
@@ -411,5 +518,5 @@
     pintaInstalar();
   }
 
-  return { ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, linkSessoes, itemAgente, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar, inicia, marca, extras, defineNaoLidas, totalNaoLidas };
+  return { ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, linkSessoes, itemAgente, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar, inicia, marca, extras, defineNaoLidas, totalNaoLidas, totalPrecisam, seloDe };
 });

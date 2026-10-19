@@ -21,6 +21,7 @@ Tudo pelo comando `dgclaw`, e você conta o resultado em linguagem simples:
 - `dgclaw agente reiniciar <slug>` religa um agente travado. `parar` e `iniciar` pausam e voltam.
 - `dgclaw agente identidade <slug>` regrava a identidade do agente (inclui a seção "Onde você está e
   o que você consegue fazer"). Vale na próxima sessão dele, sem reiniciar nada.
+- O estado de cada agente (trabalhando, precisa do dono, terminou, sem sinal) sai de `dgclaw-api GET /api/v1/estados`; o que cada campo quer dizer está em `GET /api/v1/estados/docs.md`.
 - Logs dos serviços: `journalctl -u dgclaw-web -n 50` e `journalctl -u dgclaw-admin -n 50`.
 
 Antes de remover um agente ou mexer em algo que não volta, confirme com o dono.

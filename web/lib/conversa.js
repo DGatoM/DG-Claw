@@ -427,7 +427,7 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     const epEnviado = relogio() / 1000 - 2;
     // O runner responde 202 "enfileirado" sempre; quem sabe se vai esperar é o estado de AGORA (sem o cache de 2 s).
     const antes = await runner.estado(agente);
-    const motivoFila = antes.ok && antes.estado.status === 'waiting_input' ? 'permissao'
+    const motivoFila = antes.ok && antes.estado.status === 'waiting_input' ? (antes.estado.motivo === 'pergunta' ? 'pergunta' : 'permissao')
       : antes.ok && antes.estado.status === 'working' ? 'resposta' : null;
     const r = await runner.input(agente, { text: payload, submit: true, injectWhenIdle: true });
     if (!r.ok) {

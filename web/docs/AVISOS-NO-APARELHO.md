@@ -2,7 +2,8 @@
 
 O DG Claw Web manda avisos para o celular e o computador do dono mesmo com a tela
 fechada. É o Web Push padrão (VAPID + `aes128gcm`, RFC 8291 e 8292), feito só com
-`node:crypto`, sem biblioteca nova. Quem usa hoje: os [lembretes](LEMBRETES.md). Qualquer
+`node:crypto`, sem biblioteca nova. Quem usa hoje: os [lembretes](LEMBRETES.md), a Mesa, o Foco e o
+[vigia de atenção dos agentes](ESTADO-DOS-AGENTES.md) ("Fulano precisa de você" e "Fulano terminou"). Qualquer
 frente pode usar (veja "Para quem constrói uma frente nova").
 
 - **Android e computador:** funciona no navegador (Chrome, Edge, Firefox) depois de ativar.
@@ -23,6 +24,8 @@ Todas com a sessão do login. Escritas exigem `Origin` do próprio Web, como o r
 | `POST /api/v1/push/inscricoes/confere` | `{"endpoint":"..."}` devolve `{"ok":true,"inscrito":true,"id":"ins_..."}` |
 | `POST /api/v1/push/inscricoes/remover` | `{"endpoint":"..."}` ou `{"id":"ins_..."}`. 404 se não existe |
 | `POST /api/v1/push/teste` | manda um aviso de teste. Com `{"endpoint":"..."}` só para esse aparelho; sem corpo, para todos. 409 se não há aparelho inscrito, 502 se o serviço de push recusou (com o status e o motivo) |
+| `GET /api/v1/push/preferencias` | `{"ok":true,"preferencias":{"precisa_de_voce":true,"terminou":true}}`: quais avisos dos agentes o dono quer (padrão: os dois) |
+| `POST /api/v1/push/preferencias` | `{"terminou":false}`: muda um ou os dois. Outro campo ou valor que não seja `true`/`false`: 400 com o motivo. Guardado em `push/preferencias.json` (600) |
 | `GET /api/v1/push/docs.md` | este documento |
 
 O endpoint da inscrição só é aceito se for `https://` num serviço de push conhecido
