@@ -487,6 +487,7 @@ regravar_identidade_md() {
         regra_canal_dgchat
         printf '\n---\n\n'
         renderizar_template "$tpl/ambiente/agente.md"
+        ent_rodar_ganchos ent_ambiente_extra_ "$C_SLUG"   # enterprise: o que as protecoes ligadas acrescentam (nada no nivel pessoal)
     } | escrever_se_mudou "$h/.plataforma/identidade.md" 644 "$ug"
 }
 
