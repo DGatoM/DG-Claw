@@ -14,7 +14,15 @@
 # pulso <ok|erro|aguardando> [detalhe]: registro explicito. Util onde o script faz `exit 0`
 #   mascarando uma falha. O ultimo estado explicito vence o do trap.
 #
-# Append-only, defensivo, nunca derruba o script chamador (|| true em tudo).
+# Append-only, defensivo, nunca derruba o script chamador: se o registro falhar, avisa
+# em stderr (uma vez por execucao) e segue.
+
+# Avisa que o Pulso nao conseguiu registrar. Uma vez por execucao, para nao inundar o log da rotina.
+_pulso_aviso() {
+  [ "${PULSO_AVISADO:-0}" = "1" ] && return 0
+  PULSO_AVISADO=1
+  echo "pulso: $1 O Pulso fica sem o registro desta rotina e pode mostrar estado desatualizado. Confira permissao e espaco em disco de $PULSO_LEDGER_DIR." >&2
+}
 
 # Ledger: env explicito > derivado do workspace > fallback ./.dgclaw/logs/pulso.
 if [ -n "${DGCLAW_PULSO_DIR:-}" ]; then
@@ -36,7 +44,9 @@ _pulso_id() {
 pulso_write() {
   local id="$1" status="$2" det="${3:-}"
   [ -z "$id" ] && return 0
-  mkdir -p "$PULSO_LEDGER_DIR" 2>/dev/null || true
+  # Depois do primeiro aviso nao insiste: o disco ou a permissao nao mudam no meio da execucao.
+  [ "${PULSO_AVISADO:-0}" = "1" ] && return 0
+  mkdir -p "$PULSO_LEDGER_DIR" || _pulso_aviso "nao consegui criar a pasta do registro ($id)."
   local day ts file
   day="$(date +%F)"
   ts="$(date -Is)"
@@ -47,7 +57,8 @@ pulso_write() {
   # sao as que o leitor (pulso-status.py, read_ledger) procura. Sem elas a linha era ignorada
   # e o Pulso caia no estado do systemd, onde exit 0 vira "ok" verde mesmo com a rotina falha.
   printf '{"ts":"%s","id":"%s","status":"%s","detalhe":"%s","component":"%s","timestamp":"%s","detail":"%s"}\n' \
-    "$ts" "$id" "$status" "$det" "$id" "$ts" "$det" >> "$file" 2>/dev/null || true
+    "$ts" "$id" "$status" "$det" "$id" "$ts" "$det" >> "$file" \
+    || _pulso_aviso "nao consegui gravar em $file ($id, status=$status)."
 }
 
 # pulso <ok|erro> [detalhe] — registro explicito p/ o id corrente
@@ -63,7 +74,7 @@ _pulso_on_exit() {
   # encadeia o trap EXIT que ja existia antes (ex.: limpeza de tmp), sem quebra-lo
   # nem deixar que ele engula nosso registro.
   if [ -n "${PULSO_PREV_EXIT_TRAP:-}" ]; then
-    eval "$PULSO_PREV_EXIT_TRAP" || true
+    eval "$PULSO_PREV_EXIT_TRAP" || _pulso_aviso "o trap EXIT anterior do script falhou; o registro do Pulso segue normal."
   fi
   # se ja houve registro explicito, nao duplica com o do trap
   [ "${PULSO_EXPLICIT:-0}" = "1" ] && return 0
@@ -79,7 +90,7 @@ pulso_auto() {
   PULSO_EXPLICIT=0
   # preserva qualquer trap EXIT ja instalado pra encadear (nao clobberar).
   local raw cur
-  raw="$(trap -p EXIT 2>/dev/null)"
+  raw="$(trap -p EXIT)"
   cur="${raw#trap -- }"
   cur="${cur% EXIT}"
   case "$cur" in *_pulso_on_exit*) cur="''" ;; esac   # evita auto-referencia

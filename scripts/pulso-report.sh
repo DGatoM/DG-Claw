@@ -86,4 +86,5 @@ if [ "$RC" -eq 9 ] || [ -z "$MSG" ]; then
     exit 0
 fi
 
-bash "$NOTIFY" "$MSG" >/dev/null 2>&1 || true
+bash "$NOTIFY" "$MSG" >/dev/null \
+    || echo "pulso-report: o aviso ao dono nao foi entregue (motivo acima e em $WS/.dgclaw/logs/notify-owner.log). Confira o canal de aviso e rode de novo." >&2

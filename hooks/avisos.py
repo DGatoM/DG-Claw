@@ -65,7 +65,7 @@ class Hook:
             try:
                 os.chown(path, *self.owner)
             except OSError:
-                pass
+                pass  # so afeta o dono do arquivo; o doctor acusa se ficar errado
 
     def log(self, msg):
         try:
@@ -76,7 +76,7 @@ class Hook:
             if novo:
                 self._chown(self.log_path)
         except OSError:
-            pass
+            pass  # o log nao tem onde registrar a propria falha; o hook segue sem ele
 
     def load_state(self):
         try:

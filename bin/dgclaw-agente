@@ -60,12 +60,15 @@ command -v curl >/dev/null || die "o curl nao foi encontrado no container. Avise
 # Le o valor salvo em .env (so dentro do script; nunca vai para argv nem para a saida)
 ler_salvo() {
   [ -f "$ENVF" ] || return 1
+  # Sem a linha o grep sai com 1: o teste -n logo abaixo trata o caso e devolve erro ao chamador.
   local l; l="$(grep -m1 '^TELEGRAM_BOT_TOKEN=' "$ENVF" || true)"
   [ -n "$l" ] || return 1
   printf '%s' "${l#TELEGRAM_BOT_TOKEN=}"
 }
 
 # Chama a API do Telegram sem pôr o segredo no argv: a URL vai para o curl pelo stdin (-K -).
+# O stderr do curl fica suprimido porque a mensagem de erro dele pode citar a URL com o token;
+# quem chama detecta a falha pelo codigo de saida e explica o que fazer.
 tg() { # $1 = metodo ; segredo do bot em $BOT
   printf 'url = "%s/bot%s/%s"\n' "$API" "$BOT" "$1" | curl -sS --max-time 20 -K - 2>/dev/null
 }
@@ -96,6 +99,7 @@ garantir_pasta_tg() { mkdir -p "$TGDIR"; chmod 700 "$DIR" "$TGDIR"; }
 
 cmd_token() {
   local entrada
+  # read sai com 1 se o stdin acabar sem quebra de linha; o conteudo lido vale e a checagem de vazio vem logo abaixo.
   IFS= read -r entrada || true
   entrada="${entrada%$'\r'}"
   [ -n "$entrada" ] || die "nenhum token chegou pelo stdin. Passe o token do BotFather por pipe, sem colocar no comando."
@@ -120,6 +124,7 @@ cmd_token() {
 cmd_conferir() {
   [ -f "$ENVF" ] || die "nenhum token guardado ainda; peca ao dono para colar o token do BotFather na conversa do DG Claw. Ele e guardado sozinho e o token nao passa por aqui."
   BOT="$(ler_salvo)" || die "o arquivo $ENVF existe, mas nao tem a linha TELEGRAM_BOT_TOKEN=. Peca ao dono para colar o token do BotFather na conversa do DG Claw de novo."
+  # Sem o modo do arquivo a checagem de permissao e apenas pulada (o aviso abaixo e so um reforco).
   local modo; modo="$(stat -c %a "$ENVF" 2>/dev/null || true)"
   if [ -n "$modo" ] && [ "$modo" != "600" ]; then
     erro "aviso: $ENVF esta com permissao $modo e deveria ser 600. Rode 'chmod 600 $ENVF'. O conteudo nao foi mostrado."
@@ -189,6 +194,7 @@ pedir_reinicio() {
     return 3
   fi
   bearer="$(tr -d '\r\n' < "$arq")"
+  # stderr do curl suprimido (a mensagem pode citar o Bearer); a falha vira code=000 e o case abaixo explica.
   code="$(printf 'url = "%s/api/agents/%s/reiniciar"\nrequest = "POST"\nheader = "Authorization: Bearer %s"\nwrite-out = "%%{http_code}"\noutput = "/dev/null"\n' "${url%/}" "$id" "$bearer" | curl -sS --max-time 20 -K - 2>/dev/null)" || code="000"
   case "$code" in
     2??) echo "Reinicio pedido ao runner: a sessao volta em alguns segundos, na mesma conversa." ;;
@@ -201,6 +207,7 @@ cmd_ligar() {
   ler_salvo >/dev/null || die "nao posso ligar: falta o token do bot. Rode 'canal telegram token' primeiro."
   [ -f "$ACCESS" ] || die "nao posso ligar: falta a allowlist (quem pode falar com o agente). Rode 'canal telegram parear' e depois 'parear --confirmar <chat_id>'."
   local n; n="$(js 'return (d.allowFrom||[]).length' < "$ACCESS")"
+  # 2>/dev/null cala o erro do [ ] quando n nao e numero; o die ao lado ja diz o que fazer.
   [ "${n:-0}" -ge 1 ] 2>/dev/null || die "nao posso ligar: a allowlist esta vazia. Rode 'canal telegram parear --confirmar <chat_id>'."
   salvar_canais true
   echo "Telegram ligado."
@@ -357,6 +364,7 @@ cmd_wa_parear() {
   : > "$WALOG"; chmod 600 "$WALOG"
   setsid nohup node "$PONTE" --parear "$d" >> "$WALOG" 2>&1 < /dev/null &
   pid=$!
+  # Se o processo ja saiu, disown nao tem o que soltar; o laco abaixo detecta a morte da ponte.
   disown "$pid" 2>/dev/null || true
   for ((i = 0; i < max * 2; i++)); do
     if [ -s "$WADIR/codigo" ]; then
@@ -370,6 +378,7 @@ cmd_wa_parear() {
     fi
     sleep 0.5
   done
+  # A ponte pode ter acabado de sair; nesse caso nao ha o que encerrar.
   kill "$pid" 2>/dev/null || true
   die "o codigo de pareamento nao apareceu em ${max}s ($(resumo_estado)). Confira a internet do container, veja o log em $WALOG e tente de novo."
 }

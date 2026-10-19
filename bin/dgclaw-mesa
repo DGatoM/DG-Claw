@@ -137,6 +137,7 @@ chamar() {
 
 falha() {
   local metodo="$1" rota="$2" frase campos
+  # detalhe opcional: se a resposta nao for JSON, usa o texto de erro da propria caixa
   frase="$(jq -r '.erro // empty' <<<"$RESP" 2>/dev/null || true)"
   [ -n "$frase" ] || frase="$ERRO_API"
   case "$STATUS" in
@@ -144,6 +145,7 @@ falha() {
     2) CODIGO=2 die "o Web não respondeu ($metodo $rota). Ele pode estar fora do ar ou reiniciando: espere cerca de um minuto e tente de novo. Para só ler, 'dgclaw-mesa listar --retrato' mostra a última cópia." ;;
     3) CODIGO=3 die "a caixa do agente não está disponível${frase:+ ($frase)}. Peça ao dono para rodar 'sudo dgclaw agente reparar ${SLUG:-<slug>}' e tente de novo." ;;
     4)
+      # lista de campos e opcional: sem ela, a mensagem principal do erro ja sai logo abaixo
       campos="$(jq -r '(.erros // {}) | if type == "object" then to_entries[] | "  \(.key): \(.value)" else empty end' <<<"$RESP" 2>/dev/null || true)"
       erro "o Web recusou o pedido ($metodo $rota): ${frase:-sem explicação}"
       [ -z "$campos" ] || printf '%s\n' "$campos" >&2

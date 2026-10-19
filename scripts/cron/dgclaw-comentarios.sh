@@ -31,7 +31,7 @@ IG_JSON="$WS/.dgclaw/instagram.json"
 
 HORA=$(date '+%Hh%M')
 LOG="$WS/.dgclaw/logs/comentarios.log"
-mkdir -p "$(dirname "$LOG")" 2>/dev/null
+mkdir -p "$(dirname "$LOG")" || echo "comentarios: nao consegui criar a pasta de $LOG. O cron roda, mas sem log; confira permissao e espaco em disco." >&2
 cd "$WS" || exit 1
 
 # --- Gate: o poder instagram precisa estar ativo ---
@@ -43,14 +43,21 @@ fi
 # --- Modelo dos comentarios (default sonnet) ---
 COMMENTS_MODEL="sonnet"
 if [ -f "$IG_JSON" ]; then
-    COMMENTS_MODEL=$(python3 -c "import json;print(json.load(open('$IG_JSON')).get('commentsModel') or 'sonnet')" 2>/dev/null || echo sonnet)
+    COMMENTS_MODEL=$(python3 -c "import json;print(json.load(open('$IG_JSON')).get('commentsModel') or 'sonnet')" 2>>"$LOG") || {
+        echo "[$(date '+%F %T')] aviso: nao consegui ler commentsModel em $IG_JSON; usando o modelo padrao sonnet. Confira se o JSON esta valido." >> "$LOG"
+        COMMENTS_MODEL="sonnet"
+    }
 fi
 
 echo "[$(date '+%F %T')] Iniciando comentarios ${SLUG} (${HORA}, model=$COMMENTS_MODEL)" >> "$LOG"
-bash "$PLUGIN/scripts/notify-owner.sh" "Cron de comentarios (${HORA}) iniciado ($NAME)" >/dev/null 2>&1 || true
+bash "$PLUGIN/scripts/notify-owner.sh" "Cron de comentarios (${HORA}) iniciado ($NAME)" >/dev/null 2>&1 \
+    || echo "[$(date '+%F %T')] aviso: notify-owner.sh falhou ao avisar o inicio dos comentarios; o dono nao recebeu a mensagem. Confira o canal do bot." >> "$LOG"
 
 # Preambulo anti-injection (datamarking). Vem do untrusted.py do plugin.
-UNTRUSTED_PREAMBLE=$(python3 "$PLUGIN/scripts/untrusted.py" --preamble 2>/dev/null || echo "")
+UNTRUSTED_PREAMBLE=$(python3 "$PLUGIN/scripts/untrusted.py" --preamble 2>>"$LOG") || {
+    echo "[$(date '+%F %T')] ATENCAO: untrusted.py --preamble falhou; os comentarios vao ser lidos SEM o preambulo anti-injection. Confira $PLUGIN/scripts/untrusted.py." >> "$LOG"
+    UNTRUSTED_PREAMBLE=""
+}
 
 PROMPT="${UNTRUSTED_PREAMBLE}
 
@@ -101,7 +108,8 @@ RC=$?
 
 # A contagem real de eventos (comment_positive/negative/troll/from_close) e aplicada
 # pelo proprio agente durante a sessao. Aqui so notificamos o fim.
-bash "$PLUGIN/scripts/notify-owner.sh" "Cron de comentarios (${HORA}) finalizado (rc=$RC) ($NAME)" >/dev/null 2>&1 || true
+bash "$PLUGIN/scripts/notify-owner.sh" "Cron de comentarios (${HORA}) finalizado (rc=$RC) ($NAME)" >/dev/null 2>&1 \
+    || echo "[$(date '+%F %T')] aviso: notify-owner.sh falhou ao avisar o fim dos comentarios (rc=$RC); o dono nao recebeu a mensagem. Confira o canal do bot." >> "$LOG"
 
 echo "[$(date '+%F %T')] Fim comentarios ${SLUG} (${HORA}, rc=$RC)" >> "$LOG"
 exit $RC

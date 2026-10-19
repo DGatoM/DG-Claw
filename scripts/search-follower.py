@@ -65,8 +65,9 @@ def _bump_counter(instagram_id):
     try:
         SESSION_COUNTER_FILE.write_text(json.dumps(counter))
         os.chmod(SESSION_COUNTER_FILE, 0o666)
-    except OSError:
-        pass
+    except OSError as e:
+        print(f"search-follower: nao consegui gravar o contador de sessao em {SESSION_COUNTER_FILE}: {e}. "
+              "O limite por sessao pode contar errado; confira a permissao da pasta.", file=sys.stderr)
     return counter[str(instagram_id)]
 
 

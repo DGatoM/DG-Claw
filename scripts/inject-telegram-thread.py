@@ -81,7 +81,7 @@ except Exception:
 def _load_config():
     """Se veio um config.sh (argv[1] ou DGCLAW_CONFIG), extrai as linhas simples
     KEY=VALUE / export KEY=VALUE e injeta no os.environ (sem sobrescrever o que ja
-    existe). Best-effort e silencioso — nunca aborta."""
+    existe). Best-effort: avisa no stderr se falhar, nunca aborta."""
     path = None
     for cand in (sys.argv[1] if len(sys.argv) > 1 else None,
                  os.environ.get("DGCLAW_CONFIG")):
@@ -104,8 +104,9 @@ def _load_config():
                 if "$" in val or "`" in val:
                     continue  # nao expandimos shell; deixa herdar do ambiente
                 os.environ.setdefault(key, val)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"inject-telegram-thread: nao consegui ler o arquivo de configuracao {path}: {e}. "
+              "Sigo com o ambiente atual; confira o caminho e a permissao do arquivo.", file=sys.stderr)
 
 
 _load_config()
@@ -185,7 +186,7 @@ def _log(msg):
         with open(p, "a", encoding="utf-8") as f:
             f.write(f"[{datetime.now().astimezone().strftime('%H:%M:%S')}] {msg}\n")
     except Exception:
-        pass
+        pass  # o log nao tem onde registrar a propria falha; o script segue sem ele
 
 
 def _bail(reason=""):

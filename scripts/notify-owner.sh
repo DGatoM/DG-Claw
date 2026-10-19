@@ -46,12 +46,14 @@ MSG="${1:-}"
 
 WS="${DGCLAW_WORKSPACE:-$PWD}"
 LOG="$WS/.dgclaw/logs/notify-owner.log"
+# O registro e auditoria; se a pasta nao existir, a funcao abaixo avisa no stderr e a entrega segue.
 mkdir -p "$(dirname "$LOG")" 2>/dev/null || true
-registrar() { printf '[%s] %s\n' "$(date -Iseconds)" "$1" >> "$LOG" 2>/dev/null || true; }
+registrar() { printf '[%s] %s\n' "$(date -Iseconds)" "$1" >> "$LOG" 2>/dev/null || echo "notify-owner: nao consegui gravar o registro em $LOG (confira a permissao da pasta)" >&2; }
 
 FALHAS=()
 # Corte por caractere, e nao por byte: o `cut -c` do GNU corta byte, e um acento no
 # limite virava lixo no log.
+# so enfeita o registro: se o python falhar, a linha do log sai sem o trecho da mensagem
 CURTO="$(printf '%s' "$MSG" | tr '\n' ' ' | python3 -c 'import sys; print(sys.stdin.read()[:80])' 2>/dev/null)"
 
 # ── 1. comando do host ──
@@ -70,6 +72,7 @@ fi
 if [ -n "${TELEGRAM_STATE_DIR:-}" ]; then
     ENV_FILE="$TELEGRAM_STATE_DIR/.env"
     ACCESS="$TELEGRAM_STATE_DIR/access.json"
+    # os dois leem arquivos opcionais; a falta de token ou de chat vira motivo registrado em FALHAS logo abaixo
     TOKEN=$(grep -E '^TELEGRAM_BOT_TOKEN=' "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2-)
     CHAT="${DGCLAW_OWNER_TELEGRAM_ID:-}"
     if [ -z "$CHAT" ] && [ -f "$ACCESS" ]; then
@@ -80,10 +83,12 @@ if [ -n "${TELEGRAM_STATE_DIR:-}" ]; then
     elif [[ ! "$TOKEN" =~ ^[0-9]+:[A-Za-z0-9_-]+$ ]]; then
         FALHAS+=("telegram: o TELEGRAM_BOT_TOKEN de $ENV_FILE nao tem o formato <numero>:<letras> (aspas ou espaco sobrando?)")
     elif [ -z "$CHAT" ]; then
-        FALHAS+=("telegram: chat do dono nao encontrado (DGCLAW_OWNER_TELEGRAM_ID vazio e access.json sem allowFrom)")
+        FALHAS+=("telegram: chat do dono nao encontrado (DGCLAW_OWNER_TELEGRAM_ID vazio e access.json sem allowFrom ou ilegivel)")
     else
         # A URL leva o token, e vai pelo stdin (-K -) para nao aparecer no argv, que
         # qualquer usuario da maquina le no `ps` (achado S08 da auditoria).
+        # stderr do curl descartado de proposito: com -K - ele pode repetir a URL, que leva o token.
+        # Sem resposta, o CODE fica vazio e a falha sai em FALHAS como "sem resposta".
         CODE=$(printf 'url = "https://api.telegram.org/bot%s/sendMessage"\n' "$TOKEN" | curl -sS --max-time 20 -K - \
             --data-urlencode "chat_id=${CHAT}" \
             --data-urlencode "text=${MSG}" \
@@ -114,6 +119,7 @@ if [ -z "$RETIDO" ] && [ -n "${DGCHAT_URL:-}" ]; then
     URL="${DGCHAT_URL%/}/api/dgchat/reply"
     BODY=$(MSG="$MSG" AGENTE="${DGCHAT_AGENT:-${DGCLAW_SLUG:-agente}}" CHAT_ID="$CHAT_ID" python3 -c \
         'import json,os;print(json.dumps({"agent":os.environ["AGENTE"],"chat":os.environ["CHAT_ID"],"text":os.environ["MSG"],"format":"plain"}))')
+    # sem resposta, o CODE fica vazio e a falha sai em FALHAS como "sem resposta"
     CODE=$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' -X POST \
         -H 'Content-Type: application/json' --data "$BODY" "$URL" 2>/dev/null)
     if [[ "$CODE" =~ ^2[0-9][0-9]$ ]]; then

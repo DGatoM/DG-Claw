@@ -73,6 +73,7 @@ fi
 ENTRADA="$BASE/entrada"; SAIDA="$BASE/saida"
 mkdir -p "$ENTRADA" "$SAIDA" 2>/dev/null \
   || CODIGO=3 die "nao consegui preparar a caixa em $BASE (pasta ausente ou sem permissao). Peca ao dono para rodar 'sudo dgclaw agente reparar <slug>'."
+# so endurece a permissao: se o chmod falhar, a caixa ainda funciona e o pedido segue
 chmod 700 "$ENTRADA" "$SAIDA" 2>/dev/null || true
 
 # --- monta o pedido -------------------------------------------------------------
@@ -126,6 +127,7 @@ fi
 # --- le, apaga e imprime ------------------------------------------------------------
 TEXTO="$(cat -- "$RESPOSTA")" || CODIGO=3 die "nao consegui ler a resposta em $RESPOSTA. Peca ao dono para rodar 'sudo dgclaw agente reparar <slug>'."
 rm -f "$RESPOSTA"
+# jq falhar aqui quer dizer resposta fora do formato: STATUS fica vazio e a linha seguinte explica o erro
 STATUS="$(printf '%s' "$TEXTO" | jq -r 'if (.status | type) == "number" then .status else empty end' 2>/dev/null || true)"
 [ -n "$STATUS" ] || CODIGO=5 die "a resposta do Web nao tem o formato esperado (veio: $(printf '%s' "$TEXTO" | head -c 200 | tr '\n' ' ')). Avise o dono: o Web e o dgclaw-api podem estar em versoes diferentes."
 
@@ -138,6 +140,7 @@ fi
 case "$STATUS" in
   2??) exit 0 ;;
   4??|5??)
+    # motivo e prazo sao detalhes opcionais: sem eles, a mensagem de erro usa o texto padrao abaixo
     MOTIVO="$(printf '%s' "$TEXTO" | jq -r 'if (.corpo | type) == "object" and ((.corpo.erro | type) == "string") then .corpo.erro else empty end' 2>/dev/null || true)"
     ESPERAR="$(printf '%s' "$TEXTO" | jq -r 'if (.corpo | type) == "object" and ((.corpo.retryAfter | type) == "number") then " Tente de novo em \(.corpo.retryAfter) s." else empty end' 2>/dev/null || true)"
     if [ "${STATUS:0:1}" = 4 ]; then CODIGO=4; else CODIGO=5; fi

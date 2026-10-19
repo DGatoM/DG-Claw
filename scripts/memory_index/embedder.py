@@ -99,7 +99,7 @@ def _morre_junto():
     try:
         ctypes.CDLL("libc.so.6", use_errno=True).prctl(1, signal.SIGTERM)  # PR_SET_PDEATHSIG
     except Exception:  # noqa: BLE001  fora do Linux so perde a garantia extra
-        pass
+        pass  # sem prctl o servidor so deixa de morrer junto com o pai
 
 
 class EmbedderLocal:
@@ -160,7 +160,7 @@ class EmbedderLocal:
                     if r.status == 200:
                         return
             except Exception:  # noqa: BLE001  ainda carregando o modelo
-                pass
+                pass  # o laco tenta de novo e o prazo total encerra com erro explicado
             time.sleep(0.1)
         self.fechar()
         raise EmbedError("o llama-server nao ficou pronto em 60 s (maquina muito ocupada?). "

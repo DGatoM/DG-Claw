@@ -139,7 +139,7 @@ def main():
     try:
         prev_lvl = json.loads(state.read_text()).get("level", "ok")
     except Exception:
-        pass
+        pass  # sem estado anterior (primeira execucao ou arquivo ilegivel): parte de "ok"
 
     print(f"saldo OpenRouter: ${bal:.2f} (de ${total:.0f}) — nivel {lvl}")
 

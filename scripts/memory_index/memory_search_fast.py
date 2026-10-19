@@ -235,7 +235,7 @@ def log_event(event: dict) -> None:
         with LOG_PATH.open("a") as f:
             f.write(json.dumps(event, ensure_ascii=False) + "\n")
     except Exception:
-        pass
+        pass  # telemetria: sem log a busca funciona igual
 
 
 def run(input_text: str) -> dict:

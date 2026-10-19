@@ -37,11 +37,15 @@ LOG_DIR="$WS/.dgclaw/logs"
 AUDIT_LOG="$LOG_DIR/cron-audit.log"
 ANOMALY_FILE="$LOG_DIR/cron-anomalies-latest.md"
 POWERS_FILE="$WS/.dgclaw/powers.json"
-mkdir -p "$LOG_DIR" 2>/dev/null
+mkdir -p "$LOG_DIR" || echo "cron-audit: nao consegui criar $LOG_DIR. A auditoria roda, mas sem log nem arquivo de anomalias; confira permissao e espaco em disco." >&2
 
 # Pulso: registra ok/erro no ledger (degrada gracioso se a lib nao existir).
 # shellcheck disable=SC1091
-source "$PLUGIN/scripts/_lib/pulso-lib.sh" 2>/dev/null && pulso_auto cron-audit
+if source "$PLUGIN/scripts/_lib/pulso-lib.sh"; then
+    pulso_auto cron-audit
+else
+    echo "cron-audit: nao consegui carregar $PLUGIN/scripts/_lib/pulso-lib.sh. A auditoria roda, mas o Pulso fica sem o registro; reinstale o plugin do agente." >&2
+fi
 
 TS=$(date '+%Y-%m-%d %H:%M:%S')
 echo "[$TS] iniciando auditoria de crons/timers (slug=$SLUG)" >> "$AUDIT_LOG"
@@ -52,6 +56,8 @@ HEALTHY=0
 NOW=$(date +%s)
 
 # ─── helper: audita 1 timer systemd (existe/enabled/active/ultima ativacao) ────
+# Nas consultas ao systemctl abaixo, o stderr fica de fora porque o codigo de saida (e a saida vazia)
+# ja e a resposta: unit ausente, desabilitada ou parada viram anomalia no relatorio, nao erro do script.
 audit_timer() {
     local unit="$1" label="$2"
     TOTAL=$((TOTAL+1))
@@ -120,11 +126,12 @@ if [ -f "$POWERS_FILE" ]; then
         [ -z "$line" ] && continue
         pid="${line%%|*}"; unit="${line#*|}"
         audit_timer "$unit" "poder:$pid"
-    done < <(python3 - "$POWERS_FILE" <<'PY' 2>/dev/null
+    done < <(python3 - "$POWERS_FILE" <<'PY' 2>>"$AUDIT_LOG"
 import json, sys
 try:
     d = json.load(open(sys.argv[1]))
-except Exception:
+except Exception as e:
+    print(f"cron-audit: nao consegui ler {sys.argv[1]} ({type(e).__name__}). Os timers dos poderes nao foram conferidos; confira se o JSON esta valido.", file=sys.stderr)
     sys.exit(0)
 for p in d.get("powers", []):
     if p.get("enabled") and p.get("cron_timers"):
@@ -165,7 +172,8 @@ if [ "${#ANOMALIES[@]}" -gt 0 ]; then
         echo ""
         echo "Total: $TOTAL componentes. Saudaveis: $HEALTHY. Anomalos: ${#ANOMALIES[@]}."
     } > "$ANOMALY_FILE"
-    pulso erro "$((${#ANOMALIES[@]})) anomalias" 2>/dev/null || true
+    pulso erro "$((${#ANOMALIES[@]})) anomalias" \
+        || echo "cron-audit: nao consegui registrar as anomalias no Pulso (pulso-lib ausente?)." >&2
 else
     [ -f "$ANOMALY_FILE" ] && rm -f "$ANOMALY_FILE"
 fi

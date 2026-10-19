@@ -39,7 +39,7 @@ set +e
 CONFIG="${1:-${DGCLAW_CONFIG:-}}"
 if [ -n "$CONFIG" ] && [ -f "$CONFIG" ]; then
     # shellcheck disable=SC1090
-    source "$CONFIG" 2>/dev/null
+    source "$CONFIG" 2>/dev/null || CONFIG_FALHOU=1
 fi
 
 # ─── Resolve paths/logs (best-effort; nunca aborta) ────────────────────────────
@@ -48,9 +48,12 @@ SLUG="${DGCLAW_SLUG:-persona}"
 INDEX_DIR="${DGCLAW_MEMORY_INDEX_DIR:-${WS:+$WS/.dgclaw/memory_index}}"
 LOG_DIR="${WS:+$WS/.dgclaw/logs}"
 LOG="${LOG_DIR:-/tmp}/hook-memory-inject.log"
+# O hook nunca pode travar o prompt do dono: sem pasta de log ele roda igual, so sem diagnostico.
 mkdir -p "$(dirname "$LOG")" 2>/dev/null
 
 _log() { echo "[$(date '+%H:%M:%S')] $*" >> "$LOG" 2>/dev/null; }
+# o log e so diagnostico; se nem ele grava, nao ha onde avisar sem sujar a saida do hook
+[ -z "${CONFIG_FALHOU:-}" ] || _log "aviso: o config $CONFIG deu erro ao carregar; a busca segue com o ambiente atual. Confira a sintaxe do arquivo."
 
 # ─── GATE 1: opt-in (default OFF) ──────────────────────────────────────────────
 if [ "${DGCLAW_MEMORY_HOOK:-0}" != "1" ]; then
@@ -102,7 +105,7 @@ try:
     print(p.strip())
 except Exception:
     pass
-" 2>/dev/null)
+" 2>>"$LOG")
 
 if [ -z "$USER_TEXT" ]; then
     _log "empty user text, skip"
@@ -119,7 +122,7 @@ RESULT=$(
     printf '%s' "$USER_TEXT" | python3 -c "
 import json, sys
 print(json.dumps({'input': sys.stdin.read()}))
-" 2>/dev/null | timeout "$TIMEOUT_S" python3 "$SEARCH" 2>>"$LOG"
+" 2>>"$LOG" | timeout "$TIMEOUT_S" python3 "$SEARCH" 2>>"$LOG"
 )
 
 if [ -z "$RESULT" ]; then
@@ -151,7 +154,7 @@ out = {
     }
 }
 print(json.dumps(out, ensure_ascii=False))
-" 2>/dev/null
+" 2>>"$LOG"
 
 # ─── Log de diagnostico (best-effort) ──────────────────────────────────────────
 SHORT_TEXT=$(printf '%s' "$USER_TEXT" | head -c 80 | tr '\n' ' ')
@@ -162,6 +165,6 @@ try:
     print(f\"fired={d.get('fired')} skip={d.get('skip_reason') or d.get('reason')} score={d.get('score')} dur={d.get('duration_ms')}ms\")
 except Exception:
     print('(parse falhou)')
-" 2>/dev/null)
+" 2>>"$LOG")
 _log "$SHORT_RESULT | text=$SHORT_TEXT"
 exit 0

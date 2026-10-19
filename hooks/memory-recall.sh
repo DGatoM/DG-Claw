@@ -38,8 +38,10 @@ TAIL="$WORKSPACE/.dgclaw/chat-tail.md"
 CNT="$WORKSPACE/.dgclaw/turns.count"
 LOGF="$WORKSPACE/.dgclaw/logs/memory-recall.log"
 COMPACT_AT=40   # avisa a partir de ~40 trocas desde a ultima compactacao
+# O hook roda a cada prompt e nunca pode travar a conversa: sem as pastas ele segue sem memoria e sem log.
 mkdir -p "$(dirname "$TAIL")" "$(dirname "$LOGF")" 2>/dev/null
 
+# o log e o ultimo recurso para avisar; se ele mesmo nao grava, nao ha onde registrar sem sujar a saida do hook
 logerr() { printf '[%s] %s\n' "$(date '+%F %T')" "$1" >> "$LOGF" 2>/dev/null; }
 
 HOOK_INPUT=$(cat)
@@ -74,6 +76,7 @@ print(p.strip())
 } 2>>"$LOGF"
 
 # --- contador de trocas + aviso de compactacao ---
+# primeira troca: o contador ainda nao existe e comeca de 0
 N=$(cat "$CNT" 2>/dev/null); N=$((${N:-0}+1)); echo "$N" > "$CNT" 2>>"$LOGF"
 COMPACT_NOTE=""
 if [ "$N" -ge "$COMPACT_AT" ] && [ $(( N % 10 )) -eq 0 ]; then

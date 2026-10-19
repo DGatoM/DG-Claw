@@ -27,6 +27,7 @@ CONFIG="${1:?Uso: install-ig-timers.sh <.dgclaw/config.sh> [--off] [--tz TZ]}"
 
 MODE="install"
 TZ_VAL="America/Sao_Paulo"
+# o config e o unico argumento obrigatorio; sem opcoes depois dele o shift falha e nao ha o que ler
 shift || true
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -74,12 +75,14 @@ if [ "$MODE" = "off" ]; then
         [ -e "$unit" ] || continue
         base="$(basename "$unit")"
         if [[ "$base" == *.timer ]]; then
+            # timer ja parado ou nunca carregado: o rm logo abaixo remove o arquivo de qualquer jeito
             systemctl disable --now "$base" 2>/dev/null || true
         fi
         rm -f "$unit"
     done
     systemctl daemon-reload
-    python3 "$PLUGIN/scripts/powers.py" --file "$WS/.dgclaw/powers.json" disable instagram || true
+    python3 "$PLUGIN/scripts/powers.py" --file "$WS/.dgclaw/powers.json" disable instagram \
+        || echo "aviso: nao consegui travar o poder instagram em $WS/.dgclaw/powers.json (veja a mensagem acima). As abas POSTS/FOLLOWERS podem seguir liberadas; rode: python3 $PLUGIN/scripts/powers.py --file $WS/.dgclaw/powers.json disable instagram" >&2
     devolver_ao_dono "$WS/.dgclaw/powers.json"
     echo "==> timers removidos e poder instagram travado (abas POSTS/FOLLOWERS voltam a travar)."
     echo "    Dados preservados (data/posts.jsonl, persona/followers/, etc)."
@@ -94,12 +97,14 @@ if [ -f "$IG_JSON" ]; then
 import json,sys
 try:
     cfg=json.load(open(sys.argv[1]))
-except Exception:
+except Exception as e:
+    sys.stderr.write("aviso: nao consegui ler os horarios de %s (%s); usando os horarios padrao.\n" % (sys.argv[1], e))
     sys.exit(0)
 sched=cfg.get("schedule") or []
 times=[s.get("time") for s in sched if (s.get("type") or "post")=="post" and s.get("time")]
 print(" ".join(times))
-' "$IG_JSON" 2>/dev/null || true)
+' "$IG_JSON") \
+        || echo "aviso: falha ao ler os horarios de $IG_JSON; usando os horarios padrao 08:00 13:00 19:00." >&2
 fi
 [ -z "$POST_TIMES" ] && POST_TIMES="08:00 13:00 19:00"
 
@@ -190,6 +195,7 @@ for tm in "${TIMER_NAMES[@]}"; do
 done
 
 echo "==> timers de Instagram instalados e ativos:"
+# so mostra a lista na tela; os timers ja foram ativados acima, entao falhar aqui nao muda o resultado
 systemctl list-timers "dgclaw-${SLUG}-post-*" "dgclaw-${SLUG}-comments*" --no-pager 2>/dev/null | head -12 || true
 
 # ---------- marcar o poder como ativo ----------

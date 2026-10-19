@@ -107,8 +107,9 @@ def publish_image(account, image_url, caption, token, wait=2):
         )
         if rp.status_code == 200:
             out["permalink"] = rp.json().get("permalink")
-    except requests.RequestException:
-        pass
+    except requests.RequestException as e:
+        print(f"AVISO: post publicado (media_id {media_id}), mas nao consegui buscar o permalink: {e}. "
+              "O link pode ser consultado depois pelo media_id.", file=sys.stderr)
 
     print(json.dumps(out, ensure_ascii=False))
     return 0

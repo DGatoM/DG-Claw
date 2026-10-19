@@ -32,7 +32,8 @@ export TELEGRAM_STATE_DIR
 [ -n "${DGCLAW_OWNER_TELEGRAM_ID:-}" ] && export DGCLAW_OWNER_TELEGRAM_ID
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOGDIR="$WS/.dgclaw/logs"; mkdir -p "$LOGDIR" 2>/dev/null || true
+LOGDIR="$WS/.dgclaw/logs"
+mkdir -p "$LOGDIR" || echo "aviso: nao consegui criar $LOGDIR; o watchdog segue, mas sem log e sem guardar o estado. Confira a permissao da pasta." >&2
 STATEF="$LOGDIR/channel-watchdog.state"
 LOGF="$LOGDIR/channel-watchdog.log"
 
@@ -40,7 +41,7 @@ LEMBRETE_S=$(( ${DGCLAW_CHANNEL_WATCHDOG_LEMBRETE_H:-6} * 3600 ))
 RESTART_PAUSA_S=1800
 NOW=$(date +%s)
 
-log() { echo "$(date '+%Y-%m-%dT%H:%M:%S%z') $*" >> "$LOGF" 2>/dev/null || true; }
+log() { echo "$(date '+%Y-%m-%dT%H:%M:%S%z') $*" >> "$LOGF" 2>/dev/null || echo "aviso: nao consegui gravar em $LOGF; mensagem perdida: $*" >&2; }
 
 notify() { # avisa o dono; tenta notify-owner.sh do DG Claw, senao Bot API inline
     local msg="$1"
@@ -51,6 +52,7 @@ notify() { # avisa o dono; tenta notify-owner.sh do DG Claw, senao Bot API inlin
     # fallback inline (mesma logica do notify-owner: token do .env + allowFrom[0]); sem parse_mode
     [ -n "$STATE_DIR" ] || return 0
     local token chat
+    # sem .env nao ha token: o aviso inline nao tem como sair e a linha seguinte encerra
     token=$(grep -E '^TELEGRAM_BOT_TOKEN=' "$STATE_DIR/.env" 2>/dev/null | head -1 | cut -d= -f2-)
     [ -n "$token" ] || return 0
     if [[ ! "$token" =~ ^[0-9]+:[A-Za-z0-9_-]+$ ]]; then
@@ -59,14 +61,19 @@ notify() { # avisa o dono; tenta notify-owner.sh do DG Claw, senao Bot API inlin
     fi
     chat="${DGCLAW_OWNER_TELEGRAM_ID:-}"
     if [ -z "$chat" ] && [ -f "$STATE_DIR/access.json" ]; then
-        chat=$(ACCESS="$STATE_DIR/access.json" python3 -c "import json,os;d=json.load(open(os.environ['ACCESS']));a=d.get('allowFrom',[]);print(a[0] if a else '')" 2>/dev/null)
+        chat=$(ACCESS="$STATE_DIR/access.json" python3 -c "import json,os;d=json.load(open(os.environ['ACCESS']));a=d.get('allowFrom',[]);print(a[0] if a else '')" 2>>"$LOGF")
     fi
-    [ -n "$chat" ] || return 0
+    if [ -z "$chat" ]; then
+        log "aviso ao dono nao enviado: nao achei o chat dele (defina DGCLAW_OWNER_TELEGRAM_ID ou confira o allowFrom de $STATE_DIR/access.json)"
+        return 0
+    fi
     # URL com o token pelo stdin (-K -), fora do argv que o `ps` mostra (achado S08)
     printf 'url = "https://api.telegram.org/bot%s/sendMessage"\n' "$token" | curl -sS --max-time 20 -K - \
-        --data-urlencode "chat_id=${chat}" --data-urlencode "text=${msg}" -o /dev/null 2>/dev/null || true
+        --data-urlencode "chat_id=${chat}" --data-urlencode "text=${msg}" -o /dev/null 2>/dev/null \
+        || log "aviso ao dono nao enviado: o curl para o Telegram falhou (sem rede ou token recusado). Confira a conexao e o TELEGRAM_BOT_TOKEN de $STATE_DIR/.env"
 }
 
+# estado ilegivel equivale a "sem estado anterior": o script recomeca do zero e regrava
 prev=""; [ -f "$STATEF" ] && prev=$(head -1 "$STATEF" 2>/dev/null)
 
 # 0. Sem Telegram nao ha poller para vigiar: o channel-health falharia sempre e este script
@@ -98,6 +105,7 @@ if bash "$SELF_DIR/channel-health.sh" "$CONFIG" >/dev/null 2>&1; then
 fi
 
 # 2. canal caiu. Se o service nem deveria estar de pe (stop manual), so registra.
+# is-active sai com erro quando a unidade nao esta ativa; o texto vazio cai no ramo "nao esta ativo" abaixo
 active=$(systemctl is-active "$SERVICE" 2>/dev/null || true)
 if [ "$active" != "active" ]; then
     log "dead but service=$active (provavel stop manual) — sem acao"
@@ -112,7 +120,8 @@ if [ "$FALHAS" -ge 3 ] && [ $(( NOW - ULT_RESTART )) -lt "$RESTART_PAUSA_S" ]; t
     exit 0
 fi
 log "poller morto com service ativo — reiniciando $SERVICE"
-systemctl restart "$SERVICE" 2>/dev/null || true
+systemctl restart "$SERVICE" 2>>"$LOGF" \
+    || log "systemctl restart $SERVICE falhou; confira com: systemctl status $SERVICE (talvez falte permissao de root)"
 sleep 12
 if bash "$SELF_DIR/channel-health.sh" "$CONFIG" >/dev/null 2>&1; then
     notify "🔧 Watchdog: o canal do Telegram tinha caido (poller morto) — reiniciei automatico e voltou. Se voce mandou msg e nao respondeu, reenvia."

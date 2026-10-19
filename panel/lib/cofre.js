@@ -1,12 +1,12 @@
-// cofre.js — a aba Cofre: onde o dono do agente guarda a chave de um serviço.
+// cofre.js: a aba Cofre: onde o dono do agente guarda a chave de um serviço.
 //
 // ╔══════════════════════════════════════════════════════════════════════════╗
 // ║  O QUE ENTRA AQUI VIRA VARIÁVEL DE AMBIENTE DE UM PROCESSO QUE RODA       ║
 // ║  COMO ROOT. Cada recusa deste arquivo existe por causa disso.             ║
 // ╚══════════════════════════════════════════════════════════════════════════╝
 //
-// O caso concreto que pediu esta tela: o Bento, que é o agente do Paulo,
-// precisa de uma chave da OpenAI para gerar capa de YouTube. Sem esta aba, a
+// O caso concreto que pediu esta tela: um agente de cliente
+// precisava de uma chave da OpenAI para gerar capa de YouTube. Sem esta aba, a
 // única forma de dar uma chave a um agente era alguém com acesso à máquina
 // editar um arquivo à mão.
 //
@@ -33,7 +33,7 @@
 // não enxergar: o NOME da variável é vetor de execução de código. `NODE_OPTIONS`
 // passa em `^[A-Z][A-Z0-9_]*$`, e `NODE_OPTIONS=--require /pasta/dele/x.js` faz o
 // runner (`/usr/bin/node dist/index.js`) executar o arquivo do dono do agente
-// como root, na máquina do mantenedor. `LD_PRELOAD` faz o mesmo com qualquer binário,
+// como root, na máquina do dono. `LD_PRELOAD` faz o mesmo com qualquer binário,
 // e `BASH_ENV` faz o mesmo no agente de plugin, que sobe por um script de shell.
 // Por isso o nome passa por LISTA DE PERMITIDOS (`NOME_PERMITIDO`), e não por
 // lista de proibidos: numa lista de proibidos, o nome perigoso seguinte é sempre
@@ -59,381 +59,12 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { execFileSync } = require('child_process');
+const regras = require('./cofre-regras');
+const { criarCifra } = require('./cofre-cifra');
+const { buildCofreHost } = require('./cofre-host');
+const { criarUnidade } = require('./cofre-unidade');
 
-/**
- * O slug do agente, que vira nome de arquivo e nome de unidade do systemd.
- *
- * Ele não vem da tela (a tela não escolhe agente: o painel serve um só, o do
- * `config.json`), mas passa pela régua assim mesmo. Um `..` aqui viraria escrita
- * fora da pasta do cofre, com o privilégio do painel, que é root.
- */
-const SLUG_OK = /^[a-z0-9-]{1,32}$/;
-
-/**
- * O formato de um nome de variável de ambiente. É a régua de FORMA, e ela sozinha
- * não basta: ver `NOME_PERMITIDO` logo abaixo, que é a régua de SENTIDO.
- */
-const NOME_FORMA_OK = /^[A-Z][A-Z0-9_]{0,63}$/;
-
-/**
- * A LISTA DE PERMITIDOS DE NOME. Só passa nome que anuncia ser credencial de um
- * serviço externo, ou a outra metade de uma credencial.
- *
- * É uma lista de permitidos e não de proibidos de propósito, e o cabeçalho deste
- * arquivo explica o ataque que ela fecha.
- *
- * A SEGUNDA METADE DA LISTA CUSTOU UMA CONFERÊNCIA CONTRA AS 88 CHAVES REAIS do
- * vault do mantenedor, e ela existe porque credencial quase sempre vem em PAR. Só com
- * os sufixos de "segredo" (`_API_KEY`, `_TOKEN`, `_SECRET`), doze chaves legítimas
- * ficavam de fora, entre elas `HOTMART_CLIENT_ID`, `KIWIFY_ACCOUNT_ID`,
- * `META_APP_ID`, `DATABASE_URL` e `TWILIO_ACCOUNT_SID`. Sem o `CLIENT_ID` o
- * `CLIENT_SECRET` sozinho não autentica em lugar nenhum: o dono cadastraria
- * metade da credencial, a integração falharia, e ele não teria como entender por
- * quê. Quebra calada é o modo de falha que este módulo inteiro tenta não ter.
- *
- * Quando um nome legítimo for recusado, a correção é acrescentar o sufixo aqui,
- * com uma linha dizendo por quê, e nunca afrouxar a régua. Para o caso pontual
- * existe `cofreNomesExtras` no `config.json`, que só quem administra a máquina
- * edita.
- */
-const NOME_PERMITIDO = [
-  // O segredo em si.
-  /_API_KEY$/, /_API_TOKEN$/, /_TOKEN$/, /_SECRET$/, /_KEY$/, /_PASSWORD$/, /_WEBHOOK_URL$/,
-  // A outra metade da credencial, e o endereço de onde ela vale.
-  /_ID$/, /_SID$/, /_USERNAME$/, /_USER$/, /_ACCOUNT$/, /_URL$/, /_DSN$/, /_ENDPOINT$/,
-  /_REGION$/, /_BUCKET$/, /_PROJECT$/, /_ORG$/, /_VERSION$/, /_EMAIL$/,
-  // Nome oficial de credencial que não termina em nenhum sufixo acima.
-  /^GOOGLE_APPLICATION_CREDENTIALS$/,
-];
-
-/**
- * CINTO E SUSPENSÓRIO: nomes recusados mesmo que casem com a lista de permitidos.
- *
- * Isto NÃO substitui a lista de permitidos e não contradiz a lição de 18/08. A
- * allowlist continua sendo A defesa; esta lista é a redundância para o dia em que
- * alguém acrescentar um sufixo à `NOME_PERMITIDO` sem pensar em execução de
- * código, e esse dia chega.
- *
- * `LD_` e `DYLD_` carregam biblioteca antes do programa. `NODE_`, `PYTHON`,
- * `PERL`, `RUBY` e `BASH_` mandam o interpretador executar arquivo escolhido por
- * quem escreveu a variável (`NODE_OPTIONS=--require`, `BASH_ENV`, `PYTHONSTARTUP`).
- * `GIT_` cobre `GIT_SSH_COMMAND` e `GIT_EXTERNAL_DIFF`, que são o mesmo truque com
- * outro nome.
- *
- * OS DOIS ÚLTIMOS EXATOS NÃO EXECUTAM NADA, e é por isso que eles são fáceis de
- * esquecer numa lista pensada só em execução de código: `SSL_CERT_FILE` e
- * `NODE_EXTRA_CA_CERTS` movem a âncora de confiança de TLS do agente para um
- * certificado escolhido pelo dono, que é como se lê o tráfego cifrado dele
- * inteiro sem rodar uma linha de código.
- */
-const NOME_PREFIXO_PROIBIDO = ['LD_', 'DYLD_', 'NODE_', 'PYTHON', 'PERL', 'RUBY', 'GIT_', 'BASH_', 'NPM_', 'CLAUDE_'];
-/**
- * A ÚNICA EXCEÇÃO ao prefixo `CLAUDE_`, consultada ANTES dele.
- *
- * `CLAUDE_CODE_OAUTH_TOKEN` é o token de longa duração que o próprio Claude Code
- * gera com `claude setup-token`, o fluxo oficial da Anthropic para usar a
- * assinatura sem copiar o `.credentials.json` entre contêineres. A cópia do
- * arquivo derrubava o login: quando um dos contêineres renovava o token, o outro
- * ficava com um token já trocado. Este nome não executa nada nem muda o
- * comportamento do binário, só entrega a credencial.
- *
- * O RESTO DO PREFIXO CONTINUA PROIBIDO, porque `CLAUDE_CONFIG_DIR`,
- * `CLAUDE_CODE_USE_BEDROCK` e companhia mudam o jeito como o binário roda.
- * Esta lista é exata de propósito: acrescentar um nome aqui é uma decisão a ser
- * escrita com o motivo, nunca um padrão.
- */
-const NOME_EXATO_LIBERADO = new Set(['CLAUDE_CODE_OAUTH_TOKEN']);
-
-const NOME_EXATO_PROIBIDO = new Set([
-  'PATH', 'HOME', 'ENV', 'IFS', 'PS4', 'SHELL', 'SHELLOPTS', 'TMPDIR',
-  'SSL_CERT_FILE', 'NODE_EXTRA_CA_CERTS',
-]);
-
-/**
- * Nomes que o provisionamento do runner já escreve, e que o cofre nunca pode
- * ocupar (regra 10).
- *
- * Se um deles fosse cadastrado, o `provisionar-runner.mjs` o reescreveria no
- * próximo provisionamento e o segredo sumiria em silêncio, que é exatamente o
- * modo de falha que a regra 7 existe para evitar. Nenhum deles passaria na
- * `NOME_PERMITIDO` de qualquer forma; a lista está aqui para que a RECUSA seja
- * explicada com o motivo certo, em vez de um "nome não aceito" genérico.
- */
-const RESERVADOS = new Set([
-  'RUNNER_AGENT_FILE', 'RUNNER_PORT', 'RUNNER_LOG', 'HOME', 'PATH', 'CLAUDE_CONFIG_DIR',
-]);
-
-/**
- * O que um valor de segredo pode conter: caractere imprimível de ASCII, MENOS a
- * aspa simples.
- *
- * Chave de API é ASCII. O que esta régua barra primeiro é o acidente: quebra de
- * linha colada junto (que quebraria o arquivo de ambiente em duas linhas, e a
- * segunda viraria uma variável que ninguém cadastrou), caractere de controle e
- * byte nulo. O teto de 4096 é folgado para qualquer chave de serviço e barra
- * alguém colar um arquivo inteiro aqui por engano.
- *
- * A ASPA SIMPLES (\x27) SAI POR UM MOTIVO MEDIDO, e não por precaução vaga.
- * O arquivo gerado é lido por DOIS leitores diferentes: o `EnvironmentFile=` do
- * systemd e o `.` do bash. Os dois entendem aspas simples do mesmo jeito, e
- * também leem igual barra invertida, aspas duplas, cifrão, crase e espaço lá
- * dentro (conferido nesta máquina, systemd 255). O que eles NÃO entendem igual é
- * uma aspa simples DENTRO do valor: o jeito POSIX de escrevê-la (`'\''`) é do
- * bash, e o systemd lê aquilo ao pé da letra. O bash receberia `a'b` e o systemd
- * receberia `a''b'`, ou seja, o mesmo arquivo daria duas chaves diferentes
- * conforme a forma do agente, e o sintoma seria um "não autorizado" que só
- * acontece num dos dois tipos de agente.
- *
- * Chave de serviço não tem apóstrofo. Custa barrar isso: nada. Custa não barrar:
- * uma falha que muda conforme o agente, que é o tipo mais caro de perseguir.
- */
-const VALOR_OK = /^[\x20-\x26\x28-\x7E]{8,4096}$/;
-
-/**
- * O catálogo de provedores.
- *
- * `onde` existe por causa da regra 11: quem cadastra a chave é o dono do agente,
- * e ele pode nunca ter gerado uma chave de API na vida. Mandar a pessoa
- * "pegar a chave no painel do provedor" sem dizer onde é meia instrução.
- */
-const PROVEDORES = [
-  { id: 'openai', nome: 'OpenAI', sugestao: 'OPENAI_API_KEY', onde: 'https://platform.openai.com/api-keys' },
-  { id: 'anthropic', nome: 'Anthropic (Claude)', sugestao: 'ANTHROPIC_API_KEY', onde: 'https://console.anthropic.com/settings/keys' },
-  { id: 'google', nome: 'Google (Gemini)', sugestao: 'GEMINI_API_KEY', onde: 'https://aistudio.google.com/apikey' },
-  { id: 'groq', nome: 'Groq (grátis, transcrição de áudio)', sugestao: 'GROQ_API_KEY', onde: 'https://console.groq.com/keys' },
-  { id: 'elevenlabs', nome: 'ElevenLabs', sugestao: 'ELEVENLABS_API_KEY', onde: 'https://elevenlabs.io/app/settings/api-keys' },
-  { id: 'xai', nome: 'xAI (Grok)', sugestao: 'XAI_API_KEY', onde: 'https://console.x.ai' },
-  // Não é chave de API: é a assinatura do Claude. `onde` é nulo porque o token não
-  // sai de um site, sai de um comando; a `dica` diz qual, e a tela a mostra.
-  { id: 'claude-assinatura', nome: 'Claude (assinatura, token do setup-token)', sugestao: 'CLAUDE_CODE_OAUTH_TOKEN', onde: null,
-    dica: 'Este token não sai de um site. Num terminal da sua máquina, com o Claude Code instalado e logado na sua assinatura, rode "claude setup-token" e cole aqui o token que ele imprimir.' },
-  { id: 'outro', nome: 'Outro serviço', sugestao: '', onde: null },
-];
-
-/** Erro com motivo em português e o status que a rota vai devolver. */
-function recusa(erro, status, howToFix) {
-  const r = { erro, status: status || 400 };
-  if (howToFix) r.howToFix = howToFix;
-  return r;
-}
-
-/**
- * Valor virando linha de arquivo de ambiente, em aspas SIMPLES.
- *
- * Aspas simples é a única forma que o systemd e o bash entendem do mesmo jeito,
- * porque nenhum dos dois expande nada lá dentro. Aspas duplas deixariam o bash
- * expandir `$` e crase, e aí o valor de um segredo poderia virar comando na
- * inicialização do agente.
- *
- * NÃO EXISTE ESCAPE AQUI, DE PROPÓSITO. Escapar aspa simples dentro de aspas
- * simples só tem um jeito, o `'\''` do POSIX, e ele é do bash: o systemd leria
- * aquilo ao pé da letra e entregaria outro valor. Em vez de gerar uma linha que
- * significa duas coisas, a aspa simples é recusada lá na entrada (`VALOR_OK`, e o
- * porquê está escrito lá). A conferência abaixo é a segunda tranca, para o caso
- * de alguém alargar a `VALOR_OK` sem ler o comentário dela.
- */
-function linhaDeAmbiente(nome, valor) {
-  const v = String(valor);
-  if (v.includes("'") || /[\n\r\0]/.test(v)) {
-    throw new Error('valor com aspa simples ou quebra de linha não pode virar linha de ambiente');
-  }
-  return `${nome}='${v}'`;
-}
-
-// ─── A cifragem ──────────────────────────────────────────────────────────────
-//
-// DOIS MOTORES, e o store guarda em qual deles cada segredo foi cifrado, para que
-// uma máquina que ganhe o motor bom depois não perca o que já estava guardado.
-//
-//   `systemd-creds` (preferido): a chave mestra é a do host, em
-//     /var/lib/systemd/credential.secret, modo 0400 root. Um `tar` da pasta do
-//     agente leva o segredo cifrado e NÃO leva a chave, que é justamente o que a
-//     regra 3 pede.
-//
-//   `local` (alternativa): AES-256-GCM com chave num arquivo separado, fora da
-//     pasta do cofre. Protege contra quem lê o store e não protege contra uma
-//     cópia da pasta inteira do agente. É pior, e por isso o `estado()` conta
-//     qual dos dois está em uso, e a tela mostra.
-
-function temSystemdCreds() {
-  try {
-    execFileSync('systemd-creds', ['--version'], { stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * A validação inteira de uma chave que vai ser guardada, sem tocar em disco.
- *
- * Existe separada para que o painel (`guardar` abaixo) e o DG Claw Web, que na v1 é
- * quem grava no host, recusem EXATAMENTE as mesmas coisas, com as mesmas frases.
- * Duas cópias desta régua divergem no primeiro ajuste. `extras` é o conjunto de
- * nomes liberados à mão por quem administra a máquina (`cofreNomesExtras`).
- *
- * Devolve `{ nome, valor, provedor }` quando passa, ou o objeto de recusa
- * `{ erro, status, howToFix }`. A recusa nunca repete o valor.
- */
-function validarChave(pedido, extras) {
-  const EXTRAS = extras || new Set();
-  const nome = String((pedido && pedido.envName) || '').trim().toUpperCase();
-  const valor = typeof (pedido && pedido.valor) === 'string' ? pedido.valor.trim() : '';
-  const provedor = String((pedido && pedido.provedor) || 'outro');
-
-  if (!nome) {
-    return recusa('Faltou o nome da variável, que é como o agente encontra a chave.', 400,
-      'Escolha o serviço na lista: ele preenche o nome certo sozinho.');
-  }
-  if (!NOME_FORMA_OK.test(nome)) {
-    return recusa(
-      `"${nome}" não serve como nome de variável. Ele precisa começar com letra maiúscula e ter só letras maiúsculas, números e sublinhado.`,
-      400,
-      'Escolha o serviço na lista acima, que já traz o nome no formato certo.',
-    );
-  }
-  if (RESERVADOS.has(nome)) {
-    return recusa(
-      `"${nome}" é um nome que o próprio sistema usa para dizer ao agente onde ele mora e por onde ele roda, então o cofre não pode ocupá-lo.`,
-      409,
-      'Se o serviço exige exatamente esse nome, fale com quem administra a máquina do agente: isso precisa de outro caminho.',
-    );
-  }
-  // O deny vem ANTES do allow: um nome que case com os dois é recusado, que é o
-  // ponto inteiro de ele existir.
-  if (NOME_EXATO_PROIBIDO.has(nome) ||
-      (!NOME_EXATO_LIBERADO.has(nome) && NOME_PREFIXO_PROIBIDO.some((p) => nome.startsWith(p)))) {
-    return recusa(
-      `"${nome}" não é uma chave de serviço: é um nome que muda o jeito como o próprio agente roda, ` +
-      'e por isso o cofre não guarda nenhum com esse começo.',
-      400,
-      'Se o serviço que você está ligando exige exatamente esse nome, fale com quem administra a máquina do agente: ' +
-      'esse caso precisa ser avaliado um por um, e não pela tela.',
-    );
-  }
-  if (!NOME_PERMITIDO.some((re) => re.test(nome)) && !EXTRAS.has(nome)) {
-    return recusa(
-      `"${nome}" não parece nome de chave de serviço, e este campo só aceita chave de serviço.`,
-      400,
-      'Nome de credencial costuma terminar em _API_KEY, _TOKEN, _SECRET, _KEY, _PASSWORD, _ID, _URL ou _ACCOUNT. ' +
-      'Escolher o serviço na lista acima preenche o nome certo. ' +
-      'Se o seu serviço usa mesmo um nome fora desse padrão, ele pode ser liberado: peça a quem administra a máquina do agente, ' +
-      'que é quem consegue avaliar se aquele nome é inofensivo.',
-    );
-  }
-  if (!valor) {
-    return recusa('Faltou a chave. Nada foi alterado no cofre.', 400,
-      'Cole a chave que você gerou no painel do serviço.');
-  }
-  if (!VALOR_OK.test(valor)) {
-    // A recusa NÃO REPETE O VALOR, nem um pedaço dele. Ver regra 5.
-    return recusa(
-      'Essa chave tem caractere que não pode entrar aqui, ou é curta demais (menos de 8 caracteres). ' +
-      'Quebra de linha, acento, apóstrofo e caractere invisível costumam vir junto quando a chave é copiada ' +
-      'de um PDF, de uma mensagem ou de um site que troca aspas por aspas curvas.',
-      400,
-      'Copie a chave direto do painel do serviço, sem selecionar o espaço em volta, e cole de novo.',
-    );
-  }
-  // Referência de outro cofre ("vault:..."): só vale atrás do proxy que a troca pela
-  // chave verdadeira. Guardada aqui, o agente receberia um texto que nenhum serviço aceita.
-  if (/^vault:/i.test(valor)) {
-    return recusa(
-      'Isso é uma referência de cofre (começa com "vault:"), e não a chave. Dentro do agente ela não vale nada.',
-      400,
-      'Pegue a chave verdadeira na fonte onde ela fica guardada (ou no painel do serviço) e mande essa.',
-    );
-  }
-
-  return { nome, valor, provedor };
-}
-
-// ─── O modo "host" (DG Claw v1) ──────────────────────────────────────────────
-//
-// Na v1 o agente roda num contêiner e quem guarda a chave é o DG Claw Web, no host,
-// num arquivo que o agente não alcança (`web/lib/cofre-agente.js`). Este painel, de
-// dentro, só consegue LER os nomes das chaves (o Web os escreve em
-// `/run/dgclaw/config/cofre-nomes`, pasta montada só para leitura).
-//
-// POR QUE RECUSAR EM VEZ DE CAIR NO MOTOR LOCAL: o motor local guarda a chave
-// mestra na casa do agente, e o agente a lê. Chave cifrada com uma chave que está
-// ao lado dela não está guardada, está escondida. Uma versão anterior fez isso sem
-// querer (o cofre do host dava EACCES e o painel guardou `OPENAI_API_KEY.enc` mais
-// `cofre.chave` na casa). Neste modo NADA é escrito em disco: nem pasta, nem chave
-// mestra, nem arquivo de segredo.
-function buildCofreHost(config, arquivoDeNomes) {
-  const slug = String(config.agentSlug || 'agente');
-
-  function recusaDoHost() {
-    return recusa(
-      'Neste agente quem guarda a chave e reinicia o agente é o DG Claw Web, e não este painel. Nada foi guardado.',
-      409,
-      'Abra o painel pelo endereço do DG Claw (o do site, com o login), e não pela porta direta do painel. ' +
-      'Quem administra o servidor também pode usar "dgclaw agente cofre <agente> guardar NOME" nele.',
-    );
-  }
-
-  /** Os nomes das chaves ativas, na ordem do arquivo. Arquivo ausente = nenhuma chave. */
-  function nomes() {
-    let texto;
-    try {
-      texto = fs.readFileSync(arquivoDeNomes, 'utf-8');
-    } catch (err) {
-      if (err && err.code === 'ENOENT') return [];
-      console.error(`[cofre:${slug}] não consegui ler a lista de nomes ${arquivoDeNomes} (${err.code || err.message}); mostro o cofre como vazio.`);
-      return [];
-    }
-    const vistos = [];
-    for (const linha of texto.split(/\r?\n/)) {
-      const m = /^\s*(?:export\s+)?([A-Z][A-Z0-9_]{0,63})=/.exec(linha);
-      if (m && !vistos.includes(m[1])) vistos.push(m[1]);
-    }
-    return vistos;
-  }
-
-  function estado() {
-    return {
-      agente: { slug, nome: config.agentName || slug, dono: config.creatorName || 'Dono' },
-      chaves: nomes().map((n) => ({
-        envName: n,
-        provedor: 'outro',
-        provedorNome: (PROVEDORES.find((p) => p.sugestao === n) || {}).nome || 'Outro serviço',
-        ultimos4: '',
-        cadastradaPor: 'DG Claw Web',
-        origem: 'host',
-        cadastradaEm: null,
-        revogadaEm: null,
-        motor: 'host',
-      })),
-      provedores: PROVEDORES,
-      guarda: {
-        motor: 'host',
-        motorExplicacao: 'A chave fica num arquivo do servidor, fora da pasta do agente, que só o administrador da máquina lê. O agente recebe o valor quando é reiniciado.',
-        emMemoria: false,
-        emMemoriaExplicacao: 'Aqui este painel só mostra os nomes das chaves. Guardar e reiniciar são feitos pelo DG Claw Web.',
-      },
-      aplicar: {
-        pode: false,
-        motivo: 'Neste agente quem guarda a chave e reinicia o agente é o DG Claw Web.',
-        howToFix: 'Abra o painel pelo endereço do DG Claw (o do site, com o login) para guardar a chave e aplicar.',
-      },
-      arquivoDeAmbiente: '/run/dgclaw/cofre/cofre.env',
-    };
-  }
-
-  function tem(envName) {
-    const nome = String(envName || '').trim().toUpperCase();
-    return NOME_FORMA_OK.test(nome) && nomes().includes(nome);
-  }
-
-  return {
-    modoHost: true,
-    recusaDoHost,
-    estado, tem,
-    guardar: recusaDoHost, revogar: recusaDoHost, aplicar: recusaDoHost, materializar: recusaDoHost,
-    DIR: null, ENV_DO_AGENTE: null, PROVEDORES, EXTRAS: new Set(),
-  };
-}
+const { NOME_FORMA_OK, PROVEDORES, linhaDeAmbiente, validarChave, recusa } = regras;
 
 function buildCofre(config) {
   const NOMES_HOST = config.cofreNomesArquivo || process.env.DGCLAW_COFRE_NOMES || null;
@@ -466,7 +97,8 @@ function buildCofre(config) {
     : path.join(RUNTIME_DIR, `${slug}.env`);
   const PASTA_DO_ENV = path.dirname(ENV_DO_AGENTE);
 
-  const MOTOR = temSystemdCreds() ? 'systemd-creds' : 'local';
+  const { MOTOR, garantirPastas, cifrar, decifrar, registrarFalha } = criarCifra({ slug, DIR, SEGREDOS, CHAVE_MESTRA });
+  const { unidadeDoAgente } = criarUnidade({ slug, config });
 
   /**
    * A saída para o nome legítimo que a lista de permitidos não previu.
@@ -484,97 +116,6 @@ function buildCofre(config) {
       .map((n) => String(n).trim().toUpperCase())
       .filter((n) => NOME_FORMA_OK.test(n)),
   );
-
-  function garantirPastas() {
-    fs.mkdirSync(DIR, { recursive: true, mode: 0o700 });
-    fs.mkdirSync(SEGREDOS, { recursive: true, mode: 0o700 });
-    // `mkdirSync` só aplica o modo na criação. Um cofre que veio de uma versão
-    // anterior, ou de um `umask` diferente, é corrigido aqui em vez de continuar
-    // frouxo para sempre.
-    try { fs.chmodSync(DIR, 0o700); } catch { /* sistema de arquivos sem modo */ }
-    try { fs.chmodSync(SEGREDOS, 0o700); } catch { /* idem */ }
-  }
-
-  function chaveMestra() {
-    try {
-      const k = fs.readFileSync(CHAVE_MESTRA);
-      if (k.length === 32) return k;
-    } catch { /* ainda não existe */ }
-    const nova = crypto.randomBytes(32);
-    fs.mkdirSync(path.dirname(CHAVE_MESTRA), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(CHAVE_MESTRA, nova, { mode: 0o600 });
-    try { fs.chmodSync(CHAVE_MESTRA, 0o600); } catch { /* idem */ }
-    return nova;
-  }
-
-  /** Texto puro entrando, blob cifrado saindo. Devolve `{ motor, blob }`. */
-  function cifrar(nome, valor) {
-    if (MOTOR === 'systemd-creds') {
-      try {
-        const blob = execFileSync(
-          'systemd-creds',
-          ['encrypt', '--name', nome, '--with-key=host', '-', '-'],
-          // `stdio` com stderr em `pipe` e não herdado: o systemd-creds escreve
-          // avisos de rotina na saída de erro ("não está em mídia cifrada"), e
-          // herdada ela iria parar no log do painel a cada gravação, virando
-          // ruído que esconde o aviso que importa. Em caso de falha o texto vem
-          // dentro do erro, e o `registrarFalha` o mostra.
-          { input: valor, maxBuffer: 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] },
-        );
-        return { motor: 'systemd-creds', blob };
-      } catch (err) {
-        // Cai para o motor local em vez de recusar a gravação: o dono do agente
-        // não tem como consertar systemd nenhum, e uma chave guardada de um jeito
-        // pior é melhor do que uma tela que não deixa guardar. O `estado()` conta
-        // qual motor guardou cada uma, então isso não vira segredo de ninguém.
-        registrarFalha('cifrar com systemd-creds', err);
-      }
-    }
-    const iv = crypto.randomBytes(12);
-    const c = crypto.createCipheriv('aes-256-gcm', chaveMestra(), iv);
-    const dados = Buffer.concat([c.update(valor, 'utf-8'), c.final()]);
-    return { motor: 'local', blob: Buffer.concat([iv, c.getAuthTag(), dados]) };
-  }
-
-  /**
-   * Blob cifrado entrando, texto puro saindo. Só a materialização chama.
-   *
-   * O `--name` NÃO É COSMÉTICO na decifragem. O nome vai cifrado junto com o
-   * segredo, e passá-lo aqui faz o systemd-creds conferir se o blob é mesmo o
-   * daquela variável. Sem ele, trocar o arquivo `OPENAI_API_KEY.enc` pelo
-   * `DATABASE_URL.enc` passaria batido, e o agente sairia usando um segredo com o
-   * nome de outro.
-   */
-  function decifrar(motor, blob, nome) {
-    if (motor === 'systemd-creds') {
-      return execFileSync(
-        'systemd-creds',
-        ['decrypt', '--name', nome, '-', '-'],
-        { input: blob, maxBuffer: 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] },
-      ).toString('utf-8');
-    }
-    const iv = blob.subarray(0, 12);
-    const tag = blob.subarray(12, 28);
-    const d = crypto.createDecipheriv('aes-256-gcm', chaveMestra(), iv);
-    d.setAuthTag(tag);
-    return Buffer.concat([d.update(blob.subarray(28)), d.final()]).toString('utf-8');
-  }
-
-  /**
-   * O log de falha do cofre. NUNCA recebe valor de segredo, e é por isso que ele
-   * é uma função e não um `console.error` solto: o único jeito de garantir que
-   * ninguém vai passar o valor "só para depurar" é não existir um caminho que
-   * aceite.
-   */
-  function registrarFalha(oQue, err) {
-    const motivo = err && err.message ? err.message : String(err);
-    // O que o programa externo escreveu na saída de erro entra aqui, porque é
-    // ele que diz o motivo de verdade ("chave do host não existe", por exemplo).
-    // Ele nunca contém o valor: o segredo vai pela entrada padrão, não pela
-    // linha de comando.
-    const dele = err && err.stderr ? ` ${String(err.stderr).trim()}` : '';
-    console.error(`[cofre:${slug}] falhou ao ${oQue}: ${motivo}${dele}`);
-  }
 
   // ─── Os metadados ──────────────────────────────────────────────────────────
   // NENHUM VALOR DE SEGREDO PASSA POR AQUI. O valor mora num arquivo por chave,
@@ -605,108 +146,6 @@ function buildCofre(config) {
     return path.join(SEGREDOS, `${nome}.enc`);
   }
 
-  // ─── A forma do agente, e a unidade que precisa reiniciar ──────────────────
-
-  function perguntarAoSystemd(args) {
-    try {
-      return execFileSync('systemctl', args, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
-    } catch (err) {
-      // `is-enabled` e `is-active` saem com código diferente de zero quando a
-      // resposta é "não", e escrevem a resposta na saída padrão assim mesmo. Sem
-      // este ramo, "disabled" viraria "não sei", e a diferença entre as duas é o
-      // que este módulo precisa saber.
-      if (err && err.stdout) return String(err.stdout).trim();
-      return '';
-    }
-  }
-
-  /**
-   * A unidade está no disco, E ela é a que manda no agente de verdade?
-   *
-   * ARQUIVO NO DISCO NÃO QUER DIZER AGENTE VIVO, e esta função existe por causa
-   * de um caso concreto de uma VPS: `dgclaw-agent-ana.service` e
-   * `dgclaw-agent-bento.service` continuam no disco depois do corte de
-   * 02/09/2026, desabilitadas e paradas, porque a Ana e o Bento passaram a
-   * rodar dentro de um contêiner. A versão anterior desta conferência só
-   * perguntava se o arquivo existia, e para o systemd ele existe.
-   *
-   * O estrago que isso daria: o botão de aplicar chamaria `systemctl restart` na
-   * unidade velha, ela SUBIRIA (com sucesso, sem erro nenhum), e passaria a
-   * existir um segundo runner do mesmo agente, fora do contêiner, apontando para
-   * a casa antiga. A tela mostraria o agente errado, e nada em lugar nenhum
-   * acusaria o problema.
-   */
-  function unidadeUsavel(nome) {
-    const habilitada = perguntarAoSystemd(['is-enabled', `${nome}.service`]);
-    if (!habilitada || habilitada === 'not-found') return { existe: false };
-    const ativa = perguntarAoSystemd(['is-active', `${nome}.service`]);
-    const ligada = habilitada === 'enabled' || habilitada === 'static' || habilitada === 'enabled-runtime';
-    return { existe: true, usavel: ligada && ativa === 'active', habilitada, ativa };
-  }
-
-  /**
-   * Qual unidade reiniciar, e o que dizer quando não há nenhuma.
-   *
-   * O TERCEIRO CASO É O IMPORTANTE. A Ana e o Bento saíram desta VPS em
-   * 02/09/2026 e passaram a rodar dentro de um contêiner. A unidade
-   * `dgclaw-agent-<slug>` não existe mais aqui. Sem esta função, o botão de
-   * aplicar chamaria um `systemctl restart` que falha, ou pior, que "dá certo"
-   * sem reiniciar coisa nenhuma, e a tela diria ao dono que a chave nova já está
-   * valendo. Reiniciar o nada e reportar sucesso é a pior resposta possível para
-   * uma tela cuja regra 7 é justamente avisar que o agente precisa reiniciar.
-   */
-  function unidadeDoAgente() {
-    if (!SLUG_OK.test(slug)) {
-      return { erro: `O slug deste agente ("${slug}") tem caractere que eu não aceito em nome de unidade.` };
-    }
-
-    // 1. O que estiver escrito no config.json manda, e nem confere nada: quem
-    //    escreve ali é quem administra a máquina, e ele sabe mais do que este
-    //    palpite. É por aqui que o agente da jaula chega com o nome certo.
-    if (config.cofreUnidade) {
-      return { unidade: String(config.cofreUnidade).replace(/\.service$/, ''), forma: 'configurada' };
-    }
-
-    // 2. DENTRO DE UM CONTÊINER DA JAULA o agente é o único morador, e a unidade
-    //    dele se chama `dgclaw-runner`, sem slug nenhum no nome. O painel de lá
-    //    roda no mesmo systemd que o agente, então manda nela direto.
-    if (fs.existsSync('/etc/systemd/system/dgclaw-runner.service')) {
-      return { unidade: 'dgclaw-runner', forma: 'jaula' };
-    }
-
-    // 3. Fora dela, o palpite pelo nome. E ele confere se a unidade está
-    //    HABILITADA E ATIVA, não só se o arquivo existe: ver `unidadeUsavel`.
-    for (const [nome, forma] of [[`dgclaw-agent-${slug}`, 'runner'], [`dgclaw-${slug}`, 'plugin']]) {
-      const u = unidadeUsavel(nome);
-      if (u.usavel) return { unidade: nome, forma };
-      if (u.existe) {
-        // O caso da Ana e do Bento depois do corte de 02/09: o arquivo está
-        // no disco, parado, e o agente vive em outro lugar. Dizer isso é muito
-        // melhor do que "não achei", porque é a frase que faz a pessoa procurar
-        // no lugar certo.
-        return {
-          erro:
-            `Existe uma unidade "${nome}" nesta máquina, mas ela está ${u.habilitada === 'disabled' ? 'desabilitada' : u.habilitada} e ${u.ativa || 'parada'}, ` +
-            'ou seja, não é ela que mantém este agente de pé. Reiniciá-la subiria uma segunda cópia do agente, no lugar errado, ' +
-            'então eu prefiro não encostar nela.',
-          howToFix:
-            'A chave FOI guardada e continua guardada. Isso costuma acontecer quando o agente mudou de casa (foi para um contêiner, por exemplo) ' +
-            'e a unidade antiga ficou no disco. Quem administra a máquina resolve escrevendo o nome da unidade certa em "cofreUnidade", ' +
-            'no config.json deste painel.',
-        };
-      }
-    }
-
-    return {
-      erro:
-        `Não achei nesta máquina nenhuma unidade do agente "${slug}" para reiniciar. ` +
-        'Isso costuma querer dizer que ele roda em outro lugar (dentro de um contêiner, por exemplo), ' +
-        'e daí quem reinicia é quem administra esse lugar.',
-      howToFix:
-        'A chave FOI guardada e continua guardada. Peça a quem cuida da máquina do agente para reiniciá-lo, ' +
-        'e a partir daí ela passa a valer.',
-    };
-  }
 
   // ─── O que a tela mostra ───────────────────────────────────────────────────
 
@@ -1009,6 +448,16 @@ function buildCofre(config) {
 
 module.exports = {
   buildCofre,
-  NOME_FORMA_OK, NOME_PERMITIDO, NOME_PREFIXO_PROIBIDO, NOME_EXATO_PROIBIDO, NOME_EXATO_LIBERADO,
-  RESERVADOS, VALOR_OK, SLUG_OK, PROVEDORES, linhaDeAmbiente, validarChave, recusa,
+  NOME_FORMA_OK: regras.NOME_FORMA_OK,
+  NOME_PERMITIDO: regras.NOME_PERMITIDO,
+  NOME_PREFIXO_PROIBIDO: regras.NOME_PREFIXO_PROIBIDO,
+  NOME_EXATO_PROIBIDO: regras.NOME_EXATO_PROIBIDO,
+  NOME_EXATO_LIBERADO: regras.NOME_EXATO_LIBERADO,
+  RESERVADOS: regras.RESERVADOS,
+  VALOR_OK: regras.VALOR_OK,
+  SLUG_OK: regras.SLUG_OK,
+  PROVEDORES: regras.PROVEDORES,
+  linhaDeAmbiente: regras.linhaDeAmbiente,
+  validarChave: regras.validarChave,
+  recusa: regras.recusa,
 };

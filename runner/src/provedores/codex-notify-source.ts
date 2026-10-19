@@ -55,7 +55,7 @@ const req = http.request(
 );
 
 req.on("error", () => process.exit(0));
-req.on("timeout", () => { try { req.destroy(); } catch {} process.exit(0); });
+req.on("timeout", () => { try { req.destroy(); } catch { /* a conexão já caiu: não há o que destruir */ } process.exit(0); });
 req.write(payload);
 req.end();
 

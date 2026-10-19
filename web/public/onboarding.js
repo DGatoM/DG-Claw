@@ -377,7 +377,7 @@
       // a cada atualização fazia a conversa pular para cima. O fim é seguido por quem já estava no fim.
       if (pronto) {
         document.body.classList.remove('admin-primeiro-acesso');
-        host.querySelector('.nas-badge').addEventListener('click', () => { try { sessionStorage.setItem('dgclaw-agente-novo', d.conversa.split('/').pop()); } catch (_) {} });
+        host.querySelector('.nas-badge').addEventListener('click', () => { try { sessionStorage.setItem('dgclaw-agente-novo', d.conversa.split('/').pop()); } catch (_) { /* sem sessionStorage (navegação privada ou bloqueado): só não guarda a marca de agente novo */ } });
         animando = d.id; finalDe = d; marcarVista(d.id);
         host.querySelector('.nas-badge').setAttribute('aria-label', 'Oi, eu sou '+d.nome+'. Clique aqui pra gente começar a conversar');
       }

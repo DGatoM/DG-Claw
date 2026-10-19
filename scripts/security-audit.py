@@ -152,8 +152,9 @@ def load_allowlist():
             ALLOWLIST_FILE.parent.mkdir(parents=True, exist_ok=True)
             try:
                 ALLOWLIST_FILE.write_text(tmpl.read_text())
-            except OSError:
-                pass
+            except OSError as e:
+                print(f"security-audit: nao consegui criar a allowlist em {ALLOWLIST_FILE}: {e}. "
+                      "Confira a permissao da pasta.", file=sys.stderr)
         else:
             save_json(ALLOWLIST_FILE, {
                 "schema": 1,
@@ -274,7 +275,7 @@ def discover_services():
                 elif unit.endswith(".service"):
                     discovered["units"].append(unit)
         except (OSError, subprocess.SubprocessError):
-            pass
+            pass  # systemctl indisponivel (ex.: container): segue sem a descoberta de unidades
 
     # dedupe preservando ordem
     for k in discovered:
@@ -616,7 +617,8 @@ def main():
         try:
             level = args[args.index("--level") + 1].strip().lower()
         except IndexError:
-            pass
+            print(f"security-audit: --level veio sem valor; uso o nivel {level!r}. "
+                  f"Passe um destes: {', '.join(sorted(LEVELS))}.", file=sys.stderr)
     if level not in LEVELS:
         level = "full"
 

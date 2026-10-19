@@ -150,7 +150,7 @@ def has_receipt(ws, key) -> bool:
             if os.path.getmtime(ap) > rec.get("artifact_after_epoch", 0):
                 return True
         except OSError:
-            pass
+            pass  # artefato ainda nao existe: nao conta como entregue
     return False
 
 
@@ -166,7 +166,7 @@ def ack(ws, key):
     try:
         os.remove(_pending_path(ws, key))
     except OSError:
-        pass
+        pass  # pendente ja removido por outro ciclo: o objetivo (nao estar mais pendente) esta cumprido
     return True
 
 
@@ -182,7 +182,7 @@ def resolve(ws, key, reason="receipt"):
     try:
         os.remove(_pending_path(ws, key))
     except OSError:
-        pass
+        pass  # pendente ja removido: o estado desejado esta cumprido
 
 
 def bump_retry(ws, key):
@@ -212,7 +212,7 @@ def mark_failed(ws, key, note=""):
     try:
         os.remove(_pending_path(ws, key))
     except OSError:
-        pass
+        pass  # pendente ja removido: o estado desejado esta cumprido
 
 
 def _cli():

@@ -408,8 +408,9 @@ def main():
         fh.write(bundle)
     try:
         os.chmod(out_path, 0o600)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"report: nao consegui restringir a permissao de {out_path} a 600: {e}. "
+              f"O relatorio pode conter dados sensiveis; rode: chmod 600 {out_path}", file=sys.stderr)
 
     meta = {
         'bundle_path': out_path,

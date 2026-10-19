@@ -33,6 +33,7 @@ WS="${1:?Uso: materialize-identity.sh <workspace> [--include-ops]}"
 
 # Flags (qualquer posicao depois do workspace).
 INCLUDE_OPS=0
+# Sem argumentos extras o shift falha, e isso e o caso comum: nao ha flag para ler.
 shift 2>/dev/null || true
 for a in "$@"; do
     case "$a" in
@@ -67,6 +68,7 @@ append_extensions() {
     while IFS= read -r ext; do
         hook="$ext/hooks/identity.sh"
         [ -f "$hook" ] || continue
+        # O stderr do gancho fica fora do AGENT.md; se ele falhar, o aviso abaixo diz como reproduzir o erro.
         if out=$(DGCLAW_WORKSPACE="$WS" timeout 10 bash "$hook" 2>/dev/null); then
             [ -n "$out" ] || continue
             printf '%s\n' "$out"
@@ -74,6 +76,7 @@ append_extensions() {
         else
             echo "materialize-identity: a extensao '$(basename "$ext")' falhou no gancho identity.sh e ficou de fora deste AGENT.md. Rode 'bash $hook' pra ver o erro dela." >&2
         fi
+    # extdir ja foi conferido no inicio da funcao.
     done < <(find "$extdir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
 }
 
@@ -105,9 +108,16 @@ EOF
 mv "$TMP" "$AGENT"
 
 # 3. Ajuste de dono: se o workspace pertence a um usuario dedicado, alinha o AGENT.md a ele.
+# Sem o dono da pasta (stat falhou), assume root e pula o chown: nada a corrigir nesse caso.
 WS_OWNER=$(stat -c '%U' "$WS" 2>/dev/null || echo root)
 if [ "$WS_OWNER" != "root" ]; then
-    chown "$WS_OWNER":"$(stat -c '%G' "$WS")" "$AGENT" "$BAK" 2>/dev/null || true
+    WS_GROUP=$(stat -c '%G' "$WS")
+    # O .bak so existe quando havia um AGENT.md anterior; chown nele so quando existe.
+    for f in "$AGENT" "$BAK"; do
+        [ -f "$f" ] || continue
+        chown "$WS_OWNER":"$WS_GROUP" "$f" \
+            || echo "materialize-identity: nao consegui passar $f para $WS_OWNER:$WS_GROUP (o agente pode nao conseguir ler ou editar). Rode como root: chown $WS_OWNER:$WS_GROUP $f" >&2
+    done
 fi
 
 echo "AGENT.md materializado a partir de LAWS/PERSONALITY/IDENTITY/ETHICS/CREATOR."

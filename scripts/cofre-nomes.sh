@@ -27,6 +27,7 @@ if [ -e "$COFRE" ]; then
 fi
 
 dir="$(dirname "$SAIDA")"
+# O motivo do mktemp fica de fora porque a mensagem abaixo ja diz a pasta e o que conferir.
 tmp="$(mktemp "$dir/.cofre-nomes.XXXXXX" 2>/dev/null)" || {
     echo "cofre-nomes: nao consegui criar um temporario em $dir para escrever $SAIDA. Confira se a pasta existe e se este passo roda como root." >&2
     exit 1

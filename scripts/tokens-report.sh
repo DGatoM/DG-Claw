@@ -37,7 +37,7 @@ fi
 DESDE=$(date -d "-${DIAS} days" -Iseconds)
 
 # Stream de todas as linhas validas no periodo -> array unico no jq.
-REPORT=$(cat "${FILES[@]}" 2>/dev/null \
+REPORT=$(cat "${FILES[@]}" \
     | jq -c --arg desde "$DESDE" 'select(type=="object" and (.timestamp // "") >= $desde)' \
     | jq -s --argjson dias "$DIAS" '
     {

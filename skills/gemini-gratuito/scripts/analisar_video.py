@@ -112,8 +112,9 @@ def main():
             if arquivo_api:
                 try:
                     requests.delete(f"{API}/v1beta/{arquivo_api['name']}", headers=dict(UA, **{"x-goog-api-key": chave}), timeout=30)
-                except requests.RequestException:
-                    pass
+                except requests.RequestException as e:
+                    print(f"AVISO: nao consegui apagar o arquivo temporario {arquivo_api['name']} no Gemini: {e}. "
+                          "Ele expira sozinho em cerca de 48 horas.", file=sys.stderr)
 
 
 if __name__ == "__main__":

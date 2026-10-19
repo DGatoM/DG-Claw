@@ -31,9 +31,10 @@ if [ "$OFF" != "1" ] && [ -z "${TELEGRAM_STATE_DIR:-}" ]; then
 fi
 
 if [ "$OFF" = "1" ]; then
+    # Unidade que nao existe (nunca instalada) e esperado ao remover: nada a desativar.
     systemctl disable --now "${UNIT}.timer" 2>/dev/null || true
     rm -f "/etc/systemd/system/${UNIT}.service" "/etc/systemd/system/${UNIT}.timer"
-    systemctl daemon-reload 2>/dev/null || true
+    systemctl daemon-reload || echo "aviso: systemctl daemon-reload falhou; rode-o manualmente para o systemd esquecer ${UNIT}" >&2
     echo "watchdog do canal removido ($UNIT)."
     exit 0
 fi

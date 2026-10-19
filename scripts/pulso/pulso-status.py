@@ -81,7 +81,7 @@ def load_ledger(date):
                     (dt, rec.get("status", ""), rec.get("detalhe", ""))
                 )
     except FileNotFoundError:
-        pass
+        pass  # sem ledger do dia ainda: nenhum registro
     for v in by_id.values():
         v.sort()
     return by_id

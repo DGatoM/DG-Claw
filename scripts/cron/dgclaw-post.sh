@@ -34,7 +34,8 @@ NAME="${DGCLAW_NAME:-a assistente}"
 IG_JSON="$WS/.dgclaw/instagram.json"
 
 LOG="$WS/.dgclaw/logs/post-${HORARIO}.log"
-mkdir -p "$(dirname "$LOG")" 2>/dev/null
+mkdir -p "$(dirname "$LOG")" 2>/dev/null \
+  || echo "aviso: nao consegui criar a pasta do log $(dirname "$LOG"); o cron roda sem log. Confira a permissao do workspace." >&2
 cd "$WS" || exit 1
 
 # --- Gate: o poder instagram precisa estar ativo ---
@@ -55,11 +56,20 @@ fi
 # --- Modelo do post (default opus) ---
 POST_MODEL="opus"
 if [ -f "$IG_JSON" ]; then
-    POST_MODEL=$(python3 -c "import json;print(json.load(open('$IG_JSON')).get('postModel') or 'opus')" 2>/dev/null || echo opus)
+    POST_MODEL=$(python3 -c "import json;print(json.load(open('$IG_JSON')).get('postModel') or 'opus')" 2>>"$LOG") || {
+        POST_MODEL="opus"
+        echo "[$(date '+%F %T')] aviso: nao consegui ler postModel de $IG_JSON (JSON invalido?); usando o modelo padrao 'opus'. Corrija o arquivo para escolher outro." >> "$LOG"
+    }
 fi
 
+# Avisos ao dono: se um falhar, o motivo (que o notify-owner ja escreve no stderr) vai pro log do cron.
+avisar_dono() {
+    bash "$PLUGIN/scripts/notify-owner.sh" "$1" >/dev/null 2>>"$LOG" \
+        || echo "[$(date '+%F %T')] aviso: o dono nao recebeu a mensagem \"$1\" (motivo nas linhas acima). Confira o canal de aviso em $WS/.dgclaw/logs/notify-owner.log" >> "$LOG"
+}
+
 echo "[$(date '+%F %T')] Iniciando post ${SLUG} ${HORARIO} (model=$POST_MODEL)" >> "$LOG"
-bash "$PLUGIN/scripts/notify-owner.sh" "Cron de post ${HORARIO} iniciado ($NAME)" >/dev/null 2>&1 || true
+avisar_dono "Cron de post ${HORARIO} iniciado ($NAME)"
 
 NOTA_19H=""
 if [ "$HORARIO" = "19h" ]; then
@@ -102,11 +112,13 @@ RC=$?
 
 # Atualiza emocoes (post bem sucedido). Se o claude falhou, registra post_failed.
 if [ "$RC" -eq 0 ]; then
-    bash "$PLUGIN/scripts/ext-event.sh" post_success >> "$LOG" 2>&1 || true
-    bash "$PLUGIN/scripts/notify-owner.sh" "Cron de post ${HORARIO} finalizado ($NAME)" >/dev/null 2>&1 || true
+    bash "$PLUGIN/scripts/ext-event.sh" post_success >> "$LOG" 2>&1 \
+        || echo "[$(date '+%F %T')] aviso: ext-event.sh post_success falhou (veja acima); as emocoes da extensao nao foram atualizadas." >> "$LOG"
+    avisar_dono "Cron de post ${HORARIO} finalizado ($NAME)"
 else
-    bash "$PLUGIN/scripts/ext-event.sh" post_failed >> "$LOG" 2>&1 || true
-    bash "$PLUGIN/scripts/notify-owner.sh" "Cron de post ${HORARIO} terminou com erro (rc=$RC) — confira o log ($NAME)" >/dev/null 2>&1 || true
+    bash "$PLUGIN/scripts/ext-event.sh" post_failed >> "$LOG" 2>&1 \
+        || echo "[$(date '+%F %T')] aviso: ext-event.sh post_failed falhou (veja acima); as emocoes da extensao nao foram atualizadas." >> "$LOG"
+    avisar_dono "Cron de post ${HORARIO} terminou com erro (rc=$RC), confira o log ($NAME)"
 fi
 
 echo "[$(date '+%F %T')] Fim post ${SLUG} ${HORARIO} (rc=$RC)" >> "$LOG"

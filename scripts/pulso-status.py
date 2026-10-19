@@ -430,8 +430,11 @@ def load_powers():
             data = json.load(fh)
         if isinstance(data, dict) and isinstance(data.get("powers"), list):
             return data["powers"]
-    except Exception:
-        pass
+    except FileNotFoundError:
+        pass  # arquivo de poderes e opcional: sem ele, lista vazia
+    except (OSError, ValueError) as e:
+        print(f"pulso-status: nao consegui ler {POWERS_FILE}: {e}. "
+              "Sigo sem a lista de poderes; confira se o JSON esta valido.", file=sys.stderr)
     return []
 
 
