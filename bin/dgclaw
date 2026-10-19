@@ -21,8 +21,12 @@ APP_DIR="$(cd "$(dirname "$DGCLAW_BIN_REAL")/.." && pwd)"
 . "$APP_DIR/lib/comum.sh"
 # shellcheck source=lib/agentes.sh
 . "$APP_DIR/lib/agentes.sh"
+# shellcheck source=lib/backup.sh
+. "$APP_DIR/lib/backup.sh"
 # shellcheck source=lib/atualizar.sh
 . "$APP_DIR/lib/atualizar.sh"
+# shellcheck source=lib/versao.sh
+. "$APP_DIR/lib/versao.sh"
 
 # Tempo maximo de espera (segundos) do systemd e do /api/saude de dentro do agente.
 # Variavel so para os testes nao esperarem um minuto de verdade.
@@ -118,6 +122,8 @@ Atualizar o DG Claw
         --forcar-local          se o clone tiver alteracao local, guarda num stash datado e segue
         --sem-baixar            nao faz git fetch/pull (voce ja atualizou o clone a mao)
         --sem-backup-agentes    pula o backup das casas dos agentes (so se a pessoa pedir; o resto entra)
+        --sem-voltar-sozinho    se o instalador novo ou a conferencia falharem, para e deixa como esta
+                                (o padrao e voltar sozinho ao backup; agente que nao sobe NUNCA faz voltar)
         --segundo-plano         roda solto do terminal (recomendado para o Admin) e deixa o log em /var/log/dgclaw/
       Exemplo:  sudo dgclaw atualizar --simular
   dgclaw atualizar --voltar <pasta-do-backup> [--mesmo-assim] [--simular]
@@ -125,7 +131,19 @@ Atualizar o DG Claw
       um backup do estado de agora), reinstala e reinicia. Os dados dos agentes nao sao tocados.
       Exemplo:  sudo dgclaw atualizar --voltar /var/backups/dgclaw/20261018-093000
 
+Backup e restauracao
+  dgclaw backup [--sem-casas] [--simular]   faz um backup conferido em /var/backups/dgclaw/<data>-manual
+      Leva a configuracao (/etc/dgclaw), os dados (/var/lib/dgclaw, com as casas dos agentes), o Admin
+      e a conversa do Admin. --sem-casas deixa de fora as casas (memoria e conversas dos agentes).
+      Nunca apaga backup nenhum. Exemplo:  sudo dgclaw backup
+  dgclaw backup listar                      lista os backups: data, motivo, versao, tamanho e se tem as casas
+  dgclaw restaurar <pasta-do-backup> [--simular] [--mesmo-assim]
+      Devolve configuracao, dados e Admin do backup (antes, faz um backup do estado de agora, para voce
+      poder desfazer). So restaura backup da mesma versao instalada; para voltar codigo e dados juntos
+      use 'dgclaw atualizar --voltar'. Exemplo:  sudo dgclaw restaurar /var/backups/dgclaw/20261018-093000-manual
+
 Geral
+  dgclaw versao                          mostra a versao e o commit instalados (tambem: dgclaw --version)
   dgclaw status                          confere se tudo esta de pe (sai com erro se algo essencial caiu)
 FIM
 }
@@ -1900,6 +1918,7 @@ avisar_identidade_antiga() {
 status_geral() {
     exigir_ferramentas jq podman curl
     carregar_env_dgclaw
+    versao_linha
     printf 'Situacao do DG Claw\n'
 
     if [ -n "${DGCLAW_DOMINIO:-}" ]; then s_ok "dominio: $DGCLAW_DOMINIO"; else s_aviso "dominio: nao definido em $DG_ETC/dgclaw.env"; fi
@@ -1985,6 +2004,9 @@ main() {
         primeiro-acesso) primeiro_acesso "$@" ;;
         status) status_geral "$@" ;;
         atualizar) atualizar_main "$@" ;;
+        backup) backup_main "$@" ;;
+        restaurar) restaurar_main "$@" ;;
+        versao|--version) versao_main "$@" ;;
         *) falha "o comando '$cmd' nao existe." "veja os comandos com: dgclaw --ajuda" ;;
     esac
 }

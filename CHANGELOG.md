@@ -9,6 +9,21 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ### Adicionado
 
+- Versão instalada: o arquivo `VERSION` (1.0.0) é a fonte única, o instalador grava `DGCLAW_VERSAO` e
+  `DGCLAW_COMMIT` no `dgclaw.env`, `dgclaw status` mostra `DG Claw 1.0.0 (commit ...)` na primeira linha e
+  `dgclaw versao` (ou `--version`) imprime só isso. Um teste reprova se `VERSION`, `panel/package.json` e
+  `runner/package.json` divergirem.
+- `dgclaw backup [--sem-casas] [--simular]` e `dgclaw backup listar`: backup conferido e datado em
+  `/var/backups/dgclaw/<data>-manual`, com manifesto que traz a versão e o commit instalados. Nunca apaga
+  backup nenhum.
+- `dgclaw restaurar <backup> [--simular] [--mesmo-assim]`: devolve configuração, dados e Admin de um backup,
+  depois de guardar o estado de agora (`antes-de-restaurar`), parando e religando os agentes e reiniciando o
+  Admin só no fim, solto do chat. Recusa backup de outra versão sem `--mesmo-assim`. Guia em `docs/BACKUP.md`.
+- `lib/backup.sh` com os pontos de extensão `backup_caminhos_extras`, `backup_aplicar_retencao`,
+  `depois_de_restaurar` e `depois_de_atualizar`, para edições que estendem o DG Claw.
+- `dgclaw atualizar` agora volta sozinho ao backup quando o `install.sh` da versão nova falha ou a conferência
+  de configuração reprova, explicando o que deu errado, o que foi desfeito e o que fazer. Agente que não sobe
+  nunca faz voltar (o conserto é `dgclaw agente recriar <slug> --forcar`). `--sem-voltar-sozinho` desliga.
 - `dgclaw atualizar`: atualiza o DG Claw sem perder nada do dono. Faz backup datado em
   `/var/backups/dgclaw/`, baixa a versão nova (`git pull --ff-only`), roda o instalador, reconstrói a
   imagem, recria o container de cada agente (`dgclaw agente recriar`) mantendo casa, cofre e rotinas,
@@ -77,6 +92,13 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 - O instalador escolhe o motor do Admin (Claude ou Codex) pelo login que existe, não pelo programa instalado.
 - Campos de texto com 16px ou mais no celular: o app instalado não dá mais zoom ao tocar num campo.
 - Ubuntu 26.04 passa com aviso, e os problemas da instalação ao vivo de 17/10 foram acertados.
+
+### Alterado
+
+- A versão instalada passou a ser a do arquivo `VERSION` (1.0.0), em vez de `v1-<commit>`; o commit continua
+  anotado à parte em `DGCLAW_COMMIT`. O `runner` foi de 0.1.0 para 1.0.0, igual ao painel.
+- `dgclaw atualizar` passou a desfazer sozinho quando o instalador novo ou a conferência de configuração
+  falham (antes parava e pedia o `--voltar`). `--sem-voltar-sozinho` traz o comportamento antigo.
 
 ## [1.0.0] - 2026-10-17
 

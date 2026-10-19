@@ -498,7 +498,11 @@ detectar_provedor() {
 instalar_codigo() {
     passo "Copiando o DG Claw para ${DG_APP#"$R"}"
     VERSAO="v1"
-    if fonte_tem .claude-plugin/plugin.json; then
+    if fonte_tem VERSION; then
+        # Fonte unica da versao. Sem sufixo de commit: ela vira tag de imagem do podman, e "+" e invalido em tag.
+        VERSAO="$(tr -d '[:space:]' <"$SCRIPT_DIR/VERSION")"
+        [ -n "$VERSAO" ] || falha "o arquivo VERSION do clone ($SCRIPT_DIR/VERSION) esta vazio." "ponha nele a versao, por exemplo 1.0.0, ou baixe o clone de novo."
+    elif fonte_tem .claude-plugin/plugin.json; then
         if tem_jq; then
             VERSAO="$(jq -r '.version // "0"' "$SCRIPT_DIR/.claude-plugin/plugin.json")"
         else
@@ -512,7 +516,7 @@ instalar_codigo() {
         VERSAO="v1${revisao:+-$revisao}"
         info "distribuicao DG Claw $VERSAO"
     fi
-    [[ "$VERSAO" =~ ^[0-9A-Za-z._+-]+$ ]] || falha "a versao '$VERSAO' do plugin.json tem caracteres estranhos." "corrija o campo version em .claude-plugin/plugin.json."
+    [[ "$VERSAO" =~ ^[0-9A-Za-z._+-]+$ ]] || falha "a versao '$VERSAO' (arquivo VERSION ou plugin.json) tem caracteres estranhos." "corrija o arquivo VERSION (ou o campo version em .claude-plugin/plugin.json)."
 
     criar_pasta 755 "$DG_ETC"
     criar_pasta 755 "$DG_OPT"

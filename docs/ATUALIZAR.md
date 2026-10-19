@@ -111,6 +111,7 @@ Opções que você usa só quando preciso:
 | `--forcar-local` | o clone tem alteração local e o dono autorizou guardá-la num stash datado |
 | `--sem-baixar` | o clone já foi atualizado à mão (ou veio de um zip novo); só reinstala o que está na pasta |
 | `--sem-backup-agentes` | **só se o dono pedir explicitamente** (disco curto): o backup não leva as casas dos agentes. O resto do backup entra sempre |
+| `--sem-voltar-sozinho` | desliga a volta automática (ver "Quando a atualização volta sozinha"): o comando para no erro e deixa como está |
 | `--simular` | mostra tudo sem mudar nada |
 
 ## O que o comando faz, na ordem
@@ -159,6 +160,41 @@ do clone no momento do comando. Ordem: `DGCLAW_COMMIT` do `dgclaw.env`; se não 
 que está em `DGCLAW_VERSAO` (formato `v1-<12 hex>`); só em último caso o `HEAD`, e então o comando avisa
 que pode estar errado. Assim, mesmo que o clone tenha sido puxado à mão antes, o `--voltar` leva para a
 versão certa.
+
+## Quando a atualização volta sozinha
+
+Se a atualização der errado de um jeito que deixaria o sistema quebrado, o comando **desfaz sozinho**, usando o
+mesmo caminho do `--voltar` (backup do estado de agora, clone no commit de antes, configuração e Admin do
+backup, instalador antigo, imagem, agentes, conferência). Ele volta sozinho **somente** em dois casos:
+
+1. o `install.sh` da versão nova terminou com erro;
+2. a conferência de configuração reprovou: uma linha ou chave do `web.env`/`dgclaw.env` sumiu ou mudou, o registro de
+   um agente mudou, token, cofre ou um `CLAUDE.md` personalizado do Admin foram alterados.
+
+Ele **não** volta sozinho quando um agente não sobe, não é recriado ou não responde. Esse caso é problema do
+container daquele agente (um defeito do podman que deixa o container preso em `stopping`, por exemplo), e voltar
+repetiria a mesma falha. O caminho certo é o capítulo "Atualização INCOMPLETA" abaixo: `dgclaw agente recriar
+<slug> --forcar`. O Admin também não é reiniciado nesse caso.
+
+O comando nunca reinicia o Admin no meio da volta. O reinício continua sendo o agendado, solto do chat, no fim.
+
+Quando volta sozinho, o texto final diz em português claro: o que deu errado, o que foi desfeito, a pasta do
+backup que foi usada e o que fazer em seguida (resolver a causa e rodar `dgclaw atualizar` de novo). O comando sai
+com código 1, porque a atualização em si não aconteceu. Conte ao dono em palavras simples: "A atualização não deu
+certo e eu desfiz tudo, seus dados e agentes estão como antes. O problema foi X. Posso tentar de novo quando
+resolvermos isso."
+
+Para desligar o automático e ficar com a versão nova mesmo com erro (para investigar):
+
+```bash
+sudo dgclaw atualizar --sem-voltar-sozinho
+```
+
+Com essa opção o comando para no erro, diz onde está o backup e como voltar à mão (`--voltar`), como era antes.
+Se o commit de antes não estiver no clone, o comando avisa no começo que não consegue voltar sozinho e age
+como se essa opção estivesse ligada.
+
+Veja também `docs/BACKUP.md` para os backups manuais (`dgclaw backup`) e a restauração (`dgclaw restaurar`).
 
 ## Atualização INCOMPLETA (algum agente não foi recriado)
 

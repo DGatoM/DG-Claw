@@ -18,8 +18,9 @@
 #
 # O que este arquivo NUNCA faz: `git reset --hard`, `git clean`, apagar pasta de agente, apagar
 # volume, ou sobrescrever /var/lib/dgclaw. Detalhes e motivos em docs/ATUALIZAR.md.
-
-DG_BACKUPS="$R/var/backups/dgclaw"
+#
+# O backup em si (tar conferido, manifesto, pasta datada) mora em lib/backup.sh, que tambem serve
+# ao `dgclaw backup` e ao `dgclaw restaurar`.
 
 ATU_REPO=""
 ATU_ETAPA=""
@@ -28,26 +29,12 @@ ATU_PROBLEMAS=0
 ATU_AGENTES_FALHOS=""   # slugs que nao foram recriados ou nao responderam no fim (separados por espaco)
 ATU_COMMIT_ANTIGO=""    # o commit que estava INSTALADO antes desta atualizacao (nao o HEAD do clone)
 ATU_COMMIT_ORIGEM=""
+ATU_VOLTAR_SOZINHO=0    # 1 = se o instalador novo ou a conferencia de configuracao falharem, desfaz sozinho
+ATU_INSTALL_FALHOU=0
+ATU_ROLLBACK_TEXTO=""   # o que o dono precisa saber quando a atualizacao foi desfeita sozinha
 
 # _git <argumentos>: git no clone da atualizacao.
 _git() { git_do_clone "$ATU_REPO" "$@"; }
-
-# _env_de <arquivo> <CHAVE>: valor de uma linha CHAVE=valor, sem executar o arquivo.
-_env_de() {
-    [ -f "$1" ] || return 0
-    sed -n "s/^$2=//p;T;q" "$1"
-}
-
-# _rel <caminho absoluto>: o caminho sem o prefixo da raiz falsa e sem a barra inicial.
-_rel() { local p="${1#"$R"}"; printf '%s' "${p#/}"; }
-
-# _sha <arquivo>: so o hash.
-_sha() { sha256sum <"$1" | cut -d' ' -f1; }
-
-# _tamanho_humano <kb>
-_tamanho_humano() {
-    awk -v k="$1" 'BEGIN { if (k >= 1048576) printf "%.1f GB", k / 1048576; else if (k >= 1024) printf "%.0f MB", k / 1024; else printf "%d KB", k }'
-}
 
 _atu_problema() { ATU_PROBLEMAS=$((ATU_PROBLEMAS + 1)); printf '   FALHOU  %s\n' "$1" >&2; }
 
@@ -126,104 +113,6 @@ $(printf '%s\n' "$sujo" | head -n 15 | sed 's/^/     /')" \
 }
 
 # --- 2. backup ----------------------------------------------------------------------------
-
-# _tar_backup <arquivo.tar.gz> <opcoes e caminhos do tar, relativos a raiz...>
-# Cria o tar.gz relativo a raiz, aceita "arquivo mudou enquanto eu lia" (codigo 1: normal com
-# agente ligado), recusa qualquer outro erro e confere que o resultado abre.
-_tar_backup() {
-    local alvo="$1"; shift
-    local rc=0
-    ( umask 077; tar --numeric-owner -C "${R:-/}" -czf "$alvo" "$@" ) || rc=$?
-    case "$rc" in
-        0) ;;
-        1) aviso "alguns arquivos mudaram enquanto eu copiava para $(basename "$alvo") (normal com agentes ligados); a copia segue valida." ;;
-        *) falha "o tar nao conseguiu criar $alvo (codigo $rc)." "veja se ha espaco em disco (df -h $DG_BACKUPS) e rode de novo; nada foi mudado." ;;
-    esac
-    tar -tzf "$alvo" >/dev/null 2>&1 \
-        || falha "o backup $alvo foi criado, mas o tar nao consegue abri-lo (esta corrompido)." \
-                 "nao sigo sem um backup que abre. Veja o espaco em disco (df -h) e rode de novo; nada foi mudado."
-    chmod 600 "$alvo"
-}
-
-# atualizar_backup <pasta destino> <motivo> <sem-homes 0|1>
-atualizar_backup() {
-    local dest="$1" motivo="$2" sem_homes="$3" casa agentes="" f
-    local caminhos=() transc=()
-    if [ "$ENSAIO" = 1 ]; then
-        info "[ensaio] criaria o backup em $dest com: etc/dgclaw, var/lib/dgclaw$([ "$sem_homes" = 1 ] && printf ' (sem as casas dos agentes)'), opt/dgclaw/admin, transcricoes do Admin e o MANIFESTO.txt"
-        return 0
-    fi
-    ( umask 077; mkdir -p "$dest" )
-    chmod 700 "$DG_BACKUPS" "$dest"
-
-    # config.tar.gz: /etc/dgclaw inteiro (chaves, hash da senha, agentes.json, tokens).
-    [ -d "$DG_ETC" ] || falha "nao existe $DG_ETC; o DG Claw nao parece instalado." "instale primeiro: sudo ./install.sh --usuario <nome>"
-    _tar_backup "$dest/config.tar.gz" "$(_rel "$DG_ETC")"
-
-    # admin.tar.gz: a pasta do Admin (CLAUDE.md, AGENTS.md, uploads, skills).
-    if [ -d "$DG_ADMIN" ]; then _tar_backup "$dest/admin.tar.gz" "$(_rel "$DG_ADMIN")"; fi
-
-    # transcricoes-admin.tar.gz: a conversa do Admin (Claude ou Codex).
-    for f in "$R/root/.claude/projects/-opt-dgclaw-admin" "$R/root/.codex/sessions"; do
-        if [ -d "$f" ]; then transc+=("$(_rel "$f")"); fi
-    done
-    if [ "${#transc[@]}" -gt 0 ]; then _tar_backup "$dest/transcricoes-admin.tar.gz" "${transc[@]}"; fi
-
-    # dados.tar.gz: /var/lib/dgclaw (casas dos agentes, cofres, web). O pesado.
-    if [ -d "$DG_LIB" ]; then
-        caminhos=("$(_rel "$DG_LIB")")
-        if [ "$sem_homes" = 1 ]; then
-            _tar_backup "$dest/dados.tar.gz" "--exclude=$(_rel "$DG_LIB")/agentes/*/home" "${caminhos[@]}"
-        else
-            _tar_backup "$dest/dados.tar.gz" "${caminhos[@]}"
-        fi
-    fi
-
-    while IFS= read -r casa; do agentes+="${agentes:+,}$casa"; done \
-        < <(agentes_ler | jq -r '.agentes[] | select(.tipo == "agente") | .slug')
-
-    {
-        printf 'MANIFESTO do backup do DG Claw\n'
-        printf 'criado_em=%s\n' "$(date '+%Y-%m-%d %H:%M:%S %z')"
-        printf 'motivo=%s\n' "$motivo"
-        printf 'repo=%s\n' "$ATU_REPO"
-        printf 'commit=%s\n' "${ATU_COMMIT_ANTIGO:-$(_git rev-parse HEAD 2>/dev/null || true)}"
-        printf 'ramo=%s\n' "$(_git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
-        printf 'versao=%s\n' "${DGCLAW_VERSAO:-desconhecida}"
-        printf 'commit_instalado=%s\n' "$(_env_de "$DG_ETC/dgclaw.env" DGCLAW_COMMIT)"
-        printf 'imagem=%s\n' "${DGCLAW_IMAGEM:-}"
-        printf 'agentes=%s\n' "$agentes"
-        printf 'casas_dos_agentes_no_backup=%s\n' "$([ "$sem_homes" = 1 ] && printf nao || printf sim)"
-        printf '\n[sha256]\n'
-        atualizar_hashes_do_manifesto
-    } >"$dest/MANIFESTO.txt"
-    chmod 600 "$dest/MANIFESTO.txt"
-    ok "backup conferido em $dest ($(du -sh "$dest" | cut -f1))"
-    info "ele guarda as chaves e o hash da senha: so o root le (pasta 700). Para voltar: sudo dgclaw atualizar --voltar $dest"
-}
-
-# atualizar_hashes_do_manifesto: "<sha256>  <caminho relativo>" de tudo o que a conferencia
-# final compara. Arquivos de configuracao, do Admin, cofres e os .md de identidade e memoria.
-atualizar_hashes_do_manifesto() {
-    local f casa
-    {
-        if [ -d "$DG_ETC" ]; then find "$DG_ETC" -type f ! -name '.agentes.lock'; fi
-        for f in "$DG_ADMIN/CLAUDE.md" "$DG_ADMIN/AGENTS.md" "$DG_LIB/web/sessoes.json"; do
-            if [ -f "$f" ]; then printf '%s\n' "$f"; fi
-        done
-        for casa in "$DG_CASAS"/*/; do
-            [ -d "$casa" ] || continue
-            casa="${casa%/}"
-            for f in "$casa/cofre/cofre.env" "$casa/home/.plataforma/identidade.md" "$casa/home/.dgclaw/self-crons.json"; do
-                if [ -f "$f" ]; then printf '%s\n' "$f"; fi
-            done
-            if [ -d "$casa/home" ]; then find "$casa/home" -maxdepth 1 -type f -name '*.md'; fi
-            if [ -d "$casa/home/memory" ]; then find "$casa/home/memory" -maxdepth 1 -type f -name '*.md'; fi
-        done
-    } | sort -u | while IFS= read -r f; do
-        printf '%s  %s\n' "$(_sha "$f")" "$(_rel "$f")"
-    done
-}
 
 # --- 6. conferencia -----------------------------------------------------------------------
 
@@ -342,7 +231,12 @@ atualizar_aplicar() {
     if [ "$ENSAIO" = 1 ]; then extra=(--ensaio); fi
     ATU_ETAPA="rodando o instalador"
     passo "Rodando o instalador do clone (configuracao e codigo)"
-    atualizar_rodar_install
+    if [ "$ATU_VOLTAR_SOZINHO" = 1 ]; then
+        # Num subshell o `falha` do instalador so encerra o subshell: quem decide o que fazer e o chamador.
+        ( atualizar_rodar_install ) || { ATU_INSTALL_FALHOU=1; return 0; }
+    else
+        atualizar_rodar_install
+    fi
     carregar_env_dgclaw
 
     ATU_ETAPA="reconstruindo a imagem dos agentes"
@@ -479,7 +373,7 @@ atualizar_montar_resumo() {
 
 atualizar_main() {
     local repo_arg="" voltar="" segundo_plano=0 sem_homes=0 mesmo_assim=0 a
-    ATU_FORCAR_LOCAL=0; ATU_SEM_BAIXAR=0; ATU_MODO=atualizar
+    ATU_FORCAR_LOCAL=0; ATU_SEM_BAIXAR=0; ATU_MODO=atualizar; ATU_SEM_VOLTAR=0
     local repassar=("$@")
     while [ $# -gt 0 ]; do
         a="$1"
@@ -492,6 +386,7 @@ atualizar_main() {
             --sem-backup-agentes) sem_homes=1 ;;
             --segundo-plano) segundo_plano=1 ;;
             --mesmo-assim) mesmo_assim=1 ;;
+            --sem-voltar-sozinho) ATU_SEM_VOLTAR=1 ;;
             --voltar) [ $# -ge 2 ] || falha "a opcao --voltar precisa da pasta do backup." "exemplo: sudo dgclaw atualizar --voltar /var/backups/dgclaw/20261018-093000"; voltar="$2"; ATU_MODO=voltar; shift ;;
             --voltar=*) voltar="${a#*=}"; ATU_MODO=voltar ;;
             *) falha "a opcao '$a' nao existe em 'atualizar'." "veja as opcoes com: dgclaw --ajuda" ;;
@@ -532,16 +427,25 @@ atualizar_main() {
     passo "Fazendo o backup antes de mexer em qualquer coisa"
     ATU_BACKUP="$(atualizar_pasta_backup)"
     atualizar_backup "$ATU_BACKUP" atualizar "$sem_homes"
+    atualizar_preparar_volta_sozinha
 
     ATU_ETAPA="baixando a versao nova"
     passo "Baixando a versao nova"
     atualizar_baixar
 
     atualizar_aplicar
+    if [ "$ATU_INSTALL_FALHOU" = 1 ]; then
+        atualizar_voltar_sozinho "o instalador (install.sh) da versao nova terminou com erro; a causa esta nas linhas acima" "$sem_homes"
+        return 1
+    fi
 
     ATU_ETAPA="conferindo o resultado"
     passo "Conferindo que nada do que existia antes sumiu ou mudou"
     atualizar_conferir "$ATU_BACKUP"
+    if [ "$ATU_PROBLEMAS" -gt 0 ] && [ "$ATU_VOLTAR_SOZINHO" = 1 ]; then
+        atualizar_voltar_sozinho "a conferencia de configuracao achou $ATU_PROBLEMAS coisa(s) que existia(m) antes e sumiu/mudou (linhas FALHOU acima; os valores nunca sao mostrados)" "$sem_homes"
+        return 1
+    fi
     atualizar_checar_vida
 
     ATU_ETAPA="agendando o reinicio do Admin"
@@ -569,7 +473,7 @@ atualizar_main() {
     if [ "$reinicia" = 1 ]; then
         atualizar_agendar_reinicio_do_admin "$resumo_arq" "$log_arq"
     elif [ -n "${ATU_AGENTES_FALHOS// /}" ]; then
-        aviso "NAO vou reiniciar o Admin: o(s) agente(s)${ATU_AGENTES_FALHOS} nao ficou(aram) bem, e o Admin precisa continuar de pe, com o chat funcionando, para consertar."
+        aviso "NAO vou reiniciar o Admin: o(s) agente(s)${ATU_AGENTES_FALHOS} nao ficou(aram) bem, e o Admin precisa continuar de pe, com o chat funcionando, para consertar. Tambem NAO desfiz a atualizacao: agente que nao sobe costuma ser problema do container dele, nao da versao, e voltar repetiria a falha. Refaca cada um com: dgclaw agente recriar <slug> --forcar"
     else
         aviso "houve $ATU_PROBLEMAS problema(s) na conferencia; deixo o Admin como esta, para voce nao perder o chat enquanto resolve."
     fi
@@ -581,19 +485,55 @@ atualizar_main() {
         return 0
     fi
     if [ "$reinicia" != 1 ]; then
+        depois_de_atualizar incompleta
         printf '%s\n  Resumo gravado em: %s\n' "$resumo_txt" "$resumo_arq" >&2
         return 1
     fi
+    depois_de_atualizar concluida
     printf '%s\n  Resumo gravado em: %s\n' "$resumo_txt" "$resumo_arq"
 }
 
-# atualizar_pasta_backup: imprime a pasta nova (data e hora; ganha sufixo se ja existir).
-atualizar_pasta_backup() {
-    local base n=1 pasta
-    base="$DG_BACKUPS/$(date +%Y%m%d-%H%M%S)"
-    pasta="$base"
-    while [ -e "$pasta" ]; do n=$((n + 1)); pasta="$base-$n"; done
-    printf '%s' "$pasta"
+# atualizar_preparar_volta_sozinha: decide se esta atualizacao pode se desfazer sozinha. Precisa do
+# commit de antes no clone, que e para onde o --voltar leva. Sem ele, o comando para como sempre
+# e diz como voltar a mao.
+atualizar_preparar_volta_sozinha() {
+    ATU_VOLTAR_SOZINHO=0
+    if [ "$ATU_SEM_VOLTAR" = 1 ]; then
+        info "--sem-voltar-sozinho: se o instalador ou a conferencia falharem, eu paro e deixo como esta (voce volta com --voltar)."
+        return 0
+    fi
+    if [ "$ENSAIO" = 1 ]; then
+        info "[ensaio] se o instalador novo ou a conferencia de configuracao falharem, a atualizacao voltaria sozinha ao backup (agente que nao sobe NAO faz voltar)"
+        return 0
+    fi
+    if ! [[ "$ATU_COMMIT_ANTIGO" =~ ^[0-9a-f]{40}$ ]] || ! _git cat-file -e "${ATU_COMMIT_ANTIGO}^{commit}" 2>/dev/null; then
+        aviso "nao tenho o commit de antes neste clone, entao se algo falhar NAO consigo voltar sozinho; eu paro e digo como voltar a mao."
+        return 0
+    fi
+    ATU_VOLTAR_SOZINHO=1
+    ok "se o instalador novo ou a conferencia de configuracao falharem, volto sozinho ao backup (agente que nao sobe NAO faz voltar)"
+}
+
+# atualizar_voltar_sozinho <o que deu errado> <sem-homes>: o rollback automatico. Reaproveita o
+# --voltar inteiro (backup do estado de agora, clone no commit de antes, configuracao e Admin
+# restaurados, instalador, imagem, agentes, conferencia e reinicio desacoplado do Admin). Nunca
+# reinicia o Admin no meio. Quem chama devolve 1: a atualizacao em si nao deu certo.
+atualizar_voltar_sozinho() {
+    local motivo="$1" sem_homes="$2" backup_orig="$ATU_BACKUP"
+    ATU_ROLLBACK_TEXTO="A atualizacao NAO deu certo e foi desfeita sozinha. O que deu errado: $motivo. O que foi desfeito: a configuracao, o Admin e o codigo voltaram ao que eram antes (backup $backup_orig); os dados e as casas dos agentes nao foram tocados."
+    printf '\n%s\n' "$ATU_ROLLBACK_TEXTO" >&2
+    printf 'Vou voltar agora ao backup %s (isso leva alguns minutos).\n' "$backup_orig" >&2
+    ATU_MODO=voltar
+    ATU_VOLTAR_SOZINHO=0
+    atualizar_voltar "$backup_orig" "$sem_homes" 0
+    {
+        printf '\nO que aconteceu: %s.\n' "$motivo"
+        printf 'O DG Claw esta de volta na versao de antes. O backup que usei esta em %s.\n' "$backup_orig"
+        printf 'O que fazer agora: leia as linhas FALHOU acima para saber a causa; quando ela estiver resolvida, rode de novo: sudo dgclaw atualizar.\n'
+        printf 'Se quiser investigar com a versao nova instalada, rode: sudo dgclaw atualizar --sem-voltar-sozinho (ele para no erro e nao desfaz).\n'
+        printf 'Se algum agente nao estiver bem depois disto, o conserto e: sudo dgclaw agente recriar <slug> --forcar.\n'
+    } >&2
+    depois_de_atualizar voltou-sozinho
 }
 
 # atualizar_checar_disco <sem-homes>: o backup mais a imagem nova precisam caber.
@@ -680,28 +620,19 @@ atualizar_segundo_plano() {
 
 # atualizar_voltar <backup> <sem-homes> <mesmo-assim>
 atualizar_voltar() {
-    local b="$1" sem_homes="$2" mesmo_assim="$3" commit_alvo ramo_novo extras="" slug backup_agora log_arq resumo_arq
+    local b="$1" sem_homes="$2" mesmo_assim="$3" commit_alvo ramo_novo extras="" backup_agora log_arq resumo_arq
     ATU_ETAPA="conferindo o backup a restaurar"
-    if [ ! -f "$b/MANIFESTO.txt" ] || [ ! -f "$b/config.tar.gz" ]; then
-        falha "'$b' nao parece um backup do DG Claw (falta a pasta, o MANIFESTO.txt ou o config.tar.gz)." \
-              "veja os backups que existem: ls $DG_BACKUPS"
-    fi
-    b="$(cd "$b" && pwd)"
+    b="$(backup_conferir_pasta "$b")"
     commit_alvo="$(_env_de "$b/MANIFESTO.txt" commit)"
     [[ "$commit_alvo" =~ ^[0-9a-f]{40}$ ]] \
         || falha "o MANIFESTO.txt de $b nao tem um commit valido (commit='$commit_alvo'), entao nao sei para qual versao voltar." \
                  "se o backup foi feito sem git, volte o codigo na mao e rode so a parte de configuracao: tar -xzf $b/config.tar.gz -C /"
-    tar -tzf "$b/config.tar.gz" >/dev/null 2>&1 || falha "o $b/config.tar.gz nao abre." "esse backup esta corrompido; use outro de: ls $DG_BACKUPS"
-    if [ -f "$b/admin.tar.gz" ]; then tar -tzf "$b/admin.tar.gz" >/dev/null 2>&1 || falha "o $b/admin.tar.gz nao abre." "esse backup esta corrompido; use outro de: ls $DG_BACKUPS"; fi
     _git cat-file -e "${commit_alvo}^{commit}" 2>/dev/null \
         || falha "o commit ${commit_alvo:0:10} do backup nao existe neste clone ($ATU_REPO)." \
                  "baixe o historico completo (cd $ATU_REPO && git fetch --all) e rode de novo."
 
     # Agentes criados depois do backup: voltar o agentes.json os tiraria do painel.
-    while read -r slug; do
-        [ -n "$slug" ] || continue
-        if ! printf ',%s,' "$(_env_de "$b/MANIFESTO.txt" agentes)" | grep -qF ",$slug,"; then extras+=" $slug"; fi
-    done < <(agentes_ler | jq -r '.agentes[] | select(.tipo == "agente") | .slug')
+    extras="$(backup_agentes_novos "$b/MANIFESTO.txt")"
     if [ -n "$extras" ] && [ "$mesmo_assim" != 1 ]; then
         falha "estes agentes foram criados DEPOIS desse backup:$extras. Restaurar o agentes.json do backup os tiraria do painel (as pastas deles ficam, mas eles somem da lista)." \
               "se quer voltar mesmo assim: sudo dgclaw atualizar --voltar $b --mesmo-assim. Se nao, escolha um backup mais recente: ls $DG_BACKUPS"
@@ -753,8 +684,8 @@ atualizar_voltar() {
         resumo_arq="${log_arq%.log}.resumo.txt"
         if [ "$ENSAIO" != 1 ]; then
             ( umask 027; mkdir -p "$DG_LOG"
-              printf 'Voltei para a versao de %s (commit %s).\n  Clone na branch: %s\n  Backup do estado de antes de voltar: %s\n  Todos os agentes ficaram bem.\n  Log completo: %s\n' \
-                  "$(_env_de "$b/MANIFESTO.txt" criado_em)" "${commit_alvo:0:10}" "$ramo_novo" "$backup_agora" "$log_arq" >"$resumo_arq" ) \
+              printf '%sVoltei para a versao de %s (commit %s).\n  Clone na branch: %s\n  Backup do estado de antes de voltar: %s\n  Todos os agentes ficaram bem.\n  Log completo: %s\n' \
+                  "${ATU_ROLLBACK_TEXTO:+$ATU_ROLLBACK_TEXTO$'\n'}" "$(_env_de "$b/MANIFESTO.txt" criado_em)" "${commit_alvo:0:10}" "$ramo_novo" "$backup_agora" "$log_arq" >"$resumo_arq" ) \
                 || falha "nao consegui gravar o resumo em $resumo_arq." "confira o espaco e a permissao de $DG_LOG; a volta em si ja terminou."
         fi
         atualizar_agendar_reinicio_do_admin "$resumo_arq" "$log_arq"
