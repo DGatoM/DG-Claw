@@ -48,7 +48,7 @@ const CACHE_CHAVE_MS = 5000;
 const TETO_CORPO_BYTES = 110 * 1024 * 1024;
 const TETO_ERRO_BYTES = 1024 * 1024;
 
-const FRASE_BLOQUEIO = 'Isso só se faz no DG Telegram, com o login do Danilo: um card não pode aprovar o próprio pedido. '
+const FRASE_BLOQUEIO = 'Isso só se faz no DG Telegram, com o login do dono: um card não pode aprovar o próprio pedido. '
   + 'Use o botão Decidir no DG Telegram.';
 const FRASE_COFRE = 'O cofre do Bunker está trancado. Destrave pelo DG Telegram, com a senha mestra, e volte aqui.';
 
