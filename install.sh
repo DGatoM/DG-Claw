@@ -3,6 +3,7 @@
 #
 #   sudo ./install.sh --usuario <nome> [--dominio <dominio>] [--provedor claude|codex]
 #                     [--senha-stdin] [--novo-primeiro-acesso]
+#                     [--nivel pessoal|escritorio|empresa|regulado]
 #                     [--ensaio] [--com-imagem] [--sem-imagem] [--ajuda]
 #
 # O padrao e NAO pedir senha: o instalador gera um link de primeiro acesso (uso unico, vale
@@ -43,6 +44,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 USUARIO=""
 DOMINIO_ARG=""
 PROVEDOR_ARG=""
+NIVEL_ARG=""
 ARG_ENSAIO=0
 SEM_IMAGEM=1
 SENHA=""
@@ -65,6 +67,10 @@ Instala o DG Claw neste servidor: painel com HTTPS, Admin e a base para criar ag
   --dominio <dominio>   endereco proprio (padrao: um endereco gratuito, escolhido sozinho)
   --provedor claude|codex
                         com qual assinatura o Admin trabalha (padrao: o que estiver logado aqui)
+  --nivel pessoal|escritorio|empresa|regulado
+                        nivel de protecao enterprise (padrao: pessoal, o DG Claw de sempre). Grava
+                        /etc/dgclaw/protecoes.json. Sem esta opcao, a instalacao nova fica no
+                        pessoal e a reinstalacao preserva o nivel que ja existe
   --senha-stdin         le a senha do painel do STDIN (sem esperar; erro se vier vazia ou curta)
   --novo-primeiro-acesso
                         gera um link de primeiro acesso novo mesmo que o painel ja tenha senha
@@ -97,6 +103,8 @@ parse_args() {
             --dominio=*) DOMINIO_ARG="${1#*=}"; shift ;;
             --provedor) [ $# -ge 2 ] || arg_sem_valor "$1"; PROVEDOR_ARG="$2"; shift 2 ;;
             --provedor=*) PROVEDOR_ARG="${1#*=}"; shift ;;
+            --nivel)    [ $# -ge 2 ] || arg_sem_valor "$1"; NIVEL_ARG="$2"; shift 2 ;;
+            --nivel=*)  NIVEL_ARG="${1#*=}"; shift ;;
             --ensaio)   ARG_ENSAIO=1; shift ;;
             --senha-stdin) ARG_SENHA_STDIN=1; shift ;;
             --novo-primeiro-acesso) ARG_NOVO_PRIMEIRO_ACESSO=1; shift ;;
@@ -126,6 +134,10 @@ validar_args() {
     case "$PROVEDOR_ARG" in
         ""|claude|codex) ;;
         *) falha "o provedor '$PROVEDOR_ARG' nao existe." "use --provedor claude ou --provedor codex." ;;
+    esac
+    case "$NIVEL_ARG" in
+        ""|pessoal|escritorio|empresa|regulado) ;;
+        *) falha "o nivel '$NIVEL_ARG' nao existe." "use --nivel pessoal, escritorio, empresa ou regulado." ;;
     esac
 }
 
@@ -1164,6 +1176,46 @@ atualizar_identidades() {
     ok "identidade conferida em $n agente(s)"
 }
 
+# --- enterprise -----------------------------------------------------------------
+# Registra a versao, grava o nivel pedido (--nivel) e roda os ganchos ent_instalar_* dos blocos
+# enterprise, que so rodam fora do nivel pessoal. Carrega as libs da pasta de ORIGEM (SCRIPT_DIR),
+# a mesma que acabou de ir para /opt/dgclaw/app.
+ent_instalar() {
+    passo "Versao e nivel de protecao"
+    local f atual
+    # shellcheck source=lib/protecoes.sh
+    . "$SCRIPT_DIR/lib/protecoes.sh"
+    for f in "$SCRIPT_DIR"/lib/enterprise/*.sh; do
+        [ -e "$f" ] || continue
+        # shellcheck source=/dev/null
+        . "$f"
+    done
+    if [ "$ENSAIO" = 1 ]; then
+        info "[ensaio] registraria a versao em ${DG_ETC#"$R"}/versao${NIVEL_ARG:+ e gravaria o nivel $NIVEL_ARG}"
+        return 0
+    fi
+    versao_gravar "$SCRIPT_DIR"
+    ok "versao $(versao_do_codigo "$SCRIPT_DIR") registrada em ${DG_ETC#"$R"}/versao"
+    if [ -n "$NIVEL_ARG" ]; then
+        atual="$(protecao_nivel)"
+        if [ "$NIVEL_ARG" = pessoal ]; then
+            if [ "$atual" != pessoal ]; then
+                aviso "esta instalacao esta no nivel $atual e --nivel pessoal nao rebaixa uma instalacao que ja existe. Para rebaixar de proposito: dgclaw nivel definir pessoal."
+            fi
+        else
+            protecao_gravar_nivel "$NIVEL_ARG"
+            ok "nivel de protecao: $NIVEL_ARG"
+            auditar_aviso nivel.definir "$(jq -nc --arg de "$atual" --arg para "$NIVEL_ARG" '{de: $de, para: $para, origem: "instalador"}')"
+        fi
+    fi
+    atual="$(protecao_nivel)"
+    if [ "$atual" = pessoal ]; then
+        info "nivel pessoal: nenhuma protecao enterprise a instalar."
+        return 0
+    fi
+    ent_rodar_ganchos ent_instalar_
+}
+
 # --- main -----------------------------------------------------------------------
 main() {
     parse_args "$@"
@@ -1193,6 +1245,7 @@ main() {
     atualizar_identidades
     construir_imagem
     testar_fim
+    ent_instalar
     mensagem_final
 }
 

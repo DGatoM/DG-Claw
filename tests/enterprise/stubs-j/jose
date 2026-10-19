@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# jose de mentira: so o final da receita (`jose jwk thp`) devolve o thumbprint do Tang; o resto repassa a entrada.
+echo "jose $*" >>"${STUB_LOG:?}"
+if [ "${1:-}" = jwk ] && [ "${2:-}" = thp ]; then cat >/dev/null; echo "${STUB_TANG_THP:-thumbprintdotangdotangdotang1}"; exit 0; fi
+cat

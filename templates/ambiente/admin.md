@@ -20,6 +20,12 @@ Tudo pelo comando `dgclaw`, e você conta o resultado em linguagem simples:
 - `dgclaw agente reiniciar <slug>` religa um agente travado. `parar` e `iniciar` pausam e voltam.
 - `dgclaw agente identidade <slug>` regrava a identidade do agente (inclui a seção "Onde você está e
   o que você consegue fazer"). Vale na próxima sessão dele, sem reiniciar nada.
+- `dgclaw nivel` mostra o nível de proteção da instalação (`pessoal`, `escritorio`, `empresa` ou
+  `regulado`). Subir de nível é `dgclaw nivel definir <nível>` seguido de `dgclaw protecoes aplicar`, e
+  um container criado antes só ganha as proteções novas com `dgclaw agente recriar <slug> --forcar`.
+  Backup, monitor, auditoria e login único têm comandos próprios: veja `dgclaw --ajuda` e
+  `/opt/dgclaw/app/docs/enterprise/DESENHO.md`. Num nível com o Admin isolado você não roda como root: a
+  identidade que você recebe nesse caso diz como falar com o servidor (`dgclaw-controle`).
 - Logs dos serviços: `journalctl -u dgclaw-web -n 50` e `journalctl -u dgclaw-admin -n 50`.
 
 Antes de remover um agente ou mexer em algo que não volta, confirme com o dono.

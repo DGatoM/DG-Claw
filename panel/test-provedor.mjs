@@ -221,6 +221,28 @@ console.log('\nLogin assistido repassado');
   ok(JSON.parse(cod.corpo).codigo === 'ABC-123', 'o runner recebeu o código');
 }
 
+console.log('\nCredencial da empresa: a marca no config do agente esconde e recusa o modo token');
+{
+  const marca = path.join(RAIZ, 'credencial-empresa');
+  process.env.DGCLAW_CREDENCIAL_EMPRESA_ARQ = marca;
+  resetar();
+  const sem = await chamar('GET /api/provedor');
+  ok(!!sem.corpo.catalogo.claude.auth.token, 'sem a marca, o modo token aparece no catálogo (nível pessoal igual a antes)');
+  fs.writeFileSync(marca, 'texto do motivo, em português\n');
+  const com = await chamar('GET /api/provedor');
+  ok(!com.corpo.catalogo.claude.auth.token && !!com.corpo.catalogo.claude.auth.assinatura && !!com.corpo.catalogo.claude.auth.api, 'com a marca, o catálogo perde o token e mantém assinatura e API');
+  resetar();
+  const p = await chamar('POST /api/provedor', { provedor: 'claude', auth: 'token', modelo: '' });
+  ok(p.status === 403 && p.corpo.error.includes('texto do motivo') && p.corpo.howToFix, 'com a marca, escolher token é 403 com o motivo e o que fazer');
+  ok(runner.recebidos.length === 0 && espiao.guardar.length === 0 && espiao.aplicar === 0, 'a recusa não tocou o runner nem o Cofre');
+  const a = await chamar('POST /api/provedor', { provedor: 'claude', auth: 'assinatura', modelo: '' });
+  ok(a.status === 200, 'a assinatura continua funcionando com a marca');
+  fs.rmSync(marca);
+  const depois = await chamar('POST /api/provedor', { provedor: 'claude', auth: 'token', modelo: '' });
+  ok(depois.status === 409, 'sem a marca o token volta a ser aceito (pede o código, 409)');
+  delete process.env.DGCLAW_CREDENCIAL_EMPRESA_ARQ;
+}
+
 console.log('\nNenhuma chave vazou');
 {
   console.error = erroOriginal;

@@ -13,7 +13,10 @@ function campo(v, nome, max) {
 // Valida as escolhas da pessoa. Serve ao formulário (solicitar) e à conversa (registrarPedido).
 function escolhas(body, dono) {
   const d = dono == null ? undefined : campo(dono, 'seu nome', 70);
-  return { dono: d, nome: campo(body.nome, 'o nome', 70), papel: campo(body.papel, 'a função', 700), jeito: campo(body.jeito, 'o tom', 180) };
+  // Versão empresa (credencial_empresa): de quem é o agente. Sem a escolha, vale "pessoa" (o assento de quem está criando).
+  const uso = body.uso == null ? 'pessoa' : body.uso;
+  if (uso !== 'pessoa' && uso !== 'setor') throw erro('Diga se o agente é de uma pessoa ou de um setor (uso: "pessoa" ou "setor").');
+  return { dono: d, nome: campo(body.nome, 'o nome', 70), papel: campo(body.papel, 'a função', 700), jeito: campo(body.jeito, 'o tom', 180), uso };
 }
 function slugNome(nome) {
   let s = nome.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 26).replace(/-$/, '');
@@ -244,6 +247,7 @@ function criarOnboarding({ config, registro, conversa, midia, log = () => {}, im
       login: agente && agente.porta_painel ? '/p/' + agente.slug + '/?aba=status' : null,
       progresso: progresso(p) };
   }
+  // `usuario` é o login de quem está criando: na versão empresa ele vira o dono do agente de pessoa.
   async function solicitar(body, usuario) {
     if (!body || typeof body !== 'object' || Array.isArray(body)) throw erro('Preencha o formulário para criar seu agente.');
     if (ocupado) throw erro('O Admin está recebendo seu pedido. Aguarde um instante.', 409);
@@ -252,7 +256,7 @@ function criarOnboarding({ config, registro, conversa, midia, log = () => {}, im
     if (anterior && anterior.fase !== 'erro-envio') return publico(anterior);
     const ultimo = db.ultimo();
     if (ultimo && ultimo.id !== body.id && !['pronto', 'erro-envio'].includes(ultimo.fase)) throw erro('Já existe uma criação em andamento. Continue com o Admin antes de criar outra.', 409);
-    const { dono: donoInformado, nome, papel, jeito } = escolhas(body, body.dono);
+    const { dono: donoInformado, nome, papel, jeito, uso } = escolhas(body, body.dono);
     const dono = donoInformado === undefined ? usuario : donoInformado;
     const admin = registro.estado().agentes.find(a => a.tipo === 'admin');
     if (!admin) throw erro('O Admin não está cadastrado. Peça para conferir a instalação.', 503);
@@ -265,13 +269,14 @@ function criarOnboarding({ config, registro, conversa, midia, log = () => {}, im
     }
     let slug = slugNome(nome);
     if (!anterior && registro.obter(slug)) slug = slug.slice(0, 22) + '-' + body.id.slice(0, 6);
-    const p = anterior || { id: body.id, criado: new Date().toISOString(), nome, papel, jeito, dono, slug, foto, fotoPath, provedor: admin.provedor === 'codex' ? 'codex' : 'claude' };
+    const p = anterior || { id: body.id, criado: new Date().toISOString(), nome, papel, jeito, dono, uso, usuario, slug, foto, fotoPath, provedor: admin.provedor === 'codex' ? 'codex' : 'claude' };
     ocupado = true;
     try {
       db.gravar({ ...p, fase: 'enviando', mensagem: 'Enviando suas escolhas ao Admin.' });
       // As escolhas ficam no JSON do pedido e nunca viram código de shell.
       const texto = '[do visual Criar meu agente] Quero criar meu agente com estas escolhas: ' +
         'Pode me chamar de ' + p.dono + '. Nome: ' + p.nome + '. Função: ' + p.papel + '. Tom: ' + p.jeito + '. ' +
+        (p.uso === 'setor' ? 'Este agente é de um setor da empresa e usa a chave de API da empresa. ' : '') +
         (p.foto ? 'Escolhi a foto em anexo.' : 'Pode usar o avatar neutro.') + ' Confirmo a criação pelo formulário do painel.';
       const r = await conversa.enviar(admin, { text: texto, anexos: p.foto ? [p.foto] : [] });
       if (r.status >= 300) {
@@ -296,20 +301,23 @@ function criarOnboarding({ config, registro, conversa, midia, log = () => {}, im
 // Pedido vindo da CONVERSA: o dono respondeu ao Admin no chat em vez de usar o formulário.
 // Grava o mesmo arquivo que o formulário grava, para `criar atual` e `testar atual` funcionarem igual
 // e o painel mostrar a animação. Não escreve ao Admin: quem chama já é o Admin.
-function registrarPedido({ config, registro, dados }) {
+// semAdmin: o Admin está desligado de propósito (admin_llm = false, web/lib/ent/admin-desligado.js) e o formulário do Web
+// cria o agente pelo controle; sem Admin cadastrado o provedor é o pedido em dados.provedor (claude ou codex) ou claude.
+function registrarPedido({ config, registro, dados, semAdmin = false }) {
   if (!dados || typeof dados !== 'object' || Array.isArray(dados)) throw erro('Faltou o JSON com nome, papel, jeito e dono do agente.');
   const db = loja(config.dataDir);
   const ultimo = db.ultimo();
   if (ultimo && !['pronto', 'erro-envio'].includes(ultimo.fase)) throw erro(`Já existe uma criação em andamento (pedido na fase "${ultimo.fase}"). Termine ou resolva essa antes de gravar outro pedido.`, 409);
-  const { dono, nome, papel, jeito } = escolhas(dados, dados.dono);
+  const { dono, nome, papel, jeito, uso } = escolhas(dados, dados.dono);
   if (dono === undefined) throw erro('Preencha seu nome com até 70 caracteres, sem quebras de linha.');
   const admin = registro.estado().agentes.find(a => a.tipo === 'admin');
-  if (!admin) throw erro('O Admin não está cadastrado. Peça para conferir a instalação.', 503);
+  if (!admin && !semAdmin) throw erro('O Admin não está cadastrado. Peça para conferir a instalação.', 503);
+  const provedor = admin ? (admin.provedor === 'codex' ? 'codex' : 'claude') : (dados.provedor === 'codex' ? 'codex' : 'claude');
   const id = crypto.randomBytes(16).toString('hex');
   let slug = slugNome(nome);
   if (registro.obter(slug)) slug = slug.slice(0, 22) + '-' + id.slice(0, 6);
-  return db.gravar({ id, criado: new Date().toISOString(), nome, papel, jeito, dono, slug, foto: null, fotoPath: null,
-    provedor: admin.provedor === 'codex' ? 'codex' : 'claude', fase: 'solicitado', origem: 'conversa',
-    mensagem: 'O Admin recebeu suas escolhas pela conversa e vai preparar seu agente.' });
+  return db.gravar({ id, criado: new Date().toISOString(), nome, papel, jeito, dono, uso, usuario: typeof dados.usuario === 'string' ? dados.usuario : undefined, slug, foto: null, fotoPath: null,
+    provedor, fase: 'solicitado', origem: semAdmin ? 'formulario' : 'conversa',
+    mensagem: semAdmin ? 'Recebi suas escolhas e vou preparar seu agente.' : 'O Admin recebeu suas escolhas pela conversa e vai preparar seu agente.' });
 }
 module.exports = { criarOnboarding, registrarPedido, loja, slugNome, RX_ID, limpar };

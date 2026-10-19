@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# systemctl de mentira do teste de atualizar: o do instalador, mas tratando "dgclaw-admin" e
+# "dgclaw-admin.service" como a mesma unidade (o systemd de verdade trata; o stub do instalador nao).
+AQUI="$(cd "$(dirname "$0")" && pwd)"
+args=()
+for a in "$@"; do args+=("${a%.service}"); done
+exec "$AQUI/../../instalador/stubs/systemctl" "${args[@]}"

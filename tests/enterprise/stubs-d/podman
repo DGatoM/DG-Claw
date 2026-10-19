@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# podman de mentira dos testes do bloco D: entende `network ls` e `network inspect` (interfaces das pontes,
+# listadas em $STUB_ESTADO/pontes, uma "rede interface" por linha), `inspect` do container com
+# SecurityOpt/Mounts (o que o `podman create` registrou) e `ps`; o resto vai para o stub da CLI.
+AQUI="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+est="${STUB_ESTADO:?}"
+case "${1:-} ${2:-}" in
+    "network ls") [ -f "$est/pontes" ] && cut -d' ' -f1 "$est/pontes"; echo "podman $*" >>"${STUB_LOG:?}"; exit 0 ;;
+    "network inspect")
+        echo "podman $*" >>"${STUB_LOG:?}"
+        rede="$3"; grep "^$rede " "$est/pontes" | cut -d' ' -f2; exit 0 ;;
+esac
+if [ "${1:-}" = inspect ]; then
+    nome="${*: -1}"
+    if printf '%s ' "$@" | grep -q 'SecurityOpt'; then
+        echo "podman $*" >>"${STUB_LOG:?}"
+        [ -f "$est/c-$nome" ] || exit 1
+        cat "$est/secopt-$nome" 2>/dev/null || echo "[]"; exit 0
+    fi
+    if printf '%s ' "$@" | grep -q 'Config.Env'; then
+        echo "podman $*" >>"${STUB_LOG:?}"
+        [ -f "$est/c-$nome" ] || exit 1
+        cat "$est/env-$nome" 2>/dev/null; exit 0
+    fi
+    if printf '%s ' "$@" | grep -q '.Mounts'; then
+        echo "podman $*" >>"${STUB_LOG:?}"
+        [ -f "$est/c-$nome" ] || exit 1
+        cat "$est/mounts-$nome" 2>/dev/null; exit 0
+    fi
+fi
+if [ "${1:-}" = create ]; then
+    # guarda o que o create pediu, para o inspect responder
+    nome=""; prev=""
+    for a in "$@"; do
+        [ "$prev" = --name ] && nome="$a"
+        prev="$a"
+    done
+    : >"$est/mounts-$nome"; echo "[]" >"$est/secopt-$nome"; : >"$est/env-$nome"
+    prev=""
+    for a in "$@"; do
+        # a origem E o destino de cada volume: o inspect de verdade lista os dois, em formatos diferentes
+        if [ "$prev" = --volume ]; then
+            printf '%s\n' "${a%%:*}" >>"$est/mounts-$nome"
+            resto="${a#*:}"; printf '%s\n' "${resto%%:*}" >>"$est/mounts-$nome"
+        fi
+        [ "$prev" = --env ] && printf '[%s]\n' "$a" >>"$est/env-$nome"
+        [ "$prev" = --security-opt ] && echo "[$a]" >"$est/secopt-$nome"
+        prev="$a"
+    done
+fi
+if [ "${1:-}" = ps ]; then
+    echo "podman $*" >>"${STUB_LOG:?}"
+    for f in "$est"/c-*; do [ -f "$f" ] && [ "$(cat "$f")" = running ] && echo "${f##*/c-}" | sed 's/^/dgclaw-/;s/^dgclaw-dgclaw-/dgclaw-/'; done
+    exit 0
+fi
+exec "$AQUI/../../cli/stubs/podman" "$@"

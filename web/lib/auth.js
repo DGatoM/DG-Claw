@@ -1,6 +1,8 @@
 'use strict';
 // Autenticação do Web: verificação de senha (scrypt), sessões em cookie e limite de tentativas.
 // Interface pequena de propósito: verificaSenha, criaSessao, sessaoDoPedido, encerra.
+// Enterprise (multiusuário, web/lib/ent/usuarios.js): verificaSenha aceita um resolvedor de usuário, criaSessao
+// aceita campos extras (papel, fa2_em, sessão "meia" do 2FA) e há listagem/revogação de sessões por usuário.
 
 const crypto = require('node:crypto');
 const fs = require('node:fs');
@@ -8,6 +10,8 @@ const path = require('node:path');
 const { parseCookies, ipDoPedido, esquemaDoPedido } = require('./http');
 
 const NOME_COOKIE = 'dgclaw_sessao';
+// Enterprise (https_endurecido): com HTTPS o cookie ganha o prefixo __Host-, que o navegador só aceita com Secure, Path=/ e sem Domain.
+const NOME_COOKIE_HOST = '__Host-dgclaw_sessao';
 const MAX_N = 2 ** 20;
 const TENTATIVAS_MAX = 5;
 const JANELA_MS = 15 * 60 * 1000;
@@ -25,7 +29,13 @@ function comparaTempoConstante(a, b) {
   return crypto.timingSafeEqual(sha256(String(a)), sha256(String(b)));
 }
 
+const idDe = (token) => sha256hex(token).slice(0, 16);
+
 function b64urlParaBuffer(s) { return Buffer.from(String(s), 'base64url'); }
+
+// Campos que o multiusuário acrescenta à sessão; no nível pessoal nenhum deles existe.
+const CAMPOS_EXTRAS = ['papel', 'fa2_em', 'com_2fa', 'meia', 'etapa', 'ip', 'ua', 'ultimo_uso', 'via'];
+const GRAVA_USO_A_CADA_MS = 60 * 1000;
 
 /** Lê "scrypt$N$r$p$sal$hash". Devolve { N, r, p, sal, hash } ou { erro }. */
 function parseHash(texto) {
@@ -61,7 +71,14 @@ function criarAuth({ config, log, agora }) {
   const hashInicial = String(config.env.DGCLAW_PANEL_PASSWORD_HASH || '').trim();
   // "sem senha ainda": o usuário existe e o hash está vazio (instalação sem senha, esperando o primeiro acesso).
   let semSenha = !!usuario && !hashInicial;
+  let hashTexto = hashInicial;
   let parsed = parseHash(hashInicial);
+  // Ganchos do enterprise; sem eles (nível pessoal) nada muda.
+  let horasDaSessao = null;   // () => número de horas, ou null para usar config.sessaoDias
+  let sessaoValida = null;    // (sessao crua) => boolean
+  let cookieEndurecido = null; // () => boolean (enterprise: cookie com prefixo __Host-)
+  // hash falso para gastar o scrypt quando o usuário não existe (o tempo não pode revelar quem existe)
+  const hashFalso = Object.assign({}, SCRYPT_NOVO, { sal: crypto.randomBytes(16), hash: crypto.randomBytes(32) });
   let trancado = !usuario || !!parsed.erro;
   let motivoTrancado = null;
   function calculaMotivo() {
@@ -90,7 +107,9 @@ function criarAuth({ config, log, agora }) {
       if (e.code !== 'ENOENT') log('aviso', `Não li as sessões salvas em ${arquivo} (${e.code || e.message}). Começo sem sessões; quem estava logado precisa entrar de novo.`);
     }
   }
+  let ultimaGravacaoUso = 0;
   function salva() {
+    ultimaGravacaoUso = relogio();
     try {
       const tmp = `${arquivo}.${process.pid}.tmp`;
       fs.writeFileSync(tmp, JSON.stringify({ versao: 1, sessoes: Object.fromEntries(sessoes) }), { mode: 0o600 });
@@ -131,10 +150,10 @@ function criarAuth({ config, log, agora }) {
     bloqueio,
 
     /** Troca o hash em memória e destranca. Devolve { ok } ou { ok:false, erro }. */
-    definirHash(hashTexto) {
-      const novo = parseHash(hashTexto);
+    definirHash(texto) {
+      const novo = parseHash(texto);
       if (novo.erro) return { ok: false, erro: novo.erro };
-      parsed = novo; trancado = false; motivoTrancado = null; semSenha = false;
+      parsed = novo; trancado = false; motivoTrancado = null; semSenha = false; hashTexto = String(texto).trim();
       falhas.clear();
       return { ok: true };
     },
@@ -151,70 +170,170 @@ function criarAuth({ config, log, agora }) {
       } finally { scryptEmCurso--; }
     },
 
-    /** Confere usuário e senha. Sempre gasta o scrypt (mesmo com usuário errado). { ok, trancado?, erro? } */
-    async verificaSenha(usuarioInformado, senha, ip) {
-      if (trancado) return { ok: false, trancado: true, erro: semSenha ? `O login ainda não tem senha. ${motivoTrancado}` : `O login está trancado: ${motivoTrancado} Rode o gerador de hash do instalador.` };
+    /**
+     * Confere usuário e senha. Sempre gasta o scrypt (mesmo com usuário errado). { ok, trancado?, erro? }
+     * `resolvedor` (enterprise): (nome) => { usuario, hash } | null, para conferir contra o usuário certo em vez do único do web.env.
+     * Com ele o login nunca fica "trancado" por causa do web.env: quem decide é o arquivo de usuários.
+     */
+    async verificaSenha(usuarioInformado, senha, ip, resolvedor) {
+      if (trancado && !resolvedor) return { ok: false, trancado: true, erro: semSenha ? `O login ainda não tem senha. ${motivoTrancado}` : `O login está trancado: ${motivoTrancado} Rode o gerador de hash do instalador.` };
       const b = ip ? bloqueio(ip) : { bloqueado: false };
       if (b.bloqueado) return { ok: false, limite: true, retryAfter: b.retryAfter, erro: `Muitas tentativas erradas. Tente de novo em ${Math.ceil(b.retryAfter / 60)} min.` };
       if (scryptEmCurso >= SCRYPT_SIMULTANEOS) {
         log('aviso', `Login de ${ip || '(sem IP)'} recusado: já há ${scryptEmCurso} senhas sendo conferidas ao mesmo tempo.`);
         return { ok: false, limite: true, retryAfter: 2, erro: 'Muitas tentativas ao mesmo tempo. Tente de novo em alguns segundos.' };
       }
+      let alvo = parsed;
+      let alvoUsuario = usuario;
+      let existe = true;
+      if (resolvedor) {
+        const r = resolvedor(usuarioInformado == null ? '' : String(usuarioInformado));
+        const h = r ? parseHash(r.hash) : { erro: 'usuário inexistente' };
+        if (r && h.erro && r.hash) log('aviso', `O hash de senha do usuário "${String(r.usuario).slice(0, 40)}" não vale (${h.erro}). Redefina a senha com: dgclaw usuario link ${String(r.usuario).slice(0, 40)}`);
+        existe = !!r && !h.erro;
+        alvo = existe ? h : hashFalso;
+        alvoUsuario = existe ? r.usuario : '';
+      }
       let calculado;
       scryptEmCurso++;
       try {
-        calculado = await scrypt(senha == null ? '' : senha, parsed);
+        calculado = await scrypt(senha == null ? '' : senha, alvo);
       } catch (e) {
-        log('erro', `Falha ao calcular o scrypt da senha (${e.message}). Confira N, r e p do hash no web.env.`);
+        log('erro', `Falha ao calcular o scrypt da senha (${e.message}). Confira N, r e p do hash.`);
         return { ok: false, erro: 'Não consegui conferir a senha agora. Tente de novo em instantes.' };
       } finally {
         scryptEmCurso--;
       }
-      const senhaOk = calculado.length === parsed.hash.length && crypto.timingSafeEqual(calculado, parsed.hash);
-      const usuarioOk = comparaTempoConstante(usuarioInformado == null ? '' : usuarioInformado, usuario);
+      const senhaOk = calculado.length === alvo.hash.length && crypto.timingSafeEqual(calculado, alvo.hash);
+      const usuarioOk = resolvedor ? existe : comparaTempoConstante(usuarioInformado == null ? '' : usuarioInformado, usuario);
       if (senhaOk && usuarioOk) {
         if (ip) falhas.delete(ip);
-        return { ok: true, usuario };
+        return { ok: true, usuario: alvoUsuario };
       }
       if (ip) { const l = janela(ip); l.push(relogio()); falhas.set(ip, l); }
       return { ok: false, erro: 'Usuário ou senha incorretos.' };
     },
 
-    /** Cria a sessão e devolve { token, expira, cabecalho(Set-Cookie) } pronta para o cookie. */
-    criaSessao(nomeUsuario, req) {
+    /**
+     * Cria a sessão e devolve { token, id, expira, cookie(Set-Cookie) } pronta para o cookie.
+     * `extra` (enterprise): { papel, fa2_em, com_2fa, meia, etapa, ip, ua, horas }. `horas` manda no prazo da sessão
+     * (a "meia" do 2FA dura minutos); sem ele vale sessao_horas da matriz, ou config.sessaoDias.
+     */
+    criaSessao(nomeUsuario, req, extra) {
       const token = crypto.randomBytes(32).toString('base64url');
       const criada = relogio();
-      const expira = criada + config.sessaoDias * 86400 * 1000;
+      const e = extra || {};
+      const horas = e.horas != null ? e.horas : (horasDaSessao ? horasDaSessao() : null);
+      const segundos = horas != null ? Math.max(1, Math.round(horas * 3600)) : config.sessaoDias * 86400;
+      const expira = criada + segundos * 1000;
       limpaExpiradas();
-      sessoes.set(sha256hex(token), { usuario: nomeUsuario || usuario, criada, expira });
+      const s = { usuario: nomeUsuario || usuario, criada, expira };
+      for (const c of CAMPOS_EXTRAS) if (e[c] !== undefined) s[c] = e[c];
+      if (e.papel !== undefined) s.ultimo_uso = criada;
+      sessoes.set(sha256hex(token), s);
       limpaExpiradas();
       salva();
-      return { token, expira, cookie: montaCookie(token, config.sessaoDias * 86400, req) };
+      return { token, id: idDe(token), expira, cookie: montaCookie(token, segundos, req) };
     },
 
-    /** { usuario, expira } da sessão do cookie, ou null. */
-    sessaoDoPedido(req) {
-      const token = parseCookies(req.headers.cookie)[NOME_COOKIE];
+    /**
+     * { usuario, expira, ...extras } da sessão do cookie, ou null. A sessão "meia" do 2FA só aparece com
+     * `{ incluirMeia: true }`: para o resto do Web ela é como se não existisse.
+     */
+    sessaoDoPedido(req, opcoes) {
+      const token = tokenDoPedido(req);
       if (!token || token.length > 200) return null;
-      const s = sessoes.get(sha256hex(token));
+      const chaveSessao = sha256hex(token);
+      const s = sessoes.get(chaveSessao);
       if (!s) return null;
-      if (s.expira <= relogio()) { sessoes.delete(sha256hex(token)); salva(); return null; }
-      return { usuario: s.usuario, expira: s.expira };
+      if (s.expira <= relogio()) { sessoes.delete(chaveSessao); salva(); return null; }
+      if (s.meia && !(opcoes && opcoes.incluirMeia)) return null;
+      if (sessaoValida && !sessaoValida(s)) return null;
+      const saida = { usuario: s.usuario, expira: s.expira, criada: s.criada, id: chaveSessao.slice(0, 16) };
+      for (const c of CAMPOS_EXTRAS) if (s[c] !== undefined) saida[c] = s[c];
+      if (s.ultimo_uso !== undefined) {
+        saida.ultimo_uso = s.ultimo_uso = relogio();
+        if (relogio() - ultimaGravacaoUso > GRAVA_USO_A_CADA_MS) salva();
+      }
+      return saida;
     },
+
+    /** Muda campos de uma sessão viva pelo id (o de criaSessao/sessaoDoPedido). Devolve true se achou. */
+    atualizaSessao(id, campos) {
+      for (const [k, s] of sessoes) {
+        if (k.startsWith(id) && id.length >= 16) {
+          for (const c of Object.keys(campos)) { if (campos[c] === undefined) delete s[c]; else s[c] = campos[c]; }
+          salva();
+          return true;
+        }
+      }
+      return false;
+    },
+
+    /** As sessões completas (sem a "meia") de um usuário, da mais recente para a mais antiga. */
+    listarSessoes(nome) {
+      limpaExpiradas();
+      const alvo = String(nome).toLowerCase();
+      const saida = [];
+      for (const [k, s] of sessoes) {
+        if (s.meia || String(s.usuario).toLowerCase() !== alvo) continue;
+        saida.push({ id: k.slice(0, 16), criada: s.criada, ultimo_uso: s.ultimo_uso == null ? null : s.ultimo_uso, expira: s.expira, ip: s.ip || null, ua: s.ua || null });
+      }
+      return saida.sort((a, b) => b.criada - a.criada);
+    },
+
+    /** Revoga as sessões de um usuário (todas, ou só a de `id`; `exceto` poupa uma). Devolve quantas. */
+    revogarSessoes(nome, opcoes) {
+      const o = opcoes || {};
+      const alvo = String(nome).toLowerCase();
+      let n = 0;
+      for (const [k, s] of [...sessoes]) {
+        if (String(s.usuario).toLowerCase() !== alvo) continue;
+        if (o.id && k.slice(0, 16) !== o.id) continue;
+        if (o.exceto && k.slice(0, 16) === o.exceto) continue;
+        sessoes.delete(k); n += 1;
+      }
+      if (n) salva();
+      return n;
+    },
+
+    /** Enterprise: () => boolean, se o cookie de sessão leva o prefixo __Host- (protecao https_endurecido). */
+    definirCookieEndurecido(fn) { cookieEndurecido = fn; },
+    /** Enterprise: prazo da sessão vindo da matriz (`sessao_horas`). */
+    definirHorasDaSessao(fn) { horasDaSessao = fn; },
+    /** Enterprise: recusa sessões que o multiusuário não reconhece (criadas antes dele ligar, por exemplo). */
+    definirFiltroDeSessao(fn) { sessaoValida = fn; },
+    /** O hash em uso hoje (o do web.env ou o que o primeiro acesso gravou), para migrar para o arquivo de usuários. */
+    get hashTexto() { return hashTexto; },
 
     /** Apaga a sessão do pedido e manda o cookie expirar. */
     encerra(req, res) {
-      const token = parseCookies(req.headers.cookie)[NOME_COOKIE];
+      const token = tokenDoPedido(req);
       if (token && sessoes.delete(sha256hex(token))) salva();
-      res.setHeader('Set-Cookie', montaCookie('', 0, req));
+      // Com o cookie endurecido ligado, apaga os dois nomes (o antigo pode ter ficado de antes da proteção).
+      res.setHeader('Set-Cookie', cookieEndurecidoLigado() ? [montaCookie('', 0, req), montaCookie('', 0, req, true)] : montaCookie('', 0, req));
     },
   };
 
-  function montaCookie(valor, maxAge, req) {
-    let c = `${NOME_COOKIE}=${valor}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}`;
-    if (req && esquemaDoPedido(req, config.proxiesConfiaveis) === 'https') c += '; Secure';
+  /** O token do cookie: o nome com __Host- tem a vez; o nome antigo continua valendo (sessões de antes da proteção). */
+  function tokenDoPedido(req) {
+    const c = parseCookies(req.headers.cookie);
+    return c[NOME_COOKIE_HOST] || c[NOME_COOKIE];
+  }
+
+  function cookieEndurecidoLigado() {
+    if (!cookieEndurecido) return false;
+    try { return cookieEndurecido() === true; } catch (_) { return false; }
+  }
+
+  /** `forcaAntigo`: monta o cookie com o nome antigo mesmo com a proteção ligada (para apagá-lo). */
+  function montaCookie(valor, maxAge, req, forcaAntigo) {
+    const https = !!req && esquemaDoPedido(req, config.proxiesConfiaveis) === 'https';
+    const host = !forcaAntigo && https && cookieEndurecidoLigado();
+    let c = `${host ? NOME_COOKIE_HOST : NOME_COOKIE}=${valor}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}`;
+    if (https) c += '; Secure';
     return c;
   }
 }
 
-module.exports = { criarAuth, parseHash, NOME_COOKIE, TENTATIVAS_MAX };
+module.exports = { criarAuth, parseHash, NOME_COOKIE, NOME_COOKIE_HOST, TENTATIVAS_MAX };

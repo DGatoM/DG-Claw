@@ -34,6 +34,9 @@ const { criarPush } = require('./lib/push');
 const { criarLembretes } = require('./lib/lembretes');
 const { criarMesa } = require('./lib/mesa');
 const { criarAvisos } = require('./lib/avisos');
+const { criarProtecoes } = require('./lib/protecoes');
+const { criarAuditoria } = require('./lib/auditoria');
+const { criarEnterprise } = require('./lib/ent');
 
 const METODOS_QUE_ESCREVEM = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const TIPOS_ESTATICOS = {
@@ -50,6 +53,8 @@ const LOGIN_RESERVA = '<!doctype html><html lang="pt-BR"><head><meta charset="ut
   '<h1>DG Claw</h1><p id="e" style="color:#b00"></p><form method="post" action="/login"><input name="usuario" placeholder="Usuário" autocomplete="username" required>' +
   '<input name="senha" type="password" placeholder="Senha" autocomplete="current-password" required><input type="hidden" name="next" value=""><button>Entrar</button></form>' +
   '<script>var q=new URLSearchParams(location.search);document.getElementById("e").textContent=q.get("erro")||"";document.querySelector("[name=next]").value=q.get("next")||"/"</script></body></html>';
+
+function decodificaSlug(s) { try { return decodeURIComponent(s); } catch (_) { return s; } }
 
 /** `next` só vale se for caminho relativo do próprio site. */
 function proximoSeguro(v) {
@@ -70,7 +75,9 @@ function criarServidor(opcoes) {
     log('erro', `Não consegui preparar a pasta de dados ${config.dataDir} (${e.code || e.message}). Crie-a com permissão 700 ou aponte DGCLAW_WEB_DATA para um lugar gravável; as sessões não serão salvas.`);
   }
 
-  const registro = criarRegistro({ caminho: config.agentesPath, log });
+  // Criada antes do registro porque a lista vazia só é válida com o Admin desligado de propósito (web/lib/ent/admin-desligado.js).
+  const protecoes = opcoes.protecoes || criarProtecoes({ caminho: config.protecoesPath, log });
+  const registro = criarRegistro({ caminho: config.agentesPath, log, vazioOk: () => protecoes.valor('admin_llm') === false });
   const runner = criarRunner({ log, timeoutMs: opcoes.timeoutRunnerMs });
   const auth = criarAuth({ config, log, agora: opcoes.agora });
   const primeiroAcesso = criarPrimeiroAcesso({ config, auth, log, agora: opcoes.agora });
@@ -85,8 +92,8 @@ function criarServidor(opcoes) {
   const login = criarLogin({ runner, conversa, log, agora: opcoes.agora, oiPrazoMs: opcoes.loginOiPrazoMs, oiPassoMs: opcoes.loginOiPassoMs });
   const cofreAgente = criarCofreAgente({ config, log, reiniciar: opcoes.reiniciarCofre });
   const voz = opcoes.voz || criarVoz({ env: config.env, log });
-  const sigilo = opcoes.sigilo || criarSigilo({ env: config.env, registro, dataDir: config.dataDir, log, timeoutMs: opcoes.timeoutSigiloMs });
-  const cofreRotas = criarCofreRotas({ config, runner, cofre: cofreAgente, voz, log });
+  const sigilo = opcoes.sigilo || criarSigilo({ env: config.env, registro, dataDir: config.dataDir, log, timeoutMs: opcoes.timeoutSigiloMs, protecoes });
+  const cofreRotas = criarCofreRotas({ config, runner, cofre: cofreAgente, voz, log, protecoes });
   const proxy = criarProxy({ config, registro, log, cofreRotas });
   const caixa = criarCaixaAgente({ config, registro, log, porta: () => servidor.address().port, agora: opcoes.agora });
   const push = criarPush({ dataDir: config.dataDir, log, agora: opcoes.agora, enviarHttp: opcoes.enviarPush });
@@ -101,6 +108,11 @@ function criarServidor(opcoes) {
   caixa.permitir('/api/v1/tarefas');
   const avisos = criarAvisos({ config, registro, runner, caixa, log, agora: opcoes.agora });
   caixa.permitir('/api/v1/avisos');
+
+  // Enterprise (docs/enterprise/DESENHO.md §3): o nível de proteção e os blocos de web/lib/ent/. No nível
+  // pessoal nenhum bloco muda o que o Web faz.
+  const auditoria = opcoes.auditoria || criarAuditoria({ caminho: config.auditoriaPath, protecoes, log, agora: opcoes.agora });
+  const ent = criarEnterprise({ config, registro, auth, log, protecoes, auditoria, conversa, onboarding, servirArquivo, semSessaoPagina, caixa, push, agora: opcoes.agora, sso: opcoes.sso, auditoriaExterna: opcoes.auditoriaExterna, instagram: opcoes.instagram });
 
   let versaoJsCache = { ts: 0, valor: '0' };
   /** Versão da tela: mtime de conversa.js. A tela compara com a que carregou e se recarrega sozinha. */
@@ -162,8 +174,10 @@ function criarServidor(opcoes) {
 
   /* A rota "/" abre o último agente usado (cookie dgclaw_agente, gravado pela casca), se ele ainda existe no registro;
      senão o primeiro que não é o Admin (é com ele que a pessoa trabalha); senão o Admin. */
-  function agenteInicial(req) {
-    const agentes = registro.estado().agentes;
+  // Só entram agentes que o usuário pode ver (enterprise: papel funcionário vê só os liberados a ele); null se nenhum.
+  function agenteInicial(req, sessao) {
+    const agentes = registro.estado().agentes.filter((a) => ent.podeVerAgente(sessao, a.slug));
+    if (!agentes.length) return null;
     let guardado = H.parseCookies(req.headers.cookie).dgclaw_agente;
     try { guardado = guardado && decodeURIComponent(guardado); } catch (_) { guardado = null; /* cookie ilegível: cai no primeiro agente */ }
     const doCookie = guardado && agentes.find((a) => a.slug === guardado);
@@ -208,13 +222,15 @@ function criarServidor(opcoes) {
     if (!usuarioDigitado || !campos.senha) {
       return json ? H.erroJson(res, 400, 'Preencha o usuário e a senha.') : voltaAoLogin(res, 'campos', next, usuarioDigitado);
     }
-    const r = await auth.verificaSenha(usuarioDigitado, String(campos.senha), ip);
+    // Enterprise: com o multiusuário ligado, quem confere a senha (e pede o 2FA) é web/lib/ent/usuarios.js.
+    const r = (await ent.login(usuarioDigitado, String(campos.senha), ip, req)) || await auth.verificaSenha(usuarioDigitado, String(campos.senha), ip);
     if (r.ok) {
-      const s = auth.criaSessao(r.usuario, req);
-      log('info', `Login de ${r.usuario} (ip ${ip}).`);
+      const s = r.sessao || auth.criaSessao(r.usuario, req);
+      if (!r.sessao) log('info', `Login de ${r.usuario} (ip ${ip}).`);
+      const destino = r.etapa ? `${r.destino}?next=${encodeURIComponent(next)}` : next;
       const cab = { 'Set-Cookie': s.cookie, 'Cache-Control': 'no-store' };
-      if (json) return H.enviaJson(res, 200, { ok: true, destino: next }, cab);
-      res.writeHead(303, Object.assign({ Location: next }, cab));
+      if (json) return H.enviaJson(res, 200, r.etapa ? { ok: true, destino, etapa: r.etapa } : { ok: true, destino }, cab);
+      res.writeHead(303, Object.assign({ Location: destino }, cab));
       return res.end();
     }
     if (r.limite) {
@@ -227,9 +243,9 @@ function criarServidor(opcoes) {
       log('aviso', `Tentativa de login com o acesso trancado (ip ${ip}).`);
       return json ? H.erroJson(res, 403, r.erro, { trancado: true }) : voltaAoLogin(res, 'bloqueado', next);
     }
-    log('aviso', `Login recusado (ip ${ip}): usuário ou senha incorretos.`);
+    log('aviso', `Login recusado (ip ${ip}): ${r.codigo ? 'senha não vale neste nível (SSO obrigatório)' : 'usuário ou senha incorretos'}.`);
     if (json) return H.erroJson(res, 401, r.erro);
-    return voltaAoLogin(res, 'credenciais', next, usuarioDigitado);
+    return voltaAoLogin(res, r.codigo || 'credenciais', next, usuarioDigitado);   // r.codigo: só o enterprise (SSO obrigatório)
   }
 
   // ── primeiro acesso (link de uso único, sem sessão) ──────────────────────
@@ -237,7 +253,7 @@ function criarServidor(opcoes) {
     const ip = H.ipDoPedido(req, config.proxiesConfiaveis);
     let campos;
     try {
-      const buf = await H.lerCorpo(req, 16 * 1024);
+      const buf = req.corpoJaLido || await H.lerCorpo(req, 16 * 1024);   // corpoJaLido: o multiusuário já olhou o token
       campos = JSON.parse(buf.toString('utf8') || '{}');
     } catch (e) {
       return H.erroJson(res, e.status || 400, 'Não entendi o pedido. Recarregue a página e tente de novo.');
@@ -275,6 +291,15 @@ function criarServidor(opcoes) {
     return a;
   }
 
+  /** Enterprise: 403 quando a sessão não pode ver o agente (podeVerAgente). Devolve true se já respondeu. No nível pessoal nunca recusa. */
+  function agenteProibido(req, res, sessao, slug, api) {
+    if (ent.podeVerAgente(sessao, slug)) return false;
+    ent.aoNegar(req, sessao, `agente:${String(slug).slice(0, 60)}`);
+    const motivo = `Você não tem acesso ao agente "${String(slug).slice(0, 40)}". Peça ao TI para liberar.`;
+    if (api) H.erroJson(res, 403, motivo); else H.paginaErro(res, 403, 'Sem acesso a este agente', motivo);
+    return true;
+  }
+
   function numeroOuErro(res, nome, bruto, pad, min, max) {
     if (bruto == null || bruto === '') return pad;
     const n = Number(bruto);
@@ -297,7 +322,7 @@ function criarServidor(opcoes) {
     if (p === '/api/v1/onboarding') {
       if (falhaDoRegistro(req, res, true)) return;
       try {
-        if (m === 'GET') return H.enviaJson(res, 200, { ok: true, ...await onboarding.estado() });
+        if (m === 'GET') return H.enviaJson(res, 200, { ok: true, ...await onboarding.estado(), credencial_empresa: protecoes.ligada('credencial_empresa') });
         if (m === 'POST') {
           const corpo = await H.lerJson(req, 8 * 1024);
           return H.enviaJson(res, 200, { ok: true, ...await onboarding.solicitar(corpo, sessao.usuario) });
@@ -328,7 +353,7 @@ function criarServidor(opcoes) {
 
     if (p === '/api/v1/agents' && m === 'GET') {
       if (falhaDoRegistro(req, res, true)) return undefined;
-      const lista = await Promise.all(registro.estado().agentes.map(agentePublico));
+      const lista = await Promise.all(registro.estado().agentes.filter((a) => ent.podeVerAgente(sessao, a.slug)).map(agentePublico));
       return H.enviaJson(res, 200, { ok: true, agentes: lista, voz: lista.some((a) => a.voz), microfone: voz.microfone, limite_upload_bytes: config.maxUploadBytes, usuario: sessao.usuario });
     }
 
@@ -344,6 +369,7 @@ function criarServidor(opcoes) {
     const ar = /^\/api\/v1\/agents\/([^/]+)\/alertas(?:\/([a-f0-9]{24})\/(visto|mensagem))?$/.exec(p);
     if (ar) {
       if (falhaDoRegistro(req, res, true)) return;
+      if (agenteProibido(req, res, sessao, decodeURIComponent(ar[1]), true)) return;
       const agente = agenteOuErro(res, decodeURIComponent(ar[1]));
       if (!agente) return;
       try {
@@ -379,6 +405,7 @@ function criarServidor(opcoes) {
     const lr = /^\/api\/v1\/agents\/([^/]+)\/login(?:\/(codigo|oi))?$/.exec(p);
     if (lr) {
       if (falhaDoRegistro(req, res, true)) return undefined;
+      if (agenteProibido(req, res, sessao, decodeURIComponent(lr[1]), true)) return undefined;
       const agente = agenteOuErro(res, decodeURIComponent(lr[1]));
       if (!agente) return undefined;
       let r = null;
@@ -422,6 +449,7 @@ function criarServidor(opcoes) {
     let mm = /^\/api\/v1\/agents\/([^/]+)(?:\/([a-z]+))?$/.exec(p);
     if (mm) {
       if (falhaDoRegistro(req, res, true)) return undefined;
+      if (agenteProibido(req, res, sessao, decodeURIComponent(mm[1]), true)) return undefined;
       const agente = agenteOuErro(res, decodeURIComponent(mm[1]));
       if (!agente) return undefined;
       const acao = mm[2] || '';
@@ -454,6 +482,12 @@ function criarServidor(opcoes) {
       return H.erroJson(res, ['messages', 'stream', 'wait', 'send', 'upload', 'permissao', 'comandos', 'comando', ''].includes(acao) ? 405 : 404, `Não existe ${m} ${p}.`);
     }
 
+    mm = /^\/api\/v1\/media\/([0-9a-f]{16})(?:\/(?:visual|thumb))?$/.exec(p);
+    if (mm && (m === 'GET' || m === 'HEAD')) {
+      const dono = midia.obter(mm[1]);
+      if (dono && dono.slug && agenteProibido(req, res, sessao, dono.slug, true)) return undefined;
+    }
+
     mm = /^\/api\/v1\/media\/([0-9a-f]{16})\/visual$/.exec(p);
     if (mm && (m === 'GET' || m === 'HEAD')) return midia.servirVisual(req, res, mm[1], url.searchParams.get('tema'));
 
@@ -475,7 +509,7 @@ function criarServidor(opcoes) {
     }
 
     if (p === '/api/v1/transcribe' && m === 'POST') return transcrever(req, res);
-    if (p === '/api/v1/tts' && m === 'POST') return falar(req, res);
+    if (p === '/api/v1/tts' && m === 'POST') return falar(req, res, sessao);
     if (p === '/api/v1/tts/cota' && m === 'GET') {
       const r = await voz.cota();
       if (r.erro) return H.erroJson(res, r.status, r.erro);
@@ -620,10 +654,11 @@ function criarServidor(opcoes) {
     return H.enviaJson(res, 200, { ok: true, text: r.texto, bytes: a.dados.length, audio_id: null });
   }
 
-  async function falar(req, res) {
+  async function falar(req, res, sessao) {
     const corpo = await lerEnvio(req, res);
     if (!corpo) return undefined;
-    const slug = typeof corpo.agent_id === 'string' ? corpo.agent_id : (registro.estado().agentes[0] || {}).slug;
+    const slug = typeof corpo.agent_id === 'string' ? corpo.agent_id : (registro.estado().agentes.find((a) => ent.podeVerAgente(sessao, a.slug)) || {}).slug;
+    if (slug && agenteProibido(req, res, sessao, slug, true)) return undefined;
     const agente = registro.obter(slug);
     if (!agente) return H.erroJson(res, 404, `Não existe agente com o id "${String(slug).slice(0, 40)}".`);
     const r = await voz.falar(agente, corpo.text, typeof corpo.voice_id === 'string' ? corpo.voice_id : null);
@@ -649,7 +684,9 @@ function criarServidor(opcoes) {
       if (auth.semSenha) {
         return H.enviaJson(res, 200, { ok: true, trancado: auth.trancado, sem_senha: true, usuario: auth.usuario, mensagem: 'Use o link de primeiro acesso que apareceu no fim da instalação. Se perdeu, rode no servidor: sudo dgclaw primeiro-acesso' });
       }
-      return H.enviaJson(res, 200, { ok: true, trancado: auth.trancado, sem_senha: false, mensagem: auth.trancado ? `O acesso está trancado: ${auth.motivoTrancado} Rode o gerador de hash do instalador e coloque o resultado no web.env.` : null });
+      const estado = { ok: true, trancado: auth.trancado, sem_senha: false, mensagem: auth.trancado ? `O acesso está trancado: ${auth.motivoTrancado} Rode o gerador de hash do instalador e coloque o resultado no web.env.` : null };
+      if (protecoes.ligada('multiusuario')) estado.multiusuario = true;   // a tela de link de senha não avisa "este painel já tem senha"
+      return H.enviaJson(res, 200, ent.loginEstado(estado));   // enterprise: o SSO acrescenta `sso` (botão de entrar)
     }
 
     if (!p.startsWith('/p/')) {
@@ -674,6 +711,9 @@ function criarServidor(opcoes) {
       return querHtml(req) && !p.startsWith('/api/') ? H.paginaErro(res, 403, 'Pedido recusado', motivo) : H.erroJson(res, 403, motivo);
     }
 
+    // Enterprise: rotas de quem ainda não tem sessão completa (tela do 2FA, link de senha de usuário).
+    if (await ent.antesDaSessao(req, res, url)) return undefined;
+
     if (p === '/login' && m === 'GET') {
       if (auth.sessaoDoPedido(req)) { res.writeHead(302, { Location: proximoSeguro(url.searchParams.get('next')) }); return res.end(); }
       if (!servirArquivo(req, res, path.join(config.publicDir, 'login.html'), 'no-store')) {
@@ -692,12 +732,18 @@ function criarServidor(opcoes) {
     }
     if (p === '/api/primeiro-acesso' && m === 'POST') return postPrimeiroAcesso(req, res);
     if (p === '/sair' && (m === 'GET' || m === 'POST')) {
+      ent.aoSair(req, auth.sessaoDoPedido(req));
       auth.encerra(req, res);
       res.writeHead(303, { Location: '/login', 'Set-Cookie': res.getHeader('Set-Cookie'), 'Cache-Control': 'no-store' });
       return res.end();
     }
 
     const sessao = slugCaixa ? { usuario: 'agente:' + slugCaixa, via: 'caixa', agente: slugCaixa } : auth.sessaoDoPedido(req);
+    // Mesa, lembretes e foco filtram por agente com esta função (quem.pode); no nível pessoal ela devolve sempre true.
+    if (sessao && !slugCaixa) sessao.pode = (slug) => ent.podeVerAgente(sessao, slug);
+
+    // Enterprise: rotas e recusas dos blocos de web/lib/ent/ (devolve true quando já respondeu).
+    if (await ent.antes(req, res, url, sessao)) return undefined;
 
     if (p.startsWith('/api/')) {
       if (!sessao) return H.erroJson(res, 401, 'Você precisa entrar para usar a API. Faça login em /login.');
@@ -710,6 +756,7 @@ function criarServidor(opcoes) {
         if (querHtml(req)) return semSessaoPagina(req, res, url);
         return H.erroJson(res, 401, 'Você precisa entrar para abrir o painel. Faça login em /login.');
       }
+      if (agenteProibido(req, res, sessao, decodificaSlug(pp[1]), !querHtml(req))) return undefined;
       if (!pp[2]) { res.writeHead(302, { Location: `/p/${pp[1]}/${url.search}` }); return res.end(); }
       return proxy.responder(req, res, pp[1], sessao.usuario);
     }
@@ -717,7 +764,9 @@ function criarServidor(opcoes) {
     if (p === '/' && (m === 'GET' || m === 'HEAD')) {
       if (!sessao) return semSessaoPagina(req, res, url);
       if (falhaDoRegistro(req, res, false)) return undefined;
-      res.writeHead(302, { Location: `/a/${agenteInicial(req)}`, 'Cache-Control': 'no-store' });
+      const inicial = agenteInicial(req, sessao);
+      if (!inicial) return H.paginaErro(res, 403, 'Nenhum agente liberado', 'Seu usuário ainda não tem nenhum agente liberado. Peça ao TI para liberar o seu.');
+      res.writeHead(302, { Location: `/a/${inicial}`, 'Cache-Control': 'no-store' });
       return res.end();
     }
 
@@ -744,6 +793,7 @@ function criarServidor(opcoes) {
       if (!sessao) return semSessaoPagina(req, res, url);
       if (falhaDoRegistro(req, res, false)) return undefined;
       const slug = decodeURIComponent(pa[1]);
+      if (agenteProibido(req, res, sessao, slug, false)) return undefined;
       if (!RX_SLUG_ROTA.test(slug) || !registro.obter(slug)) {
         return H.paginaErro(res, 404, 'Agente não encontrado', `Não existe agente chamado "${H.escapaHtml(slug.slice(0, 40))}". Volte ao início para ver a lista.`);
       }
@@ -792,6 +842,10 @@ function criarServidor(opcoes) {
       const nega = (status, motivo) => { socket.write(`HTTP/1.1 ${status} Recusado\r\nConnection: close\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${motivo}`); socket.destroy(); };
       if (!pp) return nega(404, 'Só o painel (/p/<agente>/) aceita WebSocket.');
       if (!sessao) return nega(401, 'Você precisa entrar antes.');
+      if (!ent.podeVerAgente(sessao, decodificaSlug(pp[1]))) {
+        ent.aoNegar(req, sessao, `agente:${decodificaSlug(pp[1]).slice(0, 60)}`);
+        return nega(403, 'Você não tem acesso a este agente. Peça ao TI para liberar.');
+      }
       if (!origemOk(req)) {
         log('aviso', `WebSocket em ${url.pathname} recusado: Origin ${String(req.headers.origin || '(sem Origin)').slice(0, 80)} não é a deste Web.`);
         return nega(403, 'Origem não permitida.');
@@ -805,7 +859,7 @@ function criarServidor(opcoes) {
   });
 
   return {
-    servidor, config, registro, auth, midia, conversa, log, caixa, push, lembretes, avisos,
+    servidor, config, registro, auth, midia, conversa, log, caixa, push, lembretes, avisos, ent, protecoes, auditoria,
     ouvir(porta, host) {
       return new Promise((resolve, reject) => {
         servidor.once('error', reject);

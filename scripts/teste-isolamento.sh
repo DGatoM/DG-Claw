@@ -131,7 +131,12 @@ tcp)
   ;;
 net)
   if command -v curl >/dev/null 2>&1; then
-    codigo=$(env -u HTTPS_PROXY -u HTTP_PROXY -u https_proxy -u http_proxy -u ALL_PROXY -u all_proxy curl --noproxy "*" -s -o /dev/null -m 6 --connect-timeout 5 -w "%{http_code}" https://api.anthropic.com 2>/dev/null || true)
+    if [ -n "${1:-}" ]; then
+      # Saida controlada (enterprise): o caminho da internet e o proxy do DG Claw, que o proprio container ja traz no ambiente.
+      codigo=$(curl -x "$1" -s -o /dev/null -m 10 --connect-timeout 5 -w "%{http_code}" https://api.anthropic.com 2>/dev/null || true)
+    else
+      codigo=$(env -u HTTPS_PROXY -u HTTP_PROXY -u https_proxy -u http_proxy -u ALL_PROXY -u all_proxy curl --noproxy "*" -s -o /dev/null -m 6 --connect-timeout 5 -w "%{http_code}" https://api.anthropic.com 2>/dev/null || true)
+    fi
     if [ -n "$codigo" ] && [ "$codigo" != 000 ]; then echo ok; else echo falhou; fi
   else
     if timeout 6 bash -c "exec 3<>/dev/tcp/api.anthropic.com/443" >/dev/null 2>&1; then echo ok; else echo falhou; fi
@@ -226,10 +231,13 @@ testar() {
   # Nao e furo de isolamento, por isso nao reprova: o teste mede a rede. Mas um proxy em
   # 127.0.0.1 aponta para o proprio container, e todo `podman exec` (inclusive o login)
   # deixa de alcancar a internet. Correcao: recriar com --http-proxy=false.
-  local proxies
+  local proxies proxy_dg="" env_https
+  # Saida controlada (enterprise): o proxy do DG Claw no gateway da rede e esperado, nao e aviso.
+  env_https=$(podman inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$ctr" 2>/dev/null | sed -n 's/^HTTPS_PROXY=//p' | head -n 1) || env_https=""
+  if [ "$env_https" = "http://$gw:3128" ]; then proxy_dg="$env_https"; fi
   proxies=$(podman inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$ctr" 2>/dev/null \
     | grep -iE '^(https?|all)_proxy=' | cut -d= -f1 | sort -u | tr '\n' ' ' || true)
-  if [ -n "$proxies" ]; then
+  if [ -n "$proxies" ] && [ -z "$proxy_dg" ]; then
     AVISOS=$((AVISOS + 1))
     echo "AVISO: o ambiente de $ctr traz ${proxies% } (herdado de quem rodou o podman create). Todo 'podman exec' sai por esse proxy e, se ele for 127.0.0.1, nao chega a internet. Recrie o container com --http-proxy=false."
   fi
@@ -320,7 +328,7 @@ testar() {
   done
 
   local net
-  if ! net=$(dentro "$ctr" net 2>&1); then net=falhou; fi
+  if ! net=$(dentro "$ctr" net "$proxy_dg" 2>&1); then net=falhou; fi
   if [ "$net" = ok ]; then
     echo "ok  internet alcancada https://api.anthropic.com (prova de que os bloqueios acima nao sao falso negativo)"
   else

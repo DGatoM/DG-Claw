@@ -23,6 +23,16 @@ APP_DIR="$(cd "$(dirname "$DGCLAW_BIN_REAL")/.." && pwd)"
 . "$APP_DIR/lib/agentes.sh"
 # shellcheck source=lib/atualizar.sh
 . "$APP_DIR/lib/atualizar.sh"
+# Enterprise: o nivel de protecao e os recursos de cada bloco. Os arquivos so definem funcoes;
+# no nivel pessoal (sem /etc/dgclaw/protecoes.json) nenhuma delas muda o que a CLI faz.
+# shellcheck source=lib/protecoes.sh
+. "$APP_DIR/lib/protecoes.sh"
+for _ent_lib in "$APP_DIR"/lib/enterprise/*.sh; do
+    [ -e "$_ent_lib" ] || continue
+    # shellcheck source=/dev/null
+    . "$_ent_lib"
+done
+unset _ent_lib
 
 # Tempo maximo de espera (segundos) do systemd e do /api/saude de dentro do agente.
 # Variavel so para os testes nao esperarem um minuto de verdade.
@@ -56,6 +66,7 @@ Agentes
         --papel "<o que ele faz>"        --jeito "<como ele fala>"
         --dono "<como ele chama voce>"   --canal chat|telegram|whatsapp (padrao: chat)
         --avatar <emoji ou letra>        --cor "#3b82f6"
+        --uso pessoa|setor               (versao empresa: de quem e o agente; --usuario <login> para pessoa)
       Exemplo:  dgclaw agente criar ana --nome "Ana" --papel "organiza a minha agenda" --dono "Marta"
       Rodar de novo o mesmo comando continua de onde parou, sem duplicar nada.
 
@@ -124,6 +135,66 @@ Atualizar o DG Claw
       Volta o clone para o commit do backup, restaura a configuracao e o Admin do backup (antes, faz
       um backup do estado de agora), reinstala e reinicia. Os dados dos agentes nao sao tocados.
       Exemplo:  sudo dgclaw atualizar --voltar /var/backups/dgclaw/20261018-093000
+
+Protecao e versao
+  dgclaw nivel [mostrar]                 mostra o nivel de protecao e o valor de cada protecao
+  dgclaw nivel definir <pessoal|escritorio|empresa|regulado>
+  dgclaw nivel ajustar <chave> <valor>   sobe (nunca abaixo da trava do nivel) uma protecao
+      Exemplo:  dgclaw nivel ajustar sessao_horas 24
+  dgclaw nivel org <uuid>                fixa a organizacao do Claude (forceLoginOrgUUID)
+  dgclaw protecoes aplicar               leva as protecoes do nivel aos agentes que ja existem
+  dgclaw agente pacote <slug> <pacote...>   instala pacote Debian num agente sem sudo (container endurecido)
+  dgclaw agente recriar <slug> --forcar     depois de subir o nivel, e o que leva as protecoes novas ao container (a casa fica)
+  dgclaw agente testar-runtime [<slug>]  prova que o agente roda no runtime reforcado (gVisor, nivel regulado)
+  dgclaw agente uso <slug> pessoa|setor [--usuario <login>]   diz de quem e o agente (pessoa leva o login do dono; setor usa chave de API)
+  dgclaw cofre status|migrar|abrir       cofre dos agentes cifrado em repouso (chaves so em memoria)
+  dgclaw disco status|cifrar|abrir       disco cifrado (LUKS) para os dados dos agentes
+  dgclaw disco chave status|externa tang <url> --thp <thumbprint>|externa manual   tira a chave do disco da propria maquina
+  dgclaw disco desbloquear               abre o disco depois de um reinicio, quando a chave e externa
+  dgclaw backup configurar|agora|listar|testar|status   backup cifrado fora da VPS (restic)
+  dgclaw restaurar <snapshot|latest> [--destino <pasta>] [--agente <slug>] [--confirmar]
+  dgclaw usuario listar                  usuarios do painel (so com o multiusuario ligado: escritorio em diante)
+  dgclaw usuario criar <usuario> --papel ti|funcionario [--agentes a,b]   cria e imprime o link de senha
+  dgclaw usuario desativar|link|zerar-2fa <usuario>   o socorro de quem perdeu a senha ou o celular
+      Exemplo:  dgclaw usuario criar ana.silva --papel funcionario --agentes luna,marina
+  dgclaw sso configurar|testar|emergencia|status   login unico por OIDC (Google, Microsoft Entra ou outro provedor)
+      O segredo do aplicativo vem pelo STDIN ou por arquivo, nunca na linha. O modo (opcional, padrao, obrigatorio)
+      vem do nivel: dgclaw nivel ajustar sso padrao. Exemplo:
+        printf %s "$SEGREDO" | dgclaw sso configurar --provedor google --client-id <id> --dominios empresa.com.br --segredo-stdin
+  dgclaw auditoria verificar|selo|exportar|externa|retencao   trilha de auditoria (completa e externa)
+      verificar confere a corrente inteira e diz em que linha ela quebrou. exportar filtra por data, evento e pessoa
+      (--formato jsonl|csv). externa configurar|testar|status|enviar leva a trilha para fora da VPS (HTTP ou syslog TLS).
+      Exemplo:  dgclaw auditoria exportar --de 2026-10-01 --ate 2026-10-31 --formato csv --saida /root/auditoria-outubro.csv
+  dgclaw versao                          mostra a versao instalada
+
+Admin sem root (protecao admin_isolado)
+  dgclaw admin isolar                    cria o Admin em container e desliga o Admin do host; ele passa a pedir ao servico de controle
+  dgclaw admin host                      volta ao Admin do host (so onde a protecao nao e travada)
+  dgclaw admin desligar|ligar            desliga o Admin (o agente de conversa) de proposito, ou liga de volta (protecao admin_llm)
+  dgclaw admin status                    em que modo o Admin esta
+  dgclaw admin manutencao abrir <5 a 60> [--por <quem>]   liga o Admin antigo (root) por N minutos; fecha sozinho
+  dgclaw admin manutencao fechar|status
+      Detalhes e o fluxo de aprovacao: docs/enterprise/CONTROLE.md
+
+Acoes externas, HTTPS e dado sensivel
+  dgclaw travas status|conferir          mostra e confere as travas de e-mail, Instagram e WhatsApp (protecao travas_externas)
+  dgclaw travas liberar <agente> --minutos <5 a 240>   libera o envio de e-mail por um tempo; volta sozinho. fechar <agente> fecha antes
+  dgclaw acoes instagram configurar|testar <agente>    tira o token do agente e passa a publicar pela fila de aprovacoes
+  dgclaw acoes whatsapp permitir|remover|listar <agente> [numero]   numeros com quem o canal pode conversar
+  dgclaw https cabecalhos                mostra os cabecalhos de seguranca que o Caddy acrescenta (protecao https_endurecido)
+  dgclaw ferramenta criar|listar|testar|credencial|abrir|chave|ficha|skill   kit de ferramenta para dado sensivel
+      Detalhes: docs/enterprise/KIT-SENSIVEL.md e docs/enterprise/TRAVAS.md
+      Exemplo:  dgclaw ferramenta criar carteira --agente ana --responsavel "Marta"
+
+Dados pessoais e monitoramento
+  dgclaw retencao aplicar [--agente <slug>]  apaga o que passou do prazo (retencao_dias); --ensaio so lista
+  dgclaw titular buscar <termo> [--termo <outro>] [--agente <slug>]   onde esta o dado de uma pessoa (nome, CPF, e-mail, telefone)
+  dgclaw titular apagar <termo>... --confirmar [--apagar-anexos]     tira o dado dela de transcripts, indices, memoria e logs
+  dgclaw monitor verificar|configurar|testar   alertas de disco, certificado, cerca, servicos, backup e memoria
+  dgclaw saida [mostrar <agente>]        saida dos agentes para a internet (livre, registro ou bloqueio)
+  dgclaw saida permitir|remover <agente> <dominio>   lista de destinos do agente (aceita *.empresa.com.br)
+  dgclaw saida modo <agente> <registro|bloqueio>     endurece um agente (nunca afrouxa abaixo do nivel)
+  dgclaw saida relatorio <agente> [--dias 7]         destinos mais acessados, para montar a lista antes do bloqueio
 
 Geral
   dgclaw status                          confere se tudo esta de pe (sai com erro se algo essencial caiu)
@@ -416,6 +487,7 @@ regravar_identidade_md() {
         regra_canal_dgchat
         printf '\n---\n\n'
         renderizar_template "$tpl/ambiente/agente.md"
+        ent_rodar_ganchos ent_ambiente_extra_ "$C_SLUG"   # enterprise: o que as protecoes ligadas acrescentam (nada no nivel pessoal)
     } | escrever_se_mudou "$h/.plataforma/identidade.md" 644 "$ug"
 }
 
@@ -686,11 +758,16 @@ criar_container() {
             # curl do agente falharia com "connection refused".
             --http-proxy=false
             --tmpfs /run --tmpfs /run/lock --systemd always
-            --env "DGCLAW_SLUG=$C_SLUG" --env "TZ=America/Sao_Paulo"
-            "$DGCLAW_IMAGEM")
+            --env "DGCLAW_SLUG=$C_SLUG" --env "TZ=America/Sao_Paulo")
+        # Gancho enterprise: cada bloco acrescenta ao array `args` (por nome) as opcoes que a
+        # protecao dele pede (ver lib/enterprise/base.sh). A imagem entra por ultimo, depois delas.
+        ent_rodar_ganchos ent_args_container_ args "$C_SLUG"
+        args+=("$DGCLAW_IMAGEM")
         executar podman "${args[@]}" >/dev/null
         ok "container $c criado (portas so em 127.0.0.1: runner $C_PORTA_RUNNER, painel $C_PORTA_PAINEL)"
     fi
+    # Gancho enterprise: o que precisa estar pronto no host antes de o container ligar (cofre em RAM, disco).
+    ent_rodar_ganchos ent_antes_de_iniciar_ "$C_SLUG"
     executar podman start "$c" >/dev/null
 }
 
@@ -877,7 +954,10 @@ conferir_saida_internet() {
         return 0
     fi
     proxies="$(podman exec --user agente "$c" env 2>/dev/null | grep -i '_proxy=' | cut -d= -f1 | tr '\n' ' ' || true)"
-    if [ -n "$proxies" ]; then
+    # Enterprise (saida controlada): com o proxy do DG Claw esperado, as variaveis de proxy sao de proposito.
+    if [ -n "$proxies" ] && declare -F ent_saida_proxy_esperado >/dev/null && ent_saida_proxy_esperado "$1"; then
+        ok "o proxy de saida do DG Claw esta no ambiente do agente (saida controlada)"
+    elif [ -n "$proxies" ]; then
         aviso "o agente $1 nasceu com variavel de proxy no ambiente ($proxies). Um proxy do host nao existe la dentro e as chamadas ao provedor vao falhar. Confira se o container foi criado com --http-proxy=false (podman inspect $c --format '{{.Config.Env}}') e recrie: dgclaw agente remover $1 && dgclaw agente criar $1 ..."
     else
         ok "sem variavel de proxy dentro do agente"
@@ -907,6 +987,8 @@ rodar_isolamento() {
     if [ "$ENSAIO" = 1 ]; then info "[ensaio] rodaria o teste de isolamento: $cmd $slug"; return 0; fi
     local rc=0
     bash -c "$cmd \"\$1\"" _ "$slug" || rc=$?
+    # Enterprise (saida controlada): a prova do proxy e da lista, de dentro do container. Nao faz nada com a saida livre.
+    if [ "$rc" -eq 0 ] && declare -F ent_saida_testar >/dev/null; then ent_saida_testar "$slug" || rc=$?; fi
     if [ "$rc" -ne 0 ]; then
         # Isolamento nao se negocia: um agente que nao passou fica parado.
         podman stop "dgclaw-$slug" >/dev/null 2>&1 \
@@ -925,18 +1007,22 @@ registrar_agente() {
         info "[ensaio] registraria o agente $C_SLUG em $DG_AGENTES_JSON"
         return 0
     fi
+    # Admin em container (enterprise, bloco C): tipo "admin" e papel "admin" no registro; agente comum continua tipo "agente".
+    local tipo=agente papel=""
+    if ent_admin_criando; then tipo="admin"; papel="admin"; fi
     # shellcheck disable=SC2016 # os $ sao variaveis do jq
-    jq -n \
+    jq -n --arg tipo "$tipo" --arg papel "$papel" \
         --arg slug "$C_SLUG" --arg nome "$C_NOME" --arg runner "http://127.0.0.1:$C_PORTA_RUNNER" \
         --arg avatar "$C_AVATAR" --arg cor "$C_COR" --arg prov "$C_PROVEDOR" --arg modelo "$C_MODELO" \
         --arg td "$transcripts" --argjson pp "$C_PORTA_PAINEL" \
         --arg psa "$DG_ETC/proxy/$C_SLUG.segredo" --arg rta "$DG_ETC/runner/$C_SLUG.token" \
         --arg hh "$C_HOME" --arg cofre "${C_HOME%/home}/cofre/cofre.env" '
-        {slug: $slug, nome: $nome, tipo: "agente", runner: $runner, agente_id: $slug,
+        {slug: $slug, nome: $nome, tipo: $tipo, runner: $runner, agente_id: $slug,
          chat_id: ("c_" + $slug), avatar: $avatar, cor: $cor, provedor: $prov, modelo: $modelo,
          transcripts_dir: $td, porta_painel: $pp, proxy_segredo_arquivo: $psa,
          runner_token_arquivo: $rta, home_host: $hh, home_container: "/home/agente",
-         cofre_arquivo: $cofre, container: ("dgclaw-" + $slug)}' \
+         cofre_arquivo: $cofre, container: ("dgclaw-" + $slug)}
+        + (if $papel != "" then {papel: $papel} else {} end)' \
         | agentes_registrar
 }
 
@@ -959,10 +1045,11 @@ agente_criar() {
     [ $# -ge 1 ] || falha "faltou o nome curto (slug) do agente." 'exemplo: dgclaw agente criar ana --nome "Ana"'
     C_SLUG="$1"; shift
     C_NOME=""; C_PROVEDOR=claude; C_AUTH=assinatura; C_MODELO=""; C_PAPEL=""; C_JEITO=""
+    C_USO=""; C_USUARIO=""   # enterprise (credencial_empresa): lib/enterprise/credencial.sh
     local dono="" canal=chat avatar="" cor=""
     while [ $# -gt 0 ]; do
         case "$1" in
-            --nome|--provedor|--auth|--modelo|--papel|--jeito|--dono|--canal|--avatar|--cor)
+            --nome|--provedor|--auth|--modelo|--papel|--jeito|--dono|--canal|--avatar|--cor|--uso|--usuario)
                 [ $# -ge 2 ] || falha "a opcao $1 precisa de um valor." "exemplo: $1 \"valor\"; veja dgclaw --ajuda"
                 case "$1" in
                     --nome) C_NOME="$(uma_linha "$2")" ;;
@@ -975,6 +1062,8 @@ agente_criar() {
                     --canal) canal="$2" ;;
                     --avatar) avatar="$(uma_linha "$2")" ;;
                     --cor) cor="$2" ;;
+                    --uso) C_USO="$2" ;;
+                    --usuario) C_USUARIO="$2" ;;
                 esac
                 shift 2 ;;
             *) falha "opcao desconhecida: $1" "veja as opcoes de 'agente criar' com: dgclaw --ajuda" ;;
@@ -984,12 +1073,14 @@ agente_criar() {
     [[ "$C_SLUG" =~ ^[a-z0-9][a-z0-9-]{1,30}$ ]] \
         || falha "o nome curto '$C_SLUG' nao serve: use 2 a 31 caracteres, so letras minusculas, numeros e hifen, comecando por letra ou numero." \
                  "exemplo: ana, suporte-vendas"
-    [ "$C_SLUG" != admin ] || falha "o nome curto 'admin' e reservado ao agente de sistema." "escolha outro nome curto."
+    # Enterprise (bloco C): so o `dgclaw admin isolar` cria o Admin em container, e ele avisa por ent_admin_criando.
+    [ "$C_SLUG" != admin ] || ent_admin_criando || falha "o nome curto 'admin' e reservado ao agente de sistema." "escolha outro nome curto."
     [ -n "$C_NOME" ] || falha "faltou o nome do agente (--nome)." "exemplo: dgclaw agente criar $C_SLUG --nome \"Ana\""
     case "$C_PROVEDOR" in claude|codex) ;; *) falha "provedor '$C_PROVEDOR' nao existe." "use --provedor claude ou --provedor codex." ;; esac
     case "$C_AUTH" in assinatura|api) ;; *) falha "autenticacao '$C_AUTH' nao existe." "use --auth assinatura ou --auth api." ;; esac
     case "$canal" in chat|telegram|whatsapp) ;; *) falha "canal '$canal' nao existe." "use --canal chat, telegram ou whatsapp." ;; esac
     C_CANAL="$canal"
+    ent_credencial_validar   # enterprise: uso pessoa|setor obrigatorio com credencial_empresa (nada no nivel pessoal)
     if [ -z "$cor" ]; then cor="#3b82f6"; fi
     [[ "$cor" =~ ^#[0-9a-fA-F]{6}$ ]] || falha "a cor '$cor' nao e valida." "use o formato #rrggbb, por exemplo --cor \"#3b82f6\"."
     C_COR="$cor"
@@ -1051,11 +1142,15 @@ agente_criar() {
     etapa "Registrando o agente"
     registrar_agente
     trap - EXIT
+    ent_rodar_ganchos ent_depois_de_criar_ "$C_SLUG"
+    auditar_aviso agente.criar "$(jq -nc --arg s "$C_SLUG" --arg p "$C_PROVEDOR" --arg u "$C_USO" --arg d "$C_USUARIO" \
+        '{slug: $s, provedor: $p} + (if $u != "" then {uso: $u} else {} end) + (if $d != "" then {dono: $d} else {} end)')"
 
     local base
     if [ -n "${DGCLAW_DOMINIO:-}" ]; then base="https://$DGCLAW_DOMINIO"; else base="http://127.0.0.1:8300"; fi
     printf '\n%s esta criado.\n' "$C_NOME"
     printf '  Provedor: %s (%s)\n' "$C_PROVEDOR" "$C_AUTH"
+    if [ -n "$C_USO" ]; then printf '  Uso: %s%s\n' "$C_USO" "${C_USUARIO:+ (dono: $C_USUARIO)}"; fi
     printf '  Painel: %s/p/%s\n' "$base" "$C_SLUG"
     [ "$vida_ok" = 1 ] || printf '  Atencao: a parte de dentro nao terminou. Rode: dgclaw agente reparar %s\n' "$C_SLUG"
     printf '  Falta entrar na conta: o painel mostra o botao.\n'
@@ -1090,6 +1185,7 @@ agente_acao() {
             ok "agente $slug parado"
             ;;
         iniciar)
+            ent_rodar_ganchos ent_antes_de_iniciar_ "$slug"
             executar podman start "$c" >/dev/null
             if [ "$ENSAIO" != 1 ]; then
                 local t
@@ -1311,6 +1407,7 @@ agente_recriar() {
     agente_reparar "$slug"
     devolver_unidades_self "$slug" "$unidades"
     ok "agente $slug recriado com a imagem atual (casa, cofre e portas intactos)"
+    ent_rodar_ganchos ent_depois_de_recriar_ "$slug"
 }
 
 # _recriar_remover_container <slug>: para e remove SO o container, esperando ele sair de verdade.
@@ -1514,6 +1611,7 @@ agente_remover() {
     if [ "$ENSAIO" = 1 ] || podman network exists "dgclaw-$slug" >/dev/null 2>&1; then
         executar podman network rm "dgclaw-$slug" >/dev/null
     fi
+    ent_rodar_ganchos ent_depois_de_remover_ "$slug"
     criar_pasta 700 0:0 "$DG_APOSENTADOS"
     if [ -d "$casa" ] || [ "$ENSAIO" = 1 ]; then
         executar mv "$casa" "$destino"
@@ -1536,6 +1634,7 @@ agente_remover() {
         com_trava liberar_portas "$slug"
     fi
     ok "agente $slug removido do registro. A faixa de uid dele fica queimada de proposito: ninguem herda os arquivos dele."
+    auditar_aviso agente.remover "$(jq -nc --arg s "$slug" '{slug: $s}')"
 }
 
 # falha_uso "<o que falhou, com que entrada>" "<o que fazer>": igual ao `falha`, mas sai com 2
@@ -1590,7 +1689,14 @@ agente_main() {
         cofre) agente_cofre "$@" ;;
         remover) agente_remover "$@" ;;
         "") falha "faltou dizer o que fazer com os agentes." "use: criar, listar, parar, iniciar, reiniciar, reparar, recriar, identidade, cofre ou remover (veja dgclaw --ajuda)." ;;
-        *) falha "'agente $sub' nao existe." "use: criar, listar, parar, iniciar, reiniciar, reparar, recriar, identidade, cofre ou remover (veja dgclaw --ajuda)." ;;
+        *)
+            # Subcomandos enterprise (ent_cmd_agente_<sub>, em lib/enterprise/). 127 = ninguem tem esse.
+            local rc=0
+            ent_despachar "agente-$sub" "$@" || rc=$?
+            if [ "$rc" -eq 127 ]; then
+                falha "'agente $sub' nao existe." "use: criar, listar, parar, iniciar, reiniciar, reparar, recriar, identidade, cofre ou remover (veja dgclaw --ajuda)."
+            fi
+            return "$rc" ;;
     esac
 }
 
@@ -1724,6 +1830,7 @@ senha_trocar() {
     rm -f "$DG_ETC/primeiro-acesso.json"
     executar systemctl restart dgclaw-web
     ok "senha do painel trocada"
+    auditar_aviso senha.trocar '{}'
 }
 
 primeiro_acesso() {
@@ -1824,6 +1931,7 @@ dominio_trocar() {
     executar systemctl reload caddy
     dominio_gravar_env "$novo"
     ok "dominio gravado em $DG_ETC/dgclaw.env"
+    auditar_aviso dominio.trocar "$(jq -nc --arg d "$novo" '{dominio: $d}')"
 
     if [ "$ENSAIO" = 1 ]; then
         info "[ensaio] esperaria https://$novo/ responder (ate 90s) e mostraria o link novo do painel"
@@ -1904,15 +2012,25 @@ status_geral() {
 
     if [ -n "${DGCLAW_DOMINIO:-}" ]; then s_ok "dominio: $DGCLAW_DOMINIO"; else s_aviso "dominio: nao definido em $DG_ETC/dgclaw.env"; fi
 
+    # Versao e nivel de protecao: a primeira coisa que o suporte pergunta.
+    s_ok "versao $(cat "$APP_DIR/VERSION" 2>/dev/null || echo desconhecida), nivel de protecao: $(protecao_nivel)"
+    ent_rodar_ganchos ent_status_ || s_mal "um gancho de status enterprise falhou (veja a mensagem acima)"
+
     local u
-    for u in caddy dgclaw-web dgclaw-admin; do
+    local unidades_admin
+    read -ra unidades_admin <<<"$(ent_admin_unidades)"   # enterprise: com o Admin isolado, quem precisa estar de pe e o controle
+    for u in caddy dgclaw-web "${unidades_admin[@]}"; do
         if [ "$(systemctl is-active "$u" 2>/dev/null)" = active ]; then s_ok "servico $u de pe"
         else s_mal "servico $u parado. Veja: systemctl status $u  (ligar: systemctl start $u)"; fi
     done
     if curl -s -o /dev/null --max-time 3 http://127.0.0.1:8300/; then s_ok "Web responde em 127.0.0.1:8300"
     else s_mal "o Web nao responde em 127.0.0.1:8300. Veja: journalctl -u dgclaw-web -n 50"; fi
-    if curl -fsS -o /dev/null --max-time 3 http://127.0.0.1:4300/api/saude; then s_ok "Admin responde (/api/saude em 127.0.0.1:4300)"
-    else s_mal "o Admin nao responde em 127.0.0.1:4300/api/saude. Veja: journalctl -u dgclaw-admin -n 50"; fi
+    local porta_admin
+    porta_admin="$(ent_admin_porta)"
+    # Enterprise (admin_llm = false): Admin desligado de proposito nao e defeito; o ent_status_admin_llm ja avisou.
+    if ent_admin_desligado; then :
+    elif curl -fsS -o /dev/null --max-time 3 "http://127.0.0.1:$porta_admin/api/saude"; then s_ok "Admin responde (/api/saude em 127.0.0.1:$porta_admin)"
+    else s_mal "o Admin nao responde em 127.0.0.1:$porta_admin/api/saude. Veja: journalctl -u dgclaw-admin -n 50 (Admin isolado: podman logs dgclaw-admin)"; fi
 
     if podman image exists "$DGCLAW_IMAGEM" >/dev/null 2>&1; then s_ok "imagem dos agentes pronta"
     else s_aviso "imagem dos agentes ainda nao esta pronta (veja: dgclaw imagem status)"; fi
@@ -1985,7 +2103,15 @@ main() {
         primeiro-acesso) primeiro_acesso "$@" ;;
         status) status_geral "$@" ;;
         atualizar) atualizar_main "$@" ;;
-        *) falha "o comando '$cmd' nao existe." "veja os comandos com: dgclaw --ajuda" ;;
+        *)
+            # Comandos enterprise (ent_cmd_<comando>, em lib/enterprise/). 127 = ninguem tem esse comando.
+            local rc=0
+            ent_despachar "$cmd" "$@" || rc=$?
+            if [ "$rc" -eq 127 ]; then
+                falha "o comando '$cmd' nao existe." "veja os comandos com: dgclaw --ajuda"
+            fi
+            return "$rc"
+            ;;
     esac
 }
 

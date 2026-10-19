@@ -9,7 +9,9 @@
 #
 # O token do Admin e lido do arquivo aqui dentro e vai ao curl por um arquivo de configuracao
 # temporario (modo 600): nunca na linha de comando (o ps mostraria) nem no log.
-# Variaveis opcionais: DGCLAW_ADMIN_URL (padrao http://127.0.0.1:4300), DGCLAW_ESPERA_ADMIN
+# Variaveis opcionais: DGCLAW_UNIDADES_ADMIN (o que reiniciar; padrao dgclaw-admin; no enterprise com o Admin
+# isolado e o servico de controle), DGCLAW_SEM_AVISO_ADMIN=1 (so reinicia, sem mandar o resumo ao Admin),
+# DGCLAW_ADMIN_URL (padrao http://127.0.0.1:4300), DGCLAW_ESPERA_ADMIN
 # (segundos esperando o Admin responder, padrao 60).
 set -uo pipefail
 
@@ -25,9 +27,15 @@ if [ -z "$RESUMO" ] || [ -z "$TOKEN_ARQ" ]; then
     exit 2
 fi
 
-if ! systemctl restart dgclaw-admin; then
-    log "o 'systemctl restart dgclaw-admin' falhou. Veja: journalctl -u dgclaw-admin -n 50. O resumo da atualizacao esta em $RESUMO."
+UNIDADES="${DGCLAW_UNIDADES_ADMIN:-dgclaw-admin}"
+# shellcheck disable=SC2086 # varias unidades separadas por espaco, de proposito
+if ! systemctl restart $UNIDADES; then
+    log "o 'systemctl restart $UNIDADES' falhou. Veja: journalctl -u ${UNIDADES%% *} -n 50. O resumo da atualizacao esta em $RESUMO."
     exit 1
+fi
+if [ "${DGCLAW_SEM_AVISO_ADMIN:-0}" = 1 ]; then
+    log "reiniciei $UNIDADES; o Admin esta desligado de proposito, entao nao ha a quem mandar o resumo ($RESUMO)."
+    exit 0
 fi
 log "Admin reiniciado; esperando ele responder em $URL/api/saude (ate ${ESPERA}s)."
 

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+echo "umount $*" >>"${STUB_LOG:?}"
+dir="$1"
+[ -L "$dir" ] || { echo "umount: $dir nao esta montado (stub)" >&2; exit 32; }
+rm "$dir" && mkdir "$dir"

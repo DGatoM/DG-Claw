@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# useradd de mentira: so anota. Nunca cria usuario de verdade.
+echo "useradd $*" >>"${STUB_LOG:?}"

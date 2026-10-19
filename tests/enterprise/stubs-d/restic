@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# restic de mentira. O "repositorio" e a pasta $STUB_RESTIC (config, contador e snap/<id>/<caminhos completos>).
+# Exige RESTIC_REPOSITORY e RESTIC_PASSWORD no AMBIENTE. Registra os argumentos (nunca o ambiente) em $STUB_LOG.
+# STUB_RESTIC_FALHA=<backup|forget|restore|snapshots> faz esse subcomando falhar.
+echo "restic $*" >>"${STUB_LOG:?}"
+repo="${STUB_RESTIC:?}"
+if [ -z "${RESTIC_REPOSITORY:-}" ] || [ -z "${RESTIC_PASSWORD:-}" ]; then
+    echo "Fatal: sem RESTIC_REPOSITORY/RESTIC_PASSWORD no ambiente (stub)" >&2; exit 1
+fi
+cmd="${1:-}"; shift || true
+[ "${STUB_RESTIC_FALHA:-}" = "$cmd" ] && { echo "Fatal: falha pedida pelo teste em $cmd (stub) https://usuario:segredo@host/x" >&2; exit 1; }
+tem_config() { [ -f "$repo/config" ]; }
+ultimo() { cat "$repo/ultimo" 2>/dev/null; }
+case "$cmd" in
+    init) tem_config && { echo "Fatal: config file already exists" >&2; exit 1; }
+          mkdir -p "$repo/snap"; echo cfg >"$repo/config"; echo 0 >"$repo/contador" ;;
+    snapshots)
+        tem_config || { echo "Fatal: unable to open config file: Is there a repository at the following location?" >&2; exit 10; }
+        json=0; for a in "$@"; do [ "$a" = --json ] && json=1; done
+        if [ "$json" = 1 ]; then
+            u="$(ultimo)"
+            if [ -n "$u" ]; then printf '[{"short_id":"%s","id":"%s0000"}]\n' "$u" "$u"; else echo '[]'; fi
+        fi ;;
+    backup)
+        tem_config || { echo "Fatal: repositorio nao existe (stub)" >&2; exit 10; }
+        paths=(); excl=(); exf=""
+        while [ "$#" -gt 0 ]; do
+            case "$1" in
+                --exclude) excl+=("$2"); shift 2 ;;
+                --exclude-file) exf="$2"; shift 2 ;;
+                --tag) shift 2 ;;
+                --*) shift ;;
+                *) paths+=("$1"); shift ;;
+            esac
+        done
+        n=$(( $(cat "$repo/contador") + 1 )); echo "$n" >"$repo/contador"
+        id="snap$(printf '%04d' "$n")"
+        mkdir -p "$repo/snap/$id"
+        for p in "${paths[@]}"; do [ -e "$p" ] && cp -a --parents "$p" "$repo/snap/$id/"; done
+        # exclusoes por caminho exato (arquivo) e por nome de pasta (node_modules etc.)
+        if [ -n "$exf" ]; then while IFS= read -r l; do [ -n "$l" ] && rm -rf "$repo/snap/$id$l"; done <"$exf"; fi
+        for e in "${excl[@]}"; do
+            case "$e" in
+                /*) for x in $repo/snap/$id$e; do rm -rf "$x"; done ;;
+                *) find "$repo/snap/$id" -name "$e" -prune -exec rm -rf {} + ;;
+            esac
+        done
+        echo "$id" >"$repo/ultimo"
+        printf '{"message_type":"status","percent_done":0.5}\n{"message_type":"summary","snapshot_id":"%s","files_new":3}\n' "$id" ;;
+    restore)
+        tem_config || { echo "Fatal: repositorio nao existe (stub)" >&2; exit 10; }
+        id="$1"; shift; [ "$id" = latest ] && id="$(ultimo)"
+        [ -d "$repo/snap/$id" ] || { echo "Fatal: snapshot $id nao existe (stub)" >&2; exit 1; }
+        alvo=""; inc=()
+        while [ "$#" -gt 0 ]; do
+            case "$1" in --target) alvo="$2"; shift 2 ;; --include) inc+=("$2"); shift 2 ;; *) shift ;; esac
+        done
+        mkdir -p "$alvo"
+        if [ "${#inc[@]}" -eq 0 ]; then cp -a "$repo/snap/$id/." "$alvo/"
+        else
+            for i in "${inc[@]}"; do
+                origem="$repo/snap/$id$i"
+                [ -e "$origem" ] || continue
+                if [ -d "$origem" ]; then mkdir -p "$alvo$i"; cp -a "$origem/." "$alvo$i/"
+                else mkdir -p "$(dirname "$alvo$i")"; cp -a "$origem" "$alvo$i"; fi
+            done
+        fi ;;
+    forget) tem_config || exit 10 ;;
+    *) echo "stub: comando $cmd nao suportado" >&2; exit 2 ;;
+esac
+exit 0

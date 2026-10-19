@@ -51,6 +51,19 @@ function achar(candidatos) {
   return candidatos.find((c) => c && fs.existsSync(c)) || null;
 }
 
+// Versão empresa (credencial_empresa): o host grava este arquivo na pasta de configuração do agente (montada só leitura).
+// Existindo, o painel não oferece nem aceita o modo "token". Isso limpa a opção do nosso lado; nada muda no binário.
+// O texto do arquivo é o motivo, em português. DGCLAW_CREDENCIAL_EMPRESA_ARQ existe só para os testes.
+const MARCA_CREDENCIAL = () => process.env.DGCLAW_CREDENCIAL_EMPRESA_ARQ || '/run/dgclaw/config/credencial-empresa';
+function motivoDaCredencialEmpresa() {
+  try {
+    return fs.readFileSync(MARCA_CREDENCIAL(), 'utf8').trim() || 'na versão empresa, cada pessoa entra com o próprio assento do Team ou do Enterprise, ou o agente usa a chave de API da empresa';
+  } catch (e) {
+    if (e.code !== 'ENOENT') console.error(`[provedor] não consegui ler ${MARCA_CREDENCIAL()} (${e.code || e.message}); trato como credencial_empresa desligada. Confira a permissão do arquivo.`);
+    return null;
+  }
+}
+
 module.exports = function registrarRotasDeProvedor(router, { CONFIG, cofre, serverDir, fetchImpl }) {
   const doFetch = fetchImpl || fetch;
 
@@ -154,6 +167,7 @@ module.exports = function registrarRotasDeProvedor(router, { CONFIG, cofre, serv
     for (const [id, p] of Object.entries(cat.provedores)) {
       const modos = {};
       for (const [modo, a] of Object.entries(p.auth || {})) {
+        if (modo === 'token' && motivoDaCredencialEmpresa()) continue;
         modos[modo] = { nome: a.nome, explica: a.explica };
         if (a.variavel) modos[modo].variavel = a.variavel;
         if (a.ondeCriar) modos[modo].ondeCriar = a.ondeCriar;
@@ -225,6 +239,14 @@ module.exports = function registrarRotasDeProvedor(router, { CONFIG, cofre, serv
           error: limpar(e.message, chave),
           howToFix: 'Escolha o provedor, o modelo e a forma de pagar nas listas da tela de troca.',
         });
+      }
+
+      if (escolha.auth === 'token') {
+        const motivo = motivoDaCredencialEmpresa();
+        if (motivo) {
+          console.error(`[provedor] POST /api/provedor: recusei o modo token (credencial_empresa ligada; entrada: ${limpar(JSON.stringify(entrada), chave)})`);
+          return res.status(403).json({ error: `Este modo de pagar não está disponível: ${motivo}.`, howToFix: 'Escolha "na assinatura" (cada pessoa entra com o próprio assento) ou "na API" (chave da organização, para agente de setor).' });
+        }
       }
 
       const modo = c.cat.provedores[escolha.provedor].auth[escolha.auth];

@@ -34,6 +34,15 @@ function gravaAtomico(arquivo, texto) {
   }
 }
 
+/** Por que a senha nova não serve (texto para a pessoa), ou null se serve. Usada também pelo multiusuário. */
+function motivoSenhaInvalida(senha, confirmacao) {
+  if (typeof senha !== 'string') return 'Digite a senha.';
+  if (senha !== confirmacao) return 'As senhas não conferem.';
+  if (senha.length < 12) return `A senha precisa ter pelo menos 12 caracteres (a sua tem ${senha.length}).`;
+  if (senha.toLowerCase() === 'admin') return 'Essa senha é fácil demais de adivinhar. Escolha outra.';
+  return null;
+}
+
 function criarPrimeiroAcesso({ config, auth, log, agora }) {
   const relogio = agora || (() => Date.now());
   const arquivo = caminhoArquivo(config);
@@ -99,10 +108,8 @@ function criarPrimeiroAcesso({ config, auth, log, agora }) {
       if (dado.usado_em != null) return erro(410, 'Este link já foi usado. Se não foi você, rode no servidor: sudo dgclaw senha');
       if (!(Number(dado.expira) > relogio())) return erro(410, 'Este link expirou. Gere outro com: sudo dgclaw primeiro-acesso');
 
-      if (typeof senha !== 'string') return erro(400, 'Digite a senha.');
-      if (senha !== confirmacao) return erro(400, 'As senhas não conferem.');
-      if (senha.length < 12) return erro(400, `A senha precisa ter pelo menos 12 caracteres (a sua tem ${senha.length}).`);
-      if (senha.toLowerCase() === 'admin') return erro(400, 'Essa senha é fácil demais de adivinhar. Escolha outra.');
+      const senhaRuim = motivoSenhaInvalida(senha, confirmacao);
+      if (senhaRuim) return erro(400, senhaRuim);
 
       let hash;
       try {
@@ -144,4 +151,4 @@ function criarPrimeiroAcesso({ config, auth, log, agora }) {
   };
 }
 
-module.exports = { criarPrimeiroAcesso, caminhoArquivo };
+module.exports = { criarPrimeiroAcesso, caminhoArquivo, motivoSenhaInvalida };

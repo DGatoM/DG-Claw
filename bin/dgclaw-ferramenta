@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# dgclaw-ferramenta: o agente aciona uma FERRAMENTA FECHADA do servidor (kit para skill com dado sensivel). Roda DENTRO
+# do container e fala pela caixa (dgclaw-api). O agente nunca recebe o dado bruto nem a credencial do sistema da empresa:
+# ele pede uma operacao com nome e parametros e recebe de volta um resultado agregado, sem dado pessoal. Nao existe
+# consulta livre: parametro que a ferramenta nao declara e recusado.
+#
+# Uso:
+#   dgclaw-ferramenta listar                          as ferramentas que voce pode usar, com os parametros
+#   dgclaw-ferramenta <nome> [--parametro valor ...]  executa e imprime o resultado (JSON)
+#   dgclaw-ferramenta ajuda
+#
+#   Exemplo:  dgclaw-ferramenta carteira.resumo --periodo 2026-09 --agrupar_por faixa_etaria
+#
+# Se o verificador de saida achar dado pessoal (CPF, e-mail, telefone, nome da base...), a resposta inteira e bloqueada:
+# nao tente de novo com outro parametro para "contornar"; avise o responsavel pela ferramenta. Um relatorio gerado
+# (quando a ferramenta faz arquivo) vai para a sua pasta de entregas e some sozinho no prazo.
+#
+# Variaveis de ambiente:
+#   DGCLAW_API   so para testes: caminho do dgclaw-api (padrao: o que fica ao lado deste arquivo)
+#
+# Codigos de saida: 0 deu certo; 1 erro de uso; 2 e 3 vem do dgclaw-api (o Web nao respondeu; a caixa nao esta
+# disponivel); 4 a ferramenta recusou o pedido (parametro errado, agente nao autorizado, resultado bloqueado: leia o
+# motivo); 5 erro do lado do servidor (servico de ferramentas fora do ar, executor com defeito).
+set -euo pipefail
+
+erro() { echo "dgclaw-ferramenta: $*" >&2; }
+die() { local c="${CODIGO:-1}"; erro "$*"; exit "$c"; }
+
+cmd_ajuda() {
+  sed -n '2,/^set -euo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'
+}
+
+case "${1:-ajuda}" in ajuda|-h|--help) cmd_ajuda; exit 0 ;; esac
+
+command -v jq >/dev/null || die "o jq nao foi encontrado no container. Avise quem mantem a imagem do agente."
+QUEM_AQUI="$(readlink -f "${BASH_SOURCE[0]}")"
+API="${DGCLAW_API:-$(dirname "$QUEM_AQUI")/dgclaw-api}"
+[ -x "$API" ] || die "nao achei o dgclaw-api em $API. Avise quem mantem a imagem do agente."
+
+OP="$1"; shift
+
+if [ "$OP" = listar ]; then
+  [ $# -eq 0 ] || die "'listar' nao tem opcoes."
+  RC=0
+  TEXTO="$("$API" GET /api/v1/ferramentas --espera 25)" || RC=$?
+  printf '%s\n' "$TEXTO"
+  exit "$RC"
+fi
+
+[[ "$OP" =~ ^[a-z][a-z0-9_-]*(\.[a-z][a-z0-9_-]*)?$ ]] || die "'$OP' nao e o nome de uma ferramenta (elas tem a forma carteira.resumo). Veja a lista com: dgclaw-ferramenta listar"
+
+PARAMS='{}'
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --*)
+      NOME="${1#--}"
+      [[ "$NOME" =~ ^[a-z][a-z0-9_]*$ ]] || die "o parametro '$1' nao vale: use letras minusculas, numeros e sublinhado (veja: dgclaw-ferramenta listar)."
+      [ $# -ge 2 ] || die "falta o valor de --$NOME."
+      PARAMS="$(printf '%s' "$PARAMS" | jq -c --arg k "$NOME" --arg v "$2" '. + {($k): $v}')"
+      shift 2 ;;
+    *) die "nao entendi '$1'. Os parametros sao --nome valor (veja: dgclaw-ferramenta listar)." ;;
+  esac
+done
+
+RC=0
+TEXTO="$("$API" POST "/api/v1/ferramentas/$OP" "$(jq -nc --argjson p "$PARAMS" '{params: $p}')" --espera 30)" || RC=$?
+if [ "$RC" -ne 0 ]; then
+  [ -z "$TEXTO" ] || printf '%s\n' "$TEXTO"
+  exit "$RC"
+fi
+ARQ="$(printf '%s' "$TEXTO" | jq -r '.arquivo.caminho // empty' 2>/dev/null || true)"
+if [ -n "$ARQ" ]; then
+  erro "relatorio gravado em $ARQ (apaga sozinho em $(printf '%s' "$TEXTO" | jq -r '.arquivo.expira_em')). Nao copie para outro lugar."
+fi
+printf '%s' "$TEXTO" | jq -c '.resultado // .'
+exit 0

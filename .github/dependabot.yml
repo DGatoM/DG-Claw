@@ -1,0 +1,31 @@
+# Atualizações automáticas de dependência. Um PR por pasta e por semana, nunca direto na main.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "ci"
+
+  # Estas três pastas têm package.json. O runner e o canal do WhatsApp têm package-lock.json; o
+  # painel não tem lockfile no repositório (o CI usa npm install), então o Dependabot lê só o
+  # package.json dele. O web/ não tem dependências.
+  - package-ecosystem: npm
+    directory: /runner
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "deps(runner)"
+  - package-ecosystem: npm
+    directory: /canais/whatsapp
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "deps(whatsapp)"
+  - package-ecosystem: npm
+    directory: /panel
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "deps(panel)"

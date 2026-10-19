@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# rsync de mentira: so o caso "rsync -aHAX --numeric-ids ORIGEM/ DESTINO/". STUB_RSYNC_CORROMPE=1 estraga um arquivo na copia.
+echo "rsync $*" >>"${STUB_LOG:?}"
+dest="${*: -1}"; orig="${*: -2:1}"
+[ -d "$orig" ] || { echo "rsync: origem $orig inexistente (stub)" >&2; exit 23; }
+cp -a "$orig". "$dest" || exit 23
+if [ "${STUB_RSYNC_CORROMPE:-}" = 1 ]; then
+    f="$(find -H "$dest" -type f | LC_ALL=C sort | head -n 1)"
+    [ -z "$f" ] || printf 'corrompido' >"$f"
+fi

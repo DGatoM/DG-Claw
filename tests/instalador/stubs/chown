@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# chown de mentira para os usuarios de servico que nao existem nos testes (o useradd tambem e de mentira).
+# Qualquer outro chown vai para o de verdade, como antes.
+. "$(dirname "$0")/_comum.sh"
+for a in "$@"; do
+    case "$a" in
+        dgclaw-ferramentas|dgclaw-ferramentas:*|dgclaw-saida|dgclaw-saida:*) registrar "$@"; exit 0 ;;
+    esac
+done
+exec /usr/bin/chown "$@"

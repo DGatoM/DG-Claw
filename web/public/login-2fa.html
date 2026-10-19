@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<title>Segundo fator - DG Claw</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#2f9e5e">
+<link rel="icon" href="/icons/icon-192.png">
+<link rel="stylesheet" href="/login.css">
+<link rel="stylesheet" href="/conta.css">
+<style>
+  .cartao{max-width:440px}
+  .tutorial{width:auto;min-height:32px;margin:0 0 0 auto;padding:0 12px;background:#fff;color:#38523f;border:1px solid var(--line);font-size:13px;font-weight:600}
+  .cn-segredo,.cn-reserva{--cn-linha:#e1e8e3;--cn-fundo2:#f0f4f1;--cn-fraco:#6c8172}
+  .cn-reserva .cn-btn{width:100%;margin-top:6px}
+  #continuar{display:block;text-align:center;text-decoration:none;line-height:48px;margin-top:20px;border-radius:24px;background:var(--accent);color:#fff;font-weight:700}
+  .cn-fraco{color:#6c8172;font-size:13px}
+</style>
+<link rel="stylesheet" href="/sem-zoom.css">
+<script src="/sem-zoom.js"></script>
+</head>
+<body>
+<main class="cartao">
+  <div class="marca"><span class="emoji" aria-hidden="true">🦞</span><h1>Segundo fator</h1><button type="button" class="tutorial" id="tutorial">Tutorial</button></div>
+  <p class="sub" id="sub" data-tour="etapa">Um instante...</p>
+  <div id="erro" class="erro" role="alert" hidden></div>
+  <div id="ativacao" data-tour="ativacao" hidden></div>
+  <form id="form" autocomplete="off" hidden>
+    <label for="codigo" id="rotuloCodigo">Código de 6 números</label>
+    <input id="codigo" name="codigo" type="text" inputmode="text" autocomplete="one-time-code" maxlength="20" required autofocus data-tour="codigo">
+    <button type="submit" id="enviar">Confirmar</button>
+  </form>
+  <div id="reserva" hidden></div>
+  <p class="cn-fraco" id="ajudaReserva" hidden>Perdeu o celular? Digite um dos seus códigos de reserva (formato xxxx-xxxx-xxxx) no mesmo campo.</p>
+  <p class="cn-fraco"><a href="/login">Voltar ao login</a></p>
+</main>
+<script src="/tour.js"></script>
+<script src="/conta-comum.js"></script>
+<script src="/login-2fa.js"></script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# useradd de mentira: so registra e marca o usuario como criado (o getent de mentira le essa marca). Nada e criado de verdade.
+. "$(dirname "$0")/_comum.sh"
+registrar "$@"
+: >"$(estado_dir)/usuario-$(eval "printf '%s' \"\${$#}\"")"
+exit 0

@@ -69,7 +69,7 @@ function criarFoco({ dir, tz, log, registro, gravaRetrato, push, quemChamou, ago
 
   const quem = quemChamou || ((sessao) => (sessao && sessao.via === 'caixa' && sessao.agente
     ? { tipo: 'agente', slug: sessao.agente }
-    : { tipo: 'dono', usuario: sessao && sessao.usuario }));
+    : Object.assign({ tipo: 'dono', usuario: sessao && sessao.usuario }, sessao && typeof sessao.pode === 'function' ? { pode: sessao.pode } : {})));
 
   const arquivoDe = (slug) => path.join(dir, `${slug}.json`);
   const vazio = () => ({ versao_arquivo: 1, titulo: TITULO_PADRAO, itens: [], proximo_item_id: 1, versao: 0, atualizada_em: null, eventos: [], proximo_evento_id: 1 });
@@ -266,6 +266,7 @@ function criarFoco({ dir, tz, log, registro, gravaRetrato, push, quemChamou, ago
     } else if (q.tipo === 'agente' && q.slug !== slug) {
       throw falta(403, `Pedido do agente "${q.slug}" para a lista de foco de "${slug}". Cada agente só mexe na própria lista: use /api/v1/foco/eu ou /api/v1/foco/${q.slug}.`);
     }
+    if (q.pode && !q.pode(slug)) throw falta(403, `Você não tem acesso à lista de foco de "${String(slug).slice(0, 40)}". Peça ao TI para liberar o agente.`);
     if (registro) {
       const est = registro.estado();
       if (!est.ok) throw falta(503, est.erro);

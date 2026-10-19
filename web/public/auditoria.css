@@ -1,0 +1,15 @@
+/* auditoria.css: a tela Auditoria (/auditoria), em cima das classes cn- de conta.css. Celular primeiro: cartões, sem rolagem horizontal. */
+.au-filtros{display:grid;grid-template-columns:1fr;gap:8px}
+@media (min-width:720px){.au-filtros{grid-template-columns:repeat(3,1fr)}}
+.au-filtros label{display:grid;gap:4px;font-size:13px;font-weight:600;color:#38523f}
+.au-filtros input,.au-filtros select{width:100%;min-height:42px;padding:8px 12px;border:1px solid var(--cn-linha);border-radius:10px;font:inherit;font-size:16px;background:#f4f8f4;color:var(--cn-texto)}
+.au-integra{padding:10px 12px;border-radius:10px;font-weight:600}
+.au-integra.au-ok{background:#e8f5ec;color:#1e6b3f}
+.au-integra.au-quebrada{background:#fbe0e0;color:#8f2f2f}
+.au-evento{border:1px solid var(--cn-linha);border-left:4px solid #b9c4bc;border-radius:10px;padding:10px 12px;background:#fff}
+.au-evento.au-alerta{border-left-color:#c0392b}
+.au-nome{font-weight:700}
+.au-dados{margin:6px 0 0;padding:8px 10px;border-radius:8px;background:var(--cn-fundo2);font:12.5px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
+.au-hash{font:11px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--cn-fraco);overflow-wrap:anywhere}
+.au-pag{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px}
+.au-pag button{min-width:96px}

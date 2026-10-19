@@ -17,6 +17,17 @@ Subcomandos:
   validate       --token-file <path>
       GET /me  — valida o token antes de salvar. rc 0 = ok, rc 1 = invalido.
 
+  status         --aprovacao <id>
+      So com DGCLAW_TRAVAS=1: consulta o estado de um pedido que esperava o TI.
+
+Modo travado (versao empresa, DGCLAW_TRAVAS=1 no ambiente do agente):
+  O token do Instagram NAO fica mais com o agente: ele mora num cofre do host. Este script entao nao
+  chama a Graph API. Ele pede a acao pela caixa (dgclaw-api POST /api/v1/acoes/instagram), o TI aprova na
+  tela de aprovacoes, e quem publica e o Web, no host. O script espera o resultado consultando a
+  aprovacao (--espera, em segundos; padrao 600). Saidas: 0 publicado; 1 recusado, vencido ou falhou;
+  3 ainda esperando o TI (o JSON traz o id; consulte depois com "status"). Sem DGCLAW_TRAVAS o
+  comportamento e o de sempre. O --token-file continua aceito e e ignorado nesse modo.
+
 Notas:
   - O token NUNCA e logado nem impresso. So o resultado da API.
   - Erros da Graph API sao reportados com mensagem clara (codigo + message).
@@ -26,6 +37,8 @@ Notas:
 
 import argparse
 import json
+import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -139,6 +152,114 @@ def validate(token):
     return 0
 
 
+# --- modo travado (DGCLAW_TRAVAS=1): a acao passa pela caixa e pela aprovacao do TI ----------------
+
+def _travas_ligadas():
+    return os.environ.get("DGCLAW_TRAVAS") == "1"
+
+
+def _caixa(metodo, rota, corpo=None, espera=25):
+    """Chama o Web pela caixa (dgclaw-api). Devolve (status_http, corpo_json). Erro de uso vira SystemExit com motivo."""
+    cmd = [os.environ.get("DGCLAW_API_CMD", "dgclaw-api"), metodo, rota, "--com-status", "--espera", str(espera)]
+    entrada = None
+    if corpo is not None:
+        cmd.append("-")
+        entrada = json.dumps(corpo, ensure_ascii=False)
+    try:
+        r = subprocess.run(cmd, input=entrada, capture_output=True, text=True, timeout=espera + 15)
+    except FileNotFoundError:
+        print("ERRO: o comando dgclaw-api nao foi encontrado neste container. Peca ao dono para rodar 'dgclaw agente reparar <seu-slug>'.", file=sys.stderr)
+        sys.exit(2)
+    except subprocess.TimeoutExpired:
+        print("ERRO: o Web nao respondeu a tempo pela caixa. Tente de novo em instantes; se persistir, avise o dono.", file=sys.stderr)
+        sys.exit(2)
+    try:
+        resp = json.loads(r.stdout)
+        return int(resp["status"]), resp.get("corpo") or {}
+    except (ValueError, KeyError, TypeError):
+        detalhe = (r.stderr or r.stdout or "sem resposta").strip()[:300]
+        print(f"ERRO: a caixa respondeu algo que nao entendi (codigo {r.returncode}): {detalhe}", file=sys.stderr)
+        sys.exit(2)
+
+
+def _travas_espera_padrao():
+    try:
+        return max(0, int(os.environ.get("DGCLAW_IG_ESPERA", "600")))
+    except ValueError:
+        return 600
+
+
+def _travas_consultar(aprovacao_id):
+    status, corpo = _caixa("GET", f"/api/v1/aprovacoes/{aprovacao_id}")
+    if status != 200:
+        print(f"ERRO: nao consegui consultar o pedido {aprovacao_id} ({status}): {corpo.get('erro', 'sem detalhe')}", file=sys.stderr)
+        sys.exit(1)
+    return corpo.get("aprovacao") or {}
+
+
+def _travas_concluir(ap):
+    """Imprime o desfecho de um pedido e devolve o codigo de saida. None = ainda pendente."""
+    estado = ap.get("estado")
+    resultado = ap.get("resultado") or {}
+    if estado == "executada":
+        print(json.dumps({"ok": True, "aprovacao": ap.get("id"), "mediaId": resultado.get("media_id"),
+                          "permalink": resultado.get("permalink"), "replyId": resultado.get("reply_id"),
+                          "saida": resultado.get("saida")}, ensure_ascii=False))
+        return 0
+    if estado == "recusada":
+        motivo = resultado.get("motivo") or "sem motivo informado"
+        print(f"ERRO: o TI recusou o pedido ({motivo}). Nada foi publicado. Nao repita sem falar com o dono.", file=sys.stderr)
+        return 1
+    if estado == "expirada":
+        print("ERRO: o pedido venceu (24 horas sem decisao do TI). Nada foi publicado. Peca de novo se ainda fizer sentido.", file=sys.stderr)
+        return 1
+    if estado == "falhou":
+        print(f"ERRO: o TI aprovou, mas a publicacao falhou: {resultado.get('erro', 'sem detalhe')}. Nao repita as cegas: confira no Instagram.", file=sys.stderr)
+        return 1
+    return None
+
+
+def _travas_pedir(corpo, espera):
+    status, resp = _caixa("POST", "/api/v1/acoes/instagram", corpo)
+    if status != 202 or not resp.get("aprovacao"):
+        print(f"ERRO: o Web recusou o pedido ({status}): {resp.get('erro', 'sem detalhe')}", file=sys.stderr)
+        sys.exit(1)
+    ident = resp["aprovacao"]
+    print(f"Pedido {ident} enviado ao TI (aprovacao em /aprovacoes). Esperando ate {espera} s pela decisao.", file=sys.stderr)
+    fim = time.time() + espera
+    while True:
+        ap = _travas_consultar(ident)
+        codigo = _travas_concluir(ap)
+        if codigo is not None:
+            return codigo
+        if time.time() >= fim:
+            print(json.dumps({"ok": False, "pendente": True, "aprovacao": ident,
+                              "mensagem": f"O TI ainda nao decidiu. Consulte depois com: ig-publish.py status --aprovacao {ident}"}, ensure_ascii=False))
+            return 3
+        time.sleep(min(15, max(1, fim - time.time())))
+
+
+def _travas_main(args):
+    if args.cmd == "status":
+        codigo = _travas_concluir(_travas_consultar(args.aprovacao))
+        if codigo is None:
+            print(json.dumps({"ok": False, "pendente": True, "aprovacao": args.aprovacao}))
+            return 3
+        return codigo
+    if args.cmd == "validate":
+        print("O token do Instagram fica no cofre do host, entao daqui nao da para validar. Peca ao TI: dgclaw acoes instagram testar <seu-slug>", file=sys.stderr)
+        return 1
+    espera = args.espera if args.espera is not None else _travas_espera_padrao()
+    if args.cmd == "publish-image":
+        legenda = _text_arg(args.caption, args.caption_file)
+        return _travas_pedir({"op": "publicar", "conta": args.account, "legenda": legenda, "imagem_url": args.image_url}, espera)
+    mensagem = _text_arg(args.message, args.message_file)
+    if not mensagem.strip():
+        print("ERRO: mensagem de resposta vazia.", file=sys.stderr)
+        return 2
+    return _travas_pedir({"op": "responder", "comentario_id": args.comment_id, "mensagem": mensagem}, espera)
+
+
 def main():
     ap = argparse.ArgumentParser(description="Publica no Instagram via Graph API (DG Claw).")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -148,18 +269,28 @@ def main():
     p1.add_argument("--image-url", required=True, help="URL publica da imagem (jpg/png)")
     p1.add_argument("--caption", default="")
     p1.add_argument("--caption-file", default=None)
-    p1.add_argument("--token-file", required=True)
+    p1.add_argument("--token-file", required=not _travas_ligadas())
+    p1.add_argument("--espera", type=int, default=None, help="so no modo travado: segundos esperando o TI (padrao 600)")
 
     p2 = sub.add_parser("reply-comment")
     p2.add_argument("--comment-id", required=True)
     p2.add_argument("--message", default="")
     p2.add_argument("--message-file", default=None)
-    p2.add_argument("--token-file", required=True)
+    p2.add_argument("--token-file", required=not _travas_ligadas())
+    p2.add_argument("--espera", type=int, default=None, help="so no modo travado: segundos esperando o TI (padrao 600)")
 
     p3 = sub.add_parser("validate")
-    p3.add_argument("--token-file", required=True)
+    p3.add_argument("--token-file", required=not _travas_ligadas())
+
+    p4 = sub.add_parser("status")
+    p4.add_argument("--aprovacao", required=True, help="id do pedido que esperava o TI (modo travado)")
 
     args = ap.parse_args()
+    if _travas_ligadas():
+        return _travas_main(args)
+    if args.cmd == "status":
+        print("ERRO: 'status' so existe no modo travado (DGCLAW_TRAVAS=1).", file=sys.stderr)
+        return 2
     token = read_token(args.token_file)
 
     if args.cmd == "publish-image":

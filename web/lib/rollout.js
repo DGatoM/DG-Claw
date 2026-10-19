@@ -24,7 +24,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { criarMontagem, lerIncremental, parseDgchat, parseCanalExterno, paraHost } = require('./thread');
-const { descreveUso } = require('./trilha');
+const { descreveUso, avisaUso } = require('./trilha');
 
 const CONTEXTO_INJETADO = ['<environment_context>', '<user_instructions>', '# AGENTS.md'];
 const POKE = /\/tmp\/dgclaw-poke-([a-zA-Z0-9_.-]+?)-\d{8}-\d{6}\.txt/;
@@ -185,13 +185,13 @@ function criarLeitorRollout({ log, tz, midia }) {
   }
 
   const NOMES_SHELL = new Set(['shell', 'exec_command', 'shell_command', 'local_shell', 'container.exec']);
-  function trilhaCodex(estado, p, ep) {
+  function trilhaCodex(estado, p, ep, slug) {
     if (p.type === 'function_call') {
       if (!NOMES_SHELL.has(p.name) || typeof p.call_id !== 'string') return;
       const a = argumentosDe(p.arguments);
       const cmd = Array.isArray(a.command) ? a.command.join(' ') : String(a.command || a.cmd || '');
       const uso = descreveUso('Bash', { command: cmd });
-      if (uso) estado.trilhaPend.set(p.call_id, { ep, uso });
+      if (uso) { estado.trilhaPend.set(p.call_id, { ep, uso }); avisaUso(slug, p.call_id, ep, uso); }   // avisaUso: enterprise, auditoria completa
       return;
     }
     estado.trilhaPend.delete(p.call_id);
@@ -214,7 +214,7 @@ function criarLeitorRollout({ log, tz, midia }) {
 
     // Trilha de comandos (melhor esforço: o formato da chamada de shell do Codex varia entre versões).
     if (o.type === 'response_item' && (p.type === 'function_call' || p.type === 'function_call_output')) {
-      trilhaCodex(estado, p, m.epDe(o.timestamp, estado));
+      trilhaCodex(estado, p, m.epDe(o.timestamp, estado), agente.slug);
       return;
     }
 

@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# systemd-run de mentira: so anota a linha. O systemd de verdade criaria um timer transitorio.
+echo "systemd-run $*" >> "${STUB_LOG:?}"
+exit 0

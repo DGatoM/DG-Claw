@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# iptables de mentira: as cadeias DGCLAW_* "existem" se $STUB_ESTADO/cerca existir; criar cadeia (-N) ou saltar (-I) cria.
+# iptables-falha: tudo falha (reaplicar nao funciona).
+est="${STUB_ESTADO:?}"
+echo "iptables $*" >>"${STUB_LOG:?}"
+[ -f "$est/iptables-falha" ] && exit 1
+for a in "$@"; do
+    case "$a" in
+        -L) [ -f "$est/cerca" ]; exit $? ;;
+        -N|-I) touch "$est/cerca"; exit 0 ;;
+        # -S: com a cerca de pe, a primeira regra de qualquer cadeia e o salto para DGCLAW_EGRESS (o bloco H confere isso
+        # antes de pendurar a cadeia da saida controlada depois dele).
+        -S) [ -f "$est/cerca" ] || exit 1
+            for ultimo; do :; done
+            echo "-A $ultimo -s 10.89.0.0/16 -j DGCLAW_EGRESS"; exit 0 ;;
+    esac
+done
+exit 0

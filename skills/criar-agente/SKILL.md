@@ -106,6 +106,12 @@ assinatura. Se o dono quiser o outro provedor ou uma chave de API, o Admin anota
 `--auth` (`assinatura` ou `api`). Uma chave de API nunca é digitada no chat: o Admin diz que ela
 é colocada depois, no cofre do painel do agente.
 
+Na versão empresa (proteção `credencial_empresa`), faça também a pergunta "Este agente é de uma pessoa ou de
+um setor?" e explique por quê: o assento do Team ou do Enterprise é pessoal e intransferível. Agente de pessoa
+entra com o assento da própria pessoa (`--uso pessoa --usuario <login>`, `--auth assinatura`); agente de setor usa
+a chave de API da empresa (`--uso setor --auth api`). O formulário do painel já traz a pergunta. No `criar atual`
+do formulário, o helper cuida dos argumentos (o JSON do `pedir` aceita `"uso"` e `"usuario"`); no `dgclaw agente criar` direto, passe você `--uso`.
+
 ### 5. Canal
 
 "Por onde você quer falar com ele? Aqui no chat do DG Claw (o mais simples para começar), no Telegram

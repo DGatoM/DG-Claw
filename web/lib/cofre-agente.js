@@ -22,6 +22,7 @@ const path = require('node:path');
 const { execFile } = require('node:child_process');
 const { gravaArquivoSeguro, ErroGravacao } = require('./grava-seguro');
 const { validarChave, linhaDeAmbiente, recusa, PROVEDORES, NOME_FORMA_OK } = require('../../panel/lib/cofre');
+const { criarCofreCifrado } = require('./ent/cofre-cifrado');
 
 const UNIDADE = 'dgclaw-runner';
 const ARQUIVO_VISTO_DE_DENTRO = '/run/dgclaw/cofre/cofre.env';
@@ -53,8 +54,13 @@ function reiniciarPorPodman(agente) {
   });
 }
 
-function criarCofreAgente({ config, log, reiniciar }) {
+function criarCofreAgente({ config, log, reiniciar, cifrado }) {
   const fazReiniciar = reiniciar || reiniciarPorPodman;
+  // Enterprise (cofre_cifrado): quando ligado, o cofre vai cifrado para o disco e o claro fica só em RAM.
+  // Só entra se a configuração diz onde está o protecoes.json (ou se quem chama passa o `cifrado`); no nível
+  // pessoal `cifrado.ativo()` é false e nada abaixo muda.
+  const cofreCifrado = cifrado || (config && config.protecoesPath ? criarCofreCifrado({ config, log }) : null);
+  const cifradoAtivo = () => !!cofreCifrado && cofreCifrado.ativo();
   const dirMeta = path.join(config.dataDir, 'cofre');
   const souProcesso = { uid: typeof process.getuid === 'function' ? process.getuid() : 0, gid: typeof process.getgid === 'function' ? process.getgid() : 0 };
 
@@ -81,9 +87,16 @@ function criarCofreAgente({ config, log, reiniciar }) {
   /** { itens:[{tipo:'chave',nome,valor,bruta}|{tipo:'outra',bruta}] } ou { erro }. Arquivo ausente = vazio. */
   function lerCofreEnv(agente) {
     const { cofre } = caminhos(agente);
-    let texto;
+    let texto = null;
+    if (cifradoAtivo()) {
+      try { texto = cofreCifrado.ler(agente); } catch (e) {
+        log('erro', `Cofre de ${agente.slug}: ${e.message}`);
+        return { erro: recusa(`Não consegui ler o cofre cifrado de ${agente.nome}: ${e.message}`, 500,
+          'Confira se o systemd-creds funciona nesta máquina (systemd-creds --version) e se o arquivo cofre.env.cred está inteiro. As chaves não foram alteradas.') };
+      }
+    }
     try {
-      texto = fs.readFileSync(cofre, 'utf8');
+      if (texto == null) texto = fs.readFileSync(cofre, 'utf8');
     } catch (e) {
       if (e.code === 'ENOENT') return { itens: [] };
       log('erro', `Cofre de ${agente.slug}: não consegui ler ${cofre} (${e.code || e.name}).`);
@@ -124,7 +137,8 @@ function criarCofreAgente({ config, log, reiniciar }) {
   function gravaCofreENomes(agente, itens) {
     const { casa, cofre, nomes } = caminhos(agente);
     try {
-      gravaArquivoSeguro(cofre, serializa(itens), { raiz: casa });
+      if (cifradoAtivo()) cofreCifrado.gravar(agente, serializa(itens));
+      else gravaArquivoSeguro(cofre, serializa(itens), { raiz: casa });
     } catch (e) { return recusaDeGravacao(e, 'gravar o cofre do agente', agente); }
     const lista = itens.filter((i) => i.tipo === 'chave').map((i) => `${i.nome}=\n`).join('');
     try {
@@ -236,9 +250,14 @@ function criarCofreAgente({ config, log, reiniciar }) {
     const meta = lerMeta(agente); if (meta.erro) return meta.erro;
     return {
       agente: { slug: agente.slug, nome: agente.nome, dono: agente.dono || 'Dono' },
-      chaves: juntar(env.itens, meta.chaves).map((c) => Object.assign({ provedorNome: nomeDoProvedor(c.provedor), motor: 'host' }, c)),
+      chaves: juntar(env.itens, meta.chaves).map((c) => Object.assign({ provedorNome: nomeDoProvedor(c.provedor), motor: cifradoAtivo() ? 'systemd-creds' : 'host' }, c)),
       provedores: PROVEDORES,
-      guarda: {
+      guarda: cifradoAtivo() ? {
+        motor: 'systemd-creds',
+        motorExplicacao: 'No disco do servidor a chave fica cifrada com a chave da própria máquina (systemd-creds). A cópia em texto existe só na memória, e o agente a recebe quando é reiniciado.',
+        emMemoria: true,
+        emMemoriaExplicacao: 'A cópia em texto fica só na memória do servidor (/run) e some quando a máquina desliga; o disco guarda apenas a versão cifrada.',
+      } : {
         motor: 'host',
         motorExplicacao: 'A chave fica num arquivo do servidor, fora da pasta do agente, que só o administrador da máquina lê. O agente recebe o valor quando é reiniciado.',
         emMemoria: false,

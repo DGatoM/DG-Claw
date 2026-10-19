@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# cryptsetup de mentira com VARIOS slots (bloco J). O "arquivo LUKS" ganha um irmao <volume>.slots com uma linha
+# "<slot> <sha256 da chave>" por slot. A chave pode vir de arquivo (--key-file F) ou do STDIN (--key-file -).
+# Nunca imprime nem registra o conteudo da chave. O dispositivo aberto e a pasta $DGCLAW_DISCO_MAPPER.
+echo "cryptsetup $*" >>"${STUB_LOG:?}"
+cmd="${1:-}"; shift || true
+chave=""; teste=0; pos=()
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --key-file) chave="$2"; shift 2 ;;
+        --test-passphrase) teste=1; shift ;;
+        --type|--cipher) shift 2 ;;
+        --*) shift ;;
+        *) pos+=("$1"); shift ;;
+    esac
+done
+hash_de() { if [ "$1" = - ]; then sha256sum | cut -d' ' -f1; else sha256sum <"$1" | cut -d' ' -f1; fi; }
+vol="${pos[0]:-}"
+slots="$vol.slots"
+acha_slot() { # <hash>: imprime o slot que tem esse hash
+    awk -v h="$1" '$2 == h {print $1; exit}' "$slots" 2>/dev/null
+}
+case "$cmd" in
+    luksFormat)
+        [ -s "$chave" ] || { echo "stub: sem chave" >&2; exit 1; }
+        printf 'LUKS-FAKE\n' >"$vol"
+        printf '0 %s\n' "$(hash_de "$chave")" >"$slots" ;;
+    open)
+        [ -f "$vol" ] || { echo "stub: volume inexistente" >&2; exit 1; }
+        h="$(hash_de "$chave")"
+        [ -n "$(acha_slot "$h")" ] || { echo "No key available with this passphrase." >&2; exit 2; }
+        if [ "$teste" = 0 ]; then
+            # Volume fechado por um "reinicio" (reboot no teste): reabrir devolve o conteudo que ele tinha.
+            if [ -d "${DGCLAW_DISCO_MAPPER:?}.fechado" ]; then mv "$DGCLAW_DISCO_MAPPER.fechado" "$DGCLAW_DISCO_MAPPER"; else mkdir -p "$DGCLAW_DISCO_MAPPER"; fi
+        fi ;;
+    luksAddKey)
+        novo="${pos[1]:-}"
+        [ -n "$(acha_slot "$(hash_de "$chave")")" ] || { echo "No key available with this passphrase." >&2; exit 2; }
+        [ -s "$novo" ] || { echo "stub: sem arquivo da chave nova" >&2; exit 1; }
+        prox=$(( $(awk 'BEGIN{m=-1} {if ($1>m) m=$1} END{print m}' "$slots") + 1 ))
+        printf '%s %s\n' "$prox" "$(hash_de "$novo")" >>"$slots" ;;
+    luksRemoveKey)
+        f="${pos[1]:-}"
+        s="$(acha_slot "$(hash_de "$f")")"
+        [ -n "$s" ] || { echo "No key available with this passphrase." >&2; exit 2; }
+        [ "$(wc -l <"$slots")" -gt 1 ] || { echo "stub: nao removo o ultimo slot" >&2; exit 1; }
+        grep -v "^$s " "$slots" >"$slots.novo"; mv "$slots.novo" "$slots" ;;
+    close) : ;;
+    *) echo "stub: comando $cmd nao suportado" >&2; exit 2 ;;
+esac
+exit 0

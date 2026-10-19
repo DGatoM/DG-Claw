@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# curl de mentira do monitor: guarda o argv em $STUB_LOG e a configuracao do stdin em $STUB_ESTADO/curl-cfgs.log.
+# curl-falha: sai com 22. curl-eco: a mensagem de erro repete a URL (como alguns curl fazem), para provar que o monitor a esconde.
+est="${STUB_ESTADO:?}"
+echo "curl $*" >>"${STUB_LOG:?}"
+cfg=""
+case "$*" in *"--config -"*) cfg="$(cat)"; printf '%s\n--\n' "$cfg" >>"$est/curl-cfgs.log" ;; esac
+if [ -f "$est/curl-falha" ]; then
+    eco=""
+    [ -f "$est/curl-eco" ] && eco=" $(printf '%s' "$cfg" | sed -n 's/^url = "\(.*\)"$/\1/p' | head -1)"
+    echo "curl: (22) The requested URL returned error: 401$eco" >&2
+    exit 22
+fi
+exit 0

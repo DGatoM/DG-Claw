@@ -1,0 +1,10 @@
+# Exceções do Trivy (workflow Segurança, job "imagem"). Cada entrada vale para uma regra E para
+# um caminho. Nada aqui desliga uma regra no resto da imagem.
+secrets:
+  # O pacote yt-dlp, instalado na imagem pelo pip, traz no extractor do Shahid uma chave
+  # embutida pelo próprio projeto yt-dlp (código de terceiro, no site-packages do Python).
+  # Não é credencial do DG Claw nem de quem usa o produto, e não dá acesso a nada nosso.
+  - id: aws-access-key-id
+    paths:
+      - "**/yt_dlp/extractor/shahid.py"
+    statement: "Constante pública embutida no código do yt-dlp (terceiro), não é segredo nosso."

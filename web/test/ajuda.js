@@ -7,6 +7,7 @@ const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
 const { criarServidor } = require('../server');
+const totp = require('../lib/totp');
 
 function pastaTemp(prefixo) { return fs.mkdtempSync(path.join(os.tmpdir(), `dgclaw-web-${prefixo || 't'}-`)); }
 
@@ -86,10 +87,26 @@ async function subirWeb(opcoes) {
   const c = cliente(addr.port);
   return {
     web, porta: addr.port, c, dados, publico, dir, agentesPath, senha, log: cap, env,
-    async login(cli) {
-      const r = await (cli || c).post('/login', { json: { usuario: 'dono', senha } });
+    // Em nível com 2FA (escritório em diante) o login tem a segunda etapa: ativa o 2FA na primeira vez e usa o segredo guardado depois.
+    segredos: {},
+    passos: {},
+    async login(cli, quem) {
+      const cl = cli || c;
+      const usuario = (quem && quem.usuario) || 'dono';
+      const r = await cl.post('/login', { json: { usuario, senha: (quem && quem.senha) || senha } });
       if (r.status !== 200) throw new Error(`login de teste falhou: ${r.status} ${r.texto}`);
-      return r;
+      if (!r.json || !r.json.etapa) return r;
+      const est = await cl.get('/api/v1/login/2fa');
+      if (r.json.etapa === 'ativar') this.segredos[usuario] = est.json.segredo;
+      // o mesmo código não vale duas vezes: usa o passo seguinte ao último que este usuário já gastou (a janela do servidor é de ±1 passo)
+      const agora = Date.now();
+      const passo = Math.max(totp.passoDe(agora), (this.passos[usuario] || 0) + 1);
+      if (passo > totp.passoDe(agora) + 1) throw new Error('login de teste: mais de dois logins com 2FA do mesmo usuário em 30 s. Use opcoesServidor.agora com um relógio de teste.');
+      this.passos[usuario] = passo;
+      const codigo = totp.codigoEm(this.segredos[usuario], passo * totp.PASSO_S * 1000);
+      const fim = await cl.post('/api/v1/login/2fa', { json: { codigo } });
+      if (fim.status !== 200) throw new Error(`2FA de teste falhou: ${fim.status} ${fim.texto}`);
+      return fim;
     },
     fechar: () => web.fechar(),
   };

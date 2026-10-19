@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# getent de mentira: so conhece o usuario dgclaw-ferramentas, e so depois do useradd de mentira.
+[ "$1" = passwd ] && [ "$2" = dgclaw-ferramentas ] && [ -f "${STUB_ESTADO:?}/usuario-ferramentas" ] && { echo "dgclaw-ferramentas:x:990:990::/nonexistent:/usr/sbin/nologin"; exit 0; }
+exit 2

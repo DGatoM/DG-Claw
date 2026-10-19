@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# curl de mentira do bloco J: o anuncio do Tang (/adv) e o download da chave do gVisor; o resto vai para o stub da CLI.
+echo "curl $*" >>"${STUB_LOG:?}"
+AQUI="$(cd "$(dirname "$0")" && pwd)"
+saida=""; prev=""; url=""
+for a in "$@"; do
+    [ "$prev" = -o ] && saida="$a"
+    case "$a" in http*) url="$a" ;; esac
+    prev="$a"
+done
+case "$url" in
+    */adv) [ "${STUB_TANG_OFFLINE:-}" != 1 ] || exit 7; echo '{"payload":"stub"}'; exit 0 ;;
+    https://gvisor.dev/archive.key) [ -z "$saida" ] || echo "CHAVE-DO-GVISOR-DE-MENTIRA" >"$saida"; exit 0 ;;
+esac
+exec "$AQUI/../../cli/stubs/curl" "$@"

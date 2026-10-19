@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# openssl de mentira: s_client devolve um "certificado"; x509 -enddate imprime a data de $STUB_ESTADO/cert-fim.
+est="${STUB_ESTADO:?}"
+case "${1:-}" in
+    s_client) [ -f "$est/openssl-falha" ] && exit 1; echo "-----BEGIN CERTIFICATE-----"; exit 0 ;;
+    x509) cat >/dev/null; echo "notAfter=$(cat "$est/cert-fim")"; exit 0 ;;
+esac
+exit 0

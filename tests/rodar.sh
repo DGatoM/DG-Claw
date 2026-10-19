@@ -16,6 +16,8 @@
 #  10. mcp              scripts/dgchat-mcp/test-server.mjs: a bancada do servidor MCP do DG Chat
 #  11. novidades        tests/novidades: o gancho do aviso de novidades depois de atualizar
 #  12. monitor         tests/monitor: o dgclaw-monitor (modo monitor) e o dgclaw-card abrir --monitor, com runner falso
+#  13. enterprise       tests/enterprise: niveis de protecao, auditoria, ganchos, instalar --nivel e atualizar
+#                       com rollback (raiz falsa, git local e stubs; web/test/ent-*.test.js ja roda na parte web)
 #
 # Nada aqui encosta no sistema de verdade: nao cria container, rede nem unidade.
 #
@@ -117,7 +119,8 @@ testes_shellcheck() {
     (
         cd "$REPO" || exit 1
         arquivos=(install.sh bin/dgclaw lib/*.sh tests/rodar.sh tests/cli/*.sh tests/cli/stubs/*
-                  tests/instalador/*.sh tests/novidades/*.sh tests/monitor/*.sh scripts/cofre-nomes.sh scripts/test-cofre-nomes.sh)
+                  tests/instalador/*.sh tests/novidades/*.sh tests/monitor/*.sh scripts/cofre-nomes.sh scripts/test-cofre-nomes.sh
+                  lib/enterprise/*.sh tests/enterprise/*.sh tests/enterprise/stubs/* tests/enterprise/stubs-monitor/* tests/enterprise/stubs-d/* tests/enterprise/stubs-h/* tests/enterprise/stubs-j/* tests/enterprise/stubs-j-runsc/* scripts/enterprise/*.sh)
         "$sc" -x "${arquivos[@]}"
     )
 }
@@ -134,6 +137,7 @@ testes_bin() {
 parte cli bash "$REPO/tests/cli/rodar.sh"
 parte instalador bash "$REPO/tests/instalador/rodar.sh"
 parte ambiente bash "$REPO/tests/ambiente/rodar.sh"
+parte enterprise bash "$REPO/tests/enterprise/rodar.sh"
 parte web node --test "$REPO/web/test/"
 parte painel testes_painel
 parte python testes_python

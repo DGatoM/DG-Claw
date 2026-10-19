@@ -7,6 +7,15 @@ const { spawn } = require('node:child_process');
 const { criarServidor } = require('../server');
 const { loja, registrarPedido, RX_ID } = require('../lib/onboarding');
 
+// Versão empresa (credencial_empresa): agente de pessoa entra com o assento de quem criou (--usuario); agente de setor usa a
+// chave de API da empresa. Sem a proteção, o comando é o de sempre: --auth assinatura.
+function argsDeUso(web, p) {
+  const ligada = !!web.protecoes && web.protecoes.ligada('credencial_empresa');
+  if (!ligada) return ['--auth', 'assinatura'];
+  if (p.uso === 'setor') return ['--auth', 'api', '--uso', 'setor'];
+  return ['--auth', 'assinatura', '--uso', 'pessoa', ...(p.usuario ? ['--usuario', p.usuario] : [])];
+}
+
 async function executar(acao, id, op = {}) {
   const uso = 'Uso: node web/bin/onboarding.js criar|testar|ver <id do pedido|atual>, ou pedir com o JSON {nome, papel, jeito, dono} no STDIN';
   const web = op.web || (acao === 'pedir' || (['criar', 'testar', 'ver'].includes(acao) && (RX_ID.test(id || '') || id === 'atual')) ? criarServidor() : null);
@@ -38,7 +47,7 @@ async function executar(acao, id, op = {}) {
         let codigo;
         try {
           codigo = await new Promise((resolve, reject) => {
-            const proc = (op.spawn || spawn)(op.cli || '/usr/local/bin/dgclaw', ['agente', 'criar', p.slug, '--nome', p.nome, '--provedor', p.provedor, '--auth', 'assinatura', '--papel', p.papel, '--jeito', p.jeito, '--dono', p.dono, '--canal', 'chat'], { stdio: ['ignore', logFd, logFd], shell: false });
+            const proc = (op.spawn || spawn)(op.cli || '/usr/local/bin/dgclaw', ['agente', 'criar', p.slug, '--nome', p.nome, '--provedor', p.provedor, ...argsDeUso(web, p), '--papel', p.papel, '--jeito', p.jeito, '--dono', p.dono, '--canal', 'chat'], { stdio: ['ignore', logFd, logFd], shell: false });
             proc.once('error', reject);
             proc.once('exit', (code) => resolve(code));
           });
@@ -46,7 +55,9 @@ async function executar(acao, id, op = {}) {
         if (codigo !== 0) throw new Error('A criação parou. O Admin vai conferir o registro e retomar.');
       }
       if (!web.registro.obter(p.slug)) throw new Error('A criação não terminou direito. O Admin vai conferir o registro e retomar.');
-      mudar('login', 'Seu agente foi criado. Entre com sua assinatura no painel dele para ligar a conversa. Depois volte aqui e avise o Admin.');
+      mudar('login', p.uso === 'setor' && web.protecoes && web.protecoes.ligada('credencial_empresa')
+        ? 'Seu agente foi criado. Guarde a chave de API da empresa no Cofre do painel dele para ligar a conversa. Depois volte aqui e avise o Admin.'
+        : 'Seu agente foi criado. Entre com sua assinatura no painel dele para ligar a conversa. Depois volte aqui e avise o Admin.');
       return p;
     }
     const agente = web.registro.obter(p.slug);

@@ -17,6 +17,45 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
   Admin em `docs/ATUALIZAR.md`. O instalador agora anota `DGCLAW_REPO` e `DGCLAW_COMMIT` no `dgclaw.env`,
   edita esse arquivo linha a linha e não sobrescreve mais um `CLAUDE.md` ou `AGENTS.md` do Admin que foi
   personalizado (grava o modelo novo ao lado, como `.novo`).
+- Fundação da versão enterprise (branch `enterprise`, desenho em `docs/enterprise/DESENHO.md`): níveis de
+  proteção (`pessoal`, `escritorio`, `empresa`, `regulado`) lidos de `/etc/dgclaw/protecoes.json` e de uma matriz
+  única em `config/protecoes-matriz.json`; comandos `dgclaw nivel`, `dgclaw protecoes aplicar`, `dgclaw versao`;
+  o `dgclaw atualizar` do `main` ganha auditoria e, acima do nível pessoal, backup sem segredos nem conversas e
+  retenção dos backups; instalador com `--nivel`; trilha de auditoria encadeada por hash (bash e Node na mesma corrente); tela Proteções em
+  `/protecoes`; pontos de extensão da CLI, do instalador e do Web. Sem o arquivo de nível tudo continua como antes.
+- Versão enterprise sobre o `main` de 18/10/2026: o `dgclaw agente recriar` é o do `main` (`--forcar` leva as
+  proteções novas a um container antigo e a auditoria `agente.recriar` entra por gancho); as telas Aprovações,
+  Auditoria, Minha conta, Novo agente, Proteções e Usuários usam a casca única e não dão zoom; o agente fica
+  sabendo das proteções do nível dele no `identidade.md` (caixa sem sudo, travas, ferramentas fechadas, Admin
+  isolado), sem mudar nada no nível pessoal; `dgclaw --ajuda` lista todos os comandos enterprise.
+- Bloco F da versão enterprise (LGPD e monitoramento): `dgclaw retencao aplicar` (prazo `retencao_dias`: apaga
+  transcripts, anexos e logs velhos, troca o texto de mensagens velhas por um marcador sem quebrar a corrente do
+  `--resume`, limpa o `conversas.db`), `dgclaw titular buscar|apagar` (exclusão por titular em transcripts, índices,
+  memória, anexos, logs e dados do Web, com recibo sem o termo em claro), `dgclaw monitor` (disco, certificado,
+  cerca de rede, serviços, backup e memória, com alerta por webhook, Telegram e ping externo), timer diário da
+  retenção, `logrotate` e o modo escondido sem enviar texto para fora quando `sigilo_externo` está desligado.
+  Inventário em `docs/enterprise/DADOS-PESSOAIS.md` e plano de resposta a incidente em `docs/enterprise/INCIDENTE.md`.
+- Bloco D da versão enterprise (container, cofre, disco e backup), tudo atrás do nível de proteção e sem efeito
+  no nível `pessoal`: container endurecido (`--cap-drop=ALL` com 11 capacidades devolvidas, `no-new-privileges`,
+  `--ulimit nofile`, cerca IPv6 em `lib/enterprise/firewall6.sh`), `dgclaw agente pacote` e `dgclaw agente recriar`;
+  cofre dos agentes cifrado com `systemd-creds` (cópia em claro só em `/run/dgclaw/cofres`, `dgclaw cofre migrar`);
+  disco cifrado LUKS2 em arquivo (`dgclaw disco cifrar`, desbloqueio no boot); backup cifrado fora da VPS com restic
+  (`dgclaw backup ...`, `dgclaw restaurar`, teste de restauração automático por timer). Documento:
+  `docs/enterprise/CONTAINER-ENDURECIDO.md`.
+- Enterprise, multiusuário (níveis `escritorio` em diante): vários usuários com papel `ti` ou `funcionario` (o funcionário vê só os
+  agentes liberados para ele, nunca o Admin), segundo fator TOTP (RFC 6238) com 10 códigos de reserva, sessões que o usuário e o TI
+  encerram, bloqueio da conta depois de 10 falhas e os eventos do login na auditoria. Telas `/usuarios`, `/conta` e `/login/2fa`,
+  API `/api/v1/usuarios` e `/api/v1/eu`, e o socorro `dgclaw usuario listar|criar|desativar|link|zerar-2fa`. No nível pessoal
+  nada muda. Guia em `web/docs/USUARIOS.md`.
+- Bloco C da versão enterprise (Admin sem root), tudo atrás da proteção `admin_isolado` e sem efeito no nível
+  `pessoal`: serviço de controle (`controle/`, Node sem dependências, socket `/run/dgclaw/controle.sock`, sem nenhum
+  modelo de linguagem) com uma lista fechada de operações em três classes (leitura, reversível, perigosa); fila de
+  aprovações genérica para os outros blocos (`web/lib/ent/aprovacoes.js`, tela `/aprovacoes`, 2FA feito há menos de 15
+  minutos para aprovar, prazo de 24 horas, aviso no celular e auditoria); o Admin em container (`dgclaw admin isolar`,
+  `dgclaw admin host`, `bin/dgclaw-controle`, `templates/admin-isolado/`), a manutenção de emergência que liga o Admin
+  antigo por até 60 minutos e fecha sozinha, e o inventário do que impede o Web de rodar sem root
+  (`docs/enterprise/WEB-SEM-ROOT.md`). Guia: `docs/enterprise/CONTROLE.md`.
+- CI de segurança (gitleaks, CodeQL, varredura da imagem com Trivy e SBOM), Dependabot, CODEOWNERS e modelo de PR.
 - Modo escondido (botão 👁 no cabeçalho da conversa): troca por asteriscos nomes, empresas, valores,
   e-mails, telefones, documentos e chaves de todas as mensagens da tela, para o dono mostrar a conversa numa
   aula sem expor cliente. Um filtro automático age na hora e um modelo (Claude Haiku com `ANTHROPIC_API_KEY`, ou
@@ -77,6 +116,54 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 - O instalador escolhe o motor do Admin (Claude ou Codex) pelo login que existe, não pelo programa instalado.
 - Campos de texto com 16px ou mais no celular: o app instalado não dá mais zoom ao tocar num campo.
 - Ubuntu 26.04 passa com aviso, e os problemas da instalação ao vivo de 17/10 foram acertados.
+- Bloco G da versão enterprise (login único e auditoria completa), tudo atrás do nível de proteção e sem efeito no nível
+  `pessoal`: login único por OIDC (Google Workspace, Microsoft Entra ID ou outro provedor, com PKCE, JWKS e conferência de
+  `iss`, `aud`, `exp`, `nonce`, `tid` e `hd`; modos `opcional`, `padrao` e `obrigatorio`, este com uma conta de emergência do TI que
+  só entra com senha e 2FA; `dgclaw sso configurar|testar|emergencia|status`); auditoria completa (toda mutação da API, painel
+  aberto, mídia baixada, comandos dos agentes e exportações, rotação por mês com a corrente atravessando os arquivos, `dgclaw
+  auditoria verificar|selo|exportar|retencao`, tela `/auditoria` e `/api/v1/auditoria` só para o TI, retenção de 5 anos); auditoria
+  externa (entrega a coletor HTTP ou syslog sobre TLS, selo por hora, retomada pelo hash e alerta no monitor quando a fila passa de
+  1 hora; `dgclaw auditoria externa configurar|testar|status|enviar`). A trilha aceita a origem `controle`. Guia em
+  `docs/enterprise/SSO-AUDITORIA.md`.
+- Bloco I da versão enterprise (kit "skill com dado sensível"), atrás da proteção `kit_sensivel` e sem efeito no nível
+  `pessoal`: o agente aciona uma ferramenta fechada (`dgclaw-ferramenta`) e recebe só um resultado agregado, pseudonimizado
+  e conferido, sem nunca ver a credencial nem o dado bruto. Serviço `dgclaw-ferramentas` no host (`ferramentas/`, Node sem
+  dependência, usuário sem privilégio, socket só para o Web), executor em processo filho de ambiente limpo com tempo, memória
+  e pasta temporária própria, verificador de saída (CPF, CNPJ, e-mail, telefone, data de nascimento, cartão e nomes da base
+  bloqueiam a resposta inteira), biblioteca de pipeline (`pseudonimizar`, `agregar` com supressão de grupo pequeno), rotas
+  `/api/v1/ferramentas`, registro de acesso `ferramenta_usada` na auditoria, relatório com prazo na pasta de entregas e
+  `dgclaw ferramenta criar|listar|testar|credencial|abrir|chave|ficha|skill`. Traz a ferramenta de exemplo `carteira.resumo`
+  com base sintética, o modelo de skill e a ficha do RIPD. Guias: `docs/enterprise/KIT-SENSIVEL.md` e `SKILL-SENSIVEL.md`.
+
+<!-- Bloco H (saída controlada): entrada própria, para o merge com os outros blocos não brigar por linha. -->
+- Bloco H da versão enterprise (saída controlada para a internet, proteção `saida`): um proxy por agente
+  (`dgclaw-saida`, Node sem dependência, usuário sem privilégio) que escuta no gateway de cada rede de agente
+  (`10.89.N.1:3128`), com HTTPS em túnel sem abrir o TLS. Modo `registro` anota cada destino em
+  `/var/log/dgclaw/saida/<agente>.jsonl` (sem URL e sem cabeçalho); modo `bloqueio` só deixa passar a lista do agente
+  mais a base do provedor, e a cerca de rede (cadeia `DGCLAW-SAIDA`, sem mexer na ordem da mangle) fecha o resto. O proxy
+  resolve o DNS sozinho e recusa destino que aponta para rede interna. Comandos `dgclaw saida mostrar|permitir|remover|modo|relatorio`
+  e prova de dentro do container no `agente criar` (`scripts/enterprise/teste-saida.sh`). Sem efeito no nível `pessoal`.
+  Documento: `docs/enterprise/SAIDA.md`.
+<!-- bloco E -->
+- Bloco E da versão enterprise (travas de ação externa, HTTPS endurecido, políticas do Claude Code e credencial da empresa), tudo
+  atrás do nível de proteção e sem efeito no nível `pessoal`: managed settings por agente (`<casa>/politicas/managed-settings.json`,
+  montado só leitura em `/etc/claude-code`, com `forceLoginOrgUUID`, `forceLoginMethod`, `cleanupPeriodDays` e o `deny` das
+  ferramentas de envio do Gmail); `dgclaw travas liberar|fechar|conferir|status` (a operação `travas.liberar` do controle, com
+  volta sozinha por timer); Instagram com o token no cofre do host e publicação aprovada pelo TI na tela de aprovações
+  (`dgclaw acoes instagram configurar|testar`, `POST /api/v1/acoes/instagram`, token no corpo do POST e nunca na URL, prévia da mídia
+  buscada pelo servidor com defesa contra SSRF, `ig-publish.py` em modo travado); lista de números do WhatsApp mantida pelo TI
+  (`dgclaw acoes whatsapp`); Caddy com HSTS e cabeçalhos, política de conteúdo (CSP) e cookie `__Host-` no Web;
+  `dgclaw agente criar --uso pessoa|setor`, modo `token` recusado e a pergunta de uso no formulário de criação. Guias em
+  `docs/enterprise/TRAVAS.md`, `docs/enterprise/POLITICAS.md` e `docs/enterprise/CREDENCIAL.md`.
+<!-- fim bloco E -->
+- Bloco J da versão enterprise (nível regulado): runtime reforçado com gVisor (`runsc` pelo repositório apt oficial, com o
+  fingerprint da chave conferido no código; o agente só nasce sob o `runsc` depois de uma prova de systemd, cron e portas do
+  runner e do painel, e cai para runc com aviso, auditoria e lista no `dgclaw status` quando a prova falha; `dgclaw agente
+  testar-runtime`); chave do disco cifrado fora da VPS por Tang (Clevis, com thumbprint confirmado) ou frase digitada, adicionada,
+  testada e só então, com `--confirmar`, tirada a chave local (`dgclaw disco chave externa tang|manual`, `dgclaw disco
+  desbloquear`; sem a chave a VPS sobe com os dados trancados e o Web explica); Admin desligável (`dgclaw admin desligar|ligar`,
+  formulário `/novo-agente` que cria pelo serviço de controle); relatório do teste de restauração mensal com o `sha256` na
+  auditoria. Documento: `docs/enterprise/REGULADO.md`.
 
 ## [1.0.0] - 2026-10-17
 

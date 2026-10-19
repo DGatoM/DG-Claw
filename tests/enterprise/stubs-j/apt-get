@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+echo "apt-get $*" >>"${STUB_LOG:?}"
+exit 0

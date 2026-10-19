@@ -131,6 +131,7 @@ async function ambiente({ registrado = true, lista = [DONO], modo = 'servico', e
     esperaReconexaoInicialMs: 5,
     esperaReconexaoMaxMs: 20,
     folgaPosPareamentoMs: 0,
+    arqPermitidosTI: path.join(home, 'lista-do-ti-que-nao-existe.json'),
     ...extra,
   });
   const a = {
@@ -421,6 +422,26 @@ test('lista: relida quando o mtime muda', async () => {
   fs.utimesSync(arq, futuro, futuro);
   await receber(a, mensagem('oi', { id: 'T2' }));
   assert.equal(a.runner.reqs.length, 1);
+  await a.fim();
+});
+
+test('lista do TI (travas_externas): manda sobre a do agente, ilegivel fecha tudo e sem ela vale a do agente', async () => {
+  const ti = path.join(os.tmpdir(), `wa-ti-${process.pid}-${Date.now()}.json`);
+  fs.writeFileSync(ti, JSON.stringify({ versao: 1, numeros: ['+5521999998888'] }));
+  const a = await ambiente({ lista: [DONO], extra: { arqPermitidosTI: ti } });
+  const adiante = (n) => { const t = new Date(Date.now() + n * 5000); fs.utimesSync(ti, t, t); };
+  await receber(a, mensagem('oi', { id: 'TI1' }));
+  assert.equal(a.runner.reqs.length, 0, 'o numero esta na lista do agente, mas a do TI manda e ele nao esta nela');
+  fs.writeFileSync(ti, JSON.stringify({ versao: 1, numeros: [DONO] })); adiante(1);
+  await receber(a, mensagem('oi', { id: 'TI2' }));
+  assert.equal(a.runner.reqs.length, 1, 'o TI liberou o numero');
+  fs.writeFileSync(ti, '{isto nao e json'); adiante(2);
+  await receber(a, mensagem('oi', { id: 'TI3' }));
+  assert.equal(a.runner.reqs.length, 1, 'lista do TI ilegivel fecha tudo, nao cai na do agente');
+  assert.match(a.log(), /dgclaw acoes whatsapp permitir <agente> <numero>/);
+  fs.rmSync(ti);
+  await receber(a, mensagem('oi', { id: 'TI4' }));
+  assert.equal(a.runner.reqs.length, 2, 'sem lista do TI (nivel pessoal) vale a do agente, como sempre');
   await a.fim();
 });
 

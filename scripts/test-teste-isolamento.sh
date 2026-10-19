@@ -148,6 +148,12 @@ nao "(b8) nao imprime o valor do proxy" "127.0.0.1:4002"
 rodar FAKE_RODANDO="dgclaw-ana" bash "$SCRIPT" ana
 nao "(b8) sem proxy, sem aviso" "traz HTTPS_PROXY"
 
+# (b9) saida controlada (enterprise): o proxy do DG Claw no gateway da rede e esperado, sem aviso, e a prova de internet o usa
+rodar FAKE_RODANDO="dgclaw-ana" FAKE_PROXY="http://10.89.1.1:3128" bash "$SCRIPT" ana
+cod "(b9) proxy do DG Claw no gateway passa" 0
+nao "(b9) e nao vira aviso" "traz HTTPS_PROXY"
+tem "(b9) a internet foi provada" "internet alcancada"
+
 # (c) internet fora
 rodar FAKE_RODANDO="dgclaw-ana" FAKE_NET=falhou bash "$SCRIPT" ana
 cod "(c) internet fora sai 2" 2

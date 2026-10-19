@@ -333,7 +333,10 @@ caddyfile_e_padrao() {
 
 bloco_caddy() {
     printf '# DG Claw: gerado pelo install.sh. Rodar o instalador de novo reescreve este arquivo.\n'
-    printf '%s {\n\treverse_proxy 127.0.0.1:8300\n}\n' "$1"
+    printf '%s {\n' "$1"
+    # Gancho enterprise (lib/enterprise/https.sh): cabecalhos de HTTPS endurecido. No nivel pessoal nao imprime nada.
+    if declare -F ent_caddy_extra >/dev/null; then ent_caddy_extra; fi
+    printf '\treverse_proxy 127.0.0.1:8300\n}\n'
 }
 
 # escrever_site_caddy <dominio>: grava o site do DG Claw no Caddyfile proprio (quando e dele ou

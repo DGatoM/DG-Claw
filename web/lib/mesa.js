@@ -220,7 +220,7 @@ function criarMesa(opcoes) {
   const agoraMs = () => { const a = relogio(); return a instanceof Date ? a.getTime() : Number(a); };
   const quemChamou = o.quemChamou || ((s) => (s && s.via === 'caixa' && typeof s.agente === 'string'
     ? { tipo: 'agente', slug: s.agente }
-    : { tipo: 'dono', usuario: s && s.usuario }));
+    : Object.assign({ tipo: 'dono', usuario: s && s.usuario }, s && typeof s.pode === 'function' ? { pode: s.pode } : {})));
   const docsPath = path.join(__dirname, '..', 'docs', 'MESA.md');
 
   let dados = null;        // { versao, proximo_id, tarefas }
@@ -443,8 +443,10 @@ function criarMesa(opcoes) {
 
   function criar(corpo, quem, ms) {
     const { erros, v } = normalizaEntrada(corpo, 'criar');
-    const slugs = listaDeSlugs();
-    if (!slugs) return { status: 503, erro: registro.estado().erro };
+    const todos = listaDeSlugs();
+    if (!todos) return { status: 503, erro: registro.estado().erro };
+    // Enterprise: quem.pode (funcionário) só enxerga, e só cria tarefa para, os agentes liberados para ele.
+    const slugs = quem.pode ? todos.filter((s) => quem.pode(s)) : todos;
     let agente;
     if (quem.tipo === 'agente') {
       if (corpo.agente !== undefined && corpo.agente !== null && corpo.agente !== quem.slug) {
@@ -454,6 +456,8 @@ function criarMesa(opcoes) {
       agente = quem.slug;
     } else if (!ehTexto(corpo.agente) || !corpo.agente) {
       erros.agente = `obrigatório: diga para qual agente é a tarefa (${slugs.join(', ')})`;
+    } else if (quem.pode && todos.includes(corpo.agente) && !slugs.includes(corpo.agente)) {
+      return { status: 403, erro: `Você não tem acesso ao agente ${JSON.stringify(corpo.agente.slice(0, 40))}, então não cria tarefa para ele. Peça ao TI para liberar. Seus agentes: ${slugs.join(', ') || '(nenhum)'}.` };
     } else if (!slugs.includes(corpo.agente)) {
       erros.agente = `não existe o agente ${JSON.stringify(corpo.agente.slice(0, 40))}. Agentes: ${slugs.join(', ')}`;
     } else {
@@ -529,15 +533,19 @@ function criarMesa(opcoes) {
     return { status: 200, corpo: corpoResp };
   }
 
-  function listar(req, url, ms) {
+  function listar(req, url, ms, quem) {
     const q = url.searchParams;
     const erros = {};
     let agentes = null;
     const bruto = q.get('agente');
+    const pode = quem && quem.pode ? quem.pode : null;   // enterprise: funcionário só vê tarefa dos agentes liberados
     if (bruto !== null) {
-      const slugs = listaDeSlugs();
-      if (!slugs) return { status: 503, erro: registro.estado().erro };
+      const todos = listaDeSlugs();
+      if (!todos) return { status: 503, erro: registro.estado().erro };
+      const slugs = pode ? todos.filter(pode) : todos;
       agentes = bruto.split(',').map((s) => s.trim()).filter(Boolean);
+      const proibidos = pode ? agentes.filter((s) => todos.includes(s) && !slugs.includes(s)) : [];
+      if (proibidos.length) return { status: 403, erro: `Você não tem acesso ao agente ${proibidos.map((s) => JSON.stringify(s.slice(0, 40))).join(', ')}. Peça ao TI para liberar. Seus agentes: ${slugs.join(', ') || '(nenhum)'}.` };
       const falsos = agentes.filter((s) => !slugs.includes(s));
       if (!agentes.length || falsos.length) erros.agente = `${falsos.length ? `não existe: ${falsos.join(', ')}. ` : 'veio vazio. '}Agentes que existem: ${slugs.join(', ')}`;
     }
@@ -557,11 +565,13 @@ function criarMesa(opcoes) {
     if (Object.keys(erros).length) return { status: 400, erros };
 
     const filtro = { agente: agentes, estado: estados, dia: q.get('dia') || 'hoje' };
-    const etag = `"${crypto.createHash('sha1').update(`${rev}|${JSON.stringify(filtro)}|${hoje}|${Math.floor(ms / 60000)}`).digest('hex').slice(0, 16)}"`;
+    const visiveis = pode ? (listaDeSlugs() || []).filter(pode).join(',') : '';
+    const etag = `"${crypto.createHash('sha1').update(`${rev}|${JSON.stringify(filtro)}|${hoje}|${Math.floor(ms / 60000)}${pode ? `|${visiveis}` : ''}`).digest('hex').slice(0, 16)}"`;
     const cab = { ETag: etag, 'Cache-Control': 'private, no-cache' };
     if (req.headers['if-none-match'] === etag) return { status: 304, cab };
 
     const tarefas = dados.tarefas
+      .filter((t) => !pode || pode(t.agente))
       .filter((t) => !agentes || agentes.includes(t.agente))
       .filter((t) => !estados || estados.includes(t.estado))
       .filter((t) => ABERTOS.has(t.estado) || dia === 'todos' || (t.fechada_em && diaLocal(Date.parse(t.fechada_em), tz) === dia))
@@ -635,11 +645,15 @@ function criarMesa(opcoes) {
       }
 
       if (id === null) {
-        responde(res, m === 'GET' ? listar(req, url, ms) : criar(corpo, quem, ms));
+        responde(res, m === 'GET' ? listar(req, url, ms, quem) : criar(corpo, quem, ms));
         return true;
       }
       const t = dados.tarefas.find((x) => x.id === id);
       if (!t) { H.erroJson(res, 404, `Não existe a tarefa #${id}. Veja as tarefas em GET /api/v1/tarefas (as fechadas há muito tempo saem da mesa).`); return true; }
+      if (quem.tipo === 'dono' && quem.pode && !quem.pode(t.agente)) {
+        H.erroJson(res, 403, `A tarefa #${id} é de um agente que você não tem acesso. Peça ao TI para liberar.`);
+        return true;
+      }
       if (m === 'GET') { H.enviaJson(res, 200, { ok: true, tarefa: calculaLeitura(t, ms, true) }); return true; }
       responde(res, editar(req, t, corpo, quem, ms, m === 'DELETE'));
       return true;

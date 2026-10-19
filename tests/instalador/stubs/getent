@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# getent de mentira para os usuarios de servico que o instalador cria (dgclaw-ferramentas, dgclaw-saida): ele "existe"
+# depois que o useradd de mentira o "criou". Assim o teste nao enxerga um usuario real que por acaso exista na maquina.
+# Qualquer outra consulta vai para o getent de verdade, como antes.
+. "$(dirname "$0")/_comum.sh"
+case "${1:-}:${2:-}" in
+    passwd:dgclaw-ferramentas|passwd:dgclaw-saida|group:dgclaw-ferramentas|group:dgclaw-saida)
+        registrar "$@"
+        if [ -f "$(estado_dir)/usuario-$2" ]; then
+            echo "$2:x:990:990::/nonexistent:/usr/sbin/nologin"
+            exit 0
+        fi
+        exit 2 ;;
+esac
+exec /usr/bin/getent "$@"

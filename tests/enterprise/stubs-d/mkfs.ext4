@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+echo "mkfs.ext4 $*" >>"${STUB_LOG:?}"
