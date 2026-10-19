@@ -82,6 +82,24 @@ aside#menu{
   font-size:12.5px;line-height:1.45;color:var(--ml-texto)}
 .ml-ajuda[hidden]{display:none}
 
+/* Uso das assinaturas: seção recolhível, mini barras por agente */
+#mlUsoDet summary{list-style:none;cursor:pointer;min-height:40px}
+#mlUsoDet summary::-webkit-details-marker{display:none}
+#mlUsoDet summary::after{content:"▾";margin-left:auto;font-size:11px;color:var(--ml-fraco)}
+#mlUsoDet[open] summary::after{content:"▴"}
+.ml-uso{display:grid;gap:10px;padding:4px 6px 6px}
+.ml-uso-ag{display:grid;gap:4px;min-width:0}
+.ml-uso-nome{font-size:12.5px;overflow-wrap:anywhere}
+.ml-uso-lin{display:flex;align-items:center;gap:6px;min-height:20px;font-size:11.5px}
+.ml-uso-rot{flex:0 0 26px;color:var(--ml-fraco)}
+.ml-uso-bar{flex:1 1 auto;min-width:0;height:8px;border-radius:999px;background:var(--ml-fundo2);border:1px solid var(--ml-linha);overflow:hidden}
+.ml-uso-bar i{display:block;height:100%;border-radius:999px;background:#2f9e5e}
+.ml-uso-bar.ambar i{background:#d98a12}
+.ml-uso-bar.vermelho i{background:#d6453a}
+.ml-uso-pct{flex:0 0 auto;min-width:34px;text-align:right;font-variant-numeric:tabular-nums}
+.ml-uso-pct.sem{color:var(--ml-fraco)}
+.ml-uso-nota{font-size:11.5px;line-height:1.4;color:var(--ml-fraco);overflow-wrap:anywhere}
+
 aside#menu .pe{margin-top:auto;padding-top:6px}
 
 /* Computador: barra fixa ao lado da conversa */

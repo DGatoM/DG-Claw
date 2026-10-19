@@ -36,6 +36,7 @@ const { criarMesa } = require('./lib/mesa');
 const { criarAvisos } = require('./lib/avisos');
 const { criarAtualizacao } = require('./lib/atualizacao');
 const { criarNaoLidas } = require('./lib/nao-lidas');
+const { criarUso } = require('./lib/uso');
 
 const METODOS_QUE_ESCREVEM = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const TIPOS_ESTATICOS = {
@@ -102,6 +103,9 @@ function criarServidor(opcoes) {
   // O agente fala com a Mesa pelo dgclaw-mesa, que passa pela caixa: a rota precisa estar liberada.
   caixa.permitir('/api/v1/tarefas');
   const naoLidas = criarNaoLidas({ arquivo: path.join(config.dataDir, 'nao-lidas.json'), conversa, registro, log, relogio: opcoes.agora, lerThread: conversa.threadCompartilhada });
+  const uso = criarUso({ registro, runner, log, timeoutMs: opcoes.timeoutUsoMs });
+  // O Admin consulta o uso das assinaturas pela caixa (dgclaw-api GET /api/v1/uso).
+  caixa.permitir('/api/v1/uso');
   const avisos = criarAvisos({ config, registro, runner, caixa, log, agora: opcoes.agora });
   caixa.permitir('/api/v1/avisos');
   // Aviso de versão nova: só o dono, pelo painel. De propósito NÃO entra em caixa.permitir (agente em container não usa).
@@ -344,6 +348,19 @@ function criarServidor(opcoes) {
       if (m !== 'GET') return H.erroJson(res, 405, 'Use GET para ver quantas mensagens não lidas cada agente tem.');
       try { return H.enviaJson(res, 200, { ok: true, agentes: await naoLidas.contar(sessao.usuario) }); } catch (e) {
         return H.erroJson(res, e.status || 500, e.status ? e.message : `Não consegui contar as mensagens não lidas (${e.message}).`);
+      }
+    }
+
+    if (p === '/api/v1/uso/docs.md' && m === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store' });
+      return res.end(fs.readFileSync(path.join(__dirname, 'docs', 'USO-DA-ASSINATURA.md'), 'utf8'));
+    }
+
+    if (p === '/api/v1/uso') {
+      if (falhaDoRegistro(req, res, true)) return undefined;
+      if (m !== 'GET') return H.erroJson(res, 405, 'Use GET para ver quanto da assinatura de cada agente já foi usado.');
+      try { return H.enviaJson(res, 200, { ok: true, agentes: await uso.consultar() }); } catch (e) {
+        return H.erroJson(res, e.status || 500, `Não consegui juntar o uso das assinaturas (${e.message}).`);
       }
     }
 

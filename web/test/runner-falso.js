@@ -20,6 +20,13 @@ function criarRunnerFalso(opcoes) {
       if (o.falhaEstado) return json(503, { success: false, error: 'runner indisponível no teste' });
       return json(200, { success: true, data: { id: o.agenteId, status: o.status, sessionId: o.sessionId, currentTool: o.currentTool, updatedAt: Date.now(), codexHome: o.codexHome, statusReason: o.statusReason, error: o.erroEstado } });
     }
+    if (rota === `/api/agents/${o.agenteId}/uso` && req.method === 'GET') {
+      rec.usoPedidos = (rec.usoPedidos || 0) + 1;
+      if (o.falhaUso) return json(o.falhaUso.status, o.falhaUso.corpo);
+      if (o.atrasoUsoMs) return setTimeout(() => json(200, { ok: true, uso: o.uso }), o.atrasoUsoMs);
+      if (!o.uso) return json(200, { ok: true, uso: { provedor: 'claude', sessao_5h: null, semanal: null, plano: null, medido_em: null, fonte: null }, motivo: 'Ainda não houve resposta desde que o medidor foi instalado; o número aparece depois da próxima resposta do agente.' });
+      return json(200, { ok: true, uso: o.uso });
+    }
     if (rota === `/api/agents/${o.agenteId}/input` && req.method === 'POST') {
       const partes = [];
       req.on('data', (c) => partes.push(c));

@@ -62,6 +62,7 @@
     '<div data-tour="gm-conversa"><button type="button" class="ml-tab ativo" id="gmIrConversa" aria-current="page"><span class="ml-ico" aria-hidden="true">◔</span>Conversa</button></div>' +
     '<div data-tour="gm-mesa"><a class="ml-tab" href="/mesa"><span class="ml-ico" aria-hidden="true">▦</span>Mesa de tarefas</a></div>' +
     '<div id="mlPainel" data-tour="gm-painel" hidden></div></nav>' +
+    '<section class="ml-config" id="mlUso" aria-label="Uso das assinaturas"><details id="mlUsoDet"><summary class="ml-tab"><span class="ml-ico" aria-hidden="true">◔</span>Uso das assinaturas</summary><div class="ml-uso" id="mlUsoLista" aria-live="polite"></div></details></section>' +
     '<section class="ml-config" id="mlConfig" data-tour="gm-config" aria-label="Configurações"><h3>Configurações</h3>' +
     '<button type="button" class="ml-tab" id="mlInstalar"><span class="ml-ico" aria-hidden="true">⤓</span><span class="ml-tx">Instalar o app<small id="mlInstalarSub"></small></span></button>' +
     '<p class="ml-ajuda" id="mlInstalarAjuda" role="status" hidden></p></section>' +

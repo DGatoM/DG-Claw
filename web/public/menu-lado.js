@@ -141,6 +141,51 @@
     return total;
   }
 
+
+  /* Uso das assinaturas (☰ > Uso das assinaturas). Verde abaixo de 70, âmbar de 70 a 89, vermelho a partir de 90. */
+  function corUso(pct) { return pct >= 90 ? 'vermelho' : pct >= 70 ? 'ambar' : 'verde'; }
+
+  /* "hoje 18:40", "amanhã 09:00", "qua 09:00" ou "25/10 09:00", no horário do aparelho. */
+  function quandoZeraUso(iso, agora) {
+    const d = new Date(iso), hoje = agora ? new Date(agora) : new Date();
+    if (!isFinite(d.getTime())) return '';
+    const p2 = n => String(n).padStart(2, '0');
+    const dia0 = x => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+    const dias = Math.round((dia0(d) - dia0(hoje)) / 86400000);
+    const hora = p2(d.getHours()) + ':' + p2(d.getMinutes());
+    if (dias === 0) return 'hoje ' + hora;
+    if (dias === 1) return 'amanhã ' + hora;
+    if (dias > 1 && dias < 7) return ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'][d.getDay()] + ' ' + hora;
+    return p2(d.getDate()) + '/' + p2(d.getMonth() + 1) + ' ' + hora;
+  }
+
+  /* Uma mini barra. janela = { usado_pct, zera_em, vencida } ou null (não medido: "sem dado", nunca 0%). */
+  function miniBarraUso(rotulo, janela, agora) {
+    if (!janela || typeof janela.usado_pct !== 'number' || !isFinite(janela.usado_pct)) {
+      return `<div class="ml-uso-lin"><span class="ml-uso-rot">${esc(rotulo)}</span><span class="ml-uso-bar"><i style="width:0"></i></span><span class="ml-uso-pct sem">sem dado</span></div>`;
+    }
+    if (janela.vencida) {
+      return `<div class="ml-uso-lin" title="Zerou em ${esc(quandoZeraUso(janela.zera_em, agora))}. A nova medição chega na próxima resposta do agente."><span class="ml-uso-rot">${esc(rotulo)}</span><span class="ml-uso-bar"><i style="width:0"></i></span><span class="ml-uso-pct sem">zerou</span></div>`;
+    }
+    const pct = Math.max(0, Math.min(100, janela.usado_pct));
+    const txt = (Number.isInteger(pct) ? String(pct) : pct.toFixed(1).replace('.', ',')) + '%';
+    return `<div class="ml-uso-lin" title="Zera em ${esc(quandoZeraUso(janela.zera_em, agora))}"><span class="ml-uso-rot">${esc(rotulo)}</span>` +
+      `<span class="ml-uso-bar ${corUso(pct)}" role="img" aria-label="${esc(rotulo)}: ${esc(txt)} usado"><i style="width:${pct}%"></i></span><span class="ml-uso-pct">${esc(txt)}</span></div>`;
+  }
+
+  /* Um agente na lista de uso. entrada = { uso, motivo? } ou { uso:null, erro }. */
+  function itemUso(a, entrada, agora) {
+    const nome = `<b class="ml-uso-nome">${esc(a.nome || a.id)}</b>`;
+    if (!entrada) return `<div class="ml-uso-ag">${nome}<div class="ml-uso-nota">Sem resposta do servidor sobre este agente.</div></div>`;
+    if (entrada.erro || !entrada.uso) {
+      return `<div class="ml-uso-ag">${nome}${miniBarraUso('5 h', null)}${miniBarraUso('Sem', null)}` +
+        `<div class="ml-uso-nota">${esc(entrada.erro || 'Sem dado de uso.')}</div></div>`;
+    }
+    const u = entrada.uso;
+    const nota = entrada.motivo ? `<div class="ml-uso-nota">${esc(entrada.motivo)}</div>` : '';
+    return `<div class="ml-uso-ag">${nome}${miniBarraUso('5 h', u.sessao_5h, agora)}${miniBarraUso('Sem', u.semanal, agora)}${nota}</div>`;
+  }
+
   function linksPainel(a) {
     if (!a || !a.tem_painel) return [];
     const base = a.painel_url || ('/p/' + encodeURIComponent(a.id) + '/');
@@ -158,7 +203,7 @@
     return { tipo: 'sem', texto: 'Este navegador não oferece a instalação por aqui. No Chrome ou no Edge, abra o menu do navegador e procure Instalar app. No Firefox para computador, o recurso não existe.' };
   }
 
-  if (!raiz.document) return { ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, linkSessoes, itemAgente, bolinhaMenu, totalNaoLidas, horaCurta, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar };
+  if (!raiz.document) return { corUso, quandoZeraUso, miniBarraUso, itemUso, ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, linkSessoes, itemAgente, bolinhaMenu, totalNaoLidas, horaCurta, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar };
 
   /* ── Parte com DOM ─────────────────────────────────────────────────────── */
   const $ = id => document.getElementById(id);
@@ -258,6 +303,42 @@
       if (silencioso) console.warn('menu-lado: não consegui atualizar a lista de agentes (mantive a anterior):', e.message);
       else pintaLista(ag, [], e.message);
     }
+  }
+
+
+  /* ── Uso das assinaturas: só busca quando a seção é aberta, e repete a cada 60 s enquanto ela está aberta ── */
+  let timerUso = null;
+  async function carregaUso() {
+    const caixa = $('mlUsoLista');
+    if (!caixa) return;
+    if (!caixa.innerHTML) caixa.innerHTML = '<div class="ml-vazio">Conferindo o uso...</div>';
+    try {
+      const r = await fetch('/api/v1/uso', { cache: 'no-store', credentials: 'same-origin' });
+      const d = await r.json().catch(() => null);
+      if (!r.ok || !d || d.ok === false) throw new Error((d && d.erro) || ('a API respondeu ' + r.status));
+      const lista = ultimaLista ? ultimaLista.lista : [];
+      const nomes = new Map(lista.map(a => [a.id, a]));
+      const slugs = Object.keys(d.agentes || {});
+      const ordem = lista.map(a => a.id).filter(id => slugs.includes(id)).concat(slugs.filter(id => !nomes.has(id)));
+      caixa.innerHTML = ordem.length
+        ? ordem.map(id => itemUso(nomes.get(id) || { id, nome: id }, d.agentes[id], Date.now())).join('')
+        : '<div class="ml-vazio">Nenhum agente no registro.</div>';
+    } catch (e) {
+      console.warn('menu-lado: não consegui ler o uso das assinaturas:', e.message);
+      caixa.innerHTML = `<div class="ml-vazio" role="alert">Não consegui ver o uso das assinaturas: ${esc(e.message)}. Feche e abra esta seção para tentar de novo.</div>`;
+    }
+  }
+
+  function ligaUso() {
+    const det = $('mlUsoDet');
+    if (!det || det._ligado) return;
+    det._ligado = true;
+    det.addEventListener('toggle', () => {
+      if (timerUso) { clearInterval(timerUso); timerUso = null; }
+      if (!det.open) return;
+      carregaUso();
+      timerUso = setInterval(() => { if (document.visibilityState === 'visible') carregaUso(); }, 60000);
+    });
   }
 
   let agenteAtual = null;
@@ -408,8 +489,9 @@
     $('mlInstalar').onclick = aoInstalar;
     // escolher uma página fecha a gaveta (a navegação em seguida troca a tela)
     $('mlTabs').addEventListener('click', ev => { if (ev.target.closest('a')) opcoes.fecha(); });
+    ligaUso();
     pintaInstalar();
   }
 
-  return { ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, linkSessoes, itemAgente, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar, inicia, marca, extras, defineNaoLidas, totalNaoLidas };
+  return { corUso, quandoZeraUso, miniBarraUso, itemUso, ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, linkSessoes, itemAgente, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar, inicia, marca, extras, defineNaoLidas, totalNaoLidas };
 });
