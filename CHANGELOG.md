@@ -49,6 +49,12 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
   responder o que ficou pendente. Enquanto o login está expirado, o envio de mensagem responde 409 com o código
   `LOGIN_EXPIRADO`, o texto digitado fica no campo, e o estado do agente traz `statusReason "runner:login-expirado"`
   e `loginExpiradoEm`. A foto de atividade ganhou o alerta `login_expirado`.
+- Bolinha de mensagens não lidas por agente. Na fileira de avatares do celular e no seletor do menu, cada agente
+  mostra quantas mensagens novas ele mandou desde a última vez que você viu a conversa dele (de 1 a 99, depois
+  "99+"). O botão "trocar de agente" mostra o total e o ☰ ganha uma bolinha quando há algo novo em outro
+  agente. A conversa em que você está nunca mostra bolinha, e ela só conta como lida quando você chega ao fim dela. Quem guarda o que já foi lido é o servidor, então o
+  celular e o computador concordam. Ao atualizar, ninguém aparece com tudo aceso: cada agente começa zerado. Também
+  existe como rota de API (`GET /api/v1/nao-lidas` e `POST /api/v1/agents/<agente>/lido`).
 - Botão "Reiniciar sessão" no menu da conversa: quando um agente trava, o dono confirma, o processo dele é
   refeito e a conversa continua de onde estava. Uma faixa no topo mostra "reiniciando", "de volta" ou o motivo
   da falha. Também existe como rota de API (`POST /api/v1/agents/<agente>/reiniciar`).

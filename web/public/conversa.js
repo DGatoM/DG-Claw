@@ -2243,7 +2243,11 @@ function ligaStream() {
   mudouStream();
   const abriu = () => {
     religaEspera = 3000;
-    if (!streamAberto) { streamAberto = true; jaConectou = true; mudouStream(); }
+    if (!streamAberto) {
+      const religou = jaConectou;
+      streamAberto = true; jaConectou = true; mudouStream();
+      if (religou) { atualizaNaoLidas(); agendaLido(); }
+    }
   };
   /* Cada evento traz JSON; JSON ruim vira aviso no console com o começo do
      texto, nunca erro mudo. */
@@ -2995,6 +2999,7 @@ chat.addEventListener('drop', ev => {
 
 /* ── Menu lateral (gaveta do ☰) ───────────────────────────────────────────── */
 function abreMenu(abrir) {
+  if (abrir) atualizaNaoLidas();
   menu.classList.toggle('abre', abrir);
   overlayMenu.classList.toggle('abre', abrir);
 }
@@ -3011,6 +3016,80 @@ document.addEventListener('keydown', ev => {
    A lista já veio do boot, então não é buscada de novo. */
 window.DGMenuLado.inicia({ agente: AGENTE, agentes: agentesMenu, fecha: () => abreMenu(false) });
 
+/* ── Bolinha de não lidas ────────────────────────────────────────────────────
+   Quem guarda o "visto" é o servidor (por usuário e por agente), então o celular e o computador
+   concordam. Aqui a tela só pede a contagem, pinta e avisa até onde esta conversa foi vista. */
+let naoLidas = {};              // slug -> { nao_lidas, mais, visto_ep, ultima_ep, marco_novo, erro }
+let naoLidasEmVoo = null;
+function textoBolinha(n) { return n && (n.mais || n.nao_lidas > 99) ? '99+' : String(n.nao_lidas); }
+/* null (não medido) e o agente atual nunca mostram bolinha. */
+function bolinhaDe(a) {
+  const n = naoLidas[a.id];
+  if (a.id === AGENTE.id || !n || typeof n.nao_lidas !== 'number' || n.nao_lidas <= 0) return null;
+  return n;
+}
+function atualizaNaoLidas() {
+  if (naoLidasEmVoo) return naoLidasEmVoo;
+  naoLidasEmVoo = api('/api/v1/nao-lidas', { timeoutMs: 15000 }).then(d => {
+    if (!d || typeof d.agentes !== 'object' || !d.agentes) throw new Error('a resposta não trouxe o campo "agentes"');
+    const novo = {};
+    for (const slug of Object.keys(d.agentes)) {
+      const n = d.agentes[slug];
+      // falha pontual de um agente (nao_lidas null) não apaga a contagem que já tínhamos dele
+      novo[slug] = (n && typeof n.nao_lidas !== 'number' && naoLidas[slug]) ? naoLidas[slug] : n;
+    }
+    naoLidas = novo;
+    window.DGMenuLado.defineNaoLidas(naoLidas);
+    pintaTrocaBaixo();
+    pintaBolinhaMenu();
+  }).catch(e => {
+    console.warn('não consegui atualizar as mensagens não lidas (mantive a contagem anterior):', e.message);
+  }).finally(() => { naoLidasEmVoo = null; });
+  return naoLidasEmVoo;
+}
+
+/* Bolinha no ☰ com a soma dos outros agentes: no computador a fileira de avatares não aparece. */
+function pintaBolinhaMenu() {
+  const btn = $('btnMenu');
+  if (!btn) return;
+  const total = window.DGMenuLado.totalNaoLidas(agentesMenu, naoLidas, AGENTE.id);
+  let b = btn.querySelector('.bolinha-menu');
+  if (!total) { if (b) b.remove(); btn.setAttribute('aria-label', 'Abrir o menu'); return; }
+  if (!b) { b = document.createElement('span'); b.className = 'bolinha-menu'; b.setAttribute('aria-hidden', 'true'); btn.appendChild(b); }
+  btn.setAttribute('aria-label', 'Abrir o menu, ' + total + (total === 1 ? ' mensagem não lida' : ' mensagens não lidas') + ' em outros agentes');
+}
+
+let epLidoEnviado = 0, lidoTimer = null;
+/* Só conta como lida a conversa que a pessoa está vendo no fim: rolar lá em cima relendo o passado
+   não pode marcar como lidas as respostas novas que ainda estão abaixo. */
+const pertoDoFim = () => distanciaDoFim() < 160;
+function agendaLido() {
+  if (document.visibilityState !== 'visible' || !msgs.length || !pertoDoFim()) return;
+  const ep = maiorEp();
+  if (!(ep > epLidoEnviado)) return;
+  clearTimeout(lidoTimer);
+  lidoTimer = setTimeout(() => {
+    lidoTimer = null;
+    if (document.visibilityState !== 'visible' || !pertoDoFim()) return;
+    const alvo = maiorEp();
+    if (!(alvo > epLidoEnviado)) return;
+    api(API + '/lido', { method: 'POST', body: { ep: alvo }, timeoutMs: 15000 })
+      .then(() => { epLidoEnviado = Math.max(epLidoEnviado, alvo); })
+      .catch(e => console.warn('não consegui avisar o servidor que a conversa foi lida (tento de novo na próxima mensagem):', e.message));
+  }, 1000);
+}
+ouvintesChegada.push(agendaLido);
+// voltar a rolar até o fim reavalia (o debounce de agendaLido junta a rolagem toda)
+chat.addEventListener('scroll', agendaLido, { passive: true });
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  agendaLido();
+  atualizaNaoLidas();
+});
+// quem fica parado nesta conversa também vê chegar mensagem em outro agente
+setInterval(() => { if (document.visibilityState === 'visible') atualizaNaoLidas(); }, 60000);
+atualizaNaoLidas();
+
 /* Celular: a mesma lista do menu vira uma fileira de avatares embaixo, com a agente atual
    destacada. O link é o mesmo do menu (/a/<id>). Com uma agente só, a fileira fica vazia e o CSS a esconde. */
 function pintaTrocaBaixo() {
@@ -3023,9 +3102,12 @@ function pintaTrocaBaixo() {
     const foto = a.avatar_img || (/^https:\/\//i.test(a.avatar || '') ? a.avatar : '');
     const av = foto ? `<img src="${esc(foto)}" alt="">` : esc(a.avatar || (a.nome || '?').slice(0, 1));
     const rot = a.nome + (a.subtitulo ? ', ' + a.subtitulo : '');
+    const nl = bolinhaDe(a);
+    const aviso = nl ? `, ${nl.nao_lidas} ${nl.nao_lidas === 1 ? 'mensagem não lida' : 'mensagens não lidas'}${nl.mais ? ' ou mais' : ''}` : '';
     return `<a href="/a/${encodeURIComponent(a.id)}" title="${esc(rot)}" ` +
       (atual ? `class="atual" aria-current="page" style="--cor-troca:${esc(a.cor || '#2f9e5e')}" ` : '') +
-      `aria-label="Abrir a conversa com ${esc(rot)}"><div class="av" style="background:${esc(a.cor || '#2f9e5e')}">${av}</div></a>`;
+      `aria-label="Abrir a conversa com ${esc(rot + aviso)}"><div class="av" style="background:${esc(a.cor || '#2f9e5e')}">${av}</div>` +
+      `${nl ? `<span class="bolinha-nl" aria-hidden="true">${textoBolinha(nl)}</span>` : ''}</a>`;
   }).join('');
   centralizaTrocaBaixo();
 }

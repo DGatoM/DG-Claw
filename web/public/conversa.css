@@ -177,6 +177,8 @@
   #faixaAudio{background:#fdf3d0;color:#7a5c12;border:1px solid #efe0a8}
 
   #btnMenu{position:relative}
+  /* bolinha do ☰: soma das não lidas dos outros agentes (no computador a fileira de avatares não aparece) */
+  #btnMenu .bolinha-menu{position:absolute;top:4px;right:4px;width:10px;height:10px;border-radius:50%;background:#d93025;border:2px solid var(--header,#fff);pointer-events:none}
   /* ── Cabeçalho: alvos de toque de verdade (eram 26 a 38 px) ── */
   header .btn{min-height:44px;min-width:44px}
   #btnMenu{font-size:20px}
@@ -381,6 +383,10 @@
   .troca-baixo .av{width:34px;height:34px;flex:0 0 34px;font-size:15px;opacity:.8}
   .troca-baixo a.atual{box-shadow:0 0 0 2px var(--cor-troca,var(--accent))}
   .troca-baixo a.atual .av{opacity:1}
+  /* bolinha de não lidas no canto do avatar; a borda na cor do fundo a recorta do avatar */
+  .troca-baixo .bolinha-nl{position:absolute;top:-2px;right:-3px;min-width:18px;height:18px;padding:0 4px;
+    box-sizing:border-box;border-radius:9px;background:#d93025;color:#fff;font-size:11px;font-weight:700;
+    line-height:14px;text-align:center;border:2px solid var(--header,#fff);pointer-events:none}
 }
 
 /* ── Menu lateral: base ── */
