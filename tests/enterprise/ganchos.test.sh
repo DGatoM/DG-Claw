@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Despachante e ganchos (lib/enterprise/base.sh) e a prova de que no nivel pessoal a CLI nao muda.
 set -uo pipefail
-# shellcheck source=tests/enterprise/_comum.sh
-. "$(dirname "$0")/_comum.sh"
+# shellcheck source=tests/enterprise/_bloco-d.sh
+. "$(dirname "$0")/_bloco-d.sh"
 preparar
 
 echo "ganchos: despachante"
@@ -70,6 +70,7 @@ afirma "o gancho de depois-de-criar rodou" grep -q "depois-de-criar ana" "$STUB_
 
 echo "ganchos: nivel escritorio deixa o gancho acrescentar, antes da imagem"
 preparar
+stubs_d   # no escritorio o cofre e cifrado: sem o systemd-creds de mentira, o de verdade pede root
 app_copia
 cat >"$TMP/app/lib/enterprise/zz-teste.sh" <<'FIM'
 ent_args_container_zz() {
@@ -97,6 +98,7 @@ afirma "status chama os ganchos ent_status_" grep -q "linha do gancho de status"
 
 echo "ganchos: auditoria das acoes da CLI"
 preparar
+stubs_d
 nivel_na_raiz empresa
 dgclaw agente criar ana --nome "Ana" --uso setor --auth api >/dev/null 2>&1
 dgclaw agente remover ana --sim >/dev/null 2>&1

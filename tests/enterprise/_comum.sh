@@ -35,3 +35,21 @@ app_copia() {
     cp -r "$REPO/bin" "$REPO/lib" "$REPO/config" "$REPO/templates" "$REPO/scripts" "$REPO/VERSION" "$TMP/app/"
     CLI_COPIA="$TMP/app/bin/dgclaw"
 }
+
+# exige_root "<descricao>": para a verificacao que so faz sentido com root de verdade (dono real de arquivo,
+# por exemplo: sem root o chown e so anotado). Devolve 0 quando e root (o teste segue e a afirmacao roda) e 1
+# quando nao e, depois de anunciar "pulado: precisa de root" e contar. Sem root nada e dado como aprovado:
+# o pulo aparece na saida e no resumo de `fim`. Uso: exige_root "descricao" && igual ...
+PULADOS=0
+exige_root() {
+    [ "$(id -u)" -eq 0 ] && return 0
+    PULADOS=$((PULADOS + 1))
+    printf '  pulado: precisa de root: %s\n' "$1"
+    return 1
+}
+fim() {
+    printf '%s: %s verificacoes, %s falharam' "$(basename "$0")" "$TESTES" "$FALHAS"
+    [ "$PULADOS" -eq 0 ] || printf ', %s puladas (precisa de root)' "$PULADOS"
+    printf '\n'
+    [ "$FALHAS" -eq 0 ]
+}

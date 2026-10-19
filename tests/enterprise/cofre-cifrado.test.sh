@@ -35,7 +35,9 @@ afirma "o .cred nao tem o valor" bash -c "! grep -q '$SEGREDO1' '$CRED'"
 igual "a copia em memoria tem as duas chaves, iguais ao original" "$(printf "OPENAI_API_KEY='%s'\nGEMINI_API_KEY='%s'" "$SEGREDO1" "$SEGREDO2")" "$(cat "$RAM")"
 afirma "arquivo em memoria 600" bash -c "[ \"\$(stat -c %a '$RAM')\" = 600 ]"
 afirma "pasta em memoria 700" bash -c "[ \"\$(stat -c %a '$(dirname "$RAM")')\" = 700 ]"
-igual "a pasta em memoria e do root do container (uid 1000000)" "1000000:1000000" "$(dono_de "$(dirname "$RAM")")"
+# O dono vem do stat da pasta do cofre, que sem root nao tem o uid do agente (o chown so e anotado).
+exige_root "a pasta em memoria e do root do container (uid 1000000)" && \
+    igual "a pasta em memoria e do root do container (uid 1000000)" "1000000:1000000" "$(dono_de "$(dirname "$RAM")")"
 afirma "nome da credencial no systemd-creds" grep -q "^systemd-creds encrypt --name=dgclaw-cofre-ana --with-key=auto - " "$STUB_LOG"
 afirma "nenhum valor em argv" bash -c "! grep -q -e '$SEGREDO1' -e '$SEGREDO2' '$STUB_LOG'"
 afirma "nenhum valor na saida" bash -c "! grep -q -e '$SEGREDO1' -e '$SEGREDO2' '$TMP/o.txt'"
