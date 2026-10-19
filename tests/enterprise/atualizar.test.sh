@@ -32,7 +32,7 @@ echo "conversa do painel" >"$LIB/web/sessoes.json"
 echo "memoria da ana" >"$LIB/agentes/ana/home/memory/nota.md"
 echo "estado" >"$LIB/backup/ultimo-backup.json"
 echo "# Admin" >"$DGCLAW_RAIZ/opt/dgclaw/admin/CLAUDE.md"
-chmod 600 "$ETC"/*
+find "$ETC" -type f -exec chmod 600 {} +
 
 lista() { tar -tzf "$1" | LC_ALL=C sort; }
 
