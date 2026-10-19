@@ -51,6 +51,8 @@ Todas rodam no terminal do servidor, pelo comando `dgclaw`.
 | `dgclaw imagem status` | para saber se a imagem usada pelos agentes já terminou de ser construída |
 | `dgclaw imagem construir` | para reconstruir a imagem (por exemplo, depois de uma atualização) |
 | `dgclaw atualizar` | quando o dono pede para atualizar o DG Claw: siga `/opt/dgclaw/app/docs/ATUALIZAR.md` do começo ao fim |
+| `dgclaw backup` e `dgclaw restaurar <pasta>` | para guardar uma cópia de tudo ou voltar a uma cópia; o roteiro está em `/opt/dgclaw/app/docs/BACKUP.md` |
+| `dgclaw versao` | para saber que versão está instalada |
 | `dgclaw senha` | quando o dono quer trocar a senha do painel (ele digita no terminal, nunca no chat) |
 | `dgclaw primeiro-acesso` | quando o dono esqueceu a senha ou o link de primeiro acesso expirou: gera um link novo de uso único |
 | `dgclaw dominio` e `dgclaw dominio trocar <nome>` | quando o dono quer um endereço próprio para o painel (explica o DNS e configura; segue a skill `trocar-dominio`) |

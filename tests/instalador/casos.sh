@@ -18,6 +18,14 @@ caso_ensaio_nao_cria_nada() {
     igual "$(contar "$STUB_LOG" 'systemctl enable')" 0 || { echo "      FALHOU: o ensaio ligou unidade"; FALHAS=$((FALHAS + 1)); }
 }
 
+caso_versao_vem_do_arquivo_VERSION() {
+    novo_cenario
+    printf '1.2.3\n' >"$FALSO/VERSION"
+    afirma "a instalacao termina com sucesso" instalacao_basica
+    afirma "a versao do arquivo VERSION ganha do plugin.json" tem "$RAIZ/etc/dgclaw/dgclaw.env" "DGCLAW_VERSAO=1.2.3"
+    afirma "o arquivo VERSION vai junto para o app instalado" tem "$RAIZ/opt/dgclaw/app/VERSION" "1.2.3"
+}
+
 caso_instalacao_cria_arquivos_com_os_modos_certos() {
     novo_cenario
     afirma "a instalacao termina com sucesso" instalacao_basica --com-imagem
