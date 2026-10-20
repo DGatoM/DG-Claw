@@ -195,6 +195,19 @@ test('pergunta: o runner parou no meio (estado mudou) => 409 com o motivo e o qu
   } finally { await s.fechar(); }
 });
 
+test('pergunta: o terminal já mexeu na pergunta => 409 PERGUNTA_JA_MEXIDA com motivo, o que fazer e código para a tela', async () => {
+  const corpo = { success: false, error: 'A pergunta já recebeu teclas pelo terminal desde que abriu.', howToFix: 'terminar pelo terminal, na aba Sessões', code: 'PERGUNTA_JA_MEXIDA' };
+  const s = await cenario({ falhaPergunta: { status: 409, corpo } }, [perg(false), perg(false)]);
+  try {
+    const r = await responde(s, { tool_use_id: 'tuP', respostas: [{ opcao: 1 }, { opcao: 2 }] });
+    assert.equal(r.status, 409);
+    assert.equal(r.json.codigo, 'PERGUNTA_JA_MEXIDA');
+    assert.match(r.json.erro, /já recebeu teclas pelo terminal/);
+    assert.match(r.json.erro, /Nada foi enviado/);
+    assert.match(r.json.howToFix, /aba Sessões/);
+  } finally { await s.fechar(); }
+});
+
 test('pergunta: runner com erro inesperado => 502; runner antigo sem a rota => 501 mandando atualizar', async () => {
   let s = await cenario({ falhaPergunta: { status: 500, corpo: { success: false, error: 'quebrou' } } });
   try {

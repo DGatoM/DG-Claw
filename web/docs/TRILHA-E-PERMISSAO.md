@@ -81,6 +81,7 @@ Para cancelar: `{"tool_use_id":"...","cancelar":true}`. Exige sessão e `Origin`
 | 200 | `{ok:true, agente, tool_use_id}` | Nada. O agente continua sozinho. |
 | 400 | Corpo inválido (resposta faltando, número fora do intervalo, texto vazio/longo/com quebra de linha, texto numa pergunta de múltipla escolha) | Corrigir o corpo. Nada foi digitado. |
 | 409 | O agente não está esperando uma pergunta, ou o `tool_use_id` não é o da pergunta atual | Atualizar a conversa. Nada foi digitado. |
+| 409 `PERGUNTA_JA_MEXIDA` | Alguém digitou no terminal depois que a pergunta abriu; a sequência do chat poderia cair na etapa errada (numa pergunta dupla, a primeira escolha viraria a da segunda). Nada foi digitado | Terminar a resposta pelo terminal, na aba Sessões. A tela mostra o motivo e o link. |
 | 409 (do runner, no meio) | O terminal saiu da pergunta durante a digitação (`PERGUNTA_MUDOU`; o erro diz em que tecla parou) | Conferir o terminal na aba Sessões: a pergunta pode ter ficado pela metade. |
 | 501 | O runner do agente é antigo e não tem `POST /api/agents/<id>/pergunta` | Atualizar o agente pelo Admin. Até lá, responder pelo terminal. |
 | 502 | O runner recusou por outro motivo | Seguir o `howToFix` da mensagem. |
@@ -103,7 +104,10 @@ Corpo: `{"tool_use_id":"<id da pergunta>","teclas":["2","\r","1"]}`, de 1 a 40 t
 2000 caracteres. Só Claude (Codex responde 501 `PERGUNTA_SO_CLAUDE`). Sucesso: `{success:true, data:{teclas:N}}`.
 Erros: 400 (`TOOL_USE_ID_INVALIDO`, `TECLAS_INVALIDAS`); 409 `NO_PTY`, `NAO_ESPERA_PERGUNTA`, `PERGUNTA_DIFERENTE` (nada
 escrito), `PERGUNTA_MUDOU` (parou no meio; o erro diz "tecla N de M") e `RESPOSTA_EM_ANDAMENTO` (uma resposta por vez por sessão;
-enquanto dura, `/permissao` e `/input` com `submit:false` também respondem 409). O estado do agente (`GET /api/agents/<id>`) traz
+enquanto dura, `/permissao` e `/input` (com ou sem `submit`, com ou sem `injectWhenIdle`) também respondem 409, e o `terminal_input` do WebSocket é descartado com um aviso `{type:"error", code:"RESPOSTA_EM_ANDAMENTO"}`).
+Regra: a resposta pelo chat só vale se ninguém mexeu na pergunta pelo terminal. O runner conta toda escrita no PTY que não é da própria resposta
+(`Sessao.escrever`: terminal, `/input`, turnos, permissão) e guarda o contador quando a pergunta abre; se mudou, responde 409 `PERGUNTA_JA_MEXIDA` antes da primeira
+tecla, e se mudar no meio da sequência para com `PERGUNTA_MUDOU`. O estado do agente (`GET /api/agents/<id>`) traz
 `pendenteId`: o `tool_use_id` da pergunta (ou, em permissão, do último `PreToolUse`, que vale para todas as ferramentas).
 O log registra só a quantidade de teclas e de caracteres, nunca o conteúdo.
 

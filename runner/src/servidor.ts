@@ -280,6 +280,13 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
           const enviar = (corpo as { submit?: boolean }).submit !== false;
           const quandoOcioso = (corpo as { injectWhenIdle?: boolean }).injectWhenIdle === true;
 
+          // Qualquer entrada no meio da resposta de uma pergunta intercalaria com as teclas dela (e Enter de turno
+          // escolheria opção). Vale para tecla crua, turno e fila de ocioso.
+          if (sessao.respondendoPergunta) {
+            json(res, { success: false, error: `O agente ${sessao.slug} está recebendo a resposta de uma pergunta de escolha; a entrada não foi enviada.`, howToFix: "esperar alguns segundos e reenviar", code: "RESPOSTA_EM_ANDAMENTO" }, 409);
+            return;
+          }
+
           // A GUARDA DE LOGIN VALE PARA O TURNO, NUNCA PARA A TECLA.
           //
           // Esta rota é a porta de duas coisas que precisam de tratamento
@@ -361,11 +368,6 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
           if (enviar) {
             await sessao.digitarEEnviar(texto);
           } else {
-            // Tecla crua no meio da resposta de uma pergunta intercalaria com as teclas dela.
-            if (sessao.respondendoPergunta) {
-              json(res, { success: false, error: `O agente ${sessao.slug} está recebendo a resposta de uma pergunta de escolha; a tecla não foi enviada.`, howToFix: "esperar alguns segundos e repetir", code: "RESPOSTA_EM_ANDAMENTO" }, 409);
-              return;
-            }
             sessao.escrever(texto);
           }
           json(res, { success: true, data: { enviado: true, submit: enviar, chars: texto.length } });
@@ -600,6 +602,8 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
     if (!soTerminal) {
       ws.send(JSON.stringify({ type: "full_sync", agents: [visao(sessao, false)], projects: [] }));
     }
+    // Para logar uma vez por resposta, não por tecla; zera na primeira tecla aceita depois da resposta.
+    let avisadoNaResposta = 0;
     ws.on("message", (cru) => {
       let msg: Record<string, unknown>;
       try {
@@ -618,7 +622,19 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
           // faria o front do painel achar que o socket está quebrado.
           return;
         case "terminal_input":
-          if (typeof msg.data === "string") sessao.escrever(msg.data);
+          if (typeof msg.data !== "string") return;
+          // Tecla do terminal no meio da resposta de uma pergunta intercalaria com as teclas dela: descarta e avisa.
+          if (sessao.respondendoPergunta) {
+            if (avisadoNaResposta !== sessao.respostasDePergunta) {
+              avisadoNaResposta = sessao.respostasDePergunta;
+              log.aviso("ws", `terminal_input descartado: o agente ${sessao.slug} está recebendo a resposta de uma pergunta de escolha`);
+            }
+            if (ws.readyState === 1) {
+              ws.send(JSON.stringify({ type: "error", code: "RESPOSTA_EM_ANDAMENTO", message: "Uma resposta de pergunta está sendo digitada neste agente; a tecla foi descartada. Tente de novo em alguns segundos." }));
+            }
+            return;
+          }
+          sessao.escrever(msg.data);
           return;
         case "request_terminal_buffer": {
           const tela = sessao.telaInteira();

@@ -622,6 +622,10 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     if (!r.ok) {
       const motivo = motivoDoRunner(agente, r);
       log('erro', `Pergunta de ${agente.slug} recusada pelo runner (HTTP ${r.status}, ${(r.corpo && r.corpo.code) || 'sem código'}): ${motivo}`);
+      if (r.status === 409 && r.corpo && r.corpo.code === 'PERGUNTA_JA_MEXIDA') {
+        return erro(409, `A pergunta de ${agente.nome} já recebeu teclas pelo terminal desde que abriu; a resposta pelo chat poderia cair na etapa errada. Nada foi enviado.`,
+          { howToFix: 'Termine a resposta pelo terminal, na aba Sessões.', codigo: 'PERGUNTA_JA_MEXIDA' });
+      }
       return erro(r.status === 409 ? 409 : 502, `O runner de ${agente.nome} não aplicou a resposta: ${motivo}`);
     }
     const tamanhoTexto = c.cancelar === true ? 0 : c.respostas.reduce((t, r) => t + (typeof r.texto === 'string' ? r.texto.length : 0), 0);

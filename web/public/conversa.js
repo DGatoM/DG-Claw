@@ -931,7 +931,7 @@ async function pcDecide(decisao) {
    As escolhas ficam em `pq` e os eventos mexem no DOM direto: a foto chega a cada poucos segundos e redesenhar
    apagaria o que a pessoa está digitando. */
 const pqEl = $('perguntaCartao');
-const pq = { aberto: false, ocupado: false, feito: '', erro: '', id: '', chave: '', sel: [], texto: [], btnEnvia: null };
+const pq = { aberto: false, ocupado: false, feito: '', erro: '', noTerminal: false, id: '', chave: '', sel: [], texto: [], btnEnvia: null };
 
 function pqReinicia() {
   Object.assign(pq, { aberto: false, ocupado: false, feito: '', erro: '', id: '', chave: '', sel: [], texto: [], btnEnvia: null });
@@ -946,11 +946,11 @@ function pqSincroniza() {
   const perg = est.pergunta || null;
   const id = perg ? perg.id : '';
   if (pq.aberto && pq.id !== id) pqReinicia();   // outra pergunta no lugar da anterior: começa limpo
-  const chave = JSON.stringify([est.desde, id, pq.ocupado, pq.feito, pq.erro]);
+  const chave = JSON.stringify([est.desde, id, pq.ocupado, pq.feito, pq.erro, pq.noTerminal]);
   if (pq.aberto && chave === pq.chave) return;
   const novo = !pq.aberto;
   if (novo) {
-    pq.id = id; pq.feito = ''; pq.erro = '';
+    pq.id = id; pq.feito = ''; pq.erro = ''; pq.noTerminal = false;
     pq.sel = perg ? perg.perguntas.map(q => (q.multipla ? [] : null)) : [];
     pq.texto = perg ? perg.perguntas.map(() => '') : [];
   }
@@ -1037,6 +1037,14 @@ function pqDesenha(perg, abrindo) {
     pqEl.appendChild(caixa);
   });
   if (pq.erro) pqEl.appendChild(filho('p', 'pc-erro', pq.erro));
+  if (pq.noTerminal) {
+    const sess = $('btnSessoes');
+    if (sess && !sess.hidden && sess.getAttribute('href') && sess.getAttribute('href') !== '#') {
+      const a = filho('a', 'pc-btn pc-nega pq-link', 'Abrir a aba Sessões');
+      a.href = sess.getAttribute('href');
+      pqEl.appendChild(a);
+    }
+  }
   const linha = filho('div', 'pc-botoes');
   const envia = filho('button', 'pc-btn pc-aprova', 'Enviar resposta');
   envia.type = 'button';
@@ -1068,7 +1076,7 @@ async function pqEnvia(perg, cancelar) {
     respostas: perg.perguntas.map((q, i) => (q.multipla ? { opcoes: pq.sel[i] }
       : pq.sel[i] != null ? { opcao: pq.sel[i] } : { texto: pq.texto[i].trim() })),
   };
-  pq.ocupado = true; pq.erro = '';
+  pq.ocupado = true; pq.erro = ''; pq.noTerminal = false;
   pqSincroniza();
   try {
     // o servidor espera ~350 ms entre as teclas; várias perguntas somam alguns segundos
@@ -1076,6 +1084,9 @@ async function pqEnvia(perg, cancelar) {
     pq.feito = cancelar ? 'cancelada' : 'respondida';
   } catch (e) {
     pq.erro = 'Não consegui ' + (cancelar ? 'cancelar' : 'enviar') + ' a resposta: ' + e.message;
+    // Terminal já mexeu na pergunta: o chat não pode mais responder, só o terminal.
+    pq.noTerminal = e.codigo === 'PERGUNTA_JA_MEXIDA';
+    if (pq.noTerminal && e.dados && e.dados.howToFix) pq.erro += ' ' + e.dados.howToFix;
   } finally {
     pq.ocupado = false;
     pq.chave = '';   // força o redesenho com o resultado

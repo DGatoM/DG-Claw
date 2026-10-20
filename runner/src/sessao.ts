@@ -83,6 +83,9 @@ export interface OpcoesDaSessao {
   idsEmUso?: () => ReadonlySet<string>;
 }
 
+const JA_MEXIDA =
+  "A pergunta já recebeu teclas pelo terminal desde que abriu; a resposta pelo chat poderia cair na etapa errada. Termine pelo terminal, na aba Sessões.";
+
 export class Sessao extends EventEmitter {
   proc: pty.IPty | null = null;
   buffer: string[] = [];
@@ -104,6 +107,15 @@ export class Sessao extends EventEmitter {
   readonly pausaTeclaPerguntaMs: number;
   /** true enquanto responderPergunta digita: ninguém mais escreve tecla crua nem permissão nesse intervalo. */
   respondendoPergunta = false;
+  /**
+   * Quantas escritas no PTY NÃO vieram do responderPergunta (terminal, /input, turno, permissão, telas de sistema).
+   * Entradas e comparação com `entradasNaAbertura` provam que ninguém mexeu na pergunta pelo outro caminho.
+   */
+  entradasManuais = 0;
+  /** O valor de `entradasManuais` quando a pergunta de escolha atual abriu (PreToolUse da AskUserQuestion). */
+  entradasNaAbertura = 0;
+  /** Quantas respostas de pergunta já começaram; deixa o WebSocket avisar uma vez por resposta, não por tecla. */
+  respostasDePergunta = 0;
   /** O tool_use_id do último PreToolUse (qualquer ferramenta), para o pendenteId da permissão. */
   ultimoToolUseId: string | null = null;
   /** Quando o login expirou (ms). Presente só enquanto o estado for runner:login-expirado. */
@@ -410,7 +422,16 @@ export class Sessao extends EventEmitter {
 
   // --- entrada ---------------------------------------------------------------
 
+  /**
+   * O ponto central de escrita no PTY. Tudo o que passa por aqui conta como entrada manual: na dúvida o
+   * responderPergunta recusa, e recusar é o lado seguro. Só a resposta da pergunta escreve sem contar.
+   */
   escrever(texto: string): void {
+    this.entradasManuais += 1;
+    this.escreverSemContar(texto);
+  }
+
+  private escreverSemContar(texto: string): void {
     if (!this.proc) {
       log.aviso(this.a("entrada"), `descartei ${texto.length} caracteres: não há PTY vivo`);
       return;
@@ -482,12 +503,16 @@ export class Sessao extends EventEmitter {
       if (this.estado.status !== "waiting_input" || this.estado.motivo !== "pergunta") {
         return { status: 409, code: "NAO_ESPERA_PERGUNTA", erro: `O agente ${this.slug} não está esperando a resposta de uma pergunta (status=${this.estado.status}, motivo=${this.estado.motivo ?? "nenhum"}).`, comoResolver: "atualizar a tela: a pergunta já foi resolvida" };
       }
+      if (this.entradasManuais !== this.entradasNaAbertura) {
+        return { status: 409, code: "PERGUNTA_JA_MEXIDA", erro: JA_MEXIDA, comoResolver: "terminar pelo terminal, na aba Sessões" };
+      }
       if (this.estado.pendenteId !== toolUseId) {
         return { status: 409, code: "PERGUNTA_DIFERENTE", erro: `A pergunta que a tela mostra (${toolUseId}) não é a que o agente ${this.slug} espera agora (${this.estado.pendenteId ?? "id desconhecido"}).`, comoResolver: "atualizar a tela e responder a pergunta atual" };
       }
       return null;
     };
     this.respondendoPergunta = true;
+    this.respostasDePergunta += 1;
     let escritas = 0;
     try {
       for (const tecla of teclas) {
@@ -503,7 +528,7 @@ export class Sessao extends EventEmitter {
             comoResolver: "conferir o terminal do agente na aba Sessões e terminar por lá",
           };
         }
-        this.escrever(tecla);
+        this.escreverSemContar(tecla);
         escritas += 1;
         if (escritas < teclas.length) await new Promise((r) => setTimeout(r, this.pausaTeclaPerguntaMs));
       }

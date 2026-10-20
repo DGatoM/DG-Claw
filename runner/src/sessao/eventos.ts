@@ -91,6 +91,7 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       // A pergunta de escolha do Claude (AskUserQuestion) abre a tela de opções logo depois deste hook
       // e o turno só continua quando a pessoa responde: para o dono é o mesmo "precisa de você" da permissão.
       if (payload.toolName === "AskUserQuestion") {
+        s.entradasNaAbertura = s.entradasManuais;
         s.turnoComecouEm = Date.now();
         s.mudar({
           status: "waiting_input",

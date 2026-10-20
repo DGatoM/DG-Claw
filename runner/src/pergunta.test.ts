@@ -46,7 +46,8 @@ async function nova(pausaTeclaPerguntaMs = 15) {
   const hook = (event: string, extra: Record<string, unknown> = {}) => s.receberHook({ agentId: s.id, event, nonce, ...extra });
   // O que o runner escreveria no terminal, sem tocar no Claude falso.
   const escritas: string[] = [];
-  s.escrever = (t: string) => void escritas.push(t);
+  // Captura no PTY (e não em s.escrever) para o contador de entradas manuais correr o caminho real.
+  s.proc!.write = (t: string) => void escritas.push(t);
   hook("UserPromptSubmit");
   return { s, hook, escritas, hooks };
 }
@@ -69,8 +70,9 @@ test("pergunta respondida: todas as teclas, na ordem, e o estado expõe o penden
 test("o estado muda para permissão no meio: para sem escrever o resto e diz em que passo", async () => {
   const { s, hook, escritas } = await nova();
   abrirPergunta(hook);
-  const escreveu = s.escrever;
-  s.escrever = (t: string) => {
+  const real = s.proc!;
+  const escreveu = real.write;
+  real.write = (t: string) => {
     escreveu(t);
     if (escritas.length === 1) {
       // A pessoa respondeu pelo terminal e o agente já pede permissão de um Bash.
@@ -104,9 +106,9 @@ test("pergunta de outro id, ou que não está aberta: 409 sem escrita", async ()
 test("o processo trocado no meio da resposta: para sem escrever", async () => {
   const { s, hook, escritas } = await nova();
   abrirPergunta(hook);
-  const real = s.proc;
-  const escreveu = s.escrever;
-  s.escrever = (t: string) => {
+  const real = s.proc!;
+  const escreveu = real.write;
+  real.write = (t: string) => {
     escreveu(t);
     s.proc = { fake: true } as never; // o runner reiniciou o agente e subiu outro PTY
   };
@@ -179,4 +181,47 @@ test("o handler do hook repassa o tool_use_id do stdin e o runner o recebe como 
   assert.equal(chegou.toolName, "Bash");
   assert.equal(chegou.toolUseId, "toolu_01NFh");
   await dormir(10);
+});
+
+test("pergunta dupla com tecla manual antes da resposta pelo chat: PERGUNTA_JA_MEXIDA e nada escrito", async () => {
+  const { s, hook, escritas } = await nova();
+  abrirPergunta(hook);
+  s.escrever("2"); // a pessoa respondeu a primeira pelo terminal
+  escritas.length = 0;
+  const r = await s.responderPergunta("toolu_P", ["2", "1", "\r"]);
+  assert.ok(!r.ok);
+  if (r.ok) return;
+  assert.equal(r.status, 409);
+  assert.equal(r.code, "PERGUNTA_JA_MEXIDA");
+  assert.match(r.erro, /Termine pelo terminal, na aba Sessões/);
+  assert.deepEqual(escritas, []);
+  assert.equal(s.respondendoPergunta, false);
+});
+
+test("entradas manuais de antes da pergunta abrir não bloqueiam; uma pergunta nova zera o marco", async () => {
+  const { s, hook, escritas } = await nova();
+  s.escrever("x");
+  abrirPergunta(hook, "toolu_A");
+  assert.deepEqual(await s.responderPergunta("toolu_A", ["1"]), { ok: true, teclas: 1 });
+  assert.equal(s.entradasManuais, 1, "a resposta do próprio runner não conta");
+  hook("PostToolUse", { toolName: "AskUserQuestion" });
+  s.escrever("y");
+  abrirPergunta(hook, "toolu_B");
+  assert.deepEqual(await s.responderPergunta("toolu_B", ["2"]), { ok: true, teclas: 1 });
+  assert.deepEqual(escritas, ["x", "1", "y", "2"]);
+});
+
+test("tecla manual no meio da sequência: para sem escrever o resto (PERGUNTA_MUDOU)", async () => {
+  const { s, hook, escritas } = await nova();
+  abrirPergunta(hook);
+  const real = s.proc!;
+  const escreveu = real.write;
+  real.write = (t: string) => {
+    escreveu(t);
+    if (escritas.length === 1) s.escrever("9"); // alguém digita no terminal durante a pausa
+  };
+  const r = await s.responderPergunta("toolu_P", ["2", "1", "\r"]);
+  assert.ok(!r.ok && r.code === "PERGUNTA_MUDOU");
+  assert.match((r as { erro: string }).erro, /parou na tecla 1 de 3/);
+  assert.deepEqual(escritas, ["2", "9"], "as teclas restantes não foram escritas");
 });

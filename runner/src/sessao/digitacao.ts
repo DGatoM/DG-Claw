@@ -17,7 +17,7 @@ export async function digitarEEnviar(s: Sessao, texto: string): Promise<void> {
   if (s.motor.provedor === "codex") await s.vencerTelaDeConfianca();
   const pausa = s.motor.pausaAntesDoEnterMs;
   if (texto.length <= 256) {
-    s.proc.write(texto);
+    s.escrever(texto);
     await new Promise((r) => setTimeout(r, pausa));
     await enviarComRecibo(s);
     return;
@@ -26,7 +26,7 @@ export async function digitarEEnviar(s: Sessao, texto: string): Promise<void> {
     let i = 0;
     const passo = () => {
       if (!s.proc) return resolve();
-      s.proc.write(texto.slice(i, i + PEDACO));
+      s.escrever(texto.slice(i, i + PEDACO));
       i += PEDACO;
       if (i >= texto.length) {
         // Uma folga depois do último pedaço: o TUI ainda está processando o
@@ -61,9 +61,9 @@ export async function vencerTelaDeConfianca(s: Sessao): Promise<void> {
   };
   s.on("terminal", ouvir);
   try {
-    s.proc.write("1");
+    s.escrever("1");
     await new Promise((r) => setTimeout(r, 300));
-    s.proc?.write("\r");
+    s.escrever("\r");
     const limite = Date.now() + 3_000;
     while (Date.now() < limite) {
       await new Promise((r) => setTimeout(r, 100));
@@ -98,7 +98,7 @@ export async function enviarComRecibo(s: Sessao): Promise<void> {
   for (let tentativa = 1; tentativa <= RECIBO_ENTER_TENTATIVAS; tentativa++) {
     if (!s.proc) return;
     const antes = s.promptsAceitos;
-    s.proc.write("\r");
+    s.escrever("\r");
     const recebeu = await esperarRecibo(s, antes, espera);
     if (recebeu) return;
     log.info(
