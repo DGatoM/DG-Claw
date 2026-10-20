@@ -80,12 +80,14 @@ async function cenario(opRunner, perguntas) {
   const tr = pastaTemp('tr');
   if (perguntas !== null) fs.writeFileSync(path.join(tr, 'sess-0001-aaaa.jsonl'), usoPergunta('2026-10-19T10:00:01.000Z', 'tuP', perguntas || [perg(false)]) + '\n');
   const agentes = [{ slug: 'ana', nome: 'Ana', tipo: 'agente', runner: `http://127.0.0.1:${porta}`, agente_id: 'ana1', chat_id: 'c_ana', provedor: 'claude', modelo: 'sonnet', transcripts_dir: tr, home_host: pastaTemp('home') }];
-  const t = await subirWeb({ agentes, opcoesServidor: { tickSseMs: 60, pausaTeclaMs: 1 } });
+  const t = await subirWeb({ agentes, opcoesServidor: { tickSseMs: 60 } });
   await t.login();
   return { t, runner, tr, fechar: async () => { await t.fechar(); await runner.fechar(); } };
 }
 const responde = (s, corpo) => s.t.c.post('/api/v1/agents/ana/pergunta', { json: corpo });
-const escrito = (s) => s.runner.rec.inputs;
+// O web não escreve mais tecla nenhuma: só entrega ao runner o pedido da pergunta (e é ele que digita).
+const escrito = (s) => s.runner.rec.inputs.concat(s.runner.rec.perguntas);
+const pedidos = (s) => s.runner.rec.perguntas;
 
 test('pergunta: sucesso escreve as teclas na ordem, cru e sem enviar', async () => {
   const s = await cenario({}, [perg(false), perg(true)]);
@@ -93,8 +95,9 @@ test('pergunta: sucesso escreve as teclas na ordem, cru e sem enviar', async () 
     const r = await responde(s, { tool_use_id: 'tuP', respostas: [{ texto: 'azul' }, { opcoes: [1, 3] }] });
     assert.equal(r.status, 200, r.texto);
     assert.deepEqual(r.json, { ok: true, agente: 'ana', tool_use_id: 'tuP' });
-    assert.deepEqual(escrito(s).map((i) => i.text), ['4', 'azul', '\r', '1', '3', '\t', '1']);
-    assert.ok(escrito(s).every((i) => i.submit === false && i.injectWhenIdle === undefined));
+    assert.equal(s.runner.rec.inputs.length, 0, 'o web não digita: o runner é quem escreve');
+    assert.equal(pedidos(s).length, 1);
+    assert.deepEqual(pedidos(s)[0], { tool_use_id: 'tuP', teclas: ['4', 'azul', '\r', '1', '3', '\t', '1'] });
   } finally { await s.fechar(); }
 });
 
@@ -103,7 +106,7 @@ test('pergunta: cancelar escreve só o Esc', async () => {
   try {
     const r = await responde(s, { tool_use_id: 'tuP', cancelar: true });
     assert.equal(r.status, 200, r.texto);
-    assert.deepEqual(escrito(s).map((i) => i.text), ['\x1b']);
+    assert.deepEqual(pedidos(s), [{ tool_use_id: 'tuP', teclas: ['\x1b'] }]);
   } finally { await s.fechar(); }
 });
 
@@ -181,14 +184,30 @@ test('pergunta: sem Origin e sem sessão', async () => {
   } finally { await s.fechar(); }
 });
 
-test('pergunta: falha no meio => 502 dizendo o passo e mandando conferir o terminal', async () => {
-  const s = await cenario({ falhaInputNaChamada: 2 }, [perg(false), perg(false)]);
+test('pergunta: o runner parou no meio (estado mudou) => 409 com o motivo e o que fazer', async () => {
+  const corpo = { success: false, error: 'A resposta parou na tecla 1 de 3: o terminal saiu da pergunta.', howToFix: 'conferir o terminal do agente na aba Sessões e terminar por lá', code: 'PERGUNTA_MUDOU' };
+  const s = await cenario({ falhaPergunta: { status: 409, corpo } }, [perg(false), perg(false)]);
   try {
     const r = await responde(s, { tool_use_id: 'tuP', respostas: [{ opcao: 1 }, { opcao: 2 }] });
-    assert.equal(r.status, 502);
-    assert.match(r.json.erro, /passo 2 de 3/);
+    assert.equal(r.status, 409);
+    assert.match(r.json.erro, /parou na tecla 1 de 3/);
     assert.match(r.json.erro, /aba Sessões/);
-    assert.equal(escrito(s).length, 2, 'não continua depois da falha');
+  } finally { await s.fechar(); }
+});
+
+test('pergunta: runner com erro inesperado => 502; runner antigo sem a rota => 501 mandando atualizar', async () => {
+  let s = await cenario({ falhaPergunta: { status: 500, corpo: { success: false, error: 'quebrou' } } });
+  try {
+    const r = await responde(s, { tool_use_id: 'tuP', cancelar: true });
+    assert.equal(r.status, 502);
+    assert.match(r.json.erro, /quebrou/);
+  } finally { await s.fechar(); }
+  s = await cenario({ semRotaPergunta: true });
+  try {
+    const r = await responde(s, { tool_use_id: 'tuP', cancelar: true });
+    assert.equal(r.status, 501);
+    assert.match(r.json.erro, /Atualize o agente pelo Admin/);
+    assert.match(r.json.erro, /terminal/);
   } finally { await s.fechar(); }
 });
 

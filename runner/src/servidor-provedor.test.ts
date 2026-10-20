@@ -467,6 +467,32 @@ test("POST /api/agents/:id/permissao: decisão inválida é 400 e agente que nã
   assert.match(fora.corpo.howToFix, /atualizar a tela/);
 });
 
+test("POST /api/agents/:id/pergunta: corpo inválido é 400, fora da pergunta é 409 sem digitar, e tecla crua é recusada durante a resposta", async () => {
+  const semId = await req("POST", `/api/agents/${ID}/pergunta`, { teclas: ["1"] });
+  assert.equal(semId.status, 400);
+  assert.equal(semId.corpo.code, "TOOL_USE_ID_INVALIDO");
+  for (const teclas of [[], "1", [""], [1], Array(41).fill("1"), ["x".repeat(2001)]]) {
+    const r = await req("POST", `/api/agents/${ID}/pergunta`, { tool_use_id: "toolu_P", teclas });
+    assert.equal(r.status, 400, JSON.stringify(teclas).slice(0, 40));
+    assert.equal(r.corpo.code, "TECLAS_INVALIDAS");
+  }
+  const fora = await req("POST", `/api/agents/${ID}/pergunta`, { tool_use_id: "toolu_P", teclas: ["1"] });
+  assert.equal(fora.status, 409);
+  assert.equal(fora.corpo.code, "NAO_ESPERA_PERGUNTA");
+  assert.match(fora.corpo.howToFix, /atualizar a tela/);
+
+  principal.respondendoPergunta = true;
+  try {
+    const crua = await req("POST", `/api/agents/${ID}/input`, { text: "1", submit: false });
+    assert.equal(crua.status, 409);
+    assert.equal(crua.corpo.code, "RESPOSTA_EM_ANDAMENTO");
+  } finally {
+    principal.respondendoPergunta = false;
+  }
+  const rota404 = await req("GET", `/api/agents/${ID}/nao-existe`);
+  assert.match(JSON.stringify(rota404.corpo), /POST \/pergunta/);
+});
+
 test("provedoresDisponiveis: precisa estar liberado no catálogo E ter o programa no PATH", async () => {
   const { provedoresDisponiveis } = await import("./provedores/rotas.js");
   const { carregar } = await import("./provedores/catalogo.js");

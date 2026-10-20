@@ -9,7 +9,7 @@ function criarRunnerFalso(opcoes) {
     statusReason: null, erroEstado: null,
     // login assistido: o estado que GET/POST /api/provedor/login devolvem (o teste muda à vontade)
     login: { estado: 'nenhum' }, loginRecusa: null }, opcoes || {});
-  const rec = { reinicios: 0, permissoes: [], inputs: [], cabecalhos: [], estadoPedidos: 0, provedorPedidos: 0, loginPosts: 0, loginDeletes: 0, codigos: [] };
+  const rec = { reinicios: 0, permissoes: [], permissaoIds: [], perguntas: [], inputs: [], cabecalhos: [], estadoPedidos: 0, provedorPedidos: 0, loginPosts: 0, loginDeletes: 0, codigos: [] };
   const servidor = http.createServer((req, res) => {
     const json = (status, corpo) => { const t = JSON.stringify(corpo); res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(t); };
     rec.cabecalhos.push({ metodo: req.method, url: req.url, authorization: req.headers.authorization || null });
@@ -47,7 +47,20 @@ function criarRunnerFalso(opcoes) {
         if (o.semRotaPermissao) return json(404, { success: false, error: 'sem rota' });
         if (o.falhaPermissao) return json(o.falhaPermissao.status, o.falhaPermissao.corpo);
         rec.permissoes.push(corpo.decisao);
+        rec.permissaoIds.push(corpo.tool_use_id === undefined ? null : corpo.tool_use_id);
         return json(200, { success: true, data: { decisao: corpo.decisao } });
+      });
+      return undefined;
+    }
+    if (rota === `/api/agents/${o.agenteId}/pergunta` && req.method === 'POST') {
+      const partes = [];
+      req.on('data', (c) => partes.push(c));
+      req.on('end', () => {
+        const corpo = JSON.parse(Buffer.concat(partes).toString('utf8'));
+        if (o.semRotaPergunta) return json(404, { success: false, error: 'sem rota' });
+        rec.perguntas.push(corpo);
+        if (o.falhaPergunta) return json(o.falhaPergunta.status, o.falhaPergunta.corpo);
+        return json(200, { success: true, data: { teclas: corpo.teclas.length } });
       });
       return undefined;
     }

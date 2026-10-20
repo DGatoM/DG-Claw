@@ -12,6 +12,10 @@ export const QUIETO_PARA_OLHAR_TRANSCRIPT_MS = 20_000;
 export const CONFERE_TRANSCRIPT_A_CADA_MS = 5_000;
 /** De quanto em quanto tempo, com o login expirado, olhamos se a credencial foi renovada (um `stat`). */
 export const VIGIA_LOGIN_EXPIRADO_MS = 30_000;
+
+/** Pausa entre as teclas da resposta de uma pergunta de escolha: o diálogo do Claude Code redesenha a cada tecla, e
+ *  uma sequência despejada de uma vez perde teclas. Medido no Claude Code 2.1.304. */
+export const PAUSA_TECLA_PERGUNTA_MS = 350;
 /** Colagem: pedaços de 128 a cada 25ms, e o Enter só depois de drenar. */
 export const PEDACO = 128;
 export const INTERVALO_MS = 25;

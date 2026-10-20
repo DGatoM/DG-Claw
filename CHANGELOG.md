@@ -13,7 +13,9 @@ medidor de uso da assinatura e o aviso de que um agente precisa de você.
 Agora dá para responder pelo chat a pergunta de escolha que o agente faz (aquela com opções para marcar): a
 pergunta aparece num cartão acima da caixa de mensagem, com as opções, um campo para outra resposta e o botão de
 cancelar. A mensagem digitada enquanto ele espera essa resposta não fica mais presa em silêncio: a tela avisa, mantém o seu texto na
-caixa e manda você responder a pergunta primeiro.
+caixa e manda você responder a pergunta primeiro. A aprovação de um comando também não pode mais ser confundida
+com a resposta da pergunta: se você responder pelo terminal no meio, o resto da resposta é interrompido em vez de
+aprovar sem querer o comando que surgiu em seguida, e o botão Aprovar de uma tela desatualizada é recusado.
 
 ### Como atualizar
 

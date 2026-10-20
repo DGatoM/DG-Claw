@@ -854,7 +854,7 @@ if (leDlg && LE) {
    ainda espera. O cartão some sozinho quando o estado sai de waiting_input. */
 const TR = window.DGTrilha;
 const pcEl = $('permCartao');
-const pc = { aberto: false, ocupado: false, decidido: '', erro: '', chave: '' };
+const pc = { aberto: false, ocupado: false, decidido: '', erro: '', chave: '', id: '' };
 
 function pcSincroniza() {
   if (!pcEl || !TR) return;
@@ -874,6 +874,8 @@ function pcSincroniza() {
 }
 
 function pcDesenha(pedido, abrindo) {
+  // O id do tool_use que a tela mostra vai junto da decisão: o runner recusa se o pedido de agora for outro.
+  pc.id = (pedido && typeof pedido.id === 'string') ? pedido.id : '';
   const filho = (tag, classe, texto) => {
     const e = document.createElement(tag);
     if (classe) e.className = classe;
@@ -911,7 +913,7 @@ async function pcDecide(decisao) {
   pc.ocupado = true; pc.erro = '';
   pcSincroniza();
   try {
-    await api(API + '/permissao', { method: 'POST', body: { decisao }, timeoutMs: 20000 });
+    await api(API + '/permissao', { method: 'POST', body: pc.id ? { decisao, tool_use_id: pc.id } : { decisao }, timeoutMs: 20000 });
     pc.decidido = decisao;
   } catch (e) {
     pc.erro = 'Não consegui enviar a decisão: ' + e.message;

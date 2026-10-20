@@ -95,7 +95,8 @@ Claude Code: o runner registra o hook `PreToolUse` (já existia) e, para a ferra
 `waiting_input` com `motivo: "pergunta"`; o hook `PostToolUse` (só dessa ferramenta) devolve a `working`. O hook
 `Notification` com `permission_prompt` continua levando a `waiting_input` com `motivo: "permissao"`. Login
 expirado já virava `errored` (`runner:login-expirado`) e agora carrega `motivo: "login"`. Se a pergunta for
-dispensada com Esc, o `Stop` do turno tira o agente do estado de espera. Codex não tem esses hooks: fica sem motivo.
+dispensada com Esc, o `Stop` do turno tira o agente do estado de espera. O `tool_use_id` que o Claude Code manda no
+stdin do `PreToolUse` fica em `pendenteId` (o da pergunta, ou o do último `PreToolUse` quando é permissão) e some junto com o motivo. Codex não tem esses hooks: fica sem motivo.
 
 ## Se algo falha
 

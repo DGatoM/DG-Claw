@@ -31,20 +31,22 @@ O que a trilha reconhece (vale para o cartão de permissão):
 
 Quando o runner está em `waiting_input` (hook `Notification` com `permission_prompt`), a atividade traz
 `alerta: "permissao"`, `acao: "esperando permissão"`, `detalhe: "Bash: <descrição>"` e `permissao`
-(`{ferramenta, titulo, comando}`): o último `tool_use` do transcript que ainda não tem `tool_result`. A conversa
+(`{id, ferramenta, titulo, comando}`, onde `id` é o `tool_use_id` do pedido): o último `tool_use` do transcript que ainda não tem `tool_result`. A conversa
 mostra o cartão "O agente está esperando a sua permissão" com esse pedido e os botões Aprovar e Negar. O cartão
 some quando o estado sai de `waiting_input`. A linha de estado diz "esperando a sua permissão" no lugar de
 "trabalhando".
 
 ### `POST /api/v1/agents/<slug>/permissao`
 
-Corpo: `{"decisao":"aprovar"}` ou `{"decisao":"negar"}`. Exige sessão e `Origin`, como as outras escritas.
+Corpo: `{"decisao":"aprovar"}` ou `{"decisao":"negar"}`, com `tool_use_id` opcional (o `permissao.id` do cartão que a tela
+mostra). Com ele, o runner recusa se o pedido de agora for outro, e uma aba com o cartão antigo não aprova o pedido novo. Sem
+ele segue como antes. Exige sessão e `Origin`, como as outras escritas.
 
 | Status | Quando | O que fazer |
 | --- | --- | --- |
 | 200 | `{ok:true, decisao}` | Nada. O agente continua sozinho. |
 | 400 | `decisao` diferente de aprovar/negar | Corrigir o corpo. |
-| 409 | O agente não está esperando permissão (o pedido já foi resolvido) | Atualizar a conversa. |
+| 409 | O agente não está esperando permissão (o pedido já foi resolvido), está esperando a resposta de uma pergunta de escolha (`E_PERGUNTA_NAO_PERMISSAO`: o `1` escolheria a primeira opção dela), o `tool_use_id` não é o do pedido atual (`PERMISSAO_DIFERENTE`) ou uma resposta de pergunta está sendo digitada (`RESPOSTA_EM_ANDAMENTO`) | Atualizar a conversa. Nada foi digitado. |
 | 501 | O runner do agente é antigo e não tem `POST /api/agents/<id>/permissao` | Atualizar o agente pelo Admin. Até lá, responder pelo terminal. |
 | 502 | O runner recusou (`error` e `howToFix` dele vêm na mensagem) | Seguir o `howToFix`. |
 | 503 | Não consegui falar com o runner | Conferir se o serviço do agente está rodando e tentar de novo. Nada foi enviado. |
@@ -79,15 +81,31 @@ Para cancelar: `{"tool_use_id":"...","cancelar":true}`. Exige sessão e `Origin`
 | 200 | `{ok:true, agente, tool_use_id}` | Nada. O agente continua sozinho. |
 | 400 | Corpo inválido (resposta faltando, número fora do intervalo, texto vazio/longo/com quebra de linha, texto numa pergunta de múltipla escolha) | Corrigir o corpo. Nada foi digitado. |
 | 409 | O agente não está esperando uma pergunta, ou o `tool_use_id` não é o da pergunta atual | Atualizar a conversa. Nada foi digitado. |
-| 502 | Uma tecla falhou no meio (o erro diz em que passo) | Conferir o terminal na aba Sessões: a pergunta pode ter ficado pela metade. |
+| 409 (do runner, no meio) | O terminal saiu da pergunta durante a digitação (`PERGUNTA_MUDOU`; o erro diz em que tecla parou) | Conferir o terminal na aba Sessões: a pergunta pode ter ficado pela metade. |
+| 501 | O runner do agente é antigo e não tem `POST /api/agents/<id>/pergunta` | Atualizar o agente pelo Admin. Até lá, responder pelo terminal. |
+| 502 | O runner recusou por outro motivo | Seguir o `howToFix` da mensagem. |
+| 504 | O pedido saiu e a resposta do runner não voltou | Conferir o terminal na aba Sessões antes de tentar de novo. |
 | 503 | Não consegui falar com o runner | Conferir o serviço do agente e tentar de novo. Nada foi enviado. |
 
-O Web digita as teclas no terminal (`POST /api/agents/<id>/input` do runner com `submit:false`), com 350 ms entre
-uma e outra: escolha única = o dígito da opção; texto livre = o dígito `opções+1` ("Type something"), o texto e
+O Web confere o estado e a pergunta e entrega a sequência de teclas ao runner (`POST /api/agents/<id>/pergunta`, abaixo).
+O runner digita com 350 ms entre uma e outra: escolha única = o dígito da opção; texto livre = o dígito `opções+1` ("Type something"), o texto e
 Enter; múltipla = um dígito por opção marcada e Tab; com mais de uma pergunta, ou com a última de múltipla
 escolha, a tela "Review your answers" aparece e o `1` envia; cancelar = Esc. Protocolo conferido no Claude Code
-2.1.304. Enquanto a pergunta está aberta, `POST /send` responde 409 `PERGUNTA_PENDENTE` e não enfileira
+2.1.304. Antes de CADA tecla o runner confere, no mesmo instante da escrita, que o agente
+continua em `waiting_input` com `motivo: "pergunta"`, no mesmo `tool_use_id` e no mesmo processo; se a pessoa respondeu pelo
+terminal no meio e surgiu um pedido de permissão, o `1` que sobraria aprovaria um comando, então ele para sem escrever o resto.
+Enquanto a pergunta está aberta, `POST /send` responde 409 `PERGUNTA_PENDENTE` e não enfileira
 a mensagem (ela nunca seria lida, porque o agente só fica ocioso depois da resposta).
+
+#### Rota do runner: `POST /api/agents/<id>/pergunta`
+
+Corpo: `{"tool_use_id":"<id da pergunta>","teclas":["2","\r","1"]}`, de 1 a 40 teclas, cada uma um texto não vazio de até
+2000 caracteres. Só Claude (Codex responde 501 `PERGUNTA_SO_CLAUDE`). Sucesso: `{success:true, data:{teclas:N}}`.
+Erros: 400 (`TOOL_USE_ID_INVALIDO`, `TECLAS_INVALIDAS`); 409 `NO_PTY`, `NAO_ESPERA_PERGUNTA`, `PERGUNTA_DIFERENTE` (nada
+escrito), `PERGUNTA_MUDOU` (parou no meio; o erro diz "tecla N de M") e `RESPOSTA_EM_ANDAMENTO` (uma resposta por vez por sessão;
+enquanto dura, `/permissao` e `/input` com `submit:false` também respondem 409). O estado do agente (`GET /api/agents/<id>`) traz
+`pendenteId`: o `tool_use_id` da pergunta (ou, em permissão, do último `PreToolUse`, que vale para todas as ferramentas).
+O log registra só a quantidade de teclas e de caracteres, nunca o conteúdo.
 
 ## 3. Fila
 

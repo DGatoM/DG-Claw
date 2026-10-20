@@ -307,6 +307,13 @@ export interface AgentState {
    * (ver Sessao.mudar), então ninguém precisa lembrar de limpar.
    */
   motivo?: "permissao" | "pergunta" | "login" | null;
+  /**
+   * O `tool_use_id` do que está pendente em `waiting_input`: o da AskUserQuestion (motivo `pergunta`) ou o do
+   * último PreToolUse visto (motivo `permissao`; o PreToolUse vale para todas as ferramentas, então em geral é o
+   * da que está pedindo autorização). Serve para a resposta de quem tinha o cartão antigo na tela não cair no
+   * diálogo novo. `null` quando não se sabe. Zerado junto com o `motivo` (ver Sessao.mudar).
+   */
+  pendenteId?: string | null;
   /** ISO de quando o login da conta morreu (statusReason "runner:login-expirado"); null nos outros estados. */
   loginExpiradoEm?: string | null;
   /** Transient: current phase of an in-progress automated handoff (botão 🤝). */

@@ -583,7 +583,7 @@ function criarLeitor({ log, tz, canalTelegram, midia }) {
         }
         const uso = descreveUso(nome, inp);
         if (uso) {
-          if (typeof b.id === 'string' && b.id) estado.trilhaPend.set(b.id, { ep: epDe(o.timestamp, estado), uso });
+          if (typeof b.id === 'string' && b.id) estado.trilhaPend.set(b.id, { ep: epDe(o.timestamp, estado), uso, id: b.id });
           continue;
         }
         if (nome.endsWith(TOOL_TEXTO) || nome.endsWith(TOOL_ARQUIVO)) {
@@ -621,7 +621,7 @@ function criarLeitor({ log, tz, canalTelegram, midia }) {
     if (!estado || !estado.trilhaPend.size) return null;
     let ultimo = null;
     for (const p of estado.trilhaPend.values()) if (p.uso && (!ultimo || p.ep >= ultimo.ep)) ultimo = p;
-    return ultimo ? { ferramenta: ultimo.uso.ferramenta, titulo: ultimo.uso.titulo, comando: ultimo.uso.comando } : null;
+    return ultimo ? { id: ultimo.id || null, ferramenta: ultimo.uso.ferramenta, titulo: ultimo.uso.titulo, comando: ultimo.uso.comando } : null;
   }
 
   /**

@@ -361,6 +361,11 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
           if (enviar) {
             await sessao.digitarEEnviar(texto);
           } else {
+            // Tecla crua no meio da resposta de uma pergunta intercalaria com as teclas dela.
+            if (sessao.respondendoPergunta) {
+              json(res, { success: false, error: `O agente ${sessao.slug} está recebendo a resposta de uma pergunta de escolha; a tecla não foi enviada.`, howToFix: "esperar alguns segundos e repetir", code: "RESPOSTA_EM_ANDAMENTO" }, 409);
+              return;
+            }
             sessao.escrever(texto);
           }
           json(res, { success: true, data: { enviado: true, submit: enviar, chars: texto.length } });
@@ -378,12 +383,41 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
             json(res, { success: false, error: `Corpo precisa de "decisao": "aprovar" ou "negar". Recebido: ${JSON.stringify(decisao ?? null)}`, code: "DECISAO_INVALIDA" }, 400);
             return;
           }
-          const r = sessao.responderPermissao(decisao);
+          const idDaTela = (corpo as { tool_use_id?: unknown }).tool_use_id;
+          if (idDaTela !== undefined && idDaTela !== null && (typeof idDaTela !== "string" || idDaTela === "" || idDaTela.length > 200)) {
+            json(res, { success: false, error: `"tool_use_id" precisa ser texto de 1 a 200 caracteres. Recebido: ${typeof idDaTela}`, code: "TOOL_USE_ID_INVALIDO" }, 400);
+            return;
+          }
+          const r = sessao.responderPermissao(decisao, idDaTela ?? null);
           if (!r.ok) {
             json(res, { success: false, error: r.erro, howToFix: r.comoResolver, code: r.code }, r.status);
             return;
           }
           json(res, { success: true, data: { decisao } });
+          return;
+        }
+
+        if (acao === "/pergunta" && metodo === "POST") {
+          const corpo = await lerCorpo(req).catch((err: Error) => ({ __erro: err.message }));
+          if (typeof (corpo as { __erro?: string }).__erro === "string") {
+            json(res, { success: false, error: (corpo as { __erro: string }).__erro }, 400);
+            return;
+          }
+          const { tool_use_id: id, teclas } = corpo as { tool_use_id?: unknown; teclas?: unknown };
+          if (typeof id !== "string" || id === "" || id.length > 200) {
+            json(res, { success: false, error: `Corpo precisa de "tool_use_id" (texto de 1 a 200 caracteres). Recebido: ${typeof id}`, code: "TOOL_USE_ID_INVALIDO" }, 400);
+            return;
+          }
+          if (!Array.isArray(teclas) || teclas.length < 1 || teclas.length > 40 || teclas.some((t) => typeof t !== "string" || t === "" || t.length > 2000)) {
+            json(res, { success: false, error: `Corpo precisa de "teclas": lista de 1 a 40 textos não vazios de até 2000 caracteres. Recebido: ${Array.isArray(teclas) ? `${teclas.length} itens` : typeof teclas}`, code: "TECLAS_INVALIDAS" }, 400);
+            return;
+          }
+          const r = await sessao.responderPergunta(id, teclas as string[]);
+          if (!r.ok) {
+            json(res, { success: false, error: r.erro, howToFix: r.comoResolver, code: r.code }, r.status);
+            return;
+          }
+          json(res, { success: true, data: { teclas: r.teclas } });
           return;
         }
 
@@ -498,7 +532,7 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
             error: `O runner não tem a rota ${metodo} ${rota}.`,
             howToFix:
               "o runner implementa o que um agente entregue usa: GET /api/agents, GET /api/agents/:id, " +
-              "POST /input, POST /permissao, POST /resume, POST /revive, POST /reiniciar, POST /suspend (só paralelas), DELETE /remove, " +
+              "POST /input, POST /permissao, POST /pergunta, POST /resume, POST /revive, POST /reiniciar, POST /suspend (só paralelas), DELETE /remove, " +
               "GET /conversation, GET /api/capacidade, GET /api/saude, POST /api/agent-hook, " +
               "GET/POST /api/provedor (+ /login), POST /api/sessoes e DELETE /api/sessoes/<id>. " +
               "O resto (cofre, worktree, board, handoff) é do Bunker e não existe aqui",

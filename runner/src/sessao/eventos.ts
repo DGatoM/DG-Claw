@@ -13,6 +13,8 @@ export interface PayloadDeEvento {
   event?: string;
   sessionId?: string | null;
   toolName?: string | null;
+  /** O `tool_use_id` do PreToolUse (o Claude Code manda no stdin do hook). */
+  toolUseId?: string | null;
   source?: string | null;
   error?: string | null;
   lastAssistantMessage?: string | null;
@@ -84,6 +86,8 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       break;
     case "PreToolUse":
       cancelarStopPendente(s);
+      // Guardado sempre: o Notification de permissão não traz o id, e o do último PreToolUse é o da ferramenta que pede.
+      s.ultimoToolUseId = payload.toolUseId ?? null;
       // A pergunta de escolha do Claude (AskUserQuestion) abre a tela de opções logo depois deste hook
       // e o turno só continua quando a pessoa responde: para o dono é o mesmo "precisa de você" da permissão.
       if (payload.toolName === "AskUserQuestion") {
@@ -91,6 +95,7 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
         s.mudar({
           status: "waiting_input",
           motivo: "pergunta",
+          pendenteId: payload.toolUseId ?? null,
           currentTool: payload.toolName,
           hookLatched: false,
           statusReason: "hook:PreToolUse AskUserQuestion",
@@ -124,6 +129,7 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
         s.mudar({
           status: "waiting_input",
           motivo: "permissao",
+          pendenteId: s.ultimoToolUseId,
           hookLatched: false,
           statusReason: "hook:Notification permission_prompt",
         });

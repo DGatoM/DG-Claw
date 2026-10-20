@@ -36,7 +36,7 @@ import type { CtxMotor, Motor, Recusa } from "./provedores/motor.js";
 import { motorDe } from "./provedores/motores.js";
 import { parar, pararEEsperar, subir, suspender, trocarPorSessaoLimpa } from "./sessao/ciclo.js";
 import { ctxLeve, montarAmbienteBase } from "./sessao/configuracao.js";
-import { QUIETO_PARA_OLHAR_TRANSCRIPT_MS, VIGIA_LOGIN_EXPIRADO_MS } from "./sessao/constantes.js";
+import { PAUSA_TECLA_PERGUNTA_MS, QUIETO_PARA_OLHAR_TRANSCRIPT_MS, VIGIA_LOGIN_EXPIRADO_MS } from "./sessao/constantes.js";
 import { digitarEEnviar, vencerTelaDeConfianca } from "./sessao/digitacao.js";
 import { MedidorDeUso } from "./uso.js";
 import { type PayloadDeHook, receberHook } from "./sessao/eventos.js";
@@ -70,6 +70,8 @@ export interface OpcoesDaSessao {
   quietoParaOlharTranscriptMs?: number;
   /** De quanto em quanto tempo se olha a credencial com o login expirado. Testes usam valor curto. */
   vigiaLoginExpiradoMs?: number;
+  /** Pausa entre as teclas da resposta de uma pergunta de escolha (ver responderPergunta). Testes usam valor curto. */
+  pausaTeclaPerguntaMs?: number;
   /** Comandos extras do evento UserPromptSubmit, depois do hook do runner. */
   promptHooks?: string[];
   ociosoMinutos?: number;
@@ -99,6 +101,11 @@ export class Sessao extends EventEmitter {
   vigiaDoStopPerdido: NodeJS.Timeout | null = null;
   readonly quietoParaOlharTranscriptMs: number;
   readonly vigiaLoginExpiradoMs: number;
+  readonly pausaTeclaPerguntaMs: number;
+  /** true enquanto responderPergunta digita: ninguém mais escreve tecla crua nem permissão nesse intervalo. */
+  respondendoPergunta = false;
+  /** O tool_use_id do último PreToolUse (qualquer ferramenta), para o pendenteId da permissão. */
+  ultimoToolUseId: string | null = null;
   /** Quando o login expirou (ms). Presente só enquanto o estado for runner:login-expirado. */
   loginExpiradoEmMs: number | null = null;
   vigiaDoLoginExpirado: NodeJS.Timeout | null = null;
@@ -170,6 +177,7 @@ export class Sessao extends EventEmitter {
     this.ociosoMinutos = opcoes.ociosoMinutos ?? null;
     this.quietoParaOlharTranscriptMs = opcoes.quietoParaOlharTranscriptMs ?? QUIETO_PARA_OLHAR_TRANSCRIPT_MS;
     this.vigiaLoginExpiradoMs = opcoes.vigiaLoginExpiradoMs ?? VIGIA_LOGIN_EXPIRADO_MS;
+    this.pausaTeclaPerguntaMs = opcoes.pausaTeclaPerguntaMs ?? PAUSA_TECLA_PERGUNTA_MS;
     this.arquivoDeEstado = opcoes.arquivoDeEstado ?? STATE_FILE;
     this.pastaDeEstado = opcoes.pastaDeEstado ?? PASTA_DE_ESTADO;
     this.arquivoDaFila = caminhoDaFila(this.pastaDeEstado, descritor.id);
@@ -419,12 +427,25 @@ export class Sessao extends EventEmitter {
    * "3"/"2" para negar porque o número da opção "No" muda conforme o diálogo (com ou sem "don't ask
    * again"); Esc vale em todos. O Codex não tem este diálogo no runner: recusa com motivo.
    */
-  responderPermissao(decisao: "aprovar" | "negar"): { ok: true } | { ok: false; status: number; erro: string; comoResolver: string; code: string } {
+  responderPermissao(
+    decisao: "aprovar" | "negar",
+    toolUseId?: string | null,
+  ): { ok: true } | { ok: false; status: number; erro: string; comoResolver: string; code: string } {
     if (this.motor.provedor !== "claude") {
       return { ok: false, status: 501, code: "PERMISSAO_SO_CLAUDE", erro: `O provedor ${this.motor.provedor} não expõe o pedido de permissão ao runner.`, comoResolver: "responder pelo terminal do agente" };
     }
     if (this.estado.status !== "waiting_input") {
       return { ok: false, status: 409, code: "NAO_ESPERA_PERMISSAO", erro: `O agente ${this.slug} não está esperando permissão (status=${this.estado.status}).`, comoResolver: "atualizar a tela: o pedido já foi resolvido" };
+    }
+    // Com a pergunta de escolha aberta o "1" não aprova nada: escolheria a primeira opção dela.
+    if (this.estado.motivo === "pergunta") {
+      return { ok: false, status: 409, code: "E_PERGUNTA_NAO_PERMISSAO", erro: `O agente ${this.slug} está esperando a resposta de uma pergunta de escolha, não uma permissão.`, comoResolver: "responder no cartão da pergunta (POST /api/agents/:id/pergunta)" };
+    }
+    if (this.respondendoPergunta) {
+      return { ok: false, status: 409, code: "RESPOSTA_EM_ANDAMENTO", erro: `O agente ${this.slug} está recebendo a resposta de uma pergunta de escolha.`, comoResolver: "esperar alguns segundos e atualizar a tela" };
+    }
+    if (toolUseId && this.estado.pendenteId && toolUseId !== this.estado.pendenteId) {
+      return { ok: false, status: 409, code: "PERMISSAO_DIFERENTE", erro: `A permissão que a tela mostra (${toolUseId}) não é a que o agente ${this.slug} espera agora (${this.estado.pendenteId}).`, comoResolver: "atualizar a tela e responder o pedido atual" };
     }
     if (!this.proc) {
       return { ok: false, status: 409, code: "NO_PTY", erro: `O agente ${this.slug} não tem terminal vivo agora.`, comoResolver: "chamar POST /api/agents/:id/resume antes" };
@@ -432,6 +453,65 @@ export class Sessao extends EventEmitter {
     log.info(this.a("entrada"), `permissão ${decisao === "aprovar" ? "aprovada" : "negada"} por API`);
     this.escrever(decisao === "aprovar" ? "1" : ESC);
     return { ok: true };
+  }
+
+  /**
+   * Responde a pergunta de escolha (AskUserQuestion) digitando as `teclas` no diálogo, uma por vez, com pausa
+   * entre elas. O runner é quem confere o estado ANTES DE CADA tecla, de forma síncrona logo antes de escrever:
+   * se a pessoa respondeu pelo terminal no meio e surgiu um pedido de permissão, a tecla seguinte (um "1")
+   * aprovaria um comando sem consentimento. Parar sem escrever é sempre o lado seguro.
+   */
+  async responderPergunta(
+    toolUseId: string,
+    teclas: string[],
+  ): Promise<{ ok: true; teclas: number } | { ok: false; status: number; erro: string; comoResolver: string; code: string }> {
+    if (this.motor.provedor !== "claude") {
+      return { ok: false, status: 501, code: "PERGUNTA_SO_CLAUDE", erro: `O provedor ${this.motor.provedor} não expõe a pergunta de escolha ao runner.`, comoResolver: "responder pelo terminal do agente" };
+    }
+    const proc = this.proc;
+    if (!proc) {
+      return { ok: false, status: 409, code: "NO_PTY", erro: `O agente ${this.slug} não tem terminal vivo agora.`, comoResolver: "chamar POST /api/agents/:id/resume antes" };
+    }
+    if (this.respondendoPergunta) {
+      return { ok: false, status: 409, code: "RESPOSTA_EM_ANDAMENTO", erro: `O agente ${this.slug} já está recebendo a resposta de uma pergunta.`, comoResolver: "esperar alguns segundos e atualizar a tela" };
+    }
+    const mudou = (): { status: number; code: string; erro: string; comoResolver: string } | null => {
+      if (this.proc !== proc) {
+        return { status: 409, code: "PERGUNTA_MUDOU", erro: `O terminal do agente ${this.slug} foi reiniciado durante a resposta.`, comoResolver: "conferir o terminal na aba Sessões" };
+      }
+      if (this.estado.status !== "waiting_input" || this.estado.motivo !== "pergunta") {
+        return { status: 409, code: "NAO_ESPERA_PERGUNTA", erro: `O agente ${this.slug} não está esperando a resposta de uma pergunta (status=${this.estado.status}, motivo=${this.estado.motivo ?? "nenhum"}).`, comoResolver: "atualizar a tela: a pergunta já foi resolvida" };
+      }
+      if (this.estado.pendenteId !== toolUseId) {
+        return { status: 409, code: "PERGUNTA_DIFERENTE", erro: `A pergunta que a tela mostra (${toolUseId}) não é a que o agente ${this.slug} espera agora (${this.estado.pendenteId ?? "id desconhecido"}).`, comoResolver: "atualizar a tela e responder a pergunta atual" };
+      }
+      return null;
+    };
+    this.respondendoPergunta = true;
+    let escritas = 0;
+    try {
+      for (const tecla of teclas) {
+        const problema = mudou();
+        if (problema) {
+          if (escritas === 0) return { ok: false, ...problema };
+          log.aviso(this.a("entrada"), `resposta da pergunta interrompida depois de ${escritas} de ${teclas.length} teclas (${problema.code})`);
+          return {
+            ok: false,
+            status: 409,
+            code: "PERGUNTA_MUDOU",
+            erro: `A resposta parou na tecla ${escritas} de ${teclas.length}: o terminal saiu da pergunta (${problema.code}). As teclas restantes não foram enviadas.`,
+            comoResolver: "conferir o terminal do agente na aba Sessões e terminar por lá",
+          };
+        }
+        this.escrever(tecla);
+        escritas += 1;
+        if (escritas < teclas.length) await new Promise((r) => setTimeout(r, this.pausaTeclaPerguntaMs));
+      }
+      log.info(this.a("entrada"), `pergunta respondida por API: ${escritas} teclas, ${teclas.reduce((n, t) => n + t.length, 0)} caracteres`);
+      return { ok: true, teclas: escritas };
+    } finally {
+      this.respondendoPergunta = false;
+    }
   }
 
 
@@ -459,6 +539,7 @@ export class Sessao extends EventEmitter {
   mudar(campos: Partial<AgentState>): void {
     // O motivo só vale enquanto o status que o pediu vale: trocou de status sem dizer o motivo, ele cai.
     if (campos.status && campos.status !== this.estado.status && !("motivo" in campos)) campos = { ...campos, motivo: null };
+    if (campos.status && campos.status !== this.estado.status && !("pendenteId" in campos)) campos = { ...campos, pendenteId: null };
     Object.assign(this.estado, campos, { updatedAt: Date.now() });
     if ("sessionId" in campos || "previousSessionId" in campos || "status" in campos) {
       gravarEstado(

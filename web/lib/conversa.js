@@ -19,7 +19,6 @@ const RX_CLIENTE_ID = /^[A-Za-z0-9_-]{8,64}$/;
 const MAX_ANEXOS = 10;
 // Pausa entre uma tecla e outra ao responder a pergunta de escolha: a TUI redesenha a tela a cada tecla e
 // uma tecla que chega antes disso se perde (conferido ao vivo no Claude Code 2.1.304).
-const PAUSA_TECLA_MS = 350;
 const MAX_TEXTO_RESPOSTA = 2000;
 // Controle (inclui \n, \r, \t, ESC), C1 e separadores de linha/parágrafo: nada disso vai para o terminal.
 const RX_CONTROLE = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/;
@@ -97,7 +96,7 @@ function teclasDaResposta(perguntas, respostas) {
   return teclas;
 }
 
-function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agora, gravaToken, alertas, comandos: comandosInjetado, pausaTeclaMs }) {
+function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agora, gravaToken, alertas, comandos: comandosInjetado }) {
   const comandos = comandosInjetado || criarComandos({ runner, log, agora });
   const alertasVersao = new Map();
   const juntadas = new Map();       // slug -> { chave, partes, msgs, versao }: a thread juntada da última leitura
@@ -112,8 +111,6 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
   const ultimas = new Map();        // slug -> { ts, valor } (epoch ms da última mensagem, ou null)
   const envios = new Map();         // chave -> { promessa, ts }
   const logUmaVez = new Map();      // chave -> último motivo
-  const respondendo = new Set();    // slugs com uma resposta de pergunta sendo digitada agora
-  const pausaTecla = Number.isFinite(pausaTeclaMs) && pausaTeclaMs >= 0 ? pausaTeclaMs : PAUSA_TECLA_MS;
 
   function avisaUmaVez(chave, nivel, msg) {
     if (logUmaVez.get(chave) === msg) return;
@@ -531,7 +528,7 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
    * Aprova ou nega o pedido de permissão do agente. Confere no runner (estado de agora) que ele está mesmo
    * esperando e repassa a decisão. Devolve { status, corpo } com motivo e o que fazer em toda falha.
    */
-  async function permissao(agente, decisao) {
+  async function permissao(agente, decisao, toolUseId) {
     if (decisao !== 'aprovar' && decisao !== 'negar') {
       return erro(400, `A "decisao" precisa ser "aprovar" ou "negar". Recebi: ${JSON.stringify(decisao === undefined ? null : String(decisao).slice(0, 40))}. Nada foi enviado.`);
     }
@@ -540,10 +537,17 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
       log('erro', `Permissão de ${agente.slug}: não consegui ler o estado do runner: ${e.erro}`);
       return erro(503, `Não consegui confirmar o estado de ${agente.nome}: ${e.erro} Nada foi enviado. Tente de novo em instantes.`);
     }
+    if (toolUseId !== undefined && toolUseId !== null && (typeof toolUseId !== 'string' || !toolUseId || toolUseId.length > 200)) {
+      return erro(400, 'O "tool_use_id" da permissão precisa ser um texto de 1 a 200 caracteres (vem em "permissao.id" da atividade do agente). Nada foi enviado.');
+    }
+    if (e.estado.status === 'waiting_input' && e.estado.motivo === 'pergunta') {
+      // O "1" que aprova um comando escolheria a primeira opção da pergunta: o runner também recusa, mas aqui nem chamamos.
+      return erro(409, `${agente.nome} está esperando a resposta de uma pergunta de escolha, não uma permissão. Responda no cartão da pergunta. Nada foi enviado.`, { estado: e.estado.status, motivo: 'pergunta' });
+    }
     if (e.estado.status !== 'waiting_input') {
       return erro(409, `${agente.nome} não está esperando permissão agora (estado: ${e.estado.status}). Provavelmente o pedido já foi resolvido. Atualize a conversa.`, { estado: e.estado.status });
     }
-    const r = await runner.pedir(agente, 'POST', `/api/agents/${encodeURIComponent(agente.agente_id)}/permissao`, { decisao });
+    const r = await runner.pedir(agente, 'POST', `/api/agents/${encodeURIComponent(agente.agente_id)}/permissao`, toolUseId ? { decisao, tool_use_id: toolUseId } : { decisao });
     if (r.erro) {
       log('erro', `Permissão de ${agente.slug} (${decisao}) não entregue: ${r.erro}`);
       return erro(503, `${r.erro} A decisão não foi enviada: tente de novo.`);
@@ -561,8 +565,6 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     log('info', `Permissão de ${agente.slug}: ${decisao === 'aprovar' ? 'aprovada' : 'negada'} pela tela.`);
     return { status: 200, corpo: { ok: true, decisao, agente: agente.slug } };
   }
-
-  const dorme = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
 
   /**
    * Responde (ou cancela) a pergunta de escolha do agente digitando as teclas no terminal dele.
@@ -602,19 +604,25 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
       if (problema) return erro(400, problema);
       teclas = teclasDaResposta(pend.perguntas, c.respostas);
     }
-    if (respondendo.has(agente.slug)) return erro(409, `Já há uma resposta sendo enviada a ${agente.nome}. Espere ela terminar e atualize a conversa. Nada foi enviado.`);
-    respondendo.add(agente.slug);
-    try {
-      for (let i = 0; i < teclas.length; i++) {
-        if (i > 0) await dorme(pausaTecla);
-        const r = await runner.input(agente, { text: teclas[i], submit: false });
-        if (!r.ok) {
-          log('erro', `Pergunta de ${agente.slug}: parou no passo ${i + 1} de ${teclas.length}: ${r.erro}`);
-          return erro(502, `A resposta parou no passo ${i + 1} de ${teclas.length}: ${String(r.erro).replace(/[.\s]+$/, '')}. O terminal de ${agente.nome} pode ter ficado no meio da pergunta: confira na aba Sessões e termine por lá.`);
-        }
+    // O runner digita as teclas e confere o estado antes de CADA uma: se a pessoa respondeu pelo terminal no meio,
+    // ele para sem escrever o resto (escrever às cegas daqui aprovaria um comando que surgisse no lugar).
+    const r = await runner.pedir(agente, 'POST', `/api/agents/${encodeURIComponent(agente.agente_id)}/pergunta`, { tool_use_id: c.tool_use_id, teclas }, 30000);
+    if (r.erro) {
+      log('erro', `Pergunta de ${agente.slug} não entregue: ${r.erro}`);
+      if (!r.antesDoEnvio) {
+        return erro(504, `Não sei se a resposta chegou inteira ao runner de ${agente.nome} (${r.erro}). Confira o terminal na aba Sessões antes de tentar de novo.`);
       }
-    } finally {
-      respondendo.delete(agente.slug);
+      return erro(503, `${r.erro} A resposta não foi enviada: tente de novo.`);
+    }
+    if (r.status === 404) {
+      const msg = `O runner de ${agente.nome} é de uma versão antiga e não tem a rota da pergunta de escolha (POST /api/agents/${agente.agente_id}/pergunta). Atualize o agente pelo Admin; enquanto isso, responda a pergunta pelo terminal do agente, na aba Sessões.`;
+      log('erro', `Pergunta de ${agente.slug}: ${msg}`);
+      return erro(501, msg);
+    }
+    if (!r.ok) {
+      const motivo = motivoDoRunner(agente, r);
+      log('erro', `Pergunta de ${agente.slug} recusada pelo runner (HTTP ${r.status}, ${(r.corpo && r.corpo.code) || 'sem código'}): ${motivo}`);
+      return erro(r.status === 409 ? 409 : 502, `O runner de ${agente.nome} não aplicou a resposta: ${motivo}`);
     }
     const tamanhoTexto = c.cancelar === true ? 0 : c.respostas.reduce((t, r) => t + (typeof r.texto === 'string' ? r.texto.length : 0), 0);
     log('info', `Pergunta de ${agente.slug}: ${c.cancelar === true ? 'cancelada' : `respondida (${c.respostas.length} resposta(s), ${tamanhoTexto} caracteres de texto livre)`} pela tela.`);

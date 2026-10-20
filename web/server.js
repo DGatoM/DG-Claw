@@ -85,7 +85,7 @@ function criarServidor(opcoes) {
   const leitorRollout = criarLeitorRollout({ log, tz: config.tz, midia });
   const alertas = agente => criarAlertas(path.join(config.dataDir, 'alertas', agente.slug + '.json'), agente.chat_id);
   const comandos = criarComandos({ runner, log, agora: opcoes.agora });
-  const conversa = criarConversa({ comandos, alertas, config, runner, leitor, leitorRollout, midia, log, agora: opcoes.agora, gravaToken: opcoes.gravaToken, pausaTeclaMs: opcoes.pausaTeclaMs });
+  const conversa = criarConversa({ comandos, alertas, config, runner, leitor, leitorRollout, midia, log, agora: opcoes.agora, gravaToken: opcoes.gravaToken });
   const compartilhados = criarCompartilhados(conversa);
   const onboarding = criarOnboarding({ config, registro, conversa, midia, log, imagem: opcoes.imagem });
   const login = criarLogin({ runner, conversa, log, agora: opcoes.agora, oiPrazoMs: opcoes.loginOiPrazoMs, oiPassoMs: opcoes.loginOiPassoMs });
@@ -511,7 +511,7 @@ function criarServidor(opcoes) {
       if (acao === 'permissao' && m === 'POST') {
         const corpo = await lerEnvio(req, res);
         if (!corpo) return undefined;
-        const r = await conversa.permissao(agente, corpo.decisao);
+        const r = await conversa.permissao(agente, corpo.decisao, corpo.tool_use_id);
         return H.enviaJson(res, r.status, r.corpo);
       }
       if (acao === 'pergunta' && m === 'POST') {
