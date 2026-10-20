@@ -7,6 +7,16 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Alterado
+
+- Dependências atualizadas: pino 10 no canal do WhatsApp, express-rate-limit 8 no painel,
+  TypeScript 7 no runner e as GitHub Actions do CI (checkout, setup-node e setup-python 7,
+  upload-artifact 7, sbom-action 0.24.3).
+- O Dependabot passa a abrir no máximo um PR por pasta por semana (toda segunda), juntando as
+  versões minor e patch; as GitHub Actions vêm todas num PR só. As versões major continuam
+  separadas, com no máximo três PRs abertos por pasta. A versão major do Express fica de fora: o
+  Express 5 muda o roteamento e quebrou o CI do painel, e a migração vai ser uma tarefa própria.
+
 ## [1.0.0] - 2026-10-19
 
 A v1 troca o plugin do Claude Code por uma plataforma completa: um instalador, um painel web com
