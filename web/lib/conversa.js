@@ -560,6 +560,10 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     if (!r.ok) {
       const motivo = motivoDoRunner(agente, r);
       log('erro', `Permissão de ${agente.slug} (${decisao}) recusada pelo runner (HTTP ${r.status}): ${motivo}`);
+      if (r.status === 409 && r.corpo && r.corpo.code === 'PERGUNTA_JA_RESPONDIDA') {
+        return erro(409, `A resposta desta pergunta de ${agente.nome} já foi enviada (por esta ou outra aba). Nada foi digitado agora.`,
+          { howToFix: 'Atualize a conversa. Se o terminal ficou no meio da resposta, termine pela aba Sessões.', codigo: 'PERGUNTA_JA_RESPONDIDA' });
+      }
       return erro(r.status === 409 ? 409 : 502, `O runner de ${agente.nome} não aplicou a decisão: ${motivo}`);
     }
     log('info', `Permissão de ${agente.slug}: ${decisao === 'aprovar' ? 'aprovada' : 'negada'} pela tela.`);

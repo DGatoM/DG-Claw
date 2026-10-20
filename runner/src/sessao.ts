@@ -108,6 +108,13 @@ export class Sessao extends EventEmitter {
   /** true enquanto responderPergunta digita: ninguém mais escreve tecla crua nem permissão nesse intervalo. */
   respondendoPergunta = false;
   /**
+   * A pergunta (processo + tool_use_id) cuja resposta já começou a ser digitada. Fica depois da trava cair:
+   * a segunda aba que responde a mesma pergunta chega depois da última tecla e antes do PostToolUse, quando
+   * as conferências de estado ainda passam. Vale também para envio interrompido: o terminal ficou em estado
+   * desconhecido e repetir as teclas pioraria.
+   */
+  perguntaTentada: { proc: unknown; toolUseId: string } | null = null;
+  /**
    * Quantas escritas no PTY NÃO vieram do responderPergunta (terminal, /input, turno, permissão, telas de sistema).
    * Entradas e comparação com `entradasNaAbertura` provam que ninguém mexeu na pergunta pelo outro caminho.
    */
@@ -496,6 +503,9 @@ export class Sessao extends EventEmitter {
     if (this.respondendoPergunta) {
       return { ok: false, status: 409, code: "RESPOSTA_EM_ANDAMENTO", erro: `O agente ${this.slug} já está recebendo a resposta de uma pergunta.`, comoResolver: "esperar alguns segundos e atualizar a tela" };
     }
+    if (this.perguntaTentada && this.perguntaTentada.proc === proc && this.perguntaTentada.toolUseId === toolUseId) {
+      return { ok: false, status: 409, code: "PERGUNTA_JA_RESPONDIDA", erro: "A resposta desta pergunta já foi enviada (por esta ou outra aba). Atualize a conversa; se o terminal ficou no meio, termine pela aba Sessões.", comoResolver: "atualizar a conversa; se o terminal ficou no meio, terminar pela aba Sessões" };
+    }
     const mudou = (): { status: number; code: string; erro: string; comoResolver: string } | null => {
       if (this.proc !== proc) {
         return { status: 409, code: "PERGUNTA_MUDOU", erro: `O terminal do agente ${this.slug} foi reiniciado durante a resposta.`, comoResolver: "conferir o terminal na aba Sessões" };
@@ -528,6 +538,7 @@ export class Sessao extends EventEmitter {
             comoResolver: "conferir o terminal do agente na aba Sessões e terminar por lá",
           };
         }
+        if (escritas === 0) this.perguntaTentada = { proc, toolUseId };
         this.escreverSemContar(tecla);
         escritas += 1;
         if (escritas < teclas.length) await new Promise((r) => setTimeout(r, this.pausaTeclaPerguntaMs));

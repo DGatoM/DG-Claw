@@ -225,3 +225,42 @@ test("tecla manual no meio da sequência: para sem escrever o resto (PERGUNTA_MU
   assert.match((r as { erro: string }).erro, /parou na tecla 1 de 3/);
   assert.deepEqual(escritas, ["2", "9"], "as teclas restantes não foram escritas");
 });
+
+test("segunda resposta ao mesmo id antes do PostToolUse: PERGUNTA_JA_RESPONDIDA e nada escrito", async () => {
+  const { s, hook, escritas } = await nova();
+  abrirPergunta(hook);
+  assert.deepEqual(await s.responderPergunta("toolu_P", ["2", "1"]), { ok: true, teclas: 2 });
+  const r = await s.responderPergunta("toolu_P", ["2", "1"]);
+  assert.ok(!r.ok && r.code === "PERGUNTA_JA_RESPONDIDA" && r.status === 409);
+  assert.deepEqual(escritas, ["2", "1"]);
+});
+
+test("envio interrompido: nova tentativa ao mesmo id é recusada; id novo funciona", async () => {
+  const { s, hook, escritas } = await nova();
+  abrirPergunta(hook);
+  const real = s.proc!;
+  const escreveu = real.write;
+  real.write = (t: string) => {
+    escreveu(t);
+    if (escritas.length === 1) s.escrever("9");
+  };
+  const a = await s.responderPergunta("toolu_P", ["2", "1", "\r"]);
+  assert.ok(!a.ok && a.code === "PERGUNTA_MUDOU");
+  real.write = escreveu;
+  const b = await s.responderPergunta("toolu_P", ["1"]);
+  assert.ok(!b.ok && b.code === "PERGUNTA_JA_RESPONDIDA" && b.status === 409);
+  assert.deepEqual(escritas, ["2", "9"]);
+  hook("PostToolUse", { toolName: "AskUserQuestion" });
+  abrirPergunta(hook, "toolu_Q");
+  assert.deepEqual(await s.responderPergunta("toolu_Q", ["1"]), { ok: true, teclas: 1 });
+});
+
+test("pergunta cancelada (Esc) seguida de StopFailure: sai de waiting_input e libera o pendenteId", async () => {
+  const { s, hook } = await nova();
+  abrirPergunta(hook);
+  assert.equal(s.estado.motivo, "pergunta");
+  hook("StopFailure", { error: "rate_limit" });
+  assert.notEqual(s.estado.status, "waiting_input");
+  assert.equal(s.estado.motivo ?? null, null);
+  assert.equal(s.estado.pendenteId ?? null, null);
+});

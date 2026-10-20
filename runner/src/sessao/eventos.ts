@@ -166,6 +166,11 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       cancelarStopPendente(s);
       if (s.estado.status === "working") {
         s.mudar({ status: "idle", hookLatched: true, currentTool: null, statusReason: `hook:StopFailure ${payload.error ?? ""}`.trim() });
+      } else if (s.estado.status === "waiting_input" && s.estado.motivo === "pergunta") {
+        // Mesmo caso do Stop: pergunta dispensada (Esc) não gera PostToolUse. Sem isto, Esc seguido de falha do
+        // turno deixaria o pendenteId antigo e o chat recusaria toda mensagem com PERGUNTA_PENDENTE.
+        // Permissão fica de fora porque o Stop também não a trata.
+        s.mudar({ status: "idle", hookLatched: true, currentTool: null, statusReason: `hook:StopFailure com pergunta aberta ${payload.error ?? ""}`.trim() });
       }
       talvezSoltarFila(s);
       break;
