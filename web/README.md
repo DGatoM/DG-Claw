@@ -91,13 +91,13 @@ API (todas com sessão; erros sempre `{ok:false, erro:"motivo em português"}`):
 | `POST`/`DELETE /api/v1/agents/:id/nao-lido` | Liga/desliga "Marcar como não lida". A marca só sai quando a pessoa abre a conversa (`POST .../lido` com `{ep, abriu:true}`) ou com o `DELETE`; o lido automático da rolagem não limpa. |
 | `POST /api/v1/agents/:id/vendo` | Sinal leve (a cada 20 s, aba visível): quem está olhando a conversa não recebe aviso no celular dela. |
 | `GET`/`POST /api/v1/push/preferencias` | `{precisa_de_voce, terminou}` (padrão ligado): quais avisos dos agentes chegam ao aparelho. Ver `docs/AVISOS-NO-APARELHO.md`. |
-| `POST /api/v1/agents/:id/send` | `{text, anexos?, cliente_id?}`; idempotente por `cliente_id`. |
+| `POST /api/v1/agents/:id/send` | `{text, anexos?, cliente_id?, voz?}`; idempotente por `cliente_id`. `voz: true` (só o booleano) põe `voz="1"` no envelope: a resposta vai ser ouvida e o agente responde curto, falado, sem tabela nem URL. Ver `docs/CONVERSA.md`. |
 | `POST /api/v1/agents/:id/upload` | Multipart (`file`, `enviar`, `legenda`, `cliente_id`). |
 | `GET`/`POST`/`DELETE /api/v1/agents/:id/login`, `POST .../login/codigo`, `POST .../login/oi` | Login assistido do Claude/Codex pela conversa (repasse ao runner) e o primeiro oi. Docs em `GET /api/v1/login/docs.md` (fonte: `docs/LOGIN-NA-CONVERSA.md`). |
 | `GET /api/v1/media/:id` e `/thumb` | Arquivo registrado, com `Range`. `?baixar=1` força o download. HTML, SVG, XML e JS abertos direto saem com CSP `sandbox` e `nosniff`. |
 | `GET` e `HEAD /api/v1/media/:id/visual?tema=claro` (ou `escuro`) | Documento do visual (`vis-*.html` do agente, com a base `dgvis` na frente), com CSP `sandbox allow-scripts` no cabeçalho. Erro vem como página HTML com o motivo (404, 410, 413, 415, 500). Ver `docs/VISUAIS.md`. |
 | `POST /api/v1/transcribe` | Multipart com `audio`. Resposta `{ok, text}`. |
-| `POST /api/v1/tts` | `{agent_id, text}`; responde o áudio (`audio/mpeg`). `X-TTS-Cortado: 1` quando o texto foi cortado. |
+| `POST /api/v1/tts` | `{agent_id, text, parte?}`; responde o áudio (`audio/mpeg`) de um pedaço do texto (até 40 pedaços; `parte` fora do intervalo dá 400). Cabeçalhos `X-TTS-Partes`, `X-TTS-Parte` e `X-TTS-Chars`. Ver `docs/CONVERSA.md`. |
 | `GET /api/v1/tts/cota` | Uso da cota de voz. |
 | `POST /api/v1/sigilo` | `{textos:[...]}` (até 600). Aponta os trechos sensíveis de cada texto para o modo escondido: `{trechos, avisos, analisados, modelo, so_regex}`. `GET /api/v1/sigilo/estado` diz o modelo ativo; docs em `GET /api/v1/sigilo/docs.md`. Ver `docs/MODO-ESCONDIDO.md`. |
 | `GET /api/v1/eu` | `{ok, usuario}`. |

@@ -531,3 +531,40 @@ test('páginas: / vai para o Admin, /a/<slug> serve a conversa e slug inexistent
     assert.equal((await s.t.c.get('/api/saude', { semCookie: true })).json.ok, true);
   } finally { await s.fechar(); }
 });
+
+test('avatar por https sai pelo mesmo domínio e sem foto dá 404 explicado', async () => {
+  const s = await cenario();
+  try {
+    const sem = await s.t.c.get('/api/v1/agents/ana/avatar');
+    assert.equal(sem.status, 404); assert.match(sem.json.erro, /não tem foto/);
+  } finally { await s.fechar(); }
+});
+
+test('send: voz:true põe voz="1" no fim dos atributos do envelope; sem voz (ou outro valor) não põe', async () => {
+  const s = await cenario();
+  try {
+    await s.t.c.post('/api/v1/agents/ana/send', { json: { text: 'falado', voz: true } });
+    await s.t.c.post('/api/v1/agents/ana/send', { json: { text: 'escrito' } });
+    await s.t.c.post('/api/v1/agents/ana/send', { json: { text: 'texto da string', voz: 'true' } });
+    await s.t.c.post('/api/v1/agents/ana/send', { json: { text: 'um', voz: 1 } });
+    const [a, b, c, d] = s.rAna.rec.inputs.map((i) => i.text);
+    assert.match(a, /^<dgchat from="pessoa" chat="c_ana" msg="[^"]+" ts="[^"]+" voz="1">falado<\/dgchat>$/);
+    for (const t of [b, c, d]) assert.ok(!t.includes('voz='), t);
+  } finally { await s.fechar(); }
+});
+
+test('send: comando de barra não leva a tag de voz', async () => {
+  const s = await cenario();
+  try {
+    const r = await s.t.c.post('/api/v1/agents/ana/send', { json: { text: '/compact', voz: true } });
+    assert.equal(r.status, 200, r.texto);
+    for (const i of s.rAna.rec.inputs) assert.ok(!i.text.includes('voz='), i.text);
+  } finally { await s.fechar(); }
+});
+
+test('montarEnvelope: voz só com true', () => {
+  const base = { from: 'pessoa', chat: 'c', msg: 'm', ts: 't', text: 'x' };
+  assert.equal(montarEnvelope({ ...base, voz: true }), '<dgchat from="pessoa" chat="c" msg="m" ts="t" voz="1">x</dgchat>');
+  assert.equal(montarEnvelope({ ...base, voz: 'true' }), '<dgchat from="pessoa" chat="c" msg="m" ts="t">x</dgchat>');
+  assert.equal(montarEnvelope(base), '<dgchat from="pessoa" chat="c" msg="m" ts="t">x</dgchat>');
+});

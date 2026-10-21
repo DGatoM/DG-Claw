@@ -61,6 +61,66 @@ aprovar sem querer o comando que surgiu em seguida, e o botão Aprovar de uma te
 - **Marcar como não lida.** No menu ☰ (botão ⋯ ou toque longo no agente) e no cabeçalho da conversa.
   A marca fica até você abrir a conversa de novo; rolar a tela não a apaga.
 
+- A voz agora lê a resposta inteira, não só o começo. O texto é limpo (tabela, código e link não viram
+  fala), fatiado por parágrafo e frase, e a tela toca os pedaços em sequência, já preparando o próximo
+  enquanto o atual toca. Parar de falar ou gravar um áudio novo interrompe a leitura toda. O aviso de
+  "resposta cortada" saiu, e um texto de mais de 40 pedaços é recusado com o motivo.
+- Com o modo de ouvir ligado, a mensagem segue ao agente com `voz="1"` no envelope, e ele responde curto, em
+  frases faladas, sem tabela nem URL. O campo `voz: true` também vale para quem usa o `/send` por API.
+- Cada fala do agente ganha um botão 🎧 (só com o modo de ouvir ligado) para ouvir de novo, sem reabrir o
+  microfone.
+
+- Fila de leitura em voz. Uma resposta nova do agente não derruba mais a que você está ouvindo: ela entra no
+  fim da fila e toca depois, uma por vez. Enquanto você grava, nada toca; a que estava tocando pausa e, quando
+  você envia ou cancela a gravação, ela continua (do começo, se tinha tocado menos de 20%, senão de onde
+  parou), seguida das que chegaram nesse meio tempo. Cada balão mostra se está tocando agora ou na fila. Para
+  pular, toque no 🎧 do balão que quer ouvir: ele toca e segue dali. Só as respostas normais do agente entram
+  na fila sozinhas; as mensagens de rotina só tocam se você apertar o 🎧 delas.
+
+### Como atualizar (voz)
+
+Nesta versão há uma instrução nova para o seu agente saber quando você está ouvindo a resposta, e ela
+precisa entrar nas instruções dele sem apagar o que você personalizou. Para isso, rode
+`sudo dgclaw agente identidade <agente>` para cada agente que você já tem. No celular, feche e abra o app
+uma vez para ele buscar os arquivos novos.
+
+### Como atualizar (fila de voz)
+
+Não há nada para rodar: é só a tela. No celular, feche e abra o app uma vez para ele buscar os arquivos novos
+(ou recarregue a página no computador). Quem ainda não atualizou a parte de voz acima precisa fazer aquele
+passo primeiro.
+
+### Corrigido
+
+- A foto do agente cadastrada por endereço (`https://...`) aparecia pela metade no iPhone, com o verde do
+  avatar por baixo. A mesma foto de fora era pedida várias vezes por página. Agora o painel baixa a foto
+  uma vez, guarda em `/var/lib/dgclaw/web/avatares/` e entrega do próprio endereço do painel
+  (`/api/v1/agents/<agente>/avatar`), inteira e com cache de um ano. O cache se renova sozinho quando você
+  troca o endereço da foto no cadastro. Enquanto a foto carrega, o círculo fica cinza claro em vez da cor
+  do agente. Foto de SVG não é aceita (PNG, JPEG, WebP, GIF e AVIF até 5 MB); se o download falhar, a
+  resposta e o log dizem o motivo.
+
+### Alterado
+
+- As sessões paralelas do agente (as do descritor e as criadas por `POST /api/sessoes`, inclusive a de
+  bastidores) agora sobem sempre em modo `auto`, em vez de herdar o `bypassPermissions` da principal. O
+  agente principal continua em `bypassPermissions`, que é obrigatório. Os pedidos de permissão das outras
+  sessões aparecem na tela pelo cartão de permissão.
+- Dependências atualizadas: pino 10 no canal do WhatsApp, express-rate-limit 8 no painel,
+  TypeScript 7 no runner e as GitHub Actions do CI (checkout, setup-node e setup-python 7,
+  upload-artifact 7, sbom-action 0.24.3).
+- O Dependabot passa a abrir no máximo um PR por pasta por semana (toda segunda), juntando as
+  versões minor e patch; as GitHub Actions vêm todas num PR só. As versões major continuam
+  separadas, com no máximo três PRs abertos por pasta. A versão major do Express fica de fora: o
+  Express 5 muda o roteamento e quebrou o CI do painel, e a migração vai ser uma tarefa própria.
+
+### Como atualizar
+
+Nada a configurar: atualize como de costume (`sudo dgclaw atualizar` ou peça ao Admin). Depois, no
+celular, feche e abra o app uma vez para ele buscar os arquivos novos. A primeira vez que cada foto for
+pedida demora um instante a mais, porque é quando o painel a baixa; as seguintes vêm na hora. Fotos que
+você enviou pelo formulário de criar agente já saíam do painel e não mudam.
+
 ## [1.0.0] - 2026-10-19
 
 A v1 troca o plugin do Claude Code por uma plataforma completa: um instalador, um painel web com

@@ -34,6 +34,6 @@ test('conversa.css: o respiro da área segura só sai da barra quando a fileira 
 test('a bolinha de não lidas do avatar existe no CSS e o service worker subiu de versão', () => {
   const css = fs.readFileSync(path.join(PUBLICO, 'conversa.css'), 'utf8');
   assert.match(css, /\.troca-baixo \.bolinha-nl\{[^}]*position:absolute[^}]*border:2px solid/);
-  assert.match(fs.readFileSync(path.join(PUBLICO, 'sw.js'), 'utf8'), /dgclaw-estaticos-v26'/);
+  assert.match(fs.readFileSync(path.join(PUBLICO, 'sw.js'), 'utf8'), /dgclaw-estaticos-v28'/);
   assert.match(fs.readFileSync(path.join(PUBLICO, 'conversa.js'), 'utf8'), /class="bolinha-nl"/);
 });

@@ -1,10 +1,21 @@
-# Atualizações automáticas de dependência. Um PR por pasta e por semana, nunca direto na main.
+# Atualizações automáticas de dependência, nunca direto na main.
+#
+# Para não chegar uma enxurrada de PRs (em 20/10/2026 eram dez abertos de uma vez), cada pasta recebe
+# no máximo um PR por semana, toda segunda, juntando as versões minor e patch. As versões major
+# continuam vindo separadas, uma por PR, porque costumam quebrar coisa e merecem revisão própria; o
+# limite de PRs abertos por pasta segura o volume delas. As GitHub Actions vêm todas num PR só, major
+# inclusive, porque o próprio CI testa a mudança.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    groups:
+      actions:
+        patterns: ["*"]
     commit-message:
       prefix: "ci"
 
@@ -15,17 +26,37 @@ updates:
     directory: /runner
     schedule:
       interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    groups:
+      minor-e-patch:
+        update-types: ["minor", "patch"]
     commit-message:
       prefix: "deps(runner)"
   - package-ecosystem: npm
     directory: /canais/whatsapp
     schedule:
       interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    groups:
+      minor-e-patch:
+        update-types: ["minor", "patch"]
     commit-message:
       prefix: "deps(whatsapp)"
   - package-ecosystem: npm
     directory: /panel
     schedule:
       interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    groups:
+      minor-e-patch:
+        update-types: ["minor", "patch"]
+    # O Express 5 muda o roteamento e quebrou o CI do painel (PR #48, fechado em 20/10/2026). A
+    # migração vira tarefa própria; até lá, só minor e patch do Express 4.
+    ignore:
+      - dependency-name: express
+        update-types: ["version-update:semver-major"]
     commit-message:
       prefix: "deps(panel)"

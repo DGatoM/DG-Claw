@@ -34,6 +34,22 @@ Telegram e outros canais são opcionais. A instalação inicial funciona pelo ch
 sem configurar um bot. O histórico disponível depende dos registros da sessão e das conexões
 habilitadas no agente.
 
+## Voz: ouvir a resposta
+
+Com o modo de ouvir (🔊) ligado, a tela manda `voz: true` no corpo do `/send` e o envelope chega ao
+agente com `voz="1"` no fim dos atributos: `<dgchat from chat msg ts voz="1">texto</dgchat>`. O
+significado é que a resposta vai ser OUVIDA, então o agente responde curto, em frases simples e
+faladas, sem tabela, lista longa nem URL. Só o booleano `true` liga (qualquer outro valor sai sem o
+atributo) e comando de barra nunca leva a tag. Quem lê o envelope pega `from`, `chat`, `msg` e `ts`
+por nome, então o atributo extra passa sem efeito e a tela não o mostra.
+
+Para tocar, a tela pede `POST /api/v1/tts` com `parte`. O servidor limpa o texto (markdown, tabela,
+código e link não viram fala), fatia por parágrafo e frase (1º pedaço até 450 caracteres, os demais
+até 1200, no máximo 40 pedaços) e devolve o pedaço pedido com `X-TTS-Partes`, `X-TTS-Parte` e
+`X-TTS-Chars`. A tela toca em sequência e já pede o próximo enquanto o atual toca. Parar de falar ou
+gravar um áudio novo interrompe a fila inteira. O botão 🎧 de cada fala do agente toca ela de novo
+(só com o modo de ouvir ligado) e não abre o microfone no fim.
+
 ## Modo escondido
 
 O botão 👁 do cabeçalho esconde nomes, valores e contatos de todas as mensagens para mostrar a tela

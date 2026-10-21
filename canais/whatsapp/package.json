@@ -1,1 +1,1 @@
-{"name": "dgclaw-whatsapp", "private": true, "type": "module", "dependencies": {"@whiskeysockets/baileys": "6.7.24", "pino": "9.14.0"}, "overrides": {"libsignal": "6.0.0"}}
+{"name": "dgclaw-whatsapp", "private": true, "type": "module", "dependencies": {"@whiskeysockets/baileys": "6.7.24", "pino": "10.4.0"}, "overrides": {"libsignal": "6.0.0"}}

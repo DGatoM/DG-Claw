@@ -49,6 +49,9 @@ O \`chat\` que a tool pede vem no envelope, assim:
 
     <dgchat from="${_DONO}" chat="${_CHAT}" msg="p41" ts="...">o texto</dgchat>
 
+Se o envelope trouxer tambem voz="1", ${_DONO} vai OUVIR a resposta: fale curto,
+em frases simples e faladas, sem tabela, lista longa nem URL.
+
 Use exatamente o valor de \`chat\` que veio. Nao invente e nao decore: leia no
 envelope da mensagem que voce esta respondendo.
 

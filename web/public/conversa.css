@@ -413,6 +413,8 @@
         padding-bottom:env(safe-area-inset-bottom)}
   aside#menu.abre{transform:translateX(0)}
   .av img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block}
+  /* foto ainda pintando não pode mostrar o verde da cor do agente por baixo (iPhone, 21/10) */
+  .av:has(>img){background:#e4eae6 !important}
   .pe{flex:0 0 auto;border-top:1px solid var(--line);padding:4px 8px 2px}
   .pe .conta{display:flex;align-items:center;justify-content:space-between;gap:8px;
         min-height:36px;padding:0 4px 0 8px}
@@ -668,3 +670,14 @@ html[data-tema="escuro"] .cartaoarq-info{color:#9bb0a0}
   html:not([data-tema="claro"]) .cartaoarq{background:#26302a;color:#dbe6dc}
   html:not([data-tema="claro"]) .cartaoarq-info{color:#9bb0a0}
 }
+
+/* fone: ouvir a fala de novo; só com o modo de ouvir ligado (body.ler-on). Alvo de toque de ~32px. */
+.fone{display:none;border:0;background:transparent;padding:0 4px;margin-right:4px;font-size:15px;line-height:1;
+      cursor:pointer;min-width:32px;min-height:32px;vertical-align:middle;-webkit-tap-highlight-color:transparent}
+body.ler-on .fone{display:inline-block}
+body:not(.ler-on) .fone{display:none}
+
+/* selo da fila de leitura em voz (21/10/2026): discreto, quebra linha no celular */
+.selo-fila{display:block;margin-top:4px;font-size:12px;line-height:1.3;opacity:.75;overflow-wrap:anywhere}
+.row.fila-tocando .selo-fila{opacity:1;font-weight:600}
+.row.fila-pausada .selo-fila{opacity:.9}

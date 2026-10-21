@@ -12,6 +12,7 @@ const { criarRegistro } = require('./lib/registro');
 const { criarRunner } = require('./lib/runner');
 const { criarAuth } = require('./lib/auth');
 const { criarMidia } = require('./lib/media');
+const { criarAvatar } = require('./lib/avatar');
 const { criarCompartilhados } = require('./lib/compartilhados');
 const { criarLeitor, paraContainer } = require('./lib/thread');
 const { criarLeitorRollout } = require('./lib/rollout');
@@ -80,6 +81,7 @@ function criarServidor(opcoes) {
   const runner = criarRunner({ log, timeoutMs: opcoes.timeoutRunnerMs });
   const auth = criarAuth({ config, log, agora: opcoes.agora });
   const primeiroAcesso = criarPrimeiroAcesso({ config, auth, log, agora: opcoes.agora });
+  const avatares = criarAvatar({ dataDir: config.dataDir, log });
   const midia = criarMidia({ dataDir: config.dataDir, log, registro, publicDir: config.publicDir });
   const leitor = criarLeitor({ log, tz: config.tz, canalTelegram: config.canalTelegram, midia });
   const leitorRollout = criarLeitorRollout({ log, tz: config.tz, midia });
@@ -273,7 +275,7 @@ function criarServidor(opcoes) {
     const foto = onboarding.foto(a.slug);
     if (foto) return { avatar: a.nome.slice(0, 1), avatar_img: foto };
     const av = a.avatar || '';
-    if (/^https:\/\//i.test(av)) return { avatar: (a.nome[0] || '?').toUpperCase(), avatar_img: av };
+    if (avatares.ehUrlDeFoto(av)) return { avatar: (a.nome[0] || '?').toUpperCase(), avatar_img: avatares.urlPublica(a.slug, av) };
     return { avatar: av || (a.nome[0] || '?').toUpperCase(), avatar_img: null };
   }
 
@@ -492,6 +494,10 @@ function criarServidor(opcoes) {
       if (!agente) return undefined;
       const acao = mm[2] || '';
       if (acao === '' && m === 'GET') return H.enviaJson(res, 200, { ok: true, agente: await agentePublico(agente) });
+      if (acao === 'avatar' && (m === 'GET' || m === 'HEAD')) {
+        const falha = await avatares.servir(req, res, agente);
+        return falha ? H.erroJson(res, falha.status, falha.erro) : undefined;
+      }
       if (acao === 'compartilhados' && m === 'GET') {
         try {
           if (url.searchParams.has('mensagem')) {
@@ -726,10 +732,13 @@ function criarServidor(opcoes) {
     const slug = typeof corpo.agent_id === 'string' ? corpo.agent_id : (registro.estado().agentes[0] || {}).slug;
     const agente = registro.obter(slug);
     if (!agente) return H.erroJson(res, 404, `Não existe agente com o id "${String(slug).slice(0, 40)}".`);
-    const r = await voz.falar(agente, corpo.text, typeof corpo.voice_id === 'string' ? corpo.voice_id : null);
+    const parte = corpo.parte == null ? 0 : corpo.parte;
+    if (!Number.isInteger(parte) || parte < 0) {
+      return H.erroJson(res, 400, `O campo "parte" precisa ser um número inteiro a partir de 0 (o pedaço de voz pedido). Recebi ${JSON.stringify(parte).slice(0, 40)}. Nada foi falado.`);
+    }
+    const r = await voz.falar(agente, corpo.text, typeof corpo.voice_id === 'string' ? corpo.voice_id : null, parte);
     if (r.erro) return H.erroJson(res, r.status, r.erro);
-    const cab = { 'Content-Type': 'audio/mpeg', 'Content-Length': r.audio.length, 'Cache-Control': 'no-store', 'X-TTS-Chars': String(r.chars) };
-    if (r.cortado) cab['X-TTS-Cortado'] = '1';
+    const cab = { 'Content-Type': 'audio/mpeg', 'Content-Length': r.audio.length, 'Cache-Control': 'no-store', 'X-TTS-Chars': String(r.chars), 'X-TTS-Partes': String(r.partes), 'X-TTS-Parte': String(r.parte) };
     res.writeHead(200, cab);
     return res.end(r.audio);
   }

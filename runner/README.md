@@ -74,6 +74,11 @@ settings de hooks e `runner-state.json` próprios
 `bastidores`: o canto escondido onde o dono conserta coisas. Tudo passa pela
 MESMA porta (o container publica uma só).
 
+Modo de permissão: a principal roda em `bypassPermissions` (obrigatório) e toda sessão
+paralela sobe em `auto`, sem herdar da principal e sem campo para mudar isso. Os pedidos
+de permissão da paralela aparecem na tela pelo cartão de permissão
+(`web/docs/TRILHA-E-PERMISSAO.md`). No Codex, `auto` vira `--ask-for-approval on-request`.
+
 Campos novos do `runner.json`, todos opcionais: `chatPrincipal` (padrão
 `c_<slug>`), `notasPrincipal` (padrão `.plataforma/bastidores/notas.jsonl`),
 `capacidade { gbPorSessao = 0.4, reservaGb, avisoFaltando = 0 }`, `config.promptHooks`

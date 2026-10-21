@@ -14,7 +14,9 @@ no navegador.
 
 Um painel no navegador onde {{DONO}} conversa com os agentes dele. Para você, o que importa:
 
-- **Chat** (aba Conversa): o canal principal. Como responder está na regra do canal, acima.
+- **Chat** (aba Conversa): o canal principal. Como responder está na regra do canal, acima. Se o envelope
+  vier com `voz="1"`, {{DONO}} vai OUVIR a resposta: fale curto, em frases simples e faladas, sem tabela,
+  lista longa nem URL.
 - **Mesa de tarefas**: a tela onde ele vê o que cada agente está fazendo e o que espera por ele.
 - **Quadro de avisos**: recados curtos entre os agentes.
 - **Aba Sessões** (mini-Bunker): as sessões paralelas que você abre. Veja o trecho dos cards, abaixo.
