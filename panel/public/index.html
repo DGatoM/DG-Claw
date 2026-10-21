@@ -16,6 +16,7 @@
   <link rel="stylesheet" href="{{BASE}}/css/leitura.css">
   <link rel="stylesheet" href="{{BASE}}/css/wm-status.css">
   <link rel="stylesheet" href="{{BASE}}/css/provedor.css">
+  <link rel="stylesheet" href="{{BASE}}/css/uso.css">
   {{CASCA}}
   <link rel="stylesheet" href="{{BASE}}/css/sem-zoom.css">
   <script src="{{BASE}}/js/sem-zoom.js"></script>
@@ -227,6 +228,15 @@
                 <button type="button" class="prov-btn" id="prov-entrar" hidden title="O agente não está logado na sua assinatura. Este botão mostra o link de login e, quando precisar, o código para digitar. Você não usa terminal.">Conectar minha conta</button>
               </div>
               <div class="prov-login" id="prov-login" hidden></div>
+            </div>
+          </section>
+
+          <!-- Uso da assinatura (19/10/2026): quanto da janela de 5 horas e da semana já foi gasto.
+               O js/uso.js preenche; o número vem do runner (GET /api/uso), nunca é calculado aqui. -->
+          <section class="cartao uso-cartao">
+            <div class="section-title" title="Quanto da sua assinatura o agente já gastou: na janela de 5 horas e na semana. Quando chega a 100%, o agente espera a janela zerar.">Uso da assinatura</div>
+            <div id="uso-assinatura" class="uso-lista" aria-live="polite">
+              <p class="uso-fraco">Conferindo o uso...</p>
             </div>
           </section>
 
@@ -536,6 +546,7 @@
   <script src="{{BASE}}/js/operacoes.js"></script>
   <script src="{{BASE}}/js/cerebro.js"></script>
   <script src="{{BASE}}/js/wm-status.js"></script>
+  <script src="{{BASE}}/js/uso.js"></script>
   <script src="{{BASE}}/js/provedor.js"></script>
   <script src="{{BASE}}/js/app.js"></script>
   <script src="{{BASE}}/js/apps.js"></script>

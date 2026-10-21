@@ -56,6 +56,7 @@ if (navigator.standalone === true ||
       <a id="btnMesa" class="btn" href="/mesa" data-tour="btn-mesa" title="Abrir a Mesa de tarefas" aria-label="Abrir a Mesa de tarefas">📋 <span class="lbl">Mesa</span></a>
       <a id="btnSessoes" class="btn" href="#" hidden data-tour="btn-sessoes" title="Sessões de trabalho deste agente" aria-label="Abrir as Sessões deste agente">🖥 <span class="lbl">Sessões</span></a>
       <a id="btnLembretes" class="btn" href="/lembretes" data-tour="btn-lembretes" title="Abrir os lembretes" aria-label="Abrir os lembretes">⏰ <span class="lbl">Lembretes</span></a>
+      <button id="btnNaoLida" class="btn" type="button" data-tour="btn-nao-lida" title="Marcar esta conversa como não lida e voltar à lista de agentes" aria-label="Marcar esta conversa como não lida">✉ <span class="lbl">não lida</span></button>
       <button id="btnLer" class="btn" title="Ler as respostas em voz alta" data-tour="ler">🔊 <span class="lbl">ler</span></button>
       <button id="btnContinua" class="btn" type="button" aria-pressed="false"
               aria-label="Conversa contínua: desligada"
@@ -72,7 +73,8 @@ if (navigator.standalone === true ||
 
 <div id="chat" data-tour="thread"><div class="wrap" id="wrap"></div>
   <section id="loginCartao" class="lc" role="region" aria-label="Conectar a sua conta" tabindex="-1" hidden></section>
-  <section id="permCartao" class="pc" role="alertdialog" aria-live="assertive" aria-label="Permissão pedida pelo agente" tabindex="-1" hidden></section></div>
+  <section id="permCartao" class="pc" role="alertdialog" aria-live="assertive" aria-label="Permissão pedida pelo agente" tabindex="-1" hidden></section>
+  <section id="perguntaCartao" class="pc pq" role="alertdialog" aria-live="polite" aria-label="Pergunta de escolha do agente" tabindex="-1" hidden></section></div>
 
 <aside id="alertasMensagem" data-tour="alertas" aria-label="Entregas e pedidos não vistos" hidden>
   <div id="alertasPilha"></div>

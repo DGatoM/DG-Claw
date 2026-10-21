@@ -7,7 +7,59 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+Duas ideias trazidas do Orca (https://github.com/stablyai/orca, licença MIT; crédito no `NOTICE`): o
+medidor de uso da assinatura e o aviso de que um agente precisa de você.
+
+Agora dá para responder pelo chat a pergunta de escolha que o agente faz (aquela com opções para marcar): a
+pergunta aparece num cartão acima da caixa de mensagem, com as opções, um campo para outra resposta e o botão de
+cancelar. A mensagem digitada enquanto ele espera essa resposta não fica mais presa em silêncio: a tela avisa, mantém o seu texto na
+caixa e manda você responder a pergunta primeiro. A aprovação de um comando também não pode mais ser confundida
+com a resposta da pergunta: se você responder pelo terminal no meio, o resto da resposta é interrompido em vez de
+aprovar sem querer o comando que surgiu em seguida, e o botão Aprovar de uma tela desatualizada é recusado.
+
+### Como atualizar
+
+1. **Peça ao Admin, no chat: "atualiza o DG Claw".** A atualização reconstrói a imagem e recria os
+   agentes, e é isso que liga o medidor: a medição sai do runner (o processo que mantém cada agente vivo)
+   e do hook novo que ele grava a cada subida. Agente que você deixou parado continua com o runner
+   antigo e mostra "sem dado" até ser ligado de novo.
+2. **Espere uma resposta de cada agente.** O número do uso só aparece depois da primeira resposta
+   desde a atualização, porque é o próprio Claude Code (ou o Codex) que informa o quanto já foi gasto
+   ao responder. Até lá, o Status mostra "sem dado", e isso é esperado, não erro.
+3. **Regrave a identidade dos agentes que você já tem**, com `sudo dgclaw agente identidade <agente>`
+   para cada um. Nesta versão eles aprendem que você vê o uso da assinatura no Status e que um agente
+   pode consultar o próprio uso. O comando não mexe no `CLAUDE.md`, no `AGENT.md` nem na memória que
+   você personalizou.
+4. **Se você personalizou o `CLAUDE.md` ou o `AGENTS.md` do Admin,** leve do `.novo` para o seu
+   arquivo as duas linhas sobre "uso da assinatura" e "estado de cada agente", sem apagar o que você
+   escreveu. Sem elas o Admin não sabe onde fica o medidor quando você perguntar.
+5. **Para receber os avisos no celular,** ative "Avisos neste aparelho" na tela de Lembretes, se
+   ainda não ativou. No iPhone, o aviso só chega com o DG Claw instalado na tela de início. Se o app
+   instalado abrir com aviso de erro, feche e abra de novo para ele buscar os arquivos novos.
+
 ### Adicionado
+
+- **Uso da assinatura.** O Status de cada agente ganhou o cartão "Uso da assinatura", com quanto já foi
+  gasto da janela de 5 horas e do limite semanal, a hora em que cada um zera e há quanto tempo foi
+  medido. O menu ☰ ganhou "Uso das assinaturas", com todos os agentes juntos. No Claude, o número vem
+  da linha de status do próprio Claude Code a cada resposta; no Codex, do registro da sessão. O que não
+  foi medido aparece como "sem dado", nunca como zero. Janela que já zerou mostra a hora em que zerou,
+  e não o percentual antigo. Pela API: `GET /api/v1/uso` (o agente que pergunta pela caixa recebe só o
+  dele), `GET /api/uso` no painel do agente e `GET /api/agents/<id>/uso` no runner. Documento em
+  `web/docs/USO-DA-ASSINATURA.md`.
+- **"Precisa de você".** O menu ☰ e a fileira de avatares do celular mostram o estado de cada agente:
+  trabalhando (pontinhos), terminou com resposta não lida (a bolinha de sempre) ou precisa de você
+  (selo âmbar com "!"), quando ele pede permissão para usar uma ferramenta, faz uma pergunta de
+  escolha ou perde o login. Pela API: `GET /api/v1/estados`. Documento em
+  `web/docs/ESTADO-DOS-AGENTES.md`.
+- **Aviso no celular** quando um agente precisa de você ou termina uma resposta. O aviso não sai
+  quando você já está olhando aquela conversa, e sai no máximo um por agente a cada minuto. O aviso de
+  "terminou" diz só "Respondeu na conversa", sem nada do texto, porque a tela bloqueada do celular não
+  pede senha. Os dois
+  tipos se ligam e desligam na tela de Lembretes. O aviso não aprova nada: para aprovar uma permissão
+  é preciso abrir a conversa.
+- **Marcar como não lida.** No menu ☰ (botão ⋯ ou toque longo no agente) e no cabeçalho da conversa.
+  A marca fica até você abrir a conversa de novo; rolar a tela não a apaga.
 
 - A voz agora lê a resposta inteira, não só o começo. O texto é limpo (tabela, código e link não viram
   fala), fatiado por parágrafo e frase, e a tela toca os pedaços em sequência, já preparando o próximo

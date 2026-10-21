@@ -9,7 +9,7 @@ function criarRunnerFalso(opcoes) {
     statusReason: null, erroEstado: null,
     // login assistido: o estado que GET/POST /api/provedor/login devolvem (o teste muda à vontade)
     login: { estado: 'nenhum' }, loginRecusa: null }, opcoes || {});
-  const rec = { reinicios: 0, permissoes: [], inputs: [], cabecalhos: [], estadoPedidos: 0, provedorPedidos: 0, loginPosts: 0, loginDeletes: 0, codigos: [] };
+  const rec = { reinicios: 0, permissoes: [], permissaoIds: [], perguntas: [], inputs: [], cabecalhos: [], estadoPedidos: 0, provedorPedidos: 0, loginPosts: 0, loginDeletes: 0, codigos: [] };
   const servidor = http.createServer((req, res) => {
     const json = (status, corpo) => { const t = JSON.stringify(corpo); res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(t); };
     rec.cabecalhos.push({ metodo: req.method, url: req.url, authorization: req.headers.authorization || null });
@@ -18,7 +18,14 @@ function criarRunnerFalso(opcoes) {
     if (rota === `/api/agents/${o.agenteId}` && req.method === 'GET') {
       rec.estadoPedidos += 1;
       if (o.falhaEstado) return json(503, { success: false, error: 'runner indisponível no teste' });
-      return json(200, { success: true, data: { id: o.agenteId, status: o.status, sessionId: o.sessionId, currentTool: o.currentTool, updatedAt: Date.now(), codexHome: o.codexHome, statusReason: o.statusReason, error: o.erroEstado } });
+      return json(200, { success: true, data: { id: o.agenteId, status: o.status, sessionId: o.sessionId, currentTool: o.currentTool, updatedAt: Date.now(), codexHome: o.codexHome, statusReason: o.statusReason, error: o.erroEstado, motivo: o.motivo } });
+    }
+    if (rota === `/api/agents/${o.agenteId}/uso` && req.method === 'GET') {
+      rec.usoPedidos = (rec.usoPedidos || 0) + 1;
+      if (o.falhaUso) return json(o.falhaUso.status, o.falhaUso.corpo);
+      if (o.atrasoUsoMs) return setTimeout(() => json(200, { ok: true, uso: o.uso }), o.atrasoUsoMs);
+      if (!o.uso) return json(200, { ok: true, uso: { provedor: 'claude', sessao_5h: null, semanal: null, plano: null, medido_em: null, fonte: null }, motivo: 'Ainda não houve resposta desde que o medidor foi instalado; o número aparece depois da próxima resposta do agente.' });
+      return json(200, { ok: true, uso: o.uso });
     }
     if (rota === `/api/agents/${o.agenteId}/input` && req.method === 'POST') {
       const partes = [];
@@ -26,6 +33,7 @@ function criarRunnerFalso(opcoes) {
       req.on('end', () => {
         const corpo = JSON.parse(Buffer.concat(partes).toString('utf8'));
         rec.inputs.push(corpo);
+        if (o.falhaInputNaChamada === rec.inputs.length) return json(500, { success: false, error: 'o terminal sumiu no meio', howToFix: 'reinicie o agente' });
         if (o.falhaInput) return json(o.falhaInput.status, o.falhaInput.corpo);
         return json(202, { success: true, data: { enfileirado: true, aguardando: 'idle' } });
       });
@@ -39,7 +47,20 @@ function criarRunnerFalso(opcoes) {
         if (o.semRotaPermissao) return json(404, { success: false, error: 'sem rota' });
         if (o.falhaPermissao) return json(o.falhaPermissao.status, o.falhaPermissao.corpo);
         rec.permissoes.push(corpo.decisao);
+        rec.permissaoIds.push(corpo.tool_use_id === undefined ? null : corpo.tool_use_id);
         return json(200, { success: true, data: { decisao: corpo.decisao } });
+      });
+      return undefined;
+    }
+    if (rota === `/api/agents/${o.agenteId}/pergunta` && req.method === 'POST') {
+      const partes = [];
+      req.on('data', (c) => partes.push(c));
+      req.on('end', () => {
+        const corpo = JSON.parse(Buffer.concat(partes).toString('utf8'));
+        if (o.semRotaPergunta) return json(404, { success: false, error: 'sem rota' });
+        rec.perguntas.push(corpo);
+        if (o.falhaPergunta) return json(o.falhaPergunta.status, o.falhaPergunta.corpo);
+        return json(200, { success: true, data: { teclas: corpo.teclas.length } });
       });
       return undefined;
     }

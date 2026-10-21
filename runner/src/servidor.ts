@@ -22,6 +22,8 @@ import { erro as erroHttp, json, lerCorpo } from "./http-util.js";
 import { Conferidor } from "./provedores/conferido.js";
 import { LoginAssistido } from "./provedores/login.js";
 import { tratarRotasDeProvedor } from "./provedores/rotas.js";
+import { MOTIVO_SEM_MEDICAO, deStatusline, paraResposta } from "./uso.js";
+import { nonceConfere } from "./sessao/telas.js";
 import { acharRolloutPorId, mensagensDoRollout } from "./provedores/codex-rollout.js";
 
 /** O estado de uma sessão como o painel e a API o veem. A paralela leva o campo
@@ -140,6 +142,29 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
         return;
       }
 
+      // --- o medidor de uso: o statusLine do Claude manda só o rate_limits, com o nonce do spawn ---
+      if (rota === "/api/agent-uso" && metodo === "POST") {
+        const corpo = await lerCorpo(req).catch((err: Error) => ({ __erro: err.message }));
+        if (typeof (corpo as { __erro?: string }).__erro === "string") {
+          erroHttp(res, 400, "CORPO_INVALIDO", (corpo as { __erro: string }).__erro, "mandar um objeto JSON { agentId, nonce, rate_limits }");
+          return;
+        }
+        const alvo = (corpo as { agentId?: unknown }).agentId;
+        const dona = typeof alvo === "string" ? gerente.porId(alvo) : undefined;
+        if (!dona) {
+          erroHttp(res, 404, "AGENTE_DE_OUTRO_RUNNER", `agentId ${String(alvo)} não é de nenhuma sessão deste runner`, "conferir o --agent do comando statusLine no settings do agente");
+          return;
+        }
+        if (!nonceConfere(dona.nonce, (corpo as { nonce?: unknown }).nonce)) {
+          erroHttp(res, 401, "NONCE_INVALIDO", "nonce de um spawn antigo ou de outro processo", "reiniciar o agente para o Claude pegar o settings novo");
+          return;
+        }
+        const leitura = deStatusline({ rate_limits: (corpo as { rate_limits?: unknown }).rate_limits });
+        const guardou = leitura ? dona.uso.registrar("claude", leitura, "statusline") : false;
+        json(res, { ok: true, guardou });
+        return;
+      }
+
       // --- provedor (Claude/Codex), login assistido e sessões criadas por API ---
       if (await tratarRotasDeProvedor(req, res, rota, metodo, { gerente, login, conferidor })) return;
 
@@ -231,6 +256,16 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
           return;
         }
 
+        if (acao === "/uso" && metodo === "GET") {
+          const uso = sessao.uso.atual(sessao.escolhaAtual().provedor);
+          json(res, {
+            ok: true,
+            uso: paraResposta(uso, Date.now()),
+            ...(uso.medido_em === null ? { motivo: MOTIVO_SEM_MEDICAO } : {}),
+          });
+          return;
+        }
+
         if (acao === "/input" && metodo === "POST") {
           const corpo = await lerCorpo(req).catch((err: Error) => ({ __erro: err.message }));
           if (typeof (corpo as { __erro?: string }).__erro === "string") {
@@ -244,6 +279,13 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
           }
           const enviar = (corpo as { submit?: boolean }).submit !== false;
           const quandoOcioso = (corpo as { injectWhenIdle?: boolean }).injectWhenIdle === true;
+
+          // Qualquer entrada no meio da resposta de uma pergunta intercalaria com as teclas dela (e Enter de turno
+          // escolheria opção). Vale para tecla crua, turno e fila de ocioso.
+          if (sessao.respondendoPergunta) {
+            json(res, { success: false, error: `O agente ${sessao.slug} está recebendo a resposta de uma pergunta de escolha; a entrada não foi enviada.`, howToFix: "esperar alguns segundos e reenviar", code: "RESPOSTA_EM_ANDAMENTO" }, 409);
+            return;
+          }
 
           // A GUARDA DE LOGIN VALE PARA O TURNO, NUNCA PARA A TECLA.
           //
@@ -343,12 +385,41 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
             json(res, { success: false, error: `Corpo precisa de "decisao": "aprovar" ou "negar". Recebido: ${JSON.stringify(decisao ?? null)}`, code: "DECISAO_INVALIDA" }, 400);
             return;
           }
-          const r = sessao.responderPermissao(decisao);
+          const idDaTela = (corpo as { tool_use_id?: unknown }).tool_use_id;
+          if (idDaTela !== undefined && idDaTela !== null && (typeof idDaTela !== "string" || idDaTela === "" || idDaTela.length > 200)) {
+            json(res, { success: false, error: `"tool_use_id" precisa ser texto de 1 a 200 caracteres. Recebido: ${typeof idDaTela}`, code: "TOOL_USE_ID_INVALIDO" }, 400);
+            return;
+          }
+          const r = sessao.responderPermissao(decisao, idDaTela ?? null);
           if (!r.ok) {
             json(res, { success: false, error: r.erro, howToFix: r.comoResolver, code: r.code }, r.status);
             return;
           }
           json(res, { success: true, data: { decisao } });
+          return;
+        }
+
+        if (acao === "/pergunta" && metodo === "POST") {
+          const corpo = await lerCorpo(req).catch((err: Error) => ({ __erro: err.message }));
+          if (typeof (corpo as { __erro?: string }).__erro === "string") {
+            json(res, { success: false, error: (corpo as { __erro: string }).__erro }, 400);
+            return;
+          }
+          const { tool_use_id: id, teclas } = corpo as { tool_use_id?: unknown; teclas?: unknown };
+          if (typeof id !== "string" || id === "" || id.length > 200) {
+            json(res, { success: false, error: `Corpo precisa de "tool_use_id" (texto de 1 a 200 caracteres). Recebido: ${typeof id}`, code: "TOOL_USE_ID_INVALIDO" }, 400);
+            return;
+          }
+          if (!Array.isArray(teclas) || teclas.length < 1 || teclas.length > 40 || teclas.some((t) => typeof t !== "string" || t === "" || t.length > 2000)) {
+            json(res, { success: false, error: `Corpo precisa de "teclas": lista de 1 a 40 textos não vazios de até 2000 caracteres. Recebido: ${Array.isArray(teclas) ? `${teclas.length} itens` : typeof teclas}`, code: "TECLAS_INVALIDAS" }, 400);
+            return;
+          }
+          const r = await sessao.responderPergunta(id, teclas as string[]);
+          if (!r.ok) {
+            json(res, { success: false, error: r.erro, howToFix: r.comoResolver, code: r.code }, r.status);
+            return;
+          }
+          json(res, { success: true, data: { teclas: r.teclas } });
           return;
         }
 
@@ -463,7 +534,7 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
             error: `O runner não tem a rota ${metodo} ${rota}.`,
             howToFix:
               "o runner implementa o que um agente entregue usa: GET /api/agents, GET /api/agents/:id, " +
-              "POST /input, POST /permissao, POST /resume, POST /revive, POST /reiniciar, POST /suspend (só paralelas), DELETE /remove, " +
+              "POST /input, POST /permissao, POST /pergunta, POST /resume, POST /revive, POST /reiniciar, POST /suspend (só paralelas), DELETE /remove, " +
               "GET /conversation, GET /api/capacidade, GET /api/saude, POST /api/agent-hook, " +
               "GET/POST /api/provedor (+ /login), POST /api/sessoes e DELETE /api/sessoes/<id>. " +
               "O resto (cofre, worktree, board, handoff) é do Bunker e não existe aqui",
@@ -531,6 +602,8 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
     if (!soTerminal) {
       ws.send(JSON.stringify({ type: "full_sync", agents: [visao(sessao, false)], projects: [] }));
     }
+    // Para logar uma vez por resposta, não por tecla; zera na primeira tecla aceita depois da resposta.
+    let avisadoNaResposta = 0;
     ws.on("message", (cru) => {
       let msg: Record<string, unknown>;
       try {
@@ -549,7 +622,19 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
           // faria o front do painel achar que o socket está quebrado.
           return;
         case "terminal_input":
-          if (typeof msg.data === "string") sessao.escrever(msg.data);
+          if (typeof msg.data !== "string") return;
+          // Tecla do terminal no meio da resposta de uma pergunta intercalaria com as teclas dela: descarta e avisa.
+          if (sessao.respondendoPergunta) {
+            if (avisadoNaResposta !== sessao.respostasDePergunta) {
+              avisadoNaResposta = sessao.respostasDePergunta;
+              log.aviso("ws", `terminal_input descartado: o agente ${sessao.slug} está recebendo a resposta de uma pergunta de escolha`);
+            }
+            if (ws.readyState === 1) {
+              ws.send(JSON.stringify({ type: "error", code: "RESPOSTA_EM_ANDAMENTO", message: "Uma resposta de pergunta está sendo digitada neste agente; a tecla foi descartada. Tente de novo em alguns segundos." }));
+            }
+            return;
+          }
+          sessao.escrever(msg.data);
           return;
         case "request_terminal_buffer": {
           const tela = sessao.telaInteira();

@@ -18,7 +18,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { marcar } = require('./alertas');
-const { descreveUso } = require('./trilha');
+const { descreveUso, descrevePerguntas } = require('./trilha');
 
 const DGCHAT_ABRE = /<dgchat\b[^>]*>/;
 const DGCHAT_ATTR = /\b(from|chat|msg|ts)="([^"]*)"/g;
@@ -457,7 +457,7 @@ function criarLeitor({ log, tz, canalTelegram, midia }) {
     // meio (a sessão voltou a responder sem compact_boundary). Sem isso, uma resposta em texto puro, sem dgchat
     // nem ferramenta, era descartada aqui e o "já volto" ficava pendurado até vencer o prazo.
     const provaInterrupcao = estado.compactandoEp !== null && /"type"\s*:\s*"assistant"/.test(linha);
-    if (!resultadoPendente && !provaInterrupcao && !/dgchat|<channel|canal-externo|plataforma|dgclaw-poke|command-name|local-command-std|compact_boundary|"content"\s*:\s*"\s*\/compact|telegram__|__whatsapp_|"name":"(?:Bash|Write|Edit|MultiEdit|NotebookEdit)"/.test(linha)) return;
+    if (!resultadoPendente && !provaInterrupcao && !/dgchat|<channel|canal-externo|plataforma|dgclaw-poke|command-name|local-command-std|compact_boundary|"content"\s*:\s*"\s*\/compact|telegram__|__whatsapp_|"name":"(?:Bash|Write|Edit|MultiEdit|NotebookEdit|AskUserQuestion)"/.test(linha)) return;
 
     let o;
     try { o = JSON.parse(linha); } catch (_) { return; } // linha truncada (transcript sendo escrito) não derruba nada
@@ -575,9 +575,15 @@ function criarLeitor({ log, tz, canalTelegram, midia }) {
         const nome = String(b.name || '');
         const inp = b.input || {};
         const origin = estado.trigger === 'cron' ? 'rotina' : 'agente';
+        if (nome === 'AskUserQuestion') {
+          // Pergunta de escolha: fica no mesmo controle de pendentes (o tool_result tira), mas sem `uso`,
+          // para não aparecer como comando no cartão de permissão. A tela de pergunta lê por perguntaPendente().
+          if (typeof b.id === 'string' && b.id) estado.trilhaPend.set(b.id, { ep: epDe(o.timestamp, estado), perguntaId: b.id, perguntas: descrevePerguntas(inp) });
+          continue;
+        }
         const uso = descreveUso(nome, inp);
         if (uso) {
-          if (typeof b.id === 'string' && b.id) estado.trilhaPend.set(b.id, { ep: epDe(o.timestamp, estado), uso });
+          if (typeof b.id === 'string' && b.id) estado.trilhaPend.set(b.id, { ep: epDe(o.timestamp, estado), uso, id: b.id });
           continue;
         }
         if (nome.endsWith(TOOL_TEXTO) || nome.endsWith(TOOL_ARQUIVO)) {
@@ -614,11 +620,23 @@ function criarLeitor({ log, tz, canalTelegram, midia }) {
     const estado = estados.get(`${slug}|${caminho}`);
     if (!estado || !estado.trilhaPend.size) return null;
     let ultimo = null;
-    for (const p of estado.trilhaPend.values()) if (!ultimo || p.ep >= ultimo.ep) ultimo = p;
-    return ultimo ? { ferramenta: ultimo.uso.ferramenta, titulo: ultimo.uso.titulo, comando: ultimo.uso.comando } : null;
+    for (const p of estado.trilhaPend.values()) if (p.uso && (!ultimo || p.ep >= ultimo.ep)) ultimo = p;
+    return ultimo ? { id: ultimo.id || null, ferramenta: ultimo.uso.ferramenta, titulo: ultimo.uso.titulo, comando: ultimo.uso.comando } : null;
   }
 
-  return { ler, pendente, esquece(caminho, slug) { estados.delete(`${slug}|${caminho}`); } };
+  /**
+   * A pergunta de escolha (AskUserQuestion) mais recente sem resultado: { id, perguntas } ou null.
+   * Devolve null também quando o input veio num formato que não dá para dirigir pelo teclado com segurança.
+   */
+  function perguntaPendente(caminho, slug) {
+    const estado = estados.get(`${slug}|${caminho}`);
+    if (!estado || !estado.trilhaPend.size) return null;
+    let ultimo = null;
+    for (const p of estado.trilhaPend.values()) if (p.perguntaId && (!ultimo || p.ep >= ultimo.ep)) ultimo = p;
+    return ultimo && ultimo.perguntas ? { id: ultimo.perguntaId, perguntas: ultimo.perguntas } : null;
+  }
+
+  return { ler, pendente, perguntaPendente, esquece(caminho, slug) { estados.delete(`${slug}|${caminho}`); } };
 }
 
 module.exports = { parseCanalExterno, desescapa, criarLeitor, criarMontagem, lerIncremental, fmtHoraDia, parseDgchat, parseCanalTelegram, paraHost, paraContainer, textoDosBlocos, ROTULO_EMOJI };

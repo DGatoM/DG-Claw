@@ -32,7 +32,8 @@
 
   /** Por que a mensagem está na fila, na frase que o balão mostra. */
   function textoFila(motivo, estaEsperandoPermissao) {
-    if (motivo !== 'permissao' && motivo !== 'resposta') return '';
+    if (motivo !== 'permissao' && motivo !== 'resposta' && motivo !== 'pergunta') return '';
+    if (motivo === 'pergunta') return 'na fila: o agente fez uma pergunta e espera a resposta dela';
     // se o agente passou a esperar permissão depois do envio, essa é a razão de verdade
     if (estaEsperandoPermissao || motivo === 'permissao') return 'na fila: o agente está esperando a sua permissão';
     return 'na fila: o agente ainda está respondendo a anterior';

@@ -13,6 +13,8 @@ export interface PayloadDeEvento {
   event?: string;
   sessionId?: string | null;
   toolName?: string | null;
+  /** O `tool_use_id` do PreToolUse (o Claude Code manda no stdin do hook). */
+  toolUseId?: string | null;
   source?: string | null;
   error?: string | null;
   lastAssistantMessage?: string | null;
@@ -47,7 +49,7 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
     });
   }
 
-  if (["UserPromptSubmit", "PreToolUse", "Stop", "StopFailure", "PreCompact"].includes(payload.event ?? "")) s.marcarAtividade();
+  if (["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "StopFailure", "PreCompact"].includes(payload.event ?? "")) s.marcarAtividade();
   s.hooksVivos = true;
   if (!s.estado.hookActive) s.estado.hookActive = true;
 
@@ -84,6 +86,23 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       break;
     case "PreToolUse":
       cancelarStopPendente(s);
+      // Guardado sempre: o Notification de permissão não traz o id, e o do último PreToolUse é o da ferramenta que pede.
+      s.ultimoToolUseId = payload.toolUseId ?? null;
+      // A pergunta de escolha do Claude (AskUserQuestion) abre a tela de opções logo depois deste hook
+      // e o turno só continua quando a pessoa responde: para o dono é o mesmo "precisa de você" da permissão.
+      if (payload.toolName === "AskUserQuestion") {
+        s.entradasNaAbertura = s.entradasManuais;
+        s.turnoComecouEm = Date.now();
+        s.mudar({
+          status: "waiting_input",
+          motivo: "pergunta",
+          pendenteId: payload.toolUseId ?? null,
+          currentTool: payload.toolName,
+          hookLatched: false,
+          statusReason: "hook:PreToolUse AskUserQuestion",
+        });
+        break;
+      }
       if (s.estado.status !== "working") {
         s.turnoComecouEm = Date.now();
         s.mudar({
@@ -96,12 +115,22 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
         s.mudar({ currentTool: payload.toolName });
       }
       break;
+    case "PostToolUse":
+      // Só chega para AskUserQuestion (matcher do settings): a pessoa respondeu, o turno segue.
+      cancelarStopPendente(s);
+      if (s.estado.status === "waiting_input" && s.estado.motivo === "pergunta") {
+        s.mudar({ status: "working", hookLatched: false, currentTool: null, statusReason: "hook:PostToolUse AskUserQuestion" });
+      }
+      break;
     case "Notification":
       // Só registramos matcher=permission_prompt, então este evento é sempre
-      // "parou para pedir autorização".
+      // "parou para pedir autorização". Se já estamos esperando a resposta de uma pergunta,
+      // ela é que vale: não rebaixa para permissão.
       if (s.estado.status !== "waiting_input") {
         s.mudar({
           status: "waiting_input",
+          motivo: "permissao",
+          pendenteId: s.ultimoToolUseId,
           hookLatched: false,
           statusReason: "hook:Notification permission_prompt",
         });
@@ -114,6 +143,11 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       s.mudar({ status: "working", hookLatched: false, statusReason: "hook:PreCompact" });
       break;
     case "Stop":
+      // Pergunta dispensada (Esc) não gera PostToolUse e o turno acaba em Stop: sem isto o agente
+      // ficaria preso em "precisa de você". Permissão continua como antes (waiting_input mudo não muda).
+      if (s.estado.status === "waiting_input" && s.estado.motivo === "pergunta") {
+        s.mudar({ status: "working", hookLatched: false, statusReason: "hook:Stop com pergunta aberta" });
+      }
       agendarStop(s);
       break;
     case "StopFailure": {
@@ -132,6 +166,11 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       cancelarStopPendente(s);
       if (s.estado.status === "working") {
         s.mudar({ status: "idle", hookLatched: true, currentTool: null, statusReason: `hook:StopFailure ${payload.error ?? ""}`.trim() });
+      } else if (s.estado.status === "waiting_input" && s.estado.motivo === "pergunta") {
+        // Mesmo caso do Stop: pergunta dispensada (Esc) não gera PostToolUse. Sem isto, Esc seguido de falha do
+        // turno deixaria o pendenteId antigo e o chat recusaria toda mensagem com PERGUNTA_PENDENTE.
+        // Permissão fica de fora porque o Stop também não a trata.
+        s.mudar({ status: "idle", hookLatched: true, currentTool: null, statusReason: `hook:StopFailure com pergunta aberta ${payload.error ?? ""}`.trim() });
       }
       talvezSoltarFila(s);
       break;

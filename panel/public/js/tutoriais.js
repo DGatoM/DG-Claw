@@ -114,6 +114,13 @@
         porque: 'Trocar de modelo muda o custo e o jeito de pensar do agente, então a janela explica cada opção antes de você confirmar, e avisa do reinício. Sem esse aviso, a conversa em andamento pareceria ter sumido sem motivo.',
       },
       {
+        chave: 'uso',
+        alvo: '#uso-assinatura',
+        titulo: 'Quanto da assinatura já foi usada',
+        corpo: 'Duas barras: a janela de 5 horas e a semanal. Cada uma mostra o percentual já gasto, quando zera e há quanto tempo foi medido. Verde fica abaixo de 70%, âmbar de 70% a 89% e vermelho a partir de 90%. O número não é calculado pelo painel: o próprio Claude Code (ou o Codex) informa ao agente, a cada resposta, quanto da conta já foi usado, e o agente repassa para cá. Por isso, logo depois de ligar, aparece "sem dado" até a primeira resposta. Se o horário de zerar já passou, a barra diz "zerou às" e espera a próxima resposta para medir de novo. Quando o agente paga por chave de API, não existe janela: o custo aparece no painel do provedor.',
+        porque: 'Quando a assinatura chega ao limite, o agente para de responder até a janela zerar, e de fora isso parece defeito. Ver a barra subir antes avisa a tempo de segurar tarefas pesadas, ou de trocar de conta.',
+      },
+      {
         chave: 'faixa',
         alvo: '#panel-status .faixa',
         titulo: 'Os números de cima',
@@ -411,6 +418,7 @@
   // (eles não têm um título fixo no HTML para este mapa achar).
   const SECOES = [
     { alvo: '#prov-status', aba: 'status', chave: 'modelo' },
+    { alvo: '#uso-assinatura', aba: 'status', chave: 'uso' },
     { alvo: '#wm-status', aba: 'status', chave: 'memoria-trabalho' },
     { alvo: '#cerebro-grid', aba: 'status', chave: 'cerebro' },
     { alvo: '#thoughts-present', aba: 'status', chave: 'pensamentos' },

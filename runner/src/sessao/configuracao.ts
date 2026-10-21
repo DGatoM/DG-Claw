@@ -4,6 +4,7 @@ import type { Sessao } from "../sessao.js";
 import { randomBytes } from "node:crypto";
 import { HOOK_HANDLER_SOURCE } from "../hook-handler-source.js";
 import { log } from "../logger.js";
+import { USO_HANDLER_SOURCE } from "../uso-handler-source.js";
 import { type ResultadoDoAmbiente, montarAmbiente, nomesDoCofre } from "../provedores/ambiente.js";
 import { lerCanais, pastaTelegramDesligado } from "../provedores/canais.js";
 import type { Catalogo } from "../provedores/catalogo.js";
@@ -152,6 +153,14 @@ export function pastaDeHooks(s: Sessao): string {
   return path.join(s.pastaDeEstado, "runner-hooks");
 }
 
+/** O descritor pode declarar um statusLine próprio; aí o medidor não entra. O settings do usuário
+ *  e o do projeto não contam: conferido em 19/10/2026 com o Claude Code 2.1.304, o `--settings` do
+ *  spawn ganha deles, e o terminal do agente nem aparece para ninguém. Recuar por causa deles só
+ *  deixaria o Status em "sem dado" sem motivo. */
+function statusLineDeOutroDono(s: Sessao): string | null {
+  return s.descritor.config.statusLine ? "campo statusLine do descritor" : null;
+}
+
 export function escreverSettings(s: Sessao, nonce: string): string | null {
   try {
     const dir = pastaDeHooks(s);
@@ -198,11 +207,42 @@ export function escreverSettings(s: Sessao, nonce: string): string | null {
         UserPromptSubmit: prompt,
         PreToolUse: para("PreToolUse"),
         Notification: para("Notification", "permission_prompt"),
+        // Só a ferramenta de pergunta: a resposta da pessoa é o que tira o agente de waiting_input.
+        PostToolUse: para("PostToolUse", "AskUserQuestion"),
         PreCompact: para("PreCompact"),
         Stop: [{ matcher: "", hooks: stop }],
         StopFailure: para("StopFailure"),
       },
     };
+    if (s.motor.provedor === "claude") {
+      const dono = statusLineDeOutroDono(s);
+      if (dono) {
+        log.aviso(
+          s.a("uso"),
+          `o agente já tem um statusLine próprio (${dono}); não instalei o medidor de uso da assinatura, ` +
+            `então o Status do painel vai mostrar "sem dado". Para medir, tire o statusLine de lá`,
+        );
+      } else {
+        // O medidor é opcional: falha aqui desliga só o statusLine. Deixar a exceção subir derrubaria
+        // o settings inteiro, e o agente nasceria sem as regras de permissão (revisão adversarial, PR #58).
+        const usoHandler = path.join(dir, "runner-uso.mjs");
+        try {
+          const usoAtual = fs.existsSync(usoHandler) ? fs.readFileSync(usoHandler, "utf8") : "";
+          if (usoAtual !== USO_HANDLER_SOURCE) fs.writeFileSync(usoHandler, USO_HANDLER_SOURCE, "utf8");
+          settings.statusLine = {
+            type: "command",
+            command: `"${process.execPath}" "${usoHandler}" --agent ${s.descritor.id} --port ${s.porta} --nonce ${nonce}`,
+          };
+        } catch (err) {
+          log.erro(
+            s.a("uso"),
+            `não consegui preparar ${usoHandler}: ${err instanceof Error ? err.message : err}`,
+            `o agente sobe normalmente, com as regras de permissão, mas sem o medidor de uso ` +
+              `(o Status mostra "sem dado"). Conferir se esse caminho é um arquivo gravável e reiniciar o agente`,
+          );
+        }
+      }
+    }
     const limpar = (r?: string[] | null) =>
       (r ?? []).filter((x) => typeof x === "string" && x.trim()).map((x) => x.trim());
     const allow = limpar(cfg.allowTools);

@@ -307,6 +307,9 @@ function atvFrase(est) {
     return { nome: nome + ' esperando a sua permissão', acao: est.detalhe ? est.detalhe.split('\n')[0].slice(0, 80) : '',
              classe: 'atv-alerta', titulo: est.detalhe || '' };
   }
+  if (est.alerta === 'pergunta') {
+    return { nome: nome + ' fez uma pergunta para você', acao: '', classe: 'atv-alerta', titulo: 'O agente abriu uma pergunta de escolha e está parado até ela ser respondida' };
+  }
   if (est.alerta === 'ferramenta_longa') {
     return { nome: nome, acao: (est.detalhe || est.acao) + ' rodando' + (d ? ' há ' + d : ''), classe: 'atv-alerta',
              titulo: est.detalhe || '' };
@@ -370,6 +373,7 @@ function integraAtividade(d) {
   lcSincroniza();
   leSincroniza();
   pcSincroniza();
+  pqSincroniza();
   filaSincroniza();
 }
 if (atividadeEl) {
@@ -850,7 +854,7 @@ if (leDlg && LE) {
    ainda espera. O cartão some sozinho quando o estado sai de waiting_input. */
 const TR = window.DGTrilha;
 const pcEl = $('permCartao');
-const pc = { aberto: false, ocupado: false, decidido: '', erro: '', chave: '' };
+const pc = { aberto: false, ocupado: false, decidido: '', erro: '', chave: '', id: '' };
 
 function pcSincroniza() {
   if (!pcEl || !TR) return;
@@ -870,6 +874,8 @@ function pcSincroniza() {
 }
 
 function pcDesenha(pedido, abrindo) {
+  // O id do tool_use que a tela mostra vai junto da decisão: o runner recusa se o pedido de agora for outro.
+  pc.id = (pedido && typeof pedido.id === 'string') ? pedido.id : '';
   const filho = (tag, classe, texto) => {
     const e = document.createElement(tag);
     if (classe) e.className = classe;
@@ -907,13 +913,184 @@ async function pcDecide(decisao) {
   pc.ocupado = true; pc.erro = '';
   pcSincroniza();
   try {
-    await api(API + '/permissao', { method: 'POST', body: { decisao }, timeoutMs: 20000 });
+    await api(API + '/permissao', { method: 'POST', body: pc.id ? { decisao, tool_use_id: pc.id } : { decisao }, timeoutMs: 20000 });
     pc.decidido = decisao;
   } catch (e) {
     pc.erro = 'Não consegui enviar a decisão: ' + e.message;
   } finally {
     pc.ocupado = false;
     pcSincroniza();
+  }
+}
+
+/* ── Cartão "O agente fez uma pergunta de escolha" ───────────────────────
+   Aparece quando a foto de atividade traz alerta 'pergunta' (o agente chamou AskUserQuestion e a tela dele espera
+   a resposta). Com `pergunta` na foto desenha as escolhas (única: botões de rádio + "Outra resposta"; múltipla:
+   caixinhas) e manda POST /pergunta com o tool_use_id; o servidor digita as teclas no terminal. Sem `pergunta`
+   (formato que o servidor não conseguiu ler) o cartão só manda a pessoa para o terminal na aba Sessões.
+   As escolhas ficam em `pq` e os eventos mexem no DOM direto: a foto chega a cada poucos segundos e redesenhar
+   apagaria o que a pessoa está digitando. */
+const pqEl = $('perguntaCartao');
+const pq = { aberto: false, ocupado: false, feito: '', erro: '', noTerminal: false, id: '', chave: '', sel: [], texto: [], btnEnvia: null };
+
+function pqReinicia() {
+  Object.assign(pq, { aberto: false, ocupado: false, feito: '', erro: '', id: '', chave: '', sel: [], texto: [], btnEnvia: null });
+  if (pqEl) { pqEl.hidden = true; pqEl.textContent = ''; }
+}
+
+function pqSincroniza() {
+  if (!pqEl) return;
+  const est = window.atividadeFoto && window.atividadeFoto.agentes ? window.atividadeFoto.agentes[AGENTE.id] : null;
+  const pede = !!est && est.alerta === 'pergunta' && streamAberto;
+  if (!pede) { if (pq.aberto) pqReinicia(); return; }
+  const perg = est.pergunta || null;
+  const id = perg ? perg.id : '';
+  if (pq.aberto && pq.id !== id) pqReinicia();   // outra pergunta no lugar da anterior: começa limpo
+  const chave = JSON.stringify([est.desde, id, pq.ocupado, pq.feito, pq.erro, pq.noTerminal]);
+  if (pq.aberto && chave === pq.chave) return;
+  const novo = !pq.aberto;
+  if (novo) {
+    pq.id = id; pq.feito = ''; pq.erro = ''; pq.noTerminal = false;
+    pq.sel = perg ? perg.perguntas.map(q => (q.multipla ? [] : null)) : [];
+    pq.texto = perg ? perg.perguntas.map(() => '') : [];
+  }
+  pq.aberto = true;
+  pq.chave = chave;
+  pqDesenha(perg, novo);
+}
+
+/* Cada pergunta tem uma resposta quando: múltipla com pelo menos uma caixinha; única com opção ou texto. */
+function pqCompleto(perg) {
+  return perg.perguntas.every((q, i) => (q.multipla ? pq.sel[i].length > 0 : (pq.sel[i] != null || pq.texto[i].trim() !== '')));
+}
+
+function pqDesenha(perg, abrindo) {
+  const filho = (tag, classe, texto) => {
+    const e = document.createElement(tag);
+    if (classe) e.className = classe;
+    if (texto != null) e.textContent = texto;
+    return e;
+  };
+  const travado = pq.ocupado || !!pq.feito;
+  pqEl.textContent = '';
+  pqEl.appendChild(filho('strong', 'pc-titulo', AGENTE.nome + ' fez uma pergunta para você'));
+  if (!perg) {
+    pqEl.appendChild(filho('p', 'pc-texto', 'Não consegui ler a pergunta para mostrar as escolhas aqui. Responda pelo terminal do agente, na aba Sessões.'));
+    const sess = $('btnSessoes');
+    if (sess && !sess.hidden && sess.getAttribute('href') && sess.getAttribute('href') !== '#') {
+      const a = filho('a', 'pc-btn pc-nega pq-link', 'Abrir a aba Sessões');
+      a.href = sess.getAttribute('href');
+      pqEl.appendChild(a);
+    }
+    pqEl.hidden = false;
+    pqEl.classList.toggle('entra', !!abrindo);
+    return;
+  }
+  pqEl.appendChild(filho('p', 'pc-texto', 'Ele parou até você responder. Mensagens enviadas pelo chat ficam bloqueadas enquanto isso.'));
+  const atualizaEnvio = () => { if (pq.btnEnvia) pq.btnEnvia.disabled = travado || !pqCompleto(perg); };
+  perg.perguntas.forEach((q, i) => {
+    const caixa = filho('fieldset', 'pq-bloco');
+    caixa.disabled = travado;
+    const leg = filho('legend', 'pq-pergunta');
+    if (q.cabecalho) leg.appendChild(filho('span', 'pq-cabecalho', q.cabecalho));
+    leg.appendChild(document.createTextNode(q.pergunta));
+    caixa.appendChild(leg);
+    const campoTexto = q.multipla ? null : filho('input', 'pq-texto');
+    q.opcoes.forEach((o, k) => {
+      const num = k + 1;
+      const rot = filho('label', 'pq-opcao');
+      const inp = document.createElement('input');
+      inp.type = q.multipla ? 'checkbox' : 'radio';
+      inp.name = 'pq-' + i;
+      inp.checked = q.multipla ? pq.sel[i].includes(num) : pq.sel[i] === num;
+      inp.addEventListener('change', () => {
+        if (q.multipla) {
+          pq.sel[i] = inp.checked ? pq.sel[i].concat(num).sort((a, b) => a - b) : pq.sel[i].filter(x => x !== num);
+        } else {
+          pq.sel[i] = num; pq.texto[i] = ''; campoTexto.value = '';
+        }
+        atualizaEnvio();
+      });
+      rot.appendChild(inp);
+      const txt = filho('span', 'pq-rotulo');
+      txt.appendChild(filho('span', 'pq-nome', o.rotulo));
+      if (o.descricao) txt.appendChild(filho('span', 'pq-desc', o.descricao));
+      rot.appendChild(txt);
+      caixa.appendChild(rot);
+    });
+    if (campoTexto) {
+      campoTexto.type = 'text';
+      campoTexto.maxLength = 2000;
+      campoTexto.placeholder = 'Outra resposta (escreva em uma linha)';
+      campoTexto.setAttribute('aria-label', 'Outra resposta para a pergunta ' + (i + 1));
+      campoTexto.value = pq.texto[i];
+      campoTexto.addEventListener('input', () => {
+        pq.texto[i] = campoTexto.value;
+        if (campoTexto.value.trim()) {
+          pq.sel[i] = null;
+          for (const r of caixa.querySelectorAll('input[type=radio]')) r.checked = false;
+        }
+        atualizaEnvio();
+      });
+      caixa.appendChild(campoTexto);
+    }
+    pqEl.appendChild(caixa);
+  });
+  if (pq.erro) pqEl.appendChild(filho('p', 'pc-erro', pq.erro));
+  if (pq.noTerminal) {
+    const sess = $('btnSessoes');
+    if (sess && !sess.hidden && sess.getAttribute('href') && sess.getAttribute('href') !== '#') {
+      const a = filho('a', 'pc-btn pc-nega pq-link', 'Abrir a aba Sessões');
+      a.href = sess.getAttribute('href');
+      pqEl.appendChild(a);
+    }
+  }
+  const linha = filho('div', 'pc-botoes');
+  const envia = filho('button', 'pc-btn pc-aprova', 'Enviar resposta');
+  envia.type = 'button';
+  envia.addEventListener('click', () => pqEnvia(perg, false));
+  const cancela = filho('button', 'pc-btn pc-nega', 'Cancelar pergunta');
+  cancela.type = 'button';
+  cancela.disabled = travado;
+  cancela.addEventListener('click', () => pqEnvia(perg, true));
+  pq.btnEnvia = envia;
+  linha.appendChild(envia);
+  linha.appendChild(cancela);
+  pqEl.appendChild(linha);
+  atualizaEnvio();
+  const msg = pq.feito === 'cancelada' ? 'Pergunta cancelada. Aguardando o agente continuar…'
+    : pq.feito ? 'Resposta enviada. Aguardando o agente continuar…'
+    : (pq.ocupado ? 'Enviando a sua resposta (leva alguns segundos)…' : '');
+  const vivo = filho('p', 'pc-status', msg);
+  vivo.setAttribute('role', 'status');
+  pqEl.appendChild(vivo);
+  pqEl.hidden = false;
+  pqEl.classList.toggle('entra', !!abrindo);
+}
+
+async function pqEnvia(perg, cancelar) {
+  if (pq.ocupado || pq.feito) return;
+  if (!cancelar && !pqCompleto(perg)) return;
+  const body = cancelar ? { tool_use_id: pq.id, cancelar: true } : {
+    tool_use_id: pq.id,
+    respostas: perg.perguntas.map((q, i) => (q.multipla ? { opcoes: pq.sel[i] }
+      : pq.sel[i] != null ? { opcao: pq.sel[i] } : { texto: pq.texto[i].trim() })),
+  };
+  pq.ocupado = true; pq.erro = ''; pq.noTerminal = false;
+  pqSincroniza();
+  try {
+    // o servidor espera ~350 ms entre as teclas; várias perguntas somam alguns segundos
+    await api(API + '/pergunta', { method: 'POST', body, timeoutMs: 45000 });
+    pq.feito = cancelar ? 'cancelada' : 'respondida';
+  } catch (e) {
+    pq.erro = 'Não consegui ' + (cancelar ? 'cancelar' : 'enviar') + ' a resposta: ' + e.message;
+    // Terminal já mexeu na pergunta: o chat não pode mais responder, só o terminal.
+    pq.noTerminal = e.codigo === 'PERGUNTA_JA_MEXIDA';
+    if (pq.noTerminal && e.dados && e.dados.howToFix) pq.erro += ' ' + e.dados.howToFix;
+  } finally {
+    pq.ocupado = false;
+    pq.chave = '';   // força o redesenho com o resultado
+    pqSincroniza();
   }
 }
 
@@ -932,12 +1109,13 @@ function filaSincroniza() {
 
 /* O estado de descanso da tela depende do stream: sem ele as mensagens novas
    não chegam sozinhas, e a pessoa precisa ler isso (sem animação nenhuma). */
-const ESTADOS_CONEXAO = ['pronto', 'conectando…', 'reconectando…', 'conferindo agente…', 'agente sem sinal', 'esperando a sua permissão'];
+const ESTADOS_CONEXAO = ['pronto', 'conectando…', 'reconectando…', 'conferindo agente…', 'agente sem sinal', 'esperando a sua permissão', 'esperando a sua resposta'];
 function estadoOcioso() {
   if (!streamAberto) return setEstado(jaConectou ? 'reconectando…' : 'conectando…');
   const est = window.atividadeFoto?.agentes?.[AGENTE.id];
   if (!est) return setEstado('conferindo agente…');
   if (est.alerta === 'permissao') return setEstado('esperando a sua permissão');
+  if (est.alerta === 'pergunta') return setEstado('esperando a sua resposta');
   setEstado(est.estado === 'sem_sinal' ? 'agente sem sinal' : 'pronto', est.estado === 'sem_sinal');
 }
 
@@ -3018,36 +3196,51 @@ document.addEventListener('keydown', ev => {
 
 /* Foto, seletor de agentes, páginas do painel e Configurações: tudo no menu-lado.js.
    A lista já veio do boot, então não é buscada de novo. */
-window.DGMenuLado.inicia({ agente: AGENTE, agentes: agentesMenu, fecha: () => abreMenu(false) });
+window.DGMenuLado.inicia({ agente: AGENTE, agentes: agentesMenu, fecha: () => abreMenu(false), marcarNaoLida: (slug, ligar) => marcaNaoLida(slug, ligar) });
 
 /* ── Bolinha de não lidas ────────────────────────────────────────────────────
    Quem guarda o "visto" é o servidor (por usuário e por agente), então o celular e o computador
    concordam. Aqui a tela só pede a contagem, pinta e avisa até onde esta conversa foi vista. */
-let naoLidas = {};              // slug -> { nao_lidas, mais, visto_ep, ultima_ep, marco_novo, erro }
+/* Desde o selo de atenção, a contagem vem de GET /api/v1/estados, que traz por agente também o estado
+   (trabalhando / precisa_de_voce / terminou / ocioso / sem_sinal), o resumo e a marca "não lida". */
+let naoLidas = {};              // slug -> { estado, resumo, nao_lidas, mais, marcada_nao_lida, visto_ep, ultima_ep, marco_novo, erro }
 let naoLidasEmVoo = null;
 function textoBolinha(n) { return n && (n.mais || n.nao_lidas > 99) ? '99+' : String(n.nao_lidas); }
-/* null (não medido) e o agente atual nunca mostram bolinha. */
-function bolinhaDe(a) {
-  const n = naoLidas[a.id];
-  if (a.id === AGENTE.id || !n || typeof n.nao_lidas !== 'number' || n.nao_lidas <= 0) return null;
-  return n;
+/* Marca (ligar=true) ou desmarca a conversa de um agente como não lida. O servidor guarda por usuário;
+   a tela repinta com o estado que ele devolver na contagem seguinte. */
+function marcaNaoLida(slug, ligar) {
+  return api('/api/v1/agents/' + encodeURIComponent(slug) + '/nao-lido', ligar ? { method: 'POST', body: {}, timeoutMs: 15000 } : { method: 'DELETE', timeoutMs: 15000 })
+    .then(() => atualizaNaoLidas());
 }
+/* No cabeçalho da conversa aberta: marca e leva a pessoa para fora (abre o menu), porque ficar nesta tela
+   a faria "ler" de novo e o objetivo é voltar a isto depois. A marca só sai quando ela abrir a conversa. */
+const btnNaoLida = $('btnNaoLida');
+if (btnNaoLida) btnNaoLida.onclick = () => {
+  btnNaoLida.disabled = true;
+  marcaNaoLida(AGENTE.id, true)
+    .then(() => { abreMenu(true); })
+    .catch(e => mostraErro('Não consegui marcar a conversa como não lida: ' + e.message))
+    .finally(() => { btnNaoLida.disabled = false; });
+};
 function atualizaNaoLidas() {
   if (naoLidasEmVoo) return naoLidasEmVoo;
-  naoLidasEmVoo = api('/api/v1/nao-lidas', { timeoutMs: 15000 }).then(d => {
+  naoLidasEmVoo = api('/api/v1/estados', { timeoutMs: 15000 }).then(d => {
     if (!d || typeof d.agentes !== 'object' || !d.agentes) throw new Error('a resposta não trouxe o campo "agentes"');
     const novo = {};
     for (const slug of Object.keys(d.agentes)) {
       const n = d.agentes[slug];
-      // falha pontual de um agente (nao_lidas null) não apaga a contagem que já tínhamos dele
-      novo[slug] = (n && typeof n.nao_lidas !== 'number' && naoLidas[slug]) ? naoLidas[slug] : n;
+      // falha pontual de um agente (nao_lidas null) não apaga a contagem que já tínhamos dele,
+      // mas o estado novo (trabalhando, precisa de você, sem sinal) vale sempre
+      novo[slug] = (n && typeof n.nao_lidas !== 'number' && naoLidas[slug])
+        ? Object.assign({}, naoLidas[slug], { estado: n.estado, motivo: n.motivo, resumo: n.resumo, marcada_nao_lida: n.marcada_nao_lida })
+        : n;
     }
     naoLidas = novo;
     window.DGMenuLado.defineNaoLidas(naoLidas);
     pintaTrocaBaixo();
     pintaBolinhaMenu();
   }).catch(e => {
-    console.warn('não consegui atualizar as mensagens não lidas (mantive a contagem anterior):', e.message);
+    console.warn('não consegui atualizar o estado dos agentes e as não lidas (mantive o que a tela já tinha):', e.message);
   }).finally(() => { naoLidasEmVoo = null; });
   return naoLidasEmVoo;
 }
@@ -3058,9 +3251,16 @@ function pintaBolinhaMenu() {
   if (!btn) return;
   const total = window.DGMenuLado.totalNaoLidas(agentesMenu, naoLidas, AGENTE.id);
   let b = btn.querySelector('.bolinha-menu');
-  if (!total) { if (b) b.remove(); btn.setAttribute('aria-label', 'Abrir o menu'); return; }
+  const precisam = window.DGMenuLado.totalPrecisam(agentesMenu, naoLidas, AGENTE.id);
+  /* Quem precisa de você ganha o selo âmbar com "!" (vale mais que a bolinha vermelha de não lidas). */
+  btn.classList.toggle('precisa', precisam > 0);
+  let partes = [];
+  if (precisam) partes.push(precisam + (precisam === 1 ? ' agente precisa de você' : ' agentes precisam de você'));
+  if (total) partes.push(total + (total === 1 ? ' mensagem não lida' : ' mensagens não lidas') + ' em outros agentes');
+  if (!total && !precisam) { if (b) b.remove(); btn.setAttribute('aria-label', 'Abrir o menu'); return; }
   if (!b) { b = document.createElement('span'); b.className = 'bolinha-menu'; b.setAttribute('aria-hidden', 'true'); btn.appendChild(b); }
-  btn.setAttribute('aria-label', 'Abrir o menu, ' + total + (total === 1 ? ' mensagem não lida' : ' mensagens não lidas') + ' em outros agentes');
+  b.textContent = precisam ? '!' : '';
+  btn.setAttribute('aria-label', 'Abrir o menu, ' + partes.join(', '));
 }
 
 let epLidoEnviado = 0, lidoTimer = null;
@@ -3082,16 +3282,42 @@ function agendaLido() {
       .catch(e => console.warn('não consegui avisar o servidor que a conversa foi lida (tento de novo na próxima mensagem):', e.message));
   }, 1000);
 }
+/* "Abri a conversa": só isto limpa a marca "não lida" (o lido automático da rolagem não limpa, senão desfaria
+   a marca na hora). Uma vez por carregamento da página, quando ela está visível. */
+let abriuAvisado = false;
+function avisaAbriu() {
+  if (abriuAvisado || document.visibilityState !== 'visible') return;
+  abriuAvisado = true;
+  api(API + '/lido', { method: 'POST', body: { abriu: true }, timeoutMs: 15000 })
+    .catch(e => { abriuAvisado = false; console.warn('não consegui avisar o servidor que abri a conversa (a marca de não lida pode continuar):', e.message); });
+}
+/* "Estou vendo": a cada 20 s com a aba visível. O servidor deixa de mandar aviso no celular de uma conversa
+   que a pessoa está olhando agora. */
+function avisaVendo() {
+  if (document.visibilityState !== 'visible') return;
+  api(API + '/vendo', { method: 'POST', body: {}, timeoutMs: 10000 })
+    .catch(e => console.warn('não consegui avisar que estou vendo esta conversa (o celular pode avisar à toa):', e.message));
+}
+avisaAbriu(); avisaVendo();
+setInterval(avisaVendo, 20000);
 ouvintesChegada.push(agendaLido);
 // voltar a rolar até o fim reavalia (o debounce de agendaLido junta a rolagem toda)
 chat.addEventListener('scroll', agendaLido, { passive: true });
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
+  avisaAbriu(); avisaVendo();
   agendaLido();
   atualizaNaoLidas();
 });
-// quem fica parado nesta conversa também vê chegar mensagem em outro agente
-setInterval(() => { if (document.visibilityState === 'visible') atualizaNaoLidas(); }, 60000);
+// quem fica parado nesta conversa também vê chegar mensagem e mudança de estado em outro agente:
+// a cada 10 s com a aba visível, a cada 60 s escondida
+let ultimoEstados = 0;
+setInterval(() => {
+  const agora = Date.now();
+  if (document.visibilityState !== 'visible' && agora - ultimoEstados < 60000) return;
+  ultimoEstados = agora;
+  atualizaNaoLidas();
+}, 10000);
 atualizaNaoLidas();
 
 /* Celular: a mesma lista do menu vira uma fileira de avatares embaixo, com a agente atual
@@ -3106,12 +3332,17 @@ function pintaTrocaBaixo() {
     const foto = a.avatar_img || (/^https:\/\//i.test(a.avatar || '') ? a.avatar : '');
     const av = foto ? `<img src="${esc(foto)}" alt="">` : esc(a.avatar || (a.nome || '?').slice(0, 1));
     const rot = a.nome + (a.subtitulo ? ', ' + a.subtitulo : '');
-    const nl = bolinhaDe(a);
-    const aviso = nl ? `, ${nl.nao_lidas} ${nl.nao_lidas === 1 ? 'mensagem não lida' : 'mensagens não lidas'}${nl.mais ? ' ou mais' : ''}` : '';
+    const selo = window.DGMenuLado.seloDe(naoLidas[a.id], atual);
+    const aviso = selo ? ', ' + selo.rotulo : '';
+    const marcaSelo = !selo ? ''
+      : selo.tipo === 'precisa' ? '<span class="selo-aten" aria-hidden="true">!</span>'
+      : selo.tipo === 'nao_lido' ? `<span class="bolinha-nl" aria-hidden="true">${textoBolinha(naoLidas[a.id])}</span>`
+      : selo.tipo === 'marcada' ? '<span class="bolinha-nl ponto" aria-hidden="true"></span>'
+      : '<span class="selo-trab" aria-hidden="true"></span>';
     return `<a href="/a/${encodeURIComponent(a.id)}" title="${esc(rot)}" ` +
       (atual ? `class="atual" aria-current="page" style="--cor-troca:${esc(a.cor || '#2f9e5e')}" ` : '') +
       `aria-label="Abrir a conversa com ${esc(rot + aviso)}"><div class="av" style="background:${esc(a.cor || '#2f9e5e')}">${av}</div>` +
-      `${nl ? `<span class="bolinha-nl" aria-hidden="true">${textoBolinha(nl)}</span>` : ''}</a>`;
+      `${marcaSelo}</a>`;
   }).join('');
   centralizaTrocaBaixo();
 }
@@ -3597,6 +3828,23 @@ async function mandaTexto(pend, semEsperar) {
         mostraErro('Comando recusado: ' + motivo + ' Toque em "descartar" no balão.');
       }
       avisaEntrega(pend, false, motivo);
+      return false;
+    }
+    if (e.codigo === 'PERGUNTA_PENDENTE') {
+      // O agente espera a resposta de uma pergunta de escolha e a mensagem NÃO foi enviada: o texto volta ao campo
+      // (antes de qualquer coisa que a pessoa já tenha digitado) e o erro diz o que fazer.
+      const quando = pendentes.includes(pend) && pend.tentativa === tentativa;
+      if (quando && !pend.anexos) {
+        descartar(pend);
+        const novo = entrada.value.trim();
+        entrada.value = novo ? pend.texto + '\n' + entrada.value : pend.texto;
+        ajustaCampo();
+      } else if (quando) {
+        marcaFalhou(pend, e.message, 'Não consegui entregar a mensagem: ');
+      }
+      const how = e.dados && e.dados.howToFix ? ' ' + e.dados.howToFix : '';
+      mostraErro(e.message + how);
+      avisaEntrega(pend, false, e.message);
       return false;
     }
     if (e.codigo === 'LOGIN_EXPIRADO' && !pend.anexos) {
@@ -4454,6 +4702,10 @@ function passosTutorial() {
     oque: 'Um atalho para a Mesa de tarefas, onde ficam as tarefas de todos os agentes.',
     como: 'Toque nele e a Mesa abre na mesma janela. Lá você acompanha o que está pendente e o que já foi feito.',
     porque: 'Você confere o andamento do trabalho sem sair procurando no menu.' });
+  passos.push({ alvo: '#btnNaoLida', titulo: 'Os selos dos agentes e o "não lida"',
+    oque: 'Cada agente do menu e da fileira de avatares ganha um selo: pontinhos verdes quando está trabalhando, bolinha vermelha quando terminou e você ainda não leu, e um "!" laranja quando ele precisa de você (pede permissão, fez uma pergunta ou perdeu o login). Este botão marca a conversa de ' + nome + ' como não lida.',
+    como: 'O selo vem do estado que o runner de cada agente informa, atualizado a cada 10 segundos com a tela aberta. A bolinha conta as respostas depois da última que você viu. Quem pede a sua atenção também pode mandar um aviso ao celular (ligue em "Ativar avisos neste aparelho"). Ao tocar em "não lida", o menu abre e a bolinha fica até você abrir a conversa de novo; nos outros agentes, use o ⋯ ou segure o dedo no nome.',
+    porque: 'Com vários agentes trabalhando, você vê de relance quem espera por você e deixa para depois uma resposta que não quer ler agora, sem perder o fio.' });
   passos.push({ alvo: '#btnLembretes', titulo: 'O botão Lembretes',
     oque: 'Um atalho para a tela de lembretes.',
     como: 'Toque nele e a lista abre na mesma janela. Lá você cria, confirma e apaga lembretes.',

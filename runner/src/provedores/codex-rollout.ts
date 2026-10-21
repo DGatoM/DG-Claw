@@ -12,6 +12,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { log } from "../logger.js";
 import { mascarar } from "../mascara.js";
+import { type Leitura, usoDaLinhaDoRollout } from "../uso.js";
 
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const ROLLOUT_UUID_RE = new RegExp(`rollout-.*-(${UUID})\\.jsonl$`, "i");
@@ -189,6 +190,9 @@ export interface OpcoesDoVigia {
   /** Eventos mais antigos que isto são do passado (de antes do spawn) e são ignorados. */
   desdeMs: number;
   aoEvento: (e: EventoDoRollout) => void;
+  /** Chamado a cada `token_count` com `rate_limits`, inclusive os de antes do spawn: o uso da
+   *  assinatura vale mesmo que a medição seja de uma conversa anterior. */
+  aoUso?: (u: { leitura: Leitura; em: number }) => void;
   intervaloMs?: number;
 }
 
@@ -235,6 +239,16 @@ export function vigiarRollout(op: OpcoesDoVigia): () => void {
         }
         const ev = eventoDoRollout(reg);
         if (ev && ev.em >= op.desdeMs && !parado) op.aoEvento(ev);
+        // A medição de uso é acessória: um registro estranho nela não pode derrubar o lote e levar
+        // junto o fim de turno que vem depois (revisão adversarial do PR #58).
+        if (op.aoUso && !parado) {
+          try {
+            const uso = usoDaLinhaDoRollout(reg);
+            if (uso) op.aoUso(uso);
+          } catch (err) {
+            log.aviso("uso", `ignorei uma medição de uso do rollout que não consegui ler: ${err instanceof Error ? err.message : err}; os eventos da sessão seguem`);
+          }
+        }
       }
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") {

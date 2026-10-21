@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import http from "node:http";
+import WebSocket from "ws";
 import path from "node:path";
 import {
   chaveFalsa, chaveFalsaOpenai, dormir, esperarAte, lerLinhasJson, lerTexto, logarClaude, logarCodex, portaLivre, prepararAmbiente,
@@ -465,6 +466,106 @@ test("POST /api/agents/:id/permissao: decisão inválida é 400 e agente que nã
   assert.equal(fora.status, 409);
   assert.equal(fora.corpo.code, "NAO_ESPERA_PERMISSAO");
   assert.match(fora.corpo.howToFix, /atualizar a tela/);
+});
+
+test("POST /api/agents/:id/pergunta: corpo inválido é 400, fora da pergunta é 409 sem digitar, e tecla crua é recusada durante a resposta", async () => {
+  const semId = await req("POST", `/api/agents/${ID}/pergunta`, { teclas: ["1"] });
+  assert.equal(semId.status, 400);
+  assert.equal(semId.corpo.code, "TOOL_USE_ID_INVALIDO");
+  for (const teclas of [[], "1", [""], [1], Array(41).fill("1"), ["x".repeat(2001)]]) {
+    const r = await req("POST", `/api/agents/${ID}/pergunta`, { tool_use_id: "toolu_P", teclas });
+    assert.equal(r.status, 400, JSON.stringify(teclas).slice(0, 40));
+    assert.equal(r.corpo.code, "TECLAS_INVALIDAS");
+  }
+  const fora = await req("POST", `/api/agents/${ID}/pergunta`, { tool_use_id: "toolu_P", teclas: ["1"] });
+  assert.equal(fora.status, 409);
+  assert.equal(fora.corpo.code, "NAO_ESPERA_PERGUNTA");
+  assert.match(fora.corpo.howToFix, /atualizar a tela/);
+
+  principal.respondendoPergunta = true;
+  try {
+    const crua = await req("POST", `/api/agents/${ID}/input`, { text: "1", submit: false });
+    assert.equal(crua.status, 409);
+    assert.equal(crua.corpo.code, "RESPOSTA_EM_ANDAMENTO");
+  } finally {
+    principal.respondendoPergunta = false;
+  }
+  const rota404 = await req("GET", `/api/agents/${ID}/nao-existe`);
+  assert.match(JSON.stringify(rota404.corpo), /POST \/pergunta/);
+});
+
+function abrirWs(): Promise<{ ws: WebSocket; msgs: any[] }> {
+  return new Promise((ok, falha) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${porta}/ws?token=${TOKEN}`);
+    const msgs: any[] = [];
+    ws.on("message", (m) => msgs.push(JSON.parse(m.toString())));
+    ws.on("open", () => ok({ ws, msgs }));
+    ws.on("error", falha);
+  });
+}
+
+test("durante a resposta da pergunta: /input (com e sem submit) é 409, terminal_input é descartado com aviso, e depois tudo volta", async () => {
+  const escritas: string[] = [];
+  const realWrite = principal.proc!.write;
+  principal.proc!.write = (t: string) => void escritas.push(t);
+  const { ws, msgs } = await abrirWs();
+  try {
+    principal.respondendoPergunta = true;
+    for (const corpo of [{ text: "1", submit: false }, { text: "oi", submit: true }, { text: "oi", injectWhenIdle: true }]) {
+      const r = await req("POST", `/api/agents/${ID}/input`, corpo);
+      assert.equal(r.status, 409, JSON.stringify(corpo));
+      assert.equal(r.corpo.code, "RESPOSTA_EM_ANDAMENTO");
+      assert.match(r.corpo.howToFix, /esperar alguns segundos/);
+    }
+    ws.send(JSON.stringify({ type: "terminal_input", data: "a" }));
+    ws.send(JSON.stringify({ type: "terminal_input", data: "b" }));
+    await esperarAte(() => msgs.filter((m) => m.type === "error").length === 2, 3_000, "os avisos do WebSocket");
+    assert.equal(msgs.find((m) => m.type === "error").code, "RESPOSTA_EM_ANDAMENTO");
+    assert.match(msgs.find((m) => m.type === "error").message, /alguns segundos/);
+    assert.equal(escritas.length, 0, "nada chegou ao PTY");
+    principal.respondendoPergunta = false;
+    const livre = await req("POST", `/api/agents/${ID}/input`, { text: "1", submit: false });
+    assert.equal(livre.status, 200);
+    ws.send(JSON.stringify({ type: "terminal_input", data: "c" }));
+    await esperarAte(() => escritas.includes("c"), 3_000, "o terminal_input voltar a escrever");
+    assert.deepEqual(escritas, ["1", "c"]);
+  } finally {
+    principal.respondendoPergunta = false;
+    principal.proc!.write = realWrite;
+    ws.close();
+  }
+});
+
+test("tecla manual pelo /input ou pelo terminal antes da resposta pelo chat: 409 PERGUNTA_JA_MEXIDA, nada escrito pela resposta", async () => {
+  const escritas: string[] = [];
+  const realWrite = principal.proc!.write;
+  principal.proc!.write = (t: string) => void escritas.push(t);
+  const { ws } = await abrirWs();
+  const abrir = () => {
+    principal.mudar({ status: "waiting_input", motivo: "pergunta", pendenteId: "toolu_P" });
+    principal.entradasNaAbertura = principal.entradasManuais;
+  };
+  try {
+    abrir();
+    await req("POST", `/api/agents/${ID}/input`, { text: "2", submit: false });
+    let r = await req("POST", `/api/agents/${ID}/pergunta`, { tool_use_id: "toolu_P", teclas: ["2", "1"] });
+    assert.equal(r.status, 409);
+    assert.equal(r.corpo.code, "PERGUNTA_JA_MEXIDA");
+    assert.match(r.corpo.error, /Termine pelo terminal, na aba Sessões/);
+    assert.deepEqual(escritas, ["2"], "só a tecla manual");
+
+    escritas.length = 0;
+    abrir();
+    ws.send(JSON.stringify({ type: "terminal_input", data: "2" }));
+    await esperarAte(() => escritas.length === 1, 3_000, "a tecla do terminal");
+    r = await req("POST", `/api/agents/${ID}/pergunta`, { tool_use_id: "toolu_P", teclas: ["2", "1"] });
+    assert.equal(r.corpo.code, "PERGUNTA_JA_MEXIDA");
+    assert.deepEqual(escritas, ["2"]);
+  } finally {
+    principal.mudar({ status: "idle", motivo: null, pendenteId: null });
+    principal.proc!.write = realWrite;
+    ws.close();
+  }
 });
 
 test("provedoresDisponiveis: precisa estar liberado no catálogo E ter o programa no PATH", async () => {

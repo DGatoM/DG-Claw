@@ -87,6 +87,15 @@ function criarRunner({ log, timeoutMs }) {
       if (!dados || typeof dados !== 'object') return { ok: false, erro: `O runner de ${agente.nome} respondeu /api/provedor sem corpo útil.` };
       return { ok: true, dados };
     },
+    /** GET /api/agents/<id>/uso: o uso da assinatura. Devolve { ok, uso, motivo? } ou { ok:false, erro }. */
+    async uso(agente, timeoutMs) {
+      const r = await chamar(agente, 'GET', `/api/agents/${encodeURIComponent(agente.agente_id)}/uso`, null, timeoutMs);
+      if (!r.ok && r.erro) return r;
+      if (!r.ok) return { ok: false, status: r.status, erro: r.status === 404 && !(r.corpo && r.corpo.code) ? `O runner de ${agente.nome} não tem a rota de uso da assinatura (versão antiga). Atualize o DG Claw.` : motivoDoRunner(agente, r) };
+      const c = r.corpo;
+      if (!c || typeof c !== 'object' || !c.uso || typeof c.uso !== 'object') return { ok: false, erro: `O runner de ${agente.nome} respondeu o uso da assinatura sem o campo "uso".` };
+      return { ok: true, uso: c.uso, motivo: typeof c.motivo === 'string' ? c.motivo : undefined };
+    },
     /**
      * Chamada genérica (para rotas que o Web só repassa, como POST /api/provedor). Devolve
      * { ok, status, corpo, texto } quando o runner respondeu, ou { ok:false, erro } quando nem chegou lá.

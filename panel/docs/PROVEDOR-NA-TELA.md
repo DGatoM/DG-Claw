@@ -12,6 +12,17 @@ O cartão "Modelo e autenticação" fica no topo da aba Status. Ele responde dua
   - "o programa não confirmou a chave de API": cole a chave de novo em Trocar.
 - **Sem runner novo:** se a plataforma que roda o agente é antiga e não sabe informar o modelo, o cartão diz "O agente ainda não sabe informar o modelo", com o que fazer, e esconde os botões. O resto do painel não é afetado.
 
+## Uso da assinatura
+
+Logo abaixo do cartão fica "Uso da assinatura", com duas barras: a janela de 5 horas e a semanal. Cada uma mostra o percentual, a barra (verde abaixo de 70%, âmbar de 70% a 89%, vermelho a partir de 90%), "zera em hoje 18:40" (ou "amanhã 09:00", "qua 09:00") e "medido há N min". A tela atualiza a cada 60 segundos enquanto a aba está visível.
+
+- **Sem dado:** a janela aparece como "sem dado", nunca como 0%. Logo depois de ligar o agente isso é normal: o número chega com a primeira resposta dele.
+- **Janela vencida:** se o horário de zerar já passou, a barra diz "zerou às HH:MM, nova medição na próxima resposta" e não mostra o percentual antigo.
+- **Forma de pagar por API:** o texto é "Uso por chave de API não tem limite de janela; o custo aparece no painel do provedor." Não há consulta ao runner.
+- **De onde vem:** do runner (`GET /api/agents/:id/uso`), que lê o `statusLine` do Claude Code ou o rollout do Codex. O painel só repassa e desenha; não calcula. Detalhes em `runner/README.md`, seção "Uso da assinatura".
+
+Rota: `GET /api/uso` devolve `{ok, uso, motivo?}`, onde `uso` é `{provedor, sessao_5h, semanal, plano, medido_em, fonte}` e cada janela é `{usado_pct, zera_em, vencida}` ou `null`. Runner fora do ar ou antigo: 502 com `{error, howToFix}`.
+
 ## De onde vem cada dado
 
 | Dado | Fonte |
@@ -45,6 +56,7 @@ Todas atrás do mesmo login das outras rotas `/api`.
 | `POST /api/provedor` | `{provedor, auth, modelo, chave?}`. `provedor`: `claude` ou `codex`. `auth`: `assinatura`, `token` (só Claude) ou `api`. `modelo`: id ou apelido do catálogo, vazio para o padrão. Respostas: 200 `{ok, reiniciando, rotulo}`; 400 escolha inválida ou chave com forma errada; 409 `{precisaChave, ondeCriar}` quando falta a chave; 503 runner antigo ou fora do ar. |
 | `POST /api/provedor/login` | Começa o login assistido do provedor atual. |
 | `GET /api/provedor/login` | Estado: `nenhum`, `aguardando_link`, `aguardando_codigo`, `aguardando_navegador`, `concluido`, `falhou`. |
+| `GET /api/uso` | Uso da assinatura: `{ok, uso, motivo?}`, janelas `null` quando não medidas. |
 | `POST /api/provedor/login/codigo` | `{codigo}`: cola o código no terminal do login (Claude). |
 | `DELETE /api/provedor/login` | Cancela. |
 
@@ -52,4 +64,4 @@ Todo erro vem como `{error, howToFix}` em português. As chamadas ao runner têm
 
 ## Onde está o código
 
-`panel/lib/provedores.js` (rotas), `panel/public/js/provedor.js` e `panel/public/css/provedor.css` (tela), passos do tutorial em `panel/public/js/tutoriais.js` (chaves `modelo` e `modelo-trocar` da aba `status`), teste em `panel/test-provedor.mjs`.
+`panel/lib/provedores.js` (rotas), `panel/public/js/provedor.js` e `panel/public/css/provedor.css` (tela), passos do tutorial em `panel/public/js/tutoriais.js` (chaves `modelo` e `modelo-trocar` da aba `status`), a tela do uso em `panel/public/js/uso.js` e `panel/public/css/uso.css` (passo `uso` do tutorial), testes em `panel/test-provedor.mjs` e `panel/test-uso-tela.mjs`.

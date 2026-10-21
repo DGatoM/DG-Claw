@@ -84,7 +84,7 @@
     avisos: {
       alvo: '#secAvisos', titulo: 'Avisos neste aparelho',
       oque: 'O botão que liga os avisos do DG Claw neste celular ou computador, e o botão que manda um aviso de teste.',
-      como: 'O navegador guarda uma inscrição deste aparelho no servidor. Quando um lembrete toca, o servidor manda o aviso para todos os aparelhos inscritos, com os botões Feito e Adiar, mesmo com a tela fechada.',
+      como: 'O navegador guarda uma inscrição deste aparelho no servidor. Quando um lembrete toca, o servidor manda o aviso para todos os aparelhos inscritos, com os botões Feito e Adiar, mesmo com a tela fechada. Os dois interruptores abaixo controlam os avisos dos agentes: "precisar de mim" (pedem permissão, fazem uma pergunta ou perdem o login) e "terminar" (acabaram de responder). Eles não mandam aviso de uma conversa que você está olhando.',
       porque: 'Sem isso o lembrete só aparece na faixa dentro da conversa e no recado do agente. O teste confirma agora que o aviso chega.',
     },
     novo: {
@@ -150,6 +150,24 @@
     $('btnAtivar').hidden = !f.ativar;
     $('btnDesativar').hidden = !f.desativar;
     $('btnTeste').disabled = !f.teste;
+    pintaPrefs();
+  }
+
+  /* Interruptores "avisar quando um agente precisar de mim / terminar". Valem para todos os aparelhos. */
+  const PREFS = [['precisa_de_voce', 'prefPrecisa'], ['terminou', 'prefTerminou']];
+  async function pintaPrefs() {
+    const A = window.DGClawAvisos;
+    if (!A || !A.preferencias) { $('avisosPrefs').hidden = true; return; }
+    const r = await A.preferencias();
+    if (!r.ok) { msg('avisosMsg', 'Não consegui ler as suas preferências de aviso: ' + r.erro, 'erro'); return; }
+    for (const [tipo, id] of PREFS) { $(id).checked = r.preferencias[tipo] !== false; $(id).disabled = false; }
+  }
+  async function salvaPref(tipo, caixa) {
+    caixa.disabled = true;
+    const r = await window.DGClawAvisos.salvarPreferencia(tipo, caixa.checked);
+    caixa.disabled = false;
+    if (!r.ok) { caixa.checked = !caixa.checked; msg('avisosMsg', 'Não consegui guardar a preferência: ' + r.erro, 'erro'); return; }
+    msg('avisosMsg', '');
   }
 
   async function acaoAvisos(botao, fazer, okTexto) {
@@ -326,6 +344,7 @@
     $('btnAtivar').onclick = () => acaoAvisos($('btnAtivar'), () => window.DGClawAvisos.ativar(), () => 'Pronto: os avisos estão ativos neste aparelho.');
     $('btnDesativar').onclick = () => acaoAvisos($('btnDesativar'), () => window.DGClawAvisos.desativar(), () => 'Avisos desligados neste aparelho.');
     $('btnTeste').onclick = () => acaoAvisos($('btnTeste'), () => window.DGClawAvisos.testar(), r => 'Aviso de teste enviado para ' + r.enviados + ' aparelho(s).');
+    for (const [tipo, id] of PREFS) $(id).onchange = () => salvaPref(tipo, $(id));
     $('fQuando').onchange = mostraCampos;
     $('formNovo').addEventListener('submit', criar);
     $('lista').addEventListener('click', aoClicarLista);

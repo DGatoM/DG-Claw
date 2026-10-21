@@ -329,6 +329,27 @@ test("vigia do rollout: entrega os eventos NA ORDEM e ignora o que é anterior a
   }
 });
 
+test("vigia do rollout: medição de uso com data absurda não engole o fim de turno", async () => {
+  // Revisão adversarial do PR #58: resets_at acima do limite do Date lançava RangeError e o
+  // task_complete seguinte se perdia, deixando a sessão presa em "trabalhando".
+  const home = pastaTemporaria("vigia-uso");
+  const id = "dddddddd-0000-4000-8000-000000000007";
+  const ev = (type: string, p: Record<string, unknown>) => JSON.stringify({ timestamp: new Date().toISOString(), type, payload: p });
+  const f = escreverRollout(home, id, "/c", []);
+  const recebidos: string[] = [];
+  const usos: unknown[] = [];
+  const parar = vigiarRollout({ resolverArquivo: () => f, desdeMs: Date.now() - 5_000, intervaloMs: 50, aoEvento: (e) => recebidos.push(e.evento), aoUso: (u) => usos.push(u) });
+  try {
+    const absurdo = { primary: { used_percent: 10, window_minutes: 10080, resets_at: 8640000000000001 }, secondary: { used_percent: 5, window_minutes: 300, resets_in_seconds: 1e20 } };
+    fs.appendFileSync(f, [ev("event_msg", { type: "task_started" }), ev("event_msg", { type: "token_count", rate_limits: absurdo }), ev("event_msg", { type: "task_complete" })].join("\n") + "\n");
+    await esperarAte(() => recebidos.length >= 2, 4_000, "início e fim de turno");
+    assert.deepEqual(recebidos, ["UserPromptSubmit", "Stop"]);
+    assert.equal(usos.length, 0, "nenhuma janela válida: nada é registrado");
+  } finally {
+    parar();
+  }
+});
+
 test("conversa pelo rollout: só user/assistant, sem contexto injetado, no formato {role, text}", () => {
   const home = pastaTemporaria("conversa");
   const id = "eeeeeeee-0000-4000-8000-000000000005";

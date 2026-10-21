@@ -17,6 +17,11 @@ const TTL_ENVIO_MS = 60 * 60 * 1000;
 const MAX_ENVIOS = 2000;
 const RX_CLIENTE_ID = /^[A-Za-z0-9_-]{8,64}$/;
 const MAX_ANEXOS = 10;
+// Pausa entre uma tecla e outra ao responder a pergunta de escolha: a TUI redesenha a tela a cada tecla e
+// uma tecla que chega antes disso se perde (conferido ao vivo no Claude Code 2.1.304).
+const MAX_TEXTO_RESPOSTA = 2000;
+// Controle (inclui \n, \r, \t, ESC), C1 e separadores de linha/parágrafo: nada disso vai para o terminal.
+const RX_CONTROLE = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/;
 // Quantos transcripts de sessões um agente do Claude junta na conversa. Cada reinício do runner abre
 // uma sessão nova (um .jsonl novo); agente antigo pode ter centenas e ler tudo travaria o servidor.
 // Vale os mais recentes por mtime; o da sessão atual sempre entra, mesmo que seja mais velho que o corte.
@@ -33,6 +38,64 @@ function montarEnvelope({ from, chat, msg, ts, text, voz }) {
   // Quem digitasse "</dgchat>" fecharia o envelope no meio: escapa, como se escapa HTML.
   const corpo = String(text == null ? '' : text).replace(/<\/dgchat>/gi, '<\\/dgchat>');
   return `<dgchat from="${atributo(from) || 'pessoa'}" chat="${atributo(chat)}" msg="${atributo(msg)}" ts="${atributo(ts)}"${voz === true ? ' voz="1"' : ''}>${corpo}</dgchat>`;
+}
+
+/**
+ * Confere as respostas contra as perguntas lidas do transcript. Devolve a mensagem do problema (em português,
+ * dizendo o que fazer) ou null se estão válidas. Não escreve nada em lugar nenhum.
+ */
+function validarRespostas(perguntas, respostas) {
+  if (!Array.isArray(respostas) || respostas.length !== perguntas.length) {
+    return `Mande uma resposta para cada pergunta: são ${perguntas.length} e recebi ${Array.isArray(respostas) ? respostas.length : 'um valor que não é lista'}. Nada foi enviado.`;
+  }
+  for (let i = 0; i < perguntas.length; i++) {
+    const q = perguntas[i], r = respostas[i], n = i + 1;
+    if (!r || typeof r !== 'object' || Array.isArray(r)) return `A resposta ${n} precisa ser um objeto com "opcao", "opcoes" ou "texto". Nada foi enviado.`;
+    const campos = ['opcao', 'opcoes', 'texto'].filter((c) => r[c] !== undefined);
+    if (campos.length !== 1) return `A resposta ${n} precisa ter exatamente um destes campos: "opcao", "opcoes" ou "texto". Nada foi enviado.`;
+    const campo = campos[0];
+    const inteiroValido = (v) => Number.isInteger(v) && v >= 1 && v <= q.opcoes.length;
+    if (q.multipla) {
+      if (campo === 'texto') return `A pergunta ${n} deixa marcar várias opções e não aceita texto livre por aqui. Responda pelo terminal, na aba Sessões. Nada foi enviado.`;
+      if (campo === 'opcao') return `A pergunta ${n} deixa marcar várias opções: use "opcoes" (lista de números de 1 a ${q.opcoes.length}). Nada foi enviado.`;
+      if (!Array.isArray(r.opcoes) || !r.opcoes.length) return `A resposta ${n} precisa de "opcoes" com pelo menos um número de 1 a ${q.opcoes.length}. Nada foi enviado.`;
+      if (!r.opcoes.every(inteiroValido)) return `A resposta ${n} tem opção fora do intervalo: use números inteiros de 1 a ${q.opcoes.length}. Nada foi enviado.`;
+      if (new Set(r.opcoes).size !== r.opcoes.length) return `A resposta ${n} repete uma opção: cada número pode aparecer uma vez só. Nada foi enviado.`;
+    } else if (campo === 'opcoes') {
+      return `A pergunta ${n} aceita uma escolha só: use "opcao" (número de 1 a ${q.opcoes.length}) ou "texto". Nada foi enviado.`;
+    } else if (campo === 'opcao') {
+      if (!inteiroValido(r.opcao)) return `A resposta ${n} tem "opcao" fora do intervalo: use um número inteiro de 1 a ${q.opcoes.length}. Nada foi enviado.`;
+    } else {
+      if (typeof r.texto !== 'string' || !r.texto.trim()) return `A resposta ${n} tem "texto" vazio. Escreva a resposta ou escolha uma opção. Nada foi enviado.`;
+      if (r.texto.length > MAX_TEXTO_RESPOSTA) return `A resposta ${n} tem ${r.texto.length} caracteres; o limite é ${MAX_TEXTO_RESPOSTA}. Encurte o texto. Nada foi enviado.`;
+      if (RX_CONTROLE.test(r.texto)) return `A resposta ${n} tem quebra de linha ou caractere de controle. Escreva em uma linha só. Nada foi enviado.`;
+    }
+  }
+  return null;
+}
+
+/**
+ * As teclas, em ordem, que respondem às perguntas na TUI do Claude Code (protocolo conferido ao vivo na 2.1.304):
+ * escolha única = o dígito da opção; texto livre = o dígito "Type something" (opções+1), o texto e \r; várias
+ * escolhas = um dígito por opção marcada e \t para avançar. Com mais de uma pergunta, ou com a última de
+ * múltipla escolha, a TUI mostra "Review your answers" e o `1` envia. Cada item é uma escrita separada.
+ * Supõe respostas já validadas por validarRespostas.
+ */
+function teclasDaResposta(perguntas, respostas) {
+  const teclas = [];
+  perguntas.forEach((q, i) => {
+    const r = respostas[i];
+    if (q.multipla) {
+      for (const n of r.opcoes) teclas.push(String(n));
+      teclas.push('\t');
+    } else if (r.texto !== undefined) {
+      teclas.push(String(q.opcoes.length + 1), r.texto, '\r');
+    } else {
+      teclas.push(String(r.opcao));
+    }
+  });
+  if (perguntas.length > 1 || perguntas[perguntas.length - 1].multipla) teclas.push('1');
+  return teclas;
 }
 
 function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agora, gravaToken, alertas, comandos: comandosInjetado }) {
@@ -260,6 +323,18 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     }
   }
 
+  /** A pergunta de escolha (AskUserQuestion) esperando resposta: { id, perguntas } ou null (Codex não tem). */
+  async function perguntaDe(agente) {
+    try {
+      const t = await thread(agente);
+      if (!t.arquivo || ehRollout(t.arquivo) || !leitor.perguntaPendente) return null;
+      return leitor.perguntaPendente(t.arquivo, agente.slug);
+    } catch (e) {
+      log('aviso', `Pergunta de ${agente.nome}: não consegui ler a pergunta no transcript (${e.message}). A tela manda responder pelo terminal.`);
+      return null;
+    }
+  }
+
   // ── atividade ────────────────────────────────────────────────────────────
   const iso = (ms) => new Date(ms).toISOString().replace(/\.\d+Z$/, 'Z');
 
@@ -274,6 +349,11 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
       const ultimo = typeof e.updatedAt === 'number' ? iso(e.updatedAt) : null;
       if (e.status === 'working') {
         est = { estado: 'trabalhando', acao: e.currentTool || 'pensando', detalhe: null, ultimo_sinal: ultimo, alerta: null, motivo: null };
+      } else if (e.status === 'waiting_input' && e.motivo === 'pergunta') {
+        // Pergunta de escolha (AskUserQuestion): a tela mostra o cartão de escolhas (POST /pergunta); sem a pergunta
+        // lida do transcript (`pergunta: null`), manda a pessoa para o terminal.
+        const perg = await perguntaDe(agente);
+        est = { estado: 'trabalhando', acao: 'esperando a sua resposta', detalhe: null, ultimo_sinal: ultimo, alerta: 'pergunta', motivo: null, pergunta: perg };
       } else if (e.status === 'waiting_input') {
         // O que ele quer fazer é o último comando do transcript que ainda não tem resultado.
         const pend = await pendenteDe(agente);
@@ -426,7 +506,13 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     const epEnviado = relogio() / 1000 - 2;
     // O runner responde 202 "enfileirado" sempre; quem sabe se vai esperar é o estado de AGORA (sem o cache de 2 s).
     const antes = await runner.estado(agente);
-    const motivoFila = antes.ok && antes.estado.status === 'waiting_input' ? 'permissao'
+    if (antes.ok && antes.estado.status === 'waiting_input' && antes.estado.motivo === 'pergunta') {
+      // O agente só fica ocioso depois de a pergunta ser respondida: enfileirar aqui prenderia a mensagem em silêncio.
+      log('aviso', `Envio para ${agente.slug} barrado: ele espera a resposta de uma pergunta de escolha (${cru ? 'comando cru' : `${textoFinal.length} caracteres`}).`);
+      return erro(409, `${agente.nome} está esperando você responder uma pergunta de escolha; a mensagem não foi enviada.`,
+        { howToFix: 'Responda no cartão da pergunta, acima da caixa de mensagem, ou cancele a pergunta ali; depois reenvie.', codigo: 'PERGUNTA_PENDENTE' });
+    }
+    const motivoFila = antes.ok && antes.estado.status === 'waiting_input' ? (antes.estado.motivo === 'pergunta' ? 'pergunta' : 'permissao')
       : antes.ok && antes.estado.status === 'working' ? 'resposta' : null;
     const r = await runner.input(agente, { text: payload, submit: true, injectWhenIdle: true });
     if (!r.ok) {
@@ -444,7 +530,7 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
    * Aprova ou nega o pedido de permissão do agente. Confere no runner (estado de agora) que ele está mesmo
    * esperando e repassa a decisão. Devolve { status, corpo } com motivo e o que fazer em toda falha.
    */
-  async function permissao(agente, decisao) {
+  async function permissao(agente, decisao, toolUseId) {
     if (decisao !== 'aprovar' && decisao !== 'negar') {
       return erro(400, `A "decisao" precisa ser "aprovar" ou "negar". Recebi: ${JSON.stringify(decisao === undefined ? null : String(decisao).slice(0, 40))}. Nada foi enviado.`);
     }
@@ -453,10 +539,17 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
       log('erro', `Permissão de ${agente.slug}: não consegui ler o estado do runner: ${e.erro}`);
       return erro(503, `Não consegui confirmar o estado de ${agente.nome}: ${e.erro} Nada foi enviado. Tente de novo em instantes.`);
     }
+    if (toolUseId !== undefined && toolUseId !== null && (typeof toolUseId !== 'string' || !toolUseId || toolUseId.length > 200)) {
+      return erro(400, 'O "tool_use_id" da permissão precisa ser um texto de 1 a 200 caracteres (vem em "permissao.id" da atividade do agente). Nada foi enviado.');
+    }
+    if (e.estado.status === 'waiting_input' && e.estado.motivo === 'pergunta') {
+      // O "1" que aprova um comando escolheria a primeira opção da pergunta: o runner também recusa, mas aqui nem chamamos.
+      return erro(409, `${agente.nome} está esperando a resposta de uma pergunta de escolha, não uma permissão. Responda no cartão da pergunta. Nada foi enviado.`, { estado: e.estado.status, motivo: 'pergunta' });
+    }
     if (e.estado.status !== 'waiting_input') {
       return erro(409, `${agente.nome} não está esperando permissão agora (estado: ${e.estado.status}). Provavelmente o pedido já foi resolvido. Atualize a conversa.`, { estado: e.estado.status });
     }
-    const r = await runner.pedir(agente, 'POST', `/api/agents/${encodeURIComponent(agente.agente_id)}/permissao`, { decisao });
+    const r = await runner.pedir(agente, 'POST', `/api/agents/${encodeURIComponent(agente.agente_id)}/permissao`, toolUseId ? { decisao, tool_use_id: toolUseId } : { decisao });
     if (r.erro) {
       log('erro', `Permissão de ${agente.slug} (${decisao}) não entregue: ${r.erro}`);
       return erro(503, `${r.erro} A decisão não foi enviada: tente de novo.`);
@@ -469,10 +562,81 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     if (!r.ok) {
       const motivo = motivoDoRunner(agente, r);
       log('erro', `Permissão de ${agente.slug} (${decisao}) recusada pelo runner (HTTP ${r.status}): ${motivo}`);
+      if (r.status === 409 && r.corpo && r.corpo.code === 'PERGUNTA_JA_RESPONDIDA') {
+        return erro(409, `A resposta desta pergunta de ${agente.nome} já foi enviada (por esta ou outra aba). Nada foi digitado agora.`,
+          { howToFix: 'Atualize a conversa. Se o terminal ficou no meio da resposta, termine pela aba Sessões.', codigo: 'PERGUNTA_JA_RESPONDIDA' });
+      }
       return erro(r.status === 409 ? 409 : 502, `O runner de ${agente.nome} não aplicou a decisão: ${motivo}`);
     }
     log('info', `Permissão de ${agente.slug}: ${decisao === 'aprovar' ? 'aprovada' : 'negada'} pela tela.`);
     return { status: 200, corpo: { ok: true, decisao, agente: agente.slug } };
+  }
+
+  /**
+   * Responde (ou cancela) a pergunta de escolha do agente digitando as teclas no terminal dele.
+   * Corpo: { tool_use_id, respostas:[{opcao}|{opcoes}|{texto}] } ou { tool_use_id, cancelar:true }.
+   * Devolve { status, corpo } com motivo e o que fazer em toda falha; nada é escrito antes de tudo validar.
+   */
+  async function responderPergunta(agente, corpo) {
+    const c = corpo && typeof corpo === 'object' && !Array.isArray(corpo) ? corpo : {};
+    if (typeof c.tool_use_id !== 'string' || !c.tool_use_id) {
+      return erro(400, 'Faltou o "tool_use_id" da pergunta (vem em "pergunta.id" da atividade do agente). Nada foi enviado.');
+    }
+    if (c.cancelar !== undefined && c.cancelar !== true) return erro(400, 'O campo "cancelar" só aceita true. Nada foi enviado.');
+    if (c.cancelar === true && c.respostas !== undefined) return erro(400, 'Mande "cancelar" ou "respostas", não os dois. Nada foi enviado.');
+    if (c.cancelar !== true && c.respostas === undefined) return erro(400, 'Faltou o campo "respostas" (uma por pergunta) ou "cancelar": true. Nada foi enviado.');
+
+    const e = await runner.estado(agente);
+    if (!e.ok) {
+      log('erro', `Pergunta de ${agente.slug}: não consegui ler o estado do runner: ${e.erro}`);
+      return erro(503, `Não consegui confirmar o estado de ${agente.nome}: ${e.erro} Nada foi enviado. Tente de novo em instantes.`);
+    }
+    if (e.estado.status !== 'waiting_input' || e.estado.motivo !== 'pergunta') {
+      return erro(409, `${agente.nome} não está esperando a resposta de uma pergunta agora (estado: ${e.estado.status}). Provavelmente ela já foi respondida ou não existe mais. Atualize a conversa. Nada foi enviado.`, { estado: e.estado.status });
+    }
+    const pend = await perguntaDe(agente);
+    if (!pend) {
+      log('aviso', `Pergunta de ${agente.slug}: o runner diz que há pergunta, mas não achei a pergunta no transcript.`);
+      return erro(409, `Não consegui ler a pergunta que ${agente.nome} fez, então não sei como responder daqui. Responda pelo terminal, na aba Sessões. Nada foi enviado.`);
+    }
+    if (pend.id !== c.tool_use_id) {
+      return erro(409, 'Essa pergunta já não é a que está na tela. Atualize a conversa e responda a pergunta atual. Nada foi enviado.');
+    }
+    let teclas;
+    if (c.cancelar === true) {
+      teclas = ['\x1b'];
+    } else {
+      const problema = validarRespostas(pend.perguntas, c.respostas);
+      if (problema) return erro(400, problema);
+      teclas = teclasDaResposta(pend.perguntas, c.respostas);
+    }
+    // O runner digita as teclas e confere o estado antes de CADA uma: se a pessoa respondeu pelo terminal no meio,
+    // ele para sem escrever o resto (escrever às cegas daqui aprovaria um comando que surgisse no lugar).
+    const r = await runner.pedir(agente, 'POST', `/api/agents/${encodeURIComponent(agente.agente_id)}/pergunta`, { tool_use_id: c.tool_use_id, teclas }, 30000);
+    if (r.erro) {
+      log('erro', `Pergunta de ${agente.slug} não entregue: ${r.erro}`);
+      if (!r.antesDoEnvio) {
+        return erro(504, `Não sei se a resposta chegou inteira ao runner de ${agente.nome} (${r.erro}). Confira o terminal na aba Sessões antes de tentar de novo.`);
+      }
+      return erro(503, `${r.erro} A resposta não foi enviada: tente de novo.`);
+    }
+    if (r.status === 404) {
+      const msg = `O runner de ${agente.nome} é de uma versão antiga e não tem a rota da pergunta de escolha (POST /api/agents/${agente.agente_id}/pergunta). Atualize o agente pelo Admin; enquanto isso, responda a pergunta pelo terminal do agente, na aba Sessões.`;
+      log('erro', `Pergunta de ${agente.slug}: ${msg}`);
+      return erro(501, msg);
+    }
+    if (!r.ok) {
+      const motivo = motivoDoRunner(agente, r);
+      log('erro', `Pergunta de ${agente.slug} recusada pelo runner (HTTP ${r.status}, ${(r.corpo && r.corpo.code) || 'sem código'}): ${motivo}`);
+      if (r.status === 409 && r.corpo && r.corpo.code === 'PERGUNTA_JA_MEXIDA') {
+        return erro(409, `A pergunta de ${agente.nome} já recebeu teclas pelo terminal desde que abriu; a resposta pelo chat poderia cair na etapa errada. Nada foi enviado.`,
+          { howToFix: 'Termine a resposta pelo terminal, na aba Sessões.', codigo: 'PERGUNTA_JA_MEXIDA' });
+      }
+      return erro(r.status === 409 ? 409 : 502, `O runner de ${agente.nome} não aplicou a resposta: ${motivo}`);
+    }
+    const tamanhoTexto = c.cancelar === true ? 0 : c.respostas.reduce((t, r) => t + (typeof r.texto === 'string' ? r.texto.length : 0), 0);
+    log('info', `Pergunta de ${agente.slug}: ${c.cancelar === true ? 'cancelada' : `respondida (${c.respostas.length} resposta(s), ${tamanhoTexto} caracteres de texto livre)`} pela tela.`);
+    return { status: 200, corpo: { ok: true, agente: agente.slug, tool_use_id: c.tool_use_id } };
   }
 
   /**
@@ -589,9 +753,9 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
   }
 
   return {
-    montarEnvelope, estado, thread, threadCompartilhada, atividade, rotuloProvedor, ultimaMensagemTs, umaVez, enviar, comando, comandos, entregar, permissao, reiniciar,
+    montarEnvelope, estado, thread, threadCompartilhada, atividade, rotuloProvedor, ultimaMensagemTs, umaVez, enviar, comando, comandos, entregar, permissao, responderPergunta, reiniciar,
     RX_CLIENTE_ID,
   };
 }
 
-module.exports = { criarConversa, montarEnvelope, RX_CLIENTE_ID };
+module.exports = { criarConversa, montarEnvelope, validarRespostas, teclasDaResposta, RX_CLIENTE_ID };

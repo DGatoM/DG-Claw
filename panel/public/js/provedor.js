@@ -147,6 +147,7 @@
       av.textContent = '';
     }
 
+    if (window.DGUso) window.DGUso.definirAuth(d.auth);
     $('prov-trocar').hidden = false;
     const precisaEntrar = d.auth === 'assinatura' && d.conferido && d.conferido.ok === false;
     $('prov-entrar').hidden = !precisaEntrar;
