@@ -3886,7 +3886,17 @@ function tocaPedaco(blob) {
 /* Lê a resposta INTEIRA: toca o pedaço 0 assim que chega e já pede o seguinte enquanto
    ele toca. `opts.semGravar`: ouvir de novo não abre o microfone no fim. No modo contínuo
    o microfone só reabre depois do ÚLTIMO pedaço. */
+/* Microfone abrindo ou gravando: tocar agora faria o alto-falante entrar na gravação, e a fala
+   do agente voltaria a ele como se fosse da pessoa. */
+function microfoneOcupado() {
+  return !!(gravando || pedindoMic || gravacao);
+}
+
 async function falar(texto, opts) {
+  if (microfoneOcupado()) {
+    if (opts && opts.semGravar) mostraAviso('Termine a gravação antes de ouvir de novo: o som entraria no áudio que você está gravando.');
+    return;
+  }
   pararFala();                       // uma leitura por vez: a nova interrompe a em curso
   const corte = corteFala;
   const minha = faloGeracao;
@@ -3915,6 +3925,7 @@ async function falar(texto, opts) {
     // pré-gera o próximo enquanto o atual toca
     const proximo = i + 1 < total ? pegaPedacoVoz(texto, i + 1, ctl.signal) : null;
     if (proximo) proximo.catch(() => {});   // o erro é tratado quando a vez dele chega
+    if (microfoneOcupado()) { pararFala(); return; }   // o microfone abriu enquanto a voz era gerada
     await tocaPedaco(atual.blob);
     if (!viva() || !proximo) break;
     try {
@@ -3946,6 +3957,10 @@ wrap.addEventListener('click', ev => {
   const texto = m && legendaUtil(m);
   if (!texto) {
     mostraAviso('Não achei o texto desta mensagem para ler de novo. Recarregue a conversa.');
+    return;
+  }
+  if (microfoneOcupado()) {
+    mostraAviso('Termine a gravação antes de ouvir de novo: o som entraria no áudio que você está gravando.');
     return;
   }
   destravarAudio();
