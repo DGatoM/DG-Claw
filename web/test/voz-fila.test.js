@@ -50,3 +50,19 @@ test('fone com o microfone gravando ou abrindo não gera voz nem toca',async()=>
   assert.equal(avisos.length,1,'a pessoa vê o motivo');
  }
 });
+
+test('aparelho que não toca o pedaço para a fila e não pede mais voz',async()=>{
+ const tts=[];
+ const ctx={console,AbortController,ouvintesChegada:[],msgs:[],faladas:new Set(),escuta:null,lerRespostas:true,
+  gravando:false,pedindoMic:false,gravacao:null,falando:false,pararPedido:false,continua:true,AGENTE:{id:'x'},
+  player:{pause(){},play:()=>Promise.resolve()},btnParar:{style:{},textContent:''},ehResposta:()=>true,ehVisual:()=>false,
+  legendaUtil:m=>m.text,setEstado(){},estadoOcioso(){},mostraAviso(){},mostraErro(){},comecaGravar(){},
+  vozCache:new Map(),VOZ_CACHE_MAX:12,pegaPedacoVoz:async(t,i)=>{tts.push(i);return{blob:i,partes:4};},
+  tocaPedaco:async()=>false,fimToque:null,faloAbort:null,faloGeracao:0};
+ vm.createContext(ctx);
+ vm.runInContext(bloco.replace(/^(let (faloGeracao|faloAbort|fimToque)|const (vozCache|VOZ_CACHE_MAX)).*$/gm,'').replace(/(async )?function pegaPedacoVoz[\s\S]*?\n}\n/,'').replace(/function tocaPedaco[\s\S]*?\n}\n/,''),ctx);
+ await vm.runInContext("falar('resposta longa')",ctx);
+ await new Promise(r=>setImmediate(r));
+ assert.deepEqual(tts,[0,1],'só o pedaço 0 e o que já estava em voo');
+ assert.equal(ctx.faloAbort,null,'o pedido antecipado foi cancelado');
+});

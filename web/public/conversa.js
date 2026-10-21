@@ -3854,22 +3854,23 @@ async function pegaPedacoVoz(texto, i, sinal) {
   return { blob, partes };
 }
 
+/* Resolve true se o pedaço tocou até o fim (ou foi parado) e false se o aparelho não tocou. */
 function tocaPedaco(blob) {
   return new Promise(resolve => {
     const url = URL.createObjectURL(blob);
     let pronto = false;
-    const fim = () => {
+    const fim = (tocou = true) => {
       if (pronto) return;
       pronto = true;
       fimToque = null;
       URL.revokeObjectURL(url);
-      resolve();
+      resolve(tocou);
     };
     fimToque = fim;
     player.onended = fim;
     player.onerror = () => {
       mostraAviso('O iPhone não tocou o áudio da resposta. O texto está na tela.');
-      fim();
+      fim(false);
     };
     player.src = url;
     const p = player.play();
@@ -3877,7 +3878,7 @@ function tocaPedaco(blob) {
       p.catch(e => {
         mostraAviso('O iPhone bloqueou o som (' + e.message + '). Toque no ' +
                     'microfone uma vez para liberar o áudio e tente de novo.');
-        fim();
+        fim(false);
       });
     }
   });
@@ -3926,7 +3927,8 @@ async function falar(texto, opts) {
     const proximo = i + 1 < total ? pegaPedacoVoz(texto, i + 1, ctl.signal) : null;
     if (proximo) proximo.catch(() => {});   // o erro é tratado quando a vez dele chega
     if (microfoneOcupado()) { pararFala(); return; }   // o microfone abriu enquanto a voz era gerada
-    await tocaPedaco(atual.blob);
+    // aparelho que não toca não gasta mais cota: para a fila e cancela o próximo já pedido
+    if (!(await tocaPedaco(atual.blob))) { if (viva()) pararFala(); return; }
     if (!viva() || !proximo) break;
     try {
       atual = await proximo;
