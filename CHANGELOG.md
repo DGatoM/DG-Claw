@@ -18,12 +18,25 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 - Cada fala do agente ganha um botão 🎧 (só com o modo de ouvir ligado) para ouvir de novo, sem reabrir o
   microfone.
 
+- Fila de leitura em voz. Uma resposta nova do agente não derruba mais a que você está ouvindo: ela entra no
+  fim da fila e toca depois, uma por vez. Enquanto você grava, nada toca; a que estava tocando pausa e, quando
+  você envia ou cancela a gravação, ela continua (do começo, se tinha tocado menos de 20%, senão de onde
+  parou), seguida das que chegaram nesse meio tempo. Cada balão mostra se está tocando agora ou na fila. Para
+  pular, toque no 🎧 do balão que quer ouvir: ele toca e segue dali. Só as respostas normais do agente entram
+  na fila sozinhas; as mensagens de rotina só tocam se você apertar o 🎧 delas.
+
 ### Como atualizar (voz)
 
 Nesta versão há uma instrução nova para o seu agente saber quando você está ouvindo a resposta, e ela
 precisa entrar nas instruções dele sem apagar o que você personalizou. Para isso, rode
 `sudo dgclaw agente identidade <agente>` para cada agente que você já tem. No celular, feche e abra o app
 uma vez para ele buscar os arquivos novos.
+
+### Como atualizar (fila de voz)
+
+Não há nada para rodar: é só a tela. No celular, feche e abra o app uma vez para ele buscar os arquivos novos
+(ou recarregue a página no computador). Quem ainda não atualizou a parte de voz acima precisa fazer aquele
+passo primeiro.
 
 ### Corrigido
 
