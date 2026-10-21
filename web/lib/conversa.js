@@ -25,12 +25,14 @@ const MAX_SESSOES_NA_THREAD = 40;
 /**
  * O envelope de entrada. Mesmo formato do panel/lib/conversa.js (montarEnvelope):
  * o agente, o hook de cobrança e o extrator de thread dependem de ele ser exatamente este.
+ * `voz: true` acrescenta voz="1" no fim dos atributos: a resposta vai ser OUVIDA (ver docs/CONVERSA.md).
+ * Os leitores pegam from/chat/msg/ts por nome, então o atributo extra passa sem efeito.
  */
-function montarEnvelope({ from, chat, msg, ts, text }) {
+function montarEnvelope({ from, chat, msg, ts, text, voz }) {
   const atributo = (v) => String(v == null ? '' : v).replace(/[\r\n]+/g, ' ').replace(/["<>]/g, '').trim();
   // Quem digitasse "</dgchat>" fecharia o envelope no meio: escapa, como se escapa HTML.
   const corpo = String(text == null ? '' : text).replace(/<\/dgchat>/gi, '<\\/dgchat>');
-  return `<dgchat from="${atributo(from) || 'pessoa'}" chat="${atributo(chat)}" msg="${atributo(msg)}" ts="${atributo(ts)}">${corpo}</dgchat>`;
+  return `<dgchat from="${atributo(from) || 'pessoa'}" chat="${atributo(chat)}" msg="${atributo(msg)}" ts="${atributo(ts)}"${voz === true ? ' voz="1"' : ''}>${corpo}</dgchat>`;
 }
 
 function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agora, gravaToken, alertas, comandos: comandosInjetado }) {
@@ -416,11 +418,11 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
   const erro = (status, motivo, extra) => ({ status, corpo: Object.assign({ ok: false, erro: motivo }, extra || {}) });
 
   /** Entrega o texto (já com marcadores de anexo) ao agente. Devolve { status, corpo }. */
-  async function entregar(agente, textoFinal, { cru }) {
+  async function entregar(agente, textoFinal, { cru, voz }) {
     sequencia += 1;
     const payload = cru
       ? textoFinal
-      : montarEnvelope({ from: 'pessoa', chat: agente.chat_id, msg: `w${relogio().toString(36)}${sequencia}`, ts: new Date(relogio()).toISOString(), text: textoFinal });
+      : montarEnvelope({ from: 'pessoa', chat: agente.chat_id, msg: `w${relogio().toString(36)}${sequencia}`, ts: new Date(relogio()).toISOString(), text: textoFinal, voz });
     const epEnviado = relogio() / 1000 - 2;
     // O runner responde 202 "enfileirado" sempre; quem sabe se vai esperar é o estado de AGORA (sem o cache de 2 s).
     const antes = await runner.estado(agente);
@@ -542,7 +544,8 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     }
     if (d.tipo === 'comando') return entregaComando(agente, d);
     const base = d.texto !== undefined ? d.texto : texto;
-    return entregar(agente, [base, ...marcadores].filter(Boolean).join('\n'), { cru: false });
+    // Só `voz: true` conta (a tela manda quando o modo de ouvir está ligado); outro valor é sem a tag.
+    return entregar(agente, [base, ...marcadores].filter(Boolean).join('\n'), { cru: false, voz: req.voz === true });
   }
 
   const omite = (o, chaves) => Object.fromEntries(Object.entries(o).filter(([k]) => !chaves.includes(k)));

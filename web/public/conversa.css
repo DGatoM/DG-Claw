@@ -642,3 +642,9 @@ html[data-tema="escuro"] .cartaoarq-info{color:#9bb0a0}
   html:not([data-tema="claro"]) .cartaoarq{background:#26302a;color:#dbe6dc}
   html:not([data-tema="claro"]) .cartaoarq-info{color:#9bb0a0}
 }
+
+/* fone: ouvir a fala de novo; só com o modo de ouvir ligado (body.ler-on). Alvo de toque de ~32px. */
+.fone{display:none;border:0;background:transparent;padding:0 4px;margin-right:4px;font-size:15px;line-height:1;
+      cursor:pointer;min-width:32px;min-height:32px;vertical-align:middle;-webkit-tap-highlight-color:transparent}
+body.ler-on .fone{display:inline-block}
+body:not(.ler-on) .fone{display:none}
