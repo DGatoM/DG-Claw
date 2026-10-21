@@ -7,6 +7,16 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Corrigido
+
+- A foto do agente cadastrada por endereço (`https://...`) aparecia pela metade no iPhone, com o verde do
+  avatar por baixo. A mesma foto de fora era pedida várias vezes por página. Agora o painel baixa a foto
+  uma vez, guarda em `/var/lib/dgclaw/web/avatares/` e entrega do próprio endereço do painel
+  (`/api/v1/agents/<agente>/avatar`), inteira e com cache de um ano. O cache se renova sozinho quando você
+  troca o endereço da foto no cadastro. Enquanto a foto carrega, o círculo fica cinza claro em vez da cor
+  do agente. Foto de SVG não é aceita (PNG, JPEG, WebP, GIF e AVIF até 5 MB); se o download falhar, a
+  resposta e o log dizem o motivo.
+
 ### Alterado
 
 - Dependências atualizadas: pino 10 no canal do WhatsApp, express-rate-limit 8 no painel,
@@ -16,6 +26,13 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
   versões minor e patch; as GitHub Actions vêm todas num PR só. As versões major continuam
   separadas, com no máximo três PRs abertos por pasta. A versão major do Express fica de fora: o
   Express 5 muda o roteamento e quebrou o CI do painel, e a migração vai ser uma tarefa própria.
+
+### Como atualizar
+
+Nada a configurar: atualize como de costume (`sudo dgclaw atualizar` ou peça ao Admin). Depois, no
+celular, feche e abra o app uma vez para ele buscar os arquivos novos. A primeira vez que cada foto for
+pedida demora um instante a mais, porque é quando o painel a baixa; as seguintes vêm na hora. Fotos que
+você enviou pelo formulário de criar agente já saíam do painel e não mudam.
 
 ## [1.0.0] - 2026-10-19
 

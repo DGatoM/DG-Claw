@@ -12,6 +12,7 @@ const { criarRegistro } = require('./lib/registro');
 const { criarRunner } = require('./lib/runner');
 const { criarAuth } = require('./lib/auth');
 const { criarMidia } = require('./lib/media');
+const { criarAvatar } = require('./lib/avatar');
 const { criarCompartilhados } = require('./lib/compartilhados');
 const { criarLeitor, paraContainer } = require('./lib/thread');
 const { criarLeitorRollout } = require('./lib/rollout');
@@ -76,6 +77,7 @@ function criarServidor(opcoes) {
   const runner = criarRunner({ log, timeoutMs: opcoes.timeoutRunnerMs });
   const auth = criarAuth({ config, log, agora: opcoes.agora });
   const primeiroAcesso = criarPrimeiroAcesso({ config, auth, log, agora: opcoes.agora });
+  const avatares = criarAvatar({ dataDir: config.dataDir, log });
   const midia = criarMidia({ dataDir: config.dataDir, log, registro, publicDir: config.publicDir });
   const leitor = criarLeitor({ log, tz: config.tz, canalTelegram: config.canalTelegram, midia });
   const leitorRollout = criarLeitorRollout({ log, tz: config.tz, midia });
@@ -260,7 +262,7 @@ function criarServidor(opcoes) {
     const foto = onboarding.foto(a.slug);
     if (foto) return { avatar: a.nome.slice(0, 1), avatar_img: foto };
     const av = a.avatar || '';
-    if (/^https:\/\//i.test(av)) return { avatar: (a.nome[0] || '?').toUpperCase(), avatar_img: av };
+    if (avatares.ehUrlDeFoto(av)) return { avatar: (a.nome[0] || '?').toUpperCase(), avatar_img: avatares.urlPublica(a.slug, av) };
     return { avatar: av || (a.nome[0] || '?').toUpperCase(), avatar_img: null };
   }
 
@@ -441,6 +443,10 @@ function criarServidor(opcoes) {
       if (!agente) return undefined;
       const acao = mm[2] || '';
       if (acao === '' && m === 'GET') return H.enviaJson(res, 200, { ok: true, agente: await agentePublico(agente) });
+      if (acao === 'avatar' && (m === 'GET' || m === 'HEAD')) {
+        const falha = await avatares.servir(req, res, agente);
+        return falha ? H.erroJson(res, falha.status, falha.erro) : undefined;
+      }
       if (acao === 'compartilhados' && m === 'GET') {
         try {
           if (url.searchParams.has('mensagem')) {
