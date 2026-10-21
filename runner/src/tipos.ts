@@ -45,6 +45,10 @@ export interface AgentConfig {
    * - `bypassPermissions` não pergunta nada. Perigoso para agente que executa
    *                       tarefa; aceitável para agente informacional.
    *
+   * O agente PRINCIPAL nasce em `bypassPermissions` (obrigatório). As sessões paralelas
+   * (descritor e POST /api/sessoes) sobem SEMPRE em `auto`, sem herdar da principal
+   * (`configDaSessao`, runner/src/sessoes.ts; decisão de 21/10/2026).
+   *
    * Equivalência no Codex (o painel é agnóstico de CLI, ver `codexApprovalArgs`):
    * auto → `-a on-request`, default → `-a untrusted`, bypass →
    * `--dangerously-bypass-approvals-and-sandbox`.
