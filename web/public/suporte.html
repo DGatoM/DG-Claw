@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Suporte remoto - DG Claw</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#2f9e5e">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="icon" href="/icons/icon-192.png">
+<link rel="stylesheet" href="/suporte.css">
+<link rel="stylesheet" href="/casca.css">
+<link rel="stylesheet" href="/menu-lado.css">
+<link rel="stylesheet" href="/sem-zoom.css">
+<script src="/sem-zoom.js"></script>
+</head>
+<body class="sp">
+<main class="sp-main">
+  <p class="sp-msg erro" id="msgGeral" role="alert" hidden></p>
+
+  <section class="sp-sec" id="secExplica" data-tour="explica" aria-label="O que é o suporte remoto">
+    <h2><span>O que é o suporte remoto</span><button type="button" class="sp-ajuda" data-ajuda="explica" aria-label="Tutorial: o que é o suporte remoto">?</button></h2>
+    <p>Uma chave de suporte deixa quem dá suporte ao seu DG Claw ler só a saúde do sistema: quais serviços e rotinas estão funcionando e por que algo parou.</p>
+    <p>Ela não lê suas conversas, sua memória nem seus arquivos, e não consegue mudar nada. A máquina é sua: você pode revogar a chave quando quiser, e o acesso acaba na hora.</p>
+  </section>
+
+  <section class="sp-sec" id="secChaves" data-tour="chaves" aria-label="Chaves de suporte">
+    <h2><span>Chaves de suporte</span><button type="button" class="sp-ajuda" data-ajuda="chaves" aria-label="Tutorial: lista de chaves">?</button></h2>
+    <p class="sp-fraco" id="chavesEstado">Carregando…</p>
+    <div id="chavesLista" class="sp-cartoes"></div>
+  </section>
+
+  <section class="sp-sec" id="secCriar" data-tour="criar" aria-label="Criar chave">
+    <h2><span>Criar uma chave</span><button type="button" class="sp-ajuda" data-ajuda="criar" aria-label="Tutorial: criar chave">?</button></h2>
+    <form class="sp-form" id="formCriar" novalidate>
+      <label>Nome da chave
+        <input id="fNome" type="text" maxlength="60" value="Suporte DG" autocomplete="off">
+      </label>
+      <button type="submit" class="sp-btn pri" id="btnCriar">Criar chave</button>
+    </form>
+    <p class="sp-msg" id="criarMsg" role="status" hidden></p>
+    <div class="sp-token" id="tokenCaixa" hidden>
+      <p class="sp-aviso">Guarde agora, ela não aparece de novo.</p>
+      <div class="sp-copia">
+        <code id="tokenTexto"></code>
+        <button type="button" class="sp-btn" id="btnCopiarToken">Copiar</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="sp-sec" id="secVe" data-tour="ve" aria-label="O que o suporte vê agora">
+    <h2><span>O que o suporte vê agora</span><button type="button" class="sp-ajuda" data-ajuda="ve" aria-label="Tutorial: o que o suporte vê">?</button></h2>
+    <div class="sp-linha">
+      <button type="button" class="sp-btn" id="btnAtualizaDiag">Atualizar</button>
+      <span class="sp-fraco" id="diagQuando"></span>
+    </div>
+    <p class="sp-msg" id="diagMsg" role="status" hidden></p>
+    <div id="diagResumo"></div>
+    <div id="diagGrupos"></div>
+  </section>
+</main>
+<script src="/tour.js"></script>
+<script src="/menu-lado.js"></script>
+<script src="/casca.js"></script>
+<script src="/suporte.js"></script>
+<script>
+DGCasca.monta({ pagina: 'suporte', titulo: 'Suporte remoto', aoTutorial: function () { if (window.DGSuporteTutorial) window.DGSuporteTutorial(); } });
+</script>
+</body>
+</html>

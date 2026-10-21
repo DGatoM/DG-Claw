@@ -22,6 +22,21 @@ const PADROES = [
   /Bearer\s+[A-Za-z0-9._~+\/=-]{20,}/g,
   /\b\d{8,10}:[A-Za-z0-9_-]{35}\b/g,
   /\b[a-z][a-z0-9+.\-]{0,20}:\/\/[^\s:/?#@'"<>]+:[^\s@/?#'"<>]+@[^\s'"<>]+/gi,
+  /dgc_[A-Za-z0-9_-]{16,}/g,                                                 // chave de API do DG Claw
+  /eyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]*/g,                    // JWT
+  /\b(?:Set-)?Cookie:[ \t]*[^\r\n]+/gi,                                        // cabeçalho de cookie inteiro
+];
+
+// Dados de pessoas e identificadores longos. Ficam fora de PADROES porque a trilha mostra comandos e
+// saídas, onde data, id e contagem têm 10 dígitos e precisam continuar legíveis. O diagnóstico remoto
+// usa mascararDados, que vale para o que sai da máquina do cliente.
+const PADROES_DADOS = [
+  /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/g,                      // e-mail
+  /\+\d{1,3}[\s.-]?\(?\d{2}\)?[\s.-]?\d{4,5}[\s.-]?\d{4}\b/g,                    // telefone com +
+  /\(\d{2}\)\s?\d{4,5}-?\d{4}/g,                                               // (11) 99999-9999
+  /\b\d{2}\s\d{4,5}-\d{4}\b/g,                                                // 11 99999-9999
+  /\b\d{10,}\b/g,                                                            // 10+ dígitos seguidos
+  /\b[0-9a-fA-F]{32,}\b/g,                                                    // hexadecimal longo (hash, token)
 ];
 
 // NOME=valor, "nome": "valor", nome: valor, quando o nome sugere segredo. Mantém o nome, esconde o valor.
@@ -36,4 +51,11 @@ function mascarar(texto) {
   return r;
 }
 
-module.exports = { mascarar, OCULTO };
+/** mascarar + e-mails, telefones e hexadecimais longos. */
+function mascararDados(texto) {
+  let r = mascarar(texto);
+  for (const p of PADROES_DADOS) { p.lastIndex = 0; r = r.replace(p, OCULTO); }
+  return r;
+}
+
+module.exports = { mascarar, mascararDados, OCULTO };

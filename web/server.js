@@ -36,6 +36,7 @@ const { criarMesa } = require('./lib/mesa');
 const { criarAvisos } = require('./lib/avisos');
 const { criarAtualizacao } = require('./lib/atualizacao');
 const { criarNaoLidas } = require('./lib/nao-lidas');
+const { criarChavesApi, ESCOPOS } = require('./lib/chaves-api');
 
 const METODOS_QUE_ESCREVEM = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const TIPOS_ESTATICOS = {
@@ -58,6 +59,30 @@ function proximoSeguro(v) {
   const s = typeof v === 'string' ? v : '';
   if (!s.startsWith('/') || s.startsWith('//') || s.startsWith('/\\') || /[\x00-\x1f]/.test(s) || s.startsWith('/login') || s.startsWith('/sair')) return '/';
   return s;
+}
+
+/** O coletor é a Parte B do diagnóstico. Sem o módulo instalado, a rota responde 503 com o motivo em vez de derrubar o Web. */
+function montaDiagnostico(deps) {
+  let criar;
+  try {
+    ({ criarDiagnostico: criar } = require('./lib/diagnostico'));
+  } catch (e) {
+    if (e.code !== 'MODULE_NOT_FOUND' || !/lib[\\/]diagnostico/.test(String(e.message))) throw e;
+    deps.log('erro', 'O coletor de diagnóstico não está instalado (falta web/lib/diagnostico). A rota /api/v1/diagnostico vai responder 503 até a instalação ser refeita.');
+    return {
+      async responder(req, res) {
+        H.erroJson(res, 503, 'O coletor de diagnóstico não está instalado neste servidor.', { como_resolver: 'Atualize o DG Claw (sudo dgclaw atualizar) para instalar o coletor.' });
+      },
+    };
+  }
+  return criar(deps);
+}
+
+/** "20/10/2026" no fuso do Web, para as mensagens que o suporte lê. */
+function dataCurta(iso, tz) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso).slice(0, 10);
+  try { return new Intl.DateTimeFormat('pt-BR', { timeZone: tz, day: '2-digit', month: '2-digit', year: 'numeric' }).format(d); } catch (_) { return iso.slice(0, 10); }
 }
 
 function criarServidor(opcoes) {
@@ -106,6 +131,10 @@ function criarServidor(opcoes) {
   caixa.permitir('/api/v1/avisos');
   // Aviso de versão nova: só o dono, pelo painel. De propósito NÃO entra em caixa.permitir (agente em container não usa).
   const atualizacao = criarAtualizacao({ dataDir: config.dataDir, log });
+
+  // Chave de suporte: lê só o diagnóstico (ver docs/interno/PLANO-DIAGNOSTICO-REMOTO.md).
+  const chavesApi = criarChavesApi({ config, log, agora: opcoes.agora });
+  const diagnostico = opcoes.diagnostico || montaDiagnostico({ config, registro, runner, log, agora: opcoes.agora });
 
   let versaoJsCache = { ts: 0, valor: '0' };
   /** Versão da tela: mtime de conversa.js. A tela compara com a que carregou e se recarrega sozinha. */
@@ -290,6 +319,29 @@ function criarServidor(opcoes) {
     return n;
   }
 
+  /** Gestão das chaves: só sessão de navegador. Nenhuma chave (nem a caixa de um agente) gerencia chaves. */
+  async function chavesApiRota(req, res, url, sessao) {
+    if (sessao.via === 'caixa') return H.erroJson(res, 403, 'A caixa dos agentes não gerencia chaves de API. Isso é do dono, pela tela Suporte remoto.');
+    const m = req.method;
+    const falha = (r) => H.erroJson(res, r.status, r.erro, r.como_resolver ? { como_resolver: r.como_resolver } : undefined);
+    if (m === 'GET') return H.enviaJson(res, 200, { ok: true, chaves: chavesApi.listar(), escopos: ESCOPOS });
+    if (m === 'POST') {
+      let corpo;
+      try { corpo = await H.lerJson(req, 4 * 1024); } catch (e) { return H.erroJson(res, e.status || 400, e.message); }
+      const r = chavesApi.criar({ nome: corpo.nome, escopos: corpo.escopos, quem: sessao.usuario });
+      if (!r.ok) return falha(r);
+      log('info', `Chave de API ${r.chave.id} ("${r.chave.nome}") criada por ${sessao.usuario}, escopos: ${r.chave.escopos.join(', ')}.`);
+      return H.enviaJson(res, 201, { ok: true, token: r.token, chave: r.chave, aviso: 'Guarde este token agora: ele não aparece de novo. O sistema guarda só uma marca dele.' });
+    }
+    if (m === 'DELETE') {
+      const r = chavesApi.revogar(url.searchParams.get('id'), sessao.usuario);
+      if (!r.ok) return falha(r);
+      log('info', `Chave de API ${r.chave.id} ("${r.chave.nome}") revogada por ${sessao.usuario}.`);
+      return H.enviaJson(res, 200, { ok: true, chave: r.chave });
+    }
+    return H.erroJson(res, 405, 'Use GET para listar, POST para criar ou DELETE ?id=<código> para revogar.');
+  }
+
   async function api(req, res, url, sessao) {
     const p = url.pathname;
     const m = req.method;
@@ -330,6 +382,14 @@ function criarServidor(opcoes) {
         return H.enviaJson(res, 200, { ok: true, ...onboarding.dispensarCartao(corpo && corpo.id) });
       } catch (e) { return H.erroJson(res, e.status || 500, e.status ? e.message : 'Não consegui guardar que o cartão foi dispensado. Peça ao Admin para conferir o espaço e as permissões do servidor.'); }
     }
+
+    if (ehRotaDiagnostico(p)) {
+      if (sessao.via === 'caixa') return H.erroJson(res, 403, 'O diagnóstico não é lido pela caixa dos agentes: ele é do dono da máquina e de quem tem a chave de suporte.');
+      if (m !== 'GET' && m !== 'HEAD') return H.erroJson(res, 405, 'O diagnóstico só se lê: use GET /api/v1/diagnostico.', { como_resolver: 'Troque o método para GET.' });
+      return diagnostico.responder(req, res, url, { tipo: 'sessao', usuario: sessao.usuario });
+    }
+
+    if (p === '/api/v1/chaves-api') return chavesApiRota(req, res, url, sessao);
 
     if (p === '/api/v1/eu' && m === 'GET') return H.enviaJson(res, 200, { ok: true, usuario: sessao.usuario });
 
@@ -664,6 +724,45 @@ function criarServidor(opcoes) {
     return res.end(r.audio);
   }
 
+  // ── porteiro das chaves de API ───────────────────────────────────────────
+  const ehRotaDiagnostico = (p) => p === '/api/v1/diagnostico' || p === '/api/v1/diagnostico/';
+
+  function recusaChave(res, status, erro, comoResolver, extraCab) {
+    return H.erroJson(res, status, erro, { como_resolver: comoResolver }, Object.assign({ 'Cache-Control': 'no-store' }, extraCab || {}));
+  }
+
+  async function porteiroChave(req, res, url) {
+    const ip = H.ipDoPedido(req, config.proxiesConfiaveis);
+    const b = chavesApi.bloqueio(ip);
+    if (b.bloqueado) {
+      log('aviso', `Chave de API: IP ${ip} bloqueado por excesso de tentativas inválidas; libera em ${b.retryAfter} s.`);
+      return recusaChave(res, 429, `Tentativas demais com chave inválida vindas deste endereço. Libera em ${Math.ceil(b.retryAfter / 60)} min.`,
+        'Confira a chave com quem a gerou e espere o prazo antes de tentar de novo.', { 'Retry-After': String(b.retryAfter) });
+    }
+    const r = chavesApi.julgar(req.headers.authorization);
+    if (r.estado !== 'valida') {
+      chavesApi.registrarFalha(ip);
+      if (r.estado === 'revogada') {
+        log('aviso', `Chave de API revogada ("${r.nome}") usada por ${ip}.`);
+        return recusaChave(res, 401, `A chave foi revogada em ${dataCurta(r.revogadaEm, config.tz)} pelo dono da máquina.`, 'Peça uma chave nova a ele.');
+      }
+      log('aviso', `Chave de API recusada de ${ip}: ${r.estado === 'formato' ? 'formato inválido' : 'chave desconhecida'}.`);
+      if (r.estado === 'formato') {
+        return recusaChave(res, 401, 'O cabeçalho Authorization não está no formato esperado.', 'Mande "Authorization: Bearer dgc_..." com a chave inteira, sem aspas nem espaços extras.');
+      }
+      return recusaChave(res, 401, 'A chave não é válida.', 'Confira se copiou a chave inteira. Se ela foi perdida, o dono da máquina cria outra na tela Suporte remoto.');
+    }
+    if ((req.method === 'GET' || req.method === 'HEAD') && ehRotaDiagnostico(url.pathname) && r.escopos.includes('diagnostico')) {
+      chavesApi.marcarUso(r.id, ip);
+      log('info', `Diagnóstico lido com a chave ${r.id} ("${r.nome}") de ${ip}.`);
+      res.setHeader('Cache-Control', 'no-store');
+      return diagnostico.responder(req, res, url, { tipo: 'chave', id: r.id, nome: r.nome });
+    }
+    log('aviso', `Chave de API ${r.id} ("${r.nome}") tentou ${req.method} ${url.pathname.slice(0, 120)} de ${ip}: recusado, a chave só lê o diagnóstico.`);
+    return recusaChave(res, 403, 'Esta chave é de diagnóstico: ela só pode ler GET /api/v1/diagnostico. Nenhuma outra rota aceita chave de API.',
+      'Use GET /api/v1/diagnostico com esta chave. Para qualquer outra coisa, o dono da máquina entra pelo navegador.');
+  }
+
   // ── despacho ─────────────────────────────────────────────────────────────
   async function tratar(req, res) {
     let url;
@@ -681,6 +780,13 @@ function criarServidor(opcoes) {
       }
       return H.enviaJson(res, 200, { ok: true, trancado: auth.trancado, sem_senha: false, mensagem: auth.trancado ? `O acesso está trancado: ${auth.motivoTrancado} Rode o gerador de hash do instalador e coloque o resultado no web.env.` : null });
     }
+
+    // Documentação do diagnóstico: pública, sem chave nem sessão (só texto, nenhum dado da máquina).
+    if ((m === 'GET' || m === 'HEAD') && p === '/api/v1/diagnostico/docs.md') return diagnostico.responder(req, res, url, { tipo: 'publico' });
+
+    // Pedido com chave de API: julgado SÓ pela chave, ignorando cookie e caixa. Fica antes de tudo
+    // para que uma chave de suporte nunca chegue a nenhuma rota que não seja a do diagnóstico.
+    if (/^\s*Bearer/i.test(String(req.headers.authorization || ''))) return porteiroChave(req, res, url);
 
     if (!p.startsWith('/p/')) {
       res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -769,6 +875,15 @@ function criarServidor(opcoes) {
       return undefined;
     }
 
+    if ((p === '/suporte' || p === '/suporte/') && (m === 'GET' || m === 'HEAD')) {
+      if (!sessao) return semSessaoPagina(req, res, url);
+      if (!servirArquivo(req, res, path.join(config.publicDir, 'suporte.html'), 'no-store')) {
+        log('erro', `A tela de suporte remoto não está instalada: falta ${path.join(config.publicDir, 'suporte.html')}.`);
+        H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela de suporte remoto não foi encontrado no servidor. Reinstale o DG Claw Web.');
+      }
+      return undefined;
+    }
+
     const pa = /^\/a\/([^/]+)\/?$/.exec(p);
     if (pa && (m === 'GET' || m === 'HEAD')) {
       if (!sessao) return semSessaoPagina(req, res, url);
@@ -835,7 +950,7 @@ function criarServidor(opcoes) {
   });
 
   return {
-    servidor, config, registro, auth, midia, conversa, log, caixa, push, lembretes, avisos,
+    servidor, config, registro, auth, midia, conversa, log, caixa, push, lembretes, avisos, chavesApi, diagnostico,
     ouvir(porta, host) {
       return new Promise((resolve, reject) => {
         servidor.once('error', reject);

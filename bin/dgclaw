@@ -115,6 +115,17 @@ Painel
   dgclaw senha [trocar]                  troca a senha do painel (a nova senha vem pelo STDIN)
       Exemplo:  printf '%s\n' "minha senha nova" | dgclaw senha trocar
 
+Suporte remoto (chave que so le o diagnostico de saude)
+  dgclaw chave-api criar --nome "<nome>" --escopo diagnostico
+      Cria uma chave de suporte e imprime SO o token na saida (o resto vai para o stderr). Ele nao
+      aparece de novo. A chave so le GET /api/v1/diagnostico: nao le conversas, memoria nem arquivos
+      e nao muda nada.
+      Exemplo:  sudo dgclaw chave-api criar --nome "Suporte DG" --escopo diagnostico
+  dgclaw chave-api listar [--json]       mostra as chaves (nome, final, ultimo acesso, se foi revogada)
+  dgclaw chave-api revogar <id>          a chave deixa de valer na hora (o id aparece em listar)
+      Exemplo:  sudo dgclaw chave-api revogar 3fa9c21b07
+      Saida: 0 deu certo, 1 recusa (o motivo vem escrito), 2 uso errado.
+
 Atualizar o DG Claw
   dgclaw atualizar [opcoes]              baixa a versao nova, faz backup, reinstala e recria os agentes
       Faz, nesta ordem: confere o clone, faz o backup datado em /var/backups/dgclaw/, baixa a versao
@@ -1616,6 +1627,29 @@ agente_cofre() {
         DGCLAW_WEB_DATA="$DG_LIB/web" node "$cofre_js" "$acao" "$slug" "$@"
 }
 
+# chave_api criar|listar|revogar [opcoes]
+# Embrulho fino de web/bin/chave-api.js: o token sai so no stdout do node e o bash nao o le,
+# nao o guarda nem o imprime. O codigo de saida (0, 1 recusa, 2 uso errado) volta intacto.
+chave_api() {
+    local acao="${1:-}"
+    case "$acao" in
+        criar|listar|revogar) ;;
+        '') falha_uso "faltou dizer o que fazer com as chaves de API." \
+            "use: criar, listar ou revogar. Exemplo: dgclaw chave-api criar --nome \"Suporte DG\" --escopo diagnostico" ;;
+        *) falha_uso "'$acao' nao e uma acao das chaves de API." \
+            "use: criar, listar ou revogar. Exemplo: dgclaw chave-api listar" ;;
+    esac
+    exigir_ferramentas node
+    local chave_js="$DG_APP/web/bin/chave-api.js"
+    [ -f "$chave_js" ] || falha "nao achei o programa das chaves de API em $chave_js." \
+        "atualize o DG Claw (rode de novo o instalador: sudo ./install.sh --usuario <nome>) e tente outra vez."
+    if [ "$ENSAIO" = 1 ]; then
+        info "[ensaio] rodaria: node $chave_js $acao (com DGCLAW_WEB_ENV=$DG_ETC/web.env DGCLAW_WEB_DATA=$DG_LIB/web); o token, quando houver, sai so no stdout"
+        return 0
+    fi
+    exec env DGCLAW_WEB_ENV="$DG_ETC/web.env" DGCLAW_WEB_DATA="$DG_LIB/web" node "$chave_js" "$@"
+}
+
 agente_main() {
     local sub="${1:-}"; shift || true
     case "$sub" in
@@ -2024,6 +2058,7 @@ main() {
         senha) senha_main "$@" ;;
         dominio) dominio_main "$@" ;;
         primeiro-acesso) primeiro_acesso "$@" ;;
+        chave-api) chave_api "$@" ;;
         status) status_geral "$@" ;;
         atualizar)
             case "${1:-}" in
