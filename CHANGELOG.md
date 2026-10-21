@@ -7,6 +7,24 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Adicionado
+
+- A voz agora lê a resposta inteira, não só o começo. O texto é limpo (tabela, código e link não viram
+  fala), fatiado por parágrafo e frase, e a tela toca os pedaços em sequência, já preparando o próximo
+  enquanto o atual toca. Parar de falar ou gravar um áudio novo interrompe a leitura toda. O aviso de
+  "resposta cortada" saiu, e um texto de mais de 40 pedaços é recusado com o motivo.
+- Com o modo de ouvir ligado, a mensagem segue ao agente com `voz="1"` no envelope, e ele responde curto, em
+  frases faladas, sem tabela nem URL. O campo `voz: true` também vale para quem usa o `/send` por API.
+- Cada fala do agente ganha um botão 🎧 (só com o modo de ouvir ligado) para ouvir de novo, sem reabrir o
+  microfone.
+
+### Como atualizar (voz)
+
+Nesta versão há uma instrução nova para o seu agente saber quando você está ouvindo a resposta, e ela
+precisa entrar nas instruções dele sem apagar o que você personalizou. Para isso, rode
+`sudo dgclaw agente identidade <agente>` para cada agente que você já tem. No celular, feche e abra o app
+uma vez para ele buscar os arquivos novos.
+
 ### Corrigido
 
 - A foto do agente cadastrada por endereço (`https://...`) aparecia pela metade no iPhone, com o verde do

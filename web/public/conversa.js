@@ -1373,8 +1373,11 @@ function htmlCorpo(m) {
   const corpo = leg ? doVisual + htmlLeg : doVisual;
   const reac = (m.reacoes && m.reacoes.length)
     ? `<span class="reac">${m.reacoes.map(esc).join(' ')}</span>` : '';
+  // fone: ouvir esta fala de novo (só aparece com o modo de ouvir ligado, pelo CSS)
+  const fone = ehAgente(m) && !m.pendente && m.id && leg && !ehVisual(m.media)
+    ? `<button class="fone" type="button" data-fone="${esc(m.id)}" aria-label="Ouvir de novo" title="Ouvir de novo">🎧</button> ` : '';
   let meta = m.pendente ? metaPendente(m.local)
-    : `<span class="meta">${m.editada ? 'editada · ' : ''}${esc(m.hhmm)}</span>`;
+    : `<span class="meta">${fone}${m.editada ? 'editada · ' : ''}${esc(m.hhmm)}</span>`;
   if (viaAudio) meta = meta.replace(/^<span class="meta"[^>]*>/, '$&<span title="Falado e transcrito automaticamente">🎤</span> · ');
   return htmlSelo(m) + cita + midia + corpo + reac + meta;
 }
@@ -3230,6 +3233,7 @@ async function comecaGravar() {
   destravarAudio();
   if (!caps.microfone) return;
   if (gravando || pedindoMic || gravacao) return;
+  if (falando || faloAbort) pararFala();   // gravar áudio novo interrompe a fila de voz inteira
   const mime = melhorMime();
   if (mime === null) {
     mostraErro('Este navegador não grava áudio (sem MediaRecorder). ' +
@@ -3570,6 +3574,7 @@ async function mandaTexto(pend, semEsperar) {
   const corpo = pend.anexos ? { text: pend.texto, anexos: pend.anexos.map(a => a.id) }
                             : { text: pend.texto };
   corpo.cliente_id = pend.cid;
+  if (lerRespostas) corpo.voz = true;   // o agente sabe que a resposta vai ser ouvida e responde curto
   try {
     d = await api(API + '/send', { method: 'POST', body: corpo,
                                    timeoutMs: pend.anexos ? 120000 : 75000 });
@@ -3787,62 +3792,69 @@ btnParar.onclick = () => {
 };
 
 /* ── Falar a resposta ─────────────────────────────────────────────────────── */
+let faloGeracao = 0;      // sobe a cada parada ou fala nova: a leitura antiga morre sozinha
+let faloAbort = null;     // cancela o pedido de voz em voo
+let fimToque = null;      // resolve o pedaço que está tocando (parar não deixa a fila pendurada)
+const vozCache = new Map();   // texto -> { partes, blobs[] }: ouvir de novo sem gerar de novo
+const VOZ_CACHE_MAX = 12;
+
 function pararFala() {
+  faloGeracao++;
+  if (faloAbort) { faloAbort.abort(); faloAbort = null; }
   try {
     player.pause();
   } catch (e) {
     console.warn('pararFala: player.pause() falhou:', e.message);
   }
+  if (fimToque) fimToque();
   falando = false;
   btnParar.style.display = 'none';
   estadoOcioso();
 }
 
-async function falar(texto) {
-  setEstado('preparando a voz…');
-  let blob;
-  try {
-    const r = await fetch('/api/v1/tts', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ agent_id: AGENTE.id, text: texto }),
-    });
-    if (r.status === 401) {
-      location.href = '/login?next=' + encodeURIComponent(AQUI);
-      return;
-    }
-    if (!r.ok) {
-      let motivo = 'a API respondeu ' + r.status;
-      try { const d = await r.json(); if (d && d.erro) motivo = d.erro; }
-      catch (e) { console.warn('tts: a resposta de erro não veio em JSON:', e.message); }
-      // a resposta JÁ está na tela: isto é aviso, não é falha do ciclo
-      mostraAviso(motivo);
-      setEstado('resposta só em texto');
-      return;
-    }
-    if (r.headers.get('X-TTS-Cortado') === '1') {
-      mostraAviso('A resposta é longa: a voz leu os primeiros 1200 caracteres. ' +
-                  'O texto completo está na tela.');
-    }
-    blob = await r.blob();
-  } catch (e) {
-    mostraAviso('A resposta está na tela, mas não consegui gerar a voz: ' + e.message);
-    setEstado('resposta só em texto');
-    return;
+/* Um pedaço da voz. O servidor fatia o texto (parágrafo, frase) e devolve o pedaço `i`,
+   com o total em X-TTS-Partes. Pedaço já gerado fica na memória: o blob é solto junto com
+   o texto mais antigo quando o cache enche, e a URL de cada toque é revogada ao fim dele. */
+async function pegaPedacoVoz(texto, i, sinal) {
+  let c = vozCache.get(texto);
+  if (c && c.blobs[i]) return { blob: c.blobs[i], partes: c.partes };
+  const r = await fetch('/api/v1/tts', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: sinal,
+    body: JSON.stringify({ agent_id: AGENTE.id, text: texto, parte: i }),
+  });
+  if (r.status === 401) {
+    location.href = '/login?next=' + encodeURIComponent(AQUI);
+    throw new Error('sessão expirada');
   }
+  if (!r.ok) {
+    let motivo = 'a API respondeu ' + r.status;
+    try { const d = await r.json(); if (d && d.erro) motivo = d.erro; }
+    catch (e) { console.warn('tts: a resposta de erro não veio em JSON:', e.message); }
+    throw new Error(motivo);
+  }
+  const partes = parseInt(r.headers.get('X-TTS-Partes') || '1', 10) || 1;
+  const blob = await r.blob();
+  if (!c) {
+    c = { partes, blobs: [] };
+    vozCache.set(texto, c);
+    if (vozCache.size > VOZ_CACHE_MAX) vozCache.delete(vozCache.keys().next().value);
+  }
+  c.blobs[i] = blob;
+  return { blob, partes };
+}
 
-  falando = true;
-  btnParar.style.display = '';
-  btnParar.textContent = 'parar de falar';
-  setEstado('falando…');
-  const url = URL.createObjectURL(blob);
-  await new Promise(resolve => {
+function tocaPedaco(blob) {
+  return new Promise(resolve => {
+    const url = URL.createObjectURL(blob);
     let pronto = false;
     const fim = () => {
       if (pronto) return;
       pronto = true;
+      fimToque = null;
       URL.revokeObjectURL(url);
       resolve();
     };
+    fimToque = fim;
     player.onended = fim;
     player.onerror = () => {
       mostraAviso('O iPhone não tocou o áudio da resposta. O texto está na tela.');
@@ -3858,15 +3870,75 @@ async function falar(texto) {
       });
     }
   });
+}
+
+/* Lê a resposta INTEIRA: toca o pedaço 0 assim que chega e já pede o seguinte enquanto
+   ele toca. `opts.semGravar`: ouvir de novo não abre o microfone no fim. No modo contínuo
+   o microfone só reabre depois do ÚLTIMO pedaço. */
+async function falar(texto, opts) {
+  pararFala();                       // uma leitura por vez: a nova interrompe a em curso
+  const minha = faloGeracao;
+  const viva = () => minha === faloGeracao;
+  const ctl = new AbortController();
+  faloAbort = ctl;
+  setEstado('preparando a voz…');
+  let atual;
+  try {
+    atual = await pegaPedacoVoz(texto, 0, ctl.signal);
+  } catch (e) {
+    if (!viva()) return;
+    // a resposta JÁ está na tela: isto é aviso, não é falha do ciclo
+    mostraAviso(e.name === 'TypeError' ? 'A resposta está na tela, mas não consegui gerar a voz: ' + e.message : e.message);
+    setEstado('resposta só em texto');
+    return;
+  }
+  if (!viva()) return;
+
+  falando = true;
+  btnParar.style.display = '';
+  btnParar.textContent = 'parar de falar';
+  setEstado('falando…');
+  const total = atual.partes;
+  for (let i = 0; i < total && viva(); i++) {
+    // pré-gera o próximo enquanto o atual toca
+    const proximo = i + 1 < total ? pegaPedacoVoz(texto, i + 1, ctl.signal) : null;
+    if (proximo) proximo.catch(() => {});   // o erro é tratado quando a vez dele chega
+    await tocaPedaco(atual.blob);
+    if (!viva() || !proximo) break;
+    try {
+      atual = await proximo;
+    } catch (e) {
+      if (!viva()) return;
+      mostraAviso('A voz parou no pedaço ' + (i + 2) + ' de ' + total + ': ' + e.message +
+                  ' O texto completo está na tela.');
+      break;
+    }
+  }
+  if (!viva()) return;               // parou: quem parou já arrumou a tela
+  faloAbort = null;
   falando = false;
   btnParar.style.display = 'none';
   if (pararPedido) { estadoOcioso(); return; }
   estadoOcioso();
-  if (continua) {
+  if (continua && !(opts && opts.semGravar)) {
     mostraAviso('');
     await comecaGravar();
   }
 }
+
+/* Fone no balão: toca de novo a fala daquela mensagem (a leitura em curso para). */
+wrap.addEventListener('click', ev => {
+  const bt = ev.target.closest ? ev.target.closest('button[data-fone]') : null;
+  if (!bt) return;
+  const m = msgs.find(x => String(x.id) === bt.getAttribute('data-fone'));
+  const texto = m && legendaUtil(m);
+  if (!texto) {
+    mostraAviso('Não achei o texto desta mensagem para ler de novo. Recarregue a conversa.');
+    return;
+  }
+  destravarAudio();
+  falar(texto, { semGravar: true });
+});
 
 /* ── Modo texto e toggles ─────────────────────────────────────────────────── */
 function enviarDoCampo() {
@@ -3896,6 +3968,7 @@ entrada.addEventListener('keydown', ev => {
 });
 
 function pintaLer() {
+  document.body.classList.toggle('ler-on', lerRespostas);   // mostra os fones dos balões
   btnLer.classList.toggle('on', lerRespostas);
   btnLer.title = lerRespostas ? 'Ler respostas em voz alta: ligado'
                               : 'Ler respostas em voz alta: desligado';

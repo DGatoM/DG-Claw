@@ -662,10 +662,13 @@ function criarServidor(opcoes) {
     const slug = typeof corpo.agent_id === 'string' ? corpo.agent_id : (registro.estado().agentes[0] || {}).slug;
     const agente = registro.obter(slug);
     if (!agente) return H.erroJson(res, 404, `Não existe agente com o id "${String(slug).slice(0, 40)}".`);
-    const r = await voz.falar(agente, corpo.text, typeof corpo.voice_id === 'string' ? corpo.voice_id : null);
+    const parte = corpo.parte == null ? 0 : corpo.parte;
+    if (!Number.isInteger(parte) || parte < 0) {
+      return H.erroJson(res, 400, `O campo "parte" precisa ser um número inteiro a partir de 0 (o pedaço de voz pedido). Recebi ${JSON.stringify(parte).slice(0, 40)}. Nada foi falado.`);
+    }
+    const r = await voz.falar(agente, corpo.text, typeof corpo.voice_id === 'string' ? corpo.voice_id : null, parte);
     if (r.erro) return H.erroJson(res, r.status, r.erro);
-    const cab = { 'Content-Type': 'audio/mpeg', 'Content-Length': r.audio.length, 'Cache-Control': 'no-store', 'X-TTS-Chars': String(r.chars) };
-    if (r.cortado) cab['X-TTS-Cortado'] = '1';
+    const cab = { 'Content-Type': 'audio/mpeg', 'Content-Length': r.audio.length, 'Cache-Control': 'no-store', 'X-TTS-Chars': String(r.chars), 'X-TTS-Partes': String(r.partes), 'X-TTS-Parte': String(r.parte) };
     res.writeHead(200, cab);
     return res.end(r.audio);
   }
