@@ -19,6 +19,10 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ### Alterado
 
+- As sessões paralelas do agente (as do descritor e as criadas por `POST /api/sessoes`, inclusive a de
+  bastidores) agora sobem sempre em modo `auto`, em vez de herdar o `bypassPermissions` da principal. O
+  agente principal continua em `bypassPermissions`, que é obrigatório. Os pedidos de permissão das outras
+  sessões aparecem na tela pelo cartão de permissão.
 - Dependências atualizadas: pino 10 no canal do WhatsApp, express-rate-limit 8 no painel,
   TypeScript 7 no runner e as GitHub Actions do CI (checkout, setup-node e setup-python 7,
   upload-artifact 7, sbom-action 0.24.3).
