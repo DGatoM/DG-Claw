@@ -54,7 +54,7 @@ function lerSeguro(home, relativo, opcoes) {
       lidos += n;
     }
     let texto = buf.subarray(0, lidos).toString('utf8');
-    if (inicio > 0) texto = texto.replace(/^[^\n]*\n/, ''); // a primeira linha do corte vem partida
+    if (inicio > 0) { const nl = texto.indexOf('\n'); texto = nl < 0 ? '' : texto.slice(nl + 1); } // a primeira linha do corte vem partida
     return { estado: 'ok', texto, tamanho: st.size, mtimeMs: st.mtimeMs };
   } catch (e) {
     return { estado: 'invalido', motivo: `não consegui ler o arquivo (${e.code || e.name})` };

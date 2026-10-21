@@ -32,7 +32,7 @@ const FRASE_INESPERADA = `Não consegui avaliar este item: ${U.INESPERADO} para 
 async function mostrar(exec, units) {
   const r = await exec('systemctl', ['show', '--timestamp=unix', ...units, '-p', PROPS], { timeout: 4500 });
   if (r.erro === 'ENOENT') return { erro: 'O comando systemctl não existe nesta máquina.' };
-  if (r.codigo !== 0 && !r.stdout) return { erro: `O systemctl falhou (${r.erro === 'timeout' ? 'demorou demais' : `código ${r.codigo}`}).` };
+  if (r.codigo !== 0 && !r.stdout) return { erro: `O systemctl falhou (${U.demorou(r) ? 'demorou demais' : `código ${r.codigo}`}).` };
   return { props: U.lerShow(r.stdout) };
 }
 

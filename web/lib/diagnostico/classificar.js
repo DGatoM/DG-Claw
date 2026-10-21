@@ -8,6 +8,7 @@ const { MAX_LINHA } = require('./higiene');
 
 const MAX_LINHAS = 500;     // só o fim do arquivo interessa; o resto é descartado sem olhar
 const MAX_OCORRENCIAS = 12;
+const MAX_BYTES = 256 * 1024; // só o fim do texto interessa; o resto nem é partido em linhas
 const RX_LINHA_DE_ERRO = /error|erro|falh|fail|traceback|exception|denied|exit|killed|oom|timeout|timed out|refused|unauthori|forbidden|not found|no such|\b(?:401|403|429)\b/i;
 const RX_EXCECAO = /^[A-Z][A-Za-z0-9_]{0,40}(?:Error|Exception)$/;
 const RX_HORA = /^\[?(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:[.,]\d+)?(Z|[+-]\d{2}:?\d{2})?/;
@@ -72,7 +73,7 @@ const iso = (ms) => (Number.isFinite(ms) ? new Date(ms).toISOString().replace(/\
  */
 function classificar(texto, { soErros = true, fallbackMs = null } = {}) {
   // Fim do texto, no máximo 500 linhas, cada uma cortada em 1000 caracteres ANTES de qualquer regex.
-  const linhas = String(texto == null ? '' : texto).split('\n').slice(-MAX_LINHAS).map((l) => l.slice(0, MAX_LINHA));
+  const linhas = String(texto == null ? '' : texto).slice(-MAX_BYTES).split('\n').slice(-MAX_LINHAS).map((l) => l.slice(0, MAX_LINHA));
   const porChave = new Map();
   for (const linha of linhas) {
     if (!linha.trim()) continue;
@@ -107,7 +108,7 @@ function sanearOcorrencias(lista) {
       if (RX_EXCECAO.test(nome)) frase = o.frase;
     }
     const q = Number.isInteger(o.quantidade) && o.quantidade > 0 ? o.quantidade : 1;
-    const ultima = typeof o.ultima_em === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(o.ultima_em) && Number.isFinite(Date.parse(o.ultima_em)) ? o.ultima_em : null;
+    const ultima = typeof o.ultima_em === 'string' && o.ultima_em.length === 20 && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(o.ultima_em) && Number.isFinite(Date.parse(o.ultima_em)) ? o.ultima_em : null;
     limpas.push({ categoria: o.categoria, frase, quantidade: q, ultima_em: ultima });
   }
   return limpas.length ? limpas : null;

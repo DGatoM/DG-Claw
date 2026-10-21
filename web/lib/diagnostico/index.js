@@ -6,6 +6,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { AsyncLocalStorage } = require('node:async_hooks');
 const H = require('../http');
 const { lerEnvArquivo } = require('../config');
 const { criarAtualizacao } = require('../atualizacao');
@@ -21,15 +22,19 @@ const U = require('./util');
 const BASE = '/api/v1/diagnostico';
 const ARQUIVO_DOCS = path.join(__dirname, '..', '..', 'docs', 'DIAGNOSTICO-REMOTO.md');
 const CACHE_MS = 20000;
-const LIMITE_PADRAO_MS = 5000;
+const LIMITE_PADRAO_MS = 5000;     // cada verificação
+const PRAZO_COLETA_MS = 12000;     // a coleta inteira
 const SCHEMA = 1;
 const GRAVIDADE = { ok: 0, nao_medido: 1, atencao: 2, quebrado: 3 };
 
 function criarDiagnostico(deps) {
   const { config, registro, runner, log } = deps;
+  // O prazo da verificação em curso viaja junto com a chamada assíncrona, para que todo exec (inclusive os das
+  // verificações que não recebem o prazo como argumento) pare de criar subprocessos quando ele vence.
+  const prazoAtual = new AsyncLocalStorage();
   const ctx = {
     config, runner, log,
-    exec: deps.exec || U.execPadrao,
+    exec: U.comPrazo(deps.exec || U.execPadrao, () => prazoAtual.getStore()),
     lerArquivo: deps.lerArquivo || lerSeguro,
     agora: deps.agora || (() => Date.now()),
     statfs: deps.statfs || ((p) => fs.promises.statfs(p)),
@@ -41,23 +46,37 @@ function criarDiagnostico(deps) {
   };
   ctx.tz = config.tz;
   const limiteMs = deps.limiteMs || LIMITE_PADRAO_MS;
+  const prazoColetaMs = deps.prazoColetaMs || PRAZO_COLETA_MS;
 
-  /** Roda uma tarefa (uma vez só) com tempo limite próprio e devolve o resultado já completo e higienizado. */
-  function executar(t) {
+  /**
+   * Roda uma tarefa (uma vez só) com prazo próprio, dentro do prazo da coleta, e devolve o resultado já completo e
+   * higienizado. Se o prazo vence, os subprocessos dela são mortos e nenhum novo começa.
+   */
+  function executar(t, coleta) {
     if (t.promessa) return t.promessa;
     t.promessa = (async () => {
-      const dep = t.depende ? await executar(t.depende) : undefined;
+      const dep = t.depende ? await executar(t.depende, coleta) : undefined;
       let bruto;
-      const lim = await U.comLimite((async () => {
-        try { return await t.fn(dep); } catch (e) {
-          log('erro', `Diagnóstico: a verificação ${t.id} falhou por erro interno: ${e && e.stack ? e.stack : e}`);
-          return U.R('nao_medido', 'O diagnóstico não conseguiu medir este item por um erro interno. O detalhe está no log do DG Claw Web (journalctl -u dgclaw-web).');
-        }
-      })(), limiteMs);
-      if (lim.estourou) {
-        log('aviso', `Diagnóstico: a verificação ${t.id} não respondeu em ${limiteMs / 1000} s e ficou como não medida.`);
-        bruto = U.R('nao_medido', `Não respondeu em ${limiteMs / 1000} s.`);
-      } else bruto = lim.valor;
+      if (coleta.prazo.expirou()) {
+        bruto = U.R('nao_medido', `Esta verificação nem começou porque ${U.PARADO_POR_TEMPO}.`);
+      } else {
+        const prazo = U.criarPrazo(limiteMs, coleta.prazo);
+        const andamento = prazoAtual.run(prazo, async () => {
+          try { return await t.fn(dep, prazo); } catch (e) {
+            log('erro', `Diagnóstico: a verificação ${t.id} falhou por erro interno: ${e && e.stack ? e.stack : e}`);
+            return U.R('nao_medido', 'O diagnóstico não conseguiu medir este item por um erro interno. O detalhe está no log do DG Claw Web (journalctl -u dgclaw-web).');
+          }
+        });
+        coleta.pendentes.push(andamento);
+        const lim = await U.comLimite(andamento, Math.max(1, Math.min(limiteMs, Math.ceil(coleta.prazo.restanteMs()))));
+        if (lim.estourou) {
+          prazo.abortar();
+          const global = coleta.prazo.expirou();
+          log('aviso', `Diagnóstico: a verificação ${t.id} não respondeu a tempo (${global ? `o prazo de ${prazoColetaMs / 1000} s da coleta acabou` : `limite de ${limiteMs / 1000} s`}) e ficou como não medida.`);
+          bruto = U.R('nao_medido', global ? `O diagnóstico parou por tempo (a coleta tem ${prazoColetaMs / 1000} s no total).` : `Não respondeu em ${limiteMs / 1000} s.`);
+        } else bruto = lim.valor;
+        andamento.then(() => prazo.encerrar(), () => prazo.encerrar());
+      }
       if (bruto && Array.isArray(bruto.varias)) {
         const itens = bruto.varias.map((v) => completa(t, v, `${t.id}.${String(v.sufixo).replace(/^cron\./, '')}`));
         return { estado: itens.reduce((a, i) => (GRAVIDADE[i.estado] > GRAVIDADE[a] ? i.estado : a), 'ok'), varias: itens };
@@ -142,10 +161,10 @@ function criarDiagnostico(deps) {
     return { estado, frase: frase.charAt(0).toUpperCase() + frase.slice(1), contagem: c };
   }
 
-  async function coletar() {
+  async function coletarUmaVez(coleta) {
     const inicio = process.hrtime.bigint();
     const tarefas = montaTarefas();
-    const resultados = await Promise.all(tarefas.map((t) => executar(t)));
+    const resultados = await Promise.all(tarefas.map((t) => executar(t, coleta)));
     const itens = [];
     let bloco = null;
     resultados.forEach((r, i) => {
@@ -163,13 +182,37 @@ function criarDiagnostico(deps) {
     };
   }
 
+  // Uma coleta por vez. `emAndamento` é a coleta que ainda não respondeu; `encerrando` é a que já respondeu (talvez
+  // por tempo) mas ainda tem verificação terminando. Enquanto qualquer uma das duas existir, ninguém começa outra:
+  // pedidos novos recebem a promessa em andamento ou o último resultado.
   let cache = null;
   let emAndamento = null;
+  let encerrando = null;
+
+  async function coletar() {
+    if (emAndamento) return emAndamento;
+    if (encerrando && cache) return cache.valor;
+    if (encerrando) await encerrando;
+    if (emAndamento) return emAndamento;
+    const coleta = { prazo: U.criarPrazo(prazoColetaMs), pendentes: [] };
+    const minha = coletarUmaVez(coleta).then((valor) => { cache = { em: ctx.agora(), valor }; return valor; });
+    emAndamento = minha;
+    const solta = () => {
+      if (emAndamento === minha) emAndamento = null;
+      const fim = Promise.allSettled(coleta.pendentes).then(() => {
+        coleta.prazo.abortar();
+        coleta.prazo.encerrar();
+        if (encerrando === fim) encerrando = null;
+      });
+      encerrando = fim;
+    };
+    minha.then(solta, solta);
+    return minha;
+  }
+
   function obter() {
     if (cache && ctx.agora() - cache.em < CACHE_MS) return Promise.resolve(cache.valor);
-    if (emAndamento) return emAndamento;
-    emAndamento = coletar().then((valor) => { cache = { em: ctx.agora(), valor }; return valor; }).finally(() => { emAndamento = null; });
-    return emAndamento;
+    return coletar();
   }
 
   function docs(req, res) {

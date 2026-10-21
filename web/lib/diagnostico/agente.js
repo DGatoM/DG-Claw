@@ -64,11 +64,11 @@ function tarefasDoAgente(ctx, ag) {
     for (const ms of [agoraMs - DIA_MS, agoraMs]) {
       const r = lerArquivo(home, `.dgclaw/logs/pulso/${diaNoFuso(ms, tz)}.jsonl`);
       if (r.estado !== 'ok') continue;
-      for (const linha of r.texto.split('\n')) {
+      for (const linha of r.texto.split('\n').slice(-2000)) {
         if (!linha.trim()) continue;
         try {
           const j = JSON.parse(linha);
-          if (j && typeof j === 'object') registros.push({ ts: String(j.ts || j.timestamp || ''), id: String(j.id || j.component || ''), status: String(j.status || ''), detalhe: String(j.detalhe || j.detail || '').slice(0, 2000) });
+          if (j && typeof j === 'object') registros.push({ ts: String(j.ts || j.timestamp || '').slice(0, 64), id: String(j.id || j.component || '').slice(0, 64), status: String(j.status || '').slice(0, 64), detalhe: String(j.detalhe || j.detail || '').slice(0, 2000) });
         } catch (_) { /* linha parcial ou lixo: o registro do pulso é só apoio */ }
       }
     }
@@ -87,7 +87,7 @@ function tarefasDoAgente(ctx, ag) {
       const r = await exec('podman', ['inspect', '--format', 'json', ag.container], { timeout: 4500 });
       if (r.erro === 'ENOENT') return R('nao_medido', 'O comando podman não foi encontrado na máquina, então não deu para conferir o container.');
       if (r.codigo !== 0) {
-        if (/no such|não existe|nao existe|not found/i.test(r.stderr)) {
+        if (/no such|não existe|nao existe|not found/i.test(String(r.stderr).slice(0, 4000))) {
           return R('quebrado', `O container ${ag.container} não existe mais na máquina.`, {
             parado: true,
             evidencia: { horario: null, codigo_saida: U.codigoDeSaida(r.codigo), sinal: 'o podman não encontrou o container' },
@@ -95,7 +95,7 @@ function tarefasDoAgente(ctx, ag) {
           });
         }
         log('aviso', `Diagnóstico: podman inspect ${ag.container} falhou (código ${r.codigo}, ${r.erro || 'sem erro de sistema'}): ${higienizar(r.stderr, 300)}`);
-        return R('nao_medido', `Não consegui consultar o podman (${r.erro === 'timeout' ? 'demorou demais' : `código ${r.codigo}`}).`, { evidencia: { horario: null, codigo_saida: U.codigoDeSaida(r.codigo), ocorrencias: classificar(r.stderr, { soErros: false }) } });
+        return R('nao_medido', `Não consegui consultar o podman (${U.demorou(r) ? 'demorou demais' : `código ${r.codigo}`}).`, { evidencia: { horario: null, codigo_saida: U.codigoDeSaida(r.codigo), ocorrencias: classificar(r.stderr, { soErros: false }) } });
       }
       let info;
       info = U.jsonLimitado(r.stdout);
@@ -207,7 +207,7 @@ function tarefasDoAgente(ctx, ag) {
         return Object.assign(R('ok', null), { nome: `Canal Telegram (desligado) - ${nome}` });
       }
       const est = lerArquivo(home, '.dgclaw/logs/channel-watchdog.state', { max: 4096 });
-      const palavras = est.estado === 'ok' ? est.texto.trim().split(/\s+/) : [];
+      const palavras = est.estado === 'ok' ? est.texto.slice(0, 64).trim().split(/\s+/) : [];
       const vigia = palavras[0] === 'dead' ? 'dead' : null; // o arquivo é da casa do agente: só 'dead' tem significado aqui
       const falhas = /^\d{1,3}$/.test(palavras[1] || '') ? Number(palavras[1]) : NaN;
       if (vigia === 'dead') {
@@ -238,7 +238,7 @@ function tarefasDoAgente(ctx, ag) {
       if (naoRodando(dep)) ativo = 'container-parado';
       else {
         const r = await exec('podman', ['exec', ag.container, 'systemctl', 'is-active', 'dgclaw-whatsapp'], { timeout: 4500 });
-        const palavra = r.stdout.trim().split('\n')[0];
+        const palavra = String(r.stdout).slice(0, 64).trim().split('\n')[0];
         ativo = U.dentro(palavra, U.ENUMS.ativo);
       }
       const e = est.estado === 'ok' ? est.dados : null;
@@ -278,9 +278,9 @@ function tarefasDoAgente(ctx, ag) {
   // ── rotinas ─────────────────────────────────────────────────────────────
   const rotinas = {
     sufixo: 'cron', nome: `Rotinas automáticas - ${nome}`, depende: container,
-    async fn(dep) {
+    async fn(dep, prazo) {
       if (naoRodando(dep)) return R('nao_medido', PARADO);
-      const r = await conferirRotinas(ctx, ag, ledger);
+      const r = await conferirRotinas(ctx, ag, ledger, prazo);
       if (r.geral) return r.geral;
       return { varias: r.itens.map((i) => Object.assign({}, i, { sufixo: `cron.${i.sufixo}` })) };
     },

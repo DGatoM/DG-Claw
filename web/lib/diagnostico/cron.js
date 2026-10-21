@@ -38,24 +38,58 @@ function nomeAmigavel(nome) {
 
 const lista = (v) => (v == null ? [] : [].concat(v));
 
+/** Valor logo depois de `chave` até ';' ou '}' (no máximo 64 caracteres), ou null. Sem regex. */
+function valorApos(texto, chave) {
+  const i = texto.indexOf(chave);
+  if (i < 0) return null;
+  const ini = i + chave.length;
+  const max = Math.min(texto.length, ini + 64);
+  let fim = ini;
+  while (fim < max && texto[fim] !== ';' && texto[fim] !== '}') fim += 1;
+  return texto.slice(ini, fim);
+}
+
+/** O valor tem a forma "OnCalendar=*-*-* HH:MM[:SS] ;" (uma vez por dia)? Cada valor já vem cortado em 200 caracteres. */
+function temCalendarioDiario(valor) {
+  const chave = 'OnCalendar=*-*-* ';
+  const dig = (k) => valor.charCodeAt(k) >= 48 && valor.charCodeAt(k) <= 57;
+  for (let i = valor.indexOf(chave); i >= 0; i = valor.indexOf(chave, i + 1)) {
+    let p = i + chave.length;
+    if (!(dig(p) && dig(p + 1) && valor[p + 2] === ':' && dig(p + 3) && dig(p + 4))) continue;
+    p += 5;
+    if (valor[p] === ':' && dig(p + 1) && dig(p + 2)) p += 3;
+    while (valor[p] === ' ' || valor[p] === '\t') p += 1;
+    if (valor[p] === ';') return true;
+  }
+  return false;
+}
+
 /** Cadência a partir do que o próprio timer declara. */
 function cadenciaDoTimer(t) {
-  const mono = lista(t.TimersMonotonic).join(' ');
-  const m = mono.match(/OnUnit(?:Active|Inactive)USec=([^;}]+)/);
-  if (m) {
-    const ms = U.duracaoSystemd(m[1]);
+  const mono = lista(t.TimersMonotonic).map((v) => String(v).slice(0, U.MAX_VALOR_PROP)).join(' ');
+  const ativo = mono.indexOf('OnUnitActiveUSec=');
+  const inativo = mono.indexOf('OnUnitInactiveUSec=');
+  const primeiro = ativo >= 0 && (inativo < 0 || ativo < inativo) ? 'OnUnitActiveUSec=' : (inativo >= 0 ? 'OnUnitInactiveUSec=' : null);
+  if (primeiro) {
+    const ms = U.duracaoSystemd(valorApos(mono, primeiro));
     if (ms) return { tipo: 'intervalo', ms };
   }
-  const cal = lista(t.TimersCalendar).join(' ');
-  if (/OnCalendar=\*-\*-\* \d{2}:\d{2}(?::\d{2})?\s*;/.test(cal)) return { tipo: 'diaria', ms: DIARIO_MS };
-  if (cal) return { tipo: 'calendario', ms: null };
+  const valoresCal = lista(t.TimersCalendar).map((v) => String(v).slice(0, U.MAX_VALOR_PROP));
+  if (valoresCal.some(temCalendarioDiario)) return { tipo: 'diaria', ms: DIARIO_MS };
+  if (valoresCal.length) return { tipo: 'calendario', ms: null };
   return { tipo: 'desconhecida', ms: null };
 }
 
 function proximaExecucaoMs(t) {
+  const chave = 'next_elapse=';
   for (const c of lista(t.TimersCalendar)) {
-    const m = String(c).match(/next_elapse=(@\d+|[^}]+?)\s*}/);
-    const ms = m ? U.dataSystemd(m[1]) : null;
+    const v = String(c).slice(0, U.MAX_VALOR_PROP);
+    const i = v.indexOf(chave);
+    if (i < 0) continue;
+    const ini = i + chave.length;
+    let fim = v.indexOf('}', ini);
+    if (fim < 0) fim = v.length;
+    const ms = U.dataSystemd(v.slice(ini, Math.min(fim, ini + 64)));
     if (ms) return ms;
   }
   return U.dataSystemd(t.NextElapseUSecRealtime);
@@ -69,35 +103,56 @@ function ultimoRegistroDoPulso(ledger, nome) {
 }
 
 /** Categorias dos erros recentes do journal da unit (nenhuma linha sai, só a classificação). */
-async function ocorrenciasDoJournal(exec, container, servico) {
-  const r = await exec('podman', ['exec', container, 'journalctl', '-u', servico, '-n', '40', '--no-pager', '-o', 'short-iso'], { timeout: 4000 });
+async function ocorrenciasDoJournal(rodar, container, servico) {
+  const r = await rodar(['exec', container, 'journalctl', '-u', servico, '-n', '40', '--no-pager', '-o', 'short-iso'], 4000);
   if (r.codigo !== 0) return [];
   return classificar(r.stdout);
 }
 
 const SEM_VALOR = { ultimo_sinal: null, evidencia: null, o_que_fazer: null, prompt_sugerido: null };
 
+const PRAZO_PADRAO_MS = 5000;
+const MAX_TIMERS = 200;
+
 /**
  * Devolve { geral } (um item só, quando não deu para listar) ou { itens: [ { nome(sufixo), titulo, ...resultado } ] }.
  */
-async function conferirRotinas(ctx, ag, ledgerP) {
-  const { exec, agora, tz, log } = ctx;
+async function conferirRotinas(ctx, ag, ledgerP, prazoDado) {
+  const prazo = prazoDado || U.criarPrazo(PRAZO_PADRAO_MS);
+  try { return await conferir(ctx, ag, ledgerP, prazo); } finally { if (!prazoDado) prazo.encerrar(); }
+}
+
+async function conferir(ctx, ag, ledgerP, prazo) {
+  const { agora, tz, log } = ctx;
+  // Nenhum subprocesso começa depois que o prazo venceu; os que estão rodando recebem o signal e morrem.
+  const rodar = (args, timeout) => {
+    if (prazo.expirou()) return Promise.resolve({ codigo: null, stdout: '', stderr: '', erro: 'prazo' });
+    return ctx.exec('podman', args, { timeout: Math.max(1, Math.min(timeout, Math.ceil(prazo.restanteMs()))), prazo, signal: prazo.signal });
+  };
+  const PAROU = `Parei de conferir as rotinas porque ${U.PARADO_POR_TEMPO}.`;
   const ctr = ag.container;
   const slug = ag.slug;
   const cmdReparar = `dgclaw agente reparar ${slug}`;
   const agoraMs = agora();
 
-  const lst = await exec('podman', ['exec', ctr, 'systemctl', 'list-units', '--all', '--type=timer', `dgclaw-${slug}-*`, '--plain', '--no-legend'], { timeout: 4500 });
+  const lst = await rodar(['exec', ctr, 'systemctl', 'list-units', '--all', '--type=timer', `dgclaw-${slug}-*`, '--plain', '--no-legend'], 4500);
   if (lst.codigo !== 0) {
     log('aviso', `Diagnóstico: não consegui listar os timers de ${slug} em ${ctr} (código ${lst.codigo}, ${lst.erro || 'sem erro de sistema'}): ${higienizar(lst.stderr, 200)}`);
-    return { geral: { estado: 'nao_medido', motivo: `Não consegui listar as rotinas dentro do container (${lst.erro === 'timeout' ? 'demorou demais' : `o comando saiu com código ${U.codigoDeSaida(lst.codigo) ?? 'desconhecido'}`}).`, ultimo_sinal: null, evidencia: { horario: null, codigo_saida: U.codigoDeSaida(lst.codigo), ocorrencias: classificar(lst.stderr, { soErros: false }) }, o_que_fazer: null, prompt_sugerido: null } };
+    return { geral: { estado: 'nao_medido', motivo: `Não consegui listar as rotinas dentro do container (${U.demorou(lst) ? 'demorou demais' : `o comando saiu com código ${U.codigoDeSaida(lst.codigo) ?? 'desconhecido'}`}).`, ultimo_sinal: null, evidencia: { horario: null, codigo_saida: U.codigoDeSaida(lst.codigo), ocorrencias: classificar(lst.stderr, { soErros: false }) }, o_que_fazer: null, prompt_sugerido: null } };
   }
   // A lista vem do container. Só passa nome de unit no formato dgclaw-<slug>-<nome>.timer com <nome> em formato de slug.
   const prefixo = `dgclaw-${slug}-`;
-  const timers = U.linhasLimitadas(lst.stdout).slice(0, 200).map((l) => l.trim().split(/\s+/)[0]).filter((u) => {
-    if (!u || !U.RX_UNIT.test(u) || !u.startsWith(prefixo) || !u.endsWith('.timer')) return false;
-    return U.RX_NOME_SEGURO.test(u.slice(prefixo.length, -'.timer'.length));
-  });
+  // Cada linha é cortada antes de olhar a primeira palavra; units repetidas valem uma vez (a primeira) e o teto é de 200.
+  const vistos = new Set();
+  const timers = [];
+  for (const l of U.linhasLimitadas(lst.stdout, 200)) {
+    if (timers.length >= MAX_TIMERS) break;
+    const u = U.primeiroToken(l);
+    if (!u || vistos.has(u) || !U.RX_UNIT.test(u) || !u.startsWith(prefixo) || !u.endsWith('.timer')) continue;
+    if (!U.RX_NOME_SEGURO.test(u.slice(prefixo.length, -'.timer'.length))) continue;
+    vistos.add(u);
+    timers.push(u);
+  }
   if (!timers.length) {
     return { geral: {
       estado: 'quebrado',
@@ -108,10 +163,10 @@ async function conferirRotinas(ctx, ag, ledgerP) {
     } };
   }
   const unidades = timers.flatMap((t) => [t, t.replace(/\.timer$/, '.service')]);
-  const show = await exec('podman', ['exec', ctr, 'systemctl', 'show', '--timestamp=unix', ...unidades, '-p', PROPRIEDADES], { timeout: 4500 });
+  const show = await rodar(['exec', ctr, 'systemctl', 'show', '--timestamp=unix', ...unidades, '-p', PROPRIEDADES], 4500);
   if (show.codigo !== 0) {
-    log('aviso', `Diagnóstico: o systemctl show de ${slug} falhou (código ${show.codigo}): ${higienizar(show.stderr, 200)}`);
-    return { geral: { estado: 'nao_medido', motivo: 'Listei as rotinas, mas não consegui ler o estado delas dentro do container.', ultimo_sinal: null, evidencia: { horario: null, codigo_saida: U.codigoDeSaida(show.codigo), ocorrencias: classificar(show.stderr, { soErros: false }) }, o_que_fazer: null, prompt_sugerido: null } };
+    log('aviso', `Diagnóstico: o systemctl show de ${slug} falhou (código ${show.codigo}, ${show.erro || 'sem erro de sistema'}): ${higienizar(show.stderr, 200)}`);
+    return { geral: { estado: 'nao_medido', motivo: `Listei as rotinas, mas não consegui ler o estado delas dentro do container${U.demorou(show) ? ' (demorou demais)' : ''}.`, ultimo_sinal: null, evidencia: { horario: null, codigo_saida: U.codigoDeSaida(show.codigo), ocorrencias: classificar(show.stderr, { soErros: false }) }, o_que_fazer: null, prompt_sugerido: null } };
   }
   const props = U.lerShow(show.stdout);
   const ledger = await ledgerP();
@@ -124,6 +179,10 @@ async function conferirRotinas(ctx, ag, ledgerP) {
     const s = props[servico] || {};
     const titulo = `${nomeAmigavel(nome)} - ${ag.nome}`;
     const item = { sufixo: nome, nome: titulo };
+    if (prazo.expirou()) {
+      itens.push(Object.assign(item, { estado: 'nao_medido', motivo: PAROU }, SEM_VALOR));
+      continue;
+    }
     if (!t) {
       itens.push(Object.assign(item, { estado: 'nao_medido', motivo: 'O systemd não devolveu o estado desta rotina.' }, SEM_VALOR));
       continue;
@@ -154,7 +213,7 @@ async function conferirRotinas(ctx, ag, ledgerP) {
     }
     if ((resultado && resultado !== 'success') || ativoServico === 'failed') {
       const codigo = U.codigoDeSaida(s.ExecMainStatus);
-      const ocorrencias = [...await ocorrenciasDoJournal(exec, ctr, servico), ...ocorrenciasPulso];
+      const ocorrencias = [...await ocorrenciasDoJournal(rodar, ctr, servico), ...ocorrenciasPulso];
       const fim = U.dataSystemd(s.ExecMainExitTimestamp) || ultimoMs;
       const quanto = resultado || ativoServico;
       itens.push(Object.assign(item, {
@@ -195,4 +254,4 @@ async function conferirRotinas(ctx, ag, ledgerP) {
   return { itens };
 }
 
-module.exports = { conferirRotinas, nomeAmigavel, cadenciaDoTimer };
+module.exports = { conferirRotinas, nomeAmigavel, cadenciaDoTimer, proximaExecucaoMs };
