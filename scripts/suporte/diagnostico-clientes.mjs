@@ -17,7 +17,9 @@ Consulta o diagnóstico remoto de cada cliente e mostra o que está parado e o q
 
   --arquivo <caminho>   lista de clientes (padrão: ${ARQUIVO_PADRAO})
   --cliente <nome>      consulta só o cliente com esse nome (sem diferenciar maiúsculas)
-  --detalhe             mostra também a evidência e o prompt_sugerido de cada item
+  --detalhe             mostra também a evidência (sinal e categorias de erro) e o prompt_sugerido de cada item
+  --permitir-http-local só para teste: libera http:// (sem TLS) para 127.0.0.1, localhost e [::1]; qualquer outro
+                        endereço precisa de https://, senão a chave não é enviada
   --json                imprime o JSON bruto combinado, sem relatório
   --ajuda               esta mensagem
 
@@ -33,7 +35,7 @@ function falha(msg) {
 }
 
 function lerArgumentos(argv) {
-  const op = { arquivo: ARQUIVO_PADRAO, cliente: null, detalhe: false, json: false };
+  const op = { arquivo: ARQUIVO_PADRAO, cliente: null, detalhe: false, json: false, httpLocal: false };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     const valor = () => {
@@ -45,6 +47,7 @@ function lerArgumentos(argv) {
     else if (a === '--cliente') op.cliente = valor();
     else if (a === '--detalhe') op.detalhe = true;
     else if (a === '--json') op.json = true;
+    else if (a === '--permitir-http-local') op.httpLocal = true;
     else if (a === '--ajuda' || a === '-h' || a === '--help') { process.stdout.write(`${AJUDA}\n`); process.exit(0); }
     else falha(`Não conheço a opção "${a}". Veja --ajuda.`);
   }
@@ -62,7 +65,9 @@ function conferirPermissao(caminho, oQue) {
   }
 }
 
-function carregarClientes(caminho) {
+const HOSTS_LOCAIS = new Set(['127.0.0.1', 'localhost', '[::1]']);
+
+function carregarClientes(caminho, httpLocal) {
   conferirPermissao(caminho, 'a lista de clientes');
   let json;
   try { json = JSON.parse(fs.readFileSync(caminho, 'utf8')); } catch (e) {
@@ -76,6 +81,11 @@ function carregarClientes(caminho) {
     if (!nome) falha(`O cliente número ${i + 1} da lista não tem "nome".`);
     let url;
     try { url = new URL(c.url); } catch (_) { falha(`O cliente "${nome}" tem uma "url" inválida. Use algo como https://dominio-do-cliente.`); }
+    // O token vai num cabeçalho: em http:// qualquer ponto da rede lê a chave. Recusa antes de montar qualquer pedido.
+    const local = HOSTS_LOCAIS.has(url.hostname);
+    if (url.protocol !== 'https:' && !(url.protocol === 'http:' && httpLocal && local)) {
+      falha(`O cliente "${nome}" usa o endereço ${url.protocol}//${url.host}, que não é https://. A chave não foi enviada: em http:// ela passaria aberta pela rede. Troque a "url" por https://${url.host}${url.protocol === 'http:' && local ? ' (para testar contra a própria máquina, rode com --permitir-http-local)' : ''}.`);
+    }
     let token = typeof c.token === 'string' ? c.token.trim() : '';
     if (!token && typeof c.token_arquivo === 'string') {
       conferirPermissao(c.token_arquivo, `o arquivo de token de "${nome}"`);
@@ -92,7 +102,11 @@ const limpa = (t) => String(t == null ? '' : t).replace(/\x1b\[[0-9;?]*[ -/]*[@-
 async function consultar(c) {
   const url = `${c.base}/api/v1/diagnostico`;
   try {
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${c.token}`, Accept: 'application/json' }, signal: AbortSignal.timeout(TEMPO_MS) });
+    // redirect manual: um 3xx nunca leva a chave para outro endereço.
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${c.token}`, Accept: 'application/json' }, signal: AbortSignal.timeout(TEMPO_MS), redirect: 'manual' });
+    if (res.status >= 300 && res.status < 400) {
+      return { cliente: c.nome, url: c.base, status: res.status, erro: `O endereço do cliente respondeu com um redirecionamento (HTTP ${res.status}) e a ferramenta não o seguiu, para não mandar a chave a outro endereço. Confira se a "url" está certa e completa (por exemplo, com o domínio final e https://).` };
+    }
     const texto = await res.text();
     let corpo = null;
     try { corpo = JSON.parse(texto); } catch (_) { /* resposta que não é JSON é tratada abaixo */ }
@@ -145,7 +159,10 @@ function imprimirCliente(r, detalhe) {
       if (e) {
         const partes = [e.horario ? `horário ${limpa(e.horario)}` : null, e.codigo_saida != null ? `código de saída ${limpa(e.codigo_saida)}` : null].filter(Boolean);
         if (partes.length) console.log(`        Evidência: ${partes.join(', ')}`);
-        if (e.trecho) for (const l of String(e.trecho).split('\n')) console.log(`          | ${limpa(l)}`);
+        if (e.sinal) console.log(`          sinal: ${limpa(e.sinal)}`);
+        if (Array.isArray(e.ocorrencias)) {
+          for (const o of e.ocorrencias) console.log(`          erro: ${limpa(o.frase)} (${limpa(o.quantidade)}x${o.ultima_em ? `, última em ${limpa(o.ultima_em)}` : ''})`);
+        }
       }
       if (i.prompt_sugerido) console.log(`        Prompt para o cliente colar no Admin:\n          ${limpa(i.prompt_sugerido)}`);
     }
@@ -154,7 +171,7 @@ function imprimirCliente(r, detalhe) {
 
 async function principal() {
   const op = lerArgumentos(process.argv.slice(2));
-  let clientes = carregarClientes(op.arquivo);
+  let clientes = carregarClientes(op.arquivo, op.httpLocal);
   if (op.cliente) {
     const alvo = op.cliente.toLowerCase();
     clientes = clientes.filter((c) => c.nome.toLowerCase() === alvo);

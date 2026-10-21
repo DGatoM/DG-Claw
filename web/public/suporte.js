@@ -65,7 +65,23 @@
     return 'O servidor respondeu ' + status + ' sem explicar o motivo.';
   }
 
-  const puros = { dataHora, estadoValido, tituloGrupo, agrupar, situacaoChave, textoDoErro, ROTULO_ESTADO };
+  /* Linhas de evidência de uma verificação: o sinal fixo e as categorias de erro (nunca texto de log). */
+  function linhasDeEvidencia(ev) {
+    const linhas = [];
+    if (!ev || typeof ev !== 'object') return linhas;
+    if (ev.sinal) linhas.push('Sinal: ' + ev.sinal);
+    if (ev.codigo_saida != null) linhas.push('Código de saída: ' + ev.codigo_saida);
+    if (Array.isArray(ev.ocorrencias)) {
+      for (const o of ev.ocorrencias) {
+        if (!o || !o.frase) continue;
+        const quando = o.ultima_em ? ', última em ' + (dataHora(o.ultima_em) || o.ultima_em) : '';
+        linhas.push('Erro: ' + o.frase + ' (' + o.quantidade + (o.quantidade === 1 ? ' vez' : ' vezes') + quando + ')');
+      }
+    }
+    return linhas;
+  }
+
+  const puros = { linhasDeEvidencia, dataHora, estadoValido, tituloGrupo, agrupar, situacaoChave, textoDoErro, ROTULO_ESTADO };
   if (!raiz.document) return puros;
 
   /* ── Parte com DOM ─────────────────────────────────────────────────────── */
@@ -233,6 +249,12 @@
       p.appendChild(el('b', null, 'O que fazer: '));
       p.appendChild(document.createTextNode(v.o_que_fazer));
       card.appendChild(p);
+    }
+    const evid = linhasDeEvidencia(v.evidencia);
+    if (evid.length) {
+      const caixa = el('div', 'sp-fraco');
+      for (const l of evid) caixa.appendChild(el('div', null, l));
+      card.appendChild(caixa);
     }
     if (v.ultimo_sinal) card.appendChild(el('p', 'sp-fraco', 'Último sinal: ' + (dataHora(v.ultimo_sinal) || v.ultimo_sinal)));
     if (v.prompt_sugerido) {

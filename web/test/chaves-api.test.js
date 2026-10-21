@@ -170,3 +170,85 @@ test('dataDir é o padrão e chavesApiArquivo permite trocar', () => {
   l2.api.criar({ nome: 'A', escopos: ['diagnostico'] });
   assert.ok(fs.existsSync(outro));
 });
+
+test('corrida: A leu a chave ativa, B revogou, A marca uso e a chave continua revogada', () => {
+  const l = loja();
+  const a = l.api.criar({ nome: 'A', escopos: ['diagnostico'] });
+  const b = criarChavesApi({ config: { dataDir: l.dataDir }, log: l.cap.log });
+  assert.equal(l.api.julgar(bearer(a.token)).estado, 'valida', 'A viu a chave ativa');
+  assert.equal(b.revogar(a.chave.id, 'cli').ok, true);
+  const antes = fs.readFileSync(l.arquivo, 'utf8');
+  l.api.marcarUso(a.chave.id, '203.0.113.7');
+  assert.equal(fs.readFileSync(l.arquivo, 'utf8'), antes, 'marcar uso não pode reescrever chaves-api.json');
+  assert.equal(l.api.julgar(bearer(a.token)).estado, 'revogada');
+  assert.equal(b.julgar(bearer(a.token)).estado, 'revogada');
+  const uso = path.join(l.dataDir, 'chaves-api-uso.json');
+  assert.equal(fs.statSync(uso).mode & 0o777, 0o600);
+  assert.equal(JSON.parse(fs.readFileSync(uso, 'utf8')).usos[a.chave.id].ip, '203.0.113.7');
+  const c = l.api.listar()[0];
+  assert.equal(c.ultimoUsoIp, '203.0.113.7', 'listar junta os dois arquivos');
+  assert.ok(c.revogadaEm);
+});
+
+test('revogar relê o disco dentro da trava, mesmo com cache velho', () => {
+  const l = loja();
+  const a = l.api.criar({ nome: 'A', escopos: ['diagnostico'] });
+  l.api.listar(); // aquece o cache de A
+  const b = criarChavesApi({ config: { dataDir: l.dataDir }, log: l.cap.log });
+  const nova = b.criar({ nome: 'B', escopos: ['diagnostico'] });
+  assert.equal(l.api.revogar(a.chave.id, 'x').ok, true);
+  const ids = JSON.parse(fs.readFileSync(l.arquivo, 'utf8')).chaves.map((c) => c.id);
+  assert.ok(ids.includes(nova.chave.id), 'a chave criada por B não pode sumir quando A revoga');
+  assert.equal(fs.existsSync(`${l.arquivo}.lock`), false, 'a trava é solta');
+});
+
+test('duas criações concorrentes em processos diferentes não se perdem', async () => {
+  const { spawn } = require('node:child_process');
+  const l = loja();
+  const lib = path.join(__dirname, '..', 'lib', 'chaves-api.js');
+  const script = `const { criarChavesApi } = require(${JSON.stringify(lib)});
+    const api = criarChavesApi({ config: { dataDir: ${JSON.stringify(l.dataDir)} }, log: (n, m) => process.stderr.write(m + '\\n') });
+    for (let i = 0; i < 8; i++) { const r = api.criar({ nome: 'p' + process.pid + '-' + i, escopos: ['diagnostico'] }); if (!r.ok) { process.stderr.write(r.erro + '\\n'); process.exit(1); } }`;
+  const roda = () => new Promise((resolve) => {
+    const p = spawn(process.execPath, ['-e', script], { stdio: ['ignore', 'ignore', 'pipe'] });
+    let err = '';
+    p.stderr.on('data', (d) => { err += d; });
+    p.on('close', (codigo) => resolve({ codigo, err }));
+  });
+  const rs = await Promise.all([roda(), roda(), roda()]);
+  for (const r of rs) assert.equal(r.codigo, 0, r.err);
+  assert.equal(JSON.parse(fs.readFileSync(l.arquivo, 'utf8')).chaves.length, 24);
+});
+
+test('trava velha (mais de 30 s) é removida com log; trava recente faz recusar com motivo', () => {
+  const l = loja();
+  const trava = `${l.arquivo}.lock`;
+  fs.writeFileSync(trava, JSON.stringify({ pid: 99999, em: 'antiga' }));
+  const velho = new Date(Date.now() - 60_000);
+  fs.utimesSync(trava, velho, velho);
+  const r = l.api.criar({ nome: 'A', escopos: ['diagnostico'] });
+  assert.equal(r.ok, true);
+  assert.match(l.cap.texto(), /trava.*removida/);
+  assert.equal(fs.existsSync(trava), false);
+
+  fs.writeFileSync(trava, JSON.stringify({ pid: process.pid, em: 'agora' }));
+  const t0 = Date.now();
+  const r2 = l.api.criar({ nome: 'B', escopos: ['diagnostico'] });
+  assert.equal(r2.ok, false);
+  assert.equal(r2.status, 503);
+  assert.match(r2.erro, /outro processo/);
+  assert.ok(Date.now() - t0 >= 2500, 'esperou ~3 s antes de desistir');
+  assert.equal(l.api.listar().length, 1, 'a criação recusada não gravou');
+  fs.unlinkSync(trava);
+});
+
+test('arquivo ilegível: criar e revogar recusam sem sobrescrever', () => {
+  const l = loja();
+  l.api.criar({ nome: 'A', escopos: ['diagnostico'] });
+  fs.writeFileSync(l.arquivo, '{ quebrado');
+  const c = l.api.criar({ nome: 'B', escopos: ['diagnostico'] });
+  assert.equal(c.ok, false);
+  assert.match(c.erro, /ilegível/);
+  assert.equal(fs.readFileSync(l.arquivo, 'utf8'), '{ quebrado');
+  assert.equal(l.api.revogar('x', 'y').ok, false);
+});

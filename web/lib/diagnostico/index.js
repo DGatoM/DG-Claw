@@ -11,6 +11,7 @@ const { lerEnvArquivo } = require('../config');
 const { criarAtualizacao } = require('../atualizacao');
 const { lerSeguro } = require('./arquivos');
 const { protege } = require('./higiene');
+const { sanearOcorrencias } = require('./classificar');
 const { tarefasDaMaquina } = require('./maquina');
 const { tarefaDeVersao } = require('./versao');
 const { tarefasDoAgente } = require('./agente');
@@ -70,7 +71,12 @@ function criarDiagnostico(deps) {
   function completa(t, r, id) {
     const estado = GRAVIDADE[r.estado] !== undefined ? r.estado : 'nao_medido';
     const ev = r.evidencia && typeof r.evidencia === 'object'
-      ? { horario: r.evidencia.horario || null, codigo_saida: r.evidencia.codigo_saida == null ? null : r.evidencia.codigo_saida, trecho: protege(r.evidencia.trecho) || null }
+      ? {
+        horario: r.evidencia.horario || null,
+        codigo_saida: Number.isInteger(r.evidencia.codigo_saida) ? r.evidencia.codigo_saida : null,
+        sinal: protege(r.evidencia.sinal) || null,
+        ocorrencias: sanearOcorrencias(r.evidencia.ocorrencias),
+      }
       : null;
     let motivo = protege(r.motivo);
     let fazer = protege(r.o_que_fazer);

@@ -66,3 +66,13 @@ test('os passos do tutorial respondem o que é, como e por quê', () => {
   assert.equal((js.match(/como: '/g) || []).length, 4);
   assert.equal((js.match(/porque: '/g) || []).length, 4);
 });
+
+test('linhasDeEvidencia mostra sinal e categorias, e nada mais', () => {
+  const l = S.linhasDeEvidencia({ horario: null, codigo_saida: 3, sinal: 'timer inactive', trecho: 'NÃO DEVE APARECER', ocorrencias: [{ categoria: 'rede', frase: 'falha de rede ou DNS', quantidade: 2, ultima_em: null }, { categoria: 'outro', frase: 'erro não classificado', quantidade: 1, ultima_em: '2026-10-21T12:00:00Z' }] });
+  assert.equal(l[0], 'Sinal: timer inactive');
+  assert.equal(l[1], 'Código de saída: 3');
+  assert.equal(l[2], 'Erro: falha de rede ou DNS (2 vezes)');
+  assert.match(l[3], /^Erro: erro não classificado \(1 vez, última em \d{2}\/10\/2026/);
+  assert.ok(!l.join('\n').includes('NÃO DEVE'));
+  assert.deepEqual(S.linhasDeEvidencia(null), []);
+});

@@ -7,6 +7,7 @@ const U = require('./util');
 const { R } = U;
 const RX_VERSAO = /^[0-9A-Za-z._+-]{1,40}$/;
 const RX_SHA = /^[0-9a-f]{7,40}$/;
+const versaoOuNull = (v) => (typeof v === 'string' && RX_VERSAO.test(v) ? v : null);
 const DOIS_DIAS_MS = 48 * 3600 * 1000;
 
 function tarefaDeVersao(ctx) {
@@ -20,11 +21,11 @@ function tarefaDeVersao(ctx) {
       const est = l.estado || null;
       const v = env.vars && env.vars.DGCLAW_VERSAO;
       const c = env.vars && env.vars.DGCLAW_COMMIT;
-      const instalada = (v && RX_VERSAO.test(v) ? v : null) || (est && est.instalado && est.instalado.versao) || null;
-      const commitCompleto = (c && RX_SHA.test(c) ? c : null) || (est && est.instalado && est.instalado.commit) || null;
+      const instalada = (v && RX_VERSAO.test(v) ? v : null) || versaoOuNull(est && est.instalado && est.instalado.versao);
+      const commitCompleto = (c && RX_SHA.test(c) ? c : null) || (est && est.instalado && typeof est.instalado.commit === 'string' && RX_SHA.test(est.instalado.commit) ? est.instalado.commit : null);
       const commit = commitCompleto ? commitCompleto.slice(0, 7) : null;
       const bloco = { instalada, commit, publicada: null, atualizacao_disponivel: null, commits_a_frente: null, verificado_em: null };
-      const semMedida = (motivo, extra) => Object.assign(R('nao_medido', motivo, { evidencia: { horario: null, codigo_saida: null, trecho: instalada ? `instalada ${instalada}${commit ? ` (${commit})` : ''}` : null } }), extra || {}, { bloco });
+      const semMedida = (motivo, extra) => Object.assign(R('nao_medido', motivo, { evidencia: { horario: null, codigo_saida: null, sinal: instalada ? `instalada ${instalada}${commit ? ` (${commit})` : ''}` : null } }), extra || {}, { bloco });
       if (!instalada) log('aviso', `Diagnóstico: não achei DGCLAW_VERSAO em ${arquivoEnv} (${env.erro || 'a linha não existe'}) nem no estado do aviso de atualização.`);
 
       if (l.erro) {
@@ -34,11 +35,11 @@ function tarefaDeVersao(ctx) {
       if (l.ausente) return semMedida('O aviso de atualização ainda não verificou o GitHub nenhuma vez (o arquivo estado.json não existe). Rode "sudo dgclaw atualizar --checar" para verificar agora.');
       bloco.verificado_em = est.verificado_em;
       if (est.desligado) return semMedida('O aviso automático de versão nova está desligado, então não sei se há atualização.', { ultimo_sinal: est.verificado_em });
-      bloco.publicada = est.publicado ? est.publicado.versao : null;
+      bloco.publicada = est.publicado ? versaoOuNull(est.publicado.versao) : null;
       bloco.atualizacao_disponivel = est.disponivel;
       bloco.commits_a_frente = est.commits_a_frente;
       const verificadoMs = Date.parse(est.verificado_em);
-      const base = { ultimo_sinal: est.verificado_em, evidencia: { horario: est.verificado_em, codigo_saida: null, trecho: `instalada ${instalada || 'desconhecida'}${commit ? ` (${commit})` : ''}, publicada ${bloco.publicada || 'desconhecida'}` }, bloco };
+      const base = { ultimo_sinal: est.verificado_em, evidencia: { horario: est.verificado_em, codigo_saida: null, sinal: `instalada ${instalada || 'desconhecida'}${commit ? ` (${commit})` : ''}, publicada ${bloco.publicada || 'desconhecida'}` }, bloco };
       if (est.disponivel) {
         const mesma = bloco.publicada && bloco.publicada === instalada;
         const n = est.commits_a_frente;

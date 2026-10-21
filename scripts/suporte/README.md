@@ -28,12 +28,16 @@ Não precisa instalar nada além do Node 18 ou mais novo. A fonte do formato da 
 ```bash
 node scripts/suporte/diagnostico-clientes.mjs                  # todos os clientes
 node scripts/suporte/diagnostico-clientes.mjs --cliente "Lucro FC"
-node scripts/suporte/diagnostico-clientes.mjs --detalhe        # com evidência e prompt para o cliente colar
+node scripts/suporte/diagnostico-clientes.mjs --detalhe        # com evidência (sinal e categorias de erro) e prompt para o cliente colar
 node scripts/suporte/diagnostico-clientes.mjs --json > hoje.json
 node scripts/suporte/diagnostico-clientes.mjs --arquivo /outro/caminho.json
 ```
 
 Código de saída: `0` tudo ok, `1` algum cliente com atenção ou quebrado, `2` erro de consulta (rede, chave
 recusada, limite de tentativas).
+
+A ferramenta só envia a chave para endereços `https://`. Um `http://` é recusado antes de qualquer pedido; para
+testar contra a própria máquina use `--permitir-http-local`, que libera só `127.0.0.1`, `localhost` e `[::1]`. Ela
+também não segue redirecionamento (um 3xx vira erro explicado), para a chave não ir parar em outro endereço.
 
 O token nunca é impresso. Chave recusada (401) quase sempre quer dizer que o cliente revogou a chave: peça uma nova.

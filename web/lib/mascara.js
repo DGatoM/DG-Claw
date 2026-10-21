@@ -40,7 +40,8 @@ const PADROES_DADOS = [
 ];
 
 // NOME=valor, "nome": "valor", nome: valor, quando o nome sugere segredo. Mantém o nome, esconde o valor.
-const ATRIBUICAO = /((?:[A-Za-z0-9_.-]*(?:api[_-]?key|secret|token|passw(?:or)?d|senha|credential|auth)[A-Za-z0-9_.-]*)["']?\s*[=:]\s*)("[^"\n]*"|'[^'\n]*'|[^\s"'&;|]+)/gi;
+// Começa na palavra-chave (sem \w* antes dela): o prefixo do nome continua no texto e o custo deixa de crescer com o tamanho da linha.
+const ATRIBUICAO = /((?:api[_-]?key|secret|token|passw(?:or)?d|senha|credential|auth)[A-Za-z0-9_.-]*["']?\s*[=:]\s*)("[^"\n]*"|'[^'\n]*'|[^\s"'&;|]+)/gi;
 
 function mascarar(texto) {
   if (texto == null) return '';

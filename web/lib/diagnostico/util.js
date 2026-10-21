@@ -4,7 +4,33 @@
 const { execFile } = require('node:child_process');
 
 const RX_NOME_SEGURO = /^[a-z0-9][a-z0-9-]{0,40}$/;
-const RX_UNIT = /^dgclaw-[a-z0-9][a-z0-9-]{0,80}\.(?:timer|service)$/;
+const RX_UNIT = /^dgclaw-[a-z0-9-]{1,60}\.(?:timer|service)$/;
+
+// Tudo o que vem do container, de arquivo da casa do agente ou de comando precisa passar por uma enumeração
+// fechada ou por um formato estrito antes de entrar em qualquer texto. Fora da lista vira null.
+const INESPERADO = 'o sistema devolveu um valor inesperado';
+const ENUMS = {
+  load: ['loaded', 'not-found', 'error', 'masked', 'bad-setting', 'stub', 'merged'],
+  ativo: ['active', 'reloading', 'inactive', 'failed', 'activating', 'deactivating', 'maintenance', 'refreshing'],
+  sub: ['dead', 'running', 'exited', 'failed', 'waiting', 'start', 'start-pre', 'start-post', 'start-chown', 'condition', 'reload', 'stop', 'stop-watchdog', 'stop-sigterm', 'stop-sigkill', 'stop-post', 'final-watchdog', 'final-sigterm', 'final-sigkill', 'auto-restart', 'auto-restart-queued', 'cleaning', 'elapsed', 'listening', 'mounted', 'abandoned', 'active'],
+  resultado: ['success', 'protocol', 'timeout', 'exit-code', 'signal', 'core-dump', 'watchdog', 'start-limit-hit', 'resources', 'oom-kill', 'exec-condition', 'condition', 'skipped', 'dependency', 'clean'],
+  container: ['created', 'running', 'paused', 'exited', 'stopped', 'stopping', 'configured', 'initialized', 'removing', 'dead', 'unknown'],
+  politica: ['no', 'always', 'on-failure', 'unless-stopped'],
+  tipoSaude: ['ok', 'recusa', 'login', 'limite', 'sobrecarga', 'contexto', 'sem_resposta', 'erro_api', 'sessao_caida', 'desconhecido'],
+  estadoSaude: ['ativo', 'inativo', 'atencao', 'indeterminado'],
+  statusRunner: ['spawning', 'working', 'waiting_input', 'idle', 'completed', 'errored', 'stopped', 'resumable'],
+  razaoRunner: ['runner:login-expirado', 'runner:sem-login', 'runner:sem-chave', 'runner:identidade-grande', 'runner:dialogo-bypass', 'runner:login-por-chave-falhou', 'hook:SessionStart', 'hook:PreCompact', 'hook:StopFailure rate_limit', 'transcript:turno encerrado sem o hook Stop'],
+  ponteWhatsapp: ['conectado', 'deslogado', 'erro', 'reconectando', 'aguardando_codigo', 'codigo_pronto', 'pareado', 'desligado'],
+};
+/** O valor, se estiver na lista; senão null. */
+function dentro(valor, lista) {
+  return typeof valor === 'string' && lista.includes(valor) ? valor : null;
+}
+/** Inteiro de 0 a 255 (código de saída) a partir de texto ou número; senão null. */
+function codigoDeSaida(v) {
+  const n = typeof v === 'number' ? v : (typeof v === 'string' && /^\d{1,3}$/.test(v) ? Number(v) : NaN);
+  return Number.isInteger(n) && n >= 0 && n <= 255 ? n : null;
+}
 
 /** Roda um comando SEM shell. Nunca rejeita: devolve { codigo, stdout, stderr, erro }. */
 function execPadrao(cmd, args, opcoes) {
@@ -63,14 +89,14 @@ function duracaoSystemd(texto) {
 
 /** Saída de `systemctl show` com várias units: { <Id>: { Chave: valor | [valores] } }. */
 function lerShow(saida) {
-  const porId = {};
+  const porId = Object.create(null);
   for (const bloco of String(saida || '').split(/\n\s*\n/)) {
-    const props = {};
+    const props = Object.create(null);
     for (const linha of bloco.split('\n')) {
       const i = linha.indexOf('=');
       if (i <= 0) continue;
       const k = linha.slice(0, i);
-      const v = linha.slice(i + 1);
+      const v = linha.slice(i + 1, i + 1 + 2000); // valor vem de fora: o teto evita regex em texto gigante
       if (k in props) props[k] = [].concat(props[k], v);
       else props[k] = v;
     }
@@ -107,7 +133,7 @@ function promptAdmin(viu, conferir, comando) {
 const ONDE_COLAR = 'Cole o texto do prompt_sugerido na conversa do Admin no DG Claw e envie. O Admin confere e conserta.';
 
 module.exports = {
-  RX_NOME_SEGURO, RX_UNIT, execPadrao, comLimite, dataSystemd, duracaoSystemd, lerShow, iso, quando, duracaoCurta, promptAdmin, ONDE_COLAR,
+  INESPERADO, ENUMS, dentro, codigoDeSaida, RX_NOME_SEGURO, RX_UNIT, execPadrao, comLimite, dataSystemd, duracaoSystemd, lerShow, iso, quando, duracaoCurta, promptAdmin, ONDE_COLAR,
 };
 
 /** Resultado de uma verificação com todos os campos no lugar. */

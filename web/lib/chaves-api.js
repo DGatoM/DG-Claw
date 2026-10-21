@@ -10,6 +10,12 @@
 //
 // O arquivo é relido quando o mtime ou o tamanho muda, porque a CLI (bin/chave-api.js) cria e
 // revoga chave com o Web rodando e o Web precisa enxergar na hora.
+//
+// Autorização e uso ficam em arquivos separados. chaves-api.json só muda por criar ou revogar, e
+// toda mudança acontece sob uma trava entre processos, relendo o disco dentro da trava: assim uma
+// revogação feita pela CLI nunca é desfeita por um processo que tinha lido o arquivo antes. O
+// registro de uso (último acesso e IP) vai para chaves-api-uso.json, que pode perder uma gravação
+// sem consequência de segurança.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -20,6 +26,8 @@ const ESCOPOS = Object.freeze(['diagnostico']);
 const USO_MIN_INTERVALO_MS = 60 * 1000;
 const FALHAS_MAX = 20;
 const JANELA_FALHAS_MS = 10 * 60 * 1000;
+const TRAVA_ESPERA_MS = 3000;
+const TRAVA_VELHA_MS = 30 * 1000;
 const FORMATO_BEARER = /^\s*Bearer\s+(dgc_[A-Za-z0-9_-]{20,})\s*$/i;
 
 function recusa(erro, status, comoResolver) {
@@ -32,6 +40,8 @@ const sha256 = (texto) => crypto.createHash('sha256').update(texto).digest();
 
 function criarChavesApi({ config, log, agora }) {
   const ARQUIVO = config.chavesApiArquivo || path.join(config.dataDir, 'chaves-api.json');
+  const ARQUIVO_USO = path.join(path.dirname(ARQUIVO), 'chaves-api-uso.json');
+  const TRAVA = `${ARQUIVO}.lock`;
   const relogio = agora || Date.now;
   const ultimoRegistroDeUso = new Map();   // id -> ms da última gravação de ultimoUsoEm
   const falhas = new Map();                // ip -> [ms das tentativas inválidas]
@@ -62,16 +72,94 @@ function criarChavesApi({ config, log, agora }) {
 
   // Escrita atômica: grava ao lado e renomeia. Um corte de luz no meio deixaria o arquivo
   // pela metade, e aí todas as chaves deixariam de valer.
-  function gravar(dados) {
-    fs.mkdirSync(path.dirname(ARQUIVO), { recursive: true, mode: 0o700 });
-    const tmp = `${ARQUIVO}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+  function gravarArquivo(destino, dados) {
+    fs.mkdirSync(path.dirname(destino), { recursive: true, mode: 0o700 });
+    const tmp = `${destino}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(dados, null, 2) + '\n', { mode: 0o600 });
     try { fs.chmodSync(tmp, 0o600); } catch (_) { /* sistema de arquivos sem modo: o mode do writeFileSync já valeu */ }
-    fs.renameSync(tmp, ARQUIVO);
+    fs.renameSync(tmp, destino);
+  }
+  function gravar(dados) {
+    gravarArquivo(ARQUIVO, dados);
     cache = null;
   }
 
-  function publica(c) {
+  const dormir = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+  /**
+   * Trava entre processos (Web e CLI): arquivo criado com O_EXCL, com pid e horário dentro.
+   * Tenta por até 3 s; trava com mais de 30 s é de um processo que morreu e é removida (com log).
+   * Roda `fn` com a trava e a solta sempre. Lança Error com causa se não conseguir a trava.
+   */
+  function comTrava(fn) {
+    fs.mkdirSync(path.dirname(ARQUIVO), { recursive: true, mode: 0o700 });
+    const limite = Date.now() + TRAVA_ESPERA_MS;
+    let fd = null;
+    for (;;) {
+      try {
+        fd = fs.openSync(TRAVA, 'wx', 0o600);
+        fs.writeSync(fd, JSON.stringify({ pid: process.pid, em: new Date().toISOString() }));
+        break;
+      } catch (e) {
+        if (fd !== null) { try { fs.closeSync(fd); } catch (_) { /* nada a fechar */ } fd = null; }
+        if (e.code !== 'EEXIST') throw e;
+        let idade = 0;
+        try { idade = Date.now() - fs.statSync(TRAVA).mtimeMs; } catch (s) {
+          if (s.code === 'ENOENT') continue; // soltaram agora: tenta de novo já
+          throw s;
+        }
+        if (idade > TRAVA_VELHA_MS) {
+          log('aviso', `Chaves de API: a trava ${TRAVA} tem ${Math.round(idade / 1000)} s, mais de ${TRAVA_VELHA_MS / 1000} s. Quem a criou deve ter morrido no meio da gravação, então ela foi removida e a gravação segue.`);
+          try { fs.unlinkSync(TRAVA); } catch (u) { if (u.code !== 'ENOENT') throw u; }
+          continue;
+        }
+        if (Date.now() >= limite) {
+          const err = new Error(`outro processo está mexendo nas chaves há mais de ${TRAVA_ESPERA_MS / 1000} s (trava ${TRAVA})`);
+          err.code = 'TRAVA_OCUPADA';
+          throw err;
+        }
+        dormir(25);
+      }
+    }
+    try { return fn(); } finally {
+      try { fs.closeSync(fd); } catch (_) { /* já fechado */ }
+      try { fs.unlinkSync(TRAVA); } catch (e) { if (e.code !== 'ENOENT') log('aviso', `Chaves de API: não consegui soltar a trava ${TRAVA} (${e.code || e.message}). Ela vence sozinha em ${TRAVA_VELHA_MS / 1000} s.`); }
+    }
+  }
+
+  /** Lê o disco de verdade (sem cache), para decidir uma mudança. Arquivo ilegível lança: nunca se sobrescreve o que não se leu. */
+  function lerParaMudar() {
+    let texto;
+    try { texto = fs.readFileSync(ARQUIVO, 'utf8'); } catch (e) {
+      if (e.code === 'ENOENT') return { schema: 1, chaves: [] };
+      throw e;
+    }
+    let dados;
+    try { dados = JSON.parse(texto); } catch (e) {
+      const err = new Error(`o arquivo ${ARQUIVO} está ilegível (${e.message}); nada foi alterado para não perder as chaves`);
+      err.code = 'ARQUIVO_ILEGIVEL';
+      throw err;
+    }
+    if (!dados || !Array.isArray(dados.chaves)) {
+      const err = new Error(`o arquivo ${ARQUIVO} não tem a lista "chaves"; nada foi alterado para não perder as chaves`);
+      err.code = 'ARQUIVO_ILEGIVEL';
+      throw err;
+    }
+    return dados;
+  }
+
+  function lerUso() {
+    try {
+      const u = JSON.parse(fs.readFileSync(ARQUIVO_USO, 'utf8'));
+      return u && typeof u.usos === 'object' && u.usos ? u.usos : {};
+    } catch (e) {
+      if (e.code !== 'ENOENT') log('aviso', `Chaves de API: não consegui ler ${ARQUIVO_USO} (${e.code || e.message}). O último acesso aparece como desconhecido até a próxima gravação; as chaves não são afetadas.`);
+      return {};
+    }
+  }
+
+  function publica(c, usos) {
+    const uso = (usos && usos[c.id]) || null;
     return {
       id: c.id,
       nome: c.nome,
@@ -79,15 +167,16 @@ function criarChavesApi({ config, log, agora }) {
       ultimos4: c.ultimos4,
       criadaPor: c.criadaPor,
       criadaEm: c.criadaEm,
-      ultimoUsoEm: c.ultimoUsoEm || null,
-      ultimoUsoIp: c.ultimoUsoIp || null,
+      ultimoUsoEm: (uso && uso.em) || c.ultimoUsoEm || null,
+      ultimoUsoIp: (uso && uso.ip) || c.ultimoUsoIp || null,
       revogadaEm: c.revogadaEm || null,
       revogadaPor: c.revogadaPor || null,
     };
   }
 
   function listar() {
-    return ler().chaves.map(publica);
+    const usos = lerUso();
+    return ler().chaves.map((c) => publica(c, usos));
   }
 
   function criar({ nome, escopos, quem } = {}) {
@@ -110,7 +199,6 @@ function criarChavesApi({ config, log, agora }) {
         `Os escopos aceitos hoje são: ${ESCOPOS.join(', ')}.`);
     }
     const token = PREFIXO + crypto.randomBytes(32).toString('base64url');
-    const dados = ler();
     const reg = {
       id: crypto.randomBytes(5).toString('hex'),
       nome: limpo,
@@ -125,32 +213,45 @@ function criarChavesApi({ config, log, agora }) {
       revogadaPor: null,
     };
     try {
-      gravar({ schema: 1, chaves: [...dados.chaves, reg] });
+      comTrava(() => {
+        const dados = lerParaMudar();
+        gravar({ schema: 1, chaves: [...dados.chaves, reg] });
+      });
     } catch (err) {
-      log('erro', `Chaves de API: não consegui gravar ${ARQUIVO} (${err.code || err.message}).`);
-      return recusa(`Não consegui gravar a chave: ${err.code || err.message}.`, 500,
-        `Quem administra a máquina confere se a pasta ${path.dirname(ARQUIVO)} aceita escrita.`);
+      return falhaDeMudanca(err, 'gravar a chave');
     }
     return { ok: true, token, chave: publica(reg) };
   }
 
+  function falhaDeMudanca(err, o_que) {
+    log('erro', `Chaves de API: não consegui ${o_que} (${err.code || ''} ${err.message}).`);
+    if (err.code === 'TRAVA_OCUPADA') {
+      return recusa(`Não consegui ${o_que}: outro processo estava mexendo nas chaves.`, 503, `Tente de novo em alguns segundos. Se repetir, quem administra a máquina apaga ${TRAVA} (sobra de um processo que morreu).`);
+    }
+    if (err.code === 'ARQUIVO_ILEGIVEL') {
+      return recusa(`Não consegui ${o_que}: o arquivo de chaves está ilegível e não foi alterado.`, 500, `Quem administra a máquina confere ${ARQUIVO}: restaure o último backup ou corrija o JSON.`);
+    }
+    return recusa(`Não consegui ${o_que}: ${err.code || err.message}.`, 500,
+      `Quem administra a máquina confere se a pasta ${path.dirname(ARQUIVO)} aceita escrita.`);
+  }
+
   function revogar(id, quem) {
-    const dados = ler();
-    const alvo = dados.chaves.find((c) => c.id === String(id || ''));
-    if (!alvo) return recusa(`Não achei nenhuma chave com o código "${String(id || '').slice(0, 20)}".`, 404, 'Veja os códigos na lista de chaves.');
-    if (alvo.revogadaEm) {
-      return recusa(`A chave "${alvo.nome}" já tinha sido revogada em ${alvo.revogadaEm.slice(0, 10)}.`, 409);
-    }
-    alvo.revogadaEm = new Date(relogio()).toISOString();
-    alvo.revogadaPor = String(quem || 'Dono').slice(0, 80);
+    let resultado;
     try {
-      gravar(dados);
+      resultado = comTrava(() => {
+        const dados = lerParaMudar();   // relê do disco dentro da trava: nada de decidir em cima de leitura antiga
+        const alvo = dados.chaves.find((c) => c.id === String(id || ''));
+        if (!alvo) return recusa(`Não achei nenhuma chave com o código "${String(id || '').slice(0, 20)}".`, 404, 'Veja os códigos na lista de chaves.');
+        if (alvo.revogadaEm) return recusa(`A chave "${alvo.nome}" já tinha sido revogada em ${alvo.revogadaEm.slice(0, 10)}.`, 409);
+        alvo.revogadaEm = new Date(relogio()).toISOString();
+        alvo.revogadaPor = String(quem || 'Dono').slice(0, 80);
+        gravar(dados);
+        return { ok: true, chave: publica(alvo, lerUso()) };
+      });
     } catch (err) {
-      log('erro', `Chaves de API: não consegui anotar a revogação em ${ARQUIVO} (${err.code || err.message}).`);
-      return recusa(`Não consegui anotar a revogação: ${err.code || err.message}.`, 500,
-        `Quem administra a máquina confere se a pasta ${path.dirname(ARQUIVO)} aceita escrita.`);
+      return falhaDeMudanca(err, 'anotar a revogação');
     }
-    return { ok: true, chave: publica(alvo) };
+    return resultado;
   }
 
   /**
@@ -177,22 +278,20 @@ function criarChavesApi({ config, log, agora }) {
     return { estado: 'valida', id: achada.id, nome: achada.nome, escopos: Array.isArray(achada.escopos) ? achada.escopos.slice() : [] };
   }
 
-  // No máximo uma gravação por minuto por chave: cada pedido gravando o arquivo seria
-  // desgaste de disco à toa e disputa com a CLI.
+  // No máximo uma gravação por minuto por chave, e só no arquivo de uso: marcar acesso nunca
+  // reescreve chaves-api.json (era isso que permitia desfazer uma revogação feita no meio).
+  // Sem trava de propósito: se duas gravações se cruzarem, perde-se um carimbo, e só.
   function marcarUso(id, ip) {
     const t = relogio();
     if (t - (ultimoRegistroDeUso.get(id) || 0) < USO_MIN_INTERVALO_MS) return;
     ultimoRegistroDeUso.set(id, t);
     try {
-      const dados = ler();   // relê: a CLI pode ter mexido desde a última conferência
-      const c = dados.chaves.find((x) => x.id === id);
-      if (!c) return;
-      c.ultimoUsoEm = new Date(t).toISOString();
-      c.ultimoUsoIp = String(ip || '').slice(0, 64) || null;
-      gravar(dados);
+      const usos = lerUso();
+      usos[id] = { em: new Date(t).toISOString(), ip: String(ip || '').slice(0, 64) || null };
+      gravarArquivo(ARQUIVO_USO, { schema: 1, usos });
     } catch (err) {
       // Não derruba o pedido por causa de um carimbo, mas também não fica mudo.
-      log('aviso', `Chaves de API: não consegui anotar o último uso da chave ${id} (${err.code || err.message}).`);
+      log('aviso', `Chaves de API: não consegui anotar o último uso da chave ${id} em ${ARQUIVO_USO} (${err.code || err.message}).`);
     }
   }
 
@@ -217,7 +316,7 @@ function criarChavesApi({ config, log, agora }) {
     if (falhas.size > 5000) falhas.delete(falhas.keys().next().value);
   }
 
-  return { listar, criar, revogar, julgar, marcarUso, bloqueio, registrarFalha, ARQUIVO };
+  return { listar, criar, revogar, julgar, marcarUso, bloqueio, registrarFalha, ARQUIVO, ARQUIVO_USO };
 }
 
 module.exports = { criarChavesApi, ESCOPOS, PREFIXO, FALHAS_MAX, JANELA_FALHAS_MS };

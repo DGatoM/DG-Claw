@@ -51,6 +51,22 @@ igual "revogar id desconhecido sai 1" "1" "$?"
 roda chave-api listar
 afirma "listar mostra revogada" grep -q 'revogada em' "$TMP/o.txt"
 
+echo "trava entre processos"
+nega "nenhuma trava sobra depois das operacoes" test -e "$ARQ.lock"
+nega "a CLI nao cria o arquivo de uso (so o Web marca uso)" test -e "$LIB/web/chaves-api-uso.json"
+echo '{"pid":1,"em":"antiga"}' >"$ARQ.lock"
+touch -d '2 minutes ago' "$ARQ.lock"
+roda chave-api criar --nome "Depois da trava velha" --escopo diagnostico
+igual "trava velha e removida e criar sai 0" "0" "$?"
+afirma "o aviso explica a remocao" grep -q 'trava' "$TMP/e.txt"
+nega "a trava foi solta" test -e "$ARQ.lock"
+echo '{"pid":1,"em":"agora"}' >"$ARQ.lock"
+roda chave-api criar --nome "Com trava recente" --escopo diagnostico
+igual "trava recente: criar sai 1" "1" "$?"
+afirma "o motivo diz que outro processo esta mexendo" grep -q 'outro processo' "$TMP/e.txt"
+nega "nenhum token no stdout" test -s "$TMP/o.txt"
+rm -f "$ARQ.lock"
+
 echo "uso errado e recusas"
 roda chave-api
 igual "sem acao sai 2" "2" "$?"

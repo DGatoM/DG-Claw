@@ -71,7 +71,7 @@ O `panel/` (painel por agente, dentro do container) **não muda** neste PR.
     { "id": "agente.tina.login", "grupo": "agente", "alvo": "tina", "nome": "Login do Claude da Tina",
       "estado": "quebrado", "ultimo_sinal": "2026-10-20T03:10:00Z",
       "motivo": "O login do Claude expirou em 20/10 às 00h10 e a Tina parou de responder.",
-      "evidencia": { "horario": "...", "codigo_saida": null, "trecho": "runner:login-expirado" },
+      "evidencia": { "horario": "...", "codigo_saida": null, "sinal": "runner:login-expirado", "ocorrencias": null },
       "o_que_fazer": "Abra a conversa da Tina no DG Claw e clique em Entrar de novo.",
       "prompt_sugerido": null }
   ]

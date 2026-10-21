@@ -23,7 +23,7 @@ function resposta(estado, itens) {
 }
 
 const ITEM_QUEBRADO = { id: 'agente.tina.container', grupo: 'agente', alvo: 'tina', nome: 'Container do agente Tina', estado: 'quebrado', ultimo_sinal: null,
-  motivo: 'O container está parado desde 19/10 às 14h19.', evidencia: { horario: '2026-10-19T17:19:00Z', codigo_saida: 137, trecho: 'estado exited' },
+  motivo: 'O container está parado desde 19/10 às 14h19.', evidencia: { horario: '2026-10-19T17:19:00Z', codigo_saida: 137, sinal: 'estado exited', ocorrencias: null },
   o_que_fazer: 'Cole o prompt na conversa do Admin.', prompt_sugerido: 'Oi, Admin. O container da Tina está parado. Rode dgclaw agente iniciar tina.' };
 
 function servidor(tratador) {
@@ -33,9 +33,10 @@ function servidor(tratador) {
   });
 }
 
-function rodar(args) {
+function rodar(args, opcoes) {
+  const todos = opcoes && opcoes.https ? args : [...args, '--permitir-http-local'];
   return new Promise((resolve) => {
-    execFile(process.execPath, [SCRIPT, ...args], { timeout: 30000 }, (err, stdout, stderr) => resolve({ codigo: err ? err.code : 0, stdout, stderr }));
+    execFile(process.execPath, [SCRIPT, ...todos], { timeout: 30000 }, (err, stdout, stderr) => resolve({ codigo: err ? err.code : 0, stdout, stderr }));
   });
 }
 
@@ -75,7 +76,7 @@ test('--detalhe mostra evidência e prompt; --cliente filtra; saída 1 quando h�
   const r = await rodar(['--arquivo', l.arq, '--cliente', 'ruim', '--detalhe']);
   assert.equal(r.codigo, 1);
   assert.match(r.stdout, /código de saída 137/);
-  assert.match(r.stdout, /\| estado exited/);
+  assert.match(r.stdout, /sinal: estado exited/);
   assert.match(r.stdout, /dgclaw agente iniciar tina/);
   assert.ok(!r.stdout.includes('Outro'));
   ruim.s.close();
@@ -137,4 +138,51 @@ test('arquivo legível por outros é recusado com a instrução do chmod; token_
   bom.s.close();
   l.limpa();
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('http:// para endereço que não é local é recusado antes de mandar a chave; http local só com a flag', async () => {
+  const vistos = [];
+  const bom = await servidor((req, res) => { vistos.push(req.headers.authorization); res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(resposta('ok', []))); });
+  const remoto = lista([{ nome: 'Remoto', url: 'http://cliente.exemplo.test', token: TOKEN }]);
+  let r = await rodar(['--arquivo', remoto.arq, '--permitir-http-local']);
+  assert.equal(r.codigo, 2);
+  assert.match(r.stderr, /não é https:\/\//);
+  assert.match(r.stderr, /não foi enviada/);
+  assert.ok(!r.stderr.includes(TOKEN) && !r.stdout.includes(TOKEN));
+  remoto.limpa();
+
+  const local = lista([{ nome: 'Local', url: bom.url, token: TOKEN }]);
+  r = await rodar(['--arquivo', local.arq], { https: true });
+  assert.equal(r.codigo, 2, 'sem a flag, até http local é recusado');
+  assert.match(r.stderr, /--permitir-http-local/);
+  assert.equal(vistos.length, 0, 'nenhum pedido saiu');
+  r = await rodar(['--arquivo', local.arq]);
+  assert.equal(r.codigo, 0);
+  assert.equal(vistos.length, 1);
+  bom.s.close();
+  local.limpa();
+});
+
+test('redirecionamento não é seguido e a chave não vai para o destino', async () => {
+  const destinos = [];
+  const destino = await servidor((req, res) => { destinos.push(req.headers.authorization || null); res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(resposta('ok', []))); });
+  const origem = await servidor((req, res) => { res.writeHead(302, { Location: `${destino.url}/api/v1/diagnostico` }); res.end(); });
+  const l = lista([{ nome: 'Redireciona', url: origem.url, token: TOKEN }]);
+  const r = await rodar(['--arquivo', l.arq]);
+  assert.equal(r.codigo, 2);
+  assert.match(r.stdout, /redirecionamento/);
+  assert.deepEqual(destinos, [], 'o destino do redirecionamento não recebeu nada');
+  assert.ok(!r.stdout.includes(TOKEN) && !r.stderr.includes(TOKEN));
+  origem.s.close(); destino.s.close();
+  l.limpa();
+});
+
+test('--detalhe mostra categorias de erro sem texto de log', async () => {
+  const item = Object.assign({}, ITEM_QUEBRADO, { evidencia: { horario: null, codigo_saida: 1, sinal: null, ocorrencias: [{ categoria: 'permissao_negada', frase: 'permissão negada', quantidade: 3, ultima_em: '2026-10-21T10:00:00Z' }] } });
+  const s = await servidor((req, res) => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(resposta('quebrado', [item]))); });
+  const l = lista([{ nome: 'C', url: s.url, token: TOKEN }]);
+  const r = await rodar(['--arquivo', l.arq, '--detalhe']);
+  assert.match(r.stdout, /erro: permissão negada \(3x, última em 2026-10-21T10:00:00Z\)/);
+  s.s.close();
+  l.limpa();
 });

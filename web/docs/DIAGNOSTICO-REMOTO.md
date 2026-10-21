@@ -37,16 +37,27 @@ registro dela continua na lista, com a data.
 
 ## Exemplo
 
+Guarde o token num arquivo só seu (`chmod 600 ~/.config/dgclaw-suporte/token-cliente`) e mande o cabeçalho pela
+entrada padrão do curl. Assim o token não aparece nos argumentos do processo, que qualquer usuário da máquina
+enxerga com `ps`. O `printf` é um comando interno do shell e o `cat` só recebe o nome do arquivo, então a chave
+nunca vai parar na lista de processos:
+
 ```bash
-curl -s -H "Authorization: Bearer $CHAVE" https://SEU-DOMINIO/api/v1/diagnostico
+printf 'Authorization: Bearer %s\n' "$(cat ~/.config/dgclaw-suporte/token-cliente)" \
+  | curl -sS --fail-with-body -H @- https://SEU-DOMINIO/api/v1/diagnostico
 ```
 
 Um resumo legível, só com o que não está bem:
 
 ```bash
-curl -s -H "Authorization: Bearer $CHAVE" https://SEU-DOMINIO/api/v1/diagnostico \
+printf 'Authorization: Bearer %s\n' "$(cat ~/.config/dgclaw-suporte/token-cliente)" \
+  | curl -sS --fail-with-body -H @- https://SEU-DOMINIO/api/v1/diagnostico \
   | jq '.resumo.frase, (.verificacoes[] | select(.estado != "ok") | {id, estado, motivo, o_que_fazer})'
 ```
+
+Outra forma é um arquivo de cabeçalho com permissão 600 (`Authorization: Bearer dgc_...` numa linha só) e
+`curl -sS --fail-with-body -H @arquivo-do-cabecalho https://SEU-DOMINIO/api/v1/diagnostico`. Use sempre `https://`:
+com `http://` a chave passaria aberta pela rede.
 
 ## Formato da resposta
 
@@ -72,7 +83,7 @@ curl -s -H "Authorization: Bearer $CHAVE" https://SEU-DOMINIO/api/v1/diagnostico
       "estado": "quebrado",
       "ultimo_sinal": "2026-10-20T03:10:00Z",
       "motivo": "O login do Claude expirou em 20/10 às 00h10 e o agente Tina parou de responder.",
-      "evidencia": { "horario": "2026-10-20T03:10:00Z", "codigo_saida": null, "trecho": "runner:login-expirado" },
+      "evidencia": { "horario": "2026-10-20T03:10:00Z", "codigo_saida": null, "sinal": "runner:login-expirado", "ocorrencias": null },
       "o_que_fazer": "Abra a conversa do agente Tina no painel do DG Claw e refaça o login do Claude.",
       "prompt_sugerido": null
     }
@@ -91,9 +102,30 @@ Campos de cada verificação:
 | `estado` | `ok`, `atencao`, `quebrado` ou `nao_medido` |
 | `ultimo_sinal` | Quando houve o último sinal de vida do item (ISO 8601), ou `null` |
 | `motivo` | Por que não está bem. Sempre presente quando o estado não é `ok` |
-| `evidencia` | `horario`, `codigo_saida` e `trecho` (poucas linhas, já higienizadas), ou `null` |
+| `evidencia` | `horario`, `codigo_saida`, `sinal` e `ocorrencias`, ou `null` (veja abaixo). Nunca traz linha de log |
 | `o_que_fazer` | A instrução para quem lê. Sempre presente quando o estado não é `ok` |
 | `prompt_sugerido` | Texto para o cliente colar na conversa do Admin do DG Claw, em primeira pessoa, pedindo para conferir e consertar. `null` quando o conserto depende de uma ação do próprio cliente (como refazer o login) |
+
+### A evidência
+
+- `sinal`: uma frase fixa escrita pelo diagnóstico (por exemplo `timer inactive` ou `conmon morto com o container
+  marcado como running`), ou `null`. Só leva valores conferidos contra listas fechadas, como o estado do systemd.
+- `ocorrencias`: quando a causa aparece num log, o diagnóstico não devolve a linha. Ele **classifica** as linhas de
+  erro e devolve só a categoria, quantas vezes apareceu e quando foi a última vez:
+
+  ```json
+  "ocorrencias": [
+    { "categoria": "permissao_negada", "frase": "permissão negada", "quantidade": 3, "ultima_em": "2026-10-21T10:00:20Z" }
+  ]
+  ```
+
+  As categorias (e as frases fixas) são `permissao_negada` ("permissão negada"), `arquivo_ausente` ("arquivo ou pasta
+  não encontrado"), `disco_cheio` ("sem espaço em disco"), `tempo_esgotado` ("tempo esgotado"), `rede` ("falha de
+  rede ou DNS"), `login` ("credencial recusada ou login expirado"), `limite` ("limite de uso ou 429"),
+  `comando_ausente` ("comando não encontrado"), `python_excecao` ("exceção Python", com o nome da classe só quando
+  ele tem o formato `NomeError` ou `NomeException`), `memoria` ("sem memória / killed") e `outro` ("erro não
+  classificado"). `ultima_em` é `null` quando o log não traz horário com fuso.
+- `codigo_saida`: o código de saída do processo (0 a 255) ou o código HTTP, quando existe.
 
 O resumo é `quebrado` se algum item estiver quebrado. Senão é `atencao` se algum item pedir atenção, ou se nada
 pôde ser medido. Senão é `ok`.
@@ -135,11 +167,20 @@ medi" e nunca é zero: `atualizacao_disponivel: null` é diferente de `false`.
 - Chaves, tokens, senhas, cookies e o conteúdo do cofre.
 - Conversas, memória, nomes de contatos, números de telefone e e-mails.
 - Caminhos de arquivos de segredo e mensagens cruas de erro do sistema.
+- **Nenhuma linha de log.** Nem do journal, nem dos logs da memória, nem do registro do pulso, nem a saída de erro
+  de um comando. Filtro por padrão não garante sigilo (um cabeçalho, um nome ou uma frase do cliente passam por
+  qualquer lista de padrões), então o diagnóstico só devolve a categoria do erro, a contagem e o horário.
 
-Tudo o que vem de log, arquivo ou comando passa por uma higienização antes de sair: segredos e dados de pessoas são
-trocados por `[segredo oculto]`, caminhos de segredo por `[arquivo protegido]`, e os trechos são cortados. Os
-arquivos dentro da casa de cada agente só são lidos se forem arquivos comuns que ficam dentro dela (um link que
-aponte para fora é recusado) e só pelos campos permitidos.
+Todo valor que vem de fora do código (saída do `systemctl`, arquivos da casa do agente, respostas do runner, estado
+do WhatsApp, arquivo do vigia) só entra na resposta depois de conferido contra uma lista fechada ou um formato
+estrito: estados do systemd, resultados, códigos de saída de 0 a 255, datas que de fato se leem, nomes de unit no
+formato `dgclaw-...`, motivos conhecidos do runner. Valor fora da lista vira `desconhecido`, e o item mostra "o
+sistema devolveu um valor inesperado" em vez do valor. Os campos `motivo`, `o_que_fazer` e `prompt_sugerido` são
+montados só com frases fixas do código e esses valores conferidos, e o `prompt_sugerido` identifica o agente pelo
+slug. Assim texto escrito dentro de um container nunca chega a um prompt que o dono cola na conversa do Admin.
+Por fim, o texto lido de fora tem tamanho máximo antes de qualquer análise (1000 caracteres por linha), para que
+um arquivo gigante não trave o painel. Os arquivos dentro da casa de cada agente só são lidos se forem arquivos
+comuns que ficam dentro dela (um link que aponte para fora é recusado) e só pelos campos permitidos.
 
 ## Limites
 
