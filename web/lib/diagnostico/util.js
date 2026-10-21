@@ -87,21 +87,63 @@ function duracaoSystemd(texto) {
   return achou ? total : null;
 }
 
-/** Saída de `systemctl show` com várias units: { <Id>: { Chave: valor | [valores] } }. */
+// Tetos para texto que vem de fora (container, systemd, podman). Nada abaixo roda sobre texto sem passar por eles.
+const MAX_SAIDA_BYTES = 256 * 1024;
+const MAX_SAIDA_LINHAS = 4000;
+const MAX_JSON_BYTES = 512 * 1024;
+const MAX_VALORES_POR_PROP = 20;
+const MAX_BLOCOS_SHOW = 200;
+// Só as propriedades que algum coletor lê (cron.js e maquina.js). O resto da saída é ignorado.
+const PROPS_SHOW = new Set(['Id', 'LoadState', 'ActiveState', 'SubState', 'Result', 'ExecMainStatus', 'ExecMainStartTimestamp', 'ActiveEnterTimestamp', 'ExecMainExitTimestamp', 'LastTriggerUSec', 'NextElapseUSecRealtime', 'TimersCalendar', 'TimersMonotonic', 'OnUnitActiveUSec']);
+
+/** Corta o texto em MAX_SAIDA_BYTES e devolve no máximo MAX_SAIDA_LINHAS linhas (cada uma com até 2000 caracteres). */
+function linhasLimitadas(saida) {
+  const texto = String(saida == null ? '' : saida).slice(0, MAX_SAIDA_BYTES);
+  const linhas = [];
+  let ini = 0;
+  while (ini <= texto.length && linhas.length < MAX_SAIDA_LINHAS) {
+    let fim = texto.indexOf('\n', ini);
+    if (fim === -1) fim = texto.length;
+    linhas.push(texto.slice(ini, Math.min(fim, ini + 2000 + 100)));
+    ini = fim + 1;
+  }
+  return linhas;
+}
+
+/** JSON.parse com teto de tamanho: texto maior que o teto vira null (quem chama trata como formato desconhecido). */
+function jsonLimitado(texto) {
+  if (typeof texto !== 'string' || texto.length > MAX_JSON_BYTES) return null;
+  try { return JSON.parse(texto); } catch (_) { return null; }
+}
+
+/**
+ * Saída de `systemctl show` com várias units: { <Id>: { Chave: valor | [valores] } }.
+ * Custo linear: texto cortado antes, lista fechada de propriedades, no máximo 20 valores por propriedade e 200 units.
+ */
 function lerShow(saida) {
   const porId = Object.create(null);
-  for (const bloco of String(saida || '').split(/\n\s*\n/)) {
-    const props = Object.create(null);
-    for (const linha of bloco.split('\n')) {
-      const i = linha.indexOf('=');
-      if (i <= 0) continue;
-      const k = linha.slice(0, i);
-      const v = linha.slice(i + 1, i + 1 + 2000); // valor vem de fora: o teto evita regex em texto gigante
-      if (k in props) props[k] = [].concat(props[k], v);
-      else props[k] = v;
+  let blocos = 0;
+  let props = Object.create(null);
+  const fecha = () => {
+    if (props.Id && typeof props.Id === 'string') porId[props.Id] = props;
+    props = Object.create(null);
+  };
+  for (const linha of linhasLimitadas(saida)) {
+    if (!linha.trim()) {
+      if (Object.keys(props).length) { fecha(); blocos += 1; if (blocos >= MAX_BLOCOS_SHOW) return porId; }
+      continue;
     }
-    if (props.Id) porId[props.Id] = props;
+    const i = linha.indexOf('=');
+    if (i <= 0) continue;
+    const k = linha.slice(0, i);
+    if (!PROPS_SHOW.has(k)) continue;
+    const v = linha.slice(i + 1, i + 1 + 2000);
+    const atual = props[k];
+    if (atual === undefined) props[k] = v;
+    else if (Array.isArray(atual)) { if (atual.length < MAX_VALORES_POR_PROP) atual.push(v); }
+    else props[k] = [atual, v];
   }
+  if (Object.keys(props).length) fecha();
   return porId;
 }
 
@@ -133,7 +175,7 @@ function promptAdmin(viu, conferir, comando) {
 const ONDE_COLAR = 'Cole o texto do prompt_sugerido na conversa do Admin no DG Claw e envie. O Admin confere e conserta.';
 
 module.exports = {
-  INESPERADO, ENUMS, dentro, codigoDeSaida, RX_NOME_SEGURO, RX_UNIT, execPadrao, comLimite, dataSystemd, duracaoSystemd, lerShow, iso, quando, duracaoCurta, promptAdmin, ONDE_COLAR,
+  INESPERADO, ENUMS, dentro, codigoDeSaida, RX_NOME_SEGURO, RX_UNIT, execPadrao, comLimite, dataSystemd, duracaoSystemd, lerShow, linhasLimitadas, jsonLimitado, iso, quando, duracaoCurta, promptAdmin, ONDE_COLAR,
 };
 
 /** Resultado de uma verificação com todos os campos no lugar. */

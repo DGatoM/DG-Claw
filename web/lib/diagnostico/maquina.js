@@ -146,7 +146,7 @@ function tarefasDaMaquina(ctx) {
   tarefas.push({
     sufixo: 'memoria', nome: 'Memória da máquina',
     async fn() {
-      const texto = await ctx.meminfo();
+      const texto = String(await ctx.meminfo()).slice(0, 64 * 1024);
       const pega = (k) => { const m = String(texto).match(new RegExp(`^${k}:\\s+(\\d+) kB`, 'm')); return m ? Number(m[1]) * 1024 : null; };
       const total = pega('MemTotal');
       const disp = pega('MemAvailable');

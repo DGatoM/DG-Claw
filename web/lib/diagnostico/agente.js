@@ -98,7 +98,7 @@ function tarefasDoAgente(ctx, ag) {
         return R('nao_medido', `Não consegui consultar o podman (${r.erro === 'timeout' ? 'demorou demais' : `código ${r.codigo}`}).`, { evidencia: { horario: null, codigo_saida: U.codigoDeSaida(r.codigo), ocorrencias: classificar(r.stderr, { soErros: false }) } });
       }
       let info;
-      try { info = JSON.parse(r.stdout); } catch (_) { info = null; }
+      info = U.jsonLimitado(r.stdout);
       const c = Array.isArray(info) ? info[0] : info;
       const st = c && c.State;
       if (!st) return R('nao_medido', 'O podman respondeu num formato que o diagnóstico não entendeu.');

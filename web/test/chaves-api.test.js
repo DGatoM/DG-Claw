@@ -199,7 +199,8 @@ test('revogar relê o disco dentro da trava, mesmo com cache velho', () => {
   assert.equal(l.api.revogar(a.chave.id, 'x').ok, true);
   const ids = JSON.parse(fs.readFileSync(l.arquivo, 'utf8')).chaves.map((c) => c.id);
   assert.ok(ids.includes(nova.chave.id), 'a chave criada por B não pode sumir quando A revoga');
-  assert.equal(fs.existsSync(`${l.arquivo}.lock`), false, 'a trava é solta');
+  // O arquivo .lock fica (apagar arquivo de flock cria corrida); a trava em si é solta: o próximo entra de imediato.
+  assert.equal(l.api.criar({ nome: 'C', escopos: ['diagnostico'] }).ok, true, 'a trava é solta');
 });
 
 test('duas criações concorrentes em processos diferentes não se perdem', async () => {
@@ -220,26 +221,100 @@ test('duas criações concorrentes em processos diferentes não se perdem', asyn
   assert.equal(JSON.parse(fs.readFileSync(l.arquivo, 'utf8')).chaves.length, 24);
 });
 
-test('trava velha (mais de 30 s) é removida com log; trava recente faz recusar com motivo', () => {
-  const l = loja();
-  const trava = `${l.arquivo}.lock`;
-  fs.writeFileSync(trava, JSON.stringify({ pid: 99999, em: 'antiga' }));
-  const velho = new Date(Date.now() - 60_000);
-  fs.utimesSync(trava, velho, velho);
-  const r = l.api.criar({ nome: 'A', escopos: ['diagnostico'] });
-  assert.equal(r.ok, true);
-  assert.match(l.cap.texto(), /trava.*removida/);
-  assert.equal(fs.existsSync(trava), false);
+// Processo que pega a trava como o código de produção (open + flock -x sobre o fd 3) e a segura até morrer ou fechar o stdin.
+function seguraTrava(arquivoTrava) {
+  const { spawn } = require('node:child_process');
+  const script = `const fs = require('node:fs'); const { spawnSync } = require('node:child_process');
+    const fd = fs.openSync(${JSON.stringify(arquivoTrava)}, 'a', 0o600);
+    const r = spawnSync('flock', ['-x', '-w', '3', '3'], { stdio: ['ignore', 'ignore', 'pipe', fd] });
+    if (r.status !== 0) { process.stderr.write('flock saiu com ' + r.status); process.exit(3); }
+    process.stdout.write('pronto\\n');
+    process.stdin.on('end', () => { fs.closeSync(fd); process.exit(0); }); process.stdin.resume();`;
+  const p = spawn(process.execPath, ['-e', script], { stdio: ['pipe', 'pipe', 'pipe'] });
+  const fim = new Promise((resolve) => p.on('close', (codigo, sinal) => resolve({ codigo, sinal })));
+  const pronto = new Promise((resolve, reject) => {
+    p.stdout.on('data', (d) => { if (String(d).includes('pronto')) resolve(); });
+    p.on('close', () => reject(new Error('o processo que segura a trava saiu antes de pegá-la')));
+  });
+  return { p, pronto, fim, solta: () => { p.stdin.end(); return fim; }, mata: () => { p.kill('SIGKILL'); return fim; } };
+}
 
-  fs.writeFileSync(trava, JSON.stringify({ pid: process.pid, em: 'agora' }));
+test('trava do kernel: quem segura por mais de 30 s não perde a trava, o outro recusa com motivo e nunca a rouba', async () => {
+  const l = loja();
+  const a = l.api.criar({ nome: 'A', escopos: ['diagnostico'] });
+  assert.equal(a.ok, true);
+  l.api.listar(); // aquece o cache com a lista antiga
+  const trava = `${l.arquivo}.lock`;
+  const dono = seguraTrava(trava);
+  await dono.pronto;
+  // Simula o dono "suspenso" há muito tempo: a idade do arquivo não pode mais importar.
+  const velho = new Date(Date.now() - 120_000);
+  fs.utimesSync(trava, velho, velho);
+
+  const outro = criarChavesApi({ config: { dataDir: l.dataDir }, log: l.cap.log });
   const t0 = Date.now();
-  const r2 = l.api.criar({ nome: 'B', escopos: ['diagnostico'] });
-  assert.equal(r2.ok, false);
-  assert.equal(r2.status, 503);
-  assert.match(r2.erro, /outro processo/);
+  const r = outro.revogar(a.chave.id, 'x');
+  assert.equal(r.ok, false);
+  assert.equal(r.status, 503);
+  assert.match(r.erro, /outro processo/);
   assert.ok(Date.now() - t0 >= 2500, 'esperou ~3 s antes de desistir');
-  assert.equal(l.api.listar().length, 1, 'a criação recusada não gravou');
-  fs.unlinkSync(trava);
+  assert.match(l.cap.texto(), /TRAVA_OCUPADA/);
+  assert.equal(JSON.parse(fs.readFileSync(l.arquivo, 'utf8')).chaves[0].revogadaEm, null, 'a revogação recusada não gravou');
+  assert.ok(fs.existsSync(trava), 'o arquivo de trava nunca é apagado por quem não é dono');
+
+  await dono.solta();
+  assert.equal(outro.revogar(a.chave.id, 'x').ok, true, 'solta a trava, a revogação passa');
+  // O processo A volta com cache velho (lista sem revogação): relê dentro da trava e não desfaz a revogação.
+  assert.equal(l.api.criar({ nome: 'C', escopos: ['diagnostico'] }).ok, true);
+  const chaves = JSON.parse(fs.readFileSync(l.arquivo, 'utf8')).chaves;
+  assert.equal(chaves.length, 2);
+  assert.ok(chaves.find((c) => c.id === a.chave.id).revogadaEm, 'a revogação continua valendo');
+});
+
+test('trava do kernel: processo morto com SIGKILL segurando a trava não bloqueia o próximo', async () => {
+  const l = loja();
+  const dono = seguraTrava(`${l.arquivo}.lock`);
+  await dono.pronto;
+  const { sinal } = await dono.mata();
+  assert.equal(sinal, 'SIGKILL');
+  const t0 = Date.now();
+  assert.equal(l.api.criar({ nome: 'A', escopos: ['diagnostico'] }).ok, true);
+  assert.ok(Date.now() - t0 < 1500, 'entrou sem esperar');
+});
+
+test('trava do kernel: o segundo processo espera e só entra depois que o primeiro solta', async () => {
+  const { spawn } = require('node:child_process');
+  const l = loja();
+  const dono = seguraTrava(`${l.arquivo}.lock`);
+  await dono.pronto;
+  const lib = path.join(__dirname, '..', 'lib', 'chaves-api.js');
+  const script = `const { criarChavesApi } = require(${JSON.stringify(lib)});
+    const api = criarChavesApi({ config: { dataDir: ${JSON.stringify(l.dataDir)} }, log: () => {} });
+    const r = api.criar({ nome: 'segundo', escopos: ['diagnostico'] }); process.stdout.write(r.ok ? 'entrou' : 'recusou ' + r.erro);`;
+  const segundo = spawn(process.execPath, ['-e', script], { stdio: ['ignore', 'pipe', 'inherit'] });
+  let saida = '';
+  segundo.stdout.on('data', (d) => { saida += d; });
+  const fimSegundo = new Promise((resolve) => segundo.on('close', resolve));
+  await new Promise((r) => setTimeout(r, 1000));
+  assert.equal(saida, '', 'o segundo ainda espera enquanto o primeiro segura');
+  assert.equal(fs.existsSync(l.arquivo), false, 'nada foi gravado');
+  await dono.solta();
+  await fimSegundo;
+  assert.equal(saida, 'entrou');
+  assert.equal(JSON.parse(fs.readFileSync(l.arquivo, 'utf8')).chaves.length, 1);
+});
+
+test('sem o comando flock: erro com motivo em português e nada gravado', () => {
+  const { spawnSync } = require('node:child_process');
+  const l = loja();
+  const lib = path.join(__dirname, '..', 'lib', 'chaves-api.js');
+  const script = `const { criarChavesApi } = require(${JSON.stringify(lib)});
+    const api = criarChavesApi({ config: { dataDir: ${JSON.stringify(l.dataDir)} }, log: (n, m) => process.stderr.write(m + '\\n') });
+    const r = api.criar({ nome: 'A', escopos: ['diagnostico'] }); process.stdout.write(JSON.stringify(r));`;
+  const r = spawnSync(process.execPath, ['-e', script], { env: { PATH: '/nonexistent' }, encoding: 'utf8' });
+  assert.match(r.stderr, /o comando flock \(pacote util-linux\) não está instalado; instale com apt install util-linux/);
+  assert.equal(JSON.parse(r.stdout).ok, false);
+  assert.equal(fs.existsSync(l.arquivo), false);
 });
 
 test('arquivo ilegível: criar e revogar recusam sem sobrescrever', () => {

@@ -20,6 +20,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { spawnSync } = require('node:child_process');
 
 const PREFIXO = 'dgc_';
 const ESCOPOS = Object.freeze(['diagnostico']);
@@ -27,7 +28,6 @@ const USO_MIN_INTERVALO_MS = 60 * 1000;
 const FALHAS_MAX = 20;
 const JANELA_FALHAS_MS = 10 * 60 * 1000;
 const TRAVA_ESPERA_MS = 3000;
-const TRAVA_VELHA_MS = 30 * 1000;
 const FORMATO_BEARER = /^\s*Bearer\s+(dgc_[A-Za-z0-9_-]{20,})\s*$/i;
 
 function recusa(erro, status, comoResolver) {
@@ -84,46 +84,39 @@ function criarChavesApi({ config, log, agora }) {
     cache = null;
   }
 
-  const dormir = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-
   /**
-   * Trava entre processos (Web e CLI): arquivo criado com O_EXCL, com pid e horário dentro.
-   * Tenta por até 3 s; trava com mais de 30 s é de um processo que morreu e é removida (com log).
-   * Roda `fn` com a trava e a solta sempre. Lança Error com causa se não conseguir a trava.
+   * Trava entre processos (Web e CLI): flock(2) exclusivo do kernel sobre `${ARQUIVO}.lock`.
+   * O kernel solta a trava quando o processo fecha o descritor ou morre, então nunca existe "trava velha"
+   * e ninguém remove a trava de outro (um processo suspenso que volta continua dono dela).
+   * O arquivo .lock nunca é apagado: apagar um arquivo de flock cria corrida entre quem já o abriu e quem o recria.
+   * Como o Node não tem flock nativo, o comando flock(1) pega a trava sobre o descritor 3 herdado. A trava
+   * pertence à open file description, que continua aberta neste processo depois que o flock(1) sai.
+   * Espera até 3 s. Roda `fn` com a trava e a solta sempre. Lança Error com causa se não conseguir.
    */
   function comTrava(fn) {
     fs.mkdirSync(path.dirname(ARQUIVO), { recursive: true, mode: 0o700 });
-    const limite = Date.now() + TRAVA_ESPERA_MS;
-    let fd = null;
-    for (;;) {
-      try {
-        fd = fs.openSync(TRAVA, 'wx', 0o600);
-        fs.writeSync(fd, JSON.stringify({ pid: process.pid, em: new Date().toISOString() }));
-        break;
-      } catch (e) {
-        if (fd !== null) { try { fs.closeSync(fd); } catch (_) { /* nada a fechar */ } fd = null; }
-        if (e.code !== 'EEXIST') throw e;
-        let idade = 0;
-        try { idade = Date.now() - fs.statSync(TRAVA).mtimeMs; } catch (s) {
-          if (s.code === 'ENOENT') continue; // soltaram agora: tenta de novo já
-          throw s;
-        }
-        if (idade > TRAVA_VELHA_MS) {
-          log('aviso', `Chaves de API: a trava ${TRAVA} tem ${Math.round(idade / 1000)} s, mais de ${TRAVA_VELHA_MS / 1000} s. Quem a criou deve ter morrido no meio da gravação, então ela foi removida e a gravação segue.`);
-          try { fs.unlinkSync(TRAVA); } catch (u) { if (u.code !== 'ENOENT') throw u; }
-          continue;
-        }
-        if (Date.now() >= limite) {
-          const err = new Error(`outro processo está mexendo nas chaves há mais de ${TRAVA_ESPERA_MS / 1000} s (trava ${TRAVA})`);
-          err.code = 'TRAVA_OCUPADA';
-          throw err;
-        }
-        dormir(25);
+    const fd = fs.openSync(TRAVA, 'a', 0o600);
+    try {
+      const r = spawnSync('flock', ['-x', '-w', String(TRAVA_ESPERA_MS / 1000), '3'], { stdio: ['ignore', 'ignore', 'pipe', fd], encoding: 'utf8', timeout: TRAVA_ESPERA_MS + 2000 });
+      if (r.error && r.error.code === 'ENOENT') {
+        const err = new Error('o comando flock (pacote util-linux) não está instalado; instale com apt install util-linux');
+        err.code = 'FLOCK_AUSENTE';
+        throw err;
       }
-    }
-    try { return fn(); } finally {
-      try { fs.closeSync(fd); } catch (_) { /* já fechado */ }
-      try { fs.unlinkSync(TRAVA); } catch (e) { if (e.code !== 'ENOENT') log('aviso', `Chaves de API: não consegui soltar a trava ${TRAVA} (${e.code || e.message}). Ela vence sozinha em ${TRAVA_VELHA_MS / 1000} s.`); }
+      if (r.error) throw r.error;
+      if (r.status === 1) {
+        const err = new Error(`outro processo está mexendo nas chaves há mais de ${TRAVA_ESPERA_MS / 1000} s; tente de novo (trava ${TRAVA})`);
+        err.code = 'TRAVA_OCUPADA';
+        throw err;
+      }
+      if (r.status !== 0) {
+        const err = new Error(`o flock falhou (${r.status === null ? `sinal ${r.signal}` : `código ${r.status}`}): ${String(r.stderr || '').trim().slice(0, 200)}`);
+        err.code = 'FLOCK_FALHOU';
+        throw err;
+      }
+      return fn();
+    } finally {
+      try { fs.closeSync(fd); } catch (e) { log('aviso', `Chaves de API: não consegui fechar ${TRAVA} (${e.code || e.message}). O kernel solta a trava quando o processo terminar.`); }
     }
   }
 
@@ -226,7 +219,7 @@ function criarChavesApi({ config, log, agora }) {
   function falhaDeMudanca(err, o_que) {
     log('erro', `Chaves de API: não consegui ${o_que} (${err.code || ''} ${err.message}).`);
     if (err.code === 'TRAVA_OCUPADA') {
-      return recusa(`Não consegui ${o_que}: outro processo estava mexendo nas chaves.`, 503, `Tente de novo em alguns segundos. Se repetir, quem administra a máquina apaga ${TRAVA} (sobra de um processo que morreu).`);
+      return recusa(`Não consegui ${o_que}: outro processo estava mexendo nas chaves.`, 503, `Tente de novo em alguns segundos. Se repetir, quem administra a máquina confere qual processo segura ${TRAVA} (por exemplo com o comando fuser ${TRAVA}).`);
     }
     if (err.code === 'ARQUIVO_ILEGIVEL') {
       return recusa(`Não consegui ${o_que}: o arquivo de chaves está ilegível e não foi alterado.`, 500, `Quem administra a máquina confere ${ARQUIVO}: restaure o último backup ou corrija o JSON.`);

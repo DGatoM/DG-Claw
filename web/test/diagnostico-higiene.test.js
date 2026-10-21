@@ -149,3 +149,74 @@ test('coletor memoria.injecao com arquivo adversarial de 256 KiB termina rápido
   }
   fs.rmSync(raiz, { recursive: true, force: true });
 });
+
+// ── lerShow e coletor de cron com saída hostil do systemd ─────────────────
+const U = require('../lib/diagnostico/util');
+
+const SHOW_HOSTIS = {
+  'Id repetido com 40 mil linhas X=': 'Id=dgclaw-tina-x.timer\n' + 'X=aaa\n'.repeat(40000),
+  'mesma propriedade permitida 100 mil vezes': 'Id=dgclaw-tina-x.timer\n' + 'TimersCalendar=a\n'.repeat(100000),
+  '200 mil blocos vazios': '\n\n'.repeat(200000),
+  '200 mil blocos com uma propriedade': 'Id=dgclaw-tina-x.timer\n\n'.repeat(200000),
+  'linha única de 1 MB': `Id=dgclaw-tina-x.timer\nTimersCalendar=${'a'.repeat(1024 * 1024)}`,
+  'linha única de 1 MB sem igual': 'a'.repeat(1024 * 1024),
+};
+
+for (const [nome, texto] of Object.entries(SHOW_HOSTIS)) {
+  test(`lerShow (${nome}) termina rápido e respeita os tetos`, () => {
+    const { ms, r } = tempo(() => U.lerShow(texto));
+    assert.ok(ms < LIMITE_MS, `lerShow levou ${Math.round(ms)} ms`);
+    assert.ok(Object.keys(r).length <= 200, 'no máximo 200 units');
+    for (const props of Object.values(r)) {
+      assert.ok(!('X' in props), 'propriedade fora da lista é ignorada');
+      for (const v of Object.values(props)) {
+        if (Array.isArray(v)) assert.ok(v.length <= 20, 'no máximo 20 valores repetidos');
+        assert.ok(String(v).length <= 2000 || Array.isArray(v));
+      }
+    }
+  });
+
+  test(`coletor de cron (${nome}) termina rápido`, async () => {
+    const raiz = fs.mkdtempSync(path.join(os.tmpdir(), 'diag-cron-'));
+    const home = path.join(raiz, 'home');
+    fs.mkdirSync(home, { recursive: true });
+    const diag = criarDiagnostico({
+      config: { tz: 'America/Sao_Paulo', agentesPath: path.join(raiz, 'agentes.json'), dataDir: path.join(raiz, 'web') },
+      registro: { estado: () => ({ ok: true, erro: null, agentes: [{ slug: 'tina', nome: 'Tina', tipo: 'agente', runner: 'http://127.0.0.1:2', agente_id: 'tina', home_host: home, container: 'dgclaw-tina' }] }) },
+      runner: { pedir: async () => ({ ok: false }), estado: async () => ({ ok: false }), provedor: async () => ({ ok: false }) },
+      log: () => {},
+      exec: async (cmd, args) => {
+        if (args.includes('list-units')) return { codigo: 0, stdout: `dgclaw-tina-x.timer loaded active waiting x\n${'dgclaw-tina-y.timer loaded active waiting y\n'.repeat(100000)}`, stderr: '' };
+        if (args.includes('show')) return { codigo: 0, stdout: texto, stderr: '' };
+        return { codigo: 1, stdout: '', stderr: 'fora' };
+      },
+      agora: () => Date.UTC(2026, 9, 21, 15, 0, 0),
+      statfs: async () => ({ bsize: 4096, blocks: 1000, bfree: 500, bavail: 500 }),
+      meminfo: async () => 'MemTotal: 1000 kB\nMemAvailable: 900 kB\n',
+      uptime: () => 10 * 86400,
+      procVivo: () => true,
+      lerEnv: () => ({ vars: {}, erro: null }),
+      atualizacao: { lerEstado: () => ({ ausente: true }) },
+    });
+    const ini = performance.now();
+    const r = await diag.coletar();
+    const ms = performance.now() - ini;
+    assert.ok(ms < 1000, `a coleta inteira levou ${Math.round(ms)} ms`);
+    assert.ok(r.verificacoes.length > 0);
+    fs.rmSync(raiz, { recursive: true, force: true });
+  });
+}
+
+test('lerShow: propriedades da lista continuam sendo lidas, repetidas viram lista', () => {
+  const r = U.lerShow('Id=dgclaw-tina-x.timer\nActiveState=active\nTimersCalendar=a\nTimersCalendar=b\nFora=1\n\nId=dgclaw-tina-x.service\nResult=success\n');
+  assert.equal(r['dgclaw-tina-x.timer'].ActiveState, 'active');
+  assert.deepEqual(r['dgclaw-tina-x.timer'].TimersCalendar, ['a', 'b']);
+  assert.ok(!('Fora' in r['dgclaw-tina-x.timer']));
+  assert.equal(r['dgclaw-tina-x.service'].Result, 'success');
+});
+
+test('jsonLimitado: acima de 512 KB vira null sem parsear', () => {
+  assert.deepEqual(U.jsonLimitado('[1]'), [1]);
+  assert.equal(U.jsonLimitado(`["${'a'.repeat(600 * 1024)}"]`), null);
+  assert.equal(U.jsonLimitado('{quebrado'), null);
+});

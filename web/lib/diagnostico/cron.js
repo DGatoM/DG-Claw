@@ -94,7 +94,7 @@ async function conferirRotinas(ctx, ag, ledgerP) {
   }
   // A lista vem do container. Só passa nome de unit no formato dgclaw-<slug>-<nome>.timer com <nome> em formato de slug.
   const prefixo = `dgclaw-${slug}-`;
-  const timers = lst.stdout.split('\n').map((l) => l.trim().split(/\s+/)[0]).filter((u) => {
+  const timers = U.linhasLimitadas(lst.stdout).slice(0, 200).map((l) => l.trim().split(/\s+/)[0]).filter((u) => {
     if (!u || !U.RX_UNIT.test(u) || !u.startsWith(prefixo) || !u.endsWith('.timer')) return false;
     return U.RX_NOME_SEGURO.test(u.slice(prefixo.length, -'.timer'.length));
   });

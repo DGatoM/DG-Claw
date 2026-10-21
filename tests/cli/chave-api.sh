@@ -52,20 +52,30 @@ roda chave-api listar
 afirma "listar mostra revogada" grep -q 'revogada em' "$TMP/o.txt"
 
 echo "trava entre processos"
-nega "nenhuma trava sobra depois das operacoes" test -e "$ARQ.lock"
+afirma "o arquivo de trava fica (nunca e apagado)" test -e "$ARQ.lock"
 nega "a CLI nao cria o arquivo de uso (so o Web marca uso)" test -e "$LIB/web/chaves-api-uso.json"
-echo '{"pid":1,"em":"antiga"}' >"$ARQ.lock"
+# Um processo segura a trava do kernel (flock) por 6 s: a CLI espera 3 s, desiste com motivo e nao rouba a trava,
+# mesmo com o arquivo de trava "velho".
 touch -d '2 minutes ago' "$ARQ.lock"
-roda chave-api criar --nome "Depois da trava velha" --escopo diagnostico
-igual "trava velha e removida e criar sai 0" "0" "$?"
-afirma "o aviso explica a remocao" grep -q 'trava' "$TMP/e.txt"
-nega "a trava foi solta" test -e "$ARQ.lock"
-echo '{"pid":1,"em":"agora"}' >"$ARQ.lock"
-roda chave-api criar --nome "Com trava recente" --escopo diagnostico
-igual "trava recente: criar sai 1" "1" "$?"
+flock -x "$ARQ.lock" sleep 6 &
+SEGURA=$!
+sleep 0.5
+roda chave-api criar --nome "Com trava ocupada" --escopo diagnostico
+igual "trava ocupada: criar sai 1" "1" "$?"
 afirma "o motivo diz que outro processo esta mexendo" grep -q 'outro processo' "$TMP/e.txt"
 nega "nenhum token no stdout" test -s "$TMP/o.txt"
-rm -f "$ARQ.lock"
+wait "$SEGURA" 2>/dev/null
+roda chave-api criar --nome "Depois que soltou" --escopo diagnostico
+igual "trava solta: criar sai 0" "0" "$?"
+# Processo morto com SIGKILL segurando a trava: o kernel solta e o proximo entra.
+flock -x "$ARQ.lock" sleep 60 &
+SEGURA=$!
+sleep 0.5
+pkill -KILL -P "$SEGURA" sleep 2>/dev/null
+kill -KILL "$SEGURA" 2>/dev/null
+wait "$SEGURA" 2>/dev/null
+roda chave-api criar --nome "Depois do kill" --escopo diagnostico
+igual "dono morto: criar sai 0" "0" "$?"
 
 echo "uso errado e recusas"
 roda chave-api
