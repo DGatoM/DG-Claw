@@ -400,6 +400,8 @@
         padding-bottom:env(safe-area-inset-bottom)}
   aside#menu.abre{transform:translateX(0)}
   .av img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block}
+  /* foto ainda pintando não pode mostrar o verde da cor do agente por baixo (iPhone, 21/10) */
+  .av:has(>img){background:#e4eae6 !important}
   .pe{flex:0 0 auto;border-top:1px solid var(--line);padding:4px 8px 2px}
   .pe .conta{display:flex;align-items:center;justify-content:space-between;gap:8px;
         min-height:36px;padding:0 4px 0 8px}

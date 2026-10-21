@@ -531,3 +531,11 @@ test('páginas: / vai para o Admin, /a/<slug> serve a conversa e slug inexistent
     assert.equal((await s.t.c.get('/api/saude', { semCookie: true })).json.ok, true);
   } finally { await s.fechar(); }
 });
+
+test('avatar por https sai pelo mesmo domínio e sem foto dá 404 explicado', async () => {
+  const s = await cenario();
+  try {
+    const sem = await s.t.c.get('/api/v1/agents/ana/avatar');
+    assert.equal(sem.status, 404); assert.match(sem.json.erro, /não tem foto/);
+  } finally { await s.fechar(); }
+});
