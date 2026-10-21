@@ -1528,7 +1528,7 @@ function render(opt) {
   // mesma lista de nós na mesma ordem: não encosta no DOM
   const atuais = wrap.children;
   const igual = atuais.length === nos.length && nos.every((el, i) => atuais[i] === el);
-  if (igual) return;
+  if (igual) { pintaFilaLeitura(); return; }
   // Mensagens antigas entrando no topo, mensagem nova no fim, balão refeito: a posição
   // fica por conta do observador de rolagem (no fim acompanha, lendo mais acima não mexe).
   aplicaNos(nos);
@@ -1536,6 +1536,7 @@ function render(opt) {
   respiroDasFaixas();
   guardaCache();
   atualizaSeta();
+  pintaFilaLeitura();   // os balões foram refeitos: o selo da fila volta
 }
 
 /* Põe a lista de nós no #wrap mexendo só no que mudou. O replaceChildren
@@ -3233,7 +3234,6 @@ async function comecaGravar() {
   destravarAudio();
   if (!caps.microfone) return;
   if (gravando || pedindoMic || gravacao) return;
-  if (falando || faloAbort) cancelaFala();   // gravar áudio novo interrompe a fila de voz inteira
   const mime = melhorMime();
   if (mime === null) {
     mostraErro('Este navegador não grava áudio (sem MediaRecorder). ' +
@@ -3244,6 +3244,8 @@ async function comecaGravar() {
   setEstado('pedindo o microfone…');
   let stream;
   pedindoMic = true;
+  // a leitura em curso é pausada (não cancelada) e a fila espera a gravação acabar
+  pausaPelaGravacao();
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: true });
   } catch (e) {
@@ -3261,6 +3263,7 @@ async function comecaGravar() {
     return;
   } finally {
     pedindoMic = false;
+    if (!stream) filaRetoma();    // o microfone não abriu: a leitura volta
   }
   const g = { stream: stream, rec: null, pedacos: [], mime: mime, inicio: 0, parado: false,
               erro: null, blob: null, aoParar: null };
@@ -3271,6 +3274,7 @@ async function comecaGravar() {
     soltaMicrofone(g);
     mostraErro('Não consegui iniciar a gravação (' + e.message + ').');
     setEstado('erro no microfone', true);
+    filaRetoma();
     return;
   }
   g.rec = r;
@@ -3320,6 +3324,7 @@ async function comecaGravar() {
     pintaMic();
     mostraErro('Não consegui começar a gravar (' + e.message + ').');
     setEstado('erro no microfone', true);
+    filaRetoma();
   }
 }
 
@@ -3355,6 +3360,7 @@ async function paraEEnvia(direto) {
   const blob = await paraGravacao();
   gravando = false;
   pintaMic();
+  filaRetoma();    // na hora, sem esperar a transcrição
   if (!blob || blob.size < 1024) {
     mostraErro('A gravação saiu vazia (' + (blob ? blob.size : 0) + ' bytes). ' +
                'Toque no microfone, espere aparecer "gravando", fale, e toque de novo.');
@@ -3371,9 +3377,11 @@ async function cancelaGravacao() {
   micAbrindo = false;
   pintaMic();
   estadoOcioso();
+  filaRetoma();
 }
 
 btnMic.onclick = () => {
+  destravarAudio();
   if (transcrevendo) return;
   if (gravando) paraEEnvia(false); else comecaGravar();
 };
@@ -3714,31 +3722,249 @@ async function esperaPeloWait(since, limite) {
 
 /* Resposta = qualquer fala nova do agente depois do envio. */
 const ehResposta = (m, since) => ehAgente(m) && m.ep > since;
+/* Só a conversa normal (origin 'agente') entra na fila de voz automática. A rotina também
+   conta como resposta para a espera, mas só toca em voz se a pessoa apertar o 🎧 do balão. */
+const ehRespostaFalavel = (m, since) => !!m && m.origin === 'agente' && m.ep > since;
 
 /* Depois da pergunta por voz, por 5 minutos, toda resposta nova dele também é
    lida (ele costuma mandar "vou fazer" e, um tempo depois, o resultado). */
 const ESCUTA_MS = 5 * 60000;
 let escuta = null;            // { since, ate }
 const faladas = new Set();
-let filaFala = Promise.resolve();
-// Sobe a cada parada pedida pela pessoa: o que já estava na fila de leitura não fala mais.
-// É separado de faloGeracao, que o próprio falar() sobe ao começar (via pararFala).
+/* ── Fila de leitura ──────────────────────────────────────────────────────
+   Regra do Danilo (21/10/2026): resposta nova NUNCA derruba a que ele está
+   ouvindo. Ela entra no fim da fila e é lida depois, uma por vez. Com o
+   microfone aberto nada toca; a leitura em curso é pausada e guardada
+   (`retomadaLeitura`), e quando a gravação termina ela continua de onde parou,
+   seguida do resto da fila. O 🎧 de um balão pula pra ele e segue dali.
+   Parada pedida pela pessoa (cancelaFala) descarta tudo, e `corteFala` registra
+   isso para o fim da fila não reabrir o microfone depois de um "parar".
+   Este bloco só decide a ordem. Quem fala de verdade vem de fora, por estas
+   dependências (o teste em test/voz-fila-leitura.test.js injeta versões de mentira):
+     gravando, pedindoMic, gravacao (via microfoneOcupado), esperando, transcrevendo,
+     msgs, continua, pararPedido, mostraAviso, estadoOcioso, comecaGravar,
+     pintaFilaLeitura, posicaoDoPlayer(), pararSomAtual(),
+     tocarMensagemNaFila(item, desde) -> Promise que resolve quando acaba, OU quando
+     pararSomAtual() a interrompe, OU com `false` se o aparelho NÃO tocou o som. */
+const LIMITE_REINICIO = 0.20;   // pausada antes de 20% do 1º pedaço: recomeça do início
+const filaLeitura = [];         // pendentes, em ordem de chegada: { id, texto, desde? }
+let tocandoAgora = null;        // { id, texto, parte, tempo, duracao }
+let retomadaLeitura = null;     // a que a gravação pausou: { id, texto, parte, tempo, duracao }
+let drenoAtivo = false;
+let geracaoFila = 0;            // sobe a cada pausa, parada ou pulo: o dreno antigo se aposenta sozinho
+// Sobe a cada parada pedida pela pessoa. É separado de faloGeracao, que cada mensagem
+// sobe ao começar a tocar.
 let corteFala = 0;
+// O 🎧 não reabre o microfone no fim (ouvir de novo não é a vez da pessoa falar). Uma
+// resposta nova do agente chegando devolve o fluxo normal da conversa contínua.
+let fimSemMic = false;
+/* `filaFala` é a promessa do dreno em curso (ou uma já resolvida, se não há
+   dreno). esperaResposta faz `await filaFala` para só soltar a tela quando a
+   leitura acabou. Com o microfone aberto NÃO há dreno, então a promessa já
+   está resolvida e o await nunca fica pendurado esperando a gravação. */
+let filaFala = Promise.resolve();
+
+const filaTemTrabalho = () => !!(retomadaLeitura || filaLeitura.length);
+const mesmoId = (a, b) => String(a) === String(b);
+
+/* De onde recomeçar a mensagem pausada: do início se mal tinha começado
+   (menos de 20% do primeiro pedaço), senão do pedaço e do segundo em que parou. */
+function decideInicio(r) {
+  const ratio = r.duracao > 0 ? r.tempo / r.duracao : (r.tempo > 0 ? 1 : 0);
+  if ((r.parte || 0) === 0 && ratio < LIMITE_REINICIO) return { parte: 0, tempo: 0 };
+  return { parte: r.parte || 0, tempo: r.tempo || 0 };
+}
+
+function enfileiraFala(item) {
+  if (!item || !item.id || !item.texto) {
+    console.warn('fila de leitura: mensagem sem id ou sem texto, ignorada:', item);
+    return false;
+  }
+  const jaTem = (tocandoAgora && mesmoId(tocandoAgora.id, item.id)) ||
+                (retomadaLeitura && mesmoId(retomadaLeitura.id, item.id)) ||
+                filaLeitura.some(p => mesmoId(p.id, item.id));
+  if (jaTem) return false;
+  filaLeitura.push({ id: item.id, texto: item.texto });
+  fimSemMic = false;
+  pintaFilaLeitura();
+  iniciaDreno();
+  return true;
+}
+
+function iniciaDreno() {
+  if (drenoAtivo || microfoneOcupado() || !filaTemTrabalho()) return;
+  drenoAtivo = true;
+  filaFala = drena(++geracaoFila, corteFala);
+}
+
+async function drena(g, corte) {
+  const minha = () => g === geracaoFila;
+  while (minha() && !microfoneOcupado()) {
+    let item, desde;
+    if (retomadaLeitura) {
+      item = retomadaLeitura;
+      desde = decideInicio(item);
+      retomadaLeitura = null;
+    } else if (filaLeitura.length) {
+      item = filaLeitura.shift();
+      desde = item.desde || { parte: 0, tempo: 0 };
+    } else break;
+    tocandoAgora = { id: item.id, texto: item.texto, parte: desde.parte, tempo: desde.tempo, duracao: 0 };
+    pintaFilaLeitura();
+    let resultado;
+    try {
+      resultado = await tocarMensagemNaFila(tocandoAgora, desde);
+    } catch (e) {
+      console.warn('fila de leitura: a leitura da mensagem ' + item.id + ' falhou:', e);
+      mostraAviso('Não consegui ler uma resposta em voz alta (' + e.message +
+                  '). O texto está na tela. Toque no 🎧 do balão para tentar de novo.');
+    }
+    if (!minha()) return;          // pausaram, pararam ou pularam: o novo dreno cuida do resto
+    if (resultado === false) {
+      // o aparelho não tocou (o aviso com o motivo já saiu): tentar as outras só
+      // gastaria cota de voz à toa. Para a fila inteira; o texto segue na tela.
+      pararTudoFila();
+      estadoOcioso();
+      return;
+    }
+    tocandoAgora = null;
+  }
+  if (!minha()) return;
+  drenoAtivo = false;
+  pintaFilaLeitura();
+  const semMic = fimSemMic;
+  fimSemMic = false;
+  // fim da fila inteira: só agora a conversa contínua reabre o microfone.
+  // Se a pergunta dele ainda está sendo transcrita ou esperando resposta, não
+  // reabre: a leitura da resposta (esperaResposta) é que fecha esse ciclo.
+  if (!microfoneOcupado() && !filaTemTrabalho() && continua && !pararPedido &&
+      corte === corteFala && !semMic && !esperando && !transcrevendo) {
+    mostraAviso('');
+    await comecaGravar();
+  }
+}
+
+/* O microfone vai abrir: o que estava tocando é pausado e guardado. Se não há
+   nada tocando nem dreno em curso, não mexe em nada (nem no estado da tela).
+   `pos` só é passado quando o player não reflete o pedaço atual (ainda não tocou). */
+function pausaPelaGravacao(pos) {
+  if (!tocandoAgora && !drenoAtivo) return;
+  if (tocandoAgora) {
+    // `tocando` só fica true entre o play() e o fim do pedaço: antes disso o player ainda
+    // guarda a posição da mensagem ANTERIOR e usá-la pularia o começo desta
+    pos = pos || (tocandoAgora.tocando ? posicaoDoPlayer() : { tempo: 0, duracao: 0 });
+    retomadaLeitura = { id: tocandoAgora.id, texto: tocandoAgora.texto,
+                        parte: tocandoAgora.parte || 0, tempo: pos.tempo, duracao: pos.duracao };
+    tocandoAgora = null;
+  }
+  geracaoFila++;
+  drenoAtivo = false;
+  pararSomAtual();
+  pintaFilaLeitura();
+}
+
+/* A gravação acabou (enviou, cancelou, saiu vazia, deu erro): retoma na hora,
+   sem esperar a transcrição. */
+function filaRetoma() {
+  iniciaDreno();
+}
+
+/* 🎧: toca esta e depois as que vêm depois dela na conversa. O que estava
+   tocando é descartado (ele pediu). Pendente mais antigo que a escolhida é
+   descartado (ele pulou); mais novo fica. */
+function ouvirAPartirDe(item) {
+  if (microfoneOcupado()) {
+    mostraAviso('Termine a gravação antes de ouvir de novo: o som entraria no áudio que você está gravando.');
+    return false;
+  }
+  const pos = id => msgs.findIndex(x => mesmoId(x.id, id));
+  const alvo = pos(item.id);
+  // posição desconhecida (-1): na dúvida mantém, melhor repetir do que perder
+  const depois = p => alvo < 0 || pos(p.id) < 0 || pos(p.id) > alvo;
+  const mantidos = filaLeitura.filter(p => !mesmoId(p.id, item.id) && depois(p));
+  if (retomadaLeitura && !mesmoId(retomadaLeitura.id, item.id) && depois(retomadaLeitura)) {
+    mantidos.unshift({ id: retomadaLeitura.id, texto: retomadaLeitura.texto,
+                       desde: decideInicio(retomadaLeitura) });
+  }
+  geracaoFila++;
+  drenoAtivo = false;
+  tocandoAgora = null;
+  retomadaLeitura = null;
+  pararSomAtual();
+  filaLeitura.length = 0;
+  filaLeitura.push({ id: item.id, texto: item.texto }, ...mantidos);
+  fimSemMic = true;
+  pintaFilaLeitura();
+  iniciaDreno();
+  return true;
+}
+
+/* Parar de falar, pedido pela pessoa: para a atual E esvazia tudo. */
+function pararTudoFila() {
+  geracaoFila++;
+  drenoAtivo = false;
+  tocandoAgora = null;
+  retomadaLeitura = null;
+  filaLeitura.length = 0;
+  fimSemMic = false;
+  pararSomAtual();
+  pintaFilaLeitura();
+}
+
+/* Retrato do estado, pro selo dos balões e pro teste. */
+function estadoFilaLeitura() {
+  return { tocando: tocandoAgora ? tocandoAgora.id : null,
+           pausada: retomadaLeitura ? retomadaLeitura.id : null,
+           fila: filaLeitura.map(p => p.id) };
+}
+/* ── fim da fila de leitura ── */
+
+/* Selo no balão: "tocando agora", "na fila (n)" ou "continua quando você enviar". */
+function pintaFilaLeitura() {
+  if (typeof wrap === 'undefined' || !wrap.querySelectorAll) return;
+  const e = estadoFilaLeitura();
+  for (const row of wrap.querySelectorAll('.row.fila-tocando, .row.fila-espera, .row.fila-pausada')) {
+    row.classList.remove('fila-tocando', 'fila-espera', 'fila-pausada');
+  }
+  for (const s of wrap.querySelectorAll('.selo-fila')) s.remove();
+  const marca = (id, classe, texto) => {
+    if (id == null) return;
+    const row = wrap.querySelector('.row[data-msg="' + CSS.escape(String(id)) + '"]');
+    const bub = row && row.querySelector('.bub');
+    if (!bub) return;
+    row.classList.add(classe);
+    const s = document.createElement('span');
+    s.className = 'selo-fila';
+    s.textContent = texto;
+    bub.appendChild(s);
+  };
+  marca(e.tocando, 'fila-tocando', '🔊 tocando agora');
+  marca(e.pausada, 'fila-pausada', '⏸ continua quando você enviar');
+  e.fila.forEach((id, i) => marca(id, 'fila-espera', '⏳ na fila (' + (i + 1) + ')'));
+}
 
 function falaNovas() {
   if (!escuta || !lerRespostas || Date.now() > escuta.ate) return;
-  // visual (vis-*.html) é desenho: não tem o que ler em voz alta
-  const novas = msgs.filter(m => ehResposta(m, escuta.since) && !faladas.has(m.id) &&
+  // visual (vis-*.html) é desenho: não tem o que ler em voz alta. Rotina não entra
+  // sozinha na fila: só toca se a pessoa apertar o 🎧.
+  const novas = msgs.filter(m => ehRespostaFalavel(m, escuta.since) && !faladas.has(m.id) &&
                               !ehVisual(m.media));
   if (!novas.length) return;
-  for (const m of novas) faladas.add(m.id);
-  const corte = corteFala;
-  filaFala = filaFala.then(async () => {
-    if (corte !== corteFala || gravando) return;
-    await falar(novas.map(m => legendaUtil(m) || m.text).join('\n\n'));
-  });
+  for (const m of novas) {
+    faladas.add(m.id);
+    enfileiraFala({ id: m.id, texto: legendaUtil(m) || m.text });
+  }
 }
+
 ouvintesChegada.push(() => { if (!esperando) falaNovas(); });
+
+/* Pergunta nova: antes de trocar a janela de escuta, enfileira o que já chegou
+   na antiga (inclusive durante a gravação), senão uma resposta que veio entre
+   as duas perguntas ficaria sem ser lida. */
+function armaEscuta(since) {
+  falaNovas();
+  escuta = { since: since, ate: Date.now() + ESCUTA_MS };
+}
 
 async function esperaResposta(since) {
   esperando = true;
@@ -3779,9 +4005,9 @@ async function esperaResposta(since) {
   } else if (!respostas.length) {
     // sem faixa de propósito: a resposta chega sozinha pelo stream, e a escuta continua
     estadoOcioso();
-    if (lerRespostas) escuta = { since: since, ate: Date.now() + ESCUTA_MS };
+    if (lerRespostas) armaEscuta(since);
   } else if (lerRespostas) {
-    escuta = { since: since, ate: Date.now() + ESCUTA_MS };
+    armaEscuta(since);
     falaNovas();
     await filaFala;
   } else {
@@ -3809,18 +4035,32 @@ function cancelaFala() {
   pararFala();
 }
 
+/* Parar de falar, pedido pela pessoa: para a atual e esvazia a fila inteira. */
 function pararFala() {
+  pararTudoFila();
+  estadoOcioso();
+}
+
+/* Só silencia o que está no ar; a fila decide o que fazer depois. Usada ao começar
+   a gravar (a leitura pausa, não é cancelada) e dentro da própria fila. */
+function pararSomAtual() {
   faloGeracao++;
   if (faloAbort) { faloAbort.abort(); faloAbort = null; }
   try {
     player.pause();
   } catch (e) {
-    console.warn('pararFala: player.pause() falhou:', e.message);
+    console.warn('pararSomAtual: player.pause() falhou:', e.message);
   }
   if (fimToque) fimToque();
   falando = false;
   btnParar.style.display = 'none';
-  estadoOcioso();
+}
+
+/* Onde o player está (para retomar depois de uma pausa). duration é NaN antes do
+   metadata carregar: vira 0, e a regra dos 20% trata 0 como "recomeça". */
+function posicaoDoPlayer() {
+  const d = player.duration;
+  return { tempo: player.currentTime || 0, duracao: Number.isFinite(d) ? d : 0 };
 }
 
 /* Um pedaço da voz. O servidor fatia o texto (parágrafo, frase) e devolve o pedaço `i`,
@@ -3855,7 +4095,7 @@ async function pegaPedacoVoz(texto, i, sinal) {
 }
 
 /* Resolve true se o pedaço tocou até o fim (ou foi parado) e false se o aparelho não tocou. */
-function tocaPedaco(blob) {
+function tocaPedaco(blob, inicio) {
   return new Promise(resolve => {
     const url = URL.createObjectURL(blob);
     let pronto = false;
@@ -3873,6 +4113,17 @@ function tocaPedaco(blob) {
       fim(false);
     };
     player.src = url;
+    // o iOS ignora currentTime antes do metadata: posiciona só depois dele
+    if (inicio > 0) {
+      player.addEventListener('loadedmetadata', () => {
+        try {
+          player.currentTime = inicio;
+        } catch (e) {
+          console.warn('retomada: não consegui posicionar o áudio em ' + inicio +
+                       's (' + e.message + '); o pedaço começa do início.');
+        }
+      }, { once: true });
+    }
     const p = player.play();
     if (p && p.catch) {
       p.catch(e => {
@@ -3884,51 +4135,71 @@ function tocaPedaco(blob) {
   });
 }
 
-/* Lê a resposta INTEIRA: toca o pedaço 0 assim que chega e já pede o seguinte enquanto
-   ele toca. `opts.semGravar`: ouvir de novo não abre o microfone no fim. No modo contínuo
-   o microfone só reabre depois do ÚLTIMO pedaço. */
+/* Pedaço já gerado, sem esperar nada: a retomada depois da gravação chama
+   player.play() colada no toque, sem await no caminho (o iPhone exige). */
+function pedacoEmCache(texto, i) {
+  const c = vozCache.get(texto);
+  return c && c.blobs[i] ? { blob: c.blobs[i], partes: c.partes } : null;
+}
+
 /* Microfone abrindo ou gravando: tocar agora faria o alto-falante entrar na gravação, e a fala
    do agente voltaria a ele como se fosse da pessoa. */
 function microfoneOcupado() {
   return !!(gravando || pedindoMic || gravacao);
 }
 
-async function falar(texto, opts) {
-  if (microfoneOcupado()) {
-    if (opts && opts.semGravar) mostraAviso('Termine a gravação antes de ouvir de novo: o som entraria no áudio que você está gravando.');
-    return;
-  }
-  pararFala();                       // uma leitura por vez: a nova interrompe a em curso
-  const corte = corteFala;
-  const minha = faloGeracao;
+/* Toca UMA mensagem, a partir do pedaço `desde.parte` e do segundo `desde.tempo`, sem
+   interromper ninguém (quem decide a ordem é a fila). Lê a resposta INTEIRA: toca o pedaço
+   inicial assim que chega e já pede o seguinte enquanto ele toca. `item.parte` acompanha o
+   pedaço em curso (a pausa da gravação lê). Resolve false se o aparelho NÃO tocou. */
+async function tocarMensagemNaFila(item, desde) {
+  const texto = item.texto;
+  const minha = ++faloGeracao;
   const viva = () => minha === faloGeracao;
   const ctl = new AbortController();
   faloAbort = ctl;
-  setEstado('preparando a voz…');
-  let atual;
-  try {
-    atual = await pegaPedacoVoz(texto, 0, ctl.signal);
-  } catch (e) {
+  let i = desde.parte || 0;
+  let atual = pedacoEmCache(texto, i);
+  if (!atual) {
+    setEstado('preparando a voz…');
+    try {
+      atual = await pegaPedacoVoz(texto, i, ctl.signal);
+    } catch (e) {
+      if (!viva()) return;
+      // a resposta JÁ está na tela: isto é aviso, não é falha do ciclo
+      mostraAviso(e.name === 'TypeError' ? 'A resposta está na tela, mas não consegui gerar a voz: ' + e.message : e.message);
+      setEstado('resposta só em texto');
+      return;
+    }
     if (!viva()) return;
-    // a resposta JÁ está na tela: isto é aviso, não é falha do ciclo
-    mostraAviso(e.name === 'TypeError' ? 'A resposta está na tela, mas não consegui gerar a voz: ' + e.message : e.message);
-    setEstado('resposta só em texto');
-    return;
   }
-  if (!viva()) return;
 
   falando = true;
   btnParar.style.display = '';
   btnParar.textContent = 'parar de falar';
   setEstado('falando…');
   const total = atual.partes;
-  for (let i = 0; i < total && viva(); i++) {
+  let inicio = desde.tempo || 0;
+  for (; i < total && viva(); i++) {
+    item.parte = i;
     // pré-gera o próximo enquanto o atual toca
     const proximo = i + 1 < total ? pegaPedacoVoz(texto, i + 1, ctl.signal) : null;
     if (proximo) proximo.catch(() => {});   // o erro é tratado quando a vez dele chega
-    if (microfoneOcupado()) { pararFala(); return; }   // o microfone abriu enquanto a voz era gerada
-    // aparelho que não toca não gasta mais cota: para a fila e cancela o próximo já pedido
-    if (!(await tocaPedaco(atual.blob))) { if (viva()) pararFala(); return; }
+    if (microfoneOcupado()) {
+      // o microfone abriu enquanto a voz era gerada: guarda este pedaço para a retomada
+      pausaPelaGravacao({ tempo: inicio, duracao: 0 });
+      return;
+    }
+    // aparelho que não toca não gasta mais cota: avisa a fila, que para e cancela o próximo já pedido
+    item.tocando = true;
+    const tocou = await tocaPedaco(atual.blob, inicio);
+    item.tocando = false;
+    if (!tocou) {
+      if (!viva()) return;
+      pararSomAtual();
+      return false;
+    }
+    inicio = 0;
     if (!viva() || !proximo) break;
     try {
       atual = await proximo;
@@ -3939,19 +4210,14 @@ async function falar(texto, opts) {
       break;
     }
   }
-  if (!viva()) return;               // parou: quem parou já arrumou a tela
+  if (!viva()) return;               // pararam ou pausaram: quem fez isso arrumou a tela
   faloAbort = null;
   falando = false;
   btnParar.style.display = 'none';
-  if (pararPedido) { estadoOcioso(); return; }
   estadoOcioso();
-  if (continua && corte === corteFala && !(opts && opts.semGravar)) {
-    mostraAviso('');
-    await comecaGravar();
-  }
 }
 
-/* Fone no balão: toca de novo a fala daquela mensagem (a leitura em curso para). */
+/* Fone no balão: pula para esta mensagem e segue dali pelas seguintes. */
 wrap.addEventListener('click', ev => {
   const bt = ev.target.closest ? ev.target.closest('button[data-fone]') : null;
   if (!bt) return;
@@ -3961,14 +4227,9 @@ wrap.addEventListener('click', ev => {
     mostraAviso('Não achei o texto desta mensagem para ler de novo. Recarregue a conversa.');
     return;
   }
-  if (microfoneOcupado()) {
-    mostraAviso('Termine a gravação antes de ouvir de novo: o som entraria no áudio que você está gravando.');
-    return;
-  }
   destravarAudio();
-  corteFala++;                       // o fone descarta a fila, mas não encerra a escuta
-  pararFala();
-  falar(texto, { semGravar: true });
+  // pula para esta mensagem e segue pelas seguintes; recusa com o microfone aberto
+  ouvirAPartirDe({ id: m.id, texto: texto });
 });
 
 /* ── Modo texto e toggles ─────────────────────────────────────────────────── */
@@ -4008,7 +4269,13 @@ function pintaLer() {
   btnLer.innerHTML = (lerRespostas ? '🔊' : '🔇') +
     ' <span class="lbl">' + (lerRespostas ? 'ler: sim' : 'ler: não') + '</span>';
 }
-btnLer.onclick = () => { destravarAudio(); lerRespostas = !lerRespostas; pintaLer(); };
+btnLer.onclick = () => {
+  destravarAudio();
+  lerRespostas = !lerRespostas;
+  // desligou a leitura: o que ainda esperava na fila não pode falar depois
+  if (!lerRespostas && (falando || tocandoAgora || retomadaLeitura || filaLeitura.length)) pararFala();
+  pintaLer();
+};
 
 function pintaContinua() {
   btnContinua.classList.toggle('on', continua);

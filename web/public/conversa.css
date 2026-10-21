@@ -648,3 +648,8 @@ html[data-tema="escuro"] .cartaoarq-info{color:#9bb0a0}
       cursor:pointer;min-width:32px;min-height:32px;vertical-align:middle;-webkit-tap-highlight-color:transparent}
 body.ler-on .fone{display:inline-block}
 body:not(.ler-on) .fone{display:none}
+
+/* selo da fila de leitura em voz (21/10/2026): discreto, quebra linha no celular */
+.selo-fila{display:block;margin-top:4px;font-size:12px;line-height:1.3;opacity:.75;overflow-wrap:anywhere}
+.row.fila-tocando .selo-fila{opacity:1;font-weight:600}
+.row.fila-pausada .selo-fila{opacity:.9}
