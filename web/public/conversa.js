@@ -3233,7 +3233,7 @@ async function comecaGravar() {
   destravarAudio();
   if (!caps.microfone) return;
   if (gravando || pedindoMic || gravacao) return;
-  if (falando || faloAbort) pararFala();   // gravar áudio novo interrompe a fila de voz inteira
+  if (falando || faloAbort) cancelaFala();   // gravar áudio novo interrompe a fila de voz inteira
   const mime = melhorMime();
   if (mime === null) {
     mostraErro('Este navegador não grava áudio (sem MediaRecorder). ' +
@@ -3721,6 +3721,9 @@ const ESCUTA_MS = 5 * 60000;
 let escuta = null;            // { since, ate }
 const faladas = new Set();
 let filaFala = Promise.resolve();
+// Sobe a cada parada pedida pela pessoa: o que já estava na fila de leitura não fala mais.
+// É separado de faloGeracao, que o próprio falar() sobe ao começar (via pararFala).
+let corteFala = 0;
 
 function falaNovas() {
   if (!escuta || !lerRespostas || Date.now() > escuta.ate) return;
@@ -3729,8 +3732,9 @@ function falaNovas() {
                               !ehVisual(m.media));
   if (!novas.length) return;
   for (const m of novas) faladas.add(m.id);
+  const corte = corteFala;
   filaFala = filaFala.then(async () => {
-    if (gravando) return;
+    if (corte !== corteFala || gravando) return;
     await falar(novas.map(m => legendaUtil(m) || m.text).join('\n\n'));
   });
 }
@@ -3787,7 +3791,8 @@ async function esperaResposta(since) {
 
 btnParar.onclick = () => {
   pararPedido = true;
-  if (falando) pararFala();
+  escuta = null;                     // parar também encerra a escuta automática
+  cancelaFala();
   btnParar.textContent = 'parando…';
 };
 
@@ -3797,6 +3802,12 @@ let faloAbort = null;     // cancela o pedido de voz em voo
 let fimToque = null;      // resolve o pedaço que está tocando (parar não deixa a fila pendurada)
 const vozCache = new Map();   // texto -> { partes, blobs[] }: ouvir de novo sem gerar de novo
 const VOZ_CACHE_MAX = 12;
+
+/* Parada pedida pela pessoa: além de calar o que toca, descarta o que espera na fila. */
+function cancelaFala() {
+  corteFala++;
+  pararFala();
+}
 
 function pararFala() {
   faloGeracao++;
@@ -3877,6 +3888,7 @@ function tocaPedaco(blob) {
    o microfone só reabre depois do ÚLTIMO pedaço. */
 async function falar(texto, opts) {
   pararFala();                       // uma leitura por vez: a nova interrompe a em curso
+  const corte = corteFala;
   const minha = faloGeracao;
   const viva = () => minha === faloGeracao;
   const ctl = new AbortController();
@@ -3920,7 +3932,7 @@ async function falar(texto, opts) {
   btnParar.style.display = 'none';
   if (pararPedido) { estadoOcioso(); return; }
   estadoOcioso();
-  if (continua && !(opts && opts.semGravar)) {
+  if (continua && corte === corteFala && !(opts && opts.semGravar)) {
     mostraAviso('');
     await comecaGravar();
   }
@@ -3937,6 +3949,8 @@ wrap.addEventListener('click', ev => {
     return;
   }
   destravarAudio();
+  corteFala++;                       // o fone descarta a fila, mas não encerra a escuta
+  pararFala();
   falar(texto, { semGravar: true });
 });
 
