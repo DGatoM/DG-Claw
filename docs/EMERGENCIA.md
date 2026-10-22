@@ -86,7 +86,7 @@ dgclaw status
 ```
 
 Ele confere o domínio, os serviços `caddy`, `dgclaw-web` e `dgclaw-admin`, o Web em
-127.0.0.1:8300, o Admin em 127.0.0.1:4300, a imagem, as cadeias de firewall `DGCLAW_HOST` e
+127.0.0.1:8300 (ou na porta de `--porta-painel`; no modo `--proxy-existente` o Caddy não é cobrado), o Admin em 127.0.0.1:4300, a imagem, as cadeias de firewall `DGCLAW_HOST` e
 `DGCLAW_EGRESS` e cada agente. Linha `FALHOU` é essencial fora do ar; linha `aviso` é
 atenção. Ele sai com erro se algo essencial caiu.
 
@@ -95,7 +95,7 @@ atenção. Ele sai com erro se algo essencial caiu.
 | Peça | Checar | Normal | Quebrado |
 |---|---|---|---|
 | **Caddy** (HTTPS) | `systemctl is-active caddy` | `active` | `failed`: o site não abre. Motivo: `journalctl -u caddy -n 30 --no-pager` |
-| **DG Claw Web** (login, chat, painéis em `/p/<slug>/`) | `systemctl is-active dgclaw-web` e `curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8300/` | `active` e um código HTTP (200 ou 302) | `failed`, ou o `curl` sem resposta. Motivo: `journalctl -u dgclaw-web -n 50 --no-pager` |
+| **DG Claw Web** (login, chat, painéis em `/p/<slug>/`) | `systemctl is-active dgclaw-web` e `curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8300/` (troque a porta se usou `--porta-painel`) | `active` e um código HTTP (200 ou 302) | `failed`, ou o `curl` sem resposta. Motivo: `journalctl -u dgclaw-web -n 50 --no-pager` |
 | **Admin** (agente de sistema, roda como root em `/opt/dgclaw/admin`) | `systemctl is-active dgclaw-admin` e `curl -s http://127.0.0.1:4300/api/saude` | `active` e um JSON com `"ok":true` | `failed` ou sem resposta. Logs: `journalctl -u dgclaw-admin -n 50 --no-pager` e `/var/log/dgclaw/admin-runner.log` |
 | **Imagem dos agentes** | `dgclaw imagem status` | "imagem dos agentes pronta" | construindo ou falhou: `tail -n 30 /var/log/dgclaw/imagem.log` |
 | **Firewall dos containers** | `systemctl is-active dgclaw-firewall` | `active` | `failed`: reaplique com `bash /opt/dgclaw/app/lib/firewall.sh` (com o "posso?") |

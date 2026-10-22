@@ -11,6 +11,11 @@ O DG Claw nasce com um endereço automático (algo como `srv123456.hstgr.cloud` 
 dele, como `painel.minhaempresa.com.br`. Quem pede quase nunca é técnico: fale simples, um passo por
 vez, e só mexa no servidor depois que o DNS estiver certo.
 
+> Se `dgclaw dominio` disser "atras de proxy existente", o HTTPS é do nginx ou do túnel do dono, não
+> do Caddy do DG Claw. Nesse caso `dgclaw dominio trocar <nome>` só grava o nome e imprime os trechos
+> novos para ele atualizar o proxy dele (o DNS e o certificado são dele); os passos abaixo sobre o IP
+> da VPS e o Caddy não se aplicam.
+
 ## Passo 1: descubra o IP e entenda o que o dono tem
 
 Rode `dgclaw dominio`. Ele mostra o endereço atual e o IP público da VPS (anote o IP).

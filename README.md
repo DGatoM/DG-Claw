@@ -39,6 +39,21 @@ sudo ./install.sh --usuario admin --com-imagem
 O guia completo, com requisitos, etapas e o que muda na máquina, está em [INSTALL.md](INSTALL.md).
 `sudo ./install.sh --ensaio` só lista o que faria, sem mudar nada.
 
+### Instalar numa VPS que já tem nginx (ou outro proxy)
+
+Se o servidor já usa as portas 80 e 443, instale atrás do proxy que você já tem:
+
+```sh
+sudo ./install.sh --usuario maria --dominio painel.minhaempresa.com.br --proxy-existente --faixa-rede 10.91.0.0/16
+```
+
+Nesse modo o instalador não instala o Caddy nem mexe no ufw. O DG Claw Web escuta só em `127.0.0.1:8300`
+(ou na porta de `--porta-painel`) e, no fim, o instalador imprime o trecho pronto para o nginx e as linhas
+para um túnel da Cloudflare. O domínio é obrigatório, e o modo fica guardado para as próximas execuções e
+para `sudo dgclaw atualizar`. Quem já tem podman ou docker no servidor deve usar `--faixa-rede` (sugestão:
+`10.91.0.0/16`) para os agentes não disputarem IPs com outras redes. Os detalhes estão em
+[INSTALL.md](INSTALL.md#instalar-numa-vps-que-já-tem-nginx-ou-outro-proxy).
+
 ## Recursos
 
 - **Admin**: agente de sistema que cria e administra os outros por conversa ([docs/ARQUITETURA.md](docs/ARQUITETURA.md#admin-e-agentes-de-trabalho)).
@@ -54,7 +69,8 @@ O guia completo, com requisitos, etapas e o que muda na máquina, está em [INST
 
 ## Como funciona
 
-O navegador chega ao Caddy (portas 80 e 443, HTTPS), que entrega o DG Claw Web em `127.0.0.1`. O Web
+O navegador chega ao Caddy (portas 80 e 443, HTTPS), que entrega o DG Claw Web em `127.0.0.1`. (Com
+`--proxy-existente`, quem faz esse papel é o seu nginx ou túnel.) O Web
 autentica você e encaminha cada mensagem ao **runner** correto, que mantém viva a sessão do Claude Code ou
 do Codex. O runner do Admin roda no servidor; o de cada agente roda dentro do container do agente. As
 respostas voltam pelo mesmo caminho para o chat. A descrição completa está em

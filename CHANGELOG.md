@@ -39,6 +39,20 @@ aprovar sem querer o comando que surgiu em seguida, e o botão Aprovar de uma te
 
 ### Adicionado
 
+- **Instalar atrás de um proxy que já existe.** Para servidor que já tem nginx, Caddy ou túnel da
+  Cloudflare nas portas 80 e 443, o instalador ganhou `--proxy-existente`. Nesse modo ele não instala o
+  Caddy, não mexe no ufw (nem para ler o estado) e trata as portas 80 e 443 ocupadas como aviso. O DG Claw
+  Web escuta só em `127.0.0.1` na porta de `--porta-painel` (padrão 8300), e o instalador imprime no fim
+  o trecho pronto para o nginx e as linhas do `ingress` para o túnel, com o link de primeiro acesso. O
+  domínio passa a ser obrigatório nesse modo. O modo, a porta e a faixa ficam no `dgclaw.env` e valem nas
+  próximas execuções e no `dgclaw atualizar`; `--sem-proxy-existente` volta ao Caddy do DG Claw. Os
+  comandos `dgclaw dominio`, `dgclaw dominio trocar` e `dgclaw status` respeitam o modo.
+- **Faixa de rede própria dos agentes.** A nova opção `--faixa-rede <A.B.0.0/16>` (padrão 10.89.0.0/16,
+  a de sempre) deixa escolher a faixa de IPs das redes dos agentes. Antes de mexer em qualquer coisa, o
+  instalador confere as redes do podman e as rotas da máquina e recusa uma faixa que outro sistema já
+  usa, dizendo qual e sugerindo outra. Com agentes já criados ele não troca a faixa em silêncio. A cerca
+  de firewall (`lib/firewall.sh`) e a criação das redes seguem a faixa configurada. Instalações que já
+  existem não mudam nada: continuam na 10.89.0.0/16.
 - **Uso da assinatura.** O Status de cada agente ganhou o cartão "Uso da assinatura", com quanto já foi
   gasto da janela de 5 horas e do limite semanal, a hora em que cada um zera e há quanto tempo foi
   medido. O menu ☰ ganhou "Uso das assinaturas", com todos os agentes juntos. No Claude, o número vem

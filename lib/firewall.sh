@@ -5,9 +5,9 @@
 # camadas, e cada uma fecha um caminho diferente:
 #
 #   DGCLAW_HOST    (filter, INPUT) o agente falando com a PROPRIA MAQUINA que o
-#                  hospeda. O gateway da rede dele (10.89.x.1) E o host: sem esta
-#                  cadeia ele alcanca o sshd na 22 e o Caddy na 80, que servem tudo
-#                  o que existe aqui.
+#                  hospeda. O gateway da rede dele (<faixa>.x.1, por padrao 10.89.x.1)
+#                  E o host: sem esta cadeia ele alcanca o sshd na 22 e o Caddy na 80,
+#                  que servem tudo o que existe aqui.
 #   DGCLAW_EGRESS  (filter, FORWARD) o agente falando com qualquer outra rede
 #                  privada: a bridge padrao do podman, a tailnet, a rede da casa de
 #                  alguem.
@@ -23,12 +23,17 @@
 #                  filter continua como segunda trava.
 #
 # Por que a camada do mangle e segura: o trafego do agente para o proprio host
-# (gateway 10.89.x.1) passa pelo INPUT, nunca pelo FORWARD; e a internet nao e rede
+# (gateway <faixa>.x.1) passa pelo INPUT, nunca pelo FORWARD; e a internet nao e rede
 # privada. Entao o DROP de redes privadas no FORWARD nao corta nada legitimo.
 #
 # O que continua passando e a internet. O agente precisa falar com a API do
 # provedor e com o resto do mundo, e filtrar por dominio pediria um proxy, que e
 # outra obra. O que importa aqui e o lado de dentro, e o lado de dentro fica fechado.
+#
+# A faixa dos agentes (REDE_AGENTES) vem do DGCLAW_FAIXA_REDE do dgclaw.env (padrao 10.89.0.0/16;
+# o instalador grava com --faixa-rede). Todo salto para as nossas cadeias casa so com
+# `-s <faixa>`: container que nao e do DG Claw v1 (outro sistema, outra faixa) nunca cai na cerca.
+# Se a faixa mudou desde a ultima vez, os saltos da faixa antiga sao removidos (o novo entra antes).
 #
 # Idempotente: rodar de novo recria as cadeias do zero e deixa exatamente UM salto
 # por cadeia de origem, sempre na posicao 1. Se alguem (o netavark, por exemplo)
@@ -36,7 +41,36 @@
 # serem apagados, para nunca haver um instante sem o salto.
 set -euo pipefail
 
-REDE_AGENTES=10.89.0.0/16
+# faixa_lida: o DGCLAW_FAIXA_REDE do dgclaw.env, lido com sed e nunca com `source` (o arquivo e so
+# dado). Este script roda como root pelo systemd e e independente do lib/comum.sh, por isso a
+# validacao do formato (um /16 privado) repete a de comum.sh: faixa_rede_valida.
+FAIXA_PADRAO=10.89.0.0/16
+
+faixa_valida() {
+    local oct='(0|[1-9][0-9]{0,2})' a b
+    [[ "$1" =~ ^$oct\.$oct\.0\.0/16$ ]] || return 1
+    a="${BASH_REMATCH[1]}"; b="${BASH_REMATCH[2]}"
+    [ "$a" -le 255 ] && [ "$b" -le 255 ] || return 1
+    case "$a" in
+        10) return 0 ;;
+        172) [ "$b" -ge 16 ] && [ "$b" -le 31 ] ;;
+        192) [ "$b" -eq 168 ] ;;
+        *) return 1 ;;
+    esac
+}
+
+faixa_lida() {
+    local env="${DGCLAW_RAIZ:-}/etc/dgclaw/dgclaw.env" v=""
+    if [ -f "$env" ]; then v="$(sed -n 's/^DGCLAW_FAIXA_REDE=//p;T;q' "$env")"; fi
+    v="${v:-$FAIXA_PADRAO}"
+    faixa_valida "$v" || {
+        echo "dgclaw-firewall: a faixa de rede '$v' (DGCLAW_FAIXA_REDE em $env) nao serve: precisa ser um /16 privado com os dois ultimos numeros 0, por exemplo 10.91.0.0/16. Corrija a linha e rode de novo: bash $0" >&2
+        exit 1
+    }
+    printf '%s' "$v"
+}
+
+REDE_AGENTES=""
 
 # cadeia_zerar <tabela> <nome>: cria a cadeia, ou esvazia se ja existe. Conferir antes
 # com -L evita esconder erro de verdade (iptables ausente, sem permissao) atras de um
@@ -56,6 +90,18 @@ posicoes_do_salto() {
         | awk -v alvo="-A $2 -s $REDE_AGENTES -j $3" '$0 == alvo { print NR }' || true
 }
 
+# saltos_de_outra_faixa <tabela> <cadeia-origem> <cadeia-destino>: numero de linha de cada salto
+# NOSSO (`-s <faixa> -j <destino>`) cuja faixa nao e a atual, ex.: sobra de uma faixa anterior.
+# So olha regra que salta para a nossa cadeia: qualquer outra regra e de outra pessoa e nao se toca.
+saltos_de_outra_faixa() {
+    iptables -w -t "$1" -S "$2" | grep '^-A ' \
+        | awk -v pre="-A $2 -s " -v suf=" -j $3" -v atual="$REDE_AGENTES" '
+            index($0, pre) == 1 && substr($0, length($0) - length(suf) + 1) == suf {
+                f = substr($0, length(pre) + 1, length($0) - length(pre) - length(suf))
+                if (f != atual && f !~ /[[:space:]]/) print NR
+            }' || true
+}
+
 # salto_garantir <tabela> <cadeia-origem> <cadeia-destino>: deixa o salto UMA vez so,
 # na posicao 1. Nao basta conferir com -C: o netavark empurra o nosso salto para baixo
 # e um -C que acha o salto na posicao 2 acharia que esta tudo certo.
@@ -67,6 +113,11 @@ salto_garantir() {
     fi
     # Apaga as copias antigas de baixo para cima, para o numero das de cima nao mudar.
     extras="$(posicoes_do_salto "$tabela" "$origem" "$destino" | awk '$1 > 1' | sort -rn)"
+    for n in $extras; do
+        iptables -w -t "$tabela" -D "$origem" "$n"
+    done
+    # So agora, com o salto certo ja no topo, apaga os de faixa antiga (de baixo para cima).
+    extras="$(saltos_de_outra_faixa "$tabela" "$origem" "$destino" | sort -rn)"
     for n in $extras; do
         iptables -w -t "$tabela" -D "$origem" "$n"
     done
@@ -84,6 +135,7 @@ cerca_egress() {
 }
 
 main() {
+    REDE_AGENTES="$(faixa_lida)" || exit 1
     command -v iptables >/dev/null 2>&1 || {
         echo "dgclaw-firewall: o comando iptables nao existe nesta maquina. Instale com: apt-get install -y iptables" >&2
         exit 1

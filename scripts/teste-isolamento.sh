@@ -7,8 +7,8 @@
 #
 #   com <slug>   roda os testes DE DENTRO de dgclaw-<slug> (podman exec, usuario agente).
 #   sem slug     testa todos os agentes do registro que estao rodando. Se nao houver
-#                nenhum, sobe uma sonda: rede temporaria "dgclaw-sonda" (10.89.254.0/24,
-#                reservada para isso) e um container --rm da mesma imagem. A rede e a
+#                nenhum, sobe uma sonda: rede temporaria "dgclaw-sonda" (<faixa>.254.0/24, por
+#                padrao 10.89.254.0/24; a faixa e a DGCLAW_FAIXA_REDE do dgclaw.env; reservada para isso) e um container --rm da mesma imagem. A rede e a
 #                sonda saem no fim, mesmo quando um teste falha (trap).
 #
 # Saida: 0 tudo bloqueado e internet ok | 1 qualquer furo | 2 inconclusivo ou erro de ambiente.
@@ -48,6 +48,15 @@ set -euo pipefail
 ETC="${DGCLAW_ETC:-/etc/dgclaw}"
 REGISTRO="$ETC/registro.tsv"
 REDE_SONDA="dgclaw-sonda"
+# A sonda tem que nascer DENTRO da faixa dos agentes (a cerca de firewall so vale para ela); por
+# isso o prefixo vem do dgclaw.env (DGCLAW_FAIXA_REDE=A.B.0.0/16), lido com sed e sem source.
+faixa_dos_agentes() {
+  local v=""
+  if [ -f "${DGCLAW_RAIZ:-}/etc/dgclaw/dgclaw.env" ]; then
+    v="$(sed -n 's/^DGCLAW_FAIXA_REDE=//p;T;q' "${DGCLAW_RAIZ:-}/etc/dgclaw/dgclaw.env")"
+  fi
+  printf '%s' "${v:-10.89.0.0/16}"
+}
 CTR_SONDA="dgclaw-sonda"
 LIMITE=3
 
@@ -371,8 +380,10 @@ subir_sonda() {
     fi
   fi
   if ! podman network exists "$REDE_SONDA" 2>/dev/null; then
-    podman network create --disable-dns --subnet 10.89.254.0/24 "$REDE_SONDA" >/dev/null \
-      || erro_ambiente "nao consegui criar a rede $REDE_SONDA (10.89.254.0/24)" \
+    local sub_sonda
+    sub_sonda="$(faixa_dos_agentes)"; sub_sonda="${sub_sonda%.0.0/16}.254.0/24"
+    podman network create --disable-dns --label dgclaw.v1=1 --subnet "$sub_sonda" "$REDE_SONDA" >/dev/null \
+      || erro_ambiente "nao consegui criar a rede $REDE_SONDA ($sub_sonda)" \
          "veja se outra rede ja usa essa faixa: podman network ls; podman network inspect"
     REDE_SONDA_CRIADA=1
   fi

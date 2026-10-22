@@ -98,10 +98,13 @@ Agentes
 
 Dominio do painel
   dgclaw dominio [mostrar]               mostra o dominio atual do painel e o IP publico da VPS
+      (instalado com --proxy-existente: mostra tambem a porta local e os trechos para o seu nginx ou tunel)
   dgclaw dominio trocar <nome> [--sem-conferir-dns]
       Passa o painel para um dominio proprio. Antes, o DNS do nome precisa apontar para o IP da VPS
       (registro tipo A); o comando confere e, se nao apontar, explica o que falta e nao muda nada.
       Depois reescreve o Caddy, recarrega, grava o dominio e espera o HTTPS (o certificado sai sozinho).
+      Instalado com --proxy-existente, o HTTPS e do seu proxy: o comando so grava o nome e mostra os
+      trechos novos para voce atualizar o nginx ou o tunel (nao mexe no Caddy, nao confere DNS).
       Exemplo:  dgclaw dominio trocar painel.minhaempresa.com.br
 
 Imagem dos agentes
@@ -697,9 +700,16 @@ criar_rede() {
         info "a rede $rede ja existe"
         return 0
     fi
-    # Sem DNS e uma faixa so dele: dois agentes na mesma ponte se enxergam.
-    executar podman network create --disable-dns --subnet "10.89.$C_N.0/24" "$rede" >/dev/null
-    ok "rede $rede (10.89.$C_N.0/24)"
+    # Sem DNS e uma faixa so dele: dois agentes na mesma ponte se enxergam. A faixa (/16) e a do
+    # dgclaw.env (--faixa-rede do instalador, padrao 10.89.0.0/16); cada agente ganha o /24 do seu numero.
+    local faixa prefixo
+    faixa="$(faixa_rede_efetiva)"
+    prefixo="${faixa%.0.0/16}"
+    # O label dgclaw.v1=1 marca a rede como do DG Claw v1: o instalador usa isso para nao confundir com
+    # redes de outro sistema que tambem comecam com "dgclaw-" (ele checa a faixa contra elas).
+    executar podman network create --disable-dns --label dgclaw.v1=1 --label "dgclaw.agente=$C_SLUG" \
+        --subnet "$prefixo.$C_N.0/24" "$rede" >/dev/null
+    ok "rede $rede ($prefixo.$C_N.0/24)"
 }
 
 criar_container() {
@@ -1091,7 +1101,7 @@ agente_criar() {
     trap - EXIT
 
     local base
-    if [ -n "${DGCLAW_DOMINIO:-}" ]; then base="https://$DGCLAW_DOMINIO"; else base="http://127.0.0.1:8300"; fi
+    base="$(url_base_painel)"
     printf '\n%s esta criado.\n' "$C_NOME"
     printf '  Provedor: %s (%s)\n' "$C_PROVEDOR" "$C_AUTH"
     printf '  Painel: %s/p/%s\n' "$base" "$C_SLUG"
@@ -1775,7 +1785,7 @@ primeiro_acesso() {
     }
     carregar_env_dgclaw
     tk="$(gerar_primeiro_acesso "$usuario")"
-    if [ -n "${DGCLAW_DOMINIO:-}" ]; then base="https://$DGCLAW_DOMINIO"; else base="http://127.0.0.1:8300"; fi
+    base="$(url_base_painel)"
     printf '%s/primeiro-acesso#%s\n' "$base" "$tk"
     printf 'uso unico, vale 30 min; o link anterior deixou de valer\n' >&2
 }
@@ -1796,7 +1806,36 @@ dominio_mostrar() {
     printf 'Dominio atual do painel: %s\n' "${DGCLAW_DOMINIO:-(nao definido em $DG_ETC/dgclaw.env)}"
     if [ -n "${DGCLAW_DOMINIO:-}" ]; then printf 'Endereco do painel:      https://%s/\n' "$DGCLAW_DOMINIO"; fi
     printf 'IP publico desta VPS:    %s\n' "${ip:-(nao consegui descobrir: api.ipify.org e ifconfig.me nao responderam)}"
+    if modo_proxy_existente; then
+        local porta
+        porta="$(porta_painel_efetiva)"
+        printf 'Modo:                    atras de proxy existente (o HTTPS e do seu nginx, Caddy ou tunel)\n'
+        printf 'Porta local do painel:   127.0.0.1:%s\n' "$porta"
+        if [ -n "${DGCLAW_DOMINIO:-}" ]; then
+            printf 'Para o seu proxy apontar para o DG Claw, use um destes trechos:\n'
+            imprimir_trechos_proxy "$DGCLAW_DOMINIO" "$porta"
+        fi
+        printf '\nPara usar outro nome: sudo dgclaw dominio trocar <nome> (grava o nome e mostra os trechos de novo; o seu proxy voce atualiza).\n'
+        return 0
+    fi
     printf 'Para usar um dominio proprio: crie um registro DNS tipo A apontando para esse IP e rode: sudo dgclaw dominio trocar <nome>\n'
+}
+
+# dominio_trocar_proxy <novo>: no modo --proxy-existente o HTTPS e do proxy da pessoa. Aqui so se
+# grava o nome e se mostra o que ela precisa atualizar la; nao toca no Caddy (que nem precisa
+# existir), nao confere DNS (pode apontar para um tunel, nao para o IP desta VPS) e nao espera HTTPS.
+dominio_trocar_proxy() {
+    local novo="$1" porta
+    porta="$(porta_painel_efetiva)"
+    passo "Gravando o dominio $novo (modo proxy existente)"
+    info "o Caddy, o DNS e o HTTPS sao do seu proxy: nao mexi em nada disso."
+    dominio_gravar_env "$novo"
+    ok "dominio gravado em $DG_ETC/dgclaw.env"
+    printf '\nFalta atualizar o seu proxy para o nome novo (o antigo deixa de ser o do DG Claw quando voce trocar). Use o trecho do seu caso:\n'
+    imprimir_trechos_proxy "$novo" "$porta"
+    printf '\nDepois que o proxy estiver apontando, o painel abre em: https://%s/\n' "$novo"
+    printf 'A senha e os agentes continuam os mesmos; quem estava logado precisa entrar de novo no endereco novo.\n'
+    printf 'Se precisar de um link de primeiro acesso novo: sudo dgclaw primeiro-acesso\n'
 }
 
 # dominio_gravar_env <dominio>: troca (ou acrescenta) so a linha DGCLAW_DOMINIO do dgclaw.env.
@@ -1825,6 +1864,11 @@ dominio_trocar() {
         || falha "o dominio '$novo' nao parece um endereco valido." "use so o nome, sem https:// e sem barra, por exemplo: painel.minhaempresa.com.br"
     [[ "$novo" == *.* ]] || falha "o dominio '$novo' nao tem ponto, entao nao e um endereco da internet." "use o nome completo, por exemplo: painel.minhaempresa.com.br"
     novo="$(printf '%s' "$novo" | tr '[:upper:]' '[:lower:]')"
+    carregar_env_dgclaw
+    if modo_proxy_existente; then
+        dominio_trocar_proxy "$novo"
+        return 0
+    fi
     exigir_ferramentas curl dig caddy
 
     local ip="" cf="$R/etc/caddy/Caddyfile" confd="$R/etc/caddy/conf.d/dgclaw.caddy"
@@ -1849,7 +1893,7 @@ dominio_trocar() {
     local bk_cf="" bk_confd="" tem_cf=0 tem_confd=0
     if [ -f "$cf" ]; then tem_cf=1; bk_cf="$(cat "$cf")"; fi
     if [ -f "$confd" ]; then tem_confd=1; bk_confd="$(cat "$confd")"; fi
-    escrever_site_caddy "$novo"
+    escrever_site_caddy "$novo" "$(porta_painel_efetiva)"
     if [ "$ENSAIO" != 1 ] && ! caddy validate --config "$cf" --adapter caddyfile >"$TMP_CADDY_LOG" 2>&1; then
         # Volta o que estava antes: o Caddy em producao nunca pode ficar com arquivo quebrado.
         if [ "$tem_cf" = 1 ]; then printf '%s\n' "$bk_cf" >"$cf"; fi
@@ -1944,12 +1988,19 @@ status_geral() {
     if [ -n "${DGCLAW_DOMINIO:-}" ]; then s_ok "dominio: $DGCLAW_DOMINIO"; else s_aviso "dominio: nao definido em $DG_ETC/dgclaw.env"; fi
 
     local u
-    for u in caddy dgclaw-web dgclaw-admin; do
+    local unidades=(caddy dgclaw-web dgclaw-admin) porta_web
+    porta_web="$(porta_painel_efetiva)"
+    if modo_proxy_existente; then
+        # O HTTPS e do proxy da pessoa (nginx, Caddy dela, tunel): nao e servico nosso para cobrar.
+        unidades=(dgclaw-web dgclaw-admin)
+        s_ok "modo proxy existente: o HTTPS fica com o seu proxy (DG Claw Web so em 127.0.0.1:$porta_web)"
+    fi
+    for u in "${unidades[@]}"; do
         if [ "$(systemctl is-active "$u" 2>/dev/null)" = active ]; then s_ok "servico $u de pe"
         else s_mal "servico $u parado. Veja: systemctl status $u  (ligar: systemctl start $u)"; fi
     done
-    if curl -s -o /dev/null --max-time 3 http://127.0.0.1:8300/; then s_ok "Web responde em 127.0.0.1:8300"
-    else s_mal "o Web nao responde em 127.0.0.1:8300. Veja: journalctl -u dgclaw-web -n 50"; fi
+    if curl -s -o /dev/null --max-time 3 "http://127.0.0.1:$porta_web/"; then s_ok "Web responde em 127.0.0.1:$porta_web"
+    else s_mal "o Web nao responde em 127.0.0.1:$porta_web. Veja: journalctl -u dgclaw-web -n 50"; fi
     if curl -fsS -o /dev/null --max-time 3 http://127.0.0.1:4300/api/saude; then s_ok "Admin responde (/api/saude em 127.0.0.1:4300)"
     else s_mal "o Admin nao responde em 127.0.0.1:4300/api/saude. Veja: journalctl -u dgclaw-admin -n 50"; fi
 
