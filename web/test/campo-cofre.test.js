@@ -148,3 +148,44 @@ test('GET /api/v1/cofre/docs.md serve o documento do agente com a sessão do don
     assert.match(r.texto, /\[cofre\] HOSTINGER_API_TOKEN guardada \(final 1a2b\)\./);
   } finally { await t.fechar(); }
 });
+
+/* ── o visual (código não confiável) nunca recebe o final; pedidos de estado têm freio ───── */
+test('estados: só {guardada}, sem final, e 1000 pedidos seguidos geram no máximo 1 fetch', async () => {
+  const fetchOrig = globalThis.fetch;
+  let n = 0;
+  globalThis.fetch = async () => { n++; return { ok: true, status: 200, json: async () => ({ chaves: [{ envName: 'HOSTINGER_API_TOKEN', ultimos4: '9z8y' }] }) }; };
+  cc.configurar({ agente: 'ana', nome: 'Ana' });
+  try {
+    await cc.salvar({ dataset: { enviando: '1' } });   // zera nada; só garante o módulo carregado
+    const rs = await Promise.all(Array.from({ length: 1000 }, () => cc.estados(['HOSTINGER_API_TOKEN', 'OUTRA_CHAVE'])));
+    assert.ok(n <= 1, 'fetches: ' + n);
+    for (const r of rs) {
+      assert.deepEqual(r, { HOSTINGER_API_TOKEN: { guardada: true }, OUTRA_CHAVE: { guardada: false } });
+      assert.ok(!JSON.stringify(r).includes('9z8y') && !JSON.stringify(r).includes('final'));
+    }
+  } finally { globalThis.fetch = fetchOrig; }
+});
+
+test('freioEstado: 1 resposta a cada 3 s, 20 nomes no máximo, aviso uma vez só', () => {
+  const reg = { ultimo: 0, avisou: false };
+  assert.deepEqual(cc.freioEstado(reg, 10000, 3), { ok: true, avisar: false });
+  assert.deepEqual(cc.freioEstado(reg, 11000, 3), { ok: false, avisar: true });
+  assert.deepEqual(cc.freioEstado(reg, 11500, 3), { ok: false, avisar: false });
+  assert.deepEqual(cc.freioEstado(reg, 14000, 21), { ok: false, avisar: false });
+  assert.deepEqual(cc.freioEstado(reg, 14000, 20), { ok: true, avisar: false });
+});
+
+test('conversa.js: nada com final vai ao iframe e o estado só responde com o visual à vista', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'public', 'conversa.js'), 'utf8');
+  const ini = src.indexOf('function tratarCofreEstado');
+  const corpo = src.slice(ini, src.indexOf('/* Balão desmontado', ini));
+  assert.match(corpo, /document\.visibilityState !== 'visible'/);
+  assert.match(corpo, /!est\.cheia && !est\.noViewport/);
+  assert.match(corpo, /freioEstado/);
+  const ok = src.match(/enviaAoVisual\(alvo, \{ tipo: 'cofre-ok'[^}]*\}/)[0];
+  assert.ok(!/final/.test(ok), ok);
+  const todos = src.match(/enviaAoVisual\([^;]*cofre-[^;]*;/g) || [];
+  for (const l of todos) assert.ok(!/final|ultimos4/.test(l), l);
+  const dv = fs.readFileSync(path.join(__dirname, '..', 'public', 'dgvis.js'), 'utf8');
+  assert.ok(!/\.final/.test(dv), 'dgvis.js não lê final');
+});

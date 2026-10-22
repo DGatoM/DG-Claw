@@ -581,7 +581,7 @@
 
   // ---------- caixa de cofre (.dv-cofre) ----------
   // O iframe só PEDE a caixa. O campo de senha é desenhado pelo app, fora do iframe: o valor da chave
-  // nunca passa por aqui (nem o final dele antes de guardar). Estados: pendente, espera, ok, erro.
+  // nunca passa por aqui, e o final dele também não: o app não manda o final ao visual. Estados: pendente, espera, ok, erro.
   var NOME_COFRE = /^[A-Z_][A-Z0-9_]{1,63}$/;
   var cofreSeq = 0, cofrePedidos = {}, cofres = [], cofreAgenda = 0;
   function cofreEstado(el, st, rot, ms) {
@@ -595,7 +595,7 @@
     if (ms) c.t = setT(function () { c.t = 0; cofreEstado(el, c.guardada ? 'ok' : 'pendente', c.guardada ? c.rotOk : ''); }, ms);
     agendaAltura();
   }
-  function cofreRotOk(final) { return 'Guardada ✓' + (final ? ' (final ' + Str(final).slice(0, 8) + ')' : ''); }
+  function cofreRotOk() { return 'Guardada ✓'; }
   function pedirCofre(el) {
     var c = el._dvCofre; if (!c) return -1;
     if (!emb) { cofreEstado(el, 'erro', 'só funciona dentro do app', 4000); return -1; }
@@ -648,7 +648,7 @@
     cofres.forEach(function (el) {
       var c = el._dvCofre, e = c && es[c.nome];
       if (!c || !e || !e.guardada || el.getAttribute('data-dv-cofre') === 'espera') return;
-      c.guardada = true; c.rotOk = cofreRotOk(e.final);
+      c.guardada = true; c.rotOk = cofreRotOk();
       cofreEstado(el, 'ok', c.rotOk);
     });
   }
@@ -660,10 +660,10 @@
     delete cofrePedidos[id];
     if (c) {
       c.aberta = false;
-      if (novo === 'ok') { c.guardada = true; c.rotOk = cofreRotOk(d.final); cofreEstado(el, 'ok', c.rotOk); }
+      if (novo === 'ok') { c.guardada = true; c.rotOk = cofreRotOk(); cofreEstado(el, 'ok', c.rotOk); }
       else cofreEstado(el, 'erro', typeof d.msg === 'string' && d.msg ? d.msg.slice(0, 200) : 'não guardou', 5000);
     }
-    emite('cofre', { id: id, estado: novo, nome: c ? c.nome : p.nome, final: novo === 'ok' ? Str(d.final || '') : '', motivo: d.motivo ? Str(d.motivo) : '' });
+    emite('cofre', { id: id, estado: novo, nome: c ? c.nome : p.nome, motivo: d.motivo ? Str(d.motivo) : '' });
   }
   // JavaScript puro: dgvis.cofre(nome, {rotulo, ajuda}) faz o mesmo pedido, sem cartão.
   function cofreApi(nome, opts) {

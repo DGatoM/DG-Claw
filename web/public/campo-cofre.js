@@ -99,7 +99,7 @@
   /* ── Estado do servidor (só nomes e final, nunca valor) ─────────────── */
   let cacheEstado = null;
   function consultaEstado(forcar) {
-    if (!forcar && cacheEstado && Date.now() - cacheEstado.t < 3000) return cacheEstado.p;
+    if (!forcar && cacheEstado && (cacheEstado.pend || Date.now() - cacheEstado.t < 3000)) return cacheEstado.p;
     const p = fetch('/p/' + encodeURIComponent(cfg.agente) + '/api/cofre', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
       .then(async r => {
         if (!r.ok) throw new Error('o servidor respondeu ' + r.status);
@@ -108,16 +108,32 @@
         (j.chaves || []).forEach(c => { if (c && c.envName && !c.revogadaEm) m[c.envName] = { guardada: true, final: c.ultimos4 || null }; });
         return m;
       });
-    cacheEstado = { t: Date.now(), p };
+    const reg = { t: Date.now(), p, pend: true };
+    cacheEstado = reg;
+    p.then(() => { reg.pend = false; reg.t = Date.now(); }, () => { reg.pend = false; });
     p.catch(() => { if (cacheEstado && cacheEstado.p === p) cacheEstado = null; });
     return p;
   }
-  /* Para o visual: { NOME: {guardada, final} } dos nomes pedidos. */
+  /* Para o visual: { NOME: {guardada} } dos nomes pedidos. O final da chave NUNCA sai daqui: o visual é
+     código do agente, não confiável, e só o cartão desenhado pelo app (fora do iframe) mostra o final.
+     Usa o cache e a promessa pendente: pedidos repetidos não geram GET novo. */
   async function estados(nomes) {
-    const m = await consultaEstado(true);
+    const m = await consultaEstado(false);
     const out = {};
-    nomes.forEach(n => { out[n] = m[n] || { guardada: false, final: null }; });
+    nomes.forEach(n => { out[n] = { guardada: !!m[n] }; });
     return out;
+  }
+
+  /* Freio do pedido de estado vindo do visual: no máximo 1 resposta a cada 3 s por visual e 20 nomes por
+     pedido. `reg` é { ultimo, avisou }. O aviso (avisar:true) vem só na primeira recusa de cada visual. */
+  const ESTADO_INTERVALO_MS = 3000, ESTADO_MAX_NOMES = 20;
+  function freioEstado(reg, agora, qtdNomes) {
+    if (agora - reg.ultimo < ESTADO_INTERVALO_MS || qtdNomes > ESTADO_MAX_NOMES) {
+      const avisar = !reg.avisou; reg.avisou = true;
+      return { ok: false, avisar };
+    }
+    reg.ultimo = agora;
+    return { ok: true, avisar: false };
   }
 
   function dadosDe(card) {
@@ -271,7 +287,7 @@
     if (doc.readyState === 'loading') doc.addEventListener('DOMContentLoaded', iniciaObs); else iniciaObs();
   }
 
-  const api = { analisa, validaPedido, salvar, html, htmlSalvo, blocoParaHtml, configurar, ligar, montar, estados, esc, hash };
+  const api = { analisa, validaPedido, salvar, html, htmlSalvo, blocoParaHtml, configurar, ligar, montar, estados, freioEstado, esc, hash };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (raiz.document) { raiz.campoCofre = api; ligar(raiz.document); }
 })(typeof window !== 'undefined' ? window : globalThis);

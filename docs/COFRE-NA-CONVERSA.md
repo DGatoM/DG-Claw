@@ -26,7 +26,9 @@ Vale no DG Claw Web. A mesma ideia existe no outro app da DG, com os mesmos text
 
    `data-cofre` é obrigatório (`^[A-Z_][A-Z0-9_]{1,63}$`). `data-rotulo` (até 80 caracteres) e
    `data-ajuda` (até 200) são texto puro. Em JavaScript, `dgvis.cofre(nome, {rotulo, ajuda})` faz o
-   mesmo pedido. Pode haver várias peças no mesmo visual; abre uma caixa por vez.
+   mesmo pedido. Pode haver várias peças no mesmo visual; abre uma caixa por vez. O visual é código não
+   confiável: ele recebe só "guardada" ou "não guardada" por nome, nunca o final da chave. O final aparece
+   apenas no cartão desenhado pelo app, fora do iframe, e no aviso que o agente recebe.
 
 As duas abrem o mesmo cartão, com o mesmo texto e a mesma rota (`POST /p/<agente>/api/cofre`, a que a
 aba Cofre também usa). O nome ainda passa pela lista de nomes permitidos do cofre (`panel/lib/cofre.js`);

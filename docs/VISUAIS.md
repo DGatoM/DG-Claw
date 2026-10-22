@@ -100,15 +100,18 @@ quando a chave faz parte de um visual maior:
 ```
 
 A peça mostra um cartão com o botão **Colar a chave** e os estados pendente, esperando, guardada
-(com o final, por exemplo `Guardada ✓ (final 1a2b)`) e erro. Ao tocar, o visual manda
+(`Guardada ✓`, sem o final) e erro. Ao tocar, o visual manda
 `{dgvis: 1, tipo: 'cofre', id, nome, rotulo, ajuda}` e o app abre, abaixo do visual (ou na tela cheia),
 o MESMO cartão do bloco `dgcofre` (`web/public/campo-cofre.js`). Ao carregar, o visual pergunta
-`{tipo: 'cofre-estado?', nomes}` e recebe `{tipo: 'cofre-estado', estados: {NOME: {guardada, final}}}`.
-Respostas do app: `cofre-espera`, `cofre-ok {nome, final}` e `cofre-erro {motivo, msg}` (motivos: nome,
+`{tipo: 'cofre-estado?', nomes}` e recebe `{tipo: 'cofre-estado', estados: {NOME: {guardada}}}`.
+O app só responde com o visual à vista, no máximo 1 vez a cada 3 s por visual e até 20 nomes por pedido (o excesso é ignorado, com um aviso único no console).
+Respostas do app: `cofre-espera`, `cofre-ok {id, nome}` e `cofre-erro {motivo, msg}` (motivos: nome,
 ocupado, fora, cancelado, envio, indisponivel). Em JavaScript, `dgvis.cofre(nome, {rotulo, ajuda})`.
 
 Garantias: o campo de senha fica FORA do iframe, então o código do agente nunca lê o valor, e o valor
-nunca vai ao iframe (nem o final antes de guardar). O app trata o pedido como entrada hostil: confere
+nunca vai ao iframe, e o final da chave também não: o visual é código do agente, não confiável, e
+qualquer pedido de estado por nome revelaria o final de chaves existentes sem o dono tocar em nada. O
+final aparece só no cartão desenhado pelo app, fora do iframe. O app trata o pedido como entrada hostil: confere
 `ev.source`, o nome (`^[A-Z_][A-Z0-9_]{1,63}$` e a lista de nomes permitidos do cofre) e põe rótulo
 e ajuda como texto puro. Há uma caixa por visual, e ela só abre com o visual à vista. O agente recebe
 `[cofre] NOME guardada (final 1a2b).`, com a etiqueta "do cofre" na conversa. Exemplo completo em

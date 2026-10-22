@@ -1994,7 +1994,7 @@ function tratarCofre(est, d, id) {
     envName: nome, rotulo, ajuda,
     aoGuardar: ({ final }) => {
       const alvo = alvoDoVisual(est);
-      if (alvo) enviaAoVisual(alvo, { tipo: 'cofre-ok', id, nome, final });
+      if (alvo) enviaAoVisual(alvo, { tipo: 'cofre-ok', id, nome });  // sem o final: o visual não é confiável
       reg.relogio = setTimeout(() => fechaCofre(est.md.id), VIS_COFRE_FECHA_MS);
     },
     aoErro: ({ motivo, msg }) => { const alvo = alvoDoVisual(est); if (alvo) recusaCofre(alvo, id, motivo, msg); },
@@ -2012,11 +2012,23 @@ function tratarCofre(est, d, id) {
   enviaAoVisual(est, { tipo: 'cofre-espera', id });
 }
 
-/* O visual pergunta, ao carregar, quais nomes já estão guardados. Resposta: só nome e final. */
+/* O visual pergunta, ao carregar, quais nomes já estão guardados. Resposta: só {guardada: bool} por nome,
+   nunca o final da chave (o visual é código não confiável). Só responde com o visual à vista, no máximo
+   1 vez a cada 3 s e até 20 nomes por pedido; o excesso é ignorado, com um único aviso por visual. */
+const visCofreEstado = new Map();   // id da mídia -> { ultimo, avisou }
 function tratarCofreEstado(est, d) {
-  const nomes = Array.isArray(d.nomes) ? d.nomes.filter(n => typeof n === 'string').slice(0, 20) : [];
-  const v = nomes.filter(n => window.campoCofre && window.campoCofre.validaPedido({ nome: n }).ok);
-  if (!v.length || !window.campoCofre) return;
+  if (!window.campoCofre) return;
+  if (document.visibilityState !== 'visible' || (!est.cheia && !est.noViewport)) return;
+  const bruto = Array.isArray(d.nomes) ? d.nomes.filter(n => typeof n === 'string') : [];
+  let reg = visCofreEstado.get(est.md.id);
+  if (!reg) { reg = { ultimo: 0, avisou: false }; visCofreEstado.set(est.md.id, reg); }
+  const f = window.campoCofre.freioEstado(reg, Date.now(), bruto.length);
+  if (!f.ok) {
+    if (f.avisar) console.warn('visual ' + est.md.id + ' (' + est.md.nome + '): pedidos de estado do cofre demais ou rápidos demais; ignorando o excesso (máximo 1 a cada 3 s e 20 nomes).');
+    return;
+  }
+  const v = bruto.filter(n => window.campoCofre.validaPedido({ nome: n }).ok);
+  if (!v.length) return;
   window.campoCofre.estados(v).then(
     estados => enviaAoVisual(est, { tipo: 'cofre-estado', estados }),
     e => console.warn('visual ' + est.md.id + ': não consegui consultar o cofre para o visual:', e && e.message));
