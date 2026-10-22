@@ -66,13 +66,15 @@ test('html: rótulo e ajuda com HTML viram texto; campo à prova de gerenciador 
 });
 
 /** Cartão de mentira: só o que salvar() toca. */
-function cartaoFalso(valor) {
+function cartaoFalso(valor, armado = true) {
   const campos = {
     '.dgc-valor': { value: valor, focus() {} },
-    '.dgc-salvar': { disabled: false, textContent: 'Salvar no cofre' },
+    '.dgc-salvar': { disabled: false, textContent: 'Salvar no cofre', removeAttribute() {}, setAttribute() {} },
     '.dgc-msg': { hidden: true, textContent: '' },
   };
-  return { dataset: { env: 'HOSTINGER_API_TOKEN', id: 'c1' }, innerHTML: '', isConnected: true, campos,
+  const dataset = { env: 'HOSTINGER_API_TOKEN', id: 'c1' };
+  if (armado) Object.assign(dataset, { pronto: '1', gesto: '1', toque: '1' });
+  return { dataset, innerHTML: '', isConnected: true, campos,
     querySelector(sel) { return campos[sel] || null; } };
 }
 
@@ -188,4 +190,83 @@ test('conversa.js: nada com final vai ao iframe e o estado só responde com o vi
   for (const l of todos) assert.ok(!/final|ultimos4/.test(l), l);
   const dv = fs.readFileSync(path.join(__dirname, '..', 'public', 'dgvis.js'), 'utf8');
   assert.ok(!/\.final/.test(dv), 'dgvis.js não lê final');
+});
+
+/* ── armação por gesto confiável do dono (achado da 3ª rodada do Codex) ─────────── */
+
+/** Documento de mentira: guarda os ouvintes para disparar eventos à mão. */
+function docFalso() {
+  const ouvintes = {};
+  return { readyState: 'complete', body: null, ouvintes,
+    addEventListener(tipo, fn) { (ouvintes[tipo] = ouvintes[tipo] || []).push(fn); },
+    querySelectorAll() { return []; },
+    dispara(tipo, ev) { (ouvintes[tipo] || []).forEach(fn => fn(ev)); } };
+}
+function cartaoDom(valor) {
+  const campo = { value: valor, classList: { contains: c => c === 'dgc-valor' }, closest: s => (s === '.dgcofre' ? card : null) };
+  const botao = { disabled: true, textContent: 'Salvar no cofre', attrs: {},
+    setAttribute(k, v) { this.attrs[k] = v; }, removeAttribute(k) { delete this.attrs[k]; } };
+  const card = { dataset: { env: 'HOSTINGER_API_TOKEN', id: '' }, innerHTML: '', isConnected: true,
+    querySelector(sel) { return { '.dgc-valor': campo, '.dgc-salvar': botao, '.dgc-msg': { hidden: true, textContent: '' } }[sel] || null; },
+    closest: s => (s === '.dgcofre' ? card : null) };
+  campo.closest = s => (s === '.dgcofre' ? card : null);
+  return { card, campo, botao };
+}
+
+test('pedido espontâneo do visual + digitação + Enter NÃO grava; após toque confiável no campo, grava', async () => {
+  const fetchOrig = globalThis.fetch;
+  const pedidos = [];
+  globalThis.fetch = async (url, op) => { pedidos.push({ url, op }); return { status: 200, json: async () => ({ ok: true, ultimos4: 'abcd' }) }; };
+  cc.configurar({ agente: 'ana', nome: 'Ana' });
+  const doc = docFalso();
+  cc.ligar(doc);
+  const { card, campo, botao } = cartaoDom('texto que o dono digitou no compositor');
+  const enter = () => doc.dispara('keydown', { target: campo, key: 'Enter', stopPropagation() {}, preventDefault() {} });
+  try {
+    // 400 ms passaram, mas ninguém tocou no cartão: o botão segue desligado, com a dica.
+    card.dataset.pronto = '1';
+    enter();
+    await new Promise(r => setTimeout(r, 10));
+    assert.equal(pedidos.length, 0, 'Enter sem gesto do dono não pode gravar');
+    // evento sintético (isTrusted falso), como um script dispararia: também não arma.
+    doc.dispara('pointerdown', { target: campo, isTrusted: false });
+    enter();
+    await new Promise(r => setTimeout(r, 10));
+    assert.equal(pedidos.length, 0, 'gesto não confiável não arma');
+    assert.equal(botao.disabled, true);
+    assert.equal(botao.attrs.title, 'Toque no campo e cole a chave');
+    // toque confiável no campo: arma e libera.
+    doc.dispara('pointerdown', { target: campo, isTrusted: true });
+    assert.equal(botao.disabled, false);
+    enter();
+    await new Promise(r => setTimeout(r, 10));
+    assert.equal(pedidos.length, 1, 'após o toque confiável o Enter grava');
+  } finally { globalThis.fetch = fetchOrig; }
+});
+
+test('toque confiável só no cartão (não no campo) libera o botão mas não autoriza gravar', async () => {
+  const fetchOrig = globalThis.fetch;
+  let chamadas = 0;
+  globalThis.fetch = async () => { chamadas++; return { status: 200, json: async () => ({}) }; };
+  cc.configurar({ agente: 'ana', nome: 'Ana' });
+  const { card } = cartaoDom('valor');
+  card.dataset.pronto = '1';
+  try {
+    assert.equal(cc.registraGesto(card, { isTrusted: true, target: { classList: { contains: () => false } } }), true);
+    assert.equal(card.dataset.toque, undefined);
+    await cc.salvar(card);
+    assert.equal(chamadas, 0, 'sem toque no campo o valor não pode ser gravado');
+  } finally { globalThis.fetch = fetchOrig; }
+});
+
+test('conversa.js não dá focus() no cartão aberto por pedido do iframe e campo-cofre.js não foca em montar()', () => {
+  const pub = path.join(__dirname, '..', 'public');
+  const conv = fs.readFileSync(path.join(pub, 'conversa.js'), 'utf8');
+  const ini = conv.indexOf('function tratarCofre(');
+  const trecho = conv.slice(ini, conv.indexOf('function tratarCofreEstado', ini));
+  assert.ok(!/\.focus\(/.test(trecho), 'tratarCofre não pode focar nada');
+  assert.ok(!/scrollIntoView\(/.test(trecho));
+  const cofre = fs.readFileSync(path.join(pub, 'campo-cofre.js'), 'utf8');
+  const m = cofre.slice(cofre.indexOf('function montar('), cofre.indexOf('function limpaCampo'));
+  assert.ok(!/\.focus\(/.test(m), 'montar() não pode focar o campo');
 });

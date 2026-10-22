@@ -155,12 +155,35 @@
     } else ja.hidden = true;
   }
 
-  /* O botão só vale depois de 400 ms: um toque duplo ao abrir não grava por acidente. */
-  function armaSalvar(card) {
+  /* O botão só vale depois de 400 ms (um toque duplo ao abrir não grava por acidente) E depois de um gesto
+     confiável do dono dentro do cartão (pointerdown/touchstart com isTrusted). Um visual (iframe) consegue
+     abrir o cartão e até focar o campo por script, mas não consegue fabricar o toque do dono. */
+  const DICA_GESTO = 'Toque no campo e cole a chave';
+  function atualizaBotao(card) {
     const btn = card.querySelector('.dgc-salvar');
     if (!btn) return;
-    btn.disabled = true;
-    setTimeout(() => { if (card.dataset.enviando !== '1') btn.disabled = false; }, 400);
+    const liberado = card.dataset.pronto === '1' && card.dataset.gesto === '1' && card.dataset.enviando !== '1';
+    btn.disabled = !liberado;
+    if (card.dataset.gesto === '1') btn.removeAttribute('title'); else btn.setAttribute('title', DICA_GESTO);
+  }
+  function armaSalvar(card) {
+    if (!card.querySelector('.dgc-salvar')) return;
+    card.dataset.pronto = '';
+    atualizaBotao(card);
+    setTimeout(() => { card.dataset.pronto = '1'; atualizaBotao(card); }, 400);
+  }
+
+  /* Registra o gesto do dono. Só conta evento confiável (isTrusted) vindo de dentro do cartão: `gesto` libera
+     o botão; `toque` (gesto no próprio campo) é o que autoriza gravar, porque o valor tem de ter sido
+     colocado depois de o dono tocar no campo. */
+  function registraGesto(card, ev) {
+    if (!card) return false;
+    if (!ev || ev.isTrusted !== true) { atualizaBotao(card); return false; }
+    card.dataset.gesto = '1';
+    const alvo = ev.target;
+    if (alvo && alvo.classList && alvo.classList.contains('dgc-valor')) card.dataset.toque = '1';
+    atualizaBotao(card);
+    return true;
   }
 
   function hidratar(card) {
@@ -183,6 +206,7 @@
     const inp = card.querySelector('.dgc-valor');
     const btn = card.querySelector('.dgc-salvar');
     if (!inp || !btn || btn.disabled) return;
+    if (card.dataset.toque !== '1') { mostraErro(card, DICA_GESTO + ' antes de salvar.'); return; }
     const envName = card.dataset.env;
     const cb = card._cb || {};
     const valor = inp.value.trim();
@@ -199,7 +223,7 @@
       // Resposta que não é JSON: segue com corpo nulo e a mensagem abaixo mostra o código do status.
       corpo = await r.json().catch(() => null);
     } catch (e) { falhaRede = (e && e.message) || 'sem conexão'; }
-    finally { card.dataset.enviando = ''; btn.disabled = false; btn.textContent = 'Salvar no cofre'; }
+    finally { card.dataset.enviando = ''; atualizaBotao(card); btn.textContent = 'Salvar no cofre'; }
 
     const guardou = !falhaRede && ((status >= 200 && status < 300) || (corpo && corpo.guardado));
     if (!guardou) {
@@ -210,7 +234,7 @@
       if (cb.aoErro) cb.aoErro({ motivo: 'envio', msg: txt });
       return;
     }
-    inp.value = '';
+    inp.value = ''; card.dataset.toque = '';
     const naoAplicou = !(status >= 200 && status < 300);
     const g = (corpo && (corpo.ultimos4 ? corpo : corpo.guardado)) || {};
     const final = typeof g.ultimos4 === 'string' ? g.ultimos4 : '';
@@ -229,8 +253,7 @@
     const card = conteiner.firstElementChild;
     card._cb = opcoes;
     hidratar(card);
-    const inp = card.querySelector('.dgc-valor');
-    if (inp) inp.focus({ preventScroll: true });
+    // Sem focus(): o pedido vem de um iframe não confiável e não pode roubar o teclado do dono.
     return card;
   }
 
@@ -243,6 +266,11 @@
   function configurar(c) { cfg = Object.assign({}, cfg, c || {}); }
 
   function ligar(doc) {
+    ['pointerdown', 'touchstart'].forEach(tipo => doc.addEventListener(tipo, ev => {
+      const t = ev.target && ev.target.closest ? ev.target : null;
+      const card = t && t.closest('.dgcofre');
+      if (card) registraGesto(card, ev);
+    }, true));
     doc.addEventListener('click', ev => {
       const t = ev.target.closest ? ev.target : null;
       if (!t) return;
@@ -287,7 +315,7 @@
     if (doc.readyState === 'loading') doc.addEventListener('DOMContentLoaded', iniciaObs); else iniciaObs();
   }
 
-  const api = { analisa, validaPedido, salvar, html, htmlSalvo, blocoParaHtml, configurar, ligar, montar, estados, freioEstado, esc, hash };
+  const api = { analisa, validaPedido, salvar, html, htmlSalvo, blocoParaHtml, configurar, ligar, montar, estados, freioEstado, registraGesto, esc, hash };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (raiz.document) { raiz.campoCofre = api; ligar(raiz.document); }
 })(typeof window !== 'undefined' ? window : globalThis);
