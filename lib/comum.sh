@@ -29,6 +29,10 @@ DG_AGENTES_JSON="$DG_ETC/agentes.json"
 DG_REGISTRO="$DG_ETC/registro.tsv"
 DG_TRAVA="$DG_ETC/.agentes.lock"
 DG_IMAGEM_PADRAO="localhost/dgclaw-agente:latest"
+# Porta do DG Claw Web no host (so em 127.0.0.1) e faixa de rede dos agentes. Os dois podem ser
+# trocados na instalacao (--porta-painel, --faixa-rede) e ficam no dgclaw.env.
+DG_PORTA_PAINEL_PADRAO=8300
+DG_FAIXA_REDE_PADRAO="10.89.0.0/16"
 export R DG_ETC DG_OPT DG_APP DG_ADMIN DG_LIB DG_LOG DG_UNITS DG_BIN DG_AGENTES_JSON DG_REGISTRO DG_TRAVA
 
 ENSAIO="${ENSAIO:-0}"
@@ -331,24 +335,26 @@ caddyfile_e_padrao() {
     [ "$sites" = ":80 {" ]
 }
 
+# bloco_caddy <dominio> [porta]: a porta e a do DG Claw Web no host (padrao 8300, a mesma do
+# --porta-painel). Nao confundir com a 8300 de DENTRO do container de cada agente.
 bloco_caddy() {
     printf '# DG Claw: gerado pelo install.sh. Rodar o instalador de novo reescreve este arquivo.\n'
-    printf '%s {\n\treverse_proxy 127.0.0.1:8300\n}\n' "$1"
+    printf '%s {\n\treverse_proxy 127.0.0.1:%s\n}\n' "$1" "${2:-$DG_PORTA_PAINEL_PADRAO}"
 }
 
-# escrever_site_caddy <dominio>: grava o site do DG Claw no Caddyfile proprio (quando e dele ou
+# escrever_site_caddy <dominio> [porta]: grava o site do DG Claw no Caddyfile proprio (quando e dele ou
 # padrao) ou em conf.d/dgclaw.caddy (quando o Caddyfile tem sites de outros). Nao valida nem recarrega.
 escrever_site_caddy() {
-    local dominio="$1" cf="$R/etc/caddy/Caddyfile" confd="$R/etc/caddy/conf.d/dgclaw.caddy"
+    local dominio="$1" porta="${2:-$DG_PORTA_PAINEL_PADRAO}" cf="$R/etc/caddy/Caddyfile" confd="$R/etc/caddy/conf.d/dgclaw.caddy"
     if [ ! -f "$cf" ] || grep -q '^# DG Claw' "$cf" || caddyfile_e_padrao "$cf"; then
-        bloco_caddy "$dominio" | escrever_arquivo "$cf" 644
+        bloco_caddy "$dominio" "$porta" | escrever_arquivo "$cf" 644
     else
         # Ja existe um Caddyfile com sites de verdade: nao se sobrescreve o que e dos outros.
         if ! grep -Eq '^[[:space:]]*import[[:space:]]+.*conf\.d/\*' "$cf"; then
             falha "o Caddyfile em ${cf#"$R"} ja tem outros sites e nao importa a pasta conf.d, entao nao tenho onde colocar o do DG Claw sem mexer no seu." \
                 "acrescente a linha 'import conf.d/*' no topo do arquivo (fora de qualquer bloco) e rode ./install.sh de novo. Ele vai criar ${confd#"$R"} com o site do DG Claw."
         fi
-        bloco_caddy "$dominio" | escrever_arquivo "$confd" 644
+        bloco_caddy "$dominio" "$porta" | escrever_arquivo "$confd" 644
         info "o Caddyfile existente foi preservado; o site do DG Claw ficou em ${confd#"$R"}"
     fi
 }
@@ -384,4 +390,160 @@ inotify_uso_root() {
         if [ "$uid" -eq 0 ] || [ "$uid" -ge 1000000 ]; then total=$((total + n)); fi
     done < <(find "$R/proc" -mindepth 3 -maxdepth 3 -path "$R/proc/[0-9]*/fd/*" -lname 'anon_inode:inotify' -printf '%h\n' 2>/dev/null | sort | uniq -c)
     printf '%s' "$total"
+}
+
+# --- porta do painel e faixa de rede dos agentes ----------------------------------------
+# porta_painel_valida <valor>: inteiro de 1024 a 65535, sem zero a esquerda.
+porta_painel_valida() {
+    [[ "$1" =~ ^[1-9][0-9]{3,4}$ ]] && [ "$1" -ge 1024 ] && [ "$1" -le 65535 ]
+}
+
+# faixa_rede_valida <A.B.0.0/16>: exatamente um /16 dentro de rede privada (10.0.0.0/8,
+# 172.16.0.0/12 ou 192.168.0.0/16). E /16 porque cada agente ganha um /24 dentro dela.
+faixa_rede_valida() {
+    local oct='(0|[1-9][0-9]{0,2})' a b
+    [[ "$1" =~ ^$oct\.$oct\.0\.0/16$ ]] || return 1
+    a="${BASH_REMATCH[1]}"; b="${BASH_REMATCH[2]}"
+    [ "$a" -le 255 ] && [ "$b" -le 255 ] || return 1
+    case "$a" in
+        10) return 0 ;;
+        172) [ "$b" -ge 16 ] && [ "$b" -le 31 ] ;;
+        192) [ "$b" -eq 168 ] ;;
+        *) return 1 ;;
+    esac
+}
+
+# faixa_rede_exigir <valor> <origem>: falha com exemplo se a faixa nao serve. <origem> diz de onde
+# veio o valor (a opcao --faixa-rede ou o dgclaw.env), para a pessoa saber onde corrigir.
+faixa_rede_exigir() {
+    faixa_rede_valida "$1" && return 0
+    falha "a faixa de rede '$1' ($2) nao serve: precisa ser um /16 com os dois ultimos numeros 0, dentro de rede privada (10.x.0.0/16, 172.16 a 172.31.x.0/16 ou 192.168.0.0/16)." \
+        "use por exemplo --faixa-rede 10.91.0.0/16. Cada agente ganha uma rede /24 dentro dessa faixa, por isso ela tem que ser /16."
+}
+
+# porta_painel_exigir <valor> <origem>: o mesmo para a porta do DG Claw Web.
+porta_painel_exigir() {
+    porta_painel_valida "$1" && return 0
+    falha "a porta do painel '$1' ($2) nao serve: precisa ser um numero inteiro de 1024 a 65535." \
+        "use por exemplo --porta-painel 8300 (o padrao) ou --porta-painel 8400."
+}
+
+# faixa_rede_efetiva / porta_painel_efetiva: imprimem o valor valido que a CLI deve usar, vindo do
+# dgclaw.env ja carregado (carregar_env_dgclaw) ou do padrao. Valor estranho no arquivo e erro:
+# criar rede ou apontar o proxy com um valor adivinhado seria pior que parar.
+faixa_rede_efetiva() {
+    local v="${DGCLAW_FAIXA_REDE:-$DG_FAIXA_REDE_PADRAO}"
+    faixa_rede_exigir "$v" "DGCLAW_FAIXA_REDE em $DG_ETC/dgclaw.env"
+    printf '%s' "$v"
+}
+porta_painel_efetiva() {
+    local v="${DGCLAW_PORTA_PAINEL:-$DG_PORTA_PAINEL_PADRAO}"
+    porta_painel_exigir "$v" "DGCLAW_PORTA_PAINEL em $DG_ETC/dgclaw.env"
+    printf '%s' "$v"
+}
+
+# url_base_painel: o endereco do painel como a pessoa abre (https://dominio, ou o local sem dominio).
+url_base_painel() {
+    if [ -n "${DGCLAW_DOMINIO:-}" ]; then printf 'https://%s' "$DGCLAW_DOMINIO"
+    else printf 'http://127.0.0.1:%s' "$(porta_painel_efetiva)"; fi
+}
+
+# modo_proxy_existente: o dgclaw.env (ja carregado) diz que o HTTPS fica com um proxy que ja existia?
+modo_proxy_existente() { [ "${DGCLAW_PROXY_EXISTENTE:-0}" = 1 ]; }
+
+# ip_para_inteiro <A.B.C.D>: imprime o IPv4 como inteiro de 32 bits.
+ip_para_inteiro() {
+    local a b c d
+    IFS=. read -r a b c d <<<"$1"
+    printf '%s' "$(( (a << 24) | (b << 16) | (c << 8) | d ))"
+}
+
+# cidr_sobrepoe <A.B.C.D[/N]> <A.B.C.D[/N]>: sai com 0 se os dois blocos se sobrepoem. Conta de
+# prefixo de verdade (compara os bits da rede), nunca comparacao de texto: 10.91.5.0/24 esta dentro
+# de 10.91.0.0/16, e 10.9.0.0/16 NAO esta dentro de 10.91.0.0/16 mesmo comecando igual.
+# Sem /N vale /32 (rota de maquina unica). Entrada que nao e IPv4 sai com 2.
+cidr_sobrepoe() {
+    local re='^([0-9]{1,3}(\.[0-9]{1,3}){3})(/([0-9]{1,2}))?$' ip1 ip2 l1 l2 menor mascara
+    [[ "$1" =~ $re ]] || return 2
+    ip1="${BASH_REMATCH[1]}"; l1="${BASH_REMATCH[4]:-32}"
+    [[ "$2" =~ $re ]] || return 2
+    ip2="${BASH_REMATCH[1]}"; l2="${BASH_REMATCH[4]:-32}"
+    [ "$l1" -le 32 ] && [ "$l2" -le 32 ] || return 2
+    menor="$l1"; if [ "$l2" -lt "$menor" ]; then menor="$l2"; fi
+    if [ "$menor" -eq 0 ]; then return 0; fi
+    mascara=$(( (0xFFFFFFFF << (32 - menor)) & 0xFFFFFFFF ))
+    [ $(( $(ip_para_inteiro "$ip1") & mascara )) -eq $(( $(ip_para_inteiro "$ip2") & mascara )) ]
+}
+
+# --- trechos para quem ja tem proxy (nginx, Caddy proprio, tunel Cloudflare) -----------------
+# Maior upload que o DG Claw Web aceita: DGCLAW_WEB_MAX_UPLOAD_MB (padrao 50, web/lib/config.js)
+# mais 64 KB de folga do multipart (web/lib/uploads.js). O nginx recusa por padrao qualquer corpo
+# acima de 1 MB, entao sem client_max_body_size os anexos do chat falhariam com 413. 100m dobra o
+# padrao do Web: quem subir o limite dele para ate 100 MB nao esbarra no nginx.
+LIMITE_UPLOAD_NGINX="100m"
+
+# trecho_proxy_nginx <dominio> <porta>: o bloco server para colar no nginx, e o que fazer com ele.
+# Cabecalhos: o Web confia em X-Forwarded-For (o ULTIMO valor, o que o nginx acrescenta),
+# X-Forwarded-Proto (cookie Secure e conferencia de Origin) e Host/X-Forwarded-Host (Origin tem que
+# bater com o endereco que o navegador usa). Upgrade/Connection levam o WebSocket dos paineis
+# (/p/<agente>/); proxy_buffering off e os 3600s deixam o chat em streaming correr sem cortar.
+trecho_proxy_nginx() {
+    local dominio="$1" porta="$2"
+    cat <<FIM
+server {
+    listen 80;
+    server_name $dominio;
+
+    client_max_body_size $LIMITE_UPLOAD_NGINX;
+
+    location / {
+        proxy_pass http://127.0.0.1:$porta;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        proxy_buffering off;
+    }
+}
+FIM
+    cat <<FIM
+
+Para usar: salve esse bloco em /etc/nginx/sites-available/dgclaw, ligue com
+  ln -s /etc/nginx/sites-available/dgclaw /etc/nginx/sites-enabled/dgclaw
+confira e recarregue com
+  nginx -t && systemctl reload nginx
+e peca o HTTPS com
+  certbot --nginx -d $dominio
+(o certbot acrescenta o listen 443 sozinho; depois dele o \$scheme passa a valer https). Se o seu nginx
+fica atras de outro proxy que ja termina o HTTPS (Cloudflare em modo flexivel, por exemplo), troque
+\$scheme por https na linha X-Forwarded-Proto.
+FIM
+}
+
+# trecho_proxy_cloudflare <dominio> <porta>: as linhas do ingress do cloudflared e o comando do DNS.
+trecho_proxy_cloudflare() {
+    local dominio="$1" porta="$2"
+    cat <<FIM
+No config.yml do seu tunel, dentro de "ingress:" e antes da ultima regra (service: http_status:404):
+  - hostname: $dominio
+    service: http://127.0.0.1:$porta
+
+Depois aponte o nome para o tunel e reinicie o cloudflared:
+  cloudflared tunnel route dns <nome-do-tunel> $dominio
+  systemctl restart cloudflared
+FIM
+}
+
+# imprimir_trechos_proxy <dominio> <porta>: os dois trechos, com titulo, para a mensagem final do
+# instalador e para o `dgclaw dominio`.
+imprimir_trechos_proxy() {
+    printf '\n   --- Se o seu proxy e o nginx ---\n\n'
+    trecho_proxy_nginx "$1" "$2" | sed 's/^/   /'
+    printf '\n   --- Se voce usa um tunel da Cloudflare ---\n\n'
+    trecho_proxy_cloudflare "$1" "$2" | sed 's/^/   /'
 }

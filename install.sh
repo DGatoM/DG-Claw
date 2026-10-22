@@ -2,6 +2,8 @@
 # install.sh: instala o DG Claw v1 no servidor (o "host").
 #
 #   sudo ./install.sh --usuario <nome> [--dominio <dominio>] [--provedor claude|codex]
+#                     [--proxy-existente | --sem-proxy-existente] [--porta-painel <N>]
+#                     [--faixa-rede <A.B.0.0/16>]
 #                     [--senha-stdin] [--novo-primeiro-acesso]
 #                     [--ensaio] [--com-imagem] [--sem-imagem] [--ajuda]
 #
@@ -11,7 +13,7 @@
 # (nunca por argumento, que aparece no `ps` e no historico do shell); a senha nunca e impressa.
 #
 # O que ele faz, nesta ordem (cada passo imprime o que esta fazendo):
-#   1. confere a maquina (Ubuntu, root, memoria, disco, portas 80 e 443)
+#   1. confere a maquina (Ubuntu, root, memoria, disco, portas 80 e 443) e a faixa de rede dos agentes
 #   2. instala os pacotes (podman, Caddy, Node 22, git, jq, ufw...)
 #   3. escolhe o endereco (dominio) do painel
 #   4. copia o DG Claw para /opt/dgclaw/app
@@ -23,6 +25,14 @@
 #  10. manda construir a imagem dos agentes, em segundo plano
 #  11. testa de ponta a ponta e da o primeiro boot ao Admin
 #
+# Servidor que ja tem nginx, Caddy proprio ou tunel nas portas 80 e 443: use --proxy-existente.
+# O instalador nao instala nem configura Caddy e nao mexe no ufw; o DG Claw Web escuta so em
+# 127.0.0.1:<porta do painel> e, no fim, o instalador imprime o trecho para colar no seu proxy.
+# O modo e a porta ficam no dgclaw.env (DGCLAW_PROXY_EXISTENTE, DGCLAW_PORTA_PAINEL) e valem nas
+# proximas execucoes e em `dgclaw atualizar`; --sem-proxy-existente volta ao modo normal.
+# --faixa-rede muda a faixa de IPs das redes dos agentes (padrao 10.89.0.0/16) para quem ja tem
+# podman ou docker usando essa faixa; fica em DGCLAW_FAIXA_REDE e nao muda com agentes criados.
+#
 # Rodar de novo e seguro: o que ja esta feito e so conferido, nada duplica, e os
 # segredos que ja existem nao sao trocados. `--ensaio` mostra o que seria feito
 # sem mudar nada.
@@ -33,6 +43,8 @@
 # Variaveis de teste (so valem com DGCLAW_RAIZ definida, para rodar numa raiz falsa):
 #   DGCLAW_RAIZ=<pasta>          prefixa /etc, /opt, /var, /usr/local
 #   DGCLAW_PULAR_CHECAGENS=1     pula root, Ubuntu, memoria, disco e portas
+#   DGCLAW_TESTAR_PORTAS=1       com a linha de cima, confere as portas mesmo assim (usa o `ss` falso)
+#                                A faixa de rede NUNCA e pulada: ela roda com `podman` e `ip` falsos.
 #   DGCLAW_SENHA_HASH_CMD=<exe>  troca o gerador de hash (le a senha no STDIN)
 # Vale sempre: DGCLAW_ESPERA_CERT=<segundos> (padrao 90) espera pelo certificado HTTPS.
 
@@ -48,6 +60,13 @@ SEM_IMAGEM=1
 SENHA=""
 ARG_SENHA_STDIN=0
 ARG_NOVO_PRIMEIRO_ACESSO=0
+ARG_PROXY_EXISTENTE=""   # "" = nao informado, 1 = --proxy-existente, 0 = --sem-proxy-existente
+ARG_PROXY_EXISTENTE_AMBAS=0
+ARG_PORTA_PAINEL=""
+ARG_FAIXA_REDE=""
+PROXY_EXISTENTE=0
+PORTA_PAINEL=""
+FAIXA_REDE=""
 PRIMEIRO_ACESSO_TOKEN=""
 SENHA_NOVA=0
 DOMINIO=""
@@ -65,6 +84,15 @@ Instala o DG Claw neste servidor: painel com HTTPS, Admin e a base para criar ag
   --dominio <dominio>   endereco proprio (padrao: um endereco gratuito, escolhido sozinho)
   --provedor claude|codex
                         com qual assinatura o Admin trabalha (padrao: o que estiver logado aqui)
+  --proxy-existente     para servidor que ja tem nginx, Caddy ou tunel nas portas 80 e 443: nao instala
+                        Caddy, nao mexe no ufw, deixa o DG Claw Web so em 127.0.0.1 e mostra no fim o
+                        trecho para o seu proxy. Exige --dominio. Fica valendo nas proximas execucoes
+  --sem-proxy-existente volta ao modo normal (Caddy do DG Claw) numa nova execucao
+  --porta-painel <N>    porta local do DG Claw Web, de 1024 a 65535 (padrao 8300)
+  --faixa-rede <A.B.0.0/16>
+                        faixa de IPs das redes dos agentes (padrao 10.89.0.0/16). Se a maquina ja tem
+                        podman ou docker em uso, escolha outra, por exemplo 10.91.0.0/16. Nao muda
+                        depois que ha agentes criados
   --senha-stdin         le a senha do painel do STDIN (sem esperar; erro se vier vazia ou curta)
   --novo-primeiro-acesso
                         gera um link de primeiro acesso novo mesmo que o painel ja tenha senha
@@ -97,6 +125,16 @@ parse_args() {
             --dominio=*) DOMINIO_ARG="${1#*=}"; shift ;;
             --provedor) [ $# -ge 2 ] || arg_sem_valor "$1"; PROVEDOR_ARG="$2"; shift 2 ;;
             --provedor=*) PROVEDOR_ARG="${1#*=}"; shift ;;
+            --proxy-existente)
+                if [ "$ARG_PROXY_EXISTENTE" = 0 ]; then ARG_PROXY_EXISTENTE_AMBAS=1; fi
+                ARG_PROXY_EXISTENTE=1; shift ;;
+            --sem-proxy-existente)
+                if [ "$ARG_PROXY_EXISTENTE" = 1 ]; then ARG_PROXY_EXISTENTE_AMBAS=1; fi
+                ARG_PROXY_EXISTENTE=0; shift ;;
+            --porta-painel) [ $# -ge 2 ] || arg_sem_valor "$1"; [ -n "$2" ] || arg_sem_valor "$1"; ARG_PORTA_PAINEL="$2"; shift 2 ;;
+            --porta-painel=*) ARG_PORTA_PAINEL="${1#*=}"; [ -n "$ARG_PORTA_PAINEL" ] || arg_sem_valor "--porta-painel"; shift ;;
+            --faixa-rede) [ $# -ge 2 ] || arg_sem_valor "$1"; [ -n "$2" ] || arg_sem_valor "$1"; ARG_FAIXA_REDE="$2"; shift 2 ;;
+            --faixa-rede=*) ARG_FAIXA_REDE="${1#*=}"; [ -n "$ARG_FAIXA_REDE" ] || arg_sem_valor "--faixa-rede"; shift ;;
             --ensaio)   ARG_ENSAIO=1; shift ;;
             --senha-stdin) ARG_SENHA_STDIN=1; shift ;;
             --novo-primeiro-acesso) ARG_NOVO_PRIMEIRO_ACESSO=1; shift ;;
@@ -115,6 +153,11 @@ arg_sem_valor() {
 }
 
 validar_args() {
+    # As duas flags opostas so aparecem juntas por engano; o ultimo valor ganharia em silencio.
+    if [ "$ARG_PROXY_EXISTENTE_AMBAS" = 1 ]; then
+        falha "--proxy-existente e --sem-proxy-existente foram usadas juntas." \
+            "use so uma: --proxy-existente para ficar atras do seu nginx/tunel, --sem-proxy-existente para voltar ao Caddy do DG Claw."
+    fi
     [ -n "$USUARIO" ] || falha "faltou dizer o usuario do painel (--usuario)." \
         "rode de novo com --usuario <nome>, por exemplo: sudo ./install.sh --usuario maria"
     [[ "$USUARIO" =~ ^[A-Za-z0-9._-]{1,32}$ ]] || falha "o usuario '$USUARIO' tem caracteres que nao posso aceitar." \
@@ -127,6 +170,42 @@ validar_args() {
         ""|claude|codex) ;;
         *) falha "o provedor '$PROVEDOR_ARG' nao existe." "use --provedor claude ou --provedor codex." ;;
     esac
+    if [ -n "$ARG_PORTA_PAINEL" ]; then porta_painel_exigir "$ARG_PORTA_PAINEL" "opcao --porta-painel"; fi
+    if [ -n "$ARG_FAIXA_REDE" ]; then faixa_rede_exigir "$ARG_FAIXA_REDE" "opcao --faixa-rede"; fi
+}
+
+# resolver_opcoes_rede: decide o modo, a porta do painel e a faixa de rede que valem nesta execucao.
+# A opcao da linha de comando vence; sem ela vale o que a instalacao anterior gravou no dgclaw.env
+# (o modo e "grudento": quem instalou atras de um proxy nao precisa repetir a flag em cada
+# atualizacao); sem nada, o padrao. Roda DEPOIS de carregar lib/comum.sh, porque env_valor depende
+# do DG_ETC que vem de la.
+resolver_opcoes_rede() {
+    local v
+    if [ -n "$ARG_PROXY_EXISTENTE" ]; then
+        PROXY_EXISTENTE="$ARG_PROXY_EXISTENTE"
+    else
+        v="$(env_valor DGCLAW_PROXY_EXISTENTE)"
+        case "$v" in
+            ""|0) PROXY_EXISTENTE=0 ;;
+            1) PROXY_EXISTENTE=1 ;;
+            *) falha "DGCLAW_PROXY_EXISTENTE='$v' em ${DG_ETC#"$R"}/dgclaw.env nao e 0 nem 1." \
+                   "corrija a linha para DGCLAW_PROXY_EXISTENTE=1 (atras de proxy) ou =0, ou rode com --proxy-existente / --sem-proxy-existente." ;;
+        esac
+    fi
+    if [ -n "$ARG_PORTA_PAINEL" ]; then
+        PORTA_PAINEL="$ARG_PORTA_PAINEL"
+    else
+        PORTA_PAINEL="$(env_valor DGCLAW_PORTA_PAINEL)"
+        PORTA_PAINEL="${PORTA_PAINEL:-$DG_PORTA_PAINEL_PADRAO}"
+        porta_painel_exigir "$PORTA_PAINEL" "DGCLAW_PORTA_PAINEL em ${DG_ETC#"$R"}/dgclaw.env"
+    fi
+    if [ -n "$ARG_FAIXA_REDE" ]; then
+        FAIXA_REDE="$ARG_FAIXA_REDE"
+    else
+        FAIXA_REDE="$(env_valor DGCLAW_FAIXA_REDE)"
+        FAIXA_REDE="${FAIXA_REDE:-$DG_FAIXA_REDE_PADRAO}"
+        faixa_rede_exigir "$FAIXA_REDE" "DGCLAW_FAIXA_REDE em ${DG_ETC#"$R"}/dgclaw.env"
+    fi
 }
 
 # --- utilidades -----------------------------------------------------------------
@@ -244,6 +323,18 @@ ler_senha() {
 # --- 1. checagens ---------------------------------------------------------------
 pular_checagens() { [ -n "$R" ] && [ "${DGCLAW_PULAR_CHECAGENS:-}" = 1 ]; }
 
+# porta_painel_e_nossa <nome do processo> <porta>: quem escuta na porta do painel e o DG Claw Web de
+# uma instalacao anterior? Aqui "nosso" quer dizer: processo node, a unidade dgclaw-web ativa e a
+# porta igual a que o dgclaw.env anterior guardou (8300 se nao guardou nada). Sem as tres coisas a
+# porta e de outro programa, e seguir derrubaria o painel logo depois de instalar.
+porta_painel_e_nossa() {
+    local anterior
+    [ "$1" = node ] || return 1
+    systemctl is-active --quiet dgclaw-web.service || return 1
+    anterior="$(env_valor DGCLAW_PORTA_PAINEL)"
+    [ "$2" = "${anterior:-$DG_PORTA_PAINEL_PADRAO}" ]
+}
+
 checar_portas() {
     # Imagens Ubuntu mínimas podem vir sem ss. A checagem precisa preparar a
     # ferramenta antes de usá-la, sem obrigar o dono a voltar ao terminal.
@@ -252,22 +343,182 @@ checar_portas() {
         executar_log apt-get update
         executar_log apt-get install -y --no-install-recommends iproute2
     fi
-    local linhas loc proc porta nome ocupadas=""
+    local linhas loc proc porta nome ocupadas="" painel_ocupado=""
     linhas="$(ss -ltnpH 2>/dev/null)" || falha "nao consegui rodar 'ss -ltnp' para ver as portas em uso." \
         "instale o pacote iproute2 (apt-get install -y iproute2) e rode de novo."
     while read -r _ _ _ loc _ proc; do
         [ -n "$loc" ] || continue
         porta="${loc##*:}"
-        if [ "$porta" != 80 ] && [ "$porta" != 443 ]; then continue; fi
         nome="$(printf '%s' "$proc" | sed -n 's/.*users:(("\([^"]*\)".*/\1/p')"
+        if [ "$porta" = "$PORTA_PAINEL" ]; then
+            if ! porta_painel_e_nossa "$nome" "$porta"; then
+                painel_ocupado="${nome:-processo que nao consegui identificar}"
+            fi
+            continue
+        fi
+        if [ "$porta" != 80 ] && [ "$porta" != 443 ]; then continue; fi
+        if [ "$PROXY_EXISTENTE" = 1 ]; then
+            # Modo proxy: quem ocupa a 80/443 e justamente o proxy que vai receber o DG Claw.
+            aviso "a porta $porta esta com ${nome:-um processo que nao consegui identificar}. Tudo bem: com --proxy-existente ela continua com o seu proxy, e o DG Claw fica so em 127.0.0.1:$PORTA_PAINEL."
+            continue
+        fi
         # Caddy na 80/443 e o nosso proprio servidor de uma instalacao anterior.
         if [ "$nome" = caddy ]; then continue; fi
         ocupadas="$ocupadas porta $porta (${nome:-processo que nao consegui identificar});"
     done <<<"$linhas"
     if [ -n "$ocupadas" ]; then
         falha "estas portas ja estao em uso:$ocupadas" \
-            "o HTTPS do painel precisa das portas 80 e 443. Pare o programa que as usa (por exemplo: systemctl stop nginx apache2), ou use outro servidor para ele; depois rode de novo."
+            "o HTTPS do painel precisa das portas 80 e 443. Pare o programa que as usa (por exemplo: systemctl stop nginx apache2), ou use outro servidor para ele; depois rode de novo. Se voce quer MANTER esse programa (nginx, Caddy ou tunel) como porta de entrada, rode com --proxy-existente."
     fi
+    if [ -n "$painel_ocupado" ]; then
+        falha "a porta $PORTA_PAINEL, que o DG Claw Web usa em 127.0.0.1, ja esta em uso por $painel_ocupado." \
+            "escolha outra porta livre e rode de novo, por exemplo: --porta-painel 8400. Para ver quem usa: ss -ltnp | grep :$PORTA_PAINEL"
+    fi
+    if [ "$PROXY_EXISTENTE" = 1 ]; then
+        ok "porta $PORTA_PAINEL livre em 127.0.0.1 (as portas 80 e 443 ficam com o seu proxy)"
+    else
+        ok "portas 80 e 443 livres (ou ja do Caddy) e porta $PORTA_PAINEL livre para o painel"
+    fi
+}
+
+# --- 1b. faixa de rede dos agentes ------------------------------------------------
+# agentes_existem: o agentes.json tem algum agente de verdade (tipo "agente", nao o Admin)?
+agentes_existem() {
+    [ -s "$DG_AGENTES_JSON" ] || return 1
+    grep -q '"tipo"[[:space:]]*:[[:space:]]*"agente"' "$DG_AGENTES_JSON"
+}
+
+# sugerir_faixa <subnets ocupadas, separadas por espaco>: a primeira faixa /16 livre, tentando
+# 10.91 a 10.99, depois 172.16 a 172.31 e por fim 192.168.0.0. Sai com 1 (sem imprimir nada) se
+# todas estao ocupadas: nunca sugere uma faixa que a propria checagem recusaria.
+sugerir_faixa() {
+    local f s livre
+    local candidatas=() n
+    for n in 91 92 93 94 95 96 97 98 99; do candidatas+=("10.$n.0.0/16"); done
+    for n in 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31; do candidatas+=("172.$n.0.0/16"); done
+    candidatas+=("192.168.0.0/16")
+    for f in "${candidatas[@]}"; do
+        livre=1
+        for s in $1; do
+            if cidr_sobrepoe "$s" "$f"; then livre=0; break; fi
+        done
+        if [ "$livre" = 1 ]; then printf '%s' "$f"; return 0; fi
+    done
+    return 1
+}
+
+# agente_registrado <slug>: o agentes.json tem um agente (tipo "agente") com esse slug?
+agente_registrado() {
+    [ -s "$DG_AGENTES_JSON" ] || return 1
+    if tem_jq; then
+        jq -e --arg s "$1" '[.agentes[]? | select(.tipo == "agente" and .slug == $s)] | length > 0' "$DG_AGENTES_JSON" >/dev/null 2>&1
+    else
+        grep -q "\"slug\"[[:space:]]*:[[:space:]]*\"$1\"" "$DG_AGENTES_JSON"
+    fi
+}
+
+# rede_e_nossa <nome> <label dgclaw.v1>: a rede do podman e do DG Claw v1? Sim se tem o label
+# dgclaw.v1=1 (o que o dgclaw agente criar poe), se e a sonda do teste de isolamento, ou se e
+# exatamente dgclaw-<slug> de um agente do agentes.json (redes criadas antes do label). Outro sistema
+# pode ter redes que tambem comecam com "dgclaw-" (dgclaw-net-*): essas NAO sao nossas e entram na
+# checagem de conflito como qualquer outra.
+rede_e_nossa() {
+    [ "$2" = 1 ] && return 0
+    [ "$1" = dgclaw-sonda ] && return 0
+    [[ "$1" == dgclaw-?* ]] && agente_registrado "${1#dgclaw-}"
+}
+
+# checar_faixa_rede: antes de mexer em qualquer coisa, confere que a faixa dos agentes
+# (1) nao troca de lugar debaixo de agentes que ja existem e (2) nao pisa em rede de outro sistema
+# (podman fora do DG Claw, docker, VPN, a rede do provedor). Duas redes na mesma faixa fazem o
+# trafego dos agentes ir parar no lugar errado, e isso so aparece depois, como erro estranho.
+# NAO e pulada em pular_checagens: nos testes roda com `podman` e `ip` falsos no PATH.
+checar_faixa_rede() {
+    passo "Conferindo a faixa de rede dos agentes ($FAIXA_REDE)"
+    local anterior nome linha subs iface rotulo resto s dev destino i
+    local ifaces_dg=" " subs_dg=" " fora_dg="" conflitos="" vistas=""
+    local -a campos
+    anterior="$(env_valor DGCLAW_FAIXA_REDE)"
+    anterior="${anterior:-$DG_FAIXA_REDE_PADRAO}"
+
+    if agentes_existem && [ "$anterior" != "$FAIXA_REDE" ]; then
+        falha "os agentes que ja existem estao na faixa $anterior e voce pediu $FAIXA_REDE." \
+            "trocar a faixa exige recriar a rede de cada agente, e eu nao faco isso em silencio. Rode de novo sem --faixa-rede (ou com --faixa-rede $anterior). Se precisa mesmo da faixa nova, remova os agentes antes (sudo dgclaw agente remover <agente> guarda a casa em /var/lib/dgclaw/aposentados/) e instale de novo."
+    fi
+
+    if command -v podman >/dev/null 2>&1; then
+        while IFS= read -r nome; do
+            [ -n "$nome" ] || continue
+            if ! linha="$(podman network inspect "$nome" --format '{{range .Subnets}}{{.Subnet}} {{end}}|{{.NetworkInterface}}|{{index .Labels "dgclaw.v1"}}' 2>&1)"; then
+                aviso "nao consegui ler a rede '$nome' do podman ($(printf '%s' "$linha" | head -n 1)), entao nao conferi se ela pisa na faixa $FAIXA_REDE."
+                continue
+            fi
+            subs="${linha%%|*}"; resto="${linha#*|}"
+            iface="${resto%%|*}"; rotulo="${resto#*|}"
+            iface="${iface//[[:space:]]/}"; rotulo="${rotulo//[[:space:]]/}"
+            if rede_e_nossa "$nome" "$rotulo"; then
+                # Rede de agente do DG Claw v1: o que importa e se ela esta dentro da faixa pedida.
+                ifaces_dg+="$iface "
+                subs_dg+="$subs "
+                if [ "$nome" = dgclaw-sonda ]; then continue; fi
+                for s in $subs; do
+                    [[ "$s" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/ ]] || continue
+                    if ! cidr_sobrepoe "$s" "$FAIXA_REDE"; then fora_dg+=" $nome ($s);"; fi
+                done
+                continue
+            fi
+            for s in $subs; do
+                [[ "$s" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/ ]] || continue
+                vistas+=" $s"
+                if cidr_sobrepoe "$s" "$FAIXA_REDE"; then conflitos+=" a rede '$nome' do podman usa $s;"; fi
+            done
+        done < <(podman network ls --format '{{.Name}}')
+    else
+        info "o podman ainda nao esta instalado, entao nao ha redes dele para conferir."
+    fi
+
+    if [ -n "$fora_dg" ]; then
+        falha "ja existem redes de agentes do DG Claw fora da faixa $FAIXA_REDE:$fora_dg" \
+            "trocar a faixa exige recriar os agentes, e eu nao faco isso em silencio. Rode de novo sem --faixa-rede (ou com a faixa em que eles estao), ou remova os agentes antes (sudo dgclaw agente remover <agente>)."
+    fi
+
+    if command -v ip >/dev/null 2>&1; then
+        local rotas
+        if rotas="$(ip -4 route show 2>&1)"; then
+            while IFS= read -r linha; do
+                read -ra campos <<<"$linha"
+                destino="${campos[0]:-}"
+                [[ "$destino" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+(/[0-9]+)?$ ]] || continue
+                dev=""
+                for ((i = 1; i + 1 < ${#campos[@]}; i++)); do
+                    if [ "${campos[$i]}" = dev ]; then dev="${campos[$((i + 1))]}"; break; fi
+                done
+                # Rota de uma rede de agente que o DG Claw ja criou: e nossa, por interface ou por sub-rede.
+                if [ -n "$dev" ] && [[ "$ifaces_dg" == *" $dev "* ]]; then continue; fi
+                if [[ "$subs_dg" == *" $destino "* ]]; then continue; fi
+                vistas+=" $destino"
+                if cidr_sobrepoe "$destino" "$FAIXA_REDE"; then
+                    conflitos+=" a rota $destino${dev:+ (interface $dev)} ja ocupa parte dela;"
+                fi
+            done <<<"$rotas"
+        else
+            aviso "nao consegui rodar 'ip -4 route show' ($(printf '%s' "$rotas" | head -n 1)), entao nao conferi as rotas contra a faixa $FAIXA_REDE."
+        fi
+    else
+        aviso "o comando ip nao existe nesta maquina, entao nao conferi as rotas contra a faixa $FAIXA_REDE."
+    fi
+
+    if [ -n "$conflitos" ]; then
+        local sugestao
+        if sugestao="$(sugerir_faixa "$vistas")"; then
+            sugestao="escolha uma faixa livre e rode de novo, por exemplo: --faixa-rede $sugestao."
+        else
+            sugestao="nao achei nenhuma faixa /16 privada livre entre 10.91 a 10.99, 172.16 a 172.31 e 192.168.0.0, porque rotas e redes largas (uma VPN em 10.0.0.0/8, por exemplo) cobrem tudo. Libere uma faixa ou use outra maquina."
+        fi
+        falha "a faixa $FAIXA_REDE ja e usada por outro sistema:$conflitos" \
+            "$sugestao Para ver o que esta ocupado: ip -4 route; podman network ls."
+    fi
+    ok "faixa $FAIXA_REDE livre (cada agente ganha uma rede /24 dentro dela)"
 }
 
 # Confere a versao do sistema lendo "$R/etc/os-release" (em producao R e vazio, entao e o
@@ -296,6 +547,8 @@ checar_maquina() {
         # Raiz falsa dos testes: o resto e pulado, mas a versao do sistema ainda vale conferir
         # quando o teste forneceu um os-release.
         if [ -r "$R/etc/os-release" ]; then checar_versao_so; fi
+        # Os testes das portas usam o `ss` falso: so entram se o teste pedir.
+        if [ "${DGCLAW_TESTAR_PORTAS:-}" = 1 ]; then checar_portas; fi
         info "checagens da maquina puladas (teste com raiz falsa)."
         return 0
     fi
@@ -314,7 +567,6 @@ checar_maquina() {
         "libere espaco em / ou use um servidor com disco maior (a imagem dos agentes ocupa varios GB)."
     ok "disco livre: $(( disco_kb / 1048576 )) GB"
     checar_portas
-    ok "portas 80 e 443 livres (ou ja do Caddy)"
 }
 
 # --- 2. pacotes -----------------------------------------------------------------
@@ -350,6 +602,9 @@ instalar_pacotes() {
     passo "Instalando os pacotes"
     local base=(curl ca-certificates gnupg) faltam=() p
     local todos=(podman uidmap git jq ufw dnsutils rsync python3 build-essential)
+    # Atras de um proxy existente quem manda no HTTPS e no firewall de entrada e a pessoa: nada de
+    # Caddy nem de ufw instalados por nos (os demais pacotes sao os mesmos).
+    if [ "$PROXY_EXISTENTE" = 1 ]; then todos=(podman uidmap git jq dnsutils rsync python3 build-essential); fi
     local precisa_caddy=0 precisa_node=0 repos_novos=0
     local chave_caddy="$R/usr/share/keyrings/caddy-stable-archive-keyring.gpg"
     local lista_caddy="$R/etc/apt/sources.list.d/caddy-stable.list"
@@ -375,7 +630,7 @@ instalar_pacotes() {
                "rode apt-get update e confira com: apt-cache policy slirp4netns passt. Se nenhum aparecer, use um servidor com Ubuntu 24.04." ;;
     esac
 
-    if ! pacote_instalado caddy; then precisa_caddy=1; fi
+    if [ "$PROXY_EXISTENTE" != 1 ] && ! pacote_instalado caddy; then precisa_caddy=1; fi
     local major
     major="$(node -v 2>/dev/null | sed -n 's/^v\([0-9]*\)\..*/\1/p')" || major=""
     if [ "${major:-0}" -lt 22 ]; then precisa_node=1; fi
@@ -388,6 +643,8 @@ instalar_pacotes() {
             repos_novos=1
         fi
         todos+=(caddy)
+    elif [ "$PROXY_EXISTENTE" = 1 ]; then
+        info "modo proxy existente: o Caddy e o ufw nao sao instalados (e, se ja existirem, ficam como estao)."
     else
         ok "caddy ja instalado"
     fi
@@ -432,6 +689,12 @@ escolher_dominio() {
         DOMINIO="$atual"
         ok "mantendo o dominio da instalacao anterior: $DOMINIO"
         return 0
+    fi
+    # Atras do seu proxy, o nome precisa existir ANTES: o nginx ou o tunel e que respondem por ele.
+    # Os enderecos gratuitos (sslip.io, hstgr.cloud) so funcionam apontando para o Caddy do DG Claw.
+    if [ "$PROXY_EXISTENTE" = 1 ]; then
+        falha "no modo --proxy-existente o dominio e obrigatorio: o seu nginx ou tunel precisa de um nome para responder, e eu nao escolho um por voce." \
+            "informe o nome que voce vai apontar para o proxy, por exemplo: sudo ./install.sh --usuario $USUARIO --dominio painel.minhaempresa.com.br --proxy-existente"
     fi
     ip="$(ip_publico)" || falha "nao consegui descobrir o IP publico deste servidor (api.ipify.org e ifconfig.me nao responderam)." \
         "confira se o servidor tem internet, ou informe o endereco com --dominio <dominio>."
@@ -803,6 +1066,9 @@ instalar_codigo() {
     gravar_dgclaw_env DGCLAW_IMAGEM "$imagem"
     gravar_dgclaw_env DGCLAW_PROVEDOR_ADMIN "$PROVEDOR"
     gravar_dgclaw_env DGCLAW_USUARIO "$USUARIO"
+    gravar_dgclaw_env DGCLAW_PROXY_EXISTENTE "$PROXY_EXISTENTE"
+    gravar_dgclaw_env DGCLAW_PORTA_PAINEL "$PORTA_PAINEL"
+    gravar_dgclaw_env DGCLAW_FAIXA_REDE "$FAIXA_REDE"
     registrar_clone
 }
 
@@ -832,9 +1098,14 @@ registrar_clone() {
 
 # --- 5. caddy -------------------------------------------------------------------
 configurar_caddy() {
+    if [ "$PROXY_EXISTENTE" = 1 ]; then
+        passo "Caddy: nao se aplica (proxy existente)"
+        info "o HTTPS de $DOMINIO fica com o seu proxy (nginx, Caddy ou tunel). Nao escrevi nada em /etc/caddy e nao mexi no servico caddy."
+        return 0
+    fi
     passo "Configurando o Caddy (HTTPS automatico para $DOMINIO)"
     local cf="$R/etc/caddy/Caddyfile"
-    escrever_site_caddy "$DOMINIO"
+    escrever_site_caddy "$DOMINIO" "$PORTA_PAINEL"
     executar_log caddy validate --config "$cf" --adapter caddyfile
     if systemctl is-active --quiet caddy; then
         executar systemctl reload caddy
@@ -844,19 +1115,35 @@ configurar_caddy() {
 }
 
 # --- 6. firewall ----------------------------------------------------------------
+ufw_ativo_pelo_arquivo() { grep -qi '^ENABLED=yes' "$R/etc/ufw/ufw.conf" 2>/dev/null; }
+
 configurar_firewall() {
     passo "Configurando o firewall"
     local st=""
-    executar_log ufw allow 22/tcp
-    executar_log ufw allow 80/tcp
-    executar_log ufw allow 443/tcp
-    st="$(ufw status 2>/dev/null)" || st="" # sem resposta = trata como desligado e liga abaixo
-    if [[ "$st" == *"Status: active"* ]]; then
-        ok "ufw ja estava ligado; as portas 22, 80 e 443 estao liberadas"
+    if [ "$PROXY_EXISTENTE" = 1 ]; then
+        # Modo proxy: o firewall de entrada e da pessoa. Nenhum comando ufw roda (nem para ler o
+        # estado: o ufw.conf diz se ele esta ligado). Abrir a 80/443 ou ligar o ufw sozinho podia
+        # cortar o SSH de quem usa outra porta, ou liberar o que ela fechou de proposito.
+        if ufw_ativo_pelo_arquivo; then
+            info "o ufw esta ligado e ficou como estava: nao criei nenhuma regra nova. A 80 e a 443 sao do seu proxy; o DG Claw escuta so em 127.0.0.1:$PORTA_PAINEL."
+        else
+            info "o ufw esta desligado ou nao existe aqui, e continua assim: nao liguei nem instalei firewall de entrada. Se voce usa outro firewall, ele e quem decide as portas 80 e 443."
+        fi
     else
-        aviso "vou ligar o firewall com a porta 22 (SSH) aberta, para voce nao perder o acesso ao servidor. Se o seu SSH usa outra porta, libere-a antes com: ufw allow <porta>/tcp"
-        executar_log ufw --force enable
+        executar_log ufw allow 22/tcp
+        executar_log ufw allow 80/tcp
+        executar_log ufw allow 443/tcp
+        st="$(ufw status 2>/dev/null)" || st="" # sem resposta = trata como desligado e liga abaixo
+        if [[ "$st" == *"Status: active"* ]]; then
+            ok "ufw ja estava ligado; as portas 22, 80 e 443 estao liberadas"
+        else
+            aviso "vou ligar o firewall com a porta 22 (SSH) aberta, para voce nao perder o acesso ao servidor. Se o seu SSH usa outra porta, libere-a antes com: ufw allow <porta>/tcp"
+            executar_log ufw --force enable
+        fi
     fi
+
+    # A cerca dos containers vale nos dois modos: ela isola os agentes do servidor e das outras
+    # redes e nao tem nada a ver com as portas 80 e 443.
 
     cat <<'FIM' | escrever_arquivo "$DG_UNITS/dgclaw-firewall.service" 644
 [Unit]
@@ -1007,7 +1294,8 @@ configurar_web() {
     if fonte_tem web/package.json; then
         npm_em "$DG_APP/web" ci --omit=dev
     fi
-    cat <<'FIM' | escrever_arquivo "$DG_UNITS/dgclaw-web.service" 644
+    # Heredoc SEM aspas so para a porta entrar; o resto do texto nao tem nenhum $.
+    cat <<FIM | escrever_arquivo "$DG_UNITS/dgclaw-web.service" 644
 [Unit]
 Description=DG Claw Web (painel e chat)
 After=network-online.target
@@ -1018,7 +1306,7 @@ Type=simple
 User=root
 WorkingDirectory=/opt/dgclaw/app/web
 Environment=DGCLAW_WEB_HOST=127.0.0.1
-Environment=DGCLAW_WEB_PORT=8300
+Environment=DGCLAW_WEB_PORT=$PORTA_PAINEL
 Environment=DGCLAW_AGENTES=/etc/dgclaw/agentes.json
 Environment=DGCLAW_WEB_ENV=/etc/dgclaw/web.env
 Environment=DGCLAW_WEB_DATA=/var/lib/dgclaw/web
@@ -1399,19 +1687,29 @@ testar_fim() {
     fi
 
     if [ "$ENSAIO" = 1 ]; then
-        info "[ensaio] testaria https://$DOMINIO/, http://127.0.0.1:8300/ e http://127.0.0.1:4300/api/saude e daria o primeiro boot ao Admin"
+        if [ "$PROXY_EXISTENTE" = 1 ]; then
+            info "[ensaio] testaria http://127.0.0.1:$PORTA_PAINEL/ e http://127.0.0.1:4300/api/saude (o HTTPS de $DOMINIO e do seu proxy, nao testo) e daria o primeiro boot ao Admin"
+        else
+            info "[ensaio] testaria https://$DOMINIO/, http://127.0.0.1:$PORTA_PAINEL/ e http://127.0.0.1:4300/api/saude e daria o primeiro boot ao Admin"
+        fi
         return 0
     fi
 
-    info "esperando o certificado HTTPS de $DOMINIO (ate ${espera}s)..."
-    esperar_http "$espera" --resolve "$DOMINIO:443:127.0.0.1" "https://$DOMINIO/" \
-        || falha "https://$DOMINIO/ nao respondeu em ${espera}s." \
-                 "confira se as portas 80 e 443 estao abertas no firewall do provedor e se $DOMINIO aponta para este servidor; veja o motivo com: journalctl -u caddy -n 30. Depois rode ./install.sh de novo."
-    ok "HTTPS respondendo em $DOMINIO"
+    if [ "$PROXY_EXISTENTE" = 1 ]; then
+        # O nginx ou o tunel ainda nao foram apontados para o DG Claw (isso e o ultimo passo, na
+        # mao da pessoa), entao testar https://dominio aqui falharia sempre.
+        info "modo proxy existente: nao testo https://$DOMINIO/, porque o seu proxy ainda nao aponta para o DG Claw."
+    else
+        info "esperando o certificado HTTPS de $DOMINIO (ate ${espera}s)..."
+        esperar_http "$espera" --resolve "$DOMINIO:443:127.0.0.1" "https://$DOMINIO/" \
+            || falha "https://$DOMINIO/ nao respondeu em ${espera}s." \
+                     "confira se as portas 80 e 443 estao abertas no firewall do provedor e se $DOMINIO aponta para este servidor; veja o motivo com: journalctl -u caddy -n 30. Depois rode ./install.sh de novo."
+        ok "HTTPS respondendo em $DOMINIO"
+    fi
 
     if fonte_tem web/server.js; then
-        esperar_http 30 http://127.0.0.1:8300/ \
-            || falha "o DG Claw Web nao respondeu em http://127.0.0.1:8300/." \
+        esperar_http 30 "http://127.0.0.1:$PORTA_PAINEL/" \
+            || falha "o DG Claw Web nao respondeu em http://127.0.0.1:$PORTA_PAINEL/." \
                      "veja o motivo com: journalctl -u dgclaw-web -n 30"
         ok "DG Claw Web respondendo"
     fi
@@ -1425,11 +1723,21 @@ testar_fim() {
 }
 
 mensagem_final() {
-    printf '\n%sSeu DG Claw está instalado e configurado em https://%s.%s\n' "$_C_OK" "$DOMINIO" "$_C_0"
-    printf '   Painel:   https://%s/\n' "$DOMINIO"
+    if [ "$PROXY_EXISTENTE" = 1 ]; then
+        printf '\n%sSeu DG Claw está pronto, atrás do seu proxy, e escuta só em http://127.0.0.1:%s%s\n' "$_C_OK" "$PORTA_PAINEL" "$_C_0"
+        printf '   Falta um passo seu: apontar o proxy para ele. Escolha o seu caso e copie o trecho.\n'
+        imprimir_trechos_proxy "$DOMINIO" "$PORTA_PAINEL"
+        printf '\n   Painel (depois que o proxy estiver apontando): https://%s/\n' "$DOMINIO"
+    else
+        printf '\n%sSeu DG Claw está instalado e configurado em https://%s.%s\n' "$_C_OK" "$DOMINIO" "$_C_0"
+        printf '   Painel:   https://%s/\n' "$DOMINIO"
+    fi
     printf '   Usuario:  %s\n' "$USUARIO"
     if [ -n "$PRIMEIRO_ACESSO_TOKEN" ]; then
         printf '\n   Primeiro acesso (uso único, vale 30 min): https://%s/primeiro-acesso#%s\n' "$DOMINIO" "$PRIMEIRO_ACESSO_TOKEN"
+        if [ "$PROXY_EXISTENTE" = 1 ]; then
+            printf '   Esse link só abre depois que o seu proxy estiver apontando para o DG Claw, e vale 30 min.\n'
+        fi
         printf '   Abra o link de primeiro acesso, cadastre sua senha e você já entra no chat do Admin.\n'
         printf '   Se o link expirar, gere outro com: sudo dgclaw primeiro-acesso\n\n'
         PRIMEIRO_ACESSO_TOKEN=""
@@ -1484,10 +1792,13 @@ main() {
     ENSAIO="$ARG_ENSAIO"
     LOG_INSTALAR="$DG_LOG/instalar.log"
     validar_args
+    resolver_opcoes_rede
     if [ "$ENSAIO" = 1 ]; then printf 'ENSAIO: nada sera mudado neste servidor; so vou mostrar o que faria.\n'; fi
+    if [ "$PROXY_EXISTENTE" = 1 ]; then info "modo proxy existente: o HTTPS fica com o seu nginx/tunel; DG Claw Web em 127.0.0.1:$PORTA_PAINEL."; fi
 
     ler_senha
     checar_maquina
+    checar_faixa_rede
     localizar_claude
     detectar_provedor
     exigir_claude

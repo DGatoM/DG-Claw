@@ -5,4 +5,17 @@ if [ "${1:-}" = image ] && [ "${2:-}" = exists ]; then
     [ "${DGCLAW_STUB_IMAGEM_PRONTA:-0}" = 1 ]
     exit $?
 fi
+# As redes do podman vem de DGCLAW_STUB_REDES: uma por linha, "nome|sub-rede [sub-rede]|interface|label dgclaw.v1 (opcional)".
+# `network ls` devolve os nomes; `network inspect <nome>` devolve "sub-redes |interface|label", o mesmo
+# formato que o instalador pede ao podman de verdade.
+if [ "${1:-}" = network ] && [ "${2:-}" = ls ]; then
+    [ -n "${DGCLAW_STUB_REDES:-}" ] && printf '%s\n' "$DGCLAW_STUB_REDES" | cut -d'|' -f1
+    exit 0
+fi
+if [ "${1:-}" = network ] && [ "${2:-}" = inspect ]; then
+    linha="$(printf '%s\n' "${DGCLAW_STUB_REDES:-}" | grep -m1 "^$3|")" || { echo "Error: network not found: $3" >&2; exit 1; }
+    IFS='|' read -r _ subs iface rotulo <<<"$linha"
+    printf '%s |%s|%s\n' "$subs" "$iface" "${rotulo:-}"
+    exit 0
+fi
 exit 0

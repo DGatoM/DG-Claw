@@ -65,6 +65,67 @@ aplicá-las. Com `--com-imagem`, a imagem dos futuros agentes é construída enq
 e conhece o painel (de 10 a 20 minutos na primeira vez); acompanhe com `dgclaw imagem status`. Sem essa
 opção, o Admin faz a preparação quando você cria o primeiro agente, e a espera acontece nessa hora.
 
+## Opções do instalador
+
+| Opção | O que faz |
+| --- | --- |
+| `--usuario <nome>` | Usuário do painel (obrigatório). |
+| `--dominio <nome>` | Endereço próprio do painel (padrão: um endereço gratuito, escolhido sozinho). |
+| `--provedor claude\|codex` | Com qual assinatura o Admin trabalha (padrão: o que estiver logado no servidor). |
+| `--proxy-existente` | Para servidor que já tem nginx, Caddy ou túnel nas portas 80 e 443. Exige `--dominio`. Fica valendo nas próximas execuções. |
+| `--sem-proxy-existente` | Volta ao modo normal (Caddy do DG Claw) numa nova execução. |
+| `--porta-painel <N>` | Porta local do DG Claw Web, de 1024 a 65535 (padrão 8300). |
+| `--faixa-rede <A.B.0.0/16>` | Faixa de IPs das redes dos agentes (padrão 10.89.0.0/16). Não muda depois que há agentes criados. |
+| `--senha-stdin`, `--novo-primeiro-acesso` | Senha pela entrada padrão, ou um link de primeiro acesso novo. |
+| `--ensaio` | Mostra o que faria, sem mudar nada. |
+| `--com-imagem`, `--sem-imagem` | Constrói a imagem dos agentes já na instalação, ou deixa para o primeiro agente. |
+
+## Instalar numa VPS que já tem nginx (ou outro proxy)
+
+Se o servidor já usa as portas 80 e 443 (um nginx com outros sites, um Caddy seu, um túnel da
+Cloudflare), o instalador normal para com a mensagem de que elas estão ocupadas. Use o modo de proxy
+existente:
+
+```sh
+sudo ./install.sh --usuario maria --dominio painel.minhaempresa.com.br --proxy-existente --faixa-rede 10.91.0.0/16
+```
+
+O que muda nesse modo:
+
+- **O HTTPS é do seu proxy.** O instalador não instala nem configura o Caddy (se ele já existe, não é
+  tocado) e não mexe no ufw: nenhuma regra nova, nada ligado. As portas 80 e 443 ocupadas viram só um
+  aviso.
+- **O DG Claw Web escuta somente em `127.0.0.1:8300`.** Para outra porta, use `--porta-painel 8400`. Se a
+  porta estiver em uso por outro programa, o instalador para e pede outra.
+- **O domínio é obrigatório.** O nginx ou o túnel precisa de um nome para responder, e os endereços
+  gratuitos (sslip.io, hstgr.cloud) só funcionam apontando para o Caddy do DG Claw.
+- **No fim, o instalador imprime os trechos prontos para copiar:** o bloco `server` do nginx (com limite
+  de upload, WebSocket e respostas em streaming) e as linhas do `ingress` do túnel da Cloudflare, mais o
+  comando do DNS. Para o nginx: salve em `/etc/nginx/sites-available/dgclaw`, ligue com um link em
+  `sites-enabled`, rode `nginx -t && systemctl reload nginx` e peça o HTTPS com `certbot --nginx -d <dominio>`.
+- **O link de primeiro acesso só abre depois que o proxy estiver apontando** para o DG Claw, e vale 30
+  minutos. Se expirar, `sudo dgclaw primeiro-acesso` gera outro.
+- **O modo fica guardado** (`DGCLAW_PROXY_EXISTENTE=1` no `dgclaw.env`), então rodar o instalador de novo
+  e `sudo dgclaw atualizar` continuam atrás do seu proxy sem repetir a opção. Para voltar ao Caddy do DG
+  Claw: `sudo ./install.sh --usuario maria --sem-proxy-existente`.
+- `sudo dgclaw dominio` mostra o domínio, a porta e os trechos de novo, e `sudo dgclaw dominio trocar
+  <nome>` só grava o nome e imprime os trechos novos (o proxy você atualiza). Fora isso, a cerca de rede
+  que isola os agentes do servidor é instalada igual nos dois modos.
+
+### Já tenho podman ou docker neste servidor: use `--faixa-rede`
+
+Cada agente ganha uma rede própria dentro da faixa 10.89.0.0/16 (a rede do agente número 1 é
+10.89.1.0/24, a do 2 é 10.89.2.0/24 e assim por diante). Se o servidor já tem podman, docker, uma VPN ou
+a rede do provedor usando parte dessa faixa, os pacotes dos agentes podem ir parar no lugar errado.
+Por isso o instalador confere as redes do podman e as rotas da máquina antes de mexer em qualquer coisa,
+e recusa uma faixa que já esteja ocupada, dizendo qual rede ou rota está no caminho.
+
+Para quem já tem podman ou docker, a sugestão é `--faixa-rede 10.91.0.0/16` (a 10.89 é a que as
+instalações existentes do DG Claw usam). A faixa precisa ser um `/16` privado: `10.x.0.0/16`,
+`172.16.0.0/16` até `172.31.0.0/16` ou `192.168.0.0/16`. Ela fica guardada em `DGCLAW_FAIXA_REDE` no
+`dgclaw.env`. Com agentes já criados, o instalador não troca a faixa em silêncio: trocar exige recriar a
+rede de cada agente, então ele para e explica.
+
 ## Primeiro acesso
 
 Abra o **link de primeiro acesso** no navegador, cadastre a senha e você já entra no chat do **Admin**.
