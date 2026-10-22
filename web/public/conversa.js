@@ -4723,6 +4723,10 @@ function passosTutorial() {
       oque: 'O clipe serve para mandar fotos, vídeos, áudios e PDFs para o agente.',
       como: 'Toque nele e escolha os arquivos (até 10 por mensagem), ou cole uma imagem direto no campo. Cada arquivo sobe em segundo plano e a mensagem sai quando todos estiverem prontos.',
       porque: 'Muita coisa é mais fácil de mostrar do que de explicar: um print de erro, um documento, uma foto.' },
+    { alvo: document.querySelector('.dgcofre') ? '.dgcofre' : '#chat', titulo: 'A caixa de cofre',
+      oque: 'Quando ' + nome + ' precisa de uma senha ou chave de um serviço (OpenAI, Hostinger, Groq...), ele mostra aqui um cartão com um campo de senha, em vez de pedir para você colar a chave na conversa.',
+      como: 'Cole a chave no campo e toque em Salvar no cofre. O valor vai direto para o cofre de ' + nome + ' e não entra na conversa nem chega a ele; só o nome e o final da chave são avisados. Salvar reinicia ' + nome + ' para a chave valer, e a conversa continua de onde parou. O olho mostra o que você colou, e o Esc limpa o campo.',
+      porque: 'Tudo o que passa pela conversa fica guardado no histórico. Aqui a chave nunca passa por ele, e você pode trocar a chave quando quiser: o cartão avisa se já existe uma guardada.' },
   ];
   if (caps.microfone) {
     passos.push({ alvo: '#btnMic', titulo: 'O microfone',
