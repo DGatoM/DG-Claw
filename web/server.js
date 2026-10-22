@@ -114,6 +114,8 @@ function criarServidor(opcoes) {
   caixa.permitir('/api/v1/uso');
   const avisos = criarAvisos({ config, registro, runner, caixa, log, agora: opcoes.agora });
   caixa.permitir('/api/v1/avisos');
+  // Só o caminho exato da documentação do cofre (os templates mandam o agente ler); o cofre em si não é rota da caixa.
+  caixa.permitir('/api/v1/cofre/docs.md');
   // Aviso de versão nova: só o dono, pelo painel. De propósito NÃO entra em caixa.permitir (agente em container não usa).
   const estados = criarEstados({ conversa, naoLidas, registro, log });
   const prefsAtencao = criarPrefsAtencao({ arquivo: path.join(config.dataDir, 'push', 'preferencias.json'), log });
