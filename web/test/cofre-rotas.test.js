@@ -33,9 +33,10 @@ function falso(resposta) {
 
 async function cenario(opcoes) {
   const o = opcoes || {};
-  const painel = falso();
+  const painel = falso(o.painelResposta ? () => o.painelResposta : undefined);
   const runner = falso((req) => {
     if (req.url === '/api/provedor' && req.method === 'POST') return o.runnerResposta || { status: 200, corpo: { ok: true, rotulo: 'Codex, pela chave de API' } };
+    if (req.url === '/api/agents/a2/input' && req.method === 'POST') return { status: 202, corpo: { ok: true } };
     if (req.url === '/api/agents/a1/input' && req.method === 'POST') return o.inputResposta ? o.inputResposta() : { status: 202, corpo: { ok: true } };
     return { status: 404, corpo: { error: 'sem rota' } };
   });
@@ -253,6 +254,7 @@ test('agente sem cofre_arquivo continua tendo o transcrever encaminhado ao paine
   } finally { await s.fechar(); }
 });
 
+const entregasDe = (s, id) => s.runner.visto.filter((v) => v.url === `/api/agents/${id}/input`).map((v) => JSON.parse(v.corpo));
 const entregas = (s) => s.runner.visto.filter((v) => v.url === '/api/agents/a1/input').map((v) => JSON.parse(v.corpo));
 const esperar = async (cond, ms = 2000) => { const ate = Date.now() + ms; while (!cond() && Date.now() < ate) await new Promise((r) => setTimeout(r, 10)); };
 
@@ -320,4 +322,54 @@ test('avisar: entrega que falha é tentada de novo, cada falha vai ao log, e a d
     assert.equal(entregas(d).length, 5);
     assert.ok(!d.t.log.texto().includes(OUTRA));
   } finally { await d.fechar(); }
+});
+
+// ── agente legado (sem cofre_arquivo): quem guarda é o painel; o aviso sai do Web ──
+function cenarioLegado(respostaPainel) {
+  return cenario({ painelResposta: respostaPainel });
+}
+
+test('legado: painel guarda com sucesso e avisar:true entrega o texto montado da resposta do painel', async () => {
+  const s = await cenarioLegado({ status: 200, corpo: { ok: true, envName: 'OPENAI_API_KEY', ultimos4: 'bbbb' } });
+  try {
+    const r = await s.t.c.post('/p/velha/api/cofre', { json: { envName: 'FORJADO', valor: OUTRA, avisar: true, texto: 'FORJADO' } });
+    assert.equal(r.status, 200, r.texto);
+    await esperar(() => entregasDe(s, 'a2').length >= 1);
+    const e = entregasDe(s, 'a2');
+    assert.equal(e.length, 1);
+    assert.match(e[0].text, />\[cofre\] OPENAI_API_KEY guardada \(final bbbb\)\.<\/dgchat>$/);
+    assert.ok(!e[0].text.includes('FORJADO'));
+    assert.ok(!JSON.stringify(e).includes(OUTRA) && !s.t.log.texto().includes(OUTRA));
+    assert.equal(JSON.parse(s.painel.visto[0].corpo).valor, OUTRA, 'o painel recebeu o corpo intacto');
+  } finally { await s.fechar(); }
+});
+
+test('legado: sem avisar:true nada é entregue', async () => {
+  const s = await cenarioLegado({ status: 200, corpo: { ok: true, envName: 'OPENAI_API_KEY', ultimos4: 'bbbb' } });
+  try {
+    const r = await s.t.c.post('/p/velha/api/cofre', { json: { envName: 'OPENAI_API_KEY', valor: OUTRA } });
+    assert.equal(r.status, 200);
+    await new Promise((x) => setTimeout(x, 100));
+    assert.equal(entregasDe(s, 'a2').length, 0);
+  } finally { await s.fechar(); }
+});
+
+test('legado: resposta de erro do painel não entrega nada', async () => {
+  const s = await cenarioLegado({ status: 400, corpo: { error: 'Chave inválida' } });
+  try {
+    const r = await s.t.c.post('/p/velha/api/cofre', { json: { envName: 'OPENAI_API_KEY', valor: OUTRA, avisar: true } });
+    assert.equal(r.status, 400);
+    await new Promise((x) => setTimeout(x, 100));
+    assert.equal(entregasDe(s, 'a2').length, 0);
+  } finally { await s.fechar(); }
+});
+
+test('legado: reinício que falhou no painel (erro com guardado) avisa com a frase de não aplicado', async () => {
+  const s = await cenarioLegado({ status: 500, corpo: { error: 'A chave foi guardada. falhou', guardado: { ok: true, envName: 'OPENAI_API_KEY', ultimos4: 'bbbb' } } });
+  try {
+    const r = await s.t.c.post('/p/velha/api/cofre', { json: { envName: 'OPENAI_API_KEY', valor: OUTRA, aplicar: true, avisar: true } });
+    assert.equal(r.status, 500);
+    await esperar(() => entregasDe(s, 'a2').length >= 1);
+    assert.match(entregasDe(s, 'a2')[0].text, /guardada \(final bbbb\)\. O agente ainda não reiniciou/);
+  } finally { await s.fechar(); }
 });

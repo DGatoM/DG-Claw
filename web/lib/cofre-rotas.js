@@ -342,7 +342,36 @@ function criarCofreRotas({ config, runner, cofre, voz, log, entregar, esperaAvis
     }
   }
 
-  return { casa, tratar };
+  /** O pedido é o POST/PUT de guardar chave de um agente legado (sem cofre_arquivo)? O painel dele guarda. */
+  function casaLegado(req, slug) {
+    if (req.method !== 'POST' && req.method !== 'PUT') return false;
+    const bruto = String(req.url || '').split('?')[0];
+    const prefixo = `/p/${slug}`;
+    if (!bruto.startsWith(prefixo)) return false;
+    return bruto.slice(prefixo.length).toLowerCase().replace(/\/+$/, '') === '/api/cofre';
+  }
+
+  /**
+   * Agente legado: o painel guardou a chave e respondeu; se o navegador pediu `avisar === true`, o aviso sai
+   * daqui, montado só com a RESPOSTA do painel (envName e ultimos4), nunca com o corpo do navegador.
+   * Só avisa quando a chave ficou guardada: 2xx, ou erro do `aplicar` que traz `guardado`.
+   */
+  function avisarLegado(agente, corpoPedido, status, corpoResposta) {
+    if (typeof entregar !== 'function') return;
+    let pedido; let resp;
+    try { pedido = JSON.parse(corpoPedido.toString('utf8')); } catch (_) { return; }
+    if (!pedido || pedido.avisar !== true) return;
+    try { resp = JSON.parse(corpoResposta.toString('utf8')); } catch (_) { resp = null; }
+    if (!resp || typeof resp !== 'object') return;
+    const ok = status >= 200 && status < 300;
+    const g = ok ? resp : resp.guardado;
+    if (!g || typeof g !== 'object' || typeof g.envName !== 'string' || !g.envName) return;
+    if (!ok && !g.ok) return;
+    const final = typeof g.ultimos4 === 'string' ? g.ultimos4 : '';
+    agendarAviso(agente, textoAviso(g.envName, final, !ok));
+  }
+
+  return { casa, tratar, casaLegado, avisarLegado };
 }
 
 module.exports = { criarCofreRotas };
