@@ -47,7 +47,10 @@ Depois de guardar, uma mensagem do dono com o texto exato:
 [cofre] HOSTINGER_API_TOKEN guardada (final 1a2b).
 ```
 
-Só o nome e os 4 últimos caracteres, nunca o valor. Na conversa ela aparece com a etiqueta "do cofre".
+Só o nome e os 4 últimos caracteres, nunca o valor. Quem monta e entrega a mensagem é o servidor, não o
+navegador: o cartão manda `avisar:true` no pedido de guardar, e o servidor entrega em segundo plano (até 5
+tentativas, 3 s entre elas, porque salvar reinicia o agente). A aba Cofre e a API não mandam `avisar`, e
+então ninguém é avisado. Na conversa a mensagem aparece com a etiqueta "do cofre".
 Quando o reinício não deu certo, o aviso acrescenta "O agente ainda não reiniciou para usar a chave."
 Responda curto ("Tá salvo.") e siga: a chave já está no seu ambiente como variável.
 

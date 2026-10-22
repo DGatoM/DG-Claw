@@ -127,7 +127,7 @@ Na v1 o painel roda dentro do container e não pode guardar chave (o agente a le
 | Rota | Faz |
 |---|---|
 | `GET /p/<slug>/api/cofre` | Estado: chaves (só os 4 últimos caracteres), provedores, onde fica a chave. |
-| `POST` ou `PUT /p/<slug>/api/cofre` | `{envName, valor, provedor, aplicar}`. Guarda; com `aplicar:true` também reinicia. Se o reinício falhar, a chave continua guardada e a resposta traz `guardado` e `aplicado:{ok:false}`. |
+| `POST` ou `PUT /p/<slug>/api/cofre` | `{envName, valor, provedor, aplicar}`. Guarda; com `aplicar:true` também reinicia; com `avisar:true` (só a caixa da conversa manda) o servidor também entrega ao agente, em segundo plano, `[cofre] NOME guardada (final xxxx).` e a resposta traz `aviso` e `aviso_agendado:true`. Se o reinício falhar, a chave continua guardada e a resposta traz `guardado` e `aplicado:{ok:false}`. |
 | `DELETE /p/<slug>/api/cofre?envName=X` | Revoga (tira do cofre e data o registro). |
 | `POST /p/<slug>/api/cofre/aplicar` | Reinicia o agente: `podman exec <container> systemctl restart dgclaw-runner`, porque o runner só lê o cofre quando parte. |
 | `POST /p/<slug>/api/provedor` | O Web assume quando o modo de pagar usa chave ou token: guarda a chave, manda a escolha ao runner (`reiniciar:false`) e reinicia. A chave nunca vai ao painel nem ao runner. Modo de assinatura (sem variável) segue para o painel com o corpo intacto (sem o campo `chave`, se veio um). |

@@ -69,8 +69,9 @@ no `localStorage`; este guarda só o marcador `dgcofre-salvo:<agente>:<hash>`. N
 - Se a chave já existe, o cartão diz "Já tem uma guardada (final xxxx). Salvar de novo substitui." O
   estado vem do servidor (`GET /p/<agente>/api/cofre`, só nomes e finais), então vale também depois de
   recarregar a página.
-- Depois de salvar, a tela manda ao agente `[cofre] NOME guardada (final xxxx).` (com novas tentativas
-  enquanto ele reinicia). Na conversa a mensagem aparece com a etiqueta "do cofre".
+- Depois de salvar, o servidor manda ao agente `[cofre] NOME guardada (final xxxx).` (a tela só pede com
+  `avisar:true`; o servidor monta o texto e tenta de novo enquanto o agente reinicia). Na conversa a
+  mensagem aparece com a etiqueta "do cofre".
 - O campo tem `autocorrect="off"`, `data-1p-ignore` e `data-lpignore`; Enter salva, Esc limpa; o que se
   digita ou cola nele não chega aos atalhos da conversa; o alvo de toque é de 44 px e cabe em 320 px.
 - A mesma caixa abre pela peça `dv-cofre` da lousa: [VISUAIS.md](VISUAIS.md) e

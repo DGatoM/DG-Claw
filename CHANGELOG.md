@@ -44,7 +44,7 @@ aprovar sem querer o comando que surgiu em seguida, e o botão Aprovar de uma te
   direto para o cofre dele, sem passar pela conversa. O cartão ficou mais completo: avisa "Já tem uma
   guardada (final 9z8y)" quando a chave já existe (também depois de recarregar a página), tem botão
   para mostrar o que você colou, cabe em tela de celular e explica que salvar reinicia o agente para a
-  chave valer, e que a conversa continua de onde parou. O agente recebe só o nome e o final da chave
+  chave valer, e que a conversa continua de onde parou. O agente recebe, entregue pelo servidor, só o nome e o final da chave
   (`[cofre] NOME guardada (final 1a2b).`), e a mensagem aparece com a etiqueta "do cofre". Os visuais da
   lousa ganharam a peça `dv-cofre`, que abre o mesmo cartão quando a chave faz parte de um passo a
   passo. Na aba Cofre, a seção das chaves que deixam outro programa usar a API passou a se chamar
