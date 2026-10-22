@@ -203,7 +203,7 @@ const EH_ADMIN = AGENTE.tipo === 'admin';
     if (el) el.href = window.DGMenuLado.comAgente(href, AGENTE.id);
   });
 })();
-if (window.campoCofre) window.campoCofre.configurar({ agente: AGENTE.id, enviar: texto => new Promise((resolve, reject) => { enviarTexto(texto, null, { aoEntregar: (ok, motivo) => ok ? resolve() : reject(new Error(motivo || 'O agente não recebeu a mensagem.')) }); }) });
+if (window.campoCofre) window.campoCofre.configurar({ agente: AGENTE.id, nome: AGENTE.nome, enviar: texto => new Promise((resolve, reject) => { enviarTexto(texto, null, { aoEntregar: (ok, motivo) => ok ? resolve() : reject(new Error(motivo || 'O agente não recebeu a mensagem.')) }); }) });
 if (window.DGOnboarding) window.DGOnboarding.iniciar({ agente: AGENTE, enviar: texto => new Promise((resolve, reject) => { enviarTexto(texto, null, { aoEntregar: (ok, motivo) => ok ? resolve() : reject(new Error(motivo || 'O Admin não recebeu a mensagem.')) }); }), refazer: () => render({ semRolar: true }) });
 if (window.DGBarra) window.DGBarra.liga(entrada, { url: API + '/comandos' });   // lista de comandos ao digitar /
 let novasAbaixo = 0, setaVisivel = false;   // a seta pro fim e o contador dela
@@ -1518,6 +1518,14 @@ function separaDoVisual(txt) {
   return r ? { titulo: r[1].trim(), texto: r[2] } : null;
 }
 
+/* Aviso do cofre ("[cofre] NOME guardada (final 1a2b)."): a mensagem que o campo de senha manda ao
+   agente depois de guardar. Na tela vira a etiqueta "do cofre" e o texto sem o prefixo; nunca
+   leva o valor da chave, só o nome e o final. */
+function separaDoCofre(txt) {
+  const r = /^\[cofre\] ([\s\S]*)$/.exec(String(txt || ''));
+  return r ? { texto: r[1] } : null;
+}
+
 function htmlCorpo(m) {
   let midia = '';
   if (m.local && m.local.anexos) {
@@ -1544,6 +1552,11 @@ function htmlCorpo(m) {
   if (dv) {
     leg = dv.texto;
     doVisual = `<div class="dovisual">📊 do visual${dv.titulo ? ': ' + esc(dv.titulo) : ''}</div>`;
+  }
+  const dc = !dv && ehDono(m) ? separaDoCofre(leg) : null;
+  if (dc) {
+    leg = dc.texto;
+    doVisual = `<div class="dovisual">🔑 do cofre</div>`;
   }
   // [ver a criação] só vira botão em mensagem de quem não é o dono (o texto já sai escapado de paragrafos)
   let htmlLeg = leg ? paragrafos(leg, m.fmt) : '';
@@ -1938,8 +1951,80 @@ function fechaBarra(lim) {
   b.el.remove();
   lim.barra = null;
 }
+/* ── Caixa de cofre da peça .dv-cofre (campo-cofre.js) ──────────────────
+   O iframe só PEDE (postMessage 'cofre'). O cartão com o campo de senha é do app, desenhado abaixo do
+   visual (ou na tela cheia) fora do iframe: o valor nunca passa por ele. Uma caixa por visual. */
+const visCofres = new Map();        // id da mídia -> { est, el, relogio }
+const VIS_COFRE_FECHA_MS = 4000;
+
+function alvoDoVisual(est) {
+  return est.win && visuais.get(est.win) === est ? est
+    : Array.from(visEstados).find(e => e.md.id === est.md.id && e.win);
+}
+function recusaCofre(est, id, motivo, msg) {
+  enviaAoVisual(est, { tipo: 'cofre-erro', id, motivo, msg });
+}
+function fechaCofre(mediaId) {
+  const c = visCofres.get(mediaId);
+  if (!c) return;
+  clearTimeout(c.relogio);
+  c.el.remove();
+  visCofres.delete(mediaId);
+}
+function fechaCofreDe(est) {
+  const c = est.md && visCofres.get(est.md.id);
+  if (c && c.est === est) fechaCofre(est.md.id);
+}
+
+function tratarCofre(est, d, id) {
+  const v = window.campoCofre ? window.campoCofre.validaPedido(d) : null;
+  if (!v) return recusaCofre(est, id, 'indisponivel', 'A caixa de cofre não carregou. Recarregue a conversa.');
+  if (v.erro) return recusaCofre(est, id, v.erro.motivo, v.erro.msg);
+  if (document.visibilityState !== 'visible' || (!est.cheia && !est.noViewport)) {
+    return recusaCofre(est, id, 'fora', 'O visual não está à vista agora.');
+  }
+  if (visCofres.has(est.md.id)) return recusaCofre(est, id, 'ocupado', 'Já tem uma caixa de cofre aberta neste visual.');
+  const { nome, rotulo, ajuda } = v.ok;
+  const el = document.createElement('div');
+  el.className = 'viscofre' + (est.cheia ? ' viscofre-cheia' : '');
+  const reg = { est, el, relogio: 0 };
+  visCofres.set(est.md.id, reg);
+  if (est.cheia) visTelaEl.appendChild(el); else est.caixa.after(el);
+  window.campoCofre.montar(el, {
+    envName: nome, rotulo, ajuda,
+    aoGuardar: ({ final }) => {
+      const alvo = alvoDoVisual(est);
+      if (alvo) enviaAoVisual(alvo, { tipo: 'cofre-ok', id, nome, final });
+      reg.relogio = setTimeout(() => fechaCofre(est.md.id), VIS_COFRE_FECHA_MS);
+    },
+    aoErro: ({ motivo, msg }) => { const alvo = alvoDoVisual(est); if (alvo) recusaCofre(alvo, id, motivo, msg); },
+    aoCancelar: () => {
+      fechaCofre(est.md.id);
+      const alvo = alvoDoVisual(est);
+      if (alvo) recusaCofre(alvo, id, 'cancelado', 'Você cancelou.');
+    },
+  });
+  if (!est.cheia) {
+    // rola só o #chat (scrollIntoView poderia mexer na página inteira no iPhone)
+    const r = el.getBoundingClientRect(), c = chat.getBoundingClientRect();
+    if (r.bottom > c.bottom - 8) { chat.scrollTop += r.bottom - c.bottom + 8; rolagem.captura(); }
+  }
+  enviaAoVisual(est, { tipo: 'cofre-espera', id });
+}
+
+/* O visual pergunta, ao carregar, quais nomes já estão guardados. Resposta: só nome e final. */
+function tratarCofreEstado(est, d) {
+  const nomes = Array.isArray(d.nomes) ? d.nomes.filter(n => typeof n === 'string').slice(0, 20) : [];
+  const v = nomes.filter(n => window.campoCofre && window.campoCofre.validaPedido({ nome: n }).ok);
+  if (!v.length || !window.campoCofre) return;
+  window.campoCofre.estados(v).then(
+    estados => enviaAoVisual(est, { tipo: 'cofre-estado', estados }),
+    e => console.warn('visual ' + est.md.id + ': não consegui consultar o cofre para o visual:', e && e.message));
+}
+
 /* Balão desmontado ou tela cheia fechada: a barrinha some sem mandar nada. */
 function fechaBarraDe(est) {
+  fechaCofreDe(est);
   const lim = est.md && visLimites.get(est.md.id);
   if (lim && lim.barra && lim.barra.est === est) fechaBarra(lim);
 }
@@ -2072,6 +2157,12 @@ window.addEventListener('message', ev => {
     const id = Number(d.id);
     if (!isFinite(id) || id < 0 || Math.floor(id) !== id) return;
     tratarPergunta(est, d, id);
+  } else if (d.tipo === 'cofre') {
+    const id = Number(d.id);
+    if (!isFinite(id) || id < 0 || Math.floor(id) !== id) return;
+    tratarCofre(est, d, id);
+  } else if (d.tipo === 'cofre-estado?') {
+    tratarCofreEstado(est, d);
   } else if (d.tipo === 'erro') {
     est.caixa.classList.add('on');
     const msg = typeof d.msg === 'string' ? d.msg.slice(0, 400) : 'erro sem mensagem';

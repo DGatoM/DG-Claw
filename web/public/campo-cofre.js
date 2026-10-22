@@ -1,12 +1,13 @@
 'use strict';
 /* campo-cofre.js: "campo de senha na conversa".
-   O agente responde com um bloco ```dgcofre\nNOME_DA_VARIAVEL\nrótulo opcional```. A tela
-   troca esse bloco por um cartão com um campo de senha; o valor vai direto para
-   POST /p/<agente>/api/cofre e NUNCA passa pelo chat, pelo transcript, por log ou
-   por localStorage (guardamos só o marcador "salvo", com o valor ausente). */
+   Duas portas para a mesma caixa:
+   1. o bloco ```dgcofre\nNOME_DA_VARIAVEL\nrótulo opcional``` na resposta do agente (porta principal);
+   2. a peça .dv-cofre da lousa (docs/VISUAIS.md), em que o iframe só PEDE e o conversa.js chama montar().
+   O valor vai direto para POST /p/<agente>/api/cofre e NUNCA passa pelo chat, pelo transcript, por log,
+   por localStorage nem pelo iframe (guardamos só o marcador "salvo", com o valor ausente). */
 (function (raiz) {
   const NOME_OK = /^[A-Z_][A-Z0-9_]{1,63}$/;
-  let cfg = { agente: '', enviar: null };
+  let cfg = { agente: '', nome: '', enviar: null, esperaMs: 3000 };
 
   function esc(s) {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -26,6 +27,19 @@
     return { envName, rotulo };
   }
 
+  /* Pedido que veio do iframe (entrada hostil): devolve {ok:{nome, rotulo, ajuda}} ou {erro:{motivo, msg}}.
+     Rótulo e ajuda são texto puro: sem caracteres de controle, nos tamanhos da espec. */
+  function limpaTexto(v, max) {
+    return typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, max) : '';
+  }
+  function validaPedido(d) {
+    const nome = d && typeof d.nome === 'string' ? d.nome.trim() : '';
+    if (!NOME_OK.test(nome)) {
+      return { erro: { motivo: 'nome', msg: 'Nome de chave inválido: "' + nome.slice(0, 40) + '". Use letras maiúsculas, números e _ (por exemplo HOSTINGER_API_TOKEN).' } };
+    }
+    return { ok: { nome, rotulo: limpaTexto(d.rotulo, 80), ajuda: limpaTexto(d.ajuda, 200) } };
+  }
+
   function hash(s) {
     let h = 5381;
     for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
@@ -41,22 +55,39 @@
     catch (_) { /* sem localStorage: o cartão só não lembra após recarregar */ }
   }
 
-  function htmlSalvo(envName) {
-    return `<span class="dgc-ok" role="status">✓ <code>${esc(envName)}</code> salva no cofre</span>`;
+  function htmlSalvo(envName, final) {
+    return `<span class="dgc-ok" role="status">✓ <code>${esc(envName)}</code> salva no cofre` +
+      (final ? ` (final ${esc(final)})` : '') + `</span>`;
+  }
+
+  function agenteTxt() { return cfg.nome || 'agente'; }
+
+  function interiorForm(d, cancelavel) {
+    const ag = esc(agenteTxt());
+    return `<div class="dgc-tit">${esc(d.rotulo || 'Chave segura')}</div>` +
+      `<code class="dgc-nome">${esc(d.envName)}</code>` +
+      (d.ajuda ? `<div class="dgc-ajuda">${esc(d.ajuda)}</div>` : '') +
+      `<div class="dgc-ja" role="status" hidden></div>` +
+      `<div class="dgc-linha"><input type="password" class="dgc-valor" autocomplete="off" autocapitalize="off" ` +
+      `autocorrect="off" spellcheck="false" data-1p-ignore data-lpignore="true" ` +
+      `aria-label="Valor de ${esc(d.envName)}" placeholder="Cole a chave aqui">` +
+      `<button type="button" class="dgc-olho" aria-label="Mostrar a chave" aria-pressed="false">👁</button>` +
+      `<button type="button" class="dgc-salvar">Salvar no cofre</button>` +
+      (cancelavel ? `<button type="button" class="dgc-cancelar">Cancelar</button>` : '') + `</div>` +
+      `<div class="dgc-msg" role="alert" hidden></div>` +
+      `<div class="dgc-garantia">O valor vai direto para o cofre. Não entra na conversa nem chega à ${ag}. ` +
+      `Salvar reinicia a ${ag} para a chave valer; a conversa continua de onde parou.</div>`;
   }
 
   /* HTML do cartão. `id` identifica o cartão (hash da mensagem) para o marcador. */
-  function html(envName, rotulo, id) {
+  function html(envName, rotulo, id, extra) {
+    const x = extra || {};
+    const d = { envName, rotulo: rotulo || '', ajuda: x.ajuda || '' };
     const salvo = !!(id && jaSalvo(cfg.agente, id));
-    return `<div class="dgcofre" data-env="${esc(envName)}" data-id="${esc(id || '')}">` +
-      (salvo ? htmlSalvo(envName) :
-        `<div class="dgc-tit">${esc(rotulo || 'Chave segura')}</div>` +
-        `<code class="dgc-nome">${esc(envName)}</code>` +
-        `<div class="dgc-linha"><input type="password" class="dgc-valor" autocomplete="off" ` +
-        `spellcheck="false" autocapitalize="off" aria-label="Valor de ${esc(envName)}" placeholder="Cole a chave aqui">` +
-        `<button type="button" class="dgc-salvar">Salvar no cofre</button></div>` +
-        `<div class="dgc-msg" role="alert" hidden></div>`) +
-      `</div>`;
+    return `<div class="dgcofre" data-env="${esc(envName)}" data-id="${esc(id || '')}" ` +
+      `data-rotulo="${esc(d.rotulo)}" data-ajuda="${esc(d.ajuda)}"` +
+      (x.cancelavel ? ' data-cancelavel="1"' : '') + (salvo ? ' data-salvo="1"' : '') + `>` +
+      (salvo ? htmlSalvo(envName, '') : interiorForm(d, !!x.cancelavel)) + `</div>`;
   }
 
   /* Para conversa.js: se o bloco é dgcofre válido devolve o HTML, senão null. */
@@ -67,15 +98,81 @@
 
   const espera = ms => new Promise(r => setTimeout(r, ms));
 
+  /* Formato fixo do aviso ao agente (o valor nunca entra aqui, só o final). */
+  function textoAviso(envName, final, naoAplicou) {
+    return '[cofre] ' + envName + ' guardada' + (final ? ' (final ' + final + ')' : '') + '.' +
+      (naoAplicou ? ' O agente ainda não reiniciou para usar a chave.' : '');
+  }
+
   /* Entrega a mensagem ao agente, que pode estar reiniciando: até 5 tentativas, 3 s entre elas. */
   async function avisaAgente(texto) {
     if (!cfg.enviar) return;
     for (let i = 0; i < 5; i++) {
-      await espera(3000);
+      await espera(cfg.esperaMs);
       try { await cfg.enviar(texto); return; }
       catch (e) { console.warn('campo-cofre: o agente ainda não recebeu o aviso (tentativa ' + (i + 1) + '):', e && e.message); }
     }
     console.warn('campo-cofre: desisti de avisar o agente depois de 5 tentativas.');
+  }
+
+  /* ── Estado do servidor (só nomes e final, nunca valor) ─────────────── */
+  let cacheEstado = null;
+  function consultaEstado(forcar) {
+    if (!forcar && cacheEstado && Date.now() - cacheEstado.t < 3000) return cacheEstado.p;
+    const p = fetch('/p/' + encodeURIComponent(cfg.agente) + '/api/cofre', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+      .then(async r => {
+        if (!r.ok) throw new Error('o servidor respondeu ' + r.status);
+        const j = await r.json();
+        const m = {};
+        (j.chaves || []).forEach(c => { if (c && c.envName && !c.revogadaEm) m[c.envName] = { guardada: true, final: c.ultimos4 || null }; });
+        return m;
+      });
+    cacheEstado = { t: Date.now(), p };
+    p.catch(() => { if (cacheEstado && cacheEstado.p === p) cacheEstado = null; });
+    return p;
+  }
+  /* Para o visual: { NOME: {guardada, final} } dos nomes pedidos. */
+  async function estados(nomes) {
+    const m = await consultaEstado(true);
+    const out = {};
+    nomes.forEach(n => { out[n] = m[n] || { guardada: false, final: null }; });
+    return out;
+  }
+
+  function dadosDe(card) {
+    return { envName: card.dataset.env, rotulo: card.dataset.rotulo || '', ajuda: card.dataset.ajuda || '' };
+  }
+
+  function aplicaEstado(card, est) {
+    if (!card.isConnected) return;
+    if (card.dataset.salvo === '1') {
+      if (est) card.innerHTML = htmlSalvo(card.dataset.env, est.final);
+      else { card.dataset.salvo = ''; card.innerHTML = interiorForm(dadosDe(card), card.dataset.cancelavel === '1'); armaSalvar(card); }
+      return;
+    }
+    const ja = card.querySelector('.dgc-ja');
+    if (!ja) return;
+    if (est) {
+      ja.textContent = 'Já tem uma guardada' + (est.final ? ' (final ' + est.final + ')' : '') + '. Salvar de novo substitui.';
+      ja.hidden = false;
+    } else ja.hidden = true;
+  }
+
+  /* O botão só vale depois de 400 ms: um toque duplo ao abrir não grava por acidente. */
+  function armaSalvar(card) {
+    const btn = card.querySelector('.dgc-salvar');
+    if (!btn) return;
+    btn.disabled = true;
+    setTimeout(() => { if (card.dataset.enviando !== '1') btn.disabled = false; }, 400);
+  }
+
+  function hidratar(card) {
+    if (card.dataset.hid === '1') return;
+    card.dataset.hid = '1';
+    armaSalvar(card);
+    consultaEstado(false).then(
+      m => aplicaEstado(card, m[card.dataset.env] || null),
+      e => console.warn('campo-cofre: não consegui consultar o cofre para mostrar o estado de ' + card.dataset.env + ':', e && e.message));
   }
 
   function mostraErro(card, texto) {
@@ -88,8 +185,9 @@
     if (card.dataset.enviando === '1') return;
     const inp = card.querySelector('.dgc-valor');
     const btn = card.querySelector('.dgc-salvar');
-    if (!inp || !btn) return;
+    if (!inp || !btn || btn.disabled) return;
     const envName = card.dataset.env;
+    const cb = card._cb || {};
     const valor = inp.value.trim();
     if (!valor) { mostraErro(card, 'Cole o valor da chave antes de salvar.'); inp.focus(); return; }
     card.dataset.enviando = '1'; btn.disabled = true; btn.textContent = 'Salvando…';
@@ -112,31 +210,88 @@
         : ((corpo && corpo.error) || 'Não consegui salvar (erro ' + status + ').') +
           (corpo && corpo.howToFix ? ' ' + corpo.howToFix : '');
       mostraErro(card, txt);
+      if (cb.aoErro) cb.aoErro({ motivo: 'envio', msg: txt });
       return;
     }
     inp.value = '';
     const naoAplicou = !(status >= 200 && status < 300);
+    const g = (corpo && (corpo.ultimos4 ? corpo : corpo.guardado)) || {};
+    const final = typeof g.ultimos4 === 'string' ? g.ultimos4 : '';
+    cacheEstado = null;
     if (card.dataset.id) marcaSalvo(cfg.agente, card.dataset.id);
-    card.innerHTML = htmlSalvo(envName) + (naoAplicou
+    card.dataset.salvo = '1';
+    card.innerHTML = htmlSalvo(envName, final) + (naoAplicou
       ? `<div class="dgc-aviso">O agente ainda não reiniciou para usar a chave${corpo && corpo.howToFix ? ': ' + esc(corpo.howToFix) : ''}.</div>` : '');
-    avisaAgente(naoAplicou ? envName + ' salva no cofre (o agente ainda não reiniciou para usar).'
-                           : envName + ' salva no cofre.');
+    if (cb.aoGuardar) cb.aoGuardar({ envName, final });
+    avisaAgente(textoAviso(envName, final, naoAplicou));
+  }
+
+  /* Abre o cartão dentro de `contêiner` (a caixa da peça da lousa). opcoes: {envName, rotulo, ajuda,
+     aoGuardar({envName, final}), aoErro({motivo, msg}), aoCancelar()}. */
+  function montar(conteiner, opcoes) {
+    conteiner.innerHTML = html(opcoes.envName, opcoes.rotulo, '', { ajuda: opcoes.ajuda, cancelavel: true });
+    const card = conteiner.firstElementChild;
+    card._cb = opcoes;
+    hidratar(card);
+    const inp = card.querySelector('.dgc-valor');
+    if (inp) inp.focus({ preventScroll: true });
+    return card;
+  }
+
+  function limpaCampo(card) {
+    const inp = card.querySelector('.dgc-valor');
+    if (inp) inp.value = '';
+    const m = card.querySelector('.dgc-msg'); if (m) m.hidden = true;
   }
 
   function configurar(c) { cfg = Object.assign({}, cfg, c || {}); }
 
   function ligar(doc) {
     doc.addEventListener('click', ev => {
-      const b = ev.target.closest && ev.target.closest('.dgcofre .dgc-salvar');
-      if (b) { ev.preventDefault(); salvar(b.closest('.dgcofre')); }
+      const t = ev.target.closest ? ev.target : null;
+      if (!t) return;
+      const b = t.closest('.dgcofre .dgc-salvar');
+      if (b) { ev.preventDefault(); salvar(b.closest('.dgcofre')); return; }
+      const o = t.closest('.dgcofre .dgc-olho');
+      if (o) {
+        const inp = o.closest('.dgcofre').querySelector('.dgc-valor');
+        const ver = inp.type === 'password';
+        inp.type = ver ? 'text' : 'password';
+        o.setAttribute('aria-pressed', ver ? 'true' : 'false');
+        o.setAttribute('aria-label', ver ? 'Esconder a chave' : 'Mostrar a chave');
+        return;
+      }
+      const c = t.closest('.dgcofre .dgc-cancelar');
+      if (c) { const card = c.closest('.dgcofre'); limpaCampo(card); if (card._cb && card._cb.aoCancelar) card._cb.aoCancelar(); }
     });
-    doc.addEventListener('keydown', ev => {
-      if (ev.key !== 'Enter' || !ev.target.classList || !ev.target.classList.contains('dgc-valor')) return;
-      ev.preventDefault(); salvar(ev.target.closest('.dgcofre'));
-    });
+    /* Captura no document: o que se digita ou cola no campo não chega aos atalhos da conversa,
+       ao ditado nem a nada que escute o teclado (o Esc da tela cheia, por exemplo). */
+    const noCampo = ev => ev.target && ev.target.classList && ev.target.classList.contains('dgc-valor');
+    ['keydown', 'keyup', 'keypress', 'paste'].forEach(tipo => doc.addEventListener(tipo, ev => {
+      if (!noCampo(ev)) return;
+      ev.stopPropagation();
+      if (tipo !== 'keydown') return;
+      const card = ev.target.closest('.dgcofre');
+      if (ev.key === 'Enter') { ev.preventDefault(); salvar(card); }
+      else if (ev.key === 'Escape') {
+        ev.preventDefault(); limpaCampo(card);
+        if (card._cb && card._cb.aoCancelar) card._cb.aoCancelar();
+      }
+    }, true));
+    const varre = no => {
+      if (no.nodeType !== 1) return;
+      if (no.matches('.dgcofre')) hidratar(no);
+      no.querySelectorAll('.dgcofre').forEach(hidratar);
+    };
+    const iniciaObs = () => {
+      doc.querySelectorAll('.dgcofre').forEach(hidratar);
+      if (!raiz.MutationObserver || !doc.body) return;
+      new raiz.MutationObserver(ms => ms.forEach(m => m.addedNodes.forEach(varre))).observe(doc.body, { childList: true, subtree: true });
+    };
+    if (doc.readyState === 'loading') doc.addEventListener('DOMContentLoaded', iniciaObs); else iniciaObs();
   }
 
-  const api = { analisa, html, htmlSalvo, blocoParaHtml, configurar, ligar, esc, hash };
+  const api = { analisa, validaPedido, salvar, html, htmlSalvo, textoAviso, blocoParaHtml, configurar, ligar, montar, estados, esc, hash };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (raiz.document) { raiz.campoCofre = api; ligar(raiz.document); }
 })(typeof window !== 'undefined' ? window : globalThis);

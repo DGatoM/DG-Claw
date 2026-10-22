@@ -129,3 +129,14 @@ test('mídia crua: html e svg saem com o CSP de sandbox e nosniff; png não leva
     assert.equal(png.headers['content-security-policy'], undefined);
   } finally { await s.fechar(); }
 });
+
+test('visual: a peça .dv-cofre vai na base injetada e o pedido do iframe não carrega valor', async () => {
+  const s = await cenario({ 'vis-cofre.html': '<div class="dv-cofre" data-cofre="HOSTINGER_API_TOKEN" data-rotulo="Token" data-ajuda="hPanel"></div>' });
+  try {
+    const r = await s.t.c.get(`/api/v1/media/${s.id('vis-cofre.html')}/visual`);
+    assert.equal(r.status, 200, r.texto.slice(0, 300));
+    assert.ok(r.texto.includes('.dv-cofre') && r.texto.includes("tipo: 'cofre'") && r.texto.includes("'cofre-estado?'"));
+    assert.ok(!/<input[^>]*password/.test(r.texto), 'o campo de senha nunca fica no iframe');
+    assert.equal(r.headers['content-security-policy'], CSP_VISUAL);
+  } finally { await s.fechar(); }
+});
