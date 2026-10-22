@@ -143,3 +143,15 @@ test('conversa.js: etiqueta "do cofre", ouvinte da peça com ev.source e valor f
   assert.ok(!/tipo: 'cofre'[^}]*valor/.test(dv), 'o pedido do iframe não leva valor');
   assert.match(fs.readFileSync(path.join(pub, 'dgvis.css'), 'utf8'), /\.dv-cofre\b/);
 });
+
+test('GET /api/v1/cofre/docs.md serve o documento do agente com a sessão do dono', async () => {
+  const { subirWeb } = require('./ajuda');
+  const t = await subirWeb({ agentes: [] });
+  try {
+    await t.login();
+    const r = await t.c.get('/api/v1/cofre/docs.md');
+    assert.equal(r.status, 200);
+    assert.match(r.texto, /# Caixa de cofre na conversa/);
+    assert.match(r.texto, /\[cofre\] HOSTINGER_API_TOKEN guardada \(final 1a2b\)\./);
+  } finally { await t.fechar(); }
+});
