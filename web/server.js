@@ -94,7 +94,7 @@ function criarServidor(opcoes) {
   const cofreAgente = criarCofreAgente({ config, log, reiniciar: opcoes.reiniciarCofre });
   const voz = opcoes.voz || criarVoz({ env: config.env, log });
   const sigilo = opcoes.sigilo || criarSigilo({ env: config.env, registro, dataDir: config.dataDir, log, timeoutMs: opcoes.timeoutSigiloMs });
-  const cofreRotas = criarCofreRotas({ config, runner, cofre: cofreAgente, voz, log });
+  const cofreRotas = criarCofreRotas({ config, runner, cofre: cofreAgente, voz, log, entregar: (...a) => conversa.entregar(...a), esperaAvisoMs: opcoes.esperaAvisoMs });
   const proxy = criarProxy({ config, registro, log, cofreRotas });
   const caixa = criarCaixaAgente({ config, registro, log, porta: () => servidor.address().port, agora: opcoes.agora });
   const push = criarPush({ dataDir: config.dataDir, log, agora: opcoes.agora, enviarHttp: opcoes.enviarPush });
@@ -114,6 +114,8 @@ function criarServidor(opcoes) {
   caixa.permitir('/api/v1/uso');
   const avisos = criarAvisos({ config, registro, runner, caixa, log, agora: opcoes.agora });
   caixa.permitir('/api/v1/avisos');
+  // Só o caminho exato da documentação do cofre (os templates mandam o agente ler); o cofre em si não é rota da caixa.
+  caixa.permitir('/api/v1/cofre/docs.md');
   // Aviso de versão nova: só o dono, pelo painel. De propósito NÃO entra em caixa.permitir (agente em container não usa).
   const estados = criarEstados({ conversa, naoLidas, registro, log });
   const prefsAtencao = criarPrefsAtencao({ arquivo: path.join(config.dataDir, 'push', 'preferencias.json'), log });
@@ -465,6 +467,10 @@ function criarServidor(opcoes) {
     if (p === '/api/v1/caixa/docs.md' && m === 'GET') {
       res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store' });
       return res.end(fs.readFileSync(path.join(__dirname, '..', 'docs', 'CAIXA-DO-AGENTE.md'), 'utf8'));
+    }
+    if (p === '/api/v1/cofre/docs.md' && m === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store' });
+      return res.end(fs.readFileSync(path.join(__dirname, '..', 'docs', 'COFRE-NA-CONVERSA.md'), 'utf8'));
     }
     if (p === '/api/v1/push/docs.md' && m === 'GET') {
       res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store' });

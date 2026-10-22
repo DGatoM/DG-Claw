@@ -39,6 +39,18 @@ aprovar sem querer o comando que surgiu em seguida, e o botão Aprovar de uma te
 
 ### Adicionado
 
+- **Caixa de cofre na conversa.** Quando o agente precisa de uma senha ou chave de um serviço (OpenAI,
+  Hostinger, Groq...), ele mostra na própria conversa um cartão com um campo de senha, e o valor vai
+  direto para o cofre dele, sem passar pela conversa. O cartão ficou mais completo: avisa "Já tem uma
+  guardada (final 9z8y)" quando a chave já existe (também depois de recarregar a página), tem botão
+  para mostrar o que você colou, cabe em tela de celular e explica que salvar reinicia o agente para a
+  chave valer, e que a conversa continua de onde parou. O agente recebe, entregue pelo servidor, só o nome e o final da chave
+  (`[cofre] NOME guardada (final 1a2b).`), e a mensagem aparece com a etiqueta "do cofre". Os visuais da
+  lousa ganharam a peça `dv-cofre`, que abre o mesmo cartão quando a chave faz parte de um passo a
+  passo. Na aba Cofre, a seção das chaves que deixam outro programa usar a API passou a se chamar
+  "Chaves de acesso à API" e diz que não é ali que se guarda senha de serviço, com um atalho para o
+  formulário "Guardar uma chave". O tutorial da conversa ganhou um passo sobre a caixa de cofre.
+  Documento em `docs/COFRE-NA-CONVERSA.md` (também em `GET /api/v1/cofre/docs.md`).
 - **Uso da assinatura.** O Status de cada agente ganhou o cartão "Uso da assinatura", com quanto já foi
   gasto da janela de 5 horas e do limite semanal, a hora em que cada um zera e há quanto tempo foi
   medido. O menu ☰ ganhou "Uso das assinaturas", com todos os agentes juntos. No Claude, o número vem
@@ -89,6 +101,15 @@ uma vez para ele buscar os arquivos novos.
 Não há nada para rodar: é só a tela. No celular, feche e abra o app uma vez para ele buscar os arquivos novos
 (ou recarregue a página no computador). Quem ainda não atualizou a parte de voz acima precisa fazer aquele
 passo primeiro.
+
+### Como atualizar (caixa de cofre)
+
+1. **Peça ao Admin, no chat: "atualiza o DG Claw".** Isso traz a tela nova. Se o painel ainda mostrar o
+   cartão antigo, reinicie-o de fora do chat com `sudo systemctl restart dgclaw-web`. No celular, feche e
+   abra o app uma vez para ele buscar os arquivos novos.
+2. **Para os agentes que você já tem**, rode `sudo dgclaw agente identidade <agente>` para cada um. Assim
+   eles aprendem o aviso novo (`[cofre] NOME guardada (final 1a2b).`) e a peça `dv-cofre`, sem apagar o
+   que você personalizou.
 
 ### Corrigido
 

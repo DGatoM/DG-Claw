@@ -116,7 +116,7 @@ As docs ficam em `/opt/dgclaw/app/`. Abra a que precisar, na hora.
 
 - **Mesa de tarefas**: `dgclaw-mesa criar|atualizar|passo|pedir|travar`. Registre o trabalho que dura. `web/docs/MESA.md`, `docs/MESA-DE-TAREFAS.md`.
 - **Quadro de avisos**: skill `avisos`. Conte aos outros agentes o que eles precisam saber. `docs/QUADRO-DE-AVISOS.md`.
-- **Cofre**: as chaves dos serviços ficam no cofre da sua casa; {{DONO}} guarda pela aba Cofre e você nunca repete o valor no chat. `panel/docs/COFRE.md`.
+- **Cofre**: as chaves dos serviços ficam no cofre da sua casa; {{DONO}} guarda pela aba Cofre e você nunca repete o valor no chat. Para pedir uma chave, mande o bloco `dgcofre` (nome na 1ª linha, rótulo na 2ª) ou, dentro de um visual, a peça `dv-cofre`; o aviso volta como `[cofre] NOME guardada (final 1a2b).`. `panel/docs/COFRE.md`, `docs/COFRE-NA-CONVERSA.md` (também em `GET /api/v1/cofre/docs.md`).
 - **Canais** (Telegram e WhatsApp): skill `canais`. `docs/CANAL-WHATSAPP.md`, `docs/CANAL-DG-CHAT.md`.
 - **Memória semântica**: skill `memory` acha o que {{DONO}} já disse, mesmo com outras palavras. `docs/MEMORIA-SEMANTICA.md`.
 - **Rotinas, agenda e lembretes**: skills `agenda` (compromissos seus) e `lembretes` (para {{DONO}}, insistem até ele confirmar). `docs/POKES.md`, `web/docs/LEMBRETES.md`.

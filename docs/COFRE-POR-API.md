@@ -15,13 +15,22 @@ descrito em `panel/docs/COFRE.md`; aqui está só o caminho por API.
 4. O dono do agente enxerga tudo na aba Cofre: quem guardou (`Admin (por API)`),
    quando e os quatro últimos caracteres. Nunca o valor.
 
+> **O dono colando a chave pela conversa** é outro caminho, sem chave de acesso: o agente mostra um
+> cartão com campo de senha (bloco `dgcofre` ou peça `dv-cofre`) e o valor vai para este mesmo cofre.
+> Ver `docs/COFRE-NA-CONVERSA.md`. As chaves de acesso à API abaixo são para outro programa ou agente
+> guardar chaves sem tela.
+
 ## 1. Criar a chave de API do agente
+
+Na tela elas se chamam **Chaves de acesso à API**: deixam outro programa ou agente usar a API. Não é
+aqui que se guarda senha ou token de serviço (OpenAI, Hostinger...): para isso use o formulário
+**Guardar uma chave** do Cofre.
 
 Uma chave de API **não cria outra chave de API** (se uma vazasse, ela não poderia
 gerar outra para continuar entrando depois de revogada). Então a primeira nasce por
 um destes caminhos:
 
-**Pela tela (o dono):** aba Cofre, seção "Quem pode guardar chaves aqui por API",
+**Pela tela (o dono):** aba Cofre, seção "Chaves de acesso à API",
 botão "criar chave de API". O token aparece uma vez, com botão de copiar.
 
 **Na máquina (quem administra, por exemplo o Admin ao criar o agente):**
@@ -91,7 +100,7 @@ origem (`tela` ou `api`). Nunca o valor.
   `DELETE /api/cofre?envName=NOME`. Revogar é datar: o registro fica. Se a chave
   vazou, cancele também no site do serviço, que é o único lugar onde ela deixa de
   funcionar de verdade.
-- **Uma chave de API:** aba Cofre, seção "Quem pode guardar chaves aqui por API",
+- **Uma chave de API:** aba Cofre, seção "Chaves de acesso à API",
   botão revogar, ou na máquina `node panel/bin/chave-api.js revogar <código>`. Vale na
   hora.
 

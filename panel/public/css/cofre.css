@@ -93,6 +93,8 @@
 .cofre-selo.origem { margin-left: 6px; text-transform: none; color: var(--fraco); }
 .cofre-api .cofre-tabela { margin-bottom: 14px; }
 .cofre-api-nova { margin-top: 6px; }
+.cofre-api-aviso { padding: 8px 10px; border-left: 3px solid var(--accent, currentColor); background: rgba(0,0,0,.04); }
+.cofre-ir-guardar { display: inline-block; min-height: 32px; line-height: 32px; }
 
 /* O token novo é o único momento em que ele existe na tela: chama atenção de
  * propósito, e o campo é monoespaçado para quebrar por caractere no celular. */

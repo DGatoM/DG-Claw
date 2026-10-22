@@ -6,7 +6,7 @@
 
 const fs = require('node:fs');
 const http = require('node:http');
-const { erroJson, paginaErro, ipDoPedido, esquemaDoPedido, hostDoPedido } = require('./http');
+const { erroJson, paginaErro, ipDoPedido, esquemaDoPedido, hostDoPedido, lerCorpo } = require('./http');
 const { NOME_COOKIE } = require('./auth');
 
 const HOP = new Set(['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'proxy-connection']);
@@ -81,6 +81,10 @@ function criarProxy({ config, registro, log, cofreRotas }) {
    */
   function responder(req, res, slug, usuario) {
     const agente = cofreRotas ? registro.obter(slug) : null;
+    if (agente && !agente.cofre_arquivo && cofreRotas.casaLegado(req, slug)) {
+      legadoComAviso(req, res, slug, usuario, agente);
+      return undefined;
+    }
     const qual = agente && agente.cofre_arquivo ? cofreRotas.casa(req, slug) : null;
     if (!qual) return encaminhar(req, res, slug, usuario, null);
     cofreRotas.tratar(req, res, agente, usuario, qual).then((repasse) => {
@@ -93,7 +97,21 @@ function criarProxy({ config, registro, log, cofreRotas }) {
     return undefined;
   }
 
-  function encaminhar(req, res, slug, usuario, corpoLido) {
+  /**
+   * Agente legado guardando chave: o painel dele grava e ignora `avisar`. Lê o corpo (até 64 KB), repassa
+   * igual ao painel e, com a resposta dele em mãos, deixa o cofre-rotas montar o aviso. O corpo nunca vai a log.
+   */
+  function legadoComAviso(req, res, slug, usuario, agente) {
+    lerCorpo(req, 64 * 1024).then((buf) => {
+      encaminhar(req, res, slug, usuario, buf, (status, resposta) => cofreRotas.avisarLegado(agente, buf, status, resposta));
+    }).catch((e) => {
+      if (e && e.status === 413) return erroJson(res, 413, 'O pedido passou de 64 KB, que é muito mais do que uma chave precisa. Mande só o nome e o valor da chave.');
+      log('erro', `Proxy /p/${slug}: não consegui ler o corpo do pedido do cofre (${(e && (e.code || e.message)) || 'erro'}).`);
+      return erroJson(res, 400, 'Não consegui ler o corpo do pedido. Tente de novo.');
+    });
+  }
+
+  function encaminhar(req, res, slug, usuario, corpoLido, aoTerminar) {
     const d = destino(slug);
     if (d.status) {
       if (/\btext\/html\b/.test(String(req.headers.accept || ''))) paginaErro(res, d.status, 'Painel indisponível', d.motivo);
@@ -112,6 +130,13 @@ function criarProxy({ config, registro, log, cofreRotas }) {
       res.writeHead(pres.statusCode, pres.statusMessage, h);
       pres.pipe(res);
       pres.on('error', () => res.destroy());
+      if (aoTerminar) {
+        const pedacos = []; let tam = 0;
+        pres.on('data', (c) => { if (tam < 64 * 1024) { pedacos.push(c); tam += c.length; } });
+        pres.on('end', () => {
+          try { aoTerminar(pres.statusCode, Buffer.concat(pedacos)); } catch (e) { log('erro', `Proxy /p/${slug}: o aviso da chave quebrou (${e && e.message}).`); }
+        });
+      }
     });
     preq.on('error', (e) => {
       const motivo = `O painel de ${agente.nome} (porta ${agente.porta_painel}) não está respondendo (${e.code || e.message}). Confira se o serviço do painel está ligado.`;

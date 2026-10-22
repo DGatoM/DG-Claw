@@ -101,6 +101,7 @@ API (todas com sessão; erros sempre `{ok:false, erro:"motivo em português"}`):
 | `GET /api/v1/tts/cota` | Uso da cota de voz. |
 | `POST /api/v1/sigilo` | `{textos:[...]}` (até 600). Aponta os trechos sensíveis de cada texto para o modo escondido: `{trechos, avisos, analisados, modelo, so_regex}`. `GET /api/v1/sigilo/estado` diz o modelo ativo; docs em `GET /api/v1/sigilo/docs.md`. Ver `docs/MODO-ESCONDIDO.md`. |
 | `GET /api/v1/eu` | `{ok, usuario}`. |
+| `GET /api/v1/cofre/docs.md` | Como o agente pede uma chave ao dono pela conversa (bloco `dgcofre` ou peça `dv-cofre`), o aviso `[cofre] NOME guardada (final xxxx).` e as garantias. Fonte: `docs/COFRE-NA-CONVERSA.md`. A caixa grava pela rota do cofre do agente (`POST /p/<agente>/api/cofre`). |
 | `GET`/`PUT`/`DELETE /api/v1/foco/:agente`, `POST .../itens`, `PATCH`/`DELETE .../itens/:id`, `GET .../eventos?desde_id`, `GET /api/v1/foco/docs.md` | Modo foco: lista curta por agente que o agente monta e o dono tica na tela; evento `foco` no stream. Docs em `docs/MODO-FOCO.md`. |
 | `GET`/`POST`/`PATCH`/`DELETE /api/v1/tarefas[/:id]` | Mesa de tarefas dos agentes (criar, atualizar, concluir, cancelar). Contrato completo em `docs/MESA.md` (também em `GET /api/v1/tarefas/docs.md`). |
 | `ANY /p/<slug>/*` | Proxy do painel do agente. |
@@ -126,7 +127,7 @@ Na v1 o painel roda dentro do container e não pode guardar chave (o agente a le
 | Rota | Faz |
 |---|---|
 | `GET /p/<slug>/api/cofre` | Estado: chaves (só os 4 últimos caracteres), provedores, onde fica a chave. |
-| `POST` ou `PUT /p/<slug>/api/cofre` | `{envName, valor, provedor, aplicar}`. Guarda; com `aplicar:true` também reinicia. Se o reinício falhar, a chave continua guardada e a resposta traz `guardado` e `aplicado:{ok:false}`. |
+| `POST` ou `PUT /p/<slug>/api/cofre` | `{envName, valor, provedor, aplicar}`. Guarda; com `aplicar:true` também reinicia; com `avisar:true` (só a caixa da conversa manda) o servidor também entrega ao agente, em segundo plano, `[cofre] NOME guardada (final xxxx).` e a resposta traz `aviso` e `aviso_agendado:true`. Se o reinício falhar, a chave continua guardada e a resposta traz `guardado` e `aplicado:{ok:false}`. |
 | `DELETE /p/<slug>/api/cofre?envName=X` | Revoga (tira do cofre e data o registro). |
 | `POST /p/<slug>/api/cofre/aplicar` | Reinicia o agente: `podman exec <container> systemctl restart dgclaw-runner`, porque o runner só lê o cofre quando parte. |
 | `POST /p/<slug>/api/provedor` | O Web assume quando o modo de pagar usa chave ou token: guarda a chave, manda a escolha ao runner (`reiniciar:false`) e reinicia. A chave nunca vai ao painel nem ao runner. Modo de assinatura (sem variável) segue para o painel com o corpo intacto (sem o campo `chave`, se veio um). |

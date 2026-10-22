@@ -15,8 +15,14 @@ um arquivo de configuração à mão.
 | Chaves guardadas | Uma linha por chave: serviço, nome, quatro últimos caracteres, quem cadastrou, quando, e se está ativa ou revogada |
 | Guardar uma chave | Escolher o serviço preenche o nome certo e mostra o endereço onde gerar a chave. O campo da chave nasce escondido |
 | Fazer a chave valer | Reinicia o agente, que é o que faz a chave passar a valer. Quando não há como reiniciar daqui, diz isso em vez de fingir que reiniciou |
-| Quem pode guardar chaves aqui por API | As chaves de API deste agente: nome, quem criou, quando, último uso e revogar. O botão de criar mostra o token uma vez |
+| Chaves de acesso à API | As chaves que deixam outro programa ou agente usar a API (`dgc_...`): nome, quem criou, quando, último uso e revogar. O botão de criar mostra o token uma vez. Não é aqui que se guarda senha ou token de serviço: para isso é o formulário Guardar uma chave |
 | Como a chave fica guardada | Como ela é cifrada, onde o texto puro aparece na hora do uso, e que ela vale só para este agente. Outro agente não a enxerga: para ele usar o mesmo serviço, o dono dele cadastra lá ou autoriza alguém (com uma chave de API daquele agente) a cadastrar |
+
+## Guardar pela conversa (caixa de cofre)
+
+O dono também cola a chave na própria conversa: o agente mostra um cartão com campo de senha (bloco
+`dgcofre` ou peça `dv-cofre` da lousa) e o valor vai para este mesmo cofre, pela mesma rota da aba, sem
+passar pelo chat. Salvar reinicia o agente para a chave valer. Detalhes em `docs/COFRE-NA-CONVERSA.md`.
 
 ## Guardar por API (sem a tela)
 

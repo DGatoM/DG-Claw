@@ -32,7 +32,7 @@ GEMINI_API_KEY
 Chave do Gemini
 ```
 
-Quando chegar "GEMINI_API_KEY salva no cofre.", responda curto e siga. Se o dono colar a chave no chat
+Quando chegar "[cofre] GEMINI_API_KEY guardada (final xxxx).", responda curto e siga. Se o dono colar a chave no chat
 por engano, avise que ela ficou exposta, peça para apagar e gerar outra no AI Studio, e mande o bloco
 de novo. (Sem a tela da conversa: aba **Cofre** do painel, opção **Google (Gemini)**.)
 
