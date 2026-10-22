@@ -68,5 +68,11 @@ Responda curto ("Tá salvo.") e siga: a chave já está no seu ambiente como var
 - O campo é desenhado pelo app, fora do iframe da lousa. O código do visual nunca encosta no valor,
   que também não passa pelo `localStorage`, por log nem pela conversa.
 - O visual só PEDE (`postMessage`); quem abre a caixa e quem grava é o toque do dono.
+- O pedido que vem do iframe nunca recebe foco automático nem rouba o teclado do compositor (no máximo
+  o `#chat` rola para o cartão aparecer). O cartão, nas duas portas, só grava depois de um gesto confiável do
+  dono dentro dele (`pointerdown` ou `touchstart` com `isTrusted`). O botão Salvar fica desligado, com a dica
+  "Toque no campo e cole a chave", e Enter no campo não grava; além disso o toque tem de ter sido no próprio
+  campo, para o valor ter sido colocado depois do gesto. Foco dado por script não conta, e quem navega só por
+  teclado precisa tocar ou clicar uma vez no campo.
 - Atalhos da conversa, ditado e o Esc da tela cheia não recebem o que se digita ou cola no campo.
 - A gravação exige a sessão de login do dono: chave de API do painel não grava por aqui.
