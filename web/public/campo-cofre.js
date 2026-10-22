@@ -7,7 +7,7 @@
    por localStorage nem pelo iframe (guardamos só o marcador "salvo", com o valor ausente). */
 (function (raiz) {
   const NOME_OK = /^[A-Z_][A-Z0-9_]{1,63}$/;
-  let cfg = { agente: '', nome: '', enviar: null, esperaMs: 3000 };
+  let cfg = { agente: '', nome: '' };
 
   function esc(s) {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -96,25 +96,6 @@
     return a ? html(a.envName, a.rotulo, hash(String(textoMsg || '') + '|' + a.envName)) : null;
   }
 
-  const espera = ms => new Promise(r => setTimeout(r, ms));
-
-  /* Formato fixo do aviso ao agente (o valor nunca entra aqui, só o final). */
-  function textoAviso(envName, final, naoAplicou) {
-    return '[cofre] ' + envName + ' guardada' + (final ? ' (final ' + final + ')' : '') + '.' +
-      (naoAplicou ? ' O agente ainda não reiniciou para usar a chave.' : '');
-  }
-
-  /* Entrega a mensagem ao agente, que pode estar reiniciando: até 5 tentativas, 3 s entre elas. */
-  async function avisaAgente(texto) {
-    if (!cfg.enviar) return;
-    for (let i = 0; i < 5; i++) {
-      await espera(cfg.esperaMs);
-      try { await cfg.enviar(texto); return; }
-      catch (e) { console.warn('campo-cofre: o agente ainda não recebeu o aviso (tentativa ' + (i + 1) + '):', e && e.message); }
-    }
-    console.warn('campo-cofre: desisti de avisar o agente depois de 5 tentativas.');
-  }
-
   /* ── Estado do servidor (só nomes e final, nunca valor) ─────────────── */
   let cacheEstado = null;
   function consultaEstado(forcar) {
@@ -196,7 +177,7 @@
     try {
       const r = await fetch('/p/' + encodeURIComponent(cfg.agente) + '/api/cofre', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
-        body: JSON.stringify({ envName, valor, aplicar: true }),
+        body: JSON.stringify({ envName, valor, aplicar: true, avisar: true }),
       });
       status = r.status;
       // Resposta que não é JSON: segue com corpo nulo e a mensagem abaixo mostra o código do status.
@@ -223,7 +204,6 @@
     card.innerHTML = htmlSalvo(envName, final) + (naoAplicou
       ? `<div class="dgc-aviso">O agente ainda não reiniciou para usar a chave${corpo && corpo.howToFix ? ': ' + esc(corpo.howToFix) : ''}.</div>` : '');
     if (cb.aoGuardar) cb.aoGuardar({ envName, final });
-    avisaAgente(textoAviso(envName, final, naoAplicou));
   }
 
   /* Abre o cartão dentro de `contêiner` (a caixa da peça da lousa). opcoes: {envName, rotulo, ajuda,
@@ -291,7 +271,7 @@
     if (doc.readyState === 'loading') doc.addEventListener('DOMContentLoaded', iniciaObs); else iniciaObs();
   }
 
-  const api = { analisa, validaPedido, salvar, html, htmlSalvo, textoAviso, blocoParaHtml, configurar, ligar, montar, estados, esc, hash };
+  const api = { analisa, validaPedido, salvar, html, htmlSalvo, blocoParaHtml, configurar, ligar, montar, estados, esc, hash };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (raiz.document) { raiz.campoCofre = api; ligar(raiz.document); }
 })(typeof window !== 'undefined' ? window : globalThis);

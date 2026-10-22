@@ -65,12 +65,6 @@ test('html: rótulo e ajuda com HTML viram texto; campo à prova de gerenciador 
   assert.ok(!cc.html('GROQ_API_KEY', '', 'id9').includes('dgc-cancelar'));
 });
 
-test('textoAviso: formato fixo com o final, sem valor', () => {
-  assert.equal(cc.textoAviso('HOSTINGER_API_TOKEN', '1a2b', false), '[cofre] HOSTINGER_API_TOKEN guardada (final 1a2b).');
-  assert.equal(cc.textoAviso('X_KEY', '', false), '[cofre] X_KEY guardada.');
-  assert.match(cc.textoAviso('X_KEY', '1a2b', true), /^\[cofre\] X_KEY guardada \(final 1a2b\)\. O agente ainda não reiniciou/);
-});
-
 /** Cartão de mentira: só o que salvar() toca. */
 function cartaoFalso(valor) {
   const campos = {
@@ -82,7 +76,7 @@ function cartaoFalso(valor) {
     querySelector(sel) { return campos[sel] || null; } };
 }
 
-test('salvar: grava, avisa o agente no formato novo com o final do servidor e o valor não aparece em lugar nenhum', async () => {
+test('salvar: grava, pede o aviso ao servidor (avisar:true) e o valor não aparece em lugar nenhum', async () => {
   const SEGREDO = 'tok_SEGREDO_super_secreto_9z8y';
   const saidas = [];
   const originais = {};
@@ -93,9 +87,8 @@ test('salvar: grava, avisa o agente no formato novo com o final do servidor e o 
     pedidos.push({ url, op });
     return { status: 200, json: async () => ({ ok: true, envName: 'HOSTINGER_API_TOKEN', ultimos4: '9z8y', aplicado: { ok: true } }) };
   };
-  const enviados = [];
   const guardados = [];
-  cc.configurar({ agente: 'ana', nome: 'Ana', esperaMs: 0, enviar: async (t) => { enviados.push(t); } });
+  cc.configurar({ agente: 'ana', nome: 'Ana' });
   const card = cartaoFalso('  ' + SEGREDO + '\n');
   card._cb = { aoGuardar: (i) => guardados.push(i), aoErro: () => assert.fail('não devia dar erro') };
   try {
@@ -110,25 +103,25 @@ test('salvar: grava, avisa o agente no formato novo com o final do servidor e o 
   const corpo = JSON.parse(pedidos[0].op.body);
   assert.equal(corpo.valor, SEGREDO);
   assert.equal(corpo.aplicar, true);
-  assert.deepEqual(enviados, ['[cofre] HOSTINGER_API_TOKEN guardada (final 9z8y).']);
+  assert.equal(corpo.avisar, true);
+  assert.deepEqual(Object.keys(corpo).sort(), ['aplicar', 'avisar', 'envName', 'valor'], 'o navegador não manda texto de aviso');
   assert.deepEqual(guardados, [{ envName: 'HOSTINGER_API_TOKEN', final: '9z8y' }]);
   assert.equal(card.campos['.dgc-valor'].value, '', 'o campo é limpo depois de gravar');
   assert.ok(card.innerHTML.includes('final 9z8y'));
-  for (const texto of [...enviados, card.innerHTML, ...saidas, JSON.stringify(guardados)]) assert.ok(!texto.includes(SEGREDO), 'o valor vazou: ' + texto.slice(0, 80));
+  for (const texto of [card.innerHTML, ...saidas, JSON.stringify(guardados)]) assert.ok(!texto.includes(SEGREDO), 'o valor vazou: ' + texto.slice(0, 80));
 });
 
-test('salvar: erro do servidor mostra a mensagem, mantém o campo e não avisa o agente', async () => {
+test('salvar: erro do servidor mostra a mensagem e mantém o campo', async () => {
   const fetchOrig = globalThis.fetch;
   globalThis.fetch = async () => ({ status: 403, json: async () => ({ error: 'Nome fora da lista.', howToFix: 'Use outro nome.' }) });
-  const enviados = [], erros = [];
-  cc.configurar({ agente: 'ana', nome: 'Ana', esperaMs: 0, enviar: async (t) => { enviados.push(t); } });
+  const erros = [];
+  cc.configurar({ agente: 'ana', nome: 'Ana' });
   const card = cartaoFalso('valor-qualquer');
   card._cb = { aoErro: (e) => erros.push(e) };
   try { await cc.salvar(card); } finally { globalThis.fetch = fetchOrig; }
   assert.equal(card.campos['.dgc-msg'].textContent, 'Nome fora da lista. Use outro nome.');
   assert.equal(card.campos['.dgc-valor'].value, 'valor-qualquer');
   assert.equal(erros[0].motivo, 'envio');
-  assert.deepEqual(enviados, []);
 });
 
 test('conversa.js: etiqueta "do cofre", ouvinte da peça com ev.source e valor fora do iframe', () => {
