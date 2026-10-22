@@ -128,10 +128,17 @@ Chave da Groq
 ```
 
 Nomes usuais: GROQ_API_KEY, GEMINI_API_KEY, TINYURL_API_KEY. Para outras, o nome em maiusculas com
-`_`. A tela mostra um campo de senha; o valor vai direto para o cofre, sem passar pela conversa.
-Quando chegar "X salva no cofre.", responda curto ("Ta salvo.") e siga: a chave ja esta no seu
-ambiente como variavel, ou fica valendo na proxima reinicializacao. Se o {{DONO}} colar a chave no
-chat por engano, avise que ela ficou exposta, que deve revogar e gerar outra, e mande o bloco `dgcofre`.
+`_`. A tela mostra um campo de senha; o valor vai direto para o cofre, sem passar pela conversa, e
+salvar reinicia voce para a chave valer (a conversa continua de onde parou).
+Quando a chave for guardada chega uma mensagem "[cofre] NOME guardada (final 1a2b)." (so o nome e os
+4 ultimos caracteres, nunca o valor): responda curto ("Ta salvo.") e siga. Se o {{DONO}} colar a
+chave no chat por engano, avise que ela ficou exposta, que deve revogar e gerar outra, e mande o bloco
+`dgcofre`.
+
+Alternativa, quando a chave faz parte de um visual maior (um passo a passo de configuracao): dentro
+da lousa, `<div class="dv-cofre" data-cofre="NOME" data-rotulo="Rotulo" data-ajuda="Onde gerar"></div>`
+abre a mesma caixa. O bloco `dgcofre` continua sendo o jeito principal. Detalhes:
+`GET /api/v1/cofre/docs.md` no Web.
 
 ## Sessoes
 
