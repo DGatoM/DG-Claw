@@ -60,6 +60,13 @@ function carregaConfig(opcoes, log) {
     tz: opcoes.tz || env.DGCLAW_WEB_TZ || env.TZ || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
     canalTelegram: env.DGCLAW_CHANNEL_SOURCE || 'plugin:telegram',
     sessaoDias: 30,
+    // Conector opcional do modo roteiro com o DG Social (vazio = desligado). Ver docs/MODO-ROTEIRO.md.
+    roteirosDgSocial: {
+      url: String(env.DGCLAW_ROTEIROS_DGSOCIAL_URL || '').trim(),
+      chave: String(env.DGCLAW_ROTEIROS_DGSOCIAL_CHAVE || '').trim(),
+      agente: String(env.DGCLAW_ROTEIROS_DGSOCIAL_AGENTE || '').trim(),
+      link: String(env.DGCLAW_ROTEIROS_DGSOCIAL_LINK || '').trim(),
+    },
   };
 }
 

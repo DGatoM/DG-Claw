@@ -205,6 +205,17 @@ const EH_ADMIN = AGENTE.tipo === 'admin';
 })();
 if (window.campoCofre) window.campoCofre.configurar({ agente: AGENTE.id, nome: AGENTE.nome });
 if (window.DGOnboarding) window.DGOnboarding.iniciar({ agente: AGENTE, enviar: texto => new Promise((resolve, reject) => { enviarTexto(texto, null, { aoEntregar: (ok, motivo) => ok ? resolve() : reject(new Error(motivo || 'O Admin não recebeu a mensagem.')) }); }), refazer: () => render({ semRolar: true }) });
+/* Modo roteiro (roteiro.js): o roteiro fica num painel e esta conversa só pede os ajustes. */
+if (window.DGRoteiro) {
+  window.DGRoteiro.iniciar({ agente: AGENTE.id, nome: AGENTE.nome,
+    enviar: (texto, aoEntregar) => enviarTexto(texto, null, { aoEntregar }),
+    seletores: { composer: '.barra', topo: '#cabecalho', raiz: '#chat' } });
+  // o item "Roteiros" do menu abre o seletor aqui mesmo, sem recarregar a página
+  document.addEventListener('click', ev => {
+    if (!ev.target.closest || !ev.target.closest('#mlRoteiros')) return;
+    ev.preventDefault(); abreMenu(false); window.DGRoteiro.abrir(null);
+  });
+}
 if (window.DGBarra) window.DGBarra.liga(entrada, { url: API + '/comandos' });   // lista de comandos ao digitar /
 let novasAbaixo = 0, setaVisivel = false;   // a seta pro fim e o contador dela
 /* mp3 de 0,08s em silêncio: é o que destrava o áudio no iOS dentro do gesto. */
@@ -2339,6 +2350,7 @@ function integra(d) {
     if (!vistos.has(m.id)) {
       msgs.push(m);
       vistos.add(m.id);
+      if (window.DGRoteiro && ehAgente(m) && m.text) window.DGRoteiro.respostaDoAgente(m.text);
       if (longe && m.ep > topoAntes && ehAgente(m)) novasAbaixo++;
     }
   }
@@ -4596,7 +4608,7 @@ function enviarDoCampo() {
   ajustaCampo();
   vozNoCampo = false;
   if (lcInterceptaLogin(t)) return;   // /login abre o cartão e não vai ao agente
-  enviarTexto(t);
+  enviarTexto(window.DGRoteiro ? window.DGRoteiro.prefixar(t) : t);
 }
 btnEnviar.onclick = () => {
   destravarAudio();
