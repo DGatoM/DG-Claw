@@ -62,7 +62,7 @@ test('visao: /login com a conta conferida mostra "já conectada" com Fechar e En
 test('conversa.js: /login é interceptado antes do envio, e a página carrega o login-cartao.js', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'public', 'conversa.js'), 'utf8');
   const corpo = /function enviarDoCampo\(\) \{[\s\S]*?\n\}/.exec(src)[0];
-  const iLogin = corpo.indexOf('lcInterceptaLogin(t)'); const iEnvio = corpo.indexOf('enviarTexto(t)');
+  const iLogin = corpo.indexOf('lcInterceptaLogin(t)'); const iEnvio = corpo.indexOf('enviarTexto(');
   assert.ok(iLogin > 0 && iLogin < iEnvio, 'a interceptação vem antes do enviarTexto');
   assert.match(corpo, /lcInterceptaLogin\(t\)\) return/);
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'conversa.html'), 'utf8');
