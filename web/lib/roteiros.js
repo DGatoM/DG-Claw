@@ -21,7 +21,7 @@ const MAX_EVENTOS = 200;
 const AJUSTANDO_MIN = 15;
 const LIMITES = { titulo: 120, resumo: 160, nota: 160 };
 const ESTADOS = ['em_ajuste', 'aguardando_aprovacao', 'aprovado', 'arquivado'];
-const RX_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const RX_ID = /^[a-z0-9][a-z0-9-]{0,127}$/;
 const RX_SLUG_AGENTE = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const ARQUIVO_ABERTO = '_aberto.json';
 
@@ -644,7 +644,7 @@ function criarRoteiros(opcoes) {
       const id = i < 0 ? resto : resto.slice(0, i);
       const sub = i < 0 ? '' : resto.slice(i + 1);
       if (!RX_ID.test(id)) {
-        H.erroJson(res, 400, `O id do roteiro precisa ter letras minúsculas, números e hífen, até 64 caracteres (recebi ${JSON.stringify(id.slice(0, 60))}). Veja os ids em GET /api/v1/roteiros.`);
+        H.erroJson(res, 400, `O id do roteiro precisa ter letras minúsculas, números e hífen, até 128 caracteres (recebi ${JSON.stringify(id.slice(0, 60))}). Veja os ids em GET /api/v1/roteiros.`);
         return true;
       }
       const [status, corpo] = await tratarRoteiro(req, url, id, sub, quem, corpoDe);

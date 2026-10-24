@@ -123,7 +123,7 @@ fazer>" }` com o status certo, em português. Datas em ISO 8601.
 }
 ```
 
-- `id`: `[a-z0-9][a-z0-9-]{0,63}`. Local nasce como `rt-<slug do título>-<4 letras>`; do DG Social é
+- `id`: `[a-z0-9][a-z0-9-]{0,127}`. Local nasce como `rt-<slug do título>-<4 letras>`; do DG Social é
   `dgs-<slug>`.
 - `estado`: `em_ajuste`, `aguardando_aprovacao`, `aprovado`, `arquivado`.
 - `ajustando`: `null` ou o aviso; expira sozinho em 15 minutos (na leitura) e some quando entra
