@@ -90,7 +90,7 @@ function criarConectorDgSocial(opcoes) {
   async function listar() {
     const t = agoraMs();
     if (cacheFases && cacheFases.ate > t) return cacheFases.itens;
-    const data = await chamar('GET', '/api/v1/content/fases');
+    const data = await chamar('GET', '/api/v1/content/fases?canal=todos');
     const fases = data && Array.isArray(data.fases) ? data.fases : null;
     if (!fases) throw falha(502, `O DG Social respondeu em ${base}/api/v1/content/fases, mas sem a lista "fases". A versão dele pode ser incompatível; atualize o DG Social ou o DG Claw.`);
     const itens = [];
@@ -102,7 +102,7 @@ function criarConectorDgSocial(opcoes) {
         itens.push({
           slug: it.slug, titulo: it.title || it.slug, fase, estado,
           atualizado_em: it.updatedAt || null, criado_em: it.createdAt || null, canal: it.canal || null,
-          link: `${linkBase}/content/v2?slug=${encodeURIComponent(it.slug)}`,
+          link: `${linkBase}/content/${encodeURIComponent(it.slug)}`,
         });
       }
     }
@@ -150,7 +150,7 @@ function criarConectorDgSocial(opcoes) {
     return data && data.session !== undefined ? data.session : null;
   }
 
-  return { ligado, listar, item, lerTexto, gravar, aprovar, link: (slug) => `${linkBase}/content/v2?slug=${encodeURIComponent(slug)}` };
+  return { ligado, listar, item, lerTexto, gravar, aprovar, link: (slug) => `${linkBase}/content/${encodeURIComponent(slug)}` };
 }
 
 module.exports = { criarConectorDgSocial, ESTADO_DA_FASE };

@@ -380,7 +380,7 @@ test('DG Social: lista mapeia as fases e deixa de fora ideia e card sem pasta', 
     assert.equal(porId['dgs-b-roteiro'].origem, 'dgsocial');
     assert.equal(porId['dgs-b-roteiro'].ref, 'b-roteiro');
     assert.equal(porId['dgs-b-roteiro'].agente, 'isa');
-    assert.equal(porId['dgs-b-roteiro'].link, 'https://social.exemplo.com/content/v2?slug=b-roteiro');
+    assert.equal(porId['dgs-b-roteiro'].link, 'https://social.exemplo.com/content/b-roteiro');
     assert.equal(porId['dgs-b-roteiro'].titulo, 'Título b-roteiro');
     assert.equal(porId['dgs-b-roteiro'].texto, undefined);
     assert.equal(lista.json.roteiros.filter((x) => x.estado === 'aprovado').length, 4);

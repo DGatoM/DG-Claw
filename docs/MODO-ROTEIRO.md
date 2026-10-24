@@ -110,7 +110,7 @@ fazer>" }` com o status certo, em português. Datas em ISO 8601.
   "agente": "isa",
   "origem": "dgsocial",
   "ref": "china-demissao-ia",
-  "link": "https://social.dgmedeiros.com.br/content/v2?slug=china-demissao-ia",
+  "link": "https://social.dgmedeiros.com.br/content/china-demissao-ia",
   "estado": "aguardando_aprovacao",
   "ajustando": { "desde": "2026-10-23T23:10:00-03:00", "por": "isa", "nota": "cortando o gancho" },
   "versao": 6,
