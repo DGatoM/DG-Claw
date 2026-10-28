@@ -22,7 +22,8 @@ process.env.ANTHROPIC_API_KEY = ANT;
 let n = 0;
 async function nova(config: Record<string, unknown> = {}, opcoes: Record<string, unknown> = {}) {
   n += 1;
-  const id = `sess-${n}`;
+  const id = (opcoes.idFixo as string | undefined) ?? `sess-${n}`;
+  delete opcoes.idFixo;
   const pasta = path.join(amb.estado, id);
   fs.mkdirSync(pasta, { recursive: true });
   const ref: { s?: InstanceType<typeof Sessao> } = {};
@@ -488,10 +489,26 @@ test("fila + pergunta do auto mode: o pedido NÃO some, a sessão fica errored c
     assert.deepEqual(s.filaQuandoIdle.map((i) => i.texto), ["pedido do card que não pode se perder"]);
     const noDisco = JSON.parse(fs.readFileSync(s.arquivoDaFila, "utf8"));
     assert.deepEqual(noDisco.itens.map((i: { texto: string }) => i.texto), ["pedido do card que não pode se perder"]);
+    assert.match(lerTexto(amb.logDoRunner), /reiniciar o agente.*Não reenvie, para não duplicar/s);
     await dormir(1_500);
     assert.equal(s.estado.status, "errored", "continua errored, sem tentar de novo sozinha");
     const depois = lerLinhasJson(amb.logDosClis).filter((l) => l.modo === "prompt" || l.modo === "tecla-no-aviso").length;
     assert.equal(depois, marca, "nenhuma tecla chegou ao CLI");
+
+    // Reinício de verdade: o processo morre e uma sessão NOVA do mesmo agente recarrega a fila do disco.
+    // Sem o aviso (o fake já não o abre), o pedido sai UMA vez e a fila esvazia.
+    delete process.env.FAKE_AVISO_AUTO;
+    await s.pararEEsperar("reinício do teste");
+    const reiniciada = (await nova({ permissionMode: "default" }, { idFixo: s.id })).s;
+    assert.deepEqual(reiniciada.filaQuandoIdle.map((i) => i.texto), ["pedido do card que não pode se perder"], "a fila voltou do disco");
+    await reiniciada.subir("nova");
+    const entregues = () =>
+      lerLinhasJson(amb.logDosClis).filter((l) => l.modo === "prompt" && l.texto === "pedido do card que não pode se perder").length;
+    await esperarAte(() => entregues() === 1, 15_000, "o pedido ser entregue depois do reinício");
+    await esperarAte(() => reiniciada.filaQuandoIdle.length === 0 && !reiniciada.itemEmVoo, 5_000);
+    await dormir(1_500);
+    assert.equal(entregues(), 1, "entregue uma vez só");
+    assert.equal(fs.existsSync(reiniciada.arquivoDaFila), false, "a fila persistida esvaziou");
   } finally {
     delete process.env.FAKE_AVISO_AUTO;
   }

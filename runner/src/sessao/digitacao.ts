@@ -43,6 +43,11 @@ export async function digitarEEnviar(s: Sessao, texto: string): Promise<void> {
   await enviarComRecibo(s, ehComandoDeBarra);
 }
 
+/** O pedido que não pôde ser digitado fica guardado na fila (em disco) e sai sozinho quando o agente
+ *  voltar a ficar ocioso. Mandar de novo duplicaria a entrega depois do reinício. */
+export const COMO_RESOLVER_TELA_BLOQUEADA =
+  "reiniciar o agente (ou fechar e reabrir o card); o pedido está guardado na fila e é entregue sozinho depois do reinício. Não reenvie, para não duplicar.";
+
 /** O Claude parou na pergunta de primeira vez do auto mode: o texto digitado cairia dentro do menu e
  *  ficaria parado (nenhum Enter vira turno). Não se responde sozinho porque aceitar muda o modo padrão
  *  do dono. Não digita nada e falha com o motivo, como o aviso do Bypass. */
@@ -51,9 +56,7 @@ function recusarSeEstiverNoAvisoDoAutoMode(s: Sessao): void {
   const motivo =
     "O Claude Code está parado na pergunta 'Make auto mode your default permission mode?' (aviso de primeira vez do auto mode) " +
     "e a chave skipAutoPermissionPrompt não chegou ao settings. Não digitei o texto para ele não cair dentro do menu.";
-  const comoResolver =
-    "abrir o terminal do agente no painel e escolher uma das opções, ou acrescentar \"skipAutoPermissionPrompt\": true " +
-    "ao ~/.claude/settings.json do HOME do motor (ou atualizar o DG Claw); depois reenviar a mensagem";
+  const comoResolver = COMO_RESOLVER_TELA_BLOQUEADA;
   log.erro(s.a("entrada"), motivo, comoResolver);
   throw new ErroDeMotor(motivo, "runner:dialogo-auto-mode", comoResolver);
 }
@@ -92,8 +95,8 @@ export async function vencerTelaDeConfianca(s: Sessao): Promise<void> {
   const motivo =
     "O Codex está parado na tela 'Trust this folder?' e não saiu dela depois de responder 1 + Enter. " +
     "Não digitei o texto para ele não cair no menu.";
-  log.erro(area, motivo, "abrir o terminal do agente no painel, responder 1 e Enter, e reenviar a mensagem");
-  throw new ErroDeMotor(motivo, "runner:tela-de-confianca", "abrir o terminal do agente no painel, responder 1 e Enter, e reenviar a mensagem");
+  log.erro(area, motivo, COMO_RESOLVER_TELA_BLOQUEADA);
+  throw new ErroDeMotor(motivo, "runner:tela-de-confianca", COMO_RESOLVER_TELA_BLOQUEADA);
 }
 
 /** O Enter, com recibo.
