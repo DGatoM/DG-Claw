@@ -473,6 +473,49 @@ test("ehDialogoDeAutoMode: reconhece a pergunta aberta, ignora a já respondida 
   assert.equal(ehDialogoDeAutoMode("o usuário falou em Make auto mode your default permission mode?"), false);
 });
 
+test("fila + pergunta do auto mode: o pedido NÃO some, a sessão fica errored com o motivo e não há laço", async () => {
+  logarClaude(amb);
+  process.env.FAKE_AVISO_AUTO = "1";
+  try {
+    const { s } = await nova({ permissionMode: "default" });
+    await s.subir("nova");
+    await esperarAte(() => lerLinhasJson(amb.logDosClis).some((l) => l.modo === "aviso-auto"), 5_000, "o fake abrir a pergunta");
+    const marca = lerLinhasJson(amb.logDosClis).filter((l) => l.modo === "prompt" || l.modo === "tecla-no-aviso").length;
+    s.enfileirarQuandoOcioso("pedido do card que não pode se perder");
+    await esperarAte(() => s.estado.status === "errored", 15_000, "a sessão ficar errored por causa da pergunta");
+    assert.equal(s.estado.statusReason, "runner:dialogo-auto-mode");
+    assert.match(s.estado.error ?? "", /Make auto mode your default permission mode/);
+    assert.deepEqual(s.filaQuandoIdle.map((i) => i.texto), ["pedido do card que não pode se perder"]);
+    const noDisco = JSON.parse(fs.readFileSync(s.arquivoDaFila, "utf8"));
+    assert.deepEqual(noDisco.itens.map((i: { texto: string }) => i.texto), ["pedido do card que não pode se perder"]);
+    await dormir(1_500);
+    assert.equal(s.estado.status, "errored", "continua errored, sem tentar de novo sozinha");
+    const depois = lerLinhasJson(amb.logDosClis).filter((l) => l.modo === "prompt" || l.modo === "tecla-no-aviso").length;
+    assert.equal(depois, marca, "nenhuma tecla chegou ao CLI");
+  } finally {
+    delete process.env.FAKE_AVISO_AUTO;
+  }
+});
+
+test("fila sem a pergunta do auto mode (chave no settings): o pedido enfileirado é entregue normalmente", async () => {
+  logarClaude(amb);
+  process.env.FAKE_AVISO_AUTO = "1";
+  try {
+    const { s } = await nova({ permissionMode: "auto" });
+    await s.subir("nova");
+    s.enfileirarQuandoOcioso("pedido entregue pela fila");
+    await esperarAte(
+      () => lerLinhasJson(amb.logDosClis).some((l) => l.modo === "prompt" && l.texto === "pedido entregue pela fila"),
+      15_000,
+      "o pedido chegar ao CLI",
+    );
+    await esperarAte(() => s.filaQuandoIdle.length === 0 && !s.itemEmVoo, 5_000);
+    assert.notEqual(s.estado.status, "errored");
+  } finally {
+    delete process.env.FAKE_AVISO_AUTO;
+  }
+});
+
 // --- recibo do Enter: sinais de processamento sem UserPromptSubmit ------------------------------------
 
 test("recibo: só o PreCompact conta (e só para comando de barra); PreToolUse e UserPromptSubmit não mexem nele", async () => {

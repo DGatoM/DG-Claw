@@ -1,7 +1,10 @@
 import type { Sessao } from "../sessao.js";
 import { gravarFila } from "../fila-ocioso.js";
 import { log } from "../logger.js";
+import { ErroDeMotor } from "../provedores/motor.js";
 import { JANELA_DE_PRONTIDAO_MS, PRONTO_APOS_SPAWN_MS, QUIETO_ANTES_DE_DIGITAR_MS } from "./constantes.js";
+
+const MOTIVOS_DE_TELA_BLOQUEADA = ["runner:dialogo-auto-mode", "runner:tela-de-confianca"];
 
 /** Guarda um texto para digitar assim que o agente ficar ocioso. É como uma
  *  rotina agendada (ou o cliente, numa sessão que estava dormindo) fala com ele
@@ -46,13 +49,27 @@ export function talvezSoltarFila(s: Sessao): void {
     `soltando os ${texto.length} caracteres enfileirados (agente ocioso; restam ${s.filaQuandoIdle.length} na fila)`,
   );
   s.digitarEEnviar(texto)
-    .catch((err) =>
+    .catch((err) => {
+      // Tela que bloqueia a caixa (aviso do auto mode, confiança de pasta do Codex): nada foi digitado,
+      // então o pedido NÃO pode sumir. Volta para a frente da fila (o `finally` abaixo persiste) e a
+      // sessão fica errored com o motivo à vista. Em errored a fila não solta de novo (só solta em idle),
+      // então não há laço: ela espera o agente ser reiniciado ou a tela ser resolvida.
+      if (err instanceof ErroDeMotor && MOTIVOS_DE_TELA_BLOQUEADA.includes(err.statusReason)) {
+        if (s.itemEmVoo) s.filaQuandoIdle.unshift(s.itemEmVoo);
+        s.mudar({ status: "errored", error: err.message, statusReason: err.statusReason });
+        log.erro(
+          s.a("entrada"),
+          `${err.message} O pedido continua na fila (${s.filaQuandoIdle.length} pendente(s)) e sai quando o agente voltar a ficar ocioso`,
+          err.comoResolver,
+        );
+        return;
+      }
       log.erro(
         s.a("entrada"),
         `falhei ao digitar o texto enfileirado: ${err instanceof Error ? err.message : err}`,
         "reenviar pelo POST /api/agents/:id/input",
-      ),
-    )
+      );
+    })
     .finally(() => {
       s.soltandoFila = false;
       s.itemEmVoo = null;
