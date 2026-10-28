@@ -1,7 +1,10 @@
 import type { Sessao } from "../sessao.js";
 import { gravarFila } from "../fila-ocioso.js";
 import { log } from "../logger.js";
+import { ErroDeMotor } from "../provedores/motor.js";
 import { JANELA_DE_PRONTIDAO_MS, PRONTO_APOS_SPAWN_MS, QUIETO_ANTES_DE_DIGITAR_MS } from "./constantes.js";
+
+const MOTIVOS_DE_TELA_BLOQUEADA = ["runner:dialogo-auto-mode", "runner:tela-de-confianca"];
 
 /** Guarda um texto para digitar assim que o agente ficar ocioso. É como uma
  *  rotina agendada (ou o cliente, numa sessão que estava dormindo) fala com ele
@@ -41,23 +44,55 @@ export function talvezSoltarFila(s: Sessao): void {
   s.itemEmVoo = s.filaQuandoIdle.shift()!;
   const texto = s.itemEmVoo.texto;
   s.soltandoFila = true;
-  log.info(
+  if (!s.bloqueioDaFilaLogado) log.info(
     s.a("entrada"),
     `soltando os ${texto.length} caracteres enfileirados (agente ocioso; restam ${s.filaQuandoIdle.length} na fila)`,
   );
-  s.digitarEEnviar(texto)
-    .catch((err) =>
+  s.digitarEEnviar(texto, true)
+    .then(() => {
+      s.bloqueioDaFilaLogado = false;
+    })
+    .catch((err) => {
+      // Tela que bloqueia a caixa (aviso do auto mode, confiança de pasta do Codex): nada foi digitado,
+      // então o pedido NÃO pode sumir. Volta para a frente da fila (o `finally` abaixo persiste), a sessão
+      // fica como estava e a fila olha de novo sozinha a cada poucos segundos. É seguro repetir: o primeiro
+      // passo de digitarEEnviar só OLHA a tela. Quando o dono responder o aviso no terminal, sai uma vez.
+      if (err instanceof ErroDeMotor && MOTIVOS_DE_TELA_BLOQUEADA.includes(err.statusReason)) {
+        if (s.itemEmVoo) s.filaQuandoIdle.unshift(s.itemEmVoo);
+        if (!s.bloqueioDaFilaLogado) {
+          s.bloqueioDaFilaLogado = true;
+          log.erro(s.a("entrada"), `${err.message} O pedido continua na fila (${s.filaQuandoIdle.length} pendente(s)) e a fila tenta de novo sozinha`, err.comoResolver);
+        }
+        agendarReintento(s);
+        return;
+      }
       log.erro(
         s.a("entrada"),
         `falhei ao digitar o texto enfileirado: ${err instanceof Error ? err.message : err}`,
         "reenviar pelo POST /api/agents/:id/input",
-      ),
-    )
+      );
+    })
     .finally(() => {
       s.soltandoFila = false;
       s.itemEmVoo = null;
       espelharFila(s);
     });
+}
+
+/** Um único timer de nova tentativa; `cancelarReintentoDaFila` o desarma ao parar a sessão. */
+function agendarReintento(s: Sessao): void {
+  if (s.reintentoDaFila) return;
+  s.reintentoDaFila = setTimeout(() => {
+    s.reintentoDaFila = null;
+    talvezSoltarFila(s);
+  }, s.reintentoTelaBloqueadaMs);
+  s.reintentoDaFila.unref();
+}
+
+export function cancelarReintentoDaFila(s: Sessao): void {
+  if (s.reintentoDaFila) clearTimeout(s.reintentoDaFila);
+  s.reintentoDaFila = null;
+  s.bloqueioDaFilaLogado = false;
 }
 
 /** Grava no disco o que ainda não foi entregue: o item em digitação e a fila. */

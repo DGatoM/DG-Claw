@@ -55,6 +55,22 @@ falha() {
     exit 1
 }
 
+# podman_em_escopo <slug> <argumentos do podman...>
+# Roda o podman (create/start de container de agente) num escopo systemd proprio. Sem isso o
+# conmon do container nasce dentro do cgroup de quem chamou: se for o servico dgclaw-admin, reiniciar
+# o Admin espera 90 s pelo conmon e acaba matando ele com SIGKILL (o agente cai junto). O mesmo vale
+# para a atualizacao em segundo plano. Sem systemd (ou na raiz falsa dos testes, que nao tem
+# $R/run/systemd/system) cai no podman direto.
+podman_em_escopo() {
+    local slug="$1"; shift
+    if command -v systemd-run >/dev/null 2>&1 && [ -d "$R/run/systemd/system" ]; then
+        executar systemd-run --scope --quiet --collect \
+            --unit "dgclaw-conteiner-$slug-$(date +%s)-$$-$RANDOM" podman "$@"
+    else
+        executar podman "$@"
+    fi
+}
+
 # executar <comando...>
 # No ensaio, so anuncia. Fora dele, roda; se falhar, diz qual comando e com que
 # codigo, em vez de deixar o `set -e` derrubar o script em silencio.

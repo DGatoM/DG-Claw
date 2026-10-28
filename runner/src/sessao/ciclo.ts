@@ -9,6 +9,7 @@ import { motorDe } from "../provedores/motores.js";
 import { montarCtx } from "./configuracao.js";
 import { RESUME_MORREU_CEDO_MS } from "./constantes.js";
 import { cancelarQuietoDeBoot, cancelarStopPendente } from "./eventos.js";
+import { cancelarReintentoDaFila } from "./fila.js";
 import { conferirLoginExpiradoNoTranscript, encerrarIncidenteDeLogin } from "./login.js";
 import { aoReceberDados, descarregarMascara } from "./terminal.js";
 import { pararVigiaDoStopPerdido, vigiarRolloutDoCodex, vigiarStopPerdido } from "./vigias.js";
@@ -290,6 +291,7 @@ export function parar(s: Sessao, motivo: string, statusReason?: string): void {
   s.proc = null;
   s.encerrando = false;
   cancelarQuietoDeBoot(s);
+  cancelarReintentoDaFila(s);
   if (s.mascaraAtual) descarregarMascara(s, s.mascaraAtual);
   s.mudar({
     status: s.estado.sessionId ? "resumable" : "stopped",
@@ -385,6 +387,7 @@ export function aoSair(s: Sessao, exitCode: number, signal?: number): void {
   s.proc = null;
   cancelarStopPendente(s);
   cancelarQuietoDeBoot(s);
+  cancelarReintentoDaFila(s);
   const retomada = s.retomando;
   s.retomando = null;
   if (s.encerrando) return;

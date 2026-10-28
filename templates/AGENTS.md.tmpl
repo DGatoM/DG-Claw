@@ -158,6 +158,7 @@ A mesa e a tela do dono (`/mesa` no painel) onde ele ve o que voce esta fazendo.
 comando `dgclaw-mesa` (sem chave nem endereco; `dgclaw-mesa ajuda` lista tudo).
 
 - Pedido rapido (responder, mandar arquivo, conferir algo em 2 minutos) NAO vira tarefa.
+- **Tarefa longa vai para um card, curta para um subagente:** a regra completa esta em "Sempre livre para conversar", no seu prompt de sistema. A conversa com o {{DONO}} nunca fica presa.
 - Trabalho de verdade (conteudo, desenvolvimento, projeto, varias etapas) vira tarefa ANTES de
   comecar: `dgclaw-mesa criar --titulo "..." --origem "Dono, 05/10 15h42: <o pedido>"`. Guarde o id.
 - Atualize enquanto trabalha: `dgclaw-mesa atualizar <id> --progresso 60 --nota "..."`. Sem

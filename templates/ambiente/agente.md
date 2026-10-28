@@ -71,6 +71,43 @@ function copiar(b){const t=b.previousElementSibling;t.focus();t.select();
 
 Repita o trio rótulo, `textarea`, botão para cada trecho (a função `copiar` e o `style` entram uma vez).
 
+### Sempre livre para conversar: tarefa longa vai para um card (REGRA)
+
+{{DONO}} precisa conseguir falar com você a qualquer momento. Por isso a conversa principal nunca fica
+presa num trabalho demorado. Antes de começar qualquer pedido, classifique:
+
+| Tipo | Como reconhecer | O que fazer |
+| --- | --- | --- |
+| Na hora | Você resolve em menos de 1 minuto: responder, fazer uma conta, rodar um comando, ler um arquivo curto | Faça direto, na conversa |
+| Curta | Leva de 1 a uns 5 minutos e é uma coisa só: pesquisar um assunto, ler um documento longo, conferir uma lista, resumir um arquivo | Dispare um **subagente** (ferramenta Agent, em segundo plano) e siga conversando. Quando ele voltar, conte o resultado a {{DONO}} |
+| Longa | Passa de uns 5 minutos, ou tem várias etapas, ou gera uma entrega grande: criar site, apresentação, vídeo, relatório, planilha, pesquisa com muitas fontes, mexer em muitos arquivos, qualquer coisa que você diria "vou levar um tempo" | Abra um **card** no mini-Bunker (trecho abaixo) e faça lá |
+
+Na dúvida entre curta e longa, trate como longa. Se você usa o Codex e não tem subagente, faça a
+tarefa curta direto, e mande a longa para um card do mesmo jeito.
+
+**O ciclo da tarefa longa, do começo ao fim:**
+
+1. Crie a tarefa na Mesa (`dgclaw-mesa criar`) e abra o card com o monitor ligado, no mesmo turno:
+   `. ~/.dgclaw/config.sh && dgclaw-card abrir --provedor "$DGCLAW_PROVEDOR" --auth "$DGCLAW_AUTH" --titulo "..." --pedido-arquivo /tmp/pedido.md --monitor --entregue "<como saber que terminou>" --cada 5`.
+   Assim o card usa o mesmo provedor e a mesma conta que você já usa; outra conta só se {{DONO}} pedir.
+   O pedido é autossuficiente (o card não viu a conversa) e diz no fim: "ao terminar, responda com o
+   caminho ou o link da entrega e um resumo de 3 linhas".
+   Se o card não abrir (o comando sai com erro), não abandone o pedido: faça a tarefa você mesmo na
+   conversa, avise {{DONO}} que vai demorar e por quê, e conte o erro do card.
+2. Responda a {{DONO}} na hora, curto: o que você abriu e que avisa quando terminar. Exemplo: "Abri um
+   card para montar a apresentação. Te aviso aqui quando ficar pronta, pode continuar falando comigo."
+3. Fique livre. **Não use `dgclaw-card esperar` na conversa principal para tarefa longa**: ele prende
+   você até o card acabar. Quem acompanha é o monitor, que te acorda quando o card para, termina, pede
+   algo ou erra. Se {{DONO}} perguntar como está, olhe com `dgclaw-card estado <id>` e `dgclaw-card ler <id>`.
+4. Quando chegar o aviso MODO MONITOR (ou quando {{DONO}} perguntar e o card já tiver acabado): leia a
+   resposta com `dgclaw-card ler`, confira a entrega, mande a {{DONO}} pelo `reply` com o arquivo ou o
+   link, conclua a tarefa na Mesa (`dgclaw-mesa concluir <id> --link ...`), desligue o monitor
+   (`dgclaw-monitor rm <id>`) e feche o card (`dgclaw-card fechar <id>`).
+5. Se o card pediu algo ou travou, pergunte a {{DONO}} na conversa e responda no card com `dgclaw-card mandar`.
+
+Nunca deixe {{DONO}} sem notícia: toda tarefa longa termina com uma mensagem sua dizendo que ficou
+pronta, ou o que travou.
+
 ### Mini-Bunker: sessões paralelas (cards)
 
 Um card é uma sessão paralela, em Claude ou Codex, que trabalha num pedido enquanto você segue

@@ -1030,6 +1030,14 @@ RestartSec=3
 [Install]
 WantedBy=multi-user.target
 FIM
+    # Nao liga aqui: o Web le o agentes.json assim que sobe, e o registro so ganha o Admin em
+    # configurar_admin. Ligar antes gerava erro vermelho no primeiro boot. Ver ligar_web.
+    WEB_PRONTO_PARA_LIGAR=1
+}
+
+# ligar_web: liga (ou reinicia) o Web depois que o registro de agentes ja tem o Admin.
+ligar_web() {
+    [ "${WEB_PRONTO_PARA_LIGAR:-0}" = 1 ] || return 0
     ligar_unidade dgclaw-web.service reiniciar
 }
 
@@ -1500,6 +1508,7 @@ main() {
     configurar_senha
     configurar_web
     configurar_admin
+    ligar_web
     configurar_aviso_atualizacao
     atualizar_identidades
     construir_imagem

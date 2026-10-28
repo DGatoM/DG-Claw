@@ -113,6 +113,10 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
   const ultimas = new Map();        // slug -> { ts, valor } (epoch ms da última mensagem, ou null)
   const envios = new Map();         // chave -> { promessa, ts }
   const logUmaVez = new Map();      // chave -> último motivo
+  // Sessão que o runner anunciou e ainda não tem arquivo: slug|sessão -> quando vimos a falta pela primeira vez.
+  const semArquivoDesde = new Map();
+  // O .jsonl do Claude só nasce na primeira troca. Até esse prazo a falta é esperada (info); depois dele, é problema.
+  const TOLERANCIA_SEM_ARQUIVO_MS = 10 * 60 * 1000;
 
   function avisaUmaVez(chave, nivel, msg) {
     if (logUmaVez.get(chave) === msg) return;
@@ -247,8 +251,19 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
         if ((codexHome && rol && rol.erro) || ultimoArquivo.get(agente.slug) || maisRecente(agente)) {
           avisos.push('Não consegui abrir o histórico desta conversa agora. As mensagens novas continuam chegando, e quem cuida do sistema pode ver o motivo no log do Web.');
         }
-        avisaUmaVez(`arq|${agente.slug}`, 'aviso', `Thread de ${agente.nome}: o runner diz que a sessão é ${sid}, mas ${motivo.charAt(0).toLowerCase()}${motivo.slice(1)} Confira transcripts_dir e home_host no registro de agentes.`);
-      } else esquece(`arq|${agente.slug}`);
+        const chaveFalta = `${agente.slug}|${sid}`;
+        if (!semArquivoDesde.has(chaveFalta)) semArquivoDesde.set(chaveFalta, relogio());
+        const esperando = relogio() - semArquivoDesde.get(chaveFalta);
+        const detalhe = `o runner diz que a sessão é ${sid}, mas ${motivo.charAt(0).toLowerCase()}${motivo.slice(1)}`;
+        if (esperando < TOLERANCIA_SEM_ARQUIVO_MS) {
+          avisaUmaVez(`arq|${agente.slug}`, 'info', `Thread de ${agente.nome}: sessão nova, aguardando a primeira troca criar o registro (${detalhe})`);
+        } else {
+          avisaUmaVez(`arq|${agente.slug}`, 'aviso', `Thread de ${agente.nome}: ${detalhe} Já faz ${Math.round(esperando / 60000)} min sem o arquivo aparecer; confira transcripts_dir e home_host no registro de agentes.`);
+        }
+      } else {
+        esquece(`arq|${agente.slug}`);
+        semArquivoDesde.delete(`${agente.slug}|${sid}`);
+      }
     } else if (!r.ok) {
       avisos.push(`O runner não respondeu (${r.erro}). Mostro a última conversa conhecida.`);
     }

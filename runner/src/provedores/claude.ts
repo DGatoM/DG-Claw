@@ -110,6 +110,31 @@ export function pularPrimeiraExecucao(cwd: string, env: Record<string, string>, 
   }
 }
 
+/** Auto mode: marca no `.claude.json` que o aviso de entrada já foi visto (`hasSeenAutoModeEntryWarning`,
+ *  lida pelo Claude 2.1.312 em shouldShowAutoModeEntryWarning) e que a pergunta de opt-in não deve voltar
+ *  (`hasSeenAutoDefaultNotice`). O settings por spawn já traz `skipAutoPermissionPrompt`; esta marca cobre
+ *  o aviso informativo que o CLI anexa ao transcript e a versão que ler só o estado global.
+ *  Idempotente: não reescreve o arquivo se nada mudou. */
+export function pularAvisoDoAutoMode(env: Record<string, string>, area: string): void {
+  const arquivo = arquivoClaudeJson(env);
+  try {
+    const atual = lerClaudeJson(arquivo);
+    let mudou = false;
+    for (const chave of ["hasSeenAutoModeEntryWarning", "hasSeenAutoDefaultNotice"]) {
+      if (atual[chave] !== true) { atual[chave] = true; mudou = true; }
+    }
+    if (!mudou) return;
+    gravarJsonAtomico(arquivo, atual);
+    log.info(area, `aviso do auto mode marcado como visto em ${arquivo}`);
+  } catch (err) {
+    log.aviso(
+      area,
+      `não consegui marcar o aviso do auto mode como visto em ${arquivo} (${err instanceof Error ? err.message : err}); ` +
+        `o settings do agente já traz skipAutoPermissionPrompt, mas se o CLI abrir o aviso mesmo assim o runner não digita o texto e para com erro`,
+    );
+  }
+}
+
 /**
  * Modo API: grava no `.claude.json` em uso que a chave do ambiente já foi aprovada.
  *
@@ -210,6 +235,7 @@ export const motorClaude: Motor = {
   async preparar(ctx) {
     confiarNaPasta(ctx.cwd, ctx.env, ctx.a("spawn"));
     pularPrimeiraExecucao(ctx.cwd, ctx.env, ctx.a("spawn"));
+    if (ctx.config.permissionMode === "auto") pularAvisoDoAutoMode(ctx.env, ctx.a("spawn"));
     if (ctx.escolha.auth === "api") {
       const chave = ctx.env[ctx.variavelDoModo ?? "ANTHROPIC_API_KEY"];
       if (chave) {

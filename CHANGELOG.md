@@ -111,7 +111,36 @@ passo primeiro.
    eles aprendem o aviso novo (`[cofre] NOME guardada (final 1a2b).`) e a peça `dv-cofre`, sem apagar o
    que você personalizou.
 
+### Como atualizar (seu agente sempre livre para conversar)
+
+Nesta versão os agentes ganham uma regra nova: trabalho demorado (montar uma apresentação, um site,
+um relatório, uma pesquisa grande) vai para um card na aba Sessões, e o agente avisa você na conversa
+quando terminar. Tarefa de poucos minutos ele passa para um ajudante em segundo plano. Assim ele
+continua respondendo você enquanto trabalha.
+
+1. **Peça ao Admin, no chat: "atualiza o DG Claw".** A atualização recria os agentes, e é nesse passo
+   que a regra entra nas instruções de cada um, inclusive dos que você já tem. Nada do que você
+   personalizou (`AGENT.md`, `CLAUDE.md`, memória) é tocado.
+2. **Agente que estava desligado** só recebe a regra quando for ligado de novo. Se quiser aplicar sem
+   esperar, rode `sudo dgclaw agente identidade <agente>`.
+
 ### Corrigido
+
+- **O primeiro pedido de um card ficava parado na caixa de entrada.** A sessão do card nasce em modo
+  `auto`, e na primeira vez o Claude Code mostrava um aviso sobre esse modo na frente da caixa. O texto
+  do pedido ficava escrito ali, sem ninguém processar, até alguém dar Enter à mão (7 minutos, na aula de
+  27/10). Agora o aviso já vem marcado como visto. Se ele aparecer mesmo assim, o agente não digita o
+  pedido e o log diz o que fazer.
+- **Reiniciar o Admin levava 90 segundos e derrubava o vigia do container do agente.** O container
+  criado pelo Admin ficava pendurado no serviço dele, e cada reinício (inclusive o automático das
+  atualizações de segurança do Ubuntu) esperava 90 segundos e encerrava à força o processo que cuida do
+  container. Agora cada container sobe separado do serviço de quem o ligou.
+- **Erros vermelhos falsos no log logo depois de instalar.** O painel subia antes de existir a lista de
+  agentes e registrava três erros, que sumiam sozinhos. Agora ele só liga depois que a lista existe.
+- **Avisos que não eram problema.** "Digitei 3 Enters e nenhum abriu turno" aparecia no `/compact`
+  automático; "não achei o registro da sessão" aparecia
+  para conversa recém-criada; e "agente fora do ar" se repetia a cada 30 segundos enquanto o agente só
+  esperava o login. Os três agora só aparecem quando há algo de errado de verdade, e uma vez por estado.
 
 - A foto do agente cadastrada por endereço (`https://...`) aparecia pela metade no iPhone, com o verde do
   avatar por baixo. A mesma foto de fora era pedida várias vezes por página. Agora o painel baixa a foto

@@ -65,11 +65,13 @@ registrar({ modo: "interativo" });
 const iSettings = argv.indexOf("--settings");
 let hooks = {};
 let pulaAvisoBypass = false;
+let pulaAvisoAuto = false;
 if (iSettings >= 0) {
   try {
     const conf = JSON.parse(fs.readFileSync(argv[iSettings + 1], "utf8"));
     hooks = conf.hooks || {};
     pulaAvisoBypass = conf.skipDangerousModePermissionPrompt === true;
+    pulaAvisoAuto = conf.skipAutoPermissionPrompt === true;
   } catch (e) {
     process.stderr.write("fake claude: settings ilegivel: " + e.message + "\n");
   }
@@ -110,9 +112,33 @@ if (process.env.FAKE_IMPRIMIR) {
 }
 setTimeout(() => disparar("SessionStart", { source: "startup" }), Number(process.env.FAKE_SESSIONSTART_MS || 150));
 
+// FAKE_AVISO_AUTO=1: como o Claude 2.1.312, abre a pergunta de primeira vez do auto mode DEPOIS do
+// SessionStart (a menos que o settings traga skipAutoPermissionPrompt). Enquanto ela está aberta, o
+// texto digitado não vira turno: cada tecla fica registrada como "tecla-no-aviso".
+let avisoAutoAberto = false;
+if (process.env.FAKE_AVISO_AUTO && !pulaAvisoAuto) {
+  setTimeout(() => {
+    avisoAutoAberto = true;
+    registrar({ modo: "aviso-auto" });
+    process.stdout.write(
+      "\u001b[2J\u001b[HMake auto mode your default permission mode?\r\n\r\n" +
+        "Auto mode lets Claude handle permission prompts automatically.\r\n" +
+        "\u001b[1C\u276f Yes, set auto mode as my default permission mode\r\n  No, keep Default\r\n",
+    );
+  }, Number(process.env.FAKE_SESSIONSTART_MS || 150) + 100);
+}
+
 let linha = "";
 if (process.stdin.isTTY) process.stdin.setRawMode(true);
 process.stdin.on("data", (d) => {
+  if (avisoAutoAberto) {
+    // A tecla "2" ("No, keep ...") fecha a pergunta e o TUI volta a desenhar o prompt normal.
+    if (d.toString() !== "2") return registrar({ modo: "tecla-no-aviso", bytes: d.length });
+    avisoAutoAberto = false;
+    registrar({ modo: "aviso-auto-fechado" });
+    process.stdout.write("\u001b[2J\u001b[H\u276f \r\n? for shortcuts " + "\r\n");
+    return;
+  }
   for (const ch of d.toString()) {
     if (ch === "\r" || ch === "\n") {
       const texto = linha.trim();

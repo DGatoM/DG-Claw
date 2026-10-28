@@ -263,6 +263,13 @@ export function escreverSettings(s: Sessao, nonce: string): string | null {
     if (s.motor.provedor === "claude" && cfg.permissionMode === "bypassPermissions") {
       settings.skipDangerousModePermissionPrompt = true;
     }
+    // 28/10/2026: o mesmo vale para o auto mode (Claude 2.1.312). Na primeira vez ele abre a pergunta
+    // "Make auto mode your default permission mode?" / o aviso de entrada, que ficam na frente da caixa
+    // e engolem o texto digitado. `skipAutoPermissionPrompt` ("o usuário já aceitou o opt-in do auto
+    // mode") é lida também do settings por spawn (flagSettings); a marca global fica no .claude.json.
+    if (s.motor.provedor === "claude" && cfg.permissionMode === "auto") {
+      settings.skipAutoPermissionPrompt = true;
+    }
     const arquivo = path.join(dir, `${s.descritor.id}.settings.json`);
     // Modo 600: o nonce está dentro do comando de cada hook.
     fs.writeFileSync(arquivo, JSON.stringify(settings), { encoding: "utf8", mode: 0o600 });

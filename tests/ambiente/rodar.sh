@@ -66,6 +66,15 @@ dgclaw agente identidade ana >/dev/null 2>&1
 afirma "mudanca no AGENT.md passa para o identidade.md" grep -q 'Linha que a pessoa escreveu' "$ID"
 afirma "o AGENT.md da pessoa continua como estava" grep -q 'Linha que a pessoa escreveu' "$AG"
 
+# A atualizacao chama `agente recriar`, que chama o reparar completo: agente antigo precisa
+# receber a regra nova sem ninguem rodar `agente identidade` a mao.
+grep -vF "$MARCA" "$ID" >"$TMP/velha2.md" && cp "$TMP/velha2.md" "$ID"
+nega "pre-condicao: identidade velha sem a secao" grep -qxF "$MARCA" "$ID"
+dgclaw agente reparar ana >"$TMP/rep.txt" 2>&1
+igual "reparar completo sai com 0" "0" "$?"
+afirma "o reparar completo regrava a secao no identidade.md" grep -qxF "$MARCA" "$ID"
+afirma "a regra da tarefa longa chega ao agente antigo" grep -q 'Sempre livre para conversar' "$ID"
+
 nega "slug inexistente recusa" dgclaw agente identidade fantasma
 nega "sem slug recusa" dgclaw agente identidade
 fim

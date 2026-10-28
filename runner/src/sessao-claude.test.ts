@@ -22,7 +22,8 @@ process.env.ANTHROPIC_API_KEY = ANT;
 let n = 0;
 async function nova(config: Record<string, unknown> = {}, opcoes: Record<string, unknown> = {}) {
   n += 1;
-  const id = `sess-${n}`;
+  const id = (opcoes.idFixo as string | undefined) ?? `sess-${n}`;
+  delete opcoes.idFixo;
   const pasta = path.join(amb.estado, id);
   fs.mkdirSync(pasta, { recursive: true });
   const ref: { s?: InstanceType<typeof Sessao> } = {};
@@ -408,6 +409,235 @@ test("aviso do modo Bypass: com a chave no settings por spawn o fake não abre o
     assert.equal(s.estado.statusReason, "hook:SessionStart");
   } finally {
     delete process.env.FAKE_AVISO_BYPASS;
+  }
+});
+
+test("auto mode: o settings traz skipAutoPermissionPrompt só no permissionMode auto", async () => {
+  logarClaude(amb);
+  const lerSettings = (pasta: string, id: string) =>
+    JSON.parse(fs.readFileSync(path.join(pasta, "runner-hooks", `${id}.settings.json`), "utf8"));
+  const auto = await nova({ permissionMode: "auto" });
+  await auto.s.subir("nova");
+  assert.equal(lerSettings(auto.pasta, auto.s.id).skipAutoPermissionPrompt, true);
+  for (const modo of ["default", "bypassPermissions"]) {
+    const outro = await nova({ permissionMode: modo });
+    await outro.s.subir("nova");
+    assert.equal("skipAutoPermissionPrompt" in lerSettings(outro.pasta, outro.s.id), false, `modo ${modo}`);
+  }
+});
+
+test("auto mode: com a chave no settings o fake não abre a pergunta e o texto vira turno", async () => {
+  logarClaude(amb);
+  process.env.FAKE_AVISO_AUTO = "1";
+  try {
+    const { s, id } = await nova({ permissionMode: "auto" });
+    await s.subir("nova");
+    await esperarAte(() => s.estado.status === "idle", 8_000, "o SessionStart virar idle");
+    await dormir(400);
+    await s.digitarEEnviar("pedido do card");
+    const prompts = lerLinhasJson(amb.logDosClis).filter((l) => l.modo === "prompt" && l.texto === "pedido do card");
+    assert.ok(prompts.length >= 1, `o prompt chegou ao CLI (sessão ${id})`);
+  } finally {
+    delete process.env.FAKE_AVISO_AUTO;
+  }
+});
+
+test("pergunta do auto mode na tela (sem a chave no settings): NÃO digita o texto e falha com o motivo", async () => {
+  logarClaude(amb);
+  process.env.FAKE_AVISO_AUTO = "1";
+  try {
+    // permissionMode default de propósito: simula runner antigo/settings que falhou, sem a chave.
+    const { s } = await nova({ permissionMode: "default" });
+    await s.subir("nova");
+    await esperarAte(() => s.estado.status === "idle", 8_000, "o SessionStart virar idle");
+    await esperarAte(() => lerLinhasJson(amb.logDosClis).some((l) => l.modo === "aviso-auto"), 5_000, "o fake abrir a pergunta");
+    await dormir(300);
+    const antes = lerLinhasJson(amb.logDosClis).filter((l) => l.modo === "prompt" || l.modo === "tecla-no-aviso").length;
+    await assert.rejects(s.digitarEEnviar("texto que cairia no menu"), /Make auto mode your default permission mode/);
+    await dormir(300);
+    const depois = lerLinhasJson(amb.logDosClis).filter((l) => l.modo === "prompt" || l.modo === "tecla-no-aviso").length;
+    assert.equal(depois, antes, "nenhuma tecla chegou ao CLI");
+    assert.match(lerTexto(amb.logDoRunner), /Make auto mode your default permission mode.*skipAutoPermissionPrompt/s);
+  } finally {
+    delete process.env.FAKE_AVISO_AUTO;
+  }
+});
+
+test("ehDialogoDeAutoMode: reconhece a pergunta aberta, ignora a já respondida e a citação solta", async () => {
+  const { ehDialogoDeAutoMode } = await import("./sessao/telas.js");
+  const dialogo =
+    "\u001b[2JMake\u001b[1Cauto\u001b[1Cmode\u001b[1Cyour default permission mode?\r\nAuto mode lets Claude handle permission prompts.\r\n" +
+    "\u276f Yes, set auto mode as my default permission mode\r\n  No, keep Default\r\n";
+  assert.equal(ehDialogoDeAutoMode(dialogo), true);
+  const depois = dialogo + "\r\n" + "> pronto para o pedido ".repeat(10) + "? for shortcuts";
+  assert.equal(ehDialogoDeAutoMode(depois), false, "pergunta já respondida: o prompt voltou depois dela");
+  // Cenário do Codex: limpeza de tela + prompt curto (menos de 80 caracteres) depois do diálogo.
+  assert.equal(ehDialogoDeAutoMode(dialogo + "\u001b[2J\u001b[H\u276f \r\n? for shortcuts"), false, "limpou a tela e redesenhou um prompt curto");
+  assert.equal(ehDialogoDeAutoMode(dialogo + "\u001b[3J\u001b[H\u276f"), false);
+  assert.equal(ehDialogoDeAutoMode(dialogo + "\u001b[?1049l\r\nvoltou"), false, "saiu da tela alternativa");
+  assert.equal(ehDialogoDeAutoMode(dialogo + "\r\n\u276f"), false, "prompt redesenhado sem limpeza");
+  assert.equal(ehDialogoDeAutoMode("lixo velho\u001b[2J" + dialogo), true, "a limpeza ANTES do diálogo não o esconde");
+  assert.equal(ehDialogoDeAutoMode("o usuário falou em Make auto mode your default permission mode?"), false);
+});
+
+test("fila + pergunta do auto mode: o pedido NÃO some, a sessão NÃO vira errored, um só log por bloqueio; ao fechar o aviso entrega uma vez", async () => {
+  logarClaude(amb);
+  process.env.FAKE_AVISO_AUTO = "1";
+  try {
+    const { s } = await nova({ permissionMode: "default" }, { reintentoTelaBloqueadaMs: 300 });
+    await s.subir("nova");
+    await esperarAte(() => lerLinhasJson(amb.logDosClis).some((l) => l.modo === "aviso-auto"), 5_000, "o fake abrir a pergunta");
+    const teclas = () => lerLinhasJson(amb.logDosClis).filter((l) => l.modo === "prompt" || l.modo === "tecla-no-aviso").length;
+    const marca = teclas();
+    const pedido = "pedido do card que não pode se perder";
+    const logAntes = lerTexto(amb.logDoRunner).length;
+    s.enfileirarQuandoOcioso(pedido);
+    await esperarAte(() => s.bloqueioDaFilaLogado, 15_000, "a fila reconhecer o bloqueio");
+    await dormir(2_000); // várias rodadas de nova tentativa
+    assert.notEqual(s.estado.status, "errored");
+    assert.deepEqual(s.filaQuandoIdle.map((i) => i.texto), [pedido]);
+    const noDisco = JSON.parse(fs.readFileSync(s.arquivoDaFila, "utf8"));
+    assert.deepEqual(noDisco.itens.map((i: { texto: string }) => i.texto), [pedido]);
+    assert.equal(teclas(), marca, "nenhuma tecla chegou ao CLI");
+    const novoLog = lerTexto(amb.logDoRunner).slice(logAntes);
+    assert.equal((novoLog.match(/Make auto mode your default permission mode/g) ?? []).length, 1, "um só log de erro por bloqueio");
+    assert.match(novoLog, /responder o aviso no terminal do agente.*Não reenvie/s);
+
+    // O dono responde o aviso no terminal: o pedido sai uma vez só e a fila esvazia.
+    s.escrever("2");
+    const entregues = () => lerLinhasJson(amb.logDosClis).filter((l) => l.modo === "prompt" && l.texto === pedido).length;
+    await esperarAte(() => entregues() === 1, 15_000, "o pedido ser entregue depois que o aviso sumiu");
+    await esperarAte(() => s.filaQuandoIdle.length === 0 && !s.itemEmVoo, 5_000);
+    await dormir(1_000);
+    assert.equal(entregues(), 1, "entregue uma vez só");
+    assert.equal(fs.existsSync(s.arquivoDaFila), false, "a fila persistida esvaziou");
+  } finally {
+    delete process.env.FAKE_AVISO_AUTO;
+  }
+});
+
+test("fila + pergunta do auto mode: parar a sessão cancela o timer de nova tentativa", async () => {
+  logarClaude(amb);
+  process.env.FAKE_AVISO_AUTO = "1";
+  try {
+    const { s } = await nova({ permissionMode: "default" }, { reintentoTelaBloqueadaMs: 300 });
+    await s.subir("nova");
+    await esperarAte(() => lerLinhasJson(amb.logDosClis).some((l) => l.modo === "aviso-auto"), 5_000);
+    s.enfileirarQuandoOcioso("pedido que fica guardado");
+    await esperarAte(() => s.bloqueioDaFilaLogado, 15_000, "a fila reconhecer o bloqueio");
+    await s.pararEEsperar("fim do teste");
+    assert.equal(s.reintentoDaFila, null, "sem timer pendente");
+    assert.equal(s.filaQuandoIdle.length, 1, "o pedido continua guardado");
+  } finally {
+    delete process.env.FAKE_AVISO_AUTO;
+  }
+});
+
+test("fila sem a pergunta do auto mode (chave no settings): o pedido enfileirado é entregue normalmente", async () => {
+  logarClaude(amb);
+  process.env.FAKE_AVISO_AUTO = "1";
+  try {
+    const { s } = await nova({ permissionMode: "auto" });
+    await s.subir("nova");
+    s.enfileirarQuandoOcioso("pedido entregue pela fila");
+    await esperarAte(
+      () => lerLinhasJson(amb.logDosClis).some((l) => l.modo === "prompt" && l.texto === "pedido entregue pela fila"),
+      15_000,
+      "o pedido chegar ao CLI",
+    );
+    await esperarAte(() => s.filaQuandoIdle.length === 0 && !s.itemEmVoo, 5_000);
+    assert.notEqual(s.estado.status, "errored");
+  } finally {
+    delete process.env.FAKE_AVISO_AUTO;
+  }
+});
+
+// --- recibo do Enter: sinais de processamento sem UserPromptSubmit ------------------------------------
+
+test("recibo: só o PreCompact conta (e só para comando de barra); PreToolUse e UserPromptSubmit não mexem nele", async () => {
+  const { s, hook } = await novaComRedeCurta(60_000);
+  const base = s.compactsIniciados;
+  hook("UserPromptSubmit");
+  hook("PreToolUse", { toolName: "Bash" });
+  assert.equal(s.compactsIniciados, base);
+  hook("PreCompact");
+  assert.equal(s.compactsIniciados, base + 1);
+});
+
+test("recibo: esperarRecibo aceita PreCompact só quando é comando de barra; PreToolUse nunca vale", async () => {
+  const { esperarRecibo } = await import("./sessao/digitacao.js");
+  const falso = (extra: Record<string, unknown> = {}) =>
+    ({ hooksVivos: true, motor: { reciboPorRollout: false }, promptsAceitos: 0, compactsIniciados: 0, ...extra }) as never;
+  const mexer = (s: unknown, campo: string) => setTimeout(() => ((s as Record<string, number>)[campo] += 1), 150);
+
+  const compact = falso();
+  const espera1 = esperarRecibo(compact, 0, 2_000, 0);
+  mexer(compact, "compactsIniciados");
+  assert.equal(await espera1, true, "PreCompact depois do Enter de um /comando vale como recibo");
+
+  const textoComum = falso();
+  const espera2 = esperarRecibo(textoComum, 0, 500);
+  mexer(textoComum, "compactsIniciados");
+  assert.equal(await espera2, false, "para texto comum o PreCompact não vale");
+
+  assert.equal(await esperarRecibo(falso({ compactsIniciados: 5 }), 0, 300, 5), false, "PreCompact ANTERIOR ao Enter não vale");
+  assert.equal(await esperarRecibo(falso(), 0, 300), false, "texto preso: nenhum recibo");
+
+  const aceito = falso();
+  const espera3 = esperarRecibo(aceito, 0, 2_000);
+  mexer(aceito, "promptsAceitos");
+  assert.equal(await espera3, true, "UserPromptSubmit continua sendo o recibo normal");
+});
+
+test("recibo: turno anterior emitindo PreToolUse com a mensagem presa NÃO esconde o erro; o 2º Enter que entrega confirma", async () => {
+  logarClaude(amb);
+  const { enviarComRecibo } = await import("./sessao/digitacao.js");
+  const { s } = await nova();
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  const nonce = s.nonce ?? undefined;
+  const hook = (event: string, extra: Record<string, unknown> = {}) => s.receberHook({ agentId: s.id, event, nonce, ...extra });
+  const original = s.escrever.bind(s);
+  const enters: string[] = [];
+  const trocar = (f: (t: string) => void) => { (s as unknown as { escrever: (t: string) => void }).escrever = f; };
+  try {
+    // Mensagem presa: os Enters são engolidos e um turno ANTERIOR segue emitindo PreToolUse.
+    trocar((t) => { enters.push(t); });
+    const ticker = setInterval(() => hook("PreToolUse", { toolName: "Bash" }), 300);
+    const marca = lerTexto(amb.logDoRunner).length;
+    await enviarComRecibo(s);
+    clearInterval(ticker);
+    assert.equal(enters.length, 3, "os 3 Enters saíram");
+    assert.match(lerTexto(amb.logDoRunner).slice(marca), /digitei \d Enters e nenhum abriu turno/);
+
+    // O 2º Enter entrega: o UserPromptSubmit chega depois dele e o runner para por aí.
+    enters.length = 0;
+    trocar((t) => { enters.push(t); if (enters.length === 2) hook("UserPromptSubmit"); });
+    const marca2 = lerTexto(amb.logDoRunner).length;
+    await enviarComRecibo(s);
+    assert.equal(enters.length, 2);
+    assert.doesNotMatch(lerTexto(amb.logDoRunner).slice(marca2), /digitei \d Enters e nenhum abriu turno/);
+  } finally {
+    trocar(original);
+  }
+});
+
+test("recibo: /compact sem UserPromptSubmit é confirmado pelo PreCompact e não dá alarme", async () => {
+  logarClaude(amb);
+  const { enviarComRecibo } = await import("./sessao/digitacao.js");
+  const { s } = await nova();
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  const original = s.escrever.bind(s);
+  (s as unknown as { escrever: (t: string) => void }).escrever = () => {
+    setTimeout(() => s.receberHook({ agentId: s.id, event: "PreCompact", nonce: s.nonce ?? undefined }), 200);
+  };
+  try {
+    const marca = lerTexto(amb.logDoRunner).length;
+    await enviarComRecibo(s, true);
+    assert.doesNotMatch(lerTexto(amb.logDoRunner).slice(marca), /digitei \d Enters e nenhum abriu turno/);
+  } finally {
+    (s as unknown as { escrever: (t: string) => void }).escrever = original;
   }
 });
 

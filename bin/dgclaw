@@ -729,7 +729,7 @@ criar_container() {
         executar podman "${args[@]}" >/dev/null
         ok "container $c criado (portas so em 127.0.0.1: runner $C_PORTA_RUNNER, painel $C_PORTA_PAINEL)"
     fi
-    executar podman start "$c" >/dev/null
+    podman_em_escopo "$C_SLUG" start "$c" >/dev/null
 }
 
 # Tempo (segundos) que o `iniciar` fica olhando se o container caiu logo na partida.
@@ -1128,7 +1128,7 @@ agente_acao() {
             ok "agente $slug parado"
             ;;
         iniciar)
-            executar podman start "$c" >/dev/null
+            podman_em_escopo "$slug" start "$c" >/dev/null
             if [ "$ENSAIO" != 1 ]; then
                 local t
                 for ((t = 0; t < TEMPO_PARTIDA; t++)); do
