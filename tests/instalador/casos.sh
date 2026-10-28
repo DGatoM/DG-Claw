@@ -68,6 +68,9 @@ caso_instalacao_cria_arquivos_com_os_modos_certos() {
     afirma "unidade do admin como root" tem "$u/dgclaw-admin.service" "User=root"
     afirma "unidade do admin com a frase do login (RUNNER_LOGIN_HINT)" tem "$u/dgclaw-admin.service" "RUNNER_LOGIN_HINT=Abra o painel do agente e use o botão Entrar com a assinatura."
     afirma "unidade do web na porta 8300" tem "$u/dgclaw-web.service" "DGCLAW_WEB_PORT=8300"
+    # O Web le o agentes.json ao subir: ligar antes de o Admin entrar no registro dava erro vermelho no primeiro boot.
+    afirma "Web so e ligado depois do Admin (registro ja existe)" bash -c \
+        "a=\$(grep -nE 'systemctl (start|restart) dgclaw-admin.service' '$STUB_LOG' | head -1 | cut -d: -f1); w=\$(grep -nE 'systemctl (start|restart) dgclaw-web.service' '$STUB_LOG' | head -1 | cut -d: -f1); [ -n \"\$a\" ] && [ -n \"\$w\" ] && [ \"\$w\" -gt \"\$a\" ]"
     afirma "unidade da imagem com navegador (render de vídeo das skills)" tem "$u/dgclaw-imagem.service" "COM_NAVEGADOR=1"
     afirma "unidade da imagem com a versao" tem "$u/dgclaw-imagem.service" "localhost/dgclaw-agente:1.0.0-teste"
     afirma "unidade do firewall" tem "$u/dgclaw-firewall.service" "ExecStart=/bin/bash /opt/dgclaw/app/lib/firewall.sh"

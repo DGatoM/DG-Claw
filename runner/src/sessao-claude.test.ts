@@ -411,6 +411,125 @@ test("aviso do modo Bypass: com a chave no settings por spawn o fake não abre o
   }
 });
 
+test("auto mode: o settings traz skipAutoPermissionPrompt só no permissionMode auto", async () => {
+  logarClaude(amb);
+  const lerSettings = (pasta: string, id: string) =>
+    JSON.parse(fs.readFileSync(path.join(pasta, "runner-hooks", `${id}.settings.json`), "utf8"));
+  const auto = await nova({ permissionMode: "auto" });
+  await auto.s.subir("nova");
+  assert.equal(lerSettings(auto.pasta, auto.s.id).skipAutoPermissionPrompt, true);
+  for (const modo of ["default", "bypassPermissions"]) {
+    const outro = await nova({ permissionMode: modo });
+    await outro.s.subir("nova");
+    assert.equal("skipAutoPermissionPrompt" in lerSettings(outro.pasta, outro.s.id), false, `modo ${modo}`);
+  }
+});
+
+test("auto mode: com a chave no settings o fake não abre a pergunta e o texto vira turno", async () => {
+  logarClaude(amb);
+  process.env.FAKE_AVISO_AUTO = "1";
+  try {
+    const { s, id } = await nova({ permissionMode: "auto" });
+    await s.subir("nova");
+    await esperarAte(() => s.estado.status === "idle", 8_000, "o SessionStart virar idle");
+    await dormir(400);
+    await s.digitarEEnviar("pedido do card");
+    const prompts = lerLinhasJson(amb.logDosClis).filter((l) => l.modo === "prompt" && l.texto === "pedido do card");
+    assert.ok(prompts.length >= 1, `o prompt chegou ao CLI (sessão ${id})`);
+  } finally {
+    delete process.env.FAKE_AVISO_AUTO;
+  }
+});
+
+test("pergunta do auto mode na tela (sem a chave no settings): NÃO digita o texto e falha com o motivo", async () => {
+  logarClaude(amb);
+  process.env.FAKE_AVISO_AUTO = "1";
+  try {
+    // permissionMode default de propósito: simula runner antigo/settings que falhou, sem a chave.
+    const { s } = await nova({ permissionMode: "default" });
+    await s.subir("nova");
+    await esperarAte(() => s.estado.status === "idle", 8_000, "o SessionStart virar idle");
+    await esperarAte(() => lerLinhasJson(amb.logDosClis).some((l) => l.modo === "aviso-auto"), 5_000, "o fake abrir a pergunta");
+    await dormir(300);
+    const antes = lerLinhasJson(amb.logDosClis).filter((l) => l.modo === "prompt" || l.modo === "tecla-no-aviso").length;
+    await assert.rejects(s.digitarEEnviar("texto que cairia no menu"), /Make auto mode your default permission mode/);
+    await dormir(300);
+    const depois = lerLinhasJson(amb.logDosClis).filter((l) => l.modo === "prompt" || l.modo === "tecla-no-aviso").length;
+    assert.equal(depois, antes, "nenhuma tecla chegou ao CLI");
+    assert.match(lerTexto(amb.logDoRunner), /Make auto mode your default permission mode.*skipAutoPermissionPrompt/s);
+  } finally {
+    delete process.env.FAKE_AVISO_AUTO;
+  }
+});
+
+test("ehDialogoDeAutoMode: reconhece a pergunta aberta, ignora a já respondida e a citação solta", async () => {
+  const { ehDialogoDeAutoMode } = await import("./sessao/telas.js");
+  const dialogo =
+    "\u001b[2JMake\u001b[1Cauto\u001b[1Cmode\u001b[1Cyour default permission mode?\r\nAuto mode lets Claude handle permission prompts.\r\n" +
+    "\u276f Yes, set auto mode as my default permission mode\r\n  No, keep Default\r\n";
+  assert.equal(ehDialogoDeAutoMode(dialogo), true);
+  const depois = dialogo + "\r\n" + "> pronto para o pedido ".repeat(10) + "? for shortcuts";
+  assert.equal(ehDialogoDeAutoMode(depois), false, "pergunta já respondida: o prompt voltou depois dela");
+  assert.equal(ehDialogoDeAutoMode("o usuário falou em Make auto mode your default permission mode?"), false);
+});
+
+// --- recibo do Enter: sinais de processamento sem UserPromptSubmit ------------------------------------
+
+test("recibo: PreCompact e PreToolUse contam como sinal de processamento; o recibo normal não mexe nele", async () => {
+  const { s, hook } = await novaComRedeCurta(60_000);
+  const base = s.sinaisDeProcessamento;
+  hook("UserPromptSubmit");
+  assert.equal(s.sinaisDeProcessamento, base, "UserPromptSubmit é o recibo normal");
+  hook("PreCompact");
+  assert.equal(s.sinaisDeProcessamento, base + 1);
+  hook("PreToolUse", { toolName: "Bash" });
+  assert.equal(s.sinaisDeProcessamento, base + 2);
+});
+
+test("recibo: esperarRecibo aceita o sinal de processamento (compact e steer) e continua falhando com texto preso", async () => {
+  const { esperarRecibo } = await import("./sessao/digitacao.js");
+  const falso = (extra: Record<string, unknown> = {}) =>
+    ({ hooksVivos: true, motor: { reciboPorRollout: false }, promptsAceitos: 0, sinaisDeProcessamento: 0, ...extra }) as never;
+
+  const compact = falso();
+  const espera1 = esperarRecibo(compact, 0, 2_000);
+  setTimeout(() => ((compact as { sinaisDeProcessamento: number }).sinaisDeProcessamento += 1), 150);
+  assert.equal(await espera1, true, "PreCompact depois do Enter vale como recibo");
+
+  const steer = falso();
+  const espera2 = esperarRecibo(steer, 0, 2_000);
+  setTimeout(() => ((steer as { sinaisDeProcessamento: number }).sinaisDeProcessamento += 1), 150);
+  assert.equal(await espera2, true, "PreToolUse depois do Enter vale como recibo");
+
+  assert.equal(await esperarRecibo(falso({ sinaisDeProcessamento: 5 }), 0, 300), false, "sinal ANTERIOR ao Enter não vale");
+  assert.equal(await esperarRecibo(falso(), 0, 300), false, "texto preso de verdade: nenhum hook, nenhum recibo");
+});
+
+test("recibo: enviarComRecibo não dá alarme falso quando o agente seguiu trabalhando (steer), mas dá com texto preso", async () => {
+  logarClaude(amb);
+  const { enviarComRecibo } = await import("./sessao/digitacao.js");
+  const { s } = await nova();
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  const escritas: string[] = [];
+  const original = s.escrever.bind(s);
+  // Engole o Enter para o CLI falso não gerar UserPromptSubmit: simula o texto preso/aceito como steer.
+  (s as unknown as { escrever: (t: string) => void }).escrever = (t: string) => { escritas.push(t); };
+  try {
+    const marca = lerTexto(amb.logDoRunner).length;
+    await enviarComRecibo(s);
+    assert.match(lerTexto(amb.logDoRunner).slice(marca), /digitei \d Enters e nenhum abriu turno/, "texto preso: alarme");
+
+    const marca2 = lerTexto(amb.logDoRunner).length;
+    setTimeout(() => s.receberHook({ agentId: s.id, event: "PreToolUse", nonce: s.nonce ?? undefined, toolName: "Bash" }), 2_000);
+    await enviarComRecibo(s);
+    const log2 = lerTexto(amb.logDoRunner).slice(marca2);
+    assert.doesNotMatch(log2, /digitei \d Enters e nenhum abriu turno/);
+  } finally {
+    (s as unknown as { escrever: (t: string) => void }).escrever = original;
+  }
+});
+
 // --- login expirado (caso real de 19/10/2026) --------------------------------------------------
 
 const ERRO_DE_LOGIN = {

@@ -86,6 +86,7 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       break;
     case "PreToolUse":
       cancelarStopPendente(s);
+      s.sinaisDeProcessamento += 1;
       // Guardado sempre: o Notification de permissão não traz o id, e o do último PreToolUse é o da ferramenta que pede.
       s.ultimoToolUseId = payload.toolUseId ?? null;
       // A pergunta de escolha do Claude (AskUserQuestion) abre a tela de opções logo depois deste hook
@@ -140,6 +141,7 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       // O compact é o único trabalho que começa e não termina em Stop. Quem
       // devolve o agente para idle é o SessionStart source=compact, lá em cima.
       cancelarStopPendente(s);
+      s.sinaisDeProcessamento += 1;
       s.mudar({ status: "working", hookLatched: false, statusReason: "hook:PreCompact" });
       break;
     case "Stop":

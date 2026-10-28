@@ -243,7 +243,21 @@ test('messages: agente que nunca conversou não mostra faixa de erro', async () 
     const r = (await s.t.c.get('/api/v1/agents/ana/messages')).json;
     assert.equal(r.ok, true); assert.deepEqual(r.msgs, []);
     assert.deepEqual(r.avisos, [], 'sem nenhum registro é o estado normal: sem faixa');
-    assert.match(s.t.log.texto(), /Thread de Ana: o runner diz que a sessão é sess-nova-0001/);
+    assert.match(s.t.log.texto(), /\[info\] Thread de Ana: sessão nova, aguardando a primeira troca/);
+    assert.doesNotMatch(s.t.log.texto(), /\[aviso\] Thread de Ana/, 'sessão que acabou de nascer não vira aviso');
+  } finally { await s.fechar(); }
+});
+
+test('messages: sessão sem arquivo por mais de 10 minutos vira aviso no log', async () => {
+  let agora = Date.now();
+  const s = await cenario({ ana: { sessionId: 'sess-nova-0001' } }, { opcoesServidor: { agora: () => agora } });
+  try {
+    fs.rmSync(path.join(s.transcripts, '-home-agente', 'sess-ana-00001.jsonl'));
+    await s.t.c.get('/api/v1/agents/ana/messages');
+    assert.doesNotMatch(s.t.log.texto(), /\[aviso\] Thread de Ana/);
+    agora += 11 * 60 * 1000;
+    await s.t.c.get('/api/v1/agents/ana/messages');
+    assert.match(s.t.log.texto(), /\[aviso\] Thread de Ana: o runner diz que a sessão é sess-nova-0001.*Já faz 11 min/);
   } finally { await s.fechar(); }
 });
 

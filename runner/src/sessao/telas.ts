@@ -16,6 +16,22 @@ export function ehDialogoDeBypass(tela: string): boolean {
   return t.includes("bypasspermissionsmode") && t.includes("no,exit") && t.includes("yes,iaccept");
 }
 
+/** A pergunta de primeira vez do auto mode do Claude Code 2.1.x ("Make auto mode your default
+ *  permission mode?", 1. Yes, set auto mode as my default / 2. No, keep ...). Quando ela está na
+ *  frente da caixa, o texto digitado cai dentro do menu e nenhum Enter vira turno (caso real de
+ *  28/10/2026: um card ficou 7 minutos com o pedido parado).
+ *
+ *  Mesmo cuidado do menu do Codex: o buffer é o fluxo bruto do PTY e a pergunta JÁ respondida
+ *  continua nele. Ela só conta se for a ÚLTIMA coisa desenhada (depois da opção "No, keep" sobra
+ *  pouco texto); o prompt normal que volta depois de responder é bem maior que isso. */
+export function ehDialogoDeAutoMode(tela: string): boolean {
+  const t = semAnsi(tela).replace(/\s+/g, "").toLowerCase();
+  if (!t.includes("makeautomodeyourdefaultpermissionmode?")) return false;
+  const i = t.lastIndexOf("no,keep");
+  if (i < 0 || !t.includes("yes,setautomodeasmydefaultpermissionmode")) return false;
+  return t.length - (i + "no,keep".length) <= 80;
+}
+
 /** O menu de confiança de pasta do Codex, olhando só o fim da tela (a tela velha pode ainda estar no buffer).
  *
  *  O buffer é o fluxo bruto do PTY, e o Codex redesenha com movimento de cursor, quase sem quebra de

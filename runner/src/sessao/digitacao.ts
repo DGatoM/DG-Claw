@@ -2,7 +2,7 @@ import type { Sessao } from "../sessao.js";
 import { log } from "../logger.js";
 import { ErroDeMotor } from "../provedores/motor.js";
 import { INTERVALO_MS, PEDACO, RECIBO_ENTER_TENTATIVAS } from "./constantes.js";
-import { telaDeConfiancaDoCodex } from "./telas.js";
+import { ehDialogoDeAutoMode, telaDeConfiancaDoCodex } from "./telas.js";
 
 /**
  * Digita e ENVIA. Espera a fila de colagem drenar antes do Enter, que é o
@@ -15,6 +15,7 @@ export async function digitarEEnviar(s: Sessao, texto: string): Promise<void> {
   if (!s.proc) throw new Error("não há terminal vivo para digitar");
   s.marcarAtividade();
   if (s.motor.provedor === "codex") await s.vencerTelaDeConfianca();
+  if (s.motor.provedor === "claude") recusarSeEstiverNoAvisoDoAutoMode(s);
   const pausa = s.motor.pausaAntesDoEnterMs;
   if (texto.length <= 256) {
     s.escrever(texto);
@@ -39,6 +40,21 @@ export async function digitarEEnviar(s: Sessao, texto: string): Promise<void> {
     passo();
   });
   await enviarComRecibo(s);
+}
+
+/** O Claude parou na pergunta de primeira vez do auto mode: o texto digitado cairia dentro do menu e
+ *  ficaria parado (nenhum Enter vira turno). Não se responde sozinho porque aceitar muda o modo padrão
+ *  do dono. Não digita nada e falha com o motivo, como o aviso do Bypass. */
+function recusarSeEstiverNoAvisoDoAutoMode(s: Sessao): void {
+  if (!ehDialogoDeAutoMode(s.telaInteira())) return;
+  const motivo =
+    "O Claude Code está parado na pergunta 'Make auto mode your default permission mode?' (aviso de primeira vez do auto mode) " +
+    "e a chave skipAutoPermissionPrompt não chegou ao settings. Não digitei o texto para ele não cair dentro do menu.";
+  const comoResolver =
+    "abrir o terminal do agente no painel e escolher uma das opções, ou acrescentar \"skipAutoPermissionPrompt\": true " +
+    "ao ~/.claude/settings.json do HOME do motor (ou atualizar o DG Claw); depois reenviar a mensagem";
+  log.erro(s.a("entrada"), motivo, comoResolver);
+  throw new ErroDeMotor(motivo, "runner:dialogo-auto-mode", comoResolver);
 }
 
 /**
@@ -95,16 +111,29 @@ export async function vencerTelaDeConfianca(s: Sessao): Promise<void> {
  *  linha vazia; testado no Codex real); um Enter a menos perde o poke.  */
 export async function enviarComRecibo(s: Sessao): Promise<void> {
   const espera = s.motor.reciboMs;
+  const sinaisNoInicio = s.sinaisDeProcessamento;
   for (let tentativa = 1; tentativa <= RECIBO_ENTER_TENTATIVAS; tentativa++) {
     if (!s.proc) return;
     const antes = s.promptsAceitos;
+    const sinaisAntes = s.sinaisDeProcessamento;
     s.escrever("\r");
-    const recebeu = await esperarRecibo(s, antes, espera);
+    const recebeu = await esperarRecibo(s, antes, espera, sinaisAntes);
     if (recebeu) return;
     log.info(
       s.a("entrada"),
       `o Enter ${tentativa}/${RECIBO_ENTER_TENTATIVAS} não virou turno em ${espera}ms; batendo na tecla de novo`,
     );
+  }
+  // Mensagem solta logo depois de um Stop com o agente seguindo em frente: o Claude aceita o texto como
+  // "steer" no meio do turno e não dispara UserPromptSubmit. Se o TUI mostrou trabalho depois do primeiro
+  // Enter, ou ainda está em working, o texto não está preso: não é caso de alarme.
+  if (s.sinaisDeProcessamento > sinaisNoInicio || s.estado.status === "working") {
+    log.info(
+      s.a("entrada"),
+      `o Enter não gerou UserPromptSubmit, mas o agente está processando (${s.estado.status}); ` +
+        `tratando como mensagem aceita no meio do turno`,
+    );
+    return;
   }
   // Não dá para consertar daqui, mas dá para NÃO mentir: quem lê o log precisa
   // saber que o texto está na caixa e que ninguém vai processá-lo.
@@ -115,16 +144,20 @@ export async function enviarComRecibo(s: Sessao): Promise<void> {
   );
 }
 
-/** Espera o contador de prompts aceitos passar de `antes`. No Claude, sem hook vivo
+/** Espera o contador de prompts aceitos passar de `antes` (ou um sinal de processamento novo). No Claude, sem hook vivo
  *  (agente sem hooks registrados) não existe recibo possível: aí damos o benefício da
  *  dúvida e voltamos true, para não bater na tecla três vezes à toa. No Codex o recibo
  *  vem do rollout, que vale esperar desde o primeiro Enter. */
-export function esperarRecibo(s: Sessao, antes: number, limiteMs: number): Promise<boolean> {
+export function esperarRecibo(s: Sessao, antes: number, limiteMs: number, sinaisAntes = s.sinaisDeProcessamento): Promise<boolean> {
   if (!s.hooksVivos && !s.motor.reciboPorRollout) return Promise.resolve(true);
   return new Promise((resolve) => {
     const inicio = Date.now();
     const olhar = () => {
       if (s.promptsAceitos > antes) return resolve(true);
+      // Sem UserPromptSubmit, mas o TUI começou a trabalhar depois deste Enter: o `/compact` (PreCompact)
+      // e a mensagem aceita como "steer" no meio de um turno (PreToolUse) provam que o texto não está
+      // parado na caixa. Texto preso de verdade não gera nenhum hook, então o erro continua valendo.
+      if (s.sinaisDeProcessamento > sinaisAntes) return resolve(true);
       if (Date.now() - inicio >= limiteMs) return resolve(false);
       setTimeout(olhar, 100);
     };

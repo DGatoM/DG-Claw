@@ -166,6 +166,7 @@ afirma "runner/ montada so leitura em /etc/dgclaw-runner" grep -q -- 'ana/runner
 afirma "cofre montado so leitura" grep -q -- '/cofre:/run/dgclaw/cofre:ro' <<<"$linha"
 afirma "rede criada com subnet 10.89.1.0/24 e sem DNS" grep -q 'network create --disable-dns --subnet 10.89.1.0/24 dgclaw-ana' "$STUB_LOG"
 afirma "container iniciado" grep -q '^podman start dgclaw-ana' "$STUB_LOG"
+nega "sem systemd (raiz falsa) o start vai direto ao podman, sem systemd-run" grep -q '^systemd-run --scope' "$STUB_LOG"
 afirma "a vida (install-timers) foi mandada por STDIN para dentro" grep -q 'install-timers.sh' "$STUB_LOG.stdin"
 afirma "enable --now do runner e do painel" grep -q 'enable --now dgclaw-runner.service dgclaw-painel.service' "$STUB_LOG.stdin"
 afirma "plugin do Telegram pre-instalado" grep -q 'plugin install telegram@claude-plugins-official' "$STUB_LOG.stdin"
@@ -222,5 +223,12 @@ nega "o alvo do link nao foi tocado pelo chown" grep -q "alvo-bia" "$DGCLAW_RAIZ
 rm "$HB/.dgclaw/logs/permissoes.log"
 criar_agente bia --nome "Bia"
 igual "sem o link, criar de novo volta a passar" "0" "$?"
+
+echo "criar: com systemd, o start roda num escopo proprio (conmon fora do cgroup do Admin)"
+preparar
+mkdir -p "$DGCLAW_RAIZ/run/systemd/system"
+criar_agente bia --nome "Bia"
+afirma "podman start dentro de systemd-run --scope" grep -Eq '^systemd-run --scope --quiet --collect --unit dgclaw-conteiner-bia-[0-9]+-[0-9]+-[0-9]+ podman start dgclaw-bia' "$STUB_LOG"
+nega "nenhum podman start solto" grep -q '^podman start dgclaw-bia' "$STUB_LOG"
 
 fim

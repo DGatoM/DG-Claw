@@ -96,6 +96,10 @@ export class Sessao extends EventEmitter {
   /** Quantos prompts o CLI já ACEITOU (hook UserPromptSubmit no Claude; `task_started` ou o
    *  nascimento do rollout no Codex). É o recibo do Enter; ver enviarComRecibo(). */
   promptsAceitos = 0;
+  /** Quantas vezes o CLI mostrou que está PROCESSANDO sem passar por UserPromptSubmit: PreCompact
+   *  (o `/compact` não abre turno) e PreToolUse (texto aceito como "steer" no meio de um turno).
+   *  Também vale como recibo do Enter; ver esperarRecibo(). */
+  sinaisDeProcessamento = 0;
   stopPendente: NodeJS.Timeout | null = null;
   /** A máscara de segredo do spawn atual e o relógio que a descarrega no silêncio. */
   mascaraAtual: MascaraDeFluxo | null = null;

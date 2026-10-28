@@ -18,6 +18,7 @@ const { buildSocorro } = require('./socorro');
 
 module.exports = function registrarRotasDaSaude(router, { CONFIG, conversa, serverDir }) {
   const saude = buildSaude(CONFIG, serverDir);
+  let ultimoForaDoAr = null;
   const socorro = buildSocorro(CONFIG, serverDir);
 
   /**
@@ -46,9 +47,22 @@ module.exports = function registrarRotasDaSaude(router, { CONFIG, conversa, serv
     // A EXPLICAÇÃO DO RUNNER NÃO DESCE PARA O NAVEGADOR, de propósito. Ela traz caminho
     // de arquivo do servidor e comando de conserto, coisas de quem ADMINISTRA a
     // máquina. Vai para o log do serviço; a tela recebe o estado e a frase.
+    // A tela consulta esta rota a cada ~30 s: sem a memória do último estado logado, o mesmo
+    // motivo enchia o log (na aula de 27/10, "fora do ar" repetido enquanto o agente só esperava
+    // o login, que é o passo seguinte normal da criação). Loga uma vez por estado.
     if (e && !e.viva && e.explicacao) {
-      console.error(`[saude] agente fora do ar (${e.cardStatus || 'sem status'}`
-        + `${e.motivo ? `, ${e.motivo}` : ''}): ${e.explicacao}`);
+      const chaveLog = `${e.cardStatus || ''}|${e.motivo || ''}`;
+      if (chaveLog !== ultimoForaDoAr) {
+        ultimoForaDoAr = chaveLog;
+        if (e.motivo === 'runner:sem-login') {
+          console.log(`[saude] aguardando o login do agente: ${e.explicacao}`);
+        } else {
+          console.error(`[saude] agente fora do ar (${e.cardStatus || 'sem status'}`
+            + `${e.motivo ? `, ${e.motivo}` : ''}): ${e.explicacao}`);
+        }
+      }
+    } else if (e && e.viva) {
+      ultimoForaDoAr = null;
     }
 
     let diagnostico = null;
