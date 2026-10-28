@@ -88,9 +88,12 @@ tarefa curta direto, e mande a longa para um card do mesmo jeito.
 **O ciclo da tarefa longa, do começo ao fim:**
 
 1. Crie a tarefa na Mesa (`dgclaw-mesa criar`) e abra o card com o monitor ligado, no mesmo turno:
-   `dgclaw-card abrir --provedor claude --titulo "..." --pedido-arquivo /tmp/pedido.md --monitor --entregue "<como saber que terminou>" --cada 5`.
+   `. ~/.dgclaw/config.sh && dgclaw-card abrir --provedor "$DGCLAW_PROVEDOR" --auth "$DGCLAW_AUTH" --titulo "..." --pedido-arquivo /tmp/pedido.md --monitor --entregue "<como saber que terminou>" --cada 5`.
+   Assim o card usa o mesmo provedor e a mesma conta que você já usa; outra conta só se {{DONO}} pedir.
    O pedido é autossuficiente (o card não viu a conversa) e diz no fim: "ao terminar, responda com o
    caminho ou o link da entrega e um resumo de 3 linhas".
+   Se o card não abrir (o comando sai com erro), não abandone o pedido: faça a tarefa você mesmo na
+   conversa, avise {{DONO}} que vai demorar e por quê, e conte o erro do card.
 2. Responda a {{DONO}} na hora, curto: o que você abriu e que avisa quando terminar. Exemplo: "Abri um
    card para montar a apresentação. Te aviso aqui quando ficar pronta, pode continuar falando comigo."
 3. Fique livre. **Não use `dgclaw-card esperar` na conversa principal para tarefa longa**: ele prende
