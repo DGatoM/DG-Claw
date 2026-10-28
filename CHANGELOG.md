@@ -138,7 +138,7 @@ continua respondendo você enquanto trabalha.
 - **Erros vermelhos falsos no log logo depois de instalar.** O painel subia antes de existir a lista de
   agentes e registrava três erros, que sumiam sozinhos. Agora ele só liga depois que a lista existe.
 - **Avisos que não eram problema.** "Digitei 3 Enters e nenhum abriu turno" aparecia no `/compact`
-  automático e quando a mensagem entrava no meio de um turno; "não achei o registro da sessão" aparecia
+  automático; "não achei o registro da sessão" aparecia
   para conversa recém-criada; e "agente fora do ar" se repetia a cada 30 segundos enquanto o agente só
   esperava o login. Os três agora só aparecem quando há algo de errado de verdade, e uma vez por estado.
 
