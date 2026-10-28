@@ -131,7 +131,14 @@ if (process.env.FAKE_AVISO_AUTO && !pulaAvisoAuto) {
 let linha = "";
 if (process.stdin.isTTY) process.stdin.setRawMode(true);
 process.stdin.on("data", (d) => {
-  if (avisoAutoAberto) return registrar({ modo: "tecla-no-aviso", bytes: d.length });
+  if (avisoAutoAberto) {
+    // A tecla "2" ("No, keep ...") fecha a pergunta e o TUI volta a desenhar o prompt normal.
+    if (d.toString() !== "2") return registrar({ modo: "tecla-no-aviso", bytes: d.length });
+    avisoAutoAberto = false;
+    registrar({ modo: "aviso-auto-fechado" });
+    process.stdout.write("\u001b[2J\u001b[Hfake claude pronto, pode digitar o pedido aqui no prompt normal\r\n? for shortcuts " + "x".repeat(120) + "\r\n");
+    return;
+  }
   for (const ch of d.toString()) {
     if (ch === "\r" || ch === "\n") {
       const texto = linha.trim();

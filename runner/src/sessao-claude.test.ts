@@ -474,41 +474,54 @@ test("ehDialogoDeAutoMode: reconhece a pergunta aberta, ignora a já respondida 
   assert.equal(ehDialogoDeAutoMode("o usuário falou em Make auto mode your default permission mode?"), false);
 });
 
-test("fila + pergunta do auto mode: o pedido NÃO some, a sessão fica errored com o motivo e não há laço", async () => {
+test("fila + pergunta do auto mode: o pedido NÃO some, a sessão NÃO vira errored, um só log por bloqueio; ao fechar o aviso entrega uma vez", async () => {
   logarClaude(amb);
   process.env.FAKE_AVISO_AUTO = "1";
   try {
-    const { s } = await nova({ permissionMode: "default" });
+    const { s } = await nova({ permissionMode: "default" }, { reintentoTelaBloqueadaMs: 300 });
     await s.subir("nova");
     await esperarAte(() => lerLinhasJson(amb.logDosClis).some((l) => l.modo === "aviso-auto"), 5_000, "o fake abrir a pergunta");
-    const marca = lerLinhasJson(amb.logDosClis).filter((l) => l.modo === "prompt" || l.modo === "tecla-no-aviso").length;
-    s.enfileirarQuandoOcioso("pedido do card que não pode se perder");
-    await esperarAte(() => s.estado.status === "errored", 15_000, "a sessão ficar errored por causa da pergunta");
-    assert.equal(s.estado.statusReason, "runner:dialogo-auto-mode");
-    assert.match(s.estado.error ?? "", /Make auto mode your default permission mode/);
-    assert.deepEqual(s.filaQuandoIdle.map((i) => i.texto), ["pedido do card que não pode se perder"]);
+    const teclas = () => lerLinhasJson(amb.logDosClis).filter((l) => l.modo === "prompt" || l.modo === "tecla-no-aviso").length;
+    const marca = teclas();
+    const pedido = "pedido do card que não pode se perder";
+    const logAntes = lerTexto(amb.logDoRunner).length;
+    s.enfileirarQuandoOcioso(pedido);
+    await esperarAte(() => s.bloqueioDaFilaLogado, 15_000, "a fila reconhecer o bloqueio");
+    await dormir(2_000); // várias rodadas de nova tentativa
+    assert.notEqual(s.estado.status, "errored");
+    assert.deepEqual(s.filaQuandoIdle.map((i) => i.texto), [pedido]);
     const noDisco = JSON.parse(fs.readFileSync(s.arquivoDaFila, "utf8"));
-    assert.deepEqual(noDisco.itens.map((i: { texto: string }) => i.texto), ["pedido do card que não pode se perder"]);
-    assert.match(lerTexto(amb.logDoRunner), /reiniciar o agente.*Não reenvie, para não duplicar/s);
-    await dormir(1_500);
-    assert.equal(s.estado.status, "errored", "continua errored, sem tentar de novo sozinha");
-    const depois = lerLinhasJson(amb.logDosClis).filter((l) => l.modo === "prompt" || l.modo === "tecla-no-aviso").length;
-    assert.equal(depois, marca, "nenhuma tecla chegou ao CLI");
+    assert.deepEqual(noDisco.itens.map((i: { texto: string }) => i.texto), [pedido]);
+    assert.equal(teclas(), marca, "nenhuma tecla chegou ao CLI");
+    const novoLog = lerTexto(amb.logDoRunner).slice(logAntes);
+    assert.equal((novoLog.match(/Make auto mode your default permission mode/g) ?? []).length, 1, "um só log de erro por bloqueio");
+    assert.match(novoLog, /responder o aviso no terminal do agente.*Não reenvie/s);
 
-    // Reinício de verdade: o processo morre e uma sessão NOVA do mesmo agente recarrega a fila do disco.
-    // Sem o aviso (o fake já não o abre), o pedido sai UMA vez e a fila esvazia.
-    delete process.env.FAKE_AVISO_AUTO;
-    await s.pararEEsperar("reinício do teste");
-    const reiniciada = (await nova({ permissionMode: "default" }, { idFixo: s.id })).s;
-    assert.deepEqual(reiniciada.filaQuandoIdle.map((i) => i.texto), ["pedido do card que não pode se perder"], "a fila voltou do disco");
-    await reiniciada.subir("nova");
-    const entregues = () =>
-      lerLinhasJson(amb.logDosClis).filter((l) => l.modo === "prompt" && l.texto === "pedido do card que não pode se perder").length;
-    await esperarAte(() => entregues() === 1, 15_000, "o pedido ser entregue depois do reinício");
-    await esperarAte(() => reiniciada.filaQuandoIdle.length === 0 && !reiniciada.itemEmVoo, 5_000);
-    await dormir(1_500);
+    // O dono responde o aviso no terminal: o pedido sai uma vez só e a fila esvazia.
+    s.escrever("2");
+    const entregues = () => lerLinhasJson(amb.logDosClis).filter((l) => l.modo === "prompt" && l.texto === pedido).length;
+    await esperarAte(() => entregues() === 1, 15_000, "o pedido ser entregue depois que o aviso sumiu");
+    await esperarAte(() => s.filaQuandoIdle.length === 0 && !s.itemEmVoo, 5_000);
+    await dormir(1_000);
     assert.equal(entregues(), 1, "entregue uma vez só");
-    assert.equal(fs.existsSync(reiniciada.arquivoDaFila), false, "a fila persistida esvaziou");
+    assert.equal(fs.existsSync(s.arquivoDaFila), false, "a fila persistida esvaziou");
+  } finally {
+    delete process.env.FAKE_AVISO_AUTO;
+  }
+});
+
+test("fila + pergunta do auto mode: parar a sessão cancela o timer de nova tentativa", async () => {
+  logarClaude(amb);
+  process.env.FAKE_AVISO_AUTO = "1";
+  try {
+    const { s } = await nova({ permissionMode: "default" }, { reintentoTelaBloqueadaMs: 300 });
+    await s.subir("nova");
+    await esperarAte(() => lerLinhasJson(amb.logDosClis).some((l) => l.modo === "aviso-auto"), 5_000);
+    s.enfileirarQuandoOcioso("pedido que fica guardado");
+    await esperarAte(() => s.bloqueioDaFilaLogado, 15_000, "a fila reconhecer o bloqueio");
+    await s.pararEEsperar("fim do teste");
+    assert.equal(s.reintentoDaFila, null, "sem timer pendente");
+    assert.equal(s.filaQuandoIdle.length, 1, "o pedido continua guardado");
   } finally {
     delete process.env.FAKE_AVISO_AUTO;
   }

@@ -11,11 +11,11 @@ import { ehDialogoDeAutoMode, telaDeConfiancaDoCodex } from "./telas.js";
  * parte da colagem e vira quebra de linha dentro do campo. O Codex é mais
  * sensível ainda: trata texto rápido como colagem, então espera 500 ms.
  */
-export async function digitarEEnviar(s: Sessao, texto: string): Promise<void> {
+export async function digitarEEnviar(s: Sessao, texto: string, daFila = false): Promise<void> {
   if (!s.proc) throw new Error("não há terminal vivo para digitar");
   s.marcarAtividade();
-  if (s.motor.provedor === "codex") await s.vencerTelaDeConfianca();
-  if (s.motor.provedor === "claude") recusarSeEstiverNoAvisoDoAutoMode(s);
+  if (s.motor.provedor === "codex") await s.vencerTelaDeConfianca(daFila);
+  if (s.motor.provedor === "claude") recusarSeEstiverNoAvisoDoAutoMode(s, daFila);
   const pausa = s.motor.pausaAntesDoEnterMs;
   const ehComandoDeBarra = texto.trim().startsWith("/");
   if (texto.length <= 256) {
@@ -43,21 +43,25 @@ export async function digitarEEnviar(s: Sessao, texto: string): Promise<void> {
   await enviarComRecibo(s, ehComandoDeBarra);
 }
 
-/** O pedido que não pôde ser digitado fica guardado na fila (em disco) e sai sozinho quando o agente
- *  voltar a ficar ocioso. Mandar de novo duplicaria a entrega depois do reinício. */
-export const COMO_RESOLVER_TELA_BLOQUEADA =
-  "reiniciar o agente (ou fechar e reabrir o card); o pedido está guardado na fila e é entregue sozinho depois do reinício. Não reenvie, para não duplicar.";
+/** Orientação quando a tela bloqueia a caixa. Pela fila o pedido fica guardado e a fila tenta de novo
+ *  sozinha; numa chamada direta não existe fila, então a pessoa precisa reenviar. */
+function comoResolverTelaBloqueada(daFila: boolean): string {
+  return daFila
+    ? "responder o aviso no terminal do agente (aba Sessões, botão Terminal); o pedido está guardado e é entregue sozinho assim que o aviso sumir. Não reenvie."
+    : "responder o aviso no terminal do agente e enviar a mensagem de novo";
+}
 
 /** O Claude parou na pergunta de primeira vez do auto mode: o texto digitado cairia dentro do menu e
  *  ficaria parado (nenhum Enter vira turno). Não se responde sozinho porque aceitar muda o modo padrão
  *  do dono. Não digita nada e falha com o motivo, como o aviso do Bypass. */
-function recusarSeEstiverNoAvisoDoAutoMode(s: Sessao): void {
+function recusarSeEstiverNoAvisoDoAutoMode(s: Sessao, daFila: boolean): void {
   if (!ehDialogoDeAutoMode(s.telaInteira())) return;
   const motivo =
     "O Claude Code está parado na pergunta 'Make auto mode your default permission mode?' (aviso de primeira vez do auto mode) " +
     "e a chave skipAutoPermissionPrompt não chegou ao settings. Não digitei o texto para ele não cair dentro do menu.";
-  const comoResolver = COMO_RESOLVER_TELA_BLOQUEADA;
-  log.erro(s.a("entrada"), motivo, comoResolver);
+  const comoResolver = comoResolverTelaBloqueada(daFila);
+  // Pela fila quem loga é ela, uma vez por bloqueio: a tentativa se repete a cada poucos segundos.
+  if (!daFila) log.erro(s.a("entrada"), motivo, comoResolver);
   throw new ErroDeMotor(motivo, "runner:dialogo-auto-mode", comoResolver);
 }
 
@@ -68,7 +72,7 @@ function recusarSeEstiverNoAvisoDoAutoMode(s: Sessao): void {
  * se o menu está lá, responde 1 + Enter e só segue quando a tela mudou e o menu não voltou.
  * Se não sumir, NÃO digita: erro claro, e quem chamou trata como trata qualquer falha de digitação.
  */
-export async function vencerTelaDeConfianca(s: Sessao): Promise<void> {
+export async function vencerTelaDeConfianca(s: Sessao, daFila = false): Promise<void> {
   if (!s.proc || !telaDeConfiancaDoCodex(s.telaInteira())) return;
   const area = s.a("entrada");
   log.aviso(
@@ -95,8 +99,9 @@ export async function vencerTelaDeConfianca(s: Sessao): Promise<void> {
   const motivo =
     "O Codex está parado na tela 'Trust this folder?' e não saiu dela depois de responder 1 + Enter. " +
     "Não digitei o texto para ele não cair no menu.";
-  log.erro(area, motivo, COMO_RESOLVER_TELA_BLOQUEADA);
-  throw new ErroDeMotor(motivo, "runner:tela-de-confianca", COMO_RESOLVER_TELA_BLOQUEADA);
+  const comoResolver = comoResolverTelaBloqueada(daFila);
+  if (!daFila) log.erro(area, motivo, comoResolver);
+  throw new ErroDeMotor(motivo, "runner:tela-de-confianca", comoResolver);
 }
 
 /** O Enter, com recibo.

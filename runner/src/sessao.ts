@@ -70,6 +70,8 @@ export interface OpcoesDaSessao {
   quietoParaOlharTranscriptMs?: number;
   /** De quanto em quanto tempo se olha a credencial com o login expirado. Testes usam valor curto. */
   vigiaLoginExpiradoMs?: number;
+  /** De quanto em quanto tempo a fila tenta de novo depois de uma tela que bloqueia a caixa. Testes usam valor curto. */
+  reintentoTelaBloqueadaMs?: number;
   /** Pausa entre as teclas da resposta de uma pergunta de escolha (ver responderPergunta). Testes usam valor curto. */
   pausaTeclaPerguntaMs?: number;
   /** Comandos extras do evento UserPromptSubmit, depois do hook do runner. */
@@ -156,6 +158,10 @@ export class Sessao extends EventEmitter {
   /** Quando o PTY atual subiu (ver PRONTO_APOS_SPAWN_MS). */
   spawnEm = 0;
   reolharFila: NodeJS.Timeout | null = null;
+  /** Nova tentativa da fila depois de uma tela que bloqueia a caixa (timer único) e se o bloqueio já foi logado. */
+  reintentoDaFila: NodeJS.Timeout | null = null;
+  bloqueioDaFilaLogado = false;
+  readonly reintentoTelaBloqueadaMs: number;
   ultimaAtividade = Date.now();
   /** Quando o spawn atual foi uma RETOMADA, e quando ele começou. É o que
    *  permite separar "a sessão não abre" de "o agente trabalhou e saiu". */
@@ -199,6 +205,7 @@ export class Sessao extends EventEmitter {
     this.ociosoMinutos = opcoes.ociosoMinutos ?? null;
     this.quietoParaOlharTranscriptMs = opcoes.quietoParaOlharTranscriptMs ?? QUIETO_PARA_OLHAR_TRANSCRIPT_MS;
     this.vigiaLoginExpiradoMs = opcoes.vigiaLoginExpiradoMs ?? VIGIA_LOGIN_EXPIRADO_MS;
+    this.reintentoTelaBloqueadaMs = opcoes.reintentoTelaBloqueadaMs ?? 5_000;
     this.pausaTeclaPerguntaMs = opcoes.pausaTeclaPerguntaMs ?? PAUSA_TECLA_PERGUNTA_MS;
     this.arquivoDeEstado = opcoes.arquivoDeEstado ?? STATE_FILE;
     this.pastaDeEstado = opcoes.pastaDeEstado ?? PASTA_DE_ESTADO;
@@ -626,13 +633,13 @@ export class Sessao extends EventEmitter {
   }
 
   /** Digita e envia, com recibo do Enter (ver sessao/digitacao.ts). */
-  digitarEEnviar(texto: string): Promise<void> {
-    return digitarEEnviar(this, texto);
+  digitarEEnviar(texto: string, daFila = false): Promise<void> {
+    return digitarEEnviar(this, texto, daFila);
   }
 
   /** Responde à tela de confiança de pasta do Codex (ver sessao/digitacao.ts). */
-  vencerTelaDeConfianca(): Promise<void> {
-    return vencerTelaDeConfianca(this);
+  vencerTelaDeConfianca(daFila = false): Promise<void> {
+    return vencerTelaDeConfianca(this, daFila);
   }
 
   /** Guarda um texto para digitar quando o agente ficar ocioso (ver sessao/fila.ts). */
