@@ -471,6 +471,12 @@ test("ehDialogoDeAutoMode: reconhece a pergunta aberta, ignora a já respondida 
   assert.equal(ehDialogoDeAutoMode(dialogo), true);
   const depois = dialogo + "\r\n" + "> pronto para o pedido ".repeat(10) + "? for shortcuts";
   assert.equal(ehDialogoDeAutoMode(depois), false, "pergunta já respondida: o prompt voltou depois dela");
+  // Cenário do Codex: limpeza de tela + prompt curto (menos de 80 caracteres) depois do diálogo.
+  assert.equal(ehDialogoDeAutoMode(dialogo + "\u001b[2J\u001b[H\u276f \r\n? for shortcuts"), false, "limpou a tela e redesenhou um prompt curto");
+  assert.equal(ehDialogoDeAutoMode(dialogo + "\u001b[3J\u001b[H\u276f"), false);
+  assert.equal(ehDialogoDeAutoMode(dialogo + "\u001b[?1049l\r\nvoltou"), false, "saiu da tela alternativa");
+  assert.equal(ehDialogoDeAutoMode(dialogo + "\r\n\u276f"), false, "prompt redesenhado sem limpeza");
+  assert.equal(ehDialogoDeAutoMode("lixo velho\u001b[2J" + dialogo), true, "a limpeza ANTES do diálogo não o esconde");
   assert.equal(ehDialogoDeAutoMode("o usuário falou em Make auto mode your default permission mode?"), false);
 });
 

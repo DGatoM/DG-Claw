@@ -301,4 +301,6 @@ test("tela de confiança: só conta se o menu for a última coisa desenhada", ()
   const respondido = menu + "\x1b[2J\x1b[H permissions: YOLO mode\n GPT-6.1-Sol default · ~\n › Ask Codex to do anything\n ? for shortcuts\n";
   assert.equal(telaDeConfiancaDoCodex(respondido), false, "um menu respondido não pode virar um '1' a cada mensagem");
   assert.equal(telaDeConfiancaDoCodex(" › Ask Codex to do anything\n"), false);
+  // Limpeza de tela seguida de um prompt curto: o menu velho não pode continuar valendo.
+  assert.equal(telaDeConfiancaDoCodex(menu + "\x1b[2J\x1b[H› \n"), false, "limpou a tela e redesenhou um prompt curto");
 });

@@ -136,7 +136,7 @@ process.stdin.on("data", (d) => {
     if (d.toString() !== "2") return registrar({ modo: "tecla-no-aviso", bytes: d.length });
     avisoAutoAberto = false;
     registrar({ modo: "aviso-auto-fechado" });
-    process.stdout.write("\u001b[2J\u001b[Hfake claude pronto, pode digitar o pedido aqui no prompt normal\r\n? for shortcuts " + "x".repeat(120) + "\r\n");
+    process.stdout.write("\u001b[2J\u001b[H\u276f \r\n? for shortcuts " + "\r\n");
     return;
   }
   for (const ch of d.toString()) {

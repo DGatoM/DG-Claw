@@ -7,6 +7,20 @@ export function semAnsi(s: string): string {
   return s.replace(RE_ANSI, "");
 }
 
+/** Só o que foi desenhado depois da última limpeza de tela (ESC[2J, ESC[3J, ESC c) ou troca de tela
+ *  alternativa (ESC[?1049h/l). O buffer é o fluxo bruto do PTY: depois de um diálogo fechado o TUI
+ *  limpa a tela e redesenha um prompt curto, mas `semAnsi` apaga a limpeza e o diálogo velho ficaria
+ *  parecendo "a última coisa" com pouco texto depois dele. */
+export function desdeAUltimaLimpezaDeTela(tela: string): string {
+  let corte = -1;
+  let fim = 0;
+  for (const m of tela.matchAll(new RegExp(`${ESC}(?:\\[[23]J|c|\\[\\?1049[hl])`, "g"))) {
+    corte = m.index;
+    fim = m.index + m[0].length;
+  }
+  return corte < 0 ? tela : tela.slice(fim);
+}
+
 /** O diálogo de aviso do modo Bypass Permissions do Claude Code (16/10/2026).
  *  O TUI desenha com movimento de cursor e pode "comer" espaços, então a conferência ignora
  *  todo espaço em branco e maiúsculas. Os dois pedaços juntos (o aviso e as opções) evitam
@@ -25,11 +39,14 @@ export function ehDialogoDeBypass(tela: string): boolean {
  *  continua nele. Ela só conta se for a ÚLTIMA coisa desenhada (depois da opção "No, keep" sobra
  *  pouco texto); o prompt normal que volta depois de responder é bem maior que isso. */
 export function ehDialogoDeAutoMode(tela: string): boolean {
-  const t = semAnsi(tela).replace(/\s+/g, "").toLowerCase();
+  const t = semAnsi(desdeAUltimaLimpezaDeTela(tela)).replace(/\s+/g, "").toLowerCase();
   if (!t.includes("makeautomodeyourdefaultpermissionmode?")) return false;
   const i = t.lastIndexOf("no,keep");
   if (i < 0 || !t.includes("yes,setautomodeasmydefaultpermissionmode")) return false;
-  return t.length - (i + "no,keep".length) <= 80;
+  const depois = t.slice(i + "no,keep".length);
+  // Um prompt de entrada redesenhado depois das opções (sem limpeza de tela no meio) também prova que a pergunta fechou.
+  if (depois.includes("❯") || depois.includes("?forshortcuts")) return false;
+  return depois.length <= 80;
 }
 
 /** O menu de confiança de pasta do Codex, olhando só o fim da tela (a tela velha pode ainda estar no buffer).
@@ -40,7 +57,7 @@ export function ehDialogoDeAutoMode(tela: string): boolean {
  *  "2. Quit enter continue · esc quit"; depois de responder, vêm o rodapé e o prompt, bem mais longos.
  *  Errar para o lado do "tem menu" mandaria um "1" como turno a cada mensagem. */
 export function telaDeConfiancaDoCodex(tela: string): boolean {
-  const fim = semAnsi(tela).split(/\r?\n/).slice(-40).join("\n");
+  const fim = semAnsi(desdeAUltimaLimpezaDeTela(tela)).split(/\r?\n/).slice(-40).join("\n");
   if (!/Trust this folder\?/.test(fim)) return false;
   const i = fim.lastIndexOf("Trust and continue");
   if (i < 0) return false;
