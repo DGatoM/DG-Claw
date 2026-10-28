@@ -17,10 +17,11 @@ export async function digitarEEnviar(s: Sessao, texto: string): Promise<void> {
   if (s.motor.provedor === "codex") await s.vencerTelaDeConfianca();
   if (s.motor.provedor === "claude") recusarSeEstiverNoAvisoDoAutoMode(s);
   const pausa = s.motor.pausaAntesDoEnterMs;
+  const ehComandoDeBarra = texto.trim().startsWith("/");
   if (texto.length <= 256) {
     s.escrever(texto);
     await new Promise((r) => setTimeout(r, pausa));
-    await enviarComRecibo(s);
+    await enviarComRecibo(s, ehComandoDeBarra);
     return;
   }
   await new Promise<void>((resolve) => {
@@ -39,7 +40,7 @@ export async function digitarEEnviar(s: Sessao, texto: string): Promise<void> {
     };
     passo();
   });
-  await enviarComRecibo(s);
+  await enviarComRecibo(s, ehComandoDeBarra);
 }
 
 /** O Claude parou na pergunta de primeira vez do auto mode: o texto digitado cairia dentro do menu e
@@ -109,31 +110,19 @@ export async function vencerTelaDeConfianca(s: Sessao): Promise<void> {
  *  (Codex), que só aparecem quando o CLI ACEITOU o prompt. Sem recibo, batemos na
  *  tecla de novo. Um Enter a mais numa caixa já vazia é inofensivo (o TUI ignora
  *  linha vazia; testado no Codex real); um Enter a menos perde o poke.  */
-export async function enviarComRecibo(s: Sessao): Promise<void> {
+export async function enviarComRecibo(s: Sessao, comandoDeBarra = false): Promise<void> {
   const espera = s.motor.reciboMs;
-  const sinaisNoInicio = s.sinaisDeProcessamento;
   for (let tentativa = 1; tentativa <= RECIBO_ENTER_TENTATIVAS; tentativa++) {
     if (!s.proc) return;
     const antes = s.promptsAceitos;
-    const sinaisAntes = s.sinaisDeProcessamento;
+    const compactAntes = s.compactsIniciados;
     s.escrever("\r");
-    const recebeu = await esperarRecibo(s, antes, espera, sinaisAntes);
+    const recebeu = await esperarRecibo(s, antes, espera, comandoDeBarra ? compactAntes : undefined);
     if (recebeu) return;
     log.info(
       s.a("entrada"),
       `o Enter ${tentativa}/${RECIBO_ENTER_TENTATIVAS} não virou turno em ${espera}ms; batendo na tecla de novo`,
     );
-  }
-  // Mensagem solta logo depois de um Stop com o agente seguindo em frente: o Claude aceita o texto como
-  // "steer" no meio do turno e não dispara UserPromptSubmit. Se o TUI mostrou trabalho depois do primeiro
-  // Enter, ou ainda está em working, o texto não está preso: não é caso de alarme.
-  if (s.sinaisDeProcessamento > sinaisNoInicio || s.estado.status === "working") {
-    log.info(
-      s.a("entrada"),
-      `o Enter não gerou UserPromptSubmit, mas o agente está processando (${s.estado.status}); ` +
-        `tratando como mensagem aceita no meio do turno`,
-    );
-    return;
   }
   // Não dá para consertar daqui, mas dá para NÃO mentir: quem lê o log precisa
   // saber que o texto está na caixa e que ninguém vai processá-lo.
@@ -144,20 +133,20 @@ export async function enviarComRecibo(s: Sessao): Promise<void> {
   );
 }
 
-/** Espera o contador de prompts aceitos passar de `antes` (ou um sinal de processamento novo). No Claude, sem hook vivo
+/** Espera o contador de prompts aceitos passar de `antes`. No Claude, sem hook vivo
  *  (agente sem hooks registrados) não existe recibo possível: aí damos o benefício da
  *  dúvida e voltamos true, para não bater na tecla três vezes à toa. No Codex o recibo
  *  vem do rollout, que vale esperar desde o primeiro Enter. */
-export function esperarRecibo(s: Sessao, antes: number, limiteMs: number, sinaisAntes = s.sinaisDeProcessamento): Promise<boolean> {
+export function esperarRecibo(s: Sessao, antes: number, limiteMs: number, compactAntes?: number): Promise<boolean> {
   if (!s.hooksVivos && !s.motor.reciboPorRollout) return Promise.resolve(true);
   return new Promise((resolve) => {
     const inicio = Date.now();
     const olhar = () => {
       if (s.promptsAceitos > antes) return resolve(true);
-      // Sem UserPromptSubmit, mas o TUI começou a trabalhar depois deste Enter: o `/compact` (PreCompact)
-      // e a mensagem aceita como "steer" no meio de um turno (PreToolUse) provam que o texto não está
-      // parado na caixa. Texto preso de verdade não gera nenhum hook, então o erro continua valendo.
-      if (s.sinaisDeProcessamento > sinaisAntes) return resolve(true);
+      // Comando de barra (`/compact`) não dispara UserPromptSubmit: o PreCompact depois deste Enter é o
+      // recibo dele. Só para esse caso: PreToolUse de um turno ANTERIOR não prova que a mensagem nova
+      // entrou (ela pode estar presa na caixa), então não conta.
+      if (compactAntes !== undefined && s.compactsIniciados > compactAntes) return resolve(true);
       if (Date.now() - inicio >= limiteMs) return resolve(false);
       setTimeout(olhar, 100);
     };

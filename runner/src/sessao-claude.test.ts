@@ -475,56 +475,88 @@ test("ehDialogoDeAutoMode: reconhece a pergunta aberta, ignora a já respondida 
 
 // --- recibo do Enter: sinais de processamento sem UserPromptSubmit ------------------------------------
 
-test("recibo: PreCompact e PreToolUse contam como sinal de processamento; o recibo normal não mexe nele", async () => {
+test("recibo: só o PreCompact conta (e só para comando de barra); PreToolUse e UserPromptSubmit não mexem nele", async () => {
   const { s, hook } = await novaComRedeCurta(60_000);
-  const base = s.sinaisDeProcessamento;
+  const base = s.compactsIniciados;
   hook("UserPromptSubmit");
-  assert.equal(s.sinaisDeProcessamento, base, "UserPromptSubmit é o recibo normal");
-  hook("PreCompact");
-  assert.equal(s.sinaisDeProcessamento, base + 1);
   hook("PreToolUse", { toolName: "Bash" });
-  assert.equal(s.sinaisDeProcessamento, base + 2);
+  assert.equal(s.compactsIniciados, base);
+  hook("PreCompact");
+  assert.equal(s.compactsIniciados, base + 1);
 });
 
-test("recibo: esperarRecibo aceita o sinal de processamento (compact e steer) e continua falhando com texto preso", async () => {
+test("recibo: esperarRecibo aceita PreCompact só quando é comando de barra; PreToolUse nunca vale", async () => {
   const { esperarRecibo } = await import("./sessao/digitacao.js");
   const falso = (extra: Record<string, unknown> = {}) =>
-    ({ hooksVivos: true, motor: { reciboPorRollout: false }, promptsAceitos: 0, sinaisDeProcessamento: 0, ...extra }) as never;
+    ({ hooksVivos: true, motor: { reciboPorRollout: false }, promptsAceitos: 0, compactsIniciados: 0, ...extra }) as never;
+  const mexer = (s: unknown, campo: string) => setTimeout(() => ((s as Record<string, number>)[campo] += 1), 150);
 
   const compact = falso();
-  const espera1 = esperarRecibo(compact, 0, 2_000);
-  setTimeout(() => ((compact as { sinaisDeProcessamento: number }).sinaisDeProcessamento += 1), 150);
-  assert.equal(await espera1, true, "PreCompact depois do Enter vale como recibo");
+  const espera1 = esperarRecibo(compact, 0, 2_000, 0);
+  mexer(compact, "compactsIniciados");
+  assert.equal(await espera1, true, "PreCompact depois do Enter de um /comando vale como recibo");
 
-  const steer = falso();
-  const espera2 = esperarRecibo(steer, 0, 2_000);
-  setTimeout(() => ((steer as { sinaisDeProcessamento: number }).sinaisDeProcessamento += 1), 150);
-  assert.equal(await espera2, true, "PreToolUse depois do Enter vale como recibo");
+  const textoComum = falso();
+  const espera2 = esperarRecibo(textoComum, 0, 500);
+  mexer(textoComum, "compactsIniciados");
+  assert.equal(await espera2, false, "para texto comum o PreCompact não vale");
 
-  assert.equal(await esperarRecibo(falso({ sinaisDeProcessamento: 5 }), 0, 300), false, "sinal ANTERIOR ao Enter não vale");
-  assert.equal(await esperarRecibo(falso(), 0, 300), false, "texto preso de verdade: nenhum hook, nenhum recibo");
+  assert.equal(await esperarRecibo(falso({ compactsIniciados: 5 }), 0, 300, 5), false, "PreCompact ANTERIOR ao Enter não vale");
+  assert.equal(await esperarRecibo(falso(), 0, 300), false, "texto preso: nenhum recibo");
+
+  const aceito = falso();
+  const espera3 = esperarRecibo(aceito, 0, 2_000);
+  mexer(aceito, "promptsAceitos");
+  assert.equal(await espera3, true, "UserPromptSubmit continua sendo o recibo normal");
 });
 
-test("recibo: enviarComRecibo não dá alarme falso quando o agente seguiu trabalhando (steer), mas dá com texto preso", async () => {
+test("recibo: turno anterior emitindo PreToolUse com a mensagem presa NÃO esconde o erro; o 2º Enter que entrega confirma", async () => {
   logarClaude(amb);
   const { enviarComRecibo } = await import("./sessao/digitacao.js");
   const { s } = await nova();
   await s.subir("nova");
   await esperarAte(() => s.estado.status === "idle", 8_000);
-  const escritas: string[] = [];
+  const nonce = s.nonce ?? undefined;
+  const hook = (event: string, extra: Record<string, unknown> = {}) => s.receberHook({ agentId: s.id, event, nonce, ...extra });
   const original = s.escrever.bind(s);
-  // Engole o Enter para o CLI falso não gerar UserPromptSubmit: simula o texto preso/aceito como steer.
-  (s as unknown as { escrever: (t: string) => void }).escrever = (t: string) => { escritas.push(t); };
+  const enters: string[] = [];
+  const trocar = (f: (t: string) => void) => { (s as unknown as { escrever: (t: string) => void }).escrever = f; };
   try {
+    // Mensagem presa: os Enters são engolidos e um turno ANTERIOR segue emitindo PreToolUse.
+    trocar((t) => { enters.push(t); });
+    const ticker = setInterval(() => hook("PreToolUse", { toolName: "Bash" }), 300);
     const marca = lerTexto(amb.logDoRunner).length;
     await enviarComRecibo(s);
-    assert.match(lerTexto(amb.logDoRunner).slice(marca), /digitei \d Enters e nenhum abriu turno/, "texto preso: alarme");
+    clearInterval(ticker);
+    assert.equal(enters.length, 3, "os 3 Enters saíram");
+    assert.match(lerTexto(amb.logDoRunner).slice(marca), /digitei \d Enters e nenhum abriu turno/);
 
+    // O 2º Enter entrega: o UserPromptSubmit chega depois dele e o runner para por aí.
+    enters.length = 0;
+    trocar((t) => { enters.push(t); if (enters.length === 2) hook("UserPromptSubmit"); });
     const marca2 = lerTexto(amb.logDoRunner).length;
-    setTimeout(() => s.receberHook({ agentId: s.id, event: "PreToolUse", nonce: s.nonce ?? undefined, toolName: "Bash" }), 2_000);
     await enviarComRecibo(s);
-    const log2 = lerTexto(amb.logDoRunner).slice(marca2);
-    assert.doesNotMatch(log2, /digitei \d Enters e nenhum abriu turno/);
+    assert.equal(enters.length, 2);
+    assert.doesNotMatch(lerTexto(amb.logDoRunner).slice(marca2), /digitei \d Enters e nenhum abriu turno/);
+  } finally {
+    trocar(original);
+  }
+});
+
+test("recibo: /compact sem UserPromptSubmit é confirmado pelo PreCompact e não dá alarme", async () => {
+  logarClaude(amb);
+  const { enviarComRecibo } = await import("./sessao/digitacao.js");
+  const { s } = await nova();
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  const original = s.escrever.bind(s);
+  (s as unknown as { escrever: (t: string) => void }).escrever = () => {
+    setTimeout(() => s.receberHook({ agentId: s.id, event: "PreCompact", nonce: s.nonce ?? undefined }), 200);
+  };
+  try {
+    const marca = lerTexto(amb.logDoRunner).length;
+    await enviarComRecibo(s, true);
+    assert.doesNotMatch(lerTexto(amb.logDoRunner).slice(marca), /digitei \d Enters e nenhum abriu turno/);
   } finally {
     (s as unknown as { escrever: (t: string) => void }).escrever = original;
   }
