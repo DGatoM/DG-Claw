@@ -185,7 +185,7 @@ sleep 1.5
 nega "a outra sessao morreu" kill -0 "$PID_B"
 afirma "a sessao propria continua" kill -0 "$PID_A"
 afirma "a sessao do usuario comum continua" kill -0 "$PID_C"
-afirma "sem outra sessao, diz que o acesso ja estava desligado" grep -q "ja estava desligado" "$TMP/o.txt"
+afirma "so resta a sessao propria: nao confirma encerrado" grep -q "NAO esta confirmado como encerrado" "$TMP/o.txt"
 
 echo "--derrubar-sessoes sem saber qual e a sua (em SSH) recusa"
 fantasma "sshd: root@pts/2"; PID_D=$!
@@ -203,7 +203,7 @@ rm -f "$STUB_ESTADO/ss-conexoes"
 dgclaw suporte ligar --chave "$CHAVE" >/dev/null 2>&1
 dgclaw suporte desligar >"$TMP/o.txt" 2>&1
 afirma "diz nenhuma sessao" grep -q "sessoes SSH de root abertas agora: nenhuma" "$TMP/o.txt"
-afirma "diz acesso do suporte desligado" grep -q "acesso do suporte desligado: nenhuma chave dele no arquivo e nenhuma outra sessao" "$TMP/o.txt"
+afirma "diz acesso do suporte desligado" grep -q "acesso do suporte desligado: nenhuma chave dele no arquivo e nenhuma sessao" "$TMP/o.txt"
 
 echo "--limpar com chave vencida grava revogadas.log e alerta se ha sessao aberta"
 printf 'ESTAB 0 0 10.0.0.5:22 198.51.100.8:42000 users:(("sshd",pid=%s,fd=4))\n' "$PID_D" >"$STUB_ESTADO/ss-conexoes"
@@ -444,5 +444,56 @@ dgclaw suporte status >/dev/null 2>&1; rc=$?
 igual "sem nenhuma sessao, status sai 0" 0 "$rc"
 nega "sem nenhuma sessao, a pendencia e apagada" test -e "$ALERTA"
 rm -f "$STUB_ESTADO/ss-conexoes"
+
+echo "--desligar com so a sessao propria aberta mantem a pendencia"
+printf '%s\n' "$ALHEIA1" >"$ARQ"; rm -f "$ALERTA"; rm -f "$STUB_ESTADO/sshd-T"
+dgclaw suporte ligar --chave "$CHAVE" >/dev/null 2>&1
+fantasma "sshd: root@pts/8"; PROP2=$!
+sleep 0.3
+printf 'ESTAB 0 0 10.0.0.5:22 203.0.113.88:7000 users:(("sshd",pid=%s,fd=4))\n' "$PROP2" >"$STUB_ESTADO/ss-conexoes"
+SSH_CONNECTION="203.0.113.88 7000 10.0.0.5 22" dgclaw suporte desligar >"$TMP/o.txt" 2>&1; rc=$?
+igual "so a sessao propria: desligar sai 0" 0 "$rc"
+afirma "grava a pendencia" test -e "$ALERTA"
+nega "nao anuncia desligado" grep -q "acesso do suporte desligado" "$TMP/o.txt"
+afirma "explica que o alerta some no proximo status" grep -q "O alerta some sozinho no proximo" "$TMP/o.txt"
+kill "$PROP2" 2>/dev/null; wait 2>/dev/null; rm -f "$STUB_ESTADO/ss-conexoes"
+dgclaw suporte status >/dev/null 2>&1
+nega "sem sessoes, o status apaga a pendencia" test -e "$ALERTA"
+
+echo "--desligar confere se a chave marcada segue aceita em outra fonte do sshd"
+ARQ2="$(dirname "$ARQ")/authorized_keys2"
+printf '%s\n' "$ALHEIA1" >"$ARQ"
+dgclaw suporte ligar --chave "$CHAVE" >/dev/null 2>&1
+printf '%s\n' "$(cat "$TMP/suporte.pub")" >"$ARQ2"   # alguem a colocou la depois do ligar
+dgclaw suporte desligar >"$TMP/o.txt" 2>&1; rc=$?
+igual "chave segue no authorized_keys2: desligar sai 1" 1 "$rc"
+afirma "diz em qual arquivo ela segue" grep -q "authorized_keys2" "$TMP/o.txt"
+nega "nao anuncia desligado" grep -q "acesso do suporte desligado" "$TMP/o.txt"
+nega "a linha marcada saiu do principal" grep -q "dgclaw-suporte:" "$ARQ"
+dgclaw suporte status >"$TMP/o.txt" 2>&1; rc=$?
+igual "status sem chave marcada mas com historico nao conhece o fp: sai 0" 0 "$rc"
+rm -f "$ARQ2"
+printf '%s\n' "$ALHEIA1" >"$ARQ"
+dgclaw suporte ligar --chave "$CHAVE" >/dev/null 2>&1
+STUB_SSHD_FALHA=1 dgclaw suporte desligar >"$TMP/o.txt" 2>&1; rc=$?
+igual "sshd -T falha: desligar sai 1" 1 "$rc"
+afirma "diz que nao conseguiu confirmar outra autorizacao" grep -q "NAO consegui confirmar que nao ha outra autorizacao" "$TMP/o.txt"
+nega "nao anuncia desligado (sshd -T falhou)" grep -q "acesso do suporte desligado" "$TMP/o.txt"
+printf '%s\n' "$ALHEIA1" >"$ARQ"
+dgclaw suporte ligar --chave "$CHAVE" >/dev/null 2>&1
+dgclaw suporte desligar >"$TMP/o.txt" 2>&1; rc=$?
+igual "sem outra fonte: desligar sai 0" 0 "$rc"
+afirma "e anuncia desligado" grep -q "acesso do suporte desligado" "$TMP/o.txt"
+
+echo "--status com chave vencida cuja fingerprint segue em outra fonte"
+printf '%s\n' "$ALHEIA1" >"$ARQ"
+printf 'expiry-time="%sZ" ssh-ed25519 %s dgclaw-suporte:cafe0002:%s\n' "$VENCIDA_FIM" "$BLOB" "$VENCIDA_FIM" >>"$ARQ"
+printf '%s\n' "$(cat "$TMP/suporte.pub")" >"$ARQ2"
+dgclaw suporte status >"$TMP/o.txt" 2>&1; rc=$?
+igual "vencida + fp em authorized_keys2: status sai 1" 1 "$rc"
+nega "nao diz 'suporte: desligado'" grep -qx "suporte: desligado" "$TMP/o.txt"
+afirma "aponta o authorized_keys2" grep -q "authorized_keys2" "$TMP/o.txt"
+afirma "a linha do dgclaw status tambem avisa" grep -q "NAO esta desligado" <<<"$(linha_status)"
+rm -f "$ARQ2"
 
 fim

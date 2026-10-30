@@ -211,27 +211,84 @@ suporte_fontes_de_chaves() {
 # suporte_exigir_chave_sem_acesso_permanente: a chave nao pode estar, fora da nossa linha marcada, em nenhum arquivo
 # de chaves que o sshd aceita para o root. A linha marcada do authorized_keys principal e tratada no suporte_ligar.
 suporte_exigir_chave_sem_acesso_permanente() {
-    local fontes arq propria linha blob_l fp_l
+    local fontes arq propria rc
     fontes="$(suporte_fontes_de_chaves)" || exit 1
     propria="$(suporte_arq)"
     while IFS= read -r arq; do
         [ -n "$arq" ] || continue
         [ "$arq" != "$propria" ] || continue
         [ -e "$arq" ] || [ -L "$arq" ] || continue
-        if [ ! -f "$arq" ] || [ ! -r "$arq" ]; then
+        rc=0; suporte_fp_no_arquivo "$arq" "$SUP_FP" 0 || rc=$?
+        if [ "$rc" -eq 2 ]; then
             falha "o sshd aceita chaves do root em $arq, mas nao consegui ler esse arquivo, entao nao sei se a chave do suporte ja esta la." \
                 "confira com: ls -l $arq (precisa ser um arquivo comum, legivel pelo root). Sem essa conferencia nao liguei o acesso."
+        elif [ "$rc" -eq 0 ]; then
+            falha "essa mesma chave ja esta em $arq, que o sshd tambem aceita, como acesso permanente (sem prazo)." \
+                "nao mexi nela. Tire a linha dela desse arquivo na mao e ligue de novo; se ela e sua de verdade, use outra chave para o suporte."
         fi
-        while IFS= read -r linha || [ -n "$linha" ]; do
-            blob_l="$(suporte_blob_da_linha "$linha")"
-            [ -n "$blob_l" ] || continue
-            fp_l="$(suporte_fp_da_linha "$linha")"
-            if [ "$fp_l" = "$SUP_FP" ]; then
-                falha "essa mesma chave ja esta em $arq, que o sshd tambem aceita, como acesso permanente (sem prazo)." \
-                    "nao mexi nela. Tire a linha dela desse arquivo na mao e ligue de novo; se ela e sua de verdade, use outra chave para o suporte."
-            fi
-        done <"$arq" || falha "nao consegui ler $arq." "confira a permissao: ls -l $arq. Sem essa conferencia nao liguei o acesso."
     done <<<"$fontes"
+}
+
+# suporte_fp_no_arquivo <arquivo> <fingerprint> <ignorar_marcada 0|1>: 0 se achou, 1 se nao (arquivo inexistente
+# tambem e "nao"), 2 se o arquivo existe mas nao deu para ler.
+suporte_fp_no_arquivo() {
+    local arq="$1" fp="$2" ignorar="$3" linha blob_l
+    [ -e "$arq" ] || [ -L "$arq" ] || return 1
+    if [ ! -f "$arq" ] || [ ! -r "$arq" ]; then return 2; fi
+    while IFS= read -r linha || [ -n "$linha" ]; do
+        if [ "$ignorar" = 1 ] && [[ "$linha" =~ $SUPORTE_MARCADOR_RE ]]; then continue; fi
+        blob_l="$(suporte_blob_da_linha "$linha")"
+        [ -n "$blob_l" ] || continue
+        if [ "$(suporte_fp_da_linha "$linha")" = "$fp" ]; then return 0; fi
+    done <"$arq" || return 2
+    return 1
+}
+
+# suporte_conferir_fps <fingerprints...>: depois de tirar a chave marcada, confere se alguma delas segue aceita pelo
+# sshd em outra fonte. Retorno: 0 limpo, 1 achou (SUP_PERM_ONDE lista "fp em arquivo"), 2 nao deu para conferir
+# (SUP_PERM_ERRO diz por que).
+suporte_conferir_fps() {
+    local fontes arq fp rc
+    SUP_PERM_ONDE=(); SUP_PERM_ERRO=""
+    [ $# -gt 0 ] || return 0
+    if ! fontes="$(suporte_fontes_de_chaves 2>&1)"; then
+        SUP_PERM_ERRO="$(printf '%s' "$fontes" | sed -n 's/^.*Nao deu certo:[^ ]* //p' | head -n 1)"
+        SUP_PERM_ERRO="${SUP_PERM_ERRO:-nao consegui ler a configuracao do sshd}"
+        return 2
+    fi
+    while IFS= read -r arq; do
+        [ -n "$arq" ] || continue
+        for fp in "$@"; do
+            [ "$fp" != "?" ] || continue
+            rc=0; suporte_fp_no_arquivo "$arq" "$fp" 1 || rc=$?
+            if [ "$rc" -eq 0 ]; then SUP_PERM_ONDE+=("$fp em $arq")
+            elif [ "$rc" -eq 2 ]; then SUP_PERM_ERRO="nao consegui ler $arq"; return 2; fi
+        done
+    done <<<"$fontes"
+    [ "${#SUP_PERM_ONDE[@]}" -eq 0 ] || return 1
+}
+
+# suporte_avisar_perm <rc>: a frase para o dono quando suporte_conferir_fps nao deu limpo.
+suporte_avisar_perm() {
+    local onde
+    if [ "$1" -eq 1 ]; then
+        for onde in "${SUP_PERM_ONDE[@]}"; do
+            aviso "a chave do suporte (${onde%% em *}) segue aceita pelo sshd como acesso permanente em ${onde#* em }. NAO esta desligado: tire essa linha de la na mao e rode de novo: sudo dgclaw suporte status"
+        done
+    else
+        aviso "a chave marcada do suporte foi removida, mas NAO consegui confirmar que nao ha outra autorizacao para ela (${SUP_PERM_ERRO}). Nao posso dizer que o acesso esta desligado. Resolva isso e rode de novo: sudo dgclaw suporte status"
+    fi
+}
+
+# suporte_fps_historico <conteudo do authorized_keys>: fingerprints das linhas marcadas e das que o limpar ja revogou.
+suporte_fps_historico() {
+    local linha log; log="$(suporte_revogadas_log)"
+    {
+        while IFS= read -r linha || [ -n "$linha" ]; do
+            if [[ "$linha" =~ $SUPORTE_MARCADOR_RE ]]; then suporte_fp_da_linha "$linha"; printf '\n'; fi
+        done <<<"$1"
+        if [ -r "$log" ]; then sed -n 's/^.* revogada fp=\(SHA256:[^ ]*\) .*$/\1/p' "$log"; fi
+    } | sort -u | grep -v '^\(?\|\)$' || true
 }
 
 suporte_ligar() {
@@ -461,7 +518,7 @@ suporte_alerta_arquivo() { printf '%s' "$(sup_dir_estado)/alerta-sessoes"; }
 suporte_revogadas_log() { printf '%s' "$(sup_dir_estado)/revogadas.log"; }
 
 suporte_desligar() {
-    local derrubar=0 a
+    local derrubar=0 a perm=0
     for a in "$@"; do
         case "$a" in
             --derrubar-sessoes) derrubar=1 ;;
@@ -473,6 +530,11 @@ suporte_desligar() {
         ok "$SUP_REMOVIDAS chave(s) removida(s) de $(suporte_arq). As suas outras chaves ficaram como estavam. Novas entradas com elas estao bloqueadas."
     else
         info "nao havia chave do suporte no arquivo."
+    fi
+    if [ "$SUP_REMOVIDAS" -gt 0 ]; then
+        # shellcheck disable=SC2086 # fingerprints nao tem espaco
+        suporte_conferir_fps $SUP_FPS_REMOVIDOS || perm=$?
+        if [ "$perm" -ne 0 ]; then suporte_avisar_perm "$perm"; perm=1; fi
     fi
     suporte_mostrar_sessoes
     if [ "$SUP_VERIF_FALHOU" = 1 ]; then
@@ -507,10 +569,20 @@ suporte_desligar() {
             : >"$(suporte_alerta_arquivo)"; chmod 600 "$(suporte_alerta_arquivo)"
         fi
         aviso "as novas entradas com a chave do suporte estao bloqueadas, mas ainda ha $SUP_OUTRAS sessao(oes) de root aberta(s) (lista acima): o acesso NAO esta totalmente desligado. Para encerrar TODAS as sessoes SSH de root, menos a sua: sudo dgclaw suporte desligar --derrubar-sessoes"
-        return 0
+        return "$perm"
     fi
+    if [ "${#SUP_SES_PEER[@]}" -gt 0 ]; then
+        # So resta a sessao de quem roda o comando, mas ela pode ser a do proprio suporte: a pendencia fica.
+        if [ "$ENSAIO" != 1 ]; then
+            install -d -m 700 "$(sup_dir_estado)"
+            : >"$(suporte_alerta_arquivo)"; chmod 600 "$(suporte_alerta_arquivo)"
+        fi
+        aviso "as novas entradas com a chave do suporte estao bloqueadas, mas ainda ha ${#SUP_SES_PEER[@]} sessao(oes) de root aberta(s), so a sua (lista acima), e ela pode ser a do suporte: o acesso NAO esta confirmado como encerrado. O alerta some sozinho no proximo 'sudo dgclaw suporte status' depois que todas as sessoes de root, a sua inclusive, forem fechadas."
+        return "$perm"
+    fi
+    if [ "$perm" -ne 0 ]; then return "$perm"; fi
     if [ "$ENSAIO" != 1 ]; then rm -f "$(suporte_alerta_arquivo)"; fi
-    if [ "$SUP_REMOVIDAS" -gt 0 ]; then ok "acesso do suporte desligado: nenhuma chave dele no arquivo e nenhuma outra sessao de root aberta."
+    if [ "$SUP_REMOVIDAS" -gt 0 ]; then ok "acesso do suporte desligado: nenhuma chave dele no arquivo e nenhuma sessao de root aberta."
     else ok "o acesso do suporte ja estava desligado."; fi
 }
 
@@ -549,7 +621,7 @@ suporte_limpar() {
 
 suporte_status() {
     [ $# -eq 0 ] || falha "'suporte status' nao tem opcoes (veio: $*)." "use: sudo dgclaw suporte status"
-    local linha atual agora fim fim_s ativas=0 vencidas=0 fp historico
+    local linha atual agora fim fim_s ativas=0 vencidas=0 fp historico perm=0 fps
     agora="$(suporte_agora_s)"
     atual="$(suporte_ler_linhas)"
     suporte_listar_sessoes || true   # antes do resumo: sem verificar as sessoes nao se anuncia "desligado"
@@ -569,8 +641,16 @@ suporte_status() {
     suporte_contar_outras
     historico=0
     if [ "$vencidas" -gt 0 ] || [ -e "$(suporte_alerta_arquivo)" ]; then historico=1; fi
+    if [ "$ativas" -eq 0 ] && [ "$historico" = 1 ]; then
+        fps="$(suporte_fps_historico "$atual")"
+        # shellcheck disable=SC2086 # fingerprints nao tem espaco
+        suporte_conferir_fps $fps || perm=$?
+    fi
     if [ "$ativas" -gt 0 ]; then
         printf 'suporte: %s chave(s) ligada(s), %s vencida(s)\n' "$ativas" "$vencidas"
+    elif [ "$perm" -ne 0 ]; then
+        printf 'suporte: NAO esta desligado (veja o aviso abaixo sobre a chave do suporte)\n'
+        suporte_avisar_perm "$perm"
     elif [ "$historico" = 1 ] && [ -n "$SUP_SES_ERRO" ]; then
         printf 'suporte: chave revogada ou vencida, acesso ainda nao confirmado como encerrado (nao consegui verificar as sessoes de root: %s)\n' "$SUP_SES_ERRO"
     elif [ "$historico" = 1 ] && [ "$SUP_N_TOTAL" -gt 0 ]; then
@@ -596,6 +676,7 @@ suporte_status() {
     elif [ "$SUP_N_TOTAL" -eq 0 ] && [ "$ENSAIO" != 1 ]; then
         rm -f "$(suporte_alerta_arquivo)"   # confirmado: nenhuma sessao de root aberta (nem a de quem consulta), a pendencia acabou
     fi
+    if [ "$perm" -ne 0 ]; then return 1; fi
 }
 
 suporte_main() {
@@ -642,6 +723,14 @@ suporte_status_linha() {
         suporte_contar_outras
         if [ "$SUP_N_TOTAL" -gt 0 ]; then
             s_aviso "suporte: chave revogada ou vencida, acesso ainda nao confirmado como encerrado ($SUP_N_TOTAL sessao(oes) de root abertas), veja sudo dgclaw suporte status"
+            return 0
+        fi
+        local fps perm=0
+        fps="$(suporte_fps_historico "$conteudo")"
+        # shellcheck disable=SC2086 # fingerprints nao tem espaco
+        suporte_conferir_fps $fps || perm=$?
+        if [ "$perm" -ne 0 ]; then
+            s_aviso "suporte: NAO esta desligado, a chave do suporte segue aceita pelo sshd ou nao consegui confirmar que nao (${SUP_PERM_ONDE[*]:-$SUP_PERM_ERRO}), veja sudo dgclaw suporte status"
             return 0
         fi
         if [ "$ENSAIO" != 1 ]; then rm -f "$(suporte_alerta_arquivo)"; fi
