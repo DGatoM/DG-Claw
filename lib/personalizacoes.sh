@@ -568,13 +568,14 @@ _om_relatorio() {
         printf '  Cruzando com o que este DG Claw usa:\n'
         for f in "${USO_CRUZ[@]}"; do printf '  - %s\n' "$f"; done
     fi
+    for f in ${USO_LIM[@]+"${USO_LIM[@]}"}; do printf '  limite atingido: %s\n' "$f"; done
     printf '\nO que este DG Claw usa e o que a versao nova toca:\n'
     printf '%s' "$USO_TXT" | sed 's/^/  /'
     velho="$(personalizacoes_registro)"
     printf '\nSuas personalizacoes estao no registro %s.\n' "$velho"
     printf '\nVersao de destino (para conferencia, nao precisa ler):\nDESTINO=%s\n' "$para"
     if [ -n "$head" ]; then printf 'HEAD=%s\n' "$head"; fi
-    printf '\nAntes de instalar: leia o que muda e o que este DG Claw usa (secao acima), diga ao dono em linguagem simples se a atualizacao e segura e se vale a pena, e grave o parecer: sudo dgclaw atualizar --parecer segura --motivo "<texto curto>" (ou arriscada, que bloqueia). Espere o ok dele. Com o ok: sudo dgclaw atualizar --ok-do-dono --segundo-plano\n'
+    printf '\nAntes de instalar: leia o que muda e o que este DG Claw usa (secao acima), diga ao dono em linguagem simples se a atualizacao e segura e se vale a pena, e grave o parecer: sudo dgclaw atualizar --parecer segura --commit <commit do DESTINO> --motivo "<texto curto>" (ou arriscada, que bloqueia). Espere o ok dele. Com o ok: sudo dgclaw atualizar --ok-do-dono --segundo-plano\n'
 }
 
 # _om_changelog <origem> <destino>: linhas de item que o CHANGELOG do destino tem e o da origem nao
@@ -602,7 +603,7 @@ _om_exigir_ok() {
         return 0
     fi
     falha "$motivo e eu ainda nao tenho o ok do dono.${arq:+ O relatorio esta em $arq.}" \
-          "mostre ${arq:+o relatorio }ao dono em linguagem simples (diga se a atualizacao e segura para os arquivos, os dados, as rotinas e as personalizacoes dele e se vale a pena), grave o parecer (sudo dgclaw atualizar --parecer segura --motivo \"<texto curto>\"), espere o ok e rode: sudo dgclaw atualizar --ok-do-dono --segundo-plano. Nada foi mudado (parei antes do backup)."
+          "mostre ${arq:+o relatorio }ao dono em linguagem simples (diga se a atualizacao e segura para os arquivos, os dados, as rotinas e as personalizacoes dele e se vale a pena), grave o parecer (sudo dgclaw atualizar --parecer segura --commit <commit do DESTINO> --motivo \"<texto curto>\"), espere o ok e rode: sudo dgclaw atualizar --ok-do-dono --segundo-plano. Nada foi mudado (parei antes do backup)."
 }
 
 # atualizar_o_que_muda: roda antes do backup. Mostra o que a versao nova traz e, sempre que o que vai ser
@@ -612,7 +613,7 @@ _om_exigir_ok() {
 # que ele veja o novo.
 atualizar_o_que_muda() {
     local de="" real="" para="" head="" ramo n arq ts sem_base=0 difere=0 por_que="" prev prev_dest prev_arq
-    ATU_DESTINO=""
+    ATU_DESTINO=""; OM_PREV_DEST=""
     ATU_ETAPA="lendo o que muda"
     passo "Lendo o que a versao nova muda (antes de instalar qualquer coisa)"
     if ! git_do_clone "$ATU_REPO" rev-parse --git-dir >/dev/null 2>&1; then
@@ -676,6 +677,7 @@ atualizar_o_que_muda() {
     if [ -n "$prev" ]; then
         prev_arq="$prev"; prev_dest="$(sed -n 's/^DESTINO=//p' "$prev" | head -n 1)"
     fi
+    OM_PREV_DEST="$prev_dest"   # o parecer (lib/atualizar.sh) confere que foi dado sobre o relatorio que o analista leu
     ( umask 027; mkdir -p "$DG_LOG"; _om_relatorio "$de" "$para" "$head" >"$arq" ) \
         || falha "nao consegui gravar o relatorio em $arq." "confira a pasta e o espaco em disco (ls -ld $DG_LOG; df -h $DG_LOG). Nada foi mudado."
     cat "$arq"

@@ -41,7 +41,7 @@ aprovar sem querer o comando que surgiu em seguida, e o botão Aprovar de uma te
 
 - **Análise obrigatória antes de instalar uma atualização.** O relatório do `sudo dgclaw atualizar --simular`
   ganhou a seção "O que este DG Claw usa e o que a versão nova toca": para cada agente, as rotinas, os
-  scripts próprios, as skills e os canais ligados, mais as personalizações registradas, cruzados com os
+  scripts próprios, as skills e os canais ligados, mais as personalizações registradas (só contagens, ids e nomes no padrão, nunca o texto livre de dentro das casas), cruzados com os
   arquivos que a versão nova muda ou remove e com os comandos do `dgclaw` que saíram ou mudaram de nome. Cada
   cruzamento aparece como ponto de atenção ("a rotina X do agente Y chama scripts/foo.sh, que muda nesta
   versão"). Além disso, a instalação agora exige um parecer: o Admin lê o relatório, cruza com o que você usa no
@@ -132,7 +132,7 @@ para o `CLAUDE.md` e o `AGENTS.md` do Admin: a versão nova chega como `.novo`, 
 A partir desta versão o `--ok-do-dono` só funciona depois de um parecer gravado. Se você já usa o Admin para
 atualizar, nada muda na conversa: ele vai analisar, contar o que achou, e só então pedir o seu sim. Se você
 roda o comando na mão, grave antes o parecer sobre a versão que vai instalar, com
-`sudo dgclaw atualizar --parecer segura --motivo "<uma frase>"`. Se o `CLAUDE.md` ou o `AGENTS.md` do Admin
+`sudo dgclaw atualizar --parecer segura --commit <commit do DESTINO> --motivo "<uma frase>"`. Se o `CLAUDE.md` ou o `AGENTS.md` do Admin
 estiverem personalizados, leve do `.novo` para o seu arquivo a parte "Atualizar o DG Claw", sem apagar o que
 você escreveu, para o Admin saber fazer a análise.
 

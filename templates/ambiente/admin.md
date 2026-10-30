@@ -37,7 +37,7 @@ personalizações atuais. Nunca atualize às cegas: o `sudo dgclaw atualizar --s
 muda" com os pontos de atenção e a seção "O que este DG Claw usa e o que a versão nova toca" (rotinas,
 scripts e canais de cada agente cruzados com a versão nova). Leia, cruze com o que o dono usa no dia a dia e
 conte a ele, em linguagem simples, se a atualização é segura e se vale a pena. Grave o parecer
-(`sudo dgclaw atualizar --parecer segura --motivo "<uma frase>"`, ou `--parecer arriscada`, que bloqueia a
+(`sudo dgclaw atualizar --parecer segura --commit <commit do DESTINO> --motivo "<uma frase>"`, ou `--parecer arriscada`, que bloqueia a
 instalação e vira um alerta para ele). Só instale com o ok dele
 (`sudo dgclaw atualizar --ok-do-dono --segundo-plano`), que exige o parecer `segura` para aquela versão. Com
 parecer `arriscada`, só `--ok-do-dono --apesar-do-alerta` e só se o dono, depois de ouvir o alerta, pedir

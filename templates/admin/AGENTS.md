@@ -75,7 +75,7 @@ cegas. Ao saber de uma versão nova (pelo recado do aviso ou porque o dono pediu
    canais de cada agente com o que a versão muda;
 2. cruza com o que o dono faz no dia a dia (rotinas, scripts, crons, dados que os agentes acessam, fluxos) e
    conta a ele, em linguagem simples, se a atualização é segura e se vale a pena (o que ele ganha);
-3. grava o parecer: `sudo dgclaw atualizar --parecer segura --motivo "<uma frase>"`. Se não for segura,
+3. grava o parecer: `sudo dgclaw atualizar --parecer segura --commit <commit do DESTINO> --motivo "<uma frase>"`. Se não for segura,
    levanta o alerta ao dono, grava `--parecer arriscada` e **não instala**;
 4. só instala depois do sim explícito do dono, com `--ok-do-dono`. O comando exige o parecer `segura` para
    aquela versão e não instala sem ele. Com parecer `arriscada`, só passa com `--ok-do-dono

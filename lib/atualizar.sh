@@ -396,6 +396,9 @@ atualizar_validar_parecer_pedido() {
             segura|arriscada) ;;
             *) falha "o parecer '${ATU_PARECER:0:30}' nao existe." "use --parecer segura ou --parecer arriscada, junto de --motivo \"<texto curto>\"." ;;
         esac
+        [[ "$ATU_COMMIT_PARECER" =~ ^[0-9a-f]{40}$ ]] \
+            || falha "falta o --commit do parecer, ou ele nao tem 40 caracteres hexadecimais (veio: ${ATU_COMMIT_PARECER:0:50})." \
+                     "rode 'sudo dgclaw atualizar --simular', leia o relatorio e copie o commit da linha DESTINO= : sudo dgclaw atualizar --parecer $ATU_PARECER --commit <40 caracteres> --motivo \"<texto curto>\""
         [ -n "$ATU_MOTIVO" ] || falha "falta o --motivo do parecer." "diga em uma frase por que: sudo dgclaw atualizar --parecer $ATU_PARECER --motivo \"<texto curto>\""
         if [ "${#ATU_MOTIVO}" -gt 500 ] || [[ "$ATU_MOTIVO" == *$'\n'* ]]; then
             falha "o --motivo tem ${#ATU_MOTIVO} caracteres ou mais de uma linha." "resuma em uma linha de ate 500 caracteres."
@@ -404,8 +407,8 @@ atualizar_validar_parecer_pedido() {
         [ "$segundo" != 1 ] || falha "--parecer nao combina com --segundo-plano." "ele e rapido e nao instala nada; rode direto."
         [ "$ATU_OK_DONO" != 1 ] || falha "--parecer nao combina com --ok-do-dono." "primeiro grave o parecer; depois, com o ok do dono, rode a atualizacao."
         [ -z "$voltar" ] || falha "--parecer nao combina com --voltar." "rode um de cada vez."
-    elif [ -n "$ATU_MOTIVO" ]; then
-        falha "--motivo so vale junto de --parecer." "use: sudo dgclaw atualizar --parecer segura|arriscada --motivo \"<texto curto>\""
+    elif [ -n "$ATU_MOTIVO" ] || [ -n "$ATU_COMMIT_PARECER" ]; then
+        falha "--motivo e --commit so valem junto de --parecer." "use: sudo dgclaw atualizar --parecer segura|arriscada --motivo \"<texto curto>\""
     fi
     if [ "$ATU_APESAR" = 1 ] && [ "$ATU_OK_DONO" != 1 ]; then
         falha "--apesar-do-alerta so vale junto de --ok-do-dono." \
@@ -421,6 +424,20 @@ atualizar_gravar_parecer() {
     [[ "$alvo" =~ ^[0-9a-f]{40}$ ]] \
         || falha "nao consegui descobrir o commit de destino da atualizacao, entao nao ha a que dar parecer." \
                  "veja a mensagem acima (clone, internet) e rode de novo. Nada foi gravado."
+    # O parecer vale para o commit que o ANALISTA viu: o do ultimo relatorio gravado antes deste comando. Se o
+    # remoto andou desde entao, o que vai ser instalado nao e o que foi analisado.
+    if [ -z "${OM_PREV_DEST:-}" ]; then
+        falha "nao ha relatorio 'o que muda' gravado antes deste comando, entao nao ha o que o parecer confirme." \
+              "rode 'sudo dgclaw atualizar --simular', leia o relatorio e repita o parecer com o commit da linha DESTINO=."
+    fi
+    if [ "$ATU_COMMIT_PARECER" != "$OM_PREV_DEST" ]; then
+        falha "o --commit informado (${ATU_COMMIT_PARECER:0:10}) nao e o do ultimo relatorio gravado (${OM_PREV_DEST:0:10})." \
+              "use o commit da linha DESTINO= do relatorio que voce leu. Se nao tem certeza de qual leu, rode 'sudo dgclaw atualizar --simular' de novo e analise esse."
+    fi
+    if [ "$ATU_COMMIT_PARECER" != "$alvo" ]; then
+        falha "o repositorio andou: o relatorio que voce leu e de ${ATU_COMMIT_PARECER:0:10}, mas o destino agora e ${alvo:0:10}. Nada foi gravado." \
+              "rode 'sudo dgclaw atualizar --simular' de novo, analise a versao nova e grave o parecer com o commit dela."
+    fi
     instalado="${ATU_COMMIT_ANTIGO:-}"
     if [ "$alvo" = "$instalado" ] && [ "${PERS_ATIVO:-0}" != 1 ]; then
         falha "o destino (${alvo:0:10}) e o commit que ja esta instalado: nao ha atualizacao para dar parecer." "nada a fazer. Se acredita que saiu versao nova, confira: sudo dgclaw atualizar --checar"
@@ -456,11 +473,11 @@ atualizar_conferir_parecer() {
     if [ ! -f "$arq" ]; then
         atualizar_registrar bloqueio "alvo=${alvo:0:12} motivo=sem-parecer"
         falha "falta o parecer sobre a versao ${alvo:0:10} (nao existe $arq). Nunca se atualiza as cegas." \
-              "rode o relatorio (sudo dgclaw atualizar --simular), leia o que muda e o que este DG Claw usa, diga ao dono se e segura e vale a pena, e grave o veredito: sudo dgclaw atualizar --parecer segura --motivo \"<texto curto>\" (ou arriscada). Depois repita com --ok-do-dono. Nada foi mudado (parei antes do backup)."
+              "rode o relatorio (sudo dgclaw atualizar --simular), leia o que muda e o que este DG Claw usa, diga ao dono se e segura e vale a pena, e grave o veredito: sudo dgclaw atualizar --parecer segura --commit <commit do DESTINO> --motivo \"<texto curto>\" (ou arriscada). Depois repita com --ok-do-dono. Nada foi mudado (parei antes do backup)."
     fi
     if ! lido="$(jq -r '[(.commit_alvo // ""), (.veredito // ""), (.motivo // ""), (.data // "")] | @tsv' "$arq" 2>&1)"; then
         falha "nao consegui ler o parecer em $arq ($(printf '%s' "$lido" | head -n 1 | tr -d '\000-\037\177' | cut -c1-120))." \
-              "grave o parecer de novo: sudo dgclaw atualizar --parecer segura --motivo \"<texto curto>\". Nada foi mudado."
+              "grave o parecer de novo: sudo dgclaw atualizar --parecer segura --commit <commit do DESTINO> --motivo \"<texto curto>\". Nada foi mudado."
     fi
     IFS=$'\t' read -r commit veredito motivo data <<<"$lido"
     motivo="$(printf '%s' "$motivo" | tr -d '\000-\037\177' | cut -c1-300)"
@@ -492,18 +509,21 @@ atualizar_conferir_parecer() {
 atualizar_main() {
     local repo_arg="" voltar="" segundo_plano=0 sem_homes=0 mesmo_assim=0 a
     ATU_FORCAR_LOCAL=0; ATU_SEM_BAIXAR=0; ATU_MODO=atualizar; ATU_SEM_VOLTAR=0; ATU_OK_DONO=0; ATU_SEM_PERS=0
-    ATU_PARECER=""; ATU_MOTIVO=""; ATU_APESAR=0; local simular_pedido=0
+    ATU_PARECER=""; ATU_MOTIVO=""; ATU_COMMIT_PARECER=""; ATU_APESAR=0; local simular_pedido=0
     local repassar=("$@")
     while [ $# -gt 0 ]; do
         a="$1"
         case "$a" in
             --simular) ENSAIO=1; simular_pedido=1 ;;
-            --parecer) [ $# -ge 2 ] || falha "a opcao --parecer precisa de segura ou arriscada." "exemplo: sudo dgclaw atualizar --parecer segura --motivo \"so muda texto de ajuda\""
+            --parecer) [ $# -ge 2 ] || falha "a opcao --parecer precisa de segura ou arriscada." "exemplo: sudo dgclaw atualizar --parecer segura --commit <commit do DESTINO> --motivo \"so muda texto de ajuda\""
                        ATU_PARECER="$2"; ATU_MODO=parecer; shift ;;
             --parecer=*) ATU_PARECER="${a#*=}"; ATU_MODO=parecer ;;
-            --motivo) [ $# -ge 2 ] || falha "a opcao --motivo precisa de um texto curto." "exemplo: sudo dgclaw atualizar --parecer segura --motivo \"so muda texto de ajuda\""
+            --motivo) [ $# -ge 2 ] || falha "a opcao --motivo precisa de um texto curto." "exemplo: sudo dgclaw atualizar --parecer segura --commit <commit do DESTINO> --motivo \"so muda texto de ajuda\""
                       ATU_MOTIVO="$2"; shift ;;
             --motivo=*) ATU_MOTIVO="${a#*=}" ;;
+            --commit) [ $# -ge 2 ] || falha "a opcao --commit precisa do commit de destino (40 caracteres hexadecimais)." "ele esta na linha DESTINO= do relatorio de 'sudo dgclaw atualizar --simular'"
+                      ATU_COMMIT_PARECER="$2"; shift ;;
+            --commit=*) ATU_COMMIT_PARECER="${a#*=}" ;;
             --apesar-do-alerta) ATU_APESAR=1 ;;
             --repo) [ $# -ge 2 ] || falha "a opcao --repo precisa de um valor." "exemplo: sudo dgclaw atualizar --repo /root/DG-Claw"; repo_arg="$2"; shift ;;
             --repo=*) repo_arg="${a#*=}" ;;
