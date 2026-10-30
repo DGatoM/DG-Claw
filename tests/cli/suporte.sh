@@ -356,4 +356,29 @@ igual "e o status tambem sai 1" 1 "$rc"
 kill "$S1" "$S3" "$S4" "$SX" 2>/dev/null; wait 2>/dev/null
 rm -f "$STUB_ESTADO/ss-conexoes" "$ALERTA"
 
+echo "--a mesma chave RSA em duas representacoes tem o mesmo fingerprint"
+python3 -I - "$TMP/rsa3072.pub" "$TMP/rsa3072-alt.pub" <<'FIMPY'
+import base64, struct, sys
+t, b64 = open(sys.argv[1]).read().split()[:2]
+blob = base64.b64decode(b64)
+def le(b, o):
+    n = struct.unpack('>I', b[o:o + 4])[0]
+    return b[o + 4:o + 4 + n], o + 4 + n
+def w(x): return struct.pack('>I', len(x)) + x
+_, o = le(blob, 0); e, o = le(blob, o); n, o = le(blob, o)
+open(sys.argv[2], 'w').write('ssh-rsa ' + base64.b64encode(w(b'ssh-rsa') + w(e) + w(b'\x00' + n)).decode() + '\n')
+FIMPY
+igual "as duas representacoes tem o mesmo fingerprint" "$(ssh-keygen -l -f "$TMP/rsa3072.pub" | awk '{print $2}')" "$(ssh-keygen -l -f "$TMP/rsa3072-alt.pub" | awk '{print $2}')"
+nega "os textos base64 sao diferentes" test "$(awk '{print $2}' "$TMP/rsa3072.pub")" = "$(awk '{print $2}' "$TMP/rsa3072-alt.pub")"
+printf '%s\n' "$ALHEIA1" "$(cat "$TMP/rsa3072.pub")" >"$ARQ"
+dgclaw suporte ligar --chave "$(cat "$TMP/rsa3072-alt.pub")" >"$TMP/o.txt" 2>&1; rc=$?
+igual "ligar com a outra representacao de uma chave permanente recusa" 1 "$rc"
+afirma "diz que ja e acesso permanente" grep -q "como acesso permanente" "$TMP/o.txt"
+igual "o arquivo nao ganhou linha nenhuma" 2 "$(wc -l <"$ARQ")"
+printf '%s\n' "$ALHEIA1" >"$ARQ"
+dgclaw suporte ligar --chave "$(cat "$TMP/rsa3072-alt.pub")" >/dev/null 2>&1
+dgclaw suporte ligar --chave "$(cat "$TMP/rsa3072.pub")" --dias 2 >/dev/null 2>&1; rc=$?
+igual "renovar pela outra representacao sai 0" 0 "$rc"
+igual "continua uma so linha do suporte (renovou, nao duplicou)" 1 "$(grep -c "dgclaw-suporte:" "$ARQ")"
+
 fim

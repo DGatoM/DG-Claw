@@ -95,7 +95,8 @@ suporte_validar_chave() {
             "gere uma chave nova: ssh-keygen -t ed25519"
     fi
     SUP_TIPO="$tipo"; SUP_BLOB="$blob"
-    SUP_ID="$(printf '%s' "$blob" | sha256sum | cut -c1-8)"
+    # O id vem do fingerprint (identidade criptografica da chave), nao do texto base64: duas representacoes da mesma chave dao o mesmo id.
+    SUP_ID="$(printf '%s' "$SUP_FP" | sha256sum | cut -c1-8)"
 }
 
 # suporte_blob_da_linha <linha do authorized_keys>: o corpo da chave, depois do tipo. Vazio se nao achar.
@@ -158,7 +159,7 @@ suporte_gravar() {
 }
 
 suporte_ligar() {
-    local chave="" dias="$SUPORTE_DIAS_PADRAO" linha novo="" conteudo="" atual agora fim fim_s ja=0 blob_l
+    local chave="" dias="$SUPORTE_DIAS_PADRAO" linha novo="" conteudo="" atual agora fim fim_s ja=0 blob_l fp_l
     while [ $# -gt 0 ]; do
         case "$1" in
             --chave) [ $# -ge 2 ] || falha "falta o valor de --chave." "use: sudo dgclaw suporte ligar --chave 'ssh-ed25519 AAAA...' --dias 7"
@@ -187,8 +188,11 @@ suporte_ligar() {
     atual="$(suporte_ler_linhas)"
     if [ -n "$atual" ]; then
         while IFS= read -r linha || [ -n "$linha" ]; do
+            # Compara pelo fingerprint que o ssh-keygen calcula, nao pelo texto: a mesma chave pode ter mais de uma
+            # representacao (byte zero a mais no modulo RSA, por exemplo).
             blob_l="$(suporte_blob_da_linha "$linha")"
-            if [ -n "$blob_l" ] && [ "$blob_l" = "$SUP_BLOB" ]; then
+            fp_l="";  if [ -n "$blob_l" ]; then fp_l="$(suporte_fp_da_linha "$linha")"; fi
+            if [ -n "$fp_l" ] && [ "$fp_l" != "?" ] && [ "$fp_l" = "$SUP_FP" ]; then
                 if [[ "$linha" =~ $SUPORTE_MARCADOR_RE ]]; then
                     ja=1; continue
                 fi
