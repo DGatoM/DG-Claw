@@ -39,6 +39,7 @@ aprovar sem querer o comando que surgiu em seguida, e o botão Aprovar de uma te
 
 ### Adicionado
 
+- **Guia de projeto de cliente** (`docs/PROJETO-DE-CLIENTE.md`): o padrão de instalar o DG Claw oficial completo na VPS do próprio cliente, o passo a passo com o acesso temporário do suporte, a comparação com as outras formas de acesso e o checklist de onboarding e entrega.
 - **Acesso temporário do suporte DG: `dgclaw suporte`.** Quando o time DG precisa ajustar a sua instalação,
   você libera uma chave SSH nossa com prazo (`sudo dgclaw suporte ligar --chave '<linha>' --dias 7`, de 1 a 30
   dias). O servidor recusa a chave sozinho quando o prazo acaba, e um timer diário tira a linha vencida do
