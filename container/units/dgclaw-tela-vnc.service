@@ -1,0 +1,22 @@
+[Unit]
+Description=DG Claw Tela do agente (VNC, so localhost)
+After=dgclaw-tela.service
+Requires=dgclaw-tela.service
+# Sem o arquivo da senha esta unidade NAO sobe. Em producao o x11vnc subia mesmo sem
+# o arquivo (e uma tela sem senha); a condicao fecha esse buraco. O arquivo nasce no
+# "dgclaw agente criar" e o dgclaw-tela-senha.path religa a unidade quando ele muda.
+ConditionPathExists=/home/agente/.dgclaw/tela/vnc.senha
+
+[Service]
+Type=simple
+User=agente
+Environment=HOME=/home/agente
+# -rfbauth: a senha vem de arquivo (formato rfbauth, so 8 caracteres contam).
+# -localhost: o VNC so aceita conexao de dentro do container; quem chega de fora passa
+# pelo noVNC e pelo proxy autenticado do painel.
+ExecStart=/usr/bin/x11vnc -display :1 -forever -shared -rfbauth /home/agente/.dgclaw/tela/vnc.senha -rfbport 5901 -localhost
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

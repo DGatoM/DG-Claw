@@ -46,13 +46,23 @@ podman build --ignorefile container/ignore \
 Ela tira `.git`, todo `node_modules`, `tests`, `qa`, `lite`, `local`, `panel-redesign` e `*.log` da
 imagem. A pasta `runner/` não pode ser excluída, porque o estágio de build precisa do código dela.
 
-Perfil com navegador (Chromium do Playwright, bibliotecas do sistema e Xvfb), para quem faz captura de
-tela, QA de página ou automação logada:
+Perfil com navegador (Chromium do Playwright para automação headless, mais a **Tela do agente**:
+Xvfb, fluxbox, x11vnc, noVNC e Google Chrome estável de verdade, não headless), para quem faz captura
+de tela, QA de página, automação logada e login de sistemas pelo dono:
 
 ```
 podman build --ignorefile container/ignore --build-arg COM_NAVEGADOR=1 \
   -t localhost/dgclaw-agente:<versao>-navegador -f container/Containerfile .
 ```
+
+O Google Chrome só tem pacote para amd64; em outra arquitetura o build com `COM_NAVEGADOR=1` para
+com uma mensagem dizendo isso. No fim do build, o perfil confere que `google-chrome-stable`,
+`x11vnc`, `websockify` e `Xvfb` estão no PATH; se faltar um, a imagem não sai.
+
+**Como ligar numa instalação existente.** O `install.sh` constrói com `COM_NAVEGADOR=1`, então a
+imagem nova já traz a Tela. Um agente criado antes ganha a Tela com `dgclaw agente recriar <slug>` e
+uma primeira senha (pela aba Tela do painel ou por `dgclaw agente tela-senha <slug>`). Os passos
+completos estão em `docs/TELA-DO-AGENTE.md`.
 
 Estágios: `runner-build` (compila o runner), `base` (a máquina inteira, sem o código do DG Claw) e
 `final` (o padrão). `--target base` constrói sem precisar do `runner/`.
@@ -65,7 +75,31 @@ dentro do build. Use `--network=host` no `podman build` nesse caso.
 Perfil padrão (sem navegador): cerca de **2,2 GB** descomprimido em disco (2.214.999.287 bytes na
 medição de 12/10/2026, com um runner de teste no lugar do real). Os maiores blocos são as ferramentas
 npm globais (Claude Code, Codex, Bun, perto de 800 MB) e o ffmpeg com suas bibliotecas. O perfil com
-navegador soma de 500 a 600 MB.
+navegador soma de 500 a 600 MB (Chromium do Playwright) e mais uns 400 MB (Google Chrome, Xvfb, x11vnc,
+noVNC e fontes), perto de 3,1 GB no total. Estimativa pelos pacotes; meça no primeiro build.
+
+### O que o perfil com navegador (`COM_NAVEGADOR=1`) acrescenta
+
+| Item | Por que está aí |
+| --- | --- |
+| Chromium do Playwright (`/opt/playwright`) | Automação headless (captura, QA, scraping de site aberto). |
+| Xvfb, fluxbox | A tela virtual `:1` (1440x900) onde o Chrome abre, com um gerenciador de janelas mínimo. |
+| x11vnc | Entrega a tela por VNC, só em `localhost:5901`, com a senha do arquivo `rfbauth`. |
+| noVNC, websockify | O VNC no navegador, só em `127.0.0.1:6080`. O painel faz o proxy autenticado. |
+| Google Chrome estável (repositório APT oficial, chave conferida) | O Chrome de verdade, com perfil persistente em `/home/agente/.tela-chrome` e CDP em `127.0.0.1:9222`. Site com anti-robô recusa headless. |
+| `DISPLAY=:1` em `/etc/profile.d/agente.sh` | Quem abre janela no shell do agente cai na Tela. |
+
+Unidades da Tela (copiadas nos dois perfis, habilitadas só neste): `dgclaw-tela.service` (Xvfb e
+fluxbox), `dgclaw-tela-vnc.service` (só sobe com `/home/agente/.dgclaw/tela/vnc.senha`),
+`dgclaw-tela-web.service`, `dgclaw-tela-chrome.service` e o par `dgclaw-tela-senha.path` /
+`.service`, que reinicia o VNC quando a senha muda. A arquitetura, a senha e a segurança estão em
+`docs/TELA-DO-AGENTE.md`.
+
+**Memória.** O Chrome pede RAM, e o `--memory 2g` que o `dgclaw agente criar` aplica pode apertar
+com a Tela ligada mais o runner, o painel e o Claude Code. Para um agente com Tela, **3g** é um ponto
+de partida mais seguro. O `criar` ainda não tem opção de memória; o padrão de 2g não mudou. Para subir
+um agente com Tela agora: `podman update --memory 3g dgclaw-<slug>` depois de criado, e meça o uso real
+(`podman stats`) com um site pesado aberto antes de padronizar.
 
 ## As duas unidades (dentro da imagem, já habilitadas)
 
