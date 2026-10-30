@@ -21,7 +21,11 @@ ExecStart=/usr/bin/google-chrome-stable --user-data-dir=/home/agente/.tela-chrom
   --no-first-run --no-default-browser-check --disable-gpu --disable-dev-shm-usage \
   --renderer-process-limit=4 --disable-features=Translate,MediaRouter \
   --password-store=basic --lang=pt-BR \
-  --window-position=0,0 --window-size=1440,900 --start-maximized --no-sandbox
+  --window-position=0,0 --window-size=1440,900 --start-maximized --no-sandbox --no-zygote
+# O systemd limita cada servico a 15% dos pids do container (153 com --pids-limit 1024), e o
+# Chrome passa disso com duas abas: a aba nova morre com "pthread_create: Resource temporarily
+# unavailable" e no CDP aparece "Target crashed". O --no-zygote acima poupa mais alguns.
+TasksMax=600
 Restart=always
 RestartSec=5
 

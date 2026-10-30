@@ -7,6 +7,11 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+Duas correções da imagem dos agentes. A Tela não derruba mais a aba nova: o Chrome da Tela passava do limite
+de processos que o sistema dá a cada serviço e a segunda aba abria em branco ou quebrava. E o Pillow, a
+biblioteca de imagens do Python que vem na imagem, subiu para a 13.0.0, que fecha cinco falhas críticas de
+segurança da versão anterior. As duas valem depois de atualizar, quando a imagem é reconstruída.
+
 Duas ideias trazidas do Orca (https://github.com/stablyai/orca, licença MIT; crédito no `NOTICE`): o
 medidor de uso da assinatura e o aviso de que um agente precisa de você.
 
