@@ -273,7 +273,7 @@ O `dgclaw atualizar` força esse passo:
 5. **Grave o parecer**: `sudo dgclaw atualizar --parecer segura --commit <commit do DESTINO> --motivo "<uma frase>"`, ou
    `--parecer arriscada --commit <commit do DESTINO> --motivo "<o alerta>"`. O `--commit` é obrigatório (40 caracteres) e tem de ser o da linha
    `DESTINO=` do último relatório gravado, o que você leu. Se o repositório andou desde então, o comando
-   recusa e manda rodar o `--simular` de novo. O parecer vale só para essa versão; se saírem commits novos
+   recusa e manda rodar o `--simular` de novo. O parecer também prende o HEAD da branch `personalizacoes` do clone (ou "nenhuma") e o modo de instalação, que o relatório grava ao lado do `DESTINO=`; se qualquer um mudar depois do parecer, o `--ok-do-dono` recusa e pede um parecer novo. O parecer vale só para essa versão; se saírem commits novos
    antes da instalação, refaça a análise e o parecer.
 6. Só com o ok do dono: `sudo dgclaw atualizar --ok-do-dono --segundo-plano`. Sem `--ok-do-dono`, e havendo
    algo novo, o comando para antes do backup e não muda nada. Com `--ok-do-dono` mas sem parecer `segura`

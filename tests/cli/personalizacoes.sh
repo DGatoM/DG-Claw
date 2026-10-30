@@ -364,4 +364,31 @@ nega "nem pasta de worktree no .git" test -n "$(ls "$CLONE/.git/worktrees" 2>/de
 dgclaw atualizar --simular >"$TMP/k2.txt" 2>&1
 igual "na simulacao tambem nao sobra worktree" "1" "$(git -C "$CLONE" worktree list | wc -l)"
 
+
+echo "l. o parecer tambem prende as personalizacoes e o modo de instalacao"
+montar
+personalizar web/public/extra.js '// minha personalizacao'
+registrar web/public/extra.js ativa
+publicar_v2 web/server.js
+parecer_segura
+afirma "o parecer guarda o HEAD da branch das personalizacoes" bash -c "[ \"\$(jq -r .personalizacoes '$LIB/web/atualizacao/parecer.json')\" = \"\$(git -C '$CLONE' rev-parse refs/heads/personalizacoes)\" ]"
+afirma "e o modo de instalacao" bash -c "[ \"\$(jq -r .modo '$LIB/web/atualizacao/parecer.json')\" = personalizacoes ]"
+printf '%s\n' '// outra mudanca depois do parecer' >>"$CLONE/web/public/extra.js"
+git -C "$CLONE" add -A; git -C "$CLONE" commit -q -m "personalizacao: mais uma"
+dgclaw atualizar --simular >/dev/null 2>&1
+dgclaw atualizar --ok-do-dono >"$TMP/l1.txt" 2>&1; rc=$?
+igual "commit novo em personalizacoes depois do parecer: --ok-do-dono bloqueia" "1" "$rc"
+afirma "diz que as personalizacoes mudaram depois do parecer" grep -q 'as personalizacoes mudaram depois do parecer' "$TMP/l1.txt"
+afirma "manda rodar o --simular e dar o parecer de novo" grep -q 'rode --simular e de o parecer de novo' "$TMP/l1.txt"
+igual "nenhum backup" "0" "$(pastas_de_backup)"
+parecer_segura
+jq '.modo = "oficial"' "$LIB/web/atualizacao/parecer.json" >"$TMP/parecer-editado.json" && cp "$TMP/parecer-editado.json" "$LIB/web/atualizacao/parecer.json"
+dgclaw atualizar --simular >/dev/null 2>&1
+dgclaw atualizar --ok-do-dono >"$TMP/l2.txt" 2>&1; rc=$?
+igual "modo de instalacao diferente do registrado no parecer bloqueia" "1" "$rc"
+afirma "tambem diz que mudou" grep -q 'mudaram depois do parecer' "$TMP/l2.txt"
+parecer_segura
+dgclaw atualizar --ok-do-dono >"$TMP/l3.txt" 2>&1; rc=$?
+igual "com parecer novo e o mesmo modo, passa" "0" "$rc"
+
 fim
