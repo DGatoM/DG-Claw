@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# sshd de mentira: so o `sshd -T`. Imprime $STUB_ESTADO/sshd-T se existir; senao o padrao do OpenSSH
+# (authorized_keys e authorized_keys2, sem AuthorizedKeysCommand). STUB_SSHD_FALHA=1 simula erro.
+if [ -n "${STUB_SSHD_FALHA:-}" ]; then echo "sshd: erro simulado" >&2; exit 255; fi
+if [ "${1:-}" = -T ]; then
+    if [ -f "${STUB_ESTADO:?}/sshd-T" ]; then cat "$STUB_ESTADO/sshd-T"; exit 0; fi
+    printf 'port 22\nauthorizedkeysfile .ssh/authorized_keys .ssh/authorized_keys2\nauthorizedkeyscommand none\n'
+    exit 0
+fi
+echo "sshd de mentira: so aceita -T (veio: $*)" >&2
+exit 2

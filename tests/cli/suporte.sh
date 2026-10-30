@@ -381,4 +381,68 @@ dgclaw suporte ligar --chave "$(cat "$TMP/rsa3072.pub")" --dias 2 >/dev/null 2>&
 igual "renovar pela outra representacao sai 0" 0 "$rc"
 igual "continua uma so linha do suporte (renovou, nao duplicou)" 1 "$(grep -c "dgclaw-suporte:" "$ARQ")"
 
+echo "--a chave ja aceita em outro arquivo do sshd (authorized_keys2) tambem e acesso permanente"
+mkdir -p "$(dirname "$ARQ")"
+printf '%s\n' "$ALHEIA1" >"$ARQ"
+ARQ2="$(dirname "$ARQ")/authorized_keys2"
+printf '%s\n' "$(cat "$TMP/suporte.pub")" >"$ARQ2"
+dgclaw suporte ligar --chave "$CHAVE" >"$TMP/o.txt" 2>&1; rc=$?
+igual "chave permanente no authorized_keys2: ligar recusa" 1 "$rc"
+afirma "diz em qual arquivo ela esta" grep -q "authorized_keys2" "$TMP/o.txt"
+nega "nao gravou linha do suporte" grep -q "dgclaw-suporte:" "$ARQ"
+afirma "nao mexeu no authorized_keys2" grep -qxF "$(cat "$TMP/suporte.pub")" "$ARQ2"
+rm -f "$ARQ2"
+printf 'port 22\nauthorizedkeysfile .ssh/authorized_keys %%h/extra/%%u.keys\nauthorizedkeyscommand none\n' >"$STUB_ESTADO/sshd-T"
+mkdir -p "$DGCLAW_RAIZ/root/extra"; printf '%s\n' "$(cat "$TMP/suporte.pub")" >"$DGCLAW_RAIZ/root/extra/root.keys"
+dgclaw suporte ligar --chave "$CHAVE" >"$TMP/o.txt" 2>&1; rc=$?
+igual "AuthorizedKeysFile com %h e %u: ligar recusa" 1 "$rc"
+afirma "aponta extra/root.keys" grep -q "extra/root.keys" "$TMP/o.txt"
+rm -f "$DGCLAW_RAIZ/root/extra/root.keys"
+dgclaw suporte ligar --chave "$CHAVE" >/dev/null 2>&1; rc=$?
+igual "arquivo extra sem a chave: ligar passa" 0 "$rc"
+dgclaw suporte ligar --chave "$CHAVE" --dias 2 >/dev/null 2>&1; rc=$?
+igual "renovar a propria linha marcada continua valendo" 0 "$rc"
+printf '%s\n' "$ALHEIA1" >"$ARQ"
+printf 'port 22\nauthorizedkeysfile .ssh/authorized_keys\nauthorizedkeyscommand /usr/local/bin/chaves %%u\n' >"$STUB_ESTADO/sshd-T"
+dgclaw suporte ligar --chave "$CHAVE" >"$TMP/o.txt" 2>&1; rc=$?
+igual "AuthorizedKeysCommand definido: ligar recusa" 1 "$rc"
+afirma "explica o AuthorizedKeysCommand" grep -q "AuthorizedKeysCommand" "$TMP/o.txt"
+printf 'port 22\nauthorizedkeysfile .ssh/authorized_keys\nauthorizedkeyscommand none\n' >"$STUB_ESTADO/sshd-T"
+dgclaw suporte ligar --chave "$CHAVE" >/dev/null 2>&1; rc=$?
+igual "AuthorizedKeysCommand none: ligar passa" 0 "$rc"
+printf '%s\n' "$ALHEIA1" >"$ARQ"; rm -f "$STUB_ESTADO/sshd-T"
+STUB_SSHD_FALHA=1 dgclaw suporte ligar --chave "$CHAVE" >"$TMP/o.txt" 2>&1; rc=$?
+igual "sshd -T falha: ligar recusa" 1 "$rc"
+afirma "diz que o sshd -T falhou" grep -q "sshd -T" "$TMP/o.txt"
+DGCLAW_SSHD=/nao/existe/sshd dgclaw suporte ligar --chave "$CHAVE" >"$TMP/o.txt" 2>&1; rc=$?
+igual "sem sshd: ligar recusa" 1 "$rc"
+printf '%s\n' "$(cat "$TMP/suporte.pub")" >"$ARQ2"; chmod 000 "$ARQ2"
+if [ ! -r "$ARQ2" ]; then
+    dgclaw suporte ligar --chave "$CHAVE" >"$TMP/o.txt" 2>&1; rc=$?
+    igual "fonte existente e ilegivel: ligar recusa" 1 "$rc"
+fi
+chmod 600 "$ARQ2"; rm -f "$ARQ2"
+
+echo "--status nao apaga a pendencia enquanto houver QUALQUER sessao de root (inclusive a de quem consulta)"
+mkdir -p "$DGCLAW_RAIZ/var/lib/dgclaw/suporte"
+printf '%s\n' "$ALHEIA1" >"$ARQ"
+fantasma "sshd: root@pts/9"; PROP=$!
+sleep 0.3
+printf 'ESTAB 0 0 10.0.0.5:22 203.0.113.77:6000 users:(("sshd",pid=%s,fd=4))\n' "$PROP" >"$STUB_ESTADO/ss-conexoes"
+: >"$ALERTA"
+SSH_CONNECTION="203.0.113.77 6000 10.0.0.5 22" dgclaw suporte status >"$TMP/o.txt" 2>&1; rc=$?
+afirma "a sessao propria aparece marcada" grep -q "<- e a SUA sessao" "$TMP/o.txt"
+afirma "a pendencia continua com a sessao propria aberta" test -e "$ALERTA"
+nega "status nao diz 'suporte: desligado' com a pendencia viva" grep -qx "suporte: desligado" "$TMP/o.txt"
+afirma "status explica que ha sessao de root aberta" grep -q "acesso ainda nao confirmado como encerrado (1 sessao(oes) de root abertas)" "$TMP/o.txt"
+afirma "a linha do dgclaw status tambem nao diz desligado" grep -q "acesso ainda nao confirmado como encerrado (1 sessao(oes)" <<<"$(SSH_CONNECTION="203.0.113.77 6000 10.0.0.5 22" linha_status)"
+afirma "a pendencia continua depois da linha do dgclaw status" test -e "$ALERTA"
+STUB_SS_FALHA=1 dgclaw suporte status >/dev/null 2>&1
+afirma "erro de listagem nao apaga a pendencia" test -e "$ALERTA"
+kill "$PROP" 2>/dev/null; wait 2>/dev/null; : >"$STUB_ESTADO/ss-conexoes"
+dgclaw suporte status >/dev/null 2>&1; rc=$?
+igual "sem nenhuma sessao, status sai 0" 0 "$rc"
+nega "sem nenhuma sessao, a pendencia e apagada" test -e "$ALERTA"
+rm -f "$STUB_ESTADO/ss-conexoes"
+
 fim

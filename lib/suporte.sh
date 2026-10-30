@@ -158,6 +158,82 @@ suporte_gravar() {
     printf '%s' "$1" | escrever_arquivo "$arq" 600
 }
 
+# suporte_fontes_de_chaves: imprime, um por linha, os arquivos de chaves que o sshd aceita para o root (o que o
+# `sshd -T` diz, nao o que se supoe). Recusa se nao der para saber: acesso temporario sobre um permanente
+# escondido num authorized_keys2 viraria "desligado" mentiroso. DGCLAW_SSHD troca o programa (testes).
+suporte_fontes_de_chaves() {
+    local sshd_cmd="${DGCLAW_SSHD:-sshd}" saida rc=0 linha chave valor home pad tok f
+    local -a pads=()
+    if ! command -v "$sshd_cmd" >/dev/null 2>&1; then
+        if [ -z "${DGCLAW_SSHD:-}" ] && [ -x /usr/sbin/sshd ]; then sshd_cmd=/usr/sbin/sshd
+        else
+            falha "nao achei o programa 'sshd', entao nao consigo conferir de onde o servidor aceita chaves do root." \
+                "instale o servidor SSH (sudo apt-get install -y openssh-server) e rode de novo. Sem essa conferencia nao liguei o acesso."
+        fi
+    fi
+    saida="$("$sshd_cmd" -T -C user=root,host=localhost,addr=127.0.0.1 2>&1)" || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        falha "o 'sshd -T' falhou com codigo $rc (${saida:0:160}), entao nao consigo conferir de onde o servidor aceita chaves do root." \
+            "rode como root e confira a configuracao com: sudo sshd -T. Sem essa conferencia nao liguei o acesso."
+    fi
+    while IFS=' ' read -r chave valor; do
+        case "${chave,,}" in
+            authorizedkeyscommand)
+                if [ -n "$valor" ] && [ "${valor,,}" != none ]; then
+                    falha "o sshd deste servidor usa AuthorizedKeysCommand ($valor), que busca chaves fora de arquivos, e eu nao consigo conferir se a chave do suporte ja tem acesso por ali." \
+                        "tire o AuthorizedKeysCommand do sshd_config (ou use outra forma de acesso para o suporte) e rode de novo."
+                fi ;;
+            authorizedkeysfile) read -ra pads <<<"$valor" ;;
+        esac
+    done <<<"$saida"
+    if [ "${#pads[@]}" -eq 0 ]; then
+        falha "o 'sshd -T' nao informou a linha authorizedkeysfile, entao nao sei de onde o servidor aceita chaves do root." \
+            "confira com: sudo sshd -T | grep -i authorizedkeys. Sem essa conferencia nao liguei o acesso."
+    fi
+    home=/root
+    if [ -z "$R" ]; then home="$(getent passwd root 2>/dev/null | cut -d: -f6)" || home=""; home="${home:-/root}"; fi
+    for pad in "${pads[@]}"; do
+        [ "${pad,,}" != none ] || continue
+        f="$pad"
+        f="${f//%%/$'\001'}"
+        f="${f//%h/$home}"; f="${f//%u/root}"; f="${f//%U/0}"
+        tok="$f"
+        if [[ "$tok" == *%* ]]; then
+            falha "o sshd usa um AuthorizedKeysFile com variavel que nao sei expandir ($pad)." \
+                "use caminhos simples no AuthorizedKeysFile (%h, %u e %% sao os que eu entendo) e rode de novo."
+        fi
+        f="${f//$'\001'/%}"
+        case "$f" in /*) ;; *) f="$home/$f" ;; esac
+        printf '%s\n' "$R$f"
+    done
+}
+
+# suporte_exigir_chave_sem_acesso_permanente: a chave nao pode estar, fora da nossa linha marcada, em nenhum arquivo
+# de chaves que o sshd aceita para o root. A linha marcada do authorized_keys principal e tratada no suporte_ligar.
+suporte_exigir_chave_sem_acesso_permanente() {
+    local fontes arq propria linha blob_l fp_l
+    fontes="$(suporte_fontes_de_chaves)" || exit 1
+    propria="$(suporte_arq)"
+    while IFS= read -r arq; do
+        [ -n "$arq" ] || continue
+        [ "$arq" != "$propria" ] || continue
+        [ -e "$arq" ] || [ -L "$arq" ] || continue
+        if [ ! -f "$arq" ] || [ ! -r "$arq" ]; then
+            falha "o sshd aceita chaves do root em $arq, mas nao consegui ler esse arquivo, entao nao sei se a chave do suporte ja esta la." \
+                "confira com: ls -l $arq (precisa ser um arquivo comum, legivel pelo root). Sem essa conferencia nao liguei o acesso."
+        fi
+        while IFS= read -r linha || [ -n "$linha" ]; do
+            blob_l="$(suporte_blob_da_linha "$linha")"
+            [ -n "$blob_l" ] || continue
+            fp_l="$(suporte_fp_da_linha "$linha")"
+            if [ "$fp_l" = "$SUP_FP" ]; then
+                falha "essa mesma chave ja esta em $arq, que o sshd tambem aceita, como acesso permanente (sem prazo)." \
+                    "nao mexi nela. Tire a linha dela desse arquivo na mao e ligue de novo; se ela e sua de verdade, use outra chave para o suporte."
+            fi
+        done <"$arq" || falha "nao consegui ler $arq." "confira a permissao: ls -l $arq. Sem essa conferencia nao liguei o acesso."
+    done <<<"$fontes"
+}
+
 suporte_ligar() {
     local chave="" dias="$SUPORTE_DIAS_PADRAO" linha novo="" conteudo="" atual agora fim fim_s ja=0 blob_l fp_l
     while [ $# -gt 0 ]; do
@@ -177,6 +253,7 @@ suporte_ligar() {
     fi
     suporte_validar_chave "$chave"
     suporte_exigir_sshd_novo
+    suporte_exigir_chave_sem_acesso_permanente
     suporte_travar
 
     agora="$(suporte_agora_s)"
@@ -315,10 +392,11 @@ suporte_listar_sessoes() {
     done
 }
 
-# suporte_contar_outras: quantas das sessoes listadas sao de outra pessoa (preenche SUP_N_OUTRAS).
+# suporte_contar_outras: quantas das sessoes listadas sao de outra pessoa (SUP_N_OUTRAS) e quantas ao todo (SUP_N_TOTAL).
+# Pendencia compartilhada so se apaga pelo total: a sessao de quem consulta pode ser a do proprio suporte.
 suporte_contar_outras() {
     local i
-    SUP_N_OUTRAS=0
+    SUP_N_OUTRAS=0; SUP_N_TOTAL=${#SUP_SES_PEER[@]}
     for i in "${!SUP_SES_PEER[@]}"; do
         if [ "${SUP_SES_PROPRIA[$i]}" = 0 ]; then SUP_N_OUTRAS=$((SUP_N_OUTRAS + 1)); fi
     done
@@ -495,8 +573,8 @@ suporte_status() {
         printf 'suporte: %s chave(s) ligada(s), %s vencida(s)\n' "$ativas" "$vencidas"
     elif [ "$historico" = 1 ] && [ -n "$SUP_SES_ERRO" ]; then
         printf 'suporte: chave revogada ou vencida, acesso ainda nao confirmado como encerrado (nao consegui verificar as sessoes de root: %s)\n' "$SUP_SES_ERRO"
-    elif [ "$historico" = 1 ] && [ "$SUP_N_OUTRAS" -gt 0 ]; then
-        printf 'suporte: chave revogada ou vencida, acesso ainda nao confirmado como encerrado (%s sessao(oes) de root abertas)\n' "$SUP_N_OUTRAS"
+    elif [ "$historico" = 1 ] && [ "$SUP_N_TOTAL" -gt 0 ]; then
+        printf 'suporte: chave revogada ou vencida, acesso ainda nao confirmado como encerrado (%s sessao(oes) de root abertas)\n' "$SUP_N_TOTAL"
     elif [ -n "$SUP_SES_ERRO" ]; then
         printf 'suporte: sem chave do suporte no arquivo, mas NAO consegui confirmar que esta desligado\n'
     elif [ "$vencidas" -gt 0 ]; then
@@ -515,8 +593,8 @@ suporte_status() {
             install -d -m 700 "$(sup_dir_estado)"; : >"$(suporte_alerta_arquivo)"; chmod 600 "$(suporte_alerta_arquivo)"
         fi
         return 1
-    elif [ "$ENSAIO" != 1 ]; then
-        rm -f "$(suporte_alerta_arquivo)"   # confirmado: nao ha outra sessao de root, a pendencia acabou
+    elif [ "$SUP_N_TOTAL" -eq 0 ] && [ "$ENSAIO" != 1 ]; then
+        rm -f "$(suporte_alerta_arquivo)"   # confirmado: nenhuma sessao de root aberta (nem a de quem consulta), a pendencia acabou
     fi
 }
 
@@ -562,8 +640,8 @@ suporte_status_linha() {
             return 0
         fi
         suporte_contar_outras
-        if [ "$SUP_N_OUTRAS" -gt 0 ]; then
-            s_aviso "suporte: chave revogada ou vencida, acesso ainda nao confirmado como encerrado ($SUP_N_OUTRAS sessao(oes) de root abertas), veja sudo dgclaw suporte status"
+        if [ "$SUP_N_TOTAL" -gt 0 ]; then
+            s_aviso "suporte: chave revogada ou vencida, acesso ainda nao confirmado como encerrado ($SUP_N_TOTAL sessao(oes) de root abertas), veja sudo dgclaw suporte status"
             return 0
         fi
         if [ "$ENSAIO" != 1 ]; then rm -f "$(suporte_alerta_arquivo)"; fi
