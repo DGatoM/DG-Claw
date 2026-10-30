@@ -279,11 +279,20 @@ suporte_listar_sessoes() {
         while IFS= read -r pid; do
             if [ ! -d "/proc/$pid" ]; then continue; fi   # o processo acabou de sair: nao e sessao aberta
             if ! cmd="$(cat "/proc/$pid/comm" 2>/dev/null)"; then SUP_SES_ERRO="nao consegui ler /proc/$pid/comm"; return 1; fi
-            [[ "$cmd" == sshd* ]] || continue
+            # OpenSSH ate 9.7 usa "sshd"; a partir do 9.8 a sessao autenticada e o processo "sshd-session".
+            [[ "$cmd" == sshd || "$cmd" == sshd-session ]] || continue
             if ! cmd="$(tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null)"; then SUP_SES_ERRO="nao consegui ler /proc/$pid/cmdline"; return 1; fi
-            # Usuario exato "root": "sshd: root@pts/1", "sshd: root@notty", "sshd: root [priv]" ou "sshd: root".
-            # "sshd: rootbackup@pts/1" e "sshd: root2 [priv]" NAO entram.
-            [[ "$cmd" =~ ^sshd:\ root(@[^[:space:]]+|\ \[priv\])?[[:space:]]*$ ]] || continue
+            # Titulo do processo, em tres grupos: root exato (e uma sessao de root), outro usuario ou pre-autenticacao
+            # (nao e), qualquer outra coisa (formato desconhecido: nao da para afirmar nada, a verificacao e inconclusiva).
+            # "sshd: rootbackup@pts/1" e "sshd-session: root2 [priv]" sao de outro usuario.
+            if [[ "$cmd" =~ ^(sshd|sshd-session):\ root(@[^[:space:]]+|\ \[priv\])?[[:space:]]*$ ]]; then
+                :
+            elif [[ "$cmd" =~ ^(sshd|sshd-session):\ (\[[a-z]+\]|[^[:space:]]+(\ \[(priv|net|accepted)\]|@[^[:space:]]+))[[:space:]]*$ ]]; then
+                continue
+            else
+                SUP_SES_ERRO="achei um processo sshd (pid $pid) com titulo em formato que nao reconheco; nao da para saber se e sessao de root"
+                return 1
+            fi
             if [ -z "${pids_de[$peer]:-}" ]; then ordem+=("$peer"); fi
             pids_de[$peer]+="$pid "
         done < <(grep -oE 'pid=[0-9]+' <<<"$linha" | cut -d= -f2)
@@ -353,12 +362,12 @@ suporte_derrubar_outras() {
             n=$((n + 1)); continue
         fi
         for pid in ${SUP_SES_PIDS[$i]}; do
-            [[ "$(cat "/proc/$pid/comm" 2>/dev/null)" == sshd* ]] || continue
+            [[ "$(cat "/proc/$pid/comm" 2>/dev/null)" == sshd || "$(cat "/proc/$pid/comm" 2>/dev/null)" == sshd-session ]] || continue
             kill -TERM "$pid" 2>/dev/null || true
         done
         sleep 1
         for pid in ${SUP_SES_PIDS[$i]}; do
-            if [[ "$(cat "/proc/$pid/comm" 2>/dev/null)" == sshd* ]] && kill -0 "$pid" 2>/dev/null; then kill -KILL "$pid" 2>/dev/null || true; fi
+            if [[ "$(cat "/proc/$pid/comm" 2>/dev/null)" == sshd || "$(cat "/proc/$pid/comm" 2>/dev/null)" == sshd-session ]] && kill -0 "$pid" 2>/dev/null; then kill -KILL "$pid" 2>/dev/null || true; fi
         done
         n=$((n + 1))
     done

@@ -17,6 +17,7 @@ MAX_ARQ=262144      # bytes por arquivo lido
 MAX_ROTINAS=200
 MAX_SCRIPTS=500
 MAX_SKILLS=300
+MAX_REFS=2000       # referencias UNICAS por agente
 
 casa="${1:?casa}"; saida="${2:?saida}"; oficiais="${3:-/dev/null}"
 casa_real="$(realpath -e -- "$casa" 2>/dev/null)" || { echo "lim	casa ilegivel" >>"$saida"; exit 0; }
@@ -48,7 +49,7 @@ copiar_seguro() {
 
 # --- rotinas -----------------------------------------------------------------------------------
 m="$casa/.dgclaw/self-crons.json"
-copia="$(mktemp)"; trap 'rm -f "$copia"' EXIT
+copia="$(mktemp)"; reftmp="$(mktemp)"; trap 'rm -f "$copia" "$reftmp" "$reftmp.u"' EXIT
 rc_m=0
 if [ -L "$casa/.dgclaw" ]; then rc_m=10; else copiar_seguro "$m" "$copia" || rc_m=$?; fi
 case "$rc_m" in
@@ -68,7 +69,7 @@ case "$rc_m" in
                 [ "$n" -le "$MAX_ROTINAS" ] || break
                 emite rotina "rotina-$n"
                 printf '%s' "$poke64" | base64 -d 2>/dev/null | tr -d '\000' | refs | while IFS=$'\t' read -r tipo ref; do
-                    emite ref "rotina-$n" "$tipo" "$ref"
+                    printf '%s\t%s\t%s\n' "rotina-$n" "$tipo" "$ref" >>"$reftmp"
                 done
             done <"$tmpj"
             emite rotinas "$total"
@@ -106,7 +107,7 @@ while IFS= read -r -d '' f; do
         *) naocomuns=$((naocomuns + 1)); continue ;;
     esac
     refs <"$copia" | while IFS=$'\t' read -r tipo ref; do
-        emite ref "script-$ns" "$tipo" "$ref"
+        printf '%s\t%s\t%s\n' "script-$ns" "$tipo" "$ref" >>"$reftmp"
     done
 done < <(find -P "$casa" -maxdepth 5 \( -name node_modules -o -name .git -o -name .dgclaw -o -name memory -o -name uploads \
             -o -name projects -o -name backups -o -name logs -o -name .cache -o -name .npm -o -name .local \) -prune \
@@ -115,6 +116,12 @@ done < <(find -P "$casa" -maxdepth 5 \( -name node_modules -o -name .git -o -nam
 emite scripts "$((ns > MAX_SCRIPTS ? MAX_SCRIPTS : ns))"
 if [ "$grandes" -gt 0 ]; then emite puladosgrandes "$grandes"; fi
 if [ "$naocomuns" -gt 0 ]; then emite puladosnaocomuns "$naocomuns"; fi
+
+# --- referencias: uma vez cada por origem (rotina ou script) + tipo + referencia, no maximo MAX_REFS por agente ------------------------------
+awk -F'\t' '!visto[substr($1, 1, 6) FS $2 FS $3]++' "$reftmp" >"$reftmp.u"
+total_refs="$(grep -c . "$reftmp.u" || true)"
+head -n "$MAX_REFS" "$reftmp.u" | while IFS=$'\t' read -r origem tipo ref; do emite ref "$origem" "$tipo" "$ref"; done
+if [ "$total_refs" -gt "$MAX_REFS" ]; then emite lim "mais de $MAX_REFS referencias unicas; cruzei so as primeiras $MAX_REFS"; fi
 
 # --- canais (so existencia) e identidade -----------------------------------------------------------
 if [ -d "$casa/.dgclaw/whatsapp" ] && [ ! -L "$casa/.dgclaw/whatsapp" ]; then emite canal WhatsApp; fi

@@ -320,4 +320,40 @@ STUB_SS_FALHA=1 dgclaw suporte status >"$TMP/o.txt" 2>&1
 afirma "consulta que falha com vencida no arquivo tambem nao confirma" grep -q "acesso ainda nao confirmado como encerrado (nao consegui verificar" "$TMP/o.txt"
 kill "$PZ" 2>/dev/null; wait 2>/dev/null
 
+echo "--OpenSSH 9.8+: processo sshd-session"
+cp "$(command -v cat)" "$TMP/sshd-session"
+fantasma_s() { bash -c 'exec -a "$1" "$0" <"$2"' "$TMP/sshd-session" "$1" "$TMP/espera" & }
+rm -f "$ALERTA"; printf '%s\n' "$ALHEIA1" >"$ARQ"
+fantasma_s "sshd-session: root@pts/1"; S1=$!
+fantasma_s "sshd-session: root [priv]"; S2=$!
+fantasma_s "sshd-session: rootbackup@pts/2"; S3=$!
+fantasma_s "sshd-session: marta [priv]"; S4=$!
+sleep 0.3
+printf 'ESTAB 0 0 10.0.0.5:22 203.0.113.1:2001 users:(("sshd-session",pid=%s,fd=4))\nESTAB 0 0 10.0.0.5:22 203.0.113.2:2002 users:(("sshd-session",pid=%s,fd=4))\nESTAB 0 0 10.0.0.5:22 203.0.113.3:2003 users:(("sshd-session",pid=%s,fd=4))\nESTAB 0 0 10.0.0.5:22 203.0.113.4:2004 users:(("sshd-session",pid=%s,fd=4))\n' "$S1" "$S2" "$S3" "$S4" >"$STUB_ESTADO/ss-conexoes"
+dgclaw suporte status >"$TMP/o.txt" 2>&1
+afirma "lista 'sshd-session: root@pts/1'" grep -q "203.0.113.1:2001" "$TMP/o.txt"
+afirma "lista 'sshd-session: root [priv]'" grep -q "203.0.113.2:2002" "$TMP/o.txt"
+nega "nao lista rootbackup" grep -q "203.0.113.3:2003" "$TMP/o.txt"
+nega "nao lista outro usuario" grep -q "203.0.113.4:2004" "$TMP/o.txt"
+SSH_CONNECTION="203.0.113.1 2001 10.0.0.5 22" dgclaw suporte desligar --derrubar-sessoes >"$TMP/o.txt" 2>&1; rc=$?
+igual "derrubar com sshd-session sai 0" 0 "$rc"
+sleep 1.5
+nega "derrubou a outra sessao sshd-session" kill -0 "$S2"
+afirma "poupou a propria" kill -0 "$S1"
+afirma "nao tocou em outro usuario" kill -0 "$S4"
+echo "--titulo de sshd em formato desconhecido: verificacao inconclusiva"
+fantasma "sshd: !!estranho!!"; SX=$!
+sleep 0.3
+printf 'ESTAB 0 0 10.0.0.5:22 203.0.113.9:2009 users:(("sshd",pid=%s,fd=4))\n' "$SX" >"$STUB_ESTADO/ss-conexoes"
+dgclaw suporte ligar --chave "$CHAVE" >/dev/null 2>&1
+dgclaw suporte desligar >"$TMP/o.txt" 2>&1; rc=$?
+igual "formato desconhecido: desligar sai 1" 1 "$rc"
+afirma "diz que nao reconhece o titulo" grep -q "formato que nao reconheco" "$TMP/o.txt"
+nega "nao anuncia desligado" grep -q "acesso do suporte desligado" "$TMP/o.txt"
+afirma "grava a pendencia" test -e "$ALERTA"
+dgclaw suporte status >"$TMP/o.txt" 2>&1; rc=$?
+igual "e o status tambem sai 1" 1 "$rc"
+kill "$S1" "$S3" "$S4" "$SX" 2>/dev/null; wait 2>/dev/null
+rm -f "$STUB_ESTADO/ss-conexoes" "$ALERTA"
+
 fim

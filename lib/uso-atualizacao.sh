@@ -27,6 +27,8 @@ USO_LIM=()          # limites atingidos (viram pontos de atencao, sem derrubar a
 USO_MAX_SECAO="${DGCLAW_USO_MAX_SECAO:-40000}"     # bytes da secao no relatorio
 USO_MAX_CRUZ=100
 USO_TEMPO_COLETA="${DGCLAW_USO_TEMPO_COLETA:-60}"
+USO_PRAZO="${DGCLAW_USO_PRAZO:-120}"     # segundos para o inventario inteiro, cruzamento incluido
+USO_MAX_REFS_TOTAL=10000
 USO_NOME_RE='^[a-z0-9][a-z0-9._-]{0,40}$'
 
 # _uso_nome_seguro <texto>: o nome so aparece se for de uma skill que o proprio DG Claw distribui (a lista vem do
@@ -89,15 +91,6 @@ _uso_comandos() {
         }' | sort -u
 }
 
-# _uso_ref_toca <referencia> <caminho alterado>: 0 se a referencia (arquivo ou pasta) e esse caminho.
-_uso_ref_toca() {
-    local r="${1%/}" c="$2"
-    [ -n "$r" ] || return 1
-    [ "$r" = "$c" ] && return 0
-    [[ "$c" == "$r/"* ]]
-}
-
-
 # uso_calcular <de> <para>: preenche USO_TXT, USO_CRUZ e USO_LIM. <de> vazio = nao ha base para cruzar.
 uso_calcular() {
     local linha malformados de="$1" para="$2" tmp agente slug casa c acao pn pf reg_n=0 rc kind a b d nrot nscr skills canais nskp grandes ident n_ag=0 naocomuns oficial nsk
@@ -129,11 +122,18 @@ uso_calcular() {
 
     # shellcheck disable=SC2086 # uma skill por linha: a divisao em palavras e proposital
     printf '%s\n' $USO_SKILLS_OFICIAIS >"$tmp/skills-oficiais"
+    local inicio="$SECONDS" restante total_refs=0
     _uso_add "So entram aqui contagens, ids gerados, nomes no padrao e referencias reconhecidas; texto livre das casas dos agentes nao e mostrado."$'\n'
     while IFS=$'\t' read -r slug casa; do
         [ -n "$slug" ] || continue
         n_ag=$((n_ag + 1))
         [ "$USO_CHEIO" = 0 ] || continue
+        restante=$((USO_PRAZO - (SECONDS - inicio)))
+        if [ "$restante" -le 0 ]; then
+            [[ " ${USO_LIM[*]-} " == *"analise do uso incompleta"* ]] || _uso_lim_add "analise do uso incompleta (prazo de ${USO_PRAZO} s esgotado; agentes seguintes nao foram lidos)"
+            continue
+        fi
+        [ "$restante" -le "$USO_TEMPO_COLETA" ] || restante="$USO_TEMPO_COLETA"
         agente="$(_uso_nome_seguro "$slug")"
         _uso_add $'\n'"Agente $agente:"$'\n'
         if [ -z "$casa" ] || [ ! -d "$casa" ] || [ -L "$casa" ]; then
@@ -141,14 +141,14 @@ uso_calcular() {
             continue
         fi
         : >"$tmp/col"; rc=0
-        timeout "$USO_TEMPO_COLETA" bash "${DGCLAW_USO_COLETOR:-$APP_DIR/lib/uso-coletor.sh}" "$casa" "$tmp/col" "$tmp/skills-oficiais" 2>/dev/null || rc=$?
+        timeout "$restante" bash "${DGCLAW_USO_COLETOR:-$APP_DIR/lib/uso-coletor.sh}" "$casa" "$tmp/col" "$tmp/skills-oficiais" 2>/dev/null || rc=$?
         if [ "$rc" -eq 124 ]; then
-            _uso_lim_add "a leitura da casa do agente $agente passou de ${USO_TEMPO_COLETA}s e foi interrompida; o que foi lido ate ali esta abaixo"
+            _uso_lim_add "a leitura da casa do agente $agente passou de ${restante}s e foi interrompida; o que foi lido ate ali esta abaixo"
         elif [ "$rc" -ne 0 ]; then
             _uso_lim_add "a leitura da casa do agente $agente falhou (codigo $rc); confira a pasta dele antes de atualizar"
         fi
         nrot=0; nscr=0; skills=""; nskp=0; canais="chat"; grandes=0; ident=0; naocomuns=0; nsk=0
-        malformados=0
+        malformados=0; : >"$tmp/refs"
         while IFS= read -r linha || [ -n "$linha" ]; do
             # Protocolo estrito: a linha inteira tem de casar com um dos formatos exatos. O que nao casar nao vira
             # registro (uma quebra de linha num nome nao fabrica linha nova) e e contado.
@@ -166,9 +166,15 @@ uso_calcular() {
                 identidade) ident=1 ;;
                 rotina) _uso_add "  $a"$'\n' ;;
                 lim) _uso_lim_add "agente $agente: $(_uso_lim_conhecido "$a")" ;;
-                ref) uso_cruzar "agente $agente, $a" "$b" "$d" "$tmp" ;;
+                ref) if [ "$total_refs" -lt "$USO_MAX_REFS_TOTAL" ]; then
+                         printf '%s\t%s\t%s\n' "$a" "$b" "$d" >>"$tmp/refs"; total_refs=$((total_refs + 1))
+                     fi ;;
             esac
         done <"$tmp/col"
+        uso_cruzar_agente "agente $agente" "$tmp"
+        if [ "$total_refs" -ge "$USO_MAX_REFS_TOTAL" ]; then
+            [[ " ${USO_LIM[*]-} " == *"referencias no total"* ]] || _uso_lim_add "mais de $USO_MAX_REFS_TOTAL referencias no total; o resto nao foi cruzado"
+        fi
         if [ "$malformados" -gt 0 ]; then _uso_lim_add "agente $agente: $malformados registros malformados na leitura da casa; ignorados"; fi
         _uso_add "  rotinas: $nrot"$'\n'
         _uso_add "  scripts proprios lidos: $nscr"
@@ -221,35 +227,37 @@ _uso_lim_conhecido() {
     case "$1" in
         "o manifesto de rotinas nao e arquivo comum (atalho, FIFO ou pasta); pulado"|"o manifesto de rotinas passa de 256 KB; nao li"|\
         "o manifesto de rotinas nao e um JSON valido; nao li"|"o manifesto de rotinas nao pode ser lido com seguranca; pulado"|\
-        "mais de 200 rotinas; li so as primeiras 200"|"mais de 500 scripts; li so os primeiros 500"|"mais de 300 skills; listei so as primeiras 300"|\
+        "mais de 200 rotinas; li so as primeiras 200"|"mais de 500 scripts; li so os primeiros 500"|"mais de 300 skills; listei so as primeiras 300"|"mais de 2000 referencias unicas; cruzei so as primeiras 2000"|\
         "a pasta .claude ou skills e um atalho; nao listei as skills"|"casa ilegivel") printf '%s' "$1" ;;
         *) printf 'limite do coletor (mensagem nao reconhecida)' ;;
     esac
 }
 
-# uso_cruzar <quem> <arq|cli> <referencia> <pasta temporaria>: se a referencia cai num arquivo alterado ou
-# num comando removido, acrescenta uma linha a USO_CRUZ (sem repetir). A linha usa o caminho do DIFF e o
-# comando da AJUDA (lista confiavel), nunca o texto que veio da casa do agente.
-uso_cruzar() {
-    local quem="$1" tipo="$2" ref="$3" tmp="$4" c acao r linha
-    if [ "${#USO_CRUZ[@]}" -ge "$USO_MAX_CRUZ" ]; then
-        [[ " ${USO_LIM[*]-} " == *"cruzamentos"* ]] || _uso_lim_add "mais de $USO_MAX_CRUZ cruzamentos; mostrei so os primeiros"
-        return 0
-    fi
-    if [ "$tipo" = arq ]; then
-        while IFS=$'\t' read -r c acao; do
-            if _uso_ref_toca "$ref" "$c"; then
-                linha="$quem: chama $c, que $acao nesta versao"
-                [[ " ${USO_CRUZ[*]-} " == *"$linha"* ]] || USO_CRUZ+=("$linha")
-            fi
-        done <"$tmp/alterados"
-    elif [ "$tipo" = cli ]; then
-        while IFS= read -r r; do
-            [ -n "$r" ] || continue
-            if [ "$ref" = "$r" ] || [[ "$ref" == "$r "* ]]; then
-                linha="$quem: usa o comando \"dgclaw $r\", que saiu ou mudou de nome nesta versao"
-                [[ " ${USO_CRUZ[*]-} " == *"$linha"* ]] || USO_CRUZ+=("$linha")
-            fi
-        done <"$tmp/removidos"
-    fi
+# uso_cruzar_agente <quem> <pasta temporaria>: cruza as referencias do agente ($tmp/refs: origem, tipo, referencia)
+# com os arquivos alterados ($tmp/alterados) e os comandos removidos ($tmp/removidos) numa passada so, em conjunto
+# (awk com tabelas), nunca referencia x arquivo. A linha usa o caminho do DIFF e o comando da AJUDA (lista confiavel),
+# nunca o texto que veio da casa do agente.
+uso_cruzar_agente() {
+    local quem="$1" tmp="$2" origem tipo alvo extra linha
+    [ -s "$tmp/refs" ] || return 0
+    while IFS=$'\t' read -r origem tipo alvo extra; do
+        if [ "${#USO_CRUZ[@]}" -ge "$USO_MAX_CRUZ" ]; then
+            [[ " ${USO_LIM[*]-} " == *"cruzamentos"* ]] || _uso_lim_add "mais de $USO_MAX_CRUZ cruzamentos; mostrei so os primeiros"
+            return 0
+        fi
+        case "$tipo" in
+            arq) linha="$quem, $origem: chama $alvo, que $extra nesta versao" ;;
+            dir) linha="$quem, $origem: chama a pasta $alvo, onde $extra arquivo(s) mudam nesta versao" ;;
+            cli) linha="$quem, $origem: usa o comando \"dgclaw $alvo\", que saiu ou mudou de nome nesta versao" ;;
+            *) continue ;;
+        esac
+        [[ " ${USO_CRUZ[*]-} " == *"$linha"* ]] || USO_CRUZ+=("$linha")
+    done < <(awk -F'\t' -v OFS='\t' '
+        FILENAME == ARGV[1] { alt[$1] = $2; p = $1; while (match(p, "/[^/]*$") > 0) { p = substr(p, 1, RSTART - 1); dirs[p]++ } next }
+        FILENAME == ARGV[2] { rem[$0] = 1; next }
+        { r = $3; sub(/\/+$/, "", r)
+          if ($2 == "arq") { if (r in alt) print $1, "arq", r, alt[r]; else if (r in dirs) print $1, "dir", r, dirs[r] }
+          else if ($2 == "cli") { n = split(r, w, " ")
+              if (r in rem) print $1, "cli", r; else if (n >= 2 && (w[1] in rem)) print $1, "cli", w[1] } }' \
+        "$tmp/alterados" "$tmp/removidos" "$tmp/refs")
 }

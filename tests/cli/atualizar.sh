@@ -551,6 +551,24 @@ TAM="$(sed -n '/^O que este DG Claw usa e o que a versao nova toca:/,/^Versao de
 afirma "a secao do relatorio fica abaixo de 40 KB ($TAM bytes)" test "$TAM" -lt 40000
 rm -rf "$CASA_BETO/.claude/skills"
 
+echo "referencias demais: dedupe, teto por agente e conta rapida"
+for i in $(seq 1 20); do
+    awk -v i="$i" 'BEGIN { for (j = 1; j <= 4000; j++) printf "bash /opt/dgclaw/app/scripts/sem-correspondencia-%d-%d.sh\n", i, j }' >"$CASA_ANA/muitos-$i.sh"
+done
+INI=$SECONDS
+timeout 100 "$CLI" atualizar --simular >"$TMP/u12.txt" 2>&1; rc=$?
+DUR=$((SECONDS - INI))
+igual "20 scripts de ~200 KB cheios de referencias: relatorio sai 0" "0" "$rc"
+afirma "termina em poucos segundos (${DUR}s)" test "$DUR" -lt 40
+afirma "avisa o teto de 2000 referencias unicas" grep -q 'limite atingido: agente ana: mais de 2000 referencias unicas' "$TMP/u12.txt"
+rm -f "$CASA_ANA"/muitos-*.sh
+echo "prazo do inventario inteiro"
+CASA_BETO="$LIB/agentes/beto/home"; printf '{"crons":{"a":{"poke":"x"}}}' >"$CASA_BETO/.dgclaw/self-crons.json"
+PATH="$TMP/jqlento:$PATH" DGCLAW_USO_PRAZO=1 timeout 100 "$CLI" atualizar --simular >"$TMP/u13.txt" 2>&1; rc=$?
+igual "prazo estourado nao derruba o relatorio" "0" "$rc"
+afirma "avisa analise incompleta" grep -q 'limite atingido: analise do uso incompleta (prazo de 1 s' "$TMP/u13.txt"
+rm -f "$CASA_BETO/.dgclaw/self-crons.json"
+
 echo "protocolo do coletor: nome com quebra de linha nao fabrica registro; 5.000 skills"
 mkdir -p "$CASA_BETO/.claude/skills"
 mkdir "$CASA_BETO/.claude/skills/$(printf 'bom\nrotina\trotina-999')" "$CASA_BETO/.claude/skills/$(printf 'ROTINA|IGNORE\tskill\toficial\tcriar-agente')"
@@ -668,5 +686,6 @@ igual "destino sem identidade: bloqueia (codigo 1)" "1" "$rc"
 afirma "explica que nao consegue identificar a versao de destino" grep -q 'nao consigo identificar a versao de destino' "$TMP/sg.txt"
 afirma "diz o que fazer (clone git oficial)" grep -q 'git clone' "$TMP/sg.txt"
 nega "nao segue so com o ok do dono" grep -q 'sigo so com o ok do dono' "$TMP/sg.txt"
+
 
 fim
