@@ -107,5 +107,17 @@ for (const aba of ['apps', 'arquivos', 'cofre']) {
   ok(html.includes('id="panel-socorro"') && html.includes('data-tab="socorro"'), 'a aba Socorro está no menu e tem painel');
 }
 
+// A aba Tela (30/10/2026) também desenha a si mesma: o tutorial dela mora em js/tela.js.
+{
+  const fonteTela = fs.readFileSync(path.join(AQUI, 'public/js/tela.js'), 'utf-8');
+  ok(passosDa('tela') === null, 'tela NÃO tem passos aqui (o tutorial dela é dela)');
+  ok(/id="tela-tutorial-abrir"/.test(fonteTela) && /app-tutorial-abrir/.test(fonteTela), 'tela desenha o próprio botão de Tutorial');
+  const passosTela = [...fonteTela.matchAll(/chave: '([^']+)',[\s\S]*?porque: '/g)].map((m) => m[1]);
+  ok(passosTela.length >= 4 && passosTela[0] === 'tela', `tela tem ${passosTela.length} passos, começando pela tela inteira`);
+  const ajudasTela = [...fonteTela.matchAll(/data-tutorial="([^"]+)"/g)].map((m) => m[1]);
+  ok(ajudasTela.every((c) => passosTela.includes(c)), 'todo "?" da aba Tela abre um passo que existe');
+  ok(html.includes('id="panel-tela"') && html.includes('data-tab="tela"'), 'a aba Tela está no menu e tem painel');
+}
+
 console.log(`\n${falhas === 0 ? 'TUDO CERTO' : `${falhas} FALHA(S)`}\n`);
 process.exit(falhas === 0 ? 0 : 1);

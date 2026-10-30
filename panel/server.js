@@ -1132,6 +1132,10 @@ require('./lib/wm-status').registrar(router, { CONFIG });
 // A aba Sessões (12/10/2026): proxy fino para os cards do Bunker, via DG Telegram. Ver docs/SESSOES.md.
 require('./lib/sessoes-proxy').registrar(router, { CONFIG });
 
+// A aba Tela (30/10/2026): o navegador do agente dentro do painel (noVNC). O WebSocket não passa
+// por middleware do Express: o 'upgrade' é ligado lá embaixo, em app.listen. Ver lib/tela.js e docs/TELA.md.
+const tela = require('./lib/tela').registrar(router, { env: process.env, base: BASE, quemFez });
+
 // ─── API: Apps (os aplicativos que o agente opera) ────────────
 // Endpoint do nucleo, sem poder: quem decide se ha app e o proprio agente, pelo
 // .dgclaw/apps.json dele. Todo erro daqui desce com MOTIVO em portugues, porque a
@@ -1551,6 +1555,29 @@ app.use((err, req, res, next) => {
 
 // ─── Start ────────────────────────────────────────────────────
 
-app.listen(PORT, HOST, () => {
+const servidor = app.listen(PORT, HOST, () => {
   console.log(`✦ ${CONFIG.agentName} Painel rodando em http://${HOST}:${PORT}${BASE || ''} (config: ${CONFIG._source})`);
+});
+
+// Mesma regra do requireAuth (cookie, proxy do dono, Cloudflare Access), sem chave de API Bearer.
+async function autenticarUpgrade(req) {
+  const r = auth.autenticarUpgrade(req);
+  if (r.ok || !CF_ENABLED || r.status === 403) return r;
+  const token = req.headers['cf-access-jwt-assertion']
+    || ((String(req.headers.cookie || '').match(/(?:^|;\s*)CF_Authorization=([^;]+)/) || [])[1]) || '';
+  if (!token) return r;
+  const jwt = await cfVerifyAccessJwt(token);
+  if (!jwt.ok) {
+    cfLogOnce(`deny-ws:${jwt.reason}`, `[painel] Cloudflare Access: JWT recusado no WebSocket da Tela (${jwt.reason}). Caiu na senha do painel.`);
+    return r;
+  }
+  const dif = auth.origemDiferente(req);
+  if (dif) return { ok: false, status: 403, motivo: `Este pedido veio de ${String(dif.origem).slice(0, 80)}, e não do endereço deste painel (${dif.meu}). Abra a tela pelo painel.` };
+  return { ok: true, via: 'cf-access' };
+}
+servidor.on('upgrade', (req, socket, head) => {
+  tela.aoUpgrade(req, socket, head, autenticarUpgrade).catch((err) => {
+    console.error(`[painel] Tela: o WebSocket quebrou de um jeito inesperado (${err && err.message}).`);
+    socket.destroy();
+  });
 });
