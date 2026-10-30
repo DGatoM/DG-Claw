@@ -5,11 +5,10 @@
 # proprio agente: tudo o que existe la e DADO NAO CONFIAVEL. Por isso o coletor nunca devolve texto livre. Ele
 # escreve no arquivo de saida so linhas de formato fixo (campos separados por TAB):
 #   rotinas<TAB>N | scripts<TAB>N | puladosgrandes<TAB>N | canal<TAB>WhatsApp|Telegram | identidade<TAB>1
-#   rotina<TAB>rotina-N<TAB>nome-ou-vazio | skill<TAB>nome | skillfora<TAB>1
+#   rotina<TAB>rotina-N | skill<TAB>nome (o consumidor so o mostra se for skill distribuida pelo proprio DG Claw)
 #   ref<TAB>rotina-N|script-N<TAB>arq|cli<TAB>referencia   (so caracteres de caminho ou de comando)
 #   lim<TAB>texto fixo do coletor
-# Nomes so saem se casarem com a regex estrita; o resto vira vazio ou "fora do padrao". Quem consome ainda confere
-# cada referencia contra a lista confiavel (diff da versao, ajuda do bin/dgclaw) antes de mostrar qualquer coisa.
+# Nomes de rotina nunca saem. Quem consome confere cada referencia contra a lista confiavel (diff da versao, ajuda do bin/dgclaw) antes de mostrar qualquer coisa.
 #
 # Uso: uso-coletor.sh <casa do agente> <arquivo de saida>
 set -uo pipefail
@@ -17,7 +16,6 @@ set -uo pipefail
 MAX_ARQ=262144      # bytes por arquivo lido
 MAX_ROTINAS=200
 MAX_SCRIPTS=500
-NOME_RE='^[a-z0-9][a-z0-9._-]{0,40}$'
 
 casa="${1:?casa}"; saida="${2:?saida}"
 casa_real="$(realpath -e -- "$casa" 2>/dev/null)" || { echo "lim	casa ilegivel" >>"$saida"; exit 0; }
@@ -36,37 +34,38 @@ refs() {
         | sed -E 's/^[^d]?dgclaw //' | grep . | sed 's/^/cli\t/' | sort -u || true
 }
 
-# dentro_da_casa <arquivo>: arquivo regular, sem ser atalho, cujo caminho resolvido continua dentro da casa.
-dentro_da_casa() {
-    local f="$1" real
-    [ -f "$f" ] && [ ! -L "$f" ] || return 1
-    real="$(realpath -e -- "$f" 2>/dev/null)" || return 1
-    [[ "$real" == "$casa_real"/* ]]
+# copiar_seguro <arquivo> <copia>: copia o arquivo da casa para um temporario do host pelo helper em Python, que abre
+# sem seguir atalho nem bloquear, confere pelo mesmo descritor que e arquivo comum dentro da casa e le no maximo
+# 256 KiB + 1 byte. Devolve o codigo do helper: 0 copiou, 10 nao e arquivo comum, 11 grande demais, 12 fora da casa,
+# 13 sumiu. Nenhum outro programa do host abre o arquivo da casa: grep, jq e cia so veem a copia.
+LER_PY="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/uso-ler.py"
+copiar_seguro() {
+    local rc=0
+    timeout 10 python3 -I "$LER_PY" "$casa_real" "$1" "$2" 2>/dev/null || rc=$?
+    return "$rc"
 }
 
 # --- rotinas -----------------------------------------------------------------------------------
 m="$casa/.dgclaw/self-crons.json"
-if [ -L "$casa/.dgclaw" ] || [ -L "$m" ]; then
-    emite lim "o manifesto de rotinas e um atalho; nao li"
-elif [ -e "$m" ]; then
-    if ! dentro_da_casa "$m"; then
-        emite lim "o manifesto de rotinas nao e um arquivo regular dentro da casa; nao li"
-    elif [ "$(stat -c %s "$m" 2>/dev/null || echo 0)" -gt "$MAX_ARQ" ]; then
-        emite lim "o manifesto de rotinas passa de 256 KB; nao li"
-    else
+copia="$(mktemp)"; trap 'rm -f "$copia"' EXIT
+rc_m=0
+if [ -L "$casa/.dgclaw" ]; then rc_m=10; else copiar_seguro "$m" "$copia" || rc_m=$?; fi
+case "$rc_m" in
+    13) emite rotinas 0 ;;
+    10) emite lim "o manifesto de rotinas nao e arquivo comum (atalho, FIFO ou pasta); pulado" ;;
+    11) emite lim "o manifesto de rotinas passa de 256 KB; nao li" ;;
+    0)
         tmpj="$(mktemp)"
-        if grep -v '^#' "$m" | jq -r '
-                (.crons // {}) | (if type == "array" then .[] else to_entries[] | (.value + {name: .key}) end)
-                | [((.name // "") | tostring | @base64), ((.poke // .command // .cmd // "") | tostring | @base64)] | @tsv' >"$tmpj" 2>/dev/null; then
+        if grep -v '^#' "$copia" | jq -r '
+                (.crons // {}) | (if type == "array" then .[] else to_entries[] end)
+                | ((if type == "object" and has("value") and has("key") then .value else . end)
+                   | (.poke // .command // .cmd // "") | tostring | @base64)' >"$tmpj" 2>/dev/null; then
             total="$(grep -c . "$tmpj" || true)"
             n=0
-            while IFS=$'\t' read -r nome64 poke64; do
-                [ -n "$nome64$poke64" ] || continue
+            while IFS= read -r poke64; do
                 n=$((n + 1))
                 [ "$n" -le "$MAX_ROTINAS" ] || break
-                nome="$(printf '%s' "$nome64" | base64 -d 2>/dev/null | tr -d '\000' | head -c 80)"
-                if [ -n "$nome" ] && [[ ! "$nome" =~ $NOME_RE ]]; then nome="?"; fi
-                emite rotina "rotina-$n" "$nome"
+                emite rotina "rotina-$n"
                 printf '%s' "$poke64" | base64 -d 2>/dev/null | tr -d '\000' | refs | while IFS=$'\t' read -r tipo ref; do
                     emite ref "rotina-$n" "$tipo" "$ref"
                 done
@@ -76,11 +75,9 @@ elif [ -e "$m" ]; then
         else
             emite lim "o manifesto de rotinas nao e um JSON valido; nao li"
         fi
-        rm -f "$tmpj"
-    fi
-else
-    emite rotinas 0
-fi
+        rm -f "$tmpj" ;;
+    *) emite lim "o manifesto de rotinas nao pode ser lido com seguranca; pulado" ;;
+esac
 
 # --- skills (so nomes que passam na regex) -------------------------------------------------------
 if [ -L "$casa/.claude" ] || [ -L "$casa/.claude/skills" ]; then
@@ -88,19 +85,22 @@ if [ -L "$casa/.claude" ] || [ -L "$casa/.claude/skills" ]; then
 else
     for sk in "$casa/.claude/skills"/*; do
         [ -e "$sk" ] || [ -L "$sk" ] || continue
-        nome="${sk##*/}"
-        if [[ "$nome" =~ $NOME_RE ]]; then emite skill "$nome"; else emite skillfora 1; fi
+        emite skill "${sk##*/}"
     done
 fi
 
 # --- scripts proprios (casa e skills proprias); -print0 de ponta a ponta, sem seguir atalho ----------
-ns=0; grandes=0
+ns=0; grandes=0; naocomuns=0
 while IFS= read -r -d '' f; do
     ns=$((ns + 1))
     if [ "$ns" -gt "$MAX_SCRIPTS" ]; then emite lim "mais de $MAX_SCRIPTS scripts; li so os primeiros $MAX_SCRIPTS"; break; fi
-    dentro_da_casa "$f" || continue
-    if [ "$(stat -c %s "$f" 2>/dev/null || echo 0)" -gt "$MAX_ARQ" ]; then grandes=$((grandes + 1)); continue; fi
-    refs <"$f" | while IFS=$'\t' read -r tipo ref; do
+    rc_f=0; copiar_seguro "$f" "$copia" || rc_f=$?
+    case "$rc_f" in
+        0) ;;
+        11) grandes=$((grandes + 1)); continue ;;
+        *) naocomuns=$((naocomuns + 1)); continue ;;
+    esac
+    refs <"$copia" | while IFS=$'\t' read -r tipo ref; do
         emite ref "script-$ns" "$tipo" "$ref"
     done
 done < <(find -P "$casa" -maxdepth 5 \( -name node_modules -o -name .git -o -name .dgclaw -o -name memory -o -name uploads \
@@ -109,6 +109,7 @@ done < <(find -P "$casa" -maxdepth 5 \( -name node_modules -o -name .git -o -nam
             | sort -z | head -z -n "$((MAX_SCRIPTS + 1))")
 emite scripts "$((ns > MAX_SCRIPTS ? MAX_SCRIPTS : ns))"
 if [ "$grandes" -gt 0 ]; then emite puladosgrandes "$grandes"; fi
+if [ "$naocomuns" -gt 0 ]; then emite puladosnaocomuns "$naocomuns"; fi
 
 # --- canais (so existencia) e identidade -----------------------------------------------------------
 if [ -d "$casa/.dgclaw/whatsapp" ] && [ ! -L "$casa/.dgclaw/whatsapp" ]; then emite canal WhatsApp; fi

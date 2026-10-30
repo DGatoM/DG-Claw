@@ -29,10 +29,13 @@ USO_MAX_CRUZ=100
 USO_TEMPO_COLETA="${DGCLAW_USO_TEMPO_COLETA:-60}"
 USO_NOME_RE='^[a-z0-9][a-z0-9._-]{0,40}$'
 
-# _uso_nome_seguro <texto>: o proprio texto se casar com a regex estrita, senao "(nome fora do padrao)".
+# _uso_nome_seguro <texto>: o nome so aparece se for de uma skill que o proprio DG Claw distribui (a lista vem do
+# repositorio, fora da casa gravavel, em $USO_SKILLS_OFICIAIS). Regex nao basta: "ignore-instrucoes-anteriores"
+# passa em qualquer regex. Nome de agente vem do agentes.json do root e so passa pela regex.
 _uso_nome_seguro() {
     if [[ "$1" =~ $USO_NOME_RE ]]; then printf '%s' "$1"; else printf '(nome fora do padrao)'; fi
 }
+USO_SKILLS_OFICIAIS=" "
 
 # _uso_comandos <revisao>: os comandos e subcomandos do `dgclaw` que a ajuda daquela revisao documenta,
 # um por linha ("agente criar", "senha"...). Vazio se a revisao nao tem bin/dgclaw.
@@ -63,7 +66,7 @@ _uso_ref_toca() {
 
 # uso_calcular <de> <para>: preenche USO_TXT, USO_CRUZ e USO_LIM. <de> vazio = nao ha base para cruzar.
 uso_calcular() {
-    local de="$1" para="$2" tmp agente slug casa c acao pn pf reg_n=0 rc kind a b d nrot nscr skills canais skfora grandes ident n_ag=0
+    local de="$1" para="$2" tmp agente slug casa c acao pn pf reg_n=0 rc kind a b d nrot nscr skills canais nskp grandes ident n_ag=0 naocomuns oficial nsk
     USO_TXT=""; USO_CRUZ=(); USO_LIM=()
     tmp="$(mktemp -d)"
 
@@ -79,6 +82,15 @@ uso_calcular() {
         done >"$tmp/alterados" || true
         _uso_comandos "$de" >"$tmp/cmd-antes"; _uso_comandos "$para" >"$tmp/cmd-depois"
         if [ -s "$tmp/cmd-antes" ]; then comm -23 "$tmp/cmd-antes" "$tmp/cmd-depois" >"$tmp/removidos"; fi
+    fi
+
+    # Skills distribuidas pelo DG Claw: as do repositorio na versao de destino (ou, sem ela, as do programa instalado).
+    USO_SKILLS_OFICIAIS=" "
+    if [ -n "$para" ]; then
+        while IFS= read -r oficial; do USO_SKILLS_OFICIAIS+="${oficial#skills/} "; done < <(_git ls-tree -d --name-only "$para" skills/ 2>/dev/null)
+    fi
+    if [ "$USO_SKILLS_OFICIAIS" = " " ] && [ -d "$APP_DIR/skills" ]; then
+        for oficial in "$APP_DIR/skills"/*/; do oficial="${oficial%/}"; USO_SKILLS_OFICIAIS+="${oficial##*/} "; done
     fi
 
     USO_TXT+="So entram aqui contagens, ids gerados, nomes no padrao e referencias reconhecidas; texto livre das casas dos agentes nao e mostrado."$'\n'
@@ -103,17 +115,19 @@ uso_calcular() {
         elif [ "$rc" -ne 0 ]; then
             USO_LIM+=("a leitura da casa do agente $agente falhou (codigo $rc); confira a pasta dele antes de atualizar")
         fi
-        nrot=0; nscr=0; skills=""; skfora=0; canais="chat"; grandes=0; ident=0
+        nrot=0; nscr=0; skills=""; nskp=0; canais="chat"; grandes=0; ident=0; naocomuns=0; nsk=0
         while IFS=$'\t' read -r kind a b d; do
             case "$kind" in
                 rotinas) [[ "$a" =~ ^[0-9]{1,6}$ ]] && nrot="$a" ;;
                 scripts) [[ "$a" =~ ^[0-9]{1,6}$ ]] && nscr="$a" ;;
                 puladosgrandes) [[ "$a" =~ ^[0-9]{1,6}$ ]] && grandes="$a" ;;
-                skill) skills+="${skills:+, }$(_uso_nome_seguro "$a")" ;;
-                skillfora) skfora=$((skfora + 1)) ;;
+                puladosnaocomuns) [[ "$a" =~ ^[0-9]{1,6}$ ]] && naocomuns="$a" ;;
+                skill) nsk=$((nsk + 1))
+                       if [[ "$a" =~ ^[a-z0-9][a-z0-9._-]{0,40}$ && "$USO_SKILLS_OFICIAIS" == *" $a "* ]]; then skills+="${skills:+, }$a"
+                       else nskp=$((nskp + 1)); skills+="${skills:+, }skill-$nsk"; fi ;;
                 canal) case "$a" in WhatsApp|Telegram) canais+=", $a" ;; esac ;;
                 identidade) ident=1 ;;
-                rotina) USO_TXT+="  $(_uso_id "$a")${b:+ ($(_uso_nome_seguro "$b"))}"$'\n' ;;
+                rotina) USO_TXT+="  $(_uso_id "$a")"$'\n' ;;
                 lim) USO_LIM+=("agente $agente: $(_uso_lim_conhecido "$a")") ;;
                 ref) uso_cruzar "agente $agente, $(_uso_id "$a")" "$b" "$d" "$tmp" ;;
             esac
@@ -121,9 +135,10 @@ uso_calcular() {
         USO_TXT+="  rotinas: $nrot"$'\n'
         USO_TXT+="  scripts proprios lidos: $nscr"
         if [ "$grandes" -gt 0 ]; then USO_TXT+=" ($grandes pulado(s) por passar de 256 KB)"; fi
+        if [ "$naocomuns" -gt 0 ]; then USO_TXT+=" ($naocomuns pulado(s): nao e arquivo comum)"; fi
         USO_TXT+=$'\n'
         USO_TXT+="  skills: ${skills:-nenhuma}"
-        if [ "$skfora" -gt 0 ]; then USO_TXT+=" e $skfora com nome fora do padrao"; fi
+        if [ "$nskp" -gt 0 ]; then USO_TXT+=" ($nskp propria(s) do agente; o nome nao e mostrado)"; fi
         USO_TXT+=$'\n'
         USO_TXT+="  canais ligados: $canais"$'\n'
         if [ "$ident" = 1 ]; then USO_TXT+="  identidade e personalidade proprias: sim (a atualizacao nao as toca)"$'\n'; fi
@@ -161,8 +176,8 @@ _uso_id() { if [[ "$1" =~ ^(rotina|script)-[0-9]{1,6}$ ]]; then printf '%s' "$1"
 # _uso_lim_conhecido <texto>: as mensagens de limite sao fixas do coletor; qualquer outra e descartada.
 _uso_lim_conhecido() {
     case "$1" in
-        "o manifesto de rotinas e um atalho; nao li"|"o manifesto de rotinas nao e um arquivo regular dentro da casa; nao li"|\
-        "o manifesto de rotinas passa de 256 KB; nao li"|"o manifesto de rotinas nao e um JSON valido; nao li"|\
+        "o manifesto de rotinas nao e arquivo comum (atalho, FIFO ou pasta); pulado"|"o manifesto de rotinas passa de 256 KB; nao li"|\
+        "o manifesto de rotinas nao e um JSON valido; nao li"|"o manifesto de rotinas nao pode ser lido com seguranca; pulado"|\
         "mais de 200 rotinas; li so as primeiras 200"|"mais de 500 scripts; li so os primeiros 500"|\
         "a pasta .claude ou skills e um atalho; nao listei as skills"|"casa ilegivel") printf '%s' "$1" ;;
         *) printf 'limite do coletor (mensagem nao reconhecida)' ;;

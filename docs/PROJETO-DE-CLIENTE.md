@@ -28,8 +28,12 @@ Operações, Rotinas, Pasta nem cofre, e o cliente ficou com um produto pela met
 
    Daí em diante entramos só por chave. A senha de root não é mais usada.
 4. **Ajustes:** criação do agente pelo Admin, logins na Tela, chaves no cofre, rotinas combinadas.
-5. **Entrega:** o cliente troca a senha de root no painel da Hostinger e roda `sudo dgclaw suporte desligar`
-   (ou pede ao Admin que rode). Confira com `sudo dgclaw suporte status`: tem que dizer "suporte: desligado".
+5. **Entrega:** o cliente troca a senha de root no painel da Hostinger e, pela própria conta dele, roda
+   `sudo dgclaw suporte desligar --derrubar-sessoes` (ou pede ao Admin). O `desligar` tira a chave, lista as
+   sessões SSH de root abertas agora (marcando a de quem roda o comando) e, com `--derrubar-sessoes`, encerra
+   todas as outras. Sem essa opção, ele avisa quando ainda há outra sessão de root aberta e não diz que o
+   acesso está desligado. Confira com `sudo dgclaw suporte status`: tem que dizer "suporte: desligado" e
+   "sessoes SSH de root abertas agora: nenhuma" (a do próprio cliente pode aparecer, marcada como a dele).
 
 A chave expira sozinha no prazo, mesmo se ninguém lembrar de desligar: o servidor passa a recusá-la na data
 combinada, e um timer diário tira a linha vencida do arquivo. Se o trabalho precisar de mais tempo, ligue de novo
@@ -52,7 +56,7 @@ combinada, e um timer diário tira a linha vencida do arquivo. Se o trabalho pre
 | Funciona sem navegador, então não esbarra no bloqueio do Cloudflare da Hostinger | Precisa da senha de root uma vez, no começo |
 | O escopo é só aquela máquina | Quem tem a chave tem root, por isso o prazo curto e o registro |
 | Revogar é apagar uma linha, e ela expira sozinha | |
-| Fica no registro: `/var/log/dgclaw/suporte.log` guarda cada ligar e desligar, só com o fingerprint | |
+| Fica no registro: `/var/log/dgclaw/suporte.log` guarda cada ligar e desligar, só com o fingerprint. Chave vencida removida pelo timer fica também em `/var/lib/dgclaw/suporte/revogadas.log`, e o `dgclaw status` avisa se havia sessão de root aberta | |
 
 O comando exige OpenSSH 8.2 ou mais novo (o Ubuntu 24.04 já tem) e só aceita `ssh-ed25519`, `ecdsa-sha2-nistp256`
 ou `ssh-rsa` de 3072 bits ou mais. Ele mexe só nas linhas marcadas como do suporte; as outras chaves do root
@@ -85,7 +89,7 @@ ficam como estão.
 **Entrega**
 
 - [ ] Cliente trocou a senha de root no painel da Hostinger
-- [ ] `sudo dgclaw suporte desligar` rodado
+- [ ] `sudo dgclaw suporte desligar --derrubar-sessoes` rodado pela conta do cliente
 - [ ] `dgclaw suporte status` diz "suporte: desligado"
 - [ ] Cliente sabe como pedir o acesso de novo (ele manda a chave pública e roda `suporte ligar`, ou pede ao Admin)
 

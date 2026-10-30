@@ -181,8 +181,11 @@ Suporte DG
       Libera o time de suporte DG por uma chave SSH TEMPORARIA (padrao 7 dias, maximo 30). Depois do prazo o
       servidor recusa a chave sozinho. So as chaves do suporte sao tocadas; as suas ficam como estao.
       Exemplo:  sudo dgclaw suporte ligar --chave 'ssh-ed25519 AAAAC3... suporte' --dias 7
-  dgclaw suporte desligar                tira o acesso do suporte agora (e diz quantas chaves removeu)
-  dgclaw suporte status                  mostra as chaves do suporte, ate quando valem e as vencidas
+  dgclaw suporte desligar [--derrubar-sessoes]
+      Tira as chaves do suporte e lista as sessoes SSH de root abertas agora, marcando a sua. Se houver outra,
+      avisa que o acesso ainda nao esta totalmente desligado. Com --derrubar-sessoes encerra TODAS as sessoes SSH
+      de root, menos a de quem roda o comando.
+  dgclaw suporte status                  mostra as chaves do suporte, ate quando valem, as vencidas e as sessoes de root abertas
   dgclaw suporte limpar                  tira so as chaves vencidas (um timer diario ja faz isso)
       Exemplo:  sudo dgclaw suporte status
 

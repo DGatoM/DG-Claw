@@ -6,7 +6,7 @@
 # shellcheck disable=SC2154
 #
 #   dgclaw suporte ligar --chave '<linha ssh>' [--dias N]   grava a chave com prazo no authorized_keys do root
-#   dgclaw suporte desligar                                  tira todas as chaves do suporte
+#   dgclaw suporte desligar [--derrubar-sessoes]             tira as chaves; lista as sessoes de root abertas; com a opcao, encerra as outras
 #   dgclaw suporte status                                    lista as chaves, ate quando valem e as vencidas
 #   dgclaw suporte limpar                                    tira so as vencidas (o timer diario chama este)
 #   dgclaw status                                            uma linha "suporte: ..." (suporte_status_linha)
@@ -234,62 +234,169 @@ suporte_remover() {
     SUP_REMOVIDAS="$removidas"; SUP_FPS_REMOVIDOS="${fps% }"
 }
 
-# suporte_encerrar_sessoes <fingerprint...>: derruba as sessoes SSH abertas com as chaves que acabaram de sair.
-# O sshd registra "Accepted publickey for root from IP port P ssh2: ED25519 SHA256:<fp>" no journal. Com o par
-# IP:porta acha-se o processo sshd dono da conexao (ss -tnp) e encerra-se. Imprime quantas encerrou; se nao
-# conseguiu identificar nenhuma, diz com clareza que pode haver sessao aberta e como derrubar.
-suporte_encerrar_sessoes() {
-    local fp log conexoes="" ip porta linha pid pids n=0 sem_log=0 ss_saida comm
-    command -v journalctl >/dev/null 2>&1 || sem_log=1
-    if [ "$sem_log" = 0 ]; then
-        log="$(journalctl -u ssh.service -u sshd.service --no-pager -o cat --since '-45 days' 2>/dev/null)" || log=""
-        [ -n "$log" ] || sem_log=1
-    fi
-    if [ "$sem_log" = 0 ] && command -v ss >/dev/null 2>&1; then
-        for fp in "$@"; do
-            [[ "$fp" =~ ^SHA256:[A-Za-z0-9+/=]+$ ]] || continue
-            conexoes+="$(grep -F "$fp" <<<"$log" | grep -F 'Accepted publickey for root' \
-                | sed -nE 's/.*from ([0-9A-Fa-f:.]+) port ([0-9]+) .*/\1 \2/p')"$'\n'
-        done
-        ss_saida="$(ss -tnpH 2>/dev/null)" || ss_saida=""
-        while read -r ip porta; do
-            [ -n "$ip" ] || continue
-            while IFS= read -r linha; do
-                [[ "$linha" == *" $ip:$porta "* || "$linha" == *"[$ip]:$porta "* || "$linha" == *" $ip:$porta" || "$linha" == *"[$ip]:$porta" ]] || continue
-                pids="$(grep -oE 'pid=[0-9]+' <<<"$linha" | cut -d= -f2)"
-                for pid in $pids; do
-                    comm="$(cat "/proc/$pid/comm" 2>/dev/null || true)"
-                    [[ "$comm" == sshd* ]] || continue
-                    kill -TERM "$pid" 2>/dev/null || continue
-                    sleep 1
-                    if kill -0 "$pid" 2>/dev/null; then kill -KILL "$pid" 2>/dev/null || true; fi
-                    n=$((n + 1))
-                done
-            done <<<"$ss_saida"
-        done < <(printf '%s' "$conexoes" | sort -u)
-    fi
-    if [ "$n" -gt 0 ]; then
-        ok "$n sessao(oes) SSH aberta(s) com a chave do suporte foi(ram) encerrada(s)."
-    else
-        aviso "nao consegui identificar sessao SSH aberta com a chave do suporte ($([ "$sem_log" = 1 ] && echo 'sem acesso ao log do sshd' || echo 'nenhuma conexao dessa chave aparece ativa')). As novas entradas ja estao bloqueadas, mas pode haver uma sessao antiga aberta. Para ver: who -u ; para derrubar uma: sudo pkill -KILL -t <tty, ex. pts/0>. 'systemctl restart ssh' NAO derruba as sessoes ja abertas."
-    fi
+# --- sessoes SSH de root abertas agora ------------------------------------------------------------
+# Nao se adivinha pelo historico do journal quem usou qual chave: isso podia derrubar a sessao do proprio dono.
+# O que se faz e listar as sessoes de root que existem AGORA, dizer qual e a de quem roda o comando, e so
+# encerrar (com --derrubar-sessoes) as outras.
+
+sup_dir_estado() { printf '%s' "$DG_LIB/suporte"; }
+
+# suporte_cadeia_de_pais: os pids do processo atual para cima (um por linha).
+suporte_cadeia_de_pais() {
+    local p=$$ pp
+    while [ -n "$p" ] && [ "$p" -gt 1 ] 2>/dev/null; do
+        printf '%s\n' "$p"
+        pp="$(sed 's/^.*) //' "/proc/$p/stat" 2>/dev/null | awk '{print $2}')" || pp=""
+        if [ -z "$pp" ] || [ "$pp" = "$p" ]; then break; fi
+        p="$pp"
+    done
 }
 
+# suporte_listar_sessoes: preenche SUP_SES_PEER, SUP_SES_PIDS (pids separados por espaco), SUP_SES_INICIO e
+# SUP_SES_PROPRIA (1 = a sessao de quem roda este comando). Uma entrada por conexao SSH de root.
+suporte_listar_sessoes() {
+    SUP_SES_PEER=(); SUP_SES_PIDS=(); SUP_SES_INICIO=(); SUP_SES_PROPRIA=()
+    command -v ss >/dev/null 2>&1 || return 0
+    local saida linha peer pid cmd cadeia ssh_ip="" ssh_porta="" i idx pids inicio propria
+    saida="$(ss -tnpH 2>/dev/null)" || saida=""
+    cadeia=" $(suporte_cadeia_de_pais | tr '\n' ' ') "
+    if [ -n "${SSH_CONNECTION:-}" ]; then read -r ssh_ip ssh_porta _ <<<"$SSH_CONNECTION"; fi
+    declare -A pids_de=()
+    local ordem=()
+    while IFS= read -r linha; do
+        [ -n "$linha" ] || continue
+        peer="$(awk '{print $5}' <<<"$linha")"
+        while IFS= read -r pid; do
+            [[ "$(cat "/proc/$pid/comm" 2>/dev/null)" == sshd* ]] || continue
+            cmd="$(tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null)"
+            [[ "$cmd" == "sshd: root"* ]] || continue
+            if [ -z "${pids_de[$peer]:-}" ]; then ordem+=("$peer"); fi
+            pids_de[$peer]+="$pid "
+        done < <(grep -oE 'pid=[0-9]+' <<<"$linha" | cut -d= -f2)
+    done <<<"$saida"
+    for peer in ${ordem[@]+"${ordem[@]}"}; do
+        pids="${pids_de[$peer]% }"
+        inicio="?"
+        pid="${pids%% *}"
+        inicio="$(ps -o lstart= -p "$pid" 2>/dev/null | sed 's/^ *//')" || inicio="?"
+        [ -n "$inicio" ] || inicio="?"
+        propria=0
+        for i in $pids; do [[ "$cadeia" == *" $i "* ]] && propria=1; done
+        if [ -n "$ssh_ip" ] && { [ "$peer" = "$ssh_ip:$ssh_porta" ] || [ "$peer" = "[$ssh_ip]:$ssh_porta" ]; }; then propria=1; fi
+        idx=${#SUP_SES_PEER[@]}
+        SUP_SES_PEER[idx]="$peer"; SUP_SES_PIDS[idx]="$pids"; SUP_SES_INICIO[idx]="$inicio"; SUP_SES_PROPRIA[idx]="$propria"
+    done
+}
+
+# suporte_mostrar_sessoes: imprime a lista e define SUP_OUTRAS (quantas sao de outra pessoa).
+suporte_mostrar_sessoes() {
+    local i
+    SUP_OUTRAS=0
+    suporte_listar_sessoes
+    if [ "${#SUP_SES_PEER[@]}" -eq 0 ]; then
+        printf '  sessoes SSH de root abertas agora: nenhuma\n'
+        return 0
+    fi
+    printf '  sessoes SSH de root abertas agora:\n'
+    for i in "${!SUP_SES_PEER[@]}"; do
+        if [ "${SUP_SES_PROPRIA[$i]}" = 1 ]; then
+            printf '    - %s, desde %s  <- e a SUA sessao (a de quem roda este comando)\n' "$(printf '%s' "${SUP_SES_PEER[$i]}" | tr -cd 'A-Za-z0-9.:[]')" "${SUP_SES_INICIO[$i]}"
+        else
+            SUP_OUTRAS=$((SUP_OUTRAS + 1))
+            printf '    - %s, desde %s\n' "$(printf '%s' "${SUP_SES_PEER[$i]}" | tr -cd 'A-Za-z0-9.:[]')" "${SUP_SES_INICIO[$i]}"
+        fi
+    done
+}
+
+# suporte_derrubar_outras: TERM e depois KILL nos sshd das sessoes de root que nao sao a de quem roda o comando.
+# Recusa se esta sendo rodado por SSH e nao consegue dizer qual e a propria sessao (derrubaria a de quem pede).
+suporte_derrubar_outras() {
+    local i pid n=0
+    suporte_listar_sessoes
+    if { [ -n "${SSH_CONNECTION:-}" ] || [ -n "${SSH_CLIENT:-}" ]; } && ! [[ " ${SUP_SES_PROPRIA[*]-} " == *" 1 "* ]]; then
+        falha "estou numa sessao SSH, mas nao consegui dizer qual das sessoes de root abertas e a sua; nao derrubo nada para nao te derrubar." \
+              "rode pelo console do servidor (painel da Hostinger) ou confira com: who -u ; e derrube a sessao certa com sudo pkill -KILL -t <tty, ex. pts/1>."
+    fi
+    for i in "${!SUP_SES_PEER[@]}"; do
+        [ "${SUP_SES_PROPRIA[$i]}" = 0 ] || continue
+        for pid in ${SUP_SES_PIDS[$i]}; do
+            [[ "$(cat "/proc/$pid/comm" 2>/dev/null)" == sshd* ]] || continue
+            kill -TERM "$pid" 2>/dev/null || true
+        done
+        sleep 1
+        for pid in ${SUP_SES_PIDS[$i]}; do
+            if [[ "$(cat "/proc/$pid/comm" 2>/dev/null)" == sshd* ]] && kill -0 "$pid" 2>/dev/null; then kill -KILL "$pid" 2>/dev/null || true; fi
+        done
+        n=$((n + 1))
+    done
+    SUP_ENCERRADAS="$n"
+}
+
+# suporte_alerta_arquivo: marca que uma chave venceu com sessao de root aberta (o dgclaw status le).
+suporte_alerta_arquivo() { printf '%s' "$(sup_dir_estado)/alerta-sessoes"; }
+suporte_revogadas_log() { printf '%s' "$(sup_dir_estado)/revogadas.log"; }
+
 suporte_desligar() {
-    [ $# -eq 0 ] || falha "'suporte desligar' nao tem opcoes (veio: $*)." "use: sudo dgclaw suporte desligar"
+    local derrubar=0 a
+    for a in "$@"; do
+        case "$a" in
+            --derrubar-sessoes) derrubar=1 ;;
+            *) falha "a opcao '$a' nao existe em 'suporte desligar'." "use: sudo dgclaw suporte desligar [--derrubar-sessoes]" ;;
+        esac
+    done
     suporte_remover todas
-    if [ "$SUP_REMOVIDAS" -eq 0 ]; then
-        ok "nao havia chave do suporte para tirar: o acesso ja estava desligado."
+    if [ "$SUP_REMOVIDAS" -gt 0 ]; then
+        ok "$SUP_REMOVIDAS chave(s) removida(s) de $(suporte_arq). As suas outras chaves ficaram como estavam. Novas entradas com elas estao bloqueadas."
     else
-        ok "acesso do suporte desligado: $SUP_REMOVIDAS chave(s) removida(s) de $(suporte_arq). As suas outras chaves ficaram como estavam."
-        # shellcheck disable=SC2086 # fingerprints nao tem espaco
-        suporte_encerrar_sessoes $SUP_FPS_REMOVIDOS
+        info "nao havia chave do suporte no arquivo."
+    fi
+    suporte_mostrar_sessoes
+    if [ "$derrubar" = 1 ]; then
+        if [ "$SUP_OUTRAS" -eq 0 ]; then
+            info "nao ha outra sessao de root para encerrar."
+        else
+            suporte_derrubar_outras
+            ok "$SUP_ENCERRADAS sessao(oes) SSH de root encerrada(s). A sua nao foi tocada."
+            suporte_mostrar_sessoes
+        fi
+    fi
+    if [ "$SUP_OUTRAS" -gt 0 ]; then
+        aviso "as novas entradas com a chave do suporte estao bloqueadas, mas ainda ha $SUP_OUTRAS sessao(oes) de root aberta(s) (lista acima): o acesso NAO esta totalmente desligado. Para encerrar TODAS as sessoes SSH de root, menos a sua: sudo dgclaw suporte desligar --derrubar-sessoes"
+        return 0
+    fi
+    rm -f "$(suporte_alerta_arquivo)"
+    if [ "$SUP_REMOVIDAS" -gt 0 ]; then ok "acesso do suporte desligado: nenhuma chave dele no arquivo e nenhuma outra sessao de root aberta."
+    else ok "o acesso do suporte ja estava desligado."; fi
+}
+
+# suporte_registrar_revogadas <fingerprints...>: guarda, em /var/lib/dgclaw/suporte/revogadas.log (600, pasta 700),
+# as chaves que o limpar tirou, e marca o alerta se houver sessao de root aberta.
+suporte_registrar_revogadas() {
+    local d log fp
+    [ "$ENSAIO" != 1 ] || return 0
+    d="$(sup_dir_estado)"; log="$(suporte_revogadas_log)"
+    install -d -m 700 "$d"
+    for fp in "$@"; do
+        printf '%s revogada fp=%s motivo=vencida\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$fp" >>"$log" \
+            || falha "nao consegui gravar $log." "confira o espaco e a permissao de $d."
+    done
+    chmod 600 "$log"
+    suporte_listar_sessoes
+    if [ "${#SUP_SES_PEER[@]}" -gt 0 ]; then
+        printf '%s alerta: chave vencida removida, mas ha %s sessao(oes) de root aberta(s)\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${#SUP_SES_PEER[@]}" >>"$log"
+        : >"$(suporte_alerta_arquivo)"; chmod 600 "$(suporte_alerta_arquivo)"
+    else
+        rm -f "$(suporte_alerta_arquivo)"
     fi
 }
 
 suporte_limpar() {
     [ $# -eq 0 ] || falha "'suporte limpar' nao tem opcoes (veio: $*)." "use: sudo dgclaw suporte limpar"
     suporte_remover vencidas
+    if [ "$SUP_REMOVIDAS" -gt 0 ]; then
+        # shellcheck disable=SC2086 # fingerprints nao tem espaco
+        suporte_registrar_revogadas $SUP_FPS_REMOVIDOS
+    fi
     ok "$SUP_REMOVIDAS chave(s) vencida(s) do suporte removida(s)."
 }
 
@@ -318,6 +425,10 @@ suporte_status() {
     fi
     if [ "$vencidas" -gt 0 ]; then
         printf 'As vencidas ja nao entram (o servidor recusa), mas ainda estao no arquivo. Para remover: sudo dgclaw suporte limpar\n'
+    fi
+    suporte_mostrar_sessoes
+    if [ "$SUP_OUTRAS" -gt 0 ]; then
+        printf 'Para encerrar todas as sessoes SSH de root, menos a sua: sudo dgclaw suporte desligar --derrubar-sessoes\n'
     fi
 }
 
@@ -355,6 +466,13 @@ suporte_status_linha() {
         s_aviso "suporte: ligado ate $(suporte_fmt_data "$maior") (para tirar agora: sudo dgclaw suporte desligar)"
     elif [ "$vencidas" -gt 0 ]; then
         s_aviso "suporte: desligado, mas $vencidas chave(s) vencida(s) ainda no arquivo (remova com: sudo dgclaw suporte limpar)"
+    elif [ -e "$(suporte_alerta_arquivo)" ]; then
+        suporte_listar_sessoes
+        if [ "${#SUP_SES_PEER[@]}" -gt 0 ]; then
+            s_aviso "suporte: chave vencida, mas ha ${#SUP_SES_PEER[@]} sessao(oes) de root aberta(s), veja sudo dgclaw suporte status"
+        else
+            s_ok "suporte: desligado"
+        fi
     else
         s_ok "suporte: desligado"
     fi
