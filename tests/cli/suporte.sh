@@ -153,10 +153,13 @@ nega "dias 007 recusado" dgclaw suporte ligar --chave "$OUTRA" --dias 007
 nega "dias -3 recusado" dgclaw suporte ligar --chave "$OUTRA" --dias -3
 
 echo "--sessoes de root abertas: o desligar lista, nao adivinha e so derruba com --derrubar-sessoes"
-cp "$(command -v sleep)" "$TMP/sshd"
-bash -c 'exec -a "sshd: root@pts/0" "$0" 300' "$TMP/sshd" & PID_A=$!
-bash -c 'exec -a "sshd: root@pts/1" "$0" 300' "$TMP/sshd" & PID_B=$!
-bash -c 'exec -a "sshd: marta [priv]" "$0" 300' "$TMP/sshd" & PID_C=$!
+# "sshd" de mentira: um cat com o nome sshd e o titulo do processo trocado (exec -a). O cmdline fica so com o titulo,
+# como no sshd de verdade; ele espera num FIFO que o proprio teste mantem aberto.
+cp "$(command -v cat)" "$TMP/sshd"; mkfifo "$TMP/espera"; exec 8<>"$TMP/espera"
+fantasma() { bash -c 'exec -a "$1" "$0" <"$2"' "$TMP/sshd" "$1" "$TMP/espera" & }
+fantasma "sshd: root@pts/0"; PID_A=$!
+fantasma "sshd: root@pts/1"; PID_B=$!
+fantasma "sshd: marta [priv]"; PID_C=$!
 sleep 0.3
 printf 'ESTAB 0 0 10.0.0.5:22 203.0.113.9:50022 users:(("sshd",pid=%s,fd=4))\nESTAB 0 0 10.0.0.5:22 198.51.100.7:41000 users:(("sshd",pid=%s,fd=4))\nESTAB 0 0 10.0.0.5:22 192.0.2.44:33000 users:(("sshd",pid=%s,fd=4))\n' "$PID_A" "$PID_B" "$PID_C" >"$STUB_ESTADO/ss-conexoes"
 printf '%s\n' "$ALHEIA1" >"$ARQ"
@@ -185,7 +188,7 @@ afirma "a sessao do usuario comum continua" kill -0 "$PID_C"
 afirma "sem outra sessao, diz que o acesso ja estava desligado" grep -q "ja estava desligado" "$TMP/o.txt"
 
 echo "--derrubar-sessoes sem saber qual e a sua (em SSH) recusa"
-bash -c 'exec -a "sshd: root@pts/2" "$0" 300' "$TMP/sshd" & PID_D=$!
+fantasma "sshd: root@pts/2"; PID_D=$!
 sleep 0.3
 printf 'ESTAB 0 0 10.0.0.5:22 203.0.113.9:50022 users:(("sshd",pid=%s,fd=4))\nESTAB 0 0 10.0.0.5:22 198.51.100.8:42000 users:(("sshd",pid=%s,fd=4))\n' "$PID_A" "$PID_D" >"$STUB_ESTADO/ss-conexoes"
 SSH_CONNECTION="192.0.2.1 1 10.0.0.5 22" dgclaw suporte desligar --derrubar-sessoes >"$TMP/o.txt" 2>&1; rc=$?
@@ -219,6 +222,50 @@ afirma "dgclaw status avisa da sessao aberta" grep -q "suporte: chave vencida, m
 dgclaw suporte status >"$TMP/o.txt" 2>&1
 afirma "suporte status lista a sessao" grep -q "198.51.100.8:42000, desde" "$TMP/o.txt"
 kill "$PID_A" "$PID_C" "$PID_D" 2>/dev/null; wait 2>/dev/null
+
+
+echo "--usuario exato root: rootbackup e root2 nao contam"
+fantasma "sshd: rootbackup@pts/1"; P1=$!
+fantasma "sshd: root2 [priv]"; P2=$!
+fantasma "sshd: root [priv]"; P3=$!
+fantasma "sshd: root@notty"; P4=$!
+sleep 0.3
+printf 'ESTAB 0 0 10.0.0.5:22 192.0.2.1:1001 users:(("sshd",pid=%s,fd=4))\nESTAB 0 0 10.0.0.5:22 192.0.2.2:1002 users:(("sshd",pid=%s,fd=4))\nESTAB 0 0 10.0.0.5:22 192.0.2.3:1003 users:(("sshd",pid=%s,fd=4))\nESTAB 0 0 10.0.0.5:22 192.0.2.4:1004 users:(("sshd",pid=%s,fd=4))\n' "$P1" "$P2" "$P3" "$P4" >"$STUB_ESTADO/ss-conexoes"
+dgclaw suporte status >"$TMP/o.txt" 2>&1
+nega "rootbackup nao e listado" grep -q "192.0.2.1:1001" "$TMP/o.txt"
+nega "root2 nao e listado" grep -q "192.0.2.2:1002" "$TMP/o.txt"
+afirma "'sshd: root [priv]' e listado" grep -q "192.0.2.3:1003" "$TMP/o.txt"
+afirma "'sshd: root@notty' e listado" grep -q "192.0.2.4:1004" "$TMP/o.txt"
+
+echo "--ensaio nao tem efeito nenhum"
+printf '%s\n' "$ALHEIA1" >"$ARQ"; dgclaw suporte ligar --chave "$CHAVE" >/dev/null 2>&1
+rm -f "$DGCLAW_RAIZ/root/.ssh/.dgclaw-suporte.lock" "$DGCLAW_RAIZ/var/lib/dgclaw/suporte/alerta-sessoes"
+ANTES="$(sha256sum <"$ARQ")"; LOG_ANTES="$(wc -c <"$LOG")"
+dgclaw --ensaio suporte desligar --derrubar-sessoes >"$TMP/o.txt" 2>&1; rc=$?
+igual "ensaio sai 0" 0 "$rc"
+afirma "descreve o que encerraria" grep -q "\[ensaio\] encerraria a sessao de 192.0.2.3:1003" "$TMP/o.txt"
+afirma "sshd P3 continua vivo" kill -0 "$P3"
+afirma "sshd P4 continua vivo" kill -0 "$P4"
+igual "authorized_keys intacto" "$ANTES" "$(sha256sum <"$ARQ")"
+nega "nao criou a trava em .ssh" test -e "$DGCLAW_RAIZ/root/.ssh/.dgclaw-suporte.lock"
+nega "nao gravou a marca de alerta" test -e "$DGCLAW_RAIZ/var/lib/dgclaw/suporte/alerta-sessoes"
+igual "nao escreveu no suporte.log" "$LOG_ANTES" "$(wc -c <"$LOG")"
+dgclaw --ensaio suporte limpar >/dev/null 2>&1; dgclaw --ensaio suporte ligar --chave "$OUTRA" >/dev/null 2>&1
+nega "ensaio nao criou a trava (limpar/ligar)" test -e "$DGCLAW_RAIZ/root/.ssh/.dgclaw-suporte.lock"
+
+echo "--pendencia: desligar sem derrubar deixa a marca e o status so diz desligado depois de confirmar"
+dgclaw suporte desligar >"$TMP/o.txt" 2>&1
+afirma "a marca de pendencia foi gravada" test -e "$DGCLAW_RAIZ/var/lib/dgclaw/suporte/alerta-sessoes"
+linha_status() { bash -c '
+    . "$1"; . "$2/lib/suporte.sh"
+    s_ok() { printf "ok %s\n" "$1"; }; s_aviso() { printf "aviso %s\n" "$1"; }
+    suporte_status_linha' _ "$REPO/lib/comum.sh" "$REPO" 2>&1; }
+afirma "com sessao aberta o status nao diz desligado" grep -q "suporte: chave vencida, mas ha 2 sessao(oes)" <<<"$(linha_status)"
+nega "e nao diz 'ok suporte: desligado'" grep -q "^ok suporte: desligado" <<<"$(linha_status)"
+kill "$P3" "$P4" 2>/dev/null; sleep 0.3; : >"$STUB_ESTADO/ss-conexoes"
+afirma "sem sessao, o status confirma e diz desligado" grep -q "^ok suporte: desligado" <<<"$(linha_status)"
+nega "e a pendencia acabou" test -e "$DGCLAW_RAIZ/var/lib/dgclaw/suporte/alerta-sessoes"
+kill "$P1" "$P2" 2>/dev/null; wait 2>/dev/null
 
 
 fim

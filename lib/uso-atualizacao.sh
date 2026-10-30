@@ -36,6 +36,19 @@ _uso_nome_seguro() {
     if [[ "$1" =~ $USO_NOME_RE ]]; then printf '%s' "$1"; else printf '(nome fora do padrao)'; fi
 }
 USO_SKILLS_OFICIAIS=" "
+USO_CHEIO=0
+
+# _uso_add <texto>: acrescenta a secao, conferindo o teto de bytes A CADA acrescimo (nao so entre agentes). Passou do
+# teto: corta, avisa uma vez e ignora o resto. O aviso entra direto, fora do teto.
+_uso_add() {
+    [ "$USO_CHEIO" = 0 ] || return 0
+    USO_TXT+="$1"
+    if [ "${#USO_TXT}" -gt "$USO_MAX_SECAO" ]; then
+        USO_TXT="${USO_TXT:0:$USO_MAX_SECAO}"$'\n'
+        USO_CHEIO=1
+        USO_LIM+=("relatorio grande demais, o resto foi omitido")
+    fi
+}
 
 # _uso_comandos <revisao>: os comandos e subcomandos do `dgclaw` que a ajuda daquela revisao documenta,
 # um por linha ("agente criar", "senha"...). Vazio se a revisao nao tem bin/dgclaw.
@@ -67,7 +80,7 @@ _uso_ref_toca() {
 # uso_calcular <de> <para>: preenche USO_TXT, USO_CRUZ e USO_LIM. <de> vazio = nao ha base para cruzar.
 uso_calcular() {
     local de="$1" para="$2" tmp agente slug casa c acao pn pf reg_n=0 rc kind a b d nrot nscr skills canais nskp grandes ident n_ag=0 naocomuns oficial nsk
-    USO_TXT=""; USO_CRUZ=(); USO_LIM=()
+    USO_TXT=""; USO_CRUZ=(); USO_LIM=(); USO_CHEIO=0
     tmp="$(mktemp -d)"
 
     # O que muda: caminho<TAB>o verbo da frase ("muda", "sai", "passa a se chamar X").
@@ -93,19 +106,15 @@ uso_calcular() {
         for oficial in "$APP_DIR/skills"/*/; do oficial="${oficial%/}"; USO_SKILLS_OFICIAIS+="${oficial##*/} "; done
     fi
 
-    USO_TXT+="So entram aqui contagens, ids gerados, nomes no padrao e referencias reconhecidas; texto livre das casas dos agentes nao e mostrado."$'\n'
+    _uso_add "So entram aqui contagens, ids gerados, nomes no padrao e referencias reconhecidas; texto livre das casas dos agentes nao e mostrado."$'\n'
     while IFS=$'\t' read -r slug casa; do
         [ -n "$slug" ] || continue
         n_ag=$((n_ag + 1))
-        if [ "${#USO_TXT}" -gt "$USO_MAX_SECAO" ]; then
-            [[ " ${USO_LIM[*]-} " == *"passou de 40 KB"* ]] \
-                || USO_LIM+=("o levantamento do uso passou de 40 KB; os agentes seguintes nao foram detalhados")
-            continue
-        fi
+        [ "$USO_CHEIO" = 0 ] || continue
         agente="$(_uso_nome_seguro "$slug")"
-        USO_TXT+=$'\n'"Agente $agente:"$'\n'
+        _uso_add $'\n'"Agente $agente:"$'\n'
         if [ -z "$casa" ] || [ ! -d "$casa" ] || [ -L "$casa" ]; then
-            USO_TXT+="  (nao li a casa dele: nao e uma pasta de verdade)"$'\n'
+            _uso_add "  (nao li a casa dele: nao e uma pasta de verdade)"$'\n'
             continue
         fi
         : >"$tmp/col"; rc=0
@@ -127,23 +136,23 @@ uso_calcular() {
                        else nskp=$((nskp + 1)); skills+="${skills:+, }skill-$nsk"; fi ;;
                 canal) case "$a" in WhatsApp|Telegram) canais+=", $a" ;; esac ;;
                 identidade) ident=1 ;;
-                rotina) USO_TXT+="  $(_uso_id "$a")"$'\n' ;;
+                rotina) _uso_add "  $(_uso_id "$a")"$'\n' ;;
                 lim) USO_LIM+=("agente $agente: $(_uso_lim_conhecido "$a")") ;;
                 ref) uso_cruzar "agente $agente, $(_uso_id "$a")" "$b" "$d" "$tmp" ;;
             esac
         done <"$tmp/col"
-        USO_TXT+="  rotinas: $nrot"$'\n'
-        USO_TXT+="  scripts proprios lidos: $nscr"
-        if [ "$grandes" -gt 0 ]; then USO_TXT+=" ($grandes pulado(s) por passar de 256 KB)"; fi
-        if [ "$naocomuns" -gt 0 ]; then USO_TXT+=" ($naocomuns pulado(s): nao e arquivo comum)"; fi
-        USO_TXT+=$'\n'
-        USO_TXT+="  skills: ${skills:-nenhuma}"
-        if [ "$nskp" -gt 0 ]; then USO_TXT+=" ($nskp propria(s) do agente; o nome nao e mostrado)"; fi
-        USO_TXT+=$'\n'
-        USO_TXT+="  canais ligados: $canais"$'\n'
-        if [ "$ident" = 1 ]; then USO_TXT+="  identidade e personalidade proprias: sim (a atualizacao nao as toca)"$'\n'; fi
+        _uso_add "  rotinas: $nrot"$'\n'
+        _uso_add "  scripts proprios lidos: $nscr"
+        if [ "$grandes" -gt 0 ]; then _uso_add " ($grandes pulado(s) por passar de 256 KB)"; fi
+        if [ "$naocomuns" -gt 0 ]; then _uso_add " ($naocomuns pulado(s): nao e arquivo comum)"; fi
+        _uso_add $'\n'
+        _uso_add "  skills: ${skills:-nenhuma}"
+        if [ "$nskp" -gt 0 ]; then _uso_add " ($nskp propria(s) do agente; o nome nao e mostrado)"; fi
+        _uso_add $'\n'
+        _uso_add "  canais ligados: $canais"$'\n'
+        if [ "$ident" = 1 ]; then _uso_add "  identidade e personalidade proprias: sim (a atualizacao nao as toca)"$'\n'; fi
     done < <(agentes_ler | jq -r '.agentes[] | select(.tipo == "agente") | [.slug, (.home_host // "")] | @tsv')
-    [ "$n_ag" -gt 0 ] || USO_TXT+=$'\n'"Nenhum agente de trabalho criado ainda."$'\n'
+    [ "$n_ag" -gt 0 ] || _uso_add $'\n'"Nenhum agente de trabalho criado ainda."$'\n'
 
     # --- personalizacoes do programa (o caderno do Admin): so a contagem e os arquivos que a versao toca ---
     while IFS=$'\t' read -r pn pf; do
@@ -156,15 +165,15 @@ uso_calcular() {
             fi
         done <"$tmp/alterados"
     done < <(personalizacoes_ler)
-    USO_TXT+=$'\n'"Personalizacoes do programa registradas e ativas: $reg_n"$'\n'
+    _uso_add $'\n'"Personalizacoes do programa registradas e ativas: $reg_n"$'\n'
 
-    USO_TXT+=$'\n'"Cruzamento com o que esta versao muda:"$'\n'
+    _uso_add $'\n'"Cruzamento com o que esta versao muda:"$'\n'
     if [ -z "$de" ]; then
-        USO_TXT+="  Nao sei qual versao esta instalada, entao nao cruzei nada."$'\n'
+        _uso_add "  Nao sei qual versao esta instalada, entao nao cruzei nada."$'\n'
     elif [ "${#USO_CRUZ[@]}" -eq 0 ]; then
-        USO_TXT+="  Nenhum cruzamento: nada do que foi levantado acima cita arquivo ou comando que esta versao muda ou remove."$'\n'
+        _uso_add "  Nenhum cruzamento: nada do que foi levantado acima cita arquivo ou comando que esta versao muda ou remove."$'\n'
     else
-        for c in "${USO_CRUZ[@]}"; do USO_TXT+="  - $c"$'\n'; done
+        for c in "${USO_CRUZ[@]}"; do _uso_add "  - $c"$'\n'; done
     fi
     for c in ${USO_LIM[@]+"${USO_LIM[@]}"}; do USO_TXT+="  limite atingido: $c"$'\n'; done
     rm -rf "$tmp"
@@ -178,7 +187,7 @@ _uso_lim_conhecido() {
     case "$1" in
         "o manifesto de rotinas nao e arquivo comum (atalho, FIFO ou pasta); pulado"|"o manifesto de rotinas passa de 256 KB; nao li"|\
         "o manifesto de rotinas nao e um JSON valido; nao li"|"o manifesto de rotinas nao pode ser lido com seguranca; pulado"|\
-        "mais de 200 rotinas; li so as primeiras 200"|"mais de 500 scripts; li so os primeiros 500"|\
+        "mais de 200 rotinas; li so as primeiras 200"|"mais de 500 scripts; li so os primeiros 500"|"mais de 300 skills; listei so as primeiras 300"|\
         "a pasta .claude ou skills e um atalho; nao listei as skills"|"casa ilegivel") printf '%s' "$1" ;;
         *) printf 'limite do coletor (mensagem nao reconhecida)' ;;
     esac

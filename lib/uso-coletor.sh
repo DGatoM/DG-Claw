@@ -16,6 +16,7 @@ set -uo pipefail
 MAX_ARQ=262144      # bytes por arquivo lido
 MAX_ROTINAS=200
 MAX_SCRIPTS=500
+MAX_SKILLS=300
 
 casa="${1:?casa}"; saida="${2:?saida}"
 casa_real="$(realpath -e -- "$casa" 2>/dev/null)" || { echo "lim	casa ilegivel" >>"$saida"; exit 0; }
@@ -79,14 +80,16 @@ case "$rc_m" in
     *) emite lim "o manifesto de rotinas nao pode ser lido com seguranca; pulado" ;;
 esac
 
-# --- skills (so nomes que passam na regex) -------------------------------------------------------
+# --- skills (so os nomes; quem consome decide se mostra) ----------------------------------------
 if [ -L "$casa/.claude" ] || [ -L "$casa/.claude/skills" ]; then
     emite lim "a pasta .claude ou skills e um atalho; nao listei as skills"
 else
-    for sk in "$casa/.claude/skills"/*; do
-        [ -e "$sk" ] || [ -L "$sk" ] || continue
+    nsk=0
+    while IFS= read -r -d '' sk; do
+        nsk=$((nsk + 1))
+        if [ "$nsk" -gt "$MAX_SKILLS" ]; then emite lim "mais de $MAX_SKILLS skills; listei so as primeiras $MAX_SKILLS"; break; fi
         emite skill "${sk##*/}"
-    done
+    done < <(find -P "$casa/.claude/skills" -mindepth 1 -maxdepth 1 -print0 2>/dev/null | head -z -n "$((MAX_SKILLS + 1))")
 fi
 
 # --- scripts proprios (casa e skills proprias); -print0 de ponta a ponta, sem seguir atalho ----------

@@ -540,7 +540,16 @@ igual "coleta lenta nao derruba o relatorio" "0" "$rc"
 afirma "tempo da coleta estourado e avisado" grep -q 'limite atingido: a leitura da casa do agente .* passou de 1s' "$TMP/u6.txt"
 DGCLAW_USO_MAX_SECAO=200 dgclaw atualizar --simular >"$TMP/u7.txt" 2>&1; rc=$?
 igual "secao grande nao derruba o relatorio" "0" "$rc"
-afirma "relatorio da secao limitado e avisado" grep -q 'limite atingido: o levantamento do uso passou de 40 KB' "$TMP/u7.txt"
+afirma "relatorio da secao limitado e avisado" grep -q 'limite atingido: relatorio grande demais, o resto foi omitido' "$TMP/u7.txt"
+echo "10.000 skills num agente: a coleta para no teto e o relatorio fica abaixo do limite"
+mkdir -p "$CASA_BETO/.claude/skills"
+( cd "$CASA_BETO/.claude/skills" && seq 1 10000 | sed 's/^/skill-extra-/' | xargs mkdir )
+timeout 100 "$CLI" atualizar --simular >"$TMP/u8.txt" 2>&1; rc=$?
+igual "10.000 skills nao derrubam o relatorio" "0" "$rc"
+afirma "aviso de skills demais" grep -q 'limite atingido: agente beto: mais de 300 skills' "$TMP/u8.txt"
+TAM="$(sed -n '/^O que este DG Claw usa e o que a versao nova toca:/,/^Versao de destino/p' "$TMP/u8.txt" | wc -c)"
+afirma "a secao do relatorio fica abaixo de 40 KB ($TAM bytes)" test "$TAM" -lt 40000
+rm -rf "$CASA_BETO/.claude/skills"
 printf '{"crons": {"relatorio-sexta": {"name": "relatorio-sexta", "calendar": "Fri *-*-* 17:00:00", "poke": "Rode dgclaw relatorio semanal e depois bash /opt/dgclaw/app/scripts/foo.sh"}}}\n' >"$CASA_ANA/.dgclaw/self-crons.json"
 rm -f "$CASA_BETO/.dgclaw/self-crons.json"
 echo "uma versao que nao toca no que eles usam: diz que nao ha cruzamento"

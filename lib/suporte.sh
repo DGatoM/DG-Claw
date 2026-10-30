@@ -131,6 +131,8 @@ suporte_fim_da_linha() { local m="${1##* }"; printf '%s' "${m##*:}"; }
 
 # suporte_travar: uma trava so para ligar, desligar e limpar nao se pisarem (timer x pessoa).
 suporte_travar() {
+    # No ensaio nada e escrito, nem a pasta .ssh nem o arquivo da trava.
+    if [ "$ENSAIO" = 1 ]; then return 0; fi
     install -d -m 700 "$R/root/.ssh"
     exec 9>"$R/root/.ssh/.dgclaw-suporte.lock"
     flock -w 30 9 || falha "outro 'dgclaw suporte' segurou a trava por mais de 30 s." \
@@ -269,7 +271,9 @@ suporte_listar_sessoes() {
         while IFS= read -r pid; do
             [[ "$(cat "/proc/$pid/comm" 2>/dev/null)" == sshd* ]] || continue
             cmd="$(tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null)"
-            [[ "$cmd" == "sshd: root"* ]] || continue
+            # Usuario exato "root": "sshd: root@pts/1", "sshd: root@notty", "sshd: root [priv]" ou "sshd: root".
+            # "sshd: rootbackup@pts/1" e "sshd: root2 [priv]" NAO entram.
+            [[ "$cmd" =~ ^sshd:\ root(@[^[:space:]]+|\ \[priv\])?[[:space:]]*$ ]] || continue
             if [ -z "${pids_de[$peer]:-}" ]; then ordem+=("$peer"); fi
             pids_de[$peer]+="$pid "
         done < <(grep -oE 'pid=[0-9]+' <<<"$linha" | cut -d= -f2)
@@ -319,6 +323,10 @@ suporte_derrubar_outras() {
     fi
     for i in "${!SUP_SES_PEER[@]}"; do
         [ "${SUP_SES_PROPRIA[$i]}" = 0 ] || continue
+        if [ "$ENSAIO" = 1 ]; then
+            printf '   [ensaio] encerraria a sessao de %s (sshd pid %s) com TERM e depois KILL\n' "$(printf '%s' "${SUP_SES_PEER[$i]}" | tr -cd 'A-Za-z0-9.:[]')" "${SUP_SES_PIDS[$i]}"
+            n=$((n + 1)); continue
+        fi
         for pid in ${SUP_SES_PIDS[$i]}; do
             [[ "$(cat "/proc/$pid/comm" 2>/dev/null)" == sshd* ]] || continue
             kill -TERM "$pid" 2>/dev/null || true
@@ -356,15 +364,24 @@ suporte_desligar() {
             info "nao ha outra sessao de root para encerrar."
         else
             suporte_derrubar_outras
-            ok "$SUP_ENCERRADAS sessao(oes) SSH de root encerrada(s). A sua nao foi tocada."
-            suporte_mostrar_sessoes
+            if [ "$ENSAIO" = 1 ]; then
+                info "[ensaio] nada foi encerrado."
+            else
+                ok "$SUP_ENCERRADAS sessao(oes) SSH de root encerrada(s). A sua nao foi tocada."
+                suporte_mostrar_sessoes
+            fi
         fi
     fi
     if [ "$SUP_OUTRAS" -gt 0 ]; then
+        # Pendencia: o dgclaw status so volta a dizer "desligado" depois que nao houver mais sessao de root aberta.
+        if [ "$ENSAIO" != 1 ]; then
+            install -d -m 700 "$(sup_dir_estado)"
+            : >"$(suporte_alerta_arquivo)"; chmod 600 "$(suporte_alerta_arquivo)"
+        fi
         aviso "as novas entradas com a chave do suporte estao bloqueadas, mas ainda ha $SUP_OUTRAS sessao(oes) de root aberta(s) (lista acima): o acesso NAO esta totalmente desligado. Para encerrar TODAS as sessoes SSH de root, menos a sua: sudo dgclaw suporte desligar --derrubar-sessoes"
         return 0
     fi
-    rm -f "$(suporte_alerta_arquivo)"
+    if [ "$ENSAIO" != 1 ]; then rm -f "$(suporte_alerta_arquivo)"; fi
     if [ "$SUP_REMOVIDAS" -gt 0 ]; then ok "acesso do suporte desligado: nenhuma chave dele no arquivo e nenhuma outra sessao de root aberta."
     else ok "o acesso do suporte ja estava desligado."; fi
 }
@@ -429,6 +446,8 @@ suporte_status() {
     suporte_mostrar_sessoes
     if [ "$SUP_OUTRAS" -gt 0 ]; then
         printf 'Para encerrar todas as sessoes SSH de root, menos a sua: sudo dgclaw suporte desligar --derrubar-sessoes\n'
+    elif [ "$ENSAIO" != 1 ]; then
+        rm -f "$(suporte_alerta_arquivo)"   # confirmado: nao ha outra sessao de root, a pendencia acabou
     fi
 }
 
@@ -467,10 +486,13 @@ suporte_status_linha() {
     elif [ "$vencidas" -gt 0 ]; then
         s_aviso "suporte: desligado, mas $vencidas chave(s) vencida(s) ainda no arquivo (remova com: sudo dgclaw suporte limpar)"
     elif [ -e "$(suporte_alerta_arquivo)" ]; then
+        # Ha pendencia (chave vencida ou desligada com sessao de root aberta): so vira "desligado" depois de
+        # confirmar, agora, que nao ha mais sessao de root aberta.
         suporte_listar_sessoes
         if [ "${#SUP_SES_PEER[@]}" -gt 0 ]; then
             s_aviso "suporte: chave vencida, mas ha ${#SUP_SES_PEER[@]} sessao(oes) de root aberta(s), veja sudo dgclaw suporte status"
         else
+            if [ "$ENSAIO" != 1 ]; then rm -f "$(suporte_alerta_arquivo)"; fi
             s_ok "suporte: desligado"
         fi
     else
