@@ -163,7 +163,7 @@ O `TELEGRAM_STATE_DIR` ser separado por assistente e o que permite rodar
   |            panel.py, install-panel-service.sh,
   |            memory_index/memory_recall_local.py
   +-- templates/  AGENT/CLAUDE/MEMORY/working-memory/access (modelos)
-  +-- docs/    COMO-FUNCIONA, ARQUITETURA, AULA, FLUXOS-AULA
+  +-- docs/    COMO-FUNCIONA, ARQUITETURA, TELA-DO-AGENTE, AULA, FLUXOS-AULA
 ```
 
 ---

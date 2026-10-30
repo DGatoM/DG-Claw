@@ -72,6 +72,10 @@ Agentes
       Saida: 0 deu certo, 1 recusa (o motivo vem escrito), 2 uso errado.
       Exemplo:  printf %s "$CHAVE" | dgclaw agente cofre ana guardar OPENAI_API_KEY --aplicar
 
+  dgclaw agente tela-senha <slug>        troca a senha da Tela do agente (a nova senha vem pelo STDIN)
+      A senha tem de 6 a 8 caracteres ASCII (o VNC so usa 8). Vale na hora: o agente religa o VNC sozinho.
+      Exemplo:  printf '%s\n' "Ab3dEf7h" | dgclaw agente tela-senha ana
+
   dgclaw agente remover <slug> [--sim]   tira o agente do ar. Nao apaga: a casa dele vai
       para /var/lib/dgclaw/aposentados/. Pede confirmacao quando ha terminal.
       Exemplo:  dgclaw agente remover ana --sim
@@ -111,6 +115,7 @@ exigir_casa_sem_link() {
     for p in "$casa" "$h" "$h/.dgclaw" "$h/.dgclaw/panel" "$h/.dgclaw/logs" "$h/.plataforma" \
              "$h/.plataforma/dgchat" "$h/.claude" "$h/.codex" "$h/memory" \
              "$h/.dgclaw/config.sh" "$h/.dgclaw/panel/config.json" "$h/.dgclaw/logs/permissoes.log" \
+             "$h/.dgclaw/tela" "$h/.dgclaw/tela/vnc.senha" \
              "$h/.dgclaw/canal-desejado" "$h/.plataforma/dgchat.mcp.json" "$h/.plataforma/identidade.md" \
              "$h/.claude/settings.json" "$h/.claude/settings.local.json" \
              "$h/AGENT.md" "$h/CLAUDE.md" "$h/AGENTS.md" "$h/MEMORY.md"; do
@@ -570,6 +575,81 @@ montar_segredos() {
     ok "token do runner e segredo do painel prontos (nunca aparecem em tela nem em log)"
 }
 
+# --- a senha da Tela do agente (docs/TELA-DO-AGENTE.md) ---------------------------------
+# Sem 0, O, 1, I, l: a senha e lida por uma pessoa e digitada noutra tela.
+TELA_ALFABETO='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'
+
+# tela_senha_aleatoria: 8 caracteres do alfabeto acima (o VNC so usa 8). O tr descarta o
+# que esta fora do alfabeto, entao nao ha vies de modulo; 512 bytes sobram para 8.
+tela_senha_aleatoria() {
+    local pool=""
+    while [ "${#pool}" -lt 8 ]; do
+        pool="$(head -c 512 /dev/urandom | LC_ALL=C tr -dc "$TELA_ALFABETO")"
+    done
+    printf '%s' "${pool:0:8}"
+}
+
+# tela_senha_script_ok: o gravador do rfbauth existe? Falha cedo, antes de gerar senha.
+tela_senha_script_ok() {
+    if [ -n "$R" ] && [ -n "${DGCLAW_TELA_SENHA_CMD:-}" ]; then return 0; fi
+    [ -f "$APP_DIR/panel/bin/tela-senha.js" ] || falha "nao achei $APP_DIR/panel/bin/tela-senha.js, que grava a senha da Tela do agente." \
+        "atualize o DG Claw (esse arquivo vem junto) e rode de novo; a senha NAO foi gravada em texto puro."
+    exigir_ferramentas node
+}
+
+# tela_senha_gravar <home> <uid:gid>: a senha vem pelo STDIN (nunca por argv) e vai para
+# o gravador, que a converte em rfbauth. Depois ajusta modo 600 e dono. DGCLAW_TELA_SENHA_CMD
+# (so com raiz falsa) troca o gravador nos testes; ele recebe o caminho em $1.
+tela_senha_gravar() {
+    local h="$1" ug="$2" alvo="$1/.dgclaw/tela/vnc.senha" rc=0
+    tela_senha_script_ok
+    criar_pasta 700 "$ug" "$h/.dgclaw/tela"
+    if [ -n "$R" ] && [ -n "${DGCLAW_TELA_SENHA_CMD:-}" ]; then
+        bash -c "$DGCLAW_TELA_SENHA_CMD" tela-senha "$alvo" || rc=$?
+    else
+        node "$APP_DIR/panel/bin/tela-senha.js" --arquivo "$alvo" || rc=$?
+    fi
+    [ "$rc" -eq 0 ] || falha "o gravador da senha da Tela terminou com codigo $rc ao gravar $alvo." \
+        "leia a mensagem dele acima (a senha precisa ter de 6 a 8 caracteres ASCII); depois rode de novo."
+    [ -s "$alvo" ] || falha "o gravador da senha da Tela terminou sem erro, mas $alvo nao existe ou esta vazio." \
+        "isso e um erro do DG Claw; rode de novo e, se repetir, avise quem mantem o DG Claw."
+    chmod 600 "$alvo"
+    dono "$ug" "$alvo"
+}
+
+# montar_tela_senha: etapa do `agente criar`. Idempotente: se a casa ja tem a senha, nao
+# toca (trocar derrubaria a sessao do dono). A senha nova fica em C_TELA_SENHA so para o
+# bloco do fim; nunca vai para log, argv ou arquivo em texto puro.
+montar_tela_senha() {
+    local h="$C_HOME" ug="$C_UG" alvo="$C_HOME/.dgclaw/tela/vnc.senha"
+    C_TELA_SENHA=""
+    if [ "$ENSAIO" = 1 ]; then
+        info "[ensaio] se $alvo nao existir: geraria uma senha de 8 caracteres, gravaria o rfbauth com panel/bin/tela-senha.js (senha pelo STDIN, modo 600, dono $ug) e mostraria a senha uma vez no fim"
+        return 0
+    fi
+    if [ -s "$alvo" ]; then
+        info "a senha da Tela ja existe em $alvo, mantida"
+        return 0
+    fi
+    tela_senha_script_ok
+    C_TELA_SENHA="$(tela_senha_aleatoria)"
+    printf '%s\n' "$C_TELA_SENHA" | tela_senha_gravar "$h" "$ug"
+    ok "senha da Tela gravada (so como rfbauth; ela aparece uma vez, no fim)"
+}
+
+# tela_senha_bloco: o aviso com a senha. Usado no fim do criar e quando o criar morre
+# depois de a senha ter nascido (senao ela se perderia: a proxima execucao ve o arquivo
+# pronto e nao mostra mais).
+tela_senha_bloco() {
+    [ -n "${C_TELA_SENHA:-}" ] || return 0
+    printf '\n  ======================================================\n'
+    printf '  SENHA DA TELA do %s: %s\n' "$C_NOME" "$C_TELA_SENHA"
+    printf '  Anote agora: ela nao aparece de novo. O dono pode trocar no\n'
+    printf '  painel, aba Tela (ou: dgclaw agente tela-senha %s).\n' "$C_SLUG"
+    printf '  ======================================================\n'
+    C_TELA_SENHA=""
+}
+
 criar_rede() {
     local rede="dgclaw-$C_SLUG"
     if [ "$ENSAIO" != 1 ] && podman network exists "$rede" >/dev/null 2>&1; then
@@ -854,6 +934,7 @@ _criar_ao_sair() {
         if podman container exists "dgclaw-$C_SLUG" >/dev/null 2>&1; then printf '  - o container dgclaw-%s\n' "$C_SLUG"; fi
         printf 'Para continuar de onde parou, rode de novo o mesmo comando (ele nao duplica nada):\n'
         printf '  dgclaw agente criar %s --nome "%s" ...\n' "$C_SLUG" "$C_NOME"
+        tela_senha_bloco
     } >&2
 }
 
@@ -931,6 +1012,8 @@ agente_criar() {
     montar_identidade
     etapa "Gerando os segredos"
     montar_segredos
+    etapa "Preparando a senha da Tela"
+    montar_tela_senha
     etapa "Criando a rede e o container"
     criar_rede
     criar_container
@@ -962,6 +1045,7 @@ agente_criar() {
     [ "$vida_ok" = 1 ] || printf '  Atencao: a parte de dentro nao terminou. Rode: dgclaw agente reparar %s\n' "$C_SLUG"
     printf '  Falta entrar na conta: o painel mostra o botao.\n'
     if [ "$C_CANAL" != chat ]; then printf '  O canal %s foi anotado; quem liga e a skill de canais.\n' "$C_CANAL"; fi
+    tela_senha_bloco
 }
 
 # --- demais comandos de agente ---------------------------------------------------------
@@ -1255,6 +1339,38 @@ agente_cofre() {
         DGCLAW_WEB_DATA="$DG_LIB/web" node "$cofre_js" "$acao" "$slug" "$@"
 }
 
+# agente_tela_senha <slug>: troca a senha da Tela. A nova senha vem pelo STDIN (ou e
+# pedida no terminal, sem eco). Quem valida o tamanho e o alfabeto e o gravador; o
+# x11vnc religa sozinho (dgclaw-tela-senha.path, dentro do agente).
+agente_tela_senha() {
+    exigir_slug "${1:-}" tela-senha
+    local slug="$1" obj h senha="" conf="" ug
+    exigir_ferramentas jq
+    if [ "$ENSAIO" = 1 ]; then
+        info "[ensaio] leria a nova senha do STDIN e a gravaria como rfbauth em home/.dgclaw/tela/vnc.senha do agente $slug"
+        return 0
+    fi
+    obj="$(agentes_obter "$slug")"
+    [ -n "$obj" ] || falha "o agente '$slug' nao esta no agentes.json." "veja os que existem com: dgclaw agente listar"
+    h="$(printf '%s' "$obj" | jq -r '.home_host')"
+    [ -d "$h" ] || falha "a casa do agente $slug ($h) nao existe." "confira com: dgclaw agente listar"
+    tela_senha_script_ok
+    if [ -t 0 ]; then
+        printf 'Nova senha da Tela (6 a 8 caracteres, nada aparece enquanto digita): ' >&2
+        read -rs senha; printf '\n' >&2
+        printf 'Repita a senha: ' >&2
+        read -rs conf; printf '\n' >&2
+        [ "$senha" = "$conf" ] || falha "as duas senhas digitadas sao diferentes." "nada foi trocado; rode de novo."
+    else
+        IFS= read -r senha || [ -n "$senha" ] || falha "a senha nova nao chegou pelo STDIN." \
+            "envie assim: printf '%s\\n' \"senha\" | dgclaw agente tela-senha $slug"
+    fi
+    ug="$(stat -c '%u:%g' "$h")"
+    printf '%s\n' "$senha" | tela_senha_gravar "$h" "$ug"
+    senha=""; conf=""
+    ok "senha da Tela do agente $slug trocada (vale na hora; a anterior deixa de abrir)"
+}
+
 agente_main() {
     local sub="${1:-}"; shift || true
     case "$sub" in
@@ -1263,9 +1379,10 @@ agente_main() {
         parar|iniciar|reiniciar) agente_acao "$sub" "$@" ;;
         reparar) agente_reparar "$@" ;;
         cofre) agente_cofre "$@" ;;
+        tela-senha) agente_tela_senha "$@" ;;
         remover) agente_remover "$@" ;;
-        "") falha "faltou dizer o que fazer com os agentes." "use: criar, listar, parar, iniciar, reiniciar, reparar, cofre ou remover (veja dgclaw --ajuda)." ;;
-        *) falha "'agente $sub' nao existe." "use: criar, listar, parar, iniciar, reiniciar, reparar, cofre ou remover (veja dgclaw --ajuda)." ;;
+        "") falha "faltou dizer o que fazer com os agentes." "use: criar, listar, parar, iniciar, reiniciar, reparar, cofre, tela-senha ou remover (veja dgclaw --ajuda)." ;;
+        *) falha "'agente $sub' nao existe." "use: criar, listar, parar, iniciar, reiniciar, reparar, cofre, tela-senha ou remover (veja dgclaw --ajuda)." ;;
     esac
 }
 

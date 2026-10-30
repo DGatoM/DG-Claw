@@ -5,7 +5,7 @@
 #   podman build --ignorefile container/ignore \
 #     -t localhost/dgclaw-agente:<versao> -t localhost/dgclaw-agente:latest \
 #     -f container/Containerfile .
-# Perfil pesado (Chromium + Xvfb): acrescente --build-arg COM_NAVEGADOR=1.
+# Perfil pesado (Chromium + a Tela com Google Chrome): acrescente --build-arg COM_NAVEGADOR=1.
 # Detalhes, tamanhos e montagens em container/README.md.
 
 # ---------------------------------------------------------------------------
@@ -115,14 +115,28 @@ RUN python3 -m venv /opt/venv \
 ENV PATH=/opt/venv/bin:$PATH
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
 
-# Perfil pesado, só com --build-arg COM_NAVEGADOR=1: Chromium do Playwright com as
-# bibliotecas do sistema, e Xvfb para quem precisa de uma tela. Acrescenta cerca de
-# 500 a 600 MB. O diretório fica legível para o usuário agente.
+# Perfil pesado, só com --build-arg COM_NAVEGADOR=1. Duas coisas:
+#  1. Chromium do Playwright com as bibliotecas do sistema (automação headless).
+#  2. A Tela do agente (docs/TELA-DO-AGENTE.md): Xvfb + fluxbox + x11vnc + noVNC/websockify
+#     e o Google Chrome estável, NÃO headless (site com anti-robô recusa headless).
+#     O Chrome vem do repositório APT oficial do Google, com a chave baixada por HTTPS e
+#     conferida pelo apt (signed-by); o chromium do Ubuntu 24.04 é snap e snap não roda em
+#     container. O pacote do Google só existe para amd64, por isso a conferência abaixo.
+# Acrescenta de 500 a 600 MB (Chromium) mais uns 400 MB (Chrome e a Tela). O diretório do
+# Playwright fica legível para o usuário agente.
 RUN if [ "$COM_NAVEGADOR" = "1" ]; then \
+      [ "$(dpkg --print-architecture)" = "amd64" ] \
+        || { echo "ERRO: o Google Chrome estavel so tem pacote para amd64 (esta imagem e $(dpkg --print-architecture)); construa sem COM_NAVEGADOR=1 ou numa maquina amd64" >&2; exit 1; }; \
       apt-get update \
-      && apt-get install -y --no-install-recommends xvfb x11-utils \
+      && apt-get install -y --no-install-recommends \
+           xvfb x11vnc fluxbox novnc websockify x11-utils fonts-liberation fonts-noto-color-emoji \
       && python -m playwright install --with-deps chromium \
       && chmod -R a+rX /opt/playwright \
+      && curl --proto '=https' --tlsv1.2 -fsSL https://dl.google.com/linux/linux_signing_key.pub \
+           | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg \
+      && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] https://dl.google.com/linux/chrome/deb/ stable main" \
+           > /etc/apt/sources.list.d/google-chrome.list \
+      && apt-get update && apt-get install -y --no-install-recommends google-chrome-stable \
       && rm -rf /var/lib/apt/lists/*; \
     fi
 
@@ -159,6 +173,14 @@ RUN for c in node npm claude codex bun gh yt-dlp ffmpeg pdftotext jq rg sqlite3 
     done \
     && node --version && bun --version && claude --version && codex --version && gh --version | head -1
 
+# Mesma conferência para o perfil com navegador: sem a Tela completa, a imagem não sai.
+RUN if [ "$COM_NAVEGADOR" = "1" ]; then \
+      for c in google-chrome-stable x11vnc websockify Xvfb; do \
+        command -v "$c" >/dev/null || { echo "ERRO: '$c' não está no PATH da imagem com navegador" >&2; exit 1; }; \
+      done \
+      && echo 'export DISPLAY=:1' >> /etc/profile.d/agente.sh; \
+    fi
+
 STOPSIGNAL SIGRTMIN+3
 CMD ["/sbin/init"]
 
@@ -174,6 +196,19 @@ COPY container/units/dgclaw-runner.service container/units/dgclaw-painel.service
 # Ponto de montagem (somente leitura, vindo do host) do runner.json do agente.
 RUN mkdir -p /etc/dgclaw-runner && chmod 755 /etc/dgclaw-runner
 RUN systemctl enable dgclaw-runner.service dgclaw-painel.service
+# A Tela do agente. As cinco unidades são copiadas SEMPRE (são arquivos de texto pequenos e
+# deixam a imagem igual nos dois perfis), mas só são habilitadas no perfil com navegador:
+# sem o Chrome e o x11vnc elas falhariam em loop. O ARG precisa ser declarado de novo
+# porque cada estágio começa sem os ARG do anterior.
+ARG COM_NAVEGADOR=0
+COPY container/units/dgclaw-tela.service container/units/dgclaw-tela-vnc.service \
+     container/units/dgclaw-tela-web.service container/units/dgclaw-tela-chrome.service \
+     container/units/dgclaw-tela-senha.path container/units/dgclaw-tela-senha.service \
+     /etc/systemd/system/
+RUN if [ "$COM_NAVEGADOR" = "1" ]; then \
+      systemctl enable dgclaw-tela.service dgclaw-tela-vnc.service dgclaw-tela-web.service \
+        dgclaw-tela-chrome.service dgclaw-tela-senha.path; \
+    fi
 # A ponte do WhatsApp vem na imagem, mas FICA DE FORA do "systemctl enable" de propósito:
 # só sobe quando o dono liga o canal ("dgclaw-agente canal whatsapp ligar"), que cria o
 # arquivo "ligado" (o ConditionPathExists da unidade) e habilita a unidade.
