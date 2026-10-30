@@ -31,6 +31,8 @@ APP_DIR="$(cd "$(dirname "$DGCLAW_BIN_REAL")/.." && pwd)"
 . "$APP_DIR/lib/aviso-atualizacao.sh"
 # shellcheck source=lib/personalizacoes.sh
 . "$APP_DIR/lib/personalizacoes.sh"
+# shellcheck source=lib/uso-atualizacao.sh
+. "$APP_DIR/lib/uso-atualizacao.sh"
 # shellcheck source=lib/suporte.sh
 . "$APP_DIR/lib/suporte.sh"
 
@@ -129,7 +131,7 @@ Atualizar o DG Claw
       reinicia o Admin por ultimo. Se o clone estiver na branch `personalizacoes`, confere o registro
       de personalizacoes contra a versao nova: para se algo cruzar e reaplica por cima se nao cruzar
       (--simular ja mostra o cruzamento). Antes do backup, mostra o relatorio "O que muda" (commits,
-      CHANGELOG, pontos de atencao; gravado em /var/log/dgclaw/) e so segue com --ok-do-dono. Opcoes:
+      CHANGELOG, pontos de atencao e o que este DG Claw usa; gravado em /var/log/dgclaw/) e so segue com --ok-do-dono. Opcoes:
         --simular               mostra tudo o que faria, sem mudar nada
         --repo <pasta>          onde esta o clone do DG Claw (o instalador anota; so precisa se ele nao souber)
         --forcar-local          se o clone tiver alteracao local, guarda num stash datado e segue
@@ -137,7 +139,13 @@ Atualizar o DG Claw
         --sem-backup-agentes    pula o backup das casas dos agentes (so se a pessoa pedir; o resto entra)
         --sem-voltar-sozinho    se o instalador novo ou a conferencia falharem, para e deixa como esta
                                 (o padrao e voltar sozinho ao backup; agente que nao sobe NUNCA faz voltar)
-        --ok-do-dono            o dono leu o relatorio "O que muda" e autorizou; sem isso a atualizacao de verdade nao segue
+        --parecer segura|arriscada --motivo "<texto curto>"
+                                grava o parecer de quem analisou o relatorio (o que muda cruzado com o que este
+                                DG Claw usa) para a versao de destino; nao instala nada. Obrigatorio antes do ok
+        --ok-do-dono            o dono leu o relatorio "O que muda" e autorizou; sem isso a atualizacao de verdade nao segue.
+                                Exige parecer 'segura' para a mesma versao; parecer 'arriscada' bloqueia
+        --apesar-do-alerta      com --ok-do-dono: instala mesmo com parecer 'arriscada'. So quando o dono, depois de
+                                ouvir o alerta, pedir explicitamente
         --segundo-plano         roda solto do terminal (recomendado para o Admin) e deixa o log em /var/log/dgclaw/
       Exemplo:  sudo dgclaw atualizar --simular
   dgclaw atualizar --checar              confere agora se saiu versao nova (so le o GitHub; nao baixa nem instala)

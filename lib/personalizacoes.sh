@@ -550,6 +550,7 @@ _om_relatorio() {
         printf '  (nao consegui ler o CHANGELOG.md da versao nova; leia os commits acima)\n'
     fi
 
+    uso_calcular "$de" "$para"
     printf '\nPontos de atencao:\n'
     while IFS= read -r f; do
         [ -n "$f" ] || continue
@@ -563,11 +564,17 @@ _om_relatorio() {
         printf '%s' "$pontos"
         if [ "$np" -gt "$max" ]; then printf '  e mais %s arquivo(s)\n' "$((np - max))"; fi
     fi
+    if [ "${#USO_CRUZ[@]}" -gt 0 ]; then
+        printf '  Cruzando com o que este DG Claw usa:\n'
+        for f in "${USO_CRUZ[@]}"; do printf '  - %s\n' "$f"; done
+    fi
+    printf '\nO que este DG Claw usa e o que a versao nova toca:\n'
+    printf '%s' "$USO_TXT" | sed 's/^/  /'
     velho="$(personalizacoes_registro)"
     printf '\nSuas personalizacoes estao no registro %s.\n' "$velho"
     printf '\nVersao de destino (para conferencia, nao precisa ler):\nDESTINO=%s\n' "$para"
     if [ -n "$head" ]; then printf 'HEAD=%s\n' "$head"; fi
-    printf '\nAntes de instalar: leia o que muda, diga ao dono em linguagem simples se ve algum risco para os arquivos, os dados ou as personalizacoes dele e espere o ok. Com o ok: sudo dgclaw atualizar --ok-do-dono --segundo-plano\n'
+    printf '\nAntes de instalar: leia o que muda e o que este DG Claw usa (secao acima), diga ao dono em linguagem simples se a atualizacao e segura e se vale a pena, e grave o parecer: sudo dgclaw atualizar --parecer segura --motivo "<texto curto>" (ou arriscada, que bloqueia). Espere o ok dele. Com o ok: sudo dgclaw atualizar --ok-do-dono --segundo-plano\n'
 }
 
 # _om_changelog <origem> <destino>: linhas de item que o CHANGELOG do destino tem e o da origem nao
@@ -584,13 +591,18 @@ _om_changelog() {
 # para aqui, antes do backup.
 _om_exigir_ok() {
     local motivo="$1" arq="${2:-}"
-    if [ "${ATU_OK_DONO:-0}" = 1 ]; then ok "ok do dono recebido (--ok-do-dono): sigo com a atualizacao"; return 0; fi
+    if [ "${ATU_OK_DONO:-0}" = 1 ]; then
+        atualizar_conferir_parecer
+        ok "ok do dono recebido (--ok-do-dono): sigo com a atualizacao"
+        return 0
+    fi
     if [ "$ENSAIO" = 1 ]; then
         info "a atualizacao de verdade vai exigir --ok-do-dono, depois que o dono ler o relatorio acima."
+        info "Antes dele, a analise: com o relatorio lido e cruzado com o que este DG Claw usa, grave o parecer: sudo dgclaw atualizar --parecer segura|arriscada --motivo \"<texto curto>\". Parecer arriscada bloqueia a instalacao."
         return 0
     fi
     falha "$motivo e eu ainda nao tenho o ok do dono.${arq:+ O relatorio esta em $arq.}" \
-          "mostre ${arq:+o relatorio }ao dono em linguagem simples (diga se ve risco para os arquivos, os dados ou as personalizacoes dele), espere o ok e rode: sudo dgclaw atualizar --ok-do-dono --segundo-plano. Nada foi mudado (parei antes do backup)."
+          "mostre ${arq:+o relatorio }ao dono em linguagem simples (diga se a atualizacao e segura para os arquivos, os dados, as rotinas e as personalizacoes dele e se vale a pena), grave o parecer (sudo dgclaw atualizar --parecer segura --motivo \"<texto curto>\"), espere o ok e rode: sudo dgclaw atualizar --ok-do-dono --segundo-plano. Nada foi mudado (parei antes do backup)."
 }
 
 # atualizar_o_que_muda: roda antes do backup. Mostra o que a versao nova traz e, sempre que o que vai ser

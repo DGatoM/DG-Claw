@@ -168,6 +168,7 @@ afirma "o relatorio termina com a instrucao do ok" grep -q -- 'sudo dgclaw atual
 echo "atualizar de verdade"
 echo imagem-v2 >"$STUB_ESTADO/imagem-id"   # a imagem "mudou": os containers velhos precisam ser recriados
 : >"$STUB_LOG"
+parecer_segura
 dgclaw atualizar --ok-do-dono >"$TMP/o3.txt" 2>&1; rc=$?
 igual "atualizar sai com 0" "0" "$rc"
 [ "$rc" -eq 0 ] || sed 's/^/      | /' "$TMP/o3.txt" | tail -n 30
@@ -284,6 +285,7 @@ NBACKUPS_ANTES="$(find "$BACKUPS" -mindepth 1 -maxdepth 1 -type d | wc -l)"
 : >"$STUB_LOG"
 # O dono precisa ver o relatorio da versao que vai ser instalada (a de agora e outra que a do relatorio anterior).
 dgclaw atualizar --forcar-local --simular >/dev/null 2>&1
+parecer_segura --forcar-local
 dgclaw atualizar --forcar-local --ok-do-dono >"$TMP/o7.txt" 2>&1; rc=$?
 igual "a atualizacao que apaga uma chave termina com erro (1)" "1" "$rc"
 afirma "aponta a chave que sumiu" grep -q "FALHOU.*'GROQ_API_KEY'" "$TMP/o7.txt"
@@ -306,6 +308,7 @@ echo "--sem-voltar-sozinho: a conferencia reprova e o comando para, como antes"
 git -C "$CLONE" switch -q main
 : >"$STUB_LOG"
 dgclaw atualizar --sem-voltar-sozinho --simular >/dev/null 2>&1   # o dono ve o relatorio desta versao antes
+parecer_segura --sem-voltar-sozinho
 dgclaw atualizar --sem-voltar-sozinho --ok-do-dono >"$TMP/o7b.txt" 2>&1; rc=$?
 igual "termina com erro (1)" "1" "$rc"
 afirma "aponta a chave que sumiu" grep -q "FALHOU.*'GROQ_API_KEY'" "$TMP/o7b.txt"
@@ -321,6 +324,7 @@ git -C "$TRAB" revert --no-edit HEAD >/dev/null 2>&1; git -C "$TRAB" push -q ori
 git -C "$CLONE" switch -q main
 # O ultimo instalador que rodou foi o sabotado: instala o bom de novo, para que "a versao de antes" seja boa.
 dgclaw atualizar --simular >/dev/null 2>&1
+parecer_segura
 dgclaw atualizar --ok-do-dono >"$TMP/o7bom.txt" 2>&1 || sed 's/^/      | /' "$TMP/o7bom.txt" | tail -n 20
 printf 'GROQ_API_KEY=gsk_chave_da_marta\n' >>"$ETC/web.env"
 # shellcheck disable=SC2016
@@ -330,6 +334,7 @@ WEB_ANTES="$(sort "$ETC/web.env" | sha256sum)"
 fotografar >"$TMP/antes-i.txt"
 : >"$STUB_LOG"
 dgclaw atualizar --simular >/dev/null 2>&1
+parecer_segura
 dgclaw atualizar --ok-do-dono >"$TMP/o7c.txt" 2>&1; rc=$?
 igual "termina com erro (1)" "1" "$rc"
 afirma "diz que o instalador novo terminou com erro" grep -q 'o instalador (install.sh) da versao nova terminou com erro' "$TMP/o7c.txt"
@@ -344,6 +349,7 @@ git -C "$CLONE" switch -q main
 echo LIXO-ANTES >>"$ETC/web.env"
 WEB_ANTES="$(sha256sum <"$ETC/web.env")"
 dgclaw atualizar --sem-voltar-sozinho --simular >/dev/null 2>&1
+parecer_segura --sem-voltar-sozinho
 dgclaw atualizar --sem-voltar-sozinho --ok-do-dono >"$TMP/o7d.txt" 2>&1; rc=$?
 igual "termina com erro (1)" "1" "$rc"
 nega "nao desfez sozinho" grep -q 'foi desfeita sozinha' "$TMP/o7d.txt"
@@ -361,6 +367,7 @@ echo sempre >"$STUB_ESTADO/stop-trava-dgclaw-ana"   # o stop da Ana devolve e o 
 touch "$STUB_ESTADO/mounts-volume"                     # com volume do podman o 'rm -f' e proibido: a Ana nao recria
 : >"$STUB_LOG"
 dgclaw atualizar --forcar-local --simular >/dev/null 2>&1
+DGCLAW_TEMPO_PARADA=2 parecer_segura --forcar-local
 DGCLAW_TEMPO_PARADA=2 dgclaw atualizar --forcar-local --ok-do-dono >"$TMP/o8.txt" 2>&1; rc=$?
 [ "$rc" -ne 0 ] || sed 's/^/      | /' "$TMP/o8.txt" | tail -n 30
 nega "sai com codigo diferente de 0" test "$rc" -eq 0
@@ -395,6 +402,7 @@ afirma "o clone ja esta no commit novo" test "$COMMIT_NOVO" != "$COMMIT_ANTES"
 sed -i '/^DGCLAW_COMMIT=/d; s/^DGCLAW_VERSAO=.*/DGCLAW_VERSAO=v1-'"${COMMIT_ANTES:0:12}"'/' "$ETC/dgclaw.env"
 : >"$STUB_LOG"
 dgclaw atualizar --sem-baixar --simular >/dev/null 2>&1
+parecer_segura --sem-baixar
 dgclaw atualizar --sem-baixar --ok-do-dono >"$TMP/o10.txt" 2>&1; rc=$?
 igual "atualizar --sem-baixar sai com 0" "0" "$rc"
 [ "$rc" -eq 0 ] || sed 's/^/      | /' "$TMP/o10.txt" | tail -n 30
@@ -409,8 +417,122 @@ sed -i '/^DGCLAW_COMMIT=/d; s/^DGCLAW_VERSAO=.*/DGCLAW_VERSAO=desconhecida/' "$E
 dgclaw atualizar --sem-baixar >"$TMP/o11a.txt" 2>&1; rc=$?
 nega "sem commit instalado e sem --ok-do-dono, para" test "$rc" -eq 0
 afirma "diz que nao sabe qual versao esta instalada" grep -q 'nao sei qual versao esta instalada' "$TMP/o11a.txt"
+parecer_segura --sem-baixar
 dgclaw atualizar --sem-baixar --ok-do-dono >"$TMP/o11.txt" 2>&1; rc=$?
 igual "sai com 0" "0" "$rc"
 afirma "avisa que usou o HEAD do clone" grep -q 'uso o HEAD do clone' "$TMP/o11.txt"
+
+echo "analise do uso: o relatorio cruza rotinas e scripts dos agentes com o que a versao nova muda"
+PARECER="$LIB/web/atualizacao/parecer.json"
+git -C "$TRAB" pull -q --rebase origin main 2>/dev/null || true
+mkdir -p "$TRAB/scripts"
+printf 'echo foo v1\n' >"$TRAB/scripts/foo.sh"; printf 'echo bar\n' >"$TRAB/scripts/bar.sh"
+cat >"$TRAB/bin/dgclaw" <<'FIMTESTE'
+#!/bin/sh
+echo dgclaw falso
+exit 0
+ajuda() {
+    cat <<'FIM'
+  dgclaw agente criar <slug> --nome x
+  dgclaw relatorio semanal             manda o relatorio
+  dgclaw senha                          troca a senha
+FIM
+}
+FIMTESTE
+git -C "$TRAB" add -A; git -C "$TRAB" commit -q -m v6a; git -C "$TRAB" push -q origin main
+COMMIT_V6A="$(git -C "$TRAB" rev-parse HEAD)"
+printf 'echo foo v2\n' >"$TRAB/scripts/foo.sh"
+sed -i '/relatorio semanal/d' "$TRAB/bin/dgclaw"
+git -C "$TRAB" add -A; git -C "$TRAB" commit -q -m v6b; git -C "$TRAB" push -q origin main
+COMMIT_V6B="$(git -C "$TRAB" rev-parse HEAD)"
+git -C "$CLONE" switch -q main 2>/dev/null; git -C "$CLONE" fetch -q origin
+sed -i '/^DGCLAW_COMMIT=/d' "$ETC/dgclaw.env"; echo "DGCLAW_COMMIT=$COMMIT_V6A" >>"$ETC/dgclaw.env"
+CASA_ANA="$LIB/agentes/ana/home"
+cat >"$CASA_ANA/.dgclaw/self-crons.json" <<'FIMJSON'
+# >>> DG-ALIVE SELF-CRONS (slug=ana) - NAO EDITAR FORA DESTE BLOCO <<<
+{"crons": {"relatorio-sexta": {"name": "relatorio-sexta", "calendar": "Fri *-*-* 17:00:00", "poke": "Rode dgclaw relatorio semanal e depois bash /opt/dgclaw/app/scripts/foo.sh"}}}
+# <<< DG-ALIVE SELF-CRONS END >>>
+FIMJSON
+# shellcheck disable=SC2016 # o $DGCLAW_PLUGIN_ROOT vai literal para dentro do script da casa
+printf '#!/bin/bash\nbash $DGCLAW_PLUGIN_ROOT/scripts/foo.sh\nbash /opt/dgclaw/app/scripts/bar.sh\n' >"$CASA_ANA/meu-script.sh"
+mkdir -p "$CASA_ANA/.dgclaw/whatsapp"
+dgclaw atualizar --simular >"$TMP/u1.txt" 2>&1; rc=$?
+igual "simular com rotina falsa sai com 0" "0" "$rc"
+afirma "tem a secao do uso" grep -q 'O que este DG Claw usa e o que a versao nova toca' "$TMP/u1.txt"
+afirma "lista a rotina do agente" grep -q 'rotina relatorio-sexta:' "$TMP/u1.txt"
+afirma "lista o canal WhatsApp" grep -q 'canais ligados: chat, WhatsApp' "$TMP/u1.txt"
+afirma "lista o script proprio que chama o programa" grep -q 'scripts proprios que chamam o programa do DG Claw: meu-script.sh' "$TMP/u1.txt"
+afirma "cruzamento: a rotina chama scripts/foo.sh, que muda" grep -q 'a rotina relatorio-sexta do agente ana chama scripts/foo.sh, que muda nesta versao' "$TMP/u1.txt"
+afirma "cruzamento: o script proprio chama scripts/foo.sh" grep -q 'o script meu-script.sh do agente ana chama scripts/foo.sh, que muda nesta versao' "$TMP/u1.txt"
+afirma "cruzamento: comando que saiu da CLI" grep -q 'a rotina relatorio-sexta do agente ana usa o comando "dgclaw relatorio semanal", que saiu ou mudou de nome' "$TMP/u1.txt"
+nega "scripts/bar.sh nao muda: nao entra no cruzamento" grep -q 'chama scripts/bar.sh' "$TMP/u1.txt"
+nega "o comando 'agente criar' continua: nao entra" grep -q 'dgclaw agente criar' "$TMP/u1.txt"
+afirma "os cruzamentos entram nos Pontos de atencao" bash -c "sed -n '/^Pontos de atencao:/,/^O que este DG Claw usa/p' '$TMP/u1.txt' | grep -q 'Cruzando com o que este DG Claw usa'"
+nega "o beto nao tem cruzamento" grep -q 'do agente beto chama' "$TMP/u1.txt"
+echo "uma versao que nao toca no que eles usam: diz que nao ha cruzamento"
+printf 'so texto\n' >>"$TRAB/README.md"; git -C "$TRAB" add -A; git -C "$TRAB" commit -q -m v6c; git -C "$TRAB" push -q origin main
+git -C "$CLONE" fetch -q origin
+sed -i '/^DGCLAW_COMMIT=/d' "$ETC/dgclaw.env"; echo "DGCLAW_COMMIT=$COMMIT_V6B" >>"$ETC/dgclaw.env"
+dgclaw atualizar --simular >"$TMP/u2.txt" 2>&1
+afirma "sem cruzamento, diz numa linha" grep -q 'Nenhum cruzamento' "$TMP/u2.txt"
+nega "e nao lista cruzamento nenhum" grep -q 'Cruzando com o que este DG Claw usa' "$TMP/u2.txt"
+
+echo "parecer obrigatorio antes do --ok-do-dono"
+NB_ANTES="$(find "$BACKUPS" -mindepth 1 -maxdepth 1 -type d | wc -l)"
+rm -f "$PARECER"
+dgclaw atualizar --ok-do-dono >"$TMP/p1.txt" 2>&1; rc=$?
+igual "ok-do-dono sem parecer recusa" "1" "$rc"
+afirma "explica que falta o parecer" grep -q 'falta o parecer sobre a versao' "$TMP/p1.txt"
+afirma "diz o comando do parecer" grep -q 'dgclaw atualizar --parecer segura --motivo' "$TMP/p1.txt"
+igual "parou antes do backup" "$NB_ANTES" "$(find "$BACKUPS" -mindepth 1 -maxdepth 1 -type d | wc -l)"
+afirma "o bloqueio ficou no registro" grep -q 'bloqueio .*sem-parecer' "$RAIZ/var/log/dgclaw/atualizar-pareceres.log"
+
+nega "parecer sem motivo e recusado" dgclaw atualizar --parecer segura
+nega "parecer invalido e recusado" dgclaw atualizar --parecer talvez --motivo x
+nega "--motivo sozinho e recusado" dgclaw atualizar --motivo x
+nega "--apesar-do-alerta sem --ok-do-dono e recusado" dgclaw atualizar --apesar-do-alerta
+nega "parecer com --ok-do-dono e recusado" dgclaw atualizar --parecer segura --motivo x --ok-do-dono
+dgclaw atualizar --parecer segura --motivo "so texto de README, nada que as rotinas usem" >"$TMP/p2.txt" 2>&1; rc=$?
+igual "gravar o parecer sai com 0" "0" "$rc"
+[ "$rc" -eq 0 ] || sed 's/^/      | /' "$TMP/p2.txt" | tail -n 20
+afirma "o arquivo do parecer existe com modo 600" bash -c "[ \"\$(stat -c %a '$PARECER')\" = 600 ]"
+DEST_PARECER="$(jq -r .commit_alvo "$PARECER")"
+igual "o parecer guarda o commit alvo certo" "$(git -C "$CLONE" rev-parse origin/main)" "$DEST_PARECER"
+igual "o parecer guarda o veredito" "segura" "$(jq -r .veredito "$PARECER")"
+afirma "o parecer guarda o motivo" bash -c "jq -r .motivo '$PARECER' | grep -q 'so texto de README'"
+afirma "o parecer guarda a data" bash -c "jq -r .data '$PARECER' | grep -qE '^20[0-9]{2}-'"
+nega "gravar o parecer nao instalou nada (sem backup novo)" test "$(find "$BACKUPS" -mindepth 1 -maxdepth 1 -type d | wc -l)" -ne "$NB_ANTES"
+afirma "o registro tem o parecer" grep -q ' parecer .*veredito=segura' "$RAIZ/var/log/dgclaw/atualizar-pareceres.log"
+
+echo "parecer de outro commit recusa"
+git -C "$TRAB" commit -q --allow-empty -m v6d; git -C "$TRAB" push -q origin main
+dgclaw atualizar --simular >/dev/null 2>&1   # o dono viu o relatorio da v6d, mas o parecer gravado e da versao anterior
+dgclaw atualizar --ok-do-dono >"$TMP/p3.txt" 2>&1; rc=$?
+igual "ok-do-dono com parecer de outro commit recusa" "1" "$rc"
+afirma "diz que o parecer e sobre outra versao" grep -q 'o parecer gravado e sobre outra versao' "$TMP/p3.txt"
+igual "parou antes do backup" "$NB_ANTES" "$(find "$BACKUPS" -mindepth 1 -maxdepth 1 -type d | wc -l)"
+
+echo "parecer arriscada bloqueia; so passa com --apesar-do-alerta"
+dgclaw atualizar --parecer arriscada --motivo "a rotina relatorio-sexta da Ana chama um comando que sai" >"$TMP/p4.txt" 2>&1
+dgclaw atualizar --ok-do-dono >"$TMP/p5.txt" 2>&1; rc=$?
+igual "parecer arriscada bloqueia" "1" "$rc"
+afirma "diz que e ARRISCADA" grep -q 'e ARRISCADA, e a instalacao esta bloqueada' "$TMP/p5.txt"
+afirma "mostra o alerta" grep -q 'a rotina relatorio-sexta da Ana chama um comando que sai' "$TMP/p5.txt"
+afirma "diz que so passa com o pedido explicito do dono" grep -q -- '--apesar-do-alerta' "$TMP/p5.txt"
+igual "parou antes do backup" "$NB_ANTES" "$(find "$BACKUPS" -mindepth 1 -maxdepth 1 -type d | wc -l)"
+dgclaw atualizar --ok-do-dono --apesar-do-alerta >"$TMP/p6.txt" 2>&1; rc=$?
+igual "arriscada com --apesar-do-alerta passa" "0" "$rc"
+[ "$rc" -eq 0 ] || sed 's/^/      | /' "$TMP/p6.txt" | tail -n 20
+afirma "avisa que seguiu apesar do alerta" grep -q 'Sigo porque o dono pediu para instalar apesar do alerta' "$TMP/p6.txt"
+afirma "a atualizacao fez backup" test "$(find "$BACKUPS" -mindepth 1 -maxdepth 1 -type d | wc -l)" -gt "$NB_ANTES"
+afirma "o registro tem o apesar-do-alerta" grep -q 'apesar-do-alerta' "$RAIZ/var/log/dgclaw/atualizar-pareceres.log"
+
+echo "parecer segura para o commit certo passa"
+git -C "$TRAB" commit -q --allow-empty -m v6e; git -C "$TRAB" push -q origin main
+dgclaw atualizar --parecer segura --motivo "mudanca vazia" >/dev/null 2>&1
+dgclaw atualizar --ok-do-dono >"$TMP/p7.txt" 2>&1; rc=$?
+igual "ok-do-dono com parecer segura do mesmo commit passa" "0" "$rc"
+[ "$rc" -eq 0 ] || sed 's/^/      | /' "$TMP/p7.txt" | tail -n 20
+afirma "o parecer 'segura' foi conferido" grep -q "parecer 'segura' de" "$TMP/p7.txt"
 
 fim

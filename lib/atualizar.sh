@@ -370,16 +370,141 @@ atualizar_montar_resumo() {
     fi
 }
 
+# --- o parecer obrigatorio ------------------------------------------------------------------
+# Nunca se atualiza as cegas: antes do --ok-do-dono, quem analisou (o Admin) grava o veredito sobre AQUELE
+# commit de destino. O --ok-do-dono confere esse arquivo (lib/personalizacoes.sh, _om_exigir_ok).
+
+ATU_PARECER_LOG_NOME="atualizar-pareceres.log"
+
+atualizar_parecer_arquivo() { printf '%s' "$DG_LIB/web/atualizacao/parecer.json"; }
+
+# atualizar_registrar <evento> <detalhe>: uma linha no log dos pareceres (nunca texto de fora, so o que o comando sabe).
+atualizar_registrar() {
+    local log="$DG_LOG/$ATU_PARECER_LOG_NOME"
+    [ "$ENSAIO" != 1 ] || [ "${ATU_MODO:-}" = parecer ] || return 0
+    install -d -m 750 "$DG_LOG"
+    printf '%s %s por=%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "${SUDO_USER:-root}" "$2" >>"$log" \
+        || falha "nao consegui gravar o registro em $log." "confira o espaco e a permissao de $DG_LOG e rode de novo."
+    chmod 600 "$log"
+}
+
+# atualizar_validar_parecer_pedido <simular> <segundo-plano> <voltar>: as combinacoes de opcoes que nao fazem sentido.
+atualizar_validar_parecer_pedido() {
+    local simular="$1" segundo="$2" voltar="$3"
+    if [ "$ATU_MODO" = parecer ]; then
+        case "$ATU_PARECER" in
+            segura|arriscada) ;;
+            *) falha "o parecer '${ATU_PARECER:0:30}' nao existe." "use --parecer segura ou --parecer arriscada, junto de --motivo \"<texto curto>\"." ;;
+        esac
+        [ -n "$ATU_MOTIVO" ] || falha "falta o --motivo do parecer." "diga em uma frase por que: sudo dgclaw atualizar --parecer $ATU_PARECER --motivo \"<texto curto>\""
+        if [ "${#ATU_MOTIVO}" -gt 500 ] || [[ "$ATU_MOTIVO" == *$'\n'* ]]; then
+            falha "o --motivo tem ${#ATU_MOTIVO} caracteres ou mais de uma linha." "resuma em uma linha de ate 500 caracteres."
+        fi
+        [ "$simular" != 1 ] || falha "--parecer nao combina com --simular." "o parecer ja le o que muda sem instalar nada; tire o --simular."
+        [ "$segundo" != 1 ] || falha "--parecer nao combina com --segundo-plano." "ele e rapido e nao instala nada; rode direto."
+        [ "$ATU_OK_DONO" != 1 ] || falha "--parecer nao combina com --ok-do-dono." "primeiro grave o parecer; depois, com o ok do dono, rode a atualizacao."
+        [ -z "$voltar" ] || falha "--parecer nao combina com --voltar." "rode um de cada vez."
+    elif [ -n "$ATU_MOTIVO" ]; then
+        falha "--motivo so vale junto de --parecer." "use: sudo dgclaw atualizar --parecer segura|arriscada --motivo \"<texto curto>\""
+    fi
+    if [ "$ATU_APESAR" = 1 ] && [ "$ATU_OK_DONO" != 1 ]; then
+        falha "--apesar-do-alerta so vale junto de --ok-do-dono." \
+              "ele existe para o caso em que o dono ouviu o alerta de risco e pediu, explicitamente, para instalar mesmo assim: sudo dgclaw atualizar --ok-do-dono --apesar-do-alerta"
+    fi
+}
+
+# atualizar_gravar_parecer: grava parecer.json (600) para o commit de destino que o relatorio acabou de mostrar.
+atualizar_gravar_parecer() {
+    local arq alvo instalado
+    arq="$(atualizar_parecer_arquivo)"
+    alvo="${ATU_DESTINO:-}"
+    [[ "$alvo" =~ ^[0-9a-f]{40}$ ]] \
+        || falha "nao consegui descobrir o commit de destino da atualizacao, entao nao ha a que dar parecer." \
+                 "veja a mensagem acima (clone, internet) e rode de novo. Nada foi gravado."
+    instalado="${ATU_COMMIT_ANTIGO:-}"
+    if [ "$alvo" = "$instalado" ] && [ "${PERS_ATIVO:-0}" != 1 ]; then
+        falha "o destino (${alvo:0:10}) e o commit que ja esta instalado: nao ha atualizacao para dar parecer." "nada a fazer. Se acredita que saiu versao nova, confira: sudo dgclaw atualizar --checar"
+    fi
+    # O comando inteiro roda em modo ensaio (ler o que muda nao pode mudar nada); gravar o parecer e a unica excecao.
+    local ensaio_antes="$ENSAIO"; ENSAIO=0
+    install -d -m 700 "$(dirname "$arq")"
+    jq -n --arg alvo "$alvo" --arg inst "$instalado" --arg v "$ATU_PARECER" --arg m "$ATU_MOTIVO" \
+          --arg d "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg por "${SUDO_USER:-root}" \
+          '{commit_alvo: $alvo, commit_instalado: $inst, veredito: $v, motivo: $m, data: $d, por: $por}' \
+        | escrever_arquivo "$arq" 600 \
+        || falha "nao consegui gravar o parecer em $arq." "confira o espaco e a permissao de $(dirname "$arq") e rode de novo."
+    atualizar_registrar parecer "alvo=${alvo:0:12} veredito=$ATU_PARECER motivo=$(printf '%s' "$ATU_MOTIVO" | tr -d '\000-\037\177')"
+    ENSAIO="$ensaio_antes"
+    ok "parecer '$ATU_PARECER' gravado para a versao ${alvo:0:10} em $arq"
+    if [ "$ATU_PARECER" = segura ]; then
+        info "Com o sim do dono: sudo dgclaw atualizar --ok-do-dono --segundo-plano"
+    else
+        info "Parecer ARRISCADA: a instalacao fica bloqueada. Conte o alerta ao dono. So se ele, depois de ouvir, pedir explicitamente para instalar mesmo assim: sudo dgclaw atualizar --ok-do-dono --apesar-do-alerta --segundo-plano"
+    fi
+}
+
+# atualizar_conferir_parecer: chamado pelo --ok-do-dono, antes do backup. Exige parecer 'segura' para o destino
+# (ou 'arriscada' com --apesar-do-alerta). Sem destino conhecido (sem git) nao ha a que comparar.
+atualizar_conferir_parecer() {
+    local arq alvo lido commit veredito motivo data
+    alvo="${ATU_DESTINO:-}"
+    if [ -z "$alvo" ]; then
+        aviso "nao sei qual e o commit de destino, entao nao ha como conferir o parecer; sigo so com o ok do dono."
+        return 0
+    fi
+    arq="$(atualizar_parecer_arquivo)"
+    if [ ! -f "$arq" ]; then
+        atualizar_registrar bloqueio "alvo=${alvo:0:12} motivo=sem-parecer"
+        falha "falta o parecer sobre a versao ${alvo:0:10} (nao existe $arq). Nunca se atualiza as cegas." \
+              "rode o relatorio (sudo dgclaw atualizar --simular), leia o que muda e o que este DG Claw usa, diga ao dono se e segura e vale a pena, e grave o veredito: sudo dgclaw atualizar --parecer segura --motivo \"<texto curto>\" (ou arriscada). Depois repita com --ok-do-dono. Nada foi mudado (parei antes do backup)."
+    fi
+    if ! lido="$(jq -r '[(.commit_alvo // ""), (.veredito // ""), (.motivo // ""), (.data // "")] | @tsv' "$arq" 2>&1)"; then
+        falha "nao consegui ler o parecer em $arq ($(printf '%s' "$lido" | head -n 1 | tr -d '\000-\037\177' | cut -c1-120))." \
+              "grave o parecer de novo: sudo dgclaw atualizar --parecer segura --motivo \"<texto curto>\". Nada foi mudado."
+    fi
+    IFS=$'\t' read -r commit veredito motivo data <<<"$lido"
+    motivo="$(printf '%s' "$motivo" | tr -d '\000-\037\177' | cut -c1-300)"
+    if [ "$commit" != "$alvo" ]; then
+        atualizar_registrar bloqueio "alvo=${alvo:0:12} motivo=parecer-de-outro-commit(${commit:0:12})"
+        falha "o parecer gravado e sobre outra versao (${commit:0:10}); a versao a instalar agora e ${alvo:0:10}." \
+              "refaca a analise desta versao (sudo dgclaw atualizar --simular), diga ao dono e grave o parecer novo: sudo dgclaw atualizar --parecer segura|arriscada --motivo \"<texto curto>\". Nada foi mudado (parei antes do backup)."
+    fi
+    case "$veredito" in
+        segura)
+            ok "parecer 'segura' de ${data:-data desconhecida} para ${alvo:0:10}: $motivo"
+            atualizar_registrar parecer-conferido "alvo=${alvo:0:12} veredito=segura" ;;
+        arriscada)
+            if [ "$ATU_APESAR" = 1 ]; then
+                aviso "parecer ARRISCADA para ${alvo:0:10}: $motivo. Sigo porque o dono pediu para instalar apesar do alerta (--apesar-do-alerta)."
+                atualizar_registrar apesar-do-alerta "alvo=${alvo:0:12} veredito=arriscada"
+            else
+                atualizar_registrar bloqueio "alvo=${alvo:0:12} motivo=parecer-arriscada"
+                falha "o parecer sobre a versao ${alvo:0:10} e ARRISCADA, e a instalacao esta bloqueada. O alerta: $motivo" \
+                      "conte o alerta ao dono em linguagem simples. So se ele, depois de ouvir, pedir explicitamente para instalar mesmo assim, rode: sudo dgclaw atualizar --ok-do-dono --apesar-do-alerta --segundo-plano. Nada foi mudado (parei antes do backup)."
+            fi ;;
+        *)
+            falha "o parecer em $arq tem um veredito que eu nao conheco ('${veredito:0:20}')." "grave de novo: sudo dgclaw atualizar --parecer segura|arriscada --motivo \"<texto curto>\". Nada foi mudado." ;;
+    esac
+}
+
 # --- o comando ------------------------------------------------------------------------------
 
 atualizar_main() {
     local repo_arg="" voltar="" segundo_plano=0 sem_homes=0 mesmo_assim=0 a
     ATU_FORCAR_LOCAL=0; ATU_SEM_BAIXAR=0; ATU_MODO=atualizar; ATU_SEM_VOLTAR=0; ATU_OK_DONO=0; ATU_SEM_PERS=0
+    ATU_PARECER=""; ATU_MOTIVO=""; ATU_APESAR=0; local simular_pedido=0
     local repassar=("$@")
     while [ $# -gt 0 ]; do
         a="$1"
         case "$a" in
-            --simular) ENSAIO=1 ;;
+            --simular) ENSAIO=1; simular_pedido=1 ;;
+            --parecer) [ $# -ge 2 ] || falha "a opcao --parecer precisa de segura ou arriscada." "exemplo: sudo dgclaw atualizar --parecer segura --motivo \"so muda texto de ajuda\""
+                       ATU_PARECER="$2"; ATU_MODO=parecer; shift ;;
+            --parecer=*) ATU_PARECER="${a#*=}"; ATU_MODO=parecer ;;
+            --motivo) [ $# -ge 2 ] || falha "a opcao --motivo precisa de um texto curto." "exemplo: sudo dgclaw atualizar --parecer segura --motivo \"so muda texto de ajuda\""
+                      ATU_MOTIVO="$2"; shift ;;
+            --motivo=*) ATU_MOTIVO="${a#*=}" ;;
+            --apesar-do-alerta) ATU_APESAR=1 ;;
             --repo) [ $# -ge 2 ] || falha "a opcao --repo precisa de um valor." "exemplo: sudo dgclaw atualizar --repo /root/DG-Claw"; repo_arg="$2"; shift ;;
             --repo=*) repo_arg="${a#*=}" ;;
             --forcar-local) ATU_FORCAR_LOCAL=1 ;;
@@ -397,6 +522,8 @@ atualizar_main() {
         shift
     done
 
+    atualizar_validar_parecer_pedido "$simular_pedido" "$segundo_plano" "$voltar"
+    [ "$ATU_MODO" != parecer ] || ENSAIO=1   # ler o que muda nao pode mudar nada; so o parecer em si e gravado
     exigir_ferramentas git jq tar sha256sum podman curl rsync
     carregar_env_dgclaw
     if [ ! -f "$DG_ETC/dgclaw.env" ]; then
@@ -410,7 +537,8 @@ atualizar_main() {
     fi
 
     trap _atualizar_ao_sair EXIT
-    if [ "$ENSAIO" = 1 ]; then printf 'SIMULACAO: nada sera mudado; so mostro o que seria feito.\n'; fi
+    if [ "$ATU_MODO" = parecer ]; then printf 'PARECER: leio o que a versao nova muda e registro o seu veredito; nada sera instalado.\n'
+    elif [ "$ENSAIO" = 1 ]; then printf 'SIMULACAO: nada sera mudado; so mostro o que seria feito.\n'; fi
 
     ATU_ETAPA="conferindo o clone"
     passo "Achando o clone do DG Claw e conferindo que esta limpo"
@@ -424,6 +552,7 @@ atualizar_main() {
     versao_antiga="${DGCLAW_VERSAO:-desconhecida}"
     atualizar_descobrir_commit_antigo
     atualizar_o_que_muda
+    if [ "$ATU_MODO" = parecer ]; then atualizar_gravar_parecer; trap - EXIT; return 0; fi
 
     ATU_ETAPA="conferindo o espaco em disco"
     atualizar_checar_disco "$sem_homes"

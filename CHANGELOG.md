@@ -39,6 +39,19 @@ aprovar sem querer o comando que surgiu em seguida, e o botão Aprovar de uma te
 
 ### Adicionado
 
+- **Análise obrigatória antes de instalar uma atualização.** O relatório do `sudo dgclaw atualizar --simular`
+  ganhou a seção "O que este DG Claw usa e o que a versão nova toca": para cada agente, as rotinas, os
+  scripts próprios, as skills e os canais ligados, mais as personalizações registradas, cruzados com os
+  arquivos que a versão nova muda ou remove e com os comandos do `dgclaw` que saíram ou mudaram de nome. Cada
+  cruzamento aparece como ponto de atenção ("a rotina X do agente Y chama scripts/foo.sh, que muda nesta
+  versão"). Além disso, a instalação agora exige um parecer: o Admin lê o relatório, cruza com o que você usa no
+  dia a dia, diz a você se a atualização é segura e se vale a pena, e grava o veredito com
+  `sudo dgclaw atualizar --parecer segura|arriscada --motivo "<frase>"`. O `--ok-do-dono` só passa com parecer
+  `segura` para aquela mesma versão. Parecer `arriscada` bloqueia a instalação, e só `--ok-do-dono
+  --apesar-do-alerta` a libera, quando você, depois de ouvir o alerta, pedir. Tudo fica em
+  `/var/log/dgclaw/atualizar-pareceres.log`. O recado do aviso de versão nova ao Admin agora manda fazer essa
+  análise. O aviso continua sendo uma checagem a cada 6 horas, e não um webhook, para o seu servidor não precisar abrir porta
+  nem ser cadastrado em lugar nenhum.
 - **Guia de projeto de cliente** (`docs/PROJETO-DE-CLIENTE.md`): o padrão de instalar o DG Claw oficial completo na VPS do próprio cliente, o passo a passo com o acesso temporário do suporte, a comparação com as outras formas de acesso e o checklist de onboarding e entrega.
 - **Acesso temporário do suporte DG: `dgclaw suporte`.** Quando o time DG precisa ajustar a sua instalação,
   você libera uma chave SSH nossa com prazo (`sudo dgclaw suporte ligar --chave '<linha>' --dias 7`, de 1 a 30
@@ -113,6 +126,15 @@ sem mostrar o número a você e esperar o seu sim. Os agentes que você já tem 
 destrutiva ou em massa: pergunte antes" do modelo novo (`templates/CLAUDE.md.tmpl`) para o `CLAUDE.md` de cada
 agente, sem apagar o que você escreveu. Agentes criados depois da atualização já nascem com ela. O mesmo vale
 para o `CLAUDE.md` e o `AGENTS.md` do Admin: a versão nova chega como `.novo`, e a seção entra no seu arquivo.
+
+### Como atualizar (parecer antes de instalar)
+
+A partir desta versão o `--ok-do-dono` só funciona depois de um parecer gravado. Se você já usa o Admin para
+atualizar, nada muda na conversa: ele vai analisar, contar o que achou, e só então pedir o seu sim. Se você
+roda o comando na mão, grave antes o parecer sobre a versão que vai instalar, com
+`sudo dgclaw atualizar --parecer segura --motivo "<uma frase>"`. Se o `CLAUDE.md` ou o `AGENTS.md` do Admin
+estiverem personalizados, leve do `.novo` para o seu arquivo a parte "Atualizar o DG Claw", sem apagar o que
+você escreveu, para o Admin saber fazer a análise.
 
 ### Como atualizar (voz)
 

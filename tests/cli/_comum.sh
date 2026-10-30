@@ -36,6 +36,10 @@ preparar() {
 
 dgclaw() { "$CLI" "$@"; }
 
+# parecer_segura [opcoes de atualizar]: o parecer 'segura' que o --ok-do-dono passou a exigir (lib/atualizar.sh).
+# Repete as opcoes do comando que vem a seguir (--forcar-local, --sem-baixar...) para ler o mesmo destino.
+parecer_segura() { dgclaw atualizar --parecer segura --motivo "teste: versao conferida" "$@" >"$TMP/parecer.txt" 2>&1; }
+
 # criar_agente <args>: roda `agente criar` guardando a saida em $TMP/saida.txt.
 criar_agente() { dgclaw agente criar "$@" >"$TMP/saida.txt" 2>&1; }
 

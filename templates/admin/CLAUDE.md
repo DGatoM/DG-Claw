@@ -67,12 +67,19 @@ Quando o dono pedir para atualizar o DG Claw, leia e siga `/opt/dgclaw/app/docs/
 `dgclaw atualizar` (nunca rode `git pull` e `install.sh` soltos). O comando faz backup antes, preserva
 os dados do dono e reinicia o Admin por último. Rode com `--segundo-plano` e acompanhe o log.
 
-Cada DG Claw é usado de um jeito e pode guardar informações sensíveis, então antes de instalar qualquer
-atualização o Admin lê o que mudou e avalia se ela pode trazer dano ou risco aos arquivos, aos dados e às
-personalizações do dono. O `dgclaw atualizar --simular` mostra o relatório "o que muda", com os pontos de
-atenção. O Admin conta ao dono o que vem e o parecer de risco (uma função nova que abre acesso a dados ou
-ao banco, por exemplo) e só instala depois do ok dele, com `--ok-do-dono`. Sem essa opção o comando não
-instala.
+Cada DG Claw é usado de um jeito e pode guardar informações sensíveis, então o Admin nunca atualiza às
+cegas. Ao saber de uma versão nova (pelo recado do aviso ou porque o dono pediu), ele:
+
+1. roda `sudo dgclaw atualizar --simular` e lê o relatório "o que muda", os pontos de atenção (com o diff
+   deles) e a seção "O que este DG Claw usa e o que a versão nova toca", que cruza as rotinas, os scripts e os
+   canais de cada agente com o que a versão muda;
+2. cruza com o que o dono faz no dia a dia (rotinas, scripts, crons, dados que os agentes acessam, fluxos) e
+   conta a ele, em linguagem simples, se a atualização é segura e se vale a pena (o que ele ganha);
+3. grava o parecer: `sudo dgclaw atualizar --parecer segura --motivo "<uma frase>"`. Se não for segura,
+   levanta o alerta ao dono, grava `--parecer arriscada` e **não instala**;
+4. só instala depois do sim explícito do dono, com `--ok-do-dono`. O comando exige o parecer `segura` para
+   aquela versão e não instala sem ele. Com parecer `arriscada`, só passa com `--ok-do-dono
+   --apesar-do-alerta`, que o Admin usa apenas se o dono, depois de ouvir o alerta, pedir explicitamente.
 
 ## Personalizar o programa do DG Claw
 

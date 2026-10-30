@@ -105,6 +105,7 @@ publicar_v2 web/server.js
 dgclaw atualizar --simular >"$TMP/a1.txt" 2>&1; rc=$?
 igual "simular sai com 0" "0" "$rc"
 afirma "diz que nao ha personalizacao registrada" grep -q 'nenhuma personalizacao do programa registrada' "$TMP/a1.txt"
+parecer_segura
 dgclaw atualizar --ok-do-dono >"$TMP/a2.txt" 2>&1; rc=$?
 igual "atualizar sai com 0 como antes" "0" "$rc"
 [ "$rc" -eq 0 ] || sed 's/^/      | /' "$TMP/a2.txt" | tail -n 20
@@ -123,6 +124,7 @@ afirma "simular mostra o cruzamento vazio" grep -q 'nenhum arquivo personalizado
 afirma "simular diz o que faria" grep -q '\[ensaio\] guardaria a branch em personalizacoes-antes-' "$TMP/b1.txt"
 igual "simular nao mexe no HEAD do clone" "$HEAD_ANTES" "$(git -C "$CLONE" rev-parse HEAD)"
 nega "simular nao cria branch de copia" bash -c "git -C '$CLONE' branch --list 'personalizacoes-antes-*' | grep -q ."
+parecer_segura
 dgclaw atualizar --ok-do-dono >"$TMP/b2.txt" 2>&1; rc=$?
 igual "atualizar sai com 0" "0" "$rc"
 [ "$rc" -eq 0 ] || sed 's/^/      | /' "$TMP/b2.txt" | tail -n 25
@@ -170,6 +172,7 @@ publicar_v2 web/server.js
 dgclaw atualizar --simular >"$TMP/d1.txt" 2>&1; rc=$?
 igual "simular sai com 0" "0" "$rc"
 afirma "nao ha cruzamento" grep -q 'nenhum arquivo personalizado e mexido pela versao nova' "$TMP/d1.txt"
+parecer_segura
 dgclaw atualizar --ok-do-dono >"$TMP/d2.txt" 2>&1; rc=$?
 igual "atualizar sai com 0" "0" "$rc"
 afirma "reaplicou por cima" grep -q '^// v2' "$APP/web/server.js"
@@ -237,6 +240,7 @@ echo "f. o backup guarda o app inteiro (atualizar e voltar)"
 montar
 publicar_v2 web/server.js
 dgclaw atualizar --simular >/dev/null 2>&1
+parecer_segura
 dgclaw atualizar --ok-do-dono >"$TMP/f1.txt" 2>&1; rc=$?
 igual "atualizar sai com 0" "0" "$rc"
 B1="$(find "$BACKUPS" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
@@ -260,6 +264,7 @@ nega "sem --ok-do-dono, para" test "$rc" -eq 0
 afirma "diz que falta o ok do dono" grep -q 'ainda nao tenho o ok do dono' "$TMP/g1.txt"
 afirma "o relatorio lista o lado do clone" grep -q 'No seu clone' "$TMP/g1.txt"
 igual "nenhum backup" "0" "$(pastas_de_backup)"
+parecer_segura
 dgclaw atualizar --ok-do-dono >"$TMP/g3.txt" 2>&1; rc=$?
 igual "com o ok, instala" "0" "$rc"
 afirma "a personalizacao foi instalada" grep -q 'minha personalizacao' "$APP/web/public/extra.js"
@@ -271,11 +276,14 @@ montar
 publicar_v2 web/server.js
 dgclaw atualizar --simular >/dev/null 2>&1
 printf '%s\n' "$(git -C "$TRAB" rev-parse HEAD)" >"$TMP/v2.hash"
+# O parecer e dado sobre a v2 (a que o dono viu); depois a v3 aparece e nem o parecer nem o ok valem para ela.
+parecer_segura
 git -C "$TRAB" commit -q --allow-empty -m v3; git -C "$TRAB" push -q origin main
 dgclaw atualizar --ok-do-dono >"$TMP/h1.txt" 2>&1; rc=$?
 nega "o dono viu a v2 e agora ha a v3: para" test "$rc" -eq 0
 afirma "diz que a versao mudou desde o relatorio" grep -q 'mudou desde o relatorio' "$TMP/h1.txt"
 igual "nenhum backup" "0" "$(pastas_de_backup)"
+parecer_segura
 dgclaw atualizar --ok-do-dono >"$TMP/h2.txt" 2>&1; rc=$?
 igual "depois de ver o relatorio novo, segue" "0" "$rc"
 afirma "o relatorio traz a linha DESTINO= com o hash completo" grep -rqE '^DESTINO=[0-9a-f]{40}$' "$RAIZ/var/log/dgclaw"
@@ -299,6 +307,7 @@ esac
 exec "$REAL_GIT" "\$@"
 WRAP
 chmod +x "$TMP/gitwrap/git"
+parecer_segura
 PATH="$TMP/gitwrap:$PATH" dgclaw atualizar --ok-do-dono >"$TMP/h3.txt" 2>&1; rc=$?
 igual "atualizar sai com 0" "0" "$rc"
 [ "$rc" -eq 0 ] || sed 's/^/      | /' "$TMP/h3.txt" | tail -n 20
@@ -322,6 +331,7 @@ dgclaw atualizar --sem-baixar >"$TMP/i2.txt" 2>&1; rc=$?
 nega "--sem-baixar tambem para" test "$rc" -eq 0
 afirma "--sem-baixar tambem explica" grep -q 'SEM as personalizacoes' "$TMP/i2.txt"
 igual "o app nao mudou" "$SERVER_ANTES" "$(sha256sum <"$APP/web/server.js")"
+parecer_segura --sem-personalizacoes
 dgclaw atualizar --sem-personalizacoes --ok-do-dono >"$TMP/i3.txt" 2>&1; rc=$?
 igual "com --sem-personalizacoes o dono decidiu: segue" "0" "$rc"
 [ "$rc" -eq 0 ] || sed 's/^/      | /' "$TMP/i3.txt" | tail -n 20
@@ -342,6 +352,7 @@ personalizar web/server.js '// minha personalizacao no server'
 git -C "$CLONE" revert --no-edit HEAD >/dev/null 2>&1
 publicar_v2 web/server.js
 HEAD_ANTES="$(git -C "$CLONE" rev-parse HEAD)"
+parecer_segura
 dgclaw atualizar --ok-do-dono >"$TMP/k1.txt" 2>&1; rc=$?
 nega "o ensaio do rebase para antes do backup" test "$rc" -eq 0
 afirma "traz a frase de inconsistencia" grep -q 'Uma personalizacao do programa tem uma inconsistencia' "$TMP/k1.txt"
