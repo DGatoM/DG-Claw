@@ -39,6 +39,13 @@ aprovar sem querer o comando que surgiu em seguida, e o botão Aprovar de uma te
 
 ### Adicionado
 
+- **Regra de ação em massa ou destrutiva.** Todo agente e o Admin passam a nascer sabendo que, antes de
+  apagar, sobrescrever, mover, mandar mensagem para vários, mudar a etapa de vários registros num CRM,
+  cancelar, importar ou qualquer coisa que atinja mais de um item de uma vez ou não dê para desfazer, eles
+  primeiro mapeiam o que seria atingido sem mudar nada, mostram a você o número e uma amostra, esperam o seu
+  sim para aquele número, fazem em lotes e contam o que foi feito. Rotina automática com ação em massa só
+  roda se você aprovou a rotina antes, com o número estimado. A regra está nas instruções de cada agente
+  (`CLAUDE.md` e `AGENTS.md`), no `LAWS.md` e nas do Admin.
 - **Caixa de cofre na conversa.** Quando o agente precisa de uma senha ou chave de um serviço (OpenAI,
   Hostinger, Groq...), ele mostra na própria conversa um cartão com um campo de senha, e o valor vai
   direto para o cofre dele, sem passar pela conversa. O cartão ficou mais completo: avisa "Já tem uma
@@ -88,6 +95,15 @@ aprovar sem querer o comando que surgiu em seguida, e o botão Aprovar de uma te
   parou), seguida das que chegaram nesse meio tempo. Cada balão mostra se está tocando agora ou na fila. Para
   pular, toque no 🎧 do balão que quer ouvir: ele toca e segue dali. Só as respostas normais do agente entram
   na fila sozinhas; as mensagens de rotina só tocam se você apertar o 🎧 delas.
+
+### Como atualizar (regra de ação em massa)
+
+Nesta versão há uma regra nova nas instruções dos agentes: nada de apagar ou mexer em muita coisa de uma vez
+sem mostrar o número a você e esperar o seu sim. Os agentes que você já tem guardam o próprio `CLAUDE.md`, que
+é seu e pode estar personalizado, então a atualização não o substitui. Peça ao Admin para levar a seção "Ação
+destrutiva ou em massa: pergunte antes" do modelo novo (`templates/CLAUDE.md.tmpl`) para o `CLAUDE.md` de cada
+agente, sem apagar o que você escreveu. Agentes criados depois da atualização já nascem com ela. O mesmo vale
+para o `CLAUDE.md` e o `AGENTS.md` do Admin: a versão nova chega como `.novo`, e a seção entra no seu arquivo.
 
 ### Como atualizar (voz)
 

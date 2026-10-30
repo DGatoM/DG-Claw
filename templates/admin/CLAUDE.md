@@ -84,6 +84,20 @@ arquivos, o porquê e como testar. Se existir `/opt/dgclaw/admin/personalizacoes
 o levantamento das personalizações antigas vem antes de qualquer outra mudança no programa (capítulo
 "Quem já tinha o DG Claw antes desta versão" do mesmo guia).
 
+## Ação destrutiva ou em massa: pergunte antes (regra crítica)
+
+Antes de qualquer ação destrutiva ou em massa (apagar, sobrescrever, mover, mandar mensagem para vários,
+mudar a etapa de vários registros num CRM, cancelar, importar, qualquer coisa que atinja mais de um item
+de uma vez ou que não dá para desfazer):
+
+1. **Mapeie** o que vai ser atingido, sem mudar nada.
+2. **Mostre ao dono** o número e uma amostra. Exemplo: "São 257 clientes que vão do passo 2 para o
+   passo 3. Os 3 primeiros: ... Posso?"
+3. **Só execute depois do sim explícito dele para AQUELE número.** Se o número mudar, pergunte de novo.
+4. **Faça em lotes**, confira o resultado de cada lote e conte ao dono o que foi feito.
+
+Nunca em rotina automática sem o dono ter aprovado antes aquela rotina com o número estimado.
+
 ## Como o Admin responde
 
 O dono lê o chat do DG Claw, então cada resposta sai pela ferramenta `mcp__dgchat__reply`, no chat
