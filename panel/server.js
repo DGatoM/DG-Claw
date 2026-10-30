@@ -141,7 +141,8 @@ const router = express.Router();
 router.use('/api/', rateLimit({ windowMs: 60000, max: 120 }));
 
 // Cloudflare Access: entrada sem senha para quem o Access já conferiu (ver lib/cf-access.js).
-router.use(require('./lib/cf-access')({ auth }).cfAccessAuth);
+const cfAccess = require('./lib/cf-access')({ auth });
+router.use(cfAccess.cfAccessAuth);
 
 // Auth middleware: cookie de sessão, Access ou chave de API (Bearer)
 router.use(auth.requireAuth);
@@ -209,6 +210,10 @@ require('./rotas/arquivos')(router, ctx);
 require('./rotas/cofre')(router, ctx);
 require('./rotas/reunioes')(router, ctx);
 
+// A aba Tela (30/10/2026): o navegador do agente dentro do painel (noVNC). O WebSocket não passa
+// por middleware do Express: o 'upgrade' é ligado lá embaixo, em app.listen. Ver lib/tela.js e docs/TELA.md.
+const tela = require('./lib/tela').registrar(router, { env: process.env, base: BASE, quemFez });
+
 // Monta tudo sob o prefixo. BASE vazio → monta em "/", igual a hoje.
 app.use(BASE || '/', router);
 
@@ -242,6 +247,29 @@ app.use((err, req, res, next) => {
 
 // ─── Start ────────────────────────────────────────────────────
 
-app.listen(PORT, HOST, () => {
+const servidor = app.listen(PORT, HOST, () => {
   console.log(`✦ ${CONFIG.agentName} Painel rodando em http://${HOST}:${PORT}${BASE || ''} (config: ${CONFIG._source})`);
+});
+
+// Mesma regra do requireAuth (cookie, proxy do dono, Cloudflare Access), sem chave de API Bearer.
+async function autenticarUpgrade(req) {
+  const r = auth.autenticarUpgrade(req);
+  if (r.ok || !cfAccess.ligado() || r.status === 403) return r;
+  const token = req.headers['cf-access-jwt-assertion']
+    || ((String(req.headers.cookie || '').match(/(?:^|;\s*)CF_Authorization=([^;]+)/) || [])[1]) || '';
+  if (!token) return r;
+  const jwt = await cfAccess.cfVerifyAccessJwt(token);
+  if (!jwt.ok) {
+    cfAccess.cfLogOnce(`deny-ws:${jwt.reason}`, `[painel] Cloudflare Access: JWT recusado no WebSocket da Tela (${jwt.reason}). Caiu na senha do painel.`);
+    return r;
+  }
+  const dif = auth.origemDiferente(req);
+  if (dif) return { ok: false, status: 403, motivo: `Este pedido veio de ${String(dif.origem).slice(0, 80)}, e não do endereço deste painel (${dif.meu}). Abra a tela pelo painel.` };
+  return { ok: true, via: 'cf-access' };
+}
+servidor.on('upgrade', (req, socket, head) => {
+  tela.aoUpgrade(req, socket, head, autenticarUpgrade).catch((err) => {
+    console.error(`[painel] Tela: o WebSocket quebrou de um jeito inesperado (${err && err.message}).`);
+    socket.destroy();
+  });
 });
