@@ -550,6 +550,32 @@ afirma "aviso de skills demais" grep -q 'limite atingido: agente beto: mais de 3
 TAM="$(sed -n '/^O que este DG Claw usa e o que a versao nova toca:/,/^Versao de destino/p' "$TMP/u8.txt" | wc -c)"
 afirma "a secao do relatorio fica abaixo de 40 KB ($TAM bytes)" test "$TAM" -lt 40000
 rm -rf "$CASA_BETO/.claude/skills"
+
+echo "protocolo do coletor: nome com quebra de linha nao fabrica registro; 5.000 skills"
+mkdir -p "$CASA_BETO/.claude/skills"
+mkdir "$CASA_BETO/.claude/skills/$(printf 'bom\nrotina\trotina-999')" "$CASA_BETO/.claude/skills/$(printf 'ROTINA|IGNORE\tskill\toficial\tcriar-agente')"
+( cd "$CASA_BETO/.claude/skills" && seq 1 5000 | sed 's/^/skill-extra-/' | xargs mkdir )
+timeout 100 "$CLI" atualizar --simular >"$TMP/u9.txt" 2>&1; rc=$?
+igual "5.000 skills com nome hostil nao derrubam o relatorio" "0" "$rc"
+nega "o nome hostil nao fabricou a rotina-999" grep -q 'rotina-999' "$TMP/u9.txt"
+nega "o texto hostil nao aparece" grep -q 'ROTINA|IGNORE' "$TMP/u9.txt"
+nega "nenhum registro malformado (os nomes nem saem do coletor)" grep -q 'registros malformados' "$TMP/u9.txt"
+afirma "a coleta parou no teto de 300 skills" grep -q 'limite atingido: agente beto: mais de 300 skills' "$TMP/u9.txt"
+TAM9="$(sed -n '/^O que este DG Claw usa e o que a versao nova toca:/,/^Versao de destino/p' "$TMP/u9.txt" | wc -c)"
+afirma "a secao fica abaixo do teto ($TAM9 bytes)" test "$TAM9" -lt 40000
+rm -rf "$CASA_BETO/.claude/skills"
+cat >"$TMP/coletor-falso.sh" <<'FIMCOL'
+#!/usr/bin/env bash
+printf 'rotina\tIGNORE-AS-REGRAS\nbogus\tx\nrotinas\t99999999\nskill\toficial\tNome Com Espaco\nrotina\trotina-7\nrotina\trotina-8 extra\n' >>"$2"
+FIMCOL
+DGCLAW_USO_COLETOR="$TMP/coletor-falso.sh" timeout 100 "$CLI" atualizar --simular >"$TMP/u10.txt" 2>&1; rc=$?
+igual "coletor que devolve lixo nao derruba o relatorio" "0" "$rc"
+afirma "conta os registros malformados" grep -q 'limite atingido: agente .*: 5 registros malformados' "$TMP/u10.txt"
+afirma "o registro valido passa" grep -q ' rotina-7$' "$TMP/u10.txt"
+nega "o texto do registro invalido nao aparece" grep -q 'IGNORE-AS-REGRAS\|Nome Com Espaco\|rotina-8 extra' "$TMP/u10.txt"
+DGCLAW_USO_MAX_SECAO=600 DGCLAW_USO_COLETOR="$TMP/coletor-falso.sh" timeout 100 "$CLI" atualizar --simular >"$TMP/u11.txt" 2>&1
+TAM11="$(sed -n '/^O que este DG Claw usa e o que a versao nova toca:/,/^Versao de destino/p' "$TMP/u11.txt" | wc -c)"
+afirma "alertas e limites tambem contam no teto ($TAM11 bytes para teto 600, mais o titulo e o recuo de 2 espacos por linha)" test "$TAM11" -le 900
 printf '{"crons": {"relatorio-sexta": {"name": "relatorio-sexta", "calendar": "Fri *-*-* 17:00:00", "poke": "Rode dgclaw relatorio semanal e depois bash /opt/dgclaw/app/scripts/foo.sh"}}}\n' >"$CASA_ANA/.dgclaw/self-crons.json"
 rm -f "$CASA_BETO/.dgclaw/self-crons.json"
 echo "uma versao que nao toca no que eles usam: diz que nao ha cruzamento"

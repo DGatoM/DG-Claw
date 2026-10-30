@@ -38,15 +38,36 @@ _uso_nome_seguro() {
 USO_SKILLS_OFICIAIS=" "
 USO_CHEIO=0
 
+# _uso_lim_add <texto>: registra um limite atingido; no maximo 50 (o resto e contado numa linha so).
+USO_LIM_PERDIDOS=0
+_uso_lim_add() {
+    if [ "${#USO_LIM[@]}" -ge 50 ]; then USO_LIM_PERDIDOS=$((USO_LIM_PERDIDOS + 1)); return 0; fi
+    USO_LIM+=("$1")
+}
+
+# _uso_linha_valida <linha>: 0 se a linha do coletor casa EXATAMENTE com um dos formatos do protocolo.
+_uso_linha_valida() {
+    local t=$'\t' n='[0-9]{1,6}'
+    [[ "$1" =~ ^(rotinas|scripts|puladosgrandes|puladosnaocomuns)${t}${n}$ ]] && return 0
+    [[ "$1" =~ ^canal${t}(WhatsApp|Telegram)$ ]] && return 0
+    [[ "$1" == "identidade${t}1" ]] && return 0
+    [[ "$1" =~ ^rotina${t}rotina-${n}$ ]] && return 0
+    [[ "$1" == "skill${t}propria" ]] && return 0
+    [[ "$1" =~ ^skill${t}oficial${t}[a-z0-9][a-z0-9._-]{0,40}$ ]] && return 0
+    [[ "$1" =~ ^lim${t}[A-Za-z0-9\ .,\;\(\)/-]{1,120}$ ]] && return 0
+    [[ "$1" =~ ^ref${t}(rotina|script)-${n}${t}(arq|cli)${t}[A-Za-z0-9_./@\ -]{1,200}$ ]] && return 0
+    return 1
+}
+
 # _uso_add <texto>: acrescenta a secao, conferindo o teto de bytes A CADA acrescimo (nao so entre agentes). Passou do
 # teto: corta, avisa uma vez e ignora o resto. O aviso entra direto, fora do teto.
 _uso_add() {
     [ "$USO_CHEIO" = 0 ] || return 0
     USO_TXT+="$1"
-    if [ "${#USO_TXT}" -gt "$USO_MAX_SECAO" ]; then
-        USO_TXT="${USO_TXT:0:$USO_MAX_SECAO}"$'\n'
+    if [ "${#USO_TXT}" -gt "$((USO_MAX_SECAO - USO_MAX_SECAO / 10))" ]; then
+        USO_TXT="${USO_TXT:0:$((USO_MAX_SECAO - USO_MAX_SECAO / 10))}"$'\n'
         USO_CHEIO=1
-        USO_LIM+=("relatorio grande demais, o resto foi omitido")
+        _uso_lim_add "relatorio grande demais, o resto foi omitido"
     fi
 }
 
@@ -79,8 +100,8 @@ _uso_ref_toca() {
 
 # uso_calcular <de> <para>: preenche USO_TXT, USO_CRUZ e USO_LIM. <de> vazio = nao ha base para cruzar.
 uso_calcular() {
-    local de="$1" para="$2" tmp agente slug casa c acao pn pf reg_n=0 rc kind a b d nrot nscr skills canais nskp grandes ident n_ag=0 naocomuns oficial nsk
-    USO_TXT=""; USO_CRUZ=(); USO_LIM=(); USO_CHEIO=0
+    local linha malformados de="$1" para="$2" tmp agente slug casa c acao pn pf reg_n=0 rc kind a b d nrot nscr skills canais nskp grandes ident n_ag=0 naocomuns oficial nsk
+    USO_TXT=""; USO_CRUZ=(); USO_LIM=(); USO_CHEIO=0; USO_LIM_PERDIDOS=0
     tmp="$(mktemp -d)"
 
     # O que muda: caminho<TAB>o verbo da frase ("muda", "sai", "passa a se chamar X").
@@ -106,6 +127,8 @@ uso_calcular() {
         for oficial in "$APP_DIR/skills"/*/; do oficial="${oficial%/}"; USO_SKILLS_OFICIAIS+="${oficial##*/} "; done
     fi
 
+    # shellcheck disable=SC2086 # uma skill por linha: a divisao em palavras e proposital
+    printf '%s\n' $USO_SKILLS_OFICIAIS >"$tmp/skills-oficiais"
     _uso_add "So entram aqui contagens, ids gerados, nomes no padrao e referencias reconhecidas; texto livre das casas dos agentes nao e mostrado."$'\n'
     while IFS=$'\t' read -r slug casa; do
         [ -n "$slug" ] || continue
@@ -118,29 +141,35 @@ uso_calcular() {
             continue
         fi
         : >"$tmp/col"; rc=0
-        timeout "$USO_TEMPO_COLETA" bash "$APP_DIR/lib/uso-coletor.sh" "$casa" "$tmp/col" 2>/dev/null || rc=$?
+        timeout "$USO_TEMPO_COLETA" bash "${DGCLAW_USO_COLETOR:-$APP_DIR/lib/uso-coletor.sh}" "$casa" "$tmp/col" "$tmp/skills-oficiais" 2>/dev/null || rc=$?
         if [ "$rc" -eq 124 ]; then
-            USO_LIM+=("a leitura da casa do agente $agente passou de ${USO_TEMPO_COLETA}s e foi interrompida; o que foi lido ate ali esta abaixo")
+            _uso_lim_add "a leitura da casa do agente $agente passou de ${USO_TEMPO_COLETA}s e foi interrompida; o que foi lido ate ali esta abaixo"
         elif [ "$rc" -ne 0 ]; then
-            USO_LIM+=("a leitura da casa do agente $agente falhou (codigo $rc); confira a pasta dele antes de atualizar")
+            _uso_lim_add "a leitura da casa do agente $agente falhou (codigo $rc); confira a pasta dele antes de atualizar"
         fi
         nrot=0; nscr=0; skills=""; nskp=0; canais="chat"; grandes=0; ident=0; naocomuns=0; nsk=0
-        while IFS=$'\t' read -r kind a b d; do
+        malformados=0
+        while IFS= read -r linha || [ -n "$linha" ]; do
+            # Protocolo estrito: a linha inteira tem de casar com um dos formatos exatos. O que nao casar nao vira
+            # registro (uma quebra de linha num nome nao fabrica linha nova) e e contado.
+            if ! _uso_linha_valida "$linha"; then malformados=$((malformados + 1)); continue; fi
+            IFS=$'\t' read -r kind a b d <<<"$linha"
             case "$kind" in
-                rotinas) [[ "$a" =~ ^[0-9]{1,6}$ ]] && nrot="$a" ;;
-                scripts) [[ "$a" =~ ^[0-9]{1,6}$ ]] && nscr="$a" ;;
-                puladosgrandes) [[ "$a" =~ ^[0-9]{1,6}$ ]] && grandes="$a" ;;
-                puladosnaocomuns) [[ "$a" =~ ^[0-9]{1,6}$ ]] && naocomuns="$a" ;;
+                rotinas) nrot="$a" ;;
+                scripts) nscr="$a" ;;
+                puladosgrandes) grandes="$a" ;;
+                puladosnaocomuns) naocomuns="$a" ;;
                 skill) nsk=$((nsk + 1))
-                       if [[ "$a" =~ ^[a-z0-9][a-z0-9._-]{0,40}$ && "$USO_SKILLS_OFICIAIS" == *" $a "* ]]; then skills+="${skills:+, }$a"
+                       if [ "$a" = oficial ] && [[ "$USO_SKILLS_OFICIAIS" == *" $b "* ]]; then skills+="${skills:+, }$b"
                        else nskp=$((nskp + 1)); skills+="${skills:+, }skill-$nsk"; fi ;;
-                canal) case "$a" in WhatsApp|Telegram) canais+=", $a" ;; esac ;;
+                canal) canais+=", $a" ;;
                 identidade) ident=1 ;;
-                rotina) _uso_add "  $(_uso_id "$a")"$'\n' ;;
-                lim) USO_LIM+=("agente $agente: $(_uso_lim_conhecido "$a")") ;;
-                ref) uso_cruzar "agente $agente, $(_uso_id "$a")" "$b" "$d" "$tmp" ;;
+                rotina) _uso_add "  $a"$'\n' ;;
+                lim) _uso_lim_add "agente $agente: $(_uso_lim_conhecido "$a")" ;;
+                ref) uso_cruzar "agente $agente, $a" "$b" "$d" "$tmp" ;;
             esac
         done <"$tmp/col"
+        if [ "$malformados" -gt 0 ]; then _uso_lim_add "agente $agente: $malformados registros malformados na leitura da casa; ignorados"; fi
         _uso_add "  rotinas: $nrot"$'\n'
         _uso_add "  scripts proprios lidos: $nscr"
         if [ "$grandes" -gt 0 ]; then _uso_add " ($grandes pulado(s) por passar de 256 KB)"; fi
@@ -175,7 +204,12 @@ uso_calcular() {
     else
         for c in "${USO_CRUZ[@]}"; do _uso_add "  - $c"$'\n'; done
     fi
-    for c in ${USO_LIM[@]+"${USO_LIM[@]}"}; do USO_TXT+="  limite atingido: $c"$'\n'; done
+    # Alertas e limites tambem contam no teto: cabem na folga reservada (10%) e o resto vira uma linha de contagem.
+    for c in ${USO_LIM[@]+"${USO_LIM[@]}"}; do
+        if [ $((${#USO_TXT} + ${#c} + 20)) -gt "$USO_MAX_SECAO" ]; then USO_LIM_PERDIDOS=$((USO_LIM_PERDIDOS + 1)); continue; fi
+        USO_TXT+="  limite atingido: $c"$'\n'
+    done
+    if [ "$USO_LIM_PERDIDOS" -gt 0 ]; then USO_TXT+="  limite atingido: mais $USO_LIM_PERDIDOS aviso(s) omitido(s)"$'\n'; fi
     rm -rf "$tmp"
 }
 
@@ -199,7 +233,7 @@ _uso_lim_conhecido() {
 uso_cruzar() {
     local quem="$1" tipo="$2" ref="$3" tmp="$4" c acao r linha
     if [ "${#USO_CRUZ[@]}" -ge "$USO_MAX_CRUZ" ]; then
-        [[ " ${USO_LIM[*]-} " == *"cruzamentos"* ]] || USO_LIM+=("mais de $USO_MAX_CRUZ cruzamentos; mostrei so os primeiros")
+        [[ " ${USO_LIM[*]-} " == *"cruzamentos"* ]] || _uso_lim_add "mais de $USO_MAX_CRUZ cruzamentos; mostrei so os primeiros"
         return 0
     fi
     if [ "$tipo" = arq ]; then

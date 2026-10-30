@@ -268,4 +268,32 @@ nega "e a pendencia acabou" test -e "$DGCLAW_RAIZ/var/lib/dgclaw/suporte/alerta-
 kill "$P1" "$P2" 2>/dev/null; wait 2>/dev/null
 
 
+echo "--falha ao consultar as sessoes NUNCA vira 'nenhuma sessao'"
+ALERTA="$DGCLAW_RAIZ/var/lib/dgclaw/suporte/alerta-sessoes"
+rm -f "$ALERTA" "$STUB_ESTADO/ss-conexoes"
+printf '%s\n' "$ALHEIA1" >"$ARQ"; dgclaw suporte ligar --chave "$CHAVE" >/dev/null 2>&1
+STUB_SS_FALHA=1 dgclaw suporte desligar >"$TMP/o.txt" 2>&1; rc=$?
+igual "ss com erro: desligar sai com codigo 1" 1 "$rc"
+afirma "diz que nao conseguiu verificar" grep -q "nao consegui verificar as sessoes de root abertas (o ss saiu com codigo 1)" "$TMP/o.txt"
+nega "nao anuncia acesso desligado" grep -q "acesso do suporte desligado\|ja estava desligado" "$TMP/o.txt"
+afirma "gravou a pendencia" test -e "$ALERTA"
+rm -f "$ALERTA"
+STUB_SS_FALHA=1 dgclaw suporte desligar --derrubar-sessoes >"$TMP/o.txt" 2>&1; rc=$?
+igual "ss com erro: desligar --derrubar-sessoes sai com 1" 1 "$rc"
+afirma "e grava a pendencia" test -e "$ALERTA"
+rm -f "$ALERTA"
+DGCLAW_SS=/nao/existe/ss dgclaw suporte desligar >"$TMP/o.txt" 2>&1; rc=$?
+igual "ss ausente: desligar sai com 1" 1 "$rc"
+afirma "diz que o ss nao esta instalado" grep -q "o programa ss nao esta instalado" "$TMP/o.txt"
+afirma "ss ausente tambem grava a pendencia" test -e "$ALERTA"
+STUB_SS_FALHA=1 dgclaw suporte status >"$TMP/o.txt" 2>&1; rc=$?
+igual "ss com erro: status sai com 1" 1 "$rc"
+afirma "status diz que nao consegue confirmar" grep -q "NAO consegui confirmar que esta desligado" "$TMP/o.txt"
+nega "status nao diz 'suporte: desligado'" grep -qx "suporte: desligado" "$TMP/o.txt"
+linha_ss_erro="$(STUB_SS_FALHA=1 bash -c '. "$1"; . "$2/lib/suporte.sh"; s_ok() { echo "ok $1"; }; s_aviso() { echo "aviso $1"; }; suporte_status_linha' _ "$REPO/lib/comum.sh" "$REPO" 2>&1)"
+afirma "dgclaw status avisa e nao diz desligado" grep -q "^aviso suporte: nao consegui verificar as sessoes" <<<"$linha_ss_erro"
+dgclaw suporte status >"$TMP/o.txt" 2>&1; rc=$?
+igual "com o ss de volta, status sai 0" 0 "$rc"
+nega "e a pendencia some" test -e "$ALERTA"
+
 fim

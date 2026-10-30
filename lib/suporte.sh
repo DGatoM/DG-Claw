@@ -257,10 +257,18 @@ suporte_cadeia_de_pais() {
 # suporte_listar_sessoes: preenche SUP_SES_PEER, SUP_SES_PIDS (pids separados por espaco), SUP_SES_INICIO e
 # SUP_SES_PROPRIA (1 = a sessao de quem roda este comando). Uma entrada por conexao SSH de root.
 suporte_listar_sessoes() {
-    SUP_SES_PEER=(); SUP_SES_PIDS=(); SUP_SES_INICIO=(); SUP_SES_PROPRIA=()
-    command -v ss >/dev/null 2>&1 || return 0
-    local saida linha peer pid cmd cadeia ssh_ip="" ssh_porta="" i idx pids inicio propria
-    saida="$(ss -tnpH 2>/dev/null)" || saida=""
+    SUP_SES_PEER=(); SUP_SES_PIDS=(); SUP_SES_INICIO=(); SUP_SES_PROPRIA=(); SUP_SES_ERRO=""
+    local saida linha peer pid cmd cadeia ssh_ip="" ssh_porta="" i idx pids inicio propria ss_cmd="${DGCLAW_SS:-ss}" rc=0
+    # Falha na consulta NUNCA vira "nenhuma sessao": quem chama precisa dizer que nao conseguiu verificar.
+    if ! command -v "$ss_cmd" >/dev/null 2>&1; then SUP_SES_ERRO="o programa ss nao esta instalado (pacote iproute2)"; return 1; fi
+    if [ ! -r /proc/self/stat ]; then SUP_SES_ERRO="nao consegui ler o /proc"; return 1; fi
+    saida="$("$ss_cmd" -tnpH 2>&1)" || rc=$?
+    if [ "$rc" -ne 0 ]; then SUP_SES_ERRO="o ss saiu com codigo $rc"; return 1; fi
+    while IFS= read -r linha; do
+        [ -n "$linha" ] || continue
+        peer="$(awk '{print $5}' <<<"$linha")"
+        if [[ "$peer" != *:* ]]; then SUP_SES_ERRO="a saida do ss veio num formato que nao entendi"; return 1; fi
+    done <<<"$saida"
     cadeia=" $(suporte_cadeia_de_pais | tr '\n' ' ') "
     if [ -n "${SSH_CONNECTION:-}" ]; then read -r ssh_ip ssh_porta _ <<<"$SSH_CONNECTION"; fi
     declare -A pids_de=()
@@ -269,8 +277,10 @@ suporte_listar_sessoes() {
         [ -n "$linha" ] || continue
         peer="$(awk '{print $5}' <<<"$linha")"
         while IFS= read -r pid; do
-            [[ "$(cat "/proc/$pid/comm" 2>/dev/null)" == sshd* ]] || continue
-            cmd="$(tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null)"
+            if [ ! -d "/proc/$pid" ]; then continue; fi   # o processo acabou de sair: nao e sessao aberta
+            if ! cmd="$(cat "/proc/$pid/comm" 2>/dev/null)"; then SUP_SES_ERRO="nao consegui ler /proc/$pid/comm"; return 1; fi
+            [[ "$cmd" == sshd* ]] || continue
+            if ! cmd="$(tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null)"; then SUP_SES_ERRO="nao consegui ler /proc/$pid/cmdline"; return 1; fi
             # Usuario exato "root": "sshd: root@pts/1", "sshd: root@notty", "sshd: root [priv]" ou "sshd: root".
             # "sshd: rootbackup@pts/1" e "sshd: root2 [priv]" NAO entram.
             [[ "$cmd" =~ ^sshd:\ root(@[^[:space:]]+|\ \[priv\])?[[:space:]]*$ ]] || continue
@@ -295,8 +305,13 @@ suporte_listar_sessoes() {
 # suporte_mostrar_sessoes: imprime a lista e define SUP_OUTRAS (quantas sao de outra pessoa).
 suporte_mostrar_sessoes() {
     local i
-    SUP_OUTRAS=0
-    suporte_listar_sessoes
+    SUP_OUTRAS=0; SUP_VERIF_FALHOU=0
+    suporte_listar_sessoes || true
+    if [ -n "$SUP_SES_ERRO" ]; then
+        SUP_VERIF_FALHOU=1
+        printf '  nao consegui verificar as sessoes de root abertas (%s)\n' "$SUP_SES_ERRO"
+        return 0
+    fi
     if [ "${#SUP_SES_PEER[@]}" -eq 0 ]; then
         printf '  sessoes SSH de root abertas agora: nenhuma\n'
         return 0
@@ -316,7 +331,8 @@ suporte_mostrar_sessoes() {
 # Recusa se esta sendo rodado por SSH e nao consegue dizer qual e a propria sessao (derrubaria a de quem pede).
 suporte_derrubar_outras() {
     local i pid n=0
-    suporte_listar_sessoes
+    suporte_listar_sessoes || falha "nao consegui listar as sessoes de root abertas ($SUP_SES_ERRO), entao nao derrubo nada." \
+        "rode pelo console do servidor: who -u ; e derrube a sessao certa com sudo pkill -KILL -t <tty, ex. pts/1>."
     if { [ -n "${SSH_CONNECTION:-}" ] || [ -n "${SSH_CLIENT:-}" ]; } && ! [[ " ${SUP_SES_PROPRIA[*]-} " == *" 1 "* ]]; then
         falha "estou numa sessao SSH, mas nao consegui dizer qual das sessoes de root abertas e a sua; nao derrubo nada para nao te derrubar." \
               "rode pelo console do servidor (painel da Hostinger) ou confira com: who -u ; e derrube a sessao certa com sudo pkill -KILL -t <tty, ex. pts/1>."
@@ -359,6 +375,13 @@ suporte_desligar() {
         info "nao havia chave do suporte no arquivo."
     fi
     suporte_mostrar_sessoes
+    if [ "$SUP_VERIF_FALHOU" = 1 ]; then
+        if [ "$ENSAIO" != 1 ]; then
+            install -d -m 700 "$(sup_dir_estado)"; : >"$(suporte_alerta_arquivo)"; chmod 600 "$(suporte_alerta_arquivo)"
+        fi
+        aviso "nao consegui verificar as sessoes de root abertas ($SUP_SES_ERRO). As novas entradas com a chave do suporte estao bloqueadas, mas NAO posso dizer que o acesso esta desligado: pode haver sessao aberta. Confira com: who -u ; derrube com sudo pkill -KILL -t <tty, ex. pts/1>. Depois rode de novo: sudo dgclaw suporte status"
+        return 1
+    fi
     if [ "$derrubar" = 1 ]; then
         if [ "$SUP_OUTRAS" -eq 0 ]; then
             info "nao ha outra sessao de root para encerrar."
@@ -369,6 +392,11 @@ suporte_desligar() {
             else
                 ok "$SUP_ENCERRADAS sessao(oes) SSH de root encerrada(s). A sua nao foi tocada."
                 suporte_mostrar_sessoes
+                if [ "$SUP_VERIF_FALHOU" = 1 ]; then
+                    if [ "$ENSAIO" != 1 ]; then : >"$(suporte_alerta_arquivo)"; fi
+                    aviso "encerrei o que achei, mas nao consegui conferir de novo ($SUP_SES_ERRO): nao posso dizer que o acesso esta desligado."
+                    return 1
+                fi
             fi
         fi
     fi
@@ -398,8 +426,10 @@ suporte_registrar_revogadas() {
             || falha "nao consegui gravar $log." "confira o espaco e a permissao de $d."
     done
     chmod 600 "$log"
-    suporte_listar_sessoes
-    if [ "${#SUP_SES_PEER[@]}" -gt 0 ]; then
+    if ! suporte_listar_sessoes; then
+        printf '%s alerta: chave vencida removida, mas nao consegui verificar as sessoes de root (%s)\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$SUP_SES_ERRO" >>"$log"
+        : >"$(suporte_alerta_arquivo)"; chmod 600 "$(suporte_alerta_arquivo)"
+    elif [ "${#SUP_SES_PEER[@]}" -gt 0 ]; then
         printf '%s alerta: chave vencida removida, mas ha %s sessao(oes) de root aberta(s)\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${#SUP_SES_PEER[@]}" >>"$log"
         : >"$(suporte_alerta_arquivo)"; chmod 600 "$(suporte_alerta_arquivo)"
     else
@@ -422,6 +452,7 @@ suporte_status() {
     local linha atual agora fim fim_s ativas=0 vencidas=0 fp
     agora="$(suporte_agora_s)"
     atual="$(suporte_ler_linhas)"
+    suporte_listar_sessoes || true   # antes do resumo: sem verificar as sessoes nao se anuncia "desligado"
     while IFS= read -r linha || [ -n "$linha" ]; do
         [[ "$linha" =~ $SUPORTE_MARCADOR_RE ]] || continue
         fim="$(suporte_fim_da_linha "$linha")"
@@ -435,7 +466,9 @@ suporte_status() {
             vencidas=$((vencidas + 1))
         fi
     done <<<"$atual"
-    if [ "$ativas" -eq 0 ] && [ "$vencidas" -eq 0 ]; then
+    if [ "$ativas" -eq 0 ] && [ "$vencidas" -eq 0 ] && [ -n "$SUP_SES_ERRO" ]; then
+        printf 'suporte: sem chave do suporte no arquivo, mas NAO consegui confirmar que esta desligado\n'
+    elif [ "$ativas" -eq 0 ] && [ "$vencidas" -eq 0 ]; then
         printf 'suporte: desligado\n'
     else
         printf 'suporte: %s chave(s) ligada(s), %s vencida(s)\n' "$ativas" "$vencidas"
@@ -446,6 +479,11 @@ suporte_status() {
     suporte_mostrar_sessoes
     if [ "$SUP_OUTRAS" -gt 0 ]; then
         printf 'Para encerrar todas as sessoes SSH de root, menos a sua: sudo dgclaw suporte desligar --derrubar-sessoes\n'
+    elif [ "$SUP_VERIF_FALHOU" = 1 ]; then
+        if [ "$ENSAIO" != 1 ]; then
+            install -d -m 700 "$(sup_dir_estado)"; : >"$(suporte_alerta_arquivo)"; chmod 600 "$(suporte_alerta_arquivo)"
+        fi
+        return 1
     elif [ "$ENSAIO" != 1 ]; then
         rm -f "$(suporte_alerta_arquivo)"   # confirmado: nao ha outra sessao de root, a pendencia acabou
     fi
@@ -488,8 +526,9 @@ suporte_status_linha() {
     elif [ -e "$(suporte_alerta_arquivo)" ]; then
         # Ha pendencia (chave vencida ou desligada com sessao de root aberta): so vira "desligado" depois de
         # confirmar, agora, que nao ha mais sessao de root aberta.
-        suporte_listar_sessoes
-        if [ "${#SUP_SES_PEER[@]}" -gt 0 ]; then
+        if ! suporte_listar_sessoes; then
+            s_aviso "suporte: nao consegui verificar as sessoes de root abertas ($SUP_SES_ERRO), veja sudo dgclaw suporte status"
+        elif [ "${#SUP_SES_PEER[@]}" -gt 0 ]; then
             s_aviso "suporte: chave vencida, mas ha ${#SUP_SES_PEER[@]} sessao(oes) de root aberta(s), veja sudo dgclaw suporte status"
         else
             if [ "$ENSAIO" != 1 ]; then rm -f "$(suporte_alerta_arquivo)"; fi

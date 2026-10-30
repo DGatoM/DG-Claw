@@ -5,12 +5,12 @@
 # proprio agente: tudo o que existe la e DADO NAO CONFIAVEL. Por isso o coletor nunca devolve texto livre. Ele
 # escreve no arquivo de saida so linhas de formato fixo (campos separados por TAB):
 #   rotinas<TAB>N | scripts<TAB>N | puladosgrandes<TAB>N | canal<TAB>WhatsApp|Telegram | identidade<TAB>1
-#   rotina<TAB>rotina-N | skill<TAB>nome (o consumidor so o mostra se for skill distribuida pelo proprio DG Claw)
+#   rotina<TAB>rotina-N | skill<TAB>propria | skill<TAB>oficial<TAB>nome (so nome igual a skill distribuida pelo DG Claw)
 #   ref<TAB>rotina-N|script-N<TAB>arq|cli<TAB>referencia   (so caracteres de caminho ou de comando)
 #   lim<TAB>texto fixo do coletor
 # Nomes de rotina nunca saem. Quem consome confere cada referencia contra a lista confiavel (diff da versao, ajuda do bin/dgclaw) antes de mostrar qualquer coisa.
 #
-# Uso: uso-coletor.sh <casa do agente> <arquivo de saida>
+# Uso: uso-coletor.sh <casa do agente> <arquivo de saida> [lista de skills distribuidas, uma por linha]
 set -uo pipefail
 
 MAX_ARQ=262144      # bytes por arquivo lido
@@ -18,7 +18,7 @@ MAX_ROTINAS=200
 MAX_SCRIPTS=500
 MAX_SKILLS=300
 
-casa="${1:?casa}"; saida="${2:?saida}"
+casa="${1:?casa}"; saida="${2:?saida}"; oficiais="${3:-/dev/null}"
 casa_real="$(realpath -e -- "$casa" 2>/dev/null)" || { echo "lim	casa ilegivel" >>"$saida"; exit 0; }
 
 emite() { printf '%s\t' "$1" >>"$saida"; shift; local IFS=$'\t'; printf '%s\n' "$*" >>"$saida"; }
@@ -88,7 +88,9 @@ else
     while IFS= read -r -d '' sk; do
         nsk=$((nsk + 1))
         if [ "$nsk" -gt "$MAX_SKILLS" ]; then emite lim "mais de $MAX_SKILLS skills; listei so as primeiras $MAX_SKILLS"; break; fi
-        emite skill "${sk##*/}"
+        nome="${sk##*/}"
+        # O nome nunca sai do coletor, a nao ser que seja IGUAL a uma skill distribuida pelo DG Claw (lista de fora da casa).
+        if [[ "$nome" =~ ^[a-z0-9][a-z0-9._-]{0,40}$ ]] && grep -qxF -- "$nome" "$oficiais" 2>/dev/null; then emite skill oficial "$nome"; else emite skill propria; fi
     done < <(find -P "$casa/.claude/skills" -mindepth 1 -maxdepth 1 -print0 2>/dev/null | head -z -n "$((MAX_SKILLS + 1))")
 fi
 

@@ -3,6 +3,7 @@
 # Sem -H: mostra as portas "ocupadas" listadas (uma por linha) em $STUB_ESTADO/ss.
 case " $* " in
     *" -tnpH "*)
+        if [ -n "${STUB_SS_FALHA:-}" ]; then echo "ss: erro simulado" >&2; exit 1; fi
         if [ -f "${STUB_ESTADO:?}/ss-conexoes" ]; then cat "$STUB_ESTADO/ss-conexoes"; fi
         exit 0 ;;
 esac
