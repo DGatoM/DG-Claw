@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# journalctl de mentira: devolve o conteudo do arquivo apontado por STUB_JOURNAL (vazio se nao houver).
+if [ -n "${STUB_JOURNAL:-}" ] && [ -f "$STUB_JOURNAL" ]; then cat "$STUB_JOURNAL"; fi
+exit 0

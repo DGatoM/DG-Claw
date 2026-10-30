@@ -56,7 +56,7 @@ aprovar sem querer o comando que surgiu em seguida, e o botão Aprovar de uma te
 - **Acesso temporário do suporte DG: `dgclaw suporte`.** Quando o time DG precisa ajustar a sua instalação,
   você libera uma chave SSH nossa com prazo (`sudo dgclaw suporte ligar --chave '<linha>' --dias 7`, de 1 a 30
   dias). O servidor recusa a chave sozinho quando o prazo acaba, e um timer diário tira a linha vencida do
-  arquivo. `sudo dgclaw suporte desligar` tira o acesso na hora, `sudo dgclaw suporte status` mostra o que está
+  arquivo. `sudo dgclaw suporte desligar` tira o acesso na hora e encerra as sessões SSH que estiverem abertas com a chave do suporte (se não conseguir identificá-las, avisa e diz como derrubar), `sudo dgclaw suporte status` mostra o que está
   ligado e até quando, e o `dgclaw status` ganhou a linha "suporte: desligado" ou "suporte: ligado até ...". Só as
   chaves do suporte são tocadas; as suas ficam como estão. Cada ligar e desligar fica em
   `/var/log/dgclaw/suporte.log`, só com o fingerprint, nunca com a chave inteira. Exige OpenSSH 8.2 ou mais novo

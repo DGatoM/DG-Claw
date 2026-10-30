@@ -147,4 +147,34 @@ afirma "a ultima linha alheia sem newline foi mantida inteira" grep -qxF "$ALHEI
 nega "subcomando que nao existe" dgclaw suporte abrir
 nega "sem subcomando" dgclaw suporte
 
+echo "--dias gigante nao estoura a aritmetica"
+nega "dias 18446744073709555266 recusado" dgclaw suporte ligar --chave "$OUTRA" --dias 18446744073709555266
+nega "dias 007 recusado" dgclaw suporte ligar --chave "$OUTRA" --dias 007
+nega "dias -3 recusado" dgclaw suporte ligar --chave "$OUTRA" --dias -3
+
+echo "--desligar encerra as sessoes SSH abertas com a chave"
+printf '%s\n' "$ALHEIA1" >"$ARQ"
+dgclaw suporte ligar --chave "$CHAVE" >/dev/null 2>&1
+FP_SUP="$(ssh-keygen -l -f "$TMP/suporte.pub" | awk '{print $2}')"
+cp "$(command -v sleep)" "$TMP/sshd"
+"$TMP/sshd" 300 & PID_FALSO=$!
+"$TMP/sshd" 300 & PID_OUTRA=$!
+printf 'Oct 30 sshd[1]: Accepted publickey for root from 203.0.113.9 port 50022 ssh2: ED25519 %s\nAccepted publickey for root from 198.51.100.7 port 41000 ssh2: ED25519 SHA256:daoutrapessoa\n' "$FP_SUP" >"$TMP/journal.txt"
+printf 'ESTAB 0 0 10.0.0.5:22 203.0.113.9:50022 users:(("sshd",pid=%s,fd=4))\nESTAB 0 0 10.0.0.5:22 198.51.100.7:41000 users:(("sshd",pid=%s,fd=4))\n' "$PID_FALSO" "$PID_OUTRA" >"$STUB_ESTADO/ss-conexoes"
+STUB_JOURNAL="$TMP/journal.txt" dgclaw suporte desligar >"$TMP/o.txt" 2>&1; rc=$?
+igual "desligar com sessao aberta sai 0" 0 "$rc"
+afirma "diz que encerrou 1 sessao" grep -q "1 sessao(oes) SSH aberta(s)" "$TMP/o.txt"
+nega "a sessao da chave do suporte morreu" kill -0 "$PID_FALSO"
+afirma "a sessao de outra chave continua" kill -0 "$PID_OUTRA"
+kill "$PID_OUTRA" 2>/dev/null; wait 2>/dev/null
+
+echo "--desligar sem como identificar a sessao avisa com clareza"
+dgclaw suporte ligar --chave "$CHAVE" >/dev/null 2>&1
+rm -f "$STUB_ESTADO/ss-conexoes"
+dgclaw suporte desligar >"$TMP/o.txt" 2>&1; rc=$?
+igual "sai 0" 0 "$rc"
+afirma "avisa que pode haver sessao aberta" grep -q "pode haver uma sessao antiga aberta" "$TMP/o.txt"
+afirma "ensina a derrubar" grep -q "pkill -KILL -t" "$TMP/o.txt"
+afirma "avisa que restart nao derruba" grep -q "NAO derruba as sessoes ja abertas" "$TMP/o.txt"
+
 fim

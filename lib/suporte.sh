@@ -167,7 +167,8 @@ suporte_ligar() {
         esac
     done
     [ -n "$chave" ] || falha "falta a chave do suporte." "use: sudo dgclaw suporte ligar --chave 'ssh-ed25519 AAAA...' --dias 7"
-    if [[ ! "$dias" =~ ^[0-9]+$ ]] || [ "$dias" -lt 1 ] || [ "$dias" -gt "$SUPORTE_DIAS_MAXIMO" ]; then
+    # Regex antes de qualquer aritmetica: numero gigante estouraria o [ -gt ] e o $(( )) em silencio.
+    if [[ ! "$dias" =~ ^([1-9]|[12][0-9]|30)$ ]]; then
         falha "--dias deve ser um numero de 1 a $SUPORTE_DIAS_MAXIMO (veio: ${dias:0:20})." \
             "acesso do suporte e temporario de proposito. Escolha ate $SUPORTE_DIAS_MAXIMO dias e, se precisar de mais, ligue de novo quando vencer."
     fi
@@ -205,7 +206,7 @@ suporte_ligar() {
 # suporte_remover <todas|vencidas>: tira as linhas nossas (todas, ou so as vencidas) e registra cada uma.
 # Imprime o numero removido na variavel SUP_REMOVIDAS.
 suporte_remover() {
-    local quais="$1" linha conteudo="" atual agora fim fim_s removidas=0 fp acao registros=()
+    local quais="$1" linha conteudo="" atual agora fim fim_s removidas=0 fp acao registros=() fps=""
     suporte_travar
     agora="$(suporte_agora_s)"
     atual="$(suporte_ler_linhas)"
@@ -217,7 +218,7 @@ suporte_remover() {
                 # Marcador com data ilegivel conta como vencido: acesso temporario nao pode ficar para sempre.
                 if [ "$quais" = todas ] || [ -z "$fim_s" ] || [ "$fim_s" -le "$agora" ]; then
                     fp="$(suporte_fp_da_linha "$linha")"
-                    registros+=("fp=$fp venceria_em=$fim")
+                    registros+=("fp=$fp venceria_em=$fim"); fps+="$fp "
                     removidas=$((removidas + 1))
                     continue
                 fi
@@ -230,7 +231,48 @@ suporte_remover() {
         acao=limpar; [ "$quais" != todas ] || acao=desligar
         for fp in "${registros[@]}"; do suporte_registrar "$acao" "$fp"; done
     fi
-    SUP_REMOVIDAS="$removidas"
+    SUP_REMOVIDAS="$removidas"; SUP_FPS_REMOVIDOS="${fps% }"
+}
+
+# suporte_encerrar_sessoes <fingerprint...>: derruba as sessoes SSH abertas com as chaves que acabaram de sair.
+# O sshd registra "Accepted publickey for root from IP port P ssh2: ED25519 SHA256:<fp>" no journal. Com o par
+# IP:porta acha-se o processo sshd dono da conexao (ss -tnp) e encerra-se. Imprime quantas encerrou; se nao
+# conseguiu identificar nenhuma, diz com clareza que pode haver sessao aberta e como derrubar.
+suporte_encerrar_sessoes() {
+    local fp log conexoes="" ip porta linha pid pids n=0 sem_log=0 ss_saida comm
+    command -v journalctl >/dev/null 2>&1 || sem_log=1
+    if [ "$sem_log" = 0 ]; then
+        log="$(journalctl -u ssh.service -u sshd.service --no-pager -o cat --since '-45 days' 2>/dev/null)" || log=""
+        [ -n "$log" ] || sem_log=1
+    fi
+    if [ "$sem_log" = 0 ] && command -v ss >/dev/null 2>&1; then
+        for fp in "$@"; do
+            [[ "$fp" =~ ^SHA256:[A-Za-z0-9+/=]+$ ]] || continue
+            conexoes+="$(grep -F "$fp" <<<"$log" | grep -F 'Accepted publickey for root' \
+                | sed -nE 's/.*from ([0-9A-Fa-f:.]+) port ([0-9]+) .*/\1 \2/p')"$'\n'
+        done
+        ss_saida="$(ss -tnpH 2>/dev/null)" || ss_saida=""
+        while read -r ip porta; do
+            [ -n "$ip" ] || continue
+            while IFS= read -r linha; do
+                [[ "$linha" == *" $ip:$porta "* || "$linha" == *"[$ip]:$porta "* || "$linha" == *" $ip:$porta" || "$linha" == *"[$ip]:$porta" ]] || continue
+                pids="$(grep -oE 'pid=[0-9]+' <<<"$linha" | cut -d= -f2)"
+                for pid in $pids; do
+                    comm="$(cat "/proc/$pid/comm" 2>/dev/null || true)"
+                    [[ "$comm" == sshd* ]] || continue
+                    kill -TERM "$pid" 2>/dev/null || continue
+                    sleep 1
+                    if kill -0 "$pid" 2>/dev/null; then kill -KILL "$pid" 2>/dev/null || true; fi
+                    n=$((n + 1))
+                done
+            done <<<"$ss_saida"
+        done < <(printf '%s' "$conexoes" | sort -u)
+    fi
+    if [ "$n" -gt 0 ]; then
+        ok "$n sessao(oes) SSH aberta(s) com a chave do suporte foi(ram) encerrada(s)."
+    else
+        aviso "nao consegui identificar sessao SSH aberta com a chave do suporte ($([ "$sem_log" = 1 ] && echo 'sem acesso ao log do sshd' || echo 'nenhuma conexao dessa chave aparece ativa')). As novas entradas ja estao bloqueadas, mas pode haver uma sessao antiga aberta. Para ver: who -u ; para derrubar uma: sudo pkill -KILL -t <tty, ex. pts/0>. 'systemctl restart ssh' NAO derruba as sessoes ja abertas."
+    fi
 }
 
 suporte_desligar() {
@@ -240,6 +282,8 @@ suporte_desligar() {
         ok "nao havia chave do suporte para tirar: o acesso ja estava desligado."
     else
         ok "acesso do suporte desligado: $SUP_REMOVIDAS chave(s) removida(s) de $(suporte_arq). As suas outras chaves ficaram como estavam."
+        # shellcheck disable=SC2086 # fingerprints nao tem espaco
+        suporte_encerrar_sessoes $SUP_FPS_REMOVIDOS
     fi
 }
 

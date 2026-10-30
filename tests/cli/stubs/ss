@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
-# Mostra as portas "ocupadas" listadas (uma por linha) em $STUB_ESTADO/ss.
+# Com -H (como o dgclaw suporte usa): so as conexoes de $STUB_ESTADO/ss-conexoes, uma por linha, sem cabecalho.
+# Sem -H: mostra as portas "ocupadas" listadas (uma por linha) em $STUB_ESTADO/ss.
+case " $* " in
+    *" -tnpH "*)
+        if [ -f "${STUB_ESTADO:?}/ss-conexoes" ]; then cat "$STUB_ESTADO/ss-conexoes"; fi
+        exit 0 ;;
+esac
 echo "State  Recv-Q Send-Q Local Address:Port Peer Address:Port"
 if [ -f "${STUB_ESTADO:?}/ss" ]; then
     while read -r p; do echo "LISTEN 0 128 127.0.0.1:$p 0.0.0.0:*"; done < "$STUB_ESTADO/ss"
