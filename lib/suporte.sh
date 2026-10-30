@@ -302,6 +302,15 @@ suporte_listar_sessoes() {
     done
 }
 
+# suporte_contar_outras: quantas das sessoes listadas sao de outra pessoa (preenche SUP_N_OUTRAS).
+suporte_contar_outras() {
+    local i
+    SUP_N_OUTRAS=0
+    for i in "${!SUP_SES_PEER[@]}"; do
+        if [ "${SUP_SES_PROPRIA[$i]}" = 0 ]; then SUP_N_OUTRAS=$((SUP_N_OUTRAS + 1)); fi
+    done
+}
+
 # suporte_mostrar_sessoes: imprime a lista e define SUP_OUTRAS (quantas sao de outra pessoa).
 suporte_mostrar_sessoes() {
     local i
@@ -449,7 +458,7 @@ suporte_limpar() {
 
 suporte_status() {
     [ $# -eq 0 ] || falha "'suporte status' nao tem opcoes (veio: $*)." "use: sudo dgclaw suporte status"
-    local linha atual agora fim fim_s ativas=0 vencidas=0 fp
+    local linha atual agora fim fim_s ativas=0 vencidas=0 fp historico
     agora="$(suporte_agora_s)"
     atual="$(suporte_ler_linhas)"
     suporte_listar_sessoes || true   # antes do resumo: sem verificar as sessoes nao se anuncia "desligado"
@@ -466,12 +475,21 @@ suporte_status() {
             vencidas=$((vencidas + 1))
         fi
     done <<<"$atual"
-    if [ "$ativas" -eq 0 ] && [ "$vencidas" -eq 0 ] && [ -n "$SUP_SES_ERRO" ]; then
-        printf 'suporte: sem chave do suporte no arquivo, mas NAO consegui confirmar que esta desligado\n'
-    elif [ "$ativas" -eq 0 ] && [ "$vencidas" -eq 0 ]; then
-        printf 'suporte: desligado\n'
-    else
+    suporte_contar_outras
+    historico=0
+    if [ "$vencidas" -gt 0 ] || [ -e "$(suporte_alerta_arquivo)" ]; then historico=1; fi
+    if [ "$ativas" -gt 0 ]; then
         printf 'suporte: %s chave(s) ligada(s), %s vencida(s)\n' "$ativas" "$vencidas"
+    elif [ "$historico" = 1 ] && [ -n "$SUP_SES_ERRO" ]; then
+        printf 'suporte: chave revogada ou vencida, acesso ainda nao confirmado como encerrado (nao consegui verificar as sessoes de root: %s)\n' "$SUP_SES_ERRO"
+    elif [ "$historico" = 1 ] && [ "$SUP_N_OUTRAS" -gt 0 ]; then
+        printf 'suporte: chave revogada ou vencida, acesso ainda nao confirmado como encerrado (%s sessao(oes) de root abertas)\n' "$SUP_N_OUTRAS"
+    elif [ -n "$SUP_SES_ERRO" ]; then
+        printf 'suporte: sem chave do suporte no arquivo, mas NAO consegui confirmar que esta desligado\n'
+    elif [ "$vencidas" -gt 0 ]; then
+        printf 'suporte: %s chave(s) ligada(s), %s vencida(s)\n' "$ativas" "$vencidas"
+    else
+        printf 'suporte: desligado\n'
     fi
     if [ "$vencidas" -gt 0 ]; then
         printf 'As vencidas ja nao entram (o servidor recusa), mas ainda estao no arquivo. Para remover: sudo dgclaw suporte limpar\n'
@@ -521,19 +539,24 @@ suporte_status_linha() {
     done <<<"$conteudo"
     if [ -n "$maior" ]; then
         s_aviso "suporte: ligado ate $(suporte_fmt_data "$maior") (para tirar agora: sudo dgclaw suporte desligar)"
-    elif [ "$vencidas" -gt 0 ]; then
-        s_aviso "suporte: desligado, mas $vencidas chave(s) vencida(s) ainda no arquivo (remova com: sudo dgclaw suporte limpar)"
-    elif [ -e "$(suporte_alerta_arquivo)" ]; then
-        # Ha pendencia (chave vencida ou desligada com sessao de root aberta): so vira "desligado" depois de
-        # confirmar, agora, que nao ha mais sessao de root aberta.
+        return 0
+    fi
+    # Sem chave nossa valendo: antes de dizer o estado, consulta as sessoes de root (chave vencida antes do timer,
+    # ou removida com sessao aberta, nao e acesso encerrado).
+    if [ "$vencidas" -gt 0 ] || [ -e "$(suporte_alerta_arquivo)" ]; then
         if ! suporte_listar_sessoes; then
-            s_aviso "suporte: nao consegui verificar as sessoes de root abertas ($SUP_SES_ERRO), veja sudo dgclaw suporte status"
-        elif [ "${#SUP_SES_PEER[@]}" -gt 0 ]; then
-            s_aviso "suporte: chave vencida, mas ha ${#SUP_SES_PEER[@]} sessao(oes) de root aberta(s), veja sudo dgclaw suporte status"
-        else
-            if [ "$ENSAIO" != 1 ]; then rm -f "$(suporte_alerta_arquivo)"; fi
-            s_ok "suporte: desligado"
+            s_aviso "suporte: chave revogada ou vencida, acesso ainda nao confirmado como encerrado (nao consegui verificar as sessoes de root: $SUP_SES_ERRO), veja sudo dgclaw suporte status"
+            return 0
         fi
+        suporte_contar_outras
+        if [ "$SUP_N_OUTRAS" -gt 0 ]; then
+            s_aviso "suporte: chave revogada ou vencida, acesso ainda nao confirmado como encerrado ($SUP_N_OUTRAS sessao(oes) de root abertas), veja sudo dgclaw suporte status"
+            return 0
+        fi
+        if [ "$ENSAIO" != 1 ]; then rm -f "$(suporte_alerta_arquivo)"; fi
+    fi
+    if [ "$vencidas" -gt 0 ]; then
+        s_aviso "suporte: desligado, mas $vencidas chave(s) vencida(s) ainda no arquivo (remova com: sudo dgclaw suporte limpar)"
     else
         s_ok "suporte: desligado"
     fi

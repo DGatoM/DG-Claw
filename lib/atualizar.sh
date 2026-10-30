@@ -466,8 +466,10 @@ atualizar_conferir_parecer() {
     local arq alvo lido commit veredito motivo data
     alvo="${ATU_DESTINO:-}"
     if [ -z "$alvo" ]; then
-        aviso "nao sei qual e o commit de destino, entao nao ha como conferir o parecer; sigo so com o ok do dono."
-        return 0
+        # Sem identidade verificavel do destino nao ha a que prender o parecer: bloqueia, em vez de deixar passar.
+        atualizar_registrar bloqueio "motivo=destino-sem-identidade"
+        falha "nao consigo identificar a versao de destino (o clone nao e um repositorio git ou nao tem de onde puxar), entao nao ha como conferir o parecer." \
+              "faca da pasta um clone git do DG Claw oficial (git clone https://github.com/DGatoM/DG-Claw), aponte para ele com --repo e rode de novo: sudo dgclaw atualizar --simular, depois o parecer e o --ok-do-dono. Nada foi mudado (parei antes do backup)."
     fi
     arq="$(atualizar_parecer_arquivo)"
     if [ ! -f "$arq" ]; then

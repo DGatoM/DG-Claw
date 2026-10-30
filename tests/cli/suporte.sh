@@ -218,7 +218,7 @@ saida="$(bash -c '
     . "$1"; . "$2/lib/suporte.sh"
     s_ok() { printf "ok %s\n" "$1"; }; s_aviso() { printf "aviso %s\n" "$1"; }
     suporte_status_linha' _ "$REPO/lib/comum.sh" "$REPO" 2>&1)"
-afirma "dgclaw status avisa da sessao aberta" grep -q "suporte: chave vencida, mas ha 1 sessao(oes) de root aberta(s), veja sudo dgclaw suporte status" <<<"$saida"
+afirma "dgclaw status avisa da sessao aberta" grep -q "suporte: chave revogada ou vencida, acesso ainda nao confirmado como encerrado (1 sessao(oes) de root abertas), veja sudo dgclaw suporte status" <<<"$saida"
 dgclaw suporte status >"$TMP/o.txt" 2>&1
 afirma "suporte status lista a sessao" grep -q "198.51.100.8:42000, desde" "$TMP/o.txt"
 kill "$PID_A" "$PID_C" "$PID_D" 2>/dev/null; wait 2>/dev/null
@@ -260,7 +260,7 @@ linha_status() { bash -c '
     . "$1"; . "$2/lib/suporte.sh"
     s_ok() { printf "ok %s\n" "$1"; }; s_aviso() { printf "aviso %s\n" "$1"; }
     suporte_status_linha' _ "$REPO/lib/comum.sh" "$REPO" 2>&1; }
-afirma "com sessao aberta o status nao diz desligado" grep -q "suporte: chave vencida, mas ha 2 sessao(oes)" <<<"$(linha_status)"
+afirma "com sessao aberta o status nao diz desligado" grep -q "suporte: chave revogada ou vencida, acesso ainda nao confirmado como encerrado (2 sessao(oes) de root abertas)" <<<"$(linha_status)"
 nega "e nao diz 'ok suporte: desligado'" grep -q "^ok suporte: desligado" <<<"$(linha_status)"
 kill "$P3" "$P4" 2>/dev/null; sleep 0.3; : >"$STUB_ESTADO/ss-conexoes"
 afirma "sem sessao, o status confirma e diz desligado" grep -q "^ok suporte: desligado" <<<"$(linha_status)"
@@ -288,12 +288,36 @@ afirma "diz que o ss nao esta instalado" grep -q "o programa ss nao esta instala
 afirma "ss ausente tambem grava a pendencia" test -e "$ALERTA"
 STUB_SS_FALHA=1 dgclaw suporte status >"$TMP/o.txt" 2>&1; rc=$?
 igual "ss com erro: status sai com 1" 1 "$rc"
-afirma "status diz que nao consegue confirmar" grep -q "NAO consegui confirmar que esta desligado" "$TMP/o.txt"
+afirma "status diz que nao consegue confirmar" grep -q "acesso ainda nao confirmado como encerrado (nao consegui verificar as sessoes de root" "$TMP/o.txt"
 nega "status nao diz 'suporte: desligado'" grep -qx "suporte: desligado" "$TMP/o.txt"
 linha_ss_erro="$(STUB_SS_FALHA=1 bash -c '. "$1"; . "$2/lib/suporte.sh"; s_ok() { echo "ok $1"; }; s_aviso() { echo "aviso $1"; }; suporte_status_linha' _ "$REPO/lib/comum.sh" "$REPO" 2>&1)"
-afirma "dgclaw status avisa e nao diz desligado" grep -q "^aviso suporte: nao consegui verificar as sessoes" <<<"$linha_ss_erro"
+afirma "dgclaw status avisa e nao diz desligado" grep -q "^aviso suporte: chave revogada ou vencida, acesso ainda nao confirmado como encerrado (nao consegui verificar as sessoes" <<<"$linha_ss_erro"
 dgclaw suporte status >"$TMP/o.txt" 2>&1; rc=$?
 igual "com o ss de volta, status sai 0" 0 "$rc"
 nega "e a pendencia some" test -e "$ALERTA"
+
+echo "--status consulta as sessoes antes de dizer o estado"
+fantasma "sshd: root@pts/7"; PZ=$!
+sleep 0.3
+printf 'ESTAB 0 0 10.0.0.5:22 198.51.100.50:5050 users:(("sshd",pid=%s,fd=4))\n' "$PZ" >"$STUB_ESTADO/ss-conexoes"
+rm -f "$ALERTA"; printf '%s\n' "$ALHEIA1" >"$ARQ"
+dgclaw suporte ligar --chave "$CHAVE" >/dev/null 2>&1
+dgclaw suporte desligar >/dev/null 2>&1
+dgclaw suporte status >"$TMP/o.txt" 2>&1; rc=$?
+afirma "removida sem derrubar, com sessao aberta: status nao confirma encerramento" grep -q "suporte: chave revogada ou vencida, acesso ainda nao confirmado como encerrado (1 sessao(oes) de root abertas)" "$TMP/o.txt"
+nega "e nao diz 'suporte: desligado'" grep -qx "suporte: desligado" "$TMP/o.txt"
+afirma "a linha do dgclaw status tambem" grep -q "acesso ainda nao confirmado como encerrado (1 sessao(oes) de root abertas)" <<<"$(linha_status)"
+echo "--chave vencida antes do timer, com sessao aberta"
+rm -f "$ALERTA"
+printf '%s\n' "$ALHEIA1" >"$ARQ"
+printf 'expiry-time="%sZ" ssh-ed25519 %s dgclaw-suporte:cafe0001:%s\n' "$VENCIDA_FIM" "$(awk '{print $2}' "$TMP/outra.pub")" "$VENCIDA_FIM" >>"$ARQ"
+dgclaw suporte status >"$TMP/o.txt" 2>&1
+afirma "status: vencida no arquivo + sessao aberta nao e desligado" grep -q "suporte: chave revogada ou vencida, acesso ainda nao confirmado como encerrado (1 sessao(oes) de root abertas)" "$TMP/o.txt"
+afirma "dgclaw status: o mesmo" grep -q "acesso ainda nao confirmado como encerrado (1 sessao(oes) de root abertas)" <<<"$(linha_status)"
+: >"$STUB_ESTADO/ss-conexoes"
+afirma "sem sessao, a vencida no arquivo so pede o limpar" grep -q "desligado, mas 1 chave(s) vencida(s)" <<<"$(linha_status)"
+STUB_SS_FALHA=1 dgclaw suporte status >"$TMP/o.txt" 2>&1
+afirma "consulta que falha com vencida no arquivo tambem nao confirma" grep -q "acesso ainda nao confirmado como encerrado (nao consegui verificar" "$TMP/o.txt"
+kill "$PZ" 2>/dev/null; wait 2>/dev/null
 
 fim

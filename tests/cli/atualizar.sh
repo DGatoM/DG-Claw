@@ -661,4 +661,12 @@ igual "ok-do-dono com parecer segura do mesmo commit passa" "0" "$rc"
 [ "$rc" -eq 0 ] || sed 's/^/      | /' "$TMP/p7.txt" | tail -n 20
 afirma "o parecer 'segura' foi conferido" grep -q "parecer 'segura' de" "$TMP/p7.txt"
 
+
+echo "sem identidade verificavel do destino (clone sem git), o --ok-do-dono bloqueia"
+bash -c '. "$1"; . "$2/lib/atualizar.sh"; ATU_DESTINO=""; ATU_MODO=atualizar; ATU_APESAR=0; atualizar_conferir_parecer' _ "$REPO/lib/comum.sh" "$REPO" >"$TMP/sg.txt" 2>&1; rc=$?
+igual "destino sem identidade: bloqueia (codigo 1)" "1" "$rc"
+afirma "explica que nao consegue identificar a versao de destino" grep -q 'nao consigo identificar a versao de destino' "$TMP/sg.txt"
+afirma "diz o que fazer (clone git oficial)" grep -q 'git clone' "$TMP/sg.txt"
+nega "nao segue so com o ok do dono" grep -q 'sigo so com o ok do dono' "$TMP/sg.txt"
+
 fim
