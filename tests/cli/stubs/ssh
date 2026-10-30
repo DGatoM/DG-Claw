@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# ssh de mentira: so o `ssh -V`, que o `dgclaw suporte ligar` usa para conferir o OpenSSH.
+# STUB_SSH_VERSAO muda a versao anunciada (padrao 9.6p1).
+if [ "${1:-}" = -V ]; then
+    echo "OpenSSH_${STUB_SSH_VERSAO:-9.6p1} Ubuntu-stub, OpenSSL 3.0.13 30 Jan 2024" >&2
+    exit 0
+fi
+echo "ssh de mentira: so aceita -V (veio: $*)" >&2
+exit 2

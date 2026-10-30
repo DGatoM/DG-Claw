@@ -65,3 +65,22 @@ caso_aviso_ensaio_so_descreve() {
     nega "nenhum systemctl enable" tem "$STUB_LOG" "systemctl enable"
     limpar_cenario
 }
+
+caso_suporte_instala_a_limpeza_diaria_endurecida() {
+    novo_cenario
+    afirma "a instalacao termina" instalacao_basica
+    local u="$RAIZ/etc/systemd/system" s
+    s="$u/dgclaw-suporte-limpar.service"
+    afirma "unidade de servico existe" test -f "$s"
+    afirma "oneshot como root" tem "$s" "Type=oneshot"
+    afirma "chama o dgclaw suporte limpar" tem "$s" "ExecStart=/usr/local/bin/dgclaw suporte limpar"
+    for linha in NoNewPrivileges=yes ProtectSystem=strict PrivateTmp=yes ProtectKernelTunables=yes \
+                 ProtectControlGroups=yes RestrictSUIDSGID=yes "ReadWritePaths=/root/.ssh /var/log/dgclaw"; do
+        afirma "endurecimento: $linha" tem "$s" "$linha"
+    done
+    nega "nao esconde o /root (o arquivo mora la)" tem "$s" "ProtectHome=yes"
+    afirma "timer diario" tem "$u/dgclaw-suporte-limpar.timer" "OnCalendar=daily"
+    afirma "timer persistente" tem "$u/dgclaw-suporte-limpar.timer" "Persistent=true"
+    afirma "o timer foi ligado" tem "$STUB_LOG" "systemctl enable dgclaw-suporte-limpar.timer"
+    limpar_cenario
+}

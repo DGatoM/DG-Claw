@@ -39,6 +39,14 @@ aprovar sem querer o comando que surgiu em seguida, e o botão Aprovar de uma te
 
 ### Adicionado
 
+- **Acesso temporário do suporte DG: `dgclaw suporte`.** Quando o time DG precisa ajustar a sua instalação,
+  você libera uma chave SSH nossa com prazo (`sudo dgclaw suporte ligar --chave '<linha>' --dias 7`, de 1 a 30
+  dias). O servidor recusa a chave sozinho quando o prazo acaba, e um timer diário tira a linha vencida do
+  arquivo. `sudo dgclaw suporte desligar` tira o acesso na hora, `sudo dgclaw suporte status` mostra o que está
+  ligado e até quando, e o `dgclaw status` ganhou a linha "suporte: desligado" ou "suporte: ligado até ...". Só as
+  chaves do suporte são tocadas; as suas ficam como estão. Cada ligar e desligar fica em
+  `/var/log/dgclaw/suporte.log`, só com o fingerprint, nunca com a chave inteira. Exige OpenSSH 8.2 ou mais novo
+  (o Ubuntu 24.04 já tem). O Admin conhece o comando e só liga quando você pede.
 - **Regra de ação em massa ou destrutiva.** Todo agente e o Admin passam a nascer sabendo que, antes de
   apagar, sobrescrever, mover, mandar mensagem para vários, mudar a etapa de vários registros num CRM,
   cancelar, importar ou qualquer coisa que atinja mais de um item de uma vez ou não dê para desfazer, eles

@@ -31,6 +31,8 @@ APP_DIR="$(cd "$(dirname "$DGCLAW_BIN_REAL")/.." && pwd)"
 . "$APP_DIR/lib/aviso-atualizacao.sh"
 # shellcheck source=lib/personalizacoes.sh
 . "$APP_DIR/lib/personalizacoes.sh"
+# shellcheck source=lib/suporte.sh
+. "$APP_DIR/lib/suporte.sh"
 
 # Tempo maximo de espera (segundos) do systemd e do /api/saude de dentro do agente.
 # Variavel so para os testes nao esperarem um minuto de verdade.
@@ -165,6 +167,16 @@ Personalizacoes do programa (o que o Admin mudou no DG Claw)
   dgclaw personalizacoes conferir        confere o registro contra a versao nova (git fetch) e diz se algo cruza; nao muda nada
   dgclaw personalizacoes concluir        marca o levantamento pendente como concluido (exige o registro)
       Exemplo:  sudo dgclaw personalizacoes conferir
+
+Suporte DG
+  dgclaw suporte ligar --chave '<linha ssh-ed25519 ...>' [--dias N]
+      Libera o time de suporte DG por uma chave SSH TEMPORARIA (padrao 7 dias, maximo 30). Depois do prazo o
+      servidor recusa a chave sozinho. So as chaves do suporte sao tocadas; as suas ficam como estao.
+      Exemplo:  sudo dgclaw suporte ligar --chave 'ssh-ed25519 AAAAC3... suporte' --dias 7
+  dgclaw suporte desligar                tira o acesso do suporte agora (e diz quantas chaves removeu)
+  dgclaw suporte status                  mostra as chaves do suporte, ate quando valem e as vencidas
+  dgclaw suporte limpar                  tira so as chaves vencidas (um timer diario ja faz isso)
+      Exemplo:  sudo dgclaw suporte status
 
 Geral
   dgclaw versao                          mostra a versao e o commit instalados (tambem: dgclaw --version)
@@ -2105,6 +2117,7 @@ status_geral() {
     done < <(agentes_ler | jq -r '.agentes[] | select(.tipo == "agente") | [.slug, .runner, (.home_host // "")] | @tsv')
 
     aviso_atualizacao_status
+    suporte_status_linha
 
     if [ "$S_FALHAS" -gt 0 ]; then
         printf '\n%s coisa(s) essencial(is) fora do ar. Veja as linhas FALHOU acima.\n' "$S_FALHAS" >&2
@@ -2151,6 +2164,7 @@ main() {
         restaurar) restaurar_main "$@" ;;
         versao|--version) versao_main "$@" ;;
         personalizacoes) personalizacoes_main "$@" ;;
+        suporte) suporte_main "$@" ;;
         *) falha "o comando '$cmd' nao existe." "veja os comandos com: dgclaw --ajuda" ;;
     esac
 }
