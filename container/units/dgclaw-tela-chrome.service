@@ -1,0 +1,29 @@
+[Unit]
+Description=DG Claw Tela do agente (Google Chrome de verdade, com CDP local)
+After=dgclaw-tela.service
+Requires=dgclaw-tela.service
+
+[Service]
+Type=simple
+User=agente
+Environment=HOME=/home/agente
+Environment=DISPLAY=:1
+# Perfil na casa do agente: as sessoes logadas sobrevivem a restart e viajam junto
+# quando a casa for entregue ao cliente.
+# Sem headless de proposito: site com anti-robo recusa headless.
+# CDP so em 127.0.0.1:9222: quem usa e o proprio agente (playwright connect_over_cdp).
+# --no-sandbox: no podman com uidmap o sandbox do Chrome nao sobe (falta user namespace
+# aninhado). O isolamento real e o do container, que ja separa o agente do servidor.
+# Flags economicas: sem GPU, sem /dev/shm (o do container e pequeno), poucos renderers.
+ExecStartPre=/usr/bin/rm -f /home/agente/.tela-chrome/SingletonLock /home/agente/.tela-chrome/SingletonSocket /home/agente/.tela-chrome/SingletonCookie
+ExecStart=/usr/bin/google-chrome-stable --user-data-dir=/home/agente/.tela-chrome \
+  --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 \
+  --no-first-run --no-default-browser-check --disable-gpu --disable-dev-shm-usage \
+  --renderer-process-limit=4 --disable-features=Translate,MediaRouter \
+  --password-store=basic --lang=pt-BR \
+  --window-position=0,0 --window-size=1440,900 --start-maximized --no-sandbox
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

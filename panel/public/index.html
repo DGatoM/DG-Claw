@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="{{BASE}}/css/cofre.css">
   <link rel="stylesheet" href="{{BASE}}/css/skills.css">
   <link rel="stylesheet" href="{{BASE}}/css/socorro.css">
+  <link rel="stylesheet" href="{{BASE}}/css/tela.css">
   <link rel="stylesheet" href="{{BASE}}/css/operacoes.css">
   <link rel="stylesheet" href="{{BASE}}/css/sessoes.css">
   <link rel="stylesheet" href="{{BASE}}/css/leitura.css">
@@ -75,6 +76,7 @@
         <button class="tab" data-tab="skills"><span class="ico">✦</span>Skills</button>
         <button class="tab" data-tab="rotinas"><span class="ico">↻</span>Rotinas</button>
         <button class="tab" data-tab="arquivos"><span class="ico">▢</span>Pasta</button>
+        <button class="tab" data-tab="tela"><span class="ico">▭</span>Tela</button>
         <!-- A aba Socorro (outra frente) entra aqui, antes do Cofre. -->
         <button class="tab" data-tab="socorro"><span class="ico">✚</span>Socorro</button>
         <button class="tab" data-tab="cofre"><span class="ico">⚿</span>Cofre</button>
@@ -460,6 +462,9 @@
         <!-- SOCORRO: desenhada inteira por js/socorro.js (ver o cabeçalho dele). -->
         <div class="panel" id="panel-socorro"><div id="socorro-root"></div></div>
 
+        <!-- TELA: o navegador do agente (noVNC), desenhada inteira por js/tela.js. -->
+        <div class="panel" id="panel-tela"><div id="tela-root"></div></div>
+
         <div class="panel" id="panel-cofre">
           <div id="cofre-root">Carregando...</div>
         </div>
@@ -554,6 +559,7 @@
   <script src="{{BASE}}/js/cofre.js"></script>
   <script src="{{BASE}}/js/skills.js"></script>
   <script src="{{BASE}}/js/socorro.js"></script>
+  <script src="{{BASE}}/js/tela.js"></script>
   <script src="{{BASE}}/js/sessoes.js"></script>
 </body>
 </html>
