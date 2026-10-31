@@ -241,7 +241,8 @@ suporte_varrer_config() {
         d="${d,,}"
         if [[ "$d" =~ (^|[^a-z0-9_])match([^a-z0-9_]|$) ]]; then SUP_CFG_VIU_MATCH_CRU=1; fi
         if [ "$SUP_CFG_VIU_MATCH_CRU" = 1 ] && [[ "$d" == *authorizedkeys* || "$d" == *authorizedprincipals* || "$d" == *trustedusercakeys* ]]; then
-            SUP_CFG_ERRO="uma linha de $arq fala de chaves ou principals depois de um Match (varredura bruta)"; return 1
+            SUP_CFG_ERRO="uma linha de $arq fala de chaves ou principals depois de um Match (varredura bruta)"
+            if [ "${SUP_CFG_COLETAR:-0}" != 1 ]; then return 1; fi
         fi
         rc=0; suporte_ler_diretiva "$linha" || rc=$?
         if [ "$rc" -eq 2 ]; then SUP_CFG_ERRO="$SUP_CFG_ERRO (em $arq)"; return 2; fi
@@ -271,7 +272,10 @@ suporte_varrer_config() {
                     done
                 done ;;
             authorizedkeysfile|authorizedkeyscommand|authorizedkeyscommanduser|trustedusercakeys|authorizedprincipalsfile|authorizedprincipalscommand|authorizedprincipalscommanduser)
-                if [ "$SUP_CFG_EM_MATCH" = 1 ]; then SUP_CFG_ERRO="o bloco Match de $arq define ${SUP_KW}"; return 1; fi ;;
+                if [ "$SUP_CFG_EM_MATCH" = 1 ]; then
+                    SUP_CFG_ERRO="o bloco Match de $arq define ${SUP_KW}"
+                    if [ "${SUP_CFG_COLETAR:-0}" != 1 ]; then return 1; fi
+                fi ;;
         esac
     done <"$arq" || { SUP_CFG_ERRO="nao consegui ler $arq"; return 2; }
     return 0
@@ -416,6 +420,20 @@ suporte_inicio_proc() {
     if [[ "$btime" =~ ^[0-9]+$ ]] && [[ "$clk" =~ ^[0-9]+$ ]] && [ "$clk" -gt 0 ] && [[ "$st" =~ ^[0-9]+$ ]]; then printf '%s' $((btime + st / clk)); else printf 0; fi
 }
 
+suporte_manifesto_arquivo() { printf '%s' "$(sup_dir_estado)/sshd-config-manifesto"; }
+
+# suporte_texto_manifesto: "sha256 caminho" de cada arquivo da arvore de configuracao conferida (SUP_CFG_VISITADOS:
+# sshd_config, Include expandidos, arquivos -f), em ordem fixa. Falha (retorno 1) se algum nao puder ser lido.
+suporte_texto_manifesto() {
+    local f h
+    while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        h="$(sha256sum <"$f" 2>/dev/null | cut -d' ' -f1)"
+        if [[ ! "$h" =~ ^[0-9a-f]{64}$ ]]; then return 1; fi
+        printf '%s %s\n' "$h" "$f"
+    done < <(printf '%s\n' ${SUP_CFG_VISITADOS[@]+"${SUP_CFG_VISITADOS[@]}"} | LC_ALL=C sort -u)
+}
+
 suporte_stamp_arquivo() { printf '%s' "$(sup_dir_estado)/sshd-recarregado"; }
 
 # suporte_recarregar_sshd: o sshd ativo pode ter carregado uma configuracao diferente da que esta no disco. Antes de
@@ -472,6 +490,18 @@ suporte_recarregar_sshd() {
     install -d -m 700 "$(sup_dir_estado)"
     SUP_ESTADO_CTX="" suporte_gravar_estado "$(suporte_stamp_arquivo)" "${linhas%$'\n'}"
     if [ -n "$falhas" ]; then SUP_RELOAD_ERRO="${falhas%; }"; return 1; fi
+    # Recarga confirmada em todos os mestres: guarda a arvore de configuracao que acabou de ser carregada (caminhos e
+    # sha256), para perceber depois um arquivo apagado, acrescentado ou alterado sem recarga.
+    local cfg manifesto rc_v
+    SUP_CFG_VISITADOS=(); SUP_CFG_COLETAR=1
+    for cfg in "" ${confs:+$confs}; do
+        SUP_CFG_N=0; SUP_CFG_EM_MATCH=0; SUP_CFG_VIU_MATCH_CRU=0; SUP_CFG_ERRO=""
+        rc_v=0; suporte_varrer_config "$R${cfg:-${DGCLAW_SSHD_CONFIG:-/etc/ssh/sshd_config}}" 0 || rc_v=$?
+        if [ "$rc_v" -eq 2 ]; then SUP_CFG_COLETAR=0; SUP_RELOAD_ERRO="nao consegui ler a arvore de configuracao do sshd ($(suporte_seguro "$SUP_CFG_ERRO"))"; return 1; fi
+    done
+    SUP_CFG_COLETAR=0
+    if ! manifesto="$(suporte_texto_manifesto)" || [ -z "$manifesto" ]; then SUP_RELOAD_ERRO="nao consegui calcular o sha256 da configuracao do sshd"; return 1; fi
+    SUP_ESTADO_CTX="" suporte_gravar_estado "$(suporte_manifesto_arquivo)" "$manifesto"
     info "sshd recarregado com a configuracao do disco (${#SUP_M_PIDS[@]} processo(s) mestre; a recarga nao derruba as sessoes abertas)."
 }
 
@@ -511,6 +541,20 @@ suporte_config_mais_nova_que_carregada() {
     if [ "$last" -le 0 ]; then
         falha "nao consegui saber desde quando o sshd carregou a configuracao, entao nao posso garantir que ela e a do disco." \
             "rode: sudo dgclaw suporte desligar (ele recarrega o sshd e anota a hora), ou recarregue: sudo systemctl reload ssh."
+    fi
+    # Camada principal: a arvore atual (caminhos e sha256) tem de ser igual a da ultima recarga confirmada. Pega arquivo
+    # apagado, acrescentado ou alterado com a data forjada, que a checagem de mtime abaixo nao ve.
+    local atual_m guardado_m
+    if [ -f "$(suporte_manifesto_arquivo)" ]; then
+        atual_m="$(suporte_texto_manifesto)" || atual_m="?"
+        guardado_m="$(cat "$(suporte_manifesto_arquivo)")"
+        if [ "$atual_m" != "$guardado_m" ]; then
+            falha "a configuracao do sshd mudou desde a ultima recarga confirmada (algum arquivo foi acrescentado, apagado ou alterado), entao o que esta no disco pode nao ser o que vale." \
+                "rode sudo dgclaw suporte desligar de novo (ele valida e recarrega o sshd e anota a arvore de configuracao) ou recarregue o ssh: sudo systemctl reload ssh. A recarga nao derruba as sessoes abertas."
+        fi
+    elif [ "$ENSAIO" != 1 ]; then
+        falha "nao ha registro de uma recarga confirmada do sshd (a arvore de configuracao conferida), entao nao posso garantir que o que esta no disco e o que ele carregou." \
+            "rode sudo dgclaw suporte desligar (ele valida e recarrega o sshd e anota a arvore de configuracao), ou recarregue o ssh: sudo systemctl reload ssh."
     fi
     for f in ${SUP_CFG_VISITADOS[@]+"${SUP_CFG_VISITADOS[@]}"}; do
         m="$(stat -c %Y "$f" 2>/dev/null || true)"
@@ -873,6 +917,7 @@ suporte_ligar() {
     suporte_registrar_tolerante ligar "fp=$SUP_FP id=$SUP_ID dias=$dias ate=$fim$([ "$ja" = 1 ] && echo ' renovada=sim')"
     ok "acesso do suporte ligado ate $(suporte_fmt_data "$fim") ($dias dia(s)). Chave $SUP_FP, id $SUP_ID."
     info "Depois do prazo o servidor recusa a chave sozinho. Para tirar antes: sudo dgclaw suporte desligar"
+    info "Lembrete: o 'suporte desligar' revoga so as chaves gerenciadas pelo suporte, nao senhas nem outras chaves. A senha de root que o cliente passou tem de ser trocada logo depois de testar o acesso por chave, antes de qualquer ajuste."
 }
 
 # suporte_remover <todas|vencidas>: tira as linhas nossas (todas, ou so as vencidas) e registra cada uma.
@@ -1071,6 +1116,7 @@ suporte_desligar() {
     else
         info "nao havia chave do suporte no arquivo."
     fi
+    info "Lembrete: isto revoga so as chaves gerenciadas pelo suporte. Senhas (a de root, se ainda for a que foi passada) e outras chaves nao sao tocadas: troque a senha de root se ainda nao trocou."
     # Pendentes do estado + as que acabaram de sair da linha marcada (no ensaio o estado nao e gravado). "?" = nao calculei.
     fps="$(printf '%s\n%s\n' "$(suporte_fps_historico "")" "${SUP_FPS_REMOVIDOS// /$'\n'}" | sort -u | grep -v '^$' || true)"
     if [ -n "$fps" ]; then

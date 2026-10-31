@@ -1148,4 +1148,61 @@ else
     afirma "sshd real: com o endereco do suporte a config difere da de 127.0.0.1" bash -c 'a="$(/usr/sbin/sshd -T -f "$1" -C user=root,host=x,addr=203.0.113.7 | grep -i "^authorizedkeysfile")"; b="$(/usr/sbin/sshd -T -f "$1" -C user=root,host=x,addr=127.0.0.1 | grep -i "^authorizedkeysfile")"; [ "$a" = "authorizedkeysfile .ssh/suporte-permanente" ] && [ "$a" != "$b" ]' _ "$CASO"
 fi
 
+echo "--lembrete sobre senha de root na saida do ligar e do desligar"
+printf '%s\n' "$ALHEIA1" >"$ARQ"; rm -f "$ALERTA" "$ARQ2"; : >"$PEND"; printf 'PasswordAuthentication no\n' >"$CFG"
+dgclaw suporte ligar --chave "$CHAVE" >"$TMP/o.txt" 2>&1
+afirma "o ligar lembra de trocar a senha de root logo depois do teste por chave" grep -q "senha de root .* trocada logo depois de testar o acesso por chave" "$TMP/o.txt"
+afirma "o ligar diz que o desligar nao revoga senhas" grep -q "revoga so as chaves gerenciadas pelo suporte, nao senhas" "$TMP/o.txt"
+dgclaw suporte desligar >"$TMP/o.txt" 2>&1
+afirma "o desligar lembra que nao toca em senhas nem em outras chaves" grep -q "Senhas .* e outras chaves nao sao tocadas" "$TMP/o.txt"
+
+echo "--manifesto da arvore de configuracao confirmada na ultima recarga (caminhos e sha256)"
+export DGCLAW_SSHD_BIN="$HOSTSSHD"
+rm -rf "$DGCLAW_PROC"; mkdir -p "$DGCLAW_PROC/1/ns"
+printf 'cpu  1 2 3\nbtime 1000000000\n' >"$DGCLAW_PROC/stat"
+ln -sfn 'mnt:[4026531841]' "$DGCLAW_PROC/1/ns/mnt"; ln -sfn 'pid:[4026531836]' "$DGCLAW_PROC/1/ns/pid"
+MANIF="$DGCLAW_RAIZ/var/lib/dgclaw/suporte/sshd-config-manifesto"
+mkdir -p "$DGCLAW_RAIZ/etc/ssh/inc.d"; INC="$DGCLAW_RAIZ/etc/ssh/inc.d/a.conf"
+printf 'Include /etc/ssh/inc.d/*.conf\n' >"$CFG"; printf 'PasswordAuthentication no\n' >"$INC"
+printf '%s\n' "$ALHEIA1" >"$ARQ"; rm -f "$ALERTA" "$STAMP" "$MANIF"; : >"$PEND"
+MKPROC_MAIN=1 mkproc 5400 '/usr/sbin/sshd\0-D\0' 0 "$HOSTSSHD" 'mnt:[4026531841]' 100
+dgclaw suporte ligar --chave "$CHAVE" >/dev/null 2>&1; rc=$?
+igual "ligar com Include e mestre verificado: sai 0" 0 "$rc"
+igual "manifesto 600" 600 "$(stat -c %a "$MANIF")"
+afirma "o manifesto lista o sshd_config com o sha256" grep -q "^$(sha256sum <"$CFG" | cut -d' ' -f1) $CFG\$" "$MANIF"
+afirma "e o arquivo do Include" grep -q "^$(sha256sum <"$INC" | cut -d' ' -f1) $INC\$" "$MANIF"
+printf '%s\n' "$(cat "$TMP/suporte.pub")" >"$ARQ2"
+dgclaw suporte desligar >/dev/null 2>&1   # a chave segue em authorized_keys2: pendente, com manifesto novo
+cp "$PEND" "$TMP/pend-antes"
+dgclaw suporte status >"$TMP/o.txt" 2>&1
+nega "nada mudou: status normal (sem 'mudou desde a ultima recarga')" grep -q "mudou desde a ultima recarga" "$TMP/o.txt"
+afirma "(o resultado normal: a chave segue em authorized_keys2)" grep -q "authorized_keys2" "$TMP/o.txt"
+mv "$INC" "$TMP/inc.guardado"
+dgclaw suporte status >"$TMP/o.txt" 2>&1; rc=$?
+igual "Include apagado depois da recarga: status sai 1" 1 "$rc"
+afirma "diz que a configuracao mudou desde a ultima recarga confirmada" grep -q "mudou desde a ultima recarga confirmada" "$TMP/o.txt"
+afirma "os fingerprints pendentes foram preservados" cmp -s "$PEND" "$TMP/pend-antes"
+afirma "a linha do dgclaw status tambem avisa" grep -q "NAO esta desligado" <<<"$(linha_status)"
+mv "$TMP/inc.guardado" "$INC"
+dgclaw suporte status >"$TMP/o.txt" 2>&1
+nega "arquivo de volta igual: normal de novo" grep -q "mudou desde a ultima recarga" "$TMP/o.txt"
+printf 'PasswordAuthentication yes\n' >"$INC"; touch -d '2 hours ago' "$INC"   # conteudo mudado, data forjada
+dgclaw suporte status >"$TMP/o.txt" 2>&1; rc=$?
+igual "conteudo mudado com mtime antigo: pego pelo hash, status sai 1" 1 "$rc"
+afirma "mesma mensagem" grep -q "mudou desde a ultima recarga confirmada" "$TMP/o.txt"
+printf 'PasswordAuthentication no\n' >"$INC"; dgclaw suporte desligar >/dev/null 2>&1   # nova recarga e novo manifesto
+dgclaw suporte status >"$TMP/o.txt" 2>&1
+nega "depois de nova recarga o manifesto novo vale: normal" grep -q "mudou desde a ultima recarga" "$TMP/o.txt"
+printf 'PasswordAuthentication no\n' >"$DGCLAW_RAIZ/etc/ssh/inc.d/b.conf"; touch -d '2 hours ago' "$DGCLAW_RAIZ/etc/ssh/inc.d/b.conf"
+dgclaw suporte status >"$TMP/o.txt" 2>&1; rc=$?
+igual "arquivo novo incluido pelo glob (data antiga): status sai 1" 1 "$rc"
+afirma "mesma mensagem" grep -q "mudou desde a ultima recarga confirmada" "$TMP/o.txt"
+rm -f "$DGCLAW_RAIZ/etc/ssh/inc.d/b.conf" "$MANIF"
+dgclaw suporte status >"$TMP/o.txt" 2>&1; rc=$?
+igual "sem manifesto, com mestre verificado e historico: status sai 1" 1 "$rc"
+afirma "diz que nao ha registro de recarga confirmada" grep -q "nao ha registro de uma recarga confirmada" "$TMP/o.txt"
+rm -f "$ARQ2" "$ALERTA" "$STAMP"; : >"$PEND"; dgclaw suporte desligar >/dev/null 2>&1
+rm -rf "$DGCLAW_PROC" "$DGCLAW_RAIZ/etc/ssh/inc.d" "$INC"; mkdir -p "$DGCLAW_PROC"; unset DGCLAW_SSHD_BIN; echo 0 >"$STUB_ESTADO/mainpid-ssh.service"
+printf 'PasswordAuthentication no\n' >"$CFG"; rm -f "$MANIF" "$STAMP" "$ALERTA"; : >"$PEND"
+
 fim
