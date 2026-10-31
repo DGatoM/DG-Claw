@@ -30,7 +30,7 @@ monta_ambiente() {
   FAKE="$TMP/fake"
   rm -rf "$RAIZ" "$FAKE"
   mkdir -p "$RAIZ/etc/dgclaw" "$FAKE/bin"
-  : >"$FAKE/chamadas.log"
+  : >"$FAKE/chamadas.log"; : >"$FAKE/unidades.log"
   export DGCLAW_RAIZ="$RAIZ" EMERGENCIA_CONF="$RAIZ/etc/dgclaw/emergencia.conf" EMERGENCIA_ESPERA=0 FAKE
   export PATH="$FAKE/bin:$PATH"
   cat >"$EMERGENCIA_CONF" <<CONF
@@ -53,6 +53,7 @@ case "$1" in
   stop) echo "systemctl $*" >>"$FAKE/chamadas.log"
         if [[ "$2" == emergencia-desfazer.timer ]]; then rm -f "$FAKE/timer-ativo"; else rm -f "$FAKE/ativo-$2"; fi ;;
   start) echo "systemctl $*" >>"$FAKE/chamadas.log"; touch "$FAKE/ativo-$2" ;;
+  daemon-reload|enable|disable) echo "systemctl $*" >>"$FAKE/unidades.log" ;;
 esac'
   fake systemd-run 'echo "systemd-run $*" >>"$FAKE/chamadas.log"; touch "$FAKE/timer-ativo"'
   fake tailscale '
@@ -352,6 +353,97 @@ wait
 confere "o segundo manual sai 0" "0" "$RC"
 contem "diz que já estava religado" "$SAIDA" "Já estava religado"
 confere "a tabela foi apagada uma vez só" "1" "$(chamadas | grep -c '^nft delete table')"
+
+echo "14. o corte confirmado sobrevive a um reinício (unidades de boot)"
+monta_ambiente; liga_tailscale
+UD="$RAIZ/etc/systemd/system"
+pega_codigo
+roda cortar --codigo "$COD"
+confere "cortar ok" "0" "$RC"
+[[ -f "$UD/dgclaw-emergencia-boot.service" && -f "$UD/dgclaw-emergencia-boot-servicos.service" ]] && ok "as unidades de boot foram instaladas já no corte" || nok "unidades de boot ausentes depois do corte"
+roda confirmar
+confere "confirmar ok" "0" "$RC"
+U1="$(cat "$UD/dgclaw-emergencia-boot.service")"
+U2="$(cat "$UD/dgclaw-emergencia-boot-servicos.service")"
+contem "unidade 1 sem dependências padrão" "$U1" "DefaultDependencies=no"
+contem "unidade 1 vem antes da rede e dos serviços públicos" "$U1" "Before=network-pre.target cloudflared.service caddy.service shutdown.target"
+contem "unidade 1 puxa o network-pre" "$U1" "Wants=network-pre.target"
+contem "unidade 1 é oneshot" "$U1" "Type=oneshot"
+contem "unidade 1 entra no sysinit" "$U1" "WantedBy=sysinit.target"
+contem "unidade 1 chama o boot" "$U1" "ExecStart=$SELF boot"
+contem "unidade 2 vem depois dos serviços públicos" "$U2" "After=network.target dgclaw-emergencia-boot.service cloudflared.service caddy.service"
+contem "unidade 2 chama o boot-servicos" "$U2" "ExecStart=$SELF boot-servicos"
+contem "habilitou as duas unidades" "$(cat "$FAKE/unidades.log")" "systemctl enable dgclaw-emergencia-boot.service"
+contem "habilitou a unidade dos serviços" "$(cat "$FAKE/unidades.log")" "systemctl enable dgclaw-emergencia-boot-servicos.service"
+echo "   simula o reinício: some a tabela nft e o timer, os serviços sobem sozinhos"
+rm -f "$FAKE/nft-tabela" "$FAKE/timer-ativo" "$FAKE/nft-carregado.txt"
+touch "$FAKE/ativo-cloudflared" "$FAKE/ativo-caddy"
+roda estado --json
+if python3 -I -c 'import json,sys; d=json.loads(sys.stdin.read()); assert d["cortado"] is True and d["inconsistente"] is True and "NÃO está protegida" in d["motivo_inconsistente"]' <<<"$SAIDA"; then ok "estado --json acusa o estado inconsistente com o motivo"; else nok "estado --json inconsistente: $SAIDA"; fi
+roda estado
+contem "estado fala em INCONSISTENTE" "$SAIDA" "Estado: INCONSISTENTE"
+: >"$FAKE/chamadas.log"
+roda boot
+confere "boot exit 0" "0" "$RC"
+confere "boot valida e carrega o arquivo guardado" "nft -c -f $RAIZ/var/lib/dgclaw/emergencia/emergencia.nft
+nft -f $RAIZ/var/lib/dgclaw/emergencia/emergencia.nft" "$(chamadas)"
+[[ -f "$FAKE/nft-tabela" ]] && ok "a tabela nft voltou" || nok "tabela nft não voltou"
+roda estado --json
+if python3 -I -c 'import json,sys; d=json.loads(sys.stdin.read()); assert d["cortado"] is True and d["inconsistente"] is False and d["confirmado"] is True' <<<"$SAIDA"; then ok "depois do boot o estado é consistente e confirmado"; else nok "estado depois do boot: $SAIDA"; fi
+: >"$FAKE/chamadas.log"
+roda boot-servicos
+confere "boot-servicos exit 0" "0" "$RC"
+confere "para de novo os serviços públicos" "systemctl stop cloudflared
+systemctl stop caddy" "$(chamadas)"
+echo "   corte inconsistente pode ser recarregado com cortar"
+rm -f "$FAKE/nft-tabela"
+pega_codigo
+if python3 -I -c 'import json,sys; d=json.loads(sys.stdin.read()); assert d["acao"]=="cortar"' <<<"$SAIDA"; then ok "preparar oferece o corte no estado inconsistente"; else nok "preparar inconsistente: $SAIDA"; fi
+touch "$FAKE/ativo-cloudflared" "$FAKE/ativo-caddy"
+roda cortar --codigo "$COD"
+confere "cortar no estado inconsistente é aceito" "0" "$RC"
+[[ -f "$FAKE/nft-tabela" ]] && ok "a tabela nft foi recarregada" || nok "tabela não recarregada"
+[[ ! -e "$RAIZ/var/lib/dgclaw/emergencia/confirmado" ]] && ok "a confirmação antiga foi descartada" || nok "confirmação antiga ficou"
+echo "   religar desabilita e remove as unidades"
+: >"$FAKE/unidades.log"
+pega_codigo
+roda religar --codigo "$COD"
+confere "religar ok" "0" "$RC"
+[[ ! -e "$UD/dgclaw-emergencia-boot.service" && ! -e "$UD/dgclaw-emergencia-boot-servicos.service" ]] && ok "as unidades foram removidas" || nok "unidades continuam em $UD"
+contem "desabilitou a unidade 1" "$(cat "$FAKE/unidades.log")" "systemctl disable --no-reload dgclaw-emergencia-boot.service"
+contem "desabilitou a unidade 2" "$(cat "$FAKE/unidades.log")" "systemctl disable --no-reload dgclaw-emergencia-boot-servicos.service"
+contem "recarregou o systemd" "$(cat "$FAKE/unidades.log")" "systemctl daemon-reload"
+
+echo "15. corte NÃO confirmado que atravessa um reinício: o boot desfaz como o religar automático"
+monta_ambiente; liga_tailscale
+pega_codigo
+roda cortar --codigo "$COD"
+rm -f "$FAKE/nft-tabela" "$FAKE/timer-ativo"
+: >"$FAKE/chamadas.log"
+roda boot
+confere "boot exit 0" "0" "$RC"
+confere "não carrega nenhuma tabela" "" "$(chamadas)"
+ED="$RAIZ/var/lib/dgclaw/emergencia"
+[[ ! -e "$ED/cortado" ]] && ok "marcador de corte limpo" || nok "marcador de corte ficou"
+contem "registrou no log" "$(cat "$ED/emergencia.log")" "boot: corte NÃO confirmado desfeito"
+ls "$ED"/historico/*-boot/cortado >/dev/null 2>&1 && ok "o corte foi para o histórico" || nok "histórico do boot ausente"
+[[ ! -e "$UD/dgclaw-emergencia-boot.service" ]] && ok "unidades removidas" || nok "unidades ficaram"
+roda estado
+contem "estado normal" "$SAIDA" "Estado: NORMAL"
+echo "   boot sem corte não faz nada"
+: >"$FAKE/chamadas.log"
+roda boot
+confere "boot exit 0" "0" "$RC"
+confere "sem chamadas" "" "$(chamadas)"
+echo "   boot com corte confirmado e nft recusando não esconde a falha"
+monta_ambiente; liga_tailscale
+pega_codigo
+roda cortar --codigo "$COD"
+roda confirmar
+rm -f "$FAKE/nft-tabela"; touch "$FAKE/nft-invalido"
+roda boot
+confere "boot falha" "1" "$RC"
+contem "diz que o servidor pode estar exposto" "$SAIDA" "pode estar exposto"
 
 echo
 echo "Passaram: $PASSOU  Falharam: $FALHOU"

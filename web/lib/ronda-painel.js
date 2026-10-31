@@ -182,6 +182,8 @@ function validaEstadoEmergencia(e) {
   if (!e || typeof e !== 'object' || Array.isArray(e)) return null;
   return {
     cortado: e.cortado === true,
+    inconsistente: e.inconsistente === true,
+    motivo_inconsistente: txt(e.motivo_inconsistente, 300),
     desde: data(e.desde),
     quem: txt(e.quem, 60),
     isolar_saida: e.isolar_saida === true,
@@ -428,7 +430,7 @@ function criarRondaPainel(opcoes) {
     }
     if (!l.ausente) {
       const e = l.emergencia;
-      if (acao === 'cortar' && e.estado.cortado) return H.erroJson(res, 409, 'O sistema já está fora do ar. Use "religar" para voltar ao normal.');
+      if (acao === 'cortar' && e.estado.cortado && !e.estado.inconsistente) return H.erroJson(res, 409, 'O sistema já está fora do ar. Use "religar" para voltar ao normal.');
       if (acao === 'cortar' && !e.disponivel) return H.erroJson(res, 409, `O botão de emergência está indisponível: ${e.motivo || 'o servidor não disse o motivo'}`);
       if (acao === 'religar' && !e.estado.cortado) return H.erroJson(res, 409, 'O sistema não está fora do ar, então não há o que religar.');
     }

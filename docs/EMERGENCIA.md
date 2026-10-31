@@ -55,6 +55,19 @@ religa os serviços e confere que o painel responde (`https://<seu domínio>/`).
 automático coincidirem, o que chegou depois espera, vê que já está religado, registra isso no log e sai com 0:
 a tabela é apagada uma única vez.
 
+## Reinício do servidor
+
+O corte vive na memória (tabela nft e serviços parados), então o `cortar` instala e habilita duas unidades systemd
+(`/etc/systemd/system/dgclaw-emergencia-boot.service` e `dgclaw-emergencia-boot-servicos.service`) e o `confirmar`
+as reafirma. A primeira roda no `sysinit.target`, antes de `network-pre.target` e dos serviços públicos (o mesmo encaixe do
+`nftables.service`): se o corte está confirmado, valida (`nft -c`) e recarrega o arquivo guardado antes de qualquer
+interface subir. A segunda roda depois da rede e dos serviços públicos e os para de novo. Corte **não confirmado** que
+atravessa um reinício perdeu o timer transitório; a primeira unidade o desfaz como o religar automático (arquiva o
+marcador no histórico, não recarrega a tabela, registra no log). O `religar` desabilita e remove as duas unidades.
+
+O `estado` confere o firewall efetivo: marcador `cortado` sem a tabela nft carregada aparece como **INCONSISTENTE**
+(`"inconsistente": true` e `"motivo_inconsistente"` no `--json`). Nesse estado o `cortar` é aceito e recarrega o corte.
+
 ## Ver o arquivo nft antes de cortar
 
 `sudo dgclaw emergencia simular [--isolar-saida]` mostra o arquivo nft exato que seria carregado. O `cortar` grava
