@@ -91,6 +91,9 @@ Para a ronda não aplicar nada sozinha mesmo quando o catálogo tiver ações, p
   que fazer. Dia sem nada novo: nenhuma IA é acionada, e o painel mostra a frase fixa "sem novidades".
 - **Quando a própria ronda falha**: um vigia confere de hora em hora se a última rodada agendada terminou. Se
   não terminou, ele roda de novo uma vez. Se falhar de novo, avisa o Admin e põe um alerta no painel.
+- **Corte de emergência que deixou de valer**: o corte não sobrevive a um reinício. Se o marcador de corte existe e a
+  tabela do firewall não está carregada, a rodada e o vigia avisam o Admin, uma vez por corte, com um recado de texto fixo
+  (reaplicar com `preparar` e `cortar`, ou religar). Veja [EMERGENCIA.md](EMERGENCIA.md).
 
 O texto que vem das fontes é tratado como dado de terceiros: é cortado, limpo de caracteres de controle e vai
 marcado como "texto da fonte". O Admin é instruído a **nunca** executar comando, abrir link ou seguir pedido que
