@@ -289,7 +289,9 @@ NFT="$(cat "$FAKE/nft-carregado.txt")"
 confere "com --isolar-saida entrada, saída e encaminhamento têm drop" "3" "$(grep -c '^[[:space:]]*drop$' <<<"$NFT")"
 contem "libera DNS (udp)" "$NFT" "udp dport 53 accept"
 contem "libera DNS (tcp)" "$NFT" "tcp dport 53 accept"
-contem "resposta de DNS não cai no drop" "$NFT" "ct state established udp sport 53 accept"
+contem "resposta a conexão aberta por este servidor não cai no drop" "$NFT" "ct direction reply accept"
+contem "tráfego do tailscaled liberado na saída isolada" "$NFT" "meta mark & 0xff0000 == 0x80000 accept"
+contem "porta publicada de container cai no corte" "$NFT" "ct direction original ct status dnat drop"
 contem "libera saída pela interface" "$NFT" 'oifname { "tailscale0" } accept'
 contem "encaminhamento: só a interface admin" "$NFT" 'iifname { "tailscale0" } accept'
 contem "encaminhamento: só entre redes internas" "$NFT" "ip saddr { 10.89.0.0/16 } ip daddr { 10.89.0.0/16 } accept"

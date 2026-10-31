@@ -279,9 +279,10 @@ monta_nft() {
     [[ -n "$red4" ]] && printf '\t\tip saddr { %s } accept\n' "$red4"
     [[ -n "$red6" ]] && printf '\t\tip6 saddr { %s } accept\n' "$red6"
     printf '\t\t%s\n' "$nd"
-    if ((ISOLAR)); then
-      printf '\t\tct state established udp sport 53 accept\n\t\tct state established tcp sport 53 accept\n'
-    fi
+    # Resposta a conexão que ESTE servidor abriu (direção reply) passa: sem isso o corte de entrada também
+    # cortaria a saída (DNS, API das agentes). Com --isolar-saida, a chain de saída já barra o que não é
+    # permitido, então só sobram respostas do que foi liberado. Conexão aberta de fora cai no drop.
+    printf '\t\tct direction reply accept\n'
     printf '\t\tdrop\n\t}\n'
     printf '\tchain saida {\n\t\ttype filter hook output priority -10; policy accept;\n'
     printf '\t\toifname "lo" accept\n'
@@ -292,10 +293,14 @@ monta_nft() {
       [[ -n "$red4" ]] && printf '\t\tip daddr { %s } accept\n' "$red4"
       [[ -n "$red6" ]] && printf '\t\tip6 daddr { %s } accept\n' "$red6"
       printf '\t\t%s\n' "$nd"
+      # Tráfego do próprio tailscaled (WireGuard/DERP) sai pela interface pública com a marca 0x80000.
+      printf '\t\tmeta mark & 0xff0000 == 0x80000 accept\n'
       printf '\t\tudp dport 53 accept\n\t\ttcp dport 53 accept\n\t\tdrop\n'
     fi
     printf '\t}\n'
     printf '\tchain encaminhamento {\n\t\ttype filter hook forward priority -10; policy accept;\n'
+    # Porta publicada de container (DNAT) não pode continuar alcançável de fora durante o corte.
+    printf '\t\tct direction original ct status dnat drop\n'
     if ((ISOLAR)); then
       [[ -n "$ifs" ]] && printf '\t\tiifname { %s } accept\n\t\toifname { %s } accept\n' "$ifs" "$ifs"
       [[ -n "$red4" ]] && printf '\t\tip saddr { %s } ip daddr { %s } accept\n' "$red4" "$red4"
