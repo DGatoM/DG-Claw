@@ -29,8 +29,11 @@ import { pararVigiaDoStopPerdido, vigiarRolloutDoCodex, vigiarStopPerdido } from
 export async function subir(s: Sessao, modo: "retomar" | "nova"): Promise<"retomar" | "nova"> {
   // Se o PTY anterior saiu sozinho, o grupo dele pode ainda ter filhos vivos: espera a faxina
   // terminar para nunca ter dois claude na mesma sessão (Layla, 30/10/2026).
-  if (s.saidaPendente) await s.saidaPendente;
-  if (s.limpezaDeGrupo) await s.limpezaDeGrupo;
+  // Em laço: enquanto se espera, a saída de outro PTY pode ter começado uma varredura nova.
+  while (s.saidaPendente || s.limpezaDeGrupo) {
+    if (s.saidaPendente) await s.saidaPendente;
+    if (s.limpezaDeGrupo) await s.limpezaDeGrupo;
+  }
   if (s.grupoQueSobrou !== null) {
     const pgid = s.grupoQueSobrou;
     if (grupoVivo(pgid)) {
@@ -239,9 +242,12 @@ export async function spawn(s: Sessao, ctx: CtxMotor, args: string[]): Promise<v
     // O líder do grupo morreu, mas o claude cria filhos (servidores MCP, subshells) no mesmo grupo,
     // e eles não morrem junto quando o líder cai por sinal. Sem varrer o grupo aqui, o runner subia
     // um claude novo ao lado dos órfãos. Vale para toda saída, pedida ou não.
-    s.limpezaDeGrupo = varrerGrupoOrfao(s, esteProc.pid, exitCode, signal).finally(() => {
-      s.limpezaDeGrupo = null;
+    // Só zera se ainda for esta varredura: a de um PTY largado pode acabar depois de a do PTY
+    // novo ter começado, e apagar a dele deixaria o subir() seguir com o grupo novo ainda vivo.
+    const minha: Promise<void> = varrerGrupoOrfao(s, esteProc.pid, exitCode, signal).finally(() => {
+      if (s.limpezaDeGrupo === minha) s.limpezaDeGrupo = null;
     });
+    s.limpezaDeGrupo = minha;
     // Saída de um PTY que parar() já tinha largado: o kill é assíncrono, e o
     // evento chega depois que a sessão pode ter subido outro PTY (suspensa e
     // acordada logo em seguida, ou revive). Tratar como saída "do atual"
