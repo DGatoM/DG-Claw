@@ -5,6 +5,7 @@ if [ "$1" = is-active ]; then
     estado="inactive"; [ -f "$est/svc-$2" ] && estado="$(cat "$est/svc-$2")"
     echo "$estado"; [ "$estado" = active ]; exit $?
 fi
+if [ "$1" = reload ] && [ -n "${STUB_RELOAD_FALHA:-}" ]; then echo "Failed to reload $2 (simulado)" >&2; exit 1; fi
 if [ "$1" = show ]; then
     # `systemctl show -p ExecStart --value <unidade>`: o texto vem de $STUB_ESTADO/execstart-<unidade> (vazio se nao existir).
     unit="${*: -1}"

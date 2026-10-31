@@ -10,5 +10,10 @@ if [ "${1:-}" = -T ]; then
     printf 'port 22\nauthorizedkeysfile .ssh/authorized_keys .ssh/authorized_keys2\nauthorizedkeyscommand none\n'
     exit 0
 fi
+if [ "${1:-}" = -t ]; then
+    # `sshd -t [-f arquivo]`: valida a configuracao. STUB_SSHD_T_FALHA=1 simula configuracao invalida.
+    if [ -n "${STUB_SSHD_T_FALHA:-}" ]; then echo "sshd: configuracao invalida (simulado)" >&2; exit 255; fi
+    exit 0
+fi
 echo "sshd de mentira: so aceita -T (veio: $*)" >&2
 exit 2

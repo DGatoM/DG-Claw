@@ -117,7 +117,7 @@ suporte_fps_de_texto() {
     done <<<"$1"
     [ "$candidatas" -gt 0 ] || return 0
     # cert-authority: o ssh-keygen daria o fingerprint da CA, nao o de quem ela autoriza; nao tenho como conferir.
-    if grep -qE '(^|[[:space:],])cert-authority([[:space:],=]|$)' <<<"$1"; then
+    if grep -qiE '(^|[[:space:],])cert-authority([[:space:],=]|$)' <<<"$1"; then
         SUP_FPARQ_ERRO="ha uma linha com a opcao cert-authority: ela autoriza certificados emitidos por uma CA, e a revogacao de chaves nao revoga certificados"
         return 2
     fi
@@ -221,6 +221,7 @@ suporte_varrer_config() {
     SUP_CFG_N=$((SUP_CFG_N + 1))
     if [ "$SUP_CFG_N" -gt 100 ]; then SUP_CFG_ERRO="arquivos demais na configuracao do sshd (mais de 100)"; return 2; fi
     if [ ! -f "$arq" ] || [ ! -r "$arq" ]; then SUP_CFG_ERRO="nao consegui ler $arq"; return 2; fi
+    SUP_CFG_VISITADOS+=("$arq")
     while IFS= read -r linha || [ -n "$linha" ]; do
         # Primeiro so a palavra-chave: linhas que nao importam nem passam pelo tokenizador.
         d="${linha#"${linha%%[![:space:]]*}"}"; d="${d%%[[:space:]=]*}"; d="${d,,}"
@@ -327,11 +328,143 @@ suporte_analisar_opcoes_sshd() {
     done
 }
 
+# suporte_varrer_mestres <callback>: para cada sshd mestre VERIFICADO chama `callback <pid> <argumentos...>` e deixa a
+# contagem em SUP_N_MESTRES. So conta quem passa em TODAS as verificacoes: o /proc do host mostra tambem processos de
+# containers (de agentes), e eles podem se chamar /usr/sbin/sshd com os argumentos que quiserem: uid 0, exe igual ao
+# binario do sshd do host (caminho e dev:inode) e mesmos namespaces mnt/pid do PID 1. O que nao der para ler ou nao
+# bater e ignorado. Nada da linha de comando de um processo entra em mensagem.
+suporte_varrer_mestres() {
+    local cb="$1" proc="${DGCLAW_PROC:-/proc}" d a0 titulo sshd_host id_host real_host ns_mnt1 ns_pid1
+    local -a arr toks
+    SUP_N_MESTRES=0
+    [ -d "$proc" ] && [ -r "$proc" ] || return 0
+    sshd_host="${DGCLAW_SSHD_BIN:-$(command -v sshd 2>/dev/null || true)}"; sshd_host="${sshd_host:-/usr/sbin/sshd}"
+    id_host="$(stat -Lc '%d:%i' "$sshd_host" 2>/dev/null || true)"
+    real_host="$(readlink -f "$sshd_host" 2>/dev/null || true)"
+    ns_mnt1="$(readlink "$proc/1/ns/mnt" 2>/dev/null || true)"; ns_pid1="$(readlink "$proc/1/ns/pid" 2>/dev/null || true)"
+    if [ -z "$id_host" ] || [ -z "$real_host" ] || [ -z "$ns_mnt1" ] || [ -z "$ns_pid1" ]; then return 0; fi
+    for d in "$proc"/[0-9]*; do
+        [ -r "$d/cmdline" ] || continue
+        mapfile -t arr < <(tr '\0' '\n' <"$d/cmdline" 2>/dev/null)
+        [ "${#arr[@]}" -gt 0 ] || continue
+        a0="${arr[0]}"
+        if [ "${a0##*/}" = sshd ] && [[ "$a0" != "sshd: "* ]]; then titulo=""
+        elif [[ "$a0" == "sshd: /"* ]]; then titulo="${a0#sshd: }"; titulo="${titulo%%\[*}"
+        else continue; fi
+        [ "$(awk '/^Uid:/ {print $2 " " $3}' "$d/status" 2>/dev/null)" = "0 0" ] || continue
+        [ "$(stat -Lc '%d:%i' "$d/exe" 2>/dev/null)" = "$id_host" ] || continue
+        [ "$(readlink -f "$d/exe" 2>/dev/null)" = "$real_host" ] || continue
+        [ "$(readlink "$d/ns/mnt" 2>/dev/null)" = "$ns_mnt1" ] || continue
+        [ "$(readlink "$d/ns/pid" 2>/dev/null)" = "$ns_pid1" ] || continue
+        SUP_N_MESTRES=$((SUP_N_MESTRES + 1))
+        if [ -n "$titulo" ]; then read -ra toks <<<"$titulo"; "$cb" "${d##*/}" "${toks[@]:1}"; else "$cb" "${d##*/}" "${arr[@]:1}"; fi
+    done
+}
+
+suporte_cb_analisar_mestre() { SUP_ORIGEM_SEM_VALOR=1 suporte_analisar_opcoes_sshd "o processo sshd PID $1" "${@:2}"; }
+suporte_cb_coletar_pid() { SUP_M_PIDS+=("$1"); }
+
+# suporte_comando_sshd: o programa sshd a usar (DGCLAW_SSHD nos testes); falha se nao achar.
+suporte_comando_sshd() {
+    local c="${DGCLAW_SSHD:-sshd}"
+    if ! command -v "$c" >/dev/null 2>&1; then
+        if [ -z "${DGCLAW_SSHD:-}" ] && [ -x /usr/sbin/sshd ]; then c=/usr/sbin/sshd
+        else
+            falha "nao achei o programa 'sshd', entao nao consigo conferir de onde o servidor aceita chaves do root." \
+                "instale o servidor SSH (sudo apt-get install -y openssh-server) e rode de novo. Sem essa conferencia nao liguei o acesso."
+        fi
+    fi
+    printf '%s' "$c"
+}
+
+suporte_stamp_arquivo() { printf '%s' "$(sup_dir_estado)/sshd-recarregado"; }
+
+# suporte_recarregar_sshd: o sshd ativo pode ter carregado uma configuracao diferente da que esta no disco. Antes de
+# conferir qualquer coisa, valida a configuracao (sshd -t, e -t -f para cada -f) e manda o sshd recarregar (nao derruba
+# sessoes). So se ha mestre verificado rodando; sem ele o proximo sshd nasce com o que esta no disco. Retorno 0 ou 1
+# (SUP_RELOAD_ERRO diz por que). Chamada com a trava. No ensaio so avisa.
+suporte_recarregar_sshd() {
+    local sshd_cmd sc="${DGCLAW_SYSTEMCTL:-systemctl}" unit conf pid feito=0 confs err tmp
+    local -a SUP_M_PIDS=()
+    SUP_RELOAD_ERRO=""
+    suporte_varrer_mestres suporte_cb_coletar_pid
+    [ "$SUP_N_MESTRES" -gt 0 ] || return 0
+    if [ "$ENSAIO" = 1 ]; then info "[ensaio] recarregaria a configuracao do sshd (sshd -t e reload) antes de conferir."; return 0; fi
+    sshd_cmd="$(suporte_comando_sshd)" || { SUP_RELOAD_ERRO="nao achei o programa sshd"; return 1; }
+    tmp="$(mktemp)"
+    if ! confs="$( { suporte_descobrir_opcoes_sshd && printf '%s\n' ${SUP_SSHD_CONFS[@]+"${SUP_SSHD_CONFS[@]}"}; } 2>"$tmp")"; then
+        # A mensagem e nossa (valores ja passaram por suporte_seguro ou foram omitidos).
+        err="$(sed -n 's/^.*Nao deu certo:[^ ]* //p' "$tmp" | head -n 1)"; rm -f "$tmp"
+        SUP_RELOAD_ERRO="${err:-nao consegui saber com que configuracao o sshd foi iniciado}"; return 1
+    fi
+    rm -f "$tmp"
+    if ! "$sshd_cmd" -t >/dev/null 2>&1; then SUP_RELOAD_ERRO="o 'sshd -t' recusou a configuracao em disco"; return 1; fi
+    while IFS= read -r conf; do
+        [ -n "$conf" ] || continue
+        if ! "$sshd_cmd" -t -f "$R$conf" >/dev/null 2>&1; then SUP_RELOAD_ERRO="o 'sshd -t -f $(suporte_seguro "$conf")' recusou a configuracao"; return 1; fi
+    done <<<"$confs"
+    if command -v "$sc" >/dev/null 2>&1; then
+        for unit in ssh.service sshd.service; do
+            if "$sc" is-active "$unit" >/dev/null 2>&1; then
+                if "$sc" reload "$unit" >/dev/null 2>&1; then feito=1; else SUP_RELOAD_ERRO="o 'systemctl reload $unit' falhou"; return 1; fi
+                break
+            fi
+        done
+    fi
+    if [ "$feito" = 0 ]; then
+        for pid in "${SUP_M_PIDS[@]}"; do
+            if ! kill -HUP "$pid" 2>/dev/null; then SUP_RELOAD_ERRO="nao consegui mandar o sinal de recarga (kill -HUP) ao sshd PID $pid"; return 1; fi
+        done
+    fi
+    install -d -m 700 "$(sup_dir_estado)"
+    SUP_ESTADO_CTX="" suporte_gravar_estado "$(suporte_stamp_arquivo)" "$(date +%s)"
+    info "sshd recarregado com a configuracao do disco (a recarga nao derruba as sessoes abertas)."
+}
+
+# suporte_exigir_recarga: o ligar recusa se nao deu para recarregar.
+suporte_exigir_recarga() {
+    suporte_recarregar_sshd || falha "nao consegui recarregar a configuracao do sshd antes de conferir (${SUP_RELOAD_ERRO})." \
+        "confira com: sudo sshd -t ; depois recarregue: sudo systemctl reload ssh (ou sshd) e rode de novo. A recarga nao derruba as sessoes abertas. Nao liguei o acesso."
+}
+
+# suporte_config_mais_nova_que_carregada: com um sshd mestre verificado rodando, a configuracao em disco so vale se nao foi
+# mexida depois de o sshd carrega-la (inicio do mestre mais antigo ou ultima recarga nossa, o que for mais novo). Falha
+# se foi, ou se nao da para saber. Usa SUP_CFG_VISITADOS (preenchido pela varredura de Match/Include).
+suporte_config_mais_nova_que_carregada() {
+    local proc="${DGCLAW_PROC:-/proc}" pid st btime clk inicio minimo="" stamp last m f
+    local -a SUP_M_PIDS=()
+    suporte_varrer_mestres suporte_cb_coletar_pid
+    [ "$SUP_N_MESTRES" -gt 0 ] || return 0
+    btime="$(awk '/^btime/ {print $2}' "$proc/stat" 2>/dev/null || true)"
+    clk="$(getconf CLK_TCK 2>/dev/null || true)"
+    for pid in "${SUP_M_PIDS[@]}"; do
+        inicio=0
+        st="$(sed 's/^.*) //' "$proc/$pid/stat" 2>/dev/null | awk '{print $20}')" || st=""
+        if [[ "$btime" =~ ^[0-9]+$ ]] && [[ "$clk" =~ ^[0-9]+$ ]] && [ "$clk" -gt 0 ] && [[ "$st" =~ ^[0-9]+$ ]]; then inicio=$((btime + st / clk)); fi
+        if [ -z "$minimo" ] || [ "$inicio" -lt "$minimo" ]; then minimo="$inicio"; fi
+    done
+    stamp=0
+    if [ -r "$(suporte_stamp_arquivo)" ]; then stamp="$(head -n 1 "$(suporte_stamp_arquivo)" | tr -dc '0-9')"; stamp="${stamp:-0}"; fi
+    last="$minimo"; if [ "$stamp" -gt "$last" ]; then last="$stamp"; fi
+    if [ "$last" -le 0 ]; then
+        falha "nao consegui saber desde quando o sshd carregou a configuracao, entao nao posso garantir que ela e a do disco." \
+            "rode: sudo dgclaw suporte desligar (ele recarrega o sshd e anota a hora), ou recarregue: sudo systemctl reload ssh."
+    fi
+    for f in ${SUP_CFG_VISITADOS[@]+"${SUP_CFG_VISITADOS[@]}"}; do
+        m="$(stat -c %Y "$f" 2>/dev/null || true)"
+        if [[ ! "$m" =~ ^[0-9]+$ ]]; then falha "nao consegui ler a data de $(suporte_seguro "$f")." "confira com: ls -l $(suporte_seguro "$f")."; fi
+        if [ "$m" -gt "$last" ]; then
+            falha "a configuracao do sshd mudou depois de carregada ($(suporte_seguro "$f") e mais novo que o sshd em execucao), entao o que esta no disco pode nao ser o que vale." \
+                "rode sudo dgclaw suporte desligar de novo (ele valida e recarrega o sshd) ou recarregue o ssh: sudo systemctl reload ssh. A recarga nao derruba as sessoes abertas."
+        fi
+    done
+}
+
 # suporte_descobrir_opcoes_sshd: preenche SUP_SSHD_CONFS lendo as tres fontes; falha se algo nao der para entender.
 suporte_descobrir_opcoes_sshd() {
-    local proc="${DGCLAW_PROC:-/proc}" sc="${DGCLAW_SYSTEMCTL:-systemctl}" d a0 titulo unit saida argv f linha val
-    local -a arr toks
-    local fontes_lidas=0 opts_val="" mestres=0 sshd_host id_host real_host ns_mnt1 ns_pid1
+    local sc="${DGCLAW_SYSTEMCTL:-systemctl}" unit saida argv f linha val
+    local -a toks
+    local fontes_lidas=0 opts_val=""
     SUP_SSHD_CONFS=()
     # (c) SSHD_OPTS: so a atribuicao literal. Expansao de variavel ou qualquer coisa estranha e inconclusivo.
     for f in /etc/default/ssh /etc/sysconfig/sshd; do
@@ -363,36 +496,9 @@ suporte_descobrir_opcoes_sshd() {
             suporte_analisar_opcoes_sshd "$f" "${toks[@]}"
         fi
     done
-    # (a) processos sshd mestres em execucao. So conta quem passa em TODAS as verificacoes: o /proc do host mostra
-    # tambem processos de containers (de agentes), e eles podem se chamar /usr/sbin/sshd com os argumentos que quiserem.
-    # Nada que um processo tenha na linha de comando entra em mensagem.
-    if [ -d "$proc" ] && [ -r "$proc" ]; then
-        sshd_host="${DGCLAW_SSHD_BIN:-$(command -v sshd 2>/dev/null || true)}"; sshd_host="${sshd_host:-/usr/sbin/sshd}"
-        id_host="$(stat -Lc '%d:%i' "$sshd_host" 2>/dev/null || true)"
-        real_host="$(readlink -f "$sshd_host" 2>/dev/null || true)"
-        ns_mnt1="$(readlink "$proc/1/ns/mnt" 2>/dev/null || true)"; ns_pid1="$(readlink "$proc/1/ns/pid" 2>/dev/null || true)"
-        if [ -n "$id_host" ] && [ -n "$real_host" ] && [ -n "$ns_mnt1" ] && [ -n "$ns_pid1" ]; then
-            for d in "$proc"/[0-9]*; do
-                [ -r "$d/cmdline" ] || continue
-                mapfile -t arr < <(tr '\0' '\n' <"$d/cmdline" 2>/dev/null)
-                [ "${#arr[@]}" -gt 0 ] || continue
-                a0="${arr[0]}"
-                if [ "${a0##*/}" = sshd ] && [[ "$a0" != "sshd: "* ]]; then titulo=""
-                elif [[ "$a0" == "sshd: /"* ]]; then titulo="${a0#sshd: }"; titulo="${titulo%%\[*}"
-                else continue; fi
-                # Verificacoes (qualquer uma que nao der para ler ou nao bater: o processo e ignorado, nao usado).
-                [ "$(awk '/^Uid:/ {print $2 " " $3}' "$d/status" 2>/dev/null)" = "0 0" ] || continue
-                [ "$(stat -Lc '%d:%i' "$d/exe" 2>/dev/null)" = "$id_host" ] || continue
-                [ "$(readlink -f "$d/exe" 2>/dev/null)" = "$real_host" ] || continue
-                [ "$(readlink "$d/ns/mnt" 2>/dev/null)" = "$ns_mnt1" ] || continue
-                [ "$(readlink "$d/ns/pid" 2>/dev/null)" = "$ns_pid1" ] || continue
-                mestres=$((mestres + 1))
-                if [ -n "$titulo" ]; then read -ra toks <<<"$titulo"; set -- "${toks[@]:1}"; else set -- "${arr[@]:1}"; fi
-                SUP_ORIGEM_SEM_VALOR=1 suporte_analisar_opcoes_sshd "o processo sshd PID ${d##*/}" "$@"
-            done
-            if [ "$mestres" -gt 0 ]; then fontes_lidas=1; fi
-        fi
-    fi
+    # (a) processos sshd mestres verificados (ver suporte_varrer_mestres).
+    suporte_varrer_mestres suporte_cb_analisar_mestre
+    if [ "$SUP_N_MESTRES" -gt 0 ]; then fontes_lidas=1; fi
     # (b) ExecStart das unidades do systemd.
     if command -v "$sc" >/dev/null 2>&1; then
         for unit in ssh.service sshd.service; do
@@ -426,17 +532,12 @@ suporte_descobrir_opcoes_sshd() {
 # `sshd -T` diz, nao o que se supoe). Recusa se nao der para saber: acesso temporario sobre um permanente
 # escondido num authorized_keys2 viraria "desligado" mentiroso. DGCLAW_SSHD troca o programa (testes).
 suporte_fontes_de_chaves() {
-    local sshd_cmd="${DGCLAW_SSHD:-sshd}" saida rc=0 conf alvo out lista=""
+    local sshd_cmd saida rc=0 conf alvo out lista=""
     local -a confs=()
+    SUP_CFG_VISITADOS=()
     suporte_descobrir_opcoes_sshd
     confs=("" ${SUP_SSHD_CONFS[@]+"${SUP_SSHD_CONFS[@]}"})   # "" = o padrao
-    if ! command -v "$sshd_cmd" >/dev/null 2>&1; then
-        if [ -z "${DGCLAW_SSHD:-}" ] && [ -x /usr/sbin/sshd ]; then sshd_cmd=/usr/sbin/sshd
-        else
-            falha "nao achei o programa 'sshd', entao nao consigo conferir de onde o servidor aceita chaves do root." \
-                "instale o servidor SSH (sudo apt-get install -y openssh-server) e rode de novo. Sem essa conferencia nao liguei o acesso."
-        fi
-    fi
+    sshd_cmd="$(suporte_comando_sshd)" || exit 1
     for conf in "${confs[@]}"; do
         alvo=""; [ -z "$conf" ] || alvo="$conf"
         suporte_exigir_config_sem_match ${alvo:+"$alvo"}
@@ -454,6 +555,7 @@ suporte_fontes_de_chaves() {
         fi
         lista+="$out"$'\n'
     done
+    suporte_config_mais_nova_que_carregada
     printf '%s' "$lista" | awk 'NF && !visto[$0]++'
 }
 
@@ -666,6 +768,7 @@ suporte_ligar() {
     suporte_validar_chave "$chave"
     suporte_exigir_sshd_novo
     suporte_travar   # antes de ler qualquer fonte: a decisao nao pode usar dado de antes da trava
+    suporte_exigir_recarga
     suporte_exigir_chave_sem_acesso_permanente
 
     agora="$(suporte_agora_s)"
@@ -905,8 +1008,14 @@ suporte_desligar() {
     # Pendentes do estado + as que acabaram de sair da linha marcada (no ensaio o estado nao e gravado). "?" = nao calculei.
     fps="$(printf '%s\n%s\n' "$(suporte_fps_historico "")" "${SUP_FPS_REMOVIDOS// /$'\n'}" | sort -u | grep -v '^$' || true)"
     if [ -n "$fps" ]; then
-        # shellcheck disable=SC2086 # fingerprints nao tem espaco
-        suporte_conferir_fps $fps || perm=$?
+        # O sshd ativo pode ter carregado outra configuracao: recarrega (valida antes) ANTES de conferir as fontes.
+        if ! suporte_recarregar_sshd; then
+            SUP_PERM_ERRO="nao consegui recarregar o sshd antes de conferir (${SUP_RELOAD_ERRO}); rode: sudo sshd -t ; sudo systemctl reload ssh. A recarga nao derruba as sessoes abertas"
+            perm=2
+        else
+            # shellcheck disable=SC2086 # fingerprints nao tem espaco
+            suporte_conferir_fps $fps || perm=$?
+        fi
         if [ "$perm" -ne 0 ]; then suporte_avisar_perm "$perm"; suporte_marcar_pendencia; perm=1; fi
     fi
     suporte_mostrar_sessoes

@@ -768,6 +768,8 @@ rm -f "$STUB_ESTADO/execstart-ssh.service" "$DEF" "$EXTRA_CH"
 # /proc falso com um sshd mestre "verificado": uid 0, exe = o binario do sshd do host, mesmos namespaces do PID 1.
 HOSTSSHD="$TMP/sshd-do-host"; : >"$HOSTSSHD"; chmod +x "$HOSTSSHD"; export DGCLAW_SSHD_BIN="$HOSTSSHD"
 OUTROBIN="$TMP/binario-de-container"; : >"$OUTROBIN"
+echo active >"$STUB_ESTADO/svc-ssh.service"
+printf 'cpu  1 2 3\nbtime 1000000000\n' >"$DGCLAW_PROC/stat"
 mkdir -p "$DGCLAW_PROC/1/ns"; ln -sfn 'mnt:[4026531841]' "$DGCLAW_PROC/1/ns/mnt"; ln -sfn 'pid:[4026531836]' "$DGCLAW_PROC/1/ns/pid"
 mkproc() { # mkproc <pid> <cmdline em printf> [uid] [exe] [ns mnt]
     local d="$DGCLAW_PROC/$1"
@@ -775,6 +777,7 @@ mkproc() { # mkproc <pid> <cmdline em printf> [uid] [exe] [ns mnt]
     # shellcheck disable=SC2059 # o formato (com \\0) vem do chamador de proposito
     printf "$2" >"$d/cmdline"
     printf 'Name:\tsshd\nUid:\t%s\t%s\t%s\t%s\n' "${3:-0}" "${3:-0}" "${3:-0}" "${3:-0}" >"$d/status"
+    printf '%s (sshd) S 1 1 1 0 -1 4194560 100 0 0 0 0 0 0 0 20 0 1 0 100 1000000 500 18446744073709551615 0 0 0 0 0 0 0 0 0 0 0 0 17 0 0 0 0 0 0\n' "$1" >"$d/stat"
     ln -sfn "${4:-$HOSTSSHD}" "$d/exe"
     ln -sfn "${5:-mnt:[4026531841]}" "$d/ns/mnt"; ln -sfn 'pid:[4026531836]' "$d/ns/pid"
 }
@@ -871,5 +874,105 @@ igual "AuthorizedKeysFile .ssh/chaves: ligar recusa" 1 "$rc"
 afirma "explica o que o sshd le" grep -q "nao le .*authorized_keys.*Ele le: .*\.ssh/chaves" "$TMP/o.txt"
 nega "nao gravou nada" grep -q "dgclaw-suporte:" "$ARQ"
 rm -f "$STUB_ESTADO/sshd-T"
+
+echo "--cert-authority sem diferenciar maiusculas"
+printf '%s\n' "$ALHEIA1" >"$ARQ"; rm -f "$ARQ2" "$ALERTA"; : >"$PEND"; printf 'PasswordAuthentication no\n' >"$CFG"
+for var in CERT-AUTHORITY Cert-Authority cErT-aUtHoRiTy; do
+    printf '%s\n%s\n' "$ALHEIA1" "$var,principals=\"x\" ssh-ed25519 $(awk '{print $2}' "$TMP/outra.pub") ca" >"$ARQ"
+    nega "$var no principal: ligar recusa" dgclaw suporte ligar --chave "$CHAVE"
+    printf '%s\n' "$ALHEIA1" >"$ARQ"; printf '%s ssh-ed25519 %s ca\n' "$var" "$(awk '{print $2}' "$TMP/outra.pub")" >"$ARQ2"
+    nega "$var no authorized_keys2: ligar recusa" dgclaw suporte ligar --chave "$CHAVE"
+    rm -f "$ARQ2"
+    dgclaw suporte ligar --chave "$CHAVE" >/dev/null 2>&1
+    printf '%s ssh-ed25519 %s ca\n' "$var" "$(awk '{print $2}' "$TMP/outra.pub")" >"$ARQ2"
+    dgclaw suporte desligar >"$TMP/o.txt" 2>&1; rc=$?
+    igual "$var em outra fonte: desligar inconclusivo, sai 1" 1 "$rc"
+    nega "$var: nao anuncia desligado" grep -q "acesso do suporte desligado" "$TMP/o.txt"
+    rm -f "$ARQ2"; dgclaw suporte status >/dev/null 2>&1; rm -f "$ALERTA"; : >"$PEND"; printf '%s\n' "$ALHEIA1" >"$ARQ"
+done
+
+echo "--o sshd ativo pode ter carregado outra configuracao: valida e recarrega antes de conferir"
+export DGCLAW_SSHD_BIN="$HOSTSSHD"
+rm -rf "$DGCLAW_PROC"; mkdir -p "$DGCLAW_PROC/1/ns"
+printf 'cpu  1 2 3\nbtime 1000000000\n' >"$DGCLAW_PROC/stat"
+ln -sfn 'mnt:[4026531841]' "$DGCLAW_PROC/1/ns/mnt"; ln -sfn 'pid:[4026531836]' "$DGCLAW_PROC/1/ns/pid"
+mkproc 5000 '/usr/sbin/sshd\0-D\0'
+STAMP="$DGCLAW_RAIZ/var/lib/dgclaw/suporte/sshd-recarregado"
+rm -f "$STAMP"; : >"$STUB_LOG"
+printf '%s\n' "$(cat "$TMP/suporte.pub")" >"$ARQ2"
+dgclaw suporte ligar --chave "$CHAVE" >"$TMP/o.txt" 2>&1; rc=$?
+igual "chave em authorized_keys2: ligar recusa" 1 "$rc"
+afirma "o reload foi chamado ANTES da conferencia (ela so recusou depois)" grep -q "systemctl reload ssh.service" "$STUB_LOG"
+afirma "a conferencia recusou pela chave em authorized_keys2" grep -q "authorized_keys2" "$TMP/o.txt"
+afirma "a hora da recarga foi gravada" test -s "$STAMP"
+igual "estampa 600" 600 "$(stat -c %a "$STAMP")"
+rm -f "$ARQ2"; : >"$STUB_LOG"
+dgclaw suporte ligar --chave "$CHAVE" >"$TMP/o.txt" 2>&1; rc=$?
+igual "sem a chave la, ligar liga" 0 "$rc"
+afirma "diz que a recarga nao derruba sessoes" grep -q "nao derruba as sessoes" "$TMP/o.txt"
+
+STUB_RELOAD_FALHA=1 dgclaw suporte desligar >"$TMP/o.txt" 2>&1; rc=$?
+nega "reload falhando: a linha do suporte saiu do arquivo mesmo assim" grep -q "dgclaw-suporte:" "$ARQ"
+igual "reload falhando: desligar sai 1" 1 "$rc"
+nega "e nao anuncia desligado" grep -q "acesso do suporte desligado" "$TMP/o.txt"
+afirma "diz o motivo e o comando" grep -q "systemctl reload" "$TMP/o.txt"
+dgclaw suporte status >/dev/null 2>&1; rm -f "$ALERTA"; : >"$PEND"
+STUB_RELOAD_FALHA=1 dgclaw suporte ligar --chave "$CHAVE" >"$TMP/o.txt" 2>&1; rc=$?
+igual "reload falhando: ligar recusa" 1 "$rc"
+nega "e nao gravou a linha" grep -q "dgclaw-suporte:" "$ARQ"
+STUB_SSHD_T_FALHA=1 dgclaw suporte ligar --chave "$CHAVE" >"$TMP/o.txt" 2>&1; rc=$?
+igual "sshd -t recusando a configuracao: ligar recusa" 1 "$rc"
+afirma "diz que o sshd -t recusou" grep -q "sshd -t" "$TMP/o.txt"
+dgclaw suporte ligar --chave "$CHAVE" >/dev/null 2>&1
+: >"$STUB_LOG"
+dgclaw --ensaio suporte desligar >"$TMP/o.txt" 2>&1
+nega "ensaio nao chama reload" grep -q "reload" "$STUB_LOG"
+afirma "ensaio diz que recarregaria" grep -q "recarregaria a configuracao do sshd" "$TMP/o.txt"
+
+echo "--status e a linha: configuracao mais nova que o sshd carregado e inconclusiva"
+printf '%s\n' "$ALHEIA1" >"$ARQ"; rm -f "$ALERTA"; : >"$PEND"
+dgclaw suporte ligar --chave "$CHAVE" >/dev/null 2>&1
+printf '%s\n' "$(cat "$TMP/suporte.pub")" >"$ARQ2"
+dgclaw suporte desligar >/dev/null 2>&1   # a chave segue em authorized_keys2: fica pendente; o sshd foi recarregado agora
+touch -d '1 hour ago' "$CFG"
+dgclaw suporte status >"$TMP/o.txt" 2>&1
+nega "reload gravado depois da mudanca: nao fala em configuracao mudada" grep -q "mudou depois de carregada" "$TMP/o.txt"
+afirma "(o resultado normal: a chave segue em authorized_keys2)" grep -q "authorized_keys2" "$TMP/o.txt"
+rm -f "$STAMP"
+dgclaw suporte status >"$TMP/o.txt" 2>&1; rc=$?
+touch "$CFG"
+dgclaw suporte status >"$TMP/o.txt" 2>&1; rc=$?
+igual "config mais nova que o mestre e sem recarga gravada: status sai 1" 1 "$rc"
+afirma "diz que a configuracao mudou depois de carregada" grep -q "mudou depois de carregada" "$TMP/o.txt"
+nega "e nao diz desligado" grep -qx "suporte: desligado" "$TMP/o.txt"
+afirma "a linha do dgclaw status tambem avisa" grep -q "NAO esta desligado" <<<"$(linha_status)"
+rm -f "$ARQ2"
+dgclaw suporte desligar >"$TMP/o.txt" 2>&1; rc=$?
+igual "desligar recarrega, confere e fecha (chave tirada de la): sai 0" 0 "$rc"
+afirma "a estampa voltou" test -s "$STAMP"
+rm -f "$ALERTA"; : >"$PEND"
+
+echo "--sem systemctl ativo: kill -HUP no mestre verificado"
+sleep 60 & SP=$!
+rm -rf "$DGCLAW_PROC/5000"; mkproc "$SP" '/usr/sbin/sshd\0-D\0'
+DGCLAW_SYSTEMCTL=/nao/existe/systemctl dgclaw suporte ligar --chave "$CHAVE" >"$TMP/o.txt" 2>&1; rc=$?
+igual "ligar com kill -HUP sai 0" 0 "$rc"
+sleep 0.3
+nega "o mestre verificado recebeu o HUP (o sleep de mentira morreu)" kill -0 "$SP"
+wait "$SP" 2>/dev/null
+dgclaw suporte desligar >/dev/null 2>&1
+rm -rf "$DGCLAW_PROC"; mkdir -p "$DGCLAW_PROC"; unset DGCLAW_SSHD_BIN; rm -f "$ALERTA" "$STAMP"; : >"$PEND"
+if [ "$(id -u)" = 0 ] && [ -x /usr/sbin/sshd ] && /usr/sbin/sshd -t >/dev/null 2>&1; then
+    echo "--integracao: sshd -t de verdade valida a configuracao do host antes do reload"
+    mkdir -p "$DGCLAW_PROC/1/ns"; ln -sfn 'mnt:[4026531841]' "$DGCLAW_PROC/1/ns/mnt"; ln -sfn 'pid:[4026531836]' "$DGCLAW_PROC/1/ns/pid"
+    printf 'cpu 1\nbtime 1000000000\n' >"$DGCLAW_PROC/stat"
+    export DGCLAW_SSHD_BIN="$HOSTSSHD"
+    mkproc 5100 '/usr/sbin/sshd\0-D\0'
+    : >"$STUB_LOG"
+    # shellcheck disable=SC2016
+    afirma "recarregar_sshd com o sshd -t real" bash -c '. "$1"; . "$2/lib/suporte.sh"; ENSAIO=0; DGCLAW_SSHD=/usr/sbin/sshd; export DGCLAW_SSHD; suporte_recarregar_sshd' _ "$REPO/lib/comum.sh" "$REPO"
+    afirma "e o reload saiu pelo systemctl" grep -q "systemctl reload ssh.service" "$STUB_LOG"
+    unset DGCLAW_SSHD_BIN; rm -rf "$DGCLAW_PROC"; mkdir -p "$DGCLAW_PROC"
+fi
 
 fim
