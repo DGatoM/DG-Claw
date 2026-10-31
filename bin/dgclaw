@@ -27,6 +27,8 @@ APP_DIR="$(cd "$(dirname "$DGCLAW_BIN_REAL")/.." && pwd)"
 . "$APP_DIR/lib/atualizar.sh"
 # shellcheck source=lib/versao.sh
 . "$APP_DIR/lib/versao.sh"
+# shellcheck source=lib/ronda-seguranca.sh
+. "$APP_DIR/lib/ronda-seguranca.sh"
 # shellcheck source=lib/aviso-atualizacao.sh
 . "$APP_DIR/lib/aviso-atualizacao.sh"
 # shellcheck source=lib/personalizacoes.sh
@@ -165,6 +167,9 @@ Personalizacoes do programa (o que o Admin mudou no DG Claw)
   dgclaw personalizacoes conferir        confere o registro contra a versao nova (git fetch) e diz se algo cruza; nao muda nada
   dgclaw personalizacoes concluir        marca o levantamento pendente como concluido (exige o registro)
       Exemplo:  sudo dgclaw personalizacoes conferir
+
+Ronda de seguranca
+  dgclaw seguranca [estado|resumo|rodar|aplicar|desfazer|inventario]   ver "dgclaw seguranca ajuda"
 
 Geral
   dgclaw versao                          mostra a versao e o commit instalados (tambem: dgclaw --version)
@@ -2139,6 +2144,7 @@ main() {
         agente) agente_main "$@" ;;
         imagem) imagem_main "$@" ;;
         senha) senha_main "$@" ;;
+        seguranca) seguranca_main "$@" ;;
         dominio) dominio_main "$@" ;;
         primeiro-acesso) primeiro_acesso "$@" ;;
         status) status_geral "$@" ;;

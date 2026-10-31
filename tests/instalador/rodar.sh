@@ -14,6 +14,8 @@ set -uo pipefail
 . "$AQUI/aviso-atualizacao.sh"
 # shellcheck source=tests/instalador/boletins-seguranca.sh
 . "$AQUI/boletins-seguranca.sh"
+# shellcheck source=tests/instalador/ronda-seguranca.sh
+. "$AQUI/ronda-seguranca.sh"
 
 main() {
     local filtro="${1:-}" total=0 ruins=0 caso rc

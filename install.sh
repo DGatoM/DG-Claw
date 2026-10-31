@@ -1373,6 +1373,196 @@ FIM
     executar systemctl start --no-block dgclaw-checar-boletins.service
 }
 
+# --- 9d. ronda de seguranca ---------------------------------------------------------
+# configurar_ronda_seguranca: a RONDA DE SEGURANCA DE FABRICA (docs/RONDA-DE-SEGURANCA.md). Unidades do
+# systemd, todas rodando seguranca/ronda/ronda.py (Python da biblioteca padrao):
+#   dgclaw-ronda.timer           3 vezes ao dia (DGCLAW_RONDA_HORARIOS, padrao "07:00 13:00 19:00", fuso do servidor)
+#   dgclaw-ronda-vigia.timer     de hora em hora: confere se a rodada agendada terminou e, se nao, roda de novo uma vez
+#   dgclaw-ronda-inventario.timer a cada 3 dias refaz o inventario personalizado (o app atualizado tambem o refaz)
+#   dgclaw-seguranca-pedidos.path o painel (que nao e root) deixa pedidos em web/seguranca/pedidos; o root os executa
+#   dgclaw-emergencia-estado.timer a cada 10 min regrava o estado do botao de emergencia (`dgclaw emergencia estado`)
+# A ronda e root porque precisa ler dpkg/ss e, nos casos do catalogo fechado (seguranca/acoes-permitidas.json), aplicar
+# a acao. Por isso o endurecimento e o possivel: ProtectSystem=strict so no inventario, que nao aplica nada; nas outras
+# unidades o apt, o nft e o sysctl precisam escrever em /usr, /etc e /proc/sys. Roda tanto na instalacao quanto na
+# atualizacao (o `dgclaw atualizar` roda o instalador de novo). Quem desliga e a linha DGCLAW_RONDA_SEGURANCA=0 do
+# dgclaw.env: o instalador a respeita e NUNCA a reescreve nem a cria (sem a linha, a ronda fica ligada).
+configurar_ronda_seguranca() {
+    local p_app="${DG_APP#"$R"}" p_lib="${DG_LIB#"$R"}" p_log="${DG_LOG#"$R"}" p_bin="${DG_BIN#"$R"}" desligar horarios h linhas="" py cargas
+    desligar="$(env_valor DGCLAW_RONDA_SEGURANCA)"
+    desligar="${desligar//[\'\"]/}"
+    horarios="$(env_valor DGCLAW_RONDA_HORARIOS)"
+    horarios="${horarios//[\'\"]/}"
+    horarios="${horarios:-07:00 13:00 19:00}"
+    for h in $horarios; do
+        if [[ "$h" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]]; then
+            linhas+="OnCalendar=*-*-* $h:00"$'\n'
+        else
+            aviso "o horario '$h' de DGCLAW_RONDA_HORARIOS no dgclaw.env nao e HH:MM; usei o padrao 07:00 13:00 19:00. Corrija a linha e rode ./install.sh de novo."
+            linhas=""
+            break
+        fi
+    done
+    [ -n "$linhas" ] || linhas=$'OnCalendar=*-*-* 07:00:00\nOnCalendar=*-*-* 13:00:00\nOnCalendar=*-*-* 19:00:00\n'
+    if ! command -v python3 >/dev/null 2>&1; then
+        aviso "o python3 nao esta instalado, entao a ronda de seguranca nao foi instalada. Rode: apt-get install -y python3; depois ./install.sh de novo."
+        return 0
+    fi
+    criar_pasta 700 "$DG_LIB/seguranca"
+    criar_pasta 700 "$DG_LIB/web"
+    criar_pasta 700 "$DG_LIB/web/seguranca"
+    criar_pasta 700 "$DG_LIB/web/seguranca/pedidos"
+    criar_pasta 700 "$DG_LIB/web/seguranca/pedidos/feitos"
+    criar_pasta 750 "$DG_LOG"
+    py="/usr/bin/python3 -I $p_app/seguranca/ronda/ronda.py"
+    # Sem RestrictSUIDSGID aqui: o apt do catalogo pode atualizar pacote com binario setuid (sudo, openssh), e a trava
+    # barraria o dpkg. O inventario, que nao instala nada, leva a trava.
+    cargas="NoNewPrivileges=yes
+ProtectHome=read-only
+PrivateTmp=yes
+ProtectControlGroups=yes
+ProtectKernelModules=yes
+ProtectClock=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+Nice=10"
+    cat <<FIM | escrever_arquivo "$DG_UNITS/dgclaw-ronda.service" 644
+[Unit]
+Description=DG Claw ronda de seguranca (varre as falhas que afetam esta instalacao)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=$py executar
+TimeoutStartSec=1800
+$cargas
+FIM
+    {
+        printf '[Unit]\nDescription=DG Claw ronda de seguranca (horarios de DGCLAW_RONDA_HORARIOS)\n\n[Timer]\n'
+        printf '%s' "$linhas"
+        printf 'RandomizedDelaySec=20min\nPersistent=true\nUnit=dgclaw-ronda.service\n\n[Install]\nWantedBy=timers.target\n'
+    } | escrever_arquivo "$DG_UNITS/dgclaw-ronda.timer" 644
+    cat <<FIM | escrever_arquivo "$DG_UNITS/dgclaw-ronda-vigia.service" 644
+[Unit]
+Description=DG Claw confere se a ronda de seguranca terminou (e roda de novo uma vez se nao)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=$py vigiar
+TimeoutStartSec=3600
+$cargas
+FIM
+    cat <<'FIM' | escrever_arquivo "$DG_UNITS/dgclaw-ronda-vigia.timer" 644
+[Unit]
+Description=DG Claw vigia da ronda de seguranca (de hora em hora)
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=2min
+Persistent=true
+Unit=dgclaw-ronda-vigia.service
+
+[Install]
+WantedBy=timers.target
+FIM
+    cat <<FIM | escrever_arquivo "$DG_UNITS/dgclaw-ronda-inventario.service" 644
+[Unit]
+Description=DG Claw refaz o inventario da ronda de seguranca (so le, nao aplica nada)
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=$py inventariar
+TimeoutStartSec=600
+ProtectSystem=strict
+ReadWritePaths=$p_lib/seguranca $p_log
+ProtectKernelTunables=yes
+RestrictSUIDSGID=yes
+$cargas
+FIM
+    cat <<'FIM' | escrever_arquivo "$DG_UNITS/dgclaw-ronda-inventario.timer" 644
+[Unit]
+Description=DG Claw inventario da ronda de seguranca (a cada 3 dias)
+
+[Timer]
+OnBootSec=40min
+OnUnitActiveSec=3d
+RandomizedDelaySec=1h
+Persistent=true
+Unit=dgclaw-ronda-inventario.service
+
+[Install]
+WantedBy=timers.target
+FIM
+    # PathChanged e nao DirectoryNotEmpty: a pasta nunca fica vazia (feitos/ mora dentro dela), e DirectoryNotEmpty
+    # religaria o servico sem parar ate o systemd barrar a unidade por excesso de partidas. O Web grava
+    # .<uuid>.tmp e renomeia para <uuid>.json; o rename dispara o PathChanged, e o executor ignora o que comeca com ponto.
+    cat <<FIM | escrever_arquivo "$DG_UNITS/dgclaw-seguranca-pedidos.path" 644
+[Unit]
+Description=DG Claw pedidos do painel para a ronda de seguranca
+
+[Path]
+PathChanged=$p_lib/web/seguranca/pedidos
+MakeDirectory=yes
+DirectoryMode=0700
+Unit=dgclaw-seguranca-pedidos.service
+
+[Install]
+WantedBy=multi-user.target
+FIM
+    cat <<FIM | escrever_arquivo "$DG_UNITS/dgclaw-seguranca-pedidos.service" 644
+[Unit]
+Description=DG Claw executa os pedidos do painel para a ronda de seguranca (so os tipos aceitos, nunca comando livre)
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=$p_bin/dgclaw seguranca pedido-todos
+TimeoutStartSec=1800
+$cargas
+FIM
+    cat <<FIM | escrever_arquivo "$DG_UNITS/dgclaw-emergencia-estado.service" 644
+[Unit]
+Description=DG Claw regrava o estado do botao de emergencia para a tela do painel
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=$p_bin/dgclaw emergencia estado
+TimeoutStartSec=120
+FIM
+    cat <<'FIM' | escrever_arquivo "$DG_UNITS/dgclaw-emergencia-estado.timer" 644
+[Unit]
+Description=DG Claw estado do botao de emergencia (a cada 10 minutos)
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=10min
+Unit=dgclaw-emergencia-estado.service
+
+[Install]
+WantedBy=timers.target
+FIM
+    if [ "$desligar" = 0 ]; then
+        executar systemctl daemon-reload
+        executar systemctl disable --now dgclaw-ronda.timer dgclaw-ronda-vigia.timer dgclaw-ronda-inventario.timer dgclaw-seguranca-pedidos.path dgclaw-emergencia-estado.timer
+        info "ronda de seguranca instalada, mas desligada (DGCLAW_RONDA_SEGURANCA=0 no dgclaw.env). Para ligar, apague essa linha e rode ./install.sh de novo."
+        return 0
+    fi
+    ligar_unidade dgclaw-ronda.timer
+    ligar_unidade dgclaw-ronda-vigia.timer
+    ligar_unidade dgclaw-ronda-inventario.timer
+    ligar_unidade dgclaw-seguranca-pedidos.path
+    ligar_unidade dgclaw-emergencia-estado.timer
+    # Roda logo: depois de instalar ou atualizar, o painel nao pode esperar ate o proximo horario para ter a primeira ronda.
+    executar systemctl start --no-block dgclaw-ronda.service
+}
+
 # --- 10. imagem -----------------------------------------------------------------
 imagem_pronta() { podman image exists "localhost/dgclaw-agente:$VERSAO" >/dev/null 2>&1; }
 
@@ -1571,6 +1761,7 @@ main() {
     ligar_web
     configurar_aviso_atualizacao
     configurar_boletins_seguranca
+    configurar_ronda_seguranca
     atualizar_identidades
     construir_imagem
     testar_fim
