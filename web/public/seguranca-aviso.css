@@ -1,0 +1,25 @@
+/* Aviso de segurança (seguranca-aviso.js): janela sóbria e selo discreto. Cabe em 390 px sem rolagem horizontal. */
+.sb-selo{display:block;box-sizing:border-box;max-width:100%;margin:4px 12px;min-height:32px;padding:0 12px;border-radius:16px;border:1px solid #e3c27a;background:#fff7e0;color:#6b4a00;font:inherit;font-size:13px;font-weight:600;cursor:pointer;text-align:left;overflow-wrap:anywhere}
+.sb-selo[hidden]{display:none}
+.sb-fundo{position:fixed;inset:0;z-index:80;background:rgba(15,25,40,.55);display:flex;align-items:center;justify-content:center;padding:12px;box-sizing:border-box}
+.sb-caixa{box-sizing:border-box;width:100%;max-width:520px;max-height:100%;overflow-y:auto;overflow-x:hidden;background:#fff;color:#1c2733;border-radius:14px;padding:16px;box-shadow:0 12px 40px rgba(0,0,0,.3);font-size:14.5px;line-height:1.45}
+.sb-cab{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+.sb-cab h2{margin:0;font-size:18px}
+.sb-ajuda{width:32px;height:32px;border-radius:50%;border:1px solid #c9d2dc;background:#fff;color:#1c2733;font-size:15px;font-weight:700;cursor:pointer;flex:0 0 auto}
+.sb-texto{margin:0 0 10px;overflow-wrap:anywhere}
+.sb-detalhe-aberto{margin:0 0 10px;white-space:pre-wrap;overflow-wrap:anywhere;background:#f4f6f8;border-radius:8px;padding:8px 10px}
+.sb-fatos{margin:0 0 10px;display:grid;gap:6px}
+.sb-fato{display:grid;grid-template-columns:minmax(96px,128px) minmax(0,1fr);gap:8px}
+.sb-fato dt{font-weight:700;color:#4a5968}
+.sb-fato dd{margin:0;overflow-wrap:anywhere;word-break:break-word}
+.sb-fato a{color:#1f5fae}
+.sb-detalhe{margin:0 0 10px}
+.sb-detalhe summary{cursor:pointer;min-height:32px;display:flex;align-items:center;font-weight:600;color:#1f5fae}
+.sb-detalhe p{margin:4px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;background:#f4f6f8;border-radius:8px;padding:8px 10px}
+.sb-erro{margin:6px 0;color:#9b1c1c;overflow-wrap:anywhere}
+.sb-erro[hidden]{display:none}
+.sb-acoes{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;margin-top:8px}
+.sb-btn{min-height:36px;padding:0 16px;border-radius:18px;border:1px solid #c9d2dc;background:#fff;color:#1c2733;font:inherit;font-weight:600;cursor:pointer}
+.sb-btn.sb-pri{background:#1f5fae;border-color:#1f5fae;color:#fff}
+.sb-btn:disabled{opacity:.6;cursor:default}
+@media (max-width:420px){.sb-fato{grid-template-columns:1fr;gap:0}.sb-acoes .sb-btn{flex:1 1 auto}}

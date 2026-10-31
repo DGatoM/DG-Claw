@@ -171,6 +171,15 @@
     document.head.appendChild(s);
   }
 
+  /* O aviso de segurança (janela e selo) também aparece em todas as telas que usam a casca. */
+  function carregaAvisoSeguranca() {
+    if (raiz.DGSegurancaAviso) return;
+    const s = document.createElement('script');
+    s.src = '/seguranca-aviso.js';
+    s.onerror = () => console.warn('casca: o aviso de segurança (/seguranca-aviso.js) não carregou; as telas seguem sem ele.');
+    document.head.appendChild(s);
+  }
+
   function monta(opcoes) {
     const o = opcoes || {};
     est.pagina = o.pagina || '';
@@ -182,6 +191,7 @@
     document.body.insertAdjacentHTML('afterbegin', MARCACAO_CABECALHO + MARCACAO_MENU);
     pintaTitulo();
     carregaFaixaAtualizacao();
+    carregaAvisoSeguranca();
     $('btnMenu').onclick = () => abreMenu(true);
     $('btnFechaMenu').onclick = () => abreMenu(false);
     $('overlayMenu').onclick = () => abreMenu(false);

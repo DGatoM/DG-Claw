@@ -4821,6 +4821,7 @@ function passosTutorial() {
   passos.push(passoAlertas());
   if (window.DGFoco) passos.push(window.DGFoco.passoTutorial());
   passos.push(passoAcervo());
+  if (window.DGSegurancaAviso) passos.push(window.DGSegurancaAviso.passoSelo());
   return passos;
 }
 
