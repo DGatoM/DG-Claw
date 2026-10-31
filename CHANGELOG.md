@@ -7,6 +7,13 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Aviso de segurança no painel.** Quando a equipe publica um boletim sobre uma falha de segurança numa das
+ferramentas que o DG Claw usa, o servidor percebe sozinho (uma leitura pública do GitHub a cada hora) e o painel
+mostra uma janela "Aviso de segurança", com a fonte oficial e o que muda, e um selo discreto que fica no alto das
+telas até o assunto se resolver. O botão Atualizar leva ao chat do Admin com o pedido já escrito; você só envia.
+Nada é instalado sem o seu sim, e ao atualizar o aviso some sozinho. Para desligar, ponha
+`DGCLAW_BOLETINS_SEGURANCA=0` no `dgclaw.env`. Detalhes em `docs/BOLETINS-DE-SEGURANCA.md`.
+
 Duas ideias trazidas do Orca (https://github.com/stablyai/orca, licença MIT; crédito no `NOTICE`): o
 medidor de uso da assinatura e o aviso de que um agente precisa de você.
 
