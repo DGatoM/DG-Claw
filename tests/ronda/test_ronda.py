@@ -586,6 +586,47 @@ class Fontes(Base):
         self.assertIsNone(self.achado("UBUNTU-CVE-2026-11111"), "kernel instalado e desligado não expõe nada: fica fora da consulta")
         self.assertNotIn("6.8.0-100.100", json.dumps(S["pedidos"]))
 
+    def kernel_alternativo(self, uname, modules_src, image_src, com_modules=True):
+        ver = "6.8.0-147.153"
+        dpkg = [("linux-image-" + uname, ver, image_src, ver)]
+        if com_modules:
+            dpkg.insert(0, ("linux-modules-" + uname, ver, modules_src, ver))
+        dpkg += [("openssl", "3.0.13-0ubuntu3.4", "openssl", "3.0.13-0ubuntu3.4"), ("caddy", "2.6.2-1", "caddy", "2.6.2-1")]
+        self.escreve(os.path.join(self.stub, "dpkg.txt"), "".join("\t".join(x) + "\n" for x in dpkg))
+        self.escreve(os.path.join(self.stub, "uname"), uname + "\n")
+
+    def kernel_fonte_vuln(self, fonte):
+        S["osv_paginas"][f"{ECO}|{fonte}|6.8.0-147.153"] = [["UBUNTU-CVE-2026-55555"]]
+        S["osv_vulns"]["UBUNTU-CVE-2026-55555"] = reg_ubuntu("UBUNTU-CVE-2026-55555", "CVE-2026-55555", fonte, "6.8.0-149.150")
+
+    def test_kernel_hwe_usa_o_pacote_fonte_real_do_linux_modules(self):
+        self.kernel_alternativo("6.8.0-147-generic", "linux-hwe-6.8", "linux-signed-hwe-6.8")
+        self.kernel_fonte_vuln("linux-hwe-6.8")
+        self.ronda("executar", "--sem-avisar")
+        a = self.achado("UBUNTU-CVE-2026-55555")
+        self.assertIsNotNone(a, "o kernel HWE precisa ser consultado como linux-hwe-6.8")
+        self.assertEqual(a["onde"], ["kernel 6.8.0-147 em execução"])
+
+    def test_kernel_de_nuvem_aws_usa_o_pacote_fonte_real(self):
+        self.kernel_alternativo("6.8.0-147-aws", "linux-aws", "linux-signed-aws")
+        self.kernel_fonte_vuln("linux-aws")
+        self.ronda("executar", "--sem-avisar")
+        self.assertIsNotNone(self.achado("UBUNTU-CVE-2026-55555"))
+
+    def test_kernel_sem_linux_modules_cai_na_imagem_e_tira_o_signed(self):
+        self.kernel_alternativo("6.8.0-147-generic", "", "linux-signed-hwe-6.8", com_modules=False)
+        self.kernel_fonte_vuln("linux-hwe-6.8")
+        self.ronda("executar", "--sem-avisar")
+        self.assertIsNotNone(self.achado("UBUNTU-CVE-2026-55555"), "linux-signed-hwe-6.8 vira linux-hwe-6.8")
+
+    def test_kernel_sem_nenhum_pacote_registra_cobertura_incompleta(self):
+        self.kernel_alternativo("6.8.0-147-generic", "", "", com_modules=False)
+        r = self.ronda("executar", "--sem-avisar")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        d = self.json_ronda()
+        self.assertTrue(d.get("parcial"), "kernel não identificado precisa deixar a ronda parcial")
+        self.assertIn("Não consegui identificar o pacote-fonte", json.dumps(d, ensure_ascii=False))
+
     def test_prioridade_do_ubuntu_manda_na_severidade(self):
         S["osv_paginas"][f"{ECO}|openssl|3.0.13-0ubuntu3.4"] = [["UBUNTU-CVE-2026-22222"]]
         S["osv_vulns"]["UBUNTU-CVE-2026-22222"] = reg_ubuntu("UBUNTU-CVE-2026-22222", "CVE-2026-22222", "openssl", "3.0.13-0ubuntu3.6", prio="medium")

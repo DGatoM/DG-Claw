@@ -510,26 +510,39 @@ def inventario_dpkg(eco, avisos):
     return comps, kernel
 
 
+def fonte_do_kernel(binario, info):
+    """Pacote-fonte que o OSV conhece para o kernel. O linux-modules traz o real (linux, linux-hwe-6.8, linux-aws...);
+    a imagem assinada traz 'linux-signed*', que vira o equivalente sem '-signed'. None quando não dá para saber."""
+    src = info[0]
+    if src == binario or RX_BIN_KERNEL.match(src):
+        return None
+    if src == "linux-signed" or src.startswith("linux-signed-"):
+        src = "linux" + src[len("linux-signed"):]
+    return src
+
+
 def marcar_kernel(comps, por_binario, uname, eco):
-    """O kernel em execução vira o componente 'linux' (pacote-fonte) com a versão do linux-modules-$(uname -r):
-    a imagem do kernel tem Source 'linux-signed', que o OSV não trata como kernel."""
+    """O kernel em execução vira o componente do pacote-fonte REAL do linux-modules-$(uname -r) (linux, linux-hwe-6.8,
+    linux-aws...), com a versão desse binário. Sem linux-modules, cai na imagem (linux-signed* vira o sem '-signed')."""
     if not uname:
         raise ErroRonda("Não consegui saber o kernel em execução ('uname -r' veio vazio); o kernel ficou sem a marca de exposto à rede.")
-    ver = None
+    ver = src = None
     for pref in ("linux-modules-", "linux-image-", "linux-image-unsigned-"):
         info = por_binario.get(pref + uname)
         if info:
-            ver = info[1]
+            ver, src = info[1], fonte_do_kernel(pref + uname, info)
             break
     if ver is None:
         raise ErroRonda(f"O kernel em execução ({uname}) não tem pacote linux-modules-{uname} nem linux-image-{uname} no dpkg; ele ficou fora da checagem de exposição. Confira com 'dpkg -l | grep {uname}'.")
+    if src is None:
+        raise ErroRonda(f"Não consegui identificar o pacote-fonte do kernel em execução ({uname}): o dpkg não informa um Source utilizável para {pref}{uname}. O kernel ficou fora da checagem de vulnerabilidades. Confira com dpkg-query -W -f '${{source:Package}}' {pref}{uname}.")
     marca = {"kernel_em_execucao": True, "exposto_rede": True}
     for c in comps:
-        if c["eco"] == eco and c["nome"] == "linux" and c["versao"] == ver:
+        if c["eco"] == eco and c["nome"] == src and c["versao"] == ver:
             c.update(marca)
             c["onde"] = f"kernel {base_kernel(uname) or uname} em execução"
             return
-    comps.append(componente(eco, "linux", ver, f"kernel {base_kernel(uname) or uname} em execução", "os", dict(marca, binarios=[pref + uname])))
+    comps.append(componente(eco, src, ver, f"kernel {base_kernel(uname) or uname} em execução", "os", dict(marca, binarios=[pref + uname])))
 
 
 def ip_publico(endereco, redes_ignoradas):
