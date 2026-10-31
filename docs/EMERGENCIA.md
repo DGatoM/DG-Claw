@@ -9,15 +9,20 @@ Tela: menu **Segurança**, bloco "Botão de emergência". Terminal: `sudo dgclaw
 
 ## O que ele faz, na ordem
 
-1. **Confere se não vai te trancar para fora.** Só corta com o ufw ligado e com um caminho de acesso garantido:
+1. **Confere se não vai te trancar para fora.** Só corta com o `nft` instalado e com um caminho de acesso garantido:
    o Tailscale logado (interface `tailscale0` de pé) ou ao menos um IP em `IPS_ADMIN`. Sem isso, o botão fica
    desligado e a tela diz o motivo.
-2. **Guarda o estado de antes** (regras do ufw, serviços ativos) em `/var/lib/dgclaw/emergencia/antes/`.
+2. **Guarda o estado de antes** (`nft list ruleset`, para diagnóstico, e os serviços ativos) em `/var/lib/dgclaw/emergencia/antes/`.
 3. **Agenda o religar automático** (`systemd-run`, 5 minutos) antes de mudar qualquer coisa. Se o agendamento
    falha, nada é cortado.
-4. **Para o proxy público** (`caddy`, e o `cloudflared` se existir) e fecha a entrada no ufw, deixando só:
-   a interface do Tailscale, os `IPS_ADMIN` (por SSH) e a rede dos agentes (`10.89.0.0/16`, para eles continuarem
-   falando com o painel por dentro). As regras criadas levam o comentário `emergencia`; as suas ficam como estão.
+4. **Para o proxy público** (`caddy`, e o `cloudflared` se existir) e carrega a tabela nft própria
+   `inet dgclaw_emergencia`, com chains nos hooks `input`, `output` e `forward` em prioridade -10, ou seja, antes das
+   regras do ufw (que não são mexidas). Ela derruba tudo na entrada, **inclusive as conexões que já estavam abertas**,
+   e deixa passar só: o loopback, a interface do Tailscale, os `IPS_ADMIN` (por SSH, IPv4 e IPv6) e a rede dos
+   agentes (`10.89.0.0/16`, para eles continuarem falando com o painel por dentro). Na saída, tudo segue normal;
+   com `--isolar-saida` sobram só o DNS, o admin e a rede dos agentes, e o tráfego dos containers para a internet
+   (`forward`) também é bloqueado. O IPv6 mantém a descoberta de vizinhos (NDP), senão o endereço de administração
+   some da rede. Com `--isolar-saida`, a resposta de DNS (conexão estabelecida na porta 53) também passa.
 5. **Você confirma** do seu aparelho (`sudo dgclaw emergencia confirmar`) e o religar automático é cancelado.
    O corte fica até você religar.
 
@@ -40,8 +45,21 @@ sudo dgclaw emergencia religar --codigo X4TN8B # volta ao normal e testa que tud
 sudo dgclaw emergencia estado                  # cortado ou normal, e o que está parado
 ```
 
-O religar remove só as regras `emergencia`, restaura as políticas do ufw, religa os serviços e confere que o
-painel responde (`https://<seu domínio>/`). Se algo não voltar, o relatório diz o quê e o comando para ver o motivo.
+O religar apaga a tabela inteira (`nft delete table inet dgclaw_emergencia`, identidade fixa, sem número de regra),
+religa os serviços e confere que o painel responde (`https://<seu domínio>/`). Se algo não voltar, o relatório diz o quê e o comando para ver o motivo.
+
+## Uma operação de cada vez
+
+`preparar`, `cortar`, `confirmar` e `religar` rodam sob uma trava (`flock -w 30` em
+`/var/lib/dgclaw/emergencia/.trava`) e conferem o estado de novo depois de pegá-la. Se o religar manual e o
+automático coincidirem, o que chegou depois espera, vê que já está religado, registra isso no log e sai com 0:
+a tabela é apagada uma única vez.
+
+## Ver o arquivo nft antes de cortar
+
+`sudo dgclaw emergencia simular [--isolar-saida]` mostra o arquivo nft exato que seria carregado. O `cortar` grava
+esse arquivo em `/var/lib/dgclaw/emergencia/emergencia.nft` e o valida com `nft -c -f` **antes** de agendar o
+religar ou parar qualquer serviço: se o nft recusar, nada é mudado.
 
 ## Configuração
 
@@ -65,5 +83,5 @@ em tempos. Os cliques da tela viram pedidos que o root executa (`docs/interno/CO
 
 ## Testes
 
-`bash tests/emergencia/rodar.sh`: raiz falsa (`DGCLAW_RAIZ`) e comandos de mentira (ufw, systemctl, tailscale)
-no PATH; não toca na máquina. O teste real do corte só em máquina descartável.
+`bash tests/emergencia/rodar.sh`: raiz falsa (`DGCLAW_RAIZ`) e comandos de mentira (nft, systemctl, tailscale)
+no PATH; não toca na máquina. O teste real do corte (conexão já aberta caindo, tráfego de container bloqueado em `--isolar-saida`) só em máquina descartável.

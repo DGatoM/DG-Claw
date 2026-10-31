@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Testes do lib/emergencia.sh (dgclaw emergencia): sem root, sem mexer na máquina.
-# Usa uma raiz falsa (DGCLAW_RAIZ) e comandos de mentira no PATH que só registram as chamadas.
+# Usa uma raiz falsa (DGCLAW_RAIZ) e comandos de mentira no PATH que só registram as chamadas
+# (inclusive o conteúdo do arquivo nft que o corte carrega).
 # shellcheck disable=SC2016,SC2015
 # (SC2016: os comandos de mentira ficam entre aspas simples de propósito; SC2015: ok/nok não são if-then-else)
 set -euo pipefail
@@ -42,34 +43,8 @@ URLS_TESTE_RELIGAR="https://site.exemplo/ok"
 REDES_INTERNAS="10.89.0.0/16"
 ESTADO_DIR=/var/lib/dgclaw/emergencia
 CONF
-  cat >"$FAKE/ufw-verbose" <<'V'
-Status: active
-Logging: on (low)
-Default: deny (incoming), allow (outgoing), disabled (routed)
-New profiles: skip
-V
-  cat >"$FAKE/ufw-numbered" <<'N'
-Status: active
-
-     To                         Action      From
-     --                         ------      ----
-[ 1] 22/tcp                     ALLOW IN    Anywhere
-[ 2] 443/tcp                    ALLOW IN    Anywhere
-N
-  echo "ufw allow 22/tcp" >"$FAKE/ufw-added"
   touch "$FAKE/ativo-cloudflared" "$FAKE/ativo-caddy" "$FAKE/habilitado-cloudflared" "$FAKE/habilitado-caddy"
 
-  fake ufw '
-case "$1 $2" in
-  "status numbered") cat "$FAKE/ufw-numbered"; exit 0 ;;
-  "status verbose") cat "$FAKE/ufw-verbose"; exit 0 ;;
-  "show added") cat "$FAKE/ufw-added"; exit 0 ;;
-esac
-if [[ "$1" == status ]]; then
-  if [[ -f "$FAKE/ufw-inativo" ]]; then echo "Status: inactive"; else echo "Status: active"; fi
-  exit 0
-fi
-echo "ufw $*" >>"$FAKE/chamadas.log"'
   fake systemctl '
 case "$1" in
   is-active) if [[ "$3" == emergencia-desfazer.timer ]]; then [[ -f "$FAKE/timer-ativo" ]]; exit; fi
@@ -84,7 +59,18 @@ esac'
 if [[ -f "$FAKE/ts-logado" ]]; then echo "100.64.0.1 vps danilo linux -"; else echo "Logged out."; exit 1; fi'
   fake ip '
 if [[ -f "$FAKE/if-tailscale0" && "$*" == *tailscale0* ]]; then echo "tailscale0 UNKNOWN 0.0.0.0"; else echo "Device does not exist" >&2; exit 1; fi'
-  fake nft 'echo "table inet filter {}"'
+  fake nft '
+case "$1 $2" in
+  "list ruleset") echo "table inet filter {}"; exit 0 ;;
+  "list table") [[ -f "$FAKE/nft-tabela" ]]; exit ;;
+  "delete table") echo "nft $*" >>"$FAKE/chamadas.log"
+                  [[ -f "$FAKE/nft-lento" ]] && sleep 1.5
+                  rm -f "$FAKE/nft-tabela"; exit 0 ;;
+  "-c -f") echo "nft $*" >>"$FAKE/chamadas.log"; cp "$3" "$FAKE/nft-validado.txt"
+           if [[ -f "$FAKE/nft-invalido" ]]; then echo "Error: syntax error" >&2; exit 1; fi; exit 0 ;;
+  "-f "*) echo "nft $*" >>"$FAKE/chamadas.log"; cp "$2" "$FAKE/nft-carregado.txt"; touch "$FAKE/nft-tabela"; exit 0 ;;
+esac
+echo "nft: chamada inesperada $*" >&2; exit 1'
   fake logger 'exit 0'
   fake curl 'echo "curl $*" >>"$FAKE/chamadas.log"; [[ "$*" != *falha* ]]'
 }
@@ -118,14 +104,17 @@ monta_ambiente; liga_tailscale
 roda simular
 contem "pré-checagens ok" "$SAIDA" "o corte seria aceito"
 contem "lista o stop do caddy" "$SAIDA" "systemctl stop caddy"
-contem "lista a regra da interface" "$SAIDA" "ufw insert 1 allow in on tailscale0 comment emergencia"
-contem "mantém a rede dos agentes" "$SAIDA" "ufw insert 1 allow from 10.89.0.0/16 comment emergencia"
+contem "lista o carregamento da tabela nft" "$SAIDA" "nft -f $RAIZ/var/lib/dgclaw/emergencia/emergencia.nft"
+contem "mostra a tabela nft própria" "$SAIDA" "table inet dgclaw_emergencia {"
+contem "mostra o drop da entrada antes de qualquer estabelecida" "$SAIDA" "type filter hook input priority -10; policy accept;"
+contem "libera a interface do Tailscale" "$SAIDA" 'iifname { "tailscale0" } accept'
+contem "mantém a rede dos agentes" "$SAIDA" "ip saddr { 10.89.0.0/16 } accept"
 confere "simular não executou nada" "" "$(chamadas)"
 roda simular --json
-if python3 -I -c 'import json,sys; d=json.loads(sys.stdin.read()); assert d["recusado"] is False and len(d["comandos"])>=5' <<<"$SAIDA"; then ok "simular --json é JSON válido"; else nok "simular --json inválido: $SAIDA"; fi
+if python3 -I -c 'import json,sys; d=json.loads(sys.stdin.read()); assert d["recusado"] is False and len(d["comandos"])>=3 and "dgclaw_emergencia" in d["regras_nft"]' <<<"$SAIDA"; then ok "simular --json é JSON válido"; else nok "simular --json inválido: $SAIDA"; fi
 roda estado --json
 if python3 -I -c 'import json,sys; d=json.loads(sys.stdin.read()); assert d["cortado"] is False' <<<"$SAIDA"; then ok "estado --json é JSON válido"; else nok "estado --json inválido: $SAIDA"; fi
-if python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["disponivel"] is True and d["motivo"]=="" and len(d["plano"]["comandos"])>=5' "$WEB"; then ok "emergencia.json: disponível, com o plano"; else nok "emergencia.json (disponível) errado"; fi
+if python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["disponivel"] is True and d["motivo"]=="" and len(d["plano"]["comandos"])>=3' "$WEB"; then ok "emergencia.json: disponível, com o plano"; else nok "emergencia.json (disponível) errado"; fi
 roda --help
 contem "o uso cita o preparar" "$SAIDA" "preparar"
 
@@ -174,14 +163,17 @@ roda preparar
 confere "preparar recusado" "1" "$RC"
 contem "motivo" "$SAIDA" "não dá para preparar o corte porque"
 
-echo "5. cortar recusa com ufw inativo e sem caminho de acesso (código válido)"
+echo "5. cortar recusa sem caminho de acesso e com regras que o nft não aceita (código válido)"
 monta_ambiente; liga_tailscale
 pega_codigo
-touch "$FAKE/ufw-inativo"
+touch "$FAKE/nft-invalido"
 roda cortar --codigo "$COD"
-confere "ufw inativo falha" "1" "$RC"
-contem "motivo do ufw" "$SAIDA" "o ufw não está ativo"
-rm "$FAKE/ufw-inativo"
+confere "regras recusadas pelo nft falham" "1" "$RC"
+contem "motivo do nft" "$SAIDA" "o nft recusou as regras"
+confere "só validou, não agendou nem parou nada" "nft -c -f $RAIZ/var/lib/dgclaw/emergencia/emergencia.nft" "$(chamadas)"
+[[ ! -e "$RAIZ/var/lib/dgclaw/emergencia/cortado" ]] && ok "sem marcador de corte" || nok "marcador de corte criado apesar da recusa"
+rm "$FAKE/nft-invalido"
+: >"$FAKE/chamadas.log"
 pega_codigo
 rm "$FAKE/ts-logado"
 roda cortar --codigo "$COD"
@@ -190,34 +182,43 @@ confere "nada foi chamado" "" "$(chamadas)"
 
 echo "6. cortar de verdade (falso) com Tailscale e IPS_ADMIN"
 monta_ambiente; liga_tailscale
-sed -i 's|^IPS_ADMIN=.*|IPS_ADMIN="203.0.113.10 198.51.100.0/24"|' "$EMERGENCIA_CONF"
+sed -i 's|^IPS_ADMIN=.*|IPS_ADMIN="203.0.113.10 198.51.100.0/24 2001:db8::1"|' "$EMERGENCIA_CONF"
 pega_codigo
 roda cortar --codigo "$COD"
 confere "exit 0" "0" "$RC"
 SELF="$(readlink -f "$SCRIPT")"
-ESPERADO="systemd-run --on-active=5m --unit=emergencia-desfazer --setenv=EMERGENCIA_CONF=$EMERGENCIA_CONF --setenv=DGCLAW_RAIZ=$RAIZ $SELF religar --automatico
+ED="$RAIZ/var/lib/dgclaw/emergencia"
+ESPERADO="nft -c -f $ED/emergencia.nft
+systemd-run --on-active=5m --unit=emergencia-desfazer --setenv=EMERGENCIA_CONF=$EMERGENCIA_CONF --setenv=DGCLAW_RAIZ=$RAIZ $SELF religar --automatico
 systemctl stop cloudflared
 systemctl stop caddy
-ufw default deny incoming
-ufw insert 1 deny in from any comment emergencia
-ufw insert 1 allow from 10.89.0.0/16 comment emergencia
-ufw insert 1 allow from 203.0.113.10 to any port 22 proto tcp comment emergencia
-ufw insert 1 allow from 198.51.100.0/24 to any port 22 proto tcp comment emergencia
-ufw insert 1 allow in on tailscale0 comment emergencia"
-confere "sequência exata de chamadas" "$ESPERADO" "$(chamadas)"
-ED="$RAIZ/var/lib/dgclaw/emergencia"
+nft -f $ED/emergencia.nft"
+confere "sequência exata de chamadas (valida, agenda, para, carrega)" "$ESPERADO" "$(chamadas)"
+NFT="$(cat "$FAKE/nft-carregado.txt")"
+confere "o arquivo validado é o carregado" "$(cat "$FAKE/nft-validado.txt")" "$NFT"
+contem "recria a tabela do zero (idempotente)" "$NFT" "delete table inet dgclaw_emergencia"
+contem "chain de entrada antes do ufw (hook input, prioridade -10)" "$NFT" "type filter hook input priority -10; policy accept;"
+contem "chain de saída" "$NFT" "type filter hook output priority -10; policy accept;"
+contem "chain de encaminhamento" "$NFT" "type filter hook forward priority -10; policy accept;"
+contem "aceita loopback" "$NFT" 'iifname "lo" accept'
+contem "aceita a interface admin" "$NFT" 'iifname { "tailscale0" } accept'
+contem "SSH dos IPs admin v4" "$NFT" "ip saddr { 203.0.113.10, 198.51.100.0/24 } tcp dport 22 accept"
+contem "SSH dos IPs admin v6" "$NFT" "ip6 saddr { 2001:db8::1 } tcp dport 22 accept"
+contem "rede interna dos agentes" "$NFT" "ip saddr { 10.89.0.0/16 } accept"
+contem "resposta aos IPs admin (saída v4)" "$NFT" "ip daddr { 203.0.113.10, 198.51.100.0/24 } accept"
+contem "resposta aos IPs admin (saída v6)" "$NFT" "ip6 daddr { 2001:db8::1 } accept"
+contem "não deixa o IPv6 sem vizinhança" "$NFT" "icmpv6 type { nd-router-solicit"
+confere "sem --isolar-saida só a entrada tem drop" "1" "$(grep -c '^[[:space:]]*drop$' <<<"$NFT")"
+if grep -q 'ct state established' <<<"$NFT"; then nok "aceitou conexão estabelecida sem ser DNS"; else ok "conexão estabelecida não é aceita (cai no drop)"; fi
 [[ -f "$ED/cortado" ]] && ok "marcador cortado criado" || nok "marcador cortado ausente"
 [[ ! -e "$ARQ" ]] && ok "o código foi gasto" || nok "o código continua em disco"
 confere "pasta de estado é 700" "700" "$(stat -c %a "$ED")"
 confere "pasta antes é 700" "700" "$(stat -c %a "$ED/antes")"
-for f in ufw-status-numbered.txt ufw-show-added.txt servicos.txt carimbo.txt ufw-defaults.txt; do
+for f in nft-ruleset.txt servicos.txt carimbo.txt; do
   [[ -s "$ED/antes/$f" ]] && ok "guardou antes/$f" || nok "faltou antes/$f"
 done
 confere "serviços guardados" "cloudflared|ativo|habilitado
 caddy|ativo|habilitado" "$(cat "$ED/antes/servicos.txt")"
-confere "defaults guardados" "incoming=deny
-outgoing=allow
-routed=disabled" "$(cat "$ED/antes/ufw-defaults.txt")"
 [[ -s "$ED/emergencia.log" ]] && ok "log gravado" || nok "log vazio"
 if python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); e=d["estado"]; assert e["cortado"] is True and e["religar_automatico_agendado"] is True and e["religar_automatico_em"].endswith("Z")' "$WEB"; then ok "emergencia.json mostra o corte e a hora do religar automático"; else nok "emergencia.json depois do corte"; fi
 pega_codigo
@@ -239,28 +240,7 @@ confere "exit 0" "0" "$RC"
 confere "parou o timer" "systemctl stop emergencia-desfazer.timer" "$(chamadas)"
 [[ -f "$ED/confirmado" ]] && ok "marcador confirmado" || nok "sem marcador confirmado"
 
-echo "8. religar exige código e remove só as regras emergencia"
-cat >"$FAKE/ufw-numbered" <<'N'
-Status: active
-
-     To                         Action      From
-     --                         ------      ----
-[ 1] Anywhere on tailscale0     ALLOW IN    Anywhere                   # emergencia
-[ 2] Anywhere                   DENY IN     Anywhere                   # emergencia
-[ 3] 22/tcp                     ALLOW IN    Anywhere
-[ 4] 443/tcp                    ALLOW IN    Anywhere
-[ 5] Anywhere (v6) on tailscale0 ALLOW IN    Anywhere (v6)              # emergencia
-N
-# o fake não simula a remoção; depois de apagar, o status volta ao original
-fake ufw '
-case "$1 $2" in
-  "status numbered") if grep -q "delete 1" "$FAKE/chamadas.log"; then
-      printf "Status: active\n\n[ 1] 22/tcp ALLOW IN Anywhere\n[ 2] 443/tcp ALLOW IN Anywhere\n"; else cat "$FAKE/ufw-numbered"; fi; exit 0 ;;
-  "status verbose") cat "$FAKE/ufw-verbose"; exit 0 ;;
-  "show added") cat "$FAKE/ufw-added"; exit 0 ;;
-esac
-if [[ "$1" == status ]]; then echo "Status: active"; exit 0; fi
-echo "ufw $*" >>"$FAKE/chamadas.log"'
+echo "8. religar exige código e apaga só a tabela nft própria"
 rm -f "$FAKE/ativo-cloudflared" "$FAKE/ativo-caddy"
 : >"$FAKE/chamadas.log"
 roda religar
@@ -271,18 +251,15 @@ confere "nada foi chamado" "" "$(chamadas)"
 pega_codigo
 roda religar --codigo "$(printf %s "$COD" | tr '[:upper:]' '[:lower:]')"
 confere "exit 0 (código aceito em minúsculas)" "0" "$RC"
-ESPERADO="ufw --force delete 5
-ufw --force delete 2
-ufw --force delete 1
-ufw default deny incoming
-ufw default allow outgoing
+ESPERADO="nft delete table inet dgclaw_emergencia
 systemctl start cloudflared
 systemctl start caddy
 curl -fsS --max-time 10 -o /dev/null https://site.exemplo/ok"
-confere "sequência do religar (maior número primeiro, só as emergencia)" "$ESPERADO" "$(chamadas)"
+confere "sequência do religar (apaga a tabela pelo nome, religa, testa)" "$ESPERADO" "$(chamadas)"
 contem "relatório do que voltou" "$SAIDA" "voltou: serviço caddy ativo"
 [[ ! -e "$ED/cortado" ]] && ok "marcador cortado apagado" || nok "marcador cortado continua"
 ls "$ED/historico"/*/cortado >/dev/null 2>&1 && ok "histórico guardado" || nok "histórico ausente"
+ls "$ED/historico"/*/emergencia.nft >/dev/null 2>&1 && ok "o arquivo nft foi para o histórico" || nok "arquivo nft ausente do histórico"
 if python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["estado"]["cortado"] is False' "$WEB"; then ok "emergencia.json volta ao normal"; else nok "emergencia.json depois do religar"; fi
 roda estado
 contem "estado volta ao normal" "$SAIDA" "Estado: NORMAL"
@@ -308,11 +285,15 @@ echo "10. --isolar-saida e religar automático (sem código)"
 monta_ambiente; liga_tailscale
 pega_codigo --isolar-saida
 roda cortar --codigo "$COD" --isolar-saida
-contem "bloqueia a saída" "$(chamadas)" "ufw default deny outgoing"
-contem "libera DNS" "$(chamadas)" "ufw insert 1 allow out 53 comment emergencia"
-contem "libera saída pela interface" "$(chamadas)" "ufw insert 1 allow out on tailscale0 comment emergencia"
+NFT="$(cat "$FAKE/nft-carregado.txt")"
+confere "com --isolar-saida entrada, saída e encaminhamento têm drop" "3" "$(grep -c '^[[:space:]]*drop$' <<<"$NFT")"
+contem "libera DNS (udp)" "$NFT" "udp dport 53 accept"
+contem "libera DNS (tcp)" "$NFT" "tcp dport 53 accept"
+contem "resposta de DNS não cai no drop" "$NFT" "ct state established udp sport 53 accept"
+contem "libera saída pela interface" "$NFT" 'oifname { "tailscale0" } accept'
+contem "encaminhamento: só a interface admin" "$NFT" 'iifname { "tailscale0" } accept'
+contem "encaminhamento: só entre redes internas" "$NFT" "ip saddr { 10.89.0.0/16 } ip daddr { 10.89.0.0/16 } accept"
 : >"$FAKE/chamadas.log"
-printf 'Status: active\n' >"$FAKE/ufw-numbered"
 roda religar --automatico
 confere "religar automático ok sem código" "0" "$RC"
 
@@ -334,6 +315,41 @@ confere "exit 0" "0" "$RC"
 contem "estado normal pela CLI" "$SAIDA" "Estado: NORMAL"
 RC=0; SAIDA="$("$BIN" --ajuda 2>&1)" || RC=$?
 contem "a ajuda do dgclaw lista a emergência" "$SAIDA" "dgclaw emergencia estado|simular|preparar|cortar|confirmar|religar"
+
+echo "13. religar manual e automático ao mesmo tempo: a tabela é apagada uma vez"
+monta_ambiente; liga_tailscale
+pega_codigo
+roda cortar --codigo "$COD"
+confere "cortar ok" "0" "$RC"
+touch "$FAKE/nft-lento"
+: >"$FAKE/chamadas.log"
+pega_codigo
+( "$SCRIPT" religar --codigo "$COD" >"$TMP/religar-1.txt" 2>&1; echo $? >"$TMP/religar-1.rc" ) &
+sleep 0.5
+RC=0; SAIDA="$("$SCRIPT" religar --automatico 2>&1)" || RC=$?
+wait
+confere "o automático sai 0" "0" "$RC"
+contem "o automático diz que já estava religado" "$SAIDA" "Já estava religado"
+confere "o manual terminou bem" "0" "$(cat "$TMP/religar-1.rc")"
+confere "a tabela foi apagada uma vez só" "1" "$(chamadas | grep -c '^nft delete table')"
+ED="$RAIZ/var/lib/dgclaw/emergencia"
+[[ ! -e "$ED/cortado" ]] && ok "marcador de corte apagado" || nok "marcador de corte ficou"
+rm -f "$FAKE/nft-lento"
+echo "   o segundo religar manual (com código) que esperou a trava também sai 0"
+monta_ambiente; liga_tailscale
+pega_codigo
+roda cortar --codigo "$COD"
+touch "$FAKE/nft-lento"
+: >"$FAKE/chamadas.log"
+pega_codigo
+COD1="$COD"
+( "$SCRIPT" religar --codigo "$COD1" >"$TMP/religar-1.txt" 2>&1; echo $? >"$TMP/religar-1.rc" ) &
+sleep 0.5
+RC=0; SAIDA="$("$SCRIPT" religar --codigo "$COD1" 2>&1)" || RC=$?
+wait
+confere "o segundo manual sai 0" "0" "$RC"
+contem "diz que já estava religado" "$SAIDA" "Já estava religado"
+confere "a tabela foi apagada uma vez só" "1" "$(chamadas | grep -c '^nft delete table')"
 
 echo
 echo "Passaram: $PASSOU  Falharam: $FALHOU"

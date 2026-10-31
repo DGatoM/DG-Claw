@@ -2,8 +2,9 @@
 # lib/emergencia.sh: o botao de emergencia do DG Claw ("tirar do ar") e o religar.
 #
 # Chamado por `dgclaw emergencia ...` (bin/dgclaw) e pelo executor de pedidos da ronda de seguranca.
-# Tira o servidor da internet (para o proxy publico e fecha o ufw) mantendo so o acesso de
-# administracao (Tailscale ou IPS_ADMIN). Desenho: docs/EMERGENCIA.md.
+# Tira o servidor da internet (para o proxy publico e carrega a tabela nft `inet dgclaw_emergencia`,
+# que derruba ate as conexoes ja abertas) mantendo so o acesso de administracao (Tailscale ou IPS_ADMIN).
+# O ufw nao e alterado. Desenho: docs/EMERGENCIA.md.
 #
 # Uso:  dgclaw emergencia estado|simular|preparar|cortar|confirmar|religar [opcoes]
 # Raiz falsa (testes): DGCLAW_RAIZ=<pasta>, igual ao resto do DG Claw.
@@ -16,6 +17,9 @@ RAIZ="${RAIZ%/}"
 QUEM="${EMERGENCIA_QUEM:-${SUDO_USER:-${USER:-desconhecido}}}"
 QUEM="${QUEM//[^A-Za-z0-9._@-]/_}"
 UNIDADE_TIMER="emergencia-desfazer"
+NFT_TABELA="dgclaw_emergencia"
+TRAVA_FD=""
+ESPEROU_TRAVA=0
 VALIDADE_CODIGO_S=120
 MAX_TENTATIVAS=3
 
@@ -44,6 +48,7 @@ AVISOS=()
 ADMIN_IFS=()
 ATIVOS=()
 PLANO=()
+NFT_TEXTO=""
 
 # ---------- utilidades ----------
 
@@ -169,6 +174,7 @@ carrega_conf() {
     || falhar "PRAZO_CONFIRMAR_MIN inválido '$PRAZO_CONFIRMAR_MIN'. Use minutos de 1 a 240."
   [[ "$ESTADO_DIR" =~ ^/[A-Za-z0-9._/-]*$ ]] || falhar "ESTADO_DIR inválido '$ESTADO_DIR'. Use um caminho absoluto sem espaços."
   ESTADO_DIR="$RAIZ$ESTADO_DIR"
+  ARQ_NFT="$ESTADO_DIR/emergencia.nft"
   ARQ_CODIGO="$RAIZ/var/lib/dgclaw/seguranca/emergencia-codigo"
   ARQ_WEB="$RAIZ/var/lib/dgclaw/web/seguranca/emergencia.json"
 }
@@ -212,13 +218,8 @@ prechecagens() {
     PROBLEMAS+=("o caminho do script ('$SELF') tem caracteres que o agendamento do religar não aceita. Mova o DG Claw para um caminho simples.")
   fi
 
-  if ! command -v ufw >/dev/null 2>&1; then
-    PROBLEMAS+=("o ufw não está instalado. Sem ele não há como fechar a rede com segurança: instale (apt install ufw) e rode o instalador do DG Claw de novo.")
-  else
-    saida="$(ufw status 2>&1)" || true
-    if ! grep -q '^Status: active' <<<"$saida"; then
-      PROBLEMAS+=("o ufw não está ativo (ufw status respondeu: ${saida%%$'\n'*}). Ative o firewall antes.")
-    fi
+  if ! command -v nft >/dev/null 2>&1; then
+    PROBLEMAS+=("o nft não está instalado. Sem ele não há como fechar a rede com segurança: instale (apt install nftables) e rode o instalador do DG Claw de novo.")
   fi
 
   local ts_ok=0 ts_saida="tailscale não instalado" i estado if_up=()
@@ -242,30 +243,92 @@ prechecagens() {
   if ((${#ADMIN_IFS[@]} == 0 && ${#if_up[@]} > 0)); then
     AVISOS+=("a interface ${if_up[*]} está de pé, mas o tailscale não está logado (${ts_saida}); só os IPS_ADMIN vão continuar entrando.")
   fi
+  AVISOS+=("o corte usa a tabela nft inet $NFT_TABELA (antes das regras do ufw, que não são mexidas) e derruba também as conexões que já estavam abertas, menos as de administração.")
   AVISOS+=("o painel e as conversas também saem do ar durante o corte, porque o proxy público é parado. Para confirmar ou religar, entre no servidor por SSH pelo Tailscale.")
 }
 
 # ---------- plano (a mesma lista serve para simular e para cortar) ----------
 
+# Itens (IP ou CIDR) de uma família: 4 = sem ":", 6 = com ":". Devolve "a, b, c" (vazio se não houver).
+lista_familia() {
+  local fam="$1" item out=""
+  shift
+  for item in "$@"; do
+    if { [[ "$fam" == 6 ]] && [[ "$item" == *:* ]]; } || { [[ "$fam" == 4 ]] && [[ "$item" != *:* ]]; }; then
+      out+="${out:+, }$item"
+    fi
+  done
+  printf '%s' "$out"
+}
+
+# O arquivo nft do corte. Prioridade -10: roda antes das chains do ufw/iptables-nft (prioridade 0), então o
+# drop vale até para conexão já estabelecida. Policy accept: o que a tabela não pega segue o fluxo normal.
+monta_nft() {
+  local ifs="" i ips4 ips6 red4 red6 t="$NFT_TABELA"
+  for i in "${ADMIN_IFS[@]}"; do ifs+="${ifs:+, }\"$i\""; done
+  ips4="$(lista_familia 4 "${IPS[@]}")"; ips6="$(lista_familia 6 "${IPS[@]}")"
+  red4="$(lista_familia 4 "${REDES[@]}")"; red6="$(lista_familia 6 "${REDES[@]}")"
+  local nd='icmpv6 type { nd-router-solicit, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept'
+  {
+    printf 'table inet %s\ndelete table inet %s\ntable inet %s {\n' "$t" "$t" "$t"
+    printf '\tchain entrada {\n\t\ttype filter hook input priority -10; policy accept;\n'
+    printf '\t\tiifname "lo" accept\n'
+    [[ -n "$ifs" ]] && printf '\t\tiifname { %s } accept\n' "$ifs"
+    [[ -n "$ips4" ]] && printf '\t\tip saddr { %s } tcp dport %s accept\n' "$ips4" "$PORTA_SSH"
+    [[ -n "$ips6" ]] && printf '\t\tip6 saddr { %s } tcp dport %s accept\n' "$ips6" "$PORTA_SSH"
+    [[ -n "$red4" ]] && printf '\t\tip saddr { %s } accept\n' "$red4"
+    [[ -n "$red6" ]] && printf '\t\tip6 saddr { %s } accept\n' "$red6"
+    printf '\t\t%s\n' "$nd"
+    if ((ISOLAR)); then
+      printf '\t\tct state established udp sport 53 accept\n\t\tct state established tcp sport 53 accept\n'
+    fi
+    printf '\t\tdrop\n\t}\n'
+    printf '\tchain saida {\n\t\ttype filter hook output priority -10; policy accept;\n'
+    printf '\t\toifname "lo" accept\n'
+    [[ -n "$ifs" ]] && printf '\t\toifname { %s } accept\n' "$ifs"
+    [[ -n "$ips4" ]] && printf '\t\tip daddr { %s } accept\n' "$ips4"
+    [[ -n "$ips6" ]] && printf '\t\tip6 daddr { %s } accept\n' "$ips6"
+    if ((ISOLAR)); then
+      [[ -n "$red4" ]] && printf '\t\tip daddr { %s } accept\n' "$red4"
+      [[ -n "$red6" ]] && printf '\t\tip6 daddr { %s } accept\n' "$red6"
+      printf '\t\t%s\n' "$nd"
+      printf '\t\tudp dport 53 accept\n\t\ttcp dport 53 accept\n\t\tdrop\n'
+    fi
+    printf '\t}\n'
+    printf '\tchain encaminhamento {\n\t\ttype filter hook forward priority -10; policy accept;\n'
+    if ((ISOLAR)); then
+      [[ -n "$ifs" ]] && printf '\t\tiifname { %s } accept\n\t\toifname { %s } accept\n' "$ifs" "$ifs"
+      [[ -n "$red4" ]] && printf '\t\tip saddr { %s } ip daddr { %s } accept\n' "$red4" "$red4"
+      [[ -n "$red6" ]] && printf '\t\tip6 saddr { %s } ip6 daddr { %s } accept\n' "$red6" "$red6"
+      printf '\t\tdrop\n'
+    fi
+    printf '\t}\n}\n'
+  }
+}
+
 monta_plano() {
-  local s ip i rede timer
+  local s timer
   PLANO=()
   timer="systemd-run --on-active=${PRAZO_CONFIRMAR_MIN}m --unit=$UNIDADE_TIMER"
   if [[ -n "${EMERGENCIA_CONF:-}" ]]; then timer+=" --setenv=EMERGENCIA_CONF=$EMERGENCIA_CONF"; fi
   if [[ -n "$RAIZ" ]]; then timer+=" --setenv=DGCLAW_RAIZ=$RAIZ"; fi
   PLANO+=("$timer $SELF religar --automatico")
   for s in "${ATIVOS[@]}"; do PLANO+=("systemctl stop $s"); done
-  PLANO+=("ufw default deny incoming")
-  if ((ISOLAR)); then
-    PLANO+=("ufw insert 1 allow out 53 comment emergencia")
-    for i in "${ADMIN_IFS[@]}"; do PLANO+=("ufw insert 1 allow out on $i comment emergencia"); done
-    PLANO+=("ufw default deny outgoing")
+  PLANO+=("nft -f $ARQ_NFT")
+  NFT_TEXTO="$(monta_nft)"
+}
+
+# Uma operação que muda o estado por vez: o religar manual e o automático (ou dois cortes) não se atropelam.
+# Quem chegou depois espera até 30 s, e depois da trava confere o estado de novo.
+pega_trava() {
+  local arq="$ESTADO_DIR/.trava"
+  exec {TRAVA_FD}>"$arq" || falhar "não consegui abrir o arquivo de trava $arq. Confira a permissão de $ESTADO_DIR."
+  if ! flock -n "$TRAVA_FD"; then
+    ESPEROU_TRAVA=1
+    log "outra operação de emergência está em andamento; esperando até 30 s"
+    flock -w 30 "$TRAVA_FD" \
+      || falhar "outra operação de emergência continua em andamento depois de 30 s ($arq). Nada foi mudado. Veja $ESTADO_DIR/emergencia.log e tente de novo."
   fi
-  # Inseridas sempre na posição 1: o deny entra primeiro e as liberações ficam acima dele.
-  PLANO+=("ufw insert 1 deny in from any comment emergencia")
-  for rede in "${REDES[@]}"; do PLANO+=("ufw insert 1 allow from $rede comment emergencia"); done
-  for ip in "${IPS[@]}"; do PLANO+=("ufw insert 1 allow from $ip to any port $PORTA_SSH proto tcp comment emergencia"); done
-  for i in "${ADMIN_IFS[@]}"; do PLANO+=("ufw insert 1 allow in on $i comment emergencia"); done
 }
 
 # ---------- estado ----------
@@ -304,9 +367,9 @@ json_estado() {
 }
 
 json_plano() {
-  printf '{"recusado":%s,"problemas":%s,"avisos":%s,"isolar_saida":%s,"prazo_min":%s,"servicos_a_parar":%s,"comandos":%s}' \
+  printf '{"recusado":%s,"problemas":%s,"avisos":%s,"isolar_saida":%s,"prazo_min":%s,"servicos_a_parar":%s,"comandos":%s,"regras_nft":%s}' \
     "$(json_bool "${#PROBLEMAS[@]}")" "$(json_arr "${PROBLEMAS[@]}")" "$(json_arr "${AVISOS[@]}")" \
-    "$(json_bool "$ISOLAR")" "$PRAZO_CONFIRMAR_MIN" "$(json_arr "${ATIVOS[@]}")" "$(json_arr "${PLANO[@]}")"
+    "$(json_bool "$ISOLAR")" "$PRAZO_CONFIRMAR_MIN" "$(json_arr "${ATIVOS[@]}")" "$(json_arr "${PLANO[@]}")" "$(json_s "$NFT_TEXTO")"
 }
 
 # Grava o retrato que o painel lê (web/lib/ronda-painel.js). Falha aqui nunca derruba o comando.
@@ -393,7 +456,9 @@ cmd_simular() {
     n=$((n + 1))
     printf '  %2d. %s\n' "$n" "$p"
   done
-  echo "Antes disso, o estado atual seria guardado em $ESTADO_DIR/antes/."
+  echo "Arquivo nft que o passo final carregaria ($ARQ_NFT):"
+  while IFS= read -r p; do printf '    | %s\n' "$p"; done <<<"$NFT_TEXTO"
+  echo "Antes disso, o estado atual (nft list ruleset e serviços) seria guardado em $ESTADO_DIR/antes/."
   grava_web
 }
 
@@ -405,6 +470,7 @@ cmd_preparar() {
   carrega_conf
   exige_root preparar
   garante_estado_dir
+  pega_trava
   prechecagens
   coleta_ativos
   monta_plano
@@ -476,27 +542,15 @@ exige_codigo() {
 # ---------- cortar ----------
 
 guarda_estado() {
-  local d="$ESTADO_DIR/antes" s inc out rot linha
+  local d="$ESTADO_DIR/antes" s
   { mkdir -p "$d" && chmod 700 "$d"; } || falhar "não consegui criar $d."
-  ufw status numbered >"$d/ufw-status-numbered.txt" 2>&1 || falhar "ufw status numbered falhou; nada foi mudado. Veja a saída em $d/ufw-status-numbered.txt."
-  ufw show added >"$d/ufw-show-added.txt" 2>&1 || falhar "ufw show added falhou; nada foi mudado. Veja a saída em $d/ufw-show-added.txt."
-  ufw status verbose >"$d/ufw-status-verbose.txt" 2>&1 || falhar "ufw status verbose falhou; nada foi mudado. Veja a saída em $d/ufw-status-verbose.txt."
-  linha="$(grep '^Default:' "$d/ufw-status-verbose.txt" | head -n 1)" || linha=""
-  inc="$(sed -nE 's/.*[ :]([a-z]+) \(incoming\).*/\1/p' <<<"$linha")"
-  out="$(sed -nE 's/.*[ :]([a-z]+) \(outgoing\).*/\1/p' <<<"$linha")"
-  rot="$(sed -nE 's/.*[ :]([a-z]+) \(routed\).*/\1/p' <<<"$linha")"
-  [[ -n "$inc" && -n "$out" ]] \
-    || falhar "não consegui ler as políticas padrão do ufw (linha 'Default:' recebida: '$linha'). Nada foi mudado."
-  printf 'incoming=%s\noutgoing=%s\nrouted=%s\n' "$inc" "$out" "${rot:-disabled}" >"$d/ufw-defaults.txt"
+  nft list ruleset >"$d/nft-ruleset.txt" 2>&1 || falhar "nft list ruleset falhou; nada foi mudado. Veja a saída em $d/nft-ruleset.txt."
   : >"$d/servicos.txt"
   for s in "${SERVICOS[@]}"; do
     printf '%s|%s|%s\n' "$s" \
       "$(servico_ativo "$s" && echo ativo || echo parado)" \
       "$(systemctl is-enabled --quiet "$s" 2>/dev/null && echo habilitado || echo desabilitado)" >>"$d/servicos.txt"
   done
-  if command -v nft >/dev/null 2>&1; then
-    nft list ruleset >"$d/nft-ruleset.txt" 2>&1 || aviso "nft list ruleset falhou (veja $d/nft-ruleset.txt); o corte segue, o religar não depende dele."
-  fi
   printf 'data=%s\nquem=%s\n' "$(agora_iso)" "$QUEM" >"$d/carimbo.txt"
 }
 
@@ -516,6 +570,7 @@ cmd_cortar() {
   carrega_conf
   exige_root cortar
   garante_estado_dir
+  pega_trava
   if [[ -f "$ESTADO_DIR/cortado" ]]; then
     falhar "já está cortado desde $(marcador_valor desde). Use '$PROG estado' ou '$PROG religar'. Nada foi mudado."
   fi
@@ -531,6 +586,10 @@ cmd_cortar() {
   coleta_ativos
   monta_plano
   guarda_estado
+  printf '%s\n' "$NFT_TEXTO" >"$ARQ_NFT" || falhar "não consegui gravar $ARQ_NFT. Nada foi mudado."
+  local saida_nft
+  saida_nft="$(nft -c -f "$ARQ_NFT" 2>&1)" \
+    || falhar "o nft recusou as regras de $ARQ_NFT (nft -c -f): $saida_nft. Nada foi mudado. Confira INTERFACES_ADMIN, IPS_ADMIN e REDES_INTERNAS em /etc/dgclaw/emergencia.conf."
   log "corte iniciado (isolar_saida=$ISOLAR, servicos: ${ATIVOS[*]:-nenhum}, prazo ${PRAZO_CONFIRMAR_MIN} min)"
 
   if ! executa "${PLANO[0]}"; then
@@ -561,6 +620,8 @@ cmd_cortar() {
 cmd_confirmar() {
   carrega_conf
   exige_root confirmar
+  garante_estado_dir
+  pega_trava
   [[ -f "$ESTADO_DIR/cortado" ]] || falhar "não há corte ativo para confirmar (falta $ESTADO_DIR/cortado). Nada foi mudado."
   if [[ -f "$ESTADO_DIR/confirmado" ]]; then
     echo "O corte já estava confirmado."
@@ -583,43 +644,38 @@ cmd_religar() {
   carrega_conf
   exige_root religar
   garante_estado_dir
+  pega_trava
   if [[ ! -f "$ESTADO_DIR/cortado" ]]; then
-    if ((AUTO)); then
-      log "religar automático: não há corte ativo, nada a fazer"
+    if ((AUTO || ESPEROU_TRAVA)); then
+      log "religar: já estava religado (outra operação terminou antes), nada a fazer"
+      echo "Já estava religado: nada a fazer."
       return 0
     fi
     falhar "não há corte ativo (falta $ESTADO_DIR/cortado). Nada foi mudado."
   fi
   if ! ((AUTO)); then exige_codigo religar; fi
   local d="$ESTADO_DIR/antes"
-  [[ -d "$d" && -f "$d/ufw-defaults.txt" ]] \
-    || falhar "o estado guardado antes do corte não está em $d. Sem ele não restauro o ufw sozinho. Remova as regras com comentário 'emergencia' à mão (ufw status numbered) e restaure os padrões."
   log "religar iniciado$( ((AUTO)) && echo ' (automático, prazo de confirmação vencido)')"
 
   if ! ((AUTO)) && systemctl is-active --quiet "$UNIDADE_TIMER.timer"; then
-    systemctl stop "$UNIDADE_TIMER.timer" || aviso "não consegui parar $UNIDADE_TIMER.timer; ele vai tentar religar de novo e dirá que não há corte."
+    systemctl stop "$UNIDADE_TIMER.timer" || aviso "não consegui parar $UNIDADE_TIMER.timer; ele vai tentar religar de novo e dirá que já estava religado."
   fi
 
-  local num lista restantes saida falhas=() relatorio=()
-  lista="$(ufw status numbered 2>&1 | grep -E '# emergencia[[:space:]]*$' | sed -E 's/^\[ *([0-9]+)\].*/\1/' | sort -rn)" || lista=""
-  for num in $lista; do
-    if ! saida="$(ufw --force delete "$num" 2>&1)"; then
-      log "FALHOU ao apagar a regra $num: $saida"
-      falhar "não consegui apagar a regra $num do ufw ($saida). O marcador de corte foi mantido. Apague à mão as regras com '# emergencia' (ufw status numbered) e rode o religar de novo."
+  local saida falhas=() relatorio=()
+  if nft list table inet "$NFT_TABELA" >/dev/null 2>&1; then
+    if ! saida="$(nft delete table inet "$NFT_TABELA" 2>&1)"; then
+      log "FALHOU ao apagar a tabela $NFT_TABELA: $saida"
+      falhar "não consegui apagar a tabela nft $NFT_TABELA ($saida). O marcador de corte foi mantido. Rode 'nft delete table inet $NFT_TABELA' à mão e o religar de novo."
     fi
-    log "regra $num removida"
-  done
-  restantes="$(ufw status numbered 2>&1 | grep -cE '# emergencia[[:space:]]*$' || true)"
-  [[ "$restantes" == "0" ]] \
-    || falhar "ainda restam $restantes regra(s) com '# emergencia' no ufw depois da remoção. O marcador de corte foi mantido. Confira com 'ufw status numbered'."
-
-  local dir pol
-  while IFS='=' read -r dir pol; do
-    [[ "$dir" =~ ^(incoming|outgoing|routed)$ && "$pol" =~ ^(allow|deny|reject)$ ]] || continue
-    if ! saida="$(ufw default "$pol" "$dir" 2>&1)"; then
-      falhas+=("ufw default $pol $dir: $saida")
-    fi
-  done <"$d/ufw-defaults.txt"
+    log "tabela nft $NFT_TABELA removida"
+  else
+    log "tabela nft $NFT_TABELA já não existia"
+  fi
+  if nft list table inet "$NFT_TABELA" >/dev/null 2>&1; then
+    falhar "a tabela nft $NFT_TABELA ainda existe depois da remoção. O marcador de corte foi mantido. Confira com 'nft list ruleset'."
+  fi
+  [[ -d "$d" && -f "$d/servicos.txt" ]] \
+    || falhar "a rede já foi religada, mas o estado guardado antes do corte não está em $d: não sei quais serviços religar. Suba à mão (systemctl start caddy cloudflared) e apague o marcador $ESTADO_DIR/cortado."
 
   local linha nome ativo _hab
   while IFS='|' read -r nome ativo _hab; do
@@ -655,6 +711,7 @@ cmd_religar() {
   { mkdir -p "$ESTADO_DIR/historico" && chmod 700 "$ESTADO_DIR/historico"; } || aviso "não consegui criar a pasta de histórico."
   mv "$d" "$hist" || aviso "não consegui mover $d para $hist."
   mv "$ESTADO_DIR/cortado" "$hist/cortado" || aviso "não consegui guardar o marcador no histórico."
+  if [[ -f "$ARQ_NFT" ]]; then mv "$ARQ_NFT" "$hist/emergencia.nft" || aviso "não consegui guardar $ARQ_NFT no histórico."; fi
   if [[ -f "$ESTADO_DIR/confirmado" ]]; then mv "$ESTADO_DIR/confirmado" "$hist/confirmado" || aviso "não consegui guardar o marcador 'confirmado'."; fi
   printf '%s\n' "${relatorio[@]:-}" "${falhas[@]:-}" >"$hist/resultado.txt" || aviso "não consegui gravar $hist/resultado.txt."
 

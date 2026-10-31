@@ -84,8 +84,8 @@ O retrato que `dgclaw emergencia` grava em `/var/lib/dgclaw/web/seguranca/emerge
 }
 ```
 
-- `disponivel: false` com `motivo` quando o corte trancaria todo mundo fora (sem Tailscale logado e sem `IPS_ADMIN`), o ufw está
-  desligado etc. A tela explica e desabilita o botão.
+- `disponivel: false` com `motivo` quando o corte trancaria todo mundo fora (sem Tailscale logado e sem `IPS_ADMIN`), o nft não está instalado
+  etc. A tela explica e desabilita o botão.
 - `desconhecido: true`: o servidor nunca mediu. Rode `sudo dgclaw emergencia estado`.
 - `desatualizado: true`: a medição tem mais de 2 horas.
 - `plano.comandos` é a sequência exata que o corte executaria (é o "Simular").
