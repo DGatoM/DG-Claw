@@ -63,7 +63,7 @@ test('o botão Instalar leva ao Admin com o pedido já escrito, sem enviar nada'
   assert.equal(F.CAMINHO_ADMIN, '/a/admin');
   assert.equal(F.TEXTO_INSTALAR, 'Quero instalar a atualização do DG Claw');
   const src = pub('atualizacao-faixa.js');
-  assert.match(src, /'\?texto=' \+ encodeURIComponent\(TEXTO_INSTALAR\)/, 'usa o ?texto= que a conversa já sabe preencher');
+  assert.match(src, /'\?texto=' \+ encodeURIComponent\(texto\)/, 'usa o ?texto= que a conversa já sabe preencher');
   assert.doesNotMatch(src.slice(src.indexOf('function instalar')), /\/messages|\/api\/v1\/agents/, 'o botão não manda mensagem sozinho');
   assert.match(pub('conversa.js'), /searchParams\.get\('texto'\)/, 'a conversa preenche o campo e não envia');
 });

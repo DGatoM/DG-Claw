@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# dpkg -S <caminho>: procura em $STUB_DIR/dpkg-S.txt (caminho<TAB>pacote)
+[ "$1" = "-S" ] || exit 0
+awk -F'\t' -v c="$2" '$1==c {print $2 ": " $1; f=1} END {exit !f}' "$STUB_DIR/dpkg-S.txt"

@@ -7,6 +7,29 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Tela Segurança e botão de emergência.** O menu ganhou a tela Segurança: o horário da última ronda, o que foi
+aplicado sozinho (com o botão Desfazer), as falhas críticas que pedem a sua decisão (aplicar, agendar ou tirar do
+ar) e as de impacto leve, com a correção pronta esperando o seu ok. Falha crítica abre uma janela vermelha que volta
+a cada visita até você decidir. O botão de emergência tira o sistema da internet e mantém só o seu acesso pelo
+Tailscale; pede um código de uso único e a frase de confirmação, e religa sozinho em 5 minutos se ninguém confirmar.
+No terminal: `sudo dgclaw emergencia simular`. Detalhes em `docs/EMERGENCIA.md`.
+
+**Aviso de segurança no painel.** Quando a equipe publica um boletim sobre uma falha de segurança numa das
+ferramentas que o DG Claw usa, o servidor percebe sozinho (uma leitura pública do GitHub a cada hora) e o painel
+mostra uma janela "Aviso de segurança", com a fonte oficial e o que muda, e um selo discreto que fica no alto das
+telas até o assunto se resolver. O botão Atualizar leva ao chat do Admin com o pedido já escrito; você só envia.
+Nada é instalado sem o seu sim, e ao atualizar o aviso some sozinho. Para desligar, ponha
+`DGCLAW_BOLETINS_SEGURANCA=0` no `dgclaw.env`. Detalhes em `docs/BOLETINS-DE-SEGURANCA.md`.
+
+**Ronda de segurança de fábrica.** Todo DG Claw instalado passa a ter uma ronda que, três vezes ao dia (07:00,
+13:00 e 19:00, no horário do servidor), procura falhas de segurança que afetam aquela instalação: os pacotes do
+servidor, o kernel que está rodando, o que escuta na rede, os pacotes do DG Claw e os serviços que você conectou
+(Notion, Slack, Google Drive e outros). Quem não usa o Notion não recebe aviso sobre o Notion. As falhas aparecem
+em três níveis: o que a ronda corrigiu sozinha, o que precisa da sua decisão e o que dá para corrigir sem
+pressa. Só quando há uma falha nova o Admin é avisado e conta a você no chat; nos outros dias ninguém fala nada.
+Se alguma fonte de consulta ficar fora do ar, a ronda diz que ficou parcial, e nunca finge que está tudo limpo.
+Para desligar, ponha `DGCLAW_RONDA_SEGURANCA=0` no `dgclaw.env`. Detalhes em `docs/RONDA-DE-SEGURANCA.md`.
+
 Duas correções da imagem dos agentes. A Tela não derruba mais a aba nova: o Chrome da Tela passava do limite
 de processos que o sistema dá a cada serviço e a segunda aba abria em branco ou quebrava. E o Pillow, a
 biblioteca de imagens do Python que vem na imagem, subiu para a 13.0.0, que fecha cinco falhas críticas de
@@ -41,6 +64,12 @@ aprovar sem querer o comando que surgiu em seguida, e o botão Aprovar de uma te
 5. **Para receber os avisos no celular,** ative "Avisos neste aparelho" na tela de Lembretes, se
    ainda não ativou. No iPhone, o aviso só chega com o DG Claw instalado na tela de início. Se o app
    instalado abrir com aviso de erro, feche e abra de novo para ele buscar os arquivos novos.
+6. **Para ter a ronda de segurança, clique em Instalar na faixa de nova versão do painel ou peça ao Admin:
+   "atualiza o DG Claw".** Depois de atualizar, a ronda faz a primeira rodada sozinha e passa a varrer o
+   servidor três vezes ao dia, sem você configurar nada. Quando aparecer uma falha nova que afeta o seu
+   servidor, o Admin avisa no chat e o painel mostra o que fazer. Nesta versão a lista de correções que a
+   ronda pode aplicar sozinha começa vazia, então nada é mexido sem o seu sim. Se mais tarde ela passar a
+   corrigir algo sozinha, ela conta o que fez e você desfaz com um pedido ao Admin.
 
 ### Adicionado
 

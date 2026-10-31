@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Segurança - DG Claw</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#2f9e5e">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="icon" href="/icons/icon-192.png">
+<link rel="stylesheet" href="/seguranca.css">
+<link rel="stylesheet" href="/casca.css">
+<link rel="stylesheet" href="/menu-lado.css">
+<link rel="stylesheet" href="/sem-zoom.css">
+<script src="/sem-zoom.js"></script>
+</head>
+<body class="rp">
+<main class="rp-main">
+  <p class="rp-msg erro" id="rpMsgGeral" role="alert" hidden></p>
+
+  <section class="rp-sec" id="rpTopo" aria-label="Estado da última ronda">
+    <h2><span>Ronda de segurança</span><button type="button" class="rp-ajuda" data-rp="ajuda" data-secao="topo" aria-label="Tutorial do estado da ronda">?</button></h2>
+    <p class="rp-resumo" id="rpResumo">Conferindo…</p>
+    <div id="rpFaixas">
+      <p class="rp-faixa rp-amarela" id="rpParcial" role="status" hidden></p>
+      <p class="rp-faixa rp-vermelha" id="rpVigia" role="alert" hidden></p>
+      <p class="rp-faixa rp-vermelha" id="rpErro" role="alert" hidden></p>
+    </div>
+    <p class="rp-sem-novidade" id="rpSemNovidade" hidden></p>
+  </section>
+
+  <section class="rp-sec" id="secAcao" aria-label="Ação necessária">
+    <h2 class="rp-h-vermelho"><span>Ação necessária</span><button type="button" class="rp-ajuda" data-rp="ajuda" data-secao="acao" aria-label="Tutorial da ação necessária">?</button></h2>
+    <div id="listaAcao"><p class="rp-vazio">Carregando…</p></div>
+  </section>
+
+  <section class="rp-sec" id="secSemPressa" aria-label="Para corrigir sem pressa">
+    <h2><span>Para corrigir sem pressa</span><button type="button" class="rp-ajuda" data-rp="ajuda" data-secao="sempressa" aria-label="Tutorial do que corrigir sem pressa">?</button></h2>
+    <div id="listaSemPressa"><p class="rp-vazio">Carregando…</p></div>
+  </section>
+
+  <section class="rp-sec" id="secAplicado" aria-label="Aplicado sozinho">
+    <h2><span>Aplicado sozinho</span><button type="button" class="rp-ajuda" data-rp="ajuda" data-secao="aplicado" aria-label="Tutorial do que foi aplicado sozinho">?</button></h2>
+    <div id="listaAplicado"><p class="rp-vazio">Carregando…</p></div>
+  </section>
+
+  <section class="rp-sec rp-sec-emergencia" id="secEmergencia" aria-label="Botão de emergência">
+    <h2><span>Botão de emergência</span><button type="button" class="rp-ajuda" data-rp="ajuda" data-secao="emergencia" aria-label="Tutorial do botão de emergência">?</button></h2>
+    <div id="corpoEmergencia"><p class="rp-vazio">Carregando…</p></div>
+    <p class="rp-msg" id="rpEmMsg" role="status" hidden></p>
+  </section>
+
+  <details class="rp-sec rp-recolhe" id="secTratadas">
+    <summary><span>Já tratadas nas rondas anteriores</span><button type="button" class="rp-ajuda" data-rp="ajuda" data-secao="tratadas" aria-label="Tutorial das falhas já tratadas">?</button></summary>
+    <div id="listaTratadas"></div>
+  </details>
+
+  <details class="rp-sec rp-recolhe" id="secInventario">
+    <summary><span>O que a ronda olha</span><button type="button" class="rp-ajuda" data-rp="ajuda" data-secao="inventario" aria-label="Tutorial do que a ronda olha">?</button></summary>
+    <div id="listaInventario"></div>
+  </details>
+</main>
+
+<script src="/tour.js"></script>
+<script src="/menu-lado.js"></script>
+<script src="/ronda-comum.js"></script>
+<script src="/casca.js"></script>
+<script src="/seguranca.js"></script>
+<script>
+DGCasca.monta({ pagina: 'seguranca', titulo: 'Segurança', aoTutorial: function () { if (window.DGSegurancaTela) window.DGSegurancaTela.tutorial(); } });
+</script>
+</body>
+</html>

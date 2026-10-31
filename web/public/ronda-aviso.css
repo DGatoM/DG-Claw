@@ -1,0 +1,20 @@
+/* Janela vermelha da ronda de segurança (ronda-aviso.js): usa o fundo e a caixa do seguranca-aviso.css. */
+.rp-caixa-verm{border-top:6px solid #b3261e}
+.rp-caixa-verm .sb-cab h2{color:#b3261e}
+.rp-caixa-verm .rp-aviso{margin:6px 0 10px;color:#6b4a00;font-size:14px;overflow-wrap:anywhere}
+.rp-caixa-verm .rp-fatos{margin:0 0 10px;display:grid;gap:6px}
+.rp-caixa-verm .rp-fato{display:grid;grid-template-columns:minmax(96px,128px) minmax(0,1fr);gap:8px}
+.rp-caixa-verm .rp-fato dt{font-weight:700;color:#4a5968}
+.rp-caixa-verm .rp-fato dd{margin:0;overflow-wrap:anywhere;word-break:break-word}
+.rp-caixa-verm .rp-fato a{color:#1f5fae}
+.rp-caixa-verm .rp-agenda{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin:8px 0}
+.rp-caixa-verm .rp-agenda[hidden]{display:none}
+.rp-caixa-verm .rp-agenda label{display:flex;flex-direction:column;gap:3px;font-size:13.5px;font-weight:600;min-width:0}
+.rp-caixa-verm .rp-agenda input{font:inherit;min-height:38px;padding:6px 10px;border:1px solid #c9d2dc;border-radius:10px;max-width:100%}
+.rp-caixa-verm .sb-btn.rp-perigo{border-color:#e6a5a0;color:#b3261e}
+.rp-caixa-verm .sb-btn.sb-pri{background:#b3261e;border-color:#b3261e}
+.rp-caixa-verm .sb-acoes{justify-content:flex-start}
+.rp-msg-verm{margin:6px 0;font-size:14px;overflow-wrap:anywhere}
+.rp-msg-verm.erro{color:#a01818}
+.rp-msg-verm[hidden]{display:none}
+@media (max-width:420px){.rp-caixa-verm .rp-fato{grid-template-columns:1fr;gap:0}}

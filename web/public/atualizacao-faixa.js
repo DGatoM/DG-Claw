@@ -136,16 +136,18 @@
     document.head.appendChild(s);
   }
 
-  /* Estando no chat do Admin, escreve no campo; senão vai para lá com ?texto= (a conversa preenche e não envia). */
-  function instalar() {
+  /* O aviso de segurança reaproveita esta função com o próprio texto (seguranca-aviso.js).
+   Estando no chat do Admin, escreve no campo; senão vai para lá com ?texto= (a conversa preenche e não envia). */
+  function instalar(textoPedido) {
+    const texto = typeof textoPedido === 'string' && textoPedido ? textoPedido : TEXTO_INSTALAR;
     const campo = document.getElementById('entrada');
     if (campo && location.pathname.replace(/\/+$/, '') === CAMINHO_ADMIN) {
-      campo.value = TEXTO_INSTALAR;
+      campo.value = texto;
       campo.dispatchEvent(new Event('input'));
       campo.focus();
       return;
     }
-    location.href = CAMINHO_ADMIN + '?texto=' + encodeURIComponent(TEXTO_INSTALAR);
+    location.href = CAMINHO_ADMIN + '?texto=' + encodeURIComponent(texto);
   }
 
   async function descansar(botao) {
@@ -194,5 +196,5 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', inicia);
   else inicia();
 
-  return { esc, nomeDaVersao, rotuloVersoes, novidadesHtml, faixaHtml, PASSO, TEXTO_INSTALAR, CAMINHO_ADMIN, atualiza };
+  return { esc, nomeDaVersao, rotuloVersoes, novidadesHtml, faixaHtml, PASSO, TEXTO_INSTALAR, CAMINHO_ADMIN, atualiza, instalar };
 });
