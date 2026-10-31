@@ -25,7 +25,9 @@ OUTRA="$(cat "$TMP/outra.pub")"
 BLOB="$(awk '{print $2}' "$TMP/suporte.pub")"
 ALHEIA1='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAlheiaDaMartaNaoMexer marta@notebook'
 ALHEIA2='from="10.0.0.1" ssh-rsa AAAAB3NzaC1yc2EAAAAlheiaDoBackup backup'
-mkdir -p "$(dirname "$ARQ")"
+mkdir -p "$(dirname "$ARQ")" "$DGCLAW_RAIZ/etc/ssh"
+CFG="$DGCLAW_RAIZ/etc/ssh/sshd_config"
+printf '# sshd de mentira\nPasswordAuthentication no\n' >"$CFG"
 printf '%s\n%s\n' "$ALHEIA1" "$ALHEIA2" >"$ARQ"
 chmod 600 "$ARQ"
 
@@ -471,8 +473,22 @@ afirma "diz em qual arquivo ela segue" grep -q "authorized_keys2" "$TMP/o.txt"
 nega "nao anuncia desligado" grep -q "acesso do suporte desligado" "$TMP/o.txt"
 nega "a linha marcada saiu do principal" grep -q "dgclaw-suporte:" "$ARQ"
 dgclaw suporte status >"$TMP/o.txt" 2>&1; rc=$?
-igual "status sem chave marcada mas com historico nao conhece o fp: sai 0" 0 "$rc"
+igual "status seguinte (fp persistido): a chave segue em authorized_keys2, sai 1" 1 "$rc"
+nega "status nao diz desligado" grep -qx "suporte: desligado" "$TMP/o.txt"
+afirma "status aponta o authorized_keys2" grep -q "authorized_keys2" "$TMP/o.txt"
+afirma "a pendencia fica gravada" test -e "$ALERTA"
+igual "fps-pendentes 600" 600 "$(stat -c %a "$DGCLAW_RAIZ/var/lib/dgclaw/suporte/fps-pendentes")"
+igual "so um fingerprint, sem duplicar" 1 "$(grep -c '^SHA256:' "$DGCLAW_RAIZ/var/lib/dgclaw/suporte/fps-pendentes")"
+afirma "a linha do dgclaw status avisa" grep -q "NAO esta desligado" <<<"$(linha_status)"
+dgclaw suporte desligar >"$TMP/o.txt" 2>&1; rc=$?
+igual "desligar repetido: sai 1 enquanto a chave segue la" 1 "$rc"
+nega "desligar repetido nao anuncia desligado" grep -q "desligado: nenhuma\|ja estava desligado" "$TMP/o.txt"
 rm -f "$ARQ2"
+dgclaw suporte status >"$TMP/o.txt" 2>&1; rc=$?
+igual "tirada a chave de la, o status confirma e sai 0" 0 "$rc"
+nega "pendencia apagada (sem sessoes e sem autorizacao)" test -e "$ALERTA"
+nega "fingerprint saiu do estado" grep -q '^SHA256:' "$DGCLAW_RAIZ/var/lib/dgclaw/suporte/fps-pendentes"
+afirma "status diz desligado" grep -qx "suporte: desligado" "$TMP/o.txt"
 printf '%s\n' "$ALHEIA1" >"$ARQ"
 dgclaw suporte ligar --chave "$CHAVE" >/dev/null 2>&1
 STUB_SSHD_FALHA=1 dgclaw suporte desligar >"$TMP/o.txt" 2>&1; rc=$?
@@ -495,5 +511,52 @@ nega "nao diz 'suporte: desligado'" grep -qx "suporte: desligado" "$TMP/o.txt"
 afirma "aponta o authorized_keys2" grep -q "authorized_keys2" "$TMP/o.txt"
 afirma "a linha do dgclaw status tambem avisa" grep -q "NAO esta desligado" <<<"$(linha_status)"
 rm -f "$ARQ2"
+
+echo "--ligar de novo tira o fingerprint do estado persistente"
+PEND="$DGCLAW_RAIZ/var/lib/dgclaw/suporte/fps-pendentes"
+printf '%s\n' "$ALHEIA1" >"$ARQ"
+dgclaw suporte ligar --chave "$CHAVE" >/dev/null 2>&1
+printf '%s\n' "$(cat "$TMP/suporte.pub")" >"$ARQ2"
+dgclaw suporte desligar >/dev/null 2>&1
+afirma "desligar com a chave em outra fonte deixa o fp pendente" grep -q '^SHA256:' "$PEND"
+nega "ligar recusa enquanto ela segue fora da linha gerenciada" dgclaw suporte ligar --chave "$CHAVE"
+rm -f "$ARQ2"
+dgclaw suporte ligar --chave "$CHAVE" >/dev/null 2>&1
+nega "ligar de novo tira o fp do estado" grep -q '^SHA256:' "$PEND"
+dgclaw suporte desligar >/dev/null 2>&1
+
+echo "--Match no sshd_config com fonte de chave condicional"
+printf '%s\n' "$ALHEIA1" >"$ARQ"
+printf 'PasswordAuthentication no\nMatch Address 203.0.113.0/24\n    PasswordAuthentication yes\n' >"$CFG"
+dgclaw suporte ligar --chave "$CHAVE" >/dev/null 2>&1; rc=$?
+igual "Match sem fonte de chave nao bloqueia o ligar" 0 "$rc"
+dgclaw suporte desligar >/dev/null 2>&1
+printf 'Match Address 203.0.113.0/24\n    # AuthorizedKeysFile comentado\n    AuthorizedKeysFile .ssh/suporte-permanente\n' >"$CFG"
+dgclaw suporte ligar --chave "$CHAVE" >"$TMP/o.txt" 2>&1; rc=$?
+igual "Match com AuthorizedKeysFile: ligar recusa" 1 "$rc"
+afirma "diz que nao consegue verificar as fontes condicionais" grep -q "fontes de chave condicionais" "$TMP/o.txt"
+nega "nao gravou a linha" grep -q "dgclaw-suporte:" "$ARQ"
+printf 'authorizedkeyscommanduser nobody\nmatch user x\n AuthorizedKeysCommandUser nobody\n' >"$CFG"
+nega "Match com AuthorizedKeysCommandUser (minusculas): ligar recusa" dgclaw suporte ligar --chave "$CHAVE"
+printf 'PasswordAuthentication no\n' >"$CFG"
+dgclaw suporte ligar --chave "$CHAVE" >/dev/null 2>&1
+printf 'Match Address 203.0.113.0/24\n    AuthorizedKeysFile .ssh/suporte-permanente\n' >"$CFG"
+dgclaw suporte desligar >"$TMP/o.txt" 2>&1; rc=$?
+igual "Match com fonte de chave: desligar fica inconclusivo (sai 1)" 1 "$rc"
+nega "e nao anuncia desligado" grep -q "acesso do suporte desligado" "$TMP/o.txt"
+afirma "diz que nao conseguiu confirmar" grep -q "NAO consegui confirmar" "$TMP/o.txt"
+mkdir -p "$DGCLAW_RAIZ/etc/ssh/sshd_config.d"
+printf 'Include sshd_config.d/*.conf\nPasswordAuthentication no\n' >"$CFG"
+printf 'Match Address 198.51.100.0/24\n    AuthorizedKeysCommand /usr/local/bin/x\n' >"$DGCLAW_RAIZ/etc/ssh/sshd_config.d/50-extra.conf"
+nega "Include que traz o Match com fonte de chave: ligar recusa" dgclaw suporte ligar --chave "$CHAVE"
+printf 'Match all\n' >"$DGCLAW_RAIZ/etc/ssh/sshd_config.d/50-extra.conf"
+afirma "Include so com Match vazio nao bloqueia" dgclaw suporte ligar --chave "$CHAVE"
+rm -f "$DGCLAW_RAIZ/etc/ssh/sshd_config.d/50-extra.conf"
+rm -f "$CFG"
+nega "sshd_config ausente: ligar recusa (nao da para verificar)" dgclaw suporte ligar --chave "$OUTRA"
+printf 'PasswordAuthentication no\n' >"$CFG"
+dgclaw suporte desligar >/dev/null 2>&1
+: >"$DGCLAW_RAIZ/var/lib/dgclaw/suporte/fps-pendentes"
+rm -f "$ALERTA"
 
 fim
