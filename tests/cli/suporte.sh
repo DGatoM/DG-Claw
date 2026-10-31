@@ -1086,4 +1086,44 @@ echo 0 >"$STUB_ESTADO/mainpid-ssh.service"
 dgclaw suporte status >/dev/null 2>&1; rm -f "$ALERTA"; : >"$PEND"
 rm -rf "$DGCLAW_PROC"; mkdir -p "$DGCLAW_PROC"; unset DGCLAW_SSHD_BIN; rm -f "$STAMP"
 
+echo "--palavra-chave entre aspas e rede grossa na varredura do sshd_config"
+printf '%s\n' "$ALHEIA1" >"$ARQ"; rm -f "$ALERTA" "$ARQ2"; : >"$PEND"
+casos=(
+  '"Match" Address 203.0.113.0/24|    AuthorizedKeysFile .ssh/suporte-permanente'
+  'Match Address 203.0.113.0/24|    "AuthorizedKeysFile" .ssh/suporte-permanente'
+  'Match Address 203.0.113.0/24|    "AuThOrIzEdKeYsFiLe" .ssh/suporte-permanente'
+  "'Match' User x|    'AuthorizedKeysCommand' /usr/bin/x"
+  '"match"=Address 10.0.0.0/8|    "AuthorizedPrincipalsFile"=/etc/ssh/p'
+)
+for caso in "${casos[@]}"; do
+    printf '%s\n%s\n' "${caso%%|*}" "${caso#*|}" >"$CFG"
+    dgclaw suporte ligar --chave "$CHAVE" >"$TMP/o.txt" 2>&1; rc=$?
+    igual "recusa: ${caso%%|*} / ${caso#*|}" 1 "$rc"
+    afirma "diz que nao consegue verificar as fontes condicionais" grep -q "fontes de chave condicionais" "$TMP/o.txt"
+done
+printf 'Include "/etc/ssh/extra.conf"\n' >"$CFG"
+printf '"Match" Address 203.0.113.0/24\n    "AuthorizedKeysFile" .ssh/x\n' >"$DGCLAW_RAIZ/etc/ssh/extra.conf"
+nega "Include entre aspas que traz um Match com palavra-chave entre aspas: recusa" dgclaw suporte ligar --chave "$CHAVE"
+rm -f "$DGCLAW_RAIZ/etc/ssh/extra.conf"
+printf 'Match Address 203.0.113.0/24\n    \xef\xbb\xbfAuthorizedKeysFile .ssh/x\n' >"$CFG"
+dgclaw suporte ligar --chave "$CHAVE" >"$TMP/o.txt" 2>&1; rc=$?
+igual "rede grossa: palavra com caractere estranho depois de Match tambem recusa" 1 "$rc"
+printf 'AuthorizedKeysFile .ssh/authorized_keys\nMatch Address 203.0.113.0/24\n    PasswordAuthentication no\n' >"$CFG"
+afirma "AuthorizedKeysFile ANTES do Match (e Match so com outra coisa) nao bloqueia" dgclaw suporte ligar --chave "$CHAVE"
+dgclaw suporte desligar >/dev/null 2>&1
+printf 'Match Address 203.0.113.0/24\n    PasswordAuthentication yes\n# AuthorizedKeysFile comentado\n' >"$CFG"
+afirma "linha comentada depois do Match nao conta" dgclaw suporte ligar --chave "$CHAVE"
+dgclaw suporte desligar >/dev/null 2>&1
+printf 'Banner "aberta\n' >"$CFG"
+nega "linha que o tokenizador nao entende (aspas sem fechar) em qualquer palavra-chave: inconclusivo" dgclaw suporte ligar --chave "$CHAVE"
+printf 'PasswordAuthentication no\n' >"$CFG"
+if [ "$(id -u)" = 0 ] && [ -x /usr/sbin/sshd ]; then
+    CASO="$TMP/caso-real.conf"
+    printf '"Match" Address 203.0.113.0/24\n    "AuthorizedKeysFile" .ssh/suporte-permanente\n' >"$CASO"
+    # shellcheck disable=SC2016
+    afirma "sshd real: com o endereco do suporte a config difere da de 127.0.0.1" bash -c 'a="$(/usr/sbin/sshd -T -f "$1" -C user=root,host=x,addr=203.0.113.7 | grep -i "^authorizedkeysfile")"; b="$(/usr/sbin/sshd -T -f "$1" -C user=root,host=x,addr=127.0.0.1 | grep -i "^authorizedkeysfile")"; [ "$a" = "authorizedkeysfile .ssh/suporte-permanente" ] && [ "$a" != "$b" ]' _ "$CASO"
+    # shellcheck disable=SC2016
+    nega "e a nossa varredura recusa essa config" env DGCLAW_RAIZ= DGCLAW_SSHD_CONFIG="$CASO" bash -c '. "$1"; . "$2/lib/suporte.sh"; suporte_exigir_config_sem_match' _ "$REPO/lib/comum.sh" "$REPO"
+fi
+
 fim

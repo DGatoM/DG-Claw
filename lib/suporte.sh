@@ -188,8 +188,19 @@ suporte_ler_diretiva() {
     SUP_KW=""; SUP_ARGS=()
     l="${l#"${l%%[![:space:]]*}"}"
     if [ -z "$l" ] || [ "${l:0:1}" = "#" ]; then return 1; fi
-    SUP_KW="${l%%[[:space:]=]*}"; SUP_KW="${SUP_KW,,}"
-    resto="${l#"${l%%[[:space:]=]*}"}"
+    # A palavra-chave tambem pode vir entre aspas ("Match" Address ...): decide-se so depois de tirar as aspas.
+    for ((i = 0; i < ${#l}; i++)); do
+        ch="${l:i:1}"
+        if [ "$ch" = "\\" ]; then SUP_CFG_ERRO="linha com barra invertida que nao sei interpretar: $(suporte_seguro "${l:0:80}")"; return 2; fi
+        if [ -n "$q" ]; then
+            if [ "$ch" = "$q" ]; then q=""; else cur+="$ch"; fi
+        elif [ "$ch" = '"' ] || [ "$ch" = "'" ]; then q="$ch"
+        elif [ "$ch" = " " ] || [ "$ch" = $'\t' ] || [ "$ch" = "=" ]; then break
+        else cur+="$ch"; fi
+    done
+    if [ -n "$q" ]; then SUP_CFG_ERRO="linha com aspas sem fechar: $(suporte_seguro "${l:0:80}")"; return 2; fi
+    SUP_KW="${cur,,}"
+    resto="${l:i}"; cur=""
     resto="${resto#"${resto%%[![:space:]]*}"}"
     resto="${resto#=}"
     resto="${resto#"${resto%%[![:space:]]*}"}"
@@ -223,12 +234,15 @@ suporte_varrer_config() {
     if [ ! -f "$arq" ] || [ ! -r "$arq" ]; then SUP_CFG_ERRO="nao consegui ler $arq"; return 2; fi
     SUP_CFG_VISITADOS+=("$arq")
     while IFS= read -r linha || [ -n "$linha" ]; do
-        # Primeiro so a palavra-chave: linhas que nao importam nem passam pelo tokenizador.
-        d="${linha#"${linha%%[![:space:]]*}"}"; d="${d%%[[:space:]=]*}"; d="${d,,}"
-        case "$d" in
-            match|include|authorizedkeysfile|authorizedkeyscommand|authorizedkeyscommanduser|trustedusercakeys|authorizedprincipalsfile|authorizedprincipalscommand|authorizedprincipalscommanduser) ;;
-            *) continue ;;
-        esac
+        d="${linha#"${linha%%[![:space:]]*}"}"
+        [ -n "$d" ] && [ "${d:0:1}" != "#" ] || continue
+        # Rede grossa, independente do tokenizador: a palavra match em qualquer lugar e, depois dela (na ordem de leitura,
+        # com os Include expandidos), qualquer fonte de chave ou de principals. Pega o que o parser nao previu.
+        d="${d,,}"
+        if [[ "$d" =~ (^|[^a-z0-9_])match([^a-z0-9_]|$) ]]; then SUP_CFG_VIU_MATCH_CRU=1; fi
+        if [ "$SUP_CFG_VIU_MATCH_CRU" = 1 ] && [[ "$d" == *authorizedkeys* || "$d" == *authorizedprincipals* || "$d" == *trustedusercakeys* ]]; then
+            SUP_CFG_ERRO="uma linha de $arq fala de chaves ou principals depois de um Match (varredura bruta)"; return 1
+        fi
         rc=0; suporte_ler_diretiva "$linha" || rc=$?
         if [ "$rc" -eq 2 ]; then SUP_CFG_ERRO="$SUP_CFG_ERRO (em $arq)"; return 2; fi
         [ "$rc" -eq 0 ] || continue
@@ -256,7 +270,7 @@ suporte_varrer_config() {
                         if [ "$rc" -ne 0 ]; then return "$rc"; fi
                     done
                 done ;;
-            *)
+            authorizedkeysfile|authorizedkeyscommand|authorizedkeyscommanduser|trustedusercakeys|authorizedprincipalsfile|authorizedprincipalscommand|authorizedprincipalscommanduser)
                 if [ "$SUP_CFG_EM_MATCH" = 1 ]; then SUP_CFG_ERRO="o bloco Match de $arq define ${SUP_KW}"; return 1; fi ;;
         esac
     done <"$arq" || { SUP_CFG_ERRO="nao consegui ler $arq"; return 2; }
@@ -267,7 +281,7 @@ suporte_varrer_config() {
 suporte_exigir_config_sem_match() {
     local logico="${1:-${DGCLAW_SSHD_CONFIG:-/etc/ssh/sshd_config}}" cfg rc=0
     cfg="$R$logico"
-    SUP_CFG_N=0; SUP_CFG_EM_MATCH=0; SUP_CFG_ERRO=""
+    SUP_CFG_N=0; SUP_CFG_EM_MATCH=0; SUP_CFG_VIU_MATCH_CRU=0; SUP_CFG_ERRO=""
     suporte_varrer_config "$cfg" 0 || rc=$?
     if [ "$rc" -eq 1 ]; then
         falha "nao consigo verificar todas as fontes de chave condicionais do sshd (${SUP_CFG_ERRO})." \
