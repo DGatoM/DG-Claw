@@ -23,8 +23,11 @@ gerar rsa3072 rsa 3072
 CHAVE="$(cat "$TMP/suporte.pub")"
 OUTRA="$(cat "$TMP/outra.pub")"
 BLOB="$(awk '{print $2}' "$TMP/suporte.pub")"
-ALHEIA1='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAlheiaDaMartaNaoMexer marta@notebook'
-ALHEIA2='from="10.0.0.1" ssh-rsa AAAAB3NzaC1yc2EAAAAlheiaDoBackup backup'
+# Chaves de verdade: o ssh-keygen e quem interpreta as linhas, e linha que ele nao entende e inconclusiva.
+gerar marta ed25519
+gerar backup ed25519
+ALHEIA1="ssh-ed25519 $(awk '{print $2}' "$TMP/marta.pub") marta@notebook"
+ALHEIA2="from=\"10.0.0.1\" ssh-ed25519 $(awk '{print $2}' "$TMP/backup.pub") backup"
 mkdir -p "$(dirname "$ARQ")" "$DGCLAW_RAIZ/etc/ssh"
 CFG="$DGCLAW_RAIZ/etc/ssh/sshd_config"
 printf '# sshd de mentira\nPasswordAuthentication no\n' >"$CFG"
@@ -641,5 +644,70 @@ echo "--gravacao do estado e atomica e 600, sem sobras"
 # shellcheck disable=SC2016
 nega "sem temporarios no diretorio de estado" bash -c 'ls "$1" | grep -q "fps-pendentes\."' _ "$DGCLAW_RAIZ/var/lib/dgclaw/suporte"
 igual "fps-pendentes 600" 600 "$(stat -c %a "$PEND")"
+
+echo "--opcao entre aspas com 'ssh-rsa' dentro nao engana a conferencia (quem le a linha e o ssh-keygen)"
+ENVLINHA="environment=\"NOTE= ssh-rsa exemplo\" ssh-ed25519 $BLOB permanente"
+printf '%s\n' "$ALHEIA1" "$ENVLINHA" >"$ARQ"; rm -f "$ARQ2" "$ALERTA"; : >"$PEND"
+dgclaw suporte ligar --chave "$CHAVE" >"$TMP/o.txt" 2>&1; rc=$?
+igual "chave permanente com opcao entre aspas no principal: ligar recusa" 1 "$rc"
+afirma "diz que ja e permanente" grep -q "como acesso permanente" "$TMP/o.txt"
+printf '%s\n' "$ALHEIA1" >"$ARQ"; printf '%s\n' "$ENVLINHA" >"$ARQ2"
+dgclaw suporte ligar --chave "$CHAVE" >"$TMP/o.txt" 2>&1; rc=$?
+igual "a mesma linha no authorized_keys2: ligar recusa" 1 "$rc"
+afirma "aponta o authorized_keys2" grep -q "authorized_keys2" "$TMP/o.txt"
+rm -f "$ARQ2"
+dgclaw suporte ligar --chave "$CHAVE" >/dev/null 2>&1
+printf '%s\n' "$ENVLINHA" >"$ARQ2"
+dgclaw suporte desligar >"$TMP/o.txt" 2>&1; rc=$?
+igual "desligar acha a linha com opcao entre aspas no authorized_keys2: sai 1" 1 "$rc"
+afirma "e diz onde" grep -q "authorized_keys2" "$TMP/o.txt"
+nega "e nao anuncia desligado" grep -q "acesso do suporte desligado" "$TMP/o.txt"
+echo "--linha que o ssh-keygen nao entende: inconclusivo, nunca 'nao achei'"
+printf '%s\n' "$ENVLINHA" 'isto nao e uma chave' >"$ARQ2"
+dgclaw suporte desligar >"$TMP/o.txt" 2>&1; rc=$?
+igual "authorized_keys2 com linha incompreensivel: desligar sai 1" 1 "$rc"
+afirma "diz que nao conseguiu confirmar" grep -q "NAO consegui confirmar" "$TMP/o.txt"
+printf 'isto nao e uma chave\n' >"$ARQ2"
+rm -f "$ARQ2"; : >"$PEND"; rm -f "$ALERTA"
+printf '%s\n' "$ALHEIA1" 'isto nao e uma chave' >"$ARQ"
+dgclaw suporte ligar --chave "$CHAVE" >"$TMP/o.txt" 2>&1; rc=$?
+igual "linha incompreensivel no principal: ligar recusa" 1 "$rc"
+afirma "explica" grep -q "nao e entendida pelo ssh-keygen" "$TMP/o.txt"
+igual "o principal nao foi tocado" 2 "$(wc -l <"$ARQ")"
+printf '%s\n' "$ALHEIA1" >"$ARQ"
+
+echo "--ordem do remover: estado antes, authorized_keys depois, log por ultimo"
+rm -f "$ALERTA"; : >"$PEND"; rm -f "$PEND"
+dgclaw suporte ligar --chave "$CHAVE" >/dev/null 2>&1
+mkdir "$PEND"   # a gravacao do estado vai falhar
+dgclaw suporte desligar >"$TMP/o.txt" 2>&1; rc=$?
+igual "estado nao grava: desligar sai 1" 1 "$rc"
+afirma "a chave do suporte NAO foi removida" grep -q "dgclaw-suporte:" "$ARQ"
+afirma "diz que nada foi removido" grep -q "Nenhuma chave foi removida" "$TMP/o.txt"
+rmdir "$PEND"
+printf '%s\n' "$(cat "$TMP/suporte.pub")" >"$ARQ2"   # a chave segue em outra fonte, para o estado ficar visivel
+LOGSUP="$DGCLAW_RAIZ/var/log/dgclaw/suporte.log"
+mv "$LOGSUP" "$TMP/suporte.log.guardado"; mkdir "$LOGSUP"   # o log vai falhar
+dgclaw suporte desligar >"$TMP/o.txt" 2>&1; rc=$?
+nega "log falhou, mas a chave saiu do principal" grep -q "dgclaw-suporte:" "$ARQ"
+afirma "o estado guardou o fingerprint mesmo assim" grep -q '^SHA256:' "$PEND"
+afirma "avisa da falha do log com o caminho" grep -q "nao consegui gravar o registro em $LOGSUP" "$TMP/o.txt"
+igual "e continua sem anunciar desligado (chave segue no authorized_keys2): sai 1" 1 "$rc"
+rmdir "$LOGSUP"; mv "$TMP/suporte.log.guardado" "$LOGSUP"
+rm -f "$ARQ2"; dgclaw suporte status >/dev/null 2>&1; rm -f "$ALERTA"
+
+echo "--a linha do dgclaw status le tudo depois da trava (renovacao entre a primeira leitura e a trava)"
+printf '%s\n' "$ALHEIA1" >"$ARQ"; : >"$PEND"; rm -f "$ALERTA"
+printf 'expiry-time="%sZ" ssh-ed25519 %s dgclaw-suporte:cafe0003:%s\n' "$VENCIDA_FIM" "$BLOB" "$VENCIDA_FIM" >>"$ARQ"
+flock -x "$LOCK" sleep 2 & LOCKPID=$!
+sleep 0.4
+( linha_status >"$TMP/linha-renovada.txt" ) & LPID=$!
+sleep 0.5
+FIM_NOVO="$(date -u -d "@$((AGORA_S + 86400))" +%Y%m%d%H%M)"
+printf '%s\nexpiry-time="%sZ" ssh-ed25519 %s dgclaw-suporte:cafe0003:%s\n' "$ALHEIA1" "$FIM_NOVO" "$BLOB" "$FIM_NOVO" >"$ARQ"   # o ligar renovou
+wait "$LOCKPID" "$LPID" 2>/dev/null
+afirma "a linha viu a renovacao feita enquanto esperava a trava" grep -q "ligado ate" "$TMP/linha-renovada.txt"
+nega "e nao usou o conteudo velho (vencida)" grep -q "vencida" "$TMP/linha-renovada.txt"
+printf '%s\n' "$ALHEIA1" >"$ARQ"
 
 fim

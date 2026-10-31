@@ -33,6 +33,11 @@ suporte_registrar() {
     chmod 600 "$log"
 }
 
+# suporte_registrar_tolerante: igual ao suporte_registrar, mas falha no log nunca desfaz nem impede o que ja foi feito.
+suporte_registrar_tolerante() {
+    ( suporte_registrar "$@" ) || aviso "nao consegui gravar o registro em $(suporte_log) (a acao em si foi feita). Confira o espaco e a permissao de $DG_LOG."
+}
+
 # suporte_agora_s: epoch em segundos (respeita DGCLAW_AGORA_MS nos testes).
 suporte_agora_s() { printf '%s' "$(( $(agora_ms) / 1000 ))"; }
 
@@ -99,32 +104,36 @@ suporte_validar_chave() {
     SUP_ID="$(printf '%s' "$SUP_FP" | sha256sum | cut -c1-8)"
 }
 
-# suporte_blob_da_linha <linha do authorized_keys>: o corpo da chave, depois do tipo. Vazio se nao achar.
-suporte_blob_da_linha() {
-    local -a campos; local i
-    read -ra campos <<<"$1"
-    for i in "${!campos[@]}"; do
-        case "${campos[$i]}" in
-            ssh-ed25519|ecdsa-sha2-nistp256|ssh-rsa|ssh-dss|sk-*) printf '%s' "${campos[$((i + 1))]:-}"; return 0 ;;
-        esac
-    done
+# suporte_fps_de_texto <texto no formato authorized_keys>: quem interpreta as linhas (opcoes entre aspas, tipos, base64) e
+# o ssh-keygen, nao um parser meu. Preenche SUP_FPS_SAIDA (um fingerprint por linha) e retorna 0; retorna 2 e preenche
+# SUP_FPARQ_ERRO se o ssh-keygen falhar ou reconhecer menos chaves do que ha linhas (vazias e comentarios nao contam):
+# nesse caso a conferencia e INCONCLUSIVA, nunca "nao achou".
+suporte_fps_de_texto() {
+    local tmp saida rc=0 candidatas=0 reconhecidas linha
+    SUP_FPS_SAIDA=""; SUP_FPARQ_ERRO=""
+    while IFS= read -r linha || [ -n "$linha" ]; do
+        linha="${linha#"${linha%%[![:space:]]*}"}"
+        if [ -n "$linha" ] && [ "${linha:0:1}" != "#" ]; then candidatas=$((candidatas + 1)); fi
+    done <<<"$1"
+    [ "$candidatas" -gt 0 ] || return 0
+    if ! command -v ssh-keygen >/dev/null 2>&1; then SUP_FPARQ_ERRO="o ssh-keygen nao esta instalado (pacote openssh-client)"; return 2; fi
+    tmp="$(mktemp)" || { SUP_FPARQ_ERRO="nao consegui criar um arquivo temporario"; return 2; }
+    printf '%s\n' "$1" >"$tmp"
+    saida="$(ssh-keygen -l -f "$tmp" 2>&1)" || rc=$?
+    rm -f "$tmp"
+    if [ "$rc" -ne 0 ]; then SUP_FPARQ_ERRO="o ssh-keygen nao entendeu uma linha (${saida:0:100})"; return 2; fi
+    reconhecidas="$(grep -c ' SHA256:' <<<"$saida" || true)"
+    if [ "$reconhecidas" -ne "$candidatas" ]; then
+        SUP_FPARQ_ERRO="o ssh-keygen reconheceu $reconhecidas de $candidatas linhas de chave"
+        return 2
+    fi
+    SUP_FPS_SAIDA="$(awk '{print $2}' <<<"$saida")"
 }
 
-# suporte_fp_da_linha <linha>: fingerprint de uma linha do authorized_keys; "?" se nao der para calcular.
+# suporte_fp_da_linha <linha>: fingerprint (do ssh-keygen) de uma linha do authorized_keys; "?" se nao der.
 suporte_fp_da_linha() {
-    local -a campos; local i tmp fp=""
-    read -ra campos <<<"$1"
-    for i in "${!campos[@]}"; do
-        case "${campos[$i]}" in
-            ssh-ed25519|ecdsa-sha2-nistp256|ssh-rsa)
-                tmp="$(mktemp)"
-                printf '%s %s\n' "${campos[$i]}" "${campos[$((i + 1))]:-}" >"$tmp"
-                fp="$(ssh-keygen -l -f "$tmp" 2>/dev/null | awk '{print $2}')" || fp=""
-                rm -f "$tmp"
-                break ;;
-        esac
-    done
-    printf '%s' "${fp:-?}"
+    suporte_fps_de_texto "$1" || { printf '?'; return 0; }
+    if [ -n "$SUP_FPS_SAIDA" ] && [[ "$SUP_FPS_SAIDA" != *$'\n'* ]]; then printf '%s' "$SUP_FPS_SAIDA"; else printf '?'; fi
 }
 
 # suporte_fim_da_linha <linha nossa>: AAAAMMDDHHMM do marcador.
@@ -324,8 +333,8 @@ suporte_exigir_chave_sem_acesso_permanente() {
         [ -e "$arq" ] || [ -L "$arq" ] || continue
         rc=0; suporte_fp_no_arquivo "$arq" "$SUP_FP" 0 || rc=$?
         if [ "$rc" -eq 2 ]; then
-            falha "o sshd aceita chaves do root em $arq, mas nao consegui ler esse arquivo, entao nao sei se a chave do suporte ja esta la." \
-                "confira com: ls -l $arq (precisa ser um arquivo comum, legivel pelo root). Sem essa conferencia nao liguei o acesso."
+            falha "o sshd aceita chaves do root em $arq, mas nao consegui verificar esse arquivo (${SUP_FPARQ_ERRO}), entao nao sei se a chave do suporte ja esta la." \
+                "confira o arquivo (ls -l $arq; ssh-keygen -l -f $arq) e corrija ou tire a linha que o ssh-keygen nao entende. Sem essa conferencia nao liguei o acesso."
         elif [ "$rc" -eq 0 ]; then
             falha "essa mesma chave ja esta em $arq, que o sshd tambem aceita, como acesso permanente (sem prazo)." \
                 "nao mexi nela. Tire a linha dela desse arquivo na mao e ligue de novo; se ela e sua de verdade, use outra chave para o suporte."
@@ -334,17 +343,17 @@ suporte_exigir_chave_sem_acesso_permanente() {
 }
 
 # suporte_fp_no_arquivo <arquivo> <fingerprint> <ignorar_marcada 0|1>: 0 se achou, 1 se nao (arquivo inexistente
-# tambem e "nao"), 2 se o arquivo existe mas nao deu para ler.
+# tambem e "nao"), 2 se inconclusivo (SUP_FPARQ_ERRO diz por que: ilegivel, ou linha que o ssh-keygen nao entende).
 suporte_fp_no_arquivo() {
-    local arq="$1" fp="$2" ignorar="$3" linha blob_l
+    local arq="$1" fp="$2" ignorar="$3" texto="" linha
     [ -e "$arq" ] || [ -L "$arq" ] || return 1
-    if [ ! -f "$arq" ] || [ ! -r "$arq" ]; then return 2; fi
+    if [ ! -f "$arq" ] || [ ! -r "$arq" ]; then SUP_FPARQ_ERRO="nao consegui ler $arq"; return 2; fi
     while IFS= read -r linha || [ -n "$linha" ]; do
         if [ "$ignorar" = 1 ] && [[ "$linha" =~ $SUPORTE_MARCADOR_RE ]]; then continue; fi
-        blob_l="$(suporte_blob_da_linha "$linha")"
-        [ -n "$blob_l" ] || continue
-        if [ "$(suporte_fp_da_linha "$linha")" = "$fp" ]; then return 0; fi
-    done <"$arq" || return 2
+        texto+="$linha"$'\n'
+    done <"$arq" || { SUP_FPARQ_ERRO="nao consegui ler $arq"; return 2; }
+    if ! suporte_fps_de_texto "$texto"; then SUP_FPARQ_ERRO="$SUP_FPARQ_ERRO, em $arq"; return 2; fi
+    if grep -qxF "$fp" <<<"$SUP_FPS_SAIDA"; then return 0; fi
     return 1
 }
 
@@ -355,7 +364,7 @@ suporte_fps_arquivo() { printf '%s' "$(sup_dir_estado)/fps-pendentes"; }
 suporte_estado_ler() {
     local arq; arq="$(suporte_fps_arquivo)"
     [ -e "$arq" ] || return 0
-    if [ ! -r "$arq" ]; then printf '?\n'; return 0; fi
+    if [ ! -f "$arq" ] || [ ! -r "$arq" ]; then printf '?\n'; return 0; fi
     local linha
     while IFS= read -r linha || [ -n "$linha" ]; do
         [ -n "$linha" ] || continue
@@ -366,10 +375,10 @@ suporte_estado_ler() {
 # suporte_gravar_estado <arquivo> <conteudo>: temporario na mesma pasta e mv, modo 600. Quem chama ja tem a trava.
 suporte_gravar_estado() {
     local tmp
-    tmp="$(mktemp "$1.XXXXXX")" || falha "nao consegui criar um temporario ao lado de $1." "confira o espaco e a permissao de $(dirname "$1")."
-    if ! { printf '%s\n' "$2" >"$tmp" && chmod 600 "$tmp" && mv -f "$tmp" "$1"; }; then
+    tmp="$(mktemp "$1.XXXXXX")" || falha "nao consegui criar um temporario ao lado de $1." "confira o espaco e a permissao de $(dirname "$1"). ${SUP_ESTADO_CTX:-}"
+    if ! { printf '%s\n' "$2" >"$tmp" && chmod 600 "$tmp" && mv -fT "$tmp" "$1"; }; then
         rm -f "$tmp"
-        falha "nao consegui gravar $1." "confira o espaco e a permissao de $(dirname "$1")."
+        falha "nao consegui gravar $1." "confira o espaco e a permissao de $(dirname "$1"). ${SUP_ESTADO_CTX:-}"
     fi
 }
 
@@ -378,7 +387,7 @@ suporte_estado_adicionar() {
     [ "$ENSAIO" != 1 ] || return 0
     arq="$(suporte_fps_arquivo)"
     install -d -m 700 "$(sup_dir_estado)"
-    novo="$( { suporte_estado_ler | grep -vxF '?' || true; for fp in "$@"; do [ "$fp" = "?" ] || printf '%s\n' "$fp"; done; } | sort -u)"
+    novo="$( { suporte_estado_ler; for fp in "$@"; do printf '%s\n' "$fp"; done; } | sort -u)"
     suporte_gravar_estado "$arq" "$novo"
 }
 
@@ -395,8 +404,9 @@ suporte_estado_remover() {
 # suporte_marcar_pendencia: o alerta-sessoes tambem guarda a pendencia de "autorizacao remanescente".
 suporte_marcar_pendencia() {
     [ "$ENSAIO" != 1 ] || return 0
-    install -d -m 700 "$(sup_dir_estado)"
-    : >"$(suporte_alerta_arquivo)"; chmod 600 "$(suporte_alerta_arquivo)"
+    install -d -m 700 "$(sup_dir_estado)" || falha "nao consegui criar $(sup_dir_estado) para marcar a pendencia do suporte." "confira o espaco e a permissao. ${SUP_ESTADO_CTX:-}"
+    { : >"$(suporte_alerta_arquivo)" && chmod 600 "$(suporte_alerta_arquivo)"; } \
+        || falha "nao consegui gravar $(suporte_alerta_arquivo) (a marca de pendencia do suporte)." "confira o espaco e a permissao de $(sup_dir_estado). ${SUP_ESTADO_CTX:-}"
 }
 
 # suporte_conferir_fps <fingerprints...>: depois de tirar a chave marcada, confere se alguma delas segue aceita pelo
@@ -422,7 +432,7 @@ suporte_conferir_fps() {
         for fp in "$@"; do
             rc=0; suporte_fp_no_arquivo "$arq" "$fp" "$ign" || rc=$?
             if [ "$rc" -eq 0 ]; then SUP_PERM_ONDE+=("$fp em $arq"); achados+="$fp "
-            elif [ "$rc" -eq 2 ]; then SUP_PERM_ERRO="nao consegui ler $arq"; return 2; fi
+            elif [ "$rc" -eq 2 ]; then SUP_PERM_ERRO="$SUP_FPARQ_ERRO"; return 2; fi
         done
     done <<<"$fontes"
     # Conclusivo: so as que nao apareceram em fonte nenhuma saem do estado persistente.
@@ -454,7 +464,7 @@ suporte_fps_historico() {
 }
 
 suporte_ligar() {
-    local chave="" dias="$SUPORTE_DIAS_PADRAO" linha novo="" conteudo="" atual agora fim fim_s ja=0 blob_l fp_l
+    local chave="" dias="$SUPORTE_DIAS_PADRAO" linha novo="" conteudo="" atual agora fim fim_s ja=0 fp_l
     while [ $# -gt 0 ]; do
         case "$1" in
             --chave) [ $# -ge 2 ] || falha "falta o valor de --chave." "use: sudo dgclaw suporte ligar --chave 'ssh-ed25519 AAAA...' --dias 7"
@@ -472,8 +482,8 @@ suporte_ligar() {
     fi
     suporte_validar_chave "$chave"
     suporte_exigir_sshd_novo
+    suporte_travar   # antes de ler qualquer fonte: a decisao nao pode usar dado de antes da trava
     suporte_exigir_chave_sem_acesso_permanente
-    suporte_travar
 
     agora="$(suporte_agora_s)"
     fim_s=$((agora + dias * 86400))
@@ -486,9 +496,15 @@ suporte_ligar() {
         while IFS= read -r linha || [ -n "$linha" ]; do
             # Compara pelo fingerprint que o ssh-keygen calcula, nao pelo texto: a mesma chave pode ter mais de uma
             # representacao (byte zero a mais no modulo RSA, por exemplo).
-            blob_l="$(suporte_blob_da_linha "$linha")"
-            fp_l="";  if [ -n "$blob_l" ]; then fp_l="$(suporte_fp_da_linha "$linha")"; fi
-            if [ -n "$fp_l" ] && [ "$fp_l" != "?" ] && [ "$fp_l" = "$SUP_FP" ]; then
+            fp_l=""
+            if [[ -n "${linha//[[:space:]]/}" && ! "$linha" =~ ^[[:space:]]*# ]]; then
+                fp_l="$(suporte_fp_da_linha "$linha")"
+                if [ "$fp_l" = "?" ]; then
+                    falha "uma linha do $(suporte_arq) nao e entendida pelo ssh-keygen (${linha:0:40}...), entao nao consigo confirmar que a chave do suporte nao esta ali como acesso permanente." \
+                        "corrija ou tire essa linha (ssh-keygen -l -f $(suporte_arq) mostra o que ele reconhece) e ligue de novo. Nao mexi no arquivo."
+                fi
+            fi
+            if [ -n "$fp_l" ] && [ "$fp_l" = "$SUP_FP" ]; then
                 if [[ "$linha" =~ $SUPORTE_MARCADOR_RE ]]; then
                     ja=1; continue
                 fi
@@ -501,7 +517,7 @@ suporte_ligar() {
     conteudo+="$novo"$'\n'
     suporte_gravar "$conteudo"
     suporte_estado_remover "$SUP_FP"   # cadastrada de novo: volta a ser temporaria gerenciada
-    suporte_registrar ligar "fp=$SUP_FP id=$SUP_ID dias=$dias ate=$fim$([ "$ja" = 1 ] && echo ' renovada=sim')"
+    suporte_registrar_tolerante ligar "fp=$SUP_FP id=$SUP_ID dias=$dias ate=$fim$([ "$ja" = 1 ] && echo ' renovada=sim')"
     ok "acesso do suporte ligado ate $(suporte_fmt_data "$fim") ($dias dia(s)). Chave $SUP_FP, id $SUP_ID."
     info "Depois do prazo o servidor recusa a chave sozinho. Para tirar antes: sudo dgclaw suporte desligar"
 }
@@ -529,15 +545,19 @@ suporte_remover() {
             conteudo+="$linha"$'\n'
         done <<<"$atual"
     fi
-    if [ "$removidas" -gt 0 ]; then
-        suporte_gravar "$conteudo"
-        acao=limpar; [ "$quais" != todas ] || acao=desligar
-        for fp in "${registros[@]}"; do suporte_registrar "$acao" "$fp"; done
-    fi
     SUP_REMOVIDAS="$removidas"; SUP_FPS_REMOVIDOS="${fps% }"
     if [ "$removidas" -gt 0 ]; then
+        # Ordem de seguranca: (a) o que precisa ser conferido depois fica guardado ANTES de a chave sair do arquivo
+        # (se nao der para guardar, nada e removido); (b) so entao a chave sai; (c) o log por ultimo, e falha nele
+        # nao desfaz nada.
+        SUP_ESTADO_CTX="Nenhuma chave foi removida do $(suporte_arq)."
         # shellcheck disable=SC2086 # fingerprints nao tem espaco
         suporte_estado_adicionar $SUP_FPS_REMOVIDOS
+        suporte_marcar_pendencia
+        SUP_ESTADO_CTX=""
+        suporte_gravar "$conteudo"
+        acao=limpar; [ "$quais" != todas ] || acao=desligar
+        for fp in "${registros[@]}"; do suporte_registrar_tolerante "$acao" "$fp"; done
     fi
 }
 
@@ -758,34 +778,47 @@ suporte_desligar() {
 # suporte_registrar_revogadas <fingerprints...>: guarda, em /var/lib/dgclaw/suporte/revogadas.log (600, pasta 700),
 # as chaves que o limpar tirou, e marca o alerta se houver sessao de root aberta.
 suporte_registrar_revogadas() {
-    local d log fp
+    local d log fp texto="" agora_iso rc=0 fps perm=0
     [ "$ENSAIO" != 1 ] || return 0
     d="$(sup_dir_estado)"; log="$(suporte_revogadas_log)"
     install -d -m 700 "$d"
-    for fp in "$@"; do
-        printf '%s revogada fp=%s motivo=vencida\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$fp" >>"$log" \
-            || falha "nao consegui gravar $log." "confira o espaco e a permissao de $d."
-    done
-    chmod 600 "$log"
+    agora_iso="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    # Primeiro a decisao de seguranca (pendencia), o log por ultimo.
     if ! suporte_listar_sessoes; then
-        printf '%s alerta: chave vencida removida, mas nao consegui verificar as sessoes de root (%s)\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$SUP_SES_ERRO" >>"$log"
-        : >"$(suporte_alerta_arquivo)"; chmod 600 "$(suporte_alerta_arquivo)"
+        texto="alerta: chave vencida removida, mas nao consegui verificar as sessoes de root ($SUP_SES_ERRO)"
+        suporte_marcar_pendencia
     elif [ "${#SUP_SES_PEER[@]}" -gt 0 ]; then
-        printf '%s alerta: chave vencida removida, mas ha %s sessao(oes) de root aberta(s)\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${#SUP_SES_PEER[@]}" >>"$log"
-        : >"$(suporte_alerta_arquivo)"; chmod 600 "$(suporte_alerta_arquivo)"
+        texto="alerta: chave vencida removida, mas ha ${#SUP_SES_PEER[@]} sessao(oes) de root aberta(s)"
+        suporte_marcar_pendencia
     else
-        rm -f "$(suporte_alerta_arquivo)"
+        fps="$(suporte_fps_historico "")"
+        # shellcheck disable=SC2086 # fingerprints nao tem espaco
+        if [ -n "$fps" ]; then suporte_conferir_fps $fps || perm=$?; fi
+        if [ "$perm" -ne 0 ]; then
+            suporte_avisar_perm "$perm"; suporte_marcar_pendencia; rc=1
+        else
+            rm -f "$(suporte_alerta_arquivo)"
+        fi
     fi
+    if ! { {
+        for fp in "$@"; do printf '%s revogada fp=%s motivo=vencida\n' "$agora_iso" "$fp"; done
+        if [ -n "$texto" ]; then printf '%s %s\n' "$agora_iso" "$texto"; fi
+    } >>"$log" && chmod 600 "$log"; }; then
+        aviso "nao consegui gravar o registro em $log (a chave ja foi removida e a pendencia ficou guardada). Confira o espaco e a permissao de $d."
+    fi
+    return "$rc"
 }
 
 suporte_limpar() {
     [ $# -eq 0 ] || falha "'suporte limpar' nao tem opcoes (veio: $*)." "use: sudo dgclaw suporte limpar"
+    local rc=0
     suporte_remover vencidas
     if [ "$SUP_REMOVIDAS" -gt 0 ]; then
         # shellcheck disable=SC2086 # fingerprints nao tem espaco
-        suporte_registrar_revogadas $SUP_FPS_REMOVIDOS
+        suporte_registrar_revogadas $SUP_FPS_REMOVIDOS || rc=$?
     fi
     ok "$SUP_REMOVIDAS chave(s) vencida(s) do suporte removida(s)."
+    return "$rc"
 }
 
 suporte_status() {
@@ -886,8 +919,8 @@ suporte_linha_historico() {
     return 0
 }
 
-# suporte_status_linha: a linha "suporte: ..." do `dgclaw status`. Nunca derruba o status.
-suporte_status_linha() {
+# suporte_linha_corpo: a linha "suporte: ..." do `dgclaw status`. Nunca derruba o status.
+suporte_linha_corpo() {
     local linha agora fim fim_s maior="" vencidas=0 conteudo
     agora="$(suporte_agora_s)"
     if ! conteudo="$(suporte_ler_linhas 2>&1)"; then
@@ -909,22 +942,11 @@ suporte_status_linha() {
         return 0
     fi
     # Sem chave nossa valendo: antes de dizer o estado, consulta as sessoes de root (chave vencida antes do timer,
-    # ou removida com sessao aberta, nao e acesso encerrado). Ler, conferir e gravar o estado pendente e uma
-    # transacao: pega a mesma trava do ligar/desligar, mas so por poucos segundos (o dgclaw status nao pode pendurar).
-    local fps lfd="" rc=0
+    # ou removida com sessao aberta, nao e acesso encerrado). Ja estamos sob a trava (suporte_status_linha).
+    local fps rc=0
     fps="$(suporte_fps_historico "$conteudo")"
     if [ "$vencidas" -gt 0 ] || [ -e "$(suporte_alerta_arquivo)" ] || [ -n "$fps" ]; then
-        if [ "$ENSAIO" != 1 ] && [ "${SUP_TRAVADO:-0}" != 1 ]; then
-            install -d -m 700 "$R/root/.ssh"
-            if ! exec {lfd}>"$R/root/.ssh/.dgclaw-suporte.lock" || ! flock -w 3 "$lfd"; then
-                if [ -n "$lfd" ]; then exec {lfd}>&-; fi
-                s_aviso "suporte: nao consegui conferir (outra operacao do suporte em andamento), rode de novo daqui a pouco: sudo dgclaw suporte status"
-                return 0
-            fi
-        fi
-        fps="$(suporte_fps_historico "$conteudo")"   # de novo, ja com a trava: outro processo pode ter mexido
         suporte_linha_historico "$fps" "$vencidas" || rc=$?
-        if [ -n "$lfd" ]; then exec {lfd}>&-; fi
         if [ "$rc" -ne 0 ]; then return 0; fi
     fi
     if [ "$vencidas" -gt 0 ]; then
@@ -932,4 +954,21 @@ suporte_status_linha() {
     else
         s_ok "suporte: desligado"
     fi
+}
+
+# suporte_status_linha: pega a trava ANTES de ler authorized_keys, alerta e estado (nada que decida o resultado vem de
+# antes dela), mas so espera 3 s: o dgclaw status nao pode pendurar. Sem pasta de .ssh nem de estado, nao ha o que proteger.
+suporte_status_linha() {
+    local lfd=""
+    if [ "$ENSAIO" != 1 ] && [ "${SUP_TRAVADO:-0}" != 1 ] && { [ -d "$R/root/.ssh" ] || [ -d "$(sup_dir_estado)" ]; }; then
+        install -d -m 700 "$R/root/.ssh"
+        if ! exec {lfd}>"$R/root/.ssh/.dgclaw-suporte.lock" || ! flock -w 3 "$lfd"; then
+            if [ -n "$lfd" ]; then exec {lfd}>&-; fi
+            s_aviso "suporte: nao consegui conferir (outra operacao do suporte em andamento), rode de novo daqui a pouco: sudo dgclaw suporte status"
+            return 0
+        fi
+    fi
+    suporte_linha_corpo
+    if [ -n "$lfd" ]; then exec {lfd}>&-; fi
+    return 0
 }
