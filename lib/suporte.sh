@@ -377,6 +377,15 @@ suporte_comando_sshd() {
     printf '%s' "$c"
 }
 
+# suporte_inicio_proc <pid>: epoch de inicio do processo (campo 22 de /proc/PID/stat, btime e CLK_TCK); 0 se nao der para saber.
+suporte_inicio_proc() {
+    local proc="${DGCLAW_PROC:-/proc}" btime clk st
+    btime="$(awk '/^btime/ {print $2}' "$proc/stat" 2>/dev/null || true)"
+    clk="$(getconf CLK_TCK 2>/dev/null || true)"
+    st="$(sed 's/^.*) //' "$proc/$1/stat" 2>/dev/null | awk '{print $20}')" || st=""
+    if [[ "$btime" =~ ^[0-9]+$ ]] && [[ "$clk" =~ ^[0-9]+$ ]] && [ "$clk" -gt 0 ] && [[ "$st" =~ ^[0-9]+$ ]]; then printf '%s' $((btime + st / clk)); else printf 0; fi
+}
+
 suporte_stamp_arquivo() { printf '%s' "$(sup_dir_estado)/sshd-recarregado"; }
 
 # suporte_recarregar_sshd: o sshd ativo pode ter carregado uma configuracao diferente da que esta no disco. Antes de
@@ -384,7 +393,7 @@ suporte_stamp_arquivo() { printf '%s' "$(sup_dir_estado)/sshd-recarregado"; }
 # sessoes). So se ha mestre verificado rodando; sem ele o proximo sshd nasce com o que esta no disco. Retorno 0 ou 1
 # (SUP_RELOAD_ERRO diz por que). Chamada com a trava. No ensaio so avisa.
 suporte_recarregar_sshd() {
-    local sshd_cmd sc="${DGCLAW_SYSTEMCTL:-systemctl}" unit conf pid feito=0 confs err tmp
+    local sshd_cmd sc="${DGCLAW_SYSTEMCTL:-systemctl}" unit conf pid confs err tmp
     local -a SUP_M_PIDS=()
     SUP_RELOAD_ERRO=""
     suporte_varrer_mestres suporte_cb_coletar_pid
@@ -403,22 +412,36 @@ suporte_recarregar_sshd() {
         [ -n "$conf" ] || continue
         if ! "$sshd_cmd" -t -f "$R$conf" >/dev/null 2>&1; then SUP_RELOAD_ERRO="o 'sshd -t -f $(suporte_seguro "$conf")' recusou a configuracao"; return 1; fi
     done <<<"$confs"
+    # Cada mestre verificado precisa ser recarregado. O reload de uma unidade cobre so o MainPID dela; os demais (um
+    # `sshd -f outro.conf` iniciado a mao, por exemplo) recebem kill -HUP proprio. A estampa e por processo.
+    local main cobertos=" " falhas="" ini linhas="" agora_s
+    agora_s="$(date +%s)"
     if command -v "$sc" >/dev/null 2>&1; then
         for unit in ssh.service sshd.service; do
-            if "$sc" is-active "$unit" >/dev/null 2>&1; then
-                if "$sc" reload "$unit" >/dev/null 2>&1; then feito=1; else SUP_RELOAD_ERRO="o 'systemctl reload $unit' falhou"; return 1; fi
-                break
-            fi
+            "$sc" is-active "$unit" >/dev/null 2>&1 || continue
+            main="$("$sc" show -p MainPID --value "$unit" 2>/dev/null | tr -dc '0-9')"
+            if [ -z "$main" ] || [ "$main" = 0 ]; then continue; fi
+            [[ " ${SUP_M_PIDS[*]} " == *" $main "* ]] || continue   # o MainPID nao e um mestre verificado: nao conta
+            if "$sc" reload "$unit" >/dev/null 2>&1; then cobertos+="$main "
+            else falhas+="o 'systemctl reload $unit' falhou; "; fi
         done
     fi
-    if [ "$feito" = 0 ]; then
-        for pid in "${SUP_M_PIDS[@]}"; do
-            if ! kill -HUP "$pid" 2>/dev/null; then SUP_RELOAD_ERRO="nao consegui mandar o sinal de recarga (kill -HUP) ao sshd PID $pid"; return 1; fi
-        done
-    fi
+    for pid in "${SUP_M_PIDS[@]}"; do
+        if [[ "$cobertos" != *" $pid "* ]] && [[ "$falhas" != *"PID $pid"* ]]; then
+            if kill -HUP "$pid" 2>/dev/null; then cobertos+="$pid "
+            else falhas+="nao consegui mandar o sinal de recarga (kill -HUP) ao sshd PID $pid; "; fi
+        fi
+    done
+    for pid in "${SUP_M_PIDS[@]}"; do
+        if [[ "$cobertos" == *" $pid "* ]]; then
+            ini="$(suporte_inicio_proc "$pid")"
+            if [ "$ini" -gt 0 ]; then linhas+="$pid $ini $agora_s"$'\n'; fi
+        fi
+    done
     install -d -m 700 "$(sup_dir_estado)"
-    SUP_ESTADO_CTX="" suporte_gravar_estado "$(suporte_stamp_arquivo)" "$(date +%s)"
-    info "sshd recarregado com a configuracao do disco (a recarga nao derruba as sessoes abertas)."
+    SUP_ESTADO_CTX="" suporte_gravar_estado "$(suporte_stamp_arquivo)" "${linhas%$'\n'}"
+    if [ -n "$falhas" ]; then SUP_RELOAD_ERRO="${falhas%; }"; return 1; fi
+    info "sshd recarregado com a configuracao do disco (${#SUP_M_PIDS[@]} processo(s) mestre; a recarga nao derruba as sessoes abertas)."
 }
 
 # suporte_exigir_recarga: o ligar recusa se nao deu para recarregar.
@@ -431,21 +454,25 @@ suporte_exigir_recarga() {
 # mexida depois de o sshd carrega-la (inicio do mestre mais antigo ou ultima recarga nossa, o que for mais novo). Falha
 # se foi, ou se nao da para saber. Usa SUP_CFG_VISITADOS (preenchido pela varredura de Match/Include).
 suporte_config_mais_nova_que_carregada() {
-    local proc="${DGCLAW_PROC:-/proc}" pid st btime clk inicio minimo="" stamp last m f
+    local pid inicio minimo="" stamp last m f sp si sh arq
     local -a SUP_M_PIDS=()
     suporte_varrer_mestres suporte_cb_coletar_pid
     [ "$SUP_N_MESTRES" -gt 0 ] || return 0
-    btime="$(awk '/^btime/ {print $2}' "$proc/stat" 2>/dev/null || true)"
-    clk="$(getconf CLK_TCK 2>/dev/null || true)"
+    arq="$(suporte_stamp_arquivo)"
+    # Cada mestre vale pela sua propria estampa (casando PID e hora de inicio: PID reaproveitado nao conta); sem
+    # estampa vale so o inicio dele. As configuracoes de todos sao comparadas com todos os mestres (lado seguro).
     for pid in "${SUP_M_PIDS[@]}"; do
-        inicio=0
-        st="$(sed 's/^.*) //' "$proc/$pid/stat" 2>/dev/null | awk '{print $20}')" || st=""
-        if [[ "$btime" =~ ^[0-9]+$ ]] && [[ "$clk" =~ ^[0-9]+$ ]] && [ "$clk" -gt 0 ] && [[ "$st" =~ ^[0-9]+$ ]]; then inicio=$((btime + st / clk)); fi
-        if [ -z "$minimo" ] || [ "$inicio" -lt "$minimo" ]; then minimo="$inicio"; fi
+        inicio="$(suporte_inicio_proc "$pid")"
+        stamp=0
+        if [ "$inicio" -gt 0 ] && [ -r "$arq" ]; then
+            while read -r sp si sh _; do
+                if [ "$sp" = "$pid" ] && [ "$si" = "$inicio" ] && [[ "$sh" =~ ^[0-9]+$ ]] && [ "$sh" -gt "$stamp" ]; then stamp="$sh"; fi
+            done <"$arq"
+        fi
+        last="$inicio"; if [ "$stamp" -gt "$last" ]; then last="$stamp"; fi
+        if [ -z "$minimo" ] || [ "$last" -lt "$minimo" ]; then minimo="$last"; fi
     done
-    stamp=0
-    if [ -r "$(suporte_stamp_arquivo)" ]; then stamp="$(head -n 1 "$(suporte_stamp_arquivo)" | tr -dc '0-9')"; stamp="${stamp:-0}"; fi
-    last="$minimo"; if [ "$stamp" -gt "$last" ]; then last="$stamp"; fi
+    last="$minimo"
     if [ "$last" -le 0 ]; then
         falha "nao consegui saber desde quando o sshd carregou a configuracao, entao nao posso garantir que ela e a do disco." \
             "rode: sudo dgclaw suporte desligar (ele recarrega o sshd e anota a hora), ou recarregue: sudo systemctl reload ssh."

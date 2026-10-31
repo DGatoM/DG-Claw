@@ -777,7 +777,8 @@ mkproc() { # mkproc <pid> <cmdline em printf> [uid] [exe] [ns mnt]
     # shellcheck disable=SC2059 # o formato (com \\0) vem do chamador de proposito
     printf "$2" >"$d/cmdline"
     printf 'Name:\tsshd\nUid:\t%s\t%s\t%s\t%s\n' "${3:-0}" "${3:-0}" "${3:-0}" "${3:-0}" >"$d/status"
-    printf '%s (sshd) S 1 1 1 0 -1 4194560 100 0 0 0 0 0 0 0 20 0 1 0 100 1000000 500 18446744073709551615 0 0 0 0 0 0 0 0 0 0 0 0 17 0 0 0 0 0 0\n' "$1" >"$d/stat"
+    [ "${MKPROC_MAIN:-1}" = 0 ] || printf '%s\n' "$1" >"$STUB_ESTADO/mainpid-ssh.service"   # MainPID da unidade ssh.service
+    printf '%s (sshd) S 1 1 1 0 -1 4194560 100 0 0 0 0 0 0 0 20 0 1 0 %s 1000000 500 18446744073709551615 0 0 0 0 0 0 0 0 0 0 0 0 17 0 0 0 0 0 0\n' "$1" "${6:-100}" >"$d/stat"
     ln -sfn "${4:-$HOSTSSHD}" "$d/exe"
     ln -sfn "${5:-mnt:[4026531841]}" "$d/ns/mnt"; ln -sfn 'pid:[4026531836]' "$d/ns/pid"
 }
@@ -974,5 +975,61 @@ if [ "$(id -u)" = 0 ] && [ -x /usr/sbin/sshd ] && /usr/sbin/sshd -t >/dev/null 2
     afirma "e o reload saiu pelo systemctl" grep -q "systemctl reload ssh.service" "$STUB_LOG"
     unset DGCLAW_SSHD_BIN; rm -rf "$DGCLAW_PROC"; mkdir -p "$DGCLAW_PROC"
 fi
+
+echo "--dois mestres: um da unidade (reload) e outro com -f (kill -HUP proprio), estampa por processo"
+export DGCLAW_SSHD_BIN="$HOSTSSHD"
+rm -rf "$DGCLAW_PROC"; mkdir -p "$DGCLAW_PROC/1/ns"
+printf 'cpu  1 2 3\nbtime 1000000000\n' >"$DGCLAW_PROC/stat"
+ln -sfn 'mnt:[4026531841]' "$DGCLAW_PROC/1/ns/mnt"; ln -sfn 'pid:[4026531836]' "$DGCLAW_PROC/1/ns/pid"
+printf 'PasswordAuthentication no\n' >"$DGCLAW_RAIZ/etc/ssh/secundario.conf"
+printf '%s\n' "$ALHEIA1" >"$ARQ"; rm -f "$ALERTA" "$ARQ2" "$STAMP"; : >"$PEND"; rm -f "$STUB_ESTADO/sshd-T"
+sleep 60 & SP2=$!
+MKPROC_MAIN=1 mkproc 5000 '/usr/sbin/sshd\0-D\0' 0 "$HOSTSSHD" 'mnt:[4026531841]' 100
+MKPROC_MAIN=0 mkproc "$SP2" '/usr/sbin/sshd\0-D\0-f\0/etc/ssh/secundario.conf\0' 0 "$HOSTSSHD" 'mnt:[4026531841]' 200
+: >"$STUB_LOG"
+dgclaw suporte ligar --chave "$CHAVE" >"$TMP/o.txt" 2>&1; rc=$?
+igual "dois mestres: ligar sai 0" 0 "$rc"
+afirma "a unidade foi recarregada (MainPID 5000)" grep -q "systemctl reload ssh.service" "$STUB_LOG"
+sleep 0.3
+nega "o segundo mestre recebeu o HUP proprio (o sleep morreu)" kill -0 "$SP2"
+wait "$SP2" 2>/dev/null
+igual "a estampa tem uma linha por processo" 2 "$(grep -c '^[0-9]* [0-9]* [0-9]*$' "$STAMP")"
+afirma "a linha do primeiro tem pid e inicio" grep -q "^5000 1000000001 [0-9]*\$" "$STAMP"
+afirma "a linha do segundo tem pid e inicio" grep -q "^$SP2 1000000002 [0-9]*\$" "$STAMP"
+
+# o segundo mestre morreu: sobe outro (novo PID) e repete o ciclo com a chave pendente em authorized_keys2
+sleep 60 & SP3=$!
+rm -rf "${DGCLAW_PROC:?}/$SP2"; MKPROC_MAIN=0 mkproc "$SP3" '/usr/sbin/sshd\0-D\0-f\0/etc/ssh/secundario.conf\0' 0 "$HOSTSSHD" 'mnt:[4026531841]' 200
+printf '%s\n' "$(cat "$TMP/suporte.pub")" >"$ARQ2"
+dgclaw suporte desligar >/dev/null 2>&1   # recarrega os dois; a chave segue em authorized_keys2 (pendente)
+sleep 0.3; wait "$SP3" 2>/dev/null
+igual "desligar recarregou os dois (duas linhas de estampa)" 2 "$(grep -c '^[0-9]* [0-9]* [0-9]*$' "$STAMP")"
+touch -d '1 hour ago' "$CFG" "$DGCLAW_RAIZ/etc/ssh/secundario.conf"
+dgclaw suporte status >"$TMP/o.txt" 2>&1
+nega "estampa dos dois e config antiga: nada de 'mudou depois de carregada'" grep -q "mudou depois de carregada" "$TMP/o.txt"
+grep "^5000 " "$STAMP" >"$TMP/stamp-so-do-primeiro"; cp "$TMP/stamp-so-do-primeiro" "$STAMP"
+dgclaw suporte status >"$TMP/o.txt" 2>&1; rc=$?
+igual "estampa so do primeiro e config mais nova que o inicio do segundo: status sai 1" 1 "$rc"
+afirma "diz que a configuracao mudou depois de carregada" grep -q "mudou depois de carregada" "$TMP/o.txt"
+printf '5000 1000000001 %s\n%s 999 %s\n' "$(date +%s)" "$SP3" "$(date +%s)" >"$STAMP"   # PID do segundo com INICIO diferente (reaproveitado)
+dgclaw suporte status >"$TMP/o.txt" 2>&1; rc=$?
+igual "estampa de PID reaproveitado (inicio diferente) nao vale: status sai 1" 1 "$rc"
+afirma "continua dizendo que mudou" grep -q "mudou depois de carregada" "$TMP/o.txt"
+printf '5000 1000000001 %s\n%s 1000000002 %s\n' "$(date +%s)" "$SP3" "$(date +%s)" >"$STAMP"
+dgclaw suporte status >"$TMP/o.txt" 2>&1
+nega "com as duas estampas certas volta ao normal" grep -q "mudou depois de carregada" "$TMP/o.txt"
+
+echo "--HUP do segundo mestre falhando: inconclusivo"
+rm -f "$ARQ2" "$ALERTA"; : >"$PEND"; printf '%s\n' "$ALHEIA1" >"$ARQ"
+rm -rf "${DGCLAW_PROC:?}/$SP3"; MKPROC_MAIN=1 mkproc 5000 '/usr/sbin/sshd\0-D\0' 0 "$HOSTSSHD" 'mnt:[4026531841]' 100
+dgclaw suporte ligar --chave "$CHAVE" >/dev/null 2>&1
+MKPROC_MAIN=0 mkproc 999999999 '/usr/sbin/sshd\0-D\0-f\0/etc/ssh/secundario.conf\0' 0 "$HOSTSSHD" 'mnt:[4026531841]' 200   # PID que nao existe: o HUP falha
+nega "ligar recusa quando o HUP do segundo falha" dgclaw suporte ligar --chave "$CHAVE" --dias 2
+dgclaw suporte desligar >"$TMP/o.txt" 2>&1; rc=$?
+igual "desligar com HUP falhando: sai 1" 1 "$rc"
+nega "e nao anuncia desligado" grep -q "acesso do suporte desligado" "$TMP/o.txt"
+afirma "diz qual PID" grep -q "ao sshd PID 999999999" "$TMP/o.txt"
+nega "a linha do suporte saiu do arquivo mesmo assim" grep -q "dgclaw-suporte:" "$ARQ"
+rm -rf "$DGCLAW_PROC"; mkdir -p "$DGCLAW_PROC"; unset DGCLAW_SSHD_BIN; rm -f "$ALERTA" "$STAMP" "$STUB_ESTADO/mainpid-ssh.service"; : >"$PEND"
 
 fim
