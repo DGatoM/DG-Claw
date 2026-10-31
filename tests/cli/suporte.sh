@@ -559,4 +559,87 @@ dgclaw suporte desligar >/dev/null 2>&1
 : >"$DGCLAW_RAIZ/var/lib/dgclaw/suporte/fps-pendentes"
 rm -f "$ALERTA"
 
+echo "--copia integral da linha gerenciada em authorized_keys2 e autorizacao remanescente"
+printf '%s\n' "$ALHEIA1" >"$ARQ"; rm -f "$ARQ2" "$ALERTA"; : >"$PEND"
+dgclaw suporte ligar --chave "$CHAVE" >/dev/null 2>&1
+grep 'dgclaw-suporte:' "$ARQ" >"$ARQ2"
+nega "ligar recusa com a copia marcada em authorized_keys2" dgclaw suporte ligar --chave "$CHAVE" --dias 2
+dgclaw suporte desligar >"$TMP/o.txt" 2>&1; rc=$?
+igual "desligar com a copia marcada no authorized_keys2 sai 1" 1 "$rc"
+afirma "aponta o authorized_keys2" grep -q "authorized_keys2" "$TMP/o.txt"
+nega "nao anuncia desligado" grep -q "acesso do suporte desligado" "$TMP/o.txt"
+dgclaw suporte status >"$TMP/o.txt" 2>&1; rc=$?
+igual "status tambem sai 1" 1 "$rc"
+rm -f "$ARQ2"; dgclaw suporte status >/dev/null 2>&1; rm -f "$ALERTA"
+
+echo "--sshd_config: aspas, '=' e varios argumentos"
+printf '%s\n' "$ALHEIA1" >"$ARQ"
+EXTRA="$DGCLAW_RAIZ/etc/ssh/extra.conf"
+printf 'Match Address 203.0.113.0/24\n    AuthorizedKeysFile .ssh/suporte-permanente\n' >"$EXTRA"
+for linha_inc in 'Include "/etc/ssh/extra.conf"' "Include '/etc/ssh/extra.conf'" 'Include=/etc/ssh/extra.conf' 'Include = "/etc/ssh/extra.conf"' 'Include /etc/ssh/nada.conf "/etc/ssh/extra.conf"' 'INCLUDE extra.conf # comentario'; do
+    printf '%s\n' "$linha_inc" >"$CFG"
+    dgclaw suporte ligar --chave "$CHAVE" >"$TMP/o.txt" 2>&1; rc=$?
+    igual "Include pego: $linha_inc" 1 "$rc"
+    afirma "e diz que nao consegue verificar: $linha_inc" grep -q "fontes de chave condicionais" "$TMP/o.txt"
+done
+mkdir -p "$DGCLAW_RAIZ/etc/ssh/com espaco"; cp "$EXTRA" "$DGCLAW_RAIZ/etc/ssh/com espaco/x.conf"
+printf 'Include "/etc/ssh/com espaco/*.conf"\n' >"$CFG"
+nega "Include com espaco no caminho e glob: pego" dgclaw suporte ligar --chave "$CHAVE"
+printf 'Match=Address 203.0.113.0/24\n  AuthorizedKeysFile=.ssh/x\n' >"$CFG"
+nega "Match= e AuthorizedKeysFile= (sem espaco): pego" dgclaw suporte ligar --chave "$CHAVE"
+printf 'Match all\n  authorizedkeyscommand="/bin/x"\n' >"$CFG"
+nega "valor com aspas dentro do Match: pego" dgclaw suporte ligar --chave "$CHAVE"
+for ruim in 'Include "/etc/ssh/extra.conf' 'Include /etc/ssh/ex\ tra.conf' 'Include' 'Match all
+ AuthorizedKeysFile "x'; do
+    printf '%s\n' "$ruim" >"$CFG"
+    dgclaw suporte ligar --chave "$CHAVE" >"$TMP/o.txt" 2>&1; rc=$?
+    igual "nao entendi, recuso: ${ruim//$'\n'/ | }" 1 "$rc"
+done
+printf 'Include /etc/ssh/inexistente.d/*.conf\nPasswordAuthentication no\n' >"$CFG"
+afirma "Include que casa com nada e legitimo" dgclaw suporte ligar --chave "$CHAVE"
+dgclaw suporte desligar >/dev/null 2>&1
+mkdir -p "$DGCLAW_RAIZ/etc/ssh/fechada.d"; chmod 000 "$DGCLAW_RAIZ/etc/ssh/fechada.d"
+if [ ! -r "$DGCLAW_RAIZ/etc/ssh/fechada.d" ]; then
+    printf 'Include /etc/ssh/fechada.d/*.conf\n' >"$CFG"
+    nega "pasta do glob ilegivel: recuso" dgclaw suporte ligar --chave "$CHAVE"
+fi
+chmod 755 "$DGCLAW_RAIZ/etc/ssh/fechada.d"
+printf 'Include a.conf\n' >"$CFG"; printf 'Include a.conf\n' >"$DGCLAW_RAIZ/etc/ssh/a.conf"
+nega "Include recursivo (limite estourado): recuso" dgclaw suporte ligar --chave "$CHAVE"
+rm -f "$EXTRA" "$DGCLAW_RAIZ/etc/ssh/a.conf"; printf 'PasswordAuthentication no\n' >"$CFG"
+if [ "$(id -u)" = 0 ] && [ -x /usr/sbin/sshd ]; then
+    printf 'Include "%s"\n' "$TMP/real-extra.conf" >"$TMP/real.conf"
+    printf 'Match Address 203.0.113.0/24\n  AuthorizedKeysFile .ssh/suporte-permanente\n' >"$TMP/real-extra.conf"
+    # shellcheck disable=SC2016
+    afirma "sshd de verdade honra o Include entre aspas (o caso e real)" bash -c '/usr/sbin/sshd -T -f "$1" -C user=root,host=localhost,addr=203.0.113.5 | grep -qx "authorizedkeysfile .ssh/suporte-permanente"' _ "$TMP/real.conf"
+fi
+
+echo "--trava: status e a linha do dgclaw status esperam a mesma trava"
+LOCK="$DGCLAW_RAIZ/root/.ssh/.dgclaw-suporte.lock"
+printf '%s\n' "$ALHEIA1" >"$ARQ"; rm -f "$ALERTA"
+dgclaw suporte ligar --chave "$CHAVE" >/dev/null 2>&1
+printf '%s\n' "$(cat "$TMP/suporte.pub")" >"$ARQ2"
+dgclaw suporte desligar >/dev/null 2>&1   # fp fica pendente (segue em authorized_keys2)
+cp "$PEND" "$TMP/pend.antes"
+flock -x "$LOCK" sleep 6 & LOCKPID=$!
+sleep 0.5
+INI=$SECONDS
+linha_trava="$(linha_status)"
+afirma "linha do status nao pendura (menos de 5 s)" test $((SECONDS - INI)) -lt 5
+afirma "linha avisa que outra operacao esta em andamento" grep -q "outra operacao do suporte em andamento" <<<"$linha_trava"
+afirma "linha nao mexeu no estado" cmp -s "$PEND" "$TMP/pend.antes"
+rm -f "$ARQ2"
+( dgclaw suporte status >"$TMP/o-trava.txt" 2>&1; echo $? >"$TMP/rc-trava.txt" ) &
+STPID=$!
+sleep 1
+afirma "status ainda espera a trava (nao terminou)" kill -0 "$STPID"
+kill "$LOCKPID" 2>/dev/null; wait "$LOCKPID" "$STPID" 2>/dev/null
+igual "status que esperou viu o estado novo (chave tirada): sai 0" 0 "$(cat "$TMP/rc-trava.txt")"
+nega "estado pendente limpo" grep -q '^SHA256:' "$PEND"
+
+echo "--gravacao do estado e atomica e 600, sem sobras"
+# shellcheck disable=SC2016
+nega "sem temporarios no diretorio de estado" bash -c 'ls "$1" | grep -q "fps-pendentes\."' _ "$DGCLAW_RAIZ/var/lib/dgclaw/suporte"
+igual "fps-pendentes 600" 600 "$(stat -c %a "$PEND")"
+
 fim
