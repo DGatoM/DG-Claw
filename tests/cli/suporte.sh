@@ -674,7 +674,7 @@ rm -f "$ARQ2"; : >"$PEND"; rm -f "$ALERTA"
 printf '%s\n' "$ALHEIA1" 'isto nao e uma chave' >"$ARQ"
 dgclaw suporte ligar --chave "$CHAVE" >"$TMP/o.txt" 2>&1; rc=$?
 igual "linha incompreensivel no principal: ligar recusa" 1 "$rc"
-afirma "explica" grep -q "nao e entendida pelo ssh-keygen" "$TMP/o.txt"
+afirma "explica" grep -q "nao pode ser conferida" "$TMP/o.txt"
 igual "o principal nao foi tocado" 2 "$(wc -l <"$ARQ")"
 printf '%s\n' "$ALHEIA1" >"$ARQ"
 
@@ -784,5 +784,50 @@ afirma "processo de sessao (sshd: root@pts/0) nao e mestre: liga normal" dgclaw 
 dgclaw suporte desligar >/dev/null 2>&1
 rm -rf "$DGCLAW_PROC"; mkdir -p "$DGCLAW_PROC"
 rm -f "$ALERTA" "$OUTRO" "$OUTRO.T"; : >"$PEND"
+
+echo "--certificados SSH: a revogacao da linha nao revoga certificados"
+printf '%s\n' "$ALHEIA1" >"$ARQ"; rm -f "$ALERTA" "$ARQ2"; : >"$PEND"; printf 'PasswordAuthentication no\n' >"$CFG"
+for dir in 'trustedusercakeys /etc/ssh/ca.pub' 'authorizedprincipalsfile /etc/ssh/principals/%u' 'authorizedprincipalscommand /usr/bin/principals %u'; do
+    printf 'port 22\nauthorizedkeysfile .ssh/authorized_keys\nauthorizedkeyscommand none\n%s\n' "$dir" >"$STUB_ESTADO/sshd-T"
+    dgclaw suporte ligar --chave "$CHAVE" >"$TMP/o.txt" 2>&1; rc=$?
+    igual "sshd -T com '${dir%% *}': ligar recusa" 1 "$rc"
+    afirma "diz que aceita login por certificado: ${dir%% *}" grep -q "login por certificado SSH" "$TMP/o.txt"
+done
+printf 'port 22\nauthorizedkeysfile .ssh/authorized_keys\nauthorizedkeyscommand none\ntrustedusercakeys none\nauthorizedprincipalsfile none\nauthorizedprincipalscommand none\n' >"$STUB_ESTADO/sshd-T"
+afirma "todos 'none': liga normalmente" dgclaw suporte ligar --chave "$CHAVE"
+printf 'port 22\nauthorizedkeysfile .ssh/authorized_keys\ntrustedusercakeys /etc/ssh/ca.pub\n' >"$STUB_ESTADO/sshd-T"
+dgclaw suporte desligar >"$TMP/o.txt" 2>&1; rc=$?
+igual "desligar com TrustedUserCAKeys ativo: inconclusivo, sai 1" 1 "$rc"
+nega "e nao anuncia desligado" grep -q "acesso do suporte desligado" "$TMP/o.txt"
+rm -f "$STUB_ESTADO/sshd-T"; dgclaw suporte status >/dev/null 2>&1; rm -f "$ALERTA"; : >"$PEND"
+for kw in TrustedUserCAKeys AuthorizedPrincipalsFile AuthorizedPrincipalsCommand AuthorizedPrincipalsCommandUser; do
+    printf 'Match Address 203.0.113.0/24\n    %s /etc/ssh/x\n' "$kw" >"$CFG"
+    nega "$kw dentro de Match: ligar recusa" dgclaw suporte ligar --chave "$CHAVE"
+done
+printf 'PasswordAuthentication no\n' >"$CFG"
+echo "--cert-authority em qualquer fonte de chaves"
+CALINHA="cert-authority,principals=\"suporte\" ssh-ed25519 $(awk '{print $2}' "$TMP/outra.pub") ca-da-casa"
+printf '%s\n%s\n' "$ALHEIA1" "$CALINHA" >"$ARQ"
+dgclaw suporte ligar --chave "$CHAVE" >"$TMP/o.txt" 2>&1; rc=$?
+igual "cert-authority no principal: ligar recusa" 1 "$rc"
+afirma "explica o cert-authority" grep -q "cert-authority" "$TMP/o.txt"
+printf '%s\n' "$ALHEIA1" >"$ARQ"; printf '%s\n' "$CALINHA" >"$ARQ2"
+dgclaw suporte ligar --chave "$CHAVE" >"$TMP/o.txt" 2>&1; rc=$?
+igual "cert-authority no authorized_keys2: ligar recusa" 1 "$rc"
+rm -f "$ARQ2"
+dgclaw suporte ligar --chave "$CHAVE" >/dev/null 2>&1
+printf '%s\n' "$CALINHA" >"$ARQ2"
+dgclaw suporte desligar >"$TMP/o.txt" 2>&1; rc=$?
+igual "desligar com cert-authority em outra fonte: inconclusivo, sai 1" 1 "$rc"
+nega "e nao anuncia desligado" grep -q "acesso do suporte desligado" "$TMP/o.txt"
+rm -f "$ARQ2"; dgclaw suporte status >/dev/null 2>&1; rm -f "$ALERTA"; : >"$PEND"; printf '%s\n' "$ALHEIA1" >"$ARQ"
+
+echo "--o sshd precisa ler o arquivo onde o suporte grava"
+printf 'port 22\nauthorizedkeysfile .ssh/chaves\nauthorizedkeyscommand none\n' >"$STUB_ESTADO/sshd-T"
+dgclaw suporte ligar --chave "$CHAVE" >"$TMP/o.txt" 2>&1; rc=$?
+igual "AuthorizedKeysFile .ssh/chaves: ligar recusa" 1 "$rc"
+afirma "explica o que o sshd le" grep -q "nao le .*authorized_keys.*Ele le: .*\.ssh/chaves" "$TMP/o.txt"
+nega "nao gravou nada" grep -q "dgclaw-suporte:" "$ARQ"
+rm -f "$STUB_ESTADO/sshd-T"
 
 fim

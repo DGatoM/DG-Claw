@@ -704,4 +704,24 @@ igual "o parecer e gravado mesmo com a origem 'HEAD do clone'" "0" "$rc"
 afirma "o parecer existe" test -f "$LIB/web/atualizacao/parecer.json"
 nega "nao recusa mais por 'destino igual ao instalado'" grep -q "ja esta instalado" "$TMP/ciclo3.txt"
 
+echo "parecer dado saindo de uma versao instalada: se a instalacao voltou para outra, o ok-do-dono recusa"
+COMMIT_B="$(git -C "$CLONE" rev-parse HEAD~2)"; COMMIT_A="$(git -C "$CLONE" rev-parse HEAD~3)"
+git -C "$TRAB" commit -q --allow-empty -m v8; git -C "$TRAB" push -q origin main
+sed -i '/^DGCLAW_COMMIT=/d' "$ETC/dgclaw.env"; echo "DGCLAW_COMMIT=$COMMIT_B" >>"$ETC/dgclaw.env"
+rm -f "$LIB/web/atualizacao/parecer.json"
+dgclaw atualizar --simular >"$TMP/inst1.txt" 2>&1
+parecer_com segura "B para C"
+afirma "o parecer guardou o commit instalado (B)" bash -c "[ \"\$(jq -r .commit_instalado '$LIB/web/atualizacao/parecer.json')\" = '$COMMIT_B' ]"
+sed -i '/^DGCLAW_COMMIT=/d' "$ETC/dgclaw.env"; echo "DGCLAW_COMMIT=$COMMIT_A" >>"$ETC/dgclaw.env"   # a instalacao voltou para A
+NB_ANTES2="$(find "$BACKUPS" -mindepth 1 -maxdepth 1 -type d | wc -l)"
+dgclaw atualizar --ok-do-dono >"$TMP/inst2.txt" 2>&1; rc=$?
+igual "ok-do-dono recusa quando a versao instalada nao e a do parecer" "1" "$rc"
+afirma "diz as duas versoes" grep -q "quem estava na versao ${COMMIT_B:0:10}, mas a versao instalada agora e ${COMMIT_A:0:10}" "$TMP/inst2.txt"
+afirma "pede novo simular e novo parecer" grep -q "grave o parecer de novo" "$TMP/inst2.txt"
+igual "parou antes do backup" "$NB_ANTES2" "$(find "$BACKUPS" -mindepth 1 -maxdepth 1 -type d | wc -l)"
+sed -i '/^DGCLAW_COMMIT=/d' "$ETC/dgclaw.env"; echo "DGCLAW_COMMIT=$COMMIT_B" >>"$ETC/dgclaw.env"
+dgclaw atualizar --ok-do-dono >"$TMP/inst3.txt" 2>&1; rc=$?
+igual "com a instalacao de volta em B, o mesmo parecer vale" "0" "$rc"
+[ "$rc" -eq 0 ] || sed 's/^/      | /' "$TMP/inst3.txt" | tail -n 20
+
 fim

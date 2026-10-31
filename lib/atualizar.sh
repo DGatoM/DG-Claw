@@ -470,7 +470,7 @@ atualizar_gravar_parecer() {
 # atualizar_conferir_parecer: chamado pelo --ok-do-dono, antes do backup. Exige parecer 'segura' para o destino
 # (ou 'arriscada' com --apesar-do-alerta). Sem destino conhecido (sem git) nao ha a que comparar.
 atualizar_conferir_parecer() {
-    local arq alvo lido commit veredito motivo data pers modo
+    local arq alvo lido commit veredito motivo data pers modo inst_parecer
     alvo="${ATU_DESTINO:-}"
     if [ -z "$alvo" ]; then
         # Sem identidade verificavel do destino nao ha a que prender o parecer: bloqueia, em vez de deixar passar.
@@ -484,16 +484,23 @@ atualizar_conferir_parecer() {
         falha "falta o parecer sobre a versao ${alvo:0:10} (nao existe $arq). Nunca se atualiza as cegas." \
               "rode o relatorio (sudo dgclaw atualizar --simular), leia o que muda e o que este DG Claw usa, diga ao dono se e segura e vale a pena, e grave o veredito: sudo dgclaw atualizar --parecer segura --commit <commit do DESTINO> --motivo \"<texto curto>\" (ou arriscada). Depois repita com --ok-do-dono. Nada foi mudado (parei antes do backup)."
     fi
-    if ! lido="$(jq -r '[(.commit_alvo // ""), (.veredito // ""), (.motivo // ""), (.data // ""), (.personalizacoes // "-"), (.modo // "-")] | @tsv' "$arq" 2>&1)"; then
+    if ! lido="$(jq -r '[(.commit_alvo // ""), (.veredito // ""), (.motivo // ""), (.data // ""), (.personalizacoes // "-"), (.modo // "-"), (.commit_instalado // "-")] | @tsv' "$arq" 2>&1)"; then
         falha "nao consegui ler o parecer em $arq ($(printf '%s' "$lido" | head -n 1 | tr -d '\000-\037\177' | cut -c1-120))." \
               "grave o parecer de novo: sudo dgclaw atualizar --parecer segura --commit <commit do DESTINO> --motivo \"<texto curto>\". Nada foi mudado."
     fi
-    IFS=$'\t' read -r commit veredito motivo data pers modo <<<"$lido"
+    IFS=$'\t' read -r commit veredito motivo data pers modo inst_parecer <<<"$lido"
     motivo="$(printf '%s' "$motivo" | tr -d '\000-\037\177' | cut -c1-300)"
     if [ "$commit" != "$alvo" ]; then
         atualizar_registrar bloqueio "alvo=${alvo:0:12} motivo=parecer-de-outro-commit(${commit:0:12})"
         falha "o parecer gravado e sobre outra versao (${commit:0:10}); a versao a instalar agora e ${alvo:0:10}." \
               "refaca a analise desta versao (sudo dgclaw atualizar --simular), diga ao dono e grave o parecer novo: sudo dgclaw atualizar --parecer segura|arriscada --motivo \"<texto curto>\". Nada foi mudado (parei antes do backup)."
+    fi
+    # O parecer foi dado para sair de uma versao instalada para o destino. Se a instalacao andou (voltou, foi atualizada
+    # a mao), o que foi analisado nao e mais o que vai acontecer.
+    if [ "$inst_parecer" != "${ATU_COMMIT_ANTIGO:-}" ]; then
+        atualizar_registrar bloqueio "alvo=${alvo:0:12} motivo=instalado-mudou(${inst_parecer:0:12}->${ATU_COMMIT_ANTIGO:0:12})"
+        falha "o parecer foi dado para quem estava na versao ${inst_parecer:0:10}, mas a versao instalada agora e ${ATU_COMMIT_ANTIGO:0:10} (destino ${alvo:0:10})." \
+              "a instalacao mudou depois da analise. Rode 'sudo dgclaw atualizar --simular', leia o relatorio novo e grave o parecer de novo (--parecer segura|arriscada --commit <commit do DESTINO>). Nada foi mudado (parei antes do backup)."
     fi
     if [ "$pers" != "${ATU_PERS_HEAD:-nenhuma}" ] || [ "$modo" != "${ATU_MODO_INST:-oficial}" ]; then
         atualizar_registrar bloqueio "alvo=${alvo:0:12} motivo=personalizacoes-ou-modo-mudaram"

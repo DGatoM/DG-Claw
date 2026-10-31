@@ -116,6 +116,11 @@ suporte_fps_de_texto() {
         if [ -n "$linha" ] && [ "${linha:0:1}" != "#" ]; then candidatas=$((candidatas + 1)); fi
     done <<<"$1"
     [ "$candidatas" -gt 0 ] || return 0
+    # cert-authority: o ssh-keygen daria o fingerprint da CA, nao o de quem ela autoriza; nao tenho como conferir.
+    if grep -qE '(^|[[:space:],])cert-authority([[:space:],=]|$)' <<<"$1"; then
+        SUP_FPARQ_ERRO="ha uma linha com a opcao cert-authority: ela autoriza certificados emitidos por uma CA, e a revogacao de chaves nao revoga certificados"
+        return 2
+    fi
     if ! command -v ssh-keygen >/dev/null 2>&1; then SUP_FPARQ_ERRO="o ssh-keygen nao esta instalado (pacote openssh-client)"; return 2; fi
     tmp="$(mktemp)" || { SUP_FPARQ_ERRO="nao consegui criar um arquivo temporario"; return 2; }
     printf '%s\n' "$1" >"$tmp"
@@ -214,7 +219,7 @@ suporte_varrer_config() {
         # Primeiro so a palavra-chave: linhas que nao importam nem passam pelo tokenizador.
         d="${linha#"${linha%%[![:space:]]*}"}"; d="${d%%[[:space:]=]*}"; d="${d,,}"
         case "$d" in
-            match|include|authorizedkeysfile|authorizedkeyscommand|authorizedkeyscommanduser) ;;
+            match|include|authorizedkeysfile|authorizedkeyscommand|authorizedkeyscommanduser|trustedusercakeys|authorizedprincipalsfile|authorizedprincipalscommand|authorizedprincipalscommanduser) ;;
             *) continue ;;
         esac
         rc=0; suporte_ler_diretiva "$linha" || rc=$?
@@ -420,6 +425,10 @@ suporte_fontes_de_chaves() {
                 "rode como root e confira a configuracao com: sudo sshd -T${conf:+ -f $conf}. Sem essa conferencia nao liguei o acesso."
         fi
         out="$(suporte_fontes_de_uma_config "$saida")" || exit 1
+        if [ "${SUP_EXIGIR_GERENCIADO:-0}" = 1 ] && ! grep -qxF "$(suporte_arq)" <<<"$out"; then
+            falha "o sshd deste servidor${conf:+ (rodando com -f $conf)} nao le $(suporte_arq), que e onde o suporte grava a chave. Ele le: $(printf '%s' "${out//$R/}" | tr '\n' ' ')." \
+                "o acesso ligado ali nunca funcionaria e a conferencia de desligar ficaria falsa. Ajuste o AuthorizedKeysFile do sshd para incluir .ssh/authorized_keys, ou use outro acesso. Nao gravei nada."
+        fi
         lista+="$out"$'\n'
     done
     printf '%s' "$lista" | awk 'NF && !visto[$0]++'
@@ -435,6 +444,11 @@ suporte_fontes_de_uma_config() {
                 if [ -n "$valor" ] && [ "${valor,,}" != none ]; then
                     falha "o sshd deste servidor usa AuthorizedKeysCommand ($valor), que busca chaves fora de arquivos, e eu nao consigo conferir se a chave do suporte ja tem acesso por ali." \
                         "tire o AuthorizedKeysCommand do sshd_config (ou use outra forma de acesso para o suporte) e rode de novo."
+                fi ;;
+            trustedusercakeys|authorizedprincipalsfile|authorizedprincipalscommand)
+                if [ -n "$valor" ] && [ "${valor,,}" != none ]; then
+                    falha "o sshd deste servidor aceita login por certificado SSH (${chave} ${valor:0:60}), e tirar a linha da chave do suporte nao revoga certificados ja emitidos." \
+                        "desligue o login por certificado (TrustedUserCAKeys, AuthorizedPrincipalsFile, AuthorizedPrincipalsCommand) ou use outra forma de acesso para o suporte, e rode de novo. Sem isso nao consigo garantir que o acesso fica desligado."
                 fi ;;
             authorizedkeysfile)
                 if [[ "$valor" == *[\"\'\\]* ]]; then
@@ -471,7 +485,7 @@ suporte_fontes_de_uma_config() {
 # de chaves que o sshd aceita para o root. A linha marcada do authorized_keys principal e tratada no suporte_ligar.
 suporte_exigir_chave_sem_acesso_permanente() {
     local fontes arq propria rc
-    fontes="$(suporte_fontes_de_chaves)" || exit 1
+    fontes="$(SUP_EXIGIR_GERENCIADO=1 suporte_fontes_de_chaves)" || exit 1
     propria="$(suporte_arq)"
     while IFS= read -r arq; do
         [ -n "$arq" ] || continue
@@ -646,7 +660,8 @@ suporte_ligar() {
             if [[ -n "${linha//[[:space:]]/}" && ! "$linha" =~ ^[[:space:]]*# ]]; then
                 fp_l="$(suporte_fp_da_linha "$linha")"
                 if [ "$fp_l" = "?" ]; then
-                    falha "uma linha do $(suporte_arq) nao e entendida pelo ssh-keygen (${linha:0:40}...), entao nao consigo confirmar que a chave do suporte nao esta ali como acesso permanente." \
+                    suporte_fps_de_texto "$linha" || true   # de novo aqui para ter o motivo (o $(...) acima perde a variavel)
+                    falha "uma linha do $(suporte_arq) nao pode ser conferida (${linha:0:40}..., ${SUP_FPARQ_ERRO}), entao nao consigo confirmar que a chave do suporte nao esta ali como acesso permanente." \
                         "corrija ou tire essa linha (ssh-keygen -l -f $(suporte_arq) mostra o que ele reconhece) e ligue de novo. Nao mexi no arquivo."
                 fi
             fi
