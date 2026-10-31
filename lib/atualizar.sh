@@ -443,7 +443,9 @@ atualizar_gravar_parecer() {
               "rode 'sudo dgclaw atualizar --simular', leia o relatorio novo e de o parecer de novo."
     fi
     instalado="${ATU_COMMIT_ANTIGO:-}"
-    if [ "$alvo" = "$instalado" ] && [ "${PERS_ATIVO:-0}" != 1 ]; then
+    # So vale quando a origem da versao instalada e verificavel: o "HEAD do clone" e um palpite, e com o clone ja puxado
+    # a mao ele e igual ao destino, o que travaria o parecer (e, sem parecer, o --ok-do-dono) sem saida.
+    if [ "$alvo" = "$instalado" ] && [ "${PERS_ATIVO:-0}" != 1 ] && [ "${ATU_COMMIT_ORIGEM:-}" != "HEAD do clone" ]; then
         falha "o destino (${alvo:0:10}) e o commit que ja esta instalado: nao ha atualizacao para dar parecer." "nada a fazer. Se acredita que saiu versao nova, confira: sudo dgclaw atualizar --checar"
     fi
     # O comando inteiro roda em modo ensaio (ler o que muda nao pode mudar nada); gravar o parecer e a unica excecao.

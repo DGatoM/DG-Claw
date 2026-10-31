@@ -688,4 +688,20 @@ afirma "diz o que fazer (clone git oficial)" grep -q 'git clone' "$TMP/sg.txt"
 nega "nao segue so com o ok do dono" grep -q 'sigo so com o ok do dono' "$TMP/sg.txt"
 
 
+echo "instalacao sem DGCLAW_COMMIT valido nem hash na versao, clone ja puxado a mao: o parecer fecha o ciclo"
+sed -i '/^DGCLAW_COMMIT=/d; s/^DGCLAW_VERSAO=.*/DGCLAW_VERSAO=desconhecida/' "$ETC/dgclaw.env"
+rm -f "$LIB/web/atualizacao/parecer.json"
+git -C "$TRAB" commit -q --allow-empty -m v7; git -C "$TRAB" push -q origin main
+git -C "$CLONE" pull -q --ff-only origin main   # o clone andou a mao: HEAD == destino, origem da versao = "HEAD do clone"
+dgclaw atualizar --sem-baixar --simular >"$TMP/ciclo1.txt" 2>&1
+DEST_CICLO="$(sed -n 's/^DESTINO=//p' "$TMP/ciclo1.txt" | head -n 1)"
+afirma "o relatorio traz o destino" test -n "$DEST_CICLO"
+dgclaw atualizar --ok-do-dono --sem-baixar >"$TMP/ciclo2.txt" 2>&1; rc=$?
+igual "sem parecer, o ok-do-dono recusa" "1" "$rc"
+afirma "e pede o parecer" grep -q "falta o parecer" "$TMP/ciclo2.txt"
+dgclaw atualizar --parecer segura --commit "$DEST_CICLO" --motivo "ciclo" --sem-baixar >"$TMP/ciclo3.txt" 2>&1; rc=$?
+igual "o parecer e gravado mesmo com a origem 'HEAD do clone'" "0" "$rc"
+afirma "o parecer existe" test -f "$LIB/web/atualizacao/parecer.json"
+nega "nao recusa mais por 'destino igual ao instalado'" grep -q "ja esta instalado" "$TMP/ciclo3.txt"
+
 fim

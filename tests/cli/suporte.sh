@@ -6,6 +6,8 @@ set -uo pipefail
 # shellcheck source=tests/cli/_comum.sh
 . "$(dirname "$0")/_comum.sh"
 preparar
+# /proc falso e vazio: o teste nao pode herdar as opcoes do sshd de verdade da maquina.
+export DGCLAW_PROC="$TMP/proc-falso"; mkdir -p "$DGCLAW_PROC"
 command -v ssh-keygen >/dev/null || { echo "falta o ssh-keygen no PATH (pacote openssh-client)" >&2; exit 1; }
 
 AGORA_S="$(date -u -d '2026-11-01 12:00:00' +%s)"
@@ -709,5 +711,78 @@ wait "$LOCKPID" "$LPID" 2>/dev/null
 afirma "a linha viu a renovacao feita enquanto esperava a trava" grep -q "ligado ate" "$TMP/linha-renovada.txt"
 nega "e nao usou o conteudo velho (vencida)" grep -q "vencida" "$TMP/linha-renovada.txt"
 printf '%s\n' "$ALHEIA1" >"$ARQ"
+
+echo "--como o sshd foi iniciado (-f e -o): SSHD_OPTS, ExecStart e processo em execucao"
+printf '%s\n' "$ALHEIA1" >"$ARQ"; rm -f "$ALERTA" "$STUB_ESTADO/sshd-T"; : >"$PEND"
+printf 'PasswordAuthentication no\n' >"$CFG"
+OUTRO="$DGCLAW_RAIZ/etc/ssh/outro.conf"
+printf 'PasswordAuthentication no\n' >"$OUTRO"
+EXTRA_CH="$DGCLAW_RAIZ/root/.ssh/extra_chaves"
+printf 'port 22\nauthorizedkeysfile .ssh/authorized_keys /root/.ssh/extra_chaves\nauthorizedkeyscommand none\n' >"$OUTRO.T"
+printf '%s\n' "$(cat "$TMP/suporte.pub")" >"$EXTRA_CH"
+mkdir -p "$DGCLAW_RAIZ/etc/default"
+DEF="$DGCLAW_RAIZ/etc/default/ssh"
+printf '# opcoes\nSSHD_OPTS="-f /etc/ssh/outro.conf"\n' >"$DEF"
+dgclaw suporte ligar --chave "$CHAVE" >"$TMP/o.txt" 2>&1; rc=$?
+igual "SSHD_OPTS com -f para config com a chave em outro arquivo: ligar recusa" 1 "$rc"
+afirma "aponta o arquivo extra" grep -q "extra_chaves" "$TMP/o.txt"
+rm -f "$DEF"
+dgclaw suporte ligar --chave "$CHAVE" >/dev/null 2>&1   # sem opcoes diferentes: liga normalmente
+printf 'SSHD_OPTS="-f /etc/ssh/outro.conf"\n' >"$DEF"
+dgclaw suporte desligar >"$TMP/o.txt" 2>&1; rc=$?
+igual "desligar com o -f ativo: a chave segue no arquivo extra, sai 1" 1 "$rc"
+nega "e nao anuncia desligado" grep -q "acesso do suporte desligado" "$TMP/o.txt"
+afirma "diz onde a chave segue" grep -q "extra_chaves" "$TMP/o.txt"
+rm -f "$EXTRA_CH" "$DEF"; dgclaw suporte status >/dev/null 2>&1; rm -f "$ALERTA"; : >"$PEND"
+
+printf 'SSHD_OPTS="-D -o AuthorizedKeysFile=/x"\n' >"$DEF"
+dgclaw suporte ligar --chave "$CHAVE" >"$TMP/o.txt" 2>&1; rc=$?
+igual "SSHD_OPTS com -o: ligar recusa" 1 "$rc"
+afirma "diz que viu no /etc/default/ssh e a opcao" grep -q "opcao -o 'AuthorizedKeysFile=/x' (visto em /etc/default/ssh)" "$TMP/o.txt"
+printf 'SSHD_OPTS="-oPort=22"\n' >"$DEF"
+nega "-oX colado tambem recusa" dgclaw suporte ligar --chave "$CHAVE"
+# shellcheck disable=SC2016
+printf 'SSHD_OPTS="-f $OUTRO"\n' >"$DEF"
+nega "SSHD_OPTS com expansao de variavel: inconclusivo, recusa" dgclaw suporte ligar --chave "$CHAVE"
+printf 'SSHD_OPTS="-f outro.conf"\n' >"$DEF"
+nega "-f relativo: recusa" dgclaw suporte ligar --chave "$CHAVE"
+printf 'SSHD_OPTS=\n' >"$DEF"
+afirma "SSHD_OPTS vazio nao atrapalha" dgclaw suporte ligar --chave "$CHAVE"
+dgclaw suporte desligar >/dev/null 2>&1; rm -f "$DEF"
+
+printf '{ path=/usr/sbin/sshd ; argv[]=/usr/sbin/sshd -D -o PermitRootLogin=yes ; ignore_errors=no ; start_time=[n/a] }\n' >"$STUB_ESTADO/execstart-ssh.service"
+dgclaw suporte ligar --chave "$CHAVE" >"$TMP/o.txt" 2>&1; rc=$?
+igual "ExecStart com -o: ligar recusa" 1 "$rc"
+afirma "diz que viu no ExecStart de ssh.service" grep -q "visto em o ExecStart de ssh.service" "$TMP/o.txt"
+# shellcheck disable=SC2016
+printf '{ path=/usr/sbin/sshd ; argv[]=/usr/sbin/sshd -D $SSHD_OPTS ; ignore_errors=no }\n' >"$STUB_ESTADO/execstart-ssh.service"
+afirma "ExecStart com so \$SSHD_OPTS (vazio) liga" dgclaw suporte ligar --chave "$CHAVE"
+dgclaw suporte desligar >/dev/null 2>&1
+printf 'SSHD_OPTS="-f /etc/ssh/outro.conf"\n' >"$DEF"; printf '%s\n' "$(cat "$TMP/suporte.pub")" >"$EXTRA_CH"
+nega "ExecStart com \$SSHD_OPTS trazendo -f para config com a chave: recusa" dgclaw suporte ligar --chave "$CHAVE"
+# shellcheck disable=SC2016
+printf '{ path=/usr/sbin/sshd ; argv[]=/usr/sbin/sshd -D -f /etc/ssh/%s ; ignore_errors=no }\n' '$OUTRA' >"$STUB_ESTADO/execstart-ssh.service"
+nega "ExecStart com variavel desconhecida: recusa" dgclaw suporte ligar --chave "$CHAVE"
+rm -f "$STUB_ESTADO/execstart-ssh.service" "$DEF" "$EXTRA_CH"
+
+mkdir -p "$DGCLAW_PROC/4242" "$DGCLAW_PROC/4243" "$DGCLAW_PROC/4244"
+printf '/usr/sbin/sshd\0-D\0-f\0/etc/ssh/outro.conf\0' >"$DGCLAW_PROC/4242/cmdline"
+printf '%s\n' "$(cat "$TMP/suporte.pub")" >"$EXTRA_CH"
+dgclaw suporte ligar --chave "$CHAVE" >"$TMP/o.txt" 2>&1; rc=$?
+igual "processo sshd com -f (cmdline real): usa a config dele, ligar recusa" 1 "$rc"
+afirma "aponta o arquivo extra" grep -q "extra_chaves" "$TMP/o.txt"
+rm -f "$DGCLAW_PROC/4242/cmdline"
+printf 'sshd: /usr/sbin/sshd -D -f /etc/ssh/outro.conf [listener] 0 of 10-100 startups' >"$DGCLAW_PROC/4243/cmdline"
+nega "mestre com o titulo reescrito (Ubuntu): tambem pego" dgclaw suporte ligar --chave "$CHAVE"
+printf 'sshd: /usr/sbin/sshd -D -o Port=2222 [listener] 0 of 10-100 startups' >"$DGCLAW_PROC/4243/cmdline"
+dgclaw suporte ligar --chave "$CHAVE" >"$TMP/o.txt" 2>&1; rc=$?
+igual "mestre com -o no titulo: recusa" 1 "$rc"
+afirma "diz que viu no processo" grep -q "visto em o processo sshd 4243" "$TMP/o.txt"
+printf 'sshd: root@pts/0' >"$DGCLAW_PROC/4244/cmdline"; rm -f "$DGCLAW_PROC/4243/cmdline"
+rm -f "$EXTRA_CH"
+afirma "processo de sessao (sshd: root@pts/0) nao e mestre: liga normal" dgclaw suporte ligar --chave "$CHAVE"
+dgclaw suporte desligar >/dev/null 2>&1
+rm -rf "$DGCLAW_PROC"; mkdir -p "$DGCLAW_PROC"
+rm -f "$ALERTA" "$OUTRO" "$OUTRO.T"; : >"$PEND"
 
 fim

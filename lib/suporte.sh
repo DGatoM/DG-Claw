@@ -253,7 +253,8 @@ suporte_varrer_config() {
 
 # suporte_exigir_config_sem_match: recusa (falha) se o sshd_config tem fonte de chave condicional ou nao deu para ler.
 suporte_exigir_config_sem_match() {
-    local cfg="$R${DGCLAW_SSHD_CONFIG:-/etc/ssh/sshd_config}" rc=0
+    local logico="${1:-${DGCLAW_SSHD_CONFIG:-/etc/ssh/sshd_config}}" cfg rc=0
+    cfg="$R$logico"
     SUP_CFG_N=0; SUP_CFG_EM_MATCH=0; SUP_CFG_ERRO=""
     suporte_varrer_config "$cfg" 0 || rc=$?
     if [ "$rc" -eq 1 ]; then
@@ -261,7 +262,135 @@ suporte_exigir_config_sem_match() {
             "um bloco Match com AuthorizedKeysFile ou AuthorizedKeysCommand pode aceitar a chave do suporte por outro caminho. Tire essa linha do Match (ou use outra forma de acesso para o suporte) e rode de novo."
     elif [ "$rc" -eq 2 ]; then
         falha "nao consegui ler a configuracao do sshd para verificar as fontes de chave condicionais (${SUP_CFG_ERRO})." \
-            "confira com: ls -l ${DGCLAW_SSHD_CONFIG:-/etc/ssh/sshd_config} (e os arquivos de Include). Sem essa conferencia nao dou o acesso como desligado."
+            "confira com: ls -l $logico (e os arquivos de Include). Sem essa conferencia nao dou o acesso como desligado."
+    fi
+}
+
+# --- como o sshd ativo foi iniciado ---------------------------------------------------------------------
+# O sshd pode rodar com `-f outro.conf` ou `-o Opcao=valor` (SSHD_OPTS, ExecStart do servico, processo ja rodando); ler so
+# o sshd_config padrao seria conferir a configuracao errada. Juntam-se tres fontes: (a) os processos sshd mestres em
+# execucao, (b) o ExecStart de ssh.service e sshd.service, (c) SSHD_OPTS em /etc/default/ssh e /etc/sysconfig/sshd.
+# DGCLAW_PROC troca a raiz do /proc e DGCLAW_SYSTEMCTL o programa (testes). Resultado: SUP_SSHD_CONFS (arquivos -f alem do
+# padrao). Qualquer -o, ou coisa que eu nao entenda com certeza, e inconclusivo (falha).
+
+# suporte_analisar_opcoes_sshd <origem> <argumentos do sshd...>: le como o getopt do sshd.
+suporte_analisar_opcoes_sshd() {
+    local origem="$1" a rest val i k c padrao="${DGCLAW_SSHD_CONFIG:-/etc/ssh/sshd_config}" ja
+    shift
+    while [ $# -gt 0 ]; do
+        a="$1"; shift
+        case "$a" in
+            --) break ;;
+            -?*) ;;
+            *) continue ;;
+        esac
+        rest="${a:1}"
+        for ((i = 0; i < ${#rest}; i++)); do
+            c="${rest:i:1}"
+            case "$c" in
+                f|o|b|C|c|E|g|h|k|p|u)
+                    val="${rest:i+1}"
+                    if [ -z "$val" ]; then val="${1:-}"; [ $# -eq 0 ] || shift; fi
+                    if [ "$c" = o ]; then
+                        falha "o sshd esta rodando com a opcao -o '$val' (visto em $origem), que muda a configuracao por fora do sshd_config, e eu nao consigo verificar o que isso aceita." \
+                            "tire a opcao -o do jeito que o sshd e iniciado (SSHD_OPTS em /etc/default/ssh ou o ExecStart do servico), ponha-a no sshd_config, reinicie o sshd e rode de novo."
+                    elif [ "$c" = f ]; then
+                        case "$val" in
+                            /*) ;;
+                            *) falha "o sshd esta rodando com -f '$val' (visto em $origem), um caminho relativo que eu nao sei resolver." \
+                                   "inicie o sshd com o caminho completo no -f e rode de novo." ;;
+                        esac
+                        if [ "$val" != "$padrao" ]; then
+                            ja=0; for k in ${SUP_SSHD_CONFS[@]+"${SUP_SSHD_CONFS[@]}"}; do [ "$k" != "$val" ] || ja=1; done
+                            if [ "$ja" = 0 ]; then SUP_SSHD_CONFS+=("$val"); fi
+                        fi
+                    fi
+                    break ;;
+            esac
+        done
+    done
+}
+
+# suporte_descobrir_opcoes_sshd: preenche SUP_SSHD_CONFS lendo as tres fontes; falha se algo nao der para entender.
+suporte_descobrir_opcoes_sshd() {
+    local proc="${DGCLAW_PROC:-/proc}" sc="${DGCLAW_SYSTEMCTL:-systemctl}" d a0 titulo unit saida argv f linha val
+    local -a arr toks
+    local fontes_lidas=0 opts_val=""
+    SUP_SSHD_CONFS=()
+    # (c) SSHD_OPTS: so a atribuicao literal. Expansao de variavel ou qualquer coisa estranha e inconclusivo.
+    for f in /etc/default/ssh /etc/sysconfig/sshd; do
+        [ -e "$R$f" ] || continue
+        fontes_lidas=1
+        if [ ! -f "$R$f" ] || [ ! -r "$R$f" ]; then
+            falha "nao consegui ler $f para saber com que opcoes o sshd inicia." "confira com: ls -l $f. Sem essa conferencia nao consigo verificar a configuracao ativa do sshd."
+        fi
+        val=""
+        while IFS= read -r linha || [ -n "$linha" ]; do
+            if [[ "$linha" =~ ^[[:space:]]*(export[[:space:]]+)?(SSHD_OPTS|OPTIONS)=(.*)$ ]]; then
+                val="${BASH_REMATCH[3]}"
+                if [[ "$val" =~ ^\"([^\"]*)\"[[:space:]]*(#.*)?$ ]]; then val="${BASH_REMATCH[1]}"
+                elif [[ "$val" =~ ^\'([^\']*)\'[[:space:]]*(#.*)?$ ]]; then val="${BASH_REMATCH[1]}"
+                elif [[ "$val" =~ ^([^[:space:]\"\'#]*)[[:space:]]*(#.*)?$ ]]; then val="${BASH_REMATCH[1]}"
+                else
+                    falha "a linha de opcoes do sshd em $f tem um formato que nao sei interpretar (${linha:0:60})." \
+                        "deixe a atribuicao simples, ex.: SSHD_OPTS=\"-f /etc/ssh/outro.conf\", e rode de novo."
+                fi
+                if [[ "$val" == *[\$\`\\\(\)\;\&\|\<\>]* ]]; then
+                    falha "as opcoes do sshd em $f usam expansao ou caracteres que eu nao sei interpretar (${val:0:60})." \
+                        "deixe so opcoes literais (ex.: -f /etc/ssh/outro.conf) e rode de novo."
+                fi
+            fi
+        done <"$R$f"
+        if [ -n "$val" ]; then
+            opts_val+="$val "
+            read -ra toks <<<"$val"
+            suporte_analisar_opcoes_sshd "$f" "${toks[@]}"
+        fi
+    done
+    # (a) processos sshd mestres em execucao.
+    if [ -d "$proc" ] && [ -r "$proc" ]; then
+        fontes_lidas=1
+        for d in "$proc"/[0-9]*; do
+            [ -r "$d/cmdline" ] || continue
+            mapfile -t arr < <(tr '\0' '\n' <"$d/cmdline" 2>/dev/null)
+            [ "${#arr[@]}" -gt 0 ] || continue
+            a0="${arr[0]}"
+            if [ "${a0##*/}" = sshd ] && [[ "$a0" != "sshd: "* ]]; then
+                suporte_analisar_opcoes_sshd "o processo sshd $(basename "$d")" "${arr[@]:1}"
+            elif [[ "$a0" == "sshd: /"* ]]; then
+                # O mestre reescreve o titulo: "sshd: /usr/sbin/sshd -D [listener] 0 of 10-100 startups".
+                titulo="${a0#sshd: }"; titulo="${titulo%%\[*}"
+                read -ra toks <<<"$titulo"
+                suporte_analisar_opcoes_sshd "o processo sshd $(basename "$d")" "${toks[@]:1}"
+            fi
+        done
+    fi
+    # (b) ExecStart das unidades do systemd.
+    if command -v "$sc" >/dev/null 2>&1; then
+        for unit in ssh.service sshd.service; do
+            saida="$("$sc" show -p ExecStart --value "$unit" 2>/dev/null)" || continue
+            fontes_lidas=1
+            [ -n "$saida" ] || continue
+            argv="$(grep -oE 'argv\[\]=[^;]*' <<<"$saida" || true)"
+            if [ -z "$argv" ]; then
+                falha "nao entendi o ExecStart de $unit ($(printf '%s' "$saida" | head -c 80))." "confira com: systemctl show -p ExecStart $unit. Sem isso nao consigo verificar a configuracao ativa do sshd."
+            fi
+            while IFS= read -r linha; do
+                linha="${linha#argv[]=}"
+                linha="${linha//\$\{SSHD_OPTS\}/$opts_val}"; linha="${linha//\$SSHD_OPTS/$opts_val}"
+                if [[ "$linha" == *[\$%\`\\]* ]]; then
+                    falha "o ExecStart de $unit usa variavel ou expansao que eu nao sei interpretar (${linha:0:80})." \
+                        "deixe o ExecStart com opcoes literais (ou so \$SSHD_OPTS definido em /etc/default/ssh) e rode de novo."
+                fi
+                read -ra toks <<<"$linha"
+                suporte_analisar_opcoes_sshd "o ExecStart de $unit" "${toks[@]:1}"
+            done <<<"$argv"
+        done
+    fi
+    # Nenhuma fonte legivel: so e inconclusivo se ha indicio de sshd rodando (pidfile); sem indicio, vale a configuracao padrao.
+    if [ "$fontes_lidas" = 0 ] && { [ -e "$R/run/sshd.pid" ] || [ -e "$R/var/run/sshd.pid" ]; }; then
+        falha "ha um sshd rodando (pidfile em /run/sshd.pid), mas nao consegui ler nenhuma das tres fontes de como ele foi iniciado (/proc, systemctl, /etc/default/ssh)." \
+            "rode como root num servidor com /proc e systemd acessiveis. Sem isso nao consigo verificar a configuracao ativa do sshd."
     fi
 }
 
@@ -269,9 +398,10 @@ suporte_exigir_config_sem_match() {
 # `sshd -T` diz, nao o que se supoe). Recusa se nao der para saber: acesso temporario sobre um permanente
 # escondido num authorized_keys2 viraria "desligado" mentiroso. DGCLAW_SSHD troca o programa (testes).
 suporte_fontes_de_chaves() {
-    local sshd_cmd="${DGCLAW_SSHD:-sshd}" saida rc=0 linha chave valor home pad tok f
-    local -a pads=()
-    suporte_exigir_config_sem_match
+    local sshd_cmd="${DGCLAW_SSHD:-sshd}" saida rc=0 conf alvo out lista=""
+    local -a confs=()
+    suporte_descobrir_opcoes_sshd
+    confs=("" ${SUP_SSHD_CONFS[@]+"${SUP_SSHD_CONFS[@]}"})   # "" = o padrao
     if ! command -v "$sshd_cmd" >/dev/null 2>&1; then
         if [ -z "${DGCLAW_SSHD:-}" ] && [ -x /usr/sbin/sshd ]; then sshd_cmd=/usr/sbin/sshd
         else
@@ -279,11 +409,26 @@ suporte_fontes_de_chaves() {
                 "instale o servidor SSH (sudo apt-get install -y openssh-server) e rode de novo. Sem essa conferencia nao liguei o acesso."
         fi
     fi
-    saida="$("$sshd_cmd" -T -C user=root,host=localhost,addr=127.0.0.1 2>&1)" || rc=$?
-    if [ "$rc" -ne 0 ]; then
-        falha "o 'sshd -T' falhou com codigo $rc (${saida:0:160}), entao nao consigo conferir de onde o servidor aceita chaves do root." \
-            "rode como root e confira a configuracao com: sudo sshd -T. Sem essa conferencia nao liguei o acesso."
-    fi
+    for conf in "${confs[@]}"; do
+        alvo=""; [ -z "$conf" ] || alvo="$conf"
+        suporte_exigir_config_sem_match ${alvo:+"$alvo"}
+        rc=0
+        if [ -n "$conf" ]; then saida="$("$sshd_cmd" -T -f "$R$conf" -C user=root,host=localhost,addr=127.0.0.1 2>&1)" || rc=$?
+        else saida="$("$sshd_cmd" -T -C user=root,host=localhost,addr=127.0.0.1 2>&1)" || rc=$?; fi
+        if [ "$rc" -ne 0 ]; then
+            falha "o 'sshd -T${conf:+ -f $conf}' falhou com codigo $rc (${saida:0:160}), entao nao consigo conferir de onde o servidor aceita chaves do root." \
+                "rode como root e confira a configuracao com: sudo sshd -T${conf:+ -f $conf}. Sem essa conferencia nao liguei o acesso."
+        fi
+        out="$(suporte_fontes_de_uma_config "$saida")" || exit 1
+        lista+="$out"$'\n'
+    done
+    printf '%s' "$lista" | awk 'NF && !visto[$0]++'
+}
+
+# suporte_fontes_de_uma_config <saida do sshd -T>: imprime os arquivos de chaves daquela configuracao.
+suporte_fontes_de_uma_config() {
+    local saida="$1" chave valor home pad tok f
+    local -a pads=()
     while IFS=' ' read -r chave valor; do
         case "${chave,,}" in
             authorizedkeyscommand)
@@ -320,6 +465,7 @@ suporte_fontes_de_chaves() {
         printf '%s\n' "$R$f"
     done
 }
+
 
 # suporte_exigir_chave_sem_acesso_permanente: a chave nao pode estar, fora da nossa linha marcada, em nenhum arquivo
 # de chaves que o sshd aceita para o root. A linha marcada do authorized_keys principal e tratada no suporte_ligar.
