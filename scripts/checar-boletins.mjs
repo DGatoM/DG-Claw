@@ -28,6 +28,7 @@ if (!path.isAbsolute(RAIZ)) {
 }
 const ARQ_ENV = path.join(RAIZ, 'etc/dgclaw/dgclaw.env');
 const ARQ_INSTALADO = path.join(RAIZ, 'opt/dgclaw/app/seguranca/boletins.json');
+const ARQ_RONDA = path.join(RAIZ, 'var/lib/dgclaw/web/seguranca/ronda.json');
 const ARQ_TOKEN_ADMIN = path.join(RAIZ, 'etc/dgclaw/runner/admin.token');
 const DIR_ESTADO = path.join(RAIZ, 'var/lib/dgclaw/web/atualizacao');
 const ARQ_ESTADO = path.join(DIR_ESTADO, 'boletins.json');
@@ -46,7 +47,7 @@ const ROTULO_GRAVIDADE = { CRITICAL: 'crítica', HIGH: 'alta', MEDIUM: 'média',
 // O que o Admin deve dizer ao dono, por ação. Texto fixo escrito aqui; a ação é um enum conferido pelo contrato.
 const ORIENTACAO = {
   'atualizar-dgclaw': 'a correção já foi publicada: recomende atualizar o DG Claw',
-  'atualizar-sistema': 'a correção está nos pacotes do servidor: recomende atualizar os pacotes do sistema, com o dono',
+  'atualizar-sistema': 'a correção está nos pacotes do servidor: recomende atualizar os pacotes do sistema, com o dono; depois de aplicar, confirme com POST /api/v1/seguranca/boletins/<id>/dispensar e o corpo {"confirmo":"aplicado"}, e o aviso some',
   'parar-servico': 'ainda não há correção: o painel explica o que fazer enquanto isso, e você conta ao dono',
   aguardar: 'ainda não há correção: o painel explica a situação, e você conta ao dono que é só acompanhar',
 };
@@ -131,6 +132,32 @@ function idsInstalados() {
     for (const r of Array.isArray(b.relacionados) ? b.relacionados : []) if (typeof r === 'string' && RX_ID.test(r)) ids.add(r);
   }
   return ids;
+}
+
+/** Ids que a ronda local deu por tratados (corrigidos ou aplicados): prova de que o pacote do sistema foi mesmo
+ *  consertado. Ausente ou ilegível = nenhum: sem prova, o boletim segue pendente (o lado seguro). */
+function idsTratadosPelaRonda() {
+  let j;
+  try {
+    j = JSON.parse(fs.readFileSync(ARQ_RONDA, 'utf8'));
+  } catch (e) {
+    if (e.code !== 'ENOENT') anota(`não consegui usar ${ARQ_RONDA} (${e.code || e.name}); sem a ronda, os boletins que não são do DG Claw seguem pendentes até o dono confirmar.`);
+    return new Set();
+  }
+  const ids = new Set();
+  for (const t of j && Array.isArray(j.ja_tratadas) ? j.ja_tratadas : []) {
+    if (!t || typeof t.id !== 'string' || typeof t.como !== 'string') continue;
+    if (/^(corrigido|aplicado)/.test(t.como)) ids.add(t.id.toUpperCase());
+  }
+  return ids;
+}
+
+/** Só a versão nova do DG Claw resolve os boletins de atualizar-dgclaw. Para as demais ações, estar no arquivo instalado
+ *  não prova nada (o pacote do sistema pode continuar vulnerável): é preciso a ronda local listar o id (ou um relacionado)
+ *  como tratado, ou o dono confirmar pela API (dispensar). */
+function resolvido(b, instalados, tratadosRonda) {
+  if (b.acao === 'atualizar-dgclaw' && instalados.has(b.id)) return true;
+  return [b.id, ...(b.relacionados || [])].some((i) => tratadosRonda.has(String(i).toUpperCase()));
 }
 
 // --- rede ---------------------------------------------------------------------------------------
@@ -285,7 +312,8 @@ async function principal() {
       throw new Falha(`A resposta de ${URL_BOLETINS} veio num formato que não aceito (${e.message}). Descartei; tento de novo na próxima rodada.`);
     }
     for (const d of lido.descartados) anota(`boletim descartado${d.id ? ` (${d.id})` : ''}: ${d.motivo}.`);
-    const pendentes = ordena(lido.boletins.filter((b) => !instalados.has(b.id)));
+    const tratadosRonda = idsTratadosPelaRonda();
+    const pendentes = ordena(lido.boletins.filter((b) => !resolvido(b, instalados, tratadosRonda)));
     gravaJson(ARQ_ESTADO, { formato: 1, verificado_em: new Date().toISOString(), desligado: false, erro: null, pendentes });
     anota(`${lido.boletins.length} boletim(ns) válido(s) no GitHub, ${pendentes.length} pendente(s)${lido.descartados.length ? `, ${lido.descartados.length} descartado(s)` : ''}.`);
     process.stdout.write(pendentes.length

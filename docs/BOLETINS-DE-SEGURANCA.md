@@ -26,10 +26,12 @@ A cada hora (e 5 minutos depois de ligar o servidor) um timer roda `scripts/chec
 token e sem conta. **O que sai do servidor é só o IP, como em qualquer acesso.** Nenhum dado da instalação
 (domínio, nome do dono, agentes, conversas, chaves) é enviado.
 
-Um boletim está **pendente** quando está no arquivo publicado e **não** está no `seguranca/boletins.json` da
-versão instalada (`/opt/dgclaw/app/seguranca/boletins.json`). Como o boletim só é publicado depois que a
-correção entrou na `main`, ter o boletim na versão instalada quer dizer ter a correção: ao atualizar, o aviso
-some sozinho.
+Um boletim está **pendente** quando está no arquivo publicado e ainda não foi resolvido. Para `acao:
+"atualizar-dgclaw"`, estar no `seguranca/boletins.json` da versão instalada (`/opt/dgclaw/app/seguranca/boletins.json`)
+resolve: o boletim só é publicado depois que a correção entrou na `main`, então ao atualizar o aviso some sozinho.
+Para `atualizar-sistema`, `parar-servico` e `aguardar`, estar na versão instalada não prova nada (a falha está num pacote do
+sistema), e o boletim fica pendente até a ronda local (`/var/lib/dgclaw/web/seguranca/ronda.json`) listar o id, ou um
+relacionado, em `ja_tratadas` como corrigido ou aplicado, ou até o dono (ou o Admin) dispensar pela API.
 
 Tudo que volta da rede é tratado como dado não confiável: cada campo é conferido (formato do id, valores
 permitidos, tamanho, sem caractere de controle, links só `https://`) antes de ser guardado, e conferido de novo
@@ -81,4 +83,4 @@ servidor). Agente em container não acessa estas rotas. O contrato completo est�
 
 - `GET /api/v1/seguranca/boletins`: os pendentes, com `mostrar_modal` e `adiado_ate`.
 - `POST /api/v1/seguranca/boletins/<id>/adiar`: esconde a janela por 24 horas.
-- `POST /api/v1/seguranca/boletins/<id>/dispensar`: esconde de vez, só nos avisos de ação `aguardar`.
+- `POST /api/v1/seguranca/boletins/<id>/dispensar`: esconde de vez nos avisos de ação `aguardar` e, com o corpo `{"confirmo": "aplicado"}`, nos de `atualizar-sistema` (depois de aplicar a atualização dos pacotes, o Admin confirma e o aviso some).

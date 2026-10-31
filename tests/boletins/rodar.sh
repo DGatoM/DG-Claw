@@ -130,6 +130,19 @@ igual "sai 0" 0 "$RC"
 igual "so o que a instalacao nao tem (o relacionado tambem conta como coberto)" GHSA-DDDD-4444 "$(campo '.pendentes | map(.id) | join(",")')"
 igual "um recado, so do pendente" 1 "$(recados)"
 
+echo "so atualizar-dgclaw se resolve pela versao instalada; as outras acoes pedem prova"
+raiz_nova
+printf '{"versao": 2, "boletins": [%s,%s,%s,%s]}\n' "$(bol GHSA-DGCL-0001)" "$(bol GHSA-SIST-0002 'acao="atualizar-sistema"')" \
+    "$(bol GHSA-SIST-0003 'acao="atualizar-sistema"' 'relacionados=["CVE-2026-33333"]')" "$(bol GHSA-AGUA-0004 'acao="aguardar"')" >"$INSTALADO"
+publica 2 "$(bol GHSA-DGCL-0001)" "$(bol GHSA-SIST-0002 'acao="atualizar-sistema"')" \
+    "$(bol GHSA-SIST-0003 'acao="atualizar-sistema"' 'relacionados=["CVE-2026-33333"]')" "$(bol GHSA-AGUA-0004 'acao="aguardar"')"
+roda
+igual "atualizar-dgclaw resolvido; sistema e aguardar seguem pendentes" "GHSA-AGUA-0004,GHSA-SIST-0002,GHSA-SIST-0003" "$(campo '.pendentes | map(.id) | sort | join(",")')"
+mkdir -p "$RAIZ/var/lib/dgclaw/web/seguranca"
+printf '{"ja_tratadas": [{"id": "GHSA-SIST-0002", "componente": "openssl", "como": "corrigido na versao instalada"}, {"id": "CVE-2026-33333", "componente": "x", "como": "aplicado sozinho em 31/10"}, {"id": "GHSA-AGUA-0004", "componente": "y", "como": "mitigado em 31/10: algo"}]}\n' >"$RAIZ/var/lib/dgclaw/web/seguranca/ronda.json"
+roda
+igual "a ronda local resolve o id e o relacionado; mitigado nao resolve" "GHSA-AGUA-0004" "$(campo '.pendentes | map(.id) | sort | join(",")')"
+
 echo "arquivo instalado ausente = lista vazia; corrompido = falha que se explica"
 raiz_nova
 rm -f "$INSTALADO"

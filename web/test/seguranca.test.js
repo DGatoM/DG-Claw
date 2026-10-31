@@ -201,11 +201,11 @@ test('adiar: id malformado é 400 e id que não está pendente é 404', async ()
   } finally { await w.fechar(); }
 });
 
-test('dispensar: só vale para aguardar; nas outras ações responde 409 explicando', async () => {
+test('dispensar: aguardar dispensa direto; atualizar-sistema exige {"confirmo":"aplicado"}; as outras ações respondem 409', async () => {
   const w = await logado();
   try {
     gravaEstado(w, [bol(), bol({ id: 'GHSA-AGUA-0001', acao: 'aguardar' }), bol({ id: 'GHSA-PARA-0002', acao: 'parar-servico' }), bol({ id: 'GHSA-SIST-0003', acao: 'atualizar-sistema' })]);
-    for (const id of ['GHSA-332P-7HRC-92WF', 'GHSA-PARA-0002', 'GHSA-SIST-0003']) {
+    for (const id of ['GHSA-332P-7HRC-92WF', 'GHSA-PARA-0002']) {
       const r = await w.c.post(`/api/v1/seguranca/boletins/${id}/dispensar`, { json: {} });
       assert.equal(r.status, 409, id);
       assert.match(r.json.erro, /só some quando o sistema for atualizado/);
@@ -216,6 +216,19 @@ test('dispensar: só vale para aguardar; nas outras ações responde 409 explica
     const g = (await w.c.get('/api/v1/seguranca/boletins')).json.boletins.find((b) => b.id === 'GHSA-AGUA-0001');
     assert.equal(g.dispensado, true);
     assert.equal(g.mostrar_modal, false);
+
+    const sem = await w.c.post('/api/v1/seguranca/boletins/GHSA-SIST-0003/dispensar', { json: {} });
+    assert.equal(sem.status, 400);
+    assert.match(sem.json.erro, /"confirmo": "aplicado"/);
+    const errado = await w.c.post('/api/v1/seguranca/boletins/GHSA-SIST-0003/dispensar', { json: { confirmo: 'sim' } });
+    assert.equal(errado.status, 400);
+    let sist = (await w.c.get('/api/v1/seguranca/boletins')).json.boletins.find((b) => b.id === 'GHSA-SIST-0003');
+    assert.equal(sist.dispensado, false, 'sem a confirmação o aviso continua');
+    const conf = await w.c.post('/api/v1/seguranca/boletins/GHSA-SIST-0003/dispensar', { json: { confirmo: 'aplicado' } });
+    assert.equal(conf.status, 200);
+    sist = (await w.c.get('/api/v1/seguranca/boletins')).json.boletins.find((b) => b.id === 'GHSA-SIST-0003');
+    assert.equal(sist.dispensado, true);
+    assert.equal(sist.mostrar_modal, false);
   } finally { await w.fechar(); }
 });
 

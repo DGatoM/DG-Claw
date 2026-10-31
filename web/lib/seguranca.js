@@ -135,11 +135,19 @@ function criarSeguranca(opcoes) {
     return H.enviaJson(res, 200, { ok: true, id, adiado_ate: ate });
   }
 
-  function dispensar(res, id) {
+  /** aguardar: dispensa direto. atualizar-sistema: só com {"confirmo": "aplicado"}, porque ela diz que o dono (ou o Admin)
+   *  já aplicou a atualização dos pacotes; o painel não tem como verificar isso sozinho. Outras ações: 409. */
+  async function dispensar(req, res, id) {
     const b = achaPendente(res, id);
     if (!b) return;
-    if (b.acao !== 'aguardar') {
+    if (b.acao !== 'aguardar' && b.acao !== 'atualizar-sistema') {
       return H.erroJson(res, 409, 'Este aviso só some quando o sistema for atualizado, porque ele pede uma ação sua. Para tirá-lo da frente por 24 horas, use POST ' + `${BASE}/boletins/${id}/adiar` + '.');
+    }
+    if (b.acao === 'atualizar-sistema') {
+      const corpo = await H.lerJson(req, 1024);
+      if (!corpo || corpo.confirmo !== 'aplicado') {
+        return H.erroJson(res, 400, 'Este aviso pede a atualização dos pacotes do servidor. Depois de aplicá-la, confirme enviando o corpo {"confirmo": "aplicado"} em ' + `POST ${BASE}/boletins/${id}/dispensar` + '. Para só tirá-lo da frente por 24 horas, use ' + `POST ${BASE}/boletins/${id}/adiar` + '.');
+      }
     }
     const agora = relogio();
     const atual = lerAdiados();
@@ -180,7 +188,7 @@ function criarSeguranca(opcoes) {
         if (m !== 'POST') return metodoErrado('POST');
         let id;
         try { id = decodeURIComponent(acao[1]); } catch { id = ''; }
-        if (acao[2] === 'adiar') adiar(res, id); else dispensar(res, id);
+        if (acao[2] === 'adiar') adiar(res, id); else await dispensar(req, res, id);
         return true;
       }
     } catch (e) {

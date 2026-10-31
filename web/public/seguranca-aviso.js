@@ -51,7 +51,7 @@
       return ini + ' A correção já foi publicada pela equipe oficial dela. Para aplicar, basta clicar em Atualizar abaixo, e o seu sistema vai para a versão com essa correção. É muito importante que você atualize.';
     }
     if (b.acao === 'atualizar-sistema') {
-      return ini + ' A correção já foi publicada pela equipe oficial dela. Para aplicar, clique em Atualizar abaixo e o Admin atualiza os pacotes do servidor com você.';
+      return ini + ' A correção já foi publicada pela equipe oficial dela. Para aplicar, clique em Atualizar abaixo e o Admin atualiza os pacotes do servidor com você. Depois de aplicar, o Admin confirma e o aviso some.';
     }
     if (b.acao === 'parar-servico') return ini + ' A correção ainda não saiu. Enquanto isso, veja abaixo o que fazer.';
     return ini + ' A correção ainda não saiu. Não há nada a fazer agora além de acompanhar; o aviso sai da frente sozinho quando ela chegar.';
@@ -59,7 +59,7 @@
 
   function textoDoPedido(b) {
     return b.acao === 'atualizar-sistema'
-      ? 'Quero aplicar a atualização de segurança do servidor (boletim ' + b.id + ').'
+      ? 'Quero aplicar a atualização de segurança do servidor (boletim ' + b.id + '). Depois de aplicar, confirme que o aviso pode sumir.'
       : 'Quero instalar a atualização de segurança do DG Claw (boletim ' + b.id + ').';
   }
 

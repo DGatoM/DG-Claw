@@ -30,7 +30,7 @@ test('texto principal para atualizar-dgclaw, com a abertura certa', () => {
 
 test('texto principal para atualizar-sistema troca as duas frases finais', () => {
   const t = S.textoPrincipal(bol({ acao: 'atualizar-sistema' }), AGORA);
-  assert.match(t, /Para aplicar, clique em Atualizar abaixo e o Admin atualiza os pacotes do servidor com você\.$/);
+  assert.match(t, /Para aplicar, clique em Atualizar abaixo e o Admin atualiza os pacotes do servidor com você\. Depois de aplicar, o Admin confirma e o aviso some\.$/);
   assert.doesNotMatch(t, /É muito importante/);
   assert.doesNotMatch(t, /basta clicar/);
 });
@@ -91,7 +91,7 @@ test('em aguardar e parar-servico não há botão Atualizar, só Entendi, e o de
 
 test('texto do pedido ao Admin, por ação', () => {
   assert.equal(S.textoDoPedido(bol()), 'Quero instalar a atualização de segurança do DG Claw (boletim GHSA-332P-7HRC-92WF).');
-  assert.equal(S.textoDoPedido(bol({ acao: 'atualizar-sistema' })), 'Quero aplicar a atualização de segurança do servidor (boletim GHSA-332P-7HRC-92WF).');
+  assert.equal(S.textoDoPedido(bol({ acao: 'atualizar-sistema' })), 'Quero aplicar a atualização de segurança do servidor (boletim GHSA-332P-7HRC-92WF). Depois de aplicar, confirme que o aviso pode sumir.');
 });
 
 test('texto vindo do GitHub sai escapado: <img onerror> nunca vira tag', () => {

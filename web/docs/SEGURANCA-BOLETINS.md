@@ -65,10 +65,17 @@ O dono toca "Lembrar depois": a janela some por 24 horas para aquele id. Sem cor
 
 ## POST /api/v1/seguranca/boletins/<id>/dispensar
 
-Esconde o aviso de vez. **Só vale para `acao: "aguardar"`** (não há nada a fazer além de acompanhar).
+Esconde o aviso de vez. Vale para duas ações:
+
+- `aguardar` (não há nada a fazer além de acompanhar): sem corpo.
+- `atualizar-sistema`: depois que a atualização dos pacotes do servidor foi aplicada (pelo dono ou pelo Admin), envie o
+  corpo `{"confirmo": "aplicado"}`. O painel não tem como conferir os pacotes sozinho, então o aviso só some com essa
+  confirmação ou quando a ronda de segurança local listar a falha como corrigida. Sem o corpo: `400` explicando.
+
+Para `atualizar-dgclaw` o aviso some quando a versão nova é instalada; para `parar-servico`, quando a correção sair.
 
 - `200` `{"ok": true, "id": "...", "dispensado": true}`.
-- `409`: o boletim pede uma ação do dono; ele só some quando o sistema for atualizado.
+- `409`: o boletim pede uma ação do dono (`atualizar-dgclaw`, `parar-servico`); ele só some quando o sistema for atualizado.
 - `400` e `404`: como em `adiar`.
 
 ## GET /api/v1/seguranca/docs.md
