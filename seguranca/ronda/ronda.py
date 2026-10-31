@@ -1529,15 +1529,23 @@ def fonte_osv(cfg, inv, ctx):
                 else:
                     fila.append((i, prox))
                     extras += 1
+    # O que o OSV AINDA devolve para cada pacote instalado, sem filtro de idade nem teto: é a prova de que um achado
+    # aberto continua valendo, mesmo quando ele já saiu da janela de detalhes lidos abaixo.
+    por_pacote = {}
+    for vid, chs in achados_por_id.items():
+        for (eco, nome, _ver) in chs:
+            por_pacote.setdefault((eco, nome), set()).add(vid.upper())
+    ctx["osv_por_pacote"] = por_pacote
     if truncados:
         ctx["parciais"]["OSV.dev"] = (f"o OSV ainda tinha páginas para {len(truncados)} pacote(s) depois de {oc['max_paginas']} páginas; "
                                       f"a lista ficou incompleta")
     kev, citados = ctx.get("kev", {}), set(ctx["candidatos"])
+    abertos = ctx.get("abertos_ids", set())
     recente = ctx["agora"] - dt.timedelta(days=cfg["janelas"]["novo_dias"])
     prio = {}
     for vid, chs in achados_por_id.items():
         cve = cve_de_texto(vid)
-        if (cve and cve in kev) or vid.upper() in citados or (cve and cve in citados):
+        if (cve and cve in kev) or vid.upper() in citados or (cve and cve in citados) or vid.upper() in abertos:
             prio[vid] = 0
         elif any(grupos[c]["kernel"] or grupos[c]["exposto"] for c in chs):
             prio[vid] = 1
@@ -2410,6 +2418,21 @@ def origem_sem_cobertura(reg, incompletos):
     return False
 
 
+def ids_do_registro(aid, reg):
+    return {str(aid).upper()} | {str(x).upper() for x in (reg.get("ids_osv") or [])}
+
+
+def ainda_no_osv(aid, reg, por_pacote):
+    """True se o OSV ainda devolve, para algum pacote deste achado, o id dele (ou um alias). Achado de registro antigo, sem
+    `pacotes` guardados, vale pelo nome do componente. Só a resposta do querybatch decide: sair da janela de detalhes ou
+    passar de idade não corrige nada."""
+    ids = ids_do_registro(aid, reg)
+    pares = {(p[0], p[1]) for p in (reg.get("pacotes") or []) if isinstance(p, list) and len(p) >= 2}
+    if not pares:
+        pares = {par for par in por_pacote if par[1] == reg.get("componente")}
+    return any(ids & por_pacote.get(par, set()) for par in pares)
+
+
 def _rodada(cfg, sem_avisar):
     c = caminhos()
     t0 = agora()
@@ -2426,7 +2449,12 @@ def _rodada(cfg, sem_avisar):
         inv = montar_inventario(cfg, t0)
         if not inv["componentes"]:
             raise ErroRonda("O inventário veio vazio (nenhum pacote, lockfile ou serviço). Confira o dpkg-query e a pasta /opt/dgclaw/app.")
-        ctx = {"agora": t0, "achados": {}, "candidatos": {}, "avisos": [], "kev": {}, "parciais": {}, "cache": cache, "gh": GitHub(cfg, cache)}
+        abertos_ids = set()
+        for aid0, reg0 in (est.get("achados") or {}).items():
+            if isinstance(reg0, dict) and reg0.get("estado") in ("aberto", "agendado"):
+                abertos_ids |= ids_do_registro(aid0, reg0)
+        ctx = {"agora": t0, "achados": {}, "candidatos": {}, "avisos": [], "kev": {}, "parciais": {}, "cache": cache, "gh": GitHub(cfg, cache),
+               "abertos_ids": abertos_ids, "osv_por_pacote": None}
         status = {}
         for nome, fn in FONTES:
             try:
@@ -2510,6 +2538,9 @@ def _rodada(cfg, sem_avisar):
             if reg.get("auto_motivo") and nivel == 2:
                 o["como_corrigir"] = limpa("A aplicação sozinha não deu certo: " + reg["auto_motivo"], 300) + " " + o["como_corrigir"]
             reg["ultimo"] = o
+            reg["pacotes"] = sorted({(af.get("eco"), af.get("pacote"), str(af.get("versao") or "")) for af in a["afetados"] if af.get("eco") and af.get("pacote")})[:40]
+            reg["pacotes"] = [list(x) for x in reg["pacotes"]]
+            reg["ids_osv"] = sorted({a["id"].upper(), str(a["key"]).upper()} | {str(x).upper() for x in a["aliases"]})[:60]
             resultado.append(o)
         parcial_fontes = [n for n, s in status.items() if not s.get("desligada") and not s["ok"]]
         incompletos = inv.get("cobertura_incompleta") or []
@@ -2523,6 +2554,11 @@ def _rodada(cfg, sem_avisar):
                 resultado.append(reg["ultimo"])
             elif sem_cobertura:
                 continue
+            elif (reg.get("estado") in ("aberto", "agendado") and ctx["osv_por_pacote"] is not None
+                  and ainda_no_osv(aid, reg, ctx["osv_por_pacote"])):
+                # o OSV ainda devolve o id para o pacote instalado: não saiu da lista por estar corrigido
+                if isinstance(reg.get("ultimo"), dict):
+                    resultado.append(reg["ultimo"])
             else:
                 reg["estado_antes"] = reg.get("estado")
                 reg["estado"], reg["tratado_em"] = "corrigido", iso(t0)

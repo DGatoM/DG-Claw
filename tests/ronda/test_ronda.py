@@ -1086,6 +1086,38 @@ class AplicarEDesfazer(Base):
         j = next(x for x in self.json_ronda()["ja_tratadas"] if x["id"] == "UBUNTU-CVE-2026-98432")
         self.assertIn("corrigido", j["como"])
 
+    def pacote_vuln_nivel2(self):
+        # openssl instalado, id publicado em 15/10: nível 2 (alto, com correção). Fora da janela de "novos" depois de uns dias.
+        S["osv_paginas"][f"{ECO}|openssl|3.0.13-0ubuntu3.4"] = [["UBUNTU-CVE-2026-77001"]]
+        S["osv_vulns"]["UBUNTU-CVE-2026-77001"] = reg_ubuntu("UBUNTU-CVE-2026-77001", "CVE-2026-77001", "openssl", "3.0.13-0ubuntu3.9")
+
+    def test_achado_aberto_que_saiu_da_janela_de_detalhes_nao_vira_corrigido(self):
+        self.pacote_vuln_nivel2()
+        self.ronda("executar", "--sem-avisar")
+        a = self.achado("UBUNTU-CVE-2026-77001")
+        self.assertIsNotNone(a)
+        self.assertEqual(a["nivel"], 2)
+        # 8 dias depois: mesma versão, querybatch igual; o id agora está fora da seleção de detalhes por idade
+        self.agora = "2026-11-08T10:00:00Z"
+        S["pedidos"].clear()
+        self.ronda("executar", "--sem-avisar")
+        doc = self.json_ronda()
+        self.assertIsNotNone(self.achado("UBUNTU-CVE-2026-77001"), "o OSV ainda devolve o id: segue aberto")
+        self.assertFalse(any(j["id"] == "UBUNTU-CVE-2026-77001" for j in doc["ja_tratadas"]), "não pode aparecer como já tratada")
+        with open(self.p("var/lib/dgclaw/seguranca/estado.json"), encoding="utf-8") as f:
+            reg = json.load(f)["achados"]["UBUNTU-CVE-2026-77001"]
+        self.assertEqual(reg["estado"], "aberto")
+
+    def test_achado_aberto_vira_corrigido_quando_o_osv_para_de_devolver(self):
+        self.pacote_vuln_nivel2()
+        self.ronda("executar", "--sem-avisar")
+        self.agora = "2026-11-08T10:00:00Z"
+        S["osv_paginas"].clear()
+        self.ronda("executar", "--sem-avisar")
+        doc = self.json_ronda()
+        self.assertIsNone(self.achado("UBUNTU-CVE-2026-77001"))
+        self.assertTrue(any(j["id"] == "UBUNTU-CVE-2026-77001" and "corrigido" in j["como"] for j in doc["ja_tratadas"]))
+
     def test_fonte_fora_nao_marca_como_corrigido(self):
         self.kernel_vuln()
         self.ronda("executar", "--sem-avisar")
