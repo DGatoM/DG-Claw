@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
 echo "nft $*" >>"$STUB_DIR/chamadas.log"
-[ "$1" = "-c" ] && [ -f "$STUB_DIR/nft_recusa" ] && { echo "Error: syntax error" >&2; exit 1; }
+case "$1" in
+    -c) [ -f "$STUB_DIR/nft_recusa" ] && { echo "Error: syntax error" >&2; exit 1; } ;;
+    list) [ -f "$STUB_DIR/nft_tabela_ausente" ] && { echo "Error: No such file or directory" >&2; exit 1; } ;;
+    delete) [ -f "$STUB_DIR/nft_delete_recusa" ] && { echo "Error: Operation not permitted" >&2; exit 1; }
+            touch "$STUB_DIR/nft_tabela_ausente" ;;
+esac
 exit 0

@@ -4,4 +4,6 @@ if [ "$1" = "is-active" ]; then
     u="${!#}"
     [ -f "$STUB_DIR/inativo-$u" ] && exit 3
 fi
+if [ "$1" = "disable" ] && [ -f "$STUB_DIR/systemctl_disable_recusa" ]; then echo "Failed to disable unit" >&2; exit 1; fi
+if [ "$1" = "daemon-reload" ] && [ -f "$STUB_DIR/systemctl_reload_recusa" ]; then echo "Failed to reload" >&2; exit 1; fi
 exit 0
