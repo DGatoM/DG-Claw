@@ -40,6 +40,7 @@ const { criarMesa } = require('./lib/mesa');
 const { criarAvisos } = require('./lib/avisos');
 const { criarAtualizacao } = require('./lib/atualizacao');
 const { criarSeguranca } = require('./lib/seguranca');
+const { criarRondaPainel } = require('./lib/ronda-painel');
 const { criarNaoLidas } = require('./lib/nao-lidas');
 const { criarUso } = require('./lib/uso');
 
@@ -126,6 +127,8 @@ function criarServidor(opcoes) {
   const atualizacao = criarAtualizacao({ dataDir: config.dataDir, log });
   // Aviso de segurança: só o dono, pelo painel (mesma regra da faixa de versão), por isso também fora de caixa.permitir.
   const seguranca = criarSeguranca({ dataDir: config.dataDir, log, agora: opcoes.agora });
+  // Ronda de fábrica e botão de emergência: também só do dono (fora de caixa.permitir). O Web só grava pedidos; o root executa.
+  const rondaPainel = criarRondaPainel({ dataDir: config.dataDir, log, agora: opcoes.agora });
 
   let versaoJsCache = { ts: 0, valor: '0' };
   /** Versão da tela: mtime de conversa.js. A tela compara com a que carregou e se recarrega sozinha. */
@@ -320,6 +323,8 @@ function criarServidor(opcoes) {
     if ((p === '/api/v1/lembretes' || p.startsWith('/api/v1/lembretes/')) && await lembretes.rotas(req, res, url, sessao)) return undefined;
 
     if ((p === '/api/v1/atualizacao' || p.startsWith('/api/v1/atualizacao/')) && await atualizacao.rotas(req, res, url, sessao)) return undefined;
+
+    if (p.startsWith('/api/v1/seguranca/') && await rondaPainel.rotas(req, res, url, sessao)) return undefined;
 
     if ((p === '/api/v1/seguranca' || p.startsWith('/api/v1/seguranca/')) && await seguranca.rotas(req, res, url, sessao)) return undefined;
 
@@ -870,6 +875,15 @@ function criarServidor(opcoes) {
       if (!servirArquivo(req, res, path.join(config.publicDir, 'conversa.html'), 'no-store')) {
         log('erro', `A tela da conversa não está instalada: falta ${path.join(config.publicDir, 'conversa.html')}.`);
         H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela da conversa não foi encontrado no servidor. Reinstale o DG Claw Web.');
+      }
+      return undefined;
+    }
+
+    if ((p === '/seguranca' || p === '/seguranca/') && (m === 'GET' || m === 'HEAD')) {
+      if (!sessao) return semSessaoPagina(req, res, url);
+      if (!servirArquivo(req, res, path.join(config.publicDir, 'seguranca.html'), 'no-store')) {
+        log('erro', `A tela de segurança não está instalada: falta ${path.join(config.publicDir, 'seguranca.html')}.`);
+        H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela de segurança não foi encontrado no servidor. Reinstale o DG Claw Web.');
       }
       return undefined;
     }
