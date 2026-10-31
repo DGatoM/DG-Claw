@@ -140,7 +140,9 @@ Opções que você usa só quando preciso:
 |---|---|
 | `--repo <pasta>` | o instalador não anotou onde está o clone (instalação antiga). Procure com `find / -name install.sh -path '*DG-Claw*' 2>/dev/null` |
 | `--forcar-local` | o clone tem alteração local e o dono autorizou guardá-la num stash datado |
-| `--ok-do-dono` | o dono leu o relatório "o que muda" e disse sim. Vale para a versão que ele viu: se a versão de destino mudou desde o relatório, o comando para e mostra o novo |
+| `--parecer segura\|arriscada --motivo "<texto curto>"` | grava o seu parecer sobre a versão de destino (`/var/lib/dgclaw/web/atualizacao/parecer.json`, modo 600). Não instala nada |
+| `--ok-do-dono` | o dono leu o relatório "o que muda" e disse sim. Vale para a versão que ele viu: se a versão de destino mudou desde o relatório, o comando para e mostra o novo. **Exige parecer `segura` para a mesma versão**; sem parecer, ou com parecer de outra versão, para antes do backup |
+| `--apesar-do-alerta` | junto de `--ok-do-dono`: instala mesmo com parecer `arriscada`. **Só quando o dono, depois de ouvir o alerta, pedir explicitamente.** Nunca por conta própria |
 | `--sem-personalizacoes` | **só se o dono decidiu** instalar a versão oficial sem as personalizações, com o clone fora da branch `personalizacoes`. Sem esta opção, o comando para antes do backup |
 | `--sem-baixar` | o clone já foi atualizado à mão (ou veio de um zip novo); só reinstala o que está na pasta |
 | `--sem-backup-agentes` | **só se o dono pedir explicitamente** (disco curto): o backup não leva as casas dos agentes. O resto do backup entra sempre |
@@ -232,25 +234,58 @@ Veja também `docs/BACKUP.md` para os backups manuais (`dgclaw backup`) e a rest
 
 ## Ler o que muda antes de instalar
 
-Cada DG Claw é personalizado e usado de um jeito, e pode guardar informações sensíveis do dono. Por isso,
-antes de instalar qualquer atualização, quem cuida dela (quase sempre o Admin) lê o que mudou e verifica
-se a versão nova pode trazer dano ou risco aos arquivos, aos dados e às personalizações de agora. Se
-encontrar risco, por exemplo uma função nova que abre acesso a dados ou ao banco, avisa o dono antes e não
-instala sem o ok dele.
+**Nunca atualize às cegas.** Cada DG Claw é usado de um jeito (rotinas, scripts, canais, dados que os
+agentes acessam, personalizações) e pode guardar informações sensíveis do dono. Antes de instalar qualquer
+atualização, quem cuida dela (quase sempre o Admin) lê o que mudou, cruza com o que o dono usa no dia a dia e
+dá um parecer: a atualização é segura? vale a pena (o que o dono ganha)? Se não for segura, levanta o alerta,
+grava o parecer `arriscada` e **não instala**.
 
 O `dgclaw atualizar` força esse passo:
 
 1. `sudo dgclaw atualizar --simular` busca a versão nova (só as referências do git, sem mudar arquivos) e
    grava o relatório `/var/log/dgclaw/dgclaw-atualizar-<data>.o-que-muda.txt`: os commits novos, o tamanho
-   da mudança, os itens novos do CHANGELOG e os **pontos de atenção** (arquivos alterados em áreas
+   da mudança, os itens novos do CHANGELOG, os **pontos de atenção** (arquivos alterados em áreas
    sensíveis: instalador, firewall, caixa dos agentes, ganchos de segurança, credenciais, banco de dados,
-   rotas do painel, arquivos que você personalizou).
-2. O Admin lê o relatório (e, nos pontos de atenção, o próprio diff:
-   `git -C <clone> diff <commit instalado> <versão nova> -- <arquivo>`) e conta ao dono, em linguagem
-   simples, o que vem e se vê risco. Exemplo: "A versão nova traz o aviso de atualização no painel e muda
-   o instalador para criar um timer. Não vi nada que abra acesso aos seus dados. Posso instalar?"
-3. Só com o ok do dono: `sudo dgclaw atualizar --ok-do-dono --segundo-plano`. Sem `--ok-do-dono`, e havendo
-   algo novo, o comando para antes do backup e não muda nada.
+   rotas do painel, arquivos que você personalizou) e a seção **"O que este DG Claw usa e o que a versão
+   nova toca"**.
+2. Essa seção levanta, para cada agente, quantas rotinas e scripts próprios (da casa e das skills próprias) ele
+   tem, quais skills e canais (WhatsApp, Telegram) estão ligados, mais a contagem das personalizações
+   registradas. Depois **cruza, mecanicamente**, com os arquivos alterados ou removidos entre a versão
+   instalada e a nova e com os comandos do `dgclaw` que saíram ou mudaram de nome. Cada cruzamento vira um
+   ponto de atenção, por exemplo "agente ana, rotina-2: chama scripts/foo.sh, que muda nesta versão".
+   Sem cruzamento, o relatório diz isso numa linha. Como o Admin lê esse relatório com poderes de root e as
+   casas dos agentes são gravadas pelos próprios agentes, **nenhum texto livre de dentro delas entra no
+   relatório**: só contagens, ids gerados (rotina-1, script-2), nomes que seguem o padrão
+   `^[a-z0-9][a-z0-9._-]{0,40}$` (os outros viram "nome fora do padrao") e referências reconhecidas contra a
+   lista confiável (os caminhos do diff da versão e os comandos da ajuda do `bin/dgclaw`). A leitura é feita
+   por `lib/uso-coletor.sh`, num processo a parte, com `timeout` de 60 s por agente, sem seguir atalhos e com
+   limites (manifesto de rotinas até 256 KB, até 200 rotinas e 500 scripts por agente, arquivos de até
+   256 KB, seção de até 40 KB). O que passar do limite aparece como "limite atingido: ..." nos pontos de
+   atenção, sem derrubar a atualização. O cruzamento só enxerga o que está escrito (caminhos em
+   `/opt/dgclaw/app/...` e comandos `dgclaw ...`): uma rotina que só diz "faça o resumo do dia" não aparece,
+   e aí vale o seu julgamento. Para ver o texto de uma rotina, abra a casa do agente, não o relatório.
+3. Você lê o relatório e, nos pontos de atenção, o próprio diff
+   (`git -C <clone> diff <commit instalado> <versão nova> -- <arquivo>`). Pense no que o dono faz no dia a
+   dia: as rotinas, os scripts, os crons, os dados que os agentes acessam, os fluxos que ele depende.
+4. Conte ao dono, em linguagem simples, se a atualização é segura e se vale a pena. Exemplo: "A versão
+   nova traz o aviso de atualização no painel e muda o instalador para criar um timer. Nenhuma das suas
+   rotinas usa o que mudou, e você ganha o aviso automático. Acho segura. Posso instalar?"
+5. **Grave o parecer**: `sudo dgclaw atualizar --parecer segura --commit <commit do DESTINO> --motivo "<uma frase>"`, ou
+   `--parecer arriscada --commit <commit do DESTINO> --motivo "<o alerta>"`. O `--commit` é obrigatório (40 caracteres) e tem de ser o da linha
+   `DESTINO=` do último relatório gravado, o que você leu. Se o repositório andou desde então, o comando
+   recusa e manda rodar o `--simular` de novo. O parecer também prende o HEAD da branch `personalizacoes` do clone (ou "nenhuma") e o modo de instalação, que o relatório grava ao lado do `DESTINO=`; se qualquer um mudar depois do parecer, o `--ok-do-dono` recusa e pede um parecer novo. O parecer vale só para essa versão; se saírem commits novos
+   antes da instalação, refaça a análise e o parecer.
+6. Só com o ok do dono: `sudo dgclaw atualizar --ok-do-dono --segundo-plano`. Sem `--ok-do-dono`, e havendo
+   algo novo, o comando para antes do backup e não muda nada. Com `--ok-do-dono` mas sem parecer `segura`
+   para aquela versão, também para antes do backup e diz o que fazer.
+7. **Parecer `arriscada` bloqueia a instalação.** Conte o alerta ao dono. Só se ele, depois de ouvir,
+   pedir explicitamente para instalar mesmo assim, rode
+   `sudo dgclaw atualizar --ok-do-dono --apesar-do-alerta --segundo-plano`. Silêncio ou "tá bom" a uma
+   pergunta sua não é esse pedido.
+
+Tudo fica registrado: o parecer, o bloqueio e o "apesar do alerta" entram em
+`/var/log/dgclaw/atualizar-pareceres.log` (e na saída do comando, que no modo `--segundo-plano` vai para o
+log da atualização).
 
 ## Personalizações do dono
 
@@ -498,13 +533,16 @@ fazer.
 
 O que fazer:
 
-1. Conte ao dono, pelo chat e em palavras simples, que saiu uma versão nova, diga que o resumo está na faixa
-   do painel e pergunte se quer instalar agora.
-2. **Não rode `dgclaw atualizar` sem o sim explícito do dono.** Silêncio, "depois" ou uma pergunta de volta
-   não são um sim. O recado só avisa; quem decide é ele.
-3. Se ele disser sim, siga este roteiro (`dgclaw atualizar --simular` primeiro, se ele quiser ver o que será
-   feito). Se disser não ou "depois", agradeça e não insista: a faixa do painel também some quando ele
-   toca em "Agora não".
-4. Para conferir a situação sem esperar o próximo ciclo: `sudo dgclaw atualizar --checar`. Ele mostra só as
+1. **Faça a análise antes de falar em instalar** (capítulo "Ler o que muda antes de instalar"): rode
+   `sudo dgclaw atualizar --simular`, leia o relatório, o diff dos pontos de atenção e a seção do que este
+   DG Claw usa, e cruze com o que o dono faz no dia a dia.
+2. Conte ao dono, pelo chat e em palavras simples, que saiu uma versão nova, se ela é segura e o que ele
+   ganha, e pergunte se quer instalar agora. Grave o parecer (`--parecer segura` ou `--parecer arriscada`).
+   Se não for segura, levante o alerta, grave `arriscada` e não instale.
+3. **Não rode `dgclaw atualizar --ok-do-dono` sem o sim explícito do dono.** Silêncio, "depois" ou uma
+   pergunta de volta não são um sim. O recado só avisa; quem decide é ele.
+4. Se ele disser sim, siga este roteiro. Se disser não ou "depois", agradeça e não insista: a faixa do
+   painel também some quando ele toca em "Agora não".
+5. Para conferir a situação sem esperar o próximo ciclo: `sudo dgclaw atualizar --checar`. Ele mostra só as
    versões e a contagem, nunca o resumo (esse texto vem de fora): mande o dono ver a faixa do painel. Para desligar o
    aviso a pedido do dono: `sudo dgclaw atualizar --aviso desligar`.

@@ -57,6 +57,7 @@ Todas rodam no terminal do servidor, pelo comando `dgclaw`.
 | `dgclaw senha` | quando o dono quer trocar a senha do painel (ele digita no terminal, nunca no chat) |
 | `dgclaw primeiro-acesso` | quando o dono esqueceu a senha ou o link de primeiro acesso expirou: gera um link novo de uso único |
 | `dgclaw dominio` e `dgclaw dominio trocar <nome>` | quando o dono quer um endereço próprio para o painel (explica o DNS e configura; segue o roteiro `trocar-dominio`, em `/opt/dgclaw/admin/.claude/skills/trocar-dominio/SKILL.md`) |
+| `dgclaw suporte ligar --chave <linha> --dias N`, `desligar [--derrubar-sessoes]`, `status` | quando o dono quer dar ou tirar o acesso do suporte DG (ao tirar, use --derrubar-sessoes para encerrar as outras sessões de root abertas) (chave SSH temporária, 7 dias por padrão, no máximo 30). Nunca ligue sem o dono pedir; a chave pública vem dele ou do suporte, nunca invente uma. O roteiro está em `/opt/dgclaw/app/docs/PROJETO-DE-CLIENTE.md` |
 
 Antes de remover um agente, o Admin confirma com o dono e diz o que acontece com a casa dele.
 
@@ -66,12 +67,19 @@ Quando o dono pedir para atualizar o DG Claw, leia e siga `/opt/dgclaw/app/docs/
 `dgclaw atualizar` (nunca rode `git pull` e `install.sh` soltos). O comando faz backup antes, preserva
 os dados do dono e reinicia o Admin por último. Rode com `--segundo-plano` e acompanhe o log.
 
-Cada DG Claw é usado de um jeito e pode guardar informações sensíveis, então antes de instalar qualquer
-atualização o Admin lê o que mudou e avalia se ela pode trazer dano ou risco aos arquivos, aos dados e às
-personalizações do dono. O `dgclaw atualizar --simular` mostra o relatório "o que muda", com os pontos de
-atenção. O Admin conta ao dono o que vem e o parecer de risco (uma função nova que abre acesso a dados ou
-ao banco, por exemplo) e só instala depois do ok dele, com `--ok-do-dono`. Sem essa opção o comando não
-instala.
+Cada DG Claw é usado de um jeito e pode guardar informações sensíveis, então o Admin nunca atualiza às
+cegas. Ao saber de uma versão nova (pelo recado do aviso ou porque o dono pediu), ele:
+
+1. roda `sudo dgclaw atualizar --simular` e lê o relatório "o que muda", os pontos de atenção (com o diff
+   deles) e a seção "O que este DG Claw usa e o que a versão nova toca", que cruza as rotinas, os scripts e os
+   canais de cada agente com o que a versão muda;
+2. cruza com o que o dono faz no dia a dia (rotinas, scripts, crons, dados que os agentes acessam, fluxos) e
+   conta a ele, em linguagem simples, se a atualização é segura e se vale a pena (o que ele ganha);
+3. grava o parecer: `sudo dgclaw atualizar --parecer segura --commit <commit do DESTINO> --motivo "<uma frase>"`. Se não for segura,
+   levanta o alerta ao dono, grava `--parecer arriscada` e **não instala**;
+4. só instala depois do sim explícito do dono, com `--ok-do-dono`. O comando exige o parecer `segura` para
+   aquela versão e não instala sem ele. Com parecer `arriscada`, só passa com `--ok-do-dono
+   --apesar-do-alerta`, que o Admin usa apenas se o dono, depois de ouvir o alerta, pedir explicitamente.
 
 ## Personalizar o programa do DG Claw
 
@@ -83,6 +91,20 @@ estiver ali), e ganha uma entrada em `/opt/dgclaw/admin/PERSONALIZACOES.md` com 
 arquivos, o porquê e como testar. Se existir `/opt/dgclaw/admin/personalizacoes-migracao/PENDENTE`,
 o levantamento das personalizações antigas vem antes de qualquer outra mudança no programa (capítulo
 "Quem já tinha o DG Claw antes desta versão" do mesmo guia).
+
+## Ação destrutiva ou em massa: pergunte antes (regra crítica)
+
+Antes de qualquer ação destrutiva ou em massa (apagar, sobrescrever, mover, mandar mensagem para vários,
+mudar a etapa de vários registros num CRM, cancelar, importar, qualquer coisa que atinja mais de um item
+de uma vez ou que não dá para desfazer):
+
+1. **Mapeie** o que vai ser atingido, sem mudar nada.
+2. **Mostre ao dono** o número e uma amostra. Exemplo: "São 257 clientes que vão do passo 2 para o
+   passo 3. Os 3 primeiros: ... Posso?"
+3. **Só execute depois do sim explícito para AQUELE número.** Se o número mudar, pergunte de novo.
+4. **Faça em lotes**, confira o resultado de cada lote e conte ao dono o que foi feito.
+
+Nunca em rotina automática sem o dono ter aprovado antes aquela rotina com o número estimado.
 
 ## Como o Admin responde
 

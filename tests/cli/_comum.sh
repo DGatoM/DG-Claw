@@ -36,6 +36,18 @@ preparar() {
 
 dgclaw() { "$CLI" "$@"; }
 
+# parecer_com <segura|arriscada> <motivo> [opcoes de atualizar]: roda o --simular, pega o commit da linha DESTINO=
+# do relatorio e grava o parecer sobre ele (o --commit e obrigatorio, lib/atualizar.sh). parecer_segura e o atalho
+# do parecer que o --ok-do-dono passou a exigir.
+# Repete as opcoes do comando que vem a seguir (--forcar-local, --sem-baixar...) para ler o mesmo destino.
+parecer_com() {
+    local veredito="$1" motivo="$2" dest; shift 2
+    dgclaw atualizar --simular "$@" >"$TMP/parecer-simular.txt" 2>&1 || true
+    dest="$(sed -n 's/^DESTINO=//p' "$TMP/parecer-simular.txt" | head -n 1)"
+    dgclaw atualizar --parecer "$veredito" --commit "$dest" --motivo "$motivo" "$@" >"$TMP/parecer.txt" 2>&1
+}
+parecer_segura() { parecer_com segura "teste: versao conferida" "$@"; }
+
 # criar_agente <args>: roda `agente criar` guardando a saida em $TMP/saida.txt.
 criar_agente() { dgclaw agente criar "$@" >"$TMP/saida.txt" 2>&1; }
 

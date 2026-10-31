@@ -550,6 +550,7 @@ _om_relatorio() {
         printf '  (nao consegui ler o CHANGELOG.md da versao nova; leia os commits acima)\n'
     fi
 
+    uso_calcular "$de" "$para"
     printf '\nPontos de atencao:\n'
     while IFS= read -r f; do
         [ -n "$f" ] || continue
@@ -563,11 +564,18 @@ _om_relatorio() {
         printf '%s' "$pontos"
         if [ "$np" -gt "$max" ]; then printf '  e mais %s arquivo(s)\n' "$((np - max))"; fi
     fi
+    if [ "${#USO_CRUZ[@]}" -gt 0 ]; then
+        printf '  Cruzando com o que este DG Claw usa:\n'
+        for f in "${USO_CRUZ[@]}"; do printf '  - %s\n' "$f"; done
+    fi
+    for f in ${USO_LIM[@]+"${USO_LIM[@]}"}; do printf '  limite atingido: %s\n' "$f"; done
+    printf '\nO que este DG Claw usa e o que a versao nova toca:\n'
+    printf '%s' "$USO_TXT" | sed 's/^/  /'
     velho="$(personalizacoes_registro)"
     printf '\nSuas personalizacoes estao no registro %s.\n' "$velho"
-    printf '\nVersao de destino (para conferencia, nao precisa ler):\nDESTINO=%s\n' "$para"
+    printf '\nVersao de destino (para conferencia, nao precisa ler):\nDESTINO=%s\nPERSONALIZACOES=%s\nMODO=%s\nINSTALADO=%s\nINSTALADO_ORIGEM=%s\n' "$para" "${ATU_PERS_HEAD:-nenhuma}" "${ATU_MODO_INST:-oficial}" "${ATU_COMMIT_ANTIGO:-}" "${ATU_COMMIT_ORIGEM:-}"
     if [ -n "$head" ]; then printf 'HEAD=%s\n' "$head"; fi
-    printf '\nAntes de instalar: leia o que muda, diga ao dono em linguagem simples se ve algum risco para os arquivos, os dados ou as personalizacoes dele e espere o ok. Com o ok: sudo dgclaw atualizar --ok-do-dono --segundo-plano\n'
+    printf '\nAntes de instalar: leia o que muda e o que este DG Claw usa (secao acima), diga ao dono em linguagem simples se a atualizacao e segura e se vale a pena, e grave o parecer: sudo dgclaw atualizar --parecer segura --commit <commit do DESTINO> --motivo "<texto curto>" (ou arriscada, que bloqueia). Espere o ok dele. Com o ok: sudo dgclaw atualizar --ok-do-dono --segundo-plano\n'
 }
 
 # _om_changelog <origem> <destino>: linhas de item que o CHANGELOG do destino tem e o da origem nao
@@ -584,13 +592,18 @@ _om_changelog() {
 # para aqui, antes do backup.
 _om_exigir_ok() {
     local motivo="$1" arq="${2:-}"
-    if [ "${ATU_OK_DONO:-0}" = 1 ]; then ok "ok do dono recebido (--ok-do-dono): sigo com a atualizacao"; return 0; fi
+    if [ "${ATU_OK_DONO:-0}" = 1 ]; then
+        atualizar_conferir_parecer
+        ok "ok do dono recebido (--ok-do-dono): sigo com a atualizacao"
+        return 0
+    fi
     if [ "$ENSAIO" = 1 ]; then
         info "a atualizacao de verdade vai exigir --ok-do-dono, depois que o dono ler o relatorio acima."
+        info "Antes dele, a analise: com o relatorio lido e cruzado com o que este DG Claw usa, grave o parecer: sudo dgclaw atualizar --parecer segura|arriscada --motivo \"<texto curto>\". Parecer arriscada bloqueia a instalacao."
         return 0
     fi
     falha "$motivo e eu ainda nao tenho o ok do dono.${arq:+ O relatorio esta em $arq.}" \
-          "mostre ${arq:+o relatorio }ao dono em linguagem simples (diga se ve risco para os arquivos, os dados ou as personalizacoes dele), espere o ok e rode: sudo dgclaw atualizar --ok-do-dono --segundo-plano. Nada foi mudado (parei antes do backup)."
+          "mostre ${arq:+o relatorio }ao dono em linguagem simples (diga se a atualizacao e segura para os arquivos, os dados, as rotinas e as personalizacoes dele e se vale a pena), grave o parecer (sudo dgclaw atualizar --parecer segura --commit <commit do DESTINO> --motivo \"<texto curto>\"), espere o ok e rode: sudo dgclaw atualizar --ok-do-dono --segundo-plano. Nada foi mudado (parei antes do backup)."
 }
 
 # atualizar_o_que_muda: roda antes do backup. Mostra o que a versao nova traz e, sempre que o que vai ser
@@ -600,7 +613,7 @@ _om_exigir_ok() {
 # que ele veja o novo.
 atualizar_o_que_muda() {
     local de="" real="" para="" head="" ramo n arq ts sem_base=0 difere=0 por_que="" prev prev_dest prev_arq
-    ATU_DESTINO=""
+    ATU_DESTINO=""; OM_PREV_DEST=""; OM_PREV_PERS=""; OM_PREV_MODO=""; OM_PREV_INST=""; ATU_PERS_HEAD=""; ATU_MODO_INST=""
     ATU_ETAPA="lendo o que muda"
     passo "Lendo o que a versao nova muda (antes de instalar qualquer coisa)"
     if ! git_do_clone "$ATU_REPO" rev-parse --git-dir >/dev/null 2>&1; then
@@ -630,6 +643,12 @@ atualizar_o_que_muda() {
         return 0
     fi
     ATU_DESTINO="$para"
+    # O que o parecer tambem prende: o HEAD da branch das personalizacoes (ou "nenhuma") e o modo de instalacao.
+    ATU_PERS_HEAD="$(_git rev-parse -q --verify "refs/heads/$(_pers_ramo)" 2>/dev/null || true)"; ATU_PERS_HEAD="${ATU_PERS_HEAD:-nenhuma}"
+    ATU_MODO_INST=oficial
+    if [ "${PERS_ATIVO:-0}" = 1 ]; then ATU_MODO_INST=personalizacoes; fi
+    if [ "${ATU_SEM_BAIXAR:-0}" = 1 ]; then ATU_MODO_INST="$ATU_MODO_INST+sem-baixar"; fi
+    if [ "${ATU_SEM_PERS:-0}" = 1 ]; then ATU_MODO_INST="$ATU_MODO_INST+sem-personalizacoes"; fi
 
     # O instalado de verdade. "HEAD do clone" e so um palpite do atualizar_descobrir_commit_antigo: sem base.
     real="${ATU_COMMIT_ANTIGO:-}"
@@ -663,7 +682,10 @@ atualizar_o_que_muda() {
     prev="$(find "$(dirname "$arq")" -maxdepth 1 -name '*.o-que-muda.txt' -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -n 1 | cut -d' ' -f2- || true)"
     if [ -n "$prev" ]; then
         prev_arq="$prev"; prev_dest="$(sed -n 's/^DESTINO=//p' "$prev" | head -n 1)"
+        OM_PREV_PERS="$(sed -n 's/^PERSONALIZACOES=//p' "$prev" | head -n 1)"; OM_PREV_MODO="$(sed -n 's/^MODO=//p' "$prev" | head -n 1)"
+        OM_PREV_INST="$(sed -n 's/^INSTALADO=//p' "$prev" | head -n 1)"
     fi
+    OM_PREV_DEST="$prev_dest"   # o parecer (lib/atualizar.sh) confere que foi dado sobre o relatorio que o analista leu
     ( umask 027; mkdir -p "$DG_LOG"; _om_relatorio "$de" "$para" "$head" >"$arq" ) \
         || falha "nao consegui gravar o relatorio em $arq." "confira a pasta e o espaco em disco (ls -ld $DG_LOG; df -h $DG_LOG). Nada foi mudado."
     cat "$arq"

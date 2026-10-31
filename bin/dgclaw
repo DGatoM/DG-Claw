@@ -31,6 +31,10 @@ APP_DIR="$(cd "$(dirname "$DGCLAW_BIN_REAL")/.." && pwd)"
 . "$APP_DIR/lib/aviso-atualizacao.sh"
 # shellcheck source=lib/personalizacoes.sh
 . "$APP_DIR/lib/personalizacoes.sh"
+# shellcheck source=lib/uso-atualizacao.sh
+. "$APP_DIR/lib/uso-atualizacao.sh"
+# shellcheck source=lib/suporte.sh
+. "$APP_DIR/lib/suporte.sh"
 
 # Tempo maximo de espera (segundos) do systemd e do /api/saude de dentro do agente.
 # Variavel so para os testes nao esperarem um minuto de verdade.
@@ -127,7 +131,7 @@ Atualizar o DG Claw
       reinicia o Admin por ultimo. Se o clone estiver na branch `personalizacoes`, confere o registro
       de personalizacoes contra a versao nova: para se algo cruzar e reaplica por cima se nao cruzar
       (--simular ja mostra o cruzamento). Antes do backup, mostra o relatorio "O que muda" (commits,
-      CHANGELOG, pontos de atencao; gravado em /var/log/dgclaw/) e so segue com --ok-do-dono. Opcoes:
+      CHANGELOG, pontos de atencao e o que este DG Claw usa; gravado em /var/log/dgclaw/) e so segue com --ok-do-dono. Opcoes:
         --simular               mostra tudo o que faria, sem mudar nada
         --repo <pasta>          onde esta o clone do DG Claw (o instalador anota; so precisa se ele nao souber)
         --forcar-local          se o clone tiver alteracao local, guarda num stash datado e segue
@@ -135,7 +139,13 @@ Atualizar o DG Claw
         --sem-backup-agentes    pula o backup das casas dos agentes (so se a pessoa pedir; o resto entra)
         --sem-voltar-sozinho    se o instalador novo ou a conferencia falharem, para e deixa como esta
                                 (o padrao e voltar sozinho ao backup; agente que nao sobe NUNCA faz voltar)
-        --ok-do-dono            o dono leu o relatorio "O que muda" e autorizou; sem isso a atualizacao de verdade nao segue
+        --parecer segura|arriscada --motivo "<texto curto>"
+                                grava o parecer de quem analisou o relatorio (o que muda cruzado com o que este
+                                DG Claw usa) para a versao de destino; nao instala nada. Obrigatorio antes do ok
+        --ok-do-dono            o dono leu o relatorio "O que muda" e autorizou; sem isso a atualizacao de verdade nao segue.
+                                Exige parecer 'segura' para a mesma versao; parecer 'arriscada' bloqueia
+        --apesar-do-alerta      com --ok-do-dono: instala mesmo com parecer 'arriscada'. So quando o dono, depois de
+                                ouvir o alerta, pedir explicitamente
         --segundo-plano         roda solto do terminal (recomendado para o Admin) e deixa o log em /var/log/dgclaw/
       Exemplo:  sudo dgclaw atualizar --simular
   dgclaw atualizar --checar              confere agora se saiu versao nova (so le o GitHub; nao baixa nem instala)
@@ -165,6 +175,19 @@ Personalizacoes do programa (o que o Admin mudou no DG Claw)
   dgclaw personalizacoes conferir        confere o registro contra a versao nova (git fetch) e diz se algo cruza; nao muda nada
   dgclaw personalizacoes concluir        marca o levantamento pendente como concluido (exige o registro)
       Exemplo:  sudo dgclaw personalizacoes conferir
+
+Suporte DG
+  dgclaw suporte ligar --chave '<linha ssh-ed25519 ...>' [--dias N]
+      Libera o time de suporte DG por uma chave SSH TEMPORARIA (padrao 7 dias, maximo 30). Depois do prazo o
+      servidor recusa a chave sozinho. So as chaves do suporte sao tocadas; as suas ficam como estao.
+      Exemplo:  sudo dgclaw suporte ligar --chave 'ssh-ed25519 AAAAC3... suporte' --dias 7
+  dgclaw suporte desligar [--derrubar-sessoes]
+      Tira as chaves do suporte e lista as sessoes SSH de root abertas agora, marcando a sua. Se houver outra,
+      avisa que o acesso ainda nao esta totalmente desligado. Com --derrubar-sessoes encerra TODAS as sessoes SSH
+      de root, menos a de quem roda o comando.
+  dgclaw suporte status                  mostra as chaves do suporte, ate quando valem, as vencidas e as sessoes de root abertas
+  dgclaw suporte limpar                  tira so as chaves vencidas (um timer diario ja faz isso)
+      Exemplo:  sudo dgclaw suporte status
 
 Geral
   dgclaw versao                          mostra a versao e o commit instalados (tambem: dgclaw --version)
@@ -2105,6 +2128,7 @@ status_geral() {
     done < <(agentes_ler | jq -r '.agentes[] | select(.tipo == "agente") | [.slug, .runner, (.home_host // "")] | @tsv')
 
     aviso_atualizacao_status
+    suporte_status_linha
 
     if [ "$S_FALHAS" -gt 0 ]; then
         printf '\n%s coisa(s) essencial(is) fora do ar. Veja as linhas FALHOU acima.\n' "$S_FALHAS" >&2
@@ -2151,6 +2175,7 @@ main() {
         restaurar) restaurar_main "$@" ;;
         versao|--version) versao_main "$@" ;;
         personalizacoes) personalizacoes_main "$@" ;;
+        suporte) suporte_main "$@" ;;
         *) falha "o comando '$cmd' nao existe." "veja os comandos com: dgclaw --ajuda" ;;
     esac
 }

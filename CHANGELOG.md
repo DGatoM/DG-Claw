@@ -39,6 +39,35 @@ aprovar sem querer o comando que surgiu em seguida, e o botão Aprovar de uma te
 
 ### Adicionado
 
+- **Análise obrigatória antes de instalar uma atualização.** O relatório do `sudo dgclaw atualizar --simular`
+  ganhou a seção "O que este DG Claw usa e o que a versão nova toca": para cada agente, as rotinas, os
+  scripts próprios, as skills e os canais ligados, mais as personalizações registradas (só contagens, ids e nomes no padrão, nunca o texto livre de dentro das casas), cruzados com os
+  arquivos que a versão nova muda ou remove e com os comandos do `dgclaw` que saíram ou mudaram de nome. Cada
+  cruzamento aparece como ponto de atenção ("a rotina X do agente Y chama scripts/foo.sh, que muda nesta
+  versão"). Além disso, a instalação agora exige um parecer: o Admin lê o relatório, cruza com o que você usa no
+  dia a dia, diz a você se a atualização é segura e se vale a pena, e grava o veredito com
+  `sudo dgclaw atualizar --parecer segura|arriscada --motivo "<frase>"`. O `--ok-do-dono` só passa com parecer
+  `segura` para aquela mesma versão. Parecer `arriscada` bloqueia a instalação, e só `--ok-do-dono
+  --apesar-do-alerta` a libera, quando você, depois de ouvir o alerta, pedir. Tudo fica em
+  `/var/log/dgclaw/atualizar-pareceres.log`. O recado do aviso de versão nova ao Admin agora manda fazer essa
+  análise. O aviso continua sendo uma checagem a cada 6 horas, e não um webhook, para o seu servidor não precisar abrir porta
+  nem ser cadastrado em lugar nenhum.
+- **Guia de projeto de cliente** (`docs/PROJETO-DE-CLIENTE.md`): o padrão de instalar o DG Claw oficial completo na VPS do próprio cliente, o passo a passo com o acesso temporário do suporte, a comparação com as outras formas de acesso e o checklist de onboarding e entrega.
+- **Acesso temporário do suporte DG: `dgclaw suporte`.** Quando o time DG precisa ajustar a sua instalação,
+  você libera uma chave SSH nossa com prazo (`sudo dgclaw suporte ligar --chave '<linha>' --dias 7`, de 1 a 30
+  dias). O servidor recusa a chave sozinho quando o prazo acaba, e um timer diário tira a linha vencida do
+  arquivo. `sudo dgclaw suporte desligar` tira o acesso na hora e lista as sessões SSH de root abertas naquele momento, marcando a sua (se ainda houver outra, avisa que o acesso não está totalmente desligado; `--derrubar-sessoes` encerra todas as outras, menos a sua), `sudo dgclaw suporte status` mostra o que está
+  ligado e até quando, e o `dgclaw status` ganhou a linha "suporte: desligado" ou "suporte: ligado até ...". Só as
+  chaves do suporte são tocadas; as suas ficam como estão. Cada ligar e desligar fica em
+  `/var/log/dgclaw/suporte.log`, só com o fingerprint, nunca com a chave inteira. Exige OpenSSH 8.2 ou mais novo
+  (o Ubuntu 24.04 já tem). O Admin conhece o comando e só liga quando você pede.
+- **Regra de ação em massa ou destrutiva.** Todo agente e o Admin passam a nascer sabendo que, antes de
+  apagar, sobrescrever, mover, mandar mensagem para vários, mudar a etapa de vários registros num CRM,
+  cancelar, importar ou qualquer coisa que atinja mais de um item de uma vez ou não dê para desfazer, eles
+  primeiro mapeiam o que seria atingido sem mudar nada, mostram a você o número e uma amostra, esperam o seu
+  sim para aquele número, fazem em lotes e contam o que foi feito. Rotina automática com ação em massa só
+  roda se você aprovou a rotina antes, com o número estimado. A regra está nas instruções de cada agente
+  (`CLAUDE.md` e `AGENTS.md`), no `LAWS.md` e nas do Admin.
 - **Caixa de cofre na conversa.** Quando o agente precisa de uma senha ou chave de um serviço (OpenAI,
   Hostinger, Groq...), ele mostra na própria conversa um cartão com um campo de senha, e o valor vai
   direto para o cofre dele, sem passar pela conversa. O cartão ficou mais completo: avisa "Já tem uma
@@ -88,6 +117,24 @@ aprovar sem querer o comando que surgiu em seguida, e o botão Aprovar de uma te
   parou), seguida das que chegaram nesse meio tempo. Cada balão mostra se está tocando agora ou na fila. Para
   pular, toque no 🎧 do balão que quer ouvir: ele toca e segue dali. Só as respostas normais do agente entram
   na fila sozinhas; as mensagens de rotina só tocam se você apertar o 🎧 delas.
+
+### Como atualizar (regra de ação em massa)
+
+Nesta versão há uma regra nova nas instruções dos agentes: nada de apagar ou mexer em muita coisa de uma vez
+sem mostrar o número a você e esperar o seu sim. Os agentes que você já tem guardam o próprio `CLAUDE.md`, que
+é seu e pode estar personalizado, então a atualização não o substitui. Peça ao Admin para levar a seção "Ação
+destrutiva ou em massa: pergunte antes" do modelo novo (`templates/CLAUDE.md.tmpl`) para o `CLAUDE.md` de cada
+agente, sem apagar o que você escreveu. Agentes criados depois da atualização já nascem com ela. O mesmo vale
+para o `CLAUDE.md` e o `AGENTS.md` do Admin: a versão nova chega como `.novo`, e a seção entra no seu arquivo.
+
+### Como atualizar (parecer antes de instalar)
+
+A partir desta versão o `--ok-do-dono` só funciona depois de um parecer gravado. Se você já usa o Admin para
+atualizar, nada muda na conversa: ele vai analisar, contar o que achou, e só então pedir o seu sim. Se você
+roda o comando na mão, grave antes o parecer sobre a versão que vai instalar, com
+`sudo dgclaw atualizar --parecer segura --commit <commit do DESTINO> --motivo "<uma frase>"`. Se o `CLAUDE.md` ou o `AGENTS.md` do Admin
+estiverem personalizados, leve do `.novo` para o seu arquivo a parte "Atualizar o DG Claw", sem apagar o que
+você escreveu, para o Admin saber fazer a análise.
 
 ### Como atualizar (voz)
 
