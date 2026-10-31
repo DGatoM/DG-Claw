@@ -26,7 +26,85 @@ import { pararVigiaDoStopPerdido, vigiarRolloutDoCodex, vigiarStopPerdido } from
  * ou a forma de pagar mudaram desde o último spawn, porque o id da conversa antiga
  * pertence a outro CLI ou a outra conta e não abriria.
  */
-export async function subir(s: Sessao, modo: "retomar" | "nova"): Promise<"retomar" | "nova"> {
+export function subir(s: Sessao, modo: "retomar" | "nova"): Promise<"retomar" | "nova"> {
+  // `geracao` é lida já aqui, antes de qualquer espera: uma parada ou um revive DEPOIS deste pedido cancela a subida, mesmo que ela ainda esteja na fila.
+  const geracaoNoPedido = s.geracao;
+  const entrar = (): Promise<"retomar" | "nova"> => enfileirarSubida(s, modo, geracaoNoPedido);
+  // Um revive em curso decide qual conversa vale: quem chega no meio dele (resume, login, auto-restart)
+  // espera ele terminar, senão o resume passava na frente e subia a conversa ORIGINAL.
+  if (s.reviveEmCurso) return s.reviveEmCurso.then(entrar, entrar);
+  return entrar();
+}
+
+/** Fila reservada ANTES de qualquer await: duas chamadas que esperavam a mesma faxina passavam juntas
+ *  pela guarda `s.proc` ainda nula e faziam dois spawn. A segunda agora só roda depois da primeira
+ *  e cai em "pedido de subir ignorado". O erro da anterior vai para o chamador dela, não envenena a fila. */
+function enfileirarSubida(s: Sessao, modo: "retomar" | "nova", geracaoNoPedido: number): Promise<"retomar" | "nova"> {
+  const seguir = (): Promise<"retomar" | "nova"> => subirSerializado(s, modo, geracaoNoPedido);
+  const minha = s.filaDeSubida.then(seguir, seguir);
+  s.filaDeSubida = minha;
+  return minha;
+}
+
+/**
+ * Sessão NOVA guardando a anterior, como uma operação só: espera o claude antigo morrer (e o grupo dele
+ * ser varrido) e sobe o novo. Com os dois vivos ao mesmo tempo o novo caiu com código 129 meio segundo
+ * depois de subir (Wells, 30/10/2026). Dois revives simultâneos dividem a mesma operação.
+ * Um parar() (remove, suspender) durante a espera cancela a subida, inclusive antes de o PTY antigo sair.
+ */
+export function reviver(s: Sessao): Promise<void> {
+  if (s.reviveEmCurso) return s.reviveEmCurso;
+  s.geracao++;
+  const op = (async () => {
+    // O parar() roda na parte síncrona de pararEEsperar: a marca lida logo depois já o inclui,
+    // e qualquer parada posterior (a do remove) a torna velha. Pedidos de subir anteriores ao revive ficam velhos também.
+    const parada = pararEEsperar(s, "revive");
+    const marca = s.geracao;
+    await parada;
+    // Direto na fila, sem passar pela espera do revive: esperar por si mesmo seria um deadlock.
+    await enfileirarSubida(s, "nova", marca);
+  })().finally(() => {
+    if (s.reviveEmCurso === op) s.reviveEmCurso = null;
+  });
+  s.reviveEmCurso = op;
+  return op;
+}
+
+async function subirSerializado(s: Sessao, modo: "retomar" | "nova", geracaoNoPedido: number): Promise<"retomar" | "nova"> {
+  // Se o PTY anterior saiu sozinho, o grupo dele pode ainda ter filhos vivos: espera a faxina
+  // terminar para nunca ter dois claude na mesma sessão (Layla, 30/10/2026).
+  // Em laço: enquanto se espera, a saída de outro PTY pode ter começado uma varredura nova.
+  while (s.saidaPendente || s.varreduras.size > 0) {
+    await Promise.all([s.saidaPendente, ...s.varreduras]);
+  }
+  // parar() com s.proc nulo (revive esperando a faxina) não tinha o que matar e respondia "parado",
+  // mas o claude subia mesmo assim quando a faxina acabava.
+  if (s.geracao !== geracaoNoPedido) {
+    log.info(
+      s.a("pty"),
+      `pedido de subir (${modo}) cancelado: chegou uma parada ou um revive enquanto ele esperava a faxina do PTY anterior`,
+    );
+    return modo;
+  }
+  if (s.grupoQueSobrou !== null) {
+    const pgid = s.grupoQueSobrou;
+    if (grupoVivo(pgid)) {
+      const cmd = `ps -o pid,pgid,stat,cmd -g ${pgid}`;
+      log.erro(
+        s.a("pty"),
+        `não subo outro ${s.motor.binario}: o processo antigo (pid/pgid ${pgid}) continuou com processos vivos depois do SIGTERM e do SIGKILL, e um segundo agente na mesma sessão corrompe a conversa`,
+        `conferir com "${cmd}" e encerrar à mão; na próxima tentativa de subir o runner confere de novo`,
+      );
+      s.mudar({
+        status: "errored",
+        error: `O processo antigo do agente (pid/pgid ${pgid}) não morreu e ainda segura a sessão. Para conferir: ${cmd}. Quando ele sumir, tente subir de novo.`,
+        statusReason: "runner:antigo-vivo",
+      });
+      return modo;
+    }
+    log.info(s.a("pty"), `o grupo antigo (pgid ${pgid}) sumiu; sigo com o spawn`);
+    s.grupoQueSobrou = null;
+  }
   if (s.proc) {
     log.info(s.a("pty"), `pedido de subir ignorado: já existe PTY vivo (pid ${s.proc.pid})`);
     return s.modoDoUltimoSpawn ?? modo;
@@ -120,6 +198,15 @@ export async function subir(s: Sessao, modo: "retomar" | "nova"): Promise<"retom
     return modo;
   }
 
+  // O preparo é um await de segundos (login por chave do Codex): uma parada ou um revive que cheguem
+  // nele também cancelam a subida. Ainda não mexemos no sessionId, então nada da conversa muda.
+  if (s.geracao !== geracaoNoPedido) {
+    for (const f of ctx.limpezas) f();
+    log.info(s.a("pty"), `pedido de subir (${modo}) cancelado: chegou uma parada ou um revive durante o preparo do ${s.motor.binario}`);
+    s.mudar({ status: s.estado.sessionId ? "resumable" : "stopped", statusReason: "runner:subida-cancelada" });
+    return modo;
+  }
+
   let args: string[];
   if (modo === "retomar" && s.estado.sessionId) {
     args = s.motor.argsRetomar(ctx, s.estado.sessionId);
@@ -205,12 +292,24 @@ export async function spawn(s: Sessao, ctx: CtxMotor, args: string[]): Promise<v
   // Uma máscara por spawn: o que o CLI escreve passa por ela antes de chegar ao buffer da tela e ao painel.
   const mascara = new MascaraDeFluxo(s.segredosParaMascara());
   s.mascaraAtual = mascara;
-  esteProc.onData((d) => aoReceberDados(s, d, mascara));
+  esteProc.onData((d) => {
+    // PTY largado por parar(): o que ele ainda escreve não pode sujar o buffer nem o status do atual.
+    if (s.proc !== esteProc) return;
+    aoReceberDados(s, d, mascara);
+  });
   esteProc.onExit(({ exitCode, signal }) => {
-    descarregarMascara(s, mascara);
-    pararVigiaDoStopPerdido(s);
     for (const parar of pararVigias) parar();
     for (const f of ctx.limpezas) f();
+    // O líder do grupo morreu, mas o claude cria filhos (servidores MCP, subshells) no mesmo grupo,
+    // e eles não morrem junto quando o líder cai por sinal. Sem varrer o grupo aqui, o runner subia
+    // um claude novo ao lado dos órfãos. Vale para toda saída, pedida ou não.
+    // Conjunto, não slot único: o onExit atrasado de um PTY largado pode chegar com a varredura do PTY
+    // novo em curso, e sobrescrever a marca deixaria o subir() seguir com o grupo novo ainda vivo.
+    const minha: Promise<void> = varrerGrupoOrfao(s, esteProc.pid, exitCode, signal).finally(() => {
+      s.varreduras.delete(minha);
+    });
+    s.varreduras.add(minha);
+    varreduraDoPty.set(esteProc, minha);
     // Saída de um PTY que parar() já tinha largado: o kill é assíncrono, e o
     // evento chega depois que a sessão pode ter subido outro PTY (suspensa e
     // acordada logo em seguida, ou revive). Tratar como saída "do atual"
@@ -219,6 +318,8 @@ export async function spawn(s: Sessao, ctx: CtxMotor, args: string[]): Promise<v
       log.info(s.a("pty"), `PTY antigo (pid ${esteProc.pid}) terminou depois de ter sido encerrado de propósito (código ${exitCode})`);
       return;
     }
+    descarregarMascara(s, mascara);
+    pararVigiaDoStopPerdido(s);
     aoSair(s, exitCode, signal);
   });
 
@@ -281,13 +382,22 @@ export function trocarPorSessaoLimpa(s: Sessao): void {
  *  para voltar: é o estado que faz o painel mostrar o botão de acordar em vez
  *  de dizer que a plataforma sumiu. */
 export function parar(s: Sessao, motivo: string, statusReason?: string): void {
+  // Antes da guarda: com s.proc nulo ainda pode haver um subir() esperando a faxina, e é ele que cancelamos.
+  s.geracao++;
   if (!s.proc) return;
+  // Parada pedida nunca é "retomada que falhou". O kill é assíncrono e o `encerrando` volta a
+  // false antes de a saída chegar; sem esquecer a retomada aqui, o SIGTERM no meio de uma
+  // retomada (restart logo depois do boot) virava "a sessão não abriu" e o runner trocava a
+  // conversa por uma sessão nova (Layla, jaula, 31/10/2026: código 143 em 5s).
+  s.retomando = null;
+  const antigoProc = s.proc;
   s.encerrando = true;
   try {
     s.proc.kill();
   } catch (err) {
     log.aviso(s.a("pty"), `kill do pid ${s.proc.pid} reclamou: ${err instanceof Error ? err.message : err}`);
   }
+  registrarSaidaPendente(s, antigoProc);
   s.proc = null;
   s.encerrando = false;
   cancelarQuietoDeBoot(s);
@@ -352,6 +462,7 @@ export async function pararEEsperar(s: Sessao, motivo: string, prazoMs = 5_000):
 
   await esperar(2_000);
   if (saiu) return;
+  s.grupoQueSobrou = pid;
   log.erro(
     s.a("pty"),
     `o processo antigo (pid ${pid}) continuou vivo mesmo depois do SIGKILL (${motivo}); ele pode estar rodando com o ambiente do modo antigo`,
@@ -380,6 +491,94 @@ export function suspender(s: Sessao, motivo: string): boolean {
   }
   s.parar(motivo, `runner:suspensa ${motivo}`);
   return true;
+}
+
+/** O grupo `-pgid` ainda tem algum processo? (EPERM também conta como vivo.) */
+function grupoVivo(pgid: number): boolean {
+  try {
+    process.kill(-pgid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/** Prazo máximo que subir() espera um PTY largado por parar() sair e ter o grupo varrido. */
+const PRAZO_SAIDA_PENDENTE_MS = 8_000;
+
+/** A varredura de cada PTY, para o onExit dele esperar a DELE e não a que estiver em curso. */
+const varreduraDoPty = new WeakMap<object, Promise<void>>();
+
+/** Chamada por parar() NO MOMENTO em que larga o PTY: cria a promessa que subir() espera, para nenhum
+ *  segundo claude nascer antes de o antigo sair e o grupo dele ser varrido. Se o prazo vence com o
+ *  grupo ainda vivo, anota em `grupoQueSobrou` e subir() recusa. */
+function registrarSaidaPendente(s: Sessao, antigo: Sessao["proc"]): void {
+  if (!antigo) return;
+  const pid = antigo.pid;
+  const pend = new Promise<void>((resolve) => {
+    let saiu = false;
+    const prazo = setTimeout(() => {
+      // Saída já chegou: a varredura está em curso e é ela que resolve (o prazo não pode passar na frente).
+      if (saiu) return;
+      if (grupoVivo(pid)) s.grupoQueSobrou = pid;
+      resolve();
+    }, PRAZO_SAIDA_PENDENTE_MS);
+    // O listener do spawn (que inicia a varredura) foi registrado antes deste, então já rodou.
+    antigo.onExit(() => {
+      saiu = true;
+      void (async () => {
+        await varreduraDoPty.get(antigo);
+        clearTimeout(prazo);
+        resolve();
+      })();
+    });
+  }).finally(() => {
+    if (s.saidaPendente === pend) s.saidaPendente = null;
+  });
+  s.saidaPendente = pend;
+}
+
+/** Garante que não sobra processo no grupo `-pid` de um PTY que saiu: SIGTERM, curta espera, SIGKILL.
+ *  O node-pty faz o filho líder de uma sessão nova, então o grupo é só dele (nunca o do runner).
+ *  Nunca lança. */
+async function varrerGrupoOrfao(s: Sessao, pid: number, exitCode: number, signal?: number): Promise<void> {
+  const vivo = (): boolean => grupoVivo(pid);
+  const esperarMorrer = async (ms: number): Promise<boolean> => {
+    const limite = Date.now() + ms;
+    while (Date.now() < limite) {
+      if (!vivo()) return true;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    return !vivo();
+  };
+  if (pid <= 1 || pid === process.pid || !vivo()) return;
+  const sobrou = (): void => {
+    s.grupoQueSobrou = pid;
+  };
+  const area = s.a("pty");
+  const saida = `código ${exitCode}${signal ? `, sinal ${signal}` : ""}`;
+  try {
+    process.kill(-pid, "SIGTERM");
+  } catch (err) {
+    log.erro(area, `o PTY (pid ${pid}) saiu (${saida}) deixando processos no grupo, e o SIGTERM no grupo falhou: ${err instanceof Error ? err.message : err}`, `conferir com "ps -o pid,pgid,cmd -g ${pid}" e encerrar à mão antes de confiar que só há um claude`);
+    sobrou();
+    return;
+  }
+  if (await esperarMorrer(1_500)) {
+    log.aviso(area, `o PTY (pid ${pid}) saiu (${saida}) deixando processos no grupo; encerrei o grupo com SIGTERM`);
+    return;
+  }
+  try {
+    process.kill(-pid, "SIGKILL");
+  } catch {
+    // o grupo pode ter acabado entre o teste e o kill; a conferência abaixo decide
+  }
+  if (await esperarMorrer(1_000)) {
+    log.aviso(area, `o PTY (pid ${pid}) saiu (${saida}) deixando processos no grupo que ignoraram o SIGTERM; encerrei o grupo com SIGKILL`);
+    return;
+  }
+  sobrou();
+  log.erro(area, `o grupo do PTY (pid ${pid}) continuou com processos vivos depois do SIGTERM e do SIGKILL (saída: ${saida})`, `conferir com "ps -o pid,pgid,stat,cmd -g ${pid}"; processo em estado D (disco) não morre, e o claude novo pode ter um irmão antigo na mesma sessão`);
 }
 
 export function aoSair(s: Sessao, exitCode: number, signal?: number): void {

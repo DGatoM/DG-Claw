@@ -485,8 +485,8 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
               return;
             }
           }
-          sessao.parar("revive");
-          await sessao.subir("nova");
+          // Uma operação só (espera o claude antigo morrer, sobe o novo): ver reviver() em sessao/ciclo.ts.
+          await sessao.reviver();
           json(res, { success: true, data: visao(sessao, false) });
           return;
         }

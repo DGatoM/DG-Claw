@@ -34,7 +34,7 @@ import { codexHomeDe } from "./provedores/codex.js";
 import { type CamposDeEscolha, type Escolha, type EscolhaEfetiva, type SaidaDaEscolha, gravarProvedorJson, resolverEscolha } from "./provedores/escolha.js";
 import type { CtxMotor, Motor, Recusa } from "./provedores/motor.js";
 import { motorDe } from "./provedores/motores.js";
-import { parar, pararEEsperar, subir, suspender, trocarPorSessaoLimpa } from "./sessao/ciclo.js";
+import { parar, pararEEsperar, reviver, subir, suspender, trocarPorSessaoLimpa } from "./sessao/ciclo.js";
 import { ctxLeve, montarAmbienteBase } from "./sessao/configuracao.js";
 import { PAUSA_TECLA_PERGUNTA_MS, QUIETO_PARA_OLHAR_TRANSCRIPT_MS, VIGIA_LOGIN_EXPIRADO_MS } from "./sessao/constantes.js";
 import { digitarEEnviar, vencerTelaDeConfianca } from "./sessao/digitacao.js";
@@ -169,6 +169,18 @@ export class Sessao extends EventEmitter {
   /** Sessões cuja retomada já falhou. Sem esta marca, um transcript ilegível
    *  daria um laço: retoma, morre, retoma de novo, para sempre. */
   retomadasQueFalharam = new Set<string>();
+  /** Faxinas de grupo em curso (uma por PTY que saiu); subir() espera todas terminarem. */
+  readonly varreduras = new Set<Promise<void>>();
+  /** Fila de subir(): uma subida por vez, para dois pedidos juntos não criarem dois claude. */
+  filaDeSubida: Promise<unknown> = Promise.resolve();
+  /** O revive em andamento; subir() de fora espera por ele e um segundo revive divide a mesma operação. */
+  reviveEmCurso: Promise<void> | null = null;
+  /** Sobe a cada parar() e a cada reviver(). Todo subir() guarda o valor na entrada e desiste se ele mudou enquanto esperava. */
+  geracao = 0;
+  /** Do instante em que parar() larga o PTY até o onExit dele chegar e o grupo ser varrido (ou o prazo vencer). */
+  saidaPendente: Promise<void> | null = null;
+  /** Líder do grupo de um PTY antigo que continuou com processos vivos depois dos sinais. subir() recusa enquanto existir. */
+  grupoQueSobrou: number | null = null;
 
   /** O motor e a escolha do último spawn (ou a resolvida no construtor, antes do primeiro). */
   motor: Motor;
@@ -615,6 +627,11 @@ export class Sessao extends EventEmitter {
   /** Sobe o PTY (ver sessao/ciclo.ts). */
   subir(modo: "retomar" | "nova"): Promise<"retomar" | "nova"> {
     return subir(this, modo);
+  }
+
+  /** Sessão nova guardando a anterior, numa operação só (ver sessao/ciclo.ts). */
+  reviver(): Promise<void> {
+    return reviver(this);
   }
 
   /** Encerra o PTY sem matar o serviço (ver sessao/ciclo.ts). */
