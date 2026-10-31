@@ -81,3 +81,93 @@ test("pararEEsperar: CLI que ignora o SIGHUP é morto com SIGKILL depois do praz
     delete process.env.FAKE_IGNORAR_HUP;
   }
 });
+
+test("PTY que sai sozinho deixando um filho no grupo: o runner mata o filho antes de subir outro", async () => {
+  const arquivo = path.join(amb.raiz, "filho.pid");
+  process.env.FAKE_FILHO_PIDFILE = arquivo;
+  try {
+    const s = await nova();
+    await s.subir("nova");
+    await esperarAte(() => s.estado.status === "idle" && fs.existsSync(arquivo) && lerTexto(arquivo) !== "", 8_000, "o filho do CLI nascer");
+    const filho = Number(lerTexto(arquivo));
+    const lider = pidDe(s);
+    assert.equal(vivo(filho), true, "o filho começa vivo");
+    // Saída NÃO pedida: só o líder cai (como o sinal 6 da Layla); o filho fica órfão no grupo.
+    process.kill(lider, "SIGKILL");
+    await esperarAte(() => !s.temPtyVivo(), 5_000, "o runner notar a saída do PTY");
+    // Quem sobe de novo tem que esperar a faxina do grupo.
+    await s.subir("nova");
+    assert.equal(vivo(filho), false, "o filho do grupo antigo não pode sobreviver à reação do runner");
+    assert.notEqual(pidDe(s), lider);
+    assert.match(lerTexto(amb.logDoRunner), new RegExp(`PTY \\(pid ${lider}\\) saiu .*deixando processos no grupo`));
+  } finally {
+    delete process.env.FAKE_FILHO_PIDFILE;
+  }
+});
+
+test("revive (parar + subir nova): a saída tardia do PTY antigo não derruba nem orfana o PTY novo", async () => {
+  const s = await nova();
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 8_000, "o SessionStart virar idle");
+  const antigo = pidDe(s);
+  s.parar("revive");
+  await s.subir("nova");
+  const novo = pidDe(s);
+  assert.notEqual(novo, antigo);
+  // Dá tempo de o evento de saída do antigo chegar (ele é assíncrono) e confere o que sobrou.
+  await esperarAte(() => !vivo(antigo), 5_000, "o PTY antigo morrer");
+  await new Promise((r) => setTimeout(r, 400));
+  assert.equal(s.temPtyVivo(), true, "o PTY novo continua sendo o atual");
+  assert.equal(pidDe(s), novo);
+  assert.equal(vivo(novo), true, "o claude novo está vivo");
+  assert.notEqual(s.estado.status, "resumable", "a saída do antigo não pode marcar a sessão nova como caída");
+  assert.match(lerTexto(amb.logDoRunner), new RegExp(`PTY antigo \\(pid ${antigo}\\) terminou depois de ter sido encerrado`));
+});
+
+test("parar + subir('retomar') logo em seguida: espera o antigo sair e o grupo ser varrido, e fica um claude só", async () => {
+  const arquivo = path.join(amb.raiz, "filho-janela.pid");
+  process.env.FAKE_FILHO_PIDFILE = arquivo;
+  try {
+    const s = await nova();
+    await s.subir("nova");
+    await esperarAte(() => s.estado.status === "idle" && fs.existsSync(arquivo) && lerTexto(arquivo) !== "", 8_000, "o filho do CLI nascer");
+    const filho = Number(lerTexto(arquivo));
+    const antigo = pidDe(s);
+    // Sem esperar nada: é a janela entre parar() zerar o proc e o onExit chegar.
+    s.parar("janela");
+    await s.subir("retomar");
+    assert.equal(vivo(antigo), false, "o líder antigo já morreu quando o subir() devolve");
+    assert.equal(vivo(filho), false, "o filho órfão do grupo antigo também");
+    const novo = pidDe(s);
+    assert.notEqual(novo, antigo);
+    await new Promise((r) => setTimeout(r, 400));
+    assert.equal(pidDe(s), novo, "a saída tardia do antigo não zera o PTY novo");
+    assert.equal(vivo(novo), true);
+    assert.notEqual(s.estado.status, "resumable");
+    assert.notEqual(s.estado.status, "errored");
+  } finally {
+    delete process.env.FAKE_FILHO_PIDFILE;
+  }
+});
+
+test("grupo antigo que sobrou vivo: subir() recusa com runner:antigo-vivo e segue quando ele some", async () => {
+  const { spawn } = await import("node:child_process");
+  const s = await nova();
+  // Um grupo próprio (detached = setsid) que faz o papel do grupo que resistiu ao SIGKILL.
+  const resistente = spawn("sleep", ["300"], { detached: true, stdio: "ignore" });
+  const pgid = resistente.pid as number;
+  try {
+    (s as unknown as { grupoQueSobrou: number | null }).grupoQueSobrou = pgid;
+    await s.subir("nova");
+    assert.equal(s.temPtyVivo(), false, "nenhum claude novo ao lado do antigo");
+    assert.equal(s.estado.status, "errored");
+    assert.equal(s.estado.statusReason, "runner:antigo-vivo");
+    assert.match(String(s.estado.error), new RegExp(`${pgid}.*ps -o pid,pgid,stat,cmd -g ${pgid}`));
+    process.kill(-pgid, "SIGKILL");
+    await esperarAte(() => !vivo(pgid), 3_000, "o grupo resistente morrer");
+    await s.subir("nova");
+    assert.equal(s.temPtyVivo(), true, "com o grupo antigo morto, o spawn segue normal");
+  } finally {
+    try { process.kill(-pgid, "SIGKILL"); } catch { /* já morreu */ }
+  }
+});

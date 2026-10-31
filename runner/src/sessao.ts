@@ -169,6 +169,12 @@ export class Sessao extends EventEmitter {
   /** Sessões cuja retomada já falhou. Sem esta marca, um transcript ilegível
    *  daria um laço: retoma, morre, retoma de novo, para sempre. */
   retomadasQueFalharam = new Set<string>();
+  /** Faxina do grupo de processos do PTY que acabou de sair; subir() espera por ela. */
+  limpezaDeGrupo: Promise<void> | null = null;
+  /** Do instante em que parar() larga o PTY até o onExit dele chegar e o grupo ser varrido (ou o prazo vencer). */
+  saidaPendente: Promise<void> | null = null;
+  /** Líder do grupo de um PTY antigo que continuou com processos vivos depois dos sinais. subir() recusa enquanto existir. */
+  grupoQueSobrou: number | null = null;
 
   /** O motor e a escolha do último spawn (ou a resolvida no construtor, antes do primeiro). */
   motor: Motor;
