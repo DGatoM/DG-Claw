@@ -1,0 +1,340 @@
+#!/usr/bin/env bash
+# Testes do lib/emergencia.sh (dgclaw emergencia): sem root, sem mexer na máquina.
+# Usa uma raiz falsa (DGCLAW_RAIZ) e comandos de mentira no PATH que só registram as chamadas.
+# shellcheck disable=SC2016,SC2015
+# (SC2016: os comandos de mentira ficam entre aspas simples de propósito; SC2015: ok/nok não são if-then-else)
+set -euo pipefail
+
+AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT="$AQUI/../../lib/emergencia.sh"
+BIN="$AQUI/../../bin/dgclaw"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+PASSOU=0
+FALHOU=0
+
+ok() { PASSOU=$((PASSOU + 1)); printf '  ok   %s\n' "$1"; }
+nok() { FALHOU=$((FALHOU + 1)); printf '  FALHA %s\n' "$1"; }
+
+confere() { # descrição, esperado, obtido
+  if [[ "$2" == "$3" ]]; then ok "$1"; else nok "$1"; printf '    esperado:\n%s\n    obtido:\n%s\n' "$2" "$3"; fi
+}
+contem() { # descrição, texto, trecho
+  if grep -qF -- "$3" <<<"$2"; then ok "$1"; else nok "$1 (faltou: $3)"; printf '%s\n' "$2" | sed 's/^/    | /'; fi
+}
+
+monta_ambiente() {
+  RAIZ="$TMP/raiz"
+  FAKE="$TMP/fake"
+  rm -rf "$RAIZ" "$FAKE"
+  mkdir -p "$RAIZ/etc/dgclaw" "$FAKE/bin"
+  : >"$FAKE/chamadas.log"
+  export DGCLAW_RAIZ="$RAIZ" EMERGENCIA_CONF="$RAIZ/etc/dgclaw/emergencia.conf" EMERGENCIA_ESPERA=0 FAKE
+  export PATH="$FAKE/bin:$PATH"
+  cat >"$EMERGENCIA_CONF" <<CONF
+SERVICOS_PUBLICOS="cloudflared caddy"
+INTERFACES_ADMIN="tailscale0"
+IPS_ADMIN=""
+PORTA_SSH=22
+PRAZO_CONFIRMAR_MIN=5
+URLS_TESTE_RELIGAR="https://site.exemplo/ok"
+REDES_INTERNAS="10.89.0.0/16"
+ESTADO_DIR=/var/lib/dgclaw/emergencia
+CONF
+  cat >"$FAKE/ufw-verbose" <<'V'
+Status: active
+Logging: on (low)
+Default: deny (incoming), allow (outgoing), disabled (routed)
+New profiles: skip
+V
+  cat >"$FAKE/ufw-numbered" <<'N'
+Status: active
+
+     To                         Action      From
+     --                         ------      ----
+[ 1] 22/tcp                     ALLOW IN    Anywhere
+[ 2] 443/tcp                    ALLOW IN    Anywhere
+N
+  echo "ufw allow 22/tcp" >"$FAKE/ufw-added"
+  touch "$FAKE/ativo-cloudflared" "$FAKE/ativo-caddy" "$FAKE/habilitado-cloudflared" "$FAKE/habilitado-caddy"
+
+  fake ufw '
+case "$1 $2" in
+  "status numbered") cat "$FAKE/ufw-numbered"; exit 0 ;;
+  "status verbose") cat "$FAKE/ufw-verbose"; exit 0 ;;
+  "show added") cat "$FAKE/ufw-added"; exit 0 ;;
+esac
+if [[ "$1" == status ]]; then
+  if [[ -f "$FAKE/ufw-inativo" ]]; then echo "Status: inactive"; else echo "Status: active"; fi
+  exit 0
+fi
+echo "ufw $*" >>"$FAKE/chamadas.log"'
+  fake systemctl '
+case "$1" in
+  is-active) if [[ "$3" == emergencia-desfazer.timer ]]; then [[ -f "$FAKE/timer-ativo" ]]; exit; fi
+             [[ -f "$FAKE/falha-$3" ]] && exit 3; [[ -f "$FAKE/ativo-$3" ]]; exit ;;
+  is-enabled) [[ -f "$FAKE/habilitado-$3" ]]; exit ;;
+  stop) echo "systemctl $*" >>"$FAKE/chamadas.log"
+        if [[ "$2" == emergencia-desfazer.timer ]]; then rm -f "$FAKE/timer-ativo"; else rm -f "$FAKE/ativo-$2"; fi ;;
+  start) echo "systemctl $*" >>"$FAKE/chamadas.log"; touch "$FAKE/ativo-$2" ;;
+esac'
+  fake systemd-run 'echo "systemd-run $*" >>"$FAKE/chamadas.log"; touch "$FAKE/timer-ativo"'
+  fake tailscale '
+if [[ -f "$FAKE/ts-logado" ]]; then echo "100.64.0.1 vps danilo linux -"; else echo "Logged out."; exit 1; fi'
+  fake ip '
+if [[ -f "$FAKE/if-tailscale0" && "$*" == *tailscale0* ]]; then echo "tailscale0 UNKNOWN 0.0.0.0"; else echo "Device does not exist" >&2; exit 1; fi'
+  fake nft 'echo "table inet filter {}"'
+  fake logger 'exit 0'
+  fake curl 'echo "curl $*" >>"$FAKE/chamadas.log"; [[ "$*" != *falha* ]]'
+}
+
+fake() { printf '#!/usr/bin/env bash\n%s\n' "$2" >"$FAKE/bin/$1"; chmod +x "$FAKE/bin/$1"; }
+
+liga_tailscale() { touch "$FAKE/ts-logado" "$FAKE/if-tailscale0"; }
+chamadas() { cat "$FAKE/chamadas.log"; }
+roda() { # roda o script capturando saída e código em SAIDA/RC
+  RC=0
+  SAIDA="$("$SCRIPT" "$@" 2>&1)" || RC=$?
+}
+
+pega_codigo() { # gera um código novo com `preparar --json` e deixa em COD
+  roda preparar --json "$@"
+  COD="$(python3 -I -c 'import json,sys; print(json.loads(sys.stdin.read())["codigo"])' <<<"$SAIDA" 2>/dev/null)" || COD=""
+}
+
+echo "1. simular sem Tailscale logado e sem IPS_ADMIN"
+monta_ambiente
+roda simular
+contem "diz que seria recusado" "$SAIDA" "O corte seria recusado porque"
+contem "explica que trancaria todo mundo fora" "$SAIDA" "o corte trancaria todo mundo fora: ligue o Tailscale"
+confere "simular não executou nada" "" "$(chamadas)"
+WEB="$RAIZ/var/lib/dgclaw/web/seguranca/emergencia.json"
+if python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["disponivel"] is False and "trancaria" in d["motivo"] and d["estado"]["cortado"] is False' "$WEB"; then ok "gravou emergencia.json para o painel (indisponível, com motivo)"; else nok "emergencia.json ausente ou errado"; fi
+confere "emergencia.json legível (644)" "644" "$(stat -c %a "$WEB")"
+
+echo "2. simular com Tailscale"
+monta_ambiente; liga_tailscale
+roda simular
+contem "pré-checagens ok" "$SAIDA" "o corte seria aceito"
+contem "lista o stop do caddy" "$SAIDA" "systemctl stop caddy"
+contem "lista a regra da interface" "$SAIDA" "ufw insert 1 allow in on tailscale0 comment emergencia"
+contem "mantém a rede dos agentes" "$SAIDA" "ufw insert 1 allow from 10.89.0.0/16 comment emergencia"
+confere "simular não executou nada" "" "$(chamadas)"
+roda simular --json
+if python3 -I -c 'import json,sys; d=json.loads(sys.stdin.read()); assert d["recusado"] is False and len(d["comandos"])>=5' <<<"$SAIDA"; then ok "simular --json é JSON válido"; else nok "simular --json inválido: $SAIDA"; fi
+roda estado --json
+if python3 -I -c 'import json,sys; d=json.loads(sys.stdin.read()); assert d["cortado"] is False' <<<"$SAIDA"; then ok "estado --json é JSON válido"; else nok "estado --json inválido: $SAIDA"; fi
+if python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["disponivel"] is True and d["motivo"]=="" and len(d["plano"]["comandos"])>=5' "$WEB"; then ok "emergencia.json: disponível, com o plano"; else nok "emergencia.json (disponível) errado"; fi
+roda --help
+contem "o uso cita o preparar" "$SAIDA" "preparar"
+
+echo "3. domínio do painel vira a URL do teste do religar"
+monta_ambiente; liga_tailscale
+sed -i '/^URLS_TESTE_RELIGAR=/d' "$EMERGENCIA_CONF"
+printf 'DGCLAW_DOMINIO=painel.exemplo.org\n' >"$RAIZ/etc/dgclaw/dgclaw.env"
+pega_codigo
+roda cortar --codigo "$COD"
+confere "cortar ok" "0" "$RC"
+: >"$FAKE/chamadas.log"
+pega_codigo
+roda religar --codigo "$COD"
+contem "religar testa o domínio do dgclaw.env" "$(chamadas)" "curl -fsS --max-time 10 -o /dev/null https://painel.exemplo.org/"
+
+echo "4. preparar: código de uso único, hash em disco e recusas"
+monta_ambiente; liga_tailscale
+pega_codigo
+[[ "$COD" =~ ^[A-HJKMNP-Z2-9]{6}$ ]] && ok "código com 6 caracteres sem ambiguidade" || nok "código fora do formato: '$COD'"
+ARQ="$RAIZ/var/lib/dgclaw/seguranca/emergencia-codigo"
+confere "arquivo do código é 600" "600" "$(stat -c %a "$ARQ")"
+confere "pasta do código é 700" "700" "$(stat -c %a "$(dirname "$ARQ")")"
+if grep -qF -- "$COD" "$ARQ"; then nok "o código está em claro no arquivo"; else ok "só o hash fica em disco"; fi
+if python3 -I -c 'import json,sys; d=json.loads(sys.stdin.read()); assert d["acao"]=="cortar" and d["valido_s"]==120 and d["plano"]["recusado"] is False' <<<"$SAIDA"; then ok "preparar --json traz ação, validade e plano"; else nok "preparar --json: $SAIDA"; fi
+roda cortar
+confere "cortar sem código falha" "1" "$RC"
+contem "pede o código" "$SAIDA" "faltou o código"
+roda cortar --codigo ERRADO
+confere "código errado falha" "1" "$RC"
+contem "diz que não confere" "$SAIDA" "o código não confere (tentativa 1 de 3)"
+confere "nada foi chamado" "" "$(chamadas)"
+roda cortar --codigo ERRADO; roda cortar --codigo ERRADO
+contem "na 3ª tentativa descarta" "$SAIDA" "foi descartado"
+[[ ! -e "$ARQ" ]] && ok "código descartado do disco" || nok "código continua em disco"
+roda cortar --codigo "$COD"
+confere "código descartado não vale mais" "1" "$RC"
+pega_codigo
+printf '%s\n%s\n0\n' "$(printf %s "$COD" | sha256sum | awk '{print $1}')" "$(( $(date +%s) - 5 ))" >"$ARQ"
+roda cortar --codigo "$COD"
+confere "código vencido falha" "1" "$RC"
+contem "diz que venceu" "$SAIDA" "o código venceu"
+confere "nada foi chamado" "" "$(chamadas)"
+echo "   preparar sem caminho de acesso é recusado"
+monta_ambiente
+roda preparar
+confere "preparar recusado" "1" "$RC"
+contem "motivo" "$SAIDA" "não dá para preparar o corte porque"
+
+echo "5. cortar recusa com ufw inativo e sem caminho de acesso (código válido)"
+monta_ambiente; liga_tailscale
+pega_codigo
+touch "$FAKE/ufw-inativo"
+roda cortar --codigo "$COD"
+confere "ufw inativo falha" "1" "$RC"
+contem "motivo do ufw" "$SAIDA" "o ufw não está ativo"
+rm "$FAKE/ufw-inativo"
+pega_codigo
+rm "$FAKE/ts-logado"
+roda cortar --codigo "$COD"
+confere "Tailscale deslogado falha" "1" "$RC"
+confere "nada foi chamado" "" "$(chamadas)"
+
+echo "6. cortar de verdade (falso) com Tailscale e IPS_ADMIN"
+monta_ambiente; liga_tailscale
+sed -i 's|^IPS_ADMIN=.*|IPS_ADMIN="203.0.113.10 198.51.100.0/24"|' "$EMERGENCIA_CONF"
+pega_codigo
+roda cortar --codigo "$COD"
+confere "exit 0" "0" "$RC"
+SELF="$(readlink -f "$SCRIPT")"
+ESPERADO="systemd-run --on-active=5m --unit=emergencia-desfazer --setenv=EMERGENCIA_CONF=$EMERGENCIA_CONF --setenv=DGCLAW_RAIZ=$RAIZ $SELF religar --automatico
+systemctl stop cloudflared
+systemctl stop caddy
+ufw default deny incoming
+ufw insert 1 deny in from any comment emergencia
+ufw insert 1 allow from 10.89.0.0/16 comment emergencia
+ufw insert 1 allow from 203.0.113.10 to any port 22 proto tcp comment emergencia
+ufw insert 1 allow from 198.51.100.0/24 to any port 22 proto tcp comment emergencia
+ufw insert 1 allow in on tailscale0 comment emergencia"
+confere "sequência exata de chamadas" "$ESPERADO" "$(chamadas)"
+ED="$RAIZ/var/lib/dgclaw/emergencia"
+[[ -f "$ED/cortado" ]] && ok "marcador cortado criado" || nok "marcador cortado ausente"
+[[ ! -e "$ARQ" ]] && ok "o código foi gasto" || nok "o código continua em disco"
+confere "pasta de estado é 700" "700" "$(stat -c %a "$ED")"
+confere "pasta antes é 700" "700" "$(stat -c %a "$ED/antes")"
+for f in ufw-status-numbered.txt ufw-show-added.txt servicos.txt carimbo.txt ufw-defaults.txt; do
+  [[ -s "$ED/antes/$f" ]] && ok "guardou antes/$f" || nok "faltou antes/$f"
+done
+confere "serviços guardados" "cloudflared|ativo|habilitado
+caddy|ativo|habilitado" "$(cat "$ED/antes/servicos.txt")"
+confere "defaults guardados" "incoming=deny
+outgoing=allow
+routed=disabled" "$(cat "$ED/antes/ufw-defaults.txt")"
+[[ -s "$ED/emergencia.log" ]] && ok "log gravado" || nok "log vazio"
+if python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); e=d["estado"]; assert e["cortado"] is True and e["religar_automatico_agendado"] is True and e["religar_automatico_em"].endswith("Z")' "$WEB"; then ok "emergencia.json mostra o corte e a hora do religar automático"; else nok "emergencia.json depois do corte"; fi
+pega_codigo
+roda cortar --codigo "$COD"
+confere "cortar de novo é recusado" "1" "$RC"
+contem "diz que já está cortado" "$SAIDA" "já está cortado"
+roda estado
+contem "estado mostra cortado" "$SAIDA" "Estado: CORTADO"
+contem "estado mostra confirmação pendente" "$SAIDA" "PENDENTE"
+roda estado --json
+if python3 -I -c 'import json,sys; d=json.loads(sys.stdin.read()); assert d["cortado"] is True and d["religar_automatico_agendado"] is True' <<<"$SAIDA"; then ok "estado --json cortado"; else nok "estado --json: $SAIDA"; fi
+pega_codigo
+if python3 -I -c 'import json,sys; d=json.loads(sys.stdin.read()); assert d["acao"]=="religar"' <<<"$SAIDA"; then ok "preparar com o servidor cortado oferece o religar"; else nok "preparar cortado: $SAIDA"; fi
+
+echo "7. confirmar cancela o timer"
+: >"$FAKE/chamadas.log"
+roda confirmar
+confere "exit 0" "0" "$RC"
+confere "parou o timer" "systemctl stop emergencia-desfazer.timer" "$(chamadas)"
+[[ -f "$ED/confirmado" ]] && ok "marcador confirmado" || nok "sem marcador confirmado"
+
+echo "8. religar exige código e remove só as regras emergencia"
+cat >"$FAKE/ufw-numbered" <<'N'
+Status: active
+
+     To                         Action      From
+     --                         ------      ----
+[ 1] Anywhere on tailscale0     ALLOW IN    Anywhere                   # emergencia
+[ 2] Anywhere                   DENY IN     Anywhere                   # emergencia
+[ 3] 22/tcp                     ALLOW IN    Anywhere
+[ 4] 443/tcp                    ALLOW IN    Anywhere
+[ 5] Anywhere (v6) on tailscale0 ALLOW IN    Anywhere (v6)              # emergencia
+N
+# o fake não simula a remoção; depois de apagar, o status volta ao original
+fake ufw '
+case "$1 $2" in
+  "status numbered") if grep -q "delete 1" "$FAKE/chamadas.log"; then
+      printf "Status: active\n\n[ 1] 22/tcp ALLOW IN Anywhere\n[ 2] 443/tcp ALLOW IN Anywhere\n"; else cat "$FAKE/ufw-numbered"; fi; exit 0 ;;
+  "status verbose") cat "$FAKE/ufw-verbose"; exit 0 ;;
+  "show added") cat "$FAKE/ufw-added"; exit 0 ;;
+esac
+if [[ "$1" == status ]]; then echo "Status: active"; exit 0; fi
+echo "ufw $*" >>"$FAKE/chamadas.log"'
+rm -f "$FAKE/ativo-cloudflared" "$FAKE/ativo-caddy"
+: >"$FAKE/chamadas.log"
+roda religar
+confere "religar sem código falha" "1" "$RC"
+roda religar --codigo ERRADO
+confere "religar com código errado falha" "1" "$RC"
+confere "nada foi chamado" "" "$(chamadas)"
+pega_codigo
+roda religar --codigo "$(printf %s "$COD" | tr '[:upper:]' '[:lower:]')"
+confere "exit 0 (código aceito em minúsculas)" "0" "$RC"
+ESPERADO="ufw --force delete 5
+ufw --force delete 2
+ufw --force delete 1
+ufw default deny incoming
+ufw default allow outgoing
+systemctl start cloudflared
+systemctl start caddy
+curl -fsS --max-time 10 -o /dev/null https://site.exemplo/ok"
+confere "sequência do religar (maior número primeiro, só as emergencia)" "$ESPERADO" "$(chamadas)"
+contem "relatório do que voltou" "$SAIDA" "voltou: serviço caddy ativo"
+[[ ! -e "$ED/cortado" ]] && ok "marcador cortado apagado" || nok "marcador cortado continua"
+ls "$ED/historico"/*/cortado >/dev/null 2>&1 && ok "histórico guardado" || nok "histórico ausente"
+if python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["estado"]["cortado"] is False' "$WEB"; then ok "emergencia.json volta ao normal"; else nok "emergencia.json depois do religar"; fi
+roda estado
+contem "estado volta ao normal" "$SAIDA" "Estado: NORMAL"
+pega_codigo
+roda religar --codigo "$COD"
+confere "religar sem corte falha" "1" "$RC"
+contem "motivo" "$SAIDA" "não há corte ativo"
+
+echo "9. religar relata o que não voltou e sai com erro"
+monta_ambiente; liga_tailscale
+sed -i 's|^URLS_TESTE_RELIGAR=.*|URLS_TESTE_RELIGAR="https://site.exemplo/ok https://falha.exemplo/x"|' "$EMERGENCIA_CONF"
+pega_codigo
+roda cortar --codigo "$COD"
+touch "$FAKE/falha-caddy"
+pega_codigo
+roda religar --codigo "$COD"
+confere "exit diferente de zero" "1" "$RC"
+contem "diz que o caddy não voltou" "$SAIDA" "NÃO voltou: serviço caddy"
+contem "diz que a URL não voltou" "$SAIDA" "NÃO voltou: https://falha.exemplo/x"
+[[ ! -e "$RAIZ/var/lib/dgclaw/emergencia/cortado" ]] && ok "marcador apagado mesmo assim" || nok "marcador ficou"
+
+echo "10. --isolar-saida e religar automático (sem código)"
+monta_ambiente; liga_tailscale
+pega_codigo --isolar-saida
+roda cortar --codigo "$COD" --isolar-saida
+contem "bloqueia a saída" "$(chamadas)" "ufw default deny outgoing"
+contem "libera DNS" "$(chamadas)" "ufw insert 1 allow out 53 comment emergencia"
+contem "libera saída pela interface" "$(chamadas)" "ufw insert 1 allow out on tailscale0 comment emergencia"
+: >"$FAKE/chamadas.log"
+printf 'Status: active\n' >"$FAKE/ufw-numbered"
+roda religar --automatico
+confere "religar automático ok sem código" "0" "$RC"
+
+echo "11. conf não é executado e chave desconhecida é recusada"
+monta_ambiente; liga_tailscale
+echo 'SERVICOS_PUBLICOS="$(touch '"$TMP"'/invadido)"' >>"$EMERGENCIA_CONF"
+roda simular
+[[ ! -e "$TMP/invadido" ]] && ok "conf não executou comando" || nok "conf EXECUTOU comando"
+contem "recusa nome de serviço inválido" "$SAIDA" "SERVICOS_PUBLICOS tem nome inválido"
+monta_ambiente
+echo 'COISA=1' >>"$EMERGENCIA_CONF"
+roda estado
+contem "chave desconhecida" "$SAIDA" "chave desconhecida 'COISA'"
+
+echo "12. dgclaw emergencia chama o mesmo script"
+monta_ambiente; liga_tailscale
+RC=0; SAIDA="$("$BIN" emergencia estado 2>&1)" || RC=$?
+confere "exit 0" "0" "$RC"
+contem "estado normal pela CLI" "$SAIDA" "Estado: NORMAL"
+RC=0; SAIDA="$("$BIN" --ajuda 2>&1)" || RC=$?
+contem "a ajuda do dgclaw lista a emergência" "$SAIDA" "dgclaw emergencia estado|simular|preparar|cortar|confirmar|religar"
+
+echo
+echo "Passaram: $PASSOU  Falharam: $FALHOU"
+((FALHOU == 0))

@@ -171,6 +171,14 @@ Personalizacoes do programa (o que o Admin mudou no DG Claw)
 Ronda de seguranca
   dgclaw seguranca [estado|resumo|rodar|aplicar|desfazer|inventario]   ver "dgclaw seguranca ajuda"
 
+Botao de emergencia (tirar o servidor do ar)
+  dgclaw emergencia estado|simular|preparar|cortar|confirmar|religar
+      Tira o servidor da internet (para o Caddy e fecha o firewall) e mantem so o seu acesso pelo Tailscale.
+      Se ninguem confirmar em 5 minutos, religa sozinho. 'cortar' e 'religar' pedem o codigo de uso unico
+      que 'preparar' gera (vale 2 minutos). Ordem: simular (so mostra), preparar (codigo + plano), cortar --codigo <c>,
+      confirmar, e religar --codigo <c> quando passar. O painel tambem sai do ar durante o corte. Guia: docs/EMERGENCIA.md
+      Exemplo:  sudo dgclaw emergencia simular
+
 Geral
   dgclaw versao                          mostra a versao e o commit instalados (tambem: dgclaw --version)
   dgclaw status                          confere se tudo esta de pe (sai com erro se algo essencial caiu)
@@ -2157,6 +2165,7 @@ main() {
         restaurar) restaurar_main "$@" ;;
         versao|--version) versao_main "$@" ;;
         personalizacoes) personalizacoes_main "$@" ;;
+        emergencia) exec bash "$APP_DIR/lib/emergencia.sh" "$@" ;;
         *) falha "o comando '$cmd' nao existe." "veja os comandos com: dgclaw --ajuda" ;;
     esac
 }
