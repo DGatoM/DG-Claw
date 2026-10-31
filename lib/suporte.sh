@@ -334,31 +334,47 @@ suporte_analisar_opcoes_sshd() {
 # binario do sshd do host (caminho e dev:inode) e mesmos namespaces mnt/pid do PID 1. O que nao der para ler ou nao
 # bater e ignorado. Nada da linha de comando de um processo entra em mensagem.
 suporte_varrer_mestres() {
-    local cb="$1" proc="${DGCLAW_PROC:-/proc}" d a0 titulo sshd_host id_host real_host ns_mnt1 ns_pid1
-    local -a arr toks
-    SUP_N_MESTRES=0
-    [ -d "$proc" ] && [ -r "$proc" ] || return 0
+    local cb="$1" proc="${DGCLAW_PROC:-/proc}" sc="${DGCLAW_SYSTEMCTL:-systemctl}" d pid a0 titulo sshd_host id_host ns_mnt1 ns_pid1 unit main verificados=" " mains=" " rel=""
+    local -a arr toks unidades=()
+    SUP_N_MESTRES=0; SUP_MESTRES_ERRO=""
+    # Fonte do host e confiavel: as unidades ssh/sshd ativas e o MainPID delas. Esse PID pode estar num sandbox do
+    # systemd (PrivateTmp etc.) e ter ns/mnt diferente do PID 1; nenhum outro pode.
+    if command -v "$sc" >/dev/null 2>&1; then
+        for unit in ssh.service sshd.service; do
+            "$sc" is-active "$unit" >/dev/null 2>&1 || continue
+            main="$("$sc" show -p MainPID --value "$unit" 2>/dev/null | tr -dc '0-9')"
+            if [ -z "$main" ]; then unidades+=("$unit:?"); elif [ "$main" != 0 ]; then unidades+=("$unit:$main"); mains+="$main "; fi   # MainPID 0: sem mestre (socket activation), nao e problema
+        done
+    fi
     sshd_host="${DGCLAW_SSHD_BIN:-$(command -v sshd 2>/dev/null || true)}"; sshd_host="${sshd_host:-/usr/sbin/sshd}"
     id_host="$(stat -Lc '%d:%i' "$sshd_host" 2>/dev/null || true)"
-    real_host="$(readlink -f "$sshd_host" 2>/dev/null || true)"
     ns_mnt1="$(readlink "$proc/1/ns/mnt" 2>/dev/null || true)"; ns_pid1="$(readlink "$proc/1/ns/pid" 2>/dev/null || true)"
-    if [ -z "$id_host" ] || [ -z "$real_host" ] || [ -z "$ns_mnt1" ] || [ -z "$ns_pid1" ]; then return 0; fi
-    for d in "$proc"/[0-9]*; do
-        [ -r "$d/cmdline" ] || continue
-        mapfile -t arr < <(tr '\0' '\n' <"$d/cmdline" 2>/dev/null)
-        [ "${#arr[@]}" -gt 0 ] || continue
-        a0="${arr[0]}"
-        if [ "${a0##*/}" = sshd ] && [[ "$a0" != "sshd: "* ]]; then titulo=""
-        elif [[ "$a0" == "sshd: /"* ]]; then titulo="${a0#sshd: }"; titulo="${titulo%%\[*}"
-        else continue; fi
-        [ "$(awk '/^Uid:/ {print $2 " " $3}' "$d/status" 2>/dev/null)" = "0 0" ] || continue
-        [ "$(stat -Lc '%d:%i' "$d/exe" 2>/dev/null)" = "$id_host" ] || continue
-        [ "$(readlink -f "$d/exe" 2>/dev/null)" = "$real_host" ] || continue
-        [ "$(readlink "$d/ns/mnt" 2>/dev/null)" = "$ns_mnt1" ] || continue
-        [ "$(readlink "$d/ns/pid" 2>/dev/null)" = "$ns_pid1" ] || continue
-        SUP_N_MESTRES=$((SUP_N_MESTRES + 1))
-        if [ -n "$titulo" ]; then read -ra toks <<<"$titulo"; "$cb" "${d##*/}" "${toks[@]:1}"; else "$cb" "${d##*/}" "${arr[@]:1}"; fi
+    if [ -d "$proc" ] && [ -r "$proc" ] && [ -n "$id_host" ] && [ -n "$ns_mnt1" ] && [ -n "$ns_pid1" ]; then
+        for d in "$proc"/[0-9]*; do
+            [ -r "$d/cmdline" ] || continue
+            pid="${d##*/}"
+            mapfile -t arr < <(tr '\0' '\n' <"$d/cmdline" 2>/dev/null)
+            [ "${#arr[@]}" -gt 0 ] || continue
+            a0="${arr[0]}"
+            if [ "${a0##*/}" = sshd ] && [[ "$a0" != "sshd: "* ]]; then titulo=""
+            elif [[ "$a0" == "sshd: /"* ]]; then titulo="${a0#sshd: }"; titulo="${titulo%%\[*}"
+            else continue; fi
+            [ "$(awk '/^Uid:/ {print $2 " " $3}' "$d/status" 2>/dev/null)" = "0 0" ] || continue
+            [ "$(stat -Lc '%d:%i' "$d/exe" 2>/dev/null)" = "$id_host" ] || continue
+            [ "$(readlink "$d/ns/pid" 2>/dev/null)" = "$ns_pid1" ] || continue
+            if [ "$(readlink "$d/ns/mnt" 2>/dev/null)" != "$ns_mnt1" ] && [[ "$mains" != *" $pid "* ]]; then continue; fi
+            SUP_N_MESTRES=$((SUP_N_MESTRES + 1)); verificados+="$pid "
+            if [ -n "$titulo" ]; then read -ra toks <<<"$titulo"; "$cb" "$pid" "${toks[@]:1}"; else "$cb" "$pid" "${arr[@]:1}"; fi
+        done
+    fi
+    # Unidade ativa cujo MainPID existe mas nao passou nas regras: nao da para afirmar o que o sshd carregou.
+    for unit in ${unidades[@]+"${unidades[@]}"}; do
+        main="${unit#*:}"
+        if [ "$main" = "?" ] || [[ "$verificados" != *" $main "* ]]; then
+            rel+="${unit%%:*} (MainPID ${main/\?/desconhecido}); "
+        fi
     done
+    if [ -n "$rel" ]; then SUP_MESTRES_ERRO="a unidade ativa ${rel%; } nao pode ser verificada como o sshd do host (uid, binario ou namespace diferentes, ou /proc ilegivel)"; fi
 }
 
 suporte_cb_analisar_mestre() { SUP_ORIGEM_SEM_VALOR=1 suporte_analisar_opcoes_sshd "o processo sshd PID $1" "${@:2}"; }
@@ -397,6 +413,7 @@ suporte_recarregar_sshd() {
     local -a SUP_M_PIDS=()
     SUP_RELOAD_ERRO=""
     suporte_varrer_mestres suporte_cb_coletar_pid
+    if [ -n "$SUP_MESTRES_ERRO" ]; then SUP_RELOAD_ERRO="$SUP_MESTRES_ERRO"; return 1; fi
     [ "$SUP_N_MESTRES" -gt 0 ] || return 0
     if [ "$ENSAIO" = 1 ]; then info "[ensaio] recarregaria a configuracao do sshd (sshd -t e reload) antes de conferir."; return 0; fi
     sshd_cmd="$(suporte_comando_sshd)" || { SUP_RELOAD_ERRO="nao achei o programa sshd"; return 1; }
@@ -457,6 +474,10 @@ suporte_config_mais_nova_que_carregada() {
     local pid inicio minimo="" stamp last m f sp si sh arq
     local -a SUP_M_PIDS=()
     suporte_varrer_mestres suporte_cb_coletar_pid
+    if [ -n "$SUP_MESTRES_ERRO" ]; then
+        falha "$SUP_MESTRES_ERRO, entao nao posso garantir que a configuracao do disco e a que ele carregou." \
+            "confira o servico (systemctl status ssh) e rode como root num servidor com /proc acessivel."
+    fi
     [ "$SUP_N_MESTRES" -gt 0 ] || return 0
     arq="$(suporte_stamp_arquivo)"
     # Cada mestre vale pela sua propria estampa (casando PID e hora de inicio: PID reaproveitado nao conta); sem
@@ -525,6 +546,10 @@ suporte_descobrir_opcoes_sshd() {
     done
     # (a) processos sshd mestres verificados (ver suporte_varrer_mestres).
     suporte_varrer_mestres suporte_cb_analisar_mestre
+    if [ -n "$SUP_MESTRES_ERRO" ]; then
+        falha "$SUP_MESTRES_ERRO, entao nao consigo saber com que configuracao ele esta rodando." \
+            "confira o servico (systemctl status ssh) e rode como root num servidor com /proc acessivel. Sem isso nao dou o acesso como desligado."
+    fi
     if [ "$SUP_N_MESTRES" -gt 0 ]; then fontes_lidas=1; fi
     # (b) ExecStart das unidades do systemd.
     if command -v "$sc" >/dev/null 2>&1; then
