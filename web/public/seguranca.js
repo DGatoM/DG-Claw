@@ -121,7 +121,11 @@
     const u = ui || { fase: 'ocioso' };
     const est = (e && e.estado) || { cortado: false };
     let h = '<p class="rp-texto" id="rpEmTexto">' + esc(TEXTO_EMERGENCIA) + '</p>';
-    if (est.cortado) {
+    const inconsistente = !!(est.cortado && est.inconsistente);
+    if (inconsistente) {
+      h += '<div class="rp-alerta rp-alerta-vermelha" id="rpEmInconsistente" role="alert"><b>Falha de proteção.</b> O corte de emergência está marcado, mas o firewall não está carregado: o servidor pode estar exposto.' +
+        (est.motivo_inconsistente ? ' <small>' + esc(est.motivo_inconsistente) + '</small>' : '') + '</div>';
+    } else if (est.cortado) {
       h += '<div class="rp-alerta" id="rpEmCortado" role="alert"><b>O sistema está fora do ar</b> desde ' + esc(R.quando(est.desde, Date.now())) + '.' +
         (est.confirmado ? ' O corte foi confirmado e fica até você religar.'
           : est.religar_automatico_em ? ' Se ninguém confirmar, ele religa sozinho em ' + esc(R.quando(est.religar_automatico_em, Date.now())) + '.' : '') + '</div>';
@@ -134,7 +138,10 @@
     }
     const ocupado = u.fase === 'preparando';
     h += '<div class="rp-acoes"><button type="button" class="rp-btn" data-rp="simular" id="btnSimular"' + (e && e.plano && e.plano.comandos && e.plano.comandos.length ? '' : ' disabled') + '>Simular</button>';
-    if (est.cortado) h += '<button type="button" class="rp-btn rp-pri" data-rp="preparar" id="btnReligar"' + (ocupado ? ' disabled' : '') + '>Religar</button>';
+    if (inconsistente) {
+      h += '<button type="button" class="rp-btn rp-perigo" data-rp="preparar" data-acao="cortar" id="btnReaplicar"' + (ocupado ? ' disabled' : '') + '>Reaplicar o corte</button>' +
+        '<button type="button" class="rp-btn rp-pri" data-rp="preparar" data-acao="religar" id="btnReligar"' + (ocupado ? ' disabled' : '') + '>Religar</button>';
+    } else if (est.cortado) h += '<button type="button" class="rp-btn rp-pri" data-rp="preparar" data-acao="religar" id="btnReligar"' + (ocupado ? ' disabled' : '') + '>Religar</button>';
     else h += '<button type="button" class="rp-btn rp-perigo" data-rp="preparar" id="btnTirarDoAr"' + (indisponivel || ocupado ? ' disabled' : '') + '>Tirar do ar</button>';
     h += '</div>';
     if (u.verPlano && e) h += planoHtml(e.plano);
@@ -349,7 +356,7 @@
     p.hidden = !texto;
   }
 
-  async function prepararEmergencia() {
+  async function prepararEmergencia(acaoEscolhida) {
     est.ui = { fase: 'preparando' };
     pintaEmergencia();
     msgEmergencia('Pedindo o plano e o código ao servidor…', '');
@@ -360,7 +367,7 @@
       msgEmergencia(res.mensagem || 'O servidor não trouxe o código. Rode "sudo dgclaw emergencia preparar" para ver o motivo.', 'erro');
       return;
     }
-    est.ui = { fase: 'codigo', acao: res.dados.acao || 'cortar', codigo: res.dados.codigo, expira_em: res.dados.expira_em, plano: res.dados.plano };
+    est.ui = { fase: 'codigo', acao: acaoEscolhida || res.dados.acao || 'cortar', codigo: res.dados.codigo, expira_em: res.dados.expira_em, plano: res.dados.plano };
     msgEmergencia('', '');
     pintaEmergencia();
   }
@@ -389,7 +396,7 @@
     const k = bt.dataset.rp;
     if (k === 'ajuda') { ev.preventDefault(); ajudaSecao(bt.dataset.secao); return; }
     if (k === 'simular') { est.ui = Object.assign({}, est.ui, { verPlano: !est.ui.verPlano }); pintaEmergencia(); return; }
-    if (k === 'preparar') { prepararEmergencia(); return; }
+    if (k === 'preparar') { prepararEmergencia(bt.dataset.acao); return; }
     if (k === 'cancelar-emergencia') { est.ui = { fase: 'ocioso' }; msgEmergencia('', ''); pintaEmergencia(); return; }
     if (k === 'confirmar-emergencia') { confirmarEmergencia(); return; }
     acaoDoCard(bt);

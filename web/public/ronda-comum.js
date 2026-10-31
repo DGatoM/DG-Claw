@@ -185,10 +185,11 @@
   function estaDecidido(storage, id, agora) { const v = lerMapa(storage, CHAVE_DECIDIDO)[id]; return typeof v === 'number' && agora - v < DECIDIDO_MS; }
 
   /* Os achados de nível 2 que pedem a janela vermelha agora: abertos, sem decisão e sem "lembrar depois".
-     Com o sistema fora do ar (emergência em andamento) a janela não aparece: a decisão já foi tomada. */
+     Com o sistema fora do ar (emergência em andamento) a janela não aparece: a decisão já foi tomada.
+     Corte inconsistente (marcado, mas sem firewall) é falha de proteção: a janela continua aparecendo. */
   function paraJanelaVermelha(ronda, storage, agora, emergencia) {
     if (!ronda || ronda.nunca_rodou || !ronda.niveis) return [];
-    if (emergencia && emergencia.estado && emergencia.estado.cortado) return [];
+    if (emergencia && emergencia.estado && emergencia.estado.cortado && !emergencia.estado.inconsistente) return [];
     return (ronda.niveis['2'] || []).filter(a => a.estado === 'aberto' && !estaDecidido(storage, a.id, agora) && !estaAdiado(storage, a.id, agora));
   }
 

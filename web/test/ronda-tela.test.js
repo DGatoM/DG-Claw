@@ -280,3 +280,28 @@ test('nenhum arquivo da tela usa travessão no meio de frase nem monta HTML com 
   }
   for (const n of ['seguranca.js', 'ronda-aviso.js']) assert.ok(!/\.innerHTML\s*=\s*[^;]*\+\s*(a|achado|e)\.(nome|motivo)/.test(pub(n)), n);
 });
+
+test('corte inconsistente: faixa de falha de proteção com o motivo, Reaplicar e Religar, e a janela vermelha continua', () => {
+  const motivo = 'a tabela nft dgclaw-emergencia não está carregada';
+  const e = { disponivel: true, estado: { cortado: true, inconsistente: true, motivo_inconsistente: motivo, desde: '2026-10-31T16:00:00Z' }, plano: { comandos: ['nft -f x'], avisos: [] } };
+  const h = T.emergenciaHtml(e, { fase: 'ocioso' });
+  assert.match(h, /id="rpEmInconsistente"[^>]*role="alert"/);
+  assert.match(h, /O corte de emergência está marcado, mas o firewall não está carregado: o servidor pode estar exposto/);
+  assert.ok(h.includes(motivo));
+  assert.ok(!h.includes('O sistema está fora do ar'), 'não afirma que está isolado');
+  assert.match(h, /data-acao="cortar" id="btnReaplicar"[^>]*>Reaplicar o corte</);
+  assert.match(h, /data-acao="religar" id="btnReligar"[^>]*>Religar</);
+  assert.ok(!h.includes('btnTirarDoAr'));
+
+  const st = memoria();
+  const ronda = { niveis: { 2: [achado({ id: 'AAA-1', estado: 'aberto' })] } };
+  assert.deepEqual(R.paraJanelaVermelha(ronda, st, AGORA, { estado: { cortado: true, inconsistente: true } }).map((a) => a.id), ['AAA-1'], 'alerta crítico segue visível');
+  assert.deepEqual(R.paraJanelaVermelha(ronda, st, AGORA, { estado: { cortado: true, inconsistente: false } }), []);
+
+  // o botão escolhido (e não o que o servidor sugere) decide a ação da confirmação
+  const src = pub('seguranca.js');
+  assert.match(src, /prepararEmergencia\(bt\.dataset\.acao\)/);
+  assert.match(src, /acao: acaoEscolhida \|\| res\.dados\.acao/);
+  const conf = T.emergenciaHtml(e, { fase: 'codigo', acao: 'cortar', codigo: 'K7M2PQ', plano: e.plano });
+  assert.match(conf, /digite <b>TIRAR-DO-AR<\/b>/);
+});
