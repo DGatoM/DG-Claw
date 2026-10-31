@@ -1274,6 +1274,27 @@ def chave_vuln(vid, aliases):
     return vid
 
 
+RX_PREFIXO_CVE = re.compile(r"^[A-Z]+-(CVE-\d{4}-\d{4,})$")
+RX_CVE_PURO = re.compile(r"^CVE-\d{4}-\d{4,}$")
+
+
+def equivalentes(ids):
+    """Chave canônica de uma vulnerabilidade: o conjunto de ids que designam a mesma falha. CVE-X e UBUNTU-CVE-X são a
+    mesma coisa; os demais ids (USN, GHSA) entram como estão e ganham os CVEs pelos aliases que o chamador passar junto."""
+    out = set()
+    for i in ids:
+        u = str(i or "").upper().strip()
+        if not u:
+            continue
+        out.add(u)
+        m = RX_PREFIXO_CVE.match(u)
+        if m:
+            out.add(m.group(1))
+        elif RX_CVE_PURO.match(u):
+            out.add("UBUNTU-" + u)
+    return out
+
+
 def cves_do_achado(a):
     return {c for c in (cve_de_texto(x) for x in [a["id"], a["key"]] + list(a.get("aliases") or [])) if c}
 
@@ -1637,7 +1658,7 @@ def fonte_osv(cfg, inv, ctx):
     por_pacote = {}
     for vid, chs in achados_por_id.items():
         for (eco, nome, _ver) in chs:
-            por_pacote.setdefault((eco, nome), set()).add(vid.upper())
+            por_pacote.setdefault((eco, nome), set()).update(equivalentes({vid}))
     ctx["osv_por_pacote"] = por_pacote
     if truncados:
         ctx["parciais"]["OSV.dev"] = (f"o OSV ainda tinha páginas para {len(truncados)} pacote(s) depois de {oc['max_paginas']} páginas; "
@@ -1677,7 +1698,9 @@ def fonte_osv(cfg, inv, ctx):
         ctx["parciais"]["OSV.dev"] = (ctx["parciais"].get("OSV.dev", "") + "; " if "OSV.dev" in ctx["parciais"] else "") + \
             f"{falhas} detalhes não vieram e {cortados} ficaram acima do teto; a gravidade de alguns pode estar incompleta"
     for vid, d in detalhes.items():
+        ligados = equivalentes({vid} | {x for k in ("aliases", "upstream", "related") for x in (d.get(k) or []) if isinstance(x, str)})
         for (eco, nome, ver) in achados_por_id[vid]:
+            por_pacote[(eco, nome)] |= ligados
             mesclar(ctx["achados"], achado_de_registro(d, vid, eco, nome, ver, grupos[(eco, nome, ver)]))
     return (f"{len(chaves)} pacotes consultados, {len(achados_por_id)} vulnerabilidades ({extras} páginas extras seguidas), "
             f"{len(detalhes)} com detalhe lido, {sem_detalhe} sem detalhe por não estarem em pacote exposto, KEV, manchete ou recentes")
@@ -2606,7 +2629,21 @@ def origem_sem_cobertura(reg, incompletos):
 
 
 def ids_do_registro(aid, reg):
-    return {str(aid).upper()} | {str(x).upper() for x in (reg.get("ids_osv") or [])}
+    return equivalentes({str(aid)} | {str(x) for x in (reg.get("ids_osv") or [])})
+
+
+def evidencia_de_correcao(reg, comps):
+    """Prova positiva de que o achado deixou de valer: a versão instalada de cada pacote mudou, ou o pacote saiu do
+    inventário (o chamador já garantiu que a coleta local estava completa). Sem isso, o achado não vira corrigido, nem que
+    a fonte que o criou (USN, GHSA) tenha saído da janela ou o OSV tenha deixado de listá-lo."""
+    pacotes = [(p[0], p[1], str(p[2]) if len(p) > 2 else "") for p in (reg.get("pacotes") or []) if isinstance(p, list) and len(p) >= 2]
+    if not pacotes:
+        return not any(c["nome"] == reg.get("componente") for c in comps)
+    for eco, nome, ver in pacotes:
+        instaladas = {c["versao"] for c in comps if c["eco"] == eco and c["nome"] == nome}
+        if instaladas and ver in instaladas:
+            return False
+    return True
 
 
 def ainda_no_osv(aid, reg, por_pacote):
@@ -2753,6 +2790,10 @@ def _rodada(cfg, sem_avisar):
             elif (reg.get("estado") in ("aberto", "agendado") and ctx["osv_por_pacote"] is not None
                   and ainda_no_osv(aid, reg, ctx["osv_por_pacote"])):
                 # o OSV ainda devolve o id para o pacote instalado: não saiu da lista por estar corrigido
+                if isinstance(reg.get("ultimo"), dict):
+                    resultado.append(reg["ultimo"])
+            elif reg.get("estado") in ("aberto", "agendado") and not evidencia_de_correcao(reg, inv["componentes"]):
+                # mesma versão instalada e nenhum id equivalente no OSV: falta de evidência não é correção
                 if isinstance(reg.get("ultimo"), dict):
                     resultado.append(reg["ultimo"])
             else:

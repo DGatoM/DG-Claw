@@ -1357,6 +1357,13 @@ class AplicarEDesfazer(Base):
         j = next(x for x in self.json_ronda()["ja_tratadas"] if x["id"] == "UBUNTU-CVE-2026-98432")
         self.assertIn("corrigido", j["como"])
 
+    def atualiza_dpkg(self, de, para):
+        arq = os.path.join(self.stub, "dpkg.txt")
+        with open(arq, encoding="utf-8") as f:
+            txt = f.read()
+        self.assertIn(de, txt)
+        self.escreve(arq, txt.replace(de, para))
+
     def pacote_vuln_nivel2(self):
         # openssl instalado, id publicado em 15/10: nível 2 (alto, com correção). Fora da janela de "novos" depois de uns dias.
         S["osv_paginas"][f"{ECO}|openssl|3.0.13-0ubuntu3.4"] = [["UBUNTU-CVE-2026-77001"]]
@@ -1384,10 +1391,62 @@ class AplicarEDesfazer(Base):
         self.ronda("executar", "--sem-avisar")
         self.agora = "2026-11-08T10:00:00Z"
         S["osv_paginas"].clear()
+        self.atualiza_dpkg("3.0.13-0ubuntu3.4", "3.0.13-0ubuntu3.9")  # a versão instalada mudou: evidência de correção
         self.ronda("executar", "--sem-avisar")
         doc = self.json_ronda()
         self.assertIsNone(self.achado("UBUNTU-CVE-2026-77001"))
         self.assertTrue(any(j["id"] == "UBUNTU-CVE-2026-77001" and "corrigido" in j["como"] for j in doc["ja_tratadas"]))
+
+    def test_osv_parar_de_devolver_sem_mudar_a_versao_nao_corrige(self):
+        self.pacote_vuln_nivel2()
+        self.ronda("executar", "--sem-avisar")
+        self.agora = "2026-11-08T10:00:00Z"
+        S["osv_paginas"].clear()
+        self.ronda("executar", "--sem-avisar")
+        doc = self.json_ronda()
+        self.assertIsNotNone(self.achado("UBUNTU-CVE-2026-77001"), "mesma versão instalada e sem prova positiva: segue aberto")
+        self.assertFalse(any(j["id"] == "UBUNTU-CVE-2026-77001" for j in doc["ja_tratadas"]))
+
+    def test_ids_equivalentes_cve_usn_e_ubuntu_cve_nao_corrigem_o_alerta(self):
+        # alerta criado pelo USN com o OSV fora do ar; depois o OSV volta devolvendo só UBUNTU-CVE e o USN sai da janela
+        S["fora"].add("osv")
+        S["gh_commits"] = ["a" * 40]
+        S["gh_commit_files"]["a" * 40] = ["osv/usn/USN-9999-1.json"]
+        S["usn"]["osv/usn/USN-9999-1.json"] = {
+            "id": "USN-9999-1", "summary": "OpenSSL vulnerabilities", "details": "Falha no OpenSSL.", "published": "2026-10-28T00:00:00Z", "upstream": ["CVE-2026-44444"],
+            "affected": [{"package": {"ecosystem": ECO, "name": "openssl"}, "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "3.0.13-0ubuntu3.6"}]}],
+                          "ecosystem_specific": {"binaries": [{"binary_name": "openssl"}]},
+                          "database_specific": {"cves_map": {"cves": [{"id": "CVE-2026-44444", "severity": [{"type": "Ubuntu", "score": "high"}]}]}}}]}
+        self.ronda("executar", "--sem-avisar")
+        self.assertIsNotNone(self.achado("USN-9999-1"))
+        S["fora"].discard("osv")
+        S["gh_commits"] = []
+        S["osv_paginas"][f"{ECO}|openssl|3.0.13-0ubuntu3.4"] = [["UBUNTU-CVE-2026-44444"]]
+        S["osv_vulns"]["UBUNTU-CVE-2026-44444"] = reg_ubuntu("UBUNTU-CVE-2026-44444", "CVE-2026-44444", "openssl", "3.0.13-0ubuntu3.6")
+        self.agora = "2026-11-08T10:00:00Z"
+        self.ronda("executar", "--sem-avisar")
+        doc = self.json_ronda()
+        self.assertFalse(any(j["id"] == "USN-9999-1" for j in doc["ja_tratadas"]), "mesmo pacote e versão: não pode virar corrigido")
+        self.assertTrue(self.achado("USN-9999-1") or self.achado("UBUNTU-CVE-2026-44444"), "a vulnerabilidade segue na lista")
+
+    def test_versao_mudou_mas_o_osv_devolve_id_equivalente_segue_aberto(self):
+        S["fora"].add("osv")
+        S["gh_commits"] = ["a" * 40]
+        S["gh_commit_files"]["a" * 40] = ["osv/usn/USN-9999-1.json"]
+        S["usn"]["osv/usn/USN-9999-1.json"] = {
+            "id": "USN-9999-1", "summary": "OpenSSL vulnerabilities", "details": "Falha no OpenSSL.", "published": "2026-10-28T00:00:00Z", "upstream": ["CVE-2026-44444"],
+            "affected": [{"package": {"ecosystem": ECO, "name": "openssl"}, "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "3.0.13-0ubuntu3.6"}]}],
+                          "ecosystem_specific": {"binaries": [{"binary_name": "openssl"}]},
+                          "database_specific": {"cves_map": {"cves": [{"id": "CVE-2026-44444", "severity": [{"type": "Ubuntu", "score": "high"}]}]}}}]}
+        self.ronda("executar", "--sem-avisar")
+        S["fora"].discard("osv")
+        S["gh_commits"] = []
+        self.atualiza_dpkg("3.0.13-0ubuntu3.4", "3.0.13-0ubuntu3.5")
+        S["osv_paginas"][f"{ECO}|openssl|3.0.13-0ubuntu3.5"] = [["UBUNTU-CVE-2026-44444"]]
+        S["osv_vulns"]["UBUNTU-CVE-2026-44444"] = reg_ubuntu("UBUNTU-CVE-2026-44444", "CVE-2026-44444", "openssl", "3.0.13-0ubuntu3.6")
+        self.agora = "2026-11-08T10:00:00Z"
+        self.ronda("executar", "--sem-avisar")
+        self.assertFalse(any(j["id"] == "USN-9999-1" for j in self.json_ronda()["ja_tratadas"]), "o OSV devolve UBUNTU-CVE-2026-44444, equivalente ao CVE do USN")
 
     def test_fonte_fora_nao_marca_como_corrigido(self):
         self.kernel_vuln()
