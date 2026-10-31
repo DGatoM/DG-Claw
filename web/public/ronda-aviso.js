@@ -170,8 +170,9 @@
     if (k === 'pedir-admin') {
       const faixa = raiz.DGAtualizacaoFaixa;
       if (!faixa || typeof faixa.instalar !== 'function') { mostraMsg('O atalho para o Admin ainda não carregou. Recarregue a página e tente de novo.'); return; }
+      const texto = R.textoDoPedidoAoAdmin(aberto);
       fecha();
-      faixa.instalar(R.textoDoPedidoAoAdmin(aberto));
+      faixa.instalar(texto);
     } else if (k === 'aplicar') pedir(aberto, 'aplicar', {});
     else if (k === 'agendar-abre') { const b = fundo.querySelector('#rpAgenda'); b.hidden = !b.hidden; }
     else if (k === 'agendar') {
