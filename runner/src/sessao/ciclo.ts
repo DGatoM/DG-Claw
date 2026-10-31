@@ -26,13 +26,65 @@ import { pararVigiaDoStopPerdido, vigiarRolloutDoCodex, vigiarStopPerdido } from
  * ou a forma de pagar mudaram desde o último spawn, porque o id da conversa antiga
  * pertence a outro CLI ou a outra conta e não abriria.
  */
-export async function subir(s: Sessao, modo: "retomar" | "nova"): Promise<"retomar" | "nova"> {
+export function subir(s: Sessao, modo: "retomar" | "nova"): Promise<"retomar" | "nova"> {
+  // `geracao` é lida já aqui, antes de qualquer espera: uma parada ou um revive DEPOIS deste pedido cancela a subida, mesmo que ela ainda esteja na fila.
+  const geracaoNoPedido = s.geracao;
+  const entrar = (): Promise<"retomar" | "nova"> => enfileirarSubida(s, modo, geracaoNoPedido);
+  // Um revive em curso decide qual conversa vale: quem chega no meio dele (resume, login, auto-restart)
+  // espera ele terminar, senão o resume passava na frente e subia a conversa ORIGINAL.
+  if (s.reviveEmCurso) return s.reviveEmCurso.then(entrar, entrar);
+  return entrar();
+}
+
+/** Fila reservada ANTES de qualquer await: duas chamadas que esperavam a mesma faxina passavam juntas
+ *  pela guarda `s.proc` ainda nula e faziam dois spawn. A segunda agora só roda depois da primeira
+ *  e cai em "pedido de subir ignorado". O erro da anterior vai para o chamador dela, não envenena a fila. */
+function enfileirarSubida(s: Sessao, modo: "retomar" | "nova", geracaoNoPedido: number): Promise<"retomar" | "nova"> {
+  const seguir = (): Promise<"retomar" | "nova"> => subirSerializado(s, modo, geracaoNoPedido);
+  const minha = s.filaDeSubida.then(seguir, seguir);
+  s.filaDeSubida = minha;
+  return minha;
+}
+
+/**
+ * Sessão NOVA guardando a anterior, como uma operação só: espera o claude antigo morrer (e o grupo dele
+ * ser varrido) e sobe o novo. Com os dois vivos ao mesmo tempo o novo caiu com código 129 meio segundo
+ * depois de subir (Wells, 30/10/2026). Dois revives simultâneos dividem a mesma operação.
+ * Um parar() (remove, suspender) durante a espera cancela a subida, inclusive antes de o PTY antigo sair.
+ */
+export function reviver(s: Sessao): Promise<void> {
+  if (s.reviveEmCurso) return s.reviveEmCurso;
+  s.geracao++;
+  const op = (async () => {
+    // O parar() roda na parte síncrona de pararEEsperar: a marca lida logo depois já o inclui,
+    // e qualquer parada posterior (a do remove) a torna velha. Pedidos de subir anteriores ao revive ficam velhos também.
+    const parada = pararEEsperar(s, "revive");
+    const marca = s.geracao;
+    await parada;
+    // Direto na fila, sem passar pela espera do revive: esperar por si mesmo seria um deadlock.
+    await enfileirarSubida(s, "nova", marca);
+  })().finally(() => {
+    if (s.reviveEmCurso === op) s.reviveEmCurso = null;
+  });
+  s.reviveEmCurso = op;
+  return op;
+}
+
+async function subirSerializado(s: Sessao, modo: "retomar" | "nova", geracaoNoPedido: number): Promise<"retomar" | "nova"> {
   // Se o PTY anterior saiu sozinho, o grupo dele pode ainda ter filhos vivos: espera a faxina
   // terminar para nunca ter dois claude na mesma sessão (Layla, 30/10/2026).
   // Em laço: enquanto se espera, a saída de outro PTY pode ter começado uma varredura nova.
-  while (s.saidaPendente || s.limpezaDeGrupo) {
-    if (s.saidaPendente) await s.saidaPendente;
-    if (s.limpezaDeGrupo) await s.limpezaDeGrupo;
+  while (s.saidaPendente || s.varreduras.size > 0) {
+    await Promise.all([s.saidaPendente, ...s.varreduras]);
+  }
+  // parar() com s.proc nulo (revive esperando a faxina) não tinha o que matar e respondia "parado",
+  // mas o claude subia mesmo assim quando a faxina acabava.
+  if (s.geracao !== geracaoNoPedido) {
+    log.info(
+      s.a("pty"),
+      `pedido de subir (${modo}) cancelado: chegou uma parada ou um revive enquanto ele esperava a faxina do PTY anterior`,
+    );
+    return modo;
   }
   if (s.grupoQueSobrou !== null) {
     const pgid = s.grupoQueSobrou;
@@ -146,6 +198,15 @@ export async function subir(s: Sessao, modo: "retomar" | "nova"): Promise<"retom
     return modo;
   }
 
+  // O preparo é um await de segundos (login por chave do Codex): uma parada ou um revive que cheguem
+  // nele também cancelam a subida. Ainda não mexemos no sessionId, então nada da conversa muda.
+  if (s.geracao !== geracaoNoPedido) {
+    for (const f of ctx.limpezas) f();
+    log.info(s.a("pty"), `pedido de subir (${modo}) cancelado: chegou uma parada ou um revive durante o preparo do ${s.motor.binario}`);
+    s.mudar({ status: s.estado.sessionId ? "resumable" : "stopped", statusReason: "runner:subida-cancelada" });
+    return modo;
+  }
+
   let args: string[];
   if (modo === "retomar" && s.estado.sessionId) {
     args = s.motor.argsRetomar(ctx, s.estado.sessionId);
@@ -242,12 +303,13 @@ export async function spawn(s: Sessao, ctx: CtxMotor, args: string[]): Promise<v
     // O líder do grupo morreu, mas o claude cria filhos (servidores MCP, subshells) no mesmo grupo,
     // e eles não morrem junto quando o líder cai por sinal. Sem varrer o grupo aqui, o runner subia
     // um claude novo ao lado dos órfãos. Vale para toda saída, pedida ou não.
-    // Só zera se ainda for esta varredura: a de um PTY largado pode acabar depois de a do PTY
-    // novo ter começado, e apagar a dele deixaria o subir() seguir com o grupo novo ainda vivo.
+    // Conjunto, não slot único: o onExit atrasado de um PTY largado pode chegar com a varredura do PTY
+    // novo em curso, e sobrescrever a marca deixaria o subir() seguir com o grupo novo ainda vivo.
     const minha: Promise<void> = varrerGrupoOrfao(s, esteProc.pid, exitCode, signal).finally(() => {
-      if (s.limpezaDeGrupo === minha) s.limpezaDeGrupo = null;
+      s.varreduras.delete(minha);
     });
-    s.limpezaDeGrupo = minha;
+    s.varreduras.add(minha);
+    varreduraDoPty.set(esteProc, minha);
     // Saída de um PTY que parar() já tinha largado: o kill é assíncrono, e o
     // evento chega depois que a sessão pode ter subido outro PTY (suspensa e
     // acordada logo em seguida, ou revive). Tratar como saída "do atual"
@@ -320,6 +382,8 @@ export function trocarPorSessaoLimpa(s: Sessao): void {
  *  para voltar: é o estado que faz o painel mostrar o botão de acordar em vez
  *  de dizer que a plataforma sumiu. */
 export function parar(s: Sessao, motivo: string, statusReason?: string): void {
+  // Antes da guarda: com s.proc nulo ainda pode haver um subir() esperando a faxina, e é ele que cancelamos.
+  s.geracao++;
   if (!s.proc) return;
   // Parada pedida nunca é "retomada que falhou". O kill é assíncrono e o `encerrando` volta a
   // false antes de a saída chegar; sem esquecer a retomada aqui, o SIGTERM no meio de uma
@@ -442,6 +506,9 @@ function grupoVivo(pgid: number): boolean {
 /** Prazo máximo que subir() espera um PTY largado por parar() sair e ter o grupo varrido. */
 const PRAZO_SAIDA_PENDENTE_MS = 8_000;
 
+/** A varredura de cada PTY, para o onExit dele esperar a DELE e não a que estiver em curso. */
+const varreduraDoPty = new WeakMap<object, Promise<void>>();
+
 /** Chamada por parar() NO MOMENTO em que larga o PTY: cria a promessa que subir() espera, para nenhum
  *  segundo claude nascer antes de o antigo sair e o grupo dele ser varrido. Se o prazo vence com o
  *  grupo ainda vivo, anota em `grupoQueSobrou` e subir() recusa. */
@@ -449,14 +516,18 @@ function registrarSaidaPendente(s: Sessao, antigo: Sessao["proc"]): void {
   if (!antigo) return;
   const pid = antigo.pid;
   const pend = new Promise<void>((resolve) => {
+    let saiu = false;
     const prazo = setTimeout(() => {
+      // Saída já chegou: a varredura está em curso e é ela que resolve (o prazo não pode passar na frente).
+      if (saiu) return;
       if (grupoVivo(pid)) s.grupoQueSobrou = pid;
       resolve();
     }, PRAZO_SAIDA_PENDENTE_MS);
-    // O listener da subir() (que inicia a varredura) foi registrado antes deste, então já rodou.
+    // O listener do spawn (que inicia a varredura) foi registrado antes deste, então já rodou.
     antigo.onExit(() => {
+      saiu = true;
       void (async () => {
-        if (s.limpezaDeGrupo) await s.limpezaDeGrupo;
+        await varreduraDoPty.get(antigo);
         clearTimeout(prazo);
         resolve();
       })();

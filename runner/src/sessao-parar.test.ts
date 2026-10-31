@@ -171,3 +171,103 @@ test("grupo antigo que sobrou vivo: subir() recusa com runner:antigo-vivo e segu
     try { process.kill(-pgid, "SIGKILL"); } catch { /* já morreu */ }
   }
 });
+
+const quantosPtys = (): number => (lerTexto(amb.logDoRunner).match(/PTY de pé, pid/g) ?? []).length;
+
+test("subir() concorrente depois de parar(): um claude só, a segunda chamada cai no 'já existe PTY vivo'", async () => {
+  const s = await nova();
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 8_000, "o SessionStart virar idle");
+  s.parar("teste"); // deixa uma saída pendente para as duas chamadas esperarem juntas
+  const antes = quantosPtys();
+  await Promise.all([s.subir("retomar"), s.subir("retomar")]);
+  assert.equal(quantosPtys() - antes, 1, "só um spawn para dois pedidos simultâneos");
+  assert.equal(s.temPtyVivo(), true);
+  assert.match(lerTexto(amb.logDoRunner), /pedido de subir ignorado: já existe PTY vivo/);
+});
+
+test("parar() durante um subir() que espera a faxina cancela esse subir: nenhum claude novo", async () => {
+  process.env.FAKE_IGNORAR_HUP = "1"; // o antigo ignora o SIGHUP, então a saída pendente dura até o SIGKILL
+  try {
+    const s = await nova();
+    await s.subir("nova");
+    await esperarAte(() => s.estado.status === "idle", 8_000, "o SessionStart virar idle");
+    const pid = pidDe(s);
+    s.parar("primeira parada");
+    const antes = quantosPtys();
+    const subida = s.subir("retomar");
+    await new Promise((r) => setTimeout(r, 200));
+    s.parar("remove durante o revive"); // s.proc já é nulo aqui: antes do conserto não fazia nada
+    process.kill(-pid, "SIGKILL");
+    await subida;
+    assert.equal(quantosPtys() - antes, 0, "nenhum claude novo");
+    assert.equal(s.temPtyVivo(), false);
+    assert.equal(s.estado.status, "resumable");
+    assert.match(lerTexto(amb.logDoRunner), /pedido de subir \(retomar\) cancelado: chegou uma parada/);
+    delete process.env.FAKE_IGNORAR_HUP; // o claude desta subida tem que obedecer ao SIGHUP do fim do arquivo
+    await s.subir("retomar");
+    assert.equal(s.temPtyVivo(), true, "um subir pedido depois da parada sobe normalmente");
+  } finally {
+    delete process.env.FAKE_IGNORAR_HUP;
+  }
+});
+
+test("reviver(): um resume 100 ms depois espera o revive e termina com a sessão NOVA e um claude só", async () => {
+  const s = await nova();
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 8_000, "o SessionStart virar idle");
+  const original = s.estado.sessionId;
+  assert.ok(original);
+  const antes = quantosPtys();
+  const revive = s.reviver();
+  await new Promise((r) => setTimeout(r, 100));
+  const resume = s.subir("retomar");
+  await Promise.all([revive, resume]);
+  assert.equal(quantosPtys() - antes, 1, "um spawn só");
+  assert.notEqual(s.estado.sessionId, original, "a conversa foi trocada, não retomada");
+  assert.equal(s.estado.previousSessionId, original);
+  assert.equal(s.temPtyVivo(), true);
+});
+
+test("reviver(): parar() antes de o PTY antigo sair cancela a subida nova", async () => {
+  process.env.FAKE_IGNORAR_HUP = "1";
+  try {
+    const s = await nova();
+    await s.subir("nova");
+    await esperarAte(() => s.estado.status === "idle", 8_000, "o SessionStart virar idle");
+    const pid = pidDe(s);
+    const antes = quantosPtys();
+    const revive = s.reviver();
+    await new Promise((r) => setTimeout(r, 200));
+    s.parar("remove durante o revive"); // s.proc já é nulo: só o contador de paradas cancela a subida
+    process.kill(-pid, "SIGKILL");
+    await revive;
+    assert.equal(quantosPtys() - antes, 0, "nenhum claude novo");
+    assert.equal(s.temPtyVivo(), false);
+    assert.equal(s.estado.status, "resumable");
+  } finally {
+    delete process.env.FAKE_IGNORAR_HUP;
+  }
+});
+
+test("reviver(): revive, resume e remove em sequência não deixam nenhum claude subir", async () => {
+  process.env.FAKE_IGNORAR_HUP = "1";
+  try {
+    const s = await nova();
+    await s.subir("nova");
+    await esperarAte(() => s.estado.status === "idle", 8_000, "o SessionStart virar idle");
+    const pid = pidDe(s);
+    const antes = quantosPtys();
+    const revive = s.reviver();
+    await new Promise((r) => setTimeout(r, 100));
+    const resume = s.subir("retomar");
+    await new Promise((r) => setTimeout(r, 100));
+    s.parar("remove durante o revive");
+    process.kill(-pid, "SIGKILL");
+    await Promise.all([revive, resume]);
+    assert.equal(quantosPtys() - antes, 0, "nem o revive nem o resume sobem");
+    assert.equal(s.temPtyVivo(), false);
+  } finally {
+    delete process.env.FAKE_IGNORAR_HUP;
+  }
+});

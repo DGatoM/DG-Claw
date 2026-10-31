@@ -485,11 +485,8 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
               return;
             }
           }
-          // Espera o claude antigo MORRER (e o grupo dele ser varrido) antes de subir o novo: com os dois
-          // vivos ao mesmo tempo o novo caiu com código 129 meio segundo depois de subir (Wells, 30/10/2026),
-          // e o resume seguinte deixava dois claude na mesma sessão.
-          await sessao.pararEEsperar("revive");
-          await sessao.subir("nova");
+          // Uma operação só (espera o claude antigo morrer, sobe o novo): ver reviver() em sessao/ciclo.ts.
+          await sessao.reviver();
           json(res, { success: true, data: visao(sessao, false) });
           return;
         }
