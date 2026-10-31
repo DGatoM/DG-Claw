@@ -8,6 +8,19 @@ set -uo pipefail
 preparar
 # /proc falso e vazio: o teste nao pode herdar as opcoes do sshd de verdade da maquina.
 export DGCLAW_PROC="$TMP/proc-falso"; mkdir -p "$DGCLAW_PROC"
+# sshd_real_motivo: vazio se da para usar o sshd de verdade nos testes; senao, o motivo (o teste e pulado, nao falha).
+# O `sshd -T` de verdade precisa de root, do usuario e do diretorio de separacao de privilegios (/run/sshd) e de chaves
+# do host: num runner limpo de CI isso muitas vezes nao existe, e o teste nao tem como criar sem mexer na maquina.
+sshd_real_motivo() {
+    local cfg="$TMP/sshd-minimo.conf" saida
+    [ "$(id -u)" = 0 ] || { printf 'nao e root'; return 0; }
+    [ -x /usr/sbin/sshd ] || { printf 'nao ha /usr/sbin/sshd'; return 0; }
+    printf 'PasswordAuthentication no\n' >"$cfg"
+    if ! saida="$(/usr/sbin/sshd -T -f "$cfg" -C user=root,host=x,addr=127.0.0.1 2>&1)"; then
+        printf 'o sshd -T de verdade nao roda aqui (%s)' "$(printf '%s' "$saida" | head -n 1 | cut -c1-90)"; return 0
+    fi
+    grep -qi '^authorizedkeysfile' <<<"$saida" || printf 'o sshd -T nao mostrou authorizedkeysfile'
+}
 command -v ssh-keygen >/dev/null || { echo "falta o ssh-keygen no PATH (pacote openssh-client)" >&2; exit 1; }
 
 AGORA_S="$(date -u -d '2026-11-01 12:00:00' +%s)"
@@ -612,7 +625,10 @@ chmod 755 "$DGCLAW_RAIZ/etc/ssh/fechada.d"
 printf 'Include a.conf\n' >"$CFG"; printf 'Include a.conf\n' >"$DGCLAW_RAIZ/etc/ssh/a.conf"
 nega "Include recursivo (limite estourado): recuso" dgclaw suporte ligar --chave "$CHAVE"
 rm -f "$EXTRA" "$DGCLAW_RAIZ/etc/ssh/a.conf"; printf 'PasswordAuthentication no\n' >"$CFG"
-if [ "$(id -u)" = 0 ] && [ -x /usr/sbin/sshd ]; then
+MOTIVO_SSHD="$(sshd_real_motivo)"
+if [ -n "$MOTIVO_SSHD" ]; then
+    echo "  pulado: sshd real honrando o Include entre aspas ($MOTIVO_SSHD)"
+else
     printf 'Include "%s"\n' "$TMP/real-extra.conf" >"$TMP/real.conf"
     printf 'Match Address 203.0.113.0/24\n  AuthorizedKeysFile .ssh/suporte-permanente\n' >"$TMP/real-extra.conf"
     # shellcheck disable=SC2016
@@ -963,7 +979,9 @@ nega "o mestre verificado recebeu o HUP (o sleep de mentira morreu)" kill -0 "$S
 wait "$SP" 2>/dev/null
 dgclaw suporte desligar >/dev/null 2>&1
 rm -rf "$DGCLAW_PROC"; mkdir -p "$DGCLAW_PROC"; echo 0 >"$STUB_ESTADO/mainpid-ssh.service"; unset DGCLAW_SSHD_BIN; rm -f "$ALERTA" "$STAMP"; : >"$PEND"
-if [ "$(id -u)" = 0 ] && [ -x /usr/sbin/sshd ] && /usr/sbin/sshd -t >/dev/null 2>&1; then
+if [ "$(id -u)" != 0 ] || [ ! -x /usr/sbin/sshd ] || ! /usr/sbin/sshd -t >/dev/null 2>&1; then
+    echo "  pulado: integracao com o sshd -t de verdade (sem root, sem sshd ou sshd -t nao passa aqui)"
+else
     echo "--integracao: sshd -t de verdade valida a configuracao do host antes do reload"
     mkdir -p "$DGCLAW_PROC/1/ns"; ln -sfn 'mnt:[4026531841]' "$DGCLAW_PROC/1/ns/mnt"; ln -sfn 'pid:[4026531836]' "$DGCLAW_PROC/1/ns/pid"
     printf 'cpu 1\nbtime 1000000000\n' >"$DGCLAW_PROC/stat"
@@ -1117,13 +1135,17 @@ dgclaw suporte desligar >/dev/null 2>&1
 printf 'Banner "aberta\n' >"$CFG"
 nega "linha que o tokenizador nao entende (aspas sem fechar) em qualquer palavra-chave: inconclusivo" dgclaw suporte ligar --chave "$CHAVE"
 printf 'PasswordAuthentication no\n' >"$CFG"
-if [ "$(id -u)" = 0 ] && [ -x /usr/sbin/sshd ]; then
-    CASO="$TMP/caso-real.conf"
-    printf '"Match" Address 203.0.113.0/24\n    "AuthorizedKeysFile" .ssh/suporte-permanente\n' >"$CASO"
+CASO="$TMP/caso-real.conf"
+printf '"Match" Address 203.0.113.0/24\n    "AuthorizedKeysFile" .ssh/suporte-permanente\n' >"$CASO"
+# A varredura nossa e obrigatoria SEMPRE (nao depende do sshd de verdade).
+# shellcheck disable=SC2016
+nega "a nossa varredura recusa essa config (palavra-chave entre aspas depois de Match)" env DGCLAW_RAIZ= DGCLAW_SSHD_CONFIG="$CASO" bash -c '. "$1"; . "$2/lib/suporte.sh"; suporte_exigir_config_sem_match' _ "$REPO/lib/comum.sh" "$REPO"
+MOTIVO_SSHD="$(sshd_real_motivo)"
+if [ -n "$MOTIVO_SSHD" ]; then
+    echo "  pulado: sshd real mostrando que a config difere por endereco ($MOTIVO_SSHD)"
+else
     # shellcheck disable=SC2016
     afirma "sshd real: com o endereco do suporte a config difere da de 127.0.0.1" bash -c 'a="$(/usr/sbin/sshd -T -f "$1" -C user=root,host=x,addr=203.0.113.7 | grep -i "^authorizedkeysfile")"; b="$(/usr/sbin/sshd -T -f "$1" -C user=root,host=x,addr=127.0.0.1 | grep -i "^authorizedkeysfile")"; [ "$a" = "authorizedkeysfile .ssh/suporte-permanente" ] && [ "$a" != "$b" ]' _ "$CASO"
-    # shellcheck disable=SC2016
-    nega "e a nossa varredura recusa essa config" env DGCLAW_RAIZ= DGCLAW_SSHD_CONFIG="$CASO" bash -c '. "$1"; . "$2/lib/suporte.sh"; suporte_exigir_config_sem_match' _ "$REPO/lib/comum.sh" "$REPO"
 fi
 
 fim

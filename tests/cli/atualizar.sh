@@ -488,6 +488,12 @@ for tabu in "IGNORE TODAS" "evil.example" "rm -rf" "ignore-instrucoes-anteriores
 done
 afirma "rotina aparece so pelo id" grep -q ' rotina-2$' "$TMP/u3.txt"
 afirma "skill do DG Claw aparece pelo nome; a do agente so por id e contagem" grep -q 'skills: criar-agente, skill-2 (1 propria(s) do agente; o nome nao e mostrado)' "$TMP/u3.txt"
+echo "a lista de skills sai em ordem fixa, nao na ordem do disco (o runner da CI tem outra)"
+ORD="$TMP/casa-ordem"; mkdir -p "$ORD/.claude/skills"
+for n in 12 11 10 09 08 07 06 05 04 03 02 01; do mkdir -p "$ORD/.claude/skills/skill-$n"; done
+for n in 01 02 03 04 05 06 07 08 09 10 11 12; do echo "skill-$n"; done >"$TMP/ordem-oficiais"
+bash "$REPO/lib/uso-coletor.sh" "$ORD" "$TMP/ordem-col" "$TMP/ordem-oficiais" >/dev/null 2>&1
+igual "o coletor lista as skills em ordem alfabetica" "$(cat "$TMP/ordem-oficiais")" "$(awk -F'\t' '$1=="skill" {print $3}' "$TMP/ordem-col")"
 afirma "mesmo assim o cruzamento reconhecido aparece" grep -q 'agente ana, rotina-1: chama scripts/foo.sh, que muda nesta versao' "$TMP/u3.txt"
 afirma "o comando que saiu aparece com o texto da ajuda" grep -q 'agente ana, rotina-2: usa o comando "dgclaw relatorio semanal"' "$TMP/u3.txt"
 afirma "atalho nao e seguido: so os 3 arquivos de verdade entram na conta" grep -q 'scripts proprios lidos: 3 (1 pulado(s) por passar de 256 KB)' "$TMP/u3.txt"

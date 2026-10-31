@@ -92,7 +92,9 @@ else
         nome="${sk##*/}"
         # O nome nunca sai do coletor, a nao ser que seja IGUAL a uma skill distribuida pelo DG Claw (lista de fora da casa).
         if [[ "$nome" =~ ^[a-z0-9][a-z0-9._-]{0,40}$ ]] && grep -qxF -- "$nome" "$oficiais" 2>/dev/null; then emite skill oficial "$nome"; else emite skill propria; fi
-    done < <(find -P "$casa/.claude/skills" -mindepth 1 -maxdepth 1 -print0 2>/dev/null | head -z -n "$((MAX_SKILLS + 1))")
+    # Ordem fixa (sort, LC_ALL=C): o find devolve na ordem do disco, que muda de uma maquina para outra, e os ids skill-N do
+    # relatorio e o corte das "primeiras N" dependem dela.
+    done < <(find -P "$casa/.claude/skills" -mindepth 1 -maxdepth 1 -print0 2>/dev/null | LC_ALL=C sort -z | head -z -n "$((MAX_SKILLS + 1))")
 fi
 
 # --- scripts proprios (casa e skills proprias); -print0 de ponta a ponta, sem seguir atalho ----------
@@ -112,7 +114,7 @@ while IFS= read -r -d '' f; do
 done < <(find -P "$casa" -maxdepth 5 \( -name node_modules -o -name .git -o -name .dgclaw -o -name memory -o -name uploads \
             -o -name projects -o -name backups -o -name logs -o -name .cache -o -name .npm -o -name .local \) -prune \
             -o -type f \( -name '*.sh' -o -name '*.py' -o -name '*.mjs' -o -name '*.js' -o -name '*.md' -path '*/.claude/skills/*' \) -print0 2>/dev/null \
-            | sort -z | head -z -n "$((MAX_SCRIPTS + 1))")
+            | LC_ALL=C sort -z | head -z -n "$((MAX_SCRIPTS + 1))")
 emite scripts "$((ns > MAX_SCRIPTS ? MAX_SCRIPTS : ns))"
 if [ "$grandes" -gt 0 ]; then emite puladosgrandes "$grandes"; fi
 if [ "$naocomuns" -gt 0 ]; then emite puladosnaocomuns "$naocomuns"; fi
