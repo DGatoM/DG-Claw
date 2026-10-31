@@ -7,8 +7,8 @@
 # O ufw nao e alterado. Desenho: docs/EMERGENCIA.md.
 #
 # Uso:  dgclaw emergencia estado|simular|preparar|cortar|confirmar|religar [opcoes]
-# Internos (chamados so pelas unidades systemd de boot, nao fazem parte do uso): boot e boot-servicos.
-# O corte vive na memoria (tabela nft e servicos parados): sem as unidades de boot ele sumiria no primeiro reinicio.
+# O corte vive na memoria (tabela nft e servicos parados) e NAO sobrevive a um reinicio, por desenho: depois de reiniciar,
+# o marcador `cortado` sem a tabela nft vira o estado "inconsistente" e a ronda avisa. Veja docs/EMERGENCIA.md.
 # Raiz falsa (testes): DGCLAW_RAIZ=<pasta>, igual ao resto do DG Claw.
 set -euo pipefail
 
@@ -19,8 +19,6 @@ RAIZ="${RAIZ%/}"
 QUEM="${EMERGENCIA_QUEM:-${SUDO_USER:-${USER:-desconhecido}}}"
 QUEM="${QUEM//[^A-Za-z0-9._@-]/_}"
 UNIDADE_TIMER="emergencia-desfazer"
-UNIDADE_BOOT="dgclaw-emergencia-boot"
-UNIDADE_BOOT_SERVICOS="dgclaw-emergencia-boot-servicos"
 NFT_TABELA="dgclaw_emergencia"
 TRAVA_FD=""
 ESPEROU_TRAVA=0
@@ -347,8 +345,8 @@ pega_trava() {
 CORTADO=0; DESDE=""; QUEM_CORTOU=""; ISOLAR_MARCA=""; CONFIRMADO=0; TIMER_ATIVO=0; EXPIRA=""
 INCONSISTENTE=0; MOTIVO_INCONSISTENTE=""
 
-# O marcador `cortado` diz o que foi pedido; o firewall efetivo diz o que está valendo. Depois de um reinício
-# sem as unidades de boot, o marcador fica e a tabela nft some: o servidor está exposto e o marcador mentiria.
+# O marcador `cortado` diz o que foi pedido; o firewall efetivo diz o que está valendo. O corte não sobrevive a um
+# reinício (por desenho): o marcador fica e a tabela nft some, o servidor está exposto e o marcador mentiria.
 le_estado() {
   local prazo epoch
   CORTADO=0; DESDE=""; QUEM_CORTOU=""; ISOLAR_MARCA=""; CONFIRMADO=0; TIMER_ATIVO=0; EXPIRA=""
@@ -565,80 +563,6 @@ exige_codigo() {
   rm -f "$ARQ_CODIGO"
 }
 
-# ---------- persistência do corte (unidades de boot) ----------
-
-# Nome da unidade de cada serviço público ("caddy" vira "caddy.service"; quem já tem sufixo fica como está).
-unidades_publicas() {
-  local s out=""
-  for s in "${SERVICOS[@]}"; do
-    if [[ "$s" =~ \.[a-z]+$ ]]; then out+=" $s"; else out+=" $s.service"; fi
-  done
-  printf '%s' "${out# }"
-}
-
-linhas_ambiente_unidade() {
-  if [[ -n "${EMERGENCIA_CONF:-}" ]]; then printf 'Environment=EMERGENCIA_CONF=%s\n' "$EMERGENCIA_CONF"; fi
-  if [[ -n "$RAIZ" ]]; then printf 'Environment=DGCLAW_RAIZ=%s\n' "$RAIZ"; fi
-}
-
-# Duas unidades, porque uma só não consegue ficar antes E depois dos serviços públicos:
-#  1. $UNIDADE_BOOT: no começo do boot (sysinit.target, antes de network-pre.target e dos serviços públicos) recarrega a
-#     tabela nft guardada. É o mesmo encaixe do nftables.service do Ubuntu: o firewall já vale antes de qualquer interface
-#     subir, então nada é exposto nem por um instante. sysinit (e não multi-user) porque multi-user vem depois da rede.
-#  2. $UNIDADE_BOOT_SERVICOS: depois da rede e dos serviços públicos terem subido (eles continuam habilitados), para-os de novo,
-#     como o corte original fez.
-instala_unidades_boot() {
-  local dir="$RAIZ/etc/systemd/system" pub u
-  pub="$(unidades_publicas)"
-  mkdir -p "$dir" || falhar "não consegui criar $dir para instalar as unidades de boot do corte."
-  grava_unidade "$dir/$UNIDADE_BOOT.service" < <(
-    printf '[Unit]\nDescription=DG Claw: restaura o corte de emergência confirmado antes da rede subir\n'
-    printf 'Documentation=file:%s\n' "$SELF"
-    printf 'DefaultDependencies=no\nAfter=local-fs.target\nBefore=network-pre.target %s shutdown.target\n' "$pub"
-    printf 'Wants=network-pre.target\nConflicts=shutdown.target\n\n'
-    printf '[Service]\nType=oneshot\nRemainAfterExit=yes\n'
-    linhas_ambiente_unidade
-    printf 'ExecStart=%s boot\n\n[Install]\nWantedBy=sysinit.target\n' "$SELF"
-  )
-  grava_unidade "$dir/$UNIDADE_BOOT_SERVICOS.service" < <(
-    printf '[Unit]\nDescription=DG Claw: derruba de novo os serviços públicos do corte de emergência confirmado\n'
-    printf 'After=network.target %s.service %s\n\n' "$UNIDADE_BOOT" "$pub"
-    printf '[Service]\nType=oneshot\n'
-    linhas_ambiente_unidade
-    printf 'ExecStart=%s boot-servicos\n\n[Install]\nWantedBy=multi-user.target\n' "$SELF"
-  )
-  systemctl daemon-reload || falhar "o systemctl daemon-reload falhou depois de instalar as unidades de boot do corte."
-  for u in "$UNIDADE_BOOT" "$UNIDADE_BOOT_SERVICOS"; do
-    systemctl enable "$u.service" >/dev/null 2>&1 \
-      || falhar "não consegui habilitar $u.service (systemctl enable). Sem ele o corte não volta sozinho depois de um reinício."
-  done
-  log "unidades de boot do corte instaladas e habilitadas ($UNIDADE_BOOT, $UNIDADE_BOOT_SERVICOS)"
-}
-
-# Grava o texto da entrada padrão em $1, por arquivo temporário, com modo 644.
-grava_unidade() {
-  local destino="$1" tmp
-  tmp="$(dirname "$destino")/.$(basename "$destino").$$.tmp"
-  if ! cat >"$tmp" || ! chmod 644 "$tmp" || ! mv "$tmp" "$destino"; then
-    rm -f "$tmp"
-    falhar "não consegui gravar $destino. Confira o espaço e a permissão da pasta."
-  fi
-}
-
-# Com "sem-reload" (chamado de dentro do boot) não recarrega o systemd: o símbolo e o arquivo somem, e o próximo
-# daemon-reload acerta o resto.
-desinstala_unidades_boot() {
-  local dir="$RAIZ/etc/systemd/system" u
-  for u in "$UNIDADE_BOOT" "$UNIDADE_BOOT_SERVICOS"; do
-    systemctl disable --no-reload "$u.service" >/dev/null 2>&1 || aviso "não consegui desabilitar $u.service; confira com 'systemctl status $u.service'."
-    rm -f "$dir/$u.service" || aviso "não consegui apagar $dir/$u.service."
-  done
-  if [[ "${1:-}" != "sem-reload" ]]; then
-    systemctl daemon-reload || aviso "o systemctl daemon-reload falhou depois de remover as unidades de boot do corte."
-  fi
-  log "unidades de boot do corte removidas"
-}
-
 # ---------- cortar ----------
 
 # Identifica cada corte. O timer carrega o id do corte que o agendou: se o corte atual for outro, o timer é de um
@@ -681,7 +605,6 @@ desfaz_corte_parcial() {
   for s in "${ATIVOS[@]}"; do
     systemctl start "$s" >/dev/null 2>&1 || falhas+=("religar o serviço $s")
   done
-  desinstala_unidades_boot
   if ((${#falhas[@]})); then
     log "desfazer corte parcial: FALHOU em: ${falhas[*]}"
     erro "não consegui desfazer tudo (${falhas[*]}). O marcador de corte foi mantido: rode '$PROG preparar' e '$PROG religar --codigo <código>'. Detalhes em $ESTADO_DIR/emergencia.log."
@@ -711,24 +634,32 @@ cmd_cortar() {
     exit 1
   fi
   coleta_ativos
+  if ((CORTADO)); then
+    # Reaplicar um corte que perdeu a tabela: o snapshot de `antes/` e a lista original de serviços parados são o que
+    # o religar usa, então ficam como estão. Só se para de novo o que estava na lista original e o que subiu desde então.
+    [[ -f "$ESTADO_DIR/antes/servicos.txt" ]] \
+      || falhar "o corte anterior não deixou o estado guardado ($ESTADO_DIR/antes/servicos.txt): reaplicar apagaria a única referência do que religar. Nada foi mudado. Suba à mão o que for preciso (systemctl start caddy cloudflared) e apague $ESTADO_DIR/cortado."
+    local orig dup s
+    for orig in $(marcador_valor servicos_parados); do
+      dup=0
+      for s in "${ATIVOS[@]}"; do [[ "$s" == "$orig" ]] && dup=1; done
+      ((dup)) || ATIVOS+=("$orig")
+    done
+  fi
   CORTE_ID="$(novo_id_corte)"
   [[ "$CORTE_ID" =~ ^[0-9a-f]{16}$ ]] || falhar "não consegui gerar o identificador do corte (/dev/urandom). Nada foi mudado."
   monta_plano
-  guarda_estado
+  if ((! CORTADO)); then guarda_estado; fi
   printf '%s\n' "$NFT_TEXTO" >"$ARQ_NFT" || falhar "não consegui gravar $ARQ_NFT. Nada foi mudado."
   local saida_nft
   saida_nft="$(nft -c -f "$ARQ_NFT" 2>&1)" \
     || falhar "o nft recusou as regras de $ARQ_NFT (nft -c -f): $saida_nft. Nada foi mudado. Confira INTERFACES_ADMIN, IPS_ADMIN e REDES_INTERNAS em /etc/dgclaw/emergencia.conf."
   if ((CORTADO)); then
-    # corte antigo que perdeu a tabela nft (reinício): recarrega do zero, com o estado de agora como "antes"
+    # corte antigo que perdeu a tabela nft (reinício): recarrega, mantendo o "antes" original
     log "recarregando corte inconsistente de $DESDE: $MOTIVO_INCONSISTENTE"
     rm -f "$ESTADO_DIR/confirmado" "$ESTADO_DIR/cortado"
   fi
   log "corte iniciado (isolar_saida=$ISOLAR, servicos: ${ATIVOS[*]:-nenhum}, prazo ${PRAZO_CONFIRMAR_MIN} min)"
-
-  # Instaladas já no corte: se o servidor reiniciar antes da confirmação, o timer transitório se perde e é a unidade
-  # de boot que desfaz o corte (como o religar automático). A confirmação só as reafirma.
-  instala_unidades_boot
 
   if ! executa "${PLANO[0]}"; then
     falhar "não consegui agendar o religar automático (${PLANO[0]}). Por segurança o corte NÃO foi feito e nada foi mudado. Veja $ESTADO_DIR/emergencia.log. Se já existir um timer antigo, rode: systemctl stop $UNIDADE_TIMER.timer"
@@ -768,7 +699,7 @@ cmd_confirmar() {
   if ! systemctl is-active --quiet "$UNIDADE_TIMER.timer"; then
     falhar "o timer $UNIDADE_TIMER.timer não está ativo (talvez o prazo já passou ou o agendamento falhou). Não dá para confirmar. Rode '$PROG preparar' e '$PROG religar --codigo <código>' para voltar ao normal."
   fi
-  [[ -s "$ARQ_NFT" ]] || falhar "falta o arquivo nft guardado ($ARQ_NFT): sem ele o corte não volta depois de um reinício. O religar automático continua agendado. Rode '$PROG preparar' e '$PROG religar --codigo <código>'."
+  [[ -s "$ARQ_NFT" ]] || falhar "falta o arquivo nft guardado ($ARQ_NFT): sem ele não dá para confirmar o corte. O religar automático continua agendado. Rode '$PROG preparar' e '$PROG religar --codigo <código>'."
   # Só confirma corte COMPLETO: o firewall carregado e os serviços públicos parados de fato. Um corte pela metade
   # confirmado cancelaria o religar automático e deixaria o servidor exposto.
   local faltas=() s tabela
@@ -788,13 +719,11 @@ cmd_confirmar() {
     log "confirmar recusado: corte incompleto: $juntas"
     falhar "o corte não se completou: $juntas; o religar automático continua agendado. Rode '$PROG preparar' e '$PROG cortar --codigo <código>' de novo, ou '$PROG religar --codigo <código>'."
   fi
-  # primeiro a persistência, depois cancelar o timer: se não der para persistir, o religar automático segue valendo
-  instala_unidades_boot
   systemctl stop "$UNIDADE_TIMER.timer" \
     || falhar "não consegui parar $UNIDADE_TIMER.timer; o religar automático continua agendado. Rode: systemctl stop $UNIDADE_TIMER.timer"
   agora_iso >"$ESTADO_DIR/confirmado"
   log "corte confirmado; religar automático cancelado"
-  echo "Corte confirmado. O religar automático foi cancelado e o corte volta sozinho se o servidor reiniciar. Para voltar ao normal: $PROG preparar e depois $PROG religar --codigo <código>"
+  echo "Corte confirmado. O religar automático foi cancelado e o corte vale até o próximo reinício do servidor (depois dele, reaplique). Para voltar ao normal: $PROG preparar e depois $PROG religar --codigo <código>"
   grava_web
 }
 
@@ -879,7 +808,6 @@ cmd_religar() {
     fi
   done
 
-  desinstala_unidades_boot
   local stamp hist
   stamp="$(date '+%Y%m%dT%H%M%S')"
   hist="$ESTADO_DIR/historico/$stamp"
@@ -900,71 +828,6 @@ cmd_religar() {
   fi
   log "religar concluído, tudo voltou"
   echo "Tudo voltou ao normal. Histórico em $hist."
-}
-
-# ---------- boot (chamados só pelas unidades systemd) ----------
-
-# Antes da rede: reaplica o corte confirmado. Corte NÃO confirmado que atravessou um reinício perdeu o timer
-# transitório; aqui ele é desfeito como o religar automático faria (os serviços sobem sozinhos, habilitados).
-cmd_boot() {
-  carrega_conf
-  exige_root boot
-  garante_estado_dir
-  pega_trava
-  if [[ ! -f "$ESTADO_DIR/cortado" ]]; then
-    log "boot: não há corte registrado, nada a fazer"
-    return 0
-  fi
-  if [[ -f "$ESTADO_DIR/confirmado" ]]; then
-    local saida
-    if [[ ! -s "$ARQ_NFT" ]]; then
-      log "boot: FALHOU, corte confirmado mas falta $ARQ_NFT"
-      falhar "o corte está confirmado, mas falta o arquivo nft guardado ($ARQ_NFT): não consegui restaurar o firewall. O servidor pode estar exposto. Rode '$PROG preparar' e '$PROG cortar --codigo <código>' (ou '$PROG religar' para encerrar)."
-    fi
-    saida="$(nft -c -f "$ARQ_NFT" 2>&1)" || {
-      log "boot: FALHOU, o nft recusou $ARQ_NFT: $saida"
-      falhar "o nft recusou as regras guardadas em $ARQ_NFT ($saida). O corte confirmado NÃO foi restaurado e o servidor pode estar exposto. Rode '$PROG preparar' e '$PROG cortar --codigo <código>'."
-    }
-    saida="$(nft -f "$ARQ_NFT" 2>&1)" || {
-      log "boot: FALHOU ao carregar $ARQ_NFT: $saida"
-      falhar "o nft não carregou $ARQ_NFT ($saida). O corte confirmado NÃO foi restaurado e o servidor pode estar exposto."
-    }
-    log "boot: corte confirmado restaurado (tabela $NFT_TABELA carregada antes da rede)"
-    grava_web
-    return 0
-  fi
-  local stamp hist
-  stamp="$(date '+%Y%m%dT%H%M%S')-boot"
-  hist="$ESTADO_DIR/historico/$stamp"
-  { mkdir -p "$hist" && chmod 700 "$ESTADO_DIR/historico" "$hist"; } || falhar "não consegui criar $hist para arquivar o corte não confirmado."
-  mv "$ESTADO_DIR/cortado" "$hist/cortado" || falhar "não consegui arquivar o marcador de corte em $hist."
-  if [[ -d "$ESTADO_DIR/antes" ]]; then mv "$ESTADO_DIR/antes" "$hist/antes" || aviso "não consegui guardar $ESTADO_DIR/antes no histórico."; fi
-  if [[ -f "$ARQ_NFT" ]]; then mv "$ARQ_NFT" "$hist/emergencia.nft" || aviso "não consegui guardar $ARQ_NFT no histórico."; fi
-  printf 'corte não confirmado atravessou um reinício: religado no boot (o timer transitório se perdeu)\n' >"$hist/resultado.txt" \
-    || aviso "não consegui gravar $hist/resultado.txt."
-  log "boot: corte NÃO confirmado desfeito (o timer de religar se perdeu no reinício); tabela não recarregada. Histórico em $hist"
-  desinstala_unidades_boot sem-reload
-  grava_web
-}
-
-# Depois da rede e dos serviços públicos: derruba de novo os que o corte parou.
-cmd_boot_servicos() {
-  carrega_conf
-  exige_root boot-servicos
-  garante_estado_dir
-  pega_trava
-  if [[ ! -f "$ESTADO_DIR/cortado" || ! -f "$ESTADO_DIR/confirmado" ]]; then
-    log "boot-servicos: sem corte confirmado, nada a parar"
-    return 0
-  fi
-  local s falhas=()
-  for s in "${SERVICOS[@]}"; do
-    servico_ativo "$s" || continue
-    if executa "systemctl stop $s"; then log "boot-servicos: $s parado de novo"; else falhas+=("$s"); fi
-  done
-  if ((${#falhas[@]})); then
-    falhar "o corte confirmado voltou no boot, mas não consegui parar: ${falhas[*]}. O firewall segue valendo; veja $ESTADO_DIR/emergencia.log."
-  fi
 }
 
 # ---------- entrada ----------
@@ -995,8 +858,6 @@ main() {
     cortar) cmd_cortar ;;
     confirmar) cmd_confirmar ;;
     religar) cmd_religar ;;
-    boot) cmd_boot ;;
-    boot-servicos) cmd_boot_servicos ;;
     *) uso >&2; falhar "comando desconhecido '$cmd'." ;;
   esac
 }

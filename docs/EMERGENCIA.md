@@ -55,18 +55,29 @@ religa os serviços e confere que o painel responde (`https://<seu domínio>/`).
 automático coincidirem, o que chegou depois espera, vê que já está religado, registra isso no log e sai com 0:
 a tabela é apagada uma única vez.
 
-## Reinício do servidor
+## Reinício do servidor: o corte NÃO sobrevive
 
-O corte vive na memória (tabela nft e serviços parados), então o `cortar` instala e habilita duas unidades systemd
-(`/etc/systemd/system/dgclaw-emergencia-boot.service` e `dgclaw-emergencia-boot-servicos.service`) e o `confirmar`
-as reafirma. A primeira roda no `sysinit.target`, antes de `network-pre.target` e dos serviços públicos (o mesmo encaixe do
-`nftables.service`): se o corte está confirmado, valida (`nft -c`) e recarrega o arquivo guardado antes de qualquer
-interface subir. A segunda roda depois da rede e dos serviços públicos e os para de novo. Corte **não confirmado** que
-atravessa um reinício perdeu o timer transitório; a primeira unidade o desfaz como o religar automático (arquiva o
-marcador no histórico, não recarrega a tabela, registra no log). O `religar` desabilita e remove as duas unidades.
+**O corte de emergência vale até o próximo reinício do servidor.** Ele vive na memória (a tabela nft e os serviços
+parados) e, por desenho, não existe nenhuma unidade de boot que o recarregue. Depois de reiniciar, a tabela some, os
+serviços públicos habilitados sobem sozinhos e o servidor volta a ficar exposto, mesmo com o marcador de corte ainda no disco.
 
-O `estado` confere o firewall efetivo: marcador `cortado` sem a tabela nft carregada aparece como **INCONSISTENTE**
-(`"inconsistente": true` e `"motivo_inconsistente"` no `--json`). Nesse estado o `cortar` é aceito e recarrega o corte.
+O que o sistema faz com isso:
+
+- O `estado` confere o firewall efetivo: marcador `cortado` sem a tabela nft carregada aparece como **INCONSISTENTE**
+  (`"inconsistente": true` e `"motivo_inconsistente"` no `--json`). O painel mostra isso em vermelho, como "Falha de proteção".
+- A ronda e o vigia avisam o Admin com um recado de texto fixo: "o corte de emergência não está mais valendo,
+  provavelmente depois de um reinício; reaplique com sudo dgclaw emergencia preparar e cortar, ou religue".
+
+**O que fazer depois de reiniciar:**
+
+1. Se ainda quer o servidor fora do ar: `sudo dgclaw emergencia preparar` e depois `sudo dgclaw emergencia cortar --codigo <código>`.
+   O `cortar` é aceito no estado inconsistente, recarrega a tabela, para de novo os serviços públicos e **preserva** o
+   estado guardado de antes do corte (`antes/`) e a lista original de serviços parados, então o religar seguinte
+   ainda sabe o que religar. Depois rode `confirmar` de novo, porque a confirmação antiga é descartada.
+2. Se a situação já passou: `sudo dgclaw emergencia preparar` e `sudo dgclaw emergencia religar --codigo <código>`.
+
+Se o corte ainda não tinha sido confirmado, o timer transitório de religar automático também se perde no reinício; o
+estado fica inconsistente do mesmo jeito e vale o mesmo caminho.
 
 ## Ver o arquivo nft antes de cortar
 
