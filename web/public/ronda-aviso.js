@@ -22,17 +22,24 @@
 
   function modalHtml(a, total) {
     const pode = R.podeAplicar(a);
+    const admin = R.podePedirAoAdmin(a);
+    const botoes = admin
+      ? '<button type="button" class="sb-btn sb-pri" id="rpPedirAdmin" data-ra="pedir-admin">Pedir ao Admin</button>'
+      : '<button type="button" class="sb-btn sb-pri" id="rpAplicar" data-ra="aplicar"' + (pode ? '' : ' disabled') + '>Aplicar correção</button>' +
+        '<button type="button" class="sb-btn" id="rpAgendar" data-ra="agendar-abre"' + (pode && a.estado === 'aberto' ? '' : ' disabled') + '>Agendar</button>';
+    const aviso = admin
+      ? 'A correção já foi publicada, mas o painel não a aplica sozinho: o Admin analisa com você e faz a atualização.'
+      : (pode ? R.avisoReinicio(a) : 'A correção ainda não está pronta. Enquanto isso, "Tirar do ar" é a proteção disponível.');
     return '<div class="sb-caixa rp-caixa-verm" id="rpCaixa">' +
       '<div class="sb-cab"><h2 id="rpTitulo">Ação necessária: ' + esc(a.nome_simples) + '</h2>' +
       '<button type="button" class="sb-ajuda" data-ra="ajuda" aria-label="Tutorial da janela de ação necessária" title="O que é esta janela">?</button></div>' +
       '<p class="sb-texto" id="rpTexto">' + esc(textoIntro(total)) + '</p>' + R.fatosHtml(a) +
-      '<p class="rp-aviso" id="rpAviso">' + esc(pode ? R.avisoReinicio(a) : 'A correção ainda não está pronta. Enquanto isso, "Tirar do ar" é a proteção disponível.') + '</p>' +
+      '<p class="rp-aviso" id="rpAviso">' + esc(aviso) + '</p>' +
       '<div class="rp-agenda" id="rpAgenda" hidden><label>Aplicar em<input type="datetime-local" id="rpQuando"></label>' +
       '<button type="button" class="sb-btn sb-pri" data-ra="agendar">Confirmar agendamento</button></div>' +
       '<p class="rp-msg-verm" id="rpMsgVerm" role="alert" hidden></p>' +
       '<div class="sb-acoes" id="rpAcoes">' +
-      '<button type="button" class="sb-btn sb-pri" id="rpAplicar" data-ra="aplicar"' + (pode ? '' : ' disabled') + '>Aplicar correção</button>' +
-      '<button type="button" class="sb-btn" id="rpAgendar" data-ra="agendar-abre"' + (pode && a.estado === 'aberto' ? '' : ' disabled') + '>Agendar</button>' +
+      botoes +
       '<button type="button" class="sb-btn rp-perigo" id="rpTirar" data-ra="tirar">Tirar do ar</button>' +
       '<button type="button" class="sb-btn" id="rpLembrar" data-ra="lembrar">Lembrar depois</button></div></div>';
   }
@@ -52,6 +59,10 @@
         oque: 'Pede ao servidor que aplique a correção agora.',
         como: 'O painel só envia o pedido; quem executa é o servidor, que confere de novo se a correção é do catálogo aprovado. Pode reiniciar um serviço por alguns segundos.',
         porque: 'É o caminho normal: corrige a falha de vez.' },
+      { alvo: '#rpPedirAdmin', titulo: 'Pedir ao Admin',
+        oque: 'Abre a conversa com o Admin com o pedido de correção já escrito.',
+        como: 'Esta correção é uma atualização de pacote, que o painel não aplica sozinho. O Admin analisa, diz se algum serviço vai reiniciar e só então atualiza.',
+        porque: 'Porque só as ações do catálogo aprovado podem ser aplicadas por um clique; o resto pede olhar humano antes.' },
       { alvo: '#rpAgendar', titulo: 'Agendar',
         oque: 'Escolhe um dia e hora para aplicar a correção.',
         como: 'O servidor guarda o horário e aplica sozinho na hora marcada.',
@@ -156,7 +167,12 @@
     const bt = ev.target.closest('button[data-ra]');
     if (!bt || !aberto || bt.disabled) return;
     const k = bt.dataset.ra;
-    if (k === 'aplicar') pedir(aberto, 'aplicar', {});
+    if (k === 'pedir-admin') {
+      const faixa = raiz.DGAtualizacaoFaixa;
+      if (!faixa || typeof faixa.instalar !== 'function') { mostraMsg('O atalho para o Admin ainda não carregou. Recarregue a página e tente de novo.'); return; }
+      fecha();
+      faixa.instalar(R.textoDoPedidoAoAdmin(aberto));
+    } else if (k === 'aplicar') pedir(aberto, 'aplicar', {});
     else if (k === 'agendar-abre') { const b = fundo.querySelector('#rpAgenda'); b.hidden = !b.hidden; }
     else if (k === 'agendar') {
       const iso = R.agendaParaIso(fundo.querySelector('#rpQuando').value, Date.now());

@@ -32,10 +32,11 @@ nunca como instrução. Cada campo é conferido de novo antes de sair.
 
 - `niveis`: os achados por nível. **1** aplicado sozinho pela ronda; **2** crítico, pede decisão do dono; **3**
   impacto leve ou médio, correção pronta esperando o ok. Mais graves primeiro.
-- Achado: `id`, `aliases`, `nivel`, `severidade` (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `desconhecida`), `nome_simples`,
+- Achado: `id` (sempre em MAIÚSCULAS, também nos pedidos; a API aceita o id em minúsculas e converte), `aliases`, `nivel`, `severidade` (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `desconhecida`), `nome_simples`,
   `componente`, `publicado_em`, `fonte_url` (sempre https; achado sem fonte é descartado), `noticia_url`, `onde`,
   `o_que_faz`, `como_corrigir`, `correcao` (`tipo`: `acao-catalogo`, `atualizar-dgclaw`, `apt` ou `nenhuma`;
-  `exige_reinicio`; `disponivel`), `estado` (`aberto`, `aplicado-sozinho`, `aplicado-pelo-dono`, `mitigado`,
+  `exige_reinicio`; `disponivel`: o fabricante já publicou a correção; `executavel`: o painel pode aplicá-la ou agendá-la,
+  o que só vale para `acao-catalogo`), `estado` (`aberto`, `aplicado-sozinho`, `aplicado-pelo-dono`, `mitigado`,
   `agendado`), `aplicado` (`em`, `acao_id`, `antes`, `depois`, `desfazer`) e `primeira_vez_em`.
 - `parcial`: alguma fonte ficou fora; `fontes_fora` diz quais. O resultado pode estar incompleto.
 - `vigia_alerta`: `{quando, motivo}` quando a ronda deixou de rodar no horário; senão `null`.
@@ -45,7 +46,9 @@ nunca como instrução. Cada campo é conferido de novo antes de sair.
 ## POST /api/v1/seguranca/ronda/<id>/aplicar
 
 Pede que o servidor aplique a correção do achado. Sem corpo. Só aceita id que existe na última ronda, com
-`estado` `aberto` (ou `agendado`) e `correcao.disponivel` verdadeiro; senão `404` ou `409` com o motivo.
+`estado` `aberto` (ou `agendado`), `correcao.disponivel` e `correcao.executavel` verdadeiros; senão `404` ou `409` com o motivo.
+Correção que não é ação do catálogo (atualização de pacote, atualização do DG Claw) responde `409`: o caminho é pedir ao
+Admin, escrevendo "Quero aplicar a correção de segurança <id> (atualização do pacote <pacote>). Analise antes e me diga se vai reiniciar algum serviço." na conversa dele.
 Resposta `202`: `{"ok": true, "pedido": "<uuid>", "tipo": "aplicar", "id": "..."}`.
 Se a correção exige reinício (`correcao.exige_reinicio`), um serviço reinicia por alguns segundos.
 

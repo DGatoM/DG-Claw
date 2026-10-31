@@ -243,7 +243,7 @@ class Base(unittest.TestCase):
             return json.load(f)
 
     def achado(self, aid):
-        return next((a for a in self.json_ronda()["achados"] if a["id"] == aid), None)
+        return next((a for a in self.json_ronda()["achados"] if a["id"] == aid.upper()), None)
 
     def kernel_vuln(self, **kw):
         S["osv_paginas"][f"{ECO}|linux|6.8.0-147.153"] = [["UBUNTU-CVE-2026-98432"]]
@@ -391,6 +391,7 @@ class Fontes(Base):
         self.assertEqual(a["fonte_url"], "https://ubuntu.com/security/CVE-2026-98432")
         self.assertEqual(a["correcao"]["tipo"], "apt")
         self.assertTrue(a["correcao"]["exige_reinicio"])
+        self.assertIs(a["correcao"]["executavel"], False, "apt sem ação no catálogo não é executável pelo painel")
         self.assertEqual(a["nivel"], 2)
         self.assertIsNone(self.achado("UBUNTU-CVE-2026-11111"), "kernel instalado e desligado não expõe nada: fica fora da consulta")
         self.assertNotIn("6.8.0-100.100", json.dumps(S["pedidos"]))
@@ -517,6 +518,7 @@ class Niveis(Base):
         self.assertEqual(a["correcao"]["tipo"], "acao-catalogo")
         self.assertEqual(a["correcao"]["acao_id"], "sysctl-mptcp-off")
         self.assertFalse(a["correcao"]["exige_reinicio"])
+        self.assertIs(a["correcao"]["executavel"], True)
         ap = a["aplicado"]
         self.assertEqual(ap["acao_id"], "sysctl-mptcp-off")
         self.assertIn("1", ap["antes"])
@@ -602,7 +604,7 @@ class Niveis(Base):
         self.assertEqual(self.achado("UBUNTU-CVE-2026-88888")["nivel"], 2)
         n3 = self.achado("UBUNTU-CVE-2026-88889")
         self.assertEqual(n3["nivel"], 3)
-        self.assertEqual(n3["correcao"], {"tipo": "apt", "disponivel": True})
+        self.assertEqual(n3["correcao"], {"tipo": "apt", "disponivel": True, "executavel": False})
 
     def test_correcao_que_vem_no_boletim_e_atualizar_dgclaw_sem_duplicar(self):
         S["osv_paginas"]["npm|express|4.17.1"] = [["GHSA-aaaa-bbbb-cccc"]]
@@ -611,6 +613,7 @@ class Niveis(Base):
         self.ronda("executar", "--sem-avisar")
         a = self.achado("GHSA-aaaa-bbbb-cccc")
         self.assertEqual(a["correcao"]["tipo"], "atualizar-dgclaw")
+        self.assertIs(a["correcao"]["executavel"], False)
         self.assertEqual(len([x for x in self.json_ronda()["achados"] if x["id"].lower() == "ghsa-aaaa-bbbb-cccc"]), 1)
 
     def test_falha_no_pacote_do_proprio_dgclaw_sem_boletim_nao_promete_correcao(self):
@@ -618,7 +621,7 @@ class Niveis(Base):
         S["osv_vulns"]["GHSA-aaaa-bbbb-cccc"] = reg_npm("GHSA-aaaa-bbbb-cccc", "express", "4.18.0", sev="MEDIUM")
         self.ronda("executar", "--sem-avisar")
         a = self.achado("GHSA-aaaa-bbbb-cccc")
-        self.assertEqual(a["correcao"], {"tipo": "nenhuma", "disponivel": False})
+        self.assertEqual(a["correcao"], {"tipo": "nenhuma", "disponivel": False, "executavel": False})
         self.assertIn("versão nova do DG Claw", a["como_corrigir"])
 
     def test_sem_fonte_oficial_nao_vira_alerta(self):
@@ -721,6 +724,48 @@ class Pedidos(Base):
         a = self.achado("UBUNTU-CVE-2026-98432")
         self.assertEqual(a["estado"], "aplicado-pelo-dono")
         self.assertIn("marta", a["aplicado"]["por"])
+
+    def test_ghsa_do_motor_passa_pelo_painel_em_nivel_2_e_o_pedido_casa_em_qualquer_caixa(self):
+        S["osv_paginas"]["npm|@notionhq/notion-mcp-server|1.2.3"] = [["GHSA-aaaa-bbbb-cccc"]]
+        S["osv_vulns"]["GHSA-aaaa-bbbb-cccc"] = reg_npm("GHSA-aaaa-bbbb-cccc", "@notionhq/notion-mcp-server", "1.2.9", titulo="Notion MCP vaza token")
+        self.acoes_catalogo([{"id": "sysctl-mptcp-off", "tipo": "sysctl", "descricao": "Desliga o MPTCP", "chave": "net.mptcp.enabled", "valor": "0",
+                              "casa": {"ids": ["GHSA-AAAA-BBBB-CCCC"]}}])
+        self.escreve(self.p("etc/dgclaw/dgclaw.env"), "DGCLAW_RONDA_APLICAR_SOZINHA=0\n")
+        r = self.ronda("executar", "--sem-avisar")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        a = self.achado("GHSA-aaaa-bbbb-cccc")
+        self.assertIsNotNone(a, "o motor grava o id em maiúsculas")
+        self.assertEqual(a["id"], "GHSA-AAAA-BBBB-CCCC")
+        self.assertEqual(a["nivel"], 2)
+        self.assertIs(a["correcao"]["executavel"], True)
+        node = shutil.which("node")
+        if node:
+            validador = os.path.join(AQUI, "..", "..", "web", "lib", "ronda-painel.js")
+            codigo = "const P=require(process.argv[1]);const j=JSON.parse(require('fs').readFileSync(process.argv[2],'utf8'));console.log(JSON.stringify(P.validaRonda(j)))"
+            v = subprocess.run([node, "-e", codigo, validador, self.p("var/lib/dgclaw/web/seguranca/ronda.json")], capture_output=True, text=True, timeout=30)
+            self.assertEqual(v.returncode, 0, v.stderr)
+            painel = json.loads(v.stdout)
+            self.assertNotIn("erro", painel, painel)
+            self.assertEqual([x["id"] for x in painel["ronda"]["niveis"]["2"]], ["GHSA-AAAA-BBBB-CCCC"])
+            self.assertTrue(painel["ronda"]["niveis"]["2"][0]["correcao"]["executavel"])
+        arq = self.pedido("12121212-aaaa-bbbb", {"tipo": "aplicar", "id": "ghsa-aaaa-bbbb-cccc", "quando": None, "codigo": None, "pedido_em": AGORA, "por": "marta"})
+        r = self.ronda("pedido", arq)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        f = self.feito("12121212-aaaa-bbbb")
+        self.assertTrue(f["ok"], f)
+        self.assertEqual(self.achado("GHSA-AAAA-BBBB-CCCC")["estado"], "aplicado-pelo-dono")
+
+    def test_pedido_de_aplicar_correcao_apt_continua_recusado_pelo_executor(self):
+        self.kernel_vuln()
+        self.escreve(self.p("etc/dgclaw/dgclaw.env"), "DGCLAW_RONDA_APLICAR_SOZINHA=0\n")
+        self.ronda("executar", "--sem-avisar")
+        a = self.achado("UBUNTU-CVE-2026-98432")
+        self.assertEqual(a["correcao"]["tipo"], "apt")
+        self.assertIs(a["correcao"]["executavel"], False)
+        self.ronda("pedido", self.pedido("13131313-aaaa-bbbb", {"tipo": "aplicar", "id": a["id"], "quando": None, "codigo": None, "pedido_em": AGORA, "por": "marta"}))
+        f = self.feito("13131313-aaaa-bbbb")
+        self.assertFalse(f["ok"])
+        self.assertIn("não tem ação do catálogo", f["mensagem"])
 
     def test_pedido_com_acao_fora_do_catalogo_e_recusado(self):
         self.prepara_nivel_2_com_acao()

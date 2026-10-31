@@ -18,7 +18,7 @@ const achado = (extra) => Object.assign({
   nome_simples: 'Falha no kernel Linux (rede TCP IPv4)', componente: 'kernel Linux', publicado_em: '2026-10-15T00:00:00Z',
   fonte_url: 'https://ubuntu.com/security/CVE-2026-98432', noticia_url: null, onde: ['kernel 6.8.0-147 em execução'],
   o_que_faz: 'Um pacote malformado pode travar o servidor.', como_corrigir: 'Aplicar a mitigação do catálogo.',
-  correcao: { tipo: 'acao-catalogo', acao_id: 'sysctl-mptcp-off', exige_reinicio: false, disponivel: true },
+  correcao: { tipo: 'acao-catalogo', acao_id: 'sysctl-mptcp-off', exige_reinicio: false, disponivel: true, executavel: true },
   estado: 'aberto', aplicado: null, primeira_vez_em: '2026-10-31T10:00:00Z',
 }, extra || {});
 const ronda = (achados, extra) => Object.assign({
@@ -62,7 +62,7 @@ test('achado válido passa; campos desconhecidos somem; texto com controle é li
 test('achado sem fonte https, com nível fora de 1 a 3 ou com id ruim é descartado, com motivo', () => {
   for (const [extra, motivo] of [
     [{ fonte_url: undefined }, /sem fonte_url/], [{ fonte_url: 'http://x.org/a' }, /sem fonte_url/], [{ fonte_url: 'javascript:alert(1)' }, /sem fonte_url/],
-    [{ fonte_url: 'https://u:p@x.org/' }, /sem fonte_url/], [{ nivel: 4 }, /nivel/], [{ nivel: '2' }, /nivel/], [{ id: 'minusculo' }, /id fora/],
+    [{ fonte_url: 'https://u:p@x.org/' }, /sem fonte_url/], [{ nivel: 4 }, /nivel/], [{ nivel: '2' }, /nivel/], [{ id: 'x!' }, /id fora/],
   ]) {
     const r = validaAchado(achado(extra));
     assert.equal(r.achado, undefined, JSON.stringify(extra));
@@ -76,6 +76,21 @@ test('notícia http é descartada sem derrubar o achado; correção sem disponiv
   assert.equal(r.achado.correcao.disponivel, false);
   assert.equal(validaAchado(achado({ correcao: { tipo: 'rm -rf', acao_id: '$(x)' } })).achado.correcao.tipo, 'nenhuma');
   assert.equal(validaAchado(achado({ correcao: { tipo: 'apt', acao_id: '$(x)' } })).achado.correcao.acao_id, null);
+});
+
+test('contrato de id: o painel aceita GHSA em minúsculas e normaliza para maiúsculas (aliases também)', () => {
+  const r = validaAchado(achado({ id: 'GHSA-aaaa-bbbb-cccc', aliases: ['ghsa-dddd-eeee-ffff', 'CVE-2026-1234'] }));
+  assert.equal(r.achado.id, 'GHSA-AAAA-BBBB-CCCC');
+  assert.deepEqual(r.achado.aliases, ['GHSA-DDDD-EEEE-FFFF', 'CVE-2026-1234']);
+  const rr = validaRonda(ronda([achado({ id: 'GHSA-aaaa-bbbb-cccc', nivel: 2 })]));
+  assert.deepEqual(rr.ronda.niveis[2].map((x) => x.id), ['GHSA-AAAA-BBBB-CCCC']);
+  assert.equal(validaAchado(achado({ id: 'x!' })).achado, undefined);
+});
+
+test('correcao.executavel só vale para acao-catalogo; ausente ou de outro tipo é false', () => {
+  assert.equal(validaAchado(achado()).achado.correcao.executavel, true);
+  assert.equal(validaAchado(achado({ correcao: { tipo: 'apt', disponivel: true, executavel: true } })).achado.correcao.executavel, false);
+  assert.equal(validaAchado(achado({ correcao: { tipo: 'acao-catalogo', acao_id: 'a', disponivel: true } })).achado.correcao.executavel, false);
 });
 
 test('validaRonda agrupa por nível, mais grave primeiro, e acusa os descartados', () => {
@@ -148,7 +163,8 @@ test('aplicar recusa id desconhecido (404), id malformado (400), correção indi
       achado(), achado({ id: 'SEM-FIX-1', correcao: { tipo: 'nenhuma', disponivel: false } }), achado({ id: 'JA-FEITO-1', estado: 'aplicado-pelo-dono' }),
     ]));
     assert.equal((await w.c.post('/api/v1/seguranca/ronda/NAO-EXISTE-9/aplicar', { json: {} })).status, 404);
-    assert.equal((await w.c.post('/api/v1/seguranca/ronda/minusculo/aplicar', { json: {} })).status, 400);
+    assert.equal((await w.c.post('/api/v1/seguranca/ronda/x!/aplicar', { json: {} })).status, 400);
+    assert.equal((await w.c.post('/api/v1/seguranca/ronda/minusculo/aplicar', { json: {} })).status, 404, 'minúsculas são aceitas e normalizadas; aqui só não existe');
     const sem = await w.c.post('/api/v1/seguranca/ronda/SEM-FIX-1/aplicar', { json: {} });
     assert.equal(sem.status, 409);
     assert.match(sem.json.erro, /ainda não está pronta/);
@@ -156,6 +172,26 @@ test('aplicar recusa id desconhecido (404), id malformado (400), correção indi
     assert.equal((await w.c.post('/api/v1/seguranca/ronda/UBUNTU-CVE-2026-98432/aplicar', { json: {}, origin: 'https://fora.exemplo' })).status, 403);
     assert.deepEqual(pedidos(w), []);
     assert.equal((await w.c.get('/api/v1/seguranca/ronda/UBUNTU-CVE-2026-98432/aplicar')).status, 405);
+  } finally { await w.fechar(); }
+});
+
+test('aplicar e agendar recusam correção não executável (409 explicando); com id em minúsculas o pedido sai em maiúsculas', async () => {
+  const w = await logado();
+  try {
+    gravaRonda(w, ronda([
+      achado({ id: 'USN-APT-1', correcao: { tipo: 'apt', disponivel: true, executavel: false } }),
+      achado({ id: 'GHSA-aaaa-bbbb-cccc' }),
+    ]));
+    const quando = new Date(Date.now() + 3600 * 1000).toISOString();
+    const a = await w.c.post('/api/v1/seguranca/ronda/USN-APT-1/aplicar', { json: {} });
+    assert.equal(a.status, 409);
+    assert.match(a.json.erro, /não é uma ação do catálogo/);
+    assert.match(a.json.erro, /Pedir ao Admin/);
+    assert.equal((await w.c.post('/api/v1/seguranca/ronda/USN-APT-1/agendar', { json: { quando } })).status, 409);
+    const ok = await w.c.post('/api/v1/seguranca/ronda/ghsa-aaaa-bbbb-cccc/aplicar', { json: {} });
+    assert.equal(ok.status, 202);
+    assert.equal(ok.json.id, 'GHSA-AAAA-BBBB-CCCC');
+    assert.equal(pedidos(w).length, 1, 'só o pedido válido foi gravado');
   } finally { await w.fechar(); }
 });
 

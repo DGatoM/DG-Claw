@@ -25,6 +25,9 @@ const MIN_AGENDA_MS = 60 * 1000;
 
 const RX_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const RX_ACAO = /^[a-z0-9][a-z0-9._-]{0,60}$/;
+// Contrato de id dos achados da ronda: o motor grava em MAIÚSCULAS, mas o painel aceita as duas formas
+// (a API e o OSV escrevem GHSA-xxxx-xxxx-xxxx em minúsculas) e sempre compara e envia em maiúsculas.
+const RX_ID_ACHADO = /^[A-Za-z0-9][A-Za-z0-9._-]{2,60}$/;
 const RX_CODIGO = /^[A-Za-z0-9]{6}$/;
 const INVISIVEIS = '\\u0000-\\u001F\\u007F-\\u009F\\u200B-\\u200F\\u2028-\\u2029\\u202A-\\u202E\\u2060-\\u2064\\u2066-\\u2069\\uFEFF';
 const RX_PROIBIDO = new RegExp(`[${INVISIVEIS}]`);
@@ -33,6 +36,8 @@ const SEVERIDADES = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'desconhecida'];
 const PESO = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, desconhecida: 4 };
 const TIPOS_CORRECAO = ['acao-catalogo', 'atualizar-dgclaw', 'apt', 'nenhuma'];
 const ESTADOS = ['aberto', 'aplicado-sozinho', 'aplicado-pelo-dono', 'mitigado', 'agendado'];
+
+const idAchado = (v) => (typeof v === 'string' && RX_ID_ACHADO.test(v) ? v.toUpperCase() : null);
 
 /** Texto de fonte externa: troca controles e invisíveis por espaço, apara e corta. */
 function txt(v, max) {
@@ -55,8 +60,8 @@ const inteiro = (v, min, max) => (Number.isInteger(v) && v >= min && v <= max ? 
 /** { achado } ou { id, motivo }. */
 function validaAchado(a) {
   if (!a || typeof a !== 'object' || Array.isArray(a)) return { motivo: 'o item não é um objeto' };
-  if (typeof a.id !== 'string' || !C.RX_ID.test(a.id)) return { motivo: 'id fora do formato' };
-  const id = a.id;
+  const id = idAchado(a.id);
+  if (!id) return { motivo: 'id fora do formato' };
   const nega = (motivo) => ({ id, motivo });
   const nivel = inteiro(a.nivel, 1, 3);
   if (!nivel) return nega('nivel fora de 1, 2 ou 3');
@@ -70,6 +75,8 @@ function validaAchado(a) {
     acao_id: typeof c.acao_id === 'string' && RX_ACAO.test(c.acao_id) ? c.acao_id : null,
     exige_reinicio: c.exige_reinicio === true,
     disponivel: c.disponivel === true,
+    // só a ação do catálogo pode ser aplicada ou agendada pelo painel; o resto vai ao Admin
+    executavel: c.executavel === true && c.tipo === 'acao-catalogo',
   };
   let aplicado = null;
   if (a.aplicado && typeof a.aplicado === 'object' && !Array.isArray(a.aplicado)) {
@@ -82,7 +89,7 @@ function validaAchado(a) {
       desfazer: typeof d === 'string' ? txt(d, 300) : d === true,
     };
   }
-  const aliases = lista(a.aliases, 10).filter((x) => typeof x === 'string' && C.RX_ID.test(x));
+  const aliases = lista(a.aliases, 10).map(idAchado).filter(Boolean);
   return {
     achado: {
       id, aliases, nivel,
@@ -284,7 +291,9 @@ function criarRondaPainel(opcoes) {
   }
 
   function achaAchado(res, id) {
-    if (!C.RX_ID.test(id)) { H.erroJson(res, 400, `O id do achado não tem o formato esperado (letras maiúsculas, números, ponto, hífen e sublinhado). Use um id de GET ${BASE}/ronda.`); return null; }
+    const norm = idAchado(id);
+    if (!norm) { H.erroJson(res, 400, `O id do achado não tem o formato esperado (letras, números, ponto, hífen e sublinhado). Use um id de GET ${BASE}/ronda.`); return null; }
+    id = norm;
     const l = lerRonda();
     if (l.ausente) { H.erroJson(res, 404, `A ronda ainda não rodou, então não há achado ${id}. Rode "sudo dgclaw seguranca rodar" no servidor.`); return null; }
     if (l.erro) { falha(res, l); return null; }
@@ -296,6 +305,7 @@ function criarRondaPainel(opcoes) {
   async function pedirDoAchado(req, res, sessao, id, tipo) {
     const a = achaAchado(res, id);
     if (!a) return;
+    id = a.id;
     let corpo = {};
     if (tipo === 'agendar') corpo = await H.lerJson(req, 4 * 1024);
     if (tipo === 'desfazer') {
@@ -308,6 +318,9 @@ function criarRondaPainel(opcoes) {
       }
       if (!a.correcao.disponivel) {
         return H.erroJson(res, 409, `A correção do achado ${id} ainda não está pronta (${a.correcao.tipo === 'nenhuma' ? 'o fabricante ainda não publicou uma correção' : 'ela ainda não está disponível neste servidor'}). Use o botão de emergência se for urgente.`);
+      }
+      if (!a.correcao.executavel) {
+        return H.erroJson(res, 409, `A correção do achado ${id} (${a.correcao.tipo}) não é uma ação do catálogo aprovado, então o painel não aplica nem agenda: o servidor recusaria. Use o botão "Pedir ao Admin" na tela Segurança, ou escreva ao Admin: "Quero aplicar a correção de segurança ${id}. Analise antes e me diga se vai reiniciar algum serviço."`);
       }
     }
     let quando = null;

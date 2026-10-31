@@ -2115,18 +2115,20 @@ def resumo_curto(a, limite=200):
 
 
 def correcao_de(a, ac, boletim_ids):
+    """`disponivel`: o fabricante já publicou a correção. `executavel`: o painel pode mandar o root aplicar sozinho,
+    o que só vale para uma ação do catálogo (acao_do_achado recusa qualquer outra)."""
     if ac:
-        return {"tipo": "acao-catalogo", "acao_id": ac["id"], "exige_reinicio": exige_reinicio_declarado(ac), "disponivel": True}
+        return {"tipo": "acao-catalogo", "acao_id": ac["id"], "exige_reinicio": exige_reinicio_declarado(ac), "disponivel": True, "executavel": True}
     ids = {x.upper() for x in ({a["id"], a["key"]} | set(a.get("aliases") or []))}
     if ids & boletim_ids:
-        return {"tipo": "atualizar-dgclaw", "disponivel": True}
+        return {"tipo": "atualizar-dgclaw", "disponivel": True, "executavel": False}
     if ubuntu_do_achado(a) and tem_correcao(a):
-        c = {"tipo": "apt", "disponivel": True}
+        c = {"tipo": "apt", "disponivel": True, "executavel": False}
         if any(eh_kernel(af) for af in a["afetados"]):
             c["exige_reinicio"] = True
         return c
     so_app = bool(a["afetados"]) and all(str(af.get("onde", "")).startswith("DG Claw") for af in a["afetados"])
-    return {"tipo": "nenhuma", "disponivel": False if so_app else tem_correcao(a)}
+    return {"tipo": "nenhuma", "disponivel": False if so_app else tem_correcao(a), "executavel": False}
 
 
 def texto_como_corrigir(a, corr, ac):
@@ -2163,7 +2165,7 @@ def contrato_achado(cfg, a, nivel, estado, reg, ac, boletim_ids, aplicado):
         if o and o not in ondes:
             ondes.append(o)
     pub = parse_data(a["publicado"]) or (parse_data(a["kev"].get("dateAdded")) if a.get("kev") else None)
-    o = {"id": a["id"], "aliases": [x for x in a["aliases"] if RX_ID.match(x)][:10], "nivel": nivel, "severidade": a["severidade"],
+    o = {"id": a["id"], "aliases": [x.upper() for x in a["aliases"] if RX_ID.match(x)][:10], "nivel": nivel, "severidade": a["severidade"],
          "nome_simples": nome_simples(cfg, a), "componente": limpa(a["componente"], 80), "publicado_em": iso(pub) if pub else None,
          "fonte_url": a["fonte_oficial"], "noticia_url": url_https(a.get("noticia_url")), "onde": ondes[:5] or ["não casou com versão instalada"],
          "o_que_faz": resumo_curto(a), "como_corrigir": texto_como_corrigir(a, corr, ac), "correcao": corr, "estado": estado,
@@ -2348,6 +2350,8 @@ def _rodada(cfg, sem_avisar):
             refinar_datas(ctx, [a for a in achados if cves_do_achado(a) and (a.get("kev") or a["severidade"] in ("CRITICAL", "HIGH"))])
         for a in achados:
             finalizar_achado(a, t0, cfg)
+            # Contrato de id da ronda: MAIÚSCULAS em tudo que sai (ronda.json, estado, recado, pedidos).
+            a["id"] = a["id"].upper()
         elegiveis = [a for a in achados if RX_ID.match(a["id"]) and url_https(a["fonte_oficial"]) and (parse_data(a["publicado"]) or a.get("kev"))]
         sem_fonte = [a["id"] for a in achados if a not in elegiveis]
         try:
@@ -2357,6 +2361,9 @@ def _rodada(cfg, sem_avisar):
             catalogo, cat_erro = [], str(e)
         boletim_ids = boletins_pendentes()
         reg_all = est["achados"]
+        for k in [k for k in reg_all if k != k.upper()]:
+            reg_all.setdefault(k.upper(), reg_all[k])
+            del reg_all[k]
         resultado, ja_nesta, vistos, omitidos_n3, aplicados_agora = [], [], set(), 0, []
         ordem = sorted(elegiveis, key=lambda x: (-ORDEM_SEV[x["severidade"]], x["id"]))
         for a in ordem:
@@ -2590,10 +2597,11 @@ def vigiar():
 def achado_do_contrato(aid):
     if not isinstance(aid, str) or not RX_ID.match(aid):
         raise ErroRonda(f"O id '{limpa(aid, 40)}' não tem o formato de um achado (letras, números, ponto, hífen; de 3 a 61 caracteres).")
+    aid = aid.upper()
     r = le_json(caminhos()["ronda"], None)
     if not isinstance(r, dict):
         raise ErroRonda("Ainda não existe uma ronda feita nesta instalação (ronda.json). Rode: sudo dgclaw seguranca rodar")
-    ach = next((x for x in r.get("achados") or [] if isinstance(x, dict) and x.get("id") == aid), None)
+    ach = next((x for x in r.get("achados") or [] if isinstance(x, dict) and str(x.get("id", "")).upper() == aid), None)
     if not ach:
         raise ErroRonda(f"O achado {aid} não existe na última ronda. Veja os achados atuais com: sudo dgclaw seguranca resumo --todos")
     return ach
@@ -2620,7 +2628,7 @@ def marcar_aplicado(aid, reg, estado):
     r = le_json(c["ronda"], None)
     if isinstance(r, dict):
         for a in r.get("achados") or []:
-            if a.get("id") == aid:
+            if str(a.get("id", "")).upper() == aid:
                 a["estado"], a["aplicado"] = estado, aplicado_do_registro(reg)
         grava_json(c["ronda"], r, 0o640)
     est = ler_estado()
@@ -2632,6 +2640,7 @@ def marcar_aplicado(aid, reg, estado):
 
 def aplicar_por_id(cfg, aid, por):
     """Quem chama já segura a trava."""
+    aid = str(aid).upper()
     ach = achado_do_contrato(aid)
     if ach.get("estado") in ESTADOS_TRATADOS:
         raise ErroRonda(f"O achado {aid} já foi tratado ({ach['estado']}). Para voltar atrás: sudo dgclaw seguranca desfazer <registro>.")
@@ -2646,6 +2655,7 @@ def aplicar_por_id(cfg, aid, por):
 
 
 def agendar_por_id(cfg, aid, quando, por):
+    aid = str(aid).upper()
     ach = achado_do_contrato(aid)
     ac = acao_do_achado(ach, carregar_catalogo())
     d = parse_data(quando)
@@ -2666,7 +2676,7 @@ def agendar_por_id(cfg, aid, quando, por):
     rj = le_json(caminhos()["ronda"], None)
     if isinstance(rj, dict):
         for a in rj.get("achados") or []:
-            if a.get("id") == aid:
+            if str(a.get("id", "")).upper() == aid:
                 a["estado"], a["agendado_para"] = "agendado", iso(d)
         grava_json(caminhos()["ronda"], rj, 0o640)
     return f"Ação '{ac['id']}' agendada para {d.astimezone().strftime('%d/%m/%Y %H:%M')} (achado {aid})."
@@ -2757,15 +2767,16 @@ def valida_pedido(p):
     por = p.get("por") or "painel"
     if not isinstance(por, str) or not RX_POR.match(por):
         raise ErroRonda("O campo 'por' do pedido só aceita letras, números e os símbolos . _ @ - (até 64 caracteres).")
-    return tipo, aid, p.get("codigo"), p.get("quando"), por
+    return tipo, (aid.upper() if isinstance(aid, str) else aid), p.get("codigo"), p.get("quando"), por
 
 
 def desfazer_do_achado(aid):
     """Desfaz a ação aplicada a um achado: na lista da última rodada ou, depois que ele passou para 'já tratadas', pelo registro guardado."""
     if not isinstance(aid, str) or not RX_ID.match(aid):
         raise ErroRonda(f"O id '{limpa(aid, 40)}' não tem o formato de um achado.")
+    aid = aid.upper()
     r = le_json(caminhos()["ronda"], None)
-    ach = next((x for x in (r or {}).get("achados") or [] if isinstance(x, dict) and x.get("id") == aid), None) if isinstance(r, dict) else None
+    ach = next((x for x in (r or {}).get("achados") or [] if isinstance(x, dict) and str(x.get("id", "")).upper() == aid), None) if isinstance(r, dict) else None
     if ach:
         estado, registro = ach.get("estado"), (ach.get("aplicado") or {}).get("registro")
     else:

@@ -15,7 +15,7 @@ const achado = (extra) => Object.assign({
   id: 'UBUNTU-CVE-2026-98432', aliases: [], nivel: 2, severidade: 'HIGH', nome_simples: 'Falha no kernel Linux (rede TCP IPv4)',
   componente: 'kernel Linux', publicado_em: '2026-10-15T12:00:00Z', fonte_url: 'https://ubuntu.com/security/CVE-2026-98432',
   noticia_url: 'https://news.exemplo.org/a?b=1', onde: ['kernel 6.8.0-147 em execução'], o_que_faz: 'Um pacote malformado pode travar o servidor.',
-  como_corrigir: 'Aplicar a mitigação do catálogo.', correcao: { tipo: 'acao-catalogo', acao_id: 'x', exige_reinicio: false, disponivel: true },
+  como_corrigir: 'Aplicar a mitigação do catálogo.', correcao: { tipo: 'acao-catalogo', acao_id: 'x', exige_reinicio: false, disponivel: true, executavel: true },
   estado: 'aberto', aplicado: null,
 }, extra || {});
 const memoria = () => { const m = {}; return { getItem: (k) => (k in m ? m[k] : null), setItem: (k, v) => { m[k] = String(v); } }; };
@@ -84,7 +84,11 @@ test('nível 2: três botões, aviso de reinício e Agendar; sem correção pron
   assert.match(h, /data-rp="agendar-abre"[^>]*>Agendar/);
   assert.match(h, /data-rp="tirar-do-ar"[^>]*>Tirar do ar/);
   assert.match(h, /pode reiniciar um serviço/);
-  assert.match(T.cardAcaoHtml(achado({ correcao: { tipo: 'apt', exige_reinicio: true, disponivel: true } }), AGORA), /reinicia um serviço por alguns segundos/);
+  assert.match(R.avisoReinicio(achado({ correcao: { tipo: 'apt', exige_reinicio: true, disponivel: true, executavel: false } })), /reinicia um serviço por alguns segundos/);
+  const apt = T.cardAcaoHtml(achado({ correcao: { tipo: 'apt', exige_reinicio: true, disponivel: true, executavel: false } }), AGORA);
+  assert.match(apt, /data-rp="pedir-admin"[^>]*>Pedir ao Admin/);
+  assert.ok(!/data-rp="aplicar"/.test(apt) && !/data-rp="agendar-abre"/.test(apt), 'sem ação do catálogo não há Aplicar nem Agendar');
+  assert.match(apt, /data-rp="tirar-do-ar"/);
   const sem = T.cardAcaoHtml(achado({ correcao: { tipo: 'nenhuma', disponivel: false } }), AGORA);
   assert.match(sem, /data-rp="aplicar" disabled/);
   assert.match(sem, /ainda não está pronta/);
@@ -98,8 +102,16 @@ test('nível 3: texto fixo e Corrigir agora; atualizar-dgclaw usa o pedido para 
   const a = achado({ nivel: 3, severidade: 'LOW', id: 'GHSA-AAAA-1', correcao: { tipo: 'atualizar-dgclaw', disponivel: true } });
   const h = T.cardSemPressaHtml(a, AGORA);
   assert.ok(h.includes(R.TEXTO_NIVEL3));
-  assert.match(h, /data-rp="corrigir"[^>]*>Corrigir agora/);
+  assert.match(h, /data-rp="pedir-admin"[^>]*>Pedir ao Admin/);
+  assert.ok(!/data-rp="corrigir"/.test(h));
+  assert.match(T.cardSemPressaHtml(achado({ nivel: 3 }), AGORA), /data-rp="corrigir"[^>]*>Corrigir agora/);
   assert.equal(R.ehAtualizarDgclaw(a), true);
+  assert.equal(R.textoDoPedidoAoAdmin(a), R.textoDoPedidoAtualizar(a));
+  const apt3 = achado({ nivel: 3, id: 'USN-1234-1', componente: 'openssl', correcao: { tipo: 'apt', disponivel: true, executavel: false } });
+  assert.equal(R.textoDoPedidoAoAdmin(apt3), 'Quero aplicar a correção de segurança USN-1234-1 (atualização do pacote openssl). Analise antes e me diga se vai reiniciar algum serviço.');
+  assert.equal(R.podeAplicar(apt3), false);
+  assert.equal(R.podePedirAoAdmin(apt3), true);
+  assert.equal(R.podePedirAoAdmin(achado()), false);
   assert.equal(R.ehAtualizarDgclaw(achado()), false);
   assert.equal(R.textoDoPedidoAtualizar(a), 'Quero instalar a atualização de segurança do DG Claw (achado GHSA-AAAA-1).');
   assert.match(T.cardSemPressaHtml({ ...a, correcao: { tipo: 'nenhuma', disponivel: false } }, AGORA), /data-rp="corrigir" disabled/);
@@ -150,6 +162,8 @@ test('janela vermelha: só nível 2 aberto, sem decisão e sem "lembrar depois" 
 });
 
 test('janela vermelha: HTML com os quatro botões, aviso e passos do tutorial que existem no HTML', () => {
+  const hAdmin = A.modalHtml(achado({ correcao: { tipo: 'apt', disponivel: true, executavel: false } }), 1);
+  assert.ok(hAdmin.includes('id="rpPedirAdmin"') && !hAdmin.includes('id="rpAplicar"') && !hAdmin.includes('id="rpAgendar"'), 'apt: só Pedir ao Admin');
   const h = A.modalHtml(achado(), 3);
   for (const id of ['rpAplicar', 'rpAgendar', 'rpTirar', 'rpLembrar']) assert.ok(h.includes(`id="${id}"`), id);
   assert.match(h, /Há mais 2 falhas críticas esperando depois desta\./);
@@ -158,7 +172,7 @@ test('janela vermelha: HTML com os quatro botões, aviso e passos do tutorial qu
   const alvos = A.passosDoModal(null).map((p) => p.alvo);
   for (const alvo of alvos) {
     const id = alvo.replace(/^[#.]/, '');
-    assert.ok(h.includes(`id="${id}"`) || h.includes(`class="${id}"`), alvo);
+    assert.ok((h + hAdmin).includes(`id="${id}"`) || h.includes(`class="${id}"`), alvo);
   }
   for (const p of A.passosDoModal(null)) { assert.ok(p.oque && p.como && p.porque, p.alvo); }
 });

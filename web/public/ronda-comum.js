@@ -129,7 +129,15 @@
   function avisoReinicio(a) { return a && a.correcao && a.correcao.exige_reinicio ? AVISO_REINICIO_CERTO : AVISO_REINICIO; }
 
   /* A correção pode ser pedida pelo painel? (o servidor confere de novo). */
-  function podeAplicar(a) { return !!(a && (a.estado === 'aberto' || a.estado === 'agendado') && a.correcao && a.correcao.disponivel); }
+  function podeAplicar(a) { return !!(a && (a.estado === 'aberto' || a.estado === 'agendado') && a.correcao && a.correcao.disponivel && a.correcao.executavel); }
+
+  /* Correção já publicada, mas que não é uma ação do catálogo: o painel não aplica nem agenda, o Admin analisa e faz. */
+  function podePedirAoAdmin(a) { return !!(a && a.estado === 'aberto' && a.correcao && a.correcao.disponivel && !a.correcao.executavel); }
+
+  function textoDoPedidoAoAdmin(a) {
+    if (ehAtualizarDgclaw(a)) return textoDoPedidoAtualizar(a);
+    return 'Quero aplicar a correção de segurança ' + a.id + ' (atualização do pacote ' + (a.componente || 'afetado') + '). Analise antes e me diga se vai reiniciar algum serviço.';
+  }
 
   const ROTULO_ESTADO = {
     'aplicado-sozinho': 'Aplicado sozinho', 'aplicado-pelo-dono': 'Aplicado por você', mitigado: 'Mitigado', agendado: 'Agendado', aberto: 'Aberto',
@@ -247,7 +255,7 @@
   return {
     API, FUSO, ADIAR_MS, SONDA_CADA_MS, SONDA_MAX_MS, FRASE_SEM_NOVIDADE, TEXTO_NIVEL3, GRAVIDADE,
     esc, ehHttps, dataBr, horaBr, quando, resumoTopo, textoParcial, textoVigia, gravidadeRotulo, linkHtml, fatosHtml,
-    ehAtualizarDgclaw, textoDoPedidoAtualizar, avisoReinicio, podeAplicar, estadoRotulo, textoAplicado, agendaParaIso,
+    ehAtualizarDgclaw, textoDoPedidoAtualizar, textoDoPedidoAoAdmin, avisoReinicio, podeAplicar, podePedirAoAdmin, estadoRotulo, textoAplicado, agendaParaIso,
     lembrarDepois, marcaDecidido, estaAdiado, estaDecidido, paraJanelaVermelha,
     chama, sondar, pedirEEsperar, urlAchado, PEDIDO_ROTULO,
   };

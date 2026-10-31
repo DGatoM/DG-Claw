@@ -28,8 +28,10 @@ Escreve: `seguranca/ronda/ronda.py` (motor). Lê: `web/lib/ronda-painel.js` (pai
     "onde": ["kernel 6.8.0-147 em execução"],
     "o_que_faz": "texto curto do resumo oficial (dado externo, não confiável)",
     "como_corrigir": "texto curto",
-    "correcao": {"tipo": "acao-catalogo", "acao_id": "sysctl-mptcp-off", "exige_reinicio": false, "disponivel": true},
+    "correcao": {"tipo": "acao-catalogo", "acao_id": "sysctl-mptcp-off", "exige_reinicio": false, "disponivel": true, "executavel": true},
                                        // tipo: acao-catalogo | atualizar-dgclaw | apt | nenhuma
+                                       // disponivel: o fabricante já publicou a correção
+                                       // executavel: true só para acao-catalogo válida no catálogo (o executor recusa o resto)
     "estado": "aberto",                // aberto | aplicado-sozinho | aplicado-pelo-dono | mitigado | agendado
     "aplicado": null,                  // {"em", "acao_id", "antes", "depois", "desfazer"} quando aplicado
     "primeira_vez_em": "2026-10-31T10:00:00Z"
@@ -45,6 +47,23 @@ Uma unidade systemd `.path` (root) vê o arquivo e roda `dgclaw seguranca pedido
 (achado existe em ronda.json, ação está no catálogo `seguranca/acoes-permitidas.json`, código de emergência confere e não expirou),
 executa, grava o resultado em `pedidos/feitos/<uuid>.json` (`{"ok", "mensagem", "feito_em"}`) e apaga o pedido.
 Nunca há comando livre no pedido.
+
+## Contrato de id dos achados
+
+O id de um achado é sempre em **MAIÚSCULAS** em tudo o que o motor grava: `ronda.json` (`id` e `aliases`), o estado, os
+recados e os pedidos. O OSV e o GitHub escrevem `GHSA-aaaa-bbbb-cccc` em minúsculas; o motor converte ao gravar.
+O painel (`web/lib/ronda-painel.js`) aceita maiúsculas e minúsculas na entrada (arquivo e rotas da API), normaliza para
+maiúsculas antes de comparar ou de gravar o pedido, e o executor compara em maiúsculas. Formato: letras, números, ponto,
+hífen e sublinhado, de 3 a 61 caracteres. Os boletins (`boletins.json`) têm contrato próprio, só com maiúsculas.
+
+## `correcao.executavel`
+
+`correcao.disponivel` diz que existe correção publicada; `correcao.executavel` diz que o painel pode mandar o root
+aplicá-la ou agendá-la. Só vale `true` quando o motor casou uma `acao-catalogo` válida (é a única que `acao_do_achado`
+aceita). Para `apt` sem ação no catálogo, `atualizar-dgclaw` e `nenhuma`, vale `false`: a API responde `409` em
+`aplicar` e `agendar`, e a tela troca os botões por "Pedir ao Admin", que abre a conversa do Admin com o pedido escrito
+("Quero aplicar a correção de segurança <id> (atualização do pacote <pacote>). Analise antes e me diga se vai reiniciar
+algum serviço."). `ronda.json` antigo, sem o campo, vale como `false`.
 
 ## Acréscimos do painel (opcionais, versão 1)
 

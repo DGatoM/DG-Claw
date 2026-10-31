@@ -19,6 +19,8 @@
 
   const TEXTO_EMERGENCIA = 'O botão de emergência tira o sistema da internet: o painel, os sites e tudo o que é público saem do ar, e só o seu acesso de administração pelo Tailscale continua entrando. Se ninguém confirmar, ele religa sozinho em 5 minutos. Use quando uma falha crítica estiver sendo explorada e a correção ainda não puder ser aplicada.';
 
+  const TEXTO_PEDIR_ADMIN = 'A correção já foi publicada, mas o painel não a aplica sozinho: o Admin analisa com você, diz se algum serviço vai reiniciar e faz a atualização. O botão abre a conversa com o pedido já escrito.';
+
   const VAZIO = {
     1: 'Nada foi aplicado sozinho nesta ronda.',
     2: 'Nenhuma falha crítica pedindo decisão.',
@@ -49,6 +51,11 @@
     let corpo;
     if (!aberto && a.estado !== 'agendado') {
       corpo = '<p class="rp-texto">' + esc(R.textoAplicado(a, agora)) + '</p>';
+    } else if (R.podePedirAoAdmin(a)) {
+      corpo = '<p class="rp-aviso">' + esc(TEXTO_PEDIR_ADMIN) + '</p>' +
+        '<div class="rp-acoes">' +
+        '<button type="button" class="rp-btn rp-pri" data-rp="pedir-admin">Pedir ao Admin</button>' +
+        '<button type="button" class="rp-btn rp-perigo" data-rp="tirar-do-ar">Tirar do ar</button></div>';
     } else {
       corpo = '<p class="rp-aviso">' + esc(pode ? R.avisoReinicio(a) : 'A correção ainda não está pronta. Enquanto isso, o botão "Tirar do ar" é a proteção disponível.') + '</p>' +
         '<div class="rp-acoes">' +
@@ -68,7 +75,9 @@
       corpo = '<p class="rp-texto">' + esc(R.textoAplicado(a, agora)) + '</p>';
     } else {
       corpo = '<p class="rp-texto">' + esc(R.TEXTO_NIVEL3) + '</p>' +
-        '<div class="rp-acoes"><button type="button" class="rp-btn rp-pri" data-rp="corrigir"' + (R.podeAplicar(a) ? '' : ' disabled') + '>Corrigir agora</button></div>';
+        '<div class="rp-acoes">' + (R.podePedirAoAdmin(a)
+          ? '<button type="button" class="rp-btn rp-pri" data-rp="pedir-admin">Pedir ao Admin</button>'
+          : '<button type="button" class="rp-btn rp-pri" data-rp="corrigir"' + (R.podeAplicar(a) ? '' : ' disabled') + '>Corrigir agora</button>') + '</div>';
     }
     return '<article class="rp-card rp-n3" data-id="' + esc(a.id) + '">' + cabecaCard(a) + corpo + R.fatosHtml(a) +
       '<p class="rp-msg" role="status" hidden></p></article>';
@@ -169,13 +178,13 @@
     acao: [
       { alvo: '#secAcao', titulo: 'Ação necessária',
         oque: 'Falhas críticas que pedem uma decisão sua. Cada uma mostra o que é, onde afeta, o que faz e como corrigir.',
-        como: 'O nível é decidido pela ronda: crítico quando a falha é grave e atinge algo que está instalado e exposto aqui. Aplicar corrige agora, Agendar escolhe a hora, Tirar do ar protege enquanto a correção não chega.',
+        como: 'O nível é decidido pela ronda: crítico quando a falha é grave e atinge algo que está instalado e exposto aqui. Aplicar corrige agora e Agendar escolhe a hora (só para ações do catálogo aprovado). Quando a correção é uma atualização de pacote, o botão vira Pedir ao Admin, que abre a conversa com o pedido já escrito. Tirar do ar protege enquanto a correção não chega.',
         porque: 'Falha crítica não pode esperar sem ninguém decidir. Por isso uma janela vermelha volta a cada visita ao painel até você escolher.' },
     ],
     sempressa: [
       { alvo: '#secSemPressa', titulo: 'Para corrigir sem pressa',
         oque: 'Falhas de impacto leve ou médio que já têm correção pronta, esperando o seu ok.',
-        como: 'O botão Corrigir agora aplica a correção. Quando a correção é uma atualização do próprio DG Claw, ele leva você ao chat do Admin com o pedido já escrito.',
+        como: 'O botão Corrigir agora aplica a correção quando ela é uma ação do catálogo aprovado. Quando é uma atualização de pacote ou do próprio DG Claw, o botão vira Pedir ao Admin e leva você ao chat com o pedido já escrito.',
         porque: 'Não são urgentes, mas ficar sem corrigir cria acúmulo. Aqui você resolve com um toque, quando puder.' },
     ],
     emergencia: [
@@ -323,15 +332,13 @@
       }
       return pedirDoCard(card, 'desfazer', {}, 'Desfeito.');
     }
-    if (k === 'corrigir') {
-      if (R.ehAtualizarDgclaw(a)) {
-        const faixa = raiz.DGAtualizacaoFaixa;
-        if (!faixa || typeof faixa.instalar !== 'function') { msgDoCard(card, 'O atalho de atualização ainda não carregou. Recarregue a página e toque de novo.', 'erro'); return undefined; }
-        faixa.instalar(R.textoDoPedidoAtualizar(a));
-        return undefined;
-      }
-      return pedirDoCard(card, 'aplicar', {}, 'Correção aplicada.');
+    if (k === 'pedir-admin') {
+      const faixa = raiz.DGAtualizacaoFaixa;
+      if (!faixa || typeof faixa.instalar !== 'function') { msgDoCard(card, 'O atalho para o Admin ainda não carregou. Recarregue a página e toque de novo.', 'erro'); return undefined; }
+      faixa.instalar(R.textoDoPedidoAoAdmin(a));
+      return undefined;
     }
+    if (k === 'corrigir') return pedirDoCard(card, 'aplicar', {}, 'Correção aplicada.');
     return undefined;
   }
 
