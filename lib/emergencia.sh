@@ -310,6 +310,18 @@ monta_nft() {
       [[ -n "$red4" ]] && printf '\t\tip saddr { %s } ip daddr { %s } accept\n' "$red4" "$red4"
       [[ -n "$red6" ]] && printf '\t\tip6 saddr { %s } ip6 daddr { %s } accept\n' "$red6" "$red6"
       printf '\t\tdrop\n'
+    else
+      # Modo padrão: o que é encaminhado também não pode ser alcançável de fora, com ou sem DNAT (container ou
+      # VM com IPv6 roteado, por exemplo). Passam: respostas às conexões que os containers abriram, a
+      # administração, o tráfego entre as redes internas e a saída dos containers para a internet.
+      # Qualquer conexão nova vinda de fora para dentro cai no drop final.
+      printf '\t\tct direction reply accept\n'
+      [[ -n "$ifs" ]] && printf '\t\tiifname { %s } accept\n\t\toifname { %s } accept\n' "$ifs" "$ifs"
+      [[ -n "$red4" ]] && printf '\t\tip saddr { %s } ip daddr { %s } accept\n' "$red4" "$red4"
+      [[ -n "$red6" ]] && printf '\t\tip6 saddr { %s } ip6 daddr { %s } accept\n' "$red6" "$red6"
+      [[ -n "$red4" ]] && printf '\t\tct direction original ip saddr { %s } accept\n' "$red4"
+      [[ -n "$red6" ]] && printf '\t\tct direction original ip6 saddr { %s } accept\n' "$red6"
+      printf '\t\tdrop\n'
     fi
     printf '\t}\n}\n'
   }

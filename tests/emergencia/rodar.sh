@@ -213,7 +213,17 @@ contem "rede interna dos agentes" "$NFT" "ip saddr { 10.89.0.0/16 } accept"
 contem "resposta aos IPs admin (saída v4)" "$NFT" "ip daddr { 203.0.113.10, 198.51.100.0/24 } accept"
 contem "resposta aos IPs admin (saída v6)" "$NFT" "ip6 daddr { 2001:db8::1 } accept"
 contem "não deixa o IPv6 sem vizinhança" "$NFT" "icmpv6 type { nd-router-solicit"
-confere "sem --isolar-saida só a entrada tem drop" "1" "$(grep -c '^[[:space:]]*drop$' <<<"$NFT")"
+confere "sem --isolar-saida entrada e encaminhamento têm drop (a saída não)" "2" "$(grep -c '^[[:space:]]*drop$' <<<"$NFT")"
+FWD="$(sed -n '/chain encaminhamento/,/^\t}/p' <<<"$NFT")"
+contem "encaminhamento padrão: aceita resposta a conexão de container" "$FWD" "ct direction reply accept"
+contem "encaminhamento padrão: container sai para a internet" "$FWD" "ct direction original ip saddr { 10.89.0.0/16 } accept"
+contem "encaminhamento padrão: entre redes internas" "$FWD" "ip saddr { 10.89.0.0/16 } ip daddr { 10.89.0.0/16 } accept"
+contem "encaminhamento padrão: interface admin" "$FWD" 'oifname { "tailscale0" } accept'
+confere "encaminhamento padrão termina em drop (v4 e v6 sem DNAT)" "drop" "$(grep -v '^[[:space:]]*}' <<<"$FWD" | tail -n 1 | tr -d '\t')"
+if command -v nft >/dev/null 2>&1 && [[ "$EUID" -eq 0 ]]; then
+  REAL="$(PATH="${PATH#"$FAKE/bin:"}" command -v nft)"
+  if saida_real="$("$REAL" -c -f "$FAKE/nft-validado.txt" 2>&1)"; then ok "nft -c -f real aceita o arquivo do corte padrão"; else nok "nft real recusou: $saida_real"; fi
+fi
 if grep -q 'ct state established' <<<"$NFT"; then nok "aceitou conexão estabelecida sem ser DNS"; else ok "conexão estabelecida não é aceita (cai no drop)"; fi
 [[ -f "$ED/cortado" ]] && ok "marcador cortado criado" || nok "marcador cortado ausente"
 [[ ! -e "$ARQ" ]] && ok "o código foi gasto" || nok "o código continua em disco"
