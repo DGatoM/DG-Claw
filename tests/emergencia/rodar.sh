@@ -63,13 +63,15 @@ if [[ -f "$FAKE/if-tailscale0" && "$*" == *tailscale0* ]]; then echo "tailscale0
   fake nft '
 case "$1 $2" in
   "list ruleset") echo "table inet filter {}"; exit 0 ;;
-  "list table") [[ -f "$FAKE/nft-tabela" ]]; exit ;;
+  "list table") if [[ -f "$FAKE/nft-tabela" ]]; then cat "$FAKE/nft-carregado.txt" 2>/dev/null; exit 0; else exit 1; fi ;;
   "delete table") echo "nft $*" >>"$FAKE/chamadas.log"
                   [[ -f "$FAKE/nft-lento" ]] && sleep 1.5
                   rm -f "$FAKE/nft-tabela"; exit 0 ;;
   "-c -f") echo "nft $*" >>"$FAKE/chamadas.log"; cp "$3" "$FAKE/nft-validado.txt"
            if [[ -f "$FAKE/nft-invalido" ]]; then echo "Error: syntax error" >&2; exit 1; fi; exit 0 ;;
-  "-f "*) echo "nft $*" >>"$FAKE/chamadas.log"; cp "$2" "$FAKE/nft-carregado.txt"; touch "$FAKE/nft-tabela"; exit 0 ;;
+  "-f "*) echo "nft $*" >>"$FAKE/chamadas.log"
+          if [[ -f "$FAKE/nft-falha-carga" ]]; then echo "Error: carga recusada" >&2; exit 1; fi
+          cp "$2" "$FAKE/nft-carregado.txt"; touch "$FAKE/nft-tabela"; exit 0 ;;
 esac
 echo "nft: chamada inesperada $*" >&2; exit 1'
   fake logger 'exit 0'
@@ -189,8 +191,10 @@ roda cortar --codigo "$COD"
 confere "exit 0" "0" "$RC"
 SELF="$(readlink -f "$SCRIPT")"
 ED="$RAIZ/var/lib/dgclaw/emergencia"
+ID_CORTE="$(sed -n 's/^corte_id=//p' "$ED/cortado")"
+[[ "$ID_CORTE" =~ ^[0-9a-f]{16}$ ]] && ok "o corte ganhou um id único no marcador" || nok "id do corte ausente: '$ID_CORTE'"
 ESPERADO="nft -c -f $ED/emergencia.nft
-systemd-run --on-active=5m --unit=emergencia-desfazer --setenv=EMERGENCIA_CONF=$EMERGENCIA_CONF --setenv=DGCLAW_RAIZ=$RAIZ $SELF religar --automatico
+systemd-run --on-active=5m --unit=emergencia-desfazer --setenv=EMERGENCIA_CONF=$EMERGENCIA_CONF --setenv=DGCLAW_RAIZ=$RAIZ $SELF religar --automatico --corte $ID_CORTE
 systemctl stop cloudflared
 systemctl stop caddy
 nft -f $ED/emergencia.nft"
@@ -444,6 +448,80 @@ rm -f "$FAKE/nft-tabela"; touch "$FAKE/nft-invalido"
 roda boot
 confere "boot falha" "1" "$RC"
 contem "diz que o servidor pode estar exposto" "$SAIDA" "pode estar exposto"
+
+echo "16. religar automático não desfaz corte confirmado nem corte ultrapassado"
+monta_ambiente; liga_tailscale
+pega_codigo
+roda cortar --codigo "$COD"
+ED="$RAIZ/var/lib/dgclaw/emergencia"
+ID1="$(sed -n 's/^corte_id=//p' "$ED/cortado")"
+echo "   corrida: confirmar segura a trava, o automático espera e entra depois da confirmação"
+: >"$FAKE/chamadas.log"
+( exec 9>"$ED/.trava"; flock 9; sleep 1.5; date >"$ED/confirmado" ) &
+sleep 0.4
+RC=0; SAIDA="$("$SCRIPT" religar --automatico --corte "$ID1" 2>&1)" || RC=$?
+wait
+confere "o automático sai 0" "0" "$RC"
+contem "diz que o corte já foi confirmado" "$SAIDA" "já foi confirmado"
+confere "não apagou a tabela" "0" "$(chamadas | grep -c '^nft delete table')"
+[[ -f "$ED/cortado" && -f "$FAKE/nft-tabela" ]] && ok "corte e firewall intactos" || nok "o automático desfez o corte confirmado"
+echo "   id antigo depois de um novo corte"
+rm -f "$ED/confirmado"
+sed -i 's/^corte_id=.*/corte_id=ffffffffffffffff/' "$ED/cortado"
+: >"$FAKE/chamadas.log"
+RC=0; SAIDA="$("$SCRIPT" religar --automatico --corte "$ID1" 2>&1)" || RC=$?
+confere "o automático antigo sai 0" "0" "$RC"
+contem "diz que era de um corte anterior" "$SAIDA" "de um corte anterior"
+confere "não apagou a tabela" "0" "$(chamadas | grep -c '^nft delete table')"
+[[ -f "$ED/cortado" ]] && ok "marcador do corte novo intacto" || nok "o automático antigo apagou o corte novo"
+echo "   id certo religa"
+RC=0; SAIDA="$("$SCRIPT" religar --automatico --corte ffffffffffffffff 2>&1)" || RC=$?
+confere "o automático do corte atual sai 0" "0" "$RC"
+[[ ! -e "$ED/cortado" ]] && ok "religou" || nok "não religou com o id certo"
+RC=0; SAIDA="$("$SCRIPT" religar --automatico --corte nao-e-hex 2>&1)" || RC=$?
+confere "id malformado é recusado" "1" "$RC"
+
+echo "17. confirmar recusa corte incompleto e mantém o religar automático"
+monta_ambiente; liga_tailscale
+pega_codigo
+roda cortar --codigo "$COD"
+ED="$RAIZ/var/lib/dgclaw/emergencia"
+rm -f "$FAKE/nft-tabela"
+roda confirmar
+confere "sem firewall carregado, recusa" "1" "$RC"
+contem "diz que o corte não se completou" "$SAIDA" "o corte não se completou: a tabela nft dgclaw_emergencia não está carregada"
+contem "diz que o religar automático continua" "$SAIDA" "o religar automático continua agendado"
+[[ -f "$FAKE/timer-ativo" ]] && ok "o timer não foi cancelado" || nok "o timer foi cancelado"
+[[ ! -e "$ED/confirmado" ]] && ok "não gravou confirmado" || nok "gravou confirmado em corte incompleto"
+touch "$FAKE/nft-tabela"
+touch "$FAKE/ativo-caddy"
+roda confirmar
+confere "serviço público rodando, recusa" "1" "$RC"
+contem "diz qual serviço continua rodando" "$SAIDA" "o serviço caddy continua rodando"
+rm -f "$FAKE/ativo-caddy"
+printf 'table inet dgclaw_emergencia {\n\tchain entrada {\n\t}\n}\n' >"$FAKE/nft-carregado.txt"
+roda confirmar
+confere "tabela sem as chains esperadas, recusa" "1" "$RC"
+contem "diz qual chain falta" "$SAIDA" "falta a chain saida na tabela nft"
+cp "$FAKE/nft-validado.txt" "$FAKE/nft-carregado.txt"
+roda confirmar
+confere "corte completo, confirma" "0" "$RC"
+[[ -f "$ED/confirmado" ]] && ok "confirmado gravado" || nok "confirmado ausente"
+
+echo "18. cortar que falha ao carregar o nft desfaz o que fez"
+monta_ambiente; liga_tailscale
+pega_codigo
+touch "$FAKE/nft-falha-carga"
+roda cortar --codigo "$COD"
+ED="$RAIZ/var/lib/dgclaw/emergencia"
+confere "cortar sai com erro" "1" "$RC"
+contem "diz que o corte não foi feito e o que foi desfeito" "$SAIDA" "O corte NÃO foi feito"
+[[ -f "$FAKE/ativo-cloudflared" && -f "$FAKE/ativo-caddy" ]] && ok "serviços parados foram religados" || nok "serviços ficaram parados"
+[[ ! -e "$ED/cortado" ]] && ok "marcador apagado" || nok "marcador de corte ficou"
+[[ ! -f "$FAKE/timer-ativo" ]] && ok "timer cancelado" || nok "timer ficou agendado"
+[[ ! -e "$RAIZ/etc/systemd/system/dgclaw-emergencia-boot.service" ]] && ok "unidades de boot removidas" || nok "unidades de boot ficaram"
+roda estado
+contem "estado volta ao normal" "$SAIDA" "Estado: NORMAL"
 
 echo
 echo "Passaram: $PASSOU  Falharam: $FALHOU"

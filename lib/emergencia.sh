@@ -31,6 +31,8 @@ CODIGO=""
 ISOLAR=0
 JSON=0
 AUTO=0
+CORTE_ARG=""
+CORTE_ID=""
 
 SERVICOS_PUBLICOS="caddy cloudflared"
 INTERFACES_ADMIN="tailscale0"
@@ -321,7 +323,7 @@ monta_plano() {
   timer="systemd-run --on-active=${PRAZO_CONFIRMAR_MIN}m --unit=$UNIDADE_TIMER"
   if [[ -n "${EMERGENCIA_CONF:-}" ]]; then timer+=" --setenv=EMERGENCIA_CONF=$EMERGENCIA_CONF"; fi
   if [[ -n "$RAIZ" ]]; then timer+=" --setenv=DGCLAW_RAIZ=$RAIZ"; fi
-  PLANO+=("$timer $SELF religar --automatico")
+  PLANO+=("$timer $SELF religar --automatico --corte ${CORTE_ID:-ID-DO-CORTE}")
   for s in "${ATIVOS[@]}"; do PLANO+=("systemctl stop $s"); done
   PLANO+=("nft -f $ARQ_NFT")
   NFT_TEXTO="$(monta_nft)"
@@ -639,6 +641,10 @@ desinstala_unidades_boot() {
 
 # ---------- cortar ----------
 
+# Identifica cada corte. O timer carrega o id do corte que o agendou: se o corte atual for outro, o timer é de um
+# corte ultrapassado e não pode desfazer o novo.
+novo_id_corte() { od -An -N8 -tx1 /dev/urandom | tr -d ' \n'; }
+
 guarda_estado() {
   local d="$ESTADO_DIR/antes" s
   { mkdir -p "$d" && chmod 700 "$d"; } || falhar "não consegui criar $d."
@@ -664,6 +670,28 @@ executa() {
   return 0
 }
 
+# Um passo do corte falhou (ex.: o nft não carregou depois de parar os serviços): volta ao que era antes, em vez de
+# deixar serviços parados e/ou marcador de corte sem firewall.
+desfaz_corte_parcial() {
+  local s falhas=()
+  systemctl stop "$UNIDADE_TIMER.timer" >/dev/null 2>&1 || true
+  if nft list table inet "$NFT_TABELA" >/dev/null 2>&1; then
+    nft delete table inet "$NFT_TABELA" >/dev/null 2>&1 || falhas+=("apagar a tabela nft $NFT_TABELA")
+  fi
+  for s in "${ATIVOS[@]}"; do
+    systemctl start "$s" >/dev/null 2>&1 || falhas+=("religar o serviço $s")
+  done
+  desinstala_unidades_boot
+  if ((${#falhas[@]})); then
+    log "desfazer corte parcial: FALHOU em: ${falhas[*]}"
+    erro "não consegui desfazer tudo (${falhas[*]}). O marcador de corte foi mantido: rode '$PROG preparar' e '$PROG religar --codigo <código>'. Detalhes em $ESTADO_DIR/emergencia.log."
+    return 0
+  fi
+  rm -f "$ESTADO_DIR/cortado" "$ESTADO_DIR/confirmado"
+  log "corte parcial desfeito: serviços religados e marcador apagado"
+  erro "O corte NÃO foi feito: o que já tinha sido mudado foi desfeito (serviços religados, marcador apagado). Veja $ESTADO_DIR/emergencia.log, corrija a causa e rode '$PROG preparar' e '$PROG cortar' de novo."
+}
+
 cmd_cortar() {
   carrega_conf
   exige_root cortar
@@ -683,6 +711,8 @@ cmd_cortar() {
     exit 1
   fi
   coleta_ativos
+  CORTE_ID="$(novo_id_corte)"
+  [[ "$CORTE_ID" =~ ^[0-9a-f]{16}$ ]] || falhar "não consegui gerar o identificador do corte (/dev/urandom). Nada foi mudado."
   monta_plano
   guarda_estado
   printf '%s\n' "$NFT_TEXTO" >"$ARQ_NFT" || falhar "não consegui gravar $ARQ_NFT. Nada foi mudado."
@@ -704,15 +734,15 @@ cmd_cortar() {
     falhar "não consegui agendar o religar automático (${PLANO[0]}). Por segurança o corte NÃO foi feito e nada foi mudado. Veja $ESTADO_DIR/emergencia.log. Se já existir um timer antigo, rode: systemctl stop $UNIDADE_TIMER.timer"
   fi
   {
-    printf 'desde=%s\nepoch=%s\nquem=%s\nisolar_saida=%s\nprazo_min=%s\nservicos_parados=%s\n' \
-      "$(agora_iso)" "$(date +%s)" "$QUEM" "$ISOLAR" "$PRAZO_CONFIRMAR_MIN" "${ATIVOS[*]:-}"
+    printf 'desde=%s\nepoch=%s\nquem=%s\nisolar_saida=%s\nprazo_min=%s\nservicos_parados=%s\ncorte_id=%s\n' \
+      "$(agora_iso)" "$(date +%s)" "$QUEM" "$ISOLAR" "$PRAZO_CONFIRMAR_MIN" "${ATIVOS[*]:-}" "$CORTE_ID"
   } >"$ESTADO_DIR/cortado" || falhar "não consegui gravar $ESTADO_DIR/cortado. Rode '$PROG preparar' e '$PROG religar --codigo <código>' para garantir que está tudo normal."
 
   local k
   for ((k = 1; k < ${#PLANO[@]}; k++)); do
     if ! executa "${PLANO[$k]}"; then
-      erro "o passo falhou: ${PLANO[$k]}. O corte ficou pela metade."
-      erro "Rode '$PROG preparar' e '$PROG religar --codigo <código>' para voltar ao normal, ou espere $PRAZO_CONFIRMAR_MIN min: o religar automático já está agendado. Detalhes em $ESTADO_DIR/emergencia.log."
+      erro "o passo falhou: ${PLANO[$k]}. Vou desfazer o que o corte já fez."
+      desfaz_corte_parcial
       grava_web
       exit 1
     fi
@@ -739,6 +769,25 @@ cmd_confirmar() {
     falhar "o timer $UNIDADE_TIMER.timer não está ativo (talvez o prazo já passou ou o agendamento falhou). Não dá para confirmar. Rode '$PROG preparar' e '$PROG religar --codigo <código>' para voltar ao normal."
   fi
   [[ -s "$ARQ_NFT" ]] || falhar "falta o arquivo nft guardado ($ARQ_NFT): sem ele o corte não volta depois de um reinício. O religar automático continua agendado. Rode '$PROG preparar' e '$PROG religar --codigo <código>'."
+  # Só confirma corte COMPLETO: o firewall carregado e os serviços públicos parados de fato. Um corte pela metade
+  # confirmado cancelaria o religar automático e deixaria o servidor exposto.
+  local faltas=() s tabela
+  if ! tabela="$(nft list table inet "$NFT_TABELA" 2>/dev/null)"; then
+    faltas+=("a tabela nft $NFT_TABELA não está carregada")
+  else
+    for s in entrada saida encaminhamento; do
+      grep -q "chain $s" <<<"$tabela" || faltas+=("falta a chain $s na tabela nft")
+    done
+  fi
+  for s in $(marcador_valor servicos_parados); do
+    if servico_ativo "$s"; then faltas+=("o serviço $s continua rodando"); fi
+  done
+  if ((${#faltas[@]})); then
+    local juntas="${faltas[0]}" f
+    for f in "${faltas[@]:1}"; do juntas+="; $f"; done
+    log "confirmar recusado: corte incompleto: $juntas"
+    falhar "o corte não se completou: $juntas; o religar automático continua agendado. Rode '$PROG preparar' e '$PROG cortar --codigo <código>' de novo, ou '$PROG religar --codigo <código>'."
+  fi
   # primeiro a persistência, depois cancelar o timer: se não der para persistir, o religar automático segue valendo
   instala_unidades_boot
   systemctl stop "$UNIDADE_TIMER.timer" \
@@ -764,7 +813,21 @@ cmd_religar() {
     fi
     falhar "não há corte ativo (falta $ESTADO_DIR/cortado). Nada foi mudado."
   fi
-  if ! ((AUTO)); then exige_codigo religar; fi
+  if ((AUTO)); then
+    # Já dentro da trava: o estado de agora manda, não o do momento em que o timer disparou.
+    if [[ -f "$ESTADO_DIR/confirmado" ]]; then
+      log "religar automático: o corte foi confirmado enquanto esperava a trava, nada a fazer"
+      echo "O corte já foi confirmado: o religar automático não faz nada."
+      return 0
+    fi
+    if [[ -n "$CORTE_ARG" && "$CORTE_ARG" != "$(marcador_valor corte_id)" ]]; then
+      log "religar automático: o timer é do corte $CORTE_ARG, o corte atual é outro ($(marcador_valor corte_id)); nada a fazer"
+      echo "Este religar automático era de um corte anterior: nada a fazer."
+      return 0
+    fi
+  else
+    exige_codigo religar
+  fi
   local d="$ESTADO_DIR/antes"
   log "religar iniciado$( ((AUTO)) && echo ' (automático, prazo de confirmação vencido)')"
 
@@ -918,6 +981,10 @@ main() {
       --isolar-saida) ISOLAR=1; shift ;;
       --json) JSON=1; shift ;;
       --automatico) AUTO=1; shift ;;
+      --corte)
+        (($# >= 2)) || falhar "--corte precisa de um valor (o id do corte que agendou o religar automático)."
+        [[ "$2" =~ ^[0-9a-f]{16}$ ]] || falhar "--corte '$2' não é um id de corte válido (16 caracteres hexadecimais)."
+        CORTE_ARG="$2"; shift 2 ;;
       *) uso >&2; falhar "opção desconhecida '$1' para o comando '$cmd'." ;;
     esac
   done
