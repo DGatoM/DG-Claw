@@ -724,4 +724,21 @@ dgclaw atualizar --ok-do-dono >"$TMP/inst3.txt" 2>&1; rc=$?
 igual "com a instalacao de volta em B, o mesmo parecer vale" "0" "$rc"
 [ "$rc" -eq 0 ] || sed 's/^/      | /' "$TMP/inst3.txt" | tail -n 20
 
+echo "restauracao entre o --simular e o --parecer: o parecer nao grava 'B para C' sobre analise de 'A para C'"
+git -C "$TRAB" commit -q --allow-empty -m v9; git -C "$TRAB" push -q origin main
+sed -i '/^DGCLAW_COMMIT=/d' "$ETC/dgclaw.env"; echo "DGCLAW_COMMIT=$COMMIT_A" >>"$ETC/dgclaw.env"
+rm -f "$LIB/web/atualizacao/parecer.json"
+dgclaw atualizar --simular >"$TMP/res1.txt" 2>&1
+DEST_R="$(sed -n 's/^DESTINO=//p' "$TMP/res1.txt" | head -n 1)"
+afirma "o relatorio grava a versao instalada (A)" grep -q "^INSTALADO=$COMMIT_A\$" "$TMP/res1.txt"
+sed -i '/^DGCLAW_COMMIT=/d' "$ETC/dgclaw.env"; echo "DGCLAW_COMMIT=$COMMIT_B" >>"$ETC/dgclaw.env"   # restauraram A para B
+dgclaw atualizar --parecer segura --commit "$DEST_R" --motivo "x" >"$TMP/res2.txt" 2>&1; rc=$?
+igual "parecer recusa quando a versao instalada mudou depois do relatorio" "1" "$rc"
+afirma "diz as duas versoes" grep -q "relatorio: ${COMMIT_A:0:10}, agora: ${COMMIT_B:0:10}" "$TMP/res2.txt"
+nega "nao gravou o parecer" test -f "$LIB/web/atualizacao/parecer.json"
+dgclaw atualizar --simular >/dev/null 2>&1
+dgclaw atualizar --parecer segura --commit "$DEST_R" --motivo "x" >"$TMP/res3.txt" 2>&1; rc=$?
+igual "com novo --simular o parecer grava" "0" "$rc"
+afirma "e guarda a versao instalada do relatorio (B)" bash -c "[ \"\$(jq -r .commit_instalado '$LIB/web/atualizacao/parecer.json')\" = '$COMMIT_B' ]"
+
 fim

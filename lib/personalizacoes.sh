@@ -573,7 +573,7 @@ _om_relatorio() {
     printf '%s' "$USO_TXT" | sed 's/^/  /'
     velho="$(personalizacoes_registro)"
     printf '\nSuas personalizacoes estao no registro %s.\n' "$velho"
-    printf '\nVersao de destino (para conferencia, nao precisa ler):\nDESTINO=%s\nPERSONALIZACOES=%s\nMODO=%s\n' "$para" "${ATU_PERS_HEAD:-nenhuma}" "${ATU_MODO_INST:-oficial}"
+    printf '\nVersao de destino (para conferencia, nao precisa ler):\nDESTINO=%s\nPERSONALIZACOES=%s\nMODO=%s\nINSTALADO=%s\nINSTALADO_ORIGEM=%s\n' "$para" "${ATU_PERS_HEAD:-nenhuma}" "${ATU_MODO_INST:-oficial}" "${ATU_COMMIT_ANTIGO:-}" "${ATU_COMMIT_ORIGEM:-}"
     if [ -n "$head" ]; then printf 'HEAD=%s\n' "$head"; fi
     printf '\nAntes de instalar: leia o que muda e o que este DG Claw usa (secao acima), diga ao dono em linguagem simples se a atualizacao e segura e se vale a pena, e grave o parecer: sudo dgclaw atualizar --parecer segura --commit <commit do DESTINO> --motivo "<texto curto>" (ou arriscada, que bloqueia). Espere o ok dele. Com o ok: sudo dgclaw atualizar --ok-do-dono --segundo-plano\n'
 }
@@ -613,7 +613,7 @@ _om_exigir_ok() {
 # que ele veja o novo.
 atualizar_o_que_muda() {
     local de="" real="" para="" head="" ramo n arq ts sem_base=0 difere=0 por_que="" prev prev_dest prev_arq
-    ATU_DESTINO=""; OM_PREV_DEST=""; OM_PREV_PERS=""; OM_PREV_MODO=""; ATU_PERS_HEAD=""; ATU_MODO_INST=""
+    ATU_DESTINO=""; OM_PREV_DEST=""; OM_PREV_PERS=""; OM_PREV_MODO=""; OM_PREV_INST=""; ATU_PERS_HEAD=""; ATU_MODO_INST=""
     ATU_ETAPA="lendo o que muda"
     passo "Lendo o que a versao nova muda (antes de instalar qualquer coisa)"
     if ! git_do_clone "$ATU_REPO" rev-parse --git-dir >/dev/null 2>&1; then
@@ -683,6 +683,7 @@ atualizar_o_que_muda() {
     if [ -n "$prev" ]; then
         prev_arq="$prev"; prev_dest="$(sed -n 's/^DESTINO=//p' "$prev" | head -n 1)"
         OM_PREV_PERS="$(sed -n 's/^PERSONALIZACOES=//p' "$prev" | head -n 1)"; OM_PREV_MODO="$(sed -n 's/^MODO=//p' "$prev" | head -n 1)"
+        OM_PREV_INST="$(sed -n 's/^INSTALADO=//p' "$prev" | head -n 1)"
     fi
     OM_PREV_DEST="$prev_dest"   # o parecer (lib/atualizar.sh) confere que foi dado sobre o relatorio que o analista leu
     ( umask 027; mkdir -p "$DG_LOG"; _om_relatorio "$de" "$para" "$head" >"$arq" ) \

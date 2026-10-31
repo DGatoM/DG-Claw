@@ -442,7 +442,13 @@ atualizar_gravar_parecer() {
         falha "as personalizacoes ou o modo de instalacao mudaram depois do relatorio que voce leu (relatorio: ${OM_PREV_PERS:0:10} / ${OM_PREV_MODO:-sem registro}; agora: ${ATU_PERS_HEAD:0:10} / ${ATU_MODO_INST}). Nada foi gravado." \
               "rode 'sudo dgclaw atualizar --simular', leia o relatorio novo e de o parecer de novo."
     fi
-    instalado="${ATU_COMMIT_ANTIGO:-}"
+    # A versao instalada tambem faz parte do que foi analisado: se ela mudou entre o --simular e o --parecer (uma
+    # restauracao, uma atualizacao a mao), o parecer seria "B para C" sobre uma analise de "A para C".
+    if [ "${OM_PREV_INST:-}" != "${ATU_COMMIT_ANTIGO:-}" ]; then
+        falha "a versao instalada mudou depois do relatorio que voce leu (relatorio: ${OM_PREV_INST:0:10}${OM_PREV_INST:+, }agora: ${ATU_COMMIT_ANTIGO:0:10}). Nada foi gravado." \
+              "rode 'sudo dgclaw atualizar --simular' de novo, leia o relatorio novo e grave o parecer dele."
+    fi
+    instalado="$OM_PREV_INST"
     # So vale quando a origem da versao instalada e verificavel: o "HEAD do clone" e um palpite, e com o clone ja puxado
     # a mao ele e igual ao destino, o que travaria o parecer (e, sem parecer, o --ok-do-dono) sem saida.
     if [ "$alvo" = "$instalado" ] && [ "${PERS_ATIVO:-0}" != 1 ] && [ "${ATU_COMMIT_ORIGEM:-}" != "HEAD do clone" ]; then

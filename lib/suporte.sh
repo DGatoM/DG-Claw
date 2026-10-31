@@ -173,6 +173,12 @@ suporte_gravar() {
     printf '%s' "$1" | escrever_arquivo "$arq" 600
 }
 
+# suporte_seguro <valor>: so devolve o valor se for um caminho simples; senao um aviso. Valor que vem de arquivo, processo
+# ou saida de comando nunca entra numa mensagem em texto livre (quem le a mensagem pode ser um agente com acesso root).
+suporte_seguro() {
+    if [[ "$1" =~ ^[A-Za-z0-9/._-]{1,200}$ ]]; then printf '%s' "$1"; else printf '(valor com caracteres nao seguros, omitido)'; fi
+}
+
 # suporte_ler_diretiva <linha>: separa a palavra-chave (SUP_KW, minuscula) dos argumentos (SUP_ARGS) como o sshd faz:
 # `=` opcional depois da palavra-chave, varios argumentos, aspas duplas ou simples agrupando, # comecando um comentario.
 # Retorno: 0 ok, 1 linha vazia ou comentario, 2 nao entendi com certeza (SUP_CFG_ERRO diz o que). So e chamada para as
@@ -189,7 +195,7 @@ suporte_ler_diretiva() {
     resto="${resto#"${resto%%[![:space:]]*}"}"
     for ((i = 0; i < ${#resto}; i++)); do
         ch="${resto:i:1}"
-        if [ "$ch" = "\\" ]; then SUP_CFG_ERRO="linha com barra invertida que nao sei interpretar: ${l:0:80}"; return 2; fi
+        if [ "$ch" = "\\" ]; then SUP_CFG_ERRO="linha com barra invertida que nao sei interpretar: $(suporte_seguro "${l:0:80}")"; return 2; fi
         if [ -n "$q" ]; then
             if [ "$ch" = "$q" ]; then q=""; else cur+="$ch"; fi
         elif [ "$ch" = '"' ] || [ "$ch" = "'" ]; then q="$ch"; tem=1
@@ -198,7 +204,7 @@ suporte_ler_diretiva() {
         elif [ "$ch" = "#" ] && [ "$tem" = 0 ]; then break
         else cur+="$ch"; tem=1; fi
     done
-    if [ -n "$q" ]; then SUP_CFG_ERRO="linha com aspas sem fechar: ${l:0:80}"; return 2; fi
+    if [ -n "$q" ]; then SUP_CFG_ERRO="linha com aspas sem fechar: $(suporte_seguro "${l:0:80}")"; return 2; fi
     if [ "$tem" = 1 ]; then SUP_ARGS+=("$cur"); fi
     return 0
 }
@@ -280,7 +286,7 @@ suporte_exigir_config_sem_match() {
 
 # suporte_analisar_opcoes_sshd <origem> <argumentos do sshd...>: le como o getopt do sshd.
 suporte_analisar_opcoes_sshd() {
-    local origem="$1" a rest val i k c padrao="${DGCLAW_SSHD_CONFIG:-/etc/ssh/sshd_config}" ja
+    local origem="$1" a rest val i k c mostra padrao="${DGCLAW_SSHD_CONFIG:-/etc/ssh/sshd_config}" ja
     shift
     while [ $# -gt 0 ]; do
         a="$1"; shift
@@ -296,13 +302,18 @@ suporte_analisar_opcoes_sshd() {
                 f|o|b|C|c|E|g|h|k|p|u)
                     val="${rest:i+1}"
                     if [ -z "$val" ]; then val="${1:-}"; [ $# -eq 0 ] || shift; fi
-                    if [ "$c" = o ]; then
-                        falha "o sshd esta rodando com a opcao -o '$val' (visto em $origem), que muda a configuracao por fora do sshd_config, e eu nao consigo verificar o que isso aceita." \
+                    if [ "$c" = f ] && ! [[ "$val" =~ ^[A-Za-z0-9/._-]{1,200}$ ]]; then
+                        falha "o sshd esta rodando com -f e um caminho com caracteres nao seguros (visto em $origem; caminho omitido), entao nao consigo conferir a configuracao dele." \
+                            "inicie o sshd com um caminho simples no -f (letras, numeros, / . _ -) e rode de novo."
+                    elif [ "$c" = o ]; then
+                        mostra=" (valor omitido)"
+                        if [ -z "${SUP_ORIGEM_SEM_VALOR:-}" ] && [[ "$val" =~ ^[A-Za-z0-9/._-]{1,200}$ ]]; then mostra=" '$val'"; fi
+                        falha "o sshd esta rodando com a opcao -o${mostra} (visto em $origem), que muda a configuracao por fora do sshd_config, e eu nao consigo verificar o que isso aceita." \
                             "tire a opcao -o do jeito que o sshd e iniciado (SSHD_OPTS em /etc/default/ssh ou o ExecStart do servico), ponha-a no sshd_config, reinicie o sshd e rode de novo."
                     elif [ "$c" = f ]; then
                         case "$val" in
                             /*) ;;
-                            *) falha "o sshd esta rodando com -f '$val' (visto em $origem), um caminho relativo que eu nao sei resolver." \
+                            *) falha "o sshd esta rodando com -f '$(suporte_seguro "$val")' (visto em $origem), um caminho relativo que eu nao sei resolver." \
                                    "inicie o sshd com o caminho completo no -f e rode de novo." ;;
                         esac
                         if [ "$val" != "$padrao" ]; then
@@ -320,7 +331,7 @@ suporte_analisar_opcoes_sshd() {
 suporte_descobrir_opcoes_sshd() {
     local proc="${DGCLAW_PROC:-/proc}" sc="${DGCLAW_SYSTEMCTL:-systemctl}" d a0 titulo unit saida argv f linha val
     local -a arr toks
-    local fontes_lidas=0 opts_val=""
+    local fontes_lidas=0 opts_val="" mestres=0 sshd_host id_host real_host ns_mnt1 ns_pid1
     SUP_SSHD_CONFS=()
     # (c) SSHD_OPTS: so a atribuicao literal. Expansao de variavel ou qualquer coisa estranha e inconclusivo.
     for f in /etc/default/ssh /etc/sysconfig/sshd; do
@@ -337,11 +348,11 @@ suporte_descobrir_opcoes_sshd() {
                 elif [[ "$val" =~ ^\'([^\']*)\'[[:space:]]*(#.*)?$ ]]; then val="${BASH_REMATCH[1]}"
                 elif [[ "$val" =~ ^([^[:space:]\"\'#]*)[[:space:]]*(#.*)?$ ]]; then val="${BASH_REMATCH[1]}"
                 else
-                    falha "a linha de opcoes do sshd em $f tem um formato que nao sei interpretar (${linha:0:60})." \
+                    falha "a linha de opcoes do sshd em $f tem um formato que nao sei interpretar ($(suporte_seguro "${linha:0:60}"))." \
                         "deixe a atribuicao simples, ex.: SSHD_OPTS=\"-f /etc/ssh/outro.conf\", e rode de novo."
                 fi
                 if [[ "$val" == *[\$\`\\\(\)\;\&\|\<\>]* ]]; then
-                    falha "as opcoes do sshd em $f usam expansao ou caracteres que eu nao sei interpretar (${val:0:60})." \
+                    falha "as opcoes do sshd em $f usam expansao ou caracteres que eu nao sei interpretar ($(suporte_seguro "${val:0:60}"))." \
                         "deixe so opcoes literais (ex.: -f /etc/ssh/outro.conf) e rode de novo."
                 fi
             fi
@@ -352,39 +363,51 @@ suporte_descobrir_opcoes_sshd() {
             suporte_analisar_opcoes_sshd "$f" "${toks[@]}"
         fi
     done
-    # (a) processos sshd mestres em execucao.
+    # (a) processos sshd mestres em execucao. So conta quem passa em TODAS as verificacoes: o /proc do host mostra
+    # tambem processos de containers (de agentes), e eles podem se chamar /usr/sbin/sshd com os argumentos que quiserem.
+    # Nada que um processo tenha na linha de comando entra em mensagem.
     if [ -d "$proc" ] && [ -r "$proc" ]; then
-        fontes_lidas=1
-        for d in "$proc"/[0-9]*; do
-            [ -r "$d/cmdline" ] || continue
-            mapfile -t arr < <(tr '\0' '\n' <"$d/cmdline" 2>/dev/null)
-            [ "${#arr[@]}" -gt 0 ] || continue
-            a0="${arr[0]}"
-            if [ "${a0##*/}" = sshd ] && [[ "$a0" != "sshd: "* ]]; then
-                suporte_analisar_opcoes_sshd "o processo sshd $(basename "$d")" "${arr[@]:1}"
-            elif [[ "$a0" == "sshd: /"* ]]; then
-                # O mestre reescreve o titulo: "sshd: /usr/sbin/sshd -D [listener] 0 of 10-100 startups".
-                titulo="${a0#sshd: }"; titulo="${titulo%%\[*}"
-                read -ra toks <<<"$titulo"
-                suporte_analisar_opcoes_sshd "o processo sshd $(basename "$d")" "${toks[@]:1}"
-            fi
-        done
+        sshd_host="${DGCLAW_SSHD_BIN:-$(command -v sshd 2>/dev/null || true)}"; sshd_host="${sshd_host:-/usr/sbin/sshd}"
+        id_host="$(stat -Lc '%d:%i' "$sshd_host" 2>/dev/null || true)"
+        real_host="$(readlink -f "$sshd_host" 2>/dev/null || true)"
+        ns_mnt1="$(readlink "$proc/1/ns/mnt" 2>/dev/null || true)"; ns_pid1="$(readlink "$proc/1/ns/pid" 2>/dev/null || true)"
+        if [ -n "$id_host" ] && [ -n "$real_host" ] && [ -n "$ns_mnt1" ] && [ -n "$ns_pid1" ]; then
+            for d in "$proc"/[0-9]*; do
+                [ -r "$d/cmdline" ] || continue
+                mapfile -t arr < <(tr '\0' '\n' <"$d/cmdline" 2>/dev/null)
+                [ "${#arr[@]}" -gt 0 ] || continue
+                a0="${arr[0]}"
+                if [ "${a0##*/}" = sshd ] && [[ "$a0" != "sshd: "* ]]; then titulo=""
+                elif [[ "$a0" == "sshd: /"* ]]; then titulo="${a0#sshd: }"; titulo="${titulo%%\[*}"
+                else continue; fi
+                # Verificacoes (qualquer uma que nao der para ler ou nao bater: o processo e ignorado, nao usado).
+                [ "$(awk '/^Uid:/ {print $2 " " $3}' "$d/status" 2>/dev/null)" = "0 0" ] || continue
+                [ "$(stat -Lc '%d:%i' "$d/exe" 2>/dev/null)" = "$id_host" ] || continue
+                [ "$(readlink -f "$d/exe" 2>/dev/null)" = "$real_host" ] || continue
+                [ "$(readlink "$d/ns/mnt" 2>/dev/null)" = "$ns_mnt1" ] || continue
+                [ "$(readlink "$d/ns/pid" 2>/dev/null)" = "$ns_pid1" ] || continue
+                mestres=$((mestres + 1))
+                if [ -n "$titulo" ]; then read -ra toks <<<"$titulo"; set -- "${toks[@]:1}"; else set -- "${arr[@]:1}"; fi
+                SUP_ORIGEM_SEM_VALOR=1 suporte_analisar_opcoes_sshd "o processo sshd PID ${d##*/}" "$@"
+            done
+            if [ "$mestres" -gt 0 ]; then fontes_lidas=1; fi
+        fi
     fi
     # (b) ExecStart das unidades do systemd.
     if command -v "$sc" >/dev/null 2>&1; then
         for unit in ssh.service sshd.service; do
             saida="$("$sc" show -p ExecStart --value "$unit" 2>/dev/null)" || continue
+            [ -n "$saida" ] || continue   # unidade desconhecida: nao prova nada sobre como o sshd roda
             fontes_lidas=1
-            [ -n "$saida" ] || continue
             argv="$(grep -oE 'argv\[\]=[^;]*' <<<"$saida" || true)"
             if [ -z "$argv" ]; then
-                falha "nao entendi o ExecStart de $unit ($(printf '%s' "$saida" | head -c 80))." "confira com: systemctl show -p ExecStart $unit. Sem isso nao consigo verificar a configuracao ativa do sshd."
+                falha "nao entendi o ExecStart de $unit (conteudo omitido)." "confira com: systemctl show -p ExecStart $unit. Sem isso nao consigo verificar a configuracao ativa do sshd."
             fi
             while IFS= read -r linha; do
                 linha="${linha#argv[]=}"
                 linha="${linha//\$\{SSHD_OPTS\}/$opts_val}"; linha="${linha//\$SSHD_OPTS/$opts_val}"
                 if [[ "$linha" == *[\$%\`\\]* ]]; then
-                    falha "o ExecStart de $unit usa variavel ou expansao que eu nao sei interpretar (${linha:0:80})." \
+                    falha "o ExecStart de $unit usa variavel ou expansao que eu nao sei interpretar ($(suporte_seguro "${linha:0:80}"))." \
                         "deixe o ExecStart com opcoes literais (ou so \$SSHD_OPTS definido em /etc/default/ssh) e rode de novo."
                 fi
                 read -ra toks <<<"$linha"
@@ -421,7 +444,7 @@ suporte_fontes_de_chaves() {
         if [ -n "$conf" ]; then saida="$("$sshd_cmd" -T -f "$R$conf" -C user=root,host=localhost,addr=127.0.0.1 2>&1)" || rc=$?
         else saida="$("$sshd_cmd" -T -C user=root,host=localhost,addr=127.0.0.1 2>&1)" || rc=$?; fi
         if [ "$rc" -ne 0 ]; then
-            falha "o 'sshd -T${conf:+ -f $conf}' falhou com codigo $rc (${saida:0:160}), entao nao consigo conferir de onde o servidor aceita chaves do root." \
+            falha "o 'sshd -T${conf:+ -f $conf}' falhou com codigo $rc ($(suporte_seguro "${saida:0:160}")), entao nao consigo conferir de onde o servidor aceita chaves do root." \
                 "rode como root e confira a configuracao com: sudo sshd -T${conf:+ -f $conf}. Sem essa conferencia nao liguei o acesso."
         fi
         out="$(suporte_fontes_de_uma_config "$saida")" || exit 1
@@ -442,17 +465,17 @@ suporte_fontes_de_uma_config() {
         case "${chave,,}" in
             authorizedkeyscommand)
                 if [ -n "$valor" ] && [ "${valor,,}" != none ]; then
-                    falha "o sshd deste servidor usa AuthorizedKeysCommand ($valor), que busca chaves fora de arquivos, e eu nao consigo conferir se a chave do suporte ja tem acesso por ali." \
+                    falha "o sshd deste servidor usa AuthorizedKeysCommand ($(suporte_seguro "$valor")), que busca chaves fora de arquivos, e eu nao consigo conferir se a chave do suporte ja tem acesso por ali." \
                         "tire o AuthorizedKeysCommand do sshd_config (ou use outra forma de acesso para o suporte) e rode de novo."
                 fi ;;
             trustedusercakeys|authorizedprincipalsfile|authorizedprincipalscommand)
                 if [ -n "$valor" ] && [ "${valor,,}" != none ]; then
-                    falha "o sshd deste servidor aceita login por certificado SSH (${chave} ${valor:0:60}), e tirar a linha da chave do suporte nao revoga certificados ja emitidos." \
+                    falha "o sshd deste servidor aceita login por certificado SSH (${chave} $(suporte_seguro "${valor:0:60}")), e tirar a linha da chave do suporte nao revoga certificados ja emitidos." \
                         "desligue o login por certificado (TrustedUserCAKeys, AuthorizedPrincipalsFile, AuthorizedPrincipalsCommand) ou use outra forma de acesso para o suporte, e rode de novo. Sem isso nao consigo garantir que o acesso fica desligado."
                 fi ;;
             authorizedkeysfile)
                 if [[ "$valor" == *[\"\'\\]* ]]; then
-                    falha "o AuthorizedKeysFile do sshd tem aspas ou barra invertida ($valor) e eu nao sei interpretar isso com certeza." \
+                    falha "o AuthorizedKeysFile do sshd tem aspas ou barra invertida ($(suporte_seguro "$valor")) e eu nao sei interpretar isso com certeza." \
                         "use caminhos simples, sem aspas nem espaco, no AuthorizedKeysFile e rode de novo."
                 fi
                 read -ra pads <<<"$valor" ;;
@@ -661,7 +684,7 @@ suporte_ligar() {
                 fp_l="$(suporte_fp_da_linha "$linha")"
                 if [ "$fp_l" = "?" ]; then
                     suporte_fps_de_texto "$linha" || true   # de novo aqui para ter o motivo (o $(...) acima perde a variavel)
-                    falha "uma linha do $(suporte_arq) nao pode ser conferida (${linha:0:40}..., ${SUP_FPARQ_ERRO}), entao nao consigo confirmar que a chave do suporte nao esta ali como acesso permanente." \
+                    falha "uma linha do $(suporte_arq) nao pode ser conferida ($(suporte_seguro "${linha:0:40}"), ${SUP_FPARQ_ERRO}), entao nao consigo confirmar que a chave do suporte nao esta ali como acesso permanente." \
                         "corrija ou tire essa linha (ssh-keygen -l -f $(suporte_arq) mostra o que ele reconhece) e ligue de novo. Nao mexi no arquivo."
                 fi
             fi
