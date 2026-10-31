@@ -25,6 +25,7 @@ import json
 import os
 import re
 import secrets
+import stat
 import shutil
 import subprocess
 import sys
@@ -626,7 +627,72 @@ def dedup(comps, maximo=5):
 
 # ---------------------------------------------------------------- inventário: o que o dono conectou
 
+LIMITE_ARQUIVO = 1 << 20   # 1 MiB: config de agente maior que isso não é config
+LIMITE_ENTRADAS = 2000     # entradas lidas de uma pasta de agente
+
+
+def _aviso_agente(msg, avisos):
+    log_linha("AVISO " + msg)
+    if avisos is not None:
+        avisos.append(msg)
+
+
+def _dentro_de(real, raiz_real):
+    return real == raiz_real or real.startswith(raiz_real.rstrip("/") + "/")
+
+
+def ler_do_agente(caminho, raizes, avisos=None):
+    """Único ponto de leitura de arquivo que um agente pode ter plantado (a ronda roda como root).
+    Devolve os bytes, ou None se não existe ou foi ignorado (neste caso com aviso). Recusa symlink no arquivo,
+    pasta-pai que saia das raízes permitidas, o que não é arquivo regular (FIFO, /dev/zero, dispositivo) e
+    o que passa de 1 MiB. Abre com O_NOFOLLOW|O_NONBLOCK: um FIFO não trava a abertura."""
+    reais = [os.path.realpath(r) for r in raizes]
+    pai = os.path.realpath(os.path.dirname(caminho))
+    if not any(_dentro_de(pai, r) for r in reais):
+        _aviso_agente(f"Ignorei {caminho}: a pasta dele aponta para fora da casa do dono ({pai}); o que ele guarda não entrou no inventário.", avisos)
+        return None
+    try:
+        fd = os.open(caminho, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+    except OSError as e:
+        _aviso_agente(f"Ignorei {caminho}: não consegui abrir sem seguir atalho ({limpa(e, 100)}); o que ele guarda não entrou no inventário.", avisos)
+        return None
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            _aviso_agente(f"Ignorei {caminho}: não é um arquivo comum (é FIFO, dispositivo ou similar); o que ele guarda não entrou no inventário.", avisos)
+            return None
+        try:
+            real = os.readlink(f"/proc/self/fd/{fd}")
+        except OSError:
+            real = os.path.realpath(caminho)
+        if not any(_dentro_de(real, r) for r in reais):
+            _aviso_agente(f"Ignorei {caminho}: o arquivo de verdade está fora da casa do dono ({real}).", avisos)
+            return None
+        if st.st_size > LIMITE_ARQUIVO:
+            _aviso_agente(f"Ignorei {caminho}: tem {st.st_size} bytes e o limite é {LIMITE_ARQUIVO}; o que ele guarda não entrou no inventário.", avisos)
+            return None
+        partes, total = [], 0
+        while total <= LIMITE_ARQUIVO:
+            pedaco = os.read(fd, 65536)
+            if not pedaco:
+                break
+            partes.append(pedaco)
+            total += len(pedaco)
+        if total > LIMITE_ARQUIVO:
+            _aviso_agente(f"Ignorei {caminho}: cresceu além de {LIMITE_ARQUIVO} bytes durante a leitura.", avisos)
+            return None
+        return b"".join(partes)
+    except OSError as e:
+        _aviso_agente(f"Ignorei {caminho}: erro ao ler ({limpa(e, 100)}); o que ele guarda não entrou no inventário.", avisos)
+        return None
+    finally:
+        os.close(fd)
+
+
 def _json_arquivo(caminho):
+    """Arquivo de confiança (do próprio sistema). O que vem de agente passa por _json_agente."""
     try:
         with open(caminho, encoding="utf-8") as f:
             d = json.load(f)
@@ -638,27 +704,34 @@ def _json_arquivo(caminho):
         return {}
 
 
+def _json_agente(caminho, raizes, avisos=None):
+    bruto = ler_do_agente(caminho, raizes, avisos)
+    if bruto is None:
+        return {}
+    try:
+        d = json.loads(bruto.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError) as e:
+        _aviso_agente(f"Não consegui ler {caminho} ({limpa(e, 100)}); o que ele guarda não entrou no inventário desta rodada.", avisos)
+        return {}
+    return d if isinstance(d, dict) else {}
+
+
 def donos_das_conexoes():
     """Quem pode ter conectado algo: o Admin (roda como root) e cada agente (casa em home_host)."""
     c = caminhos()
-    lista = [{"rotulo": "Admin", "home": P("root"), "projeto": c["admin"], "container": None}]
+    lista = [{"rotulo": "Admin", "home": P("root"), "projeto": c["admin"], "container": None, "raizes": [P("root"), c["admin"]]}]
     reg = _json_arquivo(c["agentes"])
     for ag in reg.get("agentes") or []:
         if isinstance(ag, dict) and ag.get("tipo") == "agente" and ag.get("home_host") and re.match(r"^[a-z0-9][a-z0-9-]{0,40}$", str(ag.get("slug", ""))):
             lista.append({"rotulo": f"agente {ag['slug']}", "home": ag["home_host"], "projeto": ag["home_host"],
-                          "container": ag.get("home_container") or "/home/agente"})
+                          "container": ag.get("home_container") or "/home/agente", "raizes": [ag["home_host"]]})
     return lista
 
 
-def toml_mcp_servers(caminho):
+def toml_mcp_servers(caminho, raizes, avisos=None):
     """mcp_servers do ~/.codex/config.toml. tomllib quando existe; senão, leitura tolerante por regex."""
-    try:
-        with open(caminho, "rb") as f:
-            bruto = f.read()
-    except FileNotFoundError:
-        return {}
-    except OSError as e:
-        log_linha(f"AVISO não consegui ler {caminho} ({limpa(e, 100)}).")
+    bruto = ler_do_agente(caminho, raizes, avisos)
+    if bruto is None:
         return {}
     try:
         import tomllib
@@ -696,7 +769,7 @@ def _separa_versao_npm(arg):
     return arg, None
 
 
-def analisa_mcp(d):
+def analisa_mcp(d, raizes=(), avisos=None):
     """(pacote, versao, ecossistema, dominio) a partir da definição de um servidor MCP. Tudo opcional."""
     if not isinstance(d, dict):
         return None, None, None, None
@@ -726,11 +799,11 @@ def analisa_mcp(d):
             if RX_PACOTE.match(nome):
                 return nome, (ver or None), "PyPI", dominio
             break
-    elif base == "node":
+    elif base == "node" and raizes:
         for a in args:
             m = re.search(r"node_modules/((?:@[^/]+/)?[^/]+)/", a)
             if m:
-                pj = _json_arquivo(a.split("node_modules/")[0] + f"node_modules/{m.group(1)}/package.json")
+                pj = _json_agente(a.split("node_modules/")[0] + f"node_modules/{m.group(1)}/package.json", raizes, avisos)
                 return m.group(1), pj.get("version"), "npm", dominio
     return None, None, None, dominio
 
@@ -774,11 +847,11 @@ def inventario_servicos(mapa, avisos):
         achados[k] = {"nome": nome, "via": via, "pacote": pacote, "versao": versao, "eco": eco}
 
     for dono in donos_das_conexoes():
-        home, proj = dono["home"], dono["projeto"]
+        home, proj, rz = dono["home"], dono["projeto"], dono["raizes"]
         defs = {}
-        for n, d in (_json_arquivo(os.path.join(proj, ".mcp.json")).get("mcpServers") or {}).items():
+        for n, d in (_json_agente(os.path.join(proj, ".mcp.json"), rz, avisos).get("mcpServers") or {}).items():
             defs[n] = d
-        cj = _json_arquivo(os.path.join(home, ".claude.json"))
+        cj = _json_agente(os.path.join(home, ".claude.json"), rz, avisos)
         for n, d in (cj.get("mcpServers") or {}).items():
             defs[n] = d
         for pr in (cj.get("projects") or {}).values():
@@ -788,17 +861,17 @@ def inventario_servicos(mapa, avisos):
         habilitados = {}
         for arq in (os.path.join(home, ".claude", "settings.json"), os.path.join(home, ".claude", "settings.local.json"),
                     os.path.join(proj, ".claude", "settings.json"), os.path.join(proj, ".claude", "settings.local.json")):
-            st = _json_arquivo(arq)
+            st = _json_agente(arq, rz, avisos)
             for n, d in (st.get("mcpServers") or {}).items():
                 defs[n] = d
             if isinstance(st.get("enabledPlugins"), dict):
                 habilitados.update(st["enabledPlugins"])
-        for n, d in toml_mcp_servers(os.path.join(home, ".codex", "config.toml")).items():
+        for n, d in toml_mcp_servers(os.path.join(home, ".codex", "config.toml"), rz, avisos).items():
             defs[n] = d
         for n, d in defs.items():
-            pacote, ver, eco, dom = analisa_mcp(d)
+            pacote, ver, eco, dom = analisa_mcp(d, rz, avisos)
             registra(dono, "MCP", n, pacote, ver, eco, dom)
-        ip = _json_arquivo(os.path.join(home, ".claude", "plugins", "installed_plugins.json"))
+        ip = _json_agente(os.path.join(home, ".claude", "plugins", "installed_plugins.json"), rz, avisos)
         plugins = ip.get("plugins") if isinstance(ip.get("plugins"), dict) else {}
         for chave, inst in plugins.items():
             nome_pl = str(chave).split("@")[0]
@@ -813,19 +886,23 @@ def inventario_servicos(mapa, avisos):
                     ipath = home + ipath[len(dono["container"]):]
                 else:
                     ipath = P(ipath)
-                for n, d in (_json_arquivo(os.path.join(ipath, ".mcp.json")).get("mcpServers") or {}).items():
-                    pacote, v2, eco, dom = analisa_mcp(d)
+                for n, d in (_json_agente(os.path.join(ipath, ".mcp.json"), rz, avisos).get("mcpServers") or {}).items():
+                    pacote, v2, eco, dom = analisa_mcp(d, rz, avisos)
                     registra(dono, "plugin", n, pacote, v2, eco, dom)
         for pasta_skills in (os.path.join(home, ".claude", "skills"), os.path.join(proj, ".claude", "skills")):
+            nomes = []
             try:
-                nomes = sorted(os.listdir(pasta_skills))
+                with os.scandir(pasta_skills) as it:
+                    for entrada in it:
+                        if len(nomes) >= LIMITE_ENTRADAS:
+                            _aviso_agente(f"A pasta {pasta_skills} tem mais de {LIMITE_ENTRADAS} entradas; li só as primeiras.", avisos)
+                            break
+                        if entrada.is_dir(follow_symlinks=False):
+                            nomes.append(entrada.name)
             except OSError:
                 continue
-            for s in nomes:
-                alvo = os.path.join(pasta_skills, s)
-                if not os.path.isdir(alvo) or os.path.isdir(os.path.join(app_skills, s)):
-                    continue
-                if os.path.islink(alvo) and os.path.realpath(alvo).startswith(os.path.realpath(app_skills)):
+            for s in sorted(nomes):
+                if os.path.isdir(os.path.join(app_skills, s)):
                     continue
                 nome, _ = servico_de(s, None, None, mapa)
                 if nome:

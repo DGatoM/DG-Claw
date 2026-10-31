@@ -321,6 +321,54 @@ class Inventario(Base):
         self.assertNotIn("notion", S["nvd_termos"])
 
 
+class LeituraDoAgente(Base):
+    """Arquivos que o agente controla são lidos como root: nada de atalho, FIFO ou arquivo gigante."""
+
+    def casa(self, *partes):
+        return self.p("var/lib/dgclaw/agentes/luna/home", *partes)
+
+    def inventario(self):
+        r = subprocess.run([sys.executable, "-I", RONDA, "inventariar"], capture_output=True, text=True, env=self.env(), timeout=20)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(self.p("var/lib/dgclaw/seguranca/inventario.json")) as f:
+            return json.load(f)
+
+    def test_atalho_para_dev_zero_fifo_gigante_e_etc_shadow_sao_ignorados_com_aviso(self):
+        os.makedirs(self.casa(".claude"))
+        os.makedirs(self.casa(".codex"))
+        os.symlink("/dev/zero", self.casa(".claude.json"))
+        os.mkfifo(self.casa(".codex", "config.toml"))
+        with open(self.casa(".claude", "settings.json"), "wb") as f:
+            f.write(b"{" + b" " * (5 * 1024 * 1024) + b"}")
+        os.symlink("/etc/shadow", self.casa(".claude", "settings.local.json"))
+        inv = self.inventario()
+        avisos = " ".join(inv["avisos"])
+        for arq in (".claude.json", "config.toml", "settings.json", "settings.local.json"):
+            self.assertTrue(any(arq in a and a.startswith("Ignorei") for a in inv["avisos"]), f"sem aviso para {arq}: {avisos}")
+        self.assertIn(("Notion", "MCP do Admin"), {(s["nome"], s["via"]) for s in inv["servicos_externos"]})
+
+    def test_pasta_de_configuracao_que_e_atalho_para_fora_da_casa_e_ignorada(self):
+        fora = os.path.join(self.tmp, "fora")
+        os.makedirs(fora)
+        self.escreve(os.path.join(fora, "settings.json"), {"mcpServers": {"slack": {"command": "npx", "args": ["-y", "x-slack"]}}})
+        os.makedirs(self.casa())
+        os.symlink(fora, self.casa(".claude"))
+        inv = self.inventario()
+        self.assertTrue(any("fora da casa" in a for a in inv["avisos"]), inv["avisos"])
+        self.assertNotIn("Slack", {s["nome"] for s in inv["servicos_externos"]})
+
+    def test_arquivo_comum_dentro_da_casa_continua_valendo(self):
+        self.escreve(self.casa(".claude.json"), {"mcpServers": {"slack": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-slack"]}}})
+        inv = self.inventario()
+        self.assertIn(("Slack", "MCP do agente luna"), {(s["nome"], s["via"]) for s in inv["servicos_externos"]})
+
+    def test_pasta_de_skills_com_atalho_nao_conta_e_o_teto_de_entradas_vale(self):
+        os.makedirs(self.casa(".claude", "skills"))
+        os.symlink("/", self.casa(".claude", "skills", "github"))
+        inv = self.inventario()
+        self.assertNotIn("GitHub", {s["nome"] for s in inv["servicos_externos"]})
+
+
 class Fontes(Base):
     def test_paginacao_do_osv(self):
         S["osv_paginas"]["npm|express|4.17.1"] = [["GHSA-aaaa-bbbb-cccc"], ["GHSA-dddd-eeee-ffff"]]
