@@ -641,11 +641,38 @@ class Niveis(Base):
         pasta = self.p("var/lib/dgclaw/seguranca/acoes")
         with open(os.path.join(pasta, os.listdir(pasta)[0])) as f:
             self.assertTrue(json.load(f)["desfeito_em"])
-        os.unlink(os.path.join(self.stub, "painel_cai"))
+        self.assertFalse(os.path.exists(os.path.join(self.stub, "painel_cai")), "a reversão recuperou o painel")
         os.unlink(os.path.join(self.stub, "quebra_ao_aplicar"))
         self.ronda("executar")
         self.assertEqual(self.achado("UBUNTU-CVE-2026-98432")["nivel"], 2, "não tenta sozinha de novo")
         self.assertEqual(self.sysctl_valor(), "1")
+
+    def test_reversao_que_falha_nao_vira_desfeita_e_avisa_o_admin(self):
+        self.apt_openssl(exige_reinicio=False)
+        self.escreve(os.path.join(self.stub, "quebra_ao_aplicar"), "")
+        self.escreve(os.path.join(self.stub, "apt_recusa_desfazer"), "")
+        self.ronda("executar")
+        a = self.achado("UBUNTU-CVE-2026-77777")
+        self.assertEqual(a["nivel"], 2, self.ultimo.stdout)
+        self.assertEqual(a["estado"], "aberto")
+        pasta = self.p("var/lib/dgclaw/seguranca/acoes")
+        nomes = os.listdir(pasta)
+        self.assertEqual(len(nomes), 1)
+        with open(os.path.join(pasta, nomes[0])) as f:
+            reg = json.load(f)
+        self.assertIsNone(reg["desfeito_em"], "a reversão falhou: não pode constar como concluída")
+        self.assertIn("apt não conseguiu voltar", reg["desfazer_falhou"]["motivo"])
+        self.assertIn("não consegui desfazer", a["como_corrigir"])
+        self.assertIn(f"sudo dgclaw seguranca desfazer {nomes[0]}", a["como_corrigir"])
+        texto = " ".join(r["text"] for r in S["recados"])
+        self.assertIn('recado="ronda-de-seguranca-desfazer-falhou"', texto)
+        self.assertIn(f"sudo dgclaw seguranca desfazer {nomes[0]}", texto)
+        # o registro continua reutilizável: com o apt de volta, o comando desfazer conclui
+        os.unlink(os.path.join(self.stub, "apt_recusa_desfazer"))
+        r = self.ronda("desfazer", nomes[0])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(os.path.join(pasta, nomes[0])) as f:
+            self.assertTrue(json.load(f)["desfeito_em"])
 
     def test_aplicar_sozinha_desligado_nao_aplica(self):
         self.kernel_vuln()
@@ -817,6 +844,20 @@ class Pedidos(Base):
         a = self.achado("UBUNTU-CVE-2026-98432")
         self.assertEqual(a["estado"], "aplicado-pelo-dono")
         self.assertIn("marta", a["aplicado"]["por"])
+
+    def test_pedido_aplicar_processado_pela_propria_rodada_nao_e_sobrescrito(self):
+        self.prepara_nivel_2_com_acao()
+        self.pedido("22222222-aaaa-bbbb", {"tipo": "aplicar", "id": "UBUNTU-CVE-2026-98432", "quando": None, "codigo": None, "pedido_em": AGORA, "por": "marta"})
+        r = self.ronda("executar", "--sem-avisar")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.sysctl_valor(), "0")
+        with open(self.p("var/lib/dgclaw/seguranca/estado.json")) as f:
+            est = json.load(f)
+        self.assertEqual(est["achados"]["UBUNTU-CVE-2026-98432"]["estado"], "aplicado-pelo-dono")
+        self.assertNotIn("UBUNTU-CVE-2026-98432", [x["id"] for x in self.json_ronda()["achados"]])
+        tratadas = [x["id"] for x in self.json_ronda()["ja_tratadas"]]
+        self.assertIn("UBUNTU-CVE-2026-98432", tratadas)
+        self.assertIn("aplicado pelo dono", [x["como"] for x in self.json_ronda()["ja_tratadas"] if x["id"] == "UBUNTU-CVE-2026-98432"][0])
 
     def test_ghsa_do_motor_passa_pelo_painel_em_nivel_2_e_o_pedido_casa_em_qualquer_caixa(self):
         S["osv_paginas"]["npm|@notionhq/notion-mcp-server|1.2.3"] = [["GHSA-aaaa-bbbb-cccc"]]
