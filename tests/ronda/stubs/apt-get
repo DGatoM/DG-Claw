@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+echo "apt-get $*" >>"$STUB_DIR/chamadas.log"
+[ -f "$STUB_DIR/apt_recusa" ] && { echo "E: Unable to locate package" >&2; exit 100; }
+if [ "$1" = install ]; then
+    spec="${!#}"; p="${spec%%=*}"; v="${spec#*=}"
+    awk -F'\t' -v OFS='\t' -v p="$p" -v v="$v" '$1==p {$2=v} {print}' "$STUB_DIR/dpkg.txt" >"$STUB_DIR/dpkg.novo" && mv "$STUB_DIR/dpkg.novo" "$STUB_DIR/dpkg.txt"
+fi
+exit 0

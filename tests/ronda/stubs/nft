@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+echo "nft $*" >>"$STUB_DIR/chamadas.log"
+[ "$1" = "-c" ] && [ -f "$STUB_DIR/nft_recusa" ] && { echo "Error: syntax error" >&2; exit 1; }
+exit 0

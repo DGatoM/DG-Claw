@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+echo "sysctl $*" >>"$STUB_DIR/chamadas.log"
+case "$1" in
+    -n) [ -f "$STUB_DIR/sysctl/$2" ] || { echo "sysctl: cannot stat /proc/sys/${2//.//}" >&2; exit 255; }; cat "$STUB_DIR/sysctl/$2" ;;
+    -w) [ -f "$STUB_DIR/sysctl_recusa" ] && { echo "sysctl: setting key failed" >&2; exit 255; }
+        k="${2%%=*}"; v="${2#*=}"; printf '%s\n' "$v" >"$STUB_DIR/sysctl/$k"
+        [ -f "$STUB_DIR/quebra_ao_aplicar" ] && touch "$STUB_DIR/painel_cai" ;;
+esac
+exit 0

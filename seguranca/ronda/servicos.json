@@ -1,0 +1,27 @@
+{
+  "versao": 1,
+  "ignorar": ["dgchat"],
+  "servicos": [
+    {"nome": "Notion", "chaves": ["notion"], "pacotes": ["@notionhq/notion-mcp-server"], "dominios": ["notion.so", "notion.com"], "termos_nvd": ["notion"]},
+    {"nome": "Google Drive", "chaves": ["gdrive", "google-drive", "googledrive", "drive"], "pacotes": ["@modelcontextprotocol/server-gdrive"], "dominios": ["drivemcp.googleapis.com"], "termos_nvd": ["google drive"]},
+    {"nome": "Gmail", "chaves": ["gmail"], "pacotes": ["@gongrzhe/server-gmail-autoauth-mcp"], "dominios": ["gmailmcp.googleapis.com"], "termos_nvd": ["gmail"]},
+    {"nome": "Google Calendar", "chaves": ["google-calendar", "gcal", "calendar"], "pacotes": ["@cocal/google-calendar-mcp"], "dominios": ["calendarmcp.googleapis.com"], "termos_nvd": ["google calendar"]},
+    {"nome": "Slack", "chaves": ["slack"], "pacotes": ["@modelcontextprotocol/server-slack", "slack-mcp-server"], "dominios": ["slack.com", "mcp.slack.com"], "termos_nvd": ["slack"]},
+    {"nome": "GitHub", "chaves": ["github"], "pacotes": ["@modelcontextprotocol/server-github", "@github/github-mcp-server"], "dominios": ["api.githubcopilot.com", "github.com"], "termos_nvd": ["github mcp"]},
+    {"nome": "Telegram", "chaves": ["telegram"], "pacotes": [], "dominios": ["telegram.org"], "termos_nvd": ["telegram"]},
+    {"nome": "WhatsApp", "chaves": ["whatsapp"], "pacotes": [], "dominios": [], "termos_nvd": ["whatsapp"]},
+    {"nome": "Playwright (navegador)", "chaves": ["playwright"], "pacotes": ["@playwright/mcp", "playwright"], "dominios": [], "termos_nvd": ["playwright"]},
+    {"nome": "Postgres", "chaves": ["postgres", "postgresql"], "pacotes": ["@modelcontextprotocol/server-postgres"], "dominios": [], "termos_nvd": ["postgresql"]},
+    {"nome": "SQLite", "chaves": ["sqlite"], "pacotes": ["mcp-server-sqlite"], "dominios": [], "termos_nvd": ["sqlite"]},
+    {"nome": "Arquivos do servidor", "chaves": ["filesystem"], "pacotes": ["@modelcontextprotocol/server-filesystem"], "dominios": [], "termos_nvd": []},
+    {"nome": "Busca na web (Brave)", "chaves": ["brave"], "pacotes": ["@modelcontextprotocol/server-brave-search"], "dominios": ["brave.com"], "termos_nvd": ["brave search"]},
+    {"nome": "Figma", "chaves": ["figma"], "pacotes": ["figma-developer-mcp"], "dominios": ["figma.com", "mcp.figma.com"], "termos_nvd": ["figma"]},
+    {"nome": "Stripe", "chaves": ["stripe"], "pacotes": ["@stripe/mcp"], "dominios": ["stripe.com", "mcp.stripe.com"], "termos_nvd": ["stripe"]},
+    {"nome": "Linear", "chaves": ["linear"], "pacotes": [], "dominios": ["linear.app", "mcp.linear.app"], "termos_nvd": ["linear"]},
+    {"nome": "Supabase", "chaves": ["supabase"], "pacotes": ["@supabase/mcp-server-supabase"], "dominios": ["supabase.com", "mcp.supabase.com"], "termos_nvd": ["supabase"]},
+    {"nome": "Airtable", "chaves": ["airtable"], "pacotes": ["airtable-mcp-server"], "dominios": ["airtable.com"], "termos_nvd": ["airtable"]},
+    {"nome": "Trello", "chaves": ["trello"], "pacotes": [], "dominios": ["trello.com"], "termos_nvd": ["trello"]},
+    {"nome": "Context7 (documentação)", "chaves": ["context7"], "pacotes": ["@upstash/context7-mcp"], "dominios": ["mcp.context7.com"], "termos_nvd": []},
+    {"nome": "Puppeteer (navegador)", "chaves": ["puppeteer"], "pacotes": ["@modelcontextprotocol/server-puppeteer"], "dominios": [], "termos_nvd": ["puppeteer"]}
+  ]
+}
