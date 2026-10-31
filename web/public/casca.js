@@ -180,6 +180,20 @@
     document.head.appendChild(s);
   }
 
+  /* A janela vermelha da ronda de segurança (falha crítica pedindo decisão) também aparece em todas as telas. */
+  function carregaRondaAviso() {
+    if (raiz.DGRondaAviso) return;
+    const carrega = (src, depois) => {
+      const s = document.createElement('script');
+      s.src = src;
+      s.onload = depois || null;
+      s.onerror = () => console.warn('casca: ' + src + ' não carregou; as telas seguem sem a janela vermelha da ronda de segurança.');
+      document.head.appendChild(s);
+    };
+    if (raiz.DGRondaComum) carrega('/ronda-aviso.js');
+    else carrega('/ronda-comum.js', () => carrega('/ronda-aviso.js'));
+  }
+
   function monta(opcoes) {
     const o = opcoes || {};
     est.pagina = o.pagina || '';
@@ -192,6 +206,7 @@
     pintaTitulo();
     carregaFaixaAtualizacao();
     carregaAvisoSeguranca();
+    carregaRondaAviso();
     $('btnMenu').onclick = () => abreMenu(true);
     $('btnFechaMenu').onclick = () => abreMenu(false);
     $('overlayMenu').onclick = () => abreMenu(false);

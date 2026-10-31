@@ -220,7 +220,7 @@
   }
 
   function abre(b) {
-    if (aberto || document.getElementById('tourCaixa')) return;
+    if (aberto || document.getElementById('tourCaixa') || document.getElementById('rpFundo')) return;
     garanteCss();
     jaMostrados.add(b.id);
     aberto = b;
