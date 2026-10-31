@@ -19,6 +19,7 @@
 #  13. changelog        tests/changelog: o CHANGELOG fala com a pessoa, sem frase dirigida ao modelo
 #  14. revisao          tests/revisao-adversarial: o scripts/revisao-adversarial.sh num repositorio falso
 #  15. aviso-atualizacao tests/aviso-atualizacao: a checagem de versao nova contra um GitHub e um Admin falsos
+#  16. boletins        tests/boletins: a checagem de boletins de seguranca (scripts/checar-boletins.mjs), idem
 #
 # Nada aqui encosta no sistema de verdade: nao cria container, rede nem unidade.
 #
@@ -120,7 +121,7 @@ testes_shellcheck() {
     (
         cd "$REPO" || exit 1
         arquivos=(install.sh bin/dgclaw lib/*.sh tests/rodar.sh tests/cli/*.sh tests/cli/stubs/*
-                  tests/instalador/*.sh tests/novidades/*.sh tests/changelog/*.sh tests/monitor/*.sh tests/aviso-atualizacao/*.sh scripts/cofre-nomes.sh scripts/test-cofre-nomes.sh
+                  tests/instalador/*.sh tests/novidades/*.sh tests/changelog/*.sh tests/monitor/*.sh tests/aviso-atualizacao/*.sh tests/boletins/*.sh scripts/cofre-nomes.sh scripts/test-cofre-nomes.sh
                   scripts/revisao-adversarial.sh tests/revisao-adversarial/*.sh)
         "$sc" -x "${arquivos[@]}"
     )
@@ -152,6 +153,7 @@ parte mcp node "$REPO/scripts/dgchat-mcp/test-server.mjs"
 parte novidades bash "$REPO/tests/novidades/rodar.sh"
 parte changelog bash "$REPO/tests/changelog/rodar.sh"
 parte aviso-atualizacao bash "$REPO/tests/aviso-atualizacao/rodar.sh"
+parte boletins bash "$REPO/tests/boletins/rodar.sh"
 
 printf '\n'
 [ "${#PULADOS[@]}" -eq 0 ] || printf 'Pulado: %s\n' "${PULADOS[@]}"

@@ -1313,6 +1313,66 @@ FIM
     executar systemctl start --no-block dgclaw-checar-atualizacao.service
 }
 
+# --- 9c. boletins de seguranca ----------------------------------------------------
+# configurar_boletins_seguranca: o AVISO DE SEGURANCA (docs/BOLETINS-DE-SEGURANCA.md). Um timer de 1 h roda
+# scripts/checar-boletins.mjs, que so le o GitHub publico e guarda os boletins pendentes em
+# /var/lib/dgclaw/web/atualizacao/boletins.json para o painel mostrar a janela e o selo. Nao baixa nem instala nada.
+# Quem desliga e a linha DGCLAW_BOLETINS_SEGURANCA=0 do dgclaw.env: o instalador a respeita e NUNCA a reescreve
+# nem a cria (sem a linha, o aviso fica ligado).
+configurar_boletins_seguranca() {
+    local p_app="${DG_APP#"$R"}" p_lib="${DG_LIB#"$R"}" p_log="${DG_LOG#"$R"}" desligar
+    desligar="$(env_valor DGCLAW_BOLETINS_SEGURANCA)"
+    desligar="${desligar//[\'\"]/}"
+    criar_pasta 700 "$DG_LIB/web"
+    criar_pasta 700 "$DG_LIB/web/atualizacao"
+    criar_pasta 750 "$DG_LOG"
+    # Alvo do flock: so existe, nunca e apagado nem recriado (trocar o arquivo no meio de uma checagem quebraria a trava).
+    executar touch "$DG_LIB/web/atualizacao/.trava-boletins"
+    executar chmod 600 "$DG_LIB/web/atualizacao/.trava-boletins"
+    cat <<FIM | escrever_arquivo "$DG_UNITS/dgclaw-checar-boletins.service" 644
+[Unit]
+Description=DG Claw confere se saiu boletim de seguranca (so le o GitHub, nao instala nada)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/bin/flock -w 90 -E 75 $p_lib/web/atualizacao/.trava-boletins /usr/bin/node $p_app/scripts/checar-boletins.mjs
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=$p_lib/web/atualizacao $p_log
+PrivateTmp=yes
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+TimeoutStartSec=120
+FIM
+    cat <<'FIM' | escrever_arquivo "$DG_UNITS/dgclaw-checar-boletins.timer" 644
+[Unit]
+Description=DG Claw confere se saiu boletim de seguranca (a cada 1 hora)
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1h
+RandomizedDelaySec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+FIM
+    if [ "$desligar" = 0 ]; then
+        executar systemctl daemon-reload
+        executar systemctl disable --now dgclaw-checar-boletins.timer
+        info "boletins de seguranca instalados, mas desligados (DGCLAW_BOLETINS_SEGURANCA=0 no dgclaw.env). Para ligar, apague essa linha e rode ./install.sh de novo."
+        return 0
+    fi
+    ligar_unidade dgclaw-checar-boletins.timer
+    # Confere logo: depois de atualizar, a lista de pendentes velha nao pode ficar ate a proxima rodada.
+    executar systemctl start --no-block dgclaw-checar-boletins.service
+}
+
 # --- 10. imagem -----------------------------------------------------------------
 imagem_pronta() { podman image exists "localhost/dgclaw-agente:$VERSAO" >/dev/null 2>&1; }
 
@@ -1510,6 +1570,7 @@ main() {
     configurar_admin
     ligar_web
     configurar_aviso_atualizacao
+    configurar_boletins_seguranca
     atualizar_identidades
     construir_imagem
     testar_fim
