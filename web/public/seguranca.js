@@ -1,9 +1,11 @@
 'use strict';
-/* seguranca.js: a tela "Segurança" (/seguranca): a ronda de fábrica, o que foi aplicado sozinho, o que pede decisão,
-   o que dá para corrigir sem pressa e o botão de emergência.
+/* seguranca.js: a tela "Segurança" (/seguranca): os avisos de segurança do DG Claw (boletins), a ronda de fábrica, o que
+   foi aplicado sozinho, o que pede decisão, o que dá para corrigir sem pressa e o botão de emergência. É aqui que fica o
+   detalhe de tudo o que o aviso único (seguranca-resumo.js) resume.
 
-   Lê GET /api/v1/seguranca/ronda e /emergencia. Cada clique vira um PEDIDO (o servidor, como root, valida de novo e
-   executa); a tela espera o resultado a cada 2 s, por até 2 min. Contrato: web/docs/RONDA-PAINEL.md.
+   Lê GET /api/v1/seguranca/boletins, /ronda e /emergencia. Cada clique vira um PEDIDO (o servidor, como root, valida de novo e
+   executa); a tela espera o resultado a cada 2 s, por até 2 min. Contrato: web/docs/RONDA-PAINEL.md e
+   web/docs/SEGURANCA-BOLETINS.md.
    Tudo que vem da API nasceu em fontes externas: passa por esc() antes de virar HTML e link só se for https://.
    As funções que só montam texto e HTML ficam fora do DOM e têm teste em web/test/ronda-tela.test.js. */
 (function (raiz, fabrica) {
@@ -26,6 +28,48 @@
     2: 'Nenhuma falha crítica pedindo decisão.',
     3: 'Nada para corrigir sem pressa.',
   };
+
+  const VAZIO_BOLETINS = 'Nenhum aviso de segurança pendente.';
+
+  /* ── avisos de segurança do DG Claw (boletins) ──────────────────────────── */
+  function botoesBoletimHtml(b) {
+    if (R.temCorrecaoParaAplicar(b)) {
+      return '<button type="button" class="rp-btn rp-pri" data-rp="b-atualizar">Atualizar</button>' +
+        '<button type="button" class="rp-btn" data-rp="b-lembrar">Lembrar depois</button>';
+    }
+    return '<button type="button" class="rp-btn rp-pri" data-rp="b-entendi">Entendi</button>';
+  }
+
+  /* Boletim sem correção ainda: o detalhe fica à vista. Com correção: recolhido, para a decisão ficar no botão. */
+  function cardBoletimHtml(b, agora) {
+    const comCorrecao = R.temCorrecaoParaAplicar(b);
+    const detalhe = b.detalhe ? esc(b.detalhe) : '';
+    const adiado = b.adiado_ate && Date.parse(b.adiado_ate) > agora
+      ? '<p class="rp-fraco">Você pediu para lembrar depois (até ' + esc(R.quando(b.adiado_ate, agora)) + '). O aviso continua valendo até o sistema ser atualizado.</p>' : '';
+    return '<article class="rp-card rp-n2" data-id="' + esc(b.id) + '" data-boletim="1"><h3>' + esc(b.titulo || b.componente || b.id) +
+      ' <span class="rp-tag rp-grav-' + esc(String(b.severidade).toLowerCase()) + '">' + esc(R.gravidadeRotulo(b.severidade)) + '</span></h3>' +
+      '<p class="rp-texto">' + esc(R.textoBoletim(b, agora)) + '</p>' +
+      (!comCorrecao && detalhe ? '<p class="rp-texto rp-boletim-detalhe">' + detalhe + '</p>' : '') +
+      R.fatosBoletimHtml(b) +
+      (comCorrecao && detalhe ? '<details class="rp-detalhe"><summary>Ver detalhes</summary><p class="rp-texto rp-boletim-detalhe">' + detalhe + '</p></details>' : '') +
+      adiado + '<div class="rp-acoes">' + botoesBoletimHtml(b) + '</div>' +
+      '<p class="rp-msg" role="status" hidden></p></article>';
+  }
+
+  /* Boletins pendentes viram cards; os já dispensados ("Entendi" num aviso sem correção) ficam numa linha recolhida,
+     porque o risco continua até a correção sair: nenhum aviso some da tela. */
+  function listaBoletinsHtml(boletins, agora) {
+    const todos = Array.isArray(boletins) ? boletins.filter(b => b && typeof b.id === 'string') : [];
+    const pendentes = R.ordenaPorGravidade(todos.filter(b => !b.dispensado));
+    const dispensados = R.ordenaPorGravidade(todos.filter(b => b.dispensado));
+    let h = pendentes.length ? pendentes.map(b => cardBoletimHtml(b, agora)).join('') : '<p class="rp-vazio">' + esc(VAZIO_BOLETINS) + '</p>';
+    if (dispensados.length) {
+      h += '<details class="rp-detalhe rp-dispensados"><summary>Já dispensados (' + dispensados.length + ')</summary><ul class="rp-tratadas">' +
+        dispensados.map(b => '<li><b>' + esc(b.titulo || b.componente || b.id) + '</b> <small>' + esc(R.gravidadeRotulo(b.severidade)) +
+          ', publicado em ' + esc(R.dataBr(b.publicado_em)) + '</small></li>').join('') + '</ul></details>';
+    }
+    return h;
+  }
 
   /* ── níveis ─────────────────────────────────────────────────────────────── */
   function rotuloAgendado(a) { return a.estado === 'agendado' ? '<span class="rp-tag rp-tag-ok">Agendado</span>' : ''; }
@@ -162,6 +206,12 @@
 
   /* ── tutorial ───────────────────────────────────────────────────────────── */
   const PASSOS = {
+    boletins: [
+      { alvo: '#secBoletins', titulo: 'Avisos de segurança do DG Claw',
+        oque: 'Os avisos sobre falhas em ferramentas que o seu sistema usa, conferidos e aprovados pela equipe do DG Claw. Cada um mostra a data, a gravidade, o link da fonte oficial e o que muda quando você corrige.',
+        como: 'A cada hora o servidor consulta a lista pública de avisos, sem enviar nada seu. Atualizar leva ao chat do Admin com o pedido já escrito, e você só envia. Lembrar depois adia o lembrete por 24 horas. Entendi é para os avisos sem correção ainda: nada a aplicar agora, e ele sai da fila.',
+        porque: 'Antes cada aviso abria a própria janela. Agora existe um aviso único no alto das telas e os detalhes ficam aqui, para você resolver com calma e sem fechar várias janelas.' },
+    ],
     topo: [
       { alvo: '#rpResumo', titulo: 'Quando a ronda rodou',
         oque: 'O horário da última ronda de segurança e o da próxima.',
@@ -186,7 +236,7 @@
       { alvo: '#secAcao', titulo: 'Ação necessária',
         oque: 'Falhas críticas que pedem uma decisão sua. Cada uma mostra o que é, onde afeta, o que faz e como corrigir.',
         como: 'O nível é decidido pela ronda: crítico quando a falha é grave e atinge algo que está instalado e exposto aqui. Aplicar corrige agora e Agendar escolhe a hora (só para ações do catálogo aprovado). Quando a correção é uma atualização de pacote, o botão vira Pedir ao Admin, que abre a conversa com o pedido já escrito. Tirar do ar protege enquanto a correção não chega.',
-        porque: 'Falha crítica não pode esperar sem ninguém decidir. Por isso uma janela vermelha volta a cada visita ao painel até você escolher.' },
+        porque: 'Falha crítica não pode esperar sem ninguém decidir. Por isso o aviso único de segurança continua lembrando (o selo no alto das telas e uma janela por dia) até você escolher.' },
     ],
     sempressa: [
       { alvo: '#secSemPressa', titulo: 'Para corrigir sem pressa',
@@ -216,17 +266,17 @@
 
   function passosPagina(doc) {
     const tem = sel => !doc || !!doc.querySelector(sel);
-    return [].concat(PASSOS.topo, PASSOS.aplicado, PASSOS.acao, PASSOS.sempressa, PASSOS.emergencia, PASSOS.tratadas, PASSOS.inventario).filter(p => tem(p.alvo));
+    return [].concat(PASSOS.topo, PASSOS.boletins, PASSOS.aplicado, PASSOS.acao, PASSOS.sempressa, PASSOS.emergencia, PASSOS.tratadas, PASSOS.inventario).filter(p => tem(p.alvo));
   }
 
   if (!raiz.document) {
-    return { cardAplicadoHtml, cardAcaoHtml, cardSemPressaHtml, listaNivelHtml, tratadasHtml, inventarioHtml, planoHtml, emergenciaHtml, fraseConfere, passosPagina, PASSOS, VAZIO, TEXTO_EMERGENCIA };
+    return { cardBoletimHtml, listaBoletinsHtml, cardAplicadoHtml, cardAcaoHtml, cardSemPressaHtml, listaNivelHtml, tratadasHtml, inventarioHtml, planoHtml, emergenciaHtml, fraseConfere, passosPagina, PASSOS, VAZIO, VAZIO_BOLETINS, TEXTO_EMERGENCIA };
   }
 
   /* ── Parte com DOM ─────────────────────────────────────────────────────── */
   const $ = id => document.getElementById(id);
   const buscar = raiz.fetch.bind(raiz);
-  const est = { ronda: null, emergencia: null, ui: { fase: 'ocioso' }, ocupados: new Set(), erro: null };
+  const est = { boletins: null, erroBoletins: null, ronda: null, emergencia: null, ui: { fase: 'ocioso' }, ocupados: new Set(), erro: null };
 
   function msgDoCard(card, texto, tipo) {
     const p = card.querySelector('.rp-msg');
@@ -256,6 +306,13 @@
     sem.hidden = !(r && !r.nunca_rodou && r.sem_novidades);
   }
 
+  function pintaBoletins() {
+    const el = $('listaBoletins');
+    if (est.ocupados.size && el.querySelector('.rp-card.ocupado')) return;   // não apaga um pedido em andamento
+    el.innerHTML = est.boletins ? listaBoletinsHtml(est.boletins, Date.now())
+      : '<p class="rp-vazio">' + esc(est.erroBoletins || 'Conferindo…') + '</p>';
+  }
+
   function pintaNiveis() {
     const r = est.ronda && !est.ronda.nunca_rodou ? est.ronda : null;
     const agora = Date.now();
@@ -274,12 +331,14 @@
   }
 
   async function carrega() {
-    const [r, e] = await Promise.all([R.chama(buscar, 'GET', R.API + '/ronda'), R.chama(buscar, 'GET', R.API + '/emergencia')]);
+    const [r, e, bo] = await Promise.all([R.chama(buscar, 'GET', R.API + '/ronda'), R.chama(buscar, 'GET', R.API + '/emergencia'), R.chama(buscar, 'GET', R.API + '/boletins')]);
     est.erro = null;
+    if (bo.ok) { est.boletins = Array.isArray(bo.json.boletins) ? bo.json.boletins : []; est.erroBoletins = null; }
+    else { est.boletins = null; est.erroBoletins = 'Não consegui ler os avisos de segurança do DG Claw. ' + bo.erro; }
     if (r.ok) est.ronda = r.json; else { est.ronda = null; est.erro = r.erro; }
     if (e.ok) est.emergencia = e.json;
     else { est.emergencia = null; est.erro = est.erro || e.erro; }
-    pintaTopo(); pintaNiveis(); pintaEmergencia();
+    pintaTopo(); pintaBoletins(); pintaNiveis(); pintaEmergencia();
   }
 
   function achadoDe(card) {
@@ -318,8 +377,28 @@
     setTimeout(() => s.classList.remove('rp-destaque'), 2500);
   }
 
+  /* Atualizar leva ao Admin com o pedido escrito; Lembrar depois e Entendi avisam o servidor (adiar 24 h ou dispensar). */
+  async function acaoBoletim(card, botao) {
+    const b = (est.boletins || []).find(x => x.id === card.dataset.id);
+    if (!b) { msgDoCard(card, 'Não achei este aviso na lista. Atualize a página.', 'erro'); return; }
+    const k = botao.dataset.rp;
+    if (k === 'b-atualizar') {
+      const faixa = raiz.DGAtualizacaoFaixa;
+      if (!faixa || typeof faixa.instalar !== 'function') { msgDoCard(card, 'O atalho para o Admin ainda não carregou. Recarregue a página e toque de novo.', 'erro'); return; }
+      faixa.instalar(R.textoDoPedidoBoletim(b));
+      return;
+    }
+    const rota = k === 'b-entendi' && b.acao === 'aguardar' ? 'dispensar' : 'adiar';
+    travaCard(card, true);
+    const res = await R.chama(buscar, 'POST', R.API + '/boletins/' + encodeURIComponent(b.id) + '/' + rota);
+    travaCard(card, false);
+    if (!res.ok) { msgDoCard(card, res.erro, 'erro'); return; }
+    await carrega();
+  }
+
   async function acaoDoCard(botao) {
     const card = botao.closest('.rp-card');
+    if (card && card.dataset.boletim) return acaoBoletim(card, botao);
     const a = card && achadoDe(card);
     const k = botao.dataset.rp;
     if (!card || !a) return;
@@ -430,5 +509,5 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', inicia);
   else inicia();
 
-  return { cardAplicadoHtml, cardAcaoHtml, cardSemPressaHtml, listaNivelHtml, tratadasHtml, inventarioHtml, planoHtml, emergenciaHtml, fraseConfere, passosPagina, PASSOS, VAZIO, TEXTO_EMERGENCIA, tutorial, carrega };
+  return { cardAplicadoHtml, cardAcaoHtml, cardSemPressaHtml, listaNivelHtml, tratadasHtml, inventarioHtml, planoHtml, emergenciaHtml, fraseConfere, passosPagina, PASSOS, VAZIO, VAZIO_BOLETINS, TEXTO_EMERGENCIA, tutorial, carrega };
 });

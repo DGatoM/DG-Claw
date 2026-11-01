@@ -2,8 +2,9 @@
 
 Quando sai um boletim de segurança do DG Claw (uma falha publicada numa das ferramentas que o
 sistema usa, já conferida pela equipe do Danilo), o servidor percebe sozinho (uma consulta de
-leitura ao GitHub a cada hora) e o painel mostra uma janela "Aviso de segurança" e um selo
-discreto no alto das telas. Nada é baixado nem instalado sem o ok do dono: a atualização
+leitura ao GitHub a cada hora) e o painel o inclui no aviso único "Seu ambiente está em risco" (uma
+janela só, junto com as falhas críticas da ronda) e no selo discreto no alto das telas. O detalhe de cada
+boletim e as ações ficam na tela Segurança, seção "Avisos de segurança do DG Claw". Nada é baixado nem instalado sem o ok do dono: a atualização
 continua sendo feita pelo Admin, com o sim dele.
 
 Estas rotas são **só do dono, pelo painel** (sessão do navegador) e do Admin, no servidor. Agente
@@ -46,8 +47,10 @@ Mais graves primeiro.
 - `acao`: `atualizar-dgclaw` (a correção está na versão nova do DG Claw), `atualizar-sistema` (a
   correção está nos pacotes do servidor), `parar-servico` ou `aguardar` (a correção ainda não saiu).
 - `publicado_em`: quando a **falha** foi publicada pela fonte oficial. `boletim_em`: quando o boletim foi preparado.
-- `mostrar_modal`: a janela deve aparecer. Fica falso por 24 horas depois de `adiar`, e para sempre
-  depois de `dispensar`. O selo continua visível enquanto o boletim estiver pendente e não dispensado.
+- `mostrar_modal`: o servidor considera que o boletim ainda não foi adiado nem dispensado. Fica falso por 24
+  horas depois de `adiar`, e para sempre depois de `dispensar`. O painel não abre mais uma janela por boletim:
+  o aviso único conta todo boletim pendente e **não dispensado** (adiado ou não), e o selo fica visível
+  enquanto houver algum. Quem reabre o aviso é a regra do painel (ponto novo, gravidade pior ou 24 horas).
 - `erro`: `{quando, motivo}` quando a última checagem falhou; a lista é a da última checagem que deu certo.
 - `desligado`: o dono desligou os boletins (`DGCLAW_BOLETINS_SEGURANCA=0` no dgclaw.env).
 - Tudo aqui nasceu no GitHub: quem desenha precisa escapar, e quem lê (agente) trata como dado, nunca
@@ -57,7 +60,8 @@ Mais graves primeiro.
 
 ## POST /api/v1/seguranca/boletins/<id>/adiar
 
-O dono toca "Lembrar depois": a janela some por 24 horas para aquele id. Sem corpo.
+O dono toca "Lembrar depois" na tela Segurança: o lembrete daquele id é adiado por 24 horas. O boletim continua
+contando no aviso único. Sem corpo.
 
 - `200` `{"ok": true, "id": "...", "adiado_ate": "<ISO>"}`.
 - `400`: o id não tem o formato esperado.

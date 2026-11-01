@@ -171,27 +171,18 @@
     document.head.appendChild(s);
   }
 
-  /* O aviso de segurança (janela e selo) também aparece em todas as telas que usam a casca. */
+  /* O aviso único de segurança (uma janela e um selo) também aparece em todas as telas que usam a casca. */
   function carregaAvisoSeguranca() {
-    if (raiz.DGSegurancaAviso) return;
-    const s = document.createElement('script');
-    s.src = '/seguranca-aviso.js';
-    s.onerror = () => console.warn('casca: o aviso de segurança (/seguranca-aviso.js) não carregou; as telas seguem sem ele.');
-    document.head.appendChild(s);
-  }
-
-  /* A janela vermelha da ronda de segurança (falha crítica pedindo decisão) também aparece em todas as telas. */
-  function carregaRondaAviso() {
-    if (raiz.DGRondaAviso) return;
+    if (raiz.DGSegurancaResumo) return;
     const carrega = (src, depois) => {
       const s = document.createElement('script');
       s.src = src;
       s.onload = depois || null;
-      s.onerror = () => console.warn('casca: ' + src + ' não carregou; as telas seguem sem a janela vermelha da ronda de segurança.');
+      s.onerror = () => console.warn('casca: ' + src + ' não carregou; as telas seguem sem o aviso de segurança.');
       document.head.appendChild(s);
     };
-    if (raiz.DGRondaComum) carrega('/ronda-aviso.js');
-    else carrega('/ronda-comum.js', () => carrega('/ronda-aviso.js'));
+    if (raiz.DGRondaComum) carrega('/seguranca-resumo.js');
+    else carrega('/ronda-comum.js', () => carrega('/seguranca-resumo.js'));
   }
 
   function monta(opcoes) {
@@ -206,7 +197,6 @@
     pintaTitulo();
     carregaFaixaAtualizacao();
     carregaAvisoSeguranca();
-    carregaRondaAviso();
     $('btnMenu').onclick = () => abreMenu(true);
     $('btnFechaMenu').onclick = () => abreMenu(false);
     $('overlayMenu').onclick = () => abreMenu(false);

@@ -1,5 +1,5 @@
 'use strict';
-// Tela Segurança e janela vermelha: funções puras (fora do DOM), escape do texto vindo de fontes externas, níveis,
+// Tela Segurança e achados críticos do aviso único: funções puras (fora do DOM), escape do texto vindo de fontes externas, níveis,
 // sondagem do resultado do pedido e a ligação nas telas.
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -7,7 +7,6 @@ const fs = require('node:fs');
 const path = require('node:path');
 const R = require('../public/ronda-comum');
 const T = require('../public/seguranca');
-const A = require('../public/ronda-aviso');
 
 const pub = (n) => fs.readFileSync(path.join(__dirname, '../public', n), 'utf8');
 const AGORA = Date.parse('2026-10-31T16:30:00Z');   // 13h30 em Brasília
@@ -64,7 +63,7 @@ test('escape: texto de fonte externa nunca vira HTML, em nenhum card, janela ou 
   const saidas = [
     T.cardAcaoHtml(a, AGORA), T.cardSemPressaHtml(achado({ nivel: 3, nome_simples: ruim, o_que_faz: ruim }), AGORA),
     T.cardAplicadoHtml(achado({ nivel: 1, estado: 'aplicado-sozinho', nome_simples: ruim, aplicado: { em: '2026-10-31T10:00:00Z', antes: ruim, depois: ruim, desfazer: true } }), AGORA),
-    A.modalHtml(a, 1), T.tratadasHtml([{ id: ruim, componente: ruim, como: ruim }]),
+    T.tratadasHtml([{ id: ruim, componente: ruim, como: ruim }]),
     T.inventarioHtml({ kernel: ruim, componentes: 1, portas_publicas: [{ porta: 22, processo: ruim }], servicos_externos: [{ nome: ruim, via: ruim, versao: ruim }] }),
     T.emergenciaHtml({ disponivel: false, motivo: ruim, estado: { cortado: false } }, { fase: 'ocioso' }),
     T.planoHtml({ comandos: [ruim], avisos: [ruim] }),
@@ -146,35 +145,16 @@ test('agendamento: datetime-local vira ISO; passado, vazio e formato torto são 
   assert.equal(R.agendaParaIso(undefined, agora), null);
 });
 
-test('janela vermelha: só nível 2 aberto, sem decisão e sem "lembrar depois" (30 min); volta depois do prazo', () => {
+test('achados críticos em aberto: só nível 2 aberto e sem decisão neste aparelho; agendado não conta; volta depois de 24 h', () => {
   const st = memoria();
   const ronda = { niveis: { 1: [], 2: [achado({ id: 'AAA-1' }), achado({ id: 'AAA-2' }), achado({ id: 'AAA-3', estado: 'agendado' }), achado({ id: 'AAA-4', estado: 'mitigado' })], 3: [achado({ id: 'AAA-5', nivel: 3 })] } };
-  assert.deepEqual(R.paraJanelaVermelha(ronda, st, AGORA, null).map((a) => a.id), ['AAA-1', 'AAA-2']);
-  R.lembrarDepois(st, 'AAA-1', AGORA);
-  assert.deepEqual(R.paraJanelaVermelha(ronda, st, AGORA + 29 * 60 * 1000, null).map((a) => a.id), ['AAA-2']);
-  assert.deepEqual(R.paraJanelaVermelha(ronda, st, AGORA + 31 * 60 * 1000, null).map((a) => a.id), ['AAA-1', 'AAA-2']);
+  assert.deepEqual(R.criticasEmAberto(ronda, st, AGORA, null).map((a) => a.id), ['AAA-1', 'AAA-2']);
   R.marcaDecidido(st, 'AAA-2', AGORA);
-  assert.deepEqual(R.paraJanelaVermelha(ronda, st, AGORA + 31 * 60 * 1000, null).map((a) => a.id), ['AAA-1']);
-  assert.deepEqual(R.paraJanelaVermelha(ronda, st, AGORA + 25 * 3600 * 1000, null).map((a) => a.id), ['AAA-1', 'AAA-2'], 'decisão que não surtiu efeito em 24 h faz a janela voltar');
-  assert.deepEqual(R.paraJanelaVermelha(ronda, memoria(), AGORA, { estado: { cortado: true } }), [], 'sistema fora do ar: a decisão já foi tomada');
-  assert.deepEqual(R.paraJanelaVermelha({ nunca_rodou: true }, st, AGORA, null), []);
-  assert.deepEqual(R.paraJanelaVermelha(ronda, { getItem() { throw new Error('sem acesso'); }, setItem() { throw new Error('sem acesso'); } }, AGORA, null).length, 2);
-});
-
-test('janela vermelha: HTML com os quatro botões, aviso e passos do tutorial que existem no HTML', () => {
-  const hAdmin = A.modalHtml(achado({ correcao: { tipo: 'apt', disponivel: true, executavel: false } }), 1);
-  assert.ok(hAdmin.includes('id="rpPedirAdmin"') && !hAdmin.includes('id="rpAplicar"') && !hAdmin.includes('id="rpAgendar"'), 'apt: só Pedir ao Admin');
-  const h = A.modalHtml(achado(), 3);
-  for (const id of ['rpAplicar', 'rpAgendar', 'rpTirar', 'rpLembrar']) assert.ok(h.includes(`id="${id}"`), id);
-  assert.match(h, /Há mais 2 falhas críticas esperando depois desta\./);
-  assert.match(A.textoIntro(2), /Há mais 1 falha crítica esperando depois desta\./);
-  assert.ok(!A.textoIntro(1).includes('Há mais'));
-  const alvos = A.passosDoModal(null).map((p) => p.alvo);
-  for (const alvo of alvos) {
-    const id = alvo.replace(/^[#.]/, '');
-    assert.ok((h + hAdmin).includes(`id="${id}"`) || h.includes(`class="${id}"`), alvo);
-  }
-  for (const p of A.passosDoModal(null)) { assert.ok(p.oque && p.como && p.porque, p.alvo); }
+  assert.deepEqual(R.criticasEmAberto(ronda, st, AGORA + 31 * 60 * 1000, null).map((a) => a.id), ['AAA-1']);
+  assert.deepEqual(R.criticasEmAberto(ronda, st, AGORA + 25 * 3600 * 1000, null).map((a) => a.id), ['AAA-1', 'AAA-2'], 'decisão que não surtiu efeito em 24 h volta a contar');
+  assert.deepEqual(R.criticasEmAberto(ronda, memoria(), AGORA, { estado: { cortado: true } }), [], 'sistema fora do ar: a decisão já foi tomada');
+  assert.deepEqual(R.criticasEmAberto({ nunca_rodou: true }, st, AGORA, null), []);
+  assert.deepEqual(R.criticasEmAberto(ronda, { getItem() { throw new Error('sem acesso'); }, setItem() { throw new Error('sem acesso'); } }, AGORA, null).length, 2);
 });
 
 test('emergência: explicação, Simular, bloqueio com motivo, confirmação dupla com código e frase', () => {
@@ -197,7 +177,7 @@ test('emergência: explicação, Simular, bloqueio com motivo, confirmação dup
   assert.match(cod, /vale até 13h32/);
   const rel = T.emergenciaHtml({ ...e, estado: { cortado: true, desde: '2026-10-31T16:00:00Z', confirmado: false, religar_automatico_em: '2026-10-31T16:05:00Z' } }, { fase: 'codigo', acao: 'religar', codigo: 'ABC234' });
   assert.match(rel, /digite <b>RELIGAR<\/b>/);
-  assert.match(T.emergenciaHtml({ ...e, estado: { cortado: true, desde: '2026-10-31T16:00:00Z', confirmado: false, religar_automatico_em: '2026-10-31T16:05:00Z' } }, { fase: 'ocioso' }), /fora do ar.*religa sozinho em hoje, 13h05/s);
+  assert.match(T.emergenciaHtml({ ...e, estado: { cortado: true, desde: new Date(Date.now() - 60000).toISOString(), confirmado: false, religar_automatico_em: new Date(Date.now() + 4 * 60000).toISOString() } }, { fase: 'ocioso' }), /fora do ar.*religa sozinho em (hoje|amanhã), \d{1,2}h\d{2}/s);
   assert.match(T.emergenciaHtml({ ...e, estado: { cortado: true, desde: '2026-10-31T16:00:00Z' } }, { fase: 'ocioso' }), /id="btnReligar"/);
   assert.equal(T.fraseConfere('TIRAR-DO-AR', 'TIRAR-DO-AR'), true);
   assert.equal(T.fraseConfere('tirar-do-ar', 'TIRAR-DO-AR'), false);
@@ -259,11 +239,12 @@ test('ligação nas telas: página, casca, menu, conversa, service worker e CSS 
   const html = pub('seguranca.html');
   for (const s of ['/tour.js', '/menu-lado.js', '/ronda-comum.js', '/casca.js', '/seguranca.js']) assert.ok(html.includes(`src="${s}"`), s);
   assert.match(html, /DGCasca\.monta\(\{ pagina: 'seguranca', titulo: 'Segurança', aoTutorial/);
-  assert.ok(pub('casca.js').includes('/ronda-aviso.js'));
-  assert.ok(pub('conversa.html').includes('/ronda-aviso.js') && pub('conversa.html').includes('/ronda-comum.js'));
+  assert.ok(pub('casca.js').includes('/seguranca-resumo.js'));
+  assert.ok(pub('conversa.html').includes('/seguranca-resumo.js') && pub('conversa.html').includes('/ronda-comum.js'));
+  assert.ok(html.includes('src="/atualizacao-faixa.js"'), 'a tela carrega o atalho do Admin usado por Atualizar');
   const sw = pub('sw.js');
-  for (const a of ['/seguranca.js', '/seguranca.css', '/ronda-comum.js', '/ronda-aviso.js', '/ronda-aviso.css']) assert.ok(sw.includes(`'${a}'`), a);
-  assert.ok(pub('seguranca-aviso.js').includes("getElementById('rpFundo')"), 'a janela de boletins espera a vermelha');
+  for (const a of ['/seguranca.js', '/seguranca.css', '/ronda-comum.js', '/seguranca-resumo.js', '/seguranca-resumo.css']) assert.ok(sw.includes(`'${a}'`), a);
+  assert.ok(!sw.includes('ronda-aviso') && !sw.includes('seguranca-aviso'), 'o service worker não guarda as janelas antigas');
   const M = require('../public/menu-lado');
   assert.deepEqual(M.LINK_SEGURANCA, { nome: 'Segurança', ico: '🛡', href: '/seguranca' });
   assert.equal(M.chaveDoHref(M.comAgente(M.LINK_SEGURANCA.href, 'luna')), 'seguranca');
@@ -274,11 +255,11 @@ test('ligação nas telas: página, casca, menu, conversa, service worker e CSS 
 });
 
 test('nenhum arquivo da tela usa travessão no meio de frase nem monta HTML com texto cru da API', () => {
-  for (const n of ['ronda-comum.js', 'seguranca.js', 'ronda-aviso.js', 'seguranca.html', 'seguranca.css']) {
+  for (const n of ['ronda-comum.js', 'seguranca.js', 'seguranca-resumo.js', 'seguranca.html', 'seguranca.css']) {
     const t = pub(n);
     assert.ok(!/[—–]/.test(t), `${n} tem travessão`);
   }
-  for (const n of ['seguranca.js', 'ronda-aviso.js']) assert.ok(!/\.innerHTML\s*=\s*[^;]*\+\s*(a|achado|e)\.(nome|motivo)/.test(pub(n)), n);
+  for (const n of ['seguranca.js', 'seguranca-resumo.js']) assert.ok(!/\.innerHTML\s*=\s*[^;]*\+\s*(a|achado|e)\.(nome|motivo)/.test(pub(n)), n);
 });
 
 test('corte inconsistente: faixa de falha de proteção com o motivo, Reaplicar e Religar, e a janela vermelha continua', () => {
@@ -295,8 +276,8 @@ test('corte inconsistente: faixa de falha de proteção com o motivo, Reaplicar 
 
   const st = memoria();
   const ronda = { niveis: { 2: [achado({ id: 'AAA-1', estado: 'aberto' })] } };
-  assert.deepEqual(R.paraJanelaVermelha(ronda, st, AGORA, { estado: { cortado: true, inconsistente: true } }).map((a) => a.id), ['AAA-1'], 'alerta crítico segue visível');
-  assert.deepEqual(R.paraJanelaVermelha(ronda, st, AGORA, { estado: { cortado: true, inconsistente: false } }), []);
+  assert.deepEqual(R.criticasEmAberto(ronda, st, AGORA, { estado: { cortado: true, inconsistente: true } }).map((a) => a.id), ['AAA-1'], 'alerta crítico segue visível');
+  assert.deepEqual(R.criticasEmAberto(ronda, st, AGORA, { estado: { cortado: true, inconsistente: false } }), []);
 
   // o botão escolhido (e não o que o servidor sugere) decide a ação da confirmação
   const src = pub('seguranca.js');

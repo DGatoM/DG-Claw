@@ -83,8 +83,14 @@ Para a ronda não aplicar nada sozinha mesmo quando o catálogo tiver ações, p
 
 ## Como o aviso chega
 
-- **No painel**: a ronda grava `ronda.json` em `/var/lib/dgclaw/web/seguranca/`, e o painel mostra a lista por
-  nível. Quando a ronda ficou parcial, o painel diz isso no topo e qual fonte caiu.
+- **No painel**: a ronda grava `ronda.json` em `/var/lib/dgclaw/web/seguranca/`, e a tela Segurança mostra a
+  lista por nível. Quando a ronda ficou parcial, a tela diz isso no topo e qual fonte caiu.
+- **Um aviso só, em todas as telas**: as falhas de nível 2 abertas e os [boletins](BOLETINS-DE-SEGURANCA.md)
+  pendentes entram numa única janela, "Seu ambiente está em risco" ("Encontramos N pontos de segurança que
+  precisam da sua atenção"), com um botão **Ver na Segurança**. Fechar uma vez fecha tudo: ela só volta sozinha
+  se aparecer um ponto novo, se a gravidade piorar ou 24 horas depois (no máximo uma vez por dia). Enquanto
+  houver pontos em risco, um selo discreto no alto das telas leva à tela Segurança, onde ficam o detalhe e todas
+  as ações. Nada some: o que o dono fecha na janela continua na tela e no selo.
 - **No chat com o Admin**: só quando aparece uma coincidência **nova** (uma falha que a ronda ainda não tinha
   mostrado, ou uma que ela corrigiu sozinha). O Admin recebe **um** recado por rodada, de texto fixo, só com os
   números das falhas e o nível. Ele lê `dgclaw seguranca resumo`, escreve o alerta para você e conversa sobre o
