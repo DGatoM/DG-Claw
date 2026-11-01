@@ -36,6 +36,13 @@ test('o mesmo problema como boletim e como achado (id ou alias) conta uma vez sÃ
   assert.deepEqual(itens.map((i) => i.id), ['GHSA-1']);
 });
 
+test('mesmo problema nas duas fontes fica com a gravidade maior, e isso reabre a janela', () => {
+  const itens = S.pontosEmRisco({ boletins: [bol({ id: 'GHSA-1', severidade: 'HIGH' })], ronda: ronda(achado({ id: 'CVE-9', aliases: ['GHSA-1'], severidade: 'CRITICAL' })), storage: memoria(), agora: AGORA });
+  assert.deepEqual(itens.map((i) => [i.id, i.severidade]), [['GHSA-1', 'CRITICAL']]);
+  const antes = S.assinaturaDe(S.pontosEmRisco({ boletins: [bol({ id: 'GHSA-1', severidade: 'HIGH' })], ronda: ronda(), storage: memoria(), agora: AGORA }), AGORA);
+  assert.equal(S.deveReabrir(itens, antes, AGORA + 1000), true);
+});
+
 test('fontes ausentes (null, sem rede) nÃ£o derrubam: lista vazia', () => {
   assert.deepEqual(S.pontosEmRisco({ boletins: null, ronda: null, emergencia: null, storage: memoria(), agora: AGORA }), []);
   assert.deepEqual(S.pontosEmRisco({}), []);

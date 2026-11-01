@@ -41,16 +41,22 @@
     const e = entrada || {};
     const agora = typeof e.agora === 'number' ? e.agora : Date.now();
     const itens = [];
-    const idsDeBoletim = new Set();
+    const boletimPorId = new Map();
     for (const b of Array.isArray(e.boletins) ? e.boletins : []) {
       if (!b || typeof b.id !== 'string' || b.dispensado) continue;
-      idsDeBoletim.add(b.id);
-      itens.push({ tipo: 'boletim', id: b.id, nome: b.titulo || b.componente || b.id, severidade: b.severidade });
+      const item = { tipo: 'boletim', id: b.id, nome: b.titulo || b.componente || b.id, severidade: b.severidade };
+      boletimPorId.set(b.id, item);
+      itens.push(item);
     }
     for (const a of R.criticasEmAberto(e.ronda, e.storage, agora, e.emergencia)) {
       if (!a || typeof a.id !== 'string') continue;
-      const mesmoQueBoletim = idsDeBoletim.has(a.id) || (Array.isArray(a.aliases) && a.aliases.some(x => idsDeBoletim.has(x)));
-      if (mesmoQueBoletim) continue;
+      const ids = [a.id].concat(Array.isArray(a.aliases) ? a.aliases : []);
+      const igual = ids.map(x => boletimPorId.get(x)).find(Boolean);
+      if (igual) {
+        // Mesmo problema nas duas fontes: conta uma vez, com a gravidade maior (as fontes não precisam concordar).
+        if (peso(a.severidade) < peso(igual.severidade)) igual.severidade = a.severidade;
+        continue;
+      }
       itens.push({ tipo: 'ronda', id: a.id, nome: a.nome_simples || a.componente || a.id, severidade: a.severidade });
     }
     return R.ordenaPorGravidade(itens);
