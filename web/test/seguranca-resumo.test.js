@@ -142,7 +142,7 @@ function elemento() {
   return el;
 }
 
-function montaPagina({ boletins, ronda: r, caminho = '/', storage = memoria(), semRede = false }) {
+function montaPagina({ boletins, ronda: r, caminho = '/', storage = memoria(), semRede = false, emergencia = null }) {
   const corpo = elemento();
   const teclas = [];
   const selos = [];
@@ -158,7 +158,7 @@ function montaPagina({ boletins, ronda: r, caminho = '/', storage = memoria(), s
     fetch: async (url) => {
       if (semRede) throw new Error('sem rede');
       if (url.endsWith('/boletins')) return resposta({ boletins });
-      if (url.endsWith('/emergencia')) return resposta({ estado: { cortado: false } });
+      if (url.endsWith('/emergencia')) return emergencia ? emergencia() : resposta({ estado: { cortado: false } });
       return resposta(r);
     },
     setInterval() {}, console: { warn() {}, log() {}, error() {} },
@@ -251,4 +251,17 @@ test('DOM: alerta que chega com a janela aberta não vira "visto" ao fechar e re
   await ctx.DGSegurancaResumo.atualiza();
   assert.equal(janelas(corpo).length, 1, 'o alerta novo reabre a janela');
   assert.match(janelas(corpo)[0].innerHTML, /2 pontos de segurança/);
+});
+
+test('DOM: emergência que deixa de responder não segura mais os alertas críticos escondidos', async () => {
+  let falha = false;
+  const emergencia = () => (falha
+    ? { ok: false, status: 500, json: async () => ({ erro: 'quebrou' }) }
+    : { ok: true, status: 200, json: async () => ({ estado: { cortado: true } }) });
+  const { corpo, ctx } = montaPagina({ boletins: [], ronda: ronda(achado()), emergencia });
+  await espera(corpo);
+  assert.equal(janelas(corpo).length, 0, 'sistema fora do ar: a ronda não conta');
+  falha = true;
+  await ctx.DGSegurancaResumo.atualiza();
+  assert.equal(janelas(corpo).length, 1, 'sem leitura boa da emergência, a falha crítica volta a aparecer');
 });

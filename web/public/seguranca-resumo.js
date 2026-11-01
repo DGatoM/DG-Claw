@@ -265,6 +265,9 @@
   async function le(chave, url) {
     const r = await R.chama(raiz.fetch.bind(raiz), 'GET', url);
     if (r.ok) { fontes[chave] = r.json; return; }
+    // O estado de emergência só serve para ESCONDER alertas; leitura velha dele não vale: sem leitura boa agora, os
+    // alertas voltam a contar até o corte ser confirmado de novo.
+    if (chave === 'emergencia') fontes.emergencia = null;
     if (r.status !== 401 && r.status !== 0) console.warn('seguranca-resumo: ' + r.erro + ' (' + url + '). Sigo com a última leitura boa, se houver.');
   }
 
