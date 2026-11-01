@@ -227,3 +227,21 @@ test('DOM: assinatura antiga com id novo reabre; assinatura de 25 h atrás reabr
   await espera(dia.corpo);
   assert.equal(janelas(dia.corpo).length, 1, '25 h depois');
 });
+
+test('DOM: alerta que chega com a janela aberta não vira "visto" ao fechar e reabre na consulta seguinte', async () => {
+  const boletins = [bol({ id: 'GHSA-BAIXO', severidade: 'LOW' })];
+  const { corpo, storage, ctx } = montaPagina({ boletins, ronda: ronda() });
+  await espera(corpo);
+  const fundo = janelas(corpo)[0];
+  assert.ok(fundo, 'abriu com o primeiro alerta');
+  boletins.push(bol({ id: 'GHSA-CRITICO', severidade: 'CRITICAL' }));
+  await ctx.DGSegurancaResumo.atualiza();
+  assert.equal(janelas(corpo).length, 1, 'continua uma janela só');
+  clique(fundo, 'fechar');
+  const ass = JSON.parse(storage.getItem(S.CHAVE_ASSINATURA));
+  assert.deepEqual(ass.ids, ['GHSA-BAIXO'], 'grava só o que a janela mostrou');
+  corpo.filhos.length = 0;
+  await ctx.DGSegurancaResumo.atualiza();
+  assert.equal(janelas(corpo).length, 1, 'o alerta novo reabre a janela');
+  assert.match(janelas(corpo)[0].innerHTML, /2 pontos de segurança/);
+});

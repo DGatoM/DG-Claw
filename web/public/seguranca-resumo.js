@@ -164,6 +164,7 @@
   let fundo = null;
   let ocupado = false;
   let itens = [];
+  let naJanela = [];   // a lista que a janela está mostrando; fechar grava só ela, para o que chegou depois ainda reabrir
   const fontes = { boletins: null, ronda: null, emergencia: null };   // última leitura boa de cada fonte
 
   function garanteCss() {
@@ -202,7 +203,7 @@
   /* Fechar por qualquer caminho vale como "vi tudo isto": grava a assinatura da lista atual. */
   function fecha() {
     if (!fundo) return;
-    gravaAssinatura(raiz.localStorage, itens, Date.now());
+    gravaAssinatura(raiz.localStorage, naJanela, Date.now());
     fundo.remove();
     fundo = null;
     document.removeEventListener('keydown', aoTeclar, true);
@@ -211,6 +212,7 @@
   function abre() {
     if (fundo || !itens.length) return;
     garanteCss();
+    naJanela = itens.slice();
     fundo = document.createElement('div');
     fundo.id = 'srFundo';
     fundo.className = 'sr-fundo';
