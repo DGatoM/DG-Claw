@@ -142,7 +142,7 @@ function elemento() {
   return el;
 }
 
-function montaPagina({ boletins, ronda: r, caminho = '/', storage = memoria(), semRede = false, emergencia = null }) {
+function montaPagina({ boletins, ronda: r, caminho = '/', storage = memoria(), semRede = false, emergencia = null, storageBloqueado = false }) {
   const corpo = elemento();
   const teclas = [];
   const selos = [];
@@ -163,6 +163,7 @@ function montaPagina({ boletins, ronda: r, caminho = '/', storage = memoria(), s
     },
     setInterval() {}, console: { warn() {}, log() {}, error() {} },
   };
+  if (storageBloqueado) Object.defineProperty(ctx, 'localStorage', { get() { throw new Error('SecurityError: acesso negado'); } });
   ctx.window = ctx;
   vm.createContext(ctx);
   vm.runInContext(pub('ronda-comum.js'), ctx);
@@ -264,4 +265,12 @@ test('DOM: emergência que deixa de responder não segura mais os alertas críti
   falha = true;
   await ctx.DGSegurancaResumo.atualiza();
   assert.equal(janelas(corpo).length, 1, 'sem leitura boa da emergência, a falha crítica volta a aparecer');
+});
+
+test('DOM: navegador que bloqueia o localStorage ainda mostra o aviso', async () => {
+  const { corpo } = montaPagina({ boletins: [bol({ severidade: 'CRITICAL' })], ronda: ronda(), storageBloqueado: true });
+  await espera(corpo);
+  assert.equal(janelas(corpo).length, 1);
+  clique(janelas(corpo)[0], 'fechar');
+  assert.equal(janelas(corpo)[0].removido, true);
 });

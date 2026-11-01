@@ -173,6 +173,19 @@
   let naJanela = [];   // a lista que a janela está mostrando; fechar grava só ela, para o que chegou depois ainda reabrir
   const fontes = { boletins: null, ronda: null, emergencia: null };   // última leitura boa de cada fonte
 
+  /* Navegador que bloqueia o localStorage (modo privado restrito, política da empresa) lança erro só de tocar na
+     propriedade. Aí a assinatura vive em memória: a janela volta a cada carregamento, mas o alerta nunca some. */
+  let reserva = null;
+  function armazenamento() {
+    try { const s = raiz.localStorage; if (s) return s; } catch (e) { /* bloqueado: cai na reserva abaixo */ }
+    if (!reserva) {
+      const m = new Map();
+      reserva = { getItem: k => (m.has(k) ? m.get(k) : null), setItem: (k, v) => { m.set(k, String(v)); }, removeItem: k => { m.delete(k); } };
+      console.warn('seguranca-resumo: o navegador não deixa usar o localStorage; o aviso vai lembrar o que você fechou só até recarregar a página.');
+    }
+    return reserva;
+  }
+
   function garanteCss() {
     if (document.querySelector('link[href="/seguranca-resumo.css"]')) return;
     const l = document.createElement('link');
@@ -209,7 +222,7 @@
   /* Fechar por qualquer caminho vale como "vi tudo isto": grava a assinatura da lista atual. */
   function fecha() {
     if (!fundo) return;
-    gravaAssinatura(raiz.localStorage, naJanela, Date.now());
+    gravaAssinatura(armazenamento(), naJanela, Date.now());
     fundo.remove();
     fundo = null;
     document.removeEventListener('keydown', aoTeclar, true);
@@ -279,10 +292,10 @@
       const agora = Date.now();
       itens = pontosEmRisco({
         boletins: fontes.boletins && fontes.boletins.boletins, ronda: fontes.ronda, emergencia: fontes.emergencia,
-        storage: raiz.localStorage, agora,
+        storage: armazenamento(), agora,
       });
       pintaSelo();
-      if (!fundo && !naTelaSeguranca() && !document.getElementById('tourCaixa') && deveReabrir(itens, lerAssinatura(raiz.localStorage), agora)) abre();
+      if (!fundo && !naTelaSeguranca() && !document.getElementById('tourCaixa') && deveReabrir(itens, lerAssinatura(armazenamento()), agora)) abre();
     } catch (err) {
       console.warn('seguranca-resumo: falhou ao montar o aviso de segurança:', err);
     } finally { ocupado = false; }
