@@ -136,7 +136,7 @@
     document.head.appendChild(s);
   }
 
-  /* O aviso de segurança reaproveita esta função com o próprio texto (seguranca-aviso.js).
+  /* A tela Segurança reaproveita esta função com o texto do pedido de cada boletim e de cada falha (seguranca.js).
    Estando no chat do Admin, escreve no campo; senão vai para lá com ?texto= (a conversa preenche e não envia). */
   function instalar(textoPedido) {
     const texto = typeof textoPedido === 'string' && textoPedido ? textoPedido : TEXTO_INSTALAR;

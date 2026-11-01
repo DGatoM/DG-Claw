@@ -1,0 +1,20 @@
+/* Aviso único de segurança (seguranca-resumo.js): janela sóbria e selo discreto. Cabe em 390 px sem rolagem horizontal. */
+.sr-selo{display:block;box-sizing:border-box;max-width:100%;margin:4px 12px;min-height:34px;padding:0 12px;border-radius:17px;border:1px solid #e3c27a;background:#fff7e0;color:#6b4a00;font:inherit;font-size:13px;font-weight:600;cursor:pointer;text-align:left;overflow-wrap:anywhere}
+.sr-selo[hidden]{display:none}
+.sr-fundo{position:fixed;inset:0;z-index:80;background:rgba(15,25,40,.55);display:flex;align-items:center;justify-content:center;padding:12px;box-sizing:border-box}
+.sr-caixa{box-sizing:border-box;width:100%;max-width:480px;max-height:100%;overflow-y:auto;overflow-x:hidden;background:#fff;color:#1c2733;border-radius:14px;border-top:6px solid #b3261e;padding:16px;box-shadow:0 12px 40px rgba(0,0,0,.3);font-size:14.5px;line-height:1.45}
+.sr-cab{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.sr-cab h2{margin:0;font-size:18px;color:#b3261e;flex:1;min-width:0;overflow-wrap:anywhere}
+.sr-icone{width:34px;height:34px;border-radius:50%;border:1px solid #c9d2dc;background:#fff;color:#1c2733;font-size:15px;font-weight:700;cursor:pointer;flex:0 0 auto}
+.sr-texto{margin:0 0 10px;overflow-wrap:anywhere}
+.sr-lista{margin:0 0 10px;padding:0;list-style:none;display:grid;gap:6px}
+.sr-item{background:#f4f6f8;border-radius:8px;padding:8px 10px;overflow-wrap:anywhere}
+.sr-nome{font-weight:600}
+.sr-grav{display:inline-block;margin-left:4px;padding:1px 8px;border-radius:10px;font-size:12px;font-weight:700;background:#e8edf2;color:#344352;white-space:nowrap}
+.sr-grav-critical{background:#fbe0de;color:#8f1d16}
+.sr-grav-high{background:#fdebd3;color:#7a4300}
+.sr-resto{padding:2px 10px;color:#4a5968;font-weight:600}
+.sr-acoes{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;margin-top:8px}
+.sr-btn{min-height:38px;padding:0 16px;border-radius:19px;border:1px solid #c9d2dc;background:#fff;color:#1c2733;font:inherit;font-weight:600;cursor:pointer}
+.sr-btn.sr-pri{background:#b3261e;border-color:#b3261e;color:#fff}
+@media (max-width:420px){.sr-acoes .sr-btn{flex:1 1 auto}}

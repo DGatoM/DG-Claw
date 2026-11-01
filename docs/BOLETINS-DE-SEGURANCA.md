@@ -1,9 +1,10 @@
 # Boletins de segurança do DG Claw
 
 Quando é descoberta uma falha de segurança numa das ferramentas que o DG Claw usa, a equipe publica um
-**boletim** no repositório oficial. O DG Claw instalado percebe sozinho e avisa o dono: uma janela
-"Aviso de segurança" no painel, um selo discreto que fica no alto das telas até o assunto se resolver, e um
-recado ao Admin, que conta ao dono no chat.
+**boletim** no repositório oficial. O DG Claw instalado percebe sozinho e avisa o dono: o aviso único
+"Seu ambiente está em risco" no painel (uma janela só, que reúne os boletins e as falhas críticas da
+[ronda de segurança](RONDA-DE-SEGURANCA.md)), um selo discreto que fica no alto das telas até o assunto se
+resolver, e um recado ao Admin, que conta ao dono no chat.
 
 **Nada é baixado nem instalado sem o ok do dono.** O aviso só informa. Quem atualiza continua sendo o Admin,
 com o sim explícito do dono, pelo roteiro de [ATUALIZAR.md](ATUALIZAR.md).
@@ -39,15 +40,24 @@ antes de aparecer na tela. A tela escapa todo texto.
 
 ## O que o dono vê
 
-- **A janela "Aviso de segurança"**, uma por vez (a mais grave primeiro), em tom de notícia: o que foi
-  encontrado, a data, a gravidade, o link da fonte oficial, o que muda no sistema e os detalhes.
-- **Atualizar**: leva ao chat do Admin com o pedido já escrito no campo. O dono só envia. A janela fica
-  escondida por 24 horas para não reaparecer por cima do chat.
-- **Lembrar depois**: esconde a janela por 24 horas. O selo "Aviso de segurança pendente" continua e reabre a
-  janela quando o dono quiser. O aviso só some de vez quando o sistema é atualizado.
-- **Entendi**: nos avisos em que a correção ainda não saiu. Quando a ação é só aguardar, o aviso sai da frente
-  de vez; quando é parar um serviço, ele só é adiado por 24 horas.
-- O **"?"** da janela e o passo do selo na visita guiada da conversa explicam cada parte.
+- **Uma janela só, "Seu ambiente está em risco"**: "Encontramos N pontos de segurança que precisam da sua
+  atenção", com uma lista curta (no máximo 5, os mais graves primeiro, "e mais X" se passar) e dois botões:
+  **Ver na Segurança** e **Agora não**. Ela não traz o detalhe de cada boletim. Fechar uma vez fecha tudo.
+- **Quando ela reaparece sozinha**: só se surgir um ponto novo, se a pior gravidade piorar, ou se passarem 24
+  horas desde que o dono a fechou (no máximo uma vez por dia). A "assinatura" do que o dono já viu fica só no
+  aparelho dele (`localStorage`). Na própria tela Segurança ela não abre sozinha.
+- **O selo "🛡 N pontos de segurança"** fica no alto das telas enquanto houver algum ponto em risco, e leva à
+  tela Segurança. Conta os boletins ainda não dispensados (inclusive os adiados com "Lembrar depois") e as
+  falhas críticas da ronda em aberto, sem decisão do dono.
+- **O detalhe fica na tela Segurança**, na seção "Avisos de segurança do DG Claw": a data, a gravidade, o link
+  da fonte oficial, a notícia, o que muda no sistema e os detalhes, com as ações de sempre.
+- **Atualizar**: leva ao chat do Admin com o pedido já escrito no campo. O dono só envia.
+- **Lembrar depois**: adia o lembrete do boletim por 24 horas no servidor. O aviso continua contando no selo e
+  só some de vez quando o sistema é atualizado.
+- **Entendi**: nos avisos em que a correção ainda não saiu. Quando a ação é só aguardar, o aviso sai da fila
+  (e fica numa linha recolhida "Já dispensados", porque a falha continua existindo); quando é parar um serviço,
+  ele só é adiado por 24 horas.
+- O **"?"** da janela, o da seção e o passo do selo na visita guiada explicam cada parte.
 
 O recado ao Admin tem **texto fixo**, com só o id e a gravidade do boletim (conferidos por regex e lista de
 valores). Nenhum texto escrito por terceiros chega ao Admin. Ele manda o Admin contar ao dono, recomendar a
@@ -82,5 +92,5 @@ servidor). Agente em container não acessa estas rotas. O contrato completo est�
 `web/docs/SEGURANCA-BOLETINS.md` e é servido em `GET /api/v1/seguranca/docs.md`.
 
 - `GET /api/v1/seguranca/boletins`: os pendentes, com `mostrar_modal` e `adiado_ate`.
-- `POST /api/v1/seguranca/boletins/<id>/adiar`: esconde a janela por 24 horas.
+- `POST /api/v1/seguranca/boletins/<id>/adiar`: adia o lembrete do boletim por 24 horas.
 - `POST /api/v1/seguranca/boletins/<id>/dispensar`: esconde de vez nos avisos de ação `aguardar` e, com o corpo `{"confirmo": "aplicado"}`, nos de `atualizar-sistema` (depois de aplicar a atualização dos pacotes, o Admin confirma e o aviso some).

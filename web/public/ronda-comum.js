@@ -1,5 +1,5 @@
 'use strict';
-/* ronda-comum.js: o que a tela Segurança (seguranca.js) e a janela vermelha (ronda-aviso.js) têm em comum.
+/* ronda-comum.js: o que a tela Segurança (seguranca.js) e o aviso único (seguranca-resumo.js) têm em comum.
 
    Só funções que montam texto e HTML, falam com a API e guardam a escolha do dono; nada aqui mexe na página.
    Tudo que vem da API nasceu em fontes externas: esc() antes de virar HTML e link só se for https://.
@@ -11,13 +11,13 @@
 })(this, function () {
   const API = '/api/v1/seguranca';
   const FUSO = 'America/Sao_Paulo';
-  const ADIAR_MS = 30 * 60 * 1000;
   const DECIDIDO_MS = 24 * 3600 * 1000;
   const SONDA_CADA_MS = 2000;
   const SONDA_MAX_MS = 2 * 60 * 1000;
-  const CHAVE_ADIADO = 'dgclaw:ronda:adiado';
   const CHAVE_DECIDIDO = 'dgclaw:ronda:decidido';
   const GRAVIDADE = { CRITICAL: 'Crítica', HIGH: 'Alta', MEDIUM: 'Média', LOW: 'Baixa' };
+  const PESO = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
+  const QUARENTA_E_OITO_H = 48 * 3600 * 1000;
   const FRASE_SEM_NOVIDADE = 'Nenhuma vulnerabilidade nova que afete o seu sistema nesta ronda.';
   const TEXTO_NIVEL3 = 'Nova vulnerabilidade de impacto leve/médio. Sugestão: corrija o quanto antes; a correção já está pronta, é só dar o ok.';
   const AVISO_REINICIO = 'Esta correção pode reiniciar um serviço por alguns segundos.';
@@ -161,7 +161,7 @@
     return new Date(t).toISOString();
   }
 
-  /* ── escolhas guardadas no aparelho: "lembrar depois" (30 min) e "já decidi" (até o servidor mudar o estado) ── */
+  /* ── "já decidi" guardado no aparelho (vale até o servidor mudar o estado, ou 24 h) ── */
   function lerMapa(storage, chave) {
     try {
       const j = JSON.parse(storage.getItem(chave) || '{}');
@@ -169,28 +169,67 @@
     } catch (e) { return {}; }
   }
   function gravaMapa(storage, chave, mapa) {
-    try { storage.setItem(chave, JSON.stringify(mapa)); } catch (e) { /* sem armazenamento: a janela só reaparece mais cedo */ }
-  }
-  function lembrarDepois(storage, id, agora) {
-    const m = lerMapa(storage, CHAVE_ADIADO);
-    m[id] = agora + ADIAR_MS;
-    gravaMapa(storage, CHAVE_ADIADO, m);
+    try { storage.setItem(chave, JSON.stringify(mapa)); } catch (e) { /* sem armazenamento: o aviso só reaparece mais cedo */ }
   }
   function marcaDecidido(storage, id, agora) {
     const m = lerMapa(storage, CHAVE_DECIDIDO);
     m[id] = agora;
     gravaMapa(storage, CHAVE_DECIDIDO, m);
   }
-  function estaAdiado(storage, id, agora) { const v = lerMapa(storage, CHAVE_ADIADO)[id]; return typeof v === 'number' && v > agora; }
   function estaDecidido(storage, id, agora) { const v = lerMapa(storage, CHAVE_DECIDIDO)[id]; return typeof v === 'number' && agora - v < DECIDIDO_MS; }
 
-  /* Os achados de nível 2 que pedem a janela vermelha agora: abertos, sem decisão e sem "lembrar depois".
-     Com o sistema fora do ar (emergência em andamento) a janela não aparece: a decisão já foi tomada.
-     Corte inconsistente (marcado, mas sem firewall) é falha de proteção: a janela continua aparecendo. */
-  function paraJanelaVermelha(ronda, storage, agora, emergencia) {
+  /* Os achados de nível 2 que contam como "ponto em risco" no aviso único: abertos e sem decisão do dono neste aparelho.
+     "Agendado" fica de fora: o dono já decidiu e o servidor aplica na hora marcada.
+     Com o sistema fora do ar (emergência em andamento) não conta: a decisão já foi tomada.
+     Corte inconsistente (marcado, mas sem firewall) é falha de proteção: continua contando. */
+  function criticasEmAberto(ronda, storage, agora, emergencia) {
     if (!ronda || ronda.nunca_rodou || !ronda.niveis) return [];
     if (emergencia && emergencia.estado && emergencia.estado.cortado && !emergencia.estado.inconsistente) return [];
-    return (ronda.niveis['2'] || []).filter(a => a.estado === 'aberto' && !estaDecidido(storage, a.id, agora) && !estaAdiado(storage, a.id, agora));
+    return (ronda.niveis['2'] || []).filter(a => a.estado === 'aberto' && !estaDecidido(storage, a.id, agora));
+  }
+
+  /* ── boletins de segurança (GET /boletins), mostrados na tela Segurança ─────────────────────────────────────── */
+  function ordenaPorGravidade(lista) {
+    const peso = x => (PESO[x.severidade] != null ? PESO[x.severidade] : 9);
+    return lista.map((x, i) => ({ x, i })).sort((a, b) => peso(a.x) - peso(b.x) || a.i - b.i).map(o => o.x);
+  }
+
+  /* "Nas últimas horas" quando a falha foi publicada há menos de 48 h; senão "Em 21/10/2026". */
+  function abertura(publicadoEm, agora) {
+    const t = Date.parse(publicadoEm);
+    const ref = typeof agora === 'number' ? agora : Date.now();
+    if (!Number.isNaN(t) && ref - t < QUARENTA_E_OITO_H) return 'Nas últimas horas';
+    return 'Em ' + dataBr(publicadoEm);
+  }
+
+  function temCorrecaoParaAplicar(b) { return b.acao === 'atualizar-dgclaw' || b.acao === 'atualizar-sistema'; }
+
+  /* Texto corrido do boletim, em texto puro (quem desenha escapa). */
+  function textoBoletim(b, agora) {
+    const ini = abertura(b.publicado_em, agora) + ' foi identificada uma vulnerabilidade em uma das ferramentas que o sistema usa: ' + b.componente + '.';
+    if (b.acao === 'atualizar-dgclaw') {
+      return ini + ' A correção já foi publicada pela equipe oficial dela. Para aplicar, basta clicar em Atualizar abaixo, e o seu sistema vai para a versão com essa correção. É muito importante que você atualize.';
+    }
+    if (b.acao === 'atualizar-sistema') {
+      return ini + ' A correção já foi publicada pela equipe oficial dela. Para aplicar, clique em Atualizar abaixo e o Admin atualiza os pacotes do servidor com você. Depois de aplicar, o Admin confirma e o aviso some.';
+    }
+    if (b.acao === 'parar-servico') return ini + ' A correção ainda não saiu. Enquanto isso, veja abaixo o que fazer.';
+    return ini + ' A correção ainda não saiu. Não há nada a fazer agora além de acompanhar; o aviso sai da frente sozinho quando ela chegar.';
+  }
+
+  function textoDoPedidoBoletim(b) {
+    return b.acao === 'atualizar-sistema'
+      ? 'Quero aplicar a atualização de segurança do servidor (boletim ' + b.id + '). Depois de aplicar, confirme que o aviso pode sumir.'
+      : 'Quero instalar a atualização de segurança do DG Claw (boletim ' + b.id + ').';
+  }
+
+  function fatosBoletimHtml(b) {
+    let h = fato('Publicada em', esc(dataBr(b.publicado_em)), 'rp-f-data');
+    h += fato('Gravidade', esc(gravidadeRotulo(b.severidade)), 'rp-f-grav');
+    h += fato('Fonte oficial', linkHtml(b.fonte_url), 'rp-f-fonte');
+    if (b.noticia_url) h += fato('Notícia', linkHtml(b.noticia_url), 'rp-f-noticia');
+    if (b.o_que_muda) h += fato('O que muda', esc(b.o_que_muda), 'rp-f-muda');
+    return '<dl class="rp-fatos">' + h + '</dl>';
   }
 
   /* ── conversa com a API ─────────────────────────────────────────────────── */
@@ -254,10 +293,11 @@
   const urlAchado = (id, acao) => API + '/ronda/' + encodeURIComponent(id) + '/' + acao;
 
   return {
-    API, FUSO, ADIAR_MS, SONDA_CADA_MS, SONDA_MAX_MS, FRASE_SEM_NOVIDADE, TEXTO_NIVEL3, GRAVIDADE,
+    API, FUSO, PESO, SONDA_CADA_MS, SONDA_MAX_MS, FRASE_SEM_NOVIDADE, TEXTO_NIVEL3, GRAVIDADE,
     esc, ehHttps, dataBr, horaBr, quando, resumoTopo, textoParcial, textoVigia, gravidadeRotulo, linkHtml, fatosHtml,
     ehAtualizarDgclaw, textoDoPedidoAtualizar, textoDoPedidoAoAdmin, avisoReinicio, podeAplicar, podePedirAoAdmin, estadoRotulo, textoAplicado, agendaParaIso,
-    lembrarDepois, marcaDecidido, estaAdiado, estaDecidido, paraJanelaVermelha,
+    marcaDecidido, estaDecidido, criticasEmAberto,
+    ordenaPorGravidade, abertura, temCorrecaoParaAplicar, textoBoletim, textoDoPedidoBoletim, fatosBoletimHtml,
     chama, sondar, pedirEEsperar, urlAchado, PEDIDO_ROTULO,
   };
 });

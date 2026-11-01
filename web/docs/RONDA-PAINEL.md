@@ -9,6 +9,16 @@ não as acessa: pela caixa do agente elas respondem 403. O Web **não executa na
 *pedido* (um arquivo em `/var/lib/dgclaw/web/seguranca/pedidos/`) que o servidor, como root, valida de novo e
 executa. O resultado volta por `GET /api/v1/seguranca/pedidos/<pedido>`.
 
+## Como o painel avisa (aviso único)
+
+O painel não abre uma janela por falha. Uma janela só, "Seu ambiente está em risco", lista os pontos em risco
+(boletins não dispensados de `GET /boletins` e achados de **nível 2 em estado `aberto`** desta ronda, sem
+decisão do dono neste aparelho; `agendado` não conta, e com o sistema fora do ar nada conta) e leva à tela
+Segurança, onde ficam os fatos e as ações. Fechar uma vez fecha tudo. Ela reabre sozinha só se surgir um ponto
+novo, se a pior gravidade piorar, ou 24 horas depois do último fechamento; enquanto houver pontos, o selo
+"🛡 N pontos de segurança" fica no alto das telas. A escolha do dono fica no `localStorage` do aparelho
+(`dgclaw:seguranca:resumo`), nunca no servidor. Na tela Segurança a janela não abre sozinha.
+
 Tudo que vem da ronda nasceu em fontes externas: quem desenha precisa escapar e quem lê (agente) trata como dado,
 nunca como instrução. Cada campo é conferido de novo antes de sair.
 

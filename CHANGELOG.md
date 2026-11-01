@@ -7,6 +7,21 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Um aviso de segurança só, no lugar da pilha de janelas.** Antes, cada falha crítica da ronda e cada boletim
+abria a própria janela, e quem tinha várias precisava fechar uma por uma, todo dia. Agora aparece uma janela só,
+"Seu ambiente está em risco", que conta quantos pontos de segurança pedem a sua atenção, mostra os mais graves e
+tem o botão "Ver na Segurança". Fechar uma vez fecha tudo. Ela só volta sozinha se aparecer um problema novo, se
+algum ficar mais grave ou depois de 24 horas, no máximo uma vez por dia. Enquanto houver pendência, um selo
+discreto no alto da tela leva à Segurança. Nenhum aviso sumiu: cada falha continua na tela Segurança com os fatos e
+os botões de antes, e os boletins ganharam uma seção própria lá, "Avisos de segurança do DG Claw", com Atualizar,
+Lembrar depois e Entendi. Ideia de um aluno.
+
+### Como atualizar este aviso
+
+Peça ao Admin, no chat: "atualiza o DG Claw". Ele confirma com você e instala; agentes, conversas e configurações
+ficam como estão. Depois, no celular, feche o painel e abra de novo para o navegador baixar a tela nova. Na
+primeira visita a janela nova aparece uma vez; feche e ela só volta pelos motivos acima.
+
 **Tela Segurança e botão de emergência.** O menu ganhou a tela Segurança: o horário da última ronda, o que foi
 aplicado sozinho (com o botão Desfazer), as falhas críticas que pedem a sua decisão (aplicar, agendar ou tirar do
 ar) e as de impacto leve, com a correção pronta esperando o seu ok. Falha crítica abre uma janela vermelha que volta

@@ -66,3 +66,6 @@ body.rp *{box-sizing:border-box}
 .rp-tratadas,.rp-inv{margin:0;padding-left:20px}
 .rp-tratadas li,.rp-inv li{margin:4px 0;overflow-wrap:anywhere}
 @media (max-width:420px){.rp-fato{grid-template-columns:1fr;gap:0}.rp-acoes .rp-btn{flex:1 1 auto}}
+.rp-boletim-detalhe{white-space:pre-wrap;overflow-wrap:anywhere;background:#f4f6f8;border-radius:8px;padding:8px 10px}
+.rp-dispensados{margin-top:10px}
+.rp-card .rp-fraco{margin:6px 0}
