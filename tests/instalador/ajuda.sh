@@ -57,13 +57,15 @@ novo_cenario() {
     echo x >"$FALSO/web/node_modules/nao-deve-ir"
     STUB_LOG="$TMP/stub.log"
     : >"$STUB_LOG"
+    # servidor "grande" por padrao: sem isto o horario da ronda dependeria da memoria da maquina que roda o teste
+    printf 'MemTotal:       16000000 kB\n' >"$TMP/meminfo"
     EXTRA_ENV=()
     ENV_BASE=(
         "HOME=$TMP" "PATH=$AQUI/stubs:/usr/bin:/bin" "NO_COLOR=1"
         "DGCLAW_RAIZ=$RAIZ" "DGCLAW_PULAR_CHECAGENS=1"
         "DGCLAW_SENHA_HASH_CMD=$AQUI/senha-hash-falso.sh"
         "DGCLAW_STUB_LOG=$STUB_LOG" "DGCLAW_STUB_ESTADO=$TMP/estado"
-        "DGCLAW_ESPERA_CERT=5"
+        "DGCLAW_ESPERA_CERT=5" "DGCLAW_MEMINFO=$TMP/meminfo"
     )
 }
 

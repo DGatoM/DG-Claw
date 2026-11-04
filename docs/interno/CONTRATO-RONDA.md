@@ -91,6 +91,7 @@ O motor precisa agendar `dgclaw emergencia estado` (timer de 10 min e depois de 
 ## Acréscimos do motor (opcionais, versão 1)
 
 - `ronda.json`: `vigia_alerta` está sempre presente (`null` ou `{"quando", "motivo", "esperada_para"}`); `ultima_falha` (`{"em", "motivo"}`) aparece quando a última rodada não terminou bem;
+  `memoria_pico_mb` (inteiro, MB) é o pico de memória do processo da rodada; `vigia_alerta` pode vir de um vigia em modo econômico, que não refaz a rodada;
   `inventario.acrescentados` é a lista de frases "acrescentado à ronda em DD/MM/AAAA: Notion via MCP do agente luna" (as 10 mais recentes);
   achado com KEV leva `explorada_ativamente: true`; achado `agendado` leva `agendado_para` (ISO).
 - `achado.aplicado` leva também `registro` (nome do arquivo em `/var/lib/dgclaw/seguranca/acoes/`), `por` e `exige_reinicio_agora`; `desfazer` é o texto de como voltar atrás.

@@ -142,10 +142,39 @@ Tudo no `/etc/dgclaw/dgclaw.env`; depois rode `sudo ./install.sh` de novo no clo
 | Linha | Efeito |
 | --- | --- |
 | `DGCLAW_RONDA_SEGURANCA=0` | desliga a ronda, o vigia, o inventário, a fila de pedidos do painel e a atualização do estado do botão de emergência |
-| `DGCLAW_RONDA_HORARIOS="06:30 18:45"` | horários das rodadas, no fuso do servidor (padrão `07:00 13:00 19:00`); cada rodada atrasa até 20 minutos de propósito |
+| `DGCLAW_RONDA_HORARIOS="06:30 18:45"` | horários das rodadas, no fuso do servidor (padrão `07:00 13:00 19:00`, ou só `04:00` em servidor pequeno, veja "Servidor pequeno e memória"); cada rodada atrasa até 20 minutos de propósito |
 | `DGCLAW_RONDA_APLICAR_SOZINHA=0` | a ronda avisa, mas nunca aplica nada sozinha |
 
 O instalador respeita as linhas e **nunca** as cria nem as reescreve. Apague a linha para voltar ao padrão.
+
+## Servidor pequeno e memória
+
+A ronda lê milhares de registros de falhas e, em servidor de 4 GB, não pode tirar memória dos agentes. Por isso ela tem
+quatro proteções, todas automáticas:
+
+- **Lê um registro por vez e guarda só o resumo.** Cada detalhe baixado é reduzido ao que a ronda usa (o pacote desta
+  instalação, a faixa corrigida e a prioridade) antes de o próximo chegar. No teste de bancada (`tests/ronda/bancada_memoria.py`,
+  3000 falhas com registros do tamanho dos reais) o pico caiu de cerca de 2,7 GB para menos de 60 MB.
+- **Teto de memória do processo:** 400 MB (300 MB no modo econômico). Se passar, a ronda para de ler detalhes, termina
+  e sai **parcial**, dizendo "parei de ler detalhes ao chegar a X MB de memória (teto da ronda: T MB); N ficaram para a
+  próxima rodada". Para mudar: `DGCLAW_RONDA_TETO_MB=500` no `dgclaw.env`.
+- **Modo econômico** (menos leituras ao mesmo tempo e teto menor): liga sozinho quando o servidor tem até 4,5 GiB de
+  memória. `DGCLAW_RONDA_ECONOMICA=1` força, `=0` desliga. Nele a ronda roda **uma vez por dia, às 04:00**, a não ser que
+  você defina `DGCLAW_RONDA_HORARIOS` (o instalador avisa o horário que escolheu). A tela de status da fonte OSV mostra
+  "modo econômico".
+- **Limites do systemd** nas unidades da ronda, do vigia e do inventário (`MemoryHigh=450M`, `MemoryMax=600M`,
+  `OOMScoreAdjust=1000`, `CPUQuota=50%`, prioridade mais baixa de CPU e disco). Se o sistema precisar matar alguém por
+  falta de memória, mata a ronda, nunca um agente. As ações pedidas por você no painel (aplicar, desfazer, emergência) não
+  levam esses limites, para não morrerem no meio.
+
+**O vigia e o oom-kill.** O vigia confere de hora em hora se a rodada agendada terminou. Se não terminou, ele pergunta ao
+systemd como ela acabou (`systemctl show dgclaw-ronda.service -p Result`). Se foi `oom-kill`, grava o motivo ("a rodada
+passou do teto de memória da fábrica e o sistema a encerrou para proteger os agentes") e marca a ronda como parcial.
+Em servidor normal, ele refaz a rodada uma vez, já no modo econômico. Em servidor pequeno (modo econômico) ele **só
+confere**: registra o motivo, avisa o Admin e deixa a rodada do dia seguinte tentar de novo, porque repetir na hora
+repetiria o mesmo pico. A trava da ronda continua valendo: se outra operação estiver rodando, o vigia espera a próxima hora.
+
+Cada rodada registra o pico de memória no log (`memoria_pico_mb=`) e no `ronda.json` (`memoria_pico_mb`).
 
 ## Como um agente opera
 
