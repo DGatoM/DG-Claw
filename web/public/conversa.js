@@ -1651,6 +1651,29 @@ function horaLocal(m) {
   m.dia = f.dia; m.hhmm = f.hhmm;
 }
 
+/* Grudado no fundo. Ao abrir a conversa, a tela ia pro fim e logo depois os
+   visuais (iframes) terminavam de carregar e cresciam: o fim se afastava e a tela
+   ficava parada no visual, com mensagens abaixo. Enquanto a pessoa está no fim,
+   qualquer crescimento do #wrap (visual, imagem, fonte) leva a tela junto. Só sai
+   do fim quando ela mesma rola pra cima; volta a grudar ao chegar de novo no fundo. */
+let grudadoNoFim = true;
+let ultimoTopoChat = 0;
+chat.addEventListener('scroll', () => {
+  if (!chat.clientHeight) { ultimoTopoChat = chat.scrollTop; return; }   // tela escondida
+  const dist = chat.scrollHeight - chat.scrollTop - chat.clientHeight;
+  if (dist < 8) grudadoNoFim = true;
+  else if (chat.scrollTop < ultimoTopoChat - 2) grudadoNoFim = false;     // subiu: quer ler o de cima
+  ultimoTopoChat = chat.scrollTop;
+}, { passive: true });
+if (typeof ResizeObserver !== 'undefined') {
+  new ResizeObserver(() => {
+    if (!grudadoNoFim || !chat.clientHeight) return;
+    if (chat.scrollHeight - chat.scrollTop - chat.clientHeight > 1) {
+      chat.scrollTop = chat.scrollHeight; ultimoTopoChat = chat.scrollTop;
+    }
+  }).observe(wrap);
+}
+
 function render(opt) {
   opt = opt || {};
   for (const m of msgs) horaLocal(m);
