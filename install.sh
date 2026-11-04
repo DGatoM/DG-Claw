@@ -1386,13 +1386,37 @@ FIM
 # unidades o apt, o nft e o sysctl precisam escrever em /usr, /etc e /proc/sys. Roda tanto na instalacao quanto na
 # atualizacao (o `dgclaw atualizar` roda o instalador de novo). Quem desliga e a linha DGCLAW_RONDA_SEGURANCA=0 do
 # dgclaw.env: o instalador a respeita e NUNCA a reescreve nem a cria (sem a linha, a ronda fica ligada).
+# ronda_servidor_pequeno: verdadeiro quando a ronda deve rodar no modo economico. Mesma regra do ronda.py (modo_economico):
+# DGCLAW_RONDA_ECONOMICA=1 forca, =0 desliga; sem ela, MemTotal ate 4,5 GiB. DGCLAW_MEMINFO troca o /proc/meminfo nos testes.
+ronda_servidor_pequeno() {
+    local forcado mem_kb
+    forcado="${DGCLAW_RONDA_ECONOMICA:-$(env_valor DGCLAW_RONDA_ECONOMICA)}"
+    forcado="${forcado//[\'\"]/}"
+    case "$forcado" in
+        1) return 0 ;;
+        0) return 1 ;;
+    esac
+    # meminfo ilegivel = nao sei o tamanho: fica o modo normal (o ronda.py decide do mesmo jeito)
+    mem_kb="$(awk '/^MemTotal:/ {print $2}' "${DGCLAW_MEMINFO:-/proc/meminfo}" 2>/dev/null)" || mem_kb=""
+    [[ "$mem_kb" =~ ^[0-9]+$ ]] && [ "$mem_kb" -le 4718592 ]
+}
+
 configurar_ronda_seguranca() {
-    local p_app="${DG_APP#"$R"}" p_lib="${DG_LIB#"$R"}" p_log="${DG_LOG#"$R"}" p_bin="${DG_BIN#"$R"}" desligar horarios h linhas="" py cargas
+    local p_app="${DG_APP#"$R"}" p_lib="${DG_LIB#"$R"}" p_log="${DG_LOG#"$R"}" p_bin="${DG_BIN#"$R"}" desligar horarios h linhas="" py cargas limites
     desligar="$(env_valor DGCLAW_RONDA_SEGURANCA)"
     desligar="${desligar//[\'\"]/}"
     horarios="$(env_valor DGCLAW_RONDA_HORARIOS)"
     horarios="${horarios//[\'\"]/}"
-    horarios="${horarios:-07:00 13:00 19:00}"
+    if [ -z "$horarios" ]; then
+        # Servidor pequeno (ate 4,5 GiB): a ronda e a maior consumidora de memoria da fabrica, entao roda uma vez por dia,
+        # de madrugada. Horario escolhido pela pessoa em DGCLAW_RONDA_HORARIOS sempre vale.
+        if ronda_servidor_pequeno; then
+            horarios="04:00"
+            info "servidor pequeno (ate 4,5 GB de memoria): a ronda de seguranca roda uma vez por dia, as 04:00, no modo economico. Para outro horario, ponha DGCLAW_RONDA_HORARIOS=\"HH:MM\" no dgclaw.env e rode ./install.sh de novo."
+        else
+            horarios="07:00 13:00 19:00"
+        fi
+    fi
     for h in $horarios; do
         if [[ "$h" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]]; then
             linhas+="OnCalendar=*-*-* $h:00"$'\n'
@@ -1424,8 +1448,17 @@ ProtectKernelModules=yes
 ProtectClock=yes
 RestrictRealtime=yes
 LockPersonality=yes
-SystemCallArchitectures=native
-Nice=10"
+SystemCallArchitectures=native"
+    # Limites so da ronda, do vigia e do inventario (os pedidos do dono rodam apt e nft e nao podem morrer no meio). Num
+    # servidor de 4 GB o OOM do kernel tem de escolher a ronda e nunca um agente: OOMScoreAdjust a poe no topo da lista,
+    # MemoryMax faz o cgroup matar so ela, e o vigia, ao ver o oom-kill, refaz a rodada no modo economico.
+    limites="MemoryHigh=450M
+MemoryMax=600M
+MemorySwapMax=0
+OOMScoreAdjust=1000
+Nice=19
+IOSchedulingClass=idle
+CPUQuota=50%"
     cat <<FIM | escrever_arquivo "$DG_UNITS/dgclaw-ronda.service" 644
 [Unit]
 Description=DG Claw ronda de seguranca (varre as falhas que afetam esta instalacao)
@@ -1438,6 +1471,7 @@ User=root
 ExecStart=$py executar
 TimeoutStartSec=1800
 $cargas
+$limites
 FIM
     {
         printf '[Unit]\nDescription=DG Claw ronda de seguranca (horarios de DGCLAW_RONDA_HORARIOS)\n\n[Timer]\n'
@@ -1456,6 +1490,7 @@ User=root
 ExecStart=$py vigiar
 TimeoutStartSec=3600
 $cargas
+$limites
 FIM
     cat <<'FIM' | escrever_arquivo "$DG_UNITS/dgclaw-ronda-vigia.timer" 644
 [Unit]
@@ -1484,6 +1519,7 @@ ReadWritePaths=$p_lib/seguranca $p_log
 ProtectKernelTunables=yes
 RestrictSUIDSGID=yes
 $cargas
+$limites
 FIM
     cat <<'FIM' | escrever_arquivo "$DG_UNITS/dgclaw-ronda-inventario.timer" 644
 [Unit]
@@ -1525,6 +1561,7 @@ User=root
 ExecStart=$p_bin/dgclaw seguranca pedido-todos
 TimeoutStartSec=1800
 $cargas
+Nice=10
 FIM
     cat <<FIM | escrever_arquivo "$DG_UNITS/dgclaw-emergencia-estado.service" 644
 [Unit]
