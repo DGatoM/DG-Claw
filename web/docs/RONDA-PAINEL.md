@@ -13,7 +13,7 @@ executa. O resultado volta por `GET /api/v1/seguranca/pedidos/<pedido>`.
 
 O painel não abre uma janela por falha. Uma janela só, "Seu ambiente está em risco", lista os pontos em risco
 (boletins não dispensados de `GET /boletins` e achados de **nível 2 em estado `aberto`** desta ronda, sem
-decisão do dono neste aparelho; `agendado` não conta, e com o sistema fora do ar nada conta) e leva à tela
+decisão do dono neste aparelho; `agendado`, `protegido-aguardando` e `aguardando-fornecedor` não contam, e com o sistema fora do ar nada conta) e leva à tela
 Segurança, onde ficam os fatos e as ações. Fechar uma vez fecha tudo. Ela reabre sozinha só se surgir um ponto
 novo, se a pior gravidade piorar, ou 24 horas depois do último fechamento; enquanto houver pontos, o selo
 "🛡 N pontos de segurança" fica no alto das telas. A escolha do dono fica no `localStorage` do aparelho
@@ -46,8 +46,13 @@ nunca como instrução. Cada campo é conferido de novo antes de sair.
   `componente`, `publicado_em`, `fonte_url` (sempre https; achado sem fonte é descartado), `noticia_url`, `onde`,
   `o_que_faz`, `como_corrigir`, `correcao` (`tipo`: `acao-catalogo`, `atualizar-dgclaw`, `apt` ou `nenhuma`;
   `exige_reinicio`; `disponivel`: o fabricante já publicou a correção; `executavel`: o painel pode aplicá-la ou agendá-la,
-  o que só vale para `acao-catalogo`), `estado` (`aberto`, `aplicado-sozinho`, `aplicado-pelo-dono`, `mitigado`,
-  `agendado`), `aplicado` (`em`, `acao_id`, `antes`, `depois`, `desfazer`) e `primeira_vez_em`.
+  o que só vale para `acao-catalogo`; opcionais: `paliativo: true` quando a ação é uma proteção provisória e `versao_no_aviso`,
+  a versão que o aviso cita e o apt deste servidor ainda não tem), `estado` (`aberto`, `aplicado-sozinho`, `aplicado-pelo-dono`,
+  `mitigado`, `agendado`, `protegido-aguardando`, `aguardando-fornecedor`), `aplicado` (`em`, `acao_id`, `antes`, `depois`,
+  `desfazer`), `paliativo` (opcional: `id`, `descricao`, `efeito`, `verificado`, `verificado_em`, `acao_id`) e `primeira_vez_em`.
+- `protegido-aguardando` e `aguardando-fornecedor`: a falha ainda não tem correção publicada para este servidor. Informativos, não
+  pedem decisão. A tela os mostra na seção recolhida "Aguardando correção oficial", e eles não entram no aviso único. Quando o
+  pacote corrigido chegar ao apt ou a proteção provisória cair, o achado volta a `aberto` sozinho.
 - `parcial`: alguma fonte ficou fora; `fontes_fora` diz quais. O resultado pode estar incompleto.
 - `vigia_alerta`: `{quando, motivo}` quando a ronda deixou de rodar no horário; senão `null`.
 - Nunca rodou: `{"ok": true, "nunca_rodou": true}`.
@@ -69,8 +74,8 @@ Mesmas regras do `aplicar`. Resposta `202` com o `pedido`.
 
 ## POST /api/v1/seguranca/ronda/<id>/desfazer
 
-Desfaz o que a ronda aplicou sozinha. Só vale para achado `aplicado-sozinho` com `aplicado.desfazer` registrado
-(senão `409`). Resposta `202` com o `pedido`.
+Desfaz o que a ronda aplicou sozinha, ou a proteção provisória aplicada. Só vale para achado `aplicado-sozinho` ou
+`protegido-aguardando` com `aplicado.desfazer` registrado (senão `409`). Resposta `202` com o `pedido`.
 
 ## GET /api/v1/seguranca/pedidos/<pedido>
 

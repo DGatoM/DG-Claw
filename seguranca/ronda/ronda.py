@@ -615,7 +615,9 @@ def base_kernel(uname):
     return m.group(1) if m else None
 
 
-def inventario_dpkg(eco, avisos):
+def inventario_dpkg(eco, avisos, metas=None):
+    """`metas` (lista, opcional) recebe o nome dos metapacotes de kernel instalados (source linux-meta*): é neles que o
+    apt mostra a versão de kernel que ele instalaria, já que o ABI vai no nome dos binários linux-image/modules."""
     r = cmd(["dpkg-query", "-W", "-f", "${Package}\t${Version}\t${source:Package}\t${source:Version}\n"], timeout=60)
     if r.returncode != 0:
         raise ErroRonda(f"dpkg-query falhou: {limpa(r.stderr, 160)}. Rode 'dpkg --audit' para ver o que está quebrado.")
@@ -626,6 +628,8 @@ def inventario_dpkg(eco, avisos):
             continue
         pkg, ver, src, srcver = p[:4]
         chave = (src or pkg, srcver or ver)
+        if metas is not None and (src or "").startswith("linux-meta"):
+            metas.append(pkg)
         vistos.setdefault(chave, []).append(pkg)
         por_binario[pkg] = chave
     comps = [componente(eco, s, v, f"sistema: pacote {s}", "os", {"binarios": b}) for (s, v), b in vistos.items()]
@@ -1241,14 +1245,15 @@ def inventario_pessoal(cfg, avisos, incompletos):
 def inventario_volatil(cfg, avisos):
     eco = ecossistema_os(avisos)
     if not eco:
-        return eco, [], "", []
-    comps, kernel = inventario_dpkg(eco, avisos)
+        return eco, [], "", [], []
+    metas = []
+    comps, kernel = inventario_dpkg(eco, avisos, metas)
     try:
         portas = inventario_portas(cfg, comps, eco, avisos)
     except ErroRonda as e:
         avisos.append(str(e))
         portas = []
-    return eco, comps, kernel, portas
+    return eco, comps, kernel, portas, sorted(set(metas))
 
 
 def montar_inventario(cfg, t0, forcar=False):
@@ -1264,7 +1269,7 @@ def montar_inventario(cfg, t0, forcar=False):
     completo = (forcar or not isinstance(velho, dict) or velho.get("formato") != 1 or velho.get("app_versao") != ver
                 or idade is None or idade >= cfg.get("inventario_dias", 3)
                 or any(i.get("origem") != "sistema" for i in velho.get("cobertura_incompleta") or []))
-    eco, vol, kernel, portas = inventario_volatil(cfg, avisos)
+    eco, vol, kernel, portas, metas = inventario_volatil(cfg, avisos)
     incompletos = [{"origem": "sistema", "motivo": limpa(avisos[0], 300)}] if avisos else []
     if completo:
         pessoal, svcs = inventario_pessoal(cfg, avisos, incompletos)
@@ -1277,11 +1282,12 @@ def montar_inventario(cfg, t0, forcar=False):
                     acrescentados.append(f"acrescentado à ronda em {t0.astimezone().strftime('%d/%m/%Y')}: {s['nome']} via {s['via']}")
         inv = {"formato": 1, "reinventariado_em": iso(t0), "app_versao": ver, "ecossistema": eco, "kernel": kernel,
                "componentes": vol + pessoal, "portas_publicas": portas, "servicos_externos": svcs,
-               "acrescentados": acrescentados[-20:], "avisos": avisos, "cobertura_incompleta": incompletos}
+               "acrescentados": acrescentados[-20:], "avisos": avisos, "cobertura_incompleta": incompletos,
+               "metapacotes_kernel": metas}
     else:
         pessoal = [x for x in velho["componentes"] if x.get("origem") != "os"]
         inv = dict(velho, ecossistema=eco, kernel=kernel, componentes=vol + pessoal, portas_publicas=portas, avisos=avisos,
-                   cobertura_incompleta=incompletos)
+                   cobertura_incompleta=incompletos, metapacotes_kernel=metas)
     grava_json(c["inventario"], inv, 0o600)
     return inv
 
@@ -2205,6 +2211,88 @@ def critico(a):
     return True
 
 
+# ---------------------------------------------------------------- o apt deste servidor tem a correção?
+
+RX_META_ANTIGO = re.compile(r"^(\d+\.\d+\.\d+)\.(\d+)\.(\d+)$")
+RX_APT_BLOCO = re.compile(r"^(\S.*):\s*$")
+LOTE_APT = 200
+
+
+def normaliza_meta(v):
+    """Metapacotes antigos usam '5.15.0.91.88' para o que o kernel chama de '5.15.0-91.88'."""
+    m = RX_META_ANTIGO.match(v or "")
+    return f"{m.group(1)}-{m.group(2)}.{m.group(3)}" if m else v
+
+
+def parse_apt_policy(texto):
+    """{pacote: candidato}; o candidato é None quando o apt diz '(none)'. Só entram os pacotes que o apt descreveu."""
+    cand, atual = {}, None
+    for linha in texto.splitlines():
+        m = RX_APT_BLOCO.match(linha)
+        if m:
+            atual = m.group(1)
+            continue
+        t = linha.strip()
+        if atual and t.startswith("Candidate:"):
+            v = t.split(":", 1)[1].strip()
+            cand[atual] = None if v in ("", "(none)") else v
+    return cand
+
+
+def apt_candidatos(pacotes):
+    """Uma consulta 'apt-cache policy' por lote de até LOTE_APT nomes. Devolve {pacote: candidato|None}; pacote que o apt não
+    descreveu fica fora do dicionário (= não deu para saber). Falha do apt-cache vira linha no log e a ronda segue como antes,
+    confiando na versão do aviso."""
+    nomes = sorted(set(pacotes))
+    cand = {}
+    for i in range(0, len(nomes), LOTE_APT):
+        lote = nomes[i:i + LOTE_APT]
+        try:
+            r = cmd(["apt-cache", "policy", *lote], timeout=60, env=dict(os.environ, LC_ALL="C", LANG="C"))
+        except ErroRonda as e:
+            log_linha(f"AVISO não consegui conferir o apt deste servidor: {limpa(e, 200)} A ronda confia na versão que o aviso cita.")
+            return cand
+        if r.returncode != 0:
+            log_linha(f"AVISO 'apt-cache policy' falhou (código {r.returncode}) para {len(lote)} pacote(s): {limpa(r.stderr, 160)}. "
+                      f"A ronda confia na versão que o aviso cita. Rode 'apt-cache policy {lote[0]}' para ver o motivo.")
+            continue
+        cand.update(parse_apt_policy(r.stdout))
+    return cand
+
+
+def pacotes_para_apt(achados, inv):
+    """Os nomes que valem a pena perguntar ao apt: metapacotes de kernel (achados de kernel) e binários (os outros)."""
+    nomes = set()
+    for a in achados:
+        if not (ubuntu_do_achado(a) and tem_correcao(a)):
+            continue
+        for af in a["afetados"]:
+            if af.get("corrigida"):
+                nomes.update((inv.get("metapacotes_kernel") or []) if eh_kernel(af) else (af.get("binarios") or []))
+    return nomes
+
+
+def apt_instalavel(a, cand, inv):
+    """True: o apt deste servidor já oferece versão >= a corrigida. False: oferece, mas menor (a correção citada no aviso é de
+    outra série de kernel, ou ainda não chegou ao espelho). None: não deu para saber (sem apt-cache, sem metapacote, sem candidato)."""
+    veredito = []
+    for af in a["afetados"]:
+        corrigida = af.get("corrigida")
+        if not corrigida:
+            continue
+        kernel = eh_kernel(af)
+        nomes = (inv.get("metapacotes_kernel") or []) if kernel else (af.get("binarios") or [])
+        vers = [cand[n] for n in nomes if cand.get(n)]
+        if kernel:
+            vers = [normaliza_meta(v) for v in vers]
+        veredito.append(any(cmp_dpkg(v, corrigida) >= 0 for v in vers) if vers else None)
+    if True in veredito:
+        return True
+    if not veredito or None in veredito:
+        return None
+    return False
+
+
 # ---------------------------------------------------------------- catálogo de ações
 
 TIPOS_ACAO = ("nft-tabela", "sysctl", "apt-pacote")
@@ -2252,7 +2340,102 @@ def carregar_catalogo():
             raise ErroRonda(f"Catálogo inválido em {ref}: 'casa' precisa ter 'ids' ou 'pacotes' (listas de texto).")
         if "exige_reinicio" in ac and not isinstance(ac["exige_reinicio"], bool):
             raise ErroRonda(f"Catálogo inválido em {ref}: 'exige_reinicio' precisa ser true ou false.")
+        if "paliativo" in ac and not isinstance(ac["paliativo"], bool):
+            raise ErroRonda(f"Catálogo inválido em {ref}: 'paliativo' precisa ser true ou false.")
     return doc["acoes"]
+
+
+# ---------------------------------------------------------------- catálogo de paliativos (proteção provisória)
+
+TIPOS_VERIFICA = {"sysctl": ("chave", "valor")}
+
+
+def verifica_sysctl(v):
+    """True/False pela leitura de verdade do kernel (não importa quem configurou); None quando não deu para ler."""
+    try:
+        atual = sysctl_valor(v["chave"])
+    except ErroRonda as e:
+        log_linha(f"AVISO não consegui verificar o paliativo (sysctl {v['chave']}): {limpa(e, 200)}")
+        return None
+    return atual == re.sub(r"\s+", " ", v["valor"].strip())
+
+
+# Para um tipo novo de verificação: acrescente a entrada em TIPOS_VERIFICA (campos) e aqui (função), e use o tipo no paliativos.json.
+VERIFICADORES = {"sysctl": verifica_sysctl}
+
+
+def paliativos_caminho():
+    app = P("opt/dgclaw/app/seguranca/paliativos.json")
+    if os.path.exists(app) or os.environ.get("DGCLAW_RAIZ"):
+        return app
+    return os.path.join(AQUI, "..", "paliativos.json")
+
+
+def carregar_paliativos(catalogo):
+    """Valida o seguranca/paliativos.json. `catalogo` é a lista de ações (acao_id precisa existir nela e ser `paliativo: true`);
+    None quando o catálogo de ações nem carregou (aí o acao_id não é conferido, para não repetir o mesmo erro)."""
+    caminho = paliativos_caminho()
+    try:
+        with open(caminho, encoding="utf-8") as f:
+            doc = json.load(f)
+    except FileNotFoundError:
+        raise ErroRonda(f"O catálogo de paliativos '{caminho}' não existe; a ronda não sabe se há proteção provisória. Rode sudo dgclaw atualizar para reinstalar os arquivos.")
+    except (OSError, json.JSONDecodeError) as e:
+        raise ErroRonda(f"O catálogo de paliativos '{caminho}' está ilegível ({erro_curto(e)}). Rode sudo dgclaw atualizar para reinstalar os arquivos.")
+    if not isinstance(doc, dict) or doc.get("versao") != 1 or not isinstance(doc.get("paliativos"), list):
+        raise ErroRonda(f"O catálogo '{caminho}' precisa ser {{\"versao\": 1, \"paliativos\": [...]}}; recebi {limpa(json.dumps(doc), 100)}.")
+    acoes = {ac["id"]: ac for ac in catalogo} if catalogo is not None else None
+    vistos = set()
+    for i, p in enumerate(doc["paliativos"]):
+        ref = f"'{caminho}', paliativo nº {i + 1}"
+        if not isinstance(p, dict):
+            raise ErroRonda(f"Catálogo de paliativos inválido em {ref}: o item precisa ser um objeto.")
+        if not isinstance(p.get("id"), str) or not RX_ACAO_ID.match(p["id"]) or p["id"] in vistos:
+            raise ErroRonda(f"Catálogo de paliativos inválido em {ref}: 'id' precisa ser único, em minúsculas, com letras, números, ponto, hífen ou sublinhado.")
+        vistos.add(p["id"])
+        for campo in ("descricao", "efeito"):
+            if not isinstance(p.get(campo), str) or not p[campo].strip():
+                raise ErroRonda(f"Catálogo de paliativos inválido em {ref}: falta o campo de texto '{campo}'.")
+        casa = p.get("casa")
+        ids = casa.get("ids") if isinstance(casa, dict) else None
+        if not isinstance(ids, list) or not ids or not all(isinstance(x, str) and x.strip() for x in ids):
+            raise ErroRonda(f"Catálogo de paliativos inválido em {ref}: 'casa.ids' precisa ser uma lista não vazia de textos.")
+        v = p.get("verifica")
+        if not isinstance(v, dict) or v.get("tipo") not in TIPOS_VERIFICA or v["tipo"] not in VERIFICADORES:
+            raise ErroRonda(f"Catálogo de paliativos inválido em {ref}: 'verifica.tipo' precisa ser um de {sorted(TIPOS_VERIFICA)}.")
+        for campo in TIPOS_VERIFICA[v["tipo"]]:
+            x = v.get(campo)
+            if not isinstance(x, str) or not RX_VALIDACAO[campo].match(x) or ".." in x:
+                raise ErroRonda(f"Catálogo de paliativos inválido em {ref}: o campo '{campo}' da verificação {v['tipo']} tem formato não aceito ({limpa(x, 40)!r}).")
+        if p.get("acao_id") is not None:
+            if not isinstance(p["acao_id"], str) or not RX_ACAO_ID.match(p["acao_id"]):
+                raise ErroRonda(f"Catálogo de paliativos inválido em {ref}: 'acao_id' precisa ser o id de uma ação de acoes-permitidas.json.")
+            if acoes is not None:
+                ac = acoes.get(p["acao_id"])
+                if not ac:
+                    raise ErroRonda(f"Catálogo de paliativos inválido em {ref}: a ação '{p['acao_id']}' não existe em acoes-permitidas.json.")
+                if not ac.get("paliativo"):
+                    raise ErroRonda(f"Catálogo de paliativos inválido em {ref}: a ação '{p['acao_id']}' precisa ter \"paliativo\": true em acoes-permitidas.json.")
+        if "pode_sozinho" in p and not isinstance(p["pode_sozinho"], bool):
+            raise ErroRonda(f"Catálogo de paliativos inválido em {ref}: 'pode_sozinho' precisa ser true ou false.")
+    return doc["paliativos"]
+
+
+def paliativo_do_achado(a, paliativos, catalogo, verificados, t0):
+    """O paliativo do catálogo que casa com o achado, já com a verificação feita agora (uma por paliativo por rodada), ou None.
+    O `_acao` e o `_pode_sozinho` são internos: não vão para o contrato."""
+    ids = ids_do_achado(a)
+    for p in paliativos:
+        if not (ids & {x.upper() for x in p["casa"]["ids"]}):
+            continue
+        if p["id"] not in verificados:
+            verificados[p["id"]] = VERIFICADORES[p["verifica"]["tipo"]](p["verifica"])
+        ok = verificados[p["id"]] is True
+        acao = next((x for x in catalogo if x["id"] == p.get("acao_id")), None) if p.get("acao_id") else None
+        return {"id": p["id"], "descricao": limpa(p["descricao"], 200), "efeito": limpa(p["efeito"], 300), "verificado": ok,
+                "verificado_em": iso(t0) if ok else None, "acao_id": acao["id"] if acao else None,
+                "_acao": acao, "_pode_sozinho": bool(p.get("pode_sozinho"))}
+    return None
 
 
 def exige_reinicio_declarado(ac):
@@ -2260,9 +2443,17 @@ def exige_reinicio_declarado(ac):
     return bool(ac.get("exige_reinicio", ac["tipo"] == "apt-pacote"))
 
 
+def ids_do_achado(a):
+    return {x.upper() for x in cves_do_achado(a) | {a["id"], a["key"]} | set(a.get("aliases") or [])}
+
+
 def acao_do_catalogo(a, catalogo):
-    ids = {x.upper() for x in cves_do_achado(a) | {a["id"], a["key"]} | set(a.get("aliases") or [])}
+    """A ação que CORRIGE o achado. Ação com `paliativo: true` é proteção provisória, não correção: ela só entra por
+    paliativo_do_achado, nunca aqui (senão esconderia a correção oficial quando ela sair)."""
+    ids = ids_do_achado(a)
     for ac in catalogo:
+        if ac.get("paliativo"):
+            continue
         casa = ac["casa"]
         if not (ids & {x.upper() for x in casa.get("ids") or []} or a["componente"] in (casa.get("pacotes") or [])):
             continue
@@ -2508,6 +2699,8 @@ def aplicar_acao(cfg, a_id, ac, por, exigir_saude_antes):
 # ---------------------------------------------------------------- estado, contrato e textos
 
 ESTADOS_TRATADOS = ("aplicado-sozinho", "aplicado-pelo-dono", "mitigado")
+# Não são "tratados": o achado continua sendo reavaliado a cada rodada (a correção pode chegar ao apt, o paliativo pode ser desfeito).
+ESTADOS_AGUARDANDO = ("protegido-aguardando", "aguardando-fornecedor")
 NIVEL3_FRASE = "Nova vulnerabilidade de impacto leve/médio. Sugestão: corrija o quanto antes; a correção já está pronta, é só dar o ok."
 
 
@@ -2599,6 +2792,13 @@ def correcao_de(a, ac, boletim_ids):
     # atualizar-sistema: a correção é do sistema operacional, não do DG Claw; segue pelo tipo apt (ou "peça ao Admin") e o painel não a executa.
     # aguardar e parar-servico não são correção: nada é marcado como disponível por causa deles.
     if ubuntu_do_achado(a) and tem_correcao(a):
+        if a.get("apt_instalavel") is False:
+            # o aviso cita uma versão que este servidor ainda não consegue instalar pelo apt: para ele, a correção não saiu
+            c = {"tipo": "nenhuma", "disponivel": False, "executavel": False}
+            citadas = sorted({af["corrigida"] for af in a["afetados"] if af.get("corrigida")})
+            if citadas:
+                c["versao_no_aviso"] = limpa(citadas[0], 40)
+            return c
         c = {"tipo": "apt", "disponivel": True, "executavel": False}
         if any(eh_kernel(af) for af in a["afetados"]):
             c["exige_reinicio"] = True
@@ -2609,7 +2809,7 @@ def correcao_de(a, ac, boletim_ids):
     return {"tipo": "nenhuma", "disponivel": False if so_app else tem_correcao(a), "executavel": False}
 
 
-def texto_como_corrigir(a, corr, ac):
+def texto_base_como_corrigir(a, corr, ac):
     corrigidas = sorted({af["corrigida"] for af in a["afetados"] if af.get("corrigida")})
     cd = f" (versão corrigida: {limpa(corrigidas[0], 40)})" if corrigidas else ""
     t = corr["tipo"]
@@ -2629,14 +2829,41 @@ def texto_como_corrigir(a, corr, ac):
     return "Ainda não há correção publicada. A ronda continua de olho e avisa quando sair."
 
 
+def texto_como_corrigir(a, corr, ac, estado="aberto", pal=None):
+    no_aviso = f" (O aviso cita a versão {corr['versao_no_aviso']}, que ainda não chegou ao apt deste servidor.)" if corr.get("versao_no_aviso") else ""
+    if estado == "protegido-aguardando":
+        return (f"O fornecedor ainda não publicou a correção para este servidor. Enquanto isso, a proteção provisória está ativa: "
+                f"{pal['descricao']} (conferida em {data_br(pal['verificado_em'])}). Quando a correção sair, a ronda avisa para atualizar.{no_aviso}")
+    if estado == "aguardando-fornecedor":
+        return ("O fornecedor ainda não publicou a correção para este servidor, e não existe proteção provisória conhecida. "
+                f"Não há nada a fazer agora: a ronda confere a cada rodada e avisa quando a correção sair.{no_aviso}")
+    if corr.get("paliativo"):
+        return (f"Existe uma proteção provisória enquanto a correção oficial não sai: {pal['descricao']}. {pal['efeito']} "
+                f"Aplique pelo botão do painel ou com: sudo dgclaw seguranca aplicar {a['id']}.{no_aviso}")
+    if estado == "aberto" and not corr["disponivel"] and a.get("kev"):
+        return ("Esta falha está sendo explorada por criminosos, e não há correção instalável nem proteção provisória conhecida. "
+                f"Considere o botão de emergência (Tirar do ar) ou fale com o Admin.{no_aviso}")
+    t = texto_base_como_corrigir(a, corr, ac)
+    if pal and pal["verificado"] and estado == "aberto":
+        if any(eh_kernel(af) for af in a["afetados"]):
+            return f"{t} A proteção provisória ({pal['descricao']}) pode continuar ligada."
+        return f"{t} A proteção provisória ({pal['descricao']}) está ativa enquanto isso."
+    return t
+
+
 def texto_antes_depois(d):
     if not isinstance(d, dict):
         return ""
     return ", ".join(f"{k} {limpa(v, 60)}" if k in ("versao", "valor") else f"{k}: {limpa(v, 60)}" for k, v in d.items() if v is not None)
 
 
-def contrato_achado(cfg, a, nivel, estado, reg, ac, boletim_ids, aplicado):
-    corr = correcao_de(a, ac, boletim_ids)
+def paliativo_do_contrato(pal):
+    if not pal:
+        return None
+    return {k: pal[k] for k in ("id", "descricao", "efeito", "verificado", "verificado_em", "acao_id")}
+
+
+def contrato_achado(cfg, a, nivel, estado, reg, ac, corr, aplicado, pal=None):
     ondes = []
     for af in a["afetados"]:
         o = limpa(af["onde"], 160)
@@ -2646,10 +2873,12 @@ def contrato_achado(cfg, a, nivel, estado, reg, ac, boletim_ids, aplicado):
     o = {"id": a["id"], "aliases": [x.upper() for x in a["aliases"] if RX_ID.match(x)][:10], "nivel": nivel, "severidade": a["severidade"],
          "nome_simples": nome_simples(cfg, a), "componente": limpa(a["componente"], 80), "publicado_em": iso(pub) if pub else None,
          "fonte_url": a["fonte_oficial"], "noticia_url": url_https(a.get("noticia_url")), "onde": ondes[:5] or ["não casou com versão instalada"],
-         "o_que_faz": resumo_curto(a), "como_corrigir": texto_como_corrigir(a, corr, ac), "correcao": corr, "estado": estado,
+         "o_que_faz": resumo_curto(a), "como_corrigir": texto_como_corrigir(a, corr, ac, estado, pal), "correcao": corr, "estado": estado,
          "aplicado": aplicado, "primeira_vez_em": reg["primeira_vez_em"]}
     if a.get("kev"):
         o["explorada_ativamente"] = True
+    if pal:
+        o["paliativo"] = paliativo_do_contrato(pal)
     return o
 
 
@@ -2813,10 +3042,24 @@ def pode_sozinha(ac):
 
 
 def conta_niveis(achados):
+    """Conta só o que pede alguma coisa de alguém; os que aguardam a correção do fornecedor têm contagem própria."""
     n = {1: 0, 2: 0, 3: 0}
     for a in achados:
-        n[a["nivel"]] = n.get(a["nivel"], 0) + 1
+        if a.get("estado") not in ESTADOS_AGUARDANDO:
+            n[a["nivel"]] = n.get(a["nivel"], 0) + 1
     return n
+
+
+def conta_aguardando(achados):
+    """{'total': achados sem correção instalável, 'protegidos': quantos deles têm proteção provisória ativa}."""
+    espera = [a for a in achados if a.get("estado") in ESTADOS_AGUARDANDO]
+    return {"total": len(espera), "protegidos": sum(1 for a in espera if a["estado"] == "protegido-aguardando")}
+
+
+def frase_aguardando(ag):
+    if not ag["total"]:
+        return ""
+    return f"{ag['total']} aguardando correção oficial, {ag['protegidos']} deles protegidos"
 
 
 def motivo_inventario(inv):
@@ -2875,6 +3118,26 @@ def ainda_no_osv(aid, reg, por_pacote):
     if not pares:
         pares = {par for par in por_pacote if par[1] == reg.get("componente")}
     return any(ids & por_pacote.get(par, set()) for par in pares)
+
+
+def tenta_aplicar_sozinha(cfg, a, ac, reg, t0, sem_avisar):
+    """Aplica `ac` sem o dono, com teste de saúde antes e depois. Devolve o registro gravado, ou None (e anota a falha no `reg`,
+    para a ronda não insistir) quando não pôde ou não deu certo."""
+    ok, motivo = pode_sozinha(ac)
+    if not ok:
+        log_linha(f"ACAO não aplicada sozinha em {a['id']}: {motivo}")
+        return None
+    try:
+        return aplicar_acao(cfg, a["id"], ac, "ronda de segurança (sozinha)", exigir_saude_antes=True)
+    except ErroRonda as e:
+        reg["auto_falhou_em"] = iso(t0)
+        reg["auto_motivo"] = limpa(e, 300)
+        log_linha(f"ACAO NAO aplicada sozinha em {a['id']}: {e}")
+        if isinstance(e, ErroDesfazerFalhou):
+            reg["desfazer_falhou_registro"] = e.registro
+            if not sem_avisar:
+                avisa_admin(texto_recado_desfazer_falhou(e.achado, e.registro))
+        return None
 
 
 def _rodada(cfg, sem_avisar):
@@ -2939,7 +3202,14 @@ def _rodada(cfg, sem_avisar):
             cat_erro = None
         except ErroRonda as e:
             catalogo, cat_erro = [], str(e)
+        try:
+            paliativos = carregar_paliativos(None if cat_erro else catalogo)
+            pal_erro = None
+        except ErroRonda as e:
+            paliativos, pal_erro = [], str(e)
         boletim_ids = boletins_pendentes()
+        ctx["apt"] = apt_candidatos(pacotes_para_apt(elegiveis, inv))
+        pal_verificados = {}
         reg_all = est["achados"]
         for k in [k for k in reg_all if k != k.upper()]:
             reg_all.setdefault(k.upper(), reg_all[k])
@@ -2967,28 +3237,49 @@ def _rodada(cfg, sem_avisar):
             reg["componente"] = limpa(a["componente"], 80)
             if reg.get("estado") == "agendado":
                 estado = "agendado"
+            a["apt_instalavel"] = apt_instalavel(a, ctx["apt"], inv)
+            corr = correcao_de(a, ac, boletim_ids)
+            pal = paliativo_do_achado(a, paliativos, catalogo, pal_verificados, t0)
+            # Pacote do próprio DG Claw com correção na origem: quem entrega é a equipe do DG Claw (boletim), então segue como antes.
+            do_dgclaw = bool(a["afetados"]) and all(str(af.get("onde", "")).startswith("DG Claw") for af in a["afetados"]) and tem_correcao(a)
+            sem_correcao = not corr["disponivel"] and not do_dgclaw
+            pal_oferta = None   # a ação do paliativo que o dono pode aplicar (ou a ronda, sozinha)
+            if pal and not pal["verificado"] and sem_correcao and pal["_acao"] and estado == "aberto":
+                pal_oferta = pal["_acao"]
+                corr = {"tipo": "acao-catalogo", "acao_id": pal_oferta["id"], "exige_reinicio": exige_reinicio_declarado(pal_oferta),
+                        "disponivel": True, "executavel": True, "paliativo": True}
             if nivel == 2 and ac and estado == "aberto" and aplicar_sozinha_ligado() and not reg.get("auto_falhou_em"):
-                ok, motivo = pode_sozinha(ac)
-                if ok:
-                    try:
-                        r = aplicar_acao(cfg, a["id"], ac, "ronda de segurança (sozinha)", exigir_saude_antes=True)
-                        nivel, estado, aplicado = 1, "aplicado-sozinho", aplicado_do_registro(r)
-                        reg.update(estado=estado, tratado_em=iso(t0), acao_id=ac["id"], como_tratado=limpa(ac["descricao"], 160), registro=r["registro"],
-                                   tipo_acao=ac["tipo"], aplicado=aplicado)
-                        aplicados_agora.append(a["id"])
-                        log_linha(f"ACAO aplicada sozinha: {a['id']} com {ac['id']} (registro {r['registro']})")
-                    except ErroRonda as e:
-                        reg["auto_falhou_em"] = iso(t0)
-                        reg["auto_motivo"] = limpa(e, 300)
-                        log_linha(f"ACAO NAO aplicada sozinha em {a['id']}: {e}")
-                        if isinstance(e, ErroDesfazerFalhou):
-                            reg["desfazer_falhou_registro"] = e.registro
-                            if not sem_avisar:
-                                avisa_admin(texto_recado_desfazer_falhou(e.achado, e.registro))
-                else:
-                    log_linha(f"ACAO não aplicada sozinha em {a['id']}: {motivo}")
-            o = contrato_achado(cfg, a, nivel, estado, reg, ac, boletim_ids, aplicado)
-            if reg.get("auto_motivo") and nivel == 2:
+                r = tenta_aplicar_sozinha(cfg, a, ac, reg, t0, sem_avisar)
+                if r:
+                    nivel, estado, aplicado = 1, "aplicado-sozinho", aplicado_do_registro(r)
+                    reg.update(estado=estado, tratado_em=iso(t0), acao_id=ac["id"], como_tratado=limpa(ac["descricao"], 160), registro=r["registro"],
+                               tipo_acao=ac["tipo"], aplicado=aplicado)
+                    aplicados_agora.append(a["id"])
+                    log_linha(f"ACAO aplicada sozinha: {a['id']} com {ac['id']} (registro {r['registro']})")
+            elif pal_oferta and aplicar_sozinha_ligado() and pal["_pode_sozinho"] and not reg.get("auto_falhou_em"):
+                r = tenta_aplicar_sozinha(cfg, a, pal_oferta, reg, t0, sem_avisar)
+                if r:
+                    # paliativo não é tratamento: o estado do registro segue "aberto" e o achado é reavaliado toda rodada
+                    aplicado = aplicado_do_registro(r)
+                    reg.update(acao_id=pal_oferta["id"], como_tratado=limpa(pal_oferta["descricao"], 160), registro=r["registro"],
+                               tipo_acao=pal_oferta["tipo"], aplicado=aplicado, paliativo_aplicado={"em": iso(t0), "acao_id": pal_oferta["id"]})
+                    pal.update(verificado=True, verificado_em=iso(t0))
+                    pal_oferta, corr = None, correcao_de(a, ac, boletim_ids)
+                    log_linha(f"ACAO aplicada sozinha (paliativo): {a['id']} com {pal['acao_id']} (registro {r['registro']})")
+            if estado == "aberto" and sem_correcao:
+                if pal and pal["verificado"]:
+                    estado = "protegido-aguardando"
+                elif not pal_oferta and not a.get("kev"):
+                    estado = "aguardando-fornecedor"
+            if not (pal and pal["verificado"]):
+                reg.pop("paliativo_aplicado", None)   # alguém voltou a configuração: o que a ronda aplicou deixou de valer
+            elif aplicado is None and reg.get("paliativo_aplicado") and isinstance(reg.get("aplicado"), dict):
+                aplicado = reg["aplicado"]
+            if estado == "aberto" and reg.get("estado_contrato") in ESTADOS_AGUARDANDO:
+                reg["avisado_em"] = None   # a correção chegou (ou a proteção caiu): ponto novo para o recado e para o aviso do painel
+            reg["estado_contrato"] = estado
+            o = contrato_achado(cfg, a, nivel, estado, reg, ac, corr, aplicado, pal)
+            if reg.get("auto_motivo") and nivel == 2 and estado == "aberto":
                 o["como_corrigir"] = limpa("A aplicação sozinha não deu certo: " + reg["auto_motivo"], 300) + " " + o["como_corrigir"]
             reg["ultimo"] = o
             reg["pacotes"] = sorted({(af.get("eco"), af.get("pacote"), str(af.get("versao") or "")) for af in a["afetados"] if af.get("eco") and af.get("pacote")})[:40]
@@ -3044,12 +3335,15 @@ def _rodada(cfg, sem_avisar):
         # a ronda lista só o que está de fato no resultado; o resto do registro fica quieto
         presentes = {o["id"] for o in resultado}
         novos = [o for o in resultado if o["nivel"] == 1 and o["id"] in aplicados_agora
-                 or (o["nivel"] in (2, 3) and reg_all.get(o["id"], {}).get("avisado_em") is None and o["id"] in presentes)]
+                 or (o["nivel"] in (2, 3) and o["estado"] not in ESTADOS_AGUARDANDO
+                     and reg_all.get(o["id"], {}).get("avisado_em") is None and o["id"] in presentes)]
         # --- fontes e ronda.json
         fontes = [{"nome": n, "ok": s["ok"], "motivo": None if s["ok"] else limpa(s["detalhe"], 300)} for n, s in status.items() if not s.get("desligada")]
         fontes.append({"nome": "Inventário local", "ok": not (inv.get("avisos") or incompletos), "motivo": motivo_inventario(inv)})
         if cat_erro:
             fontes.append({"nome": "Catálogo de ações", "ok": False, "motivo": limpa(cat_erro, 300)})
+        if pal_erro:
+            fontes.append({"nome": "Catálogo de paliativos", "ok": False, "motivo": limpa(pal_erro, 300)})
         parcial = any(not f["ok"] for f in fontes)
         pico = round(pico_mb())
         doc = {"versao": 1, "rodada_em": iso(t0), "proxima_em": iso(proxima_execucao(t0)), "parcial": parcial, "vigia_alerta": None, "fontes": fontes,
@@ -3089,7 +3383,7 @@ def _rodada(cfg, sem_avisar):
                             f"Sem ele a ronda não confirma nada. Tento de novo na próxima rodada.")
         elif n_ok * 2 < len(ativas):
             motivo_falha = f"Só {n_ok} de {len(ativas)} fontes responderam (menos da metade). Confira a conexão do servidor com a internet."
-        est["ultima_rodada"] = {"em": iso(t0), "parcial": parcial, "niveis": conta_niveis(resultado), "ja_tratadas": len(ja)}
+        est["ultima_rodada"] = {"em": iso(t0), "parcial": parcial, "niveis": conta_niveis(resultado), "aguardando": conta_aguardando(resultado), "ja_tratadas": len(ja)}
         if motivo_falha:
             est["ultimo_erro"] = motivo_falha
             doc["ultima_falha"] = {"em": iso(t0), "motivo": limpa(motivo_falha, 400)}
@@ -3099,15 +3393,16 @@ def _rodada(cfg, sem_avisar):
         grava_estado(est)
         grava_json(c["cache"], cache, 0o600)
         n = conta_niveis(resultado)
+        ag = conta_aguardando(resultado)
         log_linha(f"{'ERRO' if motivo_falha else 'ok'} {'PARCIAL ' if parcial else ''}componentes={len(inv['componentes'])} fontes_ok={n_ok}/{len(ativas)} "
                   f"memoria_pico_mb={pico}{' economico' if modo_economico() else ''} "
-                  f"nivel1={n[1]} nivel2={n[2]} nivel3={n[3]} novos={len(novos)} recado={'enviado' if entregue else ('nao' if entregue is not None else '-')}")
+                  f"nivel1={n[1]} nivel2={n[2]} nivel3={n[3]} aguardando={ag['total']} protegidos={ag['protegidos']} novos={len(novos)} recado={'enviado' if entregue else ('nao' if entregue is not None else '-')}")
         imprime(f"Ronda concluída{' (PARCIAL)' if parcial else ''}. Achados: {n[1]} aplicado(s) sozinho (nível 1), {n[2]} pedem decisão (nível 2), "
-              f"{n[3]} para corrigir sem pressa (nível 3); {len(ja)} já tratado(s).")
+              f"{n[3]} para corrigir sem pressa (nível 3); {len(ja)} já tratado(s)." + (f" {frase_aguardando(ag)}." if ag["total"] else ""))
         for nome, s in status.items():
             imprime(f"  {'DESLIG' if s.get('desligada') else ('OK    ' if s['ok'] else 'FALHOU')} {nome}: {limpa(s['detalhe'], 220)}")
         for f in fontes:
-            if not f["ok"] and f["nome"] in ("Inventário local", "Catálogo de ações"):
+            if not f["ok"] and f["nome"] in ("Inventário local", "Catálogo de ações", "Catálogo de paliativos"):
                 imprime(f"  AVISO  {limpa(f['nome'], 60)}: {externo(f['motivo'], 300)}")
         if motivo_falha:
             imprime(f"[ronda] FALHOU: {motivo_falha}", file=sys.stderr)
@@ -3303,18 +3598,27 @@ def acao_do_achado(ach, catalogo):
     return ac
 
 
-def marcar_aplicado(aid, reg, estado):
+def marcar_aplicado(aid, reg, estado, paliativo=False):
+    """Paliativo não é tratamento: o contrato mostra 'protegido-aguardando', mas o registro do estado segue 'aberto', porque a
+    próxima rodada precisa reavaliar (a correção pode chegar ao apt, a proteção pode ser desfeita)."""
     c = caminhos()
     t0 = agora()
     r = le_json(c["ronda"], None)
     if isinstance(r, dict):
         for a in r.get("achados") or []:
             if str(a.get("id", "")).upper() == aid:
-                a["estado"], a["aplicado"] = estado, aplicado_do_registro(reg)
+                a["estado"], a["aplicado"] = ("protegido-aguardando" if paliativo else estado), aplicado_do_registro(reg)
+                if paliativo and isinstance(a.get("paliativo"), dict):
+                    a["paliativo"].update(verificado=True, verificado_em=iso(t0))
         grava_ronda(r)
     est = ler_estado()
     rg = est["achados"].setdefault(aid, {"primeira_vez_em": iso(t0), "avisado_em": iso(t0)})
-    rg.update(estado=estado, tratado_em=iso(t0), acao_id=reg["acao_id"], como_tratado=reg["descricao"], registro=reg["registro"], tipo_acao=reg["tipo"])
+    rg.update(acao_id=reg["acao_id"], como_tratado=reg["descricao"], registro=reg["registro"], tipo_acao=reg["tipo"])
+    if paliativo:
+        rg.update(estado="aberto", aplicado=aplicado_do_registro(reg), paliativo_aplicado={"em": iso(t0), "acao_id": reg["acao_id"]})
+        rg.pop("agendado_para", None)
+    else:
+        rg.update(estado=estado, tratado_em=iso(t0))
     rg["avisado_em"] = rg.get("avisado_em") or iso(t0)
     grava_estado(est)
 
@@ -3323,7 +3627,7 @@ def aplicar_por_id(cfg, aid, por):
     """Quem chama já segura a trava."""
     aid = str(aid).upper()
     ach = achado_do_contrato(aid)
-    if ach.get("estado") in ESTADOS_TRATADOS:
+    if ach.get("estado") in ESTADOS_TRATADOS + ("protegido-aguardando",):
         raise ErroRonda(f"O achado {aid} já foi tratado ({ach['estado']}). Para voltar atrás: sudo dgclaw seguranca desfazer <registro>.")
     ac = acao_do_achado(ach, carregar_catalogo())
     try:
@@ -3332,7 +3636,7 @@ def aplicar_por_id(cfg, aid, por):
         log_linha(f"ACAO NAO desfeita depois de falhar em {aid}: {e}")
         avisa_admin(texto_recado_desfazer_falhou(e.achado, e.registro))
         raise
-    marcar_aplicado(aid, reg, "aplicado-pelo-dono")
+    marcar_aplicado(aid, reg, "aplicado-pelo-dono", paliativo=bool(ac.get("paliativo")))
     log_linha(f"ACAO aplicada por {por}: {aid} com {ac['id']} (registro {reg['registro']})")
     msg = f"Ação '{ac['id']}' aplicada ao achado {aid}. Registro: {reg['registro']}. Para desfazer: sudo dgclaw seguranca desfazer {reg['registro']}."
     if reg["exige_reinicio_agora"]:
@@ -3393,12 +3697,16 @@ def desfazer_core(registro):
     if rg and rg.get("registro") == nome:
         rg.update(estado="aberto", avisado_em=None, auto_falhou_em=iso(agora()), auto_motivo="desfeito pelo dono")
         rg.pop("tratado_em", None)
+        if rg.pop("paliativo_aplicado", None):
+            rg.pop("aplicado", None)
         grava_estado(est)
     rj = le_json(caminhos()["ronda"], None)
     if isinstance(rj, dict):
         for a in rj.get("achados") or []:
             if a.get("id") == reg.get("achado"):
                 a["estado"], a["aplicado"] = "aberto", None
+                if isinstance(a.get("paliativo"), dict):
+                    a["paliativo"].update(verificado=False, verificado_em=None)
         grava_ronda(rj)
     log_linha(f"ACAO desfeita: {nome}")
     return f"Desfeito: {reg['descricao']} (achado {reg.get('achado')}). O achado volta a aparecer como aberto na próxima rodada."
@@ -3468,7 +3776,9 @@ def desfazer_do_achado(aid):
     else:
         rg = ler_estado()["achados"].get(aid) or {}
         estado, registro = rg.get("estado"), rg.get("registro")
-    if estado not in ESTADOS_TRATADOS or not registro:
+        if rg.get("paliativo_aplicado"):
+            estado = "protegido-aguardando"
+    if estado not in ESTADOS_TRATADOS + ("protegido-aguardando",) or not registro:
         raise ErroRonda(f"O achado {aid} não tem uma ação aplicada para desfazer (estado: {limpa(estado, 30)}).")
     return desfazer_core(registro)
 
@@ -3558,7 +3868,7 @@ def resumo(todos=False, como_json=False):
                        "componente": externo(a["componente"], 80), "publicado_em": a.get("publicado_em"), "fonte_url": url_https(a.get("fonte_url")),
                        "noticia_url": url_https(a.get("noticia_url")), "onde": [externo(o, 160) for o in a.get("onde") or []][:5],
                        "o_que_faz": externo(a.get("o_que_faz"), 240), "como_corrigir": externo(a.get("como_corrigir"), 400),
-                       "correcao": a.get("correcao"), "aplicado": a.get("aplicado")})
+                       "correcao": a.get("correcao"), "aplicado": a.get("aplicado"), "paliativo": a.get("paliativo")})
     dados = {"rodada_em": r["rodada_em"], "parcial": r["parcial"], "fontes_fora": [{"nome": limpa(f["nome"], 60), "motivo": externo(f.get("motivo"), 200)} for f in r["fontes"] if not f["ok"]],
              "achados": limpos, "ja_tratadas": [{"id": j["id"], "componente": externo(j["componente"], 60), "como": externo(j["como"], 160)} for j in r.get("ja_tratadas") or []]}
     if como_json:
@@ -3574,14 +3884,18 @@ def resumo(todos=False, como_json=False):
         imprime()
         imprime("Nenhum achado novo nesta rodada.")
     cab = {1: "✅ APLICADO SOZINHO (nível 1)", 2: "🔴 AÇÃO NECESSÁRIA (nível 2)", 3: "🟡 PARA CORRIGIR SEM PRESSA (nível 3)"}
-    for nivel in (1, 2, 3):
-        grupo = [a for a in limpos if a["nivel"] == nivel]
+    espera = [a for a in limpos if a["estado"] in ESTADOS_AGUARDANDO]
+    grupos = [(f"== {cab[n]} ==", [a for a in limpos if a["nivel"] == n and a["estado"] not in ESTADOS_AGUARDANDO], n) for n in (1, 2, 3)]
+    grupos.append(("== ⏳ AGUARDANDO CORREÇÃO OFICIAL (nada a fazer agora) ==", espera, 0))
+    for titulo, grupo, nivel in grupos:
         if not grupo:
             continue
         imprime()
-        imprime(f"== {cab[nivel]} ==")
+        imprime(titulo)
         if nivel == 3:
             imprime(f"Frase para o dono: {NIVEL3_FRASE}")
+        if nivel == 0:
+            imprime("Estas falhas ainda não têm correção publicada pelo fornecedor. A ronda confere a cada rodada e avisa quando a correção sair.")
         for a in grupo:
             imprime()
             imprime(a["nome_simples"])
@@ -3590,6 +3904,9 @@ def resumo(todos=False, como_json=False):
             imprime(f"  🎯 onde afeta: {'; '.join(a['onde'])}")
             imprime(f"  💥 o que faz: {a['o_que_faz']}")
             imprime(f"  ✅ como corrigir: {a['como_corrigir']}")
+            pl = a.get("paliativo")
+            if isinstance(pl, dict) and pl.get("verificado"):
+                imprime(f"  🛡️ proteção provisória ativa: {externo(pl.get('descricao'), 200)}")
             if a.get("aplicado"):
                 ap = a["aplicado"]
                 imprime(f"  aplicado em {data_br(ap.get('em'))}: antes {limpa(ap.get('antes'), 100)}; depois {limpa(ap.get('depois'), 100)}. Para desfazer: sudo dgclaw seguranca desfazer {limpa(ap.get('registro'), 120)}")
@@ -3616,12 +3933,12 @@ def estado_cmd(como_json=False):
     est = ler_estado()
     t0 = agora()
     info = {"ronda_ligada": not ronda_desligada(), "aplicar_sozinha": aplicar_sozinha_ligado(), "horarios": horarios(), "proxima_em": iso(proxima_execucao(t0)),
-            "ultima_rodada": None, "parcial": None, "fontes_fora": [], "niveis": {"1": 0, "2": 0, "3": 0}, "ja_tratadas": 0, "ultimo_erro": limpa(est.get("ultimo_erro"), 300) or None,
+            "ultima_rodada": None, "parcial": None, "fontes_fora": [], "niveis": {"1": 0, "2": 0, "3": 0}, "aguardando_correcao": {"total": 0, "protegidos": 0}, "ja_tratadas": 0, "ultimo_erro": limpa(est.get("ultimo_erro"), 300) or None,
             "vigia_alerta": None, "inventario": None}
     if isinstance(r, dict) and r.get("rodada_em"):
         n = conta_niveis(r["achados"])
         info.update(ultima_rodada=r["rodada_em"], parcial=r["parcial"], fontes_fora=[{"nome": limpa(f["nome"], 60), "motivo": limpa(f.get("motivo"), 200)} for f in r["fontes"] if not f["ok"]],
-                    niveis={str(k): v for k, v in n.items()}, ja_tratadas=len(r.get("ja_tratadas") or []), vigia_alerta=alerta_limpo(r.get("vigia_alerta")),
+                    niveis={str(k): v for k, v in n.items()}, aguardando_correcao=conta_aguardando(r["achados"]), ja_tratadas=len(r.get("ja_tratadas") or []), vigia_alerta=alerta_limpo(r.get("vigia_alerta")),
                     inventario={"componentes": r["inventario"]["componentes"], "servicos_externos": len(r["inventario"]["servicos_externos"]),
                                 "reinventariado_em": r["inventario"].get("reinventariado_em")})
     if como_json:
@@ -3638,6 +3955,8 @@ def estado_cmd(como_json=False):
             imprime(f"  ⚠️ fonte fora: {f['nome']}: {externo(f['motivo'], 200)}")
         n = info["niveis"]
         imprime(f"Achados: {n['1']} aplicado(s) sozinho (nível 1), {n['2']} pedem decisão (nível 2), {n['3']} para corrigir sem pressa (nível 3); {info['ja_tratadas']} já tratado(s).")
+        if info["aguardando_correcao"]["total"]:
+            imprime(f"Sem correção publicada para este servidor: {frase_aguardando(info['aguardando_correcao'])}. Nada a fazer agora; a ronda avisa quando a correção sair.")
     imprime(f"Próxima rodada: {proxima_execucao(t0).strftime('%d/%m/%Y %H:%M')} (horários: {' '.join(info['horarios'])})")
     imprime(f"Aplicar sozinha o que for seguro: {'ligado' if info['aplicar_sozinha'] else 'DESLIGADO (DGCLAW_RONDA_APLICAR_SOZINHA=0)'}")
     if info["inventario"]:

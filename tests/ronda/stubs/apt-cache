@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# apt-cache de mentira: "policy <pacotes...>" responde com $STUB_DIR/apt_candidatos.txt (pacote<TAB>candidato; "(none)" = sem candidato).
+# Sem esse arquivo o comando falha como um apt quebrado, e a ronda cai no comportamento antigo (confia no aviso).
+echo "apt-cache $*" >>"$STUB_DIR/chamadas.log"
+[ -f "$STUB_DIR/apt_candidatos.txt" ] || { echo "E: The cache has no stub answer" >&2; exit 100; }
+[ "$1" = policy ] || exit 0
+shift
+for p in "$@"; do
+    awk -F'\t' -v p="$p" '$1==p {printf "%s:\n  Installed: %s\n  Candidate: %s\n  Version table:\n", p, $2 == "" ? "(none)" : $2, $2; f=1} END {exit !f}' "$STUB_DIR/apt_candidatos.txt" || true
+done
+exit 0

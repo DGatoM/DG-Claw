@@ -33,6 +33,7 @@ Escreve: `seguranca/ronda/ronda.py` (motor). Lê: `web/lib/ronda-painel.js` (pai
                                        // disponivel: o fabricante já publicou a correção
                                        // executavel: true só para acao-catalogo válida no catálogo (o executor recusa o resto)
     "estado": "aberto",                // aberto | aplicado-sozinho | aplicado-pelo-dono | mitigado | agendado
+                                       // | protegido-aguardando | aguardando-fornecedor (veja "Sem correção instalável")
     "aplicado": null,                  // {"em", "acao_id", "antes", "depois", "desfazer"} quando aplicado
     "primeira_vez_em": "2026-10-31T10:00:00Z"
   }],
@@ -70,7 +71,7 @@ algum serviço."). `ronda.json` antigo, sem o campo, vale como `false`.
 Tipos de pedido novos, além de `aplicar`, `agendar`, `emergencia-cortar` e `emergencia-religar`:
 
 - `"emergencia-preparar"`: o root roda `dgclaw emergencia preparar --json` e grava a saída em `dados` do resultado.
-- `"desfazer"`: `id` é o do achado com `estado: "aplicado-sozinho"` e `aplicado.desfazer` preenchido.
+- `"desfazer"`: `id` é o do achado com `estado: "aplicado-sozinho"` ou `"protegido-aguardando"` e `aplicado.desfazer` preenchido.
 
 `codigo` (já previsto) vale para `emergencia-cortar` e `emergencia-religar`; o executor roda
 `dgclaw emergencia cortar --codigo <codigo>` / `religar --codigo <codigo>` (a frase TIRAR-DO-AR / RELIGAR é conferida pelo Web, antes de gravar o pedido).
@@ -99,3 +100,58 @@ O motor precisa agendar `dgclaw emergencia estado` (timer de 10 min e depois de 
 - `pedidos/feitos/<uuid>.json` leva `dados` só nos pedidos que devolvem um objeto (`emergencia-preparar`).
 - Pedido: `por` só aceita `[A-Za-z0-9._@-]` (até 64); fora disso o pedido é recusado.
 - `ja_tratadas[].registro` (opcional): presente quando a ação foi aplicada pela ronda ou pelo dono; o pedido `desfazer` com o `id` dele continua valendo depois que o achado saiu da lista de `achados`.
+
+## Sem correção instalável: estados novos e `paliativo` (opcionais, versão 1)
+
+Aditivo: `ronda.json` antigo continua válido, e quem não conhece os estados novos os trata como `aberto`.
+
+**O apt decide se a correção existe.** A versão corrigida que o aviso cita pode ser de outra série de kernel (o aviso diz
+`7.0.0-31.31` num servidor 24.04 que só vê `6.8.0-147`). A cada rodada o motor faz UMA consulta `apt-cache policy` (em lotes de
+200 nomes) e compara o `Candidate` com a versão corrigida (`cmp_dpkg`):
+
+- kernel: vale o maior candidato entre os metapacotes de kernel instalados (os de source `linux-meta*`, como
+  `linux-image-virtual`), guardados em `inventario.json` como `metapacotes_kernel`. Os binários `linux-modules-<abi>` não servem,
+  porque o ABI vai no nome e o candidato deles nunca muda. Versão de metapacote no formato antigo (`5.15.0.91.88`) é
+  normalizada para `5.15.0-91.88` antes de comparar.
+- outros pacotes do Ubuntu: os candidatos dos binários do afetado (`afetados[].binarios`).
+- resultado `True` (instalável), `False` (o apt oferece, mas versão menor) ou `None` (sem `apt-cache`, erro, `Candidate: (none)`,
+  nenhum metapacote). `None` mantém o comportamento antigo: confia no aviso. Só `False` muda algo.
+
+Com `False`, a correção vira `{"tipo": "nenhuma", "disponivel": false, "executavel": false, "versao_no_aviso": "7.0.0-31.31"}`;
+`versao_no_aviso` (opcional) é só para o texto.
+
+**Estados novos de `estado`** (para achados de nível 2 e 3 que hoje seriam `aberto`):
+
+| Estado | Quando | Pede alguma coisa? |
+| --- | --- | --- |
+| `protegido-aguardando` | sem correção instalável e existe um paliativo do catálogo **verificado agora** | não |
+| `aguardando-fornecedor` | sem correção instalável e nenhum paliativo conhecido | não |
+
+Exceção: achado `explorada_ativamente` (KEV) sem correção e sem paliativo verificado nem oferecido fica `aberto`, com o texto
+dizendo que vale considerar o botão de emergência ou falar com o Admin. Achado de pacote do próprio DG Claw com correção na origem
+segue como antes (a equipe do DG Claw avisa por boletim).
+
+**Campo opcional `paliativo`**, presente sempre que um paliativo do catálogo `seguranca/paliativos.json` casa com o achado:
+`{"id", "descricao", "efeito", "verificado": bool, "verificado_em": ISO|null, "acao_id": str|null}`.
+`verificado` é a leitura de verdade do sistema nesta rodada (por exemplo `sysctl -n`), não importa quem configurou.
+
+Regras da rodada:
+
+1. correção instalável (apt `True`/`None`, ação do catálogo que não é paliativo, `atualizar-dgclaw`): `aberto`, como sempre. Se houver
+   paliativo verificado, o texto diz que a proteção provisória está ativa enquanto isso.
+2. sem correção instalável e paliativo verificado: `protegido-aguardando`.
+3. sem correção instalável, paliativo casado e **não** verificado, com `acao_id`: `aberto`, com
+   `correcao = {"tipo": "acao-catalogo", "acao_id", "exige_reinicio": false, "disponivel": true, "executavel": true, "paliativo": true}`
+   (o painel oferece Aplicar). Com `DGCLAW_RONDA_APLICAR_SOZINHA` ligado e `pode_sozinho: true`, a ronda aplica na hora, com o mesmo
+   teste de saúde do nível 1, e o achado sai `protegido-aguardando` com `aplicado` preenchido (dá para desfazer).
+4. sem correção instalável e sem paliativo: `aguardando-fornecedor` (ou `aberto` se KEV).
+
+**Paliativo nunca é tratamento.** Aplicado (sozinho ou pelo dono), o registro interno fica `aberto` e o achado é reavaliado a
+cada rodada. Quando o pacote corrigido chega ao apt, volta a `aberto` pedindo atualizar (e reiniciar, no kernel), com `avisado_em`
+zerado: o Admin recebe o recado e o aviso do painel trata como ponto novo. Quando a proteção deixa de ser verificada (alguém voltou
+o `sysctl`), volta a `aberto` com a oferta de Aplicar. A ação de catálogo com `"paliativo": true` não é devolvida como correção
+definitiva por `acao_do_catalogo`.
+
+`protegido-aguardando` e `aguardando-fornecedor` ficam fora do recado ao Admin (`novos`) e fora da contagem por nível de
+`dgclaw seguranca estado` (que mostra `aguardando_correcao: {"total", "protegidos"}` à parte). O pedido `desfazer` e a rota
+`POST /ronda/<id>/desfazer` aceitam `protegido-aguardando` com `aplicado.desfazer` preenchido.

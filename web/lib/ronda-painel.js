@@ -35,7 +35,9 @@ const RX_PROIBIDO_G = new RegExp(`[${INVISIVEIS}]`, 'g');
 const SEVERIDADES = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'desconhecida'];
 const PESO = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, desconhecida: 4 };
 const TIPOS_CORRECAO = ['acao-catalogo', 'atualizar-dgclaw', 'apt', 'nenhuma'];
-const ESTADOS = ['aberto', 'aplicado-sozinho', 'aplicado-pelo-dono', 'mitigado', 'agendado'];
+const ESTADOS = ['aberto', 'aplicado-sozinho', 'aplicado-pelo-dono', 'mitigado', 'agendado', 'protegido-aguardando', 'aguardando-fornecedor'];
+// Estados em que a falha está sem correção instalável: informativos, não pedem decisão. O painel só deixa desfazer o que já foi aplicado.
+const ESTADOS_DESFAZIVEIS = ['aplicado-sozinho', 'protegido-aguardando'];
 
 const idAchado = (v) => (typeof v === 'string' && RX_ID_ACHADO.test(v) ? v.toUpperCase() : null);
 
@@ -78,6 +80,21 @@ function validaAchado(a) {
     // só a ação do catálogo pode ser aplicada ou agendada pelo painel; o resto vai ao Admin
     executavel: c.executavel === true && c.tipo === 'acao-catalogo',
   };
+  if (c.paliativo === true && c.tipo === 'acao-catalogo') correcao.paliativo = true;
+  const versaoNoAviso = txt(c.versao_no_aviso, 40);
+  if (versaoNoAviso) correcao.versao_no_aviso = versaoNoAviso;
+  let paliativo = null;
+  if (a.paliativo && typeof a.paliativo === 'object' && !Array.isArray(a.paliativo)) {
+    const p = a.paliativo;
+    paliativo = {
+      id: typeof p.id === 'string' && RX_ACAO.test(p.id) ? p.id : null,
+      descricao: txt(p.descricao, 200),
+      efeito: txt(p.efeito, 300),
+      verificado: p.verificado === true,
+      verificado_em: data(p.verificado_em),
+      acao_id: typeof p.acao_id === 'string' && RX_ACAO.test(p.acao_id) ? p.acao_id : null,
+    };
+  }
   let aplicado = null;
   if (a.aplicado && typeof a.aplicado === 'object' && !Array.isArray(a.aplicado)) {
     const d = a.aplicado.desfazer;
@@ -90,24 +107,24 @@ function validaAchado(a) {
     };
   }
   const aliases = lista(a.aliases, 10).map(idAchado).filter(Boolean);
-  return {
-    achado: {
-      id, aliases, nivel,
-      severidade: SEVERIDADES.includes(a.severidade) ? a.severidade : 'desconhecida',
-      nome_simples: nome,
-      componente: txt(a.componente, 80),
-      publicado_em: data(a.publicado_em),
-      fonte_url: fonte,
-      noticia_url: urlHttps(a.noticia_url),
-      onde: lista(a.onde, 10).map((x) => txt(x, 200)).filter(Boolean),
-      o_que_faz: txt(a.o_que_faz, 500),
-      como_corrigir: txt(a.como_corrigir, 500),
-      correcao,
-      estado: ESTADOS.includes(a.estado) ? a.estado : 'aberto',
-      aplicado,
-      primeira_vez_em: data(a.primeira_vez_em),
-    },
+  const achado = {
+    id, aliases, nivel,
+    severidade: SEVERIDADES.includes(a.severidade) ? a.severidade : 'desconhecida',
+    nome_simples: nome,
+    componente: txt(a.componente, 80),
+    publicado_em: data(a.publicado_em),
+    fonte_url: fonte,
+    noticia_url: urlHttps(a.noticia_url),
+    onde: lista(a.onde, 10).map((x) => txt(x, 200)).filter(Boolean),
+    o_que_faz: txt(a.o_que_faz, 500),
+    como_corrigir: txt(a.como_corrigir, 700),
+    correcao,
+    estado: ESTADOS.includes(a.estado) ? a.estado : 'aberto',
+    aplicado,
+    primeira_vez_em: data(a.primeira_vez_em),
   };
+  if (paliativo) achado.paliativo = paliativo;
+  return { achado };
 }
 
 function validaInventario(inv) {
@@ -311,8 +328,8 @@ function criarRondaPainel(opcoes) {
     let corpo = {};
     if (tipo === 'agendar') corpo = await H.lerJson(req, 4 * 1024);
     if (tipo === 'desfazer') {
-      if (a.estado !== 'aplicado-sozinho' || !a.aplicado || !a.aplicado.desfazer) {
-        return H.erroJson(res, 409, `O achado ${id} não tem como ser desfeito: só dá para desfazer o que a ronda aplicou sozinha e deixou o caminho de volta registrado.`);
+      if (!ESTADOS_DESFAZIVEIS.includes(a.estado) || !a.aplicado || !a.aplicado.desfazer) {
+        return H.erroJson(res, 409, `O achado ${id} não tem como ser desfeito: só dá para desfazer o que a ronda aplicou sozinha (ou a proteção provisória aplicada) e deixou o caminho de volta registrado.`);
       }
     } else {
       if (a.estado !== 'aberto' && !(a.estado === 'agendado' && tipo === 'aplicar')) {
