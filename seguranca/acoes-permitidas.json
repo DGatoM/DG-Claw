@@ -1,1 +1,15 @@
-{"versao":1,"acoes":[]}
+{
+  "versao": 1,
+  "acoes": [
+    {
+      "id": "sysctl-mptcp-off",
+      "tipo": "sysctl",
+      "chave": "net.mptcp.enabled",
+      "valor": "0",
+      "descricao": "Desligar o MPTCP no kernel (net.mptcp.enabled = 0)",
+      "casa": {"ids": ["CVE-2026-98432"]},
+      "exige_reinicio": false,
+      "paliativo": true
+    }
+  ]
+}

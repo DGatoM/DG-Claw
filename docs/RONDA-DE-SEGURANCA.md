@@ -76,7 +76,8 @@ tem. Para os pacotes do Ubuntu vale a prioridade que o próprio Ubuntu deu, e n�
 
 **Só se corrige sozinho o que uma pessoa escreveu antes** no catálogo `seguranca/acoes-permitidas.json`, que
 vai junto com o DG Claw e só muda por uma nova versão. Nada vem do texto de notícia nem é inventado pela IA. Hoje
-o catálogo começa **vazio**: nesta versão a ronda avisa, mas não mexe em nada. Veja "O catálogo de ações".
+o catálogo tem uma única ação, uma **proteção provisória** (desligar o MPTCP), que a ronda só aplica enquanto a correção
+oficial não existe. Veja "O catálogo de ações" e "Quando a correção ainda não saiu".
 
 Para a ronda não aplicar nada sozinha mesmo quando o catálogo tiver ações, ponha
 `DGCLAW_RONDA_APLICAR_SOZINHA=0` no `dgclaw.env`. As falhas que seriam do nível 1 viram nível 2.
@@ -134,6 +135,38 @@ O catálogo inválido não é usado: a ronda aponta qual ação está errada e s
 Cada aplicação grava um registro em `/var/lib/dgclaw/seguranca/acoes/` com o comando, o estado antes e depois,
 como desfazer e o resultado do teste de saúde (o painel respondendo e os serviços `dgclaw-web` e
 `dgclaw-admin` ativos). Se o teste piorar, a ronda desfaz na hora e o caso vira nível 2.
+
+## Quando a correção ainda não saiu
+
+O aviso de uma falha de kernel pode citar uma versão corrigida que o seu servidor não consegue instalar (é de outra série do
+kernel, ou o Ubuntu ainda não a liberou). Por isso, a cada rodada a ronda pergunta ao `apt` deste servidor (uma consulta só) se a
+versão corrigida já pode ser instalada. Se ainda não pode, a falha **não assusta ninguém**:
+
+| Estado | O que quer dizer | Aparece no aviso "Seu ambiente está em risco"? |
+| --- | --- | --- |
+| **Protegido, aguardando correção oficial** | não há correção para este servidor, mas existe uma proteção provisória e a ronda conferiu que ela está ligada | não |
+| **Aguardando correção do fornecedor** | não há correção nem proteção provisória conhecida | não |
+
+As duas ficam na seção recolhida "Aguardando correção oficial" da tela Segurança, só para informar. A ronda confere a cada
+rodada: quando o pacote corrigido aparece no apt, a falha volta para "Ação necessária" pedindo atualizar (e reiniciar, no kernel), e o Admin
+recebe o recado como de uma falha nova. Exceção: se a CISA diz que a falha está sendo explorada e não existe correção nem
+proteção, ela continua em "Ação necessária", com a sugestão de considerar o botão de emergência.
+
+A **proteção provisória** é uma ação do catálogo marcada `"paliativo": true`, descrita em `seguranca/paliativos.json`. Se ela não
+está ligada, o painel oferece **Aplicar proteção provisória** (ou `sudo dgclaw seguranca aplicar <id>`); com o aplicar sozinha
+ligado e `pode_sozinho: true`, a ronda aplica com o mesmo teste de saúde do nível 1. Dá para desfazer pelo botão **Desfazer** do cartão ou por
+`sudo dgclaw seguranca desfazer <registro>`. O que vale é a leitura de verdade do sistema (por exemplo, `sysctl -n`): configurar à mão
+também conta. Se alguém voltar a configuração, a falha volta a pedir ação.
+
+### Como acrescentar um paliativo novo
+
+1. Em `seguranca/acoes-permitidas.json`, acrescente a ação (`sysctl`, `nft-tabela`...) com `"paliativo": true` e, em `casa.ids`, a CVE.
+2. Em `seguranca/paliativos.json`, acrescente o item: `id` único, `casa.ids` (as CVEs), `descricao` (curta, o que fica ligado), `efeito`
+   (o que muda para quem usa, em português simples), `verifica` (`{"tipo": "sysctl", "chave": "...", "valor": "..."}`), `acao_id` (a ação do passo 1) e
+   `pode_sozinho` (`true` só se a ronda puder aplicar sem ninguém).
+3. Rode `tests/ronda/rodar.sh`: o catálogo é validado no carregamento. Um erro vira a fonte "Catálogo de paliativos" com falha na ronda,
+   sem derrubar o resto.
+4. Para um tipo novo de verificação, acrescente a função em `VERIFICADORES` e os campos em `TIPOS_VERIFICA`, em `ronda.py`.
 
 ## Como desligar ou mudar os horários
 
@@ -216,6 +249,7 @@ recado, **qual** fonte ficou de fora e por quê. Ela nunca parece limpa quando n
 | `seguranca/ronda/config.json` | janelas, tetos e nomes amigáveis |
 | `seguranca/ronda/servicos.json` | o mapa de nomes e pacotes para serviços (Notion, Slack...) |
 | `seguranca/acoes-permitidas.json` | o catálogo fechado de ações |
+| `seguranca/paliativos.json` | as proteções provisórias e como conferir se estão ligadas |
 | `/var/lib/dgclaw/web/seguranca/ronda.json` | o resultado da última rodada (modo 640; o painel lê) |
 | `/var/lib/dgclaw/seguranca/inventario.json` | o inventário desta instalação (modo 600) |
 | `/var/lib/dgclaw/seguranca/rodadas/` | as últimas 30 rodadas |

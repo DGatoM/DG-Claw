@@ -214,6 +214,7 @@ class Base(unittest.TestCase):
         self.escreve(self.p("opt/dgclaw/app/container/Containerfile"),
                      "FROM docker.io/library/ubuntu:24.04 AS base\nRUN pip install 'Pillow==12.3.0' 'requests==2.34.2'\n")
         self.escreve(self.p("opt/dgclaw/app/seguranca/acoes-permitidas.json"), {"versao": 1, "acoes": []})
+        self.escreve(self.p("opt/dgclaw/app/seguranca/paliativos.json"), {"versao": 1, "paliativos": []})
         os.makedirs(self.p("opt/dgclaw/app/skills/agenda"), exist_ok=True)
         mcp = {"dgchat": {"command": "node", "args": ["/opt/dgclaw/app/scripts/dgchat-mcp/server.mjs"]}}
         if notion:
@@ -1457,6 +1458,259 @@ class AplicarEDesfazer(Base):
         S["fora"].add("kev")
         self.ronda("executar", "--sem-avisar")
         self.assertIsNotNone(self.achado("UBUNTU-CVE-2026-98432"), "com fonte fora, o sumiço pode ser da fonte: o achado segue na lista")
+
+
+class Paliativos(Base):
+    """O apt do servidor decide se a correção existe; sem ela, a proteção provisória do catálogo decide o estado."""
+    ID = "UBUNTU-CVE-2026-98432"
+
+    def meta(self, candidato, nome="linux-image-virtual"):
+        with open(os.path.join(self.stub, "dpkg.txt"), "a", encoding="utf-8") as f:
+            f.write(f"{nome}\t6.8.0.147.147\tlinux-meta\t6.8.0.147.147\n")
+        with open(os.path.join(self.stub, "apt_candidatos.txt"), "a", encoding="utf-8") as f:
+            f.write(f"{nome}\t{candidato}\n")
+
+    def vuln_kernel(self, corrigida):
+        S["osv_paginas"][f"{ECO}|linux|6.8.0-147.153"] = [[self.ID]]
+        r = reg_ubuntu(self.ID, "CVE-2026-98432", "linux", corrigida or "x")
+        if not corrigida:
+            r["affected"][0]["ranges"][0]["events"] = [{"introduced": "0"}]
+        S["osv_vulns"][self.ID] = r
+
+    def catalogo_mptcp(self, sozinha=True):
+        self.escreve(self.p("opt/dgclaw/app/seguranca/acoes-permitidas.json"), {"versao": 1, "acoes": [
+            {"id": "sysctl-mptcp-off", "tipo": "sysctl", "descricao": "Desligar o MPTCP no kernel (net.mptcp.enabled = 0)", "chave": "net.mptcp.enabled", "valor": "0",
+             "casa": {"ids": ["CVE-2026-98432"]}, "exige_reinicio": False, "paliativo": True}]})
+        self.escreve(self.p("opt/dgclaw/app/seguranca/paliativos.json"), {"versao": 1, "paliativos": [
+            {"id": "mptcp-desligado", "casa": {"ids": ["CVE-2026-98432"]}, "descricao": "MPTCP desligado no kernel (net.mptcp.enabled = 0)",
+             "efeito": "Desliga o Multipath TCP, que servidores comuns não usam.", "verifica": {"tipo": "sysctl", "chave": "net.mptcp.enabled", "valor": "0"},
+             "acao_id": "sysctl-mptcp-off", "pode_sozinho": True}]})
+        if not sozinha:
+            self.escreve(self.p("etc/dgclaw/dgclaw.env"), "DGCLAW_RONDA_APLICAR_SOZINHA=0\n")
+
+    def texto_recados(self):
+        return " ".join(r["text"] for r in S["recados"])
+
+    def estado_do_registro(self):
+        with open(self.p("var/lib/dgclaw/seguranca/estado.json")) as f:
+            return json.load(f)
+
+    def test_apt_sem_a_versao_do_aviso_vira_aguardando_fornecedor_e_fica_fora_do_recado(self):
+        self.vuln_kernel("7.0.0-31.31")
+        self.meta("6.8.0-147.147")
+        r = self.ronda("executar")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        a = self.achado(self.ID)
+        self.assertEqual(a["estado"], "aguardando-fornecedor")
+        self.assertEqual(a["nivel"], 2)
+        self.assertEqual((a["correcao"]["tipo"], a["correcao"]["disponivel"]), ("nenhuma", False))
+        self.assertEqual(a["correcao"]["versao_no_aviso"], "7.0.0-31.31")
+        self.assertIn("não existe proteção provisória conhecida", a["como_corrigir"])
+        self.assertIn("O aviso cita a versão 7.0.0-31.31, que ainda não chegou ao apt deste servidor.", a["como_corrigir"])
+        self.assertNotIn("paliativo", a)
+        self.assertEqual(S["recados"], [], "o que aguarda o fornecedor não vai ao Admin")
+        self.assertEqual(self.log_chamadas().count("apt-cache policy"), 1, "uma consulta ao apt por rodada")
+
+    def test_candidato_do_apt_igual_a_corrigida_continua_aberto_com_apt_e_reinicio(self):
+        self.vuln_kernel("6.8.0-149.149")
+        self.meta("6.8.0-149.149")
+        self.ronda("executar")
+        a = self.achado(self.ID)
+        self.assertEqual(a["estado"], "aberto")
+        self.assertEqual((a["correcao"]["tipo"], a["correcao"]["disponivel"], a["correcao"]["exige_reinicio"]), ("apt", True, True))
+        self.assertIn(self.ID, self.texto_recados())
+
+    def test_meta_no_formato_antigo_e_normalizado_antes_de_comparar(self):
+        self.vuln_kernel("6.8.0-149.149")
+        self.meta("6.8.0.149.149")
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(self.ID)["correcao"]["tipo"], "apt")
+        self.meta("6.8.0.100.100", nome="linux-generic")
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(self.ID)["correcao"]["tipo"], "apt", "basta um metapacote oferecer a versão corrigida")
+
+    def test_sem_apt_cache_ou_sem_metapacote_mantem_o_comportamento_antigo(self):
+        self.vuln_kernel("7.0.0-31.31")
+        with open(os.path.join(self.stub, "dpkg.txt"), "a", encoding="utf-8") as f:
+            f.write("linux-image-virtual\t6.8.0.147.147\tlinux-meta\t6.8.0.147.147\n")
+        self.ronda("executar", "--sem-avisar")   # o stub sem resposta falha como um apt quebrado
+        a = self.achado(self.ID)
+        self.assertEqual((a["estado"], a["correcao"]["tipo"], a["correcao"]["disponivel"]), ("aberto", "apt", True))
+        with open(self.p("var/log/dgclaw/ronda.log")) as f:
+            self.assertIn("apt-cache policy", f.read())
+        self.escreve(os.path.join(self.stub, "apt_candidatos.txt"), "openssl\t3.0.13-0ubuntu3.4\n")   # apt ok, mas nenhum metapacote instalado
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(self.ID)["correcao"]["tipo"], "apt")
+        self.escreve(os.path.join(self.stub, "apt_candidatos.txt"), "linux-image-virtual\t(none)\n")
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(self.ID)["correcao"]["tipo"], "apt", "Candidate (none) não prova nada")
+
+    def test_pacote_comum_usa_os_binarios_do_afetado(self):
+        S["osv_paginas"][f"{ECO}|openssl|3.0.13-0ubuntu3.4"] = [["UBUNTU-CVE-2026-77777"]]
+        S["osv_vulns"]["UBUNTU-CVE-2026-77777"] = reg_ubuntu("UBUNTU-CVE-2026-77777", "CVE-2026-77777", "openssl", "3.0.13-0ubuntu3.6", prio="critical")
+        self.escreve(os.path.join(self.stub, "apt_candidatos.txt"), "openssl\t3.0.13-0ubuntu3.4\n")
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado("UBUNTU-CVE-2026-77777")["estado"], "aguardando-fornecedor")
+        self.escreve(os.path.join(self.stub, "apt_candidatos.txt"), "openssl\t3.0.13-0ubuntu3.6\n")
+        self.ronda("executar", "--sem-avisar")
+        a = self.achado("UBUNTU-CVE-2026-77777")
+        self.assertEqual((a["estado"], a["correcao"]["tipo"]), ("aberto", "apt"))
+
+    def test_sem_correcao_e_com_paliativo_verificado_fica_protegido_aguardando(self):
+        self.vuln_kernel(None)
+        self.catalogo_mptcp()
+        self.escreve(os.path.join(self.stub, "sysctl", "net.mptcp.enabled"), "0\n")   # alguém configurou à mão
+        r = self.ronda("executar")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        a = self.achado(self.ID)
+        self.assertEqual(a["estado"], "protegido-aguardando")
+        self.assertIs(a["paliativo"]["verificado"], True)
+        self.assertEqual(a["paliativo"]["id"], "mptcp-desligado")
+        self.assertEqual(a["paliativo"]["acao_id"], "sysctl-mptcp-off")
+        self.assertTrue(a["paliativo"]["verificado_em"])
+        self.assertIn("a proteção provisória está ativa: MPTCP desligado no kernel (net.mptcp.enabled = 0) (conferida em 31/10/2026)", a["como_corrigir"])
+        self.assertEqual(S["recados"], [])
+        self.assertNotIn("sysctl -w", self.log_chamadas(), "já estava protegido: nada a aplicar")
+        n = json.loads(self.ronda("estado", "--json").stdout)
+        self.assertEqual(n["niveis"]["2"], 0)
+        self.assertEqual(n["aguardando_correcao"], {"total": 1, "protegidos": 1})
+        self.assertIn("1 aguardando correção oficial, 1 deles protegidos", self.ronda("estado").stdout)
+        self.assertIn("AGUARDANDO CORREÇÃO OFICIAL", self.ronda("resumo", "--todos").stdout)
+
+    def test_paliativo_nao_verificado_com_aplicar_sozinha_desligado_pede_o_dono(self):
+        self.vuln_kernel(None)
+        self.catalogo_mptcp(sozinha=False)
+        self.ronda("executar")
+        a = self.achado(self.ID)
+        self.assertEqual(a["estado"], "aberto")
+        self.assertEqual(a["correcao"], {"tipo": "acao-catalogo", "acao_id": "sysctl-mptcp-off", "exige_reinicio": False, "disponivel": True,
+                                         "executavel": True, "paliativo": True})
+        self.assertIs(a["paliativo"]["verificado"], False)
+        self.assertIsNone(a["paliativo"]["verificado_em"])
+        self.assertIn("Existe uma proteção provisória enquanto a correção oficial não sai", a["como_corrigir"])
+        self.assertIn(f"sudo dgclaw seguranca aplicar {self.ID}", a["como_corrigir"])
+        self.assertEqual(self.sysctl_valor(), "1")
+        self.assertIn(self.ID, self.texto_recados(), "pede ação: vai ao Admin")
+
+    def test_aplicar_sozinha_aplica_o_paliativo_e_ele_continua_sendo_reavaliado(self):
+        self.vuln_kernel(None)
+        self.catalogo_mptcp()
+        self.ronda("executar", "--sem-avisar")
+        a = self.achado(self.ID)
+        self.assertEqual(a["estado"], "protegido-aguardando", self.ultimo.stdout)
+        self.assertEqual(a["nivel"], 2)
+        self.assertEqual(self.sysctl_valor(), "0")
+        self.assertIn("sysctl -w net.mptcp.enabled=1", a["aplicado"]["desfazer"])
+        self.assertIs(a["paliativo"]["verificado"], True)
+        self.ronda("executar", "--sem-avisar")
+        d = self.json_ronda()
+        a = self.achado(self.ID)
+        self.assertEqual(a["estado"], "protegido-aguardando")
+        self.assertTrue(a["aplicado"]["desfazer"], "continua dando para desfazer")
+        self.assertFalse([j for j in d["ja_tratadas"] if j["id"] == self.ID], "paliativo não é tratamento")
+        self.assertEqual(self.estado_do_registro()["achados"][self.ID]["estado"], "aberto")
+        self.assertEqual(len(os.listdir(self.p("var/lib/dgclaw/seguranca/acoes"))), 1, "a segunda rodada não aplica de novo")
+
+    def test_quando_a_correcao_chega_ao_apt_o_achado_volta_a_aberto_e_vai_ao_admin(self):
+        self.vuln_kernel(None)
+        self.catalogo_mptcp()
+        self.ronda("executar")
+        self.assertEqual(self.achado(self.ID)["estado"], "protegido-aguardando")
+        self.assertEqual(S["recados"], [])
+        est = self.estado_do_registro()
+        est["achados"][self.ID]["avisado_em"] = AGORA
+        self.escreve(self.p("var/lib/dgclaw/seguranca/estado.json"), est)
+        self.vuln_kernel("6.8.0-149.149")
+        self.meta("6.8.0-149.149")
+        self.ronda("executar", "--sem-avisar")
+        a = self.achado(self.ID)
+        self.assertEqual((a["estado"], a["correcao"]["tipo"], a["correcao"]["exige_reinicio"]), ("aberto", "apt", True))
+        self.assertIs(a["paliativo"]["verificado"], True)
+        self.assertIn("A proteção provisória (MPTCP desligado no kernel (net.mptcp.enabled = 0)) pode continuar ligada.", a["como_corrigir"])
+        self.assertIsNone(self.estado_do_registro()["achados"][self.ID]["avisado_em"], "ponto novo para o recado e para o aviso do painel")
+        self.ronda("executar")
+        self.assertIn(self.ID, self.texto_recados())
+
+    def test_paliativo_desfeito_por_fora_volta_a_aberto_com_aplicar(self):
+        self.vuln_kernel(None)
+        self.catalogo_mptcp(sozinha=False)
+        self.escreve(os.path.join(self.stub, "sysctl", "net.mptcp.enabled"), "0\n")
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(self.ID)["estado"], "protegido-aguardando")
+        self.escreve(os.path.join(self.stub, "sysctl", "net.mptcp.enabled"), "1\n")
+        self.ronda("executar", "--sem-avisar")
+        a = self.achado(self.ID)
+        self.assertEqual((a["estado"], a["correcao"]["paliativo"], a["correcao"]["executavel"]), ("aberto", True, True))
+
+    def test_explorada_ativamente_sem_correcao_e_sem_paliativo_continua_aberta(self):
+        S["osv_paginas"][f"{ECO}|openssl|3.0.13-0ubuntu3.4"] = [["UBUNTU-CVE-2026-33333"]]
+        r = reg_ubuntu("UBUNTU-CVE-2026-33333", "CVE-2026-33333", "openssl", "x", prio="low")
+        r["affected"][0]["ranges"][0]["events"] = [{"introduced": "0"}]
+        S["osv_vulns"]["UBUNTU-CVE-2026-33333"] = r
+        S["kev"] = [{"cveID": "CVE-2026-33333", "dateAdded": "2026-10-20"}]
+        self.ronda("executar")
+        a = self.achado("UBUNTU-CVE-2026-33333")
+        self.assertEqual(a["estado"], "aberto")
+        self.assertTrue(a["explorada_ativamente"])
+        self.assertIn("não há correção instalável nem proteção provisória conhecida", a["como_corrigir"])
+        self.assertIn("botão de emergência", a["como_corrigir"])
+        self.assertIn("UBUNTU-CVE-2026-33333", self.texto_recados())
+
+    def test_catalogo_de_paliativos_invalido_vira_fonte_com_falha_e_a_ronda_segue(self):
+        self.vuln_kernel("6.8.0-149.150")
+        self.catalogo_mptcp()
+        casos = [{"versao": 1, "paliativos": [{"id": "x"}]},
+                 {"versao": 2, "paliativos": []},
+                 {"versao": 1, "paliativos": [{"id": "a", "casa": {"ids": ["CVE-2026-1"]}, "descricao": "d", "efeito": "e",
+                                              "verifica": {"tipo": "sysctl", "chave": "net.x; rm", "valor": "0"}}]},
+                 {"versao": 1, "paliativos": [{"id": "a", "casa": {"ids": ["CVE-2026-1"]}, "descricao": "d", "efeito": "e",
+                                              "verifica": {"tipo": "sysctl", "chave": "net.x", "valor": "0"}, "acao_id": "nao-existe"}]},
+                 {"versao": 1, "paliativos": [{"id": "a", "casa": {"ids": ["CVE-2026-1"]}, "descricao": "d", "efeito": "e",
+                                              "verifica": {"tipo": "ping", "chave": "net.x", "valor": "0"}}]}]
+        for doc in casos:
+            self.escreve(self.p("opt/dgclaw/app/seguranca/paliativos.json"), doc)
+            r = self.ronda("executar", "--sem-avisar")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            d = self.json_ronda()
+            f = next(x for x in d["fontes"] if x["nome"] == "Catálogo de paliativos")
+            self.assertFalse(f["ok"])
+            self.assertTrue(f["motivo"])
+            self.assertTrue(d["parcial"])
+            self.assertIsNotNone(self.achado(self.ID), "a ronda não cai por causa do catálogo")
+
+    def test_desfazer_de_protegido_aguardando_pelo_pedido(self):
+        self.vuln_kernel(None)
+        self.catalogo_mptcp()
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(self.ID)["estado"], "protegido-aguardando")
+        arq = self.p("var/lib/dgclaw/web/seguranca/pedidos", "22222222-aaaa-bbbb.json")
+        self.escreve(arq, {"tipo": "desfazer", "id": self.ID, "quando": None, "codigo": None, "pedido_em": AGORA, "por": "marta"})
+        r = self.ronda("pedido", arq)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(self.p("var/lib/dgclaw/web/seguranca/pedidos/feitos/22222222-aaaa-bbbb.json")) as f:
+            self.assertTrue(json.load(f)["ok"])
+        self.assertEqual(self.sysctl_valor(), "1")
+        self.assertEqual(self.achado(self.ID)["estado"], "aberto")
+        self.ronda("executar", "--sem-avisar")
+        a = self.achado(self.ID)
+        self.assertEqual(a["estado"], "aberto", "desfeito pelo dono: a ronda não reaplica sozinha")
+        self.assertEqual(self.sysctl_valor(), "1")
+
+    def test_aplicar_pelo_dono_o_paliativo_nao_vira_tratado(self):
+        self.vuln_kernel(None)
+        self.catalogo_mptcp(sozinha=False)
+        self.ronda("executar", "--sem-avisar")
+        arq = self.p("var/lib/dgclaw/web/seguranca/pedidos", "33333333-aaaa-bbbb.json")
+        self.escreve(arq, {"tipo": "aplicar", "id": self.ID, "quando": None, "codigo": None, "pedido_em": AGORA, "por": "marta"})
+        r = self.ronda("pedido", arq)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.sysctl_valor(), "0")
+        self.assertEqual(self.achado(self.ID)["estado"], "protegido-aguardando")
+        self.assertEqual(self.estado_do_registro()["achados"][self.ID]["estado"], "aberto")
+        self.ronda("executar", "--sem-avisar")
+        a = self.achado(self.ID)
+        self.assertEqual(a["estado"], "protegido-aguardando")
+        self.assertTrue(a["aplicado"]["desfazer"])
 
 
 class Vigia(Base):

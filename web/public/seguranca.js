@@ -31,6 +31,9 @@
 
   const VAZIO_BOLETINS = 'Nenhum aviso de segurança pendente.';
 
+  const FRASE_AGUARDANDO = 'Estas falhas ainda não têm correção publicada pelo fornecedor. Nada a fazer agora: a ronda confere a cada rodada e avisa quando a correção sair.';
+  const VAZIO_AGUARDANDO = 'Nenhuma falha esperando a correção do fornecedor.';
+
   /* ── avisos de segurança do DG Claw (boletins) ──────────────────────────── */
   function botoesBoletimHtml(b) {
     if (R.temCorrecaoParaAplicar(b)) {
@@ -101,9 +104,12 @@
         '<button type="button" class="rp-btn rp-pri" data-rp="pedir-admin">Pedir ao Admin</button>' +
         '<button type="button" class="rp-btn rp-perigo" data-rp="tirar-do-ar">Tirar do ar</button></div>';
     } else {
-      corpo = '<p class="rp-aviso">' + esc(pode ? R.avisoReinicio(a) : 'A correção ainda não está pronta. Enquanto isso, o botão "Tirar do ar" é a proteção disponível.') + '</p>' +
+      const paliativo = !!(a.correcao && a.correcao.paliativo);
+      const aviso = paliativo ? 'Esta é uma proteção provisória, enquanto a correção oficial não sai.' + (a.paliativo && a.paliativo.efeito ? ' ' + a.paliativo.efeito : '') + ' Não pede reinício e dá para desfazer depois.'
+        : pode ? R.avisoReinicio(a) : 'A correção ainda não está pronta. Enquanto isso, o botão "Tirar do ar" é a proteção disponível.';
+      corpo = '<p class="rp-aviso">' + esc(aviso) + '</p>' +
         '<div class="rp-acoes">' +
-        '<button type="button" class="rp-btn rp-pri" data-rp="aplicar"' + (pode ? '' : ' disabled') + '>Aplicar correção</button>' +
+        '<button type="button" class="rp-btn rp-pri" data-rp="aplicar"' + (pode ? '' : ' disabled') + '>' + (paliativo ? 'Aplicar proteção provisória' : 'Aplicar correção') + '</button>' +
         '<button type="button" class="rp-btn" data-rp="agendar-abre"' + (pode && aberto ? '' : ' disabled') + '>Agendar</button>' +
         '<button type="button" class="rp-btn rp-perigo" data-rp="tirar-do-ar">Tirar do ar</button></div>' +
         '<div class="rp-agenda" hidden><label>Aplicar em<input type="datetime-local" class="rp-quando"></label>' +
@@ -127,10 +133,35 @@
       '<p class="rp-msg" role="status" hidden></p></article>';
   }
 
+  /* Falha sem correção instalável: card neutro e informativo. Mostra a proteção provisória quando há, e o Desfazer dela. */
+  function cardAguardandoHtml(a, agora) {
+    const pal = a.paliativo && a.paliativo.verificado ? a.paliativo : null;
+    const desfaz = a.estado === 'protegido-aguardando' && a.aplicado && a.aplicado.desfazer
+      ? '<button type="button" class="rp-btn" data-rp="desfazer">Desfazer</button>' : '';
+    return '<article class="rp-card rp-aguarda" data-id="' + esc(a.id) + '"><h3>' + esc(a.nome_simples) + ' <span class="rp-tag rp-grav-' +
+      esc(String(a.severidade).toLowerCase()) + '">' + esc(R.gravidadeRotulo(a.severidade)) + '</span> <span class="rp-tag' +
+      (pal ? ' rp-tag-ok' : '') + '">' + esc(R.estadoRotulo(a.estado)) + '</span></h3>' +
+      (pal ? '<p class="rp-texto"><b>Proteção provisória ativa:</b> ' + esc(pal.descricao) + (pal.efeito ? '. ' + esc(pal.efeito) : '') +
+        (pal.verificado_em ? ' <small>(conferida ' + esc(R.quando(pal.verificado_em, agora)) + ')</small>' : '') + '</p>' : '') +
+      '<p class="rp-texto">' + esc(a.como_corrigir || 'Aguardando a correção do fornecedor.') + '</p>' +
+      '<details class="rp-detalhe"><summary>Ver detalhes da falha</summary>' + R.fatosHtml(a) + '</details>' +
+      (desfaz ? '<div class="rp-acoes">' + desfaz + '</div>' : '') +
+      '<p class="rp-msg" role="status" hidden></p></article>';
+  }
+
+  function listaAguardandoHtml(achados, agora) {
+    if (!achados || !achados.length) return '<p class="rp-vazio">' + esc(VAZIO_AGUARDANDO) + '</p>';
+    return '<p class="rp-texto" id="rpAguardandoFrase">' + esc(FRASE_AGUARDANDO) + '</p>' + achados.map(a => cardAguardandoHtml(a, agora)).join('');
+  }
+
+  function tituloAguardando(n) { return 'Aguardando correção oficial (' + n + ')'; }
+
+  /* Os níveis 2 e 3 só mostram o que pede alguma coisa de alguém; o resto vai para a seção informativa. */
   function listaNivelHtml(achados, nivel, agora) {
-    if (!achados || !achados.length) return '<p class="rp-vazio">' + esc(VAZIO[nivel]) + '</p>';
+    const lista = (achados || []).filter(a => !R.aguardaCorrecao(a));
+    if (!lista.length) return '<p class="rp-vazio">' + esc(VAZIO[nivel]) + '</p>';
     const f = nivel === 1 ? cardAplicadoHtml : nivel === 2 ? cardAcaoHtml : cardSemPressaHtml;
-    return achados.map(a => f(a, agora)).join('');
+    return lista.map(a => f(a, agora)).join('');
   }
 
   function tratadasHtml(lista) {
@@ -250,6 +281,12 @@
         como: 'Simular mostra, passo a passo, o que vai ser feito, sem mudar nada. Tirar do ar pede um código de uso único e a frase TIRAR-DO-AR. Sem confirmação em 5 minutos, o servidor religa sozinho.',
         porque: 'Quando a falha está sendo explorada e a correção ainda não existe, tirar do ar é a única proteção. A dupla confirmação evita acidente, e o religar automático evita que você se tranque para fora.' },
     ],
+    aguardando: [
+      { alvo: '#secAguardando', titulo: 'Aguardando correção oficial',
+        oque: 'As falhas que ainda não têm correção publicada pelo fornecedor para este servidor. Algumas já têm uma proteção provisória ativa, e o cartão diz qual é.',
+        como: 'A cada rodada a ronda pergunta ao apt deste servidor se a versão corrigida já pode ser instalada, e confere de verdade se a proteção provisória continua ligada. Se a correção chegar, a falha sai desta lista e aparece em Ação necessária. Se a proteção cair, ela também volta para lá.',
+        porque: 'Você não precisa decidir nada sobre elas hoje, então elas não entram no aviso de risco. Ficam aqui, à vista, para você saber que a ronda está de olho.' },
+    ],
     tratadas: [
       { alvo: '#secTratadas', titulo: 'Já tratadas',
         oque: 'As falhas de rondas anteriores que já foram resolvidas.',
@@ -266,11 +303,11 @@
 
   function passosPagina(doc) {
     const tem = sel => !doc || !!doc.querySelector(sel);
-    return [].concat(PASSOS.topo, PASSOS.boletins, PASSOS.aplicado, PASSOS.acao, PASSOS.sempressa, PASSOS.emergencia, PASSOS.tratadas, PASSOS.inventario).filter(p => tem(p.alvo));
+    return [].concat(PASSOS.topo, PASSOS.boletins, PASSOS.aplicado, PASSOS.acao, PASSOS.sempressa, PASSOS.aguardando, PASSOS.emergencia, PASSOS.tratadas, PASSOS.inventario).filter(p => tem(p.alvo));
   }
 
   if (!raiz.document) {
-    return { cardBoletimHtml, listaBoletinsHtml, cardAplicadoHtml, cardAcaoHtml, cardSemPressaHtml, listaNivelHtml, tratadasHtml, inventarioHtml, planoHtml, emergenciaHtml, fraseConfere, passosPagina, PASSOS, VAZIO, VAZIO_BOLETINS, TEXTO_EMERGENCIA };
+    return { cardBoletimHtml, listaBoletinsHtml, cardAplicadoHtml, cardAcaoHtml, cardSemPressaHtml, cardAguardandoHtml, listaAguardandoHtml, tituloAguardando, listaNivelHtml, tratadasHtml, inventarioHtml, planoHtml, emergenciaHtml, fraseConfere, passosPagina, PASSOS, VAZIO, VAZIO_BOLETINS, VAZIO_AGUARDANDO, FRASE_AGUARDANDO, TEXTO_EMERGENCIA };
   }
 
   /* ── Parte com DOM ─────────────────────────────────────────────────────── */
@@ -320,6 +357,11 @@
       if (est.ocupados.size && $(id).querySelector('.rp-card.ocupado')) continue;   // não apaga um pedido em andamento
       $(id).innerHTML = r ? listaNivelHtml(r.niveis[n], n, agora) : '<p class="rp-vazio">' + esc(est.erro ? 'Sem dados da ronda.' : 'Ainda sem ronda.') + '</p>';
     }
+    if (!(est.ocupados.size && $('listaAguardando').querySelector('.rp-card.ocupado'))) {
+      const espera = r ? [].concat(r.niveis['1'], r.niveis['2'], r.niveis['3']).filter(R.aguardaCorrecao) : [];
+      $('tituloAguardando').textContent = tituloAguardando(espera.length);
+      $('listaAguardando').innerHTML = r ? listaAguardandoHtml(espera, agora) : '<p class="rp-vazio">' + esc(est.erro ? 'Sem dados da ronda.' : 'Ainda sem ronda.') + '</p>';
+    }
     $('listaTratadas').innerHTML = tratadasHtml(r && r.ja_tratadas);
     $('listaInventario').innerHTML = inventarioHtml(r && r.inventario);
   }
@@ -361,7 +403,7 @@
     const res = await R.pedirEEsperar(buscar, R.urlAchado(a.id, acao), corpo, { aoProgresso: t => msgDoCard(card, t, '') });
     travaCard(card, false);
     if (res.ok) {
-      if (a.nivel === 2) R.marcaDecidido(raiz.localStorage, a.id, Date.now());
+      if (a.nivel === 2 && acao !== 'desfazer') R.marcaDecidido(raiz.localStorage, a.id, Date.now());
       await carrega();
       const novo = document.querySelector('.rp-card[data-id="' + (raiz.CSS && raiz.CSS.escape ? raiz.CSS.escape(a.id) : a.id) + '"]');
       if (novo) msgDoCard(novo, res.mensagem || mensagemFinal, 'ok');
@@ -509,5 +551,5 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', inicia);
   else inicia();
 
-  return { cardAplicadoHtml, cardAcaoHtml, cardSemPressaHtml, listaNivelHtml, tratadasHtml, inventarioHtml, planoHtml, emergenciaHtml, fraseConfere, passosPagina, PASSOS, VAZIO, VAZIO_BOLETINS, TEXTO_EMERGENCIA, tutorial, carrega };
+  return { cardAplicadoHtml, cardAcaoHtml, cardSemPressaHtml, cardAguardandoHtml, listaAguardandoHtml, tituloAguardando, listaNivelHtml, tratadasHtml, inventarioHtml, planoHtml, emergenciaHtml, fraseConfere, passosPagina, PASSOS, VAZIO, VAZIO_BOLETINS, VAZIO_AGUARDANDO, FRASE_AGUARDANDO, TEXTO_EMERGENCIA, tutorial, carrega };
 });
