@@ -7,6 +7,13 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Nova página Conectar conta.** Antes, para conectar a conta do Claude de um agente alguém tinha de gerar um link de login
+e mandar por mensagem, e o link vencia antes de você ver. Agora o painel tem a página **Conectar conta** (no menu ☰, ou em
+`/conectar`): você entra quando puder, toca em "Gerar link de login" no cartão do agente, entra na sua conta do Claude e cola
+o código que aparece no fim. Há um cartão para o Admin e um para cada agente de trabalho, cada um com um selo que mostra se
+a conta está conectada, se falta conectar ou se o login expirou. Quem usa chave de API aparece como tal, sem botão. O aviso
+"Seu login do Claude expirou" também ganhou um atalho discreto para essa página. Nada precisa ser feito para atualizar.
+
 **A ronda de segurança deixou de pesar na memória.** Em servidores pequenos, de 4 GB, a verificação de segurança podia
 passar de 1 GB de memória e fazer o sistema derrubar os seus agentes. Agora ela lê uma falha por vez e guarda só o
 que importa, então o pico fica abaixo de 100 MB nos testes. Servidores de até 4,5 GB rodam a ronda no modo econômico, uma

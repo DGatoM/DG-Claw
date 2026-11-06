@@ -456,6 +456,10 @@ function criarServidor(opcoes) {
       res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store' });
       return res.end(fs.readFileSync(path.join(__dirname, 'docs', 'LOGIN-NA-CONVERSA.md'), 'utf8'));
     }
+    if (p === '/api/v1/conectar/docs.md' && m === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store' });
+      return res.end(fs.readFileSync(path.join(__dirname, 'docs', 'CONECTAR-CONTA.md'), 'utf8'));
+    }
     const lr = /^\/api\/v1\/agents\/([^/]+)\/login(?:\/(codigo|oi))?$/.exec(p);
     if (lr) {
       if (falhaDoRegistro(req, res, true)) return undefined;
@@ -884,6 +888,15 @@ function criarServidor(opcoes) {
       if (!servirArquivo(req, res, path.join(config.publicDir, 'seguranca.html'), 'no-store')) {
         log('erro', `A tela de segurança não está instalada: falta ${path.join(config.publicDir, 'seguranca.html')}.`);
         H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela de segurança não foi encontrado no servidor. Reinstale o DG Claw Web.');
+      }
+      return undefined;
+    }
+
+    if ((p === '/conectar' || p === '/conectar/') && (m === 'GET' || m === 'HEAD')) {
+      if (!sessao) return semSessaoPagina(req, res, url);
+      if (!servirArquivo(req, res, path.join(config.publicDir, 'conectar.html'), 'no-store')) {
+        log('erro', `A tela de conectar conta não está instalada: falta ${path.join(config.publicDir, 'conectar.html')}.`);
+        H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela de conectar conta não foi encontrado no servidor. Reinstale o DG Claw Web.');
       }
       return undefined;
     }

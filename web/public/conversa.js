@@ -721,6 +721,7 @@ function leDesenha() {
   sec.hidden = !(f === 'aviso' || f === 'nao_voltou');
   nao.hidden = f === 'pronto';
   nao.textContent = f === 'aviso' || f === 'cartao' ? t.agoraNao : 'Fechar';
+  $('leConectar').hidden = f === 'pronto';
 }
 
 function leAbre() {
