@@ -93,7 +93,7 @@ function criarServidor(opcoes) {
   const conversa = criarConversa({ comandos, alertas, config, runner, leitor, leitorRollout, midia, log, agora: opcoes.agora, gravaToken: opcoes.gravaToken });
   const compartilhados = criarCompartilhados(conversa);
   const onboarding = criarOnboarding({ config, registro, conversa, midia, log, imagem: opcoes.imagem });
-  const login = criarLogin({ runner, conversa, log, agora: opcoes.agora, oiPrazoMs: opcoes.loginOiPrazoMs, oiPassoMs: opcoes.loginOiPassoMs });
+  const login = criarLogin({ runner, conversa, log, agora: opcoes.agora, oiPrazoMs: opcoes.loginOiPrazoMs, oiPassoMs: opcoes.loginOiPassoMs, provedores: opcoes.provedores });
   const cofreAgente = criarCofreAgente({ config, log, reiniciar: opcoes.reiniciarCofre });
   const voz = opcoes.voz || criarVoz({ env: config.env, log });
   const sigilo = opcoes.sigilo || criarSigilo({ env: config.env, registro, dataDir: config.dataDir, log, timeoutMs: opcoes.timeoutSigiloMs });
@@ -487,7 +487,11 @@ function criarServidor(opcoes) {
       if (!agente) return undefined;
       let r = null;
       if (!lr[2] && m === 'GET') r = await login.ver(agente);
-      else if (!lr[2] && m === 'POST') r = await login.comecar(agente);
+      else if (!lr[2] && m === 'POST') {
+        const corpo = await lerEnvio(req, res);
+        if (!corpo) return undefined;
+        r = await login.comecar(agente, corpo);
+      }
       else if (!lr[2] && m === 'DELETE') r = await login.cancelar(agente);
       else if (lr[2] === 'codigo' && m === 'POST') {
         const corpo = await lerEnvio(req, res);

@@ -50,6 +50,41 @@ carregar, só o vídeo some.
 O selo não é uma anotação do painel: vem de `conferido` e `auth`, que o painel pergunta ao programa de cada
 agente a cada consulta.
 
+## O modal de login na conversa
+
+Você não precisa lembrar de abrir a página. Ao entrar na tela de conversa do painel, se algum agente estiver sem
+login (selo **Falta conectar** ou **Login expirou**), abre sozinho o modal **Faça o login nos seus agentes**, com
+um cartão por agente, os mesmos desta página: o Admin, o agente principal e os demais agentes de trabalho, nessa
+ordem. Com um agente só, o título é **Faça o login no seu agente**. O link só nasce quando você toca em **Gerar
+link de login**, e o resto do fluxo (abrir ou copiar o link, colar o código, selo **Conectado**) é igual ao desta página.
+
+- **Quando abre.** Só quando pelo menos um agente está com **Falta conectar** ou **Login expirou**. Quem usa chave de
+  API, um agente que não respondeu à conferência e um login já em andamento não abrem o modal. Se a conferência inicial
+  falhar (sem rede, sessão vencida, erro do servidor), o modal não abre e a tela não redireciona: só fica um aviso no
+  console do navegador com a causa.
+- **Fazer depois.** O botão (e a tecla Esc) fecha o modal e guarda no `sessionStorage` da aba que você adiou
+  (`dgclaw-modal-login-depois`). Nessa aba ele não volta; numa aba nova, ou depois de fechar o navegador, volta se ainda
+  faltar login. A página **Conectar conta** continua existindo como plano B, pelo menu ☰.
+- **Pop-up "Seu login do Claude expirou".** O modal toma o lugar dele: se o modal abriu nesta carga da página, o pop-up
+  não abre nem depois que o modal fechar (nada de dois avisos sobre a mesma coisa). Se o modal não abriu, o pop-up continua
+  como antes para as expirações que surgirem depois. Se a pessoa tentar escrever ao agente com o login vencido, a faixa de
+  erro orienta a reconectar pelo cartão de login ou por esta página.
+- **Tela final.** Quando todos os cartões do modal ficam conectados, o modal troca de tela: **Login efetuado nos dois
+  agentes** (ou **no seu agente**; com três ou mais, **nos seus N agentes**), o que fazer agora e o vídeo
+  `/videos/conhecendo-o-dgclaw.mp4` (poster `.jpg`, só carrega quando você toca em reproduzir). Se o vídeo não carregar, só
+  ele some. **Começar a usar** fecha o modal.
+- **Sessão vencida (401)** durante o uso do modal leva ao login e volta para a mesma conversa.
+- **Rotas.** Nenhuma rota nova: o modal usa `GET /api/v1/agents` e as rotas de login listadas abaixo.
+
+## Outras IAs no futuro
+
+A lista das IAs que o DG Claw conhece fica num lugar só, `web/public/provedores.js` (o navegador e o servidor usam o mesmo
+arquivo): hoje Claude e Codex, cada uma com `ativo`. Cada cartão mostra "Com qual IA este agente vai entrar?" e o nome da IA
+do agente. Como só há uma opção compatível por agente, não há seletor; a função `provedoresDoAgente` em `conectar-puro.js`
+devolve só as IAs ativas e compatíveis, e o cartão vira seletor quando ela devolver mais de uma. O `POST` que gera o link manda
+`provedor` com a IA escolhida. O servidor recusa com 400 (e uma frase em português) uma IA desconhecida, uma desligada e uma
+diferente da do agente: trocar a IA de um agente que já existe ainda não está disponível. Sem `provedor`, nada muda.
+
 ## Erros e o que fazer
 
 | Situação | O que a página diz |
@@ -68,7 +103,7 @@ Contrato completo em `web/docs/LOGIN-NA-CONVERSA.md`.
 
 - `GET /api/v1/agents`: a lista de agentes.
 - `GET /api/v1/agents/<id>/login`: estado do login e selo (`estado`, `auth`, `conferido`, `precisa_login`, `login_expirado`). A cada 2 s, só para o cartão em andamento e só com a aba à vista.
-- `POST /api/v1/agents/<id>/login`: gera o link (o prazo começa aqui).
+- `POST /api/v1/agents/<id>/login`: gera o link (o prazo começa aqui). Aceita `{"provedor":"claude"|"codex"}` (opcional; veja "Outras IAs no futuro").
 - `POST /api/v1/agents/<id>/login/codigo`: entrega o código colado.
 - `DELETE /api/v1/agents/<id>/login`: cancela.
 - `POST /api/v1/agents/<id>/login/oi`: quando o login conclui, pede ao agente um oi curto. Se falhar, a conta continua conectada e a página avisa a causa.

@@ -8,13 +8,14 @@
 <meta name="theme-color" content="#2f9e5e">
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 <link rel="icon" href="/icons/icon-192.png">
+<link rel="stylesheet" href="/conectar-cartoes.css">
 <link rel="stylesheet" href="/conectar.css">
 <link rel="stylesheet" href="/casca.css">
 <link rel="stylesheet" href="/menu-lado.css">
 <link rel="stylesheet" href="/sem-zoom.css">
 <script src="/sem-zoom.js"></script>
 </head>
-<body class="cn">
+<body class="cn cn-escopo">
 <main class="cn-main">
   <p class="cn-aviso-geral" id="cnMsgGeral" role="alert" hidden></p>
 
@@ -46,7 +47,9 @@
 <script src="/atualizacao-faixa.js"></script>
 <script src="/casca.js"></script>
 <script src="/login-cartao.js"></script>
+<script src="/provedores.js"></script>
 <script src="/conectar-puro.js"></script>
+<script src="/conectar-cartoes.js"></script>
 <script src="/conectar.js"></script>
 <script>
 DGCasca.monta({ pagina: 'conectar', titulo: 'Conectar conta', aoTutorial: function () { if (window.DGConectarTela) window.DGConectarTela.tutorial(); } });

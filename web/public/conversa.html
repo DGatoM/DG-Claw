@@ -24,6 +24,8 @@ if (navigator.standalone === true ||
 <link rel="stylesheet" href="/chat.css">
 <link rel="stylesheet" href="/conversa.css">
 <link rel="stylesheet" href="/login-expirado.css">
+<link rel="stylesheet" href="/conectar-cartoes.css">
+<link rel="stylesheet" href="/modal-login.css">
 <link rel="stylesheet" href="/onboarding.css">
 <link rel="stylesheet" href="/menu-lado.css">
 <link rel="stylesheet" href="/campo-cofre.css">
@@ -103,6 +105,21 @@ if (navigator.standalone === true ||
     <button type="button" id="leAgoraNao" class="le-link"></button>
   </div>
 </dialog>
+<dialog id="dlgModalLogin" class="cn-escopo" role="dialog" aria-modal="true" aria-labelledby="mlTit" aria-describedby="mlIntro">
+  <div id="mlLogin">
+    <h2 id="mlTit"></h2>
+    <p id="mlIntro"></p>
+    <div id="mlCartoes" class="ml-cartoes"></div>
+    <div class="ml-acoes"><button type="button" id="mlDepois" class="ml-link"></button></div>
+  </div>
+  <div id="mlFim" hidden>
+    <h2 id="mlTitFim"></h2>
+    <p id="mlAgora"></p>
+    <ul id="mlItens" class="ml-itens"></ul>
+    <div id="mlVideo"></div>
+    <div class="ml-acoes"><button type="button" id="mlComecar" class="ml-primario"></button></div>
+  </div>
+</dialog>
 <div class="faixa" id="faixaErro"><span class="txt"></span>
   <button class="x" aria-label="Fechar aviso">✕</button></div>
 <div class="faixa" id="faixaAviso"><span class="txt"></span>
@@ -146,6 +163,10 @@ if (navigator.standalone === true ||
 <script src="/midias-cache.js"></script>
 <script src="/login-cartao.js"></script>
 <script src="/login-expirado.js"></script>
+<script src="/provedores.js"></script>
+<script src="/conectar-puro.js"></script>
+<script src="/conectar-cartoes.js"></script>
+<script src="/modal-login.js"></script>
 <script src="/trilha-tela.js"></script>
 <script src="/rolagem.js"></script>
 <script src="/conversa-puro.js"></script>

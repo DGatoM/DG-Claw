@@ -8,11 +8,13 @@
    O link de login carrega o estado do OAuth e o código colado é segredo: nenhuma função daqui os devolve
    fora das fases em que a pessoa precisa deles, e nenhum texto de erro os repete. */
 (function (raiz, fabrica) {
-  const LC = typeof module === 'object' && module.exports ? require('./login-cartao') : raiz.DGLoginCartao;
-  const m = fabrica(LC);
+  const nodeJs = typeof module === 'object' && module.exports;
+  const LC = nodeJs ? require('./login-cartao') : raiz.DGLoginCartao;
+  const PV = nodeJs ? require('./provedores') : raiz.DGProvedores;
+  const m = fabrica(LC, PV);
   if (typeof module === 'object' && module.exports) module.exports = m;
   else raiz.DGConectar = m;
-})(this, function (LC) {
+})(this, function (LC, PV) {
   const ROTULO_ADMIN = 'Agente admin';
   const ROTULO_PRINCIPAL = 'Agente principal';
   const ROTULO_TRABALHO = 'Agente de trabalho';
@@ -125,6 +127,23 @@
   }
 
   /**
+   * As IAs com que este agente pode entrar, em ordem: só as ativas e compatíveis com ele. Hoje o agente usa a
+   * IA em que nasceu, então vem uma só (a dele); quando a troca de IA existir, esta função passa a devolver
+   * mais de uma e o cartão vira seletor. A lista de IAs fica em provedores.js.
+   */
+  function provedoresDoAgente(agente) {
+    const id = PV.idDoProvedor(agente && agente.provedor);
+    const p = PV.acha(id);
+    return p && p.ativo ? [{ id: p.id, nome: p.nome }] : [];
+  }
+
+  /** O bloco "Com qual IA este agente vai entrar?" do cartão: `seletor` só vale com mais de uma opção. */
+  function escolhaDeIA(agente) {
+    const opcoes = provedoresDoAgente(agente);
+    return { pergunta: 'Com qual IA este agente vai entrar?', opcoes, escolhido: opcoes[0] || null, seletor: opcoes.length > 1 };
+  }
+
+  /**
    * O que um cartão mostra. `d` é a resposta de GET .../login (ou null), `ctx`:
    *   iniciado      o login foi começado ou visto em andamento nesta página
    *   concluiuAgora terminou nesta página
@@ -146,6 +165,7 @@
       id: agente.id, nome, rotulo: p.rotulo, papel: p.papel, subtitulo: p.subtitulo, provedor: prov, selo: sel,
       fase: 'inicio', texto: '', passos: [], gerar: false, gerarRotulo: 'Gerar link de login', gerarBloqueio: '',
       link: null, campoCodigo: false, codigoDispositivo: null, cancelar: false, novoLink: false, entrarOutra: false, aviso: '',
+      ia: escolhaDeIA(d && d.provedor ? Object.assign({}, agente, { provedor: d.provedor }) : agente),
     };
     const bloqueio = ctx.outroNome ? 'Termine o login do ' + ctx.outroNome + ' primeiro.' : '';
     if (sel.chave === 'sem_resposta') {
@@ -223,5 +243,33 @@
     };
   }
 
-  return { pronto, ROTULO_ADMIN, ROTULO_PRINCIPAL, ROTULO_TRABALHO, PAPEL_ADMIN, PAPEL_PRINCIPAL, PAPEL_TRABALHO, ordenar, principal, papel, selo, limpaCodigo, traduzFalha, traduzErro, visaoCartao, tudoConectado, emAndamento };
+  /** O modal abre se algum agente está sem login ou com o login vencido. Erro de consulta, chave de API e login em andamento não abrem. */
+  function deveAbrirModal(selos) {
+    return (Array.isArray(selos) ? selos : []).some(x => x && (x.chave === 'falta' || x.chave === 'expirou'));
+  }
+
+  /** Todos os agentes que usam assinatura ficaram conectados (e há pelo menos um). */
+  function modalCompleto(selos) {
+    return tudoConectado(selos);
+  }
+
+  /** Os textos do modal de login para `n` agentes. `ctx.principalNome` entra na lista "o que fazer agora". */
+  function textosModal(n, ctx) {
+    const um = n <= 1;
+    const fim = um ? 'Login efetuado no seu agente' : n === 2 ? 'Login efetuado nos dois agentes' : 'Login efetuado nos seus ' + n + ' agentes';
+    return {
+      titulo: um ? 'Faça o login no seu agente' : 'Faça o login nos seus agentes',
+      intro: um
+        ? 'Ele precisa da sua conta para responder. Gere o link, entre na sua conta e cole o código aqui.'
+        : 'Eles precisam da sua conta para responder. Em cada cartão, gere o link, entre na sua conta e cole o código aqui.',
+      tituloFim: fim,
+      agora: 'Está tudo certo. Agora é só começar a conversar:',
+      itens: pronto(ctx).itens,
+      depois: 'Fazer depois',
+      comecar: 'Começar a usar',
+      legendaVideo: 'Veja em menos de 1 minuto',
+    };
+  }
+
+  return { deveAbrirModal, modalCompleto, textosModal, provedoresDoAgente, escolhaDeIA, pronto, ROTULO_ADMIN, ROTULO_PRINCIPAL, ROTULO_TRABALHO, PAPEL_ADMIN, PAPEL_PRINCIPAL, PAPEL_TRABALHO, ordenar, principal, papel, selo, limpaCodigo, traduzFalha, traduzErro, visaoCartao, tudoConectado, emAndamento };
 });

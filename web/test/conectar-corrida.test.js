@@ -1,7 +1,7 @@
 'use strict';
 // Corrida apontada na revisão adversarial do PR #86: em "Gerar novo link", a consulta disparada depois do
 // DELETE pode chegar DEPOIS do POST que começou o login novo. O estado velho ("nenhum") não pode
-// sobrescrever o login em andamento. A página roda num vm com fetch controlado à mão.
+// sobrescrever o login em andamento. O módulo conectar-cartoes.js roda num vm com fetch controlado à mão.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -25,22 +25,18 @@ function montaPagina() {
   };
   ctx.window = ctx;
   vm.createContext(ctx);
-  for (const f of ['login-cartao.js', 'conectar-puro.js']) vm.runInContext(fs.readFileSync(path.join(PUB, f), 'utf8'), ctx);
-  let src = fs.readFileSync(path.join(PUB, 'conectar.js'), 'utf8');
-  const corte = src.indexOf('  window.DGConectarTela =');
-  assert.ok(corte > 0, 'conectar.js mudou de forma: ajuste este teste');
-  src = src.slice(0, corte) + 'desenhaCartao = () => {}; desenhaTudo = () => {}; window.sonda = { est, novoEstado, novoLink, visaoDe };})();';
-  vm.runInContext(src, ctx);
-  return { sonda: ctx.sonda, pedidos };
+  for (const f of ['login-cartao.js', 'provedores.js', 'conectar-puro.js', 'conectar-cartoes.js']) vm.runInContext(fs.readFileSync(path.join(PUB, f), 'utf8'), ctx);
+  const a = { id: 'ana', nome: 'Ana', provedor: 'claude' };
+  // desenhar:false pula o DOM; a lógica do fluxo é a real
+  const ctrl = ctx.DGConectarCartoes.cria({ agentes: [a], desenhar: false });
+  const sonda = { est: ctrl.est, visaoDe: ctrl.visaoDe, novoLink: ctrl.novoLink };
+  return { sonda, pedidos, a };
 }
 
 const volta = () => new Promise((resolve) => setImmediate(resolve));
 
 test('Gerar novo link: consulta velha que chega depois do POST é descartada', async () => {
-  const { sonda, pedidos } = montaPagina();
-  const a = { id: 'ana', nome: 'Ana', provedor: 'claude' };
-  sonda.est.agentes = [a];
-  sonda.est.por.ana = sonda.novoEstado();
+  const { sonda, pedidos, a } = montaPagina();
   sonda.est.por.ana.dados = { estado: 'aguardando_codigo', auth: 'assinatura', conferido: { ok: false }, precisa_login: true };
   sonda.est.por.ana.iniciado = true;
 

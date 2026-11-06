@@ -172,17 +172,20 @@ test('falha do runner: código ruim e prazo viram frase de leigo; o resto passa 
 test('nenhum texto da parte pura tem travessão', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'public', 'conectar-puro.js'), 'utf8');
   assert.ok(!/[—–]/.test(src));
-  for (const f of ['conectar.js', 'conectar.html']) assert.ok(!/[—–]/.test(fs.readFileSync(path.join(__dirname, '..', 'public', f), 'utf8')), f);
+  for (const f of ['conectar.js', 'conectar.html', 'conectar-cartoes.js', 'conectar-cartoes.css', 'provedores.js']) assert.ok(!/[—–]/.test(fs.readFileSync(path.join(__dirname, '..', 'public', f), 'utf8')), f);
 });
 
-test('segredo: a página não manda link nem código para console, storage ou title', () => {
-  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'conectar.js'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
-  assert.ok(!/console\./.test(js), 'console na página');
-  assert.ok(!/localStorage|sessionStorage/.test(js));
-  assert.ok(!/\.title\s*=|setAttribute\(['"]title/.test(js));
-  assert.ok(!/innerHTML|insertAdjacentHTML/.test(js), 'HTML montado com texto do servidor');
-  assert.match(js, /addEventListener\('error', \(\) => \{ bloco\.hidden = true; \}\)/);
-  assert.match(js, /preload = 'metadata'/);
-  assert.match(js, /rel = 'noopener noreferrer'/);
-  assert.match(js, /autocapitalize/);
+test('segredo: a página e o módulo dos cartões não mandam link nem código para console, storage ou title', () => {
+  const le = (f) => fs.readFileSync(path.join(__dirname, '..', 'public', f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  for (const f of ['conectar.js', 'conectar-cartoes.js']) {
+    const js = le(f);
+    assert.ok(!/console\./.test(js), 'console em ' + f);
+    assert.ok(!/localStorage|sessionStorage/.test(js), f);
+    assert.ok(!/\.title\s*=|setAttribute\(['"]title/.test(js), f);
+    assert.ok(!/innerHTML|insertAdjacentHTML/.test(js), 'HTML montado com texto do servidor em ' + f);
+  }
+  assert.match(le('conectar.js'), /addEventListener\('error', \(\) => \{ bloco\.hidden = true; \}\)/);
+  assert.match(le('conectar.js'), /preload = 'metadata'/);
+  assert.match(le('conectar-cartoes.js'), /rel = 'noopener noreferrer'/);
+  assert.match(le('conectar-cartoes.js'), /autocapitalize/);
 });
