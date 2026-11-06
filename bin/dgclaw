@@ -120,6 +120,10 @@ Painel
       Exemplo:  sudo dgclaw primeiro-acesso
   dgclaw senha [trocar]                  troca a senha do painel (a nova senha vem pelo STDIN)
       Exemplo:  printf '%s\n' "minha senha nova" | dgclaw senha trocar
+  dgclaw instalacao-remota               entrega pronto um DG Claw instalado na VPS de outra pessoa
+      Troca a senha do painel por uma forte, reinicia o painel e mostra UMA vez a mensagem pronta
+      (endereco, usuario e senha) para mandar ao dono. Pode rodar de novo: gera outra senha.
+      Exemplo:  sudo dgclaw instalacao-remota
 
 Atualizar o DG Claw
   dgclaw atualizar [opcoes]              baixa a versao nova, faz backup, reinstala e recria os agentes
@@ -1848,8 +1852,38 @@ imagem_main() {
 
 # --- senha ---------------------------------------------------------------------------------------
 
+# painel_gravar_senha <senha>: gera o hash (a senha vai pelo STDIN do gerador, nunca por argumento),
+# troca so a linha DGCLAW_PANEL_PASSWORD_HASH do web.env, apaga o primeiro-acesso.json pendente e
+# reinicia o dgclaw-web. Usada por `senha trocar` e `instalacao-remota`.
+painel_gravar_senha() {
+    local senha="$1" web_env="$DG_ETC/web.env" hash
+    if [ -n "$R" ] && [ -n "${DGCLAW_SENHA_HASH_CMD:-}" ]; then
+        hash="$(printf '%s\n' "$senha" | bash -c "$DGCLAW_SENHA_HASH_CMD")" \
+            || falha "o comando de hash de teste falhou." "isso so existe nos testes."
+    else
+        [ -f "$APP_DIR/panel/bin/senha-hash.js" ] || falha "nao achei $APP_DIR/panel/bin/senha-hash.js, que gera o hash da senha." \
+            "atualize o DG Claw (esse arquivo vem junto) e rode de novo; a senha NAO foi gravada em texto puro."
+        exigir_ferramentas node
+        hash="$(printf '%s\n' "$senha" | node "$APP_DIR/panel/bin/senha-hash.js")" \
+            || falha "o gerador de hash recusou a senha." "confira se ela tem 12 caracteres ou mais."
+    fi
+    if [[ -z "$hash" || "$hash" == *"'"* || "$hash" == *$'\n'* ]]; then
+        falha "o gerador de hash devolveu um valor invalido." "isso e um erro do DG Claw; a senha nao foi trocada."
+    fi
+
+    # O hash entra no awk pelo ambiente, nao pelo argv: o hash tem `$` e `\` que o -v interpretaria.
+    HASH_NOVO="$hash" awk '
+        BEGIN {linha = "DGCLAW_PANEL_PASSWORD_HASH=\047" ENVIRON["HASH_NOVO"] "\047"}
+        /^DGCLAW_PANEL_PASSWORD_HASH=/ {print linha; feito = 1; next}
+        {print}
+        END {if (!feito) print linha}' "$web_env" | escrever_arquivo "$web_env" 600
+    # Senha nova definida: um link de primeiro acesso pendente nao faz mais sentido.
+    rm -f "$DG_ETC/primeiro-acesso.json"
+    executar systemctl restart dgclaw-web
+}
+
 senha_trocar() {
-    local web_env="$DG_ETC/web.env" senha="" conf="" hash
+    local web_env="$DG_ETC/web.env" senha="" conf=""
     [ "$ENSAIO" = 1 ] && {
         info "[ensaio] leria a nova senha do STDIN, geraria o hash, trocaria a linha DGCLAW_PANEL_PASSWORD_HASH de $web_env e reiniciaria dgclaw-web"
         return 0
@@ -1867,30 +1901,8 @@ senha_trocar() {
     fi
     [ "${#senha}" -ge 12 ] || falha "a senha tem ${#senha} caracteres e o minimo e 12." "escolha uma senha maior; nada foi trocado."
 
-    if [ -n "$R" ] && [ -n "${DGCLAW_SENHA_HASH_CMD:-}" ]; then
-        hash="$(printf '%s\n' "$senha" | bash -c "$DGCLAW_SENHA_HASH_CMD")" \
-            || falha "o comando de hash de teste falhou." "isso so existe nos testes."
-    else
-        [ -f "$APP_DIR/panel/bin/senha-hash.js" ] || falha "nao achei $APP_DIR/panel/bin/senha-hash.js, que gera o hash da senha." \
-            "atualize o DG Claw (esse arquivo vem junto) e rode de novo; a senha NAO foi gravada em texto puro."
-        exigir_ferramentas node
-        hash="$(printf '%s\n' "$senha" | node "$APP_DIR/panel/bin/senha-hash.js")" \
-            || falha "o gerador de hash recusou a senha." "confira se ela tem 12 caracteres ou mais."
-    fi
+    painel_gravar_senha "$senha"
     senha=""; conf=""
-    if [[ -z "$hash" || "$hash" == *"'"* || "$hash" == *$'\n'* ]]; then
-        falha "o gerador de hash devolveu um valor invalido." "isso e um erro do DG Claw; a senha nao foi trocada."
-    fi
-
-    # O hash entra no awk pelo ambiente, nao pelo argv: o hash tem `$` e `\` que o -v interpretaria.
-    HASH_NOVO="$hash" awk '
-        BEGIN {linha = "DGCLAW_PANEL_PASSWORD_HASH=\047" ENVIRON["HASH_NOVO"] "\047"}
-        /^DGCLAW_PANEL_PASSWORD_HASH=/ {print linha; feito = 1; next}
-        {print}
-        END {if (!feito) print linha}' "$web_env" | escrever_arquivo "$web_env" 600
-    # Senha nova definida: um link de primeiro acesso pendente nao faz mais sentido.
-    rm -f "$DG_ETC/primeiro-acesso.json"
-    executar systemctl restart dgclaw-web
     ok "senha do painel trocada"
 }
 
@@ -1908,6 +1920,37 @@ primeiro_acesso() {
     if [ -n "${DGCLAW_DOMINIO:-}" ]; then base="https://$DGCLAW_DOMINIO"; else base="http://127.0.0.1:8300"; fi
     printf '%s/primeiro-acesso#%s\n' "$base" "$tk"
     printf 'uso unico, vale 30 min; o link anterior deixou de valer\n' >&2
+}
+
+# instalacao_remota: entrega pronto um DG Claw instalado pela equipe na VPS de outra pessoa. Troca a
+# senha do painel por uma forte, gerada aqui, reinicia o dgclaw-web e imprime UMA vez a mensagem para
+# mandar ao dono. A senha nunca vai para arquivo, log nem argumento de outro processo: so o hash
+# fica gravado. Um primeiro-acesso.json pendente e apagado (o link deixa de valer, pois a senha ja existe).
+instalacao_remota() {
+    [ "$#" -eq 0 ] || falha "o comando 'instalacao-remota' nao recebe opcoes (recebi '$1')." "use apenas: sudo dgclaw instalacao-remota"
+    local web_env="$DG_ETC/web.env" usuario="" senha="" bruto endereco
+    [ -f "$web_env" ] || falha "nao achei $web_env." "o DG Claw Web ainda nao foi instalado; rode primeiro o instalador: sudo ./install.sh --usuario <nome>"
+    usuario="$(sed -n 's/^DGCLAW_PANEL_USER=//p;T;q' "$web_env")"
+    [ -n "$usuario" ] || falha "nao achei a linha DGCLAW_PANEL_USER em $web_env, entao nao sei de quem e a senha." \
+        "rode o instalador de novo informando o usuario: sudo ./install.sh --usuario <nome>. Nada foi trocado."
+    carregar_env_dgclaw
+    [ -n "${DGCLAW_DOMINIO:-}" ] || falha "nao achei DGCLAW_DOMINIO em $DG_ETC/dgclaw.env, entao nao sei qual e o endereco do painel." \
+        "rode o instalador de novo (ele grava o endereco) ou use: sudo dgclaw dominio trocar <nome>. Nada foi trocado."
+    endereco="https://$DGCLAW_DOMINIO/"
+    if [ "$ENSAIO" = 1 ]; then
+        info "[ensaio] geraria uma senha forte para $usuario, gravaria so o hash em $web_env, apagaria o primeiro-acesso.json pendente, reiniciaria dgclaw-web e imprimiria a mensagem de entrega com o endereco $endereco"
+        return 0
+    fi
+    # 5 grupos de 4 sem caracteres ambiguos (sem 0 O 1 l I): 20 caracteres, cerca de 99 bits.
+    bruto="$(head -c 1000 /dev/urandom | LC_ALL=C tr -dc 'abcdefghjkmnpqrstuvwxyz23456789')"
+    [ "${#bruto}" -ge 20 ] || falha "nao consegui gerar caracteres aleatorios suficientes de /dev/urandom." "rode o comando de novo. Nada foi trocado."
+    senha="${bruto:0:4}-${bruto:4:4}-${bruto:8:4}-${bruto:12:4}-${bruto:16:4}"
+    bruto=""
+    painel_gravar_senha "$senha"
+    printf '\nSeu DG Claw esta pronto. Acesse %s, entre com o usuario %s e a senha %s. La dentro aparece um aviso para fazer o login do Claude nos seus agentes, um de cada vez. Quando todos estiverem conectados, aparece um tutorial rapido.\n\n' \
+        "$endereco" "$usuario" "$senha"
+    senha=""
+    printf 'Copie a mensagem acima agora e mande para a pessoa: a senha aparece so desta vez e nao fica guardada em lugar nenhum (so o hash). Para gerar outra, rode o comando de novo.\n' >&2
 }
 
 senha_main() {
@@ -2155,6 +2198,7 @@ main() {
         seguranca) seguranca_main "$@" ;;
         dominio) dominio_main "$@" ;;
         primeiro-acesso) primeiro_acesso "$@" ;;
+        instalacao-remota) instalacao_remota "$@" ;;
         status) status_geral "$@" ;;
         atualizar)
             case "${1:-}" in
