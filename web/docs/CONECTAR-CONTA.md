@@ -22,6 +22,21 @@ cartão espera sozinho você terminar.
 Só um cartão fica no meio do login por vez. Os outros botões de gerar ficam desligados, com a frase
 "Termine o login do <nome> primeiro".
 
+## Os rótulos dos cartões
+
+Cada cartão mostra um rótulo, com o nome do agente ao lado: **Agente admin** ("Para administrar: atualizar o DG Claw,
+criar agentes e configurar."), **Agente principal** (o primeiro agente de trabalho: "O seu agente do dia a dia: é com ele
+que você conversa e pede tarefas.") e **Agente de trabalho** para os demais. Ao concluir, o cartão diz "Seu agente DG Claw
+já está conectado."
+
+## Tudo pronto
+
+Quando todos os agentes que usam assinatura estão conectados, aparece a seção **Tudo pronto! Agora é só usar**: o endereço do
+painel (com os botões Abrir o painel e Copiar endereço), o usuário para entrar (a senha é a mesma usada aqui e nunca aparece),
+o que você vai ver (Admin e agente principal) e o vídeo "Veja em menos de 1 minuto"
+(`/videos/conhecendo-o-dgclaw.mp4`, servido como arquivo estático comum, sem sessão, com suporte a Range). Se o vídeo não
+carregar, só o vídeo some.
+
 ## Os selos
 
 | Selo | Cor | O que quer dizer |
@@ -34,9 +49,6 @@ Só um cartão fica no meio do login por vez. Os outros botões de gerar ficam d
 
 O selo não é uma anotação do painel: vem de `conferido` e `auth`, que o painel pergunta ao programa de cada
 agente a cada consulta.
-
-Quando todos os agentes que usam assinatura estão conectados, aparece a faixa **Tudo conectado** com o
-atalho **Ir para a conversa**.
 
 ## Erros e o que fazer
 

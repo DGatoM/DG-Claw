@@ -17,7 +17,7 @@
 
   /* por agente: dados (última resposta de GET login), erroConferir, iniciado, concluiuAgora, ocupado,
      erro, aviso, copiado, confirmando, oiFeito, conferindo */
-  const est = { agentes: [], por: {}, timer: null };
+  const est = { agentes: [], por: {}, timer: null, principal: null, usuario: '', pronto: false };
 
   function msgGeral(texto) {
     const e = $('cnMsgGeral');
@@ -78,7 +78,7 @@
 
   function visaoDe(a) {
     const e = est.por[a.id];
-    return P.visaoCartao(e.dados, { agente: a, iniciado: e.iniciado, concluiuAgora: e.concluiuAgora, erroConferir: e.erroConferir, outroNome: outroEmAndamento(a.id) });
+    return P.visaoCartao(e.dados, { agente: a, iniciado: e.iniciado, concluiuAgora: e.concluiuAgora, erroConferir: e.erroConferir, outroNome: outroEmAndamento(a.id), principal: !!est.principal && est.principal.id === a.id });
   }
 
   function foto(a) {
@@ -107,7 +107,7 @@
 
     const topo = el('div', 'cn-topo');
     const quem = el('div', 'cn-quem');
-    quem.append(el('b', 'cn-nome', v.nome), el('span', 'cn-papel', v.papel));
+    quem.append(el('b', 'cn-nome', v.rotulo), el('span', 'cn-agnome', v.nome), el('span', 'cn-papel', v.papel));
     if (v.subtitulo) quem.append(el('span', 'cn-sub', v.subtitulo));
     const selo = el('span', 'cn-selo cn-' + v.selo.cor, v.selo.texto);
     selo.dataset.tour = 'cn-selo';
@@ -178,7 +178,48 @@
   function desenhaTudo() {
     for (const a of est.agentes) desenhaCartao(a);
     const selos = est.agentes.map(a => visaoDe(a).selo);
-    $('cnTudo').hidden = !P.tudoConectado(selos);
+    const tudo = P.tudoConectado(selos);
+    $('cnPronto').hidden = !tudo;
+    if (tudo && !est.pronto) { est.pronto = true; desenhaPronto(); }
+  }
+
+  /* ── Mini tutorial "Tudo pronto" ────────────────────────────────────────── */
+  async function copiaEndereco(aviso, endereco) {
+    try { await navigator.clipboard.writeText(endereco); aviso.textContent = 'Endereço copiado.'; }
+    catch (err) { aviso.textContent = 'Não consegui copiar sozinho (' + ((err && err.message) || 'o navegador recusou') + '). Toque no endereço, segure e escolha copiar.'; }
+  }
+
+  /* Montado uma vez só: refazer o vídeo a cada desenho reiniciaria a reprodução. */
+  function desenhaPronto() {
+    const endereco = location.origin + '/';
+    const t = P.pronto({ usuario: est.usuario, principalNome: est.principal && est.principal.nome, endereco });
+    const corpo = [];
+    corpo.push(el('p', 'cn-texto', t.passo1));
+    corpo.push(el('div', 'cn-endereco', t.endereco));
+    const aviso = el('p', 'cn-nota', '');
+    aviso.setAttribute('role', 'status');
+    const abrir = el('a', 'cn-btn cn-principal', 'Abrir o painel');
+    abrir.href = endereco; abrir.target = '_blank'; abrir.rel = 'noopener noreferrer';
+    const linha = el('div', 'cn-pe');
+    linha.append(abrir, botao('Copiar endereço', 'cn-leve', () => copiaEndereco(aviso, endereco)));
+    corpo.push(linha, aviso);
+    corpo.push(el('p', 'cn-texto', t.passo2));
+    corpo.push(el('p', 'cn-texto', t.passo3));
+    const ul = el('ul', 'cn-lista-passos');
+    for (const i of t.itens) ul.append(el('li', '', i));
+    corpo.push(ul);
+
+    const bloco = el('div', 'cn-video');
+    bloco.append(el('p', 'cn-legenda', t.legendaVideo));
+    const v = document.createElement('video');
+    v.controls = true; v.playsInline = true; v.preload = 'metadata';
+    v.poster = '/videos/conhecendo-o-dgclaw.jpg';
+    v.src = '/videos/conhecendo-o-dgclaw.mp4';
+    // vídeo ausente ou quebrado: some o bloco, o resto do passo a passo continua
+    v.addEventListener('error', () => { bloco.hidden = true; });
+    bloco.append(v);
+    corpo.push(bloco);
+    $('cnProntoCorpo').replaceChildren(...corpo);
   }
 
   /* ── Ações ──────────────────────────────────────────────────────────────── */
@@ -307,6 +348,8 @@
       return;
     }
     est.agentes = P.ordenar(r.dados.agentes);
+    est.principal = P.principal(est.agentes);
+    est.usuario = typeof r.dados.usuario === 'string' ? r.dados.usuario : '';
     if (!est.agentes.length) {
       $('cnLista').replaceChildren(el('p', 'cn-fraco', 'Ainda não há agentes. Peça ao Admin para criar o primeiro e volte aqui.'));
       return;
@@ -350,7 +393,13 @@
     if (!window.DGTour) { msgGeral('A visita guiada não carregou. Recarregue a página e tente de novo.'); return; }
     window.DGTour.inicia({ passos: passos.filter(p => document.querySelector(p.alvo)) });
   }
-  function tutorial() { comTour([PASSOS.passos[0]].concat(PASSOS.agentes)); }
+  PASSOS.pronto = [
+    { alvo: '#cnPronto', titulo: 'Tudo pronto',
+      oque: 'Aparece quando todos os agentes que usam assinatura estão conectados. Diz onde acessar o painel e o que você vai ver.',
+      como: 'O endereço é o deste mesmo painel. O usuário vem da sua sessão e a senha é a mesma que você usou para entrar aqui; ela nunca aparece na tela.',
+      porque: 'Para você sair daqui sabendo o próximo passo e ver, em menos de 1 minuto, como o DG Claw funciona.' },
+  ];
+  function tutorial() { comTour([PASSOS.passos[0]].concat(PASSOS.agentes, PASSOS.pronto)); }
 
   document.addEventListener('click', ev => {
     const b = ev.target.closest('button[data-cn="ajuda"]');

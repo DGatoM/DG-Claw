@@ -51,6 +51,7 @@ const TIPOS_ESTATICOS = {
   '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
   '.webp': 'image/webp', '.ico': 'image/x-icon', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf',
   '.txt': 'text/plain; charset=utf-8', '.map': 'application/json', '.mp3': 'audio/mpeg', '.wav': 'audio/wav',
+  '.mp4': 'video/mp4', '.webm': 'video/webm',
 };
 const RX_SLUG_ROTA = /^[a-z0-9][a-z0-9-]{0,31}$/;
 
@@ -150,10 +151,29 @@ function criarServidor(opcoes) {
     const cab = { 'Content-Type': tipo, ETag: etag, 'Cache-Control': cache || 'no-cache', 'X-Content-Type-Options': 'nosniff' };
     if (path.basename(caminho) === 'sw.js') cab['Service-Worker-Allowed'] = '/';
     if (req.headers['if-none-match'] === etag) { res.writeHead(304, cab); res.end(); return true; }
-    cab['Content-Length'] = st.size;
-    res.writeHead(200, cab);
+    cab['Accept-Ranges'] = 'bytes';
+    // Range de um intervalo só (o iPhone só toca vídeo se o servidor responder 206). Vários intervalos: serve inteiro.
+    let ini = 0; let fim = st.size - 1; let status = 200;
+    const pedido = String(req.headers.range || '');
+    if (/^bytes=/i.test(pedido) && !pedido.includes(',')) {
+      const mr = /^bytes=(\d*)-(\d*)$/i.exec(pedido.trim());
+      let a = NaN; let b = NaN;
+      if (mr && (mr[1] !== '' || mr[2] !== '')) {
+        if (mr[1] === '') { const n = Number(mr[2]); a = n > 0 ? Math.max(0, st.size - n) : NaN; b = st.size - 1; }
+        else { a = Number(mr[1]); b = mr[2] === '' ? st.size - 1 : Math.min(Number(mr[2]), st.size - 1); }
+      }
+      if (!Number.isSafeInteger(a) || !Number.isSafeInteger(b) || a > b || a >= st.size) {
+        res.writeHead(416, { 'Content-Range': `bytes */${st.size}`, 'Cache-Control': 'no-store' });
+        res.end();
+        return true;
+      }
+      ini = a; fim = b; status = 206;
+      cab['Content-Range'] = `bytes ${ini}-${fim}/${st.size}`;
+    }
+    cab['Content-Length'] = fim - ini + 1;
+    res.writeHead(status, cab);
     if (req.method === 'HEAD') { res.end(); return true; }
-    const s = fs.createReadStream(caminho);
+    const s = fs.createReadStream(caminho, status === 206 ? { start: ini, end: fim } : undefined);
     s.on('error', (e) => { log('erro', `Falha lendo o arquivo estático ${caminho} (${e.code || e.message}).`); res.destroy(); });
     s.pipe(res);
     return true;

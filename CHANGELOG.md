@@ -12,7 +12,9 @@ e mandar por mensagem, e o link vencia antes de você ver. Agora o painel tem a 
 `/conectar`): você entra quando puder, toca em "Gerar link de login" no cartão do agente, entra na sua conta do Claude e cola
 o código que aparece no fim. Há um cartão para o Admin e um para cada agente de trabalho, cada um com um selo que mostra se
 a conta está conectada, se falta conectar ou se o login expirou. Quem usa chave de API aparece como tal, sem botão. O aviso
-"Seu login do Claude expirou" também ganhou um atalho discreto para essa página. Nada precisa ser feito para atualizar.
+"Seu login do Claude expirou" também ganhou um atalho discreto para essa página. Os cartões agora se chamam Agente admin, Agente principal e Agente de trabalho, e, quando tudo está conectado, a página mostra
+um passo a passo curto (endereço do painel, usuário para entrar e o que você vai ver) com um vídeo de menos de 1 minuto.
+Nada precisa ser feito para atualizar.
 
 **A ronda de segurança deixou de pesar na memória.** Em servidores pequenos, de 4 GB, a verificação de segurança podia
 passar de 1 GB de memória e fazer o sistema derrubar os seus agentes. Agora ela lê uma falha por vez e guarda só o

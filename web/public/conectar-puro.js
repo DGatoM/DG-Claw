@@ -13,8 +13,12 @@
   if (typeof module === 'object' && module.exports) module.exports = m;
   else raiz.DGConectar = m;
 })(this, function (LC) {
-  const PAPEL_ADMIN = 'o agente supervisor, que cuida do servidor';
-  const PAPEL_AGENTE = 'o seu agente de trabalho';
+  const ROTULO_ADMIN = 'Agente admin';
+  const ROTULO_PRINCIPAL = 'Agente principal';
+  const ROTULO_TRABALHO = 'Agente de trabalho';
+  const PAPEL_ADMIN = 'Para administrar: atualizar o DG Claw, criar agentes e configurar.';
+  const PAPEL_PRINCIPAL = 'O seu agente do dia a dia: é com ele que você conversa e pede tarefas.';
+  const PAPEL_TRABALHO = 'O seu agente de trabalho.';
 
   /** Admin primeiro; os demais na ordem em que vieram. Não altera a lista de entrada. */
   function ordenar(agentes) {
@@ -22,11 +26,18 @@
     return lista.filter(a => a.tipo === 'admin').concat(lista.filter(a => a.tipo !== 'admin'));
   }
 
-  /** A frase de papel em linguagem de leigo. O subtítulo do agente, se houver, vai à parte. */
-  function papel(agente) {
+  /** O agente principal é o primeiro agente de trabalho da lista já ordenada; null se não houver. */
+  function principal(agentes) {
+    return ordenar(agentes).find(a => a.tipo !== 'admin') || null;
+  }
+
+  /** Rótulo e frase de papel em linguagem de leigo. O subtítulo do agente, se houver, vai à parte. */
+  function papel(agente, ehPrincipal) {
     const a = agente || {};
+    const adm = a.tipo === 'admin';
     return {
-      papel: a.tipo === 'admin' ? PAPEL_ADMIN : PAPEL_AGENTE,
+      rotulo: adm ? ROTULO_ADMIN : ehPrincipal ? ROTULO_PRINCIPAL : ROTULO_TRABALHO,
+      papel: adm ? PAPEL_ADMIN : ehPrincipal ? PAPEL_PRINCIPAL : PAPEL_TRABALHO,
       subtitulo: a.subtitulo ? String(a.subtitulo) : '',
     };
   }
@@ -120,6 +131,7 @@
    *   erroConferir  frase de erro da consulta do estado
    *   outroNome     nome do agente que está no meio de um login (bloqueia este cartão), ou ''
    *   agente        { id, nome, tipo, subtitulo }
+   *   principal     este é o agente principal (o primeiro agente de trabalho)
    * fase: sem_resposta | api | conectado | inicio | preparando | codigo | navegador | concluido | falhou
    * O link só existe nas fases codigo e navegador.
    */
@@ -129,9 +141,9 @@
     const nome = agente.nome || 'O agente';
     const sel = selo(d, ctx);
     const prov = LC.nomeProvedor(d && d.provedor ? d.provedor : agente.provedor);
-    const p = papel(agente);
+    const p = papel(agente, !!ctx.principal);
     const base = {
-      id: agente.id, nome, papel: p.papel, subtitulo: p.subtitulo, provedor: prov, selo: sel,
+      id: agente.id, nome, rotulo: p.rotulo, papel: p.papel, subtitulo: p.subtitulo, provedor: prov, selo: sel,
       fase: 'inicio', texto: '', passos: [], gerar: false, gerarRotulo: 'Gerar link de login', gerarBloqueio: '',
       link: null, campoCodigo: false, codigoDispositivo: null, cancelar: false, novoLink: false, entrarOutra: false, aviso: '',
     };
@@ -166,7 +178,7 @@
           aviso: 'Esperando você terminar o login na página',
         });
       case 'concluido':
-        return Object.assign(base, { fase: 'concluido', texto: 'Pronto! ' + nome + ' já pode responder.', entrarOutra: true, aviso: 'Conectado' });
+        return Object.assign(base, { fase: 'concluido', texto: 'Seu agente DG Claw já está conectado.', entrarOutra: true, aviso: 'Conectado' });
       case 'falhou':
         return Object.assign(base, {
           fase: 'falhou', texto: traduzFalha(d && d.mensagem), gerar: !bloqueio, gerarRotulo: 'Gerar novo link', gerarBloqueio: bloqueio,
@@ -194,5 +206,22 @@
     return lista.length > 0 && lista.every(s => s.chave === 'conectado');
   }
 
-  return { PAPEL_ADMIN, PAPEL_AGENTE, ordenar, papel, selo, limpaCodigo, traduzFalha, traduzErro, visaoCartao, tudoConectado, emAndamento };
+  /** Textos do mini tutorial "Tudo pronto". Nunca recebe nem mostra senha. */
+  function pronto(ctx) {
+    ctx = ctx || {};
+    const usuario = ctx.usuario ? String(ctx.usuario) : '';
+    const itens = ['Admin: para administrar (atualizar o DG Claw, criar agentes e configurar).'];
+    if (ctx.principalNome) itens.push(ctx.principalNome + ': o seu agente do dia a dia. Você pode trocar o nome dele depois, é só pedir ao Admin.');
+    return {
+      titulo: 'Tudo pronto! Agora é só usar',
+      passo1: '1. Acesse o seu painel:',
+      endereco: String(ctx.endereco || ''),
+      passo2: '2. Entre com o usuário ' + (usuario || 'que você escolheu') + ' e a mesma senha que você usou para entrar aqui.',
+      passo3: '3. O que você vai ver:',
+      itens,
+      legendaVideo: 'Veja em menos de 1 minuto',
+    };
+  }
+
+  return { pronto, ROTULO_ADMIN, ROTULO_PRINCIPAL, ROTULO_TRABALHO, PAPEL_ADMIN, PAPEL_PRINCIPAL, PAPEL_TRABALHO, ordenar, principal, papel, selo, limpaCodigo, traduzFalha, traduzErro, visaoCartao, tudoConectado, emAndamento };
 });
