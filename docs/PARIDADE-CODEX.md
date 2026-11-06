@@ -142,12 +142,16 @@ levar dias.
 
 ## Riscos
 
-1. **A confiança dos hooks do Codex.** Hook sem confiança não roda. Há duas saídas: gravar o hash
-   de confiança no `config.toml` do `CODEX_HOME` de cada agente na instalação (o preferido), ou
-   subir com `--dangerously-bypass-hook-trust`. A segunda é mais simples, mas faz o Codex rodar
-   qualquer hook que aparecer na pasta. No agente em container isso não aumenta o poder dele (ele já
-   roda comandos sem aprovação), mas no **Admin, que roda como root**, o arquivo de hooks tem de ser
-   de root e ficar fora de qualquer pasta em que um agente escreva. A Fase 1 decide isso com teste.
+1. **A confiança dos hooks do Codex.** Hook sem confiança não roda, e isso é uma proteção que o
+   DG Claw tem de manter. A única saída aceita é dar confiança explícita só aos hooks que o próprio
+   DG Claw distribui e revisa: gravar o hash de cada um no `config.toml` do `CODEX_HOME` do agente
+   na instalação e na atualização. **`--dangerously-bypass-hook-trust` não pode ser usado**, nem no
+   container: com ele, um `.codex/hooks.json` que chegue num repositório clonado ou numa pasta de
+   terceiro roda comandos sozinho no começo da sessão, sem o modelo precisar aceitar nada, e leva as
+   credenciais e os arquivos do container. Hooks de projetos externos continuam bloqueados. No
+   **Admin, que roda como root**, vale o mesmo, e o arquivo de hooks do DG Claw tem de ser de root e
+   ficar fora de qualquer pasta em que um agente escreva. A Fase 1 só fecha com um teste que põe um
+   hook externo malicioso num projeto e confere que ele **não** roda.
 2. **O Codex muda toda semana.** Hooks, skills e app-server são recentes, e o protocolo do
    app-server muda de versão em versão. Fixar a versão testada no instalador e o `doctor` avisar
    quando sair dela.
