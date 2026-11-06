@@ -50,7 +50,8 @@
 
   const urlLogin = id => '/api/v1/agents/' + encodeURIComponent(id) + '/login';
   const novoEstado = () => ({ dados: null, erroConferir: '', iniciado: false, concluiuAgora: false, ocupado: false,
-                              erro: '', erroPoll: '', aviso: '', copiado: false, confirmando: false, oiFeito: false, conferindo: false });
+                              erro: '', erroPoll: '', aviso: '', copiado: false, confirmando: false, oiFeito: false, conferindo: false,
+                              geracao: 0 });
   const emAndamento = e => !!e.dados && P.emAndamento(e.dados.estado);
 
   /* ── Desenho ────────────────────────────────────────────────────────────── */
@@ -186,8 +187,12 @@
     if (e.conferindo) return;
     e.conferindo = true;
     if (mostraCarregando) desenhaCartao(a);
+    // geração: toda ação (gerar, cancelar, enviar código) a incrementa. Uma consulta que saiu antes da ação
+    // e chegou depois dela traz um estado velho e é descartada (corrida apontada na revisão do PR #86).
+    const geracao = e.geracao;
     const r = await chama('GET', urlLogin(a.id), undefined, 'conferir', a.nome, 15000);
     e.conferindo = false;
+    if (geracao !== e.geracao) return;
     if (!r.ok) {
       // no meio de um login, um tropeço da consulta não esconde o cartão: aparece como aviso e a próxima volta tenta de novo
       if (emAndamento(e)) e.erroPoll = r.erro.texto;
@@ -220,6 +225,7 @@
     const e = est.por[a.id];
     if (e.ocupado) return;
     e.ocupado = true; e.erro = ''; e.aviso = ''; e.confirmando = false;
+    e.geracao++;
     desenhaCartao(a);
     const r = await chama('POST', urlLogin(a.id), {}, 'gerar', a.nome);
     e.ocupado = false;
@@ -236,6 +242,7 @@
     const e = est.por[a.id];
     if (e.ocupado) return false;
     e.ocupado = true; e.erro = '';
+    e.geracao++;
     desenhaCartao(a);
     const r = await chama('DELETE', urlLogin(a.id), undefined, 'cancelar', a.nome);
     e.ocupado = false;
@@ -258,6 +265,7 @@
     const codigo = P.limpaCodigo(campo ? campo.value : '');
     if (!codigo) { e.erro = 'Cole o código que a página mostrou no fim do login.'; desenhaCartao(a); if (campo) campo.focus(); return; }
     e.ocupado = true; e.erro = '';
+    e.geracao++;
     // o código sai do campo antes da chamada, com sucesso ou erro: não fica na tela nem em variável
     campo.value = '';
     desenhaCartao(a);
