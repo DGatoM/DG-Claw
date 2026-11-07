@@ -18,7 +18,7 @@ test('login: senha certa entra, cookie httpOnly/SameSite e só o hash do token n
     assert.match(sc, /HttpOnly/); assert.match(sc, /SameSite=Lax/); assert.match(sc, /Path=\//); assert.match(sc, /Max-Age=2592000/);
     assert.ok(!/Secure/.test(sc), 'sem X-Forwarded-Proto https não leva Secure');
     const eu = await t.c.get('/api/v1/eu');
-    assert.deepEqual(eu.json, { ok: true, usuario: 'dono' });
+    assert.deepEqual(eu.json, { ok: true, usuario: 'dono', papel: 'dono', agente: null, nome: '', trocar_senha: false });
     const token = sc.split(';')[0].split('=')[1];
     const arquivo = path.join(t.dados, 'sessoes.json');
     const salvo = fs.readFileSync(arquivo, 'utf8');

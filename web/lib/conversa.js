@@ -513,11 +513,11 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
   const erro = (status, motivo, extra) => ({ status, corpo: Object.assign({ ok: false, erro: motivo }, extra || {}) });
 
   /** Entrega o texto (já com marcadores de anexo) ao agente. Devolve { status, corpo }. */
-  async function entregar(agente, textoFinal, { cru, voz }) {
+  async function entregar(agente, textoFinal, { cru, voz, from }) {
     sequencia += 1;
     const payload = cru
       ? textoFinal
-      : montarEnvelope({ from: 'pessoa', chat: agente.chat_id, msg: `w${relogio().toString(36)}${sequencia}`, ts: new Date(relogio()).toISOString(), text: textoFinal, voz });
+      : montarEnvelope({ from: from || 'pessoa', chat: agente.chat_id, msg: `w${relogio().toString(36)}${sequencia}`, ts: new Date(relogio()).toISOString(), text: textoFinal, voz });
     const epEnviado = relogio() / 1000 - 2;
     // O runner responde 202 "enfileirado" sempre; quem sabe se vai esperar é o estado de AGORA (sem o cache de 2 s).
     const antes = await runner.estado(agente);
@@ -683,7 +683,8 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     return { status: 202, corpo: { ok: true, agente: agente.slug, sessao: dados.sessao || null, modo: dados.modo || null } };
   }
 
-  async function enviar(agente, req) {
+  /** `ator` (opcional) é quem fala: { from } para o envelope e { colaborador:true } para travar o que é do dono. */
+  async function enviar(agente, req, ator) {
     const texto = typeof req.text === 'string' ? req.text.trim() : '';
     const ids = req.anexos == null ? [] : req.anexos;
     if (!Array.isArray(ids) || !ids.every((i) => typeof i === 'string' && i)) {
@@ -693,7 +694,9 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     if (new Set(ids).size !== ids.length) return erro(400, 'Há ids repetidos em "anexos". Cada arquivo entra uma vez só.');
     if (!texto && !ids.length) return erro(400, 'Mande o texto em "text" (ou os ids dos arquivos em "anexos"). Recebi vazio.');
     // Token do BotFather colado sozinho: vai para o .env do agente e nunca para o runner.
+    const ehColab = !!(ator && ator.colaborador);
     if (!ids.length && tokenTelegram.ehToken(texto)) {
+      if (ehColab) return erro(403, 'Guardar o token de um bot do Telegram muda a configuração do agente, e isso é só do dono do DG Claw. Peça a ele. Nada foi enviado.', { codigo: 'SO_DO_DONO' });
       const g = await tokenTelegram.guardar(agente, texto);
       if (g.erro) {
         log('aviso', `Token do Telegram colado na conversa de ${agente.slug} não foi guardado: ${g.erro.corpo.erro}`);
@@ -715,23 +718,23 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
       return erro(404, `Não achei o anexo ${faltam.join(', ')} entre os arquivos de ${agente.nome}. Suba o arquivo de novo em /upload (enviar=0) e use o anexo.id que voltar. Nada foi enviado.`, { anexos_faltando: faltam });
     }
     // Mensagem que começa com "/": comando de barra (ver comandos.js). Anexos desligam; "//" escapa.
-    const d = await comandos.decidir(agente, texto, { temAnexos: ids.length > 0 });
+    const d = await comandos.decidir(agente, texto, { temAnexos: ids.length > 0, colaborador: ehColab });
     if (d.erro) {
       log('aviso', `Comando recusado para ${agente.slug} (${d.erro.codigo}): ${String(texto).slice(0, 80)}`);
       const { status, ...corpo } = d.erro;
       return erro(status, corpo.erro, { codigo: corpo.codigo, ...omite(corpo, ['erro', 'codigo']) });
     }
-    if (d.tipo === 'comando') return entregaComando(agente, d);
+    if (d.tipo === 'comando') return entregaComando(agente, d, ator);
     const base = d.texto !== undefined ? d.texto : texto;
     // Só `voz: true` conta (a tela manda quando o modo de ouvir está ligado); outro valor é sem a tag.
-    return entregar(agente, [base, ...marcadores].filter(Boolean).join('\n'), { cru: false, voz: req.voz === true });
+    return entregar(agente, [base, ...marcadores].filter(Boolean).join('\n'), { cru: false, voz: req.voz === true, from: ator && ator.from });
   }
 
   const omite = (o, chaves) => Object.fromEntries(Object.entries(o).filter(([k]) => !chaves.includes(k)));
 
   /** Entrega uma decisão do tipo 'comando' e anexa o objeto `comando` ao corpo 200. */
-  async function entregaComando(agente, d) {
-    const r = await entregar(agente, d.textoParaRunner, { cru: d.entregue_como === 'cru' });
+  async function entregaComando(agente, d, ator) {
+    const r = await entregar(agente, d.textoParaRunner, { cru: d.entregue_como === 'cru', from: ator && ator.from });
     if (r.status >= 300) return r;
     const comando = Object.assign({}, d.comando, { entregue_como: d.entregue_como });
     return { status: r.status, corpo: Object.assign({}, r.corpo, { comando }) };
@@ -741,7 +744,7 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
    * POST /comando: { comando, argumentos } ou { text }. Mesmo caminho do /send, mas aqui tudo que não for
    * comando é erro (o /send, ao contrário, segue como texto).
    */
-  async function comando(agente, req) {
+  async function comando(agente, req, ator) {
     const b = req || {};
     let texto;
     if (typeof b.comando === 'string' && b.comando.trim()) {
@@ -756,7 +759,7 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
       return erro(400, 'Mande o comando em "comando" (ex.: "/compact") ou o texto inteiro em "text" (ex.: "/compact foque nas decisões"). Recebi vazio. Nada foi enviado.', { codigo: 'COMANDO_MALFORMADO' });
     }
     if (texto.length > config.maxTexto) return erro(413, `O comando tem ${texto.length} caracteres e o limite é ${config.maxTexto}. Encurte os argumentos.`);
-    const d = await comandos.decidir(agente, texto, { temAnexos: false });
+    const d = await comandos.decidir(agente, texto, { temAnexos: false, colaborador: !!(ator && ator.colaborador) });
     if (d.erro) {
       const { status, ...corpo } = d.erro;
       return erro(status, corpo.erro, { codigo: corpo.codigo, ...omite(corpo, ['erro', 'codigo']) });
@@ -764,7 +767,7 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     if (d.tipo !== 'comando') {
       return erro(400, `"${texto.slice(0, 80)}" não é um comando: o comando começa com uma barra e o nome vai colado nela, sem espaço (ex.: "/compact"). Para mandar texto comum ao agente, use o /send. Nada foi enviado.`, { codigo: 'COMANDO_MALFORMADO' });
     }
-    return entregaComando(agente, d);
+    return entregaComando(agente, d, ator);
   }
 
   return {

@@ -219,10 +219,11 @@ function criarMidia({ dataDir, log, registro, publicDir }) {
     obter(id) { return reg.get(id) || null; },
 
     /** GET|HEAD /api/v1/media/<id>/visual?tema=claro|escuro (ver docs/VISUAIS.md). */
-    servirVisual(req, res, id, temaPedido) {
+    servirVisual(req, res, id, temaPedido, slugPermitido) {
       const tema = temaPedido === 'escuro' ? 'escuro' : 'claro';
       const e = reg.get(id);
-      if (!e) {
+      // slugPermitido (colaborador): mídia de outro agente responde igual a mídia que não existe, para não revelar o id
+      if (!e || (slugPermitido && e.slug !== slugPermitido)) {
         erroVisual(req, res, 404, 'Não conheço esta mídia. Ela pode ter sido registrada antes de o servidor reiniciar: recarregue a conversa para ela voltar.', tema);
         return;
       }
@@ -258,9 +259,9 @@ function criarMidia({ dataDir, log, registro, publicDir }) {
     },
 
     /** Serve o arquivo. `modo` é 'arquivo' ou 'thumb'. */
-    async servir(req, res, id, modo, baixar) {
+    async servir(req, res, id, modo, baixar, slugPermitido) {
       const e = reg.get(id);
-      if (!e) {
+      if (!e || (slugPermitido && e.slug !== slugPermitido)) {
         erroJson(res, 404, 'Não conheço esta mídia. Ela pode ter sido registrada antes de o servidor reiniciar: recarregue a conversa para ela voltar.');
         return;
       }

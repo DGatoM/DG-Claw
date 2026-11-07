@@ -51,11 +51,23 @@ function scrypt(senha, h) {
   });
 }
 
+/** Hash fictício, gerado uma vez: login de e-mail que não existe gasta o mesmo scrypt de um que existe. */
+let hashFicticioCache = null;
+function hashFicticio() {
+  if (hashFicticioCache) return hashFicticioCache;
+  const sal = crypto.randomBytes(16);
+  const k = crypto.scryptSync('senha-que-ninguem-tem', sal, 32, { N: SCRYPT_NOVO.N, r: SCRYPT_NOVO.r, p: SCRYPT_NOVO.p, maxmem: 64 * 1024 * 1024 });
+  const partes = ['scrypt', SCRYPT_NOVO.N, SCRYPT_NOVO.r, SCRYPT_NOVO.p, sal.toString('base64url'), k.toString('base64url')];
+  hashFicticioCache = parseHash(partes.join('$'));
+  return hashFicticioCache;
+}
+
 /**
  * Cria o módulo de autenticação.
  * config: { env, dataDir, sessaoDias, proxiesConfiaveis }; log; agora (relógio injetável).
  */
-function criarAuth({ config, log, agora }) {
+function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
+  let colaboradores = colabsInicial || null; // ligado depois por ligarColaboradores (o módulo precisa do gerarHash, que é daqui)
   const relogio = agora || (() => Date.now());
   const usuario = String(config.env.DGCLAW_PANEL_USER || '').trim();
   const hashInicial = String(config.env.DGCLAW_PANEL_PASSWORD_HASH || '').trim();
@@ -153,6 +165,7 @@ function criarAuth({ config, log, agora }) {
 
     /** Confere usuário e senha. Sempre gasta o scrypt (mesmo com usuário errado). { ok, trancado?, erro? } */
     async verificaSenha(usuarioInformado, senha, ip) {
+      if (colaboradores && !comparaTempoConstante(usuarioInformado == null ? '' : usuarioInformado, usuario)) return verificaColaborador(usuarioInformado, senha, ip);
       if (trancado) return { ok: false, trancado: true, erro: semSenha ? `O login ainda não tem senha. ${motivoTrancado}` : `O login está trancado: ${motivoTrancado} Rode o gerador de hash do instalador.` };
       const b = ip ? bloqueio(ip) : { bloqueado: false };
       if (b.bloqueado) return { ok: false, limite: true, retryAfter: b.retryAfter, erro: `Muitas tentativas erradas. Tente de novo em ${Math.ceil(b.retryAfter / 60)} min.` };
@@ -174,41 +187,124 @@ function criarAuth({ config, log, agora }) {
       const usuarioOk = comparaTempoConstante(usuarioInformado == null ? '' : usuarioInformado, usuario);
       if (senhaOk && usuarioOk) {
         if (ip) falhas.delete(ip);
-        return { ok: true, usuario };
+        return { ok: true, usuario, papel: 'dono' };
       }
       if (ip) { const l = janela(ip); l.push(relogio()); falhas.set(ip, l); }
       return { ok: false, erro: 'Usuário ou senha incorretos.' };
     },
 
     /** Cria a sessão e devolve { token, expira, cabecalho(Set-Cookie) } pronta para o cookie. */
-    criaSessao(nomeUsuario, req) {
+    criaSessao(nomeUsuario, req, colaborador) {
       const token = crypto.randomBytes(32).toString('base64url');
       const criada = relogio();
       const expira = criada + config.sessaoDias * 86400 * 1000;
       limpaExpiradas();
-      sessoes.set(sha256hex(token), { usuario: nomeUsuario || usuario, criada, expira });
+      const reg = { usuario: nomeUsuario || usuario, criada, expira };
+      if (colaborador) Object.assign(reg, { papel: 'colaborador', colaborador_id: colaborador.id, agente: colaborador.agente, senha_versao: colaborador.senha_versao });
+      sessoes.set(sha256hex(token), reg);
       limpaExpiradas();
       salva();
-      return { token, expira, cookie: montaCookie(token, config.sessaoDias * 86400, req) };
+      const cookie = montaCookie(token, config.sessaoDias * 86400, req);
+      return { token, expira, cookie, cookies: [cookie, montaCookiePapel(colaborador ? 'colaborador' : 'dono', req)] };
     },
 
-    /** { usuario, expira } da sessão do cookie, ou null. */
+    /** { usuario, expira, papel, agente, ... } da sessão do cookie, ou null. Sessão sem papel no disco é do dono. */
     sessaoDoPedido(req) {
       const token = parseCookies(req.headers.cookie)[NOME_COOKIE];
       if (!token || token.length > 200) return null;
       const s = sessoes.get(sha256hex(token));
       if (!s) return null;
       if (s.expira <= relogio()) { sessoes.delete(sha256hex(token)); salva(); return null; }
-      return { usuario: s.usuario, expira: s.expira };
+      if (s.papel === 'colaborador') return sessaoDeColaborador(token, s);
+      return { usuario: s.usuario, expira: s.expira, papel: 'dono', agente: null };
+    },
+
+    ligarColaboradores(modulo) { colaboradores = modulo; },
+
+    /** Cookie legível pelo navegador só para a tela esconder o que não é do colaborador. Não protege nada: quem protege é o escopo.js. */
+    cookiePapel(papel, req) { return montaCookiePapel(papel, req); },
+
+    /** A senha confere com este hash? (troca de senha do colaborador). Respeita o limite de scrypt simultâneo. */
+    async senhaConfereHash(senha, hashTexto) {
+      const h = parseHash(hashTexto);
+      if (h.erro) return false;
+      if (scryptEmCurso >= SCRYPT_SIMULTANEOS) { const e = new Error('Muitas senhas sendo processadas ao mesmo tempo. Tente de novo em alguns segundos.'); e.ocupado = true; throw e; }
+      scryptEmCurso++;
+      try {
+        const k = await scrypt(senha, h);
+        return k.length === h.hash.length && crypto.timingSafeEqual(k, h.hash);
+      } finally { scryptEmCurso--; }
+    },
+
+    /** Apaga todas as sessões de um colaborador (revogação, convite novo, troca de senha). Devolve quantas. */
+    encerraDoColaborador(id) {
+      let n = 0;
+      for (const [k, v] of sessoes) if (v.papel === 'colaborador' && v.colaborador_id === id) { sessoes.delete(k); n++; }
+      if (n) salva();
+      return n;
     },
 
     /** Apaga a sessão do pedido e manda o cookie expirar. */
     encerra(req, res) {
       const token = parseCookies(req.headers.cookie)[NOME_COOKIE];
       if (token && sessoes.delete(sha256hex(token))) salva();
-      res.setHeader('Set-Cookie', montaCookie('', 0, req));
+      res.setHeader('Set-Cookie', [montaCookie('', 0, req), montaCookiePapel('', req)]);
     },
   };
+
+  // ── colaboradores (funções separadas das do dono, para facilitar o rebase) ──
+  async function verificaColaborador(emailInformado, senha, ip) {
+    const b = ip ? bloqueio(ip) : { bloqueado: false };
+    if (b.bloqueado) return { ok: false, limite: true, retryAfter: b.retryAfter, erro: `Muitas tentativas erradas. Tente de novo em ${Math.ceil(b.retryAfter / 60)} min.` };
+    if (scryptEmCurso >= SCRYPT_SIMULTANEOS) {
+      log('aviso', `Login de ${ip || '(sem IP)'} recusado: já há ${scryptEmCurso} senhas sendo conferidas ao mesmo tempo.`);
+      return { ok: false, limite: true, retryAfter: 2, erro: 'Muitas tentativas ao mesmo tempo. Tente de novo em alguns segundos.' };
+    }
+    const c = colaboradores.porEmailAtivo(emailInformado);
+    let alvo = c ? parseHash(c.hash) : hashFicticio();
+    if (alvo.erro) {
+      log('erro', `O hash do colaborador ${c.email} não vale (${alvo.erro}). Ele não consegue entrar; mande um convite novo (POST /api/v1/colaboradores/${c.id}/reenviar).`);
+      alvo = hashFicticio();
+    }
+    let calculado;
+    scryptEmCurso++;
+    try {
+      calculado = await scrypt(senha == null ? '' : senha, alvo);
+    } catch (e) {
+      log('erro', `Falha ao calcular o scrypt da senha de colaborador (${e.message}).`);
+      return { ok: false, erro: 'Não consegui conferir a senha agora. Tente de novo em instantes.' };
+    } finally {
+      scryptEmCurso--;
+    }
+    const senhaOk = !!c && alvo !== hashFicticioCache && calculado.length === alvo.hash.length && crypto.timingSafeEqual(calculado, alvo.hash);
+    if (!senhaOk) {
+      if (ip) { const l = janela(ip); l.push(relogio()); falhas.set(ip, l); }
+      return { ok: false, erro: 'Usuário ou senha incorretos.' };
+    }
+    if (ip) falhas.delete(ip);
+    if (c.trocar_senha && Number(c.temporaria_expira) < relogio()) {
+      return { ok: false, erro: 'A senha temporária venceu. Peça ao dono do DG Claw um convite novo.' };
+    }
+    colaboradores.registrarLogin(c.id);
+    return { ok: true, usuario: c.email, papel: 'colaborador', colaborador: { id: c.id, agente: c.agente, senha_versao: c.senha_versao || 1 } };
+  }
+
+  /** Confere a CADA pedido que o colaborador ainda vale: a revogação e a troca de senha derrubam a sessão no pedido seguinte. */
+  function sessaoDeColaborador(token, s) {
+    const c = colaboradores ? colaboradores.obter(s.colaborador_id) : null;
+    if (!c || c.revogado_em || c.agente !== s.agente || (c.senha_versao || 1) !== s.senha_versao) {
+      sessoes.delete(sha256hex(token));
+      salva();
+      return null;
+    }
+    return { usuario: s.usuario, expira: s.expira, papel: 'colaborador', agente: c.agente, colaborador_id: c.id, nome: c.nome || '', trocar_senha: !!c.trocar_senha };
+  }
+
+  function montaCookiePapel(papel, req) {
+    let c = `dgclaw_papel=${papel}; SameSite=Lax; Path=/; Max-Age=${papel ? config.sessaoDias * 86400 : 0}`;
+    if (req && esquemaDoPedido(req, config.proxiesConfiaveis) === 'https') c += '; Secure';
+    return c;
+  }
 
   function montaCookie(valor, maxAge, req) {
     let c = `${NOME_COOKIE}=${valor}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}`;

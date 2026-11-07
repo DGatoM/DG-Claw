@@ -15,7 +15,7 @@ const PROIBIDOS_DO_NAVEGADOR = new Set(['x-dgclaw-proxy', 'x-dgclaw-usuario']);
 /** Tira o cookie de sessão do Web do que vai para o painel (ele não precisa do nosso token). */
 function limpaCookie(c) {
   if (!c) return null;
-  const resto = String(c).split(';').map((p) => p.trim()).filter((p) => p && !p.startsWith(`${NOME_COOKIE}=`));
+  const resto = String(c).split(';').map((p) => p.trim()).filter((p) => p && !p.startsWith(`${NOME_COOKIE}=`) && !p.startsWith('dgclaw_papel='));
   return resto.length ? resto.join('; ') : null;
 }
 
