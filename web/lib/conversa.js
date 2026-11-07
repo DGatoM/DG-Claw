@@ -718,7 +718,12 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
       return erro(404, `Não achei o anexo ${faltam.join(', ')} entre os arquivos de ${agente.nome}. Suba o arquivo de novo em /upload (enviar=0) e use o anexo.id que voltar. Nada foi enviado.`, { anexos_faltando: faltam });
     }
     // Mensagem que começa com "/": comando de barra (ver comandos.js). Anexos desligam; "//" escapa.
-    const d = await comandos.decidir(agente, texto, { temAnexos: ids.length > 0, colaborador: ehColab });
+    // Colaborador não manda comando de barra: o texto dele, mesmo começando com "/", segue sempre dentro do
+    // envelope com o `from` dele. Comando cru chegaria ao agente sem dizer quem mandou.
+    if (ehColab) {
+      return entregar(agente, [texto, ...marcadores].filter(Boolean).join('\n'), { cru: false, voz: req.voz === true, from: ator.from });
+    }
+    const d = await comandos.decidir(agente, texto, { temAnexos: ids.length > 0 });
     if (d.erro) {
       log('aviso', `Comando recusado para ${agente.slug} (${d.erro.codigo}): ${String(texto).slice(0, 80)}`);
       const { status, ...corpo } = d.erro;
@@ -759,7 +764,7 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
       return erro(400, 'Mande o comando em "comando" (ex.: "/compact") ou o texto inteiro em "text" (ex.: "/compact foque nas decisões"). Recebi vazio. Nada foi enviado.', { codigo: 'COMANDO_MALFORMADO' });
     }
     if (texto.length > config.maxTexto) return erro(413, `O comando tem ${texto.length} caracteres e o limite é ${config.maxTexto}. Encurte os argumentos.`);
-    const d = await comandos.decidir(agente, texto, { temAnexos: false, colaborador: !!(ator && ator.colaborador) });
+    const d = await comandos.decidir(agente, texto, { temAnexos: false });
     if (d.erro) {
       const { status, ...corpo } = d.erro;
       return erro(status, corpo.erro, { codigo: corpo.codigo, ...omite(corpo, ['erro', 'codigo']) });

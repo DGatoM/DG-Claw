@@ -9,9 +9,25 @@ const H = require('./http');
 const RX_ID = /^[A-Za-z0-9_-]{8,64}$/;
 const SENHA_MIN = 10;
 const SENHA_MAX = 128;
+const JANELA_SENHA_MS = 15 * 60 * 1000;
+const MAX_FALHAS_SENHA = 5;
 const SO_DONO = 'Convidar e gerenciar colaboradores é só do dono do DG Claw, pelo painel.';
 
-function criarColaboradoresRotas({ colaboradores, auth, registro, email, config, log, aoDerrubar }) {
+function criarColaboradoresRotas({ colaboradores, auth, registro, email, config, log, aoDerrubar, agora }) {
+  const relogio = agora || (() => Date.now());
+  // Erros da senha atual na troca de senha: 5 em 15 min por colaborador e por IP.
+  const falhasDeSenha = new Map();
+  const bloqueioDe = (chaves) => {
+    const t = relogio();
+    let espera = 0;
+    for (const k of chaves) {
+      const lista = (falhasDeSenha.get(k) || []).filter((x) => t - x < JANELA_SENHA_MS);
+      if (lista.length) falhasDeSenha.set(k, lista); else falhasDeSenha.delete(k);
+      if (lista.length >= MAX_FALHAS_SENHA) espera = Math.max(espera, Math.ceil((lista[0] + JANELA_SENHA_MS - t) / 1000));
+    }
+    return espera;
+  };
+  const registraFalha = (chaves) => { const t = relogio(); for (const k of chaves) falhasDeSenha.set(k, [...(falhasDeSenha.get(k) || []), t]); };
   /** Derruba as sessões do colaborador e fecha as conexões abertas dele (o stream da conversa). */
   const derruba = (id) => { auth.encerraDoColaborador(id); if (aoDerrubar) aoDerrubar(id); };
 
@@ -156,17 +172,28 @@ function criarColaboradoresRotas({ colaboradores, auth, registro, email, config,
     if (nova !== corpo.confirmacao) { H.erroJson(res, 400, 'A confirmação não é igual à senha nova. Digite as duas de novo.'); return; }
     const c = colaboradores.obter(sessao.colaborador_id);
     if (!c || c.revogado_em) { H.erroJson(res, 401, 'Seu acesso não vale mais. Peça ao dono do DG Claw um convite novo.'); return; }
+    if (c.trocar_senha && Number(c.temporaria_expira) < relogio()) { H.erroJson(res, 401, 'A senha temporária venceu. Peça ao dono do DG Claw um convite novo.'); return; }
+    // O que este pedido viu: a gravação só passa se isso ainda for verdade no momento de gravar (ver definirSenha).
+    const esperado = { versao: c.senha_versao || 1, hash: c.hash };
+    const chaves = [`colab:${c.id}`, `ip:${H.ipDoPedido(req, config.proxiesConfiaveis)}`];
     try {
       if (!c.trocar_senha) {
         if (typeof corpo.atual !== 'string' || !corpo.atual) { H.erroJson(res, 400, 'Informe a senha atual no campo "atual".'); return; }
-        if (!(await auth.senhaConfereHash(corpo.atual, c.hash))) { H.erroJson(res, 403, 'A senha atual não confere.'); return; }
+        const espera = bloqueioDe(chaves);
+        if (espera) {
+          log('aviso', `Troca de senha de ${c.email} bloqueada: ${MAX_FALHAS_SENHA} erros da senha atual em 15 min.`);
+          H.erroJson(res, 429, `Muitos erros na senha atual. Tente de novo em ${Math.ceil(espera / 60)} min.`, { retryAfter: espera }, { 'Retry-After': String(espera) });
+          return;
+        }
+        if (!(await auth.senhaConfereHash(corpo.atual, c.hash))) { registraFalha(chaves); H.erroJson(res, 403, 'A senha atual não confere.'); return; }
+        for (const k of chaves) falhasDeSenha.delete(k);
       }
       if (await auth.senhaConfereHash(nova, c.hash)) {
         H.erroJson(res, 400, c.trocar_senha ? 'A senha nova precisa ser diferente da senha temporária.' : 'A senha nova precisa ser diferente da atual.');
         return;
       }
       const hash = await auth.gerarHash(nova);
-      const r = await colaboradores.definirSenha(c.id, hash);
+      const r = await colaboradores.definirSenha(c.id, hash, esperado);
       derruba(c.id);
       const s = auth.criaSessao(c.email, req, { id: c.id, agente: c.agente, senha_versao: r.senha_versao });
       log('info', `${c.email} trocou a senha (agente ${c.agente}); as outras sessões dele foram derrubadas.`);

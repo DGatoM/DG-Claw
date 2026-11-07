@@ -195,10 +195,16 @@ function criarColaboradores({ config, log, agora, gerarHash }) {
     },
 
     /** O próprio colaborador escolhe a senha: hash novo, fim da temporária, senha_versao sobe. */
-    definirSenha(id, hash) {
+    definirSenha(id, hash, esperado) {
       return transacao(async () => {
         const c = lista.find((x) => x.id === id);
         if (!c || c.revogado_em) throw erroStatus(401, 'Seu acesso não vale mais. Peça ao dono do DG Claw um convite novo.');
+        // A conferência e a gravação acontecem juntas, na fila: se o dono reenviou o convite (ou a senha mudou por
+        // outro caminho) depois que este pedido começou, a troca velha não pode passar por cima.
+        if (esperado && ((c.senha_versao || 1) !== esperado.versao || c.hash !== esperado.hash)) {
+          throw erroStatus(409, 'Sua senha ou seu convite mudou enquanto você trocava a senha (o dono pode ter mandado um convite novo). Entre de novo com a senha mais recente.');
+        }
+        if (c.trocar_senha && Number(c.temporaria_expira) < relogio()) throw erroStatus(401, 'A senha temporária venceu. Peça ao dono do DG Claw um convite novo.');
         const antes = Object.assign({}, c);
         Object.assign(c, { hash, trocar_senha: false, temporaria_expira: null, senha_versao: (c.senha_versao || 1) + 1 });
         try { grava(); } catch (e) { Object.assign(c, antes); throw e; }

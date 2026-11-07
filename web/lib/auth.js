@@ -199,13 +199,25 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
       const criada = relogio();
       const expira = criada + config.sessaoDias * 86400 * 1000;
       limpaExpiradas();
-      const reg = { usuario: nomeUsuario || usuario, criada, expira };
+      let expiraFinal = expira;
+      if (colaborador) {
+        // Conferência síncrona logo antes de emitir: se a senha, o convite ou o acesso mudou depois que a senha foi
+        // verificada, a sessão não nasce. Enquanto a senha é a temporária, a sessão morre junto com ela.
+        const atual = colaboradores ? colaboradores.obter(colaborador.id) : null;
+        if (!atual || atual.revogado_em || atual.agente !== colaborador.agente || (atual.senha_versao || 1) !== colaborador.senha_versao) {
+          const e = new Error('O seu acesso mudou (senha trocada, convite novo ou acesso revogado) enquanto você entrava. Entre de novo.');
+          e.status = 401;
+          throw e;
+        }
+        if (atual.trocar_senha) expiraFinal = Math.min(expira, Number(atual.temporaria_expira));
+      }
+      const reg = { usuario: nomeUsuario || usuario, criada, expira: expiraFinal };
       if (colaborador) Object.assign(reg, { papel: 'colaborador', colaborador_id: colaborador.id, agente: colaborador.agente, senha_versao: colaborador.senha_versao });
       sessoes.set(sha256hex(token), reg);
       limpaExpiradas();
       salva();
       const cookie = montaCookie(token, config.sessaoDias * 86400, req);
-      return { token, expira, cookie, cookies: [cookie, montaCookiePapel(colaborador ? 'colaborador' : 'dono', req)] };
+      return { token, expira: expiraFinal, cookie, cookies: [cookie, montaCookiePapel(colaborador ? 'colaborador' : 'dono', req)] };
     },
 
     /** { usuario, expira, papel, agente, ... } da sessão do cookie, ou null. Sessão sem papel no disco é do dono. */
@@ -297,7 +309,12 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
       salva();
       return null;
     }
-    return { usuario: s.usuario, expira: s.expira, papel: 'colaborador', agente: c.agente, colaborador_id: c.id, nome: c.nome || '', trocar_senha: !!c.trocar_senha };
+    if (c.trocar_senha && Number(c.temporaria_expira) <= relogio()) {
+      sessoes.delete(sha256hex(token));
+      salva();
+      return null;
+    }
+    return { usuario: s.usuario, expira: s.expira, papel: 'colaborador', agente: c.agente, colaborador_id: c.id, nome: c.nome || '', trocar_senha: !!c.trocar_senha, senha_versao: c.senha_versao || 1 };
   }
 
   function montaCookiePapel(papel, req) {

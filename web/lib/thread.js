@@ -146,6 +146,13 @@ function paraHost(caminho, agente) {
   if (cont && host && (c === cont || c.startsWith(cont + '/'))) return host + c.slice(cont.length);
   return c;
 }
+/** O caminho (já no host) está dentro de <home_host>/uploads? Compara o caminho normalizado, então `uploads/../.claude` não passa. */
+function ehUploadDoServidor(host, agente) {
+  if (!agente.home_host || !host) return false;
+  const pasta = path.resolve(agente.home_host, 'uploads');
+  const alvo = path.resolve(host);
+  return alvo.startsWith(pasta + path.sep);
+}
 function paraContainer(caminhoHost, agente) {
   const cont = agente.home_container && agente.home_container.replace(/\/+$/, '');
   const host = agente.home_host && agente.home_host.replace(/\/+$/, '');
@@ -189,12 +196,17 @@ function criarMontagem({ tz, midia }) {
     });
   }
 
-  /** A fala do dono, com os marcadores [anexo: ...] virando mídia. `dg` vem de parseDgchat. */
+  /** A fala da pessoa, com os marcadores [anexo: ...] virando mídia. `dg` vem de parseDgchat.
+   *  Texto digitado pela pessoa (o dono ou um colaborador) é só texto: quem escreve `[anexo: /qualquer/caminho]`
+   *  não pode transformar um arquivo do servidor em mídia. Só vira mídia o caminho dentro de `uploads/` da
+   *  casa do agente, que é onde o próprio servidor grava o que a pessoa enviou (e de onde a mídia volta depois
+   *  de um restart). O resto fica no texto, como a pessoa escreveu. */
   function empurraDono(estado, agente, dg, ep) {
     const caminhos = [];
-    const corpo = dg.interno.replace(ANEXO_LINHA, (_, cam) => {
+    const corpo = dg.interno.replace(ANEXO_LINHA, (linha, cam) => {
       const visto = cam.trim();
       const host = paraHost(visto, agente);
+      if (!ehUploadDoServidor(host, agente)) return linha;
       caminhos.push({ host, visto, nome: path.basename(host) });
       return '';
     }).replace(/\n{3,}/g, '\n\n').trim();

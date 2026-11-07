@@ -35,7 +35,8 @@ const RX_PAGINA_AGENTE = /^\/a\/([^/]+)\/?$/;
 const ACOES_AGENTE = {
   '': ['GET'], avatar: ['GET', 'HEAD'], messages: ['GET'], stream: ['GET'], wait: ['GET'], send: ['POST'],
   permissao: ['POST'], pergunta: ['POST'], reiniciar: ['POST'], lido: ['POST'], 'nao-lido': ['POST', 'DELETE'],
-  vendo: ['POST'], upload: ['POST'], comandos: ['GET'], comando: ['POST'], compartilhados: ['GET'],
+  vendo: ['POST'], upload: ['POST'], compartilhados: ['GET'],
+  // Sem `comando` e sem `comandos`: colaborador não manda comando de barra (ver conversa.js, enviar).
 };
 const METODOS_LOGIN = { '': ['GET', 'POST', 'DELETE'], codigo: ['POST'], oi: ['POST'] };
 

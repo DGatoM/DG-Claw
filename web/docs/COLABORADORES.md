@@ -148,11 +148,20 @@ O servidor nega por padrão (`web/lib/escopo.js`). Para o colaborador passam só
 - os arquivos estáticos da tela;
 - as páginas `/`, `/a/<agente dele>`, `/conectar` e `/trocar-senha`;
 - `GET /api/v1/eu`, `POST /api/v1/eu/senha`, `GET /api/v1/agents` (só o agente dele) e `GET /api/v1/nao-lidas`;
-- as rotas da conversa em `/api/v1/agents/<agente dele>/…`: `messages`, `stream`, `wait`, `send`, `permissao`, `pergunta`, `reiniciar`, `lido`, `nao-lido`, `vendo`, `upload`, `comandos`, `comando`, `compartilhados`, `avatar`, `alertas` e `login`;
-- as mídias que pertencem ao agente dele;
+- as rotas da conversa em `/api/v1/agents/<agente dele>/…`: `messages`, `stream`, `wait`, `send`, `permissao`, `pergunta`, `reiniciar`, `lido`, `nao-lido`, `vendo`, `upload`, `compartilhados`, `avatar`, `alertas` e `login`;
+- as mídias que pertencem ao agente dele, menos arquivos ocultos da casa (como `.claude`) e qualquer coisa fora da casa do agente;
 - `POST /api/v1/transcribe`, `POST /api/v1/tts` e `GET /api/v1/tts/cota`.
 
-O comando `/model` é recusado para ele. WebSocket e `/p/…` são sempre negados.
+Regras que o servidor aplica por cima da lista:
+
+- Comandos de barra não existem para ele: `/comando` e `/comandos` são negados, e um texto que começa com `/` segue como mensagem comum, dentro do envelope com `from="colaborador: …"`.
+- Ele só responde a pedido de permissão ou pergunta do agente quando foi ele quem iniciou o turno; senão recebe "Essa confirmação é do dono do DG Claw".
+- Ele só inicia o login da conta de IA (e manda o código) quando o agente está sem conta ou com o login vencido. Trocar uma conta que funciona é com o dono.
+- O stream e as mensagens dele não trazem o modo foco nem os avisos técnicos do servidor.
+- Um `[anexo: caminho]` digitado na conversa (pelo dono ou pelo colaborador) só vira mídia se o arquivo estiver na pasta `uploads/` do agente.
+- Enquanto vale a senha temporária, a sessão dele dura no máximo até ela vencer. Na troca de senha, 5 erros da senha atual em 15 minutos bloqueiam por 15 minutos (`429` com `Retry-After`).
+
+WebSocket e `/p/…` são sempre negados.
 
 ### Onde ficam os dados
 

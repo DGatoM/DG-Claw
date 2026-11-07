@@ -22,8 +22,6 @@ const MAX_DESCRICAO = 160;
 const MAX_LEITURA_SKILL = 16 * 1024;
 const TTL_DISCO_MS = 10 * 1000;
 const MAX_SUGESTOES = 5;
-// Comandos que o colaborador não manda: mexem na configuração do agente, que é do dono.
-const COMANDOS_SO_DO_DONO = new Set(['/model']);
 
 // ── nativos ────────────────────────────────────────────────────────────────
 
@@ -322,7 +320,7 @@ function criarComandos({ runner, log, agora, raizRepo }) {
    * Devolve { tipo:'texto', texto? } | { tipo:'comando', entregue_como, textoParaRunner, comando } | { erro:{status, codigo, erro, ...} }.
    * Com `texto` na decisão, a conversa usa esse texto no lugar do original (caso `//`).
    */
-  async function decidir(agente, textoBruto, { temAnexos, colaborador } = {}) {
+  async function decidir(agente, textoBruto, { temAnexos } = {}) {
     const texto = typeof textoBruto === 'string' ? textoBruto.trim() : '';
     if (temAnexos || !texto.startsWith('/')) return { tipo: 'texto' };
     if (texto.startsWith('//')) return { tipo: 'texto', texto: texto.slice(1) };
@@ -339,11 +337,6 @@ function criarComandos({ runner, log, agora, raizRepo }) {
         (sugestoes.length ? ` Parecidos: ${sugestoes.join(', ')}.` : ' Digite / no campo para ver a lista do que dá para usar.') +
         ` Se era um texto para o agente e não um comando, comece com duas barras (//${digitado}). Nada foi enviado.`,
         { sugestoes, provedor: cat.provedor });
-    }
-    if (colaborador && COMANDOS_SO_DO_DONO.has(item.nome)) {
-      return erro(403, 'COMANDO_SO_DO_DONO',
-        `${item.nome} muda a configuração do agente (o modelo que ele usa e o custo disso), e isso é só do dono do DG Claw. Peça a ele. Nada foi enviado.`,
-        { comando: item.nome });
     }
     if (item.tipo === 'tela') {
       return erro(422, 'COMANDO_DA_TELA',

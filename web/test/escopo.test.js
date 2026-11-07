@@ -19,7 +19,7 @@ const LIBERADOS = [
   ['POST', '/api/v1/agents/ana/send'], ['POST', '/api/v1/agents/ana/permissao'], ['POST', '/api/v1/agents/ana/pergunta'],
   ['POST', '/api/v1/agents/ana/reiniciar'], ['POST', '/api/v1/agents/ana/lido'], ['POST', '/api/v1/agents/ana/nao-lido'],
   ['DELETE', '/api/v1/agents/ana/nao-lido'], ['POST', '/api/v1/agents/ana/vendo'], ['POST', '/api/v1/agents/ana/upload'],
-  ['GET', '/api/v1/agents/ana/comandos'], ['POST', '/api/v1/agents/ana/comando'], ['GET', '/api/v1/agents/ana/compartilhados'],
+  ['GET', '/api/v1/agents/ana/compartilhados'],
   ['GET', '/api/v1/agents/ana/login'], ['POST', '/api/v1/agents/ana/login'], ['DELETE', '/api/v1/agents/ana/login'],
   ['POST', '/api/v1/agents/ana/login/codigo'], ['POST', '/api/v1/agents/ana/login/oi'],
   ['GET', '/api/v1/agents/ana/alertas'], ['POST', '/api/v1/agents/ana/alertas/0123456789abcdef01234567/visto'],
@@ -87,6 +87,7 @@ test('escopo: rotas do dono e rotas desconhecidas são negadas', () => {
     ['GET', '/api/v1/uso'], ['GET', '/api/v1/push/chave'], ['GET', '/api/v1/avisos'], ['GET', '/api/v1/lembretes'], ['GET', '/api/v1/foco/ana'],
     ['GET', '/api/v1/tarefas'], ['GET', '/api/v1/atualizacao'], ['GET', '/api/v1/seguranca'], ['POST', '/api/v1/sigilo'], ['GET', '/api/v1/sigilo/estado'],
     ['GET', '/api/v1/rota-nova-do-futuro'], ['GET', '/api/v1/agents/ana/rota-nova'], ['GET', '/api/v1/media/zzzz'],
+    ['GET', '/api/v1/agents/ana/comandos'], ['POST', '/api/v1/agents/ana/comando'],
     ['POST', '/api/v1/agents'], ['DELETE', '/api/v1/agents/ana'], ['POST', '/api/v1/agents/ana/messages'], ['GET', '/api/v1/agents/ana/send'],
     ['GET', '/api/v1/push/docs.md/..'], ['POST', '/mesa'], ['POST', '/colaboradores'], ['DELETE', '/a/ana'],
   ];

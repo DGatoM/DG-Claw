@@ -5,52 +5,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
-const { subirWeb, cliente, pastaTemp } = require('./ajuda');
-const { criarRunnerFalso } = require('./runner-falso');
+const { cliente, pastaTemp } = require('./ajuda');
 
-const DIA = 24 * 60 * 60 * 1000;
-
-/** Web com admin, ana e bob (cada um com home e arquivo), e um e-mail falso que guarda o que "enviou". */
-async function cenario(opcoes) {
-  const o = opcoes || {};
-  const rAna = criarRunnerFalso({ agenteId: 'ana1', sessionId: 'sess-ana-00001' });
-  const rBob = criarRunnerFalso({ agenteId: 'bob1', sessionId: 'sess-bob-00001' });
-  const pAna = await rAna.ouvir(); const pBob = await rBob.ouvir();
-  const homeAna = pastaTemp('home-ana'); const homeBob = pastaTemp('home-bob');
-  fs.mkdirSync(path.join(homeAna, 'out'), { recursive: true }); fs.mkdirSync(path.join(homeBob, 'out'), { recursive: true });
-  fs.writeFileSync(path.join(homeAna, 'out', 'a.txt'), 'arquivo da ana');
-  fs.writeFileSync(path.join(homeBob, 'out', 'b.txt'), 'arquivo do bob');
-  const base = { runner: 'http://127.0.0.1:1', chat_id: 'c', provedor: 'claude', modelo: 'sonnet', transcripts_dir: pastaTemp('tr') };
-  const agentes = [
-    { slug: 'admin', nome: 'Admin', tipo: 'admin', agente_id: 'adm1', home_host: pastaTemp('home-adm'), home_container: '/opt/admin', ...base },
-    { slug: 'ana', nome: 'Ana', tipo: 'agente', agente_id: 'ana1', home_host: homeAna, home_container: '/home/agente', ...base, runner: `http://127.0.0.1:${pAna}`, chat_id: 'c_ana' },
-    { slug: 'bob', nome: 'Bob', tipo: 'agente', agente_id: 'bob1', home_host: homeBob, home_container: '/home/agente', ...base, runner: `http://127.0.0.1:${pBob}`, chat_id: 'c_bob' },
-  ];
-  const relogio = { t: Date.now() };
-  const enviados = [];
-  const email = { enviar: async (m) => { enviados.push(m); return o.emailFalha ? { enviado: false, motivo: o.emailFalha } : { enviado: true }; } };
-  const t = await subirWeb({ agentes, env: o.env, opcoesServidor: { agora: () => relogio.t, email } });
-  const donoUsuario = (o.env && o.env.DGCLAW_PANEL_USER) || 'dono';
-  await t.c.post('/login', { json: { usuario: donoUsuario, senha: t.senha } });
-  const idAna = t.web.midia.registrar('ana', path.join(homeAna, 'out', 'a.txt')).id;
-  const idBob = t.web.midia.registrar('bob', path.join(homeBob, 'out', 'b.txt')).id;
-  const convida = (corpo) => t.c.post('/api/v1/colaboradores', { json: corpo });
-  const fechar = async () => { await t.fechar(); await rAna.fechar(); await rBob.fechar(); };
-  return { t, rAna, rBob, relogio, enviados, idAna, idBob, convida, fechar, dono: t.c };
-}
-
-/** Convida maria@x.com para a ana e devolve o cliente logado e já com a senha trocada. */
-async function colaboradorAtivo(s, email) {
-  const r = await s.convida({ agente: 'ana', email: email || 'maria@x.com', nome: 'Maria' });
-  assert.equal(r.status, 201, r.texto);
-  const c = cliente(s.t.porta);
-  const l = await c.post('/login', { json: { usuario: email || 'maria@x.com', senha: r.json.convite.senha_temporaria } });
-  assert.equal(l.status, 200, l.texto);
-  const nova = 'minha-senha-nova-1';
-  const tr = await c.post('/api/v1/eu/senha', { json: { nova, confirmacao: nova } });
-  assert.equal(tr.status, 200, tr.texto);
-  return { c, id: r.json.colaborador.id, nova, email: email || 'maria@x.com' };
-}
+const { DIA, cenario, colaboradorAtivo } = require('./colab-ajuda');
 
 test('convite: cria, devolve a senha temporária só ali, manda o e-mail e nunca devolve hash', async () => {
   const s = await cenario();
@@ -241,12 +198,10 @@ test('mensagem do colaborador chega ao agente marcada como colaborador; a do don
     assert.match(s.rAna.rec.inputs[0].text, /^<dgchat from="colaborador: Maria \(maria@x\.com\)" chat="c_ana"/);
     await s.dono.post('/api/v1/agents/ana/send', { json: { text: 'e eu sou o dono' } });
     assert.match(s.rAna.rec.inputs[1].text, /^<dgchat from="pessoa" chat="c_ana"/);
-    // comando de dono recusado, comando comum passa
-    const modelo = await c.post('/api/v1/agents/ana/send', { json: { text: '/model opus' } });
-    assert.equal(modelo.status, 403); assert.equal(modelo.json.codigo, 'COMANDO_SO_DO_DONO');
-    assert.equal(s.rAna.rec.inputs.length, 2, 'o /model não pode chegar ao agente');
-    const compact = await c.post('/api/v1/agents/ana/comando', { json: { comando: '/compact' } });
-    assert.equal(compact.status, 200, compact.texto);
+    // texto de barra do colaborador vai dentro do envelope, nunca como comando
+    await c.post('/api/v1/agents/ana/send', { json: { text: '/model opus' } });
+    assert.match(s.rAna.rec.inputs[2].text, /^<dgchat from="colaborador: Maria/);
+    assert.equal((await c.post('/api/v1/agents/ana/comando', { json: { comando: '/compact' } })).status, 403);
   } finally { await s.fechar(); }
 });
 

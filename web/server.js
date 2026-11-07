@@ -93,7 +93,7 @@ function criarServidor(opcoes) {
   // Conexões abertas (stream da conversa) de cada colaborador: ao revogar ou trocar a senha, fecham junto com a sessão.
   const streamsDoColaborador = new Map();
   const fechaStreamsDe = (id) => { for (const r of streamsDoColaborador.get(id) || []) r.destroy(); streamsDoColaborador.delete(id); };
-  const colabRotas = criarColaboradoresRotas({ colaboradores, auth, registro, email: opcoes.email || criarEmail({ config, log }), config, log, aoDerrubar: fechaStreamsDe });
+  const colabRotas = criarColaboradoresRotas({ colaboradores, auth, registro, email: opcoes.email || criarEmail({ config, log }), config, log, agora: opcoes.agora, aoDerrubar: fechaStreamsDe });
   const primeiroAcesso = criarPrimeiroAcesso({ config, auth, log, agora: opcoes.agora });
   const avatares = criarAvatar({ dataDir: config.dataDir, log });
   const midia = criarMidia({ dataDir: config.dataDir, log, registro, publicDir: config.publicDir });
@@ -290,7 +290,11 @@ function criarServidor(opcoes) {
     }
     const r = await auth.verificaSenha(usuarioDigitado, String(campos.senha), ip);
     if (r.ok) {
-      const s = auth.criaSessao(r.usuario, req, r.colaborador);
+      let s;
+      try { s = auth.criaSessao(r.usuario, req, r.colaborador); } catch (e) {
+        log('aviso', `Login de ${r.usuario} (ip ${ip}) não emitiu sessão: ${e.message}`);
+        return json ? H.erroJson(res, e.status || 500, e.message) : voltaAoLogin(res, 'credenciais', next, usuarioDigitado);
+      }
       log('info', `Login de ${r.usuario}${r.colaborador ? ` (colaborador do agente ${r.colaborador.agente})` : ''} (ip ${ip}).`);
       const cab = { 'Set-Cookie': s.cookies, 'Cache-Control': 'no-store' };
       const destino = r.colaborador
@@ -503,7 +507,7 @@ function criarServidor(opcoes) {
         const loja = alertas(agente);
         if (!ar[2] && m === 'GET') {
           const t = await conversa.thread(agente);
-          return H.enviaJson(res, 200, { ok: true, alertas: loja.listar(), avisos: t.avisos });
+          return H.enviaJson(res, 200, { ok: true, alertas: loja.listar(), avisos: avisosPara(sessao, t.avisos) });
         }
         if (ar[3] === 'visto' && m === 'POST') {
           if (!loja.reconhecer(ar[2])) return H.erroJson(res, 404, 'Esse alerta não existe nesta conversa. Atualize a página.');
@@ -516,7 +520,7 @@ function criarServidor(opcoes) {
           // Carrega a origem e a sequência até o fim, sem lacuna na rolagem.
           const atuais = t.msgs.filter(x => x.ep >= mensagem.ep);
           if (!atuais.some(x => x.id === mensagem.id)) atuais.unshift(mensagem);
-          return H.enviaJson(res, 200, { ok: true, mensagem, msgs: atuais, mais_antigas: t.msgs.some(x => x.ep < mensagem.ep), avisos: t.avisos });
+          return H.enviaJson(res, 200, { ok: true, mensagem, msgs: atuais, mais_antigas: t.msgs.some(x => x.ep < mensagem.ep), avisos: avisosPara(sessao, t.avisos) });
         }
         return H.erroJson(res, 405, 'Método inválido para este alerta. Use GET para consultar ou POST para reconhecer.');
       } catch (e) {
@@ -538,6 +542,17 @@ function criarServidor(opcoes) {
       if (falhaDoRegistro(req, res, true)) return undefined;
       const agente = agenteOuErro(res, decodeURIComponent(lr[1]));
       if (!agente) return undefined;
+      // Colaborador conecta a conta só quando o agente está sem conta ou com o login vencido; trocar uma conta
+      // que está funcionando é com o dono.
+      if (sessao.papel === 'colaborador' && ((!lr[2] && m === 'POST') || lr[2] === 'codigo')) {
+        const v = await login.ver(agente);
+        if (v.status !== 200) return H.enviaJson(res, v.status, v.corpo);
+        const emAndamento = v.corpo.estado && !['nenhum', 'falhou', 'concluido'].includes(v.corpo.estado);
+        if (!v.corpo.precisa_login && !(lr[2] === 'codigo' && emAndamento)) {
+          log('aviso', `Login negado ao colaborador ${sessao.usuario}: ${agente.slug} já tem conta conectada.`);
+          return H.erroJson(res, 403, `${agente.nome} já tem uma conta conectada e funcionando. Trocar a conta conectada é com o dono do DG Claw; a página Conectar só serve quando o agente está sem conta ou com o login vencido.`);
+        }
+      }
       let r = null;
       if (!lr[2] && m === 'GET') r = await login.ver(agente);
       else if (!lr[2] && m === 'POST') {
@@ -607,17 +622,19 @@ function criarServidor(opcoes) {
         }
         catch (e) { log('aviso', `Acervo de ${agente.slug}: ${e.message}`); return H.erroJson(res, 400, e.message); }
       }
-      if (acao === 'messages' && m === 'GET') return mensagens(req, res, url, agente);
+      if (acao === 'messages' && m === 'GET') return mensagens(req, res, url, agente, sessao);
       if (acao === 'stream' && m === 'GET') return stream(req, res, url, agente, sessao);
-      if (acao === 'wait' && m === 'GET') return esperar(req, res, url, agente);
+      if (acao === 'wait' && m === 'GET') return esperar(req, res, url, agente, sessao);
       if (acao === 'send' && m === 'POST') return enviar(req, res, agente, sessao);
       if (acao === 'permissao' && m === 'POST') {
+        if (confirmacaoNegada(res, agente, sessao)) return undefined;
         const corpo = await lerEnvio(req, res);
         if (!corpo) return undefined;
         const r = await conversa.permissao(agente, corpo.decisao, corpo.tool_use_id);
         return H.enviaJson(res, r.status, r.corpo);
       }
       if (acao === 'pergunta' && m === 'POST') {
+        if (confirmacaoNegada(res, agente, sessao)) return undefined;
         const corpo = await lerEnvio(req, res);
         if (!corpo) return undefined;
         const r = await conversa.responderPergunta(agente, corpo);
@@ -688,7 +705,21 @@ function criarServidor(opcoes) {
     return H.erroJson(res, 404, `Não existe ${m} ${p}. A lista de rotas está no README do Web.`);
   }
 
-  async function mensagens(req, res, url, agente) {
+  // O que só o dono deve ver não vai ao colaborador: diagnóstico técnico do runner (avisos da thread, motivo
+  // de falha) e o detalhe do pedido de permissão ou pergunta de um turno que não é dele.
+  const AVISO_GENERICO = 'Não consegui carregar parte do histórico agora. Se continuar, avise o dono do DG Claw.';
+  const ehColab = (sessao) => !!sessao && sessao.papel === 'colaborador';
+  const avisosPara = (sessao, avisos) => (ehColab(sessao) ? (avisos && avisos.length ? [AVISO_GENERICO] : []) : avisos);
+  function atividadePara(sessao, agente, ativ) {
+    if (!ehColab(sessao)) return ativ;
+    const copia = Object.assign({}, ativ);
+    const a = autorDoTurno.get(agente.slug);
+    if (!(a && a.colaborador_id === sessao.colaborador_id)) { delete copia.permissao; delete copia.pergunta; copia.detalhe = null; }
+    if (copia.motivo && !['login_expirado', 'sem_login'].includes(copia.alerta)) copia.motivo = 'O agente está sem sinal agora.';
+    return copia;
+  }
+
+  async function mensagens(req, res, url, agente, sessao) {
     const q = url.searchParams;
     const t = await conversa.thread(agente);
     const todas = t.msgs;
@@ -698,7 +729,7 @@ function criarServidor(opcoes) {
       const limite = numeroOuErro(res, 'limit', q.get('limit'), 80, 1, 500);
       if (limite === undefined) return undefined;
       const mais = todas.filter((x) => x.ep > after);
-      return H.enviaJson(res, 200, { ok: true, msgs: mais.slice(0, limite), avisos: t.avisos, mais_novas: mais.length > limite, limit: limite, after });
+      return H.enviaJson(res, 200, { ok: true, msgs: mais.slice(0, limite), avisos: avisosPara(sessao, t.avisos), mais_novas: mais.length > limite, limit: limite, after });
     }
     const limite = numeroOuErro(res, 'limit', q.get('limit'), 60, 1, 500);
     if (limite === undefined) return undefined;
@@ -706,10 +737,10 @@ function criarServidor(opcoes) {
     if (before === undefined) return undefined;
     const base = before == null ? todas : todas.filter((x) => x.ep < before);
     const msgs = base.slice(Math.max(0, base.length - limite));
-    return H.enviaJson(res, 200, { ok: true, msgs, avisos: t.avisos, mais_antigas: base.length > limite, before, limit: limite });
+    return H.enviaJson(res, 200, { ok: true, msgs, avisos: avisosPara(sessao, t.avisos), mais_antigas: base.length > limite, before, limit: limite });
   }
 
-  async function esperar(req, res, url, agente) {
+  async function esperar(req, res, url, agente, sessao) {
     const q = url.searchParams;
     const since = numeroOuErro(res, 'since', q.get('since'), 0);
     if (since === undefined) return undefined;
@@ -726,7 +757,7 @@ function criarServidor(opcoes) {
       const doAgente = novas.some((x) => x.origin === 'agente' && !x.sistema); // aviso de sistema (compactação) não é resposta
       if (doAgente || Date.now() >= fim || fechou) {
         if (fechou) return undefined;
-        return H.enviaJson(res, 200, { ok: true, msgs: novas, timeout: !doAgente, avisos: t.avisos });
+        return H.enviaJson(res, 200, { ok: true, msgs: novas, timeout: !doAgente, avisos: avisosPara(sessao, t.avisos) });
       }
       await new Promise((r) => setTimeout(r, 700));
     }
@@ -750,7 +781,10 @@ function criarServidor(opcoes) {
     if (since == null || since <= 0) since = Date.now() / 1000 - 60;
     abrirStream({
       req, res, agente, since, log, tickMs: opcoes.tickSseMs,
-      fontes: { thread: conversa.thread, atividade: conversa.atividade, versaoJs, foco: (a) => foco.lista(a.slug) },
+      fontes: ehColab(sessao)
+        // Colaborador: sem a fonte do foco (é a lista do dono) e com os avisos técnicos trocados por um genérico.
+        ? { thread: async (a) => { const t = await conversa.thread(a); return Object.assign({}, t, { avisos: avisosPara(sessao, t.avisos) }); }, atividade: async (a) => atividadePara(sessao, a, await conversa.atividade(a)), versaoJs }
+        : { thread: conversa.thread, atividade: conversa.atividade, versaoJs, foco: (a) => foco.lista(a.slug) },
     });
     return undefined;
   }
@@ -765,6 +799,19 @@ function criarServidor(opcoes) {
     return { colaborador: true, from: `colaborador: ${sessao.nome ? `${sessao.nome} (${sessao.usuario})` : sessao.usuario}` };
   }
 
+  // Quem iniciou o turno atual de cada agente (o autor do último envio aceito). O colaborador só confirma
+  // permissão ou pergunta do turno que ele mesmo começou; sem registro (restart), a confirmação é do dono.
+  const autorDoTurno = new Map();
+  const marcaAutor = (slug, sessao) => autorDoTurno.set(slug, sessao && sessao.papel === 'colaborador' ? { colaborador_id: sessao.colaborador_id } : { dono: true });
+  function confirmacaoNegada(res, agente, sessao) {
+    if (!sessao || sessao.papel !== 'colaborador') return false;
+    const a = autorDoTurno.get(agente.slug);
+    if (a && a.colaborador_id === sessao.colaborador_id) return false;
+    log('aviso', `Confirmação negada ao colaborador ${sessao.usuario} em ${agente.slug}: o turno atual não foi iniciado por ele.`);
+    H.erroJson(res, 403, 'Essa confirmação é do dono do DG Claw. Ela é de um pedido que ele fez; aguarde ou fale com ele.');
+    return true;
+  }
+
   async function enviar(req, res, agente, sessao) {
     const corpo = await lerEnvio(req, res);
     if (!corpo) return undefined;
@@ -773,6 +820,7 @@ function criarServidor(opcoes) {
       return H.erroJson(res, 400, `O "cliente_id" veio como ${JSON.stringify(String(cid).slice(0, 80))}, que não vale: use de 8 a 64 caracteres entre letras, números, "-" e "_". Nada foi enviado.`);
     }
     const r = await conversa.umaVez(agente, 'send', cid || null, () => conversa.enviar(agente, corpo, atorDa(sessao)));
+    if (r.status < 300) marcaAutor(agente.slug, sessao);
     return H.enviaJson(res, r.status, r.corpo);
   }
 
@@ -784,6 +832,7 @@ function criarServidor(opcoes) {
       return H.erroJson(res, 400, `O "cliente_id" veio como ${JSON.stringify(String(cid).slice(0, 80))}, que não vale: use de 8 a 64 caracteres entre letras, números, "-" e "_". Nada foi enviado.`);
     }
     const r = await conversa.umaVez(agente, 'comando', cid || null, () => conversa.comando(agente, corpo, atorDa(sessao)));
+    if (r.status < 300) marcaAutor(agente.slug, sessao);
     return H.enviaJson(res, r.status, r.corpo);
   }
 
@@ -820,6 +869,7 @@ function criarServidor(opcoes) {
       const ator = atorDa(sessao);
       const e = await conversa.entregar(agente, [legenda, marcador].filter(Boolean).join('\n'), { cru: false, from: ator && ator.from });
       if (e.status >= 300) return Object.assign(e, { corpo: Object.assign({ arquivo_salvo: visto }, e.corpo) });
+      marcaAutor(agente.slug, sessao);
       return { status: 201, corpo: Object.assign({}, e.corpo, { enviado: true, kind: media.kind, texto: legenda, anexo, marcador, media }) };
     });
     return H.enviaJson(res, r.status, r.corpo);
