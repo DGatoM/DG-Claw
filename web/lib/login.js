@@ -4,6 +4,7 @@
 // O código colado e o link de login (que carrega o estado do OAuth) nunca vão para o log.
 
 const { motivoDoRunner } = require('./runner');
+const PROV = require('../public/provedores');
 
 const RX_CODIGO_PROIBIDO = /[\s\x00-\x1f\x7f]/;
 const MAX_CODIGO = 512;
@@ -13,7 +14,7 @@ const OI_JANELA_MS = 10 * 60 * 1000;
 
 const nomeDoProvedor = (p) => (/codex/i.test(String(p || '')) ? 'Codex' : 'Claude');
 
-function criarLogin({ runner, conversa, log, agora, oiPrazoMs, oiPassoMs }) {
+function criarLogin({ runner, conversa, log, agora, oiPrazoMs, oiPassoMs, provedores }) {
   const relogio = agora || (() => Date.now());
   const prazo = oiPrazoMs || OI_PRAZO_PADRAO_MS;
   const passo = oiPassoMs || OI_PASSO_PADRAO_MS;
@@ -51,12 +52,21 @@ function criarLogin({ runner, conversa, log, agora, oiPrazoMs, oiPassoMs }) {
       conversa.estado(agente),
     ]);
     if (!lg.ok) return falha(agente, lg, 'consulta');
-    const semLogin = est.ok && est.estado.status === 'errored' && (est.estado.statusReason === 'runner:sem-login' || est.estado.statusReason === 'runner:login-expirado');
+    const expirado = est.ok && est.estado.status === 'errored' && est.estado.statusReason === 'runner:login-expirado';
+    const semLogin = expirado || (est.ok && est.estado.status === 'errored' && est.estado.statusReason === 'runner:sem-login');
     const precisa = semLogin || (prov.conferido != null && prov.conferido.ok === false);
-    return { status: 200, corpo: Object.assign({}, lg.corpo, { ok: true, provedor: prov.provedor, auth: prov.auth, conferido: prov.conferido, precisa_login: precisa }) };
+    return { status: 200, corpo: Object.assign({}, lg.corpo, { ok: true, provedor: prov.provedor, auth: prov.auth, conferido: prov.conferido, precisa_login: precisa, login_expirado: expirado }) };
   }
 
-  async function comecar(agente) {
+  async function comecar(agente, corpo) {
+    // A IA escolhida na tela. Sem `provedor` o comportamento é o de sempre. Com um que não é o do agente,
+    // recusa: é neste ponto que a troca de IA vai entrar no futuro (hoje o agente usa a IA em que nasceu).
+    const pedido = corpo && corpo.provedor;
+    if (pedido !== undefined && pedido !== null && pedido !== '') {
+      const prov = await sobreOProvedor(agente);
+      const v = PROV.valida(pedido, prov.provedor, provedores);
+      if (!v.ok) return erro(400, v.erro);
+    }
     const r = await runner.pedir(agente, 'POST', '/api/provedor/login', {});
     if (!r.ok) return falha(agente, r, 'início');
     log('info', `Login de ${agente.slug} iniciado (estado: ${(r.corpo && r.corpo.estado) || 'desconhecido'}).`);

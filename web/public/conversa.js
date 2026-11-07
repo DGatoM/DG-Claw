@@ -721,10 +721,17 @@ function leDesenha() {
   sec.hidden = !(f === 'aviso' || f === 'nao_voltou');
   nao.hidden = f === 'pronto';
   nao.textContent = f === 'aviso' || f === 'cartao' ? t.agoraNao : 'Fechar';
+  $('leConectar').hidden = f === 'pronto';
 }
 
+/* O modal "Faça o login nos seus agentes" (modal-login.js) substitui este pop-up: se ele está aberto, ou se já
+   abriu nesta carga da página, o pop-up não abre (nada de dois avisos sobre a mesma coisa). */
+function leModalLoginAtivo() {
+  const m = window.DGModalLogin;
+  return !!m && (m.aberto() || m.abriuNestaCarga());
+}
 function leAbre() {
-  if (!LE || !leDlg || le.aberto) return;
+  if (!LE || !leDlg || le.aberto || leModalLoginAtivo()) return;
   le.est = leEstAtual();
   Object.assign(le, { aberto: true, fase: 'aviso', erro: '', concluiu: false });
   leDesenha();
@@ -835,8 +842,12 @@ function leAbreAoRecusar() {
   const est = leEstAtual();
   if (le.aberto) return;
   if (est && LE.expirado(est)) { lc.expirado = true; }
+  if (leModalLoginAtivo()) { mostraErro('O login da conta expirou. Reconecte pelo cartão de login no fim da conversa ou pela página Conectar conta, no menu.'); return; }
   leAbre();
 }
+
+// o modal de login abriu depois do pop-up: ele toma o lugar do pop-up, que fecha sem dispensar nada
+document.addEventListener('dgmodallogin:abriu', () => leFecha(false));
 
 if (leDlg && LE) {
   $('lePrimario').onclick = () => { leReconectar(); };

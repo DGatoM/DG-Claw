@@ -51,6 +51,7 @@ const TIPOS_ESTATICOS = {
   '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
   '.webp': 'image/webp', '.ico': 'image/x-icon', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf',
   '.txt': 'text/plain; charset=utf-8', '.map': 'application/json', '.mp3': 'audio/mpeg', '.wav': 'audio/wav',
+  '.mp4': 'video/mp4', '.webm': 'video/webm',
 };
 const RX_SLUG_ROTA = /^[a-z0-9][a-z0-9-]{0,31}$/;
 
@@ -92,7 +93,7 @@ function criarServidor(opcoes) {
   const conversa = criarConversa({ comandos, alertas, config, runner, leitor, leitorRollout, midia, log, agora: opcoes.agora, gravaToken: opcoes.gravaToken });
   const compartilhados = criarCompartilhados(conversa);
   const onboarding = criarOnboarding({ config, registro, conversa, midia, log, imagem: opcoes.imagem });
-  const login = criarLogin({ runner, conversa, log, agora: opcoes.agora, oiPrazoMs: opcoes.loginOiPrazoMs, oiPassoMs: opcoes.loginOiPassoMs });
+  const login = criarLogin({ runner, conversa, log, agora: opcoes.agora, oiPrazoMs: opcoes.loginOiPrazoMs, oiPassoMs: opcoes.loginOiPassoMs, provedores: opcoes.provedores });
   const cofreAgente = criarCofreAgente({ config, log, reiniciar: opcoes.reiniciarCofre });
   const voz = opcoes.voz || criarVoz({ env: config.env, log });
   const sigilo = opcoes.sigilo || criarSigilo({ env: config.env, registro, dataDir: config.dataDir, log, timeoutMs: opcoes.timeoutSigiloMs });
@@ -150,10 +151,29 @@ function criarServidor(opcoes) {
     const cab = { 'Content-Type': tipo, ETag: etag, 'Cache-Control': cache || 'no-cache', 'X-Content-Type-Options': 'nosniff' };
     if (path.basename(caminho) === 'sw.js') cab['Service-Worker-Allowed'] = '/';
     if (req.headers['if-none-match'] === etag) { res.writeHead(304, cab); res.end(); return true; }
-    cab['Content-Length'] = st.size;
-    res.writeHead(200, cab);
+    cab['Accept-Ranges'] = 'bytes';
+    // Range de um intervalo só (o iPhone só toca vídeo se o servidor responder 206). Vários intervalos: serve inteiro.
+    let ini = 0; let fim = st.size - 1; let status = 200;
+    const pedido = String(req.headers.range || '');
+    if (/^bytes=/i.test(pedido) && !pedido.includes(',')) {
+      const mr = /^bytes=(\d*)-(\d*)$/i.exec(pedido.trim());
+      let a = NaN; let b = NaN;
+      if (mr && (mr[1] !== '' || mr[2] !== '')) {
+        if (mr[1] === '') { const n = Number(mr[2]); a = n > 0 ? Math.max(0, st.size - n) : NaN; b = st.size - 1; }
+        else { a = Number(mr[1]); b = mr[2] === '' ? st.size - 1 : Math.min(Number(mr[2]), st.size - 1); }
+      }
+      if (!Number.isSafeInteger(a) || !Number.isSafeInteger(b) || a > b || a >= st.size) {
+        res.writeHead(416, { 'Content-Range': `bytes */${st.size}`, 'Cache-Control': 'no-store' });
+        res.end();
+        return true;
+      }
+      ini = a; fim = b; status = 206;
+      cab['Content-Range'] = `bytes ${ini}-${fim}/${st.size}`;
+    }
+    cab['Content-Length'] = fim - ini + 1;
+    res.writeHead(status, cab);
     if (req.method === 'HEAD') { res.end(); return true; }
-    const s = fs.createReadStream(caminho);
+    const s = fs.createReadStream(caminho, status === 206 ? { start: ini, end: fim } : undefined);
     s.on('error', (e) => { log('erro', `Falha lendo o arquivo estático ${caminho} (${e.code || e.message}).`); res.destroy(); });
     s.pipe(res);
     return true;
@@ -456,6 +476,10 @@ function criarServidor(opcoes) {
       res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store' });
       return res.end(fs.readFileSync(path.join(__dirname, 'docs', 'LOGIN-NA-CONVERSA.md'), 'utf8'));
     }
+    if (p === '/api/v1/conectar/docs.md' && m === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store' });
+      return res.end(fs.readFileSync(path.join(__dirname, 'docs', 'CONECTAR-CONTA.md'), 'utf8'));
+    }
     const lr = /^\/api\/v1\/agents\/([^/]+)\/login(?:\/(codigo|oi))?$/.exec(p);
     if (lr) {
       if (falhaDoRegistro(req, res, true)) return undefined;
@@ -463,7 +487,11 @@ function criarServidor(opcoes) {
       if (!agente) return undefined;
       let r = null;
       if (!lr[2] && m === 'GET') r = await login.ver(agente);
-      else if (!lr[2] && m === 'POST') r = await login.comecar(agente);
+      else if (!lr[2] && m === 'POST') {
+        const corpo = await lerEnvio(req, res);
+        if (!corpo) return undefined;
+        r = await login.comecar(agente, corpo);
+      }
       else if (!lr[2] && m === 'DELETE') r = await login.cancelar(agente);
       else if (lr[2] === 'codigo' && m === 'POST') {
         const corpo = await lerEnvio(req, res);
@@ -884,6 +912,15 @@ function criarServidor(opcoes) {
       if (!servirArquivo(req, res, path.join(config.publicDir, 'seguranca.html'), 'no-store')) {
         log('erro', `A tela de segurança não está instalada: falta ${path.join(config.publicDir, 'seguranca.html')}.`);
         H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela de segurança não foi encontrado no servidor. Reinstale o DG Claw Web.');
+      }
+      return undefined;
+    }
+
+    if ((p === '/conectar' || p === '/conectar/') && (m === 'GET' || m === 'HEAD')) {
+      if (!sessao) return semSessaoPagina(req, res, url);
+      if (!servirArquivo(req, res, path.join(config.publicDir, 'conectar.html'), 'no-store')) {
+        log('erro', `A tela de conectar conta não está instalada: falta ${path.join(config.publicDir, 'conectar.html')}.`);
+        H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela de conectar conta não foi encontrado no servidor. Reinstale o DG Claw Web.');
       }
       return undefined;
     }

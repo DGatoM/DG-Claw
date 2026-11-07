@@ -1,0 +1,46 @@
+/* conectar-cartoes.css: os cartões de login (classes cn-), usados pela página /conectar e pelo modal da
+   conversa. As variáveis valem dentro de qualquer elemento com a classe .cn-escopo (o body de /conectar e o
+   <dialog> do modal). Celular primeiro: 390 px sem rolagem horizontal, alvos de toque de pelo menos 44 px,
+   texto longo quebra em vez de cortar. */
+.cn-escopo{--cn-txt:#0f1c14;--cn-fraco:#5f7566;--cn-linha:#dfe7e1;--cn-acento:#2f9e5e;--cn-fundo:#f3f6f3;--cn-verm:#b3261e}
+.cn-escopo *{box-sizing:border-box}
+.cn-escopo [hidden]{display:none}
+.cn-cartao{border:1px solid var(--cn-linha);border-radius:12px;padding:12px;min-width:0;display:flex;flex-direction:column;gap:10px;background:#fff;color:var(--cn-txt)}
+.cn-cartao[data-fase="codigo"],.cn-cartao[data-fase="navegador"],.cn-cartao[data-fase="preparando"]{border-color:var(--cn-acento);box-shadow:0 0 0 2px #d4eddd}
+.cn-topo{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.cn-foto{width:44px;height:44px;border-radius:50%;background:#7aa88a;color:#fff;font-weight:700;font-size:18px;display:flex;align-items:center;justify-content:center;overflow:hidden;flex:0 0 auto}
+.cn-foto img{width:100%;height:100%;object-fit:cover}
+.cn-quem{flex:1;min-width:140px;display:flex;flex-direction:column}
+.cn-nome{font-size:17px;overflow-wrap:anywhere}
+.cn-agnome{font-size:14.5px;overflow-wrap:anywhere}
+.cn-papel,.cn-sub{font-size:13.5px;color:var(--cn-fraco);overflow-wrap:anywhere}
+.cn-selo{font-size:13px;font-weight:700;padding:5px 11px;border-radius:14px;white-space:nowrap}
+.cn-verde{background:#eaf6ee;color:#1f6a3d}
+.cn-ambar{background:#fff7e0;color:#6b4a00}
+.cn-vermelho{background:#fdecea;color:#8c1d18}
+.cn-cinza{background:#eceff1;color:#4a5560}
+.cn-texto{margin:0;overflow-wrap:anywhere}
+.cn-ia{margin:0;font-size:14.5px;overflow-wrap:anywhere}
+.cn-ia-pergunta{color:var(--cn-fraco)}
+.cn-lista-passos{margin:0;padding-left:22px;display:grid;gap:4px}
+.cn-erro{margin:0;padding:10px 12px;border-radius:10px;background:#fdecea;border:1px solid #e6a5a0;color:#8c1d18;overflow-wrap:anywhere}
+.cn-nota{margin:0;color:var(--cn-fraco);font-size:14.5px;overflow-wrap:anywhere}
+.cn-vivo{margin:0;font-size:0;height:0;overflow:hidden}
+.cn-pe{display:flex;flex-direction:column;gap:8px}
+.cn-btn{font:inherit;font-size:15.5px;font-weight:600;min-height:44px;padding:0 18px;border-radius:22px;border:1px solid var(--cn-linha);background:#f2f6f2;color:#38523f;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;text-align:center;text-decoration:none;max-width:100%}
+.cn-btn.cn-principal{background:var(--cn-acento);border-color:var(--cn-acento);color:#fff}
+.cn-btn.cn-grande{min-height:52px;font-size:17px;width:100%}
+.cn-btn:disabled{opacity:.55;cursor:default}
+.cn-btn:focus-visible,.cn-campo:focus-visible,.cn-ajuda:focus-visible{outline:3px solid #8fc7a3;outline-offset:2px}
+.cn-rotulo{font-weight:600;font-size:15px}
+.cn-linha{display:flex;flex-direction:column;gap:8px}
+.cn-campo{font:inherit;font-size:16px;min-height:48px;width:100%;padding:8px 12px;border:1px solid #b9c7bd;border-radius:10px;min-width:0}
+.cn-dispositivo{font:700 28px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.08em;text-align:center;padding:14px 8px;border-radius:12px;background:#f2f6f2;border:1px dashed #9db8a6;user-select:all;overflow-wrap:anywhere}
+.cn-legenda{margin:0 0 6px;font-weight:700}
+.cn-video video{display:block;width:100%;max-width:100%;border-radius:12px;background:#000}
+@media(min-width:700px){
+  .cn-linha{flex-direction:row}
+  .cn-btn.cn-grande{width:auto;min-width:260px;align-self:flex-start}
+  .cn-pe{flex-direction:row;flex-wrap:wrap;align-items:center}
+}
+@media(prefers-reduced-motion:no-preference){.cn-cartao{transition:box-shadow .2s,border-color .2s}}

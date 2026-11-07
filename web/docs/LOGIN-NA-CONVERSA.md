@@ -9,6 +9,8 @@ O cartão aparece sozinho quando a atividade do agente traz `alerta: "sem_login"
 `status "errored"` com `statusReason "runner:sem-login"`. Quando a conta é conectada, o runner sobe
 a sessão sozinho e o agente volta a `idle`.
 
+A página `/conectar` do painel usa as mesmas rotas para conectar a conta de todos os agentes num lugar só (`web/docs/CONECTAR-CONTA.md`).
+
 ## Login que expirou
 
 É outro caso: a conta ESTAVA conectada e a credencial morreu (token vencido e a renovação falhou). O arquivo
@@ -45,10 +47,13 @@ não tem painel). Erros vêm como `{ok:false, erro:"o que falhou e o que fazer"}
 (runner fora do ar: 503; recusa do runner: o mesmo status, com `error` e `howToFix` juntos).
 
 - `GET /api/v1/agents/<id>/login`: estado do login e do provedor.
-  `{ok, estado, link?, codigoDispositivo?, mensagem?, provedor:"claude"|"codex", auth, conferido, precisa_login}`.
+  `{ok, estado, link?, codigoDispositivo?, mensagem?, provedor:"claude"|"codex", auth, conferido, precisa_login, login_expirado}`.
   `auth` e `conferido` vêm do runner (`auth` é `null` se ele não respondeu). `precisa_login` é
-  verdadeiro quando o agente está sem login ou o runner não confirma a conta.
-- `POST /api/v1/agents/<id>/login`: começa o login (202). O runner recusa (409) se o agente usa
+  verdadeiro quando o agente está sem login ou o runner não confirma a conta; `login_expirado` é verdadeiro só quando o runner informa `runner:login-expirado`.
+- `POST /api/v1/agents/<id>/login`: começa o login (202). O corpo é opcional: `{"provedor":"claude"|"codex"}` diz com qual IA
+  a tela quer entrar (a lista fica em `web/public/provedores.js`). Sem `provedor`, vale a IA do agente. Com uma IA desconhecida,
+  desligada ou diferente da do agente, a resposta é 400 com o motivo em português e nada é iniciado (trocar a IA de um agente
+  que já existe ainda não está disponível). O runner recusa (409) se o agente usa
   chave de API em vez de assinatura, ou se já há um login em andamento.
 - `POST /api/v1/agents/<id>/login/codigo` com `{"codigo":"..."}`: entrega o código que a página
   mostrou no fim (só no Claude). Texto sem espaço nem quebra de linha, até 512 caracteres.
