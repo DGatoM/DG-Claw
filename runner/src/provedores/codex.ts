@@ -15,6 +15,7 @@ import os from "node:os";
 import path from "node:path";
 import { log } from "../logger.js";
 import { CODEX_NOTIFY_SOURCE } from "./codex-notify-source.js";
+import { instalarHooksNoCodex } from "./codex-hooks.js";
 import { prepararMcpDoCodex } from "./mcp-codex.js";
 import { recusaDeChave, ErroDeMotor, type CtxMotor, type Motor, type Recusa } from "./motor.js";
 import { dicaDeLogin } from "./claude.js";
@@ -215,14 +216,13 @@ function avisarIgnorados(ctx: CtxMotor): void {
   const cfg = ctx.config;
   const ignorados: string[] = [];
   if ((cfg.stopHooks ?? []).length) ignorados.push("stopHooks");
-  if ((cfg.promptHooks ?? []).length) ignorados.push("promptHooks");
   if ([cfg.allowTools, cfg.askTools, cfg.denyTools].some((l) => (l ?? []).length)) ignorados.push("allowTools/askTools/denyTools");
   if ((cfg.extraArgs ?? []).length) ignorados.push("extraArgs (são flags do Claude)");
   if (ctx.canalTelegram) ignorados.push("--channels");
   if (!ignorados.length) return;
   log.aviso(
     ctx.a("spawn"),
-    `este agente usa o Codex, que não tem hooks por --settings, regras de permissão por ferramenta nem canais: ` +
+    `este agente usa o Codex, que não tem hooks por --settings (os promptHooks viram hooks nativos em CODEX_HOME/hooks.json), regras de permissão por ferramenta nem canais: ` +
       `ignorei ${ignorados.join(", ")}. Nada quebra, mas o que dependia disso não acontece neste motor`,
   );
 }
@@ -279,6 +279,14 @@ export const motorCodex: Motor = {
 
     garantirConfiancaDaPasta(home, ctx.cwd, ctx.a("spawn"));
     apagarSnapshotsAntigos(home, ctx.a("spawn"));
+    // Hooks nativos do Codex (recall, avisos, contexto de início, promptHooks), com confiança só neles.
+    instalarHooksNoCodex({
+      home,
+      env: ctx.env,
+      cwd: ctx.cwd,
+      promptHooks: (ctx.config.promptHooks ?? []).filter((p): p is string => typeof p === "string"),
+      area: ctx.a("spawn"),
+    });
 
     const mcp = ctx.config.mcpConfig?.trim();
     if (mcp) {

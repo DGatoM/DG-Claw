@@ -83,12 +83,14 @@ em vez de deixar as duas).
 @working-memory.md
 <!-- /so -->
 <!-- so:codex -->
-O Codex nao puxa arquivos por conta propria. No comeco de toda sessao (depois de `/new`, de um
-restart ou de uma compactacao), abra o `MEMORY.md` e a `working-memory.md` antes de responder, para
-saber as regras que voce aprendeu e o que estava em aberto. Se o arquivo mudou depois, ele vale mais
-do que a lembranca. Quando o {{DONO}} te ensinar ou corrigir alguma coisa, grave na hora uma linha
-datada na secao "Regras aprendidas" do `MEMORY.md` (se a regra nova contraria uma antiga, corrija a
-antiga em vez de deixar as duas).
+O Codex nao puxa arquivos por conta propria, entao o DG Claw faz isso por um hook de inicio de
+sessao: no comeco de toda sessao (depois de `/new`, de um restart ou de uma compactacao) chega sozinho,
+no seu contexto, o conteudo da `working-memory.md` e as regras do `MEMORY.md`. Se esse bloco nao
+apareceu, abra o `MEMORY.md` e a `working-memory.md` antes de responder, para saber as regras que voce
+aprendeu e o que estava em aberto. Se o arquivo mudou depois, ele vale mais do que a lembranca. Quando
+o {{DONO}} te ensinar ou corrigir alguma coisa, grave na hora uma linha datada na secao "Regras
+aprendidas" do `MEMORY.md` (se a regra nova contraria uma antiga, corrija a antiga em vez de deixar as
+duas).
 <!-- /so -->
 
 ## Aprender skills (o que deu certo vira receita)

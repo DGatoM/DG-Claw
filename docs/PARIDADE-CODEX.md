@@ -66,9 +66,9 @@ agente (régua: feature de ~2 mil linhas leva 10 a 30 min).
 
 | Recurso | No Claude | No Codex hoje | Prova | Como fazer no Codex | Horas |
 | --- | --- | --- | --- | --- | --- |
-| Recall de memória a cada mensagem | hook `UserPromptSubmit` (`hooks/memory-recall.sh`) | não funciona | `codex.ts:214-221` ignora `promptHooks` | hook nativo do Codex chamando o mesmo `hooks/dispatch.ts` | 1 (os quatro hooks juntos) |
-| Quadro de avisos | hook `avisos` (`hooks/avisos.py`) | parcial | postar funciona; a leitura é hook | mesmo hook nativo; a seção já está no `AGENTS.md.tmpl` | (incluso acima) |
-| Contexto de início e pós-compactação | hook `SessionStart` (`hooks/session-context.sh`, `avisos-reset`) | não funciona | `hooks/hooks.json` só chega ao Claude | `SessionStart` nativo do Codex (`source` = `startup`, `resume`, `compact`) | (incluso acima) |
+| Recall de memória a cada mensagem | hook `UserPromptSubmit` (`hooks/memory-recall.sh`) | funciona (07/11) | `runner/src/provedores/codex-hooks.ts` grava o hook nativo; `dispatch.ts user-prompt` com o stdin do Codex devolveu `MEMORIA RELACIONADA ... ABACAXI-7731`; num turno real do `codex exec` o hook rodou (`hook: UserPromptSubmit Completed`) | feito: `CODEX_HOME/hooks.json` + `[hooks.state]` no `config.toml` | 0 (feito) |
+| Quadro de avisos | hook `avisos` (`hooks/avisos.py`) | funciona (07/11) | mesmo hook nativo (`avisos` e `avisos-reset`); roda com os mesmos campos (`session_id`, `prompt`), e sai calado sem o retrato local, como no Claude | feito | (incluso) |
+| Contexto de início e pós-compactação | hook `SessionStart` (`hooks/session-context.sh`, `avisos-reset`) | funciona (07/11) | turno real: o modelo respondeu o conteúdo da `working-memory.md` sem abrir arquivo; `session-context.sh` lê o `AGENTS.md` (não o `CLAUDE.md`) quando `DGCLAW_MOTOR=codex`, porque o Codex não importa arquivos com `@` | feito (`source` = `compact` aciona `avisos-reset` pelo `matcher` `compact\|clear`; a compactação em si não foi reproduzida num turno real) | (incluso) |
 | Fio do Telegram na mensagem | hook `inject-telegram-thread.py` | não se aplica | depende do Telegram | volta junto com a ponte de Telegram | (na ponte) |
 | Skills do DG Claw | link em `~/.claude/skills` (`bin/dgclaw:926-940`) | parcial | só o painel contorna, mandando o caminho do `SKILL.md` (`web/lib/comandos.js:357`) | linkar as mesmas pastas em `.agents/skills` do agente Codex; trocar `${CLAUDE_PLUGIN_ROOT}` pelo caminho `.dgclaw/plugin` que já existe | 0,5 |
 | Comandos `/dgclaw:*` | namespace do plugin | exclusivo Anthropic | o Codex não tem plugin com namespace de comandos | a skill nativa cobre o mesmo uso (o agente chama a skill pelo nome) | (nas skills) |
@@ -152,6 +152,23 @@ levar dias.
    **Admin, que roda como root**, vale o mesmo, e o arquivo de hooks do DG Claw tem de ser de root e
    ficar fora de qualquer pasta em que um agente escreva. A Fase 1 só fecha com um teste que põe um
    hook externo malicioso num projeto e confere que ele **não** roda.
+
+   **Feito em 07/11 (hooks nativos do Codex).** Onde o Codex 0.163 lê: `<CODEX_HOME>/hooks.json` (fonte
+   `user`); a chave de cada hook é `<caminho do hooks.json>:<evento em snake_case>:<grupo>:<posição>`.
+   A confiança mora no `config.toml`, em `[hooks.state."<chave>"]` com `trusted_hash = "sha256:..."`,
+   e o hash é o sha256 do JSON compacto, de chaves ordenadas, de `{event_name, matcher, hooks:[{type,
+   command, timeout, async:false}]}` (conferido contra o `currentHash` do `hooks/list` do app-server).
+   O runner (`runner/src/provedores/codex-hooks.ts`, chamado em `preparar` do motor Codex) mescla no
+   `hooks.json` os hooks do DG Claw (`dispatch.ts session-start`, `avisos-reset`, `user-prompt`,
+   `avisos`, com os timeouts do `hooks/hooks.json`) mais os `promptHooks` do descritor, e grava a
+   confiança SÓ desses, regravando o hash quando o conteúdo muda. O plugin é achado a partir do
+   próprio runner (`/opt/dgclaw/app`, da imagem, de root), nunca em `.dgclaw/plugin`, que o agente
+   escreve. Nada passa `--dangerously-bypass-hook-trust`. Prova: `hooks/list` mostra os cinco como
+   `trusted`; um turno real com `.codex/hooks.json` malicioso no projeto (pasta confiada) não
+   executou o hook externo (ele fica `untrusted`), e o teste `codex-hooks.test.ts` repete isso com o
+   codex real. No Admin o arquivo é o `/root/.codex/hooks.json`, de root; atalho no lugar do arquivo
+   é recusado. Fica de fora: a prova de uma compactação real (só o `source=compact` simulado) e o
+   hook `post-tool` do fio do Telegram (depende da ponte).
 2. **O Codex muda toda semana.** Hooks, skills e app-server são recentes, e o protocolo do
    app-server muda de versão em versão. Fixar a versão testada no instalador e o `doctor` avisar
    quando sair dela.

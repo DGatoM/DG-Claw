@@ -24,6 +24,19 @@ que acrescenta no fim do `AGENTS.md` só as seções que não existem (mesa de t
 copiar, tela de logins, agendamento e lembretes), guarda uma cópia do arquivo ao lado e não apaga nada do que você
 personalizou. Agentes no Claude não precisam de nenhum passo.
 
+**O agente no ChatGPT (Codex) passa a lembrar das conversas e a ler o quadro de avisos, como o do Claude.** Antes, o
+Codex não executava os lembretes automáticos do DG Claw: o agente não recebia, antes de cada resposta, as memórias
+e conversas relacionadas, não via o quadro de avisos da equipe e não começava a sessão já sabendo o que estava na
+memória de curto prazo. Agora o DG Claw liga esses lembretes no Codex usando o recurso de hooks do próprio Codex, e
+só dá confiança aos hooks que ele mesmo distribui. Um arquivo de hooks que chegue num repositório clonado pelo agente
+continua sem rodar. O ajuste acontece sozinho quando o agente sobe.
+
+### Como atualizar (hooks do Codex)
+
+Depois de atualizar, reinicie os agentes que usam o ChatGPT (Codex) para que os lembretes passem a valer: peça ao
+Admin "reinicia meus agentes no Codex". Se você mantinha um `hooks.json` seu na pasta `.codex` do agente, ele é
+preservado; só as linhas do DG Claw são regravadas. Agentes no Claude não precisam de nenhum passo.
+
 **Nova página Conectar conta.** Antes, para conectar a conta do Claude de um agente alguém tinha de gerar um link de login
 e mandar por mensagem, e o link vencia antes de você ver. Agora o painel tem a página **Conectar conta** (no menu ☰, ou em
 `/conectar`): você entra quando puder, toca em "Gerar link de login" no cartão do agente, entra na sua conta do Claude e cola
