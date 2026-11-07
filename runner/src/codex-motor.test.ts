@@ -440,6 +440,19 @@ test("erro de fim de turno: unauthorized e 401/refresh token são login; limite,
   assert.equal(erroDeLoginDoCodex(lido({ message: "overloaded", codex_error_info: "server_overloaded" })), false);
   assert.equal(erroDeLoginDoCodex(lido({ message: "limite 401 mensagens", codex_error_info: "usage_limit_exceeded" })), false);
   assert.equal(erroDeLoginDoCodex(lido({ message: "falhou de vez", codex_error_info: "other" })), false);
+  // falha passageira na renovação do token não trava o agente (revisão adversarial do PR #93)
+  assert.equal(erroDeLoginDoCodex(lido({ message: "Failed to refresh token: 503 Service Unavailable", codex_error_info: "other" })), false);
+  assert.equal(erroDeLoginDoCodex(lido({ message: "Failed to refresh token: connection timed out", codex_error_info: "other" })), false);
+  assert.equal(erroDeLoginDoCodex(lido({ message: "Failed to refresh token: 429 Too Many Requests" })), false);
+  assert.equal(erroDeLoginDoCodex(lido({ message: "Your refresh token has expired. Please log out and sign in again.", codex_error_info: "other" })), true);
+  assert.equal(erroDeLoginDoCodex(lido({ message: "refresh_token_reused" })), true);
+  // 401 estruturado (chave de API revogada) conta; 429 e 5xx estruturados não
+  const est = (st: number) => lido({ message: "unexpected status", codex_error_info: { http_connection_failed: { http_status_code: st } } });
+  assert.equal(est(401).httpStatus, 401);
+  assert.equal(erroDeLoginDoCodex(est(401)), true);
+  assert.equal(erroDeLoginDoCodex(est(429)), false);
+  assert.equal(erroDeLoginDoCodex(est(503)), false);
+  assert.equal(erroDeLoginDoCodex(lido({ message: "401 Unauthorized", codex_error_info: { response_stream_connection_failed: { http_status_code: 500 } } })), false);
   assert.equal(lido({ message: "m", codex_error_info: { http_connection_failed: { http_status_code: 502 } } }).categoria, "http_connection_failed");
 });
 

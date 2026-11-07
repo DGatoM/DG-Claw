@@ -190,6 +190,8 @@ export interface ErroDeTurnoDoCodex {
   /** `codex_error_info`: unauthorized, usage_limit_exceeded, server_overloaded, other... Vazio quando não veio. */
   categoria: string;
   mensagem: string;
+  /** `http_status_code` quando a categoria vem estruturada (ex.: `{"http_connection_failed":{"http_status_code":401}}`). */
+  httpStatus: number | null;
 }
 
 /** Lê o erro do fim de turno do registro `task_complete`; null quando o turno acabou sem erro. */
@@ -199,22 +201,38 @@ export function erroDeTurnoDoRollout(registro: unknown): ErroDeTurnoDoCodex | nu
   if (!r || r.type !== "event_msg" || r.payload?.type !== "task_complete" || !Number.isFinite(em)) return null;
   const e = r.payload.error as { message?: unknown; codex_error_info?: unknown } | string | null | undefined;
   if (!e) return null;
-  if (typeof e === "string") return { em, categoria: "", mensagem: e };
+  if (typeof e === "string") return { em, categoria: "", mensagem: e, httpStatus: null };
   if (typeof e !== "object") return null;
   const info = e.codex_error_info;
   const categoria = typeof info === "string" ? info : info && typeof info === "object" ? (Object.keys(info)[0] ?? "") : "";
-  return { em, categoria, mensagem: typeof e.message === "string" ? e.message : "" };
+  let httpStatus: number | null = null;
+  if (info && typeof info === "object" && categoria) {
+    const dentro = (info as Record<string, unknown>)[categoria] as { http_status_code?: unknown } | null | undefined;
+    const st = dentro && typeof dentro === "object" ? dentro.http_status_code : undefined;
+    if (typeof st === "number" && Number.isInteger(st)) httpStatus = st;
+  }
+  return { em, categoria, mensagem: typeof e.message === "string" ? e.message : "", httpStatus };
 }
 
 /**
- * O erro é de login vencido? `unauthorized` é a categoria do Codex para isso. Quando a categoria vem
- * genérica (`other`) ou ausente, o texto com status 401 ou com refresh token também vale. Limite de
- * uso, servidor sobrecarregado e queda de rede NÃO são login.
+ * O erro é de login vencido (credencial recusada de vez)? Marcar login expirado trava o agente até um
+ * login novo, então só vale com prova de recusa definitiva:
+ *   - a categoria `unauthorized` do Codex;
+ *   - o status HTTP estruturado 401, em qualquer categoria (ex.: chave de API revogada);
+ *   - com categoria `other` ou ausente e sem status estruturado: 401 no texto, ou falha de refresh token
+ *     que diga que o token expirou, foi revogado, invalidado ou reusado.
+ * Limite de uso, 429, 5xx, servidor fora e queda de rede são passageiros e NUNCA contam, mesmo durante
+ * a renovação do token (o Codex trata essas falhas de refresh como transitórias).
  */
+const PASSAGEIRO = /\b(429|5\d\d)\b|unavailable|timed? ?out|timeout|temporar|overloaded|connection|network|dns/i;
+const RECUSA_DE_REFRESH = /refresh[ _-]?token[\s\S]*\b(expired|revoked|invalid(ated)?|reused|already used)\b|\b(invalid_grant|refresh_token_expired|refresh_token_reused|refresh_token_invalidated|token_expired)\b/i;
+
 export function erroDeLoginDoCodex(e: ErroDeTurnoDoCodex): boolean {
   if (e.categoria === "unauthorized") return true;
+  if (e.httpStatus !== null) return e.httpStatus === 401;
   if (e.categoria !== "" && e.categoria !== "other") return false;
-  return /\b401\b|refresh[ _-]?token|token_expired/i.test(e.mensagem);
+  if (PASSAGEIRO.test(e.mensagem)) return /\b401\b/.test(e.mensagem) && !/\b(429|5\d\d)\b/.test(e.mensagem);
+  return /\b401\b/.test(e.mensagem) || RECUSA_DE_REFRESH.test(e.mensagem);
 }
 
 export interface OpcoesDoVigia {
