@@ -1,6 +1,6 @@
 'use strict';
 // Mídia: registro de id -> caminho e entrega com suporte a Range.
-// Só sai arquivo que esteja DENTRO do home_host do agente dono (ou de DGCLAW_WEB_DATA),
+// Só sai arquivo que esteja DENTRO do home_host do agente dono (ou das subpastas de mídia de DGCLAW_WEB_DATA),
 // conferido com realpath a cada pedido (link simbólico para fora é recusado).
 
 const crypto = require('node:crypto');
@@ -103,6 +103,9 @@ function dentro(raiz, alvo) {
   return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
 }
 
+/** Subpastas do dataDir que a rota de mídia pode servir. Nenhuma outra do dataDir sai por ela. */
+const SUBPASTAS_DE_MIDIA_DO_DATADIR = ['avatares', 'miniaturas'];
+
 function criarMidia({ dataDir, log, registro, publicDir }) {
   const reg = new Map(); // id -> { path, kind, mime, nome, slug }
   const baseVisual = new Map(); // nome do arquivo -> { mtime, texto }
@@ -164,7 +167,10 @@ function criarMidia({ dataDir, log, registro, publicDir }) {
     const raizes = [];
     const ag = slug ? registro.obter(slug) : null;
     if (ag && ag.home_host) raizes.push(ag.home_host);
-    raizes.push(dataDir);
+    // Do dataDir só saem as subpastas de mídia (fotos de perfil e miniaturas). O resto dele guarda
+    // sessões, chaves de push, cofre e estado do Web, e um caminho que o agente cite na conversa
+    // não pode virar download disso.
+    for (const sub of SUBPASTAS_DE_MIDIA_DO_DATADIR) raizes.push(path.join(dataDir, sub));
     return raizes;
   }
   function realpathOuNull(p) { try { return fs.realpathSync(p); } catch (_) { return null; } }
