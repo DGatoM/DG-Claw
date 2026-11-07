@@ -30,6 +30,15 @@ quer entregar pronto, o comando `sudo dgclaw instalacao-remota` troca a senha do
 painel e mostra uma única vez a mensagem pronta com o endereço, o usuário e a senha. A senha não fica guardada em lugar
 nenhum, só o hash. É opcional e não muda a instalação normal. Nada precisa ser feito para atualizar.
 
+**Trocar a senha do painel agora desconecta todo mundo.** Antes, quem já estava logado continuava dentro depois da
+troca de senha (`dgclaw senha trocar`), inclusive uma sessão copiada por outra pessoa. Agora cada sessão guarda uma
+marca da senha e do usuário de quando foi aberta, e mudar qualquer um dos dois derruba as sessões abertas antes.
+
+### Como atualizar (sessão amarrada à senha)
+
+Depois desta atualização, todo mundo precisa entrar no painel de novo uma vez, porque as sessões abertas até agora
+não guardavam a marca da senha. Basta digitar usuário e senha como de costume; nada mais muda.
+
 **A ronda de segurança deixou de pesar na memória.** Em servidores pequenos, de 4 GB, a verificação de segurança podia
 passar de 1 GB de memória e fazer o sistema derrubar os seus agentes. Agora ela lê uma falha por vez e guarda só o
 que importa, então o pico fica abaixo de 100 MB nos testes. Servidores de até 4,5 GB rodam a ronda no modo econômico, uma
