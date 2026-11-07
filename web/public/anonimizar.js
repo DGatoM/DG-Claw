@@ -70,6 +70,14 @@
     return '';
   }
 
+  /* Aviso fixo quando o config.json do servidor está ilegível: o envio fica bloqueado e o dono precisa saber a saída. */
+  function configErroHtml(e) {
+    const c = e && e.config_erro;
+    if (!c) return '';
+    return '<div class="an-aviso-real" role="alert"><b>A configuração da anonimização está ilegível.</b><br>' + esc(c.mensagem) +
+      '<br>Arquivo: <code>' + esc(c.caminho) + '</code><br>' + esc(c.o_que_fazer) + '</div>';
+  }
+
   function detectorHtml(e) {
     const d = e.detector || {};
     const inst = e.instalacao || {};
@@ -167,7 +175,7 @@
   function tutorial() { comTour(() => raiz.DGTour.inicia({ passos: passosDaPagina() })); }
   function tutorialSecao(chave) { if (PASSOS[chave]) comTour(() => raiz.DGTour.inicia({ passos: [PASSOS[chave]] })); }
 
-  if (!raiz.document) return { esc, rotuloNivel, mbParaTexto, destacaMarcadores, textoContagem, dataCurta, textoInstalacao, erroInstalacao, detectorHtml, agenteHtml, documentosHtml, tabelaHtml, passosDaPagina, PASSOS, OPCOES };
+  if (!raiz.document) return { esc, rotuloNivel, configErroHtml, mbParaTexto, destacaMarcadores, textoContagem, dataCurta, textoInstalacao, erroInstalacao, detectorHtml, agenteHtml, documentosHtml, tabelaHtml, passosDaPagina, PASSOS, OPCOES };
 
   /* ── Parte com DOM ──────────────────────────────────────────────────── */
   const $ = id => document.getElementById(id);
@@ -196,6 +204,7 @@
   }
 
   function pintaDetector() {
+    $('anConfigErro').innerHTML = configErroHtml(est.estado);
     $('anDetector').innerHTML = detectorHtml(est.estado);
     const andamento = !!(est.estado.instalacao && est.estado.instalacao.em_andamento);
     if (andamento && !est.timer) est.timer = setInterval(() => carregaEstado(true), POLL_MS);
@@ -223,7 +232,7 @@
   async function carregaEstado(silencioso) {
     try {
       est.estado = await api('GET', '/estado');
-      const falta = est.estado.agentes.filter(a => !est.configs[a.slug]);
+      const falta = est.estado.config_erro ? [] : est.estado.agentes.filter(a => !est.configs[a.slug]);
       await Promise.all(falta.map(async a => { est.configs[a.slug] = (await api('GET', '/' + encodeURIComponent(a.slug) + '/config')).config; }));
       aviso($('anMsgGeral'), '');
       pintaDetector();

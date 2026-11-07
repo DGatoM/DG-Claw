@@ -87,39 +87,4 @@ function gravaSemSobrescrever(pasta, nome, dados) {
   throw new Error('Não achei um nome livre para o arquivo.');
 }
 
-/**
- * Garante <home>/uploads/<dia> sem atalho: cada componente é conferido com lstat (atalho ou arquivo no lugar da
- * pasta é recusado), a pasta que falta é criada, e o realpath do resultado tem de ficar dentro do realpath da casa.
- * O agente escreve na própria casa, então ele pode trocar uma pasta por um atalho; quem grava aqui é o root.
- * Devolve o caminho no formato de `home` (não o resolvido), que é o que o resto do Web usa. Lança Error com .status 500.
- */
-function pastaUploadSegura(home, dia) {
-  const recusa = (msg) => { const e = new Error(msg); e.status = 500; return e; };
-  let raizReal;
-  try { raizReal = fs.realpathSync(home); } catch (e) {
-    throw recusa(`A casa do agente (${home}) não existe ou não pôde ser lida (${e.code || e.message}). Confira se o agente foi criado e a pasta montada.`);
-  }
-  let atual = raizReal; let visivel = home;
-  for (const parte of ['uploads', dia]) {
-    atual = path.join(atual, parte); visivel = path.join(visivel, parte);
-    let st = null;
-    try { st = fs.lstatSync(atual); } catch (e) {
-      if (e.code !== 'ENOENT') throw recusa(`Não consegui conferir ${visivel} (${e.code || e.message}).`);
-    }
-    if (!st) {
-      try { fs.mkdirSync(atual, { mode: 0o755 }); st = fs.lstatSync(atual); } catch (e) {
-        throw recusa(`Não consegui criar ${visivel} (${e.code || e.message}). Confira espaço em disco e permissão da pasta do agente.`);
-      }
-    }
-    if (st.isSymbolicLink() || !st.isDirectory()) {
-      throw recusa(`${visivel} é ${st.isSymbolicLink() ? 'um atalho (link simbólico)' : 'um arquivo, não uma pasta'}. Por segurança não grava nada ali. Peça ao Admin para apagar esse item na pasta do agente e envie de novo.`);
-    }
-  }
-  let finalReal;
-  try { finalReal = fs.realpathSync(atual); } catch (e) { throw recusa(`Não consegui resolver ${visivel} (${e.code || e.message}).`); }
-  const rel = path.relative(raizReal, finalReal);
-  if (rel.startsWith('..') || path.isAbsolute(rel)) throw recusa(`${visivel} sai da casa do agente. Nada foi gravado.`);
-  return visivel;
-}
-
-module.exports = { lerMultipart, nomeSeguro, gravaSemSobrescrever, pastaUploadSegura, FLAGS_NOVO };
+module.exports = { lerMultipart, nomeSeguro, gravaSemSobrescrever, FLAGS_NOVO };

@@ -759,3 +759,27 @@ test('Correção no reverter-texto: marcador dentro de URL, link ou imagem fica 
     assert.equal(r.json.trocas, 2);
   } finally { await s.fechar(); }
 });
+
+test('Correção no upload: config ilegível aparece no /estado com o caminho e o que fazer, e a tela mostra o aviso', async () => {
+  const s = await cenario();
+  try {
+    assert.equal((await s.c.get('/api/v1/anonimizar/estado')).json.config_erro, null);
+    const arq = path.join(s.t.dados, 'anonimizar', 'config.json');
+    fs.mkdirSync(path.dirname(arq), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(arq, '{ quebrado', { mode: 0o600 });
+    const e = await s.c.get('/api/v1/anonimizar/estado');
+    assert.equal(e.status, 200, e.texto);
+    assert.equal(e.json.config_erro.caminho, arq);
+    assert.match(e.json.config_erro.mensagem, /ilegível/);
+    assert.match(e.json.config_erro.o_que_fazer, /apague\/renomeie/);
+    const T = require('../public/anonimizar');
+    const h = T.configErroHtml({ config_erro: { mensagem: 'x <b>', caminho: arq, o_que_fazer: 'faça' } });
+    assert.match(h, /role="alert"/); assert.match(h, /x &lt;b&gt;/); assert.ok(h.includes(arq));
+    assert.equal(T.configErroHtml({ config_erro: null }), '');
+    assert.match(fs.readFileSync(path.join(__dirname, '..', 'public', 'anonimizar.html'), 'utf8'), /id="anConfigErro"/);
+    // apagando o arquivo, tudo volta
+    fs.unlinkSync(arq);
+    assert.equal((await s.c.get('/api/v1/anonimizar/estado')).json.config_erro, null);
+    assert.equal((await liga(s)).status, 200);
+  } finally { await s.fechar(); }
+});

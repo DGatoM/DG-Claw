@@ -440,6 +440,12 @@ function criarAnonimizar(opcoes) {
   async function estado() {
     const [detector, emCurso] = await Promise.all([estadoMotor(false), instalacaoEmCurso()]);
     const agentes = [];
+    // Config ilegível bloqueia os envios (falha fechada): a tela precisa mostrar o caminho e a saída.
+    let configErro = null;
+    try { lerArquivoConfig(); } catch (e) {
+      configErro = { codigo: e.codigo || 'CONFIG_ILEGIVEL', mensagem: e.message, caminho: caminhoConfig,
+        o_que_fazer: `Enquanto ${caminhoConfig} estiver ilegível, nenhuma mensagem é enviada aos agentes. Corrija o JSON, ou apague/renomeie esse arquivo (peça ao Admin, se preferir) e ligue de novo a anonimização de cada agente nesta tela.` };
+    }
     const lista = registro && registro.estado && registro.estado().ok ? registro.estado().agentes : [];
     for (const a of lista) {
       if (a.tipo === 'admin' || !RX_SLUG.test(a.slug)) continue;
@@ -448,6 +454,7 @@ function criarAnonimizar(opcoes) {
       agentes.push({ slug: a.slug, nome: a.nome, ligado, documentos, aviso });
     }
     return {
+      config_erro: configErro,
       detector: detector.ok ? { nivel: detector.nivel, formatos: detector.formatos, modelo_carregado: detector.modelo_carregado, rss_mb: detector.rss_mb, versao_modelo: detector.versao_modelo }
         : { nivel: null, erro: detector.erro },
       instalacao: { em_andamento: !!emCurso, nivel: emCurso, arquivo: lerEstadoInstalacao() },
