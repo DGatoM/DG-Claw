@@ -5,8 +5,10 @@
 Usa o detector de nomes falso (DGCLAW_ANON_NER=falso). Todo documento de pessoa aqui é fictício.
 Teste com o modelo real: só roda se DGCLAW_ANON_TESTE_BASE apontar para uma base com `modelo/`.
 """
+import atexit
 import io
 import json
+import shutil
 import os
 import subprocess
 import sys
@@ -18,6 +20,7 @@ AQUI = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, AQUI)
 os.environ["DGCLAW_ANON_NER"] = "falso"
 os.environ["DGCLAW_ANON_BASE"] = tempfile.mkdtemp(prefix="anon-teste-base-")
+atexit.register(shutil.rmtree, os.environ["DGCLAW_ANON_BASE"], True)
 
 import motor  # noqa: E402
 import detectores  # noqa: E402
@@ -197,6 +200,7 @@ class Consistencia(unittest.TestCase):
 class Arquivos(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="anon-teste-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
         self.saida = os.path.join(self.tmp, "saida")
 
     def arquivo(self, nome, conteudo, modo="w"):
