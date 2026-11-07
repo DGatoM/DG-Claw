@@ -428,8 +428,8 @@ class Protocolo(unittest.TestCase):
         self.assertEqual(e["modelo_carregado"], True)   # o falso conta como carregado
 
 
-@unittest.skipUnless(os.environ.get("DGCLAW_ANON_TESTE_BASE") and os.path.isfile(os.path.join(os.environ.get("DGCLAW_ANON_TESTE_BASE", ""), "modelo", "model.safetensors")),
-                     "modelo real não instalado (aponte DGCLAW_ANON_TESTE_BASE para uma base com modelo/)")
+@unittest.skipUnless(tem("gliner2") and tem("torch") and os.environ.get("DGCLAW_ANON_TESTE_BASE") and os.path.isfile(os.path.join(os.environ.get("DGCLAW_ANON_TESTE_BASE", ""), "modelo", "model.safetensors")),
+                     "modelo real não instalado (precisa de gliner2+torch neste Python e DGCLAW_ANON_TESTE_BASE apontando para uma base com modelo/)")
 class ModeloReal(unittest.TestCase):
     def test_contrato_em_portugues(self):
         env = dict(os.environ, DGCLAW_ANON_BASE=os.environ["DGCLAW_ANON_TESTE_BASE"])
