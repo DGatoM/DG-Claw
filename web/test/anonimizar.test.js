@@ -269,6 +269,8 @@ test('trocarValoresConhecidos: mais longo primeiro, palavra inteira, sem acento,
   const r = trocarValoresConhecidos('Maria Souza e Maria. Mariana não. JOSE e cpf 123 456 789 00 ou 12345678900.', tab);
   assert.equal(r.texto, '[PESSOA_1] e [PESSOA_2]. Mariana não. [PESSOA_3] e cpf [CPF_1] ou [CPF_1].');
   assert.equal(r.trocas, 5);
+  const fone = [{ tipo: 'TELEFONE', valor: '11912345678', marcador: '[TELEFONE_1]' }, { tipo: 'CPF', valor: '123.456.789-00', marcador: '[CPF_1]' }];
+  assert.equal(trocarValoresConhecidos('Ligue (11) 91234-5678 ou 11 91234 5678 e (123.456.789-00).', fone).texto, 'Ligue [TELEFONE_1] ou [TELEFONE_1] e ([CPF_1]).');
   assert.deepEqual(trocarValoresConhecidos('nada', []), { texto: 'nada', trocas: 0 });
   assert.deepEqual(reverterMarcadores('[PESSOA_1] [X_9] [PESSOA_1]', [{ marcador: '[PESSOA_1]', valor: 'Ana' }]), { texto: 'Ana [X_9] Ana', trocas: 2, desconhecidos: ['[X_9]'] });
 });

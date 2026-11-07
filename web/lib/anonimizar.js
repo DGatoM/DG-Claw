@@ -76,7 +76,7 @@ function trocarValoresConhecidos(texto, tabela) {
     const porDigitos = digitos.length >= 4;
     let rx;
     if (porDigitos) {
-      rx = new RegExp(`(?<![\\d])${digitos.split('').join('[\\s.\\-/()]*')}(?![\\d])`, 'g');
+      rx = new RegExp(`(?<![\\d])(?:\\((?=\\d+\\)))?${digitos.split('').join('(?:[\\s.\\-/]|\\)(?=\\s?\\d))*')}(?![\\d])`, 'g');
     } else {
       const v = normaliza(e.valor);
       if (!v) continue;
