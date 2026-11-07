@@ -6,7 +6,7 @@ import path from "node:path";
 import { ctxDeTeste, lerTexto, pastaTemporaria, prepararAmbiente } from "./apoio-teste.js";
 
 const amb = prepararAmbiente("codex-hooks");
-const { hashDoHook, mesclarHooks, garantirConfiancaNoToml, hooksDoAgente, instalarHooksNoCodex, raizDoPlugin, citarParaShell, TomlNaoEditavel, MARCA_DO_DGCLAW } = await import("./provedores/codex-hooks.js");
+const { hashDoHook, mesclarHooks, garantirConfiancaNoToml, hooksDoAgente, instalarHooksNoCodex, raizDoPlugin, citarParaShell, guardaDaSessao, donoDoComando, TomlNaoEditavel, MARCA_DO_DGCLAW } = await import("./provedores/codex-hooks.js");
 const { motorCodex } = await import("./provedores/codex.js");
 
 /** Um plugin falso (só o que o instalador confere) e um workspace servidor falso. */
@@ -305,6 +305,156 @@ test("cadeia real: os hooks instalados, rodados dentro de um repositório extern
   }
   assert.ok(injetou, "o hook de avisos não rodou de verdade (nenhuma saída com o aviso do workspace do agente)");
   assert.equal(fs.readdirSync(ext).filter((n) => n === "avisos-estado.json").length, 0);
+});
+
+// ---------------------------------------------------------------------------------------------
+// Scanner de TOML: strings, comentários e arrays de várias linhas não podem enganar a busca do cabeçalho.
+
+/** true/false se o tomllib do Python (>= 3.11) lê o texto; null se não há tomllib para conferir. */
+function tomllibLe(texto: string): boolean | null {
+  const r = spawnSync("python3", ["-I", "-c", "import sys\ntry:\n import tomllib\nexcept ImportError:\n sys.exit(3)\ntry:\n tomllib.loads(sys.stdin.read())\nexcept Exception:\n sys.exit(1)"], { input: texto, encoding: "utf8" });
+  if (r.error || r.status === 3) return null;
+  return r.status === 0;
+}
+const confereToml = (t: string) => {
+  const ok = tomllibLe(t);
+  if (ok !== null) assert.equal(ok, true, `o tomllib não lê o resultado:\n${t}`);
+};
+const H = [{ chave: CH, hash: "sha256:n" }];
+
+test("toml: o caso do revisor (aspas triplas dentro de string antes da seção e dentro de comentário depois)", () => {
+  const t = `developer_instructions = "Use ''' para strings Python."\n\n[hooks.state.${JSON.stringify(CH)}]\ntrusted_hash = "sha256:velho"\n# comentário com ''' aqui\n[outra]\nx = 1\n`;
+  const r = garantirConfiancaNoToml(t, H);
+  assert.equal(r, t.replace("sha256:velho", "sha256:n"));
+  assert.equal(numCab(r), 1);
+  confereToml(r);
+});
+
+test("toml: linha que parece cabeçalho dentro de string de várias linhas não é cabeçalho", () => {
+  const falso = `[hooks.state.${JSON.stringify(CH)}]`;
+  for (const q of ['"""', "'''"]) {
+    const t = `texto = ${q}\n${falso}\ntrusted_hash = "sha256:velho"\n${q}\n`;
+    const r = garantirConfiancaNoToml(t, H);
+    assert.ok(r.startsWith(t), "o texto original fica intacto");
+    assert.equal(r.slice(t.length), `\n${falso}\ntrusted_hash = "sha256:n"\n`, "a seção de verdade é acrescentada no fim");
+    confereToml(r);
+  }
+  const t2 = `a = """x "" y\\""""\n[hooks.state.${JSON.stringify(CH)}]\n`;
+  const r2 = garantirConfiancaNoToml(t2, H);
+  assert.equal(r2, t2 + 'trusted_hash = "sha256:n"\n');
+  confereToml(r2);
+});
+
+test("toml: [ dentro de array de várias linhas não é cabeçalho; comentário com aspas e string com # também não confundem", () => {
+  const t =
+    `lista = [\n  [1, 2],\n  ["hooks_falso"],\n  "a # b", # comentario com " e ' e """\n]\nnome = "tem # cerquilha" # e aspa " no comentário\n\n` +
+    `[hooks.state.${JSON.stringify(CH)}] # ok\nenabled = true\n\n[fim]\nz = '''a\n[x]\n'''\n`;
+  const r = garantirConfiancaNoToml(t, H);
+  assert.equal(r, t.replace("enabled = true\n", 'enabled = true\ntrusted_hash = "sha256:n"\n'));
+  confereToml(r);
+});
+
+test("toml: texto que o scanner não consegue ler é recusado, não adivinhado", () => {
+  assert.throws(() => garantirConfiancaNoToml('a = """sem fechar\n', H), TomlNaoEditavel);
+  assert.throws(() => garantirConfiancaNoToml("a = [1, 2\n", H), TomlNaoEditavel);
+});
+
+test("toml: todos os resultados dos casos de cabeçalho são TOML válido para o tomllib (quando há tomllib)", () => {
+  const casos = [
+    `[hooks.state.${JSON.stringify(CH)}] # meu hook\nenabled = true\n`,
+    `[ hooks . state . ${JSON.stringify(CH)} ]\nx = 1\n`,
+    `[hooks.state.'${CH}']\ntrusted_hash = 'sha256:velho'\n[outra]\n`,
+    "",
+    "a = 1",
+  ];
+  for (const t of casos) confereToml(garantirConfiancaNoToml(t, H));
+});
+
+// ---------------------------------------------------------------------------------------------
+// Hooks do AGENTE: principal e paralelas dividem o CODEX_HOME e o hooks.json.
+
+function sobe(c: ReturnType<typeof cenario>, sessaoId: string, promptHooks: string[]) {
+  return instalarHooksNoCodex({ home: c.home, env: c.env, cwd: c.ws, promptHooks, area: "t", raiz: c.plugin, sessaoId });
+}
+const arquivosDoAgente = (c: ReturnType<typeof cenario>) => [lerTexto(path.join(c.home, "hooks.json")), lerTexto(path.join(c.home, "config.toml"))];
+
+test("principal e paralela dividem o hooks.json: o resultado é o mesmo em qualquer ordem e nenhuma apaga a outra", () => {
+  const ordens: string[][] = [["p", "q", "p", "q"], ["q", "p", "q", "p"], ["p", "q"], ["q", "p"], ["p", "p", "q", "q", "p"]];
+  const resultados: string[][] = [];
+  for (const ordem of ordens) {
+    const c = cenario("compartilha-" + ordem.join(""));
+    for (const quem of ordem) sobe(c, quem === "p" ? "principal" : "bastidores", quem === "p" ? ["node /x/da-principal.mjs"] : ["node /x/da-paralela.mjs"]);
+    const [hj, toml] = arquivosDoAgente(c);
+    assert.ok(hj.includes("da-principal.mjs") && hj.includes("da-paralela.mjs"), "os dois promptHooks estão no arquivo");
+    assert.equal((hj.match(/dispatch\.ts/g) ?? []).length, 4, "os hooks do plugin aparecem uma vez só");
+    assert.equal((toml.match(/\[hooks\.state\./g) ?? []).length, 6);
+    // o hash depende do caminho da pasta temporária de cada cenário; a coerência dele é conferida em outro teste
+    const hjObj = JSON.parse(hj) as { hooks: Record<string, Array<{ matcher?: string; hooks: Array<{ command: string; timeout: number }> }>> };
+    for (const [ev, grupos] of Object.entries(hjObj.hooks)) {
+      for (const g of grupos) {
+        const h = hashDoHook({ evento: ev as "SessionStart" | "UserPromptSubmit", matcher: g.matcher, command: g.hooks[0].command, timeout: g.hooks[0].timeout });
+        assert.ok(toml.includes(h), `o hash de ${g.hooks[0].command} não está confiado`);
+      }
+    }
+    resultados.push([hj.replaceAll(c.raiz, "RAIZ"), toml.replaceAll(c.raiz, "RAIZ").replace(/trusted_hash = "[^"]*"/g, "trusted_hash = H")]);
+  }
+  for (const r of resultados) assert.deepEqual(r, resultados[0], "o arquivo final não depende da ordem em que as sessões subiram");
+});
+
+test("subir a mesma sessão de novo não regrava nada; trocar os promptHooks dela troca só os dela", () => {
+  const c = cenario("compartilha-estavel");
+  sobe(c, "principal", ["node /x/a.mjs"]);
+  sobe(c, "paralela", ["node /x/b.mjs"]);
+  const antes = arquivosDoAgente(c);
+  const mt = fs.statSync(path.join(c.home, "hooks.json")).mtimeMs;
+  sobe(c, "principal", ["node /x/a.mjs"]);
+  assert.deepEqual(arquivosDoAgente(c), antes);
+  assert.equal(fs.statSync(path.join(c.home, "hooks.json")).mtimeMs, mt, "conteúdo igual: o arquivo nem é regravado");
+  sobe(c, "principal", ["node /x/a2.mjs"]);
+  const hj = lerTexto(path.join(c.home, "hooks.json"));
+  assert.ok(hj.includes("a2.mjs") && hj.includes("b.mjs") && !hj.includes("/x/a.mjs"));
+  sobe(c, "principal", []);
+  assert.equal(lerTexto(path.join(c.home, "hooks.json")).includes("a2.mjs"), false, "sem promptHooks, os da sessão saem");
+  assert.ok(lerTexto(path.join(c.home, "hooks.json")).includes("b.mjs"));
+  assert.equal(fs.existsSync(path.join(c.home, ".dgclaw-hooks.lock")), false, "a trava é solta");
+});
+
+test("o promptHook guardado só roda na sessão dona (sh -c com DGCLAW_SESSAO_ID)", () => {
+  const c = cenario("guarda");
+  const marcador = path.join(c.raiz, "rodou");
+  const id = "sessão d'um";
+  sobe(c, id, [`touch ${citarParaShell(marcador)}`]);
+  const hj = JSON.parse(lerTexto(path.join(c.home, "hooks.json")));
+  const cmd = (hj.hooks.UserPromptSubmit as Array<{ hooks: Array<{ command: string }> }>).map((g) => g.hooks[0].command).find((x) => x.includes("touch")) as string;
+  assert.ok(cmd);
+  assert.equal(donoDoComando(cmd), id);
+  assert.ok(cmd.includes(guardaDaSessao(id)));
+  const base = { ...process.env } as NodeJS.ProcessEnv;
+  delete base.DGCLAW_SESSAO_ID;
+  for (const outra of ["paralela", "principal", undefined]) {
+    const env = outra === undefined ? base : { ...base, DGCLAW_SESSAO_ID: outra };
+    const r = spawnSync("sh", ["-c", cmd], { env, encoding: "utf8" });
+    assert.equal(r.status, 0);
+    assert.equal(fs.existsSync(marcador), false, `rodou na sessão ${outra}`);
+  }
+  const r = spawnSync("sh", ["-c", cmd], { env: { ...base, DGCLAW_SESSAO_ID: id }, encoding: "utf8" });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(fs.existsSync(marcador), true, "na sessão dona o hook roda");
+});
+
+test("o preparo do Codex põe DGCLAW_SESSAO_ID no ambiente do processo e instala o hook guardado pelo id da sessão", async () => {
+  const c = cenario("preparo-sessao");
+  const ctx = ctxDeTeste({
+    escolha: { provedor: "codex", auth: "assinatura", modelo: "" },
+    cwd: c.ws,
+    pastaDeHooks: pastaTemporaria("ph"),
+    env: { CODEX_HOME: c.home, HOME: c.raiz, PATH: c.bin, DGCLAW_WORKSPACE: c.ws },
+    config: { name: "x", cwd: c.ws, initialPrompt: "", provider: "codex-cli", permissionMode: "bypassPermissions", promptHooks: ["node /x/p.mjs"] },
+  } as never);
+  await motorCodex.preparar(ctx);
+  assert.equal(ctx.env.DGCLAW_SESSAO_ID, ctx.id);
+  const comandos = JSON.stringify(JSON.parse(lerTexto(path.join(c.home, "hooks.json"))).hooks);
+  assert.ok(comandos.includes(JSON.stringify(guardaDaSessao(ctx.id)).slice(1, -1)), "o hook do promptHook traz a guarda desta sessão");
 });
 
 test("hooks.json ilegível não é sobrescrito e ninguém ganha confiança", () => {

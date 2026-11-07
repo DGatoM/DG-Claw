@@ -18,6 +18,7 @@
 //     `{event_name, matcher (só se houver), hooks: [{type, command, timeout, async:false, statusMessage (só se houver)}]}`.
 //     O teste confere o cálculo contra o `currentHash` que o próprio Codex devolve, quando há codex.
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -110,7 +111,24 @@ export interface EntradaDeHooks {
   /** O agente está num workspace servidor do DG Claw (tem `.dgclaw/config.sh`). */
   temWorkspace: boolean;
   temBun: boolean;
+  /** Os promptHooks DESTA sessão. Cada um só dispara na sessão dona dele (ver `guardaDaSessao`). */
   promptHooks: string[];
+  /** Id da sessão (principal ou paralela) dona dos promptHooks. O runner a põe em DGCLAW_SESSAO_ID no ambiente do Codex. */
+  sessaoId?: string;
+}
+
+/** Nome da variável que o runner põe no ambiente do processo Codex de cada sessão. */
+export const VARIAVEL_DA_SESSAO = "DGCLAW_SESSAO_ID";
+
+/** Trecho do comando que faz o hook valer só na sessão dona: fora dela o comando sai com 0 e sem saída. */
+export function guardaDaSessao(sessaoId: string): string {
+  return `{ [ "$${VARIAVEL_DA_SESSAO}" = ${citarParaShell(sessaoId)} ] || exit 0; }`;
+}
+const RE_GUARDA = /\{ \[ "\$DGCLAW_SESSAO_ID" = '((?:[^']|'\\'')*)' \] \|\| exit 0; \}/;
+/** O id da sessão dona de um comando guardado, ou undefined se o comando não tem guarda. */
+export function donoDoComando(cmd: string): string | undefined {
+  const m = RE_GUARDA.exec(cmd);
+  return m ? m[1].replace(/'\\''/g, "'") : undefined;
 }
 
 /** Os hooks que este agente recebe. Mesmos comandos e tempos do `hooks/hooks.json` do Claude. */
@@ -122,7 +140,12 @@ export function hooksDoAgente(e: EntradaDeHooks): HookDoDgclaw[] {
   // Codex pode ter sido aberta dentro de um repositório de terceiros, e bun, python e node leem
   // arquivos do diretório atual (bunfig.toml com preload, json.py ao lado do script, etc.).
   const confiavel = e.raiz ? path.join(e.raiz, "hooks") : "/";
-  const prefixo = `cd ${citarParaShell(confiavel)} && ${MARCA_DO_DGCLAW}DGCLAW_WORKSPACE=${citarParaShell(path.resolve(e.workspace))} `;
+  const base = `cd ${citarParaShell(confiavel)} && `;
+  const atrib = `${MARCA_DO_DGCLAW}DGCLAW_WORKSPACE=${citarParaShell(path.resolve(e.workspace))} `;
+  const prefixo = base + atrib;
+  // Os promptHooks são de UMA sessão, mas o CODEX_HOME (e o hooks.json) é do agente e vale para todas
+  // as sessões Codex dele: a guarda vai entre o cd e a marca, e o arquivo fica igual para todas.
+  const prefixoGuardado = e.sessaoId ? `${base}${guardaDaSessao(e.sessaoId)} && ${atrib}` : prefixo;
   if (e.raiz && e.temWorkspace && e.temBun) {
     const d = (ev: string) => `${prefixo}bun ${JSON.stringify(path.join(e.raiz as string, "hooks", "dispatch.ts"))} ${ev}`;
     out.push({ evento: "SessionStart", command: d("session-start"), timeout: 8 });
@@ -131,7 +154,7 @@ export function hooksDoAgente(e: EntradaDeHooks): HookDoDgclaw[] {
     out.push({ evento: "UserPromptSubmit", command: d("avisos"), timeout: 6 });
   }
   for (const p of e.promptHooks) {
-    if (typeof p === "string" && p.trim()) out.push({ evento: "UserPromptSubmit", command: prefixo + p.trim(), timeout: 10 });
+    if (typeof p === "string" && p.trim()) out.push({ evento: "UserPromptSubmit", command: prefixoGuardado + p.trim(), timeout: 10 });
   }
   return out;
 }
@@ -158,8 +181,26 @@ const ehDoDgclaw = (m: Manipulador) => ehComandoDoDgclaw(m?.command);
  * começo do comando) e acrescenta os atuais no fim de cada evento, cada um no seu grupo. O que a
  * pessoa já tinha fica onde estava. Devolve o novo objeto e a lista (chave, hash) de cada hook NOSSO.
  */
-export function mesclarHooks(atual: Arquivo, hooks: HookDoDgclaw[], arquivo: string): { novo: Arquivo; confiar: Array<{ chave: string; hash: string }> } {
+export function mesclarHooks(atual: Arquivo, hooksDaSessao: HookDoDgclaw[], arquivo: string, sessaoId?: string): { novo: Arquivo; confiar: Array<{ chave: string; hash: string }> } {
   const novo: Arquivo = { ...atual, hooks: { ...(atual.hooks ?? {}) } };
+  // O arquivo é do AGENTE, não da sessão: os hooks guardados que outras sessões já instalaram ficam
+  // (só os da sessão que está instalando são trocados), e a ordem final é a mesma qualquer que seja
+  // a ordem em que as sessões sobem: primeiro os hooks sem guarda, depois os guardados por id de sessão.
+  const guardados: HookDoDgclaw[] = [];
+  for (const [evento, grupos] of Object.entries(novo.hooks!)) {
+    for (const g of grupos) {
+      for (const m of g.hooks ?? []) {
+        const dono = ehDoDgclaw(m) ? donoDoComando(m.command as string) : undefined;
+        if (dono !== undefined && dono !== sessaoId) {
+          guardados.push({ evento: evento as EventoDoCodex, ...(g.matcher ? { matcher: g.matcher } : {}), command: m.command as string, timeout: typeof m.timeout === "number" ? m.timeout : 10 });
+        }
+      }
+    }
+  }
+  const semGuarda = hooksDaSessao.filter((h) => donoDoComando(h.command) === undefined);
+  const comGuarda = [...guardados, ...hooksDaSessao.filter((h) => donoDoComando(h.command) !== undefined)];
+  comGuarda.sort((a, b) => (donoDoComando(a.command) as string).localeCompare(donoDoComando(b.command) as string));
+  const hooks = [...semGuarda, ...comGuarda];
   const eventos = new Set<string>([...Object.keys(novo.hooks!), ...hooks.map((h) => h.evento)]);
   const confiar: Array<{ chave: string; hash: string }> = [];
   for (const ev of eventos) {
@@ -240,48 +281,223 @@ type Item =
   | { tipo: "chave"; tabela: Parte[]; caminho: Parte[]; linha: number }
   | { tipo: "tabelaDeArray"; linha: number };
 
-/** Varre o TOML linha a linha: cabeçalhos de tabela e chaves (com o caminho completo). Ignora o miolo de strings de várias linhas. */
-function varrer(linhas: string[]): Item[] {
-  const itens: Item[] = [];
-  let tabela: Parte[] = [];
-  let multi: string | null = null;
-  linhas.forEach((l, n) => {
-    if (multi) {
-      if (l.includes(multi) && (l.split(multi).length - 1) % 2 === 1) multi = null;
-      return;
-    }
-    const t = l.trimStart();
-    if (t === "" || t.startsWith("#")) return;
-    if (t.startsWith("[[")) {
-      itens.push({ tipo: "tabelaDeArray", linha: n });
-      tabela = ["[["];
-      return;
-    }
-    if (t.startsWith("[")) {
-      const k = lerChave(t, 1);
-      if (k && t[k.fim] === "]") {
-        const resto = t.slice(k.fim + 1).trim();
-        if (resto === "" || resto.startsWith("#")) {
-          itens.push({ tipo: "cab", partes: k.partes, linha: n });
-          tabela = k.partes;
+/** Posição logo depois da string que começa em `i` (básica, literal, ou as duas de várias linhas). Lança se não fechar. */
+function pularString(t: string, i: number): number {
+  const q = t[i];
+  if (t.startsWith(q.repeat(3), i)) {
+    let p = i + 3;
+    for (;;) {
+      if (p >= t.length) throw new TomlNaoEditavel("string de várias linhas sem fechar");
+      if (q === '"' && t[p] === "\\") {
+        p += 2;
+        continue;
+      }
+      if (t.startsWith(q.repeat(3), p)) {
+        p += 3;
+        // até duas aspas extras logo antes do fecho fazem parte do texto
+        let extras = 0;
+        while (t[p] === q && extras < 2) {
+          p++;
+          extras++;
         }
+        return p;
       }
-      return; // o resto é continuação de array de várias linhas, por exemplo
+      p++;
     }
-    const k = lerChave(t, 0);
-    if (k && t[k.fim] === "=") {
-      itens.push({ tipo: "chave", tabela, caminho: [...tabela, ...k.partes], linha: n });
-      const valor = t.slice(k.fim + 1);
-      for (const d of ['"""', "'''"]) {
-        if ((valor.split(d).length - 1) % 2 === 1) multi = d;
+  }
+  let p = i + 1;
+  for (;;) {
+    const c = t[p];
+    if (c === undefined || c === "\n") throw new TomlNaoEditavel("string sem fechar na mesma linha");
+    if (q === '"' && c === "\\") {
+      p += 2;
+      continue;
+    }
+    if (c === q) return p + 1;
+    p++;
+  }
+}
+
+/** Posição logo depois do valor que começa em `i`: string, array ou tabela inline (que podem atravessar linhas) ou escalar. */
+function pularValor(t: string, i: number): number {
+  let p = i;
+  let prof = 0;
+  for (;;) {
+    const c = t[p];
+    if (c === undefined) {
+      if (prof > 0) throw new TomlNaoEditavel("array ou tabela inline sem fechar");
+      return p;
+    }
+    if (c === '"' || c === "'") {
+      p = pularString(t, p);
+      if (prof === 0) return p;
+      continue;
+    }
+    if (c === "[" || c === "{") {
+      prof++;
+      p++;
+      continue;
+    }
+    if (c === "]" || c === "}") {
+      if (prof === 0) throw new TomlNaoEditavel("fecha colchete ou chave sem abrir");
+      prof--;
+      p++;
+      if (prof === 0) return p;
+      continue;
+    }
+    if (c === "#") {
+      if (prof === 0) return p;
+      while (p < t.length && t[p] !== "\n") p++;
+      continue;
+    }
+    if (c === "\n" && prof === 0) return p;
+    p++;
+  }
+}
+
+/**
+ * Varre o TOML pela gramática léxica (strings básicas e literais, as de várias linhas, comentários só
+ * fora de string, arrays e tabelas inline que atravessam linhas) e devolve os cabeçalhos de tabela e as
+ * chaves, com o caminho completo. Só as linhas que COMEÇAM fora de string e de array são candidatas a
+ * cabeçalho. Texto que não consegue ler lança TomlNaoEditavel, em vez de adivinhar.
+ */
+function varrer(t: string): Item[] {
+  const itens: Item[] = [];
+  const iniciosDeLinha = [0];
+  for (let k = 0; k < t.length; k++) if (t[k] === "\n") iniciosDeLinha.push(k + 1);
+  const linhaDe = (pos: number) => {
+    let lo = 0;
+    let hi = iniciosDeLinha.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (iniciosDeLinha[mid] <= pos) lo = mid;
+      else hi = mid - 1;
+    }
+    return lo;
+  };
+  const falha = (pos: number, o: string): never => {
+    throw new TomlNaoEditavel(`não consegui ler a linha ${linhaDe(pos) + 1} do config.toml com segurança (${o})`);
+  };
+  const fimDaLinha = (pos: number) => {
+    let p = pos;
+    while (t[p] === " " || t[p] === "\t" || t[p] === "\r") p++;
+    if (p < t.length && t[p] !== "\n" && t[p] !== "#") falha(pos, "sobrou texto depois do valor ou do cabeçalho");
+    while (p < t.length && t[p] !== "\n") p++;
+    return p;
+  };
+  let tabela: Parte[] = [];
+  let p = 0;
+  while (p < t.length) {
+    const c = t[p];
+    if (c === " " || c === "\t" || c === "\r" || c === "\n") {
+      p++;
+      continue;
+    }
+    if (c === "#") {
+      while (p < t.length && t[p] !== "\n") p++;
+      continue;
+    }
+    const inicio = p;
+    try {
+      if (c === "[") {
+        if (t[p + 1] === "[") {
+          const fim = t.indexOf("]]", p);
+          if (fim < 0) falha(p, "tabela de array sem fechar");
+          itens.push({ tipo: "tabelaDeArray", linha: linhaDe(p) });
+          tabela = ["[["];
+          p = fimDaLinha(fim + 2);
+          continue;
+        }
+        const k = lerChave(t, p + 1);
+        if (!k) falha(p, "cabeçalho de tabela inválido");
+        let q = k!.fim;
+        while (t[q] === " " || t[q] === "\t") q++;
+        if (t[q] !== "]") falha(p, "cabeçalho de tabela sem ]");
+        itens.push({ tipo: "cab", partes: k!.partes, linha: linhaDe(p) });
+        tabela = k!.partes;
+        p = fimDaLinha(q + 1);
+        continue;
       }
+      const k = lerChave(t, p);
+      if (!k) falha(p, "esperava uma chave");
+      let q = k!.fim;
+      while (t[q] === " " || t[q] === "\t") q++;
+      if (t[q] !== "=") falha(p, "chave sem =");
+      q++;
+      while (t[q] === " " || t[q] === "\t") q++;
+      if (q >= t.length || t[q] === "\n" || t[q] === "#") falha(p, "chave sem valor");
+      itens.push({ tipo: "chave", tabela, caminho: [...tabela, ...k!.partes], linha: linhaDe(p) });
+      p = fimDaLinha(pularValor(t, q));
+    } catch (err) {
+      if (err instanceof TomlNaoEditavel && !err.message.startsWith("não consegui ler a linha")) {
+        throw new TomlNaoEditavel(`não consegui ler a linha ${linhaDe(inicio) + 1} do config.toml com segurança (${err.message})`);
+      }
+      throw err;
     }
-  });
+  }
   return itens;
 }
 
 const igual = (a: Parte[], b: Parte[]) => a.length === b.length && a.every((x, i) => x === b[i]);
 const comecaCom = (a: Parte[], pre: Parte[]) => a.length >= pre.length && pre.every((x, i) => x === a[i]);
+
+const PY_TOMLLIB = `
+import json, sys
+try:
+    import tomllib
+except ImportError:
+    sys.exit(3)
+d = json.load(sys.stdin)
+def le(t):
+    try:
+        return tomllib.loads(t), None
+    except Exception as e:
+        return None, str(e)
+def tira(x, chaves):
+    for k in chaves:
+        h = x.get("hooks")
+        st = h.get("state") if isinstance(h, dict) else None
+        sec = st.get(k) if isinstance(st, dict) else None
+        if isinstance(sec, dict):
+            sec.pop("trusted_hash", None)
+            if not sec: st.pop(k, None)
+        if isinstance(st, dict) and not st and isinstance(h, dict): h.pop("state", None)
+        if isinstance(h, dict) and not h: x.pop("hooks", None)
+    return x
+o, eo = le(d["original"])
+n, en = le(d["novo"])
+r = {"originalValido": o is not None, "novoValido": n is not None, "erroNovo": en}
+if o is not None and n is not None:
+    r["hashesOk"] = all(((n.get("hooks") or {}).get("state") or {}).get(k, {}).get("trusted_hash") == v for k, v in d["hashes"].items())
+    r["soHash"] = tira(o, d["hashes"].keys()) == tira(n, d["hashes"].keys())
+print(json.dumps(r))
+`;
+
+/** Confere o resultado com o tomllib do Python (>= 3.11), se houver. Sem ele, nada a conferir (fica a checagem do scanner). */
+function conferirComTomllib(original: string, novo: string, itens: Array<{ chave: string; hash: string }>): void {
+  let r;
+  try {
+    r = spawnSync("python3", ["-I", "-c", PY_TOMLLIB], {
+      cwd: "/",
+      input: JSON.stringify({ original, novo, hashes: Object.fromEntries(itens.map((i) => [i.chave, i.hash])) }),
+      encoding: "utf8",
+      timeout: 5000,
+    });
+  } catch {
+    return;
+  }
+  if (r.error || r.status !== 0) return; // sem python3 ou sem tomllib: só o scanner
+  let j: { originalValido: boolean; novoValido: boolean; erroNovo?: string; hashesOk?: boolean; soHash?: boolean };
+  try {
+    j = JSON.parse(r.stdout);
+  } catch {
+    return;
+  }
+  if (!j.originalValido) return; // já era inválido antes de nós: não dá para comparar
+  if (!j.novoValido) throw new TomlNaoEditavel(`o config.toml ficaria inválido depois da edição (${j.erroNovo ?? "erro de TOML"}); não gravei`);
+  if (!j.hashesOk) throw new TomlNaoEditavel("depois da edição o trusted_hash lido pelo TOML não bate com o esperado; não gravei");
+  if (!j.soHash) throw new TomlNaoEditavel("a edição mudaria algo além do trusted_hash dos hooks do DG Claw; não gravei");
+}
 
 /**
  * Garante a seção `[hooks.state."<chave>"]` com `trusted_hash`, editando o texto do config.toml
@@ -296,7 +512,7 @@ export function garantirConfiancaNoToml(texto: string, itens: Array<{ chave: str
   if (texto.endsWith("\n")) linhas.pop();
   for (const { chave, hash } of itens) {
     const alvo = ["hooks", "state", chave];
-    const mapa = varrer(linhas);
+    const mapa = varrer(linhas.join("\n"));
     const cabs = mapa.filter((x): x is Extract<Item, { tipo: "cab" }> => x.tipo === "cab" && igual(x.partes, alvo));
     // Conflito: a chave (ou um pai dela) recebe valor inline, ou algo dentro dela é definido por chave
     // pontilhada FORA do cabeçalho dela. As chaves que estão sob o cabeçalho da própria seção são normais.
@@ -332,7 +548,7 @@ export function garantirConfiancaNoToml(texto: string, itens: Array<{ chave: str
   }
   const saida = linhas.join("\n") + "\n";
   // Conferência final: cada chave tem UM cabeçalho, UM trusted_hash e o valor esperado.
-  const mapa = varrer(saida.split("\n"));
+  const mapa = varrer(saida);
   for (const { chave, hash } of itens) {
     const alvo = ["hooks", "state", chave];
     const n = mapa.filter((x) => x.tipo === "cab" && igual(x.partes, alvo)).length;
@@ -341,6 +557,7 @@ export function garantirConfiancaNoToml(texto: string, itens: Array<{ chave: str
       throw new TomlNaoEditavel(`a conferência final falhou para ${chave} (cabeçalhos: ${n}, trusted_hash: ${h})`);
     }
   }
+  conferirComTomllib(texto, saida, itens);
   return saida;
 }
 
@@ -355,20 +572,68 @@ export interface ResultadoDosHooks {
  * duplica e regrava a confiança se o conteúdo do hook mudou. Falhar aqui não derruba o spawn: o
  * agente sobe sem os hooks (o log diz o que fazer).
  */
-export function instalarHooksNoCodex(opts: {
+export interface OpcoesDeInstalacao {
   home: string;
   env: Record<string, string>;
   cwd: string;
   promptHooks: string[];
   area: string;
   raiz?: string | null;
-}): ResultadoDosHooks {
+  /** Id da sessão dona dos promptHooks (veja `guardaDaSessao`). Sem ele os promptHooks valem para qualquer sessão. */
+  sessaoId?: string;
+}
+
+/**
+ * O hooks.json e o config.toml são do AGENTE: a principal e as paralelas que usam o mesmo CODEX_HOME
+ * os leem e escrevem. A leitura-e-gravação roda sob uma trava de pasta (mkdir é atômico), para duas
+ * sessões que sobem juntas não perderem a entrada uma da outra.
+ */
+export function instalarHooksNoCodex(opts: OpcoesDeInstalacao): ResultadoDosHooks {
+  const trava = path.join(opts.home, ".dgclaw-hooks.lock");
+  let travou = false;
+  try {
+    fs.mkdirSync(opts.home, { recursive: true, mode: 0o700 });
+    const limite = Date.now() + 8000;
+    for (;;) {
+      try {
+        fs.mkdirSync(trava);
+        travou = true;
+        break;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+        try {
+          if (Date.now() - fs.statSync(trava).mtimeMs > 30000) fs.rmdirSync(trava); // trava abandonada por um runner que caiu
+        } catch {
+          /* sumiu entre a checagem e a remoção: tenta de novo */
+        }
+        if (Date.now() > limite) break;
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 40);
+      }
+    }
+    if (!travou) log.aviso(opts.area, `não consegui a trava ${trava} em 8 s (outra sessão ficou presa instalando os hooks); sigo sem ela`);
+  } catch (err) {
+    log.aviso(opts.area, `não consegui criar a trava dos hooks em ${trava} (${err instanceof Error ? err.message : String(err)}); sigo sem ela`);
+  }
+  try {
+    return instalarSemTrava(opts);
+  } finally {
+    if (travou) {
+      try {
+        fs.rmdirSync(trava);
+      } catch {
+        /* já tinha sumido */
+      }
+    }
+  }
+}
+
+function instalarSemTrava(opts: OpcoesDeInstalacao): ResultadoDosHooks {
   const { home, area } = opts;
   const raiz = opts.raiz === undefined ? raizDoPlugin() : opts.raiz;
   const ws = opts.env.DGCLAW_WORKSPACE?.trim() || opts.cwd;
   const temWorkspace = fs.existsSync(path.join(ws, ".dgclaw", "config.sh"));
   const temBun = achaNoPath("bun", opts.env.PATH ?? process.env.PATH);
-  const hooks = hooksDoAgente({ raiz, workspace: ws, temWorkspace, temBun, promptHooks: opts.promptHooks });
+  const hooks = hooksDoAgente({ raiz, workspace: ws, temWorkspace, temBun, promptHooks: opts.promptHooks, sessaoId: opts.sessaoId });
   const arquivo = path.join(home, "hooks.json");
   const toml = path.join(home, "config.toml");
   try {
@@ -417,7 +682,7 @@ export function instalarHooksNoCodex(opts: {
       }
     }
     if (!existe && hooks.length === 0) return { instalados: 0 };
-    const { novo, confiar } = mesclarHooks(atual, hooks, arquivo);
+    const { novo, confiar } = mesclarHooks(atual, hooks, arquivo, opts.sessaoId);
     const texto = JSON.stringify(novo, null, 2) + "\n";
     // O config.toml é calculado ANTES de gravar qualquer coisa: se ele não puder ser editado com
     // segurança, nada é gravado (nem o hooks.json) e os arquivos da pessoa ficam como estavam.

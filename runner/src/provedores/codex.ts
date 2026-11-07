@@ -264,6 +264,9 @@ export const motorCodex: Motor = {
   async preparar(ctx) {
     const home = codexHomeDe({ auth: ctx.escolha.auth, env: ctx.env, cwd: ctx.cwd, id: ctx.id });
     ctx.env.CODEX_HOME = home;
+    // Quem é esta sessão, para os hooks do agente (um hooks.json só, no CODEX_HOME dele) saberem
+    // quais promptHooks valem aqui. O processo do hook herda o ambiente do Codex.
+    ctx.env.DGCLAW_SESSAO_ID = ctx.id;
     ctx.extrasDoMotor = [];
 
     if (ctx.escolha.auth === "api") {
@@ -286,6 +289,7 @@ export const motorCodex: Motor = {
       cwd: ctx.cwd,
       promptHooks: (ctx.config.promptHooks ?? []).filter((p): p is string => typeof p === "string"),
       area: ctx.a("spawn"),
+      sessaoId: ctx.id,
     });
 
     const mcp = ctx.config.mcpConfig?.trim();
