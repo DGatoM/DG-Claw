@@ -4,7 +4,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { paraContainer } = require('./thread');
+const { paraContainer, provaAutoria } = require('./thread');
 const { criaInterceptor } = require('./token-telegram');
 const { acharRollout, ehRollout, confinar } = require('./rollout');
 const { motivoDoRunner } = require('./runner');
@@ -33,11 +33,31 @@ const MAX_SESSOES_NA_THREAD = 40;
  * `voz: true` acrescenta voz="1" no fim dos atributos: a resposta vai ser OUVIDA (ver docs/CONVERSA.md).
  * Os leitores pegam from/chat/msg/ts por nome, então o atributo extra passa sem efeito.
  */
-function montarEnvelope({ from, chat, msg, ts, text, voz }) {
-  const atributo = (v) => String(v == null ? '' : v).replace(/[\r\n]+/g, ' ').replace(/["<>]/g, '').trim();
-  // Quem digitasse "</dgchat>" fecharia o envelope no meio: escapa, como se escapa HTML.
-  const corpo = String(text == null ? '' : text).replace(/<\/dgchat>/gi, '<\\/dgchat>');
-  return `<dgchat from="${atributo(from) || 'pessoa'}" chat="${atributo(chat)}" msg="${atributo(msg)}" ts="${atributo(ts)}"${voz === true ? ' voz="1"' : ''}>${corpo}</dgchat>`;
+function montarEnvelope({ from, chat, msg, ts, text, voz, colaboradorId }) {
+  // Tira também os caracteres de controle: um atributo com quebra de linha ou ESC chegaria ao terminal como tecla.
+  const atributo = (v) => String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ').replace(/["<>]/g, '').trim();
+  // Quem digitasse "</dgchat>" (ou "<dgchat ...>") fecharia ou forjaria um envelope no meio: escapa as duas pontas.
+  const corpo = String(text == null ? '' : text).replace(/<\/dgchat/gi, '<\\/dgchat').replace(/<dgchat/gi, '<\\dgchat');
+  const colab = colaboradorId ? ` colaborador_id="${atributo(colaboradorId)}"` : '';
+  return `<dgchat from="${atributo(from) || 'pessoa'}" chat="${atributo(chat)}" msg="${atributo(msg)}" ts="${atributo(ts)}"${voz === true ? ' voz="1"' : ''}${colab}>${corpo}</dgchat>`;
+}
+
+/** Caracteres que o terminal entenderia como tecla: C0 (menos \n e \t, mas com \r e ESC), DEL e C1. */
+const RX_TECLA = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/;
+const NOME_CONTROLE = { 13: 'retorno de carro (Enter)', 27: 'ESC', 127: 'DEL', 21: 'Ctrl+U', 3: 'Ctrl+C', 4: 'Ctrl+D', 0: 'nulo' };
+/**
+ * `rotulo` diz onde está o texto ("O texto", "A legenda", "O nome do arquivo"). O dono tem o \r normalizado
+ * para \n (colagem de Windows); para o colaborador qualquer \r é recusado. Devolve { texto } ou { erro }.
+ */
+function validaControle(valor, rotulo, { normalizarCR } = {}) {
+  let t = String(valor == null ? '' : valor);
+  if (normalizarCR) t = t.replace(/\r\n?/g, '\n');
+  const m = RX_TECLA.exec(t);
+  if (!m) return { texto: t };
+  const cod = m[0].charCodeAt(0);
+  const u = 'U+' + cod.toString(16).toUpperCase().padStart(4, '0');
+  const nome = NOME_CONTROLE[cod] ? ` (${NOME_CONTROLE[cod]})` : '';
+  return { erro: `${rotulo} tem o caractere de controle ${u}${nome} na posição ${m.index + 1}, que o terminal do agente entenderia como tecla apertada. Apague esse caractere (só a quebra de linha e o tab valem) e envie de novo. Nada foi enviado.` };
 }
 
 /**
@@ -338,6 +358,21 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     }
   }
 
+  /**
+   * O colaborador_id de quem mandou a mensagem que o runner executou antes da pendência `id` (permissão ou pergunta),
+   * ou null se isso não puder ser provado pela transcrição da sessão. Codex não tem o mesmo registro: sempre null.
+   */
+  async function autoriaDaPendencia(agente, id) {
+    try {
+      const t = await thread(agente);
+      if (!t.arquivo || ehRollout(t.arquivo)) return null;
+      return provaAutoria(t.arquivo, id, agente.chat_id);
+    } catch (e) {
+      log('aviso', `Autoria da pendência de ${agente.nome}: não consegui ler a transcrição (${e.message}); a pendência fica só com o dono.`);
+      return null;
+    }
+  }
+
   /** A pergunta de escolha (AskUserQuestion) esperando resposta: { id, perguntas } ou null (Codex não tem). */
   async function perguntaDe(agente) {
     try {
@@ -514,11 +549,11 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
   const erro = (status, motivo, extra) => ({ status, corpo: Object.assign({ ok: false, erro: motivo }, extra || {}) });
 
   /** Entrega o texto (já com marcadores de anexo) ao agente. Devolve { status, corpo }. */
-  async function entregar(agente, textoFinal, { cru, voz, from }) {
+  async function entregar(agente, textoFinal, { cru, voz, from, colaboradorId }) {
     sequencia += 1;
     const payload = cru
       ? textoFinal
-      : montarEnvelope({ from: from || 'pessoa', chat: agente.chat_id, msg: `w${relogio().toString(36)}${sequencia}`, ts: new Date(relogio()).toISOString(), text: textoFinal, voz });
+      : montarEnvelope({ from: from || 'pessoa', chat: agente.chat_id, msg: `w${relogio().toString(36)}${sequencia}`, ts: new Date(relogio()).toISOString(), text: textoFinal, voz, colaboradorId });
     const epEnviado = relogio() / 1000 - 2;
     // O runner responde 202 "enfileirado" sempre; quem sabe se vai esperar é o estado de AGORA (sem o cache de 2 s).
     const antes = await runner.estado(agente);
@@ -686,7 +721,10 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
 
   /** `ator` (opcional) é quem fala: { from } para o envelope e { colaborador:true } para travar o que é do dono. */
   async function enviar(agente, req, ator) {
-    const texto = typeof req.text === 'string' ? req.text.trim() : '';
+    const ehColab = !!(ator && ator.colaborador);
+    const limpo = validaControle(typeof req.text === 'string' ? req.text.trim() : '', 'O texto', { normalizarCR: !ehColab });
+    if (limpo.erro) return erro(400, limpo.erro, { codigo: 'CONTROLE_NO_TEXTO' });
+    const texto = limpo.texto;
     const ids = req.anexos == null ? [] : req.anexos;
     if (!Array.isArray(ids) || !ids.every((i) => typeof i === 'string' && i)) {
       return erro(400, `"anexos" precisa ser a lista dos ids devolvidos por /upload com enviar=0 (anexo.id). Recebi: ${JSON.stringify(ids).slice(0, 200)}.`);
@@ -695,7 +733,6 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     if (new Set(ids).size !== ids.length) return erro(400, 'Há ids repetidos em "anexos". Cada arquivo entra uma vez só.');
     if (!texto && !ids.length) return erro(400, 'Mande o texto em "text" (ou os ids dos arquivos em "anexos"). Recebi vazio.');
     // Token do BotFather colado sozinho: vai para o .env do agente e nunca para o runner.
-    const ehColab = !!(ator && ator.colaborador);
     if (!ids.length && tokenTelegram.ehToken(texto)) {
       if (ehColab) return erro(403, 'Guardar o token de um bot do Telegram muda a configuração do agente, e isso é só do dono do DG Claw. Peça a ele. Nada foi enviado.', { codigo: 'SO_DO_DONO' });
       const g = await tokenTelegram.guardar(agente, texto);
@@ -722,7 +759,7 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     // Colaborador não manda comando de barra: o texto dele, mesmo começando com "/", segue sempre dentro do
     // envelope com o `from` dele. Comando cru chegaria ao agente sem dizer quem mandou.
     if (ehColab) {
-      return entregar(agente, [texto, ...marcadores].filter(Boolean).join('\n'), { cru: false, voz: req.voz === true, from: ator.from });
+      return entregar(agente, [texto, ...marcadores].filter(Boolean).join('\n'), { cru: false, voz: req.voz === true, from: ator.from, colaboradorId: ator.colaborador_id });
     }
     const d = await comandos.decidir(agente, texto, { temAnexos: ids.length > 0 });
     if (d.erro) {
@@ -764,6 +801,9 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     } else {
       return erro(400, 'Mande o comando em "comando" (ex.: "/compact") ou o texto inteiro em "text" (ex.: "/compact foque nas decisões"). Recebi vazio. Nada foi enviado.', { codigo: 'COMANDO_MALFORMADO' });
     }
+    const limpoCmd = validaControle(texto, 'O comando', { normalizarCR: !(ator && ator.colaborador) });
+    if (limpoCmd.erro) return erro(400, limpoCmd.erro, { codigo: 'CONTROLE_NO_TEXTO' });
+    texto = limpoCmd.texto;
     if (texto.length > config.maxTexto) return erro(413, `O comando tem ${texto.length} caracteres e o limite é ${config.maxTexto}. Encurte os argumentos.`);
     const d = await comandos.decidir(agente, texto, { temAnexos: false });
     if (d.erro) {
@@ -777,7 +817,7 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
   }
 
   return {
-    montarEnvelope, estado, thread, threadCompartilhada, atividade, rotuloProvedor, ultimaMensagemTs, umaVez, enviar, comando, comandos, entregar, permissao, responderPergunta, reiniciar,
+    montarEnvelope, validaControle, autoriaDaPendencia, estado, thread, threadCompartilhada, atividade, rotuloProvedor, ultimaMensagemTs, umaVez, enviar, comando, comandos, entregar, permissao, responderPergunta, reiniciar,
     RX_CLIENTE_ID,
   };
 }

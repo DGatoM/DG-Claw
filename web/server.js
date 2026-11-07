@@ -630,6 +630,7 @@ function criarServidor(opcoes) {
         const corpo = await lerEnvio(req, res);
         if (!corpo) return undefined;
         if (await confirmacaoNegada(res, agente, sessao, corpo.tool_use_id)) return undefined;
+        if (!sessaoAindaVale(req, sessao)) return recusaSessaoVelha(res, sessao);
         const r = await conversa.permissao(agente, corpo.decisao, corpo.tool_use_id);
         return H.enviaJson(res, r.status, r.corpo);
       }
@@ -637,6 +638,7 @@ function criarServidor(opcoes) {
         const corpo = await lerEnvio(req, res);
         if (!corpo) return undefined;
         if (await confirmacaoNegada(res, agente, sessao, corpo.tool_use_id)) return undefined;
+        if (!sessaoAindaVale(req, sessao)) return recusaSessaoVelha(res, sessao);
         const r = await conversa.responderPergunta(agente, corpo);
         return H.enviaJson(res, r.status, r.corpo);
       }
@@ -710,12 +712,12 @@ function criarServidor(opcoes) {
   const AVISO_GENERICO = 'Não consegui carregar parte do histórico agora. Se continuar, avise o dono do DG Claw.';
   const ehColab = (sessao) => !!sessao && sessao.papel === 'colaborador';
   const avisosPara = (sessao, avisos) => (ehColab(sessao) ? (avisos && avisos.length ? [AVISO_GENERICO] : []) : avisos);
-  function atividadePara(sessao, agente, ativ) {
+  async function atividadePara(sessao, agente, ativ) {
     if (!ehColab(sessao)) return ativ;
     const copia = Object.assign({}, ativ);
     vinculaPendencia(agente.slug, sessao, ativ);
     const id = (ativ.permissao && ativ.permissao.id) || (ativ.pergunta && ativ.pergunta.id) || null;
-    if (!pendenciaEhDele(agente.slug, sessao, id)) { delete copia.permissao; delete copia.pergunta; copia.detalhe = null; }
+    if (!(await pendenciaEhDele(agente, sessao, id))) { delete copia.permissao; delete copia.pergunta; copia.detalhe = null; }
     if (copia.motivo && !['login_expirado', 'sem_login'].includes(copia.alerta)) copia.motivo = 'O agente está sem sinal agora.';
     return copia;
   }
@@ -790,6 +792,22 @@ function criarServidor(opcoes) {
     return undefined;
   }
 
+  /**
+   * A sessão do colaborador ainda vale AGORA? Repete o que o pedido fez ao entrar (sessão, versão da senha, vínculo
+   * com o agente, revogação). O corpo de um pedido pode demorar a chegar: quem foi revogado ou teve o convite
+   * reenviado nesse meio tempo não pode concluir o que começou.
+   */
+  function sessaoAindaVale(req, sessao) {
+    if (!ehColab(sessao)) return true;
+    const s2 = auth.sessaoDoPedido(req);
+    return !!s2 && s2.papel === 'colaborador' && s2.colaborador_id === sessao.colaborador_id
+      && s2.senha_versao === sessao.senha_versao && s2.agente === sessao.agente;
+  }
+  function recusaSessaoVelha(res, sessao) {
+    log('aviso', `Pedido do colaborador ${sessao.usuario} recusado: a sessão deixou de valer enquanto o corpo chegava (acesso revogado ou convite reenviado).`);
+    return H.erroJson(res, 401, 'Seu acesso mudou enquanto o envio estava em andamento (foi revogado ou o convite foi reenviado). Nada foi feito. Entre de novo com o convite mais recente.');
+  }
+
   async function lerEnvio(req, res) {
     try { return await H.lerJson(req, 256 * 1024); } catch (e) { H.erroJson(res, e.status || 400, e.message); return null; }
   }
@@ -797,7 +815,7 @@ function criarServidor(opcoes) {
   /** Quem fala na conversa: o dono (sem marca, vira "pessoa" no envelope) ou o colaborador, que o agente precisa distinguir. */
   function atorDa(sessao) {
     if (!sessao || sessao.papel !== 'colaborador') return undefined;
-    return { colaborador: true, from: `colaborador: ${sessao.nome ? `${sessao.nome} (${sessao.usuario})` : sessao.usuario}` };
+    return { colaborador: true, colaborador_id: sessao.colaborador_id, from: `colaborador: ${sessao.nome ? `${sessao.nome} (${sessao.usuario})` : sessao.usuario}` };
   }
 
   // Quem iniciou o turno em curso de cada agente, e de quem é cada pendência (permissão ou pergunta) que ele abriu.
@@ -805,6 +823,7 @@ function criarServidor(opcoes) {
   // pessoa na fila. Um envio que só entrou na fila (o agente estava ocupado ou esperando confirmação) não inicia
   // turno nenhum: se ele trocasse o autor, o colaborador aprovaria a operação que o dono deixou pendente.
   // Sem registro (restart), o turno é do dono.
+  const RX_ENVIO_DO_PAINEL = /^\/api\/(?:chat|socorro|sessoes)(?:\/|$)/i;
   const turnos = new Map(); // slug -> { autor: { dono:true } | { colaborador_id }, misto: bool }
   const pendencias = new Map(); // slug -> { id, ok } (ok: o colaborador pode responder)
   const autorDe = (sessao) => (sessao && sessao.papel === 'colaborador' ? { colaborador_id: sessao.colaborador_id } : { dono: true });
@@ -835,12 +854,20 @@ function criarServidor(opcoes) {
     const t = turnos.get(slug) || { autor: { dono: true }, misto: false };
     pendencias.set(slug, { id, colaborador_id: !t.misto && t.autor.colaborador_id ? t.autor.colaborador_id : null });
   }
-  const pendenciaEhDele = (slug, sessao, id) => {
+  /**
+   * Duas provas, as duas precisam bater. A memória do Web (turnos e pendências) só enxerga o que passou por aqui;
+   * a transcrição é o que o runner de fato executou, inclusive o que veio por Telegram, canal ou rotina. Sem as duas,
+   * a pendência é do dono.
+   */
+  const pendenciaEhDele = async (agente, sessao, id) => {
+    const slug = agente.slug;
     const p = pendencias.get(slug);
     const t = turnos.get(slug);
     // Confere de novo o turno de agora: o vínculo sozinho não basta se o turno virou misto ou mudou de autor.
-    return !!(id && p && p.id === id && p.colaborador_id && p.colaborador_id === sessao.colaborador_id
+    const memoria = !!(id && p && p.id === id && p.colaborador_id && p.colaborador_id === sessao.colaborador_id
       && t && !t.misto && t.autor.colaborador_id === sessao.colaborador_id);
+    if (!memoria) return false;
+    return (await conversa.autoriaDaPendencia(agente, id)) === sessao.colaborador_id;
   };
   /**
    * Para o colaborador: a confirmação precisa trazer o id da pendência que está na tela agora, e ela precisa ser de um
@@ -854,7 +881,7 @@ function criarServidor(opcoes) {
     vinculaPendencia(agente.slug, sessao, ativ);
     const idAgora = (ativ.permissao && ativ.permissao.id) || (ativ.pergunta && ativ.pergunta.id) || null;
     if (idAgora !== toolUseId) return recusa(409, 'Essa confirmação já não é a que está pendente. Atualize a conversa.');
-    if (!pendenciaEhDele(agente.slug, sessao, toolUseId)) {
+    if (!(await pendenciaEhDele(agente, sessao, toolUseId))) {
       return recusa(403, 'Essa confirmação é do dono do DG Claw. Ela é de um pedido que ele fez; aguarde ou fale com ele.');
     }
     return false;
@@ -894,7 +921,12 @@ function criarServidor(opcoes) {
     if (cid && !RX_CLIENTE_ID.test(cid)) return H.erroJson(res, 400, 'O "cliente_id" não vale: use de 8 a 64 caracteres entre letras, números, "-" e "_".');
     if (!arq.dados.length) return H.erroJson(res, 400, `O arquivo "${arq.nome}" chegou com 0 byte. Escolha o arquivo de novo.`);
     const soGuardar = /^(0|false|nao|não|no)$/i.test((mp.campos.enviar || '').trim());
-    const legenda = (mp.campos.legenda || '').trim();
+    const souColab = ehColab(sessao);
+    const nomeLimpo = conversa.validaControle(arq.nome, 'O nome do arquivo');
+    if (nomeLimpo.erro) return H.erroJson(res, 400, nomeLimpo.erro);
+    const legendaLimpa = conversa.validaControle((mp.campos.legenda || '').trim(), 'A legenda', { normalizarCR: !souColab });
+    if (legendaLimpa.erro) return H.erroJson(res, 400, legendaLimpa.erro);
+    const legenda = legendaLimpa.texto;
     const r = await conversa.umaVez(agente, 'upload', cid || null, async () => {
       const dia = new Intl.DateTimeFormat('en-CA', { timeZone: config.tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
       const pasta = path.join(agente.home_host, 'uploads', dia);
@@ -915,7 +947,7 @@ function criarServidor(opcoes) {
         return { status: 201, corpo: { ok: true, enviado: false, agente: agente.slug, anexo, marcador, media } };
       }
       const ator = atorDa(sessao);
-      const e = await conversa.entregar(agente, [legenda, marcador].filter(Boolean).join('\n'), { cru: false, from: ator && ator.from });
+      const e = await conversa.entregar(agente, [legenda, marcador].filter(Boolean).join('\n'), { cru: false, from: ator && ator.from, colaboradorId: ator && ator.colaborador_id });
       if (e.status >= 300) return Object.assign(e, { corpo: Object.assign({ arquivo_salvo: visto }, e.corpo) });
       marcaAutor(agente.slug, sessao, e);
       return { status: 201, corpo: Object.assign({}, e.corpo, { enviado: true, kind: media.kind, texto: legenda, anexo, marcador, media }) };
@@ -1030,6 +1062,14 @@ function criarServidor(opcoes) {
       if (!veredito.ok) return negarEscopo(req, res, sessao, veredito, p);
     }
 
+    if (ehColab(sessao)) {
+      req.dgRevalidar = () => {
+        const vale = sessaoAindaVale(req, sessao);
+        if (!vale) log('aviso', `Pedido ${m} ${p.slice(0, 120)} do colaborador ${sessao.usuario} recusado: a sessão deixou de valer enquanto o corpo chegava.`);
+        return vale;
+      };
+    }
+
     if (p.startsWith('/api/')) {
       if (!sessao) return H.erroJson(res, 401, 'Você precisa entrar para usar a API. Faça login em /login.');
       return api(req, res, url, sessao);
@@ -1042,6 +1082,12 @@ function criarServidor(opcoes) {
         return H.erroJson(res, 401, 'Você precisa entrar para abrir o painel. Faça login em /login.');
       }
       if (!pp[2]) { res.writeHead(302, { Location: `/p/${pp[1]}/${url.search}` }); return res.end(); }
+      // O painel do dono manda texto ao runner por conta própria (chat, recados, sessões): daqui em diante o turno
+      // em curso deixa de ser de qualquer colaborador. A transcrição é a prova de verdade; isto é a segunda trava.
+      if (!ehColab(sessao) && !sessao.via && m !== 'GET' && m !== 'HEAD' && RX_ENVIO_DO_PAINEL.test(pp[2])) {
+        const slugPainel = decodeURIComponent(pp[1]);
+        if (RX_SLUG_ROTA.test(slugPainel)) marcaAutor(slugPainel, sessao, null);
+      }
       return proxy.responder(req, res, pp[1], sessao.usuario, quemDoProxy(sessao));
     }
 

@@ -86,7 +86,7 @@ function parseDgchat(texto) {
   let interno = texto.slice(m.index + m[0].length);
   const fim = interno.lastIndexOf(DGCHAT_FECHA);
   if (fim >= 0) interno = interno.slice(0, fim);
-  interno = interno.split('<\\/dgchat>').join(DGCHAT_FECHA).trim();
+  interno = interno.split('<\\/dgchat').join('</dgchat').split('<\\dgchat').join('<dgchat').trim();
   return { attrs, interno };
 }
 
@@ -651,4 +651,82 @@ function criarLeitor({ log, tz, canalTelegram, midia }) {
   return { ler, pendente, perguntaPendente, esquece(caminho, slug) { estados.delete(`${slug}|${caminho}`); } };
 }
 
-module.exports = { parseCanalExterno, desescapa, criarLeitor, criarMontagem, lerIncremental, fmtHoraDia, parseDgchat, parseCanalTelegram, paraHost, paraContainer, textoDosBlocos, ROTULO_EMOJI };
+// ── prova de autoria de uma pendência ────────────────────────────────────────
+const CAUDA_AUTORIA = 4 * 1024 * 1024;
+const ABRE_ENVELOPE = /^<dgchat\b([^>]*)>/;
+const ATTR_GENERICO = /\b([a-z_]+)="([^"]*)"/g;
+const LINHA_DE_INTERESSE = /"type"\s*:\s*"(?:user|assistant|attachment|queue-operation)"/;
+const cacheAutoria = new Map(); // caminho -> { chave, valor }
+
+/** Lê só o envelope que o servidor monta. O corpo da mensagem não é lido: nada do que a pessoa digita vale aqui. */
+function envelopeDoServidor(texto) {
+  const m = ABRE_ENVELOPE.exec(texto);
+  if (!m) return null;
+  const attrs = {};
+  let a;
+  ATTR_GENERICO.lastIndex = 0;
+  while ((a = ATTR_GENERICO.exec(m[1])) !== null) { if (!(a[1] in attrs)) attrs[a[1]] = a[2]; }
+  return attrs.chat && attrs.msg ? attrs : null;
+}
+
+/**
+ * Quem enviou a última mensagem de usuário antes do uso de ferramenta `toolUseId`, lida do transcript que o runner
+ * de fato executou. Devolve o `colaborador_id` do envelope se (e só se): a última mensagem de usuário antes do uso
+ * é um envelope <dgchat> do chat do agente com esse atributo, e nenhuma outra mensagem de usuário (de qualquer
+ * origem) vem depois dela, a não ser a própria (a mesma mensagem reentregue da fila). Dúvida de qualquer tipo
+ * (arquivo ilegível, linha quebrada, id fora da cauda lida, formato novo) devolve null: a pendência é do dono.
+ */
+function provaAutoria(caminho, toolUseId, chatEsperado) {
+  if (!caminho || !toolUseId || !chatEsperado) return null;
+  let st;
+  try { st = fs.statSync(caminho); } catch (_) { return null; }
+  const chave = `${st.size}|${st.mtimeMs}|${toolUseId}|${chatEsperado}`;
+  const guardado = cacheAutoria.get(caminho);
+  if (guardado && guardado.chave === chave) return guardado.valor;
+  let valor = null;
+  try { valor = provaAutoriaSemCache(caminho, st.size, toolUseId, chatEsperado); } catch (_) { valor = null; }
+  cacheAutoria.set(caminho, { chave, valor });
+  return valor;
+}
+
+function provaAutoriaSemCache(caminho, tamanho, toolUseId, chatEsperado) {
+  const ini = Math.max(0, tamanho - CAUDA_AUTORIA);
+  const buf = Buffer.alloc(tamanho - ini);
+  const fd = fs.openSync(caminho, 'r');
+  try { fs.readSync(fd, buf, 0, buf.length, ini); } finally { fs.closeSync(fd); }
+  let linhas = buf.toString('utf8').split('\n');
+  if (ini > 0) linhas = linhas.slice(1); // a primeira linha da cauda pode estar cortada
+  const itens = []; // { uso: true } ou { env }
+  for (let i = 0; i < linhas.length; i++) {
+    const linha = linhas[i];
+    if (!linha.trim() || !LINHA_DE_INTERESSE.test(linha)) continue;
+    let o;
+    try { o = JSON.parse(linha); } catch (_) { return null; }
+    if (!o || o.isSidechain === true) continue;
+    if (o.type === 'assistant') {
+      const c = o.message && o.message.content;
+      if (Array.isArray(c) && c.some((b) => b && b.type === 'tool_use' && b.id === toolUseId)) itens.push({ uso: true });
+      continue;
+    }
+    const fila = (o.type === 'attachment' && o.attachment && o.attachment.type === 'queued_command') || (o.type === 'queue-operation' && o.operation === 'enqueue');
+    if (o.type !== 'user' && !fila) continue;
+    const cont = fila ? (o.type === 'attachment' ? o.attachment.prompt : o.content) : (o.message && o.message.content);
+    // Devolução de ferramenta não é mensagem de ninguém.
+    if (Array.isArray(cont) && cont.length && cont.every((b) => b && b.type === 'tool_result')) continue;
+    const txt = textoDosBlocos(cont).replace(REMINDER, '').trim();
+    const env = o.isMeta === true || o.isCompactSummary === true ? null : envelopeDoServidor(txt);
+    itens.push({ env });
+  }
+  const iUso = itens.findIndex((x) => x.uso);
+  if (iUso < 0) return null;
+  const antes = itens.slice(0, iUso).filter((x) => !x.uso);
+  const ultima = antes[antes.length - 1];
+  if (!ultima || !ultima.env || ultima.env.chat !== chatEsperado || !ultima.env.colaborador_id) return null;
+  for (const x of itens.slice(iUso + 1)) {
+    if (x.uso) continue;
+    if (!x.env || x.env.msg !== ultima.env.msg || x.env.colaborador_id !== ultima.env.colaborador_id) return null;
+  }
+  return ultima.env.colaborador_id;
+}
+
+module.exports = { provaAutoria, parseCanalExterno, desescapa, criarLeitor, criarMontagem, lerIncremental, fmtHoraDia, parseDgchat, parseCanalTelegram, paraHost, paraContainer, textoDosBlocos, ROTULO_EMOJI };

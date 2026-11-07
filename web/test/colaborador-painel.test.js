@@ -148,9 +148,9 @@ test('colaborador: WebSocket da Tela do agente dele abre (101) e leva o usuário
 });
 
 const TS = '2026-10-12T15:00:00.000Z';
-const msg = (n, texto, de) => ({ type: 'user', timestamp: TS, message: { role: 'user', content: `<dgchat from="${de || 'pessoa'}" chat="c_ana" msg="m${n}" ts="${TS}">${texto}</dgchat>` } });
+// `colab`: o colaborador_id que o servidor grava no envelope da mensagem de um colaborador.
+const msg = (n, texto, colab) => ({ type: 'user', timestamp: TS, message: { role: 'user', content: `<dgchat from="${colab ? 'colaborador: Maria (maria@x.com)' : 'pessoa'}" chat="c_ana" msg="m${n}" ts="${TS}"${colab ? ` colaborador_id="${colab}"` : ''}>${texto}</dgchat>` } });
 const usoBash = (id) => ({ type: 'assistant', timestamp: '2026-10-12T15:00:05.000Z', message: { role: 'assistant', content: [{ type: 'tool_use', id, name: 'Bash', input: { command: 'echo oi > /tmp/x', description: 'Grava um arquivo' } }] } });
-const COLAB_DE = 'colaborador: Maria (maria@x.com)';
 const mudaEstado = (s, status) => { s.rAna.opcoes.status = status; s.relogio.t += 3000; };
 
 test('proxy manda ao painel quem é (papel e colaborador) e apaga o que o navegador forjar', async () => {
@@ -238,7 +238,7 @@ test('turno que vira misto invalida o vínculo da pendência que já tinha sido 
   const { x, s, fechar } = await cenarioComPainel();
   try {
     await x.c.post('/api/v1/agents/ana/send', { json: { text: 'grava aquele arquivo' } });
-    s.escreveTranscript([msg(1, 'grava aquele arquivo', COLAB_DE), usoBash('tu5')]);
+    s.escreveTranscript([msg(1, 'grava aquele arquivo', x.id), usoBash('tu5')]);
     mudaEstado(s, 'waiting_input');
     // o colaborador vê a pendência (um pedido com id errado já a vincula ao turno dele)
     assert.equal((await x.c.post('/api/v1/agents/ana/permissao', { json: { decisao: 'aprovar', tool_use_id: 'tuX' } })).status, 409);

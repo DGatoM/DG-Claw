@@ -8,9 +8,9 @@ const { cenario, colaboradorAtivo } = require('./colab-ajuda');
 const { criarAuth } = require('../lib/auth');
 
 const TS = '2026-10-12T15:00:00.000Z';
-const msg = (n, texto, de) => ({ type: 'user', timestamp: TS, message: { role: 'user', content: `<dgchat from="${de || 'pessoa'}" chat="c_ana" msg="m${n}" ts="${TS}">${texto}</dgchat>` } });
+// `colab`: o colaborador_id que o servidor grava no envelope da mensagem de um colaborador.
+const msg = (n, texto, colab) => ({ type: 'user', timestamp: TS, message: { role: 'user', content: `<dgchat from="${colab ? 'colaborador: Maria (maria@x.com)' : 'pessoa'}" chat="c_ana" msg="m${n}" ts="${TS}"${colab ? ` colaborador_id="${colab}"` : ''}>${texto}</dgchat>` } });
 const usoBash = (id) => ({ type: 'assistant', timestamp: '2026-10-12T15:00:05.000Z', message: { role: 'assistant', content: [{ type: 'tool_use', id, name: 'Bash', input: { command: 'echo oi > /tmp/x', description: 'Grava um arquivo' } }] } });
-const COLAB_DE = 'colaborador: Maria (maria@x.com)';
 const PALPITE = 'palpite-errado';
 const OUTRO_PALPITE = 'qualquer-coisa-1';
 const VALOR_ANTIGO = 'valor-antigo-boa-1';
@@ -67,7 +67,7 @@ test('achado 2: o colaborador confirma a pendência do turno que ele iniciou, e 
     const x = await colaboradorAtivo(s);
     const r = await x.c.post('/api/v1/agents/ana/send', { json: { text: 'grava aquele arquivo' } });
     assert.equal(r.status, 200); assert.equal(r.json.fila, undefined, 'o agente estava ocioso: o turno começou');
-    s.escreveTranscript([msg(1, 'grava aquele arquivo', COLAB_DE), usoBash('tu2')]);
+    s.escreveTranscript([msg(1, 'grava aquele arquivo', x.id), usoBash('tu2')]);
     mudaEstado(s, 'waiting_input');
     assert.equal((await x.c.post('/api/v1/agents/ana/permissao', { json: { decisao: 'aprovar' } })).status, 400, 'sem id não vale');
     const errado = await x.c.post('/api/v1/agents/ana/permissao', { json: { decisao: 'aprovar', tool_use_id: 'tuX' } });
@@ -83,7 +83,7 @@ test('achado 2: mensagem do dono na fila de um turno do colaborador tira dele a 
   try {
     const x = await colaboradorAtivo(s);
     await x.c.post('/api/v1/agents/ana/send', { json: { text: 'grava aquele arquivo' } });
-    s.escreveTranscript([msg(1, 'grava aquele arquivo', COLAB_DE), usoBash('tu3')]);
+    s.escreveTranscript([msg(1, 'grava aquele arquivo', x.id), usoBash('tu3')]);
     mudaEstado(s, 'waiting_input');
     assert.equal((await s.dono.post('/api/v1/agents/ana/send', { json: { text: 'e depois faz isto' } })).json.fila.motivo, 'permissao');
     const nega = await x.c.post('/api/v1/agents/ana/permissao', { json: { decisao: 'aprovar', tool_use_id: 'tu3' } });
