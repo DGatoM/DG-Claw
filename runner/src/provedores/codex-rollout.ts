@@ -184,6 +184,39 @@ export function eventoDoRollout(registro: unknown): EventoDoRollout | null {
   return null;
 }
 
+/** O erro com que o Codex fechou um turno (`task_complete.error`). */
+export interface ErroDeTurnoDoCodex {
+  em: number;
+  /** `codex_error_info`: unauthorized, usage_limit_exceeded, server_overloaded, other... Vazio quando não veio. */
+  categoria: string;
+  mensagem: string;
+}
+
+/** Lê o erro do fim de turno do registro `task_complete`; null quando o turno acabou sem erro. */
+export function erroDeTurnoDoRollout(registro: unknown): ErroDeTurnoDoCodex | null {
+  const r = registro as { timestamp?: string; type?: string; payload?: { type?: string; error?: unknown } } | null;
+  const em = Date.parse(r?.timestamp ?? "");
+  if (!r || r.type !== "event_msg" || r.payload?.type !== "task_complete" || !Number.isFinite(em)) return null;
+  const e = r.payload.error as { message?: unknown; codex_error_info?: unknown } | string | null | undefined;
+  if (!e) return null;
+  if (typeof e === "string") return { em, categoria: "", mensagem: e };
+  if (typeof e !== "object") return null;
+  const info = e.codex_error_info;
+  const categoria = typeof info === "string" ? info : info && typeof info === "object" ? (Object.keys(info)[0] ?? "") : "";
+  return { em, categoria, mensagem: typeof e.message === "string" ? e.message : "" };
+}
+
+/**
+ * O erro é de login vencido? `unauthorized` é a categoria do Codex para isso. Quando a categoria vem
+ * genérica (`other`) ou ausente, o texto com status 401 ou com refresh token também vale. Limite de
+ * uso, servidor sobrecarregado e queda de rede NÃO são login.
+ */
+export function erroDeLoginDoCodex(e: ErroDeTurnoDoCodex): boolean {
+  if (e.categoria === "unauthorized") return true;
+  if (e.categoria !== "" && e.categoria !== "other") return false;
+  return /\b401\b|refresh[ _-]?token|token_expired/i.test(e.mensagem);
+}
+
 export interface OpcoesDoVigia {
   /** Devolve o rollout a ler agora, ou null enquanto ele não existe. Chamado a cada pulso. */
   resolverArquivo: () => string | null;
@@ -193,6 +226,8 @@ export interface OpcoesDoVigia {
   /** Chamado a cada `token_count` com `rate_limits`, inclusive os de antes do spawn: o uso da
    *  assinatura vale mesmo que a medição seja de uma conversa anterior. */
   aoUso?: (u: { leitura: Leitura; em: number }) => void;
+  /** Chamado quando um turno termina com erro (depois do `Stop` do mesmo registro). Só os de depois do spawn. */
+  aoErroDeTurno?: (e: ErroDeTurnoDoCodex) => void;
   intervaloMs?: number;
 }
 
@@ -239,6 +274,10 @@ export function vigiarRollout(op: OpcoesDoVigia): () => void {
         }
         const ev = eventoDoRollout(reg);
         if (ev && ev.em >= op.desdeMs && !parado) op.aoEvento(ev);
+        if (op.aoErroDeTurno && !parado) {
+          const erro = erroDeTurnoDoRollout(reg);
+          if (erro && erro.em >= op.desdeMs) op.aoErroDeTurno(erro);
+        }
         // A medição de uso é acessória: um registro estranho nela não pode derrubar o lote e levar
         // junto o fim de turno que vem depois (revisão adversarial do PR #58).
         if (op.aoUso && !parado) {

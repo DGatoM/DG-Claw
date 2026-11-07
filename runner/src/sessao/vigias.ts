@@ -1,14 +1,14 @@
 import pty from "node-pty";
 import type { Sessao } from "../sessao.js";
 import { log } from "../logger.js";
-import { type EventoInterno, acharRolloutPorId, descobrirRollout, vigiarRollout } from "../provedores/codex-rollout.js";
+import { type EventoInterno, acharRolloutPorId, erroDeLoginDoCodex, descobrirRollout, vigiarRollout } from "../provedores/codex-rollout.js";
 import { codexHomeDe } from "../provedores/codex.js";
 import type { CtxMotor } from "../provedores/motor.js";
 import { turnoEncerradoNoTranscript } from "../transcript.js";
 import { CONFERE_TRANSCRIPT_A_CADA_MS, ROLLOUT_AUSENTE_MS } from "./constantes.js";
 import { aplicarEvento, cancelarStopPendente } from "./eventos.js";
 import { talvezSoltarFila } from "./fila.js";
-import { conferirLoginExpiradoNoTranscript } from "./login.js";
+import { conferirLoginExpiradoNoTranscript, credencialGravadaEm, marcarLoginExpirado } from "./login.js";
 
 /** Claude: se o hook Stop se perder, o agente ficaria "working" para sempre e a fila de ocioso
  *  nunca soltaria. Com o terminal mudo, olha o fim do transcript: turno encerrado lá e hook
@@ -103,6 +103,12 @@ export function vigiarRolloutDoCodex(s: Sessao, esteProc: pty.IPty, ctx: CtxMoto
     aoEvento: (e) => {
       if (s.proc !== esteProc) return;
       aplicarEvento(s, { event: e.evento satisfies EventoInterno, toolName: e.ferramenta ?? null });
+    },
+    aoErroDeTurno: (erro) => {
+      if (s.proc !== esteProc || !erroDeLoginDoCodex(erro)) return;
+      // Erro de antes do último login não conta: o auth.json foi regravado depois dele.
+      if (erro.em <= credencialGravadaEm(s)) return;
+      marcarLoginExpirado(s, "rollout do Codex", erro.em, `${erro.categoria || "sem categoria"}: ${erro.mensagem.replace(/\s+/g, " ").slice(0, 160)}`);
     },
     aoUso: (u) => {
       if (s.proc !== esteProc) return;

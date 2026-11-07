@@ -398,7 +398,9 @@ export class Sessao extends EventEmitter {
       return {
         tipo: "login-expirado",
         mensagem: this.estado.error ?? `O login da conta de ${this.slug} expirou.`,
-        comoResolver: "reconectar a conta do agente pela conversa (cartão de login) ou digitando /login no terminal dele",
+        comoResolver: this.motor.provedor === "codex"
+          ? "reconectar a conta do agente pela conversa (cartão de login) ou rodando `codex login --device-auth` no terminal dele"
+          : "reconectar a conta do agente pela conversa (cartão de login) ou digitando /login no terminal dele",
       };
     }
     return this.recusaDoMotor();
