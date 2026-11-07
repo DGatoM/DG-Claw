@@ -31,7 +31,7 @@ sobrescreve, nem "só para limpar":
 | `/etc/dgclaw/primeiro-acesso.json` | link de primeiro acesso pendente | só o instalador e o `dgclaw primeiro-acesso` mexem |
 | `/var/lib/dgclaw/agentes/<slug>/home` | a casa do agente: memória, conversas (`.claude/projects`), uploads, `IDENTITY.md`, `PERSONALITY.md`, rotinas (`.dgclaw/self-crons.json`) | é o trabalho de meses do dono |
 | `/var/lib/dgclaw/agentes/<slug>/cofre/cofre.env` | as chaves que o dono guardou no cofre daquele agente | insubstituível: só o dono tem os valores |
-| `/var/lib/dgclaw/agentes/<slug>/runner`, `segredos`, `config` | configuração do agente fora da casa (o agente só lê) | o `agente recriar` e o `reparar` regravam o necessário; não edite na mão |
+| `/var/lib/dgclaw/agentes/<slug>/runner`, `segredos`, `config` | configuração do agente fora da casa (o agente só lê). O `runner/restricoes.json` guarda as travas do dono (sem Bash, sem enviar arquivo, escrita só em pastas) | o `agente recriar` e o `reparar` regravam o necessário e reaplicam as travas; não edite na mão, use `dgclaw agente restricoes` ([guia](RESTRICOES-DO-AGENTE.md)) |
 | `/var/lib/dgclaw/web/` | `sessoes.json` (conversas do painel), cofre do painel, mesa de tarefas, avisos no aparelho, onboarding | histórico e configuração do painel |
 | `/var/lib/dgclaw/aposentados/` | casas de agentes removidos | o dono pode querer de volta |
 | `/opt/dgclaw/admin` | a pasta do Admin: `CLAUDE.md` e `AGENTS.md` (podem estar personalizados), uploads, skills | o que o dono ensinou ao Admin |
