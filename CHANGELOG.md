@@ -17,7 +17,15 @@ de soltar a trava. A trava de pastas só barra as ferramentas de arquivo: com o 
 qualquer lugar, então combine as duas (o comando avisa). Nos agentes que rodam no Codex essas travas ainda não valem, e o
 comando também avisa. Guia: `docs/RESTRICOES-DO-AGENTE.md`.
 
+A trava mora na configuração administrada do Claude Code, que o agente não consegue desligar pelas próprias configurações.
+Com a trava de pastas ligada, o agente só grava a memória dele; as pastas de configuração (`.dgclaw`, `.claude`, `.codex`,
+`.plataforma`) e `/tmp` ficam fechadas, porque são lidas e executadas pelas rotinas do agente.
+
 ### Como atualizar (restrições do agente)
+
+A imagem dos agentes precisa ser a nova (ela liga o arquivo de política administrada do Claude Code). O `dgclaw atualizar` já
+reconstrói a imagem e recria cada agente, então basta atualizar; um agente que você deixou parado ganha a trava quando for recriado
+(`sudo dgclaw agente recriar <agente> --forcar`).
 
 Se você já tinha travado algum agente por conta própria, mexendo dentro da caixa dele (por exemplo, editando o
 `settings.json` ou as permissões por lá), essa trava não é lida pelo novo mecanismo e continua sujeita a sumir na próxima

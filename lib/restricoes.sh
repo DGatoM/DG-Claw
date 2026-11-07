@@ -53,98 +53,119 @@ _restricoes_log() {
     printf '%s %s\n' "$(date -u +%FT%TZ)" "$2" >>"$DG_CASAS/$1/restricoes.log" 2>/dev/null || true
 }
 
-# aplicar_restricoes <slug> [--sem-reiniciar]
-# Le o restricoes.json (ausente = sem restricao) e deixa runner.json e settings.json do agente de acordo.
-# So reinicia o runner se algo mudou e o agente esta ligado; quem ja vai reiniciar o runner depois
-# (criar, reparar) passa --sem-reiniciar.
+# aplicar_restricoes <slug> [--sem-reiniciar] [--runner-novo]
+# Le o restricoes.json (ausente = sem restricao) e deixa tres coisas de acordo:
+#   - runner/managed-settings.json: a CONFIGURACAO ADMINISTRADA do Claude Code (o Containerfile liga
+#     /etc/claude-code/managed-settings.json a ele). Leva o gancho de escrita e o permissions.deny. Fica fora
+#     da casa, e o Claude Code nao deixa disableAllHooks de usuario, projeto ou local desligar gancho
+#     administrado (docs/RESTRICOES-DO-AGENTE.md). Sem restricao o conteudo e `{}`, igual a nao ter nada;
+#   - runner.json: denyTools e a saida do envio de arquivo de allowTools, registrando em `restricoesAplicadas`
+#     so o que o mecanismo mexeu, para desligar devolver SO isso e nunca o que o dono ja tinha posto;
+#   - settings.json da casa: so para tirar o gancho antigo (versoes anteriores o gravavam la).
+# Ordem: valida e MONTA tudo na memoria; so depois grava (primeiro a configuracao administrada, depois o
+# runner.json). Com --runner-novo o runner.json de base vem pelo STDIN (agente criar), ja entra restrito e o
+# permissivo nunca chega ao disco. Arquivo invalido: para antes de gravar qualquer coisa.
+# Sem --sem-reiniciar, reinicia o runner se algo mudou e o agente esta ligado.
 aplicar_restricoes() {
-    local slug="$1" reiniciar=1
-    [ "${2:-}" = --sem-reiniciar ] && reiniciar=0
-    local casa="$DG_CASAS/$slug" c="dgclaw-$1"
-    local rj="$casa/runner/runner.json" rs="$casa/runner/restricoes.json" st="$casa/home/.claude/settings.json"
-    local sem_bash=false sem_env=false pastas=null mudou=0 novo atual provider
+    local slug="$1" reiniciar=1 runner_novo=0 a
+    shift
+    for a in "$@"; do
+        case "$a" in
+            --sem-reiniciar) reiniciar=0 ;;
+            --runner-novo) runner_novo=1 ;;
+        esac
+    done
+    local casa="$DG_CASAS/$slug" c="dgclaw-$slug"
+    local rj="$casa/runner/runner.json" rs="$casa/runner/restricoes.json" ms="$casa/runner/managed-settings.json" st="$casa/home/.claude/settings.json"
+    local sem_bash=false sem_env=false pastas=null mudou=0 novo_rj="" novo_ms novo ms_existia=0 base="" provider deny_json='[]'
 
+    if [ "$runner_novo" = 1 ]; then base="$(cat)"; fi
     if [ -e "$rs" ] || [ -L "$rs" ]; then
         restricoes_validar "$rs" "$slug"
         IFS=$'\t' read -r sem_bash sem_env pastas < <(jq -r '[(.sem_bash // false), (.sem_enviar_arquivo // false), ((.escrita_so_em // null) | tojson)] | @tsv' "$rs")
     fi
     if [ "$ENSAIO" = 1 ]; then
-        info "[ensaio] aplicaria as restricoes de $rs no runner.json e no settings.json do agente $slug"
+        info "[ensaio] aplicaria as restricoes de $rs no managed-settings.json e no runner.json do agente $slug"
         return 0
     fi
+    deny_json="$(jq -nc --argjson bash "$sem_bash" --argjson env "$sem_env" '
+        [if $bash then "Bash", "BashOutput", "KillShell" else empty end]
+        + [if $env then "mcp__dgchat__send_file", "mcp__dgchat__whatsapp_send_file" else empty end]')"
 
-    # --- runner.json: denyTools e a saida do envio de arquivo de allowTools ---
-    if [ ! -f "$rj" ]; then
-        if [ "$sem_bash" != false ] || [ "$sem_env" != false ]; then
+    # --- monta o runner.json novo (na memoria) ---
+    if [ "$runner_novo" = 0 ] && [ -f "$rj" ]; then base="$(cat "$rj")"; fi
+    if [ -z "$base" ]; then
+        if [ "$deny_json" != '[]' ]; then
             falha "nao achei $rj, entao nao consigo aplicar as restricoes do agente $slug." \
                 "rode: dgclaw agente criar $slug --nome \"...\" (continua de onde parou e regrava o runner.json) e depois: dgclaw agente reparar $slug"
         fi
-    elif ! jq -e '(.config | type) == "object"' "$rj" >/dev/null 2>&1; then
-        falha "o runner.json $rj do agente $slug nao e um JSON valido com \"config\"; nao apliquei as restricoes." \
-            "confira com: jq . $rj (corrija o JSON ou, se nao tiver nada seu, apague o arquivo e rode: dgclaw agente criar $slug --nome \"...\")."
     else
-        # shellcheck disable=SC2016 # os $ sao variaveis do jq
-        novo="$(jq --argjson bash "$sem_bash" --argjson env "$sem_env" '
-            def proprios: ["Bash", "BashOutput", "KillShell", "mcp__dgchat__send_file", "mcp__dgchat__whatsapp_send_file"];
-            def envio: ["mcp__dgchat__send_file", "mcp__dgchat__whatsapp_send_file"];
-            def querem: [if $bash then "Bash", "BashOutput", "KillShell" else empty end]
-                      + [if $env then envio[] else empty end];
-            ((.config.denyTools // []) - proprios + querem) as $deny
-            | (if ($deny | length) > 0 then .config.denyTools = $deny
-               elif (.config | has("denyTools")) then del(.config.denyTools) else . end)
-            | if $env then (if (.config | has("allowTools")) then .config.allowTools -= envio else . end)
-              else (if (.config | has("allowTools")) then .config.allowTools += (envio - .config.allowTools) else . end) end' "$rj")" \
-            || falha "o jq nao conseguiu aplicar as restricoes em $rj." "confira se o arquivo e um JSON valido (jq . $rj) e rode de novo."
-        atual="$(jq -c . "$rj")"
-        if [ "$(printf '%s' "$novo" | jq -c .)" != "$atual" ]; then
-            printf '%s\n' "$novo" | escrever_arquivo "$rj" 444 0:0
-            mudou=1
-            ok "runner.json do agente $slug ajustado (Bash: $([ "$sem_bash" = true ] && echo travado || echo liberado), envio de arquivo: $([ "$sem_env" = true ] && echo travado || echo liberado))"
+        if ! printf '%s' "$base" | jq -e '(.config | type) == "object"' >/dev/null 2>&1; then
+            falha "o runner.json $rj do agente $slug nao e um JSON valido com \"config\"; nao apliquei as restricoes." \
+                "confira com: jq . $rj (corrija o JSON ou, se nao tiver nada seu, apague o arquivo e rode: dgclaw agente criar $slug --nome \"...\")."
         fi
+        # shellcheck disable=SC2016 # os $ sao variaveis do jq
+        novo_rj="$(printf '%s' "$base" | jq --argjson querem "$deny_json" '
+            def envio: ["mcp__dgchat__send_file", "mcp__dgchat__whatsapp_send_file"];
+            (.restricoesAplicadas // {}) as $prev
+            | ((.config.denyTools // []) - ($prev.deny // [])) as $dono_deny
+            | ($querem - $dono_deny) as $add
+            | ((.config.allowTools // []) + (($prev.allow_removidas // []) - (.config.allowTools // []))) as $allow0
+            | (if (.config | has("allowTools")) and ($querem | index("mcp__dgchat__send_file")) != null then (envio - (envio - $allow0)) else [] end) as $tirar
+            | (if (.config | has("allowTools")) then .config.allowTools = ($allow0 - $tirar) else . end)
+            | (if ($dono_deny + $add | length) > 0 then .config.denyTools = ($dono_deny + $add)
+               elif (.config | has("denyTools")) and (($prev.deny // []) | length) > 0 then del(.config.denyTools)
+               else . end)
+            | if ($add | length) + ($tirar | length) > 0 then .restricoesAplicadas = {deny: $add, allow_removidas: $tirar}
+              else del(.restricoesAplicadas) end')" \
+            || falha "o jq nao conseguiu aplicar as restricoes em $rj." "confira se o arquivo e um JSON valido (jq . $rj) e rode de novo."
     fi
 
-    # --- settings.json: gancho de escrita ---
-    if [ -L "$st" ]; then
-        falha "$st, na casa do agente $slug, e um link (aponta para $(realpath -m "$st")); nao gravo como root fora da casa dele." \
-            "troque o link por um arquivo de verdade e rode de novo: dgclaw agente reparar $slug"
+    # --- monta a configuracao administrada (na memoria) ---
+    # shellcheck disable=SC2016 # os $ sao variaveis do jq
+    novo_ms="$(jq -nc --argjson pastas "$pastas" --argjson deny "$deny_json" --arg cmd "$GANCHO_ESCRITA_CMD" --arg m "$GANCHO_ESCRITA_MATCHER" '
+        {}
+        | (if $pastas != null then .hooks = {PreToolUse: [{matcher: $m, hooks: [{type: "command", command: $cmd, timeout: 10}]}]} else . end)
+        | (if ($deny | length) > 0 then .permissions = {deny: $deny} else . end)')" \
+        || falha "o jq nao conseguiu montar o managed-settings.json do agente $slug." "isto e um erro do DG Claw; abra uma issue com a saida acima."
+
+    # --- grava: configuracao administrada primeiro, para o runner nunca subir sem a trava ---
+    if [ -L "$ms" ]; then
+        falha "$ms e um link; nao gravo nele." "apague o link e rode de novo: dgclaw agente reparar $slug"
     fi
-    local tem_nosso=0
-    if [ -s "$st" ]; then
-        if ! jq -e 'type == "object" and ((.hooks // {}) | type) == "object" and ((.hooks.PreToolUse // []) | type) == "array"' "$st" >/dev/null 2>&1; then
-            if [ "$pastas" = null ]; then
-                aviso "$st nao e um JSON valido (objeto, com hooks.PreToolUse como lista); como o agente $slug nao tem trava de escrita, nao mexi nele."
-                pastas=pulado
-            else
-                falha "$st do agente $slug nao e um JSON valido (objeto, com hooks.PreToolUse como lista); sem ele nao consigo ligar a trava de escrita e nao vou deixar o agente sem ela." \
-                    "confira com: jq . $st . Corrija o arquivo (ou apague-o, se nao tiver nada seu) e rode: dgclaw agente reparar $slug"
-            fi
-        elif jq -e --arg cmd "$GANCHO_ESCRITA_CMD" '[.hooks.PreToolUse // [] | .[] | (.hooks // [])[] | select(.command == $cmd)] | length > 0' "$st" >/dev/null; then
-            tem_nosso=1
-        fi
+    [ -f "$ms" ] && ms_existia=1
+    if [ ! -f "$ms" ] || [ "$(jq -c . "$ms" 2>/dev/null || true)" != "$novo_ms" ]; then
+        printf '%s\n' "$novo_ms" | escrever_arquivo "$ms" 444 0:0
+        # `{}` num arquivo que nao existia nao muda nada para o agente: nao conta como mudanca.
+        if [ "$novo_ms" != '{}' ] || [ "$ms_existia" = 1 ]; then mudou=1; fi
+        [ "$novo_ms" = '{}' ] || ok "configuracao administrada do agente $slug gravada (gancho de escrita: $([ "$pastas" != null ] && echo ligado || echo desligado); ferramentas negadas: $(printf '%s' "$deny_json" | jq -r 'if length == 0 then "nenhuma" else join(", ") end'))"
     fi
-    if [ "$pastas" != pulado ] && { [ "$pastas" != null ] || [ "$tem_nosso" = 1 ]; }; then
-        local base='{"skipDangerousModePermissionPrompt": true}'
-        [ -s "$st" ] && base="$(cat "$st")"
-        # shellcheck disable=SC2016 # os $ sao variaveis do jq
-        novo="$(printf '%s' "$base" | jq --arg cmd "$GANCHO_ESCRITA_CMD" --arg m "$GANCHO_ESCRITA_MATCHER" --argjson ativo "$([ "$pastas" != null ] && echo true || echo false)" '
-            def limpa: map(if (.hooks | type) == "array" then .hooks |= map(select((.command // "") != $cmd)) else . end)
-                       | map(select((.hooks | type) != "array" or (.hooks | length) > 0));
-            .hooks = (.hooks // {})
-            | .hooks.PreToolUse = ((.hooks.PreToolUse // []) | limpa)
-            | if $ativo then .hooks.PreToolUse += [{matcher: $m, hooks: [{type: "command", command: $cmd, timeout: 10}]}] else . end
-            | if (.hooks.PreToolUse | length) == 0 then del(.hooks.PreToolUse) else . end')" \
-            || falha "o jq nao conseguiu mesclar o gancho de escrita em $st." "confira se o arquivo e um JSON valido (jq . $st) e rode de novo."
-        if [ ! -s "$st" ] || [ "$(printf '%s' "$novo" | jq -c .)" != "$(jq -c . "$st")" ]; then
+    if [ -n "$novo_rj" ] && { [ "$runner_novo" = 1 ] || [ "$(printf '%s' "$novo_rj" | jq -c .)" != "$(jq -c . "$rj")" ]; }; then
+        printf '%s\n' "$novo_rj" | escrever_arquivo "$rj" 444 0:0
+        mudou=1
+        ok "runner.json do agente $slug ajustado (Bash: $([ "$sem_bash" = true ] && echo travado || echo liberado), envio de arquivo: $([ "$sem_env" = true ] && echo travado || echo liberado))"
+    fi
+
+    # --- migracao: versoes antigas gravavam o gancho no settings.json da casa, onde o agente o desligava ---
+    if [ -s "$st" ] || [ -L "$st" ]; then
+        # shellcheck disable=SC2016
+        if [ -L "$st" ] || jq -e --arg cmd "$GANCHO_ESCRITA_CMD" '[.. | objects | select(.command? == $cmd)] | length > 0' "$st" >/dev/null 2>&1; then
+            exigir_casa_sem_link "$casa" "$casa/home" "$slug" "dgclaw agente reparar $slug"
+            # shellcheck disable=SC2016
+            novo="$(jq --arg cmd "$GANCHO_ESCRITA_CMD" '
+                def limpa: map(if (.hooks | type) == "array" then .hooks |= map(select((.command // "") != $cmd)) else . end)
+                           | map(select((.hooks | type) != "array" or (.hooks | length) > 0));
+                if (.hooks.PreToolUse | type) == "array" then .hooks.PreToolUse |= limpa | (if (.hooks.PreToolUse | length) == 0 then del(.hooks.PreToolUse) else . end) else . end' "$st")" \
+                || falha "o jq nao conseguiu tirar o gancho antigo de $st." "confira com: jq . $st e rode de novo: dgclaw agente reparar $slug"
             printf '%s\n' "$novo" | escrever_arquivo "$st" 444 0:0
-            mudou=1
-            ok "settings.json do agente $slug: gancho de escrita $([ "$pastas" != null ] && echo ligado || echo removido)"
+            ok "gancho de escrita antigo tirado do settings.json do agente $slug (agora ele vive na configuracao administrada)"
         fi
     fi
 
     # --- Codex: o runner ignora allow/deny e os ganchos do Claude Code ---
     provider=""
     [ -f "$rj" ] && provider="$(jq -r '.config.provider // empty' "$rj" 2>/dev/null || true)"
-    if [ "$provider" = codex-cli ] && { [ "$sem_bash" = true ] || [ "$sem_env" = true ] || { [ "$pastas" != null ] && [ "$pastas" != pulado ]; }; }; then
+    if [ "$provider" = codex-cli ] && { [ "$sem_bash" = true ] || [ "$sem_env" = true ] || [ "$pastas" != null ]; }; then
         aviso "o agente $slug roda no Codex, e no Codex estas travas ainda NAO valem (o runner ignora as regras de ferramentas e os ganchos do Claude Code). O arquivo $rs fica guardado e passa a valer se o agente trocar para o Claude."
         _restricoes_log "$slug" "aviso: provedor codex-cli, restricoes gravadas mas nao aplicadas pelo runner (sem_bash=$sem_bash sem_enviar_arquivo=$sem_env escrita_so_em=$pastas)"
     fi
@@ -181,8 +202,9 @@ restricoes_criar_pasta() {
         fi
         if [ "$ENSAIO" = 1 ]; then printf '   [ensaio] pasta %s (dono %s)\n' "$cur" "$ug"; continue; fi
         if [ ! -d "$cur" ]; then
-            mkdir "$cur"
-            chmod 755 "$cur"
+            # -m define o modo na criacao (sem chmod depois, que seguiria um atalho posto no meio); o chown do
+            # `dono` usa -h e tambem nao segue atalho.
+            mkdir -m 755 "$cur"
             dono "$ug" "$cur"
         fi
     done

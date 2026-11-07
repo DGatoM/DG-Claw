@@ -68,9 +68,36 @@ Toda vez que o DG Claw regrava a configuração de um agente, ele relê esse arq
 | `dgclaw agente recriar <nome>` | confere o arquivo antes de tocar na caixa e reaplica no fim |
 | `sudo dgclaw atualizar` | recria cada agente, então vale o mesmo |
 
-A aplicação mexe só no que é dela: acrescenta as travas em `denyTools` do `runner.json` (e tira o envio
-de arquivo de `allowTools`) e registra um gancho de escrita no `settings.json` da casa do agente. Tudo o
-mais que existir nesses arquivos fica como está.
+A aplicação grava três coisas, sempre as mesmas, e valida o `restricoes.json` antes de gravar qualquer uma:
+
+| Arquivo | O que recebe |
+| --- | --- |
+| `runner/managed-settings.json` | a configuração **administrada** do Claude Code: o gancho de escrita e a lista `permissions.deny` (Bash e envio de arquivo). Sem restrição ele contém `{}`, que não muda nada |
+| `runner/runner.json` | as mesmas ferramentas em `denyTools`, e o envio de arquivo fora de `allowTools`. A chave `restricoesAplicadas` anota o que o mecanismo acrescentou e o que tirou; desligar devolve só isso, e um `denyTools` que você pôs por fora fica |
+| `home/.claude/settings.json` | nada novo. Versões anteriores gravavam o gancho aqui; a aplicação tira essa entrada antiga, se existir |
+
+Se não há `restricoes.json`, `allowTools` e `denyTools` do `runner.json` não são tocados.
+
+### Por que a política é "administrada"
+
+O gancho morava no `settings.json` da casa. Só que o agente é dono da pasta `.claude/` e podia gravar
+`{"disableAllHooks": true}` em `.claude/settings.local.json`, desligando o gancho. O que a documentação
+oficial do Claude Code diz (páginas de hooks, de settings e de managed settings):
+
+- A configuração administrada (`/etc/claude-code/managed-settings.json` no Linux) fica no topo da ordem de precedência: nada em
+  `~/.claude/settings.json`, `.claude/settings.json`, `.claude/settings.local.json` nem em `--settings` a sobrescreve.
+- Os ganchos se somam entre os níveis, e **o `disableAllHooks` definido em configuração de usuário, de projeto ou local não
+  consegue desligar ganchos administrados**; só o `disableAllHooks` do próprio nível administrado desliga.
+- `allowManagedHooksOnly` (também administrado) bloquearia os ganchos de usuário, de projeto e de plugin. Não o usamos: ele
+  bloquearia também os ganchos que o próprio DG Claw usa na casa do agente, e o `disableAllHooks` já não consegue desligar o gancho
+  administrado.
+- As regras `permissions.deny` administradas também somam e vencem qualquer `allow` do agente.
+
+A imagem liga `/etc/claude-code/managed-settings.json` ao arquivo `runner/managed-settings.json` (montado só leitura). A
+documentação oficial não fala de atalho (link) nesse caminho, então isso só foi provado nos testes do DG Claw, não contra o Claude Code
+de verdade: depois de atualizar, peça a um agente travado uma gravação fora das pastas e confira que foi recusada. Como a imagem nova
+é necessária, o `dgclaw atualizar` (que reconstrói a imagem) já cobre; um agente cuja caixa ainda é antiga só ganha a trava depois do
+`agente recriar`.
 
 ## Arquivo estragado
 
@@ -86,8 +113,26 @@ lugar por comando de terminal (`echo > arquivo`, `cp`, `tee`), e a trava de past
 trava valer de verdade, use `--escrita-so-em` junto com `--sem-bash sim`. Se você travar as pastas sem
 travar o Bash, o comando avisa.
 
-Sempre liberados, para o agente funcionar: a memória (`MEMORY.md`, `working-memory.md`, `memory/`), as
-pastas `.dgclaw/` e `.claude/` da casa dele e `/tmp`. O `settings.json` do servidor nunca é liberado.
+### O que fica liberado e o que fica fechado
+
+Com a trava de pastas ligada, além das pastas que você indicou o agente só grava a memória dele: `MEMORY.md`,
+`working-memory.md` e `memory/`. Todo o resto da casa que começa por ponto fica fechado para as ferramentas de arquivo, e `/tmp`
+também. A lista existe porque estes são arquivos que algum executor do próprio agente lê para **executar** o que está escrito
+neles, e liberar qualquer um transformaria "só grava em relatórios" em "roda o que quiser":
+
+| Caminho | Quem o executa |
+| --- | --- |
+| `.dgclaw/config.sh` | o batimento (`scripts/heartbeat.sh`) e todos os temporizadores o carregam com `source` |
+| `.dgclaw/ext/*/hooks/heartbeat.sh` e `event.sh` | o batimento e `scripts/ext-event.sh` |
+| `.dgclaw/plugin/` e `.dgclaw/self-crons.json` | as rotinas e o que o batimento carrega (`pulso-lib.sh`) |
+| `.claude/settings.local.json`, `.claude/skills/`, `.claude/hooks` | o Claude Code (ganchos, permissões, instruções) |
+| `.codex/` | o Codex |
+| `.plataforma/dgchat.mcp.json` | o comando do servidor MCP que o runner sobe |
+| `.bashrc`, `.profile` e qualquer outro arquivo de início na raiz da casa | o shell |
+
+Por isso o comando recusa, em `--escrita-so-em`, qualquer pasta que comece por ponto. As pastas que você libera também não devem
+guardar scripts que alguma rotina execute; com o Bash travado o agente não cria rotinas novas, mas as que já existem continuam
+rodando o que estiver nos arquivos que elas apontam.
 
 ## Codex
 

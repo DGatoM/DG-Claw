@@ -80,7 +80,7 @@ cp "$TMP/runner-padrao.json" "$TMP/ref.json"
 criar_agente ana --nome "Ana"
 igual "criar de novo sai com 0" "0" "$?"
 confere_travas ana "depois de criar de novo"
-afirma "fora das travas, o runner.json e o padrao de sempre" bash -c "[ \"\$(jq -cS '.config |= (del(.denyTools) | .allowTools = [\"mcp__dgchat__reply\",\"mcp__dgchat__send_file\",\"mcp__dgchat__whatsapp_reply\",\"mcp__dgchat__whatsapp_send_file\"])' '$RJ')\" = \"\$(jq -cS . '$TMP/ref.json')\" ]"
+afirma "fora das travas, o runner.json e o padrao de sempre" bash -c "[ \"\$(jq -cS 'del(.restricoesAplicadas) | .config |= (del(.denyTools) | .allowTools = [\"mcp__dgchat__reply\",\"mcp__dgchat__send_file\",\"mcp__dgchat__whatsapp_reply\",\"mcp__dgchat__whatsapp_send_file\"])' '$RJ')\" = \"\$(jq -cS . '$TMP/ref.json')\" ]"
 
 echo "o que o dono ja tinha em denyTools e o que o aluno poe no runner.json fica"
 jq '.config.denyTools += ["WebFetch"]' "$RJ" >"$RJ.novo" && mv -f "$RJ.novo" "$RJ" && chmod 444 "$RJ"
@@ -100,7 +100,7 @@ for cmd in "agente reparar ana" "agente recriar ana --forcar" "agente restricoes
     afirma "'$cmd': diz o que fazer" grep -q 'O que fazer:' "$TMP/o6.txt"
 done
 afirma "as travas do runner.json continuam" jq -e '(.config.denyTools | index("Bash")) != null' "$RJ"
-afirma "o gancho continua no settings.json" jq -e '[.hooks.PreToolUse[]?.hooks[]?] | length == 1' "$ST"
+afirma "o gancho continua na configuracao administrada" jq -e '[.hooks.PreToolUse[]?.hooks[]?] | length == 1' "$(R_DIR ana)/managed-settings.json"
 : >"$STUB_LOG"
 dgclaw agente recriar ana --forcar >/dev/null 2>&1
 nega "recriar nem chegou a mexer no container" grep -q '^podman \(stop\|rm\|create\)' "$STUB_LOG"
@@ -142,7 +142,7 @@ dgclaw agente restricoes ana --sem-bash nao --sem-enviar-arquivo nao --escrita-l
 igual "desligar sai com 0" "0" "$?"
 afirma "denyTools so tem o que o dono pos por fora (WebFetch)" jq -e '.config.denyTools == ["WebFetch"]' "$RJ"
 afirma "os envios de arquivo voltaram aos allowTools" jq -e '(.config.allowTools | index("mcp__dgchat__send_file")) != null and (.config.allowTools | index("mcp__dgchat__whatsapp_send_file")) != null' "$RJ"
-afirma "o gancho de escrita saiu do settings.json" jq -e '(.hooks.PreToolUse // []) | length == 0' "$ST"
+afirma "o gancho de escrita saiu da configuracao administrada" jq -e '((.hooks.PreToolUse // []) | length == 0) and ((.permissions.deny // []) | length == 0)' "$(R_DIR ana)/managed-settings.json"
 afirma "a linha alheia continua" jq -e '.minhaLinha == "do-aluno" and .hooks.PostToolUse[0].hooks[0].command == "echo alheio"' "$ST"
 afirma "o arquivo guarda o estado desligado" jq -e '.sem_bash == false and .sem_enviar_arquivo == false and .escrita_so_em == null' "$RS"
 afirma "o mostrar diz liberado" bash -c "'$CLI' agente restricoes ana | grep -q 'qualquer lugar'"
@@ -150,6 +150,65 @@ cp "$RJ" "$TMP/rj-1.json"; cp "$ST" "$TMP/st-1.json"
 dgclaw agente restricoes ana --escrita-livre >/dev/null 2>&1
 igual "desligar de novo e idempotente (runner.json)" "" "$(diff "$TMP/rj-1.json" "$RJ")"
 igual "desligar de novo e idempotente (settings.json)" "" "$(diff "$TMP/st-1.json" "$ST")"
+
+echo "migracao: o gancho antigo no settings.json da casa sai"
+jq '.hooks.PreToolUse = [{matcher: "Write", hooks: [{type: "command", command: "node /opt/dgclaw/app/scripts/escrita-restrita-hook.mjs"}]}]' "$ST" >"$ST.novo" && mv -f "$ST.novo" "$ST" && chmod 444 "$ST"
+dgclaw agente restricoes ana --escrita-so-em relatorios >/dev/null 2>&1
+nega "o gancho antigo foi tirado do settings.json" grep -q 'escrita-restrita-hook' "$ST"
+afirma "a linha alheia continua" jq -e '.minhaLinha == "do-aluno"' "$ST"
+dgclaw agente restricoes ana --escrita-livre >/dev/null 2>&1
+
+echo "o agente nao desliga o gancho: ele fica na configuracao administrada, fora da casa"
+dgclaw agente restricoes ana --sem-bash sim --escrita-so-em relatorios >/dev/null 2>&1
+echo '{"disableAllHooks": true}' >"$LIB/agentes/ana/home/.claude/settings.local.json"
+dgclaw agente reparar ana >/dev/null 2>&1
+afirma "o gancho segue na configuracao administrada" jq -e '[.hooks.PreToolUse[]?.hooks[]?] | length == 1' "$(R_DIR ana)/managed-settings.json"
+igual "o settings.local.json do agente nao foi tocado" '{"disableAllHooks": true}' "$(cat "$LIB/agentes/ana/home/.claude/settings.local.json")"
+afirma "a imagem liga /etc/claude-code/managed-settings.json ao arquivo do runner" grep -q 'ln -s /etc/dgclaw-runner/managed-settings.json /etc/claude-code/managed-settings.json' "$REPO/container/Containerfile"
+dgclaw agente restricoes ana --sem-bash nao --escrita-livre >/dev/null 2>&1
+rm -f "$LIB/agentes/ana/home/.claude/settings.local.json"
+
+echo "sem restricao: managed-settings.json vazio (nada muda para quem nao usa)"
+criar_agente duda --nome "Duda"
+igual "managed-settings.json de agente sem restricao e {}" "{}" "$(jq -c . "$(R_DIR duda)/managed-settings.json")"
+igual "e nao e escrito de novo (mesmo conteudo) ao reparar" "$(sha256sum <"$(R_DIR duda)/managed-settings.json")" "$(dgclaw agente reparar duda >/dev/null 2>&1; sha256sum <"$(R_DIR duda)/managed-settings.json")"
+
+echo "denyTools do dono sem restricoes.json: o aplicar nao toca"
+criar_agente carla --nome "Carla"
+RJC="$(R_DIR carla)/runner.json"
+jq '.config.denyTools = ["Bash", "WebFetch"] | .config.allowTools -= ["mcp__dgchat__send_file"]' "$RJC" >"$RJC.novo" && mv -f "$RJC.novo" "$RJC" && chmod 444 "$RJC"
+cp "$RJC" "$TMP/rjc-dono.json"
+dgclaw agente reparar carla >/dev/null 2>&1; igual "reparar sem restricoes.json deixa allow e deny do dono" "" "$(diff "$TMP/rjc-dono.json" "$RJC")"
+dgclaw agente restricoes carla --sem-bash sim --sem-enviar-arquivo sim >/dev/null 2>&1
+afirma "o runner.json registra o que o mecanismo acrescentou e tirou" jq -e '.restricoesAplicadas.deny | index("BashOutput") != null and index("Bash") == null' "$RJC"
+dgclaw agente restricoes carla --sem-bash nao --sem-enviar-arquivo nao >/dev/null 2>&1
+afirma "desligar tira so o que o mecanismo pos: o Bash do dono fica" jq -e '.config.denyTools == ["Bash", "WebFetch"] and (.config.allowTools | index("mcp__dgchat__whatsapp_send_file") != null) and (has("restricoesAplicadas") | not)' "$RJC"
+afirma "o send_file que o dono ja tinha tirado nao volta" jq -e '.config.allowTools | index("mcp__dgchat__send_file") == null' "$RJC"
+
+echo "criar de novo com restricoes.json invalido: nada muda (nem um runner.json permissivo)"
+cp "$RJ" "$TMP/rj-antes-criar.json"; cp "$(R_DIR ana)/managed-settings.json" "$TMP/ms-antes-criar.json"
+dgclaw agente restricoes ana --sem-bash sim --sem-enviar-arquivo sim --escrita-so-em relatorios >/dev/null 2>&1
+cp "$RJ" "$TMP/rj-antes-criar.json"; cp "$(R_DIR ana)/managed-settings.json" "$TMP/ms-antes-criar.json"
+cp "$RS" "$TMP/rs-bom.json"; printf '{"versao": 1,' >"$RS"
+criar_agente ana --nome "Ana"; nega "criar de novo falha" test "$?" -eq 0
+igual "o runner.json continua restrito, byte a byte" "" "$(diff "$TMP/rj-antes-criar.json" "$RJ")"
+igual "a configuracao administrada continua, byte a byte" "" "$(diff "$TMP/ms-antes-criar.json" "$(R_DIR ana)/managed-settings.json")"
+cp "$TMP/rs-bom.json" "$RS"; chmod 444 "$RS"
+dgclaw agente restricoes ana --sem-bash nao --sem-enviar-arquivo nao --escrita-livre >/dev/null 2>&1
+
+echo "atalho no caminho: nao grava como root fora da casa"
+FORA="$TMP/fora-da-casa"; mkdir -p "$FORA"
+mv "$LIB/agentes/ana/home/.claude" "$LIB/agentes/ana/home/.claude.real"; ln -s "$FORA" "$LIB/agentes/ana/home/.claude"
+dgclaw agente restricoes ana --sem-bash sim >"$TMP/o10.txt" 2>&1; nega "restricoes com .claude virado atalho falha" test "$?" -eq 0
+afirma "diz que e um link" grep -q 'e um link' "$TMP/o10.txt"
+dgclaw agente reparar ana >"$TMP/o10.txt" 2>&1; nega "reparar com .claude virado atalho falha" test "$?" -eq 0
+igual "nada foi gravado fora da casa" "" "$(ls -A "$FORA")"
+rm "$LIB/agentes/ana/home/.claude"; mv "$LIB/agentes/ana/home/.claude.real" "$LIB/agentes/ana/home/.claude"
+mkdir -p "$FORA/x"; ln -s "$FORA" "$LIB/agentes/ana/home/pai-atalho"
+dgclaw agente restricoes ana --sem-bash nao --escrita-so-em pai-atalho/x >"$TMP/o10.txt" 2>&1; nega "pasta liberada por tras de atalho falha" test "$?" -eq 0
+afirma "explica o atalho" grep -q 'e um atalho' "$TMP/o10.txt"
+rm "$LIB/agentes/ana/home/pai-atalho"
+dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1
 
 echo "Codex: avisa e registra que a trava ainda nao vale"
 dgclaw agente restricoes beto --sem-bash sim >"$TMP/o9.txt" 2>&1

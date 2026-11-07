@@ -104,6 +104,14 @@ RUN curl --proto '=https' --tlsv1.2 -fsSL https://deb.nodesource.com/gpgkey/node
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSAO}" "@openai/codex@${CODEX_VERSAO}" "bun@${BUN_VERSAO}" \
     && npm cache clean --force
 
+# Configuração ADMINISTRADA do Claude Code (restrições do dono, docs/RESTRICOES-DO-AGENTE.md). O arquivo
+# de verdade fica na pasta do runner (root, somente leitura aqui dentro) e é gerado por `dgclaw agente
+# restricoes`/`reparar`/`recriar`; sem restrição ele contém `{}`. Como é política administrada, o
+# disableAllHooks do agente não desliga o gancho nem remove o permissions.deny dele. Antes disto a
+# imagem não trazia managed-settings.json, então o conteúdo padrão é vazio.
+RUN mkdir -p /etc/claude-code \
+    && ln -s /etc/dgclaw-runner/managed-settings.json /etc/claude-code/managed-settings.json
+
 # venv Python padrão. Existe para contornar o bloqueio PEP 668 do Ubuntu sem
 # --break-system-packages: o agente instala o que precisar com "pip install" normal.
 # playwright entra só como pacote; o navegador é do perfil COM_NAVEGADOR=1.

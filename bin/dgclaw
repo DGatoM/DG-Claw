@@ -668,9 +668,9 @@ semear_novidades() {
 montar_identidade() {
     local h="$C_HOME" ug="$C_UG"
     gerar_identidade
-    gerar_runner_json | escrever_arquivo "$C_CASA/runner/runner.json" 444 0:0
-    # O runner.json acima nasce com os padroes; as restricoes do dono (restricoes.json) voltam por cima.
-    aplicar_restricoes "$C_SLUG" --sem-reiniciar
+    # O runner.json nasce com os padroes e as restricoes do dono (restricoes.json) entram ANTES de ele ir
+    # para o disco: um runner.json permissivo nunca chega a existir (e um arquivo invalido para aqui).
+    gerar_runner_json | aplicar_restricoes "$C_SLUG" --sem-reiniciar --runner-novo
     gerar_mcp_json | escrever_arquivo "$h/.plataforma/dgchat.mcp.json" 644 "$ug"
     gerar_config_sh | escrever_arquivo "$h/.dgclaw/config.sh" 644 "$ug"
     if [ "$ENSAIO" = 1 ] || [ ! -e "$h/.dgclaw/panel/config.json" ]; then
@@ -1163,6 +1163,8 @@ agente_criar() {
 
     C_CASA="$DG_CASAS/$C_SLUG"
     C_HOME="$C_CASA/home"
+    # Antes de gravar qualquer coisa: um restricoes.json estragado para aqui, com tudo como estava.
+    restricoes_conferir "$C_SLUG"
 
     [ "$ENSAIO" = 1 ] || trap _criar_ao_sair EXIT
 
