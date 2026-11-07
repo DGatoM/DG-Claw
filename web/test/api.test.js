@@ -481,7 +481,8 @@ test('media: arquivo fora do home do agente é recusado (inclusive por link simb
     const fora = path.join(s.t.dir, 'fora.txt');
     fs.writeFileSync(fora, 'conteudo de fora');
     const arq = path.join(s.transcripts, '-home-agente', 'sess-ana-00001.jsonl');
-    const linha = (id, caminho, legenda) => JSON.stringify({ type: 'assistant', timestamp: new Date().toISOString(), message: { content: [{ type: 'tool_use', id, name: 'mcp__dgchat__send_file', input: { chat: 'c_ana', path: caminho, caption: legenda } }] } }) + '\n';
+    const linha = (id, caminho, legenda) => JSON.stringify({ type: 'assistant', timestamp: new Date().toISOString(), message: { content: [{ type: 'tool_use', id, name: 'mcp__dgchat__send_file', input: { chat: 'c_ana', path: caminho, caption: legenda } }] } }) + '\n'
+      + JSON.stringify({ type: 'user', timestamp: new Date().toISOString(), message: { content: [{ type: 'tool_result', tool_use_id: id, content: 'enviado' }] } }) + '\n';
     fs.appendFileSync(arq, linha('y', fora, 'fora'));
     fs.symlinkSync(fora, path.join(s.home, 'out', 'atalho.txt'));
     fs.appendFileSync(arq, linha('z', '/home/agente/out/atalho.txt', 'atalho'));

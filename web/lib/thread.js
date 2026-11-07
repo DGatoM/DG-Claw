@@ -157,7 +157,7 @@ function paraContainer(caminhoHost, agente) {
  * A montagem das mensagens que a tela recebe (id, hora, mídia). Serve ao leitor do transcript
  * do Claude e ao do rollout do Codex: as duas fontes entregam a MESMA forma de mensagem.
  */
-function criarMontagem({ tz, midia }) {
+function criarMontagem({ tz, midia, log }) {
   function epDe(ts, estado) {
     const t = ts ? Date.parse(ts) : NaN;
     if (Number.isFinite(t)) { estado.ultimoEp = t / 1000; return t / 1000; }
@@ -213,6 +213,27 @@ function criarMontagem({ tz, midia }) {
     empurra(estado, agente, { ep, origin: 'dono', text: corpo, caminhos, via: 'whatsapp', quem: ce.attrs.de || 'pessoa' });
   }
 
+  /**
+   * A política do dono para o envio de arquivo: `sem_enviar_arquivo` no restricoes.json do agente (pasta runner,
+   * ao lado da casa; ver docs/RESTRICOES-DO-AGENTE.md). Sem o arquivo, vale o de sempre. Arquivo que existe e não
+   * dá para ler ou entender NÃO libera: o anexo fica retido e o log diz o que fazer, porque soltar a trava em
+   * silêncio entregaria um arquivo que o dono proibiu.
+   */
+  function envioDeArquivoPermitido(agente) {
+    if (!agente || !agente.home_host) return true;
+    const arq = path.join(path.dirname(String(agente.home_host).replace(/\/+$/, '')), 'runner', 'restricoes.json');
+    let cru;
+    try { cru = fs.readFileSync(arq, 'utf8'); } catch (e) {
+      if (e.code === 'ENOENT') return true;
+      if (log) log('erro', `Não consegui ler ${arq} (${e.code || e.message}); o anexo de ${agente.slug} foi retido por segurança. Confira a permissão do arquivo ou refaça com: dgclaw agente restricoes ${agente.slug}`);
+      return false;
+    }
+    try { return JSON.parse(cru).sem_enviar_arquivo !== true; } catch (e) {
+      if (log) log('erro', `${arq} não é um JSON válido (${e.message}); o anexo de ${agente.slug} foi retido por segurança. Corrija o arquivo ou refaça com: dgclaw agente restricoes ${agente.slug}`);
+      return false;
+    }
+  }
+
   /** Saída pelo WhatsApp: whatsapp_reply {texto} ou whatsapp_send_file {caminho, legenda}. */
   function empurraAgenteWhatsapp(estado, agente, { ep, origin, arquivo, inp }) {
     if (!arquivo) {
@@ -223,6 +244,7 @@ function criarMontagem({ tz, midia }) {
     }
     const visto = String(inp.caminho || '').trim();
     if (!visto) return false;
+    if (!envioDeArquivoPermitido(agente)) return false;
     const host = paraHost(visto, agente);
     empurra(estado, agente, { ep, origin, text: String(inp.legenda || '').trim(), caminhos: [{ host, visto, nome: path.basename(host) }], via: 'whatsapp', quem: 'agente' });
     return true;
@@ -238,6 +260,7 @@ function criarMontagem({ tz, midia }) {
     }
     const visto = String(inp.path || '').trim();
     if (!visto) return false;
+    if (!envioDeArquivoPermitido(agente)) return false;
     const host = paraHost(visto, agente);
     empurra(estado, agente, { ep, origin, text: String(inp.caption || '').trim(), caminhos: [{ host, visto, nome: path.basename(host) }], via: 'plataforma', quem: 'agente' });
     return true;
@@ -330,7 +353,7 @@ function criarLeitor({ log, tz, canalTelegram, midia }) {
     return { offset: 0, ino: null, trigger: 'owner', chatCorrente: '', eventos: [], versao: 0, ultimoEp: 0, msgsVistas: new Set(), waPendentes: new Map(), restoParcial: Buffer.alloc(0), trilhaPend: new Map(), compactandoEp: null, fimCompactEp: 0, ecoCompact: false };
   }
 
-  const { epDe, empurra, empurraDono, empurraAgente, empurraDonoWhatsapp, empurraAgenteWhatsapp, empurraComando, empurraAviso } = criarMontagem({ tz, midia });
+  const { epDe, empurra, empurraDono, empurraAgente, empurraDonoWhatsapp, empurraAgenteWhatsapp, empurraComando, empurraAviso } = criarMontagem({ tz, midia, log });
 
   /**
    * Casa os tool_result de um turno user com os envios de WhatsApp pendentes. Sucesso: o evento
@@ -346,7 +369,7 @@ function criarLeitor({ log, tz, canalTelegram, midia }) {
       estado.waPendentes.delete(b.tool_use_id);
       if (b.is_error === true) continue;
       const antes = estado.eventos.length;
-      empurraAgenteWhatsapp(estado, agente, pend);
+      if (pend.dgchat) empurraAgente(estado, agente, pend); else empurraAgenteWhatsapp(estado, agente, pend);
       const novos = estado.eventos.splice(antes);
       if (!novos.length) continue;
       let i = estado.eventos.length;
@@ -390,7 +413,7 @@ function criarLeitor({ log, tz, canalTelegram, midia }) {
       if (agora - pend.ep <= PRAZO_PENDENTE_WA_S) continue;
       estado.waPendentes.delete(id);
       if (log) {
-        log('aviso', `Thread de ${agente && (agente.slug || agente.nome)}: o envio pelo WhatsApp ${id} ficou sem ` +
+        log('aviso', `Thread de ${agente && (agente.slug || agente.nome)}: o envio de arquivo ${id} ficou sem ` +
           `confirmação (nenhum tool_result em ${PRAZO_PENDENTE_WA_S / 60} minutos de transcript) e não aparece no chat. ` +
           'Provavelmente a sessão caiu no meio do turno; confira com o dono se a mensagem chegou.');
       }
@@ -589,7 +612,14 @@ function criarLeitor({ log, tz, canalTelegram, midia }) {
         if (nome.endsWith(TOOL_TEXTO) || nome.endsWith(TOOL_ARQUIVO)) {
           const chat = inp.chat || estado.chatCorrente || agente.chat_id;
           if (chat !== agente.chat_id) continue;
-          empurraAgente(estado, agente, { ep: epDe(o.timestamp, estado), origin, arquivo: nome.endsWith(TOOL_ARQUIVO), inp });
+          if (nome.endsWith(TOOL_ARQUIVO)) {
+            // O anexo só vira mensagem quando o tool_result confirmar o envio: uma ferramenta negada (política do
+            // dono) ou que falhou devolve is_error, e nada foi entregue.
+            const idUso = typeof b.id === 'string' ? b.id : '';
+            if (idUso) estado.waPendentes.set(idUso, { ep: epDe(o.timestamp, estado), origin, arquivo: true, inp, dgchat: true });
+            continue;
+          }
+          empurraAgente(estado, agente, { ep: epDe(o.timestamp, estado), origin, arquivo: false, inp });
           continue;
         }
         if (nome.endsWith(TOOL_WA_TEXTO) || nome.endsWith(TOOL_WA_ARQUIVO)) {

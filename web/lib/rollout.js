@@ -162,7 +162,7 @@ function argumentosDe(a) {
 
 function criarLeitorRollout({ log, tz, midia }) {
   const estados = new Map();
-  const m = criarMontagem({ tz, midia });
+  const m = criarMontagem({ tz, midia, log });
 
   function novoEstado() {
     return {

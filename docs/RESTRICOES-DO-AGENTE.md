@@ -40,7 +40,7 @@ sudo dgclaw agente restricoes ana --sem-bash nao --sem-enviar-arquivo nao --escr
 
 As pastas são sempre dentro da casa do agente (`/home/agente`, por dentro da caixa). Escreva só o nome,
 como `relatorios` ou `clientes/2026`. O comando recusa caminho que começa por `/`, que tem `..` ou que
-passa por um atalho (link). Se a pasta ainda não existe, ele a cria com o dono certo. O Admin não usa
+passa por um atalho (link). Se a pasta ainda não existe e o agente está ligado, o comando pede ao próprio agente que a crie, dentro da caixa (nunca como root na casa dele). Com o agente desligado ele avisa e não cria: o agente cria a pasta quando gravar nela, e a trava já aceita pasta que ainda não existe. O Admin não usa
 este mecanismo: ele roda como root para cuidar do servidor, e o comando se recusa a mexer nele.
 
 O agente é reiniciado só quando algo mudou e ele está ligado. Agente parado recebe a trava quando ligar.
@@ -98,6 +98,18 @@ documentação oficial não fala de atalho (link) nesse caminho, então isso só
 de verdade: depois de atualizar, peça a um agente travado uma gravação fora das pastas e confira que foi recusada. Como a imagem nova
 é necessária, o `dgclaw atualizar` (que reconstrói a imagem) já cobre; um agente cuja caixa ainda é antiga só ganha a trava depois do
 `agente recriar`.
+
+### Envio de arquivo no painel
+
+Quando o agente tem `sem_enviar_arquivo`, a ferramenta é negada pelo Claude Code. O painel também confere: um anexo de
+`send_file` só aparece na conversa quando o resultado da ferramenta confirma que o envio deu certo, e o painel lê o
+`restricoes.json` do agente e não mostra nenhum anexo vindo de `send_file` ou `whatsapp_send_file` enquanto a trava estiver ligada.
+Se o `restricoes.json` existir e não puder ser lido, o anexo fica retido e o log do painel diz o que fazer.
+
+### Duas alterações ao mesmo tempo
+
+Cada agente tem uma trava de arquivo (`/var/lib/dgclaw/agentes/<nome>/.restricoes.lock`, fora da casa dele). Mudar as
+restrições, criar, reparar e recriar esperam uma pela outra, então duas alterações simultâneas não se apagam.
 
 ## Arquivo estragado
 

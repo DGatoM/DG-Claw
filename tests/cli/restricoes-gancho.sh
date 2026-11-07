@@ -115,9 +115,9 @@ afirma "pedido sem caminho bloqueia" bash -c "printf '%s' '$out' | jq -e '.hookS
 echo "o agente nao muda a politica por variavel de ambiente (settings.local.json env)"
 printf '{"versao":1,"escrita_so_em":["relatorios"]}\n' >"$DGCLAW_RESTRICOES"
 ent="$(jq -nc --arg c "$CASA" --arg f "$CASA/outra/x.md" '{tool_name:"Write",cwd:$c,tool_input:{file_path:$f}}')"
-out="$(printf '%s' "$ent" | DGCLAW_RESTRICOES=/nao/existe DGCLAW_WORKSPACE=/nao/existe/casa node "$GANCHO" --restricoes "$DGCLAW_RESTRICOES" --casa "$CASA")"
+out="$(printf '%s' "$ent" | env DGCLAW_RESTRICOES=/nao/existe DGCLAW_WORKSPACE=/nao/existe/casa node "$GANCHO" --restricoes "$DGCLAW_RESTRICOES" --casa "$CASA")"
 afirma "DGCLAW_RESTRICOES e DGCLAW_WORKSPACE apontando para o vazio nao liberam" bash -c "printf '%s' '$out' | jq -e '.hookSpecificOutput.permissionDecision == \"deny\"'"
-out="$(printf '%s' "$ent" | DGCLAW_RESTRICOES="$DGCLAW_RESTRICOES" DGCLAW_WORKSPACE="$CASA" node "$GANCHO")"
+out="$(printf '%s' "$ent" | env DGCLAW_RESTRICOES="$DGCLAW_RESTRICOES" DGCLAW_WORKSPACE="$CASA" node "$GANCHO")"
 afirma "sem argumentos valem os caminhos de producao (aqui ausentes): bloqueia" bash -c "printf '%s' '$out' | jq -e '.hookSpecificOutput.permissionDecision == \"deny\"'"
 afirma "o comando registrado limpa o ambiente (env -i), entao nem NODE_OPTIONS chega" grep -q 'env -i' "$REPO/lib/restricoes.sh"
 
