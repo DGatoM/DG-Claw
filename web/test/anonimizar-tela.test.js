@@ -34,10 +34,10 @@ test('cartão do detector: botões certos por nível, desligados durante a insta
   assert.doesNotMatch(leitores, /data-nivel="leitores"/); assert.match(leitores, /data-nivel="completo"/);
   const completo = T.detectorHtml(Object.assign({ detector: { nivel: 'completo' }, instalacao: { em_andamento: false } }, base));
   assert.doesNotMatch(completo, /data-an="instalar"/);
-  const instalando = T.detectorHtml(Object.assign({ detector: { nivel: 'regex' }, instalacao: { em_andamento: true, arquivo: { mensagem: 'Baixando o modelo <b>x</b>' } } }, base));
-  assert.match(instalando, /role="progressbar"/); assert.match(instalando, /disabled/); assert.match(instalando, /Baixando o modelo &lt;b&gt;x&lt;\/b&gt;/);
-  const falhou = T.detectorHtml(Object.assign({ detector: { nivel: 'regex' }, instalacao: { em_andamento: false, arquivo: { estado: 'erro', erro: 'sem espaço' } } }, base));
-  assert.match(falhou, /sem espaço/);
+  const instalando = T.detectorHtml(Object.assign({ detector: { nivel: 'regex' }, instalacao: { em_andamento: true, nivel: 'completo', arquivo: { nivel: 'regex', nivel_pedido: 'completo', erro: null } } }, base));
+  assert.match(instalando, /role="progressbar"/); assert.match(instalando, /disabled/); assert.match(instalando, /Instalando o detector completo/);
+  const falhou = T.detectorHtml(Object.assign({ detector: { nivel: 'regex' }, instalacao: { em_andamento: false, arquivo: { nivel: 'regex', nivel_pedido: 'completo', erro: 'sem espaço <b>' } } }, base));
+  assert.match(falhou, /sem espaço &lt;b&gt;/); assert.match(falhou, /completo\) falhou/);
   assert.match(T.detectorHtml({ detector: { nivel: null, erro: 'motor fora' }, instalacao: {}, ram: {} }), /motor fora/);
 });
 

@@ -18,7 +18,7 @@ const { criarLeitor, paraContainer } = require('./lib/thread');
 const { criarLeitorRollout } = require('./lib/rollout');
 const { criarConversa, RX_CLIENTE_ID } = require('./lib/conversa');
 const { criarComandos } = require('./lib/comandos');
-const { lerMultipart, nomeSeguro, gravaSemSobrescrever } = require('./lib/uploads');
+const { lerMultipart, nomeSeguro, gravaSemSobrescrever, pastaUploadSegura } = require('./lib/uploads');
 const { abrirStream } = require('./lib/sse');
 const { criarProxy } = require('./lib/proxy');
 const { criarCofreAgente } = require('./lib/cofre-agente');
@@ -125,6 +125,8 @@ function criarServidor(opcoes) {
   caixa.permitir('/api/v1/avisos');
   // Só o caminho exato da documentação do cofre (os templates mandam o agente ler); o cofre em si não é rota da caixa.
   caixa.permitir('/api/v1/cofre/docs.md');
+  // A doc do Anonimizar é pública; as rotas dele NÃO entram aqui (agente não as chama).
+  caixa.permitir('/api/v1/anonimizar/docs.md');
   // Aviso de versão nova: só o dono, pelo painel. De propósito NÃO entra em caixa.permitir (agente em container não usa).
   const estados = criarEstados({ conversa, naoLidas, registro, log });
   const prefsAtencao = criarPrefsAtencao({ arquivo: path.join(config.dataDir, 'push', 'preferencias.json'), log });
@@ -757,7 +759,11 @@ function criarServidor(opcoes) {
     const legenda = (mp.campos.legenda || '').trim();
     const r = await conversa.umaVez(agente, 'upload', cid || null, async () => {
       const dia = new Intl.DateTimeFormat('en-CA', { timeZone: config.tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-      const pasta = path.join(agente.home_host, 'uploads', dia);
+      let pasta;
+      try { pasta = pastaUploadSegura(agente.home_host, dia); } catch (e) {
+        log('erro', `Upload para ${agente.slug}: pasta de uploads recusada (${e.message})`);
+        return { status: 500, corpo: { ok: false, erro: e.message } };
+      }
       // Anonimizar documentos: com a opção ligada, o original NUNCA chega à casa do agente; só as saídas com marcadores.
       const anon = await anonimizar.processarUpload(agente, { nome: arq.nome, dados: arq.dados, legenda, pastaDestino: pasta });
       if (!anon.ok) {
@@ -775,7 +781,6 @@ function criarServidor(opcoes) {
       } else {
         if (anon.semAnonimizar) anonimizado = { id: null, contagem: 0, avisos: [anon.aviso], enviado_sem_anonimizar: true };
         try {
-          fs.mkdirSync(pasta, { recursive: true, mode: 0o755 });
           destino = gravaSemSobrescrever(pasta, nomeSeguro(arq.nome), arq.dados);
         } catch (e) {
           log('erro', `Upload para ${agente.slug}: não gravei em ${pasta} (${e.code || e.message}).`);
@@ -892,6 +897,9 @@ function criarServidor(opcoes) {
     }
 
     const sessao = slugCaixa ? { usuario: 'agente:' + slugCaixa, via: 'caixa', agente: slugCaixa } : auth.sessaoDoPedido(req);
+
+    // Única rota do Anonimizar sem sessão: a documentação, estática, para o agente ler sem credencial.
+    if (p === '/api/v1/anonimizar/docs.md' && (m === 'GET' || m === 'HEAD')) { rotasAnonimizar.servirDocs(res); return undefined; }
 
     if (p.startsWith('/api/')) {
       if (!sessao) return H.erroJson(res, 401, 'Você precisa entrar para usar a API. Faça login em /login.');

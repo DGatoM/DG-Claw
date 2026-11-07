@@ -54,17 +54,18 @@
     return p(d.getDate()) + '/' + p(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
   }
 
-  /* O que a instalação em andamento diz (o arquivo de estado vem do instalador do motor; campos ausentes não quebram). */
+  /* O estado.json do instalador tem { nivel, nivel_pedido, versao_modelo, instalado_em, erro }. Durante a instalação
+     ele ainda mostra a tentativa anterior; quem diz que está instalando é a unidade do sistema (em_andamento). */
   function textoInstalacao(inst) {
-    const a = (inst && inst.arquivo) || {};
-    const partes = [a.mensagem, a.etapa, a.passo].filter(x => typeof x === 'string' && x);
-    return partes[0] || 'Instalando… isso leva alguns minutos e roda sozinho no servidor.';
+    const pedido = inst && (inst.nivel || (inst.arquivo && inst.arquivo.nivel_pedido));
+    const nome = pedido === 'completo' ? 'o detector completo (cerca de 2 GB)' : pedido === 'leitores' ? 'os leitores (cerca de 30 MB)' : 'o detector';
+    return 'Instalando ' + nome + '… isso leva alguns minutos e roda sozinho no servidor. Pode sair desta tela.';
   }
   function erroInstalacao(inst) {
     const a = (inst && inst.arquivo) || {};
     if (inst && inst.em_andamento) return '';
-    if (['erro', 'falhou', 'falha'].includes(String(a.estado || '').toLowerCase())) {
-      return (a.erro || a.mensagem || 'A última instalação falhou.') + ' Tente de novo; se repetir, peça ao Admin para ver o registro em /var/log/dgclaw.';
+    if (typeof a.erro === 'string' && a.erro) {
+      return 'A última instalação (' + (a.nivel_pedido || 'detector') + ') falhou: ' + a.erro + ' Tente de novo; se repetir, peça ao Admin para ver o registro da unidade dgclaw-anonimizar-instalar.';
     }
     return '';
   }
@@ -125,7 +126,7 @@
   function tabelaHtml(entradas) {
     if (!entradas.length) return '<p class="an-vazio">A tabela deste agente está vazia.</p>';
     return '<p class="an-aviso-real">Estes são os dados reais. Feche a tabela quando terminar de conferir.</p><div class="an-tab">' +
-      entradas.map(e => '<b>' + esc(e.marcador) + '</b><span>' + esc(e.valor) + '</span>').join('') + '</div>' +
+      entradas.map(e => '<b>' + esc(e.marcador) + '</b><span>' + (e.apagado ? '<i class="an-fraco">apagado (o número não será reaproveitado)</i>' : esc(e.valor)) + '</span>').join('') + '</div>' +
       '<div class="an-acoes"><button type="button" class="an-btn" data-an="fechar-tabela">Esconder a tabela</button></div>';
   }
 

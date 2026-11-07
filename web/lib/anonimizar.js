@@ -17,6 +17,7 @@ const path = require('node:path');
 const { spawn, execFile } = require('node:child_process');
 const { gravaArquivoSeguro } = require('./grava-seguro');
 const { dentro } = require('./media');
+const { FLAGS_NOVO } = require('./uploads');
 
 const TIPOS = ['PESSOA', 'EMPRESA', 'ENDERECO', 'CPF', 'CNPJ', 'RG', 'PIS', 'CNH', 'TITULO', 'CEP', 'TELEFONE', 'EMAIL',
   'CARTAO', 'CONTA', 'AGENCIA', 'PIX', 'VALOR', 'DATA'];
@@ -66,7 +67,7 @@ function normalizaComMapa(texto) {
 function trocarValoresConhecidos(texto, tabela) {
   if (!texto || !tabela || !tabela.length) return { texto, trocas: 0 };
   const { norm, mapa } = normalizaComMapa(texto);
-  const ordem = tabela.filter((e) => e && typeof e.valor === 'string' && e.valor.trim())
+  const ordem = tabela.filter((e) => e && !e.apagado && typeof e.valor === 'string' && e.valor.trim())
     .sort((a, b) => b.valor.length - a.valor.length);
   const reservados = [];
   const livre = (a, b) => !reservados.some(([x, y]) => a < y && b > x);
@@ -103,7 +104,7 @@ function trocarValoresConhecidos(texto, tabela) {
 
 /** Troca marcadores pelos valores da tabela. Marcador desconhecido fica como está. */
 function reverterMarcadores(texto, tabela) {
-  const porMarcador = new Map(tabela.map((e) => [e.marcador, e.valor]));
+  const porMarcador = new Map(tabela.filter((e) => !e.apagado).map((e) => [e.marcador, e.valor]));
   const desconhecidos = new Set();
   let trocas = 0;
   const saida = String(texto).replace(RX_MARCADOR, (todo) => {
@@ -483,15 +484,24 @@ function criarAnonimizar(opcoes) {
   }
   function contaDocumentos(slug) { return lerDocs(slug).docs.length; }
 
-  /** Tira da tabela os marcadores que nenhum documento restante usa. */
+  /**
+   * Os marcadores que nenhum documento restante usa perdem o dado real: o valor vira uma lápide que nunca casa com
+   * texto. A entrada fica na tabela de propósito, porque o motor numera o próximo marcador como "maior + 1": sem a
+   * lápide, o número do último marcador apagado seria dado a outra pessoa.
+   */
+  const lapide = (e) => ({ tipo: e.tipo, marcador: e.marcador, valor: `\u0000apagado:${crypto.randomBytes(16).toString('hex')}`, apagado: true });
   function podarTabela(slug, docs) {
     const usados = new Set();
     for (const d of docs) for (const m of d.marcadores || []) usados.add(m);
     const t = lerTabela(slug);
-    const antes = t.entradas.length;
-    t.entradas = t.entradas.filter((e) => usados.has(e.marcador));
+    let removidos = 0;
+    t.entradas = t.entradas.map((e) => {
+      if (e.apagado || usados.has(e.marcador)) return e;
+      removidos += 1;
+      return lapide(e);
+    });
     gravarTabela(slug, t);
-    return antes - t.entradas.length;
+    return removidos;
   }
   function apagarDocumento(slug, id) {
     return comTrava(slug, async () => {
@@ -509,12 +519,14 @@ function criarAnonimizar(opcoes) {
     return comTrava(slug, async () => {
       const n = lerDocs(slug).docs.length;
       gravarDocs(slug, { docs: [] });
-      gravarTabela(slug, { entradas: [] });
+      podarTabela(slug, []);
       log('info', `Anonimizar: registro e tabela de ${slug} apagados (${n} documento(s)).`);
       return { apagados: n };
     });
   }
-  function tabela(slug) { return lerTabela(slug).entradas.map((e) => ({ tipo: e.tipo, valor: e.valor, marcador: e.marcador })); }
+  function tabela(slug) {
+    return lerTabela(slug).entradas.map((e) => (e.apagado ? { tipo: e.tipo, marcador: e.marcador, apagado: true } : { tipo: e.tipo, valor: e.valor, marcador: e.marcador }));
+  }
 
   // ── texto ─────────────────────────────────────────────────────────────────
   function estaLigado(slug) {
@@ -662,10 +674,10 @@ function criarAnonimizar(opcoes) {
         for (const [k, v] of Object.entries(lr.contagem)) contagem[k] = (Number(contagem[k]) || 0) + v;
       }
       // Copia as saídas escrevendo o conteúdo (nunca seguindo atalho) e depois registra tudo.
-      fs.mkdirSync(pastaDestino, { recursive: true, mode: 0o755 });
+      // pastaDestino já veio conferida (sem atalho) por pastaUploadSegura; a gravação ainda recusa atalho e arquivo existente.
       for (const real of saidasReais) {
         const destino = path.join(pastaDestino, path.basename(real));
-        fs.writeFileSync(destino, fs.readFileSync(real), { flag: 'wx', mode: 0o644 });
+        fs.writeFileSync(destino, fs.readFileSync(real), { flag: FLAGS_NOVO, mode: 0o644 });
         copiados.push(destino);
       }
       const vistos = copiados.map((p) => paraContainer(p, agente));
@@ -723,7 +735,7 @@ function criarAnonimizar(opcoes) {
     const ext = path.extname(real).toLowerCase();
     if (ext === '.pdf') throw new ErroAnon(422, 'PDF não dá para voltar aos dados reais, porque o texto dele não é trocado de forma segura. Peça ao agente o mesmo resultado em .docx ou .md e baixe a versão final desse.', 'PDF');
     if (!EXT_FINAL.has(ext)) throw new ErroAnon(422, `Não sei voltar os dados reais em arquivo ${ext || 'sem extensão'}. Os formatos aceitos são .docx, .xlsx, .pptx, .md, .txt, .csv, .json e .html. Peça ao agente o resultado em um deles.`, 'FORMATO');
-    const tab = lerTabela(slug).entradas;
+    const tab = lerTabela(slug).entradas.filter((e) => !e.apagado);
     if (!tab.length) throw new ErroAnon(422, 'Este agente não tem tabela de dados (nenhum documento anonimizado ainda), então não há o que voltar.', 'SEM_TABELA');
 
     let fd; let st;

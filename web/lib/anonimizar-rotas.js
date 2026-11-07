@@ -161,7 +161,19 @@ function criarRotasAnonimizar({ anon, registro, midia, log, origemOk, arquivoDoc
     return true;
   }
 
-  return { rotas };
+  /** GET /api/v1/anonimizar/docs.md: conteúdo estático, sem sessão (o agente lê a doc sem credencial). */
+  function servirDocs(res) {
+    let texto;
+    try { texto = fs.readFileSync(docsPath, 'utf8'); } catch (e) {
+      log('erro', `Anonimizar: não li ${docsPath} (${e.code || e.message}).`);
+      H.erroJson(res, 500, 'A documentação não está instalada neste servidor. Reinstale o DG Claw Web.');
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+    res.end(texto);
+  }
+
+  return { rotas, servirDocs };
 }
 
 module.exports = { criarRotasAnonimizar };

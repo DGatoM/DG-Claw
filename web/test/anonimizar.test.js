@@ -10,6 +10,17 @@ const { trocarValoresConhecidos, reverterMarcadores } = require('../lib/anonimiz
 
 const MOTOR = path.join(__dirname, 'anonimizar-motor-falso.js');
 const CPF = '123.456.789-00';
+const { spawnSync } = require('node:child_process');
+const PYTHON = (() => { const r = spawnSync('python3', ['--version']); return r.status === 0 ? 'python3' : null; })();
+
+/** CPF com dígitos verificadores corretos (o detector real confere). */
+function cpfValido(base) {
+  const d = base.split('').map(Number);
+  const dv = (n) => { const soma = d.slice(0, n).reduce((a, x, i) => a + x * (n + 1 - i), 0); const r = (soma * 10) % 11; return r === 10 ? 0 : r; };
+  d.push(dv(9)); d.push(dv(10));
+  const t = d.join('');
+  return `${t.slice(0, 3)}.${t.slice(3, 6)}.${t.slice(6, 9)}-${t.slice(9)}`;
+}
 const NOME = 'Maria Souza';
 
 /** Web com os agentes ana e beto, runner falso para cada e o motor falso. */
@@ -30,9 +41,9 @@ async function cenario(o) {
   const chamadasSystemctl = [];
   const t = await subirWeb({
     agentes,
-    env: Object.assign({ DGCLAW_ANON_CHAVE: path.join(dirChave, 'anonimizar.chave'), DGCLAW_ANON_BASE: base, DGCLAW_ANON_NIVEL: op.nivel || 'completo' }, op.env || {}),
+    env: Object.assign({ DGCLAW_ANON_CHAVE: path.join(dirChave, 'anonimizar.chave'), DGCLAW_ANON_BASE: base, DGCLAW_ANON_NIVEL: op.nivel || 'completo' }, op.real ? { DGCLAW_ANON_PYTHON: PYTHON, DGCLAW_ANON_NER: 'falso' } : {}, op.env || {}),
     opcoesServidor: {
-      anonMotor: { comando: process.execPath, args: [MOTOR] },
+      anonMotor: op.real ? undefined : { comando: process.execPath, args: [MOTOR] },
       anonSystemctl: async (args) => { chamadasSystemctl.push(args); return { erro: null, saida: 'inactive' }; },
       anonOciosoMs: op.ociosoMs,
     },
@@ -318,13 +329,14 @@ test('apagar documento tira da tabela só os marcadores que nenhum outro documen
     const del = await s.c.pedir('DELETE', `/api/v1/anonimizar/ana/documentos/${docA.id}`);
     assert.equal(del.status, 200, del.texto);
     assert.equal(del.json.removidos_da_tabela, 1);
-    const t = (await s.c.get('/api/v1/anonimizar/ana/tabela')).json.entradas.map((e) => e.valor).sort();
-    assert.deepEqual(t, ['987.654.321-00', NOME].sort());
+    const tab = (await s.c.get('/api/v1/anonimizar/ana/tabela')).json.entradas;
+    assert.deepEqual(tab.filter((e) => !e.apagado).map((e) => e.valor).sort(), ['987.654.321-00', NOME].sort());
+    assert.deepEqual(tab.filter((e) => e.apagado).map((e) => e.marcador), ['[CPF_1]']);
     assert.equal((await s.c.pedir('DELETE', `/api/v1/anonimizar/ana/documentos/${docA.id}`)).status, 404);
     assert.equal((await s.c.pedir('DELETE', '/api/v1/anonimizar/ana/documentos/XYZ')).status, 400);
     const tudo = await s.c.pedir('DELETE', '/api/v1/anonimizar/ana/documentos');
     assert.equal(tudo.status, 200); assert.equal(tudo.json.apagados, 1);
-    assert.equal((await s.c.get('/api/v1/anonimizar/ana/tabela')).json.total, 0);
+    assert.ok((await s.c.get('/api/v1/anonimizar/ana/tabela')).json.entradas.every((e) => e.apagado));
   } finally { await s.fechar(); }
 });
 
@@ -396,7 +408,7 @@ test('segurança: sem sessão = 401, sem Origin = 403, e credencial de agente (c
       ['POST', '/api/v1/anonimizar/testar', { texto: 'oi' }], ['GET', '/api/v1/anonimizar/ana/documentos'],
       ['DELETE', '/api/v1/anonimizar/ana/documentos'], ['GET', '/api/v1/anonimizar/ana/tabela'],
       ['POST', '/api/v1/anonimizar/ana/reverter-texto', { texto: '[PESSOA_1]' }], ['GET', '/api/v1/anonimizar/ana/final/0123456789abcdef'],
-      ['POST', '/api/v1/anonimizar/detector/instalar', { nivel: 'leitores' }], ['GET', '/api/v1/anonimizar/docs.md'],
+      ['POST', '/api/v1/anonimizar/detector/instalar', { nivel: 'leitores' }],
     ];
     for (const [m, rota, corpo] of rotas) {
       const r = await anon.pedir(m, rota, corpo ? { json: corpo } : {});
@@ -442,7 +454,9 @@ test('estado, instalar o detector (só os dois níveis fixos) e docs.md igual à
     const ok = await s.c.post('/api/v1/anonimizar/detector/instalar', { json: { nivel: 'leitores' } });
     assert.equal(ok.status, 202, ok.texto);
     assert.deepEqual(s.chamadasSystemctl.filter((a) => a[0] === 'start'), [['start', '--no-block', 'dgclaw-anonimizar-instalar@leitores.service']]);
-    const docs = await s.c.get('/api/v1/anonimizar/docs.md');
+    const { cliente } = require('./ajuda');
+    const semSessao = cliente(s.t.porta);
+    const docs = await semSessao.get('/api/v1/anonimizar/docs.md');
     assert.equal(docs.status, 200); assert.match(docs.headers['content-type'], /markdown/);
     assert.equal(docs.texto, fs.readFileSync(path.join(__dirname, '..', 'docs', 'ANONIMIZAR.md'), 'utf8'));
     // a tela é servida com sessão
@@ -534,5 +548,104 @@ test('config ilegível ou chave trocada: falha fechada e explicada, sem entregar
     assert.equal(r2.ok, false); assert.match(r2.erro, /32/);
     assert.equal(fs.readFileSync(path.join(s.dirChave, 'anonimizar.chave')).length, 5);
     curta.encerrar();
+  } finally { await s.fechar(); }
+});
+
+test('docs.md é pública (sem sessão e pela caixa do agente), mas só ela', async () => {
+  const s = await cenario();
+  try {
+    const { cliente } = require('./ajuda');
+    const anon = cliente(s.t.porta);
+    const fonte = fs.readFileSync(path.join(__dirname, '..', 'docs', 'ANONIMIZAR.md'), 'utf8');
+    assert.equal((await anon.get('/api/v1/anonimizar/docs.md', { origin: false })).texto, fonte);
+    const cab = { 'x-dgclaw-caixa': s.t.web.caixa.segredo, 'x-dgclaw-agente': 'ana' };
+    const pelaCaixa = await anon.get('/api/v1/anonimizar/docs.md', { headers: cab, semCookie: true });
+    assert.equal(pelaCaixa.status, 200); assert.equal(pelaCaixa.texto, fonte);
+    assert.equal((await anon.get('/api/v1/anonimizar/estado')).status, 401);
+    assert.equal((await anon.get('/api/v1/anonimizar/docs.md/../estado')).status === 200, false);
+  } finally { await s.fechar(); }
+});
+
+test('número de marcador apagado nunca é reaproveitado: vira lápide e o dado real some do disco', async () => {
+  const s = await cenario();
+  try {
+    await liga(s);
+    await sobe(s, 'ana', 'a.txt', `Joao Silva e ${NOME}`);   // [PESSOA_1] e [PESSOA_2]? so Maria vira PESSOA no motor falso
+    await sobe(s, 'ana', 'b.txt', `Joao Silva ${CPF}`);
+    const docs = (await s.c.get('/api/v1/anonimizar/ana/documentos')).json.documentos;
+    const maior = docs.find((d) => d.nome_original === 'b.txt');
+    const antes = (await s.c.get('/api/v1/anonimizar/ana/tabela')).json.entradas;
+    const marcaMaior = antes.find((e) => e.valor === 'Joao Silva').marcador;
+    assert.equal((await s.c.pedir('DELETE', `/api/v1/anonimizar/ana/documentos/${docs.find((d) => d.nome_original === 'a.txt').id}`)).status, 200);
+    await s.c.pedir('DELETE', `/api/v1/anonimizar/ana/documentos/${maior.id}`);
+    const depois = await sobe(s, 'ana', 'c.txt', 'Joao Silva');
+    assert.equal(depois.status, 201, depois.texto);
+    const doc = fs.readFileSync(depois.json.anexo.path.replace('/home/agente', s.homeAna), 'utf8');
+    const novo = (await s.c.get('/api/v1/anonimizar/ana/tabela')).json.entradas.filter((e) => !e.apagado && e.valor === 'Joao Silva')[0];
+    assert.notEqual(novo.marcador, marcaMaior, 'reaproveitou o número');
+    assert.ok(doc.includes(novo.marcador));
+    // reverter e troca do digitado ignoram lápide; o arquivo cifrado, depois de decifrado, não tem o valor antigo apagado
+    const rev = await s.c.post('/api/v1/anonimizar/ana/reverter-texto', { json: { texto: marcaMaior } });
+    assert.equal(rev.json.texto, marcaMaior);
+    const lap = (await s.c.get('/api/v1/anonimizar/ana/tabela')).json.entradas.find((e) => e.marcador === marcaMaior);
+    assert.equal(lap.apagado, true); assert.equal(lap.valor, undefined);
+    const dec = JSON.stringify(s.t.web.anonimizar.tabela('ana'));
+    assert.ok(!dec.includes(CPF));
+  } finally { await s.fechar(); }
+});
+
+test('pasta de uploads trocada por atalho para fora: recusa com 500 explicando e nada é gravado fora (envio antigo e anonimizado)', async () => {
+  const s = await cenario();
+  try {
+    const fora = pastaTemp('fora-uploads');
+    fs.mkdirSync(path.join(s.homeAna, 'uploads'));
+    const dia = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    fs.symlinkSync(fora, path.join(s.homeAna, 'uploads', dia));
+    const antigo = await sobe(s, 'ana', 'a.txt', 'conteudo');
+    assert.equal(antigo.status, 500, antigo.texto); assert.match(antigo.json.erro, /atalho/);
+    await liga(s);
+    const anon = await sobe(s, 'ana', 'a.txt', `${NOME}`);
+    assert.equal(anon.status, 500); assert.match(anon.json.erro, /atalho/);
+    assert.deepEqual(fs.readdirSync(fora), []);
+    // a pasta "uploads" inteira como atalho também
+    fs.rmSync(path.join(s.homeAna, 'uploads'), { recursive: true });
+    fs.symlinkSync(fora, path.join(s.homeAna, 'uploads'));
+    assert.equal((await sobe(s, 'ana', 'b.txt', 'x')).status, 500);
+    assert.deepEqual(fs.readdirSync(fora), []);
+    assert.equal(s.rAna.rec.inputs.length, 0);
+  } finally { await s.fechar(); }
+});
+
+test('integração com o motor.py de verdade (NER falso): upload anonimiza, a casa só tem marcadores e os dados reais voltam', { skip: PYTHON ? false : 'python3 não existe nesta máquina' }, async () => {
+  const s = await cenario({ real: true });
+  try {
+    await liga(s);
+    const cpf = cpfValido('529982247');
+    const email = 'maria.contato@exemplo.com.br';
+    const original = `Cliente ${NOME}, CPF ${cpf}, e-mail ${email}.\nFim do documento.`;
+    const r = await sobe(s, 'ana', 'ficha da Maria Souza.txt', original, { legenda: `Veja a ficha de ${NOME}` });
+    assert.equal(r.status, 201, r.texto);
+    assert.ok(r.json.anonimizado.contagem >= 3, JSON.stringify(r.json.anonimizado));
+    const casa = conteudoDe(s.homeAna);
+    for (const segredo of [NOME, cpf, email, 'maria souza']) assert.ok(!casa.includes(segredo), `vazou ${segredo}`);
+    const arquivos = todosOsArquivos(path.join(s.homeAna, 'uploads'));
+    assert.equal(arquivos.length, 1);
+    const anon = fs.readFileSync(arquivos[0], 'utf8');
+    assert.match(anon, /\[PESSOA_1\]/); assert.match(anon, /\[CPF_1\]/); assert.match(anon, /\[EMAIL_1\]/);
+    assert.ok(!s.rAna.rec.inputs[0].text.includes(NOME));
+    const rev = await s.c.post('/api/v1/anonimizar/ana/reverter-texto', { json: { texto: anon } });
+    assert.equal(rev.status, 200, rev.texto);
+    assert.equal(rev.json.texto, original);
+    // arquivo de resultado do agente com marcadores: a versão final devolve os dados reais
+    const out = path.join(s.homeAna, 'out', 'parecer.md');
+    fs.writeFileSync(out, 'Parecer sobre [PESSOA_1] ([CPF_1]).');
+    const id = s.t.web.midia.registrar('ana', out, { visto: '/home/agente/out/parecer.md' }).id;
+    const fin = await s.c.get(`/api/v1/anonimizar/ana/final/${id}`);
+    assert.equal(fin.status, 200, fin.texto);
+    assert.equal(fin.texto, `Parecer sobre ${NOME} (${cpf}).`);
+    // PDF: o motor real recusa o reverter e a rota explica
+    fs.writeFileSync(path.join(s.homeAna, 'out', 'r.pdf'), '%PDF');
+    const idPdf = s.t.web.midia.registrar('ana', path.join(s.homeAna, 'out', 'r.pdf'), { visto: '/x' }).id;
+    assert.equal((await s.c.get(`/api/v1/anonimizar/ana/final/${idPdf}`)).status, 422);
   } finally { await s.fechar(); }
 });

@@ -1,7 +1,7 @@
 # Anonimizar documentos na API do DG Claw Web
 
 Troca dados pessoais dos documentos por marcadores (`[PESSOA_1]`, `[CPF_1]`) antes de o agente ler. Estas
-rotas são do dono, usadas pela tela Anonimizar e pela conversa. Todas exigem sessão; POST, PUT e DELETE
+rotas são do dono, usadas pela tela Anonimizar e pela conversa. Todas exigem sessão, menos `GET .../docs.md`, que é pública (o agente lê sem credencial); POST, PUT e DELETE
 exigem o cabeçalho `Origin` do próprio site. Os agentes NÃO chamam nenhuma delas: não estão liberadas na caixa
 do agente (`dgclaw-api` recebe 403) e o servidor recusa pedido de agente também dentro da rota. Guia para o
 dono: `docs/ANONIMIZAR.md`.
@@ -54,13 +54,13 @@ Lista, do mais novo ao mais antigo: `id`, `nome_original`, `criado_em`, `contage
 ## DELETE /api/v1/anonimizar/:slug/documentos/:id e DELETE /api/v1/anonimizar/:slug/documentos
 
 O primeiro apaga um documento do registro e tira da tabela os marcadores que nenhum outro documento usa
-(`removidos_da_tabela`). O segundo apaga o registro e a tabela inteira do agente. Os arquivos que o agente já
+(`removidos_da_tabela`). O dado real some do disco, mas a entrada fica na tabela como lápide (`apagado: true`, sem valor) para que o número do marcador nunca seja dado a outra pessoa. O segundo apaga o registro e a tabela inteira do agente. Os arquivos que o agente já
 recebeu na casa dele não são tocados. Depois de apagar a tabela, a versão final de um arquivo antigo deixa de
 ter como voltar os dados.
 
 ## GET /api/v1/anonimizar/:slug/tabela
 
-A tabela em claro (`{"entradas":[{"tipo","valor","marcador"}]}`), só para o dono conferir. Resposta com
+A tabela em claro (`{"entradas":[{"tipo","valor","marcador"}]}`; marcador apagado vem como `{"tipo","marcador","apagado":true}`), só para o dono conferir. Resposta com
 `Cache-Control: no-store`. Cada abertura vai para o log (só a contagem, nunca os valores). O pedido precisa vir
 da própria tela: com `Origin` do site, ou com `Sec-Fetch-Site: same-origin`. Sem nenhum dos dois, 403.
 
@@ -87,7 +87,7 @@ Inicia a unidade `dgclaw-anonimizar-instalar@<nivel>.service` e responde 202. O 
 
 ## GET /api/v1/anonimizar/docs.md
 
-Este arquivo.
+Este arquivo. Pública, sem sessão.
 
 ## Como o upload muda
 
