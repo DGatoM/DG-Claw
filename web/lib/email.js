@@ -178,7 +178,7 @@ function criarEmail({ config, log }) {
       const fim = await resposta();
       if (fim.codigo !== 250) throw falhou('ao receber a mensagem', fim);
       acabou = true;
-      try { st.sock.write('QUIT\r\n'); } catch (_) { /* já encerrou: o e-mail foi aceito */ }
+      try { st.sock.write('QUIT\r\n'); await resposta(); } catch (_) { /* já encerrou: o e-mail foi aceito */ }
     } finally {
       clearTimeout(t);
       acabou = true;
