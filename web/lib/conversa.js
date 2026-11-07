@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { paraContainer } = require('./thread');
 const { criaInterceptor } = require('./token-telegram');
-const { acharRollout, ehRollout, confinar } = require('./rollout');
+const { acharRollout, ehRollout, confinar, raizesDeRollout } = require('./rollout');
 const { motivoDoRunner } = require('./runner');
 const { criarComandos } = require('./comandos');
 
@@ -273,8 +273,18 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     // Última guarda: o arquivo final, com realpath, precisa ficar dentro da raiz (atalho para fora é recusado).
     const eRollout = ehRollout(arquivo);
     {
-      const raiz = eRollout ? agente.home_host : agente.transcripts_dir;
-      const c = raiz ? confinar(arquivo, raiz, eRollout ? 'o registro Codex' : 'o transcript do Claude') : { erro: `Recusei ler ${arquivo}: o registro de ${agente.nome} não tem ${eRollout ? 'home_host' : 'transcripts_dir'} para conferir. Nada foi lido.` };
+      let c;
+      if (eRollout) {
+        const raizes = raizesDeRollout(agente);
+        if (!raizes.length) c = { erro: `Recusei ler ${arquivo}: o registro de ${agente.nome} não tem home_host para conferir. Nada foi lido.` };
+        else {
+          const tent = raizes.map((r) => confinar(arquivo, r, 'o registro Codex'));
+          c = tent.find((t) => !t.erro) || tent[0];
+        }
+      } else {
+        const raiz = agente.transcripts_dir;
+        c = raiz ? confinar(arquivo, raiz, 'o transcript do Claude') : { erro: `Recusei ler ${arquivo}: o registro de ${agente.nome} não tem transcripts_dir para conferir. Nada foi lido.` };
+      }
       if (c.erro) {
         avisos.push(c.erro);
         avisaUmaVez(`conf|${agente.slug}`, 'aviso', `Thread de ${agente.nome}: ${c.erro}`);

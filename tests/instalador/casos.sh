@@ -41,6 +41,7 @@ caso_instalacao_cria_arquivos_com_os_modos_certos() {
     afirma "token do admin com 64 hex" grep -qE '^[0-9a-f]{64}$' "$e/runner/admin.token"
     afirma "agentes.json 640" modo_e "$e/agentes.json" 640
     afirma "agentes.json com um Admin" jq -e '(.agentes | length) == 1 and .agentes[0].slug == "admin" and .agentes[0].tipo == "admin" and .agentes[0].runner == "http://127.0.0.1:4300" and .agentes[0].chat_id == "c_admin" and .agentes[0].transcripts_dir == "/root/.claude/projects/-opt-dgclaw-admin" and .agentes[0].runner_token_arquivo == "/etc/dgclaw/runner/admin.token" and .agentes[0].porta_painel == null' "$e/agentes.json"
+    afirma "Admin no Claude nao tem codex_home_host" jq -e '.agentes[0].codex_home_host == null' "$e/agentes.json"
     nega "agentes.json sem caminho da raiz de teste" tem "$e/agentes.json" "$RAIZ"
     afirma "pasta do admin 700" modo_e "$a/admin" 700
     afirma "CLAUDE.md do admin" tem "$a/admin/CLAUDE.md" "Admin (Claude)"
@@ -145,6 +146,7 @@ caso_provedor_codex() {
     afirma "instala com codex" instalar "$PAINEL_PW" --usuario maria --provedor codex
     afirma "runner.json usa codex-cli" jq -e '.config.provider == "codex-cli"' "$RAIZ/opt/dgclaw/admin/.plataforma/runner.json"
     afirma "agentes.json aponta as sessoes do codex" jq -e '.agentes[0].provedor == "codex" and .agentes[0].transcripts_dir == "/root/.codex/sessions"' "$RAIZ/etc/dgclaw/agentes.json"
+    afirma "registro do Admin diz onde o Codex grava os rollouts" jq -e '.agentes[0].codex_home_host == "/root/.codex"' "$RAIZ/etc/dgclaw/agentes.json"
     limpar_cenario
 }
 

@@ -7,6 +7,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**O painel do Admin mostra de novo o histórico e as respostas quando o Admin usa o ChatGPT (Codex).** Antes, nesse caso a conversa do Admin ficava vazia na tela, porque o Web não procurava o registro da conversa na pasta onde o Codex do Admin o grava. Depois de atualizar, o histórico e as respostas aparecem.
+
 **Nova página Conectar conta.** Antes, para conectar a conta do Claude de um agente alguém tinha de gerar um link de login
 e mandar por mensagem, e o link vencia antes de você ver. Agora o painel tem a página **Conectar conta** (no menu ☰, ou em
 `/conectar`): você entra quando puder, toca em "Gerar link de login" no cartão do agente, entra na sua conta do Claude e cola
