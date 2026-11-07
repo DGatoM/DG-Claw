@@ -7,6 +7,31 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Anonimizar documentos.** Nova tela **Anonimizar** (no menu ☰, em `/anonimizar`). Ligando a opção para um agente, os
+documentos que você manda pelo clipe da conversa passam antes por um filtro que troca nomes, CPF, telefone, e-mail e outros
+dados pessoais por marcadores, como `[PESSOA_1]` e `[CPF_1]`. O agente e o modelo na nuvem só recebem a versão com marcadores,
+e o original e o nome original do arquivo não entram na pasta dele. A tabela que liga cada marcador ao dado real fica cifrada
+no servidor. Na conversa, as respostas do agente com marcadores ganham o botão "Ver com dados reais", os arquivos que ele
+devolve ganham "Baixar versão final" (com os dados reais no lugar dos marcadores), e um selo no alto leva de volta à tela.
+Por enquanto vale só para o clipe da conversa web: o que chega por WhatsApp, Telegram ou e-mail ainda não passa pelo filtro.
+O guia está em `docs/ANONIMIZAR.md`.
+
+### Como atualizar (anonimizar documentos)
+
+1. **Peça ao Admin, no chat: "atualiza o DG Claw".** A atualização grava a unidade que instala o detector de nomes e traz a
+   tela nova. Nada é instalado nem ligado sozinho: a anonimização começa desligada em todos os agentes.
+2. **O detector de nomes é opcional e se instala pela tela Anonimizar.** Sem ele, o filtro só troca o que tem formato fixo (CPF,
+   CNPJ, telefone, e-mail) e, por segurança, bloqueia o envio de documentos até você escolher outra opção. Os leitores de PDF,
+   Word e Excel ocupam cerca de 30 MB; o detector completo, que acha nomes, empresas e endereços, ocupa cerca de 2 GB de
+   disco e precisa de uns 2,5 GB de memória livre na hora de rodar.
+3. **As instruções dos agentes ganharam um trecho novo**, para eles tratarem os marcadores do jeito certo (manter exatamente
+   como vieram, nunca adivinhar o dado real e entregar resultados em `.docx`, `.xlsx`, `.md` ou `.txt`). Depois de atualizar,
+   peça ao Admin para regravar a identidade de cada agente que você já tem (o comando é `sudo dgclaw agente identidade <agente>`);
+   o que você personalizou neles não muda.
+4. **Guarde a chave da tabela no seu backup.** Ela é criada sozinha no primeiro uso, em `/etc/dgclaw/anonimizar.chave`. Sem ela
+   a tabela não abre e os dados reais não voltam.
+5. No celular, feche e abra o app uma vez para ele buscar os arquivos novos.
+
 **Nova página Conectar conta.** Antes, para conectar a conta do Claude de um agente alguém tinha de gerar um link de login
 e mandar por mensagem, e o link vencia antes de você ver. Agora o painel tem a página **Conectar conta** (no menu ☰, ou em
 `/conectar`): você entra quando puder, toca em "Gerar link de login" no cartão do agente, entra na sua conta do Claude e cola
