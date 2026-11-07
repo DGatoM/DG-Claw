@@ -783,3 +783,59 @@ test('Correção no upload: config ilegível aparece no /estado com o caminho e 
     assert.equal((await liga(s)).status, 200);
   } finally { await s.fechar(); }
 });
+
+test('Correção na conversa: "//", comando com argumentos, legenda de anexo e /comando passam pelo filtro e pelo bloqueio por config ilegível; comando sem texto segue', async () => {
+  const s = await cenario();
+  try {
+    await liga(s, 'ana', { aplicar_no_que_digito: true });
+    const up = await sobe(s, 'ana', 'a.txt', `${NOME} ${CPF}`, { enviar: '0' });
+    const enviar = (text, extra) => s.c.post('/api/v1/agents/ana/send', { json: Object.assign({ text, cliente_id: `dig-${String(++seq).padStart(8, '0')}` }, extra) });
+    const ultimo = () => s.rAna.rec.inputs[s.rAna.rec.inputs.length - 1].text;
+    // com a config boa: nada de dado real em nenhum caminho
+    const casos = [[`// Ligue para ${NOME} CPF 12345678900`, {}], [`/compact foque em ${NOME}`, {}], [`/legenda ${NOME}`, { anexos: [up.json.anexo.id] }], [`/xyz-desconhecido ${NOME}`, {}]];
+    for (const [texto, extra] of casos) {
+      const n = s.rAna.rec.inputs.length;
+      const r = await enviar(texto, extra);
+      if (r.status === 200) { assert.equal(s.rAna.rec.inputs.length, n + 1, texto); assert.ok(!ultimo().includes(NOME) && !ultimo().includes('12345678900'), `vazou em: ${texto} -> ${ultimo()}`); }
+      else assert.ok(s.rAna.rec.inputs.length === n, `${texto} deu ${r.status} mas enviou`);   // comando que não existe: erro, nada enviado
+    }
+    const ok = await enviar(`// Ligue para ${NOME}`);
+    assert.equal(ok.status, 200); assert.match(ultimo(), /\/ Ligue para \[PESSOA_1\]/);
+    const comArgs = await s.c.pedir('POST', '/api/v1/agents/ana/comando', { json: { comando: '/compact', argumentos: `foque em ${NOME}`, cliente_id: `cmd-${String(++seq).padStart(8, '0')}` } });
+    if (comArgs.status === 200) assert.ok(!ultimo().includes(NOME), ultimo());
+    // config ilegível: tudo que levaria texto ao agente é recusado com 503
+    fs.writeFileSync(path.join(s.t.dados, 'anonimizar', 'config.json'), '{ quebrado', { mode: 0o600 });
+    const n0 = s.rAna.rec.inputs.length;
+    for (const [texto, extra] of [[`// CPF ${CPF}`, {}], [`/compact foque em ${CPF}`, {}], [`/legenda ${CPF}`, { anexos: [up.json.anexo.id] }], [`Oi ${CPF}`, {}]]) {
+      const r = await enviar(texto, extra);
+      assert.equal(r.status, 503, `${texto}: ${r.status} ${r.texto}`);
+    }
+    const c = await s.c.pedir('POST', '/api/v1/agents/ana/comando', { json: { comando: '/compact', argumentos: `foque em ${CPF}`, cliente_id: `cmd-${String(++seq).padStart(8, '0')}` } });
+    assert.equal(c.status, 503);
+    assert.equal(s.rAna.rec.inputs.length, n0, 'algo foi enviado com a config ilegível');
+    // comando que o Web executa sem texto para o agente não é bloqueado
+    const sem = await enviar('/clear');
+    assert.notEqual(sem.status, 503, sem.texto);
+  } finally { await s.fechar(); }
+});
+
+test('Correção no upload: instalar o detector reinicia o motor que já estava rodando, ao fim do pedido em curso', async () => {
+  const s = await cenario();
+  try {
+    const pid = async () => (await s.c.get('/api/v1/anonimizar/estado')).json.detector.rss_mb;
+    const pid1 = await pid();
+    assert.ok(pid1 > 0);
+    assert.equal(await pid(), pid1);
+    // instalação terminou com sucesso: o estado.json muda
+    fs.writeFileSync(path.join(s.base, 'estado.json'), JSON.stringify({ nivel: 'completo', nivel_pedido: 'completo', instalado_em: '2026-11-08T10:00:00Z', erro: null }));
+    const t = await s.c.post('/api/v1/anonimizar/testar', { json: { texto: `${NOME}` } });
+    assert.equal(t.status, 200, t.texto);
+    const pid2 = await pid();
+    assert.notEqual(pid2, pid1, 'o motor antigo continuou rodando');
+    assert.equal(await pid(), pid2);
+    // instalação que falhou (mesmo nivel e instalado_em) não derruba o motor
+    fs.writeFileSync(path.join(s.base, 'estado.json'), JSON.stringify({ nivel: 'completo', nivel_pedido: 'completo', instalado_em: '2026-11-08T10:00:00Z', erro: 'sem espaço' }));
+    await s.c.post('/api/v1/anonimizar/testar', { json: { texto: 'oi' } });
+    assert.equal(await pid(), pid2);
+  } finally { await s.fechar(); }
+});

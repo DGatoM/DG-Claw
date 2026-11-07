@@ -720,16 +720,23 @@ function criarServidor(opcoes) {
     if (cid != null && cid !== '' && !(typeof cid === 'string' && RX_CLIENTE_ID.test(cid))) {
       return H.erroJson(res, 400, `O "cliente_id" veio como ${JSON.stringify(String(cid).slice(0, 80))}, que não vale: use de 8 a 64 caracteres entre letras, números, "-" e "_". Nada foi enviado.`);
     }
-    // Anonimizar, opção "aplicar no que digito": troca só os valores que a tabela já conhece (sem modelo). Comando de barra passa direto.
-    // Com anexo anonimizado, a legenda sempre passa pela tabela, mesmo com a opção desligada.
+    // Anonimizar: TODO texto que chega ao agente passa pelo filtro, inclusive "//" (vira texto), comando de barra com
+    // argumentos e legenda de anexo. Só fica de fora o comando que o Web executa e que não leva texto ao agente.
     // Config ilegível NÃO desliga o filtro em silêncio: a mensagem é recusada com 503.
     try {
-      const comAnexoAnonimizado = Array.isArray(corpo.anexos) && corpo.anexos.some((id) => {
-        const e = typeof id === 'string' ? midia.obter(id) : null;
-        return e && e.slug === agente.slug && /^doc-[0-9a-f]{8}\.anon\./.test(path.basename(e.path));
-      });
-      if (typeof corpo.text === 'string' && !corpo.text.trimStart().startsWith('/') && (comAnexoAnonimizado ? anonimizar.estaLigado(agente.slug) : anonimizar.aplicaDigitado(agente.slug))) {
-        corpo.text = anonimizar.trocarDigitado(agente.slug, corpo.text).texto;
+      if (typeof corpo.text === 'string' && corpo.text.trim()) {
+        const temAnexos = Array.isArray(corpo.anexos) && corpo.anexos.length > 0;
+        const d = await comandos.decidir(agente, corpo.text, { temAnexos });
+        const chegaAoAgente = !d.erro && (d.tipo === 'texto' || /^\S+\s+\S/.test(corpo.text.trim()));
+        if (chegaAoAgente) {
+          const comAnexoAnonimizado = temAnexos && corpo.anexos.some((id) => {
+            const e = typeof id === 'string' ? midia.obter(id) : null;
+            return e && e.slug === agente.slug && /^doc-[0-9a-f]{8}\.anon\./.test(path.basename(e.path));
+          });
+          if (comAnexoAnonimizado ? anonimizar.estaLigado(agente.slug) : anonimizar.aplicaDigitado(agente.slug)) {
+            corpo.text = anonimizar.trocarDigitado(agente.slug, corpo.text).texto;
+          }
+        }
       }
     } catch (e) {
       log('erro', `Anonimizar: mensagem para ${agente.slug} recusada (${e.codigo || e.message}).`);
@@ -745,6 +752,17 @@ function criarServidor(opcoes) {
     const cid = corpo.cliente_id;
     if (cid != null && cid !== '' && !(typeof cid === 'string' && RX_CLIENTE_ID.test(cid))) {
       return H.erroJson(res, 400, `O "cliente_id" veio como ${JSON.stringify(String(cid).slice(0, 80))}, que não vale: use de 8 a 64 caracteres entre letras, números, "-" e "_". Nada foi enviado.`);
+    }
+    // Argumentos de comando também chegam ao agente (skill, /compact foque em...): mesmo filtro do /send.
+    try {
+      for (const campo of ['argumentos', 'text']) {
+        if (typeof corpo[campo] !== 'string' || !corpo[campo].trim()) continue;
+        const temArgs = campo === 'argumentos' || /^\S+\s+\S/.test(corpo.text.trim());
+        if (temArgs && anonimizar.aplicaDigitado(agente.slug)) corpo[campo] = anonimizar.trocarDigitado(agente.slug, corpo[campo]).texto;
+      }
+    } catch (e) {
+      log('erro', `Anonimizar: comando para ${agente.slug} recusado (${e.codigo || e.message}).`);
+      return H.erroJson(res, e.status || 500, e.message, e.codigo ? { codigo: e.codigo } : undefined);
     }
     const r = await conversa.umaVez(agente, 'comando', cid || null, () => conversa.comando(agente, corpo));
     return H.enviaJson(res, r.status, r.corpo);

@@ -300,7 +300,15 @@ function criarAnonimizar(opcoes) {
   }
 
   // ── processo do motor ─────────────────────────────────────────────────────
+  /** Muda quando uma instalação do detector termina com sucesso (nivel/instalado_em do estado.json) ou o venv aparece. */
+  function assinaturaInstalacao() {
+    let nivel = null; let quando = null;
+    try { const j = JSON.parse(fs.readFileSync(path.join(base, 'estado.json'), 'utf8')); nivel = j.nivel; quando = j.instalado_em; } catch (_) { /* sem estado.json ainda */ }
+    return `${nivel}|${quando}|${fs.existsSync(path.join(base, 'venv', 'bin', 'python'))}`;
+  }
+
   const motor = (() => {
+    let assinaturaProc = null;
     let proc = null; let buffer = ''; let atual = null; const fila = []; let ocioso = null;
     function comandoMotor() {
       if (o.motor) return o.motor;
@@ -330,7 +338,7 @@ function criarAnonimizar(opcoes) {
       const { comando, args } = comandoMotor();
       pasta0700(raiz);
       const p = spawn(comando, args, { env: ambiente(), cwd: raiz, stdio: ['pipe', 'pipe', 'pipe'], shell: false });
-      proc = p; buffer = '';
+      proc = p; buffer = ''; assinaturaProc = assinaturaInstalacao();
       p.stdin.on('error', () => { /* o motivo chega pelo evento exit */ });
       p.stdout.setEncoding('utf8');
       p.stdout.on('data', (d) => {
@@ -376,6 +384,13 @@ function criarAnonimizar(opcoes) {
         return;
       }
       if (ocioso) { clearTimeout(ocioso); ocioso = null; }
+      // Detector instalado ou atualizado enquanto o motor estava vivo: ele guarda o interpretador e o estado do NER antigos.
+      // Nenhum pedido está em curso aqui, então encerra e este abre um processo novo (com o Python do venv).
+      if (proc && assinaturaProc !== assinaturaInstalacao()) {
+        log('info', 'Anonimizar: o detector mudou desde que o motor subiu; reiniciando o motor para o próximo pedido.');
+        encerra();
+        cacheEstado = { t: 0, valor: null };
+      }
       try {
         if (!proc) iniciar();
       } catch (e) { item.rejeita(e); proximo(); return; }

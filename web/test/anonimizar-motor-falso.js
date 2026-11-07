@@ -51,7 +51,7 @@ const rl = readline.createInterface({ input: process.stdin });
 rl.on('line', (linha) => {
   const r = JSON.parse(linha);
   if (r.op === 'estado') {
-    return responde({ ok: true, nivel: NIVEL, formatos: FORMATOS, modelo_carregado: false, rss_mb: 30, versao_modelo: NIVEL === 'completo' ? 'teste' : null });
+    return responde({ ok: true, nivel: NIVEL, formatos: FORMATOS, modelo_carregado: false, rss_mb: process.pid, versao_modelo: NIVEL === 'completo' ? 'teste' : null });
   }
   if (r.op === 'anonimizar') {
     const ext = path.extname(r.entrada).toLowerCase();
