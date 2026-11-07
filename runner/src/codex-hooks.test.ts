@@ -6,7 +6,7 @@ import path from "node:path";
 import { ctxDeTeste, lerTexto, pastaTemporaria, prepararAmbiente } from "./apoio-teste.js";
 
 const amb = prepararAmbiente("codex-hooks");
-const { hashDoHook, mesclarHooks, garantirConfiancaNoToml, hooksDoAgente, instalarHooksNoCodex, raizDoPlugin, MARCA_DO_DGCLAW } = await import("./provedores/codex-hooks.js");
+const { hashDoHook, mesclarHooks, garantirConfiancaNoToml, hooksDoAgente, instalarHooksNoCodex, raizDoPlugin, citarParaShell, TomlNaoEditavel, MARCA_DO_DGCLAW } = await import("./provedores/codex-hooks.js");
 const { motorCodex } = await import("./provedores/codex.js");
 
 /** Um plugin falso (só o que o instalador confere) e um workspace servidor falso. */
@@ -40,20 +40,21 @@ test("o hash bate com o que o Codex 0.163 calcula (valores medidos com hooks/lis
 });
 
 test("hooksDoAgente: os quatro hooks do plugin com os mesmos timeouts do hooks.json do Claude, mais os promptHooks", () => {
-  const hooks = hooksDoAgente({ raiz: "/opt/dgclaw/app", temWorkspace: true, temBun: true, promptHooks: ["node /x/novidades-hook.mjs", "  "] });
+  const hooks = hooksDoAgente({ raiz: "/opt/dgclaw/app", workspace: "/home/a/ws", temWorkspace: true, temBun: true, promptHooks: ["node /x/novidades-hook.mjs", "  "] });
+  const fixo = "DGCLAW_WORKSPACE='/home/a/ws' ";
   assert.deepEqual(
     hooks.map((h) => [h.evento, h.matcher ?? "", h.command.replace(MARCA_DO_DGCLAW, ""), h.timeout]),
     [
-      ["SessionStart", "", 'bun "/opt/dgclaw/app/hooks/dispatch.ts" session-start', 8],
-      ["SessionStart", "compact|clear", 'bun "/opt/dgclaw/app/hooks/dispatch.ts" avisos-reset', 5],
-      ["UserPromptSubmit", "", 'bun "/opt/dgclaw/app/hooks/dispatch.ts" user-prompt', 8],
-      ["UserPromptSubmit", "", 'bun "/opt/dgclaw/app/hooks/dispatch.ts" avisos', 6],
-      ["UserPromptSubmit", "", "node /x/novidades-hook.mjs", 10],
+      ["SessionStart", "", fixo + 'bun "/opt/dgclaw/app/hooks/dispatch.ts" session-start', 8],
+      ["SessionStart", "compact|clear", fixo + 'bun "/opt/dgclaw/app/hooks/dispatch.ts" avisos-reset', 5],
+      ["UserPromptSubmit", "", fixo + 'bun "/opt/dgclaw/app/hooks/dispatch.ts" user-prompt', 8],
+      ["UserPromptSubmit", "", fixo + 'bun "/opt/dgclaw/app/hooks/dispatch.ts" avisos', 6],
+      ["UserPromptSubmit", "", fixo + "node /x/novidades-hook.mjs", 10],
     ],
   );
   // sem workspace do DG Claw ou sem bun, só os promptHooks entram
-  assert.equal(hooksDoAgente({ raiz: "/opt/dgclaw/app", temWorkspace: false, temBun: true, promptHooks: [] }).length, 0);
-  assert.equal(hooksDoAgente({ raiz: "/opt/dgclaw/app", temWorkspace: true, temBun: false, promptHooks: ["node /x.mjs"] }).length, 1);
+  assert.equal(hooksDoAgente({ raiz: "/opt/dgclaw/app", workspace: "/w", temWorkspace: false, temBun: true, promptHooks: [] }).length, 0);
+  assert.equal(hooksDoAgente({ raiz: "/opt/dgclaw/app", workspace: "/w", temWorkspace: true, temBun: false, promptHooks: ["node /x.mjs"] }).length, 1);
 });
 
 test("config.toml gerado: hooks.json e confiança só dos hooks do DG Claw, preservando o que já havia", () => {
@@ -98,11 +99,11 @@ test("conteúdo do hook mudou: a confiança é regravada e o hash velho some", (
   const c = cenario("muda");
   instalarHooksNoCodex({ home: c.home, env: c.env, cwd: c.ws, promptHooks: ["node /x/v1.mjs"], area: "t", raiz: c.plugin });
   const antes = lerTexto(path.join(c.home, "config.toml"));
-  const h1 = hashDoHook({ evento: "UserPromptSubmit", command: MARCA_DO_DGCLAW + "node /x/v1.mjs", timeout: 10 });
+  const h1 = hashDoHook({ evento: "UserPromptSubmit", command: `${MARCA_DO_DGCLAW}DGCLAW_WORKSPACE=${citarParaShell(c.ws)} node /x/v1.mjs`, timeout: 10 });
   assert.ok(antes.includes(h1));
   instalarHooksNoCodex({ home: c.home, env: c.env, cwd: c.ws, promptHooks: ["node /x/v2.mjs"], area: "t", raiz: c.plugin });
   const depois = lerTexto(path.join(c.home, "config.toml"));
-  const h2 = hashDoHook({ evento: "UserPromptSubmit", command: MARCA_DO_DGCLAW + "node /x/v2.mjs", timeout: 10 });
+  const h2 = hashDoHook({ evento: "UserPromptSubmit", command: `${MARCA_DO_DGCLAW}DGCLAW_WORKSPACE=${citarParaShell(c.ws)} node /x/v2.mjs`, timeout: 10 });
   assert.ok(depois.includes(h2));
   assert.equal(depois.includes(h1), false, "a seção do mesmo lugar foi atualizada, não duplicada");
   assert.equal((depois.match(/\[hooks\.state\./g) ?? []).length, 5);
@@ -114,6 +115,116 @@ test("garantirConfiancaNoToml: acrescenta a linha em seção que existe sem trus
   const t = `[hooks.state.${JSON.stringify(chave)}]\nenabled = true\n\n[outra]\nx = 1\n`;
   const r = garantirConfiancaNoToml(t, [{ chave, hash: "sha256:zz" }]);
   assert.equal(r, `[hooks.state.${JSON.stringify(chave)}]\nenabled = true\ntrusted_hash = "sha256:zz"\n\n[outra]\nx = 1\n`);
+});
+
+test("todo comando instalado fixa DGCLAW_WORKSPACE, citado para o shell (espaço e aspa simples no caminho)", () => {
+  for (const nome of ["comum", "com espaco", "d'aspa; touch PWNED #"]) {
+    const c = cenario("ws-" + nome.length);
+    const ws2 = path.join(c.raiz, nome);
+    fs.renameSync(c.ws, ws2);
+    const env = { PATH: c.bin, DGCLAW_WORKSPACE: ws2 };
+    const r = instalarHooksNoCodex({ home: c.home, env, cwd: ws2, promptHooks: ["node /x/n.mjs"], area: "t", raiz: c.plugin });
+    assert.equal(r.instalados, 5);
+    const hj = JSON.parse(lerTexto(path.join(c.home, "hooks.json")));
+    const comandos: string[] = Object.values(hj.hooks as Record<string, Array<{ hooks: Array<{ command: string }> }>>)
+      .flat()
+      .flatMap((g) => g.hooks.map((m) => m.command));
+    assert.equal(comandos.length, 5);
+    const esperado = `${MARCA_DO_DGCLAW}DGCLAW_WORKSPACE=${citarParaShell(ws2)} `;
+    for (const cmd of comandos) {
+      assert.ok(cmd.startsWith(esperado), `comando sem o workspace fixo: ${cmd}`);
+      // o shell enxerga o caminho como UMA palavra, igual ao original, sem executar nada
+      const saida = execFileSync("sh", ["-c", cmd.replace(/ (bun|node) .*$/, ' printenv DGCLAW_WORKSPACE')], { encoding: "utf8" });
+      assert.equal(saida.trimEnd(), ws2);
+    }
+    assert.equal(fs.existsSync(path.join(c.raiz, "PWNED")), false);
+    assert.equal(fs.existsSync(path.join(process.cwd(), "PWNED")), false);
+  }
+  assert.equal(citarParaShell("a'b"), `'a'\\''b'`);
+});
+
+test("o workspace fixo vem do agente, não do cwd de quem roda a sessão: o hash acompanha o comando", () => {
+  const c = cenario("hash-ws");
+  instalarHooksNoCodex({ home: c.home, env: c.env, cwd: c.ws, promptHooks: [], area: "t", raiz: c.plugin });
+  const hj = JSON.parse(lerTexto(path.join(c.home, "hooks.json")));
+  const toml = lerTexto(path.join(c.home, "config.toml"));
+  for (const g of hj.hooks.UserPromptSubmit as Array<{ hooks: Array<{ command: string }> }>) {
+    assert.ok(toml.includes(hashDoHook({ evento: "UserPromptSubmit", command: g.hooks[0].command, timeout: g.hooks[0].command.includes(" avisos") ? 6 : 8 })));
+  }
+});
+
+// ---------------------------------------------------------------------------------------------
+// config.toml: formas válidas do cabeçalho e recusa das que não dá para editar com segurança.
+
+const CH = "/h/hooks.json:session_start:0:0";
+const numCab = (t: string) => (t.match(/^\s*\[\s*hooks\s*\.\s*state\s*\./gm) ?? []).length;
+
+test("toml: cabeçalho com comentário no fim é reconhecido, o comentário e as outras linhas ficam", () => {
+  const t = `a = 1\n\n[hooks.state.${JSON.stringify(CH)}] # meu hook\nenabled = true # fica\ntrusted_hash = "sha256:velho" # antigo\n\n[z]\nb = 2\n`;
+  const r = garantirConfiancaNoToml(t, [{ chave: CH, hash: "sha256:novo" }]);
+  assert.equal(r, `a = 1\n\n[hooks.state.${JSON.stringify(CH)}] # meu hook\nenabled = true # fica\ntrusted_hash = "sha256:novo" # antigo\n\n[z]\nb = 2\n`);
+  assert.equal(numCab(r), 1);
+});
+
+test("toml: espaços em volta dos colchetes e dos pontos", () => {
+  const t = `[ hooks . state . ${JSON.stringify(CH)} ]\nx = 1\n`;
+  const r = garantirConfiancaNoToml(t, [{ chave: CH, hash: "sha256:n" }]);
+  assert.equal(r, `[ hooks . state . ${JSON.stringify(CH)} ]\nx = 1\ntrusted_hash = "sha256:n"\n`);
+});
+
+test("toml: chave em aspas literais (e hooks entre aspas)", () => {
+  const t = `[hooks.state.'${CH}']\ntrusted_hash = 'sha256:velho'\n[outra]\n`;
+  const r = garantirConfiancaNoToml(t, [{ chave: CH, hash: "sha256:n" }]);
+  assert.equal(r, `[hooks.state.'${CH}']\ntrusted_hash = "sha256:n"\n[outra]\n`);
+  const r2 = garantirConfiancaNoToml(`["hooks"."state".${JSON.stringify(CH)}]\n`, [{ chave: CH, hash: "sha256:n" }]);
+  assert.equal(numCab(r2.replace(/"hooks"\."state"/, "hooks.state")), 1);
+});
+
+test("toml: chave com aspa dupla escapada no cabeçalho", () => {
+  const ch = '/h "x"/hooks.json:user_prompt_submit:1:0';
+  const r = garantirConfiancaNoToml(`[hooks.state.${JSON.stringify(ch)}]\ntrusted_hash = "sha256:a"\n`, [{ chave: ch, hash: "sha256:b" }]);
+  assert.equal(r, `[hooks.state.${JSON.stringify(ch)}]\ntrusted_hash = "sha256:b"\n`);
+});
+
+test("toml: formas inline ou pontilhadas não são editadas, recusa com motivo", () => {
+  const h = [{ chave: CH, hash: "sha256:n" }];
+  const casos = [
+    `[hooks]\nstate = { ${JSON.stringify(CH)} = { trusted_hash = "sha256:a" } }\n`,
+    `[hooks.state]\n${JSON.stringify(CH)} = { trusted_hash = "sha256:a" }\n`,
+    `hooks.state.${JSON.stringify(CH)}.trusted_hash = "sha256:a"\n`,
+    `hooks = { state = {} }\n`,
+    `[hooks.state.${JSON.stringify(CH)}]\ntrusted_hash = "a"\n[hooks.state.'${CH}']\n`,
+  ];
+  for (const t of casos) {
+    assert.throws(() => garantirConfiancaNoToml(t, h), TomlNaoEditavel, t);
+  }
+});
+
+test("toml: instalar com forma não editável não grava nada (nem o hooks.json) e deixa o config.toml igual", () => {
+  const c = cenario("toml-inline");
+  const arq = path.join(c.home, "hooks.json");
+  const ch = `${arq}:user_prompt_submit:0:0`;
+  const original = `# meu\nmodelo = 1\n[hooks]\nstate = { ${JSON.stringify(ch)} = { trusted_hash = "sha256:x" } }\n`;
+  fs.writeFileSync(path.join(c.home, "config.toml"), original);
+  const r = instalarHooksNoCodex({ home: c.home, env: c.env, cwd: c.ws, promptHooks: ["node /x/n.mjs"], area: "t", raiz: c.plugin });
+  assert.equal(r.instalados, 0);
+  assert.equal(lerTexto(path.join(c.home, "config.toml")), original);
+  assert.equal(fs.existsSync(arq), false);
+});
+
+test("toml: instalar com cabeçalho equivalente (comentário) não duplica a tabela e preserva as linhas alheias na ordem", () => {
+  const c = cenario("toml-equiv");
+  const arq = path.join(c.home, "hooks.json");
+  const ch = `${arq}:user_prompt_submit:0:0`;
+  const antes = `# topo\nmodel = "gpt-5"\n\n[ hooks.state.'${ch}' ] # meu hook\nenabled = false\n\n[projects."/a"]\ntrust_level = "trusted"\n`;
+  fs.writeFileSync(path.join(c.home, "config.toml"), antes);
+  const r = instalarHooksNoCodex({ home: c.home, env: c.env, cwd: c.ws, promptHooks: [], area: "t", raiz: c.plugin });
+  assert.equal(r.instalados, 4);
+  const t = lerTexto(path.join(c.home, "config.toml"));
+  assert.equal((t.match(new RegExp(ch.replace(/[/.]/g, "\\$&"), "g")) ?? []).length, 1, "a mesma chave não aparece em duas tabelas");
+  assert.ok(t.startsWith(`# topo\nmodel = "gpt-5"\n\n[ hooks.state.'${ch}' ] # meu hook\nenabled = false\ntrusted_hash = "sha256:`));
+  assert.ok(t.includes('[projects."/a"]\ntrust_level = "trusted"\n'));
+  assert.ok(t.indexOf("[projects") > t.indexOf("# meu hook"));
 });
 
 test("hooks.json ilegível não é sobrescrito e ninguém ganha confiança", () => {

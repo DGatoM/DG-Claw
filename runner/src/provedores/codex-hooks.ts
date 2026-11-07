@@ -92,9 +92,21 @@ export function achaNoPath(binario: string, pathVar: string | undefined): boolea
   return false;
 }
 
+/** Cita um texto para o shell (aspas simples; a aspa simples vira `'\''`). */
+export function citarParaShell(v: string): string {
+  return `'${v.replace(/'/g, `'\\''`)}'`;
+}
+
 export interface EntradaDeHooks {
   /** Pasta do plugin (de root). */
   raiz: string | null;
+  /**
+   * Workspace autorizado deste agente (caminho absoluto). Todo comando de hook o fixa em
+   * DGCLAW_WORKSPACE: sem isso, outra sessão Codex aberta com o mesmo CODEX_HOME (por exemplo
+   * dentro de um repositório que o agente clonou) faria o dispatch tratar o cwd do repositório
+   * como workspace e ler arquivos dele.
+   */
+  workspace: string;
   /** O agente está num workspace servidor do DG Claw (tem `.dgclaw/config.sh`). */
   temWorkspace: boolean;
   temBun: boolean;
@@ -104,15 +116,18 @@ export interface EntradaDeHooks {
 /** Os hooks que este agente recebe. Mesmos comandos e tempos do `hooks/hooks.json` do Claude. */
 export function hooksDoAgente(e: EntradaDeHooks): HookDoDgclaw[] {
   const out: HookDoDgclaw[] = [];
+  // A marca fica no começo do comando; o workspace vem logo depois como atribuição de ambiente
+  // (o Codex roda o comando por um shell, então `VAR=valor comando` vale como prefixo).
+  const prefixo = `${MARCA_DO_DGCLAW}DGCLAW_WORKSPACE=${citarParaShell(path.resolve(e.workspace))} `;
   if (e.raiz && e.temWorkspace && e.temBun) {
-    const d = (ev: string) => `${MARCA_DO_DGCLAW}bun ${JSON.stringify(path.join(e.raiz as string, "hooks", "dispatch.ts"))} ${ev}`;
+    const d = (ev: string) => `${prefixo}bun ${JSON.stringify(path.join(e.raiz as string, "hooks", "dispatch.ts"))} ${ev}`;
     out.push({ evento: "SessionStart", command: d("session-start"), timeout: 8 });
     out.push({ evento: "SessionStart", matcher: "compact|clear", command: d("avisos-reset"), timeout: 5 });
     out.push({ evento: "UserPromptSubmit", command: d("user-prompt"), timeout: 8 });
     out.push({ evento: "UserPromptSubmit", command: d("avisos"), timeout: 6 });
   }
   for (const p of e.promptHooks) {
-    if (typeof p === "string" && p.trim()) out.push({ evento: "UserPromptSubmit", command: MARCA_DO_DGCLAW + p.trim(), timeout: 10 });
+    if (typeof p === "string" && p.trim()) out.push({ evento: "UserPromptSubmit", command: prefixo + p.trim(), timeout: 10 });
   }
   return out;
 }
@@ -171,35 +186,156 @@ function gravarAtomico(arquivo: string, texto: string, modo: number): void {
   }
 }
 
-/**
- * Garante a seção `[hooks.state."<chave>"]` com `trusted_hash`, editando o texto do config.toml
- * linha a linha: se a seção existe, troca só a linha `trusted_hash` (ou a acrescenta no fim da
- * seção); se não existe, acrescenta no fim do arquivo. Nada mais é tocado nem reordenado.
- */
-export function garantirConfiancaNoToml(texto: string, itens: Array<{ chave: string; hash: string }>): string {
-  let linhas = texto === "" ? [] : texto.split("\n");
-  const terminaEmQuebra = texto.endsWith("\n");
-  if (terminaEmQuebra) linhas.pop();
-  for (const { chave, hash } of itens) {
-    const cab = `[hooks.state.${JSON.stringify(chave)}]`;
-    const ini = linhas.findIndex((l) => l.trim() === cab);
-    const linhaHash = `trusted_hash = ${JSON.stringify(hash)}`;
-    if (ini < 0) {
-      if (linhas.length && linhas[linhas.length - 1].trim() !== "") linhas.push("");
-      linhas.push(cab, linhaHash);
+/** O config.toml tem algo que não dá para editar com segurança: nada é gravado e o motivo vai no log. */
+export class TomlNaoEditavel extends Error {}
+
+type Parte = string;
+/** Lê uma chave composta (`a."b c".'d'`) a partir de `i`. Devolve as partes e onde parou, ou null se não for chave. */
+function lerChave(s: string, i: number): { partes: Parte[]; fim: number } | null {
+  const partes: Parte[] = [];
+  const pulaEsp = () => {
+    while (i < s.length && (s[i] === " " || s[i] === "\t")) i++;
+  };
+  for (;;) {
+    pulaEsp();
+    const c = s[i];
+    if (c === '"') {
+      let j = i + 1;
+      while (j < s.length && s[j] !== '"') j += s[j] === "\\" ? 2 : 1;
+      if (j >= s.length) return null;
+      try {
+        partes.push(JSON.parse(s.slice(i, j + 1)) as string);
+      } catch {
+        return null;
+      }
+      i = j + 1;
+    } else if (c === "'") {
+      const j = s.indexOf("'", i + 1);
+      if (j < 0) return null;
+      partes.push(s.slice(i + 1, j));
+      i = j + 1;
+    } else {
+      const m = /^[A-Za-z0-9_-]+/.exec(s.slice(i));
+      if (!m) return null;
+      partes.push(m[0]);
+      i += m[0].length;
+    }
+    pulaEsp();
+    if (s[i] === ".") {
+      i++;
       continue;
     }
-    let fim = ini + 1;
-    while (fim < linhas.length && !/^\s*\[/.test(linhas[fim])) fim++;
-    const posHash = linhas.slice(ini + 1, fim).findIndex((l) => /^\s*trusted_hash\s*=/.test(l));
-    if (posHash >= 0) linhas[ini + 1 + posHash] = linhaHash;
-    else {
+    return { partes, fim: i };
+  }
+}
+
+type Item =
+  | { tipo: "cab"; partes: Parte[]; linha: number }
+  | { tipo: "chave"; tabela: Parte[]; caminho: Parte[]; linha: number }
+  | { tipo: "tabelaDeArray"; linha: number };
+
+/** Varre o TOML linha a linha: cabeçalhos de tabela e chaves (com o caminho completo). Ignora o miolo de strings de várias linhas. */
+function varrer(linhas: string[]): Item[] {
+  const itens: Item[] = [];
+  let tabela: Parte[] = [];
+  let multi: string | null = null;
+  linhas.forEach((l, n) => {
+    if (multi) {
+      if (l.includes(multi) && (l.split(multi).length - 1) % 2 === 1) multi = null;
+      return;
+    }
+    const t = l.trimStart();
+    if (t === "" || t.startsWith("#")) return;
+    if (t.startsWith("[[")) {
+      itens.push({ tipo: "tabelaDeArray", linha: n });
+      tabela = ["[["];
+      return;
+    }
+    if (t.startsWith("[")) {
+      const k = lerChave(t, 1);
+      if (k && t[k.fim] === "]") {
+        const resto = t.slice(k.fim + 1).trim();
+        if (resto === "" || resto.startsWith("#")) {
+          itens.push({ tipo: "cab", partes: k.partes, linha: n });
+          tabela = k.partes;
+        }
+      }
+      return; // o resto é continuação de array de várias linhas, por exemplo
+    }
+    const k = lerChave(t, 0);
+    if (k && t[k.fim] === "=") {
+      itens.push({ tipo: "chave", tabela, caminho: [...tabela, ...k.partes], linha: n });
+      const valor = t.slice(k.fim + 1);
+      for (const d of ['"""', "'''"]) {
+        if ((valor.split(d).length - 1) % 2 === 1) multi = d;
+      }
+    }
+  });
+  return itens;
+}
+
+const igual = (a: Parte[], b: Parte[]) => a.length === b.length && a.every((x, i) => x === b[i]);
+const comecaCom = (a: Parte[], pre: Parte[]) => a.length >= pre.length && pre.every((x, i) => x === a[i]);
+
+/**
+ * Garante a seção `[hooks.state."<chave>"]` com `trusted_hash`, editando o texto do config.toml
+ * linha a linha: se a seção existe (em qualquer forma válida do cabeçalho: espaços, comentário no
+ * fim, chave entre aspas duplas ou literais), troca só a linha `trusted_hash` (ou a acrescenta no
+ * fim da seção); se não existe, acrescenta no fim do arquivo. Nada mais é tocado nem reordenado.
+ * Se a chave já está definida de um jeito que não dá para editar com segurança (tabela inline,
+ * `state = {...}`, chave pontilhada, cabeçalho repetido), lança TomlNaoEditavel sem devolver texto.
+ */
+export function garantirConfiancaNoToml(texto: string, itens: Array<{ chave: string; hash: string }>): string {
+  const linhas = texto === "" ? [] : texto.split("\n");
+  if (texto.endsWith("\n")) linhas.pop();
+  for (const { chave, hash } of itens) {
+    const alvo = ["hooks", "state", chave];
+    const mapa = varrer(linhas);
+    const cabs = mapa.filter((x): x is Extract<Item, { tipo: "cab" }> => x.tipo === "cab" && igual(x.partes, alvo));
+    // Conflito: a chave (ou um pai dela) recebe valor inline, ou algo dentro dela é definido por chave
+    // pontilhada FORA do cabeçalho dela. As chaves que estão sob o cabeçalho da própria seção são normais.
+    const ruim = mapa.find((x) => x.tipo === "chave" && (comecaCom(alvo, x.caminho) || (comecaCom(x.caminho, alvo) && !comecaCom(x.tabela, alvo))));
+    const hashDaSecao = mapa.find((x) => x.tipo === "chave" && igual(x.tabela, alvo) && igual(x.caminho, [...alvo, "trusted_hash"]));
+    if (ruim) {
+      throw new TomlNaoEditavel(
+        `a confiança de ${chave} já está definida no config.toml na linha ${ruim.linha + 1} em forma inline ou por chave pontilhada (${linhas[ruim.linha].trim().slice(0, 60)}), que não edito com segurança`,
+      );
+    }
+    if (cabs.length > 1) {
+      throw new TomlNaoEditavel(`o config.toml tem a seção de ${chave} repetida (linhas ${cabs.map((c) => c.linha + 1).join(" e ")}), o que já é um TOML inválido`);
+    }
+    const linhaHash = `trusted_hash = ${JSON.stringify(hash)}`;
+    if (cabs.length === 0) {
+      if (linhas.length && linhas[linhas.length - 1].trim() !== "") linhas.push("");
+      linhas.push(`[hooks.state.${JSON.stringify(chave)}]`, linhaHash);
+      continue;
+    }
+    const ini = cabs[0].linha;
+    const proximo = mapa.find((x) => x.linha > ini && (x.tipo === "cab" || x.tipo === "tabelaDeArray"));
+    const fim = proximo ? proximo.linha : linhas.length;
+    if (hashDaSecao) {
+      const n = hashDaSecao.linha;
+      const m = /^(\s*[^=]*?=\s*)("(?:[^"\\]|\\.)*"|'[^']*')(\s*(?:#.*)?)$/.exec(linhas[n]);
+      if (!m) throw new TomlNaoEditavel(`a linha ${n + 1} (trusted_hash de ${chave}) tem um formato que não edito com segurança`);
+      linhas[n] = `${m[1]}${JSON.stringify(hash)}${m[3]}`;
+    } else {
       let p = fim;
       while (p > ini + 1 && linhas[p - 1].trim() === "") p--;
       linhas.splice(p, 0, linhaHash);
     }
   }
-  return linhas.join("\n") + "\n";
+  const saida = linhas.join("\n") + "\n";
+  // Conferência final: cada chave tem UM cabeçalho, UM trusted_hash e o valor esperado.
+  const mapa = varrer(saida.split("\n"));
+  for (const { chave, hash } of itens) {
+    const alvo = ["hooks", "state", chave];
+    const n = mapa.filter((x) => x.tipo === "cab" && igual(x.partes, alvo)).length;
+    const h = mapa.filter((x) => x.tipo === "chave" && igual(x.caminho, [...alvo, "trusted_hash"])).length;
+    if (n !== 1 || h !== 1 || !saida.includes(JSON.stringify(hash))) {
+      throw new TomlNaoEditavel(`a conferência final falhou para ${chave} (cabeçalhos: ${n}, trusted_hash: ${h})`);
+    }
+  }
+  return saida;
 }
 
 export interface ResultadoDosHooks {
@@ -226,7 +362,7 @@ export function instalarHooksNoCodex(opts: {
   const ws = opts.env.DGCLAW_WORKSPACE?.trim() || opts.cwd;
   const temWorkspace = fs.existsSync(path.join(ws, ".dgclaw", "config.sh"));
   const temBun = achaNoPath("bun", opts.env.PATH ?? process.env.PATH);
-  const hooks = hooksDoAgente({ raiz, temWorkspace, temBun, promptHooks: opts.promptHooks });
+  const hooks = hooksDoAgente({ raiz, workspace: ws, temWorkspace, temBun, promptHooks: opts.promptHooks });
   const arquivo = path.join(home, "hooks.json");
   const toml = path.join(home, "config.toml");
   try {
@@ -277,20 +413,33 @@ export function instalarHooksNoCodex(opts: {
     if (!existe && hooks.length === 0) return { instalados: 0 };
     const { novo, confiar } = mesclarHooks(atual, hooks, arquivo);
     const texto = JSON.stringify(novo, null, 2) + "\n";
-    fs.mkdirSync(home, { recursive: true, mode: 0o700 });
-    if (texto !== bruto) gravarAtomico(arquivo, texto, existe ? fs.statSync(arquivo).mode & 0o777 : 0o600);
+    // O config.toml é calculado ANTES de gravar qualquer coisa: se ele não puder ser editado com
+    // segurança, nada é gravado (nem o hooks.json) e os arquivos da pessoa ficam como estavam.
+    let t = "";
+    let modo = 0o600;
+    let novoToml = "";
     if (confiar.length) {
-      let t = "";
-      let modo = 0o600;
       try {
         t = fs.readFileSync(toml, "utf8");
         modo = fs.statSync(toml).mode & 0o777;
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
       }
-      const novoToml = garantirConfiancaNoToml(t, confiar);
-      if (novoToml !== t) gravarAtomico(toml, novoToml, modo);
+      try {
+        novoToml = garantirConfiancaNoToml(t, confiar);
+      } catch (err) {
+        if (!(err instanceof TomlNaoEditavel)) throw err;
+        log.aviso(
+          area,
+          `não gravei os hooks do DG Claw no Codex: ${err.message}. O config.toml (${toml}) ficou como estava e o agente sobe sem o recall de memória e sem o quadro de avisos. ` +
+            `Para ligar, deixe a confiança de cada hook como uma seção comum [hooks.state."<chave>"] (ou apague a definição que está em outra forma) e reinicie o agente`,
+        );
+        return { instalados: 0, motivo: "config.toml não editável" };
+      }
     }
+    fs.mkdirSync(home, { recursive: true, mode: 0o700 });
+    if (texto !== bruto) gravarAtomico(arquivo, texto, existe ? fs.statSync(arquivo).mode & 0o777 : 0o600);
+    if (confiar.length && novoToml !== t) gravarAtomico(toml, novoToml, modo);
     return { instalados: confiar.length };
   } catch (err) {
     log.aviso(
