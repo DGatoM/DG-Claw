@@ -150,7 +150,6 @@ def op_anonimizar_texto(req):
 def op_reverter_texto(req):
     texto = _texto_str(req, "texto")
     rev = Reversor(req.get("tabela") or [])
-    rev.md = True
     return {"ok": True, "texto": rev.reverter(texto), "trocas": rev.trocas, "desconhecidos": rev.desconhecidos}
 
 
@@ -325,14 +324,14 @@ def op_reverter(req):
                         "para fora. Peça ao agente o resultado em .docx, .md ou .txt." % (nome, ext))
     destino_dir = os.path.dirname(os.path.abspath(saida))
     os.makedirs(destino_dir, exist_ok=True)
+    avisos_rev = []
     tmp = tempfile.mkdtemp(prefix=".rev-", dir=destino_dir)
     tmp_arq = os.path.join(tmp, "saida")
     try:
         if ext in (".txt", ".md"):
-            rev.md = True
             docs.escrever_texto(tmp_arq, rev.reverter(docs.ler_texto(entrada)))
         elif ext == ".csv":
-            docs.escrever_texto(tmp_arq, docs.csv_mapear(docs.ler_texto(entrada), rev.reverter))
+            docs.escrever_texto(tmp_arq, docs.csv_mapear(docs.ler_texto(entrada), lambda c: docs.csv_inerte(rev.reverter(c))))
         elif ext == ".json":
             try:
                 obj = json.loads(docs.ler_texto(entrada))
@@ -345,15 +344,17 @@ def op_reverter(req):
             docs.pptx_transformar(entrada, tmp_arq, nome, rev.encontrar)
         elif ext == ".xlsx":
             wb = docs.xlsx_abrir(entrada, nome)
-            docs.xlsx_reverter(wb, rev.encontrar)
-            wb.save(tmp_arq)
+            docs.xlsx_reverter(wb, docs.xlsx_abrir(entrada, nome, data_only=True), rev.encontrar)
+            parcial = os.path.join(tmp, "parcial.xlsx")
+            wb.save(parcial)
+            ooxml.reescrever(parcial, tmp_arq, nome, lambda texto, estrutural=False: [], avisos_rev, so_nao_celulas=True)
         else:
             raise ErroMotor("formato_nao_suportado", "O formato '%s' do arquivo '%s' não tem reversão. Aceitos: .txt .md .csv .json .docx .xlsx .pptx."
                             % (ext or "(sem extensão)", nome))
         os.replace(tmp_arq, saida)
     finally:
         _limpar(tmp)
-    return {"ok": True, "trocas": rev.trocas, "desconhecidos": rev.desconhecidos}
+    return {"ok": True, "trocas": rev.trocas, "desconhecidos": rev.desconhecidos, "avisos": avisos_rev}
 
 
 OPS = {"estado": op_estado, "anonimizar": op_anonimizar, "anonimizar_texto": op_anonimizar_texto,

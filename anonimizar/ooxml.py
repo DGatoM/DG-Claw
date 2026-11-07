@@ -23,6 +23,8 @@ PARAGRAFOS = {W + "p", A + "p", S + "si", S + "text", S + "is"}
 TEXTOS = {W + "t", W + "delText", A + "t", S + "t"}
 # Atributos que costumam carregar texto de gente (os demais passam só pelos detectores de número e contato).
 ATRIBUTOS_HUMANOS = {"author", "initials", "descr", "title", "alt", "Target", "display", "tooltip", "location", "href", "lastAuthor"}
+# Carimbos de criação/alteração do arquivo: não são dado do documento; saem zerados da saída.
+CARIMBOS_DE_TEMPO = {"created", "modified", "lastPrinted"}
 GUID = re.compile(r"^\{?[0-9A-Fa-f]{8}(-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}\}?$")
 TIPOS_REL_EXTERNOS_REMOVIDOS = {"image", "oleObject", "externalLink", "attachedTemplate", "frame", "audio", "video", "package", "vbaProject"}
 SUBIR_ATE = {"drawing", "pict", "object", "pic", "oleObj", "control", "legacyDrawing", "legacyDrawingHF", "externalReference",
@@ -51,6 +53,8 @@ def categoria_removida(nome):
         return "macros"
     if "externallinks/" in baixo:
         return "links para outras planilhas"
+    if baixo.endswith("/connections.xml") or "/querytables/" in baixo or "/webextensions/" in baixo or "/pivotcache/" in baixo:
+        return "conexões de dados"
     if "/embeddings/" in baixo or "oleobject" in baixo or "/activex/" in baixo:
         return "objetos embutidos"
     if "/media/" in baixo or "thumbnail" in baixo or baixo.endswith((".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tif", ".tiff", ".emf", ".wmf", ".svg", ".webp")):
@@ -62,7 +66,8 @@ def categoria_removida(nome):
 
 def _analisar(etree, dados, nome):
     try:
-        parser = etree.XMLParser(recover=nome.endswith(".vml"), resolve_entities=False, no_network=True, huge_tree=False)
+        parser = etree.XMLParser(recover=nome.endswith(".vml"), resolve_entities=False, no_network=True, huge_tree=False,
+                                 remove_comments=True, remove_pis=True)
         return etree.fromstring(dados, parser)
     except etree.XMLSyntaxError:
         raise ErroMotor("arquivo_invalido", "Uma parte interna do arquivo está corrompida (%s). "
@@ -137,6 +142,8 @@ def textos_para_deteccao(caminho, nome, so_nao_celulas=False):
             for el in raiz.iter():
                 if not isinstance(el.tag, str):
                     continue
+                if f == "docProps/core.xml" and el.tag.split("}")[-1] in CARIMBOS_DE_TEMPO:
+                    continue
                 if el not in tratados and el.text and el.text.strip() and not (so_nao_celulas and _ignora_texto(f, el)):
                     conteudo.append(el.text.strip())
                 for k, v in el.attrib.items():
@@ -202,6 +209,8 @@ def reescrever(entrada, saida, nome, encontrar, avisos, so_nao_celulas=False):
                 for el in raiz.iter():
                     if isinstance(el.tag, str) and el.tag.split("}")[-1] in ("creator", "lastModifiedBy"):
                         el.text = ""
+                    elif isinstance(el.tag, str) and el.tag.split("}")[-1] in CARIMBOS_DE_TEMPO:
+                        el.text = "1970-01-01T00:00:00Z"
             subs[n] = _serializar(etree, raiz)
         with zipfile.ZipFile(saida, "w") as out:
             for info in z.infolist():

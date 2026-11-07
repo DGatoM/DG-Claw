@@ -176,6 +176,11 @@ class Sessao:
                     return self._marcar(tipo, cand)
         return None
 
+    def data_para_marcador(self, d):
+        """Célula de data do Excel: vira marcador DATA; o valor vale nos formatos dd/mm/aaaa e ISO para a verificação final."""
+        self._lembrar("DATA", d.strftime("%Y-%m-%d"))
+        return self._marcar("DATA", "%02d/%02d/%04d" % (d.day, d.month, d.year))
+
     def _marcar(self, tipo, valor):
         self._lembrar(tipo, valor)
         m = self.tabela.achar(tipo, valor) or self.tabela.criar(tipo, valor)
@@ -323,17 +328,31 @@ def _juntar_ner(spans_regex, spans_ner, texto):
 
 
 _RX_URL = re.compile(r"(?i)(?:https?://|www\.|mailto:|data:)[^\s<>\"'`)]*")
-_RX_DESTINO_MD = re.compile(r"\]\(([^)\n]*)\)")
-_RX_REF_MD = re.compile(r"(?m)^[ ]{0,3}\[[^\]\n]+\]:[ \t]*\S+")
+_RX_HTML = re.compile(r"<!--.*?(?:-->|\Z)|</?[A-Za-z][^>]*>", re.S)
+_RX_DESTINO_MD = re.compile(r"\]\(([^)]*)\)")
+_RX_REF_MD = re.compile(r"(?m)^[ ]{0,3}\[[^\]\n]+\]:[ \t]*(?:\r?\n[ \t]*)?\S+[^\n]*")
+_CARACTERES_DE_URL = set("/\\=?&#%:@")
 
 
-def zonas_sem_troca(texto, md=False):
-    """Trechos onde marcador NÃO vira dado real: URL solta e, no markdown, destino de link/imagem."""
+def zonas_sem_troca(texto):
+    """Trechos onde marcador NÃO vira dado real: tag e comentário HTML (mesmo em várias linhas), definição de
+    referência do markdown, destino de link ou imagem e URL solta."""
     zonas = [(m.start(), m.end()) for m in _RX_URL.finditer(texto)]
-    if md:
-        zonas += [(m.start(1) - 1, m.end()) for m in _RX_DESTINO_MD.finditer(texto)]
-        zonas += [(m.start(), m.end()) for m in _RX_REF_MD.finditer(texto)]
+    zonas += [(m.start(), m.end()) for m in _RX_HTML.finditer(texto)]
+    zonas += [(m.start(1) - 1, m.end()) for m in _RX_DESTINO_MD.finditer(texto)]
+    zonas += [(m.start(), m.end()) for m in _RX_REF_MD.finditer(texto)]
     return zonas
+
+
+def pedaco_parece_url(texto, ini, fim):
+    """O "pedaço sem espaço" que contém o marcador tem / \\ = ? & # % : ou @ (cobre URL sem esquema)."""
+    esq = ini
+    while esq > 0 and not texto[esq - 1].isspace():
+        esq -= 1
+    dir_ = fim
+    while dir_ < len(texto) and not texto[dir_].isspace():
+        dir_ += 1
+    return any(c in _CARACTERES_DE_URL for c in texto[esq:dir_])
 
 
 class Reversor:
@@ -343,15 +362,14 @@ class Reversor:
             self.valor_de.setdefault(e["marcador"], e["valor"])
         self.trocas = 0
         self.desconhecidos = []
-        self.md = False
 
     def encontrar(self, texto):
-        zonas = zonas_sem_troca(texto, self.md)
+        zonas = zonas_sem_troca(texto)
         saida = []
         for m in _RX_MARCADOR.finditer(texto):
             marcador = m.group(0)
             if marcador in self.valor_de:
-                if any(a < m.end() and m.start() < b for a, b in zonas):
+                if any(a < m.end() and m.start() < b for a, b in zonas) or pedaco_parece_url(texto, m.start(), m.end()):
                     continue
                 saida.append((m.start(), m.end(), self.valor_de[marcador]))
                 self.trocas += 1

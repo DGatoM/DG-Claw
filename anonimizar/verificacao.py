@@ -4,6 +4,7 @@ Para docx e xlsx cada arquivo do zip é descompactado e lido (texto e atributos 
 demais partes, em bruto). Procura cada valor detectado no documento, normalizado; para dígitos,
 também a sequência só de dígitos. Nunca devolve nem registra o valor: só o tipo e a parte.
 """
+import html
 import os
 import re
 import zipfile
@@ -43,8 +44,11 @@ def partes(caminho):
                                 blocos.append(el.tail)
                             blocos += [v for v in el.attrib.values() if v]
                     saida.append((info.filename, "\n".join(blocos)))
-                    continue
-            saida.append((info.filename, dados.decode("latin-1")))
+            # O texto bruto da parte, como está no arquivo (comentário XML, instrução de processamento, atributo) e com as
+            # entidades resolvidas (&#x31; vira 1): o dado pode estar em qualquer um dos dois.
+            bruto = dados.decode("utf-8", "replace") if info.filename.endswith((".xml", ".rels", ".vml")) else dados.decode("latin-1")
+            saida.append((info.filename + " (texto bruto)", bruto))
+            saida.append((info.filename + " (entidades resolvidas)", html.unescape(bruto)))
     return saida
 
 
@@ -63,6 +67,11 @@ def _procura(tipo, valor):
     chave = normalizar(tipo, valor)
     if not chave:
         return lambda t: False
+    if tipo in ("CPF",):   # também sem os zeros à esquerda (o Excel guarda o CPF como número)
+        sem_zero = chave.lstrip("0")
+        if len(sem_zero) >= 7:
+            rx0 = re.compile(r"(?<!\d)0*" + re.escape(sem_zero) + r"(?!\d)")
+            return lambda t: bool(rx0.search(t) or rx0.search(re.sub(r"[ .\-/()+]", "", t)))
     if tipo in TIPOS_DIGITOS:
         pre = r"(?:55)?" if tipo == "TELEFONE" else ""
         rx = re.compile(r"(?<!\d)" + pre + re.escape(chave) + r"(?!\d)")
@@ -70,9 +79,13 @@ def _procura(tipo, valor):
             return lambda t: bool(rx.search(t) or rx.search(re.sub(r"[ .\-/()+]", "", t)))
         return lambda t: bool(rx.search(t))
     if tipo == "CNPJ":
-        rx = re.compile(r"(?<![0-9A-Za-z])" + re.escape(chave) + r"(?![0-9A-Za-z])")
+        sem_zero = chave.lstrip("0")
+        rx = re.compile(r"(?<![0-9A-Za-z])0*" + re.escape(sem_zero) + r"(?![0-9A-Za-z])")
         return lambda t: bool(rx.search(t) or rx.search(re.sub(r"[./\-\s]", "", t.upper())))
-    if tipo in ("VALOR", "DATA"):
+    if tipo == "DATA":   # data ISO pode vir seguida de "T00:00:00"
+        rx = re.compile(r"(?<!\d)" + re.escape(chave) + r"(?!\d)")
+        return lambda t: bool(rx.search(re.sub(r"\s+", "", sem_acento(t).lower())))
+    if tipo == "VALOR":
         rx = re.compile(r"(?<!\w)" + re.escape(chave) + r"(?!\w)")
         return lambda t: bool(rx.search(re.sub(r"\s+", "", sem_acento(t).lower())))
     rx = re.compile(r"(?<!\w)" + re.escape(chave).replace(r"\ ", " ") + r"(?!\w)")

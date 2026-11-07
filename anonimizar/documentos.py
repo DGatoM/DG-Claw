@@ -6,6 +6,7 @@ valor está partido entre runs, o texto novo vai para o primeiro run e o resto d
 dos demais. Nenhuma mensagem de erro carrega conteúdo do documento, só o nome do arquivo.
 """
 import bisect
+import datetime
 import csv
 import html
 import io
@@ -349,6 +350,9 @@ def trocar_texto_de_celula(sessao, v, cabecalho):
     return novo
 
 
+_RX_LITERAL_NUMERICO = re.compile(r"(?<![A-Za-z_$\d.!'\"])(\d{6,14})(?![\d.]|[A-Za-z_(!])")
+
+
 def xlsx_transformar(wb, sessao):
     """Anonimiza o workbook aberto: nomes de aba, células de texto, números, fórmulas com dado, comentários.
 
@@ -368,30 +372,38 @@ def xlsx_transformar(wb, sessao):
     for ws in wb.worksheets:
         ws.title = novos[ws.title]
     formulas = 0
+    datas = bool(sessao.opcoes.get("datas"))
     for ws in wb.worksheets:
         cab = cabecalhos(ws)
         for c in xlsx_celulas_da_aba(ws):
             v = c.value
-            if _eh_numero(c):
+            ctx = cab.get(c.column, "")
+            if datas and isinstance(v, datetime.date):
+                c.value = sessao.data_para_marcador(v)
+                c.data_type = "s"
+                c.number_format = "General"
+            elif _eh_numero(c):
                 texto = numero_como_texto(v)
-                m = sessao.numero_para_marcador(texto, cab.get(c.column, "")) if texto else None
+                m = sessao.numero_para_marcador(texto, ctx) if texto else None
                 if m:
                     c.value = m
             elif isinstance(v, str):
                 trocas = sessao.encontrar(v)
-                if not trocas and c.data_type != "f":
-                    novo = trocar_texto_de_celula(sessao, v, cab.get(c.column, ""))
+                novo = distribuir([v], trocas)[0] if trocas else v
+                if c.data_type == "f":
+                    # literal numérico na fórmula recebe o mesmo tratamento contextual das células numéricas
+                    novo = _RX_LITERAL_NUMERICO.sub(lambda mt: sessao.numero_para_marcador(mt.group(1), ctx) or mt.group(1), novo)
+                    if novo != v:
+                        puro = _literal_puro(novo)
+                        c.value = puro if puro is not None else novo.lstrip("=")
+                        c.data_type = "s"
+                        formulas += 1
+                else:
+                    if not trocas:
+                        novo = trocar_texto_de_celula(sessao, v, ctx)
                     if novo != v:
                         c.value = novo
-                        continue
-                if trocas:
-                    novo = distribuir([v], trocas)[0]
-                    if c.data_type == "f":
-                        puro = _literal_puro(novo)
-                        novo = puro if puro is not None else novo.lstrip("=")
-                        formulas += 1
-                    c.value = novo
-                    c.data_type = "s"
+                        c.data_type = "s"
             if c.comment is not None:
                 t, a = c.comment.text, c.comment.author
                 if t and sessao.trocar(t) != t:
@@ -413,14 +425,39 @@ def xlsx_celulas_da_aba(ws):
                 yield c
 
 
-def xlsx_reverter(wb, encontrar):
-    """Reversão: só texto de célula (nunca nome de aba, comentário, link ou propriedade)."""
+def xlsx_reverter(wb, valores, encontrar):
+    """Reversão: só texto de célula (nunca nome de aba, comentário, link ou propriedade).
+
+    O arquivo sai SEM fórmulas: cada fórmula vira o valor em cache (ou, se nunca foi calculada, o texto dela como
+    texto inerte). Assim uma fórmula como WEBSERVICE(...&A1) não consegue mandar o dado real para fora.
+    """
     for ws in wb.worksheets:
+        ws_v = valores[ws.title] if ws.title in valores.sheetnames else None
         for c in xlsx_celulas_da_aba(ws):
-            if c.data_type != "f" and isinstance(c.value, str):
-                trocas = encontrar(c.value)
+            v = c.value
+            if c.data_type == "f":
+                cache = ws_v[c.coordinate].value if ws_v is not None else None
+                v = cache if cache is not None else str(v.text if hasattr(v, "text") else v)
+                c.data_type = "s" if isinstance(v, str) else c.data_type
+            if isinstance(v, str):
+                trocas = encontrar(v)
                 if trocas:
-                    c.value = distribuir([c.value], trocas)[0]
+                    v = distribuir([v], trocas)[0]
+                c.value = v
+                c.data_type = "s"   # texto começado em "=" não pode voltar a ser fórmula
+            elif c.data_type == "n" or c.value is not v:
+                c.value = v
+    for nome in list(wb.defined_names):
+        del wb.defined_names[nome]
+    for ws in wb.worksheets:
+        for nome in list(ws.defined_names):
+            del ws.defined_names[nome]
+    wb._external_links = []
+
+
+def csv_inerte(celula):
+    """CSV que abre no Excel: célula que começa com = + - @ tab ou CR ganha apóstrofo e não vira fórmula."""
+    return "'" + celula if celula[:1] in ("=", "+", "-", "@", "\t", "\r") else celula
 
 
 def xlsx_csvs(caminho_original, nome, wb_anon, sessao):
@@ -441,6 +478,8 @@ def xlsx_csvs(caminho_original, nome, wb_anon, sessao):
                     texto = numero_como_texto(v)
                     m = sessao.numero_para_marcador(texto, cab.get(cv.column, "")) if texto else None
                     v = m or v
+                elif isinstance(v, datetime.date) and sessao.opcoes.get("datas"):
+                    v = sessao.data_para_marcador(v)
                 elif hasattr(v, "isoformat"):
                     v = v.isoformat()
                 linha.append("" if v is None else v)
