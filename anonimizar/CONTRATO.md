@@ -62,7 +62,16 @@ todos os documentos dele).
   mesmo marcador.
 - Texto de entrada que já parece marcador (`[PESSOA_3]`) é neutralizado (`［PESSOA_3］`, colchetes de
   largura total) antes de qualquer coisa, para que um documento não consiga plantar marcador.
-- Resposta: `{"ok":true,"saidas":[{"caminho":"...","formato":"md"}],"novas":[{"tipo","valor","marcador"}],"contagem":{"PESSOA":3,...},"avisos":["..."],"nivel":"..."}`.
+- Resposta: `{"ok":true,"saidas":[{"caminho":"...","formato":"md"}],"novas":[{"tipo","valor","marcador"}],"usados":["[PESSOA_1]",...],"contagem":{"PESSOA":3,...},"avisos":["..."],"nivel":"..."}`.
+  `usados` lista TODOS os marcadores presentes em qualquer parte de qualquer saída (inclusive
+  cabeçalho, rodapé, comentário, metadado e relacionamento), novos ou reaproveitados. O Web guarda
+  essa lista no registro do documento e só ela decide o que vira lápide ao apagar.
+- Valores não textuais também passam pelo filtro: número em célula de planilha e em JSON (CPF ou
+  CNPJ guardado como número, inclusive sem o zero à esquerda), literal dentro de fórmula, metadado
+  (`docProps/*`), comentário, hyperlink, relacionamento externo e nome de aba.
+- Verificação final obrigatória: depois de gravar, o motor relê TODAS as partes de TODAS as saídas
+  (no Office, cada arquivo do zip descompactado) e procura cada valor detectado, normalizado. Se
+  algum sobrou, a operação falha fechada (`codigo:"sobrou_dado"`) e nada fica em `saida_dir`.
   `novas` traz só as entradas que não estavam na tabela; o Web junta e grava cifrado.
 - Falha fechada: PDF sem texto (escaneado), formato que o nível atual não lê, arquivo protegido por
   senha, docx/xlsx com mais de 200 MB descompactados (bomba de zip), ou erro do modelo: `ok:false`,
@@ -72,7 +81,10 @@ todos os documentos dele).
 `{"ok":true,"texto":"<com marcadores>","novas":[...],"contagem":{...}}` (tela de teste e legenda).
 
 ### `{"op":"reverter","entrada":"<arquivo>","saida":"<arquivo>","tabela":[...]}`
-Troca marcadores pelos valores em `.txt .md .csv .json .html .docx .xlsx .pptx`. Marcador
+Troca marcadores pelos valores em `.txt .md .csv .json .docx .xlsx .pptx`, SÓ em texto visível:
+nunca dentro de URL, atributo, relacionamento, destino de link ou de imagem (no md, nem em
+`](...)` nem em URL solta; no Office, só nós de texto). Marcador num desses lugares fica como está.
+`.html .htm .svg .xml` e outros formatos ativos: `ok:false`, `codigo:"formato_ativo"`. Marcador
 desconhecido fica como está. `{"ok":true,"trocas":int,"desconhecidos":["[PESSOA_9]"]}`. PDF:
 `ok:false`, `codigo:"pdf"`, com o motivo ("peça ao agente o resultado em .docx ou .md").
 Também `{"op":"reverter_texto","texto":"...","tabela":[...]}` -> `{"ok":true,"texto":"...","trocas":int}`.
