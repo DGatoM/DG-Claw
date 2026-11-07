@@ -344,6 +344,19 @@ test("Codex login expirado: task_complete unauthorized depois do auth.json vira 
   assert.equal(s.estado.statusReason, "runner:login-expirado", "o Stop do mesmo turno não desfaz o aviso");
 });
 
+test("Codex login expirado: credencial ecoada na mensagem do erro não chega ao log", async () => {
+  datarAuth(-60_000);
+  const { s, erro } = await comTurnoFeito();
+  // o segredo atravessa o corte de 160 caracteres: a máscara precisa vir antes do corte
+  erro("unauthorized", `${"x".repeat(150)} 401 chave=${OAI}`);
+  await esperarAte(() => s.estado.statusReason === "runner:login-expirado", 6_000, "o login expirado ser detectado no rollout");
+  const logs = lerTexto(amb.logDoRunner);
+  assert.ok(logs.includes("login expirado detectado por rollout do Codex"));
+  assert.equal(logs.includes(OAI), false, "a chave do cofre não pode aparecer no log");
+  assert.equal(logs.includes(OAI.slice(0, 12)), false, "nem um pedaço dela");
+  assert.equal((s.estado.error ?? "").includes(OAI), false);
+});
+
 test("Codex login expirado: erro anterior ao auth.json (login refeito depois) NÃO marca", async () => {
   datarAuth(-60_000);
   const { s, erro } = await comTurnoFeito();

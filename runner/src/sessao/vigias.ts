@@ -1,6 +1,7 @@
 import pty from "node-pty";
 import type { Sessao } from "../sessao.js";
 import { log } from "../logger.js";
+import { mascarar } from "../mascara.js";
 import { type EventoInterno, acharRolloutPorId, erroDeLoginDoCodex, descobrirRollout, vigiarRollout } from "../provedores/codex-rollout.js";
 import { codexHomeDe } from "../provedores/codex.js";
 import type { CtxMotor } from "../provedores/motor.js";
@@ -108,7 +109,10 @@ export function vigiarRolloutDoCodex(s: Sessao, esteProc: pty.IPty, ctx: CtxMoto
       if (s.proc !== esteProc || !erroDeLoginDoCodex(erro)) return;
       // Erro de antes do último login não conta: o auth.json foi regravado depois dele.
       if (erro.em <= credencialGravadaEm(s)) return;
-      marcarLoginExpirado(s, "rollout do Codex", erro.em, `${erro.categoria || "sem categoria"}: ${erro.mensagem.replace(/\s+/g, " ").slice(0, 160)}`);
+      // A mensagem vem do servidor e pode ecoar credencial: mascarar ANTES de cortar, para o corte não
+      // deixar meio segredo de fora da máscara.
+      const texto = mascarar(erro.mensagem, s.segredosParaMascara()).replace(/\s+/g, " ").slice(0, 160);
+      marcarLoginExpirado(s, "rollout do Codex", erro.em, `${erro.categoria || "sem categoria"}: ${texto}`);
     },
     aoUso: (u) => {
       if (s.proc !== esteProc) return;
