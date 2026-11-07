@@ -120,3 +120,73 @@ test('criaPastaSemAtalho (usada pela caixa e pelo upload): cria com dono e modo;
     assert.throws(() => criaPastaSemAtalho(path.join(s.home, 'falta', 'filha'), 0o700, DONO, DONO), (e) => e.code === 'FALHA_ESCRITA' && /Não consegui criar a pasta/.test(e.message));
   } finally { s.limpa(); }
 });
+
+/** Conta quantas vezes fs.writeSync foi chamado com conteúdo (>0 bytes) enquanto `fn` roda. */
+function contaEscritas(fn) {
+  const orig = fs.writeSync; let n = 0;
+  fs.writeSync = function (...a) { n += 1; return orig.apply(this, a); };
+  try { fn(); } finally { fs.writeSync = orig; }
+  return n;
+}
+
+test('upload: 5 nomes ocupados grava em arquivo-5 com uma única escrita', () => {
+  const s = cenario();
+  try {
+    const dir = path.join(s.home, 'uploads', 'd'); fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'arquivo.bin'), 'x');
+    for (let i = 1; i < 5; i += 1) fs.writeFileSync(path.join(dir, `arquivo-${i}.bin`), 'x');
+    let dest;
+    const n = contaEscritas(() => { dest = gravaUpload(s.agente, 'd', 'arquivo.bin', Buffer.from('conteudo')); });
+    assert.equal(path.basename(dest), 'arquivo-5.bin');
+    assert.equal(fs.readFileSync(dest, 'utf8'), 'conteudo');
+    assert.equal(n, 1, 'o anexo foi escrito uma vez só');
+  } finally { s.limpa(); }
+});
+
+test('upload: 1000 nomes ocupados (inclusive atalho) dá "Não achei um nome livre" sem escrever o anexo', () => {
+  const s = cenario();
+  try {
+    const dir = path.join(s.home, 'uploads', 'd'); fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'arquivo.bin'), 'x');
+    fs.symlinkSync('/nao/existe', path.join(dir, 'arquivo-1.bin'));
+    for (let i = 2; i < 1000; i += 1) fs.writeFileSync(path.join(dir, `arquivo-${i}.bin`), 'x');
+    const n = contaEscritas(() => assert.throws(() => gravaUpload(s.agente, 'd', 'arquivo.bin', Buffer.alloc(1024, 1)), /Não achei um nome livre/));
+    assert.equal(n, 0, 'nenhuma escrita do anexo');
+  } finally { s.limpa(); }
+});
+
+test('upload: nome ocupado durante a gravação (corrida) volta a procurar e grava no próximo, com poucas escritas', () => {
+  const s = cenario();
+  try {
+    const dir = path.join(s.home, 'uploads', 'd'); fs.mkdirSync(dir, { recursive: true });
+    const orig = fs.linkSync; let ocupou = false;
+    fs.linkSync = function (a, b) { if (!ocupou) { ocupou = true; fs.writeFileSync(b, 'do agente'); } return orig.call(this, a, b); };
+    let dest; let n;
+    try { n = contaEscritas(() => { dest = gravaUpload(s.agente, 'd', 'a.bin', Buffer.from('meu')); }); } finally { fs.linkSync = orig; }
+    assert.equal(path.basename(dest), 'a-1.bin');
+    assert.equal(fs.readFileSync(path.join(dir, 'a.bin'), 'utf8'), 'do agente');
+    assert.ok(n <= 3, `escritas: ${n}`);
+  } finally { s.limpa(); }
+});
+
+test('grava-seguro: escrita parcial é completada em laço; sem progresso dá FALHA_ESCRITA, sem destino e sem temporário', () => {
+  const s = cenario();
+  try {
+    const orig = fs.writeSync;
+    // 1) escreve em pedaços de 3 bytes: o conteúdo sai inteiro
+    fs.writeSync = function (fd, buf, off, len, pos) { return orig.call(this, fd, buf, off, Math.min(3, len), pos); };
+    const ok = path.join(s.home, 'ok.txt');
+    try { gravaArquivoSeguro(ok, 'abcdefghij', { raiz: s.home, uid: DONO, gid: DONO, modo: 0o644 }); } finally { fs.writeSync = orig; }
+    assert.equal(fs.readFileSync(ok, 'utf8'), 'abcdefghij');
+    // 2) escreve 4 bytes e depois 0: erro, nada publicado
+    let chamadas = 0;
+    fs.writeSync = function (fd, buf, off, len, pos) { chamadas += 1; return chamadas === 1 ? orig.call(this, fd, buf, off, 4, pos) : 0; };
+    const ruim = path.join(s.home, 'ruim.txt');
+    try {
+      assert.throws(() => gravaArquivoSeguro(ruim, 'abcdefghij', { raiz: s.home, uid: DONO, gid: DONO }),
+        (e) => e instanceof ErroGravacao && e.code === 'FALHA_ESCRITA' && /4 de 10 bytes/.test(e.message));
+    } finally { fs.writeSync = orig; }
+    assert.equal(fs.existsSync(ruim), false, 'destino não publicado');
+    assert.deepEqual(fs.readdirSync(s.home).sort(), ['ok.txt'], 'nenhum temporário sobrando');
+  } finally { s.limpa(); }
+});

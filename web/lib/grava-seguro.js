@@ -175,7 +175,15 @@ function gravaArquivoSeguro(caminho, conteudo, opcoes) {
   let fd = null;
   try {
     fd = fs.openSync(tmp, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, 0o600);
-    fs.writeSync(fd, dados, 0, dados.length, 0);
+    // writeSync pode gravar menos do que o pedido (disco cheio, limite de tamanho): repete até o fim.
+    let escrito = 0;
+    while (escrito < dados.length) {
+      const n = fs.writeSync(fd, dados, escrito, dados.length - escrito, escrito);
+      if (!(n > 0)) {
+        throw new ErroGravacao(`Não consegui gravar ${destino} por inteiro: escrevi ${escrito} de ${dados.length} bytes e o sistema parou de aceitar dados (disco cheio ou limite de tamanho). O arquivo não foi publicado; libere espaço e tente de novo.`, 'FALHA_ESCRITA');
+      }
+      escrito += n;
+    }
     fs.fsyncSync(fd);
     fs.fchownSync(fd, uid, gid);
     fs.fchmodSync(fd, modo);

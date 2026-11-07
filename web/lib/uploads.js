@@ -92,20 +92,36 @@ function gravaUpload(agente, dia, nome, dados) {
   const pasta = path.join(agente.home_host, 'uploads', dia);
   const ext = path.extname(nome);
   const raiz = path.basename(nome, ext);
-  for (let i = 0; i < 1000; i += 1) {
-    const alvo = path.join(pasta, i === 0 ? nome : `${raiz}-${i}${ext}`);
+  const candidato = (i) => path.join(pasta, i === 0 ? nome : `${raiz}-${i}${ext}`);
+  // Procura o primeiro nome livre SEM gravar nada: lstat não segue atalho, e nome ocupado por
+  // qualquer coisa (arquivo, pasta, atalho) conta como ocupado. Assim o anexo é escrito uma vez só,
+  // e não uma vez por colisão.
+  const proximoLivre = (de) => {
+    for (let i = de; i < 1000; i += 1) {
+      try { fs.lstatSync(candidato(i)); } catch (e) {
+        if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return i;
+        throw new Error(`Não consegui conferir se o nome ${candidato(i)} está livre (${e.code || e.name}).`);
+      }
+    }
+    return -1;
+  };
+  let i = proximoLivre(0);
+  // O link() exclusivo do gravador é a garantia atômica. Se alguém ocupar o nome entre a procura e a
+  // gravação (corrida), procura de novo a partir do próximo, com poucas gravações no total.
+  for (let tentativa = 0; i >= 0 && tentativa < 3; tentativa += 1) {
+    const alvo = candidato(i);
     try {
       return gravaArquivoSeguro(alvo, dados, {
         raiz: agente.home_host, uid: dono.uid, gid: dono.gid, modo: 0o644, exclusivo: true,
         pasta: { modo: 0o755, uid: dono.uid, gid: dono.gid, recursiva: true },
       }).caminho;
     } catch (e) {
-      // nome já usado (inclusive por um atalho com esse nome, que nunca é seguido): tenta o próximo
-      if (e instanceof ErroGravacao && (e.code === 'JA_EXISTE' || e.code === 'ATALHO' || e.code === 'NAO_E_ARQUIVO') && e.message.startsWith(alvo)) continue; // só o arquivo; atalho em pasta do caminho segue como erro
+      // só a colisão do próprio arquivo é corrida; atalho em pasta do caminho segue como erro
+      if (e instanceof ErroGravacao && ['JA_EXISTE', 'ATALHO', 'NAO_E_ARQUIVO'].includes(e.code) && e.message.startsWith(alvo)) { i = proximoLivre(i + 1); continue; }
       throw e;
     }
   }
-  throw new Error(`Não achei um nome livre para o arquivo ${nome} em ${pasta}.`);
+  throw new Error(`Não achei um nome livre para o arquivo ${nome} em ${pasta}${i >= 0 ? ' (os nomes foram ocupados durante a gravação; tente de novo)' : ''}.`);
 }
 
 module.exports = { lerMultipart, nomeSeguro, gravaUpload };
