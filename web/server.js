@@ -109,12 +109,14 @@ function criarServidor(opcoes) {
   const caixa = criarCaixaAgente({ config, registro, log, porta: () => servidor.address().port, agora: opcoes.agora });
   const push = criarPush({ dataDir: config.dataDir, log, agora: opcoes.agora, enviarHttp: opcoes.enviarPush });
   try { push.garantirChaves(); } catch (e) { log('erro', e.message); }
-  const lembretes = criarLembretes({ config, registro, runner, push, log, agora: opcoes.agora });
+  // Texto livre que vai ao agente por outros caminhos (lembrete, mesa, aviso) passa pelo mesmo filtro do /send; lança se a config estiver ilegível.
+  const filtroAnon = (slug, t) => (typeof t === 'string' && t && anonimizar.aplicaDigitado(slug) ? anonimizar.trocarDigitado(slug, t).texto : t);
+  const lembretes = criarLembretes({ config, registro, runner, push, log, agora: opcoes.agora, filtro: filtroAnon });
   caixa.permitir('/api/v1/lembretes');
   // Modo foco: o agente chega pela caixa (dgclaw-api), o retrato vai para a casa dele e o PUT do agente avisa o celular.
   const foco = criarFoco({ dir: path.join(config.dataDir, 'foco'), tz: config.tz, log, registro, gravaRetrato: opcoes.gravaRetrato || caixa.gravaRetrato, push: opcoes.push || push, quemChamou: opcoes.quemChamou || quemChamou });
   caixa.permitir('/api/v1/foco');
-  const mesa = criarMesa({ arquivo: path.join(config.dataDir, 'mesa', 'tarefas.json'), registro, runner, log, agora: opcoes.agora, tz: config.tz, avisarDono: (aviso) => push.enviar(aviso) });
+  const mesa = criarMesa({ arquivo: path.join(config.dataDir, 'mesa', 'tarefas.json'), registro, runner, log, agora: opcoes.agora, tz: config.tz, avisarDono: (aviso) => push.enviar(aviso), filtro: filtroAnon });
   // O agente fala com a Mesa pelo dgclaw-mesa, que passa pela caixa: a rota precisa estar liberada.
   caixa.permitir('/api/v1/tarefas');
   const naoLidas = criarNaoLidas({ arquivo: path.join(config.dataDir, 'nao-lidas.json'), conversa, registro, log, relogio: opcoes.agora, lerThread: conversa.threadCompartilhada });
@@ -122,7 +124,7 @@ function criarServidor(opcoes) {
   // O agente consulta o uso da PRÓPRIA assinatura pela caixa (dgclaw-api GET /api/v1/uso); a rota
   // filtra pelo slug da caixa, então ele nunca vê os outros. O Admin, no host, usa a API normal.
   caixa.permitir('/api/v1/uso');
-  const avisos = criarAvisos({ config, registro, runner, caixa, log, agora: opcoes.agora });
+  const avisos = criarAvisos({ config, registro, runner, caixa, log, agora: opcoes.agora, filtro: filtroAnon });
   caixa.permitir('/api/v1/avisos');
   // Só o caminho exato da documentação do cofre (os templates mandam o agente ler); o cofre em si não é rota da caixa.
   caixa.permitir('/api/v1/cofre/docs.md');
@@ -581,6 +583,15 @@ function criarServidor(opcoes) {
       if (acao === 'pergunta' && m === 'POST') {
         const corpo = await lerEnvio(req, res);
         if (!corpo) return undefined;
+        // Resposta em texto livre à pergunta do agente também sai do dono para o agente: mesmo filtro do /send.
+        try {
+          if (Array.isArray(corpo.respostas) && anonimizar.aplicaDigitado(agente.slug)) {
+            for (const r of corpo.respostas) if (r && typeof r.texto === 'string') r.texto = anonimizar.trocarDigitado(agente.slug, r.texto).texto;
+          }
+        } catch (e) {
+          log('erro', `Anonimizar: resposta à pergunta de ${agente.slug} recusada (${e.codigo || e.message}).`);
+          return H.erroJson(res, e.status || 500, e.message, e.codigo ? { codigo: e.codigo } : undefined);
+        }
         const r = await conversa.responderPergunta(agente, corpo);
         return H.enviaJson(res, r.status, r.corpo);
       }
@@ -753,12 +764,19 @@ function criarServidor(opcoes) {
     if (cid != null && cid !== '' && !(typeof cid === 'string' && RX_CLIENTE_ID.test(cid))) {
       return H.erroJson(res, 400, `O "cliente_id" veio como ${JSON.stringify(String(cid).slice(0, 80))}, que não vale: use de 8 a 64 caracteres entre letras, números, "-" e "_". Nada foi enviado.`);
     }
-    // Argumentos de comando também chegam ao agente (skill, /compact foque em...): mesmo filtro do /send.
+    // Argumentos de comando também chegam ao agente (skill, /compact foque em...). Monta UMA representação do que vai ao
+    // runner, como conversa.comando interpreta ("comando" + "argumentos", senão "text"), filtra esse texto final e o devolve
+    // num campo só. Combinação inválida segue para conversa.comando, que recusa com o motivo.
     try {
-      for (const campo of ['argumentos', 'text']) {
-        if (typeof corpo[campo] !== 'string' || !corpo[campo].trim()) continue;
-        const temArgs = campo === 'argumentos' || /^\S+\s+\S/.test(corpo.text.trim());
-        if (temArgs && anonimizar.aplicaDigitado(agente.slug)) corpo[campo] = anonimizar.trocarDigitado(agente.slug, corpo[campo]).texto;
+      const valido = typeof corpo.comando === 'string' && corpo.comando.trim() ? (corpo.argumentos == null || typeof corpo.argumentos === 'string') : (typeof corpo.text === 'string' && corpo.text.trim());
+      if (valido) {
+        const final = typeof corpo.comando === 'string' && corpo.comando.trim()
+          ? corpo.comando.trim() + (typeof corpo.argumentos === 'string' && corpo.argumentos.trim() ? ` ${corpo.argumentos.trim()}` : '')
+          : corpo.text.trim();
+        if (/^\S+\s+\S/.test(final) && anonimizar.aplicaDigitado(agente.slug)) {
+          corpo.text = anonimizar.trocarDigitado(agente.slug, final).texto;
+          delete corpo.comando; delete corpo.argumentos;
+        }
       }
     } catch (e) {
       log('erro', `Anonimizar: comando para ${agente.slug} recusado (${e.codigo || e.message}).`);
@@ -1062,7 +1080,7 @@ function criarServidor(opcoes) {
   });
 
   return {
-    servidor, config, registro, auth, midia, conversa, anonimizar, log, caixa, push, lembretes, avisos, estados, vigiaAtencao, prefsAtencao,
+    servidor, config, registro, auth, midia, conversa, anonimizar, filtroAnon, log, caixa, push, lembretes, avisos, estados, vigiaAtencao, prefsAtencao,
     ouvir(porta, host) {
       return new Promise((resolve, reject) => {
         servidor.once('error', reject);

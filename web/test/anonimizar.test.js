@@ -839,3 +839,45 @@ test('Correção no upload: instalar o detector reinicia o motor que já estava 
     assert.equal(await pid(), pid2);
   } finally { await s.fechar(); }
 });
+
+test('Correção na conversa: POST /comando filtra o texto final montado de "comando", "argumentos" e "text", em qualquer combinação', async () => {
+  const s = await cenario();
+  try {
+    await liga(s, 'ana', { aplicar_no_que_digito: true });
+    await sobe(s, 'ana', 'a.txt', `${NOME} ${CPF}`);
+    const cmd = (json) => s.c.pedir('POST', '/api/v1/agents/ana/comando', { json: Object.assign({ cliente_id: `cmd-${String(++seq).padStart(8, '0')}` }, json) });
+    const ultimo = () => s.rAna.rec.inputs[s.rAna.rec.inputs.length - 1].text;
+    const combos = [
+      { comando: `/compact foque em ${CPF}` },
+      { comando: '/compact', argumentos: `foque em ${NOME} ${CPF}` },
+      { text: `/compact foque em ${NOME}` },
+      { comando: `/compact ${NOME}`, argumentos: `e ${CPF}` },
+      { comando: '/compact', argumentos: `${CPF}`, text: `/compact ${NOME}` },
+    ];
+    let enviados = 0;
+    for (const c of combos) {
+      const n = s.rAna.rec.inputs.length;
+      const r = await cmd(c);
+      if (r.status === 200) { enviados += 1; assert.equal(s.rAna.rec.inputs.length, n + 1); assert.ok(!ultimo().includes(NOME) && !ultimo().includes(CPF) && !ultimo().includes('12345678900'), `vazou em ${JSON.stringify(c)}: ${ultimo()}`); assert.match(ultimo(), /\[(PESSOA|CPF)_1\]/); }
+    }
+    assert.ok(enviados >= 1, 'nenhum comando chegou a ser enviado: o teste não provou nada');
+    fs.writeFileSync(path.join(s.t.dados, 'anonimizar', 'config.json'), '{ quebrado', { mode: 0o600 });
+    const n0 = s.rAna.rec.inputs.length;
+    for (const c of combos) assert.equal((await cmd(c)).status, 503, JSON.stringify(c));
+    assert.equal(s.rAna.rec.inputs.length, n0);
+  } finally { await s.fechar(); }
+});
+
+test('Correção na conversa: o filtro entregue à mesa, aos lembretes e aos avisos troca os dados e lança com a config ilegível', async () => {
+  const s = await cenario();
+  try {
+    await liga(s, 'ana', { aplicar_no_que_digito: true });
+    await sobe(s, 'ana', 'a.txt', `${NOME} ${CPF}`);
+    const filtro = s.t.web.filtroAnon;
+    assert.equal(typeof filtro, 'function');
+    assert.equal(filtro('ana', `Ligar para ${NOME}`), 'Ligar para [PESSOA_1]');
+    assert.equal(filtro('beto', `Ligar para ${NOME}`), `Ligar para ${NOME}`);
+    fs.writeFileSync(path.join(s.t.dados, 'anonimizar', 'config.json'), '{ quebrado', { mode: 0o600 });
+    assert.throws(() => filtro('ana', 'x'), /ilegível/);
+  } finally { await s.fechar(); }
+});
