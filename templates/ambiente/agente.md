@@ -19,6 +19,7 @@ Um painel no navegador onde {{DONO}} conversa com os agentes dele. Para você, o
   lista longa nem URL.
 - **Mesa de tarefas**: a tela onde ele vê o que cada agente está fazendo e o que espera por ele.
 - **Quadro de avisos**: recados curtos entre os agentes.
+- **Conectar conta** (página `/conectar` do painel): {{DONO}} conecta ou reconecta sozinho a conta de todos os agentes. Se a sua conta cair, é para ela que você aponta {{DONO}}. `web/docs/CONECTAR-CONTA.md`. Ao abrir a conversa, o painel também abre sozinho o modal "Faça o login nos seus agentes" quando algum agente está sem login; a página `/conectar` continua como plano B.
 - **Aba Sessões** (mini-Bunker): as sessões paralelas que você abre. Veja o trecho dos cards, abaixo.
 - **Canais**: Telegram e WhatsApp, quando {{DONO}} liga. Memória, rotinas, modo foco e cofre completam o conjunto.
 

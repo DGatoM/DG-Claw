@@ -7,6 +7,29 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Nova página Conectar conta.** Antes, para conectar a conta do Claude de um agente alguém tinha de gerar um link de login
+e mandar por mensagem, e o link vencia antes de você ver. Agora o painel tem a página **Conectar conta** (no menu ☰, ou em
+`/conectar`): você entra quando puder, toca em "Gerar link de login" no cartão do agente, entra na sua conta do Claude e cola
+o código que aparece no fim. Há um cartão para o Admin e um para cada agente de trabalho, cada um com um selo que mostra se
+a conta está conectada, se falta conectar ou se o login expirou. Quem usa chave de API aparece como tal, sem botão. O aviso
+"Seu login do Claude expirou" também ganhou um atalho discreto para essa página. Os cartões agora se chamam Agente admin, Agente principal e Agente de trabalho, e, quando tudo está conectado, a página mostra
+um passo a passo curto (endereço do painel, usuário para entrar e o que você vai ver) com um vídeo de menos de 1 minuto.
+Nada precisa ser feito para atualizar.
+
+**Modal de login ao abrir o painel.** Se algum dos seus agentes estiver sem login (ou com o login vencido), ao abrir a
+conversa aparece sozinho o aviso "Faça o login nos seus agentes", com um cartão para cada agente: o Admin, o agente principal e os demais.
+Você gera o link, entra na sua conta, cola o código e pronto, sem precisar achar a página Conectar conta. Quando todos
+conectam, o aviso mostra "Login efetuado" (nos dois agentes, no seu agente ou nos seus N agentes), o que fazer agora e o vídeo
+curto "Conhecendo o DG Claw". "Fazer depois" fecha o aviso e ele não volta naquela aba. Quando esse aviso abre, ele toma o lugar do
+pop-up "Seu login do Claude expirou". A página Conectar conta continua no menu como plano B. Os cartões também passaram a
+mostrar com qual IA o agente vai entrar; por enquanto é a IA em que ele já foi criado, e trocar de IA ainda não está disponível.
+Nada precisa ser feito para atualizar.
+
+**Comando para entregar um DG Claw instalado por outra pessoa.** Quando a equipe instala o DG Claw na VPS de alguém e
+quer entregar pronto, o comando `sudo dgclaw instalacao-remota` troca a senha do painel por uma senha forte nova, reinicia o
+painel e mostra uma única vez a mensagem pronta com o endereço, o usuário e a senha. A senha não fica guardada em lugar
+nenhum, só o hash. É opcional e não muda a instalação normal. Nada precisa ser feito para atualizar.
+
 **A ronda de segurança deixou de pesar na memória.** Em servidores pequenos, de 4 GB, a verificação de segurança podia
 passar de 1 GB de memória e fazer o sistema derrubar os seus agentes. Agora ela lê uma falha por vez e guarda só o
 que importa, então o pico fica abaixo de 100 MB nos testes. Servidores de até 4,5 GB rodam a ronda no modo econômico, uma
