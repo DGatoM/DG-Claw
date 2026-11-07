@@ -58,6 +58,30 @@ igual() {
     else mal "$desc (esperado '$esperado', veio '$obtido')"; fi
 }
 
+# marcar_settings_alheio <slug>: poe no settings.json do agente uma linha que o DG Claw nao controla
+# (outra chave de hooks e uma chave solta). Depois de qualquer comando, ela tem de continuar la.
+marcar_settings_alheio() {
+    local st="$LIB/agentes/$1/home/.claude/settings.json"
+    jq '.hooks.PostToolUse = [{matcher: "Read", hooks: [{type: "command", command: "echo alheio"}]}] | .minhaLinha = "do-aluno"' "$st" >"$st.novo" \
+        && mv -f "$st.novo" "$st" && chmod 444 "$st"
+}
+
+# confere_travas <slug> <quando>: as tres travas (sem Bash, sem enviar arquivo, escrita so em
+# relatorios) estao no runner.json e no settings.json, o gancho esta uma vez so, a linha alheia
+# sobreviveu e o restricoes.json e o mesmo de antes ($RESTR_HASH_<slug> guardado por guardar_restricoes).
+confere_travas() {
+    local s="$1" q="$2" rj="$LIB/agentes/$1/runner/runner.json" st="$LIB/agentes/$1/home/.claude/settings.json"
+    afirma "$q: runner.json trava Bash, BashOutput e KillShell" jq -e '(.config.denyTools | index("Bash")) != null and (.config.denyTools | index("BashOutput")) != null and (.config.denyTools | index("KillShell")) != null' "$rj"
+    afirma "$q: runner.json trava os dois envios de arquivo" jq -e '(.config.denyTools | index("mcp__dgchat__send_file")) != null and (.config.denyTools | index("mcp__dgchat__whatsapp_send_file")) != null' "$rj"
+    afirma "$q: send_file saiu dos allowTools e as respostas de texto ficaram" jq -e '(.config.allowTools | index("mcp__dgchat__send_file")) == null and (.config.allowTools | index("mcp__dgchat__whatsapp_send_file")) == null and (.config.allowTools | index("mcp__dgchat__reply")) != null and (.config.allowTools | index("mcp__dgchat__whatsapp_reply")) != null' "$rj"
+    afirma "$q: runner.json continua com os ganchos e o resto" jq -e '.config.promptHooks | length == 2' "$rj"
+    afirma "$q: o gancho de escrita esta no settings.json, uma vez so" jq -e '[.hooks.PreToolUse[]?.hooks[]? | select(.command | test("escrita-restrita-hook"))] | length == 1' "$st"
+    afirma "$q: a linha alheia do settings.json sobreviveu" jq -e '.minhaLinha == "do-aluno" and .hooks.PostToolUse[0].hooks[0].command == "echo alheio" and .skipDangerousModePermissionPrompt == true' "$st"
+    afirma "$q: restricoes.json intacto" bash -c "[ \"\$(sha256sum <'$LIB/agentes/$s/runner/restricoes.json')\" = \"$(cat "$TMP/restr-hash-$s" 2>/dev/null)\" ]"
+    igual "$q: restricoes.json continua 444 de root" "444" "$(stat -c %a "$LIB/agentes/$s/runner/restricoes.json")"
+}
+guardar_restricoes() { sha256sum <"$LIB/agentes/$1/runner/restricoes.json" >"$TMP/restr-hash-$1"; }
+
 fim() {
     printf '%s: %s verificacoes, %s falharam\n' "$(basename "$0")" "$TESTES" "$FALHAS"
     [ "$FALHAS" -eq 0 ]

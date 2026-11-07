@@ -177,6 +177,13 @@ caso_rodar_duas_vezes_nao_duplica() {
     cp "$e/runner/admin.token" "$TMP/token1"
     cp "$e/web.env" "$TMP/webenv1"
     cp "$RAIZ/etc/caddy/Caddyfile" "$TMP/caddy1"
+    # As restricoes de um agente (e o gancho dele no settings.json) sao do dono: o install.sh regrava o
+    # runner.json do Admin, mas nao pode encostar nelas.
+    local ra="$RAIZ/var/lib/dgclaw/agentes/ana"
+    mkdir -p "$ra/runner" "$ra/home/.claude"
+    printf '{"versao":1,"sem_bash":true,"sem_enviar_arquivo":true,"escrita_so_em":["relatorios"],"campo_do_dono":"fica"}\n' >"$ra/runner/restricoes.json"
+    printf '{"hooks":{"PreToolUse":[{"matcher":"Write","hooks":[{"type":"command","command":"node /opt/dgclaw/app/scripts/escrita-restrita-hook.mjs"}]}]}}\n' >"$ra/home/.claude/settings.json"
+    cp "$ra/runner/restricoes.json" "$TMP/restricoes1"; cp "$ra/home/.claude/settings.json" "$TMP/settings-ana1"
     n1="$(wc -l <"$STUB_LOG")"
     # Segunda rodada: sem senha, e com outro IP (o dominio da primeira precisa ser mantido).
     EXTRA_ENV=(DGCLAW_STUB_IP=198.51.100.9)
@@ -187,6 +194,8 @@ caso_rodar_duas_vezes_nao_duplica() {
     afirma "hash da senha nao mudou" cmp "$TMP/webenv1" "$e/web.env"
     afirma "avisa que a senha atual vale" tem "$SAIDA" "senha atual"
     afirma "Caddyfile nao mudou" cmp "$TMP/caddy1" "$RAIZ/etc/caddy/Caddyfile"
+    afirma "restricoes.json de um agente nao mudou" cmp "$TMP/restricoes1" "$ra/runner/restricoes.json"
+    afirma "settings.json de um agente nao mudou" cmp "$TMP/settings-ana1" "$ra/home/.claude/settings.json"
     igual "$(contar "$RAIZ/etc/caddy/Caddyfile" reverse_proxy)" 1 || { echo "      FALHOU: reverse_proxy duplicado"; FALHAS=$((FALHAS + 1)); }
     afirma "dominio da primeira rodada mantido" tem "$e/dgclaw.env" "DGCLAW_DOMINIO=203-0-113-7.sslip.io"
     igual "$(contar "$STUB_LOG" 'ufw --force enable')" 1 || { echo "      FALHOU: ufw ligado mais de uma vez"; FALHAS=$((FALHAS + 1)); }

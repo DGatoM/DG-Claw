@@ -106,6 +106,11 @@ linhas_do_aluno_ok() {
         && grep -qx 'DGCLAW_PANEL_USER=maria' "$ETC/web.env" && grep -qx 'LINHA_DA_MARTA=oi' "$ETC/dgclaw.env" \
         && grep -qx 'DGCLAW_DOMINIO=teste.exemplo.org' "$ETC/dgclaw.env"
 }
+# O Beto tem as tres restricoes do dono e uma linha alheia no settings.json: a atualizacao recria o
+# container dele e nada disso pode sumir.
+marcar_settings_alheio beto
+dgclaw agente restricoes beto --sem-bash sim --sem-enviar-arquivo sim --escrita-so-em relatorios >/dev/null 2>&1
+guardar_restricoes beto
 fotografar >"$TMP/antes.txt"
 afirma "a fotografia pegou os arquivos do aluno" test "$(grep -vc AUSENTE "$TMP/antes.txt")" -ge 20
 igual "nenhum arquivo do aluno falta antes de comecar" "0" "$(grep -c AUSENTE "$TMP/antes.txt")"
@@ -352,6 +357,7 @@ nega "o web.env ficou como o instalador quebrado deixou (sem rollback)" bash -c 
 # Volta ao instalador bom e restaura o web.env para o que o resto do teste espera.
 git -C "$TRAB" revert --no-edit HEAD >/dev/null 2>&1; git -C "$TRAB" push -q origin main
 tar -xzOf "$B1/config.tar.gz" etc/dgclaw/web.env >"$ETC/web.env"
+confere_travas beto "atualizar: o Beto"
 git -C "$CLONE" switch -q main
 
 echo "um agente que nao recria: a atualizacao diz INCOMPLETA e nao reinicia o Admin"
@@ -373,6 +379,7 @@ afirma "explica por que o Admin nao reinicia" grep -q 'NAO vou reiniciar o Admin
 nega "nao agenda o reinicio do Admin" grep -q '^systemd-run' "$STUB_LOG"
 afirma "o resumo INCOMPLETA tambem foi gravado" grep -rq 'Atualizacao INCOMPLETA' "$RAIZ/var/log/dgclaw"
 afirma "o container do Beto foi trocado" grep -q '^podman create .*--name dgclaw-beto ' "$STUB_LOG"
+confere_travas beto "atualizar de novo: o Beto"
 nega "agente que nao sobe NAO faz a atualizacao voltar sozinha" grep -q 'foi desfeita sozinha' "$TMP/o8.txt"
 afirma "explica que nao desfez e manda recriar o agente com --forcar" grep -q 'NAO desfiz a atualizacao.*dgclaw agente recriar <slug> --forcar' "$TMP/o8.txt"
 nega "o clone nao foi levado a uma branch dgclaw-volta por causa do agente" bash -c "git -C '$CLONE' rev-parse --abbrev-ref HEAD | grep -q '^dgclaw-volta-'"
@@ -385,6 +392,21 @@ DGCLAW_TEMPO_PARADA=2 dgclaw agente recriar ana --forcar >"$TMP/o9.txt" 2>&1; rc
 igual "recriar --forcar sai com 0" "0" "$rc"
 afirma "a Ana voltou a rodar" grep -qx running "$STUB_ESTADO/c-dgclaw-ana"
 rm -f "$STUB_ESTADO/stop-trava-dgclaw-ana"
+
+echo "restricoes.json estragado: o agente fica pendente no resumo e a trava nao cai"
+cp "$LIB/agentes/beto/runner/restricoes.json" "$TMP/restr-beto-bom.json"
+printf '{"versao": 1,' >"$LIB/agentes/beto/runner/restricoes.json"
+echo imagem-v9 >"$STUB_ESTADO/imagem-id"
+: >"$STUB_LOG"
+dgclaw atualizar --sem-baixar --ok-do-dono >"$TMP/o9b.txt" 2>&1; rc=$?
+nega "atualizar sai com codigo diferente de 0" test "$rc" -eq 0
+afirma "lista o Beto como agente com problema" grep -q 'Agentes COM PROBLEMA: beto' "$TMP/o9b.txt"
+afirma "diz qual arquivo esta estragado" grep -q 'restricoes.json (restricoes do agente beto) nao e um JSON valido' "$TMP/o9b.txt"
+nega "o container do Beto nem foi tocado" grep -q '^podman \(stop\|rm\|create\) .*dgclaw-beto' "$STUB_LOG"
+afirma "as travas do Beto continuam no runner.json" jq -e '(.config.denyTools | index("Bash")) != null' "$LIB/agentes/beto/runner/runner.json"
+cp "$TMP/restr-beto-bom.json" "$LIB/agentes/beto/runner/restricoes.json"; chmod 444 "$LIB/agentes/beto/runner/restricoes.json"
+dgclaw agente recriar beto >/dev/null 2>&1
+echo imagem-v10 >"$STUB_ESTADO/imagem-id"
 
 echo "o commit de antes vem do instalado, nao do HEAD do clone (clone mudado a mao)"
 COMMIT_ANTES="$(git -C "$CLONE" rev-parse HEAD)"
