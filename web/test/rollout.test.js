@@ -379,6 +379,13 @@ test('admin Codex: com codex_home_host lê o rollout, com e sem codexHome do run
   assert.equal(leitor.ler(b.arquivo, c.agente).eventos.length, 9);
 });
 
+test('admin instalado no Claude e trocado para o Codex pelo painel: o registro diz provedor claude e o rollout é lido', () => {
+  const c = cenarioAdmin({ provedor: 'claude', transcripts_dir: '/root/.claude/projects/-opt-dgclaw-admin' });
+  const a = acharRollout(c.agente, SID, c.codexHome);
+  assert.equal(a.erro, undefined);
+  assert.equal(a.arquivo, fs.realpathSync(c.arq));
+});
+
 test('admin Codex: agente comum com codex_home_host continua recusado; relativo é ignorado', () => {
   const c = cenarioAdmin({ tipo: 'agente', slug: 'ana' });
   assert.equal(acharRollout(c.agente, SID, c.codexHome).arquivo, null);

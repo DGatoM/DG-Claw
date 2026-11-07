@@ -1200,16 +1200,16 @@ FIM
 
     if tem_jq; then
         agentes_garantir_arquivo
-        local codex_home_host=""
-        [ "$PROVEDOR" = codex ] && codex_home_host="/root/.codex"
-        jq -n --arg prov "$PROVEDOR" --arg transcripts "$transcripts" --arg admin "$p_admin" --arg etc "$p_etc" --arg chh "$codex_home_host" '
+        # codex_home_host vai sempre, mesmo com o Admin no Claude: o runner.json dele usa CODEX_HOME=/root/.codex
+        # e o dono pode trocar o Admin para o Codex pelo painel depois (provedor.json), sem rodar o instalador.
+        jq -n --arg prov "$PROVEDOR" --arg transcripts "$transcripts" --arg admin "$p_admin" --arg etc "$p_etc" '
             {slug: "admin", nome: "Admin", tipo: "admin", runner: "http://127.0.0.1:4300",
              agente_id: "admin", chat_id: "c_admin", avatar: "🛠️", cor: "#64748b",
              provedor: $prov, modelo: "", transcripts_dir: $transcripts,
              porta_painel: null, proxy_segredo_arquivo: null,
              runner_token_arquivo: ($etc + "/runner/admin.token"),
              home_host: $admin, home_container: $admin,
-             codex_home_host: (if $chh == "" then null else $chh end)}' \
+             codex_home_host: "/root/.codex"}' \
             | agentes_registrar
     fi
     configurar_monitor_admin
