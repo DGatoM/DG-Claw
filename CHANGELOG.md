@@ -7,6 +7,24 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Endurecimento do Web, do painel e do cofre.**
+
+- O proxy de `/p/<agente>/` deixa de repassar ao navegador os cabeçalhos `Set-Cookie` vindos do painel do agente,
+  tanto nas respostas HTTP quanto na abertura do WebSocket. O painel continua autenticado pelo proxy e funciona igual.
+- O upload de anexos cria `uploads/<dia>/` e grava o arquivo sem seguir atalho em nenhuma pasta do caminho, com o
+  dono da casa do agente. Se `uploads` ou a pasta do dia forem um atalho, o upload é recusado com a explicação.
+  A criação de pastas da caixa do agente passa pelo mesmo gravador.
+- A rota de mídia serve, da pasta de dados do Web, só as subpastas `avatares` e `miniaturas`.
+- A unidade `dgclaw-web.service` ganha proteções do systemd compatíveis com o que o Web executa hoje (`/usr`,
+  `/boot` e `/etc` somente leitura, exceto `/etc/dgclaw`; `/tmp` próprio; restrições de módulos, logs do kernel,
+  SUID, tempo real e arquitetura). As que ficaram de fora estão comentadas na unidade com o motivo.
+- O cofre do painel (motor `local`) só gera a chave mestra quando o arquivo não existe, e cria o arquivo sem
+  sobrescrever. Se a chave existir mas não puder ser lida ou estiver com tamanho errado, o cofre para com erro que
+  diz o caminho e o motivo, em vez de gerar outra chave.
+- O painel valida `trust_level` como número e escapa os valores vindos do servidor e da memória do agente que
+  eram inseridos no HTML sem escape.
+- A ponte do WhatsApp atualiza `follow-redirects` para 1.16.2.
+
 **A ronda de segurança deixou de pesar na memória.** Em servidores pequenos, de 4 GB, a verificação de segurança podia
 passar de 1 GB de memória e fazer o sistema derrubar os seus agentes. Agora ela lê uma falha por vez e guarda só o
 que importa, então o pico fica abaixo de 100 MB nos testes. Servidores de até 4,5 GB rodam a ronda no modo econômico, uma

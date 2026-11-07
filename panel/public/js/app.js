@@ -14,7 +14,7 @@ function makeBar(label, value, maxVal, colorClass, delta) {
   // Escala de 0 a 10 (personalidade, proatividade) mostra "7/10"; escrever "7%" ao lado
   // de uma barra 70% cheia fazia a tela se contradizer (vistoria de 08/10/2026).
   const emDez = maxVal > 1;
-  const displayVal = emDez ? value : (typeof value === 'number' && value <= 1 ? Math.round(value * 100) : value);
+  const displayVal = escapeHtml(emDez ? value : (typeof value === 'number' && value <= 1 ? Math.round(value * 100) : value));
   let deltaHtml = '';
   if (delta !== undefined && delta !== 0) {
     const absDelta = Math.abs(delta);
@@ -27,8 +27,8 @@ function makeBar(label, value, maxVal, colorClass, delta) {
   }
   // Nome e numero na MESMA linha, barra embaixo: duas linhas por medida, nunca tres.
   return `<div class="rpg-bar">
-    <div class="rpg-bar-label"><span>${label}</span><span class="rpg-bar-value">${displayVal}${emDez ? '/' + maxVal : '%'}${deltaHtml}</span></div>
-    <div class="rpg-bar-track"><div class="rpg-bar-fill ${colorClass}" style="width:${pct}%"></div></div>
+    <div class="rpg-bar-label"><span>${escapeHtml(label)}</span><span class="rpg-bar-value">${displayVal}${emDez ? '/' + maxVal : '%'}${deltaHtml}</span></div>
+    <div class="rpg-bar-track"><div class="rpg-bar-fill ${escapeHtml(colorClass)}" style="width:${pct}%"></div></div>
   </div>`;
 }
 
@@ -125,9 +125,15 @@ document.addEventListener('click', (ev) => {
 });
 
 function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
+  // Escapa também as aspas: vários usos são DENTRO de atributo (title="...", data-x="...").
+  if (str == null) return '';
+  return String(str).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+/** Número vindo do servidor ou da memória do agente: se não for número finito, vira o padrão. */
+function numeroSeguro(v, padrao = 0) {
+  const n = typeof v === 'string' && v.trim() !== '' ? Number(v) : v;
+  return typeof n === 'number' && Number.isFinite(n) ? n : padrao;
 }
 
 // Markdown para HTML: delega para o js/markdown.js, o renderizador ÚNICO do painel.
@@ -1172,23 +1178,23 @@ async function loadReunioes(query) {
     }
     listEl.innerHTML = data.items.map((m) => {
       const dt = m.date ? new Date(m.date) : null;
-      const dtStr = dt ? dt.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : m.id;
-      const dur = m.duration_min != null ? `${m.duration_min}min` : '?';
-      const parts = (m.participants || []).join(', ') || 'sem participantes';
+      const dtStr = escapeHtml(dt ? dt.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : m.id);
+      const dur = m.duration_min != null ? `${escapeHtml(m.duration_min)}min` : '?';
+      const parts = escapeHtml((m.participants || []).join(', ') || 'sem participantes');
       const tldr = m.tldr ? m.tldr.slice(0, 200) + (m.tldr.length > 200 ? '...' : '') : '(sem resumo)';
-      const cost = m.total_usd != null ? `$${m.total_usd.toFixed(3)}` : '--';
+      const cost = m.total_usd != null ? `$${numeroSeguro(m.total_usd).toFixed(3)}` : '--';
       return `
-        <div class="reuniao-card" data-id="${m.id}">
+        <div class="reuniao-card" data-id="${escapeHtml(m.id)}">
           <div class="reuniao-head">
             <span class="reuniao-date">${dtStr}</span>
             <span class="reuniao-dur">${dur}</span>
-            <span class="reuniao-mode">${m.mode || '?'}</span>
+            <span class="reuniao-mode">${escapeHtml(m.mode || '?')}</span>
             <span class="reuniao-cost">${cost}</span>
           </div>
           <div class="reuniao-participants">👥 ${parts}</div>
           <div class="reuniao-tldr">${escapeHTML(tldr)}</div>
           <div class="reuniao-meta">
-            ${m.decisoes_count} decisões · ${m.action_items_count} action items
+            ${escapeHtml(m.decisoes_count)} decisões · ${escapeHtml(m.action_items_count)} action items
           </div>
         </div>`;
     }).join('');
@@ -1196,7 +1202,7 @@ async function loadReunioes(query) {
       el.addEventListener('click', () => openReuniaoDetail(el.dataset.id));
     });
   } catch (e) {
-    listEl.innerHTML = `<div style="color:#f88">Erro: ${e.message}</div>`;
+    listEl.innerHTML = `<div style="color:#f88">Erro: ${escapeHtml(e.message)}</div>`;
   }
 }
 
@@ -1212,8 +1218,8 @@ async function openReuniaoDetail(id) {
     const m = await res.json();
     if (!res.ok) throw new Error(m.error || 'erro');
     const dt = m.date ? new Date(m.date) : null;
-    const dtStr = dt ? dt.toLocaleString('pt-BR') : id;
-    const dur = m.duration_min != null ? `${m.duration_min}min` : '?';
+    const dtStr = escapeHtml(dt ? dt.toLocaleString('pt-BR') : id);
+    const dur = m.duration_min != null ? `${escapeHtml(m.duration_min)}min` : '?';
 
     // Cor por speaker (estável via hash simples)
     const colorFor = (name) => {
@@ -1226,27 +1232,27 @@ async function openReuniaoDetail(id) {
     // Renderizar blocos
     const transcriptHTML = (m.blocks || []).map((b) => {
       if (b.kind === 'audio') {
-        return `<div class="tr-block tr-audio" style="border-left-color:${colorFor(b.speaker)}">
-          <div class="tr-spk" style="color:${colorFor(b.speaker)}">${escapeHTML(b.speaker)} <span class="tr-ts">${b.start_ts}</span></div>
+        return `<div class="tr-block tr-audio" style="border-left-color:${colorFor(String(b.speaker || ""))}">
+          <div class="tr-spk" style="color:${colorFor(String(b.speaker || ""))}">${escapeHTML(b.speaker)} <span class="tr-ts">${escapeHtml(b.start_ts)}</span></div>
           <div class="tr-text">${escapeHTML(b.text)}</div>
         </div>`;
       }
       if (b.kind === 'agent-chat') {
         const agent = escapeHTML(APP_CONFIG.agentName || 'Agente');
         return `<div class="tr-block tr-agent-chat">
-          <div class="tr-spk">💚 ${agent} (chat) <span class="tr-ts">${b.start_ts}</span></div>
+          <div class="tr-spk">💚 ${agent} (chat) <span class="tr-ts">${escapeHtml(b.start_ts)}</span></div>
           <div class="tr-text">${escapeHTML(b.text)}</div>
         </div>`;
       }
       if (b.kind === 'chat') {
         return `<div class="tr-block tr-chat">
-          <div class="tr-spk">💬 ${escapeHTML(b.speaker)} <span class="tr-ts">${b.start_ts}</span></div>
+          <div class="tr-spk">💬 ${escapeHTML(b.speaker)} <span class="tr-ts">${escapeHtml(b.start_ts)}</span></div>
           <div class="tr-text">${escapeHTML(b.text)}</div>
         </div>`;
       }
       if (b.kind === 'tool-result' || b.kind === 'tool-call') {
         return `<div class="tr-block tr-tool">
-          <div class="tr-spk">⚙ ${b.kind} <span class="tr-ts">${b.start_ts}</span></div>
+          <div class="tr-spk">⚙ ${escapeHtml(b.kind)} <span class="tr-ts">${escapeHtml(b.start_ts)}</span></div>
           <div class="tr-text">${escapeHTML(b.text)}</div>
         </div>`;
       }
@@ -1260,19 +1266,19 @@ async function openReuniaoDetail(id) {
     ).join('');
     const proxHTML = (s.proximos_passos || []).map((p) => `<li>${escapeHTML(p)}</li>`).join('');
     const campHTML = (s.campanhas || []).map((c) =>
-      `<li><strong>${escapeHTML(c.nome || '?')}</strong> <span style="color:var(--text-dim)">[${c.status || '?'}]</span>: ${escapeHTML(c.detalhe || '')}</li>`
+      `<li><strong>${escapeHTML(c.nome || '?')}</strong> <span style="color:var(--text-dim)">[${escapeHTML(String(c.status || '?'))}]</span>: ${escapeHTML(c.detalhe || '')}</li>`
     ).join('');
 
     const costRows = Object.entries(m.cost?.by_provider || {})
       .sort((a, b) => b[1] - a[1])
-      .map(([p, u]) => `<tr><td>${p}</td><td style="text-align:right">$${u.toFixed(4)}</td></tr>`).join('');
+      .map(([p, u]) => `<tr><td>${escapeHtml(p)}</td><td style="text-align:right">$${numeroSeguro(u).toFixed(4)}</td></tr>`).join('');
 
     detailEl.innerHTML = `
       <div class="reuniao-detail-head">
         <button class="back-btn" id="back-to-list">← voltar</button>
         <div>
           <div class="reuniao-title">${dtStr}</div>
-          <div class="reuniao-sub">${dur} · modo: ${m.mode || '?'} · ${(m.participants || []).join(', ')}</div>
+          <div class="reuniao-sub">${dur} · modo: ${escapeHtml(m.mode || '?')} · ${escapeHtml((m.participants || []).join(', '))}</div>
         </div>
       </div>
 
@@ -1302,7 +1308,7 @@ async function openReuniaoDetail(id) {
       </div>
 
       <div class="rt-panel" id="rt-custos">
-        <div class="rt-total">Total: <strong>$${(m.cost?.total_usd || 0).toFixed(4)}</strong></div>
+        <div class="rt-total">Total: <strong>$${numeroSeguro(m.cost?.total_usd).toFixed(4)}</strong></div>
         <table class="rt-cost-table">
           <thead><tr><th>Provider</th><th style="text-align:right">USD</th></tr></thead>
           <tbody>${costRows || '<tr><td colspan="2">(sem custos registrados)</td></tr>'}</tbody>
@@ -1314,8 +1320,8 @@ async function openReuniaoDetail(id) {
 
       <div class="rt-panel" id="rt-audio">
         ${m.has_audio
-          ? `<audio controls src="${BASE}/api/reunioes/${m.id}/audio.wav" style="width:100%"></audio>
-             <div style="color:var(--text-dim);margin-top:8px">${(m.bytes_audio / 1024 / 1024).toFixed(1)} MB</div>`
+          ? `<audio controls src="${BASE}/api/reunioes/${encodeURIComponent(m.id)}/audio.wav" style="width:100%"></audio>
+             <div style="color:var(--text-dim);margin-top:8px">${(numeroSeguro(m.bytes_audio) / 1024 / 1024).toFixed(1)} MB</div>`
           : '(sem audio.raw)'}
       </div>
     `;
@@ -1330,12 +1336,12 @@ async function openReuniaoDetail(id) {
       });
     });
   } catch (e) {
-    detailEl.innerHTML = `<div style="color:#f88">Erro: ${e.message}</div>`;
+    detailEl.innerHTML = `<div style="color:#f88">Erro: ${escapeHtml(e.message)}</div>`;
   }
 }
 
 function escapeHTML(s) {
-  return (s || '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
 // ─── STATUS Panel ──────────────────────────────
@@ -1660,9 +1666,9 @@ async function loadPosts() {
 
   if (stats) {
     document.getElementById('posts-stats').innerHTML = `
-      <div class="stat-block"><div class="stat-val">${stats.total}</div><div class="stat-label">TOTAL POSTS</div></div>
-      <div class="stat-block"><div class="stat-val">${stats.today}</div><div class="stat-label">HOJE</div></div>
-      <div class="stat-block"><div class="stat-val">${stats.streak}</div><div class="stat-label">STREAK (DIAS)</div></div>
+      <div class="stat-block"><div class="stat-val">${numeroSeguro(stats.total)}</div><div class="stat-label">TOTAL POSTS</div></div>
+      <div class="stat-block"><div class="stat-val">${numeroSeguro(stats.today)}</div><div class="stat-label">HOJE</div></div>
+      <div class="stat-block"><div class="stat-val">${numeroSeguro(stats.streak)}</div><div class="stat-label">STREAK (DIAS)</div></div>
     `;
     document.getElementById('ft-posts').textContent = stats.today + '/' + 3;
   }
@@ -1711,11 +1717,11 @@ async function loadFollowers() {
   if (stats) {
     const { tiers, total } = stats;
     document.getElementById('followers-stats').innerHTML = `
-      <div class="stat-block"><div class="stat-val">${total}</div><div class="stat-label">TOTAL</div></div>
-      <div class="stat-block"><div class="stat-val">${tiers.close || 0}</div><div class="stat-label">❤️ CLOSE</div></div>
-      <div class="stat-block"><div class="stat-val">${tiers.regular || 0}</div><div class="stat-label">⭐ REGULAR</div></div>
-      <div class="stat-block"><div class="stat-val">${tiers.returning || 0}</div><div class="stat-label">⚔️ RETURNING</div></div>
-      <div class="stat-block"><div class="stat-val">${tiers.newcomer || 0}</div><div class="stat-label">🛡️ NEWCOMER</div></div>
+      <div class="stat-block"><div class="stat-val">${numeroSeguro(total)}</div><div class="stat-label">TOTAL</div></div>
+      <div class="stat-block"><div class="stat-val">${numeroSeguro(tiers.close)}</div><div class="stat-label">❤️ CLOSE</div></div>
+      <div class="stat-block"><div class="stat-val">${numeroSeguro(tiers.regular)}</div><div class="stat-label">⭐ REGULAR</div></div>
+      <div class="stat-block"><div class="stat-val">${numeroSeguro(tiers.returning)}</div><div class="stat-label">⚔️ RETURNING</div></div>
+      <div class="stat-block"><div class="stat-val">${numeroSeguro(tiers.newcomer)}</div><div class="stat-label">🛡️ NEWCOMER</div></div>
     `;
   }
 
@@ -1734,7 +1740,7 @@ function renderFollowers(data) {
     const creator = (APP_CONFIG.creatorName || 'Dono').toUpperCase();
     html += `<div class="follower-card" style="border-color:var(--green)">
       <div class="fc-name">👑 ${escapeHtml(creator)} (Criador)</div>
-      <div class="fc-tier">Trust: ${d.trust_level || 95}%</div>
+      <div class="fc-tier">Trust: ${numeroSeguro(d.trust_level, 95) || 95}%</div>
       <div class="fc-detail">${escapeHtml(d.dynamic || '')}</div>
     </div>`;
   }
@@ -1767,7 +1773,7 @@ async function loadMemory() {
   const item = (caminho, icone, nome, f, dica) => `<button type="button" class="memory-item" data-path="${escapeHtml(caminho)}" title="${escapeHtml(dica)}">
       <span class="mi-icon" aria-hidden="true">${icone}</span>
       <span class="mi-name">${escapeHtml(nome)}</span>
-      <span class="mi-size">${(f.size / 1024).toFixed(1).replace('.', ',')} KB</span>
+      <span class="mi-size">${(numeroSeguro(f.size) / 1024).toFixed(1).replace('.', ',')} KB</span>
       <span class="mi-date">${formatDate(f.modified)}</span>
     </button>`;
 
@@ -2544,10 +2550,10 @@ async function loadCosts(force) {
       </div>
       ${barraHtml}
       <div style="margin-top:8px;display:flex;gap:18px;flex-wrap:wrap">
-        <span>Hoje: <strong>${fmtUSD(o.today.total)}</strong> <span style="color:var(--text-dim)">(${o.today.executions} exec)</span></span>
+        <span>Hoje: <strong>${fmtUSD(o.today.total)}</strong> <span style="color:var(--text-dim)">(${numeroSeguro(o.today.executions)} exec)</span></span>
         <span>Ontem: <strong>${fmtUSD(o.yesterday.total)}</strong></span>
         <span>7d: <strong>${fmtUSD(o.week.total)}</strong></span>
-        <span style="color:var(--text-dim)">Total exec mês: ${o.month.executions}</span>
+        <span style="color:var(--text-dim)">Total exec mês: ${numeroSeguro(o.month.executions)}</span>
       </div>
     </div>
   `;
@@ -2566,11 +2572,11 @@ async function loadCosts(force) {
       const label = CATEGORY_LABELS[cat] || cat;
       return `
         <div style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:4px">
-          <span style="min-width:200px">${label}</span>
+          <span style="min-width:200px">${escapeHtml(label)}</span>
           <div class="rpg-bar-track" style="flex:1;max-width:300px;height:10px">
             <div class="rpg-bar-fill green" style="width:${catPct}%"></div>
           </div>
-          <span style="min-width:80px;text-align:right">${fmtUSD(v.cost)} <span style="color:var(--text-dim)">(${v.executions})</span></span>
+          <span style="min-width:80px;text-align:right">${fmtUSD(v.cost)} <span style="color:var(--text-dim)">(${numeroSeguro(v.executions)})</span></span>
         </div>
       `;
     }).join('');
@@ -2586,7 +2592,7 @@ async function loadCosts(force) {
         ${o.topCrons.map(r => `
           <tr>
             <td>${escapeHtml(r.cron)}</td>
-            <td>${r.executions}</td>
+            <td>${numeroSeguro(r.executions)}</td>
             <td>${fmtUSD(r.cost)}</td>
             <td>${fmtUSD4(r.cost / Math.max(1, r.executions))}</td>
           </tr>
@@ -2612,12 +2618,12 @@ async function loadCostsExecutions() {
     const cost = Number(e.total_cost_usd) || 0;
     const costColor = cost > 1 ? 'var(--red)' : cost > 0.3 ? 'var(--yellow)' : 'var(--text)';
     return `
-      <tr style="cursor:pointer" onclick="openExecutionDetail('${e.session_id}')">
+      <tr style="cursor:pointer" data-sid="${escapeHtml(e.session_id)}" onclick="openExecutionDetail(this.dataset.sid)">
         <td style="font-size:12px">${formatDate(e.timestamp)}</td>
         <td>${escapeHtml(e.cron || '?')}</td>
         <td style="color:var(--text-dim);font-size:12px">${escapeHtml(e.tag || '')}</td>
         <td style="font-size:12px">${escapeHtml(e.model || '?')}</td>
-        <td>${e.num_turns || '--'}</td>
+        <td>${escapeHtml(e.num_turns || '--')}</td>
         <td style="font-size:12px">${fmtDur(e.duration_ms)}</td>
         <td style="color:${costColor};font-weight:bold">${fmtUSD4(cost)}${e.is_error ? ' ⚠️' : ''}</td>
       </tr>
@@ -2634,7 +2640,7 @@ async function openExecutionDetail(sessionId) {
 
   const modelUsageHtml = Object.entries(modelUsage).map(([m, v]) => `
     <div style="font-size:12px;margin-bottom:4px">
-      <strong>${escapeHtml(m)}:</strong> cost=${fmtUSD4(v.costUSD)} | in=${v.inputTokens || 0} | out=${v.outputTokens || 0} | cache_read=${(v.cacheReadInputTokens || 0).toLocaleString()} | cache_create=${(v.cacheCreationInputTokens || 0).toLocaleString()}
+      <strong>${escapeHtml(m)}:</strong> cost=${fmtUSD4(v.costUSD)} | in=${numeroSeguro(v.inputTokens)} | out=${numeroSeguro(v.outputTokens)} | cache_read=${numeroSeguro(v.cacheReadInputTokens).toLocaleString()} | cache_create=${numeroSeguro(v.cacheCreationInputTokens).toLocaleString()}
     </div>
   `).join('');
 
@@ -2642,20 +2648,20 @@ async function openExecutionDetail(sessionId) {
   document.getElementById('modal-body').innerHTML = `
     <div style="font-size:13px;line-height:1.7">
       <div><strong>Custo:</strong> ${fmtUSD4(detail.total_cost_usd)}</div>
-      <div><strong>Modelo:</strong> ${detail.model} | <strong>Turns:</strong> ${detail.num_turns} | <strong>Duração:</strong> ${fmtDur(detail.duration_ms)}</div>
-      <div><strong>Session:</strong> <code style="font-size:12px">${detail.session_id || '?'}</code></div>
+      <div><strong>Modelo:</strong> ${escapeHtml(detail.model)} | <strong>Turns:</strong> ${escapeHtml(detail.num_turns)} | <strong>Duração:</strong> ${fmtDur(detail.duration_ms)}</div>
+      <div><strong>Session:</strong> <code style="font-size:12px">${escapeHtml(detail.session_id || '?')}</code></div>
       <div><strong>Tag:</strong> ${escapeHtml(detail.tag || '--')}</div>
       ${detail.is_error ? '<div style="color:var(--red)"><strong>⚠️ ERROR</strong></div>' : ''}
 
-      <div style="margin-top:12px"><strong>📥 Cache read:</strong> ${(usage.cache_read_input_tokens || 0).toLocaleString()} tokens</div>
-      <div><strong>🆕 Cache create:</strong> ${(usage.cache_creation_input_tokens || 0).toLocaleString()} tokens</div>
-      <div><strong>📤 Output:</strong> ${(usage.output_tokens || 0).toLocaleString()} tokens</div>
-      <div><strong>↪️ Input direto:</strong> ${(usage.input_tokens || 0).toLocaleString()} tokens</div>
+      <div style="margin-top:12px"><strong>📥 Cache read:</strong> ${numeroSeguro(usage.cache_read_input_tokens).toLocaleString()} tokens</div>
+      <div><strong>🆕 Cache create:</strong> ${numeroSeguro(usage.cache_creation_input_tokens).toLocaleString()} tokens</div>
+      <div><strong>📤 Output:</strong> ${numeroSeguro(usage.output_tokens).toLocaleString()} tokens</div>
+      <div><strong>↪️ Input direto:</strong> ${numeroSeguro(usage.input_tokens).toLocaleString()} tokens</div>
 
       ${modelUsageHtml ? `<div style="margin-top:12px"><strong>Breakdown por modelo:</strong></div>${modelUsageHtml}` : ''}
 
       <div style="margin-top:14px">
-        <button class="tab haiku-analysis-btn" onclick="runHaikuAnalysis('${detail.session_id}')">🤖 ANÁLISE HAIKU</button>
+        <button class="tab haiku-analysis-btn" data-sid="${escapeHtml(detail.session_id)}" onclick="runHaikuAnalysis(this.dataset.sid)">🤖 ANÁLISE HAIKU</button>
         <span style="font-size:12px;color:var(--text-dim);margin-left:8px">(~$0.005, sob demanda)</span>
       </div>
       <div id="haiku-analysis-out" style="margin-top:12px"></div>
@@ -2683,7 +2689,7 @@ async function runHaikuAnalysis(sessionId) {
       <div style="font-weight:bold;margin-bottom:6px">🤖 ANÁLISE HAIKU</div>
       <div><strong>Resumo:</strong> ${ricoLinha(a.summary || '--')}</div>
       <div style="margin-top:6px"><strong>Onde foi o dinheiro:</strong> ${ricoLinha(a.where_money_went || '--')}</div>
-      <div style="margin-top:6px"><strong>Eficiência:</strong> ${a.efficiency || '--'}/10 <span style="color:var(--text-dim)">${ricoLinha(a.efficiency_reason || '')}</span></div>
+      <div style="margin-top:6px"><strong>Eficiência:</strong> ${escapeHtml(a.efficiency || '--')}/10 <span style="color:var(--text-dim)">${ricoLinha(a.efficiency_reason || '')}</span></div>
       <div style="margin-top:6px"><strong>Sugestões:</strong></div>
       <ul style="margin:4px 0 0 16px">${(a.suggestions || []).map(s => `<li>${ricoLinha(s)}</li>`).join('')}</ul>
       <div style="margin-top:8px;color:var(--text-dim);font-size:12px">Transcript ${result.transcript_found ? 'encontrado' : 'não encontrado'} · análise baseada ${result.transcript_found ? 'em transcript + métricas' : 'só em métricas'}</div>
@@ -2825,7 +2831,7 @@ function htmlSeletorLocal(agentes) {
     // Sem painel instalado nao ha pra onde ir: mostramos o agente, mas sem link morto.
     return (a.atual || !a.url)
       ? `<span class="item"${a.atual ? '' : ' style="opacity:.6"'}>${miolo}</span>`
-      : `<a href="${a.url}" target="_blank" rel="noopener">${miolo}</a>`;
+      : `<a href="${escapeHtml(a.url)}" target="_blank" rel="noopener">${miolo}</a>`;
   }).join('') +
   '<span class="item vazio">Cada agente tem o painel dele, numa porta própria. Abrir outro não desliga este.</span>';
 }
