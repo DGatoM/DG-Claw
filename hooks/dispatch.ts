@@ -22,8 +22,8 @@ const SCRIPT_BY_EVENT: Record<string, string[]> = {
   "post-tool": ["bash", "log-reply.sh"],
   "session-start": ["bash", "session-context.sh"],
   // quadro de avisos da equipe (le o retrato local .dgclaw/retratos/avisos.json; sai calado se ele ainda nao existe)
-  "avisos": ["python3", "avisos.py"],
-  "avisos-reset": ["python3", "avisos.py", "reset"],
+  "avisos": ["python3", "-I", "avisos.py"],
+  "avisos-reset": ["python3", "-I", "avisos.py", "reset"],
 };
 
 async function main() {
@@ -47,12 +47,24 @@ async function main() {
   // marcador do modo servidor v0.1; fora dele, este hook não existe
   if (!existsSync(join(ws, ".dgclaw", "config.sh"))) return;
 
-  const [interp, file, ...args] = script;
-  const proc = Bun.spawn([interp, resolve(import.meta.dir, file), ...args], {
+  // Os scripts rodam SEMPRE de dentro da pasta dos hooks (de root, fora do alcance do agente) e com um
+  // ambiente sem os ganchos de interpretador: o cwd da sessão pode ser um repositório de terceiros, e
+  // python/bash/node carregariam código de lá (json.py ao lado, BASH_ENV, PYTHONSTARTUP...). O
+  // workspace chega pela variável DGCLAW_WORKSPACE, nunca pelo cwd.
+  const env: Record<string, string | undefined> = { ...process.env, DGCLAW_WORKSPACE: ws, PYTHONSAFEPATH: "1" };
+  for (const k of Object.keys(env)) {
+    if (k.startsWith("PYTHON") && k !== "PYTHONSAFEPATH") delete env[k];
+    else if (k.startsWith("BUN_") || k === "NODE_OPTIONS" || k === "BASH_ENV" || k === "ENV" || k.startsWith("BASH_FUNC_")) delete env[k];
+  }
+  const [interp, ...resto] = script;
+  const iFile = resto.findIndex((a) => a.endsWith(".sh") || a.endsWith(".py"));
+  const args = resto.map((a, i) => (i === iFile ? resolve(import.meta.dir, a) : a));
+  const proc = Bun.spawn([interp, ...args], {
+    cwd: import.meta.dir,
     stdin: new TextEncoder().encode(stdin),
     stdout: "pipe",
     stderr: "ignore",
-    env: { ...process.env, DGCLAW_WORKSPACE: ws },
+    env,
   });
   const out = await new Response(proc.stdout).text();
   await proc.exited;

@@ -67,7 +67,7 @@ testes_runner() {
         # O "build" do runner usa o tsconfig.build.json, que deixa os testes de fora da
         # imagem; quem compila COM os testes e roda e o "npm test" (tsc + node --test).
         # Fora do repo o caminho relativo do catalogo nao existe: aponta o do repo.
-        DGCLAW_CATALOGO="$REPO/providers/catalogo.json" npm test
+        DGCLAW_REPO_RAIZ="$REPO" DGCLAW_CATALOGO="$REPO/providers/catalogo.json" npm test
     ) || rc=$?
     rm -rf "$tmp"
     return "$rc"

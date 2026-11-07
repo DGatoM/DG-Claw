@@ -23,7 +23,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { log } from "../logger.js";
 
-/** Marca os comandos que são do DG Claw: tudo o que começa assim, no hooks.json, é regravado a cada spawn. */
+/** Marca os comandos que são do DG Claw: tudo o que tem esta marca (no começo ou depois do `cd '<pasta>' && `), no hooks.json, é regravado a cada spawn. */
 export const MARCA_DO_DGCLAW = "DGCLAW_MOTOR=codex ";
 
 export type EventoDoCodex = "SessionStart" | "UserPromptSubmit";
@@ -118,7 +118,11 @@ export function hooksDoAgente(e: EntradaDeHooks): HookDoDgclaw[] {
   const out: HookDoDgclaw[] = [];
   // A marca fica no começo do comando; o workspace vem logo depois como atribuição de ambiente
   // (o Codex roda o comando por um shell, então `VAR=valor comando` vale como prefixo).
-  const prefixo = `${MARCA_DO_DGCLAW}DGCLAW_WORKSPACE=${citarParaShell(path.resolve(e.workspace))} `;
+  // O comando entra primeiro numa pasta de root (a dos hooks do plugin; "/" se não há plugin): a sessão
+  // Codex pode ter sido aberta dentro de um repositório de terceiros, e bun, python e node leem
+  // arquivos do diretório atual (bunfig.toml com preload, json.py ao lado do script, etc.).
+  const confiavel = e.raiz ? path.join(e.raiz, "hooks") : "/";
+  const prefixo = `cd ${citarParaShell(confiavel)} && ${MARCA_DO_DGCLAW}DGCLAW_WORKSPACE=${citarParaShell(path.resolve(e.workspace))} `;
   if (e.raiz && e.temWorkspace && e.temBun) {
     const d = (ev: string) => `${prefixo}bun ${JSON.stringify(path.join(e.raiz as string, "hooks", "dispatch.ts"))} ${ev}`;
     out.push({ evento: "SessionStart", command: d("session-start"), timeout: 8 });
@@ -145,7 +149,9 @@ interface Grupo {
 }
 type Arquivo = { hooks?: Record<string, Grupo[]>; [k: string]: unknown };
 
-const ehDoDgclaw = (m: Manipulador) => typeof m?.command === "string" && m.command.startsWith(MARCA_DO_DGCLAW);
+/** Comando do DG Claw: a marca no começo (formato antigo) ou logo depois do `cd '<pasta>' && ` (formato atual). */
+export const ehComandoDoDgclaw = (c: unknown): boolean => typeof c === "string" && (c.startsWith(MARCA_DO_DGCLAW) || (c.startsWith("cd ") && c.includes(` && ${MARCA_DO_DGCLAW}DGCLAW_WORKSPACE=`)));
+const ehDoDgclaw = (m: Manipulador) => ehComandoDoDgclaw(m?.command);
 
 /**
  * Mescla os hooks do DG Claw no objeto do hooks.json: tira os que já eram do DG Claw (marca no

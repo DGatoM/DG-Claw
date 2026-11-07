@@ -37,7 +37,7 @@ set +e
 WORKSPACE="${DGCLAW_WORKSPACE:-$PWD}"
 HOOK_INPUT=$(cat)
 
-HOOK_INPUT="$HOOK_INPUT" DGCLAW_WORKSPACE="$WORKSPACE" python3 - <<'PY'
+HOOK_INPUT="$HOOK_INPUT" DGCLAW_WORKSPACE="$WORKSPACE" python3 -I - <<'PY'
 import json, os, sys, traceback
 from datetime import datetime
 
