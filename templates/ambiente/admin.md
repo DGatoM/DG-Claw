@@ -108,6 +108,14 @@ e siga em frente. Só pergunte quando o erro cair num ponto que muda a ação, c
 um comando destrutivo. Não comente a marcação na resposta, nem diga que foi áudio: responda como
 responderia a qualquer mensagem.
 
+### Convidar um colaborador
+
+O dono convida uma pessoa para conversar com **um** agente de trabalho pela tela `/colaboradores?agente=<slug>`
+(item "Convidar colaborador" no menu do agente) ou pela API `POST /api/v1/colaboradores`. O Admin nunca é
+compartilhado. A pessoa vê só a conversa daquele agente e a página Conectar conta. O contrato completo está em
+`/opt/dgclaw/app/web/docs/COLABORADORES.md` (também em `GET /api/v1/colaboradores/docs.md`). O envio do e-mail é
+opcional e depende das variáveis `DGCLAW_SMTP_*` do `web.env`.
+
 ### Onde ler mais
 
 `/opt/dgclaw/app/docs/COMO-FUNCIONA.md` e `ARQUITETURA.md` (visão geral), `SEGURANCA.md` (por que

@@ -89,7 +89,11 @@ function criarServidor(opcoes) {
   const auth = criarAuth({ config, log, agora: opcoes.agora });
   const colaboradores = criarColaboradores({ config, log, agora: opcoes.agora, gerarHash: (senha) => auth.gerarHash(senha) });
   auth.ligarColaboradores(colaboradores);
-  const colabRotas = criarColaboradoresRotas({ colaboradores, auth, registro, email: opcoes.email || criarEmail({ config, log }), config, log });
+  log('info', config.smtp.host ? `E-mail dos convites de colaborador: ligado (${config.smtp.host}:${config.smtp.porta}).` : 'E-mail dos convites de colaborador: desligado (opcional; o convite sai pelo texto da tela). Para ligar, defina DGCLAW_SMTP_HOST e as outras DGCLAW_SMTP_* no web.env.');
+  // Conexões abertas (stream da conversa) de cada colaborador: ao revogar ou trocar a senha, fecham junto com a sessão.
+  const streamsDoColaborador = new Map();
+  const fechaStreamsDe = (id) => { for (const r of streamsDoColaborador.get(id) || []) r.destroy(); streamsDoColaborador.delete(id); };
+  const colabRotas = criarColaboradoresRotas({ colaboradores, auth, registro, email: opcoes.email || criarEmail({ config, log }), config, log, aoDerrubar: fechaStreamsDe });
   const primeiroAcesso = criarPrimeiroAcesso({ config, auth, log, agora: opcoes.agora });
   const avatares = criarAvatar({ dataDir: config.dataDir, log });
   const midia = criarMidia({ dataDir: config.dataDir, log, registro, publicDir: config.publicDir });
@@ -305,6 +309,10 @@ function criarServidor(opcoes) {
     if (r.trancado) {
       log('aviso', `Tentativa de login com o acesso trancado (ip ${ip}).`);
       return json ? H.erroJson(res, 403, r.erro, { trancado: true }) : voltaAoLogin(res, 'bloqueado', next);
+    }
+    if (r.vencida) {
+      log('aviso', `Login recusado (ip ${ip}): a senha temporária de um colaborador venceu.`);
+      return json ? H.erroJson(res, 401, r.erro) : voltaAoLogin(res, 'vencida', next, usuarioDigitado);
     }
     log('aviso', `Login recusado (ip ${ip}): usuário ou senha incorretos.`);
     if (json) return H.erroJson(res, 401, r.erro);
@@ -600,7 +608,7 @@ function criarServidor(opcoes) {
         catch (e) { log('aviso', `Acervo de ${agente.slug}: ${e.message}`); return H.erroJson(res, 400, e.message); }
       }
       if (acao === 'messages' && m === 'GET') return mensagens(req, res, url, agente);
-      if (acao === 'stream' && m === 'GET') return stream(req, res, url, agente);
+      if (acao === 'stream' && m === 'GET') return stream(req, res, url, agente, sessao);
       if (acao === 'wait' && m === 'GET') return esperar(req, res, url, agente);
       if (acao === 'send' && m === 'POST') return enviar(req, res, agente, sessao);
       if (acao === 'permissao' && m === 'POST') {
@@ -724,7 +732,13 @@ function criarServidor(opcoes) {
     }
   }
 
-  function stream(req, res, url, agente) {
+  function stream(req, res, url, agente, sessao) {
+    if (sessao && sessao.papel === 'colaborador') {
+      const abertos = streamsDoColaborador.get(sessao.colaborador_id) || new Set();
+      abertos.add(res);
+      streamsDoColaborador.set(sessao.colaborador_id, abertos);
+      res.on('close', () => { abertos.delete(res); if (!abertos.size) streamsDoColaborador.delete(sessao.colaborador_id); });
+    }
     let since = null;
     const ultimo = req.headers['last-event-id'];
     if (ultimo) { const n = Number(ultimo); if (Number.isFinite(n)) since = n; else log('aviso', `Stream de ${agente.slug}: Last-Event-ID inválido (${String(ultimo).slice(0, 30)}); uso o parâmetro since.`); }

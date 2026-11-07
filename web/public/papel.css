@@ -1,0 +1,4 @@
+/* Colaborador: some tudo que é do dono. O servidor também barra; isto só evita botão que não leva a lugar nenhum. */
+.papel-colab #btnMesa, .papel-colab #btnLembretes, .papel-colab #btnNaoLida, .papel-colab #btnSessoes,
+.papel-colab #trocaBaixo, .papel-colab #mlUso, .papel-colab #mlTroca, .papel-colab #mlPainel,
+.papel-colab #nascimento, .papel-colab .so-dono { display: none !important; }

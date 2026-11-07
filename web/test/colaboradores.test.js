@@ -387,3 +387,22 @@ test('a configuração nova só LÊ o web.env: a linha alheia sobrevive a um con
     assert.equal(fs.readFileSync(webEnv, 'utf8'), conteudo);
   } finally { await s.fechar(); }
 });
+
+test('revogar fecha também o stream aberto da conversa do colaborador', async () => {
+  const s = await cenario();
+  try {
+    const x = await colaboradorAtivo(s);
+    const cookie = Object.entries(x.c.jar).map(([k, v]) => `${k}=${v}`).join('; ');
+    const fechou = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('o stream continuou aberto depois da revogação')), 5000);
+      const req = http.get({ host: '127.0.0.1', port: s.t.porta, path: '/api/v1/agents/ana/stream', headers: { Cookie: cookie, Accept: 'text/event-stream' } }, (res) => {
+        assert.equal(res.statusCode, 200);
+        res.once('data', async () => { await s.dono.pedir('DELETE', `/api/v1/colaboradores/${x.id}`); });
+        res.on('close', () => { clearTimeout(timer); resolve(); });
+        res.on('error', () => undefined);
+      });
+      req.on('error', () => undefined);
+    });
+    await fechou;
+  } finally { await s.fechar(); }
+});

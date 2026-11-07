@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Criar senha - DG Claw</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#2f9e5e">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="icon" href="/icons/icon-192.png">
+<link rel="stylesheet" href="/login.css">
+<link rel="stylesheet" href="/trocar-senha.css">
+<link rel="stylesheet" href="/sem-zoom.css">
+<script src="/sem-zoom.js"></script>
+</head>
+<body>
+<main class="cartao" id="tsCartao" data-tour="ts-cartao">
+  <div class="marca"><span class="emoji" aria-hidden="true">🦞</span><h1>Criar sua senha</h1></div>
+  <p class="sub" id="tsSub">Você entrou com a senha temporária. Escolha a sua para continuar.</p>
+  <button type="button" class="ts-tutorial" id="tsTutorial" title="Visita guiada desta tela: o que é cada parte e por que está aqui">Tutorial</button>
+  <div id="erro" class="erro" role="alert" hidden></div>
+  <form id="tsForm" autocomplete="on">
+    <div id="tsAtualBloco" hidden data-tour="ts-atual">
+      <label for="tsAtual">Senha atual</label>
+      <input id="tsAtual" type="password" autocomplete="current-password">
+    </div>
+    <div data-tour="ts-nova">
+      <label for="tsNova">Senha nova</label>
+      <input id="tsNova" type="password" autocomplete="new-password" minlength="10" maxlength="128" required>
+      <p class="ts-dica" id="tsDica">De 10 a 128 caracteres. Uma frase longa funciona bem.</p>
+    </div>
+    <div data-tour="ts-conf">
+      <label for="tsConf">Repita a senha nova</label>
+      <input id="tsConf" type="password" autocomplete="new-password" maxlength="128" required>
+    </div>
+    <button type="submit" id="tsEnviar" data-tour="ts-enviar">Salvar e entrar</button>
+  </form>
+  <form method="post" action="/sair" class="ts-sair"><button type="submit" class="ts-link">Sair</button></form>
+</main>
+<script src="/tour.js"></script>
+<script src="/trocar-senha.js"></script>
+</body>
+</html>

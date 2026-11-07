@@ -283,7 +283,7 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
     }
     if (ip) falhas.delete(ip);
     if (c.trocar_senha && Number(c.temporaria_expira) < relogio()) {
-      return { ok: false, erro: 'A senha temporária venceu. Peça ao dono do DG Claw um convite novo.' };
+      return { ok: false, vencida: true, erro: 'A senha temporária venceu. Peça ao dono do DG Claw um convite novo.' };
     }
     colaboradores.registrarLogin(c.id);
     return { ok: true, usuario: c.email, papel: 'colaborador', colaborador: { id: c.id, agente: c.agente, senha_versao: c.senha_versao || 1 } };

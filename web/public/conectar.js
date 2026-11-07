@@ -52,7 +52,7 @@
   /* Montado uma vez só: refazer o vídeo a cada desenho reiniciaria a reprodução. */
   function desenhaPronto() {
     const endereco = location.origin + '/';
-    const t = P.pronto({ usuario: est.usuario, principalNome: est.principal && est.principal.nome, endereco });
+    const t = P.pronto({ usuario: est.usuario, principalNome: est.principal && est.principal.nome, endereco, colaborador: !!(window.DGPapel && window.DGPapel.colaborador) });
     const corpo = [];
     corpo.push(el('p', 'cn-texto', t.passo1));
     corpo.push(el('div', 'cn-endereco', t.endereco));

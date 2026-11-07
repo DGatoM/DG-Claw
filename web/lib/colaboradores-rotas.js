@@ -11,7 +11,10 @@ const SENHA_MIN = 10;
 const SENHA_MAX = 128;
 const SO_DONO = 'Convidar e gerenciar colaboradores é só do dono do DG Claw, pelo painel.';
 
-function criarColaboradoresRotas({ colaboradores, auth, registro, email, config, log }) {
+function criarColaboradoresRotas({ colaboradores, auth, registro, email, config, log, aoDerrubar }) {
+  /** Derruba as sessões do colaborador e fecha as conexões abertas dele (o stream da conversa). */
+  const derruba = (id) => { auth.encerraDoColaborador(id); if (aoDerrubar) aoDerrubar(id); };
+
   const fmtData = (ms) => new Intl.DateTimeFormat('pt-BR', { timeZone: config.tz, day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(ms));
 
   function textoDoConvite({ quem, nomeAgente, nomePessoa, link, usuario, senha, expira }) {
@@ -107,7 +110,7 @@ function criarColaboradoresRotas({ colaboradores, auth, registro, email, config,
         if (mr[2] === 'reenviar') {
           if (m !== 'POST') { H.erroJson(res, 405, 'Use POST para mandar o convite de novo.'); return true; }
           const r = await colaboradores.reenviar(id);
-          auth.encerraDoColaborador(id);
+          derruba(id);
           log('info', `Convite reenviado a ${r.registro.email} (agente ${r.registro.agente}); sessões dele derrubadas (por ${sessao.usuario}).`);
           const c = await convite(req, sessao, r.registro, r.senha);
           H.enviaJson(res, 200, { ok: true, colaborador: r.registro, convite: c });
@@ -115,7 +118,7 @@ function criarColaboradoresRotas({ colaboradores, auth, registro, email, config,
         }
         if (m === 'DELETE') {
           const r = await colaboradores.revogar(id);
-          auth.encerraDoColaborador(id);
+          derruba(id);
           log('info', `Acesso de ${r.email} ao agente ${r.agente} revogado (por ${sessao.usuario}).`);
           H.enviaJson(res, 200, { ok: true, colaborador: r });
           return true;
@@ -164,7 +167,7 @@ function criarColaboradoresRotas({ colaboradores, auth, registro, email, config,
       }
       const hash = await auth.gerarHash(nova);
       const r = await colaboradores.definirSenha(c.id, hash);
-      auth.encerraDoColaborador(c.id);
+      derruba(c.id);
       const s = auth.criaSessao(c.email, req, { id: c.id, agente: c.agente, senha_versao: r.senha_versao });
       log('info', `${c.email} trocou a senha (agente ${c.agente}); as outras sessões dele foram derrubadas.`);
       H.enviaJson(res, 200, { ok: true, destino: `/a/${encodeURIComponent(c.agente)}` }, { 'Set-Cookie': s.cookies });
