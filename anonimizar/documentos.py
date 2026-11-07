@@ -137,70 +137,30 @@ def _lxml():
                         "Instale o motor de documentos pelo painel (nível leitores) e tente de novo.") from None
 
 
-def _paragrafos_docx(raiz):
-    for p in raiz.iter(W + "p"):
-        ts = [t for t in p.iter(W + "t", W + "delText") if next(t.iterancestors(W + "p")) is p]
-        if ts:
-            yield p, ts
-
-
-def docx_textos(caminho, nome):
-    etree = _lxml()
-    textos = []
-    with abrir_zip(caminho, nome) as z:
-        for info in z.infolist():
-            if _PARTES_DOCX.match(info.filename):
-                raiz = etree.fromstring(z.read(info.filename))
-                for _p, ts in _paragrafos_docx(raiz):
-                    textos.append("".join(t.text or "" for t in ts))
-            elif info.filename.startswith("word/_rels/") and info.filename.endswith(".rels"):
-                textos += [a for a in _alvos_externos(etree, z.read(info.filename))]
-    return textos
-
-
-def _alvos_externos(etree, dados):
-    raiz = etree.fromstring(dados)
-    return [r.get("Target") for r in raiz if r.get("TargetMode") == "External" and r.get("Target")]
-
-
-def docx_transformar(entrada, saida, nome, encontrar):
-    """Reescreve o docx aplicando `encontrar(texto_do_paragrafo) -> trocas` a cada parágrafo."""
+def docx_reverter(entrada, saida, nome, encontrar):
+    """Reversão: só nós de texto (w:t) do corpo, cabeçalhos, rodapés e notas. Nunca atributo, relacionamento ou propriedade."""
     etree = _lxml()
     subs = {}
     with abrir_zip(entrada, nome) as z:
         for info in z.infolist():
             f = info.filename
-            if _PARTES_DOCX.match(f):
-                raiz = etree.fromstring(z.read(f))
-                mudou = False
-                for _p, ts in _paragrafos_docx(raiz):
-                    trechos = [t.text or "" for t in ts]
-                    trocas = encontrar("".join(trechos))
-                    if not trocas:
-                        continue
-                    for t, novo in zip(ts, distribuir(trechos, trocas)):
-                        t.text = novo
-                        t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
-                    mudou = True
-                if mudou:
-                    subs[f] = etree.tostring(raiz, xml_declaration=True, encoding="UTF-8", standalone=True)
-            elif f.startswith("word/_rels/") and f.endswith(".rels"):
-                raiz = etree.fromstring(z.read(f))
-                mudou = False
-                for r in raiz:
-                    alvo = r.get("Target")
-                    if r.get("TargetMode") == "External" and alvo:
-                        trocas = encontrar(alvo)
-                        if trocas:
-                            r.set("Target", distribuir([alvo], trocas)[0])
-                            mudou = True
-                if mudou:
-                    subs[f] = etree.tostring(raiz, xml_declaration=True, encoding="UTF-8", standalone=True)
-            elif f == "docProps/core.xml":
-                raiz = etree.fromstring(z.read(f))
-                for el in raiz.iter():
-                    if isinstance(el.tag, str) and el.tag.split("}")[-1] in ("creator", "lastModifiedBy") and el.text:
-                        el.text = ""
+            if not _PARTES_DOCX.match(f):
+                continue
+            raiz = etree.fromstring(z.read(f))
+            mudou = False
+            for p in raiz.iter(W + "p"):
+                ts = [t for t in p.iter(W + "t") if next(t.iterancestors(W + "p")) is p]
+                if not ts:
+                    continue
+                trechos = [t.text or "" for t in ts]
+                trocas = encontrar("".join(trechos))
+                if not trocas:
+                    continue
+                for t, novo in zip(ts, distribuir(trechos, trocas)):
+                    t.text = novo
+                    t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+                mudou = True
+            if mudou:
                 subs[f] = etree.tostring(raiz, xml_declaration=True, encoding="UTF-8", standalone=True)
         reescrever_zip(z, saida, subs)
 
@@ -322,20 +282,44 @@ def xlsx_abrir(caminho, nome, **kw):
 
 
 def xlsx_celulas(wb):
-    """Células de texto (nunca fórmulas)."""
+    """Todas as células com valor."""
     for ws in wb.worksheets:
         for linha in ws.iter_rows():
             for c in linha:
-                if c.data_type != "f" and isinstance(c.value, str) and c.value:
+                if c.value is not None:
                     yield c
 
 
+def _eh_numero(c):
+    return c.data_type == "n" and isinstance(c.value, (int, float)) and not isinstance(c.value, bool) and not c.is_date
+
+
+def numero_como_texto(v):
+    if isinstance(v, float):
+        if v != v or v in (float("inf"), float("-inf")):
+            return None
+        return str(int(v)) if v.is_integer() else repr(v)
+    return str(v)
+
+
+def cabecalhos(ws):
+    """Coluna -> primeiro texto das 3 primeiras linhas (contexto de CPF, telefone, conta...)."""
+    cab = {}
+    for linha in ws.iter_rows(min_row=1, max_row=3):
+        for c in linha:
+            if isinstance(c.value, str) and c.value.strip() and c.column not in cab:
+                cab[c.column] = c.value
+    return cab
+
+
 def xlsx_textos(wb):
+    """Texto de células (inclusive texto de fórmulas), comentários, autores e nomes de aba."""
     saida = [ws.title for ws in wb.worksheets]
     for c in xlsx_celulas(wb):
-        saida.append(c.value)
-        if c.comment is not None and c.comment.text:
-            saida.append(c.comment.text)
+        if isinstance(c.value, str):
+            saida.append(c.value)
+        if c.comment is not None:
+            saida += [t for t in (c.comment.text, c.comment.author) if t]
     return saida
 
 
@@ -350,39 +334,86 @@ def _titulo_seguro(titulo, usados):
     return novo
 
 
-def xlsx_transformar(wb, encontrar, trocar_titulo):
-    """Troca texto das células, comentários e nomes de aba. `trocar_titulo(titulo) -> titulo novo`."""
-    for c in xlsx_celulas(wb):
-        trocas = encontrar(c.value)
-        if trocas:
-            c.value = distribuir([c.value], trocas)[0]
-        if c.comment is not None and c.comment.text:
-            trocas = encontrar(c.comment.text)
-            if trocas:
-                c.comment.text = distribuir([c.comment.text], trocas)[0]
+def _literal_puro(texto):
+    m = re.fullmatch(r'=\s*"((?:[^"]|"")*)"\s*', texto)
+    return m.group(1).replace('""', '"') if m else None
+
+
+def xlsx_transformar(wb, sessao):
+    """Anonimiza o workbook aberto: nomes de aba, células de texto, números, fórmulas com dado, comentários.
+
+    Devolve quantas fórmulas foram trocadas por texto (a fórmula levava dado pessoal dentro do literal).
+    """
     novos = {}
     usados = set()
     for ws in wb.worksheets:
-        novos[ws.title] = _titulo_seguro(trocar_titulo(ws.title), usados)
-    if any(a != b for a, b in novos.items()):
-        for ws in wb.worksheets:
-            for linha in ws.iter_rows():
-                for c in linha:
-                    if c.data_type == "f" and isinstance(c.value, str):
-                        for velho, novo in novos.items():
-                            if velho != novo:
-                                c.value = c.value.replace("'%s'!" % velho, "'%s'!" % novo).replace(velho + "!", novo + "!")
-        for ws in wb.worksheets:
-            ws.title = novos[ws.title]
+        novos[ws.title] = _titulo_seguro(sessao.trocar(ws.title), usados)
+    mudaram = {a: b for a, b in novos.items() if a != b}
+    for ws in wb.worksheets:   # as fórmulas passam a apontar para o nome novo antes de qualquer outra coisa
+        for linha in ws.iter_rows():
+            for c in linha:
+                if c.data_type == "f" and isinstance(c.value, str):
+                    for velho, novo in mudaram.items():
+                        c.value = c.value.replace("'%s'!" % velho, "'%s'!" % novo).replace(velho + "!", novo + "!")
+    for ws in wb.worksheets:
+        ws.title = novos[ws.title]
+    formulas = 0
+    for ws in wb.worksheets:
+        cab = cabecalhos(ws)
+        for c in xlsx_celulas_da_aba(ws):
+            v = c.value
+            if _eh_numero(c):
+                texto = numero_como_texto(v)
+                m = sessao.numero_para_marcador(texto, cab.get(c.column, "")) if texto else None
+                if m:
+                    c.value = m
+            elif isinstance(v, str):
+                trocas = sessao.encontrar(v)
+                if trocas:
+                    novo = distribuir([v], trocas)[0]
+                    if c.data_type == "f":
+                        puro = _literal_puro(novo)
+                        novo = puro if puro is not None else novo.lstrip("=")
+                        formulas += 1
+                    c.value = novo
+                    c.data_type = "s"
+            if c.comment is not None:
+                t, a = c.comment.text, c.comment.author
+                if t and sessao.trocar(t) != t:
+                    c.comment.text = sessao.trocar_sem_contar(t)
+                if a and sessao.trocar(a) != a:
+                    c.comment.author = sessao.trocar_sem_contar(a)
+        ws._images = []
+        ws._charts = []
+    wb._external_links = []
     wb.properties.creator = ""
     wb.properties.lastModifiedBy = ""
+    return formulas
 
 
-def xlsx_csvs(caminho_original, nome, wb_anon, trocar):
+def xlsx_celulas_da_aba(ws):
+    for linha in ws.iter_rows():
+        for c in linha:
+            if c.value is not None:
+                yield c
+
+
+def xlsx_reverter(wb, encontrar):
+    """Reversão: só texto de célula (nunca nome de aba, comentário, link ou propriedade)."""
+    for ws in wb.worksheets:
+        for c in xlsx_celulas_da_aba(ws):
+            if c.data_type != "f" and isinstance(c.value, str):
+                trocas = encontrar(c.value)
+                if trocas:
+                    c.value = distribuir([c.value], trocas)[0]
+
+
+def xlsx_csvs(caminho_original, nome, wb_anon, sessao):
     """Um CSV por aba, com os valores em cache (ou o texto da fórmula, se nunca foi calculada)."""
     valores = xlsx_abrir(caminho_original, nome, data_only=True)
     saida = []
     for ws_v, ws in zip(valores.worksheets, wb_anon.worksheets):
+        cab = cabecalhos(ws_v)
         buf = io.StringIO()
         w = csv.writer(buf, lineterminator="\n")
         for lin_v, lin in zip(ws_v.iter_rows(), ws.iter_rows()):
@@ -390,7 +421,11 @@ def xlsx_csvs(caminho_original, nome, wb_anon, trocar):
             for cv, c in zip(lin_v, lin):
                 v = cv.value if cv.value is not None else (c.value if c.data_type == "f" else None)
                 if isinstance(v, str):
-                    v = trocar(v)
+                    v = sessao.trocar(v)
+                elif v is not None and _eh_numero(cv):
+                    texto = numero_como_texto(v)
+                    m = sessao.numero_para_marcador(texto, cab.get(cv.column, "")) if texto else None
+                    v = m or v
                 elif hasattr(v, "isoformat"):
                     v = v.isoformat()
                 linha.append("" if v is None else v)
@@ -408,13 +443,18 @@ def xlsx_avisos(wb, nome):
 
 # ---------- json / csv na reversão ----------
 
-def json_mapear(obj, fn):
+def json_mapear(obj, fn, fn_num=None, ctx=""):
+    """Aplica fn às strings (e chaves). fn_num(texto_do_numero, nome_da_chave) pode trocar um número por texto."""
     if isinstance(obj, str):
         return fn(obj)
     if isinstance(obj, list):
-        return [json_mapear(x, fn) for x in obj]
+        return [json_mapear(x, fn, fn_num, ctx) for x in obj]
     if isinstance(obj, dict):
-        return {fn(k): json_mapear(v, fn) for k, v in obj.items()}
+        return {fn(k): json_mapear(v, fn, fn_num, k) for k, v in obj.items()}
+    if fn_num is not None and isinstance(obj, (int, float)) and not isinstance(obj, bool):
+        texto = numero_como_texto(obj)
+        novo = fn_num(texto, ctx) if texto else None
+        return novo if novo is not None else obj
     return obj
 
 

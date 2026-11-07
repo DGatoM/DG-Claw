@@ -24,6 +24,7 @@ atexit.register(shutil.rmtree, os.environ["DGCLAW_ANON_BASE"], True)
 
 import motor  # noqa: E402
 import detectores  # noqa: E402
+import verificacao  # noqa: E402
 
 
 def tem(m):
@@ -243,7 +244,7 @@ class Arquivos(unittest.TestCase):
 
     def test_reverter_formatos_de_texto(self):
         tabela = [{"tipo": "PESSOA", "valor": "Ana & <Cia>, \"X\"", "marcador": "[PESSOA_1]"}]
-        for nome, esperado in (("r.txt", 'Oi Ana & <Cia>, "X"'), ("r.html", "Oi Ana &amp; &lt;Cia&gt;, \"X\""), ("r.md", 'Oi Ana & <Cia>, "X"')):
+        for nome, esperado in (("r.txt", 'Oi Ana & <Cia>, "X"'), ("r.md", 'Oi Ana & <Cia>, "X"')):
             saida = os.path.join(self.tmp, "volta-" + nome)
             r = motor.tratar({"op": "reverter", "entrada": self.arquivo(nome, "Oi [PESSOA_1]"), "saida": saida, "tabela": tabela})
             self.assertTrue(r["ok"], r)
@@ -262,6 +263,75 @@ class Arquivos(unittest.TestCase):
         r = motor.tratar({"op": "reverter", "entrada": self.arquivo("r.pdf", "x"), "saida": os.path.join(self.tmp, "o"), "tabela": []})
         self.assertEqual(r["codigo"], "pdf")
         self.assertIn(".docx", r["erro"])
+
+    def test_reverter_formatos_ativos_sao_recusados(self):
+        for nome in ("r.html", "r.htm", "r.svg", "r.xml"):
+            r = motor.tratar({"op": "reverter", "entrada": self.arquivo(nome, '<img src="https://x/?cpf=[CPF_1]">'),
+                              "saida": os.path.join(self.tmp, "o-" + nome), "tabela": [{"tipo": "CPF", "valor": "52998224725", "marcador": "[CPF_1]"}]})
+            self.assertFalse(r["ok"], nome)
+            self.assertEqual(r["codigo"], "formato_ativo")
+            self.assertFalse(os.path.exists(os.path.join(self.tmp, "o-" + nome)))
+
+    def test_reverter_nao_troca_dentro_de_url_nem_destino_de_link(self):
+        tabela = [{"tipo": "CPF", "valor": "52998224725", "marcador": "[CPF_1]"}, {"tipo": "PESSOA", "valor": "Ana Lima", "marcador": "[PESSOA_1]"}]
+        md = ("Cliente [PESSOA_1].\n![foto](https://x.com/a.png?cpf=[CPF_1])\n[perfil](https://x.com/u/[PESSOA_1])\n"
+              "[ver [PESSOA_1]](/pasta/[CPF_1].md)\nSolto: https://x.com/?c=[CPF_1] e www.x.com/[CPF_1] e mailto:[PESSOA_1]@x.com\n"
+              "<https://x.com/[CPF_1]>\n[ref]: https://x.com/[CPF_1]\ndata:text/plain,[CPF_1]\nCPF [CPF_1]")
+        saida = os.path.join(self.tmp, "v.md")
+        r = motor.tratar({"op": "reverter", "entrada": self.arquivo("r.md", md), "saida": saida, "tabela": tabela})
+        self.assertTrue(r["ok"], r)
+        with open(saida, encoding="utf-8") as f:
+            out = f.read()
+        self.assertIn("Cliente Ana Lima.", out)
+        self.assertIn("![foto](https://x.com/a.png?cpf=[CPF_1])", out)
+        self.assertIn("[perfil](https://x.com/u/[PESSOA_1])", out)
+        self.assertIn("[ver Ana Lima](/pasta/[CPF_1].md)", out)
+        self.assertIn("https://x.com/?c=[CPF_1] e www.x.com/[CPF_1] e mailto:[PESSOA_1]@x.com", out)
+        self.assertIn("<https://x.com/[CPF_1]>", out)
+        self.assertIn("[ref]: https://x.com/[CPF_1]", out)
+        self.assertIn("data:text/plain,[CPF_1]", out)
+        self.assertTrue(out.endswith("CPF 52998224725"))
+        t = motor.tratar({"op": "reverter_texto", "texto": "veja https://x.com/?c=[CPF_1] e [a](http://y/[CPF_1]) mas CPF [CPF_1]", "tabela": tabela})
+        self.assertEqual(t["texto"], "veja https://x.com/?c=[CPF_1] e [a](http://y/[CPF_1]) mas CPF 52998224725")
+
+    def test_json_com_cpf_como_numero_e_telefone_com_chave(self):
+        sem_zero = cpf_ficticio("012345678")
+        self.assertTrue(sem_zero.startswith("0"))
+        r = self.pedir(self.arquivo("n.json", json.dumps({"cpf": 52998224725, "documento": int(sem_zero), "telefone": 11987654321,
+                                                        "conta_corrente": 456789, "quantidade": 3, "lista": [52998224725], "preco": 19.9})))
+        self.assertTrue(r["ok"], r)
+        out = json.loads(self.ler("doc-1.anon.json"))
+        self.assertEqual(out["cpf"], "[CPF_1]")
+        self.assertEqual(out["lista"], ["[CPF_1]"])
+        self.assertEqual(out["documento"], "[CPF_2]")
+        self.assertEqual(out["telefone"], "[TELEFONE_1]")
+        self.assertEqual(out["conta_corrente"], "[CONTA_1]")
+        self.assertEqual((out["quantidade"], out["preco"]), (3, 19.9))
+        self.assertEqual({e["valor"] for e in r["novas"] if e["tipo"] == "CPF"}, {"52998224725", sem_zero})
+        self.assertEqual(r["usados"], ["[CONTA_1]", "[CPF_1]", "[CPF_2]", "[TELEFONE_1]"])
+
+    def test_usados_em_texto_e_sobrou_dado_nao_deixa_nada(self):
+        r = self.pedir(self.arquivo("u.txt", "Maria Souza e maria@exemplo.com, de novo maria@exemplo.com"))
+        self.assertEqual(r["usados"], ["[EMAIL_1]", "[PESSOA_1]"])
+        saida2 = os.path.join(self.tmp, "saida2")
+        original = motor.Sessao.trocar
+        motor.Sessao.trocar = lambda self_, texto: texto   # simula uma troca que falhou
+        try:
+            r = motor.tratar({"op": "anonimizar", "entrada": self.arquivo("v.txt", "contato fulano@exemplo.com"), "saida_dir": saida2,
+                              "nome_base": "doc-2", "tabela": [], "opcoes": {}})
+        finally:
+            motor.Sessao.trocar = original
+        self.assertFalse(r["ok"])
+        self.assertEqual(r["codigo"], "sobrou_dado")
+        self.assertNotIn("fulano", r["erro"])
+        self.assertEqual(os.listdir(saida2), [])
+
+    def test_verificacao_acha_dado_so_com_digitos(self):
+        caminho = self.arquivo("x.md", "o telefone ficou (11) 98765 4321 aqui")
+        with self.assertRaises(motor.ErroMotor) as cm:
+            verificacao.verificar([caminho], {("TELEFONE", "11987654321"): "(11) 98765-4321"}, "x.md")
+        self.assertEqual(cm.exception.codigo, "sobrou_dado")
+        verificacao.verificar([caminho], {("TELEFONE", "11999990000"): "11999990000"}, "x.md")
 
     def test_pptx_reverter(self):
         slide = ('<?xml version="1.0"?><p:sld xmlns:a="a" xmlns:p="p"><a:p><a:r><a:t>Cliente [PESS</a:t></a:r>'
@@ -328,6 +398,161 @@ class Arquivos(unittest.TestCase):
         self.assertTrue(rv["ok"], rv)
         self.assertEqual(docx.Document(saida).paragraphs[0].text, "Nome: Maria Souza, CPF %s fim." % fmt_cpf(c))
 
+    def assert_limpo(self, caminho, proibidos):
+        """Nenhuma parte descompactada do arquivo guarda qualquer um dos textos proibidos."""
+        for parte, texto in verificacao.partes(caminho):
+            for p in proibidos:
+                self.assertNotIn(p.lower(), texto.lower(), "%s ainda tem dado em %s" % (os.path.basename(caminho), parte))
+
+    @unittest.skipUnless(tem("docx") and tem("lxml"), "python-docx não está instalado neste Python")
+    def test_docx_dado_em_todas_as_superficies(self):
+        import base64
+        import docx
+        from docx.opc.constants import RELATIONSHIP_TYPE as RT
+        from docx.oxml import OxmlElement
+        from docx.oxml.ns import qn
+        png = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+        d = docx.Document()
+        email = "fulano.tal@exemplo.com"
+        p = d.add_paragraph("Fale com ")
+        rid = d.part.relate_to("mailto:" + email, RT.HYPERLINK, is_external=True)
+        link = OxmlElement("w:hyperlink")
+        link.set(qn("r:id"), rid)
+        run = OxmlElement("w:r")
+        t = OxmlElement("w:t")
+        t.text = "o responsável"
+        run.append(t)
+        link.append(run)
+        p._p.append(link)
+        d.add_picture(io.BytesIO(png))
+        d.add_comment(p.runs[0], text="Ligar para %s" % email, author="Fulano Pereira", initials="FP")
+        d.core_properties.title = "Contrato de %s" % email
+        d.core_properties.comments = "dono: %s" % email
+        d.core_properties.author = "Fulano Pereira"
+        d.sections[0].header.paragraphs[0].text = "Cabeçalho %s" % email
+        d.sections[0].footer.paragraphs[0].text = "Rodapé %s" % email
+        origem = os.path.join(self.tmp, "t.docx")
+        d.save(origem)
+        # o mesmo e-mail já está na tabela: só reaproveitado, nunca "novo"
+        tabela = [{"tipo": "EMAIL", "valor": email, "marcador": "[EMAIL_1]"}]
+        r = self.pedir(origem, tabela=tabela)
+        self.assertTrue(r["ok"], r)
+        saida = os.path.join(self.saida, "doc-1.anon.docx")
+        self.assert_limpo(saida, [email, "Fulano Pereira"])
+        self.assertEqual(r["novas"][:0], [])
+        self.assertIn("[EMAIL_1]", r["usados"])
+        self.assertTrue(any("imagens e mídia" in a for a in r["avisos"]), r["avisos"])
+        with zipfile.ZipFile(saida) as z:
+            self.assertEqual([n for n in z.namelist() if "/media/" in n], [])
+        novo = docx.Document(saida)   # continua abrindo, sem referência quebrada a imagem
+        self.assertEqual(len(novo.inline_shapes), 0)
+        self.assertEqual(novo.core_properties.title, "Contrato de [EMAIL_1]")
+
+    @unittest.skipUnless(tem("docx") and tem("lxml"), "python-docx não está instalado neste Python")
+    def test_usados_marcador_reaproveitado_so_no_rodape(self):
+        import docx
+        d = docx.Document()
+        d.add_paragraph("Texto sem dado nenhum.")
+        d.sections[0].footer.paragraphs[0].text = "Contato: fulano@exemplo.com"
+        origem = os.path.join(self.tmp, "r.docx")
+        d.save(origem)
+        r = self.pedir(origem, tabela=[{"tipo": "EMAIL", "valor": "fulano@exemplo.com", "marcador": "[EMAIL_1]"}])
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(r["novas"], [])
+        self.assertEqual(r["usados"], ["[EMAIL_1]"])
+
+    @unittest.skipUnless(tem("docx") and tem("lxml"), "python-docx não está instalado neste Python")
+    def test_docx_reverter_so_texto_visivel(self):
+        import docx
+        from docx.opc.constants import RELATIONSHIP_TYPE as RT
+        from docx.oxml import OxmlElement
+        from docx.oxml.ns import qn
+        d = docx.Document()
+        p = d.add_paragraph("Cliente [PESSOA_1] ")
+        rid = d.part.relate_to("https://x.com/?cpf=[CPF_1]", RT.HYPERLINK, is_external=True)
+        link = OxmlElement("w:hyperlink")
+        link.set(qn("r:id"), rid)
+        run = OxmlElement("w:r")
+        t = OxmlElement("w:t")
+        t.text = "link"
+        run.append(t)
+        link.append(run)
+        p._p.append(link)
+        d.core_properties.title = "Titulo [PESSOA_1]"
+        origem = os.path.join(self.tmp, "o.docx")
+        d.save(origem)
+        saida = os.path.join(self.tmp, "v.docx")
+        tabela = [{"tipo": "PESSOA", "valor": "Ana Lima", "marcador": "[PESSOA_1]"}, {"tipo": "CPF", "valor": "52998224725", "marcador": "[CPF_1]"}]
+        rv = motor.tratar({"op": "reverter", "entrada": origem, "saida": saida, "tabela": tabela})
+        self.assertTrue(rv["ok"], rv)
+        novo = docx.Document(saida)
+        self.assertEqual(novo.paragraphs[0].text, "Cliente Ana Lima link")
+        self.assertEqual(novo.core_properties.title, "Titulo [PESSOA_1]")
+        with zipfile.ZipFile(saida) as z:
+            self.assertIn(b"https://x.com/?cpf=[CPF_1]", z.read("word/_rels/document.xml.rels"))
+
+    @unittest.skipUnless(tem("openpyxl"), "openpyxl não está instalado neste Python")
+    def test_xlsx_numeros_formulas_e_todas_as_superficies(self):
+        import openpyxl
+        from openpyxl.comments import Comment
+        from openpyxl.workbook.defined_name import DefinedName
+        email = "fulano.tal@exemplo.com"
+        cpf = int(cpf_ficticio("529982247"))
+        sem_zero = int(cpf_ficticio("012345678"))
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Clientes"
+        ws.append(["Nome", "CPF", "Telefone", "Qtd", "Documento", "Observação"])
+        ws.append(["Maria Souza", cpf, 11987654321, 4, sem_zero, "ok"])
+        ws["F3"] = '="%d"' % cpf          # literal de texto dentro de fórmula
+        ws["F4"] = "=%d" % cpf            # número solto dentro de fórmula
+        ws["F5"] = '=CONCATENATE("%s","!")' % email
+        ws["F6"] = "contato"
+        ws["F6"].hyperlink = "mailto:" + email
+        ws["D2"].comment = Comment("escreva para %s" % email, "Fulano Pereira")   # comentário em célula numérica
+        wb.defined_names["contato"] = DefinedName("contato", attr_text='"%s"' % email)
+        wb.properties.title = "Planilha de %s" % email
+        wb.properties.creator = "Fulano Pereira"
+        origem = os.path.join(self.tmp, "t.xlsx")
+        wb.save(origem)
+        r = self.pedir(origem)
+        self.assertTrue(r["ok"], r)
+        saida = os.path.join(self.saida, "doc-1.anon.xlsx")
+        self.assert_limpo(saida, [email, "Fulano Pereira", str(cpf), str(sem_zero), "11987654321", cpf_ficticio("012345678")])
+        for csv_ in [n for n in os.listdir(self.saida) if n.endswith(".csv")]:
+            self.assert_limpo(os.path.join(self.saida, csv_), [email, str(cpf), "11987654321", "Maria Souza"])
+        novo = openpyxl.load_workbook(saida)["Clientes"]
+        self.assertEqual(novo["B2"].value, "[CPF_1]")
+        self.assertEqual(novo["C2"].value, "[TELEFONE_1]")
+        self.assertEqual(novo["D2"].value, 4)
+        self.assertEqual(novo["E2"].value, "[CPF_2]")
+        self.assertEqual(novo["F3"].value, "[CPF_1]")
+        self.assertEqual(novo["F4"].value, "[CPF_1]")
+        self.assertIn("[EMAIL_1]", novo["F5"].value)
+        self.assertFalse(str(novo["F5"].value).startswith("="))
+        self.assertTrue(any("fórmula" in a for a in r["avisos"]), r["avisos"])
+        for m in ("[CPF_1]", "[CPF_2]", "[EMAIL_1]", "[TELEFONE_1]", "[PESSOA_1]"):
+            self.assertIn(m, r["usados"])
+
+    @unittest.skipUnless(tem("openpyxl") and tem("PIL"), "openpyxl ou Pillow não estão instalados neste Python")
+    def test_xlsx_imagem_sai_com_aviso(self):
+        import base64
+        import openpyxl
+        from openpyxl.drawing.image import Image
+        png = os.path.join(self.tmp, "i.png")
+        with open(png, "wb") as f:
+            f.write(base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="))
+        wb = openpyxl.Workbook()
+        wb.active["A1"] = "x"
+        wb.active.add_image(Image(png), "B2")
+        origem = os.path.join(self.tmp, "i.xlsx")
+        wb.save(origem)
+        r = self.pedir(origem)
+        self.assertTrue(r["ok"], r)
+        with zipfile.ZipFile(os.path.join(self.saida, "doc-1.anon.xlsx")) as z:
+            self.assertEqual([n for n in z.namelist() if "/media/" in n], [])
+        openpyxl.load_workbook(os.path.join(self.saida, "doc-1.anon.xlsx"))
+
     @unittest.skipUnless(tem("openpyxl"), "openpyxl não está instalado neste Python")
     def test_xlsx_celulas_formulas_e_abas(self):
         import openpyxl
@@ -357,7 +582,7 @@ class Arquivos(unittest.TestCase):
         rv = motor.tratar({"op": "reverter", "entrada": os.path.join(self.saida, "doc-1.anon.xlsx"), "saida": saida, "tabela": r["novas"]})
         self.assertTrue(rv["ok"], rv)
         volta = openpyxl.load_workbook(saida)
-        self.assertEqual(volta["Maria Souza"]["A1"].value, "João Pereira")
+        self.assertEqual(volta["PESSOA_1"]["A1"].value, "João Pereira")   # nome de aba é atributo: não volta
 
     @unittest.skipUnless(tem("pypdf"), "pypdf não está instalado neste Python")
     def test_pdf_com_texto_e_sem_texto(self):

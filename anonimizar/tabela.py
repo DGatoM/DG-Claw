@@ -106,6 +106,7 @@ class Sessao:
         self.partes = {}            # primeiro nome/sobrenome exato (maiúscula/minúscula importa) -> (tipo, marcador)
         self.contagem = {}
         self.contando = True
+        self.detectados = {}        # (tipo, chave) -> valor: tudo o que apareceu NESTE documento
         self._rx = None
         self._rx_partes = None
         for e in tabela.entradas:
@@ -127,23 +128,59 @@ class Sessao:
             self._rx_partes = _compilar(self.partes, 0)
         return self._rx_partes
 
-    def preparar(self, texto):
+    def preparar(self, texto, ner=True):
         """Detecta no texto e registra tudo o que achou (os marcadores ficam definidos)."""
         from detectores import detectar
         texto = neutralizar(texto)
         spans = detectar(texto, bool(self.opcoes.get("valores")), bool(self.opcoes.get("datas")))
-        if self.ner is not None:
+        if ner and self.ner is not None:
             tipos = ["PESSOA", "ENDERECO"] + (["EMPRESA"] if self.opcoes.get("empresas") else [])
             spans = _juntar_ner(spans, self.ner.detectar(texto, tipos), texto)
         nomes = []
         for ini, fim, tipo, _prio in spans:
             valor = texto[ini:fim]
+            self._lembrar(tipo, valor)
             if tipo == "PESSOA":
                 nomes.append(valor)
             else:
                 m = self.tabela.achar(tipo, valor) or self.tabela.criar(tipo, valor)
                 self._superficie(valor, tipo, m)
         self._registrar_pessoas(nomes)
+
+    def _lembrar(self, tipo, valor):
+        self.detectados.setdefault((tipo, normalizar(tipo, valor)), valor)
+
+    def numero_para_marcador(self, digitos, contexto=""):
+        """Número guardado como número (célula, JSON): CPF/CNPJ sem zero à esquerda, telefone e conta com o título da coluna.
+
+        Devolve o marcador (e registra) ou None se o número não é dado pessoal.
+        """
+        from detectores import detectar
+        ctx = re.sub(r"[_\-]+", " ", re.sub(r"(?<=[a-z])(?=[A-Z])", " ", contexto or "")).strip()
+        candidatos = [digitos]
+        if len(digitos) <= 11:
+            candidatos.append(digitos.zfill(11))
+        if len(digitos) <= 14:
+            candidatos.append(digitos.zfill(14))
+        if re.search(r"(?i)\bcpf\b", ctx) and 9 <= len(digitos) <= 11:
+            return self._marcar("CPF", digitos.zfill(11))
+        if re.search(r"(?i)\bcnpj\b", ctx) and 12 <= len(digitos) <= 14:
+            return self._marcar("CNPJ", digitos.zfill(14))
+        prefixo = (ctx + ": ") if ctx else ""
+        for cand in candidatos:
+            t = prefixo + cand
+            for ini, fim, tipo, _p in detectar(t, False, False):
+                if ini >= len(prefixo) and fim == len(t):
+                    return self._marcar(tipo, cand)
+        return None
+
+    def _marcar(self, tipo, valor):
+        self._lembrar(tipo, valor)
+        m = self.tabela.achar(tipo, valor) or self.tabela.criar(tipo, valor)
+        self._superficie(valor, tipo, m)
+        if self.contando:
+            self.contagem[tipo] = self.contagem.get(tipo, 0) + 1
+        return m
 
     def _registrar_pessoas(self, nomes):
         """Nome parcial vira o marcador do nome completo se houver um único candidato; senão, marcador próprio."""
@@ -178,8 +215,10 @@ class Sessao:
                         self.partes[tok] = ("PESSOA", marcador)
                         self._rx_partes = None
 
-    def encontrar(self, texto):
-        """Trocas `(inicio, fim, novo_texto)` para um trecho, inclusive a neutralização de marcador plantado."""
+    def encontrar(self, texto, estrutural=False):
+        """Em parte estrutural (propriedades, atributos) data e valor ficam: trocar quebraria o formato do arquivo.
+
+        Trocas `(inicio, fim, novo_texto)` para um trecho, inclusive a neutralização de marcador plantado."""
         trocas = list(achar_neutralizacoes(texto))
         candidatos = []
         for rx, tabela in ((self._regex(), self.superficies), (self._regex_partes(), self.partes)):
@@ -188,6 +227,8 @@ class Sessao:
             for m in rx.finditer(texto):
                 chave = " ".join(m.group(0).split())
                 tipo, marcador = tabela[chave.casefold() if tabela is self.superficies else chave]
+                if estrutural and tipo in ("DATA", "VALOR"):
+                    continue
                 candidatos.append((m.start(), m.end(), marcador, tipo))
         candidatos.sort(key=lambda c: (-(c[1] - c[0]), c[0]))
         ocupado = [(a, b) for a, b, _ in trocas]
@@ -203,6 +244,13 @@ class Sessao:
 
     def trocar(self, texto):
         return aplicar_trocas(texto, self.encontrar(texto))
+
+    def trocar_sem_contar(self, texto):
+        antes, self.contando = self.contando, False
+        try:
+            return self.trocar(texto)
+        finally:
+            self.contando = antes
 
 
 def _compilar(tabela, flags):
@@ -256,6 +304,20 @@ def _juntar_ner(spans_regex, spans_ner, texto):
     return saida
 
 
+_RX_URL = re.compile(r"(?i)(?:https?://|www\.|mailto:|data:)[^\s<>\"'`)]*")
+_RX_DESTINO_MD = re.compile(r"\]\(([^)\n]*)\)")
+_RX_REF_MD = re.compile(r"(?m)^[ ]{0,3}\[[^\]\n]+\]:[ \t]*\S+")
+
+
+def zonas_sem_troca(texto, md=False):
+    """Trechos onde marcador NÃO vira dado real: URL solta e, no markdown, destino de link/imagem."""
+    zonas = [(m.start(), m.end()) for m in _RX_URL.finditer(texto)]
+    if md:
+        zonas += [(m.start(1) - 1, m.end()) for m in _RX_DESTINO_MD.finditer(texto)]
+        zonas += [(m.start(), m.end()) for m in _RX_REF_MD.finditer(texto)]
+    return zonas
+
+
 class Reversor:
     def __init__(self, tabela):
         self.valor_de = {}
@@ -263,18 +325,21 @@ class Reversor:
             self.valor_de.setdefault(e["marcador"], e["valor"])
         self.trocas = 0
         self.desconhecidos = []
+        self.md = False
 
-    def encontrar(self, texto, formatar=None):
+    def encontrar(self, texto):
+        zonas = zonas_sem_troca(texto, self.md)
         saida = []
         for m in _RX_MARCADOR.finditer(texto):
             marcador = m.group(0)
             if marcador in self.valor_de:
-                valor = self.valor_de[marcador]
-                saida.append((m.start(), m.end(), formatar(valor) if formatar else valor))
+                if any(a < m.end() and m.start() < b for a, b in zonas):
+                    continue
+                saida.append((m.start(), m.end(), self.valor_de[marcador]))
                 self.trocas += 1
             elif marcador not in self.desconhecidos:
                 self.desconhecidos.append(marcador)
         return saida
 
-    def reverter(self, texto, formatar=None):
-        return aplicar_trocas(texto, self.encontrar(texto, formatar))
+    def reverter(self, texto):
+        return aplicar_trocas(texto, self.encontrar(texto))

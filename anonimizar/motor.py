@@ -20,10 +20,12 @@ import traceback
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import documentos as docs  # noqa: E402
+import ooxml  # noqa: E402
+import verificacao  # noqa: E402
 import ner_gliner  # noqa: E402
 from detectores import TIPOS  # noqa: E402
 from documentos import ErroMotor  # noqa: E402
-from tabela import Reversor, Sessao, Tabela  # noqa: E402
+from tabela import _RX_MARCADOR, Reversor, Sessao, Tabela  # noqa: E402
 
 AVISO_SEM_NER = "O detector de nomes e endereços não está instalado: só números, contatos e documentos foram trocados."
 _NER = {"obj": None, "pronto": False}
@@ -140,13 +142,15 @@ def op_anonimizar_texto(req):
         sessao.preparar(texto)
     except ner_gliner.ErroNer as e:
         raise ErroMotor(e.codigo, e.mensagem) from None
-    return {"ok": True, "texto": sessao.trocar(texto), "novas": _novas(tabela), "contagem": sessao.contagem,
-            "avisos": avisos, "nivel": nivel()}
+    saida = sessao.trocar(texto)
+    return {"ok": True, "texto": saida, "novas": _novas(tabela), "usados": sorted({m.group(0) for m in _RX_MARCADOR.finditer(saida)}),
+            "contagem": sessao.contagem, "avisos": avisos, "nivel": nivel()}
 
 
 def op_reverter_texto(req):
     texto = _texto_str(req, "texto")
     rev = Reversor(req.get("tabela") or [])
+    rev.md = True
     return {"ok": True, "texto": rev.reverter(texto), "trocas": rev.trocas, "desconhecidos": rev.desconhecidos}
 
 
@@ -158,14 +162,21 @@ def _validar_caminhos(req, entrada_obrigatoria=True):
     return entrada, os.path.basename(entrada)
 
 
-def _gravar_atomico(destino_dir, arquivos):
-    """arquivos: [(nome_final, funcao_que_grava(caminho))]. Tudo ou nada."""
+def _gravar_atomico(destino_dir, arquivos, antes_de_mover=None):
+    """arquivos: [(nome_final, funcao_que_grava(caminho))]. Tudo ou nada.
+
+    `antes_de_mover(caminhos_temporarios)` roda sobre as saídas prontas (verificação final) e devolve algo que
+    esta função repassa; se levantar erro, nada chega a `destino_dir`.
+    """
     os.makedirs(destino_dir, exist_ok=True)
     tmp = tempfile.mkdtemp(prefix=".anon-", dir=destino_dir)
     movidos = []
+    resultado = None
     try:
         for nome, grava in arquivos:
             grava(os.path.join(tmp, nome))
+        if antes_de_mover is not None:
+            resultado = antes_de_mover([os.path.join(tmp, n) for n, _ in arquivos])
         for nome, _ in arquivos:
             os.replace(os.path.join(tmp, nome), os.path.join(destino_dir, nome))
             movidos.append(os.path.join(destino_dir, nome))
@@ -186,7 +197,7 @@ def _gravar_atomico(destino_dir, arquivos):
             os.rmdir(tmp)
         except OSError as e:
             log("sobrou pasta temporária (%s)" % type(e).__name__)
-    return movidos
+    return resultado
 
 
 def _escreve(texto):
@@ -228,18 +239,20 @@ def op_anonimizar(req):
                 arquivos.append((pref + ".md", _escreve(sessao.trocar(texto))))
             else:
                 sessao.preparar("\n".join(docs.json_strings(obj)))
-                novo = json.dumps(docs.json_mapear(obj, sessao.trocar), ensure_ascii=False, indent=2) + "\n"
+                novo = json.dumps(docs.json_mapear(obj, sessao.trocar, sessao.numero_para_marcador), ensure_ascii=False, indent=2) + "\n"
                 arquivos.append((pref + ".json", _escreve(novo)))
         elif ext == ".pdf":
             texto = docs.pdf_texto(entrada, nome)
             sessao.preparar(texto)
             arquivos.append((pref + ".md", _escreve(sessao.trocar(texto))))
         elif ext == ".docx":
-            sessao.preparar("\n".join(docs.docx_textos(entrada, nome)))
+            conteudo, attr_ner, attr_regex = ooxml.textos_para_deteccao(entrada, nome)
+            sessao.preparar("\n".join(conteudo + attr_ner))
+            sessao.preparar("\n".join(attr_regex), ner=False)
             tmp_docx = tempfile.mkdtemp(prefix=".anon-docx-")
             try:
                 caminho_docx = os.path.join(tmp_docx, "x.docx")
-                docs.docx_transformar(entrada, caminho_docx, nome, sessao.encontrar)
+                ooxml.reescrever(entrada, caminho_docx, nome, sessao.encontrar, avisos)
                 md = docs.docx_para_md(caminho_docx)
                 with open(caminho_docx, "rb") as f:
                     dados = f.read()
@@ -250,18 +263,36 @@ def op_anonimizar(req):
         elif ext == ".xlsx":
             wb = docs.xlsx_abrir(entrada, nome)
             avisos += docs.xlsx_avisos(wb, nome)
-            sessao.preparar("\n".join(docs.xlsx_textos(wb)))
-            docs.xlsx_transformar(wb, sessao.encontrar, sessao.trocar)
+            conteudo, attr_ner, attr_regex = ooxml.textos_para_deteccao(entrada, nome, so_nao_celulas=True)
+            sessao.preparar("\n".join(docs.xlsx_textos(wb) + conteudo + attr_ner))
+            sessao.preparar("\n".join(attr_regex), ner=False)
+            formulas = docs.xlsx_transformar(wb, sessao)
+            if formulas:
+                avisos.append("%d fórmula(s) de '%s' levavam dado pessoal e foram trocadas pelo texto com marcador." % (formulas, nome))
             sessao.contando = False
-            csvs = docs.xlsx_csvs(entrada, nome, wb, sessao.trocar)
-            arquivos.append((pref + ".xlsx", lambda c, w=wb: w.save(c)))
-            for n, conteudo in enumerate(csvs, 1):
-                arquivos.append((pref + (".csv" if len(csvs) == 1 else ".%d.csv" % n), _escreve(conteudo)))
-        _gravar_atomico(saida_dir, arquivos)
+            csvs = docs.xlsx_csvs(entrada, nome, wb, sessao)
+            tmp_x = tempfile.mkdtemp(prefix=".anon-xlsx-")
+            try:
+                parcial, final = os.path.join(tmp_x, "a.xlsx"), os.path.join(tmp_x, "b.xlsx")
+                wb.save(parcial)
+                ooxml.reescrever(parcial, final, nome, sessao.encontrar, avisos, so_nao_celulas=True)
+                with open(final, "rb") as f:
+                    dados = f.read()
+            finally:
+                _limpar(tmp_x)
+            arquivos.append((pref + ".xlsx", lambda c, d=dados: _grava_bytes(c, d)))
+            for n, conteudo_csv in enumerate(csvs, 1):
+                arquivos.append((pref + (".csv" if len(csvs) == 1 else ".%d.csv" % n), _escreve(conteudo_csv)))
+
+        def verifica(caminhos):
+            verificacao.verificar(caminhos, sessao.detectados, nome)
+            return verificacao.marcadores_usados(caminhos)
+
+        usados = _gravar_atomico(saida_dir, arquivos, verifica)
     except ner_gliner.ErroNer as e:
         raise ErroMotor(e.codigo, e.mensagem) from None
     caminhos = [{"caminho": os.path.join(saida_dir, n), "formato": n.rsplit(".", 1)[1]} for n, _ in arquivos]
-    return {"ok": True, "saidas": caminhos, "novas": _novas(tabela), "contagem": sessao.contagem,
+    return {"ok": True, "saidas": caminhos, "novas": _novas(tabela), "usados": usados, "contagem": sessao.contagem,
             "avisos": avisos, "nivel": nivel()}
 
 
@@ -276,9 +307,10 @@ def _limpar(pasta):
     os.rmdir(pasta)
 
 
+FORMATOS_ATIVOS = (".html", ".htm", ".xhtml", ".svg", ".xml", ".xsl", ".js", ".mjs", ".css")
+
+
 def op_reverter(req):
-    import html
-    import re
     entrada, nome = _validar_caminhos(req)
     saida = req.get("saida")
     if not isinstance(saida, str) or not saida:
@@ -288,15 +320,17 @@ def op_reverter(req):
     if ext == ".pdf":
         raise ErroMotor("pdf", "Não dá para trazer os dados reais de volta num PDF (o texto dele não é editável aqui). "
                         "Peça ao agente o resultado em .docx ou .md.")
+    if ext in FORMATOS_ATIVOS:
+        raise ErroMotor("formato_ativo", "O arquivo '%s' (%s) pode abrir links, imagens ou scripts: colocar dados reais nele poderia mandá-los "
+                        "para fora. Peça ao agente o resultado em .docx, .md ou .txt." % (nome, ext))
     destino_dir = os.path.dirname(os.path.abspath(saida))
     os.makedirs(destino_dir, exist_ok=True)
     tmp = tempfile.mkdtemp(prefix=".rev-", dir=destino_dir)
     tmp_arq = os.path.join(tmp, "saida")
     try:
         if ext in (".txt", ".md"):
+            rev.md = True
             docs.escrever_texto(tmp_arq, rev.reverter(docs.ler_texto(entrada)))
-        elif ext == ".html":
-            docs.escrever_texto(tmp_arq, rev.reverter(docs.ler_texto(entrada), lambda v: html.escape(v, quote=False)))
         elif ext == ".csv":
             docs.escrever_texto(tmp_arq, docs.csv_mapear(docs.ler_texto(entrada), rev.reverter))
         elif ext == ".json":
@@ -306,25 +340,15 @@ def op_reverter(req):
                 raise ErroMotor("arquivo_invalido", "O arquivo '%s' não é um JSON válido. Peça ao agente para gerar de novo." % nome) from None
             docs.escrever_texto(tmp_arq, json.dumps(docs.json_mapear(obj, rev.reverter), ensure_ascii=False, indent=2) + "\n")
         elif ext == ".docx":
-            docs.docx_transformar(entrada, tmp_arq, nome, rev.encontrar)
+            docs.docx_reverter(entrada, tmp_arq, nome, rev.encontrar)
         elif ext == ".pptx":
             docs.pptx_transformar(entrada, tmp_arq, nome, rev.encontrar)
         elif ext == ".xlsx":
             wb = docs.xlsx_abrir(entrada, nome)
-            bare = re.compile(r"(?<!\w)(" + "|".join(TIPOS) + r")_(\d+)(?!\w)")
-
-            def titulo(t):
-                def m(mt):
-                    marcador = "[%s_%s]" % (mt.group(1), mt.group(2))
-                    if marcador in rev.valor_de:
-                        rev.trocas += 1
-                        return rev.valor_de[marcador]
-                    return mt.group(0)
-                return bare.sub(m, t)
-            docs.xlsx_transformar(wb, rev.encontrar, titulo)
+            docs.xlsx_reverter(wb, rev.encontrar)
             wb.save(tmp_arq)
         else:
-            raise ErroMotor("formato_nao_suportado", "O formato '%s' do arquivo '%s' não tem reversão. Aceitos: .txt .md .csv .json .html .docx .xlsx .pptx."
+            raise ErroMotor("formato_nao_suportado", "O formato '%s' do arquivo '%s' não tem reversão. Aceitos: .txt .md .csv .json .docx .xlsx .pptx."
                             % (ext or "(sem extensão)", nome))
         os.replace(tmp_arq, saida)
     finally:
