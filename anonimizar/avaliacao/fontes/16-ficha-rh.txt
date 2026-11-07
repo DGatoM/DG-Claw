@@ -1,0 +1,14 @@
+#formato: txt
+FICHA DE ADMISSÃO
+
+Colaboradora: [[PESSOA:Patrícia Helena de Oliveira Gomes]]
+Matrícula: [[!:00457]]
+Cargo: assistente administrativa. Setor: financeiro.
+CPF: [[CPF:${CPF_H_RAW}]]  RG: [[RG:67.890.123-4]]  PIS: [[PIS:${PIS_A}]]
+Admissão: [[DATA:01/03/2026]]. Salário: [[VALOR:R$ 3.150,00]].
+Endereço: [[ENDERECO:Rua Capitão Rosa, 18, Porto Alegre/RS]]
+Contato de emergência: [[PESSOA:Sérgio Gomes]], marido, tel. [[TELEFONE:(51) 99888-1212]].
+Conta salário: ag. [[AGENCIA:2233]] c/c [[CONTA:77889-0]].
+Gestora direta: [[PESSOA:Débora Lima]]. Empresa: [[EMPRESA:Grupo Meridional Alimentos S.A.]]
+
+Observação: a colaboradora prefere ser chamada de [[PESSOA:Paty]].

@@ -1,0 +1,15 @@
+#formato: txt
+[[PESSOA:Juliana Matos Rangel]]
+[[ENDERECO:Rua Voluntários da Pátria, 95, Botafogo, Rio de Janeiro/RJ]] | [[TELEFONE:(21) 99555-0123]] | [[EMAIL:ju.rangel@exemplo.com.br]]
+
+OBJETIVO: vaga de analista de dados.
+
+EXPERIÊNCIA
+2022 a 2026: analista na [[EMPRESA:Vale Verde Agro S.A.]], onde liderei o projeto de dashboards. Meu gestor era o [[PESSOA:Carlos Eduardo Bastos]].
+2019 a 2022: estagiária e depois assistente na [[EMPRESA:Mundo Digital]], em [[!:Niterói]].
+
+FORMAÇÃO: bacharelado em estatística pela [[EMPRESA:Universidade Federal Fluminense]], concluído em [[DATA:12/12/2018]].
+
+HABILIDADES: [[!:Python]], [[!:SQL]], [[!:Tableau]] e [[!:Excel]].
+
+Referências: Prof. [[PESSOA:Sérgio Nogueira]], telefone [[TELEFONE:21 98877-1122]].

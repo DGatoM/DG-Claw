@@ -1,0 +1,11 @@
+#formato: txt
+COMPROVANTES DE PIX - RESUMO DO MÊS
+
+1) Para: [[PESSOA:Gustavo Henrique Ramos]]. Chave CPF: [[CPF:${CPF_F}]]. Valor [[VALOR:R$ 350,00]] em [[DATA:04/09/2026]].
+2) Para: [[EMPRESA:Oficina do Zé Ltda]]. Chave CNPJ: [[CNPJ:${CNPJ_D_RAW}]]. Valor [[VALOR:R$ 1.280,00]].
+3) Para: [[PESSOA:Letícia Arantes]]. Chave e-mail: [[EMAIL:leticia.arantes@exemplo.com.br]].
+4) Para: [[PESSOA:Roberto Salgado]]. Chave telefone: [[TELEFONE:+5511987654321]].
+5) Para: [[PESSOA:Simone Carvalho]]. Chave aleatória: [[PIX:${UUID_B}]].
+6) Para: o [[PESSOA:Marquinhos]]. Chave celular [[TELEFONE:(11) 91234-5678]].
+
+Todos os pagamentos foram feitos pelo app do [[!:Nubank]] na [[!:Black Friday]]. ID da transação [[!:E00038166202609041200abcdef123456]].

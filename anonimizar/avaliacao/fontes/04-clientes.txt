@@ -1,0 +1,7 @@
+#formato: xlsx
+Nome | CPF | Telefone | E-mail | Cidade | Valor do contrato | Observação
+[[PESSOA:Aline Costa Barbosa]] | [[CPF:${CPF_E}]] | [[TELEFONE:(21) 98765-4321]] | [[EMAIL:aline.barbosa@exemplo.com.br]] | [[!:Rio de Janeiro]] | [[VALOR:R$ 12.000,00]] | cliente desde [[DATA:03/02/2024]]
+[[PESSOA:Bruno Tavares]] | [[CPF:${CPF_F_RAW}]] | [[TELEFONE:21987651234]] | [[EMAIL:bruno.t@exemplo.com.br]] | [[!:Niterói]] | [[VALOR:R$ 8.500,00]] | indicado pela [[PESSOA:Aline]]
+[[PESSOA:CAMILA DE SOUZA PEREIRA]] | [[CPF:${CPF_G}]] | [[TELEFONE:+55 31 99123-4567]] | [[EMAIL:camila.pereira@exemplo.com.br]] | [[!:Belo Horizonte]] | [[VALOR:R$ 20.300,00]] | pagamento na conta [[CONTA:11223-4]] ag. [[AGENCIA:0456]]
+[[PESSOA:Diego "Dedé" Nascimento]] | [[CPF:${CPF_H}]] | [[TELEFONE:(31) 3222-9988]] | [[EMAIL:dede.nascimento@exemplo.com.br]] | [[!:Contagem]] | [[VALOR:R$ 5.900,00]] | ligar depois de [[DATA:20/06/2026]]
+Total de clientes ativos: [[!:4]] | | | | | [[VALOR:R$ 46.700,00]] |
