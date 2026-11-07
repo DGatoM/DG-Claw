@@ -627,16 +627,16 @@ function criarServidor(opcoes) {
       if (acao === 'wait' && m === 'GET') return esperar(req, res, url, agente, sessao);
       if (acao === 'send' && m === 'POST') return enviar(req, res, agente, sessao);
       if (acao === 'permissao' && m === 'POST') {
-        if (confirmacaoNegada(res, agente, sessao)) return undefined;
         const corpo = await lerEnvio(req, res);
         if (!corpo) return undefined;
+        if (await confirmacaoNegada(res, agente, sessao, corpo.tool_use_id)) return undefined;
         const r = await conversa.permissao(agente, corpo.decisao, corpo.tool_use_id);
         return H.enviaJson(res, r.status, r.corpo);
       }
       if (acao === 'pergunta' && m === 'POST') {
-        if (confirmacaoNegada(res, agente, sessao)) return undefined;
         const corpo = await lerEnvio(req, res);
         if (!corpo) return undefined;
+        if (await confirmacaoNegada(res, agente, sessao, corpo.tool_use_id)) return undefined;
         const r = await conversa.responderPergunta(agente, corpo);
         return H.enviaJson(res, r.status, r.corpo);
       }
@@ -713,8 +713,9 @@ function criarServidor(opcoes) {
   function atividadePara(sessao, agente, ativ) {
     if (!ehColab(sessao)) return ativ;
     const copia = Object.assign({}, ativ);
-    const a = autorDoTurno.get(agente.slug);
-    if (!(a && a.colaborador_id === sessao.colaborador_id)) { delete copia.permissao; delete copia.pergunta; copia.detalhe = null; }
+    vinculaPendencia(agente.slug, sessao, ativ);
+    const id = (ativ.permissao && ativ.permissao.id) || (ativ.pergunta && ativ.pergunta.id) || null;
+    if (!pendenciaEhDele(agente.slug, sessao, id)) { delete copia.permissao; delete copia.pergunta; copia.detalhe = null; }
     if (copia.motivo && !['login_expirado', 'sem_login'].includes(copia.alerta)) copia.motivo = 'O agente está sem sinal agora.';
     return copia;
   }
@@ -799,17 +800,55 @@ function criarServidor(opcoes) {
     return { colaborador: true, from: `colaborador: ${sessao.nome ? `${sessao.nome} (${sessao.usuario})` : sessao.usuario}` };
   }
 
-  // Quem iniciou o turno atual de cada agente (o autor do último envio aceito). O colaborador só confirma
-  // permissão ou pergunta do turno que ele mesmo começou; sem registro (restart), a confirmação é do dono.
-  const autorDoTurno = new Map();
-  const marcaAutor = (slug, sessao) => autorDoTurno.set(slug, sessao && sessao.papel === 'colaborador' ? { colaborador_id: sessao.colaborador_id } : { dono: true });
-  function confirmacaoNegada(res, agente, sessao) {
+  // Quem iniciou o turno em curso de cada agente, e de quem é cada pendência (permissão ou pergunta) que ele abriu.
+  // O colaborador só confirma uma pendência cujo id pertence a um turno que ELE iniciou, sem mensagem de outra
+  // pessoa na fila. Um envio que só entrou na fila (o agente estava ocupado ou esperando confirmação) não inicia
+  // turno nenhum: se ele trocasse o autor, o colaborador aprovaria a operação que o dono deixou pendente.
+  // Sem registro (restart), o turno é do dono.
+  const turnos = new Map(); // slug -> { autor: { dono:true } | { colaborador_id }, misto: bool }
+  const pendencias = new Map(); // slug -> { id, ok } (ok: o colaborador pode responder)
+  const autorDe = (sessao) => (sessao && sessao.papel === 'colaborador' ? { colaborador_id: sessao.colaborador_id } : { dono: true });
+  const mesmoAutor = (a, b) => (a.dono ? !!b.dono : a.colaborador_id === b.colaborador_id);
+  /** `r` é a resposta do envio: com `r.corpo.fila` a mensagem só entrou na fila. */
+  function marcaAutor(slug, sessao, r) {
+    const autor = autorDe(sessao);
+    const atual = turnos.get(slug) || { autor: { dono: true }, misto: false };
+    if (r && r.corpo && r.corpo.fila) {
+      if (!mesmoAutor(atual.autor, autor)) atual.misto = true;
+      turnos.set(slug, atual);
+      return;
+    }
+    turnos.set(slug, { autor, misto: false });
+  }
+  /** Primeira vez que se vê uma pendência com este id: fixa de quem ela é. Chamado só no caminho do colaborador. */
+  function vinculaPendencia(slug, sessao, ativ) {
+    const id = (ativ && ((ativ.permissao && ativ.permissao.id) || (ativ.pergunta && ativ.pergunta.id))) || null;
+    if (!id) { pendencias.delete(slug); return; }
+    const p = pendencias.get(slug);
+    if (p && p.id === id) return;
+    const t = turnos.get(slug) || { autor: { dono: true }, misto: false };
+    pendencias.set(slug, { id, colaborador_id: !t.misto && t.autor.colaborador_id ? t.autor.colaborador_id : null });
+  }
+  const pendenciaEhDele = (slug, sessao, id) => {
+    const p = pendencias.get(slug);
+    return !!(id && p && p.id === id && p.colaborador_id && p.colaborador_id === sessao.colaborador_id);
+  };
+  /**
+   * Para o colaborador: a confirmação precisa trazer o id da pendência que está na tela agora, e ela precisa ser de um
+   * turno dele. Devolve true depois de ter respondido a recusa. O dono nunca é barrado aqui.
+   */
+  async function confirmacaoNegada(res, agente, sessao, toolUseId) {
     if (!sessao || sessao.papel !== 'colaborador') return false;
-    const a = autorDoTurno.get(agente.slug);
-    if (a && a.colaborador_id === sessao.colaborador_id) return false;
-    log('aviso', `Confirmação negada ao colaborador ${sessao.usuario} em ${agente.slug}: o turno atual não foi iniciado por ele.`);
-    H.erroJson(res, 403, 'Essa confirmação é do dono do DG Claw. Ela é de um pedido que ele fez; aguarde ou fale com ele.');
-    return true;
+    const recusa = (status, motivo) => { log('aviso', `Confirmação negada ao colaborador ${sessao.usuario} em ${agente.slug}: ${motivo}`); H.erroJson(res, status, motivo); return true; };
+    if (typeof toolUseId !== 'string' || !toolUseId) return recusa(400, 'Faltou o "tool_use_id" da confirmação (vem em "permissao.id" ou "pergunta.id" da atividade do agente).');
+    const ativ = await conversa.atividade(agente);
+    vinculaPendencia(agente.slug, sessao, ativ);
+    const idAgora = (ativ.permissao && ativ.permissao.id) || (ativ.pergunta && ativ.pergunta.id) || null;
+    if (idAgora !== toolUseId) return recusa(409, 'Essa confirmação já não é a que está pendente. Atualize a conversa.');
+    if (!pendenciaEhDele(agente.slug, sessao, toolUseId)) {
+      return recusa(403, 'Essa confirmação é do dono do DG Claw. Ela é de um pedido que ele fez; aguarde ou fale com ele.');
+    }
+    return false;
   }
 
   async function enviar(req, res, agente, sessao) {
@@ -820,7 +859,7 @@ function criarServidor(opcoes) {
       return H.erroJson(res, 400, `O "cliente_id" veio como ${JSON.stringify(String(cid).slice(0, 80))}, que não vale: use de 8 a 64 caracteres entre letras, números, "-" e "_". Nada foi enviado.`);
     }
     const r = await conversa.umaVez(agente, 'send', cid || null, () => conversa.enviar(agente, corpo, atorDa(sessao)));
-    if (r.status < 300) marcaAutor(agente.slug, sessao);
+    if (r.status < 300) marcaAutor(agente.slug, sessao, r);
     return H.enviaJson(res, r.status, r.corpo);
   }
 
@@ -832,7 +871,7 @@ function criarServidor(opcoes) {
       return H.erroJson(res, 400, `O "cliente_id" veio como ${JSON.stringify(String(cid).slice(0, 80))}, que não vale: use de 8 a 64 caracteres entre letras, números, "-" e "_". Nada foi enviado.`);
     }
     const r = await conversa.umaVez(agente, 'comando', cid || null, () => conversa.comando(agente, corpo, atorDa(sessao)));
-    if (r.status < 300) marcaAutor(agente.slug, sessao);
+    if (r.status < 300) marcaAutor(agente.slug, sessao, r);
     return H.enviaJson(res, r.status, r.corpo);
   }
 
@@ -869,7 +908,7 @@ function criarServidor(opcoes) {
       const ator = atorDa(sessao);
       const e = await conversa.entregar(agente, [legenda, marcador].filter(Boolean).join('\n'), { cru: false, from: ator && ator.from });
       if (e.status >= 300) return Object.assign(e, { corpo: Object.assign({ arquivo_salvo: visto }, e.corpo) });
-      marcaAutor(agente.slug, sessao);
+      marcaAutor(agente.slug, sessao, e);
       return { status: 201, corpo: Object.assign({}, e.corpo, { enviado: true, kind: media.kind, texto: legenda, anexo, marcador, media }) };
     });
     return H.enviaJson(res, r.status, r.corpo);

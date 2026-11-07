@@ -133,28 +133,7 @@ test('achado 3: login que verificou o hash antigo não emite sessão depois de u
   } finally { await s.fechar(); }
 });
 
-// ── 4. confirmação do turno do dono ──
-test('achado 4: colaborador só responde permissão e pergunta do turno que ele mesmo iniciou', async () => {
-  const s = await cenario({ runnerAna: { status: 'waiting_input' } });
-  try {
-    const x = await colaboradorAtivo(s);
-    await s.dono.post('/api/v1/agents/ana/send', { json: { text: 'rode isso, por favor' } });
-    const nega = await x.c.post('/api/v1/agents/ana/permissao', { json: { decisao: 'aprovar' } });
-    assert.equal(nega.status, 403); assert.match(nega.json.erro, /Essa confirmação é do dono do DG Claw/);
-    const negaP = await x.c.post('/api/v1/agents/ana/pergunta', { json: { respostas: [] } });
-    assert.equal(negaP.status, 403); assert.match(negaP.json.erro, /Essa confirmação é do dono do DG Claw/);
-    assert.equal(s.rAna.rec.permissoes.length, 0);
-    // o dono responde qualquer uma
-    assert.equal((await s.dono.post('/api/v1/agents/ana/permissao', { json: { decisao: 'aprovar' } })).status, 200);
-    // depois que o colaborador inicia o turno, a confirmação é dele
-    await x.c.post('/api/v1/agents/ana/send', { json: { text: 'agora sou eu' } });
-    assert.equal((await x.c.post('/api/v1/agents/ana/permissao', { json: { decisao: 'aprovar' } })).status, 200);
-    assert.equal(s.rAna.rec.permissoes.length, 2);
-    // e se o dono volta a falar, ela deixa de ser dele
-    await s.dono.post('/api/v1/agents/ana/send', { json: { text: 'voltei' } });
-    assert.equal((await x.c.post('/api/v1/agents/ana/permissao', { json: { decisao: 'aprovar' } })).status, 403);
-  } finally { await s.fechar(); }
-});
+// ── 4. confirmação do turno do dono: ver colaboradores-correcoes.test.js (autor preso ao turno e ao id da pendência) ──
 
 // ── 5. trocar a conta de IA já conectada ──
 test('achado 5: colaborador não inicia login nem manda código quando o agente já tem conta conectada', async () => {

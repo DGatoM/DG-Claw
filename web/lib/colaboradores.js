@@ -201,7 +201,7 @@ function criarColaboradores({ config, log, agora, gerarHash }) {
         if (!c || c.revogado_em) throw erroStatus(401, 'Seu acesso não vale mais. Peça ao dono do DG Claw um convite novo.');
         // A conferência e a gravação acontecem juntas, na fila: se o dono reenviou o convite (ou a senha mudou por
         // outro caminho) depois que este pedido começou, a troca velha não pode passar por cima.
-        if (esperado && ((c.senha_versao || 1) !== esperado.versao || c.hash !== esperado.hash)) {
+        if (esperado && ((c.senha_versao || 1) !== esperado.versao || c.hash !== esperado.hash || (esperado.trocar_senha !== undefined && !!c.trocar_senha !== esperado.trocar_senha))) {
           throw erroStatus(409, 'Sua senha ou seu convite mudou enquanto você trocava a senha (o dono pode ter mandado um convite novo). Entre de novo com a senha mais recente.');
         }
         if (c.trocar_senha && Number(c.temporaria_expira) < relogio()) throw erroStatus(401, 'A senha temporária venceu. Peça ao dono do DG Claw um convite novo.');

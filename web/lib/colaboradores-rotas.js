@@ -170,11 +170,22 @@ function criarColaboradoresRotas({ colaboradores, auth, registro, email, config,
       return;
     }
     if (nova !== corpo.confirmacao) { H.erroJson(res, 400, 'A confirmação não é igual à senha nova. Digite as duas de novo.'); return; }
+    // O corpo pode ter demorado: a sessão que autorizou este pedido tem de continuar valendo, e o registro tem de
+    // estar na MESMA versão de senha em que ela nasceu (senão o convite foi reenviado, ou a senha trocada, no meio).
+    const agoraSessao = auth.sessaoDoPedido(req);
+    if (!agoraSessao || agoraSessao.papel !== 'colaborador' || agoraSessao.colaborador_id !== sessao.colaborador_id || agoraSessao.senha_versao !== sessao.senha_versao) {
+      H.erroJson(res, 401, 'A sua sessão deixou de valer enquanto você trocava a senha (o dono pode ter mandado um convite novo). Entre de novo.');
+      return;
+    }
     const c = colaboradores.obter(sessao.colaborador_id);
     if (!c || c.revogado_em) { H.erroJson(res, 401, 'Seu acesso não vale mais. Peça ao dono do DG Claw um convite novo.'); return; }
+    if ((c.senha_versao || 1) !== sessao.senha_versao) {
+      H.erroJson(res, 409, 'Sua senha ou seu convite mudou enquanto você trocava a senha (o dono pode ter mandado um convite novo). Entre de novo com a senha mais recente.');
+      return;
+    }
     if (c.trocar_senha && Number(c.temporaria_expira) < relogio()) { H.erroJson(res, 401, 'A senha temporária venceu. Peça ao dono do DG Claw um convite novo.'); return; }
     // O que este pedido viu: a gravação só passa se isso ainda for verdade no momento de gravar (ver definirSenha).
-    const esperado = { versao: c.senha_versao || 1, hash: c.hash };
+    const esperado = { versao: sessao.senha_versao, hash: c.hash, trocar_senha: !!c.trocar_senha };
     const chaves = [`colab:${c.id}`, `ip:${H.ipDoPedido(req, config.proxiesConfiaveis)}`];
     try {
       if (!c.trocar_senha) {

@@ -270,14 +270,15 @@ test('login: usuário inexistente e senha errada dão a mesma mensagem; temporá
   } finally { await s.fechar(); }
 });
 
-test('login do colaborador continua limitado por IP, e o do dono segue igual', async () => {
+test('login do colaborador continua limitado, e o limite do dono é só dele', async () => {
   const s = await cenario();
   try {
     await s.convida({ agente: 'ana', email: 'maria@x.com' });
     const c = cliente(s.t.porta);
     for (let i = 0; i < 5; i++) assert.equal((await c.post('/login', { json: { usuario: 'maria@x.com', senha: 'errada-errada-1' } })).status, 401);
     assert.equal((await c.post('/login', { json: { usuario: 'maria@x.com', senha: 'errada-errada-1' } })).status, 429);
-    assert.equal((await c.post('/login', { json: { usuario: 'dono', senha: s.t.senha } })).status, 429);
+    // os erros do colaborador não trancam o dono: cada identidade tem o seu contador (o teto por IP é bem maior)
+    assert.equal((await c.post('/login', { json: { usuario: 'dono', senha: s.t.senha } })).status, 200);
   } finally { await s.fechar(); }
 });
 
