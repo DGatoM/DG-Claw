@@ -126,7 +126,10 @@ function criarProxy({ config, registro, log, cofreRotas }) {
     if (corpoLido) opcoes.headers['content-length'] = String(corpoLido.length);
     const preq = http.request(opcoes, (pres) => {
       const h = {};
-      for (const [k, v] of Object.entries(pres.headers)) if (!HOP.has(k.toLowerCase())) h[k] = v;
+      // Set-Cookie do painel do agente nunca chega ao navegador: o painel pode estar comprometido
+      // e plantaria cookie no domínio do Web. O painel não depende de cookie atrás do proxy
+      // (confia no X-DGClaw-Proxy).
+      for (const [k, v] of Object.entries(pres.headers)) if (!HOP.has(k.toLowerCase()) && k.toLowerCase() !== 'set-cookie') h[k] = v;
       res.writeHead(pres.statusCode, pres.statusMessage, h);
       pres.pipe(res);
       pres.on('error', () => res.destroy());
@@ -164,7 +167,11 @@ function criarProxy({ config, registro, log, cofreRotas }) {
     const preq = http.request({ host: '127.0.0.1', port: agente.porta_painel, method: req.method, path: req.url, headers: h });
     preq.on('upgrade', (pres, psocket, phead) => {
       let cab = `HTTP/1.1 ${pres.statusCode} ${pres.statusMessage}\r\n`;
-      for (let i = 0; i < pres.rawHeaders.length; i += 2) cab += `${pres.rawHeaders[i]}: ${pres.rawHeaders[i + 1]}\r\n`;
+      // Set-Cookie do painel não passa para o navegador (mesma regra do HTTP comum).
+      for (let i = 0; i < pres.rawHeaders.length; i += 2) {
+        if (pres.rawHeaders[i].toLowerCase() === 'set-cookie') continue;
+        cab += `${pres.rawHeaders[i]}: ${pres.rawHeaders[i + 1]}\r\n`;
+      }
       socket.write(`${cab}\r\n`);
       if (phead && phead.length) socket.write(phead);
       if (head && head.length) psocket.write(head);
