@@ -44,11 +44,18 @@ def eh_xml(nome):
     return nome.endswith((".xml", ".rels", ".vml"))
 
 
-def categoria_removida(nome):
+ELEMENTOS_DE_FORMULA = {"f", "calculatedColumnFormula", "totalsRowFormula", "formula", "formula1", "formula2", "definedNames", "definedName"}
+_RX_FORMULA_BRUTA = re.compile(r"<(?:[\w.-]+:)?(?:" + "|".join(sorted(ELEMENTOS_DE_FORMULA)) + r")(?=[\s>/])")
+_PARTES_ATIVAS = ("vbaproject", "externallinks/", "/querytables/", "/pivotcache", "/connections.xml", "/charts/", "/webextensions/")
+
+
+def categoria_removida(nome, sem_formulas=False):
     """None se a parte fica; senão o nome da categoria para o aviso."""
     if nome == "[Content_Types].xml":
         return None
     baixo = nome.lower()
+    if sem_formulas and "/charts/" in baixo:
+        return "gráficos"
     if "vbaproject" in baixo:
         return "macros"
     if "externallinks/" in baixo:
@@ -152,7 +159,7 @@ def textos_para_deteccao(caminho, nome, so_nao_celulas=False):
     return conteudo, sorted(attr_ner), sorted(attr_regex)
 
 
-def reescrever(entrada, saida, nome, encontrar, avisos, so_nao_celulas=False):
+def reescrever(entrada, saida, nome, encontrar, avisos, so_nao_celulas=False, sem_formulas=False):
     """Reescreve o docx/xlsx filtrando tudo. `encontrar(texto, estrutural, neutralizar)` devolve trocas."""
     etree = lxml()
     removidos_por_categoria = {}
@@ -160,7 +167,7 @@ def reescrever(entrada, saida, nome, encontrar, avisos, so_nao_celulas=False):
         nomes = [i.filename for i in z.infolist()]
         removidos = set()
         for n in nomes:
-            c = categoria_removida(n)
+            c = categoria_removida(n, sem_formulas)
             if c:
                 removidos.add(n)
                 removidos_por_categoria[c] = removidos_por_categoria.get(c, 0) + 1
@@ -204,6 +211,8 @@ def reescrever(entrada, saida, nome, encontrar, avisos, so_nao_celulas=False):
             rids = rids_removidos.get(n, set())
             if rids:
                 _tirar_referencias(raiz, rids)
+            if sem_formulas:
+                _tirar_formulas(raiz)
             _filtrar_parte(raiz, n, encontrar, so_nao_celulas)
             if n == "docProps/core.xml":
                 for el in raiz.iter():
@@ -226,6 +235,34 @@ def reescrever(entrada, saida, nome, encontrar, avisos, so_nao_celulas=False):
     if removidos_por_categoria:
         avisos.append("Saíram do arquivo '%s' por não dar para anonimizar: %s." % (
             nome, ", ".join("%s (%d)" % (c, q) for c, q in sorted(removidos_por_categoria.items()))))
+
+
+def _tirar_formulas(raiz):
+    """Tira todo elemento que carrega fórmula. Validação de dados e formatação condicional ficam sem a regra inteira."""
+    for el in list(raiz.iter()):
+        if not isinstance(el.tag, str) or el.getparent() is None or el.tag.split("}")[-1] not in ELEMENTOS_DE_FORMULA:
+            continue
+        pai = el.getparent()
+        if pai.tag.split("}")[-1] in ("dataValidation", "cfRule") and pai.getparent() is not None:
+            avo = pai.getparent()
+            avo.remove(pai)
+            if len(avo) == 0 and avo.getparent() is not None:
+                avo.getparent().remove(avo)
+        else:
+            pai.remove(el)
+
+
+def conferir_sem_formulas(caminho, nome):
+    """Varredura bruta do pacote final: recusa se sobrou fórmula, conexão, macro, link externo ou tabela dinâmica."""
+    with zipfile.ZipFile(caminho) as z:
+        for info in z.infolist():
+            f = info.filename
+            if any(p in f.lower() for p in _PARTES_ATIVAS):
+                raise ErroMotor("formula_residual", "O arquivo de saída de '%s' ainda tem uma parte ativa (%s). Nada foi entregue; "
+                                "peça ao agente o resultado em .csv ou .docx." % (nome, f))
+            if eh_xml(f) and _RX_FORMULA_BRUTA.search(z.read(f).decode("utf-8", "replace")):
+                raise ErroMotor("formula_residual", "O arquivo de saída de '%s' ainda tem uma fórmula na parte '%s'. Nada foi entregue; "
+                                "peça ao agente o resultado em .csv ou .docx." % (nome, f))
 
 
 def _tirar_referencias(raiz, rids):

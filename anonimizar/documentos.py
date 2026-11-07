@@ -303,6 +303,14 @@ def numero_como_texto(v):
     return str(v)
 
 
+def texto_da_formula(v):
+    """Texto de uma fórmula de célula: string, ArrayFormula (.text) ou DataTableFormula (sem texto: vazio)."""
+    if isinstance(v, str):
+        return v
+    t = getattr(v, "text", None)
+    return t if isinstance(t, str) else ""
+
+
 def cabecalhos(ws):
     """Coluna -> primeiro texto das 3 primeiras linhas (contexto de CPF, telefone, conta...)."""
     cab = {}
@@ -317,7 +325,9 @@ def xlsx_textos(wb):
     """Texto de células (inclusive texto de fórmulas), comentários, autores e nomes de aba."""
     saida = [ws.title for ws in wb.worksheets]
     for c in xlsx_celulas(wb):
-        if isinstance(c.value, str):
+        if c.data_type == "f":
+            saida.append(texto_da_formula(c.value))
+        elif isinstance(c.value, str):
             saida.append(c.value)
         if c.comment is not None:
             saida += [t for t in (c.comment.text, c.comment.author) if t]
@@ -369,6 +379,9 @@ def xlsx_transformar(wb, sessao):
                 if c.data_type == "f" and isinstance(c.value, str):
                     for velho, novo in mudaram.items():
                         c.value = c.value.replace("'%s'!" % velho, "'%s'!" % novo).replace(velho + "!", novo + "!")
+                elif c.data_type == "f" and hasattr(c.value, "text") and isinstance(c.value.text, str):
+                    for velho, novo in mudaram.items():
+                        c.value.text = c.value.text.replace("'%s'!" % velho, "'%s'!" % novo).replace(velho + "!", novo + "!")
     for ws in wb.worksheets:
         ws.title = novos[ws.title]
     formulas = 0
@@ -387,7 +400,12 @@ def xlsx_transformar(wb, sessao):
                 m = sessao.numero_para_marcador(texto, ctx) if texto else None
                 if m:
                     c.value = m
-            elif isinstance(v, str):
+            elif isinstance(v, str) or c.data_type == "f":
+                if c.data_type == "f" and not isinstance(v, str):   # fórmula matricial / tabela de dados
+                    texto_f = texto_da_formula(v)
+                    v = texto_f
+                    if not texto_f:
+                        continue
                 trocas = sessao.encontrar(v)
                 novo = distribuir([v], trocas)[0] if trocas else v
                 if c.data_type == "f":
@@ -437,7 +455,7 @@ def xlsx_reverter(wb, valores, encontrar):
             v = c.value
             if c.data_type == "f":
                 cache = ws_v[c.coordinate].value if ws_v is not None else None
-                v = cache if cache is not None else str(v.text if hasattr(v, "text") else v)
+                v = cache if cache is not None else texto_da_formula(v)
                 c.data_type = "s" if isinstance(v, str) else c.data_type
             if isinstance(v, str):
                 trocas = encontrar(v)
@@ -471,7 +489,11 @@ def xlsx_csvs(caminho_original, nome, wb_anon, sessao):
         for lin_v, lin in zip(ws_v.iter_rows(), ws.iter_rows()):
             linha = []
             for cv, c in zip(lin_v, lin):
-                v = cv.value if cv.value is not None else (c.value if c.data_type == "f" else None)
+                if cv.value is None and c.data_type != "f":
+                    # fórmula sem valor em cache que já foi trocada por texto na planilha (ou célula vazia): o texto já está filtrado
+                    linha.append("" if c.value is None else c.value)
+                    continue
+                v = cv.value if cv.value is not None else texto_da_formula(c.value)
                 if isinstance(v, str):
                     v = trocar_texto_de_celula(sessao, v, cab.get(cv.column, ""))
                 elif v is not None and _eh_numero(cv):

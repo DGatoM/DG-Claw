@@ -9,12 +9,15 @@ import os
 import re
 import zipfile
 
-from detectores import TIPOS
+from detectores import TIPOS, detectar
 from documentos import ErroMotor
 from tabela import normalizar, sem_acento
 
 _RX_MARCADOR = re.compile(r"\[(" + "|".join(TIPOS) + r")_(\d+)\]")
 _RX_ABA = re.compile(r"(?<![\w\[])(" + "|".join(TIPOS) + r")_(\d+)(?![\w\]])")
+_GUID = re.compile(r"^\{?[0-9A-Fa-f]{8}(-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}\}?$")
+_RX_MARCADOR_QUALQUER = re.compile(r"[\[［](?:" + "|".join(TIPOS) + r")_\d+[\]］]")
+INDEPENDENTES = ("CPF", "CNPJ", "EMAIL", "TELEFONE", "CARTAO", "PIX")
 TIPOS_DIGITOS = {"CPF", "RG", "PIS", "CNH", "TITULO", "CEP", "TELEFONE", "CARTAO", "CONTA", "AGENCIA"}
 
 
@@ -42,7 +45,7 @@ def partes(caminho):
                                 blocos.append(el.text)
                             if el.tail and el.tail.strip():
                                 blocos.append(el.tail)
-                            blocos += [v for v in el.attrib.values() if v]
+                            blocos += [v for v in el.attrib.values() if v and not _GUID.match(v)]
                     saida.append((info.filename, "\n".join(blocos)))
             # O texto bruto da parte, como está no arquivo (comentário XML, instrução de processamento, atributo) e com as
             # entidades resolvidas (&#x31; vira 1): o dado pode estar em qualquer um dos dois.
@@ -92,8 +95,25 @@ def _procura(tipo, valor):
     return lambda t: bool(rx.search(re.sub(r"\s+", " ", sem_acento(t).lower())))
 
 
+def _varredura_independente(caminhos, nome_exibido):
+    """Roda de novo os detectores validados (dígito verificador, Luhn, e-mail, telefone, UUID), sem depender da lista do
+    documento, sobre o texto de cada parte (nós de texto e valores de atributo; nas demais saídas, o texto todo).
+    Os marcadores são ignorados. Achou algo, o dado sobrou."""
+    for c in caminhos:
+        for nome_parte, texto in partes(c):
+            if nome_parte.endswith((" (texto bruto)", " (entidades resolvidas)")):
+                continue
+            limpo = _RX_MARCADOR_QUALQUER.sub(" ", texto)
+            for _ini, _fim, tipo, _p in detectar(limpo, False, False):
+                if tipo in INDEPENDENTES:
+                    raise ErroMotor("sobrou_dado", "A verificação final achou um dado pessoal do tipo %s que sobrou na parte '%s' do arquivo de saída "
+                                    "de '%s' (segunda conferência, sem a lista do documento). Nada foi entregue ao agente. Envie o documento "
+                                    "em outro formato (.txt, .docx) ou apague esse dado antes de enviar." % (tipo, nome_parte, nome_exibido))
+
+
 def verificar(caminhos, detectados, nome_exibido):
     """detectados: {(tipo, chave): valor}. Levanta ErroMotor('sobrou_dado') se algum valor ainda aparece."""
+    _varredura_independente(caminhos, nome_exibido)
     procuras = [(tipo, _procura(tipo, valor)) for (tipo, _chave), valor in detectados.items()]
     for c in caminhos:
         for nome_parte, texto in partes(c):

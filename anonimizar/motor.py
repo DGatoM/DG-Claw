@@ -347,7 +347,8 @@ def op_reverter(req):
             docs.xlsx_reverter(wb, docs.xlsx_abrir(entrada, nome, data_only=True), rev.encontrar)
             parcial = os.path.join(tmp, "parcial.xlsx")
             wb.save(parcial)
-            ooxml.reescrever(parcial, tmp_arq, nome, lambda texto, estrutural=False: [], avisos_rev, so_nao_celulas=True)
+            ooxml.reescrever(parcial, tmp_arq, nome, lambda texto, estrutural=False: [], avisos_rev, so_nao_celulas=True, sem_formulas=True)
+            ooxml.conferir_sem_formulas(tmp_arq, nome)
         else:
             raise ErroMotor("formato_nao_suportado", "O formato '%s' do arquivo '%s' não tem reversão. Aceitos: .txt .md .csv .json .docx .xlsx .pptx."
                             % (ext or "(sem extensão)", nome))

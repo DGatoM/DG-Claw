@@ -328,17 +328,48 @@ def _juntar_ner(spans_regex, spans_ner, texto):
 
 
 _RX_URL = re.compile(r"(?i)(?:https?://|www\.|mailto:|data:)[^\s<>\"'`)]*")
-_RX_HTML = re.compile(r"<!--.*?(?:-->|\Z)|</?[A-Za-z][^>]*>", re.S)
+_RX_ABRE_TAG = re.compile(r"<[A-Za-z!/?]")
 _RX_DESTINO_MD = re.compile(r"\]\(([^)]*)\)")
 _RX_REF_MD = re.compile(r"(?m)^[ ]{0,3}\[[^\]\n]+\]:[ \t]*(?:\r?\n[ \t]*)?\S+[^\n]*")
 _CARACTERES_DE_URL = set("/\\=?&#%:@")
+
+
+def zonas_de_tags(texto):
+    """Do "<" ao ">" que fecha FORA de aspas (simples ou duplas), em várias linhas. Comentário vai até "-->".
+
+    Tag que não fecha vale até o fim do texto: na dúvida, nada dentro dela é restaurado.
+    """
+    zonas, i = [], 0
+    while True:
+        m = _RX_ABRE_TAG.search(texto, i)
+        if not m:
+            return zonas
+        ini = m.start()
+        if texto.startswith("<!--", ini):
+            fim = texto.find("-->", ini + 4)
+            fim = len(texto) if fim < 0 else fim + 3
+        else:
+            aspas, j, fim = None, ini + 1, len(texto)
+            while j < len(texto):
+                c = texto[j]
+                if aspas:
+                    if c == aspas:
+                        aspas = None
+                elif c in "\"'":
+                    aspas = c
+                elif c == ">":
+                    fim = j + 1
+                    break
+                j += 1
+        zonas.append((ini, fim))
+        i = max(fim, ini + 1)
 
 
 def zonas_sem_troca(texto):
     """Trechos onde marcador NÃO vira dado real: tag e comentário HTML (mesmo em várias linhas), definição de
     referência do markdown, destino de link ou imagem e URL solta."""
     zonas = [(m.start(), m.end()) for m in _RX_URL.finditer(texto)]
-    zonas += [(m.start(), m.end()) for m in _RX_HTML.finditer(texto)]
+    zonas += zonas_de_tags(texto)
     zonas += [(m.start(1) - 1, m.end()) for m in _RX_DESTINO_MD.finditer(texto)]
     zonas += [(m.start(), m.end()) for m in _RX_REF_MD.finditer(texto)]
     return zonas
