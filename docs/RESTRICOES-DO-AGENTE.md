@@ -15,7 +15,7 @@ arquivo que só o servidor altera.
 | Restrição | O que faz |
 | --- | --- |
 | Sem Bash | O agente não abre terminal. Valem também as ferramentas que acompanham o Bash (`BashOutput`, `KillShell`). |
-| Sem enviar arquivo | O agente não manda arquivo pelo chat do painel nem pelo WhatsApp. Ele continua respondendo em texto. |
+| Sem enviar arquivo | O agente não manda arquivo pelo chat do painel nem pelo WhatsApp. Ele continua respondendo em texto. Só vale junto com "sem Bash": com o terminal liberado o agente consegue mandar o arquivo por fora das ferramentas (por exemplo, falando direto com a ponte do WhatsApp), e por isso o comando recusa essa combinação. |
 | Escrita só em certas pastas | As ferramentas de arquivo (`Write`, `Edit`, `MultiEdit`, `NotebookEdit`) só gravam dentro das pastas que você indicar. |
 
 ## O comando
@@ -44,6 +44,16 @@ passa por um atalho (link). Se a pasta ainda não existe e o agente está ligado
 este mecanismo: ele roda como root para cuidar do servidor, e o comando se recusa a mexer nele.
 
 O agente é reiniciado só quando algo mudou e ele está ligado. Agente parado recebe a trava quando ligar.
+
+Se o reinício falhar (ou o runner não voltar a responder `active`), o comando falha e deixa uma pendência em
+`runner/restricoes.pendente`, na pasta do dono do servidor. Rodar o mesmo comando de novo reinicia o runner, mesmo com os
+arquivos já iguais, e a pendência só sai depois que o runner está `active`.
+
+Versões antigas guardavam o gancho de escrita no `settings.json` da casa do agente. O comando tira esse gancho **por dentro da
+caixa**, como o usuário `agente` (o root nunca lê nem grava na casa do agente, porque o agente poderia trocar uma pasta por um
+atalho no meio do caminho). Com o agente parado, o gancho antigo fica onde está, o comando avisa e guarda a pendência em
+`runner/restricoes-migracao.pendente`; ele sai quando o agente ligar e `dgclaw agente restricoes <nome>` ou
+`dgclaw agente reparar <nome>` rodar de novo.
 
 ## Onde fica e por que sobrevive
 
@@ -124,6 +134,9 @@ O gancho de escrita só enxerga as ferramentas de arquivo. Com o Bash ligado, o 
 lugar por comando de terminal (`echo > arquivo`, `cp`, `tee`), e a trava de pastas não barra isso. Para a
 trava valer de verdade, use `--escrita-so-em` junto com `--sem-bash sim`. Se você travar as pastas sem
 travar o Bash, o comando avisa.
+
+O contrário é recusado: travar o envio de arquivo (`--sem-enviar-arquivo sim`) com o Bash liberado não adianta, porque o terminal
+manda o arquivo por fora das ferramentas. Ligue os dois: `--sem-bash sim --sem-enviar-arquivo sim`.
 
 ### O que fica liberado e o que fica fechado
 

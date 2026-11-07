@@ -71,6 +71,22 @@ case "${1:-}" in
         if printf '%s ' "$@" | grep -q api.anthropic.com && [ -f "$est/sem-internet" ]; then
             echo "curl: (6) Could not resolve host: api.anthropic.com" >&2; exit 6
         fi
+        # systemctl: restart-falha faz o restart falhar; inativo faz o is-active responder inactive.
+        if printf '%s ' "$@" | grep -q 'systemctl restart' && [ -f "$est/restart-falha" ]; then
+            echo "Job for dgclaw-runner.service failed (simulado)" >&2; exit 1
+        fi
+        if printf '%s ' "$@" | grep -q 'systemctl is-active'; then
+            if [ -f "$est/inativo" ]; then echo inactive; exit 3; fi
+            echo active; exit 0
+        fi
+        # `exec --user agente <c> node -e <script> <arquivo>`: roda o node de verdade, mas trocando
+        # /home/agente pela casa do agente na raiz falsa (a caixa de mentira). `exec-node-nao` so registra.
+        if [ "${2:-}" = "--user" ] && [ "${3:-}" = agente ] && [ "${5:-}" = node ] && [ ! -f "$est/exec-node-nao" ]; then
+            slug="${4#dgclaw-}"; casa="${DGCLAW_RAIZ:?}/var/lib/dgclaw/agentes/$slug/home"
+            shift 5; args=()
+            for a in "$@"; do args+=("${a/#\/home\/agente/$casa}"); done
+            exec node "${args[@]}"
+        fi
         [ -f "$est/exec-falha" ] && exit 1
         exit 0 ;;
     build) echo "build simulado" ;;

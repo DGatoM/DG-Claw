@@ -14,7 +14,8 @@ usá-lo: `sudo dgclaw agente restricoes <agente> --sem-bash sim --sem-enviar-arq
 (sem opções, ele só mostra o estado; `--escrita-livre` solta de novo a gravação). Criar de novo, reparar, recriar e
 atualizar reaplicam as travas sozinhos, e um arquivo de restrições estragado faz o comando parar com a explicação, em vez
 de soltar a trava. A trava de pastas só barra as ferramentas de arquivo: com o Bash ligado, o terminal ainda grava em
-qualquer lugar, então combine as duas (o comando avisa). Nos agentes que rodam no Codex essas travas ainda não valem, e o
+qualquer lugar, então combine as duas (o comando avisa). Travar o envio de arquivos só é aceito junto com a trava do
+terminal (`--sem-bash sim`), porque com o terminal liberado o agente manda o arquivo por fora das ferramentas. Nos agentes que rodam no Codex essas travas ainda não valem, e o
 comando também avisa. Guia: `docs/RESTRICOES-DO-AGENTE.md`.
 
 A trava mora na configuração administrada do Claude Code, que o agente não consegue desligar pelas próprias configurações.

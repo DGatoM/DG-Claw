@@ -91,6 +91,8 @@ Agentes
       do agente e sobrevive a `atualizar`, `recriar` e `reparar`. Opcoes:
         --sem-bash sim|nao                tira (ou devolve) o terminal do agente
         --sem-enviar-arquivo sim|nao      tira (ou devolve) o envio de arquivos pelo chat e pelo WhatsApp
+                                          (so vale junto com --sem-bash sim: com o terminal liberado o agente
+                                          manda o arquivo por fora das ferramentas, e o comando recusa)
         --escrita-so-em pasta1,pasta2     ele so grava arquivos nessas pastas da casa dele
         --escrita-livre                   solta de novo a gravacao em qualquer pasta
       Com o Bash ligado, a trava de pastas nao barra comandos de terminal: combine com --sem-bash sim.

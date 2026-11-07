@@ -15,8 +15,44 @@ GANCHO_ESCRITA_CMD="/usr/bin/env -i /usr/bin/node /opt/dgclaw/app/scripts/escrit
 GANCHO_ESCRITA_MARCA="escrita-restrita-hook"
 GANCHO_ESCRITA_MATCHER="Write|Edit|MultiEdit|NotebookEdit"
 
-# restricoes_validar <restricoes.json> <slug>: para com erro (e nao muda nada) se o arquivo nao serve.
+# Tira o gancho antigo do settings.json DENTRO da caixa, como o usuario agente (podman exec --user agente
+# <caixa> node -e <este texto> <arquivo> <marca>). Texto fixo, sem shell e sem interpolacao: o arquivo e a marca
+# chegam como argumentos. Grava por temporario na mesma pasta + rename. O root do servidor nunca le nem grava
+# nada na casa do agente nesta migracao: o agente troca qualquer pedaco do caminho por um atalho a qualquer hora.
+# Imprime removido, sem-gancho ou sem-arquivo; sai com 3 se o arquivo nao e um JSON.
+GANCHO_MIGRACAO_JS='const fs = require("fs"), path = require("path");
+const arq = process.argv[1], marca = process.argv[2];
+let txt;
+try { txt = fs.readFileSync(arq, "utf8"); } catch (e) { if (e.code === "ENOENT") { console.log("sem-arquivo"); process.exit(0); } throw e; }
+if (txt.trim() === "") { console.log("sem-gancho"); process.exit(0); }
+let j;
+try { j = JSON.parse(txt); } catch (e) { console.error("o settings.json nao e um JSON valido: " + e.message); process.exit(3); }
+const pre = j && j.hooks && j.hooks.PreToolUse;
+if (!Array.isArray(pre)) { console.log("sem-gancho"); process.exit(0); }
+const tem = (c) => typeof c === "string" && c.includes(marca);
+const lista = (e) => e && Array.isArray(e.hooks);
+const novo = pre.map((e) => lista(e) ? Object.assign({}, e, { hooks: e.hooks.filter((h) => !tem(h && h.command)) }) : e)
+    .filter((e) => !lista(e) || e.hooks.length > 0);
+if (JSON.stringify(novo) === JSON.stringify(pre)) { console.log("sem-gancho"); process.exit(0); }
+if (novo.length === 0) delete j.hooks.PreToolUse; else j.hooks.PreToolUse = novo;
+const modo = fs.statSync(arq).mode & 0o777;
+const tmp = path.join(path.dirname(arq), "." + path.basename(arq) + "." + process.pid + ".tmp");
+try { fs.writeFileSync(tmp, JSON.stringify(j, null, 2) + "\n", { flag: "wx", mode: modo }); fs.renameSync(tmp, arq); }
+catch (e) { try { fs.unlinkSync(tmp); } catch (_) {} throw e; }
+console.log("removido");'
+
+# _restricoes_recusar_combinacao <slug>: com o terminal liberado, travar so os nomes das ferramentas de envio nao
+# adianta: o agente fala direto com a ponte do WhatsApp (~/.dgclaw/whatsapp/ponte.sock) ou manda o arquivo por
+# qualquer outro meio. Por isso a combinacao e recusada em vez de prometer uma trava que nao existe.
+_restricoes_recusar_combinacao() {
+    falha "o agente $1 ficaria com o envio de arquivos travado e o terminal (Bash) liberado: com o terminal liberado o agente consegue mandar o arquivo por fora das ferramentas, por exemplo falando direto com a ponte do WhatsApp. Nao gravei nada e deixei as travas atuais como estao." \
+        "trave os dois juntos: dgclaw agente restricoes $1 --sem-bash sim --sem-enviar-arquivo sim . Se prefere o terminal liberado, deixe o envio liberado: --sem-enviar-arquivo nao"
+}
+
+# restricoes_validar <restricoes.json> <slug> [permitir-combinacao]: para com erro (e nao muda nada) se o arquivo nao serve.
 # Nunca devolve "sem restricao" para um arquivo estragado: isso tiraria, sem aviso, uma trava do dono.
+# O comando `restricoes` passa permitir-combinacao ao ler o arquivo atual, para conseguir consertar um arquivo
+# editado a mao; a combinacao do resultado final ele confere sozinho.
 restricoes_validar() {
     local arq="$1" slug="$2" erro
     if [ -L "$arq" ] || [ ! -f "$arq" ]; then
@@ -42,6 +78,9 @@ restricoes_validar() {
         falha "$arq (restricoes do agente $slug) esta invalido: $erro. Nao apliquei nada e deixei as travas atuais como estao." \
             "corrija o arquivo ou refaca as restricoes pelo comando: dgclaw agente restricoes $slug --sem-bash sim|nao --sem-enviar-arquivo sim|nao --escrita-so-em pasta1,pasta2"
     fi
+    if [ "${3:-}" != permitir-combinacao ] && jq -e '(.sem_enviar_arquivo // false) == true and (.sem_bash // false) != true' "$arq" >/dev/null; then
+        _restricoes_recusar_combinacao "$slug"
+    fi
 }
 
 # restricoes_conferir <slug>: so confere. Usado antes de mexer no container, para um arquivo ruim
@@ -65,7 +104,8 @@ _restricoes_log() {
 #     administrado (docs/RESTRICOES-DO-AGENTE.md). Sem restricao o conteudo e `{}`, igual a nao ter nada;
 #   - runner.json: denyTools e a saida do envio de arquivo de allowTools, registrando em `restricoesAplicadas`
 #     so o que o mecanismo mexeu, para desligar devolver SO isso e nunca o que o dono ja tinha posto;
-#   - settings.json da casa: so para tirar o gancho antigo (versoes anteriores o gravavam la).
+#   - settings.json da casa: so para tirar o gancho antigo (versoes anteriores o gravavam la). Isso roda DENTRO da
+#     caixa, como o usuario agente; agente parado deixa uma pendencia (runner/restricoes-migracao.pendente).
 # Ordem: valida e MONTA tudo na memoria; so depois grava (primeiro a configuracao administrada, depois o
 # runner.json). Com --runner-novo o runner.json de base vem pelo STDIN (agente criar), ja entra restrito e o
 # permissivo nunca chega ao disco. Arquivo invalido: para antes de gravar qualquer coisa.
@@ -112,8 +152,9 @@ _aplicar_restricoes_sem_trava() {
         esac
     done
     local casa="$DG_CASAS/$slug" c="dgclaw-$slug"
-    local rj="$casa/runner/runner.json" rs="$casa/runner/restricoes.json" ms="$casa/runner/managed-settings.json" st="$casa/home/.claude/settings.json"
-    local sem_bash=false sem_env=false pastas=null mudou=0 novo_rj="" novo_ms novo ms_existia=0 grav_ms=0 grav_rj=0 base="" provider deny_json='[]'
+    local rj="$casa/runner/runner.json" rs="$casa/runner/restricoes.json" ms="$casa/runner/managed-settings.json"
+    local pend="$casa/runner/restricoes.pendente" pend_mig="$casa/runner/restricoes-migracao.pendente"
+    local sem_bash=false sem_env=false pastas=null mudou=0 novo_rj="" novo_ms ms_existia=0 grav_ms=0 grav_rj=0 base="" provider deny_json='[]' rodando=0 saida rc ativo i
 
     if [ "$runner_novo" = 1 ]; then base="$(cat)"; fi
     if [ -e "$rs" ] || [ -L "$rs" ]; then
@@ -183,19 +224,28 @@ _aplicar_restricoes_sem_trava() {
     fi
 
     # --- migracao: versoes antigas gravavam o gancho no settings.json da casa, onde o agente o desligava ---
-    if [ -s "$st" ] || [ -L "$st" ]; then
-        # shellcheck disable=SC2016
-        if [ -L "$st" ] || jq -e --arg cmd "$GANCHO_ESCRITA_MARCA" '[.. | objects | select((.command? // "") | contains($cmd))] | length > 0' "$st" >/dev/null 2>&1; then
-            exigir_casa_sem_link "$casa" "$casa/home" "$slug" "dgclaw agente reparar $slug"
-            # shellcheck disable=SC2016
-            novo="$(jq --arg cmd "$GANCHO_ESCRITA_MARCA" '
-                def limpa: map(if (.hooks | type) == "array" then .hooks |= map(select(((.command // "") | contains($cmd)) | not)) else . end)
-                           | map(select((.hooks | type) != "array" or (.hooks | length) > 0));
-                if (.hooks.PreToolUse | type) == "array" then .hooks.PreToolUse |= limpa | (if (.hooks.PreToolUse | length) == 0 then del(.hooks.PreToolUse) else . end) else . end' "$st")" \
-                || falha "o jq nao conseguiu tirar o gancho antigo de $st." "confira com: jq . $st e rode de novo: dgclaw agente reparar $slug"
-            _restricoes_gravar "$st" "$novo"
-            mudou=1
-            ok "gancho de escrita antigo tirado do settings.json do agente $slug (agora ele vive na configuracao administrada)"
+    # Quem mexe nesse arquivo e o usuario agente, DENTRO da caixa. O root nao le nem grava nada na casa: entre
+    # uma checagem de atalho e a gravacao o agente troca .claude por um link para /root/.claude. So agentes que ja
+    # tiveram restricoes (restricoes.json) podem ter o gancho antigo.
+    [ "$(podman inspect -f '{{.State.Status}}' "$c" 2>/dev/null || true)" = running ] && rodando=1
+    if [ -e "$rs" ] || [ -e "$pend_mig" ]; then
+        if [ "$rodando" = 1 ]; then
+            rc=0
+            saida="$(podman exec --user agente "$c" node -e "$GANCHO_MIGRACAO_JS" /home/agente/.claude/settings.json "$GANCHO_ESCRITA_MARCA" 2>&1)" || rc=$?
+            if [ "$rc" -ne 0 ]; then
+                falha "nao consegui tirar o gancho antigo do settings.json de dentro da caixa do agente $slug (codigo $rc): $saida" \
+                    "se o settings.json do agente nao e um JSON valido, o proprio agente (ou voce, por dentro da caixa) precisa corrigi-lo; depois rode de novo: dgclaw agente reparar $slug"
+            fi
+            rm -f -- "$pend_mig"
+            if [ "$saida" = removido ]; then
+                mudou=1
+                ok "gancho de escrita antigo tirado do settings.json do agente $slug (agora ele vive na configuracao administrada)"
+            fi
+        else
+            if [ ! -e "$pend_mig" ]; then
+                _restricoes_gravar "$pend_mig" "migracao do gancho antigo pendente desde $(date -u +%FT%TZ)"
+            fi
+            aviso "o agente $slug esta parado, entao nao mexi no settings.json dele: se ainda houver um gancho antigo de escrita la, ele sai quando o agente ligar e este comando (ou dgclaw agente reparar $slug) rodar de novo."
         fi
     fi
 
@@ -223,12 +273,31 @@ _aplicar_restricoes_sem_trava() {
         _restricoes_log "$slug" "aplicadas: sem_bash=$sem_bash sem_enviar_arquivo=$sem_env escrita_so_em=$pastas mudou=$mudou"
     fi
 
-    if [ "$mudou" = 1 ] && [ "$reiniciar" = 1 ]; then
-        if [ "$(podman inspect -f '{{.State.Status}}' "$c" 2>/dev/null || true)" = running ]; then
-            executar podman exec "$c" systemctl restart dgclaw-runner >/dev/null
-            ok "runner do agente $slug reiniciado para valer a mudanca"
-        else
-            info "o agente $slug esta parado; as restricoes valem quando ele ligar."
+    # Pendencia de um reinicio que falhou: os arquivos ja estao gravados, entao a proxima execucao os acharia iguais
+    # e diria "nada mudou" com o runner ainda no denyTools antigo. O marcador (pasta do root) so sai depois que o
+    # reinicio deu certo e o runner voltou a responder active.
+    if [ "$reiniciar" = 1 ]; then
+        [ -e "$pend" ] && mudou=1
+        if [ "$mudou" = 1 ]; then
+            if [ "$rodando" = 1 ]; then
+                [ -e "$pend" ] || _restricoes_gravar "$pend" "reinicio do runner pendente desde $(date -u +%FT%TZ)"
+                executar podman exec "$c" systemctl restart dgclaw-runner >/dev/null
+                ativo=""
+                for ((i = 0; i < ${TEMPO_ESPERA:-60}; i++)); do
+                    ativo="$(podman exec "$c" systemctl is-active dgclaw-runner 2>/dev/null || true)"
+                    [ "$ativo" = active ] && break
+                    sleep 1
+                done
+                if [ "$ativo" != active ]; then
+                    falha "reiniciei o runner do agente $slug, mas ele nao voltou a responder active (systemctl is-active devolveu '${ativo:-nada}'); as restricoes novas ainda nao valem para ele." \
+                        "veja o log: podman exec $c journalctl -u dgclaw-runner -n 50 . A pendencia ficou guardada em $pend: depois de consertar, rode de novo o mesmo comando (ou: dgclaw agente reparar $slug) que ele reinicia o runner."
+                fi
+                rm -f -- "$pend"
+                ok "runner do agente $slug reiniciado para valer a mudanca"
+            else
+                rm -f -- "$pend"
+                info "o agente $slug esta parado; as restricoes valem quando ele ligar."
+            fi
         fi
     fi
     return 0
@@ -354,7 +423,7 @@ agente_restricoes() {
 _restricoes_transacao() {
     local atual='{"versao":1}' novo quem="${SUDO_USER:-$(id -un)}"
     if [ -e "$rs" ] || [ -L "$rs" ]; then
-        restricoes_validar "$rs" "$slug"
+        restricoes_validar "$rs" "$slug" permitir-combinacao
         atual="$(cat "$rs")"
     fi
     # shellcheck disable=SC2016 # os $ sao variaveis do jq
@@ -369,6 +438,9 @@ _restricoes_transacao() {
         | .atualizado_em = $em | .atualizado_por = $por')" \
         || falha "o jq nao conseguiu montar o novo restricoes.json a partir de $rs." "confira se o arquivo e um JSON valido (jq . $rs)."
 
+    if printf '%s' "$novo" | jq -e '(.sem_enviar_arquivo // false) == true and (.sem_bash // false) != true' >/dev/null; then
+        _restricoes_recusar_combinacao "$slug"
+    fi
     _restricoes_gravar "$rs" "$novo"
     if [ "$ENSAIO" != 1 ] && ! printf '%s' "$novo" | jq -e '.escrita_so_em == null or .sem_bash == true' >/dev/null; then
         aviso "este agente continua com o Bash ligado, e pelo Bash ele grava em qualquer lugar: a trava de pastas so barra as ferramentas de arquivo (Write, Edit). Para valer de verdade, combine com: dgclaw agente restricoes $slug --sem-bash sim"

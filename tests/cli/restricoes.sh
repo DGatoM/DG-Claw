@@ -121,10 +121,10 @@ cp "$TMP/restr-bom.json" "$RS"; chmod 444 "$RS"
 dgclaw agente reparar ana >/dev/null 2>&1; igual "com o arquivo de volta, reparar funciona" "0" "$?"
 
 echo "aviso: pasta sem travar o Bash"
-dgclaw agente restricoes ana --sem-bash nao >"$TMP/o7.txt" 2>&1
+dgclaw agente restricoes ana --sem-bash nao --sem-enviar-arquivo nao >"$TMP/o7.txt" 2>&1
 afirma "avisa que o Bash ligado fura a trava de pastas" grep -q 'continua com o Bash ligado' "$TMP/o7.txt"
 afirma "e manda combinar com --sem-bash sim" grep -q -- '--sem-bash sim' "$TMP/o7.txt"
-dgclaw agente restricoes ana --sem-bash sim >/dev/null 2>&1
+dgclaw agente restricoes ana --sem-bash sim --sem-enviar-arquivo sim >/dev/null 2>&1
 
 echo "reinicia o runner so quando algo mudou e o agente esta ligado"
 : >"$STUB_LOG"
@@ -241,11 +241,12 @@ for i in 1 2 3 4 5 6; do
     dgclaw agente restricoes ana --sem-bash nao --sem-enviar-arquivo nao --escrita-livre >/dev/null 2>&1
     dgclaw agente restricoes ana --sem-bash sim >"$TMP/p1.txt" 2>&1 &
     pa=$!
-    dgclaw agente restricoes ana --sem-enviar-arquivo sim >"$TMP/p2.txt" 2>&1 &
+    dgclaw agente restricoes ana --escrita-so-em relatorios >"$TMP/p2.txt" 2>&1 &
     pb=$!
     wait "$pa" "$pb"
-    if jq -e '.sem_bash == true and .sem_enviar_arquivo == true' "$RS" >/dev/null 2>&1 \
-        && jq -e '(.config.denyTools | index("Bash")) != null and (.config.denyTools | index("mcp__dgchat__send_file")) != null' "$RJ" >/dev/null 2>&1; then
+    if jq -e '.sem_bash == true and .escrita_so_em == ["relatorios"]' "$RS" >/dev/null 2>&1 \
+        && jq -e '(.config.denyTools | index("Bash")) != null' "$(R_DIR ana)/runner.json" >/dev/null 2>&1 \
+        && jq -e '(.hooks.PreToolUse | length) == 1' "$(R_DIR ana)/managed-settings.json" >/dev/null 2>&1; then
         ok "rodada $i: as duas mudancas ficaram no arquivo e no runner.json"
     else
         mal "rodada $i: uma mudanca apagou a outra"
@@ -261,6 +262,92 @@ igual "no Codex o comando grava e sai com 0" "0" "$?"
 afirma "avisa que no Codex as travas ainda nao valem" grep -q 'no Codex estas travas ainda NAO valem' "$TMP/o9.txt"
 afirma "registra em log" grep -q 'provedor codex-cli' "$LIB/agentes/beto/restricoes.log"
 afirma "o arquivo ficou guardado" jq -e '.sem_bash == true' "$(R_DIR beto)/restricoes.json"
+
+echo "enviar arquivo travado exige o terminal travado (com o Bash ele fala direto com a ponte do WhatsApp)"
+dgclaw agente restricoes ana --sem-bash nao --sem-enviar-arquivo nao --escrita-livre >/dev/null 2>&1
+cp "$RS" "$TMP/rs-antes-combo.json"
+dgclaw agente restricoes ana --sem-enviar-arquivo sim >"$TMP/o13.txt" 2>&1; rc=$?
+nega "travar o envio com o Bash liberado e recusado" test "$rc" -eq 0
+afirma "diz o porque (o terminal manda o arquivo por fora das ferramentas)" grep -q 'por fora das ferramentas' "$TMP/o13.txt"
+afirma "e o que fazer (--sem-bash sim)" grep -q -- '--sem-bash sim' "$TMP/o13.txt"
+igual "nada foi gravado pela recusa" "" "$(diff "$TMP/rs-antes-combo.json" "$RS")"
+dgclaw agente restricoes ana --sem-bash nao --sem-enviar-arquivo sim >/dev/null 2>&1; nega "as duas opcoes na mesma chamada, Bash liberado, tambem recusa" test "$?" -eq 0
+dgclaw agente restricoes ana --sem-bash sim --sem-enviar-arquivo sim >/dev/null 2>&1; igual "travar os dois de uma vez funciona" "0" "$?"
+dgclaw agente restricoes ana --sem-bash nao >"$TMP/o13.txt" 2>&1; nega "devolver o Bash com o envio ainda travado e recusado" test "$?" -eq 0
+afirma "o arquivo continua com os dois travados" jq -e '.sem_bash == true and .sem_enviar_arquivo == true' "$RS"
+dgclaw agente restricoes ana --sem-bash nao --sem-enviar-arquivo nao >/dev/null 2>&1; igual "devolver os dois de uma vez funciona" "0" "$?"
+printf '{"versao": 1, "sem_bash": false, "sem_enviar_arquivo": true}' >"$RS"; chmod 444 "$RS"
+dgclaw agente reparar ana >"$TMP/o13.txt" 2>&1; nega "restricoes.json editado a mao com a combinacao proibida falha" test "$?" -eq 0
+afirma "explica o motivo no arquivo" grep -q 'por fora das ferramentas' "$TMP/o13.txt"
+dgclaw agente restricoes ana --sem-bash sim >/dev/null 2>&1; igual "o proprio comando consegue consertar o arquivo" "0" "$?"
+afirma "e o arquivo ficou valido" jq -e '.sem_bash == true and .sem_enviar_arquivo == true' "$RS"
+dgclaw agente restricoes ana --sem-bash nao --sem-enviar-arquivo nao --escrita-livre >/dev/null 2>&1
+
+echo "migracao: o root nao le nem grava nada na casa do agente (corrida de atalho em .claude)"
+# O jq de mentira troca .claude por um atalho para uma pasta de fora logo depois de o root ler o settings.json:
+# com o codigo antigo o root grava la; com o novo ele nunca encosta no arquivo.
+HOMEANA="$LIB/agentes/ana/home"
+jq '.hooks.PreToolUse = [{matcher: "Write", hooks: [{type: "command", command: "node /opt/dgclaw/app/scripts/escrita-restrita-hook.mjs"}]}]' "$ST" >"$ST.novo" && mv -f "$ST.novo" "$ST" && chmod 444 "$ST"
+FORA2="$TMP/fora-corrida"; mkdir -p "$FORA2"
+JQFALSO="$TMP/jq-corrida"; mkdir -p "$JQFALSO"
+cat >"$JQFALSO/jq" <<EOS
+#!/bin/sh
+/usr/bin/jq "\$@"; rc=\$?
+case "\$*" in *limpa*"$HOMEANA/.claude/settings.json") if [ ! -L "$HOMEANA/.claude" ]; then mv "$HOMEANA/.claude" "$TMP/claude-real" && ln -s "$FORA2" "$HOMEANA/.claude"; fi ;; esac
+exit \$rc
+EOS
+chmod +x "$JQFALSO/jq"
+touch "$STUB_ESTADO/exec-node-nao"
+: >"$STUB_LOG"
+PATH="$JQFALSO:$PATH" dgclaw agente restricoes ana --sem-bash sim >"$TMP/o14.txt" 2>&1
+[ -L "$HOMEANA/.claude" ] && { rm "$HOMEANA/.claude"; mv "$TMP/claude-real" "$HOMEANA/.claude"; }
+igual "nada foi gravado fora da casa" "" "$(ls -A "$FORA2")"
+afirma "a migracao foi pedida ao usuario agente, dentro da caixa, sem shell" grep -q '^podman exec --user agente dgclaw-ana node -e ' "$STUB_LOG"
+rm -f "$STUB_ESTADO/exec-node-nao"
+dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1
+dgclaw agente reparar ana >/dev/null 2>&1
+nega "rodando de verdade dentro da caixa, o gancho antigo sai" grep -q 'escrita-restrita-hook' "$ST"
+afirma "e a linha alheia continua" jq -e '.minhaLinha == "do-aluno"' "$ST"
+
+echo "migracao com o agente parado: guarda a pendencia, avisa, e conclui quando ele ligar"
+PEND_MIG="$(R_DIR ana)/restricoes-migracao.pendente"
+jq '.hooks.PreToolUse = [{matcher: "Write", hooks: [{type: "command", command: "node /opt/dgclaw/app/scripts/escrita-restrita-hook.mjs"}]}]' "$ST" >"$ST.novo" && mv -f "$ST.novo" "$ST" && chmod 444 "$ST"
+echo exited >"$STUB_ESTADO/c-dgclaw-ana"
+: >"$STUB_LOG"
+dgclaw agente restricoes ana --sem-bash sim >"$TMP/o15.txt" 2>&1; igual "parado: o comando funciona (0)" "0" "$?"
+afirma "o gancho antigo ainda esta la (o root nao mexe)" grep -q 'escrita-restrita-hook' "$ST"
+afirma "a pendencia da migracao ficou guardada" test -e "$PEND_MIG"
+afirma "avisa que sai quando o agente ligar e o comando rodar de novo" grep -q 'gancho antigo' "$TMP/o15.txt"
+echo running >"$STUB_ESTADO/c-dgclaw-ana"
+dgclaw agente restricoes ana --sem-bash sim >/dev/null 2>&1
+nega "ligado, o comando de novo tira o gancho antigo" grep -q 'escrita-restrita-hook' "$ST"
+nega "e a pendencia some" test -e "$PEND_MIG"
+dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1
+
+echo "reinicio que falha nao e esquecido (marcador de pendencia, so do root)"
+PEND="$(R_DIR ana)/restricoes.pendente"
+touch "$STUB_ESTADO/restart-falha"
+dgclaw agente restricoes ana --sem-bash sim >"$TMP/o16.txt" 2>&1; nega "restart falhou: o comando falha" test "$?" -eq 0
+afirma "o marcador de pendencia ficou" test -e "$PEND"
+igual "marcador do root, so ele grava" "0:0" "$(stat -c %u:%g "$PEND" 2>/dev/null || echo 0:0)"
+rm -f "$STUB_ESTADO/restart-falha"
+: >"$STUB_LOG"
+dgclaw agente restricoes ana --sem-bash sim >"$TMP/o16.txt" 2>&1; igual "mesmo comando de novo (arquivos iguais) sai com 0" "0" "$?"
+afirma "e reiniciou o runner por causa da pendencia" grep -q 'exec dgclaw-ana systemctl restart dgclaw-runner' "$STUB_LOG"
+nega "o marcador saiu depois do restart e do is-active" test -e "$PEND"
+: >"$STUB_LOG"
+dgclaw agente restricoes ana --sem-bash sim >/dev/null 2>&1
+nega "sem pendencia e sem mudanca, nao reinicia" grep -q 'systemctl restart' "$STUB_LOG"
+touch "$STUB_ESTADO/inativo"
+dgclaw agente restricoes ana --sem-bash nao >"$TMP/o16.txt" 2>&1; nega "restart ok mas o runner nao fica active: falha" test "$?" -eq 0
+afirma "diz que o runner nao esta active" grep -q 'active' "$TMP/o16.txt"
+afirma "e o marcador continua" test -e "$PEND"
+rm -f "$STUB_ESTADO/inativo"
+echo exited >"$STUB_ESTADO/c-dgclaw-ana"
+: >"$STUB_LOG"
+dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1; igual "com o agente parado o comando funciona" "0" "$?"
+nega "parado: o marcador sai (o runner le tudo ao subir)" test -e "$PEND"
+echo running >"$STUB_ESTADO/c-dgclaw-ana"
 
 echo "ensaio: nao grava nada"
 rm -f "$(R_DIR beto)/restricoes.json"
