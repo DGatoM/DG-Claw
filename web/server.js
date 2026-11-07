@@ -18,7 +18,8 @@ const { criarLeitor, paraContainer } = require('./lib/thread');
 const { criarLeitorRollout } = require('./lib/rollout');
 const { criarConversa, RX_CLIENTE_ID } = require('./lib/conversa');
 const { criarComandos } = require('./lib/comandos');
-const { lerMultipart, nomeSeguro, gravaSemSobrescrever, pastaUploadSegura } = require('./lib/uploads');
+const { lerMultipart, nomeSeguro } = require('./lib/uploads');
+const { entregar: entregarSeguro, ErroEntrega } = require('./lib/entrega-segura');
 const { abrirStream } = require('./lib/sse');
 const { criarProxy } = require('./lib/proxy');
 const { criarCofreAgente } = require('./lib/cofre-agente');
@@ -721,15 +722,18 @@ function criarServidor(opcoes) {
     }
     // Anonimizar, opção "aplicar no que digito": troca só os valores que a tabela já conhece (sem modelo). Comando de barra passa direto.
     // Com anexo anonimizado, a legenda sempre passa pela tabela, mesmo com a opção desligada.
-    const comAnexoAnonimizado = Array.isArray(corpo.anexos) && corpo.anexos.some((id) => {
-      const e = typeof id === 'string' ? midia.obter(id) : null;
-      return e && e.slug === agente.slug && /^doc-[0-9a-f]{8}\.anon\./.test(path.basename(e.path));
-    });
-    if (typeof corpo.text === 'string' && !corpo.text.trimStart().startsWith('/') && (comAnexoAnonimizado ? anonimizar.estaLigado(agente.slug) : anonimizar.aplicaDigitado(agente.slug))) {
-      try { corpo.text = anonimizar.trocarDigitado(agente.slug, corpo.text).texto; } catch (e) {
-        log('erro', `Anonimizar: não consegui trocar os dados do texto digitado para ${agente.slug} (${e.message}). Mensagem não enviada.`);
-        return H.erroJson(res, e.status || 500, `Não enviei a mensagem porque não consegui trocar os dados pessoais dela: ${e.message}`);
+    // Config ilegível NÃO desliga o filtro em silêncio: a mensagem é recusada com 503.
+    try {
+      const comAnexoAnonimizado = Array.isArray(corpo.anexos) && corpo.anexos.some((id) => {
+        const e = typeof id === 'string' ? midia.obter(id) : null;
+        return e && e.slug === agente.slug && /^doc-[0-9a-f]{8}\.anon\./.test(path.basename(e.path));
+      });
+      if (typeof corpo.text === 'string' && !corpo.text.trimStart().startsWith('/') && (comAnexoAnonimizado ? anonimizar.estaLigado(agente.slug) : anonimizar.aplicaDigitado(agente.slug))) {
+        corpo.text = anonimizar.trocarDigitado(agente.slug, corpo.text).texto;
       }
+    } catch (e) {
+      log('erro', `Anonimizar: mensagem para ${agente.slug} recusada (${e.codigo || e.message}).`);
+      return H.erroJson(res, e.status || 500, e.status ? e.message : `Não enviei a mensagem porque não consegui trocar os dados pessoais dela: ${e.message}`, e.codigo ? { codigo: e.codigo } : undefined);
     }
     const r = await conversa.umaVez(agente, 'send', cid || null, () => conversa.enviar(agente, corpo));
     return H.enviaJson(res, r.status, r.corpo);
@@ -759,13 +763,9 @@ function criarServidor(opcoes) {
     const legenda = (mp.campos.legenda || '').trim();
     const r = await conversa.umaVez(agente, 'upload', cid || null, async () => {
       const dia = new Intl.DateTimeFormat('en-CA', { timeZone: config.tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-      let pasta;
-      try { pasta = pastaUploadSegura(agente.home_host, dia); } catch (e) {
-        log('erro', `Upload para ${agente.slug}: pasta de uploads recusada (${e.message})`);
-        return { status: 500, corpo: { ok: false, erro: e.message } };
-      }
+      const pasta = path.join(agente.home_host, 'uploads', dia);
       // Anonimizar documentos: com a opção ligada, o original NUNCA chega à casa do agente; só as saídas com marcadores.
-      const anon = await anonimizar.processarUpload(agente, { nome: arq.nome, dados: arq.dados, legenda, pastaDestino: pasta });
+      const anon = await anonimizar.processarUpload(agente, { nome: arq.nome, dados: arq.dados, legenda, dia });
       if (!anon.ok) {
         log('aviso', `Upload para ${agente.slug} barrado pela anonimização (${anon.codigo || anon.status}). Nada foi enviado ao agente.`);
         return { status: anon.status, corpo: { ok: false, erro: anon.erro, codigo: anon.codigo || null, anonimizado: false } };
@@ -780,11 +780,21 @@ function criarServidor(opcoes) {
           (outras.length ? ` Outras versões do mesmo documento: ${outras.join(', ')}.` : '') + ']';
       } else {
         if (anon.semAnonimizar) anonimizado = { id: null, contagem: 0, avisos: [anon.aviso], enviado_sem_anonimizar: true };
+        // Grava pelo ajudante que desce a pasta sem seguir atalho (o agente pode trocar uploads/<dia> por um atalho).
+        let tmp = null;
         try {
-          destino = gravaSemSobrescrever(pasta, nomeSeguro(arq.nome), arq.dados);
+          const nomeFinal = nomeSeguro(arq.nome);
+          fs.mkdirSync(path.join(config.dataDir, 'upload-tmp'), { recursive: true, mode: 0o700 });
+          tmp = fs.mkdtempSync(path.join(config.dataDir, 'upload-tmp', 'u-'));
+          fs.writeFileSync(path.join(tmp, nomeFinal), arq.dados, { mode: 0o600 });
+          const [gravado] = await entregarSeguro({ casa: agente.home_host, dia, origem: tmp, nomes: [nomeFinal] });
+          destino = path.join(pasta, gravado);
         } catch (e) {
-          log('erro', `Upload para ${agente.slug}: não gravei em ${pasta} (${e.code || e.message}).`);
-          return { status: 500, corpo: { ok: false, erro: `Não consegui gravar o arquivo em ${pasta} (${e.code || e.message}). Confira espaço em disco e permissão da pasta do agente.` } };
+          log('erro', `Upload para ${agente.slug}: não gravei em ${pasta} (${e.codigo || e.code || e.message}).`);
+          const motivo = e instanceof ErroEntrega ? e.message : `Não consegui gravar o arquivo em ${pasta} (${e.code || e.message}). Confira espaço em disco e permissão da pasta do agente.`;
+          return { status: 500, corpo: { ok: false, erro: motivo } };
+        } finally {
+          if (tmp) { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) { log('aviso', `Upload: não apaguei o temporário ${tmp} (${e.code || e.message}).`); } }
         }
       }
       const visto = paraContainer(destino, agente);

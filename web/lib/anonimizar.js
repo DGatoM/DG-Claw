@@ -17,7 +17,7 @@ const path = require('node:path');
 const { spawn, execFile } = require('node:child_process');
 const { gravaArquivoSeguro } = require('./grava-seguro');
 const { dentro } = require('./media');
-const { FLAGS_NOVO } = require('./uploads');
+const { entregar: entregarSeguro, ler: lerSeguro, ErroEntrega } = require('./entrega-segura');
 
 const TIPOS = ['PESSOA', 'EMPRESA', 'ENDERECO', 'CPF', 'CNPJ', 'RG', 'PIS', 'CNH', 'TITULO', 'CEP', 'TELEFONE', 'EMAIL',
   'CARTAO', 'CONTA', 'AGENCIA', 'PIX', 'VALOR', 'DATA'];
@@ -28,8 +28,8 @@ const RX_MARCADOR = /\[([A-Z]+)_(\d+)\]/g;
 const NIVEIS_INSTALAVEIS = ['leitores', 'completo'];
 // Tudo o que o motor pode vir a ler (o nível instalado diz o que ele lê de verdade, via op "estado").
 const EXT_POSSIVEIS = new Set(['.txt', '.md', '.csv', '.json', '.pdf', '.docx', '.xlsx']);
-const EXT_FINAL = new Set(['.txt', '.md', '.csv', '.json', '.html', '.htm', '.docx', '.xlsx', '.pptx']);
-const EXT_TEXTO_SAIDA = new Set(['.md', '.csv', '.txt', '.json']);
+const EXT_FINAL = new Set(['.txt', '.md', '.csv', '.json', '.docx', '.xlsx', '.pptx']);
+const EXT_ATIVA = new Set(['.html', '.htm', '.xhtml', '.svg', '.xml']);
 const MAX_FINAL_BYTES = 100 * 1024 * 1024;
 const MAX_LINHA_MOTOR = 64 * 1024 * 1024;
 const MAX_TEXTO = 200000;
@@ -102,12 +102,31 @@ function trocarValoresConhecidos(texto, tabela) {
   return { texto: saida, trocas: reservados.length };
 }
 
-/** Troca marcadores pelos valores da tabela. Marcador desconhecido fica como está. */
+/**
+ * Trechos onde o marcador NUNCA é trocado: URL, destino de link ou de imagem em markdown (`](...)`) e atributo
+ * de HTML. Trocar ali mudaria para onde um link aponta, e um dado real no endereço sai do texto visível.
+ */
+function trechosProtegidos(texto) {
+  const lista = [];
+  const rxs = [
+    /\]\([^)\n]*\)/g,
+    /\b(?:https?|ftp|file|data|mailto|javascript):[^\s<>"'`]*/gi,
+    /\bwww\.[^\s<>"'`]*/gi,
+    /\b(?:href|src|action|poster|srcset|data|xlink:href)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi,
+  ];
+  for (const rx of rxs) for (const m of texto.matchAll(rx)) lista.push([m.index, m.index + m[0].length]);
+  return lista;
+}
+
+/** Troca marcadores pelos valores da tabela. Marcador desconhecido, apagado ou dentro de URL fica como está. */
 function reverterMarcadores(texto, tabela) {
+  texto = String(texto);
   const porMarcador = new Map(tabela.filter((e) => !e.apagado).map((e) => [e.marcador, e.valor]));
+  const protegidos = trechosProtegidos(texto);
   const desconhecidos = new Set();
   let trocas = 0;
-  const saida = String(texto).replace(RX_MARCADOR, (todo) => {
+  const saida = texto.replace(RX_MARCADOR, (todo, _t, _n, pos) => {
+    if (protegidos.some(([x, y]) => pos >= x && pos < y)) return todo;
     if (porMarcador.has(todo)) { trocas += 1; return porMarcador.get(todo); }
     desconhecidos.add(todo);
     return todo;
@@ -529,17 +548,19 @@ function criarAnonimizar(opcoes) {
   }
 
   // ── texto ─────────────────────────────────────────────────────────────────
+  // Config que não dá para ler NÃO desliga a proteção em silêncio: lança 503 e a mensagem não é enviada.
   function estaLigado(slug) {
     try { return config(slug).ligado; } catch (e) {
-      log('aviso', `Anonimizar: não li a configuração de ${slug} (${e.message}). O texto segue como foi digitado.`);
-      return false;
+      log('erro', `Anonimizar: não li a configuração de ${slug} (${e.codigo || e.message}). Mensagem recusada até corrigir.`);
+      throw new ErroAnon(503, `${e.message} A mensagem não foi enviada, para não mandar dados pessoais sem o filtro.`, e.codigo || 'CONFIG_ILEGIVEL');
     }
   }
   function aplicaDigitado(slug) {
-    try { const c = config(slug); return c.ligado && c.aplicar_no_que_digito; } catch (e) {
-      log('aviso', `Anonimizar: não li a configuração de ${slug} para o texto digitado (${e.message}). O texto segue como foi digitado.`);
-      return false;
-    }
+    const c = (() => { try { return config(slug); } catch (e) {
+      log('erro', `Anonimizar: não li a configuração de ${slug} (${e.codigo || e.message}). Mensagem recusada até corrigir.`);
+      throw new ErroAnon(503, `${e.message} A mensagem não foi enviada, para não mandar dados pessoais sem o filtro.`, e.codigo || 'CONFIG_ILEGIVEL');
+    } })();
+    return c.ligado && c.aplicar_no_que_digito;
   }
   /** Troca no texto digitado os valores já conhecidos da tabela. Não roda o modelo. */
   function trocarDigitado(slug, texto) {
@@ -585,15 +606,15 @@ function criarAnonimizar(opcoes) {
    *      ou { ok:true, semAnonimizar:true, aviso }  (dono escolheu "enviar" para o que não dá para anonimizar)
    *      ou { ok:false, status, erro, codigo }.
    */
-  async function processarUpload(agente, { nome, dados, legenda, pastaDestino }) {
+  async function processarUpload(agente, { nome, dados, legenda, dia }) {
     const slug = agente.slug;
     let c;
     try { c = config(slug); } catch (e) { return bloqueio(e.status || 500, e.message, e.codigo); }
     if (!c.ligado) return { ok: true, desligado: true };
-    return comTrava(slug, () => processarLigado(agente, c, { nome, dados, legenda, pastaDestino }));
+    return comTrava(slug, () => processarLigado(agente, c, { nome, dados, legenda, dia }));
   }
 
-  async function processarLigado(agente, c, { nome, dados, legenda, pastaDestino }) {
+  async function processarLigado(agente, c, { nome, dados, legenda, dia }) {
     const slug = agente.slug;
     const ext = path.extname(String(nome || '')).toLowerCase().replace(/[^a-z0-9.]/g, '').slice(0, 8);
     const instalarDica = 'Para anonimizar este tipo de arquivo, instale os leitores na tela Anonimizar. Ou mude a opção "Se não der para anonimizar" para enviar assim mesmo.';
@@ -616,7 +637,7 @@ function criarAnonimizar(opcoes) {
 
     const id = crypto.randomBytes(4).toString('hex');
     let trabalho = null;
-    const copiados = [];
+    let tabelaAnterior = null; let docGravado = false;
     try {
       pasta0700(raiz); pasta0700(dirTmp);
       trabalho = fs.mkdtempSync(path.join(dirTmp, 'p-'));
@@ -656,12 +677,13 @@ function criarAnonimizar(opcoes) {
       }
       if (!saidasReais.length) throw new ErroAnon(502, 'O motor terminou sem gravar nenhum arquivo. Nada foi enviado ao agente.', 'MOTOR_SEM_SAIDA');
 
-      // Marcadores deste documento: os que aparecem nas saídas de texto, na legenda e os novos.
-      const marcadores = new Set(novas.map((n) => n.marcador));
-      for (const real of saidasReais) {
-        if (!EXT_TEXTO_SAIDA.has(path.extname(real).toLowerCase())) continue;
-        for (const m of marcadoresDe(fs.readFileSync(real, 'utf8'))) marcadores.add(m);
+      // Marcadores deste documento: SÓ a lista `usados` do motor (ele olha todas as partes de todas as saídas, inclusive
+      // cabeçalho, comentário e metadado). Sem ela eu não sei o que apagar depois, então o documento não segue.
+      if (!Array.isArray(r.usados) || r.usados.some((m) => typeof m !== 'string' || !/^\[[A-Z]+_\d+\]$/.test(m))) {
+        throw new ErroAnon(502, 'O motor de anonimização não informou quais marcadores o documento usa (lista "usados"). Ele está desatualizado: peça ao Admin para atualizar o DG Claw. Nada foi enviado ao agente.', 'MOTOR_SEM_USADOS');
       }
+      const marcadores = new Set(r.usados);
+      for (const n of novas) marcadores.add(n.marcador);
       let legendaFinal = legenda || '';
       let contagem = r.contagem && typeof r.contagem === 'object' ? Object.assign({}, r.contagem) : {};
       let tabelaAtual = t.entradas.concat(novas);
@@ -673,33 +695,39 @@ function criarAnonimizar(opcoes) {
         for (const n of lr.novas) marcadores.add(n.marcador);
         for (const [k, v] of Object.entries(lr.contagem)) contagem[k] = (Number(contagem[k]) || 0) + v;
       }
-      // Copia as saídas escrevendo o conteúdo (nunca seguindo atalho) e depois registra tudo.
-      // pastaDestino já veio conferida (sem atalho) por pastaUploadSegura; a gravação ainda recusa atalho e arquivo existente.
-      for (const real of saidasReais) {
-        const destino = path.join(pastaDestino, path.basename(real));
-        fs.writeFileSync(destino, fs.readFileSync(real), { flag: FLAGS_NOVO, mode: 0o644 });
-        copiados.push(destino);
-      }
-      const vistos = copiados.map((p) => paraContainer(p, agente));
+      // Primeiro a tabela e o registro (com os caminhos que o agente verá), depois a entrega. Se a entrega falhar, desfaz os dois.
+      const nomesSaida = saidasReais.map((p) => path.basename(p));
+      const destinoVisivel = path.join(agente.home_host, 'uploads', dia);
+      const vistos = nomesSaida.map((n) => paraContainer(path.join(destinoVisivel, n), agente));
+      tabelaAnterior = t.entradas;
       t.entradas = tabelaAtual;
       gravarTabela(slug, t);
       const regDocs = lerDocs(slug);
       regDocs.docs.push({ id, nome_original: String(nome || '').slice(0, 200), criado_em: new Date().toISOString(), contagem, marcadores: Array.from(marcadores), saidas: vistos });
       gravarDocs(slug, regDocs);
-
+      docGravado = true;
+      // A descida até a pasta é feita pelo ajudante em Python, sem seguir atalho em nenhum componente (o agente pode trocar a pasta enquanto o motor trabalha).
+      const entregues = await entregarSeguro({ casa: agente.home_host, dia, origem: saidaDir, nomes: nomesSaida, python: env.DGCLAW_ANON_PYTHON_SISTEMA });
+      if (entregues.some((n, i) => n !== nomesSaida[i])) throw new ErroAnon(500, 'Um arquivo com o mesmo nome já estava na pasta do agente. Nada foi enviado; tente de novo.', 'NOME_EM_USO');
+      docGravado = false;
+      const hostSaidas = nomesSaida.map((n) => path.join(destinoVisivel, n));
       // A saída principal é a que o agente lê melhor: markdown, depois csv, depois a primeira.
-      const preferida = ['.md', '.csv'].map((e) => copiados.find((p) => path.extname(p) === e)).find(Boolean);
-      const principal = preferida || copiados[0];
+      const preferida = ['.md', '.csv'].map((e) => hostSaidas.find((p) => path.extname(p) === e)).find(Boolean);
+      const principal = preferida || hostSaidas[0];
       const aviso = Array.isArray(r.avisos) ? r.avisos.filter((x) => typeof x === 'string').slice(0, 10) : [];
-      log('info', `Anonimizar: documento ${id} de ${slug} anonimizado (${somaContagem(contagem)} dado(s), nível ${est.nivel}, ${copiados.length} arquivo(s)).`);
-      const entregues = copiados.slice();
-      copiados.length = 0;   // entregue: não desfazer no finally
-      return { ok: true, id, principal, hostSaidas: entregues, vistos, contagem, total: somaContagem(contagem), avisos: avisos.concat(aviso), legenda: legendaFinal, nivel: est.nivel };
+      log('info', `Anonimizar: documento ${id} de ${slug} anonimizado (${somaContagem(contagem)} dado(s), nível ${est.nivel}, ${hostSaidas.length} arquivo(s)).`);
+      return { ok: true, id, principal, hostSaidas, vistos, contagem, total: somaContagem(contagem), avisos: avisos.concat(aviso), legenda: legendaFinal, nivel: est.nivel };
     } catch (e) {
+      if (docGravado) {
+        try {
+          const rd = lerDocs(slug); rd.docs = rd.docs.filter((d) => d.id !== id); gravarDocs(slug, rd);
+          const rt = lerTabela(slug); rt.entradas = tabelaAnterior; gravarTabela(slug, rt);
+        } catch (e2) { log('erro', `Anonimizar: não consegui desfazer o registro do documento ${id} (${e2.message}).`); }
+      }
+      if (e instanceof ErroEntrega) return bloqueio(e.status, `${e.message} Nada foi enviado ao agente.`, e.codigo || 'ENTREGA');
       if (!(e instanceof ErroAnon)) log('erro', `Anonimizar: erro inesperado no documento ${id} de ${slug} (${e.code || e.message}).`);
       return bloqueio(e.status || 500, e instanceof ErroAnon ? e.message : `Não consegui anonimizar o documento (${e.code || e.message}). Nada foi enviado ao agente. Confira o espaço em disco e as permissões da pasta do agente.`, e.codigo || 'ERRO');
     } finally {
-      for (const f of copiados) { try { fs.unlinkSync(f); } catch (_) { /* nunca chegou a existir */ } }
       if (trabalho) { try { fs.rmSync(trabalho, { recursive: true, force: true }); } catch (e) { log('aviso', `Anonimizar: não apaguei o temporário do documento ${id} (${e.code || e.message}). Apague ${dirTmp} à mão.`); } }
     }
   }
@@ -724,37 +752,33 @@ function criarAnonimizar(opcoes) {
     const slug = agente.slug;
     if (!agente.home_host) throw new ErroAnon(503, `O agente ${agente.nome} não tem home_host no registro.`);
     if (!entrada || entrada.slug !== slug) throw new ErroAnon(404, 'Não achei esse arquivo entre os do agente. Recarregue a conversa e tente de novo.', 'MIDIA_DE_OUTRO');
-    let casa; let real;
-    try { casa = fs.realpathSync(agente.home_host); real = fs.realpathSync(entrada.path); } catch (_) {
-      throw new ErroAnon(404, 'O arquivo não está mais disponível na pasta do agente.', 'MIDIA_SUMIU');
-    }
-    if (!dentro(casa, real)) {
-      log('aviso', `Anonimizar: pedido de versão final recusado para ${slug}: o arquivo saiu da pasta do agente.`);
+    // Só a checagem do texto do caminho; quem abre o arquivo de verdade é o ajudante, sem seguir atalho.
+    const relativo = path.relative(path.resolve(agente.home_host), path.resolve(entrada.path));
+    if (!relativo || relativo.startsWith('..') || path.isAbsolute(relativo)) {
+      log('aviso', `Anonimizar: pedido de versão final recusado para ${slug}: o arquivo está fora da pasta do agente.`);
       throw new ErroAnon(403, 'Este arquivo está fora da pasta do agente e não será aberto.', 'FORA_DA_CASA');
     }
-    const ext = path.extname(real).toLowerCase();
+    const ext = path.extname(relativo).toLowerCase();
+    if (EXT_ATIVA.has(ext)) throw new ErroAnon(422, `Arquivo ${ext} pode conter scripts e endereços, e trocar os marcadores dentro dele não é seguro. Peça ao agente o mesmo resultado em .md ou .docx e baixe a versão final desse.`, 'FORMATO_ATIVO');
     if (ext === '.pdf') throw new ErroAnon(422, 'PDF não dá para voltar aos dados reais, porque o texto dele não é trocado de forma segura. Peça ao agente o mesmo resultado em .docx ou .md e baixe a versão final desse.', 'PDF');
-    if (!EXT_FINAL.has(ext)) throw new ErroAnon(422, `Não sei voltar os dados reais em arquivo ${ext || 'sem extensão'}. Os formatos aceitos são .docx, .xlsx, .pptx, .md, .txt, .csv, .json e .html. Peça ao agente o resultado em um deles.`, 'FORMATO');
+    if (!EXT_FINAL.has(ext)) throw new ErroAnon(422, `Não sei voltar os dados reais em arquivo ${ext || 'sem extensão'}. Os formatos aceitos são .docx, .xlsx, .pptx, .md, .txt, .csv e .json. Peça ao agente o resultado em um deles.`, 'FORMATO');
     const tab = lerTabela(slug).entradas.filter((e) => !e.apagado);
     if (!tab.length) throw new ErroAnon(422, 'Este agente não tem tabela de dados (nenhum documento anonimizado ainda), então não há o que voltar.', 'SEM_TABELA');
 
-    let fd; let st;
-    try {
-      fd = fs.openSync(real, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
-      st = fs.fstatSync(fd);
-    } catch (e) { if (fd != null) fs.closeSync(fd); throw new ErroAnon(404, `Não consegui abrir o arquivo (${e.code || e.message}).`, 'ABRIR'); }
     let trabalho = null;
     try {
-      if (!st.isFile()) throw new ErroAnon(404, 'O caminho do arquivo não é um arquivo comum.', 'ABRIR');
-      if (st.size > MAX_FINAL_BYTES) throw new ErroAnon(413, `O arquivo tem ${(st.size / 1048576).toFixed(0)} MB e o limite para gerar a versão final é ${MAX_FINAL_BYTES / 1048576} MB.`);
-      const conteudo = Buffer.alloc(st.size);
-      let lido = 0;
-      while (lido < st.size) { const n = fs.readSync(fd, conteudo, lido, st.size - lido, lido); if (!n) break; lido += n; }
       pasta0700(raiz); pasta0700(dirTmp);
       trabalho = fs.mkdtempSync(path.join(dirTmp, 'f-'));
       fs.chmodSync(trabalho, 0o700);
       const ent = path.join(trabalho, `entrada${ext}`); const sai = path.join(trabalho, `final${ext}`);
-      fs.writeFileSync(ent, conteudo.subarray(0, lido), { mode: 0o600, flag: 'wx' });
+      // Copia para o temporário do root antes de chamar o motor: atalho, FIFO e arquivo especial são recusados sem travar.
+      try { await lerSeguro({ casa: agente.home_host, relativo: relativo.split(path.sep).join('/'), destino: ent, maximo: MAX_FINAL_BYTES, python: env.DGCLAW_ANON_PYTHON_SISTEMA }); } catch (e) {
+        if (e instanceof ErroEntrega) {
+          log('aviso', `Anonimizar: versão final recusada para ${slug} (${e.codigo || 'erro'}).`);
+          throw new ErroAnon(e.codigo === 'grande' ? 413 : (e.codigo === 'ausente' ? 404 : 422), e.message, e.codigo);
+        }
+        throw e;
+      }
       let r;
       try { r = await motor.enviar({ op: 'reverter', entrada: ent, saida: sai, tabela: tab }, 120000); } catch (e) {
         log('erro', `Anonimizar: falha do motor ao gerar a versão final para ${slug} (${e.codigo || e.message}).`);
@@ -763,11 +787,10 @@ function criarAnonimizar(opcoes) {
       if (!r || !r.ok) throw new ErroAnon(422, `${(r && r.erro) || 'O motor não conseguiu gerar a versão final.'}`, (r && r.codigo) || 'REVERTER');
       let dadosFinal;
       try { dadosFinal = fs.readFileSync(sai); } catch (_) { throw new ErroAnon(502, 'O motor disse ter gerado a versão final mas o arquivo não está lá.', 'MOTOR_SEM_SAIDA'); }
-      const baseNome = path.basename(entrada.nome || real, path.extname(entrada.nome || real));
+      const baseNome = path.basename(entrada.nome || relativo, path.extname(entrada.nome || relativo));
       log('info', `Anonimizar: versão final gerada para ${slug} (${r.trocas == null ? '?' : r.trocas} troca(s)).`);
       return { dados: dadosFinal, nome: `${baseNome}-final${ext}`, ext, trocas: r.trocas == null ? null : r.trocas, desconhecidos: Array.isArray(r.desconhecidos) ? r.desconhecidos : [] };
     } finally {
-      fs.closeSync(fd);
       if (trabalho) { try { fs.rmSync(trabalho, { recursive: true, force: true }); } catch (e) { log('aviso', `Anonimizar: não apaguei o temporário da versão final (${e.code || e.message}).`); } }
     }
   }

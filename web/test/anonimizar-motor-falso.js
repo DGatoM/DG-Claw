@@ -58,6 +58,11 @@ rl.on('line', (linha) => {
     const texto = fs.readFileSync(r.entrada, 'utf8');
     if (texto.includes('EXPLODE')) process.exit(1);
     if (texto.includes('TRAVA')) return undefined;
+    if (texto.includes('TROCA') && process.env.DGCLAW_ANON_TESTE_UPLOADS) {
+      // simula o agente trocando uploads/ por um atalho enquanto o motor trabalha
+      fs.renameSync(process.env.DGCLAW_ANON_TESTE_UPLOADS, process.env.DGCLAW_ANON_TESTE_UPLOADS + '.velho');
+      fs.symlinkSync(process.env.DGCLAW_ANON_TESTE_FORA, process.env.DGCLAW_ANON_TESTE_UPLOADS);
+    }
     if (texto.includes('RECUSA')) return responde({ ok: false, erro: 'Este arquivo está protegido por senha. Tire a senha e envie de novo.', codigo: 'senha' });
     const novas = []; const contagem = {};
     const anon = trocar(texto, r.tabela, novas, contagem);
@@ -72,7 +77,10 @@ rl.on('line', (linha) => {
     else if (ext === '.csv' || ext === '.json') grava(ext.slice(1), anon);
     else grava('md', anon);
     if (texto.includes('ENVENENA')) saidas.push({ caminho: '/etc/hostname', formato: 'txt' });
-    return responde({ ok: true, saidas, novas, contagem, avisos: [], nivel: NIVEL });
+    const usados = new Set();
+    for (const sd of saidas) { if (sd.caminho.startsWith(r.saida_dir)) for (const m of fs.readFileSync(sd.caminho, 'latin1').matchAll(/\[[A-Z]+_\d+\]/g)) usados.add(m[0]); }
+    if (texto.includes('SEM_USADOS')) return responde({ ok: true, saidas, novas, contagem, avisos: [], nivel: NIVEL });
+    return responde({ ok: true, saidas, novas, usados: Array.from(usados), contagem, avisos: [], nivel: NIVEL });
   }
   if (r.op === 'anonimizar_texto') {
     const novas = []; const contagem = {};
@@ -80,6 +88,7 @@ rl.on('line', (linha) => {
     return responde({ ok: true, texto, novas, contagem });
   }
   if (r.op === 'reverter') {
+    if (/\.(html?|svg|xml)$/i.test(r.entrada)) return responde({ ok: false, erro: 'formato ativo', codigo: 'formato_ativo' });
     let texto = fs.readFileSync(r.entrada, 'utf8');
     let trocas = 0;
     for (const e of r.tabela) { const partes = texto.split(e.marcador); trocas += partes.length - 1; texto = partes.join(e.valor); }
