@@ -98,6 +98,9 @@ function teclasDaResposta(perguntas, respostas) {
   return teclas;
 }
 
+const NOME_ANONIMIZADO = /\/doc-[0-9a-f]{8}\.anon\.[a-z0-9]+\]$/;
+const NOTA_ANONIMIZADO = '[documento anonimizado: os dados pessoais foram trocados por marcadores como [PESSOA_1]. Mantenha os marcadores exatamente como estão.]';
+
 function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agora, gravaToken, alertas, comandos: comandosInjetado }) {
   const comandos = comandosInjetado || criarComandos({ runner, log, agora });
   const alertasVersao = new Map();
@@ -724,7 +727,9 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     if (d.tipo === 'comando') return entregaComando(agente, d);
     const base = d.texto !== undefined ? d.texto : texto;
     // Só `voz: true` conta (a tela manda quando o modo de ouvir está ligado); outro valor é sem a tag.
-    return entregar(agente, [base, ...marcadores].filter(Boolean).join('\n'), { cru: false, voz: req.voz === true });
+    // Anexo que passou pela anonimização (doc-<id>.anon.<ext>): o agente é avisado na própria mensagem.
+    const nota = marcadores.some((m) => NOME_ANONIMIZADO.test(m)) ? [NOTA_ANONIMIZADO] : [];
+    return entregar(agente, [base, ...marcadores, ...nota].filter(Boolean).join('\n'), { cru: false, voz: req.voz === true });
   }
 
   const omite = (o, chaves) => Object.fromEntries(Object.entries(o).filter(([k]) => !chaves.includes(k)));

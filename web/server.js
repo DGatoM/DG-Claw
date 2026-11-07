@@ -27,6 +27,8 @@ const { criarAlertas } = require('./lib/alertas');
 const { criarFoco } = require('./lib/foco');
 const { criarVoz } = require('./lib/voz');
 const { criarSigilo } = require('./lib/sigilo');
+const { criarAnonimizar } = require('./lib/anonimizar');
+const { criarRotasAnonimizar } = require('./lib/anonimizar-rotas');
 const { criarOnboarding } = require('./lib/onboarding');
 const { criarLogin } = require('./lib/login');
 const { criarPrimeiroAcesso } = require('./lib/primeiro-acesso');
@@ -97,6 +99,10 @@ function criarServidor(opcoes) {
   const cofreAgente = criarCofreAgente({ config, log, reiniciar: opcoes.reiniciarCofre });
   const voz = opcoes.voz || criarVoz({ env: config.env, log });
   const sigilo = opcoes.sigilo || criarSigilo({ env: config.env, registro, dataDir: config.dataDir, log, timeoutMs: opcoes.timeoutSigiloMs });
+  const anonimizar = opcoes.anonimizar || criarAnonimizar({
+    env: config.env, dataDir: config.dataDir, registro, log, paraContainer,
+    motor: opcoes.anonMotor, systemctl: opcoes.anonSystemctl, ociosoMs: opcoes.anonOciosoMs,
+  });
   const cofreRotas = criarCofreRotas({ config, runner, cofre: cofreAgente, voz, log, entregar: (...a) => conversa.entregar(...a), esperaAvisoMs: opcoes.esperaAvisoMs });
   const proxy = criarProxy({ config, registro, log, cofreRotas });
   const caixa = criarCaixaAgente({ config, registro, log, porta: () => servidor.address().port, agora: opcoes.agora });
@@ -200,6 +206,9 @@ function criarServidor(opcoes) {
     const norm = String(o).replace(/\/+$/, '');
     return norm === H.origemPropria(req, config.proxiesConfiaveis) || config.origensExtras.has(norm);
   }
+
+  // Só o dono, pela tela. Fora de caixa.permitir de propósito: agente em container não chama estas rotas.
+  const rotasAnonimizar = criarRotasAnonimizar({ anon: anonimizar, registro, midia, log, origemOk });
 
   const querHtml = (req) => /\btext\/html\b/.test(String(req.headers.accept || ''));
 
@@ -339,6 +348,8 @@ function criarServidor(opcoes) {
     if (p.startsWith('/api/v1/tarefas') && await mesa.rota(req, res, url, sessao)) return undefined;
 
     if (await foco.tratarRota(req, res, url, sessao)) return undefined;
+
+    if ((p === '/api/v1/anonimizar' || p.startsWith('/api/v1/anonimizar/')) && await rotasAnonimizar.rotas(req, res, url, sessao)) return undefined;
 
     if ((p === '/api/v1/lembretes' || p.startsWith('/api/v1/lembretes/')) && await lembretes.rotas(req, res, url, sessao)) return undefined;
 
@@ -706,6 +717,18 @@ function criarServidor(opcoes) {
     if (cid != null && cid !== '' && !(typeof cid === 'string' && RX_CLIENTE_ID.test(cid))) {
       return H.erroJson(res, 400, `O "cliente_id" veio como ${JSON.stringify(String(cid).slice(0, 80))}, que não vale: use de 8 a 64 caracteres entre letras, números, "-" e "_". Nada foi enviado.`);
     }
+    // Anonimizar, opção "aplicar no que digito": troca só os valores que a tabela já conhece (sem modelo). Comando de barra passa direto.
+    // Com anexo anonimizado, a legenda sempre passa pela tabela, mesmo com a opção desligada.
+    const comAnexoAnonimizado = Array.isArray(corpo.anexos) && corpo.anexos.some((id) => {
+      const e = typeof id === 'string' ? midia.obter(id) : null;
+      return e && e.slug === agente.slug && /^doc-[0-9a-f]{8}\.anon\./.test(path.basename(e.path));
+    });
+    if (typeof corpo.text === 'string' && !corpo.text.trimStart().startsWith('/') && (comAnexoAnonimizado ? anonimizar.estaLigado(agente.slug) : anonimizar.aplicaDigitado(agente.slug))) {
+      try { corpo.text = anonimizar.trocarDigitado(agente.slug, corpo.text).texto; } catch (e) {
+        log('erro', `Anonimizar: não consegui trocar os dados do texto digitado para ${agente.slug} (${e.message}). Mensagem não enviada.`);
+        return H.erroJson(res, e.status || 500, `Não enviei a mensagem porque não consegui trocar os dados pessoais dela: ${e.message}`);
+      }
+    }
     const r = await conversa.umaVez(agente, 'send', cid || null, () => conversa.enviar(agente, corpo));
     return H.enviaJson(res, r.status, r.corpo);
   }
@@ -735,25 +758,43 @@ function criarServidor(opcoes) {
     const r = await conversa.umaVez(agente, 'upload', cid || null, async () => {
       const dia = new Intl.DateTimeFormat('en-CA', { timeZone: config.tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
       const pasta = path.join(agente.home_host, 'uploads', dia);
-      let destino;
-      try {
-        fs.mkdirSync(pasta, { recursive: true, mode: 0o755 });
-        destino = gravaSemSobrescrever(pasta, nomeSeguro(arq.nome), arq.dados);
-      } catch (e) {
-        log('erro', `Upload para ${agente.slug}: não gravei em ${pasta} (${e.code || e.message}).`);
-        return { status: 500, corpo: { ok: false, erro: `Não consegui gravar o arquivo em ${pasta} (${e.code || e.message}). Confira espaço em disco e permissão da pasta do agente.` } };
+      // Anonimizar documentos: com a opção ligada, o original NUNCA chega à casa do agente; só as saídas com marcadores.
+      const anon = await anonimizar.processarUpload(agente, { nome: arq.nome, dados: arq.dados, legenda, pastaDestino: pasta });
+      if (!anon.ok) {
+        log('aviso', `Upload para ${agente.slug} barrado pela anonimização (${anon.codigo || anon.status}). Nada foi enviado ao agente.`);
+        return { status: anon.status, corpo: { ok: false, erro: anon.erro, codigo: anon.codigo || null, anonimizado: false } };
+      }
+      let destino; let anonimizado = null; let legendaEnvio = legenda; let notaAnon = '';
+      if (anon.id) {
+        destino = anon.principal;
+        legendaEnvio = anon.legenda;
+        anonimizado = { id: anon.id, contagem: anon.total, por_tipo: anon.contagem, avisos: anon.avisos, nivel: anon.nivel };
+        const outras = anon.vistos.filter((v) => v !== paraContainer(destino, agente));
+        notaAnon = '[documento anonimizado: os dados pessoais foram trocados por marcadores como [PESSOA_1]. Mantenha os marcadores exatamente como estão.' +
+          (outras.length ? ` Outras versões do mesmo documento: ${outras.join(', ')}.` : '') + ']';
+      } else {
+        if (anon.semAnonimizar) anonimizado = { id: null, contagem: 0, avisos: [anon.aviso], enviado_sem_anonimizar: true };
+        try {
+          fs.mkdirSync(pasta, { recursive: true, mode: 0o755 });
+          destino = gravaSemSobrescrever(pasta, nomeSeguro(arq.nome), arq.dados);
+        } catch (e) {
+          log('erro', `Upload para ${agente.slug}: não gravei em ${pasta} (${e.code || e.message}).`);
+          return { status: 500, corpo: { ok: false, erro: `Não consegui gravar o arquivo em ${pasta} (${e.code || e.message}). Confira espaço em disco e permissão da pasta do agente.` } };
+        }
       }
       const visto = paraContainer(destino, agente);
       const media = midia.registrar(agente.slug, destino, { visto, nome: path.basename(destino) });
       const marcador = `[anexo: ${visto}]`;
-      const anexo = { id: media.id, kind: media.kind, nome: arq.nome, bytes: arq.dados.length, path: visto, url: media.url };
-      log('info', `Upload para ${agente.slug}: ${arq.nome} (${media.kind}, ${arq.dados.length} bytes) salvo em ${destino}.`);
+      const tamanho = anon.id ? fs.statSync(destino).size : arq.dados.length;
+      const anexo = { id: media.id, kind: media.kind, nome: anon.id ? path.basename(destino) : arq.nome, bytes: tamanho, path: visto, url: media.url };
+      log('info', `Upload para ${agente.slug}: ${anon.id ? `documento anonimizado ${anon.id}` : arq.nome} (${media.kind}, ${tamanho} bytes) salvo em ${destino}.`);
+      const corpoBase = anonimizado ? { anonimizado } : {};
       if (soGuardar) {
-        return { status: 201, corpo: { ok: true, enviado: false, agente: agente.slug, anexo, marcador, media } };
+        return { status: 201, corpo: Object.assign({ ok: true, enviado: false, agente: agente.slug, anexo, marcador, media }, corpoBase) };
       }
-      const e = await conversa.entregar(agente, [legenda, marcador].filter(Boolean).join('\n'), { cru: false });
+      const e = await conversa.entregar(agente, [legendaEnvio, marcador, notaAnon].filter(Boolean).join('\n'), { cru: false });
       if (e.status >= 300) return Object.assign(e, { corpo: Object.assign({ arquivo_salvo: visto }, e.corpo) });
-      return { status: 201, corpo: Object.assign({}, e.corpo, { enviado: true, kind: media.kind, texto: legenda, anexo, marcador, media }) };
+      return { status: 201, corpo: Object.assign({}, e.corpo, { enviado: true, kind: media.kind, texto: legendaEnvio, anexo, marcador, media }, corpoBase) };
     });
     return H.enviaJson(res, r.status, r.corpo);
   }
@@ -916,6 +957,15 @@ function criarServidor(opcoes) {
       return undefined;
     }
 
+    if ((p === '/anonimizar' || p === '/anonimizar/') && (m === 'GET' || m === 'HEAD')) {
+      if (!sessao) return semSessaoPagina(req, res, url);
+      if (!servirArquivo(req, res, path.join(config.publicDir, 'anonimizar.html'), 'no-store')) {
+        log('erro', `A tela de anonimizar não está instalada: falta ${path.join(config.publicDir, 'anonimizar.html')}.`);
+        H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela de anonimizar documentos não foi encontrado no servidor. Reinstale o DG Claw Web.');
+      }
+      return undefined;
+    }
+
     if ((p === '/conectar' || p === '/conectar/') && (m === 'GET' || m === 'HEAD')) {
       if (!sessao) return semSessaoPagina(req, res, url);
       if (!servirArquivo(req, res, path.join(config.publicDir, 'conectar.html'), 'no-store')) {
@@ -976,7 +1026,7 @@ function criarServidor(opcoes) {
   });
 
   return {
-    servidor, config, registro, auth, midia, conversa, log, caixa, push, lembretes, avisos, estados, vigiaAtencao, prefsAtencao,
+    servidor, config, registro, auth, midia, conversa, anonimizar, log, caixa, push, lembretes, avisos, estados, vigiaAtencao, prefsAtencao,
     ouvir(porta, host) {
       return new Promise((resolve, reject) => {
         servidor.once('error', reject);
@@ -990,7 +1040,7 @@ function criarServidor(opcoes) {
         });
       });
     },
-    fechar() { return new Promise((resolve) => { caixa.parar(); lembretes.parar(); avisos.parar(); vigiaAtencao.parar(); proxy.fecharTudo(); servidor.closeAllConnections && servidor.closeAllConnections(); servidor.close(() => resolve()); }); },
+    fechar() { return new Promise((resolve) => { caixa.parar(); lembretes.parar(); avisos.parar(); vigiaAtencao.parar(); proxy.fecharTudo(); anonimizar.encerrar(); servidor.closeAllConnections && servidor.closeAllConnections(); servidor.close(() => resolve()); }); },
   };
 }
 
