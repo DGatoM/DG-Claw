@@ -1,5 +1,6 @@
 'use strict';
-// Escopo do colaborador: tabela de casos. O que não está na lista é negado.
+// Escopo do colaborador: tabela de casos. Regra: tudo que tem o slug do agente dele passa; o que é de outro agente
+// ou da caixa inteira é negado; rota nova sem slug nasce fechada.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { avaliar, websocketLiberado } = require('../lib/escopo');
@@ -24,15 +25,34 @@ const LIBERADOS = [
   ['POST', '/api/v1/agents/ana/login/codigo'], ['POST', '/api/v1/agents/ana/login/oi'],
   ['GET', '/api/v1/agents/ana/alertas'], ['POST', '/api/v1/agents/ana/alertas/0123456789abcdef01234567/visto'],
   ['GET', '/api/v1/agents/ana/alertas/0123456789abcdef01234567/mensagem'],
+  // tudo sob o slug dele passa, inclusive o que ainda não existe
+  ['GET', '/api/v1/agents/ana/rota-nova'], ['PUT', '/api/v1/agents/ana/algo/mais/fundo'], ['DELETE', '/api/v1/agents/ana/qualquer-coisa'],
   ['GET', '/api/v1/media/0123456789abcdef'], ['GET', '/api/v1/media/0123456789abcdef/thumb'], ['GET', '/api/v1/media/0123456789abcdef/visual'],
   ['POST', '/api/v1/transcribe'], ['POST', '/api/v1/tts'], ['GET', '/api/v1/tts/cota'],
   ['GET', '/api/v1/conectar/docs.md'], ['GET', '/api/v1/login/docs.md'],
+  // o painel inteiro do agente dele
+  ['GET', '/p/ana/'], ['GET', '/p/ana'], ['GET', '/p/ana/index.html'], ['GET', '/p/ana/js/app.js'], ['GET', '/p/ana/css/estilo.css'],
+  ['GET', '/p/ana/api/sessoes'], ['POST', '/p/ana/api/sessoes'], ['PATCH', '/p/ana/api/sessoes/abc'], ['DELETE', '/p/ana/api/sessoes/abc'],
+  ['GET', '/p/ana/api/sessoes-config'], ['GET', '/p/ana/api/rotinas'], ['GET', '/p/ana/api/rotinas/usuario'],
+  ['GET', '/p/ana/api/memory'], ['GET', '/p/ana/api/memoria/arquivo'], ['PUT', '/p/ana/api/memoria/arquivo'],
+  ['GET', '/p/ana/api/arquivos'], ['PUT', '/p/ana/api/arquivos'], ['DELETE', '/p/ana/api/arquivos'], ['POST', '/p/ana/api/arquivos/enviar'],
+  ['GET', '/p/ana/api/tela'], ['GET', '/p/ana/tela/novnc/vnc.html'],
+  ['GET', '/p/ana/api/socorro/estado'], ['POST', '/p/ana/api/socorro/mensagem'], ['POST', '/p/ana/api/saude/reiniciar'],
+  ['GET', '/p/ana/api/provedor'], ['GET', '/p/ana/api/provedor/login'], ['GET', '/p/ana/api/uso'],
+  ['POST', '/p/ana/api/chat/mensagem'], ['POST', '/p/ana/api/chat/transcrever'], ['GET', '/p/ana/api/apps'], ['GET', '/p/ana/api/skills'],
+  // o prefixo fechado é por segmento: um nome parecido não fecha
+  ['GET', '/p/ana/api/cofre-outra-coisa'], ['GET', '/p/ana/api/chaves-api-outra-coisa'],
+  // nome com espaço ou acento codificado é legítimo na aba Pasta
+  ['GET', '/p/ana/api/arquivos/baixar?caminho=a%20b.txt'], ['GET', '/p/ana/api/arquivos/conteudo?caminho=%C3%A9.txt'],
 ];
+
+/** Separa o que o server.js entrega (pathname) do caminho cru (com a consulta), como no pedido de verdade. */
+const avalia = (sessao, m, cru) => avaliar(sessao, m, new URL(cru, 'http://local').pathname, cru);
 
 test('escopo: dono e caixa passam por tudo, inclusive o que é só do dono', () => {
   for (const s of [DONO, CAIXA, { usuario: 'antigo' }]) {
-    for (const [m, p] of [...LIBERADOS, ['GET', '/mesa'], ['GET', '/p/ana/'], ['GET', '/api/v1/colaboradores'], ['POST', '/api/v1/agents/bob/send'], ['GET', '/api/v1/cofre']]) {
-      assert.deepEqual(avaliar(s, m, p), { ok: true }, `${s.usuario} ${m} ${p}`);
+    for (const [m, p] of [...LIBERADOS, ['GET', '/mesa'], ['GET', '/p/bob/'], ['GET', '/p/ana/api/cofre'], ['POST', '/p/ana/api/provedor'], ['GET', '/api/v1/colaboradores'], ['POST', '/api/v1/agents/bob/send'], ['GET', '/api/v1/cofre']]) {
+      assert.deepEqual(avalia(s, m, p), { ok: true }, `${s.usuario} ${m} ${p}`);
     }
   }
 });
@@ -41,60 +61,141 @@ test('escopo: sem sessão não avalia nada como liberado', () => {
   assert.equal(avaliar(null, 'GET', '/a/ana').ok, false);
 });
 
-test('escopo: colaborador passa só a lista explícita, com o slug dele', () => {
-  for (const [m, p] of LIBERADOS) assert.deepEqual(avaliar(COLAB, m, p), { ok: true }, `${m} ${p}`);
+test('escopo: colaborador passa o agente dele inteiro (conversa, painel, sessões, rotinas, memória, arquivos, Tela)', () => {
+  for (const [m, p] of LIBERADOS) assert.deepEqual(avalia(COLAB, m, p), { ok: true }, `${m} ${p}`);
 });
 
-test('escopo: slug de outro agente é negado em cada forma', () => {
+test('escopo: slug de outro agente é negado em cada forma, na API e no painel', () => {
   const casos = [
     ['GET', '/api/v1/agents/bob'], ['GET', '/api/v1/agents/bob/messages'], ['POST', '/api/v1/agents/bob/send'], ['GET', '/api/v1/agents/bob/stream'],
     ['POST', '/api/v1/agents/bob/upload'], ['GET', '/api/v1/agents/bob/login'], ['POST', '/api/v1/agents/bob/login/codigo'], ['POST', '/api/v1/agents/bob/login/oi'],
-    ['GET', '/api/v1/agents/bob/alertas'], ['GET', '/api/v1/agents/bob/avatar'], ['POST', '/api/v1/agents/bob/comando'],
+    ['GET', '/api/v1/agents/bob/alertas'], ['GET', '/api/v1/agents/bob/avatar'], ['POST', '/api/v1/agents/bob/comando'], ['GET', '/api/v1/agents/bob/x'],
     ['GET', '/api/v1/agents/admin/messages'], ['GET', '/api/v1/agents/ANA/messages'], ['GET', '/api/v1/agents/An%61/messages'],
     ['GET', '/api/v1/agents/ana%2Fbob/messages'], ['GET', '/api/v1/agents/%2e%2e/messages'], ['GET', '/api/v1/agents/bob%20/send'],
-    ['GET', '/api/v1/agents/%E0%A4%A/messages'],
+    ['GET', '/p/bob/'], ['GET', '/p/bob'], ['GET', '/p/admin/'], ['GET', '/p/ANA/'], ['GET', '/p/An%61/'], ['POST', '/p/bob/api/sessoes'], ['GET', '/p/bob/api/memory'], ['GET', '/p/%2e%2e/x'],
   ];
   for (const [m, p] of casos) {
-    const r = avaliar(COLAB, m, p);
+    const r = avalia(COLAB, m, p);
     assert.equal(r.ok, false, `${m} ${p} devia ser negado`);
     assert.equal(r.status, 403, `${m} ${p}`);
-    assert.match(r.motivo, /agente/i);
+    assert.match(r.motivo, /agente/i, `${m} ${p}`);
   }
+  // slug com codificação inválida: a URL nem normaliza, o escopo avalia o texto como veio
+  const r = avaliar(COLAB, 'GET', '/api/v1/agents/%E0%A4%A/messages');
+  assert.equal(r.ok, false); assert.equal(r.status, 403);
 });
 
-test('escopo: páginas de outro agente, outras telas e variações viram redirecionamento para o agente dele', () => {
-  for (const p of ['/a/bob', '/a/admin', '/a/ANA', '/a/An%61', '/mesa', '/lembretes', '/avisos', '/seguranca', '/colaboradores', '/mesa.html', '/conversa.html', '//a/ana', '/a//ana', '/a/ana/extra', '/p']) {
+test('escopo: páginas de outro agente e telas globais viram redirecionamento para o agente dele', () => {
+  for (const p of ['/a/bob', '/a/admin', '/a/ANA', '/a/An%61', '/mesa', '/lembretes', '/avisos', '/seguranca', '/colaboradores', '/mesa.html', '/conversa.html', '//a/ana', '/a//ana', '/a/ana/extra']) {
     const r = avaliar(COLAB, 'GET', p);
-    if (p === '/p') { assert.equal(r.ok, false); continue; }
     assert.equal(r.ok, false, p);
     assert.equal(r.status, 302, p);
     assert.equal(r.redirecionar, '/a/ana', p);
   }
+  assert.equal(avaliar(COLAB, 'GET', '/p').ok, false);
+  assert.equal(avaliar(COLAB, 'GET', '/p/').ok, false);
 });
 
-test('escopo: o painel /p/ é negado, inclusive o do agente dele, com o motivo certo', () => {
-  for (const p of ['/p/ana/', '/p/ana', '/p/bob/', '/p/ana/api/cofre', '/p/%2e%2e/x']) {
-    const r = avaliar(COLAB, 'GET', p);
-    assert.equal(r.ok, false, p); assert.equal(r.status, 403, p);
-    assert.match(r.motivo, /painel de configuração do agente é só do dono/);
+/** Formas de escrever o mesmo caminho fechado: barra final, maiúsculas, subcaminho. */
+const formas = (base) => [base, `${base}/`, `${base.replace('/api/', '/API/')}`, base.toUpperCase().replace('/P/ANA', '/p/ana'), `${base}/sub`, `${base}/sub/`];
+
+test('escopo: o cofre do agente é fechado dentro do painel, com a frase certa, em todos os métodos e formas', () => {
+  for (const m of ['GET', 'POST', 'PUT', 'DELETE']) {
+    for (const v of formas('/p/ana/api/cofre')) {
+      const r = avalia(COLAB, m, v);
+      assert.equal(r.ok, false, `${m} ${v}`); assert.equal(r.status, 403, `${m} ${v}`);
+      assert.equal(r.motivo, 'O cofre é só do dono do DG Claw.', `${m} ${v}`);
+      assert.equal(r.extra.error, 'O cofre é só do dono do DG Claw.');
+    }
+  }
+  assert.equal(avalia(COLAB, 'POST', '/p/ana/api/cofre/aplicar').ok, false);
+});
+
+test('escopo: as chaves de API do painel são fechadas, em todos os métodos e formas', () => {
+  for (const m of ['GET', 'POST', 'DELETE']) {
+    for (const v of formas('/p/ana/api/chaves-api')) {
+      const r = avalia(COLAB, m, v);
+      assert.equal(r.ok, false, `${m} ${v}`); assert.equal(r.status, 403, `${m} ${v}`);
+      assert.match(r.motivo, /chaves de API/, `${m} ${v}`);
+    }
   }
 });
 
-test('escopo: rotas do dono e rotas desconhecidas são negadas', () => {
+test('escopo: trocar a conta de IA pelo painel é fechado (qualquer escrita); a leitura passa', () => {
+  for (const m of ['POST', 'PUT', 'DELETE', 'PATCH']) {
+    for (const v of ['/p/ana/api/provedor', '/p/ana/api/provedor/', '/p/ana/API/Provedor', '/p/ana/api/provedor/login', '/p/ana/api/provedor/login/codigo']) {
+      const r = avalia(COLAB, m, v);
+      assert.equal(r.ok, false, `${m} ${v}`); assert.equal(r.status, 403, `${m} ${v}`);
+      assert.match(r.motivo, /conta de IA/, `${m} ${v}`);
+    }
+  }
+  for (const v of ['/p/ana/api/provedor', '/p/ana/api/provedor/login']) assert.equal(avalia(COLAB, 'GET', v).ok, true, v);
+});
+
+test('escopo: credencial de canal (token de bot) e a senha da Tela são fechadas', () => {
+  for (const m of ['POST', 'PUT', 'DELETE']) {
+    for (const v of ['/p/ana/api/canais', '/p/ana/api/canais/telegram', '/p/ana/api/telegram/token', '/p/ana/api/whatsapp', '/p/ana/api/Canal/']) {
+      const r = avalia(COLAB, m, v);
+      assert.equal(r.ok, false, `${m} ${v}`); assert.match(r.motivo, /canais/, `${m} ${v}`);
+    }
+  }
+  for (const m of ['PUT', 'POST', 'GET', 'DELETE']) {
+    for (const v of ['/p/ana/api/tela/senha', '/p/ana/api/tela/senha/', '/p/ana/API/TELA/SENHA']) {
+      const r = avalia(COLAB, m, v);
+      assert.equal(r.ok, false, `${m} ${v}`); assert.match(r.motivo, /senha da Tela/, `${m} ${v}`);
+    }
+  }
+  assert.equal(avalia(COLAB, 'GET', '/p/ana/api/tela').ok, true);
+});
+
+test('escopo: cada forma de desvio do caminho cru é negada no painel e na API', () => {
+  const desvios = [
+    '/p/ana/api%2fcofre', '/p/ana/api%2Fcofre', '/p/ana%2fapi/cofre', '/p/ana/api/%63ofre', '/p/ana/api/c%6ffre', '/p/ana/%2e%2e/api/cofre',
+    '/p/ana/%2E/api/cofre', '/p/ana/api%5ccofre', '/p/ana/api\\cofre', '/p/ana//api/cofre', '/p/ana/api//cofre', '/p/ana/./api/cofre',
+    '/p/ana/x/../api/cofre', '/p/ana/api/cofre/..', '/p/ana/api/cofre/.', '/p/ana/api/%252e%252e/cofre', '/p/ana/api/cofre%00', '/p/ana/api/c%',
+    '/p/ana/api/prov%65dor', '/p/ana/api/tela/s%65nha', '/p/ana/%2e%2e/%2e%2e/bob/',
+  ];
+  for (const bruto of desvios) {
+    // o pathname que o server.js vê já vem normalizado pela URL; o escopo olha o caminho cru, que é o que o proxy repassa
+    let normalizado;
+    try { normalizado = new URL(bruto, 'http://local').pathname; } catch (_) { normalizado = bruto; }
+    for (const m of ['GET', 'POST', 'PUT', 'DELETE']) {
+      const r = avaliar(COLAB, m, normalizado, bruto);
+      assert.equal(r.ok, false, `${m} ${bruto} (normalizado ${normalizado}) devia ser negado`);
+      assert.equal(r.status, 403, `${m} ${bruto}`);
+    }
+  }
+  const api = ['/api/v1/agents/ana/..%2f..%2fcolaboradores', '/api/v1/agents/ana/x/..%2F..%2Fcofre', '/api/v1/agents/ana//send', '/api/v1/agents/ana/./send', '/api/v1/agents/ana%2fsend', '/api/v1/agents/ana/%2e%2e/bob/send', '/api/v1/agents/ana/%252e'];
+  for (const bruto of api) {
+    let normalizado;
+    try { normalizado = new URL(bruto, 'http://local').pathname; } catch (_) { normalizado = bruto; }
+    assert.equal(avaliar(COLAB, 'POST', normalizado, bruto).ok, false, `POST ${bruto} (normalizado ${normalizado})`);
+  }
+});
+
+test('escopo: rotas da caixa inteira, do dono e sem slug são negadas (rota nova sem slug nasce fechada)', () => {
   const nega = [
     ['GET', '/api/v1/colaboradores'], ['POST', '/api/v1/colaboradores'], ['DELETE', '/api/v1/colaboradores/abc'], ['GET', '/api/v1/colaboradores/docs.md'],
     ['GET', '/api/v1/cofre'], ['POST', '/api/v1/cofre'], ['GET', '/api/v1/onboarding'], ['POST', '/api/v1/onboarding'], ['GET', '/api/v1/estados'],
-    ['GET', '/api/v1/uso'], ['GET', '/api/v1/push/chave'], ['GET', '/api/v1/avisos'], ['GET', '/api/v1/lembretes'], ['GET', '/api/v1/foco/ana'],
-    ['GET', '/api/v1/tarefas'], ['GET', '/api/v1/atualizacao'], ['GET', '/api/v1/seguranca'], ['POST', '/api/v1/sigilo'], ['GET', '/api/v1/sigilo/estado'],
-    ['GET', '/api/v1/rota-nova-do-futuro'], ['GET', '/api/v1/agents/ana/rota-nova'], ['GET', '/api/v1/media/zzzz'],
-    ['GET', '/api/v1/agents/ana/comandos'], ['POST', '/api/v1/agents/ana/comando'],
-    ['POST', '/api/v1/agents'], ['DELETE', '/api/v1/agents/ana'], ['POST', '/api/v1/agents/ana/messages'], ['GET', '/api/v1/agents/ana/send'],
+    ['GET', '/api/v1/uso'], ['GET', '/api/v1/push/chave'], ['POST', '/api/v1/push/preferencias'], ['GET', '/api/v1/avisos'], ['GET', '/api/v1/lembretes'], ['POST', '/api/v1/lembretes'],
+    ['GET', '/api/v1/foco/ana'], ['GET', '/api/v1/tarefas'], ['POST', '/api/v1/tarefas'], ['GET', '/api/v1/atualizacao'], ['GET', '/api/v1/seguranca'], ['POST', '/api/v1/sigilo'], ['GET', '/api/v1/sigilo/estado'],
+    ['GET', '/api/v1/rota-nova-do-futuro'], ['GET', '/api/v1/media/zzzz'],
+    ['GET', '/api/v1/agents/ana/comandos'], ['POST', '/api/v1/agents/ana/comando'], ['GET', '/api/v1/agents/ana/comandos/'],
+    ['POST', '/api/v1/agents'], ['DELETE', '/api/v1/agents/ana'], ['PUT', '/api/v1/agents/ana'],
     ['GET', '/api/v1/push/docs.md/..'], ['POST', '/mesa'], ['POST', '/colaboradores'], ['DELETE', '/a/ana'],
+    ['GET', '/api/saude'], ['GET', '/api/qualquer'],
   ];
   for (const [m, p] of nega) {
-    const r = avaliar(COLAB, m, p);
+    const r = avalia(COLAB, m, p);
     assert.equal(r.ok, false, `${m} ${p}`);
     assert.ok([403, 405].includes(r.status), `${m} ${p}: ${r.status}`);
+  }
+});
+
+test('escopo: comando de barra continua bloqueado mesmo com o resto do agente aberto', () => {
+  for (const [m, p] of [['POST', '/api/v1/agents/ana/comando'], ['GET', '/api/v1/agents/ana/comandos']]) {
+    const r = avalia(COLAB, m, p);
+    assert.equal(r.status, 403); assert.match(r.motivo, /Comandos de barra/);
   }
 });
 
@@ -117,12 +218,20 @@ test('escopo: com a senha temporária pendente só passa o caminho da troca', ()
     assert.equal(r.status, 302, p); assert.equal(r.redirecionar, '/trocar-senha', p);
   }
   assert.equal(avaliar(COLAB_TEMP, 'GET', '/p/ana/').status, 302);
+  assert.equal(websocketLiberado(COLAB_TEMP, '/p/ana/tela/websockify', '/p/ana/tela/websockify').ok, false);
 });
 
-test('escopo: colaborador nunca abre WebSocket; dono e caixa seguem a regra de sempre', () => {
-  assert.equal(websocketLiberado(COLAB).ok, false);
-  assert.equal(websocketLiberado(COLAB).status, 403);
-  assert.equal(websocketLiberado(DONO).ok, true);
-  assert.equal(websocketLiberado(CAIXA).ok, true);
-  assert.equal(websocketLiberado(null).status, 401);
+test('escopo: WebSocket do colaborador só em /p/<dele>/**; dono e caixa seguem a regra de sempre', () => {
+  const ws = (caminho, bruto) => websocketLiberado(COLAB, caminho, bruto || caminho);
+  assert.equal(ws('/p/ana/tela/websockify').ok, true);
+  assert.equal(ws('/p/ana/tela/websockify', '/p/ana/tela/websockify?token=x').ok, true);
+  for (const p of ['/p/bob/tela/websockify', '/p/admin/tela/websockify', '/p/ANA/tela/websockify', '/a/ana', '/api/v1/agents/ana/stream', '/', '/p', '/p/']) {
+    const r = ws(p); assert.equal(r.ok, false, p); assert.equal(r.status, 403, p);
+  }
+  for (const bruto of ['/p/ana/%2e%2e/bob/tela/websockify', '/p/ana/../bob/tela/websockify', '/p/ana//tela/websockify', '/p/ana/tela%2fwebsockify', '/p/ana/api/cofre']) {
+    assert.equal(ws(new URL(bruto, 'http://local').pathname, bruto).ok, false, bruto);
+  }
+  assert.equal(websocketLiberado(DONO, '/p/bob/x', '/p/bob/x').ok, true);
+  assert.equal(websocketLiberado(CAIXA, '/p/ana/x', '/p/ana/x').ok, true);
+  assert.equal(websocketLiberado(null, '/p/ana/x', '/p/ana/x').status, 401);
 });

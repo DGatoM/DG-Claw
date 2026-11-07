@@ -23,7 +23,7 @@ async function cenario(opcoes) {
   const base = { runner: 'http://127.0.0.1:1', chat_id: 'c', provedor: 'claude', modelo: 'sonnet', transcripts_dir: pastaTemp('tr') };
   const agentes = [
     { slug: 'admin', nome: 'Admin', tipo: 'admin', agente_id: 'adm1', home_host: pastaTemp('home-adm'), home_container: '/opt/admin', ...base },
-    { slug: 'ana', nome: 'Ana', tipo: 'agente', agente_id: 'ana1', home_host: homeAna, home_container: '/home/agente', ...base, transcripts_dir: trAna, runner: `http://127.0.0.1:${pAna}`, chat_id: 'c_ana' },
+    { slug: 'ana', nome: 'Ana', tipo: 'agente', agente_id: 'ana1', home_host: homeAna, home_container: '/home/agente', ...base, transcripts_dir: trAna, runner: `http://127.0.0.1:${pAna}`, chat_id: 'c_ana', ...(o.painelAna || {}) },
     { slug: 'bob', nome: 'Bob', tipo: 'agente', agente_id: 'bob1', home_host: homeBob, home_container: '/home/agente', ...base, runner: `http://127.0.0.1:${pBob}`, chat_id: 'c_bob' },
   ];
   const relogio = { t: Date.now() };

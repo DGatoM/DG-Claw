@@ -141,8 +141,10 @@ test('isolamento: só o agente dele, nada do dono, mídia de outro agente dá 40
     assert.equal((await c.get('/mesa', { headers: { Accept: 'text/html' } })).headers.location, '/a/ana');
     assert.equal((await c.get('/', { headers: { Accept: 'text/html' } })).headers.location, '/a/ana');
 
-    const painel = await c.get('/p/ana/', { headers: { Accept: 'text/html' } });
-    assert.equal(painel.status, 403); assert.match(painel.texto, /painel de configuração do agente é só do dono/);
+    // o painel do agente dele passa pelo escopo (aqui o agente nem tem painel, então o proxy responde 404); o de outro é negado
+    assert.equal((await c.get('/p/ana/', { headers: { Accept: 'application/json' } })).status, 404);
+    const outro = await c.get('/p/bob/', { headers: { Accept: 'text/html' } });
+    assert.equal(outro.status, 403); assert.match(outro.texto, /só tem acesso ao agente para o qual foi convidado/);
     assert.equal((await c.get('/p/bob/', { headers: { Accept: 'application/json' } })).status, 403);
 
     for (const p of ['/api/v1/colaboradores', '/api/v1/cofre', '/api/v1/estados', '/api/v1/uso', '/api/v1/lembretes', '/api/v1/onboarding', '/api/v1/push/chave']) {
@@ -172,20 +174,24 @@ test('isolamento: só o agente dele, nada do dono, mídia de outro agente dá 40
   } finally { await s.fechar(); }
 });
 
-test('WebSocket: colaborador é recusado (o do dono segue a regra de sempre)', async () => {
+test('WebSocket: colaborador abre só o do agente dele; o de outro agente e o de fora do painel são recusados', async () => {
   const s = await cenario();
   try {
     const { c } = await colaboradorAtivo(s);
     const cookie = Object.entries(c.jar).map(([k, v]) => `${k}=${v}`).join('; ');
-    const status = await new Promise((resolve, reject) => {
-      const req = http.request({ host: '127.0.0.1', port: s.t.porta, path: '/p/ana/ws', headers: { Connection: 'Upgrade', Upgrade: 'websocket', 'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==', 'Sec-WebSocket-Version': '13', Origin: `http://127.0.0.1:${s.t.porta}`, Cookie: cookie } });
+    const abre = (caminho) => new Promise((resolve, reject) => {
+      const req = http.request({ host: '127.0.0.1', port: s.t.porta, path: caminho, headers: { Connection: 'Upgrade', Upgrade: 'websocket', 'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==', 'Sec-WebSocket-Version': '13', Origin: `http://127.0.0.1:${s.t.porta}`, Cookie: cookie } });
       req.on('response', (res) => { res.resume(); resolve(res.statusCode); });
       req.on('upgrade', (res) => resolve(res.statusCode));
       req.on('error', reject);
       req.end();
     });
-    assert.equal(status, 403);
+    assert.equal(await abre('/p/bob/tela/websockify'), 403);
+    assert.equal(await abre('/p/ana/api/cofre'), 403);
+    assert.equal(await abre('/p/ana/%2e%2e/bob/tela/websockify'), 403);
     assert.match(s.t.log.texto(), /WebSocket .* recusado para o colaborador maria@x\.com/);
+    // o do agente dele passa pelo escopo; sem painel no cenário o proxy responde 404 (o 101 está em colaborador-painel.test.js)
+    assert.equal(await abre('/p/ana/tela/websockify'), 404);
   } finally { await s.fechar(); }
 });
 

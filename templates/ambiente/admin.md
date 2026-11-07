@@ -112,7 +112,7 @@ responderia a qualquer mensagem.
 
 O dono convida uma pessoa para conversar com **um** agente de trabalho pela tela `/colaboradores?agente=<slug>`
 (item "Convidar colaborador" no menu do agente) ou pela API `POST /api/v1/colaboradores`. O Admin nunca é
-compartilhado. A pessoa vê só a conversa daquele agente e a página Conectar conta. O contrato completo está em
+compartilhado. A pessoa usa o agente inteiro (conversa, sessões, rotinas, memória, arquivos e Tela) e a página Conectar conta, e nada além dele; o cofre, as chaves de API, a conta de IA já conectada, as credenciais dos canais e a senha da Tela continuam do dono. O contrato completo está em
 `/opt/dgclaw/app/web/docs/COLABORADORES.md` (também em `GET /api/v1/colaboradores/docs.md`). O envio do e-mail é
 opcional e depende das variáveis `DGCLAW_SMTP_*` do `web.env`.
 

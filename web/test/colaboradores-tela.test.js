@@ -40,10 +40,21 @@ test('conversa.html e conectar.html carregam o papel.js e o papel.css antes dos 
   assert.match(pub('sw.js'), /'\/papel\.js'/);
 });
 
-test('menu do colaborador: visita curta, sem Mesa, Lembretes, Avisos nem troca de agente', () => {
+test('colaborador vê o agente inteiro: Sessões e as páginas do painel dele não são escondidas', () => {
+  const css = pub('papel.css');
+  assert.doesNotMatch(css, /#btnSessoes/);
+  assert.doesNotMatch(css, /#mlPainel/);
+  assert.match(css, /#btnMesa/);
+  assert.match(css, /#mlTroca/);
+  assert.doesNotMatch(pub('conversa.js'), /COLAB\) for \(const id of \[[^\]]*btnSessoes/);
+  assert.match(pub('menu-lado.js'), /if \(Array\.isArray\(opcoes\.extras\)\) extras\(opcoes\.extras\)/);
+});
+
+test('menu do colaborador: visita curta, com as páginas do agente e sem Mesa, Lembretes, Avisos nem troca de agente', () => {
   const passos = M.passosMenu({ nome: 'Ana', comTroca: true, naConversa: true, colaborador: true });
   assert.equal(passos.length, 1);
   assert.match(passos[0].como, /Conectar conta/);
+  assert.match(passos[0].oque, /Sessões de trabalho/);
   assert.doesNotMatch(JSON.stringify(passos), /Mesa|Lembretes|Avisos|Segurança|Admin/);
   const dono = M.passosMenu({ nome: 'Ana', comTroca: true, naConversa: true });
   assert.equal(dono.length, 2);
@@ -55,10 +66,11 @@ test('menu-lado.js: Convidar colaborador só para o dono e nunca para o Admin', 
   const js = pub('menu-lado.js');
   assert.match(js, /if \(!colab && ag\.tipo !== 'admin' && ag\.id\)/);
   assert.match(js, /LINK_COLABORADOR\.href\}\?agente=\$\{encodeURIComponent\(ag\.id\)\}/);
-  // colaborador não dispara nada que o servidor nega: lista, uso, sessões, painel
+  // colaborador não dispara nada que o servidor nega (lista de agentes, uso), mas tem as páginas e as Sessões do agente dele
   assert.match(js, /else if \(!colab\) recarrega\(ag\)/);
-  assert.match(js, /if \(!colab\) ligaSessoes\(ag\)/);
   assert.match(js, /if \(colab\) \{ const uso = \$\('mlUso'\); if \(uso\) uso\.remove\(\); \} else ligaUso\(\)/);
+  assert.doesNotMatch(js, /if \(!colab\) ligaSessoes/);
+  assert.match(js, /filter\(l => !colab \|\| chaveDoHref\(l\.href\) !== 'cofre'\)/, 'o cofre do agente não aparece no menu do colaborador');
 });
 
 test('página Conectar para colaborador: sem Admin nem "pedir ao Admin"', () => {

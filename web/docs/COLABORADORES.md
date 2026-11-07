@@ -1,6 +1,6 @@
 # Colaboradores
 
-Um **colaborador** é uma pessoa que você convida para conversar com **um** agente de trabalho do seu DG Claw. Ela recebe um e-mail com o link, o login e uma senha temporária, cria a própria senha no primeiro acesso e passa a ter a conversa daquele agente, e só ela.
+Um **colaborador** é uma pessoa que você convida para conversar com **um** agente de trabalho do seu DG Claw. Ela recebe um e-mail com o link, o login e uma senha temporária, cria a própria senha no primeiro acesso e passa a usar aquele agente por inteiro, e só ele.
 
 Este documento tem duas partes: a primeira é para você, dono do DG Claw; a segunda, "API", é para o agente que opera o painel por você (o Admin, por exemplo).
 
@@ -8,14 +8,26 @@ Este documento tem duas partes: a primeira é para você, dono do DG Claw; a seg
 
 ### O que o colaborador vê e o que não vê
 
-| Vê | Não vê |
-|---|---|
-| A conversa do agente dele, com as mídias e os visuais daquele agente | O Admin e os outros agentes |
-| A página **Conectar conta**, para ligar a conta de IA dele quando o agente ainda não tem uma conectada | O cofre, a Mesa, os lembretes, os avisos, a Segurança |
-| O botão de reiniciar a sessão do agente dele | O painel de configuração do agente (`/p/<agente>/`) |
-| O próprio nome e o botão **Sair** | A lista de colaboradores e a tela de convidar |
+O colaborador usa **o agente inteiro**, igual a você usa: o menu à esquerda, a conversa, as Sessões, as páginas do painel dele (Rotinas, que ele pode criar e editar, Memória, Pasta, Tela e as outras) e a página Conectar conta. A única restrição é não conseguir **sair** desse agente.
 
-Isso vale no servidor, não só na tela: o endereço de qualquer outro agente ou página do dono responde "acesso não liberado". O Admin nunca pode ser compartilhado.
+| Vê e usa | Não vê |
+|---|---|
+| A conversa do agente, com as mídias e os visuais dele | O Admin e os outros agentes, e a lista deles |
+| O painel inteiro do agente: sessões, rotinas, memória, arquivos, a Tela, custos e o resto | As telas da caixa inteira: convidar colaborador, chaves de API do sistema, Segurança, Avisos, atualização |
+| A página **Conectar conta**, para ligar a conta de IA dele quando o agente está sem conta ou com o login vencido | A Mesa, os Lembretes e o uso da assinatura (são globais, de todos os agentes) |
+| O botão de reiniciar a sessão do agente dele | |
+
+Isso vale no servidor, não só na tela: o endereço de qualquer outro agente ou página da caixa responde "acesso não liberado".
+
+**Dentro do agente dele, ficam só com você:**
+
+| Fica com o dono | Por quê |
+|---|---|
+| O **cofre** do agente (as chaves de serviço) | São credenciais que você pôs. Na tela e na lousa o colaborador lê: "O cofre é só do dono do DG Claw." |
+| As **chaves de API do painel** | Dão acesso ao painel, e nenhuma chave gerencia chaves. |
+| **Trocar a conta de IA já conectada** | Quem paga a assinatura é você. O colaborador só conecta pela página Conectar, quando o agente está sem conta ou com o login vencido. |
+| As **credenciais dos canais** (token de bot do Telegram, WhatsApp) | Quem controla o canal fala em nome do agente com o mundo. Colar um token na conversa também é recusado para ele. |
+| A **senha da Tela** | É sua. Para o colaborador usar a Tela, passe a ele a senha que você definiu. |
 
 Cada agente tem **um** colaborador por vez, e cada pessoa acessa **um** agente só. As mensagens dele chegam ao agente marcadas como vindas de um colaborador (`colaborador: Nome (e-mail)`), para o agente saber que não é você.
 
@@ -66,7 +78,7 @@ A tela mostra o motivo que o servidor de e-mail deu (por exemplo, "535 Authentic
 
 ### Se o agente ainda não tem IA conectada
 
-Quando o agente do colaborador ainda não tem a conta de IA conectada, o colaborador vê o aviso na conversa e conecta a conta dele pela página **Conectar conta**, que está no menu dele.
+Quando o agente do colaborador ainda não tem a conta de IA conectada, o colaborador vê o aviso na conversa e conecta a conta dele pela página **Conectar conta**, que está no menu dele. Se o agente já tem uma conta funcionando, trocar a conta é com você.
 
 ---
 
@@ -143,25 +155,30 @@ A sessão só alcança `GET /api/v1/eu`, `POST /api/v1/eu/senha`, a página `/tr
 
 ### O que o colaborador alcança
 
-O servidor nega por padrão (`web/lib/escopo.js`). Para o colaborador passam só:
+O servidor aplica uma regra só (`web/lib/escopo.js`): **tudo que tem o slug do agente dele passa; o que é de outro agente ou da caixa inteira é negado; uma rota nova sem slug nasce fechada.** Para o colaborador passam:
 
 - os arquivos estáticos da tela;
 - as páginas `/`, `/a/<agente dele>`, `/conectar` e `/trocar-senha`;
-- `GET /api/v1/eu`, `POST /api/v1/eu/senha`, `GET /api/v1/agents` (só o agente dele) e `GET /api/v1/nao-lidas`;
-- as rotas da conversa em `/api/v1/agents/<agente dele>/…`: `messages`, `stream`, `wait`, `send`, `permissao`, `pergunta`, `reiniciar`, `lido`, `nao-lido`, `vendo`, `upload`, `compartilhados`, `avatar`, `alertas` e `login`;
+- `GET /api/v1/eu`, `POST /api/v1/eu/senha`, `GET /api/v1/agents` (só o agente dele) e `GET /api/v1/nao-lidas` (só o dele);
+- tudo em `/api/v1/agents/<agente dele>/**`, as ações de hoje e as futuras: `messages`, `stream`, `wait`, `send`, `permissao`, `pergunta`, `reiniciar`, `lido`, `nao-lido`, `vendo`, `upload`, `compartilhados`, `avatar`, `alertas` e `login`. As únicas negadas são `comando` e `comandos` (abaixo);
+- o painel inteiro do agente dele, `/p/<agente dele>/**`, com as exceções fechadas da tabela acima;
+- o WebSocket em `/p/<agente dele>/**` (a Tela usa `/p/<agente dele>/tela/websockify`); qualquer outro caminho ou agente é recusado;
 - as mídias que pertencem ao agente dele, menos arquivos ocultos da casa (como `.claude`) e qualquer coisa fora da casa do agente;
 - `POST /api/v1/transcribe`, `POST /api/v1/tts` e `GET /api/v1/tts/cota`.
 
-Regras que o servidor aplica por cima da lista:
+**Negados** (são da caixa inteira ou de todos os agentes): `/colaboradores` e `/api/v1/colaboradores*`, `/seguranca`, `/avisos`, atualização, onboarding, push, sigilo, `/mesa`, `/lembretes`, o modo foco, o uso da assinatura e o estado dos agentes. As rotas de lembretes, tarefas (Mesa), foco, uso e estados aceitam o agente como parâmetro, mas gravam e leem de todos os agentes e avisam o aparelho do dono, e por isso ficam fechadas para o colaborador. O painel do agente dele já tem as rotinas e as sessões dele.
+
+Cada exceção fechada dentro de `/p/<agente dele>/` é conferida no Web, antes do proxy (o painel confia no Web). Para o colaborador, o Web recusa em `/p/` e em `/api/` qualquer caminho com `%2f`, `%2e`, `%5c`, `%25`, barra dupla, `/./` ou `/../`, e em `/p/` também letras e números escritos em `%XX`. Os prefixos fechados são comparados sem diferenciar maiúsculas e tolerando a barra final, porque o painel roteia assim.
+
+Regras que o servidor aplica por cima:
 
 - Comandos de barra não existem para ele: `/comando` e `/comandos` são negados, e um texto que começa com `/` segue como mensagem comum, dentro do envelope com `from="colaborador: …"`.
-- Ele só responde a pedido de permissão ou pergunta do agente quando foi ele quem iniciou o turno; senão recebe "Essa confirmação é do dono do DG Claw".
+- Ele só responde a pedido de permissão ou pergunta do agente se a pendência foi aberta por um turno que **ele** iniciou, e precisa mandar o `tool_use_id` dela. Uma mensagem que só entrou na fila (o agente estava ocupado ou esperando confirmação) não inicia turno, e uma mensagem do dono na fila tira dele a confirmação. Senão recebe "Essa confirmação é do dono do DG Claw".
 - Ele só inicia o login da conta de IA (e manda o código) quando o agente está sem conta ou com o login vencido. Trocar uma conta que funciona é com o dono.
 - O stream e as mensagens dele não trazem o modo foco nem os avisos técnicos do servidor.
 - Um `[anexo: caminho]` digitado na conversa (pelo dono ou pelo colaborador) só vira mídia se o arquivo estiver na pasta `uploads/` do agente.
-- Enquanto vale a senha temporária, a sessão dele dura no máximo até ela vencer. Na troca de senha, 5 erros da senha atual em 15 minutos bloqueiam por 15 minutos (`429` com `Retry-After`).
-
-WebSocket e `/p/…` são sempre negados.
+- Enquanto vale a senha temporária, a sessão dele dura no máximo até ela vencer. Na troca de senha, 5 erros da senha atual em 15 minutos bloqueiam por 15 minutos (`429` com `Retry-After`), e o pedido só vale se a sessão ainda é da mesma versão de senha em que nasceu.
+- No login, os erros de senha contam por pessoa e por IP; um login certo de colaborador não zera os erros contra a senha do dono, e existe um teto de erros por IP, somando todos, que nenhum acerto zera.
 
 ### Onde ficam os dados
 

@@ -1,23 +1,50 @@
 'use strict';
 // Escopo do colaborador: o isolamento é no servidor e NEGA POR PADRÃO.
 //
-// avaliar(sessao, metodo, pathname) devolve { ok:true } ou { ok:false, status, motivo, redirecionar?, extra? }.
+// REGRA: tudo que tem o slug do agente dele passa; o que é de outro agente ou da caixa inteira é negado;
+// rota nova SEM slug nasce fechada.
+//
+// avaliar(sessao, metodo, pathname, urlCrua) devolve { ok:true } ou { ok:false, status, motivo, redirecionar?, extra? }.
 //   - Dono e caixa do agente (sessao.via === 'caixa'): sempre liberado; o comportamento deles não muda.
-//   - Colaborador (sessao.papel === 'colaborador'): só passa o que estiver nas listas abaixo, e cada
-//     item com slug confere que o slug DECODIFICADO é exatamente sessao.agente.
+//   - Colaborador (sessao.papel === 'colaborador'): passa o agente dele inteiro e nada além disso.
 //
-// ROTA NOVA: quem criar uma rota nova no server.js NÃO precisa mexer aqui para o dono, mas ela fica
-// FECHADA para o colaborador (403) até alguém liberá-la nesta lista, de propósito. Libere só depois de
-// pensar no que um colaborador faria com ela, e acrescente um caso em web/test/escopo.test.js.
+// O que passa para o colaborador:
+//   - /a/<dele> e /p/<dele>/** (o painel inteiro do agente: sessões, rotinas, memória, arquivos, Tela...),
+//     menos as exceções fechadas abaixo;
+//   - /api/v1/agents/<dele>/** (todas as ações, as de hoje e as futuras), menos /comando e /comandos;
+//   - mídia (a entrega confere que o arquivo é do agente dele), arquivos estáticos, /, /conectar, /trocar-senha,
+//     /api/v1/eu, /api/v1/eu/senha, /api/v1/agents (só o dele, filtrado no handler), /api/v1/nao-lidas (idem),
+//     transcribe, tts e as documentações;
+//   - WebSocket só em /p/<dele>/** (a Tela usa /p/<dele>/tela/websockify).
 //
-// O pathname chega como o server.js o vê (new URL já resolveu "." e ".." e "%2e%2e"). As regexes abaixo
-// são as mesmas do roteamento: caminho com barra dupla, maiúscula no lugar errado ou segmento a mais
-// simplesmente não casa e cai na negação.
+// Dentro de /p/<dele>/ ficam FECHADOS (o dono é quem mexe em credencial e em conta):
+//   - o cofre do agente (/api/cofre): são as credenciais que o dono pôs;
+//   - as chaves de API do painel (/api/chaves-api): dão acesso ao painel e nenhuma chave gerencia chaves;
+//   - trocar a conta de IA já conectada (qualquer método além de GET em /api/provedor*): o colaborador conecta
+//     pela página Conectar, e só quando o agente está sem conta ou com o login vencido;
+//   - credencial de canal (token de bot de Telegram, WhatsApp): qualquer escrita em /api/canais, /api/telegram etc.;
+//   - a senha da Tela (/api/tela/senha): é do dono, que repassa a senha ao colaborador.
+//
+// ROTA NOVA: no server.js, uma rota que não leva o slug do agente no caminho fica FECHADA para o colaborador (403)
+// até alguém liberá-la aqui, de propósito. Libere só depois de pensar no que um colaborador faria com ela e de
+// garantir que o handler filtra a saída para o agente dele; acrescente o caso em web/test/escopo.test.js.
+// Rota nova que leva o slug (/api/v1/agents/<slug>/x, /p/<slug>/x) já passa: confira que ela é do agente do slug.
+//
+// A conferência fica aqui, no Web, porque é a fronteira de confiança (o painel confia no Web). Para /p/ e /api/ o
+// colaborador não passa com %2f, %2e, %5c, %25, barra dupla, /./ ou /../ no caminho CRU (o que o proxy repassa), e os
+// prefixos fechados são comparados sem diferenciar maiúsculas e tolerando barra final, como o Express do painel roteia.
 
 const TROCAR_SENHA_MOTIVO = 'Troque a senha temporária antes de continuar.';
-const MOTIVO_PAINEL = 'O painel de configuração do agente é só do dono do DG Claw.';
-const MOTIVO_GERAL = 'Este endereço não está liberado para colaboradores. Você tem acesso à conversa do seu agente e à página Conectar.';
+const MOTIVO_PAINEL = 'Este endereço do painel é só do dono do DG Claw.';
+const MOTIVO_COFRE = 'O cofre é só do dono do DG Claw.';
+const MOTIVO_CHAVES_API = 'As chaves de API do painel são só do dono do DG Claw.';
+const MOTIVO_CONTA_IA = 'Trocar a conta de IA que já está conectada é com o dono do DG Claw. A página Conectar serve quando o agente está sem conta ou com o login vencido.';
+const MOTIVO_CANAL = 'As credenciais dos canais (Telegram, WhatsApp) são só do dono do DG Claw.';
+const MOTIVO_SENHA_TELA = 'A senha da Tela é do dono do DG Claw. Peça a ele a senha para usar a Tela.';
+const MOTIVO_DESVIO = 'Este endereço tem caracteres que não são aceitos para colaboradores. Você só tem acesso ao seu agente.';
+const MOTIVO_GERAL = 'Este endereço não está liberado para colaboradores. Você tem acesso ao seu agente inteiro, pelo menu dele.';
 const MOTIVO_OUTRO_AGENTE = 'Você só tem acesso ao agente para o qual foi convidado(a).';
+const MOTIVO_COMANDO = 'Comandos de barra não existem para colaboradores. Escreva a mensagem normalmente.';
 
 // Arquivos estáticos de web/public que a casca precisa (nada de .html: as páginas passam pelas regras de página).
 const RX_ESTATICO = /^\/(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]+\.(?:js|css|png|jpe?g|gif|webp|svg|ico|webmanifest|woff2?|ttf|mp3|wav|mp4|webm)$/;
@@ -25,20 +52,26 @@ const RX_ESTATICO = /^\/(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]+\.(?:js|css|png|jpe
 const ehEstatico = (p) => !p.includes('..') && RX_ESTATICO.test(p);
 
 const RX_DOCS = /^\/api\/v1\/(?!colaboradores\/)[a-z-]+\/docs\.md$/;
-const RX_AGENTE = /^\/api\/v1\/agents\/([^/]+)(?:\/([a-z-]+))?$/;
-const RX_AGENTE_LOGIN = /^\/api\/v1\/agents\/([^/]+)\/login(?:\/(codigo|oi))?$/;
-const RX_AGENTE_ALERTAS = /^\/api\/v1\/agents\/([^/]+)\/alertas(?:\/([a-f0-9]{24})\/(visto|mensagem))?$/;
+const RX_AGENTE = /^\/api\/v1\/agents\/([^/]+)(?:\/([^/]*))?(?:\/.*)?$/;
 const RX_MIDIA = /^\/api\/v1\/media\/[0-9a-f]{16}(?:\/(?:thumb|visual))?$/;
 const RX_PAGINA_AGENTE = /^\/a\/([^/]+)\/?$/;
+const RX_PAINEL = /^\/p\/([^/]+)(\/.*)?$/;
 
-// ação -> métodos aceitos, para /api/v1/agents/<slug>/<ação>
-const ACOES_AGENTE = {
-  '': ['GET'], avatar: ['GET', 'HEAD'], messages: ['GET'], stream: ['GET'], wait: ['GET'], send: ['POST'],
-  permissao: ['POST'], pergunta: ['POST'], reiniciar: ['POST'], lido: ['POST'], 'nao-lido': ['POST', 'DELETE'],
-  vendo: ['POST'], upload: ['POST'], compartilhados: ['GET'],
-  // Sem `comando` e sem `comandos`: colaborador não manda comando de barra (ver conversa.js, enviar).
-};
-const METODOS_LOGIN = { '': ['GET', 'POST', 'DELETE'], codigo: ['POST'], oi: ['POST'] };
+// Caminho cru com cara de desvio: barra codificada, ponto codificado, contrabarra, % duplo, NUL, barra dupla, /./ e /../.
+const RX_DESVIO = /%(?:2f|2e|5c|25|00)|\\|\/\/|\/\.{1,2}(?:\/|$)/i;
+
+/** Em /p/ nenhum caractere comum (letra, número, . _ - ~ / \ %) pode vir codificado: o painel não precisa e é por aí que o desvio entra. */
+function temEscapeSuspeito(bruto) {
+  const escapes = bruto.match(/%[0-9a-fA-F]{0,2}/g) || [];
+  for (const e of escapes) {
+    if (e.length !== 3) return true;
+    const c = String.fromCharCode(parseInt(e.slice(1), 16));
+    if (/[A-Za-z0-9._~\-/\\%\x00-\x1f]/.test(c)) return true;
+  }
+  return false;
+}
+
+const prefixo = (resto, base) => resto === base || resto.startsWith(`${base}/`);
 
 function decodifica(parte) {
   try { return decodeURIComponent(parte); } catch (_) { return null; }
@@ -47,12 +80,14 @@ function decodifica(parte) {
 const nega = (status, motivo, extra) => Object.assign({ ok: false, status, motivo }, extra || {});
 const LIBERA = { ok: true };
 
-function avaliar(sessao, metodo, pathname) {
+/** `urlCrua` é o req.url como chegou (é ele que o proxy repassa ao painel); sem ele vale o pathname. */
+function avaliar(sessao, metodo, pathname, urlCrua) {
   if (!sessao) return nega(401, 'Você precisa entrar para continuar.');
   if (sessao.via === 'caixa' || sessao.papel !== 'colaborador') return LIBERA;
 
   const m = String(metodo || '').toUpperCase();
   const p = String(pathname || '');
+  const bruto = String(urlCrua == null ? p : urlCrua).split('?')[0].split('#')[0];
   const meu = sessao.agente;
   const destino = `/a/${encodeURIComponent(meu)}`;
   const ehApi = p.startsWith('/api/');
@@ -70,9 +105,13 @@ function avaliar(sessao, metodo, pathname) {
     return nega(403, TROCAR_SENHA_MOTIVO);
   }
 
-  if (p.startsWith('/p/') || p === '/p') return nega(403, MOTIVO_PAINEL);
+  const ehPainel = p.startsWith('/p/') || p === '/p' || bruto.startsWith('/p/') || bruto === '/p';
+  if (ehPainel) return avaliaPainel(m, p, bruto, meuSlug);
 
-  if (ehApi) return avaliaApi(m, p, meuSlug);
+  if (ehApi || bruto.startsWith('/api/')) {
+    if (RX_DESVIO.test(bruto)) return nega(403, MOTIVO_DESVIO);
+    return avaliaApi(m, p, meuSlug);
+  }
 
   if (leitura) {
     if (p === '/') return LIBERA;
@@ -85,48 +124,65 @@ function avaliar(sessao, metodo, pathname) {
   return nega(403, MOTIVO_GERAL);
 }
 
+/** /p/<slug>/**: o painel do agente. Passa tudo do slug dele, menos o que é credencial ou conta (ver o topo do arquivo). */
+function avaliaPainel(m, p, bruto, meuSlug) {
+  if (RX_DESVIO.test(bruto) || temEscapeSuspeito(bruto)) return nega(403, MOTIVO_DESVIO);
+  const r = RX_PAINEL.exec(bruto);
+  if (!r) return nega(403, MOTIVO_GERAL);
+  if (!meuSlug(r[1])) return nega(403, MOTIVO_OUTRO_AGENTE);
+  // O Express do painel roteia sem olhar maiúscula e aceita barra final.
+  const resto = (r[2] || '').toLowerCase().replace(/\/+$/, '');
+  const leitura = m === 'GET' || m === 'HEAD';
+  if (prefixo(resto, '/api/cofre')) return nega(403, MOTIVO_COFRE, { extra: { error: MOTIVO_COFRE, howToFix: 'Peça ao dono para cadastrar ou trocar a chave.' } });
+  if (prefixo(resto, '/api/chaves-api')) return nega(403, MOTIVO_CHAVES_API, { extra: { error: MOTIVO_CHAVES_API } });
+  if (prefixo(resto, '/api/provedor') && !leitura) return nega(403, MOTIVO_CONTA_IA, { extra: { error: MOTIVO_CONTA_IA, howToFix: 'Use a página Conectar quando o agente estiver sem conta.' } });
+  if (prefixo(resto, '/api/tela/senha')) return nega(403, MOTIVO_SENHA_TELA, { extra: { error: MOTIVO_SENHA_TELA } });
+  if (!leitura && ['/api/canais', '/api/canal', '/api/telegram', '/api/whatsapp'].some((b) => prefixo(resto, b))) {
+    return nega(403, MOTIVO_CANAL, { extra: { error: MOTIVO_CANAL } });
+  }
+  return LIBERA;
+}
+
 function avaliaApi(m, p, meuSlug) {
-  const motivoOutro = nega(403, MOTIVO_OUTRO_AGENTE);
-  if (p === '/api/v1/eu') return m === 'GET' ? LIBERA : nega(405, 'Use GET para ver quem está logado.');
-  if (p === '/api/v1/eu/senha') return m === 'POST' ? LIBERA : nega(405, 'Use POST para trocar a senha.');
-  if (p === '/api/v1/agents') return m === 'GET' ? LIBERA : nega(405, 'Use GET para ver o seu agente.');
-  if (p === '/api/v1/nao-lidas') return m === 'GET' ? LIBERA : nega(405, 'Use GET para ver as mensagens não lidas.');
-  if (p === '/api/v1/transcribe') return m === 'POST' ? LIBERA : nega(405, 'Use POST com o áudio.');
-  if (p === '/api/v1/tts') return m === 'POST' ? LIBERA : nega(405, 'Use POST com o texto.');
-  if (p === '/api/v1/tts/cota') return m === 'GET' ? LIBERA : nega(405, 'Use GET para ver a cota de voz.');
-  if (RX_DOCS.test(p)) return m === 'GET' ? LIBERA : nega(405, 'Use GET para ler a documentação.');
+  const metodo = (ok, texto) => (ok ? LIBERA : nega(405, texto));
+  if (p === '/api/v1/eu') return metodo(m === 'GET', 'Use GET para ver quem está logado.');
+  if (p === '/api/v1/eu/senha') return metodo(m === 'POST', 'Use POST para trocar a senha.');
+  if (p === '/api/v1/agents') return metodo(m === 'GET', 'Use GET para ver o seu agente.');
+  if (p === '/api/v1/nao-lidas') return metodo(m === 'GET', 'Use GET para ver as mensagens não lidas.');
+  if (p === '/api/v1/transcribe') return metodo(m === 'POST', 'Use POST com o áudio.');
+  if (p === '/api/v1/tts') return metodo(m === 'POST', 'Use POST com o texto.');
+  if (p === '/api/v1/tts/cota') return metodo(m === 'GET', 'Use GET para ver a cota de voz.');
+  if (RX_DOCS.test(p)) return metodo(m === 'GET', 'Use GET para ler a documentação.');
 
-  if (RX_MIDIA.test(p)) {
-    // O dono do arquivo é conferido na entrega (media.js), que responde 404 se a mídia não é deste agente.
-    return m === 'GET' || m === 'HEAD' ? LIBERA : nega(405, 'Use GET para abrir a mídia.');
-  }
+  // O dono do arquivo é conferido na entrega (media.js), que responde 404 se a mídia não é deste agente.
+  if (RX_MIDIA.test(p)) return metodo(m === 'GET' || m === 'HEAD', 'Use GET para abrir a mídia.');
 
-  let r = RX_AGENTE_LOGIN.exec(p);
+  const r = RX_AGENTE.exec(p);
   if (r) {
-    if (!meuSlug(r[1])) return motivoOutro;
-    return (METODOS_LOGIN[r[2] || ''] || []).includes(m) ? LIBERA : nega(405, `Método inválido para ${p}.`);
-  }
-  r = RX_AGENTE_ALERTAS.exec(p);
-  if (r) {
-    if (!meuSlug(r[1])) return motivoOutro;
-    const ok = !r[2] ? m === 'GET' : (r[3] === 'visto' ? m === 'POST' : m === 'GET');
-    return ok ? LIBERA : nega(405, `Método inválido para ${p}.`);
-  }
-  r = RX_AGENTE.exec(p);
-  if (r) {
-    if (!meuSlug(r[1])) return motivoOutro;
+    if (!meuSlug(r[1])) return nega(403, MOTIVO_OUTRO_AGENTE);
     const acao = r[2] || '';
-    if (!Object.prototype.hasOwnProperty.call(ACOES_AGENTE, acao)) return nega(403, MOTIVO_GERAL);
-    return ACOES_AGENTE[acao].includes(m) ? LIBERA : nega(405, `Método inválido para ${p}.`);
+    // Comando de barra chegaria ao agente sem dizer quem mandou (ver conversa.js, enviar).
+    if (acao === 'comando' || acao === 'comandos') return nega(403, MOTIVO_COMANDO);
+    // O agente em si (editar, apagar) não é do colaborador; só a leitura.
+    if (acao === '') return metodo(m === 'GET', 'Use GET para ver o seu agente.');
+    return LIBERA;
   }
   return nega(403, MOTIVO_GERAL);
 }
 
-/** Atalho para o handler de WebSocket: colaborador nunca abre. Dono e caixa seguem a regra de sempre. */
-function websocketLiberado(sessao) {
+/**
+ * Atalho para o handler de WebSocket. Dono e caixa seguem a regra de sempre; o colaborador abre só /p/<dele>/**
+ * (a Tela usa /p/<dele>/tela/websockify), com as mesmas travas do painel.
+ */
+function websocketLiberado(sessao, pathname, urlCrua) {
   if (!sessao) return nega(401, 'Você precisa entrar antes.');
   if (sessao.via === 'caixa' || sessao.papel !== 'colaborador') return LIBERA;
-  return nega(403, 'O painel de configuração do agente é só do dono do DG Claw.');
+  if (sessao.trocar_senha) return nega(403, TROCAR_SENHA_MOTIVO);
+  const p = String(pathname == null ? '' : pathname);
+  const bruto = String(urlCrua == null ? p : urlCrua).split('?')[0].split('#')[0];
+  if (!(p.startsWith('/p/') || bruto.startsWith('/p/'))) return nega(403, 'Só o painel do seu agente aceita WebSocket.');
+  const meuSlug = (s) => { const d = decodifica(s); return d !== null && d === sessao.agente; };
+  return avaliaPainel('GET', p, bruto, meuSlug);
 }
 
-module.exports = { avaliar, websocketLiberado, TROCAR_SENHA_MOTIVO, MOTIVO_PAINEL };
+module.exports = { avaliar, websocketLiberado, TROCAR_SENHA_MOTIVO, MOTIVO_PAINEL, MOTIVO_COFRE };

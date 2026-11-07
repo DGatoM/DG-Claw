@@ -81,9 +81,9 @@
     if (o.colaborador) {
       return [{
         alvo: '#mlMoldura', antes: abre, titulo: 'O menu',
-        oque: 'A foto e o nome de ' + nome + ', o agente com quem você conversa, e as duas páginas que você tem: a Conversa e Conectar conta.',
-        como: (o.naConversa ? 'O item Conversa (esta tela) fica no alto.' : 'O item Conversa, no alto, leva de volta ao chat.') + ' Conectar conta serve para ligar a sua conta de IA ao agente, quando ele ainda não tem uma. No fim do menu, o botão Sair encerra a sua sessão.',
-        porque: 'O seu acesso é só a este agente. Por isso o menu é curto: o resto do DG Claw é do dono.',
+        oque: 'A foto e o nome de ' + nome + ', o agente com quem você conversa, e as páginas dele: a Conversa, as Sessões de trabalho, as páginas do painel (Rotinas, Memória, Pasta, Tela e as outras) e Conectar conta.',
+        como: (o.naConversa ? 'O item Conversa (esta tela) fica no alto.' : 'O item Conversa, no alto, leva de volta ao chat.') + ' Cada página do painel abre na mesma janela. Conectar conta serve para ligar a sua conta de IA ao agente, quando ele ainda não tem uma. No fim do menu, o botão Sair encerra a sua sessão.',
+        porque: 'Você tem acesso a tudo deste agente. Os outros agentes e as configurações do DG Claw inteiro (chaves, colaboradores, cofre) ficam com o dono.',
       }];
     }
     const passos = [{
@@ -578,7 +578,8 @@
       setInterval(atualiza, 30000);
     }
 
-    const painel = $('mlPainel'), links = colab ? [] : linksPainel(ag);
+    // O cofre do agente é do dono: o colaborador não vê a entrada no menu (a aba, se aberta, explica o motivo).
+    const painel = $('mlPainel'), links = linksPainel(ag).filter(l => !colab || chaveDoHref(l.href) !== 'cofre');
     painel.innerHTML = links.map(l => `<a class="ml-tab" href="${esc(l.href)}">` +
       `<span class="ml-ico" aria-hidden="true">${l.ico}</span>${esc(l.nome)}</a>`).join('');
     painel.hidden = !links.length;
@@ -602,14 +603,14 @@
     if (colab && mesa) mesa.parentElement.remove();
     else if (mesa) mesa.setAttribute('href', comAgente('/mesa', ag.id));
     // Sessões logo depois da Mesa, para todo agente com painel, em todas as telas
-    const sess = colab ? null : linkSessoes(ag);
+    const sess = linkSessoes(ag);
     if (sess && mesa) {
       mesa.parentElement.insertAdjacentHTML('afterend', `<div data-tour="gm-sessoes"><a class="ml-tab" id="mlSessoes" href="${esc(sess.href)}">` +
         `<span class="ml-ico" aria-hidden="true">${sess.ico}</span>${sess.nome}</a></div>`);
     }
-    if (!colab) ligaSessoes(ag);
+    ligaSessoes(ag);
     agenteAtual = ag;
-    if (!colab && Array.isArray(opcoes.extras)) extras(opcoes.extras);
+    if (Array.isArray(opcoes.extras)) extras(opcoes.extras);
     if (colab) mostraQuem();
 
     /* Fora da Conversa, o item Conversa vira link para ela; na Conversa, só fecha a gaveta. */

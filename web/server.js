@@ -1015,7 +1015,7 @@ function criarServidor(opcoes) {
       // O cookie de papel só serve para a tela esconder o que não é do colaborador; aqui ele se conserta sozinho.
       if (H.parseCookies(req.headers.cookie).dgclaw_papel !== sessao.papel) res.setHeader('Set-Cookie', auth.cookiePapel(sessao.papel, req));
       // Isolamento do colaborador: negar por padrão, antes de qualquer rota (ver lib/escopo.js).
-      const veredito = escopo.avaliar(sessao, m, p);
+      const veredito = escopo.avaliar(sessao, m, p, req.url);
       if (!veredito.ok) return negarEscopo(req, res, sessao, veredito, p);
     }
 
@@ -1149,7 +1149,7 @@ function criarServidor(opcoes) {
       const nega = (status, motivo) => { socket.write(`HTTP/1.1 ${status} Recusado\r\nConnection: close\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${motivo}`); socket.destroy(); };
       if (!pp) return nega(404, 'Só o painel (/p/<agente>/) aceita WebSocket.');
       if (!sessao) return nega(401, 'Você precisa entrar antes.');
-      const veredito = escopo.websocketLiberado(sessao);
+      const veredito = escopo.websocketLiberado(sessao, url.pathname, req.url);
       if (!veredito.ok) {
         log('aviso', `WebSocket em ${url.pathname.slice(0, 120)} recusado para o colaborador ${sessao.usuario}: ${veredito.motivo}`);
         return nega(403, veredito.motivo);

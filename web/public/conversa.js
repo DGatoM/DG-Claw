@@ -196,7 +196,7 @@ const AQUI = location.pathname + location.search;
 const EH_ADMIN = AGENTE.tipo === 'admin';
 /* Colaborador: só este agente. Tira da tela o que é do dono (o servidor também barra; aqui é para não sobrar botão que não leva a lugar nenhum). */
 const COLAB = !!(window.DGPapel && window.DGPapel.colaborador);
-if (COLAB) for (const id of ['btnMesa', 'btnLembretes', 'btnNaoLida', 'btnSessoes', 'trocaBaixo']) { const e = $(id); if (e) e.remove(); }
+if (COLAB) for (const id of ['btnMesa', 'btnLembretes', 'btnNaoLida', 'trocaBaixo']) { const e = $(id); if (e) e.remove(); }
 /* A Mesa e os Lembretes levam o agente junto (?a=), para o menu deles ser o deste agente. */
 (function () {
   // localStorage para a casca das outras telas; o cookie é o que o servidor lê na rota "/" (abre o último agente usado)
@@ -4808,7 +4808,7 @@ function passosTutorial() {
       como: 'Toque no avatar de outro agente para abrir a conversa com ele. Arraste para o lado se não couberem todos. Ela some enquanto o teclado está aberto.',
       porque: 'Trocar de agente com o polegar, sem abrir o menu ☰.' });
   }
-  if (!EH_ADMIN && !COLAB) {
+  if (!EH_ADMIN) {
     passos.push({ alvo: '#mlPainel', antes: abreM, titulo: 'As páginas do painel de ' + nome,
       oque: 'Status, Memória, Operações, Custos e as outras páginas que mostram como ' + nome + ' está, o que ele guarda e quanto gasta.',
       como: 'Toque numa página e ela abre na mesma janela. Para voltar à conversa, use o item Conversa do menu do painel ou o voltar do navegador.',

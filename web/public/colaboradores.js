@@ -229,9 +229,9 @@
   const PASSOS = {
     agente: [
       { alvo: '#coAgente', titulo: 'O colaborador deste agente',
-        oque: 'Quem você convidou para conversar com este agente. Cada agente tem um colaborador por vez, e cada pessoa acessa um agente só.',
+        oque: 'Quem você convidou para usar este agente. Cada agente tem um colaborador por vez, e cada pessoa acessa um agente só.',
         como: 'Sem ninguém convidado, a tela mostra o formulário. Com alguém convidado, mostra o estado dele (aguardando o primeiro acesso, ativo) e os botões para mandar o convite de novo ou revogar o acesso.',
-        porque: 'A pessoa vê só a conversa deste agente e a página para conectar a conta de IA dela. Não vê o Admin, o cofre, outros agentes nem este painel.' },
+        porque: 'A pessoa usa este agente por inteiro: a conversa, as sessões, as rotinas, a memória, os arquivos e a Tela. Não vê o Admin nem outros agentes, e o cofre, as chaves de API, a troca da conta de IA, as credenciais dos canais e a senha da Tela continuam com você.' },
       { alvo: '[data-tour="co-form"]', titulo: 'Convidar',
         oque: 'O e-mail da pessoa (que será o login dela) e, se quiser, o nome.',
         como: 'Ao tocar em Convidar, o DG Claw gera uma senha temporária que vale 7 dias e tenta mandar um e-mail com o link. No primeiro acesso a pessoa cria a senha dela.',
