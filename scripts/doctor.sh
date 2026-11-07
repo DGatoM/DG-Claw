@@ -714,6 +714,28 @@ if [ -f "$WS/CLAUDE.md" ] && ! grep -q "^## Quadro de avisos da equipe" "$WS/CLA
     fi
 fi
 
+# AGENTS.md (o Codex le este arquivo; o Claude le o CLAUDE.md): as mesmas secoes que o CLAUDE.md
+# precisa ter. Os dois nascem da mesma fonte (scripts/gerar-instrucoes.sh), mas o AGENTS.md de um
+# agente criado antes dessa versao nao tem as secoes novas. So se acrescenta o que falta, no fim,
+# com backup ao lado: o que o dono personalizou nunca e reescrito.
+if [ -f "$WS/AGENTS.md" ]; then
+    AG_FALTA=0
+    for SECAO in "Mesa de tarefas" "Quadro de avisos da equipe" "A lousa" "Texto pra copiar" "Logins de sistemas" "Agendar e coisa sua" "Lembretes para o"; do
+        if grep -q "^## $SECAO" "$WS/AGENTS.md"; then continue; fi
+        AG_FALTA=1
+        W "o AGENTS.md nao tem a secao \"$SECAO\": o agente no Codex nao sabe essa parte das instrucoes -> rode com --fix"
+        if [ "$FIX" = "1" ] && grep -q "^## $SECAO" "$PLUGIN/templates/AGENTS.md.tmpl" 2>/dev/null; then
+            [ -f "$WS/AGENTS.md.bak-$(date +%Y%m%d)" ] || cp -p "$WS/AGENTS.md" "$WS/AGENTS.md.bak-$(date +%Y%m%d)"
+            { echo; SECAO="$SECAO" awk '/^## /{f=(index($0, "## " ENVIRON["SECAO"]) == 1)} f' "$PLUGIN/templates/AGENTS.md.tmpl" \
+                | sed "s/{{DONO}}/${DGCLAW_OWNER:-dono}/g"; } >> "$WS/AGENTS.md"
+            [ "$WS_OWNER" != "root" ] && { chown "$WS_OWNER:" "$WS/AGENTS.md" \
+                || W "nao consegui passar o AGENTS.md para o usuario $WS_OWNER (o agente pode nao conseguir gravar nele) -> rode como root"; }
+            F "secao $SECAO acrescentada no fim do AGENTS.md (backup ao lado; vale na proxima sessao)"
+        fi
+    done
+    [ "$AG_FALTA" = "0" ] && P "AGENTS.md tem as secoes da mesa, do quadro de avisos, da lousa, da tela, da agenda e dos lembretes"
+fi
+
 # Instalacao da era anterior a fusao: enquanto as duas camadas existirem juntas, rotina
 # velha e nova disputam os mesmos arquivos. Isto vem antes de qualquer outro conserto.
 if [ -d "$WS/.dg-alive" ]; then
