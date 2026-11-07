@@ -18,7 +18,7 @@ const { criarLeitor, paraContainer } = require('./lib/thread');
 const { criarLeitorRollout } = require('./lib/rollout');
 const { criarConversa, RX_CLIENTE_ID } = require('./lib/conversa');
 const { criarComandos } = require('./lib/comandos');
-const { lerMultipart, nomeSeguro, gravaSemSobrescrever } = require('./lib/uploads');
+const { lerMultipart, nomeSeguro, gravaUpload } = require('./lib/uploads');
 const { abrirStream } = require('./lib/sse');
 const { criarProxy } = require('./lib/proxy');
 const { criarCofreAgente } = require('./lib/cofre-agente');
@@ -709,11 +709,10 @@ function criarServidor(opcoes) {
       const pasta = path.join(agente.home_host, 'uploads', dia);
       let destino;
       try {
-        fs.mkdirSync(pasta, { recursive: true, mode: 0o755 });
-        destino = gravaSemSobrescrever(pasta, nomeSeguro(arq.nome), arq.dados);
+        destino = gravaUpload(agente, dia, nomeSeguro(arq.nome), arq.dados);
       } catch (e) {
-        log('erro', `Upload para ${agente.slug}: não gravei em ${pasta} (${e.code || e.message}).`);
-        return { status: 500, corpo: { ok: false, erro: `Não consegui gravar o arquivo em ${pasta} (${e.code || e.message}). Confira espaço em disco e permissão da pasta do agente.` } };
+        log('erro', `Upload para ${agente.slug}: não gravei em ${pasta} (${e.code || ''} ${e.message}).`);
+        return { status: 500, corpo: { ok: false, erro: `Não consegui gravar o arquivo em ${pasta}: ${e.message} Confira espaço em disco e se o agente trocou uploads por um atalho (o dono resolve com "sudo dgclaw agente reparar ${agente.slug}").` } };
       }
       const visto = paraContainer(destino, agente);
       const media = midia.registrar(agente.slug, destino, { visto, nome: path.basename(destino) });
