@@ -16,14 +16,16 @@ CASA="$TMP/casa"; FORA="$TMP/fora"
 mkdir -p "$CASA/relatorios/2026" "$CASA/outra" "$CASA/memory" "$CASA/.dgclaw" "$CASA/.claude" "$FORA"
 ln -s "$FORA" "$CASA/relatorios/atalho"          # dentro da pasta liberada, mas aponta para fora
 ln -s "$CASA/outra" "$TMP/atalho-de-fora"
-export DGCLAW_WORKSPACE="$CASA" DGCLAW_RESTRICOES="$TMP/restricoes.json"
+# O gancho nao le variavel de ambiente: os caminhos de teste vao por argumento de linha de comando.
+DGCLAW_RESTRICOES="$TMP/restricoes.json"
+roda_gancho() { node "$GANCHO" --restricoes "$DGCLAW_RESTRICOES" --casa "$CASA"; }
 printf '{"versao":1,"sem_bash":false,"sem_enviar_arquivo":false,"escrita_so_em":["relatorios"]}\n' >"$DGCLAW_RESTRICOES"
 
 # decide <ferramenta> <caminho> [cwd]: imprime "libera" ou "bloqueia"; o motivo vai para $TMP/motivo.
 decide() {
     local ferr="$1" cam="$2" cwd="${3:-$CASA}" campo=file_path out
     [ "$ferr" = NotebookEdit ] && campo=notebook_path
-    out="$(jq -nc --arg f "$ferr" --arg c "$cam" --arg d "$cwd" --arg k "$campo" '{hook_event_name:"PreToolUse", tool_name:$f, cwd:$d, tool_input:{($k):$c}}' | node "$GANCHO")"
+    out="$(jq -nc --arg f "$ferr" --arg c "$cam" --arg d "$cwd" --arg k "$campo" '{hook_event_name:"PreToolUse", tool_name:$f, cwd:$d, tool_input:{($k):$c}}' | roda_gancho)"
     if [ -z "$out" ]; then echo libera; else
         printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason' >"$TMP/motivo"
         printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null && echo bloqueia || echo estranho
@@ -90,7 +92,7 @@ rm "$CASA/relatorios/dg"
 
 echo "sem restricao: libera tudo"
 rm -f "$DGCLAW_RESTRICOES"
-igual "sem restricoes.json libera" "libera" "$(decide Write "$CASA/outra/x.md")"
+igual "gancho instalado e politica ausente bloqueia (nunca libera por falta do arquivo)" "bloqueia" "$(decide Write "$CASA/outra/x.md")"
 printf '{"versao":1,"sem_bash":true,"escrita_so_em":null}\n' >"$DGCLAW_RESTRICOES"
 igual "escrita_so_em nulo libera" "libera" "$(decide Write "$CASA/outra/x.md")"
 printf '{"versao":1,"sem_bash":true}\n' >"$DGCLAW_RESTRICOES"
@@ -105,9 +107,18 @@ igual "escrita_so_em que nao e lista bloqueia" "bloqueia" "$(decide Write "$CASA
 
 echo "entrada estranha"
 printf '{"versao":1,"escrita_so_em":["relatorios"]}\n' >"$DGCLAW_RESTRICOES"
-out="$(printf 'isto nao e json' | node "$GANCHO")"
+out="$(printf 'isto nao e json' | roda_gancho)"
 afirma "entrada que nao e JSON bloqueia" bash -c "printf '%s' '$out' | jq -e '.hookSpecificOutput.permissionDecision == \"deny\"'"
-out="$(printf '{"tool_name":"Write","tool_input":{}}' | node "$GANCHO")"
+out="$(printf '{"tool_name":"Write","tool_input":{}}' | roda_gancho)"
 afirma "pedido sem caminho bloqueia" bash -c "printf '%s' '$out' | jq -e '.hookSpecificOutput.permissionDecision == \"deny\"'"
+
+echo "o agente nao muda a politica por variavel de ambiente (settings.local.json env)"
+printf '{"versao":1,"escrita_so_em":["relatorios"]}\n' >"$DGCLAW_RESTRICOES"
+ent="$(jq -nc --arg c "$CASA" --arg f "$CASA/outra/x.md" '{tool_name:"Write",cwd:$c,tool_input:{file_path:$f}}')"
+out="$(printf '%s' "$ent" | DGCLAW_RESTRICOES=/nao/existe DGCLAW_WORKSPACE=/nao/existe/casa node "$GANCHO" --restricoes "$DGCLAW_RESTRICOES" --casa "$CASA")"
+afirma "DGCLAW_RESTRICOES e DGCLAW_WORKSPACE apontando para o vazio nao liberam" bash -c "printf '%s' '$out' | jq -e '.hookSpecificOutput.permissionDecision == \"deny\"'"
+out="$(printf '%s' "$ent" | DGCLAW_RESTRICOES="$DGCLAW_RESTRICOES" DGCLAW_WORKSPACE="$CASA" node "$GANCHO")"
+afirma "sem argumentos valem os caminhos de producao (aqui ausentes): bloqueia" bash -c "printf '%s' '$out' | jq -e '.hookSpecificOutput.permissionDecision == \"deny\"'"
+afirma "o comando registrado limpa o ambiente (env -i), entao nem NODE_OPTIONS chega" grep -q 'env -i' "$REPO/lib/restricoes.sh"
 
 fim

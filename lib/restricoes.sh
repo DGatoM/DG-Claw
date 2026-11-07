@@ -8,7 +8,11 @@
 #   - denyTools (e a saida de allowTools) no runner.json;
 #   - o gancho PreToolUse de escrita no .claude/settings.json da casa do agente.
 
-GANCHO_ESCRITA_CMD="node /opt/dgclaw/app/scripts/escrita-restrita-hook.mjs"
+# `env -i`: o agente grava `env` no settings.local.json dele; sem limpar o ambiente, um NODE_OPTIONS
+# poria codigo dele dentro do gancho. O gancho tambem nao le variavel de ambiente (escrita-restrita-hook.mjs).
+GANCHO_ESCRITA_CMD="/usr/bin/env -i /usr/bin/node /opt/dgclaw/app/scripts/escrita-restrita-hook.mjs"
+# Marca que acha tambem o comando das versoes anteriores (sem env -i) na migracao.
+GANCHO_ESCRITA_MARCA="escrita-restrita-hook"
 GANCHO_ESCRITA_MATCHER="Write|Edit|MultiEdit|NotebookEdit"
 
 # restricoes_validar <restricoes.json> <slug>: para com erro (e nao muda nada) se o arquivo nao serve.
@@ -67,6 +71,38 @@ _restricoes_log() {
 # permissivo nunca chega ao disco. Arquivo invalido: para antes de gravar qualquer coisa.
 # Sem --sem-reiniciar, reinicia o runner se algo mudou e o agente esta ligado.
 aplicar_restricoes() {
+    restricoes_com_trava "$1" _aplicar_restricoes_sem_trava "$@"
+}
+
+# restricoes_com_trava <slug> <funcao> [args...]: roda a funcao segurando uma trava por agente
+# (arquivo na pasta do agente, fora da casa). Duas alteracoes simultaneas (restricoes, criar, reparar,
+# recriar, atualizar) esperam uma pela outra em vez de apagar uma a outra. Quem ja segura a trava (a
+# transacao do comando `restricoes` chama o aplicar) passa direto: RESTRICOES_TRAVA_COM guarda o slug.
+# Roda num subshell: um `falha` la dentro sai com 1 e quem chamou (set -e) para.
+restricoes_com_trava() {
+    local slug="$1"; shift
+    if [ "$ENSAIO" = 1 ] || [ "${RESTRICOES_TRAVA_COM:-}" = "$slug" ]; then "$@"; return; fi
+    mkdir -p "$DG_CASAS/$slug" || falha "nao consegui criar $DG_CASAS/$slug para a trava das restricoes." "confira a permissao de $DG_LIB e rode de novo."
+    (
+        flock -w 120 9 || falha "outra alteracao das restricoes do agente $slug esta segurando $DG_CASAS/$slug/.restricoes.lock ha mais de 120 segundos." \
+            "espere ela terminar e rode de novo. Se nada estiver rodando, confira com: fuser $DG_CASAS/$slug/.restricoes.lock"
+        RESTRICOES_TRAVA_COM="$slug"
+        "$@"
+    ) 9>"$DG_CASAS/$slug/.restricoes.lock"
+}
+
+# _restricoes_gravar <alvo> <conteudo>: grava o arquivo (root, 444) por temporario + mv e falha dizendo qual.
+_restricoes_gravar() {
+    local alvo="$1" conteudo="$2" dir base
+    dir="$(dirname "$alvo")"; base="$(basename "$alvo")"
+    if ! printf '%s\n' "$conteudo" | escrever_arquivo "$alvo" 444 0:0; then
+        rm -f -- "$dir"/."$base".?????? 2>/dev/null || true
+        falha "nao consegui gravar $alvo (a troca do arquivo temporario falhou); o agente ficou como estava." \
+            "confira o espaco em disco e a permissao de $dir (ls -ld $dir; df -h $dir) e rode de novo."
+    fi
+}
+
+_aplicar_restricoes_sem_trava() {
     local slug="$1" reiniciar=1 runner_novo=0 a
     shift
     for a in "$@"; do
@@ -77,7 +113,7 @@ aplicar_restricoes() {
     done
     local casa="$DG_CASAS/$slug" c="dgclaw-$slug"
     local rj="$casa/runner/runner.json" rs="$casa/runner/restricoes.json" ms="$casa/runner/managed-settings.json" st="$casa/home/.claude/settings.json"
-    local sem_bash=false sem_env=false pastas=null mudou=0 novo_rj="" novo_ms novo ms_existia=0 base="" provider deny_json='[]'
+    local sem_bash=false sem_env=false pastas=null mudou=0 novo_rj="" novo_ms novo ms_existia=0 grav_ms=0 grav_rj=0 base="" provider deny_json='[]'
 
     if [ "$runner_novo" = 1 ]; then base="$(cat)"; fi
     if [ -e "$rs" ] || [ -L "$rs" ]; then
@@ -135,32 +171,45 @@ aplicar_restricoes() {
     fi
     [ -f "$ms" ] && ms_existia=1
     if [ ! -f "$ms" ] || [ "$(jq -c . "$ms" 2>/dev/null || true)" != "$novo_ms" ]; then
-        printf '%s\n' "$novo_ms" | escrever_arquivo "$ms" 444 0:0
+        _restricoes_gravar "$ms" "$novo_ms"
         # `{}` num arquivo que nao existia nao muda nada para o agente: nao conta como mudanca.
         if [ "$novo_ms" != '{}' ] || [ "$ms_existia" = 1 ]; then mudou=1; fi
-        [ "$novo_ms" = '{}' ] || ok "configuracao administrada do agente $slug gravada (gancho de escrita: $([ "$pastas" != null ] && echo ligado || echo desligado); ferramentas negadas: $(printf '%s' "$deny_json" | jq -r 'if length == 0 then "nenhuma" else join(", ") end'))"
+        grav_ms=1
     fi
     if [ -n "$novo_rj" ] && { [ "$runner_novo" = 1 ] || [ "$(printf '%s' "$novo_rj" | jq -c .)" != "$(jq -c . "$rj")" ]; }; then
-        printf '%s\n' "$novo_rj" | escrever_arquivo "$rj" 444 0:0
+        _restricoes_gravar "$rj" "$novo_rj"
         mudou=1
-        ok "runner.json do agente $slug ajustado (Bash: $([ "$sem_bash" = true ] && echo travado || echo liberado), envio de arquivo: $([ "$sem_env" = true ] && echo travado || echo liberado))"
+        grav_rj=1
     fi
 
     # --- migracao: versoes antigas gravavam o gancho no settings.json da casa, onde o agente o desligava ---
     if [ -s "$st" ] || [ -L "$st" ]; then
         # shellcheck disable=SC2016
-        if [ -L "$st" ] || jq -e --arg cmd "$GANCHO_ESCRITA_CMD" '[.. | objects | select(.command? == $cmd)] | length > 0' "$st" >/dev/null 2>&1; then
+        if [ -L "$st" ] || jq -e --arg cmd "$GANCHO_ESCRITA_MARCA" '[.. | objects | select((.command? // "") | contains($cmd))] | length > 0' "$st" >/dev/null 2>&1; then
             exigir_casa_sem_link "$casa" "$casa/home" "$slug" "dgclaw agente reparar $slug"
             # shellcheck disable=SC2016
-            novo="$(jq --arg cmd "$GANCHO_ESCRITA_CMD" '
-                def limpa: map(if (.hooks | type) == "array" then .hooks |= map(select((.command // "") != $cmd)) else . end)
+            novo="$(jq --arg cmd "$GANCHO_ESCRITA_MARCA" '
+                def limpa: map(if (.hooks | type) == "array" then .hooks |= map(select(((.command // "") | contains($cmd)) | not)) else . end)
                            | map(select((.hooks | type) != "array" or (.hooks | length) > 0));
                 if (.hooks.PreToolUse | type) == "array" then .hooks.PreToolUse |= limpa | (if (.hooks.PreToolUse | length) == 0 then del(.hooks.PreToolUse) else . end) else . end' "$st")" \
                 || falha "o jq nao conseguiu tirar o gancho antigo de $st." "confira com: jq . $st e rode de novo: dgclaw agente reparar $slug"
-            printf '%s\n' "$novo" | escrever_arquivo "$st" 444 0:0
+            _restricoes_gravar "$st" "$novo"
+            mudou=1
             ok "gancho de escrita antigo tirado do settings.json do agente $slug (agora ele vive na configuracao administrada)"
         fi
     fi
+
+    # --- confere o que ficou no disco antes de dizer que aplicou ---
+    if [ "$(jq -c . "$ms" 2>/dev/null || true)" != "$novo_ms" ] || [ "$(stat -c %a "$ms")" != 444 ]; then
+        falha "reli $ms depois de gravar e o conteudo ou o modo nao e o esperado; nao vou dizer que as restricoes do agente $slug foram aplicadas." \
+            "veja o arquivo (cat $ms; ls -l $ms) e rode de novo: dgclaw agente reparar $slug"
+    fi
+    if [ -n "$novo_rj" ] && [ "$(jq -c . "$rj" 2>/dev/null || true)" != "$(printf '%s' "$novo_rj" | jq -c .)" ]; then
+        falha "reli $rj depois de gravar e o conteudo nao e o esperado; nao vou dizer que as restricoes do agente $slug foram aplicadas." \
+            "veja o arquivo (jq . $rj) e rode de novo: dgclaw agente reparar $slug"
+    fi
+    [ "$grav_ms" = 0 ] || [ "$novo_ms" = '{}' ] || ok "configuracao administrada do agente $slug gravada (gancho de escrita: $([ "$pastas" != null ] && echo ligado || echo desligado); ferramentas negadas: $(printf '%s' "$deny_json" | jq -r 'if length == 0 then "nenhuma" else join(", ") end'))"
+    [ "$grav_rj" = 0 ] || ok "runner.json do agente $slug ajustado (Bash: $([ "$sem_bash" = true ] && echo travado || echo liberado), envio de arquivo: $([ "$sem_env" = true ] && echo travado || echo liberado))"
 
     # --- Codex: o runner ignora allow/deny e os ganchos do Claude Code ---
     provider=""
@@ -185,10 +234,11 @@ aplicar_restricoes() {
     return 0
 }
 
-# restricoes_criar_pasta <home> <uid:gid> <pasta relativa>: cria a pasta dentro da casa, como o agente.
-# Cada pedaco novo do caminho nasce com o dono do agente; atalho no caminho e recusado.
-restricoes_criar_pasta() {
-    local h="$1" ug="$2" rel="$3" cur="$1" seg partes
+# restricoes_conferir_pasta <home> <pasta relativa>: so le (lstat). Recusa atalho e arquivo no caminho.
+# O root NAO cria pasta nem da dono dentro da casa do agente: entre o mkdir e o chown alguem poderia
+# trocar um pedaco do caminho por um atalho para /etc, e o chown do root atingiria o servidor.
+restricoes_conferir_pasta() {
+    local h="$1" rel="$2" cur="$1" seg partes
     IFS=/ read -ra partes <<<"$rel"
     for seg in "${partes[@]}"; do
         [ -n "$seg" ] || continue
@@ -200,13 +250,22 @@ restricoes_criar_pasta() {
         if [ -e "$cur" ] && [ ! -d "$cur" ]; then
             falha "$cur ja existe e e um arquivo, nao uma pasta." "escolha outro nome de pasta em --escrita-so-em."
         fi
-        if [ "$ENSAIO" = 1 ]; then printf '   [ensaio] pasta %s (dono %s)\n' "$cur" "$ug"; continue; fi
-        if [ ! -d "$cur" ]; then
-            # -m define o modo na criacao (sem chmod depois, que seguiria um atalho posto no meio); o chown do
-            # `dono` usa -h e tambem nao segue atalho.
-            mkdir -m 755 "$cur"
-            dono "$ug" "$cur"
-        fi
+    done
+}
+
+# restricoes_criar_pastas <slug> <pasta...>: cria as pastas DENTRO da caixa, como o usuario agente, e sem
+# shell (argumentos ja validados, depois de `--`). Com o agente desligado nao cria nada: o agente cria a
+# pasta quando gravar nela (a ferramenta de gravar cria as pastas que faltam) e o gancho aceita pasta
+# que ainda nao existe.
+restricoes_criar_pastas() {
+    local slug="$1" c="dgclaw-$1" p; shift
+    [ "$ENSAIO" = 1 ] && { for p in "$@"; do info "[ensaio] criaria /home/agente/$p dentro da caixa, como o usuario agente"; done; return 0; }
+    if [ "$(podman inspect -f '{{.State.Status}}' "$c" 2>/dev/null || true)" != running ]; then
+        aviso "o agente $slug esta desligado, entao nao criei as pastas ($*). O agente cria cada uma quando gravar nela; se preferir cria-las agora, ligue o agente e rode o mesmo comando de novo."
+        return 0
+    fi
+    for p in "$@"; do
+        executar podman exec -u agente "$c" mkdir -p -- "/home/agente/$p"
     done
 }
 
@@ -250,21 +309,20 @@ agente_restricoes() {
 
     local casa="$DG_CASAS/$slug" h="$DG_CASAS/$slug/home" rs="$DG_CASAS/$slug/runner/restricoes.json" atual='{"versao":1}'
     exigir_casa_sem_link "$casa" "$h" "$slug" "dgclaw agente restricoes $slug ..."
-    if [ -e "$rs" ] || [ -L "$rs" ]; then
-        restricoes_validar "$rs" "$slug"
-        atual="$(cat "$rs")"
-    fi
 
     if [ -z "$sem_bash$sem_env$pastas_arg" ] && [ "$livre" = 0 ]; then
+        if [ -e "$rs" ] || [ -L "$rs" ]; then
+            restricoes_validar "$rs" "$slug"
+            atual="$(cat "$rs")"
+        fi
         restricoes_mostrar "$slug" "$atual" "$rs"
         return 0
     fi
 
-    local lista='null' ug p
+    local lista='null' p limpas=()
     if [ -n "$pastas_arg" ]; then
         local itens=()
         IFS=, read -ra itens <<<"$pastas_arg"
-        local limpas=()
         for p in "${itens[@]}"; do
             p="${p#"${p%%[![:space:]]*}"}"; p="${p%"${p##*[![:space:]]}"}"
             while [ "${p%/}" != "$p" ]; do p="${p%/}"; done
@@ -281,17 +339,25 @@ agente_restricoes() {
             if [[ "$p" =~ [[:cntrl:]] ]]; then
                 falha "a pasta tem caractere de controle no nome." "use um nome de pasta normal."
             fi
+            restricoes_conferir_pasta "$h" "$p"
             limpas+=("$p")
         done
         [ "${#limpas[@]}" -gt 0 ] || falha "nao recebi nenhuma pasta em --escrita-so-em '$pastas_arg'." "exemplo: --escrita-so-em relatorios,rascunhos (ou --escrita-livre para soltar)."
-        ug="$(stat -c '%u:%g' "$h")"
-        for p in "${limpas[@]}"; do restricoes_criar_pasta "$h" "$ug" "$p"; done
         lista="$(printf '%s\n' "${limpas[@]}" | jq -R . | jq -sc 'unique')"
     fi
 
-    local quem="${SUDO_USER:-$(id -un)}"
+    # Ler, gravar, derivar e reiniciar acontecem numa transacao so, com a trava do agente.
+    restricoes_com_trava "$slug" _restricoes_transacao
+}
+
+# _restricoes_transacao: usa as variaveis locais de agente_restricoes (slug, sem_bash, sem_env, lista, limpas, ...).
+_restricoes_transacao() {
+    local atual='{"versao":1}' novo quem="${SUDO_USER:-$(id -un)}"
+    if [ -e "$rs" ] || [ -L "$rs" ]; then
+        restricoes_validar "$rs" "$slug"
+        atual="$(cat "$rs")"
+    fi
     # shellcheck disable=SC2016 # os $ sao variaveis do jq
-    local novo
     novo="$(printf '%s' "$atual" | jq \
         --arg sb "$sem_bash" --arg se "$sem_env" --argjson lista "$lista" --argjson livre "$livre" \
         --argjson tocouPastas "$([ -n "$pastas_arg" ] && echo true || echo false)" \
@@ -303,13 +369,14 @@ agente_restricoes() {
         | .atualizado_em = $em | .atualizado_por = $por')" \
         || falha "o jq nao conseguiu montar o novo restricoes.json a partir de $rs." "confira se o arquivo e um JSON valido (jq . $rs)."
 
-    printf '%s\n' "$novo" | escrever_arquivo "$rs" 444 0:0
-    ok "restricoes do agente $slug gravadas em $rs"
+    _restricoes_gravar "$rs" "$novo"
     if [ "$ENSAIO" != 1 ] && ! printf '%s' "$novo" | jq -e '.escrita_so_em == null or .sem_bash == true' >/dev/null; then
         aviso "este agente continua com o Bash ligado, e pelo Bash ele grava em qualquer lugar: a trava de pastas so barra as ferramentas de arquivo (Write, Edit). Para valer de verdade, combine com: dgclaw agente restricoes $slug --sem-bash sim"
     fi
-    aplicar_restricoes "$slug" || falha "gravei $rs, mas nao consegui aplicar as restricoes no agente $slug." \
-        "leia a mensagem acima; depois rode: dgclaw agente reparar $slug (ele aplica o que esta gravado)."
+    # Sem `|| falha`: um `||` desligaria o set -e la dentro e um erro de gravacao viraria "aplicado".
+    aplicar_restricoes "$slug"
+    [ "${#limpas[@]}" -eq 0 ] || restricoes_criar_pastas "$slug" "${limpas[@]}"
+    ok "restricoes do agente $slug gravadas em $rs e aplicadas"
     if [ "$ENSAIO" != 1 ]; then restricoes_mostrar "$slug" "$novo" "$rs"; fi
 }
 

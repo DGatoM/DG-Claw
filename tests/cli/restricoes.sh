@@ -49,11 +49,15 @@ rm -f "$LIB/agentes/ana/home/atalho"
 
 echo "definir as tres restricoes"
 marcar_settings_alheio ana
+: >"$STUB_LOG"
 dgclaw agente restricoes ana --sem-bash sim --sem-enviar-arquivo sim --escrita-so-em relatorios,rascunhos/2026/ >"$TMP/o3.txt" 2>&1
 igual "definir sai com 0" "0" "$?"
 afirma "o restricoes.json esta no formato combinado" jq -e '.versao == 1 and .sem_bash == true and .sem_enviar_arquivo == true and .escrita_so_em == ["rascunhos/2026","relatorios"] and (.atualizado_em | test("^[0-9]{4}-")) and (.atualizado_por | length > 0)' "$RS"
 igual "restricoes.json com modo 444" "444" "$(stat -c %a "$RS")"
-afirma "as pastas nasceram dentro da casa, dono do agente" test -d "$LIB/agentes/ana/home/rascunhos/2026" -a -d "$LIB/agentes/ana/home/relatorios"
+afirma "as pastas foram criadas DENTRO da caixa, pelo usuario agente, sem shell" grep -qx 'podman exec -u agente dgclaw-ana mkdir -p -- /home/agente/relatorios' "$STUB_LOG"
+afirma "a subpasta tambem" grep -qx 'podman exec -u agente dgclaw-ana mkdir -p -- /home/agente/rascunhos/2026' "$STUB_LOG"
+nega "o root nao criou pasta na casa do agente" test -e "$LIB/agentes/ana/home/relatorios"
+nega "e nao deu dono como root a nada da casa" grep -q 'relatorios\|rascunhos' "$DGCLAW_RAIZ/.chown-simulado"
 afirma "o mostrar traz o estado" grep -q 'so em rascunhos/2026, relatorios' "$TMP/o3.txt"
 nega "com o Bash travado nao avisa do Bash" grep -q 'continua com o Bash ligado' "$TMP/o3.txt"
 guardar_restricoes ana
@@ -209,6 +213,47 @@ dgclaw agente restricoes ana --sem-bash nao --escrita-so-em pai-atalho/x >"$TMP/
 afirma "explica o atalho" grep -q 'e um atalho' "$TMP/o10.txt"
 rm "$LIB/agentes/ana/home/pai-atalho"
 dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1
+
+echo "agente parado: nao cria pasta, avisa, e o gancho aceita pasta que ainda nao existe"
+echo exited >"$STUB_ESTADO/c-dgclaw-ana"
+: >"$STUB_LOG"
+dgclaw agente restricoes ana --sem-bash sim --escrita-so-em relatorios,pasta-nova >"$TMP/o11.txt" 2>&1
+igual "com o agente parado o comando funciona (0)" "0" "$?"
+nega "nao tentou criar pasta" grep -q 'mkdir' "$STUB_LOG"
+afirma "avisa que o agente cria ao gravar" grep -q 'pasta-nova.*cria\|cria.*pasta-nova' "$TMP/o11.txt"
+nega "e nao criou nada na casa" test -e "$LIB/agentes/ana/home/pasta-nova"
+echo running >"$STUB_ESTADO/c-dgclaw-ana"
+dgclaw agente restricoes ana --sem-bash nao --escrita-livre >/dev/null 2>&1
+
+echo "gravacao que falha: o comando falha, nao anuncia sucesso e nao deixa meia mudanca"
+FALSO="$TMP/falso-bin"; mkdir -p "$FALSO"
+printf '#!/bin/sh\ncase "$*" in *managed-settings.json*) echo "mv: falha simulada" >&2; exit 1;; esac\nexec /bin/mv "$@"\n' >"$FALSO/mv"; chmod +x "$FALSO/mv"
+cp "$RJ" "$TMP/rj-antes-falha.json"
+PATH="$FALSO:$PATH" dgclaw agente restricoes ana --sem-bash sim >"$TMP/o12.txt" 2>&1; rc=$?
+nega "sai com codigo diferente de 0" test "$rc" -eq 0
+nega "nao diz que aplicou" grep -qi 'aplicad\|restricoes do agente ana gravadas\|runner do agente ana reiniciado' "$TMP/o12.txt"
+afirma "diz o que falhou" grep -q 'Nao deu certo' "$TMP/o12.txt"
+igual "o runner.json nao foi mexido (a politica administrada vem primeiro)" "" "$(diff "$TMP/rj-antes-falha.json" "$RJ")"
+dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1
+
+echo "duas alteracoes ao mesmo tempo nao se apagam (trava por agente)"
+for i in 1 2 3 4 5 6; do
+    dgclaw agente restricoes ana --sem-bash nao --sem-enviar-arquivo nao --escrita-livre >/dev/null 2>&1
+    dgclaw agente restricoes ana --sem-bash sim >"$TMP/p1.txt" 2>&1 &
+    pa=$!
+    dgclaw agente restricoes ana --sem-enviar-arquivo sim >"$TMP/p2.txt" 2>&1 &
+    pb=$!
+    wait "$pa" "$pb"
+    if jq -e '.sem_bash == true and .sem_enviar_arquivo == true' "$RS" >/dev/null 2>&1 \
+        && jq -e '(.config.denyTools | index("Bash")) != null and (.config.denyTools | index("mcp__dgchat__send_file")) != null' "$RJ" >/dev/null 2>&1; then
+        ok "rodada $i: as duas mudancas ficaram no arquivo e no runner.json"
+    else
+        mal "rodada $i: uma mudanca apagou a outra"
+    fi
+done
+afirma "a trava fica na pasta do agente, fora da casa" test -e "$LIB/agentes/ana/.restricoes.lock"
+nega "e nao dentro da casa" test -e "$LIB/agentes/ana/home/.restricoes.lock"
+dgclaw agente restricoes ana --sem-bash nao --sem-enviar-arquivo nao --escrita-livre >/dev/null 2>&1
 
 echo "Codex: avisa e registra que a trava ainda nao vale"
 dgclaw agente restricoes beto --sem-bash sim >"$TMP/o9.txt" 2>&1

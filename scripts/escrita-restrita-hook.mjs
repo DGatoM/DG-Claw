@@ -1,19 +1,27 @@
 #!/usr/bin/env node
 // Gancho PreToolUse do Claude Code para a restrição "gravar só em certas pastas" (roda dentro do
 // container, como o usuário agente). Vale para Write, Edit, MultiEdit e NotebookEdit. Lê
-// /etc/dgclaw-runner/restricoes.json (pasta do dono do servidor, só leitura aqui dentro); sem o arquivo,
-// ou com escrita_so_em nulo, libera tudo. Contrato e limites: docs/RESTRICOES-DO-AGENTE.md.
+// /etc/dgclaw-runner/restricoes.json (pasta do dono do servidor, só leitura aqui dentro); com
+// escrita_so_em nulo libera tudo; arquivo ausente ou ilegível bloqueia. Contrato e limites: docs/RESTRICOES-DO-AGENTE.md.
 //
 // Limite que o dono precisa saber: este gancho só enxerga as ferramentas de arquivo do Claude Code.
 // Com o Bash ligado, o agente grava em qualquer lugar por comando de terminal. Para a trava valer de
 // verdade, combine com "sem Bash".
 //
-// Variáveis só para teste: DGCLAW_RESTRICOES (caminho do restricoes.json) e DGCLAW_WORKSPACE (a casa).
+// A política e a casa são CONSTANTES. Variável de ambiente não serve de fonte: o agente grava `env` no
+// settings.local.json dele e apontaria a política para um arquivo que não existe. O comando registrado
+// no managed-settings também roda com `env -i` (nem NODE_OPTIONS chega aqui). Só os testes trocam os
+// caminhos, por argumento de linha de comando (--restricoes <arquivo> --casa <pasta>), que o
+// managed-settings nunca passa e o agente não consegue acrescentar.
 import fs from 'node:fs';
 import path from 'node:path';
 
-const ARQUIVO = process.env.DGCLAW_RESTRICOES || '/etc/dgclaw-runner/restricoes.json';
-const CASA = process.env.DGCLAW_WORKSPACE || '/home/agente';
+function argumento(nome, padrao) {
+  const i = process.argv.indexOf(nome);
+  return i > 1 && process.argv[i + 1] ? process.argv[i + 1] : padrao;
+}
+const ARQUIVO = argumento('--restricoes', '/etc/dgclaw-runner/restricoes.json');
+const CASA = argumento('--casa', '/home/agente');
 
 // O que o agente grava sozinho para funcionar: SO a memoria. Tudo o que algum executor do agente
 // (batimento, rotinas, ganchos, config.sh, extensoes, MCP) le para EXECUTAR fica fechado, senao
@@ -84,8 +92,8 @@ let restricoes;
 try {
   restricoes = JSON.parse(fs.readFileSync(ARQUIVO, 'utf8'));
 } catch (e) {
-  if (e.code === 'ENOENT') libera();
-  // Arquivo que o dono pôs e que não dá para ler: tratar como "sem trava" tiraria a proteção em silêncio.
+  // O gancho só está registrado quando o dono ligou a trava de pastas. Política ausente ou ilegível
+  // (inclusive um arquivo que sumiu) não pode virar "sem trava": tiraria a proteção em silêncio.
   bloqueia(
     `O dono limitou onde você pode gravar, mas não consegui ler ${ARQUIVO} (${e.message}). ` +
       'Por segurança nada foi gravado. Avise o dono; quem conserta é ele, com: dgclaw agente restricoes <seu-nome>.',
