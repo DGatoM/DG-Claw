@@ -30,7 +30,7 @@ entram se você marcar essas opções.
 - **Não é perfeito.** Nenhum detector acha 100% dos nomes. Para documento muito sensível, confira o resultado
   com **Ver tabela** e leia a cópia anonimizada antes de confiar.
 - **PDF não volta.** Para baixar a versão final, o arquivo que o agente devolve precisa ser `.docx`, `.xlsx`,
-  `.pptx`, `.md`, `.txt`, `.csv`, `.json` ou `.html`. Peça isso ao agente quando o resultado for ser baixado.
+  `.pptx`, `.md`, `.txt`, `.csv` ou `.json`. Arquivos `.html` e `.svg` não voltam. Peça isso ao agente quando o resultado for ser baixado.
 - **PDF escaneado (foto de página)** não tem texto para ler e é recusado. Imagem, áudio e vídeo também não
   passam pelo filtro; o que fazer com eles é uma opção sua (bloquear ou enviar assim mesmo).
 

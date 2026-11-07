@@ -93,7 +93,15 @@ test('conversa: selo, botões de dados reais e aviso no upload estão ligados, s
   assert.match(js, /Ver com dados reais/); assert.match(js, /Baixar versão final/);
   assert.match(js, /Anonimizado: /);
   // o texto revertido passa por paragrafos(), que escapa; nunca por innerHTML direto
-  assert.match(js, /htmlLeg = paragrafos\(anonVistos\.get\(String\(m\.id\)\), m\.fmt\)/);
+  assert.match(js, /textoPuroEmParagrafos\(anonVistos/);
   assert.doesNotMatch(js, /innerHTML\s*=\s*d\.texto/);
   assert.match(js, /\/\\\[\[A-Z\]\+_\\d\+\\\]\/\.test\(leg\)/);
+});
+
+test('Correção na conversa: o texto revertido entra como texto puro, sem linkify nem markdown', () => {
+  const js = le('conversa.js');
+  assert.match(js, /function textoPuroEmParagrafos/);
+  assert.match(js, /htmlLeg = textoPuroEmParagrafos\(anonVistos\.get\(String\(m\.id\)\)\)/);
+  const f = /function textoPuroEmParagrafos[\s\S]*?\n}\n/.exec(js)[0];
+  assert.doesNotMatch(f, /linkify|formata\(/);
 });

@@ -1312,6 +1312,13 @@ function paragrafos(txt, fmt) {
   return html;
 }
 
+/* Texto com os dados reais: só escapado, em parágrafos. Sem linkify e sem markdown, para um dado real que pareça URL
+   (ou traga ](...)) não virar link nem imagem. */
+function textoPuroEmParagrafos(txt) {
+  return String(txt).split(/\n{2,}/).filter(p => p.trim())
+    .map(p => `<div class="p">${esc(p.trim()).replace(/\n/g, '<br>')}</div>`).join('');
+}
+
 const ROTULO_MIDIA = { photo: '📷 foto', video: '🎬 vídeo',
                        document: '📄 arquivo', voice: '🎤 áudio',
                        audio: '🎤 áudio' };
@@ -1597,7 +1604,7 @@ function htmlCorpo(m) {
   if (anonLigado && ehAgente(m) && !m.pendente) {
     if (m.id && leg && /\[[A-Z]+_\d+\]/.test(leg)) {
       const ver = anonVistos.has(String(m.id));
-      if (ver) htmlLeg = paragrafos(anonVistos.get(String(m.id)), m.fmt);
+      if (ver) htmlLeg = textoPuroEmParagrafos(anonVistos.get(String(m.id)));
       anonBotoes += `<button type="button" class="anon-btn" data-anon-ver="${esc(m.id)}" aria-pressed="${ver}">` +
         `${ver ? 'Esconder os dados reais' : 'Ver com dados reais'}</button>`;
     }

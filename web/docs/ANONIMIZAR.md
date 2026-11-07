@@ -66,7 +66,7 @@ da própria tela: com `Origin` do site, ou com `Sec-Fetch-Site: same-origin`. Se
 
 ## POST /api/v1/anonimizar/:slug/reverter-texto
 
-Corpo `{"texto":"Falei com [PESSOA_1]"}` (até 200 mil caracteres). Devolve
+Marcador dentro de URL, link ou imagem em markdown fica como está. Corpo `{"texto":"Falei com [PESSOA_1]"}` (até 200 mil caracteres). Devolve
 `{"ok":true,"texto":"Falei com Maria Souza","trocas":1,"desconhecidos":[]}`. Marcador que a tabela não
 conhece fica como está e aparece em `desconhecidos`.
 
@@ -74,9 +74,9 @@ conhece fica como está e aparece em `desconhecidos`.
 
 Gera e baixa a versão com os dados reais de um arquivo que o agente mandou (`mediaId` é o id da mídia, o
 mesmo de `/api/v1/media/<id>`). A mídia tem de ser registrada daquele agente e ficar dentro da pasta dele; de
-outro agente dá 404, fora da pasta dá 403. Formatos: `.docx .xlsx .pptx .md .txt .csv .json .html`. PDF dá 422 com
+outro agente dá 404, fora da pasta dá 403. Formatos: `.docx .xlsx .pptx .md .txt .csv .json`. A troca vale só em texto visível: marcador dentro de URL ou de `](...)` fica como está. `.html .htm .svg .xml` dão 422 (`FORMATO_ATIVO`): peça `.md` ou `.docx`. Arquivo que é atalho, FIFO ou arquivo especial dá 422 sem travar. PDF dá 422 com
 a orientação de pedir ao agente o resultado em `.docx` ou `.md`. A resposta é um download
-(`Content-Disposition: attachment`, nome com `-final`, `nosniff`, `no-store`); `.html` sai como texto puro.
+(`Content-Disposition: attachment`, nome com `-final`, `nosniff`, `no-store`).
 
 ## POST /api/v1/anonimizar/detector/instalar
 
@@ -96,3 +96,10 @@ anonimizada (`doc-<id>.anon.<ext>`). A resposta ganha `anonimizado: {id, contage
 Documento que não dá para anonimizar volta 422 (ou 503 se o motor está fora do ar) com o motivo e o que fazer,
 e nada chega ao agente. Com `enviar` em `nao_anonimizavel`, o arquivo segue sem filtro e a resposta traz
 `anonimizado.enviado_sem_anonimizar: true`.
+
+## Segurança da gravação
+
+Arquivos na casa do agente são gravados e lidos por `web/bin/entrega-segura.py`, que desce `uploads/<dia>` pasta
+por pasta com `O_NOFOLLOW` e `dir_fd`, depois de o motor terminar. Se o agente trocar uma pasta por um atalho no meio
+do caminho, a gravação é recusada (500, "atalho") e nada sai da casa dele. Se a configuração não puder ser lida, o
+envio de mensagens do agente falha com 503 (`CONFIG_CORROMPIDA`) em vez de seguir sem o filtro.
