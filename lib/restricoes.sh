@@ -25,14 +25,14 @@ restricoes_validar() {
     fi
     # shellcheck disable=SC2016 # nao ha variavel de shell aqui
     erro="$(jq -r '
-        def pasta_ruim: type != "string" or length == 0 or startswith("/") or test("(^|/)\\.{1,2}(/|$)") or test("[[:cntrl:]]");
+        def pasta_ruim: type != "string" or length == 0 or startswith("/") or test("(^|/)\\.{1,2}(/|$)") or startswith(".") or test("[[:cntrl:]]");
         if type != "object" then "o conteudo nao e um objeto JSON"
         elif .versao != 1 then "\"versao\" precisa ser 1"
         elif ((.sem_bash // false) | type) != "boolean" then "\"sem_bash\" precisa ser true ou false"
         elif ((.sem_enviar_arquivo // false) | type) != "boolean" then "\"sem_enviar_arquivo\" precisa ser true ou false"
         elif ((.escrita_so_em // null) | . != null and type != "array") then "\"escrita_so_em\" precisa ser uma lista de pastas ou null"
         elif (.escrita_so_em != null) and ((.escrita_so_em | length) == 0) then "\"escrita_so_em\" esta vazia; use null para gravar em qualquer lugar"
-        elif ((.escrita_so_em // []) | any(.[]; pasta_ruim)) then "\"escrita_so_em\" so aceita pastas relativas a casa do agente, sem \"..\" e sem comecar por \"/\""
+        elif ((.escrita_so_em // []) | any(.[]; pasta_ruim)) then "\"escrita_so_em\" so aceita pastas relativas a casa do agente, sem \"..\", sem comecar por \"/\" e sem comecar por ponto (.dgclaw, .claude e afins sao do servidor)"
         else empty end' "$arq")"
     if [ -n "$erro" ]; then
         falha "$arq (restricoes do agente $slug) esta invalido: $erro. Nao apliquei nada e deixei as travas atuais como estao." \
@@ -253,6 +253,9 @@ agente_restricoes() {
             if [[ "$p" =~ (^|/)\.{1,2}(/|$) ]]; then
                 falha "a pasta '$p' tem '.' ou '..' no caminho; so aceito pastas dentro da casa do agente." "escreva o caminho direto, por exemplo: --escrita-so-em relatorios"
             fi
+            case "$p" in
+                .*) falha "a pasta '$p' comeca por ponto. Pastas como .dgclaw, .claude, .codex e .plataforma guardam o que o agente executa e so o dono altera." "escolha uma pasta comum, por exemplo: --escrita-so-em relatorios" ;;
+            esac
             if [[ "$p" =~ [[:cntrl:]] ]]; then
                 falha "a pasta tem caractere de controle no nome." "use um nome de pasta normal."
             fi

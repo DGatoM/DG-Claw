@@ -15,12 +15,14 @@ import path from 'node:path';
 const ARQUIVO = process.env.DGCLAW_RESTRICOES || '/etc/dgclaw-runner/restricoes.json';
 const CASA = process.env.DGCLAW_WORKSPACE || '/home/agente';
 
-// O que o agente grava sozinho para funcionar (memória, rotinas, configuração do Claude Code).
-// Fica sempre liberado, senão a trava deixaria o agente sem memória.
+// O que o agente grava sozinho para funcionar: SO a memoria. Tudo o que algum executor do agente
+// (batimento, rotinas, ganchos, config.sh, extensoes, MCP) le para EXECUTAR fica fechado, senao
+// "so grava em relatorios" viraria "executa o que quiser": .dgclaw/** (config.sh que o batimento
+// carrega com source, ext/*/hooks/*.sh, self-crons.json), .claude/** (settings.local.json,
+// skills, hooks), .codex/**, .plataforma/** (comando do MCP) e qualquer arquivo de inicio de
+// shell na raiz da casa. /tmp tambem fica fechado. Lista completa em docs/RESTRICOES-DO-AGENTE.md.
 const INTERNOS_ARQUIVOS = ['MEMORY.md', 'working-memory.md'];
-const INTERNOS_PASTAS = ['memory', '.dgclaw', '.claude'];
-// Rascunho do sistema, fora da casa; não guarda trabalho do agente.
-const TEMPORARIAS = ['/tmp', '/var/tmp'];
+const INTERNOS_PASTAS = ['memory'];
 
 function bloqueia(motivo) {
   process.stdout.write(
@@ -120,16 +122,20 @@ const liberadas = [];
 for (const p of pastas) {
   const base = resolve(path.join(casa, p));
   // Pasta permitida que hoje aponta para fora da casa (atalho trocado) não vale.
-  if (dentro(base, casa)) liberadas.push(base);
+  if (dentro(base, casa) && base !== casa && !path.relative(casa, base).startsWith('.')) liberadas.push(base);
 }
 
-// O settings.json é do servidor (é nele que este gancho está registrado): nunca liberar a gravação.
-if (alvo === path.join(casa, '.claude', 'settings.json')) {
-  bloqueia(`${alvo} é gerido pelo servidor e não pode ser alterado por você. Não tente contornar; avise o dono se precisar de outra configuração.`);
+// Antes de qualquer liberacao: dentro da casa, nada que comece por ponto (.dgclaw, .claude, .codex,
+// .plataforma, .bashrc...) pode ser gravado, nem por uma pasta liberada que aponte para la.
+const relCasa = path.relative(casa, alvo);
+if (!relCasa.startsWith('..') && !path.isAbsolute(relCasa) && relCasa.split(path.sep)[0].startsWith('.')) {
+  bloqueia(
+    `${alvo} fica numa área de configuração do agente (${relCasa.split(path.sep)[0]}), que só o dono altera. ` +
+      'Não tente contornar; avise o dono se precisar de outra configuração.',
+  );
 }
 if (INTERNOS_ARQUIVOS.some((a) => alvo === path.join(casa, a))) libera();
 if (INTERNOS_PASTAS.some((d) => dentro(alvo, path.join(casa, d)))) libera();
-if (TEMPORARIAS.some((d) => dentro(alvo, d))) libera();
 if (liberadas.some((b) => dentro(alvo, b))) libera();
 
 const lista = pastas.map((p) => `${casa}/${p}`).join(', ');
