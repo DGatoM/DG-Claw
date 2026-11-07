@@ -339,6 +339,16 @@ def _literal_puro(texto):
     return m.group(1).replace('""', '"') if m else None
 
 
+def trocar_texto_de_celula(sessao, v, cabecalho):
+    """Texto de célula já filtrado. Número guardado como texto ("11988776655", "445566-7") usa o título da coluna."""
+    novo = sessao.trocar(v)
+    if novo == v and re.fullmatch(r"[\d\s().+\-]{8,22}", v.strip()):
+        m = sessao.numero_para_marcador(re.sub(r"\D", "", v), cabecalho)
+        if m:
+            return m
+    return novo
+
+
 def xlsx_transformar(wb, sessao):
     """Anonimiza o workbook aberto: nomes de aba, células de texto, números, fórmulas com dado, comentários.
 
@@ -369,6 +379,11 @@ def xlsx_transformar(wb, sessao):
                     c.value = m
             elif isinstance(v, str):
                 trocas = sessao.encontrar(v)
+                if not trocas and c.data_type != "f":
+                    novo = trocar_texto_de_celula(sessao, v, cab.get(c.column, ""))
+                    if novo != v:
+                        c.value = novo
+                        continue
                 if trocas:
                     novo = distribuir([v], trocas)[0]
                     if c.data_type == "f":
@@ -421,7 +436,7 @@ def xlsx_csvs(caminho_original, nome, wb_anon, sessao):
             for cv, c in zip(lin_v, lin):
                 v = cv.value if cv.value is not None else (c.value if c.data_type == "f" else None)
                 if isinstance(v, str):
-                    v = sessao.trocar(v)
+                    v = trocar_texto_de_celula(sessao, v, cab.get(cv.column, ""))
                 elif v is not None and _eh_numero(cv):
                     texto = numero_como_texto(v)
                     m = sessao.numero_para_marcador(texto, cab.get(cv.column, "")) if texto else None

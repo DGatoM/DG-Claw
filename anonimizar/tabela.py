@@ -6,6 +6,7 @@ um índice por `(tipo, chave normalizada)`. Nada aqui grava ou imprime valores.
 import re
 import unicodedata
 
+import excecoes
 from detectores import TIPOS, so_digitos
 
 PARTICULAS = {"de", "da", "do", "das", "dos", "e"}
@@ -111,6 +112,7 @@ class Sessao:
         self._rx_partes = None
         for e in tabela.entradas:
             self._superficie(e["valor"], e["tipo"], e["marcador"])
+        self._expandir_partes()
 
     def _superficie(self, texto, tipo, marcador):
         chave = " ".join(texto.split()).casefold()
@@ -208,6 +210,20 @@ class Sessao:
                 chave = sem_acento(tok).lower().strip(".")
                 if len(chave) >= 3 and chave not in PARTICULAS and tok[0].isupper():
                     por_token.setdefault(chave, {})[tok.strip(".")] = e["marcador"]
+        # Pedaços do nome com mais de uma palavra ("Maria Aparecida" de "Maria Aparecida dos Santos Ferreira")
+        por_pedaco = {}
+        for e in self.tabela.entradas:
+            if e["tipo"] != "PESSOA":
+                continue
+            toks = [t.strip(".,") for t in e["valor"].split() if t.strip(".,")]
+            for i in range(len(toks)):
+                for j in range(i + 2, len(toks) + 1):
+                    if (i, j) == (0, len(toks)) or toks[i].lower() in PARTICULAS or toks[j - 1].lower() in PARTICULAS:
+                        continue
+                    por_pedaco.setdefault(" ".join(toks[i:j]).casefold(), set()).add(e["marcador"])
+        for pedaco, marcadores in por_pedaco.items():
+            if len(marcadores) == 1 and pedaco not in self.superficies:
+                self._superficie(pedaco, "PESSOA", next(iter(marcadores)))
         for variantes in por_token.values():
             if len(set(variantes.values())) == 1:
                 for tok, marcador in variantes.items():
@@ -278,6 +294,8 @@ def _juntar_ner(spans_regex, spans_ner, texto):
     saida = list(spans_regex)
     novos = []
     for ini, fim, tipo in spans_ner:
+        if excecoes.ignorar(tipo, texto[ini:fim]):
+            continue
         pedacos = [(ini, fim)]
         for a, b, _t, _p in spans_regex:
             prox = []

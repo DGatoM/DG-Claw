@@ -20,11 +20,15 @@ ROTULOS = {
     "EMPRESA": ("company", "organization"),
 }
 
-# O modelo deixa passar endereço com complemento e bairro; este padrão cobre o formato brasileiro comum.
+# O modelo corta o endereço brasileiro no número da casa ou deixa passar complemento, bairro e cidade/UF.
+# Este padrão pega: via + número, complementos conhecidos, e "bairro, cidade/UF" quando há cidade/UF no fim.
+_VIA = r"(?:Rua|Avenida|Av\.|Travessa|Alameda|Pra[çc]a|Rodovia|Estrada|Largo|Viela|Beco)"
+_COMPL = (r"(?i:(?:apartamento|apto\.?|ap\.?|bloco|casa|sala|conjunto|conj\.?|andar|loja|quadra|lote|bairro|centro|vila|jardim)\b\.?"
+          r"[\wÀ-ú ]{0,30}|\d{1,2}[ºo°]\s*andar)")
 _RX_ENDERECO = re.compile(
-    r"\b(?:Rua|Avenida|Av\.|Travessa|Alameda|Pra[çc]a|Rodovia|Estrada|Largo|Viela|Beco)\s+[^,\n]{2,60}?,\s*(?:n[ºo°.]*\s*)?\d+[A-Za-z]?"
-    r"(?:\s*,\s*(?:(?:apartamento|apto\.?|ap\.?|bloco|casa|sala|conjunto|conj\.?|andar|loja)\s*\w+"
-    r"|[Bb]airro\s+[^,\n]{2,40}|[A-ZÀ-Ú][\wÀ-ú ]{1,40}/[A-Z]{2}))*")
+    _VIA + r"\s+[^,\n]{2,60}?,\s*(?:n[ºo°.]*\s*)?\d+[A-Za-z]?"
+    r"(?:\s*,\s*" + _COMPL + r")*"
+    r"(?:(?:\s*,\s*[\wÀ-ú' ]{2,40}?){0,3}?\s*,\s*[A-ZÀ-Ú][\wÀ-ú' ]{1,30}/[A-Z]{2})?")
 
 
 class ErroNer(Exception):

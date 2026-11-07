@@ -74,7 +74,7 @@ def luhn_valido(d):
 
 _CPF = re.compile(r"(?<![\d.\-/])(\d{3}\.?\d{3}\.?\d{3}-?\d{2})(?![\d]|[.\-/]\d)")
 _CNPJ = re.compile(r"(?<![0-9A-Za-z])([0-9A-Z]{2}\.?[0-9A-Z]{3}\.?[0-9A-Z]{3}/?[0-9A-Z]{4}-?[0-9]{2})(?![0-9A-Za-z])")
-_CARTAO = re.compile(r"(?<![\d])(\d(?:[ -]?\d){12,18})(?![\d])")
+_CARTAO = re.compile(r"(?<![\d+])(\d(?:[ -]?\d){12,18})(?![\d])")
 _PIS_FMT = re.compile(r"(?<![\d.\-])(\d{3}\.\d{5}\.\d{2}-\d)(?![\d])")
 _CTX_PIS = re.compile(r"(?i)\b(?:PIS|PASEP|NIT|PIS/PASEP)\b[\s:.\-nºo°]{0,12}(\d[\d.\-]{9,14}\d)")
 _CTX_CNH = re.compile(r"(?i)(?:\bCNH\b|habilita[çc][ãa]o)[^\d\n]{0,25}(\d{11})(?!\d)")
@@ -92,7 +92,9 @@ _CTX_CONTA = re.compile(
     r"(?:\s*(?:n[ºo°]\.?|n\.?[ºo°]))?[\s:.\-]{0,4}(\d{3,12}(?:\s?-\s?[\dxX])?)(?![\d])")
 _TEL = re.compile(r"(?<![\w@.,/])(\+?55[\s.\-]?)?(\(\s?\d{2}\s?\)[\s.\-]?|\d{2}[\s.\-])?(9?\d{4})(-|\s)?(\d{4})(?![\w@]|[.,]\d)")
 _TEL_PLANO = re.compile(r"(?<![\w.,])(\d{2})(9?\d{4})(\d{4})(?![\w]|[.,]\d)")
-_CTX_TEL = re.compile(r"(?i)(?:tel(?:efone)?|fone|cel(?:ular)?|whats(?:app)?|zap|contato|ligar|ramal|pix)[^\d\n]{0,20}$")
+_TEL_55 = re.compile(r"(?<![\w])\+55(\d{2})(9?\d{8})(?!\d)")
+_TEL_0800 = re.compile(r"(?<!\d)(?:(?:0800|0300)[ .\-]?\d{3}[ .\-]?\d{3,4}|(?:4004|4003|3003)[ .\-]?\d{4})(?!\d)")
+_CTX_TEL = re.compile(r"(?i)(?:tel(?:efone)?|fone|fixo|cel(?:ular)?|m[oó]vel|comercial|residencial|whats(?:app)?|zap|contato|ligar|ramal|pix|atendimento|central|sac)[^\d\n]{0,20}$")
 _CTX_CPF_ANTES = re.compile(r"(?i)\bCPF\b[^\d\n]{0,15}$")
 
 _MESES = "janeiro|fevereiro|mar[çc]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro"
@@ -159,6 +161,11 @@ def detectar(texto, valores=False, datas=False):
     for m in _TEL.finditer(texto):
         if _telefone_ok(texto, m):
             _add(c, m, 0, "TELEFONE", 4)
+    for m in _TEL_55.finditer(texto):
+        if int(m.group(1)) in DDDS_VALIDOS:
+            _add(c, m, 0, "TELEFONE", 1)
+    for m in _TEL_0800.finditer(texto):
+        _add(c, m, 0, "TELEFONE", 3)
     for m in _TEL_PLANO.finditer(texto):
         ddd, ini = m.group(1), m.group(2)
         if (int(ddd) in DDDS_VALIDOS and _CTX_TEL.search(_antes(texto, m.start(), 30))

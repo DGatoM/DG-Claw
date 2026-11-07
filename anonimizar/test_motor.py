@@ -614,6 +614,53 @@ class Arquivos(unittest.TestCase):
         self.assertIn("OCR", r["erro"])
 
 
+class Regras(unittest.TestCase):
+    """Regras acrescentadas depois da bateria de acurácia (anonimizar/avaliacao)."""
+
+    def test_endereco_brasileiro_com_complemento_bairro_e_cidade(self):
+        import ner_gliner
+        casos = {
+            "Rua Quinze de Novembro, 88, centro, Florianópolis/SC. O prazo": "Rua Quinze de Novembro, 88, centro, Florianópolis/SC",
+            "na Rua Augusta, 900, 3º andar, Consolação, São Paulo/SP, CEP": "Rua Augusta, 900, 3º andar, Consolação, São Paulo/SP",
+            "lá na Rua Cinco, 123, quadra 7, Bairro Santa Rita. Quem vai?": "Rua Cinco, 123, quadra 7, Bairro Santa Rita",
+            "Rua Joaquim Murtinho, 88, ap. 304, Campo Grande/MS, vem": "Rua Joaquim Murtinho, 88, ap. 304, Campo Grande/MS",
+            "Rua das Acácias, nº 450, apartamento 12, Bairro Jardim Botânico, Curitiba/PR, CEP": "Rua das Acácias, nº 450, apartamento 12, Bairro Jardim Botânico, Curitiba/PR",
+        }
+        for texto, esperado in casos.items():
+            m = ner_gliner._RX_ENDERECO.search(texto)
+            self.assertIsNotNone(m, texto)
+            self.assertEqual(m.group(0).strip(), esperado)
+        self.assertIsNone(ner_gliner._RX_ENDERECO.search("A rua estava cheia, 30 pessoas."))
+
+    def test_telefones_sem_separador_e_de_central(self):
+        r = anon("Chave +5511987654321, SAC 0800 123 4567, central 4004-0001, fixo: 3233-4455.")
+        self.assertEqual(r["texto"].count("[TELEFONE_"), 4)
+        r = anon("Celular +55 31 99123-4567.")
+        self.assertEqual(r["texto"], "Celular [TELEFONE_1].")   # não vira cartão
+
+    def test_excecoes_do_detector_de_nomes(self):
+        import excecoes
+        for tipo, texto in (("EMPRESA", "INSS"), ("EMPRESA", "Banco do Brasil"), ("EMPRESA", "nfse.exemplo.gov.br"), ("EMPRESA", "LOCADORA"), ("PESSOA", "CNPJ")):
+            self.assertTrue(excecoes.ignorar(tipo, texto), texto)
+        for tipo, texto in (("EMPRESA", "Banco do Brasil Seguros Ltda"), ("EMPRESA", "Padaria Pão Quente ME"), ("PESSOA", "Maria Souza")):
+            self.assertFalse(excecoes.ignorar(tipo, texto), texto)
+
+    def test_pedaco_do_nome_vira_o_mesmo_marcador(self):
+        tabela = [{"tipo": "PESSOA", "valor": "MARIA APARECIDA DOS SANTOS FERREIRA", "marcador": "[PESSOA_1]"}]
+        r = anon("A outorgante Maria Aparecida confirmou; falou com Santos Ferreira e com Aparecida dos Santos.", tabela=tabela)
+        self.assertEqual(r["texto"], "A outorgante [PESSOA_1] confirmou; falou com [PESSOA_1] e com [PESSOA_1].")
+        self.assertEqual(r["novas"], [])
+
+    def test_numero_guardado_como_texto_na_coluna_de_conta_e_telefone(self):
+        import documentos
+        if not (tem("openpyxl")):
+            self.skipTest("openpyxl não está instalado neste Python")
+        s = motor.Sessao(motor.Tabela([]), {}, None)
+        self.assertEqual(documentos.trocar_texto_de_celula(s, "11988776655", "Celular"), "[TELEFONE_1]")
+        self.assertEqual(documentos.trocar_texto_de_celula(s, "445566-7", "Conta"), "[CONTA_1]")
+        self.assertEqual(documentos.trocar_texto_de_celula(s, "1001", "Matrícula"), "1001")
+
+
 class Protocolo(unittest.TestCase):
     def test_servir_varias_linhas_e_json_invalido(self):
         env = dict(os.environ, DGCLAW_ANON_NER="falso")
