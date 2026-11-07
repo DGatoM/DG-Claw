@@ -24,6 +24,29 @@ case "$saida" in *"https://download.pytorch.org/whl/cpu"*) ok "ensaio usa o índ
 saida="$(DGCLAW_ANON_BASE="$BASE" bash "$SCRIPT" leitores --ensaio 2>&1)"
 case "$saida" in *torch*) ruim "ensaio de leitores fala em torch" ;; *) ok "ensaio de leitores não instala torch" ;; esac
 
+# 1b. a escolha dos requisitos e do torch pela versao do Python
+for par in "3.10:requisitos-completo-py310.txt:torch==2.14.1" "3.11:requisitos-completo-py311.txt:torch==2.15.0" \
+           "3.12:requisitos-completo.txt:torch==2.15.0" "3.14:requisitos-completo.txt:torch==2.15.0"; do
+    v="${par%%:*}"; resto="${par#*:}"; arq="${resto%%:*}"; tv="${resto#*:}"
+    saida="$(DGCLAW_ANON_PYVER="$v" DGCLAW_ANON_BASE="$TMP/base1" bash "$SCRIPT" --ensaio completo 2>&1)"
+    case "$saida" in
+        *"Python $v: usaria anonimizar/$arq e $tv"*) ok "Python $v usa $arq com $tv" ;;
+        *) ruim "Python $v não escolheu $arq/$tv: $saida" ;;
+    esac
+    [ -f "$AQUI/../../anonimizar/$arq" ] && ok "$arq existe" || ruim "$arq não existe"
+done
+saida="$(DGCLAW_ANON_PYVER=3.9 DGCLAW_ANON_BASE="$TMP/base1" bash "$SCRIPT" --ensaio completo 2>&1)"
+case "$saida" in *"fora de 3.10 a 3.14"*) ok "ensaio com Python 3.9 avisa que o completo falharia" ;; *) ruim "ensaio 3.9: $saida" ;; esac
+saida="$(DGCLAW_ANON_PYVER=3.9 DGCLAW_ANON_BASE="$TMP/base1" bash "$SCRIPT" --ensaio leitores 2>&1)"
+case "$saida" in *"fora de 3.10"*) ruim "leitores não deveria depender do Python 3.10 a 3.14" ;; *) ok "leitores não depende da faixa de Python" ;; esac
+
+# 1c. Python fora da faixa no nivel completo: falha clara, estado.json com o erro, nada instalado
+BASE="$TMP/base1c"
+saida="$(DGCLAW_ANON_PYVER=3.9 DGCLAW_ANON_BASE="$BASE" bash "$SCRIPT" completo 2>&1)"; rc=$?
+[ "$rc" = 1 ] && ok "completo com Python 3.9 sai com 1" || ruim "completo com Python 3.9 saiu com $rc"
+case "$saida" in *"Python 3.9"*"leitores continua"*) ok "mensagem cita o Python e o nível leitores" ;; *) ruim "mensagem: $saida" ;; esac
+[ ! -d "$BASE/venv" ] && ok "não criou o venv" || ruim "criou o venv mesmo com Python errado"
+
 # 2. argumentos invalidos
 DGCLAW_ANON_BASE="$TMP/base2" bash "$SCRIPT" >/dev/null 2>&1; rc=$?
 [ "$rc" = 2 ] && ok "sem nível sai com 2" || ruim "sem nível saiu com $rc"

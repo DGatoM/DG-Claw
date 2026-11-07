@@ -10,6 +10,21 @@
 # Tudo fica em $DGCLAW_ANON_BASE (padrao /opt/dgclaw/anonimizar): venv/, modelo/ e estado.json.
 # --ensaio so imprime o que faria. O estado.json e gravado sempre, inclusive quando a instalacao falha.
 # Nao cria a unidade do systemd: quem chama (a unidade dgclaw-anonimizar-instalar.service) vem do install.sh.
+#
+# Versoes por Python (nivel completo). O Ubuntu 22.04 traz Python 3.10, o 24.04 o 3.12 e o 26.04 o 3.14, e as
+# versoes de torch, transformers e numpy mudam conforme o Python:
+#   Python 3.10        requisitos-completo-py310.txt  torch 2.14.1 (a ultima com roda cp310), transformers 5.20.2
+#   Python 3.11        requisitos-completo-py311.txt  torch 2.15.0
+#   Python 3.12 a 3.14 requisitos-completo.txt        torch 2.15.0
+#   Outro Python       o nivel completo falha explicando; o nivel leitores continua funcionando.
+# Antes de subir qualquer versao, confira o que existe de verdade (nunca chute):
+#   Rodas do torch para o Python alvo:  curl -s https://pypi.org/pypi/torch/<versao>/json  (ver as tags cpNNN dos arquivos)
+#                                       e https://download.pytorch.org/whl/cpu/torch/ (a roda +cpu precisa existir ali)
+#   Python minimo de cada pacote:       curl -s https://pypi.org/pypi/<pacote>/<versao>/json  (campo info.requires_python)
+#   Conjunto completo para um Python:   pip install --dry-run --no-deps --only-binary=:all: --python-version 3.10 \
+#                                         --platform manylinux2014_x86_64 --platform manylinux_2_28_x86_64 --platform any \
+#                                         --target /tmp/x -r anonimizar/requisitos-completo-py310.txt
+#                                       (repita para 3.11, 3.12 e 3.14; sai 0 quando todas as rodas existem)
 set -euo pipefail
 
 BASE="${DGCLAW_ANON_BASE:-/opt/dgclaw/anonimizar}"
@@ -20,7 +35,8 @@ ESTADO="$BASE/estado.json"
 MODELO_REPO="fastino/gliner2-privacy-filter-PII-multi"
 # Revisao FIXA (commit do Hugging Face): o modelo nao muda por baixo da instalacao.
 MODELO_REVISAO="1cb4166094dc58fa8d836429f060d6c95f62b495"
-TORCH_VERSAO="2.15.0"
+TORCH_VERSAO=""
+REQUISITOS_COMPLETO=""
 TORCH_INDICE="https://download.pytorch.org/whl/cpu"
 # Nunca .bin, .pkl ou .py: so pesos em safetensors e arquivos de configuracao.
 MODELO_PADROES='["*.json","*.safetensors","*.model","*.spm","*.txt"]'
@@ -96,6 +112,18 @@ while [ "$#" -gt 0 ]; do
 done
 [ -n "$NIVEL" ] || { uso; echo "erro: diga o nível: leitores ou completo." >&2; exit 2; }
 
+# Escolhe o arquivo de requisitos e o torch pela versao do python3 (so o nivel completo depende disso).
+escolhe_versoes() {
+    # DGCLAW_ANON_PYVER so existe para os testes simularem outro Python.
+    PYVER="${DGCLAW_ANON_PYVER:-$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')}"
+    case "$PYVER" in
+        3.10) REQUISITOS_COMPLETO="requisitos-completo-py310.txt"; TORCH_VERSAO="2.14.1" ;;
+        3.11) REQUISITOS_COMPLETO="requisitos-completo-py311.txt"; TORCH_VERSAO="2.15.0" ;;
+        3.12|3.13|3.14) REQUISITOS_COMPLETO="requisitos-completo.txt"; TORCH_VERSAO="2.15.0" ;;
+        *) return 1 ;;
+    esac
+}
+
 # Espaco livre no ponto de montagem mais proximo de $BASE (a pasta pode ainda nao existir).
 espaco_livre_mb() {
     local d="$BASE"
@@ -113,11 +141,18 @@ if [ "$ENSAIO" = 1 ]; then
     echo "[ensaio] nível: $NIVEL"
     echo "[ensaio] base: $BASE"
     echo "[ensaio] conferiria python3 com venv e pelo menos ${EXIGIDO_MB} MB livres"
+    if [ "$NIVEL" = completo ]; then
+        if ! escolhe_versoes; then
+            echo "[ensaio] o Python $PYVER está fora de 3.10 a 3.14: o nível completo falharia explicando"
+            exit 0
+        fi
+        echo "[ensaio] Python $PYVER: usaria anonimizar/$REQUISITOS_COMPLETO e torch==$TORCH_VERSAO"
+    fi
     echo "[ensaio] criaria o ambiente Python em $BASE/venv"
     echo "[ensaio] instalaria os leitores (versões fixadas em anonimizar/requisitos-leitores.txt)"
     if [ "$NIVEL" = completo ]; then
         echo "[ensaio] instalaria torch==$TORCH_VERSAO pelo índice CPU $TORCH_INDICE"
-        echo "[ensaio] instalaria as dependências fixadas de anonimizar/requisitos-completo.txt"
+        echo "[ensaio] instalaria as dependências fixadas de anonimizar/$REQUISITOS_COMPLETO"
         echo "[ensaio] baixaria $MODELO_REPO na revisão $MODELO_REVISAO (só safetensors e json) para $BASE/modelo"
     fi
     echo "[ensaio] testaria o motor com: $BASE/venv/bin/python -I anonimizar/motor.py estado"
@@ -130,6 +165,14 @@ command -v python3 >/dev/null 2>&1 \
     || falha "o python3 não foi encontrado nesta máquina." "Instale com: apt-get install -y python3 python3-venv"
 python3 -c 'import venv, ensurepip' >/dev/null 2>&1 \
     || falha "faltam o venv/ensurepip do Python." "Instale com: apt-get install -y python3-venv"
+
+if [ "$NIVEL" = completo ]; then
+    passo "escolhendo as versões para o Python desta máquina"
+    escolhe_versoes \
+        || falha "o nível completo funciona com o Python 3.10 a 3.14 e esta máquina tem o Python $PYVER." \
+                 "O nível leitores continua disponível; para o completo, instale um Python entre 3.10 e 3.14."
+    echo "    Python $PYVER: anonimizar/$REQUISITOS_COMPLETO e torch $TORCH_VERSAO"
+fi
 
 passo "conferindo o espaço em disco"
 LIVRE_MB="$(espaco_livre_mb)"
@@ -152,7 +195,7 @@ if [ "$NIVEL" = completo ]; then
     passo "instalando o torch (CPU, sem CUDA)"
     "${PIP[@]}" install --quiet --index-url "$TORCH_INDICE" "torch==$TORCH_VERSAO"
     passo "instalando o detector de nomes (gliner2)"
-    "${PIP[@]}" install --quiet -r "$ANON_DIR/requisitos-completo.txt"
+    "${PIP[@]}" install --quiet -r "$ANON_DIR/$REQUISITOS_COMPLETO"
 
     passo "baixando o modelo $MODELO_REPO (revisão $MODELO_REVISAO)"
     rm -rf "$BASE/modelo.novo"

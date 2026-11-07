@@ -1,11 +1,14 @@
 # Nivel "completo", alem dos leitores: o detector de nomes (GLiNER2). Versoes fixadas.
-# O torch NAO entra aqui: o instalador o instala antes, pelo indice CPU (sem CUDA), na versao TORCH_VERSAO do script.
+# Python 3.12 a 3.14 (Ubuntu 24.04 e 26.04). torch 2.15.0.
+# Gerado por resolucao do pip para essa versao do Python (veja o topo de lib/anonimizar-instalar.sh).
+# O torch NAO entra aqui: o instalador o instala antes, pelo indice CPU (sem CUDA), na versao 2.15.0.
 -r requisitos-leitores.txt
 accelerate==1.15.0
 annotated-doc==0.0.5
 annotated-types==0.8.0
 anyio==4.16.0
 certifi==2026.10.23
+charset-normalizer==3.5.2
 click==8.5.1
 filelock==4.2.9
 fsspec==2026.9.0
