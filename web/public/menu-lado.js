@@ -598,15 +598,19 @@
       $('mlTabs').insertAdjacentHTML('beforeend', `<div data-tour="gm-colaborador"><a class="ml-tab" href="${LINK_COLABORADOR.href}?agente=${encodeURIComponent(ag.id)}">` +
         `<span class="ml-ico" aria-hidden="true">${LINK_COLABORADOR.ico}</span>${LINK_COLABORADOR.nome}</a></div>`);
     }
-    // a Mesa já está no HTML com href="/mesa": passa a levar o agente junto
+    // A Mesa já está no HTML com href="/mesa": passa a levar o agente junto (e some para o colaborador).
+    // Sessões entra ANTES de a Mesa sair: inserir ao lado de um elemento que já foi removido lança NoModificationAllowedError.
     const mesa = document.querySelector('#mlTabs a[href="/mesa"]');
-    if (colab && mesa) mesa.parentElement.remove();
-    else if (mesa) mesa.setAttribute('href', comAgente('/mesa', ag.id));
-    // Sessões logo depois da Mesa, para todo agente com painel, em todas as telas
     const sess = linkSessoes(ag);
-    if (sess && mesa) {
-      mesa.parentElement.insertAdjacentHTML('afterend', `<div data-tour="gm-sessoes"><a class="ml-tab" id="mlSessoes" href="${esc(sess.href)}">` +
-        `<span class="ml-ico" aria-hidden="true">${sess.ico}</span>${sess.nome}</a></div>`);
+    if (sess) {
+      const html = `<div data-tour="gm-sessoes"><a class="ml-tab" id="mlSessoes" href="${esc(sess.href)}">` +
+        `<span class="ml-ico" aria-hidden="true">${sess.ico}</span>${sess.nome}</a></div>`;
+      if (mesa && mesa.parentElement) mesa.parentElement.insertAdjacentHTML('afterend', html);
+      else $('mlTabs').insertAdjacentHTML('beforeend', html);
+    }
+    if (mesa) {
+      if (colab) mesa.parentElement.remove();
+      else mesa.setAttribute('href', comAgente('/mesa', ag.id));
     }
     ligaSessoes(ag);
     agenteAtual = ag;

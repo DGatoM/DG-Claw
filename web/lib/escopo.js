@@ -23,7 +23,12 @@
 //   - trocar a conta de IA já conectada (qualquer método além de GET em /api/provedor*): o colaborador conecta
 //     pela página Conectar, e só quando o agente está sem conta ou com o login vencido;
 //   - credencial de canal (token de bot de Telegram, WhatsApp): qualquer escrita em /api/canais, /api/telegram etc.;
-//   - a senha da Tela (/api/tela/senha): é do dono, que repassa a senha ao colaborador.
+//   - a senha da Tela (/api/tela/senha): é do dono, que repassa a senha ao colaborador;
+//   - tudo que manda texto ou comando a uma sessão, decide pendência ou abre e encerra sessão com instrução pelo painel
+//     (/api/chat/* menos transcrever, /api/socorro/*, e em /api/sessoes: criar, recado, decidir, tecla, retomar,
+//     handoff, anexo e apagar). O painel não sabe quem é o colaborador e mandaria como se fosse o dono, ou aprovaria
+//     sem autoria: o colaborador conversa e confirma só pelas rotas do Web (/send, /permissao, /pergunta), que têm
+//     identidade e conferem o turno.
 //
 // ROTA NOVA: no server.js, uma rota que não leva o slug do agente no caminho fica FECHADA para o colaborador (403)
 // até alguém liberá-la aqui, de propósito. Libere só depois de pensar no que um colaborador faria com ela e de
@@ -41,6 +46,7 @@ const MOTIVO_CHAVES_API = 'As chaves de API do painel são só do dono do DG Cla
 const MOTIVO_CONTA_IA = 'Trocar a conta de IA que já está conectada é com o dono do DG Claw. A página Conectar serve quando o agente está sem conta ou com o login vencido.';
 const MOTIVO_CANAL = 'As credenciais dos canais (Telegram, WhatsApp) são só do dono do DG Claw.';
 const MOTIVO_SENHA_TELA = 'A senha da Tela é do dono do DG Claw. Peça a ele a senha para usar a Tela.';
+const MOTIVO_ENVIO = 'Mandar mensagem, instrução ou decisão ao agente pelo painel é só do dono do DG Claw. Converse pela conversa do agente: ali as suas mensagens e confirmações têm o seu nome.';
 const MOTIVO_DESVIO = 'Este endereço tem caracteres que não são aceitos para colaboradores. Você só tem acesso ao seu agente.';
 const MOTIVO_GERAL = 'Este endereço não está liberado para colaboradores. Você tem acesso ao seu agente inteiro, pelo menu dele.';
 const MOTIVO_OUTRO_AGENTE = 'Você só tem acesso ao agente para o qual foi convidado(a).';
@@ -139,6 +145,15 @@ function avaliaPainel(m, p, bruto, meuSlug) {
   if (prefixo(resto, '/api/tela/senha')) return nega(403, MOTIVO_SENHA_TELA, { extra: { error: MOTIVO_SENHA_TELA } });
   if (!leitura && ['/api/canais', '/api/canal', '/api/telegram', '/api/whatsapp'].some((b) => prefixo(resto, b))) {
     return nega(403, MOTIVO_CANAL, { extra: { error: MOTIVO_CANAL } });
+  }
+  if (!leitura) {
+    const segs = resto.split('/');   // ['', 'api', 'sessoes', <id>, <ação>]
+    const emSessoes = segs[1] === 'api' && segs[2] === 'sessoes';
+    const AES_FECHADAS = ['recado', 'decidir', 'tecla', 'retomar', 'handoff', 'anexo', 'apagar'];
+    if ((prefixo(resto, '/api/chat') && resto !== '/api/chat/transcrever') || prefixo(resto, '/api/socorro')
+      || (emSessoes && (segs.length === 3 || AES_FECHADAS.includes(segs[4])))) {
+      return nega(403, MOTIVO_ENVIO, { extra: { error: MOTIVO_ENVIO } });
+    }
   }
   return LIBERA;
 }

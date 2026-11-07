@@ -10,7 +10,8 @@ const { erroJson, paginaErro, ipDoPedido, esquemaDoPedido, hostDoPedido, lerCorp
 const { NOME_COOKIE } = require('./auth');
 
 const HOP = new Set(['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'proxy-connection']);
-const PROIBIDOS_DO_NAVEGADOR = new Set(['x-dgclaw-proxy', 'x-dgclaw-usuario']);
+const PROIBIDOS_DO_NAVEGADOR = new Set(['x-dgclaw-proxy', 'x-dgclaw-usuario', 'x-dgclaw-papel', 'x-dgclaw-colaborador']);
+const INTERVALO_REVALIDA_MS = 30 * 1000;
 
 /** Tira o cookie de sessão do Web do que vai para o painel (ele não precisa do nosso token). */
 function limpaCookie(c) {
@@ -28,6 +29,21 @@ function valorSeguro(v) {
 function criarProxy({ config, registro, log, cofreRotas }) {
   const cacheSegredo = new Map(); // caminho -> { mtimeMs, valor }
   const socketsAbertos = new Set(); // conexões WebSocket, para fechar junto com o servidor
+  const deColaborador = new Set(); // { colaborador_id, valeAinda(), socket, psocket }
+
+  const fechaPar = (r) => { r.socket.destroy(); r.psocket.destroy(); deColaborador.delete(r); };
+  /** Revogação, convite novo ou troca de senha: fecha os dois lados dos WebSockets daquele colaborador. */
+  function fecharDoColaborador(id) { for (const r of [...deColaborador]) if (r.colaborador_id === id) fechaPar(r); }
+  /** Fecha os WebSockets de colaborador cuja sessão deixou de valer (expirou, foi apagada, o acesso mudou). */
+  function revalidar() {
+    for (const r of [...deColaborador]) {
+      let vale = false;
+      try { vale = !!r.valeAinda(); } catch (e) { log('erro', `Proxy: não consegui revalidar a sessão de um WebSocket de colaborador (${e.message}); fechei a conexão.`); }
+      if (!vale) { log('aviso', 'Proxy: fechei o WebSocket de um colaborador cuja sessão deixou de valer.'); fechaPar(r); }
+    }
+  }
+  const relogio = setInterval(revalidar, INTERVALO_REVALIDA_MS);
+  if (relogio.unref) relogio.unref();
 
   function lerSegredo(agente) {
     const arq = agente.proxy_segredo_arquivo;
@@ -57,7 +73,7 @@ function criarProxy({ config, registro, log, cofreRotas }) {
     return { agente, segredo: s.segredo };
   }
 
-  function cabecalhosParaPainel(req, usuario, segredo, agente) {
+  function cabecalhosParaPainel(req, usuario, segredo, agente, quem) {
     const h = {};
     for (const [k, v] of Object.entries(req.headers)) {
       const nome = k.toLowerCase();
@@ -71,6 +87,9 @@ function criarProxy({ config, registro, log, cofreRotas }) {
     h['x-forwarded-host'] = hostDoPedido(req, config.proxiesConfiaveis);
     h['x-dgclaw-proxy'] = segredo;
     h['x-dgclaw-usuario'] = valorSeguro(usuario);
+    // Quem é, para o painel decidir no futuro. O navegador nunca consegue mandar estes: são apagados acima.
+    h['x-dgclaw-papel'] = quem && quem.colaborador_id ? 'colaborador' : 'dono';
+    if (quem && quem.colaborador_id) h['x-dgclaw-colaborador'] = valorSeguro(quem.colaborador_id);
     return h;
   }
 
@@ -79,16 +98,16 @@ function criarProxy({ config, registro, log, cofreRotas }) {
    * respondidas pelo Web (./cofre-rotas) e nunca chegam ao painel. Se o Web leu o corpo para
    * decidir e a rota é do painel, o corpo lido segue como Buffer.
    */
-  function responder(req, res, slug, usuario) {
+  function responder(req, res, slug, usuario, quem) {
     const agente = cofreRotas ? registro.obter(slug) : null;
     if (agente && !agente.cofre_arquivo && cofreRotas.casaLegado(req, slug)) {
-      legadoComAviso(req, res, slug, usuario, agente);
+      legadoComAviso(req, res, slug, usuario, agente, quem);
       return undefined;
     }
     const qual = agente && agente.cofre_arquivo ? cofreRotas.casa(req, slug) : null;
-    if (!qual) return encaminhar(req, res, slug, usuario, null);
+    if (!qual) return encaminhar(req, res, slug, usuario, null, undefined, quem);
     cofreRotas.tratar(req, res, agente, usuario, qual).then((repasse) => {
-      if (repasse && repasse.corpo) encaminhar(req, res, slug, usuario, repasse.corpo);
+      if (repasse && repasse.corpo) encaminhar(req, res, slug, usuario, repasse.corpo, undefined, quem);
     }).catch((e) => {
       log('erro', `Proxy /p/${slug}: o tratamento do cofre quebrou (${e && e.message}).`);
       if (!res.headersSent) erroJson(res, 500, 'Não consegui atender o pedido do cofre. Veja o registro do DG Claw Web.');
@@ -101,9 +120,9 @@ function criarProxy({ config, registro, log, cofreRotas }) {
    * Agente legado guardando chave: o painel dele grava e ignora `avisar`. Lê o corpo (até 64 KB), repassa
    * igual ao painel e, com a resposta dele em mãos, deixa o cofre-rotas montar o aviso. O corpo nunca vai a log.
    */
-  function legadoComAviso(req, res, slug, usuario, agente) {
+  function legadoComAviso(req, res, slug, usuario, agente, quem) {
     lerCorpo(req, 64 * 1024).then((buf) => {
-      encaminhar(req, res, slug, usuario, buf, (status, resposta) => cofreRotas.avisarLegado(agente, buf, status, resposta));
+      encaminhar(req, res, slug, usuario, buf, (status, resposta) => cofreRotas.avisarLegado(agente, buf, status, resposta), quem);
     }).catch((e) => {
       if (e && e.status === 413) return erroJson(res, 413, 'O pedido passou de 64 KB, que é muito mais do que uma chave precisa. Mande só o nome e o valor da chave.');
       log('erro', `Proxy /p/${slug}: não consegui ler o corpo do pedido do cofre (${(e && (e.code || e.message)) || 'erro'}).`);
@@ -111,7 +130,7 @@ function criarProxy({ config, registro, log, cofreRotas }) {
     });
   }
 
-  function encaminhar(req, res, slug, usuario, corpoLido, aoTerminar) {
+  function encaminhar(req, res, slug, usuario, corpoLido, aoTerminar, quem) {
     const d = destino(slug);
     if (d.status) {
       if (/\btext\/html\b/.test(String(req.headers.accept || ''))) paginaErro(res, d.status, 'Painel indisponível', d.motivo);
@@ -121,7 +140,7 @@ function criarProxy({ config, registro, log, cofreRotas }) {
     const { agente, segredo } = d;
     const opcoes = {
       host: '127.0.0.1', port: agente.porta_painel, method: req.method, path: req.url,
-      headers: cabecalhosParaPainel(req, usuario, segredo, agente),
+      headers: cabecalhosParaPainel(req, usuario, segredo, agente, quem),
     };
     if (corpoLido) opcoes.headers['content-length'] = String(corpoLido.length);
     const preq = http.request(opcoes, (pres) => {
@@ -150,7 +169,7 @@ function criarProxy({ config, registro, log, cofreRotas }) {
   }
 
   /** WebSocket/Upgrade: abre a mesma conexão no painel e liga os dois lados. */
-  function upgrade(req, socket, head, slug, usuario) {
+  function upgrade(req, socket, head, slug, usuario, quem) {
     const d = destino(slug);
     if (d.status) {
       socket.write(`HTTP/1.1 ${d.status} Erro\r\nConnection: close\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${d.motivo}`);
@@ -158,7 +177,7 @@ function criarProxy({ config, registro, log, cofreRotas }) {
       return;
     }
     const { agente, segredo } = d;
-    const h = cabecalhosParaPainel(req, usuario, segredo, agente);
+    const h = cabecalhosParaPainel(req, usuario, segredo, agente, quem);
     h.connection = 'Upgrade';
     h.upgrade = req.headers.upgrade;
     const preq = http.request({ host: '127.0.0.1', port: agente.porta_painel, method: req.method, path: req.url, headers: h });
@@ -169,6 +188,12 @@ function criarProxy({ config, registro, log, cofreRotas }) {
       if (phead && phead.length) socket.write(phead);
       if (head && head.length) psocket.write(head);
       socketsAbertos.add(socket); socketsAbertos.add(psocket);
+      // WebSocket de colaborador: guardado com a conferência da sessão, para fechar quando ela deixar de valer.
+      if (quem && quem.colaborador_id) {
+        const reg = { colaborador_id: quem.colaborador_id, valeAinda: quem.valeAinda, socket, psocket };
+        deColaborador.add(reg);
+        socket.on('close', () => deColaborador.delete(reg));
+      }
       socket.on('close', () => socketsAbertos.delete(socket));
       psocket.on('close', () => socketsAbertos.delete(psocket));
       psocket.pipe(socket); socket.pipe(psocket);
@@ -191,7 +216,7 @@ function criarProxy({ config, registro, log, cofreRotas }) {
     preq.end();
   }
 
-  return { responder, upgrade, destino, fecharTudo() { for (const x of socketsAbertos) x.destroy(); socketsAbertos.clear(); } };
+  return { responder, upgrade, destino, fecharDoColaborador, revalidar, fecharTudo() { clearInterval(relogio); for (const x of socketsAbertos) x.destroy(); socketsAbertos.clear(); deColaborador.clear(); } };
 }
 
 module.exports = { criarProxy, limpaCookie };

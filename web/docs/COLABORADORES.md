@@ -28,6 +28,7 @@ Isso vale no servidor, não só na tela: o endereço de qualquer outro agente ou
 | **Trocar a conta de IA já conectada** | Quem paga a assinatura é você. O colaborador só conecta pela página Conectar, quando o agente está sem conta ou com o login vencido. |
 | As **credenciais dos canais** (token de bot do Telegram, WhatsApp) | Quem controla o canal fala em nome do agente com o mundo. Colar um token na conversa também é recusado para ele. |
 | A **senha da Tela** | É sua. Para o colaborador usar a Tela, passe a ele a senha que você definiu. |
+| **Mandar mensagem, instrução ou decisão pelo painel**: o chat do painel, a sessão de socorro e, em Sessões, criar, mandar recado, decidir pedido, retomar, passar o bastão, anexar e apagar | O painel não sabe quem é o colaborador e trataria a mensagem como sua. Ele conversa e confirma permissões só pela conversa do agente, onde cada mensagem e cada confirmação leva o nome dele. Em Sessões ele só acompanha, arquiva, renomeia e marca favorito. |
 
 Cada agente tem **um** colaborador por vez, e cada pessoa acessa **um** agente só. As mensagens dele chegam ao agente marcadas como vindas de um colaborador (`colaborador: Nome (e-mail)`), para o agente saber que não é você.
 
@@ -172,6 +173,9 @@ Cada exceção fechada dentro de `/p/<agente dele>/` é conferida no Web, antes 
 
 Regras que o servidor aplica por cima:
 
+- O Web manda ao painel, em todo pedido, os cabeçalhos `X-DGClaw-Papel` (`dono` ou `colaborador`) e `X-DGClaw-Colaborador` (o id, só para colaborador), e apaga os que o navegador mandar. O painel ainda não os usa.
+- Os WebSockets da Tela abertos por ele fecham na hora quando o acesso é revogado, o convite é reenviado ou a senha é trocada, e uma conferência a cada 30 segundos fecha os que perderam a sessão (por exemplo, por expiração).
+- Repetir um envio com o mesmo `cliente_id` devolve a resposta guardada e nunca muda quem é o autor do turno; o `cliente_id` de uma pessoa não vale para a outra.
 - Comandos de barra não existem para ele: `/comando` e `/comandos` são negados, e um texto que começa com `/` segue como mensagem comum, dentro do envelope com `from="colaborador: …"`.
 - Ele só responde a pedido de permissão ou pergunta do agente se a pendência foi aberta por um turno que **ele** iniciou, e precisa mandar o `tool_use_id` dela. Uma mensagem que só entrou na fila (o agente estava ocupado ou esperando confirmação) não inicia turno, e uma mensagem do dono na fila tira dele a confirmação. Senão recebe "Essa confirmação é do dono do DG Claw".
 - Ele só inicia o login da conta de IA (e manda o código) quando o agente está sem conta ou com o login vencido. Trocar uma conta que funciona é com o dono.

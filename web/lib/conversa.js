@@ -472,9 +472,10 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
   }
 
   // ── idempotência por cliente_id (em memória, com validade) ───────────────
-  async function umaVez(agente, rota, clienteId, faz) {
+  async function umaVez(agente, rota, clienteId, faz, quem) {
     if (!clienteId) return faz();
-    const chave = `${agente.slug}|${rota}|${clienteId}`;
+    // Quem enviou entra na chave: o cliente_id de um não devolve nem tira o envio de outro.
+    const chave = `${agente.slug}|${rota}|${quem || 'dono'}|${clienteId}`;
     const t = relogio();
     for (const [k, e] of envios) if (e.pronto && t - e.ts > TTL_ENVIO_MS) envios.delete(k);
     while (envios.size > MAX_ENVIOS) envios.delete(envios.keys().next().value);

@@ -32,14 +32,14 @@ const LIBERADOS = [
   ['GET', '/api/v1/conectar/docs.md'], ['GET', '/api/v1/login/docs.md'],
   // o painel inteiro do agente dele
   ['GET', '/p/ana/'], ['GET', '/p/ana'], ['GET', '/p/ana/index.html'], ['GET', '/p/ana/js/app.js'], ['GET', '/p/ana/css/estilo.css'],
-  ['GET', '/p/ana/api/sessoes'], ['POST', '/p/ana/api/sessoes'], ['PATCH', '/p/ana/api/sessoes/abc'], ['DELETE', '/p/ana/api/sessoes/abc'],
+  ['GET', '/p/ana/api/sessoes'], ['GET', '/p/ana/api/sessoes/abc/conversa'], ['POST', '/p/ana/api/sessoes/abc/arquivar'], ['POST', '/p/ana/api/sessoes/abc/renomear'], ['POST', '/p/ana/api/sessoes/abc/favorito'], ['PATCH', '/p/ana/api/sessoes/abc'], ['DELETE', '/p/ana/api/sessoes/abc'],
   ['GET', '/p/ana/api/sessoes-config'], ['GET', '/p/ana/api/rotinas'], ['GET', '/p/ana/api/rotinas/usuario'],
   ['GET', '/p/ana/api/memory'], ['GET', '/p/ana/api/memoria/arquivo'], ['PUT', '/p/ana/api/memoria/arquivo'],
   ['GET', '/p/ana/api/arquivos'], ['PUT', '/p/ana/api/arquivos'], ['DELETE', '/p/ana/api/arquivos'], ['POST', '/p/ana/api/arquivos/enviar'],
   ['GET', '/p/ana/api/tela'], ['GET', '/p/ana/tela/novnc/vnc.html'],
-  ['GET', '/p/ana/api/socorro/estado'], ['POST', '/p/ana/api/socorro/mensagem'], ['POST', '/p/ana/api/saude/reiniciar'],
+  ['GET', '/p/ana/api/socorro/estado'], ['POST', '/p/ana/api/saude/reiniciar'],
   ['GET', '/p/ana/api/provedor'], ['GET', '/p/ana/api/provedor/login'], ['GET', '/p/ana/api/uso'],
-  ['POST', '/p/ana/api/chat/mensagem'], ['POST', '/p/ana/api/chat/transcrever'], ['GET', '/p/ana/api/apps'], ['GET', '/p/ana/api/skills'],
+  ['GET', '/p/ana/api/chat/mensagens'], ['POST', '/p/ana/api/chat/transcrever'], ['GET', '/p/ana/api/apps'], ['GET', '/p/ana/api/skills'],
   // o prefixo fechado é por segmento: um nome parecido não fecha
   ['GET', '/p/ana/api/cofre-outra-coisa'], ['GET', '/p/ana/api/chaves-api-outra-coisa'],
   // nome com espaço ou acento codificado é legítimo na aba Pasta
@@ -130,6 +130,28 @@ test('escopo: trocar a conta de IA pelo painel é fechado (qualquer escrita); a 
     }
   }
   for (const v of ['/p/ana/api/provedor', '/p/ana/api/provedor/login']) assert.equal(avalia(COLAB, 'GET', v).ok, true, v);
+});
+
+test('escopo: o painel não manda mensagem, decisão nem instrução como se fosse o dono (cada rota, todas as formas)', () => {
+  const fechadas = [
+    ['POST', '/p/ana/api/chat/mensagem'], ['POST', '/p/ana/api/chat/parar'], ['POST', '/p/ana/api/chat/reativar'],
+    ['POST', '/p/ana/api/socorro/mensagem'], ['POST', '/p/ana/api/socorro/encerrar'],
+    ['POST', '/p/ana/api/sessoes'], ['POST', '/p/ana/api/sessoes/'],
+    ['POST', '/p/ana/api/sessoes/abc/recado'], ['POST', '/p/ana/api/sessoes/abc/decidir'], ['POST', '/p/ana/api/sessoes/abc/tecla'],
+    ['POST', '/p/ana/api/sessoes/abc/retomar'], ['POST', '/p/ana/api/sessoes/abc/handoff'], ['POST', '/p/ana/api/sessoes/abc/anexo'], ['POST', '/p/ana/api/sessoes/abc/apagar'],
+  ];
+  for (const [m, p] of fechadas) {
+    for (const v of [p, p.replace('/api/', '/API/').toUpperCase().replace('/P/ANA', '/p/ana'), `${p.replace(/\/$/, '')}/`]) {
+      const r = avalia(COLAB, m, v);
+      assert.equal(r.ok, false, `${m} ${v}`); assert.equal(r.status, 403, `${m} ${v}`);
+      assert.match(r.motivo, /só do dono/, `${m} ${v}`);
+    }
+  }
+  for (const v of ['/p/ana/api/sessoes%2fabc/recado', '/p/ana/api/sessoes/abc/./recado', '/p/ana/api/sessoes//abc/decidir', '/p/ana/api/sessoes/abc/dec%69dir']) {
+    assert.equal(avaliar(COLAB, 'POST', new URL(v, 'http://local').pathname, v).ok, false, v);
+  }
+  // a leitura e a transcrição de áudio seguem abertas
+  for (const [m, p] of [['GET', '/p/ana/api/chat/mensagens'], ['GET', '/p/ana/api/socorro/estado'], ['GET', '/p/ana/api/sessoes/abc/conversa'], ['POST', '/p/ana/api/chat/transcrever']]) assert.equal(avalia(COLAB, m, p).ok, true, `${m} ${p}`);
 });
 
 test('escopo: credencial de canal (token de bot) e a senha da Tela são fechadas', () => {

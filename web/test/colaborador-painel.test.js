@@ -14,11 +14,12 @@ const SEGREDO_DO_PROXY = 'segredo-do-proxy-so-para-teste-4321';
 function painelFalso() {
   const visto = [];
   const socketsWs = new Set();
+  const fechadosDoPainel = { n: 0 };
   const servidor = http.createServer((req, res) => {
     const partes = [];
     req.on('data', (c) => partes.push(c));
     req.on('end', () => {
-      visto.push({ metodo: req.method, url: req.url, usuario: req.headers['x-dgclaw-usuario'] });
+      visto.push({ metodo: req.method, url: req.url, usuario: req.headers['x-dgclaw-usuario'], papel: req.headers['x-dgclaw-papel'], colaborador: req.headers['x-dgclaw-colaborador'] });
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true, do_painel: true }));
     });
@@ -26,12 +27,14 @@ function painelFalso() {
   servidor.on('upgrade', (req, socket) => {
     visto.push({ metodo: 'UPGRADE', url: req.url, usuario: req.headers['x-dgclaw-usuario'] });
     socketsWs.add(socket);
+    socket.on('close', () => { fechadosDoPainel.n += 1; });
+    socket.on('end', () => socket.end());
     socket.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n');
     socket.on('data', (d) => socket.write(Buffer.concat([Buffer.from('eco:'), d])));
     socket.on('error', () => socket.destroy());
   });
   return {
-    visto,
+    visto, fechadosDoPainel,
     ouvir: () => new Promise((r) => servidor.listen(0, '127.0.0.1', () => r(servidor.address().port))),
     fechar: () => new Promise((r) => { for (const x of socketsWs) x.destroy(); servidor.closeAllConnections(); servidor.close(() => r()); }),
   };
@@ -52,9 +55,9 @@ test('colaborador usa o painel inteiro do agente dele: sessões, rotinas, memór
   const { x, painel, fechar } = await cenarioComPainel();
   try {
     const casos = [
-      ['GET', '/p/ana/'], ['GET', '/p/ana/api/sessoes'], ['POST', '/p/ana/api/sessoes'], ['GET', '/p/ana/api/rotinas'], ['GET', '/p/ana/api/rotinas/usuario'],
+      ['GET', '/p/ana/'], ['GET', '/p/ana/api/sessoes'], ['POST', '/p/ana/api/sessoes/abc/arquivar'], ['GET', '/p/ana/api/rotinas'], ['GET', '/p/ana/api/rotinas/usuario'],
       ['GET', '/p/ana/api/memory'], ['PUT', '/p/ana/api/memoria/arquivo'], ['GET', '/p/ana/api/arquivos'], ['PUT', '/p/ana/api/arquivos'],
-      ['GET', '/p/ana/api/tela'], ['GET', '/p/ana/api/provedor'], ['POST', '/p/ana/api/chat/mensagem'],
+      ['GET', '/p/ana/api/tela'], ['GET', '/p/ana/api/provedor'], ['GET', '/p/ana/api/chat/mensagens'],
     ];
     for (const [m, p] of casos) {
       const r = await x.c.pedir(m, p, m === 'GET' ? {} : { json: {} });
@@ -95,6 +98,12 @@ test('colaborador: cofre, chaves de API, conta de IA, canais e senha da Tela nã
       ['POST', '/p/ana/api/provedor'], ['DELETE', '/p/ana/api/provedor/login'], ['POST', '/p/ana/api/provedor/login/codigo'],
       ['PUT', '/p/ana/api/tela/senha'], ['PUT', '/p/ana/API/Tela/Senha/'],
       ['POST', '/p/ana/api/canais/telegram'],
+      // mandar mensagem, decidir e abrir sessão com instrução: só pelas rotas do Web, que têm identidade
+      ['POST', '/p/ana/api/chat/mensagem'], ['POST', '/p/ana/api/chat/parar'], ['POST', '/p/ana/api/chat/reativar'],
+      ['POST', '/p/ana/api/socorro/mensagem'], ['POST', '/p/ana/api/socorro/encerrar'], ['POST', '/p/ana/api/sessoes'],
+      ['POST', '/p/ana/api/sessoes/abc/recado'], ['POST', '/p/ana/api/sessoes/abc/decidir'], ['POST', '/p/ana/API/Sessoes/abc/Decidir/'],
+      ['POST', '/p/ana/api/sessoes/abc/retomar'], ['POST', '/p/ana/api/sessoes/abc/handoff'], ['POST', '/p/ana/api/sessoes/abc/apagar'],
+      ['POST', '/p/ana/api/sessoes/abc/dec%69dir'], ['POST', '/p/ana/api/sessoes/abc/./decidir'],
       // desvios do caminho cru
       ['GET', '/p/ana/api%2fcofre'], ['GET', '/p/ana/./api/cofre'], ['GET', '/p/ana/x/../api/cofre'], ['GET', '/p/ana//api/cofre'], ['GET', '/p/ana/api/%63ofre'],
       ['GET', '/p/ana/%2e%2e/bob/api/memory'], ['GET', '/p/bob/api/memory'],
@@ -135,5 +144,107 @@ test('colaborador: WebSocket da Tela do agente dele abre (101) e leva o usuário
     assert.equal(up.usuario, 'maria@x.com');
     for (const p of ['/p/bob/tela/websockify', '/p/ana/api/cofre', '/p/ana/%2e%2e/bob/tela/websockify']) assert.notEqual((await abre(p, portaWeb)).status, 101, p);
     assert.equal(painel.visto.filter((v) => v.metodo === 'UPGRADE').length, 1);
+  } finally { await fechar(); }
+});
+
+const TS = '2026-10-12T15:00:00.000Z';
+const msg = (n, texto, de) => ({ type: 'user', timestamp: TS, message: { role: 'user', content: `<dgchat from="${de || 'pessoa'}" chat="c_ana" msg="m${n}" ts="${TS}">${texto}</dgchat>` } });
+const usoBash = (id) => ({ type: 'assistant', timestamp: '2026-10-12T15:00:05.000Z', message: { role: 'assistant', content: [{ type: 'tool_use', id, name: 'Bash', input: { command: 'echo oi > /tmp/x', description: 'Grava um arquivo' } }] } });
+const COLAB_DE = 'colaborador: Maria (maria@x.com)';
+const mudaEstado = (s, status) => { s.rAna.opcoes.status = status; s.relogio.t += 3000; };
+
+test('proxy manda ao painel quem é (papel e colaborador) e apaga o que o navegador forjar', async () => {
+  const { x, s, painel, fechar } = await cenarioComPainel();
+  try {
+    const forjados = { 'X-DGClaw-Papel': 'dono', 'X-DGClaw-Colaborador': 'forjado', 'X-DGClaw-Usuario': 'dono' };
+    await x.c.get('/p/ana/api/sessoes', { headers: forjados });
+    await s.dono.get('/p/ana/api/sessoes', { headers: forjados });
+    const [doColab, doDono] = painel.visto;
+    assert.equal(doColab.papel, 'colaborador'); assert.equal(doColab.colaborador, x.id); assert.equal(doColab.usuario, 'maria@x.com');
+    assert.equal(doDono.papel, 'dono'); assert.equal(doDono.colaborador, undefined); assert.equal(doDono.usuario, 'dono');
+  } finally { await fechar(); }
+});
+
+function abreWs(porta, cookie, caminho) {
+  return new Promise((resolve, reject) => {
+    const req = http.request({ host: '127.0.0.1', port: porta, path: caminho, headers: { Connection: 'Upgrade', Upgrade: 'websocket', 'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==', 'Sec-WebSocket-Version': '13', Origin: `http://127.0.0.1:${porta}`, Cookie: cookie } });
+    req.on('upgrade', (res, socket) => resolve(socket));
+    req.on('response', (res) => { res.resume(); reject(new Error(`não abriu: ${res.statusCode}`)); });
+    req.on('error', reject);
+    req.end();
+  });
+}
+const espera = (socket, ms) => new Promise((resolve) => { const t = setTimeout(() => resolve(false), ms); socket.once('close', () => { clearTimeout(t); resolve(true); }); });
+const cookieDe = (c) => Object.entries(c.jar).map(([k, v]) => `${k}=${v}`).join('; ');
+
+test('WebSocket da Tela do colaborador fecha (os dois lados) quando o acesso é revogado', async () => {
+  const { x, s, painel, fechar } = await cenarioComPainel();
+  try {
+    const socket = await abreWs(s.t.porta, cookieDe(x.c), '/p/ana/tela/websockify');
+    const fechou = espera(socket, 3000);
+    assert.equal((await s.dono.pedir('DELETE', `/api/v1/colaboradores/${x.id}`)).status, 200);
+    assert.equal(await fechou, true, 'o socket do navegador devia ter fechado');
+    for (let i = 0; i < 40 && painel.fechadosDoPainel.n < 1; i++) await new Promise((r) => setTimeout(r, 50));
+    assert.equal(painel.fechadosDoPainel.n, 1, 'o lado do painel também');
+  } finally { await fechar(); }
+});
+
+test('WebSocket da Tela do colaborador fecha quando o convite é reenviado e quando ele troca a senha', async () => {
+  const { x, s, fechar } = await cenarioComPainel();
+  try {
+    let socket = await abreWs(s.t.porta, cookieDe(x.c), '/p/ana/tela/websockify');
+    let fechou = espera(socket, 3000);
+    const outra = 'outra-escolha-boa-1';
+    const t = await x.c.post('/api/v1/eu/senha', { json: { atual: x.nova, nova: outra, confirmacao: outra } });
+    assert.equal(t.status, 200, t.texto);
+    assert.equal(await fechou, true, 'a troca de senha devia fechar o socket');
+    socket = await abreWs(s.t.porta, cookieDe(x.c), '/p/ana/tela/websockify');
+    fechou = espera(socket, 3000);
+    assert.equal((await s.dono.post(`/api/v1/colaboradores/${x.id}/reenviar`)).status, 200);
+    assert.equal(await fechou, true, 'o convite novo devia fechar o socket');
+  } finally { await fechar(); }
+});
+
+test('o verificador de 30 s fecha o WebSocket cuja sessão expirou, e deixa em paz os que ainda valem', async () => {
+  const { x, s, fechar } = await cenarioComPainel();
+  try {
+    const socket = await abreWs(s.t.porta, cookieDe(x.c), '/p/ana/tela/websockify');
+    s.t.web.proxy.revalidar();
+    assert.equal(await espera(socket, 300), false, 'sessão válida: continua aberto');
+    const fechou = espera(socket, 3000);
+    s.relogio.t += 31 * 24 * 3600 * 1000;
+    s.t.web.proxy.revalidar();
+    assert.equal(await fechou, true, 'sessão vencida: fecha');
+  } finally { await fechar(); }
+});
+
+test('repetir um envio antigo (mesmo cliente_id) não devolve ao colaborador a autoria do turno', async () => {
+  const { x, s, fechar } = await cenarioComPainel();
+  try {
+    assert.equal((await x.c.post('/api/v1/agents/ana/send', { json: { text: 'primeiro', cliente_id: 'cliente-antigo-1' } })).status, 200);
+    const doDono = await s.dono.post('/api/v1/agents/ana/send', { json: { text: 'agora sou eu', cliente_id: 'cliente-antigo-1' } });
+    assert.equal(doDono.status, 200); assert.equal(doDono.json.repetido, undefined, 'o cliente_id do colaborador não vale para o dono');
+    s.escreveTranscript([msg(1, 'agora sou eu'), usoBash('tuZ')]);
+    mudaEstado(s, 'waiting_input');
+    const repete = await x.c.post('/api/v1/agents/ana/send', { json: { text: 'primeiro', cliente_id: 'cliente-antigo-1' } });
+    assert.equal(repete.json.repetido, true);
+    const nega = await x.c.post('/api/v1/agents/ana/permissao', { json: { decisao: 'aprovar', tool_use_id: 'tuZ' } });
+    assert.equal(nega.status, 403, nega.texto);
+    assert.equal(s.rAna.rec.permissoes.length, 0);
+  } finally { await fechar(); }
+});
+
+test('turno que vira misto invalida o vínculo da pendência que já tinha sido vista', async () => {
+  const { x, s, fechar } = await cenarioComPainel();
+  try {
+    await x.c.post('/api/v1/agents/ana/send', { json: { text: 'grava aquele arquivo' } });
+    s.escreveTranscript([msg(1, 'grava aquele arquivo', COLAB_DE), usoBash('tu5')]);
+    mudaEstado(s, 'waiting_input');
+    // o colaborador vê a pendência (um pedido com id errado já a vincula ao turno dele)
+    assert.equal((await x.c.post('/api/v1/agents/ana/permissao', { json: { decisao: 'aprovar', tool_use_id: 'tuX' } })).status, 409);
+    assert.equal((await s.dono.post('/api/v1/agents/ana/send', { json: { text: 'e depois isto' } })).json.fila.motivo, 'permissao');
+    const nega = await x.c.post('/api/v1/agents/ana/permissao', { json: { decisao: 'aprovar', tool_use_id: 'tu5' } });
+    assert.equal(nega.status, 403, nega.texto);
+    assert.equal(s.rAna.rec.permissoes.length, 0);
   } finally { await fechar(); }
 });

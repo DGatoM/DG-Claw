@@ -92,7 +92,7 @@ function criarServidor(opcoes) {
   log('info', config.smtp.host ? `E-mail dos convites de colaborador: ligado (${config.smtp.host}:${config.smtp.porta}).` : 'E-mail dos convites de colaborador: desligado (opcional; o convite sai pelo texto da tela). Para ligar, defina DGCLAW_SMTP_HOST e as outras DGCLAW_SMTP_* no web.env.');
   // Conexões abertas (stream da conversa) de cada colaborador: ao revogar ou trocar a senha, fecham junto com a sessão.
   const streamsDoColaborador = new Map();
-  const fechaStreamsDe = (id) => { for (const r of streamsDoColaborador.get(id) || []) r.destroy(); streamsDoColaborador.delete(id); };
+  const fechaStreamsDe = (id) => { for (const r of streamsDoColaborador.get(id) || []) r.destroy(); streamsDoColaborador.delete(id); proxy.fecharDoColaborador(id); };
   const colabRotas = criarColaboradoresRotas({ colaboradores, auth, registro, email: opcoes.email || criarEmail({ config, log }), config, log, agora: opcoes.agora, aoDerrubar: fechaStreamsDe });
   const primeiroAcesso = criarPrimeiroAcesso({ config, auth, log, agora: opcoes.agora });
   const avatares = criarAvatar({ dataDir: config.dataDir, log });
@@ -808,17 +808,23 @@ function criarServidor(opcoes) {
   const turnos = new Map(); // slug -> { autor: { dono:true } | { colaborador_id }, misto: bool }
   const pendencias = new Map(); // slug -> { id, ok } (ok: o colaborador pode responder)
   const autorDe = (sessao) => (sessao && sessao.papel === 'colaborador' ? { colaborador_id: sessao.colaborador_id } : { dono: true });
+  const identidadeDe = (sessao) => (sessao && sessao.papel === 'colaborador' ? `colaborador:${sessao.colaborador_id}` : 'dono');
   const mesmoAutor = (a, b) => (a.dono ? !!b.dono : a.colaborador_id === b.colaborador_id);
-  /** `r` é a resposta do envio: com `r.corpo.fila` a mensagem só entrou na fila. */
+  /**
+   * Só a execução efetiva de um envio chama isto (nunca a devolução do cache de um cliente_id repetido).
+   * `r` é a resposta do envio: com `r.corpo.fila` a mensagem só entrou na fila. Turno novo, turno que muda de autor
+   * ou que fica misto invalidam as pendências já vinculadas desse agente.
+   */
   function marcaAutor(slug, sessao, r) {
     const autor = autorDe(sessao);
     const atual = turnos.get(slug) || { autor: { dono: true }, misto: false };
     if (r && r.corpo && r.corpo.fila) {
-      if (!mesmoAutor(atual.autor, autor)) atual.misto = true;
+      if (!mesmoAutor(atual.autor, autor) && !atual.misto) { atual.misto = true; pendencias.delete(slug); }
       turnos.set(slug, atual);
       return;
     }
     turnos.set(slug, { autor, misto: false });
+    pendencias.delete(slug);
   }
   /** Primeira vez que se vê uma pendência com este id: fixa de quem ela é. Chamado só no caminho do colaborador. */
   function vinculaPendencia(slug, sessao, ativ) {
@@ -831,7 +837,10 @@ function criarServidor(opcoes) {
   }
   const pendenciaEhDele = (slug, sessao, id) => {
     const p = pendencias.get(slug);
-    return !!(id && p && p.id === id && p.colaborador_id && p.colaborador_id === sessao.colaborador_id);
+    const t = turnos.get(slug);
+    // Confere de novo o turno de agora: o vínculo sozinho não basta se o turno virou misto ou mudou de autor.
+    return !!(id && p && p.id === id && p.colaborador_id && p.colaborador_id === sessao.colaborador_id
+      && t && !t.misto && t.autor.colaborador_id === sessao.colaborador_id);
   };
   /**
    * Para o colaborador: a confirmação precisa trazer o id da pendência que está na tela agora, e ela precisa ser de um
@@ -858,8 +867,8 @@ function criarServidor(opcoes) {
     if (cid != null && cid !== '' && !(typeof cid === 'string' && RX_CLIENTE_ID.test(cid))) {
       return H.erroJson(res, 400, `O "cliente_id" veio como ${JSON.stringify(String(cid).slice(0, 80))}, que não vale: use de 8 a 64 caracteres entre letras, números, "-" e "_". Nada foi enviado.`);
     }
-    const r = await conversa.umaVez(agente, 'send', cid || null, () => conversa.enviar(agente, corpo, atorDa(sessao)));
-    if (r.status < 300) marcaAutor(agente.slug, sessao, r);
+    const r = await conversa.umaVez(agente, 'send', cid || null, () => conversa.enviar(agente, corpo, atorDa(sessao)), identidadeDe(sessao));
+    if (r.status < 300 && !(r.corpo && r.corpo.repetido)) marcaAutor(agente.slug, sessao, r);
     return H.enviaJson(res, r.status, r.corpo);
   }
 
@@ -870,8 +879,8 @@ function criarServidor(opcoes) {
     if (cid != null && cid !== '' && !(typeof cid === 'string' && RX_CLIENTE_ID.test(cid))) {
       return H.erroJson(res, 400, `O "cliente_id" veio como ${JSON.stringify(String(cid).slice(0, 80))}, que não vale: use de 8 a 64 caracteres entre letras, números, "-" e "_". Nada foi enviado.`);
     }
-    const r = await conversa.umaVez(agente, 'comando', cid || null, () => conversa.comando(agente, corpo, atorDa(sessao)));
-    if (r.status < 300) marcaAutor(agente.slug, sessao, r);
+    const r = await conversa.umaVez(agente, 'comando', cid || null, () => conversa.comando(agente, corpo, atorDa(sessao)), identidadeDe(sessao));
+    if (r.status < 300 && !(r.corpo && r.corpo.repetido)) marcaAutor(agente.slug, sessao, r);
     return H.enviaJson(res, r.status, r.corpo);
   }
 
@@ -910,7 +919,7 @@ function criarServidor(opcoes) {
       if (e.status >= 300) return Object.assign(e, { corpo: Object.assign({ arquivo_salvo: visto }, e.corpo) });
       marcaAutor(agente.slug, sessao, e);
       return { status: 201, corpo: Object.assign({}, e.corpo, { enviado: true, kind: media.kind, texto: legenda, anexo, marcador, media }) };
-    });
+    }, identidadeDe(sessao));
     return H.enviaJson(res, r.status, r.corpo);
   }
 
@@ -946,6 +955,8 @@ function criarServidor(opcoes) {
   }
 
   // ── despacho ─────────────────────────────────────────────────────────────
+  const quemDoProxy = (sessao) => (sessao.papel === 'colaborador' ? { colaborador_id: sessao.colaborador_id } : {});
+
   async function tratar(req, res) {
     let url;
     try { url = new URL(req.url, 'http://local'); } catch (_) { return H.paginaErro(res, 400, 'Endereço inválido', 'Não entendi o endereço pedido.'); }
@@ -1031,7 +1042,7 @@ function criarServidor(opcoes) {
         return H.erroJson(res, 401, 'Você precisa entrar para abrir o painel. Faça login em /login.');
       }
       if (!pp[2]) { res.writeHead(302, { Location: `/p/${pp[1]}/${url.search}` }); return res.end(); }
-      return proxy.responder(req, res, pp[1], sessao.usuario);
+      return proxy.responder(req, res, pp[1], sessao.usuario, quemDoProxy(sessao));
     }
 
     if (p === '/' && (m === 'GET' || m === 'HEAD')) {
@@ -1158,7 +1169,12 @@ function criarServidor(opcoes) {
         log('aviso', `WebSocket em ${url.pathname} recusado: Origin ${String(req.headers.origin || '(sem Origin)').slice(0, 80)} não é a deste Web.`);
         return nega(403, 'Origem não permitida.');
       }
-      return proxy.upgrade(req, socket, head, pp[1], sessao.usuario);
+      const quem = quemDoProxy(sessao);
+      if (quem.colaborador_id) {
+        // A conferência repete o login do upgrade: o proxy a chama a cada 30 s e fecha o socket quando a sessão cai.
+        quem.valeAinda = () => { const s2 = auth.sessaoDoPedido(req); return !!s2 && s2.papel === 'colaborador' && s2.colaborador_id === quem.colaborador_id && s2.senha_versao === sessao.senha_versao; };
+      }
+      return proxy.upgrade(req, socket, head, pp[1], sessao.usuario, quem);
     } catch (e) {
       log('erro', `Falha no upgrade de ${String(req.url).split('?')[0]}: ${e.message}`);
       socket.destroy();
@@ -1167,7 +1183,7 @@ function criarServidor(opcoes) {
   });
 
   return {
-    servidor, config, registro, auth, colaboradores, midia, conversa, log, caixa, push, lembretes, avisos, estados, vigiaAtencao, prefsAtencao,
+    servidor, config, registro, auth, colaboradores, proxy, midia, conversa, log, caixa, push, lembretes, avisos, estados, vigiaAtencao, prefsAtencao,
     ouvir(porta, host) {
       return new Promise((resolve, reject) => {
         servidor.once('error', reject);
