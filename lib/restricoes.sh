@@ -160,6 +160,48 @@ _restricoes_gravar() {
     mv -f -- "$tmp" "$alvo" || _restricoes_gravar_falhou "trocar o temporario pelo arquivo"
 }
 
+# _restricoes_sessoes_em_codex <casa>: lista (separada por "; ") as sessoes do agente que rodam no Codex, ou cujo
+# provedor nao deu para ler. Segue a ordem do runner (runner/src/provedores/escolha.ts): o provedor.json da sessao
+# vence (principal em home/.plataforma/provedor.json, paralela em home/.plataforma/sessoes/<id>/provedor.json), depois
+# o descritor (sessoes[].provider da paralela, config.provider), depois Claude. A escolha do painel nunca passa pelo
+# runner.json, por isso so olhar o runner.json deixava o aviso de fora. So le (nada e gravado na casa do agente);
+# arquivo ilegivel conta como duvida. Imprime vazio quando todas as sessoes estao no Claude.
+_restricoes_sessoes_em_codex() {
+    local casa="$1" id nome arq res achados=() ids=() d
+    local rj="$casa/runner/runner.json" est="$casa/home/.plataforma"
+    # shellcheck disable=SC2016 # os $ sao variaveis do jq
+    local norm='def norm: tostring | ascii_downcase | gsub("^\\s+|\\s+$"; "") | if . == "claude" or . == "local-cli" or . == "claude-code" then "claude" elif . == "codex" or . == "codex-cli" then "codex" else "" end;'
+    if [ -f "$rj" ]; then
+        while IFS= read -r id; do [ -z "$id" ] || ids+=("$id"); done < <(jq -r '(.sessoes // [])[]? | .id? // empty' "$rj" 2>/dev/null || true)
+    fi
+    if [ -d "$est/sessoes" ] && [ ! -L "$est/sessoes" ]; then
+        for d in "$est"/sessoes/*/; do
+            id="$(basename "$d")"
+            [[ "$id" =~ ^[A-Za-z0-9._-]+$ ]] && ids+=("$id")
+        done
+    fi
+    for id in "" "${ids[@]}"; do
+        if [ -z "$id" ]; then nome="principal"; arq="$est/provedor.json"; else nome="paralela $id"; arq="$est/sessoes/$id/provedor.json"; fi
+        res=""
+        if [ -e "$arq" ] || [ -L "$arq" ]; then
+            if [ -L "$arq" ] || ! res="$(jq -r "$norm"' if type == "object" then (.provedor // "" | norm) else "?" end' "$arq" 2>/dev/null)" || [ "$res" = "?" ]; then
+                achados+=("$nome: nao consegui ler $arq")
+                continue
+            fi
+        fi
+        if [ -z "$res" ]; then
+            if [ ! -f "$rj" ]; then res=claude
+            elif ! res="$(jq -r --arg id "$id" "$norm"' ((if $id == "" then "" else ((.sessoes // [])[]? | select(.id == $id) | .provider // "") end) | norm) as $s | if $s != "" then $s else ((.config.provider // "") | norm) end' "$rj" 2>/dev/null)"; then
+                achados+=("$nome: nao consegui ler $rj"); continue
+            fi
+            [ -n "$res" ] || res=claude
+        fi
+        [ "$res" != codex ] || achados+=("$nome: Codex")
+    done
+    local IFS=';'
+    [ "${#achados[@]}" -eq 0 ] || printf '%s' "${achados[*]}" | sed 's/;/; /g'
+}
+
 _aplicar_restricoes_sem_trava() {
     local slug="$1" reiniciar=1 runner_novo=0 a
     shift
@@ -172,7 +214,7 @@ _aplicar_restricoes_sem_trava() {
     local casa="$DG_CASAS/$slug" c="dgclaw-$slug"
     local rj="$casa/runner/runner.json" rs="$casa/runner/restricoes.json" ms="$casa/runner/managed-settings.json"
     local pend="$casa/runner/restricoes.pendente" pend_mig="$casa/runner/restricoes-migracao.pendente"
-    local sem_bash=false sem_env=false pastas=null mudou=0 novo_rj="" novo_ms ms_existia=0 grav_ms=0 grav_rj=0 base="" provider deny_json='[]' rodando=0 saida rc ativo=false pronto i
+    local sem_bash=false sem_env=false pastas=null mudou=0 novo_rj="" novo_ms ms_existia=0 grav_ms=0 grav_rj=0 base="" deny_json='[]' codex_em rodando=0 vai_ms=0 vai_rj=0 saida rc ativo=false pronto i
 
     if [ "$runner_novo" = 1 ]; then base="$(cat)"; fi
     if [ -e "$rs" ] || [ -L "$rs" ]; then
@@ -237,13 +279,23 @@ _aplicar_restricoes_sem_trava() {
         falha "$ms e um link; nao gravo nele." "apague o link e rode de novo: dgclaw agente reparar $slug"
     fi
     [ -f "$ms" ] && ms_existia=1
-    if [ ! -f "$ms" ] || [ "$(jq -c . "$ms" 2>/dev/null || true)" != "$novo_ms" ]; then
+    # Primeiro DECIDE o que vai mudar; com reinicio a fazer, o marcador de pendencia entra ANTES de qualquer
+    # arquivo ser trocado. Gravar o marcador depois deixaria uma janela (disco cheio) em que os arquivos novos
+    # estao no lugar, nao ha marcador, e a proxima execucao os acha iguais e nao reinicia o runner.
+    vai_ms=0; vai_rj=0
+    if [ ! -f "$ms" ] || [ "$(jq -c . "$ms" 2>/dev/null || true)" != "$novo_ms" ]; then vai_ms=1; fi
+    if [ -n "$novo_rj" ] && { [ "$runner_novo" = 1 ] || [ "$(printf '%s' "$novo_rj" | jq -c .)" != "$(jq -c . "$rj")" ]; }; then vai_rj=1; fi
+    if [ "$reiniciar" = 1 ] && [ "$rodando" = 1 ] && [ ! -e "$pend" ] \
+        && { [ "$vai_rj" = 1 ] || { [ "$vai_ms" = 1 ] && { [ "$novo_ms" != '{}' ] || [ "$ms_existia" = 1 ]; }; }; }; then
+        _restricoes_gravar "$pend" "reinicio do runner pendente desde $(date -u +%FT%TZ)"
+    fi
+    if [ "$vai_ms" = 1 ]; then
         _restricoes_gravar "$ms" "$novo_ms"
         # `{}` num arquivo que nao existia nao muda nada para o agente: nao conta como mudanca.
         if [ "$novo_ms" != '{}' ] || [ "$ms_existia" = 1 ]; then mudou=1; fi
         grav_ms=1
     fi
-    if [ -n "$novo_rj" ] && { [ "$runner_novo" = 1 ] || [ "$(printf '%s' "$novo_rj" | jq -c .)" != "$(jq -c . "$rj")" ]; }; then
+    if [ "$vai_rj" = 1 ]; then
         _restricoes_gravar "$rj" "$novo_rj"
         mudou=1
         grav_rj=1
@@ -253,9 +305,6 @@ _aplicar_restricoes_sem_trava() {
     # Quem mexe nesse arquivo e o usuario agente, DENTRO da caixa. O root nao le nem grava nada na casa: entre
     # uma checagem de atalho e a gravacao o agente troca .claude por um link para /root/.claude. So agentes que ja
     # tiveram restricoes (restricoes.json) podem ter o gancho antigo.
-    if [ "$mudou" = 1 ] && [ "$reiniciar" = 1 ] && [ "$rodando" = 1 ] && [ ! -e "$pend" ]; then
-        _restricoes_gravar "$pend" "reinicio do runner pendente desde $(date -u +%FT%TZ)"
-    fi
     if [ -e "$rs" ] || [ -e "$pend_mig" ]; then
         if [ "$rodando" = 1 ]; then
             rc=0
@@ -294,11 +343,12 @@ _aplicar_restricoes_sem_trava() {
     [ "$grav_rj" = 0 ] || ok "runner.json do agente $slug ajustado (Bash: $([ "$sem_bash" = true ] && echo travado || echo liberado), envio de arquivo: $([ "$sem_env" = true ] && echo travado || echo liberado))"
 
     # --- Codex: o runner ignora allow/deny e os ganchos do Claude Code ---
-    provider=""
-    [ -f "$rj" ] && provider="$(jq -r '.config.provider // empty' "$rj" 2>/dev/null || true)"
-    if [ "$provider" = codex-cli ] && { [ "$sem_bash" = true ] || [ "$sem_env" = true ] || [ "$pastas" != null ]; }; then
-        aviso "o agente $slug roda no Codex, e no Codex estas travas ainda NAO valem (o runner ignora as regras de ferramentas e os ganchos do Claude Code). O arquivo $rs fica guardado e passa a valer se o agente trocar para o Claude."
-        _restricoes_log "$slug" "aviso: provedor codex-cli, restricoes gravadas mas nao aplicadas pelo runner (sem_bash=$sem_bash sem_enviar_arquivo=$sem_env escrita_so_em=$pastas)"
+    if [ "$sem_bash" = true ] || [ "$sem_env" = true ] || [ "$pastas" != null ]; then
+        codex_em="$(_restricoes_sessoes_em_codex "$casa")"
+        if [ -n "$codex_em" ]; then
+            aviso "o agente $slug tem sessoes em Codex ou com o provedor em duvida ($codex_em), e no Codex estas travas ainda NAO valem (o runner ignora as regras de ferramentas e os ganchos do Claude Code). O arquivo $rs fica guardado e passa a valer na sessao que voltar para o Claude."
+            _restricoes_log "$slug" "aviso: sessoes em Codex ou em duvida ($codex_em), restricoes gravadas mas nao aplicadas pelo runner (sem_bash=$sem_bash sem_enviar_arquivo=$sem_env escrita_so_em=$pastas)"
+        fi
     fi
     # Agente sem restricoes.json nao ganha arquivo novo na casa dele: o log so existe para quem tem trava.
     if [ -e "$rs" ]; then

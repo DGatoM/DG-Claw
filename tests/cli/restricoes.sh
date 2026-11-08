@@ -259,8 +259,8 @@ dgclaw agente restricoes ana --sem-bash nao --sem-enviar-arquivo nao --escrita-l
 echo "Codex: avisa e registra que a trava ainda nao vale"
 dgclaw agente restricoes beto --sem-bash sim >"$TMP/o9.txt" 2>&1
 igual "no Codex o comando grava e sai com 0" "0" "$?"
-afirma "avisa que no Codex as travas ainda nao valem" grep -q 'no Codex estas travas ainda NAO valem' "$TMP/o9.txt"
-afirma "registra em log" grep -q 'provedor codex-cli' "$LIB/agentes/beto/restricoes.log"
+afirma "avisa que no Codex as travas ainda nao valem" grep -q 'NAO valem' "$TMP/o9.txt"
+afirma "registra em log" grep -q 'sessoes em Codex' "$LIB/agentes/beto/restricoes.log"
 afirma "o arquivo ficou guardado" jq -e '.sem_bash == true' "$(R_DIR beto)/restricoes.json"
 
 echo "enviar arquivo travado exige o terminal travado (com o Bash ele fala direto com a ponte do WhatsApp)"
@@ -405,6 +405,63 @@ igual "restricoes.json bom ficou intacto" "" "$(diff "$TMP/rs-bom-disco.json" "$
 afirma "diz o passo que falhou" grep -q 'escrever o conteudo' "$TMP/o18.txt"
 nega "nao sobrou temporario" bash -c "ls -A '$(R_DIR ana)' | grep -q 'cheio1'"
 dgclaw agente restricoes ana --sem-bash nao --sem-enviar-arquivo nao >/dev/null 2>&1; igual "sem o defeito o comando funciona" "0" "$?"
+
+echo "provedor efetivo: o provedor.json do painel vence o runner.json (principal e paralelas)"
+EST="$LIB/agentes/ana/home/.plataforma"; mkdir -p "$EST/sessoes/p1"
+jq -e '.config.provider == "local-cli"' "$RJ" >/dev/null || mal "o runner.json de ana devia dizer local-cli"
+dgclaw agente restricoes ana --sem-bash nao --sem-enviar-arquivo nao --escrita-livre >/dev/null 2>&1
+dgclaw agente restricoes ana --sem-bash sim >"$TMP/o19.txt" 2>&1
+nega "so Claude em todas as sessoes: nenhum aviso de Codex" grep -q 'NAO valem' "$TMP/o19.txt"
+printf '{"provedor":"codex","auth":"assinatura","modelo":""}\n' >"$EST/provedor.json"
+dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1
+dgclaw agente restricoes ana --sem-bash sim >"$TMP/o19.txt" 2>&1
+afirma "provedor.json da principal diz codex (runner.json diz local-cli): avisa" grep -q 'NAO valem' "$TMP/o19.txt"
+afirma "e diz qual sessao e a principal" grep -q 'principal' "$TMP/o19.txt"
+afirma "registra no log do agente" grep -q 'principal' "$LIB/agentes/ana/restricoes.log"
+rm -f "$EST/provedor.json"
+printf '{"provedor":"codex"}\n' >"$EST/sessoes/p1/provedor.json"
+dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1
+dgclaw agente restricoes ana --sem-bash sim >"$TMP/o19.txt" 2>&1
+afirma "paralela em Codex tambem avisa, dizendo qual" grep -q 'paralela p1' "$TMP/o19.txt"
+printf '{ nao e json' >"$EST/sessoes/p1/provedor.json"
+dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1
+dgclaw agente restricoes ana --sem-bash sim >"$TMP/o19.txt" 2>&1
+afirma "provedor.json ilegivel: na duvida avisa" grep -q 'nao consegui ler' "$TMP/o19.txt"
+rm -rf "$EST/sessoes/p1"
+dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1
+
+echo "marcador de pendencia ANTES de trocar os arquivos"
+dgclaw agente restricoes ana --sem-bash nao --sem-enviar-arquivo nao --escrita-livre >/dev/null 2>&1
+PEND="$(R_DIR ana)/restricoes.pendente"
+sha_ms_rj() { sha256sum "$MSA" "$RJ" | cut -d' ' -f1 | tr '\n' ' '; }
+antes="$(sha_ms_rj)"
+MKPEND="$TMP/mktemp-pend"; mkdir -p "$MKPEND"
+cat >"$MKPEND/mktemp" <<'EOS'
+#!/bin/sh
+for a in "$@"; do alvo="$a"; done
+case "$alvo" in
+    *restricoes.pendente*) t="$(echo "$alvo" | sed 's/XXXXXX$/pend01/')"; ln -s /dev/full "$t" && echo "$t" ;;
+    *) exec /usr/bin/mktemp "$@" ;;
+esac
+EOS
+chmod +x "$MKPEND/mktemp"
+PATH="$MKPEND:$PATH" dgclaw agente restricoes ana --sem-bash sim >"$TMP/o20.txt" 2>&1; nega "marcador que nao grava: o comando falha" test "$?" -eq 0
+igual "e managed-settings.json e runner.json ficaram intactos" "$antes" "$(sha_ms_rj)"
+afirma "diz que o passo e o marcador" grep -q 'restricoes.pendente' "$TMP/o20.txt"
+: >"$STUB_LOG"
+dgclaw agente restricoes ana --sem-bash sim >/dev/null 2>&1; igual "sem o defeito, o mesmo comando funciona" "0" "$?"
+afirma "e reinicia o runner" grep -q 'systemctl restart dgclaw-runner' "$STUB_LOG"
+nega "e o marcador saiu" test -e "$PEND"
+dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1
+FALSO2="$TMP/falso-rj"; mkdir -p "$FALSO2"
+printf '#!/bin/sh\ncase "$*" in *runner.json*) echo "mv: falha simulada" >&2; exit 1;; esac\nexec /bin/mv "$@"\n' >"$FALSO2/mv"; chmod +x "$FALSO2/mv"
+PATH="$FALSO2:$PATH" dgclaw agente restricoes ana --sem-bash sim >/dev/null 2>&1; nega "falha depois do marcador (gravando o runner.json): o comando falha" test "$?" -eq 0
+afirma "o marcador ficou" test -e "$PEND"
+: >"$STUB_LOG"
+dgclaw agente restricoes ana --sem-bash sim >/dev/null 2>&1; igual "segunda execucao funciona" "0" "$?"
+afirma "e reiniciou o runner" grep -q 'systemctl restart dgclaw-runner' "$STUB_LOG"
+nega "marcador removido depois do active" test -e "$PEND"
+dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1
 
 echo "ensaio: nao grava nada"
 rm -f "$(R_DIR beto)/restricoes.json"
