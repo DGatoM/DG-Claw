@@ -91,19 +91,9 @@ const FIM_JSON = String.raw`[,}\]](?<=[^"'][,}\]])`;        // vírgula, chave o
 const VALOR = String.raw`(?:${DQ}|${SQ}|${ESC}|[^\s"'\\])+`;
 const VALOR_ATRIBUICAO = String.raw`(?:${DQ}|${SQ}|${ESC}|[^\s"'\\&;|,}\]]|${FIM_JSON})+`;
 const PRE = [
-  // mysql -pSENHA (sem espaço: com espaço o -p só pede a senha no terminal)
-  [new RegExp(String.raw`(\bmysql(?:dump|admin|import|check)?\b[^\n]{0,300}?[ \t]-p)${VALOR}`, 'gi'), '$1' + OCULTO],
   // flags longas de segredo, com `=` ou espaço: --password, --passwd, --pass, --pwd, --token, --secret, --senha, --api-key, --api_key,
   // --apikey, --auth e variações com prefixo ou sufixo (--access-token, --client-secret, --password-stdin...)
   [new RegExp(String.raw`(--(?:[a-z0-9_-]{0,30}?(?:password|passwd|passphrase|pwd|token|secret|senha|api[-_]?key|apikey)[a-z0-9_-]{0,30}|pass|auth)(?:=|[ \t]{1,20}))${VALOR}`, 'gi'), '$1' + OCULTO],
-  // curl: --user valor, --user=valor, --proxy-user (valor ou =valor), e as curtas -u e -U (com ou sem espaço: -u valor, -uvalor)
-  [new RegExp(String.raw`(\bcurl\b[^\n]{0,300}?[ \t](?:--proxy-user|--user)(?:=|[ \t]{1,20}))${VALOR}`, 'gi'), '$1' + OCULTO],
-  [new RegExp(String.raw`(\bcurl\b[^\n]{0,300}?[ \t]-[uU][ \t]{0,20})${VALOR}`, 'g'), '$1' + OCULTO],
-  // sshpass -p valor / -pvalor
-  [new RegExp(String.raw`(\bsshpass\b[^\n]{0,300}?[ \t]-p[ \t]{0,20})${VALOR}`, 'gi'), '$1' + OCULTO],
-  // htpasswd -b arquivo usuario senha (3 argumentos) e htpasswd -nb usuario senha (2): o último é a senha, e os de antes saem junto
-  [new RegExp(String.raw`(\bhtpasswd\b[^\n]{0,300}?[ \t]-(?![A-Za-z]{0,6}n)[A-Za-z]{0,6}b[A-Za-z]{0,6}[ \t]+)${VALOR}(?:[ \t]+${VALOR}){0,2}`, 'gi'), '$1' + OCULTO],
-  [new RegExp(String.raw`(\bhtpasswd\b[^\n]{0,300}?[ \t]-(?=[A-Za-z]{0,6}n)(?=[A-Za-z]{0,6}b)[A-Za-z]{1,12}[ \t]+)${VALOR}(?:[ \t]+${VALOR}){0,1}`, 'gi'), '$1' + OCULTO],
   // Atribuição com `=` é argumento de shell ou de variável de ambiente: todos os pedaços adjacentes até o espaço não escapado.
   [new RegExp(String.raw`((?:api[_-]?key|passw(?:or)?d|pwd|senha|secret|token|credential|chave|cookie|auth)[A-Za-z0-9_.-]{0,60}["']?[ \t]{0,20}=[ \t]{0,20})${VALOR}`, 'gi'), '$1' + OCULTO],
   // Com `:` é propriedade (JSON ou YAML): depois de uma aspa de fechamento, `,` `}` e `]` encerram o valor.
@@ -125,6 +115,130 @@ const EXTRAS = [
   [/\b((?:Set-)?Cookie[ \t]{0,20}:[ \t]{0,20})[^\n]+/gi, '$1' + OCULTO],
 ];
 
+// ── comandos de shell com senha na linha ───────────────────────────────────
+// curl (-u, -U, --user, --proxy-user), sshpass (-p), mysql* (-pSENHA) e htpasswd (-b) levam o segredo como argumento. Em vez de
+// regex (que perde `-u a:b -U p:q`, continuação de linha e distância grande), um tokenizador linear percorre os argumentos de cada
+// comando sem executar nada: aspas, escapes e `\`+quebra de linha contam como no shell, o comando acaba em `;` `|` `&` ou quebra de
+// linha fora de aspas, e só os valores sensíveis são trocados (o resto do texto fica byte a byte).
+const RX_COMANDO = /(?<![A-Za-z0-9_.-])(curl|sshpass|htpasswd|mysql(?:dump|admin|import|check)?)(?=[ \t\r\n\\]|$)/gi;
+const PALAVRAS_DE_COMANDO = /^(?:curl|sshpass|htpasswd|mysql(?:dump|admin|import|check)?)$/i;
+
+function ehEspaco(c) { return c === ' ' || c === '\t' || c === '\n' || c === '\r'; }
+function ehFimDeComando(c) { return c === ';' || c === '|' || c === '&'; }
+
+/** Fim do trecho entre aspas que abre em `i` (a aspa). Sem fechamento, vai até o fim da linha. `sem` guarda o que já se sabe que não fecha. */
+function fimDaAspa(s, i, sem) {
+  const q = s[i];
+  const n = s.length;
+  if (!sem[q]) {
+    let j = i + 1;
+    while (j < n) {
+      const c = s[j];
+      if (c === q) return j + 1;
+      if (q === '"' && c === '\\' && j + 1 < n) { j += 2; continue; }
+      j++;
+    }
+    sem[q] = true;     // nenhuma aspa deste tipo fecha daqui para frente: as próximas não precisam procurar de novo
+  }
+  let j = i + 1;
+  while (j < n && s[j] !== '\n') j++;
+  return j;
+}
+
+/** Lê um argumento a partir de `i`. Devolve { fim, terminou } (terminou: o argumento engoliu um `;`, `|` ou `&` colado, só em valor). */
+function lerArgumento(s, i, sem, ehValor) {
+  const n = s.length;
+  let j = i;
+  let terminou = false;
+  while (j < n) {
+    const c = s[j];
+    if (ehEspaco(c)) break;
+    if (ehFimDeComando(c)) { if (!ehValor) break; terminou = true; j++; continue; }
+    if (c === '\\') {
+      if (j + 1 >= n) { j++; break; }
+      if (s[j + 1] === '\r' && s[j + 2] === '\n') { j += 3; continue; }
+      j += 2;
+      continue;
+    }
+    if (c === '"' || c === "'") { j = fimDaAspa(s, j, sem); continue; }
+    j++;
+  }
+  return { fim: j, terminou };
+}
+
+function varreComando(s, pos, cmd, sem, mascaras) {
+  const n = s.length;
+  let i = pos;
+  let espera = false;       // o próximo argumento é o valor da flag anterior
+  let posicionais = 0;      // htpasswd: quantos argumentos depois do -b ainda são arquivo, usuário ou senha
+  let htIni = -1;
+  let htFim = -1;
+  const fecha = () => { if (htIni >= 0) mascaras.push([htIni, htFim]); htIni = -1; };
+  while (i < n) {
+    // espaço e continuação de linha (`\` + quebra) entre argumentos
+    for (;;) {
+      const c = s[i];
+      if (c === ' ' || c === '\t') { i++; continue; }
+      if (c === '\\' && s[i + 1] === '\n') { i += 2; continue; }
+      if (c === '\\' && s[i + 1] === '\r' && s[i + 2] === '\n') { i += 3; continue; }
+      break;
+    }
+    if (i >= n) break;
+    const c0 = s[i];
+    if (c0 === '\n' || c0 === '\r' || ehFimDeComando(c0)) break;
+    const ehValor = espera || posicionais > 0;
+    const { fim, terminou } = lerArgumento(s, i, sem, ehValor);
+    const tam = fim - i;
+    const cab = s.slice(i, Math.min(fim, i + 16));
+    if (espera) { mascaras.push([i, fim]); espera = false; } else if (posicionais > 0 && c0 !== '-') {
+      if (htIni < 0) htIni = i;
+      htFim = fim;
+      posicionais--;
+    } else if (tam <= 12 && PALAVRAS_DE_COMANDO.test(s.slice(i, fim))) {
+      fecha();
+      cmd = s.slice(i, fim).toLowerCase();       // `sshpass -p x curl -u ...`: passa a valer a regra do curl
+    } else if (c0 === '-') {
+      if (cmd === 'curl') {
+        if ((tam === 2 && (cab === '-u' || cab === '-U')) || cab === '--user' || cab === '--proxy-user') { if (tam === cab.length) espera = true; }
+        else if (cab.startsWith('--user=')) mascaras.push([i + 7, fim]);
+        else if (cab.startsWith('--proxy-user=')) mascaras.push([i + 13, fim]);
+        else if (tam > 2 && (cab.startsWith('-u') || cab.startsWith('-U')) && cab[2] !== '-') mascaras.push([i + 2, fim]);
+      } else if (cmd === 'sshpass') {
+        if (tam === 2 && cab === '-p') espera = true;
+        else if (tam > 2 && cab.startsWith('-p')) mascaras.push([i + 2, fim]);
+      } else if (cmd === 'htpasswd') {
+        if (tam <= 13 && /^-[A-Za-z]+$/.test(cab) && cab.includes('b')) posicionais = cab.includes('n') ? 2 : 3;
+      } else if (tam > 2 && cab.startsWith('-p')) {     // mysql*: -pSENHA, sem espaço (com espaço o -p só pede a senha no terminal)
+        mascaras.push([i + 2, fim]);
+      }
+    }
+    i = fim;
+    if (terminou) break;
+  }
+  fecha();
+  return i;
+}
+
+function mascaraComandos(s) {
+  const mascaras = [];
+  const sem = {};
+  RX_COMANDO.lastIndex = 0;
+  let m;
+  while ((m = RX_COMANDO.exec(s)) !== null) {
+    const fim = varreComando(s, m.index + m[0].length, m[1].toLowerCase(), sem, mascaras);
+    RX_COMANDO.lastIndex = Math.max(fim, m.index + m[0].length);
+  }
+  if (!mascaras.length) return s;
+  let saida = '';
+  let ultimo = 0;
+  for (const [a, b] of mascaras) {
+    if (a < ultimo) continue;
+    saida += s.slice(ultimo, a) + OCULTO;
+    ultimo = b;
+  }
+  return saida + s.slice(ultimo);
+}
+
 // Os padrões de mascara.js (principalmente a atribuição NOME=valor) varrem cada trecho de letras e números até o fim
 // para achar uma palavra-chave: numa sequência de 64 KB sem espaço isso vira conta quadrática, e o agente é quem escreve
 // o texto. Sequência longa demais não é palavra nem segredo conhecido (um JWT ou uma chave em base64 também cai aqui):
@@ -144,6 +258,7 @@ function corteBruto(s) {
 function limpa(texto) {
   if (texto == null) return '';
   let r = corteBruto(typeof texto === 'string' ? texto : String(texto));
+  r = mascaraComandos(r);
   for (const [rx, sub] of PRE) { rx.lastIndex = 0; r = r.replace(rx, sub); }
   r = mascarar(r.replace(RX_SEQUENCIA_LONGA, '[trecho-longo-omitido]'));
   for (const [rx, sub] of EXTRAS) { rx.lastIndex = 0; r = r.replace(rx, sub); }
@@ -1407,6 +1522,8 @@ function criarLeitor({ log, agora, orcamento } = {}) {
 
 /** Toda regex deste módulo, com sementes de entradas hostis (começos de casamento): o teste de auditoria as roda em 64 KB. */
 const REGEX_AUDITAVEIS = [
+  { nome: 'RX_COMANDO', rx: RX_COMANDO, sementes: ['curl ', 'curl -u ', 'sshpass -p ', 'htpasswd -b ', 'mysql -p', 'curl\\\n'] },
+  { nome: 'PALAVRAS_DE_COMANDO', rx: PALAVRAS_DE_COMANDO, sementes: ['curl', 'mysql'] },
   ...PRE.map(([rx], i) => ({ nome: `PRE[${i}]`, rx, sementes: ['mysql -p', 'sshpass -p ', 'htpasswd -b ', 'htpasswd -nb ', 'curl --user=', 'curl -u', 'curl --proxy-user ', '--access-token=', '--pass ', '--password=', '--password=a\\ ', 'senha=a\\ ', '--token ', 'curl -u ', 'curl x -u ', 'token=', 'chave:', 'senha="', "pwd='", 'cookie: '] })),
   ...EXTRAS.map(([rx], i) => ({ nome: `EXTRAS[${i}]`, rx, sementes: ['sk-', 'sk_', 'gsk_', 'xai-', 'xoxb-', 'ghp_', 'eyJ', 'eyJaaaaaa.', 'eyJaaaaaa.bbbbbb.', 'Authorization: ', 'Proxy-Authorization:', 'X-Api-Key: ', 'Cookie: ', 'Set-Cookie:'] })),
   { nome: 'RX_RESTO_MARCADOR', rx: RX_RESTO_MARCADOR, sementes: ['[segredo oculto]', '[segredo oculto] oculto]'] },
@@ -1426,7 +1543,7 @@ const REGEX_AUDITAVEIS = [
 ];
 
 module.exports = {
-  REGEX_AUDITAVEIS, semBarraFinal,
+  mascaraComandos, REGEX_AUDITAVEIS, semBarraFinal,
   criarLeitor, limpa, serializa, corta, normaliza, caminhoRelativo, codificaCursor, decodificaCursor, cmp, fontesDoAgente, descobreFonte,
   abrirSeguro, ErroEntrada, ErroArquivo, TIPOS, RX_ID_CURTO, RX_UUID, MAX_LINHA,
 };

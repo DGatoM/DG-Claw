@@ -25,6 +25,6 @@ test('toda regex dos módulos de logs fica abaixo de 200 ms em entradas hostis d
 
 test('a lista cobre as regex de máscara, de nomes de arquivo e das rotas', () => {
   const nomes = [...doLeitor, ...dasRotas].map((x) => x.nome);
-  for (const esperado of ['PRE[0]', 'PRE[3]', 'EXTRAS[0]', 'RX_SEQUENCIA_LONGA', 'RX_CLAUDE', 'RX_DIA', 'RX_ROTA_AGENTE', 'RX_PATCH']) assert.ok(nomes.includes(esperado), esperado);
+  for (const esperado of ['PRE[0]', 'PRE[2]', 'EXTRAS[0]', 'RX_SEQUENCIA_LONGA', 'RX_CLAUDE', 'RX_DIA', 'RX_ROTA_AGENTE', 'RX_PATCH']) assert.ok(nomes.includes(esperado), esperado);
   for (const { rx } of [...doLeitor, ...dasRotas]) assert.ok(rx instanceof RegExp);
 });
