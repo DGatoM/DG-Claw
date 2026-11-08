@@ -12,6 +12,8 @@ const TS = '2026-10-12T15:00:00.000Z';
 let seq = 0;
 const turnoUsuario = (texto, de) => { seq += 1; return { type: 'user', timestamp: new Date(Date.parse(TS) + seq * 1000).toISOString(), message: { role: 'user', content: `<dgchat from="${de || 'pessoa'}" chat="c_ana" msg="m${seq}" ts="${TS}">${texto}</dgchat>` } }; };
 const sendFile = (caminho) => ({ type: 'assistant', timestamp: '2026-10-12T15:00:05.000Z', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'u-' + caminho.length, name: 'mcp__dgchat__send_file', input: { chat: 'c_ana', path: caminho, caption: 'arquivo' } }] } });
+const resultadoOk = (caminho) => ({ type: 'user', timestamp: '2026-10-12T15:00:06.000Z', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'u-' + caminho.length, content: 'ok' }] } });
+const envioConfirmado = (caminho) => [sendFile(caminho), resultadoOk(caminho)];
 const mediasDe = (resp) => resp.json.msgs.filter((m) => m.media).map((m) => m.media);
 
 /** Lê o stream por um tempo curto e devolve tudo o que veio. */
@@ -61,7 +63,7 @@ test('achado 1: colaborador não baixa arquivo oculto da casa nem nada do dataDi
     const dados = path.join(s.t.dados, 'segredo-do-servidor.json');
     fs.writeFileSync(dados, '{}');
     s.escreveTranscript([
-      sendFile('/home/agente/.claude/cred.json'), sendFile('/home/agente/out/.escondido.txt'), sendFile(dados), sendFile('/home/agente/out/a.txt'),
+      ...envioConfirmado('/home/agente/.claude/cred.json'), ...envioConfirmado('/home/agente/out/.escondido.txt'), ...envioConfirmado(dados), ...envioConfirmado('/home/agente/out/a.txt'),
     ]);
     const x = await colaboradorAtivo(s);
     const medias = mediasDe(await s.dono.get('/api/v1/agents/ana/messages'));
