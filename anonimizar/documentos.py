@@ -176,7 +176,6 @@ def _lxml():
                         "Instale o motor de documentos pelo painel (nível leitores) e tente de novo.") from None
 
 
-_PARTES_WORD_XML = re.compile(r"^word/(?!_rels/).*\.xml$")
 _TIPO_HYPERLINK = "/relationships/hyperlink"
 _PARTES_XLSX_COM_FETCH = re.compile(r"^xl/(connections\.xml|queryTables/|externalLinks/|webExtensions/)", re.I)
 
@@ -250,13 +249,46 @@ def _neutralizar_campos(raiz):
     return mudou or bool(remover)
 
 
+def _tipos_de_conteudo(z, nome):
+    """([Content_Types].xml) -> (por PartName em minúsculas, por extensão em minúsculas). Ilegível = recusa."""
+    import xml.etree.ElementTree as ET
+    try:
+        raiz = ET.fromstring(z.read("[Content_Types].xml"))
+    except (KeyError, ET.ParseError):
+        raise ErroMotor("arquivo_invalido", "O arquivo '%s' não tem um [Content_Types].xml legível. Peça ao agente para gerar de novo." % nome) from None
+    por_parte, por_ext = {}, {}
+    for el in raiz:
+        tipo = (el.get("ContentType") or "").lower()
+        if el.tag.endswith("Override") and el.get("PartName"):
+            por_parte[el.get("PartName").lstrip("/").lower()] = tipo
+        elif el.tag.endswith("Default") and el.get("Extension") is not None:
+            por_ext[el.get("Extension").lower()] = tipo
+    return por_parte, por_ext
+
+
+def _eh_parte_xml(z, info, nome, tipos):
+    """O Word identifica a parte por relacionamento e tipo de conteúdo, não por pasta nem extensão: vale como XML a parte que
+    começa com '<' ou cujo tipo declarado termina em 'xml'. Só passa de fora a parte binária de verdade."""
+    if info.is_dir() or info.filename == "[Content_Types].xml":
+        return False
+    if info.file_size == 0:
+        return False
+    if _parece_xml(z, info, nome):
+        return True
+    f = info.filename.lower()
+    tipo = tipos[0].get(f)
+    if tipo is None:
+        tipo = tipos[1].get(f.rsplit(".", 1)[-1] if "." in f.rsplit("/", 1)[-1] else "", "")
+    return tipo.endswith("xml")
+
+
 def docx_reverter(entrada, saida, nome, encontrar):
     """Reversão: nós de texto (w:t) do corpo, cabeçalhos, rodapés e notas, e o autor de comentários e revisões (atributo
     de autoria, que a ida troca por marcador de pessoa). Nenhum outro atributo, relacionamento ou propriedade.
 
     O documento vem do agente, que pode estar comprometido, então ANTES de restaurar qualquer dado:
     - vínculo externo que busca conteúdo (imagem ligada, modelo anexo, OLE, subdocumento...) RECUSA a reversão;
-    - campos do Word são NEUTRALIZADOS em todas as partes de word/ (viram o texto de resultado, como PAGE e TOC
+    - campos do Word são NEUTRALIZADOS em toda parte XML do pacote, em qualquer pasta ou extensão (viram o texto de resultado, como PAGE e TOC
       legítimos), em vez de recusar, porque o agente pode gerar campo legítimo. Sem isso, um INCLUDEPICTURE com REF
       aninhado levaria o texto restaurado para a URL ao atualizar os campos;
     - w:dataBinding (controle de conteúdo ligado a customXml) é removido."""
@@ -265,12 +297,18 @@ def docx_reverter(entrada, saida, nome, encontrar):
     conferir_sem_vinculos_externos(entrada, nome)
     subs = {}
     with abrir_zip(entrada, nome) as z:
+        tipos = _tipos_de_conteudo(z, nome)
+        parser = etree.XMLParser(resolve_entities=False, no_network=True, load_dtd=False, huge_tree=False)
         for info in z.infolist():
             f = info.filename
-            if not _PARTES_WORD_XML.match(f):
+            if not _eh_parte_xml(z, info, nome, tipos):
                 continue
+            dados = z.read(f)
+            if any(p in dados.lower() for p in _PADROES_DTD):
+                raise ErroMotor("xml_proibido", "A parte '%s' do arquivo '%s' declara uma DTD ou entidade XML (<!DOCTYPE/<!ENTITY), que documento de Office "
+                                "legítimo não usa e que pode esconder dados. O arquivo foi recusado: abra e salve de novo no programa de origem." % (f, nome))
             try:
-                raiz = etree.fromstring(z.read(f))
+                raiz = etree.fromstring(dados, parser)
             except etree.XMLSyntaxError:
                 raise ErroMotor("arquivo_invalido", "A parte '%s' do arquivo '%s' está corrompida. Peça ao agente para gerar de novo." % (f, nome)) from None
             mudou = _neutralizar_campos(raiz)
