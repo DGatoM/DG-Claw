@@ -1,0 +1,12 @@
+#formato: docx
+PROCURAÇÃO
+
+OUTORGANTE: [[PESSOA:MARIA APARECIDA DOS SANTOS FERREIRA]], viúva, aposentada, portadora da cédula de identidade RG nº [[RG:23.456.789-0]] e inscrita no CPF sob o nº [[CPF:${CPF_D}]], residente e domiciliada na [[ENDERECO:Rua Sete de Setembro, 220, Bairro Centro, Pelotas/RS]], CEP [[CEP:96015-290]].
+
+OUTORGADO: Dr. [[PESSOA:Henrique Gouveia Prado]], advogado inscrito na [[!:OAB/RS 98765]], com escritório na [[ENDERECO:Avenida Bento Gonçalves, 700, sala 3, Pelotas/RS]].
+
+PODERES: representar a outorgante perante o [[!:INSS]] e o [[!:Banco do Brasil]], podendo receber valores até [[VALOR:R$ 15.000,00]], assinar documentos e substabelecer.
+
+Telefone para contato: [[TELEFONE:(53) 3225-0099]]. A outorgante confirma seus dados: [[PESSOA:Maria Aparecida]].
+
+Pelotas, [[DATA:18 de agosto de 2026]].

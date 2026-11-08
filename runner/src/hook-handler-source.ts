@@ -16,21 +16,44 @@
 // sai com código 0, e nunca segura o turno do agente por mais de ~2,5s. Um hook
 // que falha barulhento, ou que demora, trava a conversa de um cliente.
 export const HOOK_HANDLER_SOURCE = String.raw`import http from "node:http";
-import fs from "node:fs";
 
 function arg(name) {
   const i = process.argv.indexOf(name);
   return i >= 0 && i + 1 < process.argv.length ? process.argv[i + 1] : null;
 }
 
+// Cinto de segurança, armado ANTES de qualquer leitura e SEM unref: ele precisa conseguir matar o
+// processo. Nunca segura o turno do agente além de ~2,5s.
+setTimeout(() => process.exit(0), 2500);
+
 const event = arg("--event") || "?";
 const agentId = arg("--agent") || "";
 const port = parseInt(arg("--port") || "0", 10);
 const nonce = arg("--nonce") || "";
 
-// Lê o JSON do evento do stdin (best-effort; pode vir vazio no Stop).
-let stdin = "";
-try { stdin = fs.readFileSync(0, "utf8"); } catch { /* stdin fechado ou vazio: o evento segue só com os argumentos */ }
+// Lê o JSON do evento do stdin (best-effort; pode vir vazio no Stop). Leitura ASSÍNCRONA com teto
+// próprio: a síncrona (readFileSync(0)) bloqueava o processo inteiro quando o stdin não fechava, e o
+// cinto de segurança, armado depois, nunca disparava (Layla, 30/10/2026: PreToolUse parado 3m25s).
+function lerStdin(tetoMs) {
+  return new Promise((resolve) => {
+    let dados = "";
+    let feito = false;
+    const fim = () => {
+      if (feito) return;
+      feito = true;
+      resolve(dados);
+    };
+    const t = setTimeout(fim, tetoMs);
+    try {
+      process.stdin.setEncoding("utf8");
+      process.stdin.on("data", (c) => { dados += c; });
+      process.stdin.on("end", () => { clearTimeout(t); fim(); });
+      process.stdin.on("error", () => { clearTimeout(t); fim(); });
+    } catch { clearTimeout(t); fim(); }
+  });
+}
+
+const stdin = await lerStdin(1000);
 let ev = {};
 try { ev = JSON.parse(stdin) || {}; } catch { /* corpo que não é JSON: segue sem os campos extras do evento */ }
 
@@ -85,7 +108,4 @@ function enviar(tentativa) {
 }
 enviar(1);
 
-// Cinto de segurança: nunca segura o turno do agente além de ~2,5s.
-const t = setTimeout(() => process.exit(0), 2500);
-if (t && typeof t.unref === "function") t.unref();
 `;

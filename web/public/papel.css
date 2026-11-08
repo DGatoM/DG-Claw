@@ -1,0 +1,5 @@
+/* Colaborador: some o que é do dono ou da caixa inteira (Mesa, Lembretes, troca de agente, uso da assinatura).
+   O servidor também barra; isto só evita botão que não leva a lugar nenhum. O agente dele, com o painel, fica inteiro. */
+.papel-colab #btnMesa, .papel-colab #btnLembretes, .papel-colab #btnNaoLida,
+.papel-colab #trocaBaixo, .papel-colab #mlUso, .papel-colab #mlTroca,
+.papel-colab #nascimento, .papel-colab .so-dono { display: none !important; }

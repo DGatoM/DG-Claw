@@ -14,7 +14,7 @@ Environment=HOME=/home/agente
 # -rfbauth: a senha vem de arquivo (formato rfbauth, so 8 caracteres contam).
 # -localhost: o VNC so aceita conexao de dentro do container; quem chega de fora passa
 # pelo noVNC e pelo proxy autenticado do painel.
-ExecStart=/usr/bin/x11vnc -display :1 -forever -shared -rfbauth /home/agente/.dgclaw/tela/vnc.senha -rfbport 5901 -localhost
+ExecStart=/usr/bin/x11vnc -display :1 -forever -shared -rfbauth /home/agente/.dgclaw/tela/vnc.senha -rfbport 5901 -localhost -xkb
 Restart=always
 RestartSec=3
 

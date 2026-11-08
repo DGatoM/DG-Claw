@@ -1,0 +1,16 @@
+#formato: txt
+ORÇAMENTO Nº [[!:2026/117]]
+
+Cliente: [[EMPRESA:Casa & Cia Móveis Planejados]]
+A/C: [[PESSOA:Sra. Vera Lúcia Tavares]]
+Obra: [[ENDERECO:Alameda dos Jacarandás, 56, Moema, São Paulo/SP]], [[CEP:04077-020]]
+
+Itens:
+- 1 cozinha planejada em MDF: [[VALOR:R$ 18.400,00]]
+- 1 painel de TV para [[!:Samsung Smart TV 55 polegadas]]: [[VALOR:R$ 2.900,00]]
+- instalação: [[VALOR:900 reais]]
+
+Total: [[VALOR:R$ 22.200,00]]. Validade: [[DATA:30/11/2026]].
+
+Contato: [[PESSOA:Marcelo]] - [[TELEFONE:(11) 97654-3210]] - [[EMAIL:marcelo@marcenariaoliveira.com.br]]
+[[EMPRESA:Marcenaria Oliveira & Filhos ME]] - CNPJ [[CNPJ:${CNPJ_B_RAW}]]

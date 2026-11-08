@@ -1,0 +1,13 @@
+#formato: docx
+Assunto: Rescisão do contrato de [[PESSOA:Everton Jorge Lacerda]]
+
+Prezados,
+
+Informo que o colaborador [[PESSOA:Everton Lacerda]] (CPF [[CPF:${CPF_G}]], PIS [[PIS:${PIS_A}]]) será desligado em [[DATA:30/11/2026]]. O acerto será pago em até 10 dias na conta [[CONTA:55667-8]] da agência [[AGENCIA:3344]]. O valor estimado é [[VALOR:R$ 14.870,32]].
+
+Falei com a Dra. [[PESSOA:Camila Veiga]] do jurídico da [[EMPRESA:Rodoeste Transportes e Logística Ltda]] (CNPJ [[CNPJ:${CNPJ_B}]]), que pediu o contato dele: [[TELEFONE:(67) 99211-3040]] e [[EMAIL:everton.lacerda@exemplo.com.br]]. Endereço dele: [[ENDERECO:Rua Joaquim Murtinho, 88, ap. 304, Campo Grande/MS]].
+
+O prazo legal é de [[!:10 dias]] conforme a [[!:CLT]]. A reunião será na [[!:sala 3]] às [[!:14h]].
+
+Atenciosamente,
+[[PESSOA:Hélio]] do RH

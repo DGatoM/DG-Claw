@@ -3,6 +3,7 @@ import fs from "node:fs";
 import type { Sessao } from "../sessao.js";
 import { log } from "../logger.js";
 import { configDirDoClaude } from "../provedores/claude.js";
+import { codexHomeDe } from "../provedores/codex.js";
 import { loginExpiradoNoFimDoTranscript } from "../transcript.js";
 import { ctxLeve } from "./configuracao.js";
 import { cancelarStopPendente } from "./eventos.js";
@@ -14,10 +15,19 @@ import { cancelarStopPendente } from "./eventos.js";
 // que nada aparecesse na conversa. Diferente do "sem login" de primeira vez, aqui a sessão TEM
 // conversa: ela nunca é trocada por uma nova, volta por retomada (`--resume`).
 
-/** Quando a credencial do Claude foi gravada pela última vez (ms); 0 se não dá para saber. */
-export function credencialGravadaEm(s: Sessao): number {
+/** O arquivo da credencial do motor: `.credentials.json` do Claude ou `auth.json` do CODEX_HOME do Codex. */
+export function arquivoDaCredencial(s: Sessao): string {
   const ctx = s.ctxVivo ?? ctxLeve(s);
-  const arquivo = path.join(configDirDoClaude(ctx), ".credentials.json");
+  if (s.motor.provedor === "codex") {
+    const home = ctx.env.CODEX_HOME ?? codexHomeDe({ auth: ctx.escolha.auth, env: ctx.env, cwd: ctx.cwd, id: ctx.id });
+    return path.join(home, "auth.json");
+  }
+  return path.join(configDirDoClaude(ctx), ".credentials.json");
+}
+
+/** Quando a credencial do motor foi gravada pela última vez (ms); 0 se não dá para saber. */
+export function credencialGravadaEm(s: Sessao): number {
+  const arquivo = arquivoDaCredencial(s);
   try {
     return fs.statSync(arquivo).mtimeMs;
   } catch (err) {
@@ -56,7 +66,15 @@ export function marcarLoginExpirado(s: Sessao, origem: string, quando: number | 
   s.loginExpiradoEmMs = em;
   const assinatura = s.escolhaVigente.auth === "assinatura";
   const hora = horaDe(em);
-  const mensagem = assinatura
+  const codex = s.motor.provedor === "codex";
+  const mensagem = codex
+    ? assinatura
+      ? `O login da conta do ChatGPT de ${s.slug} expirou às ${hora}: a credencial existe, mas o Codex não conseguiu renová-la. ` +
+        `Desde então ele não responde. O que fazer: reconectar a conta pelo cartão de login da conversa ou rodando ` +
+        `\`codex login --device-auth\` no terminal do agente; o runner reinicia a mesma sessão sozinho depois do login.`
+      : `O Codex recusou a chave de API de ${s.slug} às ${hora}. Desde então ele não responde. ` +
+        `O que fazer: conferir a chave da OpenAI no Cofre do painel e reiniciar o agente.`
+    : assinatura
     ? `O login da conta do Claude de ${s.slug} expirou às ${hora}: a credencial existe, mas o Claude não conseguiu renová-la. ` +
       `Desde então ele não responde. O que fazer: reconectar a conta pela conversa (cartão "Conectar o seu Claude") ou digitando ` +
       `/login no terminal dele; o runner reinicia a mesma sessão sozinho depois do login.`
@@ -75,7 +93,7 @@ export function marcarLoginExpirado(s: Sessao, origem: string, quando: number | 
     s.a("login"),
     `login expirado detectado por ${origem} (${hora})${detalhe ? `: "${detalhe}"` : ""}`,
     assinatura
-      ? "reconectar a conta pelo cartão de login da conversa ou pelo /login no terminal; quando o .credentials.json ficar mais novo que este aviso, o runner reinicia a mesma sessão sozinho"
+      ? `reconectar a conta pelo cartão de login da conversa ou ${codex ? "por `codex login --device-auth`" : "pelo /login"} no terminal; quando o ${codex ? "auth.json" : ".credentials.json"} ficar mais novo que este aviso, o runner reinicia a mesma sessão sozinho`
       : "conferir a chave ou o token no Cofre e reiniciar o agente",
   );
   if (assinatura) vigiarCredencial(s);

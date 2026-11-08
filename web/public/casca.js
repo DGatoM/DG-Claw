@@ -26,7 +26,7 @@
     const c = ctx || {};
     const doCaminho = /^\/p\/([^/]+)/.exec(c.caminho || '');
     let doParam = null;
-    try { doParam = new URLSearchParams(c.busca || '').get('a'); } catch (_) { /* busca ilegível: segue */ }
+    try { const q = new URLSearchParams(c.busca || ''); doParam = q.get('a') || q.get('agente'); } catch (_) { /* busca ilegível: segue */ }
     let slug = null;
     try { slug = doCaminho ? decodeURIComponent(doCaminho[1]) : null; } catch (_) { /* caminho ilegível: segue */ }
     for (const id of [slug, doParam, c.guardado]) {
@@ -133,7 +133,7 @@
         porque: 'Mantém a tela limpa: o que não é a página atual fica guardado no menu.' },
       ...raiz.DGMenuLado.passosMenu({ nome, abre: () => abreMenu(true), fecha: () => abreMenu(false),
         comTroca: est.lista.filter(a => a.tipo === 'admin').concat(est.lista.filter(a => a.tipo !== 'admin')).length > 1,
-        naConversa: false }),
+        naConversa: false, colaborador: !!(raiz.DGPapel && raiz.DGPapel.colaborador) }),
     ];
   }
 
@@ -195,8 +195,11 @@
     document.documentElement.classList.add('casca');
     document.body.insertAdjacentHTML('afterbegin', MARCACAO_CABECALHO + MARCACAO_MENU);
     pintaTitulo();
-    carregaFaixaAtualizacao();
-    carregaAvisoSeguranca();
+    // Faixa de versão e aviso de segurança são só do dono.
+    if (!(raiz.DGPapel && raiz.DGPapel.colaborador)) {
+      carregaFaixaAtualizacao();
+      carregaAvisoSeguranca();
+    }
     $('btnMenu').onclick = () => abreMenu(true);
     $('btnFechaMenu').onclick = () => abreMenu(false);
     $('overlayMenu').onclick = () => abreMenu(false);
@@ -213,7 +216,7 @@
       .then(({ lista, erro }) => {
         est.lista = lista;
         let ag = escolheAgente(lista, ctx);
-        const slug = (/^\/p\/([^/]+)/.exec(location.pathname) || [])[1] || new URLSearchParams(location.search).get('a') || guardado || '';
+        const slug = (/^\/p\/([^/]+)/.exec(location.pathname) || [])[1] || new URLSearchParams(location.search).get('a') || new URLSearchParams(location.search).get('agente') || guardado || '';
         if (!ag) ag = { id: erro ? slug : '', nome: 'DG Claw', cor: '#2f9e5e', avatar: 'D' };
         est.agente = ag;
         pintaCabecalho(ag);

@@ -1,0 +1,4 @@
+#formato: txt
+Oi gente, aqui é a [[PESSOA:Bia]]! Sábado vai ter churrasco na casa do [[PESSOA:Zeca]], lá na [[ENDERECO:Rua Cinco, 123, quadra 7, Bairro Santa Rita]]. Quem vai? Me avisa no [[TELEFONE:98 98123-4567]] ou no [[EMAIL:bia.festas@exemplo.com.br]]. A Dona [[PESSOA:Lourdes]] vai fazer a farofa e o Tio [[PESSOA:Chico]] traz a carne. Cada um colabora com [[VALOR:R$ 40]]. Pix: [[TELEFONE:98 98123-4567]].
+
+Ah, e quem tiver a [[!:Coca-Cola]] em casa traz, e o [[!:Guaraná]] também! Vamos ouvir o disco novo da banda? Brincadeira! Nos vemos em [[!:São Luís]], sem falta.

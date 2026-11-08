@@ -19,7 +19,8 @@
   if (typeof module === 'object' && module.exports) module.exports = m;
   else {
     raiz.DGSigiloMotor = m;
-    if (typeof document !== 'undefined') m.iniciaTela(raiz, document);
+    // O modo escondido consulta rotas do dono (/api/v1/sigilo): o colaborador não tem o olhinho.
+    if (typeof document !== 'undefined' && !(raiz.DGPapel && raiz.DGPapel.colaborador)) m.iniciaTela(raiz, document);
   }
 })(this, function () {
   /* ── Motor ──────────────────────────────────────────────────────────── */

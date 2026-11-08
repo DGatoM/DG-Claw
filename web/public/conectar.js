@@ -52,7 +52,7 @@
   /* Montado uma vez só: refazer o vídeo a cada desenho reiniciaria a reprodução. */
   function desenhaPronto() {
     const endereco = location.origin + '/';
-    const t = P.pronto({ usuario: est.usuario, principalNome: est.principal && est.principal.nome, endereco });
+    const t = P.pronto({ usuario: est.usuario, principalNome: est.principal && est.principal.nome, endereco, colaborador: !!(window.DGPapel && window.DGPapel.colaborador) });
     const corpo = [];
     corpo.push(el('p', 'cn-texto', t.passo1));
     corpo.push(el('div', 'cn-endereco', t.endereco));
@@ -83,6 +83,11 @@
   }
 
   async function carrega() {
+    if (window.DGPapel && window.DGPapel.colaborador) {
+      $('cnLista').replaceChildren(el('p', 'cn-fraco', 'O agente precisa entrar numa conta, e isso é só do dono do DG Claw. Avise o dono.'));
+      msgGeral('');
+      return;
+    }
     const r = await CC.chama('GET', '/api/v1/agents', undefined, 'conferir', 'os agentes', 15000, AQUI);
     if (!r.ok) {
       $('cnLista').replaceChildren(el('p', 'cn-erro', 'Não consegui carregar a lista de agentes. ' + r.erro.texto));

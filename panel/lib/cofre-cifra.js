@@ -45,14 +45,48 @@ function criarCifra({ slug, DIR, SEGREDOS, CHAVE_MESTRA }) {
     try { fs.chmodSync(SEGREDOS, 0o700); } catch { /* idem */ }
   }
 
-  function chaveMestra() {
+  // Lê a chave mestra. Só ENOENT autoriza gerar uma chave nova: qualquer outro erro
+  // (permissão, EIO, arquivo cortado) significa que a chave PODE existir, e gerar outra
+  // por cima deixaria ilegíveis todos os segredos já cifrados. Nesses casos para com erro claro.
+  function lerChaveExistente() {
+    let k;
     try {
-      const k = fs.readFileSync(CHAVE_MESTRA);
-      if (k.length === 32) return k;
-    } catch { /* ainda não existe */ }
+      k = fs.readFileSync(CHAVE_MESTRA);
+    } catch (err) {
+      if (err && err.code === 'ENOENT') return null;
+      const e = new Error(
+        `Não consegui ler a chave mestra do cofre em ${CHAVE_MESTRA} (erro ${err && err.code ? err.code : 'desconhecido'}). ` +
+        'Nenhuma chave nova foi gerada, para não tornar ilegíveis os segredos já guardados. ' +
+        'Corrija a permissão ou o disco desse arquivo (dono e modo 0600) e tente de novo; se ele não tiver conserto, restaure a cópia de segurança.',
+      );
+      e.code = err && err.code;
+      throw e;
+    }
+    if (k.length === 32) return k;
+    const e = new Error(
+      `A chave mestra do cofre em ${CHAVE_MESTRA} tem ${k.length} bytes e deveria ter 32 (arquivo cortado ou corrompido). ` +
+      'Nenhuma chave nova foi gerada e o arquivo não foi alterado, para não tornar ilegíveis os segredos já guardados. ' +
+      'Restaure a cópia de segurança desse arquivo; só apague-o se aceitar perder os segredos já guardados.',
+    );
+    e.code = 'CHAVE_INVALIDA';
+    throw e;
+  }
+
+  function chaveMestra() {
+    const existente = lerChaveExistente();
+    if (existente) return existente;
     const nova = crypto.randomBytes(32);
     fs.mkdirSync(path.dirname(CHAVE_MESTRA), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(CHAVE_MESTRA, nova, { mode: 0o600 });
+    try {
+      // 'wx': falha se o arquivo apareceu no meio do caminho (outro processo criou).
+      fs.writeFileSync(CHAVE_MESTRA, nova, { mode: 0o600, flag: 'wx' });
+    } catch (err) {
+      if (err && err.code === 'EEXIST') {
+        const k = lerChaveExistente(); // a que ficou vence
+        if (k) return k;
+      }
+      throw err;
+    }
     try { fs.chmodSync(CHAVE_MESTRA, 0o600); } catch { /* idem */ }
     return nova;
   }
@@ -126,7 +160,7 @@ function criarCifra({ slug, DIR, SEGREDOS, CHAVE_MESTRA }) {
     console.error(`[cofre:${slug}] falhou ao ${oQue}: ${motivo}${dele}`);
   }
 
-  return { MOTOR, garantirPastas, cifrar, decifrar, registrarFalha };
+  return { MOTOR, garantirPastas, cifrar, decifrar, registrarFalha, chaveMestra };
 }
 
 module.exports = { criarCifra, temSystemdCreds };

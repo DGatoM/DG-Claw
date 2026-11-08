@@ -1,0 +1,6 @@
+# Nonce público de exemplo do handshake WebSocket (RFC 6455, base64 de "the sample nonce"), usado só em testes.
+3b0414026c52e9ff9d43e9c4b1d8772b132b4b9e:web/test/colaborador-painel.test.js:generic-api-key:170
+9236f41b6295a8a554cc1640d3b6459186ca275e:web/test/colaborador-painel.test.js:generic-api-key:125
+9236f41b6295a8a554cc1640d3b6459186ca275e:web/test/colaboradores.test.js:generic-api-key:183
+c4d0dd653c0f1bf76df27672363798493586297f:web/test/colaborador-painel.test.js:generic-api-key:134
+f542263221c8f7b49033e4f823eebed3da0f3714:web/test/colaboradores.test.js:generic-api-key:224

@@ -307,6 +307,8 @@
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') atualiza(); });
   }
 
+  // Aviso de segurança do servidor é só do dono.
+  if (raiz.DGPapel && raiz.DGPapel.colaborador) return;
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', inicia);
   else inicia();
 

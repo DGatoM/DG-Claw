@@ -75,6 +75,7 @@ O contrato está em [Primeiro agente pelo Admin](../web/docs/PRIMEIRO-AGENTE.md)
 | `dgclaw-web` | Interface web e API autenticada |
 | `dgclaw-admin` | Execução da sessão administradora |
 | `dgclaw-imagem` | Construção da imagem dos agentes, quando solicitada |
+| `dgclaw-anonimizar-instalar@` | Instalação opcional do detector de nomes da anonimização de documentos, disparada pela tela Anonimizar |
 | `dgclaw-firewall` | Regras de isolamento da rede dos agentes |
 | `caddy` | HTTPS e encaminhamento para o Web |
 

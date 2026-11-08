@@ -1,0 +1,16 @@
+#formato: txt
+De: [[PESSOA:Paulo Roberto Vasconcelos]] <[[EMAIL:paulo.vasconcelos@empresaalfa.com.br]]>
+Para: [[PESSOA:Renata Moraes]] <[[EMAIL:renata.moraes@exemplo.com.br]]>
+Data: [[DATA:05/06/2026]]
+Assunto: Reunião sobre a proposta da [[EMPRESA:Alfa Logística]]
+
+Oi [[PESSOA:Renata]],
+
+Conforme conversamos por telefone ([[TELEFONE:11 97766-5544]]), segue o resumo. O [[PESSOA:Paulo]] da diretoria quer fechar até sexta. O orçamento ficou em [[VALOR:R$ 230 mil]] e o [[PESSOA:Vasconcelos]] pediu desconto.
+
+Se precisar, me ligue na [[EMPRESA:Alfa Logística]], no ramal 212, ou escreva para [[EMAIL:paulo@empresaalfa.com.br]]. Nossa sede é na [[ENDERECO:Rua Augusta, 900, 3º andar, Consolação, São Paulo/SP]].
+
+Abraço,
+[[PESSOA:Paulo]]
+
+PS: o [[!:Dr.]] vai participar por vídeo e levou o notebook [[!:Dell Inspiron]]. Versão do sistema: [[!:3.12.4]].

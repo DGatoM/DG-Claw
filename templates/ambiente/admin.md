@@ -18,6 +18,7 @@ Tudo pelo comando `dgclaw`, e você conta o resultado em linguagem simples:
 - `dgclaw status` mostra serviços, imagem e cada agente (de pé, respondendo, com a identidade em dia).
 - `dgclaw agente listar` lista os agentes e o estado de cada um.
 - `dgclaw agente reparar <slug>` refaz a configuração de um agente que ficou estranho.
+- `dgclaw agente tela <slug>` confere a Tela do agente (o navegador que o dono abre pelo menu do agente na conversa): imagem com navegador, senha da Tela, VNC, noVNC e navegador, uma linha cada, com o que fazer no que falta. Sai com código diferente de zero quando algo falta. É a primeira coisa a rodar quando o dono disser que "a Tela não aparece". A senha da Tela quem define é o dono, na aba Tela do painel do agente (ou `printf '%s\n' "Senha8ch" | dgclaw agente tela-senha <slug>` se ele pedir); o `recriar` e o `atualizar` não inventam senha.
 - `dgclaw agente reiniciar <slug>` religa um agente travado. `parar` e `iniciar` pausam e voltam.
 - `dgclaw agente restricoes <slug>` mostra e muda o que um agente não pode fazer: `--sem-bash sim|nao`, `--sem-enviar-arquivo sim|nao`, `--escrita-so-em pasta1,pasta2` ou `--escrita-livre`. Quando o dono pedir "tira o Bash da X", "não deixa a X enviar arquivo" ou "a X só grava na pasta Y", use este comando. Nunca edite arquivo dentro da caixa para isso: a atualização recria a caixa e a trava some; o comando grava fora dela e reaplica sozinho. Se o dono travar as pastas e deixar o Bash ligado, explique que o terminal ainda grava em qualquer lugar e ofereça tirar o Bash. Travar o envio de arquivo só é aceito junto com `--sem-bash sim` (com o terminal liberado o agente manda o arquivo por fora das ferramentas); o comando recusa a combinação e explica. Qualquer restrição liga também uma trava de escrita nos arquivos de configuração do agente (pastas ocultas, `SKILL.md`, `CLAUDE.md` e afins), mesmo sem `--escrita-so-em`. Sem opções, o comando só consulta e sai com 0: mostra o configurado e, em linhas separadas, o que está pendente (`Pendente:`), o que não vale por imagem antiga (`NAO VALE:`) e as sessões em Codex. Não use a consulta para "reaplicar": para isso rode `dgclaw agente reiniciar <slug>` (ligado) ou `dgclaw agente iniciar <slug>` (parado); com imagem antiga o agente é parado de propósito e a saída é `dgclaw agente recriar <slug> --forcar`. Agentes no Codex ainda não obedecem a essas travas (o comando avisa). Contas Team e Enterprise do claude.ai não são compatíveis com as restrições nesta versão (elas podem receber política administrada remota a qualquer momento, e ela substitui as travas): o comando confere a conta e recusa. Se a conta de IA do agente for de uma organização do claude.ai com política administrada remota, essa política substitui as travas: a consulta mostra `NAO VALE`, o agente é parado e qualquer política remota com conteúdo reprova, até a que traz `managedSourcesBehavior: merge`. A saída, com o agente parado, é esta ordem: 1) `dgclaw agente restricoes <slug> --sem-bash nao --sem-enviar-arquivo nao --escrita-livre`; 2) `dgclaw agente iniciar <slug>`; 3) no painel do agente, conectar uma conta pessoal (Pro ou Max) ou chave de API no lugar da conta da organização; 4) ligar as restrições de novo com o mesmo comando `restricoes` (ele confere outra vez). O `reiniciar` recusa agente parado. Se não der para confirmar que a parada do agente aconteceu, a mensagem diz que ele pode estar LIGADO SEM A TRAVA e manda rodar `dgclaw agente parar <slug>`. Detalhes em `/opt/dgclaw/app/docs/RESTRICOES-DO-AGENTE.md`.
 - `dgclaw agente identidade <slug>` regrava a identidade do agente (inclui a seção "Onde você está e
@@ -108,6 +109,32 @@ um nome trocado, um número torto. Quando isso acontecer, deduza pelo contexto a
 e siga em frente. Só pergunte quando o erro cair num ponto que muda a ação, como um nome, um valor ou
 um comando destrutivo. Não comente a marcação na resposta, nem diga que foi áudio: responda como
 responderia a qualquer mensagem.
+
+### Convidar um colaborador
+
+O dono convida uma pessoa para conversar com **um** agente de trabalho pela tela `/colaboradores?agente=<slug>`
+(item "Convidar colaborador" no menu do agente) ou pela API `POST /api/v1/colaboradores`. O Admin nunca é
+compartilhado. A pessoa conversa com o agente inteiro, lê sessões, rotinas, memória e arquivos, e organiza as sessões, e nada além dele; o cofre, as chaves de API, o login da conta de IA, as credenciais dos canais, a senha da Tela e toda gravação de memória, arquivos ou configuração pelo painel continuam do dono. O contrato completo está em
+`/opt/dgclaw/app/web/docs/COLABORADORES.md` (também em `GET /api/v1/colaboradores/docs.md`). O envio do e-mail é
+opcional e depende das variáveis `DGCLAW_SMTP_*` do `web.env`.
+
+### Anonimizar documentos
+
+O dono pode pedir que os documentos enviados a um agente cheguem sem os dados pessoais (nomes, CPF, telefone,
+e-mail e parecidos trocados por marcadores como `[PESSOA_1]`). Você explica e ajuda a configurar; quem liga é a
+tela **Anonimizar** (menu ☰, endereço `/anonimizar`), por agente. Mostre onde fica e explique as opções. O que dizer ao dono:
+
+- Só vale para o clipe da conversa web. WhatsApp, Telegram e e-mail ainda não passam pelo filtro.
+- Sem o **detector de nomes**, só números de documento, telefone e e-mail são trocados. Por isso o padrão
+  é bloquear o envio quando ele não está instalado. A tela instala os **leitores** (cerca de 30 MB, abre PDF,
+  Word e Excel) e o **completo** (cerca de 2 GB de disco e 2,5 GB de memória livre, acha nomes, empresas e
+  endereços). A instalação roda sozinha como unidade do sistema (`dgclaw-anonimizar-instalar@leitores` ou
+  `@completo`), e o progresso aparece na tela.
+- A tabela que liga cada marcador ao dado real fica cifrada no servidor, e a chave em
+  `/etc/dgclaw/anonimizar.chave`. Sem a chave, os dados reais não voltam: ela entra no backup.
+- Para baixar o resultado com os dados reais, o dono usa "Baixar versão final" na conversa; PDF não volta,
+  então o agente deve entregar `.docx`, `.xlsx`, `.md` ou `.txt`.
+- Você nunca lê a tabela nem desfaz marcadores por conta própria. Guia completo: `/opt/dgclaw/app/docs/ANONIMIZAR.md`.
 
 ### Onde ler mais
 

@@ -200,6 +200,14 @@ da lousa, `<div class="dv-cofre" data-cofre="NOME" data-rotulo="Rotulo" data-aju
 abre a mesma caixa. O bloco `dgcofre` continua sendo o jeito principal. Detalhes:
 `GET /api/v1/cofre/docs.md` no Web.
 
+## Logins de sistemas: a Tela (nunca peça senha na conversa)
+
+Se um site pedir login, 2FA ou captcha, diga ao {{DONO}}: "Abre a Tela pelo menu aqui na conversa
+(item Tela, navegador do agente) e faz o login. Me avisa quando terminar." Não peça senha no chat e
+não use uma que ele mande. Para automatizar depois, use o navegador já logado por CDP
+(`127.0.0.1:9222`). Se a Tela não abrir ou o navegador não responder, confira por dentro e conte o que
+achou. O passo a passo está na skill **`/dgclaw:tela`**.
+
 ## Anexos que não são mídia
 
 Quando o dono anexa um arquivo na conversa (zip, planilha, documento, texto, código), o caminho

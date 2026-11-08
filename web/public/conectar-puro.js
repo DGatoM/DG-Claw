@@ -230,6 +230,18 @@
   function pronto(ctx) {
     ctx = ctx || {};
     const usuario = ctx.usuario ? String(ctx.usuario) : '';
+    // Colaborador conversa com um agente só: nada de Admin nem de "pedir ao Admin".
+    if (ctx.colaborador) {
+      return {
+        titulo: 'Tudo pronto! Agora é só usar',
+        passo1: '1. Acesse o seu agente:',
+        endereco: String(ctx.endereco || ''),
+        passo2: '2. Entre com o seu e-mail' + (usuario ? ' (' + usuario + ')' : '') + ' e a senha que você criou.',
+        passo3: '3. O que você vai ver:',
+        itens: [(ctx.principalNome || 'O seu agente') + ': o agente com quem você conversa por aqui.'],
+        legendaVideo: 'Veja em menos de 1 minuto',
+      };
+    }
     const itens = ['Admin: para administrar (atualizar o DG Claw, criar agentes e configurar).'];
     if (ctx.principalNome) itens.push(ctx.principalNome + ': o seu agente do dia a dia. Você pode trocar o nome dele depois, é só pedir ao Admin.');
     return {
@@ -246,6 +258,16 @@
   /** O modal abre se algum agente está sem login ou com o login vencido. Erro de consulta, chave de API e login em andamento não abrem. */
   function deveAbrirModal(selos) {
     return (Array.isArray(selos) ? selos : []).some(x => x && (x.chave === 'falta' || x.chave === 'expirou'));
+  }
+
+  /** Quais agentes sem login o modal ainda não apresentou a esta pessoa. `ids` e `selos` andam na mesma ordem;
+   *  `prefs` é { vistos, nao_mostrar_mais } vindo do servidor. Com "não mostrar mais" a lista é vazia. */
+  function agentesNovosParaModal(ids, selos, prefs) {
+    if (prefs && prefs.nao_mostrar_mais === true) return [];
+    const vistos = new Set(prefs && Array.isArray(prefs.vistos) ? prefs.vistos : []);
+    const lista = Array.isArray(ids) ? ids : [];
+    const ss = Array.isArray(selos) ? selos : [];
+    return lista.filter((id, i) => ss[i] && (ss[i].chave === 'falta' || ss[i].chave === 'expirou') && !vistos.has(id));
   }
 
   /** Todos os agentes que usam assinatura ficaram conectados (e há pelo menos um). */
@@ -266,10 +288,11 @@
       agora: 'Está tudo certo. Agora é só começar a conversar:',
       itens: pronto(ctx).itens,
       depois: 'Fazer depois',
+      nunca: 'Não mostrar mais',
       comecar: 'Começar a usar',
       legendaVideo: 'Veja em menos de 1 minuto',
     };
   }
 
-  return { deveAbrirModal, modalCompleto, textosModal, provedoresDoAgente, escolhaDeIA, pronto, ROTULO_ADMIN, ROTULO_PRINCIPAL, ROTULO_TRABALHO, PAPEL_ADMIN, PAPEL_PRINCIPAL, PAPEL_TRABALHO, ordenar, principal, papel, selo, limpaCodigo, traduzFalha, traduzErro, visaoCartao, tudoConectado, emAndamento };
+  return { deveAbrirModal, agentesNovosParaModal, modalCompleto, textosModal, provedoresDoAgente, escolhaDeIA, pronto, ROTULO_ADMIN, ROTULO_PRINCIPAL, ROTULO_TRABALHO, PAPEL_ADMIN, PAPEL_PRINCIPAL, PAPEL_TRABALHO, ordenar, principal, papel, selo, limpaCodigo, traduzFalha, traduzErro, visaoCartao, tudoConectado, emAndamento };
 });

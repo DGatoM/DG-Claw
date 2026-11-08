@@ -1,20 +1,24 @@
 ---
 name: tela
-description: Como o agente usa a Tela, o Chrome de verdade com tela que o dono abre pelo painel. Use quando travar em login de um sistema (site pede usuário e senha, código 2FA, captcha, "confirme que é você"), quando o dono mandar uma senha na conversa, quando for automatizar um site em que o dono já está logado, quando o dono disser "abre a tela", "faz o login pra mim", "usa o meu Chrome" ou "/dgclaw:tela". Nunca pede senha na conversa.
+description: Como o agente usa a Tela, o navegador de verdade com tela que o dono abre pelo menu do agente na conversa (e pela aba Tela do painel). Use quando travar em login de um sistema (site pede usuário e senha, código 2FA, captcha, "confirme que é você"), quando o dono mandar uma senha na conversa, quando for automatizar um site em que o dono já está logado, quando o dono disser "abre a tela", "faz o login pra mim", "usa o meu Chrome" ou "/dgclaw:tela". Nunca pede senha na conversa.
 user-invocable: true
 ---
 
 # /dgclaw:tela: logins pelo dono, automação pelo Chrome logado
 
-Eu tenho uma Tela: um Google Chrome de verdade (não headless), com perfil que guarda os logins em
-`~/.tela-chrome`. O dono abre essa tela no painel, no botão **Tela**, e entra nos sistemas com o
-teclado dele. Depois eu uso o mesmo Chrome, já logado, nas automações.
+Eu tenho uma Tela: um navegador de verdade (não headless), com perfil que guarda os logins em
+`~/.tela-chrome`. Em servidor amd64 ele é o Google Chrome; em arm64 é o Chromium do Playwright, que
+funciona igual para o dono, mas alguns sites com proteção contra robôs o tratam de outro jeito. O dono abre essa
+tela pelo item **Tela (navegador do agente)** do menu do agente na conversa (ou pela aba Tela do painel) e entra
+nos sistemas com o teclado dele. Depois eu uso o mesmo navegador, já logado, nas automações. Vale igual
+para quem roda em Claude ou em Codex: a Tela é do agente, não do motor.
 
 ## 1. Travei num login: a senha nunca passa pela conversa
 
 Site pediu usuário e senha, código 2FA, captcha ou confirmação de identidade? Eu paro e digo ao dono:
 
-> Abre a Tela no painel (botão Tela) e faz o login no sistema X. Me avisa quando terminar.
+> Abre a Tela pelo menu do meu agente aqui na conversa (item "Tela (navegador do agente)") e faz o login no
+> sistema X. Me avisa quando terminar.
 
 Regras:
 
@@ -33,10 +37,9 @@ Primeiro vejo se o Chrome da Tela responde:
 curl -s 127.0.0.1:9222/json/version
 ```
 
-Se vier um JSON, ele está de pé. Se não vier nada, este agente não tem Tela (ou o Chrome caiu).
-Eu explico ao dono: "Este agente não tem Tela ligada. Peça a quem administra o DG Claw para
-criar o agente com a imagem com navegador (ver `docs/TELA-DO-AGENTE.md`)." Não improviso outro
-navegador para sites que exigem login.
+Se vier um JSON, ele está de pé. Se não vier nada, a Tela não está pronta, e eu não improviso outro navegador
+para sites que exigem login. Eu faço a conferência por dentro (seção 5) e conto ao dono o que achei e o
+que ele pode fazer.
 
 Com o Chrome respondendo, conecto por CDP e reaproveito o contexto que já existe, que é onde estão
 os logins:
@@ -70,3 +73,28 @@ with sync_playwright() as p:
 Se o sistema voltar a pedir login, é o caso 1 de novo: aviso o dono, ele refaz pela Tela, eu continuo.
 Sessões duram dias ou semanas, conforme o sistema. Se isso acontecer toda hora com o mesmo sistema,
 conto ao dono, porque pode haver uma opção de "manter conectado" que ele ainda não marcou.
+
+## 5. A Tela não abre ou o navegador não responde: a conferência
+
+Quando o dono disser que a Tela não aparece, ou o `curl` do CDP não responder, eu confiro por dentro, sem
+pedir nada a ele, e depois explico o resultado em português simples:
+
+```bash
+ls -l ~/.dgclaw/tela/vnc.senha          # existe? sem ela o VNC não sobe
+systemctl is-active dgclaw-tela dgclaw-tela-vnc dgclaw-tela-web dgclaw-tela-chrome
+curl -s -o /dev/null -w '%{http_code}\n' 127.0.0.1:6080/        # o noVNC (200 = de pé)
+curl -s 127.0.0.1:9222/json/version                               # o navegador (JSON = de pé)
+```
+
+O que cada resultado quer dizer e o que eu faço:
+
+- **`vnc.senha` não existe:** a senha da Tela ainda não foi definida. Quem define é o dono, na aba Tela do
+  painel ("Defina a senha da tela"). Eu não crio senha por ele e não a peço no chat.
+- **Uma unidade `inactive` ou `failed`:** posso religá-la com `sudo systemctl restart <unidade>` e olhar
+  `journalctl -u <unidade> -n 30`. Se voltar a cair, conto o erro ao dono.
+- **Nenhuma unidade existe (`could not be found`):** esta máquina foi criada sem a Tela. Quem administra o
+  DG Claw precisa recriar o agente com a imagem com navegador; peço ao dono que fale com o Admin.
+- **O Admin tem uma conferência vista do servidor:** `dgclaw agente tela <slug>`, que diz linha a linha o
+  que falta. Se o dono quiser, peço que o Admin a rode.
+
+Depois de religar qualquer coisa, repito o `curl` do CDP antes de dizer que voltou.

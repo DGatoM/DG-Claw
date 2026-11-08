@@ -35,6 +35,25 @@ function inteiroOuNull(v, nome) {
   return v;
 }
 
+/**
+ * Cria UMA pasta (a pasta-mãe tem de existir) e acerta dono e modo pelo descritor aberto com
+ * O_NOFOLLOW, e não pelo caminho: se alguém trocar a pasta recém-criada por um atalho, o chown
+ * não vai parar em outro lugar. Lança ErroGravacao (FALHA_ESCRITA) em português.
+ */
+function criaPastaSemAtalho(caminho, modo, uid, gid) {
+  let fd = null;
+  try {
+    fs.mkdirSync(caminho, { mode: 0o700 });
+    fd = fs.openSync(caminho, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
+    fs.fchownSync(fd, uid, gid);
+    fs.fchmodSync(fd, modo);
+  } catch (e) {
+    throw new ErroGravacao(`Não consegui criar a pasta ${caminho} (${e.code || e.name}). Se ela virou um atalho, o dono deve conferir o que o agente fez ali.`, 'FALHA_ESCRITA');
+  } finally {
+    if (fd != null) { try { fs.closeSync(fd); } catch (_) { /* já fechado */ } }
+  }
+}
+
 /** Confere uma pasta: existe, não é atalho, e só root ou `uidPermitido` alteram. */
 function conferePasta(p, uidPermitido) {
   let st;
@@ -73,9 +92,13 @@ function pastasDoCaminho(raizReal, pasta) {
  *   uid, gid  dono do arquivo. Sem eles: o dono do arquivo que já existe; se não existe,
  *             o dono da pasta onde ele fica.
  *   modo   modo do arquivo. Sem ele: o do arquivo que já existe; se não existe, 0o600.
- *   pasta  { modo, uid, gid } para criar a pasta do arquivo se ela faltar (só um nível,
- *          a pasta-mãe dela tem de existir). Se ela já existe, dono e modo são conferidos,
+ *   pasta  { modo, uid, gid, recursiva } para criar a pasta do arquivo se ela faltar. Sem
+ *          `recursiva`, só um nível (a pasta-mãe tem de existir). Com `recursiva: true`, cria
+ *          cada pasta que faltar entre a raiz e o arquivo, conferindo (lstat) a anterior antes
+ *          de cada criação, sem seguir atalho. Pasta que já existe tem dono e modo conferidos,
  *          não alterados.
+ *   exclusivo  true: nunca sobrescreve. Se o destino já existe (inclusive atalho), lança
+ *          ErroGravacao com code 'JA_EXISTE' e nada é alterado (usa link(), que é atômico).
  *
  * Devolve { caminho, uid, gid, modo, bytes }. Lança ErroGravacao (mensagem em português,
  * `code` estável) quando recusa ou quando a escrita falha.
@@ -119,23 +142,20 @@ function gravaArquivoSeguro(caminho, conteudo, opcoes) {
     if (modo == null) modo = atual.mode & 0o777;
   }
 
-  // Pasta do arquivo: cria se pedido e se faltar (um nível só).
+  // Pasta do arquivo: cria se pedido e se faltar (um nível, ou todos os que faltam se recursiva).
   const criar = o.pasta || null;
   if (criar) {
-    try { fs.lstatSync(pasta); } catch (e) {
-      if (e.code !== 'ENOENT') throw new ErroGravacao(`Não consegui conferir a pasta ${pasta} (${e.code || e.name}).`, 'FALHA_ESCRITA');
-      const pm = inteiroOuNull(criar.modo, 'pasta.modo');
-      const pu = inteiroOuNull(criar.uid, 'pasta.uid');
-      const pg = inteiroOuNull(criar.gid, 'pasta.gid');
-      if (pm == null || pu == null || pg == null) throw new ErroGravacao('Para criar a pasta preciso de pasta.modo, pasta.uid e pasta.gid.', 'OPCAO_INVALIDA');
-      for (const p of pastas.slice(0, -1)) conferePasta(p, pu);
-      try {
-        fs.mkdirSync(pasta, { mode: 0o700 });
-        fs.chownSync(pasta, pu, pg);
-        fs.chmodSync(pasta, pm);
-      } catch (e2) {
-        throw new ErroGravacao(`Não consegui criar a pasta ${pasta} (${e2.code || e2.name}).`, 'FALHA_ESCRITA');
+    const pm = inteiroOuNull(criar.modo, 'pasta.modo');
+    const pu = inteiroOuNull(criar.uid, 'pasta.uid');
+    const pg = inteiroOuNull(criar.gid, 'pasta.gid');
+    const candidatas = criar.recursiva ? pastas.slice(1) : [pasta];
+    for (const alvo of candidatas) {
+      try { fs.lstatSync(alvo); continue; } catch (e) {
+        if (e.code !== 'ENOENT') throw new ErroGravacao(`Não consegui conferir a pasta ${alvo} (${e.code || e.name}).`, 'FALHA_ESCRITA');
       }
+      if (pm == null || pu == null || pg == null) throw new ErroGravacao('Para criar a pasta preciso de pasta.modo, pasta.uid e pasta.gid.', 'OPCAO_INVALIDA');
+      for (const p of pastas.slice(0, pastas.indexOf(alvo))) conferePasta(p, pu);
+      criaPastaSemAtalho(alvo, pm, pu, pg);
     }
   }
 
@@ -155,14 +175,30 @@ function gravaArquivoSeguro(caminho, conteudo, opcoes) {
   let fd = null;
   try {
     fd = fs.openSync(tmp, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, 0o600);
-    fs.writeSync(fd, dados, 0, dados.length, 0);
+    // writeSync pode gravar menos do que o pedido (disco cheio, limite de tamanho): repete até o fim.
+    let escrito = 0;
+    while (escrito < dados.length) {
+      const n = fs.writeSync(fd, dados, escrito, dados.length - escrito, escrito);
+      if (!(n > 0)) {
+        throw new ErroGravacao(`Não consegui gravar ${destino} por inteiro: escrevi ${escrito} de ${dados.length} bytes e o sistema parou de aceitar dados (disco cheio ou limite de tamanho). O arquivo não foi publicado; libere espaço e tente de novo.`, 'FALHA_ESCRITA');
+      }
+      escrito += n;
+    }
     fs.fsyncSync(fd);
     fs.fchownSync(fd, uid, gid);
     fs.fchmodSync(fd, modo);
     fs.closeSync(fd);
     fd = null;
     for (const p of pastas) conferePasta(p, uid);
-    fs.renameSync(tmp, destino);
+    if (o.exclusivo) {
+      try { fs.linkSync(tmp, destino); } catch (e) {
+        if (e.code === 'EEXIST') throw new ErroGravacao(`${destino} já existe; não sobrescrevi.`, 'JA_EXISTE');
+        throw e;
+      }
+      fs.unlinkSync(tmp);
+    } else {
+      fs.renameSync(tmp, destino);
+    }
   } catch (e) {
     if (fd != null) { try { fs.closeSync(fd); } catch (_) { /* já fechado */ } }
     try { fs.unlinkSync(tmp); } catch (_) { /* não chegou a existir ou já foi trocado */ }
@@ -178,4 +214,4 @@ function gravaArquivoSeguro(caminho, conteudo, opcoes) {
   return { caminho: destino, uid, gid, modo, bytes: dados.length };
 }
 
-module.exports = { gravaArquivoSeguro, ErroGravacao };
+module.exports = { gravaArquivoSeguro, criaPastaSemAtalho, ErroGravacao };

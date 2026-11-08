@@ -45,8 +45,9 @@ AJ="$ETC/agentes.json"
 afirma "agentes.json e um JSON valido" jq -e . "$AJ"
 igual "versao 1" "1" "$(jq -r .versao "$AJ")"
 igual "campos exatamente os do contrato, na ordem" \
-    "slug,nome,tipo,runner,agente_id,chat_id,avatar,cor,provedor,modelo,transcripts_dir,porta_painel,proxy_segredo_arquivo,runner_token_arquivo,home_host,home_container,cofre_arquivo,container" \
+    "slug,nome,tipo,runner,agente_id,chat_id,avatar,cor,provedor,modelo,transcripts_dir,porta_painel,proxy_segredo_arquivo,runner_token_arquivo,home_host,home_container,cofre_arquivo,container,instancia" \
     "$(jq -r '.agentes[0] | keys_unsorted | join(",")' "$AJ")"
+afirma "instancia e um identificador aleatorio de 24 caracteres" bash -c "jq -r '.agentes[0].instancia' '$AJ' | grep -Eq '^[0-9a-f]{24}$'"
 igual "tipo agente" "agente" "$(jq -r '.agentes[0].tipo' "$AJ")"
 igual "chat_id c_<slug>" "c_ana" "$(jq -r '.agentes[0].chat_id' "$AJ")"
 igual "transcripts_dir do Claude" "$LIB/agentes/ana/home/.claude/projects/-home-agente" "$(jq -r '.agentes[0].transcripts_dir' "$AJ")"

@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import os from "node:os";
 import {
   dormir, abrirServidorDeHooks, chaveFalsa, chaveFalsaOpenai, esperarAte, lerLinhasJson, lerTexto, logarClaude, prepararAmbiente,
 } from "./apoio-teste.js";
@@ -771,4 +771,42 @@ test("login expirado: reiniciar SEM renovar a credencial não conta recado e dei
   assert.ok(lerTexto(amb.logDoRunner).includes("sem que a credencial tenha sido renovada"));
   await dormir(1_000);
   assert.equal(recados(), antes, "nenhum recado novo");
+});
+
+// --- hook: nunca segura o turno ---------------------------------------------
+test("runner-hook.mjs: stdin que nunca fecha não trava (termina em menos de 3s) e ainda manda o POST", async () => {
+  const { spawn } = await import("node:child_process");
+  const http = await import("node:http");
+  const { HOOK_HANDLER_SOURCE } = await import("./hook-handler-source.js");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "hook-"));
+  const arq = path.join(dir, "runner-hook.mjs");
+  fs.writeFileSync(arq, HOOK_HANDLER_SOURCE);
+  const recebidos: any[] = [];
+  const srv = http.createServer((req, res) => {
+    let b = "";
+    req.on("data", (c) => (b += c));
+    req.on("end", () => { recebidos.push({ url: req.url, corpo: JSON.parse(b) }); res.end("{}"); });
+  });
+  await new Promise<void>((r) => srv.listen(0, "127.0.0.1", r));
+  const porta = (srv.address() as { port: number }).port;
+  const rodar = (entrada: string | null) => new Promise<number>((resolve) => {
+    const ini = Date.now();
+    const p = spawn(process.execPath, [arq, "--agent", "a1", "--port", String(porta), "--nonce", "n1", "--event", "PreToolUse"], { stdio: ["pipe", "ignore", "ignore"] });
+    if (entrada !== null) { p.stdin.write(entrada); p.stdin.end(); } // null = stdin aberto para sempre
+    p.on("exit", (code) => { assert.equal(code, 0); resolve(Date.now() - ini); });
+  });
+  try {
+    const trava = await rodar(null);
+    assert.ok(trava < 3000, `o hook levou ${trava}ms com stdin aberto`);
+    assert.equal(recebidos.length, 1, "o POST sai mesmo sem ler o stdin");
+    assert.equal(recebidos[0].url, "/api/agent-hook");
+    assert.equal(recebidos[0].corpo.event, "PreToolUse");
+    assert.equal(recebidos[0].corpo.toolName, null);
+
+    await rodar(JSON.stringify({ cwd: "/x", session_id: "s1", tool_name: "Bash", source: "startup" }));
+    assert.deepEqual(recebidos[1].corpo, { agentId: "a1", nonce: "n1", event: "PreToolUse", cwd: "/x", sessionId: "s1", toolName: "Bash", toolUseId: null, source: "startup", error: null, lastAssistantMessage: null });
+  } finally {
+    srv.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

@@ -194,6 +194,9 @@ const btnFim = $('btnFim'), fimNovas = $('fimNovas');
 const API = '/api/v1/agents/' + encodeURIComponent(AGENTE.id);
 const AQUI = location.pathname + location.search;
 const EH_ADMIN = AGENTE.tipo === 'admin';
+/* Colaborador: só este agente. Tira da tela o que é do dono (o servidor também barra; aqui é para não sobrar botão que não leva a lugar nenhum). */
+const COLAB = !!(window.DGPapel && window.DGPapel.colaborador);
+if (COLAB) for (const id of ['btnMesa', 'btnLembretes', 'btnNaoLida', 'trocaBaixo']) { const e = $(id); if (e) e.remove(); }
 /* A Mesa e os Lembretes levam o agente junto (?a=), para o menu deles ser o deste agente. */
 (function () {
   // localStorage para a casca das outras telas; o cookie é o que o servidor lê na rota "/" (abre o último agente usado)
@@ -204,8 +207,28 @@ const EH_ADMIN = AGENTE.tipo === 'admin';
   });
 })();
 if (window.campoCofre) window.campoCofre.configurar({ agente: AGENTE.id, nome: AGENTE.nome });
+
+/* Anonimizar documentos (docs/ANONIMIZAR.md). Com a opção ligada para este agente: o selo no cabeçalho leva à tela,
+   o anexo que o agente manda ganha "Baixar versão final" e a resposta com marcadores ganha "Ver com dados reais".
+   anonVistos guarda, por mensagem, o texto já revertido: só existe na memória desta aba. */
+let anonLigado = false;
+const anonVistos = new Map();
+const API_ANON = '/api/v1/anonimizar/' + encodeURIComponent(AGENTE.id);
+(function () {
+  const selo = $('btnAnon');
+  if (selo) selo.href = window.DGMenuLado.comAgente('/anonimizar', AGENTE.id);
+  fetch(API_ANON + '/config', { credentials: 'same-origin', cache: 'no-store' })
+    .then(r => r.json().catch(() => null).then(d => ({ r, d })))
+    .then(({ r, d }) => {
+      if (!r.ok || !d || !d.config) { console.warn('anonimizar: não consegui ler a configuração (' + ((d && d.erro) || r.status) + '); os botões de dados reais ficam escondidos.'); return; }
+      anonLigado = !!d.config.ligado;
+      if (selo) selo.hidden = !anonLigado;
+      if (anonLigado) render({ semRolar: true });
+    })
+    .catch(e => console.warn('anonimizar: não consegui ler a configuração (' + e.message + ').'));
+})();
 if (window.DGOnboarding) window.DGOnboarding.iniciar({ agente: AGENTE, enviar: texto => new Promise((resolve, reject) => { enviarTexto(texto, null, { aoEntregar: (ok, motivo) => ok ? resolve() : reject(new Error(motivo || 'O Admin não recebeu a mensagem.')) }); }), refazer: () => render({ semRolar: true }) });
-if (window.DGBarra) window.DGBarra.liga(entrada, { url: API + '/comandos' });   // lista de comandos ao digitar /
+if (window.DGBarra && !COLAB) window.DGBarra.liga(entrada, { url: API + '/comandos' });   // lista de comandos ao digitar /
 let novasAbaixo = 0, setaVisivel = false;   // a seta pro fim e o contador dela
 /* mp3 de 0,08s em silêncio: é o que destrava o áudio no iOS dentro do gesto. */
 const SILENCIO = 'data:audio/mpeg;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjYwLjE2LjEwMAAAAAAAAAAAAAAA//NwwAAAAAAAAAAAAEluZm8AAAAPAAAABgAAAVMAnZ2dnZ2dnZ2dnZ2dnZ2dnbGxsbGxsbGxsbGxsbGxsbGxxcXFxcXFxcXFxcXFxcXFxdjY2NjY2NjY2NjY2NjY2NjY7Ozs7Ozs7Ozs7Ozs7Ozs7Oz/////////////////////AAAAAExhdmM2MC4zMQAAAAAAAAAAAAAAACQEUQAAAAAAAAFTx3TIuwAAAAAAAAAAAAAAAAD/8xDEAAAAA0gAAAAATEFNRTMuMTAwVVVVVf/zEsQNAAADSAAAAABVVVVVVVVVVVVVVVVVVf/zEMQbAAADSAAAAABVVVVVVVVVVVVVVVVV//MQxCgAAANIAAAAAFVVVVVVVVVVVVVVVVX/8xDENQAAA0gAAAAAVVVVVVVVVVVVVVVVVf/zEMRCAAADSAAAAABVVVVVVVVVVVVVVVVV';
@@ -643,7 +666,13 @@ async function lcCopia(texto) {
 }
 
 /* Abre o cartão. `manual`: veio do /login (fica mesmo com a conta conectada). */
+let lcAvisouColab = false;
 function lcAbre(manual, semConferir) {
+  // Colaborador não conecta conta: o servidor nega o login inteiro. Só avisa, uma vez, em vez de abrir o cartão.
+  if (window.DGPapel && window.DGPapel.colaborador) {
+    if (!lcAvisouColab) { lcAvisouColab = true; mostraAviso('O agente precisa entrar numa conta, e isso é só do dono do DG Claw. Avise o dono.'); }
+    return;
+  }
   if (lc.aberto) { if (manual) { lc.manual = true; lc.dispensado = false; } lcDesenha(); return; }
   Object.assign(lc, { aberto: true, manual: !!manual, iniciado: false, erro: '', codigo: '', carregando: !semConferir,
                       dados: { estado: 'nenhum', provedor: AGENTE.provedor, precisa_login: !manual } });
@@ -1292,6 +1321,13 @@ function paragrafos(txt, fmt) {
   return html;
 }
 
+/* Texto com os dados reais: só escapado, em parágrafos. Sem linkify e sem markdown, para um dado real que pareça URL
+   (ou traga ](...)) não virar link nem imagem. */
+function textoPuroEmParagrafos(txt) {
+  return String(txt).split(/\n{2,}/).filter(p => p.trim())
+    .map(p => `<div class="p">${esc(p.trim()).replace(/\n/g, '<br>')}</div>`).join('');
+}
+
 const ROTULO_MIDIA = { photo: '📷 foto', video: '🎬 vídeo',
                        document: '📄 arquivo', voice: '🎤 áudio',
                        audio: '🎤 áudio' };
@@ -1572,7 +1608,21 @@ function htmlCorpo(m) {
   // [ver a criação] só vira botão em mensagem de quem não é o dono (o texto já sai escapado de paragrafos)
   let htmlLeg = leg ? paragrafos(leg, m.fmt) : '';
   if (htmlLeg && !ehDono(m) && window.DGOnboarding && window.DGOnboarding.marcadorParaBotao) htmlLeg = window.DGOnboarding.marcadorParaBotao(htmlLeg);
-  const corpo = leg ? doVisual + htmlLeg : doVisual;
+  // Anonimizar: texto revertido (só na memória desta aba) e os botões de dados reais, só para o dono e só nas mensagens do agente
+  let anonBotoes = '';
+  if (anonLigado && ehAgente(m) && !m.pendente) {
+    if (m.id && leg && /\[[A-Z]+_\d+\]/.test(leg)) {
+      const ver = anonVistos.has(String(m.id));
+      if (ver) htmlLeg = textoPuroEmParagrafos(anonVistos.get(String(m.id)));
+      anonBotoes += `<button type="button" class="anon-btn" data-anon-ver="${esc(m.id)}" aria-pressed="${ver}">` +
+        `${ver ? 'Esconder os dados reais' : 'Ver com dados reais'}</button>`;
+    }
+    if (m.media && m.media.disponivel && m.media.kind === 'document') {
+      anonBotoes += `<button type="button" class="anon-btn" data-anon-final="${esc(m.media.id)}" ` +
+        `title="Baixa o arquivo com os dados reais no lugar dos marcadores">Baixar versão final</button>`;
+    }
+  }
+  const corpo = (leg ? doVisual + htmlLeg : doVisual) + (anonBotoes ? `<div class="anon-linha">${anonBotoes}</div>` : '');
   const reac = (m.reacoes && m.reacoes.length)
     ? `<span class="reac">${m.reacoes.map(esc).join(' ')}</span>` : '';
   // fone: ouvir esta fala de novo (só aparece com o modo de ouvir ligado, pelo CSS)
@@ -2999,6 +3049,13 @@ function prontoAnexo(a, d) {
   a.pct = null;
   a.id = d.anexo.id;
   a.path = d.anexo.path;
+  if (d.anonimizado) {
+    const n = d.anonimizado.contagem || 0;
+    a.anonTexto = d.anonimizado.id ? 'Anonimizado: ' + n + (n === 1 ? ' dado trocado' : ' dados trocados') : 'Enviado SEM anonimizar';
+    const tam = a.el && a.el.querySelector('.anxtam');
+    if (tam) { tam.textContent = a.anonTexto; tam.classList.add('anon'); }
+    if (Array.isArray(d.anonimizado.avisos) && d.anonimizado.avisos.length) mostraAviso(d.anonimizado.avisos.join(' '));
+  }
   atualizaCartao(a);
   pintaInfoAnexos();
   tocaSubidas();
@@ -3360,6 +3417,7 @@ if (btnNaoLida) btnNaoLida.onclick = () => {
     .finally(() => { btnNaoLida.disabled = false; });
 };
 function atualizaNaoLidas() {
+  if (COLAB) return Promise.resolve();   // /api/v1/estados é do dono; o colaborador tem só uma conversa
   if (naoLidasEmVoo) return naoLidasEmVoo;
   naoLidasEmVoo = api('/api/v1/estados', { timeoutMs: 15000 }).then(d => {
     if (!d || typeof d.agentes !== 'object' || !d.agentes) throw new Error('a resposta não trouxe o campo "agentes"');
@@ -4617,6 +4675,47 @@ wrap.addEventListener('click', ev => {
   ouvirAPartirDe({ id: m.id, texto: texto });
 });
 
+/* Anonimizar: "Ver com dados reais" troca o texto da mensagem pelo texto revertido (entra pelo mesmo
+   caminho de sempre, paragrafos(), que escapa tudo) e "Baixar versão final" baixa o arquivo com os dados reais. */
+wrap.addEventListener('click', async ev => {
+  const ver = ev.target.closest ? ev.target.closest('button[data-anon-ver]') : null;
+  const fin = ev.target.closest ? ev.target.closest('button[data-anon-final]') : null;
+  if (!ver && !fin) return;
+  const bt = ver || fin;
+  if (bt.disabled) return;
+  bt.disabled = true;
+  try {
+    if (ver) {
+      const id = ver.getAttribute('data-anon-ver');
+      if (anonVistos.has(id)) { anonVistos.delete(id); render({ semRolar: true }); return; }
+      const m = msgs.find(x => String(x.id) === id);
+      if (!m || !m.text) { mostraAviso('Não achei o texto desta mensagem. Recarregue a conversa.'); return; }
+      const r = await fetch(API_ANON + '/reverter-texto', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ texto: m.text }) });
+      const d = await r.json().catch(() => null);
+      if (!r.ok || !d || d.ok === false || typeof d.texto !== 'string') { mostraAviso('Não consegui mostrar os dados reais: ' + ((d && d.erro) || ('o app respondeu ' + r.status)) + '.'); return; }
+      anonVistos.set(id, d.texto);
+      render({ semRolar: true });
+      return;
+    }
+    const r = await fetch(API_ANON + '/final/' + encodeURIComponent(fin.getAttribute('data-anon-final')), { credentials: 'same-origin', cache: 'no-store' });
+    if (!r.ok) {
+      const d = await r.json().catch(() => null);
+      mostraAviso('Não consegui gerar a versão final: ' + ((d && d.erro) || ('o app respondeu ' + r.status)));
+      return;
+    }
+    const nome = (/filename\*=UTF-8''([^;]+)/i.exec(r.headers.get('Content-Disposition') || '') || [])[1];
+    const url = URL.createObjectURL(await r.blob());
+    const a = document.createElement('a');
+    a.href = url; a.download = nome ? decodeURIComponent(nome) : 'versao-final';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+  } catch (e) {
+    mostraAviso('Não consegui falar com o app para ' + (ver ? 'mostrar os dados reais' : 'gerar a versão final') + ' (' + e.message + ').');
+  } finally {
+    bt.disabled = false;
+  }
+});
+
 /* ── Modo texto e toggles ─────────────────────────────────────────────────── */
 function enviarDoCampo() {
   if (anexos.length) {
@@ -4752,7 +4851,7 @@ function passosTutorial() {
   const abreM = () => abreMenu(true), fechaM = () => abreMenu(false);
   const nome = AGENTE.nome;
   const passos = [
-    ...window.DGMenuLado.passosMenu({ nome, abre: abreM, fecha: fechaM, comTroca: agentesMenu.length > 1, naConversa: true }),
+    ...window.DGMenuLado.passosMenu({ nome, abre: abreM, fecha: fechaM, comTroca: !COLAB && agentesMenu.length > 1, naConversa: true, colaborador: COLAB }),
     { alvo: '#chat', antes: fechaM, titulo: 'A conversa',
       oque: 'Aqui aparece tudo o que você e ' + nome + ' já escreveram, na ordem, como num aplicativo de mensagens.',
       como: 'As respostas chegam sozinhas, sem precisar atualizar a página. Role para cima para ver as mensagens mais antigas; a seta no canto leva de volta para a mais nova. Quando uma mensagem veio ou foi respondida pelo WhatsApp ou pelo Telegram, ela ganha um selinho com o nome do canal; passe o dedo ou o mouse nele para ver os detalhes.',
@@ -4839,6 +4938,7 @@ function passosTutorial() {
       como: 'Toque nele e a tela de Sessões abre dentro do painel do agente, na mesma janela. No celular o texto some e fica só o ícone 🖥.',
       porque: 'É o mini-Bunker do agente: você acompanha e cria trabalhos longos sem sair procurando no menu, e o botão fica no topo, em todas as telas.' });
   }
+  if (!COLAB) {
   passos.push({ alvo: '#btnMesa', titulo: 'O botão Mesa',
     oque: 'Um atalho para a Mesa de tarefas, onde ficam as tarefas de todos os agentes.',
     como: 'Toque nele e a Mesa abre na mesma janela. Lá você acompanha o que está pendente e o que já foi feito.',
@@ -4851,9 +4951,14 @@ function passosTutorial() {
     oque: 'Um atalho para a tela de lembretes.',
     como: 'Toque nele e a lista abre na mesma janela. Lá você cria, confirma e apaga lembretes.',
     porque: 'Lembrete que insiste até você confirmar só ajuda se for fácil de achar, por isso fica no topo.' });
+  }
+  if ($('btnAnon') && !$('btnAnon').hidden) passos.push({ alvo: '#btnAnon', titulo: 'Documentos anonimizados',
+    oque: 'Um selo que aparece só quando a anonimização de documentos está ligada para ' + nome + '. Ele leva à tela Anonimizar.',
+    como: 'Os documentos que você manda pelo clipe passam por um filtro que troca nomes, CPF, telefone e outros dados por marcadores como [PESSOA_1]. O agente só vê os marcadores. Nas respostas dele, o botão "Ver com dados reais" mostra o texto de verdade e "Baixar versão final" entrega o arquivo com os dados reais.',
+    porque: 'O agente e o modelo na nuvem trabalham sem receber os dados pessoais dos seus clientes, e você continua lendo tudo completo.' });
   if (window.DGSigilo) passos.push(window.DGSigilo.passoTour());
   passos.push(passoAlertas());
-  if (window.DGFoco) passos.push(window.DGFoco.passoTutorial());
+  if (window.DGFoco && !COLAB) passos.push(window.DGFoco.passoTutorial());
   passos.push(passoAcervo());
   if (window.DGSegurancaResumo) passos.push(window.DGSegurancaResumo.passoSelo());
   return passos;
