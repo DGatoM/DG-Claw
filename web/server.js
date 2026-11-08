@@ -1424,7 +1424,10 @@ function criarServidor(opcoes) {
       const quem = quemDoProxy(sessao, req);
       if (quem.colaborador_id) {
         // A conferência repete o login do upgrade: o proxy a chama a cada 30 s e fecha o socket quando a sessão cai.
-        quem.valeAinda = () => { const s2 = auth.sessaoDoPedido(req); return !!s2 && s2.papel === 'colaborador' && s2.colaborador_id === quem.colaborador_id && s2.senha_versao === sessao.senha_versao; };
+        quem.valeAinda = () => { const s2 = auth.sessaoDoPedido(req); return !!s2 && s2.papel === 'colaborador' && s2.colaborador_id === quem.colaborador_id && s2.senha_versao === sessao.senha_versao && !cadeado.travada(req, sessao); };
+      } else if (!sessao.via && cadeado.ligado(req, sessao)) {
+        // Dono com Face ID neste aparelho: a Tela aberta antes de travar cai na próxima conferência do proxy (até 30 s).
+        quem.valeAinda = () => !cadeado.travada(req, sessao);
       }
       return proxy.upgrade(req, socket, head, pp[1], sessao.usuario, quem);
     } catch (e) {

@@ -32,7 +32,7 @@ O servidor decide, em todas as telas. Com a sessão travada:
 | Página (HTML) | redireciona para `/cadeado?next=<página>` |
 | `/api/...` | `423` com `{ "ok": false, "erro": "...", "travado": true }` |
 | `/p/<agente>/...` | redireciona se for página, `423` se for chamada |
-| WebSocket | recusado com `423` |
+| WebSocket | recusado com `423` ao abrir; o que já estava aberto (a Tela do agente) cai em até 30 s depois de travar |
 | Stream da conversa | para e manda `event: travado` |
 
 Passam mesmo travada: `GET /cadeado`, os arquivos estáticos (CSS, JS, ícones), `GET /api/v1/cadeado/estado`,

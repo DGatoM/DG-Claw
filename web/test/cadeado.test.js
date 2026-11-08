@@ -681,3 +681,109 @@ test('o stream da conversa para e avisa com "event: travado"', async () => {
     assert.ok(texto.indexOf('event: travado') > texto.indexOf('event: ola'));
   });
 });
+
+// ── WebSocket já aberto quando a sessão trava ───────────────────────────────
+function painelComWebSocket() {
+  const servidor = http.createServer((req, res) => { res.writeHead(200); res.end('{}'); });
+  const abertos = new Set();
+  servidor.on('upgrade', (req, socket) => {
+    abertos.add(socket); socket.on('close', () => abertos.delete(socket));
+    socket.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n');
+    socket.on('data', (d) => socket.write(d));
+    socket.on('error', () => socket.destroy());
+  });
+  return {
+    ouvir: () => new Promise((r) => servidor.listen(0, '127.0.0.1', () => r(servidor.address().port))),
+    fechar: () => new Promise((r) => { for (const x of abertos) x.destroy(); servidor.closeAllConnections(); servidor.close(() => r()); }),
+  };
+}
+async function cenarioWs() {
+  const painel = painelComWebSocket();
+  const porta = await painel.ouvir();
+  const dir = pastaTemp('cad-ws');
+  const segredo = path.join(dir, 'proxy.txt');
+  fs.writeFileSync(segredo, 'segredo-de-teste\n');
+  const agentes = [{ slug: 'ana', nome: 'Ana', runner: 'http://127.0.0.1:1', agente_id: 'a1', porta_painel: porta, proxy_segredo_arquivo: segredo }];
+  const relogio = { t: Date.now() };
+  const t = comTelas(await subirWeb({ agentes, opcoesServidor: { agora: () => relogio.t } }));
+  return { t, relogio, fechar: async () => { await t.fechar(); await painel.fechar(); } };
+}
+/** Abre o WebSocket da Tela e devolve { socket, fechou: Promise }. */
+function abreWs(s, p, comAparelho) {
+  const cookie = `dgclaw_sessao=${p.jar.dgclaw_sessao}` + (comAparelho && p.jar.dgclaw_aparelho ? `; dgclaw_aparelho=${p.jar.dgclaw_aparelho}` : '');
+  return new Promise((resolve, reject) => {
+    const req = http.request({ host: '127.0.0.1', port: s.t.porta, path: '/p/ana/tela/websockify', headers: { Host: `localhost:${s.t.porta}`, Origin: p.origem, Connection: 'Upgrade', Upgrade: 'websocket', 'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==', 'Sec-WebSocket-Version': '13', Cookie: cookie } });
+    req.on('upgrade', (res, socket) => {
+      const fechou = new Promise((r) => socket.on('close', () => r(true)));
+      socket.on('error', () => {});
+      resolve({ socket, fechou });
+    });
+    req.on('response', (res) => { res.resume(); reject(new Error(`o upgrade foi recusado com ${res.statusCode}`)); });
+    req.on('error', reject);
+    req.on('close', () => reject(new Error(`a conexão fechou sem upgrade. Log do Web:\n${s.t.log.texto()}`)));
+    req.setTimeout(3000, () => { req.destroy(); reject(new Error(`o upgrade não respondeu em 3 s. Log do Web:\n${s.t.log.texto()}`)); });
+    req.end();
+  });
+}
+const espera = (ms) => new Promise((r) => setTimeout(r, ms));
+
+test('WebSocket aberto antes de travar cai na revalidação do proxy; sem cadeado a conexão fica', async () => {
+  const s = await cenarioWs();
+  try {
+    // dono SEM cadeado: nada é conferido, a conexão fica aberta mesmo com o tempo passando
+    const livre = pessoa(s);
+    await livre.login('dono', s.t.senha);
+    const wsLivre = await abreWs(s, livre, false);
+    s.relogio.t += 60 * MIN;
+    s.t.web.proxy.revalidar();
+    await espera(150);
+    assert.equal(wsLivre.socket.destroyed, false, 'sem cadeado ligado a conexão do dono não entra na conferência');
+    wsLivre.socket.destroy();
+
+    // dono COM cadeado: a Tela abre destravada e cai quando a sessão trava
+    const d = pessoa(s);
+    await d.login('dono', s.t.senha);
+    const ap = aparelhoFalso();
+    assert.equal((await d.cadastra(ap, 'iPhone')).status, 201);
+    const ws = await abreWs(s, d, true);
+    s.t.web.proxy.revalidar();
+    await espera(150);
+    assert.equal(ws.socket.destroyed, false, 'destravada, segue aberta');
+    s.relogio.t += 16 * MIN;
+    s.t.web.proxy.revalidar();
+    assert.equal(await Promise.race([ws.fechou, espera(1000).then(() => false)]), true, 'travou: o WebSocket é fechado');
+    assert.match(s.t.log.texto(), /fechei um WebSocket cuja sessão deixou de valer ou travou/);
+    // destravar não reabre sozinho, mas a Tela volta a abrir
+    assert.equal((await d.destrava(ap)).status, 200);
+    const outro = await abreWs(s, d, true);
+    outro.socket.destroy();
+  } finally { await s.fechar(); }
+});
+
+test('casca.js carrega o trava.js nas páginas do painel e não duplica onde já há a tag', () => {
+  const vm = require('node:vm');
+  const codigo = fs.readFileSync(path.join(PUBLICO_REAL, 'casca.js'), 'utf8');
+  const monta = (comTag, comObjeto) => {
+    const anexados = [];
+    const document = {
+      head: { appendChild: (e) => anexados.push(e.src) },
+      createElement: () => ({}),
+      // como o navegador: depois de anexada, a tag passa a ser achada
+      querySelector: (sel) => ((comTag || anexados.length) && sel === 'script[src="/trava.js"]' ? {} : null),
+      getElementById: () => null,
+    };
+    const janela = { document, console };
+    janela.window = janela;
+    if (comObjeto) janela.DGTrava = {};
+    vm.createContext(janela);
+    vm.runInContext(codigo, janela, { filename: 'casca.js' });
+    janela.DGCasca.carregaTrava();
+    janela.DGCasca.carregaTrava();
+    return anexados;
+  };
+  assert.deepEqual(monta(false, false), ['/trava.js'], 'sem nada carregado a tag entra, uma vez só mesmo chamando duas vezes');
+  assert.equal(monta(true, false).length, 0, 'tag já no HTML: não duplica');
+  assert.equal(monta(false, true).length, 0, 'objeto já carregado: não duplica');
+  // o casca.js só roda nas telas logadas: o login, a troca de senha e o primeiro acesso não o carregam
+  for (const t of ['login', 'trocar-senha', 'primeiro-acesso']) assert.doesNotMatch(fs.readFileSync(path.join(PUBLICO_REAL, `${t}.html`), 'utf8'), /casca\.js/, t);
+});

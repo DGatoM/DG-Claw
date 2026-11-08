@@ -196,6 +196,11 @@ function criarCadeado({ config, log, agora }) {
     if (!e || e.titular !== titular) return true;
     return relogio() - e.uso > travaMin(titular) * 60000;
   }
+  /** Este aparelho tem cadeado para a pessoa da sessão? (sem ele, nada é conferido depois) */
+  function ligado(req, sessao) {
+    const titular = titularDe(sessao);
+    return !!titular && aparelhoLigado(req, titular);
+  }
   function restaS(req, sessao) {
     const titular = titularDe(sessao);
     if (!titular || !aparelhoLigado(req, titular)) return null;
@@ -638,7 +643,7 @@ function criarCadeado({ config, log, agora }) {
   }
 
   return {
-    rotas, gate, travada, aoCriarSessao, removerDoTitular, limpaOrfaos, destinoSeguro,
+    rotas, gate, travada, ligado, aoCriarSessao, removerDoTitular, limpaOrfaos, destinoSeguro,
     get falhaCarga() { return falhaCarga; },
     aguardar() { return Promise.all([gravConf.aguardar(), gravEstado.aguardar(), fila]); },
   };

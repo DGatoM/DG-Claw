@@ -29,17 +29,17 @@ function valorSeguro(v) {
 function criarProxy({ config, registro, log, cofreRotas }) {
   const cacheSegredo = new Map(); // caminho -> { mtimeMs, valor }
   const socketsAbertos = new Set(); // conexões WebSocket, para fechar junto com o servidor
-  const deColaborador = new Set(); // { colaborador_id, valeAinda(), socket, psocket }
+  const deColaborador = new Set(); // { colaborador_id (ausente no dono), valeAinda(), socket, psocket }: conexões com conferência periódica
 
   const fechaPar = (r) => { r.socket.destroy(); r.psocket.destroy(); deColaborador.delete(r); };
   /** Revogação, convite novo ou troca de senha: fecha os dois lados dos WebSockets daquele colaborador. */
   function fecharDoColaborador(id) { for (const r of [...deColaborador]) if (r.colaborador_id === id) fechaPar(r); }
-  /** Fecha os WebSockets de colaborador cuja sessão deixou de valer (expirou, foi apagada, o acesso mudou). */
+  /** Fecha os WebSockets cuja sessão deixou de valer (expirou, foi apagada, o acesso mudou) ou que travou pelo cadeado (Face ID). */
   function revalidar() {
     for (const r of [...deColaborador]) {
       let vale = false;
-      try { vale = !!r.valeAinda(); } catch (e) { log('erro', `Proxy: não consegui revalidar a sessão de um WebSocket de colaborador (${e.message}); fechei a conexão.`); }
-      if (!vale) { log('aviso', 'Proxy: fechei o WebSocket de um colaborador cuja sessão deixou de valer.'); fechaPar(r); }
+      try { vale = !!r.valeAinda(); } catch (e) { log('erro', `Proxy: não consegui revalidar a sessão de um WebSocket (${e.message}); fechei a conexão.`); }
+      if (!vale) { log('aviso', 'Proxy: fechei um WebSocket cuja sessão deixou de valer ou travou pelo cadeado (Face ID).'); fechaPar(r); }
     }
   }
   const relogio = setInterval(revalidar, INTERVALO_REVALIDA_MS);
@@ -218,8 +218,8 @@ function criarProxy({ config, registro, log, cofreRotas }) {
       if (phead && phead.length) socket.write(phead);
       if (head && head.length) psocket.write(head);
       socketsAbertos.add(socket); socketsAbertos.add(psocket);
-      // WebSocket de colaborador: guardado com a conferência da sessão, para fechar quando ela deixar de valer.
-      if (quem && quem.colaborador_id) {
+      // WebSocket com conferência (colaborador, ou dono com cadeado ligado): guardado para fechar quando a sessão deixar de valer ou travar.
+      if (quem && typeof quem.valeAinda === 'function') {
         const reg = { colaborador_id: quem.colaborador_id, valeAinda: quem.valeAinda, socket, psocket };
         deColaborador.add(reg);
         socket.on('close', () => deColaborador.delete(reg));
