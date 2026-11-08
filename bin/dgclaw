@@ -98,6 +98,11 @@ Agentes
       A senha tem de 6 a 8 caracteres ASCII (o VNC so usa 8). Vale na hora: o agente religa o VNC sozinho.
       Exemplo:  printf '%s\n' "Ab3dEf7h" | dgclaw agente tela-senha ana
 
+  dgclaw agente tela <slug>              confere a Tela do agente (o navegador que o dono abre pelo painel)
+      Diz, linha a linha, o que esta de pe e o que fazer no que falta. Sai com 0 se tudo esta bem,
+      1 se alguma coisa falta e 2 se o agente nao esta ligado (nao da para conferir).
+      Exemplo:  dgclaw agente tela ana
+
   dgclaw agente remover <slug> [--sim]   tira o agente do ar. Nao apaga: a casa dele vai
       para /var/lib/dgclaw/aposentados/. Pede confirmacao quando ha terminal.
       Exemplo:  dgclaw agente remover ana --sim
@@ -120,6 +125,10 @@ Painel
       Exemplo:  sudo dgclaw primeiro-acesso
   dgclaw senha [trocar]                  troca a senha do painel (a nova senha vem pelo STDIN)
       Exemplo:  printf '%s\n' "minha senha nova" | dgclaw senha trocar
+  dgclaw instalacao-remota               entrega pronto um DG Claw instalado na VPS de outra pessoa
+      Troca a senha do painel por uma forte, reinicia o painel e mostra UMA vez a mensagem pronta
+      (endereco, usuario e senha) para mandar ao dono. Pode rodar de novo: gera outra senha.
+      Exemplo:  sudo dgclaw instalacao-remota
 
 Atualizar o DG Claw
   dgclaw atualizar [opcoes]              baixa a versao nova, faz backup, reinstala e recria os agentes
@@ -1360,6 +1369,7 @@ agente_reparar() {
         falha "o runner do agente $slug nao respondeu em ${TEMPO_ESPERA}s em http://127.0.0.1:$porta/api/saude." \
               "veja o log: podman exec $c journalctl -u dgclaw-runner -n 50"
     fi
+    if [ "$ENSAIO" != 1 ]; then tela_avisar_sem_senha "$slug"; fi
 }
 
 # agente_recriar <slug> [--forcar]
@@ -1745,6 +1755,112 @@ agente_tela_senha() {
     ok "senha da Tela do agente $slug trocada (vale na hora; a anterior deixa de abrir)"
 }
 
+# --- a Tela do agente: conferencia e aviso de senha (docs/TELA-DO-AGENTE.md) -----------------
+
+# tela_no_container <slug>: o container do agente tem a Tela habilitada? (as unidades sao copiadas
+# em toda imagem, mas so ligadas no perfil com navegador; o link do wants diz qual e o caso.)
+tela_no_container() {
+    podman exec "dgclaw-$1" test -e /etc/systemd/system/multi-user.target.wants/dgclaw-tela-vnc.service >/dev/null 2>&1
+}
+
+# tela_sem_senha <slug>: sucesso quando o agente tem a Tela e a casa dele ainda nao tem a senha.
+tela_sem_senha() {
+    [ -s "$DG_CASAS/$1/home/.dgclaw/tela/vnc.senha" ] && return 1
+    tela_no_container "$1"
+}
+
+# tela_texto_sem_senha <slug>: a frase unica usada pelo reparar/recriar e pelo resumo do atualizar.
+tela_texto_sem_senha() {
+    local cmd="printf '%s\\n' \"Senha8ch\" | dgclaw agente tela-senha $1"
+    printf 'a senha da Tela do agente %s ainda nao foi definida, e sem ela o navegador do agente nao abre pelo painel. Defina na aba Tela do painel do agente ou com: %s' "$1" "$cmd"
+}
+
+# tela_avisar_sem_senha <slug>: NAO inventa senha escondida (a pessoa nao teria como saber qual e);
+# so conta que falta e como definir.
+tela_avisar_sem_senha() {
+    if tela_sem_senha "$1"; then aviso "$(tela_texto_sem_senha "$1")"; fi
+    return 0
+}
+
+# agente_tela <slug>: a conferencia da Tela vista do servidor. Cada linha diz o que esta bem ou o
+# que falta e o que fazer. Sai com 1 quando algo falta (como o `dgclaw status`).
+agente_tela() {
+    exigir_slug "${1:-}" tela
+    local slug="$1" c="dgclaw-$1" obj faltas=0 estado
+    exigir_ferramentas jq podman
+    if [ "$ENSAIO" = 1 ]; then
+        info "[ensaio] conferiria no agente $slug: unidades da Tela, senha, VNC, noVNC, navegador e CDP"
+        return 0
+    fi
+    obj="$(agentes_obter "$slug")"
+    [ -n "$obj" ] || falha "o agente '$slug' nao esta no agentes.json." "veja os que existem com: dgclaw agente listar"
+    estado="$(estado_container "$slug")"
+    if [ "$estado" != running ]; then
+        printf 'Tela do agente %s: nao deu para conferir, o container esta %s.\n' "$slug" "$estado" >&2
+        printf 'O que fazer: ligue o agente com: dgclaw agente iniciar %s e rode isto de novo.\n' "$slug" >&2
+        return 2
+    fi
+    printf 'Tela do agente %s\n' "$slug"
+    t_ok() { printf '  ok      %s\n' "$1"; }
+    t_falta() { printf '  FALTA   %s\n          o que fazer: %s\n' "$1" "$2"; faltas=$((faltas + 1)); }
+    t_unidade() {
+        podman exec "$c" systemctl is-active --quiet "$1" >/dev/null 2>&1
+    }
+
+    if ! tela_no_container "$slug"; then
+        t_falta "este agente nao tem a Tela na imagem (as unidades dgclaw-tela* nao estao ligadas)" \
+            "reconstrua a imagem com navegador (dgclaw imagem construir --agora) e recrie o agente: dgclaw agente recriar $slug --forcar"
+        printf '\nA Tela de %s nao esta pronta: %s item(ns) a resolver.\n' "$slug" "$faltas" >&2
+        return 1
+    fi
+    t_ok "a imagem do agente tem a Tela"
+
+    if podman exec "$c" bash -c 'command -v google-chrome-stable >/dev/null 2>&1'; then
+        t_ok "navegador da Tela: Google Chrome"
+    else
+        t_ok "navegador da Tela: Chromium do Playwright (Google Chrome so existe para amd64; alguns sites com anti-robo podem tratar o Chromium de outro jeito)"
+    fi
+
+    if [ -s "$DG_CASAS/$slug/home/.dgclaw/tela/vnc.senha" ]; then
+        t_ok "a senha da Tela esta definida"
+    else
+        t_falta "a senha da Tela ainda nao foi definida (sem ela o VNC nao sobe)" \
+            "defina na aba Tela do painel ou com: printf '%s\\n' \"Senha8ch\" | dgclaw agente tela-senha $slug"
+    fi
+
+    if t_unidade dgclaw-tela.service; then t_ok "a tela virtual (Xvfb) esta de pe"
+    else t_falta "a tela virtual (dgclaw-tela.service) esta parada" \
+        "reinicie: podman exec $c systemctl restart dgclaw-tela; se repetir, veja: podman exec $c journalctl -u dgclaw-tela -n 30"; fi
+
+    if t_unidade dgclaw-tela-vnc.service; then t_ok "o VNC (x11vnc) esta de pe, so em localhost"
+    elif [ -s "$DG_CASAS/$slug/home/.dgclaw/tela/vnc.senha" ]; then
+        t_falta "o VNC (dgclaw-tela-vnc.service) esta parado, apesar de a senha existir" \
+            "reinicie: podman exec $c systemctl restart dgclaw-tela-vnc; se repetir, veja: podman exec $c journalctl -u dgclaw-tela-vnc -n 30"
+    fi
+
+    if t_unidade dgclaw-tela-web.service \
+        && podman exec "$c" curl -fsS --max-time 3 -o /dev/null http://127.0.0.1:6080/ >/dev/null 2>&1; then
+        t_ok "o noVNC (websockify) responde em 127.0.0.1:6080"
+    else
+        t_falta "o noVNC (dgclaw-tela-web.service) nao responde em 127.0.0.1:6080" \
+            "reinicie: podman exec $c systemctl restart dgclaw-tela-web; se repetir, veja: podman exec $c journalctl -u dgclaw-tela-web -n 30"
+    fi
+
+    if t_unidade dgclaw-tela-chrome.service \
+        && podman exec "$c" curl -fsS --max-time 3 -o /dev/null http://127.0.0.1:9222/json/version >/dev/null 2>&1; then
+        t_ok "o navegador responde ao agente (CDP em 127.0.0.1:9222)"
+    else
+        t_falta "o navegador da Tela nao responde em 127.0.0.1:9222 (o agente nao consegue usar o navegador)" \
+            "reinicie: podman exec $c systemctl restart dgclaw-tela-chrome; se repetir, veja: podman exec $c journalctl -u dgclaw-tela-chrome -n 30"
+    fi
+
+    if [ "$faltas" -gt 0 ]; then
+        printf '\nA Tela de %s nao esta pronta: %s item(ns) a resolver (as linhas FALTA acima dizem o que fazer).\n' "$slug" "$faltas" >&2
+        return 1
+    fi
+    printf '\nA Tela de %s esta pronta. O dono abre pelo menu do agente na conversa (Tela) ou pela aba Tela do painel.\n' "$slug"
+}
+
 agente_main() {
     local sub="${1:-}"; shift || true
     case "$sub" in
@@ -1756,9 +1872,10 @@ agente_main() {
         identidade) agente_identidade "$@" ;;
         cofre) agente_cofre "$@" ;;
         tela-senha) agente_tela_senha "$@" ;;
+        tela) agente_tela "$@" ;;
         remover) agente_remover "$@" ;;
-        "") falha "faltou dizer o que fazer com os agentes." "use: criar, listar, parar, iniciar, reiniciar, reparar, recriar, identidade, cofre, tela-senha ou remover (veja dgclaw --ajuda)." ;;
-        *) falha "'agente $sub' nao existe." "use: criar, listar, parar, iniciar, reiniciar, reparar, recriar, identidade, cofre, tela-senha ou remover (veja dgclaw --ajuda)." ;;
+        "") falha "faltou dizer o que fazer com os agentes." "use: criar, listar, parar, iniciar, reiniciar, reparar, recriar, identidade, cofre, tela, tela-senha ou remover (veja dgclaw --ajuda)." ;;
+        *) falha "'agente $sub' nao existe." "use: criar, listar, parar, iniciar, reiniciar, reparar, recriar, identidade, cofre, tela, tela-senha ou remover (veja dgclaw --ajuda)." ;;
     esac
 }
 
@@ -1848,8 +1965,38 @@ imagem_main() {
 
 # --- senha ---------------------------------------------------------------------------------------
 
+# painel_gravar_senha <senha>: gera o hash (a senha vai pelo STDIN do gerador, nunca por argumento),
+# troca so a linha DGCLAW_PANEL_PASSWORD_HASH do web.env, apaga o primeiro-acesso.json pendente e
+# reinicia o dgclaw-web. Usada por `senha trocar` e `instalacao-remota`.
+painel_gravar_senha() {
+    local senha="$1" web_env="$DG_ETC/web.env" hash
+    if [ -n "$R" ] && [ -n "${DGCLAW_SENHA_HASH_CMD:-}" ]; then
+        hash="$(printf '%s\n' "$senha" | bash -c "$DGCLAW_SENHA_HASH_CMD")" \
+            || falha "o comando de hash de teste falhou." "isso so existe nos testes."
+    else
+        [ -f "$APP_DIR/panel/bin/senha-hash.js" ] || falha "nao achei $APP_DIR/panel/bin/senha-hash.js, que gera o hash da senha." \
+            "atualize o DG Claw (esse arquivo vem junto) e rode de novo; a senha NAO foi gravada em texto puro."
+        exigir_ferramentas node
+        hash="$(printf '%s\n' "$senha" | node "$APP_DIR/panel/bin/senha-hash.js")" \
+            || falha "o gerador de hash recusou a senha." "confira se ela tem 12 caracteres ou mais."
+    fi
+    if [[ -z "$hash" || "$hash" == *"'"* || "$hash" == *$'\n'* ]]; then
+        falha "o gerador de hash devolveu um valor invalido." "isso e um erro do DG Claw; a senha nao foi trocada."
+    fi
+
+    # O hash entra no awk pelo ambiente, nao pelo argv: o hash tem `$` e `\` que o -v interpretaria.
+    HASH_NOVO="$hash" awk '
+        BEGIN {linha = "DGCLAW_PANEL_PASSWORD_HASH=\047" ENVIRON["HASH_NOVO"] "\047"}
+        /^DGCLAW_PANEL_PASSWORD_HASH=/ {print linha; feito = 1; next}
+        {print}
+        END {if (!feito) print linha}' "$web_env" | escrever_arquivo "$web_env" 600
+    # Senha nova definida: um link de primeiro acesso pendente nao faz mais sentido.
+    rm -f "$DG_ETC/primeiro-acesso.json"
+    executar systemctl restart dgclaw-web
+}
+
 senha_trocar() {
-    local web_env="$DG_ETC/web.env" senha="" conf="" hash
+    local web_env="$DG_ETC/web.env" senha="" conf=""
     [ "$ENSAIO" = 1 ] && {
         info "[ensaio] leria a nova senha do STDIN, geraria o hash, trocaria a linha DGCLAW_PANEL_PASSWORD_HASH de $web_env e reiniciaria dgclaw-web"
         return 0
@@ -1867,30 +2014,8 @@ senha_trocar() {
     fi
     [ "${#senha}" -ge 12 ] || falha "a senha tem ${#senha} caracteres e o minimo e 12." "escolha uma senha maior; nada foi trocado."
 
-    if [ -n "$R" ] && [ -n "${DGCLAW_SENHA_HASH_CMD:-}" ]; then
-        hash="$(printf '%s\n' "$senha" | bash -c "$DGCLAW_SENHA_HASH_CMD")" \
-            || falha "o comando de hash de teste falhou." "isso so existe nos testes."
-    else
-        [ -f "$APP_DIR/panel/bin/senha-hash.js" ] || falha "nao achei $APP_DIR/panel/bin/senha-hash.js, que gera o hash da senha." \
-            "atualize o DG Claw (esse arquivo vem junto) e rode de novo; a senha NAO foi gravada em texto puro."
-        exigir_ferramentas node
-        hash="$(printf '%s\n' "$senha" | node "$APP_DIR/panel/bin/senha-hash.js")" \
-            || falha "o gerador de hash recusou a senha." "confira se ela tem 12 caracteres ou mais."
-    fi
+    painel_gravar_senha "$senha"
     senha=""; conf=""
-    if [[ -z "$hash" || "$hash" == *"'"* || "$hash" == *$'\n'* ]]; then
-        falha "o gerador de hash devolveu um valor invalido." "isso e um erro do DG Claw; a senha nao foi trocada."
-    fi
-
-    # O hash entra no awk pelo ambiente, nao pelo argv: o hash tem `$` e `\` que o -v interpretaria.
-    HASH_NOVO="$hash" awk '
-        BEGIN {linha = "DGCLAW_PANEL_PASSWORD_HASH=\047" ENVIRON["HASH_NOVO"] "\047"}
-        /^DGCLAW_PANEL_PASSWORD_HASH=/ {print linha; feito = 1; next}
-        {print}
-        END {if (!feito) print linha}' "$web_env" | escrever_arquivo "$web_env" 600
-    # Senha nova definida: um link de primeiro acesso pendente nao faz mais sentido.
-    rm -f "$DG_ETC/primeiro-acesso.json"
-    executar systemctl restart dgclaw-web
     ok "senha do painel trocada"
 }
 
@@ -1908,6 +2033,37 @@ primeiro_acesso() {
     if [ -n "${DGCLAW_DOMINIO:-}" ]; then base="https://$DGCLAW_DOMINIO"; else base="http://127.0.0.1:8300"; fi
     printf '%s/primeiro-acesso#%s\n' "$base" "$tk"
     printf 'uso unico, vale 30 min; o link anterior deixou de valer\n' >&2
+}
+
+# instalacao_remota: entrega pronto um DG Claw instalado pela equipe na VPS de outra pessoa. Troca a
+# senha do painel por uma forte, gerada aqui, reinicia o dgclaw-web e imprime UMA vez a mensagem para
+# mandar ao dono. A senha nunca vai para arquivo, log nem argumento de outro processo: so o hash
+# fica gravado. Um primeiro-acesso.json pendente e apagado (o link deixa de valer, pois a senha ja existe).
+instalacao_remota() {
+    [ "$#" -eq 0 ] || falha "o comando 'instalacao-remota' nao recebe opcoes (recebi '$1')." "use apenas: sudo dgclaw instalacao-remota"
+    local web_env="$DG_ETC/web.env" usuario="" senha="" bruto endereco
+    [ -f "$web_env" ] || falha "nao achei $web_env." "o DG Claw Web ainda nao foi instalado; rode primeiro o instalador: sudo ./install.sh --usuario <nome>"
+    usuario="$(sed -n 's/^DGCLAW_PANEL_USER=//p;T;q' "$web_env")"
+    [ -n "$usuario" ] || falha "nao achei a linha DGCLAW_PANEL_USER em $web_env, entao nao sei de quem e a senha." \
+        "rode o instalador de novo informando o usuario: sudo ./install.sh --usuario <nome>. Nada foi trocado."
+    carregar_env_dgclaw
+    [ -n "${DGCLAW_DOMINIO:-}" ] || falha "nao achei DGCLAW_DOMINIO em $DG_ETC/dgclaw.env, entao nao sei qual e o endereco do painel." \
+        "rode o instalador de novo (ele grava o endereco) ou use: sudo dgclaw dominio trocar <nome>. Nada foi trocado."
+    endereco="https://$DGCLAW_DOMINIO/"
+    if [ "$ENSAIO" = 1 ]; then
+        info "[ensaio] geraria uma senha forte para $usuario, gravaria so o hash em $web_env, apagaria o primeiro-acesso.json pendente, reiniciaria dgclaw-web e imprimiria a mensagem de entrega com o endereco $endereco"
+        return 0
+    fi
+    # 5 grupos de 4 sem caracteres ambiguos (sem 0 O 1 l I): 20 caracteres, cerca de 99 bits.
+    bruto="$(head -c 1000 /dev/urandom | LC_ALL=C tr -dc 'abcdefghjkmnpqrstuvwxyz23456789')"
+    [ "${#bruto}" -ge 20 ] || falha "nao consegui gerar caracteres aleatorios suficientes de /dev/urandom." "rode o comando de novo. Nada foi trocado."
+    senha="${bruto:0:4}-${bruto:4:4}-${bruto:8:4}-${bruto:12:4}-${bruto:16:4}"
+    bruto=""
+    painel_gravar_senha "$senha"
+    printf '\nSeu DG Claw esta pronto. Acesse %s, entre com o usuario %s e a senha %s. La dentro aparece um aviso para fazer o login do Claude nos seus agentes, um de cada vez. Quando todos estiverem conectados, aparece um tutorial rapido.\n\n' \
+        "$endereco" "$usuario" "$senha"
+    senha=""
+    printf 'Copie a mensagem acima agora e mande para a pessoa: a senha aparece so desta vez e nao fica guardada em lugar nenhum (so o hash). Para gerar outra, rode o comando de novo.\n' >&2
 }
 
 senha_main() {
@@ -2155,6 +2311,7 @@ main() {
         seguranca) seguranca_main "$@" ;;
         dominio) dominio_main "$@" ;;
         primeiro-acesso) primeiro_acesso "$@" ;;
+        instalacao-remota) instalacao_remota "$@" ;;
         status) status_geral "$@" ;;
         atualizar)
             case "${1:-}" in
