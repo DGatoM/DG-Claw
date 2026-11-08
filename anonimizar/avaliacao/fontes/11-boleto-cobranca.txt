@@ -1,0 +1,15 @@
+#formato: pdf
+AVISO DE COBRANÇA
+
+Beneficiário: [[EMPRESA:Clínica Vida Plena Ltda]]
+CNPJ: [[CNPJ:${CNPJ_D}]]
+Pagador: [[PESSOA:Cláudio Roberto Bittencourt]], CPF [[CPF:${CPF_F}]]
+Endereço do pagador: [[ENDERECO:Rua Marechal Deodoro, 410, apto 82, Curitiba/PR]], [[CEP:80010-010]]
+
+Vencimento: [[DATA:25/09/2026]]
+Valor do documento: [[VALOR:R$ 640,00]]
+Multa por atraso: 2%. Juros de 1% ao mês.
+
+Pague pelo PIX com a chave aleatória [[PIX:${UUID_A}]] ou pelo boleto.
+Em caso de dúvida fale com a Central: [[TELEFONE:0800 123 4567]] ou [[TELEFONE:(41) 3355-7788]].
+Nosso número: [[!:00012345678-9]]. Linha digitável no verso.

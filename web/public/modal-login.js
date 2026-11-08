@@ -38,7 +38,7 @@
   function textoDe(id, texto) { $(id).textContent = texto; }
 
   function desenhaInicio(n, principalNome) {
-    const t = P.textosModal(n, { principalNome });
+    const t = P.textosModal(n, { principalNome, colaborador: !!(window.DGPapel && window.DGPapel.colaborador) });
     textoDe('mlTit', t.titulo);
     textoDe('mlIntro', t.intro);
     textoDe('mlDepois', t.depois);
@@ -67,7 +67,7 @@
   function mostraFim(n, principalNome) {
     if (est.fim) return;
     est.fim = true;
-    const t = P.textosModal(n, { principalNome });
+    const t = P.textosModal(n, { principalNome, colaborador: !!(window.DGPapel && window.DGPapel.colaborador) });
     textoDe('mlTitFim', t.tituloFim);
     textoDe('mlAgora', t.agora);
     const ul = $('mlItens');
@@ -107,6 +107,7 @@
       console.warn('modal de login: ' + (!dlg ? 'falta #dlgModalLogin na página' : 'um dos scripts (conectar-puro, conectar-cartoes, login-cartao) não carregou') + '. A página Conectar conta continua funcionando.');
       return;
     }
+    if (window.DGPapel && window.DGPapel.colaborador) return; // login da conta é só do dono
     if (adiado()) return;
     let dados = null;
     try {

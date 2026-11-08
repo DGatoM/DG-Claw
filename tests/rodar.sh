@@ -22,6 +22,8 @@
 #  16. boletins        tests/boletins: a checagem de boletins de seguranca (scripts/checar-boletins.mjs), idem
 #  17. ronda           tests/ronda: o motor da ronda de seguranca (seguranca/ronda/ronda.py) contra fontes falsas, raiz falsa e sem root
 #  18. emergencia      tests/emergencia: o botao de emergencia (lib/emergencia.sh), com ufw, systemctl e tailscale falsos
+#  19. tela             tests/tela: travas de seguranca das unidades da Tela, o lancador do navegador e o Containerfile fora do amd64
+#  20. anonimizar      tests/anonimizar: o motor de anonimizacao de documentos (anonimizar/motor.py) e o instalador opcional dele, sem rede
 #
 # Nada aqui encosta no sistema de verdade: nao cria container, rede nem unidade.
 #
@@ -123,7 +125,7 @@ testes_shellcheck() {
     (
         cd "$REPO" || exit 1
         arquivos=(install.sh bin/dgclaw lib/*.sh tests/rodar.sh tests/cli/*.sh tests/cli/stubs/*
-                  tests/instalador/*.sh tests/novidades/*.sh tests/changelog/*.sh tests/monitor/*.sh tests/aviso-atualizacao/*.sh tests/boletins/*.sh tests/emergencia/*.sh tests/ronda/rodar.sh tests/ronda/stubs/* scripts/cofre-nomes.sh scripts/test-cofre-nomes.sh
+                  tests/instalador/*.sh tests/novidades/*.sh tests/changelog/*.sh tests/monitor/*.sh tests/aviso-atualizacao/*.sh tests/boletins/*.sh tests/emergencia/*.sh tests/tela/*.sh tests/anonimizar/*.sh bin/dgclaw-tela-navegador tests/ronda/rodar.sh tests/ronda/stubs/* scripts/cofre-nomes.sh scripts/test-cofre-nomes.sh
                   scripts/revisao-adversarial.sh tests/revisao-adversarial/*.sh)
         "$sc" -x "${arquivos[@]}"
     )
@@ -158,6 +160,8 @@ parte aviso-atualizacao bash "$REPO/tests/aviso-atualizacao/rodar.sh"
 parte boletins bash "$REPO/tests/boletins/rodar.sh"
 parte ronda bash "$REPO/tests/ronda/rodar.sh"
 parte emergencia bash "$REPO/tests/emergencia/rodar.sh"
+parte tela bash "$REPO/tests/tela/rodar.sh"
+parte anonimizar bash "$REPO/tests/anonimizar/rodar.sh"
 
 printf '\n'
 [ "${#PULADOS[@]}" -eq 0 ] || printf 'Pulado: %s\n' "${PULADOS[@]}"

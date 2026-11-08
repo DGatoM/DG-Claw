@@ -230,6 +230,18 @@
   function pronto(ctx) {
     ctx = ctx || {};
     const usuario = ctx.usuario ? String(ctx.usuario) : '';
+    // Colaborador conversa com um agente só: nada de Admin nem de "pedir ao Admin".
+    if (ctx.colaborador) {
+      return {
+        titulo: 'Tudo pronto! Agora é só usar',
+        passo1: '1. Acesse o seu agente:',
+        endereco: String(ctx.endereco || ''),
+        passo2: '2. Entre com o seu e-mail' + (usuario ? ' (' + usuario + ')' : '') + ' e a senha que você criou.',
+        passo3: '3. O que você vai ver:',
+        itens: [(ctx.principalNome || 'O seu agente') + ': o agente com quem você conversa por aqui.'],
+        legendaVideo: 'Veja em menos de 1 minuto',
+      };
+    }
     const itens = ['Admin: para administrar (atualizar o DG Claw, criar agentes e configurar).'];
     if (ctx.principalNome) itens.push(ctx.principalNome + ': o seu agente do dia a dia. Você pode trocar o nome dele depois, é só pedir ao Admin.');
     return {

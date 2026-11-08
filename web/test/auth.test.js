@@ -1,6 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { subirWeb, cliente } = require('./ajuda');
@@ -18,7 +19,7 @@ test('login: senha certa entra, cookie httpOnly/SameSite e só o hash do token n
     assert.match(sc, /HttpOnly/); assert.match(sc, /SameSite=Lax/); assert.match(sc, /Path=\//); assert.match(sc, /Max-Age=2592000/);
     assert.ok(!/Secure/.test(sc), 'sem X-Forwarded-Proto https não leva Secure');
     const eu = await t.c.get('/api/v1/eu');
-    assert.deepEqual(eu.json, { ok: true, usuario: 'dono' });
+    assert.deepEqual(eu.json, { ok: true, usuario: 'dono', papel: 'dono', agente: null, nome: '', trocar_senha: false });
     const token = sc.split(';')[0].split('=')[1];
     const arquivo = path.join(t.dados, 'sessoes.json');
     const salvo = fs.readFileSync(arquivo, 'utf8');
@@ -179,5 +180,83 @@ test('estáticos: sem listar pasta e sem sair da pasta public', async () => {
     const et = await t.c.get('/app.js', { headers: { 'If-None-Match': js.headers.etag } });
     assert.equal(et.status, 304);
   } finally { await t.fechar(); }
+});
+
+// ── sessão amarrada à credencial (senha e usuário) ──────────────────────────
+const os = require('node:os');
+const { criarAuth, NOME_COOKIE } = require('../lib/auth');
+
+async function ambienteAuth() {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dgclaw-auth-'));
+  const logs = [];
+  const log = (n, m) => logs.push([n, m]);
+  const agora = () => 1_700_000_000_000;
+  const mk = (usuario, hash) => criarAuth({ config: { env: { DGCLAW_PANEL_USER: usuario, DGCLAW_PANEL_PASSWORD_HASH: hash }, dataDir, sessaoDias: 30, proxiesConfiaveis: [] }, log, agora });
+  const gerador = mk('dono', '');
+  const hashA = await gerador.gerarHash('senha-a-12345');
+  const hashB = await gerador.gerarHash('senha-b-12345');
+  const pedido = (token) => ({ headers: { cookie: `${NOME_COOKIE}=${token}` }, socket: {} });
+  return { dataDir, logs, mk, hashA, hashB, pedido, arquivo: path.join(dataDir, 'sessoes.json'), limpa: () => fs.rmSync(dataDir, { recursive: true, force: true }) };
+}
+
+test('sessão: hash trocado entre restarts derruba a sessão e o arquivo fica sem ela', async () => {
+  const e = await ambienteAuth();
+  try {
+    const a1 = e.mk('dono', e.hashA);
+    const { token } = a1.criaSessao('dono');
+    assert.ok(a1.sessaoDoPedido(e.pedido(token)));
+    const a2 = e.mk('dono', e.hashA);
+    assert.ok(a2.sessaoDoPedido(e.pedido(token)), 'mesmo hash após restart: continua valendo');
+    const a3 = e.mk('dono', e.hashB);
+    assert.equal(a3.sessaoDoPedido(e.pedido(token)), null);
+    assert.deepEqual(JSON.parse(fs.readFileSync(e.arquivo, 'utf8')).sessoes, {});
+    assert.ok(e.logs.some(([n, m]) => n === 'info' && /1 sessão/.test(m) && /entrar de novo/.test(m)));
+    assert.ok(!fs.readFileSync(e.arquivo, 'utf8').includes(e.hashA), 'o hash da senha não vai para o disco');
+  } finally { e.limpa(); }
+});
+
+test('sessão: mudar só o usuário também derruba', async () => {
+  const e = await ambienteAuth();
+  try {
+    const { token } = e.mk('dono', e.hashA).criaSessao('dono');
+    assert.equal(e.mk('outro', e.hashA).sessaoDoPedido(e.pedido(token)), null);
+  } finally { e.limpa(); }
+});
+
+test('sessão: sessoes.json antigo, sem marca, é descartado no carregamento', async () => {
+  const e = await ambienteAuth();
+  try {
+    const token = 'tokenantigo';
+    const k = crypto.createHash('sha256').update(token).digest('hex');
+    fs.writeFileSync(e.arquivo, JSON.stringify({ versao: 1, sessoes: { [k]: { usuario: 'dono', criada: 1, expira: 1_700_000_000_000 + 1e9 } } }));
+    const a = e.mk('dono', e.hashA);
+    assert.equal(a.sessaoDoPedido(e.pedido(token)), null);
+    assert.deepEqual(JSON.parse(fs.readFileSync(e.arquivo, 'utf8')).sessoes, {});
+  } finally { e.limpa(); }
+});
+
+test('sessão: definirHash derruba as existentes e a criada depois vale', async () => {
+  const e = await ambienteAuth();
+  try {
+    const a = e.mk('dono', e.hashA);
+    const velha = a.criaSessao('dono');
+    assert.equal(a.definirHash(e.hashB).ok, true);
+    assert.equal(a.sessaoDoPedido(e.pedido(velha.token)), null);
+    const nova = a.criaSessao('dono');
+    assert.ok(a.sessaoDoPedido(e.pedido(nova.token)));
+    assert.ok(e.mk('dono', e.hashB).sessaoDoPedido(e.pedido(nova.token)), 'e sobrevive ao restart com o hash novo');
+  } finally { e.limpa(); }
+});
+
+test('sessão: painel sem senha ainda não lança e o primeiro acesso cria sessão válida', async () => {
+  const e = await ambienteAuth();
+  try {
+    const a = e.mk('dono', '');
+    assert.equal(a.semSenha, true);
+    assert.equal(a.sessaoDoPedido(e.pedido('qualquer')), null);
+    assert.equal(a.definirHash(e.hashA).ok, true);
+    const s = a.criaSessao('dono');
+    assert.ok(a.sessaoDoPedido(e.pedido(s.token)));
+  } finally { e.limpa(); }
 });
 void cliente;

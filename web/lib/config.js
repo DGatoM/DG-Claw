@@ -60,6 +60,13 @@ function carregaConfig(opcoes, log) {
     tz: opcoes.tz || env.DGCLAW_WEB_TZ || env.TZ || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
     canalTelegram: env.DGCLAW_CHANNEL_SOURCE || 'plugin:telegram',
     sessaoDias: 30,
+    // E-mail do convite do colaborador (opcional). A senha fica em env.DGCLAW_SMTP_SENHA e nunca entra aqui nem em log.
+    smtp: {
+      host: String(env.DGCLAW_SMTP_HOST || '').trim(),
+      porta: num(env.DGCLAW_SMTP_PORTA, 587),
+      usuario: String(env.DGCLAW_SMTP_USUARIO || ''),
+      remetente: String(env.DGCLAW_SMTP_REMETENTE || '').trim(),
+    },
   };
 }
 

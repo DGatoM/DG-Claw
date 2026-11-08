@@ -24,6 +24,7 @@
     sessao: 'Sua sessão acabou. Entre de novo para continuar.',
     expirada: 'Sua sessão acabou. Entre de novo para continuar.',
     campos: 'Preencha o usuário e a senha.',
+    vencida: 'A senha temporária venceu. Peça ao dono do DG Claw um convite novo.',
     origem: 'Não deu para confirmar de onde veio o pedido. Recarregue a página e tente de novo.',
   };
   if (q.has('erro')) {
@@ -31,8 +32,12 @@
     const caixa = document.getElementById('erro');
     caixa.textContent = FRASES[cod] || 'Não foi possível entrar. Confira os dados e tente de novo.';
     caixa.hidden = false;
-    const u = q.get('usuario');
-    if (u && u.length < 80) document.getElementById('usuario').value = u;
+  }
+  /* O link do convite traz ?usuario=<e-mail>: o campo já vem preenchido, e a pessoa só digita a senha temporária. */
+  const u = q.get('usuario');
+  if (u && u.length < 80) {
+    document.getElementById('usuario').value = u;
+    document.getElementById('campoSenha').focus();
   }
 
   /* Instalação sem senha ainda: avisa (em tom neutro, não de erro) para usar o link de primeiro acesso. */
