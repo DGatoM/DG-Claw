@@ -77,7 +77,8 @@ class ErroArquivo extends Error {
 // sem aspas, até o próximo espaço. Todos lineares: classes que não cruzam \n e sem alternância que se sobreponha.
 const VALOR = String.raw`"(?:[^"\\\n]|\\[^\n])*\\?(?:"|(?=\n|$))|'(?:[^'\\\n]|\\[^\n])*\\?(?:'|(?=\n|$))|\S+`;
 const PRE = [
-  [/(\bmysql(?:dump)?\b[^\n]{0,300}?[ \t]-p)(\S+)/gi, '$1' + OCULTO],
+  // A senha colada no -p pode juntar trechos com e sem aspas (-pabc"d e"f): cada pedaço começa por um caractere diferente, então segue linear.
+  [new RegExp(String.raw`(\bmysql(?:dump)?\b[^\n]{0,300}?[ \t]-p)(?:"(?:[^"\\\n]|\\[^\n])*\\?(?:"|(?=\n|$))|'(?:[^'\\\n]|\\[^\n])*\\?(?:'|(?=\n|$))|[^\s"']+)+`, 'gi'), '$1' + OCULTO],
   [new RegExp(String.raw`(--(?:password|token|api-key|secret|senha)(?:=|[ \t]{1,20}))(?:${VALOR})`, 'gi'), '$1' + OCULTO],
   [new RegExp(String.raw`(\bcurl\b[^\n]{0,300}?[ \t](?:-u|--user)[ \t]{1,20})(?:${VALOR})`, 'gi'), '$1' + OCULTO],
   [new RegExp(String.raw`((?:api[_-]?key|passw(?:or)?d|pwd|senha|secret|token|credential|chave|cookie|auth)[A-Za-z0-9_.-]{0,60}["']?[ \t]{0,20}[=:][ \t]{0,20})(?:"(?:[^"\\\n]|\\[^\n])*\\?(?:"|(?=\n|$))|'(?:[^'\\\n]|\\[^\n])*\\?(?:'|(?=\n|$))|[^\s"'&;|]+)`, 'gi'), '$1' + OCULTO],

@@ -251,3 +251,18 @@ test('objetos do log: profundidade, número de chaves e tamanho limitados, sem e
   assert.equal(r.eventos.length, 3);
   assert.ok(!JSON.stringify(r).includes(SUF));
 });
+
+test('limpa: senha do mysql entre aspas, com espaços, não deixa sobra (mysql e mysqldump)', () => {
+  const casos = [
+    `mysql -u root -p"primeira ${SUF}" banco`,
+    `mysqldump -u root -p'primeira ${SUF}' banco`,
+    `mysql -u root -p"primeira \\"${SUF}" banco`,
+    `mysql -u root -pabc"primeira ${SUF}"def banco`,
+    `mysqldump -p"primeira ${SUF}`,
+  ];
+  for (const c of casos) {
+    const r = limpa(c);
+    assert.ok(!r.includes(SUF) && !r.includes('primeira'), `sobrou parte da senha em: ${r}`);
+  }
+  assert.match(limpa(`mysql -u root -p"a b" banco`), / banco$/, 'o que vem depois da senha continua legível');
+});
