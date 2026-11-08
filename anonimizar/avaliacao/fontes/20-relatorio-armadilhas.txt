@@ -1,0 +1,10 @@
+#formato: txt
+RELATÓRIO TÉCNICO DE VERSÃO
+
+Resumo: a versão [[!:2.14.1]] do sistema [[!:Linux]] corrige 12 falhas. O [[!:Dr.]] responsável pela área aprovou a [[!:Lei 13.709/18]] como referência. Processo [[!:0001234-56.2023.8.26.0100]], protocolo [[!:2026/889]], pedido [[!:#778812]].
+
+Cidades atendidas: [[!:Curitiba]], [[!:Recife]], [[!:Salvador]] e [[!:Porto Alegre]]. Produtos: [[!:iPhone 14]], [[!:Galaxy S23]], [[!:PlayStation 5]]. Marcas citadas: [[!:Coca-Cola]] e [[!:Toyota Corolla]].
+
+A reunião de equipe ocorre toda [[!:segunda-feira]], e o prazo é de 30 dias. O capítulo [[!:10.12.2]] descreve o método, com 1.250 unidades por lote e 3,5% de margem. ISBN [[!:978-85-359-0277-5]].
+
+Contato do responsável: [[PESSOA:Wellington Souza Pinto]], [[EMAIL:wellington.pinto@exemplo.com.br]].

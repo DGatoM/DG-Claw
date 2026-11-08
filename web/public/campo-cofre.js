@@ -80,7 +80,11 @@
   }
 
   /* HTML do cartão. `id` identifica o cartão (hash da mensagem) para o marcador. */
+  const SO_DONO = 'O cofre é só do dono do DG Claw.';
+  const ehColaborador = () => !!(raiz.DGPapel && raiz.DGPapel.colaborador);
+
   function html(envName, rotulo, id, extra) {
+    if (ehColaborador()) return `<div class="dgcofre dgcofre-bloqueado"><div class="dgc-aviso">${SO_DONO}</div></div>`;
     const x = extra || {};
     const d = { envName, rotulo: rotulo || '', ajuda: x.ajuda || '' };
     const salvo = !!(id && jaSalvo(cfg.agente, id));
@@ -118,6 +122,7 @@
      código do agente, não confiável, e só o cartão desenhado pelo app (fora do iframe) mostra o final.
      Usa o cache e a promessa pendente: pedidos repetidos não geram GET novo. */
   async function estados(nomes) {
+    if (ehColaborador()) { const fora = {}; nomes.forEach(n => { fora[n] = { guardada: false }; }); return fora; }
     const m = await consultaEstado(false);
     const out = {};
     nomes.forEach(n => { out[n] = { guardada: !!m[n] }; });
@@ -187,6 +192,7 @@
   }
 
   function hidratar(card) {
+    if (card.classList && card.classList.contains('dgcofre-bloqueado')) return;
     if (card.dataset.hid === '1') return;
     card.dataset.hid = '1';
     armaSalvar(card);
@@ -202,6 +208,7 @@
   }
 
   async function salvar(card) {
+    if (card.classList && card.classList.contains('dgcofre-bloqueado')) return;
     if (card.dataset.enviando === '1') return;
     const inp = card.querySelector('.dgc-valor');
     const btn = card.querySelector('.dgc-salvar');

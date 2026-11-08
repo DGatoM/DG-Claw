@@ -9,7 +9,7 @@ const amb = prepararAmbiente("codex-motor");
 const { apagarSnapshotsAntigos, argsDeAprovacao, codexHomeDe, motorCodex, registrarChaveNoCodex, shaDaChave } = await import("./provedores/codex.js");
 const { ErroDeMotor, redigirArgs } = await import("./provedores/motor.js");
 const { prepararMcpDoCodex, linhaDeAmbiente } = await import("./provedores/mcp-codex.js");
-const { eventoDoRollout, descobrirRollout, acharRolloutPorId, vigiarRollout, mensagensDoRollout } = await import("./provedores/codex-rollout.js");
+const { eventoDoRollout, erroDeTurnoDoRollout, erroDeLoginDoCodex, descobrirRollout, acharRolloutPorId, vigiarRollout, mensagensDoRollout } = await import("./provedores/codex-rollout.js");
 
 function ctxCodex(sobre: Record<string, unknown> = {}) {
   const hooks = pastaTemporaria("hooks");
@@ -426,4 +426,53 @@ test("confiança da pasta: no modo api vale na pasta por sessão do runner", asy
   await motorCodex.preparar(ctx);
   const home = codexHomeDe({ auth: "api", env: {}, cwd: amb.casa, id: ctx.id });
   assert.ok(fs.readFileSync(path.join(home, "config.toml"), "utf8").includes(`[projects.${JSON.stringify(amb.casa)}]`));
+});
+
+test("erro de fim de turno: unauthorized e 401/refresh token são login; limite, sobrecarga e other comum não", () => {
+  const reg = (error: unknown, ts = new Date().toISOString()) =>
+    ({ timestamp: ts, type: "event_msg", payload: { type: "task_complete", error } });
+  const lido = (error: unknown) => erroDeTurnoDoRollout(reg(error))!;
+  assert.equal(erroDeTurnoDoRollout(reg(null)), null, "turno sem erro");
+  assert.equal(erroDeTurnoDoRollout({ timestamp: new Date().toISOString(), type: "event_msg", payload: { type: "task_started" } }), null);
+  assert.equal(erroDeLoginDoCodex(lido({ message: "x", codex_error_info: "unauthorized" })), true);
+  assert.equal(erroDeLoginDoCodex(lido({ message: '{"status":401,"error":"unauthorized"}', codex_error_info: "other" })), true);
+  assert.equal(erroDeLoginDoCodex(lido({ message: "Your refresh token was already used", codex_error_info: "other" })), true);
+  assert.equal(erroDeLoginDoCodex(lido({ message: "overloaded", codex_error_info: "server_overloaded" })), false);
+  assert.equal(erroDeLoginDoCodex(lido({ message: "limite 401 mensagens", codex_error_info: "usage_limit_exceeded" })), false);
+  assert.equal(erroDeLoginDoCodex(lido({ message: "falhou de vez", codex_error_info: "other" })), false);
+  // falha passageira na renovação do token não trava o agente (revisão adversarial do PR #93)
+  assert.equal(erroDeLoginDoCodex(lido({ message: "Failed to refresh token: 503 Service Unavailable", codex_error_info: "other" })), false);
+  assert.equal(erroDeLoginDoCodex(lido({ message: "Failed to refresh token: connection timed out", codex_error_info: "other" })), false);
+  assert.equal(erroDeLoginDoCodex(lido({ message: "Failed to refresh token: 429 Too Many Requests" })), false);
+  assert.equal(erroDeLoginDoCodex(lido({ message: "Your refresh token has expired. Please log out and sign in again.", codex_error_info: "other" })), true);
+  assert.equal(erroDeLoginDoCodex(lido({ message: "refresh_token_reused" })), true);
+  // 401 estruturado (chave de API revogada) conta; 429 e 5xx estruturados não
+  const est = (st: number) => lido({ message: "unexpected status", codex_error_info: { http_connection_failed: { http_status_code: st } } });
+  assert.equal(est(401).httpStatus, 401);
+  assert.equal(erroDeLoginDoCodex(est(401)), true);
+  assert.equal(erroDeLoginDoCodex(est(429)), false);
+  assert.equal(erroDeLoginDoCodex(est(503)), false);
+  assert.equal(erroDeLoginDoCodex(lido({ message: "401 Unauthorized", codex_error_info: { response_stream_connection_failed: { http_status_code: 500 } } })), false);
+  assert.equal(lido({ message: "m", codex_error_info: { http_connection_failed: { http_status_code: 502 } } }).categoria, "http_connection_failed");
+});
+
+test("vigia do rollout: aoErroDeTurno só recebe o erro de depois do spawn, e o Stop do mesmo registro vem antes", async () => {
+  const home = pastaTemporaria("vigia-erro");
+  const id = "dddddddd-0000-4000-8000-000000000044";
+  const ev = (t: string, p: Record<string, unknown>) => JSON.stringify({ timestamp: t, type: "event_msg", payload: p });
+  const antes = new Date(Date.now() - 60_000).toISOString();
+  const f = escreverRollout(home, id, "/c", [ev(antes, { type: "task_complete", error: { message: "velho", codex_error_info: "unauthorized" } })]);
+  const ordem: string[] = [];
+  const parar = vigiarRollout({
+    resolverArquivo: () => f, desdeMs: Date.now() - 5_000, intervaloMs: 50,
+    aoEvento: (e) => ordem.push(e.evento),
+    aoErroDeTurno: (e) => ordem.push(`erro:${e.categoria}`),
+  });
+  try {
+    fs.appendFileSync(f, ev(new Date().toISOString(), { type: "task_complete", error: { message: "novo", codex_error_info: "unauthorized" } }) + "\n");
+    await esperarAte(() => ordem.length >= 2, 4_000, "o erro novo");
+    assert.deepEqual(ordem, ["Stop", "erro:unauthorized"]);
+  } finally {
+    parar();
+  }
 });

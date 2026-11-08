@@ -73,7 +73,9 @@ Algumas observações que evitam surpresa:
 - **Opções do `web.env`.** Existem as chaves de voz e de IA (`ELEVENLABS_API_KEY`, `GROQ_API_KEY`,
   `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`), `DGCLAW_WEB_MAX_UPLOAD_MB` (tamanho máximo de envio),
   `DGCLAW_WEB_MAX_TEXTO`, `DGCLAW_WEB_TZ` (fuso), `DGCLAW_WEB_ORIGENS` (endereços extras aceitos),
-  `DGCLAW_WEB_AVISOS=off` e `DGCLAW_SIGILO_LIBERADOS` (nomes que o modo escondido nunca esconde). A lista
+  `DGCLAW_WEB_AVISOS=off`, `DGCLAW_SIGILO_LIBERADOS` (nomes que o modo escondido nunca esconde) e as
+  `DGCLAW_SMTP_HOST`, `DGCLAW_SMTP_PORTA`, `DGCLAW_SMTP_USUARIO`, `DGCLAW_SMTP_SENHA` e `DGCLAW_SMTP_REMETENTE`
+  (opcionais; só servem para mandar por e-mail o convite de um colaborador, veja `web/docs/COLABORADORES.md`). A lista
   completa está em `web/lib/config.js`. Mexa linha a linha: o arquivo também guarda a senha do painel.
 - **Habilidades do agente que vêm de fábrica** (agenda, lembretes, memória e outras) são links para o
   programa. Uma habilidade sua, com outro nome na pasta `~/.claude/skills` do agente, não é tocada.

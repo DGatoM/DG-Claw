@@ -1,0 +1,16 @@
+#formato: docx
+CONTRATO DE PRESTAÇÃO DE SERVIÇOS DE DESENVOLVIMENTO
+
+CONTRATANTE: [[EMPRESA:Horizonte Azul Construtora Ltda.]], pessoa jurídica inscrita no CNPJ sob o nº [[CNPJ:${CNPJ_A}]], com sede na [[ENDERECO:Avenida Paulista, 2000, sala 41, Bela Vista, São Paulo/SP]], CEP [[CEP:01310-200]], neste ato representada por seu diretor [[PESSOA:Fábio Henrique dos Santos Lima]].
+
+CONTRATADA: [[EMPRESA:Tecnolume Soluções em Software S.A.]], CNPJ [[CNPJ:${CNPJ_ALFA_A}]], por seu sócio [[PESSOA:Luciana Pires de Andrade]], RG [[RG:34.567.890-1]].
+
+OBJETO. A CONTRATADA desenvolverá um aplicativo para o sistema [[!:Windows 11]] e para o [[!:Android]], usando as ferramentas [[!:Excel]] e [[!:Power BI]] da [[!:Microsoft]] para os relatórios.
+
+PREÇO. O valor total é de [[VALOR:R$ 85.000,00]], em quatro parcelas, a primeira em [[DATA:10/04/2026]]. O pagamento será feito na conta [[CONTA:98765-4]], agência [[AGENCIA:0987]] do banco, titular a CONTRATADA.
+
+CONTATOS. Para o jurídico: [[EMAIL:juridico@horizonteazul.com.br]]. Para o suporte: [[TELEFONE:+55 11 3333-4444]] ou [[TELEFONE:(11) 98888-7777]]. O gerente do projeto, o Sr. [[PESSOA:Albuquerque]], aprova as entregas; a [[PESSOA:Luciana]] responde pela equipe técnica.
+
+Os autos do litígio anterior, [[!:processo nº 1234567-89.2023.8.26.0100]], ficam arquivados. Cidade de eleição do foro: [[!:São Paulo]].
+
+São Paulo, [[DATA:30 de março de 2026]].

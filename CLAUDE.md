@@ -68,6 +68,19 @@ A [arquitetura](docs/ARQUITETURA.md) descreve o funcionamento e os limites entre
   *Por quê:* em 17/10/2026 o instalador regravava o `web.env` só com o usuário e a senha do
   painel, e cada atualização desligava o microfone dos agentes. O Admin percebeu antes de aplicar.
 
+- **Paridade de motores: toda mudança funciona no Claude e no Codex.** O DG Claw tem dois motores
+  pela assinatura, o Claude (Claude Code) e o ChatGPT (Codex CLI), e o agente tem que se comportar
+  igual nos dois. Todo commit, PR, feature ou correção nova é feita e testada nos dois motores. Se o
+  recurso depende de algo que só o Claude Code tem (hook, transcript JSONL em `.claude/projects`,
+  `--channels`, plugin, conectores do claude.ai, `claude -p`), o mesmo PR traz o equivalente no
+  Codex (rollout, `notify`, eventos do runner, MCP, `AGENTS.md`) ou registra a exceção, com o
+  motivo e o caminho alternativo, em [docs/PARIDADE-CODEX.md](docs/PARIDADE-CODEX.md). O checklist
+  do PR tem o item "testado no Codex", e ele só se marca depois de rodar de verdade num agente ou
+  numa pasta de teste com o Codex.
+  *Por quê:* em 06/11/2026 o Danilo decidiu que o Codex fica tão bom quanto o Claude. Recurso feito
+  só para um motor vira dívida que ninguém percebe até um aluno trocar de IA e perder a memória ou o
+  Telegram sem aviso.
+
 - **O agente precisa conhecer o que é novo.** Toda feature nova que o agente precisa conhecer para
   usar ou oferecer entra TAMBÉM em `templates/ambiente/agente.md` (e em `admin.md`, se o Admin a
   usa), no mesmo commit/PR. Feature puramente visual que o agente não usa (por exemplo, animação de

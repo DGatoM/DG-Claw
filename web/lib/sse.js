@@ -23,7 +23,7 @@ function chaveAtividade(a) {
  * Cada conexão tem o seu relógio; o custo de cada tique é um stat do arquivo e um
  * cache de 2 s do runner, então não precisa de vigia compartilhado.
  */
-function abrirStream({ req, res, agente, since, fontes, log, tickMs }) {
+function abrirStream({ req, res, agente, since, fontes, log, tickMs, valeAinda }) {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream; charset=utf-8',
     'Cache-Control': 'no-cache, no-transform',
@@ -51,11 +51,22 @@ function abrirStream({ req, res, agente, since, fontes, log, tickMs }) {
     try { res.end(); } catch (_) { /* conexão já caiu */ }
   };
 
+  // Sessão que deixou de valer: avisa a tela e fecha, antes de qualquer outra mensagem sair.
+  const sessaoCaiu = () => {
+    if (!valeAinda || valeAinda()) return false;
+    log('aviso', `Stream de ${agente.slug} fechado: a sessão de quem ouvia deixou de valer (expirou, saiu ou perdeu o acesso).`);
+    try { sse(res, 'sessao_encerrada', { motivo: 'Sua sessão não vale mais. Entre de novo.' }); } catch (_) { /* conexão já caiu */ }
+    encerra();
+    return true;
+  };
+
   async function tique(primeiro) {
     if (fechado || ocupado) return;
     ocupado = true;
     try {
+      if (sessaoCaiu()) return;
       const t = await fontes.thread(agente);
+      if (sessaoCaiu()) return;
       if (t.versao !== versaoVista || primeiro) {
         const atuais = t.msgs;
         const ids = new Set(atuais.map((m) => m.id));
@@ -75,6 +86,7 @@ function abrirStream({ req, res, agente, since, fontes, log, tickMs }) {
         }
       }
       const ativ = await fontes.atividade(agente);
+      if (sessaoCaiu()) return;
       const k = chaveAtividade(ativ);
       if (k !== chaveAtiv) {
         chaveAtiv = k;
