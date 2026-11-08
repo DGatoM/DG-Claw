@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Face ID - DG Claw</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#2f9e5e">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="icon" href="/icons/icon-192.png">
+<link rel="stylesheet" href="/face-id.css">
+<link rel="stylesheet" href="/casca.css">
+<link rel="stylesheet" href="/menu-lado.css">
+<link rel="stylesheet" href="/sem-zoom.css">
+<script src="/sem-zoom.js"></script>
+<script src="/trava.js"></script>
+</head>
+<body class="fi">
+<main class="fi-main">
+  <p class="fi-msg erro" id="fiMsgGeral" role="alert" hidden></p>
+
+  <section class="fi-sec" id="fiAparelho" data-tour="fid-aparelho" aria-label="Este aparelho">
+    <h2><span id="fiTituloAparelho">Neste aparelho</span><button type="button" class="fi-ajuda" data-fi-ajuda="aparelho" aria-label="Tutorial deste aparelho">?</button></h2>
+    <p class="fi-texto" id="fiStatus">Conferindo…</p>
+    <div id="fiNotas" aria-live="polite"></div>
+    <label class="fi-campo" id="fiCampoNome">Nome deste aparelho
+      <input type="text" id="fiNome" maxlength="60" autocomplete="off" placeholder="ex.: iPhone da Maria">
+    </label>
+    <div class="fi-linha">
+      <button type="button" class="fi-btn pri" id="fiLigar" disabled>Ligar neste aparelho</button>
+    </div>
+    <p class="fi-msg" id="fiMsgAparelho" role="status" hidden></p>
+  </section>
+
+  <section class="fi-sec" id="fiLista" data-tour="fid-lista" aria-label="Aparelhos cadastrados">
+    <h2><span>Aparelhos cadastrados</span><button type="button" class="fi-ajuda" data-fi-ajuda="lista" aria-label="Tutorial dos aparelhos cadastrados">?</button></h2>
+    <div id="fiItens"><p class="fi-vazio">Carregando…</p></div>
+    <p class="fi-msg" id="fiMsgLista" role="status" hidden></p>
+  </section>
+
+  <section class="fi-sec" id="fiTempo" data-tour="fid-tempo" aria-label="Tempo de trava">
+    <h2><span>Tempo de trava</span><button type="button" class="fi-ajuda" data-fi-ajuda="tempo" aria-label="Tutorial do tempo de trava">?</button></h2>
+    <p class="fi-texto">Depois de quanto tempo sem usar o DG Claw a tela trava nos aparelhos com Face ID.</p>
+    <div class="fi-linha">
+      <label class="fi-campo curto">Minutos
+        <select id="fiMinutos"></select>
+      </label>
+      <button type="button" class="fi-btn" id="fiSalvarTempo">Salvar</button>
+    </div>
+    <p class="fi-msg" id="fiMsgTempo" role="status" hidden></p>
+  </section>
+
+  <section class="fi-sec" id="fiEndereco" data-tour="fid-endereco" aria-label="Endereço">
+    <h2><span>Endereço do painel</span><button type="button" class="fi-ajuda" data-fi-ajuda="endereco" aria-label="Tutorial do endereço">?</button></h2>
+    <p class="fi-texto" id="fiHost">Conferindo…</p>
+    <p class="fi-fraco">A passkey fica presa ao endereço em que foi criada. Se um dia o painel mudar de endereço (por exemplo, ao trocar para um domínio seu), o Face ID precisa ser ligado de novo em cada aparelho. A senha continua valendo em qualquer endereço.</p>
+  </section>
+</main>
+
+<script src="/tour.js"></script>
+<script src="/menu-lado.js"></script>
+<script src="/casca.js"></script>
+<script src="/face-id.js"></script>
+<script>
+DGCasca.monta({ pagina: 'face-id', titulo: 'Face ID', aoTutorial: function () { if (window.DGFaceId) window.DGFaceId.tutorial(); } });
+</script>
+</body>
+</html>

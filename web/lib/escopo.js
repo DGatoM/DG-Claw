@@ -61,6 +61,13 @@ const RX_ESTATICO = /^\/(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]+\.(?:js|css|png|jpe
 const ehEstatico = (p) => !p.includes('..') && RX_ESTATICO.test(p);
 
 const RX_DOCS = /^\/api\/v1\/(?!colaboradores\/)[a-z-]+\/docs\.md$/;
+// Rotas do Face ID liberadas ao colaborador (ver avaliaApi). /docs.md já passa por RX_DOCS.
+const CADEADO_ROTAS = [
+  [/^\/api\/v1\/cadeado\/(?:estado|passkeys|cadastro\/opcoes|verificar\/opcoes)$/, ['GET']],
+  [/^\/api\/v1\/cadeado\/(?:uso|cadastro|verificar)$/, ['POST']],
+  [/^\/api\/v1\/cadeado\/passkeys\/pk_[0-9a-f]{12}$/, ['PATCH', 'DELETE']],
+  [/^\/api\/v1\/cadeado\/ajustes$/, ['PUT']],
+];
 const RX_AGENTE = /^\/api\/v1\/agents\/([^/]+)(?:\/([^/]*))?(?:\/.*)?$/;
 const RX_MIDIA = /^\/api\/v1\/media\/[0-9a-f]{16}(?:\/(?:thumb|visual))?$/;
 const RX_PAGINA_AGENTE = /^\/a\/([^/]+)\/?$/;
@@ -125,6 +132,8 @@ function avaliar(sessao, metodo, pathname, urlCrua) {
   if (leitura) {
     if (p === '/') return LIBERA;
     if (p === '/conectar' || p === '/conectar/' || p === '/trocar-senha') return LIBERA;
+    // Face ID: a tela de ajustes e a tela do cadeado são de cada pessoa (dono ou colaborador).
+    if (p === '/face-id' || p === '/face-id/' || p === '/cadeado' || p === '/cadeado/') return LIBERA;
     const pa = RX_PAGINA_AGENTE.exec(p);
     if (pa) return meuSlug(pa[1]) ? LIBERA : nega(302, MOTIVO_OUTRO_AGENTE, { redirecionar: destino });
     if (ehEstatico(p)) return LIBERA;
@@ -187,6 +196,11 @@ function avaliaApi(m, p, meuSlug) {
   if (p === '/api/v1/tts') return metodo(m === 'POST', 'Use POST com o texto.');
   if (p === '/api/v1/tts/cota') return metodo(m === 'GET', 'Use GET para ver a cota de voz.');
   if (RX_DOCS.test(p)) return metodo(m === 'GET', 'Use GET para ler a documentação.');
+  // Face ID (cadeado): só as rotas dele, cada pessoa com as próprias passkeys (o handler filtra pelo titular da sessão).
+  if (p.startsWith('/api/v1/cadeado/')) {
+    const c = CADEADO_ROTAS.find(([rx]) => rx.test(p));
+    return c ? metodo(c[1].includes(m), `Use ${c[1].join(' ou ')} em ${p}.`) : nega(403, MOTIVO_GERAL);
+  }
 
   // O dono do arquivo é conferido na entrega (media.js), que responde 404 se a mídia não é deste agente.
   if (RX_MIDIA.test(p)) return metodo(m === 'GET' || m === 'HEAD', 'Use GET para abrir a mídia.');

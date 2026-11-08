@@ -74,6 +74,7 @@ function hashFicticio() {
 function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
   let colaboradores = colabsInicial || null; // ligado depois por ligarColaboradores (o módulo precisa do gerarHash, que é daqui)
   let instanciaAtual = null;
+  let aoCriar = null; // gancho do cadeado (Face ID): avisa que uma sessão nasceu com senha
   const MOTIVO_INSTANCIA = 'Este convite era de um agente que foi removido. Peça um convite novo ao dono.';
   /** O convite guarda a instância do agente; se o agente foi removido e recriado com o mesmo nome, ele não vale. */
   // Sem exceção: convite sem instância, instância atual ilegível ou módulo não ligado também NEGAM.
@@ -284,6 +285,9 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
       sessoes.set(sha256hex(token), reg);
       limpaExpiradas();
       salva();
+      if (aoCriar) {
+        try { aoCriar({ token, req, colaborador }); } catch (e) { log('erro', `O gancho de sessão nova (cadeado) falhou: ${e.message}. A sessão foi criada; se o Face ID travar, entre de novo.`); }
+      }
       const cookie = montaCookie(token, config.sessaoDias * 86400, req);
       return { token, expira: expiraFinal, cookie, cookies: [cookie, montaCookiePapel(colaborador ? 'colaborador' : 'dono', req)] };
     },
@@ -301,6 +305,8 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
     },
 
     ligarColaboradores(modulo) { colaboradores = modulo; },
+    /** `fn({ token, req, colaborador })` roda depois de cada sessão nova (login, primeiro acesso, troca de senha). */
+    aoCriarSessao(fn) { aoCriar = fn; },
     /** `fn(slug)` devolve a instância atual do agente (ver instancia.js). Sem ela a conferência de instância não acontece. */
     ligarInstancias(fn) { instanciaAtual = fn; },
 

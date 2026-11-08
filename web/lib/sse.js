@@ -23,7 +23,7 @@ function chaveAtividade(a) {
  * Cada conexão tem o seu relógio; o custo de cada tique é um stat do arquivo e um
  * cache de 2 s do runner, então não precisa de vigia compartilhado.
  */
-function abrirStream({ req, res, agente, since, fontes, log, tickMs, valeAinda }) {
+function abrirStream({ req, res, agente, since, fontes, log, tickMs, valeAinda, travadoAgora }) {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream; charset=utf-8',
     'Cache-Control': 'no-cache, no-transform',
@@ -53,11 +53,19 @@ function abrirStream({ req, res, agente, since, fontes, log, tickMs, valeAinda }
 
   // Sessão que deixou de valer: avisa a tela e fecha, antes de qualquer outra mensagem sair.
   const sessaoCaiu = () => {
-    if (!valeAinda || valeAinda()) return false;
-    log('aviso', `Stream de ${agente.slug} fechado: a sessão de quem ouvia deixou de valer (expirou, saiu ou perdeu o acesso).`);
-    try { sse(res, 'sessao_encerrada', { motivo: 'Sua sessão não vale mais. Entre de novo.' }); } catch (_) { /* conexão já caiu */ }
-    encerra();
-    return true;
+    if (valeAinda && !valeAinda()) {
+      log('aviso', `Stream de ${agente.slug} fechado: a sessão de quem ouvia deixou de valer (expirou, saiu ou perdeu o acesso).`);
+      try { sse(res, 'sessao_encerrada', { motivo: 'Sua sessão não vale mais. Entre de novo.' }); } catch (_) { /* conexão já caiu */ }
+      encerra();
+      return true;
+    }
+    // Cadeado (Face ID): a sessão travou por falta de uso. Avisa a tela e para de entregar a conversa.
+    if (travadoAgora && travadoAgora()) {
+      try { sse(res, 'travado', { erro: 'A tela travou por falta de uso. Destrave com o Face ID ou entre com a senha.', travado: true }); } catch (_) { /* conexão já caiu */ }
+      encerra();
+      return true;
+    }
+    return false;
   };
 
   async function tique(primeiro) {

@@ -53,6 +53,7 @@ const { criarUso } = require('./lib/uso');
 const { criarColaboradores } = require('./lib/colaboradores');
 const { criarColaboradoresRotas } = require('./lib/colaboradores-rotas');
 const { criarEmail } = require('./lib/email');
+const { criarCadeado } = require('./lib/cadeado');
 const escopo = require('./lib/escopo');
 
 const METODOS_QUE_ESCREVEM = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -134,12 +135,16 @@ function criarServidor(opcoes) {
   const auth = criarAuth({ config, log, agora: opcoes.agora });
   const colaboradores = criarColaboradores({ config, log, agora: opcoes.agora, gerarHash: (senha) => auth.gerarHash(senha) });
   auth.ligarColaboradores(colaboradores);
+  // Cadeado com Face ID (opcional, por aparelho): destrava sessão já autenticada, nunca cria sessão. Ver lib/cadeado.js.
+  const cadeado = criarCadeado({ config, log, agora: opcoes.agora });
+  auth.aoCriarSessao((ev) => cadeado.aoCriarSessao(ev));
+  cadeado.limpaOrfaos((id) => { const c = colaboradores.obter(id); return !(c && c.revogado_em); }).catch((e) => log('erro', `Cadeado: não limpei as passkeys de colaboradores revogados (${e.message}).`));
   auth.ligarInstancias((slug) => instanciaDe(registro.obter(slug)));
   log('info', config.smtp.host ? `E-mail dos convites de colaborador: ligado (${config.smtp.host}:${config.smtp.porta}).` : 'E-mail dos convites de colaborador: desligado (opcional; o convite sai pelo texto da tela). Para ligar, defina DGCLAW_SMTP_HOST e as outras DGCLAW_SMTP_* no web.env.');
   // Conexões abertas (stream da conversa) de cada colaborador: ao revogar ou trocar a senha, fecham junto com a sessão.
   const streamsDoColaborador = new Map();
   const fechaStreamsDe = (id) => { for (const r of streamsDoColaborador.get(id) || []) r.destroy(); streamsDoColaborador.delete(id); proxy.fecharDoColaborador(id); };
-  const colabRotas = criarColaboradoresRotas({ colaboradores, auth, registro, email: opcoes.email || criarEmail({ config, log }), config, log, agora: opcoes.agora, aoDerrubar: fechaStreamsDe });
+  const colabRotas = criarColaboradoresRotas({ colaboradores, auth, registro, email: opcoes.email || criarEmail({ config, log }), config, log, agora: opcoes.agora, aoDerrubar: fechaStreamsDe, aoRevogar: (id) => cadeado.removerDoTitular(`colaborador:${id}`).catch((e) => log('erro', `Cadeado: não apaguei as passkeys do colaborador ${id} ao revogar (${e.message}). Rode a revogação de novo ou apague-as em passkeys.json.`)) });
   const primeiroAcesso = criarPrimeiroAcesso({ config, auth, log, agora: opcoes.agora });
   const avatares = criarAvatar({ dataDir: config.dataDir, log });
   const midia = criarMidia({ dataDir: config.dataDir, log, registro, publicDir: config.publicDir });
@@ -437,6 +442,8 @@ function criarServidor(opcoes) {
   async function api(req, res, url, sessao) {
     const p = url.pathname;
     const m = req.method;
+    if (p === '/api/v1/cadeado' || p.startsWith('/api/v1/cadeado/')) { await cadeado.rotas(req, res, url, sessao); return undefined; }
+
     if (p.startsWith('/api/v1/tarefas') && await mesa.rota(req, res, url, sessao)) return undefined;
 
     if (await foco.tratarRota(req, res, url, sessao)) return undefined;
@@ -860,6 +867,7 @@ function criarServidor(opcoes) {
       req, res, agente, since, log, tickMs: opcoes.tickSseMs,
       // Colaborador: a cada tique o stream confere a sessão e fecha quando ela deixou de valer (expirou, saiu, foi revogada).
       valeAinda: ehColab(sessao) ? () => sessaoAindaVale(req, sessao) : null,
+      travadoAgora: sessao && !sessao.via ? () => cadeado.travada(req, sessao) : null,
       fontes: ehColab(sessao)
         // Colaborador: sem a fonte do foco (é a lista do dono) e com os avisos técnicos trocados por um genérico.
         ? { thread: async (a) => { const t = await conversa.thread(a); return Object.assign({}, t, { avisos: avisosPara(sessao, t.avisos) }); }, atividade: async (a) => atividadePara(sessao, a, await conversa.atividade(a)), versaoJs }
@@ -1227,6 +1235,9 @@ function criarServidor(opcoes) {
       if (!veredito.ok) return negarEscopo(req, res, sessao, veredito, p);
     }
 
+    // Cadeado: sessão travada por falta de uso não vê tela nem API (só o necessário para destravar). Ver lib/cadeado.js.
+    if (sessao && !sessao.via && cadeado.gate(req, res, url, sessao)) return undefined;
+
     if (ehColab(sessao)) {
       req.dgRevalidar = () => {
         const vale = sessaoAindaVale(req, sessao);
@@ -1254,6 +1265,26 @@ function criarServidor(opcoes) {
         if (RX_SLUG_ROTA.test(slugPainel)) marcaAutor(slugPainel, sessao, null);
       }
       return proxy.responder(req, res, pp[1], sessao.usuario, quemDoProxy(sessao, req));
+    }
+
+    if ((p === '/cadeado' || p === '/cadeado/') && (m === 'GET' || m === 'HEAD')) {
+      if (!sessao) return semSessaoPagina(req, res, url);
+      const destino = cadeado.destinoSeguro(url.searchParams.get('next'));
+      if (sessao.via || !cadeado.travada(req, sessao)) { res.writeHead(302, { Location: destino, 'Cache-Control': 'no-store' }); return res.end(); }
+      if (!servirArquivo(req, res, path.join(config.publicDir, 'cadeado.html'), 'no-store')) {
+        log('erro', `A tela do cadeado não está instalada: falta ${path.join(config.publicDir, 'cadeado.html')}.`);
+        H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela do cadeado não foi encontrado no servidor. Reinstale o DG Claw Web.');
+      }
+      return undefined;
+    }
+
+    if ((p === '/face-id' || p === '/face-id/') && (m === 'GET' || m === 'HEAD')) {
+      if (!sessao) return semSessaoPagina(req, res, url);
+      if (!servirArquivo(req, res, path.join(config.publicDir, 'face-id.html'), 'no-store')) {
+        log('erro', `A tela do Face ID não está instalada: falta ${path.join(config.publicDir, 'face-id.html')}.`);
+        H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela do Face ID não foi encontrado no servidor. Reinstale o DG Claw Web.');
+      }
+      return undefined;
     }
 
     if (p === '/' && (m === 'GET' || m === 'HEAD')) {
@@ -1380,6 +1411,7 @@ function criarServidor(opcoes) {
       const nega = (status, motivo) => { socket.write(`HTTP/1.1 ${status} Recusado\r\nConnection: close\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${motivo}`); socket.destroy(); };
       if (!pp) return nega(404, 'Só o painel (/p/<agente>/) aceita WebSocket.');
       if (!sessao) return nega(401, 'Você precisa entrar antes.');
+      if (!sessao.via && cadeado.travada(req, sessao)) return nega(423, 'A tela está travada por falta de uso. Destrave com o Face ID ou entre com a senha.');
       const veredito = escopo.websocketLiberado(sessao, url.pathname, req.url);
       if (!veredito.ok) {
         log('aviso', `WebSocket em ${url.pathname.slice(0, 120)} recusado para o colaborador ${sessao.usuario}: ${veredito.motivo}`);
@@ -1403,7 +1435,7 @@ function criarServidor(opcoes) {
   });
 
   return {
-    servidor, config, registro, auth, colaboradores, proxy, midia, conversa, anonimizar, filtroAnon, log, caixa, push, lembretes, avisos, estados, vigiaAtencao, prefsAtencao,
+    servidor, config, registro, auth, colaboradores, cadeado, proxy, midia, conversa, anonimizar, filtroAnon, log, caixa, push, lembretes, avisos, estados, vigiaAtencao, prefsAtencao,
     ouvir(porta, host) {
       return new Promise((resolve, reject) => {
         servidor.once('error', reject);
@@ -1417,7 +1449,7 @@ function criarServidor(opcoes) {
         });
       });
     },
-    fechar() { return new Promise((resolve) => { caixa.parar(); lembretes.parar(); avisos.parar(); vigiaAtencao.parar(); proxy.fecharTudo(); anonimizar.encerrar(); servidor.closeAllConnections && servidor.closeAllConnections(); servidor.close(() => resolve()); }); },
+    fechar() { return cadeado.aguardar().catch(() => {}).then(() => new Promise((resolve) => { caixa.parar(); lembretes.parar(); avisos.parar(); vigiaAtencao.parar(); proxy.fecharTudo(); anonimizar.encerrar(); servidor.closeAllConnections && servidor.closeAllConnections(); servidor.close(() => resolve()); })); },
   };
 }
 

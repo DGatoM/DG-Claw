@@ -14,7 +14,7 @@ const JANELA_SENHA_MS = 15 * 60 * 1000;
 const MAX_FALHAS_SENHA = 5;
 const SO_DONO = 'Convidar e gerenciar colaboradores é só do dono do DG Claw, pelo painel.';
 
-function criarColaboradoresRotas({ colaboradores, auth, registro, email, config, log, aoDerrubar, agora }) {
+function criarColaboradoresRotas({ colaboradores, auth, registro, email, config, log, aoDerrubar, aoRevogar, agora }) {
   const relogio = agora || (() => Date.now());
   // Erros da senha atual na troca de senha: 5 em 15 min por colaborador e por IP.
   const falhasDeSenha = new Map();
@@ -145,6 +145,7 @@ function criarColaboradoresRotas({ colaboradores, auth, registro, email, config,
         if (m === 'DELETE') {
           const r = await colaboradores.revogar(id);
           derruba(id);
+          if (aoRevogar) await aoRevogar(id);
           log('info', `Acesso de ${r.email} ao agente ${r.agente} revogado (por ${sessao.usuario}).`);
           H.enviaJson(res, 200, { ok: true, colaborador: r });
           return true;

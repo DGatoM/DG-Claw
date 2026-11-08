@@ -1,0 +1,36 @@
+/* face-id.css: a tela /face-id (body.fi, classes fi-). Celular primeiro: nada rola para o lado,
+   alvos de toque de pelo menos 36 px e campos com fonte de 16 px (o iPhone não amplia a tela ao tocar). */
+body.fi{--fi-txt:#0f1c14;--fi-fraco:#5f7566;--fi-linha:#dfe7e1;--fi-acento:#2f9e5e;--fi-fundo:#f3f6f3;
+  margin:0;background:var(--fi-fundo);color:var(--fi-txt);overflow:auto;height:auto;
+  font:15.5px/1.46 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;-webkit-text-size-adjust:100%}
+body.fi *{box-sizing:border-box}
+.fi-main{max-width:760px;margin:0 auto;padding:14px;display:flex;flex-direction:column;gap:14px;overflow-x:hidden}
+.fi-sec{background:#fff;border:1px solid var(--fi-linha);border-radius:14px;padding:14px;min-width:0}
+.fi-sec h2{font-size:16.5px;margin:0 0 8px;display:flex;align-items:center;gap:8px}
+.fi-sec h2 span{flex:1;min-width:0}
+.fi-ajuda{width:36px;height:36px;border-radius:50%;border:1px solid var(--fi-linha);background:#f2f6f2;color:#38523f;font-weight:700;cursor:pointer;flex:0 0 auto}
+.fi-texto{margin:0 0 10px;overflow-wrap:anywhere}
+.fi-fraco{color:var(--fi-fraco);font-size:13.5px;margin:6px 0 0;overflow-wrap:anywhere}
+.fi-btn{font:inherit;font-size:15px;font-weight:600;min-height:40px;padding:0 16px;border-radius:20px;border:1px solid var(--fi-linha);background:#f2f6f2;color:#38523f;cursor:pointer}
+.fi-btn.pri{background:var(--fi-acento);border-color:var(--fi-acento);color:#fff}
+.fi-btn.perigo{color:#a01818;border-color:#e6b8b8;background:#fff}
+.fi-btn:disabled{opacity:.5;cursor:default}
+.fi-linha{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end}
+.fi-campo{display:flex;flex-direction:column;gap:3px;font-size:13.5px;font-weight:600;margin:0 0 10px;min-width:0}
+.fi-campo.curto{margin:0;flex:0 1 160px}
+.fi-campo input,.fi-campo select{font:inherit;font-size:16px;font-weight:400;min-height:40px;padding:6px 10px;border:1px solid var(--fi-linha);border-radius:10px;width:100%;min-width:0;background:#fff}
+.fi-msg{margin:10px 0 0;font-size:14px;overflow-wrap:anywhere}
+.fi-msg.erro{color:#a01818}
+.fi-msg.ok{color:#1f7a45}
+.fi-msg[hidden]{display:none}
+.fi-nota{margin:0 0 10px;padding:10px 12px;border-radius:10px;background:#fff7e0;border:1px solid #f0d98c;color:#4a3a05;font-size:14px;overflow-wrap:anywhere}
+.fi-nota b{display:block;margin-bottom:2px}
+.fi-vazio{padding:10px;text-align:center;color:var(--fi-fraco)}
+.fi-item{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;padding:10px 0;border-top:1px solid var(--fi-linha)}
+.fi-item:first-child{border-top:0}
+.fi-quem{flex:1 1 200px;min-width:0}
+.fi-quem b{display:block;overflow-wrap:anywhere}
+.fi-quem small{color:var(--fi-fraco)}
+.fi-aqui{display:inline-block;margin-left:6px;padding:0 8px;border-radius:10px;background:#e3f4ea;color:#1f7a45;font-size:12px;font-weight:700}
+.fi-acoes{display:flex;gap:6px;flex-wrap:wrap}
+.fi-item .fi-campo{flex:1 1 200px;margin:0}
