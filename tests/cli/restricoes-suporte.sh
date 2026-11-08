@@ -34,21 +34,23 @@ afirma "diz que a imagem e antiga" grep -q 'imagem' "$TMP/o2.txt"
 afirma "diz que as restricoes NAO valem" grep -q 'NAO valem' "$TMP/o2.txt"
 afirma "manda recriar com o comando do CLI" grep -q 'dgclaw agente recriar ana' "$TMP/o2.txt"
 afirma "o marcador de reinicio continua" test -e "$PEND"
+afirma "o container foi parado (agente com trava nao roda sem ela)" grep -q '^podman stop dgclaw-ana' "$STUB_LOG"
+igual "e ficou parado" "exited" "$(cat "$STUB_ESTADO/c-dgclaw-ana")"
 rm -f "$STUB_ESTADO/sem-suporte"
 : >"$STUB_LOG"
-dgclaw agente restricoes ana --sem-bash sim >"$TMP/o2.txt" 2>&1; igual "depois de recriar, o mesmo comando funciona" "0" "$?"
-afirma "e reinicia o runner por causa do marcador" grep -q 'systemctl restart dgclaw-runner' "$STUB_LOG"
-nega "e o marcador saiu" test -e "$PEND"
+dgclaw agente iniciar ana >"$TMP/o2.txt" 2>&1; igual "depois de recriar, ligar de novo funciona" "0" "$?"
+igual "e o agente fica ligado" "running" "$(cat "$STUB_ESTADO/c-dgclaw-ana")"
+nega "e o marcador de reinicio saiu (o runner subiu com os arquivos novos)" test -e "$PEND"
 
 echo "conteudo diferente e script ausente tambem reprovam"
 dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1
 touch "$STUB_ESTADO/ms-diferente"
 dgclaw agente restricoes ana --sem-bash sim >"$TMP/o3.txt" 2>&1; nega "conteudo visto la dentro diferente: falha" test "$?" -eq 0
-rm -f "$STUB_ESTADO/ms-diferente"
+rm -f "$STUB_ESTADO/ms-diferente"; echo running >"$STUB_ESTADO/c-dgclaw-ana"
 dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1
 touch "$STUB_ESTADO/sem-script-gancho"
 dgclaw agente restricoes ana --sem-bash sim >"$TMP/o3.txt" 2>&1; nega "sem o script do gancho na imagem: falha" test "$?" -eq 0
-rm -f "$STUB_ESTADO/sem-script-gancho"
+rm -f "$STUB_ESTADO/sem-script-gancho"; echo running >"$STUB_ESTADO/c-dgclaw-ana"
 dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1
 touch "$STUB_ESTADO/sem-suporte"
 : >"$STUB_LOG"

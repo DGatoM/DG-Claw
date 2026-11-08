@@ -225,11 +225,11 @@ function criarMontagem({ tz, midia, log }) {
     let cru;
     try { cru = fs.readFileSync(arq, 'utf8'); } catch (e) {
       if (e.code === 'ENOENT') return true;
-      if (log) log('erro', `Não consegui ler ${arq} (${e.code || e.message}); o anexo de ${agente.slug} foi retido por segurança. Confira a permissão do arquivo ou refaça com: dgclaw agente restricoes ${agente.slug}`);
+      if (log) log('erro', `Não consegui ler ${arq} (${e.code || e.message}); o anexo de ${agente.slug} foi retido por segurança. Confira a permissão do arquivo ou refaça com: dgclaw agente restricoes ${agente.slug} --sem-bash sim|nao --sem-enviar-arquivo sim|nao`);
       return false;
     }
     try { return JSON.parse(cru).sem_enviar_arquivo !== true; } catch (e) {
-      if (log) log('erro', `${arq} não é um JSON válido (${e.message}); o anexo de ${agente.slug} foi retido por segurança. Corrija o arquivo ou refaça com: dgclaw agente restricoes ${agente.slug}`);
+      if (log) log('erro', `${arq} não é um JSON válido (${e.message}); o anexo de ${agente.slug} foi retido por segurança. Corrija o arquivo ou refaça com: dgclaw agente restricoes ${agente.slug} --sem-bash sim|nao --sem-enviar-arquivo sim|nao`);
       return false;
     }
   }

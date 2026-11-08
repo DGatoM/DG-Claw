@@ -26,6 +26,19 @@ Ver o estado de um agente:
 sudo dgclaw agente restricoes ana
 ```
 
+A consulta mostra o que está **configurado** e, separado disso, o que está **valendo**. Ela só lê: não grava nada, não
+reinicia nada, não para o agente, e sai sempre com código 0 (o chat do Admin pinta de vermelho todo comando que sai com outro
+código, e uma consulta é informação). O que ela acrescenta ao configurado:
+
+- `Pendente:` uma linha por marcador em `runner/` (`restricoes.pendente`, `restricoes-suporte.pendente`,
+  `restricoes-migracao.pendente`), com o texto do marcador (desde quando) e o comando que resolve. Com algum marcador, as
+  travas aparecem como `configurado, AINDA NAO VALE` em vez de `TRAVADO`.
+- `NAO VALE:` com o agente ligado e alguma restrição ligada, a consulta roda a mesma conferência de suporte do `iniciar`
+  (link, conteúdo e script do gancho, só lendo `/etc` e a imagem) contra o `managed-settings.json` do disco. Se a imagem não
+  carrega a configuração administrada, mostra o motivo, avisa que o agente está ligado sem a trava e diz como resolver. Com o
+  agente parado, avisa que a conferência será feita quando ele ligar.
+- `Codex:` as sessões em Codex, ou com o provedor em dúvida, e o aviso de que lá as travas não valem.
+
 Travar (as opções que você não escrever ficam como estavam):
 
 ```
@@ -52,7 +65,7 @@ arquivos já iguais, e a pendência só sai depois que o runner está `active`.
 Versões antigas guardavam o gancho de escrita no `settings.json` da casa do agente. O comando tira esse gancho **por dentro da
 caixa**, como o usuário `agente` (o root nunca lê nem grava na casa do agente, porque o agente poderia trocar uma pasta por um
 atalho no meio do caminho). Com o agente parado, o gancho antigo fica onde está, o comando avisa e guarda a pendência em
-`runner/restricoes-migracao.pendente`; ele sai quando o agente ligar e `dgclaw agente restricoes <nome>` ou
+`runner/restricoes-migracao.pendente`; ele sai quando o agente ligar e
 `dgclaw agente reparar <nome>` rodar de novo.
 
 ## Onde fica e por que sobrevive
@@ -113,11 +126,18 @@ de verdade: depois de atualizar, peça a um agente travado uma gravação fora d
 
 Por isso `dgclaw agente restricoes` não diz que as travas valem só por ter gravado os arquivos. Com o agente ligado, ele confere
 dentro do container (como root, só lendo `/etc` e a imagem) que o link existe, que o conteúdo visto lá é o que acabou de ser gravado
-e que o script do gancho está na imagem. Se faltar algo, o comando falha, explica que a imagem é antiga e manda rodar
-`dgclaw agente recriar <agente>`; o marcador de reinício continua, e a execução seguinte reinicia o runner e confere de novo.
+e que o script do gancho está na imagem. Se faltar algo, o comando falha, **para o container** (a mesma regra do `iniciar`:
+agente com restrição ligada não roda sem a trava), registra no `restricoes.log` e manda rodar
+`dgclaw agente recriar <agente> --forcar` (`--forcar` porque o agente ficou parado; se a imagem do servidor também for velha,
+antes `dgclaw imagem construir --agora`). O recriar liga o agente pelo mesmo caminho do `iniciar`, que refaz os arquivos e
+confere de novo; consultar o estado com `dgclaw agente restricoes <agente>` não reinicia nem confere nada.
 Com o agente parado não dá para conferir: o comando grava `runner/restricoes-suporte.pendente` e avisa. No `dgclaw agente iniciar`
-a conferência roda assim que o container sobe; se falhar, o container é parado (agente com trava configurada não roda sem a
-trava) e o comando manda recriar. Se passar, o marcador sai.
+a conferência roda assim que o container sobe; se falhar, o container é parado e o comando manda recriar com `--forcar`. Se
+passar, os marcadores de suporte e de reinício saem (o runner acabou de subir com os arquivos regenerados).
+
+Para resolver cada pendência: `restricoes.pendente` e `restricoes-suporte.pendente` saem com `dgclaw agente reiniciar <agente>`
+(ligado) ou `dgclaw agente iniciar <agente>` (parado); `restricoes-migracao.pendente` sai com `dgclaw agente reparar <agente>`
+com o agente ligado.
 
 **Antes de ligar, não depois.** O runner sobe sozinho pelo systemd assim que o container liga, e uma conferência feita só
 depois deixaria uma janela sem o gancho de escrita. Por isso `dgclaw agente iniciar` e `dgclaw agente reiniciar`, para um

@@ -294,20 +294,23 @@ _restricoes_conferir_suporte() {
     return 0
 }
 
-# _restricoes_suporte_falhou <slug>: a falha comum da conferencia de suporte.
+# _restricoes_suporte_falhou <slug>: a falha comum da conferencia de suporte. Sempre vem depois de
+# _restricoes_parar_por_falha: o container ja esta parado, e por isso o recriar precisa do --forcar (sem ele o recriar
+# deixa parado como esta).
 _restricoes_suporte_falhou() {
     local slug="$1"
-    falha "o agente $slug roda numa imagem antiga que nao carrega a configuracao administrada do Claude Code ($RESTRICOES_SUPORTE_MOTIVO). Por isso as restricoes NAO valem: o agente ainda poderia mudar arquivos que as rotinas dele executam. Os arquivos das restricoes ficaram gravados." \
-        "recrie o agente com a imagem atual: dgclaw agente recriar $slug (se a imagem do servidor tambem estiver velha, antes: dgclaw imagem construir --agora). Depois rode de novo: dgclaw agente restricoes $slug (ele reinicia o runner e confere outra vez)."
+    falha "o agente $slug roda numa imagem antiga que nao carrega a configuracao administrada do Claude Code ($RESTRICOES_SUPORTE_MOTIVO). Por isso as restricoes NAO valem: o agente ainda poderia mudar arquivos que as rotinas dele executam. Parei o container, porque agente com restricao ligada nao roda sem a trava. Os arquivos das restricoes ficaram gravados." \
+        "recrie o agente com a imagem atual: dgclaw agente recriar $slug --forcar (--forcar porque o agente ficou parado; se a imagem do servidor tambem estiver velha, antes: dgclaw imagem construir --agora). O recriar liga o agente de novo ja conferindo as restricoes."
 }
 
-# _restricoes_parar_por_falha <slug> <motivo>: o container ja esta ligado e nao da para garantir a trava: deixa o
-# marcador de pendencia, PARA o container e registra no log. Quem chama termina com `falha`.
+# _restricoes_parar_por_falha <slug> <motivo> [etapa]: o container ja esta ligado e nao da para garantir a trava: deixa o
+# marcador de pendencia, PARA o container e registra no log (etapa: iniciar, por padrao, ou aplicar). Quem chama
+# termina com `falha`.
 _restricoes_parar_por_falha() {
-    local slug="$1" casa="$DG_CASAS/$1"
+    local slug="$1" casa="$DG_CASAS/$1" etapa="${3:-iniciar}"
     [ -e "$casa/runner/restricoes-suporte.pendente" ] || _restricoes_gravar "$casa/runner/restricoes-suporte.pendente" "conferencia de suporte pendente desde $(date -u +%FT%TZ)"
     executar podman stop "dgclaw-$slug" >/dev/null
-    _restricoes_log "$slug" "iniciar: $2; container parado"
+    _restricoes_log "$slug" "$etapa: $2; container parado"
 }
 
 # restricoes_conferir_ao_iniciar <slug>: segunda camada, com o container ja ligado (a primeira, antes de ligar, esta em
@@ -318,6 +321,9 @@ restricoes_conferir_ao_iniciar() {
     local slug="$1" casa="$DG_CASAS/$1" rs ms esperado ligada
     rs="$casa/runner/restricoes.json"; ms="$casa/runner/managed-settings.json"
     [ "$ENSAIO" = 1 ] && return 0
+    # O container acabou de ligar (ou o runner acabou de reiniciar) com os arquivos ja regenerados: um reinicio
+    # pendente deixou de fazer sentido. Se algo abaixo falhar, o container e parado e o marcador de suporte fica.
+    rm -f -- "$casa/runner/restricoes.pendente"
     if [ ! -e "$rs" ] && [ ! -L "$rs" ]; then
         rm -f -- "$casa/runner/restricoes-suporte.pendente"
         return 0
@@ -335,7 +341,7 @@ restricoes_conferir_ao_iniciar() {
     if [ -z "$esperado" ] || [ "$esperado" = '{}' ]; then
         _restricoes_parar_por_falha "$slug" "managed-settings.json ausente, vazio ou invalido com restricao ligada"
         falha "o agente $slug tem restricao ligada, mas $ms esta ausente, vazio ou invalido, entao as travas nao valem. Parei o container." \
-            "regenere o arquivo com: dgclaw agente restricoes $slug (ele refaz os arquivos a partir do restricoes.json) e ligue de novo: dgclaw agente iniciar $slug"
+            "ligue de novo com: dgclaw agente iniciar $slug (ele refaz os arquivos a partir do restricoes.json e confere antes de ligar)"
     fi
     if ! _restricoes_conferir_suporte "$slug" "$esperado"; then
         _restricoes_parar_por_falha "$slug" "imagem sem a configuracao administrada ($RESTRICOES_SUPORTE_MOTIVO)"
@@ -381,7 +387,7 @@ restricoes_antes_de_ligar() {
     if ! _restricoes_imagem_com_suporte "$slug"; then
         _restricoes_log "$slug" "ligar: nao liguei, $RESTRICOES_SUPORTE_MOTIVO"
         falha "o agente $slug tem restricao ligada, mas nao liguei o container: $RESTRICOES_SUPORTE_MOTIVO. Uma imagem antiga nao carrega a configuracao administrada do Claude Code, e sem ela as restricoes nao valem (o agente ainda poderia mudar arquivos que as rotinas dele executam). Os arquivos das restricoes ficaram gravados." \
-            "recrie o agente com a imagem atual: dgclaw agente recriar $slug (se a imagem do servidor tambem estiver velha, antes: dgclaw imagem construir --agora). Depois ligue de novo."
+            "recrie o agente com a imagem atual: dgclaw agente recriar $slug --forcar (--forcar porque o agente esta parado; se a imagem do servidor tambem estiver velha, antes: dgclaw imagem construir --agora). O recriar liga o agente de novo ja conferindo as restricoes."
     fi
 }
 
@@ -538,7 +544,7 @@ _aplicar_restricoes_sem_trava() {
         else
             # O marcador de reinicio fica: depois de recriar, a proxima execucao reinicia o runner e confere de novo.
             [ -e "$pend" ] || _restricoes_gravar "$pend" "reinicio do runner pendente desde $(date -u +%FT%TZ)"
-            _restricoes_log "$slug" "imagem sem a configuracao administrada ($RESTRICOES_SUPORTE_MOTIVO): restricoes gravadas mas NAO valem"
+            _restricoes_parar_por_falha "$slug" "imagem sem a configuracao administrada ($RESTRICOES_SUPORTE_MOTIVO): restricoes gravadas mas NAO valem" aplicar
             _restricoes_suporte_falhou "$slug"
         fi
     else
@@ -578,7 +584,7 @@ _aplicar_restricoes_sem_trava() {
                 done
                 if [ "$pronto" != active ]; then
                     falha "reiniciei o runner do agente $slug, mas ele nao voltou a responder active (systemctl is-active devolveu '${pronto:-nada}'); as restricoes novas ainda nao valem para ele." \
-                        "veja o log: podman exec $c journalctl -u dgclaw-runner -n 50 . A pendencia ficou guardada em $pend: depois de consertar, rode de novo o mesmo comando (ou: dgclaw agente reparar $slug) que ele reinicia o runner."
+                        "veja o log: podman exec $c journalctl -u dgclaw-runner -n 50 . A pendencia ficou guardada em $pend: depois de consertar, rode de novo o mesmo comando ou: dgclaw agente reiniciar $slug (os dois reiniciam o runner; o reparar nao)."
                 fi
                 rm -f -- "$pend"
                 ok "runner do agente $slug reiniciado para valer a mudanca"
@@ -665,14 +671,14 @@ agente_restricoes() {
     [ -n "$obj" ] || falha "o agente '$slug' nao esta no agentes.json." "veja os que existem com: dgclaw agente listar"
 
     local casa="$DG_CASAS/$slug" h="$DG_CASAS/$slug/home" rs="$DG_CASAS/$slug/runner/restricoes.json" atual='{"versao":1}'
-    exigir_casa_sem_link "$casa" "$h" "$slug" "dgclaw agente restricoes $slug ..."
+    exigir_casa_sem_link "$casa" "$h" "$slug" "dgclaw agente restricoes $slug --sem-bash sim|nao ..."
 
     if [ -z "$sem_bash$sem_env$pastas_arg" ] && [ "$livre" = 0 ]; then
         if [ -e "$rs" ] || [ -L "$rs" ]; then
             restricoes_validar "$rs" "$slug"
             atual="$(cat "$rs")"
         fi
-        restricoes_mostrar "$slug" "$atual" "$rs"
+        restricoes_mostrar "$slug" "$atual" "$rs" consulta
         return 0
     fi
 
@@ -740,19 +746,74 @@ _restricoes_transacao() {
     if [ "$ENSAIO" != 1 ]; then restricoes_mostrar "$slug" "$novo" "$rs"; fi
 }
 
-# restricoes_mostrar <slug> <json> <arquivo>
+# _restricoes_pendencias <slug>: imprime uma linha por marcador de pendencia (conteudo do marcador), so lendo a pasta
+# runner/ do dono. Nada e gravado nem lido da casa do agente.
+_restricoes_pendencias() {
+    local casa="$DG_CASAS/$1" f txt
+    for f in restricoes.pendente restricoes-suporte.pendente restricoes-migracao.pendente; do
+        if [ -e "$casa/runner/$f" ] || [ -L "$casa/runner/$f" ]; then
+            txt=""
+            if [ -f "$casa/runner/$f" ] && [ ! -L "$casa/runner/$f" ]; then txt="$(head -c 200 -- "$casa/runner/$f" 2>/dev/null | head -n 1 || true)"; fi
+            printf '%s|%s\n' "$f" "${txt:-marcador sem texto}"
+        fi
+    done
+}
+
+# restricoes_mostrar <slug> <json> <arquivo> [consulta]
+# Mostra o configurado. Com o 4o argumento "consulta" (o comando sem opcoes), mostra tambem o que esta VALENDO: so
+# le (marcadores de pendencia da pasta do dono, /etc e a imagem dentro do container, e o provedor das sessoes por
+# dentro da caixa) e sai sempre com 0, porque consulta e informacao e o chat do Admin pinta de vermelho todo
+# comando que sai com codigo diferente de 0.
 restricoes_mostrar() {
-    local slug="$1" json="$2" rs="$3" pastas
+    local slug="$1" json="$2" rs="$3" consulta="${4:-}" pastas ligada casa="$DG_CASAS/$1" c="dgclaw-$1"
+    local marcador txt estado=parado esperado="" codex_em="" motivo="" pend_linhas=() nome cmd rotulo quem_liga
     printf '\nRestricoes do agente %s\n' "$slug"
     if [ ! -e "$rs" ]; then
         printf '  Nenhuma restricao definida (o agente faz tudo o que o DG Claw permite).\n'
         printf '  Para travar: dgclaw agente restricoes %s --sem-bash sim --sem-enviar-arquivo sim --escrita-so-em pasta1,pasta2\n' "$slug"
         return 0
     fi
-    printf '  Bash (terminal):       %s\n' "$(printf '%s' "$json" | jq -r 'if (.sem_bash // false) then "TRAVADO" else "liberado" end')"
-    printf '  Enviar arquivos:       %s\n' "$(printf '%s' "$json" | jq -r 'if (.sem_enviar_arquivo // false) then "TRAVADO" else "liberado" end')"
-    pastas="$(printf '%s' "$json" | jq -r 'if (.escrita_so_em // null) == null then "qualquer lugar" else "so em " + (.escrita_so_em | join(", ")) end')"
+    ligada="$(printf '%s' "$json" | jq -r '(.sem_bash // false) or (.sem_enviar_arquivo // false) or ((.escrita_so_em // null) != null)')"
+    if [ "$ENSAIO" != 1 ] && [ "$(podman inspect -f '{{.State.Status}}' "$c" 2>/dev/null || true)" = running ]; then estado=ligado; fi
+    if [ "$estado" = ligado ]; then quem_liga="dgclaw agente reiniciar $slug"; else quem_liga="dgclaw agente iniciar $slug"; fi
+    if [ "$ENSAIO" != 1 ]; then
+        while IFS='|' read -r marcador txt; do
+            [ -n "$marcador" ] || continue
+            case "$marcador" in
+                restricoes.pendente) cmd="$quem_liga (reinicia o runner com as travas novas)" ;;
+                restricoes-suporte.pendente) cmd="$quem_liga (confere se a imagem carrega a configuracao administrada)" ;;
+                *) cmd="dgclaw agente reparar $slug (tira o gancho antigo do settings.json; o agente precisa estar ligado)" ;;
+            esac
+            pend_linhas+=("$txt. Resolve: $cmd")
+        done < <(_restricoes_pendencias "$slug")
+    fi
+    if [ "$consulta" = consulta ] && [ "$ENSAIO" != 1 ] && [ "$ligada" = true ]; then
+        if [ "$estado" = ligado ]; then
+            esperado="$(jq -c . "$casa/runner/managed-settings.json" 2>/dev/null || true)"
+            if [ -z "$esperado" ] || [ "$esperado" = '{}' ]; then
+                motivo="managed-settings.json ausente, vazio ou invalido com restricao ligada. Resolve: $quem_liga (refaz os arquivos a partir do restricoes.json)"
+            elif ! _restricoes_conferir_suporte "$slug" "$esperado"; then
+                motivo="$RESTRICOES_SUPORTE_MOTIVO. O agente esta ligado SEM a trava (pare com: dgclaw agente parar $slug). Resolve: dgclaw agente recriar $slug (se a imagem do servidor tambem estiver velha, antes: dgclaw imagem construir --agora)"
+            fi
+        fi
+        codex_em="$(_restricoes_sessoes_em_codex "$casa" "$c" "$([ "$estado" = ligado ] && echo 1 || echo 0)")"
+    fi
+    if [ "${#pend_linhas[@]}" -gt 0 ] || [ -n "$motivo" ]; then rotulo="configurado, AINDA NAO VALE"; else rotulo=TRAVADO; fi
+    printf '  Bash (terminal):       %s\n' "$(printf '%s' "$json" | jq -r --arg t "$rotulo" 'if (.sem_bash // false) then $t else "liberado" end')"
+    printf '  Enviar arquivos:       %s\n' "$(printf '%s' "$json" | jq -r --arg t "$rotulo" 'if (.sem_enviar_arquivo // false) then $t else "liberado" end')"
+    pastas="$(printf '%s' "$json" | jq -r --arg t "$rotulo" 'if (.escrita_so_em // null) == null then "qualquer lugar" else "so em " + (.escrita_so_em | join(", ")) + (if $t == "TRAVADO" then "" else " (" + $t + ")" end) end')"
     printf '  Gravar arquivos em:    %s\n' "$pastas"
     printf '  Atualizado em:         %s por %s\n' "$(printf '%s' "$json" | jq -r '.atualizado_em // "?"')" "$(printf '%s' "$json" | jq -r '.atualizado_por // "?"')"
     printf '  Arquivo:               %s\n' "$rs"
+    for txt in "${pend_linhas[@]}"; do printf '  Pendente:              %s\n' "$txt"; done
+    [ -z "$motivo" ] || printf '  NAO VALE:              %s\n' "$motivo"
+    if [ "$consulta" = consulta ] && [ "$ENSAIO" != 1 ] && [ "$ligada" = true ]; then
+        if [ "$estado" != ligado ]; then
+            printf '  Conferencia:           o agente esta parado; a imagem sera conferida quando ele ligar (dgclaw agente iniciar %s).\n' "$slug"
+        fi
+        if [ -n "$codex_em" ]; then
+            printf '  Codex:                 %s. No Codex estas travas nao valem (o runner ignora as regras de ferramentas e os ganchos do Claude Code); passam a valer na sessao que voltar para o Claude.\n' "$codex_em"
+        fi
+    fi
+    return 0
 }
