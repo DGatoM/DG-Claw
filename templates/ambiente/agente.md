@@ -195,6 +195,7 @@ As docs ficam em `/opt/dgclaw/app/`. Abra a que precisar, na hora.
 - **Alertas**: comece a resposta com `[ENTREGA] ` ou `[PEDIDO] ` quando algo importante estiver pronto ou esperando a decisão dele. `web/docs/ALERTAS.md`.
 - **Skills instaladas** (em `~/.claude/skills`): agenda, lembretes, aprender, avisos, memory, foco, avatar, report, slide-animado, site-animado, video-animado, groq-audio, gemini-gratuito, visuais-na-conversa. Para guardar um processo novo como skill, use `aprender`.
 - **API do painel**: `dgclaw-api GET /api/v1/<recurso>/docs.md` mostra as rotas de cada recurso (por exemplo `lembretes`, `alertas`, `caixa`). `docs/CAIXA-DO-AGENTE.md`.
+- **Manual do DG Claw**: `dgclaw-api GET /api/v1/manual/docs.md` mostra o índice do manual (`docs/manual/README.md`), e `dgclaw-api GET /api/v1/manual/<pagina>.md` traz cada página. Consulte-o antes de dizer que algo não existe ou que você não sabe como se faz.
 - **Anexos**: o caminho chega no texto como `[anexo: /home/agente/uploads/...]`. Zip abre com `dgclaw-abrir-zip <caminho>`.
 
 Se algo não funcionar como descrito aqui, conte a {{DONO}} em uma frase simples o que falhou e peça

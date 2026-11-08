@@ -44,6 +44,7 @@ const { criarPrefsAtencao } = require('./lib/prefs-atencao');
 const { criarModalLoginPrefs } = require('./lib/modal-login-prefs');
 const { criarVigiaAtencao } = require('./lib/vigia-atencao');
 const { criarMesa } = require('./lib/mesa');
+const { criarManual } = require('./lib/manual');
 const { criarAvisos } = require('./lib/avisos');
 const { criarAtualizacao } = require('./lib/atualizacao');
 const { criarSeguranca } = require('./lib/seguranca');
@@ -184,6 +185,9 @@ function criarServidor(opcoes) {
   caixa.permitir('/api/v1/cofre/docs.md');
   // A doc do Anonimizar é pública; as rotas dele NÃO entram aqui (agente não as chama).
   caixa.permitir('/api/v1/anonimizar/docs.md');
+  // O manual (docs/manual) é só leitura: o agente consulta pelo dgclaw-api antes de dizer que algo não existe.
+  const manual = criarManual({ dir: opcoes.manualDir || path.join(__dirname, '..', 'docs', 'manual'), log });
+  caixa.permitir('/api/v1/manual');
   // Aviso de versão nova: só o dono, pelo painel. De propósito NÃO entra em caixa.permitir (agente em container não usa).
   const estados = criarEstados({ conversa, naoLidas, registro, log });
   const prefsAtencao = criarPrefsAtencao({ arquivo: path.join(config.dataDir, 'push', 'preferencias.json'), log });
@@ -271,6 +275,18 @@ function criarServidor(opcoes) {
   const rotasAnonimizar = criarRotasAnonimizar({ anon: anonimizar, registro, midia, log, origemOk });
 
   const querHtml = (req) => /\btext\/html\b/.test(String(req.headers.accept || ''));
+
+  /** Texto de uma página do manual (nome 'README' = índice). Só leitura; erro com motivo em português. */
+  function servirManual(req, res, m, nome) {
+    let texto;
+    try { texto = manual.ler(nome); } catch (e) {
+      if (e.status) return H.erroJson(res, e.status, e.message);
+      log('erro', `Manual: falha ao ler a página ${String(nome).slice(0, 60)}: ${e.message}`);
+      return H.erroJson(res, 500, `Não consegui ler a página do manual (${e.message}). O detalhe está no log do servidor.`);
+    }
+    res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+    return res.end(m === 'HEAD' ? undefined : texto);
+  }
 
   function semSessaoPagina(req, res, url) {
     res.writeHead(302, { Location: `/login?next=${encodeURIComponent(url.pathname + url.search)}`, 'Cache-Control': 'no-store' });
@@ -565,6 +581,18 @@ function criarServidor(opcoes) {
     if (p === '/api/v1/compartilhados/docs.md' && m === 'GET') {
       res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store' });
       return res.end(fs.readFileSync(path.join(__dirname, 'docs', 'MIDIAS-CACHE.md')));
+    }
+
+    if (p === '/api/v1/manual' || p.startsWith('/api/v1/manual/')) {
+      if (m !== 'GET' && m !== 'HEAD') return H.erroJson(res, 405, `O manual é só para leitura: use GET em ${p.slice(0, 80)}.`, null, { Allow: 'GET, HEAD' });
+      if (p === '/api/v1/manual') {
+        try { return H.enviaJson(res, 200, Object.assign({ ok: true }, manual.listar())); } catch (e) {
+          return H.erroJson(res, e.status || 500, e.status ? e.message : `Não consegui listar o manual (${e.message}).`);
+        }
+      }
+      const mm = /^\/api\/v1\/manual\/([^/]+)\.md$/.exec(p);
+      if (!mm) return H.erroJson(res, 404, `O endereço ${p.slice(0, 80)} não existe. Use /api/v1/manual (lista) ou /api/v1/manual/<nome>.md (uma página).`);
+      return servirManual(req, res, m, mm[1]);
     }
 
     if (p === '/api/v1/alertas/docs.md' && m === 'GET') {
@@ -1219,6 +1247,8 @@ function criarServidor(opcoes) {
 
     // Única rota do Anonimizar sem sessão: a documentação, estática, para o agente ler sem credencial.
     if (p === '/api/v1/anonimizar/docs.md' && (m === 'GET' || m === 'HEAD')) { rotasAnonimizar.servirDocs(res); return undefined; }
+    // O índice do manual também é público (o agente lê sem credencial, como as outras docs.md).
+    if (p === '/api/v1/manual/docs.md' && (m === 'GET' || m === 'HEAD')) return servirManual(req, res, m, 'README');
     if (sessao && !sessao.via) {
       // O cookie de papel só serve para a tela esconder o que não é do colaborador; aqui ele se conserta sozinho.
       if (H.parseCookies(req.headers.cookie).dgclaw_papel !== sessao.papel) res.setHeader('Set-Cookie', auth.cookiePapel(sessao.papel, req));
@@ -1347,6 +1377,18 @@ function criarServidor(opcoes) {
       if (!servirArquivo(req, res, path.join(config.publicDir, 'mesa.html'), 'no-store')) {
         log('erro', `A tela da Mesa não está instalada: falta ${path.join(config.publicDir, 'mesa.html')}.`);
         H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela da Mesa de tarefas não foi encontrado no servidor. Reinstale o DG Claw Web.');
+      }
+      return undefined;
+    }
+
+    if ((p === '/manual' || p.startsWith('/manual/')) && (m === 'GET' || m === 'HEAD')) {
+      if (!sessao) return semSessaoPagina(req, res, url);
+      if (!/^\/manual\/?$|^\/manual\/(?:[a-z0-9-]+|README)\/?$/.test(p)) {
+        return H.paginaErro(res, 404, 'Página do manual não encontrada', 'Esse endereço não existe no manual. Abra /manual para ver a lista de páginas.');
+      }
+      if (!servirArquivo(req, res, path.join(config.publicDir, 'manual.html'), 'no-store')) {
+        log('erro', `A tela do Manual não está instalada: falta ${path.join(config.publicDir, 'manual.html')}.`);
+        H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela do Manual não foi encontrado no servidor. Reinstale o DG Claw Web.');
       }
       return undefined;
     }
