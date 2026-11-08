@@ -105,7 +105,21 @@ function criarProxy({ config, registro, log, cofreRotas }) {
       return undefined;
     }
     const qual = agente && agente.cofre_arquivo ? cofreRotas.casa(req, slug) : null;
-    if (!qual) return encaminhar(req, res, slug, usuario, null, undefined, quem);
+    if (!qual) {
+      const escrita = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);
+      if (!(quem && quem.colaborador_id && escrita)) return encaminhar(req, res, slug, usuario, null, undefined, quem);
+      // Colaborador: o painel age quando o corpo termina. Lê tudo aqui, confere a sessão e só então abre a conexão com o painel.
+      const limite = config.maxUploadBytes + 64 * 1024;
+      lerCorpo(req, limite).then((buf) => {
+        encaminhar(req, res, slug, usuario, buf.length ? buf : null, undefined, quem, true);
+      }).catch((e) => {
+        if (e && e.status === 413) return erroJson(res, 413, `O envio passou do limite de ${Math.round(config.maxUploadBytes / 1048576)} MB. Mande um arquivo menor.`);
+        if (e && e.status === 401) return recusaSessaoVelha(res, slug, quem);
+        log('erro', `Proxy /p/${slug}: não consegui ler o corpo do pedido (${(e && (e.code || e.message)) || 'erro'}).`);
+        return erroJson(res, 400, 'Não consegui ler o corpo do pedido. Tente de novo.');
+      });
+      return undefined;
+    }
     cofreRotas.tratar(req, res, agente, usuario, qual).then((repasse) => {
       if (repasse && repasse.corpo) encaminhar(req, res, slug, usuario, repasse.corpo, undefined, quem);
     }).catch((e) => {
@@ -130,7 +144,14 @@ function criarProxy({ config, registro, log, cofreRotas }) {
     });
   }
 
-  function encaminhar(req, res, slug, usuario, corpoLido, aoTerminar, quem) {
+  function recusaSessaoVelha(res, slug, quem) {
+    log('aviso', `Proxy /p/${slug}: pedido do colaborador ${quem.colaborador_id} recusado, a sessão deixou de valer enquanto o corpo chegava. Nada foi ao painel.`);
+    return erroJson(res, 401, 'Seu acesso mudou enquanto o envio estava em andamento (foi revogado ou o convite foi reenviado). Nada foi feito. Entre de novo com o convite mais recente.');
+  }
+
+  function encaminhar(req, res, slug, usuario, corpoLido, aoTerminar, quem, corpoJaConferido) {
+    // Corpo lido por outro caminho (cofre, legado): a sessão é conferida de novo antes de abrir a conexão.
+    if (!corpoJaConferido && corpoLido && quem && quem.colaborador_id && typeof quem.valeAinda === 'function' && !quem.valeAinda()) return recusaSessaoVelha(res, slug, quem);
     const d = destino(slug);
     if (d.status) {
       if (/\btext\/html\b/.test(String(req.headers.accept || ''))) paginaErro(res, d.status, 'Painel indisponível', d.motivo);
@@ -165,7 +186,9 @@ function criarProxy({ config, registro, log, cofreRotas }) {
       else erroJson(res, 502, motivo);
     });
     res.on('close', () => { if (!res.writableEnded) preq.destroy(); });
-    if (corpoLido) preq.end(corpoLido); else req.pipe(preq);
+    if (corpoLido) preq.end(corpoLido);
+    else if (req.readableEnded || req.complete && !req.readable) preq.end();
+    else req.pipe(preq);
   }
 
   /** WebSocket/Upgrade: abre a mesma conexão no painel e liga os dois lados. */

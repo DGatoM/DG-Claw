@@ -248,3 +248,24 @@ test('turno que vira misto invalida o vínculo da pendência que já tinha sido 
     assert.equal(s.rAna.rec.permissoes.length, 0);
   } finally { await fechar(); }
 });
+
+test('colaborador revogado no meio do corpo de uma escrita em /p/ não faz o painel receber nada', async () => {
+  const { x, s, painel, fechar } = await cenarioComPainel();
+  try {
+    const corpo = Buffer.from(JSON.stringify({ conteudo: 'não pode chegar ao painel' }));
+    const cookie = Object.entries(x.c.jar).map(([k, v]) => `${k}=${v}`).join('; ');
+    const r = await new Promise((resolve, reject) => {
+      const req = http.request({ host: '127.0.0.1', port: s.t.porta, method: 'POST', path: '/p/ana/api/memoria/arquivo', headers: {
+        Cookie: cookie, Origin: `http://127.0.0.1:${s.t.porta}`, 'Content-Type': 'application/json', 'Content-Length': corpo.length } }, (res) => {
+        const p = []; res.on('data', (d) => p.push(d)); res.on('end', () => resolve({ status: res.statusCode, texto: Buffer.concat(p).toString('utf8') }));
+      });
+      req.on('error', reject);
+      req.write(corpo.subarray(0, 8));
+      setTimeout(async () => {
+        try { assert.equal((await s.dono.pedir('DELETE', `/api/v1/colaboradores/${x.id}`)).status, 200); req.end(corpo.subarray(8)); } catch (e) { reject(e); }
+      }, 100);
+    });
+    assert.equal(r.status, 401, r.texto);
+    assert.equal(painel.visto.length, 0, 'o painel não pode ter recebido pedido nenhum');
+  } finally { await fechar(); }
+});

@@ -987,7 +987,7 @@ function criarServidor(opcoes) {
   }
 
   // ── despacho ─────────────────────────────────────────────────────────────
-  const quemDoProxy = (sessao) => (sessao.papel === 'colaborador' ? { colaborador_id: sessao.colaborador_id } : {});
+  const quemDoProxy = (sessao, req) => (sessao.papel === 'colaborador' ? { colaborador_id: sessao.colaborador_id, valeAinda: () => sessaoAindaVale(req, sessao) } : {});
 
   async function tratar(req, res) {
     let url;
@@ -1088,7 +1088,7 @@ function criarServidor(opcoes) {
         const slugPainel = decodeURIComponent(pp[1]);
         if (RX_SLUG_ROTA.test(slugPainel)) marcaAutor(slugPainel, sessao, null);
       }
-      return proxy.responder(req, res, pp[1], sessao.usuario, quemDoProxy(sessao));
+      return proxy.responder(req, res, pp[1], sessao.usuario, quemDoProxy(sessao, req));
     }
 
     if (p === '/' && (m === 'GET' || m === 'HEAD')) {
@@ -1215,7 +1215,7 @@ function criarServidor(opcoes) {
         log('aviso', `WebSocket em ${url.pathname} recusado: Origin ${String(req.headers.origin || '(sem Origin)').slice(0, 80)} não é a deste Web.`);
         return nega(403, 'Origem não permitida.');
       }
-      const quem = quemDoProxy(sessao);
+      const quem = quemDoProxy(sessao, req);
       if (quem.colaborador_id) {
         // A conferência repete o login do upgrade: o proxy a chama a cada 30 s e fecha o socket quando a sessão cai.
         quem.valeAinda = () => { const s2 = auth.sessaoDoPedido(req); return !!s2 && s2.papel === 'colaborador' && s2.colaborador_id === quem.colaborador_id && s2.senha_versao === sessao.senha_versao; };
