@@ -105,5 +105,9 @@ zera
 resposta 200 '{"ok":true,"colaborador":{"id":"abcDEF123456","email":"maria@empresa.com","agente":"ana"},"contas_de_ia":[]}'
 dgclaw colaborador revogar abcDEF123456 >"$TMP/o.txt" 2>&1
 nega "revogar sem conta conectada por ela: nao avisa de conta" grep -q 'continua conectada' "$TMP/o.txt"
+zera
+resposta 200 '{"ok":true,"colaborador":{"id":"abcDEF123456","email":"maria@empresa.com","agente":"ana"},"contas_de_ia":[],"avisos":["Nao consegui cancelar o login que maria@empresa.com deixou em andamento no agente ana (HTTP 500)."]}'
+dgclaw colaborador revogar abcDEF123456 >"$TMP/o.txt" 2>&1
+afirma "revogar: repete o aviso de cancelamento que falhou" grep -q 'Nao consegui cancelar o login' "$TMP/o.txt"
 
 fim

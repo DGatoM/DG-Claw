@@ -1265,6 +1265,19 @@ function criarServidor(opcoes) {
         const slugPainel = decodeURIComponent(pp[1]);
         if (RX_SLUG_ROTA.test(slugPainel)) marcaAutor(slugPainel, sessao, null);
       }
+      // O dono também inicia/cancela o login da conta de IA pelo painel do agente, sem passar pelas rotas /login do Web:
+      // aqui respeita a reserva do colaborador e invalida a autoria dele (web/lib/conta-colaborador.js).
+      if (!ehColab(sessao) && !sessao.via && (m === 'POST' || m === 'DELETE')) {
+        const mp = /^\/api\/provedor\/login(\/codigo)?\/?$/i.exec(pp[2]);
+        if (mp) {
+          const slugP = (() => { try { return decodeURIComponent(pp[1]); } catch (_) { return ''; } })();
+          const agP = RX_SLUG_ROTA.test(slugP) ? registro.obter(slugP) : null;
+          if (agP) {
+            const veto = await contaColab.noPainelDoDono(agP, sessao, m, !!mp[1]);
+            if (veto) return H.erroJson(res, veto.status, veto.corpo.erro);
+          }
+        }
+      }
       return proxy.responder(req, res, pp[1], sessao.usuario, quemDoProxy(sessao, req));
     }
 

@@ -199,9 +199,10 @@ colaborador_revogar() {
     [ "$COLAB_STATUS" = 200 ] || colab_erro "nao consegui revogar o acesso de ${args[0]}"
     if [ "$json" = 1 ]; then printf '%s\n' "$COLAB_CORPO"; return 0; fi
     ok "acesso de $(printf '%s' "$COLAB_CORPO" | jq -r '.colaborador.email') revogado; as sessoes dele foram derrubadas."
+    printf '%s' "$COLAB_CORPO" | jq -r '(.avisos // [])[]' | while IFS= read -r linha; do aviso "$linha"; done
     contas="$(printf '%s' "$COLAB_CORPO" | jq -r '(.contas_de_ia // []) | join(", ")')"
     if [ -n "$contas" ]; then
-        aviso "essa pessoa conectou a conta de IA do agente $contas, e a conta continua conectada. Se quiser trocar, entre com a sua conta em Conectar conta no painel."
+        aviso "essa pessoa conectou (ou deixou em andamento) a conta de IA do agente $contas, e a conta continua conectada. Se quiser trocar, entre com a sua conta em Conectar conta no painel."
     fi
 }
 

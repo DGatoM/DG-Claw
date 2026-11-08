@@ -9,7 +9,7 @@ const { cenario, colaboradorAtivo } = require('./colab-ajuda');
 
 const LINK = 'https://claude.ai/oauth/authorize?state=segredo-do-link-123';
 const CODIGO_DISP = 'WXYZ-1234';
-const SEM_CONTA = { status: 'errored', statusReason: 'runner:sem-login', provedor: { provedor: 'claude', auth: 'assinatura', conferido: { ok: false } } };
+const SEM_CONTA = { status: 'errored', statusReason: 'runner:sem-login', provedor: { provedor: 'claude', auth: 'assinatura', conferido: { ok: false, motivo: 'sem_credencial' } } };
 const COM_CONTA = { status: 'idle', provedor: { provedor: 'claude', auth: 'assinatura', conferido: { ok: true, email: 'conta-secreta@gmail.com' } } };
 const MIN15 = 15 * 60 * 1000;
 
@@ -219,7 +219,7 @@ test('revogar quem conectou a conta: a conta fica, o log e a resposta avisam o d
     await x.c.get(LOGIN);
     const r = await s.dono.pedir('DELETE', `/api/v1/colaboradores/${x.id}`);
     assert.equal(r.status, 200); assert.deepEqual(r.json.contas_de_ia, ['ana']);
-    assert.match(s.t.log.texto(), /Maria|maria@x\.com conectou a conta de IA do agente ana e a conta continua conectada/);
+    assert.match(s.t.log.texto(), /maria@x\.com conectou, ou deixou em andamento, a conta de IA do agente ana/);
     assert.equal(s.rAna.rec.loginDeletes, 0, 'não desconecta sozinho');
   });
 });
@@ -311,5 +311,129 @@ test('conta conectada pelo dono é registrada como do dono e vale por cima da do
     // agora a conta expirou: não é mais dele
     muda(s, { status: 'errored', statusReason: 'runner:login-expirado', provedor: { provedor: 'claude', auth: 'assinatura', conferido: { ok: false } }, login: { estado: 'nenhum' } });
     assert.equal((await x.c.post(LOGIN, { json: {} })).status, 409);
+  });
+});
+
+// ── correções da revisão do Codex ──
+test('conferido falho por tempo, ilegível ou sem o campo `motivo` (runner antigo) é dúvida: recusa, Claude e Codex', async () => {
+  for (const provedor of ['claude', 'codex']) {
+    for (const conferido of [{ ok: false, motivo: 'tempo' }, { ok: false, motivo: 'ilegivel' }, { ok: false, motivo: 'metodo_diferente' }, { ok: false }, { ok: false, motivo: 'sem_binario' }]) {
+      await comColab({ status: 'idle', provedor: { provedor, auth: 'assinatura', conferido } }, async (s, x) => {
+        const g = await x.c.get(LOGIN);
+        const p = await x.c.post(LOGIN, { json: {} });
+        assert.ok([503, 409].includes(p.status) && g.status === 503, `${provedor} ${JSON.stringify(conferido)}: GET ${g.status} POST ${p.status}`);
+        assert.equal(s.rAna.rec.loginPosts, 0);
+        assert.equal((await x.c.post(LOGIN + '/codigo', { json: { codigo: 'abc' } })).status, 403);
+        assert.deepEqual(s.rAna.rec.codigos, []);
+      });
+    }
+  }
+});
+
+test('só motivo sem_credencial libera o colaborador (e a reconferência antes de iniciar pega a conta que apareceu)', async () => {
+  await comColab({ status: 'idle', provedor: { provedor: 'codex', auth: 'assinatura', conferido: { ok: false, motivo: 'sem_credencial' } } }, async (s, x) => {
+    assert.equal((await x.c.post(LOGIN, { json: {} })).status, 202);
+  });
+});
+
+test('device-auth do dono com a credencial antiga ainda conectada: a reserva fica, e a conta nova sai como do dono', async () => {
+  await comColab({}, async (s, x) => {
+    // o colaborador conectou antes
+    await x.c.post(LOGIN, { json: {} });
+    muda(s, { login: { estado: 'aguardando_codigo', link: LINK } });
+    await x.c.post(LOGIN + '/codigo', { json: { codigo: 'abc123' } });
+    muda(s, Object.assign({}, COM_CONTA, { login: { estado: 'concluido' } }));
+    await x.c.get(LOGIN);
+    const arq = path.join(s.t.dados, 'conta-agentes.json');
+    assert.equal(JSON.parse(fs.readFileSync(arq, 'utf8')).agentes.ana.por, 'colaborador');
+    // o dono começa a trocar: a autoria antiga some na hora
+    assert.equal((await s.dono.post(LOGIN, { json: {} })).status, 202);
+    assert.equal(JSON.parse(fs.readFileSync(arq, 'utf8')).agentes.ana, undefined, 'sem registro = conta do dono');
+    // device-auth aguardando, credencial antiga ainda conectada: o GET não pode soltar a reserva
+    muda(s, Object.assign({}, COM_CONTA, { login: { estado: 'aguardando_navegador', link: LINK, codigoDispositivo: CODIGO_DISP } }));
+    await s.dono.get(LOGIN); await s.dono.get(LOGIN);
+    const g = await x.c.get(LOGIN);
+    assert.equal(g.json.conectado, true); naoVazou(g.texto);
+    muda(s, Object.assign({}, COM_CONTA, { login: { estado: 'concluido' } }));
+    await s.dono.get(LOGIN);
+    assert.equal(JSON.parse(fs.readFileSync(arq, 'utf8')).agentes.ana.por, 'dono');
+    muda(s, { status: 'errored', statusReason: 'runner:login-expirado', login: { estado: 'nenhum' } });
+    assert.equal((await x.c.post(LOGIN, { json: {} })).status, 409, 'o colaborador antigo não reconecta a conta nova do dono');
+  });
+});
+
+test('a reserva do dono em device-auth não é solta pelo GET enquanto o login está em andamento', async () => {
+  await comColab(COM_CONTA, async (s, x) => {
+    assert.equal((await s.dono.post(LOGIN, { json: {} })).status, 202);
+    muda(s, { login: { estado: 'aguardando_navegador', link: LINK } });
+    await s.dono.get(LOGIN);
+    // trocar a conta pelo colaborador exigiria reserva livre; aqui só confirma que a reserva do dono ainda existe
+    muda(s, Object.assign({}, SEM_CONTA, { login: { estado: 'aguardando_navegador', link: LINK } }));
+    const p = await x.c.post(LOGIN, { json: {} });
+    assert.equal(p.status, 409); assert.match(p.json.erro, /Outra pessoa/);
+  });
+});
+
+test('o dono começando o login pelo painel (/p/<slug>/api/provedor/login) apaga a autoria e respeita a reserva do colaborador', async () => {
+  await comColab({}, async (s, x) => {
+    await x.c.post(LOGIN, { json: {} });
+    muda(s, { login: { estado: 'aguardando_codigo', link: LINK } });
+    await x.c.post(LOGIN + '/codigo', { json: { codigo: 'abc123' } });
+    muda(s, Object.assign({}, COM_CONTA, { login: { estado: 'concluido' } }));
+    await x.c.get(LOGIN);
+    const arq = path.join(s.t.dados, 'conta-agentes.json');
+    assert.equal(JSON.parse(fs.readFileSync(arq, 'utf8')).agentes.ana.por, 'colaborador');
+    await s.dono.post('/p/ana/api/provedor/login', { json: {} });   // o painel de teste não existe: o efeito é o que importa
+    assert.equal(JSON.parse(fs.readFileSync(arq, 'utf8')).agentes.ana, undefined);
+  });
+  await comColab({}, async (s, x) => {
+    assert.equal((await x.c.post(LOGIN, { json: {} })).status, 202);
+    for (const [m, p] of [['POST', '/p/ana/api/provedor/login'], ['POST', '/p/ana/API/provedor/login/'], ['POST', '/p/ana/api/provedor/login/codigo']]) {
+      const r = await s.dono.pedir(m, p, { json: { codigo: 'x' } });
+      assert.equal(r.status, 409, `${p}: ${r.texto}`); assert.match(r.json.erro, /maria@x\.com/);
+    }
+    assert.equal((await s.dono.pedir('DELETE', '/p/ana/api/provedor/login')).status !== 409, true, 'o dono pode cancelar');
+    assert.equal((await s.dono.post(LOGIN, { json: {} })).status, 202, 'depois do cancelamento a reserva é do dono');
+  });
+});
+
+test('revogar com reserva cancela o login no runner uma vez, antes de soltar a reserva; /codigo depois é recusado', async () => {
+  await comColab({}, async (s, x) => {
+    await x.c.post(LOGIN, { json: {} });
+    muda(s, { login: { estado: 'aguardando_codigo', link: LINK } });
+    const r = await s.dono.pedir('DELETE', `/api/v1/colaboradores/${x.id}`);
+    assert.equal(r.status, 200); assert.deepEqual(r.json.avisos, []); assert.deepEqual(r.json.contas_de_ia, []);
+    assert.equal(s.rAna.rec.loginDeletes, 1);
+    assert.equal((await x.c.post(LOGIN + '/codigo', { json: { codigo: 'abc123' } })).status, 401);
+    assert.deepEqual(s.rAna.rec.codigos, []);
+    assert.equal((await s.dono.post(LOGIN, { json: {} })).status, 202, 'reserva solta');
+  });
+  // reenviar convite também derruba as sessões: mesma limpeza
+  await comColab({}, async (s, x) => {
+    await x.c.post(LOGIN, { json: {} });
+    const r = await s.dono.post(`/api/v1/colaboradores/${x.id}/reenviar`, { json: {} });
+    assert.equal(r.status, 200); assert.deepEqual(r.json.avisos, []);
+    assert.equal(s.rAna.rec.loginDeletes, 1);
+  });
+});
+
+test('se o cancelamento falha, o dono é avisado e a conta que entrar depois fica registrada como de colaborador revogado', async () => {
+  await comColab({}, async (s, x) => {
+    await x.c.post(LOGIN, { json: {} });
+    muda(s, { login: { estado: 'aguardando_codigo', link: LINK } });
+    await x.c.post(LOGIN + '/codigo', { json: { codigo: 'abc123' } });
+    s.rAna.opcoes.loginRecusa = { status: 500, corpo: { success: false, error: 'runner engasgou' } };
+    const r = await s.dono.pedir('DELETE', `/api/v1/colaboradores/${x.id}`);
+    assert.equal(r.status, 200);
+    assert.equal(r.json.avisos.length, 1); assert.match(r.json.avisos[0], /não consegui cancelar/i);
+    assert.deepEqual(r.json.contas_de_ia, ['ana']);
+    assert.match(s.t.log.texto(), /Não consegui cancelar o login pendente de maria@x\.com/);
+    // a tentativa dele conclui mesmo assim
+    s.rAna.opcoes.loginRecusa = null;
+    muda(s, Object.assign({}, COM_CONTA, { login: { estado: 'concluido' } }));
+    await s.dono.get(LOGIN);
+    const reg = JSON.parse(fs.readFileSync(path.join(s.t.dados, 'conta-agentes.json'), 'utf8')).agentes.ana;
+    assert.equal(reg.por, 'colaborador'); assert.equal(reg.revogado, true);
+    assert.match(s.t.log.texto(), /depois de o acesso dele ser revogado/);
   });
 });

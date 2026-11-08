@@ -168,19 +168,21 @@ function criarColaboradoresRotas({ colaboradores, auth, registro, email, config,
           if (sessao.via === 'host') corpoReenvio = await H.lerJson(req, 8 * 1024);
           const r = await colaboradores.reenviar(id);
           derruba(id);
+          const enc = conta ? await conta.encerraPendencias(id, (slug) => registro.obter(slug)) : { avisos: [] };
           log('info', `Convite reenviado a ${r.registro.email} (agente ${r.registro.agente}); sessões dele derrubadas (por ${sessao.usuario}).`);
           const c = await convite(req, sessao, r.registro, r.senha, corpoReenvio);
-          H.enviaJson(res, 200, { ok: true, colaborador: r.registro, convite: c });
+          H.enviaJson(res, 200, { ok: true, colaborador: r.registro, convite: c, avisos: enc.avisos });
           return true;
         }
         if (m === 'DELETE') {
           const r = await colaboradores.revogar(id);
           derruba(id);
           log('info', `Acesso de ${r.email} ao agente ${r.agente} revogado (por ${sessao.usuario}).`);
-          const contas = conta ? conta.contasDe(id) : [];
-          if (conta) conta.soltaReservasDe(id);
-          if (contas.length) log('aviso', `${r.email} conectou a conta de IA do agente ${contas.map((x) => x.agente).join(', ')} e a conta continua conectada depois da revogação. Se quiser, entre com a sua conta em Conectar conta para trocar.`);
-          H.enviaJson(res, 200, { ok: true, colaborador: r, contas_de_ia: contas.map((x) => x.agente) });
+          const contas = conta ? conta.contasDe(id).map((x) => x.agente) : [];
+          const enc = conta ? await conta.encerraPendencias(id, (slug) => registro.obter(slug)) : { avisos: [], agentes: [] };
+          for (const a of enc.agentes) if (!contas.includes(a)) contas.push(a);
+          if (contas.length) log('aviso', `${r.email} conectou, ou deixou em andamento, a conta de IA do agente ${contas.join(', ')} e ela pode continuar conectada depois da revogação. Se quiser, entre com a sua conta em Conectar conta para trocar.`);
+          H.enviaJson(res, 200, { ok: true, colaborador: r, contas_de_ia: contas, avisos: enc.avisos });
           return true;
         }
         H.erroJson(res, 405, 'Use DELETE para revogar o acesso, ou POST em /reenviar.');

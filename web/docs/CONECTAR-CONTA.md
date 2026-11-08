@@ -138,6 +138,7 @@ As rotas de login são as mesmas, mas o servidor filtra a resposta e aplica as r
 - `DELETE`: só a própria reserva (`403` sem reserva). `POST .../oi`: só com reserva dele ou se foi ele quem conectou a conta.
 - **Reserva:** uma por agente, em memória, de 15 minutos, com fila por agente cobrindo a conferência e a reserva. O dono também a segura quando começa um login; o dono recebe `409` no `POST` e no `codigo` enquanto o colaborador está conectando, e vê `login_de:"colaborador"` e `login_de_email` no `GET` (sem link nem código). O dono pode cancelar com `DELETE`.
 - Quando o `GET` observa a conta conectada depois de uma reserva com código enviado, grava quem conectou em `conta-agentes.json` e solta a reserva. O log diz `Conta de IA do agente <slug> conectada por <e-mail> (colaborador|dono)` e nunca traz link, código ou senha.
+- `sem conta` = `status errored` com `runner:sem-login`, ou `conferido.ok:false` com `conferido.motivo:"sem_credencial"`. Qualquer outro `ok:false` (tempo, ilegível, método diferente, runner antigo sem o campo) é dúvida e recusa.
 - A sessão é conferida de novo depois de ler o corpo; se o acesso foi revogado no meio, `401`.
 
 ## O que nunca vai para log

@@ -147,3 +147,14 @@ test("conferirProvedor: o 'codex login status' real escreve no stderr, e isso co
   assert.equal(r.metodo, "api");
   semVazamento(r, ["sk-proj", "wxyz"]);
 });
+
+test("motivo: só a resposta clara de 'ninguém logado' prova que não há conta (o resto é dúvida)", () => {
+  assert.equal(interpretarStatusDoClaude(JSON.stringify({ loggedIn: false }), "assinatura").motivo, "sem_credencial");
+  assert.equal(interpretarStatusDoClaude("isto não é json", "assinatura").motivo, "ilegivel");
+  assert.equal(interpretarStatusDoClaude(JSON.stringify({ loggedIn: true, authMethod: "api_key" }), "assinatura").motivo, "metodo_diferente");
+  assert.equal(interpretarStatusDoClaude(JSON.stringify({ loggedIn: true, authMethod: "estranho" }), "assinatura").motivo, "ilegivel");
+  assert.equal(interpretarStatusDoClaude(SAIDA_DO_CLAUDE, "assinatura").motivo, undefined);
+  assert.equal(interpretarStatusDoCodex("Not logged in", 1, "assinatura").motivo, "sem_credencial");
+  assert.equal(interpretarStatusDoCodex("erro qualquer do cli", 1, "assinatura").motivo, "ilegivel");
+  assert.equal(interpretarStatusDoCodex("Logged in using an API key", 0, "assinatura").motivo, "metodo_diferente");
+});
