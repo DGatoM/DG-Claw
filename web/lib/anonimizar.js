@@ -230,8 +230,10 @@ function criarAnonimizar(opcoes) {
   }
   function pastaDoAgente(slug) {
     if (typeof slug !== 'string' || !RX_SLUG.test(slug)) throw new ErroAnon(400, `O id de agente "${String(slug).slice(0, 40)}" não vale.`, 'SLUG');
-    const p = path.join(raiz, slug);
-    pasta0700(raiz);
+    const base = path.resolve(raiz);
+    const p = path.resolve(base, slug);
+    if (!p.startsWith(base + path.sep)) throw new ErroAnon(400, `O id de agente "${String(slug).slice(0, 40)}" não vale.`, 'SLUG');
+    pasta0700(base);
     pasta0700(p);
     return p;
   }
