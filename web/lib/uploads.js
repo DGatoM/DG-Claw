@@ -2,7 +2,6 @@
 // Upload multipart sem dependências. O corpo é lido em memória até o limite configurado
 // (DGCLAW_WEB_MAX_UPLOAD_MB, padrão 50) e gravado em <home_host>/uploads/AAAA-MM-DD/.
 
-const fs = require('node:fs');
 const path = require('node:path');
 const { lerCorpo } = require('./http');
 
@@ -74,20 +73,4 @@ function nomeNeutro(nome) {
   return nome.startsWith('.') || RX_NOME_DE_INSTRUCAO.test(nome) ? `anexo-${nome}` : nome;
 }
 
-/** Grava sem sobrescrever (flag wx; se existir, acrescenta -1, -2...). Devolve o caminho final. */
-function gravaSemSobrescrever(pasta, nome, dados) {
-  const ext = path.extname(nome);
-  const raiz = path.basename(nome, ext);
-  for (let i = 0; i < 1000; i += 1) {
-    const alvo = path.join(pasta, i === 0 ? nome : `${raiz}-${i}${ext}`);
-    try {
-      fs.writeFileSync(alvo, dados, { flag: 'wx', mode: 0o644 });
-      return alvo;
-    } catch (e) {
-      if (e.code !== 'EEXIST') throw e;
-    }
-  }
-  throw new Error('Não achei um nome livre para o arquivo.');
-}
-
-module.exports = { lerMultipart, nomeSeguro, nomeNeutro, gravaSemSobrescrever };
+module.exports = { lerMultipart, nomeSeguro, nomeNeutro };

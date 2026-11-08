@@ -146,7 +146,7 @@ function criarColaboradores({ config, log, agora, gerarHash }) {
     ativoDoAgente(slug) { return ativos().find((c) => c.agente === slug) || null; },
 
     /** Cria o convite. As regras que dependem do registro de agentes (existe? é o Admin?) ficam na rota. */
-    criar({ agente, email, nome, criadoPor }) {
+    criar({ agente, email, nome, criadoPor, instancia }) {
       return transacao(async () => {
         const mail = normalizaEmail(email);
         const nomeOk = normalizaNome(nome);
@@ -158,7 +158,7 @@ function criarColaboradores({ config, log, agora, gerarHash }) {
         const hash = await gerarHash(senha);
         const t = relogio();
         const registro = {
-          id: crypto.randomBytes(16).toString('base64url'), email: mail, nome: nomeOk, agente, hash,
+          id: crypto.randomBytes(16).toString('base64url'), email: mail, nome: nomeOk, agente, instancia: instancia || null, hash,
           trocar_senha: true, temporaria_expira: t + VALIDADE_TEMPORARIA_MS, senha_versao: 1,
           criado_em: t, criado_por: criadoPor || null, revogado_em: null, ultimo_login: null,
         };
@@ -180,6 +180,24 @@ function criarColaboradores({ config, log, agora, gerarHash }) {
         Object.assign(c, { hash, trocar_senha: true, temporaria_expira: relogio() + VALIDADE_TEMPORARIA_MS, senha_versao: (c.senha_versao || 1) + 1 });
         try { grava(); } catch (e) { Object.assign(c, antes); throw e; }
         return { registro: publico(c), senha };
+      });
+    },
+
+    /**
+     * Revoga os convites ativos do agente `slug` que foram feitos para outra instância dele (o agente foi removido e
+     * recriado com o mesmo nome). Devolve quantos. Chamado antes de convidar de novo e quando o Web nota a troca.
+     */
+    revogarDeOutraInstancia(slug, instanciaAtual) {
+      return transacao(async () => {
+        let n = 0;
+        const t = relogio();
+        for (const c of lista) {
+          if (c.agente === slug && !c.revogado_em && c.instancia && c.instancia !== instanciaAtual) { c.revogado_em = t; n += 1; }
+        }
+        if (n) {
+          try { grava(); } catch (e) { for (const c of lista) if (c.revogado_em === t) c.revogado_em = null; throw e; }
+        }
+        return n;
       });
     },
 

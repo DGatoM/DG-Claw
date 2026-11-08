@@ -29,6 +29,9 @@ nega "agente desconhecido recusado" dgclaw agente parar fantasma
 
 echo "remover"
 cp "$ETC/runner/ana.token" "$TMP/token-ana"
+mkdir -p "$LIB/web"
+jq -n '{versao:1, colaboradores:[{id:"c1",agente:"ana",email:"a@x.com",revogado_em:null},{id:"c2",agente:"beto",email:"b@x.com",revogado_em:null}]}' >"$LIB/web/colaboradores.json"
+chmod 600 "$LIB/web/colaboradores.json"
 dgclaw agente remover ana --sim >/dev/null 2>&1
 igual "remover sai com 0" "0" "$?"
 nega "a casa saiu do lugar" test -e "$LIB/agentes/ana"
@@ -42,6 +45,9 @@ afirma "podman network rm" grep -q '^podman network rm dgclaw-ana' "$STUB_LOG"
 igual "saiu do agentes.json" "0" "$(jq '[.agentes[] | select(.slug=="ana")] | length' "$ETC/agentes.json")"
 igual "beto continua no agentes.json" "1" "$(jq '[.agentes[] | select(.slug=="beto")] | length' "$ETC/agentes.json")"
 afirma "a linha do registro.tsv fica (faixa queimada)" grep -q '^ana	' "$ETC/registro.tsv"
+igual "remover revoga o convite do colaborador do agente" "number" "$(jq -r '.colaboradores[] | select(.agente=="ana") | .revogado_em | type' "$LIB/web/colaboradores.json")"
+igual "o colaborador de outro agente segue ativo" "null" "$(jq -r '.colaboradores[] | select(.agente=="beto") | .revogado_em' "$LIB/web/colaboradores.json")"
+igual "o arquivo de colaboradores continua 600" "600" "$(stat -c %a "$LIB/web/colaboradores.json")"
 nega "remover agente que nao existe falha com explicacao" dgclaw agente remover fantasma --sim
 
 echo "imagem"

@@ -73,6 +73,11 @@ function hashFicticio() {
  */
 function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
   let colaboradores = colabsInicial || null; // ligado depois por ligarColaboradores (o módulo precisa do gerarHash, que é daqui)
+  let instanciaAtual = null;
+  const MOTIVO_INSTANCIA = 'Este convite era de um agente que foi removido. Peça um convite novo ao dono.';
+  /** O convite guarda a instância do agente; se o agente foi removido e recriado com o mesmo nome, ele não vale. */
+  const instanciaMudou = (c) => !!(instanciaAtual && c && c.instancia && c.instancia !== instanciaAtual(c.agente));
+
   const relogio = agora || (() => Date.now());
   const usuario = String(config.env.DGCLAW_PANEL_USER || '').trim();
   const hashInicial = String(config.env.DGCLAW_PANEL_PASSWORD_HASH || '').trim();
@@ -234,6 +239,7 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
         // Conferência síncrona logo antes de emitir: se a senha, o convite ou o acesso mudou depois que a senha foi
         // verificada, a sessão não nasce. Enquanto a senha é a temporária, a sessão morre junto com ela.
         const atual = colaboradores ? colaboradores.obter(colaborador.id) : null;
+        if (instanciaMudou(atual)) { const e = new Error(MOTIVO_INSTANCIA); e.status = 401; throw e; }
         if (!atual || atual.revogado_em || atual.agente !== colaborador.agente || (atual.senha_versao || 1) !== colaborador.senha_versao || (colaborador.hash && atual.hash !== colaborador.hash)) {
           const e = new Error('O seu acesso mudou (senha trocada, convite novo ou acesso revogado) enquanto você entrava. Entre de novo.');
           e.status = 401;
@@ -272,6 +278,8 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
     },
 
     ligarColaboradores(modulo) { colaboradores = modulo; },
+    /** `fn(slug)` devolve a instância atual do agente (ver instancia.js). Sem ela a conferência de instância não acontece. */
+    ligarInstancias(fn) { instanciaAtual = fn; },
 
     /** Cookie legível pelo navegador só para a tela esconder o que não é do colaborador. Não protege nada: quem protege é o escopo.js. */
     cookiePapel(papel, req) { return montaCookiePapel(papel, req); },
@@ -343,6 +351,10 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
       log('aviso', `Login de ${visto.email} (ip ${ip || '?'}) descartado: o convite, a senha ou o acesso mudou enquanto a senha era conferida.`);
       return { ok: false, erro: 'O seu acesso mudou (senha trocada, convite novo ou acesso revogado) enquanto você entrava. Entre de novo.' };
     }
+    if (instanciaMudou(atual)) {
+      log('aviso', `Login de ${visto.email} (ip ${ip || '?'}) recusado: o convite era de uma instância antiga do agente ${atual.agente} (removido e recriado).`);
+      return { ok: false, erro: MOTIVO_INSTANCIA };
+    }
     if (ip) limpaFalhasDe(identidade, ip);
     if (atual.trocar_senha && Number(atual.temporaria_expira) < relogio()) {
       return { ok: false, vencida: true, erro: 'A senha temporária venceu. Peça ao dono do DG Claw um convite novo.' };
@@ -354,7 +366,8 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
   /** Confere a CADA pedido que o colaborador ainda vale: a revogação e a troca de senha derrubam a sessão no pedido seguinte. */
   function sessaoDeColaborador(token, s) {
     const c = colaboradores ? colaboradores.obter(s.colaborador_id) : null;
-    if (!c || c.revogado_em || c.agente !== s.agente || (c.senha_versao || 1) !== s.senha_versao) {
+    if (!c || c.revogado_em || c.agente !== s.agente || (c.senha_versao || 1) !== s.senha_versao || instanciaMudou(c)) {
+      if (c && instanciaMudou(c)) log('aviso', `Sessão do colaborador ${c.email} derrubada: o agente ${c.agente} foi removido e recriado, e o convite era da instância antiga.`);
       sessoes.delete(sha256hex(token));
       salva();
       return null;

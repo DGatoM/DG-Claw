@@ -3,6 +3,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
+const fs = require('node:fs');
+const { pastaTemp } = require('./ajuda');
 const { cenario, colaboradorAtivo } = require('./colab-ajuda');
 
 const TS = '2026-10-12T15:00:00.000Z';
@@ -316,4 +318,42 @@ test('rodada 7, achado 2: com o limite global cheio de outros, o login do colabo
   const segundoDono = auth.criaSessao('dono', { headers: {}, socket: {} });
   assert.equal(vive(segundoDono), true, 'o dono sempre entra: abre vaga derrubando uma sessão de colaborador');
   assert.equal(vive(dono), true);
+});
+
+// ── 8ª rodada, achado 2: o convite é de uma instância do agente, não só do nome ──
+function trocaInstancia(s, instancia) {
+  const j = JSON.parse(fs.readFileSync(s.t.agentesPath, 'utf8'));
+  for (const a of j.agentes) if (a.slug === 'ana') a.instancia = instancia;
+  fs.writeFileSync(s.t.agentesPath, JSON.stringify(j));
+  const futuro = new Date(Date.now() + 5000); fs.utimesSync(s.t.agentesPath, futuro, futuro); // garante que o registro nota a troca
+}
+
+test('rodada 8, achado 2: agente removido e recriado com o mesmo nome derruba a sessão do colaborador antigo e recusa o login novo', async () => {
+  const s = await cenario({ painelAna: { instancia: 'primeira-1' } });
+  try {
+    const x = await colaboradorAtivo(s);
+    assert.equal((await x.c.get('/api/v1/agents/ana/messages')).status, 200);
+    trocaInstancia(s, 'segunda-2'); // `dgclaw agente remover ana` + `dgclaw agente criar ana`: o slug volta igual, a instância não
+    const velha = await x.c.get('/api/v1/agents/ana/messages');
+    assert.equal(velha.status, 401, 'a sessão que já existia caiu');
+    const outro = require('./ajuda').cliente(s.t.porta);
+    const l = await outro.post('/login', { json: { usuario: x.email, senha: x.nova } });
+    assert.equal(l.status, 401, l.texto);
+    assert.match(l.json.erro, /Este convite era de um agente que foi removido\. Peça um convite novo ao dono\./);
+    // o dono convida de novo para o agente novo: o convite velho não barra (409) e o novo entra
+    const re = await s.convida({ agente: 'ana', email: 'maria@x.com', nome: 'Maria' });
+    assert.equal(re.status, 201, re.texto);
+    const c2 = require('./ajuda').cliente(s.t.porta);
+    assert.equal((await c2.post('/login', { json: { usuario: 'maria@x.com', senha: re.json.convite.senha_temporaria } })).status, 200);
+  } finally { await s.fechar(); }
+});
+
+test('rodada 8, achado 2: agente sem o campo instancia usa a casa dele (uid e inode) como identidade', () => {
+  const { instanciaDe } = require('../lib/instancia');
+  const a = pastaTemp('casa-a'); const b = pastaTemp('casa-b');
+  assert.match(instanciaDe({ home_host: a }), /^casa:\d+:\d+$/);
+  assert.notEqual(instanciaDe({ home_host: a }), instanciaDe({ home_host: b }));
+  assert.equal(instanciaDe({ instancia: 'abc' }), 'i:abc');
+  assert.equal(instanciaDe({ home_host: '/nao/existe/mesmo' }), null);
+  assert.equal(instanciaDe(undefined), null);
 });

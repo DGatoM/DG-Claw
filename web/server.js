@@ -19,7 +19,9 @@ const { criarLeitor, paraContainer } = require('./lib/thread');
 const { criarLeitorRollout } = require('./lib/rollout');
 const { criarConversa, RX_CLIENTE_ID } = require('./lib/conversa');
 const { criarComandos } = require('./lib/comandos');
-const { lerMultipart, nomeSeguro, nomeNeutro, gravaSemSobrescrever } = require('./lib/uploads');
+const { lerMultipart, nomeSeguro, nomeNeutro } = require('./lib/uploads');
+const { gravaAnexo: gravaAnexoReal } = require('./lib/grava-anexo');
+const { instanciaDe } = require('./lib/instancia');
 const { abrirStream } = require('./lib/sse');
 const { criarProxy } = require('./lib/proxy');
 const { criarCofreAgente } = require('./lib/cofre-agente');
@@ -90,6 +92,7 @@ function criarServidor(opcoes) {
   const auth = criarAuth({ config, log, agora: opcoes.agora });
   const colaboradores = criarColaboradores({ config, log, agora: opcoes.agora, gerarHash: (senha) => auth.gerarHash(senha) });
   auth.ligarColaboradores(colaboradores);
+  auth.ligarInstancias((slug) => instanciaDe(registro.obter(slug)));
   log('info', config.smtp.host ? `E-mail dos convites de colaborador: ligado (${config.smtp.host}:${config.smtp.porta}).` : 'E-mail dos convites de colaborador: desligado (opcional; o convite sai pelo texto da tela). Para ligar, defina DGCLAW_SMTP_HOST e as outras DGCLAW_SMTP_* no web.env.');
   // Conexões abertas (stream da conversa) de cada colaborador: ao revogar ou trocar a senha, fecham junto com a sessão.
   const streamsDoColaborador = new Map();
@@ -906,6 +909,8 @@ function criarServidor(opcoes) {
     return H.enviaJson(res, r.status, r.corpo);
   }
 
+  const gravaAnexo = opcoes.gravaAnexo || gravaAnexoReal;
+
   async function upload(req, res, agente, sessao) {
     if (!agente.home_host) return H.erroJson(res, 503, `O agente ${agente.nome} não tem home_host no registro, então não há onde guardar anexos.`);
     let mp;
@@ -925,17 +930,15 @@ function criarServidor(opcoes) {
     const r = await conversa.umaVez(agente, 'upload', cid || null, async () => {
       const dia = new Intl.DateTimeFormat('en-CA', { timeZone: config.tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
       // Colaborador grava numa pasta só dele e com um prefixo aleatório no nome: nunca na pasta dos arquivos do dono.
-      const pasta = souColab
-        ? path.join(agente.home_host, 'uploads', dia, `colaborador-${String(sessao.colaborador_id).replace(/[^A-Za-z0-9_-]/g, '')}`)
-        : path.join(agente.home_host, 'uploads', dia);
+      const pastas = souColab ? ['uploads', dia, `colaborador-${String(sessao.colaborador_id).replace(/[^A-Za-z0-9_-]/g, '')}`] : ['uploads', dia];
       const nomeEmDisco = nomeNeutro(nomeSeguro(arq.nome));
       let destino;
       try {
-        fs.mkdirSync(pasta, { recursive: true, mode: 0o755 });
-        destino = gravaSemSobrescrever(pasta, souColab ? `${crypto.randomBytes(4).toString('hex')}-${nomeEmDisco}` : nomeEmDisco, arq.dados);
+        // Sem privilégio: quem grava é um processo com o uid do dono da casa, que não segue atalho para fora dela.
+        destino = await gravaAnexo({ agente, pastas, nome: souColab ? `${crypto.randomBytes(4).toString('hex')}-${nomeEmDisco}` : nomeEmDisco, dados: arq.dados });
       } catch (e) {
-        log('erro', `Upload para ${agente.slug}: não gravei em ${pasta} (${e.code || e.message}).`);
-        return { status: 500, corpo: { ok: false, erro: `Não consegui gravar o arquivo em ${pasta} (${e.code || e.message}). Confira espaço em disco e permissão da pasta do agente.` } };
+        log('erro', `Upload para ${agente.slug}: não gravei em ${path.join(agente.home_host, ...pastas)}: ${e.message}`);
+        return { status: 500, corpo: { ok: false, erro: `Não consegui gravar o arquivo na casa de ${agente.nome}: ${e.message} Nada foi enviado ao agente.` } };
       }
       const visto = paraContainer(destino, agente);
       const media = midia.registrar(agente.slug, destino, { visto, nome: path.basename(destino) });

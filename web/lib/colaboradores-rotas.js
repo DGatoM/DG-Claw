@@ -5,6 +5,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const H = require('./http');
+const { instanciaDe } = require('./instancia');
 
 const RX_ID = /^[A-Za-z0-9_-]{8,64}$/;
 const SENHA_MIN = 10;
@@ -107,7 +108,11 @@ function criarColaboradoresRotas({ colaboradores, auth, registro, email, config,
             H.erroJson(res, 400, 'Esse e-mail é o do próprio dono do DG Claw (o usuário do login). Informe o e-mail do colaborador.');
             return true;
           }
-          const r = await colaboradores.criar({ agente: slug, email: mail, nome: corpo.nome, criadoPor: sessao.usuario });
+          const instancia = instanciaDe(ag);
+          // Convite de um agente que foi removido e recriado com o mesmo nome não vale e não pode barrar o novo.
+          const velhos = await colaboradores.revogarDeOutraInstancia(slug, instancia);
+          if (velhos) log('aviso', `Convite(s) de uma instância antiga do agente ${slug} revogado(s) (${velhos}): o agente foi removido e criado de novo.`);
+          const r = await colaboradores.criar({ agente: slug, email: mail, nome: corpo.nome, criadoPor: sessao.usuario, instancia });
           log('info', `Colaborador convidado: ${r.registro.email} para o agente ${slug} (por ${sessao.usuario}).`);
           const c = await convite(req, sessao, r.registro, r.senha);
           H.enviaJson(res, 201, { ok: true, colaborador: r.registro, convite: c });

@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const assert = require('node:assert/strict');
-const { subirWeb, cliente, pastaTemp } = require('./ajuda');
+const { subirWeb, cliente, pastaTemp, entregaAoAgente } = require('./ajuda');
 const { criarRunnerFalso } = require('./runner-falso');
 
 const DIA = 24 * 60 * 60 * 1000;
@@ -18,6 +18,7 @@ async function cenario(opcoes) {
   fs.mkdirSync(path.join(homeAna, 'out'), { recursive: true }); fs.mkdirSync(path.join(homeBob, 'out'), { recursive: true });
   fs.writeFileSync(path.join(homeAna, 'out', 'a.txt'), 'arquivo da ana');
   fs.writeFileSync(path.join(homeBob, 'out', 'b.txt'), 'arquivo do bob');
+  entregaAoAgente(homeAna); entregaAoAgente(homeBob);
   const trAna = pastaTemp('tr');
   fs.mkdirSync(path.join(trAna, '-home-agente'), { recursive: true });
   const base = { runner: 'http://127.0.0.1:1', chat_id: 'c', provedor: 'claude', modelo: 'sonnet', transcripts_dir: pastaTemp('tr') };
