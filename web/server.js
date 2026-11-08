@@ -844,7 +844,19 @@ function criarServidor(opcoes) {
         log('aviso', `Upload para ${agente.slug} barrado pela anonimização (${anon.codigo || anon.status}). Nada foi enviado ao agente.`);
         return { status: anon.status, corpo: { ok: false, erro: anon.erro, codigo: anon.codigo || null, anonimizado: false } };
       }
-      let destino; let anonimizado = null; let legendaEnvio = legenda; let notaAnon = '';
+      let destino; let anonimizado = null; let legendaEnvio = legenda; let notaAnon = ''; let nomeArquivo = arq.nome;
+      if (!anon.id) {
+        // Sem anonimizar o arquivo (exceção escolhida pelo dono): a legenda e o nome dele também chegam ao agente.
+        try {
+          if (anonimizar.aplicaDigitado(agente.slug)) {
+            legendaEnvio = anonimizar.trocarDigitado(agente.slug, legenda).texto;
+            nomeArquivo = anonimizar.trocarDigitado(agente.slug, arq.nome).texto;
+          }
+        } catch (e) {
+          log('aviso', `Upload para ${agente.slug} barrado: não consegui filtrar a legenda e o nome do arquivo (${e.codigo || e.message}). Nada foi enviado ao agente.`);
+          return { status: e.status || 503, corpo: { ok: false, erro: `${e.message} O arquivo não foi enviado ao agente.`, codigo: e.codigo || null, anonimizado: false } };
+        }
+      }
       if (anon.id) {
         destino = anon.principal;
         legendaEnvio = anon.legenda;
@@ -857,7 +869,7 @@ function criarServidor(opcoes) {
         // Grava pelo ajudante que desce a pasta sem seguir atalho (o agente pode trocar uploads/<dia> por um atalho).
         let tmp = null;
         try {
-          const nomeFinal = nomeSeguro(arq.nome);
+          const nomeFinal = nomeSeguro(nomeArquivo);
           fs.mkdirSync(path.join(config.dataDir, 'upload-tmp'), { recursive: true, mode: 0o700 });
           tmp = fs.mkdtempSync(path.join(config.dataDir, 'upload-tmp', 'u-'));
           fs.writeFileSync(path.join(tmp, nomeFinal), arq.dados, { mode: 0o600 });

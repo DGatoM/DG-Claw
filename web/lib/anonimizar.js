@@ -86,7 +86,13 @@ function trocarValoresConhecidos(texto, tabela, jaConferido) {
     if (alnum.length >= 4) {
       rx = new RegExp(`(?<![0-9a-z])${alnum.split('').join('[\\s.\\-/]*')}(?![0-9a-z])`, 'g');
     } else if (porDigitos) {
-      rx = new RegExp(`(?<![\\d])(?:\\((?=\\d+\\)))?${digitos.split('').join('(?:[\\s.\\-/]|\\)(?=\\s?\\d))*')}(?![\\d])`, 'g');
+      // Telefone brasileiro: o código do país (55, com ou sem +) pode estar na tabela e faltar no texto, ou o inverso.
+      // Fica só o número nacional (DDD + 8 ou 9 dígitos) e o 55 passa a ser opcional na frente.
+      const fone = e.tipo === 'TELEFONE';
+      const nacional = fone && /^55\d{10,11}$/.test(digitos) ? digitos.slice(2) : digitos;
+      const comPais = fone && /^\d{10,11}$/.test(nacional);
+      const prefixo = comPais ? '(?:(?:\\+\\s*)?55[\\s.\\-]*)?' : '';
+      rx = new RegExp(`(?<![\\d])${prefixo}(?:\\((?=\\d+\\)))?${nacional.split('').join('(?:[\\s.\\-/]|\\)(?=\\s?\\d))*')}(?![\\d])`, 'g');
     } else {
       const v = normaliza(e.valor);
       if (!v) continue;

@@ -1049,3 +1049,54 @@ test('Correção na conversa: atualizar o foco pelo fluxo real grava o retrato n
     assert.ok(!conteudo.includes(NOME), conteudo); assert.match(conteudo, /\[PESSOA_1\]/);
   } finally { await s.fechar(); }
 });
+
+test('Correção no upload: legenda e nome do arquivo passam pelo filtro na exceção "sem anonimizar"; tabela ilegível recusa', async () => {
+  const s = await cenario();
+  try {
+    await liga(s, 'ana', { aplicar_no_que_digito: true, nao_anonimizavel: 'enviar' });
+    const up = await sobe(s, 'ana', 'a.txt', `${NOME} ${CPF}`);
+    assert.equal(up.status, 201, up.texto);
+    const n = s.rAna.rec.inputs.length;
+    const r = await sobe(s, 'ana', 'cpf-12345678900.png', 'png-falso', { legenda: `Foto do documento ${CPF} de ${NOME}` });
+    assert.equal(r.status, 201, r.texto);
+    assert.equal(r.json.anonimizado.enviado_sem_anonimizar, true);
+    const texto = s.rAna.rec.inputs[n].text;
+    assert.ok(!texto.includes(CPF) && !texto.includes('12345678900') && !texto.includes(NOME), texto);
+    assert.match(texto, /\[CPF_1\]/); assert.match(texto, /\[PESSOA_1\]/);
+    assert.ok(!todosOsArquivos(path.join(s.homeAna, 'uploads')).some((f) => f.includes('12345678900')), 'nome real na casa do agente');
+    // com a opção de texto digitado desligada, a legenda segue como sempre
+    await liga(s, 'ana', { aplicar_no_que_digito: false });
+    const m = s.rAna.rec.inputs.length;
+    const livre = await sobe(s, 'ana', 'b.png', 'png-falso', { legenda: `CPF ${CPF}` });
+    assert.equal(livre.status, 201, livre.texto);
+    assert.ok(s.rAna.rec.inputs[m].text.includes(CPF));
+    // tabela ilegível: falha fechada
+    await liga(s, 'ana', { aplicar_no_que_digito: true });
+    fs.writeFileSync(path.join(s.t.dados, 'anonimizar', 'ana', 'tabela.enc'), 'lixo-que-nao-decifra-nada-de-nada-123456', { mode: 0o600 });
+    const k = s.rAna.rec.inputs.length;
+    const ruim = await sobe(s, 'ana', 'c.png', 'png-falso', { legenda: `CPF ${CPF}` });
+    assert.ok(ruim.status >= 500, ruim.texto);
+    assert.equal(ruim.json.ok, false); assert.match(ruim.json.erro, /não foi enviado/);
+    assert.equal(s.rAna.rec.inputs.length, k);
+  } finally { await s.fechar(); }
+});
+
+test('Correção no upload: telefone da tabela é reconhecido com ou sem o 55, o +, parênteses, espaços e hífens', () => {
+  const tab = (valor) => [{ tipo: 'TELEFONE', valor, marcador: '[TELEFONE_1]' }];
+  const t = (texto, valor) => trocarValoresConhecidos(texto, tab(valor)).texto;
+  for (const f of ['(11) 98765-4321', '+5511987654321', '+55 11 98765-4321', '5511987654321', '11987654321', '11 98765 4321', '+55 (11) 98765-4321', '55 11 98765.4321']) {
+    assert.equal(t(`Ligue ${f}.`, '(11) 98765-4321'), 'Ligue [TELEFONE_1].', f);
+  }
+  for (const f of ['(11) 98765-4321', '+5511987654321', '11987654321']) {
+    assert.equal(t(`Ligue ${f}.`, '+55 (11) 98765-4321'), 'Ligue [TELEFONE_1].', f);
+    assert.equal(t(`Ligue ${f}.`, '5511987654321'), 'Ligue [TELEFONE_1].', f);
+  }
+  // fixo de 10 dígitos
+  assert.equal(t('Fixo +55 11 3456-7890', '(11) 3456-7890'), 'Fixo [TELEFONE_1]');
+  // número maior que contém o telefone não é trocado
+  for (const f of ['1198765432100', '911987654321', '551198765432100']) assert.equal(t(`N ${f}`, '(11) 98765-4321'), `N ${f}`, f);
+  // texto com emoji antes: o mapa de posições continua certo
+  assert.equal(t('\u{1F4DE} Ligue +55 11 98765-4321 já', '(11) 98765-4321'), '\u{1F4DE} Ligue [TELEFONE_1] já');
+  // DDD 55 (RS) na tabela não perde os dois primeiros dígitos
+  assert.equal(t('Fone (55) 99999-8888', '55999998888'), 'Fone [TELEFONE_1]');
+});
