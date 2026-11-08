@@ -41,7 +41,7 @@ mkdir -p "$(dirname "$SETTINGS")" 2>/dev/null || true
 # no run-time do hook). O config.sh vai como argv[1] pra o hook herdar os DGCLAW_*.
 CMD="python3 \"$HOOK\" \"$CONFIG_ABS\""
 
-OFF="$OFF" SETTINGS="$SETTINGS" HOOK="$HOOK" CMD="$CMD" python3 - <<'PY'
+OFF="$OFF" SETTINGS="$SETTINGS" HOOK="$HOOK" CMD="$CMD" python3 -I - <<'PY'
 import json, os, sys
 
 settings = os.environ["SETTINGS"]

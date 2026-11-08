@@ -54,7 +54,7 @@ FALHAS=()
 # Corte por caractere, e nao por byte: o `cut -c` do GNU corta byte, e um acento no
 # limite virava lixo no log.
 # so enfeita o registro: se o python falhar, a linha do log sai sem o trecho da mensagem
-CURTO="$(printf '%s' "$MSG" | tr '\n' ' ' | python3 -c 'import sys; print(sys.stdin.read()[:80])' 2>/dev/null)"
+CURTO="$(printf '%s' "$MSG" | tr '\n' ' ' | python3 -I -c 'import sys; print(sys.stdin.read()[:80])' 2>/dev/null)"
 
 # ── 1. comando do host ──
 if [ -n "${DGCLAW_NOTIFY_CMD:-}" ]; then
@@ -76,7 +76,7 @@ if [ -n "${TELEGRAM_STATE_DIR:-}" ]; then
     TOKEN=$(grep -E '^TELEGRAM_BOT_TOKEN=' "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2-)
     CHAT="${DGCLAW_OWNER_TELEGRAM_ID:-}"
     if [ -z "$CHAT" ] && [ -f "$ACCESS" ]; then
-        CHAT=$(ACCESS="$ACCESS" python3 -c "import json,os;d=json.load(open(os.environ['ACCESS']));a=d.get('allowFrom',[]);print(a[0] if a else '')" 2>/dev/null)
+        CHAT=$(ACCESS="$ACCESS" python3 -I -c "import json,os;d=json.load(open(os.environ['ACCESS']));a=d.get('allowFrom',[]);print(a[0] if a else '')" 2>/dev/null)
     fi
     if [ -z "$TOKEN" ]; then
         FALHAS+=("telegram: token nao encontrado em $ENV_FILE")
@@ -117,7 +117,7 @@ fi
 if [ -z "$RETIDO" ] && [ -n "${DGCHAT_URL:-}" ]; then
     CHAT_ID="${DGCLAW_CHAT_ID:-c_${DGCLAW_SLUG:-agente}}"
     URL="${DGCHAT_URL%/}/api/dgchat/reply"
-    BODY=$(MSG="$MSG" AGENTE="${DGCHAT_AGENT:-${DGCLAW_SLUG:-agente}}" CHAT_ID="$CHAT_ID" python3 -c \
+    BODY=$(MSG="$MSG" AGENTE="${DGCHAT_AGENT:-${DGCLAW_SLUG:-agente}}" CHAT_ID="$CHAT_ID" python3 -I -c \
         'import json,os;print(json.dumps({"agent":os.environ["AGENTE"],"chat":os.environ["CHAT_ID"],"text":os.environ["MSG"],"format":"plain"}))')
     # sem resposta, o CODE fica vazio e a falha sai em FALHAS como "sem resposta"
     CODE=$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' -X POST \
@@ -137,7 +137,7 @@ ENTREGA="${DGCHAT_ENTREGA:-}"
 [ -z "$ENTREGA" ] && [ -d "$WS/.plataforma/dgchat" ] && ENTREGA="disco"
 if [ -z "$RETIDO" ] && [ -n "$OUTBOUND" ] && [ "$ENTREGA" = "disco" ]; then
     CHAT_ID="${DGCLAW_CHAT_ID:-c_${DGCLAW_SLUG:-agente}}"
-    if MSG="$MSG" OUTBOUND="$OUTBOUND" CHAT_ID="$CHAT_ID" AGENTE="${DGCHAT_AGENT:-${DGCLAW_SLUG:-agente}}" python3 - <<'PY'
+    if MSG="$MSG" OUTBOUND="$OUTBOUND" CHAT_ID="$CHAT_ID" AGENTE="${DGCHAT_AGENT:-${DGCLAW_SLUG:-agente}}" python3 -I - <<'PY'
 import json, os, sys
 from datetime import datetime, timezone
 # A MESMA forma que a tool de resposta grava (scripts/dgchat-mcp/server.mjs), com a

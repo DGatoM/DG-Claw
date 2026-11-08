@@ -36,7 +36,7 @@ if [ -z "$STATUS_JSON" ]; then
 fi
 
 # Monta a mensagem em Python (texto plano) e decide se envia.
-MSG="$(MODE="$MODE" python3 - "$STATUS_JSON" <<'PY'
+MSG="$(MODE="$MODE" python3 -I - "$STATUS_JSON" <<'PY'
 import json, os, sys
 d = json.loads(sys.argv[1])
 mode = os.environ.get("MODE", "report")

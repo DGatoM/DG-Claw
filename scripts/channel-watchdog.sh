@@ -61,7 +61,7 @@ notify() { # avisa o dono; tenta notify-owner.sh do DG Claw, senao Bot API inlin
     fi
     chat="${DGCLAW_OWNER_TELEGRAM_ID:-}"
     if [ -z "$chat" ] && [ -f "$STATE_DIR/access.json" ]; then
-        chat=$(ACCESS="$STATE_DIR/access.json" python3 -c "import json,os;d=json.load(open(os.environ['ACCESS']));a=d.get('allowFrom',[]);print(a[0] if a else '')" 2>>"$LOGF")
+        chat=$(ACCESS="$STATE_DIR/access.json" python3 -I -c "import json,os;d=json.load(open(os.environ['ACCESS']));a=d.get('allowFrom',[]);print(a[0] if a else '')" 2>>"$LOGF")
     fi
     if [ -z "$chat" ]; then
         log "aviso ao dono nao enviado: nao achei o chat dele (defina DGCLAW_OWNER_TELEGRAM_ID ou confira o allowFrom de $STATE_DIR/access.json)"

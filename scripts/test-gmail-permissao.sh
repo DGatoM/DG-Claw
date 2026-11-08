@@ -30,7 +30,7 @@ echo "DGCLAW_WORKSPACE=\"$WS\"" > "$CFG"
 SET="$WS/.claude/settings.local.json"
 export DGCLAW_GMAIL_SEM_AVISO=1
 
-py() { python3 -c "import json,sys; d=json.load(open('$SET')); $1"; }
+py() { python3 -I -c "import json,sys; d=json.load(open('$SET')); $1"; }
 conta() { py "print(sum(1 for r in d['permissions']['deny'] if r.startswith('mcp__claude_ai_Gmail__')))"; }
 tem() { py "sys.exit(0 if '$1' in d['permissions']['deny'] else 1)"; }
 

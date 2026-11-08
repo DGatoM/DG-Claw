@@ -126,7 +126,7 @@ if [ -f "$POWERS_FILE" ]; then
         [ -z "$line" ] && continue
         pid="${line%%|*}"; unit="${line#*|}"
         audit_timer "$unit" "poder:$pid"
-    done < <(python3 - "$POWERS_FILE" <<'PY' 2>>"$AUDIT_LOG"
+    done < <(python3 -I - "$POWERS_FILE" <<'PY' 2>>"$AUDIT_LOG"
 import json, sys
 try:
     d = json.load(open(sys.argv[1]))

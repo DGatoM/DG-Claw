@@ -48,7 +48,7 @@ LOG="$LOGDIR/permissoes.log"
 [ "$ACAO" = "estado" ] || mkdir -p "$(dirname "$SETTINGS")" || {
     echo "nao consegui criar a pasta de $SETTINGS" >&2; exit 1; }
 
-SAIDA="$(ACAO="$ACAO" SETTINGS="$SETTINGS" python3 - <<'PY'
+SAIDA="$(ACAO="$ACAO" SETTINGS="$SETTINGS" python3 -I - <<'PY'
 import json, os, sys
 
 settings = os.environ["SETTINGS"]
