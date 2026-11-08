@@ -12,6 +12,7 @@ import html
 import io
 import json
 import os
+import posixpath
 import re
 import zipfile
 from xml.sax.saxutils import escape as xml_escape
@@ -376,7 +377,7 @@ def _area_total(sqref):
 # Quantos elementos de cada tipo uma planilha pode ter (limite por parte); o que passa disso é tratado como bomba.
 LIMITES_DE_CONTAGEM = {"c": MAX_CELULAS, "row": MAX_LINHAS, "si": MAX_CELULAS, "xf": 200_000, "dxf": 100_000, "numFmt": 10_000, "font": 100_000,
                        "fill": 100_000, "border": 100_000, "sheet": 1_000, "definedName": 100_000, "hyperlink": 200_000, "comment": 200_000,
-                       "cfRule": 100_000, "dataValidation": 100_000}
+                       "cfRule": 100_000, "dataValidation": 100_000, "Relationship": 100_000}
 
 
 class _LimiteDeBytes:
@@ -400,17 +401,37 @@ class _LimiteDeBytes:
         return dados
 
 
-def _parece_xml(z, info):
+# Espaço em branco que uma parte pode ter antes do primeiro "<". O expat aceita qualquer quantidade, então a decisão de conferir
+# a parte não pode olhar só um começo fixo: acima deste teto a parte é recusada em vez de passar sem conferência.
+MAX_ESPACO_INICIAL = 65_536
+
+
+def _parece_xml(z, info, nome="planilha"):
     """Decide pelo início do conteúdo, nunca pelo nome: o openpyxl abre as partes pelos relacionamentos, então
-    'worksheets/sheet1.xml' ou 'xl/planilha.dat' valem tanto quanto 'xl/worksheets/sheet1.xml'."""
+    'worksheets/sheet1.xml' ou 'xl/planilha.dat' valem tanto quanto 'xl/worksheets/sheet1.xml'.
+    Lê em streaming, pulando BOM, espaços e bytes nulos (UTF-16 tem um byte nulo por caractere) até o primeiro byte útil."""
     if info.is_dir() or info.file_size == 0:
         return False
+    pulados, inicio = 0, True
     with z.open(info) as f:
-        cabeca = f.read(4096)
-    if cabeca.startswith((b"\xff\xfe", b"\xfe\xff")):
-        cabeca = cabeca.decode("utf-16", "ignore").encode("utf-8")
-    cabeca = cabeca.lstrip(b"\xef\xbb\xbf\x00 \t\r\n")
-    return cabeca.startswith(b"<")
+        while True:
+            bloco = f.read(4096)
+            if not bloco:
+                return False
+            if inicio:
+                inicio = False
+                for bom in (b"\xef\xbb\xbf", b"\xff\xfe", b"\xfe\xff"):
+                    if bloco.startswith(bom):
+                        bloco, pulados = bloco[len(bom):], pulados + len(bom)
+                        break
+            util = bloco.lstrip(b"\x00 \t\r\n")
+            pulados += len(bloco) - len(util)
+            if pulados > MAX_ESPACO_INICIAL:
+                raise ErroMotor("arquivo_invalido", "A parte '%s' do arquivo '%s' começa com mais de %d bytes de espaço em branco antes do conteúdo, "
+                                "o que documento de Office legítimo não tem e impediria a conferência de segurança. O arquivo foi recusado: "
+                                "abra e salve de novo no programa de origem." % (info.filename, nome, MAX_ESPACO_INICIAL))
+            if util:
+                return util.startswith(b"<")
 
 
 def _ref_ilegivel(nome, parte, elemento, ref):
@@ -437,10 +458,13 @@ def conferir_planilha_crua(caminho, nome):
     import xml.etree.ElementTree as ET
     with abrir_zip(caminho, nome) as z:
         materializadas = 0
+        areas = {}      # parte -> células que ela materializa
+        alvos = {}      # parte de destino normalizada -> [tipos dos relacionamentos que apontam para ela]
         for info in z.infolist():
-            if not _parece_xml(z, info):
+            if not _parece_xml(z, info, nome):
                 continue
-            contagem, pilha = {}, []
+            contagem, pilha, abas_por_id = {}, [], {}
+            eh_rels = info.filename.lower().endswith(".rels")
             try:
                 with z.open(info) as bruto:
                     for evento, el in ET.iterparse(_LimiteDeBytes(bruto, LIMITE_ZIP, info.filename, nome), events=("start", "end")):
@@ -450,6 +474,15 @@ def conferir_planilha_crua(caminho, nome):
                             n = contagem[local] = contagem.get(local, 0) + 1
                             if n > LIMITES_DE_CONTAGEM.get(local, 1 << 62):
                                 raise _planilha_grande(nome, info.filename, "a parte tem mais de %d elementos <%s>" % (LIMITES_DE_CONTAGEM[local], local))
+                            if local == "sheet":
+                                rid = next((v for k, v in el.attrib.items() if k.rsplit("}", 1)[-1] == "id"), None)
+                                if rid is not None:
+                                    abas_por_id[rid] = abas_por_id.get(rid, 0) + 1
+                                    if abas_por_id[rid] > 1:
+                                        raise _aba_repetida(nome, info.filename, "várias abas do arquivo apontam para o mesmo relacionamento (%s)" % rid[:40])
+                            elif eh_rels and local == "Relationship" and el.get("TargetMode") != "External":
+                                alvo = _alvo_normalizado(info.filename, el.get("Target") or "")
+                                alvos.setdefault(alvo, []).append(el.get("Type") or "")
                             if local == "dimension" or local in _ELEMENTOS_COM_AREA:
                                 ref = (el.get("ref") or "").strip()
                                 if not ref:
@@ -465,6 +498,7 @@ def conferir_planilha_crua(caminho, nome):
                                     if total is None:
                                         raise _ref_ilegivel(nome, info.filename, local, ref)
                                     materializadas += total
+                                    areas[info.filename] = areas.get(info.filename, 0) + total
                                     if materializadas > MAX_CELULAS:
                                         raise _planilha_grande(nome, info.filename, "as áreas de mesclagens, links e comentários somam mais de %d células" % MAX_CELULAS)
                         else:
@@ -477,6 +511,29 @@ def conferir_planilha_crua(caminho, nome):
                 if not info.filename.lower().endswith(".vml"):
                     raise ErroMotor("arquivo_invalido", "A parte '%s' da planilha '%s' está corrompida. Abra e salve de novo no Excel, depois envie."
                                     % (info.filename, nome)) from None
+        for alvo, tipos in alvos.items():
+            if len(tipos) > 1 and (areas.get(alvo) or any(t.rsplit("/", 1)[-1] in _TIPOS_CARREGADOS_POR_USO for t in tipos)):
+                raise _aba_repetida(nome, alvo, "%d relacionamentos apontam para a mesma parte" % len(tipos))
+
+
+# Tipos de relacionamento cuja parte o openpyxl lê de novo a cada vez que é apontada (aba, folha de gráfico, comentários). A soma das
+# áreas conta cada parte uma vez; se a mesma parte pudesse ser apontada várias vezes, um pacote de poucos KB multiplicaria a mesclagem
+# por mil. Partes compartilhadas de verdade (imagem, tema, estilos, desenhos) não entram aqui e continuam permitidas.
+_TIPOS_CARREGADOS_POR_USO = ("worksheet", "chartsheet", "comments", "dialogsheet", "macrosheet")
+
+
+def _alvo_normalizado(rels, alvo):
+    """Mesma regra do openpyxl (get_dependents): '/x' é absoluto no pacote; o resto é relativo à pasta que contém a pasta _rels."""
+    if alvo.startswith("/"):
+        return posixpath.normpath(alvo[1:])
+    pai = posixpath.split(posixpath.dirname(rels))[0]
+    return posixpath.normpath(posixpath.join(pai, alvo))
+
+
+def _aba_repetida(nome, parte, motivo):
+    return ErroMotor("arquivo_invalido", "A planilha '%s' faz a mesma aba ou os mesmos comentários serem carregados mais de uma vez (%s; parte %s), "
+                     "o que planilha gerada pelo Excel não faz e permitiria esconder uma mesclagem enorme. O arquivo foi recusado: "
+                     "abra e salve de novo no Excel, depois envie." % (nome, motivo, parte))
 
 
 def _planilha_grande(nome, parte, motivo):

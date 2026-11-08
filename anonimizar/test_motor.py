@@ -805,6 +805,139 @@ class Arquivos(unittest.TestCase):
         r = self.pedir(caminho)
         self.assertTrue(r["ok"], r)
 
+    def _xlsx_com_duas_abas_e_comentarios(self, nome, mudancas, extras=None):
+        """xlsx gerado pelo openpyxl com duas abas e um comentário em cada; `mudancas` troca o conteúdo de partes (nome -> função bytes->bytes)."""
+        import openpyxl
+        from openpyxl.comments import Comment
+        wb = openpyxl.Workbook()
+        wb.active["A1"] = "x"
+        wb.active["A1"].comment = Comment("a", "t")
+        wb.create_sheet("b")["A1"] = "y"
+        wb["b"]["A1"].comment = Comment("b", "t")
+        base = os.path.join(self.tmp, "base-" + nome)
+        wb.save(base)
+        destino = os.path.join(self.tmp, nome)
+        with zipfile.ZipFile(base) as zin, zipfile.ZipFile(destino, "w") as zout:
+            for info in zin.infolist():
+                dados = zin.read(info.filename)
+                if info.filename in mudancas:
+                    dados = mudancas[info.filename](dados)
+                zout.writestr(info, dados)
+        self.assertLess(os.path.getsize(destino), 20000)
+        return destino
+
+    def _confere_recusa_sem_carregar(self, caminho, esperado, arquivo):
+        import openpyxl
+        import time
+        chamadas = []
+        original = openpyxl.load_workbook
+        openpyxl.load_workbook = lambda *a, **k: chamadas.append(a) or original(*a, **k)
+        try:
+            t0 = time.time()
+            r = self.pedir(caminho)
+            self.assertEqual((r["ok"], r.get("codigo")), (False, esperado), r)
+            self.assertIn(arquivo, r["erro"])
+            self.assertLess(time.time() - t0, 10)
+        finally:
+            openpyxl.load_workbook = original
+        self.assertEqual(chamadas, [], "o load_workbook não pode ser chamado antes da recusa")
+
+    @unittest.skipUnless(tem("openpyxl"), "openpyxl não está instalado neste Python")
+    def test_espaco_antes_da_aba_nao_escapa_da_conferencia(self):
+        grande = b'<mergeCells count="1"><mergeCell ref="A1:XFD100000"/></mergeCells>'
+        casos = [
+            ("4096 espaços", b" " * 4096, "planilha_grande"),
+            ("100000 espaços", b" " * 100000, "arquivo_invalido"),
+            ("BOM, quebras de linha e tabs", b"\xef\xbb\xbf" + b"\r\n\t " * 3000, "planilha_grande"),
+            ("espaço acima do teto", b" " * 65537, "arquivo_invalido"),
+        ]
+        for rotulo, prefixo, esperado in casos:
+            with self.subTest(rotulo):
+                arq = "esp%d.xlsx" % len(prefixo)
+                caminho = self._planilha_modificada(arq, b"</worksheet>", grande + b"</worksheet>")
+                # reescreve a aba com o prefixo (sem declaração XML, que não pode vir depois de espaço)
+                destino = os.path.join(self.tmp, "p-" + arq)
+                with zipfile.ZipFile(caminho) as zin, zipfile.ZipFile(destino, "w") as zout:
+                    for info in zin.infolist():
+                        dados = zin.read(info.filename)
+                        if info.filename == "xl/worksheets/sheet1.xml":
+                            dados = prefixo + dados[dados.index(b"<worksheet"):] if dados.startswith(b"<?xml") else prefixo + dados
+                        zout.writestr(info, dados)
+                self._confere_recusa_sem_carregar(destino, esperado, "p-" + arq)
+
+    @unittest.skipUnless(tem("openpyxl"), "openpyxl não está instalado neste Python")
+    def test_espaco_em_utf16_antes_da_aba_nao_escapa_da_conferencia(self):
+        grande = '<mergeCells count="1"><mergeCell ref="A1:XFD100000"/></mergeCells>'
+        for rotulo, codec in (("UTF-16 com BOM", "utf-16"), ("UTF-16 sem BOM", "utf-16-le")):
+            with self.subTest(rotulo):
+                def trocar(dados, codec=codec):
+                    texto = dados.decode("utf-8")
+                    texto = texto[texto.index("<worksheet"):].replace("</worksheet>", grande + "</worksheet>")
+                    return (" " * 4096 + texto).encode(codec)
+                caminho = self._xlsx_com_duas_abas_e_comentarios("u16-%s.xlsx" % codec, {"xl/worksheets/sheet1.xml": trocar})
+                self._confere_recusa_sem_carregar(caminho, "planilha_grande", "u16-")
+
+    @unittest.skipUnless(tem("openpyxl"), "openpyxl não está instalado neste Python")
+    def test_planilha_normal_com_espaco_antes_da_aba_continua_passando(self):
+        caminho = self._xlsx_com_duas_abas_e_comentarios("espnormal.xlsx", {"xl/worksheets/sheet1.xml": lambda d: b" " * 4096 + d})
+        r = self.pedir(caminho)
+        self.assertTrue(r["ok"], r)
+
+    @unittest.skipUnless(tem("openpyxl"), "openpyxl não está instalado neste Python")
+    def test_varias_abas_apontando_para_a_mesma_parte_sao_recusadas(self):
+        grande = b'<mergeCells count="1"><mergeCell ref="A1:J100000"/></mergeCells>'   # 1 milhão de células, passa se contada uma vez
+        ns = b'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'
+        tipo = b"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet"
+        for n in (3, 1000):
+            for variante in ("um relacionamento por aba", "o mesmo r:id em todas as abas"):
+                with self.subTest("%d abas, %s" % (n, variante)):
+                    def workbook(d, n=n, variante=variante):
+                        abas = b"".join(b'<sheet %s name="s%d" sheetId="%d" r:id="%s"/>' % (ns, i, i, b"rId1" if variante.startswith("o mesmo") else b"rIdx%d" % i)
+                                        for i in range(1, n + 1))
+                        i = d.index(b"<sheets>") + len(b"<sheets>")
+                        return d[:i] + abas + d[d.index(b"</sheets>"):]
+
+                    def rels(d, n=n, variante=variante):
+                        if variante.startswith("o mesmo"):
+                            return d
+                        extra = b"".join(b'<Relationship Type="%s" Target="/xl/worksheets/sheet1.xml" Id="rIdx%d"/>' % (tipo, i) for i in range(1, n + 1))
+                        return d.replace(b"</Relationships>", extra + b"</Relationships>")
+
+                    caminho = self._xlsx_com_duas_abas_e_comentarios("rep%d%s.xlsx" % (n, variante[:2]), {
+                        "xl/worksheets/sheet1.xml": lambda d: d.replace(b"</worksheet>", grande + b"</worksheet>"),
+                        "xl/workbook.xml": workbook, "xl/_rels/workbook.xml.rels": rels})
+                    self._confere_recusa_sem_carregar(caminho, "arquivo_invalido", "rep%d" % n)
+
+    @unittest.skipUnless(tem("openpyxl"), "openpyxl não está instalado neste Python")
+    def test_comentario_compartilhado_entre_abas_e_recusado(self):
+        grande = b'<commentList><comment ref="A1:J100000" authorId="0"><text><t>x</t></text></comment></commentList>'
+        # a aba 2 passa a apontar para o mesmo comentário da aba 1
+        caminho = self._xlsx_com_duas_abas_e_comentarios("comp.xlsx", {
+            "xl/comments/comment1.xml": lambda d: d[:d.index(b"<commentList>")] + grande + d[d.index(b"</commentList>") + len(b"</commentList>"):],
+            "xl/worksheets/_rels/sheet2.xml.rels": lambda d: d.replace(b"comment2.xml", b"comment1.xml")})
+        self._confere_recusa_sem_carregar(caminho, "arquivo_invalido", "comp.xlsx")
+
+    @unittest.skipUnless(tem("openpyxl"), "openpyxl não está instalado neste Python")
+    def test_aba_com_relacionamento_e_comentario_duplicados_e_recusada(self):
+        # a mesma aba apontada duas vezes (a segunda por caminho com ".."), cada uma carregando de novo os comentários dela
+        caminho = self._xlsx_com_duas_abas_e_comentarios("abadup.xlsx", {
+            "xl/_rels/workbook.xml.rels": lambda d: d.replace(b'Target="/xl/worksheets/sheet2.xml"', b'Target="/xl/worksheets/../worksheets/sheet1.xml"')})
+        self._confere_recusa_sem_carregar(caminho, "arquivo_invalido", "abadup.xlsx")
+
+    @unittest.skipUnless(tem("openpyxl"), "openpyxl não está instalado neste Python")
+    def test_planilha_normal_com_varias_abas_e_comentarios_continua_passando(self):
+        caminho = self._xlsx_com_duas_abas_e_comentarios("normal2.xlsx", {})
+        r = self.pedir(caminho)
+        self.assertTrue(r["ok"], r)
+
+    @unittest.skipUnless(tem("openpyxl"), "openpyxl não está instalado neste Python")
+    def test_parte_compartilhada_legitima_nao_e_recusada(self):
+        # as duas abas apontam para o mesmo VML de comentários e a mesma imagem de fundo: não são abas nem comentários
+        caminho = self._xlsx_com_duas_abas_e_comentarios("vml.xlsx", {
+            "xl/worksheets/_rels/sheet2.xml.rels": lambda d: d.replace(b"commentsDrawing2.vml", b"commentsDrawing1.vml")})
+        r = self.pedir(caminho)
+        self.assertTrue(r["ok"], r)
+
     @unittest.skipUnless(tem("openpyxl"), "openpyxl não está instalado neste Python")
     def test_parte_de_planilha_com_dtd_fora_de_xl_e_recusada(self):
         fim = b"</worksheet>"
