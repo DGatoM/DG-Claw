@@ -145,7 +145,11 @@ montada no começo da rodada e ninguém conferia de novo na hora de postar.
 **Como aplicar:**
 
 - Um caminho só para o registro, sempre absoluto.
-- Confira o registro logo antes de agir, e grave logo depois de cada ação, uma por uma.
+- Confira o registro logo antes de agir, e grave o resultado logo depois de cada ação, uma por uma.
+- Se a sessão cair entre o envio e a gravação, a próxima rodada pode enviar de novo. Quando a API aceitar
+  uma chave de idempotência (um código fixo que faz o serviço ignorar a repetição), use uma por item.
+  Sem isso, grave "vou enviar" antes do envio. Item que ficou nesse estado é conferido no próprio serviço
+  antes de repetir, e se não der para confirmar, a ronda não repete e pergunta ao dono.
 - Registre também o que foi pulado de propósito, para não tentar de novo.
 - Garanta uma execução por vez, com trava de arquivo: rodadas que se sobrepõem são outra origem de
   duplicata.
