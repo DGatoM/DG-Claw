@@ -5,9 +5,18 @@ est="${STUB_ESTADO:?}"
 case "${1:-}" in
     image)
         # `image inspect -f {{.Id}}`: o id da imagem "atual" (muda quando o teste escreve estado/imagem-id).
+        # Com .Labels: o label dgclaw.configuracao-administrada (presente por padrao; a flag sem-label o tira).
+        if [ "$2" = inspect ] && printf '%s ' "$@" | grep -q '\.Labels'; then
+            [ -f "$est/sem-label" ] || echo 1; exit 0
+        fi
         if [ "$2" = inspect ]; then cat "$est/imagem-id" 2>/dev/null || echo imagem-nova; exit 0; fi
         [ "$2" = exists ] && [ ! -f "$est/sem-imagem" ]; exit $? ;;
     container)
+        # `container inspect --format {{.ImageID}} <c>`: o id da imagem com que o container foi criado.
+        if [ "$2" = inspect ]; then
+            nome="${*: -1}"; [ -f "$est/c-$nome" ] || exit 1
+            cat "$est/img-$nome" 2>/dev/null || echo imagem-velha; exit 0
+        fi
         [ "$2" = exists ] && [ -f "$est/c-$3" ]; exit $? ;;
     network)
         case "$2" in
@@ -22,6 +31,11 @@ case "${1:-}" in
         cat "$est/imagem-id" 2>/dev/null > "$est/img-$nome" || echo imagem-nova > "$est/img-$nome"
         echo "container-id" ;;
     start)
+        # Guarda o que estava gravado na pasta do runner na hora da partida (a ordem: regenerar antes de ligar).
+        for f in managed-settings.json runner.json; do
+            d="${DGCLAW_RAIZ:?}/var/lib/dgclaw/agentes/${2#dgclaw-}/runner/$f"
+            if [ -f "$d" ]; then cp "$d" "$est/no-start-$f"; else rm -f "$est/no-start-$f"; fi
+        done
         echo running > "$est/c-$2"
         # Simula o container que cai na partida (falta de inotify): estado exited, codigo 255.
         if [ -f "$est/saida-255" ]; then echo exited > "$est/c-$2"; echo 255 > "$est/codigo-$2"; fi ;;

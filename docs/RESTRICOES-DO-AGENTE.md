@@ -14,7 +14,7 @@ arquivo que só o servidor altera.
 
 | Restrição | O que faz |
 | --- | --- |
-| Sem Bash | O agente não abre terminal. Valem também as ferramentas que acompanham o Bash (`BashOutput`, `KillShell`). |
+| Sem Bash | O agente não abre terminal. Valem também as ferramentas que acompanham o Bash (`BashOutput`, `KillShell`) e o `Monitor`, que executa comandos por conta própria e ignoraria a regra do Bash. |
 | Sem enviar arquivo | O agente não manda arquivo pelo chat do painel nem pelo WhatsApp. Ele continua respondendo em texto. Só vale junto com "sem Bash": com o terminal liberado o agente consegue mandar o arquivo por fora das ferramentas (por exemplo, falando direto com a ponte do WhatsApp), e por isso o comando recusa essa combinação. |
 | Escrita só em certas pastas | As ferramentas de arquivo (`Write`, `Edit`, `MultiEdit`, `NotebookEdit`) só gravam dentro das pastas que você indicar. |
 
@@ -118,6 +118,16 @@ e que o script do gancho está na imagem. Se faltar algo, o comando falha, expli
 Com o agente parado não dá para conferir: o comando grava `runner/restricoes-suporte.pendente` e avisa. No `dgclaw agente iniciar`
 a conferência roda assim que o container sobe; se falhar, o container é parado (agente com trava configurada não roda sem a
 trava) e o comando manda recriar. Se passar, o marcador sai.
+
+**Antes de ligar, não depois.** O runner sobe sozinho pelo systemd assim que o container liga, e uma conferência feita só
+depois deixaria uma janela sem o gancho de escrita. Por isso `dgclaw agente iniciar` e `dgclaw agente reiniciar`, para um
+agente que tem `restricoes.json`, fazem tudo dentro da trava do agente e nesta ordem: (1) refazem `managed-settings.json` e
+`runner.json` a partir do `restricoes.json` e releem o que gravaram (um arquivo permissivo antigo, ausente, `{}` ou inválido
+nunca vale); (2) conferem, sem ligar nada, que a imagem do container tem o marcador `dgclaw.configuracao-administrada`
+(`LABEL` do `container/Containerfile`); (3) só então ligam; (4) conferem de dentro do container, como segunda camada, e param o
+container se falhar. Se o `restricoes.json` estiver ilegível, inválido ou for um link, ou se a gravação falhar (disco cheio), ou
+se a imagem não tiver o marcador, o agente não liga e a mensagem diz o que fazer (`dgclaw agente recriar <agente>`, e antes
+`dgclaw imagem construir --agora` se a imagem do servidor também for velha). Agente sem `restricoes.json` liga como sempre.
 
 Os `provedor.json` da casa são do agente, então a leitura do aviso do Codex não deixa o root abri-los com o agente ligado: ela
 roda dentro do container, como o usuário `agente`, com prazo de 10 s, só aceitando arquivo regular de até 64 KiB e sem seguir

@@ -71,7 +71,7 @@ marcar_settings_alheio() {
 # sobreviveu e o restricoes.json e o mesmo de antes ($RESTR_HASH_<slug> guardado por guardar_restricoes).
 confere_travas() {
     local s="$1" q="$2" rj="$LIB/agentes/$1/runner/runner.json" st="$LIB/agentes/$1/home/.claude/settings.json"
-    afirma "$q: runner.json trava Bash, BashOutput e KillShell" jq -e '(.config.denyTools | index("Bash")) != null and (.config.denyTools | index("BashOutput")) != null and (.config.denyTools | index("KillShell")) != null' "$rj"
+    afirma "$q: runner.json trava Bash, BashOutput, KillShell e Monitor" jq -e '(.config.denyTools | index("Monitor")) != null and (.config.denyTools | index("Bash")) != null and (.config.denyTools | index("BashOutput")) != null and (.config.denyTools | index("KillShell")) != null' "$rj"
     afirma "$q: runner.json trava os dois envios de arquivo" jq -e '(.config.denyTools | index("mcp__dgchat__send_file")) != null and (.config.denyTools | index("mcp__dgchat__whatsapp_send_file")) != null' "$rj"
     afirma "$q: send_file saiu dos allowTools e as respostas de texto ficaram" jq -e '(.config.allowTools | index("mcp__dgchat__send_file")) == null and (.config.allowTools | index("mcp__dgchat__whatsapp_send_file")) == null and (.config.allowTools | index("mcp__dgchat__reply")) != null and (.config.allowTools | index("mcp__dgchat__whatsapp_reply")) != null' "$rj"
     afirma "$q: runner.json continua com os ganchos e o resto" jq -e '.config.promptHooks | length == 2' "$rj"

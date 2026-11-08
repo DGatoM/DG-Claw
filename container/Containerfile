@@ -111,6 +111,9 @@ RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSAO}" "@openai/co
 # imagem não trazia managed-settings.json, então o conteúdo padrão é vazio.
 RUN mkdir -p /etc/claude-code \
     && ln -s /etc/dgclaw-runner/managed-settings.json /etc/claude-code/managed-settings.json
+# Marca que esta imagem carrega a configuração administrada. `dgclaw agente iniciar`/`reiniciar` conferem o marcador
+# ANTES de ligar um agente com restrição: imagem sem ele não liga (precisa de `dgclaw agente recriar`).
+LABEL dgclaw.configuracao-administrada="1"
 
 # venv Python padrão. Existe para contornar o bloqueio PEP 668 do Ubuntu sem
 # --break-system-packages: o agente instala o que precisar com "pip install" normal.

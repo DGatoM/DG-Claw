@@ -1236,6 +1236,37 @@ existe_agente() {
     [ -n "$(agentes_obter "$1" 2>/dev/null)" ] || podman container exists "dgclaw-$1" >/dev/null 2>&1
 }
 
+# _agente_iniciar_sob_trava <slug>: ordem: (1) restricoes_antes_de_ligar regenera os arquivos e confere o label da
+# imagem, e se falhar o container NAO liga; (2) liga; (3) restricoes_conferir_ao_iniciar confere de dentro e para o
+# container se falhar. Chamado dentro de restricoes_com_trava.
+_agente_iniciar_sob_trava() {
+    local slug="$1" c="dgclaw-$1" t
+    restricoes_antes_de_ligar "$slug"
+    podman_em_escopo "$slug" start "$c" >/dev/null
+    if [ "$ENSAIO" != 1 ]; then
+        for ((t = 0; t < TEMPO_PARTIDA; t++)); do
+            explicar_saida_255 "$c"
+            sleep 1
+        done
+        explicar_saida_255 "$c"
+    fi
+    rodar_firewall
+    restricoes_conferir_ao_iniciar "$slug"
+}
+
+# _agente_reiniciar_sob_trava <slug>: mesma ordem do iniciar, com o container ja ligado: so o runner reinicia.
+_agente_reiniciar_sob_trava() {
+    local slug="$1" c="dgclaw-$1"
+    if [ "$ENSAIO" != 1 ] && [ "$(podman inspect -f '{{.State.Status}}' "$c" 2>/dev/null)" != running ]; then
+        falha "o agente $slug esta parado, nao tem o que reiniciar." "ligue com: dgclaw agente iniciar $slug"
+    fi
+    restricoes_antes_de_ligar "$slug"
+    # So o runner: e ele que le o cofre.env. O container inteiro nao precisa cair.
+    executar podman exec "$c" systemctl restart dgclaw-runner >/dev/null
+    rm -f -- "$DG_CASAS/$slug/runner/restricoes.pendente"
+    restricoes_conferir_ao_iniciar "$slug"
+}
+
 agente_acao() {
     local acao="$1"; shift
     exigir_slug "${1:-}" "$acao"
@@ -1249,25 +1280,12 @@ agente_acao() {
             ok "agente $slug parado"
             ;;
         iniciar)
-            podman_em_escopo "$slug" start "$c" >/dev/null
-            if [ "$ENSAIO" != 1 ]; then
-                local t
-                for ((t = 0; t < TEMPO_PARTIDA; t++)); do
-                    explicar_saida_255 "$c"
-                    sleep 1
-                done
-                explicar_saida_255 "$c"
-            fi
-            rodar_firewall
-            restricoes_com_trava "$slug" restricoes_conferir_ao_iniciar "$slug"
+            # Tudo sob a trava do agente, da regeneracao das restricoes ate o fim da conferencia de dentro.
+            restricoes_com_trava "$slug" _agente_iniciar_sob_trava "$slug"
             ok "agente $slug iniciado"
             ;;
         reiniciar)
-            if [ "$ENSAIO" != 1 ] && [ "$(podman inspect -f '{{.State.Status}}' "$c" 2>/dev/null)" != running ]; then
-                falha "o agente $slug esta parado, nao tem o que reiniciar." "ligue com: dgclaw agente iniciar $slug"
-            fi
-            # So o runner: e ele que le o cofre.env. O container inteiro nao precisa cair.
-            executar podman exec "$c" systemctl restart dgclaw-runner >/dev/null
+            restricoes_com_trava "$slug" _agente_reiniciar_sob_trava "$slug"
             ok "runner do agente $slug reiniciado"
             ;;
     esac

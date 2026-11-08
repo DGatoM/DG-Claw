@@ -301,26 +301,88 @@ _restricoes_suporte_falhou() {
         "recrie o agente com a imagem atual: dgclaw agente recriar $slug (se a imagem do servidor tambem estiver velha, antes: dgclaw imagem construir --agora). Depois rode de novo: dgclaw agente restricoes $slug (ele reinicia o runner e confere outra vez)."
 }
 
-# restricoes_conferir_ao_iniciar <slug>: chamado por `dgclaw agente iniciar`, com o container ja ligado. Agente com
-# restricao ligada nao roda sem a trava: se a imagem nao carrega a configuracao administrada, o container e
-# PARADO e o comando falha. Sem restricao ligada (ou sem configuracao gravada) nao ha o que conferir.
+# _restricoes_parar_por_falha <slug> <motivo>: o container ja esta ligado e nao da para garantir a trava: deixa o
+# marcador de pendencia, PARA o container e registra no log. Quem chama termina com `falha`.
+_restricoes_parar_por_falha() {
+    local slug="$1" casa="$DG_CASAS/$1"
+    [ -e "$casa/runner/restricoes-suporte.pendente" ] || _restricoes_gravar "$casa/runner/restricoes-suporte.pendente" "conferencia de suporte pendente desde $(date -u +%FT%TZ)"
+    executar podman stop "dgclaw-$slug" >/dev/null
+    _restricoes_log "$slug" "iniciar: $2; container parado"
+}
+
+# restricoes_conferir_ao_iniciar <slug>: segunda camada, com o container ja ligado (a primeira, antes de ligar, esta em
+# restricoes_antes_de_ligar). Agente com restricao ligada nao roda sem a trava: se a imagem nao carrega a configuracao
+# administrada, ou se a configuracao gravada nao serve (ausente, vazia, invalida) ou o restricoes.json nao da para
+# ler, o container e PARADO e o comando falha. Sem restricoes.json, ou com tudo desligado, nao ha o que conferir.
 restricoes_conferir_ao_iniciar() {
-    local slug="$1" casa="$DG_CASAS/$1" rs ms esperado c="dgclaw-$1"
+    local slug="$1" casa="$DG_CASAS/$1" rs ms esperado ligada
     rs="$casa/runner/restricoes.json"; ms="$casa/runner/managed-settings.json"
     [ "$ENSAIO" = 1 ] && return 0
-    if [ ! -f "$rs" ] || ! jq -e '.sem_bash == true or .sem_enviar_arquivo == true or ((.escrita_so_em // null) != null)' "$rs" >/dev/null 2>&1; then
+    if [ ! -e "$rs" ] && [ ! -L "$rs" ]; then
+        rm -f -- "$casa/runner/restricoes-suporte.pendente"
+        return 0
+    fi
+    if [ -L "$rs" ] || ! ligada="$(jq -r '.sem_bash == true or .sem_enviar_arquivo == true or ((.escrita_so_em // null) != null)' "$rs" 2>/dev/null)"; then
+        _restricoes_parar_por_falha "$slug" "restricoes.json ilegivel ou invalido"
+        falha "nao consegui ler $rs (restricoes do agente $slug), entao nao sei quais travas valem. Parei o container." \
+            "confira com: jq . $rs . Corrija o arquivo, ou refaca as restricoes pelo comando: dgclaw agente restricoes $slug --sem-bash sim|nao --sem-enviar-arquivo sim|nao --escrita-so-em pasta1,pasta2"
+    fi
+    if [ "$ligada" != true ]; then
         rm -f -- "$casa/runner/restricoes-suporte.pendente"
         return 0
     fi
     esperado="$(jq -c . "$ms" 2>/dev/null || true)"
-    if [ -z "$esperado" ] || [ "$esperado" = '{}' ]; then return 0; fi
+    if [ -z "$esperado" ] || [ "$esperado" = '{}' ]; then
+        _restricoes_parar_por_falha "$slug" "managed-settings.json ausente, vazio ou invalido com restricao ligada"
+        falha "o agente $slug tem restricao ligada, mas $ms esta ausente, vazio ou invalido, entao as travas nao valem. Parei o container." \
+            "regenere o arquivo com: dgclaw agente restricoes $slug (ele refaz os arquivos a partir do restricoes.json) e ligue de novo: dgclaw agente iniciar $slug"
+    fi
     if ! _restricoes_conferir_suporte "$slug" "$esperado"; then
-        [ -e "$casa/runner/restricoes-suporte.pendente" ] || _restricoes_gravar "$casa/runner/restricoes-suporte.pendente" "conferencia de suporte pendente desde $(date -u +%FT%TZ)"
-        executar podman stop "$c" >/dev/null
-        _restricoes_log "$slug" "iniciar: imagem sem a configuracao administrada ($RESTRICOES_SUPORTE_MOTIVO); container parado"
+        _restricoes_parar_por_falha "$slug" "imagem sem a configuracao administrada ($RESTRICOES_SUPORTE_MOTIVO)"
         _restricoes_suporte_falhou "$slug"
     fi
     rm -f -- "$casa/runner/restricoes-suporte.pendente"
+}
+
+# _restricoes_imagem_com_suporte <slug>: confere, SEM ligar o container, que a imagem com que ele foi criado carrega
+# a configuracao administrada (LABEL dgclaw.configuracao-administrada=1 no container/Containerfile, junto do link
+# /etc/claude-code/managed-settings.json). Devolve 0 ou 1, com o motivo em RESTRICOES_SUPORTE_MOTIVO.
+_restricoes_imagem_com_suporte() {
+    local c="dgclaw-$1" id marca
+    RESTRICOES_SUPORTE_MOTIVO=""
+    id="$(timeout 15 podman container inspect --format '{{.Image}}' "$c" 2>/dev/null)" || id=""
+    if [ -z "$id" ]; then
+        RESTRICOES_SUPORTE_MOTIVO="nao consegui ler qual imagem o container $c usa"
+        return 1
+    fi
+    marca="$(timeout 15 podman image inspect --format '{{index .Labels "dgclaw.configuracao-administrada"}}' "$id" 2>/dev/null)" || marca=""
+    if [ "$marca" != 1 ]; then
+        RESTRICOES_SUPORTE_MOTIVO="a imagem do container $c nao traz o marcador dgclaw.configuracao-administrada"
+        return 1
+    fi
+    return 0
+}
+
+# restricoes_antes_de_ligar <slug>: PRIMEIRA camada, antes de ligar (ou reiniciar) um container que ja existe, sempre
+# dentro da trava do agente (restricoes_com_trava). Sem restricoes.json nao faz nada. Com ele:
+#   a) regenera managed-settings.json e runner.json a partir do restricoes.json (o aplicar completo, sem reiniciar) e
+#      relê o que gravou. Arquivo ilegivel, invalido ou link, ou falha de gravacao (disco cheio): o agente NAO liga.
+#      Sem isto, um arquivo permissivo antigo ficaria valendo se a gravacao anterior parou no meio;
+#   b) com restricao ligada, confere que a imagem do container carrega a configuracao administrada. O runner sobe
+#      sozinho pelo systemd, e conferir so depois de ligar deixaria uma janela sem o gancho.
+restricoes_antes_de_ligar() {
+    local slug="$1" rs="$DG_CASAS/$1/runner/restricoes.json" ligada
+    [ "$ENSAIO" = 1 ] && return 0
+    if [ ! -e "$rs" ] && [ ! -L "$rs" ]; then return 0; fi
+    _aplicar_restricoes_sem_trava "$slug" --sem-reiniciar
+    ligada="$(jq -r '.sem_bash == true or .sem_enviar_arquivo == true or ((.escrita_so_em // null) != null)' "$rs")" \
+        || falha "nao consegui ler $rs (restricoes do agente $slug) depois de aplicar; nao liguei o agente." "confira com: jq . $rs"
+    [ "$ligada" = true ] || return 0
+    if ! _restricoes_imagem_com_suporte "$slug"; then
+        _restricoes_log "$slug" "ligar: nao liguei, $RESTRICOES_SUPORTE_MOTIVO"
+        falha "o agente $slug tem restricao ligada, mas nao liguei o container: $RESTRICOES_SUPORTE_MOTIVO. Uma imagem antiga nao carrega a configuracao administrada do Claude Code, e sem ela as restricoes nao valem (o agente ainda poderia mudar arquivos que as rotinas dele executam). Os arquivos das restricoes ficaram gravados." \
+            "recrie o agente com a imagem atual: dgclaw agente recriar $slug (se a imagem do servidor tambem estiver velha, antes: dgclaw imagem construir --agora). Depois ligue de novo."
+    fi
 }
 
 _aplicar_restricoes_sem_trava() {
@@ -346,8 +408,10 @@ _aplicar_restricoes_sem_trava() {
         info "[ensaio] aplicaria as restricoes de $rs no managed-settings.json e no runner.json do agente $slug"
         return 0
     fi
+    # Monitor (Claude Code 2.1.296) executa shell por conta propria e a checagem dele ignora a regra `Bash` sem padrao:
+    # sem negar o nome dele, as tres travas do terminal seriam contornadas.
     deny_json="$(jq -nc --argjson bash "$sem_bash" --argjson env "$sem_env" '
-        [if $bash then "Bash", "BashOutput", "KillShell" else empty end]
+        [if $bash then "Bash", "BashOutput", "KillShell", "Monitor" else empty end]
         + [if $env then "mcp__dgchat__send_file", "mcp__dgchat__whatsapp_send_file" else empty end]')"
 
     # --- monta o runner.json novo (na memoria) ---
