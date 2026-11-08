@@ -3,7 +3,7 @@
 set -uo pipefail
 AQUI="$(cd "$(dirname "$0")" && pwd)"
 falhou=0
-for t in "$AQUI"/versao.sh "$AQUI"/backup.sh "$AQUI"/criar.sh "$AQUI"/validacao.sh "$AQUI"/gestao.sh "$AQUI"/cofre.sh "$AQUI"/tela.sh "$AQUI"/inotify.sh "$AQUI"/dominio.sh "$AQUI"/api.sh "$AQUI"/recriar.sh "$AQUI"/atualizar.sh "$AQUI"/aviso-atualizacao.sh "$AQUI"/personalizacoes.sh "$AQUI"/instalacao-remota.sh "$AQUI"/restricoes.sh "$AQUI"/restricoes-gancho.sh "$AQUI"/rotinas-seguras.sh; do
+for t in "$AQUI"/versao.sh "$AQUI"/backup.sh "$AQUI"/criar.sh "$AQUI"/validacao.sh "$AQUI"/gestao.sh "$AQUI"/cofre.sh "$AQUI"/tela.sh "$AQUI"/inotify.sh "$AQUI"/dominio.sh "$AQUI"/api.sh "$AQUI"/recriar.sh "$AQUI"/atualizar.sh "$AQUI"/aviso-atualizacao.sh "$AQUI"/personalizacoes.sh "$AQUI"/instalacao-remota.sh "$AQUI"/restricoes.sh "$AQUI"/restricoes-suporte.sh "$AQUI"/restricoes-gancho.sh "$AQUI"/rotinas-seguras.sh; do
     printf '\n== %s\n' "$(basename "$t")"
     bash "$t" || falhou=1
 done

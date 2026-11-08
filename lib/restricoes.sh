@@ -160,38 +160,103 @@ _restricoes_gravar() {
     mv -f -- "$tmp" "$alvo" || _restricoes_gravar_falhou "trocar o temporario pelo arquivo"
 }
 
-# _restricoes_sessoes_em_codex <casa>: lista (separada por "; ") as sessoes do agente que rodam no Codex, ou cujo
-# provedor nao deu para ler. Segue a ordem do runner (runner/src/provedores/escolha.ts): o provedor.json da sessao
-# vence (principal em home/.plataforma/provedor.json, paralela em home/.plataforma/sessoes/<id>/provedor.json), depois
-# o descritor (sessoes[].provider da paralela, config.provider), depois Claude. A escolha do painel nunca passa pelo
-# runner.json, por isso so olhar o runner.json deixava o aviso de fora. So le (nada e gravado na casa do agente);
-# arquivo ilegivel conta como duvida. Imprime vazio quando todas as sessoes estao no Claude.
+# Le os provedor.json da casa do agente DENTRO da caixa, como o usuario agente (podman exec --user agente
+# <caixa> node -e <este texto> /home/agente/.plataforma [id...]). Os arquivos sao do agente: o root nao os abre
+# (um FIFO ali travaria o jq para sempre). Abre com O_NOFOLLOW|O_NONBLOCK, exige arquivo regular de ate 64 KiB e
+# lista as sessoes paralelas por aqui. Imprime uma linha "id|resultado" por sessao (id vazio = principal);
+# resultado: claude, codex, vazio (sem arquivo ou sem provedor valido) ou ? (em duvida). A linha "!|?" avisa que a
+# pasta das sessoes nao pode ser listada.
+PROVEDOR_JS='const fs = require("fs"), path = require("path");
+const base = process.argv[1], extras = process.argv.slice(2);
+const norm = (v) => {
+  const s = (v == null || v === false ? "" : String(v)).trim().toLowerCase();
+  return (s === "claude" || s === "local-cli" || s === "claude-code") ? "claude" : (s === "codex" || s === "codex-cli") ? "codex" : "";
+};
+const ler = (arq) => {
+  let fd;
+  try { fd = fs.openSync(arq, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK); }
+  catch (e) { return (e.code === "ENOENT" || e.code === "ENOTDIR") ? "" : "?"; }
+  try {
+    const st = fs.fstatSync(fd);
+    if (!st.isFile() || st.size > 65536) return "?";
+    const buf = Buffer.alloc(st.size); let n = 0;
+    while (n < st.size) { const r = fs.readSync(fd, buf, n, st.size - n, n); if (r <= 0) break; n += r; }
+    const j = JSON.parse(buf.toString("utf8", 0, n));
+    return (j && typeof j === "object" && !Array.isArray(j)) ? norm(j.provedor) : "?";
+  } catch (e) { return "?"; } finally { try { fs.closeSync(fd); } catch (_) {} }
+};
+const ids = new Set(extras); let listagem = true;
+const dir = path.join(base, "sessoes");
+try { if (fs.lstatSync(dir).isDirectory()) for (const d of fs.readdirSync(dir)) ids.add(d); } catch (e) { if (e.code !== "ENOENT" && e.code !== "ENOTDIR") listagem = false; }
+const saida = ["|" + ler(path.join(base, "provedor.json"))];
+if (!listagem) saida.push("!|?");
+for (const id of ids) {
+  if (/^[A-Za-z0-9._-]+$/.test(id)) saida.push(id + "|" + ler(path.join(dir, id, "provedor.json")));
+}
+console.log(saida.join("\n"));'
+
+# _restricoes_provedor_parado <arquivo>: com o agente parado nenhum processo dele roda, entao o root le, mas
+# recusa link e o que nao e arquivo regular (um FIFO travaria a leitura), com prazo e limite de tamanho.
+# Imprime claude, codex, vazio ou ? (em duvida). O jq recebe o texto pelo STDIN.
+_restricoes_provedor_parado() {
+    local arq="$1" txt
+    if [ ! -e "$arq" ] && [ ! -L "$arq" ]; then return 0; fi
+    if [ -L "$arq" ] || [ ! -f "$arq" ]; then printf '?'; return 0; fi
+    [ "$(stat -c %s -- "$arq" 2>/dev/null || echo 99999999)" -le 65536 ] || { printf '?'; return 0; }
+    txt="$(timeout 5 head -c 65536 -- "$arq" 2>/dev/null)" || { printf '?'; return 0; }
+    printf '%s' "$txt" | timeout 5 jq -r "$_RESTRICOES_NORM"' if type == "object" then (.provedor // "" | norm) else "?" end' 2>/dev/null || printf '?'
+}
+# shellcheck disable=SC2016 # os $ sao variaveis do jq
+_RESTRICOES_NORM='def norm: tostring | ascii_downcase | gsub("^\\s+|\\s+$"; "") | if . == "claude" or . == "local-cli" or . == "claude-code" then "claude" elif . == "codex" or . == "codex-cli" then "codex" else "" end;'
+
+# _restricoes_sessoes_em_codex <casa> <container> <rodando 0|1>: lista (separada por "; ") as sessoes do agente que
+# rodam no Codex, ou cujo provedor nao deu para ler. Segue a ordem do runner (runner/src/provedores/escolha.ts): o
+# provedor.json da sessao vence (principal em home/.plataforma/provedor.json, paralela em
+# home/.plataforma/sessoes/<id>/provedor.json), depois o descritor (sessoes[].provider da paralela,
+# config.provider), depois Claude. A escolha do painel nunca passa pelo runner.json, por isso so olhar o runner.json
+# deixava o aviso de fora. Os arquivos da casa sao do agente: com o agente ligado sao lidos DENTRO da caixa, pelo
+# usuario agente, com prazo (PROVEDOR_JS); parado, o root le com as protecoes de _restricoes_provedor_parado.
+# Qualquer falha, prazo estourado ou arquivo estranho vira "em duvida" e nunca impede o comando de seguir.
+# So le (nada e gravado na casa do agente). Imprime vazio quando todas as sessoes estao no Claude.
 _restricoes_sessoes_em_codex() {
-    local casa="$1" id nome arq res achados=() ids=() d
+    local casa="$1" c="$2" rodando="$3" id nome res achados=() ids=() d lido="" l k v
     local rj="$casa/runner/runner.json" est="$casa/home/.plataforma"
-    # shellcheck disable=SC2016 # os $ sao variaveis do jq
-    local norm='def norm: tostring | ascii_downcase | gsub("^\\s+|\\s+$"; "") | if . == "claude" or . == "local-cli" or . == "claude-code" then "claude" elif . == "codex" or . == "codex-cli" then "codex" else "" end;'
+    local -A visto=()
     if [ -f "$rj" ]; then
-        while IFS= read -r id; do [ -z "$id" ] || ids+=("$id"); done < <(jq -r '(.sessoes // [])[]? | .id? // empty' "$rj" 2>/dev/null || true)
+        while IFS= read -r id; do [ -z "$id" ] || ids+=("$id"); done < <(timeout 5 jq -r '(.sessoes // [])[]? | .id? // empty' "$rj" 2>/dev/null || true)
     fi
-    if [ -d "$est/sessoes" ] && [ ! -L "$est/sessoes" ]; then
+    if [ "$rodando" = 1 ]; then
+        lido="$(timeout 10 podman exec --user agente "$c" node -e "$PROVEDOR_JS" /home/agente/.plataforma "${ids[@]}" 2>/dev/null)" || lido=""
+        while IFS= read -r l; do
+            [ -n "$l" ] || continue
+            k="${l%%|*}"; v="${l#*|}"
+            visto["s:$k"]="$v"
+            [[ "$k" =~ ^[A-Za-z0-9._-]*$ ]] && { [ -z "$k" ] || [[ " ${ids[*]} " == *" $k "* ]] || ids+=("$k"); }
+        done <<<"$lido"
+        [ -z "${visto["s:!"]+x}" ] || achados+=("paralelas: nao consegui listar as sessoes")
+    elif [ -d "$est/sessoes" ] && [ ! -L "$est" ] && [ ! -L "$est/sessoes" ]; then
         for d in "$est"/sessoes/*/; do
             id="$(basename "$d")"
-            [[ "$id" =~ ^[A-Za-z0-9._-]+$ ]] && ids+=("$id")
+            [[ "$id" =~ ^[A-Za-z0-9._-]+$ ]] || continue
+            [[ " ${ids[*]} " == *" $id "* ]] || ids+=("$id")
         done
     fi
     for id in "" "${ids[@]}"; do
-        if [ -z "$id" ]; then nome="principal"; arq="$est/provedor.json"; else nome="paralela $id"; arq="$est/sessoes/$id/provedor.json"; fi
-        res=""
-        if [ -e "$arq" ] || [ -L "$arq" ]; then
-            if [ -L "$arq" ] || ! res="$(jq -r "$norm"' if type == "object" then (.provedor // "" | norm) else "?" end' "$arq" 2>/dev/null)" || [ "$res" = "?" ]; then
-                achados+=("$nome: nao consegui ler $arq")
-                continue
-            fi
+        if [ -z "$id" ]; then nome="principal"; else nome="paralela $id"; fi
+        if [ "$rodando" = 1 ]; then
+            res="${visto["s:$id"]-?}"
+        elif [ -L "$est" ] || { [ -n "$id" ] && [ -L "$est/sessoes" ]; }; then
+            res="?"
+        elif [ -z "$id" ]; then res="$(_restricoes_provedor_parado "$est/provedor.json")"
+        else res="$(_restricoes_provedor_parado "$est/sessoes/$id/provedor.json")"
         fi
+        if [ "$res" = "?" ]; then
+            achados+=("$nome: nao consegui ler o provedor.json"); continue
+        fi
+        # shellcheck disable=SC2016 # os $ sao variaveis do jq
         if [ -z "$res" ]; then
             if [ ! -f "$rj" ]; then res=claude
-            elif ! res="$(jq -r --arg id "$id" "$norm"' ((if $id == "" then "" else ((.sessoes // [])[]? | select(.id == $id) | .provider // "") end) | norm) as $s | if $s != "" then $s else ((.config.provider // "") | norm) end' "$rj" 2>/dev/null)"; then
+            elif ! res="$(timeout 5 jq -r --arg id "$id" "$_RESTRICOES_NORM"' ((if $id == "" then "" else ((.sessoes // [])[]? | select(.id == $id) | .provider // "") end) | norm) as $s | if $s != "" then $s else ((.config.provider // "") | norm) end' "$rj" 2>/dev/null)"; then
                 achados+=("$nome: nao consegui ler $rj"); continue
             fi
             [ -n "$res" ] || res=claude
@@ -200,6 +265,62 @@ _restricoes_sessoes_em_codex() {
     done
     local IFS=';'
     [ "${#achados[@]}" -eq 0 ] || printf '%s' "${achados[*]}" | sed 's/;/; /g'
+}
+
+# _restricoes_conferir_suporte <slug> <esperado>: com o container RODANDO, confere DENTRO dele (como root, so
+# lendo /etc e a imagem, que o agente nao controla) que a imagem carrega a configuracao administrada: o link
+# /etc/claude-code/managed-settings.json aponta para a pasta do runner, o conteudo visto la e o <esperado> e o
+# script do gancho de escrita existe. Agente parado numa imagem antiga (ex.: durante `dgclaw atualizar`) sobe sem
+# nada disso, e o gancho que protege o .dgclaw/config.sh nao vale. Devolve 0 se tudo certo; senao 1, com o motivo
+# em RESTRICOES_SUPORTE_MOTIVO. Nao grava nada.
+_restricoes_conferir_suporte() {
+    local c="dgclaw-$1" esperado="$2" alvo=/etc/claude-code/managed-settings.json destino=/etc/dgclaw-runner/managed-settings.json lnk visto script
+    script="${GANCHO_ESCRITA_CMD##* }"
+    RESTRICOES_SUPORTE_MOTIVO=""
+    lnk="$(timeout 15 podman exec "$c" readlink "$alvo" 2>/dev/null)" || lnk=""
+    if [ "$lnk" != "$destino" ]; then
+        RESTRICOES_SUPORTE_MOTIVO="dentro do container $alvo ${lnk:+aponta para $lnk e nao para $destino}${lnk:-nao existe ou nao e um link}"
+        return 1
+    fi
+    visto="$(timeout 15 podman exec "$c" cat "$alvo" 2>/dev/null | timeout 5 jq -c . 2>/dev/null || true)"
+    if [ "$visto" != "$esperado" ]; then
+        RESTRICOES_SUPORTE_MOTIVO="o conteudo de $alvo visto dentro do container ($(printf '%s' "${visto:-vazio ou ilegivel}" | head -c 120)) nao e o que acabou de ser gravado"
+        return 1
+    fi
+    if ! timeout 15 podman exec "$c" test -f "$script" -a -x /usr/bin/node -a -x /usr/bin/env >/dev/null 2>&1; then
+        RESTRICOES_SUPORTE_MOTIVO="a imagem nao traz o script do gancho de escrita ($script) ou o node"
+        return 1
+    fi
+    return 0
+}
+
+# _restricoes_suporte_falhou <slug>: a falha comum da conferencia de suporte.
+_restricoes_suporte_falhou() {
+    local slug="$1"
+    falha "o agente $slug roda numa imagem antiga que nao carrega a configuracao administrada do Claude Code ($RESTRICOES_SUPORTE_MOTIVO). Por isso as restricoes NAO valem: o agente ainda poderia mudar arquivos que as rotinas dele executam. Os arquivos das restricoes ficaram gravados." \
+        "recrie o agente com a imagem atual: dgclaw agente recriar $slug (se a imagem do servidor tambem estiver velha, antes: dgclaw imagem construir --agora). Depois rode de novo: dgclaw agente restricoes $slug (ele reinicia o runner e confere outra vez)."
+}
+
+# restricoes_conferir_ao_iniciar <slug>: chamado por `dgclaw agente iniciar`, com o container ja ligado. Agente com
+# restricao ligada nao roda sem a trava: se a imagem nao carrega a configuracao administrada, o container e
+# PARADO e o comando falha. Sem restricao ligada (ou sem configuracao gravada) nao ha o que conferir.
+restricoes_conferir_ao_iniciar() {
+    local slug="$1" casa="$DG_CASAS/$1" rs ms esperado c="dgclaw-$1"
+    rs="$casa/runner/restricoes.json"; ms="$casa/runner/managed-settings.json"
+    [ "$ENSAIO" = 1 ] && return 0
+    if [ ! -f "$rs" ] || ! jq -e '.sem_bash == true or .sem_enviar_arquivo == true or ((.escrita_so_em // null) != null)' "$rs" >/dev/null 2>&1; then
+        rm -f -- "$casa/runner/restricoes-suporte.pendente"
+        return 0
+    fi
+    esperado="$(jq -c . "$ms" 2>/dev/null || true)"
+    if [ -z "$esperado" ] || [ "$esperado" = '{}' ]; then return 0; fi
+    if ! _restricoes_conferir_suporte "$slug" "$esperado"; then
+        [ -e "$casa/runner/restricoes-suporte.pendente" ] || _restricoes_gravar "$casa/runner/restricoes-suporte.pendente" "conferencia de suporte pendente desde $(date -u +%FT%TZ)"
+        executar podman stop "$c" >/dev/null
+        _restricoes_log "$slug" "iniciar: imagem sem a configuracao administrada ($RESTRICOES_SUPORTE_MOTIVO); container parado"
+        _restricoes_suporte_falhou "$slug"
+    fi
+    rm -f -- "$casa/runner/restricoes-suporte.pendente"
 }
 
 _aplicar_restricoes_sem_trava() {
@@ -213,7 +334,7 @@ _aplicar_restricoes_sem_trava() {
     done
     local casa="$DG_CASAS/$slug" c="dgclaw-$slug"
     local rj="$casa/runner/runner.json" rs="$casa/runner/restricoes.json" ms="$casa/runner/managed-settings.json"
-    local pend="$casa/runner/restricoes.pendente" pend_mig="$casa/runner/restricoes-migracao.pendente"
+    local pend="$casa/runner/restricoes.pendente" pend_mig="$casa/runner/restricoes-migracao.pendente" pend_sup="$casa/runner/restricoes-suporte.pendente"
     local sem_bash=false sem_env=false pastas=null mudou=0 novo_rj="" novo_ms ms_existia=0 grav_ms=0 grav_rj=0 base="" deny_json='[]' codex_em rodando=0 vai_ms=0 vai_rj=0 saida rc ativo=false pronto i
 
     if [ "$runner_novo" = 1 ]; then base="$(cat)"; fi
@@ -339,12 +460,28 @@ _aplicar_restricoes_sem_trava() {
         falha "reli $rj depois de gravar e o conteudo nao e o esperado; nao vou dizer que as restricoes do agente $slug foram aplicadas." \
             "veja o arquivo (jq . $rj) e rode de novo: dgclaw agente reparar $slug"
     fi
+    # --- o container precisa carregar a politica: so o arquivo gravado nao basta (imagem antiga nao a le) ---
+    if [ "$novo_ms" = '{}' ]; then
+        rm -f -- "$pend_sup"
+    elif [ "$rodando" = 1 ]; then
+        if _restricoes_conferir_suporte "$slug" "$novo_ms"; then
+            rm -f -- "$pend_sup"
+        else
+            # O marcador de reinicio fica: depois de recriar, a proxima execucao reinicia o runner e confere de novo.
+            [ -e "$pend" ] || _restricoes_gravar "$pend" "reinicio do runner pendente desde $(date -u +%FT%TZ)"
+            _restricoes_log "$slug" "imagem sem a configuracao administrada ($RESTRICOES_SUPORTE_MOTIVO): restricoes gravadas mas NAO valem"
+            _restricoes_suporte_falhou "$slug"
+        fi
+    else
+        [ -e "$pend_sup" ] || _restricoes_gravar "$pend_sup" "conferencia de suporte pendente desde $(date -u +%FT%TZ)"
+        aviso "o agente $slug esta parado, entao nao deu para conferir se a imagem dele carrega a configuracao administrada. A conferencia sera feita quando o agente ligar (dgclaw agente iniciar $slug); se a imagem for antiga, o agente nao liga e a mensagem diz como recriar."
+    fi
     [ "$grav_ms" = 0 ] || [ "$novo_ms" = '{}' ] || ok "configuracao administrada do agente $slug gravada (gancho de escrita: $([ "$ativo" = true ] && { [ "$pastas" != null ] && echo "ligado, grava so nas pastas" || echo "ligado, protege so a configuracao"; } || echo desligado); ferramentas negadas: $(printf '%s' "$deny_json" | jq -r 'if length == 0 then "nenhuma" else join(", ") end'))"
     [ "$grav_rj" = 0 ] || ok "runner.json do agente $slug ajustado (Bash: $([ "$sem_bash" = true ] && echo travado || echo liberado), envio de arquivo: $([ "$sem_env" = true ] && echo travado || echo liberado))"
 
     # --- Codex: o runner ignora allow/deny e os ganchos do Claude Code ---
     if [ "$sem_bash" = true ] || [ "$sem_env" = true ] || [ "$pastas" != null ]; then
-        codex_em="$(_restricoes_sessoes_em_codex "$casa")"
+        codex_em="$(_restricoes_sessoes_em_codex "$casa" "$c" "$rodando")"
         if [ -n "$codex_em" ]; then
             aviso "o agente $slug tem sessoes em Codex ou com o provedor em duvida ($codex_em), e no Codex estas travas ainda NAO valem (o runner ignora as regras de ferramentas e os ganchos do Claude Code). O arquivo $rs fica guardado e passa a valer na sessao que voltar para o Claude."
             _restricoes_log "$slug" "aviso: sessoes em Codex ou em duvida ($codex_em), restricoes gravadas mas nao aplicadas pelo runner (sem_bash=$sem_bash sem_enviar_arquivo=$sem_env escrita_so_em=$pastas)"

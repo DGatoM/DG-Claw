@@ -111,6 +111,19 @@ de verdade: depois de atualizar, peça a um agente travado uma gravação fora d
 é necessária, o `dgclaw atualizar` (que reconstrói a imagem) já cobre; um agente cuja caixa ainda é antiga só ganha a trava depois do
 `agente recriar`.
 
+Por isso `dgclaw agente restricoes` não diz que as travas valem só por ter gravado os arquivos. Com o agente ligado, ele confere
+dentro do container (como root, só lendo `/etc` e a imagem) que o link existe, que o conteúdo visto lá é o que acabou de ser gravado
+e que o script do gancho está na imagem. Se faltar algo, o comando falha, explica que a imagem é antiga e manda rodar
+`dgclaw agente recriar <agente>`; o marcador de reinício continua, e a execução seguinte reinicia o runner e confere de novo.
+Com o agente parado não dá para conferir: o comando grava `runner/restricoes-suporte.pendente` e avisa. No `dgclaw agente iniciar`
+a conferência roda assim que o container sobe; se falhar, o container é parado (agente com trava configurada não roda sem a
+trava) e o comando manda recriar. Se passar, o marcador sai.
+
+Os `provedor.json` da casa são do agente, então a leitura do aviso do Codex não deixa o root abri-los com o agente ligado: ela
+roda dentro do container, como o usuário `agente`, com prazo de 10 s, só aceitando arquivo regular de até 64 KiB e sem seguir
+link. Com o agente parado o root lê com as mesmas recusas e prazo de 5 s. Qualquer falha vira "provedor em dúvida" no aviso e nunca
+impede o reinício do runner.
+
 ### Envio de arquivo no painel
 
 Quando o agente tem `sem_enviar_arquivo`, a ferramenta é negada pelo Claude Code. O painel também confere: um anexo de

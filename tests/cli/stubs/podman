@@ -79,6 +79,23 @@ case "${1:-}" in
             if [ -f "$est/inativo" ]; then echo inactive; exit 3; fi
             echo active; exit 0
         fi
+        # exec como root, so leitura de /etc: a conferencia de suporte das restricoes (lib/restricoes.sh).
+        # sem-suporte = imagem antiga (sem o link); ms-diferente = o link aponta para outro conteudo;
+        # sem-script-gancho = a imagem nao traz o script do gancho de escrita.
+        case "${3:-}" in
+            readlink)
+                [ -f "$est/sem-suporte" ] && exit 1
+                echo /etc/dgclaw-runner/managed-settings.json; exit 0 ;;
+            cat)
+                if [ "${4:-}" = /etc/claude-code/managed-settings.json ]; then
+                    [ -f "$est/sem-suporte" ] && exit 1
+                    if [ -f "$est/ms-diferente" ]; then echo '{}'; exit 0; fi
+                    cat "${DGCLAW_RAIZ:?}/var/lib/dgclaw/agentes/${2#dgclaw-}/runner/managed-settings.json"; exit $?
+                fi ;;
+            test)
+                [ -f "$est/sem-script-gancho" ] && exit 1
+                exit 0 ;;
+        esac
         # `exec --user agente <c> node -e <script> <arquivo>`: roda o node de verdade, mas trocando
         # /home/agente pela casa do agente na raiz falsa (a caixa de mentira). `exec-node-nao` so registra.
         if [ "${2:-}" = "--user" ] && [ "${3:-}" = agente ] && [ "${5:-}" = node ] && [ ! -f "$est/exec-node-nao" ]; then

@@ -1259,6 +1259,7 @@ agente_acao() {
                 explicar_saida_255 "$c"
             fi
             rodar_firewall
+            restricoes_com_trava "$slug" restricoes_conferir_ao_iniciar "$slug"
             ok "agente $slug iniciado"
             ;;
         reiniciar)
