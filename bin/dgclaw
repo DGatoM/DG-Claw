@@ -954,6 +954,38 @@ echo "rotinas, runner e painel instalados"
 DENTRO
 }
 
+# Dá ao painel o grupo systemd-journal em agente que ja existia (a imagem nova ja nasce com ele).
+# Sem o grupo, o journalctl do painel devolve zero linhas e a aba Operacoes fica sem historico.
+# Roda como root dentro do container; idempotente. O grupo so vale para processo novo, entao o
+# painel e reiniciado se o processo em execucao nao o tem (isso cobre tambem o caso em que o
+# usermod ja foi feito mas o painel nao reiniciou).
+grupo_diario_script() {
+    cat <<'DENTRO'
+set -euo pipefail
+if ! getent group systemd-journal >/dev/null; then
+    echo "o grupo systemd-journal nao existe dentro do agente (a imagem e anterior a esta correcao). Atualize a imagem e recrie o agente: dgclaw imagem construir --agora && dgclaw agente recriar <slug>" >&2
+    exit 1
+fi
+# Sem pipe com grep -q: com pipefail, o SIGPIPE de quem escreve viraria falha.
+case " $(id -nG agente) " in
+    *" systemd-journal "*) ;;
+    *) usermod -aG systemd-journal agente ;;
+esac
+gid="$(getent group systemd-journal | cut -d: -f3)"
+pid="$(systemctl show -p MainPID --value dgclaw-painel.service)"
+if [ -n "$pid" ] && [ "$pid" != 0 ]; then
+    grupos="$(ps -o supgid= -p "$pid" || true)"
+    tem=0
+    for g in $grupos; do [ "$g" = "$gid" ] && tem=1; done
+    if [ "$tem" = 0 ]; then
+        systemctl restart dgclaw-painel.service
+        echo "painel reiniciado para pegar o grupo systemd-journal"
+    fi
+fi
+echo "grupo systemd-journal ok"
+DENTRO
+}
+
 # Pre-instala o plugin oficial do Telegram para o `--channels` funcionar sem pedir nada
 # ao aluno. Roda como o usuario agente, com a casa dele. Idempotente: se ja esta
 # instalado, nao faz nada. Agente do Codex nao usa o plugin do Claude e e pulado.
@@ -995,6 +1027,12 @@ instalar_vida() {
     if [ "$rc" -ne 0 ]; then
         aviso "a parte de dentro do agente (rotinas, runner, painel) nao terminou (codigo $rc). O agente continua criado. Para refazer so isso: dgclaw agente reparar $1"
         return 1
+    fi
+    # Sem o grupo, a aba Operacoes nao le o diario das rotinas; o agente funciona do mesmo jeito.
+    rc=0
+    grupo_diario_script | podman exec -i "$c" bash -s || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        aviso "nao consegui dar ao painel do agente $1 o acesso ao diario do sistema (codigo $rc). O agente funciona, mas a aba Operacoes fica sem historico e diz o motivo. Para tentar de novo: dgclaw agente reparar $1"
     fi
     # O Telegram e opcional: se o plugin nao instalar, o agente segue de pe e o canal
     # pode ser ligado depois.

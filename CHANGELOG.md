@@ -7,6 +7,14 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**A aba Operações volta a mostrar as barrinhas de cada rotina, com rotina, horário e resultado.** O painel do agente não
+tinha permissão para ler o diário do sistema, e sem ela a aba dizia que não havia histórico, mesmo com as rotinas
+rodando. Agora, dentro do contêiner, o usuário do agente passa a poder ler o diário do sistema daquele contêiner. Se o
+painel ainda assim não conseguir ler o diário, a aba explica o motivo e o que fazer, em vez de mostrar contagens como
+"nenhuma falha" sobre o que não foi medido. As barrinhas mostram só o resultado de cada execução, sem texto copiado de
+logs. O `dgclaw atualizar` já resolve. Quem não quiser atualizar tudo agora pode rodar `dgclaw agente reparar <slug>`
+para cada agente já instalado: o reparo dá o acesso e reinicia o painel dele.
+
 **O aviso "Faça o login nos seus agentes" agora aparece uma única vez.** Antes, ele voltava a cada aba nova e a cada
 visita ao painel enquanto algum agente estivesse sem login. Agora o painel guarda, no servidor, que você já viu o aviso:
 fechar com **Fazer depois** ou recarregar a página não o traz de volta, e o novo botão **Não mostrar mais** o desliga de
