@@ -124,6 +124,11 @@ compartilhado. A pessoa conversa com o agente inteiro, lê sessões, rotinas, me
 `/opt/dgclaw/app/web/docs/COLABORADORES.md` (também em `GET /api/v1/colaboradores/docs.md`). O envio do e-mail é
 opcional e depende das variáveis `DGCLAW_SMTP_*` do `web.env`.
 
+### Rondas dos agentes
+
+Quando o dono quiser que um agente faça uma ronda (rotina periódica de CRM, suporte, comentários ou dados), o guia é
+`/opt/dgclaw/app/docs/BOAS-PRATICAS-RONDAS.md`, e quem cria a rotina é o próprio agente. A ronda de segurança do servidor é outro assunto.
+
 ### Anonimizar documentos
 
 O dono pode pedir que os documentos enviados a um agente cheguem sem os dados pessoais (nomes, CPF, telefone,

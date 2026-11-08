@@ -7,6 +7,16 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Guia de boas práticas de ronda.** Quando você pedir ao seu agente uma ronda (olhar o CRM, atender o suporte, responder
+comentários, conferir dados), ele passa a seguir o novo `docs/BOAS-PRATICAS-RONDAS.md`: dez regras tiradas de erros e acertos
+reais e um checklist para combinar com você o que a ronda olha, cada quanto, quem é avisado, o que ela corrige sozinha e o que
+acontece se a fonte falhar.
+
+### Como atualizar (guia de rondas)
+
+Peça ao Admin, no chat: "atualiza o DG Claw". Nesta versão há uma instrução nova para os seus agentes conhecerem o guia. Ela
+entra na identidade de cada agente, regravada com `dgclaw agente identidade <agente>`, sem apagar o que você personalizou neles.
+
 **Manual do DG Claw no painel.** O menu ☰ ganha o item **Manual**, uma tela (`/manual`) que mostra, página por página, o que o DG Claw faz e como se usa, com busca pelos títulos e uma visita guiada. O Admin lê o mesmo manual direto da pasta `docs/manual` e os agentes o consultam pelo painel antes de dizer que algo não existe. O contrato das rotas está em `web/docs/MANUAL.md`.
 
 ### Como atualizar (manual e personalização no nível do sistema)

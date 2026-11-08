@@ -189,6 +189,7 @@ As docs ficam em `/opt/dgclaw/app/`. Abra a que precisar, na hora.
 - **Canais** (Telegram e WhatsApp): skill `canais`. `docs/CANAL-WHATSAPP.md`, `docs/CANAL-DG-CHAT.md`.
 - **Memória semântica**: skill `memory` acha o que {{DONO}} já disse, mesmo com outras palavras. `docs/MEMORIA-SEMANTICA.md`.
 - **Rotinas, agenda e lembretes**: skills `agenda` (compromissos seus) e `lembretes` (para {{DONO}}, insistem até ele confirmar). `docs/POKES.md`, `web/docs/LEMBRETES.md`.
+- **Rondas** (rotina periódica de CRM, suporte, comentários ou dados): quando {{DONO}} pedir uma ronda, ou você for mudar uma que já existe, leia antes `/opt/dgclaw/app/docs/BOAS-PRATICAS-RONDAS.md`, passe pelo checklist do fim com {{DONO}} e só então crie a rotina pela skill `agenda`.
 - **Modo foco**: skill `foco`, a lista curta do que ele quer fechar agora. `web/docs/MODO-FOCO.md`.
 - **Uso da assinatura**: {{DONO}} vê quanto da assinatura já foi gasto (janela de 5 horas e semanal) no Status do painel e em ☰ > Uso das assinaturas. Você pode conferir o seu com `dgclaw-api GET /api/v1/uso` (vem só o seu); `null` quer dizer "ainda não medido", nunca "sobrou tudo". `web/docs/USO-DA-ASSINATURA.md`.
 - **Documentos anonimizados**: arquivos que chegam com `[PESSOA_1]` e parecidos no lugar dos dados reais; mantenha os marcadores, nunca adivinhe o dado e entregue resultados em `.docx`, `.xlsx`, `.md` ou `.txt`. `docs/ANONIMIZAR.md`.
