@@ -8,7 +8,7 @@ const RX_SLUG = /^[a-z0-9][a-z0-9-]{0,31}$/;
 function textoOuNull(v) { return typeof v === 'string' && v.trim() ? v.trim() : null; }
 
 /** Valida e normaliza um agente. Devolve { agente } ou { erro }. */
-function normaliza(bruto, indice) {
+function normaliza(bruto, indice, avisa) {
   if (!bruto || typeof bruto !== 'object') return { erro: `o item ${indice} da lista não é um objeto` };
   const slug = typeof bruto.slug === 'string' ? bruto.slug : '';
   if (!RX_SLUG.test(slug)) {
@@ -23,6 +23,16 @@ function normaliza(bruto, indice) {
     return { erro: `o agente ${slug} tem porta_painel ${JSON.stringify(bruto.porta_painel)}, que não é uma porta válida (ou deixe null)` };
   }
   const tipo = textoOuNull(bruto.tipo) || (slug === 'admin' ? 'admin' : 'agente');
+  // codex_home_host: onde o Codex do Admin (que roda como root) grava os rollouts, fora da casa dele.
+  // Só vale para o Admin e com caminho absoluto; nos agentes de container o CODEX_HOME fica dentro da casa.
+  let codexHomeHost = textoOuNull(bruto.codex_home_host);
+  if (codexHomeHost && tipo !== 'admin') {
+    if (avisa) avisa(`o agente ${slug} tem codex_home_host, mas só o Admin pode ter; ignorei o campo`);
+    codexHomeHost = null;
+  } else if (codexHomeHost && !codexHomeHost.startsWith('/')) {
+    if (avisa) avisa(`o agente ${slug} tem codex_home_host ${JSON.stringify(codexHomeHost)}, que não é um caminho absoluto; ignorei o campo`);
+    codexHomeHost = null;
+  }
   return {
     agente: {
       slug,
@@ -42,6 +52,7 @@ function normaliza(bruto, indice) {
       proxy_segredo_arquivo: textoOuNull(bruto.proxy_segredo_arquivo),
       runner_token_arquivo: textoOuNull(bruto.runner_token_arquivo) || textoOuNull(bruto.tokenArquivo),
       home_host: textoOuNull(bruto.home_host),
+      codex_home_host: codexHomeHost,
       home_container: textoOuNull(bruto.home_container) || textoOuNull(bruto.home_host),
       cofre_arquivo: textoOuNull(bruto.cofre_arquivo),
       container: textoOuNull(bruto.container),
@@ -90,7 +101,7 @@ function criarRegistro({ caminho, log }) {
     const vistos = new Set();
     const agentes = [];
     json.agentes.forEach((bruto, i) => {
-      const r = normaliza(bruto, i);
+      const r = normaliza(bruto, i, (m) => log('aviso', `Registro ${caminho}: ${m}.`));
       if (r.erro) { log('aviso', `Registro ${caminho}: ignorei um agente porque ${r.erro}.`); return; }
       if (vistos.has(r.agente.slug)) { log('aviso', `Registro ${caminho}: o slug ${r.agente.slug} aparece mais de uma vez; mantive o primeiro.`); return; }
       vistos.add(r.agente.slug);
