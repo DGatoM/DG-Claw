@@ -99,8 +99,8 @@ _restricoes_log() {
 # aplicar_restricoes <slug> [--sem-reiniciar] [--runner-novo]
 # Le o restricoes.json (ausente = sem restricao) e deixa tres coisas de acordo:
 #   - runner/managed-settings.json: a CONFIGURACAO ADMINISTRADA do Claude Code (o Containerfile liga
-#     /etc/claude-code/managed-settings.json a ele). Leva o gancho de escrita (com qualquer restricao ligada), o
-#     allowManagedHooksOnly e o permissions.deny. Fica fora
+#     /etc/claude-code/managed-settings.json a ele). Leva o gancho de escrita (com qualquer restricao ligada), e o
+#     permissions.deny. Fica fora
 #     da casa, e o Claude Code nao deixa disableAllHooks de usuario, projeto ou local desligar gancho
 #     administrado (docs/RESTRICOES-DO-AGENTE.md). Sem restricao o conteudo e `{}`, igual a nao ter nada;
 #   - runner.json: denyTools e a saida do envio de arquivo de allowTools, registrando em `restricoesAplicadas`
@@ -205,11 +205,12 @@ _aplicar_restricoes_sem_trava() {
     # shellcheck disable=SC2016 # os $ sao variaveis do jq
     # Qualquer restricao ligada instala o gancho (sem escrita_so_em ele roda no modo "so protegidos": fecha
     # .dgclaw, .claude, SKILL.md... que o agente poderia usar para executar comando sem o Bash). onFailure=block:
-    # gancho que nao inicia, morre ou passa do tempo bloqueia em vez de liberar. allowManagedHooksOnly: so os
-    # ganchos da configuracao administrada rodam (os de usuario, projeto e skill nao).
+    # gancho que nao inicia, morre ou passa do tempo bloqueia em vez de liberar.
+    # NAO usar allowManagedHooksOnly: o runner passa os ganchos de status do agente (Stop, PreToolUse...) por
+    # --settings a cada sessao, e essa chave poderia desliga-los e o painel perderia o estado do agente.
     novo_ms="$(jq -nc --argjson pastas "$pastas" --argjson deny "$deny_json" --argjson ativo "$ativo" --arg cmd "$GANCHO_ESCRITA_CMD" --arg m "$GANCHO_ESCRITA_MATCHER" '
         {}
-        | (if $ativo then .hooks = {PreToolUse: [{matcher: $m, hooks: [{type: "command", command: $cmd, timeout: 10, onFailure: "block"}]}]} | .allowManagedHooksOnly = true else . end)
+        | (if $ativo then .hooks = {PreToolUse: [{matcher: $m, hooks: [{type: "command", command: $cmd, timeout: 10, onFailure: "block"}]}]} else . end)
         | (if ($deny | length) > 0 then .permissions = {deny: $deny} else . end)')" \
         || falha "o jq nao conseguiu montar o managed-settings.json do agente $slug." "isto e um erro do DG Claw; abra uma issue com a saida acima."
 

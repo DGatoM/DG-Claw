@@ -98,10 +98,9 @@ oficial do Claude Code diz (páginas de hooks, de settings e de managed settings
   `~/.claude/settings.json`, `.claude/settings.json`, `.claude/settings.local.json` nem em `--settings` a sobrescreve.
 - Os ganchos se somam entre os níveis, e **o `disableAllHooks` definido em configuração de usuário, de projeto ou local não
   consegue desligar ganchos administrados**; só o `disableAllHooks` do próprio nível administrado desliga.
-- `allowManagedHooksOnly` (também administrado) faz rodar só os ganchos da configuração administrada: os de usuário, de projeto,
-  de plugin e de skill deixam de rodar. Ligamos em todo agente com alguma restrição, como segunda trava contra uma skill que traga
-  gancho no próprio cabeçalho. O DG Claw não instala gancho nenhum no `settings.json` do agente (os ganchos de conversa ficam no
-  `runner.json`), então nada dele para de funcionar; ganchos que a própria pessoa pôs na casa do agente deixam de rodar.
+- `allowManagedHooksOnly` existe, mas **não o usamos**: o runner passa os ganchos de status do agente (Stop, PreToolUse e outros)
+  por `--settings` a cada sessão, e a documentação não garante que eles continuem rodando com essa chave. Uma skill com gancho no
+  cabeçalho é barrada de outro jeito: o gancho de escrita protege `SKILL.md` e as pastas ocultas, onde as skills ficam.
 - Cada gancho que geramos leva `onFailure: "block"`: se ele não inicia, é morto por falta de memória ou passa do tempo (10 s), a
   ferramenta é bloqueada em vez de liberada.
 - As regras `permissions.deny` administradas também somam e vencem qualquer `allow` do agente.
@@ -185,4 +184,4 @@ de paridade aberta até o Codex ter regras de ferramenta equivalentes."
 arquivo e as travas sobrevivem a criar, reparar, recriar e atualizar, que o gancho decide certo para cada
 caminho e que um arquivo estragado não solta nada. O que só uma VPS real prova é o Claude Code de verdade
 respeitando o `denyTools` e o gancho. Depois de travar um agente, peça a ele uma gravação fora das pastas
-e confirme que foi recusada. Também fica para o QA na VPS: gravar `relatorios/.claude/skills/x/SKILL.md` e `.dgclaw/config.sh` por Write e Edit com só o Bash travado, e conferir que `onFailure` e `allowManagedHooksOnly` (grafia conferida só na documentação, não contra o Claude Code real) são respeitados.
+e confirme que foi recusada. Também fica para o QA na VPS: gravar `relatorios/.claude/skills/x/SKILL.md` e `.dgclaw/config.sh` por Write e Edit com só o Bash travado, e conferir que `onFailure` (valores `continue` e `block`, desde o Claude Code 2.1.295; a imagem fixa a 2.1.296) é respeitado.
