@@ -93,6 +93,20 @@ test('correcao.executavel só vale para acao-catalogo; ausente ou de outro tipo 
   assert.equal(validaAchado(achado({ correcao: { tipo: 'acao-catalogo', acao_id: 'a', disponivel: true } })).achado.correcao.executavel, false);
 });
 
+test('estados novos e o campo paliativo passam saneados; estado desconhecido continua virando aberto', () => {
+  const pal = { id: 'mptcp-desligado', descricao: 'MPTCP desligado\u0000 no kernel', efeito: 'Desliga o Multipath TCP.', verificado: true, verificado_em: '2026-10-31T10:00:00Z', acao_id: 'sysctl-mptcp-off', lixo: 1 };
+  const a = validaAchado(achado({ estado: 'protegido-aguardando', paliativo: pal, correcao: { tipo: 'nenhuma', disponivel: false, versao_no_aviso: '7.0.0-31.31' } })).achado;
+  assert.equal(a.estado, 'protegido-aguardando');
+  assert.deepEqual(a.paliativo, { id: 'mptcp-desligado', descricao: 'MPTCP desligado no kernel', efeito: 'Desliga o Multipath TCP.', verificado: true, verificado_em: '2026-10-31T10:00:00Z', acao_id: 'sysctl-mptcp-off' });
+  assert.equal(a.correcao.versao_no_aviso, '7.0.0-31.31');
+  assert.equal(validaAchado(achado({ estado: 'aguardando-fornecedor' })).achado.estado, 'aguardando-fornecedor');
+  assert.equal(validaAchado(achado({ estado: 'inventado' })).achado.estado, 'aberto');
+  const ruim = validaAchado(achado({ paliativo: { id: '../x', verificado: 'sim', verificado_em: 'ontem', acao_id: 5 } })).achado.paliativo;
+  assert.deepEqual(ruim, { id: null, descricao: null, efeito: null, verificado: false, verificado_em: null, acao_id: null });
+  assert.equal('paliativo' in validaAchado(achado()).achado, false, 'sem paliativo no arquivo, o campo não aparece');
+  assert.equal(validaAchado(achado({ correcao: { tipo: 'acao-catalogo', acao_id: 'a', disponivel: true, executavel: true, paliativo: true } })).achado.correcao.paliativo, true);
+});
+
 test('validaRonda agrupa por nível, mais grave primeiro, e acusa os descartados', () => {
   const descartes = [];
   const r = validaRonda(ronda([
@@ -251,6 +265,28 @@ test('desfazer só vale para o que a ronda aplicou sozinha e deixou o caminho de
     const ok = await w.c.post('/api/v1/seguranca/ronda/FEITO-1/desfazer', { json: {} });
     assert.equal(ok.status, 202);
     assert.equal(lePedido(w, ok.json.pedido).tipo, 'desfazer');
+  } finally { await w.fechar(); }
+});
+
+test('desfazer também vale para protegido-aguardando com o caminho de volta; aguardando-fornecedor não', async () => {
+  const w = await logado();
+  try {
+    const ap = { em: '2026-10-31T10:00:00Z', acao_id: 'sysctl-x', antes: '1', depois: '0', desfazer: 'sysctl -w x=1' };
+    gravaRonda(w, ronda([
+      achado({ id: 'PROT-1', estado: 'protegido-aguardando', aplicado: ap, correcao: { tipo: 'nenhuma', disponivel: false } }),
+      achado({ id: 'PROT-2', estado: 'protegido-aguardando', aplicado: null, correcao: { tipo: 'nenhuma', disponivel: false } }),
+      achado({ id: 'ESPERA-1', estado: 'aguardando-fornecedor', aplicado: null, correcao: { tipo: 'nenhuma', disponivel: false } }),
+      achado({ id: 'OFERTA-1', correcao: { tipo: 'acao-catalogo', acao_id: 'sysctl-mptcp-off', disponivel: true, executavel: true, paliativo: true } }),
+    ]));
+    const ok = await w.c.post('/api/v1/seguranca/ronda/PROT-1/desfazer', { json: {} });
+    assert.equal(ok.status, 202);
+    assert.equal(lePedido(w, ok.json.pedido).tipo, 'desfazer');
+    assert.equal((await w.c.post('/api/v1/seguranca/ronda/PROT-2/desfazer', { json: {} })).status, 409);
+    assert.equal((await w.c.post('/api/v1/seguranca/ronda/ESPERA-1/desfazer', { json: {} })).status, 409);
+    assert.equal((await w.c.post('/api/v1/seguranca/ronda/ESPERA-1/aplicar', { json: {} })).status, 409, 'nada a aplicar enquanto o fornecedor não publica');
+    assert.equal((await w.c.post('/api/v1/seguranca/ronda/OFERTA-1/aplicar', { json: {} })).status, 202, 'a oferta de paliativo se aplica como qualquer ação do catálogo');
+    const lista = await w.c.get('/api/v1/seguranca/ronda');
+    assert.equal(lista.json.niveis['2'].find((x) => x.id === 'PROT-1').estado, 'protegido-aguardando');
   } finally { await w.fechar(); }
 });
 

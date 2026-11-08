@@ -124,6 +124,54 @@ test('nível 1: o que foi feito, quando e Desfazer só com caminho de volta', ()
   assert.ok(!/data-rp="desfazer"/.test(T.cardAplicadoHtml(achado({ nivel: 1, estado: 'aplicado-sozinho', aplicado: { em: '2026-10-31T10:00:00Z', desfazer: null } }), AGORA)));
 });
 
+const esperando = (extra) => achado(Object.assign({
+  id: 'ESPERA-1', estado: 'aguardando-fornecedor', correcao: { tipo: 'nenhuma', disponivel: false, executavel: false },
+  como_corrigir: 'O fornecedor ainda não publicou a correção para este servidor, e não existe proteção provisória conhecida.',
+}, extra || {}));
+const protegido = (extra) => esperando(Object.assign({
+  id: 'PROT-1', estado: 'protegido-aguardando',
+  paliativo: { id: 'mptcp-desligado', descricao: 'MPTCP desligado no kernel (net.mptcp.enabled = 0)', efeito: 'Desliga o Multipath TCP.', verificado: true, verificado_em: '2026-10-31T10:00:00Z', acao_id: 'sysctl-mptcp-off' },
+  aplicado: { em: '2026-10-31T10:00:00Z', acao_id: 'sysctl-mptcp-off', antes: '1', depois: '0', desfazer: 'sysctl -w net.mptcp.enabled=1' },
+}, extra || {}));
+
+test('aguardando correção oficial: fora dos pontos em risco, fora das listas de decisão, rótulos certos', () => {
+  const ronda = { niveis: { 1: [], 2: [achado({ id: 'AAA-1' }), esperando(), protegido()], 3: [esperando({ id: 'ESPERA-3', nivel: 3 })] } };
+  assert.deepEqual(R.criticasEmAberto(ronda, memoria(), AGORA, null).map((a) => a.id), ['AAA-1'], 'só o aberto conta como ponto em risco');
+  assert.equal(R.estadoRotulo('protegido-aguardando'), 'Protegido, aguardando correção oficial');
+  assert.equal(R.estadoRotulo('aguardando-fornecedor'), 'Aguardando correção do fornecedor');
+  assert.equal(R.aguardaCorrecao(protegido()), true);
+  assert.equal(R.aguardaCorrecao(achado()), false);
+  const h2 = T.listaNivelHtml(ronda.niveis[2], 2, AGORA);
+  assert.ok(h2.includes('AAA-1') && !h2.includes('ESPERA-1') && !h2.includes('PROT-1'));
+  assert.ok(T.listaNivelHtml(ronda.niveis[3], 3, AGORA).includes(T.VAZIO[3]), 'nível 3 só com aguardando mostra a frase de vazio');
+  assert.equal(R.podeAplicar(esperando()), false);
+  assert.equal(R.podePedirAoAdmin(esperando()), false);
+});
+
+test('seção Aguardando correção oficial: frase de topo, proteção provisória, Desfazer só com caminho de volta, tudo escapado', () => {
+  const h = T.listaAguardandoHtml([protegido(), esperando()], AGORA);
+  assert.ok(h.includes('Estas falhas ainda não têm correção publicada pelo fornecedor. Nada a fazer agora: a ronda confere a cada rodada e avisa quando a correção sair.'));
+  assert.match(h, /Proteção provisória ativa:<\/b> MPTCP desligado no kernel \(net\.mptcp\.enabled = 0\)\. Desliga o Multipath TCP\./);
+  assert.match(h, /Protegido, aguardando correção oficial/);
+  assert.match(h, /Aguardando correção do fornecedor/);
+  assert.equal((h.match(/data-rp="desfazer"/g) || []).length, 1, 'Desfazer só no protegido');
+  assert.ok(!/rp-n2/.test(h), 'sem cor de alerta');
+  assert.ok(!/data-rp="(aplicar|agendar-abre|tirar-do-ar)"/.test(h));
+  assert.equal(T.tituloAguardando(3), 'Aguardando correção oficial (3)');
+  assert.ok(T.listaAguardandoHtml([], AGORA).includes(T.VAZIO_AGUARDANDO));
+  const hostil = T.listaAguardandoHtml([protegido({ nome_simples: '<img src=x onerror=1>', paliativo: { descricao: '<script>x</script>', efeito: 'x"><i>ataque', verificado: true, verificado_em: null } })], AGORA);
+  assert.ok(!hostil.includes('<img') && !hostil.includes('<script>') && !hostil.includes('<i>ataque'));
+});
+
+test('oferta de paliativo no nível 2: botão de proteção provisória, sem aviso de reinício', () => {
+  const a = achado({ correcao: { tipo: 'acao-catalogo', acao_id: 'sysctl-mptcp-off', exige_reinicio: false, disponivel: true, executavel: true, paliativo: true },
+    paliativo: { id: 'm', descricao: 'd', efeito: 'Desliga o Multipath TCP.', verificado: false, verificado_em: null, acao_id: 'sysctl-mptcp-off' } });
+  const h = T.cardAcaoHtml(a, AGORA);
+  assert.match(h, /data-rp="aplicar"[^>]*>Aplicar proteção provisória/);
+  assert.match(h, /proteção provisória, enquanto a correção oficial não sai\. Desliga o Multipath TCP\./);
+  assert.equal(R.podeAplicar(a), true);
+});
+
 test('listas vazias dizem a frase certa', () => {
   assert.match(T.listaNivelHtml([], 1, AGORA), /Nada foi aplicado sozinho/);
   assert.match(T.listaNivelHtml([], 2, AGORA), /Nenhuma falha crítica/);

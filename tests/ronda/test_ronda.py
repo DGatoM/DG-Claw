@@ -214,6 +214,7 @@ class Base(unittest.TestCase):
         self.escreve(self.p("opt/dgclaw/app/container/Containerfile"),
                      "FROM docker.io/library/ubuntu:24.04 AS base\nRUN pip install 'Pillow==12.3.0' 'requests==2.34.2'\n")
         self.escreve(self.p("opt/dgclaw/app/seguranca/acoes-permitidas.json"), {"versao": 1, "acoes": []})
+        self.escreve(self.p("opt/dgclaw/app/seguranca/paliativos.json"), {"versao": 1, "paliativos": []})
         os.makedirs(self.p("opt/dgclaw/app/skills/agenda"), exist_ok=True)
         mcp = {"dgchat": {"command": "node", "args": ["/opt/dgclaw/app/scripts/dgchat-mcp/server.mjs"]}}
         if notion:
@@ -231,7 +232,9 @@ class Base(unittest.TestCase):
              "DGCLAW_RONDA_AGORA": self.agora, "DGCLAW_RONDA_PROC": self.proc, "DGCLAW_RONDA_NVD_PAUSA": "0",
              "DGCLAW_RONDA_OSV_URL": self.url, "DGCLAW_RONDA_KEV_URL": self.url + "/kev.json", "DGCLAW_RONDA_HN_URL": self.url + "/hn",
              "DGCLAW_RONDA_NVD_URL": self.url + "/nvd", "DGCLAW_RONDA_GITHUB_API": self.url + "/gh", "DGCLAW_RONDA_GITHUB_RAW": self.url + "/raw",
-             "DGCLAW_ADMIN_URL": self.url, "DGCLAW_RONDA_SAUDE_URL": self.url + "/api/saude", "HOME": self.tmp}
+             "DGCLAW_ADMIN_URL": self.url, "DGCLAW_RONDA_SAUDE_URL": self.url + "/api/saude", "HOME": self.tmp,
+             # sem isto o horário padrão e os workers dependeriam da memória da máquina que roda o teste
+             "DGCLAW_RONDA_ECONOMICA": "0"}
         e.update(self.extra_env)
         return e
 
@@ -1457,6 +1460,259 @@ class AplicarEDesfazer(Base):
         self.assertIsNotNone(self.achado("UBUNTU-CVE-2026-98432"), "com fonte fora, o sumiço pode ser da fonte: o achado segue na lista")
 
 
+class Paliativos(Base):
+    """O apt do servidor decide se a correção existe; sem ela, a proteção provisória do catálogo decide o estado."""
+    ID = "UBUNTU-CVE-2026-98432"
+
+    def meta(self, candidato, nome="linux-image-virtual"):
+        with open(os.path.join(self.stub, "dpkg.txt"), "a", encoding="utf-8") as f:
+            f.write(f"{nome}\t6.8.0.147.147\tlinux-meta\t6.8.0.147.147\n")
+        with open(os.path.join(self.stub, "apt_candidatos.txt"), "a", encoding="utf-8") as f:
+            f.write(f"{nome}\t{candidato}\n")
+
+    def vuln_kernel(self, corrigida):
+        S["osv_paginas"][f"{ECO}|linux|6.8.0-147.153"] = [[self.ID]]
+        r = reg_ubuntu(self.ID, "CVE-2026-98432", "linux", corrigida or "x")
+        if not corrigida:
+            r["affected"][0]["ranges"][0]["events"] = [{"introduced": "0"}]
+        S["osv_vulns"][self.ID] = r
+
+    def catalogo_mptcp(self, sozinha=True):
+        self.escreve(self.p("opt/dgclaw/app/seguranca/acoes-permitidas.json"), {"versao": 1, "acoes": [
+            {"id": "sysctl-mptcp-off", "tipo": "sysctl", "descricao": "Desligar o MPTCP no kernel (net.mptcp.enabled = 0)", "chave": "net.mptcp.enabled", "valor": "0",
+             "casa": {"ids": ["CVE-2026-98432"]}, "exige_reinicio": False, "paliativo": True}]})
+        self.escreve(self.p("opt/dgclaw/app/seguranca/paliativos.json"), {"versao": 1, "paliativos": [
+            {"id": "mptcp-desligado", "casa": {"ids": ["CVE-2026-98432"]}, "descricao": "MPTCP desligado no kernel (net.mptcp.enabled = 0)",
+             "efeito": "Desliga o Multipath TCP, que servidores comuns não usam.", "verifica": {"tipo": "sysctl", "chave": "net.mptcp.enabled", "valor": "0"},
+             "acao_id": "sysctl-mptcp-off", "pode_sozinho": True}]})
+        if not sozinha:
+            self.escreve(self.p("etc/dgclaw/dgclaw.env"), "DGCLAW_RONDA_APLICAR_SOZINHA=0\n")
+
+    def texto_recados(self):
+        return " ".join(r["text"] for r in S["recados"])
+
+    def estado_do_registro(self):
+        with open(self.p("var/lib/dgclaw/seguranca/estado.json")) as f:
+            return json.load(f)
+
+    def test_apt_sem_a_versao_do_aviso_vira_aguardando_fornecedor_e_fica_fora_do_recado(self):
+        self.vuln_kernel("7.0.0-31.31")
+        self.meta("6.8.0-147.147")
+        r = self.ronda("executar")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        a = self.achado(self.ID)
+        self.assertEqual(a["estado"], "aguardando-fornecedor")
+        self.assertEqual(a["nivel"], 2)
+        self.assertEqual((a["correcao"]["tipo"], a["correcao"]["disponivel"]), ("nenhuma", False))
+        self.assertEqual(a["correcao"]["versao_no_aviso"], "7.0.0-31.31")
+        self.assertIn("não existe proteção provisória conhecida", a["como_corrigir"])
+        self.assertIn("O aviso cita a versão 7.0.0-31.31, que ainda não chegou ao apt deste servidor.", a["como_corrigir"])
+        self.assertNotIn("paliativo", a)
+        self.assertEqual(S["recados"], [], "o que aguarda o fornecedor não vai ao Admin")
+        self.assertEqual(self.log_chamadas().count("apt-cache policy"), 1, "uma consulta ao apt por rodada")
+
+    def test_candidato_do_apt_igual_a_corrigida_continua_aberto_com_apt_e_reinicio(self):
+        self.vuln_kernel("6.8.0-149.149")
+        self.meta("6.8.0-149.149")
+        self.ronda("executar")
+        a = self.achado(self.ID)
+        self.assertEqual(a["estado"], "aberto")
+        self.assertEqual((a["correcao"]["tipo"], a["correcao"]["disponivel"], a["correcao"]["exige_reinicio"]), ("apt", True, True))
+        self.assertIn(self.ID, self.texto_recados())
+
+    def test_meta_no_formato_antigo_e_normalizado_antes_de_comparar(self):
+        self.vuln_kernel("6.8.0-149.149")
+        self.meta("6.8.0.149.149")
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(self.ID)["correcao"]["tipo"], "apt")
+        self.meta("6.8.0.100.100", nome="linux-generic")
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(self.ID)["correcao"]["tipo"], "apt", "basta um metapacote oferecer a versão corrigida")
+
+    def test_sem_apt_cache_ou_sem_metapacote_mantem_o_comportamento_antigo(self):
+        self.vuln_kernel("7.0.0-31.31")
+        with open(os.path.join(self.stub, "dpkg.txt"), "a", encoding="utf-8") as f:
+            f.write("linux-image-virtual\t6.8.0.147.147\tlinux-meta\t6.8.0.147.147\n")
+        self.ronda("executar", "--sem-avisar")   # o stub sem resposta falha como um apt quebrado
+        a = self.achado(self.ID)
+        self.assertEqual((a["estado"], a["correcao"]["tipo"], a["correcao"]["disponivel"]), ("aberto", "apt", True))
+        with open(self.p("var/log/dgclaw/ronda.log")) as f:
+            self.assertIn("apt-cache policy", f.read())
+        self.escreve(os.path.join(self.stub, "apt_candidatos.txt"), "openssl\t3.0.13-0ubuntu3.4\n")   # apt ok, mas nenhum metapacote instalado
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(self.ID)["correcao"]["tipo"], "apt")
+        self.escreve(os.path.join(self.stub, "apt_candidatos.txt"), "linux-image-virtual\t(none)\n")
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(self.ID)["correcao"]["tipo"], "apt", "Candidate (none) não prova nada")
+
+    def test_pacote_comum_usa_os_binarios_do_afetado(self):
+        S["osv_paginas"][f"{ECO}|openssl|3.0.13-0ubuntu3.4"] = [["UBUNTU-CVE-2026-77777"]]
+        S["osv_vulns"]["UBUNTU-CVE-2026-77777"] = reg_ubuntu("UBUNTU-CVE-2026-77777", "CVE-2026-77777", "openssl", "3.0.13-0ubuntu3.6", prio="critical")
+        self.escreve(os.path.join(self.stub, "apt_candidatos.txt"), "openssl\t3.0.13-0ubuntu3.4\n")
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado("UBUNTU-CVE-2026-77777")["estado"], "aguardando-fornecedor")
+        self.escreve(os.path.join(self.stub, "apt_candidatos.txt"), "openssl\t3.0.13-0ubuntu3.6\n")
+        self.ronda("executar", "--sem-avisar")
+        a = self.achado("UBUNTU-CVE-2026-77777")
+        self.assertEqual((a["estado"], a["correcao"]["tipo"]), ("aberto", "apt"))
+
+    def test_sem_correcao_e_com_paliativo_verificado_fica_protegido_aguardando(self):
+        self.vuln_kernel(None)
+        self.catalogo_mptcp()
+        self.escreve(os.path.join(self.stub, "sysctl", "net.mptcp.enabled"), "0\n")   # alguém configurou à mão
+        r = self.ronda("executar")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        a = self.achado(self.ID)
+        self.assertEqual(a["estado"], "protegido-aguardando")
+        self.assertIs(a["paliativo"]["verificado"], True)
+        self.assertEqual(a["paliativo"]["id"], "mptcp-desligado")
+        self.assertEqual(a["paliativo"]["acao_id"], "sysctl-mptcp-off")
+        self.assertTrue(a["paliativo"]["verificado_em"])
+        self.assertIn("a proteção provisória está ativa: MPTCP desligado no kernel (net.mptcp.enabled = 0) (conferida em 31/10/2026)", a["como_corrigir"])
+        self.assertEqual(S["recados"], [])
+        self.assertNotIn("sysctl -w", self.log_chamadas(), "já estava protegido: nada a aplicar")
+        n = json.loads(self.ronda("estado", "--json").stdout)
+        self.assertEqual(n["niveis"]["2"], 0)
+        self.assertEqual(n["aguardando_correcao"], {"total": 1, "protegidos": 1})
+        self.assertIn("1 aguardando correção oficial, 1 deles protegidos", self.ronda("estado").stdout)
+        self.assertIn("AGUARDANDO CORREÇÃO OFICIAL", self.ronda("resumo", "--todos").stdout)
+
+    def test_paliativo_nao_verificado_com_aplicar_sozinha_desligado_pede_o_dono(self):
+        self.vuln_kernel(None)
+        self.catalogo_mptcp(sozinha=False)
+        self.ronda("executar")
+        a = self.achado(self.ID)
+        self.assertEqual(a["estado"], "aberto")
+        self.assertEqual(a["correcao"], {"tipo": "acao-catalogo", "acao_id": "sysctl-mptcp-off", "exige_reinicio": False, "disponivel": True,
+                                         "executavel": True, "paliativo": True})
+        self.assertIs(a["paliativo"]["verificado"], False)
+        self.assertIsNone(a["paliativo"]["verificado_em"])
+        self.assertIn("Existe uma proteção provisória enquanto a correção oficial não sai", a["como_corrigir"])
+        self.assertIn(f"sudo dgclaw seguranca aplicar {self.ID}", a["como_corrigir"])
+        self.assertEqual(self.sysctl_valor(), "1")
+        self.assertIn(self.ID, self.texto_recados(), "pede ação: vai ao Admin")
+
+    def test_aplicar_sozinha_aplica_o_paliativo_e_ele_continua_sendo_reavaliado(self):
+        self.vuln_kernel(None)
+        self.catalogo_mptcp()
+        self.ronda("executar", "--sem-avisar")
+        a = self.achado(self.ID)
+        self.assertEqual(a["estado"], "protegido-aguardando", self.ultimo.stdout)
+        self.assertEqual(a["nivel"], 2)
+        self.assertEqual(self.sysctl_valor(), "0")
+        self.assertIn("sysctl -w net.mptcp.enabled=1", a["aplicado"]["desfazer"])
+        self.assertIs(a["paliativo"]["verificado"], True)
+        self.ronda("executar", "--sem-avisar")
+        d = self.json_ronda()
+        a = self.achado(self.ID)
+        self.assertEqual(a["estado"], "protegido-aguardando")
+        self.assertTrue(a["aplicado"]["desfazer"], "continua dando para desfazer")
+        self.assertFalse([j for j in d["ja_tratadas"] if j["id"] == self.ID], "paliativo não é tratamento")
+        self.assertEqual(self.estado_do_registro()["achados"][self.ID]["estado"], "aberto")
+        self.assertEqual(len(os.listdir(self.p("var/lib/dgclaw/seguranca/acoes"))), 1, "a segunda rodada não aplica de novo")
+
+    def test_quando_a_correcao_chega_ao_apt_o_achado_volta_a_aberto_e_vai_ao_admin(self):
+        self.vuln_kernel(None)
+        self.catalogo_mptcp()
+        self.ronda("executar")
+        self.assertEqual(self.achado(self.ID)["estado"], "protegido-aguardando")
+        self.assertEqual(S["recados"], [])
+        est = self.estado_do_registro()
+        est["achados"][self.ID]["avisado_em"] = AGORA
+        self.escreve(self.p("var/lib/dgclaw/seguranca/estado.json"), est)
+        self.vuln_kernel("6.8.0-149.149")
+        self.meta("6.8.0-149.149")
+        self.ronda("executar", "--sem-avisar")
+        a = self.achado(self.ID)
+        self.assertEqual((a["estado"], a["correcao"]["tipo"], a["correcao"]["exige_reinicio"]), ("aberto", "apt", True))
+        self.assertIs(a["paliativo"]["verificado"], True)
+        self.assertIn("A proteção provisória (MPTCP desligado no kernel (net.mptcp.enabled = 0)) pode continuar ligada.", a["como_corrigir"])
+        self.assertIsNone(self.estado_do_registro()["achados"][self.ID]["avisado_em"], "ponto novo para o recado e para o aviso do painel")
+        self.ronda("executar")
+        self.assertIn(self.ID, self.texto_recados())
+
+    def test_paliativo_desfeito_por_fora_volta_a_aberto_com_aplicar(self):
+        self.vuln_kernel(None)
+        self.catalogo_mptcp(sozinha=False)
+        self.escreve(os.path.join(self.stub, "sysctl", "net.mptcp.enabled"), "0\n")
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(self.ID)["estado"], "protegido-aguardando")
+        self.escreve(os.path.join(self.stub, "sysctl", "net.mptcp.enabled"), "1\n")
+        self.ronda("executar", "--sem-avisar")
+        a = self.achado(self.ID)
+        self.assertEqual((a["estado"], a["correcao"]["paliativo"], a["correcao"]["executavel"]), ("aberto", True, True))
+
+    def test_explorada_ativamente_sem_correcao_e_sem_paliativo_continua_aberta(self):
+        S["osv_paginas"][f"{ECO}|openssl|3.0.13-0ubuntu3.4"] = [["UBUNTU-CVE-2026-33333"]]
+        r = reg_ubuntu("UBUNTU-CVE-2026-33333", "CVE-2026-33333", "openssl", "x", prio="low")
+        r["affected"][0]["ranges"][0]["events"] = [{"introduced": "0"}]
+        S["osv_vulns"]["UBUNTU-CVE-2026-33333"] = r
+        S["kev"] = [{"cveID": "CVE-2026-33333", "dateAdded": "2026-10-20"}]
+        self.ronda("executar")
+        a = self.achado("UBUNTU-CVE-2026-33333")
+        self.assertEqual(a["estado"], "aberto")
+        self.assertTrue(a["explorada_ativamente"])
+        self.assertIn("não há correção instalável nem proteção provisória conhecida", a["como_corrigir"])
+        self.assertIn("botão de emergência", a["como_corrigir"])
+        self.assertIn("UBUNTU-CVE-2026-33333", self.texto_recados())
+
+    def test_catalogo_de_paliativos_invalido_vira_fonte_com_falha_e_a_ronda_segue(self):
+        self.vuln_kernel("6.8.0-149.150")
+        self.catalogo_mptcp()
+        casos = [{"versao": 1, "paliativos": [{"id": "x"}]},
+                 {"versao": 2, "paliativos": []},
+                 {"versao": 1, "paliativos": [{"id": "a", "casa": {"ids": ["CVE-2026-1"]}, "descricao": "d", "efeito": "e",
+                                              "verifica": {"tipo": "sysctl", "chave": "net.x; rm", "valor": "0"}}]},
+                 {"versao": 1, "paliativos": [{"id": "a", "casa": {"ids": ["CVE-2026-1"]}, "descricao": "d", "efeito": "e",
+                                              "verifica": {"tipo": "sysctl", "chave": "net.x", "valor": "0"}, "acao_id": "nao-existe"}]},
+                 {"versao": 1, "paliativos": [{"id": "a", "casa": {"ids": ["CVE-2026-1"]}, "descricao": "d", "efeito": "e",
+                                              "verifica": {"tipo": "ping", "chave": "net.x", "valor": "0"}}]}]
+        for doc in casos:
+            self.escreve(self.p("opt/dgclaw/app/seguranca/paliativos.json"), doc)
+            r = self.ronda("executar", "--sem-avisar")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            d = self.json_ronda()
+            f = next(x for x in d["fontes"] if x["nome"] == "Catálogo de paliativos")
+            self.assertFalse(f["ok"])
+            self.assertTrue(f["motivo"])
+            self.assertTrue(d["parcial"])
+            self.assertIsNotNone(self.achado(self.ID), "a ronda não cai por causa do catálogo")
+
+    def test_desfazer_de_protegido_aguardando_pelo_pedido(self):
+        self.vuln_kernel(None)
+        self.catalogo_mptcp()
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(self.ID)["estado"], "protegido-aguardando")
+        arq = self.p("var/lib/dgclaw/web/seguranca/pedidos", "22222222-aaaa-bbbb.json")
+        self.escreve(arq, {"tipo": "desfazer", "id": self.ID, "quando": None, "codigo": None, "pedido_em": AGORA, "por": "marta"})
+        r = self.ronda("pedido", arq)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(self.p("var/lib/dgclaw/web/seguranca/pedidos/feitos/22222222-aaaa-bbbb.json")) as f:
+            self.assertTrue(json.load(f)["ok"])
+        self.assertEqual(self.sysctl_valor(), "1")
+        self.assertEqual(self.achado(self.ID)["estado"], "aberto")
+        self.ronda("executar", "--sem-avisar")
+        a = self.achado(self.ID)
+        self.assertEqual(a["estado"], "aberto", "desfeito pelo dono: a ronda não reaplica sozinha")
+        self.assertEqual(self.sysctl_valor(), "1")
+
+    def test_aplicar_pelo_dono_o_paliativo_nao_vira_tratado(self):
+        self.vuln_kernel(None)
+        self.catalogo_mptcp(sozinha=False)
+        self.ronda("executar", "--sem-avisar")
+        arq = self.p("var/lib/dgclaw/web/seguranca/pedidos", "33333333-aaaa-bbbb.json")
+        self.escreve(arq, {"tipo": "aplicar", "id": self.ID, "quando": None, "codigo": None, "pedido_em": AGORA, "por": "marta"})
+        r = self.ronda("pedido", arq)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.sysctl_valor(), "0")
+        self.assertEqual(self.achado(self.ID)["estado"], "protegido-aguardando")
+        self.assertEqual(self.estado_do_registro()["achados"][self.ID]["estado"], "aberto")
+        self.ronda("executar", "--sem-avisar")
+        a = self.achado(self.ID)
+        self.assertEqual(a["estado"], "protegido-aguardando")
+        self.assertTrue(a["aplicado"]["desfazer"])
+
+
 class Vigia(Base):
     def test_dentro_da_janela_nao_faz_nada(self):
         self.agora = "2026-10-31T07:10:00Z"
@@ -1543,6 +1799,298 @@ class Vigia(Base):
             e = json.load(f)
         self.assertEqual(e["achados"]["UBUNTU-CVE-2026-1"]["estado"], "aplicado-pelo-dono", "a correção concorrente foi apagada")
         self.assertTrue(e["vigia"]["alertado_para"], "o vigia também gravou o campo dele")
+
+
+def carrega_ronda():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("ronda_sob_teste", RONDA)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class Memoria(Base):
+    """Redução dos registros do OSV, correção só do mesmo release, teto de memória, modo econômico e oom-kill no vigia."""
+
+    def registro_grande(self):
+        d = reg_ubuntu("UBUNTU-CVE-2026-98432", "CVE-2026-98432", "linux", "6.8.0-149.150")
+        d["details"] = "x" * 5000
+        d["affected"][0]["versions"] = [f"6.8.0-{i}.{i}" for i in range(500)]
+        d["affected"][0]["ecosystem_specific"] = {"priority": "high", "lixo": "y" * 100}
+        for rel in ("22.04", "20.04", "24.10"):
+            d["affected"].append({"package": {"ecosystem": f"Ubuntu:{rel}:LTS", "name": "linux"}, "versions": ["1"] * 300,
+                                  "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "5.15.0-1.1"}]}]})
+        d["affected"].append({"package": {"ecosystem": ECO, "name": "linux-aws"}, "versions": ["1"],
+                              "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "6.8.0-9.9"}]}]})
+        d["affected"].append({"package": {"ecosystem": "Ubuntu:Pro:24.04:LTS", "name": "linux"}, "versions": ["1"],
+                              "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "6.8.0-150.151~esm1"}]}]})
+        return d
+
+    def test_reduz_registro_osv_descarta_versions_e_o_que_e_de_outro_release_ou_pacote(self):
+        r = carrega_ronda()
+        red = r.reduz_registro_osv(self.registro_grande(), ECO, {"linux"})
+        self.assertEqual(len(red["details"]), 1500)
+        pacotes = [(a["package"]["ecosystem"], a["package"]["name"]) for a in red["affected"]]
+        self.assertEqual(pacotes, [(ECO, "linux"), ("Ubuntu:Pro:24.04:LTS", "linux")])
+        self.assertTrue(all("versions" not in a for a in red["affected"]))
+        self.assertEqual(red["affected"][0]["ecosystem_specific"], {"priority": "high"})
+        self.assertEqual(red["affected"][0]["ranges"][0]["events"], [{"introduced": "0"}, {"fixed": "6.8.0-149.150"}])
+        self.assertEqual(red["aliases"], ["CVE-2026-98432"])
+        self.assertLess(len(json.dumps(red)), len(json.dumps(self.registro_grande())) // 4)
+        # o que a ronda lê continua dando o mesmo resultado
+        antes = r.achado_de_registro(self.registro_grande(), "UBUNTU-CVE-2026-98432", ECO, "linux", "6.8.0-147.153",
+                                     {"ondes": ["kernel"], "comp": {}, "kernel": True, "exposto": False, "portas": []})
+        depois = r.achado_de_registro(red, "UBUNTU-CVE-2026-98432", ECO, "linux", "6.8.0-147.153",
+                                      {"ondes": ["kernel"], "comp": {}, "kernel": True, "exposto": False, "portas": []})
+        self.assertEqual(antes, depois)
+
+    def test_reduz_registro_osv_pypi_casa_nome_normalizado_e_ignora_outro_ecossistema(self):
+        r = carrega_ronda()
+        d = {"id": "GHSA-x", "affected": [
+            {"package": {"ecosystem": "PyPI", "name": "Pillow"}, "versions": ["1"], "ranges": [{"type": "ECOSYSTEM", "events": [{"fixed": "9"}]}]},
+            {"package": {"ecosystem": "npm", "name": "pillow"}, "ranges": []},
+            {"package": {"ecosystem": "PyPI", "name": "outro"}, "ranges": []}]}
+        red = r.reduz_registro_osv(d, "PyPI", {"pillow"})
+        self.assertEqual([a["package"]["name"] for a in red["affected"]], ["Pillow"])
+
+    def test_corrigida_para_so_aceita_correcao_do_mesmo_release(self):
+        r = carrega_ronda()
+        d = self.registro_grande()
+        self.assertEqual(r.corrigida_para(d, ECO, "linux", "6.8.0-147.153"), "6.8.0-149.150")
+        # sem entrada comum, vale a variante Pro do mesmo release; nunca o 22.04 (5.15...) nem o 24.10
+        d["affected"] = [a for a in d["affected"] if a["package"]["ecosystem"] != ECO]
+        self.assertEqual(r.corrigida_para(d, ECO, "linux", "6.8.0-147.153"), "6.8.0-150.151~esm1")
+        d["affected"] = [a for a in d["affected"] if "Pro" not in a["package"]["ecosystem"]]
+        self.assertIsNone(r.corrigida_para(d, ECO, "linux", "6.8.0-147.153"))
+
+    def test_corrigida_para_devolve_none_quando_nenhuma_e_maior_que_a_instalada(self):
+        r = carrega_ronda()
+        d = reg_ubuntu("UBUNTU-CVE-2026-1", "CVE-2026-1", "openssl", "3.0.1-0ubuntu1")
+        self.assertIsNone(r.corrigida_para(d, ECO, "openssl", "3.0.13-0ubuntu3.4"))
+        n = reg_npm("GHSA-a", "express", "4.0.0")
+        self.assertIsNone(r.corrigida_para(n, "npm", "express", "4.17.1"))
+        self.assertEqual(r.corrigida_para(n, "npm", "express", "3.9.0"), "4.0.0")
+
+    def muitas_vulns(self, n=12):
+        for i in range(n):
+            vid = f"UBUNTU-CVE-2026-{70000 + i}"
+            S["osv_vulns"][vid] = reg_ubuntu(vid, f"CVE-2026-{70000 + i}", "linux", "6.8.0-149.150")
+        S["osv_paginas"][f"{ECO}|linux|6.8.0-147.153"] = [[f"UBUNTU-CVE-2026-{70000 + i}" for i in range(n)]]
+
+    def test_teto_de_memoria_vira_fonte_parcial_com_motivo_e_a_rodada_termina(self):
+        self.muitas_vulns()
+        self.extra_env["DGCLAW_RONDA_TETO_MB"] = "1"
+        r = self.ronda("executar", "--sem-avisar")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        doc = self.json_ronda()
+        osv = next(f for f in doc["fontes"] if f["nome"] == "OSV.dev")
+        self.assertFalse(osv["ok"])
+        self.assertIn("parei de ler detalhes ao chegar a", osv["motivo"])
+        self.assertIn("(teto da ronda: 1 MB)", osv["motivo"])
+        self.assertIn("ficaram para a próxima rodada", osv["motivo"])
+        self.assertTrue(doc["parcial"])
+        self.assertGreater(doc["memoria_pico_mb"], 0)
+        with open(self.p("var/log/dgclaw/ronda.log")) as f:
+            self.assertRegex(f.read(), r"memoria_pico_mb=\d+")
+
+    def test_sem_teto_estourado_nao_ha_parcial_por_memoria(self):
+        self.muitas_vulns()
+        self.extra_env["DGCLAW_RONDA_TETO_MB"] = "4000"
+        self.assertEqual(self.ronda("executar", "--sem-avisar").returncode, 0)
+        osv = next(f for f in self.json_ronda()["fontes"] if f["nome"] == "OSV.dev")
+        self.assertTrue(osv["ok"], osv)
+        self.assertEqual(len([a for a in self.json_ronda()["achados"] if a["id"].startswith("UBUNTU-CVE-2026-7")]), 12)
+
+    def test_teto_invalido_aparece_como_falha_da_fonte_com_explicacao(self):
+        self.kernel_vuln()
+        self.extra_env["DGCLAW_RONDA_TETO_MB"] = "muito"
+        self.ronda("executar", "--sem-avisar")
+        osv = next(f for f in self.json_ronda()["fontes"] if f["nome"] == "OSV.dev")
+        self.assertFalse(osv["ok"])
+        self.assertIn("DGCLAW_RONDA_TETO_MB='muito'", osv["motivo"])
+
+    def test_teto_de_usn_tambem_vira_parcial(self):
+        shas = [chr(97 + i) * 40 for i in range(3)]
+        for i, sha in enumerate(shas):
+            S["gh_commits"].append(sha)
+            S["gh_commit_files"][sha] = [f"osv/usn/USN-9990-{i + 1}.json"]
+            S["usn"][f"osv/usn/USN-9990-{i + 1}.json"] = {"id": f"USN-9990-{i + 1}", "summary": "x", "published": "2026-10-20T00:00:00Z",
+                                                          "affected": []}
+        self.kernel_vuln()
+        self.extra_env["DGCLAW_RONDA_TETO_MB"] = "1"
+        self.assertEqual(self.ronda("executar", "--sem-avisar").returncode, 0)
+        usn = next(f for f in self.json_ronda()["fontes"] if f["nome"] == "Ubuntu USN")
+        self.assertFalse(usn["ok"])
+        self.assertIn("parei de ler detalhes ao chegar a", usn["motivo"])
+
+    def test_modo_economico_por_variavel_de_ambiente(self):
+        self.kernel_vuln()
+        self.extra_env["DGCLAW_RONDA_ECONOMICA"] = "1"
+        r = self.ronda("executar", "--sem-avisar")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("modo econômico", r.stdout)
+        self.extra_env["DGCLAW_RONDA_ECONOMICA"] = "0"
+        r = self.ronda("executar", "--sem-avisar")
+        self.assertNotIn("modo econômico", r.stdout)
+
+    def test_modo_economico_baixa_workers_e_teto_padrao(self):
+        r = carrega_ronda()
+        antes = dict(os.environ)
+        try:
+            os.environ.pop("DGCLAW_RONDA_TETO_MB", None)
+            os.environ["DGCLAW_RONDA_ECONOMICA"] = "1"
+            self.assertEqual((r.trabalhadores(8), r.trabalhadores(6), r.teto_mb()), (2, 2, 300))
+            os.environ["DGCLAW_RONDA_ECONOMICA"] = "0"
+            self.assertEqual((r.trabalhadores(8), r.trabalhadores(6), r.teto_mb()), (8, 6, 400))
+        finally:
+            os.environ.clear()
+            os.environ.update(antes)
+
+
+class VigiaOom(Base):
+    def test_oom_kill_grava_o_motivo_e_refaz_no_modo_economico(self):
+        self.escreve(os.path.join(self.stub, "systemctl-result"), "oom-kill\n")
+        self.agora = "2026-10-31T08:00:00Z"
+        r = self.ronda("vigiar")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("segunda tentativa deu certo", r.stdout)
+        self.assertIn("show dgclaw-ronda.service -p Result --value", self.log_chamadas())
+        with open(self.p("var/log/dgclaw/ronda.log")) as f:
+            log = f.read()
+        self.assertIn("oom-kill", log)
+        self.assertIn("economico", log, "a segunda tentativa precisa ter rodado no modo econômico")
+        doc = self.json_ronda()
+        self.assertTrue(doc["parcial"])
+        self.assertIn("passou do teto de memória da fábrica", doc["ultima_falha"]["motivo"])
+        with open(self.p("var/lib/dgclaw/seguranca/estado.json")) as f:
+            self.assertIn("rodei de novo no modo econômico", json.load(f)["ultimo_erro"])
+
+    def test_outro_resultado_do_systemd_nao_muda_nada(self):
+        self.escreve(os.path.join(self.stub, "systemctl-result"), "exit-code\n")
+        self.agora = "2026-10-31T08:00:00Z"
+        r = self.ronda("vigiar")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse(self.json_ronda()["parcial"])
+        with open(self.p("var/log/dgclaw/ronda.log")) as f:
+            self.assertNotIn("oom-kill", f.read())
+
+    def test_sem_systemctl_o_vigia_segue_sem_a_informacao(self):
+        os.unlink(os.path.join(self.bin, "systemctl"))
+        self.agora = "2026-10-31T08:00:00Z"
+        r = self.ronda("vigiar")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+
+class VigiaEconomico(Base):
+    def setUp(self):
+        super().setUp()
+        self.extra_env["DGCLAW_RONDA_ECONOMICA"] = "1"
+        self.agora = "2026-10-31T08:00:00Z"
+
+    def sem_rodada_nova(self):
+        self.assertFalse([x for x in S["pedidos"] if x[1].startswith("/v1/querybatch")], "o vigia econômico não pode refazer a rodada")
+
+    def test_servidor_pequeno_so_confere_registra_o_motivo_e_avisa_sem_refazer(self):
+        r = self.ronda("vigiar")
+        self.assertEqual(r.returncode, 1)
+        self.sem_rodada_nova()
+        self.assertIn("a rodada das 04:00 tenta de novo", r.stderr)
+        doc = self.json_ronda()
+        self.assertTrue(doc["parcial"])
+        self.assertIn("sem erro registrado", doc["vigia_alerta"]["motivo"])
+        self.assertEqual(len(S["recados"]), 1)
+        self.assertIn("às 04:00", S["recados"][0]["text"])
+        self.ronda("vigiar")
+        self.assertEqual(len(S["recados"]), 1, "a mesma rodada perdida não avisa duas vezes")
+        self.sem_rodada_nova()
+
+    def test_servidor_pequeno_com_oom_kill_grava_o_motivo_e_nao_refaz(self):
+        self.escreve(os.path.join(self.stub, "systemctl-result"), "oom-kill\n")
+        r = self.ronda("vigiar")
+        self.assertEqual(r.returncode, 1)
+        self.sem_rodada_nova()
+        doc = self.json_ronda()
+        self.assertIn("passou do teto de memória da fábrica", doc["vigia_alerta"]["motivo"])
+        self.assertTrue(doc["parcial"])
+        with open(self.p("var/lib/dgclaw/seguranca/estado.json")) as f:
+            self.assertIn("passou do teto de memória da fábrica", json.load(f)["ultimo_erro"])
+
+    def test_rodada_que_terminou_bem_nao_gera_alerta(self):
+        self.agora = "2026-10-31T04:00:00Z"
+        self.assertEqual(self.ronda("executar", "--sem-avisar").returncode, 0)
+        S["pedidos"].clear()
+        self.agora = "2026-10-31T05:00:00Z"
+        r = self.ronda("vigiar")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(S["pedidos"], [])
+
+
+class Horarios(Base):
+    def padrao(self, meminfo_kb, **env):
+        r = carrega_ronda()
+        antes = dict(os.environ)
+        try:
+            for k in ("DGCLAW_RONDA_HORARIOS", "DGCLAW_RONDA_ECONOMICA"):
+                os.environ.pop(k, None)
+            self.escreve(os.path.join(self.tmp, "meminfo"), f"MemTotal:  {meminfo_kb} kB\n")
+            os.environ.update(DGCLAW_RAIZ=self.raiz, DGCLAW_RONDA_MEMINFO=os.path.join(self.tmp, "meminfo"), **env)
+            return r.horarios(), r.modo_economico()
+        finally:
+            os.environ.clear()
+            os.environ.update(antes)
+
+    def test_servidor_de_ate_4_5_gib_roda_uma_vez_por_dia_as_4h(self):
+        self.assertEqual(self.padrao(3_900_000), (["04:00"], True))
+        self.assertEqual(self.padrao(4_718_592), (["04:00"], True), "4,5 GiB exatos ainda é servidor pequeno")
+
+    def test_servidor_maior_segue_com_tres_rodadas(self):
+        self.assertEqual(self.padrao(8_000_000), (["07:00", "13:00", "19:00"], False))
+
+    def test_horario_do_dono_vale_em_servidor_pequeno(self):
+        self.assertEqual(self.padrao(3_900_000, DGCLAW_RONDA_HORARIOS="23:15")[0], ["23:15"])
+
+    def test_variavel_forca_ou_desliga_o_modo_independente_da_memoria(self):
+        self.assertEqual(self.padrao(8_000_000, DGCLAW_RONDA_ECONOMICA="1"), (["04:00"], True))
+        self.assertEqual(self.padrao(3_900_000, DGCLAW_RONDA_ECONOMICA="0"), (["07:00", "13:00", "19:00"], False))
+
+    def test_meminfo_ilegivel_nao_liga_o_modo_economico(self):
+        r = carrega_ronda()
+        antes = dict(os.environ)
+        try:
+            os.environ.pop("DGCLAW_RONDA_ECONOMICA", None)
+            os.environ.update(DGCLAW_RAIZ=self.raiz, DGCLAW_RONDA_MEMINFO=os.path.join(self.tmp, "nao-existe"))
+            self.assertFalse(r.modo_economico())
+        finally:
+            os.environ.clear()
+            os.environ.update(antes)
+
+
+class TravaOcupada(Base):
+    def segura_trava(self):
+        import fcntl
+        os.makedirs(self.p("var/lib/dgclaw/seguranca"), exist_ok=True)
+        f = open(self.p("var/lib/dgclaw/seguranca/.trava"), "a")
+        fcntl.flock(f, fcntl.LOCK_EX)
+        self.addCleanup(f.close)
+
+    def test_vigia_que_encontra_a_trava_ocupada_nao_roda_uma_segunda_rodada(self):
+        self.segura_trava()
+        self.extra_env["DGCLAW_RONDA_TRAVA_ESPERA"] = "1"
+        self.agora = "2026-10-31T08:00:00Z"
+        r = self.ronda("vigiar")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("outra operação da ronda ainda está em andamento", r.stdout)
+        self.assertFalse([x for x in S["pedidos"] if x[1].startswith("/v1/querybatch")])
+
+    def test_vigia_economico_com_trava_ocupada_tambem_espera_a_proxima_hora(self):
+        self.segura_trava()
+        self.extra_env.update(DGCLAW_RONDA_TRAVA_ESPERA="1", DGCLAW_RONDA_ECONOMICA="1")
+        self.escreve(os.path.join(self.stub, "systemctl-result"), "oom-kill\n")
+        self.agora = "2026-10-31T08:00:00Z"
+        r = self.ronda("vigiar")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("outra operação da ronda ainda está em andamento", r.stdout)
+        self.assertEqual(S["recados"], [])
 
 
 class EstadoEDesligar(Base):

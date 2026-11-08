@@ -141,7 +141,10 @@
 
   const ROTULO_ESTADO = {
     'aplicado-sozinho': 'Aplicado sozinho', 'aplicado-pelo-dono': 'Aplicado por você', mitigado: 'Mitigado', agendado: 'Agendado', aberto: 'Aberto',
+    'protegido-aguardando': 'Protegido, aguardando correção oficial', 'aguardando-fornecedor': 'Aguardando correção do fornecedor',
   };
+  /* Sem correção instalável: informativo, nunca entra na lista de pontos em risco nem pede decisão. */
+  function aguardaCorrecao(a) { return !!a && (a.estado === 'protegido-aguardando' || a.estado === 'aguardando-fornecedor'); }
   function estadoRotulo(e) { return ROTULO_ESTADO[e] || 'Aberto'; }
 
   /* "Aplicado sozinho em hoje, 13h02: <antes> para <depois>". */
@@ -296,7 +299,7 @@
     API, FUSO, PESO, SONDA_CADA_MS, SONDA_MAX_MS, FRASE_SEM_NOVIDADE, TEXTO_NIVEL3, GRAVIDADE,
     esc, ehHttps, dataBr, horaBr, quando, resumoTopo, textoParcial, textoVigia, gravidadeRotulo, linkHtml, fatosHtml,
     ehAtualizarDgclaw, textoDoPedidoAtualizar, textoDoPedidoAoAdmin, avisoReinicio, podeAplicar, podePedirAoAdmin, estadoRotulo, textoAplicado, agendaParaIso,
-    marcaDecidido, estaDecidido, criticasEmAberto,
+    marcaDecidido, estaDecidido, criticasEmAberto, aguardaCorrecao,
     ordenaPorGravidade, abertura, temCorrecaoParaAplicar, textoBoletim, textoDoPedidoBoletim, fatosBoletimHtml,
     chama, sondar, pedirEEsperar, urlAchado, PEDIDO_ROTULO,
   };

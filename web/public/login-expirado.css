@@ -29,3 +29,6 @@
   #dlgLoginExpirado[open]{animation:leEntra .2s ease-out}
   @keyframes leEntra{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
 }
+#dlgLoginExpirado .le-conectar{margin:10px 0 0;font-size:14px;text-align:center}
+#dlgLoginExpirado .le-conectar[hidden]{display:none}
+#dlgLoginExpirado .le-conectar a{color:#4d6b55;text-decoration:underline;display:inline-block;min-height:44px;line-height:44px}

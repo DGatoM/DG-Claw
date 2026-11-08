@@ -18,6 +18,17 @@ caso_ronda_instala_as_unidades_e_liga_tudo() {
     nega "a ronda nao pode ter RestrictSUIDSGID (o apt do catalogo atualiza pacote com binario setuid)" tem "$s" "RestrictSUIDSGID"
     nega "a ronda nao pode ter ProtectKernelTunables (o sysctl do catalogo precisa escrever em /proc/sys)" tem "$s" "ProtectKernelTunables"
     nega "a ronda nao pode ter ProtectSystem=strict (o apt e o nft do catalogo precisam escrever em /usr e /etc)" tem "$s" "ProtectSystem"
+    local un linha_lim
+    for un in dgclaw-ronda dgclaw-ronda-vigia dgclaw-ronda-inventario; do
+        for linha_lim in MemoryHigh=450M MemoryMax=600M MemorySwapMax=0 OOMScoreAdjust=1000 Nice=19 IOSchedulingClass=idle CPUQuota=50%; do
+            afirma "$un leva o limite $linha_lim (o OOM tem de escolher a ronda, nunca um agente)" tem "$u/$un.service" "$linha_lim"
+        done
+        nega "$un nao fica com o Nice=10 antigo" tem "$u/$un.service" "Nice=10"
+    done
+    for linha_lim in MemoryHigh MemoryMax OOMScoreAdjust CPUQuota Nice=19; do
+        nega "o executor de pedidos do dono nao leva $linha_lim (roda apt e nft e nao pode morrer no meio)" tem "$u/dgclaw-seguranca-pedidos.service" "$linha_lim"
+    done
+    afirma "o executor de pedidos segue com Nice=10" tem "$u/dgclaw-seguranca-pedidos.service" "Nice=10"
     local t="$u/dgclaw-ronda.timer"
     afirma "timer da ronda existe" test -f "$t"
     for linha in "OnCalendar=*-*-* 07:00:00" "OnCalendar=*-*-* 13:00:00" "OnCalendar=*-*-* 19:00:00" RandomizedDelaySec=20min Persistent=true Unit=dgclaw-ronda.service; do
@@ -45,6 +56,64 @@ caso_ronda_instala_as_unidades_e_liga_tudo() {
     afirma "pasta de resultados dos pedidos existe" test -d "$RAIZ/var/lib/dgclaw/web/seguranca/pedidos/feitos"
     nega "o instalador nao cria a linha DGCLAW_RONDA_SEGURANCA (padrao = ligada)" grep -q '^DGCLAW_RONDA_SEGURANCA=' "$RAIZ/etc/dgclaw/dgclaw.env"
     nega "nem a de horarios" grep -q '^DGCLAW_RONDA_HORARIOS=' "$RAIZ/etc/dgclaw/dgclaw.env"
+    limpar_cenario
+}
+
+caso_ronda_servidor_pequeno_roda_uma_vez_por_dia_as_quatro() {
+    novo_cenario
+    printf 'MemTotal:        3900000 kB\n' >"$TMP/meminfo"
+    afirma "a instalacao termina" instalacao_basica
+    local t="$RAIZ/etc/systemd/system/dgclaw-ronda.timer"
+    afirma "uma rodada as 04:00" tem "$t" "OnCalendar=*-*-* 04:00:00"
+    nega "sem as 07:00" tem "$t" "07:00:00"
+    nega "sem as 13:00" tem "$t" "13:00:00"
+    nega "sem as 19:00" tem "$t" "19:00:00"
+    afirma "o instalador avisa o horario" tem "$SAIDA" "as 04:00"
+    nega "o instalador nao grava o horario no dgclaw.env (a deducao vale a cada atualizacao)" grep -q '^DGCLAW_RONDA_HORARIOS=' "$RAIZ/etc/dgclaw/dgclaw.env"
+    limpar_cenario
+}
+
+caso_ronda_servidor_grande_segue_com_tres_rodadas() {
+    novo_cenario
+    printf 'MemTotal:       16000000 kB\n' >"$TMP/meminfo"
+    afirma "a instalacao termina" instalacao_basica
+    local t="$RAIZ/etc/systemd/system/dgclaw-ronda.timer"
+    afirma "07:00" tem "$t" "OnCalendar=*-*-* 07:00:00"
+    afirma "13:00" tem "$t" "OnCalendar=*-*-* 13:00:00"
+    afirma "19:00" tem "$t" "OnCalendar=*-*-* 19:00:00"
+    nega "sem as 04:00" tem "$t" "04:00:00"
+    limpar_cenario
+}
+
+caso_ronda_servidor_pequeno_respeita_o_horario_do_dono() {
+    novo_cenario
+    printf 'MemTotal:        3900000 kB\n' >"$TMP/meminfo"
+    mkdir -p "$RAIZ/etc/dgclaw"
+    printf 'DGCLAW_RONDA_HORARIOS="23:15"\n' >"$RAIZ/etc/dgclaw/dgclaw.env"
+    chmod 640 "$RAIZ/etc/dgclaw/dgclaw.env"
+    afirma "a instalacao termina" instalacao_basica
+    local t="$RAIZ/etc/systemd/system/dgclaw-ronda.timer"
+    afirma "o horario do dono" tem "$t" "OnCalendar=*-*-* 23:15:00"
+    nega "nao entra o das 04:00" tem "$t" "04:00:00"
+    limpar_cenario
+}
+
+caso_ronda_economica_forcada_e_desligada_vencem_a_memoria() {
+    novo_cenario
+    printf 'MemTotal:       16000000 kB\n' >"$TMP/meminfo"
+    mkdir -p "$RAIZ/etc/dgclaw"
+    printf 'DGCLAW_RONDA_ECONOMICA=1\n' >"$RAIZ/etc/dgclaw/dgclaw.env"
+    chmod 640 "$RAIZ/etc/dgclaw/dgclaw.env"
+    afirma "a instalacao termina" instalacao_basica
+    afirma "forcada em servidor grande: 04:00" tem "$RAIZ/etc/systemd/system/dgclaw-ronda.timer" "OnCalendar=*-*-* 04:00:00"
+    limpar_cenario
+    novo_cenario
+    printf 'MemTotal:        3900000 kB\n' >"$TMP/meminfo"
+    mkdir -p "$RAIZ/etc/dgclaw"
+    printf 'DGCLAW_RONDA_ECONOMICA=0\n' >"$RAIZ/etc/dgclaw/dgclaw.env"
+    chmod 640 "$RAIZ/etc/dgclaw/dgclaw.env"
+    afirma "a instalacao termina" instalacao_basica
+    afirma "desligada em servidor pequeno: 07:00" tem "$RAIZ/etc/systemd/system/dgclaw-ronda.timer" "OnCalendar=*-*-* 07:00:00"
     limpar_cenario
 }
 

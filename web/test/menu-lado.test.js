@@ -51,6 +51,17 @@ test('páginas do painel: 13 links com #aba=, e nenhum sem painel', () => {
   assert.deepEqual(M.linksPainel({ id: 'admin', tem_painel: false }), []);
 });
 
+test('Tela: item do menu leva ao painel já na aba Tela, e o Admin não tem', () => {
+  const l = M.linkTela({ id: 'ana', tem_painel: true, painel_url: '/p/ana/' });
+  assert.equal(l.href, '/p/ana/#aba=tela');
+  assert.equal(l.nome, 'Navegador');
+  assert.equal(l.alvo, '_blank');
+  assert.equal(M.chaveDoHref(l.href), 'tela');
+  assert.equal(M.linkTela({ id: 'tina', tem_painel: true }).href, '/p/tina/#aba=tela');
+  assert.equal(M.linkTela({ id: 'admin', tipo: 'admin', tem_painel: true }), null);
+  assert.equal(M.linkTela({ id: 'admin', tem_painel: false }), null);
+});
+
 test('instalar o app: instalado some, prompt do Chrome, iPhone explica, resto explica o porquê', () => {
   assert.equal(M.instrucaoInstalar({ standalone: true }).tipo, 'instalado');
   assert.equal(M.instrucaoInstalar({ promptGuardado: true }).tipo, 'prompt');
