@@ -34,7 +34,7 @@ Regras que valem para tudo:
 ## Comandos do servidor (`dgclaw`)
 
 Rodam como root: `sudo dgclaw <comando>`. A opção `--ensaio` vale em qualquer um e mostra o que seria feito sem
-mudar nada. Quem: Root. Detalhe geral em [ATUALIZAR.md](../ATUALIZAR.md) e no `dgclaw --ajuda`.
+mudar nada. Quem: Root. Detalhe geral em [ATUALIZAR.md](../ATUALIZAR.md) e no `dgclaw --ajuda`. A exceção é o `dgclaw emergencia`, que ignora o `--ensaio` e age de verdade: para ver o plano sem mudar nada, use `dgclaw emergencia simular`.
 
 ### Agentes
 

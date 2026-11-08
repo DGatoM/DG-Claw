@@ -5,7 +5,7 @@ fazer e restaurar backup, trocar o domínio e a senha do painel, reconstruir a i
 tudo está de pé. Quase tudo isso é um comando que o Admin roda no servidor; você só precisa dizer em português o que quer.
 
 Todos os comandos rodam como root (`sudo dgclaw ...`) e aceitam `--ensaio`, que mostra o que seria feito sem mudar
-nada. A lista completa dos comandos está em [referencia-admin.md](referencia-admin.md).
+nada. A lista completa dos comandos está em [referencia-admin.md](referencia-admin.md). A exceção é o `dgclaw emergencia`, que ignora o `--ensaio` e age de verdade: para ver o plano sem mudar nada, use `dgclaw emergencia simular`.
 
 ## Atualizar o DG Claw
 
