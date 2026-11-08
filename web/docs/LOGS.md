@@ -59,7 +59,9 @@ Os agentes do registro e o estado de cada fonte (um motor por fonte: `claude` e 
 - Onde as sessões ficam: Claude em `<casa>/.claude/projects` (e `transcripts_dir` no Admin); Codex com assinatura em
   `<casa>/.codex/sessions` e Codex com chave de API em `<casa>/.plataforma/codex-api/<id>/sessions` (uma pasta por sessão do
   runner). As pastas da API entram na mesma fonte do Codex, com os mesmos limites; o `<id>` só vale com letras, números, `_` e
-  `-` (até 64), atalhos não são seguidos e o caminho real precisa ficar dentro da casa. Com sessões só no caminho da API, a
+  `-` (até 64), atalhos não são seguidos e o caminho real precisa ficar dentro da casa. A enumeração respeita o teto de entradas e o
+  prazo da fonte (arquivos e nomes inválidos também contam) e lê no máximo 200 pastas de sessão: passando disso, as 200
+  primeiras entram e a fonte fica `parcial`, com o motivo. Com sessões só no caminho da API, a
   fonte aparece como lida (nunca como "nunca rodou neste motor"). O Admin ganha a fonte do Codex também quando só há sessões
   por chave de API na casa dele.
 - Limite conhecido: um agente do Claude configurado com um `CLAUDE_CONFIG_DIR` próprio (variável do `runner.json`, que o registro de

@@ -178,3 +178,89 @@ test('resposta e busca nos dois motores: o valor de argumento de shell com vírg
   assert.ok(!JSON.stringify(r).includes('ALHEIO'));
   for (const q of [SUF, 'ALHEIO']) assert.equal((await l.eventos(c.ag, { limite: 100, cursor: null, q })).eventos.length, 0);
 });
+
+// ── tetos e prazo da enumeração de .plataforma/codex-api ────────────────────
+const apiDir = (c) => { const d = path.join(c.home, '.plataforma', 'codex-api'); fs.mkdirSync(d, { recursive: true }); return d; };
+
+test('Codex API: arquivos, atalhos e nomes inválidos em excesso respeitam o teto de entradas e deixam a fonte parcial', async () => {
+  const c = casa();
+  const api = apiDir(c);
+  for (let i = 0; i < 40; i++) fs.writeFileSync(path.join(api, `arquivo-${i}.txt`), 'x');
+  for (let i = 0; i < 40; i++) fs.mkdirSync(path.join(api, `nome invalido ${i}`));
+  viaApi(c, 'legitimo', U(1), [msg(1000, 'legítimo')]);
+  const l = criarLeitor({ orcamento: { maxEntradas: 30 } });
+  const r = await l.eventos(c.ag, { limite: 50, cursor: null });
+  const f = fonteCodex(r);
+  assert.equal(f.estado, 'parcial');
+  assert.match(f.motivo, /entradas demais/);
+  assert.ok(r.avisos.some((a) => a.tipo === 'limite' || /entradas demais/.test(a.motivo || '')) || /entradas demais/.test(f.motivo));
+});
+
+test('Codex API: o prazo da enumeração também vale (relógio de teste)', async () => {
+  const c = casa();
+  const api = apiDir(c);
+  for (let i = 0; i < 200; i++) fs.writeFileSync(path.join(api, `arquivo-${i}.txt`), 'x');
+  let t = 0;
+  const l = criarLeitor({ agora: () => (t += 1000), orcamento: { descobertaMs: 5000 } });
+  const f = (await l.resumoDasFontes(c.ag)).fontes.find((x) => x.motor === 'codex');
+  assert.equal(f.estado, 'parcial');
+  assert.match(f.motivo, /passou de 5000 ms/);
+});
+
+test('Codex API: 201 pastas devolvem as 200 primeiras e a fonte parcial, com motivo', async () => {
+  const c = casa();
+  for (let i = 0; i < 201; i++) viaApi(c, `p${String(i).padStart(3, '0')}`, U(100 + i), [msg(1000 + i, `m${i}`)]);
+  const l = criarLeitor({ orcamento: { descobertaMs: 120000 } });
+  const f = (await l.resumoDasFontes(c.ag)).fontes.find((x) => x.motor === 'codex');
+  assert.equal(f.estado, 'parcial');
+  assert.equal(f.arquivos, 200);
+  assert.match(f.motivo, /mais de 200 pastas/);
+  const s = await l.sessoes(c.ag, { limite: 200, cursor: null });
+  assert.equal(s.sessoes.length, 200);
+  assert.ok(s.avisos.some((a) => a.tipo === 'limite'));
+});
+
+test('Codex API: pastas todas ilegíveis não viram "nunca rodou"', async () => {
+  const c = casa();
+  const fora = pastaTemp('logs-api-fora2');
+  fs.mkdirSync(path.join(fora, 'sessions'), { recursive: true });
+  const api = apiDir(c);
+  fs.mkdirSync(path.join(api, 'a'));
+  fs.symlinkSync(path.join(fora, 'sessions'), path.join(api, 'a', 'sessions'));
+  const f = (await criarLeitor().resumoDasFontes(c.ag)).fontes.find((x) => x.motor === 'codex');
+  assert.equal(f.estado, 'ilegivel');
+  assert.ok(!/nunca rodou/.test(f.motivo));
+});
+
+// ── atribuição com = é argumento de shell; com : é propriedade ──────────────
+const IGUAL = [
+  `PASSWORD="prefixo",${SUF} programa`,
+  `senha='a b'}${SUF} programa`,
+  `token=x"a b"]${SUF} programa`,
+  `API_KEY="a",${SUF}`.replace(/$/, ' programa'),
+  `chave=a"b",c}${SUF} programa`,
+];
+
+test('limpa: atribuição com "=" consome todos os pedaços adjacentes, com "," "}" "]" depois da aspa', () => {
+  for (const c of IGUAL) {
+    const r = limpa(c);
+    assert.ok(!r.includes(SUF), `sobrou o sufixo em: ${c} => ${r}`);
+    assert.match(r, /programa$/);
+  }
+  const k = 'sen' + 'ha';
+  assert.ok(limpa(`{"${k}":"x","outro":"visivel"}`).includes('"outro":"visivel"'), 'com ":" a exceção de JSON continua');
+  assert.ok(limpa(`${k}: "x", outro: "y"`).includes('outro: "y"'), 'também em YAML inline');
+});
+
+test('resposta e busca nos dois motores: atribuição com "=" e vírgula depois da aspa não vaza', async () => {
+  const c = casa();
+  const d = path.join(c.home, '.claude', 'projects', '-ws');
+  fs.mkdirSync(d, { recursive: true });
+  fs.writeFileSync(path.join(d, `${U(1)}.jsonl`), IGUAL.map((t, i) => JSON.stringify({ type: 'user', timestamp: iso(1000 + i), sessionId: U(1), message: { role: 'user', content: t } })).join('\n') + '\n');
+  assinatura(c, U(2), IGUAL.map((t, i) => msg(5000 + i, t)));
+  const l = criarLeitor();
+  const r = await l.eventos(c.ag, { limite: 100, cursor: null });
+  assert.equal(r.eventos.length, IGUAL.length * 2);
+  assert.ok(!JSON.stringify(r).includes('ALHEIO'));
+  for (const q of [SUF, 'ALHEIO']) assert.equal((await l.eventos(c.ag, { limite: 100, cursor: null, q })).eventos.length, 0);
+});

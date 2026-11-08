@@ -87,14 +87,17 @@ const SQ = String.raw`'(?:[^'\\\n]|\\[^\n])*\\?(?:'|(?=\n|$))`;
 const ESC = String.raw`\\[^\n]`;                                  // barra mais qualquer caractere da linha (`primeira\ segunda`)
 const FIM_JSON = String.raw`[,}\]](?<=[^"'][,}\]])`;        // vírgula, chave ou colchete só contam como valor se não vierem logo depois de aspa
 // Argumento de shell (flags, curl -u, mysql -p): todos os pedaços adjacentes até o espaço não escapado, e `,` `}` `]` fazem parte
-// do valor, mesmo logo depois de uma aspa (`"usuario:",segredo`). A exceção de JSON vale só na atribuição `nome=valor` / `"nome":"valor"`.
+// do valor, mesmo logo depois de uma aspa (`"usuario:",segredo`). A exceção de JSON vale só na propriedade `"nome":"valor"` (separador `:`).
 const VALOR = String.raw`(?:${DQ}|${SQ}|${ESC}|[^\s"'\\])+`;
 const VALOR_ATRIBUICAO = String.raw`(?:${DQ}|${SQ}|${ESC}|[^\s"'\\&;|,}\]]|${FIM_JSON})+`;
 const PRE = [
   [new RegExp(String.raw`(\bmysql(?:dump)?\b[^\n]{0,300}?[ \t]-p)${VALOR}`, 'gi'), '$1' + OCULTO],
   [new RegExp(String.raw`(--(?:password|token|api-key|secret|senha)(?:=|[ \t]{1,20}))${VALOR}`, 'gi'), '$1' + OCULTO],
   [new RegExp(String.raw`(\bcurl\b[^\n]{0,300}?[ \t](?:-u|--user)[ \t]{1,20})${VALOR}`, 'gi'), '$1' + OCULTO],
-  [new RegExp(String.raw`((?:api[_-]?key|passw(?:or)?d|pwd|senha|secret|token|credential|chave|cookie|auth)[A-Za-z0-9_.-]{0,60}["']?[ \t]{0,20}[=:][ \t]{0,20})${VALOR_ATRIBUICAO}`, 'gi'), '$1' + OCULTO],
+  // Atribuição com `=` é argumento de shell ou de variável de ambiente: todos os pedaços adjacentes até o espaço não escapado.
+  [new RegExp(String.raw`((?:api[_-]?key|passw(?:or)?d|pwd|senha|secret|token|credential|chave|cookie|auth)[A-Za-z0-9_.-]{0,60}["']?[ \t]{0,20}=[ \t]{0,20})${VALOR}`, 'gi'), '$1' + OCULTO],
+  // Com `:` é propriedade (JSON ou YAML): depois de uma aspa de fechamento, `,` `}` e `]` encerram o valor.
+  [new RegExp(String.raw`((?:api[_-]?key|passw(?:or)?d|pwd|senha|secret|token|credential|chave|cookie|auth)[A-Za-z0-9_.-]{0,60}["']?[ \t]{0,20}:[ \t]{0,20})${VALOR_ATRIBUICAO}`, 'gi'), '$1' + OCULTO],
 ];
 
 const EXTRAS = [
@@ -475,14 +478,20 @@ async function descobreApi(casa, lim, gasto) {
     return r;
   }
   const ids = [];
+  const entradasRestantes = lim.maxEntradas - gasto.entradas;
   let d;
   try { d = await fsp.opendir(baseReal); } catch (e) { r.estado = 'ilegivel'; r.motivo = `não consegui listar .plataforma/codex-api (${e.code || e.message})`; return r; }
   try {
     for await (const ent of d) {
-      r.entradas++;
-      if (ids.length >= MAX_IDS_API) { r.parcial = `há mais de ${MAX_IDS_API} pastas em .plataforma/codex-api; só as primeiras entraram na lista`; break; }
+      // orçamento e prazo no topo do laço, antes de qualquer `continue`: arquivo, atalho e nome inválido também custam
+      if (++r.entradas > entradasRestantes) { r.parcial = `há entradas demais em .plataforma/codex-api (mais de ${lim.maxEntradas}); parei de olhar por segurança e a lista pode estar incompleta`; break; }
+      if (r.entradas % 64 === 0) {
+        await lim.cede();
+        if (lim.relogio() - gasto.inicio > lim.ms) { r.parcial = `a leitura de .plataforma/codex-api passou de ${lim.ms} ms e parou; a lista pode estar incompleta`; break; }
+      }
       if (ent.isSymbolicLink()) { r.atalhos_ignorados++; continue; }
       if (!ent.isDirectory() || !RX_ID_API.test(ent.name)) continue;
+      if (ids.length >= MAX_IDS_API) { r.parcial = `há mais de ${MAX_IDS_API} pastas de sessão em .plataforma/codex-api; só as primeiras ${MAX_IDS_API} entraram na lista`; break; }
       ids.push(ent.name);
     }
   } catch (e) {
@@ -490,21 +499,24 @@ async function descobreApi(casa, lim, gasto) {
   } finally { await d.close().catch(() => {}); }
   ids.sort();
   let vazias = 0;
+  let ilegiveis = 0;
+  let primeiroMotivo = null;
   for (const id of ids) {
-    if (r.parcial) break;
     const restante = { ...lim, maxArquivos: lim.maxArquivos - gasto.arquivos - r.arquivos.length, maxEntradas: lim.maxEntradas - gasto.entradas - r.entradas, ms: lim.ms - (lim.relogio() - gasto.inicio) };
-    if (restante.maxArquivos <= 0 || restante.maxEntradas <= 0 || restante.ms <= 0) { r.parcial = 'os limites de leitura acabaram antes de chegar em todas as pastas de .plataforma/codex-api'; break; }
+    // o indicador de lista incompleta (r.parcial) não interrompe a leitura das pastas já coletadas: só o orçamento interrompe
+    if (restante.maxArquivos <= 0 || restante.maxEntradas <= 0 || restante.ms <= 0) { r.parcial = r.parcial || 'os limites de leitura acabaram antes de chegar em todas as pastas de .plataforma/codex-api'; break; }
     const sub = await descobreFonte({ motor: 'codex', raiz: path.join(baseReal, id, 'sessions'), permitida: casa, rotulo: `.plataforma/codex-api/${id}/sessions`, prefixo: `api/${id}/` }, restante);
     r.arquivos.push(...sub.arquivos);
     r.avisos.push(...sub.avisos);
     r.avisosOmitidos += sub.avisosOmitidos;
     r.atalhos_ignorados += sub.atalhos_ignorados;
     r.entradas += sub.entradas;
-    if (sub.estado === 'parcial') r.parcial = sub.motivo;
-    else if (sub.estado === 'ilegivel') r.avisos.push({ tipo: 'pasta_ilegivel', motivo: sub.motivo, arquivo: `codex:.plataforma/codex-api/${id}` });
+    if (sub.estado === 'parcial') { r.parcial = r.parcial || sub.motivo; break; }
+    if (sub.estado === 'ilegivel') { ilegiveis++; primeiroMotivo = primeiroMotivo || sub.motivo; r.avisos.push({ tipo: 'pasta_ilegivel', motivo: sub.motivo, arquivo: `codex:.plataforma/codex-api/${id}` }); }
     else if (sub.estado === 'vazia') vazias++;
   }
   if (r.arquivos.length) r.estado = 'ok';
+  else if (r.estado !== 'ilegivel' && ilegiveis) { r.estado = 'ilegivel'; r.motivo = `nenhuma pasta de .plataforma/codex-api pôde ser lida: ${primeiroMotivo}`; }
   else if (r.estado !== 'ilegivel' && ids.length && vazias === ids.length) { r.estado = 'vazia'; r.motivo = '.plataforma/codex-api existe, mas ainda não tem nenhuma sessão gravada'; }
   return r;
 }
@@ -520,6 +532,7 @@ function unePastasDoCodex(d, api, lim) {
     atalhos_ignorados: d.atalhos_ignorados + api.atalhos_ignorados,
     entradas: d.entradas + api.entradas,
   });
+  if (api.parcial) u.avisos.push({ tipo: 'limite', motivo: api.parcial, arquivo: 'codex' });
   if (arquivos.length) {
     u.estado = parcial ? 'parcial' : 'ok';
     u.motivo = parcial || null;
