@@ -78,14 +78,15 @@ class ErroArquivo extends Error {
 // um hífen, e a atribuição entre aspas de mascara.js fecha na primeira aspa, mesmo escapada, e deixaria o resto do valor).
 // Valor entre aspas vai até a aspa de fechamento, consumindo `\"` como parte do valor; sem fechamento, até o fim da linha;
 // sem aspas, até o próximo espaço. O argumento pode juntar pedaços adjacentes (`"a b"c'd e'`): cada pedaço começa por um
-// caractere diferente (aspa dupla, aspa simples ou um caractere comum), então o laço anda sempre para a frente, sem retrocesso.
+// caractere diferente (aspa dupla, aspa simples, barra de escape ou um caractere comum, sem barra), então o laço anda sempre para a frente, sem retrocesso.
 // Depois de uma aspa de fechamento, `,` `}` e `]` encerram o valor (JSON em texto: `"senha":"x","outro":"y"` mantém o resto).
 const DQ = String.raw`"(?:[^"\\\n]|\\[^\n])*\\?(?:"|(?=\n|$))`;
 const SQ = String.raw`'(?:[^'\\\n]|\\[^\n])*\\?(?:'|(?=\n|$))`;
+const ESC = String.raw`\\[^\n]`;                                  // barra mais qualquer caractere da linha (`primeira\ segunda`)
 const FIM_JSON = String.raw`[,}\]](?<=[^"'][,}\]])`;        // vírgula, chave ou colchete só contam como valor se não vierem logo depois de aspa
-const pedacos = (comum) => String.raw`(?:${DQ}|${SQ}|${comum}|${FIM_JSON})+`;
-const VALOR = pedacos(String.raw`[^\s"',}\]]`);
-const VALOR_ATRIBUICAO = pedacos(String.raw`[^\s"'&;|,}\]]`);
+const pedacos = (comum) => String.raw`(?:${DQ}|${SQ}|${ESC}|${comum}|${FIM_JSON})+`;
+const VALOR = pedacos(String.raw`[^\s"'\\,}\]]`);
+const VALOR_ATRIBUICAO = pedacos(String.raw`[^\s"'\\&;|,}\]]`);
 const PRE = [
   [new RegExp(String.raw`(\bmysql(?:dump)?\b[^\n]{0,300}?[ \t]-p)${VALOR}`, 'gi'), '$1' + OCULTO],
   [new RegExp(String.raw`(--(?:password|token|api-key|secret|senha)(?:=|[ \t]{1,20}))${VALOR}`, 'gi'), '$1' + OCULTO],
@@ -675,7 +676,7 @@ function extraiCodex(j, leitor) {
 }
 
 // ── evento final ───────────────────────────────────────────────────────────
-function montaEvento(item, arq, bases) {
+async function montaEvento(item, arq, bases, ctx) {
   const { r, key, ts, suspeito } = item;
   const detalhes = {};
   let truncado = false;
@@ -684,10 +685,12 @@ function montaEvento(item, arq, bases) {
   busca.push(titulo);
   let texto = '';
   if (r.texto) {
+    await ctx.cede();
     const p = preparaTexto(r.texto, TETO_TEXTO);
     texto = p.texto; truncado = truncado || p.truncado; busca.push(p.cheio);
   }
   if (r.comando != null && r.comando !== '') {
+    await ctx.cede();
     const p = preparaTexto(r.comando, TETO_COMANDO);
     detalhes.comando = p.texto; truncado = truncado || p.truncado; busca.push(p.cheio);
   }
@@ -696,6 +699,7 @@ function montaEvento(item, arq, bases) {
   if (r.operacao) detalhes.operacao = r.operacao;
   if (r.ferramenta) detalhes.ferramenta = corta(limpa(r.ferramenta), 120).texto;
   if (r.entrada !== undefined && r.entrada !== null && r.entrada !== '') {
+    await ctx.cede();
     const p = preparaTexto(r.entrada, TETO_COMANDO);
     detalhes.entrada = p.texto; truncado = truncado || p.truncado; busca.push(p.cheio);
   }
@@ -719,6 +723,7 @@ function montaEvento(item, arq, bases) {
   }
   if (truncado) ev.truncado = true;
   if (suspeito) ev.horario_suspeito = true;
+  await ctx.cede();
   return { ev, busca: normaliza(busca.join('\n')) };
 }
 
@@ -1175,7 +1180,6 @@ function criarLeitor({ log, agora, orcamento } = {}) {
         }
       }
 
-      let voltas = 0;
       for (;;) {
         if (ctx.excedeu()) { parcial = true; break; }
         // Página cheia: para sem olhar adiante (olhar adiante leria o arquivo todo quando o resto não tem ação).
@@ -1204,13 +1208,13 @@ function criarLeitor({ log, agora, orcamento } = {}) {
         ultimaChave = item.key;
         melhor.cabeca = null;
         let montado = null;
-        try { montado = montaEvento(item, item.arq, bases); } catch (e) {
+        try { montado = await montaEvento(item, item.arq, bases, ctx); } catch (e) {
           // Registro malformado (campo de tipo inesperado): conta como linha ilegível e a leitura segue.
           ctx.contagens.linhas_ilegiveis++;
           aviso('aviso', `Logs: registro malformado ignorado em ${item.arq.rotulo} (${e && e.message ? String(e.message).slice(0, 80) : 'erro'}).`);
         }
         if (montado && (!q || montado.busca.includes(q))) emitidos.push(montado.ev);
-        if (++voltas % 200 === 0) await new Promise((r) => setImmediate(r));
+        await ctx.cede();
       }
 
       return { emitidos, ultimaChave, parcial, mais, acabou };
@@ -1281,7 +1285,7 @@ function criarLeitor({ log, agora, orcamento } = {}) {
 
 /** Toda regex deste módulo, com sementes de entradas hostis (começos de casamento): o teste de auditoria as roda em 64 KB. */
 const REGEX_AUDITAVEIS = [
-  ...PRE.map(([rx], i) => ({ nome: `PRE[${i}]`, rx, sementes: ['mysql -p', '--password=', '--token ', 'curl -u ', 'curl x -u ', 'token=', 'chave:', 'senha="', "pwd='", 'cookie: '] })),
+  ...PRE.map(([rx], i) => ({ nome: `PRE[${i}]`, rx, sementes: ['mysql -p', '--password=', '--password=a\\ ', 'senha=a\\ ', '--token ', 'curl -u ', 'curl x -u ', 'token=', 'chave:', 'senha="', "pwd='", 'cookie: '] })),
   ...EXTRAS.map(([rx], i) => ({ nome: `EXTRAS[${i}]`, rx, sementes: ['sk-', 'sk_', 'gsk_', 'xai-', 'xoxb-', 'ghp_', 'eyJ', 'eyJaaaaaa.', 'eyJaaaaaa.bbbbbb.', 'Authorization: ', 'Proxy-Authorization:', 'X-Api-Key: ', 'Cookie: ', 'Set-Cookie:'] })),
   { nome: 'RX_RESTO_MARCADOR', rx: RX_RESTO_MARCADOR, sementes: ['[segredo oculto]', '[segredo oculto] oculto]'] },
   { nome: 'RX_SEQUENCIA_LONGA', rx: RX_SEQUENCIA_LONGA, sementes: ['a', 'a-', 'A1.'] },

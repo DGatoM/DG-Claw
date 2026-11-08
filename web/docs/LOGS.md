@@ -20,7 +20,7 @@ existe aparece sozinho.
   agente comprometido pode reescrever a própria casa. Para auditoria séria, use também os logs do sistema.
 - O texto sai mascarado (chaves de API, tokens, senhas em linha de comando, cabeçalhos de autorização e o valor inteiro dos cabeçalhos
   Authorization, Proxy-Authorization, X-Api-Key, Cookie e Set-Cookie, até o fim da linha, e o valor de flags e atribuições
-  até a aspa de fechamento ou o fim da linha (o valor pode juntar pedaços com e sem aspas, como `"a b"c`; em JSON, a vírgula ou a chave depois da aspa de fechamento encerram o valor), viram `[segredo oculto]`, sem deixar pedaço do valor, e `\"` dentro de um valor entre aspas não o fecha). Objetos vindos do log (entradas de
+  até a aspa de fechamento ou o fim da linha (o valor pode juntar pedaços com e sem aspas, como `"a b"c`, e a barra de escape fora das aspas, como `primeira\ segunda`; em JSON, a vírgula ou a chave depois da aspa de fechamento encerram o valor), viram `[segredo oculto]`, sem deixar pedaço do valor, e `\"` dentro de um valor entre aspas não o fecha). Objetos vindos do log (entradas de
   ferramenta, argumentos) trocam por `[segredo oculto]` o valor de toda chave com nome de segredo (password, token, secret,
   authorization, cookie, chave, credential e parecidos), em qualquer nível e também dentro de texto que contém JSON, com orçamento
   global por valor (2000 nós e 64 KB de caracteres somados, chaves incluídas, profundidade 6): ao estourar, o resto vira

@@ -27,7 +27,7 @@ const TRACOS = '-'.repeat(5);
 const HOSTIS = [
   'curl ', 'curl x ', 'curl -u ', 'mysql ', 'mysqldump -u ', 'a', 'a.', 'aaaaaaaa ', 'eyJaaaaa', 'eyJaaaaa.', 'sk-', 'sk_a', 'sk-ant-api03-',
   'sk-proj-', 'github_pat_', 'ghp_', 'gho_', 'ghs_', 'AKIA', 'AIza', 'gsk_', 'xai-', 'xoxb-', 'Authorization ', 'Authorization: ', '--password "\\', 'chave="a\\"', "token='\\'", '"\\\\', 'senha=\\', 'tokentoken', 'passwordpassword', 'Proxy-Authorization: Basic ', 'Authorization: Basic a b ', '--password "', "--token '", 'chave="a b ', "curl -u 'a ",  'X-Api-Key: ',
-  '--password ', '--token=', '--api-key ', 'chave="', "pwd='", 'cookie:', 'Cookie: a=b; ', 'set-cookie:', 'Cookie:' + ';'.repeat(5) + ' ', 'token=', 'api_key', 'secret:', 'password ', 'senha=', 'Bearer ', 'Basic ',
+  '--password ', '--password=a\\ ', 'senha=a\\ b\\ ', '--token=', '--api-key ', 'chave="', "pwd='", 'cookie:', 'Cookie: a=b; ', 'set-cookie:', 'Cookie:' + ';'.repeat(5) + ' ', 'token=', 'api_key', 'secret:', 'password ', 'senha=', 'Bearer ', 'Basic ',
   `${TRACOS}BEGIN PRIVATE ` + `KEY${TRACOS}`, 'a://b:', 'a:b@', '1', '123456789:', ' ', '\n', '"', "'", '=', '-', ':', '@', '[segredo oculto] ',
   `${'a'.repeat(41)} token `, 'x'.repeat(130),
 ];
@@ -75,10 +75,11 @@ async function medeLaco(fn) {
   let timerDuranteALeitura = false;
   setTimeout(() => { timerDuranteALeitura = !fimDaLeitura; }, 0);
   let maior = 0;
+  let ticks = 0;
   let ultimo = Date.now();
-  const iv = setInterval(() => { const n = Date.now(); maior = Math.max(maior, n - ultimo); ultimo = n; }, 5);
+  const iv = setInterval(() => { const n = Date.now(); maior = Math.max(maior, n - ultimo); ultimo = n; ticks++; }, 1);
   try { await fn(); fimDaLeitura = true; } finally { clearInterval(iv); }
-  return { timerDuranteALeitura, maior };
+  return { timerDuranteALeitura, maior, ticks };
 }
 
 test('leitor (Codex) com comandos e saídas hostis: o laço de eventos continua respondendo', async () => {
@@ -324,4 +325,39 @@ test('leitor (Claude e Codex): objetos largos e aninhados não param o laço e n
   assert.ok(m.timerDuranteALeitura, 'o setTimeout(0) disparou durante a leitura');
   assert.ok(m.maior < 300, `o laço ficou ${m.maior} ms parado`);
   assert.ok(!JSON.stringify(r).includes(SEGREDO_FIM));
+});
+
+// ── consumo da fila de uma mesma linha e montagem dos eventos cedem o laço ──
+const pesado = (i) => `trecho ${i} ` + 'palavra token=abc senha="x y" '.repeat(Math.floor(65000 / 30));
+
+test('Claude: uma linha com 50 blocos caros não para o laço (cede entre os eventos e os campos)', async () => {
+  const c = casa();
+  const d = path.join(c.home, '.claude', 'projects', '-ws');
+  fs.mkdirSync(d, { recursive: true });
+  const blocos = Array.from({ length: 50 }, (_, i) => ({ type: 'text', text: `${i} ` + 'mysql -p '.repeat(7000) }));
+  const linha = JSON.stringify({ type: 'assistant', timestamp: iso(1000), sessionId: U(1), message: { role: 'assistant', content: blocos } });
+  assert.ok(linha.length > 3 * 1024 * 1024 && linha.length < 4 * 1024 * 1024, `linha com ${linha.length} bytes`);
+  fs.writeFileSync(path.join(d, `${U(1)}.jsonl`), linha + '\n');
+  const l = criarLeitor({ orcamento: { maxMs: 120000 } });
+  let r;
+  const m = await medeLaco(async () => { r = await l.eventos(c.ag, { limite: 100, cursor: null }); });
+  assert.equal(r.eventos.length, 50);
+  assert.ok(m.timerDuranteALeitura, 'o setTimeout(0) disparou durante a leitura');
+  assert.ok(m.maior < 300, `o laço ficou ${m.maior} ms parado`);
+  assert.ok(m.ticks >= 10, `o laço só respirou ${m.ticks} vezes (cede entre os eventos e os campos)`);
+});
+
+test('Codex: muitos itens caros seguidos não param o laço', async () => {
+  const c = casa();
+  const cx = path.join(c.home, '.codex', 'sessions', '2026', '11', '01');
+  fs.mkdirSync(cx, { recursive: true });
+  const itens = Array.from({ length: 50 }, (_, i) => ({ timestamp: iso(1000 + i), type: 'event_msg', payload: { type: 'item_completed', item: { type: 'CommandExecution', command: ['bash', '-lc', pesado(i)], exit_code: 0, status: 'completed', aggregated_output: pesado(i) } } }));
+  fs.writeFileSync(path.join(cx, `rollout-x-${U(2)}.jsonl`), jl(itens));
+  const l = criarLeitor({ orcamento: { maxMs: 120000 } });
+  let r;
+  const m = await medeLaco(async () => { r = await l.eventos(c.ag, { limite: 100, cursor: null, q: 'trecho' }); });
+  assert.equal(r.eventos.length, 50);
+  assert.ok(m.timerDuranteALeitura);
+  assert.ok(m.maior < 300, `o laço ficou ${m.maior} ms parado`);
+  assert.ok(m.ticks >= 10, `o laço só respirou ${m.ticks} vezes`);
 });

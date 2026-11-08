@@ -298,6 +298,11 @@ const ADJACENTES = [
   `chave='a b'"c d"${SUF} depois`,
   `pwd=a"b c"${SUF} depois`,
   `mysql -u root -p"a b"c'd e'${SUF} db depois`,
+  `app --password=primeira\\ ${SUF} depois`,
+  `app --token a\\ b\\ ${SUF} depois`,
+  `curl -u usuario:um\\ dois${SUF} https://x depois`,
+  `senha=a\\ b\\"c${SUF} depois`,
+  `mysql -u root -pum\\ dois${SUF} db depois`,
 ];
 
 test('limpa: valor com pedaços adjacentes, com e sem aspas, sai inteiro e o que vem depois fica legível', () => {
