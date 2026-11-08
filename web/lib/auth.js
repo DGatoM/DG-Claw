@@ -88,6 +88,7 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
   const hashInicial = String(config.env.DGCLAW_PANEL_PASSWORD_HASH || '').trim();
   // "sem senha ainda": o usuário existe e o hash está vazio (instalação sem senha, esperando o primeiro acesso).
   let semSenha = !!usuario && !hashInicial;
+  let hashAtual = hashInicial;
   let parsed = parseHash(hashInicial);
   let trancado = !usuario || !!parsed.erro;
   let motivoTrancado = null;
@@ -108,11 +109,25 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
 
   // ── sessões (no disco só o sha256 do token) ──────────────────────────────
   const arquivo = path.join(config.dataDir, 'sessoes.json');
-  let sessoes = new Map(); // sha256hex -> { usuario, criada, expira }
+  let sessoes = new Map(); // sha256hex -> { usuario, criada, expira, marca }
+  // "Marca" da credencial: sha256 de usuário + hash da senha. Cada sessão carrega a marca de quando nasceu,
+  // então trocar a senha ou o usuário derruba as sessões antigas. O hash em si nunca vai para o disco.
+  const marcaAtual = () => sha256hex(`${usuario}\n${hashAtual}`);
+  const marcaConfere = (s) => typeof s.marca === 'string' && s.marca.length === 64
+    && crypto.timingSafeEqual(Buffer.from(s.marca), Buffer.from(marcaAtual()));
   function carrega() {
     try {
       const j = JSON.parse(fs.readFileSync(arquivo, 'utf8'));
-      for (const [k, v] of Object.entries(j.sessoes || {})) if (v && v.expira > relogio()) sessoes.set(k, v);
+      let descartadas = 0;
+      for (const [k, v] of Object.entries(j.sessoes || {})) {
+        if (!v || !(v.expira > relogio())) continue;
+        if (!marcaConfere(v)) { descartadas++; continue; }
+        sessoes.set(k, v);
+      }
+      if (descartadas) {
+        log('info', `${descartadas} sessão(ões) do painel descartada(s): a senha ou o usuário do painel mudou (ou a sessão é de uma versão antiga, sem a marca da senha); quem estava logado precisa entrar de novo.`);
+        salva();
+      }
     } catch (e) {
       if (e.code !== 'ENOENT') log('aviso', `Não li as sessões salvas em ${arquivo} (${e.code || e.message}). Começo sem sessões; quem estava logado precisa entrar de novo.`);
     }
@@ -186,7 +201,9 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
     definirHash(hashTexto) {
       const novo = parseHash(hashTexto);
       if (novo.erro) return { ok: false, erro: novo.erro };
-      parsed = novo; trancado = false; motivoTrancado = null; semSenha = false;
+      parsed = novo; hashAtual = String(hashTexto).trim();
+      if (sessoes.size) { sessoes.clear(); salva(); }
+      trancado = false; motivoTrancado = null; semSenha = false;
       falhasIdentidade.clear(); falhasIp.clear();
       return { ok: true };
     },
@@ -262,7 +279,7 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
       } else {
         abreVagaParaODono();
       }
-      const reg = { usuario: nomeUsuario || usuario, criada, expira: expiraFinal };
+      const reg = { usuario: nomeUsuario || usuario, criada, expira: expiraFinal, marca: marcaAtual() };
       if (colaborador) Object.assign(reg, { papel: 'colaborador', colaborador_id: colaborador.id, agente: colaborador.agente, senha_versao: colaborador.senha_versao });
       sessoes.set(sha256hex(token), reg);
       limpaExpiradas();
@@ -277,6 +294,7 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
       if (!token || token.length > 200) return null;
       const s = sessoes.get(sha256hex(token));
       if (!s) return null;
+      if (!marcaConfere(s)) { sessoes.delete(sha256hex(token)); salva(); return null; }
       if (s.expira <= relogio()) { sessoes.delete(sha256hex(token)); salva(); return null; }
       if (s.papel === 'colaborador') return sessaoDeColaborador(token, s);
       return { usuario: s.usuario, expira: s.expira, papel: 'dono', agente: null };
