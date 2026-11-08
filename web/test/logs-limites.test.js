@@ -27,7 +27,7 @@ const TRACOS = '-'.repeat(5);
 const HOSTIS = [
   'curl ', 'curl x ', 'curl -u ', 'mysql ', 'mysqldump -u ', 'a', 'a.', 'aaaaaaaa ', 'eyJaaaaa', 'eyJaaaaa.', 'sk-', 'sk_a', 'sk-ant-api03-',
   'sk-proj-', 'github_pat_', 'ghp_', 'gho_', 'ghs_', 'AKIA', 'AIza', 'gsk_', 'xai-', 'xoxb-', 'Authorization ', 'Authorization: ', 'X-Api-Key: ',
-  '--password ', '--token=', '--api-key ', 'chave="', "pwd='", 'cookie:', 'token=', 'api_key', 'secret:', 'password ', 'senha=', 'Bearer ', 'Basic ',
+  '--password ', '--token=', '--api-key ', 'chave="', "pwd='", 'cookie:', 'Cookie: a=b; ', 'set-cookie:', 'Cookie:' + ';'.repeat(5) + ' ', 'token=', 'api_key', 'secret:', 'password ', 'senha=', 'Bearer ', 'Basic ',
   `${TRACOS}BEGIN PRIVATE ` + `KEY${TRACOS}`, 'a://b:', 'a:b@', '1', '123456789:', ' ', '\n', '"', "'", '=', '-', ':', '@', '[segredo oculto] ',
   `${'a'.repeat(41)} token `, 'x'.repeat(130),
 ];

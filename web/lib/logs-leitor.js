@@ -20,12 +20,13 @@ const { mascarar, OCULTO } = require('./mascara');
 const BLOCO = 64 * 1024;
 const MAX_LINHA = 4 * 1024 * 1024;
 const JANELA_HINT = 512 * 1024;
-const DETECCAO = 256 * 1024;
 const FOLGA_MTIME = 5 * 60 * 1000;
 const MAX_PROFUNDIDADE = 5;
 const MAX_ARQUIVOS = 20000;
 const MAX_FDS = 32;
 const MAX_HINTS = 64;
+// O relógio dos arquivos é grosso (alguns milissegundos) e o do processo não: arquivo mexido logo antes de o cursor nascer também se relê.
+const MARGEM_TS_MS = 2000;
 const MAX_RESULTADOS = 512;
 const MAX_AVISOS = 50;
 const MAX_ENTRADAS = 50000;
@@ -84,7 +85,9 @@ const EXTRAS = [
   [/(--(?:password|token|api-key|secret|senha)(?:=|[ \t]{1,20}))("[^"\n]{0,300}"|'[^'\n]{0,300}'|\S{1,300})/gi, '$1' + OCULTO],
   [/(\bcurl\b[^\n]{0,300}?[ \t](?:-u|--user)[ \t]{1,20})("[^"\n]{0,300}"|'[^'\n]{0,300}'|\S{1,300})/gi, '$1' + OCULTO],
   [/(\bmysql(?:dump)?\b[^\n]{0,300}?[ \t]-p)(\S{1,300})/gi, '$1' + OCULTO],
-  [/((?:\bchave|\bpwd|\bcookie)[A-Za-z0-9_.-]{0,60}["']?[ \t]{0,20}[=:][ \t]{0,20})("[^"\n]{0,500}"|'[^'\n]{0,500}'|[^\s"'&;|]{1,500})/gi, '$1' + OCULTO],
+  // Cookie e Set-Cookie carregam vários pares separados por ';': o valor inteiro, até o fim da linha, sai escondido.
+  [/\b((?:Set-)?Cookie[ \t]{0,20}:[ \t]{0,20})[^\n]+/gi, '$1' + OCULTO],
+  [/((?:\bchave|\bpwd|\bcookie)[A-Za-z0-9_.-]{0,60}["']?[ \t]{0,20}[=:][ \t]{0,20})(?!\[segredo oculto\])("[^"\n]{0,500}"|'[^'\n]{0,500}'|[^\s"'&;|]{1,500})/gi, '$1' + OCULTO],
 ];
 
 // Os padrões de mascara.js (principalmente a atribuição NOME=valor) varrem cada trecho de letras e números até o fim
@@ -182,9 +185,9 @@ function decodificaCursor(texto) {
     let n = 0;
     for (const [k, v] of Object.entries(o.h)) {
       if (++n > MAX_HINTS) break;
-      if (!RX_ID_CURTO.test(k) || !Array.isArray(v) || v.length !== 2) continue;
+      if (!RX_ID_CURTO.test(k) || !Array.isArray(v) || (v.length !== 2 && v.length !== 3)) continue;
       if (!(Number.isSafeInteger(v[0]) && v[0] >= -1) || !(typeof v[1] === 'number' && Number.isFinite(v[1]))) continue;
-      r.h[k] = { o: v[0], teto: v[1] };
+      r.h[k] = { o: v[0], teto: v[1], f: v[2] === 1 || v[2] === 2 ? v[2] : 0 };
     }
   }
   return r;
@@ -633,6 +636,7 @@ class LeitorArquivo {
     this.fh = null;
     this.size = 0;
     this.estado = 'novo';     // novo | aberto | suspenso | fim
+    this.fmt = 0;           // Codex: 0 nenhuma linha lida, 1 viu registro de conversa, 2 só linhas desconhecidas
     this.vistos = [];       // pares possíveis entre as duas famílias do Codex (ver _dedup)
     this.resultados = new Map();
     this.fila = [];
@@ -675,11 +679,11 @@ class LeitorArquivo {
       if (this.hint && this.hint.o === -1) { this.estado = 'fim'; return; }
       await this._abre();
       this.estado = 'aberto';
-      if (this.arq.motor === 'codex') await this._reconhece();
       if (this.estado === 'fim') return;
       let topo = this.size;
       const h = this.hint;
       if (h && h.o >= 0 && h.o <= this.size) {
+        this.fmt = h.f || 0;
         let valido = h.o === 0;
         if (!valido) {
           const b = Buffer.alloc(1);
@@ -693,29 +697,6 @@ class LeitorArquivo {
       }
       await this._completaTopo(topo);
     } catch (e) { this._falhou(e); }
-  }
-
-  /**
-   * Só confere se o arquivo tem algum registro de conversa (por campos estruturais, linha a linha). Não escolhe família:
-   * as duas valem no mesmo arquivo. Sem nenhum registro reconhecido nos primeiros 256 KB, vira aviso e o arquivo é pulado.
-   */
-  async _reconhece() {
-    const n = Math.min(DETECCAO, this.size);
-    const b = Buffer.alloc(n);
-    const lidos = n ? await this._le(b, n, 0) : 0;
-    const linhas = b.subarray(0, lidos).toString('utf8').split('\n');
-    if (lidos < this.size) linhas.pop();   // a última pode estar cortada no limite da janela
-    let lidas = 0;
-    for (const l of linhas) {
-      if (!l) continue;
-      let j;
-      try { j = JSON.parse(l); } catch (_) { continue; }
-      lidas++;
-      if (j && (j.type === 'response_item' || (j.type === 'event_msg' && j.payload && j.payload.type === 'item_completed'))) return;
-    }
-    if (!lidas) return;   // nada legível na janela (linha enorme logo no começo): deixa a leitura tentar
-    this.aviso('formato_desconhecido', `formato não reconhecido: não achei registros de conversa (item_completed ou response_item) nos primeiros ${Math.round(DETECCAO / 1024)} KB`);
-    this._encerra();
   }
 
   /** Move o topo da leitura para uma fronteira de linha (depois de um \n). Resto parcial no fim do arquivo é descartado. */
@@ -803,7 +784,7 @@ class LeitorArquivo {
         if (this.estado === 'suspenso') await this._retoma();
         if (this.estado !== 'aberto') return;
         const l = await this._proxLinha();
-        if (!l) { if (!this.pausado) this._encerra(); return; }
+        if (!l) { if (!this.pausado) this._fimDaLeitura(); return; }
         this.ultimaLida = { off: l.off, fim: l.fim, tetoAntes: this.teto };
         await this.ctx.cede();
         await this._processa(l);
@@ -818,6 +799,10 @@ class LeitorArquivo {
     let j;
     try { j = JSON.parse(l.buf.toString('utf8')); } catch (_) { if (!soRes) this.ctx.contagens.linhas_ilegiveis++; return; }
     if (!j || typeof j !== 'object') { if (!soRes) this.ctx.contagens.linhas_ilegiveis++; return; }
+    if (this.arq.motor === 'codex') {
+      if (j.type === 'response_item' || (j.type === 'event_msg' && j.payload && j.payload.type === 'item_completed')) this.fmt = 1;
+      else if (this.fmt === 0) this.fmt = 2;
+    }
     let rasc;
     try { rasc = this.arq.motor === 'claude' ? await extraiClaude(j, this, soRes) : extraiCodex(j, this); } catch (_) {
       // Registro com campo de tipo inesperado: conta como linha ilegível e a leitura segue.
@@ -876,8 +861,8 @@ class LeitorArquivo {
   /** Hint para o próximo pedido: a última linha lida (relida e filtrada pela chave) e o teto de antes dela. */
   hintAtual() {
     if (this.estado === 'fim' && !this.fila.length && !this.cabeca) return [-1, 0];
-    if (this.ultimaLida) return [this.ultimaLida.off, this.ultimaLida.tetoAntes];
-    if (this.hint && this.hint.o >= -1) return [this.hint.o, this.hint.teto];
+    if (this.ultimaLida) return [this.ultimaLida.off, this.ultimaLida.tetoAntes, this.fmt];
+    if (this.hint && this.hint.o >= -1) return [this.hint.o, this.hint.teto, this.hint.f || 0];
     return null;
   }
 
@@ -898,12 +883,23 @@ class LeitorArquivo {
     } catch (e) { this._falhou(e); }
   }
 
-  async fechaFd() {
-    if (!this.fh) return;
+  /** Fecha o descritor. Quem chama depois do primeiro pedido espera o mesmo fechamento (não volta antes dele terminar). */
+  fechaFd() {
+    if (this.fechando) return this.fechando;
+    if (!this.fh) return Promise.resolve();
     const fh = this.fh;
     this.fh = null;
     this.ctx.fdsAbertos--;
-    await fh.close().catch(() => {});
+    this.fechando = fh.close().catch(() => {}).then(() => { this.fechando = null; });
+    return this.fechando;
+  }
+
+  /** Leu o arquivo até o começo: só agora dá para dizer que o formato não foi reconhecido (janela sem registro é inconclusiva). */
+  _fimDaLeitura() {
+    if (this.arq.motor === 'codex' && this.fmt === 2) {
+      this.aviso('formato_desconhecido', 'formato não reconhecido: li o arquivo inteiro e não achei registros de conversa (item_completed ou response_item)');
+    }
+    this._encerra();
   }
 
   _encerra() { this.estado = 'fim'; this.fila = []; this.fechaFd(); }
@@ -1036,7 +1032,7 @@ function criarLeitor({ log, agora, orcamento } = {}) {
     const gIn = f.cursor && f.cursor.g ? f.cursor.g : null;
     const tsIn = f.cursor && f.cursor.ts != null ? f.cursor.ts : null;
     if (gIn) {
-      arqs = arqs.filter((a) => depoisDe(a, gIn) || !!hints[a.id] || (tsIn != null && a.mtimeMs >= tsIn));
+      arqs = arqs.filter((a) => depoisDe(a, gIn) || !!hints[a.id] || (tsIn != null && a.mtimeMs >= tsIn - MARGEM_TS_MS));
     }
     let gNovo = gIn;
 

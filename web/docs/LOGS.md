@@ -18,8 +18,8 @@ existe aparece sozinho.
 
 - É uma ajuda para o dono conferir o que aconteceu. **Não é uma prova**: os arquivos ficam na casa do agente, e um
   agente comprometido pode reescrever a própria casa. Para auditoria séria, use também os logs do sistema.
-- O texto sai mascarado (chaves de API, tokens, senhas em linha de comando e cabeçalhos de autorização viram
-  `[segredo oculto]`). A máscara pega formatos conhecidos: um segredo fora desses formatos passa.
+- O texto sai mascarado (chaves de API, tokens, senhas em linha de comando, cabeçalhos de autorização e o valor inteiro dos cabeçalhos
+  Cookie e Set-Cookie, até o fim da linha, viram `[segredo oculto]`). A máscara pega formatos conhecidos: um segredo fora desses formatos passa.
 - Pensamento do modelo (`thinking` e `reasoning`) não é exibido.
 - Arquivos de uma sessão ainda em andamento: a última linha, se estiver incompleta, é ignorada até terminar de ser gravada.
 
@@ -136,6 +136,7 @@ Resposta:
   (espaços e maiúsculas ignorados) a até 5 segundos uma da outra, e comandos ou ferramentas pelo horário de início (até 3 segundos),
   um para um. Fica a primeira linha vista na leitura de trás para frente. A regra prefere perder a duplicata a perder o evento:
   sem par claro os dois aparecem, então uma ação pode, raramente, sair repetida (por exemplo, duas chamadas quase simultâneas).
-  Arquivo sem nenhum dos dois tipos de registro aparece como "formato não reconhecido", nunca como "sem ações".
+  Arquivo sem nenhum dos dois tipos de registro aparece como "formato não reconhecido", nunca como "sem ações": o aviso só sai
+  depois de o arquivo ser lido até o começo (um primeiro registro de conversa longe do início não faz o arquivo sumir).
 - Em um arquivo que ainda está crescendo, a página seguinte pode, raramente, repetir ou pular um registro cujo horário
   esteja fora de ordem.

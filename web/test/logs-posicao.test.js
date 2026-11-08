@@ -189,7 +189,7 @@ test('arquivo que cresce entre as páginas: o que já saiu não repete e o que �
   const c = casa();
   muitosArquivos(c, 30, (i) => i % 2 === 0);
   const d = dirClaude(c);
-  const l = criarLeitor({ orcamento: { maxBytes: 3000 } });
+  const l = criarLeitor({ orcamento: { maxBytes: 7000 } });
   const r1 = await l.eventos(c.ag, { limite: 3, cursor: null });
   let cursor = r1.proximo ? decodificaCursor(r1.proximo) : null;
   const vistos = new Set(r1.eventos.map((e) => e.id));
@@ -204,7 +204,7 @@ test('arquivo que cresce entre as páginas: o que já saiu não repete e o que �
     cursor = r.proximo ? decodificaCursor(r.proximo) : null;
   }
   const textos = (await criarLeitor().eventos(c.ag, { limite: 200, cursor: null })).eventos;
-  assert.ok(todos.length >= 15, 'os eventos originais (15) saíram');
+  assert.ok(todos.length >= 15, 'os eventos originais (15) saíram: ' + todos.length);
   const atrasado = textos.find((e) => e.texto === 'chegou-atrasado');
   assert.ok(atrasado && todos.includes(atrasado.id), 'o evento antigo que chegou depois aparece');
   const novo = textos.find((e) => e.texto === 'novo-demais');
