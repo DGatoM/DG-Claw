@@ -123,19 +123,27 @@ test('escopo: trocar a conta de IA pelo painel é fechado (qualquer escrita); a 
     for (const v of ['/p/ana/api/provedor', '/p/ana/api/provedor/', '/p/ana/API/Provedor', '/p/ana/api/provedor/login', '/p/ana/api/provedor/login/codigo']) {
       const r = avalia(COLAB, m, v);
       assert.equal(r.ok, false, `${m} ${v}`); assert.equal(r.status, 403, `${m} ${v}`);
-      assert.match(r.motivo, /precisa entrar numa conta/, `${m} ${v}`);
+      assert.match(r.motivo, /página Conectar conta/, `${m} ${v}`);
     }
   }
   assert.equal(avalia(COLAB, 'GET', '/p/ana/api/provedor').ok, false, 'a leitura traz o link e o código do login');
 });
 
-test('escopo: login da conta do agente é só do dono, em /api/v1 e em /p/, em qualquer método (inclusive ver o link)', () => {
-  const rotas = ['/api/v1/agents/ana/login', '/api/v1/agents/ana/login/codigo', '/api/v1/agents/ana/login/oi', '/p/ana/api/provedor/login', '/p/ana/api/provedor/login/codigo'];
+test('escopo: login da conta de IA do agente dele chega ao handler (que decide); o do painel (/p/.../api/provedor*) continua fechado', () => {
+  for (const [m, v] of [['GET', '/api/v1/agents/ana/login'], ['POST', '/api/v1/agents/ana/login'], ['DELETE', '/api/v1/agents/ana/login'], ['POST', '/api/v1/agents/ana/login/codigo'], ['POST', '/api/v1/agents/ana/login/oi']]) {
+    assert.deepEqual(avalia(COLAB, m, v), { ok: true }, `${m} ${v}`);
+  }
+  // de outro agente, nunca
+  for (const v of ['/api/v1/agents/bob/login', '/api/v1/agents/bob/login/codigo', '/api/v1/agents/admin/login', '/api/v1/agents/ANA/login', '/api/v1/agents/An%61/login/oi']) {
+    for (const m of ['GET', 'POST', 'DELETE']) assert.equal(avalia(COLAB, m, v).ok, false, `${m} ${v}`);
+  }
+  // com a senha temporária pendente, nada disso
+  assert.equal(avalia(COLAB_TEMP, 'POST', '/api/v1/agents/ana/login').ok, false);
+  // o painel do agente continua sem a conta de IA, em qualquer método e forma
   for (const m of ['GET', 'POST', 'DELETE', 'PUT']) {
-    for (const v of rotas) {
+    for (const v of ['/p/ana/api/provedor', '/p/ana/api/provedor/login', '/p/ana/api/provedor/login/codigo', '/p/ana/API/Provedor/Login/', '/p/ana/api/provedor/qualquer']) {
       const r = avalia(COLAB, m, v);
       assert.equal(r.ok, false, `${m} ${v}`); assert.equal(r.status, 403, `${m} ${v}`);
-      assert.match(r.motivo, /precisa entrar numa conta.*só do dono/, `${m} ${v}`);
     }
   }
 });

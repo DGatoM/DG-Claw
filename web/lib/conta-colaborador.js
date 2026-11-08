@@ -1,0 +1,306 @@
+'use strict';
+// Conta de IA do agente conectada pelo colaborador (web/docs/COLABORADORES.md, "Se o agente ainda não tem IA conectada").
+//
+// O escopo (escopo.js) deixa o colaborador do próprio slug chegar às rotas /api/v1/agents/<dele>/login*. O portão de
+// verdade é este módulo, no servidor, e na dúvida ele recusa:
+//   - o colaborador só conecta quando o agente está SEM conta de verdade (e não usa chave de API);
+//   - login expirado só é dele se foi ele quem conectou essa conta (registro conta-agentes.json);
+//   - uma reserva por agente (em memória, 15 min) impede duas pessoas de misturarem link e código;
+//   - o GET do colaborador devolve só uma lista de campos permitidos: nada de conferido, e-mail da conta, auth;
+//   - link e código só aparecem para quem tem a reserva em andamento.
+// Link, código e senha nunca vão para o log.
+
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+const path = require('node:path');
+const { instanciaDe } = require('./instancia');
+
+const VALIDADE_RESERVA_MS = 15 * 60 * 1000;
+const CAMPOS_DO_LOGIN = ['estado', 'link', 'codigoDispositivo', 'mensagem'];
+const EM_ANDAMENTO = new Set(['aguardando_link', 'aguardando_codigo', 'aguardando_navegador']);
+const usaChaveDeApi = (auth) => /^(api|token)$/i.test(String(auth || ''));
+
+const MSG_OCUPADO = 'Outra pessoa está conectando a conta deste agente agora. Espere ela terminar (no máximo 15 minutos) ou avise o dono do DG Claw.';
+const MSG_DONO_OCUPADO = (email) => `O colaborador ${email} está conectando a conta deste agente agora. Espere ele terminar ou toque em Cancelar para tomar a vez.`;
+const MSG_SEM_RESERVA = 'Você não tem um login em andamento neste agente. Toque em "Gerar link de login" primeiro.';
+const MSG_JA_CONECTADO = 'Este agente já está conectado. Nada foi enviado.';
+const MSG_EXPIRADO = 'A conta deste agente expirou e só o dono do DG Claw reconecta. Avise o dono.';
+const MSG_CHAVE_API = 'Este agente usa chave de API, não conta de assinatura. Não há conta para conectar.';
+
+function criarContaColaborador({ dataDir, login, log, agora }) {
+  const relogio = agora || (() => Date.now());
+  const arquivo = path.join(dataDir, 'conta-agentes.json');
+  let regs = {};
+  let mtimeVisto = -1;
+  let ilegivel = null;
+  let filaGrava = Promise.resolve();
+  const reservas = new Map();   // slug -> { tipo, id, email, desde, codigoEnviado }
+  const filas = new Map();      // slug -> promessa encadeada
+
+  const erro = (status, motivo, extra) => ({ status, corpo: Object.assign({ ok: false, erro: motivo }, extra || {}) });
+
+  // ── registro durável ───────────────────────────────────────────────────────
+  function carrega() {
+    let st;
+    try { st = fs.statSync(arquivo); } catch (e) {
+      if (e.code === 'ENOENT') { regs = {}; ilegivel = null; mtimeVisto = 0; return; }
+      if (mtimeVisto !== -2) log('erro', `Não consegui acessar ${arquivo} (${e.code || e.message}). Sem esse registro, toda conta de IA conta como do dono (o colaborador não reconecta login expirado). Confira a permissão de ${dataDir}.`);
+      regs = {}; ilegivel = `${e.code || e.message}`; mtimeVisto = -2;
+      return;
+    }
+    if (st.mtimeMs === mtimeVisto) return;
+    try {
+      const j = JSON.parse(fs.readFileSync(arquivo, 'utf8'));
+      if (!j || typeof j !== 'object' || !j.agentes || typeof j.agentes !== 'object' || Array.isArray(j.agentes)) throw new Error('o conteúdo não tem o objeto "agentes"');
+      regs = j.agentes;
+      ilegivel = null;
+    } catch (e) {
+      regs = {};
+      ilegivel = e.message;
+      log('erro', `O arquivo ${arquivo} está ilegível (${e.message}). Trato toda conta de IA como do dono e NÃO vou regravar o arquivo. Corrija o JSON ou renomeie o arquivo para recomeçar.`);
+    }
+    mtimeVisto = st.mtimeMs;
+  }
+
+  function gravaArquivo() {
+    const tmp = `${arquivo}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+    try {
+      fs.mkdirSync(path.dirname(arquivo), { recursive: true, mode: 0o700 });
+      fs.writeFileSync(tmp, JSON.stringify({ versao: 1, agentes: regs }, null, 2) + '\n', { mode: 0o600 });
+      fs.chmodSync(tmp, 0o600);
+      fs.renameSync(tmp, arquivo);
+      mtimeVisto = fs.statSync(arquivo).mtimeMs;
+    } catch (e) {
+      try { fs.unlinkSync(tmp); } catch (_) { /* o temporário nem chegou a existir */ }
+      throw new Error(`não consegui gravar ${arquivo} (${e.code || e.message})`);
+    }
+  }
+
+  /** Grava em fila. Falhar aqui é seguro (sem registro, a conta conta como do dono): só vira log. */
+  function gravaRegistro(slug, valor) {
+    const p = filaGrava.then(() => {
+      carrega();
+      if (ilegivel) throw new Error(`o arquivo está ilegível (${ilegivel})`);
+      regs[slug] = valor;
+      gravaArquivo();
+    });
+    filaGrava = p.catch(() => undefined);
+    return p;
+  }
+
+  /** O registro desta INSTÂNCIA do agente (um agente recriado com o mesmo nome começa sem registro). */
+  function registroDe(agente) {
+    carrega();
+    const r = regs[agente.slug];
+    const inst = instanciaDe(agente);
+    return r && inst && r.instancia === inst ? r : null;
+  }
+  const foiDele = (reg, q) => !!reg && q.tipo === 'colaborador' && reg.por === 'colaborador' && reg.colaborador_id === q.id;
+
+  // ── fila e reserva por agente ───────────────────────────────────────────────
+  function emFila(slug, fn) {
+    const anterior = filas.get(slug) || Promise.resolve();
+    const p = anterior.then(fn);
+    const marca = p.catch(() => undefined);
+    filas.set(slug, marca);
+    marca.then(() => { if (filas.get(slug) === marca) filas.delete(slug); });
+    return p;
+  }
+
+  function reservaViva(slug) {
+    const r = reservas.get(slug);
+    if (!r) return null;
+    if (relogio() - r.desde >= VALIDADE_RESERVA_MS) {
+      reservas.delete(slug);
+      log('info', `A reserva de login do agente ${slug} (de ${r.email}) venceu depois de 15 minutos e foi solta.`);
+      return null;
+    }
+    return r;
+  }
+  const quem = (sessao) => (sessao && sessao.papel === 'colaborador'
+    ? { tipo: 'colaborador', id: sessao.colaborador_id, email: sessao.usuario }
+    : { tipo: 'dono', id: String(sessao && sessao.usuario || 'dono'), email: String(sessao && sessao.usuario || 'dono') });
+  const mesma = (r, q) => !!r && r.tipo === q.tipo && r.id === q.id;
+
+  // ── o que a consulta ao runner quer dizer ───────────────────────────────────
+  /** 'sem_conta' | 'conectado' | 'expirado' | 'chave_api' | 'duvida'. Qualquer lacuna na informação é 'duvida'. */
+  function situacao(c) {
+    if (!c.est.ok) return { tipo: 'duvida', motivo: 'não consegui ver o estado do agente' };
+    if (!c.prov.auth) return { tipo: 'duvida', motivo: 'o agente não respondeu sobre a forma de pagamento da IA' };
+    if (usaChaveDeApi(c.prov.auth)) return { tipo: 'chave_api' };
+    const { status, statusReason } = c.est.estado;
+    if (status === 'errored' && statusReason === 'runner:login-expirado') return { tipo: 'expirado' };
+    if (status === 'errored' && statusReason === 'runner:sem-login') return { tipo: 'sem_conta' };
+    if (c.prov.conferido && c.prov.conferido.ok === false) return { tipo: 'sem_conta' };
+    if (c.prov.conferido && c.prov.conferido.ok === true) return { tipo: 'conectado' };
+    return { tipo: 'duvida', motivo: 'o agente não confirmou se a conta está conectada' };
+  }
+
+  /** Situação do ponto de vista do colaborador q: login expirado só é "sem conta" quando foi ele quem conectou. */
+  function situacaoPara(c, agente, q) {
+    const s = situacao(c);
+    if (s.tipo === 'expirado' && foiDele(registroDe(agente), q)) return { tipo: 'sem_conta' };
+    return s;
+  }
+
+  function recusaPorSituacao(s) {
+    switch (s.tipo) {
+      case 'conectado': return erro(409, MSG_JA_CONECTADO);
+      case 'expirado': return erro(409, MSG_EXPIRADO);
+      case 'chave_api': return erro(409, MSG_CHAVE_API);
+      default: return erro(503, `Não consegui confirmar que este agente está sem conta (${s.motivo || 'sem resposta clara do agente'}), então não deixo conectar agora. Tente de novo em instantes; se continuar, avise o dono do DG Claw.`);
+    }
+  }
+
+  /** O GET observa uma conta conectada depois de uma reserva que enviou o código: grava de quem é e solta a reserva. */
+  async function observaConclusao(agente, c, s) {
+    const r = reservaViva(agente.slug);
+    if (!r || s.tipo !== 'conectado') return;
+    const concluiu = r.codigoEnviado || (c.lg.ok && c.lg.corpo && c.lg.corpo.estado === 'concluido');
+    reservas.delete(agente.slug);
+    if (!concluiu) return;
+    const inst = instanciaDe(agente);
+    if (!inst) { log('aviso', `Conta de IA do agente ${agente.slug} conectada, mas não consegui identificar a instância do agente para registrar quem conectou. Ela conta como do dono.`); return; }
+    try {
+      await gravaRegistro(agente.slug, { instancia: inst, por: r.tipo, colaborador_id: r.tipo === 'colaborador' ? r.id : null, email: r.email, em: relogio() });
+      log('info', `Conta de IA do agente ${agente.slug} conectada por ${r.email} (${r.tipo}).`);
+    } catch (e) {
+      log('erro', `Conta de IA do agente ${agente.slug} conectada por ${r.email} (${r.tipo}), mas não consegui registrar quem foi (${e.message}). Ela conta como do dono.`);
+    }
+  }
+
+  const filtraLogin = (corpo, extra) => {
+    const out = { ok: true };
+    for (const k of CAMPOS_DO_LOGIN) if (corpo && corpo[k] !== undefined) out[k] = corpo[k];
+    return Object.assign(out, extra || {});
+  };
+  const filtraResultado = (r, q) => {
+    if (q.tipo === 'dono') return r;
+    if (r.status >= 300 || !r.corpo || r.corpo.ok === false) return { status: r.status, corpo: { ok: false, erro: (r.corpo && r.corpo.erro) || 'O agente recusou o pedido.' } };
+    return { status: r.status, corpo: filtraLogin(r.corpo) };
+  };
+
+  // ── operações ───────────────────────────────────────────────────────────────
+  function ver(agente, sessao) {
+    const q = quem(sessao);
+    return emFila(agente.slug, async () => {
+      const c = await login.consultar(agente);
+      if (!c.lg.ok) return login.falha(agente, c.lg, 'consulta');
+      const s = situacao(c);
+      await observaConclusao(agente, c, s);
+      const r = reservaViva(agente.slug);
+      const corpo = login.corpoDaConsulta(c);
+      if (q.tipo === 'dono') {
+        if (r && r.tipo === 'colaborador') {
+          delete corpo.link; delete corpo.codigoDispositivo;
+          return { status: 200, corpo: Object.assign(corpo, { login_de: 'colaborador', login_de_email: r.email }) };
+        }
+        return { status: 200, corpo };
+      }
+      const sc = situacaoPara(c, agente, q);
+      const provedor = corpo.provedor;
+      if (sc.tipo === 'duvida') return recusaPorSituacao(sc);
+      if (sc.tipo === 'conectado') return { status: 200, corpo: { ok: true, conectado: true, precisa_login: false, provedor } };
+      if (sc.tipo === 'chave_api') return { status: 200, corpo: { ok: true, conectado: false, precisa_login: false, chave_api: true, provedor, mensagem: MSG_CHAVE_API } };
+      if (sc.tipo === 'expirado') return { status: 200, corpo: { ok: true, conectado: false, precisa_login: false, login_expirado: true, so_dono: true, provedor, mensagem: MSG_EXPIRADO } };
+      // sem conta
+      const dele = mesma(r, q);
+      const andamentoDeOutro = (!r && EM_ANDAMENTO.has(corpo.estado)) || (r && !dele);
+      if (andamentoDeOutro) return { status: 200, corpo: { ok: true, conectado: false, precisa_login: true, ocupado: true, estado: 'nenhum', provedor, mensagem: MSG_OCUPADO } };
+      const base = dele ? filtraLogin(corpo) : { ok: true, estado: 'nenhum' };
+      return { status: 200, corpo: Object.assign(base, { conectado: false, precisa_login: true, provedor }) };
+    });
+  }
+
+  function comecar(agente, sessao, corpoPedido, aindaVale) {
+    const q = quem(sessao);
+    return emFila(agente.slug, async () => {
+      const antes = reservaViva(agente.slug);
+      if (q.tipo === 'dono') {
+        if (antes && antes.tipo === 'colaborador') return erro(409, MSG_DONO_OCUPADO(antes.email));
+      } else {
+        const c = await login.consultar(agente);
+        if (!c.lg.ok) return login.falha(agente, c.lg, 'consulta');
+        const s = situacaoPara(c, agente, q);
+        if (s.tipo !== 'sem_conta') return recusaPorSituacao(s);
+        const atual = reservaViva(agente.slug);
+        if (atual && !mesma(atual, q)) return erro(409, MSG_OCUPADO);
+        if (!atual && EM_ANDAMENTO.has(c.lg.corpo && c.lg.corpo.estado)) return erro(409, MSG_OCUPADO);
+      }
+      if (aindaVale && !aindaVale()) return { sessaoVelha: true };
+      const nova = !mesma(reservaViva(agente.slug), q);
+      if (nova) reservas.set(agente.slug, { tipo: q.tipo, id: q.id, email: q.email, desde: relogio(), codigoEnviado: false });
+      const r = await login.comecar(agente, corpoPedido);
+      if (r.status >= 300 && nova && mesma(reservas.get(agente.slug), q)) reservas.delete(agente.slug);
+      return filtraResultado(r, q);
+    });
+  }
+
+  function enviarCodigo(agente, sessao, corpoPedido, aindaVale) {
+    const q = quem(sessao);
+    return emFila(agente.slug, async () => {
+      const r = reservaViva(agente.slug);
+      if (q.tipo === 'dono') {
+        if (r && r.tipo === 'colaborador') return erro(409, MSG_DONO_OCUPADO(r.email));
+      } else {
+        if (r && !mesma(r, q)) return erro(409, MSG_OCUPADO);
+        if (!r) return erro(403, MSG_SEM_RESERVA);
+        // Imediatamente antes de mandar ao runner: a conta ainda está ausente?
+        const c = await login.consultar(agente);
+        if (!c.lg.ok) return login.falha(agente, c.lg, 'consulta');
+        const s = situacaoPara(c, agente, q);
+        if (s.tipo === 'conectado') {
+          await observaConclusao(agente, c, s);
+          return erro(409, MSG_JA_CONECTADO);
+        }
+        if (s.tipo !== 'sem_conta') return recusaPorSituacao(s);
+        if (!mesma(reservaViva(agente.slug), q)) return erro(409, MSG_OCUPADO);
+      }
+      if (aindaVale && !aindaVale()) return { sessaoVelha: true };
+      const res = await login.enviarCodigo(agente, corpoPedido);
+      if (res.status < 300) {
+        const atual = reservaViva(agente.slug);
+        if (mesma(atual, q)) atual.codigoEnviado = true;
+        else if (!atual) reservas.set(agente.slug, { tipo: q.tipo, id: q.id, email: q.email, desde: relogio(), codigoEnviado: true });
+      }
+      return filtraResultado(res, q);
+    });
+  }
+
+  function cancelar(agente, sessao) {
+    const q = quem(sessao);
+    return emFila(agente.slug, async () => {
+      const r = reservaViva(agente.slug);
+      if (q.tipo === 'colaborador' && !mesma(r, q)) return erro(403, 'Você só pode cancelar o login que você mesmo começou. Se for de outra pessoa, avise o dono do DG Claw.');
+      const res = await login.cancelar(agente);
+      if (res.status < 300) reservas.delete(agente.slug);
+      return filtraResultado(res, q);
+    });
+  }
+
+  function oi(agente, sessao) {
+    const q = quem(sessao);
+    if (q.tipo === 'colaborador' && !mesma(reservaViva(agente.slug), q) && !foiDele(registroDe(agente), q)) {
+      return Promise.resolve(erro(403, 'O primeiro oi só sai para quem conectou a conta deste agente.'));
+    }
+    return login.primeiroOi(agente).then((r) => filtraResultado(r, q));
+  }
+
+  /** Contas de IA que este colaborador conectou (para avisar o dono quando o acesso dele é revogado). */
+  function contasDe(colaboradorId) {
+    carrega();
+    return Object.entries(regs).filter(([, r]) => r && r.por === 'colaborador' && r.colaborador_id === colaboradorId)
+      .map(([agente, r]) => ({ agente, em: r.em }));
+  }
+  /** Revogado: a reserva dele não segura mais o agente. A conta conectada fica (quem decide é o dono). */
+  function soltaReservasDe(colaboradorId) {
+    for (const [slug, r] of reservas) if (r.tipo === 'colaborador' && r.id === colaboradorId) reservas.delete(slug);
+  }
+
+  /** A conta atual deste agente foi conectada por este colaborador? (para o texto do alerta de login expirado) */
+  const conectouEste = (agente, sessao) => foiDele(registroDe(agente), quem(sessao));
+
+  return { ver, comecar, enviarCodigo, cancelar, oi, contasDe, conectouEste, soltaReservasDe, arquivo, VALIDADE_RESERVA_MS };
+}
+
+module.exports = { criarContaColaborador, VALIDADE_RESERVA_MS };
