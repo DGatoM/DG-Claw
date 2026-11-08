@@ -101,18 +101,26 @@
     ];
   }
   const PASSOS = {
-    aparelho: { alvo: '[data-tour="fid-aparelho"]', titulo: 'Neste aparelho', oque: 'Mostra se o Face ID está ligado aqui e deixa ligar. Se o aparelho ou o endereço não permitem, a tela explica o motivo e o que fazer.', como: 'Toque em "Ligar neste aparelho" e confirme com o rosto, a digital ou o código do aparelho. O DG Claw guarda só a chave pública da passkey; o seu rosto e a sua digital nunca saem do aparelho.', porque: 'O cadeado é por aparelho: ligar aqui não trava o seu computador nem o celular de outra pessoa.' },
+    aparelho: { alvo: '[data-tour="fid-aparelho"]', titulo: 'Neste aparelho', oque: 'Mostra se o Face ID está ligado aqui e deixa ligar. Se o aparelho ou o endereço não permitem, a tela explica o motivo e o que fazer.', como: 'Toque em "Ligar neste aparelho" e confirme com o rosto, a digital ou o código do aparelho. Se você já tem uma passkey deste endereço (criada em outro aparelho ou sincronizada pelo iCloud), o botão principal vira "Usar minha passkey neste aparelho": ele usa a que já existe, sem criar outra. O DG Claw guarda só a chave pública da passkey; o seu rosto e a sua digital nunca saem do aparelho.', porque: 'O cadeado é por aparelho: ligar aqui não trava o seu computador nem o celular de outra pessoa.' },
     lista: { alvo: '[data-tour="fid-lista"]', titulo: 'Aparelhos cadastrados', oque: 'Os aparelhos em que você ligou o Face ID, com a data do cadastro e do último uso.', como: 'Renomeie para reconhecer cada um. Ao remover um aparelho, as sessões abertas nele são encerradas na hora (voltam ao login, e a conversa e a Tela que estavam abertas nele caem). A sessão que você está usando só continua se for do mesmo aparelho que você removeu; nesse caso ela fica sem o cadeado. A senha continua valendo em qualquer aparelho.', porque: 'É por aqui que você tira o acesso de um aparelho perdido ou vendido, mesmo que ele estivesse com a sessão aberta.' },
     tempo: { alvo: '[data-tour="fid-tempo"]', titulo: 'Tempo de trava', oque: 'Quantos minutos sem usar o DG Claw até a tela travar. O padrão é 15.', como: 'Escolha de 1 a 120 minutos e toque em Salvar. Só conta como uso o que você faz na tela (tocar, digitar, rolar), não o que roda em segundo plano.', porque: 'Tempo curto protege mais; tempo longo incomoda menos. Você decide o equilíbrio.' },
     endereco: { alvo: '[data-tour="fid-endereco"]', titulo: 'Endereço do painel', oque: 'O endereço pelo qual você abriu o painel agora.', como: 'A passkey é criada para esse endereço. Se o painel passar a ter outro endereço, ligue o Face ID de novo em cada aparelho.', porque: 'É uma regra do navegador, que protege você de sites falsos pedindo o seu Face ID.' },
   };
 
-  if (!raiz.document) return { nomeSugerido, notasDoAmbiente, quando, itemHtml, listaHtml, opcoesMinutos, passosPagina, PASSOS, MINUTOS };
+  /* Qual botão é o principal. Já existe passkey para este endereço e este aparelho ainda não está ligado (a passkey pode ter vindo
+     do iCloud ou de outro aparelho): o principal é usar a que já existe, e criar uma nova fica como segunda opção. */
+  function botoesDaTela(a) {
+    const vincular = !a.ligado && !!a.temPasskeyAqui;
+    return { vincular, ligarPrincipal: !vincular, ligarTexto: vincular ? 'Criar uma passkey nova' : (a.ligado ? 'Ligar de novo neste aparelho' : 'Ligar o ' + a.rotulo + ' neste aparelho') };
+  }
+
+  if (!raiz.document) return { botoesDaTela, nomeSugerido, notasDoAmbiente, quando, itemHtml, listaHtml, opcoesMinutos, passosPagina, PASSOS, MINUTOS };
 
   /* ── Parte com DOM ──────────────────────────────────────────────────────── */
   const $ = (id) => document.getElementById(id);
   const T = raiz.DGTrava;
   let estado = null; let passkeys = []; let editando = null; let opcoes = null; let opcoesEm = 0; let ocupado = false;
+  let opcoesAp = null; let opcoesApEm = 0; let forcaVincular = false;
 
   function msg(id, texto, tipo) {
     const e = $(id);
@@ -157,14 +165,19 @@
     else if (ligado) status = 'O ' + r + ' está ligado neste aparelho. A tela trava depois de ' + estado.trava_min + ' min sem uso.';
     else status = 'O ' + r + ' não está ligado neste aparelho.';
     texto($('fiStatus'), status);
-    $('fiLigar').textContent = ligado ? 'Ligar de novo neste aparelho' : 'Ligar o ' + r + ' neste aparelho';
+    const temAqui = forcaVincular || passkeys.some((p) => p.rp_id === (estado && estado.host));
+    const bt = botoesDaTela({ ligado, temPasskeyAqui: temAqui, rotulo: r });
+    $('fiVincular').hidden = !bt.vincular || !amb.podeLigar;
+    $('fiVincular').disabled = ocupado || !!(estado && estado.aviso);
+    $('fiLigar').textContent = bt.ligarTexto;
+    $('fiLigar').className = 'fi-btn' + (bt.ligarPrincipal ? ' pri' : '');
     $('fiLigar').disabled = !amb.podeLigar || ocupado || !!(estado && estado.aviso);
     $('fiCampoNome').hidden = !amb.podeLigar;
     if (!$('fiNome').value) $('fiNome').value = nomeSugerido(navigator.userAgent);
     texto($('fiHost'), estado && estado.host ? 'Você abriu o painel por ' + estado.host + '. É para esse endereço que a passkey é criada.' : 'Você abriu o painel por ' + location.host + '.');
     $('fiItens').innerHTML = listaHtml(passkeys, Date.now(), editando);
     $('fiMinutos').innerHTML = opcoesMinutos(estado ? estado.trava_min : 15);
-    if (amb.podeLigar) preBuscaOpcoes();
+    if (amb.podeLigar) { preBuscaOpcoes(); if (bt.vincular) preBuscaOpcoesAparelho(); }
   }
 
   async function carrega() {
@@ -188,6 +201,38 @@
     opcoes = r.json.publicKey; opcoesEm = Date.now();
   }
 
+  async function preBuscaOpcoesAparelho() {
+    if (opcoesAp && Date.now() - opcoesApEm < OPCOES_VALIDADE_MS) return;
+    const r = await chamar('GET', '/api/v1/cadeado/aparelho/opcoes');
+    if (!r.ok) { opcoesAp = null; if (r.status !== 423 && r.status !== 404) msg('fiMsgAparelho', r.erro, 'erro'); return; }
+    opcoesAp = r.json.publicKey; opcoesApEm = Date.now();
+  }
+
+  /* Liga ESTE aparelho a uma passkey que a pessoa já tem (sem criar outra): confirma com ela e o servidor guarda o aparelho. */
+  function vincular() {
+    if (ocupado) return;
+    if (!T || !T.temApi()) { msg('fiMsgAparelho', 'Este navegador não tem ' + rotulo() + ' para sites.', 'erro'); return; }
+    if (!opcoesAp || Date.now() - opcoesApEm > OPCOES_VALIDADE_MS + 40000) {
+      msg('fiMsgAparelho', 'Ainda estou preparando o pedido ao servidor. Toque de novo em um instante.', 'erro');
+      preBuscaOpcoesAparelho();
+      return;
+    }
+    ocupado = true;
+    $('fiVincular').disabled = true; $('fiLigar').disabled = true;
+    msg('fiMsgAparelho', 'Aguardando ' + T.comArtigo() + '…', '');
+    const op = opcoesAp; opcoesAp = null;
+    navigator.credentials.get({ publicKey: T.publicKeyGet(op) }).then((cred) => {
+      if (!cred) throw new Error('O aparelho não devolveu a passkey.');
+      return chamar('POST', '/api/v1/cadeado/aparelho', { credencial: T.credParaJson(cred) });
+    }).then((r) => {
+      if (!r.ok) { const e = new Error(r.erro); e.servidor = true; throw e; }
+      forcaVincular = false;
+      msg('fiMsgAparelho', 'Pronto: a sua passkey agora vale neste aparelho. Ele trava depois de ' + r.json.estado.trava_min + ' min sem uso, e a senha continua valendo.', 'ok');
+    }).catch((e) => {
+      msg('fiMsgAparelho', e.servidor ? 'O servidor recusou: ' + e.message : T.traduz(e, 'destravar'), 'erro');
+    }).then(async () => { ocupado = false; await carrega(); });
+  }
+
   function ligar() {
     if (ocupado) return;
     if (!T || !T.temApi()) { msg('fiMsgAparelho', 'Este navegador não tem ' + rotulo() + ' para sites.', 'erro'); return; }
@@ -207,7 +252,13 @@
       if (!r.ok) { const e = new Error(r.erro); e.servidor = true; throw e; }
       msg('fiMsgAparelho', 'Pronto: o ' + rotulo() + ' está ligado neste aparelho. Ele trava depois de ' + r.json.estado.trava_min + ' min sem uso, e a senha continua valendo.', 'ok');
     }).catch((e) => {
-      msg('fiMsgAparelho', e.servidor ? 'O servidor recusou: ' + e.message : T.traduz(e, 'cadastrar'), 'erro');
+      if (!e.servidor && e.name === 'InvalidStateError') {
+        // O aparelho já tem uma passkey deste endereço (por exemplo, sincronizada pelo iCloud): o caminho é usá-la, não criar outra.
+        forcaVincular = true;
+        msg('fiMsgAparelho', 'Este aparelho já tem uma passkey do DG Claw (talvez sincronizada pela sua conta). Toque em "Usar minha passkey neste aparelho" em vez de criar outra.', 'erro');
+      } else {
+        msg('fiMsgAparelho', e.servidor ? 'O servidor recusou: ' + e.message : T.traduz(e, 'cadastrar'), 'erro');
+      }
     }).then(async () => { ocupado = false; await carrega(); });
   }
 
@@ -258,6 +309,7 @@
   function inicia() {
     document.querySelectorAll('[data-fi-ajuda]').forEach((b) => { b.onclick = () => ajuda(b.dataset.fiAjuda); });
     $('fiLigar').onclick = ligar;
+    $('fiVincular').onclick = vincular;
     $('fiSalvarTempo').onclick = salvarTempo;
     $('fiItens').addEventListener('click', aoClicarLista);
     setInterval(() => { if (document.visibilityState === 'visible' && !ocupado && !$('fiLigar').disabled) preBuscaOpcoes(); }, 35000);
@@ -266,5 +318,5 @@
   if (!T) console.error('face-id: o trava.js não carregou, então a tela não consegue ligar o Face ID. Recarregue a página.');
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', inicia); else inicia();
 
-  return { tutorial, nomeSugerido, notasDoAmbiente, quando, itemHtml, listaHtml, opcoesMinutos, passosPagina, PASSOS, MINUTOS };
+  return { tutorial, botoesDaTela, nomeSugerido, notasDoAmbiente, quando, itemHtml, listaHtml, opcoesMinutos, passosPagina, PASSOS, MINUTOS };
 });

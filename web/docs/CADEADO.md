@@ -17,7 +17,18 @@ Este documento serve para a pessoa e para o agente que a ajuda. As rotas ficam e
   enxerga as dos outros. Se o dono revoga um colaborador, as passkeys dele são apagadas.
 - **O Face ID nunca faz login.** Ele só destrava uma sessão que já entrou com a senha, e a passkey tem de ser da
   pessoa dessa sessão. Quem não está logado não consegue nada com ele.
+- **Uma passkey pode valer em vários aparelhos.** A passkey sincronizada (iCloud, por exemplo) criada no iPhone aparece também no
+  Mac, e o navegador do Mac recusa criar uma segunda com o mesmo identificador. Por isso, quando já existe passkey para o endereço
+  e o aparelho ainda não está ligado, a tela Face ID oferece "Usar minha passkey neste aparelho" (rota `POST /aparelho`), que
+  confirma com a passkey existente e liga o aparelho a ela. Cada passkey guarda a lista dos aparelhos ligados (`aparelhos`;
+  o campo antigo `aparelho_hash` é convertido na leitura, sem perder ninguém). Remover a passkey encerra as sessões de todos os
+  aparelhos dela que nenhuma outra passkey da pessoa cobre.
 - **A exigência fica presa à sessão, no servidor.** Quando a sessão se liga a um aparelho (ao ligar o Face ID, ao destravar, ao entrar com a senha ou na primeira vez em que um pedido dela traz o cookie válido), o servidor passa a exigir o cadeado dessa sessão. Apagar ou adulterar o cookie `dgclaw_aparelho` depois disso não destrava nada: o cookie só serve para criar a ligação, nunca para desfazê-la. A ligação dura até a sessão expirar, inclusive se o painel reiniciar.
+- **A remoção grava na ordem certa.** Primeiro as sessões dos aparelhos são encerradas e o `sessoes.json` é gravado; só então a
+  passkey sai do `passkeys.json`. Se o disco não aceitar o primeiro passo, a passkey não é removida e a resposta é 500 (as
+  sessões já caíram na memória e repetir a remoção regrava o que faltou). Se falhar o segundo, a resposta é 500 dizendo que as
+  sessões já caíram e que a remoção do cadastro precisa ser repetida. Nunca se responde "removido" com a sessão podendo voltar
+  depois de um reinício.
 - **Remover um aparelho encerra as sessões dele.** Ao remover o último Face ID de um aparelho, o servidor encerra as sessões presas a ele (elas voltam ao login), fecha o stream da conversa e a Tela (WebSocket) abertos por elas, e a resposta traz `sessoes_encerradas`. A sessão de quem está removendo continua se for do mesmo aparelho (e fica sem o cadeado); se for de outro aparelho, nada muda para ela. Se o aparelho ainda tiver outra passkey da mesma pessoa, nada é encerrado.
 - **A senha é a saída.** Na tela travada, "Entrar com a senha" encerra a sessão e leva ao login; entrar com a senha
   cria uma sessão já destravada. Serve para aparelho sem biometria, Face ID falhando ou passkey apagada.
@@ -62,6 +73,8 @@ português, com `{ "ok": false, "erro": "...", "motivo": "..." }` e o status cer
 | `POST /uso` | a tela avisa que houve uso (no máximo a cada 20 s; o servidor grava em disco no máximo 1 por minuto); sessão travada recebe `423` |
 | `GET /cadastro/opcoes` | opções para criar a passkey (`publicKey`, em base64url) |
 | `POST /cadastro` | `{ "nome": "iPhone da Maria", "credencial": {...} }`; grava a passkey e o cookie do aparelho |
+| `GET /aparelho/opcoes` | desafio para ligar ESTE aparelho a uma passkey que a pessoa já tem (sessão destravada) |
+| `POST /aparelho` | `{ "credencial": {...} }`; verifica a passkey existente (a mesma verificação completa), acrescenta este aparelho a ela, grava a marca da sessão e devolve o cookie `dgclaw_aparelho`; não cria passkey nova |
 | `GET /verificar/opcoes` | desafio para destravar |
 | `POST /verificar` | `{ "credencial": {...} }`; destrava a sessão |
 | `GET /passkeys` | os aparelhos da pessoa (sem chave nem identificador interno) |

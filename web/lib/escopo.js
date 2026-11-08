@@ -63,8 +63,8 @@ const ehEstatico = (p) => !p.includes('..') && RX_ESTATICO.test(p);
 const RX_DOCS = /^\/api\/v1\/(?!colaboradores\/)[a-z-]+\/docs\.md$/;
 // Rotas do Face ID liberadas ao colaborador (ver avaliaApi). /docs.md já passa por RX_DOCS.
 const CADEADO_ROTAS = [
-  [/^\/api\/v1\/cadeado\/(?:estado|passkeys|cadastro\/opcoes|verificar\/opcoes)$/, ['GET']],
-  [/^\/api\/v1\/cadeado\/(?:uso|cadastro|verificar)$/, ['POST']],
+  [/^\/api\/v1\/cadeado\/(?:estado|passkeys|cadastro\/opcoes|verificar\/opcoes|aparelho\/opcoes)$/, ['GET']],
+  [/^\/api\/v1\/cadeado\/(?:uso|cadastro|verificar|aparelho)$/, ['POST']],
   [/^\/api\/v1\/cadeado\/passkeys\/pk_[0-9a-f]{12}$/, ['PATCH', 'DELETE']],
   [/^\/api\/v1\/cadeado\/ajustes$/, ['PUT']],
 ];

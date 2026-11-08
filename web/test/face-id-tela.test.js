@@ -88,3 +88,14 @@ test('o menu leva ao Face ID para dono e colaborador', () => {
   assert.equal(M.LINK_FACEID.href, '/face-id');
   assert.equal(M.chaveDoHref('/face-id?a=ana'), 'face-id');
 });
+
+test('botões da tela Face ID: com passkey neste endereço e aparelho não ligado, o principal usa a que existe', () => {
+  const F2 = require('../public/face-id.js');
+  const a = F2.botoesDaTela({ ligado: false, temPasskeyAqui: true, rotulo: 'Face ID' });
+  assert.equal(a.vincular, true); assert.equal(a.ligarPrincipal, false); assert.match(a.ligarTexto, /nova/);
+  const b = F2.botoesDaTela({ ligado: false, temPasskeyAqui: false, rotulo: 'Face ID' });
+  assert.equal(b.vincular, false); assert.equal(b.ligarPrincipal, true); assert.match(b.ligarTexto, /Ligar o Face ID/);
+  assert.equal(F2.botoesDaTela({ ligado: true, temPasskeyAqui: true, rotulo: 'Face ID' }).vincular, false);
+  const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'face-id.html'), 'utf8');
+  assert.match(html, /Usar minha passkey neste aparelho/);
+});

@@ -1614,3 +1614,140 @@ test('trava.js: a camada tem a regra [hidden]{display:none!important} (display:f
   assert.match(codigo, /#dgclawTrava\[hidden\]\{display:none!important\}/);
   assert.match(codigo, /raiz\.id = 'dgclawTrava'/);
 });
+
+// ── remoção na ordem certa, vários aparelhos por passkey e migração ──────────────
+test('remoção com o disco falhando: 500, a passkey continua, repetir regrava e, depois de reiniciar, o cookie revogado não vale', async () => {
+  const dados = pastaTemp('cad-rem-disco');
+  const relogio = { t: Date.now() };
+  const hash = gerarHash('senha-certa-123');
+  const abre = async () => comTelas(await subirWeb({ env: { DGCLAW_PANEL_PASSWORD_HASH: hash }, opcoesServidor: { dataDir: dados, agora: () => relogio.t } }));
+  let t = await abre();
+  try {
+    const celular = pessoa({ t }); await celular.login('dono', t.senha);
+    assert.equal((await celular.cadastra(aparelhoFalso(), 'celular')).status, 201);
+    const pc = pessoa({ t }); await pc.login('dono', t.senha);
+    assert.equal((await pc.cadastra(aparelhoFalso(), 'computador')).status, 201);
+    const idCel = (await pc.get('/api/v1/cadeado/passkeys')).json.passkeys.find((p) => p.nome === 'celular').id;
+    const cookieCel = celular.jar.dgclaw_sessao;
+    // 1) o disco não aceita o sessoes.json: nada de "removido"
+    const origSync = fs.writeFileSync;
+    fs.writeFileSync = (alvo, ...resto) => { if (String(alvo).includes('sessoes.json')) throw Object.assign(new Error('sem espaço'), { code: 'ENOSPC' }); return origSync(alvo, ...resto); };
+    try {
+      const r = await pc.pedir('DELETE', `/api/v1/cadeado/passkeys/${idCel}`);
+      assert.equal(r.status, 500, r.texto); assert.equal(r.json.motivo, 'arquivo'); assert.match(r.json.erro, /NÃO foi removida.*repita a remoção/);
+    } finally { fs.writeFileSync = origSync; }
+    assert.equal((await pc.get('/api/v1/cadeado/passkeys')).json.passkeys.length, 2, 'a passkey continua');
+    // 2) repetir: regrava as sessões e remove
+    const ok = await pc.pedir('DELETE', `/api/v1/cadeado/passkeys/${idCel}`);
+    assert.equal(ok.status, 200, ok.texto);
+    assert.equal((await celular.get('/api/v1/agents')).status, 401);
+    await t.web.cadeado.aguardar();
+    await t.fechar();
+    t = await abre();
+    const depois = pessoa({ t });
+    depois.jar.dgclaw_sessao = cookieCel;
+    assert.equal((await depois.get('/api/v1/agents')).status, 401, 'depois do reinício o cookie revogado não vale');
+  } finally { await t.fechar(); }
+});
+
+test('remoção: se a gravação da passkey falha depois das sessões, 500 diz que as sessões já caíram e repetir conclui', async () => {
+  const s = await cenario();
+  await verde(s, async () => {
+    const celular = pessoa(s); await celular.login('dono', s.t.senha);
+    assert.equal((await celular.cadastra(aparelhoFalso(), 'celular')).status, 201);
+    const pc = pessoa(s); await pc.login('dono', s.t.senha);
+    assert.equal((await pc.cadastra(aparelhoFalso(), 'computador')).status, 201);
+    const idCel = (await pc.get('/api/v1/cadeado/passkeys')).json.passkeys.find((p) => p.nome === 'celular').id;
+    const original = fs.promises.writeFile;
+    fs.promises.writeFile = async (alvo, ...resto) => { if (String(alvo).includes('passkeys.json')) throw Object.assign(new Error('sem espaço'), { code: 'ENOSPC' }); return original(alvo, ...resto); };
+    try {
+      const r = await pc.pedir('DELETE', `/api/v1/cadeado/passkeys/${idCel}`);
+      assert.equal(r.status, 500, r.texto); assert.match(r.json.erro, /sessões deste aparelho já foram encerradas.*repita a remoção/);
+    } finally { fs.promises.writeFile = original; }
+    assert.equal((await celular.get('/api/v1/agents')).status, 401, 'as sessões já tinham caído');
+    assert.equal((await pc.get('/api/v1/cadeado/passkeys')).json.passkeys.length, 2, 'a passkey continua cadastrada');
+    assert.equal((await pc.pedir('DELETE', `/api/v1/cadeado/passkeys/${idCel}`)).status, 200);
+    assert.equal((await pc.get('/api/v1/cadeado/passkeys')).json.passkeys.length, 1);
+  });
+});
+
+test('migração: o campo antigo aparelho_hash vira a lista aparelhos na leitura, sem perder o aparelho', async () => {
+  const dados = pastaTemp('cad-migra');
+  const relogio = { t: Date.now() };
+  const hash = gerarHash('senha-certa-123');
+  const abre = async () => comTelas(await subirWeb({ env: { DGCLAW_PANEL_PASSWORD_HASH: hash }, opcoesServidor: { dataDir: dados, agora: () => relogio.t } }));
+  let t = await abre();
+  const d = pessoa({ t }); await d.login('dono', t.senha);
+  assert.equal((await d.cadastra(aparelhoFalso(), 'iPhone')).status, 201);
+  const cookie = d.jar.dgclaw_aparelho;
+  await t.web.cadeado.aguardar(); await t.fechar();
+  const arq = path.join(dados, 'passkeys.json');
+  const doc = JSON.parse(fs.readFileSync(arq, 'utf8'));
+  doc.passkeys[0].aparelho_hash = doc.passkeys[0].aparelhos[0]; delete doc.passkeys[0].aparelhos; // formato antigo
+  fs.writeFileSync(arq, JSON.stringify(doc));
+  t = await abre();
+  try {
+    const novo = pessoa({ t });
+    novo.jar.dgclaw_aparelho = cookie;
+    await novo.login('dono', t.senha);
+    const est = (await novo.get('/api/v1/cadeado/estado')).json;
+    assert.equal(est.aviso, null); assert.equal(est.ativo, true); assert.equal(est.neste_aparelho, true);
+    relogio.t += 16 * MIN;
+    assert.equal((await novo.get('/api/v1/agents')).status, 423);
+    assert.equal(t.log.texto().includes('ilegível'), false);
+  } finally { await t.fechar(); }
+});
+
+test('vincular: uma passkey existente passa a valer em outro aparelho; alheia é recusada; remover derruba os dois', async () => {
+  const s = await cenario();
+  await verde(s, async () => {
+    const celular = pessoa(s); await celular.login('dono', s.t.senha);
+    const ap = aparelhoFalso();
+    assert.equal((await celular.cadastra(ap, 'iPhone')).status, 201);
+    // o Mac: outra sessão do dono, sem cookie, ainda sem cadeado
+    const mac = pessoa(s); await mac.login('dono', s.t.senha);
+    assert.equal((await mac.get('/api/v1/cadeado/estado')).json.neste_aparelho, false);
+    // criar outra passkey no Mac é recusado pelo aparelho (iCloud); o caminho é vincular
+    const op = await mac.get('/api/v1/cadeado/aparelho/opcoes');
+    assert.equal(op.status, 200, op.texto);
+    assert.equal(op.json.publicKey.allowCredentials.length, 1);
+    const ruim = await mac.post('/api/v1/cadeado/aparelho', { credencial: ap.assina(op.json.publicKey, mac.origem, { assinaturaErrada: true }) });
+    assert.equal(ruim.status, 403); assert.equal(ruim.json.motivo, 'assinatura');
+    const op2 = await mac.get('/api/v1/cadeado/aparelho/opcoes');
+    const r = await mac.post('/api/v1/cadeado/aparelho', { credencial: ap.assina(op2.json.publicKey, mac.origem) });
+    assert.equal(r.status, 200, r.texto);
+    const sc = [].concat(r.headers['set-cookie']).find((x) => x.startsWith('dgclaw_aparelho='));
+    assert.match(sc, /HttpOnly/); assert.match(sc, /SameSite=Lax/);
+    assert.notEqual(mac.jar.dgclaw_aparelho, celular.jar.dgclaw_aparelho, 'cookie próprio do Mac');
+    assert.equal(r.json.estado.ativo, true); assert.equal(r.json.estado.neste_aparelho, true);
+    assert.equal(r.json.passkey.este_aparelho, true);
+    assert.equal((await mac.get('/api/v1/cadeado/passkeys')).json.passkeys.length, 1, 'nenhuma passkey nova');
+    // o Mac passou a travar, com e sem o cookie; o desafio de "aparelho" não serve para destravar
+    s.relogio.t += 16 * MIN;
+    assert.equal((await mac.get('/api/v1/agents')).status, 423);
+    delete mac.jar.dgclaw_aparelho;
+    assert.equal((await mac.get('/api/v1/agents')).status, 423);
+    assert.equal((await mac.post('/api/v1/cadeado/aparelho', {})).status, 423, 'travada não vincula');
+    mac.jar.dgclaw_aparelho = sc.split(';')[0].split('=')[1];
+    assert.equal((await mac.destrava(ap)).status, 200);
+    // uma passkey de OUTRA pessoa não liga o aparelho
+    const col = await colaboradorAtivo(s);
+    const m = pessoa(s); m.jar.dgclaw_sessao = col.c.jar.dgclaw_sessao;
+    const apMaria = aparelhoFalso();
+    assert.equal((await m.cadastra(apMaria, 'Celular da Maria')).status, 201);
+    const outro = pessoa(s); await outro.login('dono', s.t.senha);
+    const opO = await outro.get('/api/v1/cadeado/aparelho/opcoes');
+    const alheia = await outro.post('/api/v1/cadeado/aparelho', { credencial: apMaria.assina(opO.json.publicKey, outro.origem) });
+    assert.equal(alheia.status, 403); assert.equal(alheia.json.motivo, 'titular');
+    assert.equal((await outro.get('/api/v1/cadeado/estado')).json.neste_aparelho, false);
+    // o colaborador alcança as rotas novas (escopo)
+    assert.equal((await m.get('/api/v1/cadeado/aparelho/opcoes')).status, 200);
+    // remover a passkey, por uma terceira sessão do dono, derruba as sessões dos DOIS aparelhos
+    const id = (await outro.get('/api/v1/cadeado/passkeys')).json.passkeys[0].id;
+    const rem = await outro.pedir('DELETE', `/api/v1/cadeado/passkeys/${id}`);
+    assert.equal(rem.status, 200, rem.texto); assert.equal(rem.json.sessoes_encerradas, 2);
+    assert.equal((await celular.get('/api/v1/agents')).status, 401);
+    assert.equal((await mac.get('/api/v1/agents')).status, 401);
+    assert.notEqual((await outro.get('/api/v1/agents')).status, 401);
+  });
+});

@@ -339,12 +339,12 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
       } finally { scryptEmCurso--; }
     },
 
-    /** Apaga todas as sessões de um colaborador (revogação, convite novo, troca de senha). Devolve quantas. */
+    /** Apaga todas as sessões de um colaborador (revogação, convite novo, troca de senha). Devolve { n, gravou }: quantas caíram e
+        se o arquivo foi regravado (sem gravar, a sessão pode voltar depois de um restart; quem promete o efeito confere). */
     encerraDoColaborador(id) {
       let n = 0;
       for (const [k, v] of sessoes) if (v.papel === 'colaborador' && v.colaborador_id === id) { sessoes.delete(k); n++; }
-      if (n) salva();
-      return n;
+      return { n, gravou: n ? salva() : true };
     },
 
     /** Chave interna (sha256 do token) da sessão do pedido, ou null. É a chave com que os outros módulos apontam uma sessão. */
@@ -389,12 +389,13 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
       const s = sessoes.get(hash);
       return !!s && s.expira > relogio();
     },
-    /** Encerra uma sessão pela chave interna (ver hashDaSessao). Devolve se existia. */
+    /** Encerra uma sessão pela chave interna (ver hashDaSessao). Devolve { existia, gravou } (gravou: o arquivo foi regravado). */
     encerraPorHash(hash) {
       const existia = sessoes.delete(hash);
-      if (existia) salva();
-      return existia;
+      return { existia, gravou: existia ? salva() : true };
     },
+    /** Regrava o sessoes.json agora e devolve se deu certo (para repetir uma revogação que não foi gravada). */
+    gravaSessoes() { return salva(); },
 
     /** Apaga a sessão do pedido e manda o cookie expirar. */
     encerra(req, res) {
