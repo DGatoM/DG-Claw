@@ -10,6 +10,7 @@ import io
 import json
 import shutil
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -909,6 +910,61 @@ class Arquivos(unittest.TestCase):
                     self._confere_recusa_sem_carregar(caminho, "arquivo_invalido", "rep%d" % n)
 
     @unittest.skipUnless(tem("openpyxl"), "openpyxl não está instalado neste Python")
+    def test_aba_com_x_id_diferente_e_r_id_repetido_e_recusada(self):
+        grande = b'<mergeCells count="1"><mergeCell ref="A1:J100000"/></mergeCells>'
+
+        def workbook(d):
+            # o openpyxl só lê r:id; x:id (outro namespace) diferente em cada aba não pode enganar a conferência
+            abas = b"".join(b'<sheet xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '
+                            b'xmlns:x="urn:outro" name="s%d" sheetId="%d" x:id="u%d" r:id="rId1"/>' % (i, i, i) for i in (1, 2, 3))
+            i = d.index(b"<sheets>") + len(b"<sheets>")
+            return d[:i] + abas + d[d.index(b"</sheets>"):]
+        caminho = self._xlsx_com_duas_abas_e_comentarios("xid.xlsx", {
+            "xl/worksheets/sheet1.xml": lambda d: d.replace(b"</worksheet>", grande + b"</worksheet>"), "xl/workbook.xml": workbook})
+        self._confere_recusa_sem_carregar(caminho, "arquivo_invalido", "xid.xlsx")
+
+    @unittest.skipUnless(tem("openpyxl"), "openpyxl não está instalado neste Python")
+    def test_aba_sem_r_id_e_recusada(self):
+        def workbook(d):
+            return d.replace(b' r:id="rId2"', b"", 1) if b' r:id="rId2"' in d else d.replace(b'r:id="rId2"', b"", 1)
+        caminho = self._xlsx_com_duas_abas_e_comentarios("semrid.xlsx", {"xl/workbook.xml": workbook})
+        with zipfile.ZipFile(caminho) as z:
+            self.assertNotIn(b"rId2", z.read("xl/workbook.xml").split(b"<sheets>")[1].split(b"</sheets>")[0])
+        self._confere_recusa_sem_carregar(caminho, "arquivo_invalido", "semrid.xlsx")
+
+    @unittest.skipUnless(tem("openpyxl"), "openpyxl não está instalado neste Python")
+    def test_relacionamentos_externos_de_aba_para_a_mesma_parte_sao_recusados(self):
+        grande = b'<mergeCells count="1"><mergeCell ref="A1:J100000"/></mergeCells>'
+        tipo = b"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet"
+
+        def rels(d):
+            extra = b"".join(b'<Relationship Type="%s" Target="xl/worksheets/sheet1.xml" TargetMode="External" Id="rIdx%d"/>' % (tipo, i)
+                             for i in range(1, 4))
+            return d.replace(b"</Relationships>", extra + b"</Relationships>")
+
+        def workbook(d):
+            abas = b"".join(b'<sheet xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" name="e%d" sheetId="%d" r:id="rIdx%d"/>'
+                            % (i, i + 10, i) for i in range(1, 4))
+            i = d.index(b"<sheets>") + len(b"<sheets>")
+            return d[:i] + abas + d[d.index(b"</sheets>"):]
+        caminho = self._xlsx_com_duas_abas_e_comentarios("ext.xlsx", {
+            "xl/worksheets/sheet1.xml": lambda d: d.replace(b"</worksheet>", grande + b"</worksheet>"),
+            "xl/_rels/workbook.xml.rels": rels, "xl/workbook.xml": workbook})
+        self._confere_recusa_sem_carregar(caminho, "arquivo_invalido", "ext.xlsx")
+
+    @unittest.skipUnless(tem("openpyxl"), "openpyxl não está instalado neste Python")
+    def test_hyperlink_externo_normal_continua_passando(self):
+        tipo = b"http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink"
+
+        def rels(d):
+            extra = b"".join(b'<Relationship Type="%s" Target="https://exemplo.com.br/a" TargetMode="External" Id="rIdh%d"/>' % (tipo, i)
+                             for i in (1, 2))
+            return d.replace(b"</Relationships>", extra + b"</Relationships>")
+        caminho = self._xlsx_com_duas_abas_e_comentarios("hl.xlsx", {"xl/worksheets/_rels/sheet1.xml.rels": rels})
+        r = self.pedir(caminho)
+        self.assertTrue(r["ok"], r)
+
+    @unittest.skipUnless(tem("openpyxl"), "openpyxl não está instalado neste Python")
     def test_comentario_compartilhado_entre_abas_e_recusado(self):
         grande = b'<commentList><comment ref="A1:J100000" authorId="0"><text><t>x</t></text></comment></commentList>'
         # a aba 2 passa a apontar para o mesmo comentário da aba 1
@@ -1155,6 +1211,69 @@ class Arquivos(unittest.TestCase):
         novo = docx.Document(saida)   # continua abrindo, sem referência quebrada a imagem
         self.assertEqual(len(novo.inline_shapes), 0)
         self.assertEqual(novo.core_properties.title, "Contrato de [EMAIL_1]")
+
+    def _docx_com_autoria_curta(self, texto):
+        import docx
+        from docx.oxml import OxmlElement
+        from docx.oxml.ns import qn
+        d = docx.Document()
+        p = d.add_paragraph(texto)
+        d.add_comment(p.runs[0], text="conferir", author="Ana", initials="A")
+        ins = OxmlElement("w:ins")
+        ins.set(qn("w:id"), "77")
+        ins.set(qn("w:author"), "Ana")
+        ins.set(qn("w:date"), "2024-01-01T00:00:00Z")
+        run = OxmlElement("w:r")
+        t = OxmlElement("w:t")
+        t.text = "inserido"
+        run.append(t)
+        ins.append(run)
+        p._p.append(ins)
+        origem = os.path.join(self.tmp, "autoria.docx")
+        d.save(origem)
+        return origem
+
+    def _sem_palavra(self, caminho, proibidos):
+        """Como assert_limpo, mas só palavra inteira ('Ana' não acusa 'manager')."""
+        for parte, texto in verificacao.partes(caminho):
+            for p in proibidos:
+                self.assertIsNone(re.search(r"(?<!\w)" + re.escape(p) + r"(?!\w)", texto, re.I), "%s ainda tem dado em %s" % (p, parte))
+
+    def _atributos_de_autoria(self, caminho):
+        achados = []
+        with zipfile.ZipFile(caminho) as z:
+            for n in z.namelist():
+                if n.endswith(".xml"):
+                    achados += re.findall(r'(?:author|initials)="([^"]*)"', z.read(n).decode("utf-8"))
+        return achados
+
+    @unittest.skipUnless(tem("docx") and tem("lxml"), "python-docx não está instalado neste Python")
+    def test_docx_autor_curto_de_comentario_e_revisao_com_nome_na_tabela(self):
+        origem = self._docx_com_autoria_curta("Texto sem o nome do autor.")
+        r = self.pedir(origem, tabela=[{"tipo": "PESSOA", "valor": "Ana", "marcador": "[PESSOA_1]"}])
+        self.assertTrue(r["ok"], r)
+        saida = os.path.join(self.saida, "doc-1.anon.docx")
+        self._sem_palavra(saida, ["Ana"])
+        autoria = self._atributos_de_autoria(saida)
+        self.assertIn("[PESSOA_1]", autoria)
+        self.assertNotIn("A", autoria)
+        self.assertNotIn("Ana", autoria)
+
+    @unittest.skipUnless(tem("docx") and tem("lxml"), "python-docx não está instalado neste Python")
+    def test_docx_autor_curto_detectado_no_texto_do_documento(self):
+        origem = self._docx_com_autoria_curta("Assinado por Ana Paula Lima em janeiro.")
+        r = self.pedir(origem)
+        self.assertTrue(r["ok"], r)
+        saida = os.path.join(self.saida, "doc-1.anon.docx")
+        self._sem_palavra(saida, ["Ana", "Paula", "Lima"])
+        self.assertNotIn("Ana", self._atributos_de_autoria(saida))
+
+    @unittest.skipUnless(tem("docx") and tem("lxml"), "python-docx não está instalado neste Python")
+    def test_verificacao_final_acusa_autor_curto_que_sobrou(self):
+        origem = self._docx_com_autoria_curta("Texto qualquer.")
+        detectados = {("PESSOA", "ana"): "Ana"}
+        with self.assertRaises(motor.ErroMotor) if hasattr(motor, "ErroMotor") else self.assertRaises(Exception):
+            verificacao.verificar([origem], detectados, "autoria.docx")
 
     @unittest.skipUnless(tem("docx") and tem("lxml"), "python-docx não está instalado neste Python")
     def test_usados_marcador_reaproveitado_so_no_rodape(self):

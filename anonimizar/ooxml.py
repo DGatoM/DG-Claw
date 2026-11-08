@@ -23,10 +23,20 @@ PARAGRAFOS = {W + "p", A + "p", S + "si", S + "text", S + "is"}
 TEXTOS = {W + "t", W + "delText", A + "t", S + "t"}
 # Atributos que costumam carregar texto de gente (os demais passam só pelos detectores de número e contato).
 ATRIBUTOS_HUMANOS = {"author", "initials", "descr", "title", "alt", "Target", "display", "tooltip", "location", "href", "lastAuthor"}
+# Atributos de autoria: nome de gente mesmo curto ("Ana"). Não passam pelo corte de seis caracteres e as iniciais saem em branco.
+ATRIBUTOS_DE_AUTORIA = {"author", "initials", "lastAuthor", "displayName", "userId"}
+ELEMENTOS_COM_NOME_DE_PESSOA = {"cmAuthor", "person"}
 # Carimbos de criação/alteração do arquivo: não são dado do documento; saem zerados da saída.
 CARIMBOS_DE_TEMPO = {"created", "modified", "lastPrinted"}
 GUID = re.compile(r"^\{?[0-9A-Fa-f]{8}(-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}\}?$")
 NS_W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+
+
+def atributo_de_autoria(el, chave):
+    local = chave.rsplit("}", 1)[-1]
+    if local in ATRIBUTOS_DE_AUTORIA:
+        return True
+    return local == "name" and isinstance(el.tag, str) and el.tag.rsplit("}", 1)[-1] in ELEMENTOS_COM_NOME_DE_PESSOA
 
 
 def atributo_estrutural(el, chave, valor):
@@ -180,7 +190,7 @@ def textos_para_deteccao(caminho, nome, so_nao_celulas=False):
                 if el not in tratados and el.text and el.text.strip() and not (so_nao_celulas and _ignora_texto(f, el)):
                     conteudo.append(el.text.strip())
                 for k, v in el.attrib.items():
-                    if len(v) >= 6 and not atributo_estrutural(el, k, v):
+                    if (len(v) >= 6 or (v.strip() and atributo_de_autoria(el, k))) and not atributo_estrutural(el, k, v):
                         (attr_ner if k.split("}")[-1] in ATRIBUTOS_HUMANOS else attr_regex).add(v)
     return conteudo, sorted(attr_ner), sorted(attr_regex)
 
@@ -320,7 +330,10 @@ def _tirar_referencias(raiz, rids):
 
 
 def _filtrar_attr_valor(v, nome_attr, encontrar, el=None):
-    if len(v) < 6 or (el is not None and atributo_estrutural(el, nome_attr, v)):
+    autoria = el is not None and atributo_de_autoria(el, nome_attr)
+    if autoria and nome_attr.rsplit("}", 1)[-1] == "initials":
+        return ""
+    if (len(v) < 6 and not autoria) or (el is not None and atributo_estrutural(el, nome_attr, v)):
         return v
     trocas = encontrar(v, True)
     return distribuir([v], trocas)[0] if trocas else v

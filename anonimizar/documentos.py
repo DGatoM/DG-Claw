@@ -475,13 +475,24 @@ def conferir_planilha_crua(caminho, nome):
                             if n > LIMITES_DE_CONTAGEM.get(local, 1 << 62):
                                 raise _planilha_grande(nome, info.filename, "a parte tem mais de %d elementos <%s>" % (LIMITES_DE_CONTAGEM[local], local))
                             if local == "sheet":
-                                rid = next((v for k, v in el.attrib.items() if k.rsplit("}", 1)[-1] == "id"), None)
-                                if rid is not None:
-                                    abas_por_id[rid] = abas_por_id.get(rid, 0) + 1
-                                    if abas_por_id[rid] > 1:
-                                        raise _aba_repetida(nome, info.filename, "várias abas do arquivo apontam para o mesmo relacionamento (%s)" % rid[:40])
-                            elif eh_rels and local == "Relationship" and el.get("TargetMode") != "External":
-                                alvo = _alvo_normalizado(info.filename, el.get("Target") or "")
+                                # só o atributo de relacionamento que o openpyxl lê conta (x:id de outro namespace é ignorado por ele)
+                                rids = [el.attrib[k] for k in _ATRIBUTOS_RID if k in el.attrib]
+                                if len(rids) != 1:
+                                    raise _aba_repetida(nome, info.filename, "uma aba do arquivo não tem exatamente um r:id de relacionamento")
+                                rid = rids[0]
+                                abas_por_id[rid] = abas_por_id.get(rid, 0) + 1
+                                if abas_por_id[rid] > 1:
+                                    raise _aba_repetida(nome, info.filename, "várias abas do arquivo apontam para o mesmo relacionamento (%s)" % rid[:40])
+                            elif eh_rels and local == "Relationship":
+                                tipo = (el.get("Type") or "").rsplit("/", 1)[-1]
+                                if el.get("TargetMode") == "External":
+                                    # o openpyxl não normaliza o destino externo, mas o procura entre as partes do pacote: alvo igual ao nome de
+                                    # uma parte interna é carregado como ela
+                                    if tipo in _TIPOS_CARREGADOS_POR_USO:
+                                        raise _aba_repetida(nome, info.filename, "um relacionamento externo do tipo %s" % tipo[:20])
+                                    alvo = el.get("Target") or ""
+                                else:
+                                    alvo = _alvo_normalizado(info.filename, el.get("Target") or "")
                                 alvos.setdefault(alvo, []).append(el.get("Type") or "")
                             if local == "dimension" or local in _ELEMENTOS_COM_AREA:
                                 ref = (el.get("ref") or "").strip()
@@ -520,6 +531,9 @@ def conferir_planilha_crua(caminho, nome):
 # áreas conta cada parte uma vez; se a mesma parte pudesse ser apontada várias vezes, um pacote de poucos KB multiplicaria a mesclagem
 # por mil. Partes compartilhadas de verdade (imagem, tema, estilos, desenhos) não entram aqui e continuam permitidas.
 _TIPOS_CARREGADOS_POR_USO = ("worksheet", "chartsheet", "comments", "dialogsheet", "macrosheet")
+# Namespaces do atributo id de <sheet> que o openpyxl reconhece (descriptors/excel.py, Relation.namespace) mais a variante strict do OOXML.
+_ATRIBUTOS_RID = ("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id",
+                  "{http://purl.oclc.org/ooxml/officeDocument/relationships}id")
 
 
 def _alvo_normalizado(rels, alvo):
