@@ -171,6 +171,20 @@
     document.head.appendChild(s);
   }
 
+  /* O aviso único de segurança (uma janela e um selo) também aparece em todas as telas que usam a casca. */
+  function carregaAvisoSeguranca() {
+    if (raiz.DGSegurancaResumo) return;
+    const carrega = (src, depois) => {
+      const s = document.createElement('script');
+      s.src = src;
+      s.onload = depois || null;
+      s.onerror = () => console.warn('casca: ' + src + ' não carregou; as telas seguem sem o aviso de segurança.');
+      document.head.appendChild(s);
+    };
+    if (raiz.DGRondaComum) carrega('/seguranca-resumo.js');
+    else carrega('/ronda-comum.js', () => carrega('/seguranca-resumo.js'));
+  }
+
   function monta(opcoes) {
     const o = opcoes || {};
     est.pagina = o.pagina || '';
@@ -182,6 +196,7 @@
     document.body.insertAdjacentHTML('afterbegin', MARCACAO_CABECALHO + MARCACAO_MENU);
     pintaTitulo();
     carregaFaixaAtualizacao();
+    carregaAvisoSeguranca();
     $('btnMenu').onclick = () => abreMenu(true);
     $('btnFechaMenu').onclick = () => abreMenu(false);
     $('overlayMenu').onclick = () => abreMenu(false);

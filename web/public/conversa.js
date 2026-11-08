@@ -721,10 +721,17 @@ function leDesenha() {
   sec.hidden = !(f === 'aviso' || f === 'nao_voltou');
   nao.hidden = f === 'pronto';
   nao.textContent = f === 'aviso' || f === 'cartao' ? t.agoraNao : 'Fechar';
+  $('leConectar').hidden = f === 'pronto';
 }
 
+/* O modal "Faça o login nos seus agentes" (modal-login.js) substitui este pop-up: se ele está aberto, ou se já
+   abriu nesta carga da página, o pop-up não abre (nada de dois avisos sobre a mesma coisa). */
+function leModalLoginAtivo() {
+  const m = window.DGModalLogin;
+  return !!m && (m.aberto() || m.abriuNestaCarga());
+}
 function leAbre() {
-  if (!LE || !leDlg || le.aberto) return;
+  if (!LE || !leDlg || le.aberto || leModalLoginAtivo()) return;
   le.est = leEstAtual();
   Object.assign(le, { aberto: true, fase: 'aviso', erro: '', concluiu: false });
   leDesenha();
@@ -835,8 +842,12 @@ function leAbreAoRecusar() {
   const est = leEstAtual();
   if (le.aberto) return;
   if (est && LE.expirado(est)) { lc.expirado = true; }
+  if (leModalLoginAtivo()) { mostraErro('O login da conta expirou. Reconecte pelo cartão de login no fim da conversa ou pela página Conectar conta, no menu.'); return; }
   leAbre();
 }
+
+// o modal de login abriu depois do pop-up: ele toma o lugar do pop-up, que fecha sem dispensar nada
+document.addEventListener('dgmodallogin:abriu', () => leFecha(false));
 
 if (leDlg && LE) {
   $('lePrimario').onclick = () => { leReconectar(); };
@@ -1649,6 +1660,29 @@ function horaLocal(m) {
   if (typeof m.ep !== 'number' || !isFinite(m.ep)) return;
   const f = fmtLocal(m.ep);
   m.dia = f.dia; m.hhmm = f.hhmm;
+}
+
+/* Grudado no fundo. Ao abrir a conversa, a tela ia pro fim e logo depois os
+   visuais (iframes) terminavam de carregar e cresciam: o fim se afastava e a tela
+   ficava parada no visual, com mensagens abaixo. Enquanto a pessoa está no fim,
+   qualquer crescimento do #wrap (visual, imagem, fonte) leva a tela junto. Só sai
+   do fim quando ela mesma rola pra cima; volta a grudar ao chegar de novo no fundo. */
+let grudadoNoFim = true;
+let ultimoTopoChat = 0;
+chat.addEventListener('scroll', () => {
+  if (!chat.clientHeight) { ultimoTopoChat = chat.scrollTop; return; }   // tela escondida
+  const dist = chat.scrollHeight - chat.scrollTop - chat.clientHeight;
+  if (dist < 8) grudadoNoFim = true;
+  else if (chat.scrollTop < ultimoTopoChat - 2) grudadoNoFim = false;     // subiu: quer ler o de cima
+  ultimoTopoChat = chat.scrollTop;
+}, { passive: true });
+if (typeof ResizeObserver !== 'undefined') {
+  new ResizeObserver(() => {
+    if (!grudadoNoFim || !chat.clientHeight) return;
+    if (chat.scrollHeight - chat.scrollTop - chat.clientHeight > 1) {
+      chat.scrollTop = chat.scrollHeight; ultimoTopoChat = chat.scrollTop;
+    }
+  }).observe(wrap);
 }
 
 function render(opt) {
@@ -4821,6 +4855,7 @@ function passosTutorial() {
   passos.push(passoAlertas());
   if (window.DGFoco) passos.push(window.DGFoco.passoTutorial());
   passos.push(passoAcervo());
+  if (window.DGSegurancaResumo) passos.push(window.DGSegurancaResumo.passoSelo());
   return passos;
 }
 

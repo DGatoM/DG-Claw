@@ -7,6 +7,110 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**A Tela do agente (o navegador dele, onde você faz os logins) ficou sempre à mão e passou a explicar o que falta.**
+Alunos relataram que não tinham tela nenhuma. Havia quatro causas, e as quatro foram tratadas:
+
+- *Atalho na conversa.* O menu de cada agente ganhou o item **Tela (navegador do agente)**. Ele abre o painel do agente
+  já na aba Tela, onde você digita e clica direto no navegador dele para fazer o login dos sistemas. O Admin não tem o
+  item, porque não tem navegador.
+- *Senha que nunca falta.* Se a senha da Tela ainda não foi definida, a aba abre direto em "Defina a senha da tela"
+  (de 6 a 8 caracteres), com a explicação do porquê, e a tela abre sozinha depois de gravar. Antes, a aba abria um
+  navegador que não conectava. O `dgclaw agente recriar`, o `reparar` e o `atualizar` não inventam senha: avisam, numa
+  linha por agente, que ela falta e como definir.
+- *Diagnóstico que se explica.* A aba Tela mostra o que está errado em linguagem simples (sem navegador na imagem,
+  senha não definida, tela parada, navegador sem resposta) e o que fazer. Quem administra o servidor tem o mesmo
+  em `dgclaw agente tela <slug>`, que sai com código diferente de zero quando algo falta.
+- *Servidor arm64.* Antes, a construção da imagem parava com erro nessa arquitetura, porque o Google Chrome só existe
+  para amd64, e quem instalava ficava sem imagem. Agora a imagem sai, e a Tela usa o Chromium. Para você é a mesma
+  tela; alguns sites com proteção contra robôs podem tratá-lo de outro jeito que o Chrome.
+
+O teclado também foi ajustado: letras com acento e o `ç` digitados direto na Tela devem chegar certos, e a Tela
+reconecta sozinha depois de uma troca de senha. Nada do que protegia a Tela mudou: ela continua só em `localhost`
+dentro do agente, atrás do login do painel e da senha própria dela, e agora há um teste que falha se uma dessas
+travas sumir.
+
+### Como atualizar (a Tela do agente)
+
+Peça ao Admin, no chat: "atualiza o DG Claw". Ele confirma com você e instala; agentes, conversas e configurações
+ficam como estão. Se algum dos seus agentes foi criado antes da Tela existir, ele ainda não tem a senha dela, e sem
+ela a Tela não conecta. Defina a senha uma vez, na aba Tela do painel desse agente (menu do agente, item Tela): é a
+segunda trava, além do login do painel, e o DG Claw não inventa uma por você porque ninguém saberia qual é. O resumo
+da atualização lista os agentes que ainda precisam disso. Servidor arm64 precisa reconstruir a imagem uma vez
+(o Admin faz isso na atualização).
+
+**Nova página Conectar conta.** Antes, para conectar a conta do Claude de um agente alguém tinha de gerar um link de login
+e mandar por mensagem, e o link vencia antes de você ver. Agora o painel tem a página **Conectar conta** (no menu ☰, ou em
+`/conectar`): você entra quando puder, toca em "Gerar link de login" no cartão do agente, entra na sua conta do Claude e cola
+o código que aparece no fim. Há um cartão para o Admin e um para cada agente de trabalho, cada um com um selo que mostra se
+a conta está conectada, se falta conectar ou se o login expirou. Quem usa chave de API aparece como tal, sem botão. O aviso
+"Seu login do Claude expirou" também ganhou um atalho discreto para essa página. Os cartões agora se chamam Agente admin, Agente principal e Agente de trabalho, e, quando tudo está conectado, a página mostra
+um passo a passo curto (endereço do painel, usuário para entrar e o que você vai ver) com um vídeo de menos de 1 minuto.
+Nada precisa ser feito para atualizar.
+
+**Modal de login ao abrir o painel.** Se algum dos seus agentes estiver sem login (ou com o login vencido), ao abrir a
+conversa aparece sozinho o aviso "Faça o login nos seus agentes", com um cartão para cada agente: o Admin, o agente principal e os demais.
+Você gera o link, entra na sua conta, cola o código e pronto, sem precisar achar a página Conectar conta. Quando todos
+conectam, o aviso mostra "Login efetuado" (nos dois agentes, no seu agente ou nos seus N agentes), o que fazer agora e o vídeo
+curto "Conhecendo o DG Claw". "Fazer depois" fecha o aviso e ele não volta naquela aba. Quando esse aviso abre, ele toma o lugar do
+pop-up "Seu login do Claude expirou". A página Conectar conta continua no menu como plano B. Os cartões também passaram a
+mostrar com qual IA o agente vai entrar; por enquanto é a IA em que ele já foi criado, e trocar de IA ainda não está disponível.
+Nada precisa ser feito para atualizar.
+
+**Comando para entregar um DG Claw instalado por outra pessoa.** Quando a equipe instala o DG Claw na VPS de alguém e
+quer entregar pronto, o comando `sudo dgclaw instalacao-remota` troca a senha do painel por uma senha forte nova, reinicia o
+painel e mostra uma única vez a mensagem pronta com o endereço, o usuário e a senha. A senha não fica guardada em lugar
+nenhum, só o hash. É opcional e não muda a instalação normal. Nada precisa ser feito para atualizar.
+
+**A ronda de segurança deixou de pesar na memória.** Em servidores pequenos, de 4 GB, a verificação de segurança podia
+passar de 1 GB de memória e fazer o sistema derrubar os seus agentes. Agora ela lê uma falha por vez e guarda só o
+que importa, então o pico fica abaixo de 100 MB nos testes. Servidores de até 4,5 GB rodam a ronda no modo econômico, uma
+vez por dia às 04:00 (se você tiver definido os seus horários, eles valem). Se mesmo assim a ronda passar do limite de
+memória, ela termina avisando que ficou parcial e o motivo, e o sistema, se precisar encerrar alguém, encerra a ronda
+e nunca um agente. Nada muda no que você vê na tela Segurança, só ganha um aviso de "parcial" quando for o caso.
+
+### Como atualizar (ronda leve)
+
+Peça ao Admin, no chat: "atualiza o DG Claw". Ele confirma com você e instala; agentes, conversas e configurações
+ficam como estão. Em servidor pequeno, o horário da ronda passa para as 04:00 a não ser que você já tenha escolhido o seu.
+
+**Um aviso de segurança só, no lugar da pilha de janelas.** Antes, cada falha crítica da ronda e cada boletim
+abria a própria janela, e quem tinha várias precisava fechar uma por uma, todo dia. Agora aparece uma janela só,
+"Seu ambiente está em risco", que conta quantos pontos de segurança pedem a sua atenção, mostra os mais graves e
+tem o botão "Ver na Segurança". Fechar uma vez fecha tudo. Ela só volta sozinha se aparecer um problema novo, se
+algum ficar mais grave ou depois de 24 horas, no máximo uma vez por dia. Enquanto houver pendência, um selo
+discreto no alto da tela leva à Segurança. Nenhum aviso sumiu: cada falha continua na tela Segurança com os fatos e
+os botões de antes, e os boletins ganharam uma seção própria lá, "Avisos de segurança do DG Claw", com Atualizar,
+Lembrar depois e Entendi. Ideia de um aluno.
+
+### Como atualizar este aviso
+
+Peça ao Admin, no chat: "atualiza o DG Claw". Ele confirma com você e instala; agentes, conversas e configurações
+ficam como estão. Depois, no celular, feche o painel e abra de novo para o navegador baixar a tela nova. Na
+primeira visita a janela nova aparece uma vez; feche e ela só volta pelos motivos acima.
+
+**Tela Segurança e botão de emergência.** O menu ganhou a tela Segurança: o horário da última ronda, o que foi
+aplicado sozinho (com o botão Desfazer), as falhas críticas que pedem a sua decisão (aplicar, agendar ou tirar do
+ar) e as de impacto leve, com a correção pronta esperando o seu ok. Falha crítica abre uma janela vermelha que volta
+a cada visita até você decidir. O botão de emergência tira o sistema da internet e mantém só o seu acesso pelo
+Tailscale; pede um código de uso único e a frase de confirmação, e religa sozinho em 5 minutos se ninguém confirmar.
+No terminal: `sudo dgclaw emergencia simular`. Detalhes em `docs/EMERGENCIA.md`.
+
+**Aviso de segurança no painel.** Quando a equipe publica um boletim sobre uma falha de segurança numa das
+ferramentas que o DG Claw usa, o servidor percebe sozinho (uma leitura pública do GitHub a cada hora) e o painel
+mostra uma janela "Aviso de segurança", com a fonte oficial e o que muda, e um selo discreto que fica no alto das
+telas até o assunto se resolver. O botão Atualizar leva ao chat do Admin com o pedido já escrito; você só envia.
+Nada é instalado sem o seu sim, e ao atualizar o aviso some sozinho. Para desligar, ponha
+`DGCLAW_BOLETINS_SEGURANCA=0` no `dgclaw.env`. Detalhes em `docs/BOLETINS-DE-SEGURANCA.md`.
+
+**Ronda de segurança de fábrica.** Todo DG Claw instalado passa a ter uma ronda que, três vezes ao dia (07:00,
+13:00 e 19:00, no horário do servidor), procura falhas de segurança que afetam aquela instalação: os pacotes do
+servidor, o kernel que está rodando, o que escuta na rede, os pacotes do DG Claw e os serviços que você conectou
+(Notion, Slack, Google Drive e outros). Quem não usa o Notion não recebe aviso sobre o Notion. As falhas aparecem
+em três níveis: o que a ronda corrigiu sozinha, o que precisa da sua decisão e o que dá para corrigir sem
+pressa. Só quando há uma falha nova o Admin é avisado e conta a você no chat; nos outros dias ninguém fala nada.
+Se alguma fonte de consulta ficar fora do ar, a ronda diz que ficou parcial, e nunca finge que está tudo limpo.
+Para desligar, ponha `DGCLAW_RONDA_SEGURANCA=0` no `dgclaw.env`. Detalhes em `docs/RONDA-DE-SEGURANCA.md`.
+
 Duas correções da imagem dos agentes. A Tela não derruba mais a aba nova: o Chrome da Tela passava do limite
 de processos que o sistema dá a cada serviço e a segunda aba abria em branco ou quebrava. E o Pillow, a
 biblioteca de imagens do Python que vem na imagem, subiu para a 13.0.0, que fecha cinco falhas críticas de
@@ -41,6 +145,12 @@ aprovar sem querer o comando que surgiu em seguida, e o botão Aprovar de uma te
 5. **Para receber os avisos no celular,** ative "Avisos neste aparelho" na tela de Lembretes, se
    ainda não ativou. No iPhone, o aviso só chega com o DG Claw instalado na tela de início. Se o app
    instalado abrir com aviso de erro, feche e abra de novo para ele buscar os arquivos novos.
+6. **Para ter a ronda de segurança, clique em Instalar na faixa de nova versão do painel ou peça ao Admin:
+   "atualiza o DG Claw".** Depois de atualizar, a ronda faz a primeira rodada sozinha e passa a varrer o
+   servidor três vezes ao dia, sem você configurar nada. Quando aparecer uma falha nova que afeta o seu
+   servidor, o Admin avisa no chat e o painel mostra o que fazer. Nesta versão a lista de correções que a
+   ronda pode aplicar sozinha começa vazia, então nada é mexido sem o seu sim. Se mais tarde ela passar a
+   corrigir algo sozinha, ela conta o que fez e você desfaz com um pedido ao Admin.
 
 ### Adicionado
 
