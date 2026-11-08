@@ -99,9 +99,9 @@ test('a página real carrega os scripts certos e todos existem', () => {
   for (const s of ['/conectar.js', '/conectar.css', '/conectar-puro.js']) assert.ok(sw.includes("'" + s + "'"), 'sw sem ' + s);
 });
 
-test('menu: item Conectar conta com 🔑 e o reconhecimento da página', () => {
+test('menu: item Conectar conta com o ícone de chave e o reconhecimento da página', () => {
   const M = require('../public/menu-lado');
-  assert.deepEqual(M.LINK_CONECTAR, { nome: 'Conectar conta', ico: '🔑', href: '/conectar' });
+  assert.deepEqual(M.LINK_CONECTAR, { nome: 'Conectar conta', ico: 'i-key', href: '/conectar' });
   assert.equal(M.chaveDoHref('/conectar?a=ana'), 'conectar');
   assert.equal(M.chaveDoHref('/conectar/'), 'conectar');
 });

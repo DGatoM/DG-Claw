@@ -10,8 +10,8 @@ const Tela = require('../public/lembretes');
 
 const pub = (n) => fs.readFileSync(path.join(__dirname, '../public', n), 'utf8');
 
-test('o menu lateral tem a entrada ⏰ Lembretes apontando para /lembretes', () => {
-  assert.deepEqual(M.LINK_LEMBRETES, { nome: 'Lembretes', ico: '⏰', href: '/lembretes' });
+test('o menu lateral tem a entrada de Lembretes (ícone de relógio) apontando para /lembretes', () => {
+  assert.deepEqual(M.LINK_LEMBRETES, { nome: 'Lembretes', ico: 'i-clock', href: '/lembretes' });
   assert.match(pub('menu-lado.js'), /mlTabs'\)\.insertAdjacentHTML/);
 });
 

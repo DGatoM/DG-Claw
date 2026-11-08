@@ -6,7 +6,7 @@
   if (typeof module === 'object' && module.exports) module.exports = m;
   else raiz.DGConversaPuro = m;
 })(this, function () {
-  /* Aviso amarelo fechado no ✕ descansa 48 h. A assinatura troca número por #, então
+  /* Aviso amarelo fechado no X descansa 48 h. A assinatura troca número por #, então
      "92%" e "93%" contam como o mesmo aviso. */
   const AVISO_DESCANSO_MS = 48 * 3600 * 1000;
 

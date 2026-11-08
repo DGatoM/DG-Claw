@@ -1,9 +1,9 @@
-/* sigilo.css: o modo escondido (olhinho 👁). Só vale com body.sigilo; sem a classe, nada aqui age.
+/* sigilo.css: o modo escondido (botão do olho). Só vale com body.sigilo; sem a classe, nada aqui age.
    O que importa é a falha fechada: mensagem que o JS ainda não viu, ou que o modelo ainda não
    analisou, fica invisível. O texto cru nunca é pintado. Lógica em sigilo.js. */
 
 #btnSigilo{min-width:32px;min-height:32px;white-space:nowrap}
-#btnSigilo.on{background:var(--accent);color:#fff;border-color:transparent}
+#btnSigilo.on{background:var(--botao-fundo);color:var(--botao-texto);border-color:transparent}
 
 /* 1) ainda não visto pelo JS: coberto por CSS (o JS marca data-sig antes da primeira pintura) */
 body.sigilo #wrap > :not(.topo):not(.dia):not([data-sig]),
@@ -19,9 +19,9 @@ body.sigilo #wrap > [data-sig="falhou"]:not([data-sigb]) > *{visibility:hidden}
 body.sigilo #wrap > [data-sig="espera"] .bub::after,
 body.sigilo #wrap > [data-sig="falhou"] .bub::after{
   position:absolute;left:13px;top:9px;right:13px;visibility:visible;font-size:13px;opacity:.85}
-body.sigilo #wrap > [data-sig="espera"] .bub::after{content:"🔒 escondendo…"}
+body.sigilo #wrap > [data-sig="espera"] .bub::after{content:"escondendo…"}
 body.sigilo #wrap > [data-sig="falhou"] .bub::after{
-  content:"🔒 não consegui analisar esta mensagem. Toque para mostrar, ou desligue e ligue o 👁 para tentar de novo.";
+  content:"não consegui analisar esta mensagem. Toque para mostrar, ou desligue e ligue o botão do olho para tentar de novo.";
   cursor:pointer}
 body.sigilo #wrap > [data-sig="espera"] .bub,
 body.sigilo #wrap > [data-sig="falhou"] .bub{min-width:150px;min-height:34px}
@@ -29,7 +29,7 @@ body.sigilo #wrap > [data-sig="espera"]:not([data-sigb]),
 body.sigilo #wrap > [data-sig="falhou"]:not([data-sigb]){position:relative;min-height:28px}
 body.sigilo #wrap > [data-sig="espera"]:not([data-sigb])::after,
 body.sigilo #wrap > [data-sig="falhou"]:not([data-sigb])::after{
-  content:"🔒 escondendo…";position:absolute;left:12px;top:4px;visibility:visible;font-size:13px;opacity:.85}
+  content:"escondendo…";position:absolute;left:12px;top:4px;visibility:visible;font-size:13px;opacity:.85}
 body.sigilo #acervoLista > [data-sig="espera"],
 body.sigilo #permCartao[data-sig="espera"],
 body.sigilo #lbNome[data-sig="espera"]{visibility:hidden}

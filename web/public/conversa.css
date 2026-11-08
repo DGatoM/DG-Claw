@@ -16,37 +16,37 @@
   .campo{position:relative;flex:1;min-width:0;display:flex}
   #entrada{flex:1;min-width:0;border:1px solid var(--line);border-radius:20px;
            padding:12px 14px;font:inherit;font-size:16px;line-height:20px;
-           background:#f4f8f4;color:var(--txt);height:46px;min-height:46px;
+           background:var(--campo-fundo);color:var(--txt);height:46px;min-height:46px;
            outline:none;resize:none;overflow-y:hidden;display:block;
            box-sizing:border-box}
-  #entrada:focus{border-color:var(--accent);background:#fff}
+  #entrada:focus{border-color:var(--campo-borda-foco);background:var(--campo-fundo)}
   #entrada::placeholder{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   #btnEnviar{flex:0 0 46px;width:46px;height:46px;border-radius:50%;border:0;
-             background:var(--accent);color:#fff;font-size:18px;cursor:pointer}
+             background:var(--botao-fundo);color:var(--botao-texto);font-size:18px;cursor:pointer}
   #btnEnviar:disabled{opacity:.45}
   #btnMic{flex:0 0 56px;width:56px;height:56px;border-radius:50%;border:0;
-          background:var(--accent);color:#fff;font-size:24px;cursor:pointer;
+          background:var(--botao-fundo);color:var(--botao-texto);font-size:24px;cursor:pointer;
           display:flex;align-items:center;justify-content:center}
   #btnMic.gravando{background:#c0392b}
   #btnMic:disabled{opacity:.45}
   /* Sem segunda linha no rodapé (10/10/2026): o estado do microfone fica DENTRO
-     do campo ("● 0:07" gravando, "transcrevendo…"), sem mudar a altura dele. */
+     do campo ("ponto 0:07" gravando, "transcrevendo…"), sem mudar a altura dele. */
   #micTxt{position:absolute;right:14px;top:0;bottom:0;display:flex;align-items:center;
-          max-width:calc(100% - 28px);padding-left:8px;background:#f4f8f4;border-radius:20px;
+          max-width:calc(100% - 28px);padding-left:8px;background:var(--campo-fundo);border-radius:20px;
           font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;
           text-overflow:ellipsis;pointer-events:none}
   #micTxt:empty{display:none}
   #micTxt.vivo{color:#c0392b;font-weight:600}
   #btnAnexo.cancela{background:#fdecec;border-color:#e8b4b0;color:#c0392b;font-weight:700}
-  .mini{border:1px solid var(--line);background:#f2f6f2;color:#38523f;border-radius:14px;
+  .mini{border:1px solid var(--line);background:var(--cor-fundo);color:var(--cor-texto);border-radius:14px;
         padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;min-height:36px;
         white-space:nowrap}
-  .mini.on{background:var(--accent);color:#fff;border-color:transparent}
+  .mini.on{background:var(--botao-fundo);color:var(--botao-texto);border-color:transparent}
   .mini:active{opacity:.7}
 
   /* ── Anexo: botão da barra de baixo ── */
   #btnAnexo{flex:0 0 44px;width:44px;height:44px;border-radius:50%;border:1px solid var(--line);
-            background:#f2f6f2;color:#38523f;font-size:20px;cursor:pointer;
+            background:var(--cor-fundo);color:var(--cor-texto);font-size:20px;cursor:pointer;
             display:flex;align-items:center;justify-content:center;padding:0}
   #btnAnexo:active{opacity:.7}
   #btnAnexo:disabled{opacity:.45}
@@ -54,7 +54,7 @@
   /* prints colados, arquivos arrastados ou escolhidos, esperando o Enter: um
      cartão por anexo, na ordem, rolando na horizontal quando não cabem (05/10/2026) */
   #anexoChip{display:block;padding:6px 6px 4px;border:1px solid var(--line);min-width:0;
-             border-radius:12px;background:#f2f6f2;font-size:13px;color:#38523f}
+             border-radius:12px;background:var(--cor-fundo);font-size:13px;color:var(--cor-texto)}
   #anexoChip[hidden]{display:none}
   #anexoLista{display:flex;gap:8px;overflow-x:auto;overflow-y:hidden;min-width:0;
               padding-bottom:2px;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity}
@@ -97,7 +97,7 @@
   .mid img{display:block;width:100%;max-height:260px;object-fit:cover}
   .mid.semthumb img{display:none}
   .midfb{display:none;align-items:center;gap:8px;padding:12px;font-size:13.5px;
-         color:#38523f;text-align:left;min-height:44px}
+         color:var(--cor-texto);text-align:left;min-height:44px}
   .mid.semthumb .midfb{display:flex}
   .mid .lupa{position:absolute;right:7px;bottom:7px;background:rgba(10,24,16,.62);color:#fff;
              font-size:11.5px;padding:3px 8px;border-radius:10px}
@@ -152,7 +152,7 @@
   #dlgReinicio .dacoes{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
   #dlgReinicio .dacoes button{min-height:36px;min-width:88px;padding:6px 14px;border-radius:10px;
                               font-size:14px;font-weight:600;cursor:pointer;
-                              border:1px solid var(--line);background:#f2f6f2;color:#38523f}
+                              border:1px solid var(--line);background:var(--cor-fundo);color:var(--cor-texto)}
   #dlgReinicio .dacoes button.perigo{background:#b3422e;border-color:#b3422e;color:#fff}
 
   /* ── Faixas de aviso e de erro (nunca erro mudo) ── */
@@ -177,8 +177,8 @@
   #faixaAudio{background:#fdf3d0;color:#7a5c12;border:1px solid #efe0a8}
 
   #btnMenu{position:relative}
-  /* bolinha do ☰: soma das não lidas dos outros agentes (no computador a fileira de avatares não aparece) */
-  /* ☰ com agente que precisa de você: a bolinha vira o selo âmbar com "!" */
+  /* bolinha do menu: soma das não lidas dos outros agentes (no computador a fileira de avatares não aparece) */
+  /* menu com agente que precisa de você: a bolinha vira o selo âmbar com "!" */
   #btnMenu.precisa .bolinha-menu{width:16px;height:16px;top:1px;right:1px;background:#e8890c;color:#fff;
     font-size:11px;font-weight:800;line-height:12px;text-align:center;box-sizing:border-box}
   #btnMenu .bolinha-menu{position:absolute;top:4px;right:4px;width:10px;height:10px;border-radius:50%;background:#d93025;border:2px solid var(--header,#fff);pointer-events:none}
@@ -187,7 +187,7 @@
   #btnMenu{font-size:20px}
 
   /* ── Faixa de ferramentas (10/10/2026) ──
-     Celular: linha 1 do cabeçalho = ☰, foto, nome inteiro e status; linha 2 = os
+     Celular: linha 1 do cabeçalho = menu, foto, nome inteiro e status; linha 2 = os
      botões, em ícones, rolando para o lado dentro da própria faixa (cabem 15 ou
      mais). A sombra na borda só aparece do lado que ainda tem ícone escondido
      (o JS marca .tem-esq e .tem-dir). Tela larga: os botões voltam para a linha
@@ -195,9 +195,9 @@
   .ferr{display:contents}
   .ferr-sombra{display:none}
   .tools .btn{flex:0 0 auto}
-  .tools a.btn{text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:4px;color:#38523f;white-space:nowrap}
+  .tools a.btn{text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:4px;color:var(--cor-texto);white-space:nowrap}
   .tools a.btn[hidden]{display:none}
-  #btnContinua.on{background:var(--accent);color:#fff;border-color:transparent}
+  #btnContinua.on{background:var(--botao-fundo);color:var(--botao-texto);border-color:transparent}
   #btnContinua:not(.on){opacity:.75}
   @media (max-width:700px){
     header{flex-wrap:wrap;row-gap:0;gap:0 8px;padding-left:6px;padding-right:6px}
@@ -241,13 +241,13 @@
            overflow-wrap:anywhere;font-family:ui-monospace,Menlo,monospace;
            font-size:13.5px;line-height:1.45;color:#1d2e23}
   .codcopia{position:absolute;top:4px;right:4px;width:34px;height:34px;padding:0;
-            border:0;border-radius:8px;background:rgba(255,255,255,.75);color:#38523f;
+            border:0;border-radius:8px;background:rgba(255,255,255,.75);color:var(--cor-texto);
             display:flex;align-items:center;justify-content:center;cursor:pointer;
             -webkit-user-select:none;user-select:none}
   .codcopia:active{background:#fff}
-  .codcopia.ok{background:var(--accent);color:#fff}
+  .codcopia.ok{background:var(--botao-fundo);color:var(--botao-texto)}
 
-  /* ── Vídeo: o ▶ diz que não é foto ── */
+  /* ── Vídeo: o play diz que não é foto ── */
   .mid .play{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:54px;height:54px;
              border-radius:50%;background:rgba(10,24,16,.6);color:#fff;font-size:22px;
              display:flex;align-items:center;justify-content:center;padding-left:4px}
@@ -262,12 +262,12 @@
   /* A seta fica acima da barra E das faixas: a posição sai do JS (posicionaSeta),
      porque a barra muda de altura com o chip de anexo e as faixas vêm e vão. */
   .seta-fim{position:fixed;right:14px;bottom:120px;z-index:31;width:48px;height:48px;
-            border-radius:50%;border:1px solid var(--line);background:#fff;color:#38523f;
+            border-radius:50%;border:1px solid var(--line);background:#fff;color:var(--cor-texto);
             font-size:22px;line-height:1;box-shadow:0 2px 8px rgba(0,0,0,.22);cursor:pointer;
             display:flex;align-items:center;justify-content:center;padding:0}
   .seta-fim[hidden]{display:none}
   .fimnovas{position:absolute;top:-9px;left:50%;transform:translateX(-50%);min-width:22px;
-            height:22px;border-radius:11px;background:var(--accent);color:#fff;font-size:12px;
+            height:22px;border-radius:11px;background:var(--botao-fundo);color:var(--botao-texto);font-size:12px;
             font-weight:700;padding:0 6px;display:flex;align-items:center;justify-content:center}
   .fimnovas[hidden]{display:none}
   /* Indicador "O agente está trabalhando · rodando um comando": faixa em fluxo
@@ -276,7 +276,7 @@
      não alcança mais aqui, mas #estado precisa respeitar o hidden. */
   .who #estado[hidden]{display:none}
   #atividade{flex:0 0 auto;display:flex;align-items:center;gap:8px;cursor:pointer;
-             padding:7px 14px;background:#cfe3c8;color:#38523f;font-size:13.5px;font-weight:600;
+             padding:7px 14px;background:#cfe3c8;color:var(--cor-texto);font-size:13.5px;font-weight:600;
              border-top:1px solid rgba(0,0,0,.05)}
   #atividade[hidden]{display:none}
   #atividade .atv-txt{display:block;min-width:0;flex:1 1 auto;white-space:nowrap;overflow:hidden;
@@ -288,12 +288,12 @@
      dos pontinhos sai e fica a onda de opacidade. Alerta e cinza ficam parados. O brilho é verde
      claro, não branco: o branco puxava o olho no meio da letra. */
   .atv-pts{flex:0 0 auto;display:inline-flex;gap:3px;align-items:center}
-  .atv-pts i{width:6px;height:6px;border-radius:50%;background:#2f9e5e;animation:atvPt 1.2s ease-in-out infinite}
+  .atv-pts i{width:6px;height:6px;border-radius:50%;background:var(--cor-acento);animation:atvPt 1.2s ease-in-out infinite}
   .atv-pts i:nth-child(2){animation-delay:.2s}
   .atv-pts i:nth-child(3){animation-delay:.4s}
   @keyframes atvPt{0%,80%,100%{opacity:.25;transform:translateY(0)}40%{opacity:1;transform:translateY(-3px)}}
   @keyframes atvPtSoOpacidade{0%,80%,100%{opacity:.25}40%{opacity:1}}
-  #atividade .atv-txt{background:linear-gradient(90deg,#38523f 0%,#38523f 38%,#5cb883 50%,#38523f 62%,#38523f 100%);
+  #atividade .atv-txt{background:linear-gradient(90deg,var(--cor-texto) 0%,var(--cor-texto) 38%,#5cb883 50%,var(--cor-texto) 62%,var(--cor-texto) 100%);
     background-size:250% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;
     animation:atvBrilho 2.4s linear infinite}
   @keyframes atvBrilho{from{background-position:100% 0}to{background-position:-150% 0}}
@@ -392,7 +392,7 @@
     box-sizing:border-box;background:#e8890c;color:#fff;font-size:12px;font-weight:800;line-height:14px;
     text-align:center;border:2px solid var(--header,#fff);pointer-events:none}
   .troca-baixo .selo-trab{position:absolute;top:0;right:-1px;width:10px;height:10px;border-radius:50%;
-    background:#2f9e5e;border:2px solid var(--header,#fff);box-sizing:content-box;pointer-events:none;
+    background:var(--cor-acento);border:2px solid var(--header,#fff);box-sizing:content-box;pointer-events:none;
     animation:seloTrab 1.4s ease-in-out infinite}
   .troca-baixo .bolinha-nl.ponto{min-width:10px;width:10px;height:10px;padding:0;top:0}
   @keyframes seloTrab{0%,100%{opacity:.35}50%{opacity:1}}
@@ -439,11 +439,11 @@
 .midaudio.combx audio{flex:1 1 auto;min-width:0}
 .midaudio.combx .midbx{position:static;flex:0 0 auto;background:#dbe6dc;color:#1f7a47}
 .anx[data-estado="subindo"]::after{content:"";position:absolute;left:0;bottom:0;height:3px;z-index:3;
-  width:var(--pct,0%);background:#2f9e5e;border-radius:0 2px 2px 0;transition:width .3s}
+  width:var(--pct,0%);background:var(--cor-acento);border-radius:0 2px 2px 0;transition:width .3s}
 
 /* ── Conversa vazia: o agente ainda está acordando ── */
 .vazio{max-width:26em;margin:28px auto;padding:22px 20px;border-radius:16px;text-align:center;
-  background:rgba(255,255,255,.92);box-shadow:0 1px 4px rgba(0,0,0,.12);color:#38523f}
+  background:rgba(255,255,255,.92);box-shadow:0 1px 4px rgba(0,0,0,.12);color:var(--cor-texto)}
 .vazio .vz-ico{font-size:34px;line-height:1;margin-bottom:8px}
 .vazio b{display:block;font-size:16.5px;color:var(--txt);margin-bottom:6px}
 .vazio small{display:block;font-size:13.5px;line-height:1.45;color:var(--muted)}
@@ -466,9 +466,9 @@
 
 /* ── Menu do agente: o visual novo mora em menu-lado.css; aqui ficou só o botão Tutorial ── */
 .gm-tut{min-height:32px;padding:0 12px;border-radius:16px;border:1px solid var(--line);
-  background:#fff;color:#38523f;font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit}
+  background:#fff;color:var(--cor-texto);font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit}
 .selo{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:9px;background:#e3ece5;
-  color:#38523f;font-size:10.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
+  color:var(--cor-texto);font-size:10.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
   vertical-align:middle}
 .selo-canal{display:block;width:fit-content;max-width:100%;margin:0 0 3px;padding:1px 7px;border-radius:9px;
   font-size:10.5px;font-weight:700;letter-spacing:.3px;line-height:1.5;white-space:nowrap;overflow:hidden;
@@ -476,7 +476,7 @@
 .selo-canal.whatsapp{background:#dcf8e6;color:#0b6b35;box-shadow:inset 0 0 0 1px #25D366}
 .selo-canal.telegram{background:#dff1fb;color:#126a98;box-shadow:inset 0 0 0 1px #229ED9}
 .pe form{margin:0;margin-left:auto}
-.pe .sair{min-height:34px;padding:0 16px;font-size:13px;font-weight:600;color:#38523f;border:1px solid var(--line);background:#fff;border-radius:17px;cursor:pointer;font-family:inherit}
+.pe .sair{min-height:34px;padding:0 16px;font-size:13px;font-weight:600;color:var(--cor-texto);border:1px solid var(--line);background:#fff;border-radius:17px;cursor:pointer;font-family:inherit}
 
 /* Aviso discreto do Admin, em cima do campo */
 #avisoAdmin{font-size:12px;line-height:1.3;color:var(--muted);padding:0 8px 2px}
@@ -502,8 +502,8 @@
 #tourCaixa p b{color:#1f7a45}
 #tourCaixa .tour-acoes{display:flex;gap:8px;justify-content:flex-end;margin-top:10px;flex-wrap:wrap;position:sticky;bottom:0;background:#fff;padding:8px 0 0}
 #tourCaixa button{min-height:36px;padding:0 14px;border-radius:18px;border:1px solid var(--line);
-  background:#fff;font-size:13.5px;font-weight:600;cursor:pointer;font-family:inherit;color:#38523f}
-#tourCaixa button.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+  background:#fff;font-size:13.5px;font-weight:600;cursor:pointer;font-family:inherit;color:var(--cor-texto)}
+#tourCaixa button.pri{background:var(--botao-fundo);border-color:var(--botao-fundo);color:var(--botao-texto)}
 #tourCaixa button:disabled{opacity:.4;cursor:default}
 #tourCaixa .tour-x{margin-right:auto}
 
@@ -553,7 +553,7 @@ html[data-tema="escuro"] .row.alerta-pedido .bub{border-color:#e5bd4c;background
 .lc-passos{margin:8px 0 10px;padding-left:20px;font-size:14px;line-height:1.45}
 .lc-passos li{margin:2px 0}
 .lc-btn{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;min-height:44px;
-        padding:0 16px;border-radius:22px;border:1px solid var(--line);background:#f2f6f2;color:#38523f;
+        padding:0 16px;border-radius:22px;border:1px solid var(--line);background:var(--cor-fundo);color:var(--cor-texto);
         font:inherit;font-size:14px;font-weight:700;text-decoration:none;cursor:pointer;max-width:100%}
 .lc-btn:active{opacity:.7}
 .lc-btn:disabled{opacity:.5;cursor:default}
@@ -563,7 +563,7 @@ html[data-tema="escuro"] .row.alerta-pedido .bub{border-color:#e5bd4c;background
 .lc-rotulo{display:block;margin:4px 0 6px;font-size:13px;font-weight:600;color:var(--muted)}
 .lc-linha{display:flex;gap:8px;flex-wrap:wrap}
 .lc-campo{flex:1 1 180px;min-width:0;box-sizing:border-box;min-height:44px;padding:0 14px;border:1px solid var(--line);
-          border-radius:22px;font:inherit;font-size:16px;background:#f4f8f4;color:var(--txt)}
+          border-radius:22px;font:inherit;font-size:16px;background:var(--campo-fundo);color:var(--txt)}
 .lc-disp{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:4px 0 10px}
 .lc-disp-cod{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:26px;font-weight:700;
              letter-spacing:.08em;padding:8px 14px;border-radius:12px;background:#eef6ef;
@@ -574,7 +574,7 @@ html[data-tema="escuro"] .row.alerta-pedido .bub{border-color:#e5bd4c;background
 html[data-tema="escuro"] .lc{background:#1d2a22;color:#e2f5e8;border-color:#63c883}
 html[data-tema="escuro"] .lc-texto,html[data-tema="escuro"] .lc-rotulo{color:#a9c4b2}
 html[data-tema="escuro"] .lc-btn{background:#2a3b30;color:#d6efdc;border-color:rgba(255,255,255,.14)}
-html[data-tema="escuro"] .lc-principal,html[data-tema="escuro"] .lc-link{background:#2f9e5e;color:#fff}
+html[data-tema="escuro"] .lc-principal,html[data-tema="escuro"] .lc-link{background:var(--botao-fundo);color:var(--botao-texto)}
 html[data-tema="escuro"] .lc-campo{background:#14201a;color:#e2f5e8;border-color:rgba(255,255,255,.18)}
 html[data-tema="escuro"] .lc-disp-cod{background:#14201a}
 html[data-tema="escuro"] .lc-erro{background:#4a1f1b;color:#ffd9d4}
@@ -582,7 +582,7 @@ html[data-tema="escuro"] .lc-erro{background:#4a1f1b;color:#ffd9d4}
   html:not([data-tema="claro"]) .lc{background:#1d2a22;color:#e2f5e8;border-color:#63c883}
   html:not([data-tema="claro"]) .lc-texto,html:not([data-tema="claro"]) .lc-rotulo{color:#a9c4b2}
   html:not([data-tema="claro"]) .lc-btn{background:#2a3b30;color:#d6efdc;border-color:rgba(255,255,255,.14)}
-  html:not([data-tema="claro"]) .lc-principal,html:not([data-tema="claro"]) .lc-link{background:#2f9e5e;color:#fff}
+  html:not([data-tema="claro"]) .lc-principal,html:not([data-tema="claro"]) .lc-link{background:var(--botao-fundo);color:var(--botao-texto)}
   html:not([data-tema="claro"]) .lc-campo{background:#14201a;color:#e2f5e8;border-color:rgba(255,255,255,.18)}
   html:not([data-tema="claro"]) .lc-disp-cod{background:#14201a}
   html:not([data-tema="claro"]) .lc-erro{background:#4a1f1b;color:#ffd9d4}
@@ -656,7 +656,7 @@ html[data-tema="escuro"] .pq-texto{background:#2a2412;color:#fff3c8;border-color
    cores do .midoff e do botão de baixar, que já têm versão para o tema escuro. */
 .cartaoarq{display:flex;align-items:center;gap:10px;width:100%;box-sizing:border-box;min-height:44px;
   margin:0 0 6px;padding:8px 52px 8px 10px;background:#e8ebe8;border:1px solid var(--line);
-  border-radius:10px;color:#38523f;font:inherit;text-align:left;cursor:default}
+  border-radius:10px;color:var(--cor-texto);font:inherit;text-align:left;cursor:default}
 button.cartaoarq{cursor:pointer}
 .cartaoarq-ic{flex:0 0 auto;font-size:24px;line-height:1}
 .cartaoarq-txt{display:flex;flex-direction:column;min-width:0;flex:1 1 auto}
@@ -684,7 +684,7 @@ body:not(.ler-on) .fone{display:none}
 
 /* Anonimizar documentos: botões de dados reais embaixo do balão do agente */
 .anon-linha{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
-.anon-btn{min-height:32px;padding:0 12px;border-radius:16px;border:1px solid #c9d8cc;background:#f2f6f2;color:#1f5f3a;font:inherit;font-size:13px;font-weight:600;cursor:pointer;touch-action:manipulation}
+.anon-btn{min-height:32px;padding:0 12px;border-radius:16px;border:1px solid #c9d8cc;background:var(--cor-fundo);color:#1f5f3a;font:inherit;font-size:13px;font-weight:600;cursor:pointer;touch-action:manipulation}
 .anon-btn[aria-pressed="true"]{background:#fff7e0;border-color:#e3c27a;color:#6b4a00}
 .anon-btn:disabled{opacity:.6;cursor:default}
 .anxtam.anon{white-space:normal;color:#1f7a47;font-weight:600}

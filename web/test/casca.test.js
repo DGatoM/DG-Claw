@@ -80,7 +80,7 @@ test('menu: itens extras do painel (Sessões e poderes) viram links #aba=', () =
 test('menu: Sessões é item fixo de todo agente com painel, e Avisos é item fixo de todos', () => {
   const s = M.linkSessoes({ id: 'tina', tem_painel: true });
   assert.equal(s.nome, 'Sessões');
-  assert.equal(s.ico, '🖥');
+  assert.equal(s.ico, 'i-monitor');
   assert.equal(s.href, '/p/tina/#aba=sessoes');
   assert.equal(s.config, '/p/tina/api/sessoes-config');
   assert.equal(M.chaveDoHref(s.href), 'sessoes');

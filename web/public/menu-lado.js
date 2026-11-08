@@ -13,25 +13,28 @@
 })(this, function (raiz) {
   const esc = s => String(s == null ? '' : s)
     .replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  /* Ícone de item: 'i-<nome>' vira o ícone do sprite (/ds/icones.svg); qualquer outro texto (os itens que o painel
+     acrescenta trazem um símbolo) sai escapado, como antes. */
+  const icoHtml = v => /^i-[a-z0-9-]+$/.test(String(v)) ? '<svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#' + v + '"/></svg>' : esc(v);
 
   /* chave = o que vai depois de #aba= (o painel abre a aba por ela) */
   const ABAS_PAINEL = [
-    ['status', '◉', 'Status'], ['skills', '✦', 'Skills'], ['rotinas', '↻', 'Rotinas'],
-    ['cofre', '⚿', 'Cofre (chaves)'], ['arquivos', '▢', 'Pasta do agente'],
-    ['memory', '▤', 'Memória'], ['operations', '⚙', 'Operações'], ['costs', '◇', 'Custos'],
-    ['como', '◎', 'Como funciona'], ['identity', '◈', 'Identidade'], ['personality', '◐', 'Personalidade'],
-    ['apps', '▨', 'Apps'], ['socorro', '✚', 'Socorro'],
+    ['status', 'i-activity', 'Status'], ['skills', 'i-sparkle', 'Skills'], ['rotinas', 'i-repeat', 'Rotinas'],
+    ['cofre', 'i-vault', 'Cofre (chaves)'], ['arquivos', 'i-folder', 'Pasta do agente'],
+    ['memory', 'i-layers', 'Memória'], ['operations', 'i-settings', 'Operações'], ['costs', 'i-gem', 'Custos'],
+    ['como', 'i-info', 'Como funciona'], ['identity', 'i-id', 'Identidade'], ['personality', 'i-smile', 'Personalidade'],
+    ['apps', 'i-layout', 'Apps'], ['socorro', 'i-lifebuoy', 'Socorro'],
   ];
 
 
   /* Entradas fixas do menu: a tela de lembretes e a de avisos (valem para qualquer agente). */
-  const LINK_LEMBRETES = { nome: 'Lembretes', ico: '⏰', href: '/lembretes' };
-  const LINK_AVISOS = { nome: 'Avisos', ico: '🔔', href: '/avisos' };
-  const LINK_SEGURANCA = { nome: 'Segurança', ico: '🛡', href: '/seguranca' };
-  const LINK_CONECTAR = { nome: 'Conectar conta', ico: '🔑', href: '/conectar' };
-  const LINK_COLABORADOR = { nome: 'Convidar colaborador', ico: '👥', href: '/colaboradores' };
+  const LINK_LEMBRETES = { nome: 'Lembretes', ico: 'i-clock', href: '/lembretes' };
+  const LINK_AVISOS = { nome: 'Avisos', ico: 'i-bell', href: '/avisos' };
+  const LINK_SEGURANCA = { nome: 'Segurança', ico: 'i-shield', href: '/seguranca' };
+  const LINK_CONECTAR = { nome: 'Conectar conta', ico: 'i-key', href: '/conectar' };
+  const LINK_COLABORADOR = { nome: 'Convidar colaborador', ico: 'i-users', href: '/colaboradores' };
   const ehColaborador = () => !!(raiz.DGPapel && raiz.DGPapel.colaborador);
-  const LINK_ANONIMIZAR = { nome: 'Anonimizar', ico: '🕶', href: '/anonimizar' };
+  const LINK_ANONIMIZAR = { nome: 'Anonimizar', ico: 'i-glasses', href: '/anonimizar' };
 
   /* Sessões é item fixo para todo agente com painel (a tela fica no painel dele). Devolve o link do menu e os
      endereços que o menu consulta (config: a aba está ligada? pedidos: quantas sessões esperam o dono), ou null. */
@@ -39,7 +42,7 @@
     if (!a || !a.tem_painel) return null;
     const base0 = a.painel_url || ('/p/' + encodeURIComponent(a.id) + '/');
     const base = base0.replace(/\/*$/, '/');
-    return { nome: 'Sessões', ico: '🖥', href: base + '#aba=sessoes',
+    return { nome: 'Sessões', ico: 'i-monitor', href: base + '#aba=sessoes',
       config: base + 'api/sessoes-config', pedidos: base + 'api/sessoes?grupo=esperando_voce&limite=1' };
   }
 
@@ -47,7 +50,7 @@
   function linkTela(a) {
     if (!a || !a.tem_painel || a.tipo === 'admin') return null;
     const base = (a.painel_url || ('/p/' + encodeURIComponent(a.id) + '/')).replace(/\/*$/, '/');
-    return { nome: 'Navegador', ico: '🌐', href: base + '#aba=tela', alvo: '_blank' };
+    return { nome: 'Navegador', ico: 'i-globe', href: base + '#aba=tela', alvo: '_blank' };
   }
 
   /* Páginas fora do painel (Mesa, Lembretes) não têm o agente no caminho: levam ?a=<slug> para a
@@ -92,12 +95,12 @@
         alvo: '#mlMoldura', antes: abre, titulo: 'O menu',
         oque: 'A foto e o nome de ' + nome + ', o agente com quem você conversa, e as páginas dele: a Conversa, as Sessões de trabalho, as páginas do painel (Rotinas, Memória, Pasta e as outras) e Conectar conta.',
         como: (o.naConversa ? 'O item Conversa (esta tela) fica no alto.' : 'O item Conversa, no alto, leva de volta ao chat.') + ' Cada página do painel abre na mesma janela. Conectar conta serve para ligar a sua conta de IA ao agente, quando ele ainda não tem uma. No fim do menu, o botão Sair encerra a sua sessão.',
-        porque: 'Você tem acesso a tudo deste agente. Os outros agentes e as configurações do DG Claw inteiro (chaves, colaboradores, cofre) ficam com o dono.',
+        porque: 'Você tem acesso a tudo deste agente. Os outros agentes e as configurações do sistema inteiro (chaves, colaboradores, cofre) ficam com o dono.',
       }];
     }
     const passos = [{
       alvo: '#mlMoldura', antes: abre, titulo: 'O menu do agente',
-      oque: 'A foto, o nome e as páginas de ' + nome + ', sempre no lado esquerdo. No computador ele fica aberto o tempo todo; no celular abre pelo botão ☰.',
+      oque: 'A foto, o nome e as páginas de ' + nome + ', sempre no lado esquerdo. No computador ele fica aberto o tempo todo; no celular abre pelo botão de menu (as três linhas).',
       como: (o.naConversa ? 'O item Conversa (esta tela) fica no alto.' : 'O item Conversa, no alto, leva de volta ao chat.') +
         ' Os outros itens levam à Mesa, às Sessões de trabalho dele, à Tela (o navegador dele, onde você faz os logins), aos Lembretes, aos Avisos, à Segurança, à Anonimizar (documentos sem dados pessoais), a Conectar conta (onde você conecta a conta do Claude de cada agente) e às páginas do painel dele. O Tutorial, aqui em cima, repete esta visita.',
       porque: 'Assim a conversa e o painel de cada agente ficam no mesmo lugar, sem link escondido.',
@@ -207,7 +210,7 @@
     return total;
   }
 
-  /* Quantos dos OUTROS agentes precisam de você agora (liga o selo âmbar do ☰). */
+  /* Quantos dos OUTROS agentes precisam de você agora (liga o selo âmbar do menu). */
   function totalPrecisam(lista, contagens, atualId) {
     let total = 0;
     for (const a of lista || []) {
@@ -218,7 +221,7 @@
   }
 
 
-  /* Uso das assinaturas (☰ > Uso das assinaturas). Verde abaixo de 70, âmbar de 70 a 89, vermelho a partir de 90. */
+  /* Uso das assinaturas (menu > Uso das assinaturas). Verde abaixo de 70, âmbar de 70 a 89, vermelho a partir de 90. */
   function corUso(pct) { return pct >= 90 ? 'vermelho' : pct >= 70 ? 'ambar' : 'verde'; }
 
   /* "hoje 18:40", "amanhã 09:00", "qua 09:00" ou "25/10 09:00", no horário do aparelho. */
@@ -431,7 +434,7 @@
 
   let agenteAtual = null;
 
-  /* ── Sessões: o item do menu e o botão 🖥 do cabeçalho ──────────────────────
+  /* ── Sessões: o item do menu e o botão monitor do cabeçalho ──────────────────────
      Perguntamos UMA vez por agente se a aba está ligada (GET <painel>/api/sessoes-config), sem travar a tela.
      Só ligado:false esconde o item e o botão. Erro de rede ou resposta estranha NÃO esconde: o item fica e o
      motivo vai para o console, porque sumir com a porta por causa de um tropeço seria pior que mostrá-la. */
@@ -513,7 +516,7 @@
     painel.querySelectorAll('[data-extra]').forEach(el => el.remove());
     const links = linksExtras(agenteAtual, lista);
     painel.insertAdjacentHTML('beforeend', links.map(l => `<a class="ml-tab" data-extra="1" href="${esc(l.href)}">` +
-      `<span class="ml-ico" aria-hidden="true">${esc(l.ico)}</span>${esc(l.nome)}</a>`).join(''));
+      `<span class="ml-ico" aria-hidden="true">${icoHtml(l.ico)}</span>${esc(l.nome)}</a>`).join(''));
     painel.hidden = !painel.children.length;
     marca(chaveAtiva);
   }
@@ -590,26 +593,26 @@
     // O cofre do agente é do dono: o colaborador não vê a entrada no menu (a aba, se aberta, explica o motivo).
     const painel = $('mlPainel'), links = linksPainel(ag).filter(l => !colab || chaveDoHref(l.href) !== 'cofre');
     painel.innerHTML = links.map(l => `<a class="ml-tab" href="${esc(l.href)}">` +
-      `<span class="ml-ico" aria-hidden="true">${l.ico}</span>${esc(l.nome)}</a>`).join('');
+      `<span class="ml-ico" aria-hidden="true">${icoHtml(l.ico)}</span>${esc(l.nome)}</a>`).join('');
     painel.hidden = !links.length;
     if (!colab) {
     $('mlTabs').insertAdjacentHTML('beforeend', `<div data-tour="gm-lembretes"><a class="ml-tab" href="${comAgente(LINK_LEMBRETES.href, ag.id)}">` +
-      `<span class="ml-ico" aria-hidden="true">${LINK_LEMBRETES.ico}</span>${LINK_LEMBRETES.nome}</a></div>`);
+      `<span class="ml-ico" aria-hidden="true">${icoHtml(LINK_LEMBRETES.ico)}</span>${LINK_LEMBRETES.nome}</a></div>`);
     $('mlTabs').insertAdjacentHTML('beforeend', `<div data-tour="gm-avisos"><a class="ml-tab" href="${comAgente(LINK_AVISOS.href, ag.id)}">` +
-      `<span class="ml-ico" aria-hidden="true">${LINK_AVISOS.ico}</span>${LINK_AVISOS.nome}</a></div>`);
+      `<span class="ml-ico" aria-hidden="true">${icoHtml(LINK_AVISOS.ico)}</span>${LINK_AVISOS.nome}</a></div>`);
     $('mlTabs').insertAdjacentHTML('beforeend', `<div data-tour="gm-seguranca"><a class="ml-tab" href="${comAgente(LINK_SEGURANCA.href, ag.id)}">` +
-      `<span class="ml-ico" aria-hidden="true">${LINK_SEGURANCA.ico}</span>${LINK_SEGURANCA.nome}</a></div>`);
+      `<span class="ml-ico" aria-hidden="true">${icoHtml(LINK_SEGURANCA.ico)}</span>${LINK_SEGURANCA.nome}</a></div>`);
     }
     $('mlTabs').insertAdjacentHTML('beforeend', `<div data-tour="gm-conectar"><a class="ml-tab" href="${comAgente(LINK_CONECTAR.href, ag.id)}">` +
-      `<span class="ml-ico" aria-hidden="true">${LINK_CONECTAR.ico}</span>${LINK_CONECTAR.nome}</a></div>`);
+      `<span class="ml-ico" aria-hidden="true">${icoHtml(LINK_CONECTAR.ico)}</span>${LINK_CONECTAR.nome}</a></div>`);
     if (!colab) {
       $('mlTabs').insertAdjacentHTML('beforeend', `<div data-tour="gm-anonimizar"><a class="ml-tab" href="${comAgente(LINK_ANONIMIZAR.href, ag.id)}">` +
-        `<span class="ml-ico" aria-hidden="true">${LINK_ANONIMIZAR.ico}</span>${LINK_ANONIMIZAR.nome}</a></div>`);
+        `<span class="ml-ico" aria-hidden="true">${icoHtml(LINK_ANONIMIZAR.ico)}</span>${LINK_ANONIMIZAR.nome}</a></div>`);
     }
     // Convidar colaborador: só o dono, e nunca para o Admin (o Admin mexe no servidor inteiro)
     if (!colab && ag.tipo !== 'admin' && ag.id) {
       $('mlTabs').insertAdjacentHTML('beforeend', `<div data-tour="gm-colaborador"><a class="ml-tab" href="${LINK_COLABORADOR.href}?agente=${encodeURIComponent(ag.id)}">` +
-        `<span class="ml-ico" aria-hidden="true">${LINK_COLABORADOR.ico}</span>${LINK_COLABORADOR.nome}</a></div>`);
+        `<span class="ml-ico" aria-hidden="true">${icoHtml(LINK_COLABORADOR.ico)}</span>${LINK_COLABORADOR.nome}</a></div>`);
     }
     // A Mesa já está no HTML com href="/mesa": passa a levar o agente junto (e some para o colaborador).
     // Sessões entra ANTES de a Mesa sair: inserir ao lado de um elemento que já foi removido lança NoModificationAllowedError.
@@ -617,7 +620,7 @@
     const sess = linkSessoes(ag);
     if (sess) {
       const html = `<div data-tour="gm-sessoes"><a class="ml-tab" id="mlSessoes" href="${esc(sess.href)}">` +
-        `<span class="ml-ico" aria-hidden="true">${sess.ico}</span>${sess.nome}</a></div>`;
+        `<span class="ml-ico" aria-hidden="true">${icoHtml(sess.ico)}</span>${sess.nome}</a></div>`;
       if (mesa && mesa.parentElement) mesa.parentElement.insertAdjacentHTML('afterend', html);
       else $('mlTabs').insertAdjacentHTML('beforeend', html);
     }
@@ -630,7 +633,7 @@
     const tela = colab ? null : linkTela(ag), ancoraTela = $('mlSessoes') || mesa;
     if (tela && ancoraTela && ancoraTela.parentElement) {
       ancoraTela.parentElement.insertAdjacentHTML('afterend', `<div data-tour="gm-tela"><a class="ml-tab" id="mlTela" href="${esc(tela.href)}" target="${esc(tela.alvo)}" rel="noopener">` +
-        `<span class="ml-ico" aria-hidden="true">${tela.ico}</span>${tela.nome}</a></div>`);
+        `<span class="ml-ico" aria-hidden="true">${icoHtml(tela.ico)}</span>${tela.nome}</a></div>`);
     }
     agenteAtual = ag;
     if (Array.isArray(opcoes.extras)) extras(opcoes.extras);
@@ -642,7 +645,7 @@
       const a = document.createElement('a');
       a.className = 'ml-tab'; a.id = 'gmIrConversa';
       a.href = ag.id ? '/a/' + encodeURIComponent(ag.id) : '/';
-      a.innerHTML = '<span class="ml-ico" aria-hidden="true">◔</span>Conversa';
+      a.innerHTML = '<span class="ml-ico" aria-hidden="true">'+icoHtml('i-message')+'</span>Conversa';
       irConversa.replaceWith(a);
     } else {
       irConversa.onclick = () => opcoes.fecha();

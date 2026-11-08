@@ -1,0 +1,91 @@
+/* tokens.css: o ÚNICO arquivo com valores literais de cor, tipografia, espaçamento, raio, sombra e tempo.
+   Visual "Névoa". Para trocar a marca, mude os primitivos ou use o marca.css (white label), carregado depois deste.
+   Tema claro é o padrão; o escuro só vale com <html data-tema="escuro">. */
+
+@font-face{font-family:"Geist";font-style:normal;font-weight:100 900;font-display:swap;
+  src:url("/ds/fontes/geist-latin-ext-wght-normal.woff2") format("woff2");
+  unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
+@font-face{font-family:"Geist";font-style:normal;font-weight:100 900;font-display:swap;
+  src:url("/ds/fontes/geist-latin-wght-normal.woff2") format("woff2");
+  unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:"Geist Mono";font-style:normal;font-weight:100 900;font-display:swap;
+  src:url("/ds/fontes/geist-mono-latin-ext-wght-normal.woff2") format("woff2");
+  unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
+@font-face{font-family:"Geist Mono";font-style:normal;font-weight:100 900;font-display:swap;
+  src:url("/ds/fontes/geist-mono-latin-wght-normal.woff2") format("woff2");
+  unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+
+:root{
+  /* primitivos */
+  --p-cinza-50:#F3F5F8; --p-branco:#FFFFFF; --p-grafite:#1B2430; --p-cinza-500:#66707F; --p-cinza-200:#DFE4EA;
+  --p-azul:#00B4FF; --p-azul-escuro:#007FB8; --p-vermelho:#C62828; --p-verde:#1B7F4B; --p-ambar:#9A5B05;
+  --p-no-logo:#9AA3B0;
+
+  /* cores semânticas */
+  --cor-fundo:var(--p-cinza-50);
+  --cor-superficie:var(--p-branco);
+  --cor-texto:var(--p-grafite);
+  --cor-texto-2:var(--p-cinza-500);
+  --cor-borda:var(--p-cinza-200);
+  --cor-acento:var(--p-azul);
+  --cor-sobre-acento:var(--p-grafite);   /* branco sobre #00B4FF reprova AA */
+  --cor-link:var(--p-azul-escuro);
+  --cor-perigo:var(--p-vermelho);   --cor-perigo-fundo:#FDECEC;   --cor-perigo-borda:#F2BDBD;
+  --cor-sucesso:var(--p-verde);     --cor-sucesso-fundo:#E6F5EC;  --cor-sucesso-borda:#B7DEC8;
+  --cor-aviso:var(--p-ambar);       --cor-aviso-fundo:#FFF4DD;    --cor-aviso-borda:#F0D79A;
+  --cor-info-fundo:#E5F6FE;         --cor-info-borda:#A9DEF7;
+  --cor-veu:rgba(27,36,48,.45);
+  --cor-foco:var(--cor-acento);
+
+  /* botões, campos, cartões */
+  --botao-fundo:var(--cor-acento);   --botao-texto:var(--cor-sobre-acento);   --botao-borda:transparent;
+  --botao2-fundo:var(--cor-fundo);   --botao2-texto:var(--cor-texto);          --botao2-borda:var(--cor-borda);
+  --botao-perigo-fundo:var(--cor-perigo); --botao-perigo-texto:#FFFFFF;
+  --campo-fundo:var(--cor-superficie); --campo-texto:var(--cor-texto); --campo-borda:var(--cor-borda); --campo-borda-foco:var(--cor-acento);
+  --cartao-fundo:var(--cor-superficie); --cartao-borda:var(--cor-borda);
+  --login-fundo:var(--cor-fundo);
+  --login-pontos:#C9D0D9;
+
+  /* conversa: o verde de hoje, de propósito (as pessoas já o associam). Para azul, troque só --conversa-fundo. */
+  --conversa-fundo:
+    radial-gradient(ellipse at 15% 0%,rgba(255,255,255,.55),transparent 55%),
+    radial-gradient(ellipse at 90% 100%,rgba(139,196,146,.40),transparent 55%),
+    linear-gradient(165deg,#e6f2df 0%,#d8ead1 45%,#cde3c6 100%);
+  --balao-meu-fundo:#e4fbcd;       --balao-meu-texto:var(--cor-texto);
+  --balao-agente-fundo:#ffffff;    --balao-agente-texto:var(--cor-texto);
+  --balao-hora:#82997f;
+
+  /* logo (símbolo da constelação) */
+  --logo-no:var(--p-no-logo);
+  --logo-centro:var(--p-azul);
+
+  /* tipografia */
+  --fonte-base:"Geist",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+  --fonte-mono:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --texto-p:12.5px; --texto-m:14px; --texto-g:15.5px; --texto-h1:22px;
+
+  /* espaçamento, raio, sombra, tempo */
+  --esp-1:4px; --esp-2:8px; --esp-3:12px; --esp-4:16px; --esp-5:24px; --esp-6:32px;
+  --raio-1:6px; --raio-2:10px; --raio-3:14px; --raio-pilula:999px;
+  --sombra-0:none; --sombra-1:0 1px 2px rgba(0,0,0,.14);
+  --tempo-rapido:.12s; --tempo-medio:.22s; --tempo-carregando:1.2s; --tempo-carregando-defasagem:.07s; --tempo-carregando-quieto:1.5s;
+  --alvo-toque:32px;
+}
+@media (pointer:coarse){:root{--alvo-toque:44px}}
+
+html[data-tema="escuro"]{
+  --cor-fundo:#0F141B; --cor-superficie:#171E27; --cor-texto:#E8ECF1; --cor-texto-2:#98A2B0; --cor-borda:#2A3441;
+  --cor-link:#5CCBFF;
+  --cor-perigo:#FF7B7B; --cor-perigo-fundo:#3A1A1D; --cor-perigo-borda:#6B2B30;
+  --cor-sucesso:#5ED08F; --cor-sucesso-fundo:#12301F; --cor-sucesso-borda:#245A3A;
+  --cor-aviso:#F0B35A;   --cor-aviso-fundo:#33260F; --cor-aviso-borda:#5E4519;
+  --cor-info-fundo:#0E2A38; --cor-info-borda:#1D5670;
+  --cor-veu:rgba(0,0,0,.6);
+  --botao2-fundo:#1F2833;
+  --login-pontos:#2A3441;
+  --conversa-fundo:#0F141B;
+  --balao-meu-fundo:#0B4A66;  --balao-meu-texto:#E8ECF1;
+  --balao-agente-fundo:#1F2833; --balao-agente-texto:#E8ECF1;
+  --balao-hora:#98A2B0;
+  --logo-no:#5B6676;
+}

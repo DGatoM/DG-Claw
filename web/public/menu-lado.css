@@ -5,10 +5,13 @@
    painel: são cópias, com prefixo próprio. As cores do painel viram variáveis locais, e o acento
    vem da cor do agente (--accent, posta pelo conversa.js).
 
-   Celular: gaveta (o #menu, o véu #overlayMenu e o ☰ continuam sendo do conversa.css).
-   Computador (>= 1100px): barra fixa de 240px à esquerda, sem ☰ e sem véu. */
+   Celular: gaveta (o #menu, o véu #overlayMenu e o menu continuam sendo do conversa.css).
+   Computador (>= 1100px): barra fixa de 240px à esquerda, sem menu e sem véu. */
+@import url("/ds/tokens.css");
+@import url("/ds/componentes.css");
+@import url("/ds/carregando.css");
 aside#menu{
-  --ml-painel:#fff; --ml-fundo2:#f0f4f1; --ml-linha:#e1e8e3; --ml-texto:#0f1c14; --ml-fraco:#6c8172;
+  --ml-painel:#fff; --ml-fundo2:#f0f4f1; --ml-linha:#e1e8e3; --ml-texto:var(--cor-texto); --ml-fraco:var(--cor-texto-2);
   --ml-a1:var(--accent); --ml-a2:color-mix(in srgb,var(--accent) 70%,#1d3b8f);
   background:var(--ml-painel);color:var(--ml-texto);overflow-y:auto;overflow-x:hidden;
   padding:22px 14px 10px;gap:14px;
@@ -35,7 +38,7 @@ aside#menu{
   min-height:40px;padding:7px 10px;border:1px solid var(--ml-linha);border-radius:10px;background:none;
   font:inherit;font-size:13px;color:var(--ml-fraco)}
 .ml-troca > button:hover{background:var(--ml-fundo2);color:var(--ml-texto)}
-.ml-seta{opacity:.7}
+.ml-seta{opacity:.7;display:inline-flex}
 .ml-lista{position:absolute;z-index:5;top:calc(100% + 6px);left:0;right:0;background:var(--ml-painel);
   border:1px solid var(--ml-linha);border-radius:12px;box-shadow:0 8px 24px rgba(16,20,40,.14);padding:6px;
   display:none;max-height:50vh;overflow-y:auto;text-align:left}
@@ -63,7 +66,7 @@ aside#menu{
 .ml-ag.precisa .ml-quem small{color:#9a5b05;font-weight:600}
 /* trabalhando: três pontinhos discretos; sem animação para quem pediu menos movimento */
 .ml-trab{flex:0 0 auto;margin-left:8px;display:inline-flex;gap:3px;align-items:center}
-.ml-trab i{width:5px;height:5px;border-radius:50%;background:#2f9e5e;animation:mlTrab 1.2s ease-in-out infinite}
+.ml-trab i{width:5px;height:5px;border-radius:50%;background:var(--cor-acento);animation:mlTrab 1.2s ease-in-out infinite}
 .ml-trab i:nth-child(2){animation-delay:.2s}
 .ml-trab i:nth-child(3){animation-delay:.4s}
 @keyframes mlTrab{0%,100%{opacity:.25}50%{opacity:1}}
@@ -93,7 +96,7 @@ aside#menu{
 .ml-tab:hover{background:var(--ml-fundo2);color:var(--ml-texto)}
 .ml-tab.ativo{background:linear-gradient(135deg,var(--ml-a1),var(--ml-a2));color:#fff;
   box-shadow:0 1px 2px rgba(16,20,40,.06),0 8px 24px rgba(16,20,40,.08)}
-.ml-ico{width:18px;text-align:center;opacity:.9;flex-shrink:0}
+.ml-ico{width:18px;text-align:center;opacity:.9;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center}
 .ml-tx{display:flex;flex-direction:column;min-width:0}
 .ml-tx small{font-size:11.5px;color:var(--ml-fraco);line-height:1.3}
 
@@ -109,15 +112,15 @@ aside#menu{
 /* Uso das assinaturas: seção recolhível, mini barras por agente */
 #mlUsoDet summary{list-style:none;cursor:pointer;min-height:40px}
 #mlUsoDet summary::-webkit-details-marker{display:none}
-#mlUsoDet summary::after{content:"▾";margin-left:auto;font-size:11px;color:var(--ml-fraco)}
-#mlUsoDet[open] summary::after{content:"▴"}
+#mlUsoDet .ml-uso-seta{margin-left:auto;color:var(--ml-fraco);display:inline-flex;transition:transform var(--tempo-rapido)}
+#mlUsoDet[open] .ml-uso-seta{transform:rotate(180deg)}
 .ml-uso{display:grid;gap:10px;padding:4px 6px 6px}
 .ml-uso-ag{display:grid;gap:4px;min-width:0}
 .ml-uso-nome{font-size:12.5px;overflow-wrap:anywhere}
 .ml-uso-lin{display:flex;align-items:center;gap:6px;min-height:20px;font-size:11.5px}
 .ml-uso-rot{flex:0 0 26px;color:var(--ml-fraco)}
 .ml-uso-bar{flex:1 1 auto;min-width:0;height:8px;border-radius:999px;background:var(--ml-fundo2);border:1px solid var(--ml-linha);overflow:hidden}
-.ml-uso-bar i{display:block;height:100%;border-radius:999px;background:#2f9e5e}
+.ml-uso-bar i{display:block;height:100%;border-radius:999px;background:var(--cor-acento)}
 .ml-uso-bar.ambar i{background:#d98a12}
 .ml-uso-bar.vermelho i{background:#d6453a}
 .ml-uso-pct{flex:0 0 auto;min-width:34px;text-align:right;font-variant-numeric:tabular-nums}
@@ -136,7 +139,7 @@ aside#menu .pe{margin-top:auto;padding-top:6px}
   .faixa{left:248px}
 }
 
-/* Bolinha de pedidos das Sessões (item do menu e botão 🖥 do cabeçalho): há sessão esperando o dono decidir */
+/* Bolinha de pedidos das Sessões (item do menu e botão monitor do cabeçalho): há sessão esperando o dono decidir */
 .sx-bol{display:inline-block;width:9px;height:9px;border-radius:50%;background:#e0453a;flex:0 0 auto}
 .sx-bol[hidden]{display:none}
 .ml-tab .sx-bol{margin-left:auto}
