@@ -303,7 +303,7 @@ PATH="$JQFALSO:$PATH" dgclaw agente restricoes ana --sem-bash sim >"$TMP/o14.txt
 [ -L "$HOMEANA/.claude" ] && { rm "$HOMEANA/.claude"; mv "$TMP/claude-real" "$HOMEANA/.claude"; }
 igual "nada foi gravado fora da casa" "" "$(ls -A "$FORA2")"
 afirma "a migracao foi pedida ao usuario agente, dentro da caixa, sem shell" grep -q '^podman exec --user agente dgclaw-ana node -e ' "$STUB_LOG"
-rm -f "$STUB_ESTADO/exec-node-nao"
+rm -f "$STUB_ESTADO/exec-node-nao"; echo running >"$STUB_ESTADO/c-dgclaw-ana"  # a duvida sobre a politica remota parou o container
 dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1
 dgclaw agente reparar ana >/dev/null 2>&1
 nega "rodando de verdade dentro da caixa, o gancho antigo sai" grep -q 'escrita-restrita-hook' "$ST"

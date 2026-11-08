@@ -114,8 +114,21 @@ case "${1:-}" in
         # /home/agente pela casa do agente na raiz falsa (a caixa de mentira). `exec-node-nao` so registra.
         if [ "${2:-}" = "--user" ] && [ "${3:-}" = agente ] && [ "${5:-}" = node ] && [ ! -f "$est/exec-node-nao" ]; then
             slug="${4#dgclaw-}"; casa="${DGCLAW_RAIZ:?}/var/lib/dgclaw/agentes/$slug/home"
+            # Leitura da politica remota (remote-settings.json): as flags montam o arquivo na casa do agente
+            # e o node de verdade o le; sem flag, o arquivo some (sem-remota).
+            if printf '%s ' "$@" | grep -q 'remote-settings.json'; then
+                rs="$casa/.claude/remote-settings.json"; mkdir -p "$casa/.claude"; rm -f "$rs"
+                if [ -f "$est/remota-com-chave" ]; then echo '{"permissions":{"deny":["Bash"]}}' > "$rs"
+                elif [ -f "$est/remota-merge" ]; then echo '{"managedSourcesBehavior":"merge","permissions":{}}' > "$rs"
+                elif [ -f "$est/remota-link" ]; then ln -s /etc/passwd "$rs"
+                elif [ -f "$est/remota-invalida" ]; then echo '{nao e json' > "$rs"
+                elif [ -f "$est/remota-vazia" ]; then echo '{}' > "$rs"
+                fi
+            fi
             shift 5; args=()
             for a in "$@"; do args+=("${a/#\/home\/agente/$casa}"); done
+            # Alguns testes (atualizar) poem um node de mentira no PATH: aqui precisa ser o de verdade.
+            PATH="$(printf '%s' "$PATH" | tr ':' '\n' | grep -v '/stubs$' | paste -sd:)"
             exec node "${args[@]}"
         fi
         [ -f "$est/exec-falha" ] && exit 1

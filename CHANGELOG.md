@@ -46,6 +46,12 @@ mensagem pede para recriar. Quem deixou um agente parado com restrições e uma 
 `sudo dgclaw imagem construir --agora` (se a imagem do servidor também for antiga) e `sudo dgclaw agente recriar <agente>`.
 Com o terminal travado, o `Monitor` também fica negado, porque ele executa comandos por conta própria.
 
+Se a conta de IA conectada a um agente pertence a uma organização do claude.ai (planos Team ou Enterprise) com política
+administrada remota, essa política substitui a configuração do DG Claw e as restrições deixam de valer. Para um agente
+com restrições, o `iniciar`, o `reiniciar` e a consulta passam a detectar isso, param o agente e explicam. A saída é conectar
+nele uma conta pessoal (Pro ou Max) ou uma chave de API, ou pedir ao administrador da organização que ponha
+`"managedSourcesBehavior": "merge"` na política remota, e então rodar `sudo dgclaw agente reiniciar <agente>`.
+
 **Nova página Conectar conta.** Antes, para conectar a conta do Claude de um agente alguém tinha de gerar um link de login
 e mandar por mensagem, e o link vencia antes de você ver. Agora o painel tem a página **Conectar conta** (no menu ☰, ou em
 `/conectar`): você entra quando puder, toca em "Gerar link de login" no cartão do agente, entra na sua conta do Claude e cola

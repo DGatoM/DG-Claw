@@ -129,4 +129,40 @@ for estado in running exited; do
 done
 echo running >"$STUB_ESTADO/c-dgclaw-ana"
 
+echo "politica remota (conta de organizacao claude.ai): vence a local, entao a conferencia falha e o container para"
+RH="$LIB/agentes/ana/home/.claude/remote-settings.json"
+for caso in remota-com-chave remota-link remota-invalida exec-node-nao; do
+    echo running >"$STUB_ESTADO/c-dgclaw-ana"
+    dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1
+    touch "$STUB_ESTADO/$caso"
+    : >"$STUB_LOG"
+    dgclaw agente restricoes ana --sem-bash sim >"$TMP/o10.txt" 2>&1; rc=$?
+    nega "$caso: o comando falha" test "$rc" -eq 0
+    nega "$caso: nao diz que aplicou" grep -qi 'aplicad' "$TMP/o10.txt"
+    afirma "$caso: leu o arquivo dentro da caixa como agente" grep -q ' /home/agente/\.claude/remote-settings\.json$' "$STUB_LOG"
+    afirma "$caso: diz que as restricoes NAO valem" grep -q 'NAO valem' "$TMP/o10.txt"
+    afirma "$caso: fala da organizacao do claude.ai" grep -q 'organizacao do claude.ai' "$TMP/o10.txt"
+    afirma "$caso: orienta conta pessoal ou merge e reiniciar" grep -q 'managedSourcesBehavior.*merge.*dgclaw agente reiniciar ana' "$TMP/o10.txt"
+    nega "$caso: nao manda recriar a imagem" grep -q 'agente recriar' "$TMP/o10.txt"
+    afirma "$caso: parou o container" grep -q '^podman stop dgclaw-ana' "$STUB_LOG"
+    igual "$caso: ficou parado" "exited" "$(cat "$STUB_ESTADO/c-dgclaw-ana")"
+    rm -f "$STUB_ESTADO/$caso"
+done
+echo "politica remota: ligar de novo com a politica presente tambem para"
+touch "$STUB_ESTADO/remota-com-chave"
+dgclaw agente iniciar ana >"$TMP/o11.txt" 2>&1; nega "iniciar com politica remota falha" test "$?" -eq 0
+igual "e o container fica parado" "exited" "$(cat "$STUB_ESTADO/c-dgclaw-ana")"
+rm -f "$STUB_ESTADO/remota-com-chave"
+echo "politica remota: ausente, vazia ou com merge passam"
+for caso in nenhuma remota-vazia remota-merge; do
+    echo running >"$STUB_ESTADO/c-dgclaw-ana"
+    dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1
+    [ "$caso" = nenhuma ] || touch "$STUB_ESTADO/$caso"
+    dgclaw agente restricoes ana --sem-bash sim >"$TMP/o12.txt" 2>&1; igual "$caso: aplica e sai com 0" "0" "$?"
+    igual "$caso: o container continua ligado" "running" "$(cat "$STUB_ESTADO/c-dgclaw-ana")"
+    rm -f "$STUB_ESTADO/$caso"
+done
+echo running >"$STUB_ESTADO/c-dgclaw-ana"
+rm -f "$RH"
+
 fim

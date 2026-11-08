@@ -224,6 +224,32 @@ Texto para a página de paridade: "Restrições do dono (`dgclaw agente restrico
 ignora `allowTools`/`denyTools` e os ganchos, então nenhuma das três vale; o comando avisa e registra. Exceção
 de paridade aberta até o Codex ter regras de ferramenta equivalentes."
 
+## Contas de organização com política remota
+
+Uma conta de IA que pertence a uma organização do claude.ai (planos Team ou Enterprise) pode trazer uma política administrada
+remota ("server-managed settings"). No modo padrão do Claude Code essa política é a primeira da fila e **substitui por inteiro**
+o `managed-settings.json` do DG Claw, inclusive o gancho de escrita. O DG Claw não consegue impor o contrário, porque a opção
+`managedSourcesBehavior: "merge"` só vale quando está na própria política remota, que é do administrador da organização.
+
+O Claude Code guarda a cópia dessa política em `/home/agente/.claude/remote-settings.json` e a aplica no início das sessões
+seguintes. Por isso, com o agente ligado, a conferência (ao aplicar, ao iniciar, ao reiniciar, ao criar o container e na consulta)
+lê esse arquivo por dentro da caixa, como o usuário `agente`, com prazo e sem seguir link:
+
+| Situação do arquivo | Resultado |
+| --- | --- |
+| ausente, ou objeto vazio `{}` | segue |
+| política com `"managedSourcesBehavior": "merge"` | segue (as listas combinam e o gancho local entra); a consulta mostra a linha `Politica remota` |
+| política com qualquer outra chave | falha: as restrições não valem e o container é parado |
+| link, não é arquivo comum, maior que 1 MiB, JSON inválido, prazo estourado | falha, pela dúvida |
+
+Para resolver: conectar no agente uma conta pessoal (Pro ou Max) ou uma chave de API, ou pedir ao administrador da organização que
+ponha `"managedSourcesBehavior": "merge"` na política remota; depois, `dgclaw agente reiniciar <agente>`.
+
+Limite: o arquivo é do agente e só se lê com o container ligado. A checagem de antes de ligar (rótulo da imagem) não o vê; a
+conferência logo depois da partida o pega e para o container. A política remota baixada durante a sessão só aparece no cache no
+início da seguinte, e a conferência a pega no próximo `iniciar`/`reiniciar`/consulta. A prova com o Claude Code real fica para o
+QA na VPS; os testes usam um `podman` de mentira que monta o arquivo e o `node` de verdade o lê.
+
 ## O que o teste prova e o que não prova
 
 `tests/cli/restricoes.sh`, `tests/cli/restricoes-gancho.sh` e o `tests/cli/atualizar.sh` provam que o

@@ -10,8 +10,9 @@ if ! command -v node >/dev/null 2>&1; then
     exit 1
 fi
 GANCHO="$REPO/scripts/escrita-restrita-hook.mjs"
-# Fora de /tmp: o gancho libera /tmp de proposito, e uma pasta de teste la dentro esconderia os bloqueios.
-TMP="$(mktemp -d -p "$REPO/tests" .gancho-XXXXXX)"; trap 'rm -rf "$TMP"' EXIT
+# Fora de /tmp, onde quer que o repositorio esteja: o gancho libera /tmp de proposito, e uma pasta de teste la
+# dentro esconderia os bloqueios (uma copia do repositorio em /tmp quebrava o teste).
+TMP="$(mktemp -d -p /var/tmp dgclaw-gancho-XXXXXX)"; trap 'rm -rf "$TMP"' EXIT
 CASA="$TMP/casa"; FORA="$TMP/fora"
 mkdir -p "$CASA/relatorios/2026" "$CASA/outra" "$CASA/memory" "$CASA/.dgclaw" "$CASA/.claude" "$FORA"
 ln -s "$FORA" "$CASA/relatorios/atalho"          # dentro da pasta liberada, mas aponta para fora

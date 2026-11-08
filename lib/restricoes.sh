@@ -195,6 +195,27 @@ for (const id of ids) {
 }
 console.log(saida.join("\n"));'
 
+# Le DENTRO da caixa, como o usuario agente, a politica remota do Claude Code (conta de uma organizacao claude.ai
+# com "server-managed settings"): o cache fica em /home/agente/.claude/remote-settings.json e vence a configuracao
+# administrada local. Mesmo padrao seguro do PROVEDOR_JS (O_NOFOLLOW|O_NONBLOCK, fstat, so arquivo regular, ate
+# 1 MiB). Imprime uma palavra: sem (arquivo ausente ou objeto vazio), com (objeto com chaves), merge (com
+# "managedSourcesBehavior": "merge", que combina com a politica local) ou duvida (qualquer outra coisa).
+REMOTA_JS='const fs = require("fs");
+let fd;
+try { fd = fs.openSync(process.argv[1], fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK); }
+catch (e) { console.log((e.code === "ENOENT" || e.code === "ENOTDIR") ? "sem" : "duvida"); process.exit(0); }
+try {
+  const st = fs.fstatSync(fd);
+  if (!st.isFile() || st.size > 1048576) { console.log("duvida"); process.exit(0); }
+  const buf = Buffer.alloc(st.size); let n = 0;
+  while (n < st.size) { const r = fs.readSync(fd, buf, n, st.size - n, n); if (r <= 0) break; n += r; }
+  const j = JSON.parse(buf.toString("utf8", 0, n));
+  if (!j || typeof j !== "object" || Array.isArray(j)) console.log("duvida");
+  else if (Object.keys(j).length === 0) console.log("sem");
+  else console.log(j.managedSourcesBehavior === "merge" ? "merge" : "com");
+} catch (e) { console.log("duvida"); } finally { try { fs.closeSync(fd); } catch (_) {} }'
+
+
 # _restricoes_provedor_parado <arquivo>: com o agente parado nenhum processo dele roda, entao o root le, mas
 # recusa link e o que nao e arquivo regular (um FIFO travaria a leitura), com prazo e limite de tamanho.
 # Imprime claude, codex, vazio ou ? (em duvida). O jq recebe o texto pelo STDIN.
@@ -270,13 +291,14 @@ _restricoes_sessoes_em_codex() {
 # _restricoes_conferir_suporte <slug> <esperado>: com o container RODANDO, confere DENTRO dele (como root, so
 # lendo /etc e a imagem, que o agente nao controla) que a imagem carrega a configuracao administrada: o link
 # /etc/claude-code/managed-settings.json aponta para a pasta do runner, o conteudo visto la e o <esperado> e o
-# script do gancho de escrita existe. Agente parado numa imagem antiga (ex.: durante `dgclaw atualizar`) sobe sem
+# script do gancho de escrita existe, e que a conta de IA do agente nao traz politica administrada remota (que
+# substituiria a local; ver REMOTA_JS). Agente parado numa imagem antiga (ex.: durante `dgclaw atualizar`) sobe sem
 # nada disso, e o gancho que protege o .dgclaw/config.sh nao vale. Devolve 0 se tudo certo; senao 1, com o motivo
 # em RESTRICOES_SUPORTE_MOTIVO. Nao grava nada.
 _restricoes_conferir_suporte() {
     local c="dgclaw-$1" esperado="$2" alvo=/etc/claude-code/managed-settings.json destino=/etc/dgclaw-runner/managed-settings.json lnk visto script
     script="${GANCHO_ESCRITA_CMD##* }"
-    RESTRICOES_SUPORTE_MOTIVO=""
+    RESTRICOES_SUPORTE_MOTIVO=""; RESTRICOES_SUPORTE_CAUSA=imagem; RESTRICOES_REMOTA=""
     lnk="$(timeout 15 podman exec "$c" readlink "$alvo" 2>/dev/null)" || lnk=""
     if [ "$lnk" != "$destino" ]; then
         RESTRICOES_SUPORTE_MOTIVO="dentro do container $alvo ${lnk:+aponta para $lnk e nao para $destino}${lnk:-nao existe ou nao e um link}"
@@ -291,6 +313,15 @@ _restricoes_conferir_suporte() {
         RESTRICOES_SUPORTE_MOTIVO="a imagem nao traz o script do gancho de escrita ($script) ou o node"
         return 1
     fi
+    # A politica remota de uma organizacao claude.ai substitui a local inteira (inclusive o gancho): so se le com o
+    # container ligado e como agente, porque o arquivo e dele.
+    RESTRICOES_REMOTA="$(timeout 10 podman exec --user agente "$c" node -e "$REMOTA_JS" /home/agente/.claude/remote-settings.json 2>/dev/null | head -n 1)" || RESTRICOES_REMOTA=""
+    case "$RESTRICOES_REMOTA" in sem|merge) ;; com|duvida) ;; *) RESTRICOES_REMOTA=duvida ;; esac
+    case "$RESTRICOES_REMOTA" in
+        com) RESTRICOES_SUPORTE_MOTIVO="a conta de IA conectada pertence a uma organizacao do claude.ai com politica administrada remota (/home/agente/.claude/remote-settings.json), que substitui a configuracao do DG Claw" ;;
+        duvida) RESTRICOES_SUPORTE_MOTIVO="nao consegui ler com seguranca /home/agente/.claude/remote-settings.json (link, arquivo estranho, grande demais, JSON invalido ou prazo estourado), entao nao sei se a conta de IA conectada tem politica administrada remota, que substituiria a configuracao do DG Claw" ;;
+    esac
+    case "$RESTRICOES_REMOTA" in com|duvida) RESTRICOES_SUPORTE_CAUSA=remota; return 1 ;; esac
     return 0
 }
 
@@ -299,6 +330,10 @@ _restricoes_conferir_suporte() {
 # deixa parado como esta).
 _restricoes_suporte_falhou() {
     local slug="$1"
+    if [ "${RESTRICOES_SUPORTE_CAUSA:-}" = remota ]; then
+        falha "o agente $slug usa uma conta de IA que pode pertencer a uma organizacao do claude.ai com politica administrada remota: $RESTRICOES_SUPORTE_MOTIVO. A politica remota vence a configuracao local e o agente poderia gravar arquivos que as rotinas dele executam, por isso as restricoes NAO valem. Parei o container, porque agente com restricao ligada nao roda sem a trava. Os arquivos das restricoes ficaram gravados." \
+            "conecte no agente uma conta pessoal (Pro ou Max) ou uma chave de API, ou peca ao administrador da organizacao para por \"managedSourcesBehavior\": \"merge\" na politica remota. Depois rode: dgclaw agente reiniciar $slug"
+    fi
     falha "o agente $slug roda numa imagem antiga que nao carrega a configuracao administrada do Claude Code ($RESTRICOES_SUPORTE_MOTIVO). Por isso as restricoes NAO valem: o agente ainda poderia mudar arquivos que as rotinas dele executam. Parei o container, porque agente com restricao ligada nao roda sem a trava. Os arquivos das restricoes ficaram gravados." \
         "recrie o agente com a imagem atual: dgclaw agente recriar $slug --forcar (--forcar porque o agente ficou parado; se a imagem do servidor tambem estiver velha, antes: dgclaw imagem construir --agora). O recriar liga o agente de novo ja conferindo as restricoes."
 }
@@ -344,7 +379,7 @@ restricoes_conferir_ao_iniciar() {
             "ligue de novo com: dgclaw agente iniciar $slug (ele refaz os arquivos a partir do restricoes.json e confere antes de ligar)"
     fi
     if ! _restricoes_conferir_suporte "$slug" "$esperado"; then
-        _restricoes_parar_por_falha "$slug" "imagem sem a configuracao administrada ($RESTRICOES_SUPORTE_MOTIVO)"
+        _restricoes_parar_por_falha "$slug" "configuracao administrada nao vale ($RESTRICOES_SUPORTE_MOTIVO)"
         _restricoes_suporte_falhou "$slug"
     fi
     rm -f -- "$casa/runner/restricoes-suporte.pendente"
@@ -544,7 +579,7 @@ _aplicar_restricoes_sem_trava() {
         else
             # O marcador de reinicio fica: depois de recriar, a proxima execucao reinicia o runner e confere de novo.
             [ -e "$pend" ] || _restricoes_gravar "$pend" "reinicio do runner pendente desde $(date -u +%FT%TZ)"
-            _restricoes_parar_por_falha "$slug" "imagem sem a configuracao administrada ($RESTRICOES_SUPORTE_MOTIVO): restricoes gravadas mas NAO valem" aplicar
+            _restricoes_parar_por_falha "$slug" "configuracao administrada nao vale ($RESTRICOES_SUPORTE_MOTIVO): restricoes gravadas mas NAO valem" aplicar
             _restricoes_suporte_falhou "$slug"
         fi
     else
@@ -766,7 +801,7 @@ _restricoes_pendencias() {
 # comando que sai com codigo diferente de 0.
 restricoes_mostrar() {
     local slug="$1" json="$2" rs="$3" consulta="${4:-}" pastas ligada casa="$DG_CASAS/$1" c="dgclaw-$1"
-    local marcador txt estado=parado esperado="" codex_em="" motivo="" pend_linhas=() nome cmd rotulo quem_liga
+    local marcador txt estado=parado esperado="" codex_em="" motivo="" pend_linhas=() nome cmd rotulo quem_liga remota_merge=0
     printf '\nRestricoes do agente %s\n' "$slug"
     if [ ! -e "$rs" ]; then
         printf '  Nenhuma restricao definida (o agente faz tudo o que o DG Claw permite).\n'
@@ -793,7 +828,13 @@ restricoes_mostrar() {
             if [ -z "$esperado" ] || [ "$esperado" = '{}' ]; then
                 motivo="managed-settings.json ausente, vazio ou invalido com restricao ligada. Resolve: $quem_liga (refaz os arquivos a partir do restricoes.json)"
             elif ! _restricoes_conferir_suporte "$slug" "$esperado"; then
-                motivo="$RESTRICOES_SUPORTE_MOTIVO. O agente esta ligado SEM a trava (pare com: dgclaw agente parar $slug). Resolve: dgclaw agente recriar $slug (se a imagem do servidor tambem estiver velha, antes: dgclaw imagem construir --agora)"
+                if [ "${RESTRICOES_SUPORTE_CAUSA:-}" = remota ]; then
+                    motivo="$RESTRICOES_SUPORTE_MOTIVO. O agente esta ligado SEM a trava (pare com: dgclaw agente parar $slug). Resolve: conectar no agente uma conta pessoal (Pro ou Max) ou chave de API, ou pedir ao administrador da organizacao para por \"managedSourcesBehavior\": \"merge\" na politica remota; depois: dgclaw agente reiniciar $slug"
+                else
+                    motivo="$RESTRICOES_SUPORTE_MOTIVO. O agente esta ligado SEM a trava (pare com: dgclaw agente parar $slug). Resolve: dgclaw agente recriar $slug (se a imagem do servidor tambem estiver velha, antes: dgclaw imagem construir --agora)"
+                fi
+            else
+                [ "${RESTRICOES_REMOTA:-}" != merge ] || remota_merge=1
             fi
         fi
         codex_em="$(_restricoes_sessoes_em_codex "$casa" "$c" "$([ "$estado" = ligado ] && echo 1 || echo 0)")"
@@ -810,6 +851,9 @@ restricoes_mostrar() {
     if [ "$consulta" = consulta ] && [ "$ENSAIO" != 1 ] && [ "$ligada" = true ]; then
         if [ "$estado" != ligado ]; then
             printf '  Conferencia:           o agente esta parado; a imagem sera conferida quando ele ligar (dgclaw agente iniciar %s).\n' "$slug"
+        fi
+        if [ "$remota_merge" = 1 ]; then
+            printf '  Politica remota:       a conta de IA tem politica administrada remota com "managedSourcesBehavior": "merge"; as listas combinam com as do DG Claw e o gancho de escrita continua valendo.\n'
         fi
         if [ -n "$codex_em" ]; then
             printf '  Codex:                 %s. No Codex estas travas nao valem (o runner ignora as regras de ferramentas e os ganchos do Claude Code); passam a valer na sessao que voltar para o Claude.\n' "$codex_em"
