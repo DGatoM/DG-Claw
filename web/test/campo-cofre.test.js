@@ -1,4 +1,5 @@
 'use strict';
+require('./_ds-stub');
 const test = require('node:test');
 const assert = require('node:assert');
 const cc = require('../public/campo-cofre.js');

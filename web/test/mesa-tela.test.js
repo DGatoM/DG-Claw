@@ -1,4 +1,5 @@
 'use strict';
+require('./_ds-stub');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -16,7 +17,7 @@ test('rótulo do estado cobre todos os casos', () => {
   assert.equal(M.rotuloEstado({ ...base, estado: 'travada' }).texto, 'travada');
   assert.equal(M.rotuloEstado({ ...base, estado: 'esperando_dono' }).texto, 'esperando você');
   assert.equal(M.rotuloEstado({ ...base, estado: 'esperando_danilo' }).texto, 'esperando você');
-  assert.equal(M.rotuloEstado({ ...base, estado: 'concluida' }).texto, 'concluída ✓');
+  assert.equal(M.rotuloEstado({ ...base, estado: 'concluida' }).texto, 'concluída');
   assert.equal(M.rotuloEstado({ ...base, estado: 'cancelada' }).texto, 'cancelada');
 });
 

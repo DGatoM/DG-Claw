@@ -12,7 +12,7 @@ const pub = (n) => fs.readFileSync(path.join(__dirname, '../public', n), 'utf8')
 
 test('o menu lateral tem a entrada de Lembretes (ícone de relógio) apontando para /lembretes', () => {
   assert.deepEqual(M.LINK_LEMBRETES, { nome: 'Lembretes', ico: 'i-clock', href: '/lembretes' });
-  assert.match(pub('menu-lado.js'), /mlTabs'\)\.insertAdjacentHTML/);
+  assert.match(pub('menu-lado.js'), /fixo\('lembretes', LINK_LEMBRETES/);
 });
 
 test('conversa.html inclui a faixa com uma linha de script e uma de css', () => {

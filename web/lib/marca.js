@@ -141,7 +141,7 @@ function criarMarca(cfg) {
       if (!m || typeof m !== 'object' || Array.isArray(m)) { avisa(campo, m, 'precisa ser um mapa nome-da-cor para #RRGGBB', 'Exemplo: { "botao-fundo": "#C62828" }.'); continue; }
       for (const [k, v] of Object.entries(m)) {
         const token = String(k).replace(/^--/, '');
-        if (!TOKENS_COR.has(token)) { avisa(`${campo}.${String(k).slice(0, 40)}`, v, 'esse nome de cor não está na lista permitida', 'Veja os nomes aceitos em docs/MARCA.md.'); continue; }
+        if (!TOKENS_COR.has(token)) { avisa(`${campo}.${String(k).slice(0, 40)}`, v, 'esse nome de cor não está na lista permitida', 'Veja os nomes aceitos em docs/WHITE-LABEL.md.'); continue; }
         if (typeof v !== 'string' || !RX_COR.test(v)) { avisa(`${campo}.${token}`, v, 'a cor precisa ser #RRGGBB (seis dígitos hexadecimais)', 'Exemplo: #C62828.'); continue; }
         dados[chave][token] = v.toLowerCase();
       }
@@ -158,7 +158,7 @@ function criarMarca(cfg) {
     }
     if ('fontes' in bruto) {
       const fo = bruto.fontes;
-      if (!fo || typeof fo !== 'object' || Array.isArray(fo)) avisa('fontes', fo, 'precisa ser { "base": {...}, "mono": {...} }', 'Veja docs/MARCA.md.');
+      if (!fo || typeof fo !== 'object' || Array.isArray(fo)) avisa('fontes', fo, 'precisa ser { "base": {...}, "mono": {...} }', 'Veja docs/WHITE-LABEL.md.');
       else {
         for (const papel of ['base', 'mono']) {
           if (!(papel in fo)) continue;

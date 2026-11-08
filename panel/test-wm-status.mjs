@@ -262,6 +262,7 @@ console.log('\no cartão');
 {
   const fonte = fs.readFileSync(path.join(AQUI, 'public/js/wm-status.js'), 'utf8');
   const janela = { DGCLAW_BASE: '' };
+  globalThis.dsIcone = (n) => `<svg class="ds-ico" data-ico="${n}"></svg>`; // vem de /ds/icone.js no navegador
   let resposta;
   const fetchFalso = async () => ({ ok: true, status: 200, json: async () => resposta });
   new Function('window', 'fetch', 'document', fonte)(janela, fetchFalso, { querySelector: () => null });

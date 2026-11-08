@@ -1,6 +1,6 @@
 /* colaboradores.css: a tela /colaboradores (classes co-). Celular primeiro: 390 px sem rolagem horizontal,
    alvos de toque de pelo menos 36 px, campos com fonte de 16 px (o iPhone não amplia), texto longo quebra. */
-body.co{--co-txt:#0f1c14;--co-fraco:#5f7566;--co-linha:#dfe7e1;--co-acento:#2f9e5e;--co-fundo:#f3f6f3;--co-verm:#b3261e;
+body.co{--co-txt:#0f1c14;--co-fraco:#5f7566;--co-linha:#dfe7e1;--co-acento:var(--cor-acento);--co-fundo:#f3f6f3;--co-verm:#b3261e;
   margin:0;background:var(--co-fundo);color:var(--co-txt);overflow:auto;height:auto;
   font:15.5px/1.46 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;-webkit-text-size-adjust:100%}
 body.co *{box-sizing:border-box}
@@ -16,7 +16,7 @@ body.co *{box-sizing:border-box}
 #coTexto{min-height:150px;resize:vertical;line-height:1.4;font-size:15px;white-space:pre-wrap}
 .co-acoes{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
 .co-btn{font:inherit;font-size:15px;font-weight:600;min-height:44px;padding:0 16px;border-radius:22px;border:1px solid var(--co-linha);background:#f2f6f2;color:#38523f;cursor:pointer}
-.co-btn.co-pri{background:var(--co-acento);border-color:var(--co-acento);color:#fff}
+.co-btn.co-pri{background:var(--botao-fundo);border-color:var(--botao-fundo);color:var(--botao-texto)}
 .co-btn.co-perigo{background:#fff;border-color:#e6a5a0;color:var(--co-verm)}
 .co-btn.co-perigo.co-confirma{background:var(--co-verm);border-color:var(--co-verm);color:#fff}
 .co-btn:disabled{opacity:.5;cursor:default}

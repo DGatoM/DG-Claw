@@ -100,6 +100,27 @@ aside#menu{
 .ml-tx{display:flex;flex-direction:column;min-width:0}
 .ml-tx small{font-size:11.5px;color:var(--ml-fraco);line-height:1.3}
 
+/* grupos do menu (acordeões). O cabeçalho é um botão; o conteúdo fechado fica invisível e fora do Tab. */
+#mlPainel{gap:2px}
+.ml-grupo[hidden]{display:none}
+.ml-grupo-cab{display:flex;align-items:center;gap:10px;width:100%;min-height:40px;padding:9px 10px;border:0;border-radius:10px;
+  background:none;font:inherit;font-size:14px;font-weight:600;color:var(--ml-texto);cursor:pointer;text-align:left}
+.ml-grupo-cab:hover{background:var(--ml-fundo2)}
+.ml-grupo-nome{flex:1 1 auto;min-width:0}
+.ml-grupo-selos{display:inline-flex;align-items:center;flex:0 0 auto}
+.ml-grupo-selos .ml-nl{margin-left:0}
+.ml-grupo.aberto .ml-grupo-selos{display:none}
+.ml-grupo-seta{display:inline-flex;flex:0 0 auto;color:var(--ml-fraco);transition:transform var(--tempo-rapido) ease}
+.ml-grupo.aberto .ml-grupo-seta{transform:rotate(180deg)}
+.ml-grupo-itens{display:grid;grid-template-rows:0fr;visibility:hidden;
+  transition:grid-template-rows var(--tempo-rapido) ease,visibility 0s linear var(--tempo-rapido)}
+.ml-grupo.aberto > .ml-grupo-itens{grid-template-rows:1fr;visibility:visible;transition:grid-template-rows var(--tempo-rapido) ease,visibility 0s}
+.ml-grupo-lista{min-height:0;overflow:hidden;display:flex;flex-direction:column;gap:2px;padding:0 0 0 10px}
+.ml-grupo-lista .ml-tab{min-height:36px;padding:7px 10px;font-size:13.5px}
+.ml-solto{display:flex;flex-direction:column;gap:2px;margin-top:6px;padding-top:6px;border-top:1px solid var(--ml-linha)}
+@media (pointer:coarse){.ml-tab,.ml-grupo-cab,.ml-grupo-lista .ml-tab{min-height:44px}}
+@media (prefers-reduced-motion:reduce){.ml-grupo-seta,.ml-grupo-itens,.ml-grupo.aberto > .ml-grupo-itens{transition:none}}
+
 /* configurações */
 .ml-config{flex:0 0 auto;border-top:1px solid var(--ml-linha);padding-top:6px}
 .ml-config[hidden]{display:none}

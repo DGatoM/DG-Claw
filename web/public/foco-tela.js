@@ -64,11 +64,13 @@
     const cab = h('div', 'foco-cab');
     const btnAbre = h('button', 'foco-abre');
     btnAbre.type = 'button';
+    const rotuloIco = h('span', 'foco-rotulo-ico');
+    rotuloIco.setAttribute('aria-hidden', 'true'); rotuloIco.innerHTML = dsIcone('target');
     const rotulo = h('span', 'foco-rotulo');
     const placar = h('span', 'foco-placar');
     const seta = h('span', 'foco-seta');
     seta.setAttribute('aria-hidden', 'true');
-    btnAbre.appendChild(rotulo); btnAbre.appendChild(placar); btnAbre.appendChild(seta);
+    btnAbre.appendChild(rotuloIco); btnAbre.appendChild(rotulo); btnAbre.appendChild(placar); btnAbre.appendChild(seta);
     const btnAjuda = h('button', 'foco-ajuda', '?');
     btnAjuda.type = 'button';
     btnAjuda.setAttribute('aria-label', 'Como funciona o modo foco');
@@ -82,7 +84,7 @@
     barra.appendChild(enche);
     const okEl = h('div', 'foco-ok');
     okEl.hidden = true;
-    okEl.appendChild(h('span', null, 'Tudo ticado 🎉'));
+    okEl.appendChild(h('span', null, 'Tudo ticado'));
     const btnConclui = h('button', 'foco-conclui', 'Concluir');
     btnConclui.type = 'button';
     btnConclui.title = 'Limpa a lista e o modo foco some';
@@ -150,7 +152,7 @@
       posiciona();
       const aberto = estaAberto();
       if (!l && est.erro) {
-        rotulo.textContent = '🎯 Foco indisponível';
+        rotulo.textContent = 'Foco indisponível';
         placar.textContent = '';
         avisoEl.textContent = est.erro;
         avisoEl.title = est.erro;
@@ -165,9 +167,9 @@
       const tudoFeito = c.total > 0 && c.feitos === c.total;
       barra.hidden = tudoFeito; okEl.hidden = !tudoFeito;
       btnConclui.disabled = est.concluindo;
-      rotulo.textContent = '🎯 ' + (l.titulo || 'Foco');
+      rotulo.textContent = l.titulo || 'Foco';
       placar.textContent = c.feitos + ' de ' + c.total;
-      seta.textContent = aberto ? '▴' : '▾';
+      seta.innerHTML = dsIcone(aberto ? 'chevron-up' : 'chevron-down');
       btnAbre.setAttribute('aria-expanded', aberto ? 'true' : 'false');
       btnAbre.title = aberto ? 'Recolher a lista' : 'Abrir a lista';
       enche.style.width = c.pct + '%';
@@ -180,7 +182,7 @@
         b.type = 'button';
         b.setAttribute('role', 'checkbox');
         b.setAttribute('aria-checked', it.feito ? 'true' : 'false');
-        b.appendChild(h('span', 'foco-caixa', it.feito ? '✓' : ''));
+        const caixa = h('span', 'foco-caixa'); if (it.feito) caixa.innerHTML = dsIcone('check'); b.appendChild(caixa);
         b.appendChild(h('span', 'foco-texto', it.texto));
         b.addEventListener('click', () => tica(it.id));
         li.appendChild(b);

@@ -61,6 +61,16 @@
   // ─── Utilidades ───────────────────────────────────────────────
 
   /** Monta um elemento. Todo texto entra por nó de texto, nunca como HTML. */
+  /* Ícone do sprite como nó, sem innerHTML (esta tela inteira escreve por textContent). O nome é sempre um literal do código. */
+  function ico(nome) {
+    const NS = 'http://www.w3.org/2000/svg';
+    const caixa = document.createElement('span'); caixa.className = 'sx-ico';
+    const svg = document.createElementNS(NS, 'svg'); svg.setAttribute('class', 'ds-ico'); svg.setAttribute('aria-hidden', 'true'); svg.setAttribute('focusable', 'false');
+    const uso = document.createElementNS(NS, 'use'); uso.setAttribute('href', '/ds/icones.svg#i-' + nome);
+    svg.appendChild(uso); caixa.appendChild(svg);
+    return caixa;
+  }
+
   function el(tag, props, ...filhos) {
     const e = document.createElement(tag);
     if (props) {
@@ -110,7 +120,7 @@
   }
 
   /**
-   * O card pode ter um prefixo de status no nome ("▶️ ATIVA [VPS] — "). A tela edita só o
+   * O card pode ter um prefixo de status no nome (o desenho de status, ATIVA e a origem, antes do traço). A tela edita só o
    * nome limpo e devolve o prefixo como estava, igual à tela do DG Telegram.
    */
   function prefixoNome(it) {
@@ -192,7 +202,7 @@
       porque: 'Quem lê o pedido não viu a sua conversa. Por isso o formulário pede que você diga o que é e onde fica, em vez de deixar a sessão adivinhar. Há um limite de sessões abertas ao mesmo tempo; se ele for atingido, a tela diz como liberar uma vaga.',
     },
     detalhe: {
-      corpo: 'No alto ficam o nome, o estado e a pasta. A estrela marca como favorito e o lápis renomeia. Se o nome tiver o prefixo de status (▶️, ✅ ou ⏳), ele é mantido: você muda só o resto. O nome fica guardado no painel.',
+      corpo: 'No alto ficam o nome, o estado e a pasta. A estrela marca como favorito e o lápis renomeia. Se o nome tiver o prefixo de status (como ATIVA ou ENCERRADA, com o desenho que vem antes), ele é mantido: você muda só o resto. O nome fica guardado no painel.',
       porque: 'O prefixo é como as outras sessões e agentes reconhecem o estado pelo nome. Perdê-lo bagunçaria a leitura da lista.',
     },
     acoes: {
@@ -299,7 +309,7 @@
         chave: 'detalhe',
         alvo: '#sx-vista-det .sx-info',
         titulo: 'O card aberto',
-        corpo: 'No alto ficam o nome, o estado e a pasta. A estrela marca como favorito e o lápis renomeia. Ao renomear, o prefixo de status que o card já tinha (▶️, ✅ ou ⏳) é mantido; você muda só o resto do nome.',
+        corpo: 'No alto ficam o nome, o estado e a pasta. A estrela marca como favorito e o lápis renomeia. Ao renomear, o prefixo de status que o card já tinha (como ATIVA ou ENCERRADA) é mantido; você muda só o resto do nome.',
         porque: 'O prefixo é como o dono e os outros agentes reconhecem o estado do card pelo nome. Perder esse prefixo bagunçaria a lista de quem olha o Bunker.',
       },
       {
@@ -514,7 +524,7 @@
       el('span', { class: `sx-bol${info.pulsa ? ' pulsa' : ''}`, 'aria-hidden': 'true' }),
       el('span', { class: 'sx-meio' },
         el('span', { class: 'sx-nome' },
-          it.favorito ? el('span', { class: 'sx-estrela', title: 'Favorito: fica antes dos outros na lista', 'aria-label': 'Favorito' }, '⭐ ') : null,
+          it.favorito ? el('span', { class: 'sx-estrela', title: 'Favorito: fica antes dos outros na lista', 'aria-label': 'Favorito' }, ico('star'), ' ') : null,
           it.nome_limpo || it.nome || 'Card sem nome'),
         el('span', { class: 'sx-meta' }, el('span', { class: 'est' }, info.rotulo), meta ? ` · ${meta}` : ''),
         it.motivo ? el('span', { class: 'sx-motivo' }, it.motivo) : null,
@@ -739,7 +749,7 @@
     r.livre = el('input', { type: 'checkbox', id: 'sx-livre' });
     r.livre.checked = rasc.livre;
     r.enviar = el('button', { type: 'button', class: 'sx-btn prim', onclick: () => envia(false) }, 'Enviar');
-    r.anexar = el('button', { type: 'button', class: 'sx-btn sec sx-mini', hidden: true, title: 'Anexa uma foto ou arquivo: o caminho dele entra no recado para o card ler.', 'aria-label': 'Anexar uma foto ou arquivo' }, '📎');
+    r.anexar = el('button', { type: 'button', class: 'sx-btn sec sx-mini', hidden: true, title: 'Anexa uma foto ou arquivo: o caminho dele entra no recado para o card ler.', 'aria-label': 'Anexar uma foto ou arquivo' }, ico('paperclip'));
     r.arquivo = el('input', { type: 'file', hidden: true });
     r.anexar.addEventListener('click', () => { if (!r.anexar.disabled) r.arquivo.click(); });
     r.arquivo.addEventListener('change', anexa);
@@ -751,7 +761,7 @@
 
     vista.append(
       el('div', { class: 'sx-det-topo' },
-        el('button', { type: 'button', class: 'sx-btn sec sx-voltar', onclick: voltaLista, title: 'Volta para a lista de sessões.' }, '← Voltar à lista')),
+        el('button', { type: 'button', class: 'sx-btn sec sx-voltar', onclick: voltaLista, title: 'Volta para a lista de sessões.' }, ico('arrow-left'), ' Voltar à lista')),
       el('div', { class: 'cartao' },
         el('div', { class: 'section-title' }, 'O card', ajuda('detalhe', 'O que aparece no alto do card')),
         r.info, r.pedido),
@@ -819,13 +829,13 @@
           type: 'button', class: 'sx-ico-mini', 'aria-pressed': String(!!it.favorito),
           title: it.favorito ? 'Tirar dos favoritos' : 'Marcar como favorito: fica antes dos outros na lista',
           'aria-label': it.favorito ? 'Tirar dos favoritos' : 'Marcar como favorito', onclick: () => acaoFavorito(d),
-        }, it.favorito ? '⭐' : '☆'));
+        }, ico('star')));
       }
       if (recOn('renomear') && !soLeitura()) {
         botoes.push(el('button', {
-          type: 'button', class: 'sx-ico-mini', title: 'Renomear a sessão (o prefixo de status ▶️/✅/⏳ é mantido)', 'aria-label': 'Renomear a sessão',
+          type: 'button', class: 'sx-ico-mini', title: 'Renomear a sessão (o prefixo de status, como ATIVA ou ENCERRADA, é mantido)', 'aria-label': 'Renomear a sessão',
           onclick: () => { d.editandoNome = true; d.sigInfo = ''; renderDetalhe(); },
-        }, '✏️'));
+        }, ico('pencil')));
       }
       linha = el('span', { class: 'sx-nome-linha' }, el('span', { class: 'sx-nome' }, nomeAtual), botoes.length ? el('span', { class: 'sx-nome-btns' }, botoes) : null);
     }
@@ -928,7 +938,7 @@
     r.nota.classList.toggle('erro', !bloqueio && !!d.notaEnvio && d.notaEnvio.tom === 'erro');
     r.anexar.hidden = !recOn('anexo');
     r.anexar.disabled = bloqueio || d.anexando;
-    r.anexar.textContent = d.anexando ? '⏳' : '📎';
+    r.anexar.replaceChildren(ico(d.anexando ? 'hourglass' : 'paperclip'));
     r.notaAnexo.textContent = d.anexando ? 'Enviando o anexo...' : (d.notaAnexo ? d.notaAnexo.texto : '');
     r.notaAnexo.classList.toggle('erro', !d.anexando && !!d.notaAnexo && d.notaAnexo.tom === 'erro');
   }

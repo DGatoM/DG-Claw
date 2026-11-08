@@ -30,7 +30,7 @@ module.exports = function buildHtmlTemplate({ BASE, CONFIG, serverDir, getAuth }
   const URL_CONVERSA = SLUG_DA_FACHADA ? `/a/${encodeURIComponent(SLUG_DA_FACHADA)}` : '/';
   const VOLTAR_HTML =
     `<a class="btn-voltar" href="${URL_CONVERSA}" aria-label="voltar para a conversa">` +
-    '<span aria-hidden="true">←</span><span class="btn-voltar-texto">conversa</span></a>';
+    '<svg class="ds-ico" aria-hidden="true" focusable="false"><use href="/ds/icones.svg#i-arrow-left"/></svg><span class="btn-voltar-texto">conversa</span></a>';
 
   // {{CASCA}}: o cabeçalho e o menu da Conversa também no painel (web/public/casca.js).
   // Só sob a plataforma (BASE preenchido): os arquivos são servidos pelo Web, na raiz da MESMA origem,

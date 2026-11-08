@@ -21,7 +21,7 @@
 .prov-acoes{margin-top:12px;display:flex;flex-wrap:wrap;gap:8px}
 
 .prov-btn{cursor:pointer;min-height:36px;padding:6px 16px;border-radius:9px;border:0;font-weight:600;
-  color:#fff;background:linear-gradient(135deg,var(--acento1),var(--acento2))}
+  color:var(--botao-texto);background:var(--botao-fundo)}
 .prov-btn.leve{background:var(--painel);color:var(--texto);border:1px solid var(--linha);font-weight:500}
 .prov-btn.leve:hover{background:var(--fundo2)}
 .prov-btn[disabled]{opacity:.55;cursor:default}

@@ -70,7 +70,8 @@ test('menu: opção ativo marca o item certo (chave do href)', () => {
 
 test('menu: itens extras do painel (Sessões e poderes) viram links #aba=', () => {
   const l = M.linksExtras({ id: 'tina', tem_painel: true }, [{ chave: 'posts', ico: '◫', nome: 'Posts' }, { chave: '', nome: 'x' }]);
-  assert.deepEqual(l, [{ nome: 'Posts', ico: '◫', href: '/p/tina/#aba=posts' }]);
+  assert.deepEqual(l, [{ nome: 'Posts', ico: 'i-image', href: '/p/tina/#aba=posts' }]);   // chave conhecida: o ícone vem da tabela, não do painel
+  assert.equal(M.linksExtras({ id: 'tina', tem_painel: true }, [{ chave: 'novo', ico: '◫', nome: 'Novo' }])[0].ico, 'i-dot', 'extra desconhecido e sem nome de ícone: o ponto');
   assert.deepEqual(M.linksExtras({ id: 'admin', tem_painel: false }, [{ chave: 'posts', nome: 'Posts' }]), []);
   assert.equal(M.chaveDoHref(l[0].href), 'posts');
   // Sessões é item fixo: um painel antigo que ainda a mande como extra não a duplica no menu
@@ -88,18 +89,18 @@ test('menu: Sessões é item fixo de todo agente com painel, e Avisos é item fi
   assert.equal(M.linkSessoes({ id: 'admin', tem_painel: false }), null, 'o Admin não tem painel, então não tem Sessões');
   assert.equal(M.LINK_AVISOS.href, '/avisos');
   assert.equal(M.chaveDoHref(M.comAgente(M.LINK_AVISOS.href, 'tina')), 'avisos');
-  // a marcação do menu-lado.js põe Sessões logo depois da Mesa e esconde só com ligado:false
+  // o menu-lado.js põe Sessões no grupo Dia a dia e esconde só com ligado:false
   const js = pub('menu-lado.js');
-  assert.match(js, /mesa\.parentElement\.insertAdjacentHTML\('afterend'/);
+  assert.match(js, /chaves: \['rotinas', 'lembretes', 'sessoes'\]/);
   assert.match(js, /c\.ligado === false/);
   assert.match(js, /Deixei o item no menu/);
 });
 
 test('menu: passos do tutorial do menu respondem o que é, como e por quê', () => {
   const p = M.passosMenu({ nome: 'Tina', comTroca: true, naConversa: false });
-  assert.equal(p.length, 2);
+  assert.equal(p.length, 4, 'o menu, a troca de agente, os grupos e um item dentro de grupo');
   for (const x of p) { assert.ok(x.alvo && x.titulo && x.oque && x.como && x.porque); assert.doesNotMatch(JSON.stringify(x), /[—–]/); }
-  assert.equal(M.passosMenu({ nome: 'Tina', comTroca: false }).length, 1);
+  assert.equal(M.passosMenu({ nome: 'Tina', comTroca: false }).length, 3);
 });
 
 test('casca.css não depende do chat.css/conversa.css e vem antes do menu-lado.css nas telas', () => {

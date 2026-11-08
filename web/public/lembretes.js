@@ -74,8 +74,8 @@
       case 'ativo': return { texto: 'Os avisos estão ativos neste aparelho: o lembrete toca mesmo com a tela fechada.', ativar: false, desativar: true, teste: true };
       case 'inativo': return { texto: 'Os avisos ainda não estão ativos neste aparelho. Ative para o lembrete tocar com a tela fechada.', ativar: true, desativar: false, teste: false };
       case 'negado': return { texto: 'O navegador bloqueou os avisos deste site. Libere nas configurações do navegador (cadeado ao lado do endereço, Notificações, Permitir) e ative de novo.', ativar: true, desativar: false, teste: false };
-      case 'iphone-precisa-instalar': return { texto: 'No iPhone, os avisos só funcionam com o DG Claw instalado na tela de início: toque em Compartilhar, Adicionar à Tela de Início, abra por lá e ative de novo.', ativar: false, desativar: false, teste: false };
-      case 'sem-suporte': return { texto: 'Este navegador não aceita avisos. Use o Chrome, o Edge ou o Firefox no computador ou no Android, ou instale o DG Claw na tela de início do iPhone.', ativar: false, desativar: false, teste: false };
+      case 'iphone-precisa-instalar': return { texto: 'No iPhone, os avisos só funcionam com o ' + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + ' instalado na tela de início: toque em Compartilhar, Adicionar à Tela de Início, abra por lá e ative de novo.', ativar: false, desativar: false, teste: false };
+      case 'sem-suporte': return { texto: 'Este navegador não aceita avisos. Use o Chrome, o Edge ou o Firefox no computador ou no Android, ou instale o ' + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + ' na tela de início do iPhone.', ativar: false, desativar: false, teste: false };
       default: return { texto: 'Não consegui conferir o estado dos avisos.', ativar: true, desativar: false, teste: false };
     }
   }
@@ -83,14 +83,14 @@
   const PASSOS = {
     avisos: {
       alvo: '#secAvisos', titulo: 'Avisos neste aparelho',
-      oque: 'O botão que liga os avisos do DG Claw neste celular ou computador, e o botão que manda um aviso de teste.',
+      oque: 'O botão que liga os avisos do ' + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + ' neste celular ou computador, e o botão que manda um aviso de teste.',
       como: 'O navegador guarda uma inscrição deste aparelho no servidor. Quando um lembrete toca, o servidor manda o aviso para todos os aparelhos inscritos, com os botões Feito e Adiar, mesmo com a tela fechada. Os dois interruptores abaixo controlam os avisos dos agentes: "precisar de mim" (pedem permissão, fazem uma pergunta ou perdem o login) e "terminar" (acabaram de responder). Eles não mandam aviso de uma conversa que você está olhando.',
       porque: 'Sem isso o lembrete só aparece na faixa dentro da conversa e no recado do agente. O teste confirma agora que o aviso chega.',
     },
     novo: {
       alvo: '#secNovo', titulo: 'Novo lembrete',
       oque: 'O formulário para agendar um lembrete: o que lembrar, de qual agente, quando e com que insistência.',
-      como: 'Daqui a N minutos é o jeito mais seguro: o DG Claw faz a conta da hora no fuso do servidor. As outras opções repetem o lembrete (todo dia, em certos dias da semana, a cada N dias). O aviso se repete a cada intervalo até você tocar Feito ou até o máximo de avisos.',
+      como: 'Daqui a N minutos é o jeito mais seguro: o ' + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + ' faz a conta da hora no fuso do servidor. As outras opções repetem o lembrete (todo dia, em certos dias da semana, a cada N dias). O aviso se repete a cada intervalo até você tocar Feito ou até o máximo de avisos.',
       porque: 'Para você agendar na própria tela. O agente também cria lembretes por conta própria quando você pede na conversa.',
     },
     lista: {
@@ -208,7 +208,7 @@
       `<td data-r="Próxima">${esc(fmt(l.proxima))}</td>` +
       `<td data-r="Estado"><span class="lp-chip ${esc(l.estado)}">${esc(ROTULO_ESTADO[l.estado] || l.estado)}</span></td>` +
       `<td class="acoes">${acoes}</td></tr>` +
-      (aberto ? `<tr class="lp-hist" data-hist-de="${esc(l.id)}"><td colspan="5"><p class="lp-fraco">Carregando o histórico…</p></td></tr>` : '');
+      (aberto ? `<tr class="lp-hist" data-hist-de="${esc(l.id)}"><td colspan="5"><p class="lp-fraco">${dsCarregando({ rotulo: 'Carregando o histórico', tamanho: 'p' })} Carregando o histórico…</p></td></tr>` : '');
   }
 
   function pintaLista(itens) {
@@ -331,7 +331,7 @@
     if (!window.DGTour) { msg('msgGeral', 'A visita guiada não carregou. Recarregue a página.', 'erro'); return; }
     window.DGTour.inicia({
       passos: [
-        { alvo: '#cabecalho', titulo: 'Lembretes', oque: 'A tela de todos os lembretes que insistem até você confirmar.', como: 'O DG Claw confere a cada 15 segundos. Na hora marcada, avisa na faixa da conversa, no aparelho e pelo agente, e repete até você tocar Feito ou Adiar.', porque: 'Para nada que você pediu para lembrar ficar esquecido.' },
+        { alvo: '#cabecalho', titulo: 'Lembretes', oque: 'A tela de todos os lembretes que insistem até você confirmar.', como: 'O ' + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + ' confere a cada 15 segundos. Na hora marcada, avisa na faixa da conversa, no aparelho e pelo agente, e repete até você tocar Feito ou Adiar.', porque: 'Para nada que você pediu para lembrar ficar esquecido.' },
         PASSOS.avisos, PASSOS.novo, PASSOS.lista,
       ],
     });

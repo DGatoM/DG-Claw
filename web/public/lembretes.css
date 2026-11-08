@@ -1,4 +1,4 @@
-/* lembretes.css: a faixa ⏰ da conversa (classes lf-) e a tela /lembretes (body.lp, classes lp-).
+/* lembretes.css: a faixa de lembretes da conversa (classes lf-) e a tela /lembretes (body.lp, classes lp-).
    Celular primeiro: nada rola para o lado e os alvos de toque têm pelo menos 34 px. */
 
 /* ── Faixa na conversa ─────────────────────────────────────────────────── */
@@ -16,14 +16,14 @@
 .lf-acoes{display:flex;gap:6px;flex:0 0 auto}
 .lf button{font:inherit;font-size:13.5px;font-weight:600;min-height:36px;padding:0 14px;border-radius:18px;border:1px solid #e0c870;background:#fff;color:#5a4400;cursor:pointer}
 .lf button:disabled{opacity:.5;cursor:default}
-.lf-feito{background:#2f9e5e!important;border-color:#2f9e5e!important;color:#fff!important}
+.lf-feito{background:var(--botao-fundo)!important;border-color:var(--botao-fundo)!important;color:var(--botao-texto)!important}
 .lf-menu{flex:1 1 100%;display:flex;gap:6px;flex-wrap:wrap}
 .lf-menu[hidden]{display:none}
 .lf-erro{margin:4px 0 2px;color:#a01818;font-size:13px;overflow-wrap:anywhere}
 .lf-erro[hidden]{display:none}
 
 /* ── Tela /lembretes ───────────────────────────────────────────────────── */
-body.lp{--lp-txt:#0f1c14;--lp-fraco:#5f7566;--lp-linha:#dfe7e1;--lp-acento:#2f9e5e;--lp-fundo:#f3f6f3;
+body.lp{--lp-txt:#0f1c14;--lp-fraco:#5f7566;--lp-linha:#dfe7e1;--lp-acento:var(--cor-acento);--lp-fundo:#f3f6f3;
   margin:0;background:var(--lp-fundo);color:var(--lp-txt);overflow:auto;height:auto;
   font:15.5px/1.46 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
   -webkit-text-size-adjust:100%}
@@ -38,7 +38,7 @@ body.lp *{box-sizing:border-box}
 .lp-sec h2 span{flex:1;min-width:0}
 .lp-ajuda{width:34px;height:34px;border-radius:50%;border:1px solid var(--lp-linha);background:#f2f6f2;color:#38523f;font-weight:700;cursor:pointer;flex:0 0 auto}
 .lp-btn{font:inherit;font-size:14px;font-weight:600;min-height:36px;padding:0 14px;border-radius:18px;border:1px solid var(--lp-linha);background:#f2f6f2;color:#38523f;cursor:pointer}
-.lp-btn.pri{background:var(--lp-acento);border-color:var(--lp-acento);color:#fff}
+.lp-btn.pri{background:var(--botao-fundo);border-color:var(--botao-fundo);color:var(--botao-texto)}
 .lp-btn.perigo{color:#a01818;border-color:#e6b8b8;background:#fff}
 .lp-btn:disabled{opacity:.5;cursor:default}
 .lp-linha{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
@@ -95,10 +95,10 @@ body.lp #tourCaixa:focus{outline:none}
 body.lp #tourCaixa h4{margin:0 0 2px;font-size:15.5px}
 body.lp #tourCaixa .tour-n{font-size:11.5px;color:var(--lp-fraco);margin-bottom:6px}
 body.lp #tourCaixa p{margin:0 0 6px}
-body.lp #tourCaixa p b{color:#1f7a45}
+body.lp #tourCaixa p b{color:var(--cor-link)}
 body.lp #tourCaixa .tour-acoes{display:flex;gap:8px;justify-content:flex-end;margin-top:10px;flex-wrap:wrap;position:sticky;bottom:0;background:#fff;padding:8px 0 0}
 body.lp #tourCaixa button{min-height:36px;padding:0 14px;border-radius:18px;border:1px solid var(--lp-linha);background:#fff;font-size:13.5px;font-weight:600;cursor:pointer;font-family:inherit;color:#38523f}
-body.lp #tourCaixa button.pri{background:var(--lp-acento);border-color:var(--lp-acento);color:#fff}
+body.lp #tourCaixa button.pri{background:var(--botao-fundo);border-color:var(--botao-fundo);color:var(--botao-texto)}
 body.lp #tourCaixa button:disabled{opacity:.4;cursor:default}
 body.lp #tourCaixa .tour-x{margin-right:auto}
 

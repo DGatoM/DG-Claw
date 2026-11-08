@@ -18,7 +18,7 @@
 :root{
   /* primitivos */
   --p-cinza-50:#F3F5F8; --p-branco:#FFFFFF; --p-grafite:#1B2430; --p-cinza-500:#66707F; --p-cinza-200:#DFE4EA;
-  --p-azul:#00B4FF; --p-azul-escuro:#007FB8; --p-vermelho:#C62828; --p-verde:#1B7F4B; --p-ambar:#9A5B05;
+  --p-azul:#00B4FF; --p-azul-escuro:#0074A8; --p-vermelho:#C62828; --p-verde:#1B7F4B; --p-ambar:#9A5B05;
   --p-no-logo:#9AA3B0;
 
   /* cores semânticas */
@@ -35,7 +35,7 @@
   --cor-aviso:var(--p-ambar);       --cor-aviso-fundo:#FFF4DD;    --cor-aviso-borda:#F0D79A;
   --cor-info-fundo:#E5F6FE;         --cor-info-borda:#A9DEF7;
   --cor-veu:rgba(27,36,48,.45);
-  --cor-foco:var(--cor-acento);
+  --cor-foco:var(--p-azul-escuro);   /* o azul puro dá só 2,3:1 sobre o claro; o escuro dá 5:1 (mínimo 3:1 para o contorno) */
 
   /* botões, campos, cartões */
   --botao-fundo:var(--cor-acento);   --botao-texto:var(--cor-sobre-acento);   --botao-borda:transparent;
@@ -75,7 +75,7 @@
 
 html[data-tema="escuro"]{
   --cor-fundo:#0F141B; --cor-superficie:#171E27; --cor-texto:#E8ECF1; --cor-texto-2:#98A2B0; --cor-borda:#2A3441;
-  --cor-link:#5CCBFF;
+  --cor-link:#5CCBFF; --cor-foco:var(--p-azul);
   --cor-perigo:#FF7B7B; --cor-perigo-fundo:#3A1A1D; --cor-perigo-borda:#6B2B30;
   --cor-sucesso:#5ED08F; --cor-sucesso-fundo:#12301F; --cor-sucesso-borda:#245A3A;
   --cor-aviso:#F0B35A;   --cor-aviso-fundo:#33260F; --cor-aviso-borda:#5E4519;

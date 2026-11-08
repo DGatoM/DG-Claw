@@ -167,7 +167,7 @@
 
   function desenharResumo(el, dados) {
     const r = dados.resumo || {};
-    const icone = { ok: '✓', atencao: '!', 'sem-dado': '…', indisponivel: '?' }[r.estado] || '?';
+    const icone = { ok: dsIcone('check'), atencao: dsIcone('alert'), 'sem-dado': '…', indisponivel: '?' }[r.estado] || '?';
     const porId = {};
     for (const g of dados.grupos || []) for (const op of g.operacoes) porId[op.id] = op;
     const nomes = (r.atencao || []).map((id) => porId[id]).filter(Boolean)
@@ -277,7 +277,7 @@
   }
 
   /**
-   * A linha da home: "Operações do sistema: tudo funcionando ✓", com link para a aba.
+   * A linha da home: "Operações do sistema: tudo funcionando", com link para a aba.
    * Mesma fonte da aba, mesma frase: a home não tem conta própria.
    */
   async function linhaDaHome(el) {
@@ -290,7 +290,7 @@
       return null;
     }
     const s = r.corpo.resumo || {};
-    const icone = { ok: '✓', atencao: '!', 'sem-dado': '…', indisponivel: '?' }[s.estado] || '?';
+    const icone = { ok: dsIcone('check'), atencao: dsIcone('alert'), 'sem-dado': '…', indisponivel: '?' }[s.estado] || '?';
     const texto = s.estado === 'ok' ? 'tudo funcionando' : (s.frase || '').replace(/^./, (c) => c.toLowerCase());
     el.className = `home-operacoes ${esc(s.estado || '')}`;
     el.title = 'As rotinas que mantêm ele de pé, a memória e a vigilância de custos. Verde quando a última execução de cada uma deu certo.';

@@ -20,9 +20,9 @@ function makeBar(label, value, maxVal, colorClass, delta) {
     const absDelta = Math.abs(delta);
     const displayDelta = maxVal <= 1 ? Math.round(absDelta * 100) : absDelta;
     if (delta > 0) {
-      deltaHtml = `<span class="delta-badge up">▲${displayDelta}</span>`;
+      deltaHtml = `<span class="delta-badge up">${dsIcone('arrow-up')}${displayDelta}</span>`;
     } else {
-      deltaHtml = `<span class="delta-badge down">▼${displayDelta}</span>`;
+      deltaHtml = `<span class="delta-badge down">${dsIcone('arrow-down')}${displayDelta}</span>`;
     }
   }
   // Nome e numero na MESMA linha, barra embaixo: duas linhas por medida, nunca tres.
@@ -66,7 +66,7 @@ function updatedTag(isoDate, label) {
   const text = formatAge(isoDate);
   const prefix = label ? `${label}: ` : '';
   const dica = `Quando ${label ? `o arquivo ${label}` : 'este arquivo'} foi alterado pela última vez. A cor vai do verde (mexeu há pouco) ao vermelho (faz muito tempo que ninguém mexe).`;
-  return `<span class="updated-tag" style="color:${color}" title="${escapeHtml(dica)}">● ${prefix}${text}</span>`;
+  return `<span class="updated-tag" style="color:${color}" title="${escapeHtml(dica)}">${dsIcone('dot')} ${prefix}${text}</span>`;
 }
 
 function encurtar(str, len) {
@@ -533,7 +533,7 @@ function tituloDaAba(tab, botao) {
   const t = document.getElementById('titulo-aba');
   const sub = document.getElementById('subtitulo-aba');
   if (t && botao) {
-    // O rotulo do botao vem com o icone colado no texto ("▨Apps"), porque o
+    // O rotulo do botao vem com o icone colado no texto (o ícone mais "Apps"), porque o
     // <span class="ico"> entra no textContent. No titulo grande da pagina o
     // simbolo nao ajuda a ler e vira um retangulo estranho grudado na palavra.
     const semIcone = [...botao.childNodes]
@@ -975,7 +975,7 @@ function bolhaDaMensagem(m) {
     : '';
   const corpo =
     m.tipo === 'arquivo'
-      ? `<span class="bolha-arquivo">📎 ${escapeHtml(m.texto || 'arquivo')}</span>`
+      ? `<span class="bolha-arquivo">${dsIcone('paperclip')} ${escapeHtml(m.texto || 'arquivo')}</span>`
       : ricoBloco(m.texto || '');
   return `<div class="${classes.join(' ')}">${etiqueta}${corpo}<span class="bolha-pe">${escapeHtml(pe)}</span></div>`;
 }
@@ -1061,10 +1061,10 @@ async function enviarDaConversa() {
   if (!texto) return;
 
   _conversaEnviando = true;
-  if (botao) { botao.disabled = true; botao.textContent = '…'; }
+  if (botao) { botao.disabled = true; botao.innerHTML = dsCarregando({ rotulo: 'Enviando', tamanho: 'p' }); }
   const r = await API.chatEnviar(texto);
   _conversaEnviando = false;
-  if (botao) { botao.disabled = false; botao.textContent = '↑'; }
+  if (botao) { botao.disabled = false; botao.innerHTML = dsIcone('send'); }
 
   if (r && r.ok) {
     // Só limpa a caixa depois da confirmação. Se não saiu, o texto continua ali para
@@ -1161,7 +1161,7 @@ async function loadReunioes(query) {
   const detailEl = document.getElementById('reunioes-detail');
   detailEl.style.display = 'none';
   listEl.style.display = 'block';
-  listEl.innerHTML = 'Carregando...';
+  listEl.innerHTML = dsCarregando({ rotulo: 'Carregando', tamanho: 'p' }) + ' Carregando...';
 
   const search = document.getElementById('reunioes-search');
   if (search && !search._wired) {
@@ -1195,7 +1195,7 @@ async function loadReunioes(query) {
             <span class="reuniao-mode">${escapeHtml(m.mode || '?')}</span>
             <span class="reuniao-cost">${cost}</span>
           </div>
-          <div class="reuniao-participants">👥 ${parts}</div>
+          <div class="reuniao-participants">${dsIcone('users')} ${parts}</div>
           <div class="reuniao-tldr">${escapeHTML(tldr)}</div>
           <div class="reuniao-meta">
             ${escapeHtml(m.decisoes_count)} decisões · ${escapeHtml(m.action_items_count)} action items
@@ -1215,7 +1215,7 @@ async function openReuniaoDetail(id) {
   const detailEl = document.getElementById('reunioes-detail');
   listEl.style.display = 'none';
   detailEl.style.display = 'block';
-  detailEl.innerHTML = 'Carregando...';
+  detailEl.innerHTML = dsCarregando({ rotulo: 'Carregando', tamanho: 'p' }) + ' Carregando...';
 
   try {
     const res = await fetch(`${BASE}/api/reunioes/${id}`, { credentials: 'include' });
@@ -1244,19 +1244,19 @@ async function openReuniaoDetail(id) {
       if (b.kind === 'agent-chat') {
         const agent = escapeHTML(APP_CONFIG.agentName || 'Agente');
         return `<div class="tr-block tr-agent-chat">
-          <div class="tr-spk">💚 ${agent} (chat) <span class="tr-ts">${escapeHtml(b.start_ts)}</span></div>
+          <div class="tr-spk">${dsIcone('heart')} ${agent} (chat) <span class="tr-ts">${escapeHtml(b.start_ts)}</span></div>
           <div class="tr-text">${escapeHTML(b.text)}</div>
         </div>`;
       }
       if (b.kind === 'chat') {
         return `<div class="tr-block tr-chat">
-          <div class="tr-spk">💬 ${escapeHTML(b.speaker)} <span class="tr-ts">${escapeHtml(b.start_ts)}</span></div>
+          <div class="tr-spk">${dsIcone('message')} ${escapeHTML(b.speaker)} <span class="tr-ts">${escapeHtml(b.start_ts)}</span></div>
           <div class="tr-text">${escapeHTML(b.text)}</div>
         </div>`;
       }
       if (b.kind === 'tool-result' || b.kind === 'tool-call') {
         return `<div class="tr-block tr-tool">
-          <div class="tr-spk">⚙ ${escapeHtml(b.kind)} <span class="tr-ts">${escapeHtml(b.start_ts)}</span></div>
+          <div class="tr-spk">${dsIcone('settings')} ${escapeHtml(b.kind)} <span class="tr-ts">${escapeHtml(b.start_ts)}</span></div>
           <div class="tr-text">${escapeHTML(b.text)}</div>
         </div>`;
       }
@@ -1279,7 +1279,7 @@ async function openReuniaoDetail(id) {
 
     detailEl.innerHTML = `
       <div class="reuniao-detail-head">
-        <button class="back-btn" id="back-to-list">← voltar</button>
+        <button class="back-btn" id="back-to-list">${dsIcone('arrow-left')} voltar</button>
         <div>
           <div class="reuniao-title">${dtStr}</div>
           <div class="reuniao-sub">${dur} · modo: ${escapeHtml(m.mode || '?')} · ${escapeHtml((m.participants || []).join(', '))}</div>
@@ -1295,16 +1295,16 @@ async function openReuniaoDetail(id) {
 
       <div class="rt-panel active" id="rt-resumo">
         ${s.tldr ? `<div class="rt-tldr">${escapeHTML(s.tldr)}</div>` : ''}
-        ${decisoesHTML ? `<h4>📋 Decisões</h4><ul>${decisoesHTML}</ul>` : ''}
-        ${actionHTML ? `<h4>✅ Action Items</h4><ul>${actionHTML}</ul>` : ''}
-        ${proxHTML ? `<h4>🎯 Próximos Passos</h4><ul>${proxHTML}</ul>` : ''}
-        ${campHTML ? `<h4>📣 Campanhas</h4><ul>${campHTML}</ul>` : ''}
+        ${decisoesHTML ? `<h4>${dsIcone('clipboard')} Decisões</h4><ul>${decisoesHTML}</ul>` : ''}
+        ${actionHTML ? `<h4>${dsIcone('check-circle')} Action Items</h4><ul>${actionHTML}</ul>` : ''}
+        ${proxHTML ? `<h4>${dsIcone('target')} Próximos Passos</h4><ul>${proxHTML}</ul>` : ''}
+        ${campHTML ? `<h4>${dsIcone('megaphone')} Campanhas</h4><ul>${campHTML}</ul>` : ''}
       </div>
 
       <div class="rt-panel" id="rt-transcript">
         ${m.batch_text ? `
           <details open style="margin-bottom:14px">
-            <summary style="font-size:11px;color:#7ee787;cursor:pointer">📜 Transcrição oficial Scribe batch (texto contínuo, mais fiel)</summary>
+            <summary style="font-size:11px;color:#7ee787;cursor:pointer">${dsIcone('scroll')} Transcrição oficial Scribe batch (texto contínuo, mais fiel)</summary>
             <div class="rt-tldr" style="border-left-color:#7ee787;white-space:pre-wrap">${escapeHTML(m.batch_text)}</div>
           </details>` : ''}
         <div style="font-size:10px;color:var(--text-dim);margin-bottom:6px">Timeline diarizado (realtime + chat)</div>
@@ -1455,9 +1455,9 @@ function renderDestaqueSessao(s) {
 // ─── Suas rotinas (as que o dono pediu) ─────────────────────────────
 
 const RESULTADO_ROTINA = {
-  ok: { classe: 'status-ok', icone: '✓', texto: 'a última deu certo' },
-  falha: { classe: 'status-err', icone: '✕', texto: 'a última falhou' },
-  atencao: { classe: 'status-warn', icone: '!', texto: 'a última pede atenção' },
+  ok: { classe: 'status-ok', icone: dsIcone('check'), texto: 'a última deu certo' },
+  falha: { classe: 'status-err', icone: dsIcone('x'), texto: 'a última falhou' },
+  atencao: { classe: 'status-warn', icone: dsIcone('alert'), texto: 'a última pede atenção' },
 };
 
 /**
@@ -1589,9 +1589,9 @@ function renderEmotions(data) {
   // Acontecimentos recentes
   const eventsHtml = achatarEventos(recentEvents).reverse().slice(0, 12).map(e => {
     const tipo = e.type || '';
-    const icon = /positiv|success|elogio/.test(tipo) ? '<span class="status-ok">♥</span>' :
-                 /negativ|error|fail|falh/.test(tipo) ? '<span class="status-err">✕</span>' :
-                 '<span class="status-warn">★</span>';
+    const icon = /positiv|success|elogio/.test(tipo) ? `<span class="status-ok">${dsIcone('heart')}</span>` :
+                 /negativ|error|fail|falh/.test(tipo) ? `<span class="status-err">${dsIcone('x')}</span>` :
+                 `<span class="status-warn">${dsIcone('star')}</span>`;
     const vezes = e.count > 1 ? ` <span style="color:var(--fraco)">(${e.count}x)</span>` : '';
     return `<div>${icon} ${escapeHtml(EVENTO_LABELS[tipo] || tipo.replace(/_/g, ' '))}${vezes} ` +
       `<span style="color:var(--fraco)">${formatDate(e.timestamp)}</span></div>`;
@@ -1650,7 +1650,7 @@ function renderThoughts(data) {
   const metas = goals.shortTerm || [];
   let goalsHtml = metas.slice(0, 8).map((g) => {
     const feita = typeof g === 'object' && g && (g.progress || 0) >= 100;
-    const icon = feita ? '<span class="check">☑</span>' : '<span class="uncheck">☐</span>';
+    const icon = feita ? `<span class="check">${dsIcone('check-square')}</span>` : `<span class="uncheck">${dsIcone('square')}</span>`;
     return `<div class="goal-item">${icon} ${ricoLinhaCurta(textoDoItem(g), 200)}</div>`;
   }).join('');
   if (metas.length > 8) goalsHtml += `<div class="vazio-util">+ ${metas.length - 8} que não couberam aqui.</div>`;
@@ -1690,15 +1690,15 @@ async function loadPosts() {
 }
 
 function renderPostsTable(posts) {
-  const typeIcons = { foto: '📷', carrossel: '📚', reels: '🎬', video: '🎬', carousel: '📚' };
+  const typeIcons = { foto: 'camera', carrossel: 'layers', reels: 'film', video: 'film', carousel: 'layers' };
   const tbody = document.getElementById('posts-table');
   tbody.innerHTML = (posts || []).map(p => {
     const status = (p.status || '').toLowerCase();
     const ok = status.includes('publicado') || status.includes('ok') || status.includes('published');
-    const icon = ok ? '<span class="status-ok">✓</span>' : '<span class="status-err">✕</span>';
+    const icon = ok ? `<span class="status-ok">${dsIcone('check')}</span>` : `<span class="status-err">${dsIcone('x')}</span>`;
     const type = (p.type || 'foto').toLowerCase();
-    const typeIcon = typeIcons[type] || '📷';
-    const link = p.postUrl ? `<a href="${escapeHtml(p.postUrl)}" target="_blank" style="color:var(--cyan);text-decoration:none">🔗</a>` : '--';
+    const typeIcon = dsIcone(typeIcons[type] || 'camera');
+    const link = p.postUrl ? `<a href="${escapeHtml(p.postUrl)}" target="_blank" style="color:var(--cyan);text-decoration:none" aria-label="Abrir o post">${dsIcone('link')}</a>` : '--';
     return `<tr>
       <td>${icon}</td>
       <td>${escapeHtml(p.date || '')}</td>
@@ -1722,10 +1722,10 @@ async function loadFollowers() {
     const { tiers, total } = stats;
     document.getElementById('followers-stats').innerHTML = `
       <div class="stat-block"><div class="stat-val">${numeroSeguro(total)}</div><div class="stat-label">TOTAL</div></div>
-      <div class="stat-block"><div class="stat-val">${numeroSeguro(tiers.close)}</div><div class="stat-label">❤️ CLOSE</div></div>
-      <div class="stat-block"><div class="stat-val">${numeroSeguro(tiers.regular)}</div><div class="stat-label">⭐ REGULAR</div></div>
-      <div class="stat-block"><div class="stat-val">${numeroSeguro(tiers.returning)}</div><div class="stat-label">⚔️ RETURNING</div></div>
-      <div class="stat-block"><div class="stat-val">${numeroSeguro(tiers.newcomer)}</div><div class="stat-label">🛡️ NEWCOMER</div></div>
+      <div class="stat-block"><div class="stat-val">${numeroSeguro(tiers.close)}</div><div class="stat-label">${dsIcone('heart')} CLOSE</div></div>
+      <div class="stat-block"><div class="stat-val">${numeroSeguro(tiers.regular)}</div><div class="stat-label">${dsIcone('star')} REGULAR</div></div>
+      <div class="stat-block"><div class="stat-val">${numeroSeguro(tiers.returning)}</div><div class="stat-label">${dsIcone('sword')} RETURNING</div></div>
+      <div class="stat-block"><div class="stat-val">${numeroSeguro(tiers.newcomer)}</div><div class="stat-label">${dsIcone('shield')} NEWCOMER</div></div>
     `;
   }
 
@@ -1734,7 +1734,7 @@ async function loadFollowers() {
 
 function renderFollowers(data) {
   const topFollowers = data.top_followers || [];
-  const tierIcons = { close: '❤️', regular: '⭐', returning: '⚔️', newcomer: '🛡️', negative: '💀' };
+  const tierIcons = { close: 'heart', regular: 'star', returning: 'sword', newcomer: 'shield', negative: 'skull' };
   const grid = document.getElementById('followers-grid');
 
   // Also show the creator (owner) card
@@ -1743,14 +1743,14 @@ function renderFollowers(data) {
     const d = data.agent_owner;
     const creator = (APP_CONFIG.creatorName || 'Dono').toUpperCase();
     html += `<div class="follower-card" style="border-color:var(--green)">
-      <div class="fc-name">👑 ${escapeHtml(creator)} (Criador)</div>
+      <div class="fc-name">${dsIcone('crown')} ${escapeHtml(creator)} (Criador)</div>
       <div class="fc-tier">Trust: ${numeroSeguro(d.trust_level, 95) || 95}%</div>
       <div class="fc-detail">${escapeHtml(d.dynamic || '')}</div>
     </div>`;
   }
 
   html += topFollowers.map(f => {
-    const icon = tierIcons[f.tier] || '🛡️';
+    const icon = dsIcone(tierIcons[f.tier] || 'shield');
     const sentiment = (f.sentiment || '').toLowerCase();
     const sentColor = sentiment.includes('positiv') ? 'var(--green)' : sentiment.includes('negativ') ? 'var(--red)' : 'var(--yellow)';
     return `<div class="follower-card">
@@ -1783,12 +1783,12 @@ async function loadMemory() {
 
   let html = '';
   if (data.main && data.main.modified) {
-    html += item('MEMORY.md', '📜', 'MEMORY.md, a memória longa', data.main,
+    html += item('MEMORY.md', dsIcone('scroll'), 'MEMORY.md, a memória longa', data.main,
       'Os fatos que ficam: uma linha por coisa importante, com o link para o diário do dia. Clique para ler e editar.');
   }
   for (const f of data.files || []) {
     const isDate = /^\d{4}-\d{2}-\d{2}\.md$/.test(f.name);
-    const icon = isDate ? '📅' : (f.name.endsWith('.json') ? '💎' : '📖');
+    const icon = dsIcone(isDate ? 'calendar' : (f.name.endsWith('.json') ? 'gem' : 'book'));
     const nome = isDate ? `${f.name.slice(8, 10)}/${f.name.slice(5, 7)}/${f.name.slice(0, 4)}, diário` : f.name;
     const dica = isDate ? 'O diário que a reflexão da noite escreveu sobre este dia.' : 'Um assunto que ele separou num arquivo próprio.';
     html += item(`memory/${f.name}`, icon, nome, f, dica);
@@ -1955,12 +1955,12 @@ async function loadIdentity() {
   // compartilhado. Antes cada um abria embaixo do título em letra de 8px, sem
   // botão de editar, com o tutorial prometendo "edite ali mesmo".
   const files = [
-    { name: 'SOUL.md', icon: '🔥', dica: 'A alma dele: o jeito de ser e de falar.' },
-    { name: 'IDENTITY.md', icon: '👤', dica: 'O nome, o papel e o que ele faz para você.' },
-    { name: 'PERSONALITY.md', icon: '🧠', dica: 'Os traços de personalidade, em números e em palavras.' },
-    { name: 'CREATOR.md', icon: '🤝', dica: 'O que ele sabe sobre você, o dono.' },
-    { name: 'ETHICS.md', icon: '⚖️', dica: 'O código de ética. Só leitura: ele protege você e quem fala com ele.' },
-    { name: 'LAWS.md', icon: '📜', dica: 'As leis que ele nunca quebra. Só leitura, por desenho.' },
+    { name: 'SOUL.md', icon: 'flame', dica: 'A alma dele: o jeito de ser e de falar.' },
+    { name: 'IDENTITY.md', icon: 'user', dica: 'O nome, o papel e o que ele faz para você.' },
+    { name: 'PERSONALITY.md', icon: 'brain', dica: 'Os traços de personalidade, em números e em palavras.' },
+    { name: 'CREATOR.md', icon: 'users', dica: 'O que ele sabe sobre você, o dono.' },
+    { name: 'ETHICS.md', icon: 'scale', dica: 'O código de ética. Só leitura: ele protege você e quem fala com ele.' },
+    { name: 'LAWS.md', icon: 'scroll', dica: 'As leis que ele nunca quebra. Só leitura, por desenho.' },
   ];
   // Arquivo que este agente não tem não aparece: um cartão que abre em "não achei"
   // ensina a pessoa a desconfiar da tela.
@@ -1974,9 +1974,9 @@ async function loadIdentity() {
     return;
   }
   el.innerHTML = `<div class="memory-list">${existentes.map((f) => `<button type="button" class="memory-item" data-path="${f.name}" title="${escapeHtml(f.dica)}">
-      <span class="mi-icon" aria-hidden="true">${f.icon}</span>
+      <span class="mi-icon" aria-hidden="true">${dsIcone(f.icon)}</span>
       <span class="mi-name">${f.name}<small class="mi-dica">${escapeHtml(f.dica)}</small></span>
-      <span class="mi-date">abrir →</span>
+      <span class="mi-date">abrir ${dsIcone('arrow-right')}</span>
     </button>`).join('')}</div>`;
   el.querySelectorAll('[data-path]').forEach((b) => b.addEventListener('click', () => window.DGLeitor.abrir(b.dataset.path)));
 }
@@ -2408,7 +2408,7 @@ async function initPowers() {
       if (!tab.querySelector('.lock')) {
         const lock = document.createElement('span');
         lock.className = 'lock';
-        lock.textContent = '🔒';
+        lock.innerHTML = dsIcone('lock');
         tab.insertBefore(lock, tab.firstChild);
       }
       const label = POWER_LABELS[power] || power;
@@ -2506,11 +2506,11 @@ async function initPowers() {
 // ─── COSTS Panel ───────────────────────────────
 
 const CATEGORY_LABELS = {
-  'crons': '🟦 Crons',
-  'dm': '🟪 DM',
-  'webhook': '🟧 Webhook',
-  'heartbeat': '🟩 Heartbeat',
-  'outro': '⬜ Outro',
+  'crons': 'Crons',
+  'dm': 'DM',
+  'webhook': 'Webhook',
+  'heartbeat': 'Heartbeat',
+  'outro': 'Outro',
 };
 
 function fmtUSD(n) {
@@ -2629,7 +2629,7 @@ async function loadCostsExecutions() {
         <td style="font-size:12px">${escapeHtml(e.model || '?')}</td>
         <td>${escapeHtml(e.num_turns || '--')}</td>
         <td style="font-size:12px">${fmtDur(e.duration_ms)}</td>
-        <td style="color:${costColor};font-weight:bold">${fmtUSD4(cost)}${e.is_error ? ' ⚠️' : ''}</td>
+        <td style="color:${costColor};font-weight:bold">${fmtUSD4(cost)}${e.is_error ? ' '+dsIcone('alert') : ''}</td>
       </tr>
     `;
   }).join('');
@@ -2655,17 +2655,17 @@ async function openExecutionDetail(sessionId) {
       <div><strong>Modelo:</strong> ${escapeHtml(detail.model)} | <strong>Turns:</strong> ${escapeHtml(detail.num_turns)} | <strong>Duração:</strong> ${fmtDur(detail.duration_ms)}</div>
       <div><strong>Session:</strong> <code style="font-size:12px">${escapeHtml(detail.session_id || '?')}</code></div>
       <div><strong>Tag:</strong> ${escapeHtml(detail.tag || '--')}</div>
-      ${detail.is_error ? '<div style="color:var(--red)"><strong>⚠️ ERROR</strong></div>' : ''}
+      ${detail.is_error ? `<div style="color:var(--red)"><strong>${dsIcone('alert')} ERROR</strong></div>` : ''}
 
-      <div style="margin-top:12px"><strong>📥 Cache read:</strong> ${numeroSeguro(usage.cache_read_input_tokens).toLocaleString()} tokens</div>
-      <div><strong>🆕 Cache create:</strong> ${numeroSeguro(usage.cache_creation_input_tokens).toLocaleString()} tokens</div>
-      <div><strong>📤 Output:</strong> ${numeroSeguro(usage.output_tokens).toLocaleString()} tokens</div>
-      <div><strong>↪️ Input direto:</strong> ${numeroSeguro(usage.input_tokens).toLocaleString()} tokens</div>
+      <div style="margin-top:12px"><strong>${dsIcone('download')} Cache read:</strong> ${numeroSeguro(usage.cache_read_input_tokens).toLocaleString()} tokens</div>
+      <div><strong>${dsIcone('sparkle')} Cache create:</strong> ${numeroSeguro(usage.cache_creation_input_tokens).toLocaleString()} tokens</div>
+      <div><strong>${dsIcone('upload')} Output:</strong> ${numeroSeguro(usage.output_tokens).toLocaleString()} tokens</div>
+      <div><strong>${dsIcone('reply')} Input direto:</strong> ${numeroSeguro(usage.input_tokens).toLocaleString()} tokens</div>
 
       ${modelUsageHtml ? `<div style="margin-top:12px"><strong>Breakdown por modelo:</strong></div>${modelUsageHtml}` : ''}
 
       <div style="margin-top:14px">
-        <button class="tab haiku-analysis-btn" data-sid="${escapeHtml(detail.session_id)}" onclick="runHaikuAnalysis(this.dataset.sid)">🤖 ANÁLISE HAIKU</button>
+        <button class="tab haiku-analysis-btn" data-sid="${escapeHtml(detail.session_id)}" onclick="runHaikuAnalysis(this.dataset.sid)">${dsIcone('bot')} ANÁLISE HAIKU</button>
         <span style="font-size:12px;color:var(--text-dim);margin-left:8px">(~$0.005, sob demanda)</span>
       </div>
       <div id="haiku-analysis-out" style="margin-top:12px"></div>
@@ -2690,7 +2690,7 @@ async function runHaikuAnalysis(sessionId) {
   const a = result.analysis;
   out.innerHTML = `
     <div style="background:var(--bg-card);border:2px solid var(--border);padding:10px;font-size:13px;line-height:1.7">
-      <div style="font-weight:bold;margin-bottom:6px">🤖 ANÁLISE HAIKU</div>
+      <div style="font-weight:bold;margin-bottom:6px">${dsIcone('bot')} ANÁLISE HAIKU</div>
       <div><strong>Resumo:</strong> ${ricoLinha(a.summary || '--')}</div>
       <div style="margin-top:6px"><strong>Onde foi o dinheiro:</strong> ${ricoLinha(a.where_money_went || '--')}</div>
       <div style="margin-top:6px"><strong>Eficiência:</strong> ${escapeHtml(a.efficiency || '--')}/10 <span style="color:var(--text-dim)">${ricoLinha(a.efficiency_reason || '')}</span></div>

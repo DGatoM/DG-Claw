@@ -7,6 +7,27 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Visual novo: ícones próprios, azul de destaque e carregamento com a constelação do logo.** Todas as telas do Web e o painel de
+cada agente trocaram os emojis e símbolos de interface (✓, ✕, ☰, 📎, 🎯 e outros) por ícones de um conjunto próprio, de traço
+fino. O destaque deixou de ser verde e roxo e passou a ser azul, os botões e o foco usam as mesmas cores em toda parte, e os
+carregamentos mostram a constelação do logo batendo, inclusive para quem liga "Reduzir movimento" no aparelho. A conversa
+mantém o papel de parede verde e os balões de hoje.
+
+**Menu do agente em grupos.** O menu lateral tinha mais de vinte itens em fila. Agora a Conversa, a Mesa e a Pasta do agente ficam sempre à vista, e o resto está em grupos que abrem e fecham: Perfil do agente, Dia a dia, Ferramentas, Operação e Segurança. Como funciona e Socorro ficam soltos no fim, e um grupo Conexões (Navegador, Posts, Seguidores, Reuniões) só aparece quando algum deles está ligado. O grupo da página em que você está abre sozinho, o menu lembra neste aparelho o que você deixou aberto, e uma bolinha no nome do grupo fechado avisa quando há algo esperando você lá dentro. Nenhum item foi removido: Conectar conta e Anonimizar ficam em Ferramentas, e Convidar colaborador em Segurança. O painel do agente rodando sozinho, sem o
+Web na frente, também mostra os ícones.
+
+**Marca própria (white label).** Quem quiser o DG Claw com o próprio nome, logo, favicon, cores e fontes cria um `marca.json` na
+pasta `/etc/dgclaw/marca/` (o instalador a cria se faltar e nunca a esvazia). A mudança vale sem reiniciar. O passo a passo está
+em `docs/WHITE-LABEL.md` e a explicação das cores, dos ícones e do carregamento em `docs/DESIGN-SYSTEM.md`. O Admin sabe fazer a
+troca quando você pedir.
+
+### Como atualizar
+
+Nesta versão há uma instrução nova para o seu Admin, sobre como trocar a marca. Se você personalizou o `CLAUDE.md` ou o
+`AGENTS.md` do Admin, a atualização não os substitui, e a versão nova do modelo fica ao lado com final `.novo`. Peça ao Admin
+para juntar a seção "Trocar a marca" ao seu texto, sem apagar o que você escreveu. Quem não personalizou esses arquivos não
+precisa fazer nada.
+
 **O aviso "Faça o login nos seus agentes" agora aparece uma única vez.** Antes, ele voltava a cada aba nova e a cada
 visita ao painel enquanto algum agente estivesse sem login. Agora o painel guarda, no servidor, que você já viu o aviso:
 fechar com **Fazer depois** ou recarregar a página não o traz de volta, e o novo botão **Não mostrar mais** o desliga de

@@ -1,17 +1,26 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="pt-BR" data-tema="{{MARCA_TEMA}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>Segurança - DG Claw</title>
+<title>Segurança - {{MARCA_NOME}}</title>
+<meta name="marca-nome" content="{{MARCA_NOME}}">
+<meta name="marca-logo-tem-nome" content="{{MARCA_LOGO_TEM_NOME}}">
 <link rel="manifest" href="/manifest.webmanifest">
-<meta name="theme-color" content="#2f9e5e">
-<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
-<link rel="icon" href="/icons/icon-192.png">
+<meta name="theme-color" content="{{MARCA_COR_TEMA}}">
+<link rel="apple-touch-icon" href="/marca/icone-app">
+<link rel="icon" href="/marca/favicon">
+<link rel="stylesheet" href="/ds/tokens.css">
+<link rel="stylesheet" href="/ds/componentes.css">
+<link rel="stylesheet" href="/ds/carregando.css">
+<link rel="stylesheet" href="/marca.css">
 <link rel="stylesheet" href="/seguranca.css">
 <link rel="stylesheet" href="/casca.css">
 <link rel="stylesheet" href="/menu-lado.css">
 <link rel="stylesheet" href="/sem-zoom.css">
+<script src="/ds/marca.js"></script>
+<script src="/ds/icone.js"></script>
+<script src="/ds/carregando.js"></script>
 <script src="/sem-zoom.js"></script>
 </head>
 <body class="rp">
@@ -29,34 +38,34 @@
     <p class="rp-sem-novidade" id="rpSemNovidade" hidden></p>
   </section>
 
-  <section class="rp-sec" id="secBoletins" aria-label="Avisos de segurança do DG Claw">
-    <h2><span>Avisos de segurança do DG Claw</span><button type="button" class="rp-ajuda" data-rp="ajuda" data-secao="boletins" aria-label="Tutorial dos avisos de segurança do DG Claw">?</button></h2>
-    <div id="listaBoletins"><p class="rp-vazio">Carregando…</p></div>
+  <section class="rp-sec" id="secBoletins" aria-label="Avisos de segurança do {{MARCA_NOME}}">
+    <h2><span>Avisos de segurança do {{MARCA_NOME}}</span><button type="button" class="rp-ajuda" data-rp="ajuda" data-secao="boletins" aria-label="Tutorial dos avisos de segurança do {{MARCA_NOME}}">?</button></h2>
+    <div id="listaBoletins"><p class="rp-vazio"><span data-carregando="Carregando" data-tam="p"></span> Carregando…</p></div>
   </section>
 
   <section class="rp-sec" id="secAcao" aria-label="Ação necessária">
     <h2 class="rp-h-vermelho"><span>Ação necessária</span><button type="button" class="rp-ajuda" data-rp="ajuda" data-secao="acao" aria-label="Tutorial da ação necessária">?</button></h2>
-    <div id="listaAcao"><p class="rp-vazio">Carregando…</p></div>
+    <div id="listaAcao"><p class="rp-vazio"><span data-carregando="Carregando" data-tam="p"></span> Carregando…</p></div>
   </section>
 
   <section class="rp-sec" id="secSemPressa" aria-label="Para corrigir sem pressa">
     <h2><span>Para corrigir sem pressa</span><button type="button" class="rp-ajuda" data-rp="ajuda" data-secao="sempressa" aria-label="Tutorial do que corrigir sem pressa">?</button></h2>
-    <div id="listaSemPressa"><p class="rp-vazio">Carregando…</p></div>
+    <div id="listaSemPressa"><p class="rp-vazio"><span data-carregando="Carregando" data-tam="p"></span> Carregando…</p></div>
   </section>
 
   <details class="rp-sec rp-recolhe" id="secAguardando">
     <summary><span id="tituloAguardando">Aguardando correção oficial</span><button type="button" class="rp-ajuda" data-rp="ajuda" data-secao="aguardando" aria-label="Tutorial das falhas que aguardam a correção oficial">?</button></summary>
-    <div id="listaAguardando"><p class="rp-vazio">Carregando…</p></div>
+    <div id="listaAguardando"><p class="rp-vazio"><span data-carregando="Carregando" data-tam="p"></span> Carregando…</p></div>
   </details>
 
   <section class="rp-sec" id="secAplicado" aria-label="Aplicado sozinho">
     <h2><span>Aplicado sozinho</span><button type="button" class="rp-ajuda" data-rp="ajuda" data-secao="aplicado" aria-label="Tutorial do que foi aplicado sozinho">?</button></h2>
-    <div id="listaAplicado"><p class="rp-vazio">Carregando…</p></div>
+    <div id="listaAplicado"><p class="rp-vazio"><span data-carregando="Carregando" data-tam="p"></span> Carregando…</p></div>
   </section>
 
   <section class="rp-sec rp-sec-emergencia" id="secEmergencia" aria-label="Botão de emergência">
     <h2><span>Botão de emergência</span><button type="button" class="rp-ajuda" data-rp="ajuda" data-secao="emergencia" aria-label="Tutorial do botão de emergência">?</button></h2>
-    <div id="corpoEmergencia"><p class="rp-vazio">Carregando…</p></div>
+    <div id="corpoEmergencia"><p class="rp-vazio"><span data-carregando="Carregando" data-tam="p"></span> Carregando…</p></div>
     <p class="rp-msg" id="rpEmMsg" role="status" hidden></p>
   </section>
 

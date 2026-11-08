@@ -2,7 +2,7 @@
    ficam em colunas. Não usa o chat.css (aquele trava a página em 100% de altura). */
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 :root{
-  --fundo:#eef4ec;--cartao:#fff;--txt:#0f1c14;--muted:#5d7365;--accent:#2f9e5e;--line:rgba(0,0,0,.1);
+  --fundo:#eef4ec;--cartao:#fff;--txt:#0f1c14;--muted:#5d7365;--accent:var(--cor-acento);--line:rgba(0,0,0,.1);
   --header:#fff;--suave:#f2f6f2;
   --c-esperando:#aa7900;--b-esperando:#fff8db;--c-travada:#b3261e;--b-travada:#fdecea;
   --c-parada:#8a5a00;--b-parada:#fff1d6;--c-fazendo:#1f7a45;--b-fazendo:#e4f5ea;
@@ -39,7 +39,7 @@ a{color:#1f7ac2}
 .mz-btn{border:1px solid var(--line);border-radius:18px;padding:6px 14px;font:inherit;font-size:13.5px;
   font-weight:600;cursor:pointer;background:var(--suave);color:var(--txt);min-height:34px;max-width:100%}
 .mz-btn:active{opacity:.7}
-.mz-btn.pri{background:var(--accent);color:#fff;border-color:transparent}
+.mz-btn.pri{background:var(--botao-fundo);color:var(--botao-texto);border-color:transparent}
 .mz-ajuda{flex:0 0 32px;width:32px;height:32px;border-radius:50%;border:1px solid var(--line);background:var(--suave);
   color:var(--muted);font-weight:700;cursor:pointer;padding:0}
 
@@ -66,7 +66,7 @@ a{color:#1f7ac2}
 .mz-grupo{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .mz-chip{border:1px solid var(--line);background:var(--cartao);color:var(--txt);border-radius:16px;
   padding:4px 12px;min-height:32px;font:inherit;font-size:13.5px;cursor:pointer;max-width:100%}
-.mz-chip.on{background:var(--accent);color:#fff;border-color:transparent}
+.mz-chip.on{background:var(--botao-fundo);color:var(--botao-texto);border-color:transparent}
 .mz-data{min-height:32px;border:1px solid var(--line);border-radius:16px;padding:2px 10px;font:inherit;
   font-size:14px;background:var(--cartao);color:var(--txt);max-width:100%}
 .mz-data.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
@@ -165,11 +165,11 @@ a{color:#1f7ac2}
 #tourCaixa h4{margin:0 0 2px;font-size:15.5px}
 #tourCaixa .tour-n{font-size:11.5px;color:#6c8172;margin-bottom:6px}
 #tourCaixa p{margin:0 0 6px}
-#tourCaixa p b{color:#1f7a45}
+#tourCaixa p b{color:var(--cor-link)}
 #tourCaixa .tour-acoes{display:flex;gap:8px;justify-content:flex-end;margin-top:10px;flex-wrap:wrap;position:sticky;bottom:0;background:#fff;padding:8px 0 0}
 #tourCaixa button{min-height:36px;padding:0 14px;border-radius:18px;border:1px solid rgba(0,0,0,.1);
   background:#fff;font-size:13.5px;font-weight:600;cursor:pointer;font-family:inherit;color:#38523f}
-#tourCaixa button.pri{background:#2f9e5e;border-color:#2f9e5e;color:#fff}
+#tourCaixa button.pri{background:var(--botao-fundo);border-color:var(--botao-fundo);color:var(--botao-texto)}
 #tourCaixa button:disabled{opacity:.4;cursor:default}
 #tourCaixa .tour-x{margin-right:auto}
 

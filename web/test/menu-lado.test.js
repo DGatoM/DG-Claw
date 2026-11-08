@@ -113,3 +113,97 @@ test('totalNaoLidas soma só os outros agentes e ignora null', () => {
   assert.equal(M.totalNaoLidas(lista, {}, 'admin'), 0);
   assert.equal(M.totalNaoLidas(lista, { bia: { nao_lidas: null } }, 'admin'), 0);
 });
+
+// ── Menu em grupos (acordeões) ──────────────────────────────────────────────
+const AG = { id: 'ana', nome: 'Ana', tipo: 'agente', tem_painel: true, painel_url: '/p/ana/' };
+
+test('grupos do menu: cada item tem um lugar e nenhum aparece em dois', () => {
+  const todos = M.GRUPOS_MENU.flatMap(g => g.chaves);
+  assert.equal(new Set(todos).size, todos.length, 'chave repetida entre grupos');
+  assert.deepEqual(M.GRUPOS_MENU.map(g => g.nome), ['Perfil do agente', 'Dia a dia', 'Ferramentas', 'Operação', 'Segurança']);
+  const por = Object.fromEntries(M.GRUPOS_MENU.map(g => [g.id, g.chaves]));
+  assert.deepEqual(por.perfil, ['identity', 'personality', 'memory']);
+  assert.deepEqual(por.dia, ['rotinas', 'lembretes', 'sessoes']);
+  assert.deepEqual(por.ferramentas.slice(0, 2), ['skills', 'apps']);
+  assert.deepEqual(por.operacao, ['status', 'operations', 'costs']);
+  assert.deepEqual(por.seguranca.slice(0, 3), ['seguranca', 'cofre', 'avisos']);
+});
+
+test('organizaMenu (dono, agente com painel): fixos, cinco grupos, rodapé solto e Navegador em Conexões', () => {
+  const org = M.organizaMenu(M.montaItens(AG, false));
+  assert.deepEqual(org.fixos.map(i => i.chave), ['arquivos']);
+  assert.deepEqual(org.grupos.map(g => g.id), ['perfil', 'dia', 'ferramentas', 'operacao', 'seguranca']);
+  assert.deepEqual(org.rodape.map(i => i.chave), ['como', 'socorro']);
+  assert.deepEqual(org.conexoes.map(i => i.chave), ['tela']);
+  // nenhum item que existia antes sumiu
+  const chaves = new Set(M.montaItens(AG, false).map(i => i.chave));
+  for (const c of ['status', 'skills', 'rotinas', 'cofre', 'arquivos', 'memory', 'operations', 'costs', 'como', 'identity', 'personality', 'apps', 'socorro',
+    'lembretes', 'avisos', 'seguranca', 'conectar', 'anonimizar', 'colaboradores', 'sessoes', 'tela']) assert.ok(chaves.has(c), c);
+  const agrupados = [...org.fixos, ...org.grupos.flatMap(g => g.itens), ...org.rodape, ...org.conexoes];
+  assert.equal(agrupados.length, chaves.size, 'todo item cai em exatamente um lugar');
+});
+
+test('organizaMenu: o Admin (sem painel) só tem os grupos com algo dentro; colaborador não vê cofre, Mesa nem o que é do dono', () => {
+  const admin = M.organizaMenu(M.montaItens({ id: 'admin', tipo: 'admin', tem_painel: false }, false));
+  assert.deepEqual(admin.grupos.map(g => g.id), ['dia', 'ferramentas', 'seguranca']);
+  assert.deepEqual(admin.grupos.find(g => g.id === 'seguranca').itens.map(i => i.chave), ['seguranca', 'avisos'], 'o Admin não convida colaborador');
+  assert.deepEqual(admin.conexoes, []);
+  const colab = M.organizaMenu(M.montaItens(AG, true));
+  const chaves = [...colab.fixos, ...colab.grupos.flatMap(g => g.itens), ...colab.rodape, ...colab.conexoes].map(i => i.chave);
+  for (const nao of ['cofre', 'lembretes', 'avisos', 'seguranca', 'anonimizar', 'colaboradores', 'tela']) assert.ok(!chaves.includes(nao), nao);
+  assert.ok(chaves.includes('sessoes') && chaves.includes('conectar'));
+  assert.ok(!colab.grupos.some(g => g.id === 'seguranca'), 'grupo sem item não aparece');
+});
+
+test('menuHtml: cada grupo é um botão com aria-expanded e aria-controls, o conteúdo tem o mesmo id, e o data-tour dos itens fica', () => {
+  const org = M.organizaMenu(M.montaItens(AG, false));
+  const html = M.menuHtml(org, { dia: true });
+  assert.match(html, /<button type="button" class="ml-grupo-cab" id="mlG-dia-b" aria-expanded="true" aria-controls="mlG-dia">/);
+  assert.match(html, /<button type="button" class="ml-grupo-cab" id="mlG-perfil-b" aria-expanded="false" aria-controls="mlG-perfil">/);
+  assert.match(html, /<div class="ml-grupo-itens" id="mlG-dia" role="group" aria-labelledby="mlG-dia-b">/);
+  assert.match(html, /<div class="ml-grupo aberto" data-grupo="dia"/);
+  assert.doesNotMatch(html, /<div class="ml-grupo aberto" data-grupo="perfil"/);
+  for (const t of ['gm-lembretes', 'gm-avisos', 'gm-seguranca', 'gm-conectar', 'gm-anonimizar', 'gm-colaborador', 'gm-sessoes', 'gm-tela']) assert.ok(html.includes(`data-tour="${t}"`), t);
+  assert.match(html, /data-selos/, 'o cabeçalho tem lugar para o selo de atenção');
+  // sem item em Conexões o grupo nasce escondido; com Navegador aparece
+  assert.match(M.menuHtml(M.organizaMenu([]), {}), /data-grupo="conexoes"[^>]*hidden/);
+  assert.doesNotMatch(html, /data-grupo="conexoes"[^>]*hidden/);
+  // Como funciona e Socorro ficam soltos no fim, fora dos grupos
+  assert.match(html, /<div class="ml-solto">[\s\S]*Como funciona[\s\S]*Socorro[\s\S]*<\/div>$/);
+});
+
+test('menuHtml: nome de item vindo de fora sai escapado', () => {
+  const html = M.menuHtml(M.organizaMenu([{ chave: 'extra-x', nome: '<img src=x onerror=1>', ico: 'i-dot', href: '/p/a/#aba=x"><script>' }]), {});
+  assert.doesNotMatch(html, /<img src=x|<script/);
+});
+
+test('grupoDaChave: a página aberta abre o grupo dela', () => {
+  assert.equal(M.grupoDaChave('lembretes'), 'dia');
+  assert.equal(M.grupoDaChave('avisos'), 'seguranca');
+  assert.equal(M.grupoDaChave('costs'), 'operacao');
+  assert.equal(M.grupoDaChave('posts'), 'conexoes');
+  for (const solto of ['', 'conversa', 'mesa', 'arquivos', 'como', 'socorro']) assert.equal(M.grupoDaChave(solto), '', solto);
+});
+
+test('menu-lado.css: acordeão com animação curta, sem animação em Reduzir Movimento, e alvo de 44px no toque', () => {
+  const css = pub('menu-lado.css');
+  assert.match(css, /\.ml-grupo-itens\{[^}]*grid-template-rows:0fr;visibility:hidden/);
+  assert.match(css, /prefers-reduced-motion:reduce\)\{\.ml-grupo-seta,\.ml-grupo-itens[^}]*transition:none/);
+  assert.match(css, /pointer:coarse\)\{\.ml-tab,\.ml-grupo-cab[^}]*min-height:44px/);
+  assert.match(css, /\.ml-grupo\.aberto \.ml-grupo-selos\{display:none\}/);
+});
+
+test('menu-lado.js: o estado dos grupos vai para o localStorage sem quebrar quando ele falha, e a visita guiada abre o grupo', () => {
+  const js = pub('menu-lado.js');
+  assert.match(js, /localStorage\.setItem\(CHAVE_ABERTOS/);
+  assert.match(js, /não consegui guardar o grupo/);
+  assert.match(js, /não consegui ler quais grupos do menu estavam abertos/);
+  const p = M.passosMenu({ nome: 'Ana', comTroca: false, naConversa: true });
+  const passo = p.find(x => x.alvo === '[data-tour="gm-lembretes"]');
+  assert.ok(passo && typeof passo.antes === 'function', 'o passo de um item dentro de grupo abre o grupo antes');
+  for (const x of p) assert.doesNotMatch(JSON.stringify(x), /[—–]/);
+  let abriu = null, menuAberto = false;
+  M.passosMenu({ nome: 'Ana', comTroca: false, abre: () => { menuAberto = true; }, abreGrupo: id => { abriu = id; } }).find(x => x.alvo === '[data-tour="gm-lembretes"]').antes();
+  assert.equal(abriu, 'dia');
+  assert.ok(menuAberto, 'abre o menu (gaveta do celular) e depois o grupo');
+});

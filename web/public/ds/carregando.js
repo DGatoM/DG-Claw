@@ -16,4 +16,13 @@
     s += '<circle class="ds-car-centro" r="57"/></g></svg><span class="ds-carregando-logo" aria-hidden="true"></span></span>';
     return s;
   };
+  // HTML estático: <span data-carregando="Carregando as tarefas" data-tam="p"></span> vira o indicador assim que o DOM existe.
+  // Se a tela já trocou o conteúdo antes disso, o marcador não existe mais e nada é desenhado por cima.
+  function hidratar() {
+    document.querySelectorAll('[data-carregando]').forEach((el) => {
+      el.outerHTML = window.dsCarregando({ rotulo: el.getAttribute('data-carregando') || 'Carregando', tamanho: el.getAttribute('data-tam') || 'p' });
+    });
+  }
+  if (typeof document === 'undefined') return;
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', hidratar); else hidratar();
 })();

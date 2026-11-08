@@ -24,7 +24,7 @@
     sessao: 'Sua sessão acabou. Entre de novo para continuar.',
     expirada: 'Sua sessão acabou. Entre de novo para continuar.',
     campos: 'Preencha o usuário e a senha.',
-    vencida: 'A senha temporária venceu. Peça ao dono do DG Claw um convite novo.',
+    vencida: 'A senha temporária venceu. Peça ao dono do ' + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + ' um convite novo.',
     origem: 'Não deu para confirmar de onde veio o pedido. Recarregue a página e tente de novo.',
   };
   if (q.has('erro')) {
