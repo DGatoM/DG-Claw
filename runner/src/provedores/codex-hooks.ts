@@ -177,6 +177,11 @@ export function gravarPromptHooksDaSessao(opts: { pastaDeEstado: string; sessaoI
   const dir = pastaDosPromptHooks(pastaDeEstado);
   const arquivo = path.join(dir, `${sessaoId}.json`);
   try {
+    if (comandos.length === 0) {
+      // Lista vazia: o arquivo some, em vez de ficar com a lista velha.
+      fs.rmSync(arquivo, { force: true });
+      return true;
+    }
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     const texto = JSON.stringify({ versao: 1, comandos }) + "\n";
     let atual = "";
@@ -188,7 +193,19 @@ export function gravarPromptHooksDaSessao(opts: { pastaDeEstado: string; sessaoI
     if (atual !== texto) gravarAtomico(arquivo, texto, 0o600);
     return true;
   } catch (err) {
-    log.aviso(area, `não consegui gravar os promptHooks da sessão em ${arquivo} (${err instanceof Error ? err.message : String(err)}): eles não rodam no Codex. Conferir a permissão de escrita em ${dir}`);
+    // Não deu para deixar o arquivo igual à lista atual: tira o velho, se der, para não sobrar comando
+    // revogado, e avisa quem chamou para NÃO pôr DGCLAW_SESSAO_ID no Codex deste spawn.
+    let sobrou = false;
+    try {
+      fs.rmSync(arquivo, { force: true });
+    } catch {
+      sobrou = true;
+    }
+    log.aviso(
+      area,
+      `não consegui gravar os promptHooks da sessão em ${arquivo} (${err instanceof Error ? err.message : String(err)}): nesta subida eles NÃO rodam no Codex ` +
+        `(o runner não passa o id da sessão ao hook)${sobrou ? `, e não consegui apagar a versão antiga do arquivo` : ""}. Conferir a permissão de escrita em ${dir} e reiniciar o agente`,
+    );
     return false;
   }
 }
@@ -588,6 +605,8 @@ export function garantirConfiancaNoToml(texto: string, itens: Array<{ chave: str
 
 export interface ResultadoDosHooks {
   instalados: number;
+  /** Os promptHooks da sessão ficaram gravados e podem rodar. false = o runner NÃO deve pôr DGCLAW_SESSAO_ID no ambiente do Codex. */
+  promptHooksOk?: boolean;
   /** Por que não instalou, quando não instalou por algo que merece aviso. */
   motivo?: string;
 }
@@ -621,9 +640,14 @@ export interface OpcoesDeInstalacao {
  */
 export function instalarHooksNoCodex(opts: OpcoesDeInstalacao): ResultadoDosHooks {
   // Os promptHooks da sessão vão para o arquivo dela, independentemente da trava (é um arquivo por sessão).
+  let promptHooksOk = true;
   if (opts.sessaoId && opts.pastaDeEstado) {
-    gravarPromptHooksDaSessao({ pastaDeEstado: opts.pastaDeEstado, sessaoId: opts.sessaoId, promptHooks: opts.promptHooks, area: opts.area });
+    promptHooksOk = gravarPromptHooksDaSessao({ pastaDeEstado: opts.pastaDeEstado, sessaoId: opts.sessaoId, promptHooks: opts.promptHooks, area: opts.area });
   }
+  return { ...instalarComTrava(opts), promptHooksOk };
+}
+
+function instalarComTrava(opts: OpcoesDeInstalacao): ResultadoDosHooks {
   const trava = path.join(opts.home, ".dgclaw-hooks.lock");
   const espera = opts.esperaDaTravaMs ?? 8000;
   try {

@@ -552,6 +552,120 @@ test("despachante: de um cwd hostil (json.py ao lado) não carrega nada do cwd",
   assert.ok(cmd.includes(citarParaShell(dir)));
 });
 
+test("despachante: dois comandos que leem o stdin até o fim e dormem 6 s terminam juntos, em menos de 10 s, com as duas saídas", { skip: pularDespachante }, () => {
+  const c = cenario("desp-paralelo");
+  const um = (n: string) => `cat >/dev/null; sleep 6; echo ${n}`;
+  gravarPromptHooksDaSessao({ pastaDeEstado: c.estado, sessaoId: "principal", promptHooks: [um("UM"), um("DOIS")], area: "t" });
+  const t0 = Date.now();
+  const r = rodaDespachante(c, { DGCLAW_SESSAO_ID: "principal", DGCLAW_PROMPT_HOOKS_DIR: path.join(c.estado, "prompt-hooks") }, c.raiz, "x".repeat(200_000));
+  const dt = Date.now() - t0;
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(dt < 9500, `levou ${dt} ms (os dois comandos têm de rodar juntos)`);
+  assert.equal(JSON.parse(r.stdout).hookSpecificOutput.additionalContext, "UM\n\nDOIS");
+});
+
+test("despachante: neto que segura o pipe e comando que estoura o prazo não prendem o despachante; o que chegou a tempo sai", { skip: pularDespachante }, () => {
+  const c = cenario("desp-neto");
+  gravarPromptHooksDaSessao({
+    pastaDeEstado: c.estado,
+    sessaoId: "principal",
+    promptHooks: [`echo '{"hookSpecificOutput":{"additionalContext":"A-TEMPO"}}'; sleep 30 &`, "sleep 30; echo NUNCA", "echo B-TEMPO"],
+    area: "t",
+  });
+  const t0 = Date.now();
+  const r = rodaDespachante(c, { DGCLAW_SESSAO_ID: "principal", DGCLAW_PROMPT_HOOKS_DIR: path.join(c.estado, "prompt-hooks"), DGCLAW_PROMPT_HOOKS_PRAZO_S: "2" }, c.raiz);
+  const dt = Date.now() - t0;
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(dt < 5000, `levou ${dt} ms`);
+  const ctx = JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
+  assert.equal(ctx, "A-TEMPO\n\nB-TEMPO");
+  assert.match(r.stderr, /passou do prazo/);
+  // o prazo não se alonga por variável
+  const lento = rodaDespachante(c, { DGCLAW_SESSAO_ID: "principal", DGCLAW_PROMPT_HOOKS_DIR: path.join(c.estado, "prompt-hooks"), DGCLAW_PROMPT_HOOKS_PRAZO_S: "999" }, c.raiz);
+  assert.equal(lento.status, 0);
+});
+
+test("falha ao gravar o arquivo de promptHooks: o runner não passa DGCLAW_SESSAO_ID, o comando revogado não roda e o retorno e o log dizem a verdade", async () => {
+  const c = cenario("ph-falha");
+  const marcador = path.join(c.raiz, "REVOGADO-RODOU");
+  // 1) antes: o promptHook existia
+  const r1 = instala(c, [`touch ${marcador}`]);
+  assert.equal(r1.promptHooksOk, true);
+  const arqEstado = path.join(c.estado, "prompt-hooks", "principal.json");
+  assert.ok(fs.existsSync(arqEstado));
+  // 2) depois: ele foi revogado, mas a gravação falha
+  const original = fs.writeFileSync;
+  const original2 = fs.renameSync;
+  const original3 = fs.rmSync;
+  const falha = (n: unknown) => String(n).includes("prompt-hooks");
+  (fs as { writeFileSync: unknown }).writeFileSync = ((f: unknown, ...a: unknown[]) => {
+    if (falha(f)) throw Object.assign(new Error("EACCES: sem permissão (simulado)"), { code: "EACCES" });
+    return (original as (...x: unknown[]) => unknown)(f, ...a);
+  }) as never;
+  (fs as { renameSync: unknown }).renameSync = ((a: unknown, b: unknown) => {
+    if (falha(b)) throw Object.assign(new Error("EACCES (simulado)"), { code: "EACCES" });
+    return (original2 as (...x: unknown[]) => unknown)(a, b);
+  }) as never;
+  // nem a remoção do arquivo velho funciona: o pior caso
+  (fs as { rmSync: unknown }).rmSync = ((f: unknown, ...a: unknown[]) => {
+    if (falha(f) && String(f).endsWith("principal.json")) throw Object.assign(new Error("EACCES (simulado)"), { code: "EACCES" });
+    return (original3 as (...x: unknown[]) => unknown)(f, ...a);
+  }) as never;
+  let r2;
+  try {
+    r2 = instala(c, ["echo novo"]);
+  } finally {
+    (fs as { writeFileSync: unknown }).writeFileSync = original;
+    (fs as { renameSync: unknown }).renameSync = original2;
+    (fs as { rmSync: unknown }).rmSync = original3;
+  }
+  assert.equal(r2.promptHooksOk, false, "o retorno não diz que os promptHooks foram instalados");
+  assert.match(lerTexto(arqEstado), /REVOGADO-RODOU|touch/, "o arquivo velho ficou (a falha foi total)");
+  // o motor Codex, ao ver promptHooksOk=false, não põe a variável
+  const ctx = ctxDeTeste({
+    escolha: { provedor: "codex", auth: "assinatura", modelo: "" },
+    cwd: c.ws,
+    pastaDeHooks: pastaTemporaria("ph"),
+    pastaDeEstado: c.estado,
+    env: { CODEX_HOME: c.home, HOME: c.raiz, PATH: c.bin, DGCLAW_WORKSPACE: c.ws, DGCLAW_SESSAO_ID: "herdado-do-ambiente" },
+    config: { name: "x", cwd: c.ws, initialPrompt: "", provider: "codex-cli", permissionMode: "bypassPermissions", promptHooks: ["echo novo"] },
+  } as never);
+  ctx.id = "principal";
+  (fs as { writeFileSync: unknown }).writeFileSync = ((f: unknown, ...a: unknown[]) => {
+    if (falha(f)) throw Object.assign(new Error("EACCES (simulado)"), { code: "EACCES" });
+    return (original as (...x: unknown[]) => unknown)(f, ...a);
+  }) as never;
+  (fs as { renameSync: unknown }).renameSync = ((a: unknown, b: unknown) => {
+    if (falha(b)) throw Object.assign(new Error("EACCES (simulado)"), { code: "EACCES" });
+    return (original2 as (...x: unknown[]) => unknown)(a, b);
+  }) as never;
+  try {
+    await motorCodex.preparar(ctx);
+  } finally {
+    (fs as { writeFileSync: unknown }).writeFileSync = original;
+    (fs as { renameSync: unknown }).renameSync = original2;
+  }
+  assert.equal(ctx.env.DGCLAW_SESSAO_ID, undefined, "sem o arquivo gravado, o runner não passa o id da sessão");
+  // com o arquivo velho ainda lá e sem a variável, o despachante real não roda nada
+  if (!pularDespachante) {
+    fs.writeFileSync(arqEstado, JSON.stringify({ versao: 1, comandos: [`touch ${marcador}`] }));
+    const r = rodaDespachante(c, { DGCLAW_SESSAO_ID: "", DGCLAW_PROMPT_HOOKS_DIR: path.join(c.estado, "prompt-hooks") }, c.raiz);
+    assert.equal(r.status, 0);
+    assert.equal(fs.existsSync(marcador), false, "o comando revogado rodou");
+  }
+});
+
+test("lista de promptHooks vazia apaga o arquivo da sessão (não deixa a lista velha)", () => {
+  const c = cenario("ph-vazio");
+  instala(c, ["echo a"]);
+  const arq = path.join(c.estado, "prompt-hooks", "principal.json");
+  assert.ok(fs.existsSync(arq));
+  const r = instala(c, []);
+  assert.equal(r.promptHooksOk, true);
+  assert.equal(fs.existsSync(arq), false);
+  assert.equal(instala(c, []).promptHooksOk, true, "apagar o que não existe também é sucesso");
+});
+
 // ---------------------------------------------------------------------------------------------
 // Trava: concorrência de verdade entre processos e trava ocupada.
 

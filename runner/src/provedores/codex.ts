@@ -264,9 +264,7 @@ export const motorCodex: Motor = {
   async preparar(ctx) {
     const home = codexHomeDe({ auth: ctx.escolha.auth, env: ctx.env, cwd: ctx.cwd, id: ctx.id });
     ctx.env.CODEX_HOME = home;
-    // Quem é esta sessão, para os hooks do agente (um hooks.json só, no CODEX_HOME dele) saberem
-    // qual arquivo de promptHooks o hook fixo do agente lê. O processo do hook herda o ambiente do Codex.
-    ctx.env.DGCLAW_SESSAO_ID = ctx.id;
+    delete ctx.env.DGCLAW_SESSAO_ID;
     ctx.extrasDoMotor = [];
 
     if (ctx.escolha.auth === "api") {
@@ -283,7 +281,7 @@ export const motorCodex: Motor = {
     garantirConfiancaDaPasta(home, ctx.cwd, ctx.a("spawn"));
     apagarSnapshotsAntigos(home, ctx.a("spawn"));
     // Hooks nativos do Codex (recall, avisos, contexto de início, promptHooks), com confiança só neles.
-    instalarHooksNoCodex({
+    const hooks = instalarHooksNoCodex({
       home,
       env: ctx.env,
       cwd: ctx.cwd,
@@ -292,6 +290,11 @@ export const motorCodex: Motor = {
       sessaoId: ctx.id,
       pastaDeEstado: ctx.pastaDeEstado,
     });
+    // Quem é esta sessão, para o hook fixo do agente (um hooks.json só, no CODEX_HOME dele) achar o
+    // arquivo de promptHooks dela; o processo do hook herda o ambiente do Codex. Se o arquivo não pôde
+    // ser gravado, a variável NÃO vai: sem ela o despachante sai calado e nenhum promptHook (nem um
+    // velho, já revogado) roda nesta sessão. O motivo já foi para o log.
+    if (hooks.promptHooksOk !== false) ctx.env.DGCLAW_SESSAO_ID = ctx.id;
 
     const mcp = ctx.config.mcpConfig?.trim();
     if (mcp) {
