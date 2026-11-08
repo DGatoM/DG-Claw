@@ -7,6 +7,13 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**O aviso "Faça o login nos seus agentes" agora aparece uma única vez.** Antes, ele voltava a cada aba nova e a cada
+visita ao painel enquanto algum agente estivesse sem login. Agora o painel guarda, no servidor, que você já viu o aviso:
+fechar com **Fazer depois** ou recarregar a página não o traz de volta, e o novo botão **Não mostrar mais** o desliga de
+vez. Se você criar um agente novo e ele ficar sem login, o aviso aparece mais uma vez, só para ele (a não ser que você
+tenha escolhido **Não mostrar mais**). Em qualquer caso, a página **Conectar conta** e o cartão de cada agente continuam
+disponíveis. A escolha fica em `modal-login.json`, na pasta de dados do painel, e uma atualização não a apaga.
+
 **A Tela do agente (o navegador dele, onde você faz os logins) ficou sempre à mão e passou a explicar o que falta.**
 Alunos relataram que não tinham tela nenhuma. Havia quatro causas, e as quatro foram tratadas:
 

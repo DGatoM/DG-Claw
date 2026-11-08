@@ -62,9 +62,13 @@ link de login**, e o resto do fluxo (abrir ou copiar o link, colar o código, se
   API, um agente que não respondeu à conferência e um login já em andamento não abrem o modal. Se a conferência inicial
   falhar (sem rede, sessão vencida, erro do servidor), o modal não abre e a tela não redireciona: só fica um aviso no
   console do navegador com a causa.
-- **Fazer depois.** O botão (e a tecla Esc) fecha o modal e guarda no `sessionStorage` da aba que você adiou
-  (`dgclaw-modal-login-depois`). Nessa aba ele não volta; numa aba nova, ou depois de fechar o navegador, volta se ainda
-  faltar login. A página **Conectar conta** continua existindo como plano B, pelo menu ☰.
+- **Aparece uma única vez.** Ao abrir, o servidor guarda quais agentes sem login o modal apresentou
+  (`POST /api/v1/modal-login/preferencia`, arquivo `modal-login.json` na pasta de dados, por usuário). Fechar com
+  **Fazer depois** ou Esc, recarregar a página ou entrar de outro aparelho não o traz de volta. Um agente criado depois,
+  que ainda não tinha sido apresentado e está sem login, reabre o modal uma vez (só com ele na conta).
+- **Não mostrar mais.** Guarda no servidor que nem agente novo reabre o modal. Não há botão para desfazer, mas nada se
+  perde: o caminho para conectar continua na página **Conectar conta** (menu ☰) e no cartão do agente. Se o servidor
+  não responder, o modal não abre (melhor calar do que repetir) e o console diz a causa.
 - **Pop-up "Seu login do Claude expirou".** O modal toma o lugar dele: se o modal abriu nesta carga da página, o pop-up
   não abre nem depois que o modal fechar (nada de dois avisos sobre a mesma coisa). Se o modal não abriu, o pop-up continua
   como antes para as expirações que surgirem depois. Se a pessoa tentar escrever ao agente com o login vencido, a faixa de

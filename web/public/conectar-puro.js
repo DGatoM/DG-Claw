@@ -248,6 +248,16 @@
     return (Array.isArray(selos) ? selos : []).some(x => x && (x.chave === 'falta' || x.chave === 'expirou'));
   }
 
+  /** Quais agentes sem login o modal ainda não apresentou a esta pessoa. `ids` e `selos` andam na mesma ordem;
+   *  `prefs` é { vistos, nao_mostrar_mais } vindo do servidor. Com "não mostrar mais" a lista é vazia. */
+  function agentesNovosParaModal(ids, selos, prefs) {
+    if (prefs && prefs.nao_mostrar_mais === true) return [];
+    const vistos = new Set(prefs && Array.isArray(prefs.vistos) ? prefs.vistos : []);
+    const lista = Array.isArray(ids) ? ids : [];
+    const ss = Array.isArray(selos) ? selos : [];
+    return lista.filter((id, i) => ss[i] && (ss[i].chave === 'falta' || ss[i].chave === 'expirou') && !vistos.has(id));
+  }
+
   /** Todos os agentes que usam assinatura ficaram conectados (e há pelo menos um). */
   function modalCompleto(selos) {
     return tudoConectado(selos);
@@ -266,10 +276,11 @@
       agora: 'Está tudo certo. Agora é só começar a conversar:',
       itens: pronto(ctx).itens,
       depois: 'Fazer depois',
+      nunca: 'Não mostrar mais',
       comecar: 'Começar a usar',
       legendaVideo: 'Veja em menos de 1 minuto',
     };
   }
 
-  return { deveAbrirModal, modalCompleto, textosModal, provedoresDoAgente, escolhaDeIA, pronto, ROTULO_ADMIN, ROTULO_PRINCIPAL, ROTULO_TRABALHO, PAPEL_ADMIN, PAPEL_PRINCIPAL, PAPEL_TRABALHO, ordenar, principal, papel, selo, limpaCodigo, traduzFalha, traduzErro, visaoCartao, tudoConectado, emAndamento };
+  return { deveAbrirModal, agentesNovosParaModal, modalCompleto, textosModal, provedoresDoAgente, escolhaDeIA, pronto, ROTULO_ADMIN, ROTULO_PRINCIPAL, ROTULO_TRABALHO, PAPEL_ADMIN, PAPEL_PRINCIPAL, PAPEL_TRABALHO, ordenar, principal, papel, selo, limpaCodigo, traduzFalha, traduzErro, visaoCartao, tudoConectado, emAndamento };
 });

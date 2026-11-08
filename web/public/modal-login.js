@@ -5,7 +5,12 @@
    <dialog> modal com um cartão por agente (os mesmos cartões da página /conectar, de conectar-cartoes.js). Quando
    todos ficam conectados, o modal troca para a tela final, com o que fazer agora e o vídeo "Conhecendo o DG Claw".
 
-   - "Fazer depois" (e o Esc) guarda em sessionStorage que a pessoa adiou: nesta aba o modal não volta.
+   - O modal aparece uma única vez por pessoa: ao abrir, o servidor guarda os agentes sem login que ele mostrou
+     (POST /api/v1/modal-login/preferencia). "Fazer depois", Esc e recarregar não o trazem de volta. Só um agente
+     NOVO sem login, que o modal ainda não mostrou, o reabre uma vez.
+   - "Não mostrar mais" guarda no servidor que nem agente novo reabre o modal. O caminho para conectar continua
+     na página Conectar conta e no cartão do agente.
+   - Se o servidor não responder, o modal NÃO abre (melhor calar do que repetir); a causa vai para o console.
    - O modal substitui o pop-up "Seu login do Claude expirou" nesta carga da página: se ele abriu, o pop-up não
      abre nem depois que o modal fechar (conversa.js consulta DGModalLogin e ouve 'dgmodallogin:abriu').
    - Erro na conferência inicial (rede, 401, 5xx) não abre modal nem redireciona: só um aviso no console com a
@@ -18,7 +23,6 @@
   const P = window.DGConectar;
   const CC = window.DGConectarCartoes;
   const dlg = document.getElementById('dlgModalLogin');
-  const CHAVE_DEPOIS = 'dgclaw-modal-login-depois';
   const VIDEO = '/videos/conhecendo-o-dgclaw.mp4';
   const POSTER = '/videos/conhecendo-o-dgclaw.jpg';
   const est = { aberto: false, abriu: false, fim: false, ctrl: null, video: null };
@@ -26,13 +30,18 @@
 
   window.DGModalLogin = { aberto: () => est.aberto, abriuNestaCarga: () => est.abriu };
 
-  function adiado() {
-    try { return sessionStorage.getItem(CHAVE_DEPOIS) === '1'; }
-    catch (e) { console.warn('modal de login: não consegui ler se a pessoa adiou (' + e.message + '); sigo como se não tivesse adiado.'); return false; }
+  const ROTA_PREF = '/api/v1/modal-login/preferencia';
+  async function lePref() {
+    const r = await fetch(ROTA_PREF, { credentials: 'same-origin', cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
   }
-  function guardaAdiado() {
-    try { sessionStorage.setItem(CHAVE_DEPOIS, '1'); }
-    catch (e) { console.warn('modal de login: não guardei o "Fazer depois" (' + e.message + '); o modal pode voltar se a página recarregar.'); }
+  /** Guarda no servidor. Falha vira aviso no console com a causa; o modal já está na tela, então não bloqueia. */
+  async function guardaPref(corpo) {
+    try {
+      const r = await fetch(ROTA_PREF, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+    } catch (e) { console.warn('modal de login: não consegui guardar sua escolha no servidor (' + e.message + '); o aviso pode aparecer de novo.'); }
   }
 
   function textoDe(id, texto) { $(id).textContent = texto; }
@@ -42,6 +51,7 @@
     textoDe('mlTit', t.titulo);
     textoDe('mlIntro', t.intro);
     textoDe('mlDepois', t.depois);
+    textoDe('mlNunca', t.nunca);
     textoDe('mlComecar', t.comecar);
     return t;
   }
@@ -81,9 +91,9 @@
     try { $('mlComecar').focus({ preventScroll: true }); } catch (e) { console.warn('modal de login: não consegui pôr o foco no botão final:', e.message); }
   }
 
-  function fecha(adiar) {
+  function fecha(nunca) {
     if (!est.aberto) return;
-    if (adiar) guardaAdiado();
+    if (nunca) guardaPref({ nao_mostrar_mais: true });
     est.aberto = false;
     if (est.ctrl) est.ctrl.para();
     if (est.video) { try { est.video.pause(); } catch (e) { console.warn('modal de login: não consegui pausar o vídeo:', e.message); } }
@@ -95,9 +105,10 @@
     // o modal substitui o pop-up de login expirado: se ele já estava aberto, conversa.js o fecha
     document.dispatchEvent(new CustomEvent('dgmodallogin:abriu'));
     desenhaInicio(n, principalNome);
-    $('mlDepois').onclick = () => fecha(true);
+    $('mlDepois').onclick = () => fecha(false);
+    $('mlNunca').onclick = () => fecha(true);
     $('mlComecar').onclick = () => fecha(false);
-    dlg.addEventListener('cancel', ev => { ev.preventDefault(); fecha(!est.fim); });
+    dlg.addEventListener('cancel', ev => { ev.preventDefault(); fecha(false); });
     if (dlg.showModal) dlg.showModal(); else dlg.setAttribute('open', '');
     // o foco inicial fica com o navegador: o primeiro elemento do primeiro cartão (Gerar link de login)
   }
@@ -107,7 +118,9 @@
       console.warn('modal de login: ' + (!dlg ? 'falta #dlgModalLogin na página' : 'um dos scripts (conectar-puro, conectar-cartoes, login-cartao) não carregou') + '. A página Conectar conta continua funcionando.');
       return;
     }
-    if (adiado()) return;
+    let pref = null;
+    try { pref = await lePref(); } catch (e) { console.warn('modal de login: não consegui ler se a pessoa já viu o aviso (' + e.message + '); não abro o modal.'); return; }
+    if (pref && pref.nao_mostrar_mais === true) return;
     let dados = null;
     try {
       const r = await fetch('/api/v1/agents', { credentials: 'same-origin', cache: 'no-store' });
@@ -126,8 +139,11 @@
     });
     est.ctrl = ctrl;
     try { await ctrl.inicia(); } catch (e) { console.warn('modal de login: a conferência dos logins falhou (' + e.message + '); não abro o modal.'); ctrl.para(); return; }
-    if (P.deveAbrirModal(ctrl.selos())) abre(ctrl, agentes.length, principal && principal.nome);
-    else ctrl.para();
+    const novos = P.agentesNovosParaModal(agentes.map(a => a.id), ctrl.selos(), pref);
+    if (novos.length) {
+      guardaPref({ vistos: novos });
+      abre(ctrl, agentes.length, principal && principal.nome);
+    } else ctrl.para();
   }
 
   inicia();
