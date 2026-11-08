@@ -349,6 +349,27 @@ dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1; igual "com o agente
 nega "parado: o marcador sai (o runner le tudo ao subir)" test -e "$PEND"
 echo running >"$STUB_ESTADO/c-dgclaw-ana"
 
+echo "migracao que falha nao impede o reinicio (o agente controla o settings.json dele)"
+dgclaw agente restricoes ana --sem-bash nao --sem-enviar-arquivo nao --escrita-livre >/dev/null 2>&1
+printf '{ isto nao e json' >"$ST"; chmod 444 "$ST"
+: >"$STUB_LOG"
+dgclaw agente restricoes ana --sem-bash sim >"$TMP/o17.txt" 2>&1; igual "settings.json estragado: o comando sai com 0" "0" "$?"
+afirma "o runner foi reiniciado mesmo assim" grep -q 'exec dgclaw-ana systemctl restart dgclaw-runner' "$STUB_LOG"
+nega "e o marcador de reinicio saiu depois do active" test -e "$PEND"
+afirma "a pendencia da migracao ficou" test -e "$PEND_MIG"
+afirma "avisa que o gancho antigo nao afrouxa nada" grep -q 'nao afrouxa' "$TMP/o17.txt"
+afirma "o denyTools novo ja esta no runner.json" jq -e '(.config.denyTools | index("Bash")) != null' "$RJ"
+touch "$STUB_ESTADO/restart-falha"
+dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1; nega "restart que falha, com a migracao tambem falhando, falha" test "$?" -eq 0
+afirma "o marcador de reinicio ficou" test -e "$PEND"
+rm -f "$STUB_ESTADO/restart-falha"; : >"$STUB_LOG"
+dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1; igual "de novo, com arquivos iguais, funciona" "0" "$?"
+afirma "e reiniciou" grep -q 'systemctl restart dgclaw-runner' "$STUB_LOG"
+nega "e o marcador saiu" test -e "$PEND"
+echo '{}' >"$ST"; chmod 444 "$ST"
+dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1
+nega "settings.json de volta ao normal: a pendencia da migracao sai" test -e "$PEND_MIG"
+
 echo "ensaio: nao grava nada"
 rm -f "$(R_DIR beto)/restricoes.json"
 dgclaw --ensaio agente restricoes beto --sem-bash sim >/dev/null 2>&1

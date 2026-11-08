@@ -206,6 +206,7 @@ _aplicar_restricoes_sem_trava() {
         | (if ($deny | length) > 0 then .permissions = {deny: $deny} else . end)')" \
         || falha "o jq nao conseguiu montar o managed-settings.json do agente $slug." "isto e um erro do DG Claw; abra uma issue com a saida acima."
 
+    [ "$(podman inspect -f '{{.State.Status}}' "$c" 2>/dev/null || true)" = running ] && rodando=1
     # --- grava: configuracao administrada primeiro, para o runner nunca subir sem a trava ---
     if [ -L "$ms" ]; then
         falha "$ms e um link; nao gravo nele." "apague o link e rode de novo: dgclaw agente reparar $slug"
@@ -227,19 +228,25 @@ _aplicar_restricoes_sem_trava() {
     # Quem mexe nesse arquivo e o usuario agente, DENTRO da caixa. O root nao le nem grava nada na casa: entre
     # uma checagem de atalho e a gravacao o agente troca .claude por um link para /root/.claude. So agentes que ja
     # tiveram restricoes (restricoes.json) podem ter o gancho antigo.
-    [ "$(podman inspect -f '{{.State.Status}}' "$c" 2>/dev/null || true)" = running ] && rodando=1
+    if [ "$mudou" = 1 ] && [ "$reiniciar" = 1 ] && [ "$rodando" = 1 ] && [ ! -e "$pend" ]; then
+        _restricoes_gravar "$pend" "reinicio do runner pendente desde $(date -u +%FT%TZ)"
+    fi
     if [ -e "$rs" ] || [ -e "$pend_mig" ]; then
         if [ "$rodando" = 1 ]; then
             rc=0
-            saida="$(podman exec --user agente "$c" node -e "$GANCHO_MIGRACAO_JS" /home/agente/.claude/settings.json "$GANCHO_ESCRITA_MARCA" 2>&1)" || rc=$?
+            saida="$(timeout 30 podman exec --user agente "$c" node -e "$GANCHO_MIGRACAO_JS" /home/agente/.claude/settings.json "$GANCHO_ESCRITA_MARCA" 2>&1)" || rc=$?
             if [ "$rc" -ne 0 ]; then
-                falha "nao consegui tirar o gancho antigo do settings.json de dentro da caixa do agente $slug (codigo $rc): $saida" \
-                    "se o settings.json do agente nao e um JSON valido, o proprio agente (ou voce, por dentro da caixa) precisa corrigi-lo; depois rode de novo: dgclaw agente reparar $slug"
-            fi
-            rm -f -- "$pend_mig"
-            if [ "$saida" = removido ]; then
-                mudou=1
-                ok "gancho de escrita antigo tirado do settings.json do agente $slug (agora ele vive na configuracao administrada)"
+                # O agente controla esse arquivo e pode estragar a migracao de proposito. Nao e fatal: o gancho
+                # antigo que ficar la nao afrouxa nada, porque a configuracao administrada vale por cima, e o
+                # reinicio do runner precisa acontecer de qualquer jeito.
+                [ -e "$pend_mig" ] || _restricoes_gravar "$pend_mig" "migracao do gancho antigo pendente desde $(date -u +%FT%TZ)"
+                aviso "nao consegui tirar o gancho antigo do settings.json de dentro da caixa do agente $slug ($([ "$rc" = 124 ] && echo 'passou de 30 segundos' || echo "codigo $rc: ${saida:-sem mensagem}")). Isso nao afrouxa nada: a configuracao administrada vale por cima. Continuei com o reinicio; para tentar de novo, corrija o settings.json do agente e rode: dgclaw agente reparar $slug"
+            else
+                rm -f -- "$pend_mig"
+                if [ "$saida" = removido ]; then
+                    mudou=1
+                    ok "gancho de escrita antigo tirado do settings.json do agente $slug (agora ele vive na configuracao administrada)"
+                fi
             fi
         else
             if [ ! -e "$pend_mig" ]; then
