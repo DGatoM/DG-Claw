@@ -91,9 +91,19 @@ const FIM_JSON = String.raw`[,}\]](?<=[^"'][,}\]])`;        // vírgula, chave o
 const VALOR = String.raw`(?:${DQ}|${SQ}|${ESC}|[^\s"'\\])+`;
 const VALOR_ATRIBUICAO = String.raw`(?:${DQ}|${SQ}|${ESC}|[^\s"'\\&;|,}\]]|${FIM_JSON})+`;
 const PRE = [
-  [new RegExp(String.raw`(\bmysql(?:dump)?\b[^\n]{0,300}?[ \t]-p)${VALOR}`, 'gi'), '$1' + OCULTO],
-  [new RegExp(String.raw`(--(?:password|token|api-key|secret|senha)(?:=|[ \t]{1,20}))${VALOR}`, 'gi'), '$1' + OCULTO],
-  [new RegExp(String.raw`(\bcurl\b[^\n]{0,300}?[ \t](?:-u|--user)[ \t]{1,20})${VALOR}`, 'gi'), '$1' + OCULTO],
+  // mysql -pSENHA (sem espaço: com espaço o -p só pede a senha no terminal)
+  [new RegExp(String.raw`(\bmysql(?:dump|admin|import|check)?\b[^\n]{0,300}?[ \t]-p)${VALOR}`, 'gi'), '$1' + OCULTO],
+  // flags longas de segredo, com `=` ou espaço: --password, --passwd, --pass, --pwd, --token, --secret, --senha, --api-key, --api_key,
+  // --apikey, --auth e variações com prefixo ou sufixo (--access-token, --client-secret, --password-stdin...)
+  [new RegExp(String.raw`(--(?:[a-z0-9_-]{0,30}?(?:password|passwd|passphrase|pwd|token|secret|senha|api[-_]?key|apikey)[a-z0-9_-]{0,30}|pass|auth)(?:=|[ \t]{1,20}))${VALOR}`, 'gi'), '$1' + OCULTO],
+  // curl: --user valor, --user=valor, --proxy-user (valor ou =valor), e as curtas -u e -U (com ou sem espaço: -u valor, -uvalor)
+  [new RegExp(String.raw`(\bcurl\b[^\n]{0,300}?[ \t](?:--proxy-user|--user)(?:=|[ \t]{1,20}))${VALOR}`, 'gi'), '$1' + OCULTO],
+  [new RegExp(String.raw`(\bcurl\b[^\n]{0,300}?[ \t]-[uU][ \t]{0,20})${VALOR}`, 'g'), '$1' + OCULTO],
+  // sshpass -p valor / -pvalor
+  [new RegExp(String.raw`(\bsshpass\b[^\n]{0,300}?[ \t]-p[ \t]{0,20})${VALOR}`, 'gi'), '$1' + OCULTO],
+  // htpasswd -b arquivo usuario senha (3 argumentos) e htpasswd -nb usuario senha (2): o último é a senha, e os de antes saem junto
+  [new RegExp(String.raw`(\bhtpasswd\b[^\n]{0,300}?[ \t]-(?![A-Za-z]{0,6}n)[A-Za-z]{0,6}b[A-Za-z]{0,6}[ \t]+)${VALOR}(?:[ \t]+${VALOR}){0,2}`, 'gi'), '$1' + OCULTO],
+  [new RegExp(String.raw`(\bhtpasswd\b[^\n]{0,300}?[ \t]-(?=[A-Za-z]{0,6}n)(?=[A-Za-z]{0,6}b)[A-Za-z]{1,12}[ \t]+)${VALOR}(?:[ \t]+${VALOR}){0,1}`, 'gi'), '$1' + OCULTO],
   // Atribuição com `=` é argumento de shell ou de variável de ambiente: todos os pedaços adjacentes até o espaço não escapado.
   [new RegExp(String.raw`((?:api[_-]?key|passw(?:or)?d|pwd|senha|secret|token|credential|chave|cookie|auth)[A-Za-z0-9_.-]{0,60}["']?[ \t]{0,20}=[ \t]{0,20})${VALOR}`, 'gi'), '$1' + OCULTO],
   // Com `:` é propriedade (JSON ou YAML): depois de uma aspa de fechamento, `,` `}` e `]` encerram o valor.
@@ -1397,7 +1407,7 @@ function criarLeitor({ log, agora, orcamento } = {}) {
 
 /** Toda regex deste módulo, com sementes de entradas hostis (começos de casamento): o teste de auditoria as roda em 64 KB. */
 const REGEX_AUDITAVEIS = [
-  ...PRE.map(([rx], i) => ({ nome: `PRE[${i}]`, rx, sementes: ['mysql -p', '--password=', '--password=a\\ ', 'senha=a\\ ', '--token ', 'curl -u ', 'curl x -u ', 'token=', 'chave:', 'senha="', "pwd='", 'cookie: '] })),
+  ...PRE.map(([rx], i) => ({ nome: `PRE[${i}]`, rx, sementes: ['mysql -p', 'sshpass -p ', 'htpasswd -b ', 'htpasswd -nb ', 'curl --user=', 'curl -u', 'curl --proxy-user ', '--access-token=', '--pass ', '--password=', '--password=a\\ ', 'senha=a\\ ', '--token ', 'curl -u ', 'curl x -u ', 'token=', 'chave:', 'senha="', "pwd='", 'cookie: '] })),
   ...EXTRAS.map(([rx], i) => ({ nome: `EXTRAS[${i}]`, rx, sementes: ['sk-', 'sk_', 'gsk_', 'xai-', 'xoxb-', 'ghp_', 'eyJ', 'eyJaaaaaa.', 'eyJaaaaaa.bbbbbb.', 'Authorization: ', 'Proxy-Authorization:', 'X-Api-Key: ', 'Cookie: ', 'Set-Cookie:'] })),
   { nome: 'RX_RESTO_MARCADOR', rx: RX_RESTO_MARCADOR, sementes: ['[segredo oculto]', '[segredo oculto] oculto]'] },
   { nome: 'RX_SEQUENCIA_LONGA', rx: RX_SEQUENCIA_LONGA, sementes: ['a', 'a-', 'A1.'] },

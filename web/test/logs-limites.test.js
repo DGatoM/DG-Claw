@@ -91,7 +91,7 @@ test('leitor (Codex) com comandos e saídas hostis: o laço de eventos continua 
     itens.push(xItem(i + 1, { type: 'CommandExecution', command: ['bash', '-lc', rep('curl ', 60000)], exit_code: 0, status: 'completed', aggregated_output: rep(i % 2 ? 'a' : 'eyJaaaaa', 60000) }));
   }
   fs.writeFileSync(path.join(dir, `rollout-x-${U(2)}.jsonl`), jl(itens));
-  const l = criarLeitor();
+  const l = criarLeitor({ orcamento: { maxMs: 120000, maxBytes: 1e9 } });
   let r;
   const m = await medeLaco(async () => { r = await l.eventos(c.ag, { limite: 60, cursor: null }); });
   assert.equal(r.eventos.length, 60);
