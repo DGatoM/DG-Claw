@@ -75,6 +75,7 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
   let colaboradores = colabsInicial || null; // ligado depois por ligarColaboradores (o módulo precisa do gerarHash, que é daqui)
   let instanciaAtual = null;
   let aoCriar = null; // gancho do cadeado (Face ID): avisa que uma sessão nasceu com senha
+  let antesDeCriar = null; // gancho do cadeado: campos que entram no registro da sessão NA MESMA escrita que a cria
   const MOTIVO_INSTANCIA = 'Este convite era de um agente que foi removido. Peça um convite novo ao dono.';
   /** O convite guarda a instância do agente; se o agente foi removido e recriado com o mesmo nome, ele não vale. */
   // Sem exceção: convite sem instância, instância atual ilegível ou módulo não ligado também NEGAM.
@@ -285,6 +286,9 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
       }
       const reg = { usuario: nomeUsuario || usuario, criada, expira: expiraFinal, marca: marcaAtual() };
       if (colaborador) Object.assign(reg, { papel: 'colaborador', colaborador_id: colaborador.id, agente: colaborador.agente, senha_versao: colaborador.senha_versao });
+      if (antesDeCriar) {
+        try { Object.assign(reg, antesDeCriar({ req, colaborador }) || {}); } catch (e) { log('erro', `O gancho de sessão nova (cadeado) falhou antes de gravar: ${e.message}. A sessão nasce sem a marca do Face ID.`); }
+      }
       sessoes.set(sha256hex(token), reg);
       limpaExpiradas();
       salva();
@@ -310,6 +314,8 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
     ligarColaboradores(modulo) { colaboradores = modulo; },
     /** `fn({ token, req, colaborador })` roda depois de cada sessão nova (login, primeiro acesso, troca de senha). */
     aoCriarSessao(fn) { aoCriar = fn; },
+    /** `fn({ req, colaborador })` devolve campos extras do registro da sessão nova (ou null); eles vão na mesma gravação que a cria. */
+    antesDeCriarSessao(fn) { antesDeCriar = fn; },
     /** `fn(slug)` devolve a instância atual do agente (ver instancia.js). Sem ela a conferência de instância não acontece. */
     ligarInstancias(fn) { instanciaAtual = fn; },
 
@@ -342,14 +348,18 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
       return token && token.length <= 200 ? sha256hex(token) : null;
     },
     /** Marca a sessão como presa a um aparelho com Face ID (cadeado_exige) e grava já. A marca vive no registro que AUTENTICA a
-        sessão, então sobrevive a restart mesmo se o estado do cadeado se perder. Se não der para gravar, a sessão é encerrada
-        (a pessoa entra de novo) e o retorno é falso: nunca fica sessão viva sem a marca. */
-    marcaCadeado(hash, aparelhoHash) {
+        sessão, então sobrevive a restart mesmo se o estado do cadeado se perder. Se não der para gravar o retorno é falso, e o
+        arquivo antigo fica como estava (a troca é atômica). Com `manter`, a marca continua na memória e entra na próxima gravação
+        do auth (sessão que já devia estar travada); sem `manter`, ela é desfeita (a pessoa nunca foi prometida o cadeado). */
+    marcaCadeado(hash, aparelhoHash, manter) {
       const s = sessoes.get(hash);
       if (!s) return false;
+      const antes = { exige: s.cadeado_exige, ap: s.aparelho_hash };
       s.cadeado_exige = true; s.aparelho_hash = aparelhoHash;
       if (salva()) return true;
-      sessoes.delete(hash);
+      if (!manter) {
+        if (antes.exige === undefined) { delete s.cadeado_exige; delete s.aparelho_hash; } else { s.cadeado_exige = antes.exige; s.aparelho_hash = antes.ap; }
+      }
       return false;
     },
     /** Tira a marca (só quando a pessoa remove o próprio aparelho). */

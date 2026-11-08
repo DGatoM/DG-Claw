@@ -84,7 +84,7 @@ function criarGravador(caminho, serializa) {
   };
 }
 
-function criarCadeado({ config, log, agora, encerrarSessao, existeSessao, estadoMax, marcarSessao, desmarcarSessao, lerMarca }) {
+function criarCadeado({ config, log, agora, encerrarSessao, existeSessao, estadoMax, marcarSessao, desmarcarSessao, lerMarca, sessaoViva }) {
   const maxEstados = Number.isInteger(estadoMax) && estadoMax > 0 ? estadoMax : ESTADO_MAX;
   const relogio = agora || (() => Date.now());
   const arqPasskeys = path.join(config.dataDir, 'passkeys.json');
@@ -222,21 +222,19 @@ function criarCadeado({ config, log, agora, encerrarSessao, existeSessao, estado
 
   /** Prende a sessão ao aparelho NO SERVIDOR: dali em diante ela trava pelo tempo mesmo sem o cookie ou com cookie adulterado.
       O cookie só serve para criar essa ligação, nunca para desfazê-la. */
-  function prende(k, titular, apHash, authHash, expira) {
+  function prende(k, titular, apHash, authHash, expira, manter) {
     // A marca também vai para o registro que autentica a sessão (sessoes.json): se o estado do cadeado se perder (disco cheio,
-    // arquivo corrompido), a sessão continua exigindo o cadeado depois do restart. Sem conseguir gravar a marca, a sessão cai.
+    // arquivo corrompido), a sessão continua exigindo o cadeado depois do restart. Com `manter`, se a gravação falhar a marca
+    // fica na memória (entra na próxima gravação do auth) e a sessão segue travada; sem `manter`, devolve null e nada muda.
     const m = authHash && lerMarca ? lerMarca(authHash) : null;
-    if (!(m && m.aparelho_hash === apHash) && !(authHash && marcarSessao && marcarSessao(authHash, apHash))) return falhaMarca(k, authHash);
+    if (!(m && m.aparelho_hash === apHash) && !(authHash && marcarSessao && marcarSessao(authHash, apHash, manter))) {
+      log('erro', `Cadeado: não consegui gravar a ligação da sessão ao aparelho no registro de sessões. ${manter ? 'A sessão segue travada e a marca fica na memória até a próxima gravação' : 'Nada foi destravado'}. Confira o espaço e a permissão da pasta de dados.`);
+      if (!manter) return null;
+    }
     const e = estadoDe(k, titular) || { uso: 0, destravada_em: 0, como: 'vinculo', titular };
     Object.assign(e, { exige: true, aparelho_hash: apHash, auth: authHash, expira });
     estados.set(k, e);
     return e;
-  }
-  function falhaMarca(k, authHash) {
-    log('erro', 'Cadeado: não consegui gravar a ligação da sessão ao aparelho no registro de sessões. Encerrei a sessão em vez de deixá-la sem o cadeado: a pessoa entra de novo com a senha. Confira o espaço e a permissão da pasta de dados.');
-    estados.delete(k);
-    if (authHash && encerrarSessao) encerrarSessao(authHash);
-    return null;
   }
 
   /** A sessão deste pedido está travada agora? Caixa do agente e pedido sem sessão de cookie nunca travam.
@@ -257,8 +255,7 @@ function criarCadeado({ config, log, agora, encerrarSessao, existeSessao, estado
       } else {
         const ap = aparelhoDe(req);
         if (!ap || !aparelhoLigado(req, titular)) return false;
-        e = prende(k, titular, ap.hash, authHash, sessao.expira);
-        if (!e) return true;
+        e = prende(k, titular, ap.hash, authHash, sessao.expira, true);
         salvaEstado();
       }
     }
@@ -281,15 +278,22 @@ function criarCadeado({ config, log, agora, encerrarSessao, existeSessao, estado
   }
   /** Destrava a sessão `k`. `prender` ({ apHash, authHash, expira }) liga também a sessão ao aparelho. */
   function destrava(k, titular, como, prender) {
+    // A ligação é gravada ANTES de destravar: se não der, nada é destravado.
+    if (prender && !prende(k, titular, prender.apHash, prender.authHash, prender.expira, prender.manter)) return false;
     const t = relogio();
     const e = estadoDe(k, titular) || {};
     Object.assign(e, { uso: t, destravada_em: t, como, titular });
     estados.set(k, e);
-    if (prender && !prende(k, titular, prender.apHash, prender.authHash, prender.expira)) return false;
     salvaEstado();
     return true;
   }
-  const ERRO_LIGACAO = () => new WebAuthnErro('O Face ID foi aceito, mas não consegui gravar a ligação desta sessão ao aparelho (disco cheio ou sem permissão). Por segurança a sessão foi encerrada: entre de novo com a senha.', 'arquivo', 500);
+  const ERRO_LIGACAO = () => new WebAuthnErro('O Face ID foi aceito, mas não consegui gravar a ligação desta sessão ao aparelho (disco cheio ou sem permissão). A sessão continua travada: tente de novo ou entre com a senha.', 'arquivo', 500);
+  const ERRO_MARCA_CADASTRO = () => new WebAuthnErro('Não consegui gravar a ligação desta sessão ao aparelho (disco cheio ou sem permissão), então o Face ID não foi ligado. Nada mudou: você segue usando o DG Claw normalmente, sem o cadeado. Libere espaço ou confira a permissão da pasta de dados e tente de novo.', 'arquivo', 500);
+  /** Depois de ler o corpo (ou dentro da fila de gravação) a sessão pode ter vencido ou travado: revalida antes de mudar qualquer coisa. */
+  function confereSessao(req, sessao) {
+    if (sessaoViva && !sessaoViva(req)) throw new WebAuthnErro('A sua sessão deixou de valer enquanto o pedido era lido. Entre de novo.', 'sessao', 401);
+    if (travada(req, sessao)) throw new WebAuthnErro(MSG_TRAVADO, 'travado', 423);
+  }
   /** Passkey removida e o aparelho ficou sem nenhuma da mesma pessoa: encerra as sessões presas a ele, menos a de quem removeu
       (se for do mesmo aparelho, ela continua e a exigência dela cai). Devolve quantas sessões foram encerradas. */
   function soltaAparelho(titular, apHash, kAtual) {
@@ -468,12 +472,27 @@ function criarCadeado({ config, log, agora, encerrarSessao, existeSessao, estado
       rp_id: d.rpId, transportes, sincronizada: ad.be, aparelho_hash: sha256hex(`dgclaw-cadeado-aparelho:${valor}`),
       criada_em: iso(t), ultimo_uso: iso(t),
     };
-    await altera((c) => {
-      if (c.passkeys.some((p) => p.credencial_id === rec.credencial_id)) throw new WebAuthnErro('Essa passkey já está cadastrada.', 'duplicada', 409);
-      if (c.passkeys.filter((p) => p.titular === titular).length >= PASSKEYS_POR_TITULAR) throw new WebAuthnErro(`Já há ${PASSKEYS_POR_TITULAR} aparelhos cadastrados, que é o máximo.`, 'limite', 409);
-      c.passkeys.push(rec);
-    });
-    if (!destrava(k, titular, 'cadastro', { apHash: rec.aparelho_hash, authHash: authHashDe(req), expira: sessao.expira })) throw ERRO_LIGACAO();
+    // A marca da sessão (sessoes.json) é gravada ANTES da passkey: sem ela o cadastro não acontece e a sessão segue normal.
+    const authHash = authHashDe(req);
+    confereSessao(req, sessao); // a sessão pode ter vencido ou travado durante o Face ID; depois da marca, travada() já enxergaria a marca
+    const antes = authHash && lerMarca ? lerMarca(authHash) : null;
+    if (!(authHash && marcarSessao && marcarSessao(authHash, rec.aparelho_hash, false))) {
+      log('erro', 'Cadeado: não gravei a marca da sessão no registro de sessões; a passkey não foi cadastrada.');
+      throw ERRO_MARCA_CADASTRO();
+    }
+    try {
+      await altera((c) => {
+        if (c.passkeys.some((p) => p.credencial_id === rec.credencial_id)) throw new WebAuthnErro('Essa passkey já está cadastrada.', 'duplicada', 409);
+        if (c.passkeys.filter((p) => p.titular === titular).length >= PASSKEYS_POR_TITULAR) throw new WebAuthnErro(`Já há ${PASSKEYS_POR_TITULAR} aparelhos cadastrados, que é o máximo.`, 'limite', 409);
+        c.passkeys.push(rec);
+      });
+    } catch (e) {
+      // a passkey não foi criada: a marca volta ao que era (nunca fica sessão travada por uma passkey que não existe)
+      if (antes && desmarcarSessao) marcarSessao(authHash, antes.aparelho_hash, true);
+      else if (desmarcarSessao) desmarcarSessao(authHash);
+      throw e;
+    }
+    if (!destrava(k, titular, 'cadastro', { apHash: rec.aparelho_hash, authHash, expira: sessao.expira, manter: true })) throw ERRO_LIGACAO();
     log('info', `Cadeado: passkey cadastrada para ${titular}: "${nome}" (${rec.id}, ${W.NOME_ALG[alg]}, rp ${d.rpId}).`);
     return { passkey: publica(rec, { hash: rec.aparelho_hash }), cookie: valor };
   }
@@ -545,7 +564,7 @@ function criarCadeado({ config, log, agora, encerrarSessao, existeSessao, estado
   }
   function falhou(res, e, k, ip, etapa) {
     if (!(e instanceof WebAuthnErro)) throw e;
-    if (e.status < 500 && e.motivo !== 'arquivo') registraFalha(k, ip);
+    if (e.status < 500 && !['arquivo', 'travado', 'sessao'].includes(e.motivo)) registraFalha(k, ip);
     log('aviso', `Cadeado: ${etapa} recusado (${e.motivo}): ${e.message}`);
     return H.erroJson(res, e.status, e.message, e.recebido === undefined ? { motivo: e.motivo } : { motivo: e.motivo, recebido: e.recebido });
   }
@@ -612,6 +631,7 @@ function criarCadeado({ config, log, agora, encerrarSessao, existeSessao, estado
         const corpo = await corpoJson(req, res, 96 * 1024);
         if (!corpo) return true;
         try {
+          confereSessao(req, sessao);
           const r = await cadastra(req, sessao, titular, k, corpo);
           // O cookie novo só chega ao navegador com esta resposta; o estado devolvido já o considera.
           const reqNovo = Object.assign(Object.create(req), { headers: Object.assign({}, req.headers, { cookie: `${COOKIE_APARELHO}=${r.cookie}; ${req.headers.cookie || ''}` }) });
@@ -660,11 +680,13 @@ function criarCadeado({ config, log, agora, encerrarSessao, existeSessao, estado
           const nome = limpaNome(corpo.nome);
           if (!nome) { H.erroJson(res, 400, 'Mande o nome novo em JSON: {"nome": "iPhone da Maria"}.'); return true; }
           if (nome.length > NOME_MAX) { H.erroJson(res, 400, `O nome passou de ${NOME_MAX} caracteres.`, { recebido: nome.length }); return true; }
-          const novo = await altera((c) => { const alvo = c.passkeys.find((x) => x.id === id && x.titular === titular); if (!alvo) throw sumiu(); alvo.nome = nome; return { ...alvo }; });
+          confereSessao(req, sessao);
+          const novo = await altera((c) => { confereSessao(req, sessao); const alvo = c.passkeys.find((x) => x.id === id && x.titular === titular); if (!alvo) throw sumiu(); alvo.nome = nome; return { ...alvo }; });
           H.enviaJson(res, 200, { ok: true, passkey: publica(novo, aparelhoDe(req)) });
           return true;
         }
         const r = await altera((c) => {
+          confereSessao(req, sessao);
           const i = c.passkeys.findIndex((x) => x.id === id && x.titular === titular);
           if (i < 0) throw sumiu();
           const [velho] = c.passkeys.splice(i, 1);
@@ -685,13 +707,14 @@ function criarCadeado({ config, log, agora, encerrarSessao, existeSessao, estado
           H.erroJson(res, 400, `"trava_min" precisa ser um número inteiro de minutos entre ${TRAVA_LIMITES[0]} e ${TRAVA_LIMITES[1]}.`, { recebido: typeof v === 'number' ? v : typeof v });
           return true;
         }
-        await altera((c) => { c.ajustes[titular] = Object.assign({}, c.ajustes[titular], { trava_min: v }); });
+        confereSessao(req, sessao);
+        await altera((c) => { confereSessao(req, sessao); c.ajustes[titular] = Object.assign({}, c.ajustes[titular], { trava_min: v }); });
         log('info', `Cadeado: tempo de trava de ${titular} mudou para ${v} min.`);
         H.enviaJson(res, 200, { ok: true, trava_min: v, estado: estadoPublico(req, sessao) });
         return true;
       }
     } catch (e) {
-      if (e instanceof WebAuthnErro) { H.erroJson(res, e.status, e.message, { motivo: e.motivo }); return true; }
+      if (e instanceof WebAuthnErro) { H.erroJson(res, e.status, e.message, e.status === 423 ? { motivo: e.motivo, travado: true } : { motivo: e.motivo }); return true; }
       throw e;
     }
     H.erroJson(res, 404, `Não existe ${m} ${p}. As rotas estão em GET ${BASE}/docs.md.`);
@@ -724,12 +747,18 @@ function criarCadeado({ config, log, agora, encerrarSessao, existeSessao, estado
   }
 
   /** Sessão nova criada com senha nasce destravada, no aparelho que já tem cadeado. */
+  /** Antes de a sessão nova ser gravada: se o aparelho já tem cookie válido, a marca entra na MESMA escrita que cria a sessão. */
+  function marcaParaSessaoNova({ req, colaborador }) {
+    const titular = colaborador ? `colaborador:${colaborador.id}` : 'dono';
+    const ap = aparelhoDe(req);
+    return ap && aparelhoLigado(req, titular) ? { cadeado_exige: true, aparelho_hash: ap.hash } : null;
+  }
   function aoCriarSessao({ token, req, colaborador, expira }) {
     const titular = colaborador ? `colaborador:${colaborador.id}` : 'dono';
     salvaEstado(); // a sessão nova pode ter derrubado as mais antigas da mesma pessoa no auth: limpa os registros delas
     const ap = aparelhoDe(req);
     if (!ap || !aparelhoLigado(req, titular)) return;
-    destrava(sha256hex(`dgclaw-cadeado-sessao:${token}`), titular, 'senha', { apHash: ap.hash, authHash: sha256hex(token), expira });
+    destrava(sha256hex(`dgclaw-cadeado-sessao:${token}`), titular, 'senha', { apHash: ap.hash, authHash: sha256hex(token), expira, manter: true });
   }
 
   /** Apaga as passkeys, o tempo de trava e o estado de um titular (acesso de colaborador revogado). */
@@ -749,7 +778,7 @@ function criarCadeado({ config, log, agora, encerrarSessao, existeSessao, estado
   }
 
   return {
-    rotas, gate, travada, ligado, aoCriarSessao, removerDoTitular, limpaOrfaos, destinoSeguro,
+    rotas, gate, travada, ligado, aoCriarSessao, marcaParaSessaoNova, removerDoTitular, limpaOrfaos, destinoSeguro,
     get falhaCarga() { return falhaCarga; },
     aguardar() { return Promise.all([gravConf.aguardar(), gravEstado.aguardar(), fila]); },
   };

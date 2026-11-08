@@ -1185,16 +1185,133 @@ test('a marca no sessoes.json sobrevive às reescritas do auth e não derruba a 
     await outra.login('dono', t.senha);
     assert.equal(lido().filter((x) => x.cadeado_exige === true).length, 1);
     assert.notEqual((await c.d.get('/api/v1/agents')).status, 401);
-    // sem poder gravar o sessoes.json, a marca não pega e a sessão é encerrada em vez de seguir sem ela
+    // sem poder gravar o sessoes.json, a sessão que já devia estar travada responde travada e a marca fica na memória
     const b = pessoa({ t });
     await b.login('dono', t.senha);
     b.jar.dgclaw_aparelho = c.d.jar.dgclaw_aparelho;
-    fs.rmSync(arq);
-    fs.mkdirSync(arq); // a troca atômica do arquivo passa a falhar
-    const r = await b.get('/api/v1/cadeado/estado');
-    assert.equal(r.status, 200);
-    assert.equal((await b.get('/api/v1/agents')).status, 401, 'a sessão que não conseguiu a marca foi encerrada');
-    assert.match(t.log.texto(), /Encerrei a sessão em vez de deixá-la sem o cadeado/);
-    fs.rmdirSync(arq);
+    const tmp = `${arq}.${process.pid}.tmp`;
+    fs.mkdirSync(tmp); // a troca atômica do arquivo passa a falhar, e o arquivo antigo fica como está
+    assert.equal((await b.get('/api/v1/agents')).status, 423, 'travada, não encerrada');
+    assert.match(t.log.texto(), /segue travada e a marca fica na memória/);
+    fs.rmdirSync(tmp);
+    // na próxima gravação do auth a marca entra no arquivo
+    const c2 = pessoa({ t });
+    await c2.login('dono', t.senha);
+    assert.equal(lido().filter((x) => x.cadeado_exige === true).length, 2, 'a marca retida foi gravada depois');
   } finally { await t.fechar(); }
+});
+
+// ── a marca vai para o disco antes de qualquer promessa de cadeado ───────────
+const lerSessoes = (dados) => JSON.parse(fs.readFileSync(path.join(dados, 'sessoes.json'), 'utf8')).sessoes;
+const shaHex = (v) => crypto.createHash('sha256').update(v).digest('hex');
+
+test('sessão criada num aparelho com cookie válido leva a marca na MESMA gravação que a cria', async () => {
+  const c = await reinicia();
+  const t = c.t;
+  try {
+    const antes = fs.readFileSync(path.join(c.dados, 'sessoes.json'), 'utf8');
+    const tmp = path.join(c.dados, `sessoes.json.${process.pid}.tmp`);
+    fs.mkdirSync(tmp); // toda gravação do sessoes.json falha, e o arquivo antigo é preservado
+    const nova = pessoa({ t });
+    nova.jar.dgclaw_aparelho = c.d.jar.dgclaw_aparelho;
+    await nova.login('dono', t.senha);
+    assert.equal(fs.readFileSync(path.join(c.dados, 'sessoes.json'), 'utf8'), antes, 'o arquivo antigo ficou como estava');
+    const hash = shaHex(nova.jar.dgclaw_sessao);
+    assert.deepEqual(t.web.auth.leCadeado(hash), { exige: true, aparelho_hash: shaHex(`dgclaw-cadeado-aparelho:${nova.jar.dgclaw_aparelho}`) }, 'na memória a sessão já nasceu marcada');
+    fs.rmdirSync(tmp);
+    await t.web.auth.encerraPorHash('inexistente'); // não grava nada
+    const outra = pessoa({ t });
+    await outra.login('dono', t.senha); // próxima gravação do auth
+    const reg = lerSessoes(c.dados)[hash];
+    assert.ok(reg, 'a sessão chegou ao arquivo');
+    assert.equal(reg.cadeado_exige, true, 'e chegou já com a marca: nunca existiu no disco sem ela');
+  } finally { await t.fechar(); }
+});
+
+test('cadastro: se a marca não pode ser gravada, nada é criado, responde 500 com a causa e a sessão segue normal e sem cadeado', async () => {
+  const dados = pastaTemp('cad-b');
+  const relogio = { t: Date.now() };
+  const t = comTelas(await subirWeb({ opcoesServidor: { dataDir: dados, agora: () => relogio.t } }));
+  try {
+    const d = pessoa({ t });
+    await d.login('dono', t.senha);
+    const antes = fs.readFileSync(path.join(dados, 'sessoes.json'), 'utf8');
+    const tmp = path.join(dados, `sessoes.json.${process.pid}.tmp`);
+    fs.mkdirSync(tmp);
+    const r = await d.cadastra(aparelhoFalso(), 'iPhone');
+    assert.equal(r.status, 500, r.texto); assert.equal(r.json.motivo, 'arquivo'); assert.match(r.json.erro, /disco cheio.*não foi ligado.*sem o cadeado/);
+    fs.rmdirSync(tmp);
+    assert.equal(fs.existsSync(path.join(dados, 'passkeys.json')), false, 'a passkey não foi criada');
+    assert.equal(fs.readFileSync(path.join(dados, 'sessoes.json'), 'utf8'), antes);
+    assert.equal(t.web.auth.leCadeado(shaHex(d.jar.dgclaw_sessao)), null, 'a marca foi desfeita na memória');
+    assert.equal((await d.get('/api/v1/cadeado/estado')).json.ativo, false);
+    relogio.t += 60 * MIN;
+    assert.equal((await d.get('/api/v1/agents')).status !== 423, true, 'sessão normal, nunca prometida ao cadeado');
+    // e, resolvido o disco, o cadastro funciona
+    assert.equal((await d.cadastra(aparelhoFalso(), 'iPhone')).status, 201);
+  } finally { await t.fechar(); }
+});
+
+test('verificação: se a marca não pode ser gravada, responde 500, a passkey continua e a sessão segue travada', async () => {
+  const dados = pastaTemp('cad-c');
+  const relogio = { t: Date.now() };
+  const t = comTelas(await subirWeb({ opcoesServidor: { dataDir: dados, agora: () => relogio.t } }));
+  try {
+    // dois aparelhos do dono, cada um com a sua passkey e o seu cookie
+    const celular = pessoa({ t }); await celular.login('dono', t.senha);
+    const apCel = aparelhoFalso(); assert.equal((await celular.cadastra(apCel, 'celular')).status, 201);
+    const pc = pessoa({ t }); await pc.login('dono', t.senha);
+    const apPc = aparelhoFalso(); assert.equal((await pc.cadastra(apPc, 'pc')).status, 201);
+    // a sessão do celular, presa ao celular, vê o cookie do pc e verifica com a passkey do pc
+    const sessaoCel = celular.jar.dgclaw_sessao;
+    celular.jar.dgclaw_aparelho = pc.jar.dgclaw_aparelho;
+    relogio.t += 16 * MIN;
+    assert.equal((await celular.get('/api/v1/agents')).status, 423);
+    const tmp = path.join(dados, `sessoes.json.${process.pid}.tmp`);
+    fs.mkdirSync(tmp);
+    const r = await celular.destrava(apPc);
+    assert.equal(r.status, 500, r.texto); assert.equal(r.json.motivo, 'arquivo');
+    assert.equal((await celular.get('/api/v1/agents')).status, 423, 'não destravou');
+    fs.rmdirSync(tmp);
+    assert.ok(sessaoCel);
+    assert.equal((await celular.destrava(apPc)).status, 200, 'resolvido o disco, destrava');
+    assert.equal((await celular.get('/api/v1/cadeado/passkeys')).json.passkeys.length, 2, 'as passkeys continuaram o tempo todo');
+  } finally { await t.fechar(); }
+});
+
+test('corpo que termina depois de a sessão travar: 423 e nada muda (ajustes, nome e cadastro)', async () => {
+  const s = await cenario();
+  await verde(s, async () => {
+    const d = await dono(s);
+    const ap = aparelhoFalso();
+    const c = await d.cadastra(ap, 'iPhone');
+    const id = c.json.passkey.id;
+    assert.equal((await d.pedir('PUT', '/api/v1/cadeado/ajustes', { json: { trava_min: 1 } })).status, 200);
+    const cookie = `dgclaw_sessao=${d.jar.dgclaw_sessao}; dgclaw_aparelho=${d.jar.dgclaw_aparelho}`;
+    /** Manda o começo do corpo, deixa o tempo passar e só então termina. */
+    const lento = (metodo, caminho, comeco, fim) => new Promise((resolve, reject) => {
+      const req = http.request({ host: '127.0.0.1', port: s.t.porta, path: caminho, method: metodo, headers: { Host: `localhost:${s.t.porta}`, Origin: d.origem, 'Content-Type': 'application/json', Cookie: cookie } }, (res) => {
+        const partes = []; res.on('data', (x) => partes.push(x)); res.on('end', () => resolve({ status: res.statusCode, texto: Buffer.concat(partes).toString() }));
+      });
+      req.on('error', reject);
+      req.write(comeco);
+      setTimeout(() => { s.relogio.t += 61 * 1000; req.end(fim); }, 100);
+    });
+    s.relogio.t += 30 * 1000;
+    const aj = await lento('PUT', '/api/v1/cadeado/ajustes', '{"trava_min":', '120}');
+    assert.equal(aj.status, 423, aj.texto);
+    assert.equal((await d.get('/api/v1/cadeado/estado')).json.trava_min, 1, 'o tempo não mudou');
+    assert.equal((await d.destrava(ap)).status, 200);
+    const nm = await lento('PATCH', `/api/v1/cadeado/passkeys/${id}`, '{"nome":', '"Trocado"}');
+    assert.equal(nm.status, 423, nm.texto);
+    assert.equal((await d.destrava(ap)).status, 200);
+    assert.equal((await d.get('/api/v1/cadeado/passkeys')).json.passkeys[0].nome, 'iPhone');
+    // cadastro: a sessão trava durante o Face ID
+    const op = await d.get('/api/v1/cadeado/cadastro/opcoes');
+    const cred = aparelhoFalso().cria(op.json.publicKey, d.origem);
+    const cad = await lento('POST', '/api/v1/cadeado/cadastro', '{"nome":"outro","credencial":', `${JSON.stringify(cred)}}`);
+    assert.equal(cad.status, 423, cad.texto);
+    assert.equal((await d.destrava(ap)).status, 200);
+    assert.equal((await d.get('/api/v1/cadeado/passkeys')).json.passkeys.length, 1);
+  });
 });

@@ -136,8 +136,9 @@ function criarServidor(opcoes) {
   const colaboradores = criarColaboradores({ config, log, agora: opcoes.agora, gerarHash: (senha) => auth.gerarHash(senha) });
   auth.ligarColaboradores(colaboradores);
   // Cadeado com Face ID (opcional, por aparelho): destrava sessão já autenticada, nunca cria sessão. Ver lib/cadeado.js.
-  const cadeado = criarCadeado({ config, log, agora: opcoes.agora, encerrarSessao: (hash) => { auth.encerraPorHash(hash); proxy.fecharDaSessao(hash); }, existeSessao: (hash) => auth.existeHash(hash), marcarSessao: (h, ap) => auth.marcaCadeado(h, ap), desmarcarSessao: (h) => auth.desmarcaCadeado(h), lerMarca: (h) => auth.leCadeado(h), estadoMax: opcoes.cadeadoEstadoMax });
+  const cadeado = criarCadeado({ config, log, agora: opcoes.agora, encerrarSessao: (hash) => { auth.encerraPorHash(hash); proxy.fecharDaSessao(hash); }, existeSessao: (hash) => auth.existeHash(hash), marcarSessao: (h, ap, manter) => auth.marcaCadeado(h, ap, manter), sessaoViva: (req) => !!auth.sessaoDoPedido(req), desmarcarSessao: (h) => auth.desmarcaCadeado(h), lerMarca: (h) => auth.leCadeado(h), estadoMax: opcoes.cadeadoEstadoMax });
   auth.aoCriarSessao((ev) => cadeado.aoCriarSessao(ev));
+  auth.antesDeCriarSessao((ev) => cadeado.marcaParaSessaoNova(ev));
   cadeado.limpaOrfaos((id) => { const c = colaboradores.obter(id); return !(c && c.revogado_em); }).catch((e) => log('erro', `Cadeado: não limpei as passkeys de colaboradores revogados (${e.message}).`));
   auth.ligarInstancias((slug) => instanciaDe(registro.obter(slug)));
   log('info', config.smtp.host ? `E-mail dos convites de colaborador: ligado (${config.smtp.host}:${config.smtp.porta}).` : 'E-mail dos convites de colaborador: desligado (opcional; o convite sai pelo texto da tela). Para ligar, defina DGCLAW_SMTP_HOST e as outras DGCLAW_SMTP_* no web.env.');

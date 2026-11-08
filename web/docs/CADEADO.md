@@ -93,6 +93,17 @@ Um agente não consegue ligar o Face ID por API, porque falta o aparelho: ele aj
 - **Se `passkeys.json` estiver ilegível, o cadeado fecha**: continua ligado nos aparelhos que já tinham o cookie, só
   a senha destrava, e o arquivo nunca é regravado. O log e a tela dizem o caminho e o motivo. Conserte ou apague o
   arquivo e reinicie o painel (apagar remove todas as passkeys; cada pessoa liga de novo).
+- **A ligação da sessão ao aparelho também é gravada em `sessoes.json`** (o registro que autentica a sessão), antes de qualquer
+  promessa de cadeado: a sessão criada num aparelho com Face ID já nasce com a marca na mesma gravação; ao ligar o Face ID a
+  marca é gravada antes da passkey (se falhar, nada é criado, o painel responde 500 explicando e a sessão segue normal, sem
+  cadeado); ao destravar, a marca é gravada antes de destravar (se falhar, a sessão segue travada). Numa sessão antiga que
+  se liga ao aparelho agora, se a gravação falhar, a sessão responde travada e a marca fica na memória até a próxima
+  gravação do painel.
+- **Limite aceito:** uma sessão antiga que se liga ao aparelho justamente num momento de disco cheio, seguida de um reinício
+  do painel antes de qualquer gravação com sucesso, perde a marca; ela só deixa de travar se, além disso, o cookie do
+  aparelho também faltar. Resolver disco cheio em geral está fora do escopo do cadeado.
+- Corpo de pedido que demora (cadastro, nome, tempo de trava): a sessão é revalidada depois de ler o corpo e dentro da fila
+  de gravação. Se ela venceu (401) ou travou nesse meio tempo (423), nada é alterado.
 - Depois de reiniciar o painel, as sessões destravadas continuam (o estado está no disco). Sessão que ficou sem
   registro nasce travada nos aparelhos com Face ID.
 
