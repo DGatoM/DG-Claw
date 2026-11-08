@@ -133,7 +133,7 @@ test('organizaMenu (dono, agente com painel): fixos, cinco grupos, rodapé solto
   const org = M.organizaMenu(M.montaItens(AG, false));
   assert.deepEqual(org.fixos.map(i => i.chave), ['arquivos']);
   assert.deepEqual(org.grupos.map(g => g.id), ['perfil', 'dia', 'ferramentas', 'operacao', 'seguranca']);
-  assert.deepEqual(org.rodape.map(i => i.chave), ['como', 'socorro']);
+  assert.deepEqual(org.rodape.map(i => i.chave), ['como', 'manual', 'socorro']);
   assert.deepEqual(org.conexoes.map(i => i.chave), ['tela']);
   // nenhum item que existia antes sumiu
   const chaves = new Set(M.montaItens(AG, false).map(i => i.chave));
