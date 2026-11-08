@@ -57,7 +57,7 @@ test('colaborador usa o painel inteiro do agente dele: sessões, rotinas, memór
     const casos = [
       ['GET', '/p/ana/'], ['GET', '/p/ana/api/sessoes'], ['POST', '/p/ana/api/sessoes/abc/arquivar'], ['GET', '/p/ana/api/rotinas'], ['GET', '/p/ana/api/rotinas/usuario'],
       ['GET', '/p/ana/api/memory'], ['GET', '/p/ana/api/memoria/arquivo'], ['GET', '/p/ana/api/arquivos'],
-      ['GET', '/p/ana/api/tela'], ['GET', '/p/ana/api/provedor'], ['GET', '/p/ana/api/chat/mensagens'],
+      ['GET', '/p/ana/api/tela'], ['GET', '/p/ana/api/chat/mensagens'],
     ];
     for (const [m, p] of casos) {
       const r = await x.c.pedir(m, p, m === 'GET' ? {} : { json: {} });

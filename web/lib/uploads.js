@@ -68,6 +68,12 @@ function nomeSeguro(original) {
   return `${raiz || 'arquivo'}${ext}`;
 }
 
+const RX_NOME_DE_INSTRUCAO = /^(?:claude\.md|claude\.local\.md|agents\.md|skill\.md|agent\.md)$/i;
+/** Nome de instrução ou configuração (CLAUDE.md, AGENTS.md...) ou oculto: o agente poderia carregá-lo como ordem. Ganha prefixo neutro. */
+function nomeNeutro(nome) {
+  return nome.startsWith('.') || RX_NOME_DE_INSTRUCAO.test(nome) ? `anexo-${nome}` : nome;
+}
+
 /** Grava sem sobrescrever (flag wx; se existir, acrescenta -1, -2...). Devolve o caminho final. */
 function gravaSemSobrescrever(pasta, nome, dados) {
   const ext = path.extname(nome);
@@ -84,4 +90,4 @@ function gravaSemSobrescrever(pasta, nome, dados) {
   throw new Error('Não achei um nome livre para o arquivo.');
 }
 
-module.exports = { lerMultipart, nomeSeguro, gravaSemSobrescrever };
+module.exports = { lerMultipart, nomeSeguro, nomeNeutro, gravaSemSobrescrever };

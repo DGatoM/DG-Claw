@@ -36,7 +36,7 @@ const LIBERADOS = [
   ['GET', '/p/ana/api/arquivos'],
   ['GET', '/p/ana/api/tela'], ['GET', '/p/ana/tela/novnc/vnc.html'],
   ['GET', '/p/ana/api/socorro/estado'],
-  ['GET', '/p/ana/api/provedor'], ['GET', '/p/ana/api/uso'],
+  ['GET', '/p/ana/api/uso'],
   ['GET', '/p/ana/api/chat/mensagens'], ['POST', '/p/ana/api/chat/transcrever'], ['GET', '/p/ana/api/apps'], ['GET', '/p/ana/api/skills'],
   // o prefixo fechado é por segmento: um nome parecido não fecha
   ['GET', '/p/ana/api/cofre-outra-coisa'], ['GET', '/p/ana/api/chaves-api-outra-coisa'],
@@ -127,7 +127,7 @@ test('escopo: trocar a conta de IA pelo painel é fechado (qualquer escrita); a 
       assert.match(r.motivo, /precisa entrar numa conta/, `${m} ${v}`);
     }
   }
-  assert.equal(avalia(COLAB, 'GET', '/p/ana/api/provedor').ok, true);
+  assert.equal(avalia(COLAB, 'GET', '/p/ana/api/provedor').ok, false, 'a leitura traz o link e o código do login');
 });
 
 test('escopo: login da conta do agente é só do dono, em /api/v1 e em /p/, em qualquer método (inclusive ver o link)', () => {

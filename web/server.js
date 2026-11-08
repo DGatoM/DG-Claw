@@ -3,6 +3,7 @@
 // DG Claw Web: login, conversa com os agentes, proxy dos painéis. Node 22, sem dependências.
 
 const fs = require('node:fs');
+const crypto = require('node:crypto');
 const path = require('node:path');
 const http = require('node:http');
 
@@ -18,7 +19,7 @@ const { criarLeitor, paraContainer } = require('./lib/thread');
 const { criarLeitorRollout } = require('./lib/rollout');
 const { criarConversa, RX_CLIENTE_ID } = require('./lib/conversa');
 const { criarComandos } = require('./lib/comandos');
-const { lerMultipart, nomeSeguro, gravaSemSobrescrever } = require('./lib/uploads');
+const { lerMultipart, nomeSeguro, nomeNeutro, gravaSemSobrescrever } = require('./lib/uploads');
 const { abrirStream } = require('./lib/sse');
 const { criarProxy } = require('./lib/proxy');
 const { criarCofreAgente } = require('./lib/cofre-agente');
@@ -707,7 +708,8 @@ function criarServidor(opcoes) {
     vinculaPendencia(agente.slug, sessao, ativ);
     const id = (ativ.permissao && ativ.permissao.id) || (ativ.pergunta && ativ.pergunta.id) || null;
     if (!(await pendenciaEhDele(agente, sessao, id))) { delete copia.permissao; delete copia.pergunta; copia.detalhe = null; }
-    if (copia.motivo && !['login_expirado', 'sem_login'].includes(copia.alerta)) copia.motivo = 'O agente está sem sinal agora.';
+    // O motivo do runner pode citar link ou código de login: o colaborador só fica sabendo que falta conta.
+    if (copia.motivo) copia.motivo = ['login_expirado', 'sem_login'].includes(copia.alerta) ? 'O agente precisa entrar numa conta, e isso é só do dono do DG Claw. Avise o dono.' : 'O agente está sem sinal agora.';
     return copia;
   }
 
@@ -744,7 +746,9 @@ function criarServidor(opcoes) {
     let fechou = false;
     res.on('close', () => { fechou = true; });
     for (;;) {
+      if (!sessaoAindaVale(req, sessao)) return recusaSessaoVelha(res, sessao);
       const t = await conversa.thread(agente);
+      if (!sessaoAindaVale(req, sessao)) return recusaSessaoVelha(res, sessao);
       const novas = t.msgs.filter((x) => x.ep > since);
       const doAgente = novas.some((x) => x.origin === 'agente' && !x.sistema); // aviso de sistema (compactação) não é resposta
       if (doAgente || Date.now() >= fim || fechou) {
@@ -773,6 +777,8 @@ function criarServidor(opcoes) {
     if (since == null || since <= 0) since = Date.now() / 1000 - 60;
     abrirStream({
       req, res, agente, since, log, tickMs: opcoes.tickSseMs,
+      // Colaborador: a cada tique o stream confere a sessão e fecha quando ela deixou de valer (expirou, saiu, foi revogada).
+      valeAinda: ehColab(sessao) ? () => sessaoAindaVale(req, sessao) : null,
       fontes: ehColab(sessao)
         // Colaborador: sem a fonte do foco (é a lista do dono) e com os avisos técnicos trocados por um genérico.
         ? { thread: async (a) => { const t = await conversa.thread(a); return Object.assign({}, t, { avisos: avisosPara(sessao, t.avisos) }); }, atividade: async (a) => atividadePara(sessao, a, await conversa.atividade(a)), versaoJs }
@@ -918,11 +924,15 @@ function criarServidor(opcoes) {
     const legenda = legendaLimpa.texto;
     const r = await conversa.umaVez(agente, 'upload', cid || null, async () => {
       const dia = new Intl.DateTimeFormat('en-CA', { timeZone: config.tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-      const pasta = path.join(agente.home_host, 'uploads', dia);
+      // Colaborador grava numa pasta só dele e com um prefixo aleatório no nome: nunca na pasta dos arquivos do dono.
+      const pasta = souColab
+        ? path.join(agente.home_host, 'uploads', dia, `colaborador-${String(sessao.colaborador_id).replace(/[^A-Za-z0-9_-]/g, '')}`)
+        : path.join(agente.home_host, 'uploads', dia);
+      const nomeEmDisco = nomeNeutro(nomeSeguro(arq.nome));
       let destino;
       try {
         fs.mkdirSync(pasta, { recursive: true, mode: 0o755 });
-        destino = gravaSemSobrescrever(pasta, nomeSeguro(arq.nome), arq.dados);
+        destino = gravaSemSobrescrever(pasta, souColab ? `${crypto.randomBytes(4).toString('hex')}-${nomeEmDisco}` : nomeEmDisco, arq.dados);
       } catch (e) {
         log('erro', `Upload para ${agente.slug}: não gravei em ${pasta} (${e.code || e.message}).`);
         return { status: 500, corpo: { ok: false, erro: `Não consegui gravar o arquivo em ${pasta} (${e.code || e.message}). Confira espaço em disco e permissão da pasta do agente.` } };

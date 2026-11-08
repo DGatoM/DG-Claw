@@ -193,3 +193,73 @@ test('achado 3: colaborador revogado no meio do corpo não conclui a /permissao'
     assert.equal(s.rAna.rec.permissoes.length, 0);
   } finally { await s.fechar(); }
 });
+
+// ── 6ª rodada ──
+test('rodada 6, achado 1: o colaborador não lê /api/provedor (traz link e código de login); a atividade não leva o motivo do runner', async () => {
+  const { avaliar } = require('../lib/escopo');
+  const COLAB = { papel: 'colaborador', agente: 'ana', colaborador_id: 'c1', usuario: 'm@x.com' };
+  for (const m of ['GET', 'HEAD', 'POST']) {
+    for (const p of ['/p/ana/api/provedor', '/p/ana/api/provedor/', '/p/ana/api/provedor/login', '/p/ana/API/Provedor/login']) {
+      const r = avaliar(COLAB, m, p, p);
+      assert.equal(r.ok, false, `${m} ${p}`); assert.match(r.motivo, /precisa entrar numa conta/);
+    }
+  }
+  const s = await cenario({ runnerAna: { status: 'errored', statusReason: 'runner:sem-login', erroEstado: 'abra https://claude.ai/oauth/authorize?code=segredo-de-teste' } });
+  try {
+    const x = await colaboradorAtivo(s);
+    const txt = await lerStreamAna(s.t.porta, cookieDe(x.c), 800);
+    assert.match(txt, /sem_login/);
+    assert.doesNotMatch(txt, /oauth|segredo-de-teste/);
+  } finally { await s.fechar(); }
+});
+
+function lerStreamAna(porta, cookie, ms) {
+  return new Promise((resolve) => {
+    let txt = '';
+    const req = http.get({ host: '127.0.0.1', port: porta, path: '/api/v1/agents/ana/stream', headers: { Cookie: cookie, Accept: 'text/event-stream' } }, (res) => {
+      res.setEncoding('utf8');
+      res.on('data', (d) => { txt += d; });
+      res.on('end', () => resolve(txt));
+      setTimeout(() => { req.destroy(); resolve(txt); }, ms);
+    });
+    req.on('error', () => undefined);
+  });
+}
+
+test('rodada 6, achado 2: nome de instrução ganha prefixo neutro (dono e colaborador) e o colaborador grava em pasta própria com prefixo aleatório', async () => {
+  const fs = require('node:fs'); const path = require('node:path');
+  const s = await cenario();
+  try {
+    const x = await colaboradorAtivo(s);
+    const doDono = await s.dono.post('/api/v1/agents/ana/upload', multipart({ legenda: 'a' }, 'CLAUDE.md'));
+    assert.equal(doDono.status, 201, doDono.texto);
+    assert.match(doDono.json.anexo.path, /^\/home\/agente\/uploads\/[\d-]+\/anexo-CLAUDE\.md$/);
+    assert.equal(doDono.json.anexo.nome, 'CLAUDE.md', 'o nome original fica só como metadado');
+    for (const nome of ['agents.md', 'SKILL.md', 'Agent.MD', 'CLAUDE.local.md', '.hidden']) {
+      const r = await s.dono.post('/api/v1/agents/ana/upload', multipart({ legenda: 'a', enviar: '0' }, nome));
+      assert.equal(r.status, 201, nome);
+      assert.doesNotMatch(path.basename(r.json.anexo.path), /^(claude|claude\.local|agents|skill|agent)\.md$/i, nome);
+      assert.doesNotMatch(path.basename(r.json.anexo.path), /^\./, nome);
+    }
+    const doColab = await x.c.post('/api/v1/agents/ana/upload', multipart({ legenda: 'b' }, 'CLAUDE.md'));
+    assert.equal(doColab.status, 201, doColab.texto);
+    assert.match(doColab.json.anexo.path, new RegExp(`^/home/agente/uploads/[\\d-]+/colaborador-${x.id}/[0-9a-f]{8}-anexo-CLAUDE\\.md$`));
+    const emDisco = path.join(s.homeAna, doColab.json.anexo.path.replace('/home/agente/', ''));
+    assert.ok(fs.existsSync(emDisco), 'o arquivo está onde o caminho do anexo diz');
+    assert.ok(s.rAna.rec.inputs.at(-1).text.includes(`[anexo: ${doColab.json.anexo.path}]`), 'o marcador aponta para o caminho certo');
+  } finally { await s.fechar(); }
+});
+
+test('rodada 6, achado 3: o stream e o wait do colaborador fecham quando a sessão deixa de valer, mesmo sem passar pela revogação explícita', async () => {
+  const s = await cenario();
+  try {
+    const x = await colaboradorAtivo(s);
+    const aberto = lerStreamAna(s.t.porta, cookieDe(x.c), 6000);
+    await new Promise((r) => setTimeout(r, 400));
+    const t0 = Date.now();
+    s.t.web.auth.encerraDoColaborador(x.id); // sessão apagada sem fechar nada: expiração, logout ou edição do colaboradores.json
+    const txt = await aberto;
+    assert.match(txt, /event: sessao_encerrada/);
+    assert.ok(Date.now() - t0 < 4000, 'fechou logo, sem esperar o fim do stream');
+  } finally { await s.fechar(); }
+});

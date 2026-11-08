@@ -20,8 +20,8 @@
 // Dentro de /p/<dele>/ ficam FECHADOS (o dono é quem mexe em credencial e em conta):
 //   - o cofre do agente (/api/cofre): são as credenciais que o dono pôs;
 //   - as chaves de API do painel (/api/chaves-api): dão acesso ao painel e nenhuma chave gerencia chaves;
-//   - o login da conta de IA (qualquer método em /api/provedor/login* e em /api/v1/agents/<dele>/login*) e a troca
-//     da conta (escrita em /api/provedor): é só do dono, porque o link de login autentica a conta de quem o abre;
+//   - a conta de IA: /api/provedor* inteiro (até a leitura, que traz o link e o código do login) e
+//     /api/v1/agents/<dele>/login*, em qualquer método: é só do dono, porque o link de login autentica a conta de quem o abre;
 //   - TODA escrita no painel fora da lista de permissão de escritaLiberada(): memória, arquivos, apps, custos, reinício
 //     e rota nova. O painel registra a escrita como do dono, e memória e arquivos viram instrução permanente;
 //   - credencial de canal (token de bot de Telegram, WhatsApp): qualquer escrita em /api/canais, /api/telegram etc.;
@@ -154,7 +154,8 @@ function avaliaPainel(m, p, bruto, meuSlug) {
   const leitura = m === 'GET' || m === 'HEAD';
   if (prefixo(resto, '/api/cofre')) return nega(403, MOTIVO_COFRE, { extra: { error: MOTIVO_COFRE, howToFix: 'Peça ao dono para cadastrar ou trocar a chave.' } });
   if (prefixo(resto, '/api/chaves-api')) return nega(403, MOTIVO_CHAVES_API, { extra: { error: MOTIVO_CHAVES_API } });
-  if ((prefixo(resto, '/api/provedor') && !leitura) || prefixo(resto, '/api/provedor/login')) return nega(403, MOTIVO_CONTA_IA, { extra: { error: MOTIVO_CONTA_IA, howToFix: 'Avise o dono do DG Claw.' } });
+  // /api/provedor inteiro, até a leitura: o GET devolve o link e o código do login em andamento.
+  if (prefixo(resto, '/api/provedor')) return nega(403, MOTIVO_CONTA_IA, { extra: { error: MOTIVO_CONTA_IA, howToFix: 'Avise o dono do DG Claw.' } });
   if (prefixo(resto, '/api/tela/senha')) return nega(403, MOTIVO_SENHA_TELA, { extra: { error: MOTIVO_SENHA_TELA } });
   if (!leitura && ['/api/canais', '/api/canal', '/api/telegram', '/api/whatsapp'].some((b) => prefixo(resto, b))) {
     return nega(403, MOTIVO_CANAL, { extra: { error: MOTIVO_CANAL } });
