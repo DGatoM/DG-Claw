@@ -1751,3 +1751,76 @@ test('vincular: uma passkey existente passa a valer em outro aparelho; alheia é
     assert.notEqual((await outro.get('/api/v1/agents')).status, 401);
   });
 });
+
+// ── o instante em que a sessão trava é gravado no uso (vence) ────────────────────
+test('vence: trava de 1 min, 2 min inativa, painel reinicia com o passkeys.json corrompido: continua 423 e a senha reabre', async () => {
+  const dados = pastaTemp('cad-vence');
+  const relogio = { t: Date.now() };
+  const hash = gerarHash('senha-certa-123');
+  const abre = async () => comTelas(await subirWeb({ env: { DGCLAW_PANEL_PASSWORD_HASH: hash }, opcoesServidor: { dataDir: dados, agora: () => relogio.t } }));
+  let t = await abre();
+  try {
+    const d = pessoa({ t }); await d.login('dono', t.senha);
+    assert.equal((await d.cadastra(aparelhoFalso(), 'iPhone')).status, 201);
+    assert.equal((await d.pedir('PUT', '/api/v1/cadeado/ajustes', { json: { trava_min: 1 } })).status, 200);
+    const cookieAp = d.jar.dgclaw_aparelho; const sessao = d.jar.dgclaw_sessao;
+    relogio.t += 2 * MIN;
+    assert.equal((await d.get('/api/v1/lembretes')).status, 423);
+    await t.web.cadeado.aguardar(); await t.fechar();
+    fs.writeFileSync(path.join(dados, 'passkeys.json'), '{"passkeys": [oops'); // os ajustes (1 min) se perdem junto
+    t = await abre();
+    const volta = pessoa({ t });
+    volta.jar.dgclaw_sessao = sessao;
+    assert.equal((await volta.get('/api/v1/lembretes')).status, 423, 'o bloqueio já vencido não se desfaz');
+    // a senha continua reabrindo: a sessão nova nasce destravada
+    const nova = pessoa({ t });
+    nova.jar.dgclaw_aparelho = cookieAp;
+    await nova.login('dono', t.senha);
+    assert.notEqual((await nova.get('/api/v1/lembretes')).status, 423);
+  } finally { await t.fechar(); }
+});
+
+test('vence: o celular já vencido não é destravado quando o computador aumenta o tempo; só Face ID ou senha reabrem', async () => {
+  const s = await cenario();
+  await verde(s, async () => {
+    const celular = pessoa(s); await celular.login('dono', s.t.senha);
+    const apCel = aparelhoFalso(); assert.equal((await celular.cadastra(apCel, 'celular')).status, 201);
+    const pc = pessoa(s); await pc.login('dono', s.t.senha);
+    const apPc = aparelhoFalso(); assert.equal((await pc.cadastra(apPc, 'computador')).status, 201);
+    s.relogio.t += 20 * MIN; // os dois passam dos 15 min
+    assert.equal((await celular.get('/api/v1/lembretes')).status, 423);
+    assert.equal((await pc.destrava(apPc)).status, 200);
+    assert.equal((await pc.pedir('PUT', '/api/v1/cadeado/ajustes', { json: { trava_min: 120 } })).status, 200);
+    assert.equal((await celular.get('/api/v1/lembretes')).status, 423, 'aumentar o tempo não destrava ninguém');
+    assert.equal((await celular.post('/api/v1/cadeado/uso')).status, 423, 'e o /uso de quem já venceu não renova');
+    // o Face ID reabre, já com o tempo novo
+    assert.equal((await celular.destrava(apCel)).status, 200);
+    assert.ok((await celular.get('/api/v1/cadeado/estado')).json.resta_s > 119 * 60);
+    s.relogio.t += 100 * MIN;
+    assert.notEqual((await celular.get('/api/v1/lembretes')).status, 423);
+  });
+});
+
+test('vence: a sessão em uso ganha o prazo novo no próximo /uso (aumentar ou diminuir)', async () => {
+  const s = await cenario();
+  await verde(s, async () => {
+    const celular = pessoa(s); await celular.login('dono', s.t.senha);
+    assert.equal((await celular.cadastra(aparelhoFalso(), 'celular')).status, 201);
+    const pc = pessoa(s); await pc.login('dono', s.t.senha);
+    assert.equal((await pc.cadastra(aparelhoFalso(), 'computador')).status, 201);
+    s.relogio.t += 5 * MIN;
+    assert.equal((await pc.pedir('PUT', '/api/v1/cadeado/ajustes', { json: { trava_min: 120 } })).status, 200);
+    // antes do próximo uso, o celular segue com o prazo antigo (15 min contados do cadastro)
+    assert.ok((await celular.get('/api/v1/cadeado/estado')).json.resta_s <= 10 * 60);
+    const u = await celular.post('/api/v1/cadeado/uso');
+    assert.ok(u.json.resta_s > 119 * 60, 'o próximo uso aplica o tempo novo');
+    s.relogio.t += 100 * MIN;
+    assert.notEqual((await celular.get('/api/v1/lembretes')).status, 423);
+    // diminuir também vale a partir do próximo uso
+    assert.equal((await pc.pedir('PUT', '/api/v1/cadeado/ajustes', { json: { trava_min: 2 } })).status, 200);
+    assert.notEqual((await celular.get('/api/v1/lembretes')).status, 423, 'ninguém é travado de repente');
+    await celular.post('/api/v1/cadeado/uso');
+    s.relogio.t += 3 * MIN;
+    assert.equal((await celular.get('/api/v1/lembretes')).status, 423);
+  });
+});

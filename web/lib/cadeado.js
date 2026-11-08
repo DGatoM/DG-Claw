@@ -130,7 +130,12 @@ function criarCadeado({ config, log, agora, gravaSessoes, encerrarSessao, existe
     try {
       const s = JSON.parse(fs.readFileSync(arqEstado, 'utf8'));
       for (const [k, v] of Object.entries((s && s.sessoes) || {})) {
-        if (/^[0-9a-f]{64}$/.test(k) && v && Number.isFinite(v.uso) && RX_TITULAR.test(String(v.titular))) estados.set(k, v);
+        if (/^[0-9a-f]{64}$/.test(k) && v && Number.isFinite(v.uso) && RX_TITULAR.test(String(v.titular))) {
+          // Com o passkeys.json ilegível o Face ID está indisponível: toda sessão que já estava no estado vale como vencida e só a
+          // senha reabre (a sessão nova, criada pela senha, nasce destravada normalmente).
+          if (falhaCarga) v.vence = 0;
+          estados.set(k, v);
+        }
       }
     } catch (e) {
       if (e.code !== 'ENOENT') log('aviso', `Cadeado: não li ${arqEstado} (${e.code || e.message}). Começo sem sessões destravadas, então cada aparelho com Face ID pede o destravamento de novo.`);
@@ -236,7 +241,7 @@ function criarCadeado({ config, log, agora, gravaSessoes, encerrarSessao, existe
       log('erro', `Cadeado: não consegui gravar a ligação da sessão ao aparelho no registro de sessões. ${manter ? 'A sessão segue travada e a marca fica na memória até a próxima gravação' : 'Nada foi destravado'}. Confira o espaço e a permissão da pasta de dados.`);
       if (!manter) return null;
     }
-    const e = estadoDe(k, titular) || { uso: 0, destravada_em: 0, como: 'vinculo', titular };
+    const e = estadoDe(k, titular) || { uso: 0, destravada_em: 0, vence: 0, como: 'vinculo', titular };
     Object.assign(e, { exige: true, aparelho_hash: apHash, auth: authHash, expira });
     estados.set(k, e);
     return e;
@@ -254,7 +259,7 @@ function criarCadeado({ config, log, agora, gravaSessoes, encerrarSessao, existe
       const marca = authHash && lerMarca ? lerMarca(authHash) : null;
       if (marca) {
         // O auth diz que esta sessão exige o cadeado mas o estado se perdeu: sem registro não há prova de uso recente, então trava.
-        e = Object.assign(e || { uso: 0, destravada_em: 0, como: 'marca', titular }, { exige: true, aparelho_hash: marca.aparelho_hash, auth: authHash, expira: sessao.expira });
+        e = Object.assign(e || { uso: 0, destravada_em: 0, vence: 0, como: 'marca', titular }, { exige: true, aparelho_hash: marca.aparelho_hash, auth: authHash, expira: sessao.expira });
         estados.set(k, e);
         salvaEstado();
       } else {
@@ -264,7 +269,14 @@ function criarCadeado({ config, log, agora, gravaSessoes, encerrarSessao, existe
         salvaEstado();
       }
     }
-    return relogio() - e.uso > travaMin(titular) * 60000;
+    return relogio() > venceDe(e, titular);
+  }
+  /** O instante absoluto em que a sessão trava. Gravado no uso (uso + tempo da época), para que mudar o tempo depois, ou perder
+      os ajustes, não desfaça um bloqueio já vencido. Registro antigo, sem `vence`, é calculado uma vez; com os ajustes
+      ilegíveis vale como vencido. */
+  function venceDe(e, titular) {
+    if (!Number.isFinite(e.vence)) e.vence = falhaCarga ? 0 : e.uso + travaMin(titular) * 60000;
+    return e.vence;
   }
   /** Esta sessão tem cadeado? Presa a um aparelho (exigência no servidor) ou com cookie de aparelho válido do titular. */
   function ligado(req, sessao) {
@@ -279,7 +291,7 @@ function criarCadeado({ config, log, agora, gravaSessoes, encerrarSessao, existe
     if (!titular || !ligado(req, sessao)) return null;
     const e = estadoDe(chaveSessao(req), titular);
     if (!e) return 0;
-    return Math.max(0, Math.floor((travaMin(titular) * 60000 - (relogio() - e.uso)) / 1000));
+    return Math.max(0, Math.floor((venceDe(e, titular) - relogio()) / 1000));
   }
   /** Destrava a sessão `k`. `prender` ({ apHash, authHash, expira }) liga também a sessão ao aparelho. */
   function destrava(k, titular, como, prender) {
@@ -287,7 +299,7 @@ function criarCadeado({ config, log, agora, gravaSessoes, encerrarSessao, existe
     if (prender && !prende(k, titular, prender.apHash, prender.authHash, prender.expira, prender.manter)) return false;
     const t = relogio();
     const e = estadoDe(k, titular) || {};
-    Object.assign(e, { uso: t, destravada_em: t, como, titular });
+    Object.assign(e, { uso: t, destravada_em: t, como, titular, vence: t + travaMin(titular) * 60000 });
     estados.set(k, e);
     salvaEstado();
     return true;
@@ -662,7 +674,9 @@ function criarCadeado({ config, log, agora, gravaSessoes, encerrarSessao, existe
           // O uso conta SEMPRE em memória (senão, com trava curta, quem está usando seria travado); só a gravação em disco
           // é limitada a uma por minuto.
           if (e) {
+            // sessão não vencida (a vencida nem chega aqui): renova com o tempo configurado AGORA
             e.uso = relogio();
+            e.vence = e.uso + travaMin(titular) * 60000;
             if (!(relogio() - (e.gravado || 0) < USO_MIN_MS)) { e.gravado = relogio(); salvaEstado(); }
           }
         }
@@ -798,6 +812,9 @@ function criarCadeado({ config, log, agora, gravaSessoes, encerrarSessao, existe
         }
         confereSessao(req, sessao);
         await altera((c) => { confereSessao(req, sessao); c.ajustes[titular] = Object.assign({}, c.ajustes[titular], { trava_min: v }); });
+        // Mudar o tempo vale a partir do próximo uso de cada sessão (ninguém é destravado por isso); quem muda está usando.
+        const eu = estadoDe(k, titular);
+        if (eu && eu.exige && !travada(req, sessao)) { eu.uso = relogio(); eu.vence = eu.uso + v * 60000; salvaEstado(); }
         log('info', `Cadeado: tempo de trava de ${titular} mudou para ${v} min.`);
         H.enviaJson(res, 200, { ok: true, trava_min: v, estado: estadoPublico(req, sessao) });
         return true;

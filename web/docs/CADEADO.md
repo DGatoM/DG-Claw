@@ -34,7 +34,11 @@ Este documento serve para a pessoa e para o agente que a ajuda. As rotas ficam e
   cria uma sessão já destravada. Serve para aparelho sem biometria, Face ID falhando ou passkey apagada.
 - **O tempo conta uso de verdade.** A tela avisa o servidor quando a pessoa toca, digita ou rola, no máximo uma
   vez a cada 20 segundos. O servidor sempre conta o aviso como uso; só a gravação em disco é limitada a uma por minuto. O que roda em segundo plano (atualizar a conversa, o stream) não conta. O padrão é 15 minutos; a
-  pessoa escolhe de 1 a 120.
+  pessoa escolhe de 1 a 120. A cada uso o servidor grava o instante em que a sessão trava (o uso mais o tempo configurado
+  naquele momento). Mudar o tempo depois vale a partir do próximo uso de cada sessão, para mais ou para menos: não destrava
+  ninguém que já venceu e não trava de repente quem está em uso. Uma sessão vencida só reabre com o Face ID ou com a senha,
+  mesmo que o tempo seja aumentado ou que os ajustes se percam. Com o `passkeys.json` ilegível, toda sessão que já estava no
+  estado vale como vencida e só a senha reabre (a sessão nova, criada pela senha, nasce destravada).
 
 - **Sem rede, a tela também cobre.** Quando o prazo acaba, a própria tela se cobre sem esperar o servidor e só se descobre quando o servidor confirma que a sessão está destravada. Sem conexão, ela avisa que precisa de internet para destravar.
 
