@@ -11,6 +11,7 @@ import zipfile
 
 from detectores import TIPOS, detectar
 from documentos import ErroMotor
+from ooxml import atributo_estrutural
 from tabela import normalizar, sem_acento
 
 _RX_MARCADOR = re.compile(r"\[(" + "|".join(TIPOS) + r")_(\d+)\]")
@@ -45,7 +46,7 @@ def partes(caminho):
                                 blocos.append(el.text)
                             if el.tail and el.tail.strip():
                                 blocos.append(el.tail)
-                            blocos += [v for v in el.attrib.values() if v and not _GUID.match(v)]
+                            blocos += [v for k, v in el.attrib.items() if v and not atributo_estrutural(el, k, v)]
                     saida.append((info.filename, "\n".join(blocos)))
             # O texto bruto da parte, como está no arquivo (comentário XML, instrução de processamento, atributo) e com as
             # entidades resolvidas (&#x31; vira 1): o dado pode estar em qualquer um dos dois.

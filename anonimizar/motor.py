@@ -10,6 +10,7 @@ Subcomandos:
 Roda com `python3 -I`: por isso o diretório deste arquivo entra no sys.path explicitamente.
 Nada além de JSON vai para o stdout no `servir`; o log vai para o stderr e nunca leva valor detectado.
 """
+import contextlib
 import importlib.util
 import json
 import os
@@ -84,6 +85,64 @@ def nivel():
     if obter_ner() is not None:
         return "completo"
     return "leitores" if all(tem(m) for m in ("pypdf", "docx", "openpyxl")) else "regex"
+
+
+_TETO = {"ativo": False}
+
+
+def _vm_size_bytes():
+    with open("/proc/self/status") as f:
+        for linha in f:
+            if linha.startswith("VmSize:"):
+                return int(linha.split()[1]) * 1024
+    return 0
+
+
+def _aplicar_teto(extra_mb):
+    import resource
+    _, duro = resource.getrlimit(resource.RLIMIT_AS)
+    novo = _vm_size_bytes() + extra_mb * 1024 * 1024
+    if duro != resource.RLIM_INFINITY:
+        novo = min(novo, duro)
+    resource.setrlimit(resource.RLIMIT_AS, (novo, duro))
+
+
+@contextlib.contextmanager
+def teto_de_memoria(extra_mb=None):
+    """Teto de memória virtual (RLIMIT_AS) para LER e GRAVAR documento: o tamanho de agora mais `extra_mb` (padrão 3072).
+
+    Documento malicioso (planilha com milhões de células, XML enorme) vira MemoryError em vez de derrubar a VPS.
+    O detector de nomes (torch) não passa por aqui: ver `sem_teto`. Sem /proc ou sem RLIMIT_AS (outro sistema), segue sem teto.
+    """
+    extra = extra_mb or int(os.environ.get("DGCLAW_ANON_TETO_MB", "3072"))
+    try:
+        import resource
+        antes = resource.getrlimit(resource.RLIMIT_AS)
+        _aplicar_teto(extra)
+    except (ImportError, OSError, ValueError, AttributeError):
+        yield
+        return
+    _TETO.update(ativo=True, extra=extra)
+    try:
+        yield
+    finally:
+        _TETO["ativo"] = False
+        resource.setrlimit(resource.RLIMIT_AS, antes)
+
+
+@contextlib.contextmanager
+def sem_teto():
+    """Solta o teto enquanto o detector de nomes roda (o torch reserva muito espaço virtual) e o refaz depois."""
+    if not _TETO["ativo"]:
+        yield
+        return
+    import resource
+    antes = resource.getrlimit(resource.RLIMIT_AS)
+    resource.setrlimit(resource.RLIMIT_AS, (resource.RLIM_INFINITY if antes[1] == resource.RLIM_INFINITY else antes[1], antes[1]))
+    try:
+        yield
+    finally:
+        _aplicar_teto(_TETO["extra"])
 
 
 def erro(codigo, mensagem):
@@ -223,71 +282,78 @@ def op_anonimizar(req):
     sessao = Sessao(tabela, _opcoes(req), ner)
     pref = base + ".anon"
     arquivos = []   # (nome_final, grava)
+    preparar = sessao.preparar
+
+    def preparar_sem_teto(*a, **k):
+        with sem_teto():
+            return preparar(*a, **k)
+    sessao.preparar = preparar_sem_teto
     try:
-        if ext in (".txt", ".md", ".csv"):
-            texto = docs.ler_texto(entrada)
-            sessao.preparar(texto)
-            arquivos.append((pref + (".csv" if ext == ".csv" else ".md"), _escreve(sessao.trocar(texto))))
-        elif ext == ".json":
-            texto = docs.ler_texto(entrada)
-            try:
-                obj = json.loads(texto)
-            except ValueError:
-                avisos.append("O arquivo '%s' não é um JSON válido; foi tratado como texto simples." % nome)
+        with teto_de_memoria():
+            if ext in (".txt", ".md", ".csv"):
+                texto = docs.ler_texto(entrada)
+                sessao.preparar(texto)
+                arquivos.append((pref + (".csv" if ext == ".csv" else ".md"), _escreve(sessao.trocar(texto))))
+            elif ext == ".json":
+                texto = docs.ler_texto(entrada)
+                try:
+                    obj = json.loads(texto)
+                except ValueError:
+                    avisos.append("O arquivo '%s' não é um JSON válido; foi tratado como texto simples." % nome)
+                    sessao.preparar(texto)
+                    arquivos.append((pref + ".md", _escreve(sessao.trocar(texto))))
+                else:
+                    sessao.preparar("\n".join(docs.json_strings(obj)))
+                    novo = json.dumps(docs.json_mapear(obj, sessao.trocar, sessao.numero_para_marcador), ensure_ascii=False, indent=2) + "\n"
+                    arquivos.append((pref + ".json", _escreve(novo)))
+            elif ext == ".pdf":
+                texto = docs.pdf_texto(entrada, nome)
                 sessao.preparar(texto)
                 arquivos.append((pref + ".md", _escreve(sessao.trocar(texto))))
-            else:
-                sessao.preparar("\n".join(docs.json_strings(obj)))
-                novo = json.dumps(docs.json_mapear(obj, sessao.trocar, sessao.numero_para_marcador), ensure_ascii=False, indent=2) + "\n"
-                arquivos.append((pref + ".json", _escreve(novo)))
-        elif ext == ".pdf":
-            texto = docs.pdf_texto(entrada, nome)
-            sessao.preparar(texto)
-            arquivos.append((pref + ".md", _escreve(sessao.trocar(texto))))
-        elif ext == ".docx":
-            conteudo, attr_ner, attr_regex = ooxml.textos_para_deteccao(entrada, nome)
-            sessao.preparar("\n".join(conteudo + attr_ner))
-            sessao.preparar("\n".join(attr_regex), ner=False)
-            tmp_docx = tempfile.mkdtemp(prefix=".anon-docx-")
-            try:
-                caminho_docx = os.path.join(tmp_docx, "x.docx")
-                ooxml.reescrever(entrada, caminho_docx, nome, sessao.encontrar, avisos)
-                md = docs.docx_para_md(caminho_docx)
-                with open(caminho_docx, "rb") as f:
-                    dados = f.read()
-            finally:
-                _limpar(tmp_docx)
-            arquivos.append((pref + ".docx", lambda c, d=dados: _grava_bytes(c, d)))
-            arquivos.append((pref + ".md", _escreve(md)))
-        elif ext == ".xlsx":
-            wb = docs.xlsx_abrir(entrada, nome)
-            avisos += docs.xlsx_avisos(wb, nome)
-            conteudo, attr_ner, attr_regex = ooxml.textos_para_deteccao(entrada, nome, so_nao_celulas=True)
-            sessao.preparar("\n".join(docs.xlsx_textos(wb) + conteudo + attr_ner))
-            sessao.preparar("\n".join(attr_regex), ner=False)
-            formulas = docs.xlsx_transformar(wb, sessao)
-            if formulas:
-                avisos.append("%d fórmula(s) de '%s' levavam dado pessoal e foram trocadas pelo texto com marcador." % (formulas, nome))
-            sessao.contando = False
-            csvs = docs.xlsx_csvs(entrada, nome, wb, sessao)
-            tmp_x = tempfile.mkdtemp(prefix=".anon-xlsx-")
-            try:
-                parcial, final = os.path.join(tmp_x, "a.xlsx"), os.path.join(tmp_x, "b.xlsx")
-                wb.save(parcial)
-                ooxml.reescrever(parcial, final, nome, sessao.encontrar, avisos, so_nao_celulas=True)
-                with open(final, "rb") as f:
-                    dados = f.read()
-            finally:
-                _limpar(tmp_x)
-            arquivos.append((pref + ".xlsx", lambda c, d=dados: _grava_bytes(c, d)))
-            for n, conteudo_csv in enumerate(csvs, 1):
-                arquivos.append((pref + (".csv" if len(csvs) == 1 else ".%d.csv" % n), _escreve(conteudo_csv)))
+            elif ext == ".docx":
+                conteudo, attr_ner, attr_regex = ooxml.textos_para_deteccao(entrada, nome)
+                sessao.preparar("\n".join(conteudo + attr_ner))
+                sessao.preparar("\n".join(attr_regex), ner=False)
+                tmp_docx = tempfile.mkdtemp(prefix=".anon-docx-")
+                try:
+                    caminho_docx = os.path.join(tmp_docx, "x.docx")
+                    ooxml.reescrever(entrada, caminho_docx, nome, sessao.encontrar, avisos)
+                    md = docs.docx_para_md(caminho_docx)
+                    with open(caminho_docx, "rb") as f:
+                        dados = f.read()
+                finally:
+                    _limpar(tmp_docx)
+                arquivos.append((pref + ".docx", lambda c, d=dados: _grava_bytes(c, d)))
+                arquivos.append((pref + ".md", _escreve(md)))
+            elif ext == ".xlsx":
+                wb = docs.xlsx_abrir(entrada, nome)
+                avisos += docs.xlsx_avisos(wb, nome)
+                conteudo, attr_ner, attr_regex = ooxml.textos_para_deteccao(entrada, nome, so_nao_celulas=True)
+                sessao.preparar("\n".join(docs.xlsx_textos(wb) + conteudo + attr_ner))
+                sessao.preparar("\n".join(attr_regex), ner=False)
+                formulas = docs.xlsx_transformar(wb, sessao)
+                if formulas:
+                    avisos.append("%d fórmula(s) de '%s' levavam dado pessoal e foram trocadas pelo texto com marcador." % (formulas, nome))
+                sessao.contando = False
+                csvs = docs.xlsx_csvs(entrada, nome, wb, sessao)
+                tmp_x = tempfile.mkdtemp(prefix=".anon-xlsx-")
+                try:
+                    parcial, final = os.path.join(tmp_x, "a.xlsx"), os.path.join(tmp_x, "b.xlsx")
+                    wb.save(parcial)
+                    ooxml.reescrever(parcial, final, nome, sessao.encontrar, avisos, so_nao_celulas=True)
+                    with open(final, "rb") as f:
+                        dados = f.read()
+                finally:
+                    _limpar(tmp_x)
+                arquivos.append((pref + ".xlsx", lambda c, d=dados: _grava_bytes(c, d)))
+                for n, conteudo_csv in enumerate(csvs, 1):
+                    arquivos.append((pref + (".csv" if len(csvs) == 1 else ".%d.csv" % n), _escreve(conteudo_csv)))
 
-        def verifica(caminhos):
-            verificacao.verificar(caminhos, sessao.detectados, nome)
-            return verificacao.marcadores_usados(caminhos)
+            def verifica(caminhos):
+                verificacao.verificar(caminhos, sessao.detectados, nome)
+                return verificacao.marcadores_usados(caminhos)
 
-        usados = _gravar_atomico(saida_dir, arquivos, verifica)
+            usados = _gravar_atomico(saida_dir, arquivos, verifica)
     except ner_gliner.ErroNer as e:
         raise ErroMotor(e.codigo, e.mensagem) from None
     caminhos = [{"caminho": os.path.join(saida_dir, n), "formato": n.rsplit(".", 1)[1]} for n, _ in arquivos]
@@ -328,7 +394,13 @@ def op_reverter(req):
     tmp = tempfile.mkdtemp(prefix=".rev-", dir=destino_dir)
     tmp_arq = os.path.join(tmp, "saida")
     try:
-        if ext in (".txt", ".md"):
+        if ext == ".md":
+            # HTML cru do agente (<style>, <script>, <iframe>, <svg>...) vira texto antes de qualquer dado real entrar
+            texto_md, desativou = docs.neutralizar_html_md(docs.ler_texto(entrada))
+            if desativou:
+                avisos_rev.append("O HTML escrito pelo agente em '%s' foi desativado (cada '<' virou '&lt;') antes de trazer os dados reais de volta." % nome)
+            docs.escrever_texto(tmp_arq, rev.reverter(texto_md))
+        elif ext == ".txt":
             docs.escrever_texto(tmp_arq, rev.reverter(docs.ler_texto(entrada)))
         elif ext == ".csv":
             docs.escrever_texto(tmp_arq, docs.csv_mapear(docs.ler_texto(entrada), lambda c: docs.csv_inerte(rev.reverter(c))))

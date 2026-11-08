@@ -26,6 +26,30 @@ ATRIBUTOS_HUMANOS = {"author", "initials", "descr", "title", "alt", "Target", "d
 # Carimbos de criação/alteração do arquivo: não são dado do documento; saem zerados da saída.
 CARIMBOS_DE_TEMPO = {"created", "modified", "lastPrinted"}
 GUID = re.compile(r"^\{?[0-9A-Fa-f]{8}(-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}\}?$")
+NS_W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+
+
+def atributo_estrutural(el, chave, valor):
+    """True só para atributo de estrutura do Office cujo valor tem cara de GUID (w14:paraId, w:rsid*, xr:uid, fmtid, uri...).
+
+    Qualquer outro atributo com cara de UUID (w:tooltip, title, descr...) passa pelo detector de chave PIX.
+    """
+    if not GUID.match(valor):
+        return False
+    ns, local = (chave[1:].split("}", 1) if chave.startswith("{") else ("", chave))
+    pai = el.tag.split("}")[-1] if isinstance(el.tag, str) else ""
+    if ns == NS_W and local.startswith("rsid"):
+        return True
+    if local in ("paraId", "textId") and ns.startswith("http://schemas.microsoft.com/office/word/"):
+        return True
+    if local == "uid" and ns.startswith("http://schemas.microsoft.com/office/spreadsheetml/") and "revision" in ns:
+        return True
+    if local == "itemID" and pai == "datastoreItem" and ns.endswith("/customXml"):
+        return True
+    if ns == "" and ((local == "fmtid" and pai == "property") or (local == "uri" and pai == "ext")):
+        return True
+    return local == "val" and pai in ("docId", "persistentDocumentId") and ns.startswith("http://schemas.microsoft.com/office/word/")
+
 TIPOS_REL_EXTERNOS_REMOVIDOS = {"image", "oleObject", "externalLink", "attachedTemplate", "frame", "audio", "video", "package", "vbaProject"}
 SUBIR_ATE = {"drawing", "pict", "object", "pic", "oleObj", "control", "legacyDrawing", "legacyDrawingHF", "externalReference",
              "picture", "graphicFrame", "oneCellAnchor", "twoCellAnchor", "absoluteAnchor"}
@@ -44,8 +68,10 @@ def eh_xml(nome):
     return nome.endswith((".xml", ".rels", ".vml"))
 
 
+ELEMENTOS_INTEIROS = {"conditionalFormatting", "extLst", "sparklineGroups"}
 ELEMENTOS_DE_FORMULA = {"f", "calculatedColumnFormula", "totalsRowFormula", "formula", "formula1", "formula2", "definedNames", "definedName"}
-_RX_FORMULA_BRUTA = re.compile(r"<(?:[\w.-]+:)?(?:" + "|".join(sorted(ELEMENTOS_DE_FORMULA)) + r")(?=[\s>/])")
+_RX_FORMULA_BRUTA = re.compile(r"<(?:[\w.-]+:)?(?:" + "|".join(sorted(ELEMENTOS_DE_FORMULA | ELEMENTOS_INTEIROS)) + r")(?=[\s>/])"
+                               r"|\btype\s*=\s*[\"']formula[\"']")
 _PARTES_ATIVAS = ("vbaproject", "externallinks/", "/querytables/", "/pivotcache", "/connections.xml", "/charts/", "/webextensions/")
 
 
@@ -154,7 +180,7 @@ def textos_para_deteccao(caminho, nome, so_nao_celulas=False):
                 if el not in tratados and el.text and el.text.strip() and not (so_nao_celulas and _ignora_texto(f, el)):
                     conteudo.append(el.text.strip())
                 for k, v in el.attrib.items():
-                    if len(v) >= 6 and not GUID.match(v):
+                    if len(v) >= 6 and not atributo_estrutural(el, k, v):
                         (attr_ner if k.split("}")[-1] in ATRIBUTOS_HUMANOS else attr_regex).add(v)
     return conteudo, sorted(attr_ner), sorted(attr_regex)
 
@@ -240,7 +266,13 @@ def reescrever(entrada, saida, nome, encontrar, avisos, so_nao_celulas=False, se
 def _tirar_formulas(raiz):
     """Tira todo elemento que carrega fórmula. Validação de dados e formatação condicional ficam sem a regra inteira."""
     for el in list(raiz.iter()):
-        if not isinstance(el.tag, str) or el.getparent() is None or el.tag.split("}")[-1] not in ELEMENTOS_DE_FORMULA:
+        if not isinstance(el.tag, str) or el.getparent() is None:
+            continue
+        local = el.tag.split("}")[-1]
+        if local in ELEMENTOS_INTEIROS or el.get("type") == "formula":
+            el.getparent().remove(el)
+            continue
+        if local not in ELEMENTOS_DE_FORMULA:
             continue
         pai = el.getparent()
         if pai.tag.split("}")[-1] in ("dataValidation", "cfRule") and pai.getparent() is not None:
@@ -287,8 +319,8 @@ def _tirar_referencias(raiz, rids):
                 p.getparent().remove(p)
 
 
-def _filtrar_attr_valor(v, nome_attr, encontrar):
-    if len(v) < 6 or GUID.match(v):
+def _filtrar_attr_valor(v, nome_attr, encontrar, el=None):
+    if len(v) < 6 or (el is not None and atributo_estrutural(el, nome_attr, v)):
         return v
     trocas = encontrar(v, True)
     return distribuir([v], trocas)[0] if trocas else v
@@ -298,7 +330,7 @@ def _filtrar_atributos(raiz, nome, encontrar):
     for el in raiz.iter():
         if isinstance(el.tag, str):
             for k, v in list(el.attrib.items()):
-                novo = _filtrar_attr_valor(v, k, encontrar)
+                novo = _filtrar_attr_valor(v, k, encontrar, el)
                 if novo != v:
                     el.set(k, novo)
 
@@ -329,6 +361,6 @@ def _filtrar_parte(raiz, nome, encontrar, so_nao_celulas):
             if trocas:
                 el.tail = distribuir([el.tail], trocas)[0]
         for k, v in list(el.attrib.items()):
-            novo = _filtrar_attr_valor(v, k, encontrar)
+            novo = _filtrar_attr_valor(v, k, encontrar, el)
             if novo != v:
                 el.set(k, novo)

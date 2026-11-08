@@ -276,19 +276,40 @@ def xlsx_abrir(caminho, nome, **kw):
     openpyxl = _importar("openpyxl", "openpyxl", nome)
     abrir_zip(caminho, nome).close()
     try:
-        return openpyxl.load_workbook(caminho, **kw)
+        wb = openpyxl.load_workbook(caminho, **kw)
+        conferir_tamanho(wb, nome)
+        return wb
+    except ErroMotor:
+        raise
     except Exception as e:
         raise ErroMotor("arquivo_invalido", "Não consegui abrir a planilha '%s' (%s). Abra e salve de novo no Excel, depois envie."
                         % (nome, type(e).__name__)) from None
 
 
+MAX_CELULAS = 2_000_000
+MAX_LINHAS = 200_000
+
+
+def celulas_existentes(ws):
+    """Só as células que existem no arquivo, em ordem. Nunca percorre o retângulo da dimensão (A1 e XFD1048576 são 17 bilhões)."""
+    return sorted(ws._cells.values(), key=lambda c: (c.row, c.column))
+
+
+def conferir_tamanho(wb, nome):
+    for ws in wb.worksheets:
+        existentes, linhas, colunas = len(ws._cells), ws.max_row or 0, ws.max_column or 0
+        if existentes > MAX_CELULAS or linhas > MAX_LINHAS or linhas * colunas > MAX_CELULAS:
+            raise ErroMotor("planilha_grande", "A aba '%s' da planilha '%s' é grande demais para anonimizar (%d células com valor, %d linhas, %d colunas; "
+                            "o limite é %d células, %d linhas e %d células no retângulo da aba). Apague as linhas e colunas vazias ou divida a planilha em partes."
+                            % ("(aba %d)" % (wb.worksheets.index(ws) + 1), nome, existentes, linhas, colunas, MAX_CELULAS, MAX_LINHAS, MAX_CELULAS))
+
+
 def xlsx_celulas(wb):
     """Todas as células com valor."""
     for ws in wb.worksheets:
-        for linha in ws.iter_rows():
-            for c in linha:
-                if c.value is not None:
-                    yield c
+        for c in celulas_existentes(ws):
+            if c.value is not None:
+                yield c
 
 
 def _eh_numero(c):
@@ -314,10 +335,9 @@ def texto_da_formula(v):
 def cabecalhos(ws):
     """Coluna -> primeiro texto das 3 primeiras linhas (contexto de CPF, telefone, conta...)."""
     cab = {}
-    for linha in ws.iter_rows(min_row=1, max_row=3):
-        for c in linha:
-            if isinstance(c.value, str) and c.value.strip() and c.column not in cab:
-                cab[c.column] = c.value
+    for c in celulas_existentes(ws):
+        if c.row <= 3 and isinstance(c.value, str) and c.value.strip() and c.column not in cab:
+            cab[c.column] = c.value
     return cab
 
 
@@ -374,14 +394,13 @@ def xlsx_transformar(wb, sessao):
         novos[ws.title] = _titulo_seguro(sessao.trocar(ws.title), usados)
     mudaram = {a: b for a, b in novos.items() if a != b}
     for ws in wb.worksheets:   # as fórmulas passam a apontar para o nome novo antes de qualquer outra coisa
-        for linha in ws.iter_rows():
-            for c in linha:
-                if c.data_type == "f" and isinstance(c.value, str):
-                    for velho, novo in mudaram.items():
-                        c.value = c.value.replace("'%s'!" % velho, "'%s'!" % novo).replace(velho + "!", novo + "!")
-                elif c.data_type == "f" and hasattr(c.value, "text") and isinstance(c.value.text, str):
-                    for velho, novo in mudaram.items():
-                        c.value.text = c.value.text.replace("'%s'!" % velho, "'%s'!" % novo).replace(velho + "!", novo + "!")
+        for c in celulas_existentes(ws):
+            if c.data_type == "f" and isinstance(c.value, str):
+                for velho, novo in mudaram.items():
+                    c.value = c.value.replace("'%s'!" % velho, "'%s'!" % novo).replace(velho + "!", novo + "!")
+            elif c.data_type == "f" and hasattr(c.value, "text") and isinstance(c.value.text, str):
+                for velho, novo in mudaram.items():
+                    c.value.text = c.value.text.replace("'%s'!" % velho, "'%s'!" % novo).replace(velho + "!", novo + "!")
     for ws in wb.worksheets:
         ws.title = novos[ws.title]
     formulas = 0
@@ -437,10 +456,9 @@ def xlsx_transformar(wb, sessao):
 
 
 def xlsx_celulas_da_aba(ws):
-    for linha in ws.iter_rows():
-        for c in linha:
-            if c.value is not None:
-                yield c
+    for c in celulas_existentes(ws):
+        if c.value is not None:
+            yield c
 
 
 def xlsx_reverter(wb, valores, encontrar):
@@ -471,6 +489,36 @@ def xlsx_reverter(wb, valores, encontrar):
         for nome in list(ws.defined_names):
             del ws.defined_names[nome]
     wb._external_links = []
+
+
+_RX_CERCA = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+_RX_CODIGO_INLINE = re.compile(r"(`+)(?:(?!\1).)+?\1")
+
+
+def neutralizar_html_md(texto):
+    """HTML cru do markdown (fora de bloco e de trecho de código) é desativado: todo "<" vira "&lt;". Devolve (texto, mudou)."""
+    saida, cerca, mudou = [], None, False
+    for linha in texto.split("\n"):
+        m = _RX_CERCA.match(linha)
+        if cerca is None and m:
+            cerca = m.group(1)[0]
+            saida.append(linha)
+            continue
+        if cerca is not None:
+            if m and m.group(1)[0] == cerca:
+                cerca = None
+            saida.append(linha)
+            continue
+        partes, pos = [], 0
+        for c in _RX_CODIGO_INLINE.finditer(linha):
+            partes.append(linha[pos:c.start()].replace("<", "&lt;"))
+            partes.append(c.group(0))
+            pos = c.end()
+        partes.append(linha[pos:].replace("<", "&lt;"))
+        nova = "".join(partes)
+        mudou = mudou or nova != linha
+        saida.append(nova)
+    return "\n".join(saida), mudou
 
 
 def csv_inerte(celula):
