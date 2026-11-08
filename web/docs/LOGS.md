@@ -20,7 +20,10 @@ existe aparece sozinho.
   agente comprometido pode reescrever a própria casa. Para auditoria séria, use também os logs do sistema.
 - O texto sai mascarado (chaves de API, tokens, senhas em linha de comando, cabeçalhos de autorização e o valor inteiro dos cabeçalhos
   Authorization, Proxy-Authorization, X-Api-Key, Cookie e Set-Cookie, até o fim da linha, e o valor de flags e atribuições
-  até a aspa de fechamento ou o fim da linha, viram `[segredo oculto]`, sem deixar pedaço do valor). A máscara pega formatos conhecidos: um segredo fora desses formatos passa.
+  até a aspa de fechamento ou o fim da linha, viram `[segredo oculto]`, sem deixar pedaço do valor, e `\"` dentro de um valor entre aspas não o fecha). Objetos vindos do log (entradas de
+  ferramenta, argumentos) trocam por `[segredo oculto]` o valor de toda chave com nome de segredo (password, token, secret,
+  authorization, cookie, chave, credential e parecidos), em qualquer nível e também dentro de texto que contém JSON, com limite
+  de profundidade, de chaves e de tamanho). A máscara pega formatos conhecidos: um segredo fora desses formatos passa.
 - Pensamento do modelo (`thinking` e `reasoning`) não é exibido.
 - Arquivos de uma sessão ainda em andamento: a última linha, se estiver incompleta, é ignorada até terminar de ser gravada.
 
@@ -134,8 +137,9 @@ Resposta:
 - Formato do Codex: cada linha é decidida pelos campos estruturais (`type` e `payload.type`), nunca por busca de texto, e os
   dois formatos (`item_completed` e `response_item`) valem no mesmo arquivo. A mesma ação costuma estar nos dois, e a
   repetição só é descartada com correspondência inequívoca: o mesmo id (`call_id` igual ao id do item) ou a mesma classe com o
-  mesmo conteúdo normalizado, um para um, dentro da janela (mensagens: papel e texto, 5 segundos; comandos: o texto do comando
-  com espaços colapsados e maiúsculas preservadas, 3 segundos). Fica a primeira linha vista na leitura de trás para frente.
+  conteúdo original idêntico por inteiro (comparado por sha256 do texto completo, antes da máscara e de qualquer corte, sem
+  normalizar espaço, caixa nem tamanho), um para um, dentro da janela (mensagens 5 segundos, comandos 3 segundos). Só o hash
+  fica na memória. Fica a primeira linha vista na leitura de trás para frente.
   Qualquer dúvida mantém os dois eventos, porque num log de auditoria é melhor sobrar repetição do que faltar uma ação.
   Por isso o `exec` do Codex (um trecho de JavaScript que pode chamar várias ferramentas) só se junta ao comando quando contém
   uma única chamada de comando com o texto extraível; nos demais casos aparecem o `exec` e os itens que ele gerou, e ferramentas

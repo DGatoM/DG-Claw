@@ -100,18 +100,42 @@ for (const ordem of ['ri-antes', 'ic-antes']) {
     assert.deepEqual(ids, r.eventos.map((e) => e.id));
   });
 
-  test(`Codex: a duplicata verdadeira (${ordem}) continua colapsando, com texto igual e espaços diferentes`, async () => {
+  test(`Codex: duplicata idêntica (${ordem}) colapsa; qualquer diferença no texto, até de espaço ou de caixa, mantém os dois`, async () => {
     const c = casa();
-    const a = cmdRI(5000, 'rm -rf   /workspace/dados', 'call_1');
+    const a = cmdRI(5000, 'rm -rf /workspace/dados', 'call_1');
     const b = cmdIC(5050, 'rm -rf /workspace/dados', 'exec-2');
-    const outro = cmdIC(5060, 'rm -rf /Workspace/Dados', 'exec-3');
-    rollout(c, [{ timestamp: iso(0), type: 'session_meta', payload: { id: U(2) } }, ...(ordem === 'ri-antes' ? [a, b] : [b, a]), outro]);
+    const x = cmdRI(7000, "rm -rf -- '/workspace/cliente  A'", 'call_3');
+    const y = cmdIC(7050, "rm -rf -- '/workspace/cliente A'", 'exec-4');
+    const m = cmdRI(9000, 'rm -rf /Workspace/Dados', 'call_5');
+    const n = cmdIC(9050, 'rm -rf /workspace/dados', 'exec-6');
+    const par = (p, q) => (ordem === 'ri-antes' ? [p, q] : [q, p]);
+    rollout(c, [{ timestamp: iso(0), type: 'session_meta', payload: { id: U(2) } }, ...par(a, b), ...par(x, y), ...par(m, n)]);
     const l = criarLeitor();
     const r = await l.eventos(c.ag, { limite: 50, cursor: null });
-    assert.deepEqual(comandos(r), ['rm -rf /Workspace/Dados', 'rm -rf /workspace/dados'], 'maiúsculas diferentes são outro comando');
+    assert.deepEqual(comandos(r), [
+      "rm -rf -- '/workspace/cliente A'", "rm -rf -- '/workspace/cliente A'", 'rm -rf /Workspace/Dados', 'rm -rf /workspace/dados', 'rm -rf /workspace/dados',
+    ], 'a idêntica vira uma; o espaço duplo e a caixa diferente ficam as duas');
+    assert.equal(r.eventos.filter((e) => e.tipo === 'comando').length, 5);
     assert.deepEqual(await paginado(l, c.ag, 1), r.eventos.map((e) => e.id));
   });
-}
+
+  test(`Codex: mensagens que só diferem depois do caractere 300 (${ordem}) ficam as duas; a idêntica colapsa`, async () => {
+    const c = casa();
+    const base = 'início comum '.repeat(30);   // mais de 300 caracteres
+    const ri1 = ri(1000, { type: 'message', role: 'user', content: [{ type: 'input_text', text: `${base}final A` }] });
+    const ic1 = ic(1040, { type: 'UserMessage', content: [{ type: 'text', text: `${base}final B` }] });
+    const ri2 = ri(3000, { type: 'message', role: 'user', content: [{ type: 'input_text', text: `${base}igual` }] });
+    const ic2 = ic(3040, { type: 'UserMessage', content: [{ type: 'text', text: `${base}igual` }] });
+    const ri3 = ri(5000, { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Olá  mundo' }] });
+    const ic3 = ic(5040, { type: 'UserMessage', content: [{ type: 'text', text: 'olá mundo' }] });
+    const par = (p, q) => (ordem === 'ri-antes' ? [p, q] : [q, p]);
+    rollout(c, [{ timestamp: iso(0), type: 'session_meta', payload: { id: U(2) } }, ...par(ri1, ic1), ...par(ri2, ic2), ...par(ri3, ic3)]);
+    const l = criarLeitor();
+    const r = await l.eventos(c.ag, { limite: 50, cursor: null });
+    const textos = r.eventos.map((e) => e.texto.replace(base, '#')).sort();
+    assert.deepEqual(textos, ['#final A', '#final B', '#igual', 'Olá  mundo', 'olá mundo']);
+    assert.deepEqual(await paginado(l, c.ag, 1), r.eventos.map((e) => e.id));
+  });}
 
 test('Codex: o mesmo comando duas vezes seguidas só colapsa com o par um para um', async () => {
   const c = casa();
@@ -127,7 +151,7 @@ test('Codex: exec embrulhado só pareia quando o comando isolado se extrai com c
   const c = casa();
   const exec = (ms, input, id) => ri(ms, { type: 'custom_tool_call', name: 'exec', call_id: id, input });
   rollout(c, [
-    exec(1000, 'text(await tools.exec_command({cmd:"ls /workspace",max_output_tokens:6000}));', 'k1'), cmdIC(1010, 'ls  /workspace', 'e1'),       // par: um só
+    exec(1000, 'text(await tools.exec_command({cmd:"ls /workspace",max_output_tokens:6000}));', 'k1'), cmdIC(1010, 'ls /workspace', 'e1'),       // par: um só
     exec(2000, 'await tools.exec_command({cmd:"rm -rf /workspace/dados"});', 'k2'), cmdIC(2010, 'ls /workspace', 'e2'),                     // diferentes: os dois
     exec(3000, 'await tools.reply({chat:"c",text:"oi"}); text(await tools.exec_command({cmd:"pwd"}));', 'k3'), cmdIC(3010, 'pwd', 'e3'),      // embrulho com mais de uma chamada: os dois
     exec(4000, 'await tools.reply({chat:"c",text:"oi"});', 'k4'),
@@ -151,4 +175,79 @@ test('Codex: o mesmo id pareia (correspondência inequívoca), mesmo com texto d
   ]);
   const r = await criarLeitor().eventos(c.ag, { limite: 50, cursor: null });
   assert.equal(r.eventos.length, 1);
+});
+
+// ── aspa escapada e objetos com chave sensível ──────────────────────────────
+const ESCAPADOS = [
+  `app --password "prefixo\\"${SUF}" depois`,
+  `app --token 'prefixo\\'${SUF}' depois`,
+  `app --secret "a\\\\\\"${SUF}" depois`,
+  `app --api-key="a b \\" c ${SUF}" depois`,
+  `senha="a\\"${SUF}" depois`,
+  `chave: "a b \\" c ${SUF}" depois`,
+  `curl -u "usuario:p\\"${SUF}" https://x depois`,
+  `app --password "sem fechamento \\"${SUF}`,
+  `app --password "termina em barra \\`,
+];
+
+test('limpa: aspa escapada não fecha o valor', () => {
+  for (const c of ESCAPADOS) {
+    const r = limpa(c);
+    assert.ok(!r.includes(SUF), `sobrou o sufixo em: ${c} => ${r}`);
+  }
+  assert.match(limpa(ESCAPADOS[0]), /depois$/, 'o que vem depois da aspa de fechamento de verdade fica');
+  assert.match(limpa(`app --token "abre \\" e segue ${SUF}\nlinha seguinte`), /\nlinha seguinte$/, 'sem fechamento, só até o fim da linha');
+});
+
+const K = { a: 'authori' + 'zation', c: 'cook' + 'ie', k: 'cha' + 've', p: 'pass' + 'word', s: 'sec' + 'ret', t: 'to' + 'ken' };
+const objetoComSegredos = () => ({
+  headers: { [K.a]: `Basic x ${SUF}`, 'X-Visivel': 'aparece' },
+  nested: { deep: { deeper: { [K.p]: SUF } } },
+  lista: [{ [K.t]: SUF }, { ok: 'tambem aparece' }],
+  texto: JSON.stringify({ [K.s]: SUF, ok: 1, interno: JSON.stringify({ [K.c]: SUF }) }),
+  comando: `app --password "x\\"${SUF}"`,
+  [K.k]: SUF,
+  cmd: 'ls',
+});
+
+test('objetos do log: valor de chave sensível sai escondido em qualquer nível, inclusive em texto que contém JSON (Claude e Codex)', async () => {
+  const c = casa();
+  const d = path.join(c.home, '.claude', 'projects', '-ws');
+  fs.mkdirSync(d, { recursive: true });
+  const json = JSON.stringify({ [K.t]: SUF, visivel: 'sim' });
+  fs.writeFileSync(path.join(d, `${U(1)}.jsonl`), jl([
+    { type: 'user', timestamp: iso(1000), sessionId: U(1), message: { role: 'user', content: json } },
+    { type: 'assistant', timestamp: iso(2000), sessionId: U(1), message: { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'mcp__x__faz', input: objetoComSegredos() }] } },
+    { type: 'user', timestamp: iso(3000), sessionId: U(1), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: json }] } },
+  ]));
+  const cx = path.join(c.home, '.codex', 'sessions', '2026', '11', '01');
+  fs.mkdirSync(cx, { recursive: true });
+  const item = (ms, i) => ({ timestamp: iso(ms), type: 'event_msg', payload: { type: 'item_completed', item: i } });
+  fs.writeFileSync(path.join(cx, `rollout-x-${U(2)}.jsonl`), jl([
+    item(4000, { type: 'McpToolCall', server: 'x', tool: 'faz', arguments: objetoComSegredos(), status: 'completed', result: { content: [{ type: 'text', text: json }] } }),
+    item(5000, { type: 'CommandExecution', command: ['bash', '-lc', 'cat resposta.json'], exit_code: 0, status: 'completed', aggregated_output: json }),
+    item(6000, { type: 'UserMessage', content: [{ type: 'text', text: json }] }),
+  ]));
+  const l = criarLeitor();
+  const r = await l.eventos(c.ag, { limite: 50, cursor: null });
+  assert.equal(r.eventos.length, 5);
+  const texto = JSON.stringify(r);
+  assert.ok(!texto.includes(SUF), 'nenhum valor sensível na resposta');
+  assert.ok(texto.includes('aparece') && texto.includes('tambem aparece') && texto.includes('visivel'), 'o que não é sensível continua legível');
+  for (const q of [SUF, 'ALHEIO']) assert.equal((await l.eventos(c.ag, { limite: 50, cursor: null, q })).eventos.length, 0, `a busca por ${q} não acha`);
+});
+
+test('objetos do log: profundidade, número de chaves e tamanho limitados, sem erro', async () => {
+  const c = casa();
+  const d = path.join(c.home, '.claude', 'projects', '-ws');
+  fs.mkdirSync(d, { recursive: true });
+  let fundo = { [K.p]: SUF };
+  for (let i = 0; i < 30; i++) fundo = { n: fundo };
+  const largo = Object.fromEntries(Array.from({ length: 1000 }, (_, i) => [`k${i}`, i === 999 ? SUF : 'v']));
+  fs.writeFileSync(path.join(d, `${U(1)}.jsonl`), jl([
+    { type: 'assistant', timestamp: iso(1000), sessionId: U(1), message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'x', input: fundo }, { type: 'tool_use', id: 'b', name: 'y', input: largo }, { type: 'tool_use', id: 'c', name: 'z', input: { ['__proto__']: { x: 1 }, ok: 1 } }] } },
+  ]));
+  const r = await criarLeitor().eventos(c.ag, { limite: 50, cursor: null });
+  assert.equal(r.eventos.length, 3);
+  assert.ok(!JSON.stringify(r).includes(SUF));
 });

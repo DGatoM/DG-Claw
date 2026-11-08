@@ -64,14 +64,14 @@ function misto(ordem) {
     { timestamp: iso(0), type: 'session_meta', payload: { id: U(7) } },
     riMsg(500, 'user', '<environment_context>cwd</environment_context>'),
     ...par(riMsg(1000, 'user', 'rode os testes'), ic(1040, { type: 'UserMessage', content: [{ type: 'text', text: 'rode os testes' }] })),
-    ...par(ri(2000, { type: 'function_call', name: 'shell', call_id: 'call_a', arguments: JSON.stringify({ command: ['bash', '-lc', 'npm   test'] }) }),
+    ...par(ri(2000, { type: 'function_call', name: 'shell', call_id: 'call_a', arguments: JSON.stringify({ command: ['bash', '-lc', 'npm test'] }) }),
       ic(2400, { type: 'CommandExecution', id: 'exec-a', command: ['bash', '-lc', 'npm test'], exit_code: 0, status: 'completed', aggregated_output: 'passou' }, { started_at_ms: BASE_T + 2010 })),
     ri(2600, { type: 'function_call_output', call_id: 'call_a', output: JSON.stringify({ output: 'saida do shell', metadata: { exit_code: 0 } }) }),
     ri(5000, { type: 'function_call', name: 'wait', call_id: 'call_w', arguments: '{}' }),
     ...par(ri(9000, { type: 'custom_tool_call', name: 'exec', call_id: 'call_b', input: 'dgchat reply' }),
       ic(9300, { type: 'McpToolCall', id: 'exec-b', server: 'dgchat', tool: 'reply', arguments: { text: 'oi' }, status: 'completed', result: { content: [{ type: 'text', text: 'enviado' }] } }, { started_at_ms: BASE_T + 9005 })),
     ic(12000, { type: 'CommandExecution', id: 'exec-solto', command: ['bash', '-lc', 'solto'], exit_code: 0, status: 'completed', aggregated_output: 'x' }, { started_at_ms: BASE_T + 11990 }),
-    ...par(riMsg(15000, 'assistant', 'Tudo\n  certo'), ic(15030, { type: 'AgentMessage', content: [{ type: 'text', text: 'tudo certo' }] })),
+    ...par(riMsg(15000, 'assistant', 'Tudo certo'), ic(15030, { type: 'AgentMessage', content: [{ type: 'text', text: 'Tudo certo' }] })),
   ];
 }
 

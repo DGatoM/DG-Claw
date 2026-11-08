@@ -71,8 +71,17 @@ class ErroArquivo extends Error {
 // ── máscara ────────────────────────────────────────────────────────────────
 // mascara.js cobre os formatos mais comuns; aqui entram os de outros fornecedores, cabeçalhos, flags de linha
 // de comando e atribuições em português. É defesa em profundidade: segredo fora destes formatos passa.
-// Roda antes da omissão de sequências longas: `-pSENHA` começa com um hífen e a sequência longa levaria o `-p` junto.
-const RX_MYSQL_P = /(\bmysql(?:dump)?\b[^\n]{0,300}?[ \t]-p)(\S+)/gi;
+// Padrões que rodam ANTES de mascarar() e da omissão de sequências longas: precisam ver o texto original (`-pSENHA` começa com
+// um hífen, e a atribuição entre aspas de mascara.js fecha na primeira aspa, mesmo escapada, e deixaria o resto do valor).
+// Valor entre aspas vai até a aspa de fechamento, consumindo `\"` como parte do valor; sem fechamento, até o fim da linha;
+// sem aspas, até o próximo espaço. Todos lineares: classes que não cruzam \n e sem alternância que se sobreponha.
+const VALOR = String.raw`"(?:[^"\\\n]|\\[^\n])*\\?(?:"|(?=\n|$))|'(?:[^'\\\n]|\\[^\n])*\\?(?:'|(?=\n|$))|\S+`;
+const PRE = [
+  [/(\bmysql(?:dump)?\b[^\n]{0,300}?[ \t]-p)(\S+)/gi, '$1' + OCULTO],
+  [new RegExp(String.raw`(--(?:password|token|api-key|secret|senha)(?:=|[ \t]{1,20}))(?:${VALOR})`, 'gi'), '$1' + OCULTO],
+  [new RegExp(String.raw`(\bcurl\b[^\n]{0,300}?[ \t](?:-u|--user)[ \t]{1,20})(?:${VALOR})`, 'gi'), '$1' + OCULTO],
+  [new RegExp(String.raw`((?:api[_-]?key|passw(?:or)?d|pwd|senha|secret|token|credential|chave|cookie|auth)[A-Za-z0-9_.-]{0,60}["']?[ \t]{0,20}[=:][ \t]{0,20})(?:"(?:[^"\\\n]|\\[^\n])*\\?(?:"|(?=\n|$))|'(?:[^'\\\n]|\\[^\n])*\\?(?:'|(?=\n|$))|[^\s"'&;|]+)`, 'gi'), '$1' + OCULTO],
+];
 
 const EXTRAS = [
   [/sk-[A-Za-z0-9_-]{20,200}/g, OCULTO],
@@ -85,12 +94,8 @@ const EXTRAS = [
   // Cabeçalho de autorização: o valor inteiro, até o fim da linha, sem teto próprio (o texto já tem o teto de 64 KB).
   // Depois de mascarar(), o valor pode chegar como "[segredo oculto] resto": o resto também sai.
   [/\b((?:Proxy-)?Authorization[ \t]{0,20}:[ \t]{0,20}|X-Api-Key[ \t]{0,20}:[ \t]{0,20})[^\n]+/gi, '$1' + OCULTO],
-  // Valor entre aspas vai até a aspa de fechamento na mesma linha (sem fechamento, até o fim da linha); sem aspas, até o espaço.
-  [/(--(?:password|token|api-key|secret|senha)(?:=|[ \t]{1,20}))("[^"\n]*(?:"|(?=\n|$))|'[^'\n]*(?:'|(?=\n|$))|\S+)/gi, '$1' + OCULTO],
-  [/(\bcurl\b[^\n]{0,300}?[ \t](?:-u|--user)[ \t]{1,20})("[^"\n]*(?:"|(?=\n|$))|'[^'\n]*(?:'|(?=\n|$))|\S+)/gi, '$1' + OCULTO],
   // Cookie e Set-Cookie carregam vários pares separados por ';': o valor inteiro, até o fim da linha, sai escondido.
   [/\b((?:Set-)?Cookie[ \t]{0,20}:[ \t]{0,20})[^\n]+/gi, '$1' + OCULTO],
-  [/((?:\bchave|\bpwd|\bcookie)[A-Za-z0-9_.-]{0,60}["']?[ \t]{0,20}[=:][ \t]{0,20})(?!\[segredo oculto\])("[^"\n]*(?:"|(?=\n|$))|'[^'\n]*(?:'|(?=\n|$))|[^\s"'&;|]+)/gi, '$1' + OCULTO],
 ];
 
 // Os padrões de mascara.js (principalmente a atribuição NOME=valor) varrem cada trecho de letras e números até o fim
@@ -111,16 +116,58 @@ function corteBruto(s) {
 function limpa(texto) {
   if (texto == null) return '';
   let r = corteBruto(typeof texto === 'string' ? texto : String(texto));
-  r = r.replace(RX_MYSQL_P, '$1' + OCULTO);
+  for (const [rx, sub] of PRE) { rx.lastIndex = 0; r = r.replace(rx, sub); }
   r = mascarar(r.replace(RX_SEQUENCIA_LONGA, '[trecho-longo-omitido]'));
   for (const [rx, sub] of EXTRAS) { rx.lastIndex = 0; r = r.replace(rx, sub); }
-  return r;
+  // mascara.js reaplica o marcador sobre o próprio marcador (que tem um espaço) e deixa "oculto]" sobrando
+  return r.replace(/\[segredo oculto\](?: oculto\])+/g, OCULTO);
+}
+
+// Chaves de objeto com nome de segredo: o valor sai escondido por inteiro, em qualquer nível.
+const RX_CHAVE_SENSIVEL = /api[_-]?key|passw(?:or)?d|pwd|senha|secret|token|authorization|cookie|chave|credential/i;
+const PROF_MAX = 6;
+const CHAVES_MAX = 200;
+const CARACTERES_MAX = 256 * 1024;
+
+/**
+ * Antes de serializar um objeto vindo do log: profundidade, número de chaves e caracteres limitados, valor de chave
+ * sensível trocado por [segredo oculto], cada texto mascarado como texto puro (o JSON escapa as aspas e esconderia o padrão)
+ * e texto que contém JSON válido (começa com `{` ou `[` e cabe no teto) percorrido do mesmo jeito. Só texto e número entram.
+ */
+function redige(v, est, prof) {
+  if (typeof v === 'string') {
+    const s = corteBruto(v);
+    est.chars += s.length;
+    if (est.chars > CARACTERES_MAX) return '[omitido: entrada grande demais]';
+    const t = s.trimStart();
+    if ((t[0] === '{' || t[0] === '[') && v.length <= BRUTO && prof < PROF_MAX) {
+      let obj;
+      try { obj = JSON.parse(s); } catch (_) { obj = undefined; }
+      if (obj && typeof obj === 'object') return JSON.stringify(redige(obj, est, prof + 1));
+    }
+    return limpa(s);
+  }
+  if (typeof v === 'number' || typeof v === 'boolean' || v === null) return v;
+  if (!v || typeof v !== 'object') return '';
+  if (prof >= PROF_MAX) return '[omitido: aninhamento fundo demais]';
+  if (Array.isArray(v)) return v.slice(0, CHAVES_MAX).map((x) => redige(x, est, prof + 1));
+  const pares = [];
+  for (const k of Object.keys(v).slice(0, CHAVES_MAX)) {
+    pares.push([limpa(k.slice(0, 200)), RX_CHAVE_SENSIVEL.test(k) ? OCULTO : redige(v[k], est, prof + 1)]);
+  }
+  return Object.fromEntries(pares);
 }
 
 function serializa(valor) {
   if (valor == null) return '';
-  if (typeof valor === 'string') return valor;
-  try { return JSON.stringify(valor); } catch (_) { return '[objeto que não pude serializar]'; }
+  try {
+    if (typeof valor === 'string') {
+      const t = valor.trimStart();
+      if ((t[0] === '{' || t[0] === '[') && valor.length <= BRUTO) return redige(valor, { chars: 0 }, 0);
+      return valor;
+    }
+    return JSON.stringify(redige(valor, { chars: 0 }, 0));
+  } catch (_) { return '[objeto que não pude serializar]'; }
 }
 
 /** Corta em `max` caracteres sem partir um par substituto. */
@@ -527,8 +574,10 @@ const NOMES_SHELL = new Set(['shell', 'local_shell', 'exec_command', 'container.
 
 const JANELA_MSG_MS = 5000;
 const JANELA_FERRAMENTA_MS = 3000;
-/** Comando comparável: espaços colapsados, maiúsculas e minúsculas preservadas (`rm /A` e `rm /a` são comandos diferentes). */
-const chaveComando = (t) => `cmd:${String(t).replace(/\s+/g, ' ').trim()}`;
+/** Hash do texto bruto e completo (antes da máscara e de qualquer corte): é só ele que fica no mapa de pares. */
+const sha = (t) => crypto.createHash('sha256').update(String(t)).digest('hex');
+/** Comparação sem normalização nenhuma: `cliente  A` e `cliente A` são comandos diferentes, e um texto só é igual a outro por inteiro. */
+const chaveComando = (t) => (t ? `cmd:${sha(t)}` : null);
 // `exec` do Codex embrulha um trecho de JavaScript. Só uma chamada isolada de comando, na forma exata abaixo, tem um comando
 // que se pode extrair com certeza; qualquer outra forma não se compara e os dois eventos ficam.
 const RX_EXEC_UNICO = /^\s*(?:text\(\s*)?(?:await\s+)?[\w$.]{1,60}\(\s*\{\s*cmd\s*:\s*("(?:[^"\\\n]|\\.)*")\s*(?:,\s*[\w$]{1,40}\s*:\s*[-\w.]{1,40}\s*)*\}\s*\)\s*\)?\s*;?\s*$/;
@@ -538,7 +587,7 @@ function comandoDoExec(input) {
   if (!m) return null;
   try { const v = JSON.parse(m[1]); return typeof v === 'string' && v ? v : null; } catch (_) { return null; }
 }
-const chaveTexto = (t) => String(t).replace(/\s+/g, ' ').trim().toLowerCase().slice(0, 300);
+const chaveTexto = (t) => (t ? `txt:${sha(t)}` : null);
 
 /**
  * O Codex grava a mesma ação em duas famílias de registro (event_msg/item_completed e response_item), às vezes no mesmo
