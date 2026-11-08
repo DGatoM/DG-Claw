@@ -283,3 +283,17 @@ test('escopo: nenhum WebSocket para o colaborador; dono e caixa seguem a regra d
   assert.equal(websocketLiberado(CAIXA, '/p/ana/x', '/p/ana/x').ok, true);
   assert.equal(websocketLiberado(null, '/p/ana/x', '/p/ana/x').status, 401);
 });
+
+test('escopo: os logs dos agentes são fechados para o colaborador (rotas, documentação e página)', () => {
+  const COLAB_LOGS = { usuario: 'maria@x.com', papel: 'colaborador', agente: 'ana' };
+  for (const p of ['/api/v1/logs/agentes', '/api/v1/logs/agentes/ana/eventos', '/api/v1/logs/agentes/ana/sessoes', '/api/v1/logs/docs.md', '/api/v1/logs']) {
+    const r = avalia(COLAB_LOGS, 'GET', p);
+    assert.equal(r.ok, false, p);
+    assert.equal(r.status, 403, p);
+  }
+  const pag = avalia(COLAB_LOGS, 'GET', '/logs');
+  assert.equal(pag.ok, false);
+  assert.equal(pag.status, 302);
+  assert.equal(pag.redirecionar, '/a/ana');
+  assert.equal(avalia(COLAB_LOGS, 'GET', '/p/ana/api/v1/logs/agentes').ok, true, 'o painel da ana é dela; a trava de /p/.../logs fica no server.js');
+});

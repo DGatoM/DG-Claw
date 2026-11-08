@@ -1,0 +1,118 @@
+# Logs dos agentes (tela Logs do Admin)
+
+A tela Logs (`/logs`) mostra ao dono do DG Claw uma lista cronológica, do mais novo para o mais antigo, de tudo o
+que cada agente fez: mensagens, comandos, arquivos e ferramentas. A fonte são os arquivos de sessão que o Claude Code
+e o Codex já gravam na casa de cada agente. O Web os lê no servidor, somente leitura, sem migração: o histórico que já
+existe aparece sozinho.
+
+## Quem pode ler
+
+- Só o dono, na sessão do navegador. Colaborador recebe 403, e quem não entrou recebe 401.
+- **Agentes não acessam esta API**, nem pela caixa, nem o Admin por token. O texto de um log nasceu do que o agente
+  leu e escreveu (páginas da web, e-mails, arquivos) e não é de confiança: se entrasse no contexto de outro agente
+  (ou do Admin), poderia carregar instruções escondidas. Se o Admin precisar de um trecho, o dono o cola na conversa
+  depois de conferir.
+- Os caminhos `/p/<agente>/logs` e `/p/<agente>/api/v1/logs/...` respondem 403 para todos.
+
+## O que a tela é e o que não é
+
+- É uma ajuda para o dono conferir o que aconteceu. **Não é uma prova**: os arquivos ficam na casa do agente, e um
+  agente comprometido pode reescrever a própria casa. Para auditoria séria, use também os logs do sistema.
+- O texto sai mascarado (chaves de API, tokens, senhas em linha de comando e cabeçalhos de autorização viram
+  `[segredo oculto]`). A máscara pega formatos conhecidos: um segredo fora desses formatos passa.
+- Pensamento do modelo (`thinking` e `reasoning`) não é exibido.
+- Arquivos de uma sessão ainda em andamento: a última linha, se estiver incompleta, é ignorada até terminar de ser gravada.
+
+## Rotas
+
+Todas são `GET`, exigem o cookie de sessão do dono e respondem `{"ok":false,"erro":"..."}` em português quando algo
+falha. Outro método responde 405.
+
+```bash
+curl -s -b cookie.txt https://SEU-SITE/api/v1/logs/agentes
+```
+
+### GET /api/v1/logs/docs.md
+
+Este documento.
+
+### GET /api/v1/logs/agentes
+
+Os agentes do registro e o estado de cada fonte (um motor por fonte: `claude` e `codex`).
+
+```json
+{"ok":true,"agentes":[{"id":"clara","nome":"Clara","tipo":"agente","provedor":"claude",
+  "fontes":[{"motor":"claude","estado":"ok","motivo":null,"arquivos":12,"bytes":3481920,"ultima_atividade":1762600000000},
+            {"motor":"codex","estado":"ausente","motivo":"nunca rodou neste motor (.codex/sessions não existe)","arquivos":null,"bytes":null,"ultima_atividade":null}]}]}
+```
+
+- `estado`: `ok`, `vazia` (a pasta existe e não tem sessão), `ausente` (a pasta não existe: o agente nunca rodou
+  neste motor) ou `ilegivel` (existe, mas não foi possível ler; o `motivo` diz por quê).
+- O Admin lê o Claude em `transcripts_dir` e o Codex em `codex_home_host/sessions` (se o registro tiver esse campo).
+
+### GET /api/v1/logs/agentes/:slug/sessoes
+
+Parâmetros: `limite` (1 a 200, padrão 50) e `cursor` (o `proximo` da resposta anterior).
+
+```bash
+curl -s -b cookie.txt "https://SEU-SITE/api/v1/logs/agentes/clara/sessoes?limite=20"
+```
+
+Resposta: `sessoes` por data de modificação (mais nova primeiro), cada uma com `id` (12 caracteres hexadecimais, calculado
+do caminho relativo), `sessao` (uuid, quando o nome do arquivo traz um), `motor`, `projeto`, `subagente`, `bytes` e
+`atualizado`. Nunca traz caminho absoluto. Vêm junto `fontes`, `avisos` e `contagens`.
+
+### GET /api/v1/logs/agentes/:slug/eventos
+
+| Parâmetro | Valor |
+| --- | --- |
+| `desde`, `ate` | `AAAA-MM-DD` (dia inteiro, no fuso do servidor) ou horário ISO. `desde` depois de `ate` dá 400. |
+| `tipo` | Lista separada por vírgula entre `mensagem`, `comando`, `arquivo`, `ferramenta`, `sistema`. |
+| `q` | Busca de até 200 caracteres, sem diferenciar maiúsculas nem acentos. A busca olha o texto **já mascarado**: não dá para descobrir um segredo procurando por ele. |
+| `sessao` | O `id` curto ou o uuid de uma sessão. Sessão que não existe dá 404. |
+| `limite` | 1 a 200 (padrão 50). |
+| `cursor` | O `proximo` da resposta anterior (até 8 KB). Cursor adulterado dá 400. |
+
+```bash
+curl -s -b cookie.txt "https://SEU-SITE/api/v1/logs/agentes/clara/eventos?tipo=comando&desde=2026-11-01&q=deploy"
+```
+
+Resposta:
+
+```json
+{"ok":true,"agente":"clara","eventos":[{"id":"a1b2c3d4e5f6:18230","horario":"2026-11-08T14:03:11.000Z","t":1762610591000,
+  "sessao":"...uuid...","motor":"claude","subagente":false,"projeto":"-workspace","tipo":"comando",
+  "titulo":"Lista os arquivos","texto":"","detalhes":{"comando":"ls -la","descricao":"Lista os arquivos"},
+  "resultado":{"erro":false,"texto":"...","truncado":false}}],
+ "proximo":"eyJ0Ijo...","parcial":false,"lidos_bytes":262144,
+ "fontes":[],"avisos":[],"contagens":{"linhas_ilegiveis":0,"linhas_gigantes":0,"sem_horario":0,"atalhos_ignorados":0}}
+```
+
+- `tipo` do evento: `mensagem` (com `papel`: `pessoa`, `agente` ou `sistema`), `comando` (Bash, shell, execução de
+  comando), `arquivo` (Read, Write, Edit, MultiEdit, NotebookEdit, alteração de arquivo), `ferramenta` (as demais, incluindo
+  MCP) e `sistema` (por exemplo, conversa compactada).
+- Eventos de chamada trazem `resultado` com `erro`, `texto` e `truncado`, ou `resultado: null` quando o log não registrou
+  o resultado (a tela escreve "sem resultado registrado", que é diferente de um resultado vazio).
+- `horario` é o horário original do registro. `horario_suspeito: true` marca registro cujo horário está mais de 5 minutos
+  depois da última modificação do arquivo (relógio errado ou arquivo adulterado); a ordem na lista segue a ordem em que o arquivo foi gravado.
+- Registro de ação sem horário válido não vira meia-noite de 1970: é contado em `contagens.sem_horario` e não aparece.
+- `proximo` vem quando há mais resultados. Se `parcial` for `true`, o pedido gastou o orçamento (64 MB lidos ou 1,5 s)
+  antes de encher a página: peça de novo com o `proximo` para continuar procurando.
+- `avisos` explica o que não deu para ler (pasta ausente, arquivo recusado, formato não reconhecido). Quando todas as
+  fontes faltam, a lista de eventos vem vazia e os `avisos` e as `fontes` dizem por quê: isso é diferente de o agente
+  não ter feito nada.
+
+## Limites e proteções
+
+- Textos têm até 4 KB, comandos e entradas de ferramenta até 2 KB e resultados até 4 KB (`truncado: true` quando cortou).
+  A máscara roda antes do corte.
+- A leitura é de trás para frente, em blocos de 64 KB, sem carregar o arquivo inteiro. Linha de mais de 4 MB é pulada
+  (`linhas_gigantes`); JSON quebrado é contado em `linhas_ilegiveis`.
+- No máximo 2 buscas ao mesmo tempo no servidor (a terceira recebe 429), 32 arquivos abertos por busca, 20000 arquivos por fonte
+  e 5 níveis de pasta.
+- Atalhos (symlink) nunca são seguidos (`atalhos_ignorados`); arquivo com mais de um nome no disco, fora da pasta do agente
+  ou que não seja regular é recusado, com aviso.
+- Formato do Codex: usa os itens `item_completed` quando o arquivo os tem, senão os registros `response_item`. Arquivo sem
+  nenhum dos dois aparece como "formato não reconhecido", nunca como "sem ações".
+- Em um arquivo que ainda está crescendo, a página seguinte pode, raramente, repetir ou pular um registro cujo horário
+  esteja fora de ordem.

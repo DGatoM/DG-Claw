@@ -60,7 +60,7 @@ const RX_ESTATICO = /^\/(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]+\.(?:js|css|png|jpe
 
 const ehEstatico = (p) => !p.includes('..') && RX_ESTATICO.test(p);
 
-const RX_DOCS = /^\/api\/v1\/(?!colaboradores\/)[a-z-]+\/docs\.md$/;
+const RX_DOCS = /^\/api\/v1\/(?!colaboradores\/|logs\/)[a-z-]+\/docs\.md$/;
 const RX_AGENTE = /^\/api\/v1\/agents\/([^/]+)(?:\/([^/]*))?(?:\/.*)?$/;
 const RX_MIDIA = /^\/api\/v1\/media\/[0-9a-f]{16}(?:\/(?:thumb|visual))?$/;
 const RX_PAGINA_AGENTE = /^\/a\/([^/]+)\/?$/;

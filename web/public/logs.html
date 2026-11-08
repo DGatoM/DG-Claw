@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Logs - DG Claw</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#2f9e5e">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="icon" href="/icons/icon-192.png">
+<link rel="stylesheet" href="/logs.css">
+<link rel="stylesheet" href="/casca.css">
+<link rel="stylesheet" href="/menu-lado.css">
+<link rel="stylesheet" href="/sem-zoom.css">
+<script src="/sem-zoom.js"></script>
+</head>
+<body class="lg">
+<main class="lg-main">
+  <p class="lg-msg erro" id="lgMsgGeral" role="alert" hidden></p>
+
+  <section class="lg-sec" id="secAgente" aria-label="Agente">
+    <h2><span>Agente</span><button type="button" class="lg-ajuda" data-lg="ajuda" data-secao="agente" aria-label="Tutorial do seletor de agente">?</button></h2>
+    <label class="lg-rotulo" for="lgAgente">Ver o histórico de</label>
+    <select id="lgAgente" class="lg-campo" disabled><option>Carregando…</option></select>
+    <p class="lg-fraco">O texto de um log nasceu do que o agente leu e escreveu. Não cole trechos na conversa de um agente sem conferir antes.</p>
+  </section>
+
+  <section class="lg-sec" id="secFontes" aria-label="Fontes">
+    <h2><span>Fontes</span><button type="button" class="lg-ajuda" data-lg="ajuda" data-secao="fontes" aria-label="Tutorial das fontes">?</button></h2>
+    <div id="lgFontes"><p class="lg-fraco">Carregando…</p></div>
+  </section>
+
+  <section class="lg-sec" id="secFiltros" aria-label="Filtros">
+    <h2><span>Filtros</span><button type="button" class="lg-ajuda" data-lg="ajuda" data-secao="filtros" aria-label="Tutorial dos filtros">?</button></h2>
+    <form id="lgForm" class="lg-form" autocomplete="off">
+      <div class="lg-linha">
+        <label class="lg-rotulo" for="lgDesde">Desde<input type="date" id="lgDesde" class="lg-campo"></label>
+        <label class="lg-rotulo" for="lgAte">Até<input type="date" id="lgAte" class="lg-campo"></label>
+      </div>
+      <div class="lg-chips" id="lgChips" role="group" aria-label="Tipos de ação"></div>
+      <label class="lg-rotulo" for="lgBusca">Buscar no texto<input type="search" id="lgBusca" class="lg-campo" maxlength="200" placeholder="uma palavra ou frase"></label>
+      <label class="lg-rotulo" for="lgSessao">Sessão<select id="lgSessao" class="lg-campo"><option value="">Todas as sessões</option></select></label>
+      <div class="lg-acoes">
+        <button type="submit" class="lg-btn lg-pri">Aplicar</button>
+        <button type="button" class="lg-btn" id="lgLimpar">Limpar filtros</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="lg-sec" id="secLista" aria-label="Linha do tempo">
+    <h2><span>Linha do tempo</span><button type="button" class="lg-ajuda" data-lg="ajuda" data-secao="lista" aria-label="Tutorial da linha do tempo">?</button></h2>
+    <div id="lgAvisos"></div>
+    <div id="lgEstado" role="status"><p class="lg-fraco">Carregando…</p></div>
+    <div id="lgLista" class="lg-lista"></div>
+    <div class="lg-acoes" id="lgRodape" hidden>
+      <button type="button" class="lg-btn lg-pri" id="lgMais">Carregar mais</button>
+    </div>
+  </section>
+</main>
+
+<script src="/tour.js"></script>
+<script src="/menu-lado.js"></script>
+<script src="/atualizacao-faixa.js"></script>
+<script src="/casca.js"></script>
+<script src="/logs.js"></script>
+<script>
+DGCasca.monta({ pagina: 'logs', titulo: 'Logs', aoTutorial: function () { if (window.DGLogsTela) window.DGLogsTela.tutorial(); } });
+</script>
+</body>
+</html>
