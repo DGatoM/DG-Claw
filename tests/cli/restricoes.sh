@@ -370,6 +370,24 @@ echo '{}' >"$ST"; chmod 444 "$ST"
 dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1
 nega "settings.json de volta ao normal: a pendencia da migracao sai" test -e "$PEND_MIG"
 
+echo "o gancho entra na configuracao administrada com qualquer restricao (nao so com pastas)"
+MSA="$(R_DIR ana)/managed-settings.json"
+dgclaw agente restricoes ana --sem-bash nao --sem-enviar-arquivo nao --escrita-livre >/dev/null 2>&1
+igual "sem restricao nenhuma: nada de gancho" "{}" "$(jq -c . "$MSA")"
+dgclaw agente restricoes ana --sem-bash sim >/dev/null 2>&1
+afirma "so sem_bash: o gancho de escrita esta la" jq -e '[.hooks.PreToolUse[].hooks[] | select(.command | test("escrita-restrita-hook"))] | length == 1' "$MSA"
+afirma "cada gancho gerado tem onFailure block e timeout" jq -e '[.hooks.PreToolUse[].hooks[] | .onFailure == "block" and .timeout == 10] | all' "$MSA"
+afirma "allowManagedHooksOnly ligado" jq -e '.allowManagedHooksOnly == true' "$MSA"
+afirma "so sem_bash: nao limita pastas (escrita_so_em nulo)" jq -e '.escrita_so_em == null' "$RS"
+dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1
+igual "devolvendo o Bash: o gancho e o allowManagedHooksOnly saem" "{}" "$(jq -c . "$MSA")"
+dgclaw agente restricoes ana --sem-bash sim --sem-enviar-arquivo sim >/dev/null 2>&1
+afirma "sem_bash e sem_enviar_arquivo sem pastas: gancho e onFailure presentes" jq -e '(.hooks.PreToolUse[0].hooks[0].onFailure == "block") and .allowManagedHooksOnly == true and (.permissions.deny | index("Bash")) != null' "$MSA"
+dgclaw agente restricoes ana --sem-bash nao --sem-enviar-arquivo nao --escrita-livre >/dev/null 2>&1
+dgclaw agente restricoes ana --escrita-so-em relatorios >/dev/null 2>&1
+afirma "so com pastas: onFailure e allowManagedHooksOnly tambem" jq -e '.hooks.PreToolUse[0].hooks[0].onFailure == "block" and .allowManagedHooksOnly == true' "$MSA"
+dgclaw agente restricoes ana --escrita-livre >/dev/null 2>&1
+
 echo "ensaio: nao grava nada"
 rm -f "$(R_DIR beto)/restricoes.json"
 dgclaw --ensaio agente restricoes beto --sem-bash sim >/dev/null 2>&1

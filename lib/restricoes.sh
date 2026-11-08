@@ -99,7 +99,8 @@ _restricoes_log() {
 # aplicar_restricoes <slug> [--sem-reiniciar] [--runner-novo]
 # Le o restricoes.json (ausente = sem restricao) e deixa tres coisas de acordo:
 #   - runner/managed-settings.json: a CONFIGURACAO ADMINISTRADA do Claude Code (o Containerfile liga
-#     /etc/claude-code/managed-settings.json a ele). Leva o gancho de escrita e o permissions.deny. Fica fora
+#     /etc/claude-code/managed-settings.json a ele). Leva o gancho de escrita (com qualquer restricao ligada), o
+#     allowManagedHooksOnly e o permissions.deny. Fica fora
 #     da casa, e o Claude Code nao deixa disableAllHooks de usuario, projeto ou local desligar gancho
 #     administrado (docs/RESTRICOES-DO-AGENTE.md). Sem restricao o conteudo e `{}`, igual a nao ter nada;
 #   - runner.json: denyTools e a saida do envio de arquivo de allowTools, registrando em `restricoesAplicadas`
@@ -154,7 +155,7 @@ _aplicar_restricoes_sem_trava() {
     local casa="$DG_CASAS/$slug" c="dgclaw-$slug"
     local rj="$casa/runner/runner.json" rs="$casa/runner/restricoes.json" ms="$casa/runner/managed-settings.json"
     local pend="$casa/runner/restricoes.pendente" pend_mig="$casa/runner/restricoes-migracao.pendente"
-    local sem_bash=false sem_env=false pastas=null mudou=0 novo_rj="" novo_ms ms_existia=0 grav_ms=0 grav_rj=0 base="" provider deny_json='[]' rodando=0 saida rc ativo i
+    local sem_bash=false sem_env=false pastas=null mudou=0 novo_rj="" novo_ms ms_existia=0 grav_ms=0 grav_rj=0 base="" provider deny_json='[]' rodando=0 saida rc ativo=false pronto i
 
     if [ "$runner_novo" = 1 ]; then base="$(cat)"; fi
     if [ -e "$rs" ] || [ -L "$rs" ]; then
@@ -199,10 +200,16 @@ _aplicar_restricoes_sem_trava() {
     fi
 
     # --- monta a configuracao administrada (na memoria) ---
+    ativo=false
+    if [ "$sem_bash" = true ] || [ "$sem_env" = true ] || [ "$pastas" != null ]; then ativo=true; fi
     # shellcheck disable=SC2016 # os $ sao variaveis do jq
-    novo_ms="$(jq -nc --argjson pastas "$pastas" --argjson deny "$deny_json" --arg cmd "$GANCHO_ESCRITA_CMD" --arg m "$GANCHO_ESCRITA_MATCHER" '
+    # Qualquer restricao ligada instala o gancho (sem escrita_so_em ele roda no modo "so protegidos": fecha
+    # .dgclaw, .claude, SKILL.md... que o agente poderia usar para executar comando sem o Bash). onFailure=block:
+    # gancho que nao inicia, morre ou passa do tempo bloqueia em vez de liberar. allowManagedHooksOnly: so os
+    # ganchos da configuracao administrada rodam (os de usuario, projeto e skill nao).
+    novo_ms="$(jq -nc --argjson pastas "$pastas" --argjson deny "$deny_json" --argjson ativo "$ativo" --arg cmd "$GANCHO_ESCRITA_CMD" --arg m "$GANCHO_ESCRITA_MATCHER" '
         {}
-        | (if $pastas != null then .hooks = {PreToolUse: [{matcher: $m, hooks: [{type: "command", command: $cmd, timeout: 10}]}]} else . end)
+        | (if $ativo then .hooks = {PreToolUse: [{matcher: $m, hooks: [{type: "command", command: $cmd, timeout: 10, onFailure: "block"}]}]} | .allowManagedHooksOnly = true else . end)
         | (if ($deny | length) > 0 then .permissions = {deny: $deny} else . end)')" \
         || falha "o jq nao conseguiu montar o managed-settings.json do agente $slug." "isto e um erro do DG Claw; abra uma issue com a saida acima."
 
@@ -265,7 +272,7 @@ _aplicar_restricoes_sem_trava() {
         falha "reli $rj depois de gravar e o conteudo nao e o esperado; nao vou dizer que as restricoes do agente $slug foram aplicadas." \
             "veja o arquivo (jq . $rj) e rode de novo: dgclaw agente reparar $slug"
     fi
-    [ "$grav_ms" = 0 ] || [ "$novo_ms" = '{}' ] || ok "configuracao administrada do agente $slug gravada (gancho de escrita: $([ "$pastas" != null ] && echo ligado || echo desligado); ferramentas negadas: $(printf '%s' "$deny_json" | jq -r 'if length == 0 then "nenhuma" else join(", ") end'))"
+    [ "$grav_ms" = 0 ] || [ "$novo_ms" = '{}' ] || ok "configuracao administrada do agente $slug gravada (gancho de escrita: $([ "$ativo" = true ] && { [ "$pastas" != null ] && echo "ligado, grava so nas pastas" || echo "ligado, protege so a configuracao"; } || echo desligado); ferramentas negadas: $(printf '%s' "$deny_json" | jq -r 'if length == 0 then "nenhuma" else join(", ") end'))"
     [ "$grav_rj" = 0 ] || ok "runner.json do agente $slug ajustado (Bash: $([ "$sem_bash" = true ] && echo travado || echo liberado), envio de arquivo: $([ "$sem_env" = true ] && echo travado || echo liberado))"
 
     # --- Codex: o runner ignora allow/deny e os ganchos do Claude Code ---
@@ -289,14 +296,14 @@ _aplicar_restricoes_sem_trava() {
             if [ "$rodando" = 1 ]; then
                 [ -e "$pend" ] || _restricoes_gravar "$pend" "reinicio do runner pendente desde $(date -u +%FT%TZ)"
                 executar podman exec "$c" systemctl restart dgclaw-runner >/dev/null
-                ativo=""
+                pronto=""
                 for ((i = 0; i < ${TEMPO_ESPERA:-60}; i++)); do
-                    ativo="$(podman exec "$c" systemctl is-active dgclaw-runner 2>/dev/null || true)"
-                    [ "$ativo" = active ] && break
+                    pronto="$(podman exec "$c" systemctl is-active dgclaw-runner 2>/dev/null || true)"
+                    [ "$pronto" = active ] && break
                     sleep 1
                 done
-                if [ "$ativo" != active ]; then
-                    falha "reiniciei o runner do agente $slug, mas ele nao voltou a responder active (systemctl is-active devolveu '${ativo:-nada}'); as restricoes novas ainda nao valem para ele." \
+                if [ "$pronto" != active ]; then
+                    falha "reiniciei o runner do agente $slug, mas ele nao voltou a responder active (systemctl is-active devolveu '${pronto:-nada}'); as restricoes novas ainda nao valem para ele." \
                         "veja o log: podman exec $c journalctl -u dgclaw-runner -n 50 . A pendencia ficou guardada em $pend: depois de consertar, rode de novo o mesmo comando (ou: dgclaw agente reparar $slug) que ele reinicia o runner."
                 fi
                 rm -f -- "$pend"

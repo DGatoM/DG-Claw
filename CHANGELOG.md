@@ -18,6 +18,12 @@ qualquer lugar, então combine as duas (o comando avisa). Travar o envio de arqu
 terminal (`--sem-bash sim`), porque com o terminal liberado o agente manda o arquivo por fora das ferramentas. Nos agentes que rodam no Codex essas travas ainda não valem, e o
 comando também avisa. Guia: `docs/RESTRICOES-DO-AGENTE.md`.
 
+Qualquer restrição (inclusive só o terminal ou só o envio de arquivos) fecha também os arquivos de configuração do agente
+para as ferramentas de arquivo: pastas e arquivos ocultos em qualquer profundidade, `SKILL.md`, `CLAUDE.md` e `AGENTS.md`. Sem isso, um
+agente sem Bash editaria o próprio `config.sh` e executaria o que quisesse. Os ganchos de usuário, de projeto e de skill
+deixam de rodar nos agentes com restrição (só valem os da configuração administrada), e o gancho de escrita bloqueia quando
+falha em vez de liberar.
+
 A trava mora na configuração administrada do Claude Code, que o agente não consegue desligar pelas próprias configurações.
 Com a trava de pastas ligada, o agente só grava a memória dele; as pastas de configuração (`.dgclaw`, `.claude`, `.codex`,
 `.plataforma`) e `/tmp` ficam fechadas, porque são lidas e executadas pelas rotinas do agente.

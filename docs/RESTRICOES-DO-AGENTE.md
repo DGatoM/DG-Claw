@@ -98,9 +98,12 @@ oficial do Claude Code diz (páginas de hooks, de settings e de managed settings
   `~/.claude/settings.json`, `.claude/settings.json`, `.claude/settings.local.json` nem em `--settings` a sobrescreve.
 - Os ganchos se somam entre os níveis, e **o `disableAllHooks` definido em configuração de usuário, de projeto ou local não
   consegue desligar ganchos administrados**; só o `disableAllHooks` do próprio nível administrado desliga.
-- `allowManagedHooksOnly` (também administrado) bloquearia os ganchos de usuário, de projeto e de plugin. Não o usamos: ele
-  bloquearia também os ganchos que o próprio DG Claw usa na casa do agente, e o `disableAllHooks` já não consegue desligar o gancho
-  administrado.
+- `allowManagedHooksOnly` (também administrado) faz rodar só os ganchos da configuração administrada: os de usuário, de projeto,
+  de plugin e de skill deixam de rodar. Ligamos em todo agente com alguma restrição, como segunda trava contra uma skill que traga
+  gancho no próprio cabeçalho. O DG Claw não instala gancho nenhum no `settings.json` do agente (os ganchos de conversa ficam no
+  `runner.json`), então nada dele para de funcionar; ganchos que a própria pessoa pôs na casa do agente deixam de rodar.
+- Cada gancho que geramos leva `onFailure: "block"`: se ele não inicia, é morto por falta de memória ou passa do tempo (10 s), a
+  ferramenta é bloqueada em vez de liberada.
 - As regras `permissions.deny` administradas também somam e vencem qualquer `allow` do agente.
 
 A imagem liga `/etc/claude-code/managed-settings.json` ao arquivo `runner/managed-settings.json` (montado só leitura). A
@@ -138,24 +141,28 @@ travar o Bash, o comando avisa.
 O contrário é recusado: travar o envio de arquivo (`--sem-enviar-arquivo sim`) com o Bash liberado não adianta, porque o terminal
 manda o arquivo por fora das ferramentas. Ligue os dois: `--sem-bash sim --sem-enviar-arquivo sim`.
 
-### O que fica liberado e o que fica fechado
+### O gancho de escrita
 
-Com a trava de pastas ligada, além das pastas que você indicou o agente só grava a memória dele: `MEMORY.md`,
-`working-memory.md` e `memory/`. Todo o resto da casa que começa por ponto fica fechado para as ferramentas de arquivo, e `/tmp`
-também. A lista existe porque estes são arquivos que algum executor do próprio agente lê para **executar** o que está escrito
-neles, e liberar qualquer um transformaria "só grava em relatórios" em "roda o que quiser":
+Com **qualquer** restrição ligada (sem Bash, sem enviar arquivo ou pastas), o gancho de escrita fica na configuração
+administrada. Sem Bash o agente ainda tem Write e Edit, e editar a configuração dele seria executar comando por outro caminho.
 
-| Caminho | Quem o executa |
+- Sem `escrita_so_em`: modo "só protegidos". O agente grava em qualquer lugar da casa, menos nos caminhos protegidos abaixo.
+- Com `escrita_so_em`: além das pastas indicadas, o agente só grava a memória dele (`MEMORY.md`, `working-memory.md` e
+  `memory/`), e `/tmp` fica fechado. Os caminhos protegidos valem também **dentro** das pastas liberadas.
+
+Caminhos protegidos, em qualquer profundidade, depois de normalizar o caminho (`..`, barras duplas e atalhos):
+
+| Caminho | Por que é protegido |
 | --- | --- |
-| `.dgclaw/config.sh` | o batimento (`scripts/heartbeat.sh`) e todos os temporizadores o carregam com `source` |
-| `.dgclaw/ext/*/hooks/heartbeat.sh` e `event.sh` | o batimento e `scripts/ext-event.sh` |
-| `.dgclaw/plugin/` e `.dgclaw/self-crons.json` | as rotinas e o que o batimento carrega (`pulso-lib.sh`) |
-| `.claude/settings.local.json`, `.claude/skills/`, `.claude/hooks` | o Claude Code (ganchos, permissões, instruções) |
-| `.codex/` | o Codex |
-| `.plataforma/dgchat.mcp.json` | o comando do servidor MCP que o runner sobe |
-| `.bashrc`, `.profile` e qualquer outro arquivo de início na raiz da casa | o shell |
+| qualquer pasta ou arquivo que comece por ponto (`.dgclaw`, `.claude`, `.codex`, `.plataforma`, `.config`, `.bashrc`, `.profile`, `.mcp.json`, `.git/hooks`...) | `.dgclaw/config.sh` é carregado com `source` pelo batimento e pelos temporizadores; `.dgclaw/ext/*/hooks` e `self-crons.json` são executados pelas rotinas; o Claude Code descobre `.claude/settings*` e `.claude/skills` também em subpastas (`relatorios/.claude/skills/x`); `.plataforma/dgchat.mcp.json` é o comando do servidor MCP; o shell lê `.bashrc` e `.profile` |
+| `SKILL.md`, `CLAUDE.md`, `CLAUDE.local.md` e `AGENTS.md` em qualquer pasta (sem diferenciar maiúsculas) | o Claude Code lê como instrução, e uma skill pode trazer gancho no cabeçalho |
+| `AGENT.md`, `PERSONALITY.md`, `IDENTITY.md`, `ETHICS.md`, `CREATOR.md` e `LAWS.md` na raiz da casa | a identidade que o DG Claw regrava |
 
-Por isso o comando recusa, em `--escrita-so-em`, qualquer pasta que comece por ponto. As pastas que você libera também não devem
+Levantamento feito na imagem (`container/`): as unidades do systemd só executam arquivos de `/opt/dgclaw` e leem, da casa, o
+`.dgclaw/tela/vnc.senha` e `.dgclaw/whatsapp/ligado` (ambos já cobertos pelo ponto). Não há outro arquivo de nome comum na casa
+que seja carregado com `source` ou executado.
+
+Por isso o comando também recusa, em `--escrita-so-em`, qualquer pasta que comece por ponto. As pastas que você libera não devem
 guardar scripts que alguma rotina execute; com o Bash travado o agente não cria rotinas novas, mas as que já existem continuam
 rodando o que estiver nos arquivos que elas apontam.
 
@@ -178,4 +185,4 @@ de paridade aberta até o Codex ter regras de ferramenta equivalentes."
 arquivo e as travas sobrevivem a criar, reparar, recriar e atualizar, que o gancho decide certo para cada
 caminho e que um arquivo estragado não solta nada. O que só uma VPS real prova é o Claude Code de verdade
 respeitando o `denyTools` e o gancho. Depois de travar um agente, peça a ele uma gravação fora das pastas
-e confirme que foi recusada.
+e confirme que foi recusada. Também fica para o QA na VPS: gravar `relatorios/.claude/skills/x/SKILL.md` e `.dgclaw/config.sh` por Write e Edit com só o Bash travado, e conferir que `onFailure` e `allowManagedHooksOnly` (grafia conferida só na documentação, não contra o Claude Code real) são respeitados.

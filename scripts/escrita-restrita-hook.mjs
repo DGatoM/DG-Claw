@@ -1,8 +1,11 @@
 #!/usr/bin/env node
-// Gancho PreToolUse do Claude Code para a restrição "gravar só em certas pastas" (roda dentro do
-// container, como o usuário agente). Vale para Write, Edit, MultiEdit e NotebookEdit. Lê
-// /etc/dgclaw-runner/restricoes.json (pasta do dono do servidor, só leitura aqui dentro); com
-// escrita_so_em nulo libera tudo; arquivo ausente ou ilegível bloqueia. Contrato e limites: docs/RESTRICOES-DO-AGENTE.md.
+// Gancho PreToolUse do Claude Code das restrições do dono (roda dentro do container, como o usuário
+// agente). Vale para Write, Edit, MultiEdit e NotebookEdit. Lê /etc/dgclaw-runner/restricoes.json (pasta
+// do dono do servidor, só leitura aqui dentro) e funciona em dois modos:
+//   - escrita_so_em nulo: modo "só protegidos". Libera o resto da casa e bloqueia apenas os caminhos
+//     protegidos (abaixo). É o que roda quando o dono travou só o Bash ou só o envio de arquivo;
+//   - escrita_so_em com pastas: só grava nelas (mais a memória), e os protegidos também valem DENTRO delas.
+// Arquivo ausente ou ilegível bloqueia. Contrato e limites: docs/RESTRICOES-DO-AGENTE.md.
 //
 // Limite que o dono precisa saber: este gancho só enxerga as ferramentas de arquivo do Claude Code.
 // Com o Bash ligado, o agente grava em qualquer lugar por comando de terminal. Para a trava valer de
@@ -23,14 +26,22 @@ function argumento(nome, padrao) {
 const ARQUIVO = argumento('--restricoes', '/etc/dgclaw-runner/restricoes.json');
 const CASA = argumento('--casa', '/home/agente');
 
-// O que o agente grava sozinho para funcionar: SO a memoria. Tudo o que algum executor do agente
-// (batimento, rotinas, ganchos, config.sh, extensoes, MCP) le para EXECUTAR fica fechado, senao
-// "so grava em relatorios" viraria "executa o que quiser": .dgclaw/** (config.sh que o batimento
-// carrega com source, ext/*/hooks/*.sh, self-crons.json), .claude/** (settings.local.json,
-// skills, hooks), .codex/**, .plataforma/** (comando do MCP) e qualquer arquivo de inicio de
-// shell na raiz da casa. /tmp tambem fica fechado. Lista completa em docs/RESTRICOES-DO-AGENTE.md.
+// O que o agente grava sozinho: SO a memoria. Tudo o que algum executor do agente (batimento, rotinas,
+// ganchos, config.sh, extensoes, MCP, Claude Code) le para EXECUTAR ou como instrucao fica fechado, senao
+// "so grava em relatorios" ou "sem Bash" viraria "executa o que quiser".
 const INTERNOS_ARQUIVOS = ['MEMORY.md', 'working-memory.md'];
 const INTERNOS_PASTAS = ['memory'];
+
+// PROTEGIDOS, em qualquer profundidade e depois de normalizar o caminho (.., barras duplas, atalhos):
+//  - todo componente que comece por ponto (pasta ou arquivo oculto): .claude, .dgclaw (config.sh que o
+//    batimento carrega com source, ext/*/hooks), .codex, .plataforma (comando do MCP), .config, .bashrc,
+//    .profile, .mcp.json, .git/hooks... O Claude Code descobre .claude/skills e .claude/settings em
+//    subpastas, entao "relatorios/.claude/skills/x" vale tanto quanto "~/.claude/skills/x";
+//  - os arquivos de instrucao/skill do Claude Code em qualquer pasta (SKILL.md pode trazer hook no
+//    frontmatter), comparados sem diferenciar maiusculas;
+//  - na raiz da casa, os arquivos de identidade que o DG Claw regrava (AGENT.md e afins).
+const PROTEGIDOS_NOMES = new Set(['claude.md', 'claude.local.md', 'agents.md', 'skill.md']);
+const PROTEGIDOS_RAIZ = new Set(['agent.md', 'personality.md', 'identity.md', 'ethics.md', 'creator.md', 'laws.md']);
 
 function bloqueia(motivo) {
   process.stdout.write(
@@ -92,7 +103,7 @@ let restricoes;
 try {
   restricoes = JSON.parse(fs.readFileSync(ARQUIVO, 'utf8'));
 } catch (e) {
-  // O gancho só está registrado quando o dono ligou a trava de pastas. Política ausente ou ilegível
+  // O gancho só está registrado quando o dono ligou alguma restrição. Política ausente ou ilegível
   // (inclusive um arquivo que sumiu) não pode virar "sem trava": tiraria a proteção em silêncio.
   bloqueia(
     `O dono limitou onde você pode gravar, mas não consegui ler ${ARQUIVO} (${e.message}). ` +
@@ -101,8 +112,8 @@ try {
 }
 
 const pastas = restricoes && restricoes.escrita_so_em;
-if (pastas === null || pastas === undefined) libera();
-if (!Array.isArray(pastas) || pastas.some((p) => typeof p !== 'string')) {
+const soProtegidos = pastas === null || pastas === undefined;
+if (!soProtegidos && (!Array.isArray(pastas) || pastas.some((p) => typeof p !== 'string'))) {
   bloqueia(
     `O dono limitou onde você pode gravar, mas "escrita_so_em" em ${ARQUIVO} não é uma lista de pastas. ` +
       'Por segurança nada foi gravado. Avise o dono para conferir com: dgclaw agente restricoes <seu-nome>.',
@@ -127,21 +138,34 @@ const alvo = resolve(path.resolve(cwd, pedido));
 const casa = resolve(CASA);
 
 const liberadas = [];
-for (const p of pastas) {
+for (const p of soProtegidos ? [] : pastas) {
   const base = resolve(path.join(casa, p));
   // Pasta permitida que hoje aponta para fora da casa (atalho trocado) não vale.
   if (dentro(base, casa) && base !== casa && !path.relative(casa, base).startsWith('.')) liberadas.push(base);
 }
 
-// Antes de qualquer liberacao: dentro da casa, nada que comece por ponto (.dgclaw, .claude, .codex,
-// .plataforma, .bashrc...) pode ser gravado, nem por uma pasta liberada que aponte para la.
-const relCasa = path.relative(casa, alvo);
-if (!relCasa.startsWith('..') && !path.isAbsolute(relCasa) && relCasa.split(path.sep)[0].startsWith('.')) {
+// Protegido: vale para o caminho pedido normalizado E para o resolvido (atalho de uma pasta comum para
+// dentro de .dgclaw, por exemplo). Antes de qualquer liberacao, inclusive dentro das pastas liberadas.
+function protegido(abs) {
+  const rel = path.relative(casa, abs);
+  if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return null;
+  const partes = rel.split(path.sep).filter(Boolean);
+  for (const parte of partes) {
+    if (parte.startsWith('.')) return parte;
+  }
+  const nome = partes[partes.length - 1].toLowerCase();
+  if (PROTEGIDOS_NOMES.has(nome)) return partes[partes.length - 1];
+  if (partes.length === 1 && PROTEGIDOS_RAIZ.has(nome)) return partes[0];
+  return null;
+}
+const achado = protegido(alvo) || protegido(path.resolve(cwd, pedido));
+if (achado) {
   bloqueia(
-    `${alvo} fica numa área de configuração do agente (${relCasa.split(path.sep)[0]}), que só o dono altera. ` +
+    `${alvo} é um arquivo de configuração ou instrução do agente (${achado}), que só o dono altera. ` +
       'Não tente contornar; avise o dono se precisar de outra configuração.',
   );
 }
+if (soProtegidos) libera();
 if (INTERNOS_ARQUIVOS.some((a) => alvo === path.join(casa, a))) libera();
 if (INTERNOS_PASTAS.some((d) => dentro(alvo, path.join(casa, d)))) libera();
 if (liberadas.some((b) => dentro(alvo, b))) libera();
