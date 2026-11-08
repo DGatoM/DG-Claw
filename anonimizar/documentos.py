@@ -316,14 +316,61 @@ def _numero_da_coluna(letras):
     return n
 
 
-def _area(ref):
-    """(linhas, colunas) de uma referência A1:B2 (ou A1); None se não for uma referência."""
-    m = re.fullmatch(r"\$?([A-Za-z]{1,3})\$?(\d{1,8})(?::\$?([A-Za-z]{1,3})\$?(\d{1,8}))?", ref.strip())
-    if not m:
+MAX_COLUNA, MAX_LINHA_EXCEL = 16384, 1048576
+_RX_CELULA = re.compile(r"\$?([A-Za-z]{1,3})\$?(\d+)")
+_RX_COLUNA = re.compile(r"\$?([A-Za-z]{1,3})")
+_RX_LINHA = re.compile(r"\$?(\d+)")
+
+
+def _extremo(txt):
+    """(coluna, linha) de A1, (coluna, None) de A ou (None, linha) de 1; None se ilegível ou fora dos limites do Excel.
+    Aceita zeros à esquerda e qualquer quantidade de dígitos: o openpyxl converte para int, então a conferência também."""
+    m = _RX_CELULA.fullmatch(txt)
+    if m:
+        col, lin = _numero_da_coluna(m.group(1)), int(m.group(2))
+    else:
+        m = _RX_COLUNA.fullmatch(txt)
+        if m:
+            col, lin = _numero_da_coluna(m.group(1)), None
+        else:
+            m = _RX_LINHA.fullmatch(txt)
+            if not m:
+                return None
+            col, lin = None, int(m.group(1))
+    if (col is not None and not 1 <= col <= MAX_COLUNA) or (lin is not None and not 1 <= lin <= MAX_LINHA_EXCEL):
         return None
-    c1, l1 = _numero_da_coluna(m.group(1)), int(m.group(2))
-    c2, l2 = (_numero_da_coluna(m.group(3)), int(m.group(4))) if m.group(3) else (c1, l1)
-    return abs(l2 - l1) + 1, abs(c2 - c1) + 1
+    return col, lin
+
+
+def _area(ref):
+    """(linhas, colunas) de uma referência A1:B2, A1, A:C ou 1:3; None se não for uma referência legível ou passar de XFD1048576."""
+    partes = ref.strip().split(":")
+    if len(partes) > 2:
+        return None
+    ext = [_extremo(p) for p in partes]
+    if None in ext:
+        return None
+    if len(ext) == 1:
+        if ext[0][0] is None or ext[0][1] is None:
+            return None
+        return 1, 1
+    (c1, l1), (c2, l2) = ext
+    if (c1 is None) != (c2 is None) or (l1 is None) != (l2 is None):
+        return None
+    linhas = MAX_LINHA_EXCEL if l1 is None else abs(l2 - l1) + 1
+    colunas = MAX_COLUNA if c1 is None else abs(c2 - c1) + 1
+    return linhas, colunas
+
+
+def _area_total(sqref):
+    """Soma as áreas de uma lista separada por espaço (sqref); None se alguma parte for ilegível."""
+    total = 0
+    for parte in sqref.split():
+        ar = _area(parte)
+        if ar is None:
+            return None
+        total += ar[0] * ar[1]
+    return total
 
 
 # Quantos elementos de cada tipo uma planilha pode ter (limite por parte); o que passa disso é tratado como bomba.
@@ -335,57 +382,101 @@ LIMITES_DE_CONTAGEM = {"c": MAX_CELULAS, "row": MAX_LINHAS, "si": MAX_CELULAS, "
 class _LimiteDeBytes:
     """Leitura de uma parte do zip com teto de bytes descompactados."""
 
-    def __init__(self, f, limite):
-        self.f, self.restante = f, limite
+    def __init__(self, f, limite, parte=None, nome=None):
+        self.f, self.restante, self.parte, self.nome, self.resto = f, limite, parte, nome, b""
 
     def read(self, n=-1):
         dados = self.f.read(n)
+        if self.parte is not None:
+            texto = (self.resto + dados).lower()
+            if any(p in texto for p in _PADROES_DTD):
+                raise ErroMotor("xml_proibido", "A parte '%s' do arquivo '%s' declara uma DTD ou entidade XML (<!DOCTYPE/<!ENTITY), que documento de Office "
+                                "legítimo não usa e que pode esconder dados. O arquivo foi recusado: abra e salve de novo no programa de origem."
+                                % (self.parte, self.nome))
+            self.resto = (self.resto + dados)[-64:]
         self.restante -= len(dados)
         if self.restante < 0:
             raise ErroMotor("zip_grande", "Uma parte do arquivo passa do limite de tamanho depois de aberta. Divida o documento em partes menores.")
         return dados
 
 
-def conferir_planilha_crua(caminho, nome):
-    """Lê as partes XML da pasta xl/ em streaming (expat, sem entidade externa) ANTES do openpyxl.
+def _parece_xml(z, info):
+    """Decide pelo início do conteúdo, nunca pelo nome: o openpyxl abre as partes pelos relacionamentos, então
+    'worksheets/sheet1.xml' ou 'xl/planilha.dat' valem tanto quanto 'xl/worksheets/sheet1.xml'."""
+    if info.is_dir() or info.file_size == 0:
+        return False
+    with z.open(info) as f:
+        cabeca = f.read(4096)
+    if cabeca.startswith((b"\xff\xfe", b"\xfe\xff")):
+        cabeca = cabeca.decode("utf-16", "ignore").encode("utf-8")
+    cabeca = cabeca.lstrip(b"\xef\xbb\xbf\x00 \t\r\n")
+    return cabeca.startswith(b"<")
 
-    Usa os atributos já decodificados (dimension/@ref, mergeCell/@ref: &#65; vira A), soma as mesclagens e conta os elementos que
-    explodem memória (células, linhas, strings compartilhadas, estilos). Acima do limite: planilha_grande, sem carregar.
+
+def _ref_ilegivel(nome, parte, elemento, ref):
+    return ErroMotor("arquivo_invalido", "A planilha '%s' tem uma referência que não consigo ler (%s=\"%s\" em <%s>, parte %s). "
+                     "Abra e salve de novo no Excel, depois envie." % (nome, "ref", ref[:60], elemento, parte))
+
+
+# Elementos cujo @ref o openpyxl materializa em células (ws[ref] ou MergedCell), conferido no código da 3.1:
+#   mergeCell    worksheet/_reader.py bind_merged_cells -> _clean_merge_range cria um MergedCell por célula da área
+#   hyperlink    worksheet/_reader.py bind_hyperlinks   -> ws[link.ref] cria todas as células da área
+#   comment      reader/excel.py                        -> ws[ref] (um intervalo vira uma criação de células por linha e coluna)
+# O resto (dataValidation, conditionalFormatting, autoFilter, cols, tabelas, fórmulas matriciais, nomes definidos) guarda a referência
+# sem criar célula; foi testado com XFD1048576 e carrega em milissegundos.
+_ELEMENTOS_COM_AREA = ("mergeCell", "hyperlink", "comment")
+
+
+def conferir_planilha_crua(caminho, nome):
+    """Lê toda parte XML do pacote em streaming (expat, sem entidade externa) ANTES do openpyxl.
+
+    Usa os atributos já decodificados (dimension/@ref, mergeCell/@ref: &#65; vira A), soma numa conta só as áreas que o openpyxl
+    materializa (mesclagens, hyperlinks, comentários) e conta os elementos que explodem memória (células, linhas, strings
+    compartilhadas, estilos). Acima do limite: planilha_grande, sem carregar. Referência que não dá para ler é recusada.
     """
     import xml.etree.ElementTree as ET
     with abrir_zip(caminho, nome) as z:
+        materializadas = 0
         for info in z.infolist():
-            if not (info.filename.startswith("xl/") and info.filename.endswith(".xml")):
+            if not _parece_xml(z, info):
                 continue
-            soma_mescla, contagem, pilha = 0, {}, []
+            contagem, pilha = {}, []
             try:
                 with z.open(info) as bruto:
-                    for evento, el in ET.iterparse(_LimiteDeBytes(bruto, LIMITE_ZIP), events=("start", "end")):
+                    for evento, el in ET.iterparse(_LimiteDeBytes(bruto, LIMITE_ZIP, info.filename, nome), events=("start", "end")):
                         local = el.tag.rsplit("}", 1)[-1]
                         if evento == "start":
                             pilha.append(el)
                             n = contagem[local] = contagem.get(local, 0) + 1
                             if n > LIMITES_DE_CONTAGEM.get(local, 1 << 62):
                                 raise _planilha_grande(nome, info.filename, "a parte tem mais de %d elementos <%s>" % (LIMITES_DE_CONTAGEM[local], local))
-                            if local in ("dimension", "mergeCell"):
-                                ar = _area(el.get("ref") or "")
-                                if ar is None:
+                            if local == "dimension" or local in _ELEMENTOS_COM_AREA:
+                                ref = (el.get("ref") or "").strip()
+                                if not ref:
                                     continue
-                                linhas, colunas = ar
                                 if local == "dimension":
-                                    if linhas > MAX_LINHAS or linhas * colunas > MAX_CELULAS:
-                                        raise _planilha_grande(nome, info.filename, "a dimensão declarada tem %d linhas e %d colunas" % (linhas, colunas))
+                                    ar = _area(ref)
+                                    if ar is None:
+                                        raise _ref_ilegivel(nome, info.filename, local, ref)
+                                    if ar[0] > MAX_LINHAS or ar[0] * ar[1] > MAX_CELULAS:
+                                        raise _planilha_grande(nome, info.filename, "a dimensão declarada tem %d linhas e %d colunas" % ar)
                                 else:
-                                    soma_mescla += linhas * colunas
-                                    if soma_mescla > MAX_CELULAS:
-                                        raise _planilha_grande(nome, info.filename, "as células mescladas somam mais de %d" % MAX_CELULAS)
+                                    total = _area_total(ref)
+                                    if total is None:
+                                        raise _ref_ilegivel(nome, info.filename, local, ref)
+                                    materializadas += total
+                                    if materializadas > MAX_CELULAS:
+                                        raise _planilha_grande(nome, info.filename, "as áreas de mesclagens, links e comentários somam mais de %d células" % MAX_CELULAS)
                         else:
                             pilha.pop()
                             if len(pilha) >= 2:      # solta o que já foi lido: a memória não cresce com a planilha
                                 pilha[-1].remove(el)
             except ET.ParseError:
-                raise ErroMotor("arquivo_invalido", "A parte '%s' da planilha '%s' está corrompida. Abra e salve de novo no Excel, depois envie."
-                                % (info.filename, nome)) from None
+                # só o .vml (desenho legado que o Excel às vezes grava malformado e o openpyxl não interpreta) é tolerado; qualquer outra
+                # parte com cara de XML pode ser aberta pelo relacionamento, então XML quebrado é recusado
+                if not info.filename.lower().endswith(".vml"):
+                    raise ErroMotor("arquivo_invalido", "A parte '%s' da planilha '%s' está corrompida. Abra e salve de novo no Excel, depois envie."
+                                    % (info.filename, nome)) from None
 
 
 def _planilha_grande(nome, parte, motivo):

@@ -740,6 +740,78 @@ class Arquivos(unittest.TestCase):
                     dados = dados.replace(antes, depois, 1)
                 zout.writestr(info, dados)
 
+    def _planilha_modificada(self, nome, antes, depois, renomear=None):
+        """xlsx pequeno com um trecho trocado na aba; `renomear` move a aba para outro nome de parte (ex.: fora de xl/ ou .dat)."""
+        import openpyxl
+        wb = openpyxl.Workbook()
+        wb.active["A1"] = "x"
+        base = os.path.join(self.tmp, "base-" + nome)
+        wb.save(base)
+        destino = os.path.join(self.tmp, nome)
+        with zipfile.ZipFile(base) as zin, zipfile.ZipFile(destino, "w") as zout:
+            for info in zin.infolist():
+                dados = zin.read(info.filename)
+                if info.filename == "xl/worksheets/sheet1.xml":
+                    dados = dados.replace(antes, depois, 1)
+                    if renomear:
+                        zout.writestr(renomear, dados)
+                        continue
+                if renomear and info.filename == "xl/_rels/workbook.xml.rels":
+                    dados = dados.replace(b"/xl/worksheets/sheet1.xml", b"/" + renomear.encode()).replace(b"worksheets/sheet1.xml", renomear.encode())
+                zout.writestr(info, dados)
+        self.assertLess(os.path.getsize(destino), 6000)
+        return destino
+
+    @unittest.skipUnless(tem("openpyxl"), "openpyxl não está instalado neste Python")
+    def test_planilha_recusada_antes_do_load_workbook_em_todo_caso_de_memoria(self):
+        import openpyxl
+        import time
+        chamadas = []
+        original = openpyxl.load_workbook
+        openpyxl.load_workbook = lambda *a, **k: chamadas.append(a) or original(*a, **k)
+        self.addCleanup(setattr, openpyxl, "load_workbook", original)
+        fim = b"</worksheet>"
+        casos = [
+            ("parte fora de xl/ apontada pelo .rels", "fora.xlsx", b'<mergeCells count="1"><mergeCell ref="A1:XFD100000"/></mergeCells>', "worksheets/sheet1.xml", "planilha_grande"),
+            ("parte .dat apontada pelo .rels", "dat.xlsx", b'<mergeCells count="1"><mergeCell ref="A1:XFD100000"/></mergeCells>', "xl/planilha.dat", "planilha_grande"),
+            ("zeros à esquerda", "zeros.xlsx", b'<mergeCells count="1"><mergeCell ref="A000000001:ALL10000"/></mergeCells>', None, "planilha_grande"),
+            ("referência ilegível", "ilegivel.xlsx", b'<mergeCells count="1"><mergeCell ref="A1:Z99999999999999999999999"/></mergeCells>', None, "arquivo_invalido"),
+            ("referência de mesclagem sem sentido", "lixo.xlsx", b'<mergeCells count="1"><mergeCell ref="isso nao e uma referencia"/></mergeCells>', None, "arquivo_invalido"),
+            ("hyperlink com intervalo gigante", "link.xlsx", b'<hyperlinks><hyperlink ref="A1:XFD1048576" location="A1"/></hyperlinks>', None, "planilha_grande"),
+            ("hyperlink de coluna inteira", "col.xlsx", b'<hyperlinks><hyperlink ref="A:XFD" location="A1"/></hyperlinks>', None, "planilha_grande"),
+            ("mesclagem e hyperlink que só passam somados", "soma.xlsx",
+             b'<mergeCells count="1"><mergeCell ref="A1:Z40000"/></mergeCells><hyperlinks><hyperlink ref="AB1:BA40000" location="A1"/></hyperlinks>', None, "planilha_grande"),
+            ("sqref com lista separada por espaço", "sqref.xlsx",
+             b'<hyperlinks><hyperlink ref="A1:A5" location="A1"/><hyperlink ref="B1 C1:XFD1048576" location="A1"/></hyperlinks>', None, "planilha_grande"),
+        ]
+        for rotulo, arq, trecho, renomear, esperado in casos:
+            with self.subTest(rotulo):
+                caminho = self._planilha_modificada(arq, fim, trecho + fim, renomear)
+                t0 = time.time()
+                r = self.pedir(caminho)
+                self.assertEqual((r["ok"], r.get("codigo")), (False, esperado), r)
+                self.assertIn(arq, r["erro"])
+                r = motor.tratar({"op": "reverter", "entrada": caminho, "saida": os.path.join(self.tmp, "r-" + arq), "tabela": []})
+                self.assertEqual(r.get("codigo"), esperado, r)
+                self.assertLess(time.time() - t0, 10)
+        self.assertEqual(chamadas, [], "o load_workbook não pode ser chamado antes da recusa")
+
+    @unittest.skipUnless(tem("openpyxl"), "openpyxl não está instalado neste Python")
+    def test_planilha_normal_com_mesclagem_e_hyperlink_pequenos_continua_passando(self):
+        fim = b"</worksheet>"
+        trecho = (b'<mergeCells count="1"><mergeCell ref="A2:C3"/></mergeCells><hyperlinks><hyperlink ref="A1" location="A2"/>'
+                  b'<hyperlink ref="$B$1:$C$1" location="A2"/></hyperlinks>')
+        caminho = self._planilha_modificada("normal.xlsx", fim, trecho + fim)
+        r = self.pedir(caminho)
+        self.assertTrue(r["ok"], r)
+
+    @unittest.skipUnless(tem("openpyxl"), "openpyxl não está instalado neste Python")
+    def test_parte_de_planilha_com_dtd_fora_de_xl_e_recusada(self):
+        fim = b"</worksheet>"
+        caminho = self._planilha_modificada("dtd.xlsx", b"<sheetData", b'<!DOCTYPE x [<!ENTITY a "b">]><sheetData', "worksheets/sheet1.xml")
+        r = self.pedir(caminho)
+        self.assertEqual((r["ok"], r.get("codigo")), (False, "xml_proibido"), r)
+
     @unittest.skipUnless(tem("openpyxl"), "openpyxl não está instalado neste Python")
     def test_mesclagem_gigante_codificada_com_referencia_de_caractere(self):
         import openpyxl
