@@ -56,7 +56,7 @@ test('colaborador usa o painel inteiro do agente dele: sessões, rotinas, memór
   try {
     const casos = [
       ['GET', '/p/ana/'], ['GET', '/p/ana/api/sessoes'], ['POST', '/p/ana/api/sessoes/abc/arquivar'], ['GET', '/p/ana/api/rotinas'], ['GET', '/p/ana/api/rotinas/usuario'],
-      ['GET', '/p/ana/api/memory'], ['PUT', '/p/ana/api/memoria/arquivo'], ['GET', '/p/ana/api/arquivos'], ['PUT', '/p/ana/api/arquivos'],
+      ['GET', '/p/ana/api/memory'], ['GET', '/p/ana/api/memoria/arquivo'], ['GET', '/p/ana/api/arquivos'],
       ['GET', '/p/ana/api/tela'], ['GET', '/p/ana/api/provedor'], ['GET', '/p/ana/api/chat/mensagens'],
     ];
     for (const [m, p] of casos) {
@@ -255,7 +255,7 @@ test('colaborador revogado no meio do corpo de uma escrita em /p/ não faz o pai
     const corpo = Buffer.from(JSON.stringify({ conteudo: 'não pode chegar ao painel' }));
     const cookie = Object.entries(x.c.jar).map(([k, v]) => `${k}=${v}`).join('; ');
     const r = await new Promise((resolve, reject) => {
-      const req = http.request({ host: '127.0.0.1', port: s.t.porta, method: 'POST', path: '/p/ana/api/memoria/arquivo', headers: {
+      const req = http.request({ host: '127.0.0.1', port: s.t.porta, method: 'POST', path: '/p/ana/api/sessoes/abc/arquivar', headers: {
         Cookie: cookie, Origin: `http://127.0.0.1:${s.t.porta}`, 'Content-Type': 'application/json', 'Content-Length': corpo.length } }, (res) => {
         const p = []; res.on('data', (d) => p.push(d)); res.on('end', () => resolve({ status: res.statusCode, texto: Buffer.concat(p).toString('utf8') }));
       });

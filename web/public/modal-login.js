@@ -107,6 +107,7 @@
       console.warn('modal de login: ' + (!dlg ? 'falta #dlgModalLogin na página' : 'um dos scripts (conectar-puro, conectar-cartoes, login-cartao) não carregou') + '. A página Conectar conta continua funcionando.');
       return;
     }
+    if (window.DGPapel && window.DGPapel.colaborador) return; // login da conta é só do dono
     if (adiado()) return;
     let dados = null;
     try {

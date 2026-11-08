@@ -8,13 +8,13 @@ Este documento tem duas partes: a primeira é para você, dono do DG Claw; a seg
 
 ### O que o colaborador vê e o que não vê
 
-O colaborador usa **o agente inteiro**, igual a você usa: o menu à esquerda, a conversa, as Sessões, as páginas do painel dele (Rotinas, que ele pode criar e editar, Memória, Pasta, Tela e as outras) e a página Conectar conta. A única restrição é não conseguir **sair** desse agente.
+O colaborador usa **o agente inteiro**, igual a você usa: o menu à esquerda, a conversa, as Sessões, as páginas do painel dele (Rotinas, Memória, Pasta, Tela e as outras) para **ler**, e a página Conectar conta só para ver o aviso. Ele conversa com o agente, organiza as Sessões e usa a Tela, mas não grava nada que vire instrução ou configuração permanente do agente, e não consegue **sair** desse agente.
 
 | Vê e usa | Não vê |
 |---|---|
 | A conversa do agente, com as mídias e os visuais dele | O Admin e os outros agentes, e a lista deles |
 | O painel inteiro do agente: sessões, rotinas, memória, arquivos, a Tela, custos e o resto | As telas da caixa inteira: convidar colaborador, chaves de API do sistema, Segurança, Avisos, atualização |
-| A página **Conectar conta**, para ligar a conta de IA dele quando o agente está sem conta ou com o login vencido | A Mesa, os Lembretes e o uso da assinatura (são globais, de todos os agentes) |
+| A página **Conectar conta**, que para ele só mostra o aviso de que o login é com o dono | A Mesa, os Lembretes e o uso da assinatura (são globais, de todos os agentes) |
 | O botão de reiniciar a sessão do agente dele | |
 
 Isso vale no servidor, não só na tela: o endereço de qualquer outro agente ou página da caixa responde "acesso não liberado".
@@ -25,7 +25,8 @@ Isso vale no servidor, não só na tela: o endereço de qualquer outro agente ou
 |---|---|
 | O **cofre** do agente (as chaves de serviço) | São credenciais que você pôs. Na tela e na lousa o colaborador lê: "O cofre é só do dono do DG Claw." |
 | As **chaves de API do painel** | Dão acesso ao painel, e nenhuma chave gerencia chaves. |
-| **Trocar a conta de IA já conectada** | Quem paga a assinatura é você. O colaborador só conecta pela página Conectar, quando o agente está sem conta ou com o login vencido. |
+| O **login da conta de IA** do agente (ver o link, começar, mandar o código, cancelar, sair ou trocar a conta) | Quem paga a assinatura é você, e o link de login autentica a conta de quem o abre. O colaborador só fica sabendo, pelo aviso na conversa, que o agente está sem conta, e recebe "O agente precisa entrar numa conta, e isso é só do dono do DG Claw. Avise o dono." |
+| **Gravar no painel** memória (`MEMORY.md` e outros), arquivos da casa, apps, custos, reinício e qualquer rota nova | O painel registra como se fosse você, e a memória e os arquivos viram instrução permanente do agente. Recebe "Isso muda o agente de forma permanente ... é só do dono do DG Claw". Em `/p/<agente>/` a escrita dele passa só por uma lista de permissão: transcrever áudio e, em Sessões, arquivar, desarquivar, renomear e marcar favorito. |
 | As **credenciais dos canais** (token de bot do Telegram, WhatsApp) | Quem controla o canal fala em nome do agente com o mundo. Colar um token na conversa também é recusado para ele. |
 | A **senha da Tela** | É sua. Para o colaborador usar a Tela, passe a ele a senha que você definiu. |
 | **Mandar mensagem, instrução ou decisão pelo painel**: o chat do painel, a sessão de socorro e, em Sessões, criar, mandar recado, decidir pedido, retomar, passar o bastão, anexar e apagar | O painel não sabe quem é o colaborador e trataria a mensagem como sua. Ele conversa e confirma permissões só pela conversa do agente, onde cada mensagem e cada confirmação leva o nome dele. Em Sessões ele só acompanha, arquiva, renomeia e marca favorito. |
@@ -79,7 +80,7 @@ A tela mostra o motivo que o servidor de e-mail deu (por exemplo, "535 Authentic
 
 ### Se o agente ainda não tem IA conectada
 
-Quando o agente do colaborador ainda não tem a conta de IA conectada, o colaborador vê o aviso na conversa e conecta a conta dele pela página **Conectar conta**, que está no menu dele. Se o agente já tem uma conta funcionando, trocar a conta é com você.
+Quando o agente do colaborador está sem conta de IA, ele vê o aviso na conversa pedindo que avise o dono: o login da conta (link, código, cancelar) é só do dono, em qualquer momento.
 
 ---
 
@@ -181,7 +182,7 @@ Regras que o servidor aplica por cima:
 - Além da memória do Web, a autoria é provada pela transcrição da sessão, que é o que o runner de fato executou. Cada mensagem do colaborador leva no envelope `colaborador_id="…"`, gravado só pelo servidor (o texto dele não consegue fechar nem forjar o envelope). A pendência é dele somente se a última mensagem de usuário antes dela é um envelope com o id dele e nenhuma outra mensagem de usuário (do dono pelo painel, Telegram, canal ou rotina) aparece depois. Qualquer dúvida, como transcrição ilegível ou agente em Codex, deixa a pendência com o dono.
 - O texto, a legenda e o nome de arquivo dele não podem ter caracteres de controle (todos os de código abaixo de 32 menos a quebra de linha e o tab, o Enter `\r`, ESC, DEL e os de 128 a 159), porque o terminal do agente os entenderia como teclas apertadas. O envio é recusado com `400` dizendo qual caractere e em que posição. O dono tem a mesma regra, com o `\r` virando quebra de linha.
 - A sessão dele é conferida de novo depois de o corpo do pedido chegar inteiro e antes de qualquer ação (`send`, `upload`, `permissao`, `pergunta`, login e demais). Quem foi revogado, ou teve o convite reenviado, enquanto mandava um corpo lento recebe `401` e nada é feito.
-- Ele só inicia o login da conta de IA (e manda o código) quando o agente está sem conta ou com o login vencido. Trocar uma conta que funciona é com o dono.
+- O login da conta de IA é só do dono em todas as rotas (`/api/v1/agents/<agente>/login` com `codigo` e `oi`, e `/p/<agente>/api/provedor/login`), em qualquer método, inclusive ver o link: `403`.
 - O stream e as mensagens dele não trazem o modo foco nem os avisos técnicos do servidor.
 - Um `[anexo: caminho]` digitado na conversa (pelo dono ou pelo colaborador) só vira mídia se o arquivo estiver na pasta `uploads/` do agente.
 - Enquanto vale a senha temporária, a sessão dele dura no máximo até ela vencer. Na troca de senha, 5 erros da senha atual em 15 minutos bloqueiam por 15 minutos (`429` com `Retry-After`), e o pedido só vale se a sessão ainda é da mesma versão de senha em que nasceu.

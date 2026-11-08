@@ -83,6 +83,11 @@
   }
 
   async function carrega() {
+    if (window.DGPapel && window.DGPapel.colaborador) {
+      $('cnLista').replaceChildren(el('p', 'cn-fraco', 'O agente precisa entrar numa conta, e isso é só do dono do DG Claw. Avise o dono.'));
+      msgGeral('');
+      return;
+    }
     const r = await CC.chama('GET', '/api/v1/agents', undefined, 'conferir', 'os agentes', 15000, AQUI);
     if (!r.ok) {
       $('cnLista').replaceChildren(el('p', 'cn-erro', 'Não consegui carregar a lista de agentes. ' + r.erro.texto));

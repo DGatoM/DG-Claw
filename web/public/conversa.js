@@ -646,7 +646,13 @@ async function lcCopia(texto) {
 }
 
 /* Abre o cartão. `manual`: veio do /login (fica mesmo com a conta conectada). */
+let lcAvisouColab = false;
 function lcAbre(manual, semConferir) {
+  // Colaborador não conecta conta: o servidor nega o login inteiro. Só avisa, uma vez, em vez de abrir o cartão.
+  if (window.DGPapel && window.DGPapel.colaborador) {
+    if (!lcAvisouColab) { lcAvisouColab = true; mostraAviso('O agente precisa entrar numa conta, e isso é só do dono do DG Claw. Avise o dono.'); }
+    return;
+  }
   if (lc.aberto) { if (manual) { lc.manual = true; lc.dispensado = false; } lcDesenha(); return; }
   Object.assign(lc, { aberto: true, manual: !!manual, iniciado: false, erro: '', codigo: '', carregando: !semConferir,
                       dados: { estado: 'nenhum', provedor: AGENTE.provedor, precisa_login: !manual } });

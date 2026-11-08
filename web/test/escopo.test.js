@@ -21,8 +21,6 @@ const LIBERADOS = [
   ['POST', '/api/v1/agents/ana/reiniciar'], ['POST', '/api/v1/agents/ana/lido'], ['POST', '/api/v1/agents/ana/nao-lido'],
   ['DELETE', '/api/v1/agents/ana/nao-lido'], ['POST', '/api/v1/agents/ana/vendo'], ['POST', '/api/v1/agents/ana/upload'],
   ['GET', '/api/v1/agents/ana/compartilhados'],
-  ['GET', '/api/v1/agents/ana/login'], ['POST', '/api/v1/agents/ana/login'], ['DELETE', '/api/v1/agents/ana/login'],
-  ['POST', '/api/v1/agents/ana/login/codigo'], ['POST', '/api/v1/agents/ana/login/oi'],
   ['GET', '/api/v1/agents/ana/alertas'], ['POST', '/api/v1/agents/ana/alertas/0123456789abcdef01234567/visto'],
   ['GET', '/api/v1/agents/ana/alertas/0123456789abcdef01234567/mensagem'],
   // tudo sob o slug dele passa, inclusive o que ainda não existe
@@ -32,13 +30,13 @@ const LIBERADOS = [
   ['GET', '/api/v1/conectar/docs.md'], ['GET', '/api/v1/login/docs.md'],
   // o painel inteiro do agente dele
   ['GET', '/p/ana/'], ['GET', '/p/ana'], ['GET', '/p/ana/index.html'], ['GET', '/p/ana/js/app.js'], ['GET', '/p/ana/css/estilo.css'],
-  ['GET', '/p/ana/api/sessoes'], ['GET', '/p/ana/api/sessoes/abc/conversa'], ['POST', '/p/ana/api/sessoes/abc/arquivar'], ['POST', '/p/ana/api/sessoes/abc/renomear'], ['POST', '/p/ana/api/sessoes/abc/favorito'], ['PATCH', '/p/ana/api/sessoes/abc'], ['DELETE', '/p/ana/api/sessoes/abc'],
+  ['GET', '/p/ana/api/sessoes'], ['GET', '/p/ana/api/sessoes/abc/conversa'], ['POST', '/p/ana/api/sessoes/abc/arquivar'], ['POST', '/p/ana/api/sessoes/abc/renomear'], ['POST', '/p/ana/api/sessoes/abc/favorito'], ['POST', '/p/ana/api/sessoes/abc/desarquivar'],
   ['GET', '/p/ana/api/sessoes-config'], ['GET', '/p/ana/api/rotinas'], ['GET', '/p/ana/api/rotinas/usuario'],
-  ['GET', '/p/ana/api/memory'], ['GET', '/p/ana/api/memoria/arquivo'], ['PUT', '/p/ana/api/memoria/arquivo'],
-  ['GET', '/p/ana/api/arquivos'], ['PUT', '/p/ana/api/arquivos'], ['DELETE', '/p/ana/api/arquivos'], ['POST', '/p/ana/api/arquivos/enviar'],
+  ['GET', '/p/ana/api/memory'], ['GET', '/p/ana/api/memoria/arquivo'],
+  ['GET', '/p/ana/api/arquivos'],
   ['GET', '/p/ana/api/tela'], ['GET', '/p/ana/tela/novnc/vnc.html'],
-  ['GET', '/p/ana/api/socorro/estado'], ['POST', '/p/ana/api/saude/reiniciar'],
-  ['GET', '/p/ana/api/provedor'], ['GET', '/p/ana/api/provedor/login'], ['GET', '/p/ana/api/uso'],
+  ['GET', '/p/ana/api/socorro/estado'],
+  ['GET', '/p/ana/api/provedor'], ['GET', '/p/ana/api/uso'],
   ['GET', '/p/ana/api/chat/mensagens'], ['POST', '/p/ana/api/chat/transcrever'], ['GET', '/p/ana/api/apps'], ['GET', '/p/ana/api/skills'],
   // o prefixo fechado é por segmento: um nome parecido não fecha
   ['GET', '/p/ana/api/cofre-outra-coisa'], ['GET', '/p/ana/api/chaves-api-outra-coisa'],
@@ -126,10 +124,38 @@ test('escopo: trocar a conta de IA pelo painel é fechado (qualquer escrita); a 
     for (const v of ['/p/ana/api/provedor', '/p/ana/api/provedor/', '/p/ana/API/Provedor', '/p/ana/api/provedor/login', '/p/ana/api/provedor/login/codigo']) {
       const r = avalia(COLAB, m, v);
       assert.equal(r.ok, false, `${m} ${v}`); assert.equal(r.status, 403, `${m} ${v}`);
-      assert.match(r.motivo, /conta de IA/, `${m} ${v}`);
+      assert.match(r.motivo, /precisa entrar numa conta/, `${m} ${v}`);
     }
   }
-  for (const v of ['/p/ana/api/provedor', '/p/ana/api/provedor/login']) assert.equal(avalia(COLAB, 'GET', v).ok, true, v);
+  assert.equal(avalia(COLAB, 'GET', '/p/ana/api/provedor').ok, true);
+});
+
+test('escopo: login da conta do agente é só do dono, em /api/v1 e em /p/, em qualquer método (inclusive ver o link)', () => {
+  const rotas = ['/api/v1/agents/ana/login', '/api/v1/agents/ana/login/codigo', '/api/v1/agents/ana/login/oi', '/p/ana/api/provedor/login', '/p/ana/api/provedor/login/codigo'];
+  for (const m of ['GET', 'POST', 'DELETE', 'PUT']) {
+    for (const v of rotas) {
+      const r = avalia(COLAB, m, v);
+      assert.equal(r.ok, false, `${m} ${v}`); assert.equal(r.status, 403, `${m} ${v}`);
+      assert.match(r.motivo, /precisa entrar numa conta.*só do dono/, `${m} ${v}`);
+    }
+  }
+});
+
+test('escopo: o colaborador só grava no painel o que está na lista de permissão; o resto é permanente e fechado com 403', () => {
+  const fechadas = [
+    ['PUT', '/p/ana/api/memoria/arquivo'], ['POST', '/p/ana/api/memoria/arquivo'], ['PUT', '/p/ana/api/arquivos'], ['DELETE', '/p/ana/api/arquivos'], ['POST', '/p/ana/api/arquivos/upload'],
+    ['POST', '/p/ana/api/arquivos/enviar'], ['POST', '/p/ana/api/saude/reiniciar'], ['POST', '/p/ana/api/costs/analyze'], ['POST', '/p/ana/api/apps/x/conteudos/y/compartilhar'],
+    ['PATCH', '/p/ana/api/sessoes/abc'], ['DELETE', '/p/ana/api/sessoes/abc'], ['POST', '/p/ana/api/skills'], ['PUT', '/p/ana/api/rotinas'], ['POST', '/p/ana/api/rotinas'],
+    ['PUT', '/p/ana/api/claude-md'], ['POST', '/p/ana/api/qualquer-rota-nova'], ['POST', '/p/ana/'], ['PUT', '/p/ana/api/MEMORIA/arquivo/'],
+  ];
+  for (const [m, v] of fechadas) {
+    const r = avalia(COLAB, m, v);
+    assert.equal(r.ok, false, `${m} ${v}`); assert.equal(r.status, 403, `${m} ${v}`);
+    assert.match(r.motivo, /(muda o agente de forma permanente|Mandar mensagem|só do dono)/, `${m} ${v}`);
+  }
+  for (const [m, v] of [['POST', '/p/ana/api/chat/transcrever'], ['POST', '/p/ana/api/sessoes/abc/arquivar'], ['POST', '/p/ana/api/sessoes/abc/desarquivar'], ['POST', '/p/ana/api/sessoes/abc/renomear'], ['POST', '/p/ana/api/sessoes/abc/favorito'], ['GET', '/p/ana/api/memoria/arquivo'], ['GET', '/p/ana/api/arquivos']]) {
+    assert.equal(avalia(COLAB, m, v).ok, true, `${m} ${v}`);
+  }
 });
 
 test('escopo: o painel não manda mensagem, decisão nem instrução como se fosse o dono (cada rota, todas as formas)', () => {

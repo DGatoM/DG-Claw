@@ -20,8 +20,10 @@
 // Dentro de /p/<dele>/ ficam FECHADOS (o dono é quem mexe em credencial e em conta):
 //   - o cofre do agente (/api/cofre): são as credenciais que o dono pôs;
 //   - as chaves de API do painel (/api/chaves-api): dão acesso ao painel e nenhuma chave gerencia chaves;
-//   - trocar a conta de IA já conectada (qualquer método além de GET em /api/provedor*): o colaborador conecta
-//     pela página Conectar, e só quando o agente está sem conta ou com o login vencido;
+//   - o login da conta de IA (qualquer método em /api/provedor/login* e em /api/v1/agents/<dele>/login*) e a troca
+//     da conta (escrita em /api/provedor): é só do dono, porque o link de login autentica a conta de quem o abre;
+//   - TODA escrita no painel fora da lista de permissão de escritaLiberada(): memória, arquivos, apps, custos, reinício
+//     e rota nova. O painel registra a escrita como do dono, e memória e arquivos viram instrução permanente;
 //   - credencial de canal (token de bot de Telegram, WhatsApp): qualquer escrita em /api/canais, /api/telegram etc.;
 //   - a senha da Tela (/api/tela/senha): é do dono, que repassa a senha ao colaborador;
 //   - tudo que manda texto ou comando a uma sessão, decide pendência ou abre e encerra sessão com instrução pelo painel
@@ -43,7 +45,8 @@ const TROCAR_SENHA_MOTIVO = 'Troque a senha temporária antes de continuar.';
 const MOTIVO_PAINEL = 'Este endereço do painel é só do dono do DG Claw.';
 const MOTIVO_COFRE = 'O cofre é só do dono do DG Claw.';
 const MOTIVO_CHAVES_API = 'As chaves de API do painel são só do dono do DG Claw.';
-const MOTIVO_CONTA_IA = 'Trocar a conta de IA que já está conectada é com o dono do DG Claw. A página Conectar serve quando o agente está sem conta ou com o login vencido.';
+const MOTIVO_CONTA_IA = 'O agente precisa entrar numa conta, e isso é só do dono do DG Claw. Avise o dono.';
+const MOTIVO_PERMANENTE = 'Isso muda o agente de forma permanente (instruções, memória, arquivos, configuração ou rotinas) e é só do dono do DG Claw.';
 const MOTIVO_CANAL = 'As credenciais dos canais (Telegram, WhatsApp) são só do dono do DG Claw.';
 const MOTIVO_SENHA_TELA = 'A senha da Tela é do dono do DG Claw. Peça a ele a senha para usar a Tela.';
 const MOTIVO_ENVIO = 'Mandar mensagem, instrução ou decisão ao agente pelo painel é só do dono do DG Claw. Converse pela conversa do agente: ali as suas mensagens e confirmações têm o seu nome.';
@@ -130,6 +133,16 @@ function avaliar(sessao, metodo, pathname, urlCrua) {
   return nega(403, MOTIVO_GERAL);
 }
 
+/**
+ * Escrita que o colaborador pode fazer no painel (`resto` já em minúsculas e sem barra final). Lista final:
+ *   POST /api/chat/transcrever (ditado do microfone, nada é gravado)
+ *   POST /api/sessoes/<id>/(arquivar|desarquivar|renomear|favorito) (organizar a lista de sessões)
+ */
+function escritaLiberada(m, resto) {
+  if (m === 'POST' && resto === '/api/chat/transcrever') return true;
+  return m === 'POST' && /^\/api\/sessoes\/[^/]+\/(?:arquivar|desarquivar|renomear|favorito)$/.test(resto);
+}
+
 /** /p/<slug>/**: o painel do agente. Passa tudo do slug dele, menos o que é credencial ou conta (ver o topo do arquivo). */
 function avaliaPainel(m, p, bruto, meuSlug) {
   if (RX_DESVIO.test(bruto) || temEscapeSuspeito(bruto)) return nega(403, MOTIVO_DESVIO);
@@ -141,7 +154,7 @@ function avaliaPainel(m, p, bruto, meuSlug) {
   const leitura = m === 'GET' || m === 'HEAD';
   if (prefixo(resto, '/api/cofre')) return nega(403, MOTIVO_COFRE, { extra: { error: MOTIVO_COFRE, howToFix: 'Peça ao dono para cadastrar ou trocar a chave.' } });
   if (prefixo(resto, '/api/chaves-api')) return nega(403, MOTIVO_CHAVES_API, { extra: { error: MOTIVO_CHAVES_API } });
-  if (prefixo(resto, '/api/provedor') && !leitura) return nega(403, MOTIVO_CONTA_IA, { extra: { error: MOTIVO_CONTA_IA, howToFix: 'Use a página Conectar quando o agente estiver sem conta.' } });
+  if ((prefixo(resto, '/api/provedor') && !leitura) || prefixo(resto, '/api/provedor/login')) return nega(403, MOTIVO_CONTA_IA, { extra: { error: MOTIVO_CONTA_IA, howToFix: 'Avise o dono do DG Claw.' } });
   if (prefixo(resto, '/api/tela/senha')) return nega(403, MOTIVO_SENHA_TELA, { extra: { error: MOTIVO_SENHA_TELA } });
   if (!leitura && ['/api/canais', '/api/canal', '/api/telegram', '/api/whatsapp'].some((b) => prefixo(resto, b))) {
     return nega(403, MOTIVO_CANAL, { extra: { error: MOTIVO_CANAL } });
@@ -154,6 +167,10 @@ function avaliaPainel(m, p, bruto, meuSlug) {
       || (emSessoes && (segs.length === 3 || AES_FECHADAS.includes(segs[4])))) {
       return nega(403, MOTIVO_ENVIO, { extra: { error: MOTIVO_ENVIO } });
     }
+    // Lista de permissão: o que o colaborador grava no painel é só o que ele precisa para usar o agente. Tudo o mais
+    // (memória, arquivos da casa, apps, custos, reinício) muda o agente de forma permanente ou gasta o que é do dono,
+    // e uma rota nova do painel nasce fechada até alguém pôr aqui.
+    if (!escritaLiberada(m, resto)) return nega(403, MOTIVO_PERMANENTE, { extra: { error: MOTIVO_PERMANENTE } });
   }
   return LIBERA;
 }
@@ -178,6 +195,9 @@ function avaliaApi(m, p, meuSlug) {
     const acao = r[2] || '';
     // Comando de barra chegaria ao agente sem dizer quem mandou (ver conversa.js, enviar).
     if (acao === 'comando' || acao === 'comandos') return nega(403, MOTIVO_COMANDO);
+    // Login da conta de IA (ver o link, começar, mandar o código, cancelar): só o dono. O colaborador sabe SE falta conta
+    // pelo alerta da atividade, sem link nem código.
+    if (acao === 'login') return nega(403, MOTIVO_CONTA_IA, { extra: { error: MOTIVO_CONTA_IA } });
     // O agente em si (editar, apagar) não é do colaborador; só a leitura.
     if (acao === '') return metodo(m === 'GET', 'Use GET para ver o seu agente.');
     return LIBERA;

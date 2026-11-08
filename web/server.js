@@ -542,17 +542,6 @@ function criarServidor(opcoes) {
       if (falhaDoRegistro(req, res, true)) return undefined;
       const agente = agenteOuErro(res, decodeURIComponent(lr[1]));
       if (!agente) return undefined;
-      // Colaborador conecta a conta só quando o agente está sem conta ou com o login vencido; trocar uma conta
-      // que está funcionando é com o dono.
-      if (sessao.papel === 'colaborador' && ((!lr[2] && m === 'POST') || lr[2] === 'codigo')) {
-        const v = await login.ver(agente);
-        if (v.status !== 200) return H.enviaJson(res, v.status, v.corpo);
-        const emAndamento = v.corpo.estado && !['nenhum', 'falhou', 'concluido'].includes(v.corpo.estado);
-        if (!v.corpo.precisa_login && !(lr[2] === 'codigo' && emAndamento)) {
-          log('aviso', `Login negado ao colaborador ${sessao.usuario}: ${agente.slug} já tem conta conectada.`);
-          return H.erroJson(res, 403, `${agente.nome} já tem uma conta conectada e funcionando. Trocar a conta conectada é com o dono do DG Claw; a página Conectar só serve quando o agente está sem conta ou com o login vencido.`);
-        }
-      }
       let r = null;
       if (!lr[2] && m === 'GET') r = await login.ver(agente);
       else if (!lr[2] && m === 'POST') {
