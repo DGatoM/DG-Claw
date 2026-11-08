@@ -160,8 +160,15 @@ levar dias.
    command, timeout, async:false}]}` (conferido contra o `currentHash` do `hooks/list` do app-server).
    O runner (`runner/src/provedores/codex-hooks.ts`, chamado em `preparar` do motor Codex) mescla no
    `hooks.json` os hooks do DG Claw (`dispatch.ts session-start`, `avisos-reset`, `user-prompt`,
-   `avisos`, com os timeouts do `hooks/hooks.json`) mais os `promptHooks` do descritor, e grava a
-   confiança SÓ desses, regravando o hash quando o conteúdo muda. O plugin é achado a partir do
+   `avisos`, com os timeouts do `hooks/hooks.json`) mais um hook fixo, `hooks/prompt-hooks-sessao.py`,
+   que roda os `promptHooks` da sessão. O conjunto sai só de dados do runner e é igual para todas as
+   sessões do agente; o que já estava no arquivo e tem a marca do DG Claw mas não é um desses
+   comandos é descartado, e a pessoa mantém os hooks dela, sem confiança nossa. Os `promptHooks` de
+   cada sessão ficam em `<pasta de estado do runner>/prompt-hooks/<id da sessão>.json` (0600, gravado
+   no preparo; o id só aceita letras, números, `_` e `-`), e o despachante os lê pelo
+   `DGCLAW_SESSAO_ID` que o runner põe no ambiente do Codex. A confiança é gravada SÓ para esses
+   comandos, regravando o hash quando o conteúdo muda; a leitura e a gravação rodam sob uma trava de
+   pasta e, sem a trava, nada é gravado. O plugin é achado a partir do
    próprio runner (`/opt/dgclaw/app`, da imagem, de root), nunca em `.dgclaw/plugin`, que o agente
    escreve. Nada passa `--dangerously-bypass-hook-trust`. Prova: `hooks/list` mostra os cinco como
    `trusted`; um turno real com `.codex/hooks.json` malicioso no projeto (pasta confiada) não

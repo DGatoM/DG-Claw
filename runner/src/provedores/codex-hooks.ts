@@ -111,41 +111,37 @@ export interface EntradaDeHooks {
   /** O agente está num workspace servidor do DG Claw (tem `.dgclaw/config.sh`). */
   temWorkspace: boolean;
   temBun: boolean;
-  /** Os promptHooks DESTA sessão. Cada um só dispara na sessão dona dele (ver `guardaDaSessao`). */
-  promptHooks: string[];
-  /** Id da sessão (principal ou paralela) dona dos promptHooks. O runner a põe em DGCLAW_SESSAO_ID no ambiente do Codex. */
-  sessaoId?: string;
+  /** O `python3` está no PATH do agente (o hook dos promptHooks é um script Python). */
+  temPython?: boolean;
+  /** Pasta onde o runner guarda o estado do agente (PASTA_DE_ESTADO). Os promptHooks de cada sessão ficam em `<pasta>/prompt-hooks/<id>.json`. */
+  pastaDeEstado?: string;
 }
 
 /** Nome da variável que o runner põe no ambiente do processo Codex de cada sessão. */
 export const VARIAVEL_DA_SESSAO = "DGCLAW_SESSAO_ID";
-
-/** Trecho do comando que faz o hook valer só na sessão dona: fora dela o comando sai com 0 e sem saída. */
-export function guardaDaSessao(sessaoId: string): string {
-  return `{ [ "$${VARIAVEL_DA_SESSAO}" = ${citarParaShell(sessaoId)} ] || exit 0; }`;
-}
-const RE_GUARDA = /\{ \[ "\$DGCLAW_SESSAO_ID" = '((?:[^']|'\\'')*)' \] \|\| exit 0; \}/;
-/** O id da sessão dona de um comando guardado, ou undefined se o comando não tem guarda. */
-export function donoDoComando(cmd: string): string | undefined {
-  const m = RE_GUARDA.exec(cmd);
-  return m ? m[1].replace(/'\\''/g, "'") : undefined;
+/** O id de uma sessão só pode ser isto para virar nome de arquivo (sem barra, ponto nem `..`). */
+export const ID_DE_SESSAO_VALIDO = /^[A-Za-z0-9_-]+$/;
+/** Subpasta de `pastaDeEstado` com um arquivo `<id>.json` por sessão. */
+export function pastaDosPromptHooks(pastaDeEstado: string): string {
+  return path.join(pastaDeEstado, "prompt-hooks");
 }
 
-/** Os hooks que este agente recebe. Mesmos comandos e tempos do `hooks/hooks.json` do Claude. */
+/**
+ * Os hooks que este agente recebe. Mesmos comandos e tempos do `hooks/hooks.json` do Claude.
+ * O conjunto sai SÓ de dados do runner (raiz do plugin, workspace, PATH, pasta de estado) e é o
+ * MESMO para todas as sessões do agente: o hooks.json e a confiança são do agente, não da sessão.
+ * Os promptHooks de cada sessão não entram aqui: o hook fixo `prompt-hooks-sessao.py` os lê do
+ * arquivo de estado da sessão (ver `gravarPromptHooksDaSessao`).
+ */
 export function hooksDoAgente(e: EntradaDeHooks): HookDoDgclaw[] {
   const out: HookDoDgclaw[] = [];
-  // A marca fica no começo do comando; o workspace vem logo depois como atribuição de ambiente
+  // A marca fica depois do `cd`; o workspace vem logo depois como atribuição de ambiente
   // (o Codex roda o comando por um shell, então `VAR=valor comando` vale como prefixo).
   // O comando entra primeiro numa pasta de root (a dos hooks do plugin; "/" se não há plugin): a sessão
   // Codex pode ter sido aberta dentro de um repositório de terceiros, e bun, python e node leem
   // arquivos do diretório atual (bunfig.toml com preload, json.py ao lado do script, etc.).
   const confiavel = e.raiz ? path.join(e.raiz, "hooks") : "/";
-  const base = `cd ${citarParaShell(confiavel)} && `;
-  const atrib = `${MARCA_DO_DGCLAW}DGCLAW_WORKSPACE=${citarParaShell(path.resolve(e.workspace))} `;
-  const prefixo = base + atrib;
-  // Os promptHooks são de UMA sessão, mas o CODEX_HOME (e o hooks.json) é do agente e vale para todas
-  // as sessões Codex dele: a guarda vai entre o cd e a marca, e o arquivo fica igual para todas.
-  const prefixoGuardado = e.sessaoId ? `${base}${guardaDaSessao(e.sessaoId)} && ${atrib}` : prefixo;
+  const prefixo = `cd ${citarParaShell(confiavel)} && ${MARCA_DO_DGCLAW}DGCLAW_WORKSPACE=${citarParaShell(path.resolve(e.workspace))} `;
   if (e.raiz && e.temWorkspace && e.temBun) {
     const d = (ev: string) => `${prefixo}bun ${JSON.stringify(path.join(e.raiz as string, "hooks", "dispatch.ts"))} ${ev}`;
     out.push({ evento: "SessionStart", command: d("session-start"), timeout: 8 });
@@ -153,10 +149,48 @@ export function hooksDoAgente(e: EntradaDeHooks): HookDoDgclaw[] {
     out.push({ evento: "UserPromptSubmit", command: d("user-prompt"), timeout: 8 });
     out.push({ evento: "UserPromptSubmit", command: d("avisos"), timeout: 6 });
   }
-  for (const p of e.promptHooks) {
-    if (typeof p === "string" && p.trim()) out.push({ evento: "UserPromptSubmit", command: prefixoGuardado + p.trim(), timeout: 10 });
+  if (e.raiz && e.pastaDeEstado && e.temPython !== false) {
+    // Os promptHooks rodam em paralelo, cada um com teto de 9 s, dentro do teto de 10 s deste hook.
+    const script = path.join(e.raiz, "hooks", "prompt-hooks-sessao.py");
+    out.push({
+      evento: "UserPromptSubmit",
+      command: `${prefixo}DGCLAW_PROMPT_HOOKS_DIR=${citarParaShell(pastaDosPromptHooks(e.pastaDeEstado))} python3 -I ${citarParaShell(script)}`,
+      timeout: 10,
+    });
   }
   return out;
+}
+
+/**
+ * Grava, atomicamente e com modo 0600, a lista de promptHooks DESTA sessão em
+ * `<pastaDeEstado>/prompt-hooks/<id>.json`. Só regrava se o conteúdo mudou. O hook fixo do hooks.json
+ * lê esse arquivo pelo DGCLAW_SESSAO_ID do ambiente do Codex. A pasta de estado é do runner, fora do
+ * workspace e de qualquer cwd de sessão. Devolve false (com log) se não gravou.
+ */
+export function gravarPromptHooksDaSessao(opts: { pastaDeEstado: string; sessaoId: string; promptHooks: string[]; area: string }): boolean {
+  const { pastaDeEstado, sessaoId, area } = opts;
+  if (!ID_DE_SESSAO_VALIDO.test(sessaoId)) {
+    log.aviso(area, `o id da sessão (${JSON.stringify(sessaoId)}) tem caracteres que não posso usar em nome de arquivo (só letras, números, _ e -): os promptHooks dela não rodam no Codex. Renomear a sessão no descritor`);
+    return false;
+  }
+  const comandos = opts.promptHooks.filter((p) => typeof p === "string" && p.trim()).map((p) => p.trim());
+  const dir = pastaDosPromptHooks(pastaDeEstado);
+  const arquivo = path.join(dir, `${sessaoId}.json`);
+  try {
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const texto = JSON.stringify({ versao: 1, comandos }) + "\n";
+    let atual = "";
+    try {
+      atual = fs.readFileSync(arquivo, "utf8");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    }
+    if (atual !== texto) gravarAtomico(arquivo, texto, 0o600);
+    return true;
+  } catch (err) {
+    log.aviso(area, `não consegui gravar os promptHooks da sessão em ${arquivo} (${err instanceof Error ? err.message : String(err)}): eles não rodam no Codex. Conferir a permissão de escrita em ${dir}`);
+    return false;
+  }
 }
 
 interface Manipulador {
@@ -172,41 +206,32 @@ interface Grupo {
 }
 type Arquivo = { hooks?: Record<string, Grupo[]>; [k: string]: unknown };
 
-/** Comando do DG Claw: a marca no começo (formato antigo) ou logo depois do `cd '<pasta>' && ` (formato atual). */
-export const ehComandoDoDgclaw = (c: unknown): boolean => typeof c === "string" && (c.startsWith(MARCA_DO_DGCLAW) || (c.startsWith("cd ") && c.includes(` && ${MARCA_DO_DGCLAW}DGCLAW_WORKSPACE=`)));
-const ehDoDgclaw = (m: Manipulador) => ehComandoDoDgclaw(m?.command);
+/** Parece comando do DG Claw: tem a marca em qualquer lugar. Só serve para DESCARTAR, nunca para confiar. */
+export const pareceDoDgclaw = (c: unknown): boolean => typeof c === "string" && c.includes(MARCA_DO_DGCLAW.trim());
 
 /**
- * Mescla os hooks do DG Claw no objeto do hooks.json: tira os que já eram do DG Claw (marca no
- * começo do comando) e acrescenta os atuais no fim de cada evento, cada um no seu grupo. O que a
- * pessoa já tinha fica onde estava. Devolve o novo objeto e a lista (chave, hash) de cada hook NOSSO.
+ * Mescla os hooks do DG Claw no objeto do hooks.json. Nada que venha do arquivo existente ganha
+ * confiança: o conjunto do DG Claw é só o que o runner calculou (`hooks`). Do arquivo se aproveita o
+ * que NÃO é do DG Claw (hooks da pessoa), copiado como está e sem confiança nossa. Toda entrada que
+ * tem a marca do DG Claw é tirada e, se for exatamente um dos comandos calculados, volta no fim do
+ * evento no seu próprio grupo; as que têm a marca mas não são um comando calculado (formato antigo,
+ * guarda de sessão, ou forjadas) são DESCARTADAS, e não mantidas como hook da pessoa: mantê-las só
+ * deixaria no arquivo um comando que ninguém mais vai confiar nem reconhece.
+ * Devolve o novo objeto, a lista (chave, hash) de cada hook NOSSO e quantas entradas descartou.
  */
-export function mesclarHooks(atual: Arquivo, hooksDaSessao: HookDoDgclaw[], arquivo: string, sessaoId?: string): { novo: Arquivo; confiar: Array<{ chave: string; hash: string }> } {
+export function mesclarHooks(atual: Arquivo, hooks: HookDoDgclaw[], arquivo: string): { novo: Arquivo; confiar: Array<{ chave: string; hash: string }>; descartados: number } {
   const novo: Arquivo = { ...atual, hooks: { ...(atual.hooks ?? {}) } };
-  // O arquivo é do AGENTE, não da sessão: os hooks guardados que outras sessões já instalaram ficam
-  // (só os da sessão que está instalando são trocados), e a ordem final é a mesma qualquer que seja
-  // a ordem em que as sessões sobem: primeiro os hooks sem guarda, depois os guardados por id de sessão.
-  const guardados: HookDoDgclaw[] = [];
-  for (const [evento, grupos] of Object.entries(novo.hooks!)) {
-    for (const g of grupos) {
-      for (const m of g.hooks ?? []) {
-        const dono = ehDoDgclaw(m) ? donoDoComando(m.command as string) : undefined;
-        if (dono !== undefined && dono !== sessaoId) {
-          guardados.push({ evento: evento as EventoDoCodex, ...(g.matcher ? { matcher: g.matcher } : {}), command: m.command as string, timeout: typeof m.timeout === "number" ? m.timeout : 10 });
-        }
-      }
-    }
-  }
-  const semGuarda = hooksDaSessao.filter((h) => donoDoComando(h.command) === undefined);
-  const comGuarda = [...guardados, ...hooksDaSessao.filter((h) => donoDoComando(h.command) !== undefined)];
-  comGuarda.sort((a, b) => (donoDoComando(a.command) as string).localeCompare(donoDoComando(b.command) as string));
-  const hooks = [...semGuarda, ...comGuarda];
   const eventos = new Set<string>([...Object.keys(novo.hooks!), ...hooks.map((h) => h.evento)]);
   const confiar: Array<{ chave: string; hash: string }> = [];
+  let descartados = 0;
   for (const ev of eventos) {
     const grupos: Grupo[] = [];
     for (const g of novo.hooks![ev] ?? []) {
-      const resto = (g.hooks ?? []).filter((m) => !ehDoDgclaw(m));
+      const resto = (g.hooks ?? []).filter((m) => {
+        if (!pareceDoDgclaw(m?.command)) return true;
+        if (!hooks.some((h) => h.evento === ev && h.command === m.command)) descartados++;
+        return false;
+      });
       if (resto.length) grupos.push({ ...g, hooks: resto });
     }
     for (const h of hooks.filter((x) => x.evento === ev)) {
@@ -217,7 +242,7 @@ export function mesclarHooks(atual: Arquivo, hooksDaSessao: HookDoDgclaw[], arqu
     if (grupos.length) novo.hooks![ev] = grupos;
     else delete novo.hooks![ev];
   }
-  return { novo, confiar };
+  return { novo, confiar, descartados };
 }
 
 function gravarAtomico(arquivo: string, texto: string, modo: number): void {
@@ -576,28 +601,37 @@ export interface OpcoesDeInstalacao {
   home: string;
   env: Record<string, string>;
   cwd: string;
+  /** Os promptHooks DESTA sessão: vão para o arquivo de estado da sessão, nunca para o hooks.json. */
   promptHooks: string[];
   area: string;
   raiz?: string | null;
-  /** Id da sessão dona dos promptHooks (veja `guardaDaSessao`). Sem ele os promptHooks valem para qualquer sessão. */
+  /** Id da sessão (o runner o põe em DGCLAW_SESSAO_ID no ambiente do Codex). Sem ele, os promptHooks não são gravados. */
   sessaoId?: string;
+  /** PASTA_DE_ESTADO do runner: onde ficam os promptHooks de cada sessão. */
+  pastaDeEstado?: string;
+  /** Quanto esperar pela trava antes de desistir (padrão 8000 ms). */
+  esperaDaTravaMs?: number;
 }
 
 /**
  * O hooks.json e o config.toml são do AGENTE: a principal e as paralelas que usam o mesmo CODEX_HOME
- * os leem e escrevem. A leitura-e-gravação roda sob uma trava de pasta (mkdir é atômico), para duas
- * sessões que sobem juntas não perderem a entrada uma da outra.
+ * os leem e escrevem. Leitura, cálculo e gravação rodam sob uma trava de pasta (mkdir é atômico).
+ * Sem a trava no prazo, NADA é gravado (o agente sobe sem os hooks desta vez, com o motivo no log):
+ * como o conteúdo é igual para todas as sessões, a próxima subida conserta.
  */
 export function instalarHooksNoCodex(opts: OpcoesDeInstalacao): ResultadoDosHooks {
+  // Os promptHooks da sessão vão para o arquivo dela, independentemente da trava (é um arquivo por sessão).
+  if (opts.sessaoId && opts.pastaDeEstado) {
+    gravarPromptHooksDaSessao({ pastaDeEstado: opts.pastaDeEstado, sessaoId: opts.sessaoId, promptHooks: opts.promptHooks, area: opts.area });
+  }
   const trava = path.join(opts.home, ".dgclaw-hooks.lock");
-  let travou = false;
+  const espera = opts.esperaDaTravaMs ?? 8000;
   try {
     fs.mkdirSync(opts.home, { recursive: true, mode: 0o700 });
-    const limite = Date.now() + 8000;
+    const limite = Date.now() + espera;
     for (;;) {
       try {
         fs.mkdirSync(trava);
-        travou = true;
         break;
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
@@ -606,23 +640,28 @@ export function instalarHooksNoCodex(opts: OpcoesDeInstalacao): ResultadoDosHook
         } catch {
           /* sumiu entre a checagem e a remoção: tenta de novo */
         }
-        if (Date.now() > limite) break;
+        if (Date.now() > limite) {
+          log.aviso(
+            opts.area,
+            `a trava ${trava} continuou ocupada por ${Math.round(espera / 1000)} s (outra sessão está instalando os hooks, ou um runner caiu no meio): não gravei os hooks do DG Claw nesta subida e o agente sobe sem o recall de memória e sem o quadro de avisos. ` +
+              `Reinicie o agente; se a mensagem se repetir, apague a pasta ${trava} (ela só marca "instalando")`,
+          );
+          return { instalados: 0, motivo: "trava ocupada" };
+        }
         Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 40);
       }
     }
-    if (!travou) log.aviso(opts.area, `não consegui a trava ${trava} em 8 s (outra sessão ficou presa instalando os hooks); sigo sem ela`);
   } catch (err) {
-    log.aviso(opts.area, `não consegui criar a trava dos hooks em ${trava} (${err instanceof Error ? err.message : String(err)}); sigo sem ela`);
+    log.aviso(opts.area, `não consegui criar a trava dos hooks em ${trava} (${err instanceof Error ? err.message : String(err)}): não gravei os hooks do DG Claw. Conferir a permissão de escrita em ${opts.home}`);
+    return { instalados: 0, motivo: "sem trava" };
   }
   try {
     return instalarSemTrava(opts);
   } finally {
-    if (travou) {
-      try {
-        fs.rmdirSync(trava);
-      } catch {
-        /* já tinha sumido */
-      }
+    try {
+      fs.rmdirSync(trava);
+    } catch {
+      /* já tinha sumido */
     }
   }
 }
@@ -633,7 +672,8 @@ function instalarSemTrava(opts: OpcoesDeInstalacao): ResultadoDosHooks {
   const ws = opts.env.DGCLAW_WORKSPACE?.trim() || opts.cwd;
   const temWorkspace = fs.existsSync(path.join(ws, ".dgclaw", "config.sh"));
   const temBun = achaNoPath("bun", opts.env.PATH ?? process.env.PATH);
-  const hooks = hooksDoAgente({ raiz, workspace: ws, temWorkspace, temBun, promptHooks: opts.promptHooks, sessaoId: opts.sessaoId });
+  const temPython = achaNoPath("python3", opts.env.PATH ?? process.env.PATH);
+  const hooks = hooksDoAgente({ raiz, workspace: ws, temWorkspace, temBun, temPython, pastaDeEstado: opts.pastaDeEstado });
   const arquivo = path.join(home, "hooks.json");
   const toml = path.join(home, "config.toml");
   try {
@@ -682,7 +722,10 @@ function instalarSemTrava(opts: OpcoesDeInstalacao): ResultadoDosHooks {
       }
     }
     if (!existe && hooks.length === 0) return { instalados: 0 };
-    const { novo, confiar } = mesclarHooks(atual, hooks, arquivo, opts.sessaoId);
+    const { novo, confiar, descartados } = mesclarHooks(atual, hooks, arquivo);
+    if (descartados > 0) {
+      log.info(area, `tirei ${descartados} entrada(s) do hooks.json que tinham a marca do DG Claw mas não eram um dos comandos que o runner calcula (formato antigo ou escritas à mão); elas não recebem confiança`);
+    }
     const texto = JSON.stringify(novo, null, 2) + "\n";
     // O config.toml é calculado ANTES de gravar qualquer coisa: se ele não puder ser editado com
     // segurança, nada é gravado (nem o hooks.json) e os arquivos da pessoa ficam como estavam.

@@ -222,7 +222,7 @@ function avisarIgnorados(ctx: CtxMotor): void {
   if (!ignorados.length) return;
   log.aviso(
     ctx.a("spawn"),
-    `este agente usa o Codex, que não tem hooks por --settings (os promptHooks viram hooks nativos em CODEX_HOME/hooks.json), regras de permissão por ferramenta nem canais: ` +
+    `este agente usa o Codex, que não tem hooks por --settings (os promptHooks rodam por um hook nativo fixo em CODEX_HOME/hooks.json), regras de permissão por ferramenta nem canais: ` +
       `ignorei ${ignorados.join(", ")}. Nada quebra, mas o que dependia disso não acontece neste motor`,
   );
 }
@@ -265,7 +265,7 @@ export const motorCodex: Motor = {
     const home = codexHomeDe({ auth: ctx.escolha.auth, env: ctx.env, cwd: ctx.cwd, id: ctx.id });
     ctx.env.CODEX_HOME = home;
     // Quem é esta sessão, para os hooks do agente (um hooks.json só, no CODEX_HOME dele) saberem
-    // quais promptHooks valem aqui. O processo do hook herda o ambiente do Codex.
+    // qual arquivo de promptHooks o hook fixo do agente lê. O processo do hook herda o ambiente do Codex.
     ctx.env.DGCLAW_SESSAO_ID = ctx.id;
     ctx.extrasDoMotor = [];
 
@@ -290,6 +290,7 @@ export const motorCodex: Motor = {
       promptHooks: (ctx.config.promptHooks ?? []).filter((p): p is string => typeof p === "string"),
       area: ctx.a("spawn"),
       sessaoId: ctx.id,
+      pastaDeEstado: ctx.pastaDeEstado,
     });
 
     const mcp = ctx.config.mcpConfig?.trim();
