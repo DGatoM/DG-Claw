@@ -11,6 +11,7 @@ condition = "OR"
 paths = [
   '''^web/test/ent-usuarios-acesso\.test\.js$''',
   '''^web/test/colaborador-painel\.test\.js$''',
+  '''^web/test/colaboradores\.test\.js$''',
   '''^web/test/ent-sigilo\.test\.js$''',
   '''^tests/enterprise/cofre-cifrado\.test\.sh$''',
 ]
