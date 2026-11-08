@@ -14,6 +14,19 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 1. **Peça ao Admin, no chat: "atualiza o DG Claw".** Esta versão traz uma instrução nova para o Admin e para os agentes saberem que o manual existe e onde consultá-lo. Ela entra na seção de ambiente que o DG Claw mantém para cada agente, sem apagar o que você personalizou nas instruções deles. Se algum agente antigo não a mostrar depois da atualização, peça ao Admin para regravar essa seção com `sudo dgclaw agente identidade <nome>`.
 2. **Regra nova para o Admin.** Pedidos no nível do sistema (nova forma de gerar agentes, mudança no `bin/dgclaw`, no instalador ou no `runner/`) passam a ser permitidos. O Admin avisa você, em linguagem simples, que aquilo mexe na base e pode dar problema nas próximas atualizações; se você mantiver o pedido, ele faz, anota em `PERSONALIZACOES.md` que a mudança mexe na base e tenta mantê-la funcionando a cada atualização. Cofre e segredos, firewall, autenticação do painel, isolamento dos containers e ganchos de segurança continuam fora, mesmo a pedido. O guia está em `docs/PERSONALIZAR.md`.
 
+**Trocar de página no painel do agente deixou de mostrar o layout antigo.** Ao abrir uma página do painel (Status,
+Memória, Sessões e as outras), aparecia por um instante o menu antigo, com a foto padrão, traços "--" e a frase
+"carregando a conversa", e o conteúdo ficava cortado à direita até a tela terminar de montar. Agora o painel abre
+escondido, mostra só um indicador cinza no meio da área de conteúdo, e o cabeçalho e o menu verdadeiros aparecem assim
+que a página chega. O conteúdo passou a usar a largura toda ao lado do menu, sem sobra em monitor largo. Os arquivos
+de estilo e de script do painel agora ficam guardados no navegador, então trocar de página é mais rápido. Se a tela
+demorar mais de 8 segundos ou falhar ao abrir, ela deixa de ficar presa e diz o que aconteceu e o que fazer.
+
+### Como atualizar (troca de páginas do painel)
+
+Basta atualizar o DG Claw e recarregar a página do painel (no celular, feche e abra de novo, ou use Ctrl+F5 no
+computador). Nada precisa ser configurado nem apagado: as suas chaves, conversas e agentes continuam como estavam.
+
 **O aviso "Faça o login nos seus agentes" agora aparece uma única vez.** Antes, ele voltava a cada aba nova e a cada
 visita ao painel enquanto algum agente estivesse sem login. Agora o painel guarda, no servidor, que você já viu o aviso:
 fechar com **Fazer depois** ou recarregar a página não o traz de volta, e o novo botão **Não mostrar mais** o desliga de

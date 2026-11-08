@@ -31,10 +31,3 @@ de API, a conta de IA e as credenciais de canal. Veja [o-que-nao-faz.md](o-que-n
 Está previsto o acesso por Face ID, com uma tela chamada cadeado e rotas de API com esse nome. Hoje essa tela e
 essas rotas não existem na `main`: o acesso ao painel é só por senha, descrito em [seguranca.md](seguranca.md). Não há mais
 detalhe confirmado.
-
-## Correção da troca de página do painel
-
-**Ainda não está na `main`, pode mudar.**
-
-Está em andamento uma correção na troca de página do painel. Ela trata de um defeito de funcionamento e não cria
-recurso novo para o dono. Não há mais detalhe confirmado. Quando entrar, o resumo irá no `CHANGELOG.md`.
