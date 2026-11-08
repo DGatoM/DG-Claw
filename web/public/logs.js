@@ -59,12 +59,13 @@
   }
 
   /* O que dizer quando a lista veio vazia. "Nada com os filtros", "o agente ainda não fez nada" e "não há fonte para ler" são três coisas diferentes. */
-  function estadoVazio(fontes, filtrado, parcial) {
+  function estadoVazio(fontes, filtrado, parcial, podeContinuar) {
     const lista = Array.isArray(fontes) ? fontes : [];
     if (!lista.some(f => f.estado === 'ok' || (f.estado === 'parcial' && f.arquivos > 0))) {
       const motivos = lista.map(f => (ROTULO_MOTOR[f.motor] || f.motor) + ': ' + (f.motivo || f.estado)).join(' ');
       return { tipo: 'faltando', texto: 'Não há histórico para ler deste agente. ' + motivos + ' Confira se o agente já conversou neste servidor e se o registro de agentes aponta para a pasta certa.' };
     }
+    if (parcial && podeContinuar === false) return { tipo: 'parada', texto: 'A busca parou antes de olhar tudo e não conseguiu avançar. Leia o aviso acima e estreite o período ou o tipo.' };
     if (parcial) return { tipo: 'parcial', texto: 'Ainda não achei nada, mas a busca não olhou tudo. Toque em "Continuar procurando".' };
     if (filtrado) return { tipo: 'filtro', texto: 'Nada com esses filtros. Tente outro período, outro tipo ou outra palavra.' };
     return { tipo: 'nada', texto: 'O agente ainda não fez nada que apareça aqui.' };
@@ -275,7 +276,7 @@
       const lista = $('lgLista');
       for (const ev of r.eventos || []) lista.appendChild(cartao(ev));
       if (!lista.childNodes.length) {
-        const v = estadoVazio(r.fontes, est.filtrado, est.parcial);
+        const v = estadoVazio(r.fontes, est.filtrado, est.parcial, !!est.proximo);
         pintaEstado(v.texto, v.tipo);
       } else {
         pintaEstado('');

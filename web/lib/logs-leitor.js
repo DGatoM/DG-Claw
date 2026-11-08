@@ -182,6 +182,21 @@ function decodificaCursor(texto) {
   return r;
 }
 
+/** Dois cursores dizem a mesma coisa (mesma posição e mesmos hints)? `a` pode ser null (primeira página). */
+function mesmoCursor(a, b) {
+  const ca = a && a.chave; const cb = b && b.chave;
+  if ((ca || null) && (cb || null)) { if (cmp(ca, cb) !== 0) return false; } else if ((ca || null) !== (cb || null)) return false;
+  const ha = (a && a.h) || {}; const hb = (b && b.h) || {};
+  const ka = Object.keys(ha).sort(); const kb = Object.keys(hb).sort();
+  if (ka.length !== kb.length) return false;
+  return ka.every((k, i) => {
+    if (k !== kb[i]) return false;
+    const x = ha[k]; const y = hb[k];
+    const ox = Array.isArray(x) ? x[0] : x.o; const tx = Array.isArray(x) ? x[1] : x.teto;
+    return ox === y[0] && tx === y[1];
+  });
+}
+
 function cmp(a, b) {
   if (a.t !== b.t) return a.t < b.t ? -1 : 1;
   if (a.f !== b.f) return a.f < b.f ? -1 : 1;
@@ -364,6 +379,9 @@ async function abrirSeguro(arq) {
 // ── extração por motor ─────────────────────────────────────────────────────
 const OPERACAO_ARQUIVO = { Read: 'ler', Write: 'escrever', Edit: 'editar', MultiEdit: 'editar', NotebookEdit: 'editar' };
 
+/** Só string entra: objeto vindo do log (com toString hostil, por exemplo) nunca é convertido. */
+const str = (v) => (typeof v === 'string' ? v : '');
+
 function textoDeBlocos(c) {
   if (typeof c === 'string') return c;
   if (!Array.isArray(c)) return '';
@@ -371,7 +389,7 @@ function textoDeBlocos(c) {
   for (const b of c) {
     if (typeof b === 'string') partes.push(b);
     else if (b && typeof b.text === 'string') partes.push(b.text);
-    else if (b && typeof b === 'object' && b.type) partes.push(`[${String(b.type).slice(0, 30)}]`);
+    else if (b && typeof b === 'object' && typeof b.type === 'string') partes.push(`[${b.type.slice(0, 30)}]`);
   }
   return partes.join('\n');
 }
@@ -383,8 +401,8 @@ function resultadoDe(bruto, erro) {
 
 function comandoDeLista(c) {
   if (Array.isArray(c)) {
-    if (c.length >= 3 && /^(?:-lc|-c)$/.test(String(c[1]))) return String(c[2]);
-    return c.map(String).join(' ');
+    if (c.length >= 3 && typeof c[1] === 'string' && /^(?:-lc|-c)$/.test(c[1])) return str(c[2]);
+    return c.map(str).join(' ');
   }
   return typeof c === 'string' ? c : '';
 }
@@ -425,9 +443,9 @@ async function extraiClaude(j, leitor, soRes) {
       const entrada = b.input && typeof b.input === 'object' ? b.input : {};
       const resultado = typeof b.id === 'string' ? leitor.resultados.get(b.id) || null : null;
       if (b.name === 'Bash') {
-        out.push({ tipo: 'comando', titulo: typeof entrada.description === 'string' && entrada.description ? entrada.description : 'Comando', comando: entrada.command, descricao: entrada.description, resultado });
+        out.push({ tipo: 'comando', titulo: typeof entrada.description === 'string' && entrada.description ? entrada.description : 'Comando', comando: str(entrada.command), descricao: str(entrada.description), resultado });
       } else if (OPERACAO_ARQUIVO[b.name]) {
-        const caminho = entrada.file_path || entrada.notebook_path || entrada.path || '';
+        const caminho = [entrada.file_path, entrada.notebook_path, entrada.path].find((v) => typeof v === 'string' && v) || '';
         out.push({ tipo: 'arquivo', titulo: `${OPERACAO_ARQUIVO[b.name] === 'ler' ? 'Leu' : OPERACAO_ARQUIVO[b.name] === 'escrever' ? 'Escreveu' : 'Editou'} um arquivo`, caminho, operacao: OPERACAO_ARQUIVO[b.name], ferramenta: b.name, resultado });
       } else {
         out.push({ tipo: 'ferramenta', titulo: b.name, ferramenta: b.name, entrada, resultado });
@@ -459,8 +477,8 @@ function itemCodex(item, out) {
       break;
     }
     case 'FileChange': {
-      let caminho = item.path || item.file_path || '';
-      if (!caminho && Array.isArray(item.changes) && item.changes[0]) caminho = item.changes[0].path || '';
+      let caminho = [item.path, item.file_path].find((v) => typeof v === 'string' && v) || '';
+      if (!caminho && Array.isArray(item.changes) && item.changes[0]) caminho = str(item.changes[0].path);
       if (!caminho && item.changes && typeof item.changes === 'object' && !Array.isArray(item.changes)) caminho = Object.keys(item.changes)[0] || '';
       out.push({ tipo: 'arquivo', titulo: 'Alterou um arquivo', caminho, operacao: 'alterar', ferramenta: 'FileChange', resultado: null });
       break;
@@ -517,7 +535,7 @@ function extraiCodex(j, leitor, soRes) {
       const m = /\*\*\* (?:Update|Add|Delete) File:\s*(.+)/.exec(txt);
       out.push({ tipo: 'arquivo', titulo: 'Alterou um arquivo', caminho: m ? m[1].trim() : '', operacao: 'alterar', ferramenta: nome, resultado });
     } else if (NOMES_SHELL.has(nome) || nome === 'exec') {
-      const cmd = args && typeof args === 'object' ? (comandoDeLista(args.command) || (typeof args.cmd === 'string' ? args.cmd : '')) : (typeof args === 'string' ? args : '');
+      const cmd = args && typeof args === 'object' ? (comandoDeLista(args.command) || (str(args.cmd))) : (typeof args === 'string' ? args : '');
       out.push({ tipo: 'comando', titulo: 'Comando', comando: cmd, resultado });
     } else {
       out.push({ tipo: 'ferramenta', titulo: nome, ferramenta: nome, entrada: args, resultado });
@@ -758,7 +776,12 @@ class LeitorArquivo {
     let j;
     try { j = JSON.parse(l.buf.toString('utf8')); } catch (_) { if (!soRes) this.ctx.contagens.linhas_ilegiveis++; return; }
     if (!j || typeof j !== 'object') { if (!soRes) this.ctx.contagens.linhas_ilegiveis++; return; }
-    const rasc = this.arq.motor === 'claude' ? await extraiClaude(j, this, soRes) : extraiCodex(j, this, soRes);
+    let rasc;
+    try { rasc = this.arq.motor === 'claude' ? await extraiClaude(j, this, soRes) : extraiCodex(j, this, soRes); } catch (_) {
+      // Registro com campo de tipo inesperado: conta como linha ilegível e a leitura segue.
+      if (!soRes) this.ctx.contagens.linhas_ilegiveis++;
+      return;
+    }
     if (rasc === null) { this.pausado = true; return; }
     if (soRes || !rasc.length) return;
     const ts = typeof j.timestamp === 'string' ? Date.parse(j.timestamp) : NaN;
@@ -925,6 +948,9 @@ function criarLeitor({ log, agora, orcamento } = {}) {
     const bases = [ag.home_host, ag.home_container, ag.codex_home_host];
 
     const fontes = await descobre(ag, ctx);
+    // O prazo de leitura só começa depois da descoberta: uma descoberta lenta não pode deixar a leitura vencida de saída.
+    if (typeof o.aposDescoberta === 'function') o.aposDescoberta();
+    ctx.inicio = relogio();
     let arqs = fontes.flatMap((x) => x.arquivos);
     if (f.sessao) {
       const alvo = String(f.sessao).toLowerCase();
@@ -934,95 +960,115 @@ function criarLeitor({ log, agora, orcamento } = {}) {
     arqs.sort((a, b) => b.mtimeMs - a.mtimeMs || (a.id < b.id ? -1 : 1));
     if (ctx.desde > -Infinity) arqs = arqs.filter((a) => a.mtimeMs + FOLGA_MTIME >= ctx.desde);
 
-    const pendentes = arqs.slice();
-    const todos = [];        // leitores já criados
-    const abertos = [];      // leitores com cabeça
-    const emitidos = [];
-    let ultimaChave = null;
-    let parcial = false;
-    let mais = false;
-    let acabou = false;
+    const todos = [];        // leitores já criados; o finally os fecha mesmo se algo lançar no meio
+    let R;
+    try {
+      R = await (async () => {
+      const pendentes = arqs.slice();
+      const abertos = [];      // leitores com cabeça
+      const emitidos = [];
+      let ultimaChave = null;
+      let parcial = false;
+      let mais = false;
+      let acabou = false;
 
-    const topoAtual = () => {
-      let m = null;
-      for (const r of abertos) if (r.cabeca && (!m || cmp(r.cabeca.key, m) > 0)) m = r.cabeca.key;
-      return m;
-    };
+      const topoAtual = () => {
+        let m = null;
+        for (const r of abertos) if (r.cabeca && (!m || cmp(r.cabeca.key, m) > 0)) m = r.cabeca.key;
+        return m;
+      };
 
-    async function limitaFds() {
-      while (ctx.fdsAbertos > MAX_FDS) {
-        let alvo = null;
-        for (const r of abertos) if (r.estado === 'aberto' && r.cabeca && (!alvo || cmp(r.cabeca.key, alvo.cabeca.key) < 0)) alvo = r;
-        if (!alvo) return;
-        await alvo.suspender();
-      }
-    }
-
-    async function abrePendentes() {
-      while (pendentes.length && !ctx.excedeu()) {
-        const topo = topoAtual();
-        const prox = pendentes[0];
-        if (topo && prox.mtimeMs + FOLGA_MTIME < topo.t) return;
-        pendentes.shift();
-        const l = new LeitorArquivo(prox, ctx, hints[prox.id]);
-        todos.push(l);
-        await l.avancar();
-        if (l.cabeca) abertos.push(l);
-        await limitaFds();
-      }
-    }
-
-    let voltas = 0;
-    for (;;) {
-      if (ctx.excedeu()) { parcial = true; break; }
-      // Página cheia: para sem olhar adiante (olhar adiante leria o arquivo todo quando o resto não tem ação).
-      if (emitidos.length >= f.limite) { mais = abertos.length > 0 || pendentes.length > 0; break; }
-      // Quem teve a cabeça consumida só avança agora, quando a leitura é de fato necessária.
-      for (const r of abertos.slice()) {
-        if (!r.cabeca) {
-          await r.avancar();
-          if (!r.cabeca && !r.pausado) abertos.splice(abertos.indexOf(r), 1);
+      async function limitaFds() {
+        while (ctx.fdsAbertos > MAX_FDS) {
+          let alvo = null;
+          for (const r of abertos) if (r.estado === 'aberto' && r.cabeca && (!alvo || cmp(r.cabeca.key, alvo.cabeca.key) < 0)) alvo = r;
+          if (!alvo) return;
+          await alvo.suspender();
         }
-        if (ctx.excedeu()) break;
       }
-      await limitaFds();
-      if (ctx.excedeu()) { parcial = true; break; }
-      await abrePendentes();
-      if (ctx.excedeu()) { parcial = true; break; }
-      const prontos = abertos.filter((r) => r.cabeca);
-      if (!prontos.length) {
-        if (abertos.length || pendentes.length) continue;
-        acabou = true;
-        break;
-      }
-      let melhor = prontos[0];
-      for (const r of prontos) if (cmp(r.cabeca.key, melhor.cabeca.key) > 0) melhor = r;
-      const item = melhor.cabeca;
-      const { ev, busca } = montaEvento(item, item.arq, bases);
-      ultimaChave = item.key;
-      melhor.cabeca = null;
-      if (!q || busca.includes(q)) emitidos.push(ev);
-      if (++voltas % 200 === 0) await new Promise((r) => setImmediate(r));
-    }
 
-    // hints dos arquivos abertos (os que ainda têm o que ler primeiro)
-    const h = {};
-    const comHint = todos.filter((l) => l.hintAtual()).sort((a, b) => (a.hintAtual()[0] === -1) - (b.hintAtual()[0] === -1));
-    for (const l of comHint.slice(0, MAX_HINTS)) h[l.arq.id] = l.hintAtual();
-    for (const l of todos) await l.fechaFd();
+      async function abrePendentes() {
+        while (pendentes.length && !ctx.excedeu()) {
+          const topo = topoAtual();
+          const prox = pendentes[0];
+          if (topo && prox.mtimeMs + FOLGA_MTIME < topo.t) return;
+          pendentes.shift();
+          const l = new LeitorArquivo(prox, ctx, hints[prox.id]);
+          todos.push(l);
+          await l.avancar();
+          if (l.cabeca) abertos.push(l);
+          await limitaFds();
+        }
+      }
+
+      let voltas = 0;
+      for (;;) {
+        if (ctx.excedeu()) { parcial = true; break; }
+        // Página cheia: para sem olhar adiante (olhar adiante leria o arquivo todo quando o resto não tem ação).
+        if (emitidos.length >= f.limite) { mais = abertos.length > 0 || pendentes.length > 0; break; }
+        // Quem teve a cabeça consumida só avança agora, quando a leitura é de fato necessária.
+        for (const r of abertos.slice()) {
+          if (!r.cabeca) {
+            await r.avancar();
+            if (!r.cabeca && !r.pausado) abertos.splice(abertos.indexOf(r), 1);
+          }
+          if (ctx.excedeu()) break;
+        }
+        await limitaFds();
+        if (ctx.excedeu()) { parcial = true; break; }
+        await abrePendentes();
+        if (ctx.excedeu()) { parcial = true; break; }
+        const prontos = abertos.filter((r) => r.cabeca);
+        if (!prontos.length) {
+          if (abertos.length || pendentes.length) continue;
+          acabou = true;
+          break;
+        }
+        let melhor = prontos[0];
+        for (const r of prontos) if (cmp(r.cabeca.key, melhor.cabeca.key) > 0) melhor = r;
+        const item = melhor.cabeca;
+        ultimaChave = item.key;
+        melhor.cabeca = null;
+        let montado = null;
+        try { montado = montaEvento(item, item.arq, bases); } catch (e) {
+          // Registro malformado (campo de tipo inesperado): conta como linha ilegível e a leitura segue.
+          ctx.contagens.linhas_ilegiveis++;
+          aviso('aviso', `Logs: registro malformado ignorado em ${item.arq.rotulo} (${e && e.message ? String(e.message).slice(0, 80) : 'erro'}).`);
+        }
+        if (montado && (!q || montado.busca.includes(q))) emitidos.push(montado.ev);
+        if (++voltas % 200 === 0) await new Promise((r) => setImmediate(r));
+      }
+
+      // hints dos arquivos abertos (os que ainda têm o que ler primeiro)
+      const h = {};
+      const comHint = todos.filter((l) => l.hintAtual()).sort((a, b) => (a.hintAtual()[0] === -1) - (b.hintAtual()[0] === -1));
+      for (const l of comHint.slice(0, MAX_HINTS)) h[l.arq.id] = l.hintAtual();
+      return { emitidos, ultimaChave, parcial, mais, acabou, h };
+      })();
+    } finally {
+      for (const l of todos) await l.fechaFd();
+    }
+    const { emitidos, ultimaChave, parcial, mais, acabou, h } = R;
 
     const temMais = mais || parcial;
     let proximo = null;
+    let semProgresso = false;
     if (temMais) {
       const c = ultimaChave || ctx.cursorChave;
       proximo = codificaCursor(Object.assign(c ? { t: c.t, f: c.f, o: c.o, i: c.i } : {}, { h }));
       if (proximo.length > TETO_CURSOR) proximo = codificaCursor(c ? { t: c.t, f: c.f, o: c.o, i: c.i } : {});
+      // Resposta parcial precisa andar: evento novo ou cursor diferente do recebido. Senão o cliente repetiria o pedido para sempre.
+      if (parcial && !mais && !emitidos.length && mesmoCursor(f.cursor, { chave: c, h })) {
+        proximo = null;
+        semProgresso = true;
+        ctx.avisa({ tipo: 'sem_progresso', motivo: 'A busca não conseguiu avançar dentro do prazo (arquivos muito grandes ou o servidor ocupado), então parei em vez de repetir o mesmo pedido. Estreite o período ou o tipo nos filtros, ou tente de novo mais tarde.' });
+      }
     }
     if (!acabou && !temMais) aviso('aviso', 'Logs: a busca terminou sem motivo conhecido.');
     return {
       eventos: emitidos,
       proximo,
-      parcial: parcial && !mais,
+      parcial: (parcial && !mais) || semProgresso,
       lidos_bytes: ctx.lidos,
       fontes: fontes.map(resumoDaFonte),
       avisos: ctx.avisosFinais(),

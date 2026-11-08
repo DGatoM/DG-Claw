@@ -118,6 +118,10 @@ Resposta:
 - A descoberta de arquivos para em 50000 entradas visitadas, em 10000 subpastas esperando leitura ou em 3 segundos. Ao parar, a
   fonte fica `parcial` com o motivo (e um aviso `limite`). Os avisos de arquivo recusado são limitados a 50 por resposta, com a
   contagem do que foi omitido. Em `agentes`, os agentes são verificados em sequência dentro de um prazo total de 5 segundos.
+- O prazo de leitura (1,5 s e 64 MB) só começa depois da descoberta dos arquivos. Uma resposta `parcial` sempre anda: traz
+  eventos ou um `proximo` diferente do recebido. Se não conseguiu avançar, vem sem `proximo` e com o aviso `sem_progresso`,
+  que diz a causa e que é para estreitar o período ou o tipo. Registro com campo de tipo inesperado é contado em
+  `linhas_ilegiveis`, e a leitura segue.
 - O servidor entrega o laço de eventos a cada poucos milissegundos durante a leitura e confere o prazo no meio de linhas com
   muitos blocos: uma linha que não coube no prazo é relida na página seguinte (`parcial: true`).
 - Atalhos (symlink) nunca são seguidos (`atalhos_ignorados`); arquivo com mais de um nome no disco, fora da pasta do agente

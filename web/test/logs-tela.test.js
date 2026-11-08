@@ -155,3 +155,11 @@ test('fontes parcial e não verificada aparecem com o motivo, e uma fonte parcia
   assert.equal(T.estadoVazio([{ motor: 'claude', estado: 'parcial', arquivos: 3, motivo: 'x' }], false, false).tipo, 'nada');
   assert.equal(T.estadoVazio([{ motor: 'claude', estado: 'nao_verificada', arquivos: null, motivo: 'x' }], false, false).tipo, 'faltando');
 });
+
+test('busca parcial sem como continuar não promete "Continuar procurando"', () => {
+  const ok = [{ motor: 'claude', estado: 'ok', arquivos: 1 }];
+  const v = T.estadoVazio(ok, false, true, false);
+  assert.equal(v.tipo, 'parada');
+  assert.doesNotMatch(v.texto, /Continuar procurando/);
+  assert.equal(T.estadoVazio(ok, false, true, true).tipo, 'parcial');
+});
