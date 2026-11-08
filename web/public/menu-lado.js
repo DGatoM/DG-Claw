@@ -30,6 +30,7 @@
   /* Entradas fixas do menu: a tela de lembretes e a de avisos (valem para qualquer agente). */
   const LINK_LEMBRETES = { nome: 'Lembretes', ico: 'i-clock', href: '/lembretes' };
   const LINK_AVISOS = { nome: 'Avisos', ico: 'i-bell', href: '/avisos' };
+  const LINK_MANUAL = { nome: 'Manual', ico: 'i-book', href: '/manual' };
   const LINK_SEGURANCA = { nome: 'Segurança', ico: 'i-shield', href: '/seguranca' };
   const LINK_CONECTAR = { nome: 'Conectar conta', ico: 'i-key', href: '/conectar' };
   const LINK_COLABORADOR = { nome: 'Convidar colaborador', ico: 'i-users', href: '/colaboradores' };
@@ -70,6 +71,7 @@
     if (caminho === '/lembretes') return 'lembretes';
     if (caminho === '/avisos') return 'avisos';
     if (caminho === '/seguranca') return 'seguranca';
+    if (caminho === '/manual' || caminho.startsWith('/manual/')) return 'manual';
     if (caminho === '/conectar') return 'conectar';
     if (caminho === '/colaboradores') return 'colaboradores';
     if (caminho === '/anonimizar') return 'anonimizar';
@@ -90,7 +92,7 @@
 
   /* ── Grupos do menu ─────────────────────────────────────────────────────────────────────────────────────
      Conversa e Mesa ficam fixas no alto (casca.js), seguidas de Pasta do agente. As outras páginas ficam em acordeões;
-     Como funciona e Socorro ficam soltos no fim. O que não está nesta tabela (Navegador, Posts, Seguidores, Reuniões e os
+     Como funciona, Manual e Socorro ficam soltos no fim. O que não está nesta tabela (Navegador, Posts, Seguidores, Reuniões e os
      itens que o painel acrescentar) vai para o grupo "Conexões", que só existe quando há pelo menos um deles.
      Conectar conta e Anonimizar entram em Ferramentas, e Convidar colaborador em Segurança (quem tem acesso ao quê). */
   const GRUPOS_MENU = [
@@ -102,7 +104,7 @@
   ];
   const GRUPO_CONEXOES = { id: 'conexoes', nome: 'Conexões', ico: 'i-globe' };
   const CHAVES_FIXAS = ['arquivos'];
-  const CHAVES_RODAPE = ['como', 'socorro'];
+  const CHAVES_RODAPE = ['como', 'manual', 'socorro'];
   const CHAVE_ABERTOS = 'dgclaw:menu-grupos';
 
   /* Todos os itens que este agente tem no menu (fora Conversa e Mesa, que vêm no HTML). Cada um: { chave, nome, ico, href, id?, alvo?, tour? }. */
@@ -111,7 +113,7 @@
       .map(l => ({ chave: chaveDoHref(l.href), nome: l.nome, ico: l.ico, href: l.href }));
     const id = ag && ag.id;
     const fixo = (chave, l, tour) => itens.push({ chave, nome: l.nome, ico: l.ico, href: comAgente(l.href, id), tour });
-    if (!colab) { fixo('lembretes', LINK_LEMBRETES, 'gm-lembretes'); fixo('avisos', LINK_AVISOS, 'gm-avisos'); fixo('seguranca', LINK_SEGURANCA, 'gm-seguranca'); }
+    if (!colab) { fixo('lembretes', LINK_LEMBRETES, 'gm-lembretes'); fixo('avisos', LINK_AVISOS, 'gm-avisos'); fixo('seguranca', LINK_SEGURANCA, 'gm-seguranca'); itens.push({ chave: 'manual', nome: LINK_MANUAL.nome, ico: LINK_MANUAL.ico, href: LINK_MANUAL.href, tour: 'gm-manual' }); }
     fixo('conectar', LINK_CONECTAR, 'gm-conectar');
     if (!colab) fixo('anonimizar', LINK_ANONIMIZAR, 'gm-anonimizar');
     // Convidar colaborador: só o dono, e nunca para o Admin (o Admin mexe no servidor inteiro)
@@ -392,7 +394,7 @@
     return { tipo: 'sem', texto: 'Este navegador não oferece a instalação por aqui. No Chrome ou no Edge, abra o menu do navegador e procure Instalar app. No Firefox para computador, o recurso não existe.' };
   }
 
-  if (!raiz.document) return { GRUPOS_MENU, GRUPO_CONEXOES, montaItens, organizaMenu, menuHtml, grupoHtml, grupoDaChave, corUso, quandoZeraUso, miniBarraUso, itemUso, ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, LINK_SEGURANCA, LINK_CONECTAR, LINK_COLABORADOR, LINK_ANONIMIZAR, linkSessoes, linkTela, itemAgente, bolinhaMenu, seloDe, totalNaoLidas, totalPrecisam, horaCurta, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar };
+  if (!raiz.document) return { GRUPOS_MENU, GRUPO_CONEXOES, montaItens, organizaMenu, menuHtml, grupoHtml, grupoDaChave, corUso, quandoZeraUso, miniBarraUso, itemUso, ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, LINK_MANUAL, LINK_SEGURANCA, LINK_CONECTAR, LINK_COLABORADOR, LINK_ANONIMIZAR, linkSessoes, linkTela, itemAgente, bolinhaMenu, seloDe, totalNaoLidas, totalPrecisam, horaCurta, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar };
 
   /* ── Parte com DOM ─────────────────────────────────────────────────────── */
   const $ = id => document.getElementById(id);
@@ -802,5 +804,5 @@
       .catch(e => { console.warn('menu-lado: não consegui saber quem está logado (' + e.message + '); o menu segue sem o nome.'); });
   }
 
-  return { GRUPOS_MENU, GRUPO_CONEXOES, montaItens, organizaMenu, menuHtml, grupoHtml, grupoDaChave, abreGrupo, corUso, quandoZeraUso, miniBarraUso, itemUso, ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, LINK_SEGURANCA, LINK_CONECTAR, LINK_COLABORADOR, LINK_ANONIMIZAR, linkSessoes, linkTela, itemAgente, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar, inicia, marca, extras, defineNaoLidas, totalNaoLidas, totalPrecisam, seloDe };
+  return { GRUPOS_MENU, GRUPO_CONEXOES, montaItens, organizaMenu, menuHtml, grupoHtml, grupoDaChave, abreGrupo, corUso, quandoZeraUso, miniBarraUso, itemUso, ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, LINK_MANUAL, LINK_SEGURANCA, LINK_CONECTAR, LINK_COLABORADOR, LINK_ANONIMIZAR, linkSessoes, linkTela, itemAgente, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar, inicia, marca, extras, defineNaoLidas, totalNaoLidas, totalPrecisam, seloDe };
 });
