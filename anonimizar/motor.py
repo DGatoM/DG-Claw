@@ -26,7 +26,7 @@ import verificacao  # noqa: E402
 import ner_gliner  # noqa: E402
 from detectores import TIPOS  # noqa: E402
 from documentos import ErroMotor  # noqa: E402
-from tabela import _RX_MARCADOR, Reversor, Sessao, Tabela  # noqa: E402
+from tabela import _RX_MARCADOR, Reversor, Sessao, Tabela, escapar_md  # noqa: E402
 
 AVISO_SEM_NER = "O detector de nomes e endereços não está instalado: só números, contatos e documentos foram trocados."
 _NER = {"obj": None, "pronto": False}
@@ -388,7 +388,7 @@ def _reverter(req):
     if not isinstance(saida, str) or not saida:
         raise ErroMotor("pedido_invalido", "O campo 'saida' é obrigatório.")
     ext = os.path.splitext(nome)[1].lower()
-    rev = Reversor(req.get("tabela") or [])
+    rev = Reversor(req.get("tabela") or [], escapar_md if ext == ".md" else None)
     if ext == ".pdf":
         raise ErroMotor("pdf", "Não dá para trazer os dados reais de volta num PDF (o texto dele não é editável aqui). "
                         "Peça ao agente o resultado em .docx ou .md.")

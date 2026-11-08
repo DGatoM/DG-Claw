@@ -16,6 +16,16 @@ TIPOS_NUMERICOS = {"CPF", "RG", "PIS", "CNH", "TITULO", "CEP", "TELEFONE", "CART
 _RX_MARCADOR = re.compile(r"\[(" + "|".join(TIPOS) + r")_(\d+)\]")
 
 
+MARCADOR_AUTOR = "[AUTOR]"
+_RX_PARECE_NOME = re.compile(r"(?:[^\W_]|[ .'\u2019-])+")
+
+
+def parece_nome(valor):
+    """Letras (com acento), dígitos, espaço, ponto, hífen e apóstrofo, com ao menos uma letra e até 80 caracteres."""
+    v = valor.strip()
+    return len(v) <= 80 and bool(_RX_PARECE_NOME.fullmatch(v)) and any(c.isalpha() for c in v)
+
+
 def sem_acento(s):
     return "".join(c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn")
 
@@ -107,6 +117,7 @@ class Sessao:
         self.partes = {}            # primeiro nome/sobrenome exato (maiúscula/minúscula importa) -> (tipo, marcador)
         self.contagem = {}
         self.contando = True
+        self.autores_descartados = set()   # autores que não parecem nome: viram "[AUTOR]", nunca entram na tabela
         self.detectados = {}        # (tipo, chave) -> valor: tudo o que apareceu NESTE documento
         self._rx = None
         self._rx_partes = None
@@ -150,9 +161,19 @@ class Sessao:
         self._registrar_pessoas(nomes)
 
     def registrar_pessoas(self, nomes):
-        """Registra como PESSOA nomes que o detector não precisa reconhecer (autor de comentário ou revisão)."""
+        """Registra como PESSOA nomes que o detector não precisa reconhecer (autor de comentário ou revisão).
+
+        Só entra na tabela o que parece nome (`parece_nome`). Autor que não passa (um documento externo pode pôr qualquer
+        texto ali, inclusive sintaxe de Markdown ou HTML) NÃO é registrado: fica em `autores_descartados` e `encontrar` o
+        troca, quando é o valor inteiro de um campo, pelo marcador fixo "[AUTOR]", que não tem reversão. Assim documento
+        externo não injeta texto na tabela que a versão final restaura.
+        """
         # uma letra só não é nome (é inicial ou rótulo) e, registrada, a verificação final a acharia em qualquer parte do pacote
         nomes = [n for n in nomes if len(n.strip()) >= 2]
+        for n in nomes:
+            if not parece_nome(n):
+                self.autores_descartados.add(n.strip())
+        nomes = [n for n in nomes if parece_nome(n)]
         for n in nomes:
             self._lembrar("PESSOA", n)
         self._registrar_pessoas(nomes)
@@ -248,6 +269,10 @@ class Sessao:
         """Em parte estrutural (propriedades, atributos) data e valor ficam: trocar quebraria o formato do arquivo.
 
         Trocas `(inicio, fim, novo_texto)` para um trecho, inclusive a neutralização de marcador plantado."""
+        corte = texto.strip()
+        if corte and corte in self.autores_descartados:
+            ini = texto.index(corte)
+            return [(ini, ini + len(corte), MARCADOR_AUTOR)]
         trocas = list(achar_neutralizacoes(texto))
         candidatos = []
         for rx, tabela in ((self._regex(), self.superficies), (self._regex_partes(), self.partes)):
@@ -394,8 +419,25 @@ def pedaco_parece_url(texto, ini, fim):
     return any(c in _CARACTERES_DE_URL for c in texto[esq:dir_])
 
 
+_RX_ESPECIAIS_MD = re.compile(r"[\\`*_{}\[\]()#|~>!]")
+_RX_INICIO_DE_LINHA_MD = re.compile(r"^([ \t]*)(?:(\d+)([.)])(?=\s|$)|([-+=])(?=[\s\-+=]|$))", re.M)
+
+
+def escapar_md(valor):
+    """Valor restaurado entra no Markdown como texto literal: nunca vira imagem, link, tag nem título.
+
+    `\\` na frente da pontuação de sintaxe; `<` e `&` viram entidade (o "<" do texto do agente já virou "&lt;" antes, então
+    este é o único "<" que chegaria cru). `- + = .` só importam no começo de linha (lista, título, lista numerada), por isso
+    o CPF "123.456.789-00" continua legível no meio da frase.
+    """
+    v = _RX_ESPECIAIS_MD.sub(lambda m: "\\" + m.group(0), valor.replace("&", "&amp;").replace("<", "&lt;"))
+    return _RX_INICIO_DE_LINHA_MD.sub(
+        lambda m: m.group(1) + (m.group(2) + "\\" + m.group(3) if m.group(2) else "\\" + m.group(4)), v)
+
+
 class Reversor:
-    def __init__(self, tabela):
+    def __init__(self, tabela, escapar=None):
+        self.escapar = escapar      # transforma o valor restaurado em texto literal do formato de saída (ex.: escapar_md)
         self.valor_de = {}
         for e in tabela:
             self.valor_de.setdefault(e["marcador"], e["valor"])
@@ -410,7 +452,8 @@ class Reversor:
             if marcador in self.valor_de:
                 if any(a < m.end() and m.start() < b for a, b in zonas) or pedaco_parece_url(texto, m.start(), m.end()):
                     continue
-                saida.append((m.start(), m.end(), self.valor_de[marcador]))
+                valor = self.valor_de[marcador]
+                saida.append((m.start(), m.end(), self.escapar(valor) if self.escapar else valor))
                 self.trocas += 1
             elif marcador not in self.desconhecidos:
                 self.desconhecidos.append(marcador)
