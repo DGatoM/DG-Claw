@@ -68,7 +68,8 @@ test('achado 1: colaborador não baixa arquivo oculto da casa nem nada do dataDi
     assert.equal(medias.length, 4);
     const porNome = Object.fromEntries(medias.map((m) => [m.nome, m.id]));
     for (const nome of ['cred.json', '.escondido.txt', 'segredo-do-servidor.json']) {
-      assert.equal((await s.dono.get(`/api/v1/media/${porNome[nome]}`)).status, 200, `dono ${nome}`);
+      // Do dataDir só saem as subpastas de mídia: nem o dono baixa outro arquivo de lá por esta rota.
+      assert.equal((await s.dono.get(`/api/v1/media/${porNome[nome]}`)).status, nome === 'segredo-do-servidor.json' ? 404 : 200, `dono ${nome}`);
       const r = await x.c.get(`/api/v1/media/${porNome[nome]}`);
       assert.equal(r.status, 404, `colaborador ${nome}`);
       assert.equal((await x.c.get(`/api/v1/media/${porNome[nome]}/thumb`)).status, 404, `thumb ${nome}`);

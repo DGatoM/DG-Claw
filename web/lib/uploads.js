@@ -90,7 +90,8 @@ function gravaSemSobrescrever(pasta, nome, dados) {
       if (e.code !== 'EEXIST') throw e;
     }
   }
-  throw new Error('Não achei um nome livre para o arquivo.');
+  if (!st.isDirectory()) throw new Error(`O home_host de ${agente.nome} (${agente.home_host}) não é uma pasta. Confira o registro de agentes.`);
+  return { uid: st.uid, gid: st.gid };
 }
 
 module.exports = { lerMultipart, nomeSeguro, nomeNeutro, gravaSemSobrescrever, FLAGS_NOVO };

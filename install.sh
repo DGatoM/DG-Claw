@@ -1026,6 +1026,36 @@ EnvironmentFile=/etc/dgclaw/web.env
 ExecStart=/usr/bin/node /opt/dgclaw/app/web/server.js
 Restart=always
 RestartSec=3
+# Endurecimento: so o que e compativel com o que o Web grava e executa (podman exec, systemctl
+# is-active, ffmpeg, spawn com uid/gid do agente). Diretiva que ficou de fora leva a razao.
+# /etc fica so de leitura, menos /etc/dgclaw (o Web regrava o web.env no primeiro acesso).
+ProtectSystem=full
+ReadWritePaths=-/etc/dgclaw
+# /tmp proprio: o Web so grava em /var/lib/dgclaw/web e nas casas dos agentes, nunca em /tmp.
+PrivateTmp=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+# NoNewPrivileges fica de fora: o Web roda `podman exec`, e o flag e herdado pelo processo que
+# entra no container (quebraria sudo/su e binarios setuid dentro dele).
+# ProtectSystem=strict fica de fora: as casas dos agentes (home_host) sao caminhos livres do
+# registro e o `podman exec` grava em /var/lib/containers e /run; nao da para listar com seguranca.
+# ProtectHome fica de fora: o `podman` do root pode ler a configuracao em /root/.config/containers.
+# PrivateDevices fica de fora: o `podman exec` e o ffmpeg precisam de /dev/ptmx e dos dispositivos.
+# ProtectKernelTunables e ProtectControlGroups ficam de fora: o `podman exec` entra no cgroup
+# do container e grava em /sys/fs/cgroup.
+# ProtectClock e ProtectHostname ficam de fora: implicam politica de dispositivos e namespace
+# proprio de UTS, sem ganho que compense o risco para o `podman exec`.
+# RestrictNamespaces fica de fora: o `podman exec` usa setns para entrar no container.
+# RestrictAddressFamilies fica de fora: o Node le as interfaces por AF_NETLINK e o podman usa
+# sockets de varias familias; a lista certa nao da para garantir.
+# CapabilityBoundingSet fica de fora: o spawn com uid/gid do agente exige CAP_SETUID/CAP_SETGID
+# e o podman precisa de CAP_SYS_ADMIN e outras.
+# MemoryDenyWriteExecute fica de fora: o JIT do Node precisa de memoria gravavel e executavel.
+# UMask fica de fora: mudar a mascara alteraria o modo de arquivos criados sem modo explicito.
 
 [Install]
 WantedBy=multi-user.target

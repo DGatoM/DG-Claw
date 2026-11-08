@@ -583,3 +583,18 @@ test('montarEnvelope: voz só com true', () => {
   assert.equal(montarEnvelope({ ...base, voz: 'true' }), '<dgchat from="pessoa" chat="c" msg="m" ts="t">x</dgchat>');
   assert.equal(montarEnvelope(base), '<dgchat from="pessoa" chat="c" msg="m" ts="t">x</dgchat>');
 });
+
+test('upload: se o agente trocou uploads por um atalho, a rota recusa com motivo e nada é gravado fora da casa', async () => {
+  const s = await cenario();
+  const alvo = pastaTemp('alvo-upload');
+  try {
+    fs.rmSync(path.join(s.home, 'uploads'), { recursive: true, force: true });
+    fs.symlinkSync(alvo, path.join(s.home, 'uploads'));
+    const limite = '----teste1234';
+    const r = await s.t.c.post('/api/v1/agents/ana/upload', { corpo: multipart(limite, { enviar: '0' }, 'x.png', Buffer.from([1, 2])), headers: { 'Content-Type': `multipart/form-data; boundary=${limite}` } });
+    assert.equal(r.status, 500);
+    assert.equal(r.json.ok, false);
+    assert.match(r.json.erro, /atalho/);
+    assert.deepEqual(fs.readdirSync(alvo), [], 'nada apareceu no alvo do atalho');
+  } finally { await s.fechar(); fs.rmSync(alvo, { recursive: true, force: true }); }
+});
