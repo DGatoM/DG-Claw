@@ -631,6 +631,11 @@ def cabecalhos(ws):
     return cab
 
 
+def xlsx_autores(wb):
+    """Autores de comentário não vazios: autoria é dado pessoal, o nome seja ou não reconhecido."""
+    return list({c.comment.author.strip(): None for c in xlsx_celulas(wb) if c.comment is not None and (c.comment.author or "").strip()})
+
+
 def xlsx_textos(wb):
     """Texto de células (inclusive texto de fórmulas), comentários, autores e nomes de aba."""
     saida = [ws.title for ws in wb.worksheets]
@@ -752,7 +757,7 @@ def xlsx_celulas_da_aba(ws):
 
 
 def xlsx_reverter(wb, valores, encontrar):
-    """Reversão: só texto de célula (nunca nome de aba, comentário, link ou propriedade).
+    """Reversão: só texto de célula e autor de comentário (nunca nome de aba, texto de comentário, link ou propriedade).
 
     O arquivo sai SEM fórmulas: cada fórmula vira o valor em cache (ou, se nunca foi calculada, o texto dela como
     texto inerte). Assim uma fórmula como WEBSERVICE(...&A1) não consegue mandar o dado real para fora.
@@ -773,6 +778,10 @@ def xlsx_reverter(wb, valores, encontrar):
                 c.data_type = "s"   # texto começado em "=" não pode voltar a ser fórmula
             elif c.data_type == "n" or c.value is not v:
                 c.value = v
+            if c.comment is not None and c.comment.author:
+                trocas = encontrar(c.comment.author)
+                if trocas:
+                    c.comment.author = distribuir([c.comment.author], trocas)[0]
     for nome in list(wb.defined_names):
         del wb.defined_names[nome]
     for ws in wb.worksheets:

@@ -1289,6 +1289,26 @@ class Arquivos(unittest.TestCase):
         with zipfile.ZipFile(revertido) as z:
             self.assertIn("Zé Qx", z.read("word/comments.xml").decode("utf-8"))
 
+    @unittest.skipUnless(tem("openpyxl"), "openpyxl não está instalado neste Python")
+    def test_xlsx_autor_de_comentario_desconhecido_vira_pessoa_e_volta_na_reversao(self):
+        import openpyxl
+        from openpyxl.comments import Comment
+        wb = openpyxl.Workbook()
+        wb.active["A1"] = "x"
+        wb.active["A1"].comment = Comment("conferir", "Zé Qx")
+        origem = os.path.join(self.tmp, "zeqx.xlsx")
+        wb.save(origem)
+        r = self.pedir(origem)
+        self.assertTrue(r["ok"], r)
+        saida = os.path.join(self.saida, "doc-1.anon.xlsx")
+        self._sem_palavra(saida, ["Zé Qx"])
+        self.assertEqual(openpyxl.load_workbook(saida)["Sheet"]["A1"].comment.author, "[PESSOA_1]")
+        self.assertIn({"tipo": "PESSOA", "valor": "Zé Qx", "marcador": "[PESSOA_1]"}, r["novas"])
+        revertido = os.path.join(self.tmp, "zeqx-volta.xlsx")
+        rv = motor.tratar({"op": "reverter", "entrada": saida, "saida": revertido, "tabela": r["novas"]})
+        self.assertTrue(rv["ok"], rv)
+        self.assertEqual(openpyxl.load_workbook(revertido)["Sheet"]["A1"].comment.author, "Zé Qx")
+
     @unittest.skipUnless(tem("docx") and tem("lxml"), "python-docx não está instalado neste Python")
     def test_verificacao_final_acusa_autor_curto_que_sobrou(self):
         origem = self._docx_com_autoria_curta("Texto qualquer.")

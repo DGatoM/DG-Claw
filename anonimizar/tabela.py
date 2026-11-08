@@ -151,9 +151,11 @@ class Sessao:
 
     def registrar_pessoas(self, nomes):
         """Registra como PESSOA nomes que o detector não precisa reconhecer (autor de comentário ou revisão)."""
+        # uma letra só não é nome (é inicial ou rótulo) e, registrada, a verificação final a acharia em qualquer parte do pacote
+        nomes = [n for n in nomes if len(n.strip()) >= 2]
         for n in nomes:
             self._lembrar("PESSOA", n)
-        self._registrar_pessoas(list(nomes))
+        self._registrar_pessoas(nomes)
 
     def _lembrar(self, tipo, valor):
         self.detectados.setdefault((tipo, normalizar(tipo, valor)), valor)
