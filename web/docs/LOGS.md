@@ -19,7 +19,8 @@ existe aparece sozinho.
 - É uma ajuda para o dono conferir o que aconteceu. **Não é uma prova**: os arquivos ficam na casa do agente, e um
   agente comprometido pode reescrever a própria casa. Para auditoria séria, use também os logs do sistema.
 - O texto sai mascarado (chaves de API, tokens, senhas em linha de comando, cabeçalhos de autorização e o valor inteiro dos cabeçalhos
-  Cookie e Set-Cookie, até o fim da linha, viram `[segredo oculto]`). A máscara pega formatos conhecidos: um segredo fora desses formatos passa.
+  Authorization, Proxy-Authorization, X-Api-Key, Cookie e Set-Cookie, até o fim da linha, e o valor de flags e atribuições
+  até a aspa de fechamento ou o fim da linha, viram `[segredo oculto]`, sem deixar pedaço do valor). A máscara pega formatos conhecidos: um segredo fora desses formatos passa.
 - Pensamento do modelo (`thinking` e `reasoning`) não é exibido.
 - Arquivos de uma sessão ainda em andamento: a última linha, se estiver incompleta, é ignorada até terminar de ser gravada.
 
@@ -131,11 +132,14 @@ Resposta:
 - Atalhos (symlink) nunca são seguidos (`atalhos_ignorados`); arquivo com mais de um nome no disco, fora da pasta do agente
   ou que não seja regular é recusado, com aviso.
 - Formato do Codex: cada linha é decidida pelos campos estruturais (`type` e `payload.type`), nunca por busca de texto, e os
-  dois formatos (`item_completed` e `response_item`) valem no mesmo arquivo. A mesma ação costuma estar nos dois, e o par é
-  descartado assim: por id, quando o `call_id` é igual ao id do item; sem id, mensagens com mesmo papel e mesmo texto
-  (espaços e maiúsculas ignorados) a até 5 segundos uma da outra, e comandos ou ferramentas pelo horário de início (até 3 segundos),
-  um para um. Fica a primeira linha vista na leitura de trás para frente. A regra prefere perder a duplicata a perder o evento:
-  sem par claro os dois aparecem, então uma ação pode, raramente, sair repetida (por exemplo, duas chamadas quase simultâneas).
+  dois formatos (`item_completed` e `response_item`) valem no mesmo arquivo. A mesma ação costuma estar nos dois, e a
+  repetição só é descartada com correspondência inequívoca: o mesmo id (`call_id` igual ao id do item) ou a mesma classe com o
+  mesmo conteúdo normalizado, um para um, dentro da janela (mensagens: papel e texto, 5 segundos; comandos: o texto do comando
+  com espaços colapsados e maiúsculas preservadas, 3 segundos). Fica a primeira linha vista na leitura de trás para frente.
+  Qualquer dúvida mantém os dois eventos, porque num log de auditoria é melhor sobrar repetição do que faltar uma ação.
+  Por isso o `exec` do Codex (um trecho de JavaScript que pode chamar várias ferramentas) só se junta ao comando quando contém
+  uma única chamada de comando com o texto extraível; nos demais casos aparecem o `exec` e os itens que ele gerou, e ferramentas
+  e alterações de arquivo sem id também aparecem nas duas famílias.
   Arquivo sem nenhum dos dois tipos de registro aparece como "formato não reconhecido", nunca como "sem ações": o aviso só sai
   depois de o arquivo ser lido até o começo (um primeiro registro de conversa longe do início não faz o arquivo sumir).
 - Em um arquivo que ainda está crescendo, a página seguinte pode, raramente, repetir ou pular um registro cujo horário

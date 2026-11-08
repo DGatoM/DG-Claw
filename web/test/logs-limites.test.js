@@ -26,7 +26,7 @@ const TRACOS = '-'.repeat(5);
 // Uma família de padrão por linha (mascara.js e os extras de limpa). Os valores são só repetição de pedaços de sintaxe.
 const HOSTIS = [
   'curl ', 'curl x ', 'curl -u ', 'mysql ', 'mysqldump -u ', 'a', 'a.', 'aaaaaaaa ', 'eyJaaaaa', 'eyJaaaaa.', 'sk-', 'sk_a', 'sk-ant-api03-',
-  'sk-proj-', 'github_pat_', 'ghp_', 'gho_', 'ghs_', 'AKIA', 'AIza', 'gsk_', 'xai-', 'xoxb-', 'Authorization ', 'Authorization: ', 'X-Api-Key: ',
+  'sk-proj-', 'github_pat_', 'ghp_', 'gho_', 'ghs_', 'AKIA', 'AIza', 'gsk_', 'xai-', 'xoxb-', 'Authorization ', 'Authorization: ', 'Proxy-Authorization: Basic ', 'Authorization: Basic a b ', '--password "', "--token '", 'chave="a b ', "curl -u 'a ",  'X-Api-Key: ',
   '--password ', '--token=', '--api-key ', 'chave="', "pwd='", 'cookie:', 'Cookie: a=b; ', 'set-cookie:', 'Cookie:' + ';'.repeat(5) + ' ', 'token=', 'api_key', 'secret:', 'password ', 'senha=', 'Bearer ', 'Basic ',
   `${TRACOS}BEGIN PRIVATE ` + `KEY${TRACOS}`, 'a://b:', 'a:b@', '1', '123456789:', ' ', '\n', '"', "'", '=', '-', ':', '@', '[segredo oculto] ',
   `${'a'.repeat(41)} token `, 'x'.repeat(130),
@@ -57,7 +57,7 @@ test('limpa: corta em 64 KB e descarta também o pedaço final sem espaço (não
   assert.ok(r.endsWith('palavra '));
   assert.equal(limpa('x'.repeat(100000)).length < 64 * 1024, true);
   // sequência longa sem espaço (chave em base64, JWT) sai omitida por inteiro
-  assert.equal(limpa(`antes ${'A'.repeat(500)} depois`), 'antes [trecho longo omitido] depois');
+  assert.equal(limpa(`antes ${'A'.repeat(500)} depois`), 'antes [trecho-longo-omitido] depois');
 });
 
 test('busca: o texto pesquisado é o mascarado e cortado em 64 KB (o que passa do limite não é achado)', async () => {

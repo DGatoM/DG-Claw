@@ -64,9 +64,9 @@ function misto(ordem) {
     { timestamp: iso(0), type: 'session_meta', payload: { id: U(7) } },
     riMsg(500, 'user', '<environment_context>cwd</environment_context>'),
     ...par(riMsg(1000, 'user', 'rode os testes'), ic(1040, { type: 'UserMessage', content: [{ type: 'text', text: 'rode os testes' }] })),
-    ...par(ri(2000, { type: 'custom_tool_call', name: 'exec', call_id: 'call_a', input: 'npm test' }),
+    ...par(ri(2000, { type: 'function_call', name: 'shell', call_id: 'call_a', arguments: JSON.stringify({ command: ['bash', '-lc', 'npm   test'] }) }),
       ic(2400, { type: 'CommandExecution', id: 'exec-a', command: ['bash', '-lc', 'npm test'], exit_code: 0, status: 'completed', aggregated_output: 'passou' }, { started_at_ms: BASE_T + 2010 })),
-    ri(2600, { type: 'custom_tool_call_output', call_id: 'call_a', output: [{ type: 'text', text: 'saida do exec' }] }),
+    ri(2600, { type: 'function_call_output', call_id: 'call_a', output: JSON.stringify({ output: 'saida do shell', metadata: { exit_code: 0 } }) }),
     ri(5000, { type: 'function_call', name: 'wait', call_id: 'call_w', arguments: '{}' }),
     ...par(ri(9000, { type: 'custom_tool_call', name: 'exec', call_id: 'call_b', input: 'dgchat reply' }),
       ic(9300, { type: 'McpToolCall', id: 'exec-b', server: 'dgchat', tool: 'reply', arguments: { text: 'oi' }, status: 'completed', result: { content: [{ type: 'text', text: 'enviado' }] } }, { started_at_ms: BASE_T + 9005 })),
@@ -83,13 +83,15 @@ for (const ordem of ['ri-primeiro', 'ic-primeiro']) {
     const resumo = r.eventos.map((e) => `${e.tipo}:${e.detalhes.comando || e.detalhes.ferramenta || e.texto}`.replace(/\s+/g, ' '));
     const contem = (rx) => resumo.filter((x) => rx.test(x)).length;
     assert.equal(contem(/rode os testes/), 1, resumo.join(' | '));
-    assert.equal(r.eventos.filter((e) => e.tipo === 'comando' && /npm test/.test(e.detalhes.comando)).length, 1);
+    assert.equal(r.eventos.filter((e) => e.tipo === 'comando' && /npm\s+test/.test(e.detalhes.comando)).length, 1);
     assert.equal(contem(/^comando:solto/), 1, 'o item sem par aparece');
     assert.equal(contem(/^ferramenta:wait/), 1, 'a chamada sem item_completed aparece');
-    assert.equal(r.eventos.filter((e) => e.detalhes.ferramenta === 'dgchat/reply' || e.detalhes.comando === 'dgchat reply').length, 1);
+    // o `exec` com chamada embrulhada não se compara com o item MCP: os dois ficam (repetição, nunca falta de ação)
+    assert.equal(r.eventos.filter((e) => e.detalhes.ferramenta === 'dgchat/reply').length, 1);
+    assert.equal(r.eventos.filter((e) => e.detalhes.comando === 'dgchat reply').length, 1);
     assert.equal(contem(/tudo certo/i), 1);
     assert.ok(!resumo.some((x) => /environment_context/.test(x)));
-    assert.equal(r.eventos.length, 6, resumo.join(' | '));
+    assert.equal(r.eventos.length, 7, resumo.join(' | '));
   });
 }
 

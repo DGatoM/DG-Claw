@@ -71,6 +71,9 @@ class ErroArquivo extends Error {
 // ── máscara ────────────────────────────────────────────────────────────────
 // mascara.js cobre os formatos mais comuns; aqui entram os de outros fornecedores, cabeçalhos, flags de linha
 // de comando e atribuições em português. É defesa em profundidade: segredo fora destes formatos passa.
+// Roda antes da omissão de sequências longas: `-pSENHA` começa com um hífen e a sequência longa levaria o `-p` junto.
+const RX_MYSQL_P = /(\bmysql(?:dump)?\b[^\n]{0,300}?[ \t]-p)(\S+)/gi;
+
 const EXTRAS = [
   [/sk-[A-Za-z0-9_-]{20,200}/g, OCULTO],
   [/sk_[a-z0-9]{20,200}/gi, OCULTO],
@@ -79,15 +82,15 @@ const EXTRAS = [
   [/\bxox[abprs]-[A-Za-z0-9-]{8,200}/g, OCULTO],
   [/\bgh[srpu]_[A-Za-z0-9]{20,200}/g, OCULTO],
   [/\beyJ[A-Za-z0-9_-]{5,200}\.[A-Za-z0-9_-]{5,200}\.[A-Za-z0-9_-]{5,200}/g, OCULTO],
-  // Depois de mascarar(), o valor pode chegar como "[segredo oculto] resto" (o esquema vira o marcador e o token sobra).
-  [/\b(Authorization[ \t]{0,20}:[ \t]{0,20})(?:\[segredo oculto\](?:[ \t]{1,20}\S{1,300})?|\S{1,300}(?:[ \t]{1,20}\S{1,300})?)/gi, '$1' + OCULTO],
-  [/\b(X-Api-Key[ \t]{0,20}:[ \t]{0,20})\S{1,300}/gi, '$1' + OCULTO],
-  [/(--(?:password|token|api-key|secret|senha)(?:=|[ \t]{1,20}))("[^"\n]{0,300}"|'[^'\n]{0,300}'|\S{1,300})/gi, '$1' + OCULTO],
-  [/(\bcurl\b[^\n]{0,300}?[ \t](?:-u|--user)[ \t]{1,20})("[^"\n]{0,300}"|'[^'\n]{0,300}'|\S{1,300})/gi, '$1' + OCULTO],
-  [/(\bmysql(?:dump)?\b[^\n]{0,300}?[ \t]-p)(\S{1,300})/gi, '$1' + OCULTO],
+  // Cabeçalho de autorização: o valor inteiro, até o fim da linha, sem teto próprio (o texto já tem o teto de 64 KB).
+  // Depois de mascarar(), o valor pode chegar como "[segredo oculto] resto": o resto também sai.
+  [/\b((?:Proxy-)?Authorization[ \t]{0,20}:[ \t]{0,20}|X-Api-Key[ \t]{0,20}:[ \t]{0,20})[^\n]+/gi, '$1' + OCULTO],
+  // Valor entre aspas vai até a aspa de fechamento na mesma linha (sem fechamento, até o fim da linha); sem aspas, até o espaço.
+  [/(--(?:password|token|api-key|secret|senha)(?:=|[ \t]{1,20}))("[^"\n]*(?:"|(?=\n|$))|'[^'\n]*(?:'|(?=\n|$))|\S+)/gi, '$1' + OCULTO],
+  [/(\bcurl\b[^\n]{0,300}?[ \t](?:-u|--user)[ \t]{1,20})("[^"\n]*(?:"|(?=\n|$))|'[^'\n]*(?:'|(?=\n|$))|\S+)/gi, '$1' + OCULTO],
   // Cookie e Set-Cookie carregam vários pares separados por ';': o valor inteiro, até o fim da linha, sai escondido.
   [/\b((?:Set-)?Cookie[ \t]{0,20}:[ \t]{0,20})[^\n]+/gi, '$1' + OCULTO],
-  [/((?:\bchave|\bpwd|\bcookie)[A-Za-z0-9_.-]{0,60}["']?[ \t]{0,20}[=:][ \t]{0,20})(?!\[segredo oculto\])("[^"\n]{0,500}"|'[^'\n]{0,500}'|[^\s"'&;|]{1,500})/gi, '$1' + OCULTO],
+  [/((?:\bchave|\bpwd|\bcookie)[A-Za-z0-9_.-]{0,60}["']?[ \t]{0,20}[=:][ \t]{0,20})(?!\[segredo oculto\])("[^"\n]*(?:"|(?=\n|$))|'[^'\n]*(?:'|(?=\n|$))|[^\s"'&;|]+)/gi, '$1' + OCULTO],
 ];
 
 // Os padrões de mascara.js (principalmente a atribuição NOME=valor) varrem cada trecho de letras e números até o fim
@@ -108,7 +111,8 @@ function corteBruto(s) {
 function limpa(texto) {
   if (texto == null) return '';
   let r = corteBruto(typeof texto === 'string' ? texto : String(texto));
-  r = mascarar(r.replace(RX_SEQUENCIA_LONGA, '[trecho longo omitido]'));
+  r = r.replace(RX_MYSQL_P, '$1' + OCULTO);
+  r = mascarar(r.replace(RX_SEQUENCIA_LONGA, '[trecho-longo-omitido]'));
   for (const [rx, sub] of EXTRAS) { rx.lastIndex = 0; r = r.replace(rx, sub); }
   return r;
 }
@@ -523,6 +527,17 @@ const NOMES_SHELL = new Set(['shell', 'local_shell', 'exec_command', 'container.
 
 const JANELA_MSG_MS = 5000;
 const JANELA_FERRAMENTA_MS = 3000;
+/** Comando comparável: espaços colapsados, maiúsculas e minúsculas preservadas (`rm /A` e `rm /a` são comandos diferentes). */
+const chaveComando = (t) => `cmd:${String(t).replace(/\s+/g, ' ').trim()}`;
+// `exec` do Codex embrulha um trecho de JavaScript. Só uma chamada isolada de comando, na forma exata abaixo, tem um comando
+// que se pode extrair com certeza; qualquer outra forma não se compara e os dois eventos ficam.
+const RX_EXEC_UNICO = /^\s*(?:text\(\s*)?(?:await\s+)?[\w$.]{1,60}\(\s*\{\s*cmd\s*:\s*("(?:[^"\\\n]|\\.)*")\s*(?:,\s*[\w$]{1,40}\s*:\s*[-\w.]{1,40}\s*)*\}\s*\)\s*\)?\s*;?\s*$/;
+function comandoDoExec(input) {
+  if (typeof input !== 'string' || input.length > 8000) return null;
+  const m = RX_EXEC_UNICO.exec(input);
+  if (!m) return null;
+  try { const v = JSON.parse(m[1]); return typeof v === 'string' && v ? v : null; } catch (_) { return null; }
+}
 const chaveTexto = (t) => String(t).replace(/\s+/g, ' ').trim().toLowerCase().slice(0, 300);
 
 /**
@@ -537,12 +552,11 @@ function extraiCodex(j, leitor) {
   if (j.type === 'event_msg' && p.type === 'item_completed') {
     itemCodex(p.item, out);
     for (const r of out) {
+      const id = str(p.item && p.item.id) || null;
+      const t = Number.isFinite(p.started_at_ms) ? p.started_at_ms : null;
       if (r.tipo === 'mensagem') r.ded = { fam: 'ic', cls: `msg:${r.papel}`, key: chaveTexto(r.texto), t: null, id: null };
-      else {
-        const patch = r.ferramenta === 'FileChange';
-        const ehExec = r.tipo === 'comando' || (r.tipo === 'ferramenta' && p.item && p.item.type === 'McpToolCall');
-        if (patch || ehExec) r.ded = { fam: 'ic', cls: patch ? 'patch' : 'exec', key: '', t: Number.isFinite(p.started_at_ms) ? p.started_at_ms : null, id: str(p.item && p.item.id) || null };
-      }
+      else if (r.tipo === 'comando') r.ded = { fam: 'ic', cls: 'exec', key: r.comando ? chaveComando(r.comando) : null, t, id };
+      else if (id) r.ded = { fam: 'ic', cls: 'tool', key: null, t, id };   // ferramenta e arquivo: só o id identifica, sem id ficam os dois
     }
     return out;
   }
@@ -568,10 +582,11 @@ function extraiCodex(j, leitor) {
     if (nome === 'apply_patch') {
       const txt = typeof args === 'string' ? args : serializa(args && (args.input || args.patch));
       const m = /\*\*\* (?:Update|Add|Delete) File:\s*(.+)/.exec(txt);
-      out.push({ tipo: 'arquivo', titulo: 'Alterou um arquivo', caminho: m ? m[1].trim() : '', operacao: 'alterar', ferramenta: nome, resultado, ded: { fam: 'ri', cls: 'patch', key: '', t: null, id } });
+      out.push({ tipo: 'arquivo', titulo: 'Alterou um arquivo', caminho: m ? m[1].trim() : '', operacao: 'alterar', ferramenta: nome, resultado, ded: id ? { fam: 'ri', cls: 'tool', key: null, t: null, id } : undefined });
     } else if (NOMES_SHELL.has(nome) || nome === 'exec') {
       const cmd = args && typeof args === 'object' ? (comandoDeLista(args.command) || (str(args.cmd))) : (typeof args === 'string' ? args : '');
-      out.push({ tipo: 'comando', titulo: 'Comando', comando: cmd, resultado, ded: { fam: 'ri', cls: 'exec', key: '', t: null, id } });
+      const real = nome === 'exec' ? comandoDoExec(typeof args === 'string' ? args : '') : cmd;
+      out.push({ tipo: 'comando', titulo: 'Comando', comando: cmd, resultado, ded: real || id ? { fam: 'ri', cls: 'exec', key: real ? chaveComando(real) : null, t: null, id } : undefined });
     } else {
       out.push({ tipo: 'ferramenta', titulo: nome, ferramenta: nome, entrada: args, resultado });
     }
@@ -833,9 +848,10 @@ class LeitorArquivo {
 
   /**
    * Par entre famílias: a primeira linha vista (na leitura de trás para frente) fica e a segunda, da outra família, é
-   * descartada. O par vem por id (call_id igual ao id do item) ou, sem id, por classe + texto (mensagens, janela de 5 s) ou
-   * classe + horário de início (comandos e ferramentas, janela de 3 s), um para um. Regra simples e determinística, com no máximo
-   * 512 candidatos na memória. Prefere perder a duplicata a perder o evento: sem par claro, os dois aparecem.
+   * descartada, mas só com correspondência inequívoca: o mesmo id (call_id igual ao id do item) ou a mesma classe com o
+   * mesmo conteúdo normalizado dentro da janela (mensagens: papel e texto, 5 s; comandos: o texto do comando, 3 s), um para
+   * um. Conteúdo ausente ou que não se compara (por exemplo um `exec` com várias chamadas, ou ferramenta sem id) mantém os dois
+   * eventos: num log de auditoria sobra repetição, nunca falta ação. No máximo 512 candidatos na memória.
    */
   _dedup(rasc, ts) {
     const out = [];
@@ -847,8 +863,9 @@ class LeitorArquivo {
       let achou = null;
       for (let k = this.vistos.length - 1; k >= Math.max(0, this.vistos.length - 128); k--) {
         const e = this.vistos[k];
-        if (e.usado || e.fam === d.fam || e.cls !== d.cls) continue;
-        if ((e.id && d.id && e.id === d.id) || (e.key === d.key && Math.abs(e.t - t) <= janela)) { achou = e; break; }
+        if (e.usado || e.fam === d.fam) continue;
+        // Só há duplicata com correspondência inequívoca: mesmo id, ou mesma classe e mesmo conteúdo dentro da janela.
+        if ((e.id && d.id && e.id === d.id) || (e.cls === d.cls && e.key !== null && d.key !== null && e.key === d.key && Math.abs(e.t - t) <= janela)) { achou = e; break; }
       }
       if (achou) { achou.usado = true; continue; }
       this.vistos.push({ fam: d.fam, cls: d.cls, key: d.key, t, id: d.id, usado: false });
