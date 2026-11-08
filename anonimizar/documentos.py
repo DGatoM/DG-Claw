@@ -177,6 +177,10 @@ def _lxml():
 
 
 _TIPO_HYPERLINK = "/relationships/hyperlink"
+# O Word importa estes ao abrir (RTF/HTML/MHT/docx de altChunk, subdocumento mestre) e RTF carrega campos que a neutralização
+# XML não enxerga, então são recusados mesmo internos. oleObject/package internos ficam: o Word só os exibe como objeto e não
+# atualiza campos de dentro deles ao abrir ou atualizar o documento principal.
+_TIPOS_IMPORTADOS = ("/relationships/aFChunk", "/relationships/subDocument")
 _PARTES_XLSX_COM_FETCH = re.compile(r"^xl/(connections\.xml|queryTables/|externalLinks/|webExtensions/)", re.I)
 
 
@@ -200,7 +204,10 @@ def conferir_sem_vinculos_externos(caminho, nome, so_rels=False):
             except ET.ParseError:
                 raise ErroMotor("arquivo_invalido", "A parte '%s' do arquivo '%s' está corrompida. Peça ao agente para gerar de novo." % (f, nome)) from None
             for r in raiz:
-                if r.get("TargetMode", "").lower() == "external" and not (r.get("Type") or "").endswith(_TIPO_HYPERLINK):
+                tipo_rel = r.get("Type") or ""
+                if tipo_rel.endswith(_TIPOS_IMPORTADOS):
+                    ruins.append("%s (%s, bloco importado)" % (f, tipo_rel.rsplit("/", 1)[-1]))
+                elif r.get("TargetMode", "").lower() == "external" and not (r.get("Type") or "").endswith(_TIPO_HYPERLINK):
                     ruins.append("%s (%s)" % (f, (r.get("Type") or "").rsplit("/", 1)[-1] or "sem tipo"))
     if ruins:
         raise ErroMotor("vinculo_externo", "O documento devolvido ('%s') tem vínculo externo que busca conteúdo sozinho ao abrir ou atualizar "
@@ -311,6 +318,10 @@ def docx_reverter(entrada, saida, nome, encontrar):
                 raiz = etree.fromstring(dados, parser)
             except etree.XMLSyntaxError:
                 raise ErroMotor("arquivo_invalido", "A parte '%s' do arquivo '%s' está corrompida. Peça ao agente para gerar de novo." % (f, nome)) from None
+            if next(raiz.iter(W + "altChunk"), None) is not None:
+                raise ErroMotor("vinculo_externo", "A parte '%s' do arquivo '%s' importa um bloco externo (altChunk: RTF, HTML ou outro documento), "
+                                "que o Word abre sozinho e pode conter campos que levariam os dados reais para fora. A versão final foi recusada: "
+                                "peça ao agente para gerar de novo sem blocos importados." % (f, nome))
             mudou = _neutralizar_campos(raiz)
             if not _PARTES_DOCX.match(f):
                 if mudou:

