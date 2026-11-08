@@ -176,19 +176,108 @@ def _lxml():
                         "Instale o motor de documentos pelo painel (nível leitores) e tente de novo.") from None
 
 
+_PARTES_WORD_XML = re.compile(r"^word/(?!_rels/).*\.xml$")
+_TIPO_HYPERLINK = "/relationships/hyperlink"
+_PARTES_XLSX_COM_FETCH = re.compile(r"^xl/(connections\.xml|queryTables/|externalLinks/|webExtensions/)", re.I)
+
+
+def conferir_sem_vinculos_externos(caminho, nome, so_rels=False):
+    """Recusa o pacote OOXML (docx, pptx, xlsx) que tenha relacionamento EXTERNO de qualquer tipo que não seja hyperlink
+    (imagem ligada, objeto OLE, modelo anexo, subdocumento, quadro, altChunk, pacote, mídia, vínculo de planilha...), e, no xlsx,
+    as partes de conexão de dados, consulta web e vínculo externo. Esses itens buscam conteúdo sozinhos ao abrir ou atualizar e,
+    junto com um campo que lê o texto, mandariam o dado real para fora. Hyperlink externo fica: precisa de clique e o endereço
+    (Target) nunca é alterado pela reversão, então nenhum dado real entra nele."""
+    import xml.etree.ElementTree as ET
+    ruins = []
+    with abrir_zip(caminho, nome) as z:
+        for info in z.infolist():
+            f = info.filename
+            if not so_rels and _PARTES_XLSX_COM_FETCH.match(f):
+                ruins.append(f)
+            if not f.endswith(".rels"):
+                continue
+            try:
+                raiz = ET.fromstring(z.read(f))
+            except ET.ParseError:
+                raise ErroMotor("arquivo_invalido", "A parte '%s' do arquivo '%s' está corrompida. Peça ao agente para gerar de novo." % (f, nome)) from None
+            for r in raiz:
+                if r.get("TargetMode", "").lower() == "external" and not (r.get("Type") or "").endswith(_TIPO_HYPERLINK):
+                    ruins.append("%s (%s)" % (f, (r.get("Type") or "").rsplit("/", 1)[-1] or "sem tipo"))
+    if ruins:
+        raise ErroMotor("vinculo_externo", "O documento devolvido ('%s') tem vínculo externo que busca conteúdo sozinho ao abrir ou atualizar "
+                        "(%s). Colocar os dados reais nele poderia mandá-los para fora, então a versão final foi recusada. "
+                        "Peça ao agente para gerar de novo sem imagens ligadas, objetos externos nem conexões de dados."
+                        % (nome, "; ".join(ruins[:5])))
+
+
+def _neutralizar_campos(raiz):
+    """Tira todo campo do Word de uma parte, deixando só o texto de resultado como texto comum. Devolve True se mudou algo.
+
+    fldSimple vira os runs filhos; campo complexo (fldChar begin/separate/end) perde os delimitadores e a instrução, e
+    ficam só os runs entre separate e end, inclusive em campos aninhados (um REF dentro de INCLUDEPICTURE some junto
+    com a instrução). instrText, delInstrText e fldData soltos são removidos sempre. Também sai w:dataBinding, que
+    liga um controle de conteúdo a um pacote customXml."""
+    mudou = False
+    for el in list(raiz.iter(W + "fldSimple")):
+        pai = el.getparent()
+        i = pai.index(el)
+        for filho in list(el):
+            pai.insert(i, filho)
+            i += 1
+        pai.remove(el)
+        mudou = True
+    pilha = []
+    remover = []
+    for el in raiz.iter(W + "r"):
+        marca = el.find(W + "fldChar")
+        if marca is not None:
+            tipo = marca.get(W + "fldCharType")
+            if tipo == "begin":
+                pilha.append("instrucao")
+            elif tipo == "separate" and pilha:
+                pilha[-1] = "resultado"
+            elif tipo == "end" and pilha:
+                pilha.pop()
+            remover.append(el)
+        elif "instrucao" in pilha:
+            remover.append(el)
+    for el in remover:
+        el.getparent().remove(el)
+    for tag in ("instrText", "delInstrText", "fldData", "dataBinding"):
+        for el in list(raiz.iter(W + tag)):
+            el.getparent().remove(el)
+            mudou = True
+    return mudou or bool(remover)
+
+
 def docx_reverter(entrada, saida, nome, encontrar):
     """Reversão: nós de texto (w:t) do corpo, cabeçalhos, rodapés e notas, e o autor de comentários e revisões (atributo
-    de autoria, que a ida troca por marcador de pessoa). Nenhum outro atributo, relacionamento ou propriedade."""
+    de autoria, que a ida troca por marcador de pessoa). Nenhum outro atributo, relacionamento ou propriedade.
+
+    O documento vem do agente, que pode estar comprometido, então ANTES de restaurar qualquer dado:
+    - vínculo externo que busca conteúdo (imagem ligada, modelo anexo, OLE, subdocumento...) RECUSA a reversão;
+    - campos do Word são NEUTRALIZADOS em todas as partes de word/ (viram o texto de resultado, como PAGE e TOC
+      legítimos), em vez de recusar, porque o agente pode gerar campo legítimo. Sem isso, um INCLUDEPICTURE com REF
+      aninhado levaria o texto restaurado para a URL ao atualizar os campos;
+    - w:dataBinding (controle de conteúdo ligado a customXml) é removido."""
     from ooxml import atributo_de_autoria
     etree = _lxml()
+    conferir_sem_vinculos_externos(entrada, nome)
     subs = {}
     with abrir_zip(entrada, nome) as z:
         for info in z.infolist():
             f = info.filename
-            if not _PARTES_DOCX.match(f):
+            if not _PARTES_WORD_XML.match(f):
                 continue
-            raiz = etree.fromstring(z.read(f))
-            mudou = False
+            try:
+                raiz = etree.fromstring(z.read(f))
+            except etree.XMLSyntaxError:
+                raise ErroMotor("arquivo_invalido", "A parte '%s' do arquivo '%s' está corrompida. Peça ao agente para gerar de novo." % (f, nome)) from None
+            mudou = _neutralizar_campos(raiz)
+            if not _PARTES_DOCX.match(f):
+                if mudou:
+                    subs[f] = etree.tostring(raiz, xml_declaration=True, encoding="UTF-8", standalone=True)
+                continue
             for p in raiz.iter(W + "p"):
                 ts = [t for t in p.iter(W + "t") if next(t.iterancestors(W + "p")) is p]
                 if not ts:
@@ -263,7 +352,11 @@ _RX_PARA = re.compile(r"<a:p\b[^>]*?>.*?</a:p>", re.S)
 _RX_AT = re.compile(r"(<a:t(?:\s[^>]*)?>)(.*?)(</a:t>)", re.S)
 
 
-def pptx_transformar(entrada, saida, nome, encontrar):
+def pptx_transformar(entrada, saida, nome, encontrar, reverter=False):
+    """Na reversão (reverter=True) recusa vínculo externo que busca conteúdo (imagem ligada, OLE...). Os campos a:fld do
+    PowerPoint (número, data) só guardam texto e não leem o documento; hyperlink só age com clique e o endereço não muda."""
+    if reverter:
+        conferir_sem_vinculos_externos(entrada, nome)
     subs = {}
     with abrir_zip(entrada, nome) as z:
         for info in z.infolist():

