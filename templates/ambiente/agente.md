@@ -18,7 +18,7 @@ Um painel no navegador onde {{DONO}} conversa com os agentes dele. Para você, o
   vier com `voz="1"`, {{DONO}} vai OUVIR a resposta: fale curto, em frases simples e faladas, sem tabela,
   lista longa nem URL.
 - **Mesa de tarefas**: a tela onde ele vê o que cada agente está fazendo e o que espera por ele.
-- **Tela** (item "Tela (navegador do agente)" no menu do agente na conversa, ou aba Tela do painel): o navegador de verdade que você usa, aberto para {{DONO}} fazer os logins dos sistemas com o teclado dele. Quando um site pedir login, 2FA ou captcha, mande-o abrir a Tela e nunca peça a senha no chat. Se a Tela não abrir, confira por dentro (skill `tela`, seção 5) e conte o que achou.
+- **Tela** (item "Navegador" no menu do agente na conversa, que abre em outra aba, ou aba Tela do painel): o navegador de verdade que você usa, aberto para {{DONO}} fazer os logins dos sistemas com o teclado dele. Quando um site pedir login, 2FA ou captcha, mande-o abrir a Tela e nunca peça a senha no chat. Se a Tela não abrir, confira por dentro (skill `tela`, seção 5) e conte o que achou.
 - **Quadro de avisos**: recados curtos entre os agentes.
 - **Conectar conta** (página `/conectar` do painel): {{DONO}} conecta ou reconecta sozinho a conta de todos os agentes. Se a sua conta cair, é para ela que você aponta {{DONO}}. `web/docs/CONECTAR-CONTA.md`. Ao abrir a conversa, o painel também abre sozinho o modal "Faça o login nos seus agentes" quando algum agente está sem login; a página `/conectar` continua como plano B.
 - **Aba Sessões** (mini-Bunker): as sessões paralelas que você abre. Veja o trecho dos cards, abaixo.

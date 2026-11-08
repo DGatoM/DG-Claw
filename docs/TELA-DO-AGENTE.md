@@ -5,8 +5,8 @@ servidor amd64, Chromium em arm64), numa tela virtual, que o dono abre e usa com
 dele. A Tela é **interativa**: o dono digita e clica direto nela (noVNC, sem modo só de leitura). O agente
 usa o mesmo navegador, já logado, nas automações.
 
-**Como o dono chega nela.** Pelo item **Tela (navegador do agente)** do menu de cada agente, na própria
-conversa (leva ao painel do agente já na aba Tela, pelo endereço `<painel>/#aba=tela`), ou pela aba Tela
+**Como o dono chega nela.** Pelo item **Navegador** do menu de cada agente, na própria
+conversa (abre em outra aba o painel do agente já na aba Tela, pelo endereço `<painel>/#aba=tela`), ou pela aba Tela
 do painel. O Admin não tem o item: ele não tem navegador. Ao entrar, se a senha da Tela ainda não foi
 definida, a aba abre direto no formulário "Defina a senha da tela" (de 6 a 8 caracteres) e, depois de
 gravar, a tela abre sozinha.

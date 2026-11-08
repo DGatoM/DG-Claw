@@ -54,7 +54,8 @@ test('páginas do painel: 13 links com #aba=, e nenhum sem painel', () => {
 test('Tela: item do menu leva ao painel já na aba Tela, e o Admin não tem', () => {
   const l = M.linkTela({ id: 'ana', tem_painel: true, painel_url: '/p/ana/' });
   assert.equal(l.href, '/p/ana/#aba=tela');
-  assert.match(l.nome, /navegador do agente/);
+  assert.equal(l.nome, 'Navegador');
+  assert.equal(l.alvo, '_blank');
   assert.equal(M.chaveDoHref(l.href), 'tela');
   assert.equal(M.linkTela({ id: 'tina', tem_painel: true }).href, '/p/tina/#aba=tela');
   assert.equal(M.linkTela({ id: 'admin', tipo: 'admin', tem_painel: true }), null);

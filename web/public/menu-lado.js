@@ -40,11 +40,11 @@
       config: base + 'api/sessoes-config', pedidos: base + 'api/sessoes?grupo=esperando_voce&limite=1' };
   }
 
-  /* Tela (navegador do agente): leva ao painel do agente já na aba Tela, onde o dono faz os logins. O Admin não tem. */
+  /* Navegador: abre em outra aba o painel do agente já na Tela (VNC interativo), onde o dono faz os logins. O Admin não tem. */
   function linkTela(a) {
     if (!a || !a.tem_painel || a.tipo === 'admin') return null;
     const base = (a.painel_url || ('/p/' + encodeURIComponent(a.id) + '/')).replace(/\/*$/, '/');
-    return { nome: 'Tela (navegador do agente)', ico: '▭', href: base + '#aba=tela' };
+    return { nome: 'Navegador', ico: '🌐', href: base + '#aba=tela', alvo: '_blank' };
   }
 
   /* Páginas fora do painel (Mesa, Lembretes) não têm o agente no caminho: levam ?a=<slug> para a
@@ -595,7 +595,7 @@
     ligaSessoes(ag);
     const tela = linkTela(ag), ancoraTela = $('mlSessoes') || mesa;
     if (tela && ancoraTela) {
-      ancoraTela.parentElement.insertAdjacentHTML('afterend', `<div data-tour="gm-tela"><a class="ml-tab" id="mlTela" href="${esc(tela.href)}">` +
+      ancoraTela.parentElement.insertAdjacentHTML('afterend', `<div data-tour="gm-tela"><a class="ml-tab" id="mlTela" href="${esc(tela.href)}" target="${esc(tela.alvo)}" rel="noopener">` +
         `<span class="ml-ico" aria-hidden="true">${tela.ico}</span>${tela.nome}</a></div>`);
     }
     agenteAtual = ag;
