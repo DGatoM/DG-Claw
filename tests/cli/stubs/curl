@@ -10,6 +10,16 @@ for ((i = 0; i < ${#args[@]}; i++)); do
     esac
 done
 [ -f "${STUB_ESTADO:?}/curl-falha" ] && exit 22
+# `dgclaw colaborador`: fala com o Web pelo socket Unix. A resposta vem de colab-resposta[.N] e colab-status[.N] (N = a
+# chamada de numero N no teste; sem arquivo numerado vale o geral). curl-sem-socket imita o Web fora do ar.
+case "$*" in *--unix-socket*)
+    [ -f "$STUB_ESTADO/curl-sem-socket" ] && { echo "curl: (7) Couldn't connect to server" >&2; exit 7; }
+    n=$(( $(cat "$STUB_ESTADO/colab-n" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$STUB_ESTADO/colab-n"
+    corpo="$STUB_ESTADO/colab-resposta.$n"; [ -f "$corpo" ] || corpo="$STUB_ESTADO/colab-resposta"
+    status="$STUB_ESTADO/colab-status.$n"; [ -f "$status" ] || status="$STUB_ESTADO/colab-status"
+    printf '%s\n%s' "$(cat "$corpo" 2>/dev/null || echo '{"ok":true}')" "$(cat "$status" 2>/dev/null || echo 200)"
+    exit 0 ;;
+esac
 # Descoberta do IP publico: devolve o IP de mentira.
 case "$*" in *ipify*|*ifconfig.me*) echo "${STUB_IP:-203.0.113.7}"; exit 0 ;; esac
 exit 0
