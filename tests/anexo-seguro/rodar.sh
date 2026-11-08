@@ -65,6 +65,34 @@ ANTES="$(sha256sum "$FORA/sshd_config")"
 mv -T -- "$TMP/tmp1" "$TMP/dest"
 [ "$(sha256sum "$FORA/sshd_config")" = "$ANTES" ] && [ ! -L "$TMP/dest" ] && ok "mv -T trocou o nome e deixou o alvo do link em paz" || mal "mv -T seguiu o link"
 
+echo "anexo-seguro: o agente troca o temporario (ou o original) por um link no meio da operacao"
+# Gancho de teste: um executavel que o helper roda entre as etapas e que faz o papel do agente.
+cat > "$TMP/gancho.sh" <<'GANCHO'
+#!/usr/bin/env bash
+# uso: gancho.sh <etapa> <pasta do workspace> <nome do temporario>; env: TROCAR_NA_ETAPA, ALVO_EXTERNO, O_QUE
+etapa="$1"; ws="$2"; nome="$3"
+[ "$etapa" = "$TROCAR_NA_ETAPA" ] || exit 0
+if [ "$O_QUE" = "original" ]; then rm -f "$ws/AGENTS.md"; ln -s "$ALVO_EXTERNO" "$ws/AGENTS.md"
+else rm -f "$ws/$nome"; ln -s "$ALVO_EXTERNO" "$ws/$nome"; fi
+GANCHO
+chmod +x "$TMP/gancho.sh"
+for caso in "depois-do-backup-temporario:temporario" "depois-do-temporario:temporario" "antes-do-rename:temporario" "antes-do-rename:original"; do
+    etapa="${caso%%:*}"; o_que="${caso##*:}"
+    rm -rf "$WS"; mkdir -p "$WS"
+    printf 'conteudo do dono\n' > "$WS/AGENTS.md"
+    printf 'SEGREDO DO SISTEMA\n' > "$FORA/sistema"; chmod 600 "$FORA/sistema"
+    ANTES="$(sha256sum "$FORA/sistema")"; INFO="$(stat -c '%U:%G %a %i' "$FORA/sistema")"
+    DGCLAW_ANEXO_MODO_TESTE=1 DGCLAW_ANEXO_GANCHO="$TMP/gancho.sh" TROCAR_NA_ETAPA="$etapa" ALVO_EXTERNO="$FORA/sistema" O_QUE="$o_que" \
+        anexar_secao_segura "$WS/AGENTS.md" "$WS" "$SECAO" "$WS/AGENTS.md.bak-t" "$DONO"; rc=$?
+    [ "$rc" != "0" ] && ok "[$etapa/$o_que] recusou (codigo $rc)" || mal "[$etapa/$o_que] acrescentou mesmo com a troca"
+    [ "$(sha256sum "$FORA/sistema")" = "$ANTES" ] && [ "$(stat -c '%U:%G %a %i' "$FORA/sistema")" = "$INFO" ] && ok "[$etapa/$o_que] o alvo externo ficou igual (conteudo, dono, modo)" || mal "[$etapa/$o_que] o alvo externo mudou"
+    if [ -z "$(find "$WS" -maxdepth 1 -name '.anexo.*')" ]; then ok "[$etapa/$o_que] nenhum temporario sobrou"; else mal "[$etapa/$o_que] sobrou temporario"; fi
+done
+# sem o modo de teste o gancho e ignorado (nao e uma porta para o agente)
+rm -rf "$WS"; mkdir -p "$WS"; printf 'x\n' > "$WS/AGENTS.md"
+DGCLAW_ANEXO_GANCHO="$TMP/gancho.sh" TROCAR_NA_ETAPA="antes-do-rename" ALVO_EXTERNO="$FORA/sistema" O_QUE="original" \
+    anexar_secao_segura "$WS/AGENTS.md" "$WS" "$SECAO" "$WS/AGENTS.md.bak-t" "$DONO" && ok "sem DGCLAW_ANEXO_MODO_TESTE o gancho nao roda" || mal "o gancho rodou fora do modo de teste"
+
 echo "anexo-seguro: o doctor usa a funcao e nao escreve direto"
 if grep -nE '>> *"\$WS/(AGENTS|CLAUDE|MEMORY)\.md"' "$REPO/scripts/doctor.sh" >/dev/null; then mal "doctor.sh ainda faz >> direto num arquivo de instrucoes"; else ok "nenhum >> direto em AGENTS.md, CLAUDE.md ou MEMORY.md"; fi
 [ "$(grep -c 'anexar_secao_segura' "$REPO/scripts/doctor.sh")" -ge 4 ] && ok "as 4 secoes (mesa, avisos, AGENTS, MEMORY) passam pela funcao" || mal "faltam usos da funcao"

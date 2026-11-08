@@ -10,18 +10,17 @@
 #   workspace real. Senao devolve 1 e deixa o motivo (em portugues) em ANEXO_MOTIVO.
 #
 # anexar_secao_segura <arquivo> <workspace> <texto-da-secao> <backup> <usuario-dono>
-#   Faz, nesta ordem: confere o arquivo e o backup (recusa link); guarda uma copia no <backup> se ele
-#   ainda nao existe; monta o arquivo novo num temporario criado no MESMO diretorio (mktemp, 0600),
-#   com o conteudo atual mais a secao, mesmo modo e dono (chown no temporario, que e nosso); confere
-#   de novo que o arquivo e o mesmo (mesmo dispositivo e inode) e continua sem ser link; e troca com
-#   `mv -T`, que e um rename: ele substitui o NOME e nunca segue o destino, mesmo que seja link.
+#   Entrega o trabalho a scripts/_lib/anexar_secao.py (python3 -I), que so usa descritores: abre a
+#   pasta do workspace e cada pasta do caminho com O_NOFOLLOW, abre o original sem seguir link, cria
+#   backup e temporario com O_EXCL|O_NOFOLLOW por dir_fd, escreve/fchmod/fchown pelo fd e troca com
+#   rename por dir_fd depois de conferir de novo, por nome, que o original e o mesmo inode que foi
+#   lido. Nenhuma operacao reabre um caminho textual dentro da pasta que o agente escreve.
 #   Devolve 0 se acrescentou, 1 se recusou (motivo em ANEXO_MOTIVO), 2 se falhou ao gravar.
 #
-# CORRIDA que sobra: entre a segunda conferencia e o rename o agente ainda pode trocar o arquivo.
-# Isso nao abre nada: o rename troca o nome (um link plantado ali e simplesmente substituido), e o
-# conteudo lido foi conferido antes e depois da leitura. O que o agente consegue e fazer a secao
-# nova ser perdida. O ideal e rodar a migracao como o usuario do agente; o doctor nao tem esse
-# caminho hoje.
+# CORRIDA que sobra: o agente ainda pode trocar o arquivo entre a conferencia final e o rename. Isso
+# nao abre nada: o rename troca o NOME (um link plantado ali e substituido) e a escrita ja foi feita
+# nos descritores. O que ele consegue e fazer a secao nova ser perdida. O ideal seria rodar a
+# migracao como o usuario do agente; o doctor nao tem esse caminho hoje.
 
 # shellcheck disable=SC2034
 ANEXO_MOTIVO=""
@@ -46,39 +45,26 @@ anexo_arquivo_seguro() {
     return 0
 }
 
+_ANEXO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 anexar_secao_segura() {
-    local arq="$1" ws="$2" texto="$3" bak="$4" dono="$5" dir id1 id2 tmp tmpbak
-    anexo_arquivo_seguro "$arq" "$ws" || return 1
-    if [ -L "$bak" ] || { [ -e "$bak" ] && [ ! -f "$bak" ]; }; then
-        ANEXO_MOTIVO="o backup $bak ja existe e e um link ou nao e arquivo comum; nao escrevo por ele. Apague $bak e rode o doctor de novo"
-        return 1
+    local arq="$1" ws="$2" texto="$3" bak="$4" dono="$5" rel erro rc
+    ANEXO_MOTIVO=""
+    case "$arq" in
+        "$ws"/*) rel="${arq#"$ws"/}" ;;
+        *) ANEXO_MOTIVO="$arq nao fica dentro do workspace $ws"; return 1 ;;
+    esac
+    if [ "$(dirname -- "$bak")" != "$(dirname -- "$arq")" ]; then
+        ANEXO_MOTIVO="o backup $bak precisa ficar na mesma pasta de $arq"; return 1
     fi
-    dir="$(dirname -- "$arq")"
-    id1="$(stat -c '%d:%i' -- "$arq")" || { ANEXO_MOTIVO="nao consegui ler os dados de $arq"; return 2; }
-    if [ ! -e "$bak" ]; then
-        tmpbak="$(mktemp "$dir/.bak.XXXXXX")" || { ANEXO_MOTIVO="nao consegui criar um temporario em $dir (permissao ou disco cheio?)"; return 2; }
-        if cp -p -- "$arq" "$tmpbak" && mv -T -- "$tmpbak" "$bak"; then :; else
-            rm -f -- "$tmpbak"
-            ANEXO_MOTIVO="nao consegui guardar o backup em $bak"
-            return 2
-        fi
-    fi
-    tmp="$(mktemp "$dir/.anexo.XXXXXX")" || { ANEXO_MOTIVO="nao consegui criar um temporario em $dir (permissao ou disco cheio?)"; return 2; }
-    if ! { cat -- "$arq"; printf '\n%s\n' "$texto"; } > "$tmp"; then
-        rm -f -- "$tmp"; ANEXO_MOTIVO="nao consegui montar o arquivo novo em $tmp"; return 2
-    fi
-    chmod --reference="$arq" -- "$tmp" 2>/dev/null || chmod 644 -- "$tmp"
-    if [ "$dono" != "root" ]; then
-        chown -h -- "$dono:" "$tmp" || { rm -f -- "$tmp"; ANEXO_MOTIVO="nao consegui passar o arquivo para o usuario $dono; rode como root"; return 2; }
-    fi
-    # Conferencia final: o arquivo lido e o mesmo de antes e continua sem ser link.
-    id2="$(stat -c '%d:%i' -- "$arq" 2>/dev/null)" || id2=""
-    if [ -L "$arq" ] || [ "$id1" != "$id2" ]; then
-        rm -f -- "$tmp"
-        ANEXO_MOTIVO="$arq mudou (ou virou link) enquanto eu o lia; nao gravei nada. Rode o doctor de novo"
-        return 1
-    fi
-    # shellcheck disable=SC2034
-    mv -T -- "$tmp" "$arq" || { rm -f -- "$tmp"; ANEXO_MOTIVO="nao consegui trocar $arq"; return 2; }
-    return 0
+    # Todo o trabalho com arquivo e feito por descritor no helper Python (ver o cabecalho dele).
+    # O texto vai pelo stdin; o shell nao interpola nada em codigo.
+    erro="$(printf '%s' "$texto" | python3 -I "$_ANEXO_DIR/anexar_secao.py" "$ws" "$rel" "$(basename -- "$bak")" "${dono:--}" 2>&1 >/dev/null)"
+    rc=$?
+    ANEXO_MOTIVO="$erro"
+    case "$rc" in
+        0) return 0 ;;
+        1) return 1 ;;
+        *) return 2 ;;
+    esac
 }
