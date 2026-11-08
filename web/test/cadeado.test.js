@@ -737,7 +737,7 @@ test('WebSocket aberto antes de travar cai na revalidação do proxy; sem cadead
     s.relogio.t += 60 * MIN;
     s.t.web.proxy.revalidar();
     await espera(150);
-    assert.equal(wsLivre.socket.destroyed, false, 'sem cadeado ligado a conexão do dono não entra na conferência');
+    assert.equal(wsLivre.socket.destroyed, false, 'sem Face ID a conexão do dono é conferida e segue aberta');
     wsLivre.socket.destroy();
 
     // dono COM cadeado: a Tela abre destravada e cai quando a sessão trava
@@ -757,6 +757,23 @@ test('WebSocket aberto antes de travar cai na revalidação do proxy; sem cadead
     assert.equal((await d.destrava(ap)).status, 200);
     const outro = await abreWs(s, d, true);
     outro.socket.destroy();
+  } finally { await s.fechar(); }
+});
+
+test('WebSocket aberto ANTES de ativar o Face ID também cai quando a sessão trava', async () => {
+  const s = await cenarioWs();
+  try {
+    const d = pessoa(s);
+    await d.login('dono', s.t.senha);
+    const ws = await abreWs(s, d, false); // aberta sem Face ID e sem cookie de aparelho
+    const ap = aparelhoFalso();
+    assert.equal((await d.cadastra(ap, 'iPhone')).status, 201); // a mesma sessão liga o Face ID depois
+    s.t.web.proxy.revalidar();
+    await espera(150);
+    assert.equal(ws.socket.destroyed, false, 'destravada, segue aberta');
+    s.relogio.t += 16 * MIN;
+    s.t.web.proxy.revalidar();
+    assert.equal(await Promise.race([ws.fechou, espera(1000).then(() => false)]), true, 'a Tela aberta antes do Face ID cai quando a sessão trava');
   } finally { await s.fechar(); }
 });
 
