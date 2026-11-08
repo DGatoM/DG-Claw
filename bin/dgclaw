@@ -1620,23 +1620,6 @@ agente_listar() {
         END {for (r = 1; r <= n; r++) {for (i = 1; i <= nf; i++) printf "%-*s  ", w[i], c[r, i]; printf "\n"}}'
 }
 
-# revogar_colaboradores_do_agente <slug>: o convite de um colaborador vale por um agente; ao tirar o agente do ar
-# os convites dele deixam de valer (o Web ainda confere a instancia, mas a revogacao fica escrita no arquivo).
-revogar_colaboradores_do_agente() {
-    local arq="$DG_LIB/web/colaboradores.json" tmp
-    [ -f "$arq" ] || return 0
-    tmp="$(mktemp "$arq.XXXXXX")" || { aviso "nao consegui revogar os colaboradores de $1 em $arq; revogue pela tela Convidar colaborador"; return 0; }
-    # shellcheck disable=SC2016 # o $s e o $t sao variaveis do jq
-    if jq --arg s "$1" --argjson t "$(( $(date +%s) * 1000 ))" '(.colaboradores[]? | select(.agente == $s and .revogado_em == null)) |= (.revogado_em = $t)' "$arq" >"$tmp" 2>/dev/null; then
-        chmod --reference="$arq" "$tmp"; chown --reference="$arq" "$tmp" 2>/dev/null || true
-        mv "$tmp" "$arq"
-        ok "convites de colaborador do agente $1 revogados"
-    else
-        rm -f "$tmp"
-        aviso "nao consegui ler $arq para revogar os colaboradores de $1; revogue pela tela Convidar colaborador"
-    fi
-}
-
 agente_remover() {
     local slug="" sim=0 a
     for a in "$@"; do
@@ -1691,7 +1674,6 @@ agente_remover() {
     else
         agentes_remover "$slug"
         com_trava liberar_portas "$slug"
-        revogar_colaboradores_do_agente "$slug"
     fi
     ok "agente $slug removido do registro. A faixa de uid dele fica queimada de proposito: ninguem herda os arquivos dele."
 }
