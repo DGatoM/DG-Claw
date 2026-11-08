@@ -30,6 +30,15 @@ test('mascaraComandos: duas chamadas de curl na mesma linha, por ; && || | e &',
   assert.equal(r, `sshpass -p ${O} curl -u ${O} https://x fim`);
 });
 
+test('mascaraComandos: o próximo comando depois de ; && || | & colados, sem espaços, também é analisado', () => {
+  for (const sep of [';', '&&', '||', '|', '&', ';;', '; ', ' ; ']) {
+    const r = mascaraComandos(`curl x -u a:${S1}${sep}curl y -u b:${S2} fim`);
+    assert.equal(r, `curl x -u ${O}${sep}curl y -u ${O} fim`, sep);
+  }
+  assert.equal(mascaraComandos(`curl -u a:${S1};ls -u keep;curl --user b:${S2}`), `curl -u ${O};ls -u keep;curl --user ${O}`);
+  assert.equal(mascaraComandos(`echo ok&&curl -U p:${S1}||sshpass -p ${S2}|cat`), `echo ok&&curl -U ${O}||sshpass -p ${O}|cat`);
+});
+
 test('mascaraComandos: continuação de linha entre o curl e a flag, com LF, CRLF e no meio do argumento', () => {
   const lf = mascaraComandos(`curl https://x \\\n  -H 'a: b' \\\n  -u user:${S1} \\\n  -d dados\ndepois`);
   assert.equal(lf, `curl https://x \\\n  -H 'a: b' \\\n  -u ${O} \\\n  -d dados\ndepois`);
@@ -61,8 +70,9 @@ test('mascaraComandos: aspas, escapes e `;` colado no valor', () => {
   assert.equal(mascaraComandos(`curl -u "a b":'c d'${S1} https://x fim`), `curl -u ${O} https://x fim`);
   assert.equal(mascaraComandos(`curl -u a:b\\ c${S1} https://x fim`), `curl -u ${O} https://x fim`);
   assert.equal(mascaraComandos(`curl -u "u:p\\"${S1}" https://x fim`), `curl -u ${O} https://x fim`);
-  assert.ok(!mascaraComandos(`curl -u user:pa&${S1} https://x`).includes(S1), '& colado na senha');
-  assert.ok(!mascaraComandos(`curl -u user:pa;${S1} https://x`).includes(S1), '; colado na senha');
+  // regra do shell: `;` `&` `|` fora de aspas terminam o argumento e o comando
+  assert.equal(mascaraComandos(`curl -u user:pa;${S1}`), `curl -u ${O};${S1}`);
+  assert.equal(mascaraComandos(`curl -u 'user:pa;x&y|z'${S1} fim`), `curl -u ${O} fim`, 'entre aspas fazem parte do valor');
   assert.ok(!mascaraComandos(`curl -u "sem fechamento ${S1}\nlinha dois`).includes(S1));
   assert.ok(mascaraComandos(`curl -u "sem fechamento ${S1}\nlinha dois`).endsWith('linha dois'));
   assert.equal(mascaraComandos(`curl -u`), 'curl -u');
@@ -80,7 +90,7 @@ test('mascaraComandos: mysql, sshpass e htpasswd', () => {
   assert.equal(mascaraComandos(`htpasswd arq usr senha`), 'htpasswd arq usr senha');
 });
 
-const HOSTIS = ['curl ', 'curl -u ', 'curl "\\"', "curl '", 'curl "a" -u ', 'curl \\\n', 'curl x \\\r\n', 'curl -u "', "curl --user '", 'curl --user=', 'sshpass -p ', 'htpasswd -b ', 'htpasswd -nb a ', 'mysql -p', 'curl ;', 'curl &', 'curl |', 'curl -u a;', 'curl\\', '\\\n', '"\\', "'", 'curl -u ' + 'x'.repeat(100) + ' '];
+const HOSTIS = ['--password \\\n', '--password=\\\r\n', '--token "\n', "--secret '\n", ';curl -u a:', '&&curl --user=', '||curl -u', '--password --password ', 'curl ', 'curl -u ', 'curl "\\"', "curl '", 'curl "a" -u ', 'curl \\\n', 'curl x \\\r\n', 'curl -u "', "curl --user '", 'curl --user=', 'sshpass -p ', 'htpasswd -b ', 'htpasswd -nb a ', 'mysql -p', 'curl ;', 'curl &', 'curl |', 'curl -u a;', 'curl\\', '\\\n', '"\\', "'", 'curl -u ' + 'x'.repeat(100) + ' '];
 
 test('mascaraComandos: entradas hostis de 64 KB ficam abaixo de 200 ms', () => {
   const N = 64 * 1024;
@@ -116,4 +126,48 @@ test('resposta e busca nos dois motores', async () => {
   assert.equal(r.eventos.length, casos.length * 2);
   assert.ok(!JSON.stringify(r).includes('ALHEIO'));
   for (const q of [S1, S2, 'ALHEIO']) assert.equal((await l.eventos(ag, { limite: 50, cursor: null, q })).eventos.length, 0, `a busca por ${q} não acha`);
+});
+
+// ── flags longas de segredo em qualquer comando, com valor em várias linhas ──
+const LONGAS = [
+  `app --password \\\n${S1} fim`,
+  `app --password \\\r\n${S1} fim`,
+  `app --password=\\\n${S1} fim`,
+  `app --token \\\n  \\\n  ${S1} fim`,
+  `app --secret "linha um\n${S1} linha tres" fim`,
+  `app --api-key 'linha um\r\n${S1}' fim`,
+  `app --client-secret=um"dois\n${S1}"tres fim`,
+  `app --passphrase \\\n"a b\n${S1}" fim`,
+  `app --pass ${S1} fim`,
+  `app --auth=${S1} fim`,
+  `outro --apikey ${S1} fim`,
+];
+
+test('flag longa de segredo em qualquer comando: valor em várias linhas sai inteiro, com LF e CRLF, e o resto fica', () => {
+  for (const c of LONGAS) {
+    const r = mascaraComandos(c);
+    assert.ok(!r.includes(S1), `sobrou o sufixo em: ${JSON.stringify(c)} => ${JSON.stringify(r)}`);
+    assert.ok(r.endsWith(' fim'), JSON.stringify(r));
+  }
+  assert.equal(mascaraComandos(`app --password \\\n${S1} fim`), `app --password \\\n${O} fim`);
+  assert.equal(mascaraComandos(`app --password=\\\n${S1} fim`), `app --password=${O} fim`);
+  assert.equal(mascaraComandos(`app --token 'a\nb' x; app --secret y`), `app --token ${O} x; app --secret ${O}`);
+  assert.equal(mascaraComandos('app --password "sem fechamento\nlinha dois'), `app --password ${O}\nlinha dois`, 'sem fechamento: até o fim da linha');
+  for (const c of ['app --author fulano', 'app --user-name ana', 'app --password-stdin']) assert.equal(mascaraComandos(c), c, c);
+});
+
+test('flag longa de segredo: resposta e busca nos dois motores', async () => {
+  const home = pastaTemp('logs-longas');
+  const ag = { slug: 'ana', nome: 'Ana', tipo: 'agente', provedor: 'claude', home_host: home, home_container: '/home/agente' };
+  const d = path.join(home, '.claude', 'projects', '-ws');
+  fs.mkdirSync(d, { recursive: true });
+  fs.writeFileSync(path.join(d, `${U(1)}.jsonl`), LONGAS.map((t, i) => JSON.stringify({ type: 'user', timestamp: iso(1000 + i), sessionId: U(1), message: { role: 'user', content: t } })).join('\n') + '\n');
+  const cx = path.join(home, '.codex', 'sessions', '2026', '11', '01');
+  fs.mkdirSync(cx, { recursive: true });
+  fs.writeFileSync(path.join(cx, `rollout-x-${U(2)}.jsonl`), LONGAS.map((t, i) => JSON.stringify({ timestamp: iso(5000 + i), type: 'event_msg', payload: { type: 'item_completed', item: { type: 'UserMessage', content: [{ type: 'text', text: t }] } } })).join('\n') + '\n');
+  const l = criarLeitor();
+  const r = await l.eventos(ag, { limite: 100, cursor: null });
+  assert.equal(r.eventos.length, LONGAS.length * 2);
+  assert.ok(!JSON.stringify(r).includes('ALHEIO'));
+  for (const q of [S1, 'ALHEIO']) assert.equal((await l.eventos(ag, { limite: 100, cursor: null, q })).eventos.length, 0, `a busca por ${q} não acha`);
 });
