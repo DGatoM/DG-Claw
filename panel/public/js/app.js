@@ -426,6 +426,7 @@ const SUBTITULO_ABA = {
   rotinas: 'o que ele faz sozinho, na hora marcada',
   arquivos: 'os arquivos que ele guarda, e os que você sobe',
   cofre: 'as chaves de serviço que ele pode usar',
+  tela: 'o navegador do agente, para você fazer login',
   posts: 'o que ele publicou',
   followers: 'quem conversa com ele',
   reunioes: 'o que foi dito e o que ficou',
@@ -646,6 +647,9 @@ async function loadPanel(tab, force) {
     // A aba Socorro (js/socorro.js, de outra frente) se carrega sozinha no clique da
     // aba dela. Chamar daqui também carregaria duas vezes.
     case 'cofre': await window.DGCofre.carregar(); break;
+    // A Tela é aberta também por link (#aba=tela, o item do menu do agente na conversa), que não
+    // passa pelo clique da aba; por isso quem carrega é o loadPanel, e o clique só atualiza.
+    case 'tela': await window.DGTela.carregar(); break;
     case 'costs': await loadCosts(); break;
     case 'reunioes': await loadReunioes(); break;
     case 'identity': await loadIdentity(); break;

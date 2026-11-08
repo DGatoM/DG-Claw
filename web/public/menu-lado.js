@@ -28,6 +28,10 @@
   const LINK_LEMBRETES = { nome: 'Lembretes', ico: '⏰', href: '/lembretes' };
   const LINK_AVISOS = { nome: 'Avisos', ico: '🔔', href: '/avisos' };
   const LINK_SEGURANCA = { nome: 'Segurança', ico: '🛡', href: '/seguranca' };
+  const LINK_CONECTAR = { nome: 'Conectar conta', ico: '🔑', href: '/conectar' };
+  const LINK_COLABORADOR = { nome: 'Convidar colaborador', ico: '👥', href: '/colaboradores' };
+  const ehColaborador = () => !!(raiz.DGPapel && raiz.DGPapel.colaborador);
+  const LINK_ANONIMIZAR = { nome: 'Anonimizar', ico: '🕶', href: '/anonimizar' };
 
   /* Sessões é item fixo para todo agente com painel (a tela fica no painel dele). Devolve o link do menu e os
      endereços que o menu consulta (config: a aba está ligada? pedidos: quantas sessões esperam o dono), ou null. */
@@ -37,6 +41,13 @@
     const base = base0.replace(/\/*$/, '/');
     return { nome: 'Sessões', ico: '🖥', href: base + '#aba=sessoes',
       config: base + 'api/sessoes-config', pedidos: base + 'api/sessoes?grupo=esperando_voce&limite=1' };
+  }
+
+  /* Navegador: abre em outra aba o painel do agente já na Tela (VNC interativo), onde o dono faz os logins. O Admin não tem. */
+  function linkTela(a) {
+    if (!a || !a.tem_painel || a.tipo === 'admin') return null;
+    const base = (a.painel_url || ('/p/' + encodeURIComponent(a.id) + '/')).replace(/\/*$/, '/');
+    return { nome: 'Navegador', ico: '🌐', href: base + '#aba=tela', alvo: '_blank' };
   }
 
   /* Páginas fora do painel (Mesa, Lembretes) não têm o agente no caminho: levam ?a=<slug> para a
@@ -56,6 +67,9 @@
     if (caminho === '/lembretes') return 'lembretes';
     if (caminho === '/avisos') return 'avisos';
     if (caminho === '/seguranca') return 'seguranca';
+    if (caminho === '/conectar') return 'conectar';
+    if (caminho === '/colaboradores') return 'colaboradores';
+    if (caminho === '/anonimizar') return 'anonimizar';
     if (/^\/a\/[^/]+$/.test(caminho)) return 'conversa';
     return '';
   }
@@ -73,11 +87,19 @@
   function passosMenu(o) {
     const nome = o.nome;
     const abre = o.abre || function () {};
+    if (o.colaborador) {
+      return [{
+        alvo: '#mlMoldura', antes: abre, titulo: 'O menu',
+        oque: 'A foto e o nome de ' + nome + ', o agente com quem você conversa, e as páginas dele: a Conversa, as Sessões de trabalho, as páginas do painel (Rotinas, Memória, Pasta e as outras) e Conectar conta.',
+        como: (o.naConversa ? 'O item Conversa (esta tela) fica no alto.' : 'O item Conversa, no alto, leva de volta ao chat.') + ' Cada página do painel abre na mesma janela. Conectar conta serve para ligar a sua conta de IA ao agente, quando ele ainda não tem uma. No fim do menu, o botão Sair encerra a sua sessão.',
+        porque: 'Você tem acesso a tudo deste agente. Os outros agentes e as configurações do DG Claw inteiro (chaves, colaboradores, cofre) ficam com o dono.',
+      }];
+    }
     const passos = [{
       alvo: '#mlMoldura', antes: abre, titulo: 'O menu do agente',
       oque: 'A foto, o nome e as páginas de ' + nome + ', sempre no lado esquerdo. No computador ele fica aberto o tempo todo; no celular abre pelo botão ☰.',
       como: (o.naConversa ? 'O item Conversa (esta tela) fica no alto.' : 'O item Conversa, no alto, leva de volta ao chat.') +
-        ' Os outros itens levam à Mesa, às Sessões de trabalho dele, aos Lembretes, aos Avisos, à Segurança e às páginas do painel dele. O Tutorial, aqui em cima, repete esta visita.',
+        ' Os outros itens levam à Mesa, às Sessões de trabalho dele, à Tela (o navegador dele, onde você faz os logins), aos Lembretes, aos Avisos, à Segurança, à Anonimizar (documentos sem dados pessoais), a Conectar conta (onde você conecta a conta do Claude de cada agente) e às páginas do painel dele. O Tutorial, aqui em cima, repete esta visita.',
       porque: 'Assim a conversa e o painel de cada agente ficam no mesmo lugar, sem link escondido.',
     }];
     if (o.comTroca) {
@@ -257,7 +279,7 @@
     return { tipo: 'sem', texto: 'Este navegador não oferece a instalação por aqui. No Chrome ou no Edge, abra o menu do navegador e procure Instalar app. No Firefox para computador, o recurso não existe.' };
   }
 
-  if (!raiz.document) return { corUso, quandoZeraUso, miniBarraUso, itemUso, ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, LINK_SEGURANCA, linkSessoes, itemAgente, bolinhaMenu, seloDe, totalNaoLidas, totalPrecisam, horaCurta, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar };
+  if (!raiz.document) return { corUso, quandoZeraUso, miniBarraUso, itemUso, ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, LINK_SEGURANCA, LINK_CONECTAR, LINK_COLABORADOR, LINK_ANONIMIZAR, linkSessoes, linkTela, itemAgente, bolinhaMenu, seloDe, totalNaoLidas, totalPrecisam, horaCurta, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar };
 
   /* ── Parte com DOM ─────────────────────────────────────────────────────── */
   const $ = id => document.getElementById(id);
@@ -541,6 +563,7 @@
   /* opcoes: { agente, agentes (a lista já carregada), fecha() (fecha a gaveta), ativo (chave da página aberta; padrão 'conversa'), extras (itens extras do painel), erroLista (texto: a lista de agentes falhou) } */
   function inicia(opcoes) {
     const ag = opcoes.agente;
+    const colab = ehColaborador();
     $('mlMoldura').innerHTML = `<span class="ml-foto" style="background:${esc(ag.cor || '#2f9e5e')}">${fotoDe(ag)}</span>`;
     $('mlNome').textContent = ag.nome;
     $('mlSub').textContent = ag.tipo === 'admin' ? 'administrador do servidor'
@@ -556,34 +579,62 @@
     ligaAcoes(opcoes, troca);
     if (opcoes.erroLista) { pintaLista(ag, [], opcoes.erroLista); abre(true); }   // a lista não veio: o erro aparece já aberto
     else if (Array.isArray(opcoes.agentes)) pintaLista(ag, opcoes.agentes, null);
-    else recarrega(ag);
+    else if (!colab) recarrega(ag);
     /* Agente criado ou apagado em outra aba aparece sem recarregar a página: a cada 30 s e quando a aba volta a ficar visível. */
-    const atualiza = () => { if (document.visibilityState === 'visible') recarrega(ag, true); };
-    document.addEventListener('visibilitychange', atualiza);
-    setInterval(atualiza, 30000);
+    if (!colab) {
+      const atualiza = () => { if (document.visibilityState === 'visible') recarrega(ag, true); };
+      document.addEventListener('visibilitychange', atualiza);
+      setInterval(atualiza, 30000);
+    }
 
-    const painel = $('mlPainel'), links = linksPainel(ag);
+    // O cofre do agente é do dono: o colaborador não vê a entrada no menu (a aba, se aberta, explica o motivo).
+    const painel = $('mlPainel'), links = linksPainel(ag).filter(l => !colab || chaveDoHref(l.href) !== 'cofre');
     painel.innerHTML = links.map(l => `<a class="ml-tab" href="${esc(l.href)}">` +
       `<span class="ml-ico" aria-hidden="true">${l.ico}</span>${esc(l.nome)}</a>`).join('');
     painel.hidden = !links.length;
+    if (!colab) {
     $('mlTabs').insertAdjacentHTML('beforeend', `<div data-tour="gm-lembretes"><a class="ml-tab" href="${comAgente(LINK_LEMBRETES.href, ag.id)}">` +
       `<span class="ml-ico" aria-hidden="true">${LINK_LEMBRETES.ico}</span>${LINK_LEMBRETES.nome}</a></div>`);
     $('mlTabs').insertAdjacentHTML('beforeend', `<div data-tour="gm-avisos"><a class="ml-tab" href="${comAgente(LINK_AVISOS.href, ag.id)}">` +
       `<span class="ml-ico" aria-hidden="true">${LINK_AVISOS.ico}</span>${LINK_AVISOS.nome}</a></div>`);
     $('mlTabs').insertAdjacentHTML('beforeend', `<div data-tour="gm-seguranca"><a class="ml-tab" href="${comAgente(LINK_SEGURANCA.href, ag.id)}">` +
       `<span class="ml-ico" aria-hidden="true">${LINK_SEGURANCA.ico}</span>${LINK_SEGURANCA.nome}</a></div>`);
-    // a Mesa já está no HTML com href="/mesa": passa a levar o agente junto
+    }
+    $('mlTabs').insertAdjacentHTML('beforeend', `<div data-tour="gm-conectar"><a class="ml-tab" href="${comAgente(LINK_CONECTAR.href, ag.id)}">` +
+      `<span class="ml-ico" aria-hidden="true">${LINK_CONECTAR.ico}</span>${LINK_CONECTAR.nome}</a></div>`);
+    if (!colab) {
+      $('mlTabs').insertAdjacentHTML('beforeend', `<div data-tour="gm-anonimizar"><a class="ml-tab" href="${comAgente(LINK_ANONIMIZAR.href, ag.id)}">` +
+        `<span class="ml-ico" aria-hidden="true">${LINK_ANONIMIZAR.ico}</span>${LINK_ANONIMIZAR.nome}</a></div>`);
+    }
+    // Convidar colaborador: só o dono, e nunca para o Admin (o Admin mexe no servidor inteiro)
+    if (!colab && ag.tipo !== 'admin' && ag.id) {
+      $('mlTabs').insertAdjacentHTML('beforeend', `<div data-tour="gm-colaborador"><a class="ml-tab" href="${LINK_COLABORADOR.href}?agente=${encodeURIComponent(ag.id)}">` +
+        `<span class="ml-ico" aria-hidden="true">${LINK_COLABORADOR.ico}</span>${LINK_COLABORADOR.nome}</a></div>`);
+    }
+    // A Mesa já está no HTML com href="/mesa": passa a levar o agente junto (e some para o colaborador).
+    // Sessões entra ANTES de a Mesa sair: inserir ao lado de um elemento que já foi removido lança NoModificationAllowedError.
     const mesa = document.querySelector('#mlTabs a[href="/mesa"]');
-    if (mesa) mesa.setAttribute('href', comAgente('/mesa', ag.id));
-    // Sessões logo depois da Mesa, para todo agente com painel, em todas as telas
     const sess = linkSessoes(ag);
-    if (sess && mesa) {
-      mesa.parentElement.insertAdjacentHTML('afterend', `<div data-tour="gm-sessoes"><a class="ml-tab" id="mlSessoes" href="${esc(sess.href)}">` +
-        `<span class="ml-ico" aria-hidden="true">${sess.ico}</span>${sess.nome}</a></div>`);
+    if (sess) {
+      const html = `<div data-tour="gm-sessoes"><a class="ml-tab" id="mlSessoes" href="${esc(sess.href)}">` +
+        `<span class="ml-ico" aria-hidden="true">${sess.ico}</span>${sess.nome}</a></div>`;
+      if (mesa && mesa.parentElement) mesa.parentElement.insertAdjacentHTML('afterend', html);
+      else $('mlTabs').insertAdjacentHTML('beforeend', html);
+    }
+    if (mesa) {
+      if (colab) mesa.parentElement.remove();
+      else mesa.setAttribute('href', comAgente('/mesa', ag.id));
     }
     ligaSessoes(ag);
+    // Colaborador não vê a Tela do agente: o navegador logado é do dono.
+    const tela = colab ? null : linkTela(ag), ancoraTela = $('mlSessoes') || mesa;
+    if (tela && ancoraTela && ancoraTela.parentElement) {
+      ancoraTela.parentElement.insertAdjacentHTML('afterend', `<div data-tour="gm-tela"><a class="ml-tab" id="mlTela" href="${esc(tela.href)}" target="${esc(tela.alvo)}" rel="noopener">` +
+        `<span class="ml-ico" aria-hidden="true">${tela.ico}</span>${tela.nome}</a></div>`);
+    }
     agenteAtual = ag;
     if (Array.isArray(opcoes.extras)) extras(opcoes.extras);
+    if (colab) mostraQuem();
 
     /* Fora da Conversa, o item Conversa vira link para ela; na Conversa, só fecha a gaveta. */
     const irConversa = $('gmIrConversa');
@@ -600,9 +651,22 @@
     $('mlInstalar').onclick = aoInstalar;
     // escolher uma página fecha a gaveta (a navegação em seguida troca a tela)
     $('mlTabs').addEventListener('click', ev => { if (ev.target.closest('a')) opcoes.fecha(); });
-    ligaUso();
+    if (colab) { const uso = $('mlUso'); if (uso) uso.remove(); } else ligaUso();
     pintaInstalar();
   }
 
-  return { corUso, quandoZeraUso, miniBarraUso, itemUso, ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, LINK_SEGURANCA, linkSessoes, itemAgente, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar, inicia, marca, extras, defineNaoLidas, totalNaoLidas, totalPrecisam, seloDe };
+  /* Colaborador: mostra quem está logado, debaixo do nome do agente. O nome vem de GET /api/v1/eu (rota que ele tem). */
+  function mostraQuem() {
+    const marca = document.querySelector('.ml-marca');
+    if (!marca || $('mlQuem')) return;
+    const p = document.createElement('div');
+    p.className = 'ml-sub'; p.id = 'mlQuem';
+    marca.insertBefore(p, $('mlSub').nextSibling);
+    fetch('/api/v1/eu', { cache: 'no-store', credentials: 'same-origin' })
+      .then(async r => { const d = await r.json().catch(() => null); if (!r.ok || !d) throw new Error('a API respondeu ' + r.status); return d; })
+      .then(d => { p.textContent = 'Você: ' + (d.nome ? d.nome + ' (' + d.usuario + ')' : d.usuario); })
+      .catch(e => { console.warn('menu-lado: não consegui saber quem está logado (' + e.message + '); o menu segue sem o nome.'); });
+  }
+
+  return { corUso, quandoZeraUso, miniBarraUso, itemUso, ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, LINK_SEGURANCA, LINK_CONECTAR, LINK_COLABORADOR, LINK_ANONIMIZAR, linkSessoes, linkTela, itemAgente, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar, inicia, marca, extras, defineNaoLidas, totalNaoLidas, totalPrecisam, seloDe };
 });

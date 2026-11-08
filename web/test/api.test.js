@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
-const { subirWeb, pastaTemp } = require('./ajuda');
+const { subirWeb, pastaTemp, entregaAoAgente } = require('./ajuda');
 const { criarRunnerFalso } = require('./runner-falso');
 const { montarEnvelope } = require('../lib/conversa');
 
@@ -24,6 +24,7 @@ async function cenario(opRunner, opWeb) {
   fs.mkdirSync(path.join(home, 'out'), { recursive: true });
   fs.writeFileSync(path.join(home, 'uploads', '2026-10-12', 'foto.png'), 'png');
   fs.writeFileSync(path.join(home, 'out', 'relatorio.pdf'), '0123456789');
+  entregaAoAgente(home);
   const agentes = [
     { slug: 'ana', nome: 'Ana', tipo: 'agente', runner: `http://127.0.0.1:${pAna}`, agente_id: 'ana1', chat_id: 'c_ana', avatar: '🌿', cor: '#2f9e5e', provedor: 'claude', modelo: 'sonnet', transcripts_dir: transcripts, home_host: home, home_container: '/home/agente' },
     { slug: 'admin', nome: 'Admin', tipo: 'admin', runner: `http://127.0.0.1:${pAdmin}`, agente_id: 'adm1', chat_id: 'c_admin', avatar: '🛠', provedor: 'claude', modelo: 'opus', transcripts_dir: transcripts, home_host: pastaTemp('home-adm'), home_container: '/opt/dgclaw/admin' },

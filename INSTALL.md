@@ -113,3 +113,25 @@ mostra tudo sem mudar nada, e `sudo dgclaw atualizar --voltar <pasta-do-backup>`
 
 A [arquitetura](docs/ARQUITETURA.md) descreve os componentes. O [README](README.md) lista os serviços,
 as pastas e o procedimento para desfazer a instalação.
+
+## Instalação remota (opção secundária)
+
+O fluxo padrão acima continua sendo o da aula: a própria pessoa instala na VPS dela. Use esta opção só
+quando a equipe instala o DG Claw na VPS de outra pessoa e quer entregar tudo pronto.
+
+1. Faça a instalação normal, como descrito acima.
+2. No fim, rode:
+
+   ```bash
+   sudo dgclaw instalacao-remota
+   ```
+
+O comando troca a senha do painel por uma senha forte nova (cinco grupos de quatro letras e números,
+fáceis de digitar no celular), guarda só o hash dela, reinicia o painel e mostra uma mensagem pronta
+com o endereço, o usuário e a senha. Se havia um link de primeiro acesso pendente, ele deixa de valer,
+porque a senha já existe. Copie a mensagem e mande para a pessoa.
+
+A senha aparece só uma vez, nessa saída: ela não fica em arquivo, em log nem no histórico de comandos.
+Se perder a mensagem, rode o comando de novo para gerar outra senha. Quando a pessoa entrar no painel,
+aparece um aviso para fazer o login do Claude em cada agente, um de cada vez, pelo próprio painel. Quando
+todos estiverem conectados, aparece um tutorial rápido.

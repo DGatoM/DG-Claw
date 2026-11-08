@@ -44,7 +44,8 @@ class ErroLoja extends Error {
   constructor(mensagem) { super(mensagem); this.name = 'ErroLoja'; }
 }
 
-function criarLembretes({ config, registro, runner, push, log, agora }) {
+function criarLembretes({ config, registro, runner, push, log, agora, filtro }) {
+  const filtra = filtro || ((_slug, t) => t);
   const relogio = agora || (() => Date.now());
   const dirLoja = path.join(config.dataDir, 'lembretes');
   const arqLoja = path.join(dirLoja, 'lembretes.json');
@@ -204,7 +205,12 @@ function criarLembretes({ config, registro, runner, push, log, agora }) {
       return { ok: false, erro };
     }
     try {
-      const r = await runner.input(ag, { text: recadoAoAgente(o, n), submit: true, injectWhenIdle: true });
+      let recado;
+      try { recado = recadoAoAgente(Object.assign({}, o, { texto: filtra(ag.slug, o.texto) }), n); } catch (e) {
+        log('erro', `Lembrete ${o.id} (${o.agente}): o recado ao agente não saiu: ${e.message}`);
+        return { ok: false, erro: e.message };
+      }
+      const r = await runner.input(ag, { text: recado, submit: true, injectWhenIdle: true });
       if (r.ok) return { ok: true };
       log('aviso', `Lembrete ${o.id} (${o.agente}): o recado ao agente não foi entregue: ${r.erro}`);
       return { ok: false, erro: r.erro };

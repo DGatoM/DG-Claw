@@ -14,3 +14,5 @@ panel/docs/SESSOES.md
 docs/MODO-MONITOR.md
 web/docs/USO-DA-ASSINATURA.md
 docs/COFRE-NA-CONVERSA.md
+web/docs/CONECTAR-CONTA.md
+docs/ANONIMIZAR.md
