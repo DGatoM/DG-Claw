@@ -402,7 +402,12 @@ _aplicar_restricoes_sem_trava() {
     if [ "$runner_novo" = 1 ]; then base="$(cat)"; fi
     if [ -e "$rs" ] || [ -L "$rs" ]; then
         restricoes_validar "$rs" "$slug"
-        IFS=$'\t' read -r sem_bash sem_env pastas < <(jq -r '[(.sem_bash // false), (.sem_enviar_arquivo // false), ((.escrita_so_em // null) | tojson)] | @tsv' "$rs")
+        # Cada campo sai direto como JSON (jq -c): o @tsv escapava de novo as aspas e barras invertidas do nome
+        # das pastas, e o --argjson la embaixo recusava a lista.
+        if ! sem_bash="$(jq -c '.sem_bash // false' "$rs")" || ! sem_env="$(jq -c '.sem_enviar_arquivo // false' "$rs")" \
+            || ! pastas="$(jq -c '.escrita_so_em // null' "$rs")"; then
+            falha "nao consegui ler $rs (restricoes do agente $slug)." "confira com: jq . $rs"
+        fi
     fi
     if [ "$ENSAIO" = 1 ]; then
         info "[ensaio] aplicaria as restricoes de $rs no managed-settings.json e no runner.json do agente $slug"

@@ -463,6 +463,16 @@ afirma "e reiniciou o runner" grep -q 'systemctl restart dgclaw-runner' "$STUB_L
 nega "marcador removido depois do active" test -e "$PEND"
 dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1
 
+echo "pasta com aspas e barra invertida no nome"
+: >"$STUB_LOG"
+dgclaw agente restricoes ana --sem-bash sim --escrita-so-em 'cliente"x,bar\ra' >"$TMP/o9.txt" 2>&1
+igual "aspas e barra invertida: o comando sai com 0" "0" "$?"
+# shellcheck disable=SC2016 # os $ sao variaveis do jq
+afirma "o restricoes.json guarda as duas pastas" jq -e --arg a 'cliente"x' --arg b 'bar\ra' '.escrita_so_em | index($a) != null and index($b) != null' "$RS"
+afirma "o managed-settings foi montado (gancho de escrita e Bash negado)" jq -e '(.hooks.PreToolUse | length) > 0 and (.permissions.deny | index("Bash") != null)' "$(dirname "$RS")/managed-settings.json"
+afirma "e reiniciou o runner" grep -q 'systemctl restart dgclaw-runner' "$STUB_LOG"
+dgclaw agente restricoes ana --sem-bash nao --escrita-livre >/dev/null 2>&1
+
 echo "ensaio: nao grava nada"
 rm -f "$(R_DIR beto)/restricoes.json"
 dgclaw --ensaio agente restricoes beto --sem-bash sim >/dev/null 2>&1
