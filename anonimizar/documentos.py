@@ -595,11 +595,9 @@ def conferir_tamanho(wb, nome):
 
 
 def xlsx_celulas(wb):
-    """Todas as células com valor."""
+    """Todas as células com valor ou com comentário (comentário em célula vazia também é dado pessoal)."""
     for ws in wb.worksheets:
-        for c in celulas_existentes(ws):
-            if c.value is not None:
-                yield c
+        yield from xlsx_celulas_da_aba(ws)
 
 
 def _eh_numero(c):
@@ -705,7 +703,9 @@ def xlsx_transformar(wb, sessao):
         for c in xlsx_celulas_da_aba(ws):
             v = c.value
             ctx = cab.get(c.column, "")
-            if datas and isinstance(v, datetime.date):
+            if v is None:
+                pass   # célula vazia: só o comentário (abaixo) tem o que tratar
+            elif datas and isinstance(v, datetime.date):
                 c.value = sessao.data_para_marcador(v)
                 c.data_type = "s"
                 c.number_format = "General"
@@ -752,7 +752,7 @@ def xlsx_transformar(wb, sessao):
 
 def xlsx_celulas_da_aba(ws):
     for c in celulas_existentes(ws):
-        if c.value is not None:
+        if c.value is not None or c.comment is not None:
             yield c
 
 
@@ -766,7 +766,9 @@ def xlsx_reverter(wb, valores, encontrar):
         ws_v = valores[ws.title] if ws.title in valores.sheetnames else None
         for c in xlsx_celulas_da_aba(ws):
             v = c.value
-            if c.data_type == "f":
+            if v is None:
+                pass
+            elif c.data_type == "f":
                 cache = ws_v[c.coordinate].value if ws_v is not None else None
                 v = cache if cache is not None else texto_da_formula(v)
                 c.data_type = "s" if isinstance(v, str) else c.data_type

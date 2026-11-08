@@ -1309,6 +1309,32 @@ class Arquivos(unittest.TestCase):
         self.assertTrue(rv["ok"], rv)
         self.assertEqual(openpyxl.load_workbook(revertido)["Sheet"]["A1"].comment.author, "Zé Qx")
 
+    @unittest.skipUnless(tem("openpyxl"), "openpyxl não está instalado neste Python")
+    def test_xlsx_comentario_em_celula_vazia_e_anonimizado_e_revertido(self):
+        import openpyxl
+        from openpyxl.comments import Comment
+        wb = openpyxl.Workbook()
+        wb.active["A1"] = "Maria Souza"
+        wb.active["B1"].comment = Comment("Ligar para Maria Souza", "Bia")   # B1 sem valor
+        origem = os.path.join(self.tmp, "vazia.xlsx")
+        wb.save(origem)
+        r = self.pedir(origem)
+        self.assertTrue(r["ok"], r)
+        saida = os.path.join(self.saida, "doc-1.anon.xlsx")
+        with zipfile.ZipFile(saida) as z:
+            for n in z.namelist():
+                if n.startswith("xl/comments"):
+                    cru = z.read(n).decode("utf-8")
+                    self.assertNotIn("Bia", cru)
+                    self.assertNotIn("Maria Souza", cru)
+        com = openpyxl.load_workbook(saida)["Sheet"]["B1"].comment
+        self.assertRegex(com.author, r"^\[PESSOA_\d+\]$")
+        self.assertTrue(any(t["tipo"] == "PESSOA" and t["valor"] == "Bia" for t in r["novas"]), r["novas"])
+        revertido = os.path.join(self.tmp, "vazia-volta.xlsx")
+        rv = motor.tratar({"op": "reverter", "entrada": saida, "saida": revertido, "tabela": r["novas"]})
+        self.assertTrue(rv["ok"], rv)
+        self.assertEqual(openpyxl.load_workbook(revertido)["Sheet"]["B1"].comment.author, "Bia")
+
     @unittest.skipUnless(tem("docx") and tem("lxml"), "python-docx não está instalado neste Python")
     def test_verificacao_final_acusa_autor_curto_que_sobrou(self):
         origem = self._docx_com_autoria_curta("Texto qualquer.")
