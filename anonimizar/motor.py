@@ -26,7 +26,7 @@ import verificacao  # noqa: E402
 import ner_gliner  # noqa: E402
 from detectores import TIPOS  # noqa: E402
 from documentos import ErroMotor  # noqa: E402
-from tabela import _RX_MARCADOR, Reversor, Sessao, Tabela, escapar_md  # noqa: E402
+from tabela import _RX_MARCADOR, Reversor, Sessao, Tabela, desativar_links_md, escapar_md  # noqa: E402
 
 AVISO_SEM_NER = "O detector de nomes e endereços não está instalado: só números, contatos e documentos foram trocados."
 _NER = {"obj": None, "pronto": False}
@@ -406,7 +406,8 @@ def _reverter(req):
             texto_md, desativou = docs.neutralizar_html_md(docs.ler_texto(entrada))
             if desativou:
                 avisos_rev.append("O HTML escrito pelo agente em '%s' foi desativado (cada '<' virou '&lt;') antes de trazer os dados reais de volta." % nome)
-            docs.escrever_texto(tmp_arq, rev.reverter(texto_md))
+            # e toda sintaxe de link/imagem também: sem destino de link não há para onde o dado restaurado vazar
+            docs.escrever_texto(tmp_arq, rev.reverter(desativar_links_md(texto_md)))
         elif ext == ".txt":
             docs.escrever_texto(tmp_arq, rev.reverter(docs.ler_texto(entrada)))
         elif ext == ".csv":

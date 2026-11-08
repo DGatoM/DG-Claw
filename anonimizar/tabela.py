@@ -360,10 +360,12 @@ def _juntar_ner(spans_regex, spans_ner, texto):
     return saida
 
 
-_RX_URL = re.compile(r"(?i)(?:https?://|www\.|mailto:|data:)[^\s<>\"'`)]*")
+# Região de URL: a palavra (delimitada só por espaço ASCII, tab ou fim de linha) que contém "://" ou "www.", ou que
+# começa num esquema perigoso. isspace() e \s Unicode ficam de fora de propósito: NBSP, U+2003 e U+3000 não separam
+# o marcador da URL (o visualizador de Markdown os trata como parte do destino).
+_RX_URL = re.compile(r"(?i)[^ \t\r\n]*(?:://|www\.)[^ \t\r\n]*"
+                     r"|(?<![A-Za-z0-9_])(?:mailto|data|javascript|vbscript|file|blob|ftp|tel|sms|xmpp):[^ \t\r\n]*")
 _RX_ABRE_TAG = re.compile(r"<[A-Za-z!/?]")
-_RX_DESTINO_MD = re.compile(r"\]\(([^)]*)\)")
-_RX_REF_MD = re.compile(r"(?m)^[ ]{0,3}\[[^\]\n]+\]:[ \t]*(?:\r?\n[ \t]*)?\S+[^\n]*")
 _CARACTERES_DE_URL = set("/\\=?&#%:@")
 
 
@@ -399,22 +401,21 @@ def zonas_de_tags(texto):
 
 
 def zonas_sem_troca(texto):
-    """Trechos onde marcador NÃO vira dado real: tag e comentário HTML (mesmo em várias linhas), definição de
-    referência do markdown, destino de link ou imagem e URL solta."""
-    zonas = [(m.start(), m.end()) for m in _RX_URL.finditer(texto)]
-    zonas += zonas_de_tags(texto)
-    zonas += [(m.start(1) - 1, m.end()) for m in _RX_DESTINO_MD.finditer(texto)]
-    zonas += [(m.start(), m.end()) for m in _RX_REF_MD.finditer(texto)]
-    return zonas
+    """Trechos onde marcador NÃO vira dado real: tag e comentário HTML (mesmo em várias linhas) e região de URL.
+
+    Destino de link/imagem do Markdown não precisa de regra aqui: na versão final .md toda sintaxe de link já foi
+    desativada por desativar_links_md antes da restauração.
+    """
+    return [(m.start(), m.end()) for m in _RX_URL.finditer(texto)] + zonas_de_tags(texto)
 
 
 def pedaco_parece_url(texto, ini, fim):
-    """O "pedaço sem espaço" que contém o marcador tem / \\ = ? & # % : ou @ (cobre URL sem esquema)."""
+    """O "pedaço sem espaço ASCII" que contém o marcador tem / \\ = ? & # % : ou @ (cobre URL sem esquema)."""
     esq = ini
-    while esq > 0 and not texto[esq - 1].isspace():
+    while esq > 0 and texto[esq - 1] not in " \t\r\n":
         esq -= 1
     dir_ = fim
-    while dir_ < len(texto) and not texto[dir_].isspace():
+    while dir_ < len(texto) and texto[dir_] not in " \t\r\n":
         dir_ += 1
     return any(c in _CARACTERES_DE_URL for c in texto[esq:dir_])
 
@@ -433,6 +434,31 @@ def escapar_md(valor):
     v = _RX_ESPECIAIS_MD.sub(lambda m: "\\" + m.group(0), valor.replace("&", "&amp;").replace("<", "&lt;"))
     return _RX_INICIO_DE_LINHA_MD.sub(
         lambda m: m.group(1) + (m.group(2) + "\\" + m.group(3) if m.group(2) else "\\" + m.group(4)), v)
+
+
+def desativar_links_md(texto):
+    """Tira toda a sintaxe de link e imagem do texto que o agente escreveu na versão final em Markdown.
+
+    Todo "[" e "]" que não faz parte de um marcador válido ([CPF_1]) ganha "\\" na frente: não sobra link inline, imagem,
+    link de referência nem definição de referência ("[x]: url"). É a mesma linha do "<" que vira "&lt;": em vez de tentar
+    reconhecer o destino do link com expressão regular (o agente escapa de qualquer uma), nenhum destino existe. Barras
+    invertidas que já precediam o colchete são dobradas, para que "\\[" do agente não anule o escape.
+
+    Custo aceito: os links e as imagens que o agente escreveu aparecem como texto ("[x](https://...)") no .md final, e
+    colchetes dentro de bloco de código também ganham a barra. Os marcadores continuam intactos e são restaurados
+    depois, com escapar_md. O .txt não é renderizado e o reverter_texto devolve texto puro ao agente: nenhum dos dois usa isto.
+    """
+    marcadores = {}
+    for m in _RX_MARCADOR.finditer(texto):
+        marcadores[m.start()] = True
+        marcadores[m.end() - 1] = True
+
+    def troca(m):
+        barras, pos = m.group(1), m.start(2)
+        if pos in marcadores:
+            return barras + m.group(2) if m.group(2) == "]" else barras * 2 + m.group(2)
+        return barras * 2 + "\\" + m.group(2)
+    return re.sub(r"(\\*)([\[\]])", troca, texto)
 
 
 class Reversor:

