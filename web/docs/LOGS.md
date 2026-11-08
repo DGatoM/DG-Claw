@@ -47,7 +47,9 @@ Os agentes do registro e o estado de cada fonte (um motor por fonte: `claude` e 
 ```
 
 - `estado`: `ok`, `vazia` (a pasta existe e não tem sessão), `ausente` (a pasta não existe: o agente nunca rodou
-  neste motor) ou `ilegivel` (existe, mas não foi possível ler; o `motivo` diz por quê).
+  neste motor), `ilegivel` (existe, mas não foi possível ler; o `motivo` diz por quê), `parcial` (a pasta passou de um
+  dos tetos ou do prazo e a lista de sessões pode estar incompleta; o `motivo` diz qual) ou `nao_verificada` (a verificação
+  passou do prazo total antes de chegar neste agente: atualize para tentar de novo).
 - O Admin lê o Claude em `transcripts_dir` e o Codex em `codex_home_host/sessions` (se o registro tiver esse campo).
 
 ### GET /api/v1/logs/agentes/:slug/sessoes
@@ -104,12 +106,20 @@ Resposta:
 
 ## Limites e proteções
 
+- Cada campo de texto é cortado em 64 KB **antes** de mascarar, e o último pedaço sem espaço desse corte é descartado
+  (para não sobrar um segredo cortado). A busca (`q`) roda nesse mesmo texto: o que passa de 64 KB não é achado. Sequência de mais
+  de 128 letras e números seguidos, sem espaço (uma chave em base64, um JWT), sai como `[trecho longo omitido]`.
 - Textos têm até 4 KB, comandos e entradas de ferramenta até 2 KB e resultados até 4 KB (`truncado: true` quando cortou).
   A máscara roda antes do corte.
 - A leitura é de trás para frente, em blocos de 64 KB, sem carregar o arquivo inteiro. Linha de mais de 4 MB é pulada
   (`linhas_gigantes`); JSON quebrado é contado em `linhas_ilegiveis`.
-- No máximo 2 buscas ao mesmo tempo no servidor (a terceira recebe 429), 32 arquivos abertos por busca, 20000 arquivos por fonte
-  e 5 níveis de pasta.
+- No máximo 2 varreduras ao mesmo tempo no servidor, somando `agentes`, `sessoes` e `eventos` (a terceira recebe 429),
+  32 arquivos abertos por busca, 20000 arquivos de sessão por fonte e 5 níveis de pasta.
+- A descoberta de arquivos para em 50000 entradas visitadas, em 10000 subpastas esperando leitura ou em 3 segundos. Ao parar, a
+  fonte fica `parcial` com o motivo (e um aviso `limite`). Os avisos de arquivo recusado são limitados a 50 por resposta, com a
+  contagem do que foi omitido. Em `agentes`, os agentes são verificados em sequência dentro de um prazo total de 5 segundos.
+- O servidor entrega o laço de eventos a cada poucos milissegundos durante a leitura e confere o prazo no meio de linhas com
+  muitos blocos: uma linha que não coube no prazo é relida na página seguinte (`parcial: true`).
 - Atalhos (symlink) nunca são seguidos (`atalhos_ignorados`); arquivo com mais de um nome no disco, fora da pasta do agente
   ou que não seja regular é recusado, com aviso.
 - Formato do Codex: usa os itens `item_completed` quando o arquivo os tem, senão os registros `response_item`. Arquivo sem

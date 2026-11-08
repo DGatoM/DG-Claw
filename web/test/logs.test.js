@@ -714,8 +714,8 @@ test('máscara na resposta: mensagem, comando, entrada, título, caminho e resul
 
 test('texto muito longo: mascara antes de truncar e marca "truncado"', async () => {
   const c = casa();
-  const longo = 'a'.repeat(4090) + ' ' + S.s01 + ' fim';
-  escreveClaude(c, U1, [cUser(1, longo), cUso(2, 'x', 'Bash', { command: 'c'.repeat(5000) }), cRes(3, 'x', 'r'.repeat(9000), false)]);
+  const longo = 'a '.repeat(2040) + S.s01 + ' fim';
+  escreveClaude(c, U1, [cUser(1, longo), cUso(2, 'x', 'Bash', { command: 'c '.repeat(2500) }), cRes(3, 'x', 'r '.repeat(4500), false)]);
   const r = await pagina(criarLeitor(), c.ag);
   const msg = r.eventos.find((e) => e.tipo === 'mensagem');
   assert.equal(msg.truncado, true);

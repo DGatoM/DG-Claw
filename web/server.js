@@ -199,7 +199,7 @@ function criarServidor(opcoes) {
   const rondaPainel = criarRondaPainel({ dataDir: config.dataDir, log, agora: opcoes.agora });
   // Logs do Admin: o histórico de tudo o que cada agente fez, só para o dono e só pela tela. De propósito NÃO entra em caixa.permitir:
   // texto de log não é de confiança e não pode chegar ao contexto de um agente (nem do Admin).
-  const logsRotas = criarLogsRotas({ registro, log, agora: opcoes.agora, orcamento: opcoes.logsOrcamento });
+  const logsRotas = criarLogsRotas({ registro, log, agora: opcoes.agora, orcamento: opcoes.logsOrcamento, leitor: opcoes.logsLeitor });
 
   let versaoJsCache = { ts: 0, valor: '0' };
   /** Versão da tela: mtime de conversa.js. A tela compara com a que carregou e se recarrega sozinha. */

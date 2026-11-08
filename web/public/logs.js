@@ -14,7 +14,7 @@
   const TIPOS = [['mensagem', 'Mensagens'], ['comando', 'Comandos'], ['arquivo', 'Arquivos'], ['ferramenta', 'Ferramentas'], ['sistema', 'Sistema']];
   const ROTULO_TIPO = { mensagem: 'Mensagem', comando: 'Comando', arquivo: 'Arquivo', ferramenta: 'Ferramenta', sistema: 'Sistema' };
   const ROTULO_MOTOR = { claude: 'Claude', codex: 'Codex' };
-  const ROTULO_ESTADO = { ok: 'Lida', vazia: 'Vazia', ausente: 'Ausente', ilegivel: 'Ilegível' };
+  const ROTULO_ESTADO = { ok: 'Lida', parcial: 'Parcial', vazia: 'Vazia', ausente: 'Ausente', ilegivel: 'Ilegível', nao_verificada: 'Não verificada' };
   const ROTULO_PAPEL = { pessoa: 'Pessoa', agente: 'Agente', sistema: 'Sistema' };
   const TIPOS_COM_RESULTADO = ['comando', 'arquivo', 'ferramenta'];
 
@@ -52,8 +52,8 @@
 
   function descreveFonte(f) {
     const motor = ROTULO_MOTOR[f.motor] || f.motor;
-    if (f.estado === 'ok') {
-      return { titulo: motor + ': ' + ROTULO_ESTADO.ok, detalhe: f.arquivos + ' arquivo(s), ' + tamanho(f.bytes) + (f.ultima_atividade ? '. Última atividade em ' + quando(f.ultima_atividade) + '.' : '.') };
+    if (f.estado === 'ok' || (f.estado === 'parcial' && typeof f.arquivos === 'number')) {
+      return { titulo: motor + ': ' + ROTULO_ESTADO[f.estado], detalhe: f.arquivos + ' arquivo(s), ' + tamanho(f.bytes) + (f.ultima_atividade ? '. Última atividade em ' + quando(f.ultima_atividade) + '.' : '.') + (f.estado === 'parcial' ? ' Atenção: ' + (f.motivo || 'a lista pode estar incompleta') + '.' : '') };
     }
     return { titulo: motor + ': ' + (ROTULO_ESTADO[f.estado] || f.estado), detalhe: f.motivo || '' };
   }
@@ -61,7 +61,7 @@
   /* O que dizer quando a lista veio vazia. "Nada com os filtros", "o agente ainda não fez nada" e "não há fonte para ler" são três coisas diferentes. */
   function estadoVazio(fontes, filtrado, parcial) {
     const lista = Array.isArray(fontes) ? fontes : [];
-    if (!lista.some(f => f.estado === 'ok')) {
+    if (!lista.some(f => f.estado === 'ok' || (f.estado === 'parcial' && f.arquivos > 0))) {
       const motivos = lista.map(f => (ROTULO_MOTOR[f.motor] || f.motor) + ': ' + (f.motivo || f.estado)).join(' ');
       return { tipo: 'faltando', texto: 'Não há histórico para ler deste agente. ' + motivos + ' Confira se o agente já conversou neste servidor e se o registro de agentes aponta para a pasta certa.' };
     }

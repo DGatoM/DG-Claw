@@ -14,6 +14,7 @@ const { criarLeitor, decodificaCursor, ErroEntrada, TIPOS, RX_ID_CURTO, RX_UUID 
 
 const BASE = '/api/v1/logs';
 const MAX_BUSCAS = 2;
+const PRAZO_AGENTES_MS = 5000;
 
 /** Só o dono, na sessão do navegador. Colaborador, caixa de agente e papel desconhecido ficam de fora. */
 function autorizado(sessao) {
@@ -76,8 +77,10 @@ function filtrosDe(url) {
   return f;
 }
 
-function criarLogsRotas({ registro, log, agora, orcamento, arquivoDocs }) {
-  const leitor = criarLeitor({ log, agora, orcamento });
+function criarLogsRotas({ registro, log, agora, orcamento, arquivoDocs, leitor: leitorInjetado }) {
+  const leitor = leitorInjetado || criarLeitor({ log, agora, orcamento });
+  const relogio = typeof agora === 'function' ? agora : () => Date.now();
+  const prazoAgentesMs = (orcamento && orcamento.agentesMs) || PRAZO_AGENTES_MS;
   const docsPath = arquivoDocs || path.join(__dirname, '..', 'docs', 'LOGS.md');
   let buscasAtivas = 0;
 
@@ -103,11 +106,28 @@ function criarLogsRotas({ registro, log, agora, orcamento, arquivoDocs }) {
 
   async function listaAgentes(res) {
     const lista = [];
+    const inicio = relogio();
     for (const ag of registro.estado().agentes) {
+      // Um agente por vez, dentro de um prazo total: o que não couber vem como "nao_verificada", com o motivo.
+      if (relogio() - inicio >= prazoAgentesMs) {
+        const motivo = `a verificação das pastas passou do prazo de ${prazoAgentesMs} ms antes de chegar neste agente; atualize a página para tentar de novo`;
+        lista.push({ id: ag.slug, nome: ag.nome, tipo: ag.tipo, provedor: ag.provedor, fontes: leitor.fontesNaoVerificadas(ag, motivo) });
+        continue;
+      }
       const r = await leitor.resumoDasFontes(ag);
       lista.push({ id: ag.slug, nome: ag.nome, tipo: ag.tipo, provedor: ag.provedor, fontes: r.fontes });
     }
     H.enviaJson(res, 200, { ok: true, agentes: lista });
+  }
+
+  /** No máximo MAX_BUSCAS varreduras de pasta ao mesmo tempo no processo (agentes, sessões e eventos). */
+  async function comVaga(res, fn) {
+    if (buscasAtivas >= MAX_BUSCAS) {
+      H.erroJson(res, 429, 'Já há buscas de logs em andamento. Espere um instante e peça de novo.', { retryAfter: 1 }, { 'Retry-After': '1' });
+      return;
+    }
+    buscasAtivas++;
+    try { await fn(); } finally { buscasAtivas--; }
   }
 
   /** Devolve true quando tratou o pedido. */
@@ -124,7 +144,7 @@ function criarLogsRotas({ registro, log, agora, orcamento, arquivoDocs }) {
     try {
       if (sub === '/docs.md') { await docs(res); return true; }
       if (falhaRegistro(res)) return true;
-      if (sub === '/agentes') { await listaAgentes(res); return true; }
+      if (sub === '/agentes') { await comVaga(res, () => listaAgentes(res)); return true; }
       const m = /^\/agentes\/([^/]+)\/(sessoes|eventos)$/.exec(sub);
       if (m) {
         const ag = agenteOuErro(res, m[1]);
@@ -132,20 +152,17 @@ function criarLogsRotas({ registro, log, agora, orcamento, arquivoDocs }) {
         const limite = numeroEntre(url.searchParams.get('limite'), 'limite', 1, 200, 50);
         const cursor = decodificaCursor(url.searchParams.get('cursor'));
         if (m[2] === 'sessoes') {
-          const r = await leitor.sessoes(ag, { limite, cursor });
-          H.enviaJson(res, 200, Object.assign({ ok: true, agente: ag.slug }, r));
+          await comVaga(res, async () => {
+            const r = await leitor.sessoes(ag, { limite, cursor });
+            H.enviaJson(res, 200, Object.assign({ ok: true, agente: ag.slug }, r));
+          });
           return true;
         }
         const f = filtrosDe(url);
-        if (buscasAtivas >= MAX_BUSCAS) {
-          H.erroJson(res, 429, 'Já há buscas de logs em andamento. Espere um instante e peça de novo.', { retryAfter: 1 }, { 'Retry-After': '1' });
-          return true;
-        }
-        buscasAtivas++;
-        try {
+        await comVaga(res, async () => {
           const r = await leitor.eventos(ag, Object.assign(f, { limite, cursor }));
           H.enviaJson(res, 200, Object.assign({ ok: true, agente: ag.slug }, r));
-        } finally { buscasAtivas--; }
+        });
         return true;
       }
     } catch (e) {

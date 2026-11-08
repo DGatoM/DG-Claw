@@ -144,3 +144,14 @@ test('menu: item Logs só no Admin do dono', () => {
   assert.match(src, /if \(mostraLogs\(ag, colab\)\) \{[\s\S]*LINK_LOGS\.href/);
   assert.ok(M.passosMenu({ nome: 'Admin', naConversa: true })[0].como.includes('Logs'), 'o tutorial do menu cita o item');
 });
+
+test('fontes parcial e não verificada aparecem com o motivo, e uma fonte parcial com arquivos não vira "sem histórico"', () => {
+  const nv = T.descreveFonte({ motor: 'claude', estado: 'nao_verificada', motivo: 'passou do prazo' });
+  assert.equal(nv.titulo, 'Claude: Não verificada');
+  assert.equal(nv.detalhe, 'passou do prazo');
+  const pa = T.descreveFonte({ motor: 'codex', estado: 'parcial', motivo: 'a pasta tem mais de 50000 entradas', arquivos: 7, bytes: 1024, ultima_atividade: null });
+  assert.equal(pa.titulo, 'Codex: Parcial');
+  assert.match(pa.detalhe, /7 arquivo\(s\).*Atenção: a pasta tem mais de 50000 entradas/);
+  assert.equal(T.estadoVazio([{ motor: 'claude', estado: 'parcial', arquivos: 3, motivo: 'x' }], false, false).tipo, 'nada');
+  assert.equal(T.estadoVazio([{ motor: 'claude', estado: 'nao_verificada', arquivos: null, motivo: 'x' }], false, false).tipo, 'faltando');
+});

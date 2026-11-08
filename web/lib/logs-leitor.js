@@ -27,6 +27,10 @@ const MAX_ARQUIVOS = 20000;
 const MAX_FDS = 32;
 const MAX_HINTS = 64;
 const MAX_RESULTADOS = 512;
+const MAX_AVISOS = 50;
+const MAX_ENTRADAS = 50000;
+const MAX_PASTAS = 10000;
+const PRAZO_DESCOBERTA_MS = 3000;
 const BRUTO = 64 * 1024;
 const TETO_TEXTO = 4096;
 const TETO_COMANDO = 2048;
@@ -44,6 +48,17 @@ const RX_ID_CURTO = /^[0-9a-f]{12}$/;
 const TIPOS = ['mensagem', 'comando', 'arquivo', 'ferramenta', 'sistema'];
 const CONTEXTO_INJETADO = ['<environment_context>', '<user_instructions>', '# AGENTS.md'];
 
+/** Devolve uma função que cede o laço de eventos a cada ~8 ms de trabalho seguido (o Web serve o chat no mesmo processo). */
+function criaCede(relogio) {
+  let ultimo = relogio();
+  return async function cede() {
+    const t = relogio();
+    if (t - ultimo < 8 && t >= ultimo) return;
+    await new Promise((r) => setImmediate(r));
+    ultimo = relogio();
+  };
+}
+
 class ErroEntrada extends Error {
   constructor(status, mensagem) { super(mensagem); this.status = status; }
 }
@@ -56,26 +71,41 @@ class ErroArquivo extends Error {
 // mascara.js cobre os formatos mais comuns; aqui entram os de outros fornecedores, cabeçalhos, flags de linha
 // de comando e atribuições em português. É defesa em profundidade: segredo fora destes formatos passa.
 const EXTRAS = [
-  [/sk-[A-Za-z0-9_-]{20,}/g, OCULTO],
-  [/sk_[a-z0-9]{20,}/gi, OCULTO],
-  [/\bgsk_[A-Za-z0-9]{10,}/g, OCULTO],
-  [/\bxai-[A-Za-z0-9]{10,}/g, OCULTO],
-  [/\bxox[abprs]-[A-Za-z0-9-]{8,}/g, OCULTO],
-  [/\bgh[srpu]_[A-Za-z0-9]{20,}/g, OCULTO],
-  [/\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}/g, OCULTO],
+  [/sk-[A-Za-z0-9_-]{20,200}/g, OCULTO],
+  [/sk_[a-z0-9]{20,200}/gi, OCULTO],
+  [/\bgsk_[A-Za-z0-9]{10,200}/g, OCULTO],
+  [/\bxai-[A-Za-z0-9]{10,200}/g, OCULTO],
+  [/\bxox[abprs]-[A-Za-z0-9-]{8,200}/g, OCULTO],
+  [/\bgh[srpu]_[A-Za-z0-9]{20,200}/g, OCULTO],
+  [/\beyJ[A-Za-z0-9_-]{5,200}\.[A-Za-z0-9_-]{5,200}\.[A-Za-z0-9_-]{5,200}/g, OCULTO],
   // Depois de mascarar(), o valor pode chegar como "[segredo oculto] resto" (o esquema vira o marcador e o token sobra).
-  [/\b(Authorization\s*:\s*)(?:\[segredo oculto\](?:[ \t]+\S+)?|\S+(?:[ \t]+\S+)?)/gi, '$1' + OCULTO],
-  [/\b(X-Api-Key\s*:\s*)\S+/gi, '$1' + OCULTO],
-  [/(--(?:password|token|api-key|secret|senha)(?:=|\s+))("[^"\n]*"|'[^'\n]*'|\S+)/gi, '$1' + OCULTO],
-  [/(\bcurl\b[^\n]*?\s(?:-u|--user)\s+)("[^"\n]*"|'[^'\n]*'|\S+)/gi, '$1' + OCULTO],
-  [/(\bmysql(?:dump)?\b[^\n]*?\s-p)(\S+)/gi, '$1' + OCULTO],
-  [/((?:\bchave|\bpwd|\bcookie)[A-Za-z0-9_.-]*["']?\s*[=:]\s*)("[^"\n]*"|'[^'\n]*'|[^\s"'&;|]+)/gi, '$1' + OCULTO],
+  [/\b(Authorization[ \t]{0,20}:[ \t]{0,20})(?:\[segredo oculto\](?:[ \t]{1,20}\S{1,300})?|\S{1,300}(?:[ \t]{1,20}\S{1,300})?)/gi, '$1' + OCULTO],
+  [/\b(X-Api-Key[ \t]{0,20}:[ \t]{0,20})\S{1,300}/gi, '$1' + OCULTO],
+  [/(--(?:password|token|api-key|secret|senha)(?:=|[ \t]{1,20}))("[^"\n]{0,300}"|'[^'\n]{0,300}'|\S{1,300})/gi, '$1' + OCULTO],
+  [/(\bcurl\b[^\n]{0,300}?[ \t](?:-u|--user)[ \t]{1,20})("[^"\n]{0,300}"|'[^'\n]{0,300}'|\S{1,300})/gi, '$1' + OCULTO],
+  [/(\bmysql(?:dump)?\b[^\n]{0,300}?[ \t]-p)(\S{1,300})/gi, '$1' + OCULTO],
+  [/((?:\bchave|\bpwd|\bcookie)[A-Za-z0-9_.-]{0,60}["']?[ \t]{0,20}[=:][ \t]{0,20})("[^"\n]{0,500}"|'[^'\n]{0,500}'|[^\s"'&;|]{1,500})/gi, '$1' + OCULTO],
 ];
 
-/** Tudo o que sai da API passa por aqui: mascarar de mascara.js e depois os padrões extras. */
+// Os padrões de mascara.js (principalmente a atribuição NOME=valor) varrem cada trecho de letras e números até o fim
+// para achar uma palavra-chave: numa sequência de 64 KB sem espaço isso vira conta quadrática, e o agente é quem escreve
+// o texto. Sequência longa demais não é palavra nem segredo conhecido (um JWT ou uma chave em base64 também cai aqui):
+// sai omitida por inteiro, o que protege o valor e mantém todos os padrões em tempo linear.
+const RX_SEQUENCIA_LONGA = /[A-Za-z0-9_.-]{129,}/g;
+
+/** Corta em 64 KB e descarta também o último pedaço sem espaço, para não sobrar um segredo cortado no limite. */
+function corteBruto(s) {
+  if (s.length <= BRUTO) return s;
+  let fim = BRUTO;
+  while (fim > 0 && !/\s/.test(s[fim - 1])) fim--;
+  return s.slice(0, fim);
+}
+
+/** Tudo o que sai da API passa por aqui: limite de 64 KB, mascarar de mascara.js e depois os padrões extras. */
 function limpa(texto) {
   if (texto == null) return '';
-  let r = mascarar(typeof texto === 'string' ? texto : String(texto));
+  let r = corteBruto(typeof texto === 'string' ? texto : String(texto));
+  r = mascarar(r.replace(RX_SEQUENCIA_LONGA, '[trecho longo omitido]'));
   for (const [rx, sub] of EXTRAS) { rx.lastIndex = 0; r = r.replace(rx, sub); }
   return r;
 }
@@ -99,8 +129,7 @@ function corta(texto, max) {
 /** Mascara antes de truncar. Devolve { cheio (mascarado, até 64 KB), texto (teto), truncado }. */
 function preparaTexto(bruto, teto) {
   const s = serializa(bruto);
-  const pre = s.length > BRUTO ? s.slice(0, BRUTO) : s;
-  const cheio = limpa(pre);
+  const cheio = limpa(s);
   const c = corta(cheio, teto);
   return { cheio, texto: c.texto, truncado: c.truncado || s.length > BRUTO };
 }
@@ -205,7 +234,7 @@ function descreveArquivo(fonte, raizReal, abs, st) {
 
 /** Lista os arquivos de uma fonte, sem seguir atalho. Nunca lança: o que deu errado vira estado e aviso. */
 async function descobreFonte(fonte, lim) {
-  const saida = { motor: fonte.motor, estado: 'ok', motivo: null, arquivos: [], avisos: [], atalhos_ignorados: 0, raizReal: null };
+  const saida = { motor: fonte.motor, estado: 'ok', motivo: null, arquivos: [], avisos: [], atalhos_ignorados: 0, avisosOmitidos: 0, raizReal: null };
   if (fonte.semRaiz) { saida.estado = 'ausente'; saida.motivo = fonte.semRaiz; return saida; }
   let permReal;
   let raizReal;
@@ -226,20 +255,28 @@ async function descobreFonte(fonte, lim) {
     return saida;
   }
   saida.raizReal = raizReal;
+  const inicio = lim.relogio();
+  const aviso = (a) => { if (saida.avisos.length < lim.maxAvisos) saida.avisos.push(a); else saida.avisosOmitidos++; };
   const pilha = [{ dir: raizReal, prof: 0 }];
-  let truncada = false;
-  while (pilha.length && !truncada) {
+  let parcial = null;     // motivo de ter parado antes de ver tudo
+  let entradas = 0;
+  while (pilha.length && !parcial) {
     const { dir, prof } = pilha.pop();
     let d;
     try { d = await fsp.opendir(dir); } catch (e) {
       const relDir = path.relative(raizReal, dir) || '.';
       if (dir === raizReal) { saida.estado = 'ilegivel'; saida.motivo = `não consegui listar ${fonte.rotulo} (${e.code || e.message})`; return saida; }
-      saida.avisos.push({ tipo: 'pasta_ilegivel', motivo: `não consegui listar a pasta (${e.code || e.message})`, arquivo: `${fonte.motor}:${relDir}` });
+      aviso({ tipo: 'pasta_ilegivel', motivo: `não consegui listar a pasta (${e.code || e.message})`, arquivo: `${fonte.motor}:${relDir}` });
       continue;
     }
     try {
       for await (const ent of d) {
-        if (saida.arquivos.length >= lim.maxArquivos) { truncada = true; break; }
+        if (saida.arquivos.length >= lim.maxArquivos) { parcial = `a pasta tem mais de ${lim.maxArquivos} arquivos de sessão; só os primeiros ${lim.maxArquivos} entraram na lista`; break; }
+        if (++entradas > lim.maxEntradas) { parcial = `a pasta tem mais de ${lim.maxEntradas} entradas; parei de olhar por segurança e a lista pode estar incompleta`; break; }
+        if (entradas % 64 === 0) {
+          await lim.cede();
+          if (lim.relogio() - inicio > lim.ms) { parcial = `a leitura da pasta passou de ${lim.ms} ms e parou; a lista pode estar incompleta`; break; }
+        }
         const abs = path.join(dir, ent.name);
         let tipo = ent.isSymbolicLink() ? 'l' : ent.isDirectory() ? 'd' : ent.isFile() ? 'f' : null;
         let st = null;
@@ -248,22 +285,32 @@ async function descobreFonte(fonte, lim) {
           tipo = st.isSymbolicLink() ? 'l' : st.isDirectory() ? 'd' : st.isFile() ? 'f' : 'o';
         }
         if (tipo === 'l') { saida.atalhos_ignorados++; continue; }
-        if (tipo === 'd') { if (prof + 1 <= lim.maxProfundidade) pilha.push({ dir: abs, prof: prof + 1 }); continue; }
+        if (tipo === 'd') {
+          if (prof + 1 > lim.maxProfundidade) continue;
+          if (pilha.length >= lim.maxPastas) { parcial = `a pasta tem mais de ${lim.maxPastas} subpastas esperando leitura; parei de olhar por segurança e a lista pode estar incompleta`; break; }
+          pilha.push({ dir: abs, prof: prof + 1 });
+          continue;
+        }
         if (!nomeValido(fonte.motor, ent.name)) continue;
         const rel = `${fonte.motor}:${path.relative(raizReal, abs).split(path.sep).join('/')}`;
-        if (tipo !== 'f') { saida.avisos.push({ tipo: 'arquivo_recusado', motivo: 'não é um arquivo regular', arquivo: rel }); continue; }
-        try { st = await fsp.lstat(abs); } catch (e) { saida.avisos.push({ tipo: 'arquivo_ilegivel', motivo: `não consegui conferir o arquivo (${e.code || e.message})`, arquivo: rel }); continue; }
-        if (!st.isFile()) { saida.avisos.push({ tipo: 'arquivo_recusado', motivo: 'não é um arquivo regular', arquivo: rel }); continue; }
-        if (st.nlink !== 1) { saida.avisos.push({ tipo: 'arquivo_recusado', motivo: 'o arquivo tem mais de um nome no disco (hardlink); recusei por segurança', arquivo: rel }); continue; }
+        if (tipo !== 'f') { aviso({ tipo: 'arquivo_recusado', motivo: 'não é um arquivo regular', arquivo: rel }); continue; }
+        try { st = await fsp.lstat(abs); } catch (e) { aviso({ tipo: 'arquivo_ilegivel', motivo: `não consegui conferir o arquivo (${e.code || e.message})`, arquivo: rel }); continue; }
+        if (!st.isFile()) { aviso({ tipo: 'arquivo_recusado', motivo: 'não é um arquivo regular', arquivo: rel }); continue; }
+        if (st.nlink !== 1) { aviso({ tipo: 'arquivo_recusado', motivo: 'o arquivo tem mais de um nome no disco (hardlink); recusei por segurança', arquivo: rel }); continue; }
         saida.arquivos.push(descreveArquivo(fonte, raizReal, abs, st));
       }
     } catch (e) {
-      saida.avisos.push({ tipo: 'pasta_ilegivel', motivo: `a leitura da pasta parou (${e.code || e.message})`, arquivo: `${fonte.motor}:${path.relative(raizReal, dir) || '.'}` });
+      aviso({ tipo: 'pasta_ilegivel', motivo: `a leitura da pasta parou (${e.code || e.message})`, arquivo: `${fonte.motor}:${path.relative(raizReal, dir) || '.'}` });
     } finally {
       await d.close().catch(() => {});
     }
   }
-  if (truncada) saida.avisos.push({ tipo: 'limite', motivo: `a pasta tem mais de ${lim.maxArquivos} arquivos; só os primeiros ${lim.maxArquivos} entraram na lista` });
+  if (parcial) {
+    saida.avisos.push({ tipo: 'limite', motivo: parcial, arquivo: fonte.motor });
+    saida.estado = 'parcial';
+    saida.motivo = parcial;
+    return saida;
+  }
   if (!saida.arquivos.length) {
     if (saida.avisos.length) {
       saida.estado = 'ilegivel';
@@ -277,14 +324,14 @@ async function descobreFonte(fonte, lim) {
 }
 
 function resumoDaFonte(f) {
-  const ok = f.estado === 'ok';
+  const ok = f.estado === 'ok' || f.estado === 'parcial';
   return {
     motor: f.motor,
     estado: f.estado,
     motivo: f.motivo,
     arquivos: ok || f.estado === 'vazia' ? f.arquivos.length : null,
     bytes: ok || f.estado === 'vazia' ? f.arquivos.reduce((s, a) => s + a.bytes, 0) : null,
-    ultima_atividade: ok ? Math.round(f.arquivos.reduce((m, a) => Math.max(m, a.mtimeMs), 0)) : null,
+    ultima_atividade: ok && f.arquivos.length ? Math.round(f.arquivos.reduce((m, a) => Math.max(m, a.mtimeMs), 0)) : null,
   };
 }
 
@@ -342,7 +389,7 @@ function comandoDeLista(c) {
   return typeof c === 'string' ? c : '';
 }
 
-function extraiClaude(j, leitor, soRes) {
+async function extraiClaude(j, leitor, soRes) {
   const tipoLinha = j.type;
   if (tipoLinha === 'system') {
     if (!soRes && j.subtype === 'compact_boundary') return [{ tipo: 'sistema', papel: 'sistema', titulo: 'Conversa compactada', texto: '' }];
@@ -360,7 +407,13 @@ function extraiClaude(j, leitor, soRes) {
   };
   if (typeof c === 'string') { if (!soRes) mensagem(c); return out; }
   if (!Array.isArray(c)) return [];
+  let n = 0;
   for (const b of c) {
+    // Uma linha pode trazer milhares de blocos: cede o laço e confere o prazo no meio dela (null = abandonada, será relida).
+    if (++n % 16 === 0) {
+      await leitor.ctx.cede();
+      if (leitor.ctx.excedeu()) return null;
+    }
     if (!b || typeof b !== 'object') continue;
     if (b.type === 'tool_result') {
       if (typeof b.tool_use_id === 'string') leitor.guardaResultado(b.tool_use_id, resultadoDe(textoDeBlocos(b.content), b.is_error));
@@ -692,18 +745,21 @@ class LeitorArquivo {
         const l = await this._proxLinha();
         if (!l) { if (!this.pausado) this._encerra(); return; }
         this.ultimaLida = { off: l.off, fim: l.fim, tetoAntes: this.teto };
-        this._processa(l);
+        await this.ctx.cede();
+        await this._processa(l);
+        if (this.pausado) return;
       }
     } catch (e) { this._falhou(e); }
   }
 
-  _processa(l) {
+  async _processa(l) {
     const soRes = l.off > this.soResultadoAcima;
     if (!l.buf.length) return;
     let j;
     try { j = JSON.parse(l.buf.toString('utf8')); } catch (_) { if (!soRes) this.ctx.contagens.linhas_ilegiveis++; return; }
     if (!j || typeof j !== 'object') { if (!soRes) this.ctx.contagens.linhas_ilegiveis++; return; }
-    const rasc = this.arq.motor === 'claude' ? extraiClaude(j, this, soRes) : extraiCodex(j, this, soRes);
+    const rasc = this.arq.motor === 'claude' ? await extraiClaude(j, this, soRes) : extraiCodex(j, this, soRes);
+    if (rasc === null) { this.pausado = true; return; }
     if (soRes || !rasc.length) return;
     const ts = typeof j.timestamp === 'string' ? Date.parse(j.timestamp) : NaN;
     if (!Number.isFinite(ts)) { this.ctx.contagens.sem_horario += rasc.length; return; }
@@ -776,7 +832,10 @@ function novoCtx(opc) {
     fdsAbertos: 0,
     contagens: { linhas_ilegiveis: 0, linhas_gigantes: 0, sem_horario: 0, atalhos_ignorados: 0 },
     avisos: [],
+    omitidos: 0,
+    maxAvisos: opc.maxAvisos || MAX_AVISOS,
     vistos: new Set(),
+    cede: criaCede(opc.relogio),
     desde: -Infinity,
     ate: Infinity,
     tipos: null,
@@ -786,7 +845,13 @@ function novoCtx(opc) {
       const k = `${a.tipo}|${a.arquivo || ''}|${a.motivo}`;
       if (ctx.vistos.has(k)) return;
       ctx.vistos.add(k);
-      if (ctx.avisos.length < 100) ctx.avisos.push({ tipo: a.tipo, motivo: limpa(a.motivo), ...(a.arquivo ? { arquivo: limpa(a.arquivo) } : {}) });
+      if (ctx.avisos.length < ctx.maxAvisos || a.tipo === 'limite') ctx.avisos.push({ tipo: a.tipo, motivo: limpa(a.motivo), ...(a.arquivo ? { arquivo: limpa(a.arquivo) } : {}) });
+      else ctx.omitidos++;
+    },
+    /** Lista final de avisos: os guardados e, se passou do teto, uma linha dizendo quantos ficaram de fora. */
+    avisosFinais() {
+      if (!ctx.omitidos) return ctx.avisos;
+      return ctx.avisos.concat([{ tipo: 'avisos_omitidos', motivo: `mais ${ctx.omitidos} aviso(s) parecidos foram omitidos para a resposta não crescer sem limite` }]);
     },
   };
   return ctx;
@@ -795,7 +860,11 @@ function novoCtx(opc) {
 function criarLeitor({ log, agora, orcamento } = {}) {
   const relogio = typeof agora === 'function' ? agora : () => Date.now();
   const o = orcamento || {};
-  const lim = { maxArquivos: o.maxArquivos || MAX_ARQUIVOS, maxProfundidade: o.maxProfundidade || MAX_PROFUNDIDADE };
+  const lim = {
+    maxArquivos: o.maxArquivos || MAX_ARQUIVOS, maxProfundidade: o.maxProfundidade || MAX_PROFUNDIDADE,
+    maxEntradas: o.maxEntradas || MAX_ENTRADAS, maxPastas: o.maxPastas || MAX_PASTAS, maxAvisos: o.maxAvisos || MAX_AVISOS,
+    ms: o.descobertaMs || PRAZO_DESCOBERTA_MS, relogio, cede: criaCede(relogio),
+  };
   const aviso = log || (() => {});
 
   async function descobre(ag, ctx) {
@@ -804,21 +873,22 @@ function criarLeitor({ log, agora, orcamento } = {}) {
       const d = await descobreFonte(f, lim);
       for (const a of d.avisos) ctx.avisa(a);
       ctx.contagens.atalhos_ignorados += d.atalhos_ignorados;
+      ctx.omitidos += d.avisosOmitidos;
       fontes.push(d);
     }
     // Nada para ler em nenhuma fonte: os motivos vão também nos avisos (a tela nunca diz "sem ações" nesse caso).
-    if (!fontes.some((d) => d.estado === 'ok')) {
+    if (!fontes.some((d) => (d.estado === 'ok' || d.estado === 'parcial') && d.arquivos.length)) {
       for (const d of fontes) ctx.avisa({ tipo: `fonte_${d.estado}`, motivo: d.motivo, arquivo: d.motor });
     }
     return fontes;
   }
 
-  const ctxSimples = () => novoCtx({ relogio, maxBytes: Infinity, maxMs: Infinity });
+  const ctxSimples = () => novoCtx({ relogio, maxBytes: Infinity, maxMs: Infinity, maxAvisos: lim.maxAvisos });
 
   async function resumoDasFontes(ag) {
     const ctx = ctxSimples();
     const fontes = await descobre(ag, ctx);
-    return { fontes: fontes.map(resumoDaFonte), avisos: ctx.avisos, contagens: ctx.contagens };
+    return { fontes: fontes.map(resumoDaFonte), avisos: ctx.avisosFinais(), contagens: ctx.contagens };
   }
 
   async function sessoes(ag, { limite, cursor }) {
@@ -838,14 +908,14 @@ function criarLeitor({ log, agora, orcamento } = {}) {
       sessoes: pagina.map((a) => ({ id: a.id, sessao: a.sessao, motor: a.motor, projeto: a.projeto ? limpa(a.projeto) : null, subagente: a.subagente, bytes: a.bytes, atualizado: new Date(a.mtimeMs).toISOString() })),
       proximo: mais && ultimo ? codificaCursor({ t: ultimo.mtimeMs, f: ultimo.id, o: 0, i: 0 }) : null,
       fontes: fontes.map(resumoDaFonte),
-      avisos: ctx.avisos,
+      avisos: ctx.avisosFinais(),
       contagens: ctx.contagens,
     };
   }
 
   /** filtros: { desde, ate (ms|null), tipos (Set|null), q (texto|null), sessao (string|null), limite, cursor } */
   async function eventos(ag, f) {
-    const ctx = novoCtx({ relogio, maxBytes: o.maxBytes || ORCAMENTO_BYTES, maxMs: o.maxMs || ORCAMENTO_MS });
+    const ctx = novoCtx({ relogio, maxBytes: o.maxBytes || ORCAMENTO_BYTES, maxMs: o.maxMs || ORCAMENTO_MS, maxAvisos: lim.maxAvisos });
     if (f.desde != null) ctx.desde = f.desde;
     if (f.ate != null) ctx.ate = f.ate;
     ctx.tipos = f.tipos || null;
@@ -955,12 +1025,17 @@ function criarLeitor({ log, agora, orcamento } = {}) {
       parcial: parcial && !mais,
       lidos_bytes: ctx.lidos,
       fontes: fontes.map(resumoDaFonte),
-      avisos: ctx.avisos,
+      avisos: ctx.avisosFinais(),
       contagens: ctx.contagens,
     };
   }
 
-  return { resumoDasFontes, sessoes, eventos };
+  /** Fontes de um agente que não deu tempo de verificar: o estado diz isso, nunca "ausente" nem lista vazia. */
+  function fontesNaoVerificadas(ag, motivo) {
+    return fontesDoAgente(ag).map((f) => ({ motor: f.motor, estado: 'nao_verificada', motivo, arquivos: null, bytes: null, ultima_atividade: null }));
+  }
+
+  return { resumoDasFontes, sessoes, eventos, fontesNaoVerificadas };
 }
 
 module.exports = {
