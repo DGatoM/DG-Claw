@@ -314,6 +314,7 @@ def op_anonimizar(req):
                 conteudo, attr_ner, attr_regex = ooxml.textos_para_deteccao(entrada, nome)
                 sessao.preparar("\n".join(conteudo + attr_ner))
                 sessao.preparar("\n".join(attr_regex), ner=False)
+                sessao.registrar_pessoas(ooxml.autores_para_registro(entrada, nome))
                 tmp_docx = tempfile.mkdtemp(prefix=".anon-docx-")
                 try:
                     caminho_docx = os.path.join(tmp_docx, "x.docx")
@@ -331,6 +332,7 @@ def op_anonimizar(req):
                 conteudo, attr_ner, attr_regex = ooxml.textos_para_deteccao(entrada, nome, so_nao_celulas=True)
                 sessao.preparar("\n".join(docs.xlsx_textos(wb) + conteudo + attr_ner))
                 sessao.preparar("\n".join(attr_regex), ner=False)
+                sessao.registrar_pessoas(ooxml.autores_para_registro(entrada, nome))
                 formulas = docs.xlsx_transformar(wb, sessao)
                 if formulas:
                     avisos.append("%d fórmula(s) de '%s' levavam dado pessoal e foram trocadas pelo texto com marcador." % (formulas, nome))

@@ -149,6 +149,12 @@ class Sessao:
                 self._superficie(valor, tipo, m)
         self._registrar_pessoas(nomes)
 
+    def registrar_pessoas(self, nomes):
+        """Registra como PESSOA nomes que o detector não precisa reconhecer (autor de comentário ou revisão)."""
+        for n in nomes:
+            self._lembrar("PESSOA", n)
+        self._registrar_pessoas(list(nomes))
+
     def _lembrar(self, tipo, valor):
         self.detectados.setdefault((tipo, normalizar(tipo, valor)), valor)
 

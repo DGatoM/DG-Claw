@@ -195,6 +195,25 @@ def textos_para_deteccao(caminho, nome, so_nao_celulas=False):
     return conteudo, sorted(attr_ner), sorted(attr_regex)
 
 
+def autores_para_registro(caminho, nome):
+    """Valores não vazios dos atributos de autoria (menos iniciais): autoria é dado pessoal, o nome seja ou não reconhecido."""
+    etree = lxml()
+    achados = {}
+    with abrir_zip(caminho, nome) as z:
+        for info in z.infolist():
+            f = info.filename
+            if not eh_xml(f) or categoria_removida(f):
+                continue
+            raiz = _analisar(etree, z.read(f), f)
+            for el in raiz.iter():
+                if not isinstance(el.tag, str):
+                    continue
+                for k, v in el.attrib.items():
+                    if k.rsplit("}", 1)[-1] != "initials" and v.strip() and atributo_de_autoria(el, k) and not atributo_estrutural(el, k, v):
+                        achados.setdefault(v.strip(), None)
+    return list(achados)
+
+
 def reescrever(entrada, saida, nome, encontrar, avisos, so_nao_celulas=False, sem_formulas=False):
     """Reescreve o docx/xlsx filtrando tudo. `encontrar(texto, estrutural, neutralizar)` devolve trocas."""
     etree = lxml()

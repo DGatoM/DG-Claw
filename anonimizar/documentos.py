@@ -177,7 +177,9 @@ def _lxml():
 
 
 def docx_reverter(entrada, saida, nome, encontrar):
-    """Reversão: só nós de texto (w:t) do corpo, cabeçalhos, rodapés e notas. Nunca atributo, relacionamento ou propriedade."""
+    """Reversão: nós de texto (w:t) do corpo, cabeçalhos, rodapés e notas, e o autor de comentários e revisões (atributo
+    de autoria, que a ida troca por marcador de pessoa). Nenhum outro atributo, relacionamento ou propriedade."""
+    from ooxml import atributo_de_autoria
     etree = _lxml()
     subs = {}
     with abrir_zip(entrada, nome) as z:
@@ -199,6 +201,15 @@ def docx_reverter(entrada, saida, nome, encontrar):
                     t.text = novo
                     t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
                 mudou = True
+            for el in raiz.iter():
+                if not isinstance(el.tag, str):
+                    continue
+                for k, v in list(el.attrib.items()):
+                    if k.rsplit("}", 1)[-1] != "initials" and atributo_de_autoria(el, k) and v.strip():
+                        trocas = encontrar(v)
+                        if trocas:
+                            el.set(k, distribuir([v], trocas)[0])
+                            mudou = True
             if mudou:
                 subs[f] = etree.tostring(raiz, xml_declaration=True, encoding="UTF-8", standalone=True)
         reescrever_zip(z, saida, subs)

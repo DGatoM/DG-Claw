@@ -1269,6 +1269,27 @@ class Arquivos(unittest.TestCase):
         self.assertNotIn("Ana", self._atributos_de_autoria(saida))
 
     @unittest.skipUnless(tem("docx") and tem("lxml"), "python-docx não está instalado neste Python")
+    def test_docx_autor_que_ninguem_reconhece_vira_pessoa_e_volta_na_reversao(self):
+        import docx
+        d = docx.Document()
+        p = d.add_paragraph("Texto sem nome de gente.")
+        d.add_comment(p.runs[0], text="conferir", author="Zé Qx", initials="ZQ")
+        origem = os.path.join(self.tmp, "zeqx.docx")
+        d.save(origem)
+        r = self.pedir(origem)
+        self.assertTrue(r["ok"], r)
+        saida = os.path.join(self.saida, "doc-1.anon.docx")
+        self._sem_palavra(saida, ["Zé Qx"])
+        autoria = self._atributos_de_autoria(saida)
+        self.assertEqual([a for a in autoria if a], ["[PESSOA_1]"])
+        self.assertIn({"tipo": "PESSOA", "valor": "Zé Qx", "marcador": "[PESSOA_1]"}, r["novas"])
+        revertido = os.path.join(self.tmp, "zeqx-volta.docx")
+        rv = motor.tratar({"op": "reverter", "entrada": saida, "saida": revertido, "tabela": r["novas"]})
+        self.assertTrue(rv["ok"], rv)
+        with zipfile.ZipFile(revertido) as z:
+            self.assertIn("Zé Qx", z.read("word/comments.xml").decode("utf-8"))
+
+    @unittest.skipUnless(tem("docx") and tem("lxml"), "python-docx não está instalado neste Python")
     def test_verificacao_final_acusa_autor_curto_que_sobrou(self):
         origem = self._docx_com_autoria_curta("Texto qualquer.")
         detectados = {("PESSOA", "ana"): "Ana"}
