@@ -1071,12 +1071,13 @@ registrar_agente() {
         --arg avatar "$C_AVATAR" --arg cor "$C_COR" --arg prov "$C_PROVEDOR" --arg modelo "$C_MODELO" \
         --arg td "$transcripts" --argjson pp "$C_PORTA_PAINEL" \
         --arg psa "$DG_ETC/proxy/$C_SLUG.segredo" --arg rta "$DG_ETC/runner/$C_SLUG.token" \
-        --arg hh "$C_HOME" --arg cofre "${C_HOME%/home}/cofre/cofre.env" '
+        --arg hh "$C_HOME" --arg cofre "${C_HOME%/home}/cofre/cofre.env" \
+        --arg inst "$(od -An -N12 -tx1 /dev/urandom | tr -d ' \n')" '
         {slug: $slug, nome: $nome, tipo: "agente", runner: $runner, agente_id: $slug,
          chat_id: ("c_" + $slug), avatar: $avatar, cor: $cor, provedor: $prov, modelo: $modelo,
          transcripts_dir: $td, porta_painel: $pp, proxy_segredo_arquivo: $psa,
          runner_token_arquivo: $rta, home_host: $hh, home_container: "/home/agente",
-         cofre_arquivo: $cofre, container: ("dgclaw-" + $slug)}' \
+         cofre_arquivo: $cofre, container: ("dgclaw-" + $slug), instancia: $inst}' \
         | agentes_registrar
 }
 
