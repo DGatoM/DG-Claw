@@ -57,6 +57,7 @@ function normaliza(bruto, indice, avisa) {
       cofre_arquivo: textoOuNull(bruto.cofre_arquivo),
       container: textoOuNull(bruto.container),
       dono: textoOuNull(bruto.dono),
+      instancia: textoOuNull(bruto.instancia),
     },
   };
 }

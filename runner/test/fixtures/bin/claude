@@ -153,6 +153,12 @@ process.stdin.on("data", (d) => {
   }
 });
 process.on("SIGTERM", () => process.exit(0));
+// Filho no mesmo grupo que ignora o SIGHUP do fechamento do terminal (como os servidores MCP do claude de verdade): o teste mata só o líder e
+// confere que o filho não sobrevive à reação do runner.
+if (process.env.FAKE_FILHO_PIDFILE) {
+  const filho = cp.spawn("/bin/sh", ["-c", "trap '' HUP; exec sleep 300"], { stdio: "ignore" });
+  fs.writeFileSync(process.env.FAKE_FILHO_PIDFILE, String(filho.pid));
+}
 // Teimoso: ignora o SIGHUP que o node-pty manda no kill(), como um CLI que não larga o terminal.
 if (process.env.FAKE_IGNORAR_HUP) process.on("SIGHUP", () => {});
 setInterval(() => {}, 1000);

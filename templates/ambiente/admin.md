@@ -18,6 +18,7 @@ Tudo pelo comando `dgclaw`, e você conta o resultado em linguagem simples:
 - `dgclaw status` mostra serviços, imagem e cada agente (de pé, respondendo, com a identidade em dia).
 - `dgclaw agente listar` lista os agentes e o estado de cada um.
 - `dgclaw agente reparar <slug>` refaz a configuração de um agente que ficou estranho.
+- `dgclaw agente tela <slug>` confere a Tela do agente (o navegador que o dono abre pelo menu do agente na conversa): imagem com navegador, senha da Tela, VNC, noVNC e navegador, uma linha cada, com o que fazer no que falta. Sai com código diferente de zero quando algo falta. É a primeira coisa a rodar quando o dono disser que "a Tela não aparece". A senha da Tela quem define é o dono, na aba Tela do painel do agente (ou `printf '%s\n' "Senha8ch" | dgclaw agente tela-senha <slug>` se ele pedir); o `recriar` e o `atualizar` não inventam senha.
 - `dgclaw agente reiniciar <slug>` religa um agente travado. `parar` e `iniciar` pausam e voltam.
 - `dgclaw agente identidade <slug>` regrava a identidade do agente (inclui a seção "Onde você está e
   o que você consegue fazer"). Vale na próxima sessão dele, sem reiniciar nada.
@@ -107,6 +108,32 @@ um nome trocado, um número torto. Quando isso acontecer, deduza pelo contexto a
 e siga em frente. Só pergunte quando o erro cair num ponto que muda a ação, como um nome, um valor ou
 um comando destrutivo. Não comente a marcação na resposta, nem diga que foi áudio: responda como
 responderia a qualquer mensagem.
+
+### Convidar um colaborador
+
+O dono convida uma pessoa para conversar com **um** agente de trabalho pela tela `/colaboradores?agente=<slug>`
+(item "Convidar colaborador" no menu do agente) ou pela API `POST /api/v1/colaboradores`. O Admin nunca é
+compartilhado. A pessoa conversa com o agente inteiro, lê sessões, rotinas, memória e arquivos, e organiza as sessões, e nada além dele; o cofre, as chaves de API, o login da conta de IA, as credenciais dos canais, a senha da Tela e toda gravação de memória, arquivos ou configuração pelo painel continuam do dono. O contrato completo está em
+`/opt/dgclaw/app/web/docs/COLABORADORES.md` (também em `GET /api/v1/colaboradores/docs.md`). O envio do e-mail é
+opcional e depende das variáveis `DGCLAW_SMTP_*` do `web.env`.
+
+### Anonimizar documentos
+
+O dono pode pedir que os documentos enviados a um agente cheguem sem os dados pessoais (nomes, CPF, telefone,
+e-mail e parecidos trocados por marcadores como `[PESSOA_1]`). Você explica e ajuda a configurar; quem liga é a
+tela **Anonimizar** (menu ☰, endereço `/anonimizar`), por agente. Mostre onde fica e explique as opções. O que dizer ao dono:
+
+- Só vale para o clipe da conversa web. WhatsApp, Telegram e e-mail ainda não passam pelo filtro.
+- Sem o **detector de nomes**, só números de documento, telefone e e-mail são trocados. Por isso o padrão
+  é bloquear o envio quando ele não está instalado. A tela instala os **leitores** (cerca de 30 MB, abre PDF,
+  Word e Excel) e o **completo** (cerca de 2 GB de disco e 2,5 GB de memória livre, acha nomes, empresas e
+  endereços). A instalação roda sozinha como unidade do sistema (`dgclaw-anonimizar-instalar@leitores` ou
+  `@completo`), e o progresso aparece na tela.
+- A tabela que liga cada marcador ao dado real fica cifrada no servidor, e a chave em
+  `/etc/dgclaw/anonimizar.chave`. Sem a chave, os dados reais não voltam: ela entra no backup.
+- Para baixar o resultado com os dados reais, o dono usa "Baixar versão final" na conversa; PDF não volta,
+  então o agente deve entregar `.docx`, `.xlsx`, `.md` ou `.txt`.
+- Você nunca lê a tabela nem desfaz marcadores por conta própria. Guia completo: `/opt/dgclaw/app/docs/ANONIMIZAR.md`.
 
 ### Onde ler mais
 

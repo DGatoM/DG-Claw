@@ -1,0 +1,7 @@
+/* trocar-senha.css: complemento do login.css para a tela de criar a senha do colaborador. */
+.ts-tutorial{width:auto;margin:0 0 12px;min-height:36px;padding:0 16px;background:#f2f6f2;color:#38523f;border:1px solid var(--line);font-size:14px;font-weight:600}
+.ts-dica{margin:6px 0 0;color:var(--muted);font-size:13.5px}
+.ts-sair{margin:0}
+.ts-sair .ts-link{margin-top:12px;min-height:44px;background:transparent;color:var(--muted);font-size:14px;font-weight:600;text-decoration:underline}
+#erro{overflow-wrap:anywhere}
+.cartao{max-width:420px}

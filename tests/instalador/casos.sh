@@ -74,6 +74,10 @@ caso_instalacao_cria_arquivos_com_os_modos_certos() {
         "a=\$(grep -nE 'systemctl (start|restart) dgclaw-admin.service' '$STUB_LOG' | head -1 | cut -d: -f1); w=\$(grep -nE 'systemctl (start|restart) dgclaw-web.service' '$STUB_LOG' | head -1 | cut -d: -f1); [ -n \"\$a\" ] && [ -n \"\$w\" ] && [ \"\$w\" -gt \"\$a\" ]"
     afirma "unidade da imagem com navegador (render de vídeo das skills)" tem "$u/dgclaw-imagem.service" "COM_NAVEGADOR=1"
     afirma "unidade da imagem com a versao" tem "$u/dgclaw-imagem.service" "localhost/dgclaw-agente:1.0.0-teste"
+    afirma "unidade-modelo do detector de nomes existe" test -f "$u/dgclaw-anonimizar-instalar@.service"
+    afirma "unidade do detector roda o script com o nivel (%i)" tem "$u/dgclaw-anonimizar-instalar@.service" "ExecStart=/bin/bash /opt/dgclaw/app/lib/anonimizar-instalar.sh %i"
+    afirma "unidade do detector e oneshot" tem "$u/dgclaw-anonimizar-instalar@.service" "Type=oneshot"
+    nega "o detector de nomes nao e instalado sozinho" tem "$STUB_LOG" "dgclaw-anonimizar-instalar"
     afirma "unidade do firewall" tem "$u/dgclaw-firewall.service" "ExecStart=/bin/bash /opt/dgclaw/app/lib/firewall.sh"
     afirma "chave do NodeSource" test -s "$RAIZ/usr/share/keyrings/nodesource.gpg"
     afirma "repo do NodeSource" tem "$RAIZ/etc/apt/sources.list.d/nodesource.list" "node_22.x nodistro main"
@@ -743,4 +747,32 @@ caso_ensaio_nao_grava_pasta_de_migracao() {
     afirma "nenhuma pasta de migracao" test ! -e "$RAIZ/opt/dgclaw/admin/personalizacoes-migracao"
     afirma "a edicao continua no app" tem "$RAIZ/opt/dgclaw/app/web/server.js" "// editado"
     limpar_cenario
+}
+
+caso_unidade_do_web_endurecida_com_motivos_das_que_ficaram_de_fora() {
+    novo_cenario
+    afirma "a instalacao termina" instalacao_basica
+    local s="$RAIZ/etc/systemd/system/dgclaw-web.service" d
+    afirma "unidade do web existe" test -f "$s"
+    for d in ProtectSystem=full ReadWritePaths=-/etc/dgclaw PrivateTmp=yes ProtectKernelModules=yes \
+        ProtectKernelLogs=yes RestrictSUIDSGID=yes RestrictRealtime=yes LockPersonality=yes \
+        SystemCallArchitectures=native; do
+        afirma "web com $d" grep -qxF -- "$d" "$s"
+    done
+    # As diretivas que quebrariam podman exec, sudo no container ou o Node nao podem entrar.
+    for d in NoNewPrivileges ProtectSystem=strict ProtectHome PrivateDevices ProtectKernelTunables \
+        ProtectControlGroups ProtectClock ProtectHostname RestrictNamespaces RestrictAddressFamilies \
+        CapabilityBoundingSet MemoryDenyWriteExecute UMask; do
+        nega "web sem $d ativo" grep -qE "^${d}[=]?" "$s"
+        afirma "web explica por que $d ficou de fora" grep -qE "^# .*${d%%=*}.* fica(m)? de fora" "$s"
+    done
+    # Cada caminho de gravacao do Web fora de /etc precisa continuar gravavel: ProtectSystem=full
+    # so deixa /usr, /boot e /etc somente leitura, e o unico caminho ali dentro e /etc/dgclaw.
+    afirma "dados do web fora das pastas protegidas" bash -c "grep -q '^Environment=DGCLAW_WEB_DATA=/var/lib/dgclaw/web$' '$s'"
+    afirma "web.env em /etc/dgclaw coberto" bash -c "grep -q '^Environment=DGCLAW_WEB_ENV=/etc/dgclaw/web.env$' '$s' && grep -q '^ReadWritePaths=-/etc/dgclaw$' '$s'"
+    if command -v systemd-analyze >/dev/null 2>&1; then
+        local v="$TMP/verify"
+        mkdir -p "$v" && sed 's#^ExecStart=.*#ExecStart=/bin/true#;s#^WorkingDirectory=.*#WorkingDirectory=/#;/^EnvironmentFile=/d' "$s" >"$v/dgclaw-web.service"
+        afirma "systemd-analyze verify aceita a unidade" bash -c "! systemd-analyze verify '$v/dgclaw-web.service' 2>&1 | grep 'dgclaw-web' | grep -iE 'unknown (key|section)|bad|invalid|failed to parse'"
+    fi
 }

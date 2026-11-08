@@ -319,7 +319,8 @@
   /** No navegador: descobre o agente pela URL (/a/<slug>), liga tudo e faz a carga inicial. */
   function inicia(win) {
     const mm = win.location && /^\/a\/([^/?#]+)/.exec(win.location.pathname || '');
-    if (!mm || !win.document) {
+    // Colaborador não usa o modo foco: o servidor negaria a carga inicial.
+    if (!mm || !win.document || (win.DGPapel && win.DGPapel.colaborador)) {
       return { passoTutorial: () => ({ alvo: '[data-tour="foco"]', titulo: 'O modo foco', oque: '', como: '', porque: '' }), recebe() {} };
     }
     let agente;

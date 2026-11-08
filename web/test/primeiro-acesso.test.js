@@ -44,7 +44,7 @@ test('primeiro acesso: token valido cadastra a senha, grava o scrypt no web.env 
     assert.equal(fs.statSync(x.webEnv).mode & 0o777, 0o600);
     assert.notEqual(JSON.parse(fs.readFileSync(x.arq, 'utf8')).usado_em, null);
     assert.equal((await x.t.c.get('/a/admin')).status, 200);
-    assert.deepEqual((await x.t.c.get('/api/v1/eu')).json, { ok: true, usuario: 'maria' });
+    assert.deepEqual((await x.t.c.get('/api/v1/eu')).json, { ok: true, usuario: 'maria', papel: 'dono', agente: null, nome: '', trocar_senha: false });
     const log = x.t.log.texto();
     assert.ok(!log.includes(x.token) && !log.includes(PW));
 

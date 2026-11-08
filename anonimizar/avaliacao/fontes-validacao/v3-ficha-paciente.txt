@@ -1,0 +1,10 @@
+#formato: pdf
+FICHA DE ATENDIMENTO AMBULATORIAL
+
+Paciente: [[PESSOA:Maria das Dores Albuquerque Neves]] (Dona [[PESSOA:Dores]] para os íntimos)
+Nascida em [[DATA:02 de fevereiro de 1955]]. CPF [[CPF:${CPF_D_RAW}]]. Cartão SUS [[!:700 5081 4829 0002]].
+Endereço: [[ENDERECO:Rua Sergipe, 77, Boa Viagem, Recife/PE]]. Telefone residencial [[TELEFONE:81 3466-2200]].
+Acompanhante: o filho, [[PESSOA:Tiago Neves]], celular [[TELEFONE:(81) 98877-1234]].
+
+Queixa: tosse persistente há 3 semanas. Hipótese: [[!:bronquite aguda]]. Prescrição: [[!:amoxicilina]] 500 mg.
+Atendido pelo Dr. [[PESSOA:Valmir Cordeiro]] no [[EMPRESA:Hospital Santa Clara]] em [[DATA:15/10/2026]]. Valor da consulta particular: [[VALOR:R$ 350,00]]. Prontuário [[!:88213]].

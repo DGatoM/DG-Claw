@@ -1,0 +1,3073 @@
+{
+ "documentos": [
+  {
+   "id": "01-contrato-aluguel",
+   "arquivo": "01-contrato-aluguel.txt",
+   "formato": "txt",
+   "esperados": [
+    {
+     "tipo": "PESSOA",
+     "texto": "Mariana Albuquerque Teixeira"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "390.533.447-05"
+    },
+    {
+     "tipo": "RG",
+     "texto": "12.345.678-9"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Rua das Acácias, nº 450, apartamento 12, Bairro Jardim Botânico, Curitiba/PR"
+    },
+    {
+     "tipo": "CEP",
+     "texto": "80210-050"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Ricardo Fernandes de Oliveira"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "11144477735"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Avenida Getúlio Vargas, 1200, Belo Horizonte/MG"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Rua Quinze de Novembro, 88, centro, Florianópolis/SC"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "15 de março de 2026"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 3.200,00"
+    },
+    {
+     "tipo": "CONTA",
+     "texto": "45678-9"
+    },
+    {
+     "tipo": "AGENCIA",
+     "texto": "1234"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "três mil e duzentos reais"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "(41) 99876-5432"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "ricardo.oliveira@exemplo.com.br"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Mariana"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Ricardo"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Helena Cristina Duarte"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "123.456.789-09"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "02/03/2026"
+    }
+   ],
+   "armadilhas": [
+    {
+     "texto": "Código Civil"
+    },
+    {
+     "texto": "Lei 8.245/91"
+    },
+    {
+     "texto": "protocolo 2026-889123"
+    }
+   ],
+   "itens": [
+    {
+     "tipo": "PESSOA",
+     "texto": "Mariana Albuquerque Teixeira"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "390.533.447-05"
+    },
+    {
+     "tipo": "RG",
+     "texto": "12.345.678-9"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Rua das Acácias, nº 450, apartamento 12, Bairro Jardim Botânico, Curitiba/PR"
+    },
+    {
+     "tipo": "CEP",
+     "texto": "80210-050"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Ricardo Fernandes de Oliveira"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "11144477735"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Avenida Getúlio Vargas, 1200, Belo Horizonte/MG"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Rua Quinze de Novembro, 88, centro, Florianópolis/SC"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "15 de março de 2026"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 3.200,00"
+    },
+    {
+     "tipo": "CONTA",
+     "texto": "45678-9"
+    },
+    {
+     "tipo": "AGENCIA",
+     "texto": "1234"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "três mil e duzentos reais"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "(41) 99876-5432"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "ricardo.oliveira@exemplo.com.br"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Mariana"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Ricardo"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Helena Cristina Duarte"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "123.456.789-09"
+    },
+    {
+     "tipo": "!",
+     "texto": "Código Civil"
+    },
+    {
+     "tipo": "!",
+     "texto": "Lei 8.245/91"
+    },
+    {
+     "tipo": "!",
+     "texto": "protocolo 2026-889123"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "02/03/2026"
+    }
+   ]
+  },
+  {
+   "id": "02-contrato-servicos",
+   "arquivo": "02-contrato-servicos.docx",
+   "formato": "docx",
+   "esperados": [
+    {
+     "tipo": "EMPRESA",
+     "texto": "Horizonte Azul Construtora Ltda."
+    },
+    {
+     "tipo": "CNPJ",
+     "texto": "11.222.333/0001-81"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Avenida Paulista, 2000, sala 41, Bela Vista, São Paulo/SP"
+    },
+    {
+     "tipo": "CEP",
+     "texto": "01310-200"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Fábio Henrique dos Santos Lima"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Tecnolume Soluções em Software S.A."
+    },
+    {
+     "tipo": "CNPJ",
+     "texto": "12.ABC.345/01DE-35"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Luciana Pires de Andrade"
+    },
+    {
+     "tipo": "RG",
+     "texto": "34.567.890-1"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 85.000,00"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "10/04/2026"
+    },
+    {
+     "tipo": "CONTA",
+     "texto": "98765-4"
+    },
+    {
+     "tipo": "AGENCIA",
+     "texto": "0987"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "juridico@horizonteazul.com.br"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "+55 11 3333-4444"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "(11) 98888-7777"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Albuquerque"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Luciana"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "30 de março de 2026"
+    }
+   ],
+   "armadilhas": [
+    {
+     "texto": "Windows 11"
+    },
+    {
+     "texto": "Android"
+    },
+    {
+     "texto": "Excel"
+    },
+    {
+     "texto": "Power BI"
+    },
+    {
+     "texto": "Microsoft"
+    },
+    {
+     "texto": "processo nº 1234567-89.2023.8.26.0100"
+    },
+    {
+     "texto": "São Paulo"
+    }
+   ],
+   "itens": [
+    {
+     "tipo": "EMPRESA",
+     "texto": "Horizonte Azul Construtora Ltda."
+    },
+    {
+     "tipo": "CNPJ",
+     "texto": "11.222.333/0001-81"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Avenida Paulista, 2000, sala 41, Bela Vista, São Paulo/SP"
+    },
+    {
+     "tipo": "CEP",
+     "texto": "01310-200"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Fábio Henrique dos Santos Lima"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Tecnolume Soluções em Software S.A."
+    },
+    {
+     "tipo": "CNPJ",
+     "texto": "12.ABC.345/01DE-35"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Luciana Pires de Andrade"
+    },
+    {
+     "tipo": "RG",
+     "texto": "34.567.890-1"
+    },
+    {
+     "tipo": "!",
+     "texto": "Windows 11"
+    },
+    {
+     "tipo": "!",
+     "texto": "Android"
+    },
+    {
+     "tipo": "!",
+     "texto": "Excel"
+    },
+    {
+     "tipo": "!",
+     "texto": "Power BI"
+    },
+    {
+     "tipo": "!",
+     "texto": "Microsoft"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 85.000,00"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "10/04/2026"
+    },
+    {
+     "tipo": "CONTA",
+     "texto": "98765-4"
+    },
+    {
+     "tipo": "AGENCIA",
+     "texto": "0987"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "juridico@horizonteazul.com.br"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "+55 11 3333-4444"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "(11) 98888-7777"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Albuquerque"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Luciana"
+    },
+    {
+     "tipo": "!",
+     "texto": "processo nº 1234567-89.2023.8.26.0100"
+    },
+    {
+     "tipo": "!",
+     "texto": "São Paulo"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "30 de março de 2026"
+    }
+   ]
+  },
+  {
+   "id": "03-nota-fiscal",
+   "arquivo": "03-nota-fiscal.txt",
+   "formato": "txt",
+   "esperados": [
+    {
+     "tipo": "EMPRESA",
+     "texto": "Padaria Pão Quente ME"
+    },
+    {
+     "tipo": "CNPJ",
+     "texto": "45.678.912/0001-55"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Rua Tiradentes, 77, Centro, Londrina/PR"
+    },
+    {
+     "tipo": "CEP",
+     "texto": "86010-190"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "(43) 3322-1100"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "JOSÉ ANTÔNIO MENDES DA ROCHA"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "98765432100"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "ZE.MENDES@EXEMPLO.COM.BR"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 1.450,50"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "12/05/2026"
+    }
+   ],
+   "armadilhas": [
+    {
+     "texto": "004512"
+    },
+    {
+     "texto": "#458812"
+    },
+    {
+     "texto": "A7K2-9PQ1"
+    },
+    {
+     "texto": "nfse.exemplo.gov.br"
+    },
+    {
+     "texto": "número da nota"
+    }
+   ],
+   "itens": [
+    {
+     "tipo": "!",
+     "texto": "004512"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Padaria Pão Quente ME"
+    },
+    {
+     "tipo": "CNPJ",
+     "texto": "45.678.912/0001-55"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Rua Tiradentes, 77, Centro, Londrina/PR"
+    },
+    {
+     "tipo": "CEP",
+     "texto": "86010-190"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "(43) 3322-1100"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "JOSÉ ANTÔNIO MENDES DA ROCHA"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "98765432100"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "ZE.MENDES@EXEMPLO.COM.BR"
+    },
+    {
+     "tipo": "!",
+     "texto": "#458812"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 1.450,50"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "12/05/2026"
+    },
+    {
+     "tipo": "!",
+     "texto": "A7K2-9PQ1"
+    },
+    {
+     "tipo": "!",
+     "texto": "nfse.exemplo.gov.br"
+    },
+    {
+     "tipo": "!",
+     "texto": "número da nota"
+    }
+   ]
+  },
+  {
+   "id": "04-clientes",
+   "arquivo": "04-clientes.xlsx",
+   "formato": "xlsx",
+   "esperados": [
+    {
+     "tipo": "PESSOA",
+     "texto": "Aline Costa Barbosa"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "246.813.579-28"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "(21) 98765-4321"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "aline.barbosa@exemplo.com.br"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 12.000,00"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "03/02/2024"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Bruno Tavares"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "13579246828"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "21987651234"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "bruno.t@exemplo.com.br"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 8.500,00"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Aline"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "CAMILA DE SOUZA PEREIRA"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "112.358.132-07"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "+55 31 99123-4567"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "camila.pereira@exemplo.com.br"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 20.300,00"
+    },
+    {
+     "tipo": "CONTA",
+     "texto": "11223-4"
+    },
+    {
+     "tipo": "AGENCIA",
+     "texto": "0456"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Diego \"Dedé\" Nascimento"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "314.159.265-90"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "(31) 3222-9988"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "dede.nascimento@exemplo.com.br"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 5.900,00"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "20/06/2026"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 46.700,00"
+    }
+   ],
+   "armadilhas": [
+    {
+     "texto": "Rio de Janeiro"
+    },
+    {
+     "texto": "Niterói"
+    },
+    {
+     "texto": "Belo Horizonte"
+    },
+    {
+     "texto": "Contagem"
+    },
+    {
+     "texto": "4"
+    }
+   ],
+   "itens": [
+    {
+     "tipo": "PESSOA",
+     "texto": "Aline Costa Barbosa"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "246.813.579-28"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "(21) 98765-4321"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "aline.barbosa@exemplo.com.br"
+    },
+    {
+     "tipo": "!",
+     "texto": "Rio de Janeiro"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 12.000,00"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "03/02/2024"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Bruno Tavares"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "13579246828"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "21987651234"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "bruno.t@exemplo.com.br"
+    },
+    {
+     "tipo": "!",
+     "texto": "Niterói"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 8.500,00"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Aline"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "CAMILA DE SOUZA PEREIRA"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "112.358.132-07"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "+55 31 99123-4567"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "camila.pereira@exemplo.com.br"
+    },
+    {
+     "tipo": "!",
+     "texto": "Belo Horizonte"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 20.300,00"
+    },
+    {
+     "tipo": "CONTA",
+     "texto": "11223-4"
+    },
+    {
+     "tipo": "AGENCIA",
+     "texto": "0456"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Diego \"Dedé\" Nascimento"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "314.159.265-90"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "(31) 3222-9988"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "dede.nascimento@exemplo.com.br"
+    },
+    {
+     "tipo": "!",
+     "texto": "Contagem"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 5.900,00"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "20/06/2026"
+    },
+    {
+     "tipo": "!",
+     "texto": "4"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 46.700,00"
+    }
+   ]
+  },
+  {
+   "id": "05-email",
+   "arquivo": "05-email.txt",
+   "formato": "txt",
+   "esperados": [
+    {
+     "tipo": "PESSOA",
+     "texto": "Paulo Roberto Vasconcelos"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "paulo.vasconcelos@empresaalfa.com.br"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Renata Moraes"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "renata.moraes@exemplo.com.br"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "05/06/2026"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Alfa Logística"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Renata"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "11 97766-5544"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Paulo"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 230 mil"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Vasconcelos"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Alfa Logística"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "paulo@empresaalfa.com.br"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Rua Augusta, 900, 3º andar, Consolação, São Paulo/SP"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Paulo"
+    }
+   ],
+   "armadilhas": [
+    {
+     "texto": "Dr."
+    },
+    {
+     "texto": "Dell Inspiron"
+    },
+    {
+     "texto": "3.12.4"
+    }
+   ],
+   "itens": [
+    {
+     "tipo": "PESSOA",
+     "texto": "Paulo Roberto Vasconcelos"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "paulo.vasconcelos@empresaalfa.com.br"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Renata Moraes"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "renata.moraes@exemplo.com.br"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "05/06/2026"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Alfa Logística"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Renata"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "11 97766-5544"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Paulo"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 230 mil"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Vasconcelos"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Alfa Logística"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "paulo@empresaalfa.com.br"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Rua Augusta, 900, 3º andar, Consolação, São Paulo/SP"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Paulo"
+    },
+    {
+     "tipo": "!",
+     "texto": "Dr."
+    },
+    {
+     "tipo": "!",
+     "texto": "Dell Inspiron"
+    },
+    {
+     "tipo": "!",
+     "texto": "3.12.4"
+    }
+   ]
+  },
+  {
+   "id": "06-laudo-medico",
+   "arquivo": "06-laudo-medico.pdf",
+   "formato": "pdf",
+   "esperados": [
+    {
+     "tipo": "PESSOA",
+     "texto": "Sandra Regina Cavalcanti"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "14/08/1978"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "39053344705"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Rua das Hortênsias, 310, Gramado/RS"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "22/07/2026"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "(54) 99911-2233"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "sandra.cavalcanti@exemplo.com.br"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Eduardo Martins Campos"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "22/07/2026"
+    }
+   ],
+   "armadilhas": [
+    {
+     "texto": "0034 5567 8890 1122"
+    },
+    {
+     "texto": "CID M54.5"
+    },
+    {
+     "texto": "ibuprofeno"
+    },
+    {
+     "texto": "Dr."
+    },
+    {
+     "texto": "12345/RS"
+    }
+   ],
+   "itens": [
+    {
+     "tipo": "PESSOA",
+     "texto": "Sandra Regina Cavalcanti"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "14/08/1978"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "39053344705"
+    },
+    {
+     "tipo": "!",
+     "texto": "0034 5567 8890 1122"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Rua das Hortênsias, 310, Gramado/RS"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "22/07/2026"
+    },
+    {
+     "tipo": "!",
+     "texto": "CID M54.5"
+    },
+    {
+     "tipo": "!",
+     "texto": "ibuprofeno"
+    },
+    {
+     "tipo": "!",
+     "texto": "Dr."
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "(54) 99911-2233"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "sandra.cavalcanti@exemplo.com.br"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Eduardo Martins Campos"
+    },
+    {
+     "tipo": "!",
+     "texto": "12345/RS"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "22/07/2026"
+    }
+   ]
+  },
+  {
+   "id": "07-ficha-cadastral",
+   "arquivo": "07-ficha-cadastral.txt",
+   "formato": "txt",
+   "esperados": [
+    {
+     "tipo": "PESSOA",
+     "texto": "Thiago Augusto Barreto Monteiro"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "\"Tato\""
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Odete Barreto Monteiro"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "09/11/1990"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "111.444.777-35"
+    },
+    {
+     "tipo": "RG",
+     "texto": "45.678.901-2"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Travessa dos Ipês, 15, casa 2, Vila Nova, Campinas/SP"
+    },
+    {
+     "tipo": "CEP",
+     "texto": "13015100"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "19 99877-0011"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "3233-4455"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "tato.monteiro@exemplo.com.br"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Brasil Dados Consultoria EIRELI"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 7.800"
+    },
+    {
+     "tipo": "AGENCIA",
+     "texto": "3456-7"
+    },
+    {
+     "tipo": "CONTA",
+     "texto": "65432-1"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "01/02/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Wagner"
+    }
+   ],
+   "armadilhas": [],
+   "itens": [
+    {
+     "tipo": "PESSOA",
+     "texto": "Thiago Augusto Barreto Monteiro"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "\"Tato\""
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Odete Barreto Monteiro"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "09/11/1990"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "111.444.777-35"
+    },
+    {
+     "tipo": "RG",
+     "texto": "45.678.901-2"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Travessa dos Ipês, 15, casa 2, Vila Nova, Campinas/SP"
+    },
+    {
+     "tipo": "CEP",
+     "texto": "13015100"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "19 99877-0011"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "3233-4455"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "tato.monteiro@exemplo.com.br"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Brasil Dados Consultoria EIRELI"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 7.800"
+    },
+    {
+     "tipo": "AGENCIA",
+     "texto": "3456-7"
+    },
+    {
+     "tipo": "CONTA",
+     "texto": "65432-1"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "01/02/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Wagner"
+    }
+   ]
+  },
+  {
+   "id": "08-whatsapp",
+   "arquivo": "08-whatsapp.txt",
+   "formato": "txt",
+   "esperados": [
+    {
+     "tipo": "DATA",
+     "texto": "10/06/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Fernanda Lopes"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "10/06/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Fernanda Lopes"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "10/06/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Fernanda"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "10/06/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Fernanda Lopes"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "12345678909"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "10/06/2026"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 489,90"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "15/06/2026"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "10/06/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Fernanda Lopes"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "(85) 98877-6655"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "10/06/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Fernanda Lopes"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "fe.lopes@exemplo.com.br"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "10/06/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Fernanda Lopes"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Rua Barão de Studart, 1500, Meireles, Fortaleza/CE"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "10/06/2026"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "10/06/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Fernanda Lopes"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Nanda"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "10/06/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Fernanda Lopes"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "João"
+    }
+   ],
+   "armadilhas": [
+    {
+     "texto": "Premium Plus"
+    }
+   ],
+   "itens": [
+    {
+     "tipo": "DATA",
+     "texto": "10/06/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Fernanda Lopes"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "10/06/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Fernanda Lopes"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "10/06/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Fernanda"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "10/06/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Fernanda Lopes"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "12345678909"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "10/06/2026"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 489,90"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "15/06/2026"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "10/06/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Fernanda Lopes"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "(85) 98877-6655"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "10/06/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Fernanda Lopes"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "fe.lopes@exemplo.com.br"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "10/06/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Fernanda Lopes"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Rua Barão de Studart, 1500, Meireles, Fortaleza/CE"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "10/06/2026"
+    },
+    {
+     "tipo": "!",
+     "texto": "Premium Plus"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "10/06/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Fernanda Lopes"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Nanda"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "10/06/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Fernanda Lopes"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "João"
+    }
+   ]
+  },
+  {
+   "id": "09-procuracao",
+   "arquivo": "09-procuracao.docx",
+   "formato": "docx",
+   "esperados": [
+    {
+     "tipo": "PESSOA",
+     "texto": "MARIA APARECIDA DOS SANTOS FERREIRA"
+    },
+    {
+     "tipo": "RG",
+     "texto": "23.456.789-0"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "987.654.321-00"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Rua Sete de Setembro, 220, Bairro Centro, Pelotas/RS"
+    },
+    {
+     "tipo": "CEP",
+     "texto": "96015-290"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Henrique Gouveia Prado"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Avenida Bento Gonçalves, 700, sala 3, Pelotas/RS"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 15.000,00"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "(53) 3225-0099"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Maria Aparecida"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "18 de agosto de 2026"
+    }
+   ],
+   "armadilhas": [
+    {
+     "texto": "OAB/RS 98765"
+    },
+    {
+     "texto": "INSS"
+    },
+    {
+     "texto": "Banco do Brasil"
+    }
+   ],
+   "itens": [
+    {
+     "tipo": "PESSOA",
+     "texto": "MARIA APARECIDA DOS SANTOS FERREIRA"
+    },
+    {
+     "tipo": "RG",
+     "texto": "23.456.789-0"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "987.654.321-00"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Rua Sete de Setembro, 220, Bairro Centro, Pelotas/RS"
+    },
+    {
+     "tipo": "CEP",
+     "texto": "96015-290"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Henrique Gouveia Prado"
+    },
+    {
+     "tipo": "!",
+     "texto": "OAB/RS 98765"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Avenida Bento Gonçalves, 700, sala 3, Pelotas/RS"
+    },
+    {
+     "tipo": "!",
+     "texto": "INSS"
+    },
+    {
+     "tipo": "!",
+     "texto": "Banco do Brasil"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 15.000,00"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "(53) 3225-0099"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Maria Aparecida"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "18 de agosto de 2026"
+    }
+   ]
+  },
+  {
+   "id": "10-recibo",
+   "arquivo": "10-recibo.txt",
+   "formato": "txt",
+   "esperados": [
+    {
+     "tipo": "EMPRESA",
+     "texto": "Mercearia Estrela do Sul Ltda"
+    },
+    {
+     "tipo": "CNPJ",
+     "texto": "77889900000166"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 2.750,00"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "dois mil setecentos e cinquenta reais"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "locador.silva@exemplo.com.br"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Osvaldo Silva Neto"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "24681357928"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "(62) 3344-5566"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "05/07/2026"
+    }
+   ],
+   "armadilhas": [
+    {
+     "texto": "0087"
+    }
+   ],
+   "itens": [
+    {
+     "tipo": "!",
+     "texto": "0087"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Mercearia Estrela do Sul Ltda"
+    },
+    {
+     "tipo": "CNPJ",
+     "texto": "77889900000166"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 2.750,00"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "dois mil setecentos e cinquenta reais"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "locador.silva@exemplo.com.br"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Osvaldo Silva Neto"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "24681357928"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "(62) 3344-5566"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "05/07/2026"
+    }
+   ]
+  },
+  {
+   "id": "11-boleto-cobranca",
+   "arquivo": "11-boleto-cobranca.pdf",
+   "formato": "pdf",
+   "esperados": [
+    {
+     "tipo": "EMPRESA",
+     "texto": "Clínica Vida Plena Ltda"
+    },
+    {
+     "tipo": "CNPJ",
+     "texto": "33.445.566/0001-86"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Cláudio Roberto Bittencourt"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "135.792.468-28"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Rua Marechal Deodoro, 410, apto 82, Curitiba/PR"
+    },
+    {
+     "tipo": "CEP",
+     "texto": "80010-010"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "25/09/2026"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 640,00"
+    },
+    {
+     "tipo": "PIX",
+     "texto": "123e4567-e89b-12d3-a456-426614174000"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "0800 123 4567"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "(41) 3355-7788"
+    }
+   ],
+   "armadilhas": [
+    {
+     "texto": "00012345678-9"
+    }
+   ],
+   "itens": [
+    {
+     "tipo": "EMPRESA",
+     "texto": "Clínica Vida Plena Ltda"
+    },
+    {
+     "tipo": "CNPJ",
+     "texto": "33.445.566/0001-86"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Cláudio Roberto Bittencourt"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "135.792.468-28"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Rua Marechal Deodoro, 410, apto 82, Curitiba/PR"
+    },
+    {
+     "tipo": "CEP",
+     "texto": "80010-010"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "25/09/2026"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 640,00"
+    },
+    {
+     "tipo": "PIX",
+     "texto": "123e4567-e89b-12d3-a456-426614174000"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "0800 123 4567"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "(41) 3355-7788"
+    },
+    {
+     "tipo": "!",
+     "texto": "00012345678-9"
+    }
+   ]
+  },
+  {
+   "id": "12-curriculo",
+   "arquivo": "12-curriculo.txt",
+   "formato": "txt",
+   "esperados": [
+    {
+     "tipo": "PESSOA",
+     "texto": "Juliana Matos Rangel"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Rua Voluntários da Pátria, 95, Botafogo, Rio de Janeiro/RJ"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "(21) 99555-0123"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "ju.rangel@exemplo.com.br"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Vale Verde Agro S.A."
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Carlos Eduardo Bastos"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Mundo Digital"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Universidade Federal Fluminense"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "12/12/2018"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Sérgio Nogueira"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "21 98877-1122"
+    }
+   ],
+   "armadilhas": [
+    {
+     "texto": "Niterói"
+    },
+    {
+     "texto": "Python"
+    },
+    {
+     "texto": "SQL"
+    },
+    {
+     "texto": "Tableau"
+    },
+    {
+     "texto": "Excel"
+    }
+   ],
+   "itens": [
+    {
+     "tipo": "PESSOA",
+     "texto": "Juliana Matos Rangel"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Rua Voluntários da Pátria, 95, Botafogo, Rio de Janeiro/RJ"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "(21) 99555-0123"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "ju.rangel@exemplo.com.br"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Vale Verde Agro S.A."
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Carlos Eduardo Bastos"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Mundo Digital"
+    },
+    {
+     "tipo": "!",
+     "texto": "Niterói"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Universidade Federal Fluminense"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "12/12/2018"
+    },
+    {
+     "tipo": "!",
+     "texto": "Python"
+    },
+    {
+     "tipo": "!",
+     "texto": "SQL"
+    },
+    {
+     "tipo": "!",
+     "texto": "Tableau"
+    },
+    {
+     "tipo": "!",
+     "texto": "Excel"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Sérgio Nogueira"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "21 98877-1122"
+    }
+   ]
+  },
+  {
+   "id": "13-ata-reuniao",
+   "arquivo": "13-ata-reuniao.docx",
+   "formato": "docx",
+   "esperados": [
+    {
+     "tipo": "DATA",
+     "texto": "20 de outubro de 2026"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Condomínio Solar das Palmeiras"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Rua das Palmeiras, 1000, Bairro Aldeota, Fortaleza/CE"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Antônio Carlos Pimentel"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Neuza Barroso"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Rosana"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "apartamento 21"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Raimundo"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 48.230,75"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Elevadores Norte-Sul Ltda"
+    },
+    {
+     "tipo": "CNPJ",
+     "texto": "7K.9X2.M4P/0001-44"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 120 mil"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "sindico@solarpalmeiras.com.br"
+    }
+   ],
+   "armadilhas": [
+    {
+     "texto": "primeiro sábado de dezembro"
+    }
+   ],
+   "itens": [
+    {
+     "tipo": "DATA",
+     "texto": "20 de outubro de 2026"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Condomínio Solar das Palmeiras"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Rua das Palmeiras, 1000, Bairro Aldeota, Fortaleza/CE"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Antônio Carlos Pimentel"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Neuza Barroso"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Rosana"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "apartamento 21"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Raimundo"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 48.230,75"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Elevadores Norte-Sul Ltda"
+    },
+    {
+     "tipo": "CNPJ",
+     "texto": "7K.9X2.M4P/0001-44"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 120 mil"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "sindico@solarpalmeiras.com.br"
+    },
+    {
+     "tipo": "!",
+     "texto": "primeiro sábado de dezembro"
+    }
+   ]
+  },
+  {
+   "id": "14-peticao",
+   "arquivo": "14-peticao.pdf",
+   "formato": "pdf",
+   "esperados": [
+    {
+     "tipo": "PESSOA",
+     "texto": "Gilberto Nunes Figueiredo"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "11235813207"
+    },
+    {
+     "tipo": "RG",
+     "texto": "56.789.012-3"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Rua do Comércio, 33, Vila Mathias, Santos/SP"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Transportes Rápido Litoral Ltda"
+    },
+    {
+     "tipo": "CNPJ",
+     "texto": "11222333000181"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "03/01/2026"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 9.800,00"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Márcio Tadeu Brandão"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "adv.pereira@exemplo.com.br"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 9.800,00"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "10/02/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Rodrigo Pereira Salles"
+    }
+   ],
+   "armadilhas": [
+    {
+     "texto": "3ª Vara Cível"
+    },
+    {
+     "texto": "Santos"
+    },
+    {
+     "texto": "Código de Processo Civil"
+    },
+    {
+     "texto": "art. 319"
+    },
+    {
+     "texto": "processo nº 7654321-09.2026.8.26.0562"
+    },
+    {
+     "texto": "OAB/SP 123456"
+    }
+   ],
+   "itens": [
+    {
+     "tipo": "!",
+     "texto": "3ª Vara Cível"
+    },
+    {
+     "tipo": "!",
+     "texto": "Santos"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Gilberto Nunes Figueiredo"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "11235813207"
+    },
+    {
+     "tipo": "RG",
+     "texto": "56.789.012-3"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Rua do Comércio, 33, Vila Mathias, Santos/SP"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Transportes Rápido Litoral Ltda"
+    },
+    {
+     "tipo": "CNPJ",
+     "texto": "11222333000181"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "03/01/2026"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 9.800,00"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Márcio Tadeu Brandão"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "adv.pereira@exemplo.com.br"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 9.800,00"
+    },
+    {
+     "tipo": "!",
+     "texto": "Código de Processo Civil"
+    },
+    {
+     "tipo": "!",
+     "texto": "art. 319"
+    },
+    {
+     "tipo": "!",
+     "texto": "processo nº 7654321-09.2026.8.26.0562"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "10/02/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Rodrigo Pereira Salles"
+    },
+    {
+     "tipo": "!",
+     "texto": "OAB/SP 123456"
+    }
+   ]
+  },
+  {
+   "id": "15-orcamento",
+   "arquivo": "15-orcamento.txt",
+   "formato": "txt",
+   "esperados": [
+    {
+     "tipo": "EMPRESA",
+     "texto": "Casa & Cia Móveis Planejados"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Sra. Vera Lúcia Tavares"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Alameda dos Jacarandás, 56, Moema, São Paulo/SP"
+    },
+    {
+     "tipo": "CEP",
+     "texto": "04077-020"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 18.400,00"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 2.900,00"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "900 reais"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 22.200,00"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "30/11/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Marcelo"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "(11) 97654-3210"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "marcelo@marcenariaoliveira.com.br"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Marcenaria Oliveira & Filhos ME"
+    },
+    {
+     "tipo": "CNPJ",
+     "texto": "45678912000155"
+    }
+   ],
+   "armadilhas": [
+    {
+     "texto": "2026/117"
+    },
+    {
+     "texto": "Samsung Smart TV 55 polegadas"
+    }
+   ],
+   "itens": [
+    {
+     "tipo": "!",
+     "texto": "2026/117"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Casa & Cia Móveis Planejados"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Sra. Vera Lúcia Tavares"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Alameda dos Jacarandás, 56, Moema, São Paulo/SP"
+    },
+    {
+     "tipo": "CEP",
+     "texto": "04077-020"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 18.400,00"
+    },
+    {
+     "tipo": "!",
+     "texto": "Samsung Smart TV 55 polegadas"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 2.900,00"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "900 reais"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 22.200,00"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "30/11/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Marcelo"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "(11) 97654-3210"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "marcelo@marcenariaoliveira.com.br"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Marcenaria Oliveira & Filhos ME"
+    },
+    {
+     "tipo": "CNPJ",
+     "texto": "45678912000155"
+    }
+   ]
+  },
+  {
+   "id": "16-ficha-rh",
+   "arquivo": "16-ficha-rh.txt",
+   "formato": "txt",
+   "esperados": [
+    {
+     "tipo": "PESSOA",
+     "texto": "Patrícia Helena de Oliveira Gomes"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "31415926590"
+    },
+    {
+     "tipo": "RG",
+     "texto": "67.890.123-4"
+    },
+    {
+     "tipo": "PIS",
+     "texto": "123.45678.90-0"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "01/03/2026"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 3.150,00"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Rua Capitão Rosa, 18, Porto Alegre/RS"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Sérgio Gomes"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "(51) 99888-1212"
+    },
+    {
+     "tipo": "AGENCIA",
+     "texto": "2233"
+    },
+    {
+     "tipo": "CONTA",
+     "texto": "77889-0"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Débora Lima"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Grupo Meridional Alimentos S.A."
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Paty"
+    }
+   ],
+   "armadilhas": [
+    {
+     "texto": "00457"
+    }
+   ],
+   "itens": [
+    {
+     "tipo": "PESSOA",
+     "texto": "Patrícia Helena de Oliveira Gomes"
+    },
+    {
+     "tipo": "!",
+     "texto": "00457"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "31415926590"
+    },
+    {
+     "tipo": "RG",
+     "texto": "67.890.123-4"
+    },
+    {
+     "tipo": "PIS",
+     "texto": "123.45678.90-0"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "01/03/2026"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 3.150,00"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Rua Capitão Rosa, 18, Porto Alegre/RS"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Sérgio Gomes"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "(51) 99888-1212"
+    },
+    {
+     "tipo": "AGENCIA",
+     "texto": "2233"
+    },
+    {
+     "tipo": "CONTA",
+     "texto": "77889-0"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Débora Lima"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Grupo Meridional Alimentos S.A."
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Paty"
+    }
+   ]
+  },
+  {
+   "id": "17-extrato",
+   "arquivo": "17-extrato.txt",
+   "formato": "txt",
+   "esperados": [
+    {
+     "tipo": "PESSOA",
+     "texto": "Ernesto Valadares Filho"
+    },
+    {
+     "tipo": "AGENCIA",
+     "texto": "5678"
+    },
+    {
+     "tipo": "CONTA",
+     "texto": "12345-6"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "01/08/2026"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 4.321,09"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "03/08/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "LUCIANA PRATES"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 800,00"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "05/08/2026"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Companhia de Energia Elétrica"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 289,45"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "07/08/2026"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Supermercado Bom Preço"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 312,30"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "09/08/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Ana Beatriz Cunha"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "246.813.579-28"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 1.500,00"
+    },
+    {
+     "tipo": "CARTAO",
+     "texto": "4111 1111 1111 1111"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "4004-0001"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "ouvidoria@exemplo.com.br"
+    }
+   ],
+   "armadilhas": [
+    {
+     "texto": "4521"
+    },
+    {
+     "texto": "9F3A-77B2"
+    },
+    {
+     "texto": "#889012"
+    },
+    {
+     "texto": "agosto"
+    }
+   ],
+   "itens": [
+    {
+     "tipo": "PESSOA",
+     "texto": "Ernesto Valadares Filho"
+    },
+    {
+     "tipo": "AGENCIA",
+     "texto": "5678"
+    },
+    {
+     "tipo": "CONTA",
+     "texto": "12345-6"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "01/08/2026"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 4.321,09"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "03/08/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "LUCIANA PRATES"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 800,00"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "05/08/2026"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Companhia de Energia Elétrica"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 289,45"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "07/08/2026"
+    },
+    {
+     "tipo": "!",
+     "texto": "4521"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Supermercado Bom Preço"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 312,30"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "09/08/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Ana Beatriz Cunha"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "246.813.579-28"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 1.500,00"
+    },
+    {
+     "tipo": "CARTAO",
+     "texto": "4111 1111 1111 1111"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "4004-0001"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "ouvidoria@exemplo.com.br"
+    },
+    {
+     "tipo": "!",
+     "texto": "9F3A-77B2"
+    },
+    {
+     "tipo": "!",
+     "texto": "#889012"
+    },
+    {
+     "tipo": "!",
+     "texto": "agosto"
+    }
+   ]
+  },
+  {
+   "id": "18-mensagem-informal",
+   "arquivo": "18-mensagem-informal.txt",
+   "formato": "txt",
+   "esperados": [
+    {
+     "tipo": "PESSOA",
+     "texto": "Bia"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Zeca"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Rua Cinco, 123, quadra 7, Bairro Santa Rita"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "98 98123-4567"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "bia.festas@exemplo.com.br"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Lourdes"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Chico"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 40"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "98 98123-4567"
+    }
+   ],
+   "armadilhas": [
+    {
+     "texto": "Coca-Cola"
+    },
+    {
+     "texto": "Guaraná"
+    },
+    {
+     "texto": "São Luís"
+    }
+   ],
+   "itens": [
+    {
+     "tipo": "PESSOA",
+     "texto": "Bia"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Zeca"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Rua Cinco, 123, quadra 7, Bairro Santa Rita"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "98 98123-4567"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "bia.festas@exemplo.com.br"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Lourdes"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Chico"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 40"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "98 98123-4567"
+    },
+    {
+     "tipo": "!",
+     "texto": "Coca-Cola"
+    },
+    {
+     "tipo": "!",
+     "texto": "Guaraná"
+    },
+    {
+     "tipo": "!",
+     "texto": "São Luís"
+    }
+   ]
+  },
+  {
+   "id": "19-pix-comprovantes",
+   "arquivo": "19-pix-comprovantes.txt",
+   "formato": "txt",
+   "esperados": [
+    {
+     "tipo": "PESSOA",
+     "texto": "Gustavo Henrique Ramos"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "135.792.468-28"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 350,00"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "04/09/2026"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Oficina do Zé Ltda"
+    },
+    {
+     "tipo": "CNPJ",
+     "texto": "33445566000186"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 1.280,00"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Letícia Arantes"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "leticia.arantes@exemplo.com.br"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Roberto Salgado"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "+5511987654321"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Simone Carvalho"
+    },
+    {
+     "tipo": "PIX",
+     "texto": "9b2f6c1e-4d3a-4f7b-8c55-0a1b2c3d4e5f"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Marquinhos"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "(11) 91234-5678"
+    }
+   ],
+   "armadilhas": [
+    {
+     "texto": "Nubank"
+    },
+    {
+     "texto": "Black Friday"
+    },
+    {
+     "texto": "E00038166202609041200abcdef123456"
+    }
+   ],
+   "itens": [
+    {
+     "tipo": "PESSOA",
+     "texto": "Gustavo Henrique Ramos"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "135.792.468-28"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 350,00"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "04/09/2026"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Oficina do Zé Ltda"
+    },
+    {
+     "tipo": "CNPJ",
+     "texto": "33445566000186"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 1.280,00"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Letícia Arantes"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "leticia.arantes@exemplo.com.br"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Roberto Salgado"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "+5511987654321"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Simone Carvalho"
+    },
+    {
+     "tipo": "PIX",
+     "texto": "9b2f6c1e-4d3a-4f7b-8c55-0a1b2c3d4e5f"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Marquinhos"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "(11) 91234-5678"
+    },
+    {
+     "tipo": "!",
+     "texto": "Nubank"
+    },
+    {
+     "tipo": "!",
+     "texto": "Black Friday"
+    },
+    {
+     "tipo": "!",
+     "texto": "E00038166202609041200abcdef123456"
+    }
+   ]
+  },
+  {
+   "id": "20-relatorio-armadilhas",
+   "arquivo": "20-relatorio-armadilhas.txt",
+   "formato": "txt",
+   "esperados": [
+    {
+     "tipo": "PESSOA",
+     "texto": "Wellington Souza Pinto"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "wellington.pinto@exemplo.com.br"
+    }
+   ],
+   "armadilhas": [
+    {
+     "texto": "2.14.1"
+    },
+    {
+     "texto": "Linux"
+    },
+    {
+     "texto": "Dr."
+    },
+    {
+     "texto": "Lei 13.709/18"
+    },
+    {
+     "texto": "0001234-56.2023.8.26.0100"
+    },
+    {
+     "texto": "2026/889"
+    },
+    {
+     "texto": "#778812"
+    },
+    {
+     "texto": "Curitiba"
+    },
+    {
+     "texto": "Recife"
+    },
+    {
+     "texto": "Salvador"
+    },
+    {
+     "texto": "Porto Alegre"
+    },
+    {
+     "texto": "iPhone 14"
+    },
+    {
+     "texto": "Galaxy S23"
+    },
+    {
+     "texto": "PlayStation 5"
+    },
+    {
+     "texto": "Coca-Cola"
+    },
+    {
+     "texto": "Toyota Corolla"
+    },
+    {
+     "texto": "segunda-feira"
+    },
+    {
+     "texto": "10.12.2"
+    },
+    {
+     "texto": "978-85-359-0277-5"
+    }
+   ],
+   "itens": [
+    {
+     "tipo": "!",
+     "texto": "2.14.1"
+    },
+    {
+     "tipo": "!",
+     "texto": "Linux"
+    },
+    {
+     "tipo": "!",
+     "texto": "Dr."
+    },
+    {
+     "tipo": "!",
+     "texto": "Lei 13.709/18"
+    },
+    {
+     "tipo": "!",
+     "texto": "0001234-56.2023.8.26.0100"
+    },
+    {
+     "tipo": "!",
+     "texto": "2026/889"
+    },
+    {
+     "tipo": "!",
+     "texto": "#778812"
+    },
+    {
+     "tipo": "!",
+     "texto": "Curitiba"
+    },
+    {
+     "tipo": "!",
+     "texto": "Recife"
+    },
+    {
+     "tipo": "!",
+     "texto": "Salvador"
+    },
+    {
+     "tipo": "!",
+     "texto": "Porto Alegre"
+    },
+    {
+     "tipo": "!",
+     "texto": "iPhone 14"
+    },
+    {
+     "tipo": "!",
+     "texto": "Galaxy S23"
+    },
+    {
+     "tipo": "!",
+     "texto": "PlayStation 5"
+    },
+    {
+     "tipo": "!",
+     "texto": "Coca-Cola"
+    },
+    {
+     "tipo": "!",
+     "texto": "Toyota Corolla"
+    },
+    {
+     "tipo": "!",
+     "texto": "segunda-feira"
+    },
+    {
+     "tipo": "!",
+     "texto": "10.12.2"
+    },
+    {
+     "tipo": "!",
+     "texto": "978-85-359-0277-5"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Wellington Souza Pinto"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "wellington.pinto@exemplo.com.br"
+    }
+   ]
+  }
+ ]
+}
