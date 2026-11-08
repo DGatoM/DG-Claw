@@ -131,7 +131,7 @@ test('colaborador: a Tela (WebSocket, página e senha) é fechada com 403 e nada
     const abre = (caminho) => new Promise((resolve) => {
       const limite = setTimeout(() => resolve({ erro: `sem resposta em ${caminho}` }), 3000);
       limite.unref();
-      const req = http.request({ host: '127.0.0.1', port: s.t.porta, path: caminho, headers: { Connection: 'Upgrade', Upgrade: 'websocket', 'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==', 'Sec-WebSocket-Version': '13', Origin: `http://127.0.0.1:${s.t.porta}`, Cookie: cookie } });
+      const req = http.request({ host: '127.0.0.1', port: s.t.porta, path: caminho, headers: { Connection: 'Upgrade', Upgrade: 'websocket', 'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==', 'Sec-WebSocket-Version': '13', Origin: `http://127.0.0.1:${s.t.porta}`, Cookie: cookie } }); // gitleaks:allow
       req.on('upgrade', (res, socket) => { socket.destroy(); resolve({ status: res.statusCode }); });
       req.on('response', (res) => { res.resume(); resolve({ status: res.statusCode }); });
       req.on('error', (e) => resolve({ erro: e.code }));

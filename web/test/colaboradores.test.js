@@ -180,7 +180,7 @@ test('WebSocket: colaborador abre só o do agente dele; o de outro agente e o de
     const { c } = await colaboradorAtivo(s);
     const cookie = Object.entries(c.jar).map(([k, v]) => `${k}=${v}`).join('; ');
     const abre = (caminho) => new Promise((resolve, reject) => {
-      const req = http.request({ host: '127.0.0.1', port: s.t.porta, path: caminho, headers: { Connection: 'Upgrade', Upgrade: 'websocket', 'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==', 'Sec-WebSocket-Version': '13', Origin: `http://127.0.0.1:${s.t.porta}`, Cookie: cookie } });
+      const req = http.request({ host: '127.0.0.1', port: s.t.porta, path: caminho, headers: { Connection: 'Upgrade', Upgrade: 'websocket', 'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==', 'Sec-WebSocket-Version': '13', Origin: `http://127.0.0.1:${s.t.porta}`, Cookie: cookie } }); // gitleaks:allow
       req.on('response', (res) => { res.resume(); resolve(res.statusCode); });
       req.on('upgrade', (res) => resolve(res.statusCode));
       req.on('error', reject);
