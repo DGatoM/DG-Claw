@@ -42,6 +42,13 @@
       config: base + 'api/sessoes-config', pedidos: base + 'api/sessoes?grupo=esperando_voce&limite=1' };
   }
 
+  /* Navegador: abre em outra aba o painel do agente já na Tela (VNC interativo), onde o dono faz os logins. O Admin não tem. */
+  function linkTela(a) {
+    if (!a || !a.tem_painel || a.tipo === 'admin') return null;
+    const base = (a.painel_url || ('/p/' + encodeURIComponent(a.id) + '/')).replace(/\/*$/, '/');
+    return { nome: 'Navegador', ico: '🌐', href: base + '#aba=tela', alvo: '_blank' };
+  }
+
   /* Páginas fora do painel (Mesa, Lembretes) não têm o agente no caminho: levam ?a=<slug> para a
      tela saber de quem é o menu. */
   function comAgente(href, id) {
@@ -90,7 +97,7 @@
       alvo: '#mlMoldura', antes: abre, titulo: 'O menu do agente',
       oque: 'A foto, o nome e as páginas de ' + nome + ', sempre no lado esquerdo. No computador ele fica aberto o tempo todo; no celular abre pelo botão ☰.',
       como: (o.naConversa ? 'O item Conversa (esta tela) fica no alto.' : 'O item Conversa, no alto, leva de volta ao chat.') +
-        ' Os outros itens levam à Mesa, às Sessões de trabalho dele, aos Lembretes, aos Avisos, à Segurança, a Conectar conta (onde você conecta a conta do Claude de cada agente) e às páginas do painel dele. O Tutorial, aqui em cima, repete esta visita.',
+        ' Os outros itens levam à Mesa, às Sessões de trabalho dele, à Tela (o navegador dele, onde você faz os logins), aos Lembretes, aos Avisos, à Segurança, a Conectar conta (onde você conecta a conta do Claude de cada agente) e às páginas do painel dele. O Tutorial, aqui em cima, repete esta visita.',
       porque: 'Assim a conversa e o painel de cada agente ficam no mesmo lugar, sem link escondido.',
     }];
     if (o.comTroca) {
@@ -270,7 +277,7 @@
     return { tipo: 'sem', texto: 'Este navegador não oferece a instalação por aqui. No Chrome ou no Edge, abra o menu do navegador e procure Instalar app. No Firefox para computador, o recurso não existe.' };
   }
 
-  if (!raiz.document) return { corUso, quandoZeraUso, miniBarraUso, itemUso, ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, LINK_SEGURANCA, LINK_CONECTAR, LINK_COLABORADOR, linkSessoes, itemAgente, bolinhaMenu, seloDe, totalNaoLidas, totalPrecisam, horaCurta, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar };
+  if (!raiz.document) return { corUso, quandoZeraUso, miniBarraUso, itemUso, ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, LINK_SEGURANCA, LINK_CONECTAR, LINK_COLABORADOR, linkSessoes, linkTela, itemAgente, bolinhaMenu, seloDe, totalNaoLidas, totalPrecisam, horaCurta, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar };
 
   /* ── Parte com DOM ─────────────────────────────────────────────────────── */
   const $ = id => document.getElementById(id);
@@ -613,6 +620,12 @@
       else mesa.setAttribute('href', comAgente('/mesa', ag.id));
     }
     ligaSessoes(ag);
+    // Colaborador não vê a Tela do agente: o navegador logado é do dono.
+    const tela = colab ? null : linkTela(ag), ancoraTela = $('mlSessoes') || mesa;
+    if (tela && ancoraTela && ancoraTela.parentElement) {
+      ancoraTela.parentElement.insertAdjacentHTML('afterend', `<div data-tour="gm-tela"><a class="ml-tab" id="mlTela" href="${esc(tela.href)}" target="${esc(tela.alvo)}" rel="noopener">` +
+        `<span class="ml-ico" aria-hidden="true">${tela.ico}</span>${tela.nome}</a></div>`);
+    }
     agenteAtual = ag;
     if (Array.isArray(opcoes.extras)) extras(opcoes.extras);
     if (colab) mostraQuem();
@@ -649,5 +662,5 @@
       .catch(e => { console.warn('menu-lado: não consegui saber quem está logado (' + e.message + '); o menu segue sem o nome.'); });
   }
 
-  return { corUso, quandoZeraUso, miniBarraUso, itemUso, ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, LINK_SEGURANCA, LINK_CONECTAR, LINK_COLABORADOR, linkSessoes, itemAgente, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar, inicia, marca, extras, defineNaoLidas, totalNaoLidas, totalPrecisam, seloDe };
+  return { corUso, quandoZeraUso, miniBarraUso, itemUso, ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, LINK_SEGURANCA, LINK_CONECTAR, LINK_COLABORADOR, linkSessoes, linkTela, itemAgente, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar, inicia, marca, extras, defineNaoLidas, totalNaoLidas, totalPrecisam, seloDe };
 });

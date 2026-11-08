@@ -98,6 +98,11 @@ Agentes
       A senha tem de 6 a 8 caracteres ASCII (o VNC so usa 8). Vale na hora: o agente religa o VNC sozinho.
       Exemplo:  printf '%s\n' "Ab3dEf7h" | dgclaw agente tela-senha ana
 
+  dgclaw agente tela <slug>              confere a Tela do agente (o navegador que o dono abre pelo painel)
+      Diz, linha a linha, o que esta de pe e o que fazer no que falta. Sai com 0 se tudo esta bem,
+      1 se alguma coisa falta e 2 se o agente nao esta ligado (nao da para conferir).
+      Exemplo:  dgclaw agente tela ana
+
   dgclaw agente remover <slug> [--sim]   tira o agente do ar. Nao apaga: a casa dele vai
       para /var/lib/dgclaw/aposentados/. Pede confirmacao quando ha terminal.
       Exemplo:  dgclaw agente remover ana --sim
@@ -1365,6 +1370,7 @@ agente_reparar() {
         falha "o runner do agente $slug nao respondeu em ${TEMPO_ESPERA}s em http://127.0.0.1:$porta/api/saude." \
               "veja o log: podman exec $c journalctl -u dgclaw-runner -n 50"
     fi
+    if [ "$ENSAIO" != 1 ]; then tela_avisar_sem_senha "$slug"; fi
 }
 
 # agente_recriar <slug> [--forcar]
@@ -1750,6 +1756,112 @@ agente_tela_senha() {
     ok "senha da Tela do agente $slug trocada (vale na hora; a anterior deixa de abrir)"
 }
 
+# --- a Tela do agente: conferencia e aviso de senha (docs/TELA-DO-AGENTE.md) -----------------
+
+# tela_no_container <slug>: o container do agente tem a Tela habilitada? (as unidades sao copiadas
+# em toda imagem, mas so ligadas no perfil com navegador; o link do wants diz qual e o caso.)
+tela_no_container() {
+    podman exec "dgclaw-$1" test -e /etc/systemd/system/multi-user.target.wants/dgclaw-tela-vnc.service >/dev/null 2>&1
+}
+
+# tela_sem_senha <slug>: sucesso quando o agente tem a Tela e a casa dele ainda nao tem a senha.
+tela_sem_senha() {
+    [ -s "$DG_CASAS/$1/home/.dgclaw/tela/vnc.senha" ] && return 1
+    tela_no_container "$1"
+}
+
+# tela_texto_sem_senha <slug>: a frase unica usada pelo reparar/recriar e pelo resumo do atualizar.
+tela_texto_sem_senha() {
+    local cmd="printf '%s\\n' \"Senha8ch\" | dgclaw agente tela-senha $1"
+    printf 'a senha da Tela do agente %s ainda nao foi definida, e sem ela o navegador do agente nao abre pelo painel. Defina na aba Tela do painel do agente ou com: %s' "$1" "$cmd"
+}
+
+# tela_avisar_sem_senha <slug>: NAO inventa senha escondida (a pessoa nao teria como saber qual e);
+# so conta que falta e como definir.
+tela_avisar_sem_senha() {
+    if tela_sem_senha "$1"; then aviso "$(tela_texto_sem_senha "$1")"; fi
+    return 0
+}
+
+# agente_tela <slug>: a conferencia da Tela vista do servidor. Cada linha diz o que esta bem ou o
+# que falta e o que fazer. Sai com 1 quando algo falta (como o `dgclaw status`).
+agente_tela() {
+    exigir_slug "${1:-}" tela
+    local slug="$1" c="dgclaw-$1" obj faltas=0 estado
+    exigir_ferramentas jq podman
+    if [ "$ENSAIO" = 1 ]; then
+        info "[ensaio] conferiria no agente $slug: unidades da Tela, senha, VNC, noVNC, navegador e CDP"
+        return 0
+    fi
+    obj="$(agentes_obter "$slug")"
+    [ -n "$obj" ] || falha "o agente '$slug' nao esta no agentes.json." "veja os que existem com: dgclaw agente listar"
+    estado="$(estado_container "$slug")"
+    if [ "$estado" != running ]; then
+        printf 'Tela do agente %s: nao deu para conferir, o container esta %s.\n' "$slug" "$estado" >&2
+        printf 'O que fazer: ligue o agente com: dgclaw agente iniciar %s e rode isto de novo.\n' "$slug" >&2
+        return 2
+    fi
+    printf 'Tela do agente %s\n' "$slug"
+    t_ok() { printf '  ok      %s\n' "$1"; }
+    t_falta() { printf '  FALTA   %s\n          o que fazer: %s\n' "$1" "$2"; faltas=$((faltas + 1)); }
+    t_unidade() {
+        podman exec "$c" systemctl is-active --quiet "$1" >/dev/null 2>&1
+    }
+
+    if ! tela_no_container "$slug"; then
+        t_falta "este agente nao tem a Tela na imagem (as unidades dgclaw-tela* nao estao ligadas)" \
+            "reconstrua a imagem com navegador (dgclaw imagem construir --agora) e recrie o agente: dgclaw agente recriar $slug --forcar"
+        printf '\nA Tela de %s nao esta pronta: %s item(ns) a resolver.\n' "$slug" "$faltas" >&2
+        return 1
+    fi
+    t_ok "a imagem do agente tem a Tela"
+
+    if podman exec "$c" bash -c 'command -v google-chrome-stable >/dev/null 2>&1'; then
+        t_ok "navegador da Tela: Google Chrome"
+    else
+        t_ok "navegador da Tela: Chromium do Playwright (Google Chrome so existe para amd64; alguns sites com anti-robo podem tratar o Chromium de outro jeito)"
+    fi
+
+    if [ -s "$DG_CASAS/$slug/home/.dgclaw/tela/vnc.senha" ]; then
+        t_ok "a senha da Tela esta definida"
+    else
+        t_falta "a senha da Tela ainda nao foi definida (sem ela o VNC nao sobe)" \
+            "defina na aba Tela do painel ou com: printf '%s\\n' \"Senha8ch\" | dgclaw agente tela-senha $slug"
+    fi
+
+    if t_unidade dgclaw-tela.service; then t_ok "a tela virtual (Xvfb) esta de pe"
+    else t_falta "a tela virtual (dgclaw-tela.service) esta parada" \
+        "reinicie: podman exec $c systemctl restart dgclaw-tela; se repetir, veja: podman exec $c journalctl -u dgclaw-tela -n 30"; fi
+
+    if t_unidade dgclaw-tela-vnc.service; then t_ok "o VNC (x11vnc) esta de pe, so em localhost"
+    elif [ -s "$DG_CASAS/$slug/home/.dgclaw/tela/vnc.senha" ]; then
+        t_falta "o VNC (dgclaw-tela-vnc.service) esta parado, apesar de a senha existir" \
+            "reinicie: podman exec $c systemctl restart dgclaw-tela-vnc; se repetir, veja: podman exec $c journalctl -u dgclaw-tela-vnc -n 30"
+    fi
+
+    if t_unidade dgclaw-tela-web.service \
+        && podman exec "$c" curl -fsS --max-time 3 -o /dev/null http://127.0.0.1:6080/ >/dev/null 2>&1; then
+        t_ok "o noVNC (websockify) responde em 127.0.0.1:6080"
+    else
+        t_falta "o noVNC (dgclaw-tela-web.service) nao responde em 127.0.0.1:6080" \
+            "reinicie: podman exec $c systemctl restart dgclaw-tela-web; se repetir, veja: podman exec $c journalctl -u dgclaw-tela-web -n 30"
+    fi
+
+    if t_unidade dgclaw-tela-chrome.service \
+        && podman exec "$c" curl -fsS --max-time 3 -o /dev/null http://127.0.0.1:9222/json/version >/dev/null 2>&1; then
+        t_ok "o navegador responde ao agente (CDP em 127.0.0.1:9222)"
+    else
+        t_falta "o navegador da Tela nao responde em 127.0.0.1:9222 (o agente nao consegue usar o navegador)" \
+            "reinicie: podman exec $c systemctl restart dgclaw-tela-chrome; se repetir, veja: podman exec $c journalctl -u dgclaw-tela-chrome -n 30"
+    fi
+
+    if [ "$faltas" -gt 0 ]; then
+        printf '\nA Tela de %s nao esta pronta: %s item(ns) a resolver (as linhas FALTA acima dizem o que fazer).\n' "$slug" "$faltas" >&2
+        return 1
+    fi
+    printf '\nA Tela de %s esta pronta. O dono abre pelo menu do agente na conversa (Tela) ou pela aba Tela do painel.\n' "$slug"
+}
+
 agente_main() {
     local sub="${1:-}"; shift || true
     case "$sub" in
@@ -1761,9 +1873,10 @@ agente_main() {
         identidade) agente_identidade "$@" ;;
         cofre) agente_cofre "$@" ;;
         tela-senha) agente_tela_senha "$@" ;;
+        tela) agente_tela "$@" ;;
         remover) agente_remover "$@" ;;
-        "") falha "faltou dizer o que fazer com os agentes." "use: criar, listar, parar, iniciar, reiniciar, reparar, recriar, identidade, cofre, tela-senha ou remover (veja dgclaw --ajuda)." ;;
-        *) falha "'agente $sub' nao existe." "use: criar, listar, parar, iniciar, reiniciar, reparar, recriar, identidade, cofre, tela-senha ou remover (veja dgclaw --ajuda)." ;;
+        "") falha "faltou dizer o que fazer com os agentes." "use: criar, listar, parar, iniciar, reiniciar, reparar, recriar, identidade, cofre, tela, tela-senha ou remover (veja dgclaw --ajuda)." ;;
+        *) falha "'agente $sub' nao existe." "use: criar, listar, parar, iniciar, reiniciar, reparar, recriar, identidade, cofre, tela, tela-senha ou remover (veja dgclaw --ajuda)." ;;
     esac
 }
 

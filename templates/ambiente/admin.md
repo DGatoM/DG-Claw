@@ -18,6 +18,7 @@ Tudo pelo comando `dgclaw`, e você conta o resultado em linguagem simples:
 - `dgclaw status` mostra serviços, imagem e cada agente (de pé, respondendo, com a identidade em dia).
 - `dgclaw agente listar` lista os agentes e o estado de cada um.
 - `dgclaw agente reparar <slug>` refaz a configuração de um agente que ficou estranho.
+- `dgclaw agente tela <slug>` confere a Tela do agente (o navegador que o dono abre pelo menu do agente na conversa): imagem com navegador, senha da Tela, VNC, noVNC e navegador, uma linha cada, com o que fazer no que falta. Sai com código diferente de zero quando algo falta. É a primeira coisa a rodar quando o dono disser que "a Tela não aparece". A senha da Tela quem define é o dono, na aba Tela do painel do agente (ou `printf '%s\n' "Senha8ch" | dgclaw agente tela-senha <slug>` se ele pedir); o `recriar` e o `atualizar` não inventam senha.
 - `dgclaw agente reiniciar <slug>` religa um agente travado. `parar` e `iniciar` pausam e voltam.
 - `dgclaw agente identidade <slug>` regrava a identidade do agente (inclui a seção "Onde você está e
   o que você consegue fazer"). Vale na próxima sessão dele, sem reiniciar nada.

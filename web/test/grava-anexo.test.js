@@ -38,8 +38,13 @@ test('anexo: pasta do meio trocada por atalho para fora da casa não leva a grav
     if (onde.length === 1) await assert.rejects(tentativa, /atalho|Permission|EACCES|EEXIST|não é uma pasta/i);
     else {
       // pasta do dia que virou atalho não é seguida: o anexo vai para <dia>-2, dentro da casa
-      const caminho = await tentativa;
-      assert.ok(caminho.startsWith(path.join(h, 'uploads', '2026-11-08-2') + path.sep), caminho);
+      // (sem root, como no CI, não há migração de pasta: a gravação é recusada, e nada vai para fora do mesmo jeito).
+      if (typeof process.getuid === 'function' && process.getuid() === 0) {
+        const caminho = await tentativa;
+        assert.ok(caminho.startsWith(path.join(h, 'uploads', '2026-11-08-2') + path.sep), caminho);
+      } else {
+        await assert.rejects(tentativa, /atalho/i);
+      }
     }
     semNada(fora);
   }
@@ -84,8 +89,14 @@ test('upload pelo Web (dono e colaborador): atalho plantado na pasta do dia não
     const cab = { 'Content-Type': 'multipart/form-data; boundary=b' };
     for (const c of [x.c, s.dono]) {
       const r = await c.post('/api/v1/agents/ana/upload', { corpo, headers: cab });
-      assert.equal(r.status, 201, r.texto);
-      assert.match(r.json.anexo.path, new RegExp(`/uploads/${dia}-2/`), 'a pasta do dia que virou atalho não foi seguida');
+      if (typeof process.getuid === 'function' && process.getuid() === 0) {
+        assert.equal(r.status, 201, r.texto);
+        assert.match(r.json.anexo.path, new RegExp(`/uploads/${dia}-2/`), 'a pasta do dia que virou atalho não foi seguida');
+      } else {
+        // Sem root (CI) a gravação é recusada; nada é gravado fora da casa.
+        assert.equal(r.status, 500, r.texto);
+        assert.match(r.json.erro, /atalho/i);
+      }
     }
     semNada(fora);
   } finally { await s.fechar(); }

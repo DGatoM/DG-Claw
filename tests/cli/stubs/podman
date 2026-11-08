@@ -71,6 +71,17 @@ case "${1:-}" in
         if printf '%s ' "$@" | grep -q api.anthropic.com && [ -f "$est/sem-internet" ]; then
             echo "curl: (6) Could not resolve host: api.anthropic.com" >&2; exit 6
         fi
+        # A Tela: marcadores em $STUB_ESTADO simulam o que falta dentro do agente.
+        args="$(printf '%s ' "$@")"
+        if [[ "$args" == *"wants/dgclaw-tela-vnc.service"* ]] && [ -f "$est/sem-tela" ]; then exit 1; fi
+        if [[ "$args" == *"is-active"* ]]; then
+            for u in dgclaw-tela dgclaw-tela-vnc dgclaw-tela-web dgclaw-tela-chrome; do
+                if [[ "$args" == *" $u.service "* ]] && [ -f "$est/inativo-$u" ]; then exit 3; fi
+            done
+        fi
+        if [[ "$args" == *"127.0.0.1:6080"* ]] && [ -f "$est/sem-novnc" ]; then exit 7; fi
+        if [[ "$args" == *"127.0.0.1:9222"* ]] && [ -f "$est/sem-cdp" ]; then exit 7; fi
+        if [[ "$args" == *"command -v google-chrome-stable"* ]] && [ -f "$est/sem-chrome" ]; then exit 1; fi
         [ -f "$est/exec-falha" ] && exit 1
         exit 0 ;;
     build) echo "build simulado" ;;

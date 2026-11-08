@@ -48,7 +48,7 @@ function montar({ colaborador }) {
   envoltoMesa.pai = mlTabs; mlTabs.filhos.push(envoltoMesa);
   const outros = new Map();
   const document = {
-    getElementById(id) { if (id === 'mlTabs') return mlTabs; if (!outros.has(id)) outros.set(id, solto()); return outros.get(id); },
+    getElementById(id) { if (id === 'mlTabs') return mlTabs; if (id === 'mlSessoes') { const e = mlTabs.filhos.find((f) => f.html.includes('id="mlSessoes"')); return e ? { parentElement: e } : null; } if (!outros.has(id)) outros.set(id, solto()); return outros.get(id); },
     querySelector(seletor) { if (seletor === '#mlTabs a[href="/mesa"]') return envoltoMesa.pai ? ancoraMesa : (ancoraMesa.pai ? ancoraMesa : null); return solto(); },
     querySelectorAll() { return []; },
     createElement() { return solto(); },
@@ -90,6 +90,18 @@ test('menu do dono: a Mesa fica, leva o agente, e Sessões entra logo depois', (
   assert.equal(ancoraMesa.attrs.href, '/mesa?a=ana');
   const i = mlTabs.filhos.indexOf(envoltoMesa);
   assert.match(mlTabs.filhos[i + 1].html, /id="mlSessoes"/);
+});
+
+test('Navegador: o dono vê o item, que abre em outra aba; o colaborador não vê', () => {
+  const dono = montar({ colaborador: false });
+  dono.janela.DGMenuLado.inicia({ agente: AGENTE, agentes: [AGENTE], fecha() {}, extras: [] });
+  const htmlDono = dono.mlTabs.todoHtml();
+  assert.match(htmlDono, /id="mlTela" href="\/p\/ana\/#aba=tela" target="_blank" rel="noopener"/);
+  assert.match(htmlDono, /Navegador/);
+  const colab = montar({ colaborador: true });
+  colab.janela.DGMenuLado.inicia({ agente: AGENTE, agentes: [AGENTE], fecha() {}, extras: [] });
+  const htmlColab = colab.mlTabs.todoHtml();
+  assert.doesNotMatch(htmlColab, /mlTela|Navegador|aba=tela/);
 });
 
 test('o DOM de teste de fato lança NoModificationAllowedError ao inserir ao lado de elemento sem pai', () => {
