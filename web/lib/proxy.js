@@ -29,17 +29,20 @@ function valorSeguro(v) {
 function criarProxy({ config, registro, log, cofreRotas }) {
   const cacheSegredo = new Map(); // caminho -> { mtimeMs, valor }
   const socketsAbertos = new Set(); // conexões WebSocket, para fechar junto com o servidor
-  const deColaborador = new Set(); // { colaborador_id, valeAinda(), socket, psocket }
+  const deColaborador = new Set(); // { colaborador_id (ausente no dono), valeAinda() (opcional), sessaoHash, socket, psocket }
 
   const fechaPar = (r) => { r.socket.destroy(); r.psocket.destroy(); deColaborador.delete(r); };
   /** Revogação, convite novo ou troca de senha: fecha os dois lados dos WebSockets daquele colaborador. */
   function fecharDoColaborador(id) { for (const r of [...deColaborador]) if (r.colaborador_id === id) fechaPar(r); }
-  /** Fecha os WebSockets de colaborador cuja sessão deixou de valer (expirou, foi apagada, o acesso mudou). */
+  /** Fecha os WebSockets cuja sessão deixou de valer (expirou, foi apagada, o acesso mudou) ou que travou pelo cadeado (Face ID). */
+  /** Fecha os WebSockets de uma sessão que foi encerrada por fora (Face ID removido, por exemplo). `hash` vem de auth.hashDaSessao. */
+  function fecharDaSessao(hash) { let n = 0; for (const r of [...deColaborador]) if (hash && r.sessaoHash === hash) { fechaPar(r); n++; } return n; }
   function revalidar() {
     for (const r of [...deColaborador]) {
+      if (typeof r.valeAinda !== 'function') continue;
       let vale = false;
-      try { vale = !!r.valeAinda(); } catch (e) { log('erro', `Proxy: não consegui revalidar a sessão de um WebSocket de colaborador (${e.message}); fechei a conexão.`); }
-      if (!vale) { log('aviso', 'Proxy: fechei o WebSocket de um colaborador cuja sessão deixou de valer.'); fechaPar(r); }
+      try { vale = !!r.valeAinda(); } catch (e) { log('erro', `Proxy: não consegui revalidar a sessão de um WebSocket (${e.message}); fechei a conexão.`); }
+      if (!vale) { log('aviso', 'Proxy: fechei um WebSocket cuja sessão deixou de valer ou travou pelo cadeado (Face ID).'); fechaPar(r); }
     }
   }
   const relogio = setInterval(revalidar, INTERVALO_REVALIDA_MS);
@@ -107,14 +110,16 @@ function criarProxy({ config, registro, log, cofreRotas }) {
     const qual = agente && agente.cofre_arquivo ? cofreRotas.casa(req, slug) : null;
     if (!qual) {
       const escrita = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);
-      if (!(quem && quem.colaborador_id && escrita)) return encaminhar(req, res, slug, usuario, null, undefined, quem);
-      // Colaborador: o painel age quando o corpo termina. Lê tudo aqui, confere a sessão e só então abre a conexão com o painel.
+      if (!(quem && (quem.colaborador_id || quem.lerCorpoAntes) && escrita)) return encaminhar(req, res, slug, usuario, null, undefined, quem);
+      // Colaborador (e dono com Face ID ligado): o painel age quando o corpo termina. Lê tudo aqui, confere a sessão e o cadeado
+      // (req.dgRevalidar, em lerCorpo) e só então abre a conexão com o painel.
       const limite = config.maxUploadBytes + 64 * 1024;
       lerCorpo(req, limite).then((buf) => {
         encaminhar(req, res, slug, usuario, buf.length ? buf : null, undefined, quem, true);
       }).catch((e) => {
         if (e && e.status === 413) return erroJson(res, 413, `O envio passou do limite de ${Math.round(config.maxUploadBytes / 1048576)} MB. Mande um arquivo menor.`);
-        if (e && e.status === 401) return recusaSessaoVelha(res, slug, quem);
+        if (e && e.status === 401 && quem && quem.colaborador_id) return recusaSessaoVelha(res, slug, quem);
+        if (e && (e.status === 423 || e.status === 401)) return erroJson(res, e.status, e.message);
         log('erro', `Proxy /p/${slug}: não consegui ler o corpo do pedido (${(e && (e.code || e.message)) || 'erro'}).`);
         return erroJson(res, 400, 'Não consegui ler o corpo do pedido. Tente de novo.');
       });
@@ -208,6 +213,16 @@ function criarProxy({ config, registro, log, cofreRotas }) {
     h.upgrade = req.headers.upgrade;
     const preq = http.request({ host: '127.0.0.1', port: agente.porta_painel, method: req.method, path: req.url, headers: h });
     preq.on('upgrade', (pres, psocket, phead) => {
+      // A sessão pode ter sido encerrada ou travada enquanto o painel respondia: confere ANTES de qualquer byte chegar ao navegador.
+      if (quem && typeof quem.valeAinda === 'function') {
+        let vale = false;
+        try { vale = !!quem.valeAinda(); } catch (e) { log('erro', `Proxy /p/${slug}: não consegui revalidar a sessão antes de abrir o WebSocket (${e.message}); recusei.`); }
+        if (!vale) {
+          log('aviso', `Proxy /p/${slug}: a sessão deixou de valer (ou travou) enquanto o painel abria o WebSocket; fechei sem entregar nada ao navegador.`);
+          socket.destroy(); psocket.destroy();
+          return;
+        }
+      }
       let cab = `HTTP/1.1 ${pres.statusCode} ${pres.statusMessage}\r\n`;
       // Set-Cookie do painel não passa para o navegador (mesma regra do HTTP comum).
       for (let i = 0; i < pres.rawHeaders.length; i += 2) {
@@ -218,9 +233,9 @@ function criarProxy({ config, registro, log, cofreRotas }) {
       if (phead && phead.length) socket.write(phead);
       if (head && head.length) psocket.write(head);
       socketsAbertos.add(socket); socketsAbertos.add(psocket);
-      // WebSocket de colaborador: guardado com a conferência da sessão, para fechar quando ela deixar de valer.
-      if (quem && quem.colaborador_id) {
-        const reg = { colaborador_id: quem.colaborador_id, valeAinda: quem.valeAinda, socket, psocket };
+      // WebSocket com conferência (colaborador, ou dono com cadeado ligado): guardado para fechar quando a sessão deixar de valer ou travar.
+      if (quem && (typeof quem.valeAinda === 'function' || quem.sessaoHash)) {
+        const reg = { colaborador_id: quem.colaborador_id, valeAinda: quem.valeAinda, sessaoHash: quem.sessaoHash, socket, psocket };
         deColaborador.add(reg);
         socket.on('close', () => deColaborador.delete(reg));
       }
@@ -246,7 +261,7 @@ function criarProxy({ config, registro, log, cofreRotas }) {
     preq.end();
   }
 
-  return { responder, upgrade, destino, fecharDoColaborador, revalidar, fecharTudo() { clearInterval(relogio); for (const x of socketsAbertos) x.destroy(); socketsAbertos.clear(); deColaborador.clear(); } };
+  return { responder, upgrade, destino, fecharDoColaborador, fecharDaSessao, revalidar, fecharTudo() { clearInterval(relogio); for (const x of socketsAbertos) x.destroy(); socketsAbertos.clear(); deColaborador.clear(); } };
 }
 
 module.exports = { criarProxy, limpaCookie };

@@ -74,6 +74,9 @@ Depois mande ao dono o link novo e avise:
 - o endereço antigo deixa de abrir o painel;
 - a senha e os agentes continuam exatamente iguais;
 - se ele estiver logado, precisa entrar de novo no endereço novo (o login vale por endereço);
+- se ele usa o **Face ID** (a trava do app com rosto ou digital), precisa ligá-lo de novo em cada aparelho,
+  porque a passkey fica presa ao endereço em que foi criada e o endereço novo não a reconhece. Mande-o abrir
+  **Face ID** no menu ☰ do endereço novo e tocar em "Ligar neste aparelho". A senha continua valendo;
 - guarde o endereço novo nos favoritos e, se tinha o app instalado no celular, instale de novo por ele.
 
 Se ele pedir um link de primeiro acesso novo, é `dgclaw primeiro-acesso`.
@@ -91,6 +94,7 @@ falando com você.
 | Existe um AAAA antigo | Peça para apagar o AAAA desse nome. Ele manda parte dos visitantes para o lugar errado. |
 | "https nao respondeu em 90s" | O certificado ainda não saiu. Confira se as portas 80 e 443 estão abertas no firewall do painel da Hostinger e se o DNS ainda aponta para a VPS. Veja `journalctl -u caddy -n 30`. O Caddy tenta de novo sozinho. |
 | "o Caddy recusou a configuracao" | O comando já voltou o arquivo ao que era. Confira o nome digitado e veja o erro em `caddy validate`. |
+| O Face ID parou de pedir ou não destrava depois da troca | A passkey era do endereço antigo. Entre com a senha no endereço novo, abra ☰ > Face ID, remova o aparelho antigo da lista e toque em "Ligar neste aparelho". |
 | O dono errou o nome | Rode `dgclaw dominio trocar <nome certo>` de novo, é seguro repetir. Para voltar ao automático, use o endereço antigo (`dgclaw dominio` o mostrou no começo). |
 
 Só use `--sem-conferir-dns` se o dono souber o que está fazendo (por exemplo, o DNS está atrás de um

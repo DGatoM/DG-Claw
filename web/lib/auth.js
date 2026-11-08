@@ -74,6 +74,8 @@ function hashFicticio() {
 function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
   let colaboradores = colabsInicial || null; // ligado depois por ligarColaboradores (o módulo precisa do gerarHash, que é daqui)
   let instanciaAtual = null;
+  let aoCriar = null; // gancho do cadeado (Face ID): avisa que uma sessão nasceu com senha
+  let antesDeCriar = null; // gancho do cadeado: campos que entram no registro da sessão NA MESMA escrita que a cria
   const MOTIVO_INSTANCIA = 'Este convite era de um agente que foi removido. Peça um convite novo ao dono.';
   /** O convite guarda a instância do agente; se o agente foi removido e recriado com o mesmo nome, ele não vale. */
   // Sem exceção: convite sem instância, instância atual ilegível ou módulo não ligado também NEGAM.
@@ -132,13 +134,20 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
       if (e.code !== 'ENOENT') log('aviso', `Não li as sessões salvas em ${arquivo} (${e.code || e.message}). Começo sem sessões; quem estava logado precisa entrar de novo.`);
     }
   }
+  /** Grava as sessões. Devolve se deu certo (quem precisa da garantia, como a marca do cadeado, confere). */
   function salva() {
     try {
       const tmp = `${arquivo}.${process.pid}.tmp`;
-      fs.writeFileSync(tmp, JSON.stringify({ versao: 1, sessoes: Object.fromEntries(sessoes) }), { mode: 0o600 });
+      // `cadeado_pendente` (marca só na memória) nunca vai para o arquivo: ele só tem marca que de fato foi gravada.
+      const saida = {};
+      for (const [k, v] of sessoes) { if (v.cadeado_pendente) { const { cadeado_pendente, ...resto } = v; saida[k] = resto; } else saida[k] = v; }
+      fs.writeFileSync(tmp, JSON.stringify({ versao: 1, sessoes: saida }), { mode: 0o600 });
       fs.renameSync(tmp, arquivo);
+      for (const v of sessoes.values()) delete v.cadeado_pendente; // gravou tudo: o que estava pendente agora é de verdade
+      return true;
     } catch (e) {
       log('erro', `Não consegui gravar as sessões em ${arquivo} (${e.code || e.message}). O login continua valendo até o próximo restart; confira a permissão de ${config.dataDir}.`);
+      return false;
     }
   }
   function limpaExpiradas() {
@@ -281,9 +290,16 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
       }
       const reg = { usuario: nomeUsuario || usuario, criada, expira: expiraFinal, marca: marcaAtual() };
       if (colaborador) Object.assign(reg, { papel: 'colaborador', colaborador_id: colaborador.id, agente: colaborador.agente, senha_versao: colaborador.senha_versao });
+      if (antesDeCriar) {
+        try { Object.assign(reg, antesDeCriar({ req, colaborador }) || {}); } catch (e) { log('erro', `O gancho de sessão nova (cadeado) falhou antes de gravar: ${e.message}. A sessão nasce sem a marca do Face ID.`); }
+      }
       sessoes.set(sha256hex(token), reg);
       limpaExpiradas();
-      salva();
+      // Marca que veio na criação e não foi gravada fica só na memória: pendente, nunca prova de gravação.
+      if (!salva() && reg.cadeado_exige) reg.cadeado_pendente = true;
+      if (aoCriar) {
+        try { aoCriar({ token, req, colaborador, expira: expiraFinal }); } catch (e) { log('erro', `O gancho de sessão nova (cadeado) falhou: ${e.message}. A sessão foi criada; se o Face ID travar, entre de novo.`); }
+      }
       const cookie = montaCookie(token, config.sessaoDias * 86400, req);
       return { token, expira: expiraFinal, cookie, cookies: [cookie, montaCookiePapel(colaborador ? 'colaborador' : 'dono', req)] };
     },
@@ -301,6 +317,10 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
     },
 
     ligarColaboradores(modulo) { colaboradores = modulo; },
+    /** `fn({ token, req, colaborador })` roda depois de cada sessão nova (login, primeiro acesso, troca de senha). */
+    aoCriarSessao(fn) { aoCriar = fn; },
+    /** `fn({ req, colaborador })` devolve campos extras do registro da sessão nova (ou null); eles vão na mesma gravação que a cria. */
+    antesDeCriarSessao(fn) { antesDeCriar = fn; },
     /** `fn(slug)` devolve a instância atual do agente (ver instancia.js). Sem ela a conferência de instância não acontece. */
     ligarInstancias(fn) { instanciaAtual = fn; },
 
@@ -319,13 +339,74 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
       } finally { scryptEmCurso--; }
     },
 
-    /** Apaga todas as sessões de um colaborador (revogação, convite novo, troca de senha). Devolve quantas. */
+    /** Apaga todas as sessões de um colaborador (revogação, convite novo, troca de senha). Devolve { n, gravou }: quantas caíram e
+        se o arquivo foi regravado (sem gravar, a sessão pode voltar depois de um restart; quem promete o efeito confere). */
     encerraDoColaborador(id) {
       let n = 0;
       for (const [k, v] of sessoes) if (v.papel === 'colaborador' && v.colaborador_id === id) { sessoes.delete(k); n++; }
-      if (n) salva();
-      return n;
+      return { n, gravou: n ? salva() : true };
     },
+
+    /** Chave interna (sha256 do token) da sessão do pedido, ou null. É a chave com que os outros módulos apontam uma sessão. */
+    hashDaSessao(req) {
+      const token = parseCookies(req.headers.cookie)[NOME_COOKIE];
+      return token && token.length <= 200 ? sha256hex(token) : null;
+    },
+    /** Marca a sessão como presa a um aparelho com Face ID (cadeado_exige) e grava já. A marca vive no registro que AUTENTICA a
+        sessão, então sobrevive a restart mesmo se o estado do cadeado se perder. Se não der para gravar o retorno é falso, e o
+        arquivo antigo fica como estava (a troca é atômica). Com `manter`, a marca continua na memória e entra na próxima gravação
+        do auth (sessão que já devia estar travada); sem `manter`, ela é desfeita (a pessoa nunca foi prometida o cadeado). */
+    marcaCadeado(hash, aparelhoHash, manter) {
+      const s = sessoes.get(hash);
+      if (!s) return false;
+      const antes = { exige: s.cadeado_exige, ap: s.aparelho_hash, pendente: s.cadeado_pendente };
+      s.cadeado_exige = true; s.aparelho_hash = aparelhoHash;
+      if (salva()) return true;
+      if (manter) {
+        s.cadeado_pendente = true; // vale para travar, mas NUNCA como prova de que foi gravado
+      } else if (antes.exige === undefined) {
+        delete s.cadeado_exige; delete s.aparelho_hash; delete s.cadeado_pendente;
+      } else {
+        s.cadeado_exige = antes.exige; s.aparelho_hash = antes.ap;
+        if (antes.pendente) s.cadeado_pendente = true; else delete s.cadeado_pendente;
+      }
+      return false;
+    },
+    /** Tira a marca (só quando a pessoa remove o próprio aparelho). */
+    desmarcaCadeado(hash) {
+      const s = sessoes.get(hash);
+      if (!s || !s.cadeado_exige) return true;
+      delete s.cadeado_exige; delete s.aparelho_hash;
+      return salva();
+    },
+    /** Chaves das sessões de um titular ('dono' ou 'colaborador:<id>') marcadas para o cadeado com `aparelho_hash` entre os dados.
+        Ler daqui (e não do estado do cadeado) acha as sessões mesmo que o estado tenha se perdido ou corrompido. */
+    sessoesDoCadeado(titular, aparelhoHashes) {
+      const colabId = titular.startsWith('colaborador:') ? titular.slice(12) : null;
+      const out = [];
+      for (const [k, s] of sessoes) {
+        if (s.cadeado_exige !== true || !aparelhoHashes.includes(s.aparelho_hash)) continue;
+        if (colabId ? (s.papel === 'colaborador' && s.colaborador_id === colabId) : s.papel !== 'colaborador') out.push(k);
+      }
+      return out;
+    },
+    /** { exige, aparelho_hash, pendente } da sessão, ou null. `pendente`: a marca só está na memória (não foi gravada). */
+    leCadeado(hash) {
+      const s = sessoes.get(hash);
+      return s && s.cadeado_exige === true ? { exige: true, aparelho_hash: String(s.aparelho_hash || ''), pendente: s.cadeado_pendente === true } : null;
+    },
+    /** A sessão com esta chave interna ainda existe e não expirou? */
+    existeHash(hash) {
+      const s = sessoes.get(hash);
+      return !!s && s.expira > relogio();
+    },
+    /** Encerra uma sessão pela chave interna (ver hashDaSessao). Devolve { existia, gravou } (gravou: o arquivo foi regravado). */
+    encerraPorHash(hash) {
+      const existia = sessoes.delete(hash);
+      return { existia, gravou: existia ? salva() : true };
+    },
+    /** Regrava o sessoes.json agora e devolve se deu certo (para repetir uma revogação que não foi gravada). */
+    gravaSessoes() { return salva(); },
 
     /** Apaga a sessão do pedido e manda o cookie expirar. */
     encerra(req, res) {

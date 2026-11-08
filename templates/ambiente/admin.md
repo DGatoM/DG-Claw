@@ -117,6 +117,24 @@ compartilhado. A pessoa conversa com o agente inteiro, lê sessões, rotinas, me
 `/opt/dgclaw/app/web/docs/COLABORADORES.md` (também em `GET /api/v1/colaboradores/docs.md`). O envio do e-mail é
 opcional e depende das variáveis `DGCLAW_SMTP_*` do `web.env`.
 
+### Face ID (o cadeado do painel)
+
+O dono e cada colaborador podem ligar uma trava com Face ID, Touch ID ou biometria, por aparelho. Ligada, a tela
+trava sozinha depois de um tempo sem uso (15 minutos por padrão, de 1 a 120) e volta com o rosto, a digital ou o
+código do aparelho; "Entrar com a senha" é sempre a saída. Quem liga é a pessoa, na tela **Face ID** do menu ☰
+(`/face-id`), no aparelho em que quer a trava: você não consegue ligar por ela, mas explica e acompanha. O que
+dizer e o que conferir:
+
+- Precisa de HTTPS. Se a tela avisar que o endereço não tem HTTPS, o caminho é o certificado do endereço ou a
+  skill `trocar-dominio` (o painel em endereço de IP não aceita Face ID).
+- A passkey fica presa ao endereço. Ao trocar o domínio do painel, avise que o Face ID precisa ser ligado de novo
+  em cada aparelho; a senha e os agentes continuam iguais.
+- Se um aparelho foi perdido, a pessoa remove o aparelho na mesma tela. Se o arquivo `passkeys.json` ficar
+  ilegível, o cadeado fica fechado (só a senha destrava) até alguém consertar ou apagar o arquivo e reiniciar o
+  painel; o log diz o motivo.
+- Revogar um colaborador apaga as passkeys dele. O guia completo está em `/opt/dgclaw/app/web/docs/CADEADO.md`
+  (também em `GET /api/v1/cadeado/docs.md`).
+
 ### Anonimizar documentos
 
 O dono pode pedir que os documentos enviados a um agente cheguem sem os dados pessoais (nomes, CPF, telefone,

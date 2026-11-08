@@ -185,6 +185,16 @@
     else carrega('/ronda-comum.js', () => carrega('/seguranca-resumo.js'));
   }
 
+  /* O cadeado (Face ID) também precisa estar nas páginas do painel (/p/<agente>/), que só carregam este arquivo.
+     Sem a tag no HTML e sem o objeto já carregado, entra aqui; nas telas que já têm a tag, não duplica. */
+  function carregaTrava() {
+    if (raiz.DGTrava || document.querySelector('script[src="/trava.js"]')) return;
+    const s = document.createElement('script');
+    s.src = '/trava.js';
+    s.onerror = () => console.warn('casca: /trava.js não carregou; esta tela fica sem o aviso de uso e sem o cadeado do Face ID.');
+    document.head.appendChild(s);
+  }
+
   function monta(opcoes) {
     const o = opcoes || {};
     est.pagina = o.pagina || '';
@@ -192,6 +202,7 @@
     est.aoTutorial = o.aoTutorial || null;
     if (!document.body) { document.addEventListener('DOMContentLoaded', () => monta(o)); return Promise.resolve(); }
     if ($('cabecalho')) return Promise.resolve();   // já montada
+    carregaTrava();
     document.documentElement.classList.add('casca');
     document.body.insertAdjacentHTML('afterbegin', MARCACAO_CABECALHO + MARCACAO_MENU);
     pintaTitulo();
@@ -248,5 +259,5 @@
     if (est.pronto && raiz.DGMenuLado) raiz.DGMenuLado.extras(lista);
   }
 
-  return { monta, ativa, extras, escolheAgente, abreMenu, tutorialMenu, injetaMenu, guardaAgente };
+  return { monta, ativa, extras, escolheAgente, abreMenu, tutorialMenu, injetaMenu, guardaAgente, carregaTrava };
 });

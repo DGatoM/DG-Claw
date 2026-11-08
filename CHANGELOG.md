@@ -7,6 +7,26 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Face ID no painel: uma trava opcional, ligada aparelho por aparelho.** Nova tela **Face ID** (no menu ☰, em `/face-id`).
+Quem liga o recurso num aparelho passa a ter o painel travado sozinho depois de alguns minutos sem uso (15 por padrão, de 1
+a 120 à sua escolha) e destrava com o rosto, a digital ou o código do aparelho (Face ID, Touch ID ou biometria, conforme o
+aparelho). Vale para o dono e para cada colaborador, cada um com as próprias passkeys, e quem não ligar não percebe nada.
+O Face ID nunca faz login: ele só destrava uma sessão que já entrou com a senha, e o botão "Entrar com a senha" da tela
+travada continua sendo a saída para aparelho sem biometria. Com a tela travada, as conversas, as APIs, os painéis dos
+agentes (`/p/`) e os WebSockets ficam fechados no servidor, e os agentes que trabalham pela caixa não são afetados. A tela
+Face ID mostra o motivo quando o recurso não pode ser ligado (endereço sem HTTPS, navegador sem passkeys, aparelho sem
+biometria pronta) e explica que a passkey fica presa ao endereço do painel. O guia está em `web/docs/CADEADO.md`.
+
+### Como atualizar (Face ID)
+
+1. **Peça ao Admin, no chat: "atualiza o DG Claw".** O painel reinicia por alguns segundos para carregar a trava. Nada é
+   ligado sozinho: depois de atualizar, ninguém tem Face ID até ligar na tela nova.
+2. **Cada pessoa liga no próprio aparelho.** Abra **Face ID** no menu ☰ e toque em "Ligar neste aparelho". O recurso é por
+   aparelho: ligar no celular não trava o computador, e quem usa o painel em mais de um aparelho liga em cada um.
+3. **O Face ID precisa de HTTPS.** Se o seu painel ainda abre por um endereço de IP, a tela avisa e a trava não liga. Peça
+   ao Admin para colocar um endereço com HTTPS (veja a skill de trocar o domínio). A senha continua valendo em qualquer caso.
+4. **Se você trocar o endereço do painel, ligue o Face ID de novo.** A passkey fica presa ao endereço em que foi criada.
+
 **O aviso "Faça o login nos seus agentes" agora aparece uma única vez.** Antes, ele voltava a cada aba nova e a cada
 visita ao painel enquanto algum agente estivesse sem login. Agora o painel guarda, no servidor, que você já viu o aviso:
 fechar com **Fazer depois** ou recarregar a página não o traz de volta, e o novo botão **Não mostrar mais** o desliga de

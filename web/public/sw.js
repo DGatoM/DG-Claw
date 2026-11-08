@@ -5,7 +5,7 @@
    abrir rápido e para o app instalado ter o que mostrar. NUNCA mexe em /api/,
    /p/, /login, /sair nem nas páginas de conversa (/a/...): conteúdo da conversa,
    painéis e sessão passam direto para a rede, sem cópia nenhuma. */
-const VERSAO = 'dgclaw-estaticos-v35';
+const VERSAO = 'dgclaw-estaticos-v36';
 const ESTATICOS = [
   '/conversa.css', '/chat.css', '/conversa.js', '/menu-lado.js', '/menu-lado.css', '/casca.js', '/casca.css', '/login-cartao.js', '/login-expirado.js', '/login-expirado.css', '/trilha-tela.js', '/rolagem.js', '/conversa-puro.js', '/tour.js',
   '/onboarding.js', '/onboarding.css',
@@ -21,11 +21,13 @@ const ESTATICOS = [
   '/foco-tela.js', '/foco-tela.css',
   '/login.css', '/login.js', '/sem-zoom.css', '/sem-zoom.js', '/papel.js', '/papel.css',
   '/colaboradores.js', '/colaboradores.css', '/trocar-senha.js',
+  '/trava.js', '/face-id.js', '/face-id.css',
   '/anonimizar.js', '/anonimizar.css',
   '/manifest.webmanifest',
   '/icons/icon-192.png', '/icons/icon-512.png', '/icons/apple-touch-icon.png',
 ];
-const PROIBIDOS = [/^\/api\//, /^\/p\//, /^\/login/, /^\/sair/, /^\/a\//];
+// /cadeado e /face-id também: a tela travada nunca pode vir de cópia guardada.
+const PROIBIDOS = [/^\/api\//, /^\/p\//, /^\/login/, /^\/sair/, /^\/a\//, /^\/cadeado/, /^\/face-id/];
 
 self.addEventListener('install', ev => {
   ev.waitUntil(
