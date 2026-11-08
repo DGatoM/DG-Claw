@@ -416,7 +416,7 @@ function criarCaixaAgente({ config, registro, log, porta, agora, filtroRetrato }
       throw new ErroGravacao(`O nome da frente ${JSON.stringify(frente)} não vale para retrato: use de 1 a 40 caracteres entre a-z, 0-9 e hífen.`, 'OPCAO_INVALIDA');
     }
     // Retrato com texto do dono (foco, avisos) vai para a casa do agente: passa pelo filtro da anonimização. Lança se não puder filtrar.
-    if (filtroRetrato) objeto = filtroRetrato(agente.slug, objeto);
+    if (filtroRetrato) objeto = filtroRetrato(agenteOuErro(agente).slug, objeto);   // aceita slug ou objeto; sem casa, recusa
     return gravaNaCasa(agente, `retratos/${frente}.json`, Object.assign({}, objeto, { atualizado_em: new Date(relogio()).toISOString() }));
   }
 

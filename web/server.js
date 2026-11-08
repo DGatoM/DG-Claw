@@ -71,8 +71,13 @@ function proximoSeguro(v) {
   return s;
 }
 
-/** Passa a resposta JSON de `res` pelo `filtro` (texto a texto) antes de sair. Outros tipos de conteúdo seguem como estão. */
-function filtraRespostaJson(res, filtro, log) {
+/**
+ * Passa TODA resposta dinâmica de `res` pelo `filtro` (texto a texto) antes de sair: JSON e qualquer text/*.
+ * `estatica` (documentação, por nome exato de rota) segue como está. Tipo de conteúdo que não sei filtrar,
+ * com corpo, vira 503: para agente com a anonimização ligada, na dúvida não se entrega.
+ */
+function filtraRespostaDaCaixa(res, filtro, log, estatica) {
+  if (estatica) return;
   const writeHead = res.writeHead.bind(res); const end = res.end.bind(res);
   let status = null; let cabecalhos = {}; const pedacos = [];
   res.writeHead = (s, h) => { status = s; cabecalhos = Object.assign({}, h && typeof h === 'object' ? h : {}); return res; };
@@ -82,12 +87,20 @@ function filtraRespostaJson(res, filtro, log) {
     let corpo = Buffer.concat(pedacos);
     const tipo = String(Object.entries(cabecalhos).find(([k]) => k.toLowerCase() === 'content-type')?.[1] || res.getHeader('content-type') || '');
     let codigo = status || res.statusCode;
-    if (/json/i.test(tipo)) {
-      try { corpo = Buffer.from(JSON.stringify(filtro(JSON.parse(corpo.toString('utf8')))), 'utf8'); } catch (e) {
-        log('erro', `Anonimizar: não consegui filtrar a resposta da caixa (${e.message}). Respondi 503.`);
-        codigo = 503;
-        corpo = Buffer.from(JSON.stringify({ ok: false, erro: 'Não consegui trocar os dados pessoais da resposta, então ela não foi entregue. Tente de novo; se repetir, peça ao dono para conferir a tela Anonimizar.' }), 'utf8');
-      }
+    let recusa = null;
+    if (corpo.length) {
+      try {
+        if (/json/i.test(tipo)) corpo = Buffer.from(JSON.stringify(filtro(JSON.parse(corpo.toString('utf8')))), 'utf8');
+        else if (/^\s*text\//i.test(tipo)) corpo = Buffer.from(filtro(corpo.toString('utf8')), 'utf8');
+        else recusa = `tipo de conteúdo "${tipo || 'desconhecido'}" que não sei filtrar`;
+      } catch (e) { recusa = e.message; }
+    }
+    if (recusa) {
+      log('erro', `Anonimizar: não consegui filtrar a resposta da caixa (${recusa}). Respondi 503.`);
+      codigo = 503;
+      corpo = Buffer.from(JSON.stringify({ ok: false, erro: 'Não consegui trocar os dados pessoais da resposta, então ela não foi entregue. Tente de novo; se repetir, peça ao dono para conferir a tela Anonimizar.' }), 'utf8');
+      cabecalhos = {};
+      cabecalhos['Content-Type'] = 'application/json; charset=utf-8';
     }
     for (const k of Object.keys(cabecalhos)) if (k.toLowerCase() === 'content-length') delete cabecalhos[k];
     cabecalhos['Content-Length'] = corpo.length;
@@ -942,7 +955,8 @@ function criarServidor(opcoes) {
         log('erro', `Anonimizar: resposta da caixa para ${slugCaixa} recusada (${e.codigo || e.message}).`);
         return H.erroJson(res, e.status || 503, e.message, e.codigo ? { codigo: e.codigo } : undefined);
       }
-      if (filtro) filtraRespostaJson(res, filtro, log);
+      // Só a documentação estática (nome exato de rota, ex.: /api/v1/avisos/docs.md) escapa do filtro.
+      if (filtro) filtraRespostaDaCaixa(res, filtro, log, /^\/api\/v1\/[a-z-]+\/docs\.md$/.test(p));
     }
 
     // CSRF: toda escrita exige Origin igual à do próprio Web (a caixa não vem de navegador).
@@ -1134,7 +1148,7 @@ function criarServidor(opcoes) {
   };
 }
 
-module.exports = { criarServidor, proximoSeguro };
+module.exports = { criarServidor, proximoSeguro, filtraRespostaDaCaixa };
 
 if (require.main === module) {
   const s = criarServidor();

@@ -947,3 +947,85 @@ test('Correção na conversa: tudo que o agente recebe pela caixa (tarefas, lemb
     for (const [nome, m, rota] of rotas) assert.equal((await caixa(m, rota)).status, 503, nome);
   } finally { await s.fechar(); }
 });
+
+test('Correção na conversa: respostas em texto da caixa (avisos/preferencias e injecao com formato=texto) também passam pelo filtro; docs ficam como estão; tipo desconhecido vira 503', async () => {
+  const s = await cenario();
+  try {
+    await liga(s);
+    await sobe(s, 'ana', 'a.txt', `${NOME} ${CPF}`);
+    const cab = { 'X-DGClaw-Caixa': s.t.web.caixa.segredo, 'X-DGClaw-Agente': 'ana' };
+    const caixa = async (caminho) => { const r = await fetch(`http://127.0.0.1:${s.t.porta}${caminho}`, { headers: cab }); return { status: r.status, tipo: r.headers.get('content-type') || '', texto: await r.text() }; };
+    for (const tipo of ['preferencia', 'decisao']) {
+      const av = await s.c.post('/api/v1/avisos', { json: { tipo, texto: `Sempre trate ${NOME} (CPF ${CPF}) com cuidado`, assunto: 'Cliente', para: ['ana', 'beto'] } });
+      assert.ok(av.status < 300, av.texto);
+    }
+    let achou = 0;
+    for (const rota of ['/api/v1/avisos/preferencias?formato=texto', '/api/v1/avisos/injecao?formato=texto', '/api/v1/avisos/preferencias', '/api/v1/avisos/injecao']) {
+      const r = await caixa(rota);
+      assert.ok(r.status < 500, `${rota}: ${r.status} ${r.texto.slice(0, 200)}`);
+      assert.ok(!r.texto.includes(NOME) && !r.texto.includes(CPF), `${rota} vazou: ${r.texto.slice(0, 300)}`);
+      if (r.texto.includes('[PESSOA_1]')) achou += 1;
+    }
+    assert.ok(achou >= 2, `só ${achou} rotas mostraram o texto filtrado; o teste não provou o bastante`);
+    const t = await caixa('/api/v1/avisos/preferencias?formato=texto');
+    assert.match(t.tipo, /^text\/plain/);
+    // documentação estática segue sem filtro
+    const docs = await caixa('/api/v1/avisos/docs.md');
+    assert.equal(docs.status, 200); assert.match(docs.tipo, /markdown/);
+  } finally { await s.fechar(); }
+});
+
+test('Correção na conversa: filtro de resposta recusa (503) tipo de conteúdo que não sabe filtrar', async () => {
+  const http = require('node:http');
+  const srv = http.createServer((req, res) => { res.writeHead(200, { 'Content-Type': 'application/octet-stream' }); res.end('Maria Souza'); });
+  await new Promise((ok) => srv.listen(0, '127.0.0.1', ok));
+  try {
+    // o filtro vive em server.js; exercitado aqui pelo servidor de verdade com uma rota de arquivo não liberada: usa a função exposta
+    const { filtraRespostaDaCaixa } = require('../server');
+    const saida = await new Promise((resolve) => {
+      const p = http.createServer((rq, rs) => { filtraRespostaDaCaixa(rs, (v) => v, () => {}, false); rs.writeHead(200, { 'Content-Type': 'application/octet-stream' }); rs.end('Maria Souza'); });
+      p.listen(0, '127.0.0.1', async () => { const r = await fetch(`http://127.0.0.1:${p.address().port}/`); const texto = await r.text(); p.close(); resolve({ status: r.status, texto }); });
+    });
+    assert.equal(saida.status, 503); assert.ok(!saida.texto.includes('Maria Souza'));
+  } finally { srv.close(); }
+});
+
+test('Correção na conversa: retrato do foco gravado pelo fluxo real passa pelo filtro (slug resolvido) e sem agente a gravação é recusada', async () => {
+  const { criarCaixaAgente } = require('../lib/caixa-agente');
+  const s = await cenario();
+  try {
+    await liga(s);
+    await sobe(s, 'ana', 'a.txt', `${NOME} ${CPF}`);
+    // casa com outro dono que não é root, como a de um agente de verdade; o teste roda como root e pode dar o dono
+    const casa = pastaTemp('casa-foco');
+    fs.chownSync(casa, 1000, 1000);
+    const registroFalso = { obter: (slug) => (slug === 'ana' ? { slug: 'ana', nome: 'Ana', tipo: 'agente', home_host: casa } : null), estado: () => ({ ok: true, agentes: [] }) };
+    const caixa = criarCaixaAgente({ config: { dataDir: s.t.dados }, registro: registroFalso, log: () => {}, porta: () => 0, filtroRetrato: (slug, o) => { const f = s.t.web.anonimizar.filtroSaida(slug); return f ? f(o) : o; } });
+    // chamada como o foco.js faz: com o slug (texto)
+    await caixa.gravaRetrato('ana', 'foco', { lista: [`Revisar contrato de ${NOME}`], eventos: [] });
+    const arq = path.join(casa, '.dgclaw', 'retratos', 'foco.json');
+    const conteudo = fs.readFileSync(arq, 'utf8');
+    assert.ok(!conteudo.includes(NOME), conteudo); assert.match(conteudo, /\[PESSOA_1\]/);
+    // com o objeto do agente também
+    await caixa.gravaRetrato(registroFalso.obter('ana'), 'foco', { lista: [NOME], eventos: [] });
+    assert.ok(!fs.readFileSync(arq, 'utf8').includes(NOME));
+    // slug que não resolve: recusa, nada é gravado
+    await assert.rejects(async () => caixa.gravaRetrato('fantasma', 'foco', { lista: [NOME] }), /fantasma/);
+  } finally { await s.fechar(); }
+});
+
+test('Correção na conversa: atualizar o foco pelo fluxo real grava o retrato na casa do agente já filtrado', async () => {
+  const s = await cenario();
+  try {
+    await liga(s);
+    await sobe(s, 'ana', 'a.txt', `${NOME} ${CPF}`);
+    fs.chownSync(s.homeAna, 1000, 1000);   // casa de agente de verdade não é do root
+    const r = await s.c.pedir('PUT', '/api/v1/foco/ana', { json: { titulo: `Caso ${NOME}`, itens: [`Revisar contrato de ${NOME}`] } });
+    assert.equal(r.status, 200, r.texto);
+    const arq = path.join(s.homeAna, '.dgclaw', 'retratos', 'foco.json');
+    for (let i = 0; i < 40 && !fs.existsSync(arq); i += 1) await new Promise((ok) => setTimeout(ok, 50));
+    assert.ok(fs.existsSync(arq), `retrato não gravado; log: ${s.t.log.texto().slice(-400)}`);
+    const conteudo = fs.readFileSync(arq, 'utf8');
+    assert.ok(!conteudo.includes(NOME), conteudo); assert.match(conteudo, /\[PESSOA_1\]/);
+  } finally { await s.fechar(); }
+});
