@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { pastaTemp } = require('./ajuda');
-const { criarLeitor, limpa } = require('../lib/logs-leitor');
+const { criarLeitor, limpa, serializa } = require('../lib/logs-leitor');
 const { criarLogsRotas } = require('../lib/logs-rotas');
 
 const U = (n) => `${String(n).padStart(8, '0')}-1111-4111-8111-111111111111`;
@@ -268,4 +268,60 @@ test('/agentes: o que não couber no prazo total vem como "nao_verificada", com 
   const f = r.json.agentes[3].fontes[0];
   assert.match(f.motivo, /passou do prazo/);
   assert.equal(f.arquivos, null);
+});
+
+// ── objetos largos e fundos: orçamento global por valor ─────────────────────
+const SEGREDO_FIM = 'FIM' + 'DO' + 'OBJETO' + '123';
+const largo = (nObj, nChaves) => Array.from({ length: nObj }, (_, i) => Object.fromEntries(Array.from({ length: nChaves }, (_, k) => [`${'auth'.repeat(30)}${i}x${k}`, `valor ${k}`])));
+const aninhado = (n) => { let o = { folha: 'x', ['pass' + 'word']: SEGREDO_FIM }; for (let i = 0; i < n; i++) o = { [`k${i}`]: o, outro: { a: 1 } }; return o; };
+
+test('serializa: objeto largo, fundo ou com JSON dentro de texto fica abaixo de 100 ms (orçamento global)', () => {
+  const casos = [
+    largo(180, 175),
+    aninhado(40),
+    { texto: JSON.stringify(largo(150, 60)) },
+    Array.from({ length: 5000 }, (_, i) => ({ ['k' + i]: rep('palavra ', 600) })),
+    { json: rep('{"a":', 300) + '1' + '}'.repeat(300) },
+  ];
+  for (const c of casos) {
+    const ini = process.hrtime.bigint();
+    const r = serializa(c);
+    const ms = Number(process.hrtime.bigint() - ini) / 1e6;
+    assert.ok(ms < 100, `${ms.toFixed(0)} ms`);
+    assert.ok(r.length < 400 * 1024);
+  }
+});
+
+test('serializa: ao bater o limite o resto vira marcador e nada além do corte aparece', () => {
+  const lista = Array.from({ length: 3000 }, (_, i) => ({ i }));
+  lista.push({ ['pass' + 'word']: SEGREDO_FIM, visivel: SEGREDO_FIM });
+  const r = serializa(lista);
+  assert.ok(!r.includes(SEGREDO_FIM));
+  assert.match(r, /entrada grande demais, omitida/);
+  const texto = serializa({ a: 'x'.repeat(40000) + ' fim', b: 'y '.repeat(30000), c: SEGREDO_FIM });
+  assert.ok(!texto.includes(SEGREDO_FIM));
+  assert.match(texto, /entrada grande demais/);
+  assert.ok(serializa({ pequeno: 'ok', n: 1 }).includes('"pequeno":"ok"'), 'entrada pequena não é afetada');
+});
+
+test('leitor (Claude e Codex): objetos largos e aninhados não param o laço e não vazam depois do corte', async () => {
+  const c = casa();
+  const d = path.join(c.home, '.claude', 'projects', '-ws');
+  fs.mkdirSync(d, { recursive: true });
+  const blocos = [{ type: 'tool_use', id: 'a', name: 'x', input: { lista: largo(100, 175) } }];
+  for (let i = 0; i < 10; i++) blocos.push({ type: 'tool_use', id: `b${i}`, name: 'y', input: { n: aninhado(30), lista: largo(5, 175) } });
+  fs.writeFileSync(path.join(d, `${U(1)}.jsonl`), jl([{ type: 'assistant', timestamp: iso(1000), sessionId: U(1), message: { role: 'assistant', content: blocos } }]));
+  const cx = path.join(c.home, '.codex', 'sessions', '2026', '11', '01');
+  fs.mkdirSync(cx, { recursive: true });
+  const itens = [];
+  for (let i = 0; i < 30; i++) itens.push({ timestamp: iso(2000 + i), type: 'event_msg', payload: { type: 'item_completed', item: { type: 'McpToolCall', server: 's', tool: 't', arguments: { lista: largo(40, 175), fundo: aninhado(30) }, status: 'completed', result: { content: [{ type: 'text', text: JSON.stringify(largo(60, 60)) }] } } } });
+  fs.writeFileSync(path.join(cx, `rollout-x-${U(2)}.jsonl`), jl(itens));
+  const l = criarLeitor({ orcamento: { maxMs: 120000, maxBytes: 1e9 } });
+  let r;
+  const m = await medeLaco(async () => { r = await l.eventos(c.ag, { limite: 100, cursor: null }); });
+    assert.equal(r.eventos.length, 11 + 30);
+  assert.equal(r.contagens.linhas_gigantes, 0);
+  assert.ok(m.timerDuranteALeitura, 'o setTimeout(0) disparou durante a leitura');
+  assert.ok(m.maior < 300, `o laço ficou ${m.maior} ms parado`);
+  assert.ok(!JSON.stringify(r).includes(SEGREDO_FIM));
 });

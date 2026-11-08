@@ -22,8 +22,9 @@ existe aparece sozinho.
   Authorization, Proxy-Authorization, X-Api-Key, Cookie e Set-Cookie, até o fim da linha, e o valor de flags e atribuições
   até a aspa de fechamento ou o fim da linha, viram `[segredo oculto]`, sem deixar pedaço do valor, e `\"` dentro de um valor entre aspas não o fecha). Objetos vindos do log (entradas de
   ferramenta, argumentos) trocam por `[segredo oculto]` o valor de toda chave com nome de segredo (password, token, secret,
-  authorization, cookie, chave, credential e parecidos), em qualquer nível e também dentro de texto que contém JSON, com limite
-  de profundidade, de chaves e de tamanho). A máscara pega formatos conhecidos: um segredo fora desses formatos passa.
+  authorization, cookie, chave, credential e parecidos), em qualquer nível e também dentro de texto que contém JSON, com orçamento
+  global por valor (2000 nós e 64 KB de caracteres somados, chaves incluídas, profundidade 6): ao estourar, o resto vira
+  `[entrada grande demais, omitida]` e nada além do corte aparece. A máscara pega formatos conhecidos: um segredo fora desses formatos passa.
 - Pensamento do modelo (`thinking` e `reasoning`) não é exibido.
 - Arquivos de uma sessão ainda em andamento: a última linha, se estiver incompleta, é ignorada até terminar de ser gravada.
 

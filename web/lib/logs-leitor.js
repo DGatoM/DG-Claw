@@ -126,19 +126,25 @@ function limpa(texto) {
 // Chaves de objeto com nome de segredo: o valor sai escondido por inteiro, em qualquer nível.
 const RX_CHAVE_SENSIVEL = /api[_-]?key|passw(?:or)?d|pwd|senha|secret|token|authorization|cookie|chave|credential/i;
 const PROF_MAX = 6;
-const CHAVES_MAX = 200;
-const CARACTERES_MAX = 256 * 1024;
+const NOS_MAX = 2000;
+const CARACTERES_MAX = 64 * 1024;
+const CHAVE_MAX = 128;
+const MARCADOR_GRANDE = '[entrada grande demais, omitida]';
 
 /**
- * Antes de serializar um objeto vindo do log: profundidade, número de chaves e caracteres limitados, valor de chave
- * sensível trocado por [segredo oculto], cada texto mascarado como texto puro (o JSON escapa as aspas e esconderia o padrão)
- * e texto que contém JSON válido (começa com `{` ou `[` e cabe no teto) percorrido do mesmo jeito. Só texto e número entram.
+ * Antes de serializar um objeto vindo do log: orçamento GLOBAL por valor (no máximo 2000 nós e 64 KB de caracteres somados,
+ * chaves incluídas, profundidade 6). Ao estourar, a travessia para e o que falta é trocado por um marcador, sem expor nada
+ * adiante; assim o tempo é limitado seja qual for o formato (objetos largos, fundos ou JSON dentro de texto). Valor de chave
+ * sensível sai escondido, cada texto é mascarado como texto puro (o JSON escapa as aspas e esconderia o padrão) e texto que
+ * contém JSON válido (começa com `{` ou `[`) é percorrido do mesmo jeito. Só texto e número entram.
  */
 function redige(v, est, prof) {
+  if (est.cortou) return MARCADOR_GRANDE;
+  if (++est.nos > NOS_MAX) { est.cortou = true; return MARCADOR_GRANDE; }
   if (typeof v === 'string') {
     const s = corteBruto(v);
     est.chars += s.length;
-    if (est.chars > CARACTERES_MAX) return '[omitido: entrada grande demais]';
+    if (est.chars > CARACTERES_MAX) { est.cortou = true; return MARCADOR_GRANDE; }
     const t = s.trimStart();
     if ((t[0] === '{' || t[0] === '[') && v.length <= BRUTO && prof < PROF_MAX) {
       let obj;
@@ -150,23 +156,38 @@ function redige(v, est, prof) {
   if (typeof v === 'number' || typeof v === 'boolean' || v === null) return v;
   if (!v || typeof v !== 'object') return '';
   if (prof >= PROF_MAX) return '[omitido: aninhamento fundo demais]';
-  if (Array.isArray(v)) return v.slice(0, CHAVES_MAX).map((x) => redige(x, est, prof + 1));
+  if (Array.isArray(v)) {
+    const saida = [];
+    for (const x of v) {
+      if (est.cortou) { saida.push(MARCADOR_GRANDE); break; }
+      saida.push(redige(x, est, prof + 1));
+    }
+    return saida;
+  }
   const pares = [];
-  for (const k of Object.keys(v).slice(0, CHAVES_MAX)) {
-    pares.push([limpa(k.slice(0, 200)), RX_CHAVE_SENSIVEL.test(k) ? OCULTO : redige(v[k], est, prof + 1)]);
+  for (const k of Object.keys(v)) {
+    if (est.cortou) { pares.push(['…', MARCADOR_GRANDE]); break; }
+    const nome = k.length > CHAVE_MAX ? k.slice(0, CHAVE_MAX) : k;
+    est.chars += nome.length;
+    if (est.chars > CARACTERES_MAX) { est.cortou = true; continue; }
+    // nome com cara de segredo (sequência longa sem separador) não sai: teste linear, nunca a máscara inteira sobre cada chave
+    const chave = nome.length >= 32 && /^[A-Za-z0-9_.+\/=-]+$/.test(nome) ? '[chave longa omitida]' : nome;
+    pares.push([chave, RX_CHAVE_SENSIVEL.test(nome) ? OCULTO : redige(v[k], est, prof + 1)]);
   }
   return Object.fromEntries(pares);
 }
+
+const novoEstado = () => ({ nos: 0, chars: 0, cortou: false });
 
 function serializa(valor) {
   if (valor == null) return '';
   try {
     if (typeof valor === 'string') {
       const t = valor.trimStart();
-      if ((t[0] === '{' || t[0] === '[') && valor.length <= BRUTO) return redige(valor, { chars: 0 }, 0);
+      if ((t[0] === '{' || t[0] === '[') && valor.length <= BRUTO) return redige(valor, novoEstado(), 0);
       return valor;
     }
-    return JSON.stringify(redige(valor, { chars: 0 }, 0));
+    return JSON.stringify(redige(valor, novoEstado(), 0));
   } catch (_) { return '[objeto que não pude serializar]'; }
 }
 
@@ -497,10 +518,8 @@ async function extraiClaude(j, leitor, soRes) {
   let n = 0;
   for (const b of c) {
     // Uma linha pode trazer milhares de blocos: cede o laço e confere o prazo no meio dela (null = abandonada, será relida).
-    if (++n % 16 === 0) {
-      await leitor.ctx.cede();
-      if (leitor.ctx.excedeu()) return null;
-    }
+    await leitor.ctx.cede();
+    if (++n % 16 === 0 && leitor.ctx.excedeu()) return null;
     if (!b || typeof b !== 'object') continue;
     if (b.type === 'tool_result') {
       if (typeof b.tool_use_id === 'string') leitor.guardaResultado(b.tool_use_id, resultadoDe(textoDeBlocos(b.content), b.is_error));
@@ -1249,6 +1268,6 @@ function criarLeitor({ log, agora, orcamento } = {}) {
 }
 
 module.exports = {
-  criarLeitor, limpa, corta, normaliza, caminhoRelativo, codificaCursor, decodificaCursor, cmp, fontesDoAgente, descobreFonte,
+  criarLeitor, limpa, serializa, corta, normaliza, caminhoRelativo, codificaCursor, decodificaCursor, cmp, fontesDoAgente, descobreFonte,
   abrirSeguro, ErroEntrada, ErroArquivo, TIPOS, RX_ID_CURTO, RX_UUID, MAX_LINHA,
 };
