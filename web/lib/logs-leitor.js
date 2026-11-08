@@ -45,6 +45,9 @@ const RX_CLAUDE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
 const RX_SUBAGENTE = /^agent-[A-Za-z0-9_-]{1,100}\.jsonl$/;
 const RX_ROLLOUT = /^rollout-[A-Za-z0-9_.-]{1,160}\.jsonl$/;
 const RX_UUID_FIM = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i;
+const RX_CURSOR_TEXTO = /^[A-Za-z0-9_-]+$/;
+const RX_SHELL_C = /^(?:-lc|-c)$/;
+const RX_PATCH = /\*\*\* (?:Update|Add|Delete) File:[ \t]*([^\n]+)/;
 const RX_ID_CURTO = /^[0-9a-f]{12}$/;
 const TIPOS = ['mensagem', 'comando', 'arquivo', 'ferramenta', 'sistema'];
 const CONTEXTO_INJETADO = ['<environment_context>', '<user_instructions>', '# AGENTS.md'];
@@ -74,14 +77,20 @@ class ErroArquivo extends Error {
 // Padrões que rodam ANTES de mascarar() e da omissão de sequências longas: precisam ver o texto original (`-pSENHA` começa com
 // um hífen, e a atribuição entre aspas de mascara.js fecha na primeira aspa, mesmo escapada, e deixaria o resto do valor).
 // Valor entre aspas vai até a aspa de fechamento, consumindo `\"` como parte do valor; sem fechamento, até o fim da linha;
-// sem aspas, até o próximo espaço. Todos lineares: classes que não cruzam \n e sem alternância que se sobreponha.
-const VALOR = String.raw`"(?:[^"\\\n]|\\[^\n])*\\?(?:"|(?=\n|$))|'(?:[^'\\\n]|\\[^\n])*\\?(?:'|(?=\n|$))|\S+`;
+// sem aspas, até o próximo espaço. O argumento pode juntar pedaços adjacentes (`"a b"c'd e'`): cada pedaço começa por um
+// caractere diferente (aspa dupla, aspa simples ou um caractere comum), então o laço anda sempre para a frente, sem retrocesso.
+// Depois de uma aspa de fechamento, `,` `}` e `]` encerram o valor (JSON em texto: `"senha":"x","outro":"y"` mantém o resto).
+const DQ = String.raw`"(?:[^"\\\n]|\\[^\n])*\\?(?:"|(?=\n|$))`;
+const SQ = String.raw`'(?:[^'\\\n]|\\[^\n])*\\?(?:'|(?=\n|$))`;
+const FIM_JSON = String.raw`[,}\]](?<=[^"'][,}\]])`;        // vírgula, chave ou colchete só contam como valor se não vierem logo depois de aspa
+const pedacos = (comum) => String.raw`(?:${DQ}|${SQ}|${comum}|${FIM_JSON})+`;
+const VALOR = pedacos(String.raw`[^\s"',}\]]`);
+const VALOR_ATRIBUICAO = pedacos(String.raw`[^\s"'&;|,}\]]`);
 const PRE = [
-  // A senha colada no -p pode juntar trechos com e sem aspas (-pabc"d e"f): cada pedaço começa por um caractere diferente, então segue linear.
-  [new RegExp(String.raw`(\bmysql(?:dump)?\b[^\n]{0,300}?[ \t]-p)(?:"(?:[^"\\\n]|\\[^\n])*\\?(?:"|(?=\n|$))|'(?:[^'\\\n]|\\[^\n])*\\?(?:'|(?=\n|$))|[^\s"']+)+`, 'gi'), '$1' + OCULTO],
-  [new RegExp(String.raw`(--(?:password|token|api-key|secret|senha)(?:=|[ \t]{1,20}))(?:${VALOR})`, 'gi'), '$1' + OCULTO],
-  [new RegExp(String.raw`(\bcurl\b[^\n]{0,300}?[ \t](?:-u|--user)[ \t]{1,20})(?:${VALOR})`, 'gi'), '$1' + OCULTO],
-  [new RegExp(String.raw`((?:api[_-]?key|passw(?:or)?d|pwd|senha|secret|token|credential|chave|cookie|auth)[A-Za-z0-9_.-]{0,60}["']?[ \t]{0,20}[=:][ \t]{0,20})(?:"(?:[^"\\\n]|\\[^\n])*\\?(?:"|(?=\n|$))|'(?:[^'\\\n]|\\[^\n])*\\?(?:'|(?=\n|$))|[^\s"'&;|]+)`, 'gi'), '$1' + OCULTO],
+  [new RegExp(String.raw`(\bmysql(?:dump)?\b[^\n]{0,300}?[ \t]-p)${VALOR}`, 'gi'), '$1' + OCULTO],
+  [new RegExp(String.raw`(--(?:password|token|api-key|secret|senha)(?:=|[ \t]{1,20}))${VALOR}`, 'gi'), '$1' + OCULTO],
+  [new RegExp(String.raw`(\bcurl\b[^\n]{0,300}?[ \t](?:-u|--user)[ \t]{1,20})${VALOR}`, 'gi'), '$1' + OCULTO],
+  [new RegExp(String.raw`((?:api[_-]?key|passw(?:or)?d|pwd|senha|secret|token|credential|chave|cookie|auth)[A-Za-z0-9_.-]{0,60}["']?[ \t]{0,20}[=:][ \t]{0,20})${VALOR_ATRIBUICAO}`, 'gi'), '$1' + OCULTO],
 ];
 
 const EXTRAS = [
@@ -103,6 +112,7 @@ const EXTRAS = [
 // para achar uma palavra-chave: numa sequência de 64 KB sem espaço isso vira conta quadrática, e o agente é quem escreve
 // o texto. Sequência longa demais não é palavra nem segredo conhecido (um JWT ou uma chave em base64 também cai aqui):
 // sai omitida por inteiro, o que protege o valor e mantém todos os padrões em tempo linear.
+const RX_RESTO_MARCADOR = /\[segredo oculto\](?: oculto\])+/g;
 const RX_SEQUENCIA_LONGA = /[A-Za-z0-9_.-]{129,}/g;
 
 /** Corta em 64 KB e descarta também o último pedaço sem espaço, para não sobrar um segredo cortado no limite. */
@@ -121,10 +131,11 @@ function limpa(texto) {
   r = mascarar(r.replace(RX_SEQUENCIA_LONGA, '[trecho-longo-omitido]'));
   for (const [rx, sub] of EXTRAS) { rx.lastIndex = 0; r = r.replace(rx, sub); }
   // mascara.js reaplica o marcador sobre o próprio marcador (que tem um espaço) e deixa "oculto]" sobrando
-  return r.replace(/\[segredo oculto\](?: oculto\])+/g, OCULTO);
+  return r.replace(RX_RESTO_MARCADOR, OCULTO);
 }
 
 // Chaves de objeto com nome de segredo: o valor sai escondido por inteiro, em qualquer nível.
+const RX_CHAVE_LONGA = /^[A-Za-z0-9_.+\/=-]+$/;
 const RX_CHAVE_SENSIVEL = /api[_-]?key|passw(?:or)?d|pwd|senha|secret|token|authorization|cookie|chave|credential/i;
 const PROF_MAX = 6;
 const NOS_MAX = 2000;
@@ -172,7 +183,7 @@ function redige(v, est, prof) {
     est.chars += nome.length;
     if (est.chars > CARACTERES_MAX) { est.cortou = true; continue; }
     // nome com cara de segredo (sequência longa sem separador) não sai: teste linear, nunca a máscara inteira sobre cada chave
-    const chave = nome.length >= 32 && /^[A-Za-z0-9_.+\/=-]+$/.test(nome) ? '[chave longa omitida]' : nome;
+    const chave = nome.length >= 32 && RX_CHAVE_LONGA.test(nome) ? '[chave longa omitida]' : nome;
     pares.push([chave, RX_CHAVE_SENSIVEL.test(nome) ? OCULTO : redige(v[k], est, prof + 1)]);
   }
   return Object.fromEntries(pares);
@@ -210,8 +221,16 @@ function preparaTexto(bruto, teto) {
   return { cheio, texto: c.texto, truncado: c.truncado || s.length > BRUTO };
 }
 
+const RX_ACENTOS = /[̀-ͯ]/g;
 function normaliza(s) {
-  return String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  return String(s).normalize('NFD').replace(RX_ACENTOS, '').toLowerCase();
+}
+
+/** Tira as barras do fim sem regex (uma regex de barras repetidas seria quadrática num texto que o requisitante controla). */
+function semBarraFinal(s) {
+  let fim = s.length;
+  while (fim > 0 && s.charCodeAt(fim - 1) === 47) fim--;
+  return s.slice(0, fim);
 }
 
 function caminhoRelativo(p, bases) {
@@ -219,7 +238,7 @@ function caminhoRelativo(p, bases) {
   if (!s) return '';
   for (const b of bases) {
     if (!b) continue;
-    const base = b.replace(/\/+$/, '');
+    const base = semBarraFinal(b);
     if (s === base || s.startsWith(base + '/')) return '~' + s.slice(base.length);
   }
   if (s.startsWith('/')) return '…/' + s.split('/').filter(Boolean).slice(-3).join('/');
@@ -235,7 +254,7 @@ function inteiro(v, min) { return Number.isSafeInteger(v) && v >= min; }
 function decodificaCursor(texto) {
   if (texto == null || texto === '') return null;
   const ruim = (m) => new ErroEntrada(400, `O cursor "${String(texto).slice(0, 40)}" não vale (${m}). Peça a primeira página de novo, sem o parâmetro "cursor".`);
-  if (typeof texto !== 'string' || texto.length > TETO_CURSOR || !/^[A-Za-z0-9_-]+$/.test(texto)) throw ruim('formato ou tamanho');
+  if (typeof texto !== 'string' || texto.length > TETO_CURSOR || !RX_CURSOR_TEXTO.test(texto)) throw ruim('formato ou tamanho');
   let o;
   try { o = JSON.parse(Buffer.from(texto, 'base64url').toString('utf8')); } catch (_) { throw ruim('não é JSON'); }
   if (!o || typeof o !== 'object' || Array.isArray(o)) throw ruim('estrutura');
@@ -458,7 +477,7 @@ async function abrirSeguro(arq) {
     try { alvo = await fsp.readlink(`/proc/self/fd/${fh.fd}`); } catch (e) {
       throw new ErroArquivo('arquivo_recusado', `não consegui confirmar o caminho real do arquivo (/proc indisponível: ${e.code || e.message}); recusei por segurança`);
     }
-    alvo = alvo.replace(/ \(deleted\)$/, '');
+    if (alvo.endsWith(' (deleted)')) alvo = alvo.slice(0, -10);
     if (!(alvo === arq.raizReal || alvo.startsWith(arq.raizReal + path.sep))) throw new ErroArquivo('arquivo_recusado', 'o caminho real do arquivo fica fora da pasta do agente; recusei por segurança');
     return { fh, size: st.size };
   } catch (e) {
@@ -492,7 +511,7 @@ function resultadoDe(bruto, erro) {
 
 function comandoDeLista(c) {
   if (Array.isArray(c)) {
-    if (c.length >= 3 && typeof c[1] === 'string' && /^(?:-lc|-c)$/.test(c[1])) return str(c[2]);
+    if (c.length >= 3 && typeof c[1] === 'string' && RX_SHELL_C.test(c[1])) return str(c[2]);
     return c.map(str).join(' ');
   }
   return typeof c === 'string' ? c : '';
@@ -598,15 +617,6 @@ const JANELA_FERRAMENTA_MS = 3000;
 const sha = (t) => crypto.createHash('sha256').update(String(t)).digest('hex');
 /** Comparação sem normalização nenhuma: `cliente  A` e `cliente A` são comandos diferentes, e um texto só é igual a outro por inteiro. */
 const chaveComando = (t) => (t ? `cmd:${sha(t)}` : null);
-// `exec` do Codex embrulha um trecho de JavaScript. Só uma chamada isolada de comando, na forma exata abaixo, tem um comando
-// que se pode extrair com certeza; qualquer outra forma não se compara e os dois eventos ficam.
-const RX_EXEC_UNICO = /^\s*(?:text\(\s*)?(?:await\s+)?[\w$.]{1,60}\(\s*\{\s*cmd\s*:\s*("(?:[^"\\\n]|\\.)*")\s*(?:,\s*[\w$]{1,40}\s*:\s*[-\w.]{1,40}\s*)*\}\s*\)\s*\)?\s*;?\s*$/;
-function comandoDoExec(input) {
-  if (typeof input !== 'string' || input.length > 8000) return null;
-  const m = RX_EXEC_UNICO.exec(input);
-  if (!m) return null;
-  try { const v = JSON.parse(m[1]); return typeof v === 'string' && v ? v : null; } catch (_) { return null; }
-}
 const chaveTexto = (t) => (t ? `txt:${sha(t)}` : null);
 
 /**
@@ -650,11 +660,12 @@ function extraiCodex(j, leitor) {
     if (typeof args === 'string' && p.type === 'function_call') { try { args = JSON.parse(args); } catch (_) { /* fica texto */ } }
     if (nome === 'apply_patch') {
       const txt = typeof args === 'string' ? args : serializa(args && (args.input || args.patch));
-      const m = /\*\*\* (?:Update|Add|Delete) File:\s*(.+)/.exec(txt);
+      const m = RX_PATCH.exec(txt.length > BRUTO ? txt.slice(0, BRUTO) : txt);
       out.push({ tipo: 'arquivo', titulo: 'Alterou um arquivo', caminho: m ? m[1].trim() : '', operacao: 'alterar', ferramenta: nome, resultado, ded: id ? { fam: 'ri', cls: 'tool', key: null, t: null, id } : undefined });
     } else if (NOMES_SHELL.has(nome) || nome === 'exec') {
       const cmd = args && typeof args === 'object' ? (comandoDeLista(args.command) || (str(args.cmd))) : (typeof args === 'string' ? args : '');
-      const real = nome === 'exec' ? comandoDoExec(typeof args === 'string' ? args : '') : cmd;
+      // `exec` embrulha JavaScript com chamadas que não se comparam com segurança a um item: só o id pareia, senão ficam os dois.
+      const real = nome === 'exec' ? null : cmd;
       out.push({ tipo: 'comando', titulo: 'Comando', comando: cmd, resultado, ded: real || id ? { fam: 'ri', cls: 'exec', key: real ? chaveComando(real) : null, t: null, id } : undefined });
     } else {
       out.push({ tipo: 'ferramenta', titulo: nome, ferramenta: nome, entrada: args, resultado });
@@ -1268,7 +1279,28 @@ function criarLeitor({ log, agora, orcamento } = {}) {
   return { resumoDasFontes, sessoes, eventos, fontesNaoVerificadas };
 }
 
+/** Toda regex deste módulo, com sementes de entradas hostis (começos de casamento): o teste de auditoria as roda em 64 KB. */
+const REGEX_AUDITAVEIS = [
+  ...PRE.map(([rx], i) => ({ nome: `PRE[${i}]`, rx, sementes: ['mysql -p', '--password=', '--token ', 'curl -u ', 'curl x -u ', 'token=', 'chave:', 'senha="', "pwd='", 'cookie: '] })),
+  ...EXTRAS.map(([rx], i) => ({ nome: `EXTRAS[${i}]`, rx, sementes: ['sk-', 'sk_', 'gsk_', 'xai-', 'xoxb-', 'ghp_', 'eyJ', 'eyJaaaaaa.', 'eyJaaaaaa.bbbbbb.', 'Authorization: ', 'Proxy-Authorization:', 'X-Api-Key: ', 'Cookie: ', 'Set-Cookie:'] })),
+  { nome: 'RX_RESTO_MARCADOR', rx: RX_RESTO_MARCADOR, sementes: ['[segredo oculto]', '[segredo oculto] oculto]'] },
+  { nome: 'RX_SEQUENCIA_LONGA', rx: RX_SEQUENCIA_LONGA, sementes: ['a', 'a-', 'A1.'] },
+  { nome: 'RX_CHAVE_LONGA', rx: RX_CHAVE_LONGA, sementes: ['a', 'a/'] },
+  { nome: 'RX_CHAVE_SENSIVEL', rx: RX_CHAVE_SENSIVEL, sementes: ['api', 'api_', 'pass', 'passwor', 'secre', 'toke'] },
+  { nome: 'RX_ACENTOS', rx: RX_ACENTOS, sementes: ['a'] },
+  { nome: 'RX_PATCH', rx: RX_PATCH, sementes: ['*** Add File:', '*** Update File: ', '*** Delete File:\t'] },
+  { nome: 'RX_CURSOR_TEXTO', rx: RX_CURSOR_TEXTO, sementes: ['a', 'a-'] },
+  { nome: 'RX_SHELL_C', rx: RX_SHELL_C, sementes: ['-lc', '-c'] },
+  { nome: 'RX_CLAUDE', rx: RX_CLAUDE, sementes: ['11111111-1111-1111-1111-111111111111', '1'] },
+  { nome: 'RX_SUBAGENTE', rx: RX_SUBAGENTE, sementes: ['agent-', 'agent-a'] },
+  { nome: 'RX_ROLLOUT', rx: RX_ROLLOUT, sementes: ['rollout-', 'rollout-a.'] },
+  { nome: 'RX_UUID_FIM', rx: RX_UUID_FIM, sementes: ['11111111-1111-1111-1111-111111111111', '1'] },
+  { nome: 'RX_UUID', rx: RX_UUID, sementes: ['11111111-1111-1111-1111-111111111111', '1'] },
+  { nome: 'RX_ID_CURTO', rx: RX_ID_CURTO, sementes: ['a', '1'] },
+];
+
 module.exports = {
+  REGEX_AUDITAVEIS, semBarraFinal,
   criarLeitor, limpa, serializa, corta, normaliza, caminhoRelativo, codificaCursor, decodificaCursor, cmp, fontesDoAgente, descobreFonte,
   abrirSeguro, ErroEntrada, ErroArquivo, TIPOS, RX_ID_CURTO, RX_UUID, MAX_LINHA,
 };

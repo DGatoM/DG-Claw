@@ -20,7 +20,7 @@ existe aparece sozinho.
   agente comprometido pode reescrever a própria casa. Para auditoria séria, use também os logs do sistema.
 - O texto sai mascarado (chaves de API, tokens, senhas em linha de comando, cabeçalhos de autorização e o valor inteiro dos cabeçalhos
   Authorization, Proxy-Authorization, X-Api-Key, Cookie e Set-Cookie, até o fim da linha, e o valor de flags e atribuições
-  até a aspa de fechamento ou o fim da linha, viram `[segredo oculto]`, sem deixar pedaço do valor, e `\"` dentro de um valor entre aspas não o fecha). Objetos vindos do log (entradas de
+  até a aspa de fechamento ou o fim da linha (o valor pode juntar pedaços com e sem aspas, como `"a b"c`; em JSON, a vírgula ou a chave depois da aspa de fechamento encerram o valor), viram `[segredo oculto]`, sem deixar pedaço do valor, e `\"` dentro de um valor entre aspas não o fecha). Objetos vindos do log (entradas de
   ferramenta, argumentos) trocam por `[segredo oculto]` o valor de toda chave com nome de segredo (password, token, secret,
   authorization, cookie, chave, credential e parecidos), em qualquer nível e também dentro de texto que contém JSON, com orçamento
   global por valor (2000 nós e 64 KB de caracteres somados, chaves incluídas, profundidade 6): ao estourar, o resto vira
@@ -142,9 +142,9 @@ Resposta:
   normalizar espaço, caixa nem tamanho), um para um, dentro da janela (mensagens 5 segundos, comandos 3 segundos). Só o hash
   fica na memória. Fica a primeira linha vista na leitura de trás para frente.
   Qualquer dúvida mantém os dois eventos, porque num log de auditoria é melhor sobrar repetição do que faltar uma ação.
-  Por isso o `exec` do Codex (um trecho de JavaScript que pode chamar várias ferramentas) só se junta ao comando quando contém
-  uma única chamada de comando com o texto extraível; nos demais casos aparecem o `exec` e os itens que ele gerou, e ferramentas
-  e alterações de arquivo sem id também aparecem nas duas famílias.
+  Por isso o `exec` do Codex (um trecho de JavaScript que pode chamar várias ferramentas) nunca se junta ao item que ele gerou,
+  a não ser que os dois tenham o mesmo id: aparecem o `exec` e o item. Ferramentas e alterações de arquivo sem id também
+  aparecem nas duas famílias.
   Arquivo sem nenhum dos dois tipos de registro aparece como "formato não reconhecido", nunca como "sem ações": o aviso só sai
   depois de o arquivo ser lido até o começo (um primeiro registro de conversa longe do início não faz o arquivo sumir).
 - Em um arquivo que ainda está crescendo, a página seguinte pode, raramente, repetir ou pular um registro cujo horário

@@ -10,9 +10,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 const H = require('./http');
 const { RX_SLUG } = require('./registro');
-const { criarLeitor, decodificaCursor, ErroEntrada, TIPOS, RX_ID_CURTO, RX_UUID } = require('./logs-leitor');
+const { criarLeitor, decodificaCursor, ErroEntrada, TIPOS, RX_ID_CURTO, RX_UUID, semBarraFinal } = require('./logs-leitor');
 
 const BASE = '/api/v1/logs';
+const RX_DIA = /^(\d{4})-(\d{2})-(\d{2})$/;
+const RX_HORARIO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})?$/;
+const RX_NUMERO = /^\d{1,6}$/;
+const RX_ROTA_AGENTE = /^\/agentes\/([^/]+)\/(sessoes|eventos)$/;
 const MAX_BUSCAS = 2;
 const PRAZO_AGENTES_MS = 5000;
 
@@ -23,14 +27,14 @@ function autorizado(sessao) {
 
 function parseData(texto, fimDoDia, nome) {
   const ruim = () => new ErroEntrada(400, `O parâmetro "${nome}" precisa ser uma data AAAA-MM-DD ou um horário ISO (ex.: 2026-11-08 ou 2026-11-08T14:30:00-03:00). Recebi: ${String(texto).slice(0, 40)}.`);
-  const dia = /^(\d{4})-(\d{2})-(\d{2})$/.exec(texto);
+  const dia = RX_DIA.exec(texto);
   if (dia) {
     const y = Number(dia[1]); const m = Number(dia[2]); const d = Number(dia[3]);
     const dt = new Date(y, m - 1, d);
     if (dt.getFullYear() !== y || dt.getMonth() !== m - 1 || dt.getDate() !== d) throw ruim();
     return fimDoDia ? new Date(y, m - 1, d + 1).getTime() - 1 : dt.getTime();
   }
-  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})?$/.test(texto)) {
+  if (RX_HORARIO.test(texto)) {
     const t = Date.parse(texto);
     if (Number.isFinite(t)) return t;
   }
@@ -40,7 +44,7 @@ function parseData(texto, fimDoDia, nome) {
 function numeroEntre(texto, nome, min, max, padrao) {
   if (texto == null || texto === '') return padrao;
   const n = Number(texto);
-  if (!/^\d{1,6}$/.test(String(texto)) || n < min || n > max) {
+  if (!RX_NUMERO.test(String(texto)) || n < min || n > max) {
     throw new ErroEntrada(400, `O parâmetro "${nome}" precisa ser um número inteiro entre ${min} e ${max}. Recebi: ${String(texto).slice(0, 40)}.`);
   }
   return n;
@@ -132,7 +136,7 @@ function criarLogsRotas({ registro, log, agora, orcamento, arquivoDocs, leitor: 
 
   /** Devolve true quando tratou o pedido. */
   async function rotas(req, res, url, sessao) {
-    const p = url.pathname.replace(/\/+$/, '');
+    const p = semBarraFinal(url.pathname);
     if (p !== BASE && !p.startsWith(`${BASE}/`)) return false;
     if (!sessao) { H.erroJson(res, 401, 'Você precisa entrar para ver os logs. Faça login em /login.'); return true; }
     if (!autorizado(sessao)) {
@@ -145,7 +149,7 @@ function criarLogsRotas({ registro, log, agora, orcamento, arquivoDocs, leitor: 
       if (sub === '/docs.md') { await docs(res); return true; }
       if (falhaRegistro(res)) return true;
       if (sub === '/agentes') { await comVaga(res, () => listaAgentes(res)); return true; }
-      const m = /^\/agentes\/([^/]+)\/(sessoes|eventos)$/.exec(sub);
+      const m = RX_ROTA_AGENTE.exec(sub);
       if (m) {
         const ag = agenteOuErro(res, m[1]);
         if (!ag) return true;
@@ -185,4 +189,12 @@ function criarLogsRotas({ registro, log, agora, orcamento, arquivoDocs, leitor: 
   return { rotas };
 }
 
-module.exports = { criarLogsRotas, autorizado };
+/** Regex das rotas, para o teste de auditoria (mesmo formato de REGEX_AUDITAVEIS em logs-leitor). */
+const REGEX_AUDITAVEIS = [
+  { nome: 'RX_DIA', rx: RX_DIA, sementes: ['2026-', '2026-11-', '1'] },
+  { nome: 'RX_HORARIO', rx: RX_HORARIO, sementes: ['2026-11-08T12:00', '2026-11-08T12:00:00.', '1'] },
+  { nome: 'RX_NUMERO', rx: RX_NUMERO, sementes: ['1'] },
+  { nome: 'RX_ROTA_AGENTE', rx: RX_ROTA_AGENTE, sementes: ['/agentes/', '/agentes/a/', '/agentes/a/sessoes'] },
+];
+
+module.exports = { criarLogsRotas, autorizado, REGEX_AUDITAVEIS };

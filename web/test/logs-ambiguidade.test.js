@@ -147,24 +147,43 @@ test('Codex: o mesmo comando duas vezes seguidas só colapsa com o par um para u
   assert.equal(comandos(r).length, 2);
 });
 
-test('Codex: exec embrulhado só pareia quando o comando isolado se extrai com certeza', async () => {
+test('Codex: `exec` embrulhado nunca colapsa com o item sem o mesmo id: ficam os dois eventos', async () => {
   const c = casa();
   const exec = (ms, input, id) => ri(ms, { type: 'custom_tool_call', name: 'exec', call_id: id, input });
   rollout(c, [
-    exec(1000, 'text(await tools.exec_command({cmd:"ls /workspace",max_output_tokens:6000}));', 'k1'), cmdIC(1010, 'ls /workspace', 'e1'),       // par: um só
-    exec(2000, 'await tools.exec_command({cmd:"rm -rf /workspace/dados"});', 'k2'), cmdIC(2010, 'ls /workspace', 'e2'),                     // diferentes: os dois
-    exec(3000, 'await tools.reply({chat:"c",text:"oi"}); text(await tools.exec_command({cmd:"pwd"}));', 'k3'), cmdIC(3010, 'pwd', 'e3'),      // embrulho com mais de uma chamada: os dois
+    exec(1000, 'text(await tools.exec_command({cmd:"ls /workspace",max_output_tokens:6000}));', 'k1'), cmdIC(1010, 'ls /workspace', 'e1'),
+    exec(2000, 'await tools.exec_command({cmd:"rm -rf /workspace/dados"});', 'k2'), cmdIC(2010, 'ls /workspace', 'e2'),
+    exec(3000, 'await tools.reply({chat:"c",text:"oi"}); text(await tools.exec_command({cmd:"pwd"}));', 'k3'), cmdIC(3010, 'pwd', 'e3'),
     exec(4000, 'await tools.reply({chat:"c",text:"oi"});', 'k4'),
     ic(4100, { type: 'McpToolCall', id: 'e4', server: 'dgchat', tool: 'reply', arguments: { chat: 'c', text: 'oi' }, status: 'completed' }, { started_at_ms: BASE_T + 4010 }),
   ]);
-  const r = await criarLeitor().eventos(c.ag, { limite: 50, cursor: null });
+  const l = criarLeitor();
+  const r = await l.eventos(c.ag, { limite: 50, cursor: null });
   const cs = r.eventos.filter((e) => e.tipo === 'comando');
-  const norm = (e) => e.detalhes.comando.replace(/\s+/g, ' ');
-  assert.equal(cs.filter((e) => /ls \/workspace/.test(norm(e)) && !/rm/.test(norm(e))).length, 2, 'ls: um do par (k1/e1) e o ls solto (e2)');
-  assert.equal(cs.filter((e) => /rm -rf/.test(norm(e))).length, 1);
-  assert.equal(cs.filter((e) => /pwd/.test(norm(e))).length, 2, 'embrulho com mais de uma chamada não se compara');
+  assert.equal(cs.length, 7, 'os 4 exec e os 3 itens de comando');
+  assert.equal(cs.filter((e) => /tools\./.test(e.detalhes.comando)).length, 4, 'os trechos de exec aparecem');
   assert.equal(r.eventos.filter((e) => e.detalhes.ferramenta === 'dgchat/reply').length, 1);
-  assert.equal(cs.length, 6);
+  assert.deepEqual(await paginado(l, c.ag, 1), r.eventos.map((e) => e.id));
+});
+
+test('Codex: exec embrulhado com o mesmo id do item ainda pareia', async () => {
+  const c = casa();
+  rollout(c, [
+    ri(1000, { type: 'custom_tool_call', name: 'exec', call_id: 'mesmo', input: 'await tools.exec_command({cmd:"ls"});' }),
+    cmdIC(1010, 'ls', 'mesmo'),
+  ]);
+  const r = await criarLeitor().eventos(c.ag, { limite: 50, cursor: null });
+  assert.equal(r.eventos.length, 1);
+});
+
+test('exec com muitos espaços (que travava a extração por regex) é lido rápido', async () => {
+  const c = casa();
+  const input = 'await tools.exec_command({cmd:"ls"})' + ' '.repeat(7900) + '\ntext("ok");';
+  rollout(c, [ri(1000, { type: 'custom_tool_call', name: 'exec', call_id: 'k', input }), cmdIC(1010, 'ls', 'e')]);
+  const ini = Date.now();
+  const r = await criarLeitor().eventos(c.ag, { limite: 50, cursor: null });
+  assert.ok(Date.now() - ini < 2000);
+  assert.equal(r.eventos.length, 2);
 });
 
 test('Codex: o mesmo id pareia (correspondência inequívoca), mesmo com texto diferente', async () => {
@@ -265,4 +284,53 @@ test('limpa: senha do mysql entre aspas, com espaços, não deixa sobra (mysql e
     assert.ok(!r.includes(SUF) && !r.includes('primeira'), `sobrou parte da senha em: ${r}`);
   }
   assert.match(limpa(`mysql -u root -p"a b" banco`), / banco$/, 'o que vem depois da senha continua legível');
+});
+
+// ── argumento com pedaços adjacentes (com e sem aspas) ──────────────────────
+const ADJACENTES = [
+  `app --password="prefixo"${SUF} depois`,
+  `app --token='a b'c"d e"${SUF} depois`,
+  `app --secret "a b"'c d'${SUF} depois`,
+  `app --api-key=um"dois três"quatro'cinco seis'${SUF} depois`,
+  `curl -u a:"b c"${SUF} https://x depois`,
+  `curl --user 'a b'c:"d e"${SUF} https://x depois`,
+  `senha="a"${SUF} depois`,
+  `chave='a b'"c d"${SUF} depois`,
+  `pwd=a"b c"${SUF} depois`,
+  `mysql -u root -p"a b"c'd e'${SUF} db depois`,
+];
+
+test('limpa: valor com pedaços adjacentes, com e sem aspas, sai inteiro e o que vem depois fica legível', () => {
+  for (const c of ADJACENTES) {
+    const r = limpa(c);
+    assert.ok(!r.includes(SUF), `sobrou o sufixo em: ${c} => ${r}`);
+    assert.match(r, /depois$/);
+  }
+});
+
+test('limpa: JSON em texto cru para o valor na aspa de fechamento e preserva o resto do objeto', () => {
+  const k = 'sen' + 'ha';
+  const r = limpa(`{"${k}":"${SUF}","outro":"visivel","lista":["a","b"],"${k}2":"x"}`);
+  assert.ok(!r.includes(SUF));
+  assert.ok(r.includes('"outro":"visivel"') && r.includes('"lista":["a","b"]'), r);
+  const r2 = limpa(`{"a":{"${k}":"${SUF}"},"b":"fica"}`);
+  assert.ok(!r2.includes(SUF) && r2.includes('"b":"fica"'), r2);
+  assert.ok(!limpa(`[{"${k}":"${SUF}"},{"c":1}]`).includes(SUF));
+  assert.equal(limpa(`--password=pa,ss}x]y resto`), '--password=[segredo oculto] resto', 'sem aspas, vírgula e chave fazem parte do valor');
+});
+
+test('resposta e busca nos dois motores: nada do valor sai e procurar pelo sufixo não acha', async () => {
+  const c = casa();
+  const d = path.join(c.home, '.claude', 'projects', '-ws');
+  fs.mkdirSync(d, { recursive: true });
+  fs.writeFileSync(path.join(d, `${U(1)}.jsonl`), jl(ADJACENTES.map((texto, i) => ({ type: 'user', timestamp: iso(1000 + i), sessionId: U(1), message: { role: 'user', content: texto } }))));
+  const cx = path.join(c.home, '.codex', 'sessions', '2026', '11', '01');
+  fs.mkdirSync(cx, { recursive: true });
+  fs.writeFileSync(path.join(cx, `rollout-x-${U(2)}.jsonl`), jl(ADJACENTES.map((texto, i) => ic(5000 + i, { type: 'UserMessage', content: [{ type: 'text', text: texto }] }))));
+  const l = criarLeitor();
+  const r = await l.eventos(c.ag, { limite: 100, cursor: null });
+  assert.equal(r.eventos.length, ADJACENTES.length * 2);
+  assert.ok(!JSON.stringify(r).includes('ALHEIO'));
+  for (const q of [SUF, 'ALHEIO']) assert.equal((await l.eventos(c.ag, { limite: 100, cursor: null, q })).eventos.length, 0);
+  assert.ok(r.eventos.every((e) => /depois/.test(e.texto)));
 });
