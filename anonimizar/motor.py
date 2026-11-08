@@ -376,6 +376,11 @@ FORMATOS_ATIVOS = (".html", ".htm", ".xhtml", ".svg", ".xml", ".xsl", ".js", ".m
 
 
 def op_reverter(req):
+    with teto_de_memoria():
+        return _reverter(req)
+
+
+def _reverter(req):
     entrada, nome = _validar_caminhos(req)
     saida = req.get("saida")
     if not isinstance(saida, str) or not saida:

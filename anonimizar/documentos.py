@@ -272,9 +272,65 @@ def pdf_texto(caminho, nome):
 _SHEET_INVALIDO = re.compile(r"[\\/?*\[\]:]")
 
 
+_RX_DIMENSAO = re.compile(rb'<(?:[\w.-]+:)?dimension\s[^>]*?ref\s*=\s*"([^"]+)"')
+_RX_MESCLA = re.compile(rb'<(?:[\w.-]+:)?mergeCell\s[^>]*?ref\s*=\s*"([^"]+)"')
+
+
+def _numero_da_coluna(letras):
+    n = 0
+    for c in letras.upper():
+        n = n * 26 + (ord(c) - 64)
+    return n
+
+
+def _area(ref):
+    """(linhas, colunas) de uma referência A1:B2 (ou A1); None se não for uma referência."""
+    m = re.fullmatch(r"\$?([A-Za-z]{1,3})\$?(\d{1,8})(?::\$?([A-Za-z]{1,3})\$?(\d{1,8}))?", ref.strip())
+    if not m:
+        return None
+    c1, l1 = _numero_da_coluna(m.group(1)), int(m.group(2))
+    c2, l2 = (_numero_da_coluna(m.group(3)), int(m.group(4))) if m.group(3) else (c1, l1)
+    return abs(l2 - l1) + 1, abs(c2 - c1) + 1
+
+
+def conferir_planilha_crua(caminho, nome):
+    """Lê o XML cru das abas (em pedaços) ANTES do openpyxl: dimensão e mesclagens que criariam milhões de células são recusadas sem carregar."""
+    with abrir_zip(caminho, nome) as z:
+        for info in z.infolist():
+            if not re.fullmatch(r"xl/worksheets/[^/]+\.xml", info.filename):
+                continue
+            soma_mescla, resto = 0, b""
+            with z.open(info) as f:
+                while True:
+                    bloco = f.read(1024 * 1024)
+                    texto = resto + bloco
+                    corte = len(texto) if not bloco else texto.rfind(b">") + 1   # só tags inteiras; a sobra espera o próximo pedaço
+                    resto = texto[corte:]
+                    for rx, e_dimensao in ((_RX_DIMENSAO, True), (_RX_MESCLA, False)):
+                        for m in rx.finditer(texto[:corte]):
+                            ar = _area(m.group(1).decode("ascii", "replace"))
+                            if ar is None:
+                                continue
+                            linhas, colunas = ar
+                            if e_dimensao:
+                                if linhas > MAX_LINHAS or linhas * colunas > MAX_CELULAS:
+                                    raise _planilha_grande(nome, info.filename, "a dimensão declarada tem %d linhas e %d colunas" % (linhas, colunas))
+                            else:
+                                soma_mescla += linhas * colunas
+                                if soma_mescla > MAX_CELULAS:
+                                    raise _planilha_grande(nome, info.filename, "as células mescladas somam mais de %d" % MAX_CELULAS)
+                    if not bloco:
+                        break
+
+
+def _planilha_grande(nome, parte, motivo):
+    return ErroMotor("planilha_grande", "A planilha '%s' é grande demais para anonimizar: %s (parte %s; o limite é %d células e %d linhas por aba). "
+                     "Desfaça as mesclagens enormes, apague linhas e colunas vazias ou divida a planilha." % (nome, motivo, parte, MAX_CELULAS, MAX_LINHAS))
+
+
 def xlsx_abrir(caminho, nome, **kw):
     openpyxl = _importar("openpyxl", "openpyxl", nome)
-    abrir_zip(caminho, nome).close()
+    conferir_planilha_crua(caminho, nome)
     try:
         wb = openpyxl.load_workbook(caminho, **kw)
         conferir_tamanho(wb, nome)
@@ -491,34 +547,14 @@ def xlsx_reverter(wb, valores, encontrar):
     wb._external_links = []
 
 
-_RX_CERCA = re.compile(r"^ {0,3}(`{3,}|~{3,})")
-_RX_CODIGO_INLINE = re.compile(r"(`+)(?:(?!\1).)+?\1")
-
-
 def neutralizar_html_md(texto):
-    """HTML cru do markdown (fora de bloco e de trecho de código) é desativado: todo "<" vira "&lt;". Devolve (texto, mudou)."""
-    saida, cerca, mudou = [], None, False
-    for linha in texto.split("\n"):
-        m = _RX_CERCA.match(linha)
-        if cerca is None and m:
-            cerca = m.group(1)[0]
-            saida.append(linha)
-            continue
-        if cerca is not None:
-            if m and m.group(1)[0] == cerca:
-                cerca = None
-            saida.append(linha)
-            continue
-        partes, pos = [], 0
-        for c in _RX_CODIGO_INLINE.finditer(linha):
-            partes.append(linha[pos:c.start()].replace("<", "&lt;"))
-            partes.append(c.group(0))
-            pos = c.end()
-        partes.append(linha[pos:].replace("<", "&lt;"))
-        nova = "".join(partes)
-        mudou = mudou or nova != linha
-        saida.append(nova)
-    return "\n".join(saida), mudou
+    """HTML cru do markdown é desativado sem exceção: todo "<" vira "&lt;", inclusive dentro de código.
+
+    Não tenta entender cerca de código nem crase escapada: o que o CommonMark trata como HTML não pode escapar por um erro do filtro.
+    Devolve (texto, mudou).
+    """
+    novo = texto.replace("<", "&lt;")
+    return novo, novo != texto
 
 
 def csv_inerte(celula):
