@@ -213,6 +213,16 @@ function criarProxy({ config, registro, log, cofreRotas }) {
     h.upgrade = req.headers.upgrade;
     const preq = http.request({ host: '127.0.0.1', port: agente.porta_painel, method: req.method, path: req.url, headers: h });
     preq.on('upgrade', (pres, psocket, phead) => {
+      // A sessão pode ter sido encerrada ou travada enquanto o painel respondia: confere ANTES de qualquer byte chegar ao navegador.
+      if (quem && typeof quem.valeAinda === 'function') {
+        let vale = false;
+        try { vale = !!quem.valeAinda(); } catch (e) { log('erro', `Proxy /p/${slug}: não consegui revalidar a sessão antes de abrir o WebSocket (${e.message}); recusei.`); }
+        if (!vale) {
+          log('aviso', `Proxy /p/${slug}: a sessão deixou de valer (ou travou) enquanto o painel abria o WebSocket; fechei sem entregar nada ao navegador.`);
+          socket.destroy(); psocket.destroy();
+          return;
+        }
+      }
       let cab = `HTTP/1.1 ${pres.statusCode} ${pres.statusMessage}\r\n`;
       // Set-Cookie do painel não passa para o navegador (mesma regra do HTTP comum).
       for (let i = 0; i < pres.rawHeaders.length; i += 2) {

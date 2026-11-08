@@ -700,14 +700,16 @@ function painelComWebSocket() {
     res.writeHead(200); res.end('{}');
   });
   const abertos = new Set();
+  const seguros = []; // upgrades em /lento esperam o teste mandar o 101
   servidor.on('upgrade', (req, socket) => {
     abertos.add(socket); socket.on('close', () => abertos.delete(socket));
-    socket.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n');
+    const responde = () => { if (!socket.destroyed) socket.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n'); };
+    if (req.url.includes('/lento')) seguros.push(responde); else responde();
     socket.on('data', (d) => socket.write(d));
     socket.on('error', () => socket.destroy());
   });
   return {
-    pedidos,
+    pedidos, seguros,
     ouvir: () => new Promise((r) => servidor.listen(0, '127.0.0.1', () => r(servidor.address().port))),
     fechar: () => new Promise((r) => { for (const x of abertos) x.destroy(); servidor.closeAllConnections(); servidor.close(() => r()); }),
   };
@@ -1555,4 +1557,60 @@ test('um 423 do painel repassado pelo proxy chega como o painel mandou, sem trav
     const r2 = await d.get('/p/ana/api/poder-desligado');
     assert.deepEqual(r2.json, { error: 'power_not_installed' });
   } finally { await s.fechar(); }
+});
+
+// ── corrida no upgrade e camada com hidden ───────────────────────────────────
+/** Abre o WebSocket com um socket cru, para contar os bytes que chegam ao navegador. */
+function upgradeCru(s, p, caminho) {
+  const net = require('node:net');
+  const sock = net.connect(s.t.porta, '127.0.0.1');
+  const r = { bytes: 0, fechou: new Promise((res) => sock.on('close', () => res(true))) };
+  sock.on('data', (d) => { r.bytes += d.length; });
+  sock.on('error', () => {});
+  sock.write([`GET ${caminho} HTTP/1.1`, `Host: localhost:${s.t.porta}`, `Origin: ${p.origem}`, 'Connection: Upgrade', 'Upgrade: websocket',
+    'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==', 'Sec-WebSocket-Version: 13', `Cookie: dgclaw_sessao=${p.jar.dgclaw_sessao}; dgclaw_aparelho=${p.jar.dgclaw_aparelho || ''}`, '', ''].join('\r\n'));
+  r.socket = sock;
+  return r;
+}
+const ate = async (cond, ms) => { const fim = Date.now() + (ms || 3000); while (!cond() && Date.now() < fim) await espera(20); };
+
+test('upgrade: o 101 do painel chega depois de o aparelho ser removido, os dois sockets fecham e nenhum byte vai ao navegador', async () => {
+  const s = await cenarioWs();
+  try {
+    const celular = pessoa(s); await celular.login('dono', s.t.senha);
+    assert.equal((await celular.cadastra(aparelhoFalso(), 'celular')).status, 201);
+    const pc = pessoa(s); await pc.login('dono', s.t.senha);
+    assert.equal((await pc.cadastra(aparelhoFalso(), 'computador')).status, 201);
+    const idCel = (await pc.get('/api/v1/cadeado/passkeys')).json.passkeys.find((p) => p.nome === 'celular').id;
+    const cru = upgradeCru(s, celular, '/p/ana/lento');
+    await ate(() => s.painel.seguros.length === 1);
+    assert.equal(s.painel.seguros.length, 1, 'o painel recebeu o upgrade e ainda não respondeu');
+    assert.equal((await pc.pedir('DELETE', `/api/v1/cadeado/passkeys/${idCel}`)).status, 200);
+    s.painel.seguros[0](); // agora o painel manda o 101
+    assert.equal(await Promise.race([cru.fechou, espera(2000).then(() => false)]), true, 'a conexão do navegador fechou');
+    assert.equal(cru.bytes, 0, 'nenhum byte chegou ao navegador');
+    assert.match(s.t.log.texto(), /enquanto o painel abria o WebSocket/);
+  } finally { await s.fechar(); }
+});
+
+test('upgrade: dono sem Face ID e com sessão válida abre normalmente; a sessão encerrada derruba a conexão aberta', async () => {
+  const s = await cenarioWs();
+  try {
+    const d = pessoa(s); await d.login('dono', s.t.senha);
+    const cru = upgradeCru(s, d, '/p/ana/lento');
+    await ate(() => s.painel.seguros.length === 1);
+    s.painel.seguros[0]();
+    await ate(() => cru.bytes > 0);
+    assert.ok(cru.bytes > 0, 'o 101 chegou ao navegador');
+    // sair encerra a sessão; a conferência de 30 s do proxy fecha a conexão
+    assert.equal((await d.post('/sair')).status, 303);
+    s.t.web.proxy.revalidar();
+    assert.equal(await Promise.race([cru.fechou, espera(2000).then(() => false)]), true);
+  } finally { await s.fechar(); }
+});
+
+test('trava.js: a camada tem a regra [hidden]{display:none!important} (display:flex vencia o atributo hidden)', () => {
+  const codigo = fs.readFileSync(path.join(PUBLICO_REAL, 'trava.js'), 'utf8');
+  assert.match(codigo, /#dgclawTrava\[hidden\]\{display:none!important\}/);
+  assert.match(codigo, /raiz\.id = 'dgclawTrava'/);
 });

@@ -233,6 +233,7 @@
     'display:flex;align-items:center;justify-content:center;overflow-y:auto;' +
     'padding:calc(24px + env(safe-area-inset-top)) calc(20px + env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) calc(20px + env(safe-area-inset-left));' +
     'font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;-webkit-tap-highlight-color:transparent;visibility:visible!important}' +
+    '#dgclawTrava[hidden]{display:none!important}' +   // display:flex da camada vence o atributo hidden sem esta regra
     '#dgclawTrava *{box-sizing:border-box}' +
     '#dgclawTrava .cx{width:100%;max-width:380px;text-align:center}' +
     '#dgclawTrava .ic{width:84px;height:84px;margin:0 auto 18px;border-radius:26px;background:#2f9e5e;display:flex;align-items:center;justify-content:center;font-size:42px}' +
