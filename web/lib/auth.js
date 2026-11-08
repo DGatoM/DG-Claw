@@ -338,6 +338,11 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
       const token = parseCookies(req.headers.cookie)[NOME_COOKIE];
       return token && token.length <= 200 ? sha256hex(token) : null;
     },
+    /** A sessão com esta chave interna ainda existe e não expirou? */
+    existeHash(hash) {
+      const s = sessoes.get(hash);
+      return !!s && s.expira > relogio();
+    },
     /** Encerra uma sessão pela chave interna (ver hashDaSessao). Devolve se existia. */
     encerraPorHash(hash) {
       const existia = sessoes.delete(hash);

@@ -1039,3 +1039,62 @@ test('tela: o prazo vencido cobre a tela sem depender do servidor e só descobre
   await janela.DGTrava.confere();
   assert.equal(raiz().hidden, true, 'descoberta só depois da confirmação do servidor');
 });
+
+// ── saturação do estado ─────────────────────────────────────────────────────
+test('saturação: a colaboradora com Face ID faz muitos logins e o registro do dono continua (a sessão dele segue 423 sem cookie)', async () => {
+  const s = await cenarioBase({ opcoesServidor: { cadeadoEstadoMax: 20 } });
+  comTelas(s.t);
+  await verde(s, async () => {
+    const d = await dono(s);
+    await d.cadastra(aparelhoFalso(), 'iPhone do dono');
+    const col = await colaboradorAtivo(s);
+    const m0 = pessoa(s);
+    m0.jar.dgclaw_sessao = col.c.jar.dgclaw_sessao;
+    assert.equal((await m0.cadastra(aparelhoFalso(), 'Celular da Maria')).status, 201);
+    for (let i = 0; i < 40; i++) {
+      const m = pessoa(s);
+      m.jar.dgclaw_aparelho = m0.jar.dgclaw_aparelho;
+      await m.login(col.email, col.nova);
+    }
+    const arq = JSON.parse(fs.readFileSync(path.join(s.t.dados, 'cadeado-sessoes.json'), 'utf8')).sessoes;
+    assert.ok(Object.keys(arq).length <= 12, `só as sessões vivas ficam (${Object.keys(arq).length})`);
+    // o dono perde o cookie e passa o tempo: continua travado
+    delete d.jar.dgclaw_aparelho;
+    s.relogio.t += 16 * MIN;
+    assert.equal((await d.get('/api/v1/lembretes')).status, 423);
+  });
+});
+
+test('saturação: se todos os registros são de sessão viva, a mais antiga é encerrada em vez de liberada', async () => {
+  const s = await cenarioBase({ opcoesServidor: { cadeadoEstadoMax: 3 } });
+  comTelas(s.t);
+  await verde(s, async () => {
+    const d = await dono(s);
+    await d.cadastra(aparelhoFalso(), 'iPhone do dono');
+    const col = await colaboradorAtivo(s);
+    const m0 = pessoa(s);
+    m0.jar.dgclaw_sessao = col.c.jar.dgclaw_sessao;
+    await m0.cadastra(aparelhoFalso(), 'Celular da Maria');
+    const sessoes = [];
+    for (let i = 0; i < 6; i++) {
+      const m = pessoa(s);
+      m.jar.dgclaw_aparelho = m0.jar.dgclaw_aparelho;
+      await m.login(col.email, col.nova);
+      sessoes.push(m);
+    }
+    delete d.jar.dgclaw_aparelho;
+    for (const p of [d, ...sessoes]) delete p.jar.dgclaw_aparelho;
+    s.relogio.t += 16 * MIN;
+    const vivas = [];
+    for (const p of [d, m0, ...sessoes]) {
+      const st = (await p.get('/api/v1/agents')).status;
+      assert.notEqual(st, 200, 'nenhuma sessão com Face ID fica liberada sem o cookie');
+      assert.ok(st === 423 || st === 401, `status ${st}`);
+      vivas.push(st);
+    }
+    assert.ok(vivas.includes(401), 'as descartadas foram encerradas');
+    assert.match(s.t.log.texto(), /encerrei a sessão mais antiga/);
+    const arq = JSON.parse(fs.readFileSync(path.join(s.t.dados, 'cadeado-sessoes.json'), 'utf8')).sessoes;
+    assert.ok(Object.keys(arq).length <= 3);
+  });
+});

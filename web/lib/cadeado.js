@@ -84,7 +84,8 @@ function criarGravador(caminho, serializa) {
   };
 }
 
-function criarCadeado({ config, log, agora, encerrarSessao }) {
+function criarCadeado({ config, log, agora, encerrarSessao, existeSessao, estadoMax }) {
+  const maxEstados = Number.isInteger(estadoMax) && estadoMax > 0 ? estadoMax : ESTADO_MAX;
   const relogio = agora || (() => Date.now());
   const arqPasskeys = path.join(config.dataDir, 'passkeys.json');
   const arqEstado = path.join(config.dataDir, 'cadeado-sessoes.json');
@@ -135,17 +136,35 @@ function criarCadeado({ config, log, agora, encerrarSessao }) {
 
   const gravConf = criarGravador(arqPasskeys, () => conf);
   const gravEstado = criarGravador(arqEstado, () => ({ versao: 1, sessoes: Object.fromEntries(estados) }));
-  const salvaEstado = () => {
+  /** Limpa o estado: 1) o que expirou ou cuja sessão já não existe no auth; 2) no corte por tamanho, primeiro o que não tem
+      exigência; 3) só em último caso um registro com exigência de sessão VIVA, e então a sessão é encerrada junto: nunca fica
+      sessão viva com a exigência perdida (sem registro, omitir o cookie liberaria a sessão). */
+  function limpaEstados() {
     const t = relogio();
     for (const [k, v] of estados) {
-      if (v.exige ? (Number.isFinite(v.expira) && v.expira < t) : t - v.uso > ESTADO_ESQUECE_MS) estados.delete(k);
+      if (!v.exige) { if (t - v.uso > ESTADO_ESQUECE_MS) estados.delete(k); continue; }
+      if (Number.isFinite(v.expira) && v.expira < t) estados.delete(k);
+      else if (v.auth && existeSessao && !existeSessao(v.auth)) estados.delete(k);
     }
-    // No corte por tamanho saem primeiro os registros sem exigência: a que tem exigência não pode sumir antes da sessão.
-    while (estados.size > ESTADO_MAX) {
+    while (estados.size > maxEstados) {
       let alvo = null;
       for (const [k, v] of estados) if (!v.exige) { alvo = k; break; }
-      estados.delete(alvo !== null ? alvo : estados.keys().next().value);
+      if (alvo !== null) { estados.delete(alvo); continue; }
+      // todos os registros têm exigência e todos de sessão viva: o mais antigo sai, e a sessão dele sai junto
+      let velho = null;
+      for (const [k, v] of estados) if (velho === null || v.uso < estados.get(velho).uso) velho = k;
+      const v = estados.get(velho);
+      estados.delete(velho);
+      if (v.auth && encerrarSessao) {
+        encerrarSessao(v.auth);
+        log('aviso', `Cadeado: o estado passou de ${maxEstados} sessões presas a um aparelho; encerrei a sessão mais antiga de ${v.titular} (pedirá a senha de novo) em vez de deixá-la sem a exigência do Face ID.`);
+      } else {
+        log('aviso', `Cadeado: o estado passou de ${maxEstados} sessões e descartei um registro de ${v.titular} sem como identificar a sessão dele. Se for a sessão de alguém, ela só trava de novo no próximo pedido com o cookie do aparelho.`);
+      }
     }
+  }
+  const salvaEstado = () => {
+    limpaEstados();
     gravEstado.gravar().catch((e) => log('erro', `Cadeado: não gravei ${arqEstado} (${e.code || e.message}). O estado das sessões vale só até o próximo restart; confira a permissão de ${config.dataDir}.`));
   };
 
@@ -680,6 +699,7 @@ function criarCadeado({ config, log, agora, encerrarSessao }) {
   /** Sessão nova criada com senha nasce destravada, no aparelho que já tem cadeado. */
   function aoCriarSessao({ token, req, colaborador, expira }) {
     const titular = colaborador ? `colaborador:${colaborador.id}` : 'dono';
+    salvaEstado(); // a sessão nova pode ter derrubado as mais antigas da mesma pessoa no auth: limpa os registros delas
     const ap = aparelhoDe(req);
     if (!ap || !aparelhoLigado(req, titular)) return;
     destrava(sha256hex(`dgclaw-cadeado-sessao:${token}`), titular, 'senha', { apHash: ap.hash, authHash: sha256hex(token), expira });
