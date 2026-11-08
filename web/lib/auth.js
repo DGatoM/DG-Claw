@@ -379,6 +379,17 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
       delete s.cadeado_exige; delete s.aparelho_hash;
       return salva();
     },
+    /** Chaves das sessões de um titular ('dono' ou 'colaborador:<id>') marcadas para o cadeado com `aparelho_hash` entre os dados.
+        Ler daqui (e não do estado do cadeado) acha as sessões mesmo que o estado tenha se perdido ou corrompido. */
+    sessoesDoCadeado(titular, aparelhoHashes) {
+      const colabId = titular.startsWith('colaborador:') ? titular.slice(12) : null;
+      const out = [];
+      for (const [k, s] of sessoes) {
+        if (s.cadeado_exige !== true || !aparelhoHashes.includes(s.aparelho_hash)) continue;
+        if (colabId ? (s.papel === 'colaborador' && s.colaborador_id === colabId) : s.papel !== 'colaborador') out.push(k);
+      }
+      return out;
+    },
     /** { exige, aparelho_hash, pendente } da sessão, ou null. `pendente`: a marca só está na memória (não foi gravada). */
     leCadeado(hash) {
       const s = sessoes.get(hash);

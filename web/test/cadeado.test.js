@@ -1824,3 +1824,34 @@ test('vence: a sessão em uso ganha o prazo novo no próximo /uso (aumentar ou d
     assert.equal((await celular.get('/api/v1/lembretes')).status, 423);
   });
 });
+
+// ── a remoção acha as sessões pelo auth, não pelo estado do cadeado ─────────────────
+for (const [nome, estraga] of [['ausente', (f) => fs.rmSync(f)], ['corrompido', (f) => fs.writeFileSync(f, '{"sessoes": [oops')]]) {
+  test(`remoção com o estado do cadeado ${nome}: a sessão do celular cai (sessoes_encerradas 1) e o cookie dela dá 401`, async () => {
+    const dados = pastaTemp('cad-rem-estado');
+    const relogio = { t: Date.now() };
+    const hash = gerarHash('senha-certa-123');
+    const abre = async () => comTelas(await subirWeb({ env: { DGCLAW_PANEL_PASSWORD_HASH: hash }, opcoesServidor: { dataDir: dados, agora: () => relogio.t } }));
+    let t = await abre();
+    try {
+      const celular = pessoa({ t }); await celular.login('dono', t.senha);
+      assert.equal((await celular.cadastra(aparelhoFalso(), 'celular')).status, 201);
+      const pc = pessoa({ t }); await pc.login('dono', t.senha);
+      const apPc = aparelhoFalso(); assert.equal((await pc.cadastra(apPc, 'computador')).status, 201);
+      const idCel = (await pc.get('/api/v1/cadeado/passkeys')).json.passkeys.find((p) => p.nome === 'celular').id;
+      const cookieCel = celular.jar.dgclaw_sessao; const cookiePc = pc.jar.dgclaw_sessao;
+      await t.web.cadeado.aguardar(); await t.fechar();
+      estraga(path.join(dados, 'cadeado-sessoes.json'));
+      t = await abre();
+      const pc2 = pessoa({ t });
+      pc2.jar.dgclaw_sessao = cookiePc; pc2.jar.dgclaw_aparelho = pc.jar.dgclaw_aparelho;
+      assert.equal((await pc2.destrava(apPc)).status, 200, 'o computador reabre com o Face ID');
+      const rem = await pc2.pedir('DELETE', `/api/v1/cadeado/passkeys/${idCel}`);
+      assert.equal(rem.status, 200, rem.texto); assert.equal(rem.json.sessoes_encerradas, 1);
+      const cel2 = pessoa({ t });
+      cel2.jar.dgclaw_sessao = cookieCel;
+      assert.equal((await cel2.get('/api/v1/agents')).status, 401, 'o cookie do celular não vale mais');
+      assert.equal((await pc2.get('/api/v1/cadeado/passkeys')).json.passkeys.length, 1, 'a outra passkey continua');
+    } finally { await t.fechar(); }
+  });
+}

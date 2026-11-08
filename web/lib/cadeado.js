@@ -85,7 +85,7 @@ function criarGravador(caminho, serializa) {
   };
 }
 
-function criarCadeado({ config, log, agora, gravaSessoes, encerrarSessao, existeSessao, estadoMax, marcarSessao, desmarcarSessao, lerMarca, sessaoViva }) {
+function criarCadeado({ config, log, agora, sessoesDoCadeado, gravaSessoes, encerrarSessao, existeSessao, estadoMax, marcarSessao, desmarcarSessao, lerMarca, sessaoViva }) {
   const maxEstados = Number.isInteger(estadoMax) && estadoMax > 0 ? estadoMax : ESTADO_MAX;
   const relogio = agora || (() => Date.now());
   const arqPasskeys = path.join(config.dataDir, 'passkeys.json');
@@ -313,21 +313,26 @@ function criarCadeado({ config, log, agora, gravaSessoes, encerrarSessao, existe
   }
   /** Passkey removida e o aparelho ficou sem nenhuma da mesma pessoa: encerra as sessões presas a ele, menos a de quem removeu
       (se for do mesmo aparelho, ela continua e a exigência dela cai). Devolve quantas sessões foram encerradas. */
-  function soltaAparelhos(titular, apHashes, kAtual) {
+  function soltaAparelhos(titular, apHashes, kAtual, authAtual) {
     let n = 0;
     let gravou = true;
-    for (const [k2, e] of [...estados]) {
-      if (!e.exige || e.titular !== titular || !apHashes.includes(e.aparelho_hash)) continue;
+    // As sessões vêm do próprio auth, onde a marca é gravada: achá-las não depende do estado do cadeado, que pode ter se perdido.
+    const alvos = apHashes.length && sessoesDoCadeado ? sessoesDoCadeado(titular, apHashes) : [];
+    for (const h of alvos) {
       // A sessão de quem removeu, se for de um desses aparelhos, continua sem o cadeado. Se a marca dela não puder ser desfeita no
       // disco, o erro é para o lado seguro (ela volta travada depois de um restart), então só vai para o log.
-      if (k2 === kAtual) {
-        if (e.auth && desmarcarSessao && !desmarcarSessao(e.auth)) log('aviso', 'Cadeado: não consegui desfazer a marca da sua sessão no disco; depois de um reinício ela volta travada e basta destravar.');
-        delete e.exige; delete e.aparelho_hash; delete e.auth; delete e.expira;
+      if (h === authAtual) {
+        if (desmarcarSessao && !desmarcarSessao(h)) log('aviso', 'Cadeado: não consegui desfazer a marca da sua sessão no disco; depois de um reinício ela volta travada e basta destravar.');
         continue;
       }
+      n++;
+      if (!encerrarSessao) { gravou = false; log('erro', 'Cadeado: não tenho como encerrar a sessão presa a um aparelho removido (o servidor não ligou o encerramento).'); } else if (encerrarSessao(h) === false) gravou = false;
+    }
+    // O estado em memória acompanha: some o das sessões encerradas e a de quem removeu deixa de exigir.
+    for (const [k2, e] of [...estados]) {
+      if (!e.exige || e.titular !== titular || !apHashes.includes(e.aparelho_hash)) continue;
+      if (k2 === kAtual) { delete e.exige; delete e.aparelho_hash; delete e.auth; delete e.expira; continue; }
       estados.delete(k2);
-      if (e.auth && encerrarSessao) { n++; if (encerrarSessao(e.auth) === false) gravou = false; }
-      else if (e.auth) { gravou = false; log('erro', 'Cadeado: não tenho como encerrar a sessão presa a um aparelho removido (o servidor não ligou o encerramento).'); }
     }
     // Mesmo sem sessão nova para encerrar, regrava: uma tentativa anterior pode ter deixado o disco para trás.
     if (gravaSessoes && !gravaSessoes()) gravou = false;
@@ -782,7 +787,7 @@ function criarCadeado({ config, log, agora, gravaSessoes, encerrarSessao, existe
             const [velho] = c.passkeys.splice(i, 1);
             // aparelhos que NENHUMA outra passkey da mesma pessoa cobre
             const livres = velho.aparelhos.filter((h) => !c.passkeys.some((x) => x.titular === titular && x.aparelhos.includes(h)));
-            const so = soltaAparelhos(titular, livres, k);
+            const so = soltaAparelhos(titular, livres, k, authHashDe(req));
             sessoesCaidas = true; encerradas = so.n;
             if (!so.gravou) {
               falhouSessoes = true;
