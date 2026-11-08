@@ -132,15 +132,32 @@ restricoes_com_trava() {
     ) 9>"$DG_CASAS/$slug/.restricoes.lock"
 }
 
-# _restricoes_gravar <alvo> <conteudo>: grava o arquivo (root, 444) por temporario + mv e falha dizendo qual.
+# _restricoes_gravar <alvo> <conteudo>: grava o arquivo (root, 444) por temporario na mesma pasta + mv.
+# Cada passo e conferido na mao (sem `if !` em volta de funcao, que desligaria o set -e la dentro): uma falha de
+# escrita (disco cheio) nunca chega ao mv, o destino bom fica como estava e so o temporario e apagado.
+# Arquivo .json so troca o destino depois de o temporario passar no `jq -e .`.
 _restricoes_gravar() {
-    local alvo="$1" conteudo="$2" dir base
+    local alvo="$1" conteudo="$2" dir base tmp
     dir="$(dirname "$alvo")"; base="$(basename "$alvo")"
-    if ! printf '%s\n' "$conteudo" | escrever_arquivo "$alvo" 444 0:0; then
-        rm -f -- "$dir"/."$base".?????? 2>/dev/null || true
-        falha "nao consegui gravar $alvo (a troca do arquivo temporario falhou); o agente ficou como estava." \
-            "confira o espaco em disco e a permissao de $dir (ls -ld $dir; df -h $dir) e rode de novo."
+    if [ "$ENSAIO" = 1 ]; then
+        printf '   [ensaio] escreveria %s (modo 444, dono root)\n' "$alvo"
+        return 0
     fi
+    _restricoes_gravar_falhou() {
+        [ -z "$tmp" ] || rm -f -- "$tmp"
+        falha "nao consegui gravar $alvo (passo: $1); o arquivo anterior ficou como estava." \
+            "confira o espaco em disco e a permissao de $dir (ls -ld $dir; df -h $dir) e rode de novo."
+    }
+    tmp=""
+    mkdir -p -- "$dir" || _restricoes_gravar_falhou "criar a pasta $dir"
+    tmp="$(mktemp "$dir/.$base.XXXXXX")" || { tmp=""; _restricoes_gravar_falhou "criar o arquivo temporario"; }
+    printf '%s\n' "$conteudo" >"$tmp" || _restricoes_gravar_falhou "escrever o conteudo no temporario"
+    case "$base" in
+        *.json) jq -e . "$tmp" >/dev/null 2>&1 || _restricoes_gravar_falhou "conferir que o temporario e um JSON valido" ;;
+    esac
+    chmod 444 "$tmp" || _restricoes_gravar_falhou "ajustar o modo do temporario"
+    dono 0:0 "$tmp" || _restricoes_gravar_falhou "dar o dono root ao temporario"
+    mv -f -- "$tmp" "$alvo" || _restricoes_gravar_falhou "trocar o temporario pelo arquivo"
 }
 
 _aplicar_restricoes_sem_trava() {

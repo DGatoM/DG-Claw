@@ -165,7 +165,17 @@ if (achado) {
       'Não tente contornar; avise o dono se precisar de outra configuração.',
   );
 }
-if (soProtegidos) libera();
+// Fora da casa: nada, exceto /tmp no modo so-protegidos. O usuario agente tem sudo dentro da caixa e pode
+// ser dono de arquivos que o sistema executa (crontab em /var/spool/cron, sudoers.d, /opt/dgclaw...), entao
+// "libera o resto" vale so para a casa e /tmp. Com pastas, /tmp tambem fica fechado (como sempre).
+if (soProtegidos && dentro(alvo, resolve('/tmp')) && !protegido(alvo)) libera();
+if (soProtegidos && dentro(alvo, casa)) libera();
+if (soProtegidos) {
+  bloqueia(
+    `${alvo} fica fora da sua casa (${casa}) e de /tmp. O dono só permite que você grave nesses dois lugares. ` +
+      'Não tente contornar por outro caminho; avise o dono se precisar de outra coisa.',
+  );
+}
 if (INTERNOS_ARQUIVOS.some((a) => alvo === path.join(casa, a))) libera();
 if (INTERNOS_PASTAS.some((d) => dentro(alvo, path.join(casa, d)))) libera();
 if (liberadas.some((b) => dentro(alvo, b))) libera();

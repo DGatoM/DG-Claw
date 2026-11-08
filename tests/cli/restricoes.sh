@@ -388,6 +388,24 @@ dgclaw agente restricoes ana --escrita-so-em relatorios >/dev/null 2>&1
 afirma "so com pastas: onFailure block e sem allowManagedHooksOnly" jq -e '.hooks.PreToolUse[0].hooks[0].onFailure == "block" and (has("allowManagedHooksOnly") | not)' "$MSA"
 dgclaw agente restricoes ana --escrita-livre >/dev/null 2>&1
 
+echo "disco cheio no meio da gravacao: o arquivo bom continua e o comando falha dizendo o passo"
+dgclaw agente restricoes ana --sem-bash sim --sem-enviar-arquivo sim >/dev/null 2>&1
+cp "$RS" "$TMP/rs-bom-disco.json"; cp "$MSA" "$TMP/ms-bom-disco.json"
+CHEIO="$TMP/disco-cheio"; mkdir -p "$CHEIO"
+# mktemp de mentira: o temporario e um atalho para /dev/full, entao a escrita falha com "No space left on device"
+cat >"$CHEIO/mktemp" <<'EOS'
+#!/bin/sh
+for a in "$@"; do alvo="$a"; done
+t="$(echo "$alvo" | sed 's/XXXXXX$/cheio1/')"
+ln -s /dev/full "$t" && echo "$t"
+EOS
+chmod +x "$CHEIO/mktemp"
+PATH="$CHEIO:$PATH" dgclaw agente restricoes ana --sem-bash nao --sem-enviar-arquivo nao >"$TMP/o18.txt" 2>&1; nega "disco cheio: o comando falha" test "$?" -eq 0
+igual "restricoes.json bom ficou intacto" "" "$(diff "$TMP/rs-bom-disco.json" "$RS")"
+afirma "diz o passo que falhou" grep -q 'escrever o conteudo' "$TMP/o18.txt"
+nega "nao sobrou temporario" bash -c "ls -A '$(R_DIR ana)' | grep -q 'cheio1'"
+dgclaw agente restricoes ana --sem-bash nao --sem-enviar-arquivo nao >/dev/null 2>&1; igual "sem o defeito o comando funciona" "0" "$?"
+
 echo "ensaio: nao grava nada"
 rm -f "$(R_DIR beto)/restricoes.json"
 dgclaw --ensaio agente restricoes beto --sem-bash sim >/dev/null 2>&1

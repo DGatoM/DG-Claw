@@ -145,7 +145,10 @@ manda o arquivo por fora das ferramentas. Ligue os dois: `--sem-bash sim --sem-e
 Com **qualquer** restrição ligada (sem Bash, sem enviar arquivo ou pastas), o gancho de escrita fica na configuração
 administrada. Sem Bash o agente ainda tem Write e Edit, e editar a configuração dele seria executar comando por outro caminho.
 
-- Sem `escrita_so_em`: modo "só protegidos". O agente grava em qualquer lugar da casa, menos nos caminhos protegidos abaixo.
+- Sem `escrita_so_em`: modo "só protegidos". O agente grava em qualquer lugar da casa (`/home/agente`) e em `/tmp`, menos nos
+  caminhos protegidos abaixo. **Todo o resto do sistema de arquivos é recusado**, depois de normalizar o caminho e resolver
+  atalhos: o usuário agente tem `sudo` dentro da caixa e pode ser dono de arquivos que o sistema executa (o `crontab` em
+  `/var/spool/cron`, `/etc/sudoers.d`, `/opt/dgclaw`), e gravar neles seria executar comando sem o Bash.
 - Com `escrita_so_em`: além das pastas indicadas, o agente só grava a memória dele (`MEMORY.md`, `working-memory.md` e
   `memory/`), e `/tmp` fica fechado. Os caminhos protegidos valem também **dentro** das pastas liberadas.
 
@@ -184,4 +187,4 @@ de paridade aberta até o Codex ter regras de ferramenta equivalentes."
 arquivo e as travas sobrevivem a criar, reparar, recriar e atualizar, que o gancho decide certo para cada
 caminho e que um arquivo estragado não solta nada. O que só uma VPS real prova é o Claude Code de verdade
 respeitando o `denyTools` e o gancho. Depois de travar um agente, peça a ele uma gravação fora das pastas
-e confirme que foi recusada. Também fica para o QA na VPS: gravar `relatorios/.claude/skills/x/SKILL.md` e `.dgclaw/config.sh` por Write e Edit com só o Bash travado, e conferir que `onFailure` (valores `continue` e `block`, desde o Claude Code 2.1.295; a imagem fixa a 2.1.296) é respeitado.
+e confirme que foi recusada. Também fica para o QA na VPS (a validação no Claude Code real não foi feita aqui): recusa de `/var/spool/cron/crontabs/agente` e `/etc/sudoers.d/x`, gravar `relatorios/.claude/skills/x/SKILL.md` e `.dgclaw/config.sh` por Write e Edit com só o Bash travado, e conferir que `onFailure` (valores `continue` e `block`, desde o Claude Code 2.1.295; a imagem fixa a 2.1.296) é respeitado.

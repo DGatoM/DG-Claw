@@ -20,7 +20,7 @@ comando também avisa. Guia: `docs/RESTRICOES-DO-AGENTE.md`.
 
 Qualquer restrição (inclusive só o terminal ou só o envio de arquivos) fecha também os arquivos de configuração do agente
 para as ferramentas de arquivo: pastas e arquivos ocultos em qualquer profundidade, `SKILL.md`, `CLAUDE.md` e `AGENTS.md`. Sem isso, um
-agente sem Bash editaria o próprio `config.sh` e executaria o que quisesse. O gancho de escrita bloqueia quando falha
+agente sem Bash editaria o próprio `config.sh` e executaria o que quisesse. No modo sem pastas, o agente também só grava na casa dele e em `/tmp`; o resto do sistema fica fechado. O gancho de escrita bloqueia quando falha
 (não inicia, falta memória, passa do tempo) em vez de liberar.
 
 A trava mora na configuração administrada do Claude Code, que o agente não consegue desligar pelas próprias configurações.
