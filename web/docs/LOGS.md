@@ -118,6 +118,10 @@ Resposta:
 - A descoberta de arquivos para em 50000 entradas visitadas, em 10000 subpastas esperando leitura ou em 3 segundos. Ao parar, a
   fonte fica `parcial` com o motivo (e um aviso `limite`). Os avisos de arquivo recusado são limitados a 50 por resposta, com a
   contagem do que foi omitido. Em `agentes`, os agentes são verificados em sequência dentro de um prazo total de 5 segundos.
+- O cursor leva a posição global (`g`, o último arquivo já aberto na ordem por data) e o momento em que nasceu (`ts`).
+  Arquivo anterior a `g` e sem entrada em `h` (que só guarda os arquivos lidos pela metade) é tratado como esgotado e não
+  é reaberto, a não ser que tenha sido modificado depois de `ts`. Se os arquivos em andamento não couberem em `h`, os de menos
+  progresso são relidos do fim e a resposta traz o aviso `hints_omitidos`.
 - O prazo de leitura (1,5 s e 64 MB) só começa depois da descoberta dos arquivos. Uma resposta `parcial` sempre anda: traz
   eventos ou um `proximo` diferente do recebido. Se não conseguiu avançar, vem sem `proximo` e com o aviso `sem_progresso`,
   que diz a causa e que é para estreitar o período ou o tipo. Registro com campo de tipo inesperado é contado em
@@ -126,7 +130,12 @@ Resposta:
   muitos blocos: uma linha que não coube no prazo é relida na página seguinte (`parcial: true`).
 - Atalhos (symlink) nunca são seguidos (`atalhos_ignorados`); arquivo com mais de um nome no disco, fora da pasta do agente
   ou que não seja regular é recusado, com aviso.
-- Formato do Codex: usa os itens `item_completed` quando o arquivo os tem, senão os registros `response_item`. Arquivo sem
-  nenhum dos dois aparece como "formato não reconhecido", nunca como "sem ações".
+- Formato do Codex: cada linha é decidida pelos campos estruturais (`type` e `payload.type`), nunca por busca de texto, e os
+  dois formatos (`item_completed` e `response_item`) valem no mesmo arquivo. A mesma ação costuma estar nos dois, e o par é
+  descartado assim: por id, quando o `call_id` é igual ao id do item; sem id, mensagens com mesmo papel e mesmo texto
+  (espaços e maiúsculas ignorados) a até 5 segundos uma da outra, e comandos ou ferramentas pelo horário de início (até 3 segundos),
+  um para um. Fica a primeira linha vista na leitura de trás para frente. A regra prefere perder a duplicata a perder o evento:
+  sem par claro os dois aparecem, então uma ação pode, raramente, sair repetida (por exemplo, duas chamadas quase simultâneas).
+  Arquivo sem nenhum dos dois tipos de registro aparece como "formato não reconhecido", nunca como "sem ações".
 - Em um arquivo que ainda está crescendo, a página seguinte pode, raramente, repetir ou pular um registro cujo horário
   esteja fora de ordem.

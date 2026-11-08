@@ -164,10 +164,18 @@ function decodificaCursor(texto) {
   try { o = JSON.parse(Buffer.from(texto, 'base64url').toString('utf8')); } catch (_) { throw ruim('não é JSON'); }
   if (!o || typeof o !== 'object' || Array.isArray(o)) throw ruim('estrutura');
   const temChave = o.t !== undefined || o.f !== undefined || o.o !== undefined || o.i !== undefined;
-  const r = { chave: null, h: {} };
+  const r = { chave: null, h: {}, g: null, ts: null };
   if (temChave) {
     if (!(typeof o.t === 'number' && Number.isFinite(o.t)) || typeof o.f !== 'string' || !RX_ID_CURTO.test(o.f) || !inteiro(o.o, 0) || !inteiro(o.i, 0)) throw ruim('chave de posição');
     r.chave = { t: o.t, f: o.f, o: o.o, i: o.i };
+  }
+  if (o.g !== undefined) {
+    if (!Array.isArray(o.g) || o.g.length !== 2 || !(typeof o.g[0] === 'number' && Number.isFinite(o.g[0])) || typeof o.g[1] !== 'string' || !RX_ID_CURTO.test(o.g[1])) throw ruim('posição global');
+    r.g = { m: o.g[0], id: o.g[1] };
+  }
+  if (o.ts !== undefined) {
+    if (!(typeof o.ts === 'number' && Number.isFinite(o.ts))) throw ruim('momento do cursor');
+    r.ts = o.ts;
   }
   if (o.h !== undefined) {
     if (!o.h || typeof o.h !== 'object' || Array.isArray(o.h)) throw ruim('hints');
@@ -182,10 +190,17 @@ function decodificaCursor(texto) {
   return r;
 }
 
+/** a vem depois de g na ordem dos arquivos (mtime decrescente, depois id)? */
+function depoisDe(a, g) { return a.mtimeMs < g.m || (a.mtimeMs === g.m && a.id > g.id); }
+/** posição x vem antes de y na mesma ordem (objetos { m, id })? */
+function ordemAntes(x, y) { return x.m > y.m || (x.m === y.m && x.id < y.id); }
+
 /** Dois cursores dizem a mesma coisa (mesma posição e mesmos hints)? `a` pode ser null (primeira página). */
 function mesmoCursor(a, b) {
   const ca = a && a.chave; const cb = b && b.chave;
   if ((ca || null) && (cb || null)) { if (cmp(ca, cb) !== 0) return false; } else if ((ca || null) !== (cb || null)) return false;
+  const ga = a && a.g; const gb = b && b.g;
+  if ((ga || null) !== (gb || null) && !(ga && gb && ga.m === gb.m && ga.id === gb.id)) return false;
   const ha = (a && a.h) || {}; const hb = (b && b.h) || {};
   const ka = Object.keys(ha).sort(); const kb = Object.keys(hb).sort();
   if (ka.length !== kb.length) return false;
@@ -503,13 +518,29 @@ function saidaDeFuncao(o) {
 
 const NOMES_SHELL = new Set(['shell', 'local_shell', 'exec_command', 'container.exec', 'shell_command']);
 
-function extraiCodex(j, leitor, soRes) {
+const JANELA_MSG_MS = 5000;
+const JANELA_FERRAMENTA_MS = 3000;
+const chaveTexto = (t) => String(t).replace(/\s+/g, ' ').trim().toLowerCase().slice(0, 300);
+
+/**
+ * O Codex grava a mesma ação em duas famílias de registro (event_msg/item_completed e response_item), às vezes no mesmo
+ * arquivo. Cada linha é decidida pelos campos estruturais (type e payload.type), nunca por busca de texto, e a marca `ded`
+ * diz como achar o par na outra família (ver LeitorArquivo._dedup).
+ */
+function extraiCodex(j, leitor) {
   const p = j.payload;
   if (!p || typeof p !== 'object') return [];
   const out = [];
-  if (leitor.formato === 'itens') {
-    if (soRes || j.type !== 'event_msg' || p.type !== 'item_completed') return [];
+  if (j.type === 'event_msg' && p.type === 'item_completed') {
     itemCodex(p.item, out);
+    for (const r of out) {
+      if (r.tipo === 'mensagem') r.ded = { fam: 'ic', cls: `msg:${r.papel}`, key: chaveTexto(r.texto), t: null, id: null };
+      else {
+        const patch = r.ferramenta === 'FileChange';
+        const ehExec = r.tipo === 'comando' || (r.tipo === 'ferramenta' && p.item && p.item.type === 'McpToolCall');
+        if (patch || ehExec) r.ded = { fam: 'ic', cls: patch ? 'patch' : 'exec', key: '', t: Number.isFinite(p.started_at_ms) ? p.started_at_ms : null, id: str(p.item && p.item.id) || null };
+      }
+    }
     return out;
   }
   if (j.type !== 'response_item') return [];
@@ -517,26 +548,27 @@ function extraiCodex(j, leitor, soRes) {
     if (typeof p.call_id === 'string') leitor.guardaResultado(p.call_id, saidaDeFuncao(p.output));
     return [];
   }
-  if (soRes) return [];
   if (p.type === 'message') {
     const t = textoDeBlocos(p.content);
     if (!t.trim()) return [];
     if (p.role === 'assistant') out.push({ tipo: 'mensagem', papel: 'agente', titulo: 'Resposta do agente', texto: t });
     else if (p.role === 'user' && !ehContextoInjetado(t)) out.push({ tipo: 'mensagem', papel: 'pessoa', titulo: 'Mensagem da pessoa', texto: t });
+    for (const r of out) r.ded = { fam: 'ri', cls: `msg:${r.papel}`, key: chaveTexto(r.texto), t: null, id: null };
     return out;
   }
   if (p.type === 'function_call' || p.type === 'custom_tool_call') {
     const nome = typeof p.name === 'string' ? p.name : 'ferramenta';
     const resultado = typeof p.call_id === 'string' ? leitor.resultados.get(p.call_id) || null : null;
+    const id = str(p.call_id) || null;
     let args = p.type === 'function_call' ? p.arguments : p.input;
     if (typeof args === 'string' && p.type === 'function_call') { try { args = JSON.parse(args); } catch (_) { /* fica texto */ } }
     if (nome === 'apply_patch') {
       const txt = typeof args === 'string' ? args : serializa(args && (args.input || args.patch));
       const m = /\*\*\* (?:Update|Add|Delete) File:\s*(.+)/.exec(txt);
-      out.push({ tipo: 'arquivo', titulo: 'Alterou um arquivo', caminho: m ? m[1].trim() : '', operacao: 'alterar', ferramenta: nome, resultado });
+      out.push({ tipo: 'arquivo', titulo: 'Alterou um arquivo', caminho: m ? m[1].trim() : '', operacao: 'alterar', ferramenta: nome, resultado, ded: { fam: 'ri', cls: 'patch', key: '', t: null, id } });
     } else if (NOMES_SHELL.has(nome) || nome === 'exec') {
       const cmd = args && typeof args === 'object' ? (comandoDeLista(args.command) || (str(args.cmd))) : (typeof args === 'string' ? args : '');
-      out.push({ tipo: 'comando', titulo: 'Comando', comando: cmd, resultado });
+      out.push({ tipo: 'comando', titulo: 'Comando', comando: cmd, resultado, ded: { fam: 'ri', cls: 'exec', key: '', t: null, id } });
     } else {
       out.push({ tipo: 'ferramenta', titulo: nome, ferramenta: nome, entrada: args, resultado });
     }
@@ -601,7 +633,7 @@ class LeitorArquivo {
     this.fh = null;
     this.size = 0;
     this.estado = 'novo';     // novo | aberto | suspenso | fim
-    this.formato = arq.motor === 'claude' ? 'claude' : null;
+    this.vistos = [];       // pares possíveis entre as duas famílias do Codex (ver _dedup)
     this.resultados = new Map();
     this.fila = [];
     this.cabeca = null;
@@ -643,7 +675,7 @@ class LeitorArquivo {
       if (this.hint && this.hint.o === -1) { this.estado = 'fim'; return; }
       await this._abre();
       this.estado = 'aberto';
-      if (this.formato === null) await this._detectaFormato();
+      if (this.arq.motor === 'codex') await this._reconhece();
       if (this.estado === 'fim') return;
       let topo = this.size;
       const h = this.hint;
@@ -663,17 +695,27 @@ class LeitorArquivo {
     } catch (e) { this._falhou(e); }
   }
 
-  async _detectaFormato() {
+  /**
+   * Só confere se o arquivo tem algum registro de conversa (por campos estruturais, linha a linha). Não escolhe família:
+   * as duas valem no mesmo arquivo. Sem nenhum registro reconhecido nos primeiros 256 KB, vira aviso e o arquivo é pulado.
+   */
+  async _reconhece() {
     const n = Math.min(DETECCAO, this.size);
     const b = Buffer.alloc(n);
     const lidos = n ? await this._le(b, n, 0) : 0;
-    const t = b.subarray(0, lidos).toString('latin1');
-    if (t.includes('"item_completed"')) this.formato = 'itens';
-    else if (t.includes('"response_item"')) this.formato = 'resposta';
-    else {
-      this.aviso('formato_desconhecido', `formato não reconhecido: não achei registros de conversa (item_completed ou response_item) nos primeiros ${Math.round(DETECCAO / 1024)} KB`);
-      this._encerra();
+    const linhas = b.subarray(0, lidos).toString('utf8').split('\n');
+    if (lidos < this.size) linhas.pop();   // a última pode estar cortada no limite da janela
+    let lidas = 0;
+    for (const l of linhas) {
+      if (!l) continue;
+      let j;
+      try { j = JSON.parse(l); } catch (_) { continue; }
+      lidas++;
+      if (j && (j.type === 'response_item' || (j.type === 'event_msg' && j.payload && j.payload.type === 'item_completed'))) return;
     }
+    if (!lidas) return;   // nada legível na janela (linha enorme logo no começo): deixa a leitura tentar
+    this.aviso('formato_desconhecido', `formato não reconhecido: não achei registros de conversa (item_completed ou response_item) nos primeiros ${Math.round(DETECCAO / 1024)} KB`);
+    this._encerra();
   }
 
   /** Move o topo da leitura para uma fronteira de linha (depois de um \n). Resto parcial no fim do arquivo é descartado. */
@@ -777,14 +819,16 @@ class LeitorArquivo {
     try { j = JSON.parse(l.buf.toString('utf8')); } catch (_) { if (!soRes) this.ctx.contagens.linhas_ilegiveis++; return; }
     if (!j || typeof j !== 'object') { if (!soRes) this.ctx.contagens.linhas_ilegiveis++; return; }
     let rasc;
-    try { rasc = this.arq.motor === 'claude' ? await extraiClaude(j, this, soRes) : extraiCodex(j, this, soRes); } catch (_) {
+    try { rasc = this.arq.motor === 'claude' ? await extraiClaude(j, this, soRes) : extraiCodex(j, this); } catch (_) {
       // Registro com campo de tipo inesperado: conta como linha ilegível e a leitura segue.
       if (!soRes) this.ctx.contagens.linhas_ilegiveis++;
       return;
     }
     if (rasc === null) { this.pausado = true; return; }
-    if (soRes || !rasc.length) return;
     const ts = typeof j.timestamp === 'string' ? Date.parse(j.timestamp) : NaN;
+    // Linhas da janela de resultados também entram na conta dos pares, para a decisão ser a mesma em qualquer página.
+    if (this.arq.motor === 'codex' && rasc.length && Number.isFinite(ts)) rasc = this._dedup(rasc, ts);
+    if (soRes || !rasc.length) return;
     if (!Number.isFinite(ts)) { this.ctx.contagens.sem_horario += rasc.length; return; }
     const tOrdem = Math.min(ts, this.teto);
     this.teto = tOrdem;
@@ -800,6 +844,33 @@ class LeitorArquivo {
     });
     novos.reverse();
     this.fila.push(...novos);
+  }
+
+  /**
+   * Par entre famílias: a primeira linha vista (na leitura de trás para frente) fica e a segunda, da outra família, é
+   * descartada. O par vem por id (call_id igual ao id do item) ou, sem id, por classe + texto (mensagens, janela de 5 s) ou
+   * classe + horário de início (comandos e ferramentas, janela de 3 s), um para um. Regra simples e determinística, com no máximo
+   * 512 candidatos na memória. Prefere perder a duplicata a perder o evento: sem par claro, os dois aparecem.
+   */
+  _dedup(rasc, ts) {
+    const out = [];
+    for (const r of rasc) {
+      const d = r.ded;
+      if (!d) { out.push(r); continue; }
+      const t = d.t == null ? ts : d.t;
+      const janela = d.cls.startsWith('msg:') ? JANELA_MSG_MS : JANELA_FERRAMENTA_MS;
+      let achou = null;
+      for (let k = this.vistos.length - 1; k >= Math.max(0, this.vistos.length - 128); k--) {
+        const e = this.vistos[k];
+        if (e.usado || e.fam === d.fam || e.cls !== d.cls) continue;
+        if ((e.id && d.id && e.id === d.id) || (e.key === d.key && Math.abs(e.t - t) <= janela)) { achou = e; break; }
+      }
+      if (achou) { achou.usado = true; continue; }
+      this.vistos.push({ fam: d.fam, cls: d.cls, key: d.key, t, id: d.id, usado: false });
+      if (this.vistos.length > MAX_RESULTADOS) this.vistos.shift();
+      out.push(r);
+    }
+    return out;
   }
 
   /** Hint para o próximo pedido: a última linha lida (relida e filtrada pela chave) e o teto de antes dela. */
@@ -959,6 +1030,15 @@ function criarLeitor({ log, agora, orcamento } = {}) {
     }
     arqs.sort((a, b) => b.mtimeMs - a.mtimeMs || (a.id < b.id ? -1 : 1));
     if (ctx.desde > -Infinity) arqs = arqs.filter((a) => a.mtimeMs + FOLGA_MTIME >= ctx.desde);
+    const arqsOrdem = arqs.slice();
+    // Posição global do cursor: arquivo já aberto numa página anterior e sem hint é arquivo esgotado e não se reabre,
+    // a menos que tenha crescido (ou aparecido) depois do nascimento do cursor: aí se relê, e a chave estrita descarta o que já saiu.
+    const gIn = f.cursor && f.cursor.g ? f.cursor.g : null;
+    const tsIn = f.cursor && f.cursor.ts != null ? f.cursor.ts : null;
+    if (gIn) {
+      arqs = arqs.filter((a) => depoisDe(a, gIn) || !!hints[a.id] || (tsIn != null && a.mtimeMs >= tsIn));
+    }
+    let gNovo = gIn;
 
     const todos = [];        // leitores já criados; o finally os fecha mesmo se algo lançar no meio
     let R;
@@ -993,6 +1073,7 @@ function criarLeitor({ log, agora, orcamento } = {}) {
           const prox = pendentes[0];
           if (topo && prox.mtimeMs + FOLGA_MTIME < topo.t) return;
           pendentes.shift();
+          if (!gNovo || depoisDe(prox, gNovo)) gNovo = { m: prox.mtimeMs, id: prox.id };
           const l = new LeitorArquivo(prox, ctx, hints[prox.id]);
           todos.push(l);
           await l.avancar();
@@ -1039,26 +1120,47 @@ function criarLeitor({ log, agora, orcamento } = {}) {
         if (++voltas % 200 === 0) await new Promise((r) => setImmediate(r));
       }
 
-      // hints dos arquivos abertos (os que ainda têm o que ler primeiro)
-      const h = {};
-      const comHint = todos.filter((l) => l.hintAtual()).sort((a, b) => (a.hintAtual()[0] === -1) - (b.hintAtual()[0] === -1));
-      for (const l of comHint.slice(0, MAX_HINTS)) h[l.arq.id] = l.hintAtual();
-      return { emitidos, ultimaChave, parcial, mais, acabou, h };
+      return { emitidos, ultimaChave, parcial, mais, acabou };
       })();
     } finally {
       for (const l of todos) await l.fechaFd();
     }
-    const { emitidos, ultimaChave, parcial, mais, acabou, h } = R;
+    const { emitidos, ultimaChave, parcial, mais, acabou } = R;
+
+    // h guarda só os arquivos lidos pela metade (nunca os esgotados); g marca até onde a lista ordenada já foi aberta.
+    const h = {};
+    const perdidos = [];
+    const andamento = [];
+    for (const l of todos) {
+      const exausto = l.estado === 'fim' && !l.fila.length && !l.cabeca;
+      if (exausto) continue;
+      const hint = l.hintAtual();
+      if (hint && hint[0] >= 0) andamento.push({ l, hint }); else perdidos.push(l);
+    }
+    andamento.sort((a, b) => (b.l.arq.bytes - b.hint[0]) - (a.l.arq.bytes - a.hint[0]));   // mais progresso já feito primeiro
+    for (const x of andamento.slice(0, MAX_HINTS)) h[x.l.arq.id] = x.hint;
+    for (const x of andamento.slice(MAX_HINTS)) perdidos.push(x.l);
+    let gFinal = gNovo;
+    if (perdidos.length) {
+      // Quem ficou sem hint será relido do fim: g volta para antes do mais antigo deles, para nenhum ser tratado como esgotado.
+      const idx = Math.min(...perdidos.map((l) => arqsOrdem.indexOf(l.arq)).filter((i) => i >= 0));
+      const prev = Number.isFinite(idx) && idx > 0 ? arqsOrdem[idx - 1] : null;
+      const cand = prev ? { m: prev.mtimeMs, id: prev.id } : null;
+      if (!cand) gFinal = null; else if (!gFinal || ordemAntes(cand, gFinal)) gFinal = cand;
+      if (andamento.length > MAX_HINTS) ctx.avisa({ tipo: 'hints_omitidos', motivo: `${andamento.length - MAX_HINTS} arquivo(s) lidos pela metade não couberam no cursor e serão relidos do fim; a busca continua certa, só um pouco mais lenta` });
+    }
 
     const temMais = mais || parcial;
     let proximo = null;
     let semProgresso = false;
     if (temMais) {
       const c = ultimaChave || ctx.cursorChave;
-      proximo = codificaCursor(Object.assign(c ? { t: c.t, f: c.f, o: c.o, i: c.i } : {}, { h }));
-      if (proximo.length > TETO_CURSOR) proximo = codificaCursor(c ? { t: c.t, f: c.f, o: c.o, i: c.i } : {});
+      const base = c ? { t: c.t, f: c.f, o: c.o, i: c.i } : {};
+      const g = gFinal ? { g: [gFinal.m, gFinal.id] } : {};
+      proximo = codificaCursor(Object.assign(base, g, { ts: Date.now(), h }));
+      if (proximo.length > TETO_CURSOR) proximo = codificaCursor(Object.assign({}, base, g, { ts: Date.now() }));
       // Resposta parcial precisa andar: evento novo ou cursor diferente do recebido. Senão o cliente repetiria o pedido para sempre.
-      if (parcial && !mais && !emitidos.length && mesmoCursor(f.cursor, { chave: c, h })) {
+      if (parcial && !mais && !emitidos.length && mesmoCursor(f.cursor, { chave: c, h, g: gFinal })) {
         proximo = null;
         semProgresso = true;
         ctx.avisa({ tipo: 'sem_progresso', motivo: 'A busca não conseguiu avançar dentro do prazo (arquivos muito grandes ou o servidor ocupado), então parei em vez de repetir o mesmo pedido. Estreite o período ou o tipo nos filtros, ou tente de novo mais tarde.' });

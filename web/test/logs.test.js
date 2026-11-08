@@ -315,7 +315,7 @@ test('codex (itens): mensagens, comando, MCP; o que não é ação é ignorado',
   escreveCodex(c, U1, [
     { timestamp: iso(0), type: 'session_meta', payload: { id: U1 } },
     xItem(1, { type: 'UserMessage', content: [{ type: 'text', text: 'rode os testes' }] }),
-    { timestamp: iso(1), type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'DUPLICADO' }] } },
+    { timestamp: iso(1), type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'rode os testes' }] } },
     xItem(2, { type: 'Reasoning', summary_text: [], raw_content: [] }),
     xItem(3, { type: 'CommandExecution', command: ['bash', '-lc', 'npm test'], exit_code: 1, status: 'failed', aggregated_output: 'falhou' }),
     xItem(4, { type: 'CommandExecution', command: ['bash', '-lc', 'echo ok'], exit_code: 0, status: 'completed', aggregated_output: 'ok' }),
@@ -325,7 +325,7 @@ test('codex (itens): mensagens, comando, MCP; o que não é ação é ignorado',
   ]);
   const r = await pagina(criarLeitor(), c.ag);
   assert.equal(r.eventos.length, 5);
-  assert.ok(!JSON.stringify(r).includes('DUPLICADO'));
+  assert.equal(r.eventos.filter((e) => e.texto === 'rode os testes').length, 1, 'a mesma mensagem nas duas famílias aparece uma vez');
   const cmd = r.eventos.filter((e) => e.tipo === 'comando');
   assert.equal(cmd.find((e) => e.detalhes.comando === 'npm test').resultado.erro, true);
   assert.equal(cmd.find((e) => e.detalhes.comando === 'echo ok').resultado.erro, false);
