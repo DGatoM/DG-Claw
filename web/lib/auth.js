@@ -138,8 +138,12 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
   function salva() {
     try {
       const tmp = `${arquivo}.${process.pid}.tmp`;
-      fs.writeFileSync(tmp, JSON.stringify({ versao: 1, sessoes: Object.fromEntries(sessoes) }), { mode: 0o600 });
+      // `cadeado_pendente` (marca só na memória) nunca vai para o arquivo: ele só tem marca que de fato foi gravada.
+      const saida = {};
+      for (const [k, v] of sessoes) { if (v.cadeado_pendente) { const { cadeado_pendente, ...resto } = v; saida[k] = resto; } else saida[k] = v; }
+      fs.writeFileSync(tmp, JSON.stringify({ versao: 1, sessoes: saida }), { mode: 0o600 });
       fs.renameSync(tmp, arquivo);
+      for (const v of sessoes.values()) delete v.cadeado_pendente; // gravou tudo: o que estava pendente agora é de verdade
       return true;
     } catch (e) {
       log('erro', `Não consegui gravar as sessões em ${arquivo} (${e.code || e.message}). O login continua valendo até o próximo restart; confira a permissão de ${config.dataDir}.`);
@@ -291,7 +295,8 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
       }
       sessoes.set(sha256hex(token), reg);
       limpaExpiradas();
-      salva();
+      // Marca que veio na criação e não foi gravada fica só na memória: pendente, nunca prova de gravação.
+      if (!salva() && reg.cadeado_exige) reg.cadeado_pendente = true;
       if (aoCriar) {
         try { aoCriar({ token, req, colaborador, expira: expiraFinal }); } catch (e) { log('erro', `O gancho de sessão nova (cadeado) falhou: ${e.message}. A sessão foi criada; se o Face ID travar, entre de novo.`); }
       }
@@ -354,11 +359,16 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
     marcaCadeado(hash, aparelhoHash, manter) {
       const s = sessoes.get(hash);
       if (!s) return false;
-      const antes = { exige: s.cadeado_exige, ap: s.aparelho_hash };
+      const antes = { exige: s.cadeado_exige, ap: s.aparelho_hash, pendente: s.cadeado_pendente };
       s.cadeado_exige = true; s.aparelho_hash = aparelhoHash;
       if (salva()) return true;
-      if (!manter) {
-        if (antes.exige === undefined) { delete s.cadeado_exige; delete s.aparelho_hash; } else { s.cadeado_exige = antes.exige; s.aparelho_hash = antes.ap; }
+      if (manter) {
+        s.cadeado_pendente = true; // vale para travar, mas NUNCA como prova de que foi gravado
+      } else if (antes.exige === undefined) {
+        delete s.cadeado_exige; delete s.aparelho_hash; delete s.cadeado_pendente;
+      } else {
+        s.cadeado_exige = antes.exige; s.aparelho_hash = antes.ap;
+        if (antes.pendente) s.cadeado_pendente = true; else delete s.cadeado_pendente;
       }
       return false;
     },
@@ -369,10 +379,10 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
       delete s.cadeado_exige; delete s.aparelho_hash;
       return salva();
     },
-    /** { exige, aparelho_hash } da sessão, ou null se ela não existe ou não está marcada. */
+    /** { exige, aparelho_hash, pendente } da sessão, ou null. `pendente`: a marca só está na memória (não foi gravada). */
     leCadeado(hash) {
       const s = sessoes.get(hash);
-      return s && s.cadeado_exige === true ? { exige: true, aparelho_hash: String(s.aparelho_hash || '') } : null;
+      return s && s.cadeado_exige === true ? { exige: true, aparelho_hash: String(s.aparelho_hash || ''), pendente: s.cadeado_pendente === true } : null;
     },
     /** A sessão com esta chave interna ainda existe e não expirou? */
     existeHash(hash) {

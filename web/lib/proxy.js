@@ -110,14 +110,16 @@ function criarProxy({ config, registro, log, cofreRotas }) {
     const qual = agente && agente.cofre_arquivo ? cofreRotas.casa(req, slug) : null;
     if (!qual) {
       const escrita = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);
-      if (!(quem && quem.colaborador_id && escrita)) return encaminhar(req, res, slug, usuario, null, undefined, quem);
-      // Colaborador: o painel age quando o corpo termina. Lê tudo aqui, confere a sessão e só então abre a conexão com o painel.
+      if (!(quem && (quem.colaborador_id || quem.lerCorpoAntes) && escrita)) return encaminhar(req, res, slug, usuario, null, undefined, quem);
+      // Colaborador (e dono com Face ID ligado): o painel age quando o corpo termina. Lê tudo aqui, confere a sessão e o cadeado
+      // (req.dgRevalidar, em lerCorpo) e só então abre a conexão com o painel.
       const limite = config.maxUploadBytes + 64 * 1024;
       lerCorpo(req, limite).then((buf) => {
         encaminhar(req, res, slug, usuario, buf.length ? buf : null, undefined, quem, true);
       }).catch((e) => {
         if (e && e.status === 413) return erroJson(res, 413, `O envio passou do limite de ${Math.round(config.maxUploadBytes / 1048576)} MB. Mande um arquivo menor.`);
-        if (e && e.status === 401) return recusaSessaoVelha(res, slug, quem);
+        if (e && e.status === 401 && quem && quem.colaborador_id) return recusaSessaoVelha(res, slug, quem);
+        if (e && e.status === 423) return erroJson(res, 423, e.message);
         log('erro', `Proxy /p/${slug}: não consegui ler o corpo do pedido (${(e && (e.code || e.message)) || 'erro'}).`);
         return erroJson(res, 400, 'Não consegui ler o corpo do pedido. Tente de novo.');
       });

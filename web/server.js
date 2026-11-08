@@ -53,7 +53,7 @@ const { criarUso } = require('./lib/uso');
 const { criarColaboradores } = require('./lib/colaboradores');
 const { criarColaboradoresRotas } = require('./lib/colaboradores-rotas');
 const { criarEmail } = require('./lib/email');
-const { criarCadeado } = require('./lib/cadeado');
+const { criarCadeado, MSG_TRAVADO } = require('./lib/cadeado');
 const escopo = require('./lib/escopo');
 
 const METODOS_QUE_ESCREVEM = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -1240,11 +1240,20 @@ function criarServidor(opcoes) {
     // Cadeado: sessão travada por falta de uso não vê tela nem API (só o necessário para destravar). Ver lib/cadeado.js.
     if (sessao && !sessao.via && cadeado.gate(req, res, url, sessao)) return undefined;
 
-    if (ehColab(sessao)) {
+    // Conferido quando o corpo termina de chegar (H.lerCorpo, por onde passam todas as leituras de corpo, inclusive o upload e o
+    // proxy): a sessão pode ter perdido o acesso (colaborador) ou travado pelo cadeado enquanto o envio estava em andamento.
+    if (sessao && !sessao.via) {
       req.dgRevalidar = () => {
-        const vale = sessaoAindaVale(req, sessao);
-        if (!vale) log('aviso', `Pedido ${m} ${p.slice(0, 120)} do colaborador ${sessao.usuario} recusado: a sessão deixou de valer enquanto o corpo chegava.`);
-        return vale;
+        if (ehColab(sessao) && !sessaoAindaVale(req, sessao)) {
+          log('aviso', `Pedido ${m} ${p.slice(0, 120)} do colaborador ${sessao.usuario} recusado: a sessão deixou de valer enquanto o corpo chegava.`);
+          return false;
+        }
+        // O que destrava (verificar) tem de poder ler o corpo com a sessão travada.
+        if (!cadeado.livreTravado(m, p) && cadeado.travada(req, sessao)) {
+          log('aviso', `Pedido ${m} ${p.slice(0, 120)} de ${sessao.usuario} recusado: a tela travou (Face ID) enquanto o corpo chegava. Nada foi feito.`);
+          return { status: 423, mensagem: MSG_TRAVADO };
+        }
+        return true;
       };
     }
 
@@ -1266,7 +1275,10 @@ function criarServidor(opcoes) {
         const slugPainel = decodeURIComponent(pp[1]);
         if (RX_SLUG_ROTA.test(slugPainel)) marcaAutor(slugPainel, sessao, null);
       }
-      return proxy.responder(req, res, pp[1], sessao.usuario, quemDoProxy(sessao, req));
+      const quemP = quemDoProxy(sessao, req);
+      // Dono com Face ID ligado: como o colaborador, o Web lê o corpo antes e só então abre a conexão com o painel (o painel age quando o corpo termina).
+      if (!sessao.via && !quemP.colaborador_id && cadeado.ligado(req, sessao)) quemP.lerCorpoAntes = true;
+      return proxy.responder(req, res, pp[1], sessao.usuario, quemP);
     }
 
     if ((p === '/cadeado' || p === '/cadeado/') && (m === 'GET' || m === 'HEAD')) {

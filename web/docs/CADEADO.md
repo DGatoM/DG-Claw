@@ -102,6 +102,10 @@ Um agente não consegue ligar o Face ID por API, porque falta o aparelho: ele aj
 - **Limite aceito:** uma sessão antiga que se liga ao aparelho justamente num momento de disco cheio, seguida de um reinício
   do painel antes de qualquer gravação com sucesso, perde a marca; ela só deixa de travar se, além disso, o cookie do
   aparelho também faltar. Resolver disco cheio em geral está fora do escopo do cadeado.
+- **Qualquer pedido que escreve é revalidado quando o corpo termina de chegar.** Um envio (mensagem, anexo, permissão, tarefa,
+  chamada ao painel em `/p/`) começado com a tela destravada e terminado depois de ela travar recebe `423` e não faz nada. Para o
+  painel em `/p/`, o dono com Face ID ligado tem o corpo lido pelo Web antes de abrir a conexão com o painel (como já era com
+  o colaborador); sem Face ID nada muda.
 - Corpo de pedido que demora (cadastro, nome, tempo de trava): a sessão é revalidada depois de ler o corpo e dentro da fila
   de gravação. Se ela venceu (401) ou travou nesse meio tempo (423), nada é alterado.
 - Depois de reiniciar o painel, as sessões destravadas continuam (o estado está no disco). Sessão que ficou sem

@@ -693,7 +693,8 @@ test('o stream da conversa para e avisa com "event: travado"', async () => {
 
 // ── WebSocket já aberto quando a sessão trava ───────────────────────────────
 function painelComWebSocket() {
-  const servidor = http.createServer((req, res) => { res.writeHead(200); res.end('{}'); });
+  const pedidos = [];
+  const servidor = http.createServer((req, res) => { pedidos.push(`${req.method} ${req.url}`); req.resume(); res.writeHead(200); res.end('{}'); });
   const abertos = new Set();
   servidor.on('upgrade', (req, socket) => {
     abertos.add(socket); socket.on('close', () => abertos.delete(socket));
@@ -702,6 +703,7 @@ function painelComWebSocket() {
     socket.on('error', () => socket.destroy());
   });
   return {
+    pedidos,
     ouvir: () => new Promise((r) => servidor.listen(0, '127.0.0.1', () => r(servidor.address().port))),
     fechar: () => new Promise((r) => { for (const x of abertos) x.destroy(); servidor.closeAllConnections(); servidor.close(() => r()); }),
   };
@@ -715,7 +717,7 @@ async function cenarioWs() {
   const agentes = [{ slug: 'ana', nome: 'Ana', runner: 'http://127.0.0.1:1', agente_id: 'a1', porta_painel: porta, proxy_segredo_arquivo: segredo }];
   const relogio = { t: Date.now() };
   const t = comTelas(await subirWeb({ agentes, opcoesServidor: { agora: () => relogio.t } }));
-  return { t, relogio, fechar: async () => { await t.fechar(); await painel.fechar(); } };
+  return { t, relogio, painel, fechar: async () => { await t.fechar(); await painel.fechar(); } };
 }
 /** Abre o WebSocket da Tela e devolve { socket, fechou: Promise }. */
 function abreWs(s, p, comAparelho) {
@@ -1217,7 +1219,7 @@ test('sessão criada num aparelho com cookie válido leva a marca na MESMA grava
     await nova.login('dono', t.senha);
     assert.equal(fs.readFileSync(path.join(c.dados, 'sessoes.json'), 'utf8'), antes, 'o arquivo antigo ficou como estava');
     const hash = shaHex(nova.jar.dgclaw_sessao);
-    assert.deepEqual(t.web.auth.leCadeado(hash), { exige: true, aparelho_hash: shaHex(`dgclaw-cadeado-aparelho:${nova.jar.dgclaw_aparelho}`) }, 'na memória a sessão já nasceu marcada');
+    assert.deepEqual(t.web.auth.leCadeado(hash), { exige: true, aparelho_hash: shaHex(`dgclaw-cadeado-aparelho:${nova.jar.dgclaw_aparelho}`), pendente: true }, 'na memória a sessão já nasceu marcada, e a marca ainda é só da memória');
     fs.rmdirSync(tmp);
     await t.web.auth.encerraPorHash('inexistente'); // não grava nada
     const outra = pessoa({ t });
@@ -1314,4 +1316,108 @@ test('corpo que termina depois de a sessão travar: 423 e nada muda (ajustes, no
     assert.equal((await d.destrava(ap)).status, 200);
     assert.equal((await d.get('/api/v1/cadeado/passkeys')).json.passkeys.length, 1);
   });
+});
+
+// ── corpo que termina depois de travar, em qualquer rota que escreve ────────────
+/** Manda o começo do corpo, deixa o tempo passar (+61 s no relógio do teste) e só então termina. */
+function corpoLento(s, p, metodo, caminho, comeco, fim, tipo) {
+  const cookie = `dgclaw_sessao=${p.jar.dgclaw_sessao}; dgclaw_aparelho=${p.jar.dgclaw_aparelho}`;
+  return new Promise((resolve, reject) => {
+    const req = http.request({ host: '127.0.0.1', port: s.t.porta, path: caminho, method: metodo, headers: { Host: `localhost:${s.t.porta}`, Origin: p.origem, 'Content-Type': tipo || 'application/json', Cookie: cookie } }, (res) => {
+      const partes = []; res.on('data', (x) => partes.push(x)); res.on('end', () => resolve({ status: res.statusCode, texto: Buffer.concat(partes).toString() }));
+    });
+    req.on('error', reject);
+    req.write(comeco);
+    setTimeout(() => { s.relogio.t += 61 * 1000; req.end(fim); }, 100);
+  });
+}
+
+test('mensagem ao agente cujo corpo termina depois de a tela travar: 423 e nada é entregue (send, upload e permissão)', async () => {
+  const s = await cenario();
+  await verde(s, async () => {
+    const d = await dono(s);
+    const ap = aparelhoFalso();
+    await d.cadastra(ap, 'iPhone');
+    assert.equal((await d.pedir('PUT', '/api/v1/cadeado/ajustes', { json: { trava_min: 1 } })).status, 200);
+    s.relogio.t += 20 * 1000;
+    const envio = await corpoLento(s, d, 'POST', '/api/v1/agents/ana/send', '{"text":"apaga tudo', ' agora"}');
+    assert.equal(envio.status, 423, envio.texto);
+    assert.equal(JSON.parse(envio.texto).travado, true);
+    assert.equal(s.rAna.rec.inputs.length, 0, 'nenhuma entrega ao agente');
+    assert.equal((await d.destrava(ap)).status, 200);
+    s.relogio.t += 20 * 1000;
+    const perm = await corpoLento(s, d, 'POST', '/api/v1/agents/ana/permissao', '{"decisao":', '"allow"}');
+    assert.equal(perm.status, 423, perm.texto);
+    assert.deepEqual(s.rAna.rec.permissoes, []);
+    assert.equal((await d.destrava(ap)).status, 200);
+    s.relogio.t += 20 * 1000;
+    const limite = '----limite';
+    const corpo = `--${limite}\r\nContent-Disposition: form-data; name="file"; filename="a.txt"\r\nContent-Type: text/plain\r\n\r\nconteudo\r\n--${limite}--\r\n`;
+    const up = await corpoLento(s, d, 'POST', '/api/v1/agents/ana/upload', corpo.slice(0, 40), corpo.slice(40), `multipart/form-data; boundary=${limite}`);
+    assert.equal(up.status, 423, up.texto);
+    assert.equal(s.rAna.rec.inputs.length, 0);
+    // sem pressa (destravada o tempo todo) a mesma mensagem passa
+    assert.equal((await d.destrava(ap)).status, 200);
+    const ok = await d.post('/api/v1/agents/ana/send', { text: 'oi' });
+    assert.notEqual(ok.status, 423);
+  });
+});
+
+test('escrita pelo proxy /p/: dono com Face ID tem o corpo lido antes e 423 se travou; sem Face ID nada muda', async () => {
+  const s = await cenarioWs();
+  try {
+    const d = pessoa(s);
+    await d.login('dono', s.t.senha);
+    // sem Face ID: o corpo segue direto ao painel, como sempre
+    const livre = await corpoLento(s, d, 'POST', '/p/ana/api/rotinas', '{"a":', '1}');
+    assert.equal(livre.status, 200);
+    assert.equal(s.painel.pedidos.length, 1);
+    // com Face ID
+    const ap = aparelhoFalso();
+    await d.cadastra(ap, 'iPhone');
+    assert.equal((await d.pedir('PUT', '/api/v1/cadeado/ajustes', { json: { trava_min: 1 } })).status, 200);
+    s.relogio.t += 20 * 1000;
+    const antes = s.painel.pedidos.length;
+    const r = await corpoLento(s, d, 'POST', '/p/ana/api/rotinas', '{"a":', '1}');
+    assert.equal(r.status, 423, r.texto);
+    assert.equal(JSON.parse(r.texto).travado, true);
+    assert.equal(s.painel.pedidos.length, antes, 'o painel não recebeu nada');
+    // destravada: passa pelo proxy normalmente
+    assert.equal((await d.destrava(ap)).status, 200);
+    const ok = await d.post('/p/ana/api/rotinas', { a: 1 });
+    assert.equal(ok.status, 200);
+    assert.equal(s.painel.pedidos.length, antes + 1);
+  } finally { await s.fechar(); }
+});
+
+test('marca pendente (só na memória) nunca vale como gravada: a verificação regrava e exige sucesso antes de destravar', async () => {
+  const dados = pastaTemp('cad-pend');
+  const relogio = { t: Date.now() };
+  const t = comTelas(await subirWeb({ opcoesServidor: { dataDir: dados, agora: () => relogio.t } }));
+  try {
+    const d = pessoa({ t });
+    await d.login('dono', t.senha);
+    const ap = aparelhoFalso();
+    assert.equal((await d.cadastra(ap, 'iPhone')).status, 201);
+    // outra sessão do dono, sem cookie, que passa a trazer o cookie num momento em que o sessoes.json não grava
+    const b = pessoa({ t });
+    await b.login('dono', t.senha);
+    b.jar.dgclaw_aparelho = d.jar.dgclaw_aparelho;
+    const tmp = path.join(dados, `sessoes.json.${process.pid}.tmp`);
+    fs.mkdirSync(tmp);
+    assert.equal((await b.get('/api/v1/agents')).status, 423);
+    const hash = shaHex(b.jar.dgclaw_sessao);
+    assert.equal(t.web.auth.leCadeado(hash).pendente, true, 'a marca existe só na memória');
+    const falha = await b.destrava(ap);
+    assert.equal(falha.status, 500, falha.texto); assert.equal(falha.json.motivo, 'arquivo');
+    assert.equal((await b.get('/api/v1/agents')).status, 423, 'continua travada');
+    assert.equal(JSON.parse(fs.readFileSync(path.join(dados, 'sessoes.json'), 'utf8')).sessoes[hash].cadeado_exige, undefined, 'e o arquivo não tem a marca');
+    // o disco volta: a verificação grava a marca e só então destrava
+    fs.rmdirSync(tmp);
+    assert.equal((await b.destrava(ap)).status, 200);
+    assert.equal(t.web.auth.leCadeado(hash).pendente, false);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(dados, 'sessoes.json'), 'utf8')).sessoes[hash].cadeado_exige, true);
+    assert.doesNotMatch(fs.readFileSync(path.join(dados, 'sessoes.json'), 'utf8'), /cadeado_pendente/);
+    assert.notEqual((await b.get('/api/v1/agents')).status, 423);
+  } finally { await t.fechar(); }
 });

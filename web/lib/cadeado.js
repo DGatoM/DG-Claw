@@ -227,7 +227,8 @@ function criarCadeado({ config, log, agora, encerrarSessao, existeSessao, estado
     // arquivo corrompido), a sessão continua exigindo o cadeado depois do restart. Com `manter`, se a gravação falhar a marca
     // fica na memória (entra na próxima gravação do auth) e a sessão segue travada; sem `manter`, devolve null e nada muda.
     const m = authHash && lerMarca ? lerMarca(authHash) : null;
-    if (!(m && m.aparelho_hash === apHash) && !(authHash && marcarSessao && marcarSessao(authHash, apHash, manter))) {
+    // Marca pendente (só na memória) nunca vale como gravada: tenta gravar de novo.
+    if (!(m && !m.pendente && m.aparelho_hash === apHash) && !(authHash && marcarSessao && marcarSessao(authHash, apHash, manter))) {
       log('erro', `Cadeado: não consegui gravar a ligação da sessão ao aparelho no registro de sessões. ${manter ? 'A sessão segue travada e a marca fica na memória até a próxima gravação' : 'Nada foi destravado'}. Confira o espaço e a permissão da pasta de dados.`);
       if (!manter) return null;
     }
@@ -538,7 +539,12 @@ function criarCadeado({ config, log, agora, encerrarSessao, existeSessao, estado
       log('aviso', `Cadeado: o Face ID valeu, mas o contador da passkey ${pk.id} não foi gravado (${e.message}).`);
     }
     const ap = aparelhoDe(req);
-    if (!destrava(k, titular, 'faceid', ap && aparelhoLigado(req, titular) ? { apHash: ap.hash, authHash: authHashDe(req), expira: sessao.expira } : null)) throw ERRO_LIGACAO();
+    const authHash = authHashDe(req);
+    const marca = authHash && lerMarca ? lerMarca(authHash) : null;
+    let prender = ap && aparelhoLigado(req, titular) ? { apHash: ap.hash, authHash, expira: sessao.expira } : null;
+    // Sessão com marca só na memória: grava de novo e exige sucesso antes de destravar.
+    if (!prender && marca && marca.pendente) prender = { apHash: marca.aparelho_hash, authHash, expira: sessao.expira };
+    if (!destrava(k, titular, 'faceid', prender)) throw ERRO_LIGACAO();
     return { passkey: publica(pk, aparelhoDe(req)) };
   }
 
@@ -778,7 +784,7 @@ function criarCadeado({ config, log, agora, encerrarSessao, existeSessao, estado
   }
 
   return {
-    rotas, gate, travada, ligado, aoCriarSessao, marcaParaSessaoNova, removerDoTitular, limpaOrfaos, destinoSeguro,
+    rotas, gate, travada, ligado, livreTravado, aoCriarSessao, marcaParaSessaoNova, removerDoTitular, limpaOrfaos, destinoSeguro,
     get falhaCarga() { return falhaCarga; },
     aguardar() { return Promise.all([gravConf.aguardar(), gravEstado.aguardar(), fila]); },
   };
