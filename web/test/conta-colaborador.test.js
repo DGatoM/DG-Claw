@@ -138,7 +138,8 @@ test('código com a conta já conectada no meio: 409 e nada vai ao runner', asyn
     assert.equal(c.status, 409); assert.match(c.json.erro, /já está conectado/);
     assert.deepEqual(s.rAna.rec.codigos, []);
     // a reserva soltou: nenhum registro foi gravado, a conta conta como do dono
-    assert.equal(fs.existsSync(path.join(s.t.dados, 'conta-agentes.json')), false);
+    const j = JSON.parse(fs.readFileSync(path.join(s.t.dados, 'conta-agentes.json'), 'utf8')).agentes;
+    assert.equal(j.ana, undefined); assert.equal(j['ana:pendente'], undefined, 'a tentativa pendente foi apagada');
   });
 });
 
@@ -435,5 +436,125 @@ test('se o cancelamento falha, o dono é avisado e a conta que entrar depois fic
     const reg = JSON.parse(fs.readFileSync(path.join(s.t.dados, 'conta-agentes.json'), 'utf8')).agentes.ana;
     assert.equal(reg.por, 'colaborador'); assert.equal(reg.revogado, true);
     assert.match(s.t.log.texto(), /depois de o acesso dele ser revogado/);
+  });
+});
+
+// ── terceira rodada da revisão do Codex ──
+test('reconferência sem cache: o dono conectou pelo terminal depois do sem_credencial velho, e o colaborador não inicia', async () => {
+  // o cache (estado e conferência) ainda diz "sem conta"; o runner, ao refazer sem cache, diz "conectado"
+  await comColab({ provedorFresco: COM_CONTA.provedor, status: 'errored', statusReason: 'runner:sem-login' }, async (s, x) => {
+    const g = await x.c.get(LOGIN);
+    assert.equal(g.json.precisa_login, true, 'a consulta com cache ainda vê sem conta');
+    const p = await x.c.post(LOGIN, { json: {} });
+    assert.ok([409, 503].includes(p.status), `${p.status} ${p.texto}`);
+    assert.equal(s.rAna.rec.loginPosts, 0);
+    assert.ok(s.rAna.rec.provedorFrescos >= 1, 'pediu a conferência fresca');
+  });
+  // o mesmo antes de mandar o código
+  await comColab({}, async (s, x) => {
+    assert.equal((await x.c.post(LOGIN, { json: {} })).status, 202);
+    s.rAna.opcoes.provedorFresco = COM_CONTA.provedor;
+    muda(s, { status: 'idle', login: { estado: 'aguardando_codigo', link: LINK } });
+    const c = await x.c.post(LOGIN + '/codigo', { json: { codigo: 'abc123' } });
+    assert.equal(c.status, 409);
+    assert.deepEqual(s.rAna.rec.codigos, []);
+  });
+});
+
+test('sinais contraditórios (errored sem-login com conferido.ok true) são dúvida', async () => {
+  await comColab({ provedor: { provedor: 'claude', auth: 'assinatura', conferido: { ok: true } } }, async (s, x) => {
+    assert.equal((await x.c.get(LOGIN)).status, 503);
+    const p = await x.c.post(LOGIN, { json: {} });
+    assert.equal(p.status, 503); assert.equal(s.rAna.rec.loginPosts, 0);
+  });
+});
+
+test('runner sem o pedido fresco (antigo) é dúvida, e a recusa manda avisar o dono para atualizar', async () => {
+  await comColab({ runnerAntigo: true }, async (s, x) => {
+    const p = await x.c.post(LOGIN, { json: {} });
+    assert.equal(p.status, 503); assert.match(p.json.erro, /versão antiga/); assert.match(p.json.erro, /dgclaw atualizar/);
+    assert.equal(s.rAna.rec.loginPosts, 0);
+  });
+});
+
+test('o dono não troca de conta se não der para apagar a autoria antiga: 503 pela API e pelo painel, e nada começa', async () => {
+  await comColab({}, async (s, x) => {
+    await x.c.post(LOGIN, { json: {} });
+    muda(s, { login: { estado: 'aguardando_codigo', link: LINK } });
+    await x.c.post(LOGIN + '/codigo', { json: { codigo: 'abc123' } });
+    muda(s, Object.assign({}, COM_CONTA, { login: { estado: 'concluido' } }));
+    await x.c.get(LOGIN);
+    const arq = path.join(s.t.dados, 'conta-agentes.json');
+    assert.equal(JSON.parse(fs.readFileSync(arq, 'utf8')).agentes.ana.por, 'colaborador');
+    // quebra a gravação: uma pasta no lugar do arquivo temporário não, então tira a permissão da pasta de dados
+    const modo = fs.statSync(s.t.dados).mode & 0o777;
+    fs.chmodSync(s.t.dados, 0o500);
+    try {
+      if (process.getuid && process.getuid() === 0) {
+        // como root a permissão não barra: simula com o arquivo virando diretório (o rename falha)
+        fs.chmodSync(s.t.dados, modo);
+        fs.rmSync(arq); fs.mkdirSync(arq);
+      }
+      muda(s, Object.assign({}, SEM_CONTA, { login: { estado: 'nenhum' } }));
+      const antes = s.rAna.rec.loginPosts;
+      const api = await s.dono.post(LOGIN, { json: {} });
+      assert.equal(api.status, 503, api.texto); assert.match(api.json.erro, /não foi iniciado|ilegível/);
+      const painel = await s.dono.post('/p/ana/api/provedor/login', { json: {} });
+      assert.equal(painel.status, 503, painel.texto);
+      assert.equal(s.rAna.rec.loginPosts, antes, 'nada foi iniciado');
+    } finally { fs.chmodSync(s.t.dados, modo); }
+  });
+});
+
+test('sem registro de autoria nada há para gravar: o login do dono segue mesmo com a pasta sem escrita', async () => {
+  await comColab({}, async (s) => {
+    assert.equal((await s.dono.post(LOGIN, { json: {} })).status, 202);
+  });
+});
+
+test('a tentativa do colaborador fica gravada desde o início (pendente) e some quando ele cancela', async () => {
+  await comColab({}, async (s, x) => {
+    const arq = path.join(s.t.dados, 'conta-agentes.json');
+    await x.c.post(LOGIN, { json: {} });
+    const pend = JSON.parse(fs.readFileSync(arq, 'utf8')).agentes['ana:pendente'];
+    assert.equal(pend.colaborador_id, x.id); assert.equal(pend.pendente, true); assert.ok(pend.instancia);
+    await x.c.pedir('DELETE', LOGIN);
+    assert.equal(JSON.parse(fs.readFileSync(arq, 'utf8')).agentes['ana:pendente'], undefined);
+  });
+});
+
+test('revogar logo depois de ele concluir o login (sem nenhum GET ter observado): reconcilia, grava revogado:true e avisa o dono', async () => {
+  await comColab({}, async (s, x) => {
+    await x.c.post(LOGIN, { json: {} });
+    muda(s, { login: { estado: 'aguardando_codigo', link: LINK } });
+    await x.c.post(LOGIN + '/codigo', { json: { codigo: 'abc123' } });
+    muda(s, Object.assign({}, COM_CONTA, { login: { estado: 'concluido' } }));   // a credencial entrou; ninguém fez GET
+    const r = await s.dono.pedir('DELETE', `/api/v1/colaboradores/${x.id}`);
+    assert.equal(r.status, 200, r.texto);
+    assert.deepEqual(r.json.contas_de_ia, ['ana']);
+    assert.ok(r.json.avisos.some((a) => /pode ser a dele/.test(a)), JSON.stringify(r.json.avisos));
+    const j = JSON.parse(fs.readFileSync(path.join(s.t.dados, 'conta-agentes.json'), 'utf8')).agentes;
+    assert.equal(j.ana.revogado, true); assert.equal(j.ana.colaborador_id, x.id); assert.equal(j['ana:pendente'], undefined);
+    assert.equal(s.rAna.rec.loginDeletes, 1, 'cancelou a autenticação pendente');
+  });
+});
+
+test('revogar com a tentativa cancelada e sem conta: apaga o rastro e não avisa; sem poder confirmar, avisa "confira a conta"', async () => {
+  await comColab({}, async (s, x) => {
+    await x.c.post(LOGIN, { json: {} });
+    muda(s, { login: { estado: 'aguardando_codigo', link: LINK } });
+    const r = await s.dono.pedir('DELETE', `/api/v1/colaboradores/${x.id}`);
+    assert.deepEqual(r.json.avisos, []); assert.deepEqual(r.json.contas_de_ia, []);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(s.t.dados, 'conta-agentes.json'), 'utf8')).agentes['ana:pendente'], undefined);
+  });
+  await comColab({ runnerAntigo: true }, async (s, x) => {
+    // runner antigo deixa começar? não: força a tentativa pendente à mão, como se tivesse sobrado de antes de um restart
+    const arq = path.join(s.t.dados, 'conta-agentes.json');
+    const inst = (await (async () => { const { instanciaDe } = require('../lib/instancia'); return instanciaDe(s.t.web.registro.obter('ana')); })());
+    fs.writeFileSync(arq, JSON.stringify({ versao: 1, agentes: { 'ana:pendente': { instancia: inst, por: 'colaborador', colaborador_id: x.id, email: 'maria@x.com', em: Date.now(), pendente: true } } }));
+    const r = await s.dono.pedir('DELETE', `/api/v1/colaboradores/${x.id}`);
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.json.contas_de_ia, ['ana']);
+    assert.ok(r.json.avisos.some((a) => /Confira a conta de IA do agente ana/.test(a)), JSON.stringify(r.json.avisos));
   });
 });

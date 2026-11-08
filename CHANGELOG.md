@@ -25,6 +25,13 @@ nos colaboradores (pessoas convidadas para conversar com um agente só):
 - Depois do `dgclaw atualizar`, reinicie o painel (`sudo systemctl restart dgclaw-web`). É o reinício que cria o canal
   local que o novo comando `dgclaw colaborador` usa para falar com o painel. Sem ele, o comando avisa que não consegue
   falar com o Web e diz o que fazer.
+- Para o colaborador conseguir conectar a conta, o programa de cada agente (o runner, que vai dentro da imagem dos
+  agentes) também precisa estar na versão nova. Por segurança, o painel só deixa o colaborador conectar quando o agente
+  confirma, na hora, que está sem conta; um agente com versão antiga não sabe confirmar, então o colaborador recebe
+  "avise o dono para atualizar" e nada é conectado. O `dgclaw atualizar` normal já cobre isso: ele reconstrói a imagem e
+  recria o container de cada agente que está ligado. Só um agente que você deixou **parado** continua com a versão antiga;
+  para esse, ligue-o e rode `sudo dgclaw agente recriar <agente>` (ou `dgclaw atualizar --forcar`). O convite pelo
+  comando `dgclaw colaborador` não depende disso.
 - Esta versão traz uma instrução nova para o Admin entender o comando de convite. Ela precisa entrar nas instruções dele
   sem apagar o que você já personalizou: peça ao Admin para juntar a seção "Convidar um colaborador" do arquivo
   `templates/ambiente/admin.md` à dele, preservando as suas alterações. Os agentes de trabalho ganham uma frase nova sobre o

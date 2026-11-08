@@ -36,7 +36,6 @@ function criarContaColaborador({ dataDir, login, log, agora }) {
   let filaGrava = Promise.resolve();
   const reservas = new Map();   // slug -> { tipo, id, email, desde, codigoEnviado }
   const filas = new Map();      // slug -> promessa encadeada
-  const pendentesRevogadas = new Map();   // slug -> tentativa de colaborador revogado que o runner ainda pode concluir
 
   const erro = (status, motivo, extra) => ({ status, corpo: Object.assign({ ok: false, erro: motivo }, extra || {}) });
 
@@ -77,22 +76,30 @@ function criarContaColaborador({ dataDir, login, log, agora }) {
     }
   }
 
-  /** Grava em fila. Falhar aqui é seguro (sem registro, a conta conta como do dono): só vira log. */
-  function gravaRegistro(slug, valor) {
+  /** Grava em fila, numa gravação só (valor undefined apaga a chave). Lança se não conseguir. */
+  function grava(mudancas) {
     const p = filaGrava.then(() => {
       carrega();
       if (ilegivel) throw new Error(`o arquivo está ilegível (${ilegivel})`);
-      if (valor === undefined) delete regs[slug]; else regs[slug] = valor;
+      for (const [k, v] of Object.entries(mudancas)) { if (v === undefined) delete regs[k]; else regs[k] = v; }
       gravaArquivo();
     });
     filaGrava = p.catch(() => undefined);
     return p;
   }
+  const kPend = (slug) => `${slug}:pendente`;
 
   /** O registro desta INSTÂNCIA do agente (um agente recriado com o mesmo nome começa sem registro). */
   function registroDe(agente) {
     carrega();
     const r = regs[agente.slug];
+    const inst = instanciaDe(agente);
+    return r && inst && r.instancia === inst ? r : null;
+  }
+  /** A tentativa em andamento (gravada ANTES de o colaborador iniciar o login, para a revogação conseguir reconciliar). */
+  function pendenteDe(agente) {
+    carrega();
+    const r = regs[kPend(agente.slug)];
     const inst = instanciaDe(agente);
     return r && inst && r.instancia === inst ? r : null;
   }
@@ -131,8 +138,11 @@ function criarContaColaborador({ dataDir, login, log, agora }) {
     if (usaChaveDeApi(c.prov.auth)) return { tipo: 'chave_api' };
     const { status, statusReason } = c.est.estado;
     if (status === 'errored' && statusReason === 'runner:login-expirado') return { tipo: 'expirado' };
-    if (status === 'errored' && statusReason === 'runner:sem-login') return { tipo: 'sem_conta' };
     const conf = c.prov.conferido;
+    // Sinais contraditórios (o runner diz sem login e a conferência diz conectado): dúvida.
+    if (status === 'errored' && statusReason === 'runner:sem-login') {
+      return conf && conf.ok === true ? { tipo: 'duvida', motivo: 'o agente deu sinais contraditórios sobre a conta' } : { tipo: 'sem_conta' };
+    }
     // `ok:false` também sai quando o CLI demora, responde algo ilegível ou usa outro método: isso NÃO prova que falta conta.
     // Só o runner dizendo `motivo:'sem_credencial'` prova (runner antigo, sem o campo, cai na dúvida).
     if (conf && conf.ok === false && conf.motivo === 'sem_credencial') return { tipo: 'sem_conta' };
@@ -147,7 +157,14 @@ function criarContaColaborador({ dataDir, login, log, agora }) {
     return s;
   }
 
+  /** Como situacaoPara, mas só vale com a conferência refeita sem cache (`c` vem de login.consultarFresco). */
+  function situacaoFresca(c, agente, q) {
+    if (!c.fresco) return { tipo: 'duvida', atualizar: true, motivo: 'o programa deste agente é de uma versão antiga e não refaz a conferência na hora' };
+    return situacaoPara(c, agente, q);
+  }
+
   function recusaPorSituacao(s) {
+    if (s.atualizar) return erro(503, 'O programa deste agente ainda é de uma versão antiga e, por segurança, não deixa o colaborador conectar a conta. Avise o dono do DG Claw para atualizar (comando "dgclaw atualizar", que recria o agente com a versão nova).');
     switch (s.tipo) {
       case 'conectado': return erro(409, MSG_JA_CONECTADO);
       case 'expirado': return erro(409, MSG_EXPIRADO);
@@ -156,25 +173,47 @@ function criarContaColaborador({ dataDir, login, log, agora }) {
     }
   }
 
-  /** Escreve (ou apaga) quem conectou a conta atual do agente. Falhar aqui é seguro: sem registro, a conta é do dono. */
+  /** Grava quem conectou a conta atual do agente e encerra a tentativa pendente. Falhar aqui é seguro: sem registro, a conta é do dono. */
   async function registra(agente, valor, quemTexto) {
     const inst = instanciaDe(agente);
     if (!inst) { log('aviso', `Conta de IA do agente ${agente.slug} conectada, mas não consegui identificar a instância do agente para registrar quem conectou. Ela conta como do dono.`); return; }
     try {
-      await gravaRegistro(agente.slug, Object.assign({ instancia: inst, em: relogio() }, valor));
+      await grava({ [agente.slug]: Object.assign({ instancia: inst, em: relogio() }, valor), [kPend(agente.slug)]: undefined });
       log('info', `Conta de IA do agente ${agente.slug} conectada por ${quemTexto}.`);
     } catch (e) {
       log('erro', `Conta de IA do agente ${agente.slug} conectada por ${quemTexto}, mas não consegui registrar quem foi (${e.message}). Ela conta como do dono.`);
     }
   }
 
-  /** O dono começou um login: qualquer autoria de colaborador sobre a conta deste agente deixa de valer na hora. */
+  /**
+   * O dono vai começar um login: a autoria de qualquer colaborador sobre a conta deste agente (e a tentativa pendente dele)
+   * deixa de valer ANTES de o login começar. É gravação durável: se não der para gravar, o login não começa.
+   * Devolve null (pode seguir) ou o erro 503 que explica.
+   */
   async function invalidaAutoria(agente) {
     carrega();
-    if (!regs[agente.slug]) return;
-    try { await gravaRegistro(agente.slug, undefined); } catch (e) {
-      log('erro', `Não consegui apagar o registro de quem conectou a conta do agente ${agente.slug} (${e.message}). Sem poder apagar, o colaborador antigo ainda poderia reconectar esta conta quando ela expirar; apague a entrada "${agente.slug}" de ${arquivo}.`);
+    if (ilegivel) return erro(503, `Não consegui conferir quem conectou a conta deste agente: o arquivo ${arquivo} está ilegível (${ilegivel}). Corrija o JSON ou renomeie o arquivo e tente de novo. O login não foi iniciado.`);
+    if (!regs[agente.slug] && !regs[kPend(agente.slug)]) return null;
+    try { await grava({ [agente.slug]: undefined, [kPend(agente.slug)]: undefined }); return null; } catch (e) {
+      log('erro', `Não consegui apagar o registro de quem conectou a conta do agente ${agente.slug} (${e.message}). O login não foi iniciado, para o colaborador antigo não poder reconectar esta conta depois.`);
+      return erro(503, `Não consegui apagar o registro de quem conectou a conta deste agente (${e.message}). Confira o espaço em disco e a permissão da pasta ${dataDir}. O login não foi iniciado.`);
     }
+  }
+
+  /** Grava a tentativa do colaborador antes de o login começar. Devolve null ou o erro 503. */
+  async function gravaPendente(agente, q) {
+    const inst = instanciaDe(agente);
+    if (!inst) return erro(503, 'Não consegui identificar esta instância do agente para registrar a tentativa de login, então não iniciei. Avise o dono do DG Claw.');
+    try { await grava({ [kPend(agente.slug)]: { instancia: inst, por: 'colaborador', colaborador_id: q.id, email: q.email, em: relogio(), pendente: true } }); return null; } catch (e) {
+      log('erro', `Não registrei a tentativa de login de ${q.email} no agente ${agente.slug} (${e.message}); o login não foi iniciado.`);
+      return erro(503, `Não consegui registrar a tentativa de login (${e.message}), então não iniciei. Avise o dono do DG Claw (disco ou permissão da pasta de dados do Web).`);
+    }
+  }
+  /** A tentativa deste colaborador terminou sem conta: apaga o rastro (sem falhar a operação se não der). */
+  async function limpaPendente(agente, id) {
+    const pend = pendenteDe(agente);
+    if (!pend || pend.colaborador_id !== id) return;
+    try { await grava({ [kPend(agente.slug)]: undefined }); } catch (e) { log('aviso', `Não consegui apagar a tentativa pendente do agente ${agente.slug} (${e.message}); ela só vale para a revogação avisar o dono.`); }
   }
 
   /**
@@ -189,19 +228,20 @@ function criarContaColaborador({ dataDir, login, log, agora }) {
     if (r) {
       if (andamento || s.tipo !== 'conectado') return;
       reservas.delete(agente.slug);
-      if (!(estado === 'concluido' || (r.codigoEnviado && estado !== 'falhou'))) return;
+      if (!(estado === 'concluido' || (r.codigoEnviado && estado !== 'falhou'))) {
+        if (r.tipo === 'colaborador') await limpaPendente(agente, r.id);
+        return;
+      }
       await registra(agente, { por: r.tipo, colaborador_id: r.tipo === 'colaborador' ? r.id : null, email: r.email }, `${r.email} (${r.tipo})`);
       return;
     }
-    // Tentativa de colaborador revogado que o runner não deixou cancelar: se a conta entrar, a autoria não fica sem dono.
-    const p = pendentesRevogadas.get(agente.slug);
-    if (!p) return;
-    if (relogio() - p.desde >= VALIDADE_RESERVA_MS) { pendentesRevogadas.delete(agente.slug); return; }
-    if (andamento || s.tipo !== 'conectado') return;
-    pendentesRevogadas.delete(agente.slug);
-    if (!(estado === 'concluido' || (p.codigoEnviado && estado !== 'falhou'))) return;
-    await registra(agente, { por: 'colaborador', colaborador_id: p.id, email: p.email, revogado: true }, `${p.email} (colaborador já revogado)`);
-    log('aviso', `A conta de IA do agente ${agente.slug} foi conectada por ${p.email} depois de o acesso dele ser revogado (o runner não cancelou a tentativa a tempo). Se quiser trocar, entre com a sua conta em Conectar conta.`);
+    // Tentativa de colaborador já revogado que o runner não deixou cancelar: se a conta entrar, a autoria não fica sem dono.
+    const p = pendenteDe(agente);
+    if (!p || !p.revogado || andamento) return;
+    if (s.tipo === 'conectado' && estado !== 'falhou') {
+      await registra(agente, { por: 'colaborador', colaborador_id: p.colaborador_id, email: p.email, revogado: true }, `${p.email} (colaborador já revogado)`);
+      log('aviso', `A conta de IA do agente ${agente.slug} foi conectada por ${p.email} depois de o acesso dele ser revogado. Se quiser trocar, entre com a sua conta em Conectar conta.`);
+    } else if (s.tipo === 'sem_conta') await limpaPendente(agente, p.colaborador_id);
   }
 
   const filtraLogin = (corpo, extra) => {
@@ -264,22 +304,27 @@ function criarContaColaborador({ dataDir, login, log, agora }) {
       }
       if (aindaVale && !aindaVale()) return { sessaoVelha: true };
       if (q.tipo === 'colaborador') {
-        // Imediatamente antes de iniciar: a situação ainda é "sem conta"?
-        const c2 = await login.consultar(agente);
+        // Imediatamente antes de iniciar, SEM cache (nem o do estado, nem o da conferência do CLI): ainda está sem conta?
+        const c2 = await login.consultarFresco(agente);
         if (!c2.lg.ok) return login.falha(agente, c2.lg, 'consulta');
-        const s2 = situacaoPara(c2, agente, q);
+        const s2 = situacaoFresca(c2, agente, q);
         if (s2.tipo !== 'sem_conta') return recusaPorSituacao(s2);
         const atual2 = reservaViva(agente.slug);
         if (atual2 && !mesma(atual2, q)) return erro(409, MSG_OCUPADO);
         if (aindaVale && !aindaVale()) return { sessaoVelha: true };
+        const falhaPendente = await gravaPendente(agente, q);
+        if (falhaPendente) return falhaPendente;
       } else {
-        await invalidaAutoria(agente);
+        const falhaInvalida = await invalidaAutoria(agente);
+        if (falhaInvalida) return falhaInvalida;
       }
-      pendentesRevogadas.delete(agente.slug);
       const nova = !mesma(reservaViva(agente.slug), q);
       if (nova) reservas.set(agente.slug, { tipo: q.tipo, id: q.id, email: q.email, desde: relogio(), codigoEnviado: false });
       const r = await login.comecar(agente, corpoPedido);
-      if (r.status >= 300 && nova && mesma(reservas.get(agente.slug), q)) reservas.delete(agente.slug);
+      if (r.status >= 300 && nova && mesma(reservas.get(agente.slug), q)) {
+        reservas.delete(agente.slug);
+        if (q.tipo === 'colaborador') await limpaPendente(agente, q.id);
+      }
       return filtraResultado(r, q);
     });
   }
@@ -294,11 +339,13 @@ function criarContaColaborador({ dataDir, login, log, agora }) {
         if (r && !mesma(r, q)) return erro(409, MSG_OCUPADO);
         if (!r) return erro(403, MSG_SEM_RESERVA);
         // Imediatamente antes de mandar ao runner: a conta ainda está ausente?
-        const c = await login.consultar(agente);
+        const c = await login.consultarFresco(agente);
         if (!c.lg.ok) return login.falha(agente, c.lg, 'consulta');
-        const s = situacaoPara(c, agente, q);
+        const s = situacaoFresca(c, agente, q);
         if (s.tipo === 'conectado') {
-          await observaConclusao(agente, c, s);
+          // A conta apareceu por fora da tentativa dele: solta a reserva e o rastro, sem registrar autoria.
+          if (mesma(reservas.get(agente.slug), q)) reservas.delete(agente.slug);
+          await limpaPendente(agente, q.id);
           return erro(409, MSG_JA_CONECTADO);
         }
         if (s.tipo !== 'sem_conta') return recusaPorSituacao(s);
@@ -321,7 +368,10 @@ function criarContaColaborador({ dataDir, login, log, agora }) {
       const r = reservaViva(agente.slug);
       if (q.tipo === 'colaborador' && !mesma(r, q)) return erro(403, 'Você só pode cancelar o login que você mesmo começou. Se for de outra pessoa, avise o dono do DG Claw.');
       const res = await login.cancelar(agente);
-      if (res.status < 300) reservas.delete(agente.slug);
+      if (res.status < 300) {
+        reservas.delete(agente.slug);
+        if (r && r.tipo === 'colaborador') await limpaPendente(agente, r.id);
+      }
       return filtraResultado(res, q);
     });
   }
@@ -337,36 +387,69 @@ function criarContaColaborador({ dataDir, login, log, agora }) {
   /** Contas de IA que este colaborador conectou (para avisar o dono quando o acesso dele é revogado). */
   function contasDe(colaboradorId) {
     carrega();
-    return Object.entries(regs).filter(([, r]) => r && r.por === 'colaborador' && r.colaborador_id === colaboradorId)
+    return Object.entries(regs).filter(([k, r]) => !k.endsWith(':pendente') && r && r.por === 'colaborador' && r.colaborador_id === colaboradorId)
       .map(([agente, r]) => ({ agente, em: r.em }));
   }
 
   /**
-   * Revogado (ou convite reenviado, que derruba as sessões): cancela no runner a autenticação pendente da reserva dele,
-   * pela fila do agente, e só então solta a reserva. A conta já conectada fica (quem decide é o dono). Devolve
-   * { avisos, agentes }: `agentes` são os agentes cuja conta pode ainda entrar por tentativa dele (cancelamento falhou).
+   * Revogado (ou convite reenviado, que derruba as sessões). Para cada agente em que ele tem reserva ou tentativa pendente,
+   * pela fila do agente: consulta o runner SEM cache, cancela a autenticação pendente e só então solta a reserva. Cancelar
+   * não prova que não há conta (a credencial pode já ter sido gravada), então reconcilia: conta conectada e tentativa
+   * dele grava a autoria com `revogado:true`; estado que não dá para confirmar deixa a tentativa marcada e avisa o dono.
+   * Tentativa pendente sem reserva (depois de um restart) é dúvida. Devolve { avisos, agentes }: `agentes` são os agentes
+   * cuja conta pode ser dele (para `contas_de_ia`). A conta já conectada nunca é desconectada.
    */
   async function encerraPendencias(colaboradorId, obterAgente) {
+    carrega();
     const avisos = []; const agentes = [];
-    const meus = [...reservas.entries()].filter(([, r]) => r.tipo === 'colaborador' && r.id === colaboradorId);
-    for (const [slug, r] of meus) {
-      const agente = obterAgente(slug);
+    const slugs = new Set();
+    for (const [slug, r] of reservas) if (r.tipo === 'colaborador' && r.id === colaboradorId) slugs.add(slug);
+    for (const [k, r] of Object.entries(regs)) if (k.endsWith(':pendente') && r && r.colaborador_id === colaboradorId) slugs.add(k.slice(0, -':pendente'.length));
+    for (const slug of slugs) {
       await emFila(slug, async () => {
-        let falhou = '';
-        if (!agente) falhou = 'o agente não está mais no registro';
-        else {
+        const agente = obterAgente(slug);
+        const r = reservas.get(slug);
+        const dele = !!r && r.tipo === 'colaborador' && r.id === colaboradorId;
+        const pend = agente ? pendenteDe(agente) : null;
+        const email = (dele && r.email) || (pend && pend.email) || colaboradorId;
+        const confira = `Confira a conta de IA do agente ${slug} em Conectar conta (troque-a se quiser).`;
+        if (!agente) { if (dele) reservas.delete(slug); avisos.push(`${email} tinha um login pendente no agente ${slug}, que não está mais no registro.`); return; }
+        let c = null; let motivo = '';
+        try {
+          c = await login.consultarFresco(agente);
+          if (!c.lg.ok) { motivo = c.lg.erro || 'o runner não respondeu'; c = null; }
+        } catch (e) { motivo = e.message; c = null; }
+        let situ = null;
+        if (c) {
+          situ = c.fresco ? situacao(c) : { tipo: 'duvida', motivo: 'o runner é de versão antiga e não refaz a conferência na hora' };
+          if (situ.tipo === 'duvida') { motivo = situ.motivo; situ = null; }
+        }
+        const estado = c && c.lg.corpo ? c.lg.corpo.estado : undefined;
+        let cancelFalhou = '';
+        if (dele || (pend && (!c || EM_ANDAMENTO.has(estado)))) {
           try {
             const res = await login.cancelar(agente);
-            if (res.status >= 300) falhou = (res.corpo && res.corpo.erro) || `HTTP ${res.status}`;
-          } catch (e) { falhou = e.message; }
+            if (res.status >= 300) cancelFalhou = (res.corpo && res.corpo.erro) || `HTTP ${res.status}`;
+          } catch (e) { cancelFalhou = e.message; }
         }
-        if (falhou) {
-          pendentesRevogadas.set(slug, { id: r.id, email: r.email, desde: r.desde, codigoEnviado: r.codigoEnviado });
+        if (dele && reservas.get(slug) === r) reservas.delete(slug);
+        if (cancelFalhou) {
+          log('aviso', `Não consegui cancelar o login pendente de ${email} no agente ${slug} (${cancelFalhou}). Ele pode concluir a tentativa mesmo revogado; se a conta entrar, ela fica registrada como dele.`);
+          avisos.push(`Não consegui cancelar o login que ${email} deixou em andamento no agente ${slug} (${cancelFalhou}). Cancele pelo botão Cancelar em Conectar conta. ${confira}`);
+        }
+        const existe = situ && (situ.tipo === 'conectado' || situ.tipo === 'expirado');
+        if (existe && pend) {
+          await registra(agente, { por: 'colaborador', colaborador_id: colaboradorId, email, revogado: true }, `${email} (colaborador já revogado)`);
+          avisos.push(`O agente ${slug} está com conta conectada e ${email} tinha uma tentativa de login em andamento: a conta pode ser a dele. ${confira}`);
           agentes.push(slug);
-          log('aviso', `Não consegui cancelar o login pendente de ${r.email} no agente ${slug} (${falhou}). Ele pode concluir a tentativa mesmo revogado; se a conta entrar, ela fica registrada como dele, e você pode trocá-la em Conectar conta. Para cancelar à mão, use Cancelar no cartão do agente.`);
-          avisos.push(`Não consegui cancelar o login que ${r.email} deixou em andamento no agente ${slug} (${falhou}). Cancele pelo botão Cancelar em Conectar conta.`);
-        } else log('info', `Login pendente de ${r.email} no agente ${slug} cancelado porque o acesso dele terminou.`);
-        if (reservas.get(slug) === r) reservas.delete(slug);
+        } else if (!situ || cancelFalhou) {
+          if (pend) { try { await grava({ [kPend(slug)]: Object.assign({}, pend, { revogado: true }) }); } catch (e) { log('erro', `Não consegui marcar a tentativa revogada de ${email} no agente ${slug} (${e.message}).`); } }
+          if (!cancelFalhou) avisos.push(`Não consegui confirmar o estado da conta do agente ${slug} (${motivo}) depois de revogar ${email}. ${confira}`);
+          agentes.push(slug);
+        } else {
+          await limpaPendente(agente, colaboradorId);
+          log('info', `Login pendente de ${email} no agente ${slug} cancelado porque o acesso dele terminou.`);
+        }
       });
     }
     return { avisos, agentes };
@@ -382,15 +465,19 @@ function criarContaColaborador({ dataDir, login, log, agora }) {
     return emFila(agente.slug, async () => {
       const r = reservaViva(agente.slug);
       if (r && r.tipo === 'colaborador' && metodo !== 'DELETE') return erro(409, MSG_DONO_OCUPADO(r.email));
-      if (metodo === 'DELETE') { reservas.delete(agente.slug); return null; }
+      if (metodo === 'DELETE') {
+        if (r && r.tipo === 'colaborador') await limpaPendente(agente, r.id);
+        reservas.delete(agente.slug);
+        return null;
+      }
       if (codigo) {
         const atual = reservaViva(agente.slug);
         if (mesma(atual, q)) atual.codigoEnviado = true;
         else reservas.set(agente.slug, { tipo: q.tipo, id: q.id, email: q.email, desde: relogio(), codigoEnviado: true });
         return null;
       }
-      await invalidaAutoria(agente);
-      pendentesRevogadas.delete(agente.slug);
+      const falhaInvalida = await invalidaAutoria(agente);
+      if (falhaInvalida) return falhaInvalida;
       if (!mesma(reservaViva(agente.slug), q)) reservas.set(agente.slug, { tipo: q.tipo, id: q.id, email: q.email, desde: relogio(), codigoEnviado: false });
       return null;
     });

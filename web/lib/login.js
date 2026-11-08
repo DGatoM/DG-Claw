@@ -55,6 +55,24 @@ function criarLogin({ runner, conversa, log, agora, oiPrazoMs, oiPassoMs, proved
     return { lg, prov, est };
   }
 
+  /**
+   * Como consultar(), mas SEM nenhum cache: o estado do runner vai direto (sem o cache de 2 s) e a conferência do CLI é
+   * refeita (`?fresco=1`, sem o cache de 60 s). `fresco` diz se o runner entendeu o pedido: runner antigo não manda o
+   * campo, e então a conferência pode estar velha (quem decide trata como dúvida).
+   */
+  async function consultarFresco(agente) {
+    const [lg, pr, est] = await Promise.all([
+      runner.pedir(agente, 'GET', '/api/provedor/login'),
+      runner.provedor(agente, 30000, true),
+      runner.estado(agente),
+    ]);
+    const d = pr.ok ? pr.dados : null;
+    const prov = pr.ok
+      ? { provedor: nomeDoProvedor(d.provedor).toLowerCase(), auth: typeof d.auth === 'string' ? d.auth : null, conferido: d.conferido && typeof d.conferido === 'object' ? d.conferido : null }
+      : { provedor: nomeDoProvedor(agente.provedor).toLowerCase(), auth: null, conferido: null };
+    return { lg, prov, est, fresco: !!(d && d.fresco === true) };
+  }
+
   /** O corpo de GET /login a partir do que consultar() trouxe (a consulta ao runner já deu certo). */
   function corpoDaConsulta({ lg, prov, est }) {
     const expirado = est.ok && est.estado.status === 'errored' && est.estado.statusReason === 'runner:login-expirado';
@@ -143,7 +161,7 @@ function criarLogin({ runner, conversa, log, agora, oiPrazoMs, oiPassoMs, proved
     }
   }
 
-  return { ver, consultar, corpoDaConsulta, falha, comecar, enviarCodigo, cancelar, primeiroOi };
+  return { ver, consultar, consultarFresco, corpoDaConsulta, falha, comecar, enviarCodigo, cancelar, primeiroOi };
 }
 
 module.exports = { criarLogin, nomeDoProvedor };
