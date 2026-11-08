@@ -18,8 +18,8 @@ function muda(s, opcoes) { Object.assign(s.rAna.opcoes, opcoes); s.relogio.t += 
 const naoVazou = (texto) => assert.ok(!/segredo-do-link|claude\.ai|WXYZ|conta-secreta|"auth"|"conferido"/.test(texto), `vazou: ${texto}`);
 const LOGIN = '/api/v1/agents/ana/login';
 
-async function comColab(opcoes, fn) {
-  const s = await cenario({ runnerAna: Object.assign({}, SEM_CONTA, opcoes || {}) });
+async function comColab(opcoes, fn, opcoesServidor) {
+  const s = await cenario({ runnerAna: Object.assign({}, SEM_CONTA, opcoes || {}), opcoesServidor });
   try { const x = await colaboradorAtivo(s); await fn(s, x); } finally { await s.fechar(); }
 }
 
@@ -556,5 +556,106 @@ test('revogar com a tentativa cancelada e sem conta: apaga o rastro e não avisa
     assert.equal(r.status, 200);
     assert.deepEqual(r.json.contas_de_ia, ['ana']);
     assert.ok(r.json.avisos.some((a) => /Confira a conta de IA do agente ana/.test(a)), JSON.stringify(r.json.avisos));
+  });
+});
+
+// ── quarta rodada da revisão do Codex ──
+test('disco cheio: a memória só muda depois de gravar, então a segunda tentativa do dono continua dando 503; depois do restart o registro segue coerente', async () => {
+  const falha = { ligada: false };
+  const escreveContaAgentes = (caminho, texto, op) => { if (falha.ligada) { const e = new Error('no space left on device'); e.code = 'ENOSPC'; throw e; } fs.writeFileSync(caminho, texto, op); };
+  await comColab({}, async (s, x) => {
+    await x.c.post(LOGIN, { json: {} });
+    muda(s, { login: { estado: 'aguardando_codigo', link: LINK } });
+    await x.c.post(LOGIN + '/codigo', { json: { codigo: 'abc123' } });
+    muda(s, Object.assign({}, COM_CONTA, { login: { estado: 'concluido' } }));
+    await x.c.get(LOGIN);
+    const arq = path.join(s.t.dados, 'conta-agentes.json');
+    assert.equal(JSON.parse(fs.readFileSync(arq, 'utf8')).agentes.ana.por, 'colaborador');
+    falha.ligada = true;
+    for (let i = 0; i < 3; i++) {
+      assert.equal((await s.dono.post(LOGIN, { json: {} })).status, 503, `tentativa ${i + 1} pela API`);
+      assert.equal((await s.dono.post('/p/ana/api/provedor/login', { json: {} })).status, 503, `tentativa ${i + 1} pelo painel`);
+    }
+    assert.equal(s.rAna.rec.loginPosts, 1, 'só o login do colaborador chegou ao runner');
+    // "restart": o arquivo em disco continua com a autoria, sem nada pela metade
+    const j = JSON.parse(fs.readFileSync(arq, 'utf8')).agentes;
+    assert.equal(j.ana.por, 'colaborador');
+    assert.deepEqual(fs.readdirSync(s.t.dados).filter((n) => n.endsWith('.tmp')), []);
+    falha.ligada = false;
+    assert.equal((await s.dono.post(LOGIN, { json: {} })).status, 202, 'com o disco de volta o dono segue');
+  }, { escreveContaAgentes });
+});
+
+test('"sem conta" exige a prova da conferência fresca: runner:sem-login com tempo, ilegível ou método diferente não libera (POST e /codigo)', async () => {
+  for (const motivo of ['tempo', 'ilegivel', 'metodo_diferente', undefined]) {
+    const conferido = motivo ? { ok: false, motivo } : { ok: false };
+    // estado operacional "sem login", conferência inconclusiva (em cache e fresca)
+    await comColab({ provedor: { provedor: 'claude', auth: 'assinatura', conferido } }, async (s, x) => {
+      assert.equal((await x.c.get(LOGIN)).status, 503, `GET ${motivo}`);
+      const p = await x.c.post(LOGIN, { json: {} });
+      assert.equal(p.status, 503, `POST ${motivo}: ${p.texto}`);
+      assert.equal(s.rAna.rec.loginPosts, 0);
+    });
+    // a reserva existe (o colaborador começou com a prova), mas a conferência fresca antes do código fica inconclusiva
+    await comColab({}, async (s, x) => {
+      assert.equal((await x.c.post(LOGIN, { json: {} })).status, 202);
+      s.rAna.opcoes.provedorFresco = { provedor: 'claude', auth: 'assinatura', conferido };
+      muda(s, { login: { estado: 'aguardando_codigo', link: LINK } });
+      const c = await x.c.post(LOGIN + '/codigo', { json: { codigo: 'abc123' } });
+      assert.equal(c.status, 503, `codigo ${motivo}: ${c.texto}`);
+      assert.deepEqual(s.rAna.rec.codigos, []);
+    });
+  }
+  // com a prova, libera (Claude e Codex)
+  for (const provedor of ['claude', 'codex']) {
+    await comColab({ provedor: { provedor, auth: 'assinatura', conferido: { ok: false, motivo: 'sem_credencial' } } }, async (s, x) => {
+      assert.equal((await x.c.post(LOGIN, { json: {} })).status, 202, provedor);
+    });
+  }
+});
+
+test('a autoria vale só para o provedor em que foi feita: Claude para Codex e Codex para Claude', async () => {
+  for (const [de, para] of [['claude', 'codex'], ['codex', 'claude']]) {
+    await comColab({ provedor: { provedor: de, auth: 'assinatura', conferido: { ok: false, motivo: 'sem_credencial' } } }, async (s, x) => {
+      await x.c.post(LOGIN, { json: {} });
+      muda(s, { login: { estado: 'aguardando_codigo', link: LINK } });
+      await x.c.post(LOGIN + '/codigo', { json: { codigo: 'abc123' } });
+      muda(s, { status: 'idle', provedor: { provedor: de, auth: 'assinatura', conferido: { ok: true } }, login: { estado: 'concluido' } });
+      await x.c.get(LOGIN);
+      const arq = path.join(s.t.dados, 'conta-agentes.json');
+      assert.equal(JSON.parse(fs.readFileSync(arq, 'utf8')).agentes.ana.provedor, de);
+      // expira com o MESMO provedor: ainda é dele
+      const expira = (prov) => muda(s, { status: 'errored', statusReason: 'runner:login-expirado', provedor: { provedor: prov, auth: 'assinatura', conferido: { ok: false, motivo: 'sem_credencial' } }, login: { estado: 'nenhum' } });
+      expira(de);
+      assert.equal((await x.c.get(LOGIN)).json.so_dono, undefined, `${de}: expirado do mesmo provedor é dele`);
+      // o provedor do agente mudou (sem passar pelas rotas que invalidam, ex.: edição do descritor) e expirou: não é mais dele
+      expira(para);
+      const g = await x.c.get(LOGIN);
+      assert.equal(g.json.so_dono, true, `${de} para ${para}`);
+      assert.equal((await x.c.post(LOGIN, { json: {} })).status, 409);
+      assert.equal(s.rAna.rec.loginPosts, 1);
+    });
+  }
+});
+
+test('o dono mexer no provedor pelo painel (POST/PUT/PATCH/DELETE em /p/<slug>/api/provedor) invalida a autoria, e respeita a reserva do colaborador', async () => {
+  await comColab({}, async (s, x) => {
+    await x.c.post(LOGIN, { json: {} });
+    muda(s, { login: { estado: 'aguardando_codigo', link: LINK } });
+    await x.c.post(LOGIN + '/codigo', { json: { codigo: 'abc123' } });
+    muda(s, Object.assign({}, COM_CONTA, { login: { estado: 'concluido' } }));
+    await x.c.get(LOGIN);
+    const arq = path.join(s.t.dados, 'conta-agentes.json');
+    for (const m of ['POST', 'PUT', 'PATCH', 'DELETE']) {
+      const j = JSON.parse(fs.readFileSync(arq, 'utf8')); j.agentes.ana = Object.assign({}, j.agentes.ana || {}, { instancia: j.agentes.ana ? j.agentes.ana.instancia : require('../lib/instancia').instanciaDe(s.t.web.registro.obter('ana')), por: 'colaborador', colaborador_id: x.id, email: 'maria@x.com', provedor: 'claude', em: 1 });
+      fs.writeFileSync(arq, JSON.stringify(j)); fs.utimesSync(arq, new Date(Date.now() + 1000 * (1 + ['POST', 'PUT', 'PATCH', 'DELETE'].indexOf(m))), new Date(Date.now() + 1000 * (1 + ['POST', 'PUT', 'PATCH', 'DELETE'].indexOf(m))));
+      await s.dono.pedir(m, '/p/ana/api/provedor', { json: { provedor: 'codex' } });
+      assert.equal(JSON.parse(fs.readFileSync(arq, 'utf8')).agentes.ana, undefined, `${m} apaga a autoria`);
+    }
+  });
+  await comColab({}, async (s, x) => {
+    assert.equal((await x.c.post(LOGIN, { json: {} })).status, 202);
+    const r = await s.dono.post('/p/ana/api/provedor', { json: { provedor: 'codex' } });
+    assert.equal(r.status, 409); assert.match(r.json.erro, /maria@x\.com/);
   });
 });

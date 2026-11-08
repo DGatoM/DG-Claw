@@ -158,3 +158,12 @@ test("motivo: só a resposta clara de 'ninguém logado' prova que não há conta
   assert.equal(interpretarStatusDoCodex("erro qualquer do cli", 1, "assinatura").motivo, "ilegivel");
   assert.equal(interpretarStatusDoCodex("Logged in using an API key", 0, "assinatura").motivo, "metodo_diferente");
 });
+
+test("agente recém-criado, sem login: a saída real do Claude (loggedIn:false, authMethod:none) e do Codex ('Not logged in', saída 1) dão sem_credencial", () => {
+  const claude = interpretarStatusDoClaude(JSON.stringify({ loggedIn: false, authMethod: "none", apiProvider: "firstParty", loginExpiresAt: null }), "assinatura");
+  assert.equal(claude.ok, false);
+  assert.equal(claude.motivo, "sem_credencial");
+  const codex = interpretarStatusDoCodex("WARNING: proceeding, even though we could not create PATH aliases\nNot logged in\n", 1, "assinatura");
+  assert.equal(codex.ok, false);
+  assert.equal(codex.motivo, "sem_credencial");
+});

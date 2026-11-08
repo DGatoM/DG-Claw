@@ -153,7 +153,7 @@ function criarServidor(opcoes) {
   const login = criarLogin({ runner, conversa, log, agora: opcoes.agora, oiPrazoMs: opcoes.loginOiPrazoMs, oiPassoMs: opcoes.loginOiPassoMs, provedores: opcoes.provedores });
   const cofreAgente = criarCofreAgente({ config, log, reiniciar: opcoes.reiniciarCofre });
   const voz = opcoes.voz || criarVoz({ env: config.env, log });
-  const contaColab = criarContaColaborador({ dataDir: config.dataDir, login, log, agora: opcoes.agora });
+  const contaColab = criarContaColaborador({ dataDir: config.dataDir, login, log, agora: opcoes.agora, escreveArquivo: opcoes.escreveContaAgentes });
   const colabRotas = criarColaboradoresRotas({ colaboradores, auth, registro, email: opcoes.email || criarEmail({ config, log }), config, log, agora: opcoes.agora, aoDerrubar: fechaStreamsDe, conta: contaColab });
   const sigilo = opcoes.sigilo || criarSigilo({ env: config.env, registro, dataDir: config.dataDir, log, timeoutMs: opcoes.timeoutSigiloMs });
   const anonimizar = opcoes.anonimizar || criarAnonimizar({
@@ -1267,15 +1267,13 @@ function criarServidor(opcoes) {
       }
       // O dono também inicia/cancela o login da conta de IA pelo painel do agente, sem passar pelas rotas /login do Web:
       // aqui respeita a reserva do colaborador e invalida a autoria dele (web/lib/conta-colaborador.js).
-      if (!ehColab(sessao) && !sessao.via && (m === 'POST' || m === 'DELETE')) {
+      if (!ehColab(sessao) && !sessao.via && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(m) && /^\/api\/provedor(\/|$)/i.test(pp[2])) {
         const mp = /^\/api\/provedor\/login(\/codigo)?\/?$/i.exec(pp[2]);
-        if (mp) {
-          const slugP = (() => { try { return decodeURIComponent(pp[1]); } catch (_) { return ''; } })();
-          const agP = RX_SLUG_ROTA.test(slugP) ? registro.obter(slugP) : null;
-          if (agP) {
-            const veto = await contaColab.noPainelDoDono(agP, sessao, m, !!mp[1]);
-            if (veto) return H.erroJson(res, veto.status, veto.corpo.erro);
-          }
+        const slugP = (() => { try { return decodeURIComponent(pp[1]); } catch (_) { return ''; } })();
+        const agP = RX_SLUG_ROTA.test(slugP) ? registro.obter(slugP) : null;
+        if (agP) {
+          const veto = mp && (m === 'POST' || m === 'DELETE') ? await contaColab.noPainelDoDono(agP, sessao, m, !!mp[1]) : await contaColab.provedorNoPainelDoDono(agP);
+          if (veto) return H.erroJson(res, veto.status, veto.corpo.erro);
         }
       }
       return proxy.responder(req, res, pp[1], sessao.usuario, quemDoProxy(sessao, req));

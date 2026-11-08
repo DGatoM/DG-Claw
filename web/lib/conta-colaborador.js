@@ -27,7 +27,8 @@ const MSG_JA_CONECTADO = 'Este agente já está conectado. Nada foi enviado.';
 const MSG_EXPIRADO = 'A conta deste agente expirou e só o dono do DG Claw reconecta. Avise o dono.';
 const MSG_CHAVE_API = 'Este agente usa chave de API, não conta de assinatura. Não há conta para conectar.';
 
-function criarContaColaborador({ dataDir, login, log, agora }) {
+function criarContaColaborador({ dataDir, login, log, agora, escreveArquivo }) {
+  const escreve = escreveArquivo || ((caminho, texto, opcoes) => fs.writeFileSync(caminho, texto, opcoes));
   const relogio = agora || (() => Date.now());
   const arquivo = path.join(dataDir, 'conta-agentes.json');
   let regs = {};
@@ -62,11 +63,11 @@ function criarContaColaborador({ dataDir, login, log, agora }) {
     mtimeVisto = st.mtimeMs;
   }
 
-  function gravaArquivo() {
+  function gravaArquivo(conteudo) {
     const tmp = `${arquivo}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
     try {
       fs.mkdirSync(path.dirname(arquivo), { recursive: true, mode: 0o700 });
-      fs.writeFileSync(tmp, JSON.stringify({ versao: 1, agentes: regs }, null, 2) + '\n', { mode: 0o600 });
+      escreve(tmp, JSON.stringify({ versao: 1, agentes: conteudo }, null, 2) + '\n', { mode: 0o600 });
       fs.chmodSync(tmp, 0o600);
       fs.renameSync(tmp, arquivo);
       mtimeVisto = fs.statSync(arquivo).mtimeMs;
@@ -81,8 +82,11 @@ function criarContaColaborador({ dataDir, login, log, agora }) {
     const p = filaGrava.then(() => {
       carrega();
       if (ilegivel) throw new Error(`o arquivo está ilegível (${ilegivel})`);
-      for (const [k, v] of Object.entries(mudancas)) { if (v === undefined) delete regs[k]; else regs[k] = v; }
-      gravaArquivo();
+      // Muda uma cópia e só adota depois de gravar: com disco cheio a memória não pode ficar "já apagada".
+      const copia = Object.assign({}, regs);
+      for (const [k, v] of Object.entries(mudancas)) { if (v === undefined) delete copia[k]; else copia[k] = v; }
+      gravaArquivo(copia);
+      regs = copia;
     });
     filaGrava = p.catch(() => undefined);
     return p;
@@ -103,7 +107,9 @@ function criarContaColaborador({ dataDir, login, log, agora }) {
     const inst = instanciaDe(agente);
     return r && inst && r.instancia === inst ? r : null;
   }
-  const foiDele = (reg, q) => !!reg && q.tipo === 'colaborador' && reg.por === 'colaborador' && reg.colaborador_id === q.id;
+  /** A autoria vale só para o provedor em que foi feita: dono que trocou Claude por Codex (ou o contrário) a invalida. */
+  const foiDele = (reg, q, provedorAtual) => !!reg && q.tipo === 'colaborador' && reg.por === 'colaborador' && reg.colaborador_id === q.id
+    && !!reg.provedor && reg.provedor === provedorAtual;
 
   // ── fila e reserva por agente ───────────────────────────────────────────────
   function emFila(slug, fn) {
@@ -139,9 +145,10 @@ function criarContaColaborador({ dataDir, login, log, agora }) {
     const { status, statusReason } = c.est.estado;
     if (status === 'errored' && statusReason === 'runner:login-expirado') return { tipo: 'expirado' };
     const conf = c.prov.conferido;
-    // Sinais contraditórios (o runner diz sem login e a conferência diz conectado): dúvida.
-    if (status === 'errored' && statusReason === 'runner:sem-login') {
-      return conf && conf.ok === true ? { tipo: 'duvida', motivo: 'o agente deu sinais contraditórios sobre a conta' } : { tipo: 'sem_conta' };
+    // "Sem conta" exige a prova da conferência (`ok:false` com `motivo:'sem_credencial'`). O estado operacional do agente
+    // (`runner:sem-login`) sozinho nunca autoriza: com a conferência inconclusiva ou contraditória é dúvida.
+    if (status === 'errored' && statusReason === 'runner:sem-login' && conf && conf.ok === true) {
+      return { tipo: 'duvida', motivo: 'o agente deu sinais contraditórios sobre a conta' };
     }
     // `ok:false` também sai quando o CLI demora, responde algo ilegível ou usa outro método: isso NÃO prova que falta conta.
     // Só o runner dizendo `motivo:'sem_credencial'` prova (runner antigo, sem o campo, cai na dúvida).
@@ -153,7 +160,7 @@ function criarContaColaborador({ dataDir, login, log, agora }) {
   /** Situação do ponto de vista do colaborador q: login expirado só é "sem conta" quando foi ele quem conectou. */
   function situacaoPara(c, agente, q) {
     const s = situacao(c);
-    if (s.tipo === 'expirado' && foiDele(registroDe(agente), q)) return { tipo: 'sem_conta' };
+    if (s.tipo === 'expirado' && foiDele(registroDe(agente), q, c.prov.provedor)) return { tipo: 'sem_conta' };
     return s;
   }
 
@@ -232,14 +239,14 @@ function criarContaColaborador({ dataDir, login, log, agora }) {
         if (r.tipo === 'colaborador') await limpaPendente(agente, r.id);
         return;
       }
-      await registra(agente, { por: r.tipo, colaborador_id: r.tipo === 'colaborador' ? r.id : null, email: r.email }, `${r.email} (${r.tipo})`);
+      await registra(agente, { por: r.tipo, colaborador_id: r.tipo === 'colaborador' ? r.id : null, email: r.email, provedor: c.prov.provedor }, `${r.email} (${r.tipo})`);
       return;
     }
     // Tentativa de colaborador já revogado que o runner não deixou cancelar: se a conta entrar, a autoria não fica sem dono.
     const p = pendenteDe(agente);
     if (!p || !p.revogado || andamento) return;
     if (s.tipo === 'conectado' && estado !== 'falhou') {
-      await registra(agente, { por: 'colaborador', colaborador_id: p.colaborador_id, email: p.email, revogado: true }, `${p.email} (colaborador já revogado)`);
+      await registra(agente, { por: 'colaborador', colaborador_id: p.colaborador_id, email: p.email, revogado: true, provedor: c.prov.provedor }, `${p.email} (colaborador já revogado)`);
       log('aviso', `A conta de IA do agente ${agente.slug} foi conectada por ${p.email} depois de o acesso dele ser revogado. Se quiser trocar, entre com a sua conta em Conectar conta.`);
     } else if (s.tipo === 'sem_conta') await limpaPendente(agente, p.colaborador_id);
   }
@@ -378,10 +385,16 @@ function criarContaColaborador({ dataDir, login, log, agora }) {
 
   function oi(agente, sessao) {
     const q = quem(sessao);
-    if (q.tipo === 'colaborador' && !mesma(reservaViva(agente.slug), q) && !foiDele(registroDe(agente), q)) {
-      return Promise.resolve(erro(403, 'O primeiro oi só sai para quem conectou a conta deste agente.'));
-    }
-    return login.primeiroOi(agente).then((r) => filtraResultado(r, q));
+    if (q.tipo !== 'colaborador') return login.primeiroOi(agente).then((r) => filtraResultado(r, q));
+    return emFila(agente.slug, async () => {
+      let ok = mesma(reservaViva(agente.slug), q);
+      if (!ok) {
+        const c = await login.consultar(agente);
+        ok = foiDele(registroDe(agente), q, c.prov.provedor);
+      }
+      if (!ok) return erro(403, 'O primeiro oi só sai para quem conectou a conta deste agente.');
+      return filtraResultado(await login.primeiroOi(agente), q);
+    });
   }
 
   /** Contas de IA que este colaborador conectou (para avisar o dono quando o acesso dele é revogado). */
@@ -439,7 +452,7 @@ function criarContaColaborador({ dataDir, login, log, agora }) {
         }
         const existe = situ && (situ.tipo === 'conectado' || situ.tipo === 'expirado');
         if (existe && pend) {
-          await registra(agente, { por: 'colaborador', colaborador_id: colaboradorId, email, revogado: true }, `${email} (colaborador já revogado)`);
+          await registra(agente, { por: 'colaborador', colaborador_id: colaboradorId, email, revogado: true, provedor: c.prov.provedor }, `${email} (colaborador já revogado)`);
           avisos.push(`O agente ${slug} está com conta conectada e ${email} tinha uma tentativa de login em andamento: a conta pode ser a dele. ${confira}`);
           agentes.push(slug);
         } else if (!situ || cancelFalhou) {
@@ -483,10 +496,23 @@ function criarContaColaborador({ dataDir, login, log, agora }) {
     });
   }
 
-  /** A conta atual deste agente foi conectada por este colaborador? (para o texto do alerta de login expirado) */
-  const conectouEste = (agente, sessao) => foiDele(registroDe(agente), quem(sessao));
+  /**
+   * O dono muda algo do provedor pelo painel (POST/PUT/PATCH/DELETE em /p/<slug>/api/provedor, fora do /login): trocar de IA
+   * ou de forma de pagar. A autoria do colaborador deixa de valer (gravação durável, 503 se falhar), e não se mexe no
+   * provedor enquanto um colaborador está conectando. Devolve null ou { status, corpo }.
+   */
+  function provedorNoPainelDoDono(agente) {
+    return emFila(agente.slug, async () => {
+      const r = reservaViva(agente.slug);
+      if (r && r.tipo === 'colaborador') return erro(409, MSG_DONO_OCUPADO(r.email));
+      return invalidaAutoria(agente);
+    });
+  }
 
-  return { ver, comecar, enviarCodigo, cancelar, oi, contasDe, encerraPendencias, noPainelDoDono, conectouEste, arquivo, VALIDADE_RESERVA_MS };
+  /** A conta atual deste agente foi conectada por este colaborador? (para o texto do alerta de login expirado) */
+  const conectouEste = (agente, sessao) => foiDele(registroDe(agente), quem(sessao), String(agente.provedor || '').toLowerCase().includes('codex') ? 'codex' : 'claude');
+
+  return { ver, comecar, enviarCodigo, cancelar, oi, contasDe, encerraPendencias, noPainelDoDono, provedorNoPainelDoDono, conectouEste, arquivo, VALIDADE_RESERVA_MS };
 }
 
 module.exports = { criarContaColaborador, VALIDADE_RESERVA_MS };
