@@ -190,8 +190,8 @@ test('WebSocket: colaborador abre só o do agente dele; o de outro agente e o de
     assert.equal(await abre('/p/ana/api/cofre'), 403);
     assert.equal(await abre('/p/ana/%2e%2e/bob/tela/websockify'), 403);
     assert.match(s.t.log.texto(), /WebSocket .* recusado para o colaborador maria@x\.com/);
-    // o do agente dele passa pelo escopo; sem painel no cenário o proxy responde 404 (o 101 está em colaborador-painel.test.js)
-    assert.equal(await abre('/p/ana/tela/websockify'), 404);
+    // a Tela é só do dono, mesmo no agente dele
+    assert.equal(await abre('/p/ana/tela/websockify'), 403);
   } finally { await s.fechar(); }
 });
 

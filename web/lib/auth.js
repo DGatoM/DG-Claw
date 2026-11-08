@@ -16,6 +16,7 @@ const TENTATIVAS_MAX = 5;
 const TENTATIVAS_MAX_POR_IP = 20;
 const JANELA_MS = 15 * 60 * 1000;
 const MAX_SESSOES = 200;
+const MAX_SESSOES_POR_COLABORADOR = 10;
 // scrypt com N alto pode usar centenas de MB por chamada: no máximo 2 contas ao mesmo tempo,
 // para uma enxurrada de POST /login não derrubar a máquina por falta de memória.
 const SCRYPT_SIMULTANEOS = 2;
@@ -118,7 +119,14 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
   function limpaExpiradas() {
     const t = relogio();
     for (const [k, v] of sessoes) if (v.expira <= t) sessoes.delete(k);
-    while (sessoes.size > MAX_SESSOES) sessoes.delete(sessoes.keys().next().value);
+  }
+  /** Abre vaga para a sessão do dono: derruba a mais antiga de colaborador e, só se não houver nenhuma, a mais antiga do dono. */
+  function abreVagaParaODono() {
+    while (sessoes.size >= MAX_SESSOES) {
+      let alvo = null;
+      for (const [k, v] of sessoes) { if (v.papel === 'colaborador') { alvo = k; break; } }
+      sessoes.delete(alvo !== null ? alvo : sessoes.keys().next().value);
+    }
   }
   carrega();
 
@@ -232,6 +240,16 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
           throw e;
         }
         if (atual.trocar_senha) expiraFinal = Math.min(expira, Number(atual.temporaria_expira));
+        // Limite por identidade: a 11ª sessão derruba a mais antiga DELE. Sessão de colaborador nunca tira a de outra pessoa.
+        const dele = [...sessoes.entries()].filter(([, v]) => v.colaborador_id === colaborador.id).map(([k]) => k);
+        while (dele.length >= MAX_SESSOES_POR_COLABORADOR) sessoes.delete(dele.shift());
+        if (sessoes.size >= MAX_SESSOES) {
+          const e = new Error('O servidor está com o limite de sessões abertas cheio agora. Tente entrar de novo em alguns minutos ou avise o dono do DG Claw.');
+          e.status = 503;
+          throw e;
+        }
+      } else {
+        abreVagaParaODono();
       }
       const reg = { usuario: nomeUsuario || usuario, criada, expira: expiraFinal };
       if (colaborador) Object.assign(reg, { papel: 'colaborador', colaborador_id: colaborador.id, agente: colaborador.agente, senha_versao: colaborador.senha_versao });

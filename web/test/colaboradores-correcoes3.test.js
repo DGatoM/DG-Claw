@@ -263,3 +263,57 @@ test('rodada 6, achado 3: o stream e o wait do colaborador fecham quando a sess�
     assert.ok(Date.now() - t0 < 4000, 'fechou logo, sem esperar o fim do stream');
   } finally { await s.fechar(); }
 });
+
+// ── 7ª rodada ──
+test('rodada 7, achado 1: a Tela (página, noVNC, API, senha e WebSocket) é fechada ao colaborador, com o motivo em português', () => {
+  const { avaliar, websocketLiberado } = require('../lib/escopo');
+  const COLAB = { papel: 'colaborador', agente: 'ana', colaborador_id: 'c1', usuario: 'm@x.com' };
+  for (const m of ['GET', 'HEAD', 'POST', 'PUT']) {
+    for (const p of ['/p/ana/api/tela', '/p/ana/api/tela/senha', '/p/ana/tela/novnc/vnc.html', '/p/ana/tela/websockify', '/p/ana/TELA/novnc/', '/p/ana/API/Tela/']) {
+      const r = avaliar(COLAB, m, p, p);
+      assert.equal(r.ok, false, `${m} ${p}`); assert.equal(r.status, 403);
+      assert.equal(r.motivo, 'A Tela do agente dá acesso aos arquivos e às contas dele, por isso é só do dono do DG Claw.');
+    }
+  }
+  assert.equal(websocketLiberado(COLAB, '/p/ana/tela/websockify', '/p/ana/tela/websockify').ok, false);
+  assert.equal(avaliar({ papel: 'dono' }, 'GET', '/p/ana/api/tela', '/p/ana/api/tela').ok, true, 'o dono continua com a Tela');
+});
+
+function authComColaboradores(ids) {
+  const { criarAuth } = require('../lib/auth');
+  const { pastaTemp, capturaLog } = require('./ajuda');
+  const t = capturaLog();
+  const auth = criarAuth({ config: { env: { DGCLAW_PANEL_USER: 'dono' }, dataDir: pastaTemp('dados'), sessaoDias: 1, proxiesConfiaveis: new Set() }, log: t.log });
+  const regs = new Map(ids.map((id) => [id, { id, email: `${id}@x.com`, agente: 'ana', hash: 'h', senha_versao: 1, trocar_senha: false, revogado_em: null }]));
+  auth.ligarColaboradores({ obter: (id) => regs.get(id), porEmailAtivo: () => null, registrarLogin() {} });
+  const entra = (id) => auth.criaSessao(`${id}@x.com`, { headers: {}, socket: {} }, { id, agente: 'ana', senha_versao: 1, hash: 'h' });
+  const vive = (s) => !!auth.sessaoDoPedido({ headers: { cookie: s.cookie.split(';')[0] } });
+  return { auth, entra, vive };
+}
+
+test('rodada 7, achado 2: cada colaborador tem no máximo 10 sessões vivas (a 11ª derruba a mais antiga dele) e a sessão do dono sobrevive a 200+ logins', () => {
+  const { auth, entra, vive } = authComColaboradores(['c1']);
+  const dono = auth.criaSessao('dono', { headers: {}, socket: {} });
+  const dele = [];
+  for (let i = 0; i < 230; i++) dele.push(entra('c1'));
+  assert.equal(vive(dono), true, 'a sessão do dono continua viva');
+  assert.equal(dele.filter(vive).length, 10);
+  assert.equal(vive(dele[0]), false, 'a mais antiga dele caiu');
+  assert.equal(vive(dele[229]), true);
+});
+
+test('rodada 7, achado 2: com o limite global cheio de outros, o login do colaborador é recusado (503) sem derrubar ninguém; o dono ainda entra', () => {
+  const ids = Array.from({ length: 21 }, (_, i) => `c${i}`);
+  const { auth, entra, vive } = authComColaboradores(ids);
+  const dono = auth.criaSessao('dono', { headers: {}, socket: {} });
+  const todas = [];
+  for (const id of ids.slice(0, 20)) for (let i = 0; i < (id === 'c19' ? 9 : 10); i++) todas.push(entra(id)); // 199 + a do dono = 200, o teto
+  assert.equal(todas.filter(vive).length, 199, 'todas vivas até aqui');
+  let erro = null;
+  try { entra('c20'); } catch (e) { erro = e; }
+  assert.ok(erro && erro.status === 503 && /limite de sessões/.test(erro.message), 'recusado com 503 em português');
+  assert.equal(vive(dono), true);
+  const segundoDono = auth.criaSessao('dono', { headers: {}, socket: {} });
+  assert.equal(vive(segundoDono), true, 'o dono sempre entra: abre vaga derrubando uma sessão de colaborador');
+  assert.equal(vive(dono), true);
+});

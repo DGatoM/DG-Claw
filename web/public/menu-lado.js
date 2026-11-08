@@ -81,7 +81,7 @@
     if (o.colaborador) {
       return [{
         alvo: '#mlMoldura', antes: abre, titulo: 'O menu',
-        oque: 'A foto e o nome de ' + nome + ', o agente com quem você conversa, e as páginas dele: a Conversa, as Sessões de trabalho, as páginas do painel (Rotinas, Memória, Pasta, Tela e as outras) e Conectar conta.',
+        oque: 'A foto e o nome de ' + nome + ', o agente com quem você conversa, e as páginas dele: a Conversa, as Sessões de trabalho, as páginas do painel (Rotinas, Memória, Pasta e as outras) e Conectar conta.',
         como: (o.naConversa ? 'O item Conversa (esta tela) fica no alto.' : 'O item Conversa, no alto, leva de volta ao chat.') + ' Cada página do painel abre na mesma janela. Conectar conta serve para ligar a sua conta de IA ao agente, quando ele ainda não tem uma. No fim do menu, o botão Sair encerra a sua sessão.',
         porque: 'Você tem acesso a tudo deste agente. Os outros agentes e as configurações do DG Claw inteiro (chaves, colaboradores, cofre) ficam com o dono.',
       }];

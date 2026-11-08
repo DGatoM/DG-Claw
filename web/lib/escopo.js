@@ -9,13 +9,13 @@
 //   - Colaborador (sessao.papel === 'colaborador'): passa o agente dele inteiro e nada além disso.
 //
 // O que passa para o colaborador:
-//   - /a/<dele> e /p/<dele>/** (o painel inteiro do agente: sessões, rotinas, memória, arquivos, Tela...),
+//   - /a/<dele> e /p/<dele>/** (o painel do agente: sessões, rotinas, memória, arquivos...),
 //     menos as exceções fechadas abaixo;
 //   - /api/v1/agents/<dele>/** (todas as ações, as de hoje e as futuras), menos /comando e /comandos;
 //   - mídia (a entrega confere que o arquivo é do agente dele), arquivos estáticos, /, /conectar, /trocar-senha,
 //     /api/v1/eu, /api/v1/eu/senha, /api/v1/agents (só o dele, filtrado no handler), /api/v1/nao-lidas (idem),
 //     transcribe, tts e as documentações;
-//   - WebSocket só em /p/<dele>/** (a Tela usa /p/<dele>/tela/websockify).
+//   - WebSocket: nenhum (o único do painel é o da Tela, que é fechada).
 //
 // Dentro de /p/<dele>/ ficam FECHADOS (o dono é quem mexe em credencial e em conta):
 //   - o cofre do agente (/api/cofre): são as credenciais que o dono pôs;
@@ -25,7 +25,7 @@
 //   - TODA escrita no painel fora da lista de permissão de escritaLiberada(): memória, arquivos, apps, custos, reinício
 //     e rota nova. O painel registra a escrita como do dono, e memória e arquivos viram instrução permanente;
 //   - credencial de canal (token de bot de Telegram, WhatsApp): qualquer escrita em /api/canais, /api/telegram etc.;
-//   - a senha da Tela (/api/tela/senha): é do dono, que repassa a senha ao colaborador;
+//   - a Tela inteira (/api/tela*, /tela/*, WebSocket): o Chrome remoto roda como o agente e abre file:// nas credenciais dele;
 //   - tudo que manda texto ou comando a uma sessão, decide pendência ou abre e encerra sessão com instrução pelo painel
 //     (/api/chat/* menos transcrever, /api/socorro/*, e em /api/sessoes: criar, recado, decidir, tecla, retomar,
 //     handoff, anexo e apagar). O painel não sabe quem é o colaborador e mandaria como se fosse o dono, ou aprovaria
@@ -48,7 +48,7 @@ const MOTIVO_CHAVES_API = 'As chaves de API do painel são só do dono do DG Cla
 const MOTIVO_CONTA_IA = 'O agente precisa entrar numa conta, e isso é só do dono do DG Claw. Avise o dono.';
 const MOTIVO_PERMANENTE = 'Isso muda o agente de forma permanente (instruções, memória, arquivos, configuração ou rotinas) e é só do dono do DG Claw.';
 const MOTIVO_CANAL = 'As credenciais dos canais (Telegram, WhatsApp) são só do dono do DG Claw.';
-const MOTIVO_SENHA_TELA = 'A senha da Tela é do dono do DG Claw. Peça a ele a senha para usar a Tela.';
+const MOTIVO_TELA = 'A Tela do agente dá acesso aos arquivos e às contas dele, por isso é só do dono do DG Claw.';
 const MOTIVO_ENVIO = 'Mandar mensagem, instrução ou decisão ao agente pelo painel é só do dono do DG Claw. Converse pela conversa do agente: ali as suas mensagens e confirmações têm o seu nome.';
 const MOTIVO_DESVIO = 'Este endereço tem caracteres que não são aceitos para colaboradores. Você só tem acesso ao seu agente.';
 const MOTIVO_GERAL = 'Este endereço não está liberado para colaboradores. Você tem acesso ao seu agente inteiro, pelo menu dele.';
@@ -156,7 +156,8 @@ function avaliaPainel(m, p, bruto, meuSlug) {
   if (prefixo(resto, '/api/chaves-api')) return nega(403, MOTIVO_CHAVES_API, { extra: { error: MOTIVO_CHAVES_API } });
   // /api/provedor inteiro, até a leitura: o GET devolve o link e o código do login em andamento.
   if (prefixo(resto, '/api/provedor')) return nega(403, MOTIVO_CONTA_IA, { extra: { error: MOTIVO_CONTA_IA, howToFix: 'Avise o dono do DG Claw.' } });
-  if (prefixo(resto, '/api/tela/senha')) return nega(403, MOTIVO_SENHA_TELA, { extra: { error: MOTIVO_SENHA_TELA } });
+  // A Tela (navegador remoto) roda como o agente e abre file:// nas credenciais dele: página, noVNC, WebSocket e senha.
+  if (prefixo(resto, '/api/tela') || prefixo(resto, '/tela')) return nega(403, MOTIVO_TELA, { extra: { error: MOTIVO_TELA } });
   if (!leitura && ['/api/canais', '/api/canal', '/api/telegram', '/api/whatsapp'].some((b) => prefixo(resto, b))) {
     return nega(403, MOTIVO_CANAL, { extra: { error: MOTIVO_CANAL } });
   }

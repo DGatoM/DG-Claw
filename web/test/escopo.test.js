@@ -34,7 +34,6 @@ const LIBERADOS = [
   ['GET', '/p/ana/api/sessoes-config'], ['GET', '/p/ana/api/rotinas'], ['GET', '/p/ana/api/rotinas/usuario'],
   ['GET', '/p/ana/api/memory'], ['GET', '/p/ana/api/memoria/arquivo'],
   ['GET', '/p/ana/api/arquivos'],
-  ['GET', '/p/ana/api/tela'], ['GET', '/p/ana/tela/novnc/vnc.html'],
   ['GET', '/p/ana/api/socorro/estado'],
   ['GET', '/p/ana/api/uso'],
   ['GET', '/p/ana/api/chat/mensagens'], ['POST', '/p/ana/api/chat/transcrever'], ['GET', '/p/ana/api/apps'], ['GET', '/p/ana/api/skills'],
@@ -59,7 +58,7 @@ test('escopo: sem sessão não avalia nada como liberado', () => {
   assert.equal(avaliar(null, 'GET', '/a/ana').ok, false);
 });
 
-test('escopo: colaborador passa o agente dele inteiro (conversa, painel, sessões, rotinas, memória, arquivos, Tela)', () => {
+test('escopo: colaborador passa o agente dele inteiro (conversa, painel, sessões, rotinas, memória, arquivos)', () => {
   for (const [m, p] of LIBERADOS) assert.deepEqual(avalia(COLAB, m, p), { ok: true }, `${m} ${p}`);
 });
 
@@ -180,7 +179,7 @@ test('escopo: o painel não manda mensagem, decisão nem instrução como se fos
   for (const [m, p] of [['GET', '/p/ana/api/chat/mensagens'], ['GET', '/p/ana/api/socorro/estado'], ['GET', '/p/ana/api/sessoes/abc/conversa'], ['POST', '/p/ana/api/chat/transcrever']]) assert.equal(avalia(COLAB, m, p).ok, true, `${m} ${p}`);
 });
 
-test('escopo: credencial de canal (token de bot) e a senha da Tela são fechadas', () => {
+test('escopo: credencial de canal (token de bot) e a Tela são fechadas', () => {
   for (const m of ['POST', 'PUT', 'DELETE']) {
     for (const v of ['/p/ana/api/canais', '/p/ana/api/canais/telegram', '/p/ana/api/telegram/token', '/p/ana/api/whatsapp', '/p/ana/api/Canal/']) {
       const r = avalia(COLAB, m, v);
@@ -190,10 +189,10 @@ test('escopo: credencial de canal (token de bot) e a senha da Tela são fechadas
   for (const m of ['PUT', 'POST', 'GET', 'DELETE']) {
     for (const v of ['/p/ana/api/tela/senha', '/p/ana/api/tela/senha/', '/p/ana/API/TELA/SENHA']) {
       const r = avalia(COLAB, m, v);
-      assert.equal(r.ok, false, `${m} ${v}`); assert.match(r.motivo, /senha da Tela/, `${m} ${v}`);
+      assert.equal(r.ok, false, `${m} ${v}`); assert.match(r.motivo, /A Tela do agente/, `${m} ${v}`);
     }
   }
-  assert.equal(avalia(COLAB, 'GET', '/p/ana/api/tela').ok, true);
+  assert.equal(avalia(COLAB, 'GET', '/p/ana/api/tela').ok, false);
 });
 
 test('escopo: cada forma de desvio do caminho cru é negada no painel e na API', () => {
@@ -269,10 +268,11 @@ test('escopo: com a senha temporária pendente só passa o caminho da troca', ()
   assert.equal(websocketLiberado(COLAB_TEMP, '/p/ana/tela/websockify', '/p/ana/tela/websockify').ok, false);
 });
 
-test('escopo: WebSocket do colaborador só em /p/<dele>/**; dono e caixa seguem a regra de sempre', () => {
+test('escopo: nenhum WebSocket para o colaborador; dono e caixa seguem a regra de sempre', () => {
   const ws = (caminho, bruto) => websocketLiberado(COLAB, caminho, bruto || caminho);
-  assert.equal(ws('/p/ana/tela/websockify').ok, true);
-  assert.equal(ws('/p/ana/tela/websockify', '/p/ana/tela/websockify?token=x').ok, true);
+  // o único WebSocket do painel é o da Tela, que é só do dono
+  assert.equal(ws('/p/ana/tela/websockify').ok, false);
+  assert.equal(ws('/p/ana/tela/websockify', '/p/ana/tela/websockify?token=x').ok, false);
   for (const p of ['/p/bob/tela/websockify', '/p/admin/tela/websockify', '/p/ANA/tela/websockify', '/a/ana', '/api/v1/agents/ana/stream', '/', '/p', '/p/']) {
     const r = ws(p); assert.equal(r.ok, false, p); assert.equal(r.status, 403, p);
   }

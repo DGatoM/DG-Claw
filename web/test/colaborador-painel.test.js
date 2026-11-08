@@ -51,13 +51,13 @@ async function cenarioComPainel() {
   return { s, x, painel, fechar };
 }
 
-test('colaborador usa o painel inteiro do agente dele: sessões, rotinas, memória, arquivos e Tela chegam ao painel', async () => {
+test('colaborador usa o painel inteiro do agente dele: sessões, rotinas, memória e arquivos chegam ao painel', async () => {
   const { x, painel, fechar } = await cenarioComPainel();
   try {
     const casos = [
       ['GET', '/p/ana/'], ['GET', '/p/ana/api/sessoes'], ['POST', '/p/ana/api/sessoes/abc/arquivar'], ['GET', '/p/ana/api/rotinas'], ['GET', '/p/ana/api/rotinas/usuario'],
       ['GET', '/p/ana/api/memory'], ['GET', '/p/ana/api/memoria/arquivo'], ['GET', '/p/ana/api/arquivos'],
-      ['GET', '/p/ana/api/tela'], ['GET', '/p/ana/api/chat/mensagens'],
+      ['GET', '/p/ana/api/chat/mensagens'],
     ];
     for (const [m, p] of casos) {
       const r = await x.c.pedir(m, p, m === 'GET' ? {} : { json: {} });
@@ -124,26 +124,27 @@ test('colaborador: cofre, chaves de API, conta de IA, canais e senha da Tela nã
   } finally { await fechar(); }
 });
 
-test('colaborador: WebSocket da Tela do agente dele abre (101) e leva o usuário ao painel; o de outro agente não', async () => {
+test('colaborador: a Tela (WebSocket, página e senha) é fechada com 403 e nada chega ao painel', async () => {
   const { x, s, painel, fechar } = await cenarioComPainel();
   try {
     const cookie = Object.entries(x.c.jar).map(([k, v]) => `${k}=${v}`).join('; ');
-    const abre = (caminho, porta2) => new Promise((resolve) => {
+    const abre = (caminho) => new Promise((resolve) => {
       const limite = setTimeout(() => resolve({ erro: `sem resposta em ${caminho}` }), 3000);
       limite.unref();
-      const req = http.request({ host: '127.0.0.1', port: porta2, path: caminho, headers: { Connection: 'Upgrade', Upgrade: 'websocket', 'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==', 'Sec-WebSocket-Version': '13', Origin: `http://127.0.0.1:${porta2}`, Cookie: cookie } });
-      req.on('upgrade', (res, socket) => { socket.write('oi'); socket.once('data', (d) => { socket.destroy(); resolve({ status: res.statusCode, eco: d.toString() }); }); });
+      const req = http.request({ host: '127.0.0.1', port: s.t.porta, path: caminho, headers: { Connection: 'Upgrade', Upgrade: 'websocket', 'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==', 'Sec-WebSocket-Version': '13', Origin: `http://127.0.0.1:${s.t.porta}`, Cookie: cookie } });
+      req.on('upgrade', (res, socket) => { socket.destroy(); resolve({ status: res.statusCode }); });
       req.on('response', (res) => { res.resume(); resolve({ status: res.statusCode }); });
       req.on('error', (e) => resolve({ erro: e.code }));
       req.end();
     });
-    const portaWeb = s.t.porta;
-    const ok = await abre('/p/ana/tela/websockify', portaWeb);
-    assert.equal(ok.status, 101); assert.equal(ok.eco, 'eco:oi');
-    const up = painel.visto.find((v) => v.metodo === 'UPGRADE');
-    assert.equal(up.usuario, 'maria@x.com');
-    for (const p of ['/p/bob/tela/websockify', '/p/ana/api/cofre', '/p/ana/%2e%2e/bob/tela/websockify']) assert.notEqual((await abre(p, portaWeb)).status, 101, p);
-    assert.equal(painel.visto.filter((v) => v.metodo === 'UPGRADE').length, 1);
+    for (const p of ['/p/ana/tela/websockify', '/p/bob/tela/websockify', '/p/ana/api/cofre']) assert.notEqual((await abre(p)).status, 101, p);
+    assert.equal((await abre('/p/ana/tela/websockify')).status, 403);
+    for (const p of ['/p/ana/api/tela', '/p/ana/tela/novnc/vnc.html']) {
+      const r = await x.c.get(p);
+      assert.equal(r.status, 403, p); assert.match(r.texto, /A Tela do agente dá acesso aos arquivos e às contas dele/);
+    }
+    assert.equal(painel.visto.length, 0, 'o painel não pode ter recebido nada');
+    assert.equal((await s.dono.get('/p/ana/api/tela')).status, 200, 'o dono segue com a Tela');
   } finally { await fechar(); }
 });
 
@@ -165,58 +166,7 @@ test('proxy manda ao painel quem é (papel e colaborador) e apaga o que o navega
   } finally { await fechar(); }
 });
 
-function abreWs(porta, cookie, caminho) {
-  return new Promise((resolve, reject) => {
-    const req = http.request({ host: '127.0.0.1', port: porta, path: caminho, headers: { Connection: 'Upgrade', Upgrade: 'websocket', 'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==', 'Sec-WebSocket-Version': '13', Origin: `http://127.0.0.1:${porta}`, Cookie: cookie } });
-    req.on('upgrade', (res, socket) => resolve(socket));
-    req.on('response', (res) => { res.resume(); reject(new Error(`não abriu: ${res.statusCode}`)); });
-    req.on('error', reject);
-    req.end();
-  });
-}
-const espera = (socket, ms) => new Promise((resolve) => { const t = setTimeout(() => resolve(false), ms); socket.once('close', () => { clearTimeout(t); resolve(true); }); });
 const cookieDe = (c) => Object.entries(c.jar).map(([k, v]) => `${k}=${v}`).join('; ');
-
-test('WebSocket da Tela do colaborador fecha (os dois lados) quando o acesso é revogado', async () => {
-  const { x, s, painel, fechar } = await cenarioComPainel();
-  try {
-    const socket = await abreWs(s.t.porta, cookieDe(x.c), '/p/ana/tela/websockify');
-    const fechou = espera(socket, 3000);
-    assert.equal((await s.dono.pedir('DELETE', `/api/v1/colaboradores/${x.id}`)).status, 200);
-    assert.equal(await fechou, true, 'o socket do navegador devia ter fechado');
-    for (let i = 0; i < 40 && painel.fechadosDoPainel.n < 1; i++) await new Promise((r) => setTimeout(r, 50));
-    assert.equal(painel.fechadosDoPainel.n, 1, 'o lado do painel também');
-  } finally { await fechar(); }
-});
-
-test('WebSocket da Tela do colaborador fecha quando o convite é reenviado e quando ele troca a senha', async () => {
-  const { x, s, fechar } = await cenarioComPainel();
-  try {
-    let socket = await abreWs(s.t.porta, cookieDe(x.c), '/p/ana/tela/websockify');
-    let fechou = espera(socket, 3000);
-    const outra = 'outra-escolha-boa-1';
-    const t = await x.c.post('/api/v1/eu/senha', { json: { atual: x.nova, nova: outra, confirmacao: outra } });
-    assert.equal(t.status, 200, t.texto);
-    assert.equal(await fechou, true, 'a troca de senha devia fechar o socket');
-    socket = await abreWs(s.t.porta, cookieDe(x.c), '/p/ana/tela/websockify');
-    fechou = espera(socket, 3000);
-    assert.equal((await s.dono.post(`/api/v1/colaboradores/${x.id}/reenviar`)).status, 200);
-    assert.equal(await fechou, true, 'o convite novo devia fechar o socket');
-  } finally { await fechar(); }
-});
-
-test('o verificador de 30 s fecha o WebSocket cuja sessão expirou, e deixa em paz os que ainda valem', async () => {
-  const { x, s, fechar } = await cenarioComPainel();
-  try {
-    const socket = await abreWs(s.t.porta, cookieDe(x.c), '/p/ana/tela/websockify');
-    s.t.web.proxy.revalidar();
-    assert.equal(await espera(socket, 300), false, 'sessão válida: continua aberto');
-    const fechou = espera(socket, 3000);
-    s.relogio.t += 31 * 24 * 3600 * 1000;
-    s.t.web.proxy.revalidar();
-    assert.equal(await fechou, true, 'sessão vencida: fecha');
-  } finally { await fechar(); }
-});
 
 test('repetir um envio antigo (mesmo cliente_id) não devolve ao colaborador a autoria do turno', async () => {
   const { x, s, fechar } = await cenarioComPainel();
