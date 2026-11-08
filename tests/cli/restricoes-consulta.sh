@@ -85,7 +85,7 @@ for caso in remota-com-chave remota-merge remota-merge-desliga; do
     touch "$STUB_ESTADO/$caso"
     dgclaw agente restricoes ana >"$TMP/c5.txt" 2>&1; igual "$caso: sai com 0" "0" "$?"
     afirma "$caso: diz NAO VALE com a politica remota" grep -q 'NAO VALE:.*politica administrada remota' "$TMP/c5.txt"
-    afirma "$caso: orienta conta pessoal ou chave de API" grep -q 'conta pessoal (Pro ou Max) ou chave de API.*dgclaw agente reiniciar ana' "$TMP/c5.txt"
+    afirma "$caso: orienta conta pessoal ou chave de API" grep -q 'conta pessoal (Pro ou Max) ou uma chave de API.*dgclaw agente restricoes ana --sem-bash sim' "$TMP/c5.txt"
     nega "$caso: nao sugere mais o merge" grep -qi 'managedSourcesBehavior\|merge' "$TMP/c5.txt"
     nega "$caso: nao diz TRAVADO" grep -q TRAVADO "$TMP/c5.txt"
     igual "$caso: a consulta nao para o agente" "running" "$(cat "$STUB_ESTADO/c-dgclaw-ana")"

@@ -242,11 +242,18 @@ lê esse arquivo por dentro da caixa, como o usuário `agente`, com prazo e sem 
 | política com qualquer chave, inclusive `"managedSourcesBehavior": "merge"` | falha: as restrições não valem e o container é parado |
 | link, não é arquivo comum, maior que 1 MiB, JSON inválido, prazo estourado | falha, pela dúvida |
 
-Para resolver: conectar no agente uma conta pessoal (Pro ou Max) ou uma chave de API, ou desligar as restrições; depois,
-`dgclaw agente reiniciar <agente>`.
+Para resolver, em ordem (funciona com o agente parado, que é como o DG Claw o deixa, e o `reiniciar` recusa agente parado):
+
+1. desligar as restrições: `dgclaw agente restricoes <agente> --sem-bash nao --sem-enviar-arquivo nao --escrita-livre`;
+2. ligar o agente: `dgclaw agente iniciar <agente>` (pule este passo se ele já estiver ligado);
+3. no painel do agente, conectar uma conta pessoal (Pro ou Max) ou uma chave de API no lugar da conta da organização;
+4. ligar as restrições de novo com o mesmo comando `restricoes` e as opções desejadas. Ele confere outra vez e para o agente se a
+   política remota continuar.
 
 Quando o DG Claw para o agente por causa de uma falha dessas, ele confere que o container parou de verdade (`podman stop`, e
-`podman kill` se ainda estiver ligado) antes de gravar o marcador e o log. Se nem assim ele parar, a mensagem diz que o agente está
+`podman kill` se ainda não houver confirmação) antes de gravar o marcador e o log. Só vale confirmação positiva: o `podman inspect`
+responder com sucesso e o estado ser `exited`, `stopped`, `created` ou `configured`, ou o `podman container exists` dizer que o
+container não existe. Erro, prazo estourado, resposta vazia, `running`, `stopping`, `paused` ou estado desconhecido não confirmam. Se nem assim ele parar, a mensagem diz que o agente está
 LIGADO SEM A TRAVA e manda parar na mão (`dgclaw agente parar <agente>`). Se o marcador não puder ser gravado (disco cheio, por
 exemplo), o agente continua parado e o comando avisa.
 
