@@ -17,6 +17,8 @@ import zipfile
 from xml.sax.saxutils import escape as xml_escape
 
 LIMITE_ZIP = 200 * 1024 * 1024
+MAX_CELULAS = 2_000_000
+MAX_LINHAS = 200_000
 MIN_CARACTERES_POR_PAGINA = 20
 FORMATOS_TEXTO = (".txt", ".md", ".csv", ".json")
 FORMATOS_LEITORES = (".pdf", ".docx", ".xlsx")
@@ -77,7 +79,42 @@ def abrir_zip(caminho, nome):
         z.close()
         raise ErroMotor("zip_grande", "O arquivo '%s' ocupa mais de 200 MB depois de aberto (ou tem entradas demais). "
                         "Por segurança ele foi recusado. Divida o documento em partes menores." % nome)
+    _conferir_sem_dtd(z, caminho, nome)
     return z
+
+
+_DTD_CONFERIDOS = set()
+_PADROES_DTD = [p.lower() for t in ("<!DOCTYPE", "<!ENTITY") for p in (t.encode(), t.encode("utf-16-le"), t.encode("utf-16-be"))]
+
+
+def _conferir_sem_dtd(z, caminho, nome):
+    """OOXML legítimo não declara DTD nem entidade: recusa o pacote que tiver <!DOCTYPE ou <!ENTITY em qualquer parte XML
+    (inclusive em UTF-16), porque entidade esconde número e referência da conferência prévia e do parser."""
+    try:
+        st = os.stat(caminho)
+        chave = (os.path.abspath(caminho), st.st_size, st.st_mtime_ns)
+    except OSError:
+        chave = None
+    if chave in _DTD_CONFERIDOS:
+        return
+    for info in z.infolist():
+        if not info.filename.endswith((".xml", ".rels", ".vml")):
+            continue
+        resto = b""
+        with z.open(info) as f:
+            while True:
+                bloco = f.read(1024 * 1024)
+                texto = (resto + bloco).lower()
+                if any(p in texto for p in _PADROES_DTD):
+                    z.close()
+                    raise ErroMotor("xml_proibido", "A parte '%s' do arquivo '%s' declara uma DTD ou entidade XML (<!DOCTYPE/<!ENTITY), que documento de Office "
+                                    "legítimo não usa e que pode esconder dados. O arquivo foi recusado: abra e salve de novo no programa de origem."
+                                    % (info.filename, nome))
+                if not bloco:
+                    break
+                resto = (resto + bloco)[-64:]
+    if chave is not None:
+        _DTD_CONFERIDOS.add(chave)
 
 
 def reescrever_zip(z, saida, substituicoes):
@@ -272,10 +309,6 @@ def pdf_texto(caminho, nome):
 _SHEET_INVALIDO = re.compile(r"[\\/?*\[\]:]")
 
 
-_RX_DIMENSAO = re.compile(rb'<(?:[\w.-]+:)?dimension\s[^>]*?ref\s*=\s*"([^"]+)"')
-_RX_MESCLA = re.compile(rb'<(?:[\w.-]+:)?mergeCell\s[^>]*?ref\s*=\s*"([^"]+)"')
-
-
 def _numero_da_coluna(letras):
     n = 0
     for c in letras.upper():
@@ -293,34 +326,66 @@ def _area(ref):
     return abs(l2 - l1) + 1, abs(c2 - c1) + 1
 
 
+# Quantos elementos de cada tipo uma planilha pode ter (limite por parte); o que passa disso é tratado como bomba.
+LIMITES_DE_CONTAGEM = {"c": MAX_CELULAS, "row": MAX_LINHAS, "si": MAX_CELULAS, "xf": 200_000, "dxf": 100_000, "numFmt": 10_000, "font": 100_000,
+                       "fill": 100_000, "border": 100_000, "sheet": 1_000, "definedName": 100_000, "hyperlink": 200_000, "comment": 200_000,
+                       "cfRule": 100_000, "dataValidation": 100_000}
+
+
+class _LimiteDeBytes:
+    """Leitura de uma parte do zip com teto de bytes descompactados."""
+
+    def __init__(self, f, limite):
+        self.f, self.restante = f, limite
+
+    def read(self, n=-1):
+        dados = self.f.read(n)
+        self.restante -= len(dados)
+        if self.restante < 0:
+            raise ErroMotor("zip_grande", "Uma parte do arquivo passa do limite de tamanho depois de aberta. Divida o documento em partes menores.")
+        return dados
+
+
 def conferir_planilha_crua(caminho, nome):
-    """Lê o XML cru das abas (em pedaços) ANTES do openpyxl: dimensão e mesclagens que criariam milhões de células são recusadas sem carregar."""
+    """Lê as partes XML da pasta xl/ em streaming (expat, sem entidade externa) ANTES do openpyxl.
+
+    Usa os atributos já decodificados (dimension/@ref, mergeCell/@ref: &#65; vira A), soma as mesclagens e conta os elementos que
+    explodem memória (células, linhas, strings compartilhadas, estilos). Acima do limite: planilha_grande, sem carregar.
+    """
+    import xml.etree.ElementTree as ET
     with abrir_zip(caminho, nome) as z:
         for info in z.infolist():
-            if not re.fullmatch(r"xl/worksheets/[^/]+\.xml", info.filename):
+            if not (info.filename.startswith("xl/") and info.filename.endswith(".xml")):
                 continue
-            soma_mescla, resto = 0, b""
-            with z.open(info) as f:
-                while True:
-                    bloco = f.read(1024 * 1024)
-                    texto = resto + bloco
-                    corte = len(texto) if not bloco else texto.rfind(b">") + 1   # só tags inteiras; a sobra espera o próximo pedaço
-                    resto = texto[corte:]
-                    for rx, e_dimensao in ((_RX_DIMENSAO, True), (_RX_MESCLA, False)):
-                        for m in rx.finditer(texto[:corte]):
-                            ar = _area(m.group(1).decode("ascii", "replace"))
-                            if ar is None:
-                                continue
-                            linhas, colunas = ar
-                            if e_dimensao:
-                                if linhas > MAX_LINHAS or linhas * colunas > MAX_CELULAS:
-                                    raise _planilha_grande(nome, info.filename, "a dimensão declarada tem %d linhas e %d colunas" % (linhas, colunas))
-                            else:
-                                soma_mescla += linhas * colunas
-                                if soma_mescla > MAX_CELULAS:
-                                    raise _planilha_grande(nome, info.filename, "as células mescladas somam mais de %d" % MAX_CELULAS)
-                    if not bloco:
-                        break
+            soma_mescla, contagem, pilha = 0, {}, []
+            try:
+                with z.open(info) as bruto:
+                    for evento, el in ET.iterparse(_LimiteDeBytes(bruto, LIMITE_ZIP), events=("start", "end")):
+                        local = el.tag.rsplit("}", 1)[-1]
+                        if evento == "start":
+                            pilha.append(el)
+                            n = contagem[local] = contagem.get(local, 0) + 1
+                            if n > LIMITES_DE_CONTAGEM.get(local, 1 << 62):
+                                raise _planilha_grande(nome, info.filename, "a parte tem mais de %d elementos <%s>" % (LIMITES_DE_CONTAGEM[local], local))
+                            if local in ("dimension", "mergeCell"):
+                                ar = _area(el.get("ref") or "")
+                                if ar is None:
+                                    continue
+                                linhas, colunas = ar
+                                if local == "dimension":
+                                    if linhas > MAX_LINHAS or linhas * colunas > MAX_CELULAS:
+                                        raise _planilha_grande(nome, info.filename, "a dimensão declarada tem %d linhas e %d colunas" % (linhas, colunas))
+                                else:
+                                    soma_mescla += linhas * colunas
+                                    if soma_mescla > MAX_CELULAS:
+                                        raise _planilha_grande(nome, info.filename, "as células mescladas somam mais de %d" % MAX_CELULAS)
+                        else:
+                            pilha.pop()
+                            if len(pilha) >= 2:      # solta o que já foi lido: a memória não cresce com a planilha
+                                pilha[-1].remove(el)
+            except ET.ParseError:
+                raise ErroMotor("arquivo_invalido", "A parte '%s' da planilha '%s' está corrompida. Abra e salve de novo no Excel, depois envie."
+                                % (info.filename, nome)) from None
 
 
 def _planilha_grande(nome, parte, motivo):
@@ -340,10 +405,6 @@ def xlsx_abrir(caminho, nome, **kw):
     except Exception as e:
         raise ErroMotor("arquivo_invalido", "Não consegui abrir a planilha '%s' (%s). Abra e salve de novo no Excel, depois envie."
                         % (nome, type(e).__name__)) from None
-
-
-MAX_CELULAS = 2_000_000
-MAX_LINHAS = 200_000
 
 
 def celulas_existentes(ws):

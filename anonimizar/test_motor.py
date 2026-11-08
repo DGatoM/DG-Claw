@@ -732,6 +732,110 @@ class Arquivos(unittest.TestCase):
                 zout.writestr(info, dados)
         self.assertEqual(self.pedir(muitas).get("codigo"), "planilha_grande")
 
+    def _injeta(self, origem, destino, parte, antes, depois):
+        with zipfile.ZipFile(origem) as zin, zipfile.ZipFile(destino, "w") as zout:
+            for info in zin.infolist():
+                dados = zin.read(info.filename)
+                if info.filename == parte:
+                    dados = dados.replace(antes, depois, 1)
+                zout.writestr(info, dados)
+
+    @unittest.skipUnless(tem("openpyxl"), "openpyxl não está instalado neste Python")
+    def test_mesclagem_gigante_codificada_com_referencia_de_caractere(self):
+        import openpyxl
+        wb = openpyxl.Workbook()
+        wb.active["A1"] = "x"
+        origem = os.path.join(self.tmp, "e.xlsx")
+        wb.save(origem)
+        # &#65; = A, &#76; = L: a regex da conferência não via "A1:ALL10000", o parser vê
+        codificada = os.path.join(self.tmp, "e1.xlsx")
+        self._injeta(origem, codificada, "xl/worksheets/sheet1.xml", b"</worksheet>",
+                     b'<mergeCells count="1"><mergeCell ref="&#65;1:A&#76;&#x4C;10000"/></mergeCells></worksheet>')
+        self.assertEqual(self.pedir(codificada).get("codigo"), "planilha_grande")
+        r = motor.tratar({"op": "reverter", "entrada": codificada, "saida": os.path.join(self.tmp, "e1-out.xlsx"), "tabela": []})
+        self.assertEqual(r.get("codigo"), "planilha_grande", r)
+        # dimensão declarada com referência de caractere
+        dim = os.path.join(self.tmp, "e2.xlsx")
+        with zipfile.ZipFile(origem) as z:
+            xml = z.read("xl/worksheets/sheet1.xml")
+        self.assertIn(b"<dimension ref=", xml)
+        import re as _re
+        self._injeta(origem, dim, "xl/worksheets/sheet1.xml", _re.search(rb"<dimension ref=\"[^\"]*\"", xml).group(0), b'<dimension ref="A1:XF&#68;1048576"')
+        self.assertEqual(self.pedir(dim).get("codigo"), "planilha_grande")
+
+    @unittest.skipUnless(tem("openpyxl"), "openpyxl não está instalado neste Python")
+    def test_pacote_com_dtd_ou_entidade_e_recusado(self):
+        import openpyxl
+        wb = openpyxl.Workbook()
+        wb.active["A1"] = "x"
+        origem = os.path.join(self.tmp, "d.xlsx")
+        wb.save(origem)
+        com_dtd = os.path.join(self.tmp, "d1.xlsx")
+        with zipfile.ZipFile(origem) as z:
+            xml = z.read("xl/worksheets/sheet1.xml")
+        decl = xml[:xml.index(b"?>") + 2] if xml.startswith(b"<?xml") else b""
+        if not decl:
+            xml = b"<worksheet"
+            decl = b"<worksheet"
+        dtd = b'<!DOCTYPE worksheet [<!ENTITY a "A">]>'
+        self._injeta(origem, com_dtd, "xl/worksheets/sheet1.xml", decl, dtd + decl if decl == b"<worksheet" else decl + dtd)
+        r = self.pedir(com_dtd)
+        self.assertEqual((r["ok"], r.get("codigo")), (False, "xml_proibido"), r)
+        r = motor.tratar({"op": "reverter", "entrada": com_dtd, "saida": os.path.join(self.tmp, "d1-out.xlsx"), "tabela": []})
+        self.assertEqual(r.get("codigo"), "xml_proibido", r)
+        # referência escrita com entidade declarada
+        com_ent = os.path.join(self.tmp, "d3.xlsx")
+        self._injeta(origem, com_ent, "xl/worksheets/sheet1.xml", b"</worksheet>", b'<mergeCells><mergeCell ref="&a;1:ALL10000"/></mergeCells></worksheet>')
+        self._injeta(com_ent, os.path.join(self.tmp, "d5.xlsx"), "xl/worksheets/sheet1.xml", decl, dtd + decl if decl == b"<worksheet" else decl + dtd)
+        self.assertEqual(self.pedir(os.path.join(self.tmp, "d5.xlsx")).get("codigo"), "xml_proibido")
+        # UTF-16 também
+        u16 = os.path.join(self.tmp, "d4.xlsx")
+        with zipfile.ZipFile(origem) as zin, zipfile.ZipFile(u16, "w") as zout:
+            for info in zin.infolist():
+                dados = zin.read(info.filename)
+                if info.filename == "xl/styles.xml":
+                    dados = '<?xml version="1.0" encoding="UTF-16"?><!DOCTYPE s [<!ENTITY a "A">]><s/>'.encode("utf-16")
+                zout.writestr(info, dados)
+        self.assertEqual(self.pedir(u16).get("codigo"), "xml_proibido")
+
+    @unittest.skipUnless(tem("docx") and tem("lxml"), "python-docx não está instalado neste Python")
+    def test_docx_e_pptx_com_dtd_sao_recusados(self):
+        import docx
+        d = docx.Document()
+        d.add_paragraph("oi")
+        origem = os.path.join(self.tmp, "x.docx")
+        d.save(origem)
+        com = os.path.join(self.tmp, "x1.docx")
+        with zipfile.ZipFile(origem) as z:
+            xml = z.read("word/document.xml")
+        decl = xml[:xml.index(b"?>") + 2] if xml.startswith(b"<?xml") else b""
+        self._injeta(origem, com, "word/document.xml", xml[:20], decl + b'<!DOCTYPE d [<!ENTITY a "A">]>' + (xml[:20] if not decl else b""))
+        self.assertEqual(self.pedir(com).get("codigo"), "xml_proibido")
+        r = motor.tratar({"op": "reverter", "entrada": com, "saida": os.path.join(self.tmp, "x-out.docx"), "tabela": []})
+        self.assertEqual(r.get("codigo"), "xml_proibido", r)
+        pptx = os.path.join(self.tmp, "p.pptx")
+        with zipfile.ZipFile(pptx, "w") as z:
+            z.writestr("ppt/slides/slide1.xml", '<?xml version="1.0"?><!DOCTYPE p [<!ENTITY a "A">]><p/>')
+        r = motor.tratar({"op": "reverter", "entrada": pptx, "saida": os.path.join(self.tmp, "p-out.pptx"), "tabela": []})
+        self.assertEqual(r.get("codigo"), "xml_proibido", r)
+
+    @unittest.skipUnless(tem("openpyxl"), "openpyxl não está instalado neste Python")
+    def test_planilha_com_milhoes_de_strings_ou_estilos_vazios_e_recusada(self):
+        import openpyxl
+        wb = openpyxl.Workbook()
+        wb.active["A1"] = "x"
+        origem = os.path.join(self.tmp, "s.xlsx")
+        wb.save(origem)
+        bomba = os.path.join(self.tmp, "s1.xlsx")
+        with zipfile.ZipFile(origem) as zin, zipfile.ZipFile(bomba, "w", zipfile.ZIP_DEFLATED) as zout:
+            for info in zin.infolist():
+                dados = zin.read(info.filename)
+                zout.writestr(info, dados)
+            zout.writestr("xl/sharedStrings.xml", b'<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' + b"<si/>" * 2_100_000 + b"</sst>")
+        self.assertLess(os.path.getsize(bomba), 100_000)
+        r = self.pedir(bomba)
+        self.assertEqual((r["ok"], r.get("codigo")), (False, "planilha_grande"), r)
+
     def test_pptx_reverter(self):
         slide = ('<?xml version="1.0"?><p:sld xmlns:a="a" xmlns:p="p"><a:p><a:r><a:t>Cliente [PESS</a:t></a:r>'
                  '<a:r><a:rPr b="1"/><a:t>OA_1] &amp; filhos</a:t></a:r></a:p></p:sld>')
