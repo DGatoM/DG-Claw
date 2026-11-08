@@ -1600,6 +1600,31 @@ FIM
     executar systemctl start --no-block dgclaw-ronda.service
 }
 
+# --- 9d. anonimizar documentos (detector opcional) --------------------------------
+# A unidade-modelo dgclaw-anonimizar-instalar@<nivel>.service roda lib/anonimizar-instalar.sh como root. So o Web a
+# dispara (systemctl start --no-block), e so com os dois niveis fixos "leitores" e "completo". Aqui so se grava a
+# unidade; nada e instalado ate o dono pedir pela tela Anonimizar. Reescrever a unidade nao apaga o que ja foi instalado.
+configurar_anonimizar() {
+    passo "Preparando a instalacao opcional do detector de nomes (Anonimizar documentos)"
+    if ! fonte_tem lib/anonimizar-instalar.sh; then
+        aviso "lib/anonimizar-instalar.sh ainda nao existe neste repositorio; a unidade do detector de nomes nao foi criada."
+        return 0
+    fi
+    cat <<'FIM' | escrever_arquivo "$DG_UNITS/dgclaw-anonimizar-instalar@.service" 644
+[Unit]
+Description=DG Claw: instalar o detector de nomes da anonimizacao (%i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/dgclaw/app
+TimeoutStartSec=3600
+ExecStart=/bin/bash /opt/dgclaw/app/lib/anonimizar-instalar.sh %i
+FIM
+    executar systemctl daemon-reload
+}
+
 # --- 10. imagem -----------------------------------------------------------------
 imagem_pronta() { podman image exists "localhost/dgclaw-agente:$VERSAO" >/dev/null 2>&1; }
 
@@ -1800,6 +1825,7 @@ main() {
     configurar_boletins_seguranca
     configurar_ronda_seguranca
     atualizar_identidades
+    configurar_anonimizar
     construir_imagem
     testar_fim
     mensagem_final

@@ -31,6 +31,7 @@
   const LINK_CONECTAR = { nome: 'Conectar conta', ico: '🔑', href: '/conectar' };
   const LINK_COLABORADOR = { nome: 'Convidar colaborador', ico: '👥', href: '/colaboradores' };
   const ehColaborador = () => !!(raiz.DGPapel && raiz.DGPapel.colaborador);
+  const LINK_ANONIMIZAR = { nome: 'Anonimizar', ico: '🕶', href: '/anonimizar' };
 
   /* Sessões é item fixo para todo agente com painel (a tela fica no painel dele). Devolve o link do menu e os
      endereços que o menu consulta (config: a aba está ligada? pedidos: quantas sessões esperam o dono), ou null. */
@@ -68,6 +69,7 @@
     if (caminho === '/seguranca') return 'seguranca';
     if (caminho === '/conectar') return 'conectar';
     if (caminho === '/colaboradores') return 'colaboradores';
+    if (caminho === '/anonimizar') return 'anonimizar';
     if (/^\/a\/[^/]+$/.test(caminho)) return 'conversa';
     return '';
   }
@@ -97,7 +99,7 @@
       alvo: '#mlMoldura', antes: abre, titulo: 'O menu do agente',
       oque: 'A foto, o nome e as páginas de ' + nome + ', sempre no lado esquerdo. No computador ele fica aberto o tempo todo; no celular abre pelo botão ☰.',
       como: (o.naConversa ? 'O item Conversa (esta tela) fica no alto.' : 'O item Conversa, no alto, leva de volta ao chat.') +
-        ' Os outros itens levam à Mesa, às Sessões de trabalho dele, à Tela (o navegador dele, onde você faz os logins), aos Lembretes, aos Avisos, à Segurança, a Conectar conta (onde você conecta a conta do Claude de cada agente) e às páginas do painel dele. O Tutorial, aqui em cima, repete esta visita.',
+        ' Os outros itens levam à Mesa, às Sessões de trabalho dele, à Tela (o navegador dele, onde você faz os logins), aos Lembretes, aos Avisos, à Segurança, à Anonimizar (documentos sem dados pessoais), a Conectar conta (onde você conecta a conta do Claude de cada agente) e às páginas do painel dele. O Tutorial, aqui em cima, repete esta visita.',
       porque: 'Assim a conversa e o painel de cada agente ficam no mesmo lugar, sem link escondido.',
     }];
     if (o.comTroca) {
@@ -277,7 +279,7 @@
     return { tipo: 'sem', texto: 'Este navegador não oferece a instalação por aqui. No Chrome ou no Edge, abra o menu do navegador e procure Instalar app. No Firefox para computador, o recurso não existe.' };
   }
 
-  if (!raiz.document) return { corUso, quandoZeraUso, miniBarraUso, itemUso, ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, LINK_SEGURANCA, LINK_CONECTAR, LINK_COLABORADOR, linkSessoes, linkTela, itemAgente, bolinhaMenu, seloDe, totalNaoLidas, totalPrecisam, horaCurta, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar };
+  if (!raiz.document) return { corUso, quandoZeraUso, miniBarraUso, itemUso, ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, LINK_SEGURANCA, LINK_CONECTAR, LINK_COLABORADOR, LINK_ANONIMIZAR, linkSessoes, linkTela, itemAgente, bolinhaMenu, seloDe, totalNaoLidas, totalPrecisam, horaCurta, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar };
 
   /* ── Parte com DOM ─────────────────────────────────────────────────────── */
   const $ = id => document.getElementById(id);
@@ -600,6 +602,10 @@
     }
     $('mlTabs').insertAdjacentHTML('beforeend', `<div data-tour="gm-conectar"><a class="ml-tab" href="${comAgente(LINK_CONECTAR.href, ag.id)}">` +
       `<span class="ml-ico" aria-hidden="true">${LINK_CONECTAR.ico}</span>${LINK_CONECTAR.nome}</a></div>`);
+    if (!colab) {
+      $('mlTabs').insertAdjacentHTML('beforeend', `<div data-tour="gm-anonimizar"><a class="ml-tab" href="${comAgente(LINK_ANONIMIZAR.href, ag.id)}">` +
+        `<span class="ml-ico" aria-hidden="true">${LINK_ANONIMIZAR.ico}</span>${LINK_ANONIMIZAR.nome}</a></div>`);
+    }
     // Convidar colaborador: só o dono, e nunca para o Admin (o Admin mexe no servidor inteiro)
     if (!colab && ag.tipo !== 'admin' && ag.id) {
       $('mlTabs').insertAdjacentHTML('beforeend', `<div data-tour="gm-colaborador"><a class="ml-tab" href="${LINK_COLABORADOR.href}?agente=${encodeURIComponent(ag.id)}">` +
@@ -662,5 +668,5 @@
       .catch(e => { console.warn('menu-lado: não consegui saber quem está logado (' + e.message + '); o menu segue sem o nome.'); });
   }
 
-  return { corUso, quandoZeraUso, miniBarraUso, itemUso, ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, LINK_SEGURANCA, LINK_CONECTAR, LINK_COLABORADOR, linkSessoes, linkTela, itemAgente, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar, inicia, marca, extras, defineNaoLidas, totalNaoLidas, totalPrecisam, seloDe };
+  return { corUso, quandoZeraUso, miniBarraUso, itemUso, ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, LINK_SEGURANCA, LINK_CONECTAR, LINK_COLABORADOR, LINK_ANONIMIZAR, linkSessoes, linkTela, itemAgente, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar, inicia, marca, extras, defineNaoLidas, totalNaoLidas, totalPrecisam, seloDe };
 });

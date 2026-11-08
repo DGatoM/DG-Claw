@@ -681,3 +681,10 @@ body:not(.ler-on) .fone{display:none}
 .selo-fila{display:block;margin-top:4px;font-size:12px;line-height:1.3;opacity:.75;overflow-wrap:anywhere}
 .row.fila-tocando .selo-fila{opacity:1;font-weight:600}
 .row.fila-pausada .selo-fila{opacity:.9}
+
+/* Anonimizar documentos: botões de dados reais embaixo do balão do agente */
+.anon-linha{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.anon-btn{min-height:32px;padding:0 12px;border-radius:16px;border:1px solid #c9d8cc;background:#f2f6f2;color:#1f5f3a;font:inherit;font-size:13px;font-weight:600;cursor:pointer;touch-action:manipulation}
+.anon-btn[aria-pressed="true"]{background:#fff7e0;border-color:#e3c27a;color:#6b4a00}
+.anon-btn:disabled{opacity:.6;cursor:default}
+.anxtam.anon{white-space:normal;color:#1f7a47;font-weight:600}

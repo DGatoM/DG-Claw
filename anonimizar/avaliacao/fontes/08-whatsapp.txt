@@ -1,0 +1,12 @@
+#formato: txt
+[[[DATA:10/06/2026]] 09:12] [[PESSOA:Fernanda Lopes]]: bom dia! tudo bem?
+[[[DATA:10/06/2026]] 09:13] [[PESSOA:Fernanda Lopes]]: preciso do boleto da mensalidade
+[[[DATA:10/06/2026]] 09:15] Atendimento: Oi [[PESSOA:Fernanda]], claro! Me confirma seu CPF?
+[[[DATA:10/06/2026]] 09:16] [[PESSOA:Fernanda Lopes]]: [[CPF:${CPF_C_RAW}]]
+[[[DATA:10/06/2026]] 09:17] Atendimento: obrigada. O valor é [[VALOR:R$ 489,90]] com vencimento em [[DATA:15/06/2026]]
+[[[DATA:10/06/2026]] 09:18] [[PESSOA:Fernanda Lopes]]: pode mandar no zap [[TELEFONE:(85) 98877-6655]]
+[[[DATA:10/06/2026]] 09:20] [[PESSOA:Fernanda Lopes]]: ou no email [[EMAIL:fe.lopes@exemplo.com.br]]
+[[[DATA:10/06/2026]] 09:21] [[PESSOA:Fernanda Lopes]]: moro na [[ENDERECO:Rua Barão de Studart, 1500, Meireles, Fortaleza/CE]]
+[[[DATA:10/06/2026]] 09:25] Atendimento: pronto, enviado. Lembre que o plano [[!:Premium Plus]] tem desconto
+[[[DATA:10/06/2026]] 09:26] [[PESSOA:Fernanda Lopes]]: valeu, a [[PESSOA:Nanda]] agradece kkk
+[[[DATA:10/06/2026]] 09:30] [[PESSOA:Fernanda Lopes]]: o [[PESSOA:João]] vai passar aí amanhã pra pagar

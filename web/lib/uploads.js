@@ -2,8 +2,11 @@
 // Upload multipart sem dependências. O corpo é lido em memória até o limite configurado
 // (DGCLAW_WEB_MAX_UPLOAD_MB, padrão 50) e gravado em <home_host>/uploads/AAAA-MM-DD/.
 
+const fs = require('node:fs');
 const path = require('node:path');
 const { lerCorpo } = require('./http');
+
+const FLAGS_NOVO = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW;
 
 /** Lê um multipart. Devolve { campos:{nome:valor}, arquivos:[{campo,nome,tipo,dados}] }. Lança erro com .status. */
 async function lerMultipart(req, limite) {
@@ -73,4 +76,21 @@ function nomeNeutro(nome) {
   return nome.startsWith('.') || RX_NOME_DE_INSTRUCAO.test(nome) ? `anexo-${nome}` : nome;
 }
 
-module.exports = { lerMultipart, nomeSeguro, nomeNeutro };
+/** Grava sem sobrescrever (flag wx; se existir, acrescenta -1, -2...). Devolve o caminho final. */
+function gravaSemSobrescrever(pasta, nome, dados) {
+  const ext = path.extname(nome);
+  const raiz = path.basename(nome, ext);
+  for (let i = 0; i < 1000; i += 1) {
+    const alvo = path.join(pasta, i === 0 ? nome : `${raiz}-${i}${ext}`);
+    try {
+      // O_NOFOLLOW + O_EXCL: nunca grava passando por atalho, nem por cima de arquivo que já existe.
+      fs.writeFileSync(alvo, dados, { flag: FLAGS_NOVO, mode: 0o644 });
+      return alvo;
+    } catch (e) {
+      if (e.code !== 'EEXIST') throw e;
+    }
+  }
+  throw new Error('Não achei um nome livre para o arquivo.');
+}
+
+module.exports = { lerMultipart, nomeSeguro, nomeNeutro, gravaSemSobrescrever, FLAGS_NOVO };

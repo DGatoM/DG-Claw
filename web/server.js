@@ -22,6 +22,7 @@ const { criarComandos } = require('./lib/comandos');
 const { lerMultipart, nomeSeguro, nomeNeutro } = require('./lib/uploads');
 const { gravaAnexo: gravaAnexoReal } = require('./lib/grava-anexo');
 const { instanciaDe } = require('./lib/instancia');
+const { entregar: entregarSeguro, ErroEntrega } = require('./lib/entrega-segura');
 const { abrirStream } = require('./lib/sse');
 const { criarProxy } = require('./lib/proxy');
 const { criarCofreAgente } = require('./lib/cofre-agente');
@@ -30,6 +31,8 @@ const { criarAlertas } = require('./lib/alertas');
 const { criarFoco } = require('./lib/foco');
 const { criarVoz } = require('./lib/voz');
 const { criarSigilo } = require('./lib/sigilo');
+const { criarAnonimizar } = require('./lib/anonimizar');
+const { criarRotasAnonimizar } = require('./lib/anonimizar-rotas');
 const { criarOnboarding } = require('./lib/onboarding');
 const { criarLogin } = require('./lib/login');
 const { criarPrimeiroAcesso } = require('./lib/primeiro-acesso');
@@ -75,6 +78,44 @@ function proximoSeguro(v) {
   return s;
 }
 
+/**
+ * Passa TODA resposta dinâmica de `res` pelo `filtro` (texto a texto) antes de sair: JSON e qualquer text/*.
+ * `estatica` (documentação, por nome exato de rota) segue como está. Tipo de conteúdo que não sei filtrar,
+ * com corpo, vira 503: para agente com a anonimização ligada, na dúvida não se entrega.
+ */
+function filtraRespostaDaCaixa(res, filtro, log, estatica) {
+  if (estatica) return;
+  const writeHead = res.writeHead.bind(res); const end = res.end.bind(res);
+  let status = null; let cabecalhos = {}; const pedacos = [];
+  res.writeHead = (s, h) => { status = s; cabecalhos = Object.assign({}, h && typeof h === 'object' ? h : {}); return res; };
+  res.write = (c) => { pedacos.push(Buffer.from(c)); return true; };
+  res.end = (c) => {
+    if (c) pedacos.push(Buffer.from(c));
+    let corpo = Buffer.concat(pedacos);
+    const tipo = String(Object.entries(cabecalhos).find(([k]) => k.toLowerCase() === 'content-type')?.[1] || res.getHeader('content-type') || '');
+    let codigo = status || res.statusCode;
+    let recusa = null;
+    if (corpo.length) {
+      try {
+        if (/json/i.test(tipo)) corpo = Buffer.from(JSON.stringify(filtro(JSON.parse(corpo.toString('utf8')))), 'utf8');
+        else if (/^\s*text\//i.test(tipo)) corpo = Buffer.from(filtro(corpo.toString('utf8')), 'utf8');
+        else recusa = `tipo de conteúdo "${tipo || 'desconhecido'}" que não sei filtrar`;
+      } catch (e) { recusa = e.message; }
+    }
+    if (recusa) {
+      log('erro', `Anonimizar: não consegui filtrar a resposta da caixa (${recusa}). Respondi 503.`);
+      codigo = 503;
+      corpo = Buffer.from(JSON.stringify({ ok: false, erro: 'Não consegui trocar os dados pessoais da resposta, então ela não foi entregue. Tente de novo; se repetir, peça ao dono para conferir a tela Anonimizar.' }), 'utf8');
+      cabecalhos = {};
+      cabecalhos['Content-Type'] = 'application/json; charset=utf-8';
+    }
+    for (const k of Object.keys(cabecalhos)) if (k.toLowerCase() === 'content-length') delete cabecalhos[k];
+    cabecalhos['Content-Length'] = corpo.length;
+    writeHead(codigo, cabecalhos);
+    return end(corpo);
+  };
+}
+
 function criarServidor(opcoes) {
   opcoes = opcoes || {};
   const log = opcoes.log || H.logPadrao;
@@ -112,17 +153,23 @@ function criarServidor(opcoes) {
   const cofreAgente = criarCofreAgente({ config, log, reiniciar: opcoes.reiniciarCofre });
   const voz = opcoes.voz || criarVoz({ env: config.env, log });
   const sigilo = opcoes.sigilo || criarSigilo({ env: config.env, registro, dataDir: config.dataDir, log, timeoutMs: opcoes.timeoutSigiloMs });
+  const anonimizar = opcoes.anonimizar || criarAnonimizar({
+    env: config.env, dataDir: config.dataDir, registro, log, paraContainer,
+    motor: opcoes.anonMotor, systemctl: opcoes.anonSystemctl, ociosoMs: opcoes.anonOciosoMs,
+  });
   const cofreRotas = criarCofreRotas({ config, runner, cofre: cofreAgente, voz, log, entregar: (...a) => conversa.entregar(...a), esperaAvisoMs: opcoes.esperaAvisoMs });
   const proxy = criarProxy({ config, registro, log, cofreRotas });
-  const caixa = criarCaixaAgente({ config, registro, log, porta: () => servidor.address().port, agora: opcoes.agora });
+  const caixa = criarCaixaAgente({ config, registro, log, porta: () => servidor.address().port, agora: opcoes.agora, filtroRetrato: (slug, o) => { const f = anonimizar.filtroSaida(slug); return f ? f(o) : o; } });
   const push = criarPush({ dataDir: config.dataDir, log, agora: opcoes.agora, enviarHttp: opcoes.enviarPush });
   try { push.garantirChaves(); } catch (e) { log('erro', e.message); }
-  const lembretes = criarLembretes({ config, registro, runner, push, log, agora: opcoes.agora });
+  // Texto livre que vai ao agente por outros caminhos (lembrete, mesa, aviso) passa pelo mesmo filtro do /send; lança se a config estiver ilegível.
+  const filtroAnon = (slug, t) => (typeof t === 'string' && t && anonimizar.aplicaDigitado(slug) ? anonimizar.trocarDigitado(slug, t).texto : t);
+  const lembretes = criarLembretes({ config, registro, runner, push, log, agora: opcoes.agora, filtro: filtroAnon });
   caixa.permitir('/api/v1/lembretes');
   // Modo foco: o agente chega pela caixa (dgclaw-api), o retrato vai para a casa dele e o PUT do agente avisa o celular.
   const foco = criarFoco({ dir: path.join(config.dataDir, 'foco'), tz: config.tz, log, registro, gravaRetrato: opcoes.gravaRetrato || caixa.gravaRetrato, push: opcoes.push || push, quemChamou: opcoes.quemChamou || quemChamou });
   caixa.permitir('/api/v1/foco');
-  const mesa = criarMesa({ arquivo: path.join(config.dataDir, 'mesa', 'tarefas.json'), registro, runner, log, agora: opcoes.agora, tz: config.tz, avisarDono: (aviso) => push.enviar(aviso) });
+  const mesa = criarMesa({ arquivo: path.join(config.dataDir, 'mesa', 'tarefas.json'), registro, runner, log, agora: opcoes.agora, tz: config.tz, avisarDono: (aviso) => push.enviar(aviso), filtro: filtroAnon });
   // O agente fala com a Mesa pelo dgclaw-mesa, que passa pela caixa: a rota precisa estar liberada.
   caixa.permitir('/api/v1/tarefas');
   const naoLidas = criarNaoLidas({ arquivo: path.join(config.dataDir, 'nao-lidas.json'), conversa, registro, log, relogio: opcoes.agora, lerThread: conversa.threadCompartilhada });
@@ -130,10 +177,12 @@ function criarServidor(opcoes) {
   // O agente consulta o uso da PRÓPRIA assinatura pela caixa (dgclaw-api GET /api/v1/uso); a rota
   // filtra pelo slug da caixa, então ele nunca vê os outros. O Admin, no host, usa a API normal.
   caixa.permitir('/api/v1/uso');
-  const avisos = criarAvisos({ config, registro, runner, caixa, log, agora: opcoes.agora });
+  const avisos = criarAvisos({ config, registro, runner, caixa, log, agora: opcoes.agora, filtro: filtroAnon });
   caixa.permitir('/api/v1/avisos');
   // Só o caminho exato da documentação do cofre (os templates mandam o agente ler); o cofre em si não é rota da caixa.
   caixa.permitir('/api/v1/cofre/docs.md');
+  // A doc do Anonimizar é pública; as rotas dele NÃO entram aqui (agente não as chama).
+  caixa.permitir('/api/v1/anonimizar/docs.md');
   // Aviso de versão nova: só o dono, pelo painel. De propósito NÃO entra em caixa.permitir (agente em container não usa).
   const estados = criarEstados({ conversa, naoLidas, registro, log });
   const prefsAtencao = criarPrefsAtencao({ arquivo: path.join(config.dataDir, 'push', 'preferencias.json'), log });
@@ -215,6 +264,9 @@ function criarServidor(opcoes) {
     const norm = String(o).replace(/\/+$/, '');
     return norm === H.origemPropria(req, config.proxiesConfiaveis) || config.origensExtras.has(norm);
   }
+
+  // Só o dono, pela tela. Fora de caixa.permitir de propósito: agente em container não chama estas rotas.
+  const rotasAnonimizar = criarRotasAnonimizar({ anon: anonimizar, registro, midia, log, origemOk });
 
   const querHtml = (req) => /\btext\/html\b/.test(String(req.headers.accept || ''));
 
@@ -386,6 +438,8 @@ function criarServidor(opcoes) {
     if (p.startsWith('/api/v1/tarefas') && await mesa.rota(req, res, url, sessao)) return undefined;
 
     if (await foco.tratarRota(req, res, url, sessao)) return undefined;
+
+    if ((p === '/api/v1/anonimizar' || p.startsWith('/api/v1/anonimizar/')) && await rotasAnonimizar.rotas(req, res, url, sessao)) return undefined;
 
     if ((p === '/api/v1/lembretes' || p.startsWith('/api/v1/lembretes/')) && await lembretes.rotas(req, res, url, sessao)) return undefined;
 
@@ -632,6 +686,15 @@ function criarServidor(opcoes) {
         if (!corpo) return undefined;
         if (await confirmacaoNegada(res, agente, sessao, corpo.tool_use_id)) return undefined;
         if (!sessaoAindaVale(req, sessao)) return recusaSessaoVelha(res, sessao);
+        // Resposta em texto livre à pergunta do agente também sai do dono para o agente: mesmo filtro do /send.
+        try {
+          if (Array.isArray(corpo.respostas) && anonimizar.aplicaDigitado(agente.slug)) {
+            for (const r of corpo.respostas) if (r && typeof r.texto === 'string') r.texto = anonimizar.trocarDigitado(agente.slug, r.texto).texto;
+          }
+        } catch (e) {
+          log('erro', `Anonimizar: resposta à pergunta de ${agente.slug} recusada (${e.codigo || e.message}).`);
+          return H.erroJson(res, e.status || 500, e.message, e.codigo ? { codigo: e.codigo } : undefined);
+        }
         const r = await conversa.responderPergunta(agente, corpo);
         return H.enviaJson(res, r.status, r.corpo);
       }
@@ -892,6 +955,28 @@ function criarServidor(opcoes) {
     if (cid != null && cid !== '' && !(typeof cid === 'string' && RX_CLIENTE_ID.test(cid))) {
       return H.erroJson(res, 400, `O "cliente_id" veio como ${JSON.stringify(String(cid).slice(0, 80))}, que não vale: use de 8 a 64 caracteres entre letras, números, "-" e "_". Nada foi enviado.`);
     }
+    // Anonimizar: TODO texto que chega ao agente passa pelo filtro, inclusive "//" (vira texto), comando de barra com
+    // argumentos e legenda de anexo. Só fica de fora o comando que o Web executa e que não leva texto ao agente.
+    // Config ilegível NÃO desliga o filtro em silêncio: a mensagem é recusada com 503.
+    try {
+      if (typeof corpo.text === 'string' && corpo.text.trim()) {
+        const temAnexos = Array.isArray(corpo.anexos) && corpo.anexos.length > 0;
+        const d = await comandos.decidir(agente, corpo.text, { temAnexos });
+        const chegaAoAgente = !d.erro && (d.tipo === 'texto' || /^\S+\s+\S/.test(corpo.text.trim()));
+        if (chegaAoAgente) {
+          const comAnexoAnonimizado = temAnexos && corpo.anexos.some((id) => {
+            const e = typeof id === 'string' ? midia.obter(id) : null;
+            return e && e.slug === agente.slug && /^doc-[0-9a-f]{8}\.anon\./.test(path.basename(e.path));
+          });
+          if (comAnexoAnonimizado ? anonimizar.estaLigado(agente.slug) : anonimizar.aplicaDigitado(agente.slug)) {
+            corpo.text = anonimizar.trocarDigitado(agente.slug, corpo.text).texto;
+          }
+        }
+      }
+    } catch (e) {
+      log('erro', `Anonimizar: mensagem para ${agente.slug} recusada (${e.codigo || e.message}).`);
+      return H.erroJson(res, e.status || 500, e.status ? e.message : `Não enviei a mensagem porque não consegui trocar os dados pessoais dela: ${e.message}`, e.codigo ? { codigo: e.codigo } : undefined);
+    }
     const r = await conversa.umaVez(agente, 'send', cid || null, () => conversa.enviar(agente, corpo, atorDa(sessao)), identidadeDe(sessao));
     if (r.status < 300 && !(r.corpo && r.corpo.repetido)) marcaAutor(agente.slug, sessao, r);
     return H.enviaJson(res, r.status, r.corpo);
@@ -903,6 +988,24 @@ function criarServidor(opcoes) {
     const cid = corpo.cliente_id;
     if (cid != null && cid !== '' && !(typeof cid === 'string' && RX_CLIENTE_ID.test(cid))) {
       return H.erroJson(res, 400, `O "cliente_id" veio como ${JSON.stringify(String(cid).slice(0, 80))}, que não vale: use de 8 a 64 caracteres entre letras, números, "-" e "_". Nada foi enviado.`);
+    }
+    // Argumentos de comando também chegam ao agente (skill, /compact foque em...). Monta UMA representação do que vai ao
+    // runner, como conversa.comando interpreta ("comando" + "argumentos", senão "text"), filtra esse texto final e o devolve
+    // num campo só. Combinação inválida segue para conversa.comando, que recusa com o motivo.
+    try {
+      const valido = typeof corpo.comando === 'string' && corpo.comando.trim() ? (corpo.argumentos == null || typeof corpo.argumentos === 'string') : (typeof corpo.text === 'string' && corpo.text.trim());
+      if (valido) {
+        const final = typeof corpo.comando === 'string' && corpo.comando.trim()
+          ? corpo.comando.trim() + (typeof corpo.argumentos === 'string' && corpo.argumentos.trim() ? ` ${corpo.argumentos.trim()}` : '')
+          : corpo.text.trim();
+        if (/^\S+\s+\S/.test(final) && anonimizar.aplicaDigitado(agente.slug)) {
+          corpo.text = anonimizar.trocarDigitado(agente.slug, final).texto;
+          delete corpo.comando; delete corpo.argumentos;
+        }
+      }
+    } catch (e) {
+      log('erro', `Anonimizar: comando para ${agente.slug} recusado (${e.codigo || e.message}).`);
+      return H.erroJson(res, e.status || 500, e.message, e.codigo ? { codigo: e.codigo } : undefined);
     }
     const r = await conversa.umaVez(agente, 'comando', cid || null, () => conversa.comando(agente, corpo, atorDa(sessao)), identidadeDe(sessao));
     if (r.status < 300 && !(r.corpo && r.corpo.repetido)) marcaAutor(agente.slug, sessao, r);
@@ -931,28 +1034,59 @@ function criarServidor(opcoes) {
       const dia = new Intl.DateTimeFormat('en-CA', { timeZone: config.tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
       // Colaborador grava numa pasta só dele e com um prefixo aleatório no nome: nunca na pasta dos arquivos do dono.
       const pastas = souColab ? ['uploads', dia, `colaborador-${String(sessao.colaborador_id).replace(/[^A-Za-z0-9_-]/g, '')}`] : ['uploads', dia];
-      const nomeEmDisco = nomeNeutro(nomeSeguro(arq.nome));
-      let destino;
-      try {
-        // Sem privilégio: quem grava é um processo com o uid do dono da casa, que não segue atalho para fora dela.
-        destino = await gravaAnexo({ agente, pastas, nome: souColab ? `${crypto.randomBytes(4).toString('hex')}-${nomeEmDisco}` : nomeEmDisco, dados: arq.dados });
-      } catch (e) {
-        log('erro', `Upload para ${agente.slug}: não gravei em ${path.join(agente.home_host, ...pastas)}: ${e.message}`);
-        return { status: 500, corpo: { ok: false, erro: `Não consegui gravar o arquivo na casa de ${agente.nome}: ${e.message} Nada foi enviado ao agente.` } };
+      const pasta = path.join(agente.home_host, 'uploads', dia);
+            // Anonimizar documentos: com a opção ligada, o original NUNCA chega à casa do agente; só as saídas com marcadores.
+      const anon = await anonimizar.processarUpload(agente, { nome: arq.nome, dados: arq.dados, legenda, dia });
+      if (!anon.ok) {
+        log('aviso', `Upload para ${agente.slug} barrado pela anonimização (${anon.codigo || anon.status}). Nada foi enviado ao agente.`);
+        return { status: anon.status, corpo: { ok: false, erro: anon.erro, codigo: anon.codigo || null, anonimizado: false } };
+      }
+      let destino; let anonimizado = null; let legendaEnvio = legenda; let notaAnon = ''; let nomeArquivo = arq.nome;
+      if (!anon.id) {
+        // Sem anonimizar o arquivo (exceção escolhida pelo dono): a legenda e o nome dele também chegam ao agente.
+        try {
+          if (anonimizar.aplicaDigitado(agente.slug)) {
+            legendaEnvio = anonimizar.trocarDigitado(agente.slug, legenda).texto;
+            nomeArquivo = anonimizar.trocarDigitado(agente.slug, arq.nome).texto;
+          }
+        } catch (e) {
+          log('aviso', `Upload para ${agente.slug} barrado: não consegui filtrar a legenda e o nome do arquivo (${e.codigo || e.message}). Nada foi enviado ao agente.`);
+          return { status: e.status || 503, corpo: { ok: false, erro: `${e.message} O arquivo não foi enviado ao agente.`, codigo: e.codigo || null, anonimizado: false } };
+        }
+      }
+      if (anon.id) {
+        destino = anon.principal;
+        legendaEnvio = anon.legenda;
+        anonimizado = { id: anon.id, contagem: anon.total, por_tipo: anon.contagem, avisos: anon.avisos, nivel: anon.nivel };
+        const outras = anon.vistos.filter((v) => v !== paraContainer(destino, agente));
+        notaAnon = '[documento anonimizado: os dados pessoais foram trocados por marcadores como [PESSOA_1]. Mantenha os marcadores exatamente como estão.' +
+          (outras.length ? ` Outras versões do mesmo documento: ${outras.join(', ')}.` : '') + ']';
+      } else {
+        if (anon.semAnonimizar) anonimizado = { id: null, contagem: 0, avisos: [anon.aviso], enviado_sem_anonimizar: true };
+        const nomeEmDisco = nomeNeutro(nomeSeguro(nomeArquivo));
+        try {
+          // Sem privilégio: quem grava é um processo com o uid do dono da casa, que não segue atalho para fora dela.
+          destino = await gravaAnexo({ agente, pastas, nome: souColab ? `${crypto.randomBytes(4).toString('hex')}-${nomeEmDisco}` : nomeEmDisco, dados: arq.dados });
+        } catch (e) {
+          log('erro', `Upload para ${agente.slug}: não gravei em ${path.join(agente.home_host, ...pastas)}: ${e.message}`);
+          return { status: 500, corpo: { ok: false, erro: `Não consegui gravar o arquivo na casa de ${agente.nome}: ${e.message} Nada foi enviado ao agente.` } };
+        }
       }
       const visto = paraContainer(destino, agente);
       const media = midia.registrar(agente.slug, destino, { visto, nome: path.basename(destino) });
       const marcador = `[anexo: ${visto}]`;
-      const anexo = { id: media.id, kind: media.kind, nome: arq.nome, bytes: arq.dados.length, path: visto, url: media.url };
-      log('info', `Upload para ${agente.slug}: ${arq.nome} (${media.kind}, ${arq.dados.length} bytes) salvo em ${destino}.`);
+      const tamanho = anon.id ? fs.statSync(destino).size : arq.dados.length;
+      const anexo = { id: media.id, kind: media.kind, nome: anon.id ? path.basename(destino) : arq.nome, bytes: tamanho, path: visto, url: media.url };
+      log('info', `Upload para ${agente.slug}: ${anon.id ? `documento anonimizado ${anon.id}` : arq.nome} (${media.kind}, ${tamanho} bytes) salvo em ${destino}.`);
+      const corpoBase = anonimizado ? { anonimizado } : {};
       if (soGuardar) {
-        return { status: 201, corpo: { ok: true, enviado: false, agente: agente.slug, anexo, marcador, media } };
+        return { status: 201, corpo: Object.assign({ ok: true, enviado: false, agente: agente.slug, anexo, marcador, media }, corpoBase) };
       }
       const ator = atorDa(sessao);
-      const e = await conversa.entregar(agente, [legenda, marcador].filter(Boolean).join('\n'), { cru: false, from: ator && ator.from, colaboradorId: ator && ator.colaborador_id });
+      const e = await conversa.entregar(agente, [legendaEnvio, marcador, notaAnon].filter(Boolean).join('\n'), { cru: false, from: ator && ator.from, colaboradorId: ator && ator.colaborador_id });
       if (e.status >= 300) return Object.assign(e, { corpo: Object.assign({ arquivo_salvo: visto }, e.corpo) });
       marcaAutor(agente.slug, sessao, e);
-      return { status: 201, corpo: Object.assign({}, e.corpo, { enviado: true, kind: media.kind, texto: legenda, anexo, marcador, media }) };
+      return { status: 201, corpo: Object.assign({}, e.corpo, { enviado: true, kind: media.kind, texto: legendaEnvio, anexo, marcador, media }, corpoBase) };
     }, identidadeDe(sessao));
     return H.enviaJson(res, r.status, r.corpo);
   }
@@ -1020,6 +1154,18 @@ function criarServidor(opcoes) {
       return H.erroJson(res, 403, `A rota ${p.slice(0, 120)} não está liberada para agentes. Só as rotas que a frente liberou com caixa.permitir() respondem pela caixa.`);
     }
 
+    // Anonimização: tudo que o agente recebe pela caixa (tarefas, lembretes, avisos, foco...) passa pelo filtro dos valores
+    // conhecidos dele, campo a campo. Sem poder filtrar (config ou tabela ilegível), a resposta é 503.
+    if (slugCaixa) {
+      let filtro;
+      try { filtro = anonimizar.filtroSaida(slugCaixa); } catch (e) {
+        log('erro', `Anonimizar: resposta da caixa para ${slugCaixa} recusada (${e.codigo || e.message}).`);
+        return H.erroJson(res, e.status || 503, e.message, e.codigo ? { codigo: e.codigo } : undefined);
+      }
+      // Só a documentação estática (nome exato de rota, ex.: /api/v1/avisos/docs.md) escapa do filtro.
+      if (filtro) filtraRespostaDaCaixa(res, filtro, log, /^\/api\/v1\/[a-z-]+\/docs\.md$/.test(p));
+    }
+
     // CSRF: toda escrita exige Origin igual à do próprio Web (a caixa não vem de navegador).
     if (ehMutacao(req) && !slugCaixa && !origemOk(req)) {
       const visto = req.headers.origin ? String(req.headers.origin).slice(0, 80) : '(sem Origin)';
@@ -1056,6 +1202,8 @@ function criarServidor(opcoes) {
 
     const sessao = slugCaixa ? { usuario: 'agente:' + slugCaixa, via: 'caixa', agente: slugCaixa } : auth.sessaoDoPedido(req);
 
+    // Única rota do Anonimizar sem sessão: a documentação, estática, para o agente ler sem credencial.
+    if (p === '/api/v1/anonimizar/docs.md' && (m === 'GET' || m === 'HEAD')) { rotasAnonimizar.servirDocs(res); return undefined; }
     if (sessao && !sessao.via) {
       // O cookie de papel só serve para a tela esconder o que não é do colaborador; aqui ele se conserta sozinho.
       if (H.parseCookies(req.headers.cookie).dgclaw_papel !== sessao.papel) res.setHeader('Set-Cookie', auth.cookiePapel(sessao.papel, req));
@@ -1161,6 +1309,15 @@ function criarServidor(opcoes) {
       return undefined;
     }
 
+    if ((p === '/anonimizar' || p === '/anonimizar/') && (m === 'GET' || m === 'HEAD')) {
+      if (!sessao) return semSessaoPagina(req, res, url);
+      if (!servirArquivo(req, res, path.join(config.publicDir, 'anonimizar.html'), 'no-store')) {
+        log('erro', `A tela de anonimizar não está instalada: falta ${path.join(config.publicDir, 'anonimizar.html')}.`);
+        H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela de anonimizar documentos não foi encontrado no servidor. Reinstale o DG Claw Web.');
+      }
+      return undefined;
+    }
+
     if ((p === '/conectar' || p === '/conectar/') && (m === 'GET' || m === 'HEAD')) {
       if (!sessao) return semSessaoPagina(req, res, url);
       if (!servirArquivo(req, res, path.join(config.publicDir, 'conectar.html'), 'no-store')) {
@@ -1231,7 +1388,7 @@ function criarServidor(opcoes) {
   });
 
   return {
-    servidor, config, registro, auth, colaboradores, proxy, midia, conversa, log, caixa, push, lembretes, avisos, estados, vigiaAtencao, prefsAtencao,
+    servidor, config, registro, auth, colaboradores, proxy, midia, conversa, anonimizar, filtroAnon, log, caixa, push, lembretes, avisos, estados, vigiaAtencao, prefsAtencao,
     ouvir(porta, host) {
       return new Promise((resolve, reject) => {
         servidor.once('error', reject);
@@ -1245,11 +1402,11 @@ function criarServidor(opcoes) {
         });
       });
     },
-    fechar() { return new Promise((resolve) => { caixa.parar(); lembretes.parar(); avisos.parar(); vigiaAtencao.parar(); proxy.fecharTudo(); servidor.closeAllConnections && servidor.closeAllConnections(); servidor.close(() => resolve()); }); },
+    fechar() { return new Promise((resolve) => { caixa.parar(); lembretes.parar(); avisos.parar(); vigiaAtencao.parar(); proxy.fecharTudo(); anonimizar.encerrar(); servidor.closeAllConnections && servidor.closeAllConnections(); servidor.close(() => resolve()); }); },
   };
 }
 
-module.exports = { criarServidor, proximoSeguro };
+module.exports = { criarServidor, proximoSeguro, filtraRespostaDaCaixa };
 
 if (require.main === module) {
   const s = criarServidor();

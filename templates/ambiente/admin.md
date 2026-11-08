@@ -117,6 +117,24 @@ compartilhado. A pessoa conversa com o agente inteiro, lê sessões, rotinas, me
 `/opt/dgclaw/app/web/docs/COLABORADORES.md` (também em `GET /api/v1/colaboradores/docs.md`). O envio do e-mail é
 opcional e depende das variáveis `DGCLAW_SMTP_*` do `web.env`.
 
+### Anonimizar documentos
+
+O dono pode pedir que os documentos enviados a um agente cheguem sem os dados pessoais (nomes, CPF, telefone,
+e-mail e parecidos trocados por marcadores como `[PESSOA_1]`). Você explica e ajuda a configurar; quem liga é a
+tela **Anonimizar** (menu ☰, endereço `/anonimizar`), por agente. Mostre onde fica e explique as opções. O que dizer ao dono:
+
+- Só vale para o clipe da conversa web. WhatsApp, Telegram e e-mail ainda não passam pelo filtro.
+- Sem o **detector de nomes**, só números de documento, telefone e e-mail são trocados. Por isso o padrão
+  é bloquear o envio quando ele não está instalado. A tela instala os **leitores** (cerca de 30 MB, abre PDF,
+  Word e Excel) e o **completo** (cerca de 2 GB de disco e 2,5 GB de memória livre, acha nomes, empresas e
+  endereços). A instalação roda sozinha como unidade do sistema (`dgclaw-anonimizar-instalar@leitores` ou
+  `@completo`), e o progresso aparece na tela.
+- A tabela que liga cada marcador ao dado real fica cifrada no servidor, e a chave em
+  `/etc/dgclaw/anonimizar.chave`. Sem a chave, os dados reais não voltam: ela entra no backup.
+- Para baixar o resultado com os dados reais, o dono usa "Baixar versão final" na conversa; PDF não volta,
+  então o agente deve entregar `.docx`, `.xlsx`, `.md` ou `.txt`.
+- Você nunca lê a tabela nem desfaz marcadores por conta própria. Guia completo: `/opt/dgclaw/app/docs/ANONIMIZAR.md`.
+
 ### Onde ler mais
 
 `/opt/dgclaw/app/docs/COMO-FUNCIONA.md` e `ARQUITETURA.md` (visão geral), `SEGURANCA.md` (por que

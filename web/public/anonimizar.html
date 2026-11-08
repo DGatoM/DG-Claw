@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Anonimizar documentos - DG Claw</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#2f9e5e">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="icon" href="/icons/icon-192.png">
+<link rel="stylesheet" href="/anonimizar.css">
+<link rel="stylesheet" href="/casca.css">
+<link rel="stylesheet" href="/menu-lado.css">
+<link rel="stylesheet" href="/sem-zoom.css">
+<script src="/sem-zoom.js"></script>
+</head>
+<body class="an">
+<main class="an-main">
+  <p class="an-msg erro" id="anMsgGeral" role="alert" hidden></p>
+
+  <div id="anConfigErro"></div>
+
+  <section class="an-sec" id="secSobre" aria-label="O que é a anonimização de documentos">
+    <h2><span>Anonimizar documentos</span><button type="button" class="an-ajuda" data-an="ajuda" data-secao="sobre" aria-label="Tutorial: o que é a anonimização">?</button></h2>
+    <p>Com a opção ligada para um agente, os documentos que você manda pelo clipe da conversa passam antes por um filtro que troca nomes, CPF, telefone, e-mail e outros dados por marcadores, como <b>[PESSOA_1]</b> e <b>[CPF_1]</b>. O agente e o modelo na nuvem só recebem a versão com marcadores. A tabela que liga cada marcador ao dado real fica neste servidor, cifrada, fora da pasta do agente.</p>
+    <p class="an-limite"><b>O que ainda não passa pelo filtro:</b> o que chega por WhatsApp, Telegram ou e-mail. Só vale para o clipe da conversa web. O que você digita só é trocado se a opção estiver ligada, e apenas para dados que já apareceram em algum documento.</p>
+  </section>
+
+  <section class="an-sec" id="secDetector" aria-label="Detector de nomes">
+    <h2><span>Detector de nomes</span><button type="button" class="an-ajuda" data-an="ajuda" data-secao="detector" aria-label="Tutorial do detector de nomes">?</button></h2>
+    <div id="anDetector"><p class="an-vazio">Conferindo…</p></div>
+  </section>
+
+  <section class="an-sec" id="secAgentes" aria-label="Anonimização por agente">
+    <h2><span>Por agente</span><button type="button" class="an-ajuda" data-an="ajuda" data-secao="agentes" aria-label="Tutorial das opções por agente">?</button></h2>
+    <div id="anAgentes"><p class="an-vazio">Carregando…</p></div>
+  </section>
+
+  <section class="an-sec" id="secTeste" aria-label="Testar com um texto">
+    <h2><span>Testar com um texto</span><button type="button" class="an-ajuda" data-an="ajuda" data-secao="teste" aria-label="Tutorial do teste com um texto">?</button></h2>
+    <p class="an-fraco">Cole um texto para ver o que seria trocado. Nada é gravado: o teste usa uma tabela temporária.</p>
+    <label class="an-campo">Agente (usa as opções dele)
+      <select id="anTesteAgente"></select>
+    </label>
+    <label class="an-campo">Texto
+      <textarea id="anTesteTexto" rows="4" placeholder="Ex.: Maria Souza, CPF 123.456.789-00, telefone (11) 91234-5678"></textarea>
+    </label>
+    <div class="an-acoes"><button type="button" class="an-btn an-pri" id="anTesteBtn">Testar</button></div>
+    <div id="anTesteSaida" class="an-saida" aria-live="polite" hidden></div>
+    <p class="an-msg" id="anTesteMsg" role="status" hidden></p>
+  </section>
+
+  <section class="an-sec" id="secDocs" aria-label="Documentos anonimizados">
+    <h2><span>Documentos anonimizados</span><button type="button" class="an-ajuda" data-an="ajuda" data-secao="docs" aria-label="Tutorial da lista de documentos">?</button></h2>
+    <label class="an-campo">Agente
+      <select id="anDocsAgente"></select>
+    </label>
+    <div id="anDocs"><p class="an-vazio">Escolha um agente.</p></div>
+    <div class="an-acoes" id="anDocsAcoes" hidden>
+      <button type="button" class="an-btn" id="anVerTabela" data-an="tabela">Ver tabela</button>
+      <button type="button" class="an-btn an-perigo" data-an="apagar-tudo">Apagar tudo deste agente</button>
+    </div>
+    <div id="anTabela" class="an-saida" hidden></div>
+    <p class="an-msg" id="anDocsMsg" role="status" hidden></p>
+  </section>
+</main>
+
+<script src="/tour.js"></script>
+<script src="/menu-lado.js"></script>
+<script src="/atualizacao-faixa.js"></script>
+<script src="/casca.js"></script>
+<script src="/anonimizar.js"></script>
+<script>
+DGCasca.monta({ pagina: 'anonimizar', titulo: 'Anonimizar documentos', aoTutorial: function () { if (window.DGAnonimizarTela) window.DGAnonimizarTela.tutorial(); } });
+</script>
+</body>
+</html>
