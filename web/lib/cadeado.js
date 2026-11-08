@@ -525,19 +525,20 @@ function criarCadeado({ config, log, agora, encerrarSessao, existeSessao, estado
       log('aviso', `Cadeado: assinatura inválida na passkey ${pk.id} de ${titular}.`);
       throw new WebAuthnErro('A assinatura não confere com a chave cadastrada.', 'assinatura', 403);
     }
-    const velho = Number(pk.sign_count) || 0;
-    if ((ad.contador || velho) && ad.contador <= velho) {
-      log('aviso', `Cadeado: o contador da passkey ${pk.id} de ${titular} não subiu (guardado ${velho}, veio ${ad.contador}); recusei.`);
-      throw new WebAuthnErro(`O contador da passkey não subiu (guardado ${velho}, veio ${ad.contador}). Isso pode ser uma cópia da chave. Remova esta passkey e cadastre de novo.`, 'contador', 403, ad.contador);
-    }
-    try {
-      await altera((c) => {
-        const alvo = c.passkeys.find((p) => p.id === pk.id);
-        if (alvo) { alvo.sign_count = ad.contador; alvo.ultimo_uso = iso(relogio()); }
-      });
-    } catch (e) {
-      log('aviso', `Cadeado: o Face ID valeu, mas o contador da passkey ${pk.id} não foi gravado (${e.message}).`);
-    }
+    // O contador é conferido e gravado DENTRO da fila (altera), e só depois disso a sessão destrava: se a gravação falhar, o
+    // contador volta ao que era, a resposta é 500 e a sessão segue travada (a pessoa usa a senha). Assim uma cópia da chave
+    // não passa por um contador que ficou para trás.
+    await altera((c) => {
+      const alvo = c.passkeys.find((p) => p.id === pk.id && p.titular === titular);
+      if (!alvo) throw new WebAuthnErro('Essa passkey foi removida enquanto você confirmava. Entre com a senha.', 'desconhecida', 404);
+      const velho = Number(alvo.sign_count) || 0;
+      if ((ad.contador || velho) && ad.contador <= velho) {
+        log('aviso', `Cadeado: o contador da passkey ${pk.id} de ${titular} não subiu (guardado ${velho}, veio ${ad.contador}); recusei.`);
+        throw new WebAuthnErro(`O contador da passkey não subiu (guardado ${velho}, veio ${ad.contador}). Isso pode ser uma cópia da chave. Remova esta passkey e cadastre de novo.`, 'contador', 403, ad.contador);
+      }
+      alvo.sign_count = ad.contador;
+      alvo.ultimo_uso = iso(relogio());
+    });
     const ap = aparelhoDe(req);
     const authHash = authHashDe(req);
     const marca = authHash && lerMarca ? lerMarca(authHash) : null;

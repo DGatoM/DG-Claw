@@ -133,7 +133,13 @@
   if (fetchOriginal) {
     janela.fetch = function (entrada, init) {
       const p = fetchOriginal(entrada, init);
-      p.then(function (r) { if (r && r.status === 423) mostra('A tela travou por falta de uso.'); }, function () { /* o chamador trata a falha de rede */ });
+      // Só o 423 do cadeado (corpo com travado:true) cobre a tela; outro 423 (o painel usa para "poder não instalado") segue para
+      // a página. Lê uma CÓPIA da resposta, sem tocar no corpo de quem fez o pedido.
+      p.then(function (r) {
+        if (!r || r.status !== 423) return;
+        r.clone().json().then(function (d) { if (d && d.travado === true) mostra('A tela travou por falta de uso.'); },
+          function (e) { console.warn('trava: um 423 sem corpo JSON não é do cadeado, deixei passar:', e.message); });
+      }, function () { /* o chamador trata a falha de rede */ });
       return p;
     };
   }
@@ -202,7 +208,7 @@
   function enviaUso() {
     ultimoUso = Date.now();
     pede(API + '/uso', { method: 'POST' }).then(function (r) {
-      if (r.status === 423) { mostra(); return; }
+      if (r.status === 423 && r.d && r.d.travado === true) { mostra(); return; }
       if (r.ok && r.d.resta_s != null) {
         estado = Object.assign({}, estado || {}, { resta_s: r.d.resta_s, trava_min: r.d.trava_min });
         vistoAte = Date.now() + r.d.resta_s * 1000;

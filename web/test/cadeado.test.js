@@ -694,7 +694,11 @@ test('o stream da conversa para e avisa com "event: travado"', async () => {
 // ── WebSocket já aberto quando a sessão trava ───────────────────────────────
 function painelComWebSocket() {
   const pedidos = [];
-  const servidor = http.createServer((req, res) => { pedidos.push(`${req.method} ${req.url}`); req.resume(); res.writeHead(200); res.end('{}'); });
+  const servidor = http.createServer((req, res) => {
+    pedidos.push(`${req.method} ${req.url}`); req.resume();
+    if (req.url.includes('/poder-desligado')) { res.writeHead(423, { 'Content-Type': 'application/json' }); return res.end('{"error":"power_not_installed"}'); }
+    res.writeHead(200); res.end('{}');
+  });
   const abertos = new Set();
   servidor.on('upgrade', (req, socket) => {
     abertos.add(socket); socket.on('close', () => abertos.delete(socket));
@@ -1469,4 +1473,86 @@ test('send com corpo incompleto e o aparelho removido por outra sessão: 401 e n
     assert.equal((await celular.get('/api/v1/agents')).status, 401);
     assert.notEqual((await pc.get('/api/v1/agents')).status, 401, 'a sessão de quem removeu segue');
   });
+});
+
+// ── contador gravado antes de destravar; só o 423 do cadeado cobre a tela ───────
+test('verificação: se o contador não puder ser gravado, responde 500 e a sessão segue travada; com disco, destrava', async () => {
+  const s = await cenario();
+  await verde(s, async () => {
+    const d = await dono(s);
+    const ap = aparelhoFalso();
+    await d.cadastra(ap, 'iPhone');
+    s.relogio.t += 20 * MIN;
+    const original = fs.promises.writeFile;
+    fs.promises.writeFile = async (alvo, ...resto) => {
+      if (String(alvo).includes('passkeys.json')) throw Object.assign(new Error('sem espaço'), { code: 'ENOSPC' });
+      return original(alvo, ...resto);
+    };
+    try {
+      const r = await d.destrava(ap);
+      assert.equal(r.status, 500, r.texto); assert.equal(r.json.motivo, 'arquivo');
+      assert.equal((await d.get('/api/v1/agents')).status, 423, 'continua travada');
+    } finally { fs.promises.writeFile = original; }
+    // o contador em memória voltou ao que era: a mesma tentativa, agora com disco, passa e o contador sobe
+    assert.equal((await d.destrava(ap)).status, 200);
+    s.relogio.t += 20 * MIN;
+    assert.equal((await d.destrava(ap, { contador: 1 })).status, 403, 'contador que volta continua recusado');
+    assert.notEqual(JSON.parse(fs.readFileSync(path.join(s.t.dados, 'passkeys.json'), 'utf8')).passkeys[0].sign_count, 0);
+  });
+});
+
+test('trava.js: só o 423 com travado:true cobre a tela; outro 423 passa para a página', async () => {
+  const vm = require('node:vm');
+  const codigo = fs.readFileSync(path.join(PUBLICO_REAL, 'trava.js'), 'utf8');
+  const elementos = {};
+  const el = (id) => elementos[id] || (elementos[id] = {
+    id, textContent: '', hidden: false, disabled: false, innerHTML: '', style: {}, classList: { add() {}, remove() {} },
+    addEventListener() {}, setAttribute() {}, querySelector: (sel) => el(sel), blur() {},
+  });
+  const document = {
+    readyState: 'complete', visibilityState: 'visible', documentElement: { classList: { add() {}, remove() {} } }, activeElement: null,
+    head: { appendChild() {} }, body: { appendChild() {}, hasAttribute: () => false },
+    createElement: (tag) => el('novo-' + tag), addEventListener() {}, querySelectorAll: () => [],
+  };
+  const resp = (status, corpo) => { const r = { status, ok: status < 400, json: () => Promise.resolve(corpo), clone: () => resp(status, corpo) }; return r; };
+  const janela = {
+    document, console, URLSearchParams, Promise, Date, TypeError,
+    navigator: { userAgent: 'Mozilla/5.0 (iPhone)', maxTouchPoints: 5 }, location: { search: '', pathname: '/a/ana', host: 'x.com' },
+    addEventListener() {}, setInterval: () => 1, clearInterval() {}, setTimeout: () => 1, clearTimeout() {},
+    fetch: (url) => Promise.resolve(
+      url.endsWith('/estado') ? resp(200, { ok: true, ativo: false, travado: false, resta_s: null, trava_min: 15 })
+        : url.includes('alheio') ? resp(423, { error: 'power_not_installed' })
+          : url.includes('semjson') ? { status: 423, ok: false, clone: () => ({ json: () => Promise.reject(new SyntaxError('sem json')) }), json: () => Promise.reject(new SyntaxError('sem json')) }
+            : resp(423, { ok: false, erro: 'travada', travado: true })),
+  };
+  janela.window = janela;
+  vm.createContext(janela);
+  vm.runInContext(codigo, janela, { filename: 'trava.js' });
+  const vazio = () => new Promise((r) => setImmediate(r));
+  await vazio(); await vazio();
+  const lido = await janela.fetch('/api/painel/alheio');
+  await vazio(); await vazio();
+  assert.equal(lido.status, 423);
+  assert.equal(await lido.json().then((d) => d.error), 'power_not_installed', 'quem pediu ainda lê o corpo original');
+  await janela.fetch('/api/painel/semjson');
+  await vazio(); await vazio();
+  assert.equal(elementos['novo-div'], undefined, '423 alheio (ou sem JSON) não cobre a tela');
+  await janela.fetch('/api/qualquer');
+  await vazio(); await vazio();
+  assert.equal(elementos['novo-div'].hidden, false, 'o 423 do cadeado cobre');
+});
+
+test('um 423 do painel repassado pelo proxy chega como o painel mandou, sem travado:true', async () => {
+  const s = await cenarioWs();
+  try {
+    const d = pessoa(s);
+    await d.login('dono', s.t.senha);
+    const r = await d.get('/p/ana/api/poder-desligado');
+    assert.equal(r.status, 423);
+    assert.deepEqual(r.json, { error: 'power_not_installed' });
+    // e o Face ID ligado nem o coloca na lista de quem trava: a pessoa continua usando
+    await d.cadastra(aparelhoFalso(), 'iPhone');
+    const r2 = await d.get('/p/ana/api/poder-desligado');
+    assert.deepEqual(r2.json, { error: 'power_not_installed' });
+  } finally { await s.fechar(); }
 });
