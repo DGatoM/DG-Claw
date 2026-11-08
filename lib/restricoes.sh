@@ -289,6 +289,31 @@ _restricoes_sessoes_em_codex() {
     [ "${#achados[@]}" -eq 0 ] || printf '%s' "${achados[*]}" | sed 's/;/; /g'
 }
 
+# _restricoes_derivar_deny <sem_bash> <sem_env>: a lista (JSON) de ferramentas negadas. Fonte unica: o aplicar grava
+# com ela e a consulta compara com ela.
+# Monitor (Claude Code 2.1.296) executa shell por conta propria e a checagem dele ignora a regra `Bash` sem padrao:
+# sem negar o nome dele, as tres travas do terminal seriam contornadas.
+_restricoes_derivar_deny() {
+    # shellcheck disable=SC2016 # os $ sao variaveis do jq
+    jq -nc --argjson bash "$1" --argjson env "$2" '
+        [if $bash then "Bash", "BashOutput", "KillShell", "Monitor" else empty end]
+        + [if $env then "mcp__dgchat__send_file", "mcp__dgchat__whatsapp_send_file" else empty end]'
+}
+
+# _restricoes_derivar_ms <deny_json> <ativo true|false>: o conteudo (JSON) do managed-settings.json.
+# Qualquer restricao ligada instala o gancho (sem escrita_so_em ele roda no modo "so protegidos": fecha
+# .dgclaw, .claude, SKILL.md... que o agente poderia usar para executar comando sem o Bash). onFailure=block:
+# gancho que nao inicia, morre ou passa do tempo bloqueia em vez de liberar.
+# NAO usar allowManagedHooksOnly: o runner passa os ganchos de status do agente (Stop, PreToolUse...) por
+# --settings a cada sessao, e essa chave poderia desliga-los e o painel perderia o estado do agente.
+_restricoes_derivar_ms() {
+    # shellcheck disable=SC2016 # os $ sao variaveis do jq
+    jq -nc --argjson deny "$1" --argjson ativo "$2" --arg cmd "$GANCHO_ESCRITA_CMD" --arg m "$GANCHO_ESCRITA_MATCHER" '
+        {}
+        | (if $ativo then .hooks = {PreToolUse: [{matcher: $m, hooks: [{type: "command", command: $cmd, timeout: 10, onFailure: "block"}]}]} else . end)
+        | (if ($deny | length) > 0 then .permissions = {deny: $deny} else . end)'
+}
+
 # _restricoes_conferir_suporte <slug> <esperado>: com o container RODANDO, confere DENTRO dele (como root, so
 # lendo /etc e a imagem, que o agente nao controla) que a imagem carrega a configuracao administrada: o link
 # /etc/claude-code/managed-settings.json aponta para a pasta do runner, o conteudo visto la e o <esperado> e o
@@ -299,7 +324,7 @@ _restricoes_sessoes_em_codex() {
 _restricoes_conferir_suporte() {
     local c="dgclaw-$1" esperado="$2" alvo=/etc/claude-code/managed-settings.json destino=/etc/dgclaw-runner/managed-settings.json lnk visto script
     script="${GANCHO_ESCRITA_CMD##* }"
-    RESTRICOES_SUPORTE_MOTIVO=""; RESTRICOES_SUPORTE_CAUSA=imagem; RESTRICOES_REMOTA=""
+    RESTRICOES_SUPORTE_MOTIVO=""; RESTRICOES_SUPORTE_CAUSA=imagem; RESTRICOES_REMOTA=""; RESTRICOES_CONTA=""
     lnk="$(timeout 15 podman exec "$c" readlink "$alvo" 2>/dev/null)" || lnk=""
     if [ "$lnk" != "$destino" ]; then
         RESTRICOES_SUPORTE_MOTIVO="dentro do container $alvo ${lnk:+aponta para $lnk e nao para $destino}${lnk:-nao existe ou nao e um link}"
@@ -323,7 +348,34 @@ _restricoes_conferir_suporte() {
         duvida) RESTRICOES_SUPORTE_MOTIVO="nao consegui ler com seguranca /home/agente/.claude/remote-settings.json (link, arquivo estranho, grande demais, JSON invalido ou prazo estourado), entao nao sei se a conta de IA conectada tem politica administrada remota, que substituiria a configuracao do DG Claw" ;;
     esac
     case "$RESTRICOES_REMOTA" in com|duvida) RESTRICOES_SUPORTE_CAUSA=remota; return 1 ;; esac
+    # O cache so mostra o momento: uma conta Team/Enterprise sem politica hoje recebe uma depois (o Claude Code busca a
+    # politica de hora em hora), e ela substitui a local inteira, gancho incluso. Por isso a conta de organizacao
+    # reprova mesmo com o cache limpo.
+    RESTRICOES_CONTA="$(_restricoes_classificar_conta "$c")"
+    case "$RESTRICOES_CONTA" in
+        com) RESTRICOES_SUPORTE_MOTIVO="a conta de IA conectada e de uma organizacao Team/Enterprise do claude.ai, que pode receber politica administrada remota a qualquer momento, e ela substitui a configuracao do DG Claw" ;;
+        duvida) RESTRICOES_SUPORTE_MOTIVO="nao consegui confirmar qual e a conta de IA conectada (claude auth status), entao nao sei se ela e de uma organizacao Team/Enterprise do claude.ai, que pode receber politica administrada remota a qualquer momento e substituiria a configuracao do DG Claw" ;;
+    esac
+    case "$RESTRICOES_CONTA" in com|duvida) RESTRICOES_SUPORTE_CAUSA=remota; RESTRICOES_REMOTA="$RESTRICOES_CONTA"; return 1 ;; esac
     return 0
+}
+
+# _restricoes_classificar_conta <container>: pergunta ao Claude Code, dentro da caixa e como agente, qual e a conta de
+# IA (claude auth status --json) e imprime sem (segue), com (organizacao Team/Enterprise) ou duvida. A saida traz e-mail
+# e organizacao: ela so passa pelo jq, que olha loggedIn, authMethod e subscriptionType, e nunca e impressa, gravada
+# nem posta em mensagem de erro. O codigo de saida do comando nao conta (sem login ele sai com erro): decide a saida.
+# Sem login segue, porque o dono precisa do agente ligado para conectar a conta.
+_restricoes_classificar_conta() {
+    local saida res
+    saida="$(timeout 20 podman exec --user agente "$1" claude auth status --json 2>/dev/null | head -c 65536)" || true
+    # shellcheck disable=SC2016 # os $ sao variaveis do jq
+    if ! res="$(printf '%s' "$saida" | timeout 5 jq -r '
+        if type != "object" then "duvida"
+        elif (.loggedIn | type) != "boolean" or (.authMethod | type) != "string" then "duvida"
+        elif (.subscriptionType | type) == "string" and ((.subscriptionType | ascii_downcase) as $t | $t == "team" or $t == "enterprise") then "com"
+        elif .loggedIn == true and .authMethod == "claude.ai" and (.subscriptionType | type) != "string" then "duvida"
+        else "sem" end' 2>/dev/null)"; then res=duvida; fi
+    case "$res" in sem|com|duvida) printf '%s' "$res" ;; *) printf duvida ;; esac
 }
 
 # _restricoes_receita_remota <slug> [ligado]: o procedimento para quem tem politica remota na conta de IA do agente.
@@ -342,7 +394,7 @@ _restricoes_receita_remota() {
 _restricoes_suporte_falhou() {
     local slug="$1"
     if [ "${RESTRICOES_SUPORTE_CAUSA:-}" = remota ]; then
-        falha "as restricoes do agente $slug NAO valem: $RESTRICOES_SUPORTE_MOTIVO. A politica remota de uma organizacao do claude.ai vence a configuracao local, e o agente poderia gravar arquivos que as rotinas dele executam. Parei o container, porque agente com restricao ligada nao roda sem a trava. Os arquivos das restricoes ficaram gravados." \
+        falha "as restricoes do agente $slug NAO valem: $RESTRICOES_SUPORTE_MOTIVO. A politica remota de uma organizacao do claude.ai (a que ja existe ou a que uma conta Team/Enterprise recebe depois) vence a configuracao local, e o agente poderia gravar arquivos que as rotinas dele executam. Parei o container, porque agente com restricao ligada nao roda sem a trava. Os arquivos das restricoes ficaram gravados." \
             "o agente esta parado e nao da para reinicia-lo; siga em ordem: $(_restricoes_receita_remota "$slug")"
     fi
     falha "o agente $slug roda numa imagem antiga que nao carrega a configuracao administrada do Claude Code ($RESTRICOES_SUPORTE_MOTIVO). Por isso as restricoes NAO valem: o agente ainda poderia mudar arquivos que as rotinas dele executam. Parei o container, porque agente com restricao ligada nao roda sem a trava. Os arquivos das restricoes ficaram gravados." \
@@ -493,11 +545,8 @@ _aplicar_restricoes_sem_trava() {
         info "[ensaio] aplicaria as restricoes de $rs no managed-settings.json e no runner.json do agente $slug"
         return 0
     fi
-    # Monitor (Claude Code 2.1.296) executa shell por conta propria e a checagem dele ignora a regra `Bash` sem padrao:
-    # sem negar o nome dele, as tres travas do terminal seriam contornadas.
-    deny_json="$(jq -nc --argjson bash "$sem_bash" --argjson env "$sem_env" '
-        [if $bash then "Bash", "BashOutput", "KillShell", "Monitor" else empty end]
-        + [if $env then "mcp__dgchat__send_file", "mcp__dgchat__whatsapp_send_file" else empty end]')"
+    deny_json="$(_restricoes_derivar_deny "$sem_bash" "$sem_env")" \
+        || falha "o jq nao conseguiu montar a lista de ferramentas negadas do agente $slug." "isto e um erro do DG Claw; abra uma issue com a saida acima."
 
     # --- monta o runner.json novo (na memoria) ---
     if [ "$runner_novo" = 0 ] && [ -f "$rj" ]; then base="$(cat "$rj")"; fi
@@ -531,16 +580,7 @@ _aplicar_restricoes_sem_trava() {
     # --- monta a configuracao administrada (na memoria) ---
     ativo=false
     if [ "$sem_bash" = true ] || [ "$sem_env" = true ] || [ "$pastas" != null ]; then ativo=true; fi
-    # shellcheck disable=SC2016 # os $ sao variaveis do jq
-    # Qualquer restricao ligada instala o gancho (sem escrita_so_em ele roda no modo "so protegidos": fecha
-    # .dgclaw, .claude, SKILL.md... que o agente poderia usar para executar comando sem o Bash). onFailure=block:
-    # gancho que nao inicia, morre ou passa do tempo bloqueia em vez de liberar.
-    # NAO usar allowManagedHooksOnly: o runner passa os ganchos de status do agente (Stop, PreToolUse...) por
-    # --settings a cada sessao, e essa chave poderia desliga-los e o painel perderia o estado do agente.
-    novo_ms="$(jq -nc --argjson pastas "$pastas" --argjson deny "$deny_json" --argjson ativo "$ativo" --arg cmd "$GANCHO_ESCRITA_CMD" --arg m "$GANCHO_ESCRITA_MATCHER" '
-        {}
-        | (if $ativo then .hooks = {PreToolUse: [{matcher: $m, hooks: [{type: "command", command: $cmd, timeout: 10, onFailure: "block"}]}]} else . end)
-        | (if ($deny | length) > 0 then .permissions = {deny: $deny} else . end)')" \
+    novo_ms="$(_restricoes_derivar_ms "$deny_json" "$ativo")" \
         || falha "o jq nao conseguiu montar o managed-settings.json do agente $slug." "isto e um erro do DG Claw; abra uma issue com a saida acima."
 
     [ "$(podman inspect -f '{{.State.Status}}' "$c" 2>/dev/null || true)" = running ] && rodando=1
@@ -609,6 +649,8 @@ _aplicar_restricoes_sem_trava() {
         falha "reli $rj depois de gravar e o conteudo nao e o esperado; nao vou dizer que as restricoes do agente $slug foram aplicadas." \
             "veja o arquivo (jq . $rj) e rode de novo: dgclaw agente reparar $slug"
     fi
+    # Os arquivos aplicados batem com o restricoes.json: a transacao terminou (inclusive quando nada mudou).
+    rm -f -- "$casa/runner/restricoes-transacao.pendente"
     # --- o container precisa carregar a politica: so o arquivo gravado nao basta (imagem antiga nao a le) ---
     if [ "$novo_ms" = '{}' ]; then
         rm -f -- "$pend_sup"
@@ -812,6 +854,10 @@ _restricoes_transacao() {
     if printf '%s' "$novo" | jq -e '(.sem_enviar_arquivo // false) == true and (.sem_bash // false) != true' >/dev/null; then
         _restricoes_recusar_combinacao "$slug"
     fi
+    # O marcador entra ANTES do restricoes.json: uma interrupcao entre as duas gravacoes deixaria o json novo com os
+    # arquivos aplicados antigos, e a consulta compararia a politica com ela mesma. Sai quando o aplicar confere o
+    # que gravou (_aplicar_restricoes_sem_trava).
+    _restricoes_gravar "$(dirname "$rs")/restricoes-transacao.pendente" "transacao das restricoes pendente desde $(date -u +%FT%TZ)"
     _restricoes_gravar "$rs" "$novo"
     if [ "$ENSAIO" != 1 ] && ! printf '%s' "$novo" | jq -e '.escrita_so_em == null or .sem_bash == true' >/dev/null; then
         aviso "este agente continua com o Bash ligado, e pelo Bash ele grava em qualquer lugar: a trava de pastas so barra as ferramentas de arquivo (Write, Edit). Para valer de verdade, combine com: dgclaw agente restricoes $slug --sem-bash sim"
@@ -827,13 +873,51 @@ _restricoes_transacao() {
 # runner/ do dono. Nada e gravado nem lido da casa do agente.
 _restricoes_pendencias() {
     local casa="$DG_CASAS/$1" f txt
-    for f in restricoes.pendente restricoes-suporte.pendente restricoes-migracao.pendente; do
+    for f in restricoes-transacao.pendente restricoes.pendente restricoes-suporte.pendente restricoes-migracao.pendente; do
         if [ -e "$casa/runner/$f" ] || [ -L "$casa/runner/$f" ]; then
             txt=""
             if [ -f "$casa/runner/$f" ] && [ ! -L "$casa/runner/$f" ]; then txt="$(head -c 200 -- "$casa/runner/$f" 2>/dev/null | head -n 1 || true)"; fi
             printf '%s|%s\n' "$f" "${txt:-marcador sem texto}"
         fi
     done
+}
+
+# _restricoes_divergencia <json> <pasta runner>: deriva a politica esperada do restricoes.json (as mesmas funcoes que o
+# aplicar usa) e compara com o que esta gravado em managed-settings.json e nas denyTools do runner.json. Imprime o motivo
+# se houver divergencia (arquivo ausente, link, invalido, diferente), senao nada. So le a pasta do dono (runner/), sem
+# seguir link, e nao toca na casa do agente.
+_restricoes_divergencia() {
+    local json="$1" dir="$2" sb se pastas ativo deny ms_esp ms_visto faltam
+    if ! sb="$(printf '%s' "$json" | jq -c '.sem_bash // false')" || ! se="$(printf '%s' "$json" | jq -c '.sem_enviar_arquivo // false')" \
+        || ! pastas="$(printf '%s' "$json" | jq -c '.escrita_so_em // null')"; then
+        printf 'nao consegui ler o restricoes.json'; return 0
+    fi
+    ativo=false
+    if [ "$sb" = true ] || [ "$se" = true ] || [ "$pastas" != null ]; then ativo=true; fi
+    if ! deny="$(_restricoes_derivar_deny "$sb" "$se")" || ! ms_esp="$(_restricoes_derivar_ms "$deny" "$ativo" | jq -cS .)"; then
+        printf 'nao consegui derivar a politica do restricoes.json'; return 0
+    fi
+    if [ -L "$dir/managed-settings.json" ] || [ ! -f "$dir/managed-settings.json" ]; then
+        printf 'managed-settings.json ausente ou link, com restricao ligada'; return 0
+    fi
+    ms_visto="$(jq -cS . "$dir/managed-settings.json" 2>/dev/null || true)"
+    if [ -z "$ms_visto" ]; then printf 'managed-settings.json vazio ou invalido, com restricao ligada'; return 0; fi
+    if [ "$ms_visto" != "$ms_esp" ]; then
+        printf 'o managed-settings.json aplicado nao e o que o restricoes.json pede (a restricao foi gravada mas nao aplicada)'; return 0
+    fi
+    if [ -L "$dir/runner.json" ] || [ ! -f "$dir/runner.json" ]; then
+        printf 'runner.json ausente ou link, com restricao ligada'; return 0
+    fi
+    # shellcheck disable=SC2016 # os $ sao variaveis do jq
+    if ! faltam="$(jq -c --argjson d "$deny" '
+        (.config.denyTools // []) as $t | (.config.allowTools // []) as $a
+        | [($d - $t)[], (if ($d | index("mcp__dgchat__send_file")) != null then ($a | map(select(. == "mcp__dgchat__send_file" or . == "mcp__dgchat__whatsapp_send_file")))[] else empty end)]' "$dir/runner.json" 2>/dev/null)"; then
+        printf 'runner.json invalido, com restricao ligada'; return 0
+    fi
+    if [ "$faltam" != '[]' ]; then
+        printf 'o runner.json aplicado nao nega tudo o que o restricoes.json pede (a restricao foi gravada mas nao aplicada)'; return 0
+    fi
+    return 0
 }
 
 # restricoes_mostrar <slug> <json> <arquivo> [consulta]
@@ -857,6 +941,7 @@ restricoes_mostrar() {
         while IFS='|' read -r marcador txt; do
             [ -n "$marcador" ] || continue
             case "$marcador" in
+                restricoes-transacao.pendente) cmd="$quem_liga (refaz os arquivos aplicados a partir do restricoes.json)" ;;
                 restricoes.pendente) cmd="$quem_liga (reinicia o runner com as travas novas)" ;;
                 restricoes-suporte.pendente) cmd="$quem_liga (confere se a imagem carrega a configuracao administrada)" ;;
                 *) cmd="dgclaw agente reparar $slug (tira o gancho antigo do settings.json; o agente precisa estar ligado)" ;;
@@ -865,11 +950,12 @@ restricoes_mostrar() {
         done < <(_restricoes_pendencias "$slug")
     fi
     if [ "$consulta" = consulta ] && [ "$ENSAIO" != 1 ] && [ "$ligada" = true ]; then
-        if [ "$estado" = ligado ]; then
+        motivo="$(_restricoes_divergencia "$json" "$casa/runner")"
+        if [ -n "$motivo" ]; then
+            motivo="$motivo. Resolve: $quem_liga (refaz os arquivos a partir do restricoes.json)"
+        elif [ "$estado" = ligado ]; then
             esperado="$(jq -c . "$casa/runner/managed-settings.json" 2>/dev/null || true)"
-            if [ -z "$esperado" ] || [ "$esperado" = '{}' ]; then
-                motivo="managed-settings.json ausente, vazio ou invalido com restricao ligada. Resolve: $quem_liga (refaz os arquivos a partir do restricoes.json)"
-            elif ! _restricoes_conferir_suporte "$slug" "$esperado"; then
+            if ! _restricoes_conferir_suporte "$slug" "$esperado"; then
                 if [ "${RESTRICOES_SUPORTE_CAUSA:-}" = remota ]; then
                     motivo="$RESTRICOES_SUPORTE_MOTIVO. O agente esta ligado SEM a trava (pare com: dgclaw agente parar $slug). Resolve, em ordem: $(_restricoes_receita_remota "$slug" ligado)"
                 else

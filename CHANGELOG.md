@@ -39,6 +39,12 @@ atualização. Refaça uma vez, pelo comando novo, cada trava que você quer man
 "a Ana só grava na pasta relatórios") ou rode `sudo dgclaw agente restricoes <agente> ...`. Depois de refeitas, não
 precisam ser repetidas. Confira com `sudo dgclaw agente restricoes <agente>`.
 
+Contas Team e Enterprise do claude.ai não são compatíveis com as restrições nesta versão: uma organização pode passar a
+mandar uma política própria a qualquer momento, e ela substitui a configuração do DG Claw. Se o agente usa uma conta
+dessas, o comando `restricoes` recusa e para o agente; conecte uma conta pessoal (Pro ou Max) ou uma chave de API no painel
+do agente e rode o comando de novo. A consulta (`sudo dgclaw agente restricoes <agente>`) também passa a comparar o que está
+aplicado com o que você pediu, e mostra `NAO VALE` quando uma restrição foi gravada e não chegou a ser aplicada.
+
 Um agente que tem restrições agora só liga (`dgclaw agente iniciar`) ou reinicia o runner (`dgclaw agente reiniciar`) depois de
 os arquivos de política serem refeitos a partir das suas restrições e de a imagem dele ser conferida, porque o agente sobe
 sozinho e uma conferência feita depois deixaria um intervalo sem a trava. Se ele estiver numa imagem antiga, não liga e a

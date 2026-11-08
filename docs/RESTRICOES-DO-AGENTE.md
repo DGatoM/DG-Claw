@@ -30,13 +30,19 @@ A consulta mostra o que está **configurado** e, separado disso, o que está **v
 reinicia nada, não para o agente, e sai sempre com código 0 (o chat do Admin pinta de vermelho todo comando que sai com outro
 código, e uma consulta é informação). O que ela acrescenta ao configurado:
 
-- `Pendente:` uma linha por marcador em `runner/` (`restricoes.pendente`, `restricoes-suporte.pendente`,
-  `restricoes-migracao.pendente`), com o texto do marcador (desde quando) e o comando que resolve. Com algum marcador, as
+- `Pendente:` uma linha por marcador em `runner/` (`restricoes-transacao.pendente`, `restricoes.pendente`,
+  `restricoes-suporte.pendente`, `restricoes-migracao.pendente`), com o texto do marcador (desde quando) e o comando que resolve. Com algum marcador, as
   travas aparecem como `configurado, AINDA NAO VALE` em vez de `TRAVADO`.
 - `NAO VALE:` com o agente ligado e alguma restrição ligada, a consulta roda a mesma conferência de suporte do `iniciar`
   (link, conteúdo e script do gancho, só lendo `/etc` e a imagem) contra o `managed-settings.json` do disco. Se a imagem não
   carrega a configuração administrada, mostra o motivo, avisa que o agente está ligado sem a trava e diz como resolver. Com o
   agente parado, avisa que a conferência será feita quando ele ligar.
+- `NAO VALE:` por divergência, com o agente ligado ou parado: a consulta deriva a política esperada do `restricoes.json`
+  (pela mesma função que grava os arquivos) e compara com o `managed-settings.json` e com o `denyTools` do `runner.json`
+  em `runner/`. Se uma restrição foi gravada no `restricoes.json` e não chegou a ser aplicada (por exemplo, uma interrupção
+  no meio do comando), ela aparece como `NAO VALE`, com o comando que resolve, e nunca como `TRAVADO`. Arquivo ausente,
+  link ou inválido, com restrição ligada, também conta. O marcador `restricoes-transacao.pendente` é gravado antes do
+  `restricoes.json` e retirado quando os arquivos aplicados conferem com ele.
 - `Codex:` as sessões em Codex, ou com o provedor em dúvida, e o aviso de que lá as travas não valem.
 
 Travar (as opções que você não escrever ficam como estavam):
@@ -241,6 +247,18 @@ lê esse arquivo por dentro da caixa, como o usuário `agente`, com prazo e sem 
 | ausente, ou objeto vazio `{}` | segue |
 | política com qualquer chave, inclusive `"managedSourcesBehavior": "merge"` | falha: as restrições não valem e o container é parado |
 | link, não é arquivo comum, maior que 1 MiB, JSON inválido, prazo estourado | falha, pela dúvida |
+
+O cache só mostra o momento: uma conta Team ou Enterprise sem política hoje pode receber uma depois (o Claude Code busca a política
+de hora em hora), e ela substitui a configuração do DG Claw, inclusive o gancho de escrita. Por isso a conferência também pergunta,
+dentro da caixa e como o usuário `agente`, `claude auth status --json` (prazo de 20 segundos, saída limitada) e olha só `loggedIn`,
+`authMethod` e `subscriptionType`; a saída traz e-mail e organização e nunca é impressa nem gravada. Contas Team e Enterprise
+não são compatíveis com as restrições nesta versão:
+
+| Conta | Resultado |
+| --- | --- |
+| `subscriptionType` team ou enterprise | falha: as restrições não valem e o container é parado |
+| `claude.ai` com login e sem plano legível, saída que não é JSON, vazia ou prazo estourado | falha, pela dúvida |
+| sem login, chave de API, token OAuth, Pro ou Max | segue (sem login o dono precisa do agente ligado para conectar a conta) |
 
 Para resolver, em ordem (funciona com o agente parado, que é como o DG Claw o deixa, e o `reiniciar` recusa agente parado):
 
