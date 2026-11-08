@@ -119,7 +119,7 @@ function criarProxy({ config, registro, log, cofreRotas }) {
       }).catch((e) => {
         if (e && e.status === 413) return erroJson(res, 413, `O envio passou do limite de ${Math.round(config.maxUploadBytes / 1048576)} MB. Mande um arquivo menor.`);
         if (e && e.status === 401 && quem && quem.colaborador_id) return recusaSessaoVelha(res, slug, quem);
-        if (e && e.status === 423) return erroJson(res, 423, e.message);
+        if (e && (e.status === 423 || e.status === 401)) return erroJson(res, e.status, e.message);
         log('erro', `Proxy /p/${slug}: não consegui ler o corpo do pedido (${(e && (e.code || e.message)) || 'erro'}).`);
         return erroJson(res, 400, 'Não consegui ler o corpo do pedido. Tente de novo.');
       });

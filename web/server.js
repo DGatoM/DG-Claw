@@ -1248,6 +1248,11 @@ function criarServidor(opcoes) {
           log('aviso', `Pedido ${m} ${p.slice(0, 120)} do colaborador ${sessao.usuario} recusado: a sessão deixou de valer enquanto o corpo chegava.`);
           return false;
         }
+        // A sessão ainda existe? (o dono pode ter tido o aparelho removido por outra sessão, que encerra esta)
+        if (!auth.sessaoDoPedido(req)) {
+          log('aviso', `Pedido ${m} ${p.slice(0, 120)} de ${sessao.usuario} recusado: a sessão foi encerrada enquanto o corpo chegava. Nada foi feito.`);
+          return { status: 401, mensagem: 'A sua sessão foi encerrada enquanto o envio estava em andamento. Nada foi feito. Entre de novo com a senha.' };
+        }
         // O que destrava (verificar) tem de poder ler o corpo com a sessão travada.
         if (!cadeado.livreTravado(m, p) && cadeado.travada(req, sessao)) {
           log('aviso', `Pedido ${m} ${p.slice(0, 120)} de ${sessao.usuario} recusado: a tela travou (Face ID) enquanto o corpo chegava. Nada foi feito.`);

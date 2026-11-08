@@ -1421,3 +1421,52 @@ test('marca pendente (só na memória) nunca vale como gravada: a verificação 
     assert.notEqual((await b.get('/api/v1/agents')).status, 423);
   } finally { await t.fechar(); }
 });
+
+// ── sessão encerrada enquanto o corpo chegava ───────────────────────────────
+/** Começa o corpo, roda `evento` (outra sessão fazendo algo) e só então termina o corpo. */
+function corpoComEvento(s, p, metodo, caminho, comeco, fim, evento) {
+  const cookie = `dgclaw_sessao=${p.jar.dgclaw_sessao}; dgclaw_aparelho=${p.jar.dgclaw_aparelho}`;
+  return new Promise((resolve, reject) => {
+    const req = http.request({ host: '127.0.0.1', port: s.t.porta, path: caminho, method: metodo, headers: { Host: `localhost:${s.t.porta}`, Origin: p.origem, 'Content-Type': 'application/json', Cookie: cookie } }, (res) => {
+      const partes = []; res.on('data', (x) => partes.push(x)); res.on('end', () => resolve({ status: res.statusCode, texto: Buffer.concat(partes).toString() }));
+    });
+    req.on('error', reject);
+    req.write(comeco);
+    setTimeout(() => { Promise.resolve(evento()).then(() => req.end(fim), reject); }, 100);
+  });
+}
+
+test('dono com Face ID: aparelho removido por outra sessão enquanto o corpo chega dá 401 e nada chega ao painel (/p/)', async () => {
+  const s = await cenarioWs();
+  try {
+    const celular = pessoa(s); await celular.login('dono', s.t.senha);
+    assert.equal((await celular.cadastra(aparelhoFalso(), 'celular')).status, 201);
+    const pc = pessoa(s); await pc.login('dono', s.t.senha);
+    assert.equal((await pc.cadastra(aparelhoFalso(), 'computador')).status, 201);
+    const idCel = (await pc.get('/api/v1/cadeado/passkeys')).json.passkeys.find((p) => p.nome === 'celular').id;
+    const remove = async () => { assert.equal((await pc.pedir('DELETE', `/api/v1/cadeado/passkeys/${idCel}`)).status, 200); };
+    // pelo proxy /p/
+    const antes = s.painel.pedidos.length;
+    const viaPainel = await corpoComEvento(s, celular, 'POST', '/p/ana/api/rotinas', '{"a":', '1}', remove);
+    assert.equal(viaPainel.status, 401, viaPainel.texto);
+    assert.equal(s.painel.pedidos.length, antes, 'nada chegou ao painel');
+  } finally { await s.fechar(); }
+});
+
+test('send com corpo incompleto e o aparelho removido por outra sessão: 401 e nada chega ao runner', async () => {
+  const s = await cenario();
+  await verde(s, async () => {
+    const celular = pessoa(s); await celular.login('dono', s.t.senha);
+    assert.equal((await celular.cadastra(aparelhoFalso(), 'celular')).status, 201);
+    const pc = pessoa(s); await pc.login('dono', s.t.senha);
+    assert.equal((await pc.cadastra(aparelhoFalso(), 'computador')).status, 201);
+    const idCel = (await pc.get('/api/v1/cadeado/passkeys')).json.passkeys.find((p) => p.nome === 'celular').id;
+    const r = await corpoComEvento(s, celular, 'POST', '/api/v1/agents/ana/send', '{"text":"apaga', ' tudo"}', async () => {
+      assert.equal((await pc.pedir('DELETE', `/api/v1/cadeado/passkeys/${idCel}`)).status, 200);
+    });
+    assert.equal(r.status, 401, r.texto);
+    assert.equal(s.rAna.rec.inputs.length, 0, 'nada foi entregue ao agente');
+    assert.equal((await celular.get('/api/v1/agents')).status, 401);
+    assert.notEqual((await pc.get('/api/v1/agents')).status, 401, 'a sessão de quem removeu segue');
+  });
+});
