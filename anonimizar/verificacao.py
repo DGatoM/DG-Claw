@@ -33,7 +33,7 @@ def partes(caminho):
     with zipfile.ZipFile(caminho) as z:
         for info in z.infolist():
             dados = z.read(info.filename)
-            if info.filename.endswith((".xml", ".rels", ".vml")):
+            if info.filename.lower().endswith((".xml", ".rels", ".vml")):
                 try:
                     raiz = etree.fromstring(dados, etree.XMLParser(recover=True, resolve_entities=False, no_network=True))
                 except etree.XMLSyntaxError:
@@ -50,7 +50,7 @@ def partes(caminho):
                     saida.append((info.filename, "\n".join(blocos)))
             # O texto bruto da parte, como está no arquivo (comentário XML, instrução de processamento, atributo) e com as
             # entidades resolvidas (&#x31; vira 1): o dado pode estar em qualquer um dos dois.
-            bruto = dados.decode("utf-8", "replace") if info.filename.endswith((".xml", ".rels", ".vml")) else dados.decode("latin-1")
+            bruto = dados.decode("utf-8", "replace") if info.filename.lower().endswith((".xml", ".rels", ".vml")) else dados.decode("latin-1")
             saida.append((info.filename + " (texto bruto)", bruto))
             saida.append((info.filename + " (entidades resolvidas)", html.unescape(bruto)))
     return saida
@@ -61,7 +61,7 @@ def marcadores_usados(caminhos):
     for c in caminhos:
         for nome, texto in partes(c):
             achados.update("[%s_%s]" % m for m in _RX_MARCADOR.findall(texto))
-            if nome == "xl/workbook.xml":
+            if nome.lower() == "xl/workbook.xml":
                 achados.update("[%s_%s]" % m for m in _RX_ABA.findall(texto))
     return sorted(achados, key=lambda m: (m.split("_")[0], int(m[:-1].split("_")[1])))
 

@@ -75,7 +75,7 @@ def lxml():
 
 
 def eh_xml(nome):
-    return nome.endswith((".xml", ".rels", ".vml"))
+    return nome.lower().endswith((".xml", ".rels", ".vml"))
 
 
 ELEMENTOS_INTEIROS = {"conditionalFormatting", "extLst", "sparklineGroups"}
@@ -87,7 +87,7 @@ _PARTES_ATIVAS = ("vbaproject", "externallinks/", "/querytables/", "/pivotcache"
 
 def categoria_removida(nome, sem_formulas=False):
     """None se a parte fica; senão o nome da categoria para o aviso."""
-    if nome == "[Content_Types].xml":
+    if nome.lower() == "[content_types].xml":
         return None
     baixo = nome.lower()
     if sem_formulas and "/charts/" in baixo:
@@ -109,7 +109,7 @@ def categoria_removida(nome, sem_formulas=False):
 
 def _analisar(etree, dados, nome):
     try:
-        parser = etree.XMLParser(recover=nome.endswith(".vml"), resolve_entities=False, no_network=True, huge_tree=False,
+        parser = etree.XMLParser(recover=nome.lower().endswith(".vml"), resolve_entities=False, no_network=True, huge_tree=False,
                                  remove_comments=True, remove_pis=True)
         return etree.fromstring(dados, parser)
     except etree.XMLSyntaxError:
@@ -151,13 +151,14 @@ def paragrafos(raiz):
 
 def _so_texto_de_celula(nome):
     """Partes cujo texto já foi tratado célula a célula (openpyxl): o filtro daqui não repete, para não neutralizar marcador nosso."""
-    return nome == "xl/sharedStrings.xml" or nome.startswith("xl/comments")
+    nome = nome.lower()
+    return nome == "xl/sharedstrings.xml" or nome.startswith("xl/comments")
 
 
 def _ignora_texto(nome, el):
     if _so_texto_de_celula(nome):
         return True
-    return nome.startswith("xl/worksheets/") and _texto_de_celula(el)
+    return nome.lower().startswith("xl/worksheets/") and _texto_de_celula(el)
 
 
 def _texto_de_celula(el):
@@ -179,13 +180,13 @@ def textos_para_deteccao(caminho, nome, so_nao_celulas=False):
             raiz = _analisar(etree, z.read(f), f)
             tratados = set()
             for _p, ts in paragrafos(raiz):
-                if not (so_nao_celulas and f.startswith("xl/worksheets/")):
+                if not (so_nao_celulas and f.lower().startswith("xl/worksheets/")):
                     conteudo.append("".join(t.text or "" for t in ts))
                 tratados.update(ts)
             for el in raiz.iter():
                 if not isinstance(el.tag, str):
                     continue
-                if f == "docProps/core.xml" and el.tag.split("}")[-1] in CARIMBOS_DE_TEMPO:
+                if f.lower() == "docprops/core.xml" and el.tag.split("}")[-1] in CARIMBOS_DE_TEMPO:
                     continue
                 if el not in tratados and el.text and el.text.strip() and not (so_nao_celulas and _ignora_texto(f, el)):
                     conteudo.append(el.text.strip())
@@ -221,16 +222,18 @@ def reescrever(entrada, saida, nome, encontrar, avisos, so_nao_celulas=False, se
     with abrir_zip(entrada, nome) as z:
         nomes = [i.filename for i in z.infolist()]
         removidos = set()
+        removidos_baixo = set()
         for n in nomes:
             c = categoria_removida(n, sem_formulas)
             if c:
                 removidos.add(n)
+                removidos_baixo.add(n.lower())
                 removidos_por_categoria[c] = removidos_por_categoria.get(c, 0) + 1
         subs = {}
         rids_removidos = {}
         # 1. relacionamentos: some o que aponta para parte removida ou é externo não filtrável
         for n in nomes:
-            if not n.endswith(".rels") or n in removidos:
+            if not n.lower().endswith(".rels") or n in removidos:
                 continue
             raiz = _analisar(etree, z.read(n), n)
             origem = _origem_do_rels(n)
@@ -238,8 +241,8 @@ def reescrever(entrada, saida, nome, encontrar, avisos, so_nao_celulas=False, se
             for r in list(raiz):
                 alvo, tipo = r.get("Target") or "", (r.get("Type") or "").rsplit("/", 1)[-1]
                 externo = r.get("TargetMode") == "External"
-                if (externo and tipo in TIPOS_REL_EXTERNOS_REMOVIDOS) or (not externo and _resolver(origem, alvo) in removidos):
-                    rids_removidos.setdefault(origem, set()).add(r.get("Id"))
+                if (externo and tipo in TIPOS_REL_EXTERNOS_REMOVIDOS) or (not externo and _resolver(origem, alvo).lower() in removidos_baixo):
+                    rids_removidos.setdefault(origem.lower(), set()).add(r.get("Id"))
                     removidos_por_categoria["imagens e mídia" if tipo == "image" else "referências externas"] = \
                         removidos_por_categoria.get("imagens e mídia" if tipo == "image" else "referências externas", 0) + 1
                     raiz.remove(r)
@@ -250,26 +253,26 @@ def reescrever(entrada, saida, nome, encontrar, avisos, so_nao_celulas=False, se
         for n in nomes:
             if n in removidos or not eh_xml(n):
                 continue
-            if n.endswith(".rels"):
+            if n.lower().endswith(".rels"):
                 raiz = _analisar(etree, subs.get(n) or z.read(n), n)
                 _filtrar_atributos(raiz, n, encontrar)
                 subs[n] = _serializar(etree, raiz)
                 continue
-            if n == "[Content_Types].xml":
+            if n.lower() == "[content_types].xml":
                 raiz = _analisar(etree, z.read(n), n)
                 for o in list(raiz):
-                    if o.get("PartName") and o.get("PartName")[1:] in removidos:
+                    if o.get("PartName") and o.get("PartName")[1:].lower() in removidos_baixo:
                         raiz.remove(o)
                 subs[n] = _serializar(etree, raiz)
                 continue
             raiz = _analisar(etree, z.read(n), n)
-            rids = rids_removidos.get(n, set())
+            rids = rids_removidos.get(n.lower(), set())
             if rids:
                 _tirar_referencias(raiz, rids)
             if sem_formulas:
                 _tirar_formulas(raiz)
             _filtrar_parte(raiz, n, encontrar, so_nao_celulas)
-            if n == "docProps/core.xml":
+            if n.lower() == "docprops/core.xml":
                 for el in raiz.iter():
                     if isinstance(el.tag, str) and el.tag.split("}")[-1] in ("creator", "lastModifiedBy"):
                         el.text = ""
@@ -368,7 +371,8 @@ def _filtrar_atributos(raiz, nome, encontrar):
 
 
 def _filtrar_parte(raiz, nome, encontrar, so_nao_celulas):
-    estrutural_texto = nome.startswith("docProps/") or nome.startswith("customXml/")
+    nome = nome.lower()
+    estrutural_texto = nome.startswith("docprops/") or nome.startswith("customxml/")
     tratados = set()
     # parágrafos: o valor pode estar partido entre vários runs
     if not (so_nao_celulas and (_so_texto_de_celula(nome) or nome.startswith("xl/worksheets/"))):

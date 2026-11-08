@@ -1709,6 +1709,58 @@ class Arquivos(unittest.TestCase):
         r = motor.tratar({"op": "reverter", "entrada": origem, "saida": os.path.join(self.tmp, "sub-v.docx"), "tabela": self._TAB_CPF})
         self.assertEqual((r["ok"], r.get("codigo")), (False, "vinculo_externo"), r)
 
+    def _renomear_partes(self, origem, mapa, destino):
+        with zipfile.ZipFile(origem) as zin, zipfile.ZipFile(os.path.join(self.tmp, destino), "w") as zout:
+            for info in zin.infolist():
+                zout.writestr(mapa.get(info.filename, info.filename), zin.read(info.filename))
+        return os.path.join(self.tmp, destino)
+
+    @unittest.skipUnless(tem("lxml"), "lxml não está instalado neste Python")
+    def test_docx_reverter_nome_de_parte_sem_distincao_de_caixa(self):
+        base = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/"
+        sub_ext = '<Relationship Id="rId8" Type="%ssubDocument" Target="https://atacante.example/s.docx" TargetMode="External"/>' % base
+        corpo = '<w:p><w:r><w:t>[CPF_1]</w:t></w:r></w:p>'
+        for i, novo_nome in enumerate(("word/_rels/document.xml.RELS", "word/_rels/document.xml.Rels", "word/_RELS/document.xml.rels", "WORD/_rels/Document.xml.rels")):
+            origem = self._renomear_partes(self._docx_cru("ci%d.docx" % i, corpo, sub_ext), {"word/_rels/document.xml.rels": novo_nome}, "ci%d-r.docx" % i)
+            r = motor.tratar({"op": "reverter", "entrada": origem, "saida": os.path.join(self.tmp, "ci%d-v.docx" % i), "tabela": self._TAB_CPF})
+            self.assertEqual((r["ok"], r.get("codigo")), (False, "vinculo_externo"), (novo_nome, r))
+            self.assertFalse(os.path.exists(os.path.join(self.tmp, "ci%d-v.docx" % i)))
+        # imagem externa em .RELS também (relacionamento externo de outro tipo)
+        img = '<Relationship Id="rId9" Type="%simage" Target="https://atacante.example/i.png" TargetMode="External"/>' % base
+        origem = self._renomear_partes(self._docx_cru("ci-img.docx", corpo, img), {"word/_rels/document.xml.rels": "word/_rels/document.xml.RELS"}, "ci-img-r.docx")
+        r = motor.tratar({"op": "reverter", "entrada": origem, "saida": os.path.join(self.tmp, "ci-img-v.docx"), "tabela": self._TAB_CPF})
+        self.assertEqual((r["ok"], r.get("codigo")), (False, "vinculo_externo"), r)
+
+    @unittest.skipUnless(tem("lxml"), "lxml não está instalado neste Python")
+    def test_docx_reverter_recusa_subdoc_no_corpo_mesmo_sem_relacionamento(self):
+        for i, corpo in enumerate(('<w:p><w:r><w:t>[CPF_1]</w:t></w:r></w:p><w:subDoc r:id="rId77"/>',
+                                   '<w:p><w:r><w:t>[CPF_1]</w:t></w:r></w:p><w:p><w:subDoc r:id="rId77"/></w:p>')):
+            origem = self._docx_cru("sd%d.docx" % i, corpo)
+            saida = os.path.join(self.tmp, "sd%d-v.docx" % i)
+            r = motor.tratar({"op": "reverter", "entrada": origem, "saida": saida, "tabela": self._TAB_CPF})
+            self.assertEqual((r["ok"], r.get("codigo")), (False, "vinculo_externo"), r)
+            self.assertFalse(os.path.exists(saida))
+
+    @unittest.skipUnless(tem("lxml"), "lxml não está instalado neste Python")
+    def test_docx_com_duas_partes_que_diferem_so_na_caixa_e_recusado(self):
+        corpo = '<w:p><w:r><w:t>[CPF_1]</w:t></w:r></w:p>'
+        for i, extra in enumerate(({"word/_rels/document.xml.RELS": '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>'},
+                                   {"WORD/document.xml": b"<x/>"})):
+            origem = self._docx_cru("dup%d.docx" % i, corpo, partes_extra=extra)
+            r = motor.tratar({"op": "reverter", "entrada": origem, "saida": os.path.join(self.tmp, "dup%d-v.docx" % i), "tabela": self._TAB_CPF})
+            self.assertEqual((r["ok"], r.get("codigo")), (False, "arquivo_invalido"), r)
+
+    @unittest.skipUnless(tem("lxml"), "lxml não está instalado neste Python")
+    def test_docx_normal_com_hyperlink_continua_revertendo(self):
+        base = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/"
+        rels = '<Relationship Id="rId5" Type="%shyperlink" Target="https://exemplo.com/" TargetMode="External"/>' % base
+        origem = self._docx_cru("normal.docx", '<w:p><w:r><w:t>CPF [CPF_1]</w:t></w:r></w:p>', rels)
+        saida = os.path.join(self.tmp, "normal-v.docx")
+        r = motor.tratar({"op": "reverter", "entrada": origem, "saida": saida, "tabela": self._TAB_CPF})
+        self.assertTrue(r["ok"], r)
+        with zipfile.ZipFile(saida) as z:
+            self.assertIn(b"CPF 52998224725", z.read("word/document.xml"))
+
     @unittest.skipUnless(tem("lxml"), "lxml não está instalado neste Python")
     def test_docx_reverter_recusa_modelo_anexo_em_settings(self):
         base = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/"

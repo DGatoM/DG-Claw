@@ -75,6 +75,12 @@ def abrir_zip(caminho, nome):
     except zipfile.BadZipFile:
         raise ErroMotor("arquivo_invalido", "O arquivo '%s' está corrompido ou não é do formato que a extensão diz. "
                         "Abra e salve de novo no programa de origem, depois envie." % nome) from None
+    nomes_baixo = [i.filename.lower() for i in z.infolist()]
+    if len(set(nomes_baixo)) != len(nomes_baixo):
+        z.close()
+        raise ErroMotor("arquivo_invalido", "O arquivo '%s' tem duas partes com o mesmo nome (ou nomes que só diferem na caixa das letras). "
+                        "Documento de Office legítimo não faz isso e o programa que abrir pode escolher a parte errada. "
+                        "Peça ao agente para gerar de novo." % nome)
     total = sum(i.file_size for i in z.infolist())
     if total > LIMITE_ZIP or len(z.infolist()) > 20000:
         z.close()
@@ -82,6 +88,14 @@ def abrir_zip(caminho, nome):
                         "Por segurança ele foi recusado. Divida o documento em partes menores." % nome)
     _conferir_sem_dtd(z, caminho, nome)
     return z
+
+
+def _nome_da_parte(z, procurado):
+    """Nome real, dentro do zip, da parte `procurado`: o OPC compara nomes de parte sem distinção de caixa."""
+    for info in z.infolist():
+        if info.filename.lower() == procurado.lower():
+            return info.filename
+    raise KeyError(procurado)
 
 
 _DTD_CONFERIDOS = set()
@@ -99,7 +113,7 @@ def _conferir_sem_dtd(z, caminho, nome):
     if chave in _DTD_CONFERIDOS:
         return
     for info in z.infolist():
-        if not info.filename.endswith((".xml", ".rels", ".vml")):
+        if not info.filename.lower().endswith((".xml", ".rels", ".vml")):
             continue
         resto = b""
         with z.open(info) as f:
@@ -163,8 +177,8 @@ def distribuir(trechos, trocas):
 
 # ---------- docx ----------
 
-_PARTES_DOCX = re.compile(r"^word/(document|header\d*|footer\d*|footnotes|endnotes|comments)\.xml$")
-_PARTES_PPTX = re.compile(r"^ppt/(slides/slide|notesSlides/notesSlide)\d+\.xml$")
+_PARTES_DOCX = re.compile(r"^word/(document|header\d*|footer\d*|footnotes|endnotes|comments)\.xml$", re.I)
+_PARTES_PPTX = re.compile(r"^ppt/(slides/slide|notesSlides/notesSlide)\d+\.xml$", re.I)
 
 
 def _lxml():
@@ -197,7 +211,7 @@ def conferir_sem_vinculos_externos(caminho, nome, so_rels=False):
             f = info.filename
             if not so_rels and _PARTES_XLSX_COM_FETCH.match(f):
                 ruins.append(f)
-            if not f.endswith(".rels"):
+            if not f.lower().endswith(".rels"):
                 continue
             try:
                 raiz = ET.fromstring(z.read(f))
@@ -260,7 +274,7 @@ def _tipos_de_conteudo(z, nome):
     """([Content_Types].xml) -> (por PartName em minúsculas, por extensão em minúsculas). Ilegível = recusa."""
     import xml.etree.ElementTree as ET
     try:
-        raiz = ET.fromstring(z.read("[Content_Types].xml"))
+        raiz = ET.fromstring(z.read(_nome_da_parte(z, "[Content_Types].xml")))
     except (KeyError, ET.ParseError):
         raise ErroMotor("arquivo_invalido", "O arquivo '%s' não tem um [Content_Types].xml legível. Peça ao agente para gerar de novo." % nome) from None
     por_parte, por_ext = {}, {}
@@ -276,7 +290,7 @@ def _tipos_de_conteudo(z, nome):
 def _eh_parte_xml(z, info, nome, tipos):
     """O Word identifica a parte por relacionamento e tipo de conteúdo, não por pasta nem extensão: vale como XML a parte que
     começa com '<' ou cujo tipo declarado termina em 'xml'. Só passa de fora a parte binária de verdade."""
-    if info.is_dir() or info.filename == "[Content_Types].xml":
+    if info.is_dir() or info.filename.lower() == "[content_types].xml":
         return False
     if info.file_size == 0:
         return False
@@ -318,6 +332,9 @@ def docx_reverter(entrada, saida, nome, encontrar):
                 raiz = etree.fromstring(dados, parser)
             except etree.XMLSyntaxError:
                 raise ErroMotor("arquivo_invalido", "A parte '%s' do arquivo '%s' está corrompida. Peça ao agente para gerar de novo." % (f, nome)) from None
+            if next(raiz.iter(W + "subDoc"), None) is not None:
+                raise ErroMotor("vinculo_externo", "A parte '%s' do arquivo '%s' importa um subdocumento (w:subDoc), que o Word abre sozinho e pode "
+                                "buscar conteúdo de fora. A versão final foi recusada: peça ao agente para gerar de novo sem subdocumentos." % (f, nome))
             if next(raiz.iter(W + "altChunk"), None) is not None:
                 raise ErroMotor("vinculo_externo", "A parte '%s' do arquivo '%s' importa um bloco externo (altChunk: RTF, HTML ou outro documento), "
                                 "que o Word abre sozinho e pode conter campos que levariam os dados reais para fora. A versão final foi recusada: "
@@ -643,9 +660,9 @@ def conferir_planilha_crua(caminho, nome):
                                     # uma parte interna é carregado como ela
                                     if tipo in _TIPOS_CARREGADOS_POR_USO:
                                         raise _aba_repetida(nome, info.filename, "um relacionamento externo do tipo %s" % tipo[:20])
-                                    alvo = el.get("Target") or ""
+                                    alvo = (el.get("Target") or "").lower()
                                 else:
-                                    alvo = _alvo_normalizado(info.filename, el.get("Target") or "")
+                                    alvo = _alvo_normalizado(info.filename, el.get("Target") or "").lower()
                                 alvos.setdefault(alvo, []).append(el.get("Type") or "")
                             if local == "dimension" or local in _ELEMENTOS_COM_AREA:
                                 ref = (el.get("ref") or "").strip()
@@ -662,7 +679,7 @@ def conferir_planilha_crua(caminho, nome):
                                     if total is None:
                                         raise _ref_ilegivel(nome, info.filename, local, ref)
                                     materializadas += total
-                                    areas[info.filename] = areas.get(info.filename, 0) + total
+                                    areas[info.filename.lower()] = areas.get(info.filename.lower(), 0) + total
                                     if materializadas > MAX_CELULAS:
                                         raise _planilha_grande(nome, info.filename, "as áreas de mesclagens, links e comentários somam mais de %d células" % MAX_CELULAS)
                         else:
