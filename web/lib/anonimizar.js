@@ -229,7 +229,7 @@ function criarAnonimizar(opcoes) {
     fs.chmodSync(p, 0o700);
   }
   function pastaDoAgente(slug) {
-    if (!RX_SLUG.test(slug || '')) throw new ErroAnon(400, `O id de agente "${String(slug).slice(0, 40)}" não vale.`, 'SLUG');
+    if (typeof slug !== 'string' || !RX_SLUG.test(slug)) throw new ErroAnon(400, `O id de agente "${String(slug).slice(0, 40)}" não vale.`, 'SLUG');
     const p = path.join(raiz, slug);
     pasta0700(raiz);
     pasta0700(p);

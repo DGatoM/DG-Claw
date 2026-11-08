@@ -4,7 +4,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { subirWeb, pastaTemp } = require('./ajuda');
+const { subirWeb, pastaTemp, entregaAoAgente } = require('./ajuda');
+const COMO_ROOT = typeof process.getuid === 'function' && process.getuid() === 0;
 const { criarRunnerFalso } = require('./runner-falso');
 const { trocarValoresConhecidos, reverterMarcadores } = require('../lib/anonimizar');
 
@@ -33,6 +34,7 @@ async function cenario(o) {
   const homeAna = pastaTemp('home-ana'); const homeBeto = pastaTemp('home-beto');
   fs.mkdirSync(path.join(homeAna, 'out'), { recursive: true });
   fs.mkdirSync(path.join(homeBeto, 'out'), { recursive: true });
+  entregaAoAgente(homeAna); entregaAoAgente(homeBeto);
   const dirChave = pastaTemp('chave');
   const base = pastaTemp('anon-base');
   const agentes = [
@@ -623,8 +625,11 @@ test('pasta de uploads trocada por atalho para fora: recusa com 500 explicando e
     fs.mkdirSync(path.join(s.homeAna, 'uploads'));
     const dia = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
     fs.symlinkSync(fora, path.join(s.homeAna, 'uploads', dia));
+    entregaAoAgente(s.homeAna);
     const antigo = await sobe(s, 'ana', 'a.txt', 'conteudo');
-    assert.equal(antigo.status, 500, antigo.texto); assert.match(antigo.json.erro, /atalho/);
+    // Com o gravaAnexo (#92) o envio sem anonimizar desvia para outra pasta dentro da casa: nada vai para fora pelo atalho.
+    // Sem root (CI) a gravação é recusada; nada vai para fora do mesmo jeito.
+    assert.equal(antigo.status, COMO_ROOT ? 201 : 500, antigo.texto); assert.deepEqual(fs.readdirSync(fora), []);
     await liga(s);
     const anon = await sobe(s, 'ana', 'a.txt', `${NOME}`);
     assert.equal(anon.status, 500); assert.match(anon.json.erro, /atalho/);
@@ -634,7 +639,7 @@ test('pasta de uploads trocada por atalho para fora: recusa com 500 explicando e
     fs.symlinkSync(fora, path.join(s.homeAna, 'uploads'));
     assert.equal((await sobe(s, 'ana', 'b.txt', 'x')).status, 500);
     assert.deepEqual(fs.readdirSync(fora), []);
-    assert.equal(s.rAna.rec.inputs.length, 0);
+    assert.equal(s.rAna.rec.inputs.length, COMO_ROOT ? 1 : 0, 'só o primeiro envio, desviado para dentro da casa, chega ao agente quando há root');
   } finally { await s.fechar(); }
 });
 
@@ -1010,7 +1015,7 @@ test('Correção na conversa: filtro de resposta recusa (503) tipo de conteúdo 
   } finally { srv.close(); }
 });
 
-test('Correção na conversa: retrato do foco gravado pelo fluxo real passa pelo filtro (slug resolvido) e sem agente a gravação é recusada', async () => {
+test('Correção na conversa: retrato do foco gravado pelo fluxo real passa pelo filtro (slug resolvido) e sem agente a gravação é recusada', { skip: COMO_ROOT ? false : 'precisa de root para dar a casa ao uid do agente' }, async () => {
   const { criarCaixaAgente } = require('../lib/caixa-agente');
   const s = await cenario();
   try {
@@ -1034,12 +1039,13 @@ test('Correção na conversa: retrato do foco gravado pelo fluxo real passa pelo
   } finally { await s.fechar(); }
 });
 
-test('Correção na conversa: atualizar o foco pelo fluxo real grava o retrato na casa do agente já filtrado', async () => {
+test('Correção na conversa: atualizar o foco pelo fluxo real grava o retrato na casa do agente já filtrado', { skip: COMO_ROOT ? false : 'precisa de root para dar a casa ao uid do agente' }, async () => {
   const s = await cenario();
   try {
+    fs.chownSync(s.homeAna, 1000, 1000); // o retrato só aceita pasta do root ou do uid do agente (1000)
     await liga(s);
     await sobe(s, 'ana', 'a.txt', `${NOME} ${CPF}`);
-    fs.chownSync(s.homeAna, 1000, 1000);   // casa de agente de verdade não é do root
+    require('node:child_process').execFileSync('chown', ['-R', '1000:1000', s.homeAna]);   // casa de agente de verdade é do uid dele
     const r = await s.c.pedir('PUT', '/api/v1/foco/ana', { json: { titulo: `Caso ${NOME}`, itens: [`Revisar contrato de ${NOME}`] } });
     assert.equal(r.status, 200, r.texto);
     const arq = path.join(s.homeAna, '.dgclaw', 'retratos', 'foco.json');
