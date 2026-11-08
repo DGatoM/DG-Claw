@@ -22,6 +22,7 @@ async function cenario(arquivos) {
   for (const [nome, conteudo] of Object.entries(arquivos)) {
     fs.writeFileSync(path.join(home, 'out', nome), conteudo);
     linhas.push(JSON.stringify({ type: 'assistant', timestamp: new Date().toISOString(), message: { content: [{ type: 'tool_use', id: 'u-' + nome, name: 'mcp__dgchat__send_file', input: { chat: 'c_ana', path: `/home/agente/out/${nome}`, caption: nome } }] } }));
+    linhas.push(JSON.stringify({ type: 'user', timestamp: new Date().toISOString(), message: { content: [{ type: 'tool_result', tool_use_id: 'u-' + nome, content: 'enviado' }] } }));
   }
   fs.writeFileSync(path.join(transcripts, '-home-agente', 'sess-ana-00001.jsonl'), linhas.join('\n') + '\n');
   const agentes = [{ slug: 'ana', nome: 'Ana', tipo: 'agente', runner: `http://127.0.0.1:${porta}`, agente_id: 'ana1', chat_id: 'c_ana', avatar: '🌿', cor: '#2f9e5e', provedor: 'claude', modelo: 'sonnet', transcripts_dir: transcripts, home_host: home, home_container: '/home/agente' }];

@@ -239,3 +239,62 @@ test('fila real: enqueue chega antes da reply, attachment e blobs não duplicam 
   assert.equal(r.eventos.filter(e => e.origin === 'agente').length, 6);
   assert.equal(r.eventos.filter(e => e.origin === 'rotina').length, 0);
 });
+
+// ── send_file: só vira anexo com tool_result de sucesso, e nunca contra a política do dono ──────────
+function linhaUso(id, nome, input, ts) {
+  return JSON.stringify({ type: 'assistant', timestamp: ts, message: { role: 'assistant', content: [{ type: 'tool_use', id, name: nome, input }] } });
+}
+function linhaResultado(id, ts, erro) {
+  return JSON.stringify({ type: 'user', timestamp: ts, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: erro ? 'negado' : 'ok', ...(erro ? { is_error: true } : {}) }] } });
+}
+function prepararEnvio(linhas, restricoes) {
+  const casa = pastaTemp('casa');
+  const home = path.join(casa, 'home');
+  fs.mkdirSync(path.join(home, 'out'), { recursive: true });
+  fs.mkdirSync(path.join(casa, 'runner'), { recursive: true });
+  fs.writeFileSync(path.join(home, 'out', 'a.pdf'), 'pdf');
+  if (restricoes !== undefined) fs.writeFileSync(path.join(casa, 'runner', 'restricoes.json'), restricoes);
+  const transcript = path.join(casa, 'sessao.jsonl');
+  fs.writeFileSync(transcript, linhas.join('\n') + '\n');
+  const agente = { slug: 'ana', nome: 'Ana', chat_id: 'c_ana', home_host: home, home_container: '/home/agente' };
+  const cap = capturaLog();
+  const midia = criarMidia({ dataDir: pastaTemp('dados'), log: cap.log, registro: { obter: () => agente } });
+  const leitor = criarLeitor({ log: cap.log, tz: 'America/Sao_Paulo', canalTelegram: 'plugin:telegram', midia });
+  return { leitor, agente, transcript, cap };
+}
+const ENVIO = (id) => linhaUso(id, 'mcp__dgchat__send_file', { chat: 'c_ana', path: '/home/agente/out/a.pdf', caption: 'Segue' }, '2026-11-07T10:00:00.000Z');
+
+test('thread: send_file com tool_result de erro nao vira anexo', () => {
+  const { leitor, agente, transcript } = prepararEnvio([ENVIO('t1'), linhaResultado('t1', '2026-11-07T10:00:01.000Z', true)]);
+  assert.deepEqual(leitor.ler(transcript, agente).eventos, []);
+});
+
+test('thread: send_file ainda sem tool_result espera e depois de sucesso entra com a hora original', () => {
+  const { leitor, agente, transcript } = prepararEnvio([ENVIO('t1')]);
+  assert.deepEqual(leitor.ler(transcript, agente).eventos, [], 'sem resultado ainda: nada entregue');
+  fs.appendFileSync(transcript, linhaResultado('t1', '2026-11-07T10:00:01.000Z', false) + '\n');
+  const { eventos } = leitor.ler(transcript, agente);
+  assert.equal(eventos.length, 1);
+  assert.equal(eventos[0].text, 'Segue');
+  assert.ok(eventos[0].media, 'tem mídia');
+});
+
+test('thread: sem_enviar_arquivo no restricoes.json do agente, nenhum anexo entra (nem com sucesso)', () => {
+  const linhas = [ENVIO('t1'), linhaResultado('t1', '2026-11-07T10:00:01.000Z', false),
+    linhaUso('t2', 'mcp__dgchat__whatsapp_send_file', { caminho: '/home/agente/out/a.pdf', legenda: 'zap' }, '2026-11-07T10:00:02.000Z'),
+    linhaResultado('t2', '2026-11-07T10:00:03.000Z', false),
+    linhaUso('t3', 'mcp__dgchat__reply', { chat: 'c_ana', text: 'so texto' }, '2026-11-07T10:00:04.000Z')];
+  const { leitor, agente, transcript } = prepararEnvio(linhas, JSON.stringify({ versao: 1, sem_enviar_arquivo: true }));
+  assert.deepEqual(leitor.ler(transcript, agente).eventos.map((e) => e.text), ['so texto']);
+});
+
+test('thread: restricoes.json sem sem_enviar_arquivo nao atrapalha o envio', () => {
+  const { leitor, agente, transcript } = prepararEnvio([ENVIO('t1'), linhaResultado('t1', '2026-11-07T10:00:01.000Z', false)], JSON.stringify({ versao: 1, sem_bash: true, sem_enviar_arquivo: false }));
+  assert.equal(leitor.ler(transcript, agente).eventos.length, 1);
+});
+
+test('thread: restricoes.json ilegivel nao entrega anexo e avisa no log', () => {
+  const { leitor, agente, transcript, cap } = prepararEnvio([ENVIO('t1'), linhaResultado('t1', '2026-11-07T10:00:01.000Z', false)], '{ quebrado');
+  assert.deepEqual(leitor.ler(transcript, agente).eventos, []);
+  assert.ok(cap.linhas.some((l) => /restricoes\.json/.test(JSON.stringify(l))), 'o log diz qual arquivo');
+});

@@ -37,7 +37,7 @@ LEDGER="$LEDGER_DIR/$DAY.jsonl"
 [ -f "$LEDGER" ] || { echo "pulso-report: sem ledger do dia ($LEDGER) — nada a reportar" >&2; exit 0; }
 
 # Monta a mensagem em Python (texto plano) e decide se envia.
-MSG="$(MODE="$MODE" python3 - "$LEDGER" <<'PY'
+MSG="$(MODE="$MODE" python3 -I - "$LEDGER" <<'PY'
 import json, os, sys
 mode = os.environ.get("MODE", "report")
 last = {}  # id -> ultimo registro do dia (o mais recente vence)

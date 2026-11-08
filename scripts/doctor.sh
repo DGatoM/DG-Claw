@@ -80,11 +80,11 @@ fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 TITULO "2. Permissoes que travam o Claude sob systemd"
-if python3 -c "import json,sys; d=json.load(open('$CFGJSON')); p=d.get('projects',{}).get('$WS',{}); sys.exit(0 if p.get('hasTrustDialogAccepted') else 1)" 2>/dev/null; then
+if python3 -I -c "import json,sys; d=json.load(open('$CFGJSON')); p=d.get('projects',{}).get('$WS',{}); sys.exit(0 if p.get('hasTrustDialogAccepted') else 1)" 2>/dev/null; then
     P "workspace marcado como confiavel"
 else
     # Traceback omitido: se a gravacao falhar, o B logo abaixo diz o arquivo e as causas provaveis.
-    if python3 - "$CFGJSON" "$WS" <<'PY' 2>/dev/null
+    if python3 -I - "$CFGJSON" "$WS" <<'PY' 2>/dev/null
 import json,sys
 path,ws=sys.argv[1],sys.argv[2]
 try: d=json.load(open(path))
@@ -100,11 +100,11 @@ PY
 fi
 
 LS="$WS/.claude/settings.local.json"
-if python3 -c "import json,sys; sys.exit(0 if json.load(open('$LS')).get('skipDangerousModePermissionPrompt') else 1)" 2>/dev/null; then
+if python3 -I -c "import json,sys; sys.exit(0 if json.load(open('$LS')).get('skipDangerousModePermissionPrompt') else 1)" 2>/dev/null; then
     P "pergunta de modo perigoso ja dispensada nas settings locais"
 else
     mkdir -p "$WS/.claude"
-    if python3 - "$LS" <<'PY' 2>/dev/null
+    if python3 -I - "$LS" <<'PY' 2>/dev/null
 import json,sys
 path=sys.argv[1]
 try: d=json.load(open(path))
@@ -207,7 +207,7 @@ fi
 # em modo headless. O que vale pro bot e o veredito do canal acima.
 
 # pareamento
-if [ -n "$STATE" ] && python3 -c "import json,sys; d=json.load(open('$STATE/access.json')); sys.exit(0 if d.get('allowFrom') else 1)" 2>/dev/null; then
+if [ -n "$STATE" ] && python3 -I -c "import json,sys; d=json.load(open('$STATE/access.json')); sys.exit(0 if d.get('allowFrom') else 1)" 2>/dev/null; then
     P "bot pareado: so o dono fala com ele"
 elif [ -n "$STATE" ]; then
     B "bot ainda nao pareado (mande uma mensagem pra ele e aprove no wizard). Sem isso qualquer um poderia conversar"
@@ -305,7 +305,7 @@ fi
 EMB_PY="$PLUGIN/scripts/memory_index/embedder.py"
 IDX_DIR="${DGCLAW_MEMORY_INDEX_DIR:-$WS/.dgclaw/memory_index}"
 memoria_semantica() { # imprime "estado|texto": ligada-ok, ligada-vazia, ligada-outro, desligada
-    EMB_PY="$EMB_PY" DB="$IDX_DIR/chunks.db" python3 - <<'PY' 2>&1
+    EMB_PY="$EMB_PY" DB="$IDX_DIR/chunks.db" python3 -I - <<'PY' 2>&1
 import json, os, sqlite3, subprocess
 r = subprocess.run(["python3", os.environ["EMB_PY"], "status", "--json"],
                    capture_output=True, text=True, timeout=30)
@@ -547,7 +547,7 @@ fi
 # ─────────────────────────────────────────────────────────────────────────────
 TITULO "9. Poderes"
 if [ -f "$WS/.dgclaw/powers.json" ]; then
-    python3 - "$WS/.dgclaw/powers.json" <<'PY'
+    python3 -I - "$WS/.dgclaw/powers.json" <<'PY'
 import json,subprocess,sys
 try:
     d=json.load(open(sys.argv[1]))
@@ -577,7 +577,7 @@ if [ -d "$EXTDIR" ]; then
     while IFS= read -r e; do
         NEXT=$((NEXT+1))
         EN_NAME=$(basename "$e")
-        if [ -f "$e/ext.json" ] && python3 -c "import json;json.load(open('$e/ext.json'))" 2>/dev/null; then
+        if [ -f "$e/ext.json" ] && python3 -I -c "import json;json.load(open('$e/ext.json'))" 2>/dev/null; then
             P "extensao $EN_NAME: ext.json valido"
         else
             B "extensao $EN_NAME: ext.json ausente ou invalido (o painel nao sabe o que ela acende)"
@@ -586,7 +586,7 @@ if [ -d "$EXTDIR" ]; then
             [ -f "$e/hooks/$h" ] || continue
             case "$h" in
                 *.md|*.json) I "  gancho $h presente (extensao $EN_NAME)" ;;
-                *.py) python3 -c "import ast,sys;ast.parse(open('$e/hooks/$h').read())" 2>/dev/null \
+                *.py) python3 -I -c "import ast,sys;ast.parse(open('$e/hooks/$h').read())" 2>/dev/null \
                         && I "  gancho $h ok (extensao $EN_NAME)" \
                         || B "  gancho $h da extensao $EN_NAME tem erro de sintaxe: ele nao vai rodar" ;;
                 *.sh) bash -n "$e/hooks/$h" 2>/dev/null \
@@ -683,7 +683,7 @@ if [ "${DGCLAW_AVISOS:-}" = "off" ]; then
 fi
 if [ ! -e "$AV_RETRATO" ]; then
     I "o retrato do quadro ainda nao existe ($AV_RETRATO): o Web grava no primeiro aviso, ou ao reparar o agente"
-elif AV_INFO=$(python3 - "$AV_RETRATO" <<'PY' 2>&1
+elif AV_INFO=$(python3 -I - "$AV_RETRATO" <<'PY' 2>&1
 import json, sys
 try:
     d = json.load(open(sys.argv[1]))

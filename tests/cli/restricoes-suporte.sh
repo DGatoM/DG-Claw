@@ -1,0 +1,308 @@
+#!/usr/bin/env bash
+# Restricoes: o container precisa carregar a configuracao administrada antes de o comando dizer que valem,
+# e a leitura do provedor das sessoes nunca pode travar o comando (docs/RESTRICOES-DO-AGENTE.md).
+set -uo pipefail
+# shellcheck source=tests/cli/_comum.sh
+. "$(dirname "$0")/_comum.sh"
+preparar
+
+R_DIR() { printf '%s/agentes/%s/runner' "$LIB" "$1"; }
+criar_agente ana --nome "Ana"
+MS="$(R_DIR ana)/managed-settings.json"
+PEND="$(R_DIR ana)/restricoes.pendente"; PEND_SUP="$(R_DIR ana)/restricoes-suporte.pendente"
+EST="$LIB/agentes/ana/home/.plataforma"; mkdir -p "$EST/sessoes"
+
+echo "rodando com suporte: confere dentro do container e segue como sempre"
+: >"$STUB_LOG"
+dgclaw agente restricoes ana --sem-bash sim >"$TMP/o1.txt" 2>&1; igual "sai com 0" "0" "$?"
+afirma "conferiu o link da configuracao administrada dentro do container" grep -q 'exec dgclaw-ana readlink /etc/claude-code/managed-settings.json' "$STUB_LOG"
+afirma "e o conteudo visto la dentro" grep -q 'exec dgclaw-ana cat /etc/claude-code/managed-settings.json' "$STUB_LOG"
+afirma "e o script do gancho na imagem" grep -q 'exec dgclaw-ana test ' "$STUB_LOG"
+afirma "reiniciou o runner" grep -q 'systemctl restart dgclaw-runner' "$STUB_LOG"
+nega "nao ficou marcador de suporte" test -e "$PEND_SUP"
+nega "nem de reinicio" test -e "$PEND"
+
+echo "rodando sem suporte (imagem antiga): falha, nao diz que aplicou, orienta a recriar"
+dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1
+touch "$STUB_ESTADO/sem-suporte"
+: >"$STUB_LOG"
+dgclaw agente restricoes ana --sem-bash sim >"$TMP/o2.txt" 2>&1; rc=$?
+nega "o comando falha" test "$rc" -eq 0
+nega "nao diz que aplicou" grep -qi 'aplicad' "$TMP/o2.txt"
+nega "nem que reiniciou o runner" grep -q 'runner do agente ana reiniciado' "$TMP/o2.txt"
+afirma "diz que a imagem e antiga" grep -q 'imagem' "$TMP/o2.txt"
+afirma "diz que as restricoes NAO valem" grep -q 'NAO valem' "$TMP/o2.txt"
+afirma "manda recriar com o comando do CLI" grep -q 'dgclaw agente recriar ana' "$TMP/o2.txt"
+afirma "o marcador de reinicio continua" test -e "$PEND"
+afirma "o container foi parado (agente com trava nao roda sem ela)" grep -q '^podman stop dgclaw-ana' "$STUB_LOG"
+igual "e ficou parado" "exited" "$(cat "$STUB_ESTADO/c-dgclaw-ana")"
+rm -f "$STUB_ESTADO/sem-suporte"
+: >"$STUB_LOG"
+dgclaw agente iniciar ana >"$TMP/o2.txt" 2>&1; igual "depois de recriar, ligar de novo funciona" "0" "$?"
+igual "e o agente fica ligado" "running" "$(cat "$STUB_ESTADO/c-dgclaw-ana")"
+nega "e o marcador de reinicio saiu (o runner subiu com os arquivos novos)" test -e "$PEND"
+
+echo "conteudo diferente e script ausente tambem reprovam"
+dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1
+touch "$STUB_ESTADO/ms-diferente"
+dgclaw agente restricoes ana --sem-bash sim >"$TMP/o3.txt" 2>&1; nega "conteudo visto la dentro diferente: falha" test "$?" -eq 0
+rm -f "$STUB_ESTADO/ms-diferente"; echo running >"$STUB_ESTADO/c-dgclaw-ana"
+dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1
+touch "$STUB_ESTADO/sem-script-gancho"
+dgclaw agente restricoes ana --sem-bash sim >"$TMP/o3.txt" 2>&1; nega "sem o script do gancho na imagem: falha" test "$?" -eq 0
+rm -f "$STUB_ESTADO/sem-script-gancho"; echo running >"$STUB_ESTADO/c-dgclaw-ana"
+dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1
+touch "$STUB_ESTADO/sem-suporte"
+: >"$STUB_LOG"
+dgclaw agente restricoes ana --escrita-livre >"$TMP/o3.txt" 2>&1; igual "sem restricao nenhuma, nao confere nem falha" "0" "$?"
+nega "nem entra no container para isso" grep -q 'readlink' "$STUB_LOG"
+rm -f "$STUB_ESTADO/sem-suporte"
+
+echo "parado: grava o marcador e confere quando o agente ligar"
+echo exited >"$STUB_ESTADO/c-dgclaw-ana"
+touch "$STUB_ESTADO/sem-suporte"
+: >"$STUB_LOG"
+dgclaw agente restricoes ana --sem-bash sim >"$TMP/o4.txt" 2>&1; igual "parado: o comando sai com 0" "0" "$?"
+nega "nao tentou entrar no container" grep -q 'exec dgclaw-ana readlink' "$STUB_LOG"
+afirma "o marcador de suporte foi gravado" test -e "$PEND_SUP"
+igual "marcador do root" "0:0" "$(stat -c %u:%g "$PEND_SUP" 2>/dev/null || echo 0:0)"
+afirma "avisa que a conferencia sera feita quando ligar" grep -q 'quando o agente ligar\|quando ele ligar' "$TMP/o4.txt"
+: >"$STUB_LOG"
+dgclaw agente iniciar ana >"$TMP/o5.txt" 2>&1; nega "iniciar com imagem sem suporte falha" test "$?" -eq 0
+afirma "o container foi parado (a trava e obrigatoria)" grep -q '^podman stop dgclaw-ana' "$STUB_LOG"
+igual "e ficou parado" "exited" "$(cat "$STUB_ESTADO/c-dgclaw-ana")"
+afirma "manda recriar" grep -q 'dgclaw agente recriar ana' "$TMP/o5.txt"
+nega "nao diz que iniciou" grep -q 'agente ana iniciado' "$TMP/o5.txt"
+afirma "o marcador continua" test -e "$PEND_SUP"
+rm -f "$STUB_ESTADO/sem-suporte"
+dgclaw agente iniciar ana >"$TMP/o5.txt" 2>&1; igual "com a imagem boa, iniciar funciona" "0" "$?"
+igual "e o agente fica ligado" "running" "$(cat "$STUB_ESTADO/c-dgclaw-ana")"
+nega "o marcador sai" test -e "$PEND_SUP"
+echo exited >"$STUB_ESTADO/c-dgclaw-ana"; touch "$STUB_ESTADO/sem-suporte"
+dgclaw agente restricoes ana --sem-bash nao --escrita-livre >/dev/null 2>&1
+dgclaw agente iniciar ana >/dev/null 2>&1; igual "sem restricao ligada, iniciar nem confere" "0" "$?"
+rm -f "$STUB_ESTADO/sem-suporte"
+dgclaw agente restricoes ana --sem-bash sim >/dev/null 2>&1
+
+echo "provedor: FIFO com o agente parado nao trava o comando"
+dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1
+echo exited >"$STUB_ESTADO/c-dgclaw-ana"
+mkfifo "$EST/provedor.json"
+timeout 20 "$CLI" agente restricoes ana --sem-bash sim >"$TMP/o6.txt" 2>&1; rc=$?
+igual "terminou sem estourar o prazo e saiu com 0" "0" "$rc"
+afirma "o provedor ficou em duvida" grep -q 'nao consegui ler' "$TMP/o6.txt"
+afirma "e os arquivos novos estao no lugar" jq -e '.hooks.PreToolUse | length == 1' "$MS"
+rm -f "$EST/provedor.json"
+
+echo "provedor: FIFO com o agente rodando tambem nao trava"
+echo running >"$STUB_ESTADO/c-dgclaw-ana"
+dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1
+mkfifo "$EST/provedor.json"
+: >"$STUB_LOG"
+timeout 20 "$CLI" agente restricoes ana --sem-bash sim >"$TMP/o7.txt" 2>&1; rc=$?
+igual "terminou e saiu com 0" "0" "$rc"
+afirma "em duvida" grep -q 'nao consegui ler' "$TMP/o7.txt"
+afirma "e reiniciou o runner" grep -q 'systemctl restart dgclaw-runner' "$STUB_LOG"
+rm -f "$EST/provedor.json"
+
+echo "provedor: com o agente rodando a leitura passa pelo usuario agente, dentro do container"
+dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1
+printf '{"provedor":"codex"}\n' >"$EST/provedor.json"
+mkdir -p "$EST/sessoes/p1"; printf '{"provedor":"claude"}\n' >"$EST/sessoes/p1/provedor.json"
+: >"$STUB_LOG"
+dgclaw agente restricoes ana --sem-bash sim >"$TMP/o8.txt" 2>&1
+afirma "chamou podman exec --user agente node -e" grep -q '^podman exec --user agente dgclaw-ana node -e ' "$STUB_LOG"
+afirma "com a pasta .plataforma da casa como argumento" grep -q '/home/agente/\.plataforma$' "$STUB_LOG"
+afirma "avisa a principal em Codex" grep -q 'principal: Codex' "$TMP/o8.txt"
+nega "a paralela em Claude nao entra no aviso" grep -q 'paralela p1' "$TMP/o8.txt"
+rm -rf "$EST/provedor.json" "$EST/sessoes/p1"
+
+echo "provedor: arquivo enorme ou link viram duvida (rodando e parado)"
+head -c 70000 /dev/zero | tr '\0' ' ' >"$EST/provedor.json"
+mkdir -p "$EST/sessoes/p2"; ln -s "$EST/provedor.json" "$EST/sessoes/p2/provedor.json"
+for estado in running exited; do
+    echo "$estado" >"$STUB_ESTADO/c-dgclaw-ana"
+    dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1
+    dgclaw agente restricoes ana --sem-bash sim >"$TMP/o9.txt" 2>&1; igual "$estado: sai com 0" "0" "$?"
+    afirma "$estado: arquivo enorme na principal vira duvida" grep -q 'principal: nao consegui ler' "$TMP/o9.txt"
+    afirma "$estado: link na paralela vira duvida" grep -q 'paralela p2: nao consegui ler' "$TMP/o9.txt"
+done
+echo running >"$STUB_ESTADO/c-dgclaw-ana"
+
+echo "politica remota (conta de organizacao claude.ai): vence a local, entao a conferencia falha e o container para"
+RH="$LIB/agentes/ana/home/.claude/remote-settings.json"
+for caso in remota-com-chave remota-merge remota-merge-desliga remota-link remota-invalida exec-node-nao; do
+    echo running >"$STUB_ESTADO/c-dgclaw-ana"
+    dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1
+    touch "$STUB_ESTADO/$caso"
+    : >"$STUB_LOG"
+    dgclaw agente restricoes ana --sem-bash sim >"$TMP/o10.txt" 2>&1; rc=$?
+    nega "$caso: o comando falha" test "$rc" -eq 0
+    nega "$caso: nao diz que aplicou" grep -qi 'aplicad' "$TMP/o10.txt"
+    afirma "$caso: leu o arquivo dentro da caixa como agente" grep -q ' /home/agente/\.claude/remote-settings\.json$' "$STUB_LOG"
+    afirma "$caso: diz que as restricoes NAO valem" grep -q 'NAO valem' "$TMP/o10.txt"
+    afirma "$caso: fala da organizacao do claude.ai" grep -q 'organizacao do claude.ai' "$TMP/o10.txt"
+    afirma "$caso: orienta o procedimento com o agente parado" grep -q 'conta pessoal (Pro ou Max) ou uma chave de API.*dgclaw agente restricoes ana --sem-bash sim' "$TMP/o10.txt"
+    nega "$caso: nao sugere mais o merge" grep -qi 'managedSourcesBehavior\|merge' "$TMP/o10.txt"
+    nega "$caso: nao manda recriar a imagem" grep -q 'agente recriar' "$TMP/o10.txt"
+    afirma "$caso: parou o container" grep -q '^podman stop dgclaw-ana' "$STUB_LOG"
+    igual "$caso: ficou parado" "exited" "$(cat "$STUB_ESTADO/c-dgclaw-ana")"
+    rm -f "$STUB_ESTADO/$caso"
+done
+echo "politica remota: ligar de novo com a politica presente tambem para"
+touch "$STUB_ESTADO/remota-com-chave"
+dgclaw agente iniciar ana >"$TMP/o11.txt" 2>&1; nega "iniciar com politica remota falha" test "$?" -eq 0
+igual "e o container fica parado" "exited" "$(cat "$STUB_ESTADO/c-dgclaw-ana")"
+rm -f "$STUB_ESTADO/remota-com-chave"
+echo "politica remota: ausente ou vazia passam"
+for caso in nenhuma remota-vazia; do
+    echo running >"$STUB_ESTADO/c-dgclaw-ana"
+    dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1
+    [ "$caso" = nenhuma ] || touch "$STUB_ESTADO/$caso"
+    dgclaw agente restricoes ana --sem-bash sim >"$TMP/o12.txt" 2>&1; igual "$caso: aplica e sai com 0" "0" "$?"
+    igual "$caso: o container continua ligado" "running" "$(cat "$STUB_ESTADO/c-dgclaw-ana")"
+    rm -f "$STUB_ESTADO/$caso"
+done
+echo running >"$STUB_ESTADO/c-dgclaw-ana"
+rm -f "$RH"
+
+echo "parada de seguranca: a contencao vem primeiro, o marcador que nao grava nao a impede"
+FALSO_MV="$TMP/falso-mv"; mkdir -p "$FALSO_MV"
+printf '#!/bin/sh\ncase "$*" in *restricoes-suporte.pendente*) echo "mv: falha simulada" >&2; exit 1;; esac\nexec /bin/mv "$@"\n' >"$FALSO_MV/mv"; chmod +x "$FALSO_MV/mv"
+echo running >"$STUB_ESTADO/c-dgclaw-ana"
+dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1
+touch "$STUB_ESTADO/sem-suporte"
+: >"$STUB_LOG"
+rm -f "$PEND_SUP"
+PATH="$FALSO_MV:$PATH" dgclaw agente restricoes ana --sem-bash sim >"$TMP/o13.txt" 2>&1; rc=$?
+nega "marcador que nao grava: o comando falha" test "$rc" -eq 0
+afirma "chamou o podman stop" grep -q '^podman stop dgclaw-ana' "$STUB_LOG"
+igual "o container ficou parado" "exited" "$(cat "$STUB_ESTADO/c-dgclaw-ana")"
+afirma "a falha final e a da conferencia (imagem)" grep -q 'NAO valem' "$TMP/o13.txt"
+afirma "avisa que parou mas o marcador nao gravou" grep -q 'FOI parado.*marcador' "$TMP/o13.txt"
+rm -f "$STUB_ESTADO/sem-suporte"
+
+echo "parada de seguranca: stop que nao para tenta o kill"
+echo running >"$STUB_ESTADO/c-dgclaw-ana"
+dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1
+touch "$STUB_ESTADO/sem-suporte" "$STUB_ESTADO/stop-nao-para"
+: >"$STUB_LOG"
+dgclaw agente restricoes ana --sem-bash sim >"$TMP/o14.txt" 2>&1; rc=$?
+nega "o comando falha" test "$rc" -eq 0
+afirma "tentou o stop" grep -q '^podman stop dgclaw-ana' "$STUB_LOG"
+afirma "e depois o kill" grep -q '^podman kill dgclaw-ana' "$STUB_LOG"
+igual "o kill parou o container" "exited" "$(cat "$STUB_ESTADO/c-dgclaw-ana")"
+nega "nao diz LIGADO SEM A TRAVA quando o kill funcionou" grep -q 'LIGADO SEM A TRAVA' "$TMP/o14.txt"
+
+echo "parada de seguranca: nem o kill para, a falha diz LIGADO SEM A TRAVA"
+echo running >"$STUB_ESTADO/c-dgclaw-ana"
+touch "$STUB_ESTADO/kill-nao-mata"
+: >"$STUB_LOG"
+dgclaw agente restricoes ana --sem-bash sim >"$TMP/o15.txt" 2>&1; rc=$?
+nega "o comando falha" test "$rc" -eq 0
+afirma "tentou o kill" grep -q '^podman kill dgclaw-ana' "$STUB_LOG"
+afirma "diz LIGADO SEM A TRAVA" grep -q 'LIGADO SEM A TRAVA' "$TMP/o15.txt"
+afirma "manda parar na mao" grep -q 'dgclaw agente parar ana' "$TMP/o15.txt"
+rm -f "$STUB_ESTADO/sem-suporte" "$STUB_ESTADO/stop-nao-para" "$STUB_ESTADO/kill-nao-mata"
+echo running >"$STUB_ESTADO/c-dgclaw-ana"
+rm -f "$PEND_SUP"
+
+echo "parada de seguranca: so vale parado com confirmacao positiva do estado"
+preparar_falha() {  # agente ligado, sem restricao, depois uma restricao que a imagem antiga reprova
+    rm -f "$STUB_ESTADO"/{sem-suporte,stop-nao-para,kill-nao-mata,stop-paused,stop-remove,inspect-falha,inspect-falha-pre-kill,inspect-falha-pos-kill,kill-feito,stop-feito}
+    echo running >"$STUB_ESTADO/c-dgclaw-ana"
+    dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1
+    echo running >"$STUB_ESTADO/c-dgclaw-ana"
+    touch "$STUB_ESTADO/sem-suporte"
+    for f in "$@"; do touch "$STUB_ESTADO/$f"; done
+    : >"$STUB_LOG"
+}
+echo "  inspect falha sempre (stop nao para): tenta o kill, nao confirma, diz que pode estar ligado sem a trava"
+preparar_falha stop-nao-para inspect-falha
+dgclaw agente restricoes ana --sem-bash sim >"$TMP/p1.txt" 2>&1; rc=$?
+nega "o comando falha" test "$rc" -eq 0
+afirma "tentou o kill" grep -q '^podman kill dgclaw-ana' "$STUB_LOG"
+afirma "diz que nao conseguiu confirmar" grep -q 'nao consegui confirmar que o agente ana parou' "$TMP/p1.txt"
+afirma "diz sem resposta do podman" grep -q 'sem resposta do podman' "$TMP/p1.txt"
+afirma "diz LIGADO SEM A TRAVA" grep -q 'LIGADO SEM A TRAVA' "$TMP/p1.txt"
+nega "nao diz Parei o container" grep -q 'Parei o container' "$TMP/p1.txt"
+echo "  inspect falha antes do kill, kill funciona: confirma depois do kill"
+preparar_falha stop-nao-para inspect-falha-pre-kill
+dgclaw agente restricoes ana --sem-bash sim >"$TMP/p2.txt" 2>&1; rc=$?
+nega "o comando falha pela imagem" test "$rc" -eq 0
+afirma "tentou o kill" grep -q '^podman kill dgclaw-ana' "$STUB_LOG"
+nega "nao diz LIGADO SEM A TRAVA" grep -q 'LIGADO SEM A TRAVA' "$TMP/p2.txt"
+afirma "diz Parei o container" grep -q 'Parei o container' "$TMP/p2.txt"
+echo "  inspect falha depois do kill: nao confirma"
+preparar_falha stop-nao-para inspect-falha-pos-kill
+dgclaw agente restricoes ana --sem-bash sim >"$TMP/p3.txt" 2>&1; rc=$?
+nega "o comando falha" test "$rc" -eq 0
+afirma "diz que nao conseguiu confirmar" grep -q 'nao consegui confirmar que o agente ana parou' "$TMP/p3.txt"
+nega "nao diz Parei o container" grep -q 'Parei o container' "$TMP/p3.txt"
+echo "  estado paused: nao e parado, kill e nova conferencia"
+preparar_falha stop-paused kill-nao-mata
+dgclaw agente restricoes ana --sem-bash sim >"$TMP/p4.txt" 2>&1; rc=$?
+nega "o comando falha" test "$rc" -eq 0
+afirma "tentou o kill" grep -q '^podman kill dgclaw-ana' "$STUB_LOG"
+afirma "diz o estado paused" grep -q 'estado: paused' "$TMP/p4.txt"
+afirma "diz LIGADO SEM A TRAVA" grep -q 'LIGADO SEM A TRAVA' "$TMP/p4.txt"
+preparar_falha stop-paused
+dgclaw agente restricoes ana --sem-bash sim >"$TMP/p4b.txt" 2>&1
+afirma "pausado e o kill funciona: parado, diz Parei o container" grep -q 'Parei o container' "$TMP/p4b.txt"
+echo "  container inexistente (some no stop): confirmado pelo container exists"
+preparar_falha stop-remove inspect-falha
+dgclaw agente restricoes ana --sem-bash sim >"$TMP/p5.txt" 2>&1; rc=$?
+nega "o comando falha pela imagem" test "$rc" -eq 0
+nega "nao diz LIGADO SEM A TRAVA" grep -q 'LIGADO SEM A TRAVA' "$TMP/p5.txt"
+nega "nem tenta o kill" grep -q '^podman kill' "$STUB_LOG"
+afirma "diz Parei o container" grep -q 'Parei o container' "$TMP/p5.txt"
+rm -f "$STUB_ESTADO"/{sem-suporte,stop-nao-para,kill-nao-mata,stop-paused,stop-remove,inspect-falha,inspect-falha-pre-kill,inspect-falha-pos-kill,kill-feito,stop-feito}
+echo exited >"$STUB_ESTADO/c-dgclaw-ana"
+dgclaw agente iniciar ana >/dev/null 2>&1
+
+echo "recuperacao completa da politica remota, com o agente parado pelo proprio fluxo"
+echo running >"$STUB_ESTADO/c-dgclaw-ana"
+dgclaw agente restricoes ana --sem-bash nao --sem-enviar-arquivo nao --escrita-livre >/dev/null 2>&1
+echo running >"$STUB_ESTADO/c-dgclaw-ana"
+touch "$STUB_ESTADO/remota-com-chave"
+dgclaw agente restricoes ana --sem-bash sim >"$TMP/r1.txt" 2>&1; rc=$?
+nega "a conferencia falha" test "$rc" -eq 0
+igual "e o container ficou parado" "exited" "$(cat "$STUB_ESTADO/c-dgclaw-ana")"
+afirma "o passo 1 desliga as restricoes" grep -q 'dgclaw agente restricoes ana --sem-bash nao --sem-enviar-arquivo nao --escrita-livre' "$TMP/r1.txt"
+afirma "o passo 2 liga o agente" grep -q 'dgclaw agente iniciar ana' "$TMP/r1.txt"
+afirma "o passo 3 troca a conta no painel" grep -q 'painel do agente' "$TMP/r1.txt"
+nega "nao manda reiniciar um agente parado" grep -q 'agente reiniciar' "$TMP/r1.txt"
+dgclaw agente restricoes ana --sem-bash nao --sem-enviar-arquivo nao --escrita-livre >"$TMP/r2.txt" 2>&1; igual "passo 1 sai com 0 (agente parado)" "0" "$?"
+dgclaw agente iniciar ana >"$TMP/r3.txt" 2>&1; igual "passo 2: iniciar sai com 0" "0" "$?"
+igual "e o agente fica ligado" "running" "$(cat "$STUB_ESTADO/c-dgclaw-ana")"
+rm -f "$STUB_ESTADO/remota-com-chave"
+dgclaw agente restricoes ana --sem-bash sim >"$TMP/r4.txt" 2>&1; igual "passo 4: religar as restricoes sai com 0" "0" "$?"
+igual "e o agente continua ligado" "running" "$(cat "$STUB_ESTADO/c-dgclaw-ana")"
+dgclaw agente restricoes ana >"$TMP/r5.txt" 2>&1
+afirma "a consulta mostra TRAVADO" grep -q 'Bash (terminal): *TRAVADO' "$TMP/r5.txt"
+nega "e nenhuma pendencia" grep -q 'Pendente:\|NAO VALE' "$TMP/r5.txt"
+
+echo "nenhum comando das mensagens de recuperacao responde que o agente esta parado"
+dgclaw agente restricoes ana --sem-bash nao --sem-enviar-arquivo nao --escrita-livre >/dev/null 2>&1
+echo running >"$STUB_ESTADO/c-dgclaw-ana"
+for caso in remota-com-chave sem-suporte; do
+    touch "$STUB_ESTADO/$caso"
+    dgclaw agente restricoes ana --sem-bash sim >"$TMP/m-$caso.txt" 2>&1
+    igual "$caso: parou" "exited" "$(cat "$STUB_ESTADO/c-dgclaw-ana")"
+    rm -f "$STUB_ESTADO/$caso"
+    cmds="$(grep -oE 'dgclaw agente (reiniciar|iniciar|restricoes) ana( --[a-z-]+( (sim|nao))?)*' "$TMP/m-$caso.txt" | sort -u)"
+    if [ "$caso" = remota-com-chave ]; then afirma "$caso: a mensagem cita comandos" test -n "$cmds"; fi
+    while IFS= read -r cmd; do
+        [ -n "$cmd" ] || continue
+        echo exited >"$STUB_ESTADO/c-dgclaw-ana"
+        # shellcheck disable=SC2086 # o comando citado vira palavras
+        dgclaw ${cmd#dgclaw } >"$TMP/m-cmd.txt" 2>&1
+        nega "$caso: '$cmd' nao diz que esta parado" grep -q 'nao tem o que reiniciar' "$TMP/m-cmd.txt"
+    done <<<"$cmds"
+    dgclaw agente restricoes ana --sem-bash nao --sem-enviar-arquivo nao --escrita-livre >/dev/null 2>&1
+    echo running >"$STUB_ESTADO/c-dgclaw-ana"
+done
+echo exited >"$STUB_ESTADO/c-dgclaw-ana"
+dgclaw agente iniciar ana >/dev/null 2>&1
+
+fim

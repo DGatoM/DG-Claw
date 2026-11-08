@@ -56,7 +56,7 @@ fi
 # --- Modelo do post (default opus) ---
 POST_MODEL="opus"
 if [ -f "$IG_JSON" ]; then
-    POST_MODEL=$(python3 -c "import json;print(json.load(open('$IG_JSON')).get('postModel') or 'opus')" 2>>"$LOG") || {
+    POST_MODEL=$(python3 -I -c "import json;print(json.load(open('$IG_JSON')).get('postModel') or 'opus')" 2>>"$LOG") || {
         POST_MODEL="opus"
         echo "[$(date '+%F %T')] aviso: nao consegui ler postModel de $IG_JSON (JSON invalido?); usando o modelo padrao 'opus'. Corrija o arquivo para escolher outro." >> "$LOG"
     }

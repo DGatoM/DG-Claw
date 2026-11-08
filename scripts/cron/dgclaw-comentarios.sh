@@ -43,7 +43,7 @@ fi
 # --- Modelo dos comentarios (default sonnet) ---
 COMMENTS_MODEL="sonnet"
 if [ -f "$IG_JSON" ]; then
-    COMMENTS_MODEL=$(python3 -c "import json;print(json.load(open('$IG_JSON')).get('commentsModel') or 'sonnet')" 2>>"$LOG") || {
+    COMMENTS_MODEL=$(python3 -I -c "import json;print(json.load(open('$IG_JSON')).get('commentsModel') or 'sonnet')" 2>>"$LOG") || {
         echo "[$(date '+%F %T')] aviso: nao consegui ler commentsModel em $IG_JSON; usando o modelo padrao sonnet. Confira se o JSON esta valido." >> "$LOG"
         COMMENTS_MODEL="sonnet"
     }

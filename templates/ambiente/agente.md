@@ -165,5 +165,7 @@ As docs ficam em `/opt/dgclaw/app/`. Abra a que precisar, na hora.
 - **API do painel**: `dgclaw-api GET /api/v1/<recurso>/docs.md` mostra as rotas de cada recurso (por exemplo `lembretes`, `alertas`, `caixa`). `docs/CAIXA-DO-AGENTE.md`.
 - **Anexos**: o caminho chega no texto como `[anexo: /home/agente/uploads/...]`. Zip abre com `dgclaw-abrir-zip <caminho>`.
 
+- **Ferramentas travadas pelo dono**: {{DONO}} pode ter tirado de você o terminal (Bash), o envio de arquivos ou o direito de gravar fora de certas pastas. Se uma ferramenta for recusada por isso, conte a {{DONO}} em uma frase o que não pôde fazer e por quê, e não tente contornar por outro caminho (outra ferramenta, um atalho, outra pasta). Quem libera é ele, com o Admin.
+
 Se algo não funcionar como descrito aqui, conte a {{DONO}} em uma frase simples o que falhou e peça
 ao Admin (pelo chat dele) para conferir o seu ambiente com `dgclaw agente reparar {{SLUG}}`.

@@ -5,9 +5,18 @@ est="${STUB_ESTADO:?}"
 case "${1:-}" in
     image)
         # `image inspect -f {{.Id}}`: o id da imagem "atual" (muda quando o teste escreve estado/imagem-id).
+        # Com .Labels: o label dgclaw.configuracao-administrada (presente por padrao; a flag sem-label o tira).
+        if [ "$2" = inspect ] && printf '%s ' "$@" | grep -q '\.Labels'; then
+            [ -f "$est/sem-label" ] || echo 1; exit 0
+        fi
         if [ "$2" = inspect ]; then cat "$est/imagem-id" 2>/dev/null || echo imagem-nova; exit 0; fi
         [ "$2" = exists ] && [ ! -f "$est/sem-imagem" ]; exit $? ;;
     container)
+        # `container inspect --format {{.ImageID}} <c>`: o id da imagem com que o container foi criado.
+        if [ "$2" = inspect ]; then
+            nome="${*: -1}"; [ -f "$est/c-$nome" ] || exit 1
+            cat "$est/img-$nome" 2>/dev/null || echo imagem-velha; exit 0
+        fi
         [ "$2" = exists ] && [ -f "$est/c-$3" ]; exit $? ;;
     network)
         case "$2" in
@@ -22,17 +31,33 @@ case "${1:-}" in
         cat "$est/imagem-id" 2>/dev/null > "$est/img-$nome" || echo imagem-nova > "$est/img-$nome"
         echo "container-id" ;;
     start)
+        # Guarda o que estava gravado na pasta do runner na hora da partida (a ordem: regenerar antes de ligar).
+        for f in managed-settings.json runner.json; do
+            d="${DGCLAW_RAIZ:?}/var/lib/dgclaw/agentes/${2#dgclaw-}/runner/$f"
+            if [ -f "$d" ]; then cp "$d" "$est/no-start-$f"; else rm -f "$est/no-start-$f"; fi
+        done
         echo running > "$est/c-$2"
         # Simula o container que cai na partida (falta de inotify): estado exited, codigo 255.
         if [ -f "$est/saida-255" ]; then echo exited > "$est/c-$2"; echo 255 > "$est/codigo-$2"; fi ;;
     stop)
         nome="${*: -1}"
+        touch "$est/stop-feito"
         [ -f "$est/c-$nome" ] || exit 0
+        # stop-nao-para: o stop devolve 0, mas o container continua ligado (o caso do container que ignora o sinal).
+        [ -f "$est/stop-nao-para" ] && exit 0
+        # stop-paused: o container fica pausado (nem running nem parado); stop-remove: o container some (autoremove).
+        if [ -f "$est/stop-paused" ]; then echo paused > "$est/c-$nome"; exit 0; fi
+        if [ -f "$est/stop-remove" ]; then rm -f "$est/c-$nome"; exit 0; fi
         # stop-trava-<container> = N: o stop devolve, mas o estado fica "stopping" por N consultas
         # (depois vira exited); = sempre: fica "stopping" para sempre (o caso real do podman 4.9.3).
         if [ -f "$est/stop-trava-$nome" ]; then
             echo stopping > "$est/c-$nome"; cp "$est/stop-trava-$nome" "$est/stopping-resta-$nome"
         else echo exited > "$est/c-$nome"; fi ;;
+    kill)
+        nome="${*: -1}"
+        [ -f "$est/c-$nome" ] || exit 0
+        touch "$est/kill-feito"
+        [ -f "$est/kill-nao-mata" ] || echo exited > "$est/c-$nome" ;;
     rm)
         nome="${*: -1}"; forca=0
         for a in "$@"; do [ "$a" = -f ] && forca=1; done
@@ -45,6 +70,16 @@ case "${1:-}" in
     inspect)
         nome="${*: -1}"
         [ -f "$est/c-$nome" ] || exit 1
+        # inspect-falha: a consulta do estado falha sempre (depois do primeiro stop); inspect-falha-pre-kill: falha ate o kill; inspect-falha-pos-kill:
+        # falha depois do kill (o podman nao responde).
+        if printf '%s ' "$@" | grep -q 'State.Status'; then
+            # So depois do stop: antes dele o comando precisa enxergar o container ligado para conferir.
+            if [ -f "$est/stop-feito" ]; then
+                [ -f "$est/inspect-falha" ] && exit 125
+                [ -f "$est/inspect-falha-pre-kill" ] && [ ! -f "$est/kill-feito" ] && exit 125
+                [ -f "$est/inspect-falha-pos-kill" ] && [ -f "$est/kill-feito" ] && exit 125
+            fi
+        fi
         if printf '%s ' "$@" | grep -q '\.Mounts'; then
             if [ -f "$est/mounts-volume" ]; then echo "bind volume "; else echo "bind bind bind bind bind "; fi
             exit 0
@@ -70,6 +105,60 @@ case "${1:-}" in
         if [ "${*: -1}" = env ] && [ -f "$est/exec-proxy" ]; then echo "HTTPS_PROXY=http://127.0.0.1:3128"; fi
         if printf '%s ' "$@" | grep -q api.anthropic.com && [ -f "$est/sem-internet" ]; then
             echo "curl: (6) Could not resolve host: api.anthropic.com" >&2; exit 6
+        fi
+        # systemctl: restart-falha faz o restart falhar; inativo faz o is-active responder inactive.
+        if printf '%s ' "$@" | grep -q 'systemctl restart' && [ -f "$est/restart-falha" ]; then
+            echo "Job for dgclaw-runner.service failed (simulado)" >&2; exit 1
+        fi
+        if printf '%s ' "$@" | grep -q 'systemctl is-active'; then
+            if [ -f "$est/inativo" ]; then echo inactive; exit 3; fi
+            echo active; exit 0
+        fi
+        # exec como root, so leitura de /etc: a conferencia de suporte das restricoes (lib/restricoes.sh).
+        # sem-suporte = imagem antiga (sem o link); ms-diferente = o link aponta para outro conteudo;
+        # sem-script-gancho = a imagem nao traz o script do gancho de escrita.
+        case "${3:-}" in
+            readlink)
+                [ -f "$est/sem-suporte" ] && exit 1
+                echo /etc/dgclaw-runner/managed-settings.json; exit 0 ;;
+            cat)
+                if [ "${4:-}" = /etc/claude-code/managed-settings.json ]; then
+                    [ -f "$est/sem-suporte" ] && exit 1
+                    if [ -f "$est/ms-diferente" ]; then echo '{}'; exit 0; fi
+                    cat "${DGCLAW_RAIZ:?}/var/lib/dgclaw/agentes/${2#dgclaw-}/runner/managed-settings.json"; exit $?
+                fi ;;
+            test)
+                [ -f "$est/sem-script-gancho" ] && exit 1
+                exit 0 ;;
+        esac
+        # `exec --user agente <c> claude auth status --json`: a conta de IA do agente. Sem flag, "sem login" (e sai com 1,
+        # como o claude de verdade: o codigo nao conta, a saida sim). conta-saida = texto cru que o teste grava em
+        # $est/conta-saida; conta-trava = nao responde (o prazo estoura).
+        if [ "${2:-}" = "--user" ] && [ "${5:-}" = claude ] && [ "${6:-}" = auth ]; then
+            if [ -f "$est/conta-saida" ]; then cat "$est/conta-saida"; exit 0; fi
+            echo '{"loggedIn":false,"authMethod":"none","apiProvider":"firstParty"}'; exit 1
+        fi
+        # `exec --user agente <c> node -e <script> <arquivo>`: roda o node de verdade, mas trocando
+        # /home/agente pela casa do agente na raiz falsa (a caixa de mentira). `exec-node-nao` so registra.
+        if [ "${2:-}" = "--user" ] && [ "${3:-}" = agente ] && [ "${5:-}" = node ] && [ ! -f "$est/exec-node-nao" ]; then
+            slug="${4#dgclaw-}"; casa="${DGCLAW_RAIZ:?}/var/lib/dgclaw/agentes/$slug/home"
+            # Leitura da politica remota (remote-settings.json): as flags montam o arquivo na casa do agente
+            # e o node de verdade o le; sem flag, o arquivo some (sem-remota).
+            if printf '%s ' "$@" | grep -q 'remote-settings.json'; then
+                rs="$casa/.claude/remote-settings.json"; mkdir -p "$casa/.claude"; rm -f "$rs"
+                if [ -f "$est/remota-com-chave" ]; then echo '{"permissions":{"deny":["Bash"]}}' > "$rs"
+                elif [ -f "$est/remota-merge" ]; then echo '{"managedSourcesBehavior":"merge","permissions":{}}' > "$rs"
+                elif [ -f "$est/remota-merge-desliga" ]; then echo '{"managedSourcesBehavior":"merge","disableAllHooks":true}' > "$rs"
+                elif [ -f "$est/remota-link" ]; then ln -s /etc/passwd "$rs"
+                elif [ -f "$est/remota-invalida" ]; then echo '{nao e json' > "$rs"
+                elif [ -f "$est/remota-vazia" ]; then echo '{}' > "$rs"
+                fi
+            fi
+            shift 5; args=()
+            for a in "$@"; do args+=("${a/#\/home\/agente/$casa}"); done
+            # Alguns testes (atualizar) poem um node de mentira no PATH: aqui precisa ser o de verdade.
+            PATH="$(printf '%s' "$PATH" | tr ':' '\n' | grep -v '/stubs$' | paste -sd:)"
+            exec node "${args[@]}"
         fi
         [ -f "$est/exec-falha" ] && exit 1
         exit 0 ;;

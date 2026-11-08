@@ -72,7 +72,7 @@ manifest_get() {
     local f="$1" path="$2" def="${3:-}"
     [ -f "$f" ] || { echo "$def"; return; }
     # manifest ilegivel ou sem o campo: devolve o padrao, que e o contrato desta funcao
-    python3 - "$f" "$path" "$def" <<'PY' 2>/dev/null || echo "$def"
+    python3 -I - "$f" "$path" "$def" <<'PY' 2>/dev/null || echo "$def"
 import json, sys
 f, path, default = sys.argv[1], sys.argv[2], sys.argv[3]
 try:
@@ -360,7 +360,7 @@ cmd_seed_persona() {
     # nenhuma) ficaria com as falas de fabrica pra sempre.
     if [ "$personality_existia" = "0" ] && [ -n "$archetype" ] && [ -f "$ADIR/FALAS.md.tmpl" ]; then
         DGCLAW_FALAS_SRC="$ADIR/FALAS.md.tmpl" DGCLAW_FALAS_DST="$ws/PERSONALITY.md" \
-        DGCLAW_FALAS_NOME="$name" DGCLAW_FALAS_DONO="$owner" python3 - <<'PY'
+        DGCLAW_FALAS_NOME="$name" DGCLAW_FALAS_DONO="$owner" python3 -I - <<'PY'
 import os, re, sys
 
 src, dst = os.environ["DGCLAW_FALAS_SRC"], os.environ["DGCLAW_FALAS_DST"]

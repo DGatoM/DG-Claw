@@ -80,10 +80,12 @@ else
     EMBED_STATUS=$(python3 "$PLUGIN/scripts/memory_index/embedder.py" status 2>&1 | head -1)
     echo "[$(date '+%F %T')] eco do passado: ${EMBED_STATUS:-embedder sem resposta (so o termo exato)}" >> "$LOG"
     WM_INPUT=$(head -c 3000 "$WM_FILE" 2>/dev/null | iconv -f UTF-8 -t UTF-8 -c 2>/dev/null || head -c 3000 "$WM_FILE" 2>/dev/null)
-    RECALL=$(python3 - "$ECHO_SEARCH" <<PYEOF 2>>"$LOG"
-import json, sys, subprocess
+    # O texto da working-memory (que o agente grava) entra como DADO, pela variavel de ambiente, e o heredoc
+    # e entre aspas: interpolado no codigo, um """ dentro dele fecharia a string e executaria o resto.
+    RECALL=$(WM_INPUT="$WM_INPUT" python3 -I - "$ECHO_SEARCH" <<'PYEOF' 2>>"$LOG"
+import json, os, sys, subprocess
 search = sys.argv[1]
-wm = """${WM_INPUT}""".replace(chr(0), "")
+wm = os.environ.get("WM_INPUT", "").replace(chr(0), "")
 payload = json.dumps({"input": wm, "recent": []})
 try:
     r = subprocess.run(["python3", search], input=payload,
@@ -117,7 +119,7 @@ fi
 # conversas". E a materia-prima dos objetivos, das tarefas, das crencas e da sugestao de
 # skill. Teto de ~4 KB pra o recado nao virar um livro.
 CONVERSA_BLOCK=""
-CONVERSA=$(DGCLAW_REFLECT_DIA="$TODAY" python3 - "$PLUGIN/scripts/_lib" <<'PYCONV' 2>>"$LOG"
+CONVERSA=$(DGCLAW_REFLECT_DIA="$TODAY" python3 -I - "$PLUGIN/scripts/_lib" <<'PYCONV' 2>>"$LOG"
 import os, sys
 from datetime import datetime, timezone, timedelta
 sys.path.insert(0, sys.argv[1])

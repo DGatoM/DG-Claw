@@ -33,6 +33,8 @@ APP_DIR="$(cd "$(dirname "$DGCLAW_BIN_REAL")/.." && pwd)"
 . "$APP_DIR/lib/aviso-atualizacao.sh"
 # shellcheck source=lib/personalizacoes.sh
 . "$APP_DIR/lib/personalizacoes.sh"
+# shellcheck source=lib/restricoes.sh
+. "$APP_DIR/lib/restricoes.sh"
 
 # Tempo maximo de espera (segundos) do systemd e do /api/saude de dentro do agente.
 # Variavel so para os testes nao esperarem um minuto de verdade.
@@ -83,6 +85,20 @@ Agentes
       portas e as rotinas dele. So recria se o container usa uma imagem diferente da atual
       (--forcar recria mesmo assim). Agente parado fica como esta. E o que `atualizar` usa.
       Exemplo:  dgclaw agente recriar ana
+
+  dgclaw agente restricoes <slug> [opcoes]
+      Mostra (sem opcoes) ou muda o que o agente nao pode fazer. A restricao fica FORA da maquina
+      do agente e sobrevive a `atualizar`, `recriar` e `reparar`. Opcoes:
+        --sem-bash sim|nao                tira (ou devolve) o terminal do agente
+        --sem-enviar-arquivo sim|nao      tira (ou devolve) o envio de arquivos pelo chat e pelo WhatsApp
+                                          (so vale junto com --sem-bash sim: com o terminal liberado o agente
+                                          manda o arquivo por fora das ferramentas, e o comando recusa)
+        --escrita-so-em pasta1,pasta2     ele so grava arquivos nessas pastas da casa dele
+        --escrita-livre                   solta de novo a gravacao em qualquer pasta
+      Com o Bash ligado, a trava de pastas nao barra comandos de terminal: combine com --sem-bash sim.
+      No Codex estas travas ainda nao valem (o comando avisa). Mais: docs/RESTRICOES-DO-AGENTE.md.
+      Saida: 0 deu certo, 1 recusa (o motivo vem escrito).
+      Exemplo:  dgclaw agente restricoes ana --sem-bash sim --escrita-so-em relatorios,rascunhos
 
   dgclaw agente identidade <slug>        regrava so o identidade.md (AGENT.md + regra do canal + "Onde voce esta e o que voce consegue fazer")
       Nao reinicia nada: vale na proxima sessao do agente.
@@ -654,7 +670,9 @@ semear_novidades() {
 montar_identidade() {
     local h="$C_HOME" ug="$C_UG"
     gerar_identidade
-    gerar_runner_json | escrever_arquivo "$C_CASA/runner/runner.json" 444 0:0
+    # O runner.json nasce com os padroes e as restricoes do dono (restricoes.json) entram ANTES de ele ir
+    # para o disco: um runner.json permissivo nunca chega a existir (e um arquivo invalido para aqui).
+    gerar_runner_json | aplicar_restricoes "$C_SLUG" --sem-reiniciar --runner-novo
     gerar_mcp_json | escrever_arquivo "$h/.plataforma/dgchat.mcp.json" 644 "$ug"
     gerar_config_sh | escrever_arquivo "$h/.dgclaw/config.sh" 644 "$ug"
     if [ "$ENSAIO" = 1 ] || [ ! -e "$h/.dgclaw/panel/config.json" ]; then
@@ -826,7 +844,16 @@ criar_container() {
         executar podman "${args[@]}" >/dev/null
         ok "container $c criado (portas so em 127.0.0.1: runner $C_PORTA_RUNNER, painel $C_PORTA_PAINEL)"
     fi
-    podman_em_escopo "$C_SLUG" start "$c" >/dev/null
+    # Mesmo caminho do `iniciar`: com restricoes.json, os arquivos sao refeitos e a imagem conferida ANTES de ligar
+    # (o recriar liga o container novo antes do reparar), e a conferencia de dentro roda depois, tudo sob a trava.
+    restricoes_com_trava "$C_SLUG" _criar_container_ligar_sob_trava "$C_SLUG" "$c"
+}
+
+_criar_container_ligar_sob_trava() {
+    local slug="$1" c="$2"
+    restricoes_antes_de_ligar "$slug"
+    podman_em_escopo "$slug" start "$c" >/dev/null
+    restricoes_conferir_ao_iniciar "$slug"
 }
 
 # Tempo (segundos) que o `iniciar` fica olhando se o container caiu logo na partida.
@@ -1147,6 +1174,8 @@ agente_criar() {
 
     C_CASA="$DG_CASAS/$C_SLUG"
     C_HOME="$C_CASA/home"
+    # Antes de gravar qualquer coisa: um restricoes.json estragado para aqui, com tudo como estava.
+    restricoes_conferir "$C_SLUG"
 
     [ "$ENSAIO" = 1 ] || trap _criar_ao_sair EXIT
 
@@ -1216,6 +1245,37 @@ existe_agente() {
     [ -n "$(agentes_obter "$1" 2>/dev/null)" ] || podman container exists "dgclaw-$1" >/dev/null 2>&1
 }
 
+# _agente_iniciar_sob_trava <slug>: ordem: (1) restricoes_antes_de_ligar regenera os arquivos e confere o label da
+# imagem, e se falhar o container NAO liga; (2) liga; (3) restricoes_conferir_ao_iniciar confere de dentro e para o
+# container se falhar. Chamado dentro de restricoes_com_trava.
+_agente_iniciar_sob_trava() {
+    local slug="$1" c="dgclaw-$1" t
+    restricoes_antes_de_ligar "$slug"
+    podman_em_escopo "$slug" start "$c" >/dev/null
+    if [ "$ENSAIO" != 1 ]; then
+        for ((t = 0; t < TEMPO_PARTIDA; t++)); do
+            explicar_saida_255 "$c"
+            sleep 1
+        done
+        explicar_saida_255 "$c"
+    fi
+    rodar_firewall
+    restricoes_conferir_ao_iniciar "$slug"
+}
+
+# _agente_reiniciar_sob_trava <slug>: mesma ordem do iniciar, com o container ja ligado: so o runner reinicia.
+_agente_reiniciar_sob_trava() {
+    local slug="$1" c="dgclaw-$1"
+    if [ "$ENSAIO" != 1 ] && [ "$(podman inspect -f '{{.State.Status}}' "$c" 2>/dev/null)" != running ]; then
+        falha "o agente $slug esta parado, nao tem o que reiniciar." "ligue com: dgclaw agente iniciar $slug"
+    fi
+    restricoes_antes_de_ligar "$slug"
+    # So o runner: e ele que le o cofre.env. O container inteiro nao precisa cair.
+    executar podman exec "$c" systemctl restart dgclaw-runner >/dev/null
+    rm -f -- "$DG_CASAS/$slug/runner/restricoes.pendente"
+    restricoes_conferir_ao_iniciar "$slug"
+}
+
 agente_acao() {
     local acao="$1"; shift
     exigir_slug "${1:-}" "$acao"
@@ -1229,24 +1289,12 @@ agente_acao() {
             ok "agente $slug parado"
             ;;
         iniciar)
-            podman_em_escopo "$slug" start "$c" >/dev/null
-            if [ "$ENSAIO" != 1 ]; then
-                local t
-                for ((t = 0; t < TEMPO_PARTIDA; t++)); do
-                    explicar_saida_255 "$c"
-                    sleep 1
-                done
-                explicar_saida_255 "$c"
-            fi
-            rodar_firewall
+            # Tudo sob a trava do agente, da regeneracao das restricoes ate o fim da conferencia de dentro.
+            restricoes_com_trava "$slug" _agente_iniciar_sob_trava "$slug"
             ok "agente $slug iniciado"
             ;;
         reiniciar)
-            if [ "$ENSAIO" != 1 ] && [ "$(podman inspect -f '{{.State.Status}}' "$c" 2>/dev/null)" != running ]; then
-                falha "o agente $slug esta parado, nao tem o que reiniciar." "ligue com: dgclaw agente iniciar $slug"
-            fi
-            # So o runner: e ele que le o cofre.env. O container inteiro nao precisa cair.
-            executar podman exec "$c" systemctl restart dgclaw-runner >/dev/null
+            restricoes_com_trava "$slug" _agente_reiniciar_sob_trava "$slug"
             ok "runner do agente $slug reiniciado"
             ;;
     esac
@@ -1351,6 +1399,8 @@ agente_reparar() {
     garantir_gancho_foco "$DG_CASAS/$slug/runner/runner.json" "$slug"
     passo "Garantindo o gancho do aviso de novidades no runner.json"
     garantir_gancho_novidades "$DG_CASAS/$slug/runner/runner.json" "$slug"
+    passo "Aplicando as restricoes do agente $slug"
+    aplicar_restricoes "$slug" --sem-reiniciar
     passo "Regravando o config.sh do agente $slug"
     regravar_config_sh "$slug" "$obj"
     passo "Regravando a identidade do agente $slug"
@@ -1401,6 +1451,9 @@ agente_recriar() {
         falha "o agente $slug nao esta em $DG_REGISTRO, entao nao sei a faixa de uid dele e nao recrio o container." \
               "nao mexi em nada. Confira o arquivo e, se o agente e antigo, peca ajuda antes de continuar."
     fi
+
+    # Antes de remover qualquer coisa: um restricoes.json estragado para a troca aqui, com o container intacto.
+    restricoes_conferir "$slug"
 
     estado="$(estado_container "$slug")"
     case "$estado" in
@@ -1757,12 +1810,13 @@ agente_main() {
         parar|iniciar|reiniciar) agente_acao "$sub" "$@" ;;
         reparar) agente_reparar "$@" ;;
         recriar) agente_recriar "$@" ;;
+        restricoes) agente_restricoes "$@" ;;
         identidade) agente_identidade "$@" ;;
         cofre) agente_cofre "$@" ;;
         tela-senha) agente_tela_senha "$@" ;;
         remover) agente_remover "$@" ;;
-        "") falha "faltou dizer o que fazer com os agentes." "use: criar, listar, parar, iniciar, reiniciar, reparar, recriar, identidade, cofre, tela-senha ou remover (veja dgclaw --ajuda)." ;;
-        *) falha "'agente $sub' nao existe." "use: criar, listar, parar, iniciar, reiniciar, reparar, recriar, identidade, cofre, tela-senha ou remover (veja dgclaw --ajuda)." ;;
+        "") falha "faltou dizer o que fazer com os agentes." "use: criar, listar, parar, iniciar, reiniciar, reparar, recriar, restricoes, identidade, cofre, tela-senha ou remover (veja dgclaw --ajuda)." ;;
+        *) falha "'agente $sub' nao existe." "use: criar, listar, parar, iniciar, reiniciar, reparar, recriar, restricoes, identidade, cofre, tela-senha ou remover (veja dgclaw --ajuda)." ;;
     esac
 }
 

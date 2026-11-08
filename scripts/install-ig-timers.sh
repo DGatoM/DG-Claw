@@ -93,7 +93,7 @@ fi
 # Espera schedule:[{"time":"08:00","type":"post"}, ...] — pega so os de tipo post.
 POST_TIMES=""
 if [ -f "$IG_JSON" ]; then
-    POST_TIMES=$(python3 -c '
+    POST_TIMES=$(python3 -I -c '
 import json,sys
 try:
     cfg=json.load(open(sys.argv[1]))

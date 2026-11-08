@@ -12,6 +12,9 @@ para ela sobreviver. O Admin lê este documento antes de mexer em qualquer coisa
 > mexer no programa convém ler a seção "A arquitetura em uma página", logo abaixo, para a mudança respeitar
 > o núcleo do DG Claw.
 
+> **Travar um agente (tirar o Bash, o envio de arquivos ou limitar onde ele grava)** não é personalização
+> de código: tem comando próprio, que sobrevive às atualizações. Veja [RESTRICOES-DO-AGENTE.md](RESTRICOES-DO-AGENTE.md).
+
 ## A arquitetura em uma página
 
 Pense em lugares diferentes, cada um com a sua regra.
