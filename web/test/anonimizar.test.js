@@ -287,6 +287,26 @@ test('trocarValoresConhecidos: mais longo primeiro, palavra inteira, sem acento,
   assert.deepEqual(reverterMarcadores('[PESSOA_1] [X_9] [PESSOA_1]', [{ marcador: '[PESSOA_1]', valor: 'Ana' }]), { texto: 'Ana [X_9] Ana', trocas: 2, desconhecidos: ['[X_9]'] });
 });
 
+test('trocarValoresConhecidos: posições em UTF-16, emoji e normalização não deixam o valor vazar', () => {
+  const tab = [{ tipo: 'PESSOA', valor: 'Maria Souza', marcador: '[PESSOA_1]' }];
+  const casos = [
+    ['\u{1F600} Maria Souza', '\u{1F600} [PESSOA_1]'],
+    ['Maria \u{1F600} Souza e Maria Souza', null],
+    ['Maria Souza \u{1F600}', '[PESSOA_1] \u{1F600}'],
+    ['\u{1F600}\u{1F680}\u{1F600} Maria Souza \u{1F680}\u{1F680}', '\u{1F600}\u{1F680}\u{1F600} [PESSOA_1] \u{1F680}\u{1F680}'],
+    ['e\u0301e\u0301 Maria Souza', 'e\u0301e\u0301 [PESSOA_1]'],
+    ['\u0130\u0130 Maria Souza', '\u0130\u0130 [PESSOA_1]'],
+    ['Maria Souza normal', '[PESSOA_1] normal'],
+    ['MARIA  SOUZA \u{1F600} maria souza', '[PESSOA_1] \u{1F600} [PESSOA_1]'],
+  ];
+  for (const [entrada, esperado] of casos) {
+    const r = trocarValoresConhecidos(entrada, tab);
+    assert.equal(/maria\s+souza/i.test(r.texto), false, `vazou em: ${JSON.stringify(entrada)} -> ${JSON.stringify(r.texto)}`);
+    if (esperado) assert.equal(r.texto, esperado);
+  }
+  assert.equal(trocarValoresConhecidos('\u{1F600} Maria Souza', tab).trocas, 1);
+});
+
 test('reverter-texto devolve os dados reais e deixa o marcador desconhecido como está', async () => {
   const s = await cenario();
   try {

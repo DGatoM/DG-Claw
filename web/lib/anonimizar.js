@@ -50,23 +50,28 @@ const soDigitos = (s) => String(s).replace(/\D+/g, '');
 const escapaRx = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const nomeSeguroHeader = (s) => String(s).replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^[._]+/, '').slice(0, 80) || 'arquivo';
 
-/** Texto -> {norm, mapa}: `norm` sem acento e em minúsculas; `mapa[i]` = índice no texto original. */
+/**
+ * Texto -> {norm, mapa, fimDe}: `norm` sem acento e em minúsculas. Tudo em unidades UTF-16, as mesmas de
+ * RegExp.exec, .index e slice: `mapa[i]` = início, no original, do caractere que gerou `norm[i]`;
+ * `fimDe[i]` = fim desse caractere no original. Cada unidade de `norm` aponta para o caractere inteiro de
+ * origem, então emoji (par substituto) e caracteres que mudam de tamanho ao normalizar não desalinham o mapa.
+ */
 function normalizaComMapa(texto) {
-  let norm = ''; const mapa = [];
+  let norm = ''; const mapa = []; const fimDe = [];
   let i = 0;
   for (const ch of texto) {
-    const n = ch.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
-    for (const c of n) { norm += c; mapa.push(i); }
+    const n = ch.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/\p{M}/gu, '');
+    for (let k = 0; k < n.length; k++) { norm += n[k]; mapa.push(i); fimDe.push(i + ch.length); }
     i += ch.length;
   }
-  mapa.push(i);
-  return { norm, mapa };
+  mapa.push(i); fimDe.push(i);
+  return { norm, mapa, fimDe };
 }
 
 /** Troca no `texto` os valores da `tabela` (exatos, normalizados, palavra inteira, do mais longo ao mais curto). */
-function trocarValoresConhecidos(texto, tabela) {
+function trocarValoresConhecidos(texto, tabela, jaConferido) {
   if (!texto || !tabela || !tabela.length) return { texto, trocas: 0 };
-  const { norm, mapa } = normalizaComMapa(texto);
+  const { norm, mapa, fimDe } = normalizaComMapa(texto);
   const ordem = tabela.filter((e) => e && !e.apagado && typeof e.valor === 'string' && e.valor.trim())
     .sort((a, b) => b.valor.length - a.valor.length);
   const reservados = [];
@@ -95,7 +100,7 @@ function trocarValoresConhecidos(texto, tabela) {
         const antes = norm[ini - 1]; const depois = norm[fim];
         if ((antes && letraOuNumero.test(antes)) || (depois && letraOuNumero.test(depois))) continue;
       }
-      const a = mapa[ini]; const b = mapa[fim];
+      const a = mapa[ini]; const b = fimDe[fim - 1];
       if (livre(a, b)) reservados.push([a, b, e.marcador]);
     }
   }
@@ -103,6 +108,10 @@ function trocarValoresConhecidos(texto, tabela) {
   reservados.sort((x, y) => y[0] - x[0]);
   let saida = texto;
   for (const [a, b, marcador] of reservados) saida = saida.slice(0, a) + marcador + saida.slice(b);
+  // Salvaguarda: depois da troca não pode sobrar nenhum valor conhecido. Se sobrou, o mapa falhou: não entrega.
+  if (!jaConferido && trocarValoresConhecidos(saida, tabela, true).trocas > 0) {
+    throw new ErroAnon(503, 'O filtro de dados conhecidos não conseguiu trocar tudo neste texto, então ele não foi entregue. Nada foi enviado.', 'filtro_incompleto');
+  }
   return { texto: saida, trocas: reservados.length };
 }
 
