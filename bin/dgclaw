@@ -976,7 +976,8 @@ pid="$(systemctl show -p MainPID --value dgclaw-painel.service)"
 if [ -n "$pid" ] && [ "$pid" != 0 ]; then
     grupos="$(ps -o supgid= -p "$pid" || true)"
     tem=0
-    for g in $grupos; do [ "$g" = "$gid" ] && tem=1; done
+    # O ps separa os grupos por virgula.
+    for g in ${grupos//,/ }; do [ "$g" = "$gid" ] && tem=1; done
     if [ "$tem" = 0 ]; then
         systemctl restart dgclaw-painel.service
         echo "painel reiniciado para pegar o grupo systemd-journal"

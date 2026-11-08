@@ -39,7 +39,7 @@ echo "systemctl $*" >>"$CHAMADAS"
 STUB
 cat >"$BIN/ps" <<'STUB'
 #!/usr/bin/env bash
-echo "${SUPGID:-1001 4}"
+echo "${SUPGID:-1001,4}"
 STUB
 chmod +x "$BIN"/*
 
@@ -52,24 +52,29 @@ rodar_caso() {
 }
 
 echo "ja no grupo e painel com o grupo certo: nao mexe em nada"
-rodar_caso NO_GRUPO=1 SUPGID="1001 999"
+rodar_caso NO_GRUPO=1 SUPGID="1001,999,4"
 igual "sai com 0" 0 "$RC"
 nega "nao chamou usermod nem restart" test -s "$chamadas"
 
+echo "reparar de novo com o grupo no meio da lista: sem restart"
+rodar_caso NO_GRUPO=1 SUPGID="101,999,1001"
+igual "sai com 0" 0 "$RC"
+nega "nao reiniciou" grep -q '^systemctl' "$chamadas"
+
 echo "fora do grupo: usermod e restart"
-rodar_caso NO_GRUPO=0 SUPGID="1001 4"
+rodar_caso NO_GRUPO=0 SUPGID="1001,4"
 igual "sai com 0" 0 "$RC"
 afirma "rodou usermod -aG systemd-journal agente" grep -qx 'usermod -aG systemd-journal agente' "$chamadas"
 afirma "reiniciou o painel" grep -qx 'systemctl restart dgclaw-painel.service' "$chamadas"
 
 echo "no grupo, mas o painel antigo nao o tem: so o restart"
-rodar_caso NO_GRUPO=1 SUPGID="1001 4"
+rodar_caso NO_GRUPO=1 SUPGID="1001,4"
 igual "sai com 0" 0 "$RC"
 nega "nao rodou usermod" grep -q '^usermod' "$chamadas"
 afirma "reiniciou o painel" grep -qx 'systemctl restart dgclaw-painel.service' "$chamadas"
 
 echo "o gid do grupo so conta como palavra inteira (9990 nao e 999)"
-rodar_caso NO_GRUPO=1 SUPGID="9990"
+rodar_caso NO_GRUPO=1 SUPGID="9990,1001"
 afirma "reiniciou o painel" grep -qx 'systemctl restart dgclaw-painel.service' "$chamadas"
 
 echo "painel parado (MainPID 0): usermod, sem restart"
