@@ -286,7 +286,8 @@ function authComColaboradores(ids) {
   const { pastaTemp, capturaLog } = require('./ajuda');
   const t = capturaLog();
   const auth = criarAuth({ config: { env: { DGCLAW_PANEL_USER: 'dono' }, dataDir: pastaTemp('dados'), sessaoDias: 1, proxiesConfiaveis: new Set() }, log: t.log });
-  const regs = new Map(ids.map((id) => [id, { id, email: `${id}@x.com`, agente: 'ana', hash: 'h', senha_versao: 1, trocar_senha: false, revogado_em: null }]));
+  auth.ligarInstancias(() => 'i1');
+  const regs = new Map(ids.map((id) => [id, { id, instancia: 'i1', email: `${id}@x.com`, agente: 'ana', hash: 'h', senha_versao: 1, trocar_senha: false, revogado_em: null }]));
   auth.ligarColaboradores({ obter: (id) => regs.get(id), porEmailAtivo: () => null, registrarLogin() {} });
   const entra = (id) => auth.criaSessao(`${id}@x.com`, { headers: {}, socket: {} }, { id, agente: 'ana', senha_versao: 1, hash: 'h' });
   const vive = (s) => !!auth.sessaoDoPedido({ headers: { cookie: s.cookie.split(';')[0] } });
@@ -356,4 +357,51 @@ test('rodada 8, achado 2: agente sem o campo instancia usa a casa dele (uid e in
   assert.equal(instanciaDe({ instancia: 'abc' }), 'i:abc');
   assert.equal(instanciaDe({ home_host: '/nao/existe/mesmo' }), null);
   assert.equal(instanciaDe(undefined), null);
+});
+
+// ── 10ª rodada: convite sem instância não vale ──
+test('rodada 10: convidar é recusado quando a instância do agente não pode ser identificada, e nada é gravado nem revogado', async () => {
+  const s = await cenario();
+  try {
+    const x = await colaboradorAtivo(s); // convite válido de antes
+    // agente sem "instancia" no registro e com a casa ilegível
+    const j = JSON.parse(fs.readFileSync(s.t.agentesPath, 'utf8'));
+    for (const a of j.agentes) if (a.slug === 'ana') a.home_host = '/nao/existe/mesmo';
+    fs.writeFileSync(s.t.agentesPath, JSON.stringify(j));
+    const futuro = new Date(Date.now() + 5000); fs.utimesSync(s.t.agentesPath, futuro, futuro);
+    const r = await s.convida({ agente: 'ana', email: 'jose@x.com', nome: 'José' });
+    assert.equal(r.status, 500, r.texto);
+    assert.match(r.json.erro, /Não consegui identificar esta instância do agente ana \(casa ausente ou ilegível\).*dgclaw agente reparar ana/);
+    const lista = (await s.dono.get('/api/v1/colaboradores')).json.colaboradores;
+    assert.equal(lista.length, 1, 'nenhum convite novo foi gravado');
+    assert.equal(lista[0].id, x.id);
+    assert.notEqual(lista[0].estado, 'revogado', 'a recusa não revoga o convite que existia');
+  } finally { await s.fechar(); }
+});
+
+test('rodada 10: registro de colaborador sem instancia (gravado à mão ou antigo) não loga e não mantém sessão', async () => {
+  const s = await cenario();
+  try {
+    const x = await colaboradorAtivo(s);
+    assert.equal((await x.c.get('/api/v1/agents/ana/messages')).status, 200);
+    const arq = s.t.web.colaboradores.arquivo;
+    const j = JSON.parse(fs.readFileSync(arq, 'utf8'));
+    for (const c of j.colaboradores) delete c.instancia;
+    fs.writeFileSync(arq, JSON.stringify(j));
+    const futuro = new Date(Date.now() + 5000); fs.utimesSync(arq, futuro, futuro);
+    assert.equal((await x.c.get('/api/v1/agents/ana/messages')).status, 401, 'a sessão existente caiu');
+    const l = await require('./ajuda').cliente(s.t.porta).post('/login', { json: { usuario: x.email, senha: x.nova } });
+    assert.equal(l.status, 401, l.texto);
+    assert.match(l.json.erro, /Este convite era de um agente que foi removido/);
+  } finally { await s.fechar(); }
+});
+
+test('rodada 10: sem a instância atual (módulo não ligado) o colaborador não entra, mesmo com instancia no convite', async () => {
+  const { criarAuth } = require('../lib/auth');
+  const { capturaLog } = require('./ajuda');
+  const t = capturaLog();
+  const auth = criarAuth({ config: { env: { DGCLAW_PANEL_USER: 'dono' }, dataDir: pastaTemp('dados'), sessaoDias: 1, proxiesConfiaveis: new Set() }, log: t.log });
+  const c = { id: 'c1', instancia: 'i1', email: 'm@x.com', agente: 'ana', hash: 'h', senha_versao: 1, trocar_senha: false, revogado_em: null };
+  auth.ligarColaboradores({ obter: () => c, porEmailAtivo: () => null, registrarLogin() {} });
+  assert.throws(() => auth.criaSessao('m@x.com', { headers: {}, socket: {} }, { id: 'c1', agente: 'ana', senha_versao: 1, hash: 'h' }), /removido/);
 });

@@ -76,7 +76,12 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
   let instanciaAtual = null;
   const MOTIVO_INSTANCIA = 'Este convite era de um agente que foi removido. Peça um convite novo ao dono.';
   /** O convite guarda a instância do agente; se o agente foi removido e recriado com o mesmo nome, ele não vale. */
-  const instanciaMudou = (c) => !!(instanciaAtual && c && c.instancia && c.instancia !== instanciaAtual(c.agente));
+  // Sem exceção: convite sem instância, instância atual ilegível ou módulo não ligado também NEGAM.
+  const instanciaMudou = (c) => {
+    if (!c) return false;
+    const atual = instanciaAtual ? instanciaAtual(c.agente) : null;
+    return !c.instancia || !atual || c.instancia !== atual;
+  };
 
   const relogio = agora || (() => Date.now());
   const usuario = String(config.env.DGCLAW_PANEL_USER || '').trim();

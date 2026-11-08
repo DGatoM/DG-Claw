@@ -148,6 +148,7 @@ function criarColaboradores({ config, log, agora, gerarHash }) {
     /** Cria o convite. As regras que dependem do registro de agentes (existe? é o Admin?) ficam na rota. */
     criar({ agente, email, nome, criadoPor, instancia }) {
       return transacao(async () => {
+        if (!instancia) throw erroStatus(500, `Não consegui identificar esta instância do agente ${agente} (casa ausente ou ilegível), e o convite precisa dela para não valer num agente recriado com o mesmo nome. Rode "dgclaw agente reparar ${agente}" e convide de novo.`);
         const mail = normalizaEmail(email);
         const nomeOk = normalizaNome(nome);
         const doAgente = lista.find((c) => !c.revogado_em && c.agente === agente);
@@ -158,7 +159,7 @@ function criarColaboradores({ config, log, agora, gerarHash }) {
         const hash = await gerarHash(senha);
         const t = relogio();
         const registro = {
-          id: crypto.randomBytes(16).toString('base64url'), email: mail, nome: nomeOk, agente, instancia: instancia || null, hash,
+          id: crypto.randomBytes(16).toString('base64url'), email: mail, nome: nomeOk, agente, instancia, hash,
           trocar_senha: true, temporaria_expira: t + VALIDADE_TEMPORARIA_MS, senha_versao: 1,
           criado_em: t, criado_por: criadoPor || null, revogado_em: null, ultimo_login: null,
         };
@@ -192,7 +193,7 @@ function criarColaboradores({ config, log, agora, gerarHash }) {
         let n = 0;
         const t = relogio();
         for (const c of lista) {
-          if (c.agente === slug && !c.revogado_em && c.instancia && c.instancia !== instanciaAtual) { c.revogado_em = t; n += 1; }
+          if (c.agente === slug && !c.revogado_em && (!c.instancia || c.instancia !== instanciaAtual)) { c.revogado_em = t; n += 1; }
         }
         if (n) {
           try { grava(); } catch (e) { for (const c of lista) if (c.revogado_em === t) c.revogado_em = null; throw e; }

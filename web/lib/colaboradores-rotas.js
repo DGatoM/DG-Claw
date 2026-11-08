@@ -109,6 +109,11 @@ function criarColaboradoresRotas({ colaboradores, auth, registro, email, config,
             return true;
           }
           const instancia = instanciaDe(ag);
+          if (!instancia) {
+            log('erro', `Convite para ${slug} recusado: não consegui identificar a instância do agente (sem "instancia" no registro e a casa ${ag.home_host || '(sem home_host)'} não pôde ser lida).`);
+            H.erroJson(res, 500, `Não consegui identificar esta instância do agente ${slug} (casa ausente ou ilegível), e o convite precisa dela para não valer num agente recriado com o mesmo nome. Rode "dgclaw agente reparar ${slug}" e convide de novo.`);
+            return true;
+          }
           // Convite de um agente que foi removido e recriado com o mesmo nome não vale e não pode barrar o novo.
           const velhos = await colaboradores.revogarDeOutraInstancia(slug, instancia);
           if (velhos) log('aviso', `Convite(s) de uma instância antiga do agente ${slug} revogado(s) (${velhos}): o agente foi removido e criado de novo.`);

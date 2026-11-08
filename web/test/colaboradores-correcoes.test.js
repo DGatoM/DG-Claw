@@ -97,7 +97,8 @@ test('achado 3: login cuja senha foi conferida contra um registro que mudou no m
   const t = capturaLog();
   const auth = criarAuth({ config: { env: { DGCLAW_PANEL_USER: 'dono' }, dataDir: pastaTemp('dados'), sessaoDias: 1, proxiesConfiaveis: [] }, log: t.log });
   const hashAntigo = await auth.gerarHash(VALOR_ANTIGO);
-  const c = { id: 'idcolab01', email: 'maria@x.com', agente: 'ana', hash: hashAntigo, senha_versao: 1, trocar_senha: false, revogado_em: null };
+  auth.ligarInstancias(() => 'i1');
+  const c = { id: 'idcolab01', instancia: 'i1', email: 'maria@x.com', agente: 'ana', hash: hashAntigo, senha_versao: 1, trocar_senha: false, revogado_em: null };
   auth.ligarColaboradores({ porEmailAtivo: () => c, obter: () => c, registrarLogin() {} });
   const pendente = auth.verificaSenha('maria@x.com', VALOR_ANTIGO, '9.9.9.9');
   // o dono reenvia o convite enquanto o scrypt roda: o registro é alterado no próprio objeto
@@ -106,7 +107,7 @@ test('achado 3: login cuja senha foi conferida contra um registro que mudou no m
   assert.equal(r.ok, false, 'não pode emitir sessão com a versão nova de um login conferido na antiga');
   assert.match(r.erro, /mudou/);
   // sem mudança no meio, o mesmo caminho entra e leva o hash conferido para a emissão da sessão
-  const c2 = { id: 'idcolab02', email: 'jose@x.com', agente: 'ana', hash: hashAntigo, senha_versao: 1, trocar_senha: false, revogado_em: null };
+  const c2 = { id: 'idcolab02', instancia: 'i1', email: 'jose@x.com', agente: 'ana', hash: hashAntigo, senha_versao: 1, trocar_senha: false, revogado_em: null };
   auth.ligarColaboradores({ porEmailAtivo: () => c2, obter: () => c2, registrarLogin() {} });
   const ok = await auth.verificaSenha('jose@x.com', VALOR_ANTIGO, '9.9.9.8');
   assert.equal(ok.ok, true);
