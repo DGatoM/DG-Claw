@@ -197,7 +197,7 @@ test("SEGURANÇA: comando forjado no hooks.json (marca e guarda inventadas) não
     { hooks: [{ type: "command", command: da_pessoa, timeout: 5 }, { type: "command", command: outroForjado, timeout: 5 }] },
   ] } }));
   // a pessoa já tinha confiado no próprio hook e, por engano ou ataque, há um hash velho no lugar do forjado
-  const chaveForjado = `${arq}:user_prompt_submit:1:0`; // onde cai o primeiro hook calculado
+  const chaveForjado = `${arq}:user_prompt_submit:2:0`; // onde cai um dos hooks calculados (o forjado do grupo 0 vira o primeiro)
   fs.writeFileSync(path.join(c.home, "config.toml"), `[hooks.state.${JSON.stringify(chaveForjado)}]\ntrusted_hash = "sha256:de-outro"\n`);
   const r = instala(c);
   assert.equal(r.instalados, 5);
@@ -429,6 +429,106 @@ test("toml: todos os resultados dos casos de cabeçalho são TOML válido para o
 });
 
 // ---------------------------------------------------------------------------------------------
+// Posição dos hooks da pessoa: a chave de confiança do Codex inclui o índice.
+
+type Gr = { matcher?: string; hooks: Array<{ type: string; command: string; timeout: number }> };
+const lerHooks = (c: ReturnType<typeof cenario>) => JSON.parse(lerTexto(path.join(c.home, "hooks.json"))) as { hooks: Record<string, Gr[]> };
+const deles = (g: Gr) => g.hooks.some((m) => !pareceDoDgclaw(m.command));
+
+test("hook da pessoa acrescentado e confiado depois da instalação fica no mesmo índice, com o mesmo trusted_hash, ao reinstalar", () => {
+  const c = cenario("posicao-depois");
+  instala(c);
+  const hj = lerHooks(c);
+  const antes = hj.hooks.UserPromptSubmit.length;
+  const dela = { type: "command", command: "echo meu-hook-confiado", timeout: 7 };
+  hj.hooks.UserPromptSubmit.push({ hooks: [dela] });
+  fs.writeFileSync(path.join(c.home, "hooks.json"), JSON.stringify(hj, null, 2));
+  const chave = `${path.join(c.home, "hooks.json")}:user_prompt_submit:${antes}:0`;
+  const hashDela = hashDoHook({ evento: "UserPromptSubmit", command: dela.command, timeout: 7 });
+  fs.appendFileSync(path.join(c.home, "config.toml"), `\n[hooks.state.${JSON.stringify(chave)}]\ntrusted_hash = ${JSON.stringify(hashDela)}\n`);
+  const tomlAntes = lerTexto(path.join(c.home, "config.toml"));
+  for (let i = 0; i < 3; i++) instala(c);
+  const depois = lerHooks(c).hooks.UserPromptSubmit;
+  assert.equal(depois[antes].hooks[0].command, dela.command, "o hook dela continua no mesmo índice");
+  assert.equal(depois.length, antes + 1);
+  const toml = lerTexto(path.join(c.home, "config.toml"));
+  assert.equal(toml, tomlAntes, "a confiança dela e todo o resto ficaram idênticos");
+  assert.equal(toml.split(hashDela).length - 1, 1);
+});
+
+test("hooks da pessoa na frente ficam onde estão; os nossos entram depois e não mexem no índice dela", () => {
+  const c = cenario("posicao-frente");
+  const a = { type: "command", command: "echo a", timeout: 5 };
+  const b = { type: "command", command: "echo b", timeout: 5 };
+  fs.writeFileSync(path.join(c.home, "hooks.json"), JSON.stringify({ hooks: { UserPromptSubmit: [{ hooks: [a] }, { hooks: [b] }] } }));
+  instala(c);
+  instala(c, ["x"]);
+  const g = lerHooks(c).hooks.UserPromptSubmit;
+  assert.deepEqual([g[0].hooks[0].command, g[1].hooks[0].command], ["echo a", "echo b"]);
+  assert.equal(g.slice(2).every((x) => pareceDoDgclaw(x.hooks[0].command)), true);
+  const toml = lerTexto(path.join(c.home, "config.toml"));
+  for (const i of [0, 1]) assert.equal(toml.includes(`user_prompt_submit:${i}:0`), false, "nunca grava confiança para o hook da pessoa");
+});
+
+test("arquivo antigo com os nossos na frente: são trocados NO LUGAR e o hook da pessoa não muda de índice", () => {
+  const c = cenario("posicao-antigo");
+  const dela = { type: "command", command: "echo da-pessoa", timeout: 5 };
+  const velho = (n: string) => ({ hooks: [{ type: "command", command: `${MARCA_DO_DGCLAW}bun "/velho/${n}" avisos`, timeout: 6 }] });
+  fs.writeFileSync(path.join(c.home, "hooks.json"), JSON.stringify({ hooks: { UserPromptSubmit: [velho("a"), velho("b"), { hooks: [dela] }] } }));
+  instala(c);
+  const g = lerHooks(c).hooks.UserPromptSubmit;
+  assert.equal(g[2].hooks[0].command, "echo da-pessoa", "continua no índice 2");
+  assert.equal(g.length, 4);
+  assert.equal(g.filter(deles).length, 1);
+});
+
+test("nossos obsoletos ANTES de um grupo da pessoa: o índice dela muda (inevitável) e mesclarHooks avisa", () => {
+  const dela = { type: "command", command: "echo da-pessoa", timeout: 5 };
+  const velho = (n: number) => ({ hooks: [{ type: "command", command: `${MARCA_DO_DGCLAW}bun "/velho/${n}" avisos`, timeout: 6 }] });
+  const atual = { hooks: { UserPromptSubmit: [velho(1), velho(2), velho(3), velho(4), { hooks: [dela] }] } };
+  const hooks = hooksDoAgente({ raiz: "/p", workspace: "/w", temWorkspace: true, temBun: true, pastaDeEstado: "/e" }).filter((h) => h.evento === "UserPromptSubmit");
+  assert.equal(hooks.length, 3);
+  const r = mesclarHooks(atual, hooks, "/h/hooks.json");
+  assert.equal(r.deslocados, 1);
+  assert.equal(r.novo.hooks!.UserPromptSubmit.length, 4);
+  assert.equal(r.novo.hooks!.UserPromptSubmit[3].hooks![0].command, "echo da-pessoa");
+  assert.equal(r.confiar.some((x) => x.chave.endsWith(":user_prompt_submit:3:0")), false, "o índice 3 é dela e não ganha confiança");
+});
+
+// ---------------------------------------------------------------------------------------------
+// Confiança da pasta e dos hooks: uma transação só.
+
+test("confiança da pasta e dos hooks entram no mesmo config.toml, numa só gravação, preservando o que havia", () => {
+  const c = cenario("pasta-e-hooks");
+  const antigo = '[tui]\nx = 1\n';
+  fs.writeFileSync(path.join(c.home, "config.toml"), antigo, { mode: 0o640 });
+  instala(c, [], "principal", { confiancaDaPasta: "/casa/agente" });
+  instala(c, [], "principal", { confiancaDaPasta: "/casa/agente" });
+  const t = lerTexto(path.join(c.home, "config.toml"));
+  assert.ok(t.startsWith(antigo));
+  assert.equal(t.split('[projects."/casa/agente"]').length - 1, 1);
+  assert.equal((t.match(/\[hooks\.state\./g) ?? []).length, 5);
+  assert.equal(fs.statSync(path.join(c.home, "config.toml")).mode & 0o777, 0o640);
+  confereToml(t);
+});
+
+test("sem hooks para instalar (hooks.json ilegível) a confiança da pasta ainda é gravada", () => {
+  const c = cenario("pasta-sem-hooks");
+  fs.writeFileSync(path.join(c.home, "hooks.json"), "{ nao e json");
+  const r = instala(c, [], "principal", { confiancaDaPasta: "/casa/x" });
+  assert.equal(r.instalados, 0);
+  assert.ok(lerTexto(path.join(c.home, "config.toml")).includes('[projects."/casa/x"]\ntrust_level = "trusted"\n'));
+});
+
+test("trava ocupada: nem os hooks nem a confiança da pasta são gravados", () => {
+  const c = cenario("pasta-trava");
+  fs.mkdirSync(path.join(c.home, ".dgclaw-hooks.lock"));
+  const r = instala(c, [], "principal", { esperaDaTravaMs: 200, confiancaDaPasta: "/casa/x" });
+  assert.equal(r.instalados, 0);
+  assert.equal(fs.existsSync(path.join(c.home, "config.toml")), false);
+});
+
+// ---------------------------------------------------------------------------------------------
 // Hooks do AGENTE: principal e paralelas dividem o CODEX_HOME. O hooks.json e a confiança são iguais
 // para todas as sessões; os promptHooks de cada uma ficam no arquivo de estado dela.
 
@@ -627,6 +727,7 @@ test("falha ao gravar o arquivo de promptHooks: o runner não passa DGCLAW_SESSA
     cwd: c.ws,
     pastaDeHooks: pastaTemporaria("ph"),
     pastaDeEstado: c.estado,
+    raizDoPlugin: c.plugin,
     env: { CODEX_HOME: c.home, HOME: c.raiz, PATH: c.bin, DGCLAW_WORKSPACE: c.ws, DGCLAW_SESSAO_ID: "herdado-do-ambiente" },
     config: { name: "x", cwd: c.ws, initialPrompt: "", provider: "codex-cli", permissionMode: "bypassPermissions", promptHooks: ["echo novo"] },
   } as never);
@@ -686,7 +787,7 @@ test("dois processos instalando ao mesmo tempo no mesmo CODEX_HOME deixam hooks.
     (sessaoId) =>
       new Promise<{ code: number | null; err: string }>((resolve) => {
         const p = spawn(process.execPath, ["--input-type=module", "-e", codigo], {
-          env: { ...process.env, OPS: JSON.stringify({ home: c.home, env: c.env, cwd: c.ws, area: "t", raiz: c.plugin, sessaoId, pastaDeEstado: c.estado, esperaDaTravaMs: 30000 }) },
+          env: { ...process.env, OPS: JSON.stringify({ home: c.home, env: c.env, cwd: c.ws, area: "t", raiz: c.plugin, sessaoId, pastaDeEstado: c.estado, esperaDaTravaMs: 30000, confiancaDaPasta: "/casa/" + sessaoId }) },
         });
         let err = "";
         p.stderr.on("data", (d) => (err += d));
@@ -698,6 +799,7 @@ test("dois processos instalando ao mesmo tempo no mesmo CODEX_HOME deixam hooks.
   const j = JSON.parse(hj);
   assert.equal(Object.values(j.hooks as Record<string, unknown[]>).flat().length, 5);
   assert.equal((toml.match(/\[hooks\.state\./g) ?? []).length, 5, "uma seção de confiança por hook, sem duplicata");
+  for (const id of ["principal", "bastidores", "outra"]) assert.equal(toml.split(`[projects."/casa/${id}"]`).length - 1, 1, `a confiança da pasta de ${id} sobreviveu à concorrência`);
   confereToml(toml);
   for (const h of hooksDoAgente({ raiz: c.plugin, workspace: c.ws, temWorkspace: true, temBun: true, pastaDeEstado: c.estado })) assert.ok(toml.includes(hashDoHook(h)));
   assert.equal(fs.existsSync(path.join(c.home, ".dgclaw-hooks.lock")), false);
@@ -761,6 +863,7 @@ test("o spawn do Codex instala os hooks e NUNCA passa bypass de confiança nos a
     cwd: c.ws,
     pastaDeHooks: pastaTemporaria("ph"),
     pastaDeEstado: c.estado,
+    raizDoPlugin: c.plugin,
     env: { CODEX_HOME: c.home, HOME: c.raiz, PATH: c.bin, DGCLAW_WORKSPACE: c.ws },
     config: { name: "x", cwd: c.ws, initialPrompt: "", provider: "codex-cli", permissionMode: "bypassPermissions", promptHooks: ["node /x/novidades-hook.mjs"] },
   } as never);
@@ -770,11 +873,13 @@ test("o spawn do Codex instala os hooks e NUNCA passa bypass de confiança nos a
   assert.equal(/bypass-hook-trust|bypass_hook_trust|hook.?trust/i.test(todos), false, "nenhum argumento liga a confiança geral de hooks");
   assert.equal(/hooks\.state/.test(todos), false, "a confiança vai para o config.toml, não para -c");
   const arqHooks = path.join(c.home, "hooks.json");
-  const hj = fs.existsSync(arqHooks) ? lerTexto(arqHooks) : ""; // fora do repositório não há plugin para achar (raizDoPlugin)
+  const hj = lerTexto(arqHooks);
   assert.equal(hj.includes("novidades-hook.mjs"), false, "os promptHooks não vão para o hooks.json");
   const estado = JSON.parse(lerTexto(path.join(c.estado, "prompt-hooks", `${ctx.id}.json`)));
   assert.deepEqual(estado.comandos, ["node /x/novidades-hook.mjs"], "os promptHooks da sessão ficam no arquivo de estado dela");
   assert.equal(fs.statSync(path.join(c.estado, "prompt-hooks", `${ctx.id}.json`)).mode & 0o777, 0o600);
+  assert.ok(hj.includes("prompt-hooks-sessao.py"), "o hook fixo dos promptHooks está no hooks.json");
+  assert.ok(lerTexto(path.join(c.home, "config.toml")).includes(`[projects.${JSON.stringify(c.ws)}]`), "a confiança da pasta vem na mesma transação");
   const fonte = fs.readFileSync(new URL("./provedores/codex.js", import.meta.url), "utf8");
   assert.equal(/bypass-hook-trust|bypass_hook_trust/.test(fonte), false, "o código do motor não cita o bypass");
 });
@@ -843,6 +948,22 @@ test("Codex de verdade: o hook do DG Claw sai trusted, o hash calculado aqui é 
   assert.ok(externo.length >= 1, "o Codex lista o hook do projeto (senão o teste não provaria nada)");
   for (const h of externo) assert.notEqual(h.trustStatus, "trusted", "hook de projeto externo nunca pode estar confiado");
   assert.equal(fs.existsSync(path.join(c.raiz, "PWNED")), false);
+
+  // Um hook da PESSOA, acrescentado depois, confiado pelo hash que o próprio Codex calcula: reinstalar
+  // (várias vezes) não pode mudar o índice dele nem tirá-lo de `trusted`.
+  const hj = lerHooks(c);
+  hj.hooks.UserPromptSubmit.push({ hooks: [{ type: "command", command: "echo hook-da-pessoa", timeout: 9 }] });
+  fs.writeFileSync(path.join(c.home, "hooks.json"), JSON.stringify(hj, null, 2));
+  const dela = listarHooks(c.home, c.ws).find((h) => h.command === "echo hook-da-pessoa");
+  assert.ok(dela, "o Codex lista o hook da pessoa");
+  assert.notEqual(dela.trustStatus, "trusted");
+  fs.appendFileSync(path.join(c.home, "config.toml"), `\n[hooks.state.${JSON.stringify(dela.key)}]\ntrusted_hash = ${JSON.stringify(dela.currentHash)}\n`);
+  assert.equal(listarHooks(c.home, c.ws).find((h) => h.command === "echo hook-da-pessoa")?.trustStatus, "trusted");
+  instala(c, ["echo do-dgclaw"]);
+  instala(c, ["echo outro"]);
+  const depois = listarHooks(c.home, c.ws).find((h) => h.command === "echo hook-da-pessoa");
+  assert.equal(depois?.key, dela.key, "o índice dela não mudou");
+  assert.equal(depois?.trustStatus, "trusted", "e ela continua trusted depois de reinstalar");
 });
 
 test("session-context.sh: no Codex a memória é reinjetada mesmo com o CLAUDE.md importando por @; no Claude não", { skip: process.env.DGCLAW_CATALOGO ? false : "sem DGCLAW_CATALOGO para achar o repositório" }, () => {

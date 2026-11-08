@@ -6,7 +6,7 @@
 //   - retomar é subcomando (`codex resume <uuid>`), não flag;
 //   - não há `--settings` com hooks: o status vem do `notify` e do rollout;
 //   - MCP e identidade entram por `-c`; a confiança de pasta também vai por `-c`, mas o Codex 0.162
-//     a ignora na tela de confiança, então `garantirConfiancaDaPasta` grava a seção no config.toml;
+//     a ignora na tela de confiança, então `instalarHooksNoCodex` (codex-hooks.ts) grava a seção no config.toml;
 //   - na API, a chave vai para um CODEX_HOME separado por `codex login --with-api-key`.
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -129,51 +129,6 @@ export async function registrarChaveNoCodex(opts: {
 }
 
 /**
- * Garante `[projects."<cwd>"]` com `trust_level = "trusted"` no config.toml do CODEX_HOME, do jeito
- * que o próprio Codex grava quando a pessoa escolhe "Trust and continue".
- *
- * Por que: no teste B6 (12/10/2026) o Codex 0.162.1 ignorou o `-c projects...trust_level` e abriu a
- * tela "Trust this folder?". O primeiro texto do dono ("<dgchat ...>") era digitado nela, o "2"
- * escolhia Quit e o Codex saía com código 0. Só ACRESCENTA no fim e só quando a seção não existe
- * (com qualquer conteúdo): o resto do arquivo não é reescrito nem reordenado.
- * Falhar aqui não derruba o spawn: o pior caso é a tela de confiança aparecer.
- */
-export function garantirConfiancaDaPasta(home: string, cwd: string, area: string): void {
-  const arquivo = path.join(home, "config.toml");
-  const cabecalho = `[projects.${JSON.stringify(cwd)}]`;
-  try {
-    let atual = "";
-    let modo = 0o600;
-    try {
-      atual = fs.readFileSync(arquivo, "utf8");
-      modo = fs.statSync(arquivo).mode & 0o777;
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-    }
-    if (atual.split(/\r?\n/).some((l) => l.trim() === cabecalho)) return;
-    const separador = atual === "" || atual.endsWith("\n\n") ? "" : atual.endsWith("\n") ? "\n" : "\n\n";
-    const novo = `${atual}${separador}${cabecalho}\ntrust_level = "trusted"\n`;
-    fs.mkdirSync(home, { recursive: true, mode: 0o700 });
-    const temporario = path.join(home, `.config.toml.${process.pid}.${Date.now()}.tmp`);
-    try {
-      fs.writeFileSync(temporario, novo, { mode: modo });
-      fs.chmodSync(temporario, modo);
-      fs.renameSync(temporario, arquivo);
-    } catch (err) {
-      fs.rmSync(temporario, { force: true });
-      throw err;
-    }
-  } catch (err) {
-    log.aviso(
-      area,
-      `não consegui gravar a confiança da pasta ${cwd} em ${arquivo}: ${err instanceof Error ? err.message : String(err)}. ` +
-        `O Codex vai abrir perguntando se confia na pasta; responda 1 no terminal do painel. ` +
-        `Para evitar, conferir a permissão de escrita em ${home}`,
-    );
-  }
-}
-
-/**
  * Apaga o que o shell snapshot do Codex deixou em CODEX_HOME/shell_snapshots antes do
  * `features.shell_snapshot=false`: cada arquivo é um `declare -x` do ambiente inteiro, com as
  * chaves do cofre. Não segue link (nem a pasta, nem os arquivos) e não desce em subpasta.
@@ -278,7 +233,6 @@ export const motorCodex: Motor = {
       // do agente (gerar imagem, por exemplo) podem precisar dela. O Codex lê do auth.json.
     }
 
-    garantirConfiancaDaPasta(home, ctx.cwd, ctx.a("spawn"));
     apagarSnapshotsAntigos(home, ctx.a("spawn"));
     // Hooks nativos do Codex (recall, avisos, contexto de início, promptHooks), com confiança só neles.
     const hooks = instalarHooksNoCodex({
@@ -289,6 +243,9 @@ export const motorCodex: Motor = {
       area: ctx.a("spawn"),
       sessaoId: ctx.id,
       pastaDeEstado: ctx.pastaDeEstado,
+      raiz: ctx.raizDoPlugin,
+      // A confiança da pasta e a dos hooks são UMA transação sob a mesma trava (um config.toml, uma gravação).
+      confiancaDaPasta: ctx.cwd,
     });
     // Quem é esta sessão, para o hook fixo do agente (um hooks.json só, no CODEX_HOME dele) achar o
     // arquivo de promptHooks dela; o processo do hook herda o ambiente do Codex. Se o arquivo não pôde

@@ -228,38 +228,86 @@ export const pareceDoDgclaw = (c: unknown): boolean => typeof c === "string" && 
 
 /**
  * Mescla os hooks do DG Claw no objeto do hooks.json. Nada que venha do arquivo existente ganha
- * confiança: o conjunto do DG Claw é só o que o runner calculou (`hooks`). Do arquivo se aproveita o
- * que NÃO é do DG Claw (hooks da pessoa), copiado como está e sem confiança nossa. Toda entrada que
- * tem a marca do DG Claw é tirada e, se for exatamente um dos comandos calculados, volta no fim do
- * evento no seu próprio grupo; as que têm a marca mas não são um comando calculado (formato antigo,
- * guarda de sessão, ou forjadas) são DESCARTADAS, e não mantidas como hook da pessoa: mantê-las só
- * deixaria no arquivo um comando que ninguém mais vai confiar nem reconhece.
- * Devolve o novo objeto, a lista (chave, hash) de cada hook NOSSO e quantas entradas descartou.
+ * confiança: o conjunto do DG Claw é só o que o runner calculou (`hooks`). Entradas com a marca do DG
+ * Claw que não são exatamente um dos comandos calculados (formato antigo, guarda de sessão, forjadas)
+ * são trocadas pelos comandos calculados ou descartadas, e nunca mantidas.
+ *
+ * A chave de confiança do Codex inclui a POSIÇÃO (`evento:grupo:manipulador`), então tudo o que não é
+ * nosso fica exatamente onde estava:
+ *   - um grupo nosso que já está no arquivo é atualizado NO LUGAR (se o comando calculado mudou, troca
+ *     o texto no mesmo índice);
+ *   - os nossos que faltam entram no FIM da lista do evento, depois dos da pessoa;
+ *   - nossos a mais (obsoletos) são removidos. Isso só desloca algo da pessoa quando o obsoleto está
+ *     ANTES de um grupo dela (arquivo de uma versão antiga, com os nossos na frente): aí o grupo dela
+ *     muda de índice e perde a confiança UMA vez. Devolve `deslocados` para o instalador avisar
+ *     a pessoa, que confia de novo com /hooks.
+ * Um grupo que mistura hooks da pessoa com um nosso fica, sem o nosso. Devolve também a lista
+ * (chave, hash) de cada hook NOSSO e quantas entradas descartou.
  */
-export function mesclarHooks(atual: Arquivo, hooks: HookDoDgclaw[], arquivo: string): { novo: Arquivo; confiar: Array<{ chave: string; hash: string }>; descartados: number } {
+export function mesclarHooks(atual: Arquivo, hooks: HookDoDgclaw[], arquivo: string): { novo: Arquivo; confiar: Array<{ chave: string; hash: string }>; descartados: number; deslocados: number } {
   const novo: Arquivo = { ...atual, hooks: { ...(atual.hooks ?? {}) } };
-  const eventos = new Set<string>([...Object.keys(novo.hooks!), ...hooks.map((h) => h.evento)]);
+  const eventos = [...new Set<string>([...Object.keys(novo.hooks!), ...hooks.map((h) => h.evento)])];
   const confiar: Array<{ chave: string; hash: string }> = [];
   let descartados = 0;
+  let deslocados = 0;
+  const grupoNosso = (h: HookDoDgclaw): Grupo => ({ ...(h.matcher ? { matcher: h.matcher } : {}), hooks: [{ type: "command", command: h.command, timeout: h.timeout }] });
   for (const ev of eventos) {
-    const grupos: Grupo[] = [];
-    for (const g of novo.hooks![ev] ?? []) {
-      const resto = (g.hooks ?? []).filter((m) => {
-        if (!pareceDoDgclaw(m?.command)) return true;
-        if (!hooks.some((h) => h.evento === ev && h.command === m.command)) descartados++;
-        return false;
-      });
-      if (resto.length) grupos.push({ ...g, hooks: resto });
+    const calculados = hooks.filter((x) => x.evento === ev);
+    const antigos: Grupo[] = novo.hooks![ev] ?? [];
+    // 1) classifica cada grupo: da pessoa (fica), nosso (vira "vaga") ou misto (fica sem o nosso)
+    type Item = { grupo: Grupo; vaga: boolean; antes: number; manips: number };
+    const itens: Item[] = [];
+    antigos.forEach((g, i) => {
+      const hs = g.hooks ?? [];
+      const nossos = hs.filter((m) => pareceDoDgclaw(m?.command));
+      if (nossos.length === 0) itens.push({ grupo: g, vaga: false, antes: i, manips: hs.length });
+      else if (nossos.length === hs.length) itens.push({ grupo: g, vaga: true, antes: i, manips: hs.length });
+      else {
+        descartados += nossos.length;
+        itens.push({ grupo: { ...g, hooks: hs.filter((m) => !pareceDoDgclaw(m?.command)) }, vaga: false, antes: i, manips: hs.length - nossos.length });
+      }
+    });
+    // 2) as vagas que já têm exatamente um comando calculado ficam com ele; as outras recebem, na
+    //    ordem, os calculados que sobraram; o que ainda sobrar entra no fim; vaga sem par é removida
+    const livres = [...calculados];
+    const colocado = new Map<Item, HookDoDgclaw>();
+    for (const it of itens) {
+      if (!it.vaga) continue;
+      const hs = it.grupo.hooks ?? [];
+      const j = hs.length === 1 ? livres.findIndex((h) => h.command === hs[0].command) : -1;
+      if (j >= 0) colocado.set(it, livres.splice(j, 1)[0]);
     }
-    for (const h of hooks.filter((x) => x.evento === ev)) {
-      grupos.push({ ...(h.matcher ? { matcher: h.matcher } : {}), hooks: [{ type: "command", command: h.command, timeout: h.timeout }] });
-      const i = grupos.length - 1;
-      confiar.push({ chave: `${arquivo}:${SNAKE[h.evento]}:${i}:0`, hash: hashDoHook(h) });
+    for (const it of itens) {
+      if (!it.vaga || colocado.has(it)) continue;
+      const h = livres.shift();
+      if (h) colocado.set(it, h);
     }
-    if (grupos.length) novo.hooks![ev] = grupos;
+    const saida: Grupo[] = [];
+    const indices: Array<{ h: HookDoDgclaw; i: number }> = [];
+    itens.forEach((it) => {
+      if (!it.vaga) {
+        if (saida.length !== it.antes || it.manips !== (antigos[it.antes].hooks ?? []).length) deslocados++;
+        saida.push(it.grupo);
+        return;
+      }
+      const h = colocado.get(it);
+      if (!h) {
+        descartados++;
+        return;
+      }
+      if (!(it.grupo.hooks?.length === 1 && it.grupo.hooks[0].command === h.command)) descartados++;
+      saida.push(grupoNosso(h));
+      indices.push({ h, i: saida.length - 1 });
+    });
+    for (const h of livres) {
+      saida.push(grupoNosso(h));
+      indices.push({ h, i: saida.length - 1 });
+    }
+    for (const { h, i } of indices) confiar.push({ chave: `${arquivo}:${SNAKE[h.evento]}:${i}:0`, hash: hashDoHook(h) });
+    if (saida.length) novo.hooks![ev] = saida;
     else delete novo.hooks![ev];
   }
-  return { novo, confiar, descartados };
+  return { novo, confiar, descartados, deslocados };
 }
 
 function gravarAtomico(arquivo: string, texto: string, modo: number): void {
@@ -616,6 +664,18 @@ export interface ResultadoDosHooks {
  * duplica e regrava a confiança se o conteúdo do hook mudou. Falhar aqui não derruba o spawn: o
  * agente sobe sem os hooks (o log diz o que fazer).
  */
+/**
+ * Acrescenta `[projects."<pasta>"] trust_level = "trusted"` ao fim do config.toml se a seção ainda não
+ * existe (o Codex 0.162 ignora a confiança de pasta passada por -c na tela de confiança). Seção que já
+ * existe, com qualquer trust_level, não é alterada.
+ */
+export function confiancaDaPastaNoToml(texto: string, cwd: string): string {
+  const cabecalho = `[projects.${JSON.stringify(cwd)}]`;
+  if (texto.split(/\r?\n/).some((l) => l.trim() === cabecalho)) return texto;
+  const separador = texto === "" || texto.endsWith("\n\n") ? "" : texto.endsWith("\n") ? "\n" : "\n\n";
+  return `${texto}${separador}${cabecalho}\ntrust_level = "trusted"\n`;
+}
+
 export interface OpcoesDeInstalacao {
   home: string;
   env: Record<string, string>;
@@ -630,6 +690,8 @@ export interface OpcoesDeInstalacao {
   pastaDeEstado?: string;
   /** Quanto esperar pela trava antes de desistir (padrão 8000 ms). */
   esperaDaTravaMs?: number;
+  /** Pasta a marcar como confiável no config.toml (`[projects."<pasta>"]`), na MESMA transação dos hooks. */
+  confiancaDaPasta?: string;
 }
 
 /**
@@ -667,7 +729,7 @@ function instalarComTrava(opts: OpcoesDeInstalacao): ResultadoDosHooks {
         if (Date.now() > limite) {
           log.aviso(
             opts.area,
-            `a trava ${trava} continuou ocupada por ${Math.round(espera / 1000)} s (outra sessão está instalando os hooks, ou um runner caiu no meio): não gravei os hooks do DG Claw nesta subida e o agente sobe sem o recall de memória e sem o quadro de avisos. ` +
+            `a trava ${trava} continuou ocupada por ${Math.round(espera / 1000)} s (outra sessão está instalando os hooks, ou um runner caiu no meio): não gravei os hooks do DG Claw nem a confiança da pasta nesta subida: o agente sobe sem o recall de memória e sem o quadro de avisos, e o Codex pode abrir perguntando se confia na pasta (responda 1 no terminal do painel). ` +
               `Reinicie o agente; se a mensagem se repetir, apague a pasta ${trava} (ela só marca "instalando")`,
           );
           return { instalados: 0, motivo: "trava ocupada" };
@@ -700,6 +762,50 @@ function instalarSemTrava(opts: OpcoesDeInstalacao): ResultadoDosHooks {
   const hooks = hooksDoAgente({ raiz, workspace: ws, temWorkspace, temBun, temPython, pastaDeEstado: opts.pastaDeEstado });
   const arquivo = path.join(home, "hooks.json");
   const toml = path.join(home, "config.toml");
+  const ehLink = (f: string) => {
+    try {
+      return fs.lstatSync(f).isSymbolicLink();
+    } catch {
+      return false; // não existe: tudo bem
+    }
+  };
+  // O config.toml é lido UMA vez e gravado UMA vez (atômico), com a confiança da pasta e a dos hooks,
+  // tudo dentro da trava. `soPasta` grava só a confiança da pasta, quando os hooks não vão entrar.
+  let t = "";
+  let modo = 0o600;
+  let tomlLido = false;
+  const leToml = () => {
+    if (tomlLido) return;
+    tomlLido = true;
+    try {
+      t = fs.readFileSync(toml, "utf8");
+      modo = fs.statSync(toml).mode & 0o777;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    }
+  };
+  const comPasta = (base: string) => (opts.confiancaDaPasta ? confiancaDaPastaNoToml(base, opts.confiancaDaPasta) : base);
+  const soPasta = () => {
+    if (!opts.confiancaDaPasta) return;
+    try {
+      if (ehLink(toml)) {
+        log.aviso(area, `${toml} é um atalho (link simbólico): não gravei a confiança da pasta ${opts.confiancaDaPasta}. Troque o atalho por um arquivo comum e reinicie o agente`);
+        return;
+      }
+      leToml();
+      const novo = comPasta(t);
+      if (novo !== t) {
+        fs.mkdirSync(home, { recursive: true, mode: 0o700 });
+        gravarAtomico(toml, novo, modo);
+      }
+    } catch (err) {
+      log.aviso(
+        area,
+        `não consegui gravar a confiança da pasta ${opts.confiancaDaPasta} em ${toml}: ${err instanceof Error ? err.message : String(err)}. ` +
+          `O Codex vai abrir perguntando se confia na pasta; responda 1 no terminal do painel. Para evitar, conferir a permissão de escrita em ${home}`,
+      );
+    }
+  };
   try {
     if (temWorkspace && raiz && !temBun) {
       log.aviso(
@@ -711,14 +817,10 @@ function instalarSemTrava(opts: OpcoesDeInstalacao): ResultadoDosHooks {
       log.aviso(area, `não achei hooks/dispatch.ts perto do runner, então o Codex fica sem os hooks do DG Claw. Reinstalar ou atualizar o DG Claw`);
     }
     for (const f of [arquivo, toml]) {
-      let ehLink = false;
-      try {
-        ehLink = fs.lstatSync(f).isSymbolicLink();
-      } catch {
-        /* não existe: tudo bem */
-      }
-      if (ehLink) {
+      if (ehLink(f)) {
         log.aviso(area, `${f} é um atalho (link simbólico): não gravei os hooks do DG Claw para não escrever em outro lugar. Troque o atalho por um arquivo comum e reinicie o agente`);
+        if (f !== toml) soPasta();
+        else if (opts.confiancaDaPasta) log.aviso(area, `${toml} é um atalho (link simbólico): também não gravei a confiança da pasta ${opts.confiancaDaPasta}`);
         return { instalados: 0, motivo: "atalho" };
       }
     }
@@ -742,42 +844,50 @@ function instalarSemTrava(opts: OpcoesDeInstalacao): ResultadoDosHooks {
           `${arquivo} não é um JSON válido (${err instanceof Error ? err.message : String(err)}): não mexi nele e o Codex fica sem os hooks do DG Claw. ` +
             `Conserte ou apague o arquivo (ele guarda só hooks) e reinicie o agente`,
         );
+        soPasta();
         return { instalados: 0, motivo: "hooks.json ilegível" };
       }
     }
-    if (!existe && hooks.length === 0) return { instalados: 0 };
-    const { novo, confiar, descartados } = mesclarHooks(atual, hooks, arquivo);
+    if (!existe && hooks.length === 0) {
+      soPasta();
+      return { instalados: 0 };
+    }
+    const { novo, confiar, descartados, deslocados } = mesclarHooks(atual, hooks, arquivo);
     if (descartados > 0) {
-      log.info(area, `tirei ${descartados} entrada(s) do hooks.json que tinham a marca do DG Claw mas não eram um dos comandos que o runner calcula (formato antigo ou escritas à mão); elas não recebem confiança`);
+      log.info(area, `troquei ou tirei ${descartados} entrada(s) do hooks.json que tinham a marca do DG Claw mas não eram um dos comandos que o runner calcula (formato antigo ou escritas à mão); elas não recebem confiança`);
+    }
+    if (deslocados > 0) {
+      log.aviso(
+        area,
+        `${deslocados} hook(s) seu(s) em ${arquivo} mudaram de posição porque entradas antigas do DG Claw que vinham antes deles saíram; o Codex liga a confiança à posição, então eles voltam a pedir confiança UMA vez. ` +
+          `Confie de novo neles com /hooks no Codex`,
+      );
     }
     const texto = JSON.stringify(novo, null, 2) + "\n";
-    // O config.toml é calculado ANTES de gravar qualquer coisa: se ele não puder ser editado com
-    // segurança, nada é gravado (nem o hooks.json) e os arquivos da pessoa ficam como estavam.
-    let t = "";
-    let modo = 0o600;
+    // O config.toml é calculado ANTES de gravar qualquer coisa: se os hooks não puderem entrar com
+    // segurança, o hooks.json não é gravado (só a confiança da pasta, que é um acréscimo simples).
     let novoToml = "";
-    if (confiar.length) {
-      try {
-        t = fs.readFileSync(toml, "utf8");
-        modo = fs.statSync(toml).mode & 0o777;
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-      }
-      try {
-        novoToml = garantirConfiancaNoToml(t, confiar);
-      } catch (err) {
-        if (!(err instanceof TomlNaoEditavel)) throw err;
-        log.aviso(
-          area,
-          `não gravei os hooks do DG Claw no Codex: ${err.message}. O config.toml (${toml}) ficou como estava e o agente sobe sem o recall de memória e sem o quadro de avisos. ` +
-            `Para ligar, deixe a confiança de cada hook como uma seção comum [hooks.state."<chave>"] (ou apague a definição que está em outra forma) e reinicie o agente`,
-        );
-        return { instalados: 0, motivo: "config.toml não editável" };
+    if (confiar.length || opts.confiancaDaPasta) {
+      leToml();
+      novoToml = comPasta(t);
+      if (confiar.length) {
+        try {
+          novoToml = garantirConfiancaNoToml(novoToml, confiar);
+        } catch (err) {
+          if (!(err instanceof TomlNaoEditavel)) throw err;
+          log.aviso(
+            area,
+            `não gravei os hooks do DG Claw no Codex: ${err.message}. O config.toml (${toml}) ficou como estava (salvo a confiança da pasta) e o agente sobe sem o recall de memória e sem o quadro de avisos. ` +
+              `Para ligar, deixe a confiança de cada hook como uma seção comum [hooks.state."<chave>"] (ou apague a definição que está em outra forma) e reinicie o agente`,
+          );
+          soPasta();
+          return { instalados: 0, motivo: "config.toml não editável" };
+        }
       }
     }
     fs.mkdirSync(home, { recursive: true, mode: 0o700 });
     if (texto !== bruto) gravarAtomico(arquivo, texto, existe ? fs.statSync(arquivo).mode & 0o777 : 0o600);
-    if (confiar.length && novoToml !== t) gravarAtomico(toml, novoToml, modo);
+    if ((confiar.length || opts.confiancaDaPasta) && novoToml !== t) gravarAtomico(toml, novoToml, modo);
     return { instalados: confiar.length };
   } catch (err) {
     log.aviso(
