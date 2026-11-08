@@ -11,7 +11,7 @@ const pub = (n) => fs.readFileSync(path.join(__dirname, '../public', n), 'utf8')
 
 test('HTML cru do markdown aparece como texto, nunca como marcação', () => {
   const { html } = M.renderiza('# <img src=x onerror=1>\n\n<script>alert(1)</script> **ok**\n\n```\n<b>x</b>\n```\n\n- <u>a</u>\n\n| <i>h</i> |\n|---|\n| <b>c</b> |');
-  assert.doesNotMatch(html, /<script|<img|<u>|<i>|<b>/);
+  assert.doesNotMatch(html, /<script|<img|<u>|<i>|<b>/i);
   assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt; <strong>ok<\/strong>/);
   assert.match(html, /<pre><code>&lt;b&gt;x&lt;\/b&gt;<\/code><\/pre>/);
 });
@@ -70,4 +70,12 @@ test('a página segue as regras das telas: sem zoom, tour, Tutorial e menu', () 
   assert.match(pub('manual.css'), /\.mn-tabela\{overflow-x:auto/);
   assert.equal(menu.LINK_MANUAL.href, '/manual');
   assert.equal(menu.chaveDoHref('/manual/cofre'), 'manual');
+});
+
+test('título indentado ou vazio não trava o renderizador', () => {
+  assert.match(M.renderiza(' # Titulo').html, /<h1 id="titulo">Titulo<\/h1>/);
+  assert.match(M.renderiza('   ## Sub').html, /<h2 id="sub">Sub<\/h2>/);
+  for (const md of ['# ', '    # recuado', '  >', ' ```', '#\ntexto']) {
+    assert.equal(typeof M.renderiza(md).html, 'string', JSON.stringify(md));
+  }
 });

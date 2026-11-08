@@ -20,6 +20,16 @@ const JSON_OUT = process.argv.includes('--json');
 const MANUAL = path.resolve(process.env.DOCS_MANUAL_DIR || path.join(REPO, 'docs', 'manual'));
 const relManual = (f) => (MANUAL.startsWith(`${REPO}${path.sep}`) ? path.relative(REPO, f) : f);
 
+function semComentarios(linha) {
+  let resto = linha;
+  for (;;) {
+    const ini = resto.indexOf('<!--');
+    const fim = ini < 0 ? -1 : resto.indexOf('-->', ini + 4);
+    if (fim < 0) return resto;
+    resto = resto.slice(0, ini) + resto.slice(fim + 3);
+  }
+}
+
 function quebrou(o_que, o_que_fazer) {
   process.stderr.write(`docs-em-dia: o verificador quebrou: ${o_que}\n  O que fazer: ${o_que_fazer}\n`);
   process.exit(2);
@@ -170,12 +180,13 @@ for (const [arq, texto] of textos) {
       }
     }
     // --- e) travessao em texto corrido
-    if (/<!--/.test(t) && !/-->/.test(t)) emComentario = true;
-    if (emComentario) { if (/-->/.test(t)) emComentario = false; continue; }
+    // Comparacao por texto: isto so limpa o markdown para o teste, nao filtra HTML de ninguem.
+    if (t.includes('<!--') && !t.includes('-->')) emComentario = true;
+    if (emComentario) { if (t.includes('-->')) emComentario = false; continue; }
     const ehTitulo = /^\s*#{1,6}\s/.test(t);
     const ehTabela = /^\s*\|/.test(t);
     if (ehTitulo || ehTabela) continue;
-    let corpoLinha = t.replace(/<!--.*?-->/g, '');
+    let corpoLinha = semComentarios(t);
     const item = /^(\s*(?:[-*+]|\d+[.)])\s+)(.*)$/.exec(corpoLinha);
     if (item) {
       // item com rotulo na frente ("**Rotulo** - texto"): o primeiro traco e separador estrutural

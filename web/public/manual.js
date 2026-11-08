@@ -107,7 +107,7 @@
         continue;
       }
 
-      const h = /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(l);
+      const h = /^ {0,3}(#{1,6})\s+(.+?)\s*#*\s*$/.exec(l);
       if (h) {
         const n = h[1].length;
         if (n === 1 && titulo === null) titulo = h[2];
@@ -149,6 +149,8 @@
       const par = [];
       while (i < linhas.length && linhas[i].trim() && !/^\s*(```|~~~|#{1,6}\s|>)/.test(linhas[i]) && !RX_ITEM.test(linhas[i])
         && !(ehLinhaTabela(linhas[i]) && i + 1 < linhas.length && ehSeparadorTabela(linhas[i + 1]))) par.push(linhas[i++].trim());
+      // Linha que nenhum bloco acima consumiu (ex.: "# " sem texto): vira parágrafo, para o laço sempre andar.
+      if (!par.length) par.push(linhas[i++].trim());
       saida.push(`<p>${emLinha(par.join(' '))}</p>`);
     }
     return { html: saida.join('\n'), titulo };
