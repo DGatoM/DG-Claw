@@ -73,10 +73,14 @@ function trocarValoresConhecidos(texto, tabela) {
   const livre = (a, b) => !reservados.some(([x, y]) => a < y && b > x);
   const letraOuNumero = /[\p{L}\p{N}]/u;
   for (const e of ordem) {
-    const digitos = TIPOS_SO_DIGITOS.has(e.tipo) ? soDigitos(e.valor) : '';
+    // CNPJ alfanumérico (12.ABC.345/01DE-35) tem letras: nele a normalização mantém letras e números, só tira a pontuação.
+    const alnum = e.tipo === 'CNPJ' ? String(e.valor).normalize('NFD').replace(/\p{M}/gu, '').replace(/[^0-9A-Za-z]/g, '').toLowerCase() : '';
+    const digitos = alnum || (TIPOS_SO_DIGITOS.has(e.tipo) ? soDigitos(e.valor) : '');
     const porDigitos = digitos.length >= 4;
     let rx;
-    if (porDigitos) {
+    if (alnum.length >= 4) {
+      rx = new RegExp(`(?<![0-9a-z])${alnum.split('').join('[\\s.\\-/]*')}(?![0-9a-z])`, 'g');
+    } else if (porDigitos) {
       rx = new RegExp(`(?<![\\d])(?:\\((?=\\d+\\)))?${digitos.split('').join('(?:[\\s.\\-/]|\\)(?=\\s?\\d))*')}(?![\\d])`, 'g');
     } else {
       const v = normaliza(e.valor);
@@ -591,6 +595,23 @@ function criarAnonimizar(opcoes) {
     if (r.trocas) log('info', `Anonimizar: ${r.trocas} dado(s) trocado(s) no texto digitado para ${slug}.`);
     return r;
   }
+  /**
+   * Filtro das respostas que o agente recebe pela caixa (tarefas, lembretes, avisos, foco...): troca os valores
+   * conhecidos daquele agente em cada texto do JSON, recursivamente. Devolve null se a anonimização está desligada.
+   * Lança (503) se a configuração ou a tabela não puderem ser lidas: melhor recusar do que entregar o nome real.
+   */
+  function filtroSaida(slug) {
+    if (!estaLigado(slug)) return null;
+    const entradas = lerTabela(slug).entradas;
+    if (!entradas.length) return (v) => v;
+    const anda = (v) => {
+      if (typeof v === 'string') return trocarValoresConhecidos(v, entradas).texto;
+      if (Array.isArray(v)) return v.map(anda);
+      if (v && typeof v === 'object') { const o2 = {}; for (const [k, x] of Object.entries(v)) o2[k] = anda(x); return o2; }
+      return v;
+    };
+    return anda;
+  }
   function reverterTexto(slug, texto) {
     if (typeof texto !== 'string') throw new ErroAnon(400, 'Mande o texto em "texto" (uma string).');
     if (texto.length > MAX_TEXTO) throw new ErroAnon(413, `O texto tem ${texto.length} caracteres e o limite é ${MAX_TEXTO}.`);
@@ -820,7 +841,7 @@ function criarAnonimizar(opcoes) {
   return {
     ErroAnon, config, validaConfig, gravarConfig, estado, instalarDetector, estadoMotor,
     listarDocumentos, contaDocumentos, apagarDocumento, apagarTudo, tabela,
-    estaLigado, aplicaDigitado, trocarDigitado, reverterTexto, testarTexto, processarUpload, gerarFinal,
+    estaLigado, filtroSaida, aplicaDigitado, trocarDigitado, reverterTexto, testarTexto, processarUpload, gerarFinal,
     encerrar() { motor.encerrar(); }, motorVivo: () => motor.vivo(),
     caminhos: { raiz, tmp: dirTmp, config: caminhoConfig, chave: caminhoChave },
   };

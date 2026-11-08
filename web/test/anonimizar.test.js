@@ -881,3 +881,69 @@ test('Correção na conversa: o filtro entregue à mesa, aos lembretes e aos avi
     assert.throws(() => filtro('ana', 'x'), /ilegível/);
   } finally { await s.fechar(); }
 });
+
+test('Correção no upload: CNPJ alfanumérico é trocado no texto digitado, com e sem pontuação', async () => {
+  const s = await cenario();
+  try {
+    await liga(s, 'ana', { aplicar_no_que_digito: true });
+    const up = await sobe(s, 'ana', 'a.txt', 'Empresa 12.ABC.345/01DE-35 contratada');
+    assert.equal(up.status, 201, up.texto);
+    const doc = fs.readFileSync(up.json.anexo.path.replace('/home/agente', s.homeAna), 'utf8');
+    assert.match(doc, /\[CNPJ_1\]/);
+    for (const forma of ['12.ABC.345/01DE-35', '12ABC34501DE35', '12abc34501de35']) {
+      const n = s.rAna.rec.inputs.length;
+      const r = await s.c.post('/api/v1/agents/ana/send', { json: { text: `CNPJ ${forma}.`, cliente_id: `cnpj-${String(++seq).padStart(8, '0')}` } });
+      assert.equal(r.status, 200, r.texto);
+      assert.match(s.rAna.rec.inputs[n].text, /CNPJ \[CNPJ_1\]\./, forma);
+    }
+    // número parecido, de outro CNPJ, não é trocado
+    const n = s.rAna.rec.inputs.length;
+    await s.c.post('/api/v1/agents/ana/send', { json: { text: 'CNPJ 12ABC34501DE36 e 12ABC34501DE35X', cliente_id: `cnpj-${String(++seq).padStart(8, '0')}` } });
+    assert.ok(!s.rAna.rec.inputs[n].text.includes('[CNPJ_1]'));
+  } finally { await s.fechar(); }
+});
+
+test('Correção na conversa: tudo que o agente recebe pela caixa (tarefas, lembretes, foco, avisos, uso) passa pelo filtro; sem filtro possível, 503', async () => {
+  const s = await cenario();
+  try {
+    await liga(s);
+    await sobe(s, 'ana', 'a.txt', `${NOME} ${CPF}`);   // [PESSOA_1] e [CPF_1] conhecidos
+    const cab = { 'X-DGClaw-Caixa': s.t.web.caixa.segredo, 'X-DGClaw-Agente': 'ana', 'Content-Type': 'application/json' };
+    const caixa = async (metodo, caminho, json) => {
+      const r = await fetch(`http://127.0.0.1:${s.t.porta}${caminho}`, { method: metodo, headers: cab, body: json === undefined ? undefined : JSON.stringify(json) });
+      const texto = await r.text();
+      return { status: r.status, texto, json: (() => { try { return JSON.parse(texto); } catch (_) { return null; } })() };
+    };
+    // o dono (sessão) cria os itens com o nome real
+    const tar = await s.c.post('/api/v1/tarefas', { json: { titulo: `Ligar para ${NOME}`, agente: 'ana', origem: `Dono: o CPF dela é ${CPF}` } });
+    assert.equal(tar.status, 201, tar.texto);
+    const lem = await s.c.post('/api/v1/lembretes', { json: { texto: `Ligar para ${NOME}`, agente: 'ana', daqui_min: 30 } });
+    assert.equal(lem.status, 201, lem.texto);
+    const foco = await s.c.pedir('PUT', '/api/v1/foco/ana', { json: { titulo: `Caso ${NOME}`, itens: [`Revisar contrato de ${NOME}`] } });
+    assert.equal(foco.status, 200, foco.texto);
+    const av = await s.c.post('/api/v1/avisos', { json: { tipo: 'decisao', texto: `Falar com ${NOME} sobre ${CPF}`, assunto: 'Cliente', para: ['ana'] } });
+    assert.ok(av.status < 300, `aviso: ${av.status} ${av.texto}`);
+    const rotas = [
+      ['tarefas (lista)', 'GET', '/api/v1/tarefas'], ['tarefas (uma)', 'GET', `/api/v1/tarefas/${tar.json.tarefa.id}`],
+      ['lembretes', 'GET', '/api/v1/lembretes'], ['foco', 'GET', '/api/v1/foco/ana'], ['avisos', 'GET', '/api/v1/avisos'],
+    ];
+    let comTexto = 0;
+    for (const [nome, m, rota] of rotas) {
+      const r = await caixa(m, rota);
+      assert.ok(r.status < 500, `${nome}: ${r.status} ${r.texto.slice(0, 200)}`);
+      assert.ok(!r.texto.includes(NOME) && !r.texto.includes(CPF), `${nome} vazou o nome real: ${r.texto.slice(0, 300)}`);
+      if (r.texto.includes('[PESSOA_1]')) comTexto += 1;
+    }
+    assert.ok(comTexto >= 3, `poucas rotas mostraram o texto filtrado (${comTexto}); o teste não provou o bastante`);
+    // uso e docs: sem texto do dono, seguem normalmente
+    assert.ok((await caixa('GET', '/api/v1/uso')).status < 500);
+    assert.equal((await caixa('GET', '/api/v1/anonimizar/docs.md')).status, 200);
+    // o agente que não tem anonimização ligada recebe como sempre
+    const cabBeto = Object.assign({}, cab, { 'X-DGClaw-Agente': 'beto' });
+    const rb = await fetch(`http://127.0.0.1:${s.t.porta}/api/v1/lembretes`, { headers: cabBeto });
+    assert.equal(rb.status < 500, true);
+    // config ilegível: 503 em toda rota
+    fs.writeFileSync(path.join(s.t.dados, 'anonimizar', 'config.json'), '{ quebrado', { mode: 0o600 });
+    for (const [nome, m, rota] of rotas) assert.equal((await caixa(m, rota)).status, 503, nome);
+  } finally { await s.fechar(); }
+});

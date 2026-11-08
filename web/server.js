@@ -71,6 +71,31 @@ function proximoSeguro(v) {
   return s;
 }
 
+/** Passa a resposta JSON de `res` pelo `filtro` (texto a texto) antes de sair. Outros tipos de conteúdo seguem como estão. */
+function filtraRespostaJson(res, filtro, log) {
+  const writeHead = res.writeHead.bind(res); const end = res.end.bind(res);
+  let status = null; let cabecalhos = {}; const pedacos = [];
+  res.writeHead = (s, h) => { status = s; cabecalhos = Object.assign({}, h && typeof h === 'object' ? h : {}); return res; };
+  res.write = (c) => { pedacos.push(Buffer.from(c)); return true; };
+  res.end = (c) => {
+    if (c) pedacos.push(Buffer.from(c));
+    let corpo = Buffer.concat(pedacos);
+    const tipo = String(Object.entries(cabecalhos).find(([k]) => k.toLowerCase() === 'content-type')?.[1] || res.getHeader('content-type') || '');
+    let codigo = status || res.statusCode;
+    if (/json/i.test(tipo)) {
+      try { corpo = Buffer.from(JSON.stringify(filtro(JSON.parse(corpo.toString('utf8')))), 'utf8'); } catch (e) {
+        log('erro', `Anonimizar: não consegui filtrar a resposta da caixa (${e.message}). Respondi 503.`);
+        codigo = 503;
+        corpo = Buffer.from(JSON.stringify({ ok: false, erro: 'Não consegui trocar os dados pessoais da resposta, então ela não foi entregue. Tente de novo; se repetir, peça ao dono para conferir a tela Anonimizar.' }), 'utf8');
+      }
+    }
+    for (const k of Object.keys(cabecalhos)) if (k.toLowerCase() === 'content-length') delete cabecalhos[k];
+    cabecalhos['Content-Length'] = corpo.length;
+    writeHead(codigo, cabecalhos);
+    return end(corpo);
+  };
+}
+
 function criarServidor(opcoes) {
   opcoes = opcoes || {};
   const log = opcoes.log || H.logPadrao;
@@ -106,7 +131,7 @@ function criarServidor(opcoes) {
   });
   const cofreRotas = criarCofreRotas({ config, runner, cofre: cofreAgente, voz, log, entregar: (...a) => conversa.entregar(...a), esperaAvisoMs: opcoes.esperaAvisoMs });
   const proxy = criarProxy({ config, registro, log, cofreRotas });
-  const caixa = criarCaixaAgente({ config, registro, log, porta: () => servidor.address().port, agora: opcoes.agora });
+  const caixa = criarCaixaAgente({ config, registro, log, porta: () => servidor.address().port, agora: opcoes.agora, filtroRetrato: (slug, o) => { const f = anonimizar.filtroSaida(slug); return f ? f(o) : o; } });
   const push = criarPush({ dataDir: config.dataDir, log, agora: opcoes.agora, enviarHttp: opcoes.enviarPush });
   try { push.garantirChaves(); } catch (e) { log('erro', e.message); }
   // Texto livre que vai ao agente por outros caminhos (lembrete, mesa, aviso) passa pelo mesmo filtro do /send; lança se a config estiver ilegível.
@@ -907,6 +932,17 @@ function criarServidor(opcoes) {
     const slugCaixa = caixa.ehPedidoDaCaixa(req);
     if (slugCaixa && !(p.startsWith('/api/') && caixa.rotaPermitida(p))) {
       return H.erroJson(res, 403, `A rota ${p.slice(0, 120)} não está liberada para agentes. Só as rotas que a frente liberou com caixa.permitir() respondem pela caixa.`);
+    }
+
+    // Anonimização: tudo que o agente recebe pela caixa (tarefas, lembretes, avisos, foco...) passa pelo filtro dos valores
+    // conhecidos dele, campo a campo. Sem poder filtrar (config ou tabela ilegível), a resposta é 503.
+    if (slugCaixa) {
+      let filtro;
+      try { filtro = anonimizar.filtroSaida(slugCaixa); } catch (e) {
+        log('erro', `Anonimizar: resposta da caixa para ${slugCaixa} recusada (${e.codigo || e.message}).`);
+        return H.erroJson(res, e.status || 503, e.message, e.codigo ? { codigo: e.codigo } : undefined);
+      }
+      if (filtro) filtraRespostaJson(res, filtro, log);
     }
 
     // CSRF: toda escrita exige Origin igual à do próprio Web (a caixa não vem de navegador).

@@ -33,7 +33,7 @@ function quemChamou(sessao) {
   return { tipo: 'dono', usuario: sessao ? sessao.usuario : null };
 }
 
-function criarCaixaAgente({ config, registro, log, porta, agora }) {
+function criarCaixaAgente({ config, registro, log, porta, agora, filtroRetrato }) {
   const relogio = agora || (() => Date.now());
   const segredo = crypto.randomBytes(32).toString('hex');
   const segredoHash = crypto.createHash('sha256').update(segredo).digest();
@@ -415,6 +415,8 @@ function criarCaixaAgente({ config, registro, log, porta, agora }) {
     if (typeof frente !== 'string' || !RX_FRENTE.test(frente)) {
       throw new ErroGravacao(`O nome da frente ${JSON.stringify(frente)} não vale para retrato: use de 1 a 40 caracteres entre a-z, 0-9 e hífen.`, 'OPCAO_INVALIDA');
     }
+    // Retrato com texto do dono (foco, avisos) vai para a casa do agente: passa pelo filtro da anonimização. Lança se não puder filtrar.
+    if (filtroRetrato) objeto = filtroRetrato(agente.slug, objeto);
     return gravaNaCasa(agente, `retratos/${frente}.json`, Object.assign({}, objeto, { atualizado_em: new Date(relogio()).toISOString() }));
   }
 

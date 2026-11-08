@@ -30,6 +30,7 @@ function proximoMarcador(tabela, tipo) {
 function trocar(texto, tabela, novas, contagem) {
   const candidatos = [];
   for (const m of texto.matchAll(/\d{3}\.\d{3}\.\d{3}-\d{2}/g)) candidatos.push({ tipo: 'CPF', valor: m[0] });
+  for (const m of texto.matchAll(/\d{2}\.[A-Z0-9]{3}\.[A-Z0-9]{3}\/[A-Z0-9]{4}-\d{2}/g)) candidatos.push({ tipo: 'CNPJ', valor: m[0] });
   if (NIVEL === 'completo') for (const n of NOMES) if (texto.includes(n)) candidatos.push({ tipo: 'PESSOA', valor: n });
   for (const c of candidatos) {
     let e = tabela.find((x) => x.valor === c.valor) || novas.find((x) => x.valor === c.valor);
