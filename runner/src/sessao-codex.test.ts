@@ -9,6 +9,7 @@ import {
 const amb = prepararAmbiente("sessao-codex");
 const { Sessao, telaDeConfiancaDoCodex } = await import("./sessao.js");
 const { gravarProvedorJson } = await import("./provedores/escolha.js");
+const { acharRolloutPorId } = await import("./provedores/codex-rollout.js");
 
 const OAI = chaveFalsaOpenai();
 const ANT = chaveFalsa();
@@ -303,4 +304,92 @@ test("tela de confiança: só conta se o menu for a última coisa desenhada", ()
   assert.equal(telaDeConfiancaDoCodex(" › Ask Codex to do anything\n"), false);
   // Limpeza de tela seguida de um prompt curto: o menu velho não pode continuar valendo.
   assert.equal(telaDeConfiancaDoCodex(menu + "\x1b[2J\x1b[H› \n"), false, "limpou a tela e redesenhou um prompt curto");
+});
+
+// --- login expirado no Codex -----------------------------------------------------------------
+const AUTH = () => path.join(amb.codexHome, "auth.json");
+/** Põe a data do auth.json `deltaMs` em relação a agora (negativo = login antigo, positivo = login refeito depois). */
+const datarAuth = (deltaMs: number) => {
+  logarCodex(amb);
+  const t = new Date(Date.now() + deltaMs);
+  fs.utimesSync(AUTH(), t, t);
+};
+/** Sobe a sessão, faz um turno e deixa o rollout pronto para receber o erro de fim de turno. */
+async function comTurnoFeito(opcoes: Record<string, unknown> = {}) {
+  const r = await nova({}, undefined, opcoes);
+  await r.s.subir("nova");
+  await esperarAte(() => r.s.estado.status === "idle", 6_000);
+  await r.s.digitarEEnviar("pergunta");
+  await esperarAte(() => r.s.estado.sessionId !== null, 6_000, "o id sair do rollout");
+  await esperarAte(() => r.s.estado.status === "idle" && lerTexto(path.join(r.pasta, "runner-state.json")).includes('"idle"'), 14_000, "o turno acabar");
+  const arquivo = acharRolloutPorId(r.s.estado.sessionId!, amb.codexHome)!;
+  assert.ok(arquivo, "rollout da sessão");
+  const erro = (categoria: string, message: string) =>
+    fs.appendFileSync(arquivo, JSON.stringify({ timestamp: new Date().toISOString(), type: "event_msg", payload: { type: "task_complete", error: { message, codex_error_info: categoria } } }) + "\n");
+  return { ...r, erro };
+}
+
+test("Codex login expirado: task_complete unauthorized depois do auth.json vira errored/login-expirado com a mensagem do ChatGPT", async () => {
+  datarAuth(-60_000);
+  const { s, erro } = await comTurnoFeito();
+  erro("unauthorized", '{"status":401,"detail":"Your refresh token has expired"}');
+  await esperarAte(() => s.estado.statusReason === "runner:login-expirado", 6_000, "o login expirado ser detectado no rollout");
+  assert.equal(s.estado.status, "errored");
+  assert.equal(s.estado.motivo, "login");
+  assert.match(s.estado.error ?? "", /conta do ChatGPT de .* expirou às \d\d:\d\d/);
+  assert.match(s.estado.error ?? "", /codex login --device-auth/);
+  assert.equal(s.recusaDeEntrada()?.tipo, "login-expirado");
+  assert.ok(lerTexto(amb.logDoRunner).includes("login expirado detectado por rollout do Codex"));
+  await dormir(1_500);
+  assert.equal(s.estado.statusReason, "runner:login-expirado", "o Stop do mesmo turno não desfaz o aviso");
+});
+
+test("Codex login expirado: credencial ecoada na mensagem do erro não chega ao log", async () => {
+  datarAuth(-60_000);
+  const { s, erro } = await comTurnoFeito();
+  // o segredo atravessa o corte de 160 caracteres: a máscara precisa vir antes do corte
+  erro("unauthorized", `${"x".repeat(150)} 401 chave=${OAI}`);
+  await esperarAte(() => s.estado.statusReason === "runner:login-expirado", 6_000, "o login expirado ser detectado no rollout");
+  const logs = lerTexto(amb.logDoRunner);
+  assert.ok(logs.includes("login expirado detectado por rollout do Codex"));
+  assert.equal(logs.includes(OAI), false, "a chave do cofre não pode aparecer no log");
+  assert.equal(logs.includes(OAI.slice(0, 12)), false, "nem um pedaço dela");
+  assert.equal((s.estado.error ?? "").includes(OAI), false);
+});
+
+test("Codex login expirado: erro anterior ao auth.json (login refeito depois) NÃO marca", async () => {
+  datarAuth(-60_000);
+  const { s, erro } = await comTurnoFeito();
+  datarAuth(60_000);
+  erro("unauthorized", "401");
+  await dormir(2_000);
+  assert.notEqual(s.estado.statusReason, "runner:login-expirado");
+  assert.notEqual(s.estado.status, "errored");
+});
+
+test("Codex login expirado: server_overloaded, usage_limit_exceeded e other NÃO marcam", async () => {
+  datarAuth(-60_000);
+  const { s, erro } = await comTurnoFeito();
+  erro("server_overloaded", "Selected model is at capacity");
+  erro("usage_limit_exceeded", "You've hit your usage limit");
+  erro("other", "alguma falha qualquer");
+  await dormir(2_000);
+  assert.notEqual(s.estado.statusReason, "runner:login-expirado");
+  assert.notEqual(s.estado.status, "errored");
+});
+
+test("Codex login expirado: auth.json regravado depois do aviso reinicia RETOMANDO a mesma sessão", async () => {
+  datarAuth(-60_000);
+  const { s, id, erro } = await comTurnoFeito({ vigiaLoginExpiradoMs: 100 });
+  const uuid = s.estado.sessionId!;
+  erro("unauthorized", "401 Unauthorized");
+  await esperarAte(() => s.estado.statusReason === "runner:login-expirado", 6_000, "o aviso");
+  const antes = entradasDe(id).length;
+  datarAuth(60_000);
+  await esperarAte(() => entradasDe(id).length > antes, 8_000, "o runner reiniciar sozinho");
+  const reinicio = entradasDe(id).at(-1)!;
+  assert.deepEqual(reinicio.argv.slice(0, 2), ["resume", uuid], "retomou a MESMA conversa");
+  await esperarAte(() => s.estado.status === "idle", 8_000, "voltar a idle");
+  assert.equal(s.estado.loginExpiradoEm, null);
+  assert.equal(s.recusaDeEntrada(), null);
 });
