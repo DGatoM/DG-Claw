@@ -286,3 +286,30 @@ test('atividade: sem_login diz que ele pode conectar; login_expirado manda avisa
     assert.match(txt, /login_expirado/); assert.match(txt, /Avise o dono/); naoVazou(txt);
   });
 });
+
+test('conta conectada pelo dono é registrada como do dono e vale por cima da do colaborador', async () => {
+  await comColab({}, async (s, x) => {
+    // o colaborador conecta primeiro
+    await x.c.post(LOGIN, { json: {} });
+    muda(s, { login: { estado: 'aguardando_codigo', link: LINK } });
+    await x.c.post(LOGIN + '/codigo', { json: { codigo: 'abc123' } });
+    muda(s, Object.assign({}, COM_CONTA, { login: { estado: 'concluido' } }));
+    await x.c.get(LOGIN);
+    const arq = path.join(s.t.dados, 'conta-agentes.json');
+    assert.equal(JSON.parse(fs.readFileSync(arq, 'utf8')).agentes.ana.por, 'colaborador');
+    // o dono troca a conta: começa, manda o código, a conta aparece
+    muda(s, Object.assign({}, SEM_CONTA, { login: { estado: 'nenhum' } }));
+    assert.equal((await s.dono.post(LOGIN, { json: {} })).status, 202);
+    muda(s, { login: { estado: 'aguardando_codigo', link: LINK } });
+    assert.equal((await s.dono.post(LOGIN + '/codigo', { json: { codigo: 'codigo-do-dono' } })).status, 200);
+    muda(s, Object.assign({}, COM_CONTA, { login: { estado: 'concluido' } }));
+    await s.dono.get(LOGIN);
+    const reg = JSON.parse(fs.readFileSync(arq, 'utf8')).agentes.ana;
+    assert.equal(reg.por, 'dono'); assert.equal(reg.colaborador_id, null);
+    assert.match(s.t.log.texto(), /Conta de IA do agente ana conectada por dono \(dono\)/);
+    assert.ok(!s.t.log.texto().includes('codigo-do-dono'));
+    // agora a conta expirou: não é mais dele
+    muda(s, { status: 'errored', statusReason: 'runner:login-expirado', provedor: { provedor: 'claude', auth: 'assinatura', conferido: { ok: false } }, login: { estado: 'nenhum' } });
+    assert.equal((await x.c.post(LOGIN, { json: {} })).status, 409);
+  });
+});
