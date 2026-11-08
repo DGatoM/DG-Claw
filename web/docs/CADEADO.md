@@ -22,7 +22,7 @@ Este documento serve para a pessoa e para o agente que a ajuda. As rotas ficam e
 - **A senha é a saída.** Na tela travada, "Entrar com a senha" encerra a sessão e leva ao login; entrar com a senha
   cria uma sessão já destravada. Serve para aparelho sem biometria, Face ID falhando ou passkey apagada.
 - **O tempo conta uso de verdade.** A tela avisa o servidor quando a pessoa toca, digita ou rola, no máximo uma
-  vez por minuto. O que roda em segundo plano (atualizar a conversa, o stream) não conta. O padrão é 15 minutos; a
+  vez a cada 20 segundos. O servidor sempre conta o aviso como uso; só a gravação em disco é limitada a uma por minuto. O que roda em segundo plano (atualizar a conversa, o stream) não conta. O padrão é 15 minutos; a
   pessoa escolhe de 1 a 120.
 
 - **Sem rede, a tela também cobre.** Quando o prazo acaba, a própria tela se cobre sem esperar o servidor e só se descobre quando o servidor confirma que a sessão está destravada. Sem conexão, ela avisa que precisa de internet para destravar.
@@ -59,7 +59,7 @@ português, com `{ "ok": false, "erro": "...", "motivo": "..." }` e o status cer
 | Rota | O que faz |
 | --- | --- |
 | `GET /estado` | `ativo` (este aparelho tem Face ID), `travado`, `trava_min`, `resta_s`, `passkeys`, `neste_aparelho`, `host`, `https`, `ambiente_erro`, `aviso` |
-| `POST /uso` | a tela avisa que houve uso (no máximo 1 por minuto); sessão travada recebe `423` |
+| `POST /uso` | a tela avisa que houve uso (no máximo a cada 20 s; o servidor grava em disco no máximo 1 por minuto); sessão travada recebe `423` |
 | `GET /cadastro/opcoes` | opções para criar a passkey (`publicKey`, em base64url) |
 | `POST /cadastro` | `{ "nome": "iPhone da Maria", "credencial": {...} }`; grava a passkey e o cookie do aparelho |
 | `GET /verificar/opcoes` | desafio para destravar |

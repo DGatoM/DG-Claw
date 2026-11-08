@@ -133,13 +133,16 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
       if (e.code !== 'ENOENT') log('aviso', `Não li as sessões salvas em ${arquivo} (${e.code || e.message}). Começo sem sessões; quem estava logado precisa entrar de novo.`);
     }
   }
+  /** Grava as sessões. Devolve se deu certo (quem precisa da garantia, como a marca do cadeado, confere). */
   function salva() {
     try {
       const tmp = `${arquivo}.${process.pid}.tmp`;
       fs.writeFileSync(tmp, JSON.stringify({ versao: 1, sessoes: Object.fromEntries(sessoes) }), { mode: 0o600 });
       fs.renameSync(tmp, arquivo);
+      return true;
     } catch (e) {
       log('erro', `Não consegui gravar as sessões em ${arquivo} (${e.code || e.message}). O login continua valendo até o próximo restart; confira a permissão de ${config.dataDir}.`);
+      return false;
     }
   }
   function limpaExpiradas() {
@@ -337,6 +340,29 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
     hashDaSessao(req) {
       const token = parseCookies(req.headers.cookie)[NOME_COOKIE];
       return token && token.length <= 200 ? sha256hex(token) : null;
+    },
+    /** Marca a sessão como presa a um aparelho com Face ID (cadeado_exige) e grava já. A marca vive no registro que AUTENTICA a
+        sessão, então sobrevive a restart mesmo se o estado do cadeado se perder. Se não der para gravar, a sessão é encerrada
+        (a pessoa entra de novo) e o retorno é falso: nunca fica sessão viva sem a marca. */
+    marcaCadeado(hash, aparelhoHash) {
+      const s = sessoes.get(hash);
+      if (!s) return false;
+      s.cadeado_exige = true; s.aparelho_hash = aparelhoHash;
+      if (salva()) return true;
+      sessoes.delete(hash);
+      return false;
+    },
+    /** Tira a marca (só quando a pessoa remove o próprio aparelho). */
+    desmarcaCadeado(hash) {
+      const s = sessoes.get(hash);
+      if (!s || !s.cadeado_exige) return true;
+      delete s.cadeado_exige; delete s.aparelho_hash;
+      return salva();
+    },
+    /** { exige, aparelho_hash } da sessão, ou null se ela não existe ou não está marcada. */
+    leCadeado(hash) {
+      const s = sessoes.get(hash);
+      return s && s.cadeado_exige === true ? { exige: true, aparelho_hash: String(s.aparelho_hash || '') } : null;
     },
     /** A sessão com esta chave interna ainda existe e não expirou? */
     existeHash(hash) {

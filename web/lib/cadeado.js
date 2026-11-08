@@ -84,7 +84,7 @@ function criarGravador(caminho, serializa) {
   };
 }
 
-function criarCadeado({ config, log, agora, encerrarSessao, existeSessao, estadoMax }) {
+function criarCadeado({ config, log, agora, encerrarSessao, existeSessao, estadoMax, marcarSessao, desmarcarSessao, lerMarca }) {
   const maxEstados = Number.isInteger(estadoMax) && estadoMax > 0 ? estadoMax : ESTADO_MAX;
   const relogio = agora || (() => Date.now());
   const arqPasskeys = path.join(config.dataDir, 'passkeys.json');
@@ -223,10 +223,20 @@ function criarCadeado({ config, log, agora, encerrarSessao, existeSessao, estado
   /** Prende a sessão ao aparelho NO SERVIDOR: dali em diante ela trava pelo tempo mesmo sem o cookie ou com cookie adulterado.
       O cookie só serve para criar essa ligação, nunca para desfazê-la. */
   function prende(k, titular, apHash, authHash, expira) {
+    // A marca também vai para o registro que autentica a sessão (sessoes.json): se o estado do cadeado se perder (disco cheio,
+    // arquivo corrompido), a sessão continua exigindo o cadeado depois do restart. Sem conseguir gravar a marca, a sessão cai.
+    const m = authHash && lerMarca ? lerMarca(authHash) : null;
+    if (!(m && m.aparelho_hash === apHash) && !(authHash && marcarSessao && marcarSessao(authHash, apHash))) return falhaMarca(k, authHash);
     const e = estadoDe(k, titular) || { uso: 0, destravada_em: 0, como: 'vinculo', titular };
     Object.assign(e, { exige: true, aparelho_hash: apHash, auth: authHash, expira });
     estados.set(k, e);
     return e;
+  }
+  function falhaMarca(k, authHash) {
+    log('erro', 'Cadeado: não consegui gravar a ligação da sessão ao aparelho no registro de sessões. Encerrei a sessão em vez de deixá-la sem o cadeado: a pessoa entra de novo com a senha. Confira o espaço e a permissão da pasta de dados.');
+    estados.delete(k);
+    if (authHash && encerrarSessao) encerrarSessao(authHash);
+    return null;
   }
 
   /** A sessão deste pedido está travada agora? Caixa do agente e pedido sem sessão de cookie nunca travam.
@@ -237,10 +247,20 @@ function criarCadeado({ config, log, agora, encerrarSessao, existeSessao, estado
     if (!titular || !k) return false;
     let e = estadoDe(k, titular);
     if (!(e && e.exige)) {
-      const ap = aparelhoDe(req);
-      if (!ap || !aparelhoLigado(req, titular)) return false;
-      e = prende(k, titular, ap.hash, authHashDe(req), sessao.expira);
-      salvaEstado();
+      const authHash = authHashDe(req);
+      const marca = authHash && lerMarca ? lerMarca(authHash) : null;
+      if (marca) {
+        // O auth diz que esta sessão exige o cadeado mas o estado se perdeu: sem registro não há prova de uso recente, então trava.
+        e = Object.assign(e || { uso: 0, destravada_em: 0, como: 'marca', titular }, { exige: true, aparelho_hash: marca.aparelho_hash, auth: authHash, expira: sessao.expira });
+        estados.set(k, e);
+        salvaEstado();
+      } else {
+        const ap = aparelhoDe(req);
+        if (!ap || !aparelhoLigado(req, titular)) return false;
+        e = prende(k, titular, ap.hash, authHash, sessao.expira);
+        if (!e) return true;
+        salvaEstado();
+      }
     }
     return relogio() - e.uso > travaMin(titular) * 60000;
   }
@@ -249,7 +269,8 @@ function criarCadeado({ config, log, agora, encerrarSessao, existeSessao, estado
     const titular = titularDe(sessao);
     if (!titular) return false;
     const e = estadoDe(chaveSessao(req), titular);
-    return !!(e && e.exige) || aparelhoLigado(req, titular);
+    const h = authHashDe(req);
+    return !!(e && e.exige) || !!(h && lerMarca && lerMarca(h)) || aparelhoLigado(req, titular);
   }
   function restaS(req, sessao) {
     const titular = titularDe(sessao);
@@ -264,16 +285,18 @@ function criarCadeado({ config, log, agora, encerrarSessao, existeSessao, estado
     const e = estadoDe(k, titular) || {};
     Object.assign(e, { uso: t, destravada_em: t, como, titular });
     estados.set(k, e);
-    if (prender) prende(k, titular, prender.apHash, prender.authHash, prender.expira);
+    if (prender && !prende(k, titular, prender.apHash, prender.authHash, prender.expira)) return false;
     salvaEstado();
+    return true;
   }
+  const ERRO_LIGACAO = () => new WebAuthnErro('O Face ID foi aceito, mas não consegui gravar a ligação desta sessão ao aparelho (disco cheio ou sem permissão). Por segurança a sessão foi encerrada: entre de novo com a senha.', 'arquivo', 500);
   /** Passkey removida e o aparelho ficou sem nenhuma da mesma pessoa: encerra as sessões presas a ele, menos a de quem removeu
       (se for do mesmo aparelho, ela continua e a exigência dela cai). Devolve quantas sessões foram encerradas. */
   function soltaAparelho(titular, apHash, kAtual) {
     let n = 0;
     for (const [k2, e] of [...estados]) {
       if (!e.exige || e.titular !== titular || e.aparelho_hash !== apHash) continue;
-      if (k2 === kAtual) { delete e.exige; delete e.aparelho_hash; delete e.auth; delete e.expira; continue; }
+      if (k2 === kAtual) { if (e.auth && desmarcarSessao) desmarcarSessao(e.auth); delete e.exige; delete e.aparelho_hash; delete e.auth; delete e.expira; continue; }
       estados.delete(k2);
       if (e.auth && encerrarSessao) { encerrarSessao(e.auth); n++; }
       else if (e.auth) log('aviso', 'Cadeado: não tenho como encerrar a sessão presa a um aparelho removido (o servidor não ligou o encerramento).');
@@ -450,7 +473,7 @@ function criarCadeado({ config, log, agora, encerrarSessao, existeSessao, estado
       if (c.passkeys.filter((p) => p.titular === titular).length >= PASSKEYS_POR_TITULAR) throw new WebAuthnErro(`Já há ${PASSKEYS_POR_TITULAR} aparelhos cadastrados, que é o máximo.`, 'limite', 409);
       c.passkeys.push(rec);
     });
-    destrava(k, titular, 'cadastro', { apHash: rec.aparelho_hash, authHash: authHashDe(req), expira: sessao.expira });
+    if (!destrava(k, titular, 'cadastro', { apHash: rec.aparelho_hash, authHash: authHashDe(req), expira: sessao.expira })) throw ERRO_LIGACAO();
     log('info', `Cadeado: passkey cadastrada para ${titular}: "${nome}" (${rec.id}, ${W.NOME_ALG[alg]}, rp ${d.rpId}).`);
     return { passkey: publica(rec, { hash: rec.aparelho_hash }), cookie: valor };
   }
@@ -496,7 +519,7 @@ function criarCadeado({ config, log, agora, encerrarSessao, existeSessao, estado
       log('aviso', `Cadeado: o Face ID valeu, mas o contador da passkey ${pk.id} não foi gravado (${e.message}).`);
     }
     const ap = aparelhoDe(req);
-    destrava(k, titular, 'faceid', ap && aparelhoLigado(req, titular) ? { apHash: ap.hash, authHash: authHashDe(req), expira: sessao.expira } : null);
+    if (!destrava(k, titular, 'faceid', ap && aparelhoLigado(req, titular) ? { apHash: ap.hash, authHash: authHashDe(req), expira: sessao.expira } : null)) throw ERRO_LIGACAO();
     return { passkey: publica(pk, aparelhoDe(req)) };
   }
 
@@ -567,8 +590,12 @@ function criarCadeado({ config, log, agora, encerrarSessao, existeSessao, estado
         const ativo = ligado(req, sessao);
         if (ativo) {
           const e = estadoDe(k, titular);
-          // No máximo um registro por minuto; o resto só devolve o que resta.
-          if (e && relogio() - e.uso >= USO_MIN_MS) { e.uso = relogio(); salvaEstado(); }
+          // O uso conta SEMPRE em memória (senão, com trava curta, quem está usando seria travado); só a gravação em disco
+          // é limitada a uma por minuto.
+          if (e) {
+            e.uso = relogio();
+            if (!(relogio() - (e.gravado || 0) < USO_MIN_MS)) { e.gravado = relogio(); salvaEstado(); }
+          }
         }
         H.enviaJson(res, 200, { ok: true, ativo, resta_s: restaS(req, sessao), trava_min: travaMin(titular) });
         return true;

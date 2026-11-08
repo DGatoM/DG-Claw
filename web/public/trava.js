@@ -18,7 +18,7 @@
   else if (!raiz.DGTrava) raiz.DGTrava = m;
 })(typeof window !== 'undefined' ? window : globalThis, function (janela) {
   const API = '/api/v1/cadeado';
-  const USO_MIN_MS = 60000;           // no máximo 1 aviso de uso por minuto
+  const USO_MIN_MS = 20000;           // no máximo 1 aviso de uso a cada 20 s (o menor prazo configurável é 1 min)
   const OPCOES_VALIDADE_MS = 90000;   // o desafio vale 2 min no servidor; renovo antes
 
   /* ── partes puras (sem DOM), com teste em web/test/face-id-tela.test.js ───── */

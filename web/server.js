@@ -136,7 +136,7 @@ function criarServidor(opcoes) {
   const colaboradores = criarColaboradores({ config, log, agora: opcoes.agora, gerarHash: (senha) => auth.gerarHash(senha) });
   auth.ligarColaboradores(colaboradores);
   // Cadeado com Face ID (opcional, por aparelho): destrava sessão já autenticada, nunca cria sessão. Ver lib/cadeado.js.
-  const cadeado = criarCadeado({ config, log, agora: opcoes.agora, encerrarSessao: (hash) => { auth.encerraPorHash(hash); proxy.fecharDaSessao(hash); }, existeSessao: (hash) => auth.existeHash(hash), estadoMax: opcoes.cadeadoEstadoMax });
+  const cadeado = criarCadeado({ config, log, agora: opcoes.agora, encerrarSessao: (hash) => { auth.encerraPorHash(hash); proxy.fecharDaSessao(hash); }, existeSessao: (hash) => auth.existeHash(hash), marcarSessao: (h, ap) => auth.marcaCadeado(h, ap), desmarcarSessao: (h) => auth.desmarcaCadeado(h), lerMarca: (h) => auth.leCadeado(h), estadoMax: opcoes.cadeadoEstadoMax });
   auth.aoCriarSessao((ev) => cadeado.aoCriarSessao(ev));
   cadeado.limpaOrfaos((id) => { const c = colaboradores.obter(id); return !(c && c.revogado_em); }).catch((e) => log('erro', `Cadeado: não limpei as passkeys de colaboradores revogados (${e.message}).`));
   auth.ligarInstancias((slug) => instanciaDe(registro.obter(slug)));

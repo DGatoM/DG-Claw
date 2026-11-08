@@ -321,7 +321,7 @@ test('a senha destrava: sair e entrar de novo cria sessão destravada, mesmo com
   });
 });
 
-test('"uso" estica a trava no máximo uma vez por minuto; fetch comum não conta', async () => {
+test('"uso" estica a trava a cada aviso (a gravação em disco é que fica em no máximo uma por minuto); fetch comum não conta', async () => {
   const s = await cenario();
   await verde(s, async () => {
     const d = await dono(s);
@@ -330,9 +330,18 @@ test('"uso" estica a trava no máximo uma vez por minuto; fetch comum não conta
     await d.get('/api/v1/agents'); // fetch em segundo plano: não conta
     const u = await d.post('/api/v1/cadeado/uso');
     assert.equal(u.status, 200); assert.ok(u.json.resta_s > 14 * 60 - 5 && u.json.resta_s <= 15 * 60);
+    await s.t.web.cadeado.aguardar();
+    const arqEstado = path.join(s.t.dados, 'cadeado-sessoes.json');
+    const gravado1 = fs.readFileSync(arqEstado, 'utf8');
     s.relogio.t += 30 * 1000;
     const u2 = await d.post('/api/v1/cadeado/uso');
-    assert.ok(u2.json.resta_s < 15 * 60 - 25, 'dentro do mesmo minuto o prazo não anda');
+    assert.ok(u2.json.resta_s > 15 * 60 - 5, 'o segundo aviso, 30 s depois, já estica o prazo');
+    await s.t.web.cadeado.aguardar();
+    assert.equal(fs.readFileSync(arqEstado, 'utf8'), gravado1, 'dentro do mesmo minuto o disco não é regravado');
+    s.relogio.t += 31 * 1000;
+    await d.post('/api/v1/cadeado/uso');
+    await s.t.web.cadeado.aguardar();
+    assert.notEqual(fs.readFileSync(arqEstado, 'utf8'), gravado1, 'passado um minuto, grava');
     s.relogio.t += 14 * MIN;
     assert.equal((await d.get('/api/v1/agents')).status, 200, 'o aviso de uso esticou o prazo');
     s.relogio.t += 16 * MIN;
@@ -1097,4 +1106,95 @@ test('saturação: se todos os registros são de sessão viva, a mais antiga é 
     const arq = JSON.parse(fs.readFileSync(path.join(s.t.dados, 'cadeado-sessoes.json'), 'utf8')).sessoes;
     assert.ok(Object.keys(arq).length <= 3);
   });
+});
+
+test('trava de 1 minuto: avisos de uso em 1, 10, 30 e 59 s mantêm a sessão aberta aos 61 s', async () => {
+  const s = await cenario();
+  await verde(s, async () => {
+    const d = await dono(s);
+    await d.cadastra(aparelhoFalso(), 'iPhone');
+    assert.equal((await d.pedir('PUT', '/api/v1/cadeado/ajustes', { json: { trava_min: 1 } })).status, 200);
+    const t0 = s.relogio.t;
+    for (const seg of [1, 10, 30, 59]) {
+      s.relogio.t = t0 + seg * 1000;
+      assert.equal((await d.post('/api/v1/cadeado/uso')).status, 200, `aviso aos ${seg} s`);
+    }
+    s.relogio.t = t0 + 61 * 1000;
+    assert.equal((await d.get('/api/v1/agents')).status, 200, 'quem está usando não é travado');
+    s.relogio.t = t0 + 125 * 1000;
+    assert.equal((await d.get('/api/v1/agents')).status, 423, 'sem novos avisos, trava');
+  });
+});
+
+// ── a exigência também vive no registro que autentica a sessão (sessoes.json) ──
+async function reinicia(preparaDados) {
+  const dados = pastaTemp('cad-marca');
+  const relogio = { t: Date.now() };
+  const hash = gerarHash('senha-certa-123');
+  const abre = async () => comTelas(await subirWeb({ env: { DGCLAW_PANEL_PASSWORD_HASH: hash }, opcoesServidor: { dataDir: dados, agora: () => relogio.t } }));
+  if (preparaDados) preparaDados(dados);
+  let t = await abre();
+  const d = pessoa({ t });
+  await d.login('dono', t.senha);
+  assert.equal((await d.cadastra(aparelhoFalso(), 'iPhone')).status, 201);
+  const sessao = d.jar.dgclaw_sessao;
+  return { dados, relogio, t, d, sessao, abre };
+}
+
+test('a gravação do estado falha (disco cheio) e o painel reinicia: a sessão ligada continua 423 sem o cookie', async () => {
+  // um diretório no lugar do arquivo faz toda gravação do estado falhar
+  const c = await reinicia((dados) => fs.mkdirSync(path.join(dados, 'cadeado-sessoes.json')));
+  let t = c.t;
+  try {
+    assert.match(t.log.texto(), /não li .*cadeado-sessoes\.json|não gravei .*cadeado-sessoes\.json/);
+    await t.web.cadeado.aguardar();
+    await t.fechar();
+    t = await c.abre();
+    const d = pessoa({ t });
+    d.jar.dgclaw_sessao = c.sessao;
+    c.relogio.t += 1 * MIN;
+    assert.equal((await d.get('/api/v1/lembretes')).status, 423, 'sem registro de estado nem cookie, a marca do auth trava a sessão');
+    assert.equal((await d.get('/api/v1/cadeado/estado')).json.ativo, true);
+  } finally { await t.fechar(); }
+});
+
+test('o estado do cadeado fica corrompido e o painel reinicia: a sessão ligada continua 423 sem o cookie', async () => {
+  const c = await reinicia();
+  let t = c.t;
+  try {
+    await t.web.cadeado.aguardar();
+    await t.fechar();
+    fs.writeFileSync(path.join(c.dados, 'cadeado-sessoes.json'), '{"sessoes": [oops');
+    t = await c.abre();
+    assert.match(t.log.texto(), /não li .*cadeado-sessoes\.json/);
+    const d = pessoa({ t });
+    d.jar.dgclaw_sessao = c.sessao;
+    assert.equal((await d.get('/api/v1/lembretes')).status, 423);
+  } finally { await t.fechar(); }
+});
+
+test('a marca no sessoes.json sobrevive às reescritas do auth e não derruba a sessão; se não der para gravá-la, a sessão é encerrada', async () => {
+  const c = await reinicia();
+  const t = c.t;
+  try {
+    const arq = path.join(c.dados, 'sessoes.json');
+    const lido = () => Object.values(JSON.parse(fs.readFileSync(arq, 'utf8')).sessoes);
+    assert.equal(lido().filter((x) => x.cadeado_exige === true).length, 1);
+    // outro login (o auth reescreve o arquivo inteiro): a marca continua e a sessão ainda vale
+    const outra = pessoa({ t });
+    await outra.login('dono', t.senha);
+    assert.equal(lido().filter((x) => x.cadeado_exige === true).length, 1);
+    assert.notEqual((await c.d.get('/api/v1/agents')).status, 401);
+    // sem poder gravar o sessoes.json, a marca não pega e a sessão é encerrada em vez de seguir sem ela
+    const b = pessoa({ t });
+    await b.login('dono', t.senha);
+    b.jar.dgclaw_aparelho = c.d.jar.dgclaw_aparelho;
+    fs.rmSync(arq);
+    fs.mkdirSync(arq); // a troca atômica do arquivo passa a falhar
+    const r = await b.get('/api/v1/cadeado/estado');
+    assert.equal(r.status, 200);
+    assert.equal((await b.get('/api/v1/agents')).status, 401, 'a sessão que não conseguiu a marca foi encerrada');
+    assert.match(t.log.texto(), /Encerrei a sessão em vez de deixá-la sem o cadeado/);
+    fs.rmdirSync(arq);
+  } finally { await t.fechar(); }
 });
