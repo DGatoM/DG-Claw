@@ -844,7 +844,16 @@ criar_container() {
         executar podman "${args[@]}" >/dev/null
         ok "container $c criado (portas so em 127.0.0.1: runner $C_PORTA_RUNNER, painel $C_PORTA_PAINEL)"
     fi
-    podman_em_escopo "$C_SLUG" start "$c" >/dev/null
+    # Mesmo caminho do `iniciar`: com restricoes.json, os arquivos sao refeitos e a imagem conferida ANTES de ligar
+    # (o recriar liga o container novo antes do reparar), e a conferencia de dentro roda depois, tudo sob a trava.
+    restricoes_com_trava "$C_SLUG" _criar_container_ligar_sob_trava "$C_SLUG" "$c"
+}
+
+_criar_container_ligar_sob_trava() {
+    local slug="$1" c="$2"
+    restricoes_antes_de_ligar "$slug"
+    podman_em_escopo "$slug" start "$c" >/dev/null
+    restricoes_conferir_ao_iniciar "$slug"
 }
 
 # Tempo (segundos) que o `iniciar` fica olhando se o container caiu logo na partida.
