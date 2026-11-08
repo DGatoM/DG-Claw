@@ -286,7 +286,7 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
       limpaExpiradas();
       salva();
       if (aoCriar) {
-        try { aoCriar({ token, req, colaborador }); } catch (e) { log('erro', `O gancho de sessão nova (cadeado) falhou: ${e.message}. A sessão foi criada; se o Face ID travar, entre de novo.`); }
+        try { aoCriar({ token, req, colaborador, expira: expiraFinal }); } catch (e) { log('erro', `O gancho de sessão nova (cadeado) falhou: ${e.message}. A sessão foi criada; se o Face ID travar, entre de novo.`); }
       }
       const cookie = montaCookie(token, config.sessaoDias * 86400, req);
       return { token, expira: expiraFinal, cookie, cookies: [cookie, montaCookiePapel(colaborador ? 'colaborador' : 'dono', req)] };
@@ -331,6 +331,18 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
       for (const [k, v] of sessoes) if (v.papel === 'colaborador' && v.colaborador_id === id) { sessoes.delete(k); n++; }
       if (n) salva();
       return n;
+    },
+
+    /** Chave interna (sha256 do token) da sessão do pedido, ou null. É a chave com que os outros módulos apontam uma sessão. */
+    hashDaSessao(req) {
+      const token = parseCookies(req.headers.cookie)[NOME_COOKIE];
+      return token && token.length <= 200 ? sha256hex(token) : null;
+    },
+    /** Encerra uma sessão pela chave interna (ver hashDaSessao). Devolve se existia. */
+    encerraPorHash(hash) {
+      const existia = sessoes.delete(hash);
+      if (existia) salva();
+      return existia;
     },
 
     /** Apaga a sessão do pedido e manda o cookie expirar. */

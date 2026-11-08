@@ -136,7 +136,7 @@ function criarServidor(opcoes) {
   const colaboradores = criarColaboradores({ config, log, agora: opcoes.agora, gerarHash: (senha) => auth.gerarHash(senha) });
   auth.ligarColaboradores(colaboradores);
   // Cadeado com Face ID (opcional, por aparelho): destrava sessão já autenticada, nunca cria sessão. Ver lib/cadeado.js.
-  const cadeado = criarCadeado({ config, log, agora: opcoes.agora });
+  const cadeado = criarCadeado({ config, log, agora: opcoes.agora, encerrarSessao: (hash) => { auth.encerraPorHash(hash); proxy.fecharDaSessao(hash); } });
   auth.aoCriarSessao((ev) => cadeado.aoCriarSessao(ev));
   cadeado.limpaOrfaos((id) => { const c = colaboradores.obter(id); return !(c && c.revogado_em); }).catch((e) => log('erro', `Cadeado: não limpei as passkeys de colaboradores revogados (${e.message}).`));
   auth.ligarInstancias((slug) => instanciaDe(registro.obter(slug)));
@@ -866,7 +866,8 @@ function criarServidor(opcoes) {
     abrirStream({
       req, res, agente, since, log, tickMs: opcoes.tickSseMs,
       // Colaborador: a cada tique o stream confere a sessão e fecha quando ela deixou de valer (expirou, saiu, foi revogada).
-      valeAinda: ehColab(sessao) ? () => sessaoAindaVale(req, sessao) : null,
+      // Colaborador confere a cada tique se continua valendo. O dono (sem caixa) fecha quando a sessão é encerrada por fora, como ao remover o Face ID de um aparelho.
+      valeAinda: ehColab(sessao) ? () => sessaoAindaVale(req, sessao) : (sessao && !sessao.via ? () => !!auth.sessaoDoPedido(req) : null),
       travadoAgora: sessao && !sessao.via ? () => cadeado.travada(req, sessao) : null,
       fontes: ehColab(sessao)
         // Colaborador: sem a fonte do foco (é a lista do dono) e com os avisos técnicos trocados por um genérico.
@@ -1422,6 +1423,7 @@ function criarServidor(opcoes) {
         return nega(403, 'Origem não permitida.');
       }
       const quem = quemDoProxy(sessao, req);
+      if (!sessao.via) quem.sessaoHash = auth.hashDaSessao(req);
       if (quem.colaborador_id) {
         // A conferência repete o login do upgrade: o proxy a chama a cada 30 s e fecha o socket quando a sessão cai.
         quem.valeAinda = () => { const s2 = auth.sessaoDoPedido(req); return !!s2 && s2.papel === 'colaborador' && s2.colaborador_id === quem.colaborador_id && s2.senha_versao === sessao.senha_versao && !cadeado.travada(req, sessao); };

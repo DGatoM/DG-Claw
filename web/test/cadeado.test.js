@@ -7,7 +7,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
-const { cliente, subirWeb, pastaTemp } = require('./ajuda');
+const { cliente, subirWeb, pastaTemp, gerarHash } = require('./ajuda');
 const { cenario: cenarioBase, colaboradorAtivo } = require('./colab-ajuda');
 const W = require('../lib/webauthn');
 
@@ -279,21 +279,21 @@ test('a caixa do agente e os pedidos internos nunca travam, e não alcançam o c
   });
 });
 
-test('sem o cookie de aparelho a sessão não trava (o cadeado é por aparelho)', async () => {
+test('sem o cookie de aparelho uma sessão que nunca esteve ligada a ele não trava (o cadeado é por aparelho)', async () => {
   const s = await cenario();
   await verde(s, async () => {
     const d = await dono(s);
     await d.cadastra(aparelhoFalso(), 'iPhone');
-    // o mesmo login visto de um navegador que nunca ativou o Face ID
+    // outro navegador que nunca ativou o Face ID, com a própria sessão
     const outro = pessoa(s);
-    outro.jar.dgclaw_sessao = d.jar.dgclaw_sessao;
+    await outro.login('dono', s.t.senha);
     s.relogio.t += 60 * MIN;
     assert.equal((await outro.get('/api/v1/agents')).status, 200);
     assert.equal((await outro.get('/api/v1/cadeado/estado')).json.ativo, false);
     assert.equal((await d.get('/api/v1/agents')).status, 423);
     // cookie de aparelho inventado: não está ligado a passkey nenhuma, não trava
     const falso = pessoa(s);
-    falso.jar.dgclaw_sessao = d.jar.dgclaw_sessao;
+    await falso.login('dono', s.t.senha);
     falso.jar.dgclaw_aparelho = crypto.randomBytes(32).toString('base64url');
     assert.equal((await falso.get('/api/v1/agents')).status, 200);
   });
@@ -786,4 +786,239 @@ test('casca.js carrega o trava.js nas páginas do painel e não duplica onde já
   assert.equal(monta(false, true).length, 0, 'objeto já carregado: não duplica');
   // o casca.js só roda nas telas logadas: o login, a troca de senha e o primeiro acesso não o carregam
   for (const t of ['login', 'trocar-senha', 'primeiro-acesso']) assert.doesNotMatch(fs.readFileSync(path.join(PUBLICO_REAL, `${t}.html`), 'utf8'), /casca\.js/, t);
+});
+
+// ── exigência presa à sessão, remoção de aparelho, concorrência e tela sem rede ──
+const DIA_MS = 24 * 60 * MIN;
+
+test('a trava não depende do cookie: sem ele, com ele adulterado, depois de reiniciar o módulo e depois de 4 dias parada', async () => {
+  const dados = pastaTemp('cad-exige');
+  const relogio = { t: Date.now() };
+  const hash = gerarHash('senha-certa-123'); // a mesma nas duas partidas: senão as sessões antigas são descartadas de propósito
+  const abre = async () => comTelas(await subirWeb({ env: { DGCLAW_PANEL_PASSWORD_HASH: hash }, opcoesServidor: { dataDir: dados, agora: () => relogio.t } }));
+  let t = await abre();
+  const s = { t };
+  let d = pessoa(s);
+  await d.login('dono', t.senha);
+  const ap = aparelhoFalso();
+  assert.equal((await d.cadastra(ap, 'iPhone')).status, 201);
+  const cookieOk = d.jar.dgclaw_aparelho;
+  relogio.t += 16 * MIN;
+  const sessao = d.jar.dgclaw_sessao;
+  try {
+    assert.equal((await d.get('/api/v1/lembretes')).status, 423);
+    delete d.jar.dgclaw_aparelho;
+    assert.equal((await d.get('/api/v1/lembretes')).status, 423, 'sem o cookie, a sessão ligada segue travada');
+    assert.equal((await d.get('/api/v1/cadeado/estado')).json.ativo, true);
+    d.jar.dgclaw_aparelho = crypto.randomBytes(32).toString('base64url');
+    assert.equal((await d.get('/api/v1/lembretes')).status, 423, 'cookie adulterado também');
+    // o Face ID destrava mesmo sem o cookie original, e o tempo volta a contar
+    delete d.jar.dgclaw_aparelho;
+    assert.equal((await d.destrava(ap)).status, 200);
+    assert.notEqual((await d.get('/api/v1/lembretes')).status, 423);
+    relogio.t += 16 * MIN;
+    assert.equal((await d.get('/api/v1/lembretes')).status, 423);
+    // reinicia o painel (mesma pasta de dados): a exigência vem do disco
+    await t.fechar();
+    t = await abre();
+    d = pessoa({ t });
+    d.jar.dgclaw_sessao = sessao;
+    assert.equal((await d.get('/api/v1/lembretes')).status, 423, 'depois de reiniciar, sem cookie, continua travada');
+    // 4 dias parada: o registro com exigência não some
+    relogio.t += 4 * DIA_MS;
+    d.jar.dgclaw_aparelho = cookieOk;
+    assert.equal((await d.get('/api/v1/lembretes')).status, 423, 'depois de 4 dias o registro ainda existe');
+    delete d.jar.dgclaw_aparelho;
+    assert.equal((await d.get('/api/v1/lembretes')).status, 423);
+    assert.match(fs.readFileSync(path.join(dados, 'cadeado-sessoes.json'), 'utf8'), /"exige":true/);
+  } finally { await t.fechar(); }
+});
+
+test('o cookie válido que aparece numa sessão ainda não ligada a prende ao aparelho; entrar com o cookie já nasce ligada e destravada', async () => {
+  const s = await cenario();
+  await verde(s, async () => {
+    const d = await dono(s);
+    await d.cadastra(aparelhoFalso(), 'iPhone');
+    // sessão que entrou sem o cookie: livre, até um pedido dela trazer o cookie válido
+    const b = pessoa(s);
+    await b.login('dono', s.t.senha);
+    assert.notEqual((await b.get('/api/v1/lembretes')).status, 423, 'sem cookie e sem ligação: livre');
+    b.jar.dgclaw_aparelho = d.jar.dgclaw_aparelho;
+    assert.equal((await b.get('/api/v1/lembretes')).status, 423, 'sessão sem registro com cookie válido: nasce travada, como sempre');
+    delete b.jar.dgclaw_aparelho;
+    assert.equal((await b.get('/api/v1/lembretes')).status, 423, 'e sem o cookie continua travada');
+    // entrar com o cookie na mão: destravada e presa ao aparelho
+    const c = pessoa(s);
+    c.jar.dgclaw_aparelho = d.jar.dgclaw_aparelho;
+    await c.login('dono', s.t.senha);
+    assert.notEqual((await c.get('/api/v1/lembretes')).status, 423);
+    delete c.jar.dgclaw_aparelho;
+    s.relogio.t += 16 * MIN;
+    assert.equal((await c.get('/api/v1/lembretes')).status, 423);
+  });
+});
+
+test('DELETE concorrente: A, B e B seguidos não apagam a passkey de ninguém além da própria', async () => {
+  const s = await cenario();
+  await verde(s, async () => {
+    const d = await dono(s);
+    await d.cadastra(aparelhoFalso(), 'iPhone do dono');
+    const col = await colaboradorAtivo(s);
+    const m = pessoa(s);
+    m.jar.dgclaw_sessao = col.c.jar.dgclaw_sessao;
+    const a = (await m.cadastra(aparelhoFalso(), 'A')).json.passkey.id;
+    const b = (await m.cadastra(aparelhoFalso(), 'B')).json.passkey.id;
+    const [r1, r2, r3] = await Promise.all([a, b, b].map((id) => m.pedir('DELETE', `/api/v1/cadeado/passkeys/${id}`)));
+    assert.deepEqual([r1.status, r2.status, r3.status], [200, 200, 404]);
+    assert.equal(r3.json.motivo, 'inexistente');
+    assert.equal((await m.get('/api/v1/cadeado/passkeys')).json.passkeys.length, 0);
+    const doDono = (await d.get('/api/v1/cadeado/passkeys')).json.passkeys;
+    assert.equal(doDono.length, 1, 'a passkey do dono continua lá');
+    assert.equal(doDono[0].nome, 'iPhone do dono');
+    // PATCH de passkey inexistente ou alheia: 404, sem estourar
+    const idDono = doDono[0].id;
+    assert.equal((await m.pedir('PATCH', `/api/v1/cadeado/passkeys/${idDono}`, { json: { nome: 'x' } })).status, 404);
+    assert.equal((await m.pedir('PATCH', `/api/v1/cadeado/passkeys/${a}`, { json: { nome: 'x' } })).status, 404);
+    assert.equal((await d.get('/api/v1/cadeado/passkeys')).json.passkeys[0].nome, 'iPhone do dono');
+  });
+});
+
+test('remover o aparelho encerra as sessões presas a ele (401, stream e WebSocket fechados) e a de quem removeu segue', async () => {
+  const painel = painelComWebSocket();
+  const porta = await painel.ouvir();
+  const dir = pastaTemp('cad-rem');
+  const segredo = path.join(dir, 'proxy.txt');
+  fs.writeFileSync(segredo, 'segredo-de-teste\n');
+  const agentes = [{ slug: 'ana', nome: 'Ana', runner: 'http://127.0.0.1:1', agente_id: 'a1', porta_painel: porta, proxy_segredo_arquivo: segredo }];
+  const relogio = { t: Date.now() };
+  const t = comTelas(await subirWeb({ agentes, opcoesServidor: { agora: () => relogio.t } }));
+  const s = { t, relogio };
+  try {
+    // celular: liga o Face ID e abre stream e Tela
+    const celular = pessoa(s);
+    await celular.login('dono', t.senha);
+    assert.equal((await celular.cadastra(aparelhoFalso(), 'celular')).status, 201);
+    const ws = await abreWs(s, celular, true);
+    const fluxo = await new Promise((resolve, reject) => {
+      const req = http.request({ host: '127.0.0.1', port: t.porta, path: '/api/v1/agents/ana/stream', headers: { Host: `localhost:${t.porta}`, Cookie: `dgclaw_sessao=${celular.jar.dgclaw_sessao}; dgclaw_aparelho=${celular.jar.dgclaw_aparelho}` } }, (res) => {
+        assert.equal(res.statusCode, 200);
+        let texto = '';
+        const fim = new Promise((r) => res.on('close', () => r(texto)));
+        res.on('data', (c) => { texto += c.toString(); });
+        resolve({ fim, req });
+      });
+      req.on('error', reject);
+      req.end();
+    });
+    // computador: outra sessão do dono, com o próprio Face ID (outro aparelho)
+    const pc = pessoa(s);
+    await pc.login('dono', t.senha);
+    const apPc = aparelhoFalso();
+    assert.equal((await pc.cadastra(apPc, 'computador')).status, 201);
+    assert.notEqual(pc.jar.dgclaw_aparelho, celular.jar.dgclaw_aparelho);
+    assert.notEqual((await celular.get('/api/v1/lembretes')).status, 423);
+    const idCelular = (await pc.get('/api/v1/cadeado/passkeys')).json.passkeys.find((p) => p.nome === 'celular').id;
+    const rem = await pc.pedir('DELETE', `/api/v1/cadeado/passkeys/${idCelular}`);
+    assert.equal(rem.status, 200, rem.texto);
+    assert.equal(rem.json.sessoes_encerradas, 1);
+    // celular: sessão encerrada (401), stream e WebSocket fechados
+    assert.equal((await celular.get('/api/v1/agents')).status, 401);
+    const texto = await Promise.race([fluxo.fim, espera(3000).then(() => 'NAO FECHOU')]);
+    assert.notEqual(texto, 'NAO FECHOU', 'o stream da conversa fechou');
+    assert.match(texto, /sessao_encerrada/);
+    assert.equal(await Promise.race([ws.fechou, espera(1500).then(() => false)]), true, 'a Tela (WebSocket) fechou');
+    // computador: segue, e continua com o cadeado dele
+    assert.notEqual((await pc.get('/api/v1/lembretes')).status, 401);
+    relogio.t += 16 * MIN;
+    assert.equal((await pc.get('/api/v1/lembretes')).status, 423);
+    assert.equal((await pc.destrava(apPc)).status, 200);
+
+    // remover o próprio aparelho: a sessão continua, sem cadeado; outra sessão do mesmo aparelho cai
+    const outraDoPc = pessoa(s);
+    outraDoPc.jar.dgclaw_aparelho = pc.jar.dgclaw_aparelho;
+    await outraDoPc.login('dono', t.senha);
+    assert.notEqual((await outraDoPc.get('/api/v1/lembretes')).status, 401);
+    const idPc = (await pc.get('/api/v1/cadeado/passkeys')).json.passkeys[0].id;
+    const rem2 = await pc.pedir('DELETE', `/api/v1/cadeado/passkeys/${idPc}`);
+    assert.equal(rem2.json.sessoes_encerradas, 1);
+    assert.equal((await outraDoPc.get('/api/v1/agents')).status, 401);
+    relogio.t += 60 * MIN;
+    assert.notEqual((await pc.get('/api/v1/lembretes')).status, 423, 'a sessão de quem removeu segue, agora sem cadeado');
+    assert.equal((await pc.get('/api/v1/cadeado/estado')).json.ativo, false);
+  } finally { await t.fechar(); await painel.fechar(); }
+});
+
+test('remover uma passkey de um aparelho que ainda tem outra da mesma pessoa não derruba nada', async () => {
+  const s = await cenario();
+  await verde(s, async () => {
+    const d = await dono(s);
+    await d.cadastra(aparelhoFalso(), 'primeira');
+    await d.cadastra(aparelhoFalso(), 'segunda'); // mesmo navegador: reaproveita o cookie do aparelho
+    const outro = pessoa(s);
+    outro.jar.dgclaw_aparelho = d.jar.dgclaw_aparelho;
+    await outro.login('dono', s.t.senha);
+    assert.notEqual((await outro.get('/api/v1/lembretes')).status, 423);
+    const lista = (await d.get('/api/v1/cadeado/passkeys')).json.passkeys;
+    const r = await d.pedir('DELETE', `/api/v1/cadeado/passkeys/${lista[0].id}`);
+    assert.equal(r.json.sessoes_encerradas, 0);
+    assert.notEqual((await outro.get('/api/v1/agents')).status, 401);
+    s.relogio.t += 16 * MIN;
+    assert.equal((await outro.get('/api/v1/lembretes')).status, 423, 'o cadeado do aparelho segue valendo');
+  });
+});
+
+test('tela: o prazo vencido cobre a tela sem depender do servidor e só descobre quando o servidor confirma', async () => {
+  const vm = require('node:vm');
+  const codigo = fs.readFileSync(path.join(PUBLICO_REAL, 'trava.js'), 'utf8');
+  let agora = 1_000_000;
+  let rede = true;
+  let travado = false;
+  const intervalos = [];
+  const elementos = {};
+  const el = (id) => elementos[id] || (elementos[id] = {
+    id, textContent: '', hidden: false, disabled: false, innerHTML: '', style: {}, classList: { add() {}, remove() {} },
+    addEventListener() {}, setAttribute() {}, querySelector: (sel) => el(sel), blur() {},
+  });
+  const html = { classList: { added: [], removed: [], add(c) { this.added.push(c); }, remove(c) { this.removed.push(c); } } };
+  const document = {
+    readyState: 'complete', visibilityState: 'visible', documentElement: html, activeElement: null,
+    head: { appendChild() {} }, body: { appendChild(x) { x.montado = true; }, hasAttribute: () => false },
+    createElement: (tag) => el('novo-' + tag), addEventListener() {}, querySelectorAll: () => [],
+  };
+  const resposta = (status, corpo) => Promise.resolve({ status, ok: status < 400, json: () => Promise.resolve(corpo) });
+  const janela = {
+    document, console, URLSearchParams, Promise, Date: { now: () => agora }, TypeError,
+    navigator: { userAgent: 'Mozilla/5.0 (iPhone)', maxTouchPoints: 5 }, location: { search: '', pathname: '/a/ana', host: 'x.com' },
+    addEventListener() {}, setInterval: (fn) => { intervalos.push(fn); return intervalos.length; }, clearInterval() {},
+    setTimeout: () => 1, clearTimeout() {},
+    fetch: (url) => {
+      if (!rede) return Promise.reject(new TypeError('Failed to fetch'));
+      if (url.endsWith('/estado')) return resposta(200, { ok: true, ativo: true, travado, resta_s: travado ? 0 : 60, trava_min: 1 });
+      return resposta(200, { ok: true });
+    },
+  };
+  janela.window = janela;
+  vm.createContext(janela);
+  vm.runInContext(codigo, janela, { filename: 'trava.js' });
+  const vazio = () => new Promise((r) => setImmediate(r));
+  await vazio(); await vazio();
+  const raiz = () => elementos['novo-div'];
+  assert.ok(!raiz() || raiz().hidden !== false, 'destravada: a tela não está coberta');
+  // o prazo passa e a rede cai
+  rede = false;
+  agora += 61 * 1000;
+  for (const fn of intervalos) fn();
+  await vazio(); await vazio(); await vazio();
+  assert.equal(raiz().hidden, false, 'coberta localmente, sem resposta do servidor');
+  assert.ok(html.classList.added.includes('dgclaw-travado'));
+  assert.match(elementos['#dgclawTravaMsg'].textContent, /Sem conexão.*internet para destravar/);
+  // volta a rede, o servidor diz que ainda está travada: continua coberta
+  rede = true; travado = true;
+  for (const fn of intervalos) fn();
+  await vazio(); await vazio(); await vazio();
+  assert.equal(raiz().hidden, false);
+  // o servidor confirma o destravamento: aí a tela se descobre
+  travado = false;
+  await janela.DGTrava.confere();
+  assert.equal(raiz().hidden, true, 'descoberta só depois da confirmação do servidor');
 });

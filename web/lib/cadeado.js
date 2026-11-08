@@ -29,7 +29,7 @@ const TRAVA_PADRAO_MIN = 15;
 const TRAVA_LIMITES = [1, 120];
 const NOME_MAX = 60;
 const PASSKEYS_POR_TITULAR = 10;
-const ESTADO_ESQUECE_MS = 3 * 86400 * 1000;
+const ESTADO_ESQUECE_MS = 3 * 86400 * 1000; // vale só para registro sem exigência; o com exigência vive até a sessão expirar
 const ESTADO_MAX = 5000;
 const USO_MIN_MS = 60 * 1000;
 const JANELA_FALHAS_MS = 10 * 60 * 1000;
@@ -84,14 +84,16 @@ function criarGravador(caminho, serializa) {
   };
 }
 
-function criarCadeado({ config, log, agora }) {
+function criarCadeado({ config, log, agora, encerrarSessao }) {
   const relogio = agora || (() => Date.now());
   const arqPasskeys = path.join(config.dataDir, 'passkeys.json');
   const arqEstado = path.join(config.dataDir, 'cadeado-sessoes.json');
 
   let conf = { versao: 1, ajustes: {}, passkeys: [] };
   let falhaCarga = null;
-  const estados = new Map(); // hash da sessão -> { uso, destravada_em, como, titular }
+  // chave da sessão -> { uso, destravada_em, como, titular } e, quando a sessão foi presa a um aparelho,
+  // { exige: true, aparelho_hash, auth (chave da sessão no auth.js), expira (da sessão) }
+  const estados = new Map();
   const desafios = new Map(); // desafio (base64url) -> { tipo, sessao, rpId, origem, exp }
   const falhas = new Map(); // 's:<sessão>' ou 'i:<ip>' -> [instantes]
 
@@ -135,8 +137,15 @@ function criarCadeado({ config, log, agora }) {
   const gravEstado = criarGravador(arqEstado, () => ({ versao: 1, sessoes: Object.fromEntries(estados) }));
   const salvaEstado = () => {
     const t = relogio();
-    for (const [k, v] of estados) if (t - v.uso > ESTADO_ESQUECE_MS) estados.delete(k);
-    while (estados.size > ESTADO_MAX) estados.delete(estados.keys().next().value);
+    for (const [k, v] of estados) {
+      if (v.exige ? (Number.isFinite(v.expira) && v.expira < t) : t - v.uso > ESTADO_ESQUECE_MS) estados.delete(k);
+    }
+    // No corte por tamanho saem primeiro os registros sem exigência: a que tem exigência não pode sumir antes da sessão.
+    while (estados.size > ESTADO_MAX) {
+      let alvo = null;
+      for (const [k, v] of estados) if (!v.exige) { alvo = k; break; }
+      estados.delete(alvo !== null ? alvo : estados.keys().next().value);
+    }
     gravEstado.gravar().catch((e) => log('erro', `Cadeado: não gravei ${arqEstado} (${e.code || e.message}). O estado das sessões vale só até o próximo restart; confira a permissão de ${config.dataDir}.`));
   };
 
@@ -186,32 +195,72 @@ function criarCadeado({ config, log, agora }) {
     return Number.isInteger(v) && v >= TRAVA_LIMITES[0] && v <= TRAVA_LIMITES[1] ? v : TRAVA_PADRAO_MIN;
   };
 
-  /** A sessão deste pedido está travada agora? Caixa do agente e pedido sem sessão de cookie nunca travam. */
+  const authHashDe = (req) => {
+    const t = lerCookie(req, NOME_COOKIE);
+    return t && t.length <= 200 ? sha256hex(t) : null;
+  };
+  const estadoDe = (k, titular) => { const e = k ? estados.get(k) : null; return e && e.titular === titular ? e : null; };
+
+  /** Prende a sessão ao aparelho NO SERVIDOR: dali em diante ela trava pelo tempo mesmo sem o cookie ou com cookie adulterado.
+      O cookie só serve para criar essa ligação, nunca para desfazê-la. */
+  function prende(k, titular, apHash, authHash, expira) {
+    const e = estadoDe(k, titular) || { uso: 0, destravada_em: 0, como: 'vinculo', titular };
+    Object.assign(e, { exige: true, aparelho_hash: apHash, auth: authHash, expira });
+    estados.set(k, e);
+    return e;
+  }
+
+  /** A sessão deste pedido está travada agora? Caixa do agente e pedido sem sessão de cookie nunca travam.
+      A primeira vez que um pedido da sessão traz um cookie válido do titular, a sessão é presa ao aparelho (ver prende). */
   function travada(req, sessao) {
     const titular = titularDe(sessao);
-    if (!titular || !aparelhoLigado(req, titular)) return false;
     const k = chaveSessao(req);
-    if (!k) return false;
-    const e = estados.get(k);
-    if (!e || e.titular !== titular) return true;
+    if (!titular || !k) return false;
+    let e = estadoDe(k, titular);
+    if (!(e && e.exige)) {
+      const ap = aparelhoDe(req);
+      if (!ap || !aparelhoLigado(req, titular)) return false;
+      e = prende(k, titular, ap.hash, authHashDe(req), sessao.expira);
+      salvaEstado();
+    }
     return relogio() - e.uso > travaMin(titular) * 60000;
   }
-  /** Este aparelho tem cadeado para a pessoa da sessão? (sem ele, nada é conferido depois) */
+  /** Esta sessão tem cadeado? Presa a um aparelho (exigência no servidor) ou com cookie de aparelho válido do titular. */
   function ligado(req, sessao) {
     const titular = titularDe(sessao);
-    return !!titular && aparelhoLigado(req, titular);
+    if (!titular) return false;
+    const e = estadoDe(chaveSessao(req), titular);
+    return !!(e && e.exige) || aparelhoLigado(req, titular);
   }
   function restaS(req, sessao) {
     const titular = titularDe(sessao);
-    if (!titular || !aparelhoLigado(req, titular)) return null;
-    const e = estados.get(chaveSessao(req));
-    if (!e || e.titular !== titular) return 0;
+    if (!titular || !ligado(req, sessao)) return null;
+    const e = estadoDe(chaveSessao(req), titular);
+    if (!e) return 0;
     return Math.max(0, Math.floor((travaMin(titular) * 60000 - (relogio() - e.uso)) / 1000));
   }
-  function destrava(k, titular, como) {
+  /** Destrava a sessão `k`. `prender` ({ apHash, authHash, expira }) liga também a sessão ao aparelho. */
+  function destrava(k, titular, como, prender) {
     const t = relogio();
-    estados.set(k, { uso: t, destravada_em: t, como, titular });
+    const e = estadoDe(k, titular) || {};
+    Object.assign(e, { uso: t, destravada_em: t, como, titular });
+    estados.set(k, e);
+    if (prender) prende(k, titular, prender.apHash, prender.authHash, prender.expira);
     salvaEstado();
+  }
+  /** Passkey removida e o aparelho ficou sem nenhuma da mesma pessoa: encerra as sessões presas a ele, menos a de quem removeu
+      (se for do mesmo aparelho, ela continua e a exigência dela cai). Devolve quantas sessões foram encerradas. */
+  function soltaAparelho(titular, apHash, kAtual) {
+    let n = 0;
+    for (const [k2, e] of [...estados]) {
+      if (!e.exige || e.titular !== titular || e.aparelho_hash !== apHash) continue;
+      if (k2 === kAtual) { delete e.exige; delete e.aparelho_hash; delete e.auth; delete e.expira; continue; }
+      estados.delete(k2);
+      if (e.auth && encerrarSessao) { encerrarSessao(e.auth); n++; }
+      else if (e.auth) log('aviso', 'Cadeado: não tenho como encerrar a sessão presa a um aparelho removido (o servidor não ligou o encerramento).');
+    }
+    salvaEstado();
+    return n;
   }
 
   // ── origem e rpId ────────────────────────────────────────────────────────
@@ -382,12 +431,12 @@ function criarCadeado({ config, log, agora }) {
       if (c.passkeys.filter((p) => p.titular === titular).length >= PASSKEYS_POR_TITULAR) throw new WebAuthnErro(`Já há ${PASSKEYS_POR_TITULAR} aparelhos cadastrados, que é o máximo.`, 'limite', 409);
       c.passkeys.push(rec);
     });
-    destrava(k, titular, 'cadastro');
+    destrava(k, titular, 'cadastro', { apHash: rec.aparelho_hash, authHash: authHashDe(req), expira: sessao.expira });
     log('info', `Cadeado: passkey cadastrada para ${titular}: "${nome}" (${rec.id}, ${W.NOME_ALG[alg]}, rp ${d.rpId}).`);
     return { passkey: publica(rec, { hash: rec.aparelho_hash }), cookie: valor };
   }
 
-  async function verifica(req, titular, k, corpo) {
+  async function verifica(req, sessao, titular, k, corpo) {
     const cred = credencialDe(corpo);
     const bruto = deB64u(cred.rawId || cred.id, 'credencial.rawId', 2048);
     const cid = b64u(bruto);
@@ -427,7 +476,8 @@ function criarCadeado({ config, log, agora }) {
     } catch (e) {
       log('aviso', `Cadeado: o Face ID valeu, mas o contador da passkey ${pk.id} não foi gravado (${e.message}).`);
     }
-    destrava(k, titular, 'faceid');
+    const ap = aparelhoDe(req);
+    destrava(k, titular, 'faceid', ap && aparelhoLigado(req, titular) ? { apHash: ap.hash, authHash: authHashDe(req), expira: sessao.expira } : null);
     return { passkey: publica(pk, aparelhoDe(req)) };
   }
 
@@ -435,10 +485,10 @@ function criarCadeado({ config, log, agora }) {
   function estadoPublico(req, sessao) {
     const titular = titularDe(sessao);
     const amb = ambiente(req);
-    const ligado = aparelhoLigado(req, titular);
+    const ativo = ligado(req, sessao);
     const ap = aparelhoDe(req);
     return {
-      ok: true, ativo: ligado, travado: travada(req, sessao), trava_min: travaMin(titular), resta_s: restaS(req, sessao),
+      ok: true, ativo, travado: travada(req, sessao), trava_min: travaMin(titular), resta_s: restaS(req, sessao),
       passkeys: passkeysDe(titular).length, neste_aparelho: !!ap && passkeysDe(titular).some((p) => p.aparelho_hash === ap.hash),
       host: amb.rpId || null, https: amb.erro ? null : amb.https, ambiente_erro: amb.erro || null, aviso: falhaCarga,
     };
@@ -495,13 +545,13 @@ function criarCadeado({ config, log, agora }) {
       }
       if (sub === '/uso') {
         if (m !== 'POST') { metodo('POST'); return true; }
-        const ligado = aparelhoLigado(req, titular);
-        if (ligado) {
-          const e = estados.get(k);
+        const ativo = ligado(req, sessao);
+        if (ativo) {
+          const e = estadoDe(k, titular);
           // No máximo um registro por minuto; o resto só devolve o que resta.
           if (e && relogio() - e.uso >= USO_MIN_MS) { e.uso = relogio(); salvaEstado(); }
         }
-        H.enviaJson(res, 200, { ok: true, ativo: ligado, resta_s: restaS(req, sessao), trava_min: travaMin(titular) });
+        H.enviaJson(res, 200, { ok: true, ativo, resta_s: restaS(req, sessao), trava_min: travaMin(titular) });
         return true;
       }
       if (sub === '/cadastro/opcoes') {
@@ -536,7 +586,7 @@ function criarCadeado({ config, log, agora }) {
         if (!corpo) return true;
         try {
           if (falhaCarga) throw new WebAuthnErro(`O Face ID não está disponível agora: ${falhaCarga}`, 'arquivo', 503);
-          const r = await verifica(req, titular, k, corpo);
+          const r = await verifica(req, sessao, titular, k, corpo);
           falhas.delete(`s:${k}`);
           const cab = {};
           const ap = aparelhoDe(req);
@@ -555,21 +605,29 @@ function criarCadeado({ config, log, agora }) {
       if (pk) {
         if (m !== 'PATCH' && m !== 'DELETE') { metodo('PATCH ou DELETE'); return true; }
         const id = pk[1];
-        const existe = RX_PASSKEY_ID.test(id) && passkeysDe(titular).some((x) => x.id === id);
-        if (!existe) { H.erroJson(res, 404, `Não existe passkey "${id.slice(0, 20)}" na sua conta. Veja as que existem em GET ${BASE}/passkeys.`); return true; }
+        // A existência e o dono são conferidos de novo DENTRO da fila (altera): dois pedidos seguidos não apagam a passkey de outra pessoa.
+        const sumiu = () => new WebAuthnErro(`Não existe passkey "${id.slice(0, 20)}" na sua conta. Veja as que existem em GET ${BASE}/passkeys.`, 'inexistente', 404);
+        if (!RX_PASSKEY_ID.test(id)) throw sumiu();
         if (m === 'PATCH') {
           const corpo = await corpoJson(req, res, 4 * 1024);
           if (!corpo) return true;
           const nome = limpaNome(corpo.nome);
           if (!nome) { H.erroJson(res, 400, 'Mande o nome novo em JSON: {"nome": "iPhone da Maria"}.'); return true; }
           if (nome.length > NOME_MAX) { H.erroJson(res, 400, `O nome passou de ${NOME_MAX} caracteres.`, { recebido: nome.length }); return true; }
-          const novo = await altera((c) => { const alvo = c.passkeys.find((x) => x.id === id); alvo.nome = nome; return { ...alvo }; });
+          const novo = await altera((c) => { const alvo = c.passkeys.find((x) => x.id === id && x.titular === titular); if (!alvo) throw sumiu(); alvo.nome = nome; return { ...alvo }; });
           H.enviaJson(res, 200, { ok: true, passkey: publica(novo, aparelhoDe(req)) });
           return true;
         }
-        const velho = await altera((c) => { const i = c.passkeys.findIndex((x) => x.id === id); return c.passkeys.splice(i, 1)[0]; });
-        log('info', `Cadeado: passkey removida de ${titular}: "${velho.nome}" (${id}).`);
-        H.enviaJson(res, 200, { ok: true, removida: publica(velho, aparelhoDe(req)), estado: estadoPublico(req, sessao) });
+        const r = await altera((c) => {
+          const i = c.passkeys.findIndex((x) => x.id === id && x.titular === titular);
+          if (i < 0) throw sumiu();
+          const [velho] = c.passkeys.splice(i, 1);
+          return { velho, resta: c.passkeys.some((x) => x.titular === titular && x.aparelho_hash === velho.aparelho_hash) };
+        });
+        // Aparelho sem nenhuma passkey: as sessões presas a ele caem (a de quem removeu, se for do mesmo aparelho, continua).
+        const encerradas = r.resta ? 0 : soltaAparelho(titular, r.velho.aparelho_hash, k);
+        log('info', `Cadeado: passkey removida de ${titular}: "${r.velho.nome}" (${id}); ${encerradas} sessão(ões) do aparelho encerrada(s).`);
+        H.enviaJson(res, 200, { ok: true, removida: publica(r.velho, aparelhoDe(req)), sessoes_encerradas: encerradas, estado: estadoPublico(req, sessao) });
         return true;
       }
       if (sub === '/ajustes') {
@@ -620,10 +678,11 @@ function criarCadeado({ config, log, agora }) {
   }
 
   /** Sessão nova criada com senha nasce destravada, no aparelho que já tem cadeado. */
-  function aoCriarSessao({ token, req, colaborador }) {
+  function aoCriarSessao({ token, req, colaborador, expira }) {
     const titular = colaborador ? `colaborador:${colaborador.id}` : 'dono';
-    if (!aparelhoLigado(req, titular)) return;
-    destrava(sha256hex(`dgclaw-cadeado-sessao:${token}`), titular, 'senha');
+    const ap = aparelhoDe(req);
+    if (!ap || !aparelhoLigado(req, titular)) return;
+    destrava(sha256hex(`dgclaw-cadeado-sessao:${token}`), titular, 'senha', { apHash: ap.hash, authHash: sha256hex(token), expira });
   }
 
   /** Apaga as passkeys, o tempo de trava e o estado de um titular (acesso de colaborador revogado). */

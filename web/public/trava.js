@@ -102,7 +102,12 @@
     return { id: cred.id, rawId: bufParaB64u(cred.rawId), type: cred.type, response: resp };
   }
 
-  const puro = { b64uParaBuf, bufParaB64u, rotuloBiometria, comArtigo, traduzErro, destinoSeguro, publicKeyGet, publicKeyCreate, credParaJson, API };
+  /* Sem rede com a tela coberta: precisa de conexão para destravar. */
+  function mensagemSemConexao(motivo) {
+    return 'Sem conexão com o servidor' + (motivo ? ' (' + motivo + ')' : '') + '. Preciso de internet para destravar: confira a conexão e toque de novo.';
+  }
+
+  const puro = { mensagemSemConexao, b64uParaBuf, bufParaB64u, rotuloBiometria, comArtigo, traduzErro, destinoSeguro, publicKeyGet, publicKeyCreate, credParaJson, API };
   if (!janela.document) return puro;
 
   /* ── Parte com DOM ──────────────────────────────────────────────────────── */
@@ -155,20 +160,29 @@
 
   function aplicaEstado(d) {
     estado = d;
-    if (d && d.resta_s != null) vistoAte = Date.now() + d.resta_s * 1000;
+    vistoAte = d && d.ativo && d.resta_s != null ? Date.now() + d.resta_s * 1000 : 0;
     agendaRelogio();
   }
   function agendaRelogio() {
     if (relogio) { clearTimeout(relogio); relogio = null; }
     if (!estado || !estado.ativo || aberto || estado.resta_s == null) return;
-    relogio = setTimeout(function () { confere(); }, (estado.resta_s + 2) * 1000);
+    if (!vistoAte) return;
+    relogio = setTimeout(venceuOPrazo, Math.max(0, vistoAte - Date.now()) + 50);
+  }
+
+  /* O prazo acabou: a tela é coberta AQUI, sem esperar o servidor (sem rede ela ficaria legível). Ela só descobre quando
+     o servidor confirma que a sessão está destravada, e sem rede a tela avisa que precisa de conexão para destravar. */
+  function venceuOPrazo() {
+    if (aberto || !estado || !estado.ativo || !vistoAte || Date.now() < vistoAte) return;
+    mostra();
+    confere();
   }
 
   function confere(contaComoUso) {
     if (!fetchOriginal) return Promise.resolve();
     return pede(API + '/estado').then(function (r) {
       if (r.status === 401) return;          // sem sessão: a própria página leva ao login
-      if (!r.ok) { console.warn('trava: /estado respondeu ' + r.status, r.d.erro || ''); return; }
+      if (!r.ok) { console.warn('trava: /estado respondeu ' + r.status, r.d.erro || ''); avisaSemConexao('o servidor respondeu ' + r.status); return; }
       aplicaEstado(r.d);
       if (r.d.travado) { mostra(); return; }
       if (aberto && modoPagina()) { vaiPraFrente(); return; }
@@ -176,7 +190,13 @@
       if (contaComoUso && r.d.ativo) avisaUso();
     }).catch(function (e) {
       console.warn('trava: não consegui perguntar o estado (' + (e.message || 'sem rede') + ')');
+      avisaSemConexao(e.message || 'sem rede');
     });
+  }
+  /* Tela coberta e sem resposta do servidor: continua coberta e diz o que falta. */
+  function avisaSemConexao(motivo) {
+    if (!aberto || !msgEl) return;
+    msgEl.textContent = mensagemSemConexao(motivo);
   }
 
   function enviaUso() {
@@ -281,7 +301,7 @@
   /* No iPhone o Face ID só abre dentro do toque. Por isso as opções (o desafio) são buscadas ANTES: no toque,
      o navigator.credentials.get sai na hora. */
   function preBusca() {
-    buscaOpcoes().catch(function (e) { if (msgEl && e.message) msgEl.textContent = e.message; });
+    buscaOpcoes().catch(function (e) { if (msgEl && e.message) msgEl.textContent = e instanceof TypeError ? mensagemSemConexao(e.message) : e.message; });
     if (!opcoesTimer) {
       opcoesTimer = setInterval(function () { if (aberto && !ocupado) buscaOpcoes().catch(function (e) { console.warn('trava: não renovei o desafio:', e.message); }); }, OPCOES_VALIDADE_MS - 10000);
     }
@@ -328,7 +348,7 @@
     }).catch(function (e) {
       ocupado = false;
       btn.disabled = false; btn.textContent = textoBotao();
-      msgEl.textContent = e.servidor ? 'O servidor recusou: ' + e.message : traduzErro(e, 'destravar', true, rotulo(), location.host);
+      msgEl.textContent = e.servidor ? 'O servidor recusou: ' + e.message : (e instanceof TypeError ? mensagemSemConexao(e.message) : traduzErro(e, 'destravar', true, rotulo(), location.host));
       buscaOpcoes().catch(function (e2) { console.warn('trava: não busquei o desafio novo:', e2.message); });
     });
   }
@@ -356,6 +376,8 @@
   janela.addEventListener('pageshow', function (ev) { if (ev.persisted) aoVoltar(); });
   ['pointerdown', 'keydown', 'wheel', 'touchmove'].forEach(function (t) { janela.addEventListener(t, avisaUso, { passive: true, capture: true }); });
   setInterval(function () { if (document.visibilityState === 'visible' && !aberto) confere(false); }, 60000);
+  // Os temporizadores dormem com a aba em segundo plano e na economia de bateria: este confere o prazo local a cada 5 s.
+  setInterval(venceuOPrazo, 5000);
 
   function inicia() {
     if (modoPagina()) mostra();

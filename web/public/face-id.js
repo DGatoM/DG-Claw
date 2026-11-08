@@ -102,7 +102,7 @@
   }
   const PASSOS = {
     aparelho: { alvo: '[data-tour="fid-aparelho"]', titulo: 'Neste aparelho', oque: 'Mostra se o Face ID está ligado aqui e deixa ligar. Se o aparelho ou o endereço não permitem, a tela explica o motivo e o que fazer.', como: 'Toque em "Ligar neste aparelho" e confirme com o rosto, a digital ou o código do aparelho. O DG Claw guarda só a chave pública da passkey; o seu rosto e a sua digital nunca saem do aparelho.', porque: 'O cadeado é por aparelho: ligar aqui não trava o seu computador nem o celular de outra pessoa.' },
-    lista: { alvo: '[data-tour="fid-lista"]', titulo: 'Aparelhos cadastrados', oque: 'Os aparelhos em que você ligou o Face ID, com a data do cadastro e do último uso.', como: 'Renomeie para reconhecer cada um. Remova o de um aparelho perdido ou vendido: ali o cadeado deixa de existir e a senha continua valendo.', porque: 'É por aqui que você tira o acesso de um aparelho que não é mais seu.' },
+    lista: { alvo: '[data-tour="fid-lista"]', titulo: 'Aparelhos cadastrados', oque: 'Os aparelhos em que você ligou o Face ID, com a data do cadastro e do último uso.', como: 'Renomeie para reconhecer cada um. Ao remover um aparelho, as sessões abertas nele são encerradas na hora (voltam ao login, e a conversa e a Tela que estavam abertas nele caem). A sessão que você está usando só continua se for do mesmo aparelho que você removeu; nesse caso ela fica sem o cadeado. A senha continua valendo em qualquer aparelho.', porque: 'É por aqui que você tira o acesso de um aparelho perdido ou vendido, mesmo que ele estivesse com a sessão aberta.' },
     tempo: { alvo: '[data-tour="fid-tempo"]', titulo: 'Tempo de trava', oque: 'Quantos minutos sem usar o DG Claw até a tela travar. O padrão é 15.', como: 'Escolha de 1 a 120 minutos e toque em Salvar. Só conta como uso o que você faz na tela (tocar, digitar, rolar), não o que roda em segundo plano.', porque: 'Tempo curto protege mais; tempo longo incomoda menos. Você decide o equilíbrio.' },
     endereco: { alvo: '[data-tour="fid-endereco"]', titulo: 'Endereço do painel', oque: 'O endereço pelo qual você abriu o painel agora.', como: 'A passkey é criada para esse endereço. Se o painel passar a ter outro endereço, ligue o Face ID de novo em cada aparelho.', porque: 'É uma regra do navegador, que protege você de sites falsos pedindo o seu Face ID.' },
   };
@@ -233,7 +233,7 @@
       b.disabled = true;
       const r = await chamar('DELETE', '/api/v1/cadeado/passkeys/' + encodeURIComponent(id));
       if (!r.ok) { b.disabled = false; msg('fiMsgLista', r.erro, 'erro'); return; }
-      msg('fiMsgLista', 'Aparelho removido. Nele o Face ID deixa de existir e só a senha vale.', 'ok');
+      msg('fiMsgLista', 'Aparelho removido.' + (r.json.sessoes_encerradas ? ' As sessões abertas nele foram encerradas e voltam ao login.' : ' Nele o Face ID deixa de existir e só a senha vale.'), 'ok');
       await carrega();
     }
   }

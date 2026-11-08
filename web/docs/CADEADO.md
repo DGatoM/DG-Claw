@@ -17,11 +17,15 @@ Este documento serve para a pessoa e para o agente que a ajuda. As rotas ficam e
   enxerga as dos outros. Se o dono revoga um colaborador, as passkeys dele são apagadas.
 - **O Face ID nunca faz login.** Ele só destrava uma sessão que já entrou com a senha, e a passkey tem de ser da
   pessoa dessa sessão. Quem não está logado não consegue nada com ele.
+- **A exigência fica presa à sessão, no servidor.** Quando a sessão se liga a um aparelho (ao ligar o Face ID, ao destravar, ao entrar com a senha ou na primeira vez em que um pedido dela traz o cookie válido), o servidor passa a exigir o cadeado dessa sessão. Apagar ou adulterar o cookie `dgclaw_aparelho` depois disso não destrava nada: o cookie só serve para criar a ligação, nunca para desfazê-la. A ligação dura até a sessão expirar, inclusive se o painel reiniciar.
+- **Remover um aparelho encerra as sessões dele.** Ao remover o último Face ID de um aparelho, o servidor encerra as sessões presas a ele (elas voltam ao login), fecha o stream da conversa e a Tela (WebSocket) abertos por elas, e a resposta traz `sessoes_encerradas`. A sessão de quem está removendo continua se for do mesmo aparelho (e fica sem o cadeado); se for de outro aparelho, nada muda para ela. Se o aparelho ainda tiver outra passkey da mesma pessoa, nada é encerrado.
 - **A senha é a saída.** Na tela travada, "Entrar com a senha" encerra a sessão e leva ao login; entrar com a senha
   cria uma sessão já destravada. Serve para aparelho sem biometria, Face ID falhando ou passkey apagada.
 - **O tempo conta uso de verdade.** A tela avisa o servidor quando a pessoa toca, digita ou rola, no máximo uma
   vez por minuto. O que roda em segundo plano (atualizar a conversa, o stream) não conta. O padrão é 15 minutos; a
   pessoa escolhe de 1 a 120.
+
+- **Sem rede, a tela também cobre.** Quando o prazo acaba, a própria tela se cobre sem esperar o servidor e só se descobre quando o servidor confirma que a sessão está destravada. Sem conexão, ela avisa que precisa de internet para destravar.
 
 ## O que trava
 
@@ -62,7 +66,7 @@ português, com `{ "ok": false, "erro": "...", "motivo": "..." }` e o status cer
 | `POST /verificar` | `{ "credencial": {...} }`; destrava a sessão |
 | `GET /passkeys` | os aparelhos da pessoa (sem chave nem identificador interno) |
 | `PATCH /passkeys/<id>` | `{ "nome": "..." }`, até 60 caracteres |
-| `DELETE /passkeys/<id>` | remove o aparelho |
+| `DELETE /passkeys/<id>` | remove o aparelho e encerra as sessões presas a ele (veja acima) |
 | `PUT /ajustes` | `{ "trava_min": 15 }`, inteiro de 1 a 120 |
 | `GET /docs.md` | este documento |
 
