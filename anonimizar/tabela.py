@@ -461,6 +461,17 @@ def desativar_links_md(texto):
     return re.sub(r"(\\*)([\[\]])", troca, texto)
 
 
+def desativar_marcadores_restantes(texto):
+    """Última etapa da versão final .md: marcador que sobrou (desconhecido, ou numa região de URL) perde a abertura de colchete.
+
+    Roda depois da restauração. Os valores restaurados já saem de escapar_md com "\\[" e "\\_", então não casam com o
+    marcador: tudo o que ainda casa é marcador cru. Sem isso, "![CPF_999](https://x)" continuaria sendo imagem e
+    "![CPF_999]( [CPF_1] )" viraria imagem com o dado restaurado no endereço. A barra é acrescentada depois das que já
+    estavam na frente (desativar_links_md deixa um número par), então o colchete fica literal.
+    """
+    return _RX_MARCADOR.sub(lambda m: "\\[" + m.group(1) + "_" + m.group(2) + "\\]", texto)
+
+
 class Reversor:
     def __init__(self, tabela, escapar=None):
         self.escapar = escapar      # transforma o valor restaurado em texto literal do formato de saída (ex.: escapar_md)

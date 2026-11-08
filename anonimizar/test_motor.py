@@ -284,13 +284,13 @@ class Arquivos(unittest.TestCase):
         with open(saida, encoding="utf-8") as f:
             out = f.read()
         self.assertIn("Cliente Ana Lima.", out)
-        self.assertIn("!\\[foto\\](https://x.com/a.png?cpf=[CPF_1])", out)   # sem sintaxe de link, e o marcador não volta
-        self.assertIn("\\[perfil\\](https://x.com/u/[PESSOA_1])", out)
-        self.assertIn("\\[ver [PESSOA_1]\\](/pasta/[CPF_1].md)", out)
-        self.assertIn("https://x.com/?c=[CPF_1] e www.x.com/[CPF_1] e mailto:[PESSOA_1]@x.com", out)
-        self.assertIn("&lt;https://x.com/[CPF_1]>", out)
-        self.assertIn("\\[ref\\]: https://x.com/[CPF_1]", out)
-        self.assertIn("data:text/plain,[CPF_1]", out)
+        self.assertIn("!\\[foto\\](https://x.com/a.png?cpf=\\[CPF_1\\])", out)   # sem sintaxe de link, e o marcador não volta
+        self.assertIn("\\[perfil\\](https://x.com/u/\\[PESSOA_1\\])", out)
+        self.assertIn("\\[ver \\[PESSOA_1\\]\\](/pasta/\\[CPF_1\\].md)", out)
+        self.assertIn("https://x.com/?c=\\[CPF_1\\] e www.x.com/\\[CPF_1\\] e mailto:\\[PESSOA_1\\]@x.com", out)
+        self.assertIn("&lt;https://x.com/\\[CPF_1\\]>", out)
+        self.assertIn("\\[ref\\]: https://x.com/\\[CPF_1\\]", out)
+        self.assertIn("data:text/plain,\\[CPF_1\\]", out)
         self.assertTrue(out.endswith("CPF 52998224725"))
         t = motor.tratar({"op": "reverter_texto", "texto": "veja https://x.com/?c=[CPF_1] e [a](http://y/[CPF_1]) mas CPF [CPF_1]", "tabela": tabela})
         self.assertEqual(t["texto"], "veja https://x.com/?c=[CPF_1] e [a](http://y/[CPF_1]) mas CPF 52998224725")
@@ -330,6 +330,31 @@ class Arquivos(unittest.TestCase):
                 out = self._reverter_md_link(md)
                 self._sem_link_funcionando(out, md)
                 self.assertIn("atacante", out)
+
+    def test_md_colchetes_de_marcador_tambem_ficam_desativados(self):
+        try:
+            import markdown_it
+            renderizar = markdown_it.MarkdownIt("commonmark").render
+        except ImportError:
+            try:
+                import markdown
+                renderizar = markdown.markdown
+            except ImportError:
+                renderizar = None
+        casos = ["![CPF_999](https://atacante.example/pixel)", "![CPF_999]( [CPF_1] )", "[PESSOA_1](https://x)",
+                 "[CPF_1]: https://x\n\n[CPF_1]", "[CPF_999]", "![PESSOA_1]( [CPF_1] )", "![x][CPF_999]\n\n[CPF_999]: https://atacante.example/p",
+                 "\\[CPF_999](https://x)", "[CPF_1](https://x/[CPF_1])"]
+        for md in casos:
+            out = self._reverter_md_link(md)
+            # nenhum "[" ou "]" sem barra, nem "](" ativo (as barras de escapar_md contam)
+            self.assertNotRegex(out, r"(?<!\\)[\[\]]", (md, out))
+            self.assertNotRegex(out, r"(?<!\\)\]\(", (md, out))
+            if renderizar:
+                html = renderizar(out)
+                self.assertNotIn("<a", html, (md, html))
+                self.assertNotIn("<img", html, (md, html))
+        legivel = self._reverter_md_link("Cliente [PESSOA_1], CPF [CPF_1], desconhecido [CPF_999].")
+        self.assertIn("Cliente Ana Lima, CPF 52998224725, desconhecido \\[CPF_999\\].", legivel)
 
     def test_md_normal_continua_legivel_apos_desativar_links(self):
         out = self._reverter_md_link("# Parecer\n\nCliente [PESSOA_1], CPF [CPF_1].\n\n- item [PESSOA_1]\n\nVeja a nota [1] e `a[0]`.")
@@ -655,8 +680,8 @@ class Arquivos(unittest.TestCase):
             out = f.read()
         self.assertNotIn("<", out)
         self.assertIn("&lt;style>", out)
-        self.assertIn("`&lt;b>[CPF_1]&lt;/b>`", out)           # dentro de código também: nada de < e o marcador não volta
-        self.assertIn('&lt;div class="x">[CPF_1]&lt;/div>', out)
+        self.assertIn("`&lt;b>\\[CPF_1\\]&lt;/b>`", out)           # dentro de código também: nada de < e o marcador não volta
+        self.assertIn('&lt;div class="x">\\[CPF_1\\]&lt;/div>', out)
         self.assertTrue(out.startswith("Dados: 52998224725"))
         self.assertTrue(out.endswith("Fim 52998224725."))
 
