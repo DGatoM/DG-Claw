@@ -7,6 +7,13 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**O aviso "Faça o login nos seus agentes" agora aparece uma única vez.** Antes, ele voltava a cada aba nova e a cada
+visita ao painel enquanto algum agente estivesse sem login. Agora o painel guarda, no servidor, que você já viu o aviso:
+fechar com **Fazer depois** ou recarregar a página não o traz de volta, e o novo botão **Não mostrar mais** o desliga de
+vez. Se você criar um agente novo e ele ficar sem login, o aviso aparece mais uma vez, só para ele (a não ser que você
+tenha escolhido **Não mostrar mais**). Em qualquer caso, a página **Conectar conta** e o cartão de cada agente continuam
+disponíveis. A escolha fica em `modal-login.json`, na pasta de dados do painel, e uma atualização não a apaga.
+
 **Login expirado também avisa no agente do ChatGPT.** Quando o login da conta do ChatGPT de um agente vence, o agente
 passa a mostrar o aviso "O login da conta do ChatGPT expirou", com o que fazer (reconectar pelo cartão de login da conversa
 ou rodar `codex login --device-auth` no terminal do agente), em vez de ficar parado sem explicação. Depois do novo login, o

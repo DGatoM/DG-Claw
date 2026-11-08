@@ -41,6 +41,7 @@ const { criarPush } = require('./lib/push');
 const { criarLembretes } = require('./lib/lembretes');
 const { criarEstados } = require('./lib/estados');
 const { criarPrefsAtencao } = require('./lib/prefs-atencao');
+const { criarModalLoginPrefs } = require('./lib/modal-login-prefs');
 const { criarVigiaAtencao } = require('./lib/vigia-atencao');
 const { criarMesa } = require('./lib/mesa');
 const { criarAvisos } = require('./lib/avisos');
@@ -186,6 +187,7 @@ function criarServidor(opcoes) {
   // Aviso de versão nova: só o dono, pelo painel. De propósito NÃO entra em caixa.permitir (agente em container não usa).
   const estados = criarEstados({ conversa, naoLidas, registro, log });
   const prefsAtencao = criarPrefsAtencao({ arquivo: path.join(config.dataDir, 'push', 'preferencias.json'), log });
+  const modalLoginPrefs = criarModalLoginPrefs({ arquivo: path.join(config.dataDir, 'modal-login.json'), log });
   const vigiaAtencao = criarVigiaAtencao({ registro, estados, lerThread: conversa.threadCompartilhada, push: opcoes.push || push, prefs: prefsAtencao, relogio: opcoes.agora, log, intervaloMs: opcoes.vigiaIntervaloMs });
   // /api/v1/estados NÃO entra na caixa: ela só atende agentes de trabalho, e um agente não tem por que
   // enxergar o estado (nem o nome) dos vizinhos. O Admin, no host, lê os documentos e a tela.
@@ -534,6 +536,19 @@ function criarServidor(opcoes) {
         return H.erroJson(res, e.status || 500, e.status ? e.message : `Não consegui montar o estado dos agentes (${e.message}).`);
       }
     }
+    if (p === '/api/v1/modal-login/preferencia') {
+      if (sessao.via === 'caixa') return H.erroJson(res, 403, 'A escolha sobre o aviso de login dos agentes é só do dono, pelo painel.');
+      if (m === 'GET') {
+        try { return H.enviaJson(res, 200, { ok: true, ...modalLoginPrefs.de(sessao.usuario) }); } catch (e) { return H.erroJson(res, e.status || 500, e.message); }
+      }
+      if (m !== 'POST') return H.erroJson(res, 405, 'Use GET para ler e POST com {"vistos": ["id"], "nao_mostrar_mais": true} para guardar.');
+      let corpo;
+      try { corpo = await H.lerJson(req, 4096); } catch (e) { return H.erroJson(res, e.status || 400, e.message); }
+      try { return H.enviaJson(res, 200, { ok: true, ...modalLoginPrefs.grava(sessao.usuario, corpo) }); } catch (e) {
+        return H.erroJson(res, e.status || 500, e.status ? e.message : `Não consegui guardar a escolha (${e.message}).`);
+      }
+    }
+
     if (p === '/api/v1/push/preferencias') {
       if (sessao.via === 'caixa') return H.erroJson(res, 403, 'As preferências de aviso do aparelho são só do dono, pelo painel.');
       if (m === 'GET') {
