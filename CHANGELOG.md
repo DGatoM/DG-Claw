@@ -7,6 +7,13 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Manual do DG Claw no painel.** O menu ☰ ganha o item **Manual**, uma tela (`/manual`) que mostra, página por página, o que o DG Claw faz e como se usa, com busca pelos títulos e uma visita guiada. O Admin lê o mesmo manual direto da pasta `docs/manual` e os agentes o consultam pelo painel antes de dizer que algo não existe. O contrato das rotas está em `web/docs/MANUAL.md`.
+
+### Como atualizar (manual e personalização no nível do sistema)
+
+1. **Peça ao Admin, no chat: "atualiza o DG Claw".** Esta versão traz uma instrução nova para o Admin e para os agentes saberem que o manual existe e onde consultá-lo. Ela entra na seção de ambiente que o DG Claw mantém para cada agente, sem apagar o que você personalizou nas instruções deles. Se algum agente antigo não a mostrar depois da atualização, peça ao Admin para regravar essa seção com `sudo dgclaw agente identidade <nome>`.
+2. **Regra nova para o Admin.** Pedidos no nível do sistema (nova forma de gerar agentes, mudança no `bin/dgclaw`, no instalador ou no `runner/`) passam a ser permitidos. O Admin avisa você, em linguagem simples, que aquilo mexe na base e pode dar problema nas próximas atualizações; se você mantiver o pedido, ele faz, anota em `PERSONALIZACOES.md` que a mudança mexe na base e tenta mantê-la funcionando a cada atualização. Cofre e segredos, firewall, autenticação do painel, isolamento dos containers e ganchos de segurança continuam fora, mesmo a pedido. O guia está em `docs/PERSONALIZAR.md`.
+
 **O aviso "Faça o login nos seus agentes" agora aparece uma única vez.** Antes, ele voltava a cada aba nova e a cada
 visita ao painel enquanto algum agente estivesse sem login. Agora o painel guarda, no servidor, que você já viu o aviso:
 fechar com **Fazer depois** ou recarregar a página não o traz de volta, e o novo botão **Não mostrar mais** o desliga de
