@@ -118,4 +118,13 @@ nega "nao conferiu label" grep -q "$LABEL" "$STUB_LOG"
 dgclaw agente reiniciar bob >/dev/null 2>&1; igual "reiniciar sai com 0" "0" "$?"
 nega "nao conferiu label" grep -q "$LABEL" "$STUB_LOG"
 
+echo "a trava das restricoes nao chega ao podman (o conmon a seguraria para sempre)"
+rm -f "$STUB_ESTADO/fd9-aberto"
+parado
+dgclaw agente iniciar ana >/dev/null 2>&1
+dgclaw agente restricoes ana --sem-bash sim --sem-enviar-arquivo sim >/dev/null 2>&1
+dgclaw agente reiniciar ana >/dev/null 2>&1
+nega "nenhuma chamada ao podman (start, exec, stop, inspect) herdou o descritor 9" test -e "$STUB_ESTADO/fd9-aberto"
+afirma "e a trava soltou: outra aplicacao nao espera" timeout 20 flock -n "$LIB/agentes/ana/.restricoes.lock" true
+
 fim

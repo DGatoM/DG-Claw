@@ -61,13 +61,14 @@ falha() {
 # o Admin espera 90 s pelo conmon e acaba matando ele com SIGKILL (o agente cai junto). O mesmo vale
 # para a atualizacao em segundo plano. Sem systemd (ou na raiz falsa dos testes, que nao tem
 # $R/run/systemd/system) cai no podman direto.
+# O 9>&- fecha a trava das restricoes (lib/restricoes.sh): o conmon herdaria o descritor e a seguraria para sempre.
 podman_em_escopo() {
     local slug="$1"; shift
     if command -v systemd-run >/dev/null 2>&1 && [ -d "$R/run/systemd/system" ]; then
         executar systemd-run --scope --quiet --collect \
-            --unit "dgclaw-conteiner-$slug-$(date +%s)-$$-$RANDOM" podman "$@"
+            --unit "dgclaw-conteiner-$slug-$(date +%s)-$$-$RANDOM" podman "$@" 9>&-
     else
-        executar podman "$@"
+        executar podman "$@" 9>&-
     fi
 }
 

@@ -127,6 +127,13 @@ restricoes_com_trava() {
     (
         flock -w 120 9 || falha "outra alteracao das restricoes do agente $slug esta segurando $DG_CASAS/$slug/.restricoes.lock ha mais de 120 segundos." \
             "espere ela terminar e rode de novo. Se nada estiver rodando, confira com: fuser $DG_CASAS/$slug/.restricoes.lock"
+        # O conmon do podman herda os descritores abertos: sem fechar o 9 nas chamadas abaixo, ele seguraria a trava
+        # enquanto o container existir e toda aplicacao seguinte estouraria os 120 segundos. As funcoes valem so neste
+        # subshell. `timeout` entra porque ele executa o podman direto do PATH, sem passar pela funcao.
+        # shellcheck disable=SC2317
+        podman() { command podman "$@" 9>&-; }
+        # shellcheck disable=SC2317
+        timeout() { command timeout "$@" 9>&-; }
         RESTRICOES_TRAVA_COM="$slug"
         "$@"
     ) 9>"$DG_CASAS/$slug/.restricoes.lock"

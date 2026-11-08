@@ -2,6 +2,8 @@
 # podman de mentira: registra o argv e simula so o estado que os testes consultam.
 echo "podman $*" >> "${STUB_LOG:?}"
 est="${STUB_ESTADO:?}"
+# O conmon de verdade herda os descritores abertos: se o 9 (a trava das restricoes) chega aqui, ele a segurava para sempre.
+if [ -e /proc/$$/fd/9 ]; then echo "podman $*" >> "$est/fd9-aberto"; fi
 case "${1:-}" in
     image)
         # `image inspect -f {{.Id}}`: o id da imagem "atual" (muda quando o teste escreve estado/imagem-id).
