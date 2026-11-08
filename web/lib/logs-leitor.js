@@ -48,6 +48,8 @@ const RX_UUID_FIM = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 const RX_CURSOR_TEXTO = /^[A-Za-z0-9_-]+$/;
 const RX_SHELL_C = /^(?:-lc|-c)$/;
 const RX_PATCH = /\*\*\* (?:Update|Add|Delete) File:[ \t]*([^\n]+)/;
+const RX_ID_API = /^[A-Za-z0-9_-]{1,64}$/;
+const MAX_IDS_API = 200;
 const RX_ID_CURTO = /^[0-9a-f]{12}$/;
 const TIPOS = ['mensagem', 'comando', 'arquivo', 'ferramenta', 'sistema'];
 const CONTEXTO_INJETADO = ['<environment_context>', '<user_instructions>', '# AGENTS.md'];
@@ -84,9 +86,10 @@ const DQ = String.raw`"(?:[^"\\\n]|\\[^\n])*\\?(?:"|(?=\n|$))`;
 const SQ = String.raw`'(?:[^'\\\n]|\\[^\n])*\\?(?:'|(?=\n|$))`;
 const ESC = String.raw`\\[^\n]`;                                  // barra mais qualquer caractere da linha (`primeira\ segunda`)
 const FIM_JSON = String.raw`[,}\]](?<=[^"'][,}\]])`;        // vírgula, chave ou colchete só contam como valor se não vierem logo depois de aspa
-const pedacos = (comum) => String.raw`(?:${DQ}|${SQ}|${ESC}|${comum}|${FIM_JSON})+`;
-const VALOR = pedacos(String.raw`[^\s"'\\,}\]]`);
-const VALOR_ATRIBUICAO = pedacos(String.raw`[^\s"'\\&;|,}\]]`);
+// Argumento de shell (flags, curl -u, mysql -p): todos os pedaços adjacentes até o espaço não escapado, e `,` `}` `]` fazem parte
+// do valor, mesmo logo depois de uma aspa (`"usuario:",segredo`). A exceção de JSON vale só na atribuição `nome=valor` / `"nome":"valor"`.
+const VALOR = String.raw`(?:${DQ}|${SQ}|${ESC}|[^\s"'\\])+`;
+const VALOR_ATRIBUICAO = String.raw`(?:${DQ}|${SQ}|${ESC}|[^\s"'\\&;|,}\]]|${FIM_JSON})+`;
 const PRE = [
   [new RegExp(String.raw`(\bmysql(?:dump)?\b[^\n]{0,300}?[ \t]-p)${VALOR}`, 'gi'), '$1' + OCULTO],
   [new RegExp(String.raw`(--(?:password|token|api-key|secret|senha)(?:=|[ \t]{1,20}))${VALOR}`, 'gi'), '$1' + OCULTO],
@@ -323,14 +326,14 @@ function fontesDoAgente(ag) {
   if (ag.tipo === 'admin') {
     if (ag.transcripts_dir) r.push({ motor: 'claude', raiz: ag.transcripts_dir, permitida: ag.transcripts_dir, rotulo: 'transcripts_dir', projetoFixo: path.basename(ag.transcripts_dir) });
     else r.push({ motor: 'claude', semRaiz: 'o registro não informa transcripts_dir para o Admin' });
-    if (ag.codex_home_host) r.push({ motor: 'codex', raiz: path.join(ag.codex_home_host, 'sessions'), permitida: ag.codex_home_host, rotulo: 'codex_home_host/sessions' });
+    if (ag.codex_home_host) r.push({ motor: 'codex', raiz: path.join(ag.codex_home_host, 'sessions'), permitida: ag.codex_home_host, rotulo: 'codex_home_host/sessions', api: ag.home_host || null });
     return r;
   }
   if (!ag.home_host) {
     return [{ motor: 'claude', semRaiz: 'o registro não informa home_host deste agente' }, { motor: 'codex', semRaiz: 'o registro não informa home_host deste agente' }];
   }
   r.push({ motor: 'claude', raiz: path.join(ag.home_host, '.claude', 'projects'), permitida: ag.home_host, rotulo: '.claude/projects' });
-  r.push({ motor: 'codex', raiz: path.join(ag.home_host, '.codex', 'sessions'), permitida: ag.home_host, rotulo: '.codex/sessions' });
+  r.push({ motor: 'codex', raiz: path.join(ag.home_host, '.codex', 'sessions'), permitida: ag.home_host, rotulo: '.codex/sessions', api: ag.home_host });
   return r;
 }
 
@@ -339,7 +342,7 @@ function nomeValido(motor, nome) {
 }
 
 function descreveArquivo(fonte, raizReal, abs, st) {
-  const rel = path.relative(raizReal, abs).split(path.sep).join('/');
+  const rel = (fonte.prefixo || '') + path.relative(raizReal, abs).split(path.sep).join('/');
   const nome = path.basename(abs);
   const segs = rel.split('/');
   let sessao = null;
@@ -360,7 +363,7 @@ function descreveArquivo(fonte, raizReal, abs, st) {
 
 /** Lista os arquivos de uma fonte, sem seguir atalho. Nunca lança: o que deu errado vira estado e aviso. */
 async function descobreFonte(fonte, lim) {
-  const saida = { motor: fonte.motor, estado: 'ok', motivo: null, arquivos: [], avisos: [], atalhos_ignorados: 0, avisosOmitidos: 0, raizReal: null };
+  const saida = { motor: fonte.motor, estado: 'ok', motivo: null, arquivos: [], avisos: [], atalhos_ignorados: 0, avisosOmitidos: 0, entradas: 0, raizReal: null };
   if (fonte.semRaiz) { saida.estado = 'ausente'; saida.motivo = fonte.semRaiz; return saida; }
   let permReal;
   let raizReal;
@@ -418,7 +421,7 @@ async function descobreFonte(fonte, lim) {
           continue;
         }
         if (!nomeValido(fonte.motor, ent.name)) continue;
-        const rel = `${fonte.motor}:${path.relative(raizReal, abs).split(path.sep).join('/')}`;
+        const rel = `${fonte.motor}:${fonte.prefixo || ''}${path.relative(raizReal, abs).split(path.sep).join('/')}`;
         if (tipo !== 'f') { aviso({ tipo: 'arquivo_recusado', motivo: 'não é um arquivo regular', arquivo: rel }); continue; }
         try { st = await fsp.lstat(abs); } catch (e) { aviso({ tipo: 'arquivo_ilegivel', motivo: `não consegui conferir o arquivo (${e.code || e.message})`, arquivo: rel }); continue; }
         if (!st.isFile()) { aviso({ tipo: 'arquivo_recusado', motivo: 'não é um arquivo regular', arquivo: rel }); continue; }
@@ -431,6 +434,7 @@ async function descobreFonte(fonte, lim) {
       await d.close().catch(() => {});
     }
   }
+  saida.entradas = entradas;
   if (parcial) {
     saida.avisos.push({ tipo: 'limite', motivo: parcial, arquivo: fonte.motor });
     saida.estado = 'parcial';
@@ -447,6 +451,91 @@ async function descobreFonte(fonte, lim) {
     }
   }
   return saida;
+}
+
+/**
+ * Sessões do Codex autenticado por chave de API: uma pasta por sessão do runner em <casa>/.plataforma/codex-api/<id>/sessions
+ * (runner/src/provedores/codex.ts, codexHomeDe). Entram na MESMA fonte do Codex, com os mesmos limites (arquivos, entradas e
+ * prazo descontados do que a pasta da assinatura já gastou), realpath confinado à casa e sem seguir atalho; `<id>` vem de uma
+ * regex fechada.
+ */
+async function descobreApi(casa, lim, gasto) {
+  const r = { arquivos: [], avisos: [], avisosOmitidos: 0, atalhos_ignorados: 0, entradas: 0, parcial: null, estado: 'ausente', motivo: null };
+  const base = path.join(casa, '.plataforma', 'codex-api');
+  let permReal;
+  let baseReal;
+  try { permReal = await fsp.realpath(casa); } catch (e) { return r; }
+  try { baseReal = await fsp.realpath(base); } catch (e) {
+    if (e.code !== 'ENOENT' && e.code !== 'ENOTDIR') { r.estado = 'ilegivel'; r.motivo = `não consegui resolver .plataforma/codex-api (${e.code || e.message})`; }
+    return r;
+  }
+  if (baseReal !== permReal && !baseReal.startsWith(permReal + path.sep)) {
+    r.estado = 'ilegivel';
+    r.motivo = '.plataforma/codex-api aponta para fora da pasta do agente; recusei por segurança';
+    return r;
+  }
+  const ids = [];
+  let d;
+  try { d = await fsp.opendir(baseReal); } catch (e) { r.estado = 'ilegivel'; r.motivo = `não consegui listar .plataforma/codex-api (${e.code || e.message})`; return r; }
+  try {
+    for await (const ent of d) {
+      r.entradas++;
+      if (ids.length >= MAX_IDS_API) { r.parcial = `há mais de ${MAX_IDS_API} pastas em .plataforma/codex-api; só as primeiras entraram na lista`; break; }
+      if (ent.isSymbolicLink()) { r.atalhos_ignorados++; continue; }
+      if (!ent.isDirectory() || !RX_ID_API.test(ent.name)) continue;
+      ids.push(ent.name);
+    }
+  } catch (e) {
+    r.estado = 'ilegivel'; r.motivo = `a leitura de .plataforma/codex-api parou (${e.code || e.message})`;
+  } finally { await d.close().catch(() => {}); }
+  ids.sort();
+  let vazias = 0;
+  for (const id of ids) {
+    if (r.parcial) break;
+    const restante = { ...lim, maxArquivos: lim.maxArquivos - gasto.arquivos - r.arquivos.length, maxEntradas: lim.maxEntradas - gasto.entradas - r.entradas, ms: lim.ms - (lim.relogio() - gasto.inicio) };
+    if (restante.maxArquivos <= 0 || restante.maxEntradas <= 0 || restante.ms <= 0) { r.parcial = 'os limites de leitura acabaram antes de chegar em todas as pastas de .plataforma/codex-api'; break; }
+    const sub = await descobreFonte({ motor: 'codex', raiz: path.join(baseReal, id, 'sessions'), permitida: casa, rotulo: `.plataforma/codex-api/${id}/sessions`, prefixo: `api/${id}/` }, restante);
+    r.arquivos.push(...sub.arquivos);
+    r.avisos.push(...sub.avisos);
+    r.avisosOmitidos += sub.avisosOmitidos;
+    r.atalhos_ignorados += sub.atalhos_ignorados;
+    r.entradas += sub.entradas;
+    if (sub.estado === 'parcial') r.parcial = sub.motivo;
+    else if (sub.estado === 'ilegivel') r.avisos.push({ tipo: 'pasta_ilegivel', motivo: sub.motivo, arquivo: `codex:.plataforma/codex-api/${id}` });
+    else if (sub.estado === 'vazia') vazias++;
+  }
+  if (r.arquivos.length) r.estado = 'ok';
+  else if (r.estado !== 'ilegivel' && ids.length && vazias === ids.length) { r.estado = 'vazia'; r.motivo = '.plataforma/codex-api existe, mas ainda não tem nenhuma sessão gravada'; }
+  return r;
+}
+
+/** Junta a pasta da assinatura com as da chave de API numa fonte só do motor Codex. */
+function unePastasDoCodex(d, api, lim) {
+  const arquivos = d.arquivos.concat(api.arquivos);
+  const parcial = d.estado === 'parcial' ? d.motivo : api.parcial;
+  const u = Object.assign({}, d, {
+    arquivos,
+    avisos: d.avisos.concat(api.avisos),
+    avisosOmitidos: d.avisosOmitidos + api.avisosOmitidos,
+    atalhos_ignorados: d.atalhos_ignorados + api.atalhos_ignorados,
+    entradas: d.entradas + api.entradas,
+  });
+  if (arquivos.length) {
+    u.estado = parcial ? 'parcial' : 'ok';
+    u.motivo = parcial || null;
+    if (d.estado === 'ilegivel') u.avisos.push({ tipo: 'pasta_ilegivel', motivo: d.motivo, arquivo: 'codex:assinatura' });
+    if (api.estado === 'ilegivel') u.avisos.push({ tipo: 'pasta_ilegivel', motivo: api.motivo, arquivo: 'codex:.plataforma/codex-api' });
+  } else if (parcial) {
+    u.estado = 'parcial'; u.motivo = parcial;
+  } else if (d.estado === 'ilegivel' || api.estado === 'ilegivel') {
+    u.estado = 'ilegivel'; u.motivo = d.estado === 'ilegivel' ? d.motivo : api.motivo;
+  } else if (d.estado === 'vazia' || api.estado === 'vazia') {
+    u.estado = 'vazia'; u.motivo = d.estado === 'vazia' ? d.motivo : api.motivo;
+  } else {
+    u.estado = 'ausente';
+    u.motivo = `${d.motivo || 'nunca rodou neste motor'}; também não há sessões em .plataforma/codex-api`;
+  }
+  return u;
 }
 
 function resumoDaFonte(f) {
@@ -1061,8 +1150,18 @@ function criarLeitor({ log, agora, orcamento } = {}) {
 
   async function descobre(ag, ctx) {
     const fontes = [];
-    for (const f of fontesDoAgente(ag)) {
-      const d = await descobreFonte(f, lim);
+    const lista = fontesDoAgente(ag);
+    // Admin sem codex_home_host (usa o Claude): só entra uma fonte do Codex se houver sessão por chave de API na casa dele.
+    const semCodex = ag.tipo === 'admin' && ag.home_host && !lista.some((f) => f.motor === 'codex');
+    if (semCodex) lista.push({ motor: 'codex', semRaiz: 'nunca rodou neste motor', api: ag.home_host, opcional: true });
+    for (const f of lista) {
+      const inicio = lim.relogio();
+      let d = await descobreFonte(f, lim);
+      if (f.motor === 'codex' && f.api) {
+        const api = await descobreApi(f.api, lim, { arquivos: d.arquivos.length, entradas: d.entradas, inicio });
+        d = unePastasDoCodex(d, api, lim);
+        if (f.opcional && d.estado === 'ausente') continue;
+      }
       for (const a of d.avisos) ctx.avisa(a);
       ctx.contagens.atalhos_ignorados += d.atalhos_ignorados;
       ctx.omitidos += d.avisosOmitidos;

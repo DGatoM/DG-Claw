@@ -56,6 +56,15 @@ Os agentes do registro e o estado de cada fonte (um motor por fonte: `claude` e 
   dos tetos ou do prazo e a lista de sessões pode estar incompleta; o `motivo` diz qual) ou `nao_verificada` (a verificação
   passou do prazo total antes de chegar neste agente: atualize para tentar de novo).
 - O Admin lê o Claude em `transcripts_dir` e o Codex em `codex_home_host/sessions` (se o registro tiver esse campo).
+- Onde as sessões ficam: Claude em `<casa>/.claude/projects` (e `transcripts_dir` no Admin); Codex com assinatura em
+  `<casa>/.codex/sessions` e Codex com chave de API em `<casa>/.plataforma/codex-api/<id>/sessions` (uma pasta por sessão do
+  runner). As pastas da API entram na mesma fonte do Codex, com os mesmos limites; o `<id>` só vale com letras, números, `_` e
+  `-` (até 64), atalhos não são seguidos e o caminho real precisa ficar dentro da casa. Com sessões só no caminho da API, a
+  fonte aparece como lida (nunca como "nunca rodou neste motor"). O Admin ganha a fonte do Codex também quando só há sessões
+  por chave de API na casa dele.
+- Limite conhecido: um agente do Claude configurado com um `CLAUDE_CONFIG_DIR` próprio (variável do `runner.json`, que o registro de
+  agentes não traz) grava o histórico fora de `<casa>/.claude`, e a tela não tem como descobrir esse caminho de fora; nesse caso a
+  fonte do Claude aparece como "ausente" ou "vazia". O Claude por chave de API usa o mesmo diretório de configuração da assinatura.
 
 ### GET /api/v1/logs/agentes/:slug/sessoes
 
