@@ -198,8 +198,9 @@ console.log(saida.join("\n"));'
 # Le DENTRO da caixa, como o usuario agente, a politica remota do Claude Code (conta de uma organizacao claude.ai
 # com "server-managed settings"): o cache fica em /home/agente/.claude/remote-settings.json e vence a configuracao
 # administrada local. Mesmo padrao seguro do PROVEDOR_JS (O_NOFOLLOW|O_NONBLOCK, fstat, so arquivo regular, ate
-# 1 MiB). Imprime uma palavra: sem (arquivo ausente ou objeto vazio), com (objeto com chaves), merge (com
-# "managedSourcesBehavior": "merge", que combina com a politica local) ou duvida (qualquer outra coisa).
+# 1 MiB). Imprime uma palavra: sem (arquivo ausente ou objeto vazio), com (objeto com pelo menos uma chave, qualquer
+# que seja: nao da para validar chave por chave o que a organizacao pode desligar, nem com "managedSourcesBehavior":
+# "merge", porque "disableAllHooks" na mesma politica desliga ate os ganchos administrados) ou duvida (qualquer outra coisa).
 REMOTA_JS='const fs = require("fs");
 let fd;
 try { fd = fs.openSync(process.argv[1], fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK); }
@@ -212,7 +213,7 @@ try {
   const j = JSON.parse(buf.toString("utf8", 0, n));
   if (!j || typeof j !== "object" || Array.isArray(j)) console.log("duvida");
   else if (Object.keys(j).length === 0) console.log("sem");
-  else console.log(j.managedSourcesBehavior === "merge" ? "merge" : "com");
+  else console.log("com");
 } catch (e) { console.log("duvida"); } finally { try { fs.closeSync(fd); } catch (_) {} }'
 
 
@@ -316,9 +317,9 @@ _restricoes_conferir_suporte() {
     # A politica remota de uma organizacao claude.ai substitui a local inteira (inclusive o gancho): so se le com o
     # container ligado e como agente, porque o arquivo e dele.
     RESTRICOES_REMOTA="$(timeout 10 podman exec --user agente "$c" node -e "$REMOTA_JS" /home/agente/.claude/remote-settings.json 2>/dev/null | head -n 1)" || RESTRICOES_REMOTA=""
-    case "$RESTRICOES_REMOTA" in sem|merge) ;; com|duvida) ;; *) RESTRICOES_REMOTA=duvida ;; esac
+    case "$RESTRICOES_REMOTA" in sem|com|duvida) ;; *) RESTRICOES_REMOTA=duvida ;; esac
     case "$RESTRICOES_REMOTA" in
-        com) RESTRICOES_SUPORTE_MOTIVO="a conta de IA conectada pertence a uma organizacao do claude.ai com politica administrada remota (/home/agente/.claude/remote-settings.json), que substitui a configuracao do DG Claw" ;;
+        com) RESTRICOES_SUPORTE_MOTIVO="a conta de IA conectada tem politica administrada remota (/home/agente/.claude/remote-settings.json), que substitui a configuracao do DG Claw" ;;
         duvida) RESTRICOES_SUPORTE_MOTIVO="nao consegui ler com seguranca /home/agente/.claude/remote-settings.json (link, arquivo estranho, grande demais, JSON invalido ou prazo estourado), entao nao sei se a conta de IA conectada tem politica administrada remota, que substituiria a configuracao do DG Claw" ;;
     esac
     case "$RESTRICOES_REMOTA" in com|duvida) RESTRICOES_SUPORTE_CAUSA=remota; return 1 ;; esac
@@ -331,21 +332,41 @@ _restricoes_conferir_suporte() {
 _restricoes_suporte_falhou() {
     local slug="$1"
     if [ "${RESTRICOES_SUPORTE_CAUSA:-}" = remota ]; then
-        falha "o agente $slug usa uma conta de IA que pode pertencer a uma organizacao do claude.ai com politica administrada remota: $RESTRICOES_SUPORTE_MOTIVO. A politica remota vence a configuracao local e o agente poderia gravar arquivos que as rotinas dele executam, por isso as restricoes NAO valem. Parei o container, porque agente com restricao ligada nao roda sem a trava. Os arquivos das restricoes ficaram gravados." \
-            "conecte no agente uma conta pessoal (Pro ou Max) ou uma chave de API, ou peca ao administrador da organizacao para por \"managedSourcesBehavior\": \"merge\" na politica remota. Depois rode: dgclaw agente reiniciar $slug"
+        falha "as restricoes do agente $slug NAO valem: $RESTRICOES_SUPORTE_MOTIVO. A politica remota de uma organizacao do claude.ai vence a configuracao local, e o agente poderia gravar arquivos que as rotinas dele executam. Parei o container, porque agente com restricao ligada nao roda sem a trava. Os arquivos das restricoes ficaram gravados." \
+            "conecte no agente uma conta pessoal (Pro ou Max) ou uma chave de API, ou desligue as restricoes dele. Depois rode: dgclaw agente reiniciar $slug"
     fi
     falha "o agente $slug roda numa imagem antiga que nao carrega a configuracao administrada do Claude Code ($RESTRICOES_SUPORTE_MOTIVO). Por isso as restricoes NAO valem: o agente ainda poderia mudar arquivos que as rotinas dele executam. Parei o container, porque agente com restricao ligada nao roda sem a trava. Os arquivos das restricoes ficaram gravados." \
         "recrie o agente com a imagem atual: dgclaw agente recriar $slug --forcar (--forcar porque o agente ficou parado; se a imagem do servidor tambem estiver velha, antes: dgclaw imagem construir --agora). O recriar liga o agente de novo ja conferindo as restricoes."
 }
 
-# _restricoes_parar_por_falha <slug> <motivo> [etapa]: o container ja esta ligado e nao da para garantir a trava: deixa o
-# marcador de pendencia, PARA o container e registra no log (etapa: iniciar, por padrao, ou aplicar). Quem chama
-# termina com `falha`.
+# _restricoes_parar_por_falha <slug> <motivo> [etapa]: o container esta ligado e nao da para garantir a trava. A
+# contencao vem primeiro e e conferida (stop; se ainda estiver ligado, kill; se mesmo assim estiver, falha dizendo que
+# o agente esta LIGADO SEM A TRAVA). O marcador de pendencia e o log vem depois, cada um num subshell: disco cheio
+# ou erro de escrita nunca impedem a parada. Etapa: iniciar (padrao) ou aplicar. Quem chama termina com `falha`.
 _restricoes_parar_por_falha() {
-    local slug="$1" casa="$DG_CASAS/$1" etapa="${3:-iniciar}"
-    [ -e "$casa/runner/restricoes-suporte.pendente" ] || _restricoes_gravar "$casa/runner/restricoes-suporte.pendente" "conferencia de suporte pendente desde $(date -u +%FT%TZ)"
-    executar podman stop "dgclaw-$slug" >/dev/null
-    _restricoes_log "$slug" "$etapa: $2; container parado"
+    local slug="$1" casa="$DG_CASAS/$1" c="dgclaw-$1" etapa="${3:-iniciar}" estado=""
+    ( executar timeout 60 podman stop "$c" >/dev/null ) || true
+    if [ "$ENSAIO" != 1 ]; then
+        estado="$(timeout 15 podman inspect -f '{{.State.Status}}' "$c" 2>/dev/null || true)"
+        case "$estado" in
+            running|stopping)
+                ( timeout 30 podman kill "$c" >/dev/null 2>&1 ) || true
+                estado="$(timeout 15 podman inspect -f '{{.State.Status}}' "$c" 2>/dev/null || true)"
+                case "$estado" in
+                    running|stopping)
+                        ( _restricoes_log "$slug" "$etapa: $2; NAO consegui parar o container (estado: $estado)" ) || true
+                        falha "o agente $slug esta LIGADO SEM A TRAVA: $2. Tentei parar o container (podman stop e podman kill) e ele continua $estado." \
+                            "pare o agente na mao agora: dgclaw agente parar $slug (ou: podman stop dgclaw-$slug / podman kill dgclaw-$slug). Depois resolva o motivo acima e rode: dgclaw agente iniciar $slug"
+                        ;;
+                esac
+                ;;
+        esac
+    fi
+    if [ ! -e "$casa/runner/restricoes-suporte.pendente" ]; then
+        ( _restricoes_gravar "$casa/runner/restricoes-suporte.pendente" "conferencia de suporte pendente desde $(date -u +%FT%TZ)" ) \
+            || aviso "o container do agente $slug FOI parado, mas nao consegui gravar o marcador $casa/runner/restricoes-suporte.pendente (provavel: disco cheio ou pasta sem permissao). Confira com: df -h /var/lib/dgclaw ; ls -l $casa/runner"
+    fi
+    ( _restricoes_log "$slug" "$etapa: $2; container parado" ) || true
 }
 
 # restricoes_conferir_ao_iniciar <slug>: segunda camada, com o container ja ligado (a primeira, antes de ligar, esta em
@@ -578,8 +599,11 @@ _aplicar_restricoes_sem_trava() {
             rm -f -- "$pend_sup"
         else
             # O marcador de reinicio fica: depois de recriar, a proxima execucao reinicia o runner e confere de novo.
-            [ -e "$pend" ] || _restricoes_gravar "$pend" "reinicio do runner pendente desde $(date -u +%FT%TZ)"
             _restricoes_parar_por_falha "$slug" "configuracao administrada nao vale ($RESTRICOES_SUPORTE_MOTIVO): restricoes gravadas mas NAO valem" aplicar
+            if [ ! -e "$pend" ]; then
+                ( _restricoes_gravar "$pend" "reinicio do runner pendente desde $(date -u +%FT%TZ)" ) \
+                    || aviso "o container do agente $slug FOI parado, mas nao consegui gravar o marcador $pend (provavel: disco cheio). Confira com: df -h /var/lib/dgclaw"
+            fi
             _restricoes_suporte_falhou "$slug"
         fi
     else
@@ -801,7 +825,7 @@ _restricoes_pendencias() {
 # comando que sai com codigo diferente de 0.
 restricoes_mostrar() {
     local slug="$1" json="$2" rs="$3" consulta="${4:-}" pastas ligada casa="$DG_CASAS/$1" c="dgclaw-$1"
-    local marcador txt estado=parado esperado="" codex_em="" motivo="" pend_linhas=() nome cmd rotulo quem_liga remota_merge=0
+    local marcador txt estado=parado esperado="" codex_em="" motivo="" pend_linhas=() nome cmd rotulo quem_liga
     printf '\nRestricoes do agente %s\n' "$slug"
     if [ ! -e "$rs" ]; then
         printf '  Nenhuma restricao definida (o agente faz tudo o que o DG Claw permite).\n'
@@ -829,12 +853,10 @@ restricoes_mostrar() {
                 motivo="managed-settings.json ausente, vazio ou invalido com restricao ligada. Resolve: $quem_liga (refaz os arquivos a partir do restricoes.json)"
             elif ! _restricoes_conferir_suporte "$slug" "$esperado"; then
                 if [ "${RESTRICOES_SUPORTE_CAUSA:-}" = remota ]; then
-                    motivo="$RESTRICOES_SUPORTE_MOTIVO. O agente esta ligado SEM a trava (pare com: dgclaw agente parar $slug). Resolve: conectar no agente uma conta pessoal (Pro ou Max) ou chave de API, ou pedir ao administrador da organizacao para por \"managedSourcesBehavior\": \"merge\" na politica remota; depois: dgclaw agente reiniciar $slug"
+                    motivo="$RESTRICOES_SUPORTE_MOTIVO. O agente esta ligado SEM a trava (pare com: dgclaw agente parar $slug). Resolve: conectar no agente uma conta pessoal (Pro ou Max) ou chave de API, ou desligar as restricoes dele; depois: dgclaw agente reiniciar $slug"
                 else
                     motivo="$RESTRICOES_SUPORTE_MOTIVO. O agente esta ligado SEM a trava (pare com: dgclaw agente parar $slug). Resolve: dgclaw agente recriar $slug (se a imagem do servidor tambem estiver velha, antes: dgclaw imagem construir --agora)"
                 fi
-            else
-                [ "${RESTRICOES_REMOTA:-}" != merge ] || remota_merge=1
             fi
         fi
         codex_em="$(_restricoes_sessoes_em_codex "$casa" "$c" "$([ "$estado" = ligado ] && echo 1 || echo 0)")"
@@ -851,9 +873,6 @@ restricoes_mostrar() {
     if [ "$consulta" = consulta ] && [ "$ENSAIO" != 1 ] && [ "$ligada" = true ]; then
         if [ "$estado" != ligado ]; then
             printf '  Conferencia:           o agente esta parado; a imagem sera conferida quando ele ligar (dgclaw agente iniciar %s).\n' "$slug"
-        fi
-        if [ "$remota_merge" = 1 ]; then
-            printf '  Politica remota:       a conta de IA tem politica administrada remota com "managedSourcesBehavior": "merge"; as listas combinam com as do DG Claw e o gancho de escrita continua valendo.\n'
         fi
         if [ -n "$codex_em" ]; then
             printf '  Codex:                 %s. No Codex estas travas nao valem (o runner ignora as regras de ferramentas e os ganchos do Claude Code); passam a valer na sessao que voltar para o Claude.\n' "$codex_em"

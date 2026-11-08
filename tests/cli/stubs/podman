@@ -42,11 +42,17 @@ case "${1:-}" in
     stop)
         nome="${*: -1}"
         [ -f "$est/c-$nome" ] || exit 0
+        # stop-nao-para: o stop devolve 0, mas o container continua ligado (o caso do container que ignora o sinal).
+        [ -f "$est/stop-nao-para" ] && exit 0
         # stop-trava-<container> = N: o stop devolve, mas o estado fica "stopping" por N consultas
         # (depois vira exited); = sempre: fica "stopping" para sempre (o caso real do podman 4.9.3).
         if [ -f "$est/stop-trava-$nome" ]; then
             echo stopping > "$est/c-$nome"; cp "$est/stop-trava-$nome" "$est/stopping-resta-$nome"
         else echo exited > "$est/c-$nome"; fi ;;
+    kill)
+        nome="${*: -1}"
+        [ -f "$est/c-$nome" ] || exit 0
+        [ -f "$est/kill-nao-mata" ] || echo exited > "$est/c-$nome" ;;
     rm)
         nome="${*: -1}"; forca=0
         for a in "$@"; do [ "$a" = -f ] && forca=1; done
@@ -120,6 +126,7 @@ case "${1:-}" in
                 rs="$casa/.claude/remote-settings.json"; mkdir -p "$casa/.claude"; rm -f "$rs"
                 if [ -f "$est/remota-com-chave" ]; then echo '{"permissions":{"deny":["Bash"]}}' > "$rs"
                 elif [ -f "$est/remota-merge" ]; then echo '{"managedSourcesBehavior":"merge","permissions":{}}' > "$rs"
+                elif [ -f "$est/remota-merge-desliga" ]; then echo '{"managedSourcesBehavior":"merge","disableAllHooks":true}' > "$rs"
                 elif [ -f "$est/remota-link" ]; then ln -s /etc/passwd "$rs"
                 elif [ -f "$est/remota-invalida" ]; then echo '{nao e json' > "$rs"
                 elif [ -f "$est/remota-vazia" ]; then echo '{}' > "$rs"

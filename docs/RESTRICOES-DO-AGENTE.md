@@ -228,8 +228,9 @@ de paridade aberta até o Codex ter regras de ferramenta equivalentes."
 
 Uma conta de IA que pertence a uma organização do claude.ai (planos Team ou Enterprise) pode trazer uma política administrada
 remota ("server-managed settings"). No modo padrão do Claude Code essa política é a primeira da fila e **substitui por inteiro**
-o `managed-settings.json` do DG Claw, inclusive o gancho de escrita. O DG Claw não consegue impor o contrário, porque a opção
-`managedSourcesBehavior: "merge"` só vale quando está na própria política remota, que é do administrador da organização.
+o `managed-settings.json` do DG Claw, inclusive o gancho de escrita. O DG Claw não consegue impor o contrário, porque a política
+remota é do administrador da organização. Nesta versão, conta de organização com política administrada remota não é compatível
+com as restrições: nem uma política que combine com a local serve, porque a própria organização pode desligar os ganchos nela.
 
 O Claude Code guarda a cópia dessa política em `/home/agente/.claude/remote-settings.json` e a aplica no início das sessões
 seguintes. Por isso, com o agente ligado, a conferência (ao aplicar, ao iniciar, ao reiniciar, ao criar o container e na consulta)
@@ -238,12 +239,16 @@ lê esse arquivo por dentro da caixa, como o usuário `agente`, com prazo e sem 
 | Situação do arquivo | Resultado |
 | --- | --- |
 | ausente, ou objeto vazio `{}` | segue |
-| política com `"managedSourcesBehavior": "merge"` | segue (as listas combinam e o gancho local entra); a consulta mostra a linha `Politica remota` |
-| política com qualquer outra chave | falha: as restrições não valem e o container é parado |
+| política com qualquer chave, inclusive `"managedSourcesBehavior": "merge"` | falha: as restrições não valem e o container é parado |
 | link, não é arquivo comum, maior que 1 MiB, JSON inválido, prazo estourado | falha, pela dúvida |
 
-Para resolver: conectar no agente uma conta pessoal (Pro ou Max) ou uma chave de API, ou pedir ao administrador da organização que
-ponha `"managedSourcesBehavior": "merge"` na política remota; depois, `dgclaw agente reiniciar <agente>`.
+Para resolver: conectar no agente uma conta pessoal (Pro ou Max) ou uma chave de API, ou desligar as restrições; depois,
+`dgclaw agente reiniciar <agente>`.
+
+Quando o DG Claw para o agente por causa de uma falha dessas, ele confere que o container parou de verdade (`podman stop`, e
+`podman kill` se ainda estiver ligado) antes de gravar o marcador e o log. Se nem assim ele parar, a mensagem diz que o agente está
+LIGADO SEM A TRAVA e manda parar na mão (`dgclaw agente parar <agente>`). Se o marcador não puder ser gravado (disco cheio, por
+exemplo), o agente continua parado e o comando avisa.
 
 Limite: o arquivo é do agente e só se lê com o container ligado. A checagem de antes de ligar (rótulo da imagem) não o vê; a
 conferência logo depois da partida o pega e para o container. A política remota baixada durante a sessão só aparece no cache no

@@ -49,8 +49,11 @@ Com o terminal travado, o `Monitor` também fica negado, porque ele executa coma
 Se a conta de IA conectada a um agente pertence a uma organização do claude.ai (planos Team ou Enterprise) com política
 administrada remota, essa política substitui a configuração do DG Claw e as restrições deixam de valer. Para um agente
 com restrições, o `iniciar`, o `reiniciar` e a consulta passam a detectar isso, param o agente e explicam. A saída é conectar
-nele uma conta pessoal (Pro ou Max) ou uma chave de API, ou pedir ao administrador da organização que ponha
-`"managedSourcesBehavior": "merge"` na política remota, e então rodar `sudo dgclaw agente reiniciar <agente>`.
+nele uma conta pessoal (Pro ou Max) ou uma chave de API, ou desligar as restrições, e então rodar
+`sudo dgclaw agente reiniciar <agente>`. Conta de organização com política administrada remota não é compatível com as
+restrições nesta versão, nem quando a política pede para combinar com a local, porque a própria organização pode desligar os
+ganchos nela. Quando o DG Claw para o agente por esse motivo, ele confere que o container parou de verdade antes de gravar
+qualquer marcador; se nem assim ele parar, a mensagem diz que o agente está ligado sem a trava e como pará-lo na mão.
 
 **Nova página Conectar conta.** Antes, para conectar a conta do Claude de um agente alguém tinha de gerar um link de login
 e mandar por mensagem, e o link vencia antes de você ver. Agora o painel tem a página **Conectar conta** (no menu ☰, ou em

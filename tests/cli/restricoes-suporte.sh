@@ -131,7 +131,7 @@ echo running >"$STUB_ESTADO/c-dgclaw-ana"
 
 echo "politica remota (conta de organizacao claude.ai): vence a local, entao a conferencia falha e o container para"
 RH="$LIB/agentes/ana/home/.claude/remote-settings.json"
-for caso in remota-com-chave remota-link remota-invalida exec-node-nao; do
+for caso in remota-com-chave remota-merge remota-merge-desliga remota-link remota-invalida exec-node-nao; do
     echo running >"$STUB_ESTADO/c-dgclaw-ana"
     dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1
     touch "$STUB_ESTADO/$caso"
@@ -142,7 +142,8 @@ for caso in remota-com-chave remota-link remota-invalida exec-node-nao; do
     afirma "$caso: leu o arquivo dentro da caixa como agente" grep -q ' /home/agente/\.claude/remote-settings\.json$' "$STUB_LOG"
     afirma "$caso: diz que as restricoes NAO valem" grep -q 'NAO valem' "$TMP/o10.txt"
     afirma "$caso: fala da organizacao do claude.ai" grep -q 'organizacao do claude.ai' "$TMP/o10.txt"
-    afirma "$caso: orienta conta pessoal ou merge e reiniciar" grep -q 'managedSourcesBehavior.*merge.*dgclaw agente reiniciar ana' "$TMP/o10.txt"
+    afirma "$caso: orienta conta pessoal ou chave de API e reiniciar" grep -q 'conta pessoal (Pro ou Max) ou uma chave de API.*dgclaw agente reiniciar ana' "$TMP/o10.txt"
+    nega "$caso: nao sugere mais o merge" grep -qi 'managedSourcesBehavior\|merge' "$TMP/o10.txt"
     nega "$caso: nao manda recriar a imagem" grep -q 'agente recriar' "$TMP/o10.txt"
     afirma "$caso: parou o container" grep -q '^podman stop dgclaw-ana' "$STUB_LOG"
     igual "$caso: ficou parado" "exited" "$(cat "$STUB_ESTADO/c-dgclaw-ana")"
@@ -153,8 +154,8 @@ touch "$STUB_ESTADO/remota-com-chave"
 dgclaw agente iniciar ana >"$TMP/o11.txt" 2>&1; nega "iniciar com politica remota falha" test "$?" -eq 0
 igual "e o container fica parado" "exited" "$(cat "$STUB_ESTADO/c-dgclaw-ana")"
 rm -f "$STUB_ESTADO/remota-com-chave"
-echo "politica remota: ausente, vazia ou com merge passam"
-for caso in nenhuma remota-vazia remota-merge; do
+echo "politica remota: ausente ou vazia passam"
+for caso in nenhuma remota-vazia; do
     echo running >"$STUB_ESTADO/c-dgclaw-ana"
     dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1
     [ "$caso" = nenhuma ] || touch "$STUB_ESTADO/$caso"
@@ -164,5 +165,46 @@ for caso in nenhuma remota-vazia remota-merge; do
 done
 echo running >"$STUB_ESTADO/c-dgclaw-ana"
 rm -f "$RH"
+
+echo "parada de seguranca: a contencao vem primeiro, o marcador que nao grava nao a impede"
+FALSO_MV="$TMP/falso-mv"; mkdir -p "$FALSO_MV"
+printf '#!/bin/sh\ncase "$*" in *restricoes-suporte.pendente*) echo "mv: falha simulada" >&2; exit 1;; esac\nexec /bin/mv "$@"\n' >"$FALSO_MV/mv"; chmod +x "$FALSO_MV/mv"
+echo running >"$STUB_ESTADO/c-dgclaw-ana"
+dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1
+touch "$STUB_ESTADO/sem-suporte"
+: >"$STUB_LOG"
+rm -f "$PEND_SUP"
+PATH="$FALSO_MV:$PATH" dgclaw agente restricoes ana --sem-bash sim >"$TMP/o13.txt" 2>&1; rc=$?
+nega "marcador que nao grava: o comando falha" test "$rc" -eq 0
+afirma "chamou o podman stop" grep -q '^podman stop dgclaw-ana' "$STUB_LOG"
+igual "o container ficou parado" "exited" "$(cat "$STUB_ESTADO/c-dgclaw-ana")"
+afirma "a falha final e a da conferencia (imagem)" grep -q 'NAO valem' "$TMP/o13.txt"
+afirma "avisa que parou mas o marcador nao gravou" grep -q 'FOI parado.*marcador' "$TMP/o13.txt"
+rm -f "$STUB_ESTADO/sem-suporte"
+
+echo "parada de seguranca: stop que nao para tenta o kill"
+echo running >"$STUB_ESTADO/c-dgclaw-ana"
+dgclaw agente restricoes ana --sem-bash nao >/dev/null 2>&1
+touch "$STUB_ESTADO/sem-suporte" "$STUB_ESTADO/stop-nao-para"
+: >"$STUB_LOG"
+dgclaw agente restricoes ana --sem-bash sim >"$TMP/o14.txt" 2>&1; rc=$?
+nega "o comando falha" test "$rc" -eq 0
+afirma "tentou o stop" grep -q '^podman stop dgclaw-ana' "$STUB_LOG"
+afirma "e depois o kill" grep -q '^podman kill dgclaw-ana' "$STUB_LOG"
+igual "o kill parou o container" "exited" "$(cat "$STUB_ESTADO/c-dgclaw-ana")"
+nega "nao diz LIGADO SEM A TRAVA quando o kill funcionou" grep -q 'LIGADO SEM A TRAVA' "$TMP/o14.txt"
+
+echo "parada de seguranca: nem o kill para, a falha diz LIGADO SEM A TRAVA"
+echo running >"$STUB_ESTADO/c-dgclaw-ana"
+touch "$STUB_ESTADO/kill-nao-mata"
+: >"$STUB_LOG"
+dgclaw agente restricoes ana --sem-bash sim >"$TMP/o15.txt" 2>&1; rc=$?
+nega "o comando falha" test "$rc" -eq 0
+afirma "tentou o kill" grep -q '^podman kill dgclaw-ana' "$STUB_LOG"
+afirma "diz LIGADO SEM A TRAVA" grep -q 'LIGADO SEM A TRAVA' "$TMP/o15.txt"
+afirma "manda parar na mao" grep -q 'dgclaw agente parar ana' "$TMP/o15.txt"
+rm -f "$STUB_ESTADO/sem-suporte" "$STUB_ESTADO/stop-nao-para" "$STUB_ESTADO/kill-nao-mata"
+echo running >"$STUB_ESTADO/c-dgclaw-ana"
+rm -f "$PEND_SUP"
 
 fim
