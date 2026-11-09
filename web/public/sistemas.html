@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Sistemas conectados - DG Claw</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#2f9e5e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="icon" href="/icons/icon-192.png">
+<link rel="stylesheet" href="/sistemas.css">
+<link rel="stylesheet" href="/casca.css">
+<link rel="stylesheet" href="/menu-lado.css">
+<link rel="stylesheet" href="/sem-zoom.css">
+<script src="/sem-zoom.js"></script>
+</head>
+<body class="sc">
+
+<main class="sc-main">
+  <p class="sc-erro" id="scErro" role="alert" hidden></p>
+
+  <section class="sc-palco" id="scPalco" data-tour="sc-palco" aria-label="O agente no centro e os sistemas ligados a ele">
+    <svg class="sc-svg" id="scSvg" aria-hidden="true" focusable="false"></svg>
+    <div class="sc-agente" id="scAgente" data-tour="sc-agente">
+      <div class="sc-foto" id="scFoto"></div>
+      <div class="sc-agente-nome" id="scAgenteNome">Conferindo...</div>
+      <div class="sc-agente-estado" id="scAgenteEstado" role="status"></div>
+    </div>
+    <div class="sc-nos" id="scNos"></div>
+  </section>
+
+  <ul class="sc-lista" id="scLista" data-tour="sc-lista" aria-label="Sistemas conectados"></ul>
+
+  <footer class="sc-legenda" id="scLegenda" data-tour="sc-legenda">
+    <span class="sc-chip c-conectado"><i></i>Conectado: <b id="scNConectado">0</b></span>
+    <span class="sc-chip c-caido"><i></i>Caído: <b id="scNCaido">0</b></span>
+    <span class="sc-chip c-nao_medido"><i></i>Não medido: <b id="scNNaoMedido">0</b></span>
+    <span class="sc-medido" id="scMedido" role="status">Conferindo...</span>
+  </footer>
+</main>
+
+<script src="/tour.js"></script>
+<script src="/menu-lado.js"></script>
+<script src="/casca.js"></script>
+<script src="/sistemas.js"></script>
+<script>
+DGCasca.monta({ pagina: 'sistemas', titulo: 'Sistemas conectados', aoTutorial: function () { if (window.DGSistemasTutorial) window.DGSistemasTutorial(); } });
+</script>
+</body>
+</html>

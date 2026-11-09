@@ -85,7 +85,7 @@
 
   /* ── Parte com DOM ─────────────────────────────────────────────────────── */
   const $ = id => document.getElementById(id);
-  const est = { pagina: '', titulo: '', aoTutorial: null, pronto: false, extras: null, agente: null, lista: [] };
+  const est = { demo: false, pagina: '', titulo: '', aoTutorial: null, pronto: false, extras: null, agente: null, lista: [] };
 
   const abreMenu = sim => {
     const menu = $('menu'), ov = $('overlayMenu');
@@ -151,6 +151,7 @@
     const r = await fetch('/api/v1/agents', { cache: 'no-store', credentials: 'same-origin' });
     const d = await r.json().catch(() => null);
     if (!r.ok || !d || d.ok === false) throw new Error((d && d.erro) || ('a API respondeu ' + r.status));
+    est.demo = d.demo === true;
     return Array.isArray(d.agentes) ? d.agentes : [];
   }
 
@@ -227,7 +228,7 @@
         }
         raiz.DGMenuLado.inicia({
           agente: ag, agentes: erro ? undefined : lista, erroLista: erro ? 'o servidor respondeu: ' + erro : undefined,
-          fecha: () => abreMenu(false), ativo: est.pagina, extras: est.extras || undefined,
+          fecha: () => abreMenu(false), ativo: est.pagina, extras: est.extras || undefined, demo: est.demo,
         });
         est.pronto = true;
         raiz.DGMenuLado.marca(est.pagina);

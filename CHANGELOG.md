@@ -7,6 +7,10 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Modo demonstração, para mostrar o seu agente numa reunião de venda.** Uma instalação pode ganhar um painel próprio, só com o agente da demonstração, em que nada sai nem é lido sem o seu clique. O agente não recebe nenhuma chave de WhatsApp, CRM ou e-mail: ele pede por um Portão, e a tela abre um cartão grande, legível de longe, com o canal, a linha, o nome e o número completo de quem vai receber, o texto inteiro e os anexos. Só o Confirmar manda; o cartão vale uma vez e por 10 minutos, e o que foi recusado não é reenviado. Para abrir a conversa de um contato, o cartão mostra os nomes parecidos e você escolhe quem é, o agente nunca vê a lista. Uma trava de teste (`destinos_de_teste`) impede qualquer envio fora dos números combinados, mesmo com clique. Cada decisão e cada envio ficam numa auditoria sem o texto da mensagem e sem o número inteiro.
+
+O botão **Novo cliente (Reset)**, no cabeçalho da conversa, pede que você escreva NOVO CLIENTE, guarda a conversa, a memória, os arquivos e os cartões do cliente anterior numa pasta de arquivo no servidor (nada é apagado), recoloca a semente de memória da demonstração e deixa o agente começar uma sessão nova. O login e a identidade do agente continuam. O mesmo reset roda no terminal com `sudo dgclaw-demo-reset <agente>`. O modo só existe quando o painel é iniciado com `DGCLAW_DEMO_CONFIG` apontando para o `demo.json`; quem não usa o modo não vê nenhuma diferença. O contrato completo está em `docs/MODO-DEMONSTRACAO.md`.
+
 **A aba Operações volta a mostrar as barrinhas de cada rotina, com rotina, horário e resultado.** O painel do agente não
 tinha permissão para ler o diário do sistema, e sem ela a aba dizia que não havia histórico, mesmo com as rotinas
 rodando. Agora, dentro do contêiner, o usuário do agente passa a poder ler o diário do sistema daquele contêiner. Se o

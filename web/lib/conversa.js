@@ -831,8 +831,15 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     return entregaComando(agente, d, ator);
   }
 
+  /** Esquece tudo o que a leitura guardou em memória de um agente (o Reset do modo demonstração apagou a conversa dele do disco). */
+  function esquecerAgente(slug) {
+    for (const m of [alertasVersao, juntadas, estadoRunner, ultimoArquivo, atividadeAnterior, rotulos, ultimas]) m.delete(slug);
+    for (const m of [arquivoPorSessao, rolloutPorSessao, semArquivoDesde]) for (const k of [...m.keys()]) if (k.startsWith(slug + '|')) m.delete(k);
+    for (const k of [...logUmaVez.keys()]) if (k.includes(slug)) logUmaVez.delete(k);
+  }
+
   return {
-    montarEnvelope, validaControle, autoriaDaPendencia, estado, thread, threadCompartilhada, atividade, rotuloProvedor, ultimaMensagemTs, umaVez, enviar, comando, comandos, entregar, permissao, responderPergunta, reiniciar,
+    esquecerAgente, montarEnvelope, validaControle, autoriaDaPendencia, estado, thread, threadCompartilhada, atividade, rotuloProvedor, ultimaMensagemTs, umaVez, enviar, comando, comandos, entregar, permissao, responderPergunta, reiniciar,
     RX_CLIENTE_ID,
   };
 }

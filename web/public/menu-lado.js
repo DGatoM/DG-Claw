@@ -65,6 +65,7 @@
     if (aba) return decodeURIComponent(aba[1]);
     const caminho = h.split(/[?#]/)[0].replace(/\/+$/, '');
     if (caminho === '/mesa') return 'mesa';
+    if (caminho === '/sistemas') return 'sistemas';
     if (caminho === '/lembretes') return 'lembretes';
     if (caminho === '/avisos') return 'avisos';
     if (caminho === '/seguranca') return 'seguranca';
@@ -631,6 +632,14 @@
       else mesa.setAttribute('href', comAgente('/mesa', ag.id));
     }
     ligaSessoes(ag);
+    // Modo demonstração: Sistemas conectados fica logo depois da Mesa e das Sessões.
+    if (opcoes.demo && !colab) {
+      const ancoraSis = $('mlSessoes') || mesa;
+      if (ancoraSis && ancoraSis.parentElement) {
+        ancoraSis.parentElement.insertAdjacentHTML('afterend', `<div data-tour="gm-sistemas"><a class="ml-tab" href="${comAgente('/sistemas', ag.id)}">` +
+          '<span class="ml-ico" aria-hidden="true">◎</span>Sistemas conectados</a></div>');
+      }
+    }
     // Colaborador não vê a Tela do agente: o navegador logado é do dono.
     const tela = colab ? null : linkTela(ag), ancoraTela = $('mlSessoes') || mesa;
     if (tela && ancoraTela && ancoraTela.parentElement) {

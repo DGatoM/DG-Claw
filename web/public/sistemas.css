@@ -1,0 +1,86 @@
+/* sistemas.css: a tela Sistemas conectados (/sistemas), do modo demonstração.
+   Fundo escuro de propósito: é uma tela para mostrar em reunião. Só anima o que está conectado. */
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+:root{--c-conectado:#34d399;--c-caido:#f87171;--c-nao_medido:#94a3b8;--sc-txt:#e8eef7;--sc-fraco:#93a4bd}
+html,body{margin:0;min-height:100%}
+body.sc{background:radial-gradient(1100px 700px at 50% 45%,#12203a 0%,#0a1020 55%,#060a14 100%);color:var(--sc-txt);overflow-x:hidden;
+  font:15.5px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif}
+[hidden]{display:none !important}
+.sc-main{max-width:1180px;margin:0 auto;padding:14px 14px calc(18px + env(safe-area-inset-bottom))}
+
+.sc-erro{margin:0 0 12px;padding:12px 14px;border-radius:12px;background:#3b1519;border:1px solid #7f2a31;color:#ffd5d8;font-weight:600}
+
+/* palco: o agente no centro, os sistemas em círculo */
+.sc-palco{position:relative;height:clamp(520px,calc(100vh - 190px),700px);overflow:hidden}
+.sc-svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.sc-svg .linha{fill:none;stroke-width:2;stroke-linecap:round}
+.sc-svg .linha.conectado{stroke:var(--c-conectado);opacity:.55}
+.sc-svg .linha.caido{stroke:var(--c-caido);opacity:.8}
+.sc-svg .linha.nao_medido{stroke:var(--c-nao_medido);opacity:.6;stroke-dasharray:7 7}
+.sc-svg .luz{fill:#eafff6;filter:drop-shadow(0 0 5px var(--c-conectado)) drop-shadow(0 0 10px var(--c-conectado))}
+
+.sc-agente{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);text-align:center;z-index:2;width:220px}
+.sc-foto{position:relative;width:150px;height:150px;margin:0 auto 8px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;font-size:64px;font-weight:700;color:#fff;background:#2f9e5e;
+  box-shadow:0 0 0 5px rgba(255,255,255,.08),0 0 60px 14px rgba(120,170,255,.28)}
+.sc-foto img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block}
+.sc-foto::after{content:"";position:absolute;inset:-14px;border-radius:50%;border:2px solid rgba(160,200,255,.22);pointer-events:none}
+.sc-foto.conectado::after{border-color:rgba(52,211,153,.45);animation:sc-halo 3.4s ease-in-out infinite}
+.sc-foto.caido::after{border-color:rgba(248,113,113,.7)}
+.sc-agente-nome{font-size:22px;font-weight:700;letter-spacing:.2px}
+.sc-agente-estado{font-size:13.5px;color:var(--sc-fraco);margin-top:2px}
+.sc-agente-estado.conectado{color:var(--c-conectado)}
+.sc-agente-estado.caido{color:var(--c-caido)}
+@keyframes sc-halo{0%,100%{transform:scale(1);opacity:.9}50%{transform:scale(1.07);opacity:.35}}
+
+.sc-nos{position:absolute;inset:0;z-index:1;pointer-events:none}
+.sc-no{position:absolute;width:210px;text-align:center;pointer-events:auto}
+.sc-no-bola{width:68px;height:68px;margin:-34px auto 8px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-size:28px;background:#101a2e;border:3px solid var(--c-nao_medido);box-shadow:0 0 22px rgba(148,163,184,.2)}
+.sc-no.conectado .sc-no-bola{border-color:var(--c-conectado);box-shadow:0 0 26px rgba(52,211,153,.4);animation:sc-pulso 2.6s ease-in-out infinite}
+.sc-no.caido .sc-no-bola{border-color:var(--c-caido);box-shadow:0 0 22px rgba(248,113,113,.35)}
+.sc-no.nao_medido .sc-no-bola{border-style:dashed}
+@keyframes sc-pulso{0%,100%{transform:scale(1)}50%{transform:scale(1.07)}}
+.sc-no-rotulo{font-weight:700;font-size:15px}
+.sc-no-estado{font-size:13px;font-weight:600}
+.sc-no.conectado .sc-no-estado{color:var(--c-conectado)}
+.sc-no.caido .sc-no-estado{color:var(--c-caido)}
+.sc-no.nao_medido .sc-no-estado{color:var(--c-nao_medido)}
+.sc-no-motivo{margin-top:3px;font-size:12.5px;line-height:1.35;color:var(--sc-fraco)}
+.sc-no-detalhe{font-size:12px;color:var(--sc-fraco)}
+
+/* legenda */
+.sc-legenda{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;margin-top:8px;padding:12px 14px;border-radius:14px;
+  background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);font-size:14px}
+.sc-chip{display:inline-flex;align-items:center;gap:7px}
+.sc-chip i{width:11px;height:11px;border-radius:50%;background:var(--c-nao_medido);display:inline-block}
+.sc-chip.c-conectado i{background:var(--c-conectado)}
+.sc-chip.c-caido i{background:var(--c-caido)}
+.sc-medido{margin-left:auto;color:var(--sc-fraco)}
+
+/* lista (celular) */
+.sc-lista{display:none;list-style:none;margin:0;padding:0;gap:10px}
+.sc-item{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border-radius:14px;background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.1);border-left:5px solid var(--c-nao_medido);min-width:0}
+.sc-item.conectado{border-left-color:var(--c-conectado)}
+.sc-item.caido{border-left-color:var(--c-caido)}
+.sc-item-ico{font-size:24px;line-height:1.2;flex:0 0 auto}
+.sc-item-corpo{min-width:0;flex:1}
+.sc-item-rotulo{font-weight:700}
+.sc-item-estado{font-size:13.5px;font-weight:600}
+.sc-item.conectado .sc-item-estado{color:var(--c-conectado)}
+.sc-item.caido .sc-item-estado{color:var(--c-caido)}
+.sc-item.nao_medido .sc-item-estado{color:var(--c-nao_medido)}
+.sc-item-motivo{font-size:13px;color:var(--sc-fraco);margin-top:2px;overflow-wrap:anywhere}
+
+@media (max-width:760px){
+  .sc-svg,.sc-nos{display:none}
+  .sc-palco{height:auto;overflow:visible;padding:18px 0 14px}
+  .sc-agente{position:static;transform:none;margin:0 auto}
+  .sc-foto{width:120px;height:120px;font-size:52px}
+  .sc-lista{display:grid}
+  .sc-medido{margin-left:0;flex-basis:100%}
+}
+@media (prefers-reduced-motion:reduce){
+  .sc-foto::after,.sc-no .sc-no-bola{animation:none !important}
+}
