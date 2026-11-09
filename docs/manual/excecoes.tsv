@@ -7,4 +7,3 @@ rota	/api/demo/reset	modo demonstracao: so existe com DGCLAW_DEMO_CONFIG; contra
 rota	/api/demo/reset/estado	modo demonstracao: so existe com DGCLAW_DEMO_CONFIG; contrato em docs/MODO-DEMONSTRACAO.md
 rota	/api/demo/v1/envio	modo demonstracao: Portao do agente, so existe com DGCLAW_DEMO_CONFIG; contrato em docs/MODO-DEMONSTRACAO.md
 tela	/sistemas	modo demonstracao: so existe com DGCLAW_DEMO_CONFIG; contrato em docs/MODO-DEMONSTRACAO.md
-rota	/api/demo/sistemas	modo demonstracao: so existe com DGCLAW_DEMO_CONFIG; contrato em docs/MODO-DEMONSTRACAO.md
