@@ -622,6 +622,15 @@ function criarDemo({ config: webConfig, registro, log, agora, fetchImpl, spawnIm
       try { auditar('falhou', c, { quem, codigo: c.codigo }); } catch (a) { log('erro', a.message); }
     };
     if (!destinoPermitido(c)) { const e = erroDestinoDeTeste(); falhar(e); throw e; }
+    // Depois de cada espera (aqui, a leitura dos anexos) o mundo pode ter mudado: houve reset, o cartão expirou ou
+    // foi arquivado. Relê o cartão e só segue se ele ainda for este, aguardando e dentro do prazo.
+    const reconferirDepoisDaLeitura = () => {
+      confereGeracao(g);
+      const atual = lerCartao(id);
+      if (!atual || atual.estado !== 'aguardando') throw ruim(409, 'CARTAO_JA_DECIDIDO', atual && atual.estado === 'expirado' ? 'Este cartão expirou enquanto eu lia os anexos. Nada foi enviado. Peça ao agente para pedir de novo.' : `Este cartão já não está aguardando (${atual ? atual.estado : 'saiu num reset'}). Nada foi enviado.`);
+      Object.assign(c, atual);
+      c.decidido_por = quem;
+    };
     let dados;
     try {
       dados = [];
@@ -630,7 +639,12 @@ function criarDemo({ config: webConfig, registro, log, agora, fetchImpl, spawnIm
         if (novo.sha256 !== a.sha256) throw ruim(409, 'ANEXO_MUDOU', `O arquivo ${a.nome} mudou depois que o cartão foi criado. Por segurança nada foi enviado. Peça ao agente para pedir de novo.`);
         dados.push({ nome: a.nome, mime: novo.mime, dados: novo.dados });
       }
-    } catch (e) { if (e instanceof ErroDemo) { falhar(e); } throw e; }
+    } catch (e) {
+      // A leitura levou tempo: antes de gravar qualquer falha, confere que o reset e a expiração não passaram por aqui.
+      if (e instanceof ErroDemo) { reconferirDepoisDaLeitura(); falhar(e); }
+      throw e;
+    }
+    reconferirDepoisDaLeitura();
     auditar('confirmou', c, { quem });
     c.estado = 'enviando';
     gravaCartao(c);

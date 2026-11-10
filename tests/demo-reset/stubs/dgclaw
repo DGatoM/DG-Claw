@@ -7,6 +7,7 @@ if [ "${1:-}" = agente ] && [ "${2:-}" = iniciar ]; then
     mkdir -p "${STUB_CASA:?}/.plataforma"
     printf '{"sessionId":"%s"}\n' "${STUB_SESSAO_NOVA:-sessao-nova}" > "$STUB_CASA/.plataforma/runner-state.json"
     if [ -n "${STUB_ESCREVE_ROLLOUT:-}" ]; then mkdir -p "$STUB_CASA/.plataforma/codex-api/x/sessions/2026/11"; echo velha > "$STUB_CASA/.plataforma/codex-api/x/sessions/2026/11/rollout-9.jsonl"; fi
+    if [ -n "${STUB_ESCREVE_BACKUP:-}" ]; then mkdir -p "$STUB_CASA/.dgclaw/backups/memoria"; echo velha > "$STUB_CASA/.dgclaw/backups/memoria/MEMORY.md.20261109-000000"; fi
     if [ -n "${STUB_ESCREVE_MEMORIA:-}" ]; then mkdir -p "$STUB_CASA/memory"; echo velha > "$STUB_CASA/memory/2026-11-09.md"; fi
 fi
 exit 0

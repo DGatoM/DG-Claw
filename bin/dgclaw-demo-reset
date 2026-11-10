@@ -315,12 +315,19 @@ historicos() {
     done
 }
 
+# Cópias de conteúdo do cliente anterior que o painel e o agente guardam na casa fora das pastas acima:
+# as cópias da memória feitas a cada edição (panel/lib/memoria.js), o registro das edições, o histórico da sessão de
+# socorro (panel/lib/socorro.js) e o registro das sessões paralelas (panel/lib/sessoes-local.js). São movidas, nunca
+# apagadas. Ficam de fora de propósito: .dgclaw/demo.token, demo.url, crm.key e a configuração da tela/VNC.
+COPIAS_DE_CONTEUDO=(.dgclaw/backups .dgclaw/socorro .dgclaw/logs/edicoes-memoria.jsonl .dgclaw/panel/sessoes-local.json)
+
 passo "Guardando a conversa e a memória do cliente anterior em $DESTINO"
 while IFS= read -r rel; do
     mover "$CASA" "$rel" casa
 done < <(historicos)
 for rel in memory MEMORY.md working-memory.md arquivos saida uploads crm data planning \
            .dgclaw/memory_index .dgclaw/retratos .cache \
+           "${COPIAS_DE_CONTEUDO[@]}" \
            .plataforma/runner-state.json .plataforma/sessoes-extras.json .plataforma/dgchat .plataforma/fila-ocioso; do
     mover "$CASA" "$rel" casa
 done
@@ -404,6 +411,14 @@ while IFS= read -r rel; do
         falha "ainda há histórico de sessão do cliente anterior em $CASA/$rel."
     fi
 done < <(historicos)
+for rel in "${COPIAS_DE_CONTEUDO[@]}"; do
+    [ -e "$SEMENTE/$rel" ] && continue
+    if [ -d "$CASA/$rel" ] && [ ! -L "$CASA/$rel" ]; then
+        [ -z "$(find "$CASA/$rel" -type f -print -quit 2>/dev/null)" ] || falha "ainda há cópia de conteúdo do cliente anterior em $CASA/$rel."
+    elif [ -e "$CASA/$rel" ] || [ -L "$CASA/$rel" ]; then
+        falha "ainda há cópia de conteúdo do cliente anterior em $CASA/$rel."
+    fi
+done
 [ ! -e "$CASA/.claude/history.jsonl" ] || [ ! -s "$CASA/.claude/history.jsonl" ] || falha "o histórico antigo de comandos ainda está em $CASA/.claude/history.jsonl."
 if [ -d "$CASA/memory" ]; then
     while IFS= read -r -d '' arq; do

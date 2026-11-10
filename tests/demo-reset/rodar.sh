@@ -40,6 +40,13 @@ monta() {
     echo "memoria do cliente anterior" >"$CASA/memory/2026-11-08.md"
     echo "# memoria" >"$CASA/MEMORY.md"
     echo "proposta" >"$CASA/arquivos/proposta.pdf"
+    mkdir -p "$CASA/.dgclaw/backups/memoria" "$CASA/.dgclaw/socorro" "$CASA/.dgclaw/logs" "$CASA/.dgclaw/panel" "$CASA/.dgclaw/tela"
+    echo "copia da memoria do cliente anterior" >"$CASA/.dgclaw/backups/memoria/MEMORY.md.20261108-101010"
+    echo '{"msg":"socorro do cliente"}' >"$CASA/.dgclaw/socorro/2026-11-08.jsonl"
+    echo '{"arquivo":"MEMORY.md"}' >"$CASA/.dgclaw/logs/edicoes-memoria.jsonl"
+    echo '{"sessoes":{"x":{"nome":"cliente"}}}' >"$CASA/.dgclaw/panel/sessoes-local.json"
+    echo token-demo >"$CASA/.dgclaw/demo.token"; echo http://x >"$CASA/.dgclaw/demo.url"; echo chave-crm >"$CASA/.dgclaw/crm.key"
+    echo vnc >"$CASA/.dgclaw/tela/vnc.senha"
     printf 'nova\ninstancia=nova\n' >"$DADOS/demo/INSTANCIA"
     echo '{"id":"c1"}' >"$DADOS/demo/cartoes/c1.json"
     echo '{"evento":"x"}' >"$DADOS/demo/auditoria.jsonl"
@@ -51,7 +58,7 @@ monta() {
     chown -R "$DONO_U:$DONO_G" "$CASA"
     export STUB_LOG="$R/dgclaw.log" STUB_CASA="$CASA" STUB_CTR="$R/containers"
     : >"$STUB_LOG"
-    unset STUB_PODMAN_FALHA STUB_POLITICA_ERRADA STUB_POLITICA_MODO STUB_RUNNER_FORA STUB_ESCREVE_MEMORIA STUB_FALHA_PARAR STUB_ESCREVE_ROLLOUT STUB_SUDO_FICA STUB_PAINEL_ATIVO DGCLAW_DEMO_UNIDADE
+    unset STUB_ESCREVE_BACKUP STUB_PODMAN_FALHA STUB_POLITICA_ERRADA STUB_POLITICA_MODO STUB_RUNNER_FORA STUB_ESCREVE_MEMORIA STUB_FALHA_PARAR STUB_ESCREVE_ROLLOUT STUB_SUDO_FICA STUB_PAINEL_ATIVO DGCLAW_DEMO_UNIDADE
 }
 
 roda() { # roda [args...]: a saida fica em $R/saida.txt e o codigo em $RC
@@ -104,6 +111,18 @@ igual "a pasta de arquivo e 700" 700 "$(stat -c '%a' "$ARQ")"
 igual "a pasta base do arquivo e 700" 700 "$(stat -c '%a' "$R/var/lib/dgclaw/demo-arquivo/nova")"
 igual "parou e depois iniciou, nessa ordem" "dgclaw agente parar nova|dgclaw agente iniciar nova" "$(grep "^dgclaw " "$STUB_LOG" | paste -sd'|')"
 afirma "o manifesto lista o que saiu" grep -q 'casa/.claude/projects' "$ARQ/MANIFESTO.txt"
+
+echo "reset: copias de conteudo do painel (backups da memoria, socorro, registro de edicoes) vao para o arquivo"
+afirma "a copia da memoria foi guardada" grep -q anterior "$ARQ/casa/.dgclaw/backups/memoria/MEMORY.md.20261108-101010"
+nega "a copia da memoria saiu da casa" test -e "$CASA/.dgclaw/backups/memoria/MEMORY.md.20261108-101010"
+afirma "o historico do socorro foi guardado" test -f "$ARQ/casa/.dgclaw/socorro/2026-11-08.jsonl"
+nega "o historico do socorro saiu da casa" test -e "$CASA/.dgclaw/socorro/2026-11-08.jsonl"
+afirma "o registro de edicoes da memoria foi guardado" test -f "$ARQ/casa/.dgclaw/logs/edicoes-memoria.jsonl"
+afirma "o registro de sessoes paralelas foi guardado" test -f "$ARQ/casa/.dgclaw/panel/sessoes-local.json"
+afirma "demo.token continua" grep -q token-demo "$CASA/.dgclaw/demo.token"
+afirma "demo.url continua" test -f "$CASA/.dgclaw/demo.url"
+afirma "crm.key continua" grep -q chave-crm "$CASA/.dgclaw/crm.key"
+afirma "a senha da tela continua" test -f "$CASA/.dgclaw/tela/vnc.senha"
 
 echo "reset: rodar de novo guarda em outra pasta e nao apaga o primeiro"
 echo "outra conversa" >"$CASA/arquivos/outro.txt"
@@ -256,6 +275,14 @@ roda nova --dados "$DADOS"
 nega "sai com erro" test "$RC" = 0
 afirma "diz que ainda ha historico de sessao" grep -q 'ainda há histórico de sessão' "$R/saida.txt"
 unset STUB_ESCREVE_ROLLOUT
+
+echo "reset: copia da memoria que reaparece reprova a conferencia"
+monta backup
+export STUB_ESCREVE_BACKUP=1
+roda nova --dados "$DADOS"
+nega "sai com erro" test "$RC" = 0
+afirma "diz que ainda ha copia de conteudo" grep -q 'ainda há cópia de conteúdo' "$R/saida.txt"
+unset STUB_ESCREVE_BACKUP
 
 echo "reset: dois resets ao mesmo tempo"
 monta trava
