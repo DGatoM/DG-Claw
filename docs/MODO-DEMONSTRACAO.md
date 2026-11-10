@@ -63,6 +63,11 @@ Token comparado por sha256 em tempo constante. Limite: 60 pedidos por minuto (42
   no servidor, recusa atalho, componente com ponto e hardlink, e o arquivo é aberto com `O_NOFOLLOW` no envio. No máximo
   5 arquivos e 20 MB. O sha256 de cada anexo é calculado ao criar o cartão e conferido no envio: mudou, `ANEXO_MUDOU`.
 - Texto até 4.000 caracteres (e-mail até 20.000). Cartão vale 10 minutos, depois `expirado`.
+- Quando o provedor recusa (4xx/5xx), o agente recebe só o código (`PROVEDOR_RECUSOU`) e uma mensagem nossa com o status
+  HTTP. A mensagem bruta do provedor, sem a chave e sem nada com cara de credencial, vai só para o log do painel e para a
+  tela do dono.
+- Um pedido que estava esperando o provedor quando um reset começou ou terminou é descartado com `RESET_EM_ANDAMENTO`:
+  nenhum cartão do cliente anterior é recriado.
 
 ## Rotas da tela (cookie de sessão + origem, como as demais)
 
@@ -87,12 +92,19 @@ recoloca a semente, sobe o container, espera o runner, confere e registra o resu
 
 - **Move (nunca apaga):** `.claude/projects`, `.claude/todos`, `.claude/shell-snapshots`, `.claude/file-history`,
   `.claude/history.jsonl`, `memory/`, `MEMORY.md`, `working-memory.md`, `arquivos/`, `saida/`, `uploads/`, `crm/`, `data/`,
-  `planning/`, `.codex/sessions`, o índice local de memória, `.cache/`, o estado de sessão do runner, e no Web
+  `planning/`, os históricos de sessão do Claude Code (`.claude/session-env`, `plans`, `tasks`, `debug`) e do Codex
+  (`sessions`, `archived_sessions`, `history.jsonl`, `log`, `shell_snapshots`, `memories` e os bancos `state_*`/`logs_*`
+  de `.codex/` e de cada `.plataforma/codex-api/<id>/`, preservando `auth.json`), o índice local de memória, `.cache/`, o estado de sessão do runner, e no Web
   `<dataDir>/demo/cartoes`, `<dataDir>/mesa`, `<dataDir>/lembretes`, `<dataDir>/alertas`.
 - **Não toca:** `AGENT.md`, `CLAUDE.md`, identidade, skills, login (`.claude/.credentials.json`) e cofre.
 - **Arquivo** fica em pasta 700 do root, fora de `/var/lib/dgclaw/agentes/`, portanto fora do alcance do container.
-- **Semente:** `/var/lib/dgclaw/demo-semente/<slug>/` é copiada para a casa, sem atalhos, com o dono correto.
-- **Conferência:** o script só devolve sucesso se a casa não tiver transcript nem memória antiga, o runner responder
+- **Semente:** `/var/lib/dgclaw/demo-semente/<slug>/` (sem atalhos) é copiada para uma pasta nova dentro da casa e cada
+  item é movido para o lugar dele; o reset nunca escreve através de um caminho que já existia na casa. O que ocupava o
+  lugar (inclusive um atalho plantado) vai antes para `casa-substituido/` no arquivo. Cada pasta de topo da semente
+  (`dados/`, `plano-b/`...) substitui a pasta inteira; só `.claude`, `.codex` e `.plataforma` são fundidos item a item,
+  porque guardam login, skills e identidade.
+- **Conferência:** o script só devolve sucesso se a casa não tiver transcript, rollout do Codex, histórico nem memória antiga,
+  se cada pasta de topo da semente for exatamente a da semente, o runner responder
   e o arquivo conter o que saiu. Falha em qualquer etapa: sai diferente de 0, escreve o motivo e o painel mostra.
 - O Web também zera a própria leitura da conversa em memória, para nada do cliente anterior continuar na tela.
 

@@ -177,7 +177,7 @@
         vistos[r.id + r.estado] = true;
         var para = r.para ? ' para ' + r.para : '';
         if (r.estado === 'enviado') aviso('Enviado' + para + (r.confirmacao === 'na_fila' ? ' (na fila de entrega do provedor).' : '.'), 'ok');
-        else if (r.estado === 'falhou') aviso('Não enviou' + para + ': ' + (r.motivo || 'sem detalhe.'), 'erro');
+        else if (r.estado === 'falhou') aviso('Não enviou' + para + ': ' + (r.motivo || 'sem detalhe.') + (r.detalhe ? ' Resposta do provedor: ' + r.detalhe : ''), 'erro');
       });
       if (j.resetando) mostraProgresso();
     }).catch(function (e) {

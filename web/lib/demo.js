@@ -350,10 +350,16 @@ function criarDemo({ config: webConfig, registro, log, agora, fetchImpl, spawnIm
   const ruim = (status, codigo, msg) => new ErroDemo(status, codigo, msg);
 
   let resetando = false;
+  // Geração: sobe quando um reset começa e quando termina. Todo pedido que espera o provedor guarda a geração em que
+  // entrou e, ao voltar, confere: se mudou, o cliente anterior já foi arquivado e nada dele pode ser recriado.
+  let geracao = 0;
+  const erroGeracao = () => ruim(503, 'RESET_EM_ANDAMENTO', 'Houve um reset enquanto este pedido era feito, então ele foi descartado. Nada foi criado nem enviado. Comece de novo com o cliente atual.');
+  const confereGeracao = (g) => { if (g !== geracao || resetando) throw erroGeracao(); };
   const abertos = () => listarCartoes().filter((c) => c.estado === 'aguardando').length;
 
   // ── Portão: rotas do agente ─────────────────────────────────────────────
   async function criarLeitura(corpo) {
+    const g = geracao;
     const l = linhaDe(corpo.linha);
     if (!l) throw ruim(404, 'LINHA_DESCONHECIDA', `Não existe a linha "${String(corpo.linha).slice(0, 40)}". As linhas são: ${cfg.linhas_whatsapp.map((x) => x.id).join(', ')}.`);
     const nome = typeof corpo.nome === 'string' ? corpo.nome.trim() : '';
@@ -362,6 +368,7 @@ function criarDemo({ config: webConfig, registro, log, agora, fetchImpl, spawnIm
     if (abertos() >= MAX_ABERTOS) throw ruim(429, 'MUITOS_CARTOES_ABERTOS', 'Já há 10 cartões esperando confirmação na tela. Peça ao usuário para decidir os que estão abertos antes de pedir outro.');
     const t = agoraMs();
     const c = { id: crypto.randomUUID(), tipo: 'leitura', canal: 'whatsapp', linha: l.id, nome, estado: 'aguardando', criado_em: t, expira_em: t + VALIDADE_CARTAO_MS };
+    confereGeracao(g);
     gravaCartao(c);
     auditar('pediu', c);
     return { id: c.id, estado: c.estado, aviso: 'Peça ao usuário para confirmar na tela e acompanhe com GET /api/demo/v1/contato/<id>.' };
@@ -379,6 +386,7 @@ function criarDemo({ config: webConfig, registro, log, agora, fetchImpl, spawnIm
   }
 
   async function criarEnvio(corpo) {
+    const g = geracao;
     const canal = corpo.canal;
     if (canal !== 'whatsapp' && canal !== 'email') throw ruim(400, 'CANAL_INVALIDO', 'O "canal" precisa ser "whatsapp" ou "email".');
     const texto = corpo.texto;
@@ -424,12 +432,14 @@ function criarDemo({ config: webConfig, registro, log, agora, fetchImpl, spawnIm
         const tel = normalizaTelefone(corpo.telefone);
         if (!tel) throw ruim(400, 'TELEFONE_INVALIDO', 'O "telefone" precisa ter DDI e DDD (de 12 a 15 dígitos, ex.: 5511999990000).');
         const achado = await provedores.resolverPorTelefone(l, tel);
+        confereGeracao(g);
         if (l.tipo === 'organizap' && !achado) throw ruim(422, 'SEM_CONVERSA_ABERTA', `Esse WhatsApp só fala com quem já tem conversa, e não existe conversa com ${mascarar(tel)} na linha "${l.rotulo}". Tente outra linha (por exemplo uma do tipo CPDF) ou peça o contato pelo nome.`);
         c.destinatario = { nome: achado && achado.nome ? achado.nome : null, telefone: tel, ref_provedor: achado ? achado.ref : null, via: 'telefone' };
       }
       if (l.tipo === 'organizap' && !c.destinatario.ref_provedor) throw ruim(422, 'SEM_CONVERSA_ABERTA', 'Não achei a conversa deste contato nesta linha.');
     }
     if (!destinoPermitido(c)) throw erroDestinoDeTeste();
+    confereGeracao(g);
     gravaCartao(c);
     auditar('pediu', c);
     return { id: c.id, estado: c.estado, aviso: 'Peça ao usuário para confirmar na tela e acompanhe com GET /api/demo/v1/envio/<id>.' };
@@ -466,9 +476,11 @@ function criarDemo({ config: webConfig, registro, log, agora, fetchImpl, spawnIm
         const bruto = url.searchParams.get('limite');
         const limite = bruto == null || bruto === '' ? 60 : Number(bruto);
         if (!Number.isInteger(limite) || limite < 1 || limite > 200) throw ruim(400, 'LIMITE_INVALIDO', 'O "limite" precisa ser um número inteiro de 1 a 200.');
+        const g = geracao;
         const c = leituraLiberada(decodeURIComponent(r[1]));
         const l = linhaDe(c.linha);
         const mensagens = await provedores.lerConversa(l, { ref: c.contato.ref_provedor, telefone: c.contato.telefone }, limite);
+        confereGeracao(g);
         auditar('leu_conversa', c, { mensagens: mensagens.length });
         return H.enviaJson(res, 200, { ok: true, contato: { nome: c.contato.nome, telefone_mascarado: c.contato.telefone ? mascarar(c.contato.telefone) : null }, mensagens, total: mensagens.length });
       }
@@ -525,12 +537,13 @@ function criarDemo({ config: webConfig, registro, log, agora, fetchImpl, spawnIm
     const todos = listarCartoes();
     const abertosC = todos.filter((c) => c.estado === 'aguardando');
     const recentes = todos.filter((c) => c.tipo === 'envio' && c.estado !== 'aguardando' && agoraMs() - (c.atualizado_em || 0) < RECENTES_MS)
-      .map((c) => ({ id: c.id, estado: c.estado, canal: c.canal, para: c.destinatario.nome || c.destinatario.para || (c.destinatario.telefone ? mascarar(c.destinatario.telefone) : ''), motivo: c.motivo || null, confirmacao: c.confirmacao || null }));
+      .map((c) => ({ id: c.id, estado: c.estado, canal: c.canal, para: c.destinatario.nome || c.destinatario.para || (c.destinatario.telefone ? mascarar(c.destinatario.telefone) : ''), motivo: c.motivo || null, detalhe: c.detalhe || null, confirmacao: c.confirmacao || null }));
     return { ok: true, agente: cfg.agente, resetando, cartoes: await Promise.all(abertosC.map(visao)), recentes };
   }
 
   async function decidir(id, corpo, sessao) {
     if (resetando) throw ruim(503, 'RESET_EM_ANDAMENTO', 'Um reset está em andamento. Espere terminar.');
+    const g = geracao;
     const c = lerCartao(id);
     if (!c) throw ruim(404, 'CARTAO_NAO_ENCONTRADO', 'Este cartão não existe mais (talvez já tenha saído num reset).');
     if (c.estado !== 'aguardando') throw ruim(409, 'CARTAO_JA_DECIDIDO', c.estado === 'expirado' ? 'Este cartão expirou. Peça ao agente para pedir de novo.' : `Este cartão já foi decidido (${c.estado}). Cada cartão vale uma vez só.`);
@@ -549,6 +562,7 @@ function criarDemo({ config: webConfig, registro, log, agora, fetchImpl, spawnIm
       const ref = typeof corpo.candidato === 'string' ? corpo.candidato : '';
       if (!ref) throw ruim(400, 'CANDIDATO_OBRIGATORIO', 'Escolha um dos contatos da lista antes de confirmar, ou recuse.');
       const lista = await candidatosDe(c);
+      confereGeracao(g);
       const esc = lista.find((x) => x.ref === ref);
       if (!esc) throw ruim(409, 'CANDIDATO_INVALIDO', 'Esse contato não está na lista deste cartão. Atualize a tela e escolha de novo.');
       c.estado = 'liberado';
@@ -582,6 +596,7 @@ function criarDemo({ config: webConfig, registro, log, agora, fetchImpl, spawnIm
   }
 
   function enviarEmSegundoPlano(c, anexos, quem) {
+    const g = geracao;
     (async () => {
       try {
         let r;
@@ -590,13 +605,15 @@ function criarDemo({ config: webConfig, registro, log, agora, fetchImpl, spawnIm
         } else {
           r = await provedores.enviarWhatsapp(linhaDe(c.linha), { ref: c.destinatario.ref_provedor, telefone: c.destinatario.telefone, texto: c.texto, anexos, id: c.id });
         }
+        if (g !== geracao) { log('erro', `Modo demonstração: o envio ${c.id} terminou depois de um reset; o cartão do cliente anterior não foi recriado (resultado do provedor: ${r.confirmacao}).`); return; }
         c.estado = 'enviado'; c.confirmacao = r.confirmacao;
         gravaCartao(c);
         auditar('enviou', c, { quem, confirmacao: r.confirmacao });
       } catch (e) {
         const ed = e instanceof ErroDemo ? e : new ErroDemo(500, 'ERRO_INTERNO', `Falha inesperada no envio (${e && e.message}). Confira antes de repetir.`);
         if (!(e instanceof ErroDemo)) log('erro', `Modo demonstração: falha inesperada ao enviar ${c.id}: ${e && e.stack ? e.stack.split('\n').slice(0, 3).join(' | ') : e}`);
-        c.estado = 'falhou'; c.codigo = ed.codigo; c.motivo = ed.message;
+        if (g !== geracao) { log('erro', `Modo demonstração: o envio ${c.id} falhou depois de um reset (${ed.codigo}); o cartão do cliente anterior não foi recriado.`); return; }
+        c.estado = 'falhou'; c.codigo = ed.codigo; c.motivo = ed.message; if (ed.detalhe) c.detalhe = ed.detalhe;
         try { gravaCartao(c); auditar('falhou', c, { quem, codigo: ed.codigo }); } catch (a) { log('erro', a.message); }
       }
     })();
@@ -610,6 +627,7 @@ function criarDemo({ config: webConfig, registro, log, agora, fetchImpl, spawnIm
   function iniciarReset(quem) {
     if (resetando) throw ruim(409, 'RESET_EM_ANDAMENTO', 'Já há um reset em andamento. Espere terminar.');
     resetando = true;
+    geracao++;
     estadoReset = { fase: 'em_andamento', inicio: agoraMs(), passos: [], por: quem };
     try { auditar('reset_iniciado', { id: 'reset', tipo: 'reset', canal: 'painel' }, { quem }); } catch (e) { resetando = false; throw e; }
     const lancar = spawnImpl || childProcess.spawn;
@@ -634,6 +652,7 @@ function criarDemo({ config: webConfig, registro, log, agora, fetchImpl, spawnIm
       clearTimeout(prazo);
       if (!resetando) return;
       resetando = false;
+      geracao++;
       cacheCandidatos.clear();
       if (codigo === 0) {
         try { if (esquecerConversa) esquecerConversa(cfg.agente); } catch (e) { log('erro', `Modo demonstração: o reset terminou, mas não consegui limpar a conversa em memória (${e.message}). Recarregue a página.`); }

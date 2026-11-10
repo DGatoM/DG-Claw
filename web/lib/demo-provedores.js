@@ -6,8 +6,9 @@
 const crypto = require('node:crypto');
 
 class ErroDemo extends Error {
-  constructor(status, codigo, mensagem, extra) {
+  constructor(status, codigo, mensagem, extra, detalhe) {
     super(mensagem);
+    this.detalhe = detalhe || null; // resposta bruta (já sanitizada) do provedor: só log e tela do dono, nunca o agente
     this.name = 'ErroDemo';
     this.status = status;
     this.codigo = codigo;
@@ -31,6 +32,16 @@ function telefoneDoJid(jid) {
 function idDerivado(id, sufixo) {
   const h = crypto.createHash('sha256').update(`${id}:${sufixo}`).digest('hex');
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-a${h.slice(17, 20)}-${h.slice(20, 32)}`;
+}
+
+/** Tira de um texto qualquer a chave e tudo o que parece credencial (Bearer, sk-..., sequências longas de token). */
+function sanitiza(texto, chave) {
+  let t = String(texto == null ? '' : texto);
+  if (chave) t = t.split(chave).join('[chave]');
+  return t
+    .replace(/Bearer\s+\S+/gi, 'Bearer [chave]')
+    .replace(/\bsk-[A-Za-z0-9_-]{6,}/g, '[chave]')
+    .replace(/[A-Za-z0-9_\-+/=.]{24,}/g, '[token]');
 }
 
 function htmlDoTexto(texto) {
@@ -58,16 +69,16 @@ function criarProvedores({ fetchImpl, chaveDe, log, timeoutMs }) {
     try {
       r = await f(url.toString(), { method: metodo, headers: cab, body: corpoTexto, signal: AbortSignal.timeout(prazo), redirect: 'error' });
     } catch (e) {
-      const causa = e && e.name === 'TimeoutError' ? `não respondeu em ${Math.round(prazo / 1000)} segundos` : String((e && (e.cause && e.cause.code || e.message)) || e).replace(chave, '[chave]').slice(0, 120);
+      const causa = e && e.name === 'TimeoutError' ? `não respondeu em ${Math.round(prazo / 1000)} segundos` : sanitiza(String((e && (e.cause && e.cause.code || e.message)) || e), chave).slice(0, 120);
       throw new ErroDemo(502, 'PROVEDOR_FORA', `Não consegui falar com ${rotulo} (${causa}). Confira a conexão e tente de novo.`, { incerto: metodo !== 'GET' });
     }
     const texto = await r.text();
     let json = null;
     try { json = JSON.parse(texto); } catch (_) { /* resposta sem JSON: tratada abaixo */ }
-    return { status: r.status, json, texto: texto.replace(chave, '[chave]').slice(0, 300) };
+    const bruto = (json && (json.error || json.message || json.details)) || texto || `HTTP ${r.status}`;
+    const detalhe = sanitiza(typeof bruto === 'string' ? bruto : JSON.stringify(bruto), chave).slice(0, 200);
+    return { status: r.status, json, texto: sanitiza(texto, chave).slice(0, 300), detalhe };
   }
-
-  const msgDoProvedor = (r) => String((r.json && (r.json.error || r.json.message || r.json.details)) || r.texto || `HTTP ${r.status}`).slice(0, 200);
 
   function exigeOk(r, cfg, o) {
     if (r.status >= 200 && r.status < 300) return;
@@ -77,7 +88,9 @@ function criarProvedores({ fetchImpl, chaveDe, log, timeoutMs }) {
     if (r.status === 403 && codigoProv === 'INSTANCE_SEND_FORBIDDEN') throw new ErroDemo(502, 'LINHA_SEM_PERMISSAO_DE_ENVIO', `${rotulo} não deixa esta chave enviar por essa linha. ${o}`);
     if (r.status === 422 && codigoProv === 'RECIPIENT_IS_LID') throw new ErroDemo(422, 'DESTINO_SEM_NUMERO', 'Esta conversa ainda não tem o número do contato, só um identificador interno do WhatsApp, e a mensagem não chegaria. Espere o contato responder ou envie pelo celular. Nada foi enviado.');
     if (r.status === 409) throw new ErroDemo(409, 'IDEMPOTENCIA_CONFLITO', `${rotulo} diz que esse envio já existia com outro conteúdo. Não repita: confira no ${rotulo} se a mensagem saiu.`);
-    throw new ErroDemo(r.status >= 500 ? 502 : 422, 'PROVEDOR_RECUSOU', `${rotulo} respondeu ${r.status}: ${msgDoProvedor(r)}. ${o}`);
+    // O agente recebe só o código e o status. A mensagem do provedor (sanitizada) vai para o log e para a tela do dono.
+    try { log('erro', `Modo demonstração: ${rotulo} respondeu HTTP ${r.status}: ${r.detalhe}`); } catch (_) { /* log nunca derruba o pedido */ }
+    throw new ErroDemo(r.status >= 500 ? 502 : 422, 'PROVEDOR_RECUSOU', `${rotulo} recusou o pedido (HTTP ${r.status}). ${o}`.trim(), null, r.detalhe);
   }
 
   // ── Organizap ────────────────────────────────────────────────────────────
@@ -160,7 +173,7 @@ function criarProvedores({ fetchImpl, chaveDe, log, timeoutMs }) {
           ra = await chamar(cfg, 'POST', '/messages/send', { corpo, cabecalhos: { 'Idempotency-Key': idDerivado(id, `a${i}`) } });
           exigeOk(ra, cfg, '');
         } catch (e) {
-          throw new ErroDemo(e.status || 502, 'ENVIO_PARCIAL', `O texto foi enviado, mas o anexo ${i + 1} (${a.nome}) não: ${e.message} Não reenvie o texto; mande só o anexo que faltou.`);
+          throw new ErroDemo(e.status || 502, 'ENVIO_PARCIAL', `O texto foi enviado, mas o anexo ${i + 1} (${a.nome}) não: ${e.message} Não reenvie o texto; mande só o anexo que faltou.`, null, e.detalhe);
         }
         status.push(ra.status === 202 ? 'na_fila' : 'enviado');
       }
@@ -215,7 +228,7 @@ function criarProvedores({ fetchImpl, chaveDe, log, timeoutMs }) {
       const r0 = await chamar(cfg, 'GET', base, { params: { limit: 1 } });
       exigeOk(r0, cfg, 'Nada foi lido.');
       const total = Number(r0.json && r0.json.total) || 0;
-      const r = await chamar(cfg, 'GET', base, { params: { limit, offset: Math.max(0, total - limite) } });
+      const r = await chamar(cfg, 'GET', base, { params: { limit: limite, offset: Math.max(0, total - limite) } });
       exigeOk(r, cfg, 'Nada foi lido.');
       const itens = Array.isArray(r.json && r.json.items) ? r.json.items : [];
       return itens.map((m) => ({
@@ -256,4 +269,4 @@ function criarProvedores({ fetchImpl, chaveDe, log, timeoutMs }) {
   };
 }
 
-module.exports = { criarProvedores, ErroDemo, telefoneDoJid, soDigitos, htmlDoTexto, idDerivado };
+module.exports = { criarProvedores, ErroDemo, sanitiza, telefoneDoJid, soDigitos, htmlDoTexto, idDerivado };

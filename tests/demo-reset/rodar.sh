@@ -50,7 +50,7 @@ monta() {
     chown -R "$DONO_U:$DONO_G" "$CASA"
     export STUB_LOG="$R/dgclaw.log" STUB_CASA="$CASA"
     : >"$STUB_LOG"
-    unset STUB_RUNNER_FORA STUB_ESCREVE_MEMORIA STUB_FALHA_PARAR
+    unset STUB_RUNNER_FORA STUB_ESCREVE_MEMORIA STUB_FALHA_PARAR STUB_ESCREVE_ROLLOUT
 }
 
 roda() { # roda [args...]: a saida fica em $R/saida.txt e o codigo em $RC
@@ -173,6 +173,88 @@ nega "sai com erro" test "$RC" = 0
 afirma "explica que nao parou" grep -q 'não consegui parar' "$R/saida.txt"
 afirma "nada foi movido" test -f "$CASA/.claude/projects/-home-agente/sessao.jsonl"
 unset STUB_FALHA_PARAR
+
+echo "reset: atalho plantado onde a semente tem arquivo nao leva o root para fora"
+monta plantado
+mkdir -p "$TMP/host" "$TMP/hostdir"
+echo "arquivo do host" >"$TMP/host/alvo.txt"
+echo "intacto" >"$TMP/hostdir/config.txt"
+mkdir -p "$SEM/.config/app" "$SEM/.local/app" "$CASA/.config/app"
+echo "da semente" >"$SEM/.config/app/config.txt"
+echo "da semente" >"$SEM/.local/app/dado.txt"
+ln -s "$TMP/host/alvo.txt" "$CASA/.config/app/config.txt"
+ln -s "$TMP/hostdir" "$CASA/.local"
+roda nova --dados "$DADOS"
+igual "sai com 0" 0 "$RC"; [ "$RC" = 0 ] || sed "s/^/    | /" "$R/saida.txt"
+ARQ="$(arquivo_dir)"
+igual "o arquivo do host nao foi tocado" "arquivo do host" "$(cat "$TMP/host/alvo.txt")"
+igual "a pasta do host nao ganhou arquivo" "config.txt" "$(ls "$TMP/hostdir")"
+igual "o conteudo do host continua" "intacto" "$(cat "$TMP/hostdir/config.txt")"
+afirma "a semente chegou no lugar (arquivo)" grep -q 'da semente' "$CASA/.config/app/config.txt"
+nega "o lugar nao e mais atalho (arquivo)" test -L "$CASA/.config/app/config.txt"
+nega "o lugar nao e mais atalho (pasta)" test -L "$CASA/.local"
+afirma "a semente chegou no lugar (pasta)" test -f "$CASA/.local/app/dado.txt"
+afirma "o atalho de arquivo foi guardado, nao apagado" test -L "$ARQ/casa-substituido/.config/app/config.txt"
+afirma "o atalho de pasta foi guardado, nao apagado" test -L "$ARQ/casa-substituido/.local"
+nega "sobrou pasta de preparo" test -n "$(find "$CASA" -maxdepth 1 -name '.dgclaw-semente.*' -print -quit)"
+
+echo "reset: pasta de topo da semente (dados/, plano-b/) volta inteira, e o que o agente mexeu vai para o arquivo"
+monta topo
+mkdir -p "$SEM/dados/base" "$SEM/plano-b" "$CASA/dados/base" "$CASA/dados/trabalho" "$CASA/plano-b"
+echo "original" >"$SEM/dados/base/kit.txt"
+echo "plano da semente" >"$SEM/plano-b/plano.txt"
+echo "kit alterado" >"$CASA/dados/base/kit.txt"
+echo "feito na reuniao" >"$CASA/dados/trabalho/x.txt"
+echo "plano mexido" >"$CASA/plano-b/plano.txt"
+echo "extra" >"$CASA/plano-b/extra.txt"
+chown -R "$DONO_U:$DONO_G" "$CASA"
+roda nova --dados "$DADOS"
+igual "sai com 0" 0 "$RC"; [ "$RC" = 0 ] || sed "s/^/    | /" "$R/saida.txt"
+ARQ="$(arquivo_dir)"
+igual "dados/ e o da semente" "original" "$(cat "$CASA/dados/base/kit.txt")"
+nega "o trabalho da reuniao saiu de dados/" test -e "$CASA/dados/trabalho"
+nega "o extra saiu de plano-b/" test -e "$CASA/plano-b/extra.txt"
+igual "plano-b/ e o da semente" "plano da semente" "$(cat "$CASA/plano-b/plano.txt")"
+afirma "o trabalho alterado esta no arquivo" grep -q 'feito na reuniao' "$ARQ/casa-substituido/dados/trabalho/x.txt"
+afirma "o kit alterado esta no arquivo" grep -q 'kit alterado' "$ARQ/casa-substituido/dados/base/kit.txt"
+afirma "o extra esta no arquivo" test -f "$ARQ/casa-substituido/plano-b/extra.txt"
+igual "o dono de dados/ e o da casa" "$DONO_U:$DONO_G" "$(stat -c '%u:%g' "$CASA/dados/base/kit.txt")"
+afirma "a identidade continua" grep -q identidade "$CASA/AGENT.md"
+
+echo "reset: historicos de sessao do Claude e dos dois modos do Codex"
+monta historicos
+mkdir -p "$CASA/.codex/sessions/2026/11/08" "$CASA/.plataforma/codex-api/x/sessions/2026/11/08" "$CASA/.plataforma/codex-api/y/archived_sessions" "$CASA/.claude/session-env/s"
+echo '{"r":1}' >"$CASA/.codex/sessions/2026/11/08/rollout-a.jsonl"
+echo '{"r":2}' >"$CASA/.plataforma/codex-api/x/sessions/2026/11/08/rollout-b.jsonl"
+echo '{"r":3}' >"$CASA/.plataforma/codex-api/y/archived_sessions/rollout-c.jsonl"
+echo '{"h":1}' >"$CASA/.codex/history.jsonl"
+echo x >"$CASA/.codex/state_5.sqlite"
+echo x >"$CASA/.claude/session-env/s/env"
+echo '{"auth":"assinatura"}' >"$CASA/.codex/auth.json"
+echo '{"auth":"api"}' >"$CASA/.plataforma/codex-api/x/auth.json"
+echo sha >"$CASA/.plataforma/codex-api/x/.dgclaw-chave.sha256"
+chown -R "$DONO_U:$DONO_G" "$CASA"
+roda nova --dados "$DADOS"
+igual "sai com 0" 0 "$RC"; [ "$RC" = 0 ] || sed "s/^/    | /" "$R/saida.txt"
+ARQ="$(arquivo_dir)"
+afirma "rollout da assinatura guardado" test -f "$ARQ/casa/.codex/sessions/2026/11/08/rollout-a.jsonl"
+afirma "rollout do Codex por API guardado" test -f "$ARQ/casa/.plataforma/codex-api/x/sessions/2026/11/08/rollout-b.jsonl"
+afirma "sessao arquivada do Codex por API guardada" test -f "$ARQ/casa/.plataforma/codex-api/y/archived_sessions/rollout-c.jsonl"
+afirma "historico do Codex guardado" test -f "$ARQ/casa/.codex/history.jsonl"
+afirma "banco de estado do Codex guardado" test -f "$ARQ/casa/.codex/state_5.sqlite"
+afirma "session-env do Claude guardado" test -f "$ARQ/casa/.claude/session-env/s/env"
+igual "nenhum rollout sobrou na casa" "" "$(find "$CASA" -name 'rollout-*' -print)"
+afirma "auth.json da assinatura continua" grep -q assinatura "$CASA/.codex/auth.json"
+afirma "auth.json da API continua" grep -q '"api"' "$CASA/.plataforma/codex-api/x/auth.json"
+afirma "o hash da chave continua" test -f "$CASA/.plataforma/codex-api/x/.dgclaw-chave.sha256"
+
+echo "reset: rollout que reaparece reprova a conferencia"
+monta rollout
+export STUB_ESCREVE_ROLLOUT=1
+roda nova --dados "$DADOS"
+nega "sai com erro" test "$RC" = 0
+afirma "diz que ainda ha historico de sessao" grep -q 'ainda há histórico de sessão' "$R/saida.txt"
+unset STUB_ESCREVE_ROLLOUT
 
 echo "reset: dois resets ao mesmo tempo"
 monta trava

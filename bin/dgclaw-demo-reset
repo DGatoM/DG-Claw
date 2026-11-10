@@ -149,10 +149,42 @@ mover() {
     fi
 }
 
+# Históricos de sessão dos dois motores (Claude Code e Codex, assinatura e API). Cada nome abaixo existe dentro de uma
+# "raiz de configuração": <casa>/.claude, <casa>/.codex e uma por sessão em <casa>/.plataforma/codex-api/<id>
+# (runner/src/provedores/codex.ts: codexHomeDe). As credenciais (.credentials.json, auth.json, .dgclaw-chave.sha256)
+# ficam de fora de propósito.
+NOMES_CLAUDE=(projects todos shell-snapshots file-history history.jsonl session-env plans tasks debug)
+NOMES_CODEX=(sessions archived_sessions history.jsonl log shell_snapshots memories 'state_*.sqlite*' 'logs_*.sqlite*')
+
+# historicos: imprime (um por linha) o caminho relativo à casa de cada histórico que existe agora.
+historicos() {
+    local raiz nome alvo
+    local -a raizes=()
+    local id
+    raizes+=(".claude:C" ".codex:X")
+    if [ -d "$CASA/.plataforma/codex-api" ] && [ ! -L "$CASA/.plataforma/codex-api" ]; then
+        while IFS= read -r -d '' id; do raizes+=(".plataforma/codex-api/$(basename "$id"):X"); done \
+            < <(find "$CASA/.plataforma/codex-api" -mindepth 1 -maxdepth 1 -print0)
+    fi
+    for raiz in "${raizes[@]}"; do
+        local rel="${raiz%:*}" tipo="${raiz##*:}"
+        local -a nomes
+        if [ "$tipo" = C ]; then nomes=("${NOMES_CLAUDE[@]}"); else nomes=("${NOMES_CODEX[@]}"); fi
+        for nome in "${nomes[@]}"; do
+            # o nome pode ter curinga; a expansão é feita aqui, dentro da raiz
+            for alvo in "$CASA/$rel"/$nome; do
+                if [ -e "$alvo" ] || [ -L "$alvo" ]; then printf '%s\n' "${alvo#"$CASA"/}"; fi
+            done
+        done
+    done
+}
+
 passo "Guardando a conversa e a memória do cliente anterior em $DESTINO"
-for rel in .claude/projects .claude/todos .claude/shell-snapshots .claude/file-history .claude/history.jsonl \
-           memory MEMORY.md working-memory.md arquivos saida uploads crm data planning \
-           .codex/sessions .dgclaw/memory_index .dgclaw/retratos .cache \
+while IFS= read -r rel; do
+    mover "$CASA" "$rel" casa
+done < <(historicos)
+for rel in memory MEMORY.md working-memory.md arquivos saida uploads crm data planning \
+           .dgclaw/memory_index .dgclaw/retratos .cache \
            .plataforma/runner-state.json .plataforma/sessoes-extras.json .plataforma/dgchat .plataforma/fila-ocioso; do
     mover "$CASA" "$rel" casa
 done
@@ -161,11 +193,48 @@ for rel in demo/cartoes mesa lembretes alertas; do
 done
 
 # ── semente ────────────────────────────────────────────────────────────────
+# A semente nunca é copiada por cima da casa: o agente escreve na casa e pode ter plantado atalhos (links simbólicos)
+# onde a semente tem arquivo, e o root seguiria o atalho para fora. Então ela é copiada para uma pasta nova, criada
+# aqui (700, no mesmo disco), e cada item é MOVIDO (rename) para o lugar dele. O que já estava no lugar (atalho,
+# arquivo ou pasta) vai antes para o arquivo, nunca é apagado nem atravessado.
 passo "Recolocando a semente"
-cp -R --no-dereference --preserve=mode,timestamps -- "$SEMENTE/." "$CASA/" || falha "não consegui copiar a semente $SEMENTE para $CASA."
-while IFS= read -r -d '' item; do
-    chown -hR "$DONO_UID:$DONO_GID" -- "$CASA/$(basename "$item")" || falha "não consegui dar a $CASA/$(basename "$item") o dono do agente ($DONO_UID:$DONO_GID)."
-done < <(find "$SEMENTE" -mindepth 1 -maxdepth 1 -print0)
+PREPARO="$(mktemp -d "$CASA/.dgclaw-semente.XXXXXX")" || falha "não consegui criar a pasta de preparo da semente dentro de $CASA."
+chmod 700 "$PREPARO"
+cp -R --no-dereference --preserve=mode,timestamps -- "$SEMENTE/." "$PREPARO/" || falha "não consegui copiar a semente $SEMENTE para $PREPARO."
+chown -hR "$DONO_UID:$DONO_GID" -- "$PREPARO" || falha "não consegui dar à semente preparada o dono do agente ($DONO_UID:$DONO_GID)."
+
+# guarda_ocupante <alvo> <rel>: tira do caminho (para o arquivo) o que está em <alvo>, atalho ou não.
+guarda_ocupante() {
+    local alvo="$1" rel="$2" guardado="$DESTINO/casa-substituido/$2"
+    [ -e "$alvo" ] || [ -L "$alvo" ] || return 0
+    mkdir -p "$(dirname "$guardado")"
+    [ ! -e "$guardado" ] && [ ! -L "$guardado" ] || falha "já existe $guardado no arquivo; não sobrescrevo. Confira à mão."
+    mv -- "$alvo" "$guardado" || falha "não consegui guardar $alvo em $guardado."
+    printf 'casa-substituido/%s\n' "$rel" >>"$MOVIDOS"
+}
+
+# Só estas pastas de topo têm coisa que o reset não troca (login, skills, identidade do ambiente); nelas a semente é
+# fundida item a item. Qualquer outra entrada de topo da semente (dados/, plano-b/, ...) substitui a pasta INTEIRA:
+# o que o agente mexeu nela durante a reunião vai para o arquivo.
+eh_pasta_de_config() { case "$1" in .claude|.codex|.plataforma) return 0 ;; *) return 1 ;; esac; }
+
+# funde <pasta-preparada> <pasta-da-casa> <rel>: só desce em pasta de verdade de config; todo o resto é guardado e substituído.
+funde() {
+    local de="$1" para="$2" rel="$3" item nome alvo
+    while IFS= read -r -d '' item; do
+        nome="$(basename "$item")"
+        alvo="$para/$nome"
+        if [ -d "$item" ] && [ ! -L "$item" ] && [ -d "$alvo" ] && [ ! -L "$alvo" ] && { [ -n "$rel" ] || eh_pasta_de_config "$nome"; }; then
+            funde "$item" "$alvo" "${rel:+$rel/}$nome"
+            rmdir -- "$item" 2>/dev/null || true
+            continue
+        fi
+        guarda_ocupante "$alvo" "${rel:+$rel/}$nome"
+        mv -- "$item" "$alvo" || falha "não consegui colocar $nome da semente em $para."
+    done < <(find "$de" -mindepth 1 -maxdepth 1 -print0)
+}
+funde "$PREPARO" "$CASA" ""
+rmdir -- "$PREPARO" || falha "sobrou coisa na pasta de preparo $PREPARO. Confira à mão."
 for pasta in arquivos saida memory; do
     if [ ! -e "$CASA/$pasta" ]; then mkdir -m 755 "$CASA/$pasta"; chown "$DONO_UID:$DONO_GID" "$CASA/$pasta"; fi
 done
@@ -186,6 +255,14 @@ passo "Conferindo o resultado"
 if [ -n "$(find "$CASA/.claude/projects" -name '*.jsonl' -print -quit 2>/dev/null)" ]; then
     falha "ainda há uma conversa antiga (arquivo .jsonl) em $CASA/.claude/projects."
 fi
+while IFS= read -r rel; do
+    [ ! -e "$SEMENTE/$rel" ] || continue
+    if [ -d "$CASA/$rel" ] && [ ! -L "$CASA/$rel" ]; then
+        [ -z "$(find "$CASA/$rel" -type f -print -quit 2>/dev/null)" ] || falha "ainda há histórico de sessão do cliente anterior em $CASA/$rel."
+    elif [ -s "$CASA/$rel" ] || [ -L "$CASA/$rel" ]; then
+        falha "ainda há histórico de sessão do cliente anterior em $CASA/$rel."
+    fi
+done < <(historicos)
 [ ! -e "$CASA/.claude/history.jsonl" ] || [ ! -s "$CASA/.claude/history.jsonl" ] || falha "o histórico antigo de comandos ainda está em $CASA/.claude/history.jsonl."
 if [ -d "$CASA/memory" ]; then
     while IFS= read -r -d '' arq; do
@@ -193,6 +270,19 @@ if [ -d "$CASA/memory" ]; then
         [ -e "$SEMENTE/$rel" ] || falha "há memória que não veio da semente em $arq. O agente pode ter começado a escrever antes da conferência; rode o reset de novo."
     done < <(find "$CASA/memory" -type f -print0)
 fi
+# toda entrada de topo da semente (fora as pastas de config) tem que ser exatamente a da semente.
+while IFS= read -r -d '' item; do
+    nome="$(basename "$item")"
+    eh_pasta_de_config "$nome" && continue
+    [ ! -L "$CASA/$nome" ] || falha "$CASA/$nome é um atalho depois da semente."
+    [ -e "$CASA/$nome" ] || falha "a semente trouxe $nome mas ele não está em $CASA."
+    if [ -d "$CASA/$nome" ]; then
+        while IFS= read -r -d '' arq; do
+            rel="${arq#"$CASA"/}"
+            [ -e "$SEMENTE/$rel" ] || [ -d "$arq" ] || falha "há um item que não veio da semente em $arq. Ele devia ter ido para o arquivo; rode o reset de novo."
+        done < <(find "$CASA/$nome" -mindepth 1 \( -type f -o -type l \) -print0)
+    fi
+done < <(find "$SEMENTE" -mindepth 1 -maxdepth 1 -print0)
 for rel in MEMORY.md working-memory.md; do
     if [ -e "$CASA/$rel" ] && [ ! -e "$SEMENTE/$rel" ]; then falha "o arquivo $rel antigo continua em $CASA."; fi
 done
