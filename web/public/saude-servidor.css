@@ -1,0 +1,31 @@
+/* Cartão "Saúde do servidor" (saude-servidor.js), classes sd-. Celular: tudo empilhado, sem rolagem horizontal, alvos de ~32 px. */
+.sd-resumo{margin:0 0 10px;font-weight:600;overflow-wrap:anywhere}
+.sd-bloco{border-top:1px solid #dfe7e1;padding:10px 0 2px;min-width:0}
+.sd-bloco h3{font-size:14.5px;margin:0 0 6px;color:#38523f}
+.sd-lin{margin-bottom:10px;min-width:0}
+.sd-rot{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin-bottom:4px;overflow-wrap:anywhere}
+.sd-barra{display:block;width:100%;height:12px;border-radius:6px;background:#e8eee9;overflow:hidden}
+.sd-barra i{display:block;height:100%;border-radius:6px;background:#2f9e5e}
+.sd-barra.sd-n-aviso i{background:#d9a400}
+.sd-barra.sd-n-serio i{background:#e07b00}
+.sd-barra.sd-n-critico i{background:#b3261e}
+.sd-barra.sd-sem{background:repeating-linear-gradient(45deg,#e8eee9,#e8eee9 6px,#f3f6f3 6px,#f3f6f3 12px)}
+.sd-tag{font-size:12px;font-weight:700;padding:2px 8px;border-radius:10px;background:#eef2ee;color:#38523f;display:inline-block}
+.sd-tag.sd-n-ok{background:#eaf6ee;color:#1f6a3d}
+.sd-tag.sd-n-aviso{background:#fff7e0;color:#6b4a00}
+.sd-tag.sd-n-serio{background:#fff0dc;color:#8a4b00}
+.sd-tag.sd-n-critico{background:#fdecea;color:#8c1d18}
+.sd-lista{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.sd-lista li{overflow-wrap:anywhere;min-width:0}
+.sd-caminho{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;word-break:break-all}
+.sd-fraco,.sd-vazio{color:#5f7566;font-size:14px;margin:2px 0 0;overflow-wrap:anywhere}
+.sd-alerta{margin:6px 0;padding:10px 12px;border-radius:10px;background:#fdecea;border:1px solid #e6a5a0;color:#8c1d18;overflow-wrap:anywhere}
+.sd-vazio-grande{padding:10px 12px;border-radius:10px;background:#f4f6f8;border:1px solid #d5dde5;color:#33414f;overflow-wrap:anywhere}
+.sd-vazio-grande p{margin:0 0 8px}
+.sd-vazio-grande code{font-size:13px;word-break:break-all}
+.sd-teste{border-top:1px solid #dfe7e1;padding-top:10px;margin-top:6px}
+.sd-btn{font:inherit;font-size:14px;font-weight:600;min-height:36px;padding:0 14px;border-radius:18px;border:1px solid #2f9e5e;background:#2f9e5e;color:#fff;cursor:pointer}
+.sd-btn:disabled{opacity:.5;cursor:default}
+.sd-pre{margin:6px 0 0;padding:8px;background:#f4f6f8;border-radius:8px;font-size:12.5px;white-space:pre-wrap;word-break:break-all}
+.sd-saida{margin-top:8px}
+.sd-saida[hidden]{display:none}

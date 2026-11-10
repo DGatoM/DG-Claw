@@ -171,6 +171,15 @@
     document.head.appendChild(s);
   }
 
+  /* A faixa de alerta da saúde do servidor (disco, memória, agente fora do ar) também aparece em todas as telas da casca. */
+  function carregaFaixaSentinela() {
+    if (raiz.DGSentinelaFaixa) return;
+    const s = document.createElement('script');
+    s.src = '/sentinela-faixa.js';
+    s.onerror = () => console.warn('casca: a faixa de alerta do servidor (/sentinela-faixa.js) não carregou; as telas seguem sem ela.');
+    document.head.appendChild(s);
+  }
+
   /* O aviso único de segurança (uma janela e um selo) também aparece em todas as telas que usam a casca. */
   function carregaAvisoSeguranca() {
     if (raiz.DGSegurancaResumo) return;
@@ -195,9 +204,10 @@
     document.documentElement.classList.add('casca');
     document.body.insertAdjacentHTML('afterbegin', MARCACAO_CABECALHO + MARCACAO_MENU);
     pintaTitulo();
-    // Faixa de versão e aviso de segurança são só do dono.
+    // Faixa de versão, alerta do servidor e aviso de segurança são só do dono.
     if (!(raiz.DGPapel && raiz.DGPapel.colaborador)) {
       carregaFaixaAtualizacao();
+      carregaFaixaSentinela();
       carregaAvisoSeguranca();
     }
     $('btnMenu').onclick = () => abreMenu(true);

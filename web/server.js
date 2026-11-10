@@ -49,6 +49,7 @@ const { criarAvisos } = require('./lib/avisos');
 const { criarAtualizacao } = require('./lib/atualizacao');
 const { criarSeguranca } = require('./lib/seguranca');
 const { criarRondaPainel } = require('./lib/ronda-painel');
+const { criarSentinela } = require('./lib/sentinela');
 const { criarNaoLidas } = require('./lib/nao-lidas');
 const { criarUso } = require('./lib/uso');
 const { criarColaboradores } = require('./lib/colaboradores');
@@ -200,6 +201,8 @@ function criarServidor(opcoes) {
   const seguranca = criarSeguranca({ dataDir: config.dataDir, log, agora: opcoes.agora });
   // Ronda de fábrica e botão de emergência: também só do dono (fora de caixa.permitir). O Web só grava pedidos; o root executa.
   const rondaPainel = criarRondaPainel({ dataDir: config.dataDir, log, agora: opcoes.agora });
+  // Saúde do servidor (sentinela): só o dono, pelo painel, como a ronda e a faixa de versão; fora de caixa.permitir. O Admin, no host, usa a API normal.
+  const sentinela = criarSentinela({ dataDir: config.dataDir, log, agora: opcoes.agora, push: opcoes.push || push, appDir: opcoes.appDir, execFile: opcoes.execFileSentinela, intervaloMs: opcoes.sentinelaIntervaloMs });
 
   let versaoJsCache = { ts: 0, valor: '0' };
   /** Versão da tela: mtime de conversa.js. A tela compara com a que carregou e se recarrega sozinha. */
@@ -462,6 +465,8 @@ function criarServidor(opcoes) {
     if ((p === '/api/v1/lembretes' || p.startsWith('/api/v1/lembretes/')) && await lembretes.rotas(req, res, url, sessao)) return undefined;
 
     if ((p === '/api/v1/atualizacao' || p.startsWith('/api/v1/atualizacao/')) && await atualizacao.rotas(req, res, url, sessao)) return undefined;
+
+    if ((p === '/api/v1/sentinela' || p.startsWith('/api/v1/sentinela/')) && await sentinela.rotas(req, res, url, sessao)) return undefined;
 
     if (p.startsWith('/api/v1/seguranca/') && await rondaPainel.rotas(req, res, url, sessao)) return undefined;
 
@@ -1445,7 +1450,7 @@ function criarServidor(opcoes) {
   });
 
   return {
-    servidor, config, registro, auth, colaboradores, proxy, midia, conversa, anonimizar, filtroAnon, log, caixa, push, lembretes, avisos, estados, vigiaAtencao, prefsAtencao,
+    servidor, config, registro, auth, colaboradores, proxy, midia, conversa, anonimizar, filtroAnon, log, caixa, push, lembretes, avisos, estados, vigiaAtencao, prefsAtencao, sentinela,
     ouvir(porta, host) {
       return new Promise((resolve, reject) => {
         servidor.once('error', reject);
@@ -1455,11 +1460,12 @@ function criarServidor(opcoes) {
           lembretes.iniciar();
           avisos.iniciar();
           vigiaAtencao.iniciar();
+          sentinela.iniciar();
           resolve(servidor.address());
         });
       });
     },
-    fechar() { return new Promise((resolve) => { caixa.parar(); lembretes.parar(); avisos.parar(); vigiaAtencao.parar(); proxy.fecharTudo(); anonimizar.encerrar(); servidor.closeAllConnections && servidor.closeAllConnections(); servidor.close(() => resolve()); }); },
+    fechar() { return new Promise((resolve) => { caixa.parar(); lembretes.parar(); avisos.parar(); vigiaAtencao.parar(); sentinela.parar(); proxy.fecharTudo(); anonimizar.encerrar(); servidor.closeAllConnections && servidor.closeAllConnections(); servidor.close(() => resolve()); }); },
   };
 }
 

@@ -1,0 +1,17 @@
+{
+  "versao": 1,
+  "aviso": "Catálogo fechado da faxina da sentinela. Só os tipos que o sentinela.py conhece rodam; nenhum item aceita comando livre. Só muda por versão nova do DG Claw.",
+  "itens": [
+    {"id": "journal", "descricao": "registros antigos do sistema (journal), mantendo até 500 MB", "tipo": "journal-vacuum"},
+    {"id": "apt", "descricao": "pacotes baixados pelo apt que já foram instalados", "tipo": "apt-clean"},
+    {"id": "imagens-soltas", "descricao": "imagens de container sem nome (nunca as que estão em uso)", "tipo": "podman-prune-dangling"},
+    {"id": "tmp-velhos", "descricao": "arquivos temporários com mais de 3 dias em /tmp e /var/tmp", "tipo": "apagar-velhos",
+     "raizes": ["/tmp", "/var/tmp"], "padroes": ["*"], "dias": 3, "pular": ["systemd-private-*", ".X11-unix", ".ICE-unix"]},
+    {"id": "logs-girados", "descricao": "logs antigos já compactados em /var/log (mais de 7 dias)", "tipo": "apagar-velhos",
+     "raizes": ["/var/log"], "padroes": ["*.gz", "*.[0-9]", "*.old"], "dias": 7, "pular": []},
+    {"id": "cache-agentes", "descricao": "caches de pip, npm e navegador dentro das casas dos agentes", "tipo": "cache-agente",
+     "base": "/var/lib/dgclaw/agentes", "casa": "home",
+     "caminhos": [".cache/pip", ".npm/_cacache", ".cache/google-chrome/*/Cache", ".cache/google-chrome/*/Code Cache",
+                  ".cache/chromium/*/Cache", ".cache/chromium/*/Code Cache"]}
+  ]
+}

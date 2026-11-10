@@ -303,7 +303,8 @@
 
   function passosPagina(doc) {
     const tem = sel => !doc || !!doc.querySelector(sel);
-    return [].concat(PASSOS.topo, PASSOS.boletins, PASSOS.aplicado, PASSOS.acao, PASSOS.sempressa, PASSOS.aguardando, PASSOS.emergencia, PASSOS.tratadas, PASSOS.inventario).filter(p => tem(p.alvo));
+    const saude = raiz.DGSaudeServidor ? raiz.DGSaudeServidor.PASSOS : [];
+    return [].concat(saude, PASSOS.topo, PASSOS.boletins, PASSOS.aplicado, PASSOS.acao, PASSOS.sempressa, PASSOS.aguardando, PASSOS.emergencia, PASSOS.tratadas, PASSOS.inventario).filter(p => tem(p.alvo));
   }
 
   if (!raiz.document) {

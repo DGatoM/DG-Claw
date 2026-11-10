@@ -141,6 +141,23 @@ no `/etc/dgclaw/dgclaw.env`. Para desligar: `DGCLAW_RONDA_SEGURANCA=0`.
 **Se der erro.** Ronda "parcial" quer dizer que uma fonte não respondeu. A tela diz qual. Ela nunca parece limpa
 quando não é. Mais em [RONDA-DE-SEGURANCA.md](../RONDA-DE-SEGURANCA.md).
 
+## Sentinela do servidor
+
+**O que é.** Uma vigia que olha, a cada minuto, o disco, a memória, os agentes e os serviços do servidor, e avisa você
+antes de alguma coisa parar. Disco cheio derruba tudo, e foi o que motivou a sentinela. Ela aparece no cartão **Saúde do
+servidor** da tela Segurança e numa faixa no alto das telas quando a coisa fica séria.
+
+**O que ela faz sozinha.** Limpa só o que o catálogo fechado permite (logs antigos, caches, imagens soltas), guarda uma
+reserva de disco que libera sozinha no último momento e, se a memória acaba, fecha o navegador do agente que mais gasta.
+Ela nunca reinicia agente nem serviço: ela avisa e diz o comando.
+
+**Como receber os avisos.** Sem Telegram ou e-mail configurados, os alarmes só aparecem no painel. Peça ao Admin:
+"configura os avisos da sentinela no Telegram". O passo a passo, inclusive do monitor externo que avisa se o servidor
+inteiro cair, está em [SENTINELA.md](../SENTINELA.md).
+
+**Como pedir.** "Admin, como está a saúde do servidor?" Ele roda `sudo dgclaw sentinela estado`. Para ver o que está
+ocupando espaço: `sudo dgclaw sentinela levantar`. Quem apaga o que não é do catálogo é você, com o Admin, caso a caso.
+
 ## Boletins de segurança
 
 **O que é.** Quando a equipe do DG Claw descobre uma falha numa das ferramentas que o programa usa, publica um
