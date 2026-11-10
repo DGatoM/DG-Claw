@@ -7,8 +7,7 @@ const path = require('node:path');
 const { pastaTemp, subirWeb } = require('./ajuda');
 
 // Token do agente e chaves dos provedores nascem a cada rodada: o teste nunca carrega segredo escrito no código.
-// Funções do disco guardadas na carga: o "container" de mentira lê a casa com elas, e um teste que vigia o fs do host não as vê.
-const fsReal = { realpathSync: fs.realpathSync.bind(fs), statSync: fs.statSync.bind(fs), readFileSync: fs.readFileSync.bind(fs), openSync: fs.openSync.bind(fs), closeSync: fs.closeSync.bind(fs) };
+const execFileP = require('node:util').promisify(require('node:child_process').execFile);
 const aleatorio = () => crypto.randomBytes(18).toString('hex');
 const TOKEN = aleatorio();
 const CHAVES = { 'organizap.key': aleatorio(), 'cpdf.key': aleatorio(), 'openai.key': aleatorio() };
@@ -102,20 +101,15 @@ async function subirDemo(opcoes) {
   const cfgPath = escreveConfig(dirCfg, { ajusta: o.ajusta, modoChave: o.modoChave, modoArquivo: o.modoArquivo });
   const fake = provedoresFalsos();
   const relogio = { t: Date.parse('2026-11-09T12:00:00Z') };
-  // "Container" de mentira: faz o papel do `podman exec -u agente <container> cat -- <caminho>`. Só enxerga a casa do agente
-  // (/home/agente -> casa); atalho que sai dela não existe lá dentro. Guarda cada chamada em execChamadas.
+  // "Container" de mentira: faz o papel do `podman exec -u agente <container> python3 -I -c <script> <base> <componentes>`
+  // rodando o SCRIPT DE VERDADE com o python3 do host, com a base (/home/agente) trocada pela casa do teste.
+  // Guarda cada chamada em execChamadas.
   const execChamadas = [];
   const demoExec = async (arq, args, opc) => {
     execChamadas.push({ arq, args, opc });
-    const [verbo, , usuario, ctr, cmd, sep, caminho] = args;
-    if (arq !== 'podman' || verbo !== 'exec' || usuario !== 'agente' || ctr !== 'dgclaw-nova' || cmd !== 'cat' || sep !== '--') throw Object.assign(new Error('chamada fora do combinado'), { code: 2, stderr: 'chamada fora do combinado' });
-    const real = path.join(casa, caminho.replace(/^\/home\/agente\//, ''));
-    let alvo;
-    try { alvo = fsReal.realpathSync(real); } catch (e) { throw Object.assign(new Error('cat falhou'), { code: 1, stderr: `cat: ${caminho}: No such file or directory` }); }
-    if (alvo !== casa && !alvo.startsWith(casa + path.sep)) throw Object.assign(new Error('cat falhou'), { code: 1, stderr: `cat: ${caminho}: No such file or directory` });
-    if (fsReal.statSync(alvo).isDirectory()) throw Object.assign(new Error('cat falhou'), { code: 1, stderr: `cat: ${caminho}: Is a directory` });
-    const fd = fsReal.openSync(alvo, 'r');
-    try { return { stdout: fsReal.readFileSync(fd), stderr: '' }; } finally { fsReal.closeSync(fd); }
+    const [verbo, , usuario, ctr, py, i, c, script, base, ...partes] = args;
+    if (arq !== 'podman' || verbo !== 'exec' || usuario !== 'agente' || ctr !== 'dgclaw-nova' || py !== 'python3' || i !== '-I' || c !== '-c' || base !== '/home/agente') throw Object.assign(new Error('chamada fora do combinado'), { code: 2, stderr: 'chamada fora do combinado' });
+    return execFileP('python3', ['-I', '-c', script, casa, ...partes], opc);
   };
   const env = Object.assign({}, o.semDemo ? {} : { DGCLAW_DEMO_CONFIG: cfgPath }, o.env || {});
   const w = await subirWeb({

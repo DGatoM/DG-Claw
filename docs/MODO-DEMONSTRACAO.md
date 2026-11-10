@@ -62,9 +62,11 @@ Token comparado por sha256 em tempo constante. Limite: 60 pedidos por minuto (42
 - Na linha do CPDF o envio sai sempre pelo telefone exato aprovado e gravado no cartão (o mesmo conferido contra `destinos_de_teste`), nunca pelo `contactId`, que é mutável. Contato do CPDF sem número não gera envio (`CONTATO_SEM_NUMERO`).
 - `anexos` são caminhos dentro de `/home/agente/arquivos` ou `/home/agente/saida`. Caminho é traduzido para a casa
   no servidor e recusa componente com ponto, caminho fora dessas pastas e arquivo fora do limite. O arquivo é lido DE DENTRO
-  do container, com o usuário do agente (`podman exec -u agente <container> cat -- <caminho>`, sem shell, com prazo e limite
-  de tamanho), então o agente só entrega o que ele mesmo enxerga e nenhum caminho do host é aberto (não há corrida de atalho
-  em pasta ancestral). O nome do container vem do campo `container` do registro. No máximo 5 arquivos e 20 MB. O sha256 de cada anexo é calculado ao criar o cartão e conferido no envio: mudou, `ANEXO_MUDOU`.
+  do container, com o usuário do agente, por um leitor fixo em Python (`podman exec -u agente <container> python3 -I -c <script> /home/agente <componentes...>`,
+  sem shell, com prazo e limite de tamanho; o `python3` vem da imagem, `/opt/venv/bin/python3`). O leitor abre a base com `O_DIRECTORY|O_NOFOLLOW`
+  e desce componente a componente com `dir_fd` e `O_NOFOLLOW`, então atalho em qualquer componente é recusado (`ANEXO_COM_ATALHO`, também
+  para `arquivos/x` apontando para `.claude/.credentials.json`) e não há corrida entre conferir e abrir. No fim exige arquivo comum e um nome só
+  (hardlink: `ANEXO_COM_HARDLINK`). Nenhum caminho do host é aberto. O nome do container vem do campo `container` do registro. No máximo 5 arquivos e 20 MB. O sha256 de cada anexo é calculado ao criar o cartão e conferido no envio: mudou, `ANEXO_MUDOU`.
 - Texto até 4.000 caracteres (e-mail até 20.000). Cartão vale 10 minutos, depois `expirado`.
 - Quando o provedor recusa (4xx/5xx), o agente recebe só o código (`PROVEDOR_RECUSOU`) e uma mensagem nossa com o status
   HTTP. A mensagem bruta do provedor, sem a chave e sem nada com cara de credencial, vai só para o log do painel e para a

@@ -35,7 +35,8 @@ test('anexo é lido de dentro do container, com o argv exato, e o disco do host 
   assert.deepEqual(tocados, [], 'nenhum caminho da casa do agente no host pode ser aberto');
   assert.equal(w.execChamadas.length, 1);
   assert.equal(w.execChamadas[0].arq, 'podman');
-  assert.deepEqual(w.execChamadas[0].args, ['exec', '-u', 'agente', 'dgclaw-nova', 'cat', '--', '/home/agente/saida/proposta.pdf']);
+  const { SCRIPT } = require('../lib/demo-leitor-anexo');
+  assert.deepEqual(w.execChamadas[0].args, ['exec', '-u', 'agente', 'dgclaw-nova', 'python3', '-I', '-c', SCRIPT, '/home/agente', 'saida', 'proposta.pdf']);
   assert.ok(w.execChamadas[0].opc.timeout > 0, 'a leitura tem prazo');
   assert.ok(w.execChamadas[0].opc.maxBuffer <= 20 * 1024 * 1024 + 1, 'a leitura tem limite de tamanho');
   // O sha256 do cartão é conferido de novo no envio, lendo outra vez de dentro do container.
@@ -48,7 +49,7 @@ test('anexo é lido de dentro do container, com o argv exato, e o disco do host 
 test('anexo acima de 20 MB e falha do container têm resposta com motivo', () => comTeste({
   opcoesServidor: {
     demoExec: async (arq, args) => {
-      if (args[6].endsWith('grande.bin')) throw Object.assign(new RangeError('stdout maxBuffer length exceeded'), { code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' });
+      if (args[args.length - 1] === 'grande.bin') throw Object.assign(new RangeError('stdout maxBuffer length exceeded'), { code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' });
       throw Object.assign(new Error('Error: no container with name'), { code: 125, stderr: 'Error: no container with name or ID "dgclaw-nova" found' });
     },
   },
@@ -60,6 +61,41 @@ test('anexo acima de 20 MB e falha do container têm resposta com motivo', () =>
   assert.equal(f.json.codigo, 'ANEXO_ILEGIVEL');
   assert.match(f.json.erro, /dgclaw-nova/);
 }));
+
+test('o leitor de anexo (script Python de verdade): recusa atalho no meio e no fim, hardlink, pasta e caminho inválido', async () => {
+  const { execFile } = require('node:child_process');
+  const { SCRIPT } = require('../lib/demo-leitor-anexo');
+  const base = pastaTemp('leitor');
+  const fora = pastaTemp('leitor-fora');
+  fs.mkdirSync(path.join(base, 'arquivos', 'sub'), { recursive: true });
+  fs.mkdirSync(path.join(base, 'saida'));
+  fs.writeFileSync(path.join(base, 'arquivos', 'sub', 'ok.txt'), 'conteudo ok');
+  fs.writeFileSync(path.join(base, 'arquivos', 'sub', 'orig.txt'), 'dois nomes');
+  fs.writeFileSync(path.join(fora, 'segredo.txt'), 'segredo');
+  fs.symlinkSync(fora, path.join(base, 'arquivos', 'pasta-atalho'));
+  fs.symlinkSync(path.join(fora, 'segredo.txt'), path.join(base, 'arquivos', 'sub', 'atalho.txt'));
+  fs.linkSync(path.join(base, 'arquivos', 'sub', 'orig.txt'), path.join(base, 'saida', 'duplo.txt'));
+  const roda = (...partes) => new Promise((ok) => execFile('python3', ['-I', '-c', SCRIPT, base, ...partes], { encoding: 'buffer' }, (e, out, err) => ok({ cod: e ? e.code : 0, out: out.toString(), err: err.toString() })));
+  const bom = await roda('arquivos', 'sub', 'ok.txt');
+  assert.deepEqual([bom.cod, bom.out], [0, 'conteudo ok']);
+  const casos = [
+    [['arquivos', 'pasta-atalho', 'segredo.txt'], 4, /atalho/],
+    [['arquivos', 'sub', 'atalho.txt'], 4, /atalho/],
+    [['saida', 'duplo.txt'], 7, /hardlink/],
+    [['arquivos', 'sub'], 6, /arquivo comum/],
+    [['arquivos', 'nao-existe.txt'], 5, /não existe|nao existe/],
+    [['arquivos', '..', 'x'], 3, /invalido/],
+    [['arquivos', '.escondido'], 3, /invalido/],
+    [['CLAUDE.md', 'x'], 3, /arquivos ou saida/],
+  ];
+  for (const [partes, cod, rx] of casos) {
+    const r = await roda(...partes);
+    assert.equal(r.cod, cod, partes.join('/') + ': ' + r.err);
+    assert.equal(r.out, '', 'nada vai para o stdout quando recusa');
+    assert.match(r.err, /^ANEXO_RECUSADO: /);
+    assert.match(r.err, rx);
+  }
+});
 
 test('o painel grava a marca <dados>/demo/INSTANCIA com o slug do agente e a instância', () => comTeste({}, async (w) => {
   assert.equal(fs.readFileSync(path.join(w.dados, 'demo', 'INSTANCIA'), 'utf8'), 'nova\ninstancia=nova\n');

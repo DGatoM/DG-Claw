@@ -358,7 +358,7 @@ test('texto vazio, grande demais ou canal inválido são recusados com o motivo'
 }));
 
 // ── anexos ───────────────────────────────────────────────────────────────────
-test('anexos: atalho, ponto, fora da pasta e arquivo trocado depois do cartão', () => comTeste({}, async (w) => {
+test('anexos: atalho, ponto, fora da pasta, hardlink e arquivo trocado depois do cartão', () => comTeste({}, async (w) => {
   const ref = await w.liberaContato();
   const envia = (anexos) => w.portao('POST', ROTAS.envio, { canal: 'whatsapp', linha: 'danilo', ref, texto: 'oi', anexos });
   const casa = w.casa;
@@ -371,11 +371,11 @@ test('anexos: atalho, ponto, fora da pasta e arquivo trocado depois do cartão',
   fs.writeFileSync(path.join(fora, 'segredo.txt'), 'segredo');
   fs.symlinkSync(path.join(fora, 'segredo.txt'), path.join(casa, 'arquivos', 'atalho.txt'));
   fs.symlinkSync(fora, path.join(casa, 'arquivos', 'pasta-atalho'));
+  fs.linkSync(path.join(casa, 'arquivos', 'bom.pdf'), path.join(casa, 'saida', 'duplo.pdf'));
 
   const casos = [
-    // o atalho que sai da casa não existe vista de dentro do container: o agente só entrega o que ele mesmo enxerga
-    [['/home/agente/arquivos/atalho.txt'], 'ANEXO_NAO_ENCONTRADO'],
-    [['/home/agente/arquivos/pasta-atalho/segredo.txt'], 'ANEXO_NAO_ENCONTRADO'],
+    [['/home/agente/arquivos/atalho.txt'], 'ANEXO_COM_ATALHO'],
+    [['/home/agente/arquivos/pasta-atalho/segredo.txt'], 'ANEXO_COM_ATALHO'],
     [['/home/agente/arquivos/.escondido'], 'ANEXO_CAMINHO_INVALIDO'],
     [['/home/agente/arquivos/sub/../bom.pdf'], 'ANEXO_CAMINHO_INVALIDO'],
     [['/home/agente/arquivos/./bom.pdf'], 'ANEXO_CAMINHO_INVALIDO'],
@@ -385,6 +385,7 @@ test('anexos: atalho, ponto, fora da pasta e arquivo trocado depois do cartão',
     [['/home/agente/arquivos'], 'ANEXO_FORA_DA_PASTA'],
     [['/home/agente/arquivos/sub'], 'ANEXO_NAO_E_ARQUIVO'],
     [['/home/agente/arquivos/nao-existe.pdf'], 'ANEXO_NAO_ENCONTRADO'],
+    [['/home/agente/saida/duplo.pdf'], 'ANEXO_COM_HARDLINK'],
     [[1], 'ANEXOS_INVALIDOS'],
     [Array(6).fill('/home/agente/arquivos/bom.pdf'), 'ANEXOS_DEMAIS'],
   ];
@@ -407,12 +408,12 @@ test('anexos: atalho, ponto, fora da pasta e arquivo trocado depois do cartão',
   assert.equal(w.fake.envios.length, 0);
   assert.equal((await w.portao('GET', `${ROTAS.envio}/${bom.json.id}`)).json.estado, 'falhou');
 
-  // Trocado por um atalho no intervalo: de dentro do container o destino do atalho não existe.
+  // Trocado por um atalho no intervalo: o leitor abre com O_NOFOLLOW e recusa.
   const ok = await envia(['/home/agente/arquivos/sub/dentro.txt']);
   fs.rmSync(path.join(casa, 'arquivos', 'sub', 'dentro.txt'));
   fs.symlinkSync(path.join(fora, 'segredo.txt'), path.join(casa, 'arquivos', 'sub', 'dentro.txt'));
   const d2 = await w.decide(ok.json.id, { decisao: 'confirmar' });
-  assert.equal(d2.json.codigo, 'ANEXO_NAO_ENCONTRADO');
+  assert.equal(d2.json.codigo, 'ANEXO_COM_ATALHO');
   assert.equal(w.fake.envios.length, 0);
 }));
 

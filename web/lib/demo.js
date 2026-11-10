@@ -10,6 +10,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const childProcess = require('node:child_process');
 const { promisify } = require('node:util');
+const { SCRIPT: SCRIPT_LEITOR } = require('./demo-leitor-anexo');
 const H = require('./http');
 const { criarProvedores, ErroDemo, soDigitos } = require('./demo-provedores');
 
@@ -310,15 +311,21 @@ function criarDemo({ config: webConfig, registro, log, agora, fetchImpl, spawnIm
     }
     let saida;
     try {
-      saida = await executar(podmanBin, ['exec', '-u', 'agente', agente.container, 'cat', '--', caminho], { timeout: PRAZO_LEITURA_ANEXO_MS, maxBuffer: MAX_ANEXOS_BYTES + 1, encoding: 'buffer' });
+      saida = await executar(podmanBin, ['exec', '-u', 'agente', agente.container, 'python3', '-I', '-c', SCRIPT_LEITOR, homeC, ...partes], { timeout: PRAZO_LEITURA_ANEXO_MS, maxBuffer: MAX_ANEXOS_BYTES + 1, encoding: 'buffer' });
     } catch (e) {
       const err = String((e && e.stderr) || '');
-      if (e && (e.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' || /maxBuffer/i.test(String(e.message)))) throw new ErroDemo(422, 'ANEXO_GRANDE', `O anexo ${caminho.slice(0, 120)} passa de 20 MB, o limite.`);
-      if (e && e.killed) throw new ErroDemo(422, 'ANEXO_ILEGIVEL', `A leitura do anexo ${caminho.slice(0, 120)} demorou mais de ${PRAZO_LEITURA_ANEXO_MS / 1000}s e foi cancelada.`);
-      if (/No such file/i.test(err)) throw new ErroDemo(422, 'ANEXO_NAO_ENCONTRADO', `O anexo ${caminho.slice(0, 120)} não existe dentro do agente.`);
-      if (/Is a directory/i.test(err)) throw new ErroDemo(422, 'ANEXO_NAO_E_ARQUIVO', `O anexo ${caminho.slice(0, 120)} não é um arquivo comum.`);
-      log('erro', `Modo demonstração: não consegui ler o anexo ${caminho.slice(0, 120)} dentro do container ${agente.container} (${e && (e.code || e.message)}; ${err.trim().slice(0, 200) || 'sem mensagem'}).`);
-      throw new ErroDemo(422, 'ANEXO_ILEGIVEL', `Não consegui ler o anexo ${caminho.slice(0, 120)} dentro do agente (${err.trim().slice(0, 120) || (e && (e.code || e.message))}). Confira se o container ${agente.container} está ligado.`);
+      const motivo = err.replace(/^ANEXO_RECUSADO:\s*/, '').trim().slice(0, 160);
+      const quem = caminho.slice(0, 120);
+      if (e && (e.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' || /maxBuffer/i.test(String(e.message)))) throw new ErroDemo(422, 'ANEXO_GRANDE', `O anexo ${quem} passa de 20 MB, o limite.`);
+      if (e && e.killed) throw new ErroDemo(422, 'ANEXO_ILEGIVEL', `A leitura do anexo ${quem} demorou mais de ${PRAZO_LEITURA_ANEXO_MS / 1000}s e foi cancelada.`);
+      if (e && e.code === 4) throw new ErroDemo(422, 'ANEXO_COM_ATALHO', `O anexo ${quem} passa por um atalho (link simbólico), que o Portão não segue. Copie o arquivo de verdade para ${homeC}/saida.`);
+      if (e && e.code === 5) throw new ErroDemo(422, 'ANEXO_NAO_ENCONTRADO', `O anexo ${quem} não existe dentro do agente.`);
+      if (e && e.code === 6) throw new ErroDemo(422, 'ANEXO_NAO_E_ARQUIVO', `O anexo ${quem} não é um arquivo comum.`);
+      if (e && e.code === 7) throw new ErroDemo(422, 'ANEXO_COM_HARDLINK', `O anexo ${quem} tem mais de um nome no disco (hardlink), e o Portão não o aceita. Copie o arquivo para ${homeC}/saida.`);
+      if (e && e.code === 8) throw new ErroDemo(422, 'ANEXO_GRANDE', `O anexo ${quem} passa de 20 MB, o limite.`);
+      if (e && e.code === 3) throw new ErroDemo(422, 'ANEXO_CAMINHO_INVALIDO', `O caminho do anexo ${quem} não vale (${motivo}).`);
+      log('erro', `Modo demonstração: não consegui ler o anexo ${quem} dentro do container ${agente.container} (${e && (e.code || e.message)}; ${motivo || 'sem mensagem'}).`);
+      throw new ErroDemo(422, 'ANEXO_ILEGIVEL', `Não consegui ler o anexo ${quem} dentro do agente (${motivo || (e && (e.code || e.message))}). Confira se o container ${agente.container} está ligado e tem o python3.`);
     }
     const dados = Buffer.isBuffer(saida.stdout) ? saida.stdout : Buffer.from(saida.stdout || '');
     if (dados.length > MAX_ANEXOS_BYTES) throw new ErroDemo(422, 'ANEXO_GRANDE', `O anexo ${caminho.slice(0, 120)} tem ${Math.round(dados.length / 1048576)} MB; o limite é 20 MB.`);
