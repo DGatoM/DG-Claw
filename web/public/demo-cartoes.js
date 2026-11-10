@@ -8,6 +8,7 @@
   var raiz = null;          // overlay do cartão
   var assinatura = '';
   var escolhido = null;     // candidato marcado no cartão de leitura
+  var idAtual = null;       // id do cartão que está na tela
   var enviando = false;
   var vistos = {};          // recentes já avisados
   var timer = null;
@@ -52,9 +53,15 @@
   }
 
   // ── cartão ───────────────────────────────────────────────────────────────
-  function fechaCartao() {
+  /* Só tira o cartão da tela: a assinatura e a escolha da pessoa ficam, para a próxima consulta não refazer à toa. */
+  function tiraDoDom() {
     if (raiz && raiz.parentNode) raiz.parentNode.removeChild(raiz);
-    raiz = null; assinatura = ''; escolhido = null;
+    raiz = null;
+  }
+  /* Encerra o cartão de vez (decidido ou sumiu): limpa também o estado. */
+  function fechaCartao() {
+    tiraDoDom();
+    assinatura = ''; escolhido = null; idAtual = null;
   }
 
   function linhaInfo(rotulo, valor, grande) {
@@ -84,7 +91,9 @@
   }
 
   function montaCartao(c, total) {
-    fechaCartao();
+    if (idAtual !== c.id) escolhido = null; // outro cartão: a escolha do anterior não vale
+    idAtual = c.id;
+    tiraDoDom();
     raiz = el('div', 'dc-fundo');
     var cx = el('div', 'dc-cartao');
     cx.setAttribute('role', 'dialog');
@@ -109,11 +118,13 @@
       else {
         cx.appendChild(el('p', 'dc-instr', 'Escolha quem é e confirme:'));
         var lista = el('div', 'dc-lista');
+        var marcado = null;
         lista.setAttribute('role', 'radiogroup');
         c.candidatos.forEach(function (k) {
           var l = el('label', 'dc-cand');
           var r = el('input');
           r.type = 'radio'; r.name = 'dc-cand'; r.value = k.ref;
+          if (k.ref === escolhido) { r.checked = true; marcado = r; }
           r.addEventListener('change', function () { escolhido = k.ref; confirmar.disabled = false; });
           l.appendChild(r);
           var t = el('span', 'dc-cand-txt');
@@ -124,7 +135,8 @@
         });
         cx.appendChild(lista);
       }
-      confirmar.disabled = true;
+      if (!marcado) escolhido = null;
+      confirmar.disabled = !marcado;
     } else {
       var d = c.destinatario;
       if (c.canal === 'email') cx.appendChild(linhaInfo('Para', d.para, true));
@@ -158,7 +170,7 @@
     recusar.addEventListener('click', function () { decidir(c, 'recusar', erroEl, todos); });
     raiz.appendChild(cx);
     document.body.appendChild(raiz);
-    (c.tipo === 'leitura' ? cx.querySelector('input') || recusar : confirmar).focus();
+    (c.tipo === 'leitura' ? marcado || cx.querySelector('input') || recusar : confirmar).focus();
   }
 
   function sig(c) {

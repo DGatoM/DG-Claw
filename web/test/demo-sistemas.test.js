@@ -15,7 +15,7 @@ function montaConfig(extra) {
   const dir = pastaTemp('demo-sis');
   const arq = (nome, txt) => { const p = path.join(dir, nome); fs.writeFileSync(p, txt, { mode: 0o600 }); return p; };
   const cfg = Object.assign({
-    versao: 1, agente: 'nova',
+    versao: 1, instancia: 'demo', agente: 'nova', token_agente_sha256: 'a'.repeat(64),
     linhas_whatsapp: [
       { id: 'danilo', rotulo: 'WhatsApp do Danilo', tipo: 'organizap', base: BASE, chave_arquivo: arq('org.key', CHAVE_ORG + '\n') },
       { id: 'isa', rotulo: 'WhatsApp da Isa', tipo: 'cpdf', base: 'https://cpdf.exemplo', chave_arquivo: arq('cpdf.key', 'x-cpdf-chave') },
@@ -170,11 +170,11 @@ test('sem DGCLAW_DEMO_CONFIG ou com arquivo inválido, o modo fica desligado (e 
   assert.equal(criarDemoSistemas({ env: {}, runner: runnerVivo, registro: registroFalso, log: () => {} }).ativo(), false);
   const dir = pastaTemp('demo-ruim');
   const p = path.join(dir, 'demo.json');
-  fs.writeFileSync(p, '{"versao":1}');
+  fs.writeFileSync(p, '{"versao":1}', { mode: 0o600 });
   const logs = [];
   const d = criarDemoSistemas({ env: { DGCLAW_DEMO_CONFIG: p }, runner: runnerVivo, registro: registroFalso, log: (n, m) => logs.push(m) });
   assert.equal(d.ativo(), false);
-  assert.match(logs[0], /"agente"/);
+  assert.match(logs[0], /"instancia"/);
 });
 
 // ── pelo servidor de verdade ──
@@ -191,7 +191,7 @@ test('modo desligado: a rota e a página dão 404 e /api/v1/agents não marca de
 });
 
 test('modo ligado: sem sessão é recusado; com sessão devolve os sistemas e a página abre', async () => {
-  const { caminho } = montaConfig({ crm: { url_saude: 'http://crm.local/saude' }, linhas_whatsapp: [], email: undefined, imagem: undefined });
+  const { caminho } = montaConfig({ crm: { url_saude: 'http://crm.local/saude' }, email: undefined, imagem: undefined });
   const s = await subirWeb({ agentes: [AGENTE], env: { DGCLAW_DEMO_CONFIG: caminho }, opcoesServidor: { demoFetch: fetchFalso({ 'crm.local': resp(200, { ok: true }) }) } });
   fs.writeFileSync(path.join(s.publico, 'sistemas.html'), '<html>sistemas</html>');
   try {
@@ -214,4 +214,20 @@ test('sessão do runner em "errored" (sem login, por exemplo) = agente caido, nu
   const r = await d.sistemas();
   assert.equal(achar(r, 'agente').estado, 'caido');
   assert.match(achar(r, 'agente').motivo, /errored/);
+});
+
+test('demo.json com permissão aberta (0666): o Sistemas não consulta nada e a rota explica o motivo', async () => {
+  const f = fetchFalso(BOAS());
+  const { caminho } = montaConfig();
+  fs.chmodSync(caminho, 0o666);
+  const logs = [];
+  const d = criarDemoSistemas({ env: { DGCLAW_DEMO_CONFIG: caminho }, runner: runnerVivo, registro: registroFalso, log: (n, m) => logs.push(m), fetchFn: f });
+  assert.equal(d.ativo(), false);
+  assert.match(logs[0], /permissão aberta/);
+  let status = 0, corpo = null;
+  const res = { writeHead(c) { status = c; }, setHeader() {}, end(t) { corpo = t; } };
+  assert.equal(await d.rota({ method: 'GET' }, res, new URL('http://x/api/demo/sistemas'), { usuario: 'a' }), true);
+  assert.equal(status, 503);
+  assert.match(String(corpo), /permissão aberta/);
+  assert.equal(f.chamadas.length, 0, 'nenhuma consulta externa com a configuração recusada');
 });

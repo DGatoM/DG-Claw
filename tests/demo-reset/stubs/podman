@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# podman de mentira para o teste do reset: o "container" e uma pasta ($STUB_CTR). Simula so o que o reset usa:
+#   exec [-i] -u 0 <container> sh -c '<instala managed-settings.json>'   (o conteudo vem pelo STDIN)
+#   exec -u 0 <container> sha256sum <arquivo>
+#   exec -u 0 <container> stat -c '%U:%G %a' <arquivo>
+# Variaveis: STUB_PODMAN_FALHA (exec falha), STUB_POLITICA_ERRADA (grava conteudo diferente), STUB_POLITICA_MODO (meta falsa).
+echo "podman $*" >> "${STUB_LOG:?}"
+[ "${1:-}" = exec ] || { echo "podman de mentira: so conheco exec (veio: $*)" >&2; exit 2; }
+shift
+[ -z "${STUB_PODMAN_FALHA:-}" ] || { echo "Error: no container with name or ID \"${*}\" found" >&2; exit 125; }
+while [ "${1:-}" = -i ] || [ "${1:-}" = -u ]; do if [ "$1" = -u ]; then [ "$2" = 0 ] || { echo "podman de mentira: esperava -u 0" >&2; exit 2; }; shift 2; else shift; fi; done
+CTR="${STUB_CTR:?}/$1"; shift
+mkdir -p "$CTR"
+arq="$CTR/managed-settings.json"
+case "$1" in
+    sh)
+        if [ -n "${STUB_POLITICA_ERRADA:-}" ]; then echo '{"permissions":{"deny":[]}}' > "$arq"; else cat > "$arq"; fi
+        echo "${STUB_POLITICA_MODO:-root:root 644}" > "$arq.meta" ;;
+    sha256sum) [ -f "$arq" ] || { echo "sha256sum: $2: No such file" >&2; exit 1; }; printf '%s  %s\n' "$(sha256sum < "$arq" | cut -d' ' -f1)" "$2" ;;
+    stat) [ -f "$arq" ] || exit 1; cat "$arq.meta" ;;
+    *) echo "podman de mentira: comando $1 nao previsto" >&2; exit 2 ;;
+esac

@@ -67,7 +67,11 @@ Token comparado por sha256 em tempo constante. Limite: 60 pedidos por minuto (42
   HTTP. A mensagem bruta do provedor, sem a chave e sem nada com cara de credencial, vai só para o log do painel e para a
   tela do dono.
 - Um pedido que estava esperando o provedor quando um reset começou ou terminou é descartado com `RESET_EM_ANDAMENTO`:
-  nenhum cartão do cliente anterior é recriado.
+  nenhum cartão do cliente anterior é recriado. A geração do reset é anotada antes de ler o corpo do pedido e conferida
+  de novo depois dele, então um corpo entregue devagar durante um reset também é descartado.
+- Cada cartão aceita uma decisão por vez: se duas chegam juntas, a segunda espera a primeira e então lê o estado já
+  gravado (responde `CARTAO_JA_DECIDIDO`). Antes de liberar um contato, o cartão é relido, para uma recusa ou uma
+  expiração ocorrida durante a busca dos candidatos nunca ser sobrescrita.
 
 ## Rotas da tela (cookie de sessão + origem, como as demais)
 
@@ -85,10 +89,10 @@ sha256 do texto, sem o corpo e sem o número completo além dos quatro últimos 
 
 ## Reset
 
-Executado por `bin/dgclaw-demo-reset <slug> [--dados <dataDir>] [--semente <pasta>] [--arquivo <pasta>]`, chamado pelo Web.
+Executado por `bin/dgclaw-demo-reset <slug> [--dados <dataDir>] [--semente <pasta>] [--arquivo <pasta>] [--so-politica]`, chamado pelo Web.
 
 Ordem: trava (`flock`), para o container, move para `/var/lib/dgclaw/demo-arquivo/<slug>/<AAAAmmdd-HHMMSS>/`,
-recoloca a semente, sobe o container, espera o runner, confere e registra o resultado.
+recoloca a semente, sobe o container, instala o bloqueio dos conectores do claude.ai (abaixo), espera o runner, confere e registra o resultado.
 
 - **Move (nunca apaga):** `.claude/projects`, `.claude/todos`, `.claude/shell-snapshots`, `.claude/file-history`,
   `.claude/history.jsonl`, `memory/`, `MEMORY.md`, `working-memory.md`, `arquivos/`, `saida/`, `uploads/`, `crm/`, `data/`,
@@ -110,6 +114,9 @@ recoloca a semente, sobe o container, espera o runner, confere e registra o resu
 
 ## Página Sistemas conectados
 
+O `demo.json` passa pela mesma validação do Portão (dono, permissão, versão, chaves). Se ela falha, nenhuma consulta externa
+é feita e `GET /api/demo/sistemas` responde 503 com o motivo, que a tela mostra.
+
 `/sistemas`, dentro do grupo do menu que reúne Mesa e Segurança, só no modo demonstração. Foto do agente no centro,
 uma linha até cada sistema. Pulso de luz indo e voltando **somente** em conexão confirmada. Caída fica vermelha e parada,
 com o motivo; não medida fica cinza e parada. Respeita `prefers-reduced-motion`. No celular vira lista.
@@ -130,8 +137,30 @@ A skill `demonstracao` (`templates/ambiente/skills/demonstracao/`) ensina o flux
 curls. As regras que entram na identidade: nunca listar conversas; sempre passar pelo Portão; depois de pedir o cartão,
 dizer "confirme na tela" e esperar o estado.
 
-Em sessão com login de assinatura, os conectores do claude.ai (Gmail e outros) são negados por `managed-settings.json`
-na imagem do container, para o e-mail só sair pelo Portão.
+### Bloqueio dos conectores do claude.ai
+
+Com login de assinatura, o Claude Code oferece ao agente os conectores da conta (Gmail, Agenda, Drive, Docs, Figma,
+Meta). Se ficassem abertos, o e-mail sairia sem passar pelo Portão. O bloqueio é um `managed-settings.json` (a camada de
+configuração que o agente não consegue sobrescrever) instalado **dentro do container**, em
+`/etc/claude-code/managed-settings.json`, dono `root:root`, modo 644. O modelo está em
+`templates/demo/managed-settings.json` e o conteúdo exato é:
+
+```json
+{"env":{"ENABLE_CLAUDEAI_MCP_SERVERS":"false"},"permissions":{"deny":["mcp__claude_ai_Gmail","mcp__claude_ai_Google_Calendar","mcp__claude_ai_Google_Drive","mcp__claude_ai_Claude_Docs","mcp__claude_ai_Figma","mcp__claude_ai_Meta_MCP"]}}
+```
+
+O que realmente acontece:
+
+- O `dgclaw-demo-reset` lê o nome do container no campo `container` do `agentes.json` e confere, antes de mexer em
+  qualquer coisa, que o modelo tem o sha256 esperado (um modelo editado por engano é recusado).
+- Depois de ligar o agente, instala o arquivo com `podman exec -i -u 0 <container>`, mandando o conteúdo por STDIN. Não
+  usa `podman cp` porque ele quebra com "value too large for defined data type" quando o mapa de uid é alto.
+- A conferência final reprova o reset se o arquivo não estiver no container com o mesmo sha256 do modelo e com dono
+  `root:root` e modo 644. A mensagem diz o que faltou e o comando para corrigir.
+- `sudo dgclaw-demo-reset <slug> --so-politica` só instala e confere o bloqueio, sem parar o agente nem mover nada.
+  Use depois de recriar o container (por exemplo, `dgclaw agente atualizar`), porque o arquivo vive no container.
+- O runner do Codex só leva ao agente os servidores MCP listados no `mcpConfig` dele (`runner/src/provedores/mcp-codex.ts`)
+  e não liga conectores da conta, então não existe equivalente a bloquear nesse motor.
 
 ## Como operar
 

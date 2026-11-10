@@ -46,15 +46,15 @@ monta() {
     echo "# memoria semente" >"$SEM/MEMORY.md"
     echo "base da empresa" >"$SEM/memory/base.md"
     echo "boas-vindas" >"$SEM/arquivos/boas-vindas.txt"
-    printf '{"agentes":[{"slug":"nova","runner":"http://127.0.0.1:1"}]}' >"$R/etc/dgclaw/agentes.json"
+    printf '{"agentes":[{"slug":"nova","runner":"http://127.0.0.1:1","container":"dgclaw-nova"}]}' >"$R/etc/dgclaw/agentes.json"
     chown -R "$DONO_U:$DONO_G" "$CASA"
-    export STUB_LOG="$R/dgclaw.log" STUB_CASA="$CASA"
+    export STUB_LOG="$R/dgclaw.log" STUB_CASA="$CASA" STUB_CTR="$R/containers"
     : >"$STUB_LOG"
-    unset STUB_RUNNER_FORA STUB_ESCREVE_MEMORIA STUB_FALHA_PARAR STUB_ESCREVE_ROLLOUT
+    unset STUB_PODMAN_FALHA STUB_POLITICA_ERRADA STUB_POLITICA_MODO STUB_RUNNER_FORA STUB_ESCREVE_MEMORIA STUB_FALHA_PARAR STUB_ESCREVE_ROLLOUT
 }
 
 roda() { # roda [args...]: a saida fica em $R/saida.txt e o codigo em $RC
-    DGCLAW_RAIZ="$R" DGCLAW_CLI="$AQUI/stubs/dgclaw" DGCLAW_DEMO_ESPERA=2 PATH="$AQUI/stubs:$PATH" "$RESET" "$@" >"$R/saida.txt" 2>&1
+    DGCLAW_RAIZ="$R" DGCLAW_CLI="$AQUI/stubs/dgclaw" DGCLAW_PODMAN="$AQUI/stubs/podman" DGCLAW_DEMO_ESPERA=2 PATH="$AQUI/stubs:$PATH" "$RESET" "$@" >"$R/saida.txt" 2>&1
     RC=$?
 }
 arquivo_dir() { find "$R/var/lib/dgclaw/demo-arquivo/nova" -mindepth 1 -maxdepth 1 -type d | sort | tail -1; }
@@ -101,7 +101,7 @@ igual "a sessao do runner e nova (sem --resume da antiga)" '{"sessionId":"sessao
 afirma "o estado antigo do runner esta no arquivo" grep -q sessao-antiga "$ARQ/casa/.plataforma/runner-state.json"
 igual "a pasta de arquivo e 700" 700 "$(stat -c '%a' "$ARQ")"
 igual "a pasta base do arquivo e 700" 700 "$(stat -c '%a' "$R/var/lib/dgclaw/demo-arquivo/nova")"
-igual "parou e depois iniciou, nessa ordem" "dgclaw agente parar nova|dgclaw agente iniciar nova" "$(paste -sd'|' "$STUB_LOG")"
+igual "parou e depois iniciou, nessa ordem" "dgclaw agente parar nova|dgclaw agente iniciar nova" "$(grep "^dgclaw " "$STUB_LOG" | paste -sd'|')"
 afirma "o manifesto lista o que saiu" grep -q 'casa/.claude/projects' "$ARQ/MANIFESTO.txt"
 
 echo "reset: rodar de novo guarda em outra pasta e nao apaga o primeiro"
@@ -267,6 +267,72 @@ mkdir -p "$R/var/lock"
 )
 igual "o segundo reset recusa" 1 "$(cat "$R/rc-trava.txt")"
 afirma "diz que ja ha um em andamento" grep -q 'já existe um reset' "$R/saida.txt"
+
+echo "reset: o bloqueio dos conectores do claude.ai entra no container, depois de ligar, e e conferido"
+monta politica
+roda nova --dados "$DADOS"
+igual "sai com 0" 0 "$RC"
+MODELO_SHA="$(sha256sum <"$REPO/templates/demo/managed-settings.json" | cut -d' ' -f1)"
+igual "o modelo tem o conteudo exato pedido" '{"env":{"ENABLE_CLAUDEAI_MCP_SERVERS":"false"},"permissions":{"deny":["mcp__claude_ai_Gmail","mcp__claude_ai_Google_Calendar","mcp__claude_ai_Google_Drive","mcp__claude_ai_Claude_Docs","mcp__claude_ai_Figma","mcp__claude_ai_Meta_MCP"]}}' "$(cat "$REPO/templates/demo/managed-settings.json")"
+igual "o container instalado (nome vem do registro) tem o arquivo igual ao modelo" "$MODELO_SHA" "$(sha256sum <"$R/containers/dgclaw-nova/managed-settings.json" | cut -d' ' -f1)"
+igual "dono e permissao dentro do container" "root:root 644" "$(cat "$R/containers/dgclaw-nova/managed-settings.json.meta")"
+afirma "a saida conta a etapa do bloqueio" grep -q '^==> Instalando o bloqueio dos conectores do claude.ai' "$R/saida.txt"
+igual "ordem: parar, iniciar, instalar, conferir (sha e dono)" "dgclaw agente parar nova|dgclaw agente iniciar nova|podman exec -i -u 0 dgclaw-nova sh|podman exec -u 0 dgclaw-nova sha256sum /etc/claude-code/managed-settings.json|podman exec -u 0 dgclaw-nova stat" "$(cut -c1-120 "$STUB_LOG" | sed -E 's/(podman exec -i -u 0 dgclaw-nova sh).*/\1/; s/(stat) .*/\1/' | paste -sd'|')"
+
+echo "reset: bloqueio com conteudo errado no container reprova a conferencia final"
+monta politica-errada
+export STUB_POLITICA_ERRADA=1
+roda nova --dados "$DADOS"
+nega "sai com erro" test "$RC" = 0
+afirma "explica que o conteudo nao e o certo" grep -q 'não tem o conteúdo certo' "$R/saida.txt"
+afirma "avisa que o agente esta ligado" grep -q 'está LIGADO' "$R/saida.txt"
+unset STUB_POLITICA_ERRADA
+
+echo "reset: bloqueio com dono ou permissao errados reprova a conferencia final"
+monta politica-modo
+export STUB_POLITICA_MODO="agente:agente 666"
+roda nova --dados "$DADOS"
+nega "sai com erro" test "$RC" = 0
+afirma "explica o dono e a permissao" grep -q "root:root 644" "$R/saida.txt"
+unset STUB_POLITICA_MODO
+
+echo "reset: container que nao aceita o exec reprova com o motivo"
+monta politica-falha
+export STUB_PODMAN_FALHA=1
+roda nova --dados "$DADOS"
+nega "sai com erro" test "$RC" = 0
+afirma "explica que nao instalou o bloqueio" grep -q 'não consegui instalar /etc/claude-code/managed-settings.json' "$R/saida.txt"
+unset STUB_PODMAN_FALHA
+
+echo "reset: registro sem o campo container recusa antes de mexer"
+monta sem-container
+printf '{"agentes":[{"slug":"nova","runner":"http://127.0.0.1:1"}]}' >"$R/etc/dgclaw/agentes.json"
+roda nova --dados "$DADOS"
+nega "sai com erro" test "$RC" = 0
+afirma "explica o campo faltando" grep -q 'campo "container"' "$R/saida.txt"
+afirma "nada foi parado" test ! -s "$STUB_LOG"
+afirma "a conversa antiga continua" test -f "$CASA/.claude/projects/-home-agente/sessao.jsonl"
+
+echo "reset: modelo adulterado e recusado antes de mexer"
+monta modelo-ruim
+echo '{"permissions":{"deny":[]}}' >"$R/modelo.json"
+DGCLAW_DEMO_POLITICA="$R/modelo.json" roda nova --dados "$DADOS"
+nega "sai com erro" test "$RC" = 0
+afirma "explica o sha256" grep -q 'sha256 diferente' "$R/saida.txt"
+afirma "nada foi parado" test ! -s "$STUB_LOG"
+
+echo "reset: --so-politica so instala e confere, sem parar o agente nem mover nada"
+monta so-politica
+roda nova --so-politica
+igual "sai com 0" 0 "$RC"; [ "$RC" = 0 ] || sed "s/^/    | /" "$R/saida.txt"
+igual "o arquivo esta no container" "$MODELO_SHA" "$(sha256sum <"$R/containers/dgclaw-nova/managed-settings.json" | cut -d' ' -f1)"
+nega "o agente nao foi parado nem ligado" grep -q '^dgclaw ' "$STUB_LOG"
+afirma "a conversa antiga continua onde estava" test -f "$CASA/.claude/projects/-home-agente/sessao.jsonl"
+nega "nao criou pasta de arquivo" test -d "$R/var/lib/dgclaw/demo-arquivo"
+export STUB_POLITICA_ERRADA=1
+roda nova --so-politica
+nega "com conteudo errado, o modo so-politica tambem reprova" test "$RC" = 0
+unset STUB_POLITICA_ERRADA
 
 printf 'demo-reset: %s verificacoes, %s falharam\n' "$TESTES" "$FALHAS"
 [ "$FALHAS" -eq 0 ]

@@ -2,37 +2,19 @@
 // Página "Sistemas conectados" do modo demonstração: mede de verdade cada sistema ligado ao agente
 // (runner, linhas de WhatsApp, e-mail, CRM, geração de imagens) e devolve o estado em GET /api/demo/sistemas.
 // Regra de ouro: o que não foi medido nunca vira "conectado". Sem rota de status, é "nao_medido" com o motivo.
-// O demo.json é lido aqui por conta própria (o contrato está em docs/MODO-DEMONSTRACAO.md).
+// O demo.json passa pela MESMA validação do Portão (carregarConfig, em demo.js: dono, permissão, versão, chaves).
+// Se ela falhar, nenhuma consulta externa é feita e a tela mostra o motivo (contrato em docs/MODO-DEMONSTRACAO.md).
 
 const fs = require('node:fs');
 const path = require('node:path');
 const H = require('./http');
+const { carregarConfig } = require('./demo');
 
 const PRAZO_MS = 6000;
 const CACHE_MS = 20000;
 const URL_OPENAI = 'https://api.openai.com/v1/models';
 const STATUS_CONECTADO = new Set(['connected', 'open', 'online', 'conectado']);
 const STATUS_CAIDO = new Set(['disconnected', 'close', 'closed', 'offline', 'logout', 'logged_out', 'desconectado', 'error', 'banned']);
-
-/** Lê e valida o mínimo do demo.json. Devolve { ok:true, config } ou { ok:false, erro }. */
-function carregar(caminho) {
-  if (!caminho) return { ok: false, erro: 'DGCLAW_DEMO_CONFIG não está definida.' };
-  let bruto;
-  try { bruto = fs.readFileSync(caminho, 'utf8'); } catch (e) {
-    return { ok: false, erro: `Não consegui ler o demo.json em ${caminho} (${e.code || e.message}). Confira se o arquivo existe e se este serviço tem permissão de leitura.` };
-  }
-  let c;
-  try { c = JSON.parse(bruto); } catch (e) {
-    return { ok: false, erro: `O demo.json em ${caminho} não é um JSON válido (${e.message}).` };
-  }
-  if (!c || typeof c !== 'object' || Array.isArray(c)) return { ok: false, erro: 'O demo.json precisa ser um objeto JSON.' };
-  if (typeof c.agente !== 'string' || !c.agente) return { ok: false, erro: 'O demo.json não tem o campo "agente" (o slug do agente da demonstração).' };
-  if (c.linhas_whatsapp != null && !Array.isArray(c.linhas_whatsapp)) return { ok: false, erro: 'No demo.json, "linhas_whatsapp" precisa ser uma lista.' };
-  for (const l of c.linhas_whatsapp || []) {
-    if (!l || typeof l.id !== 'string' || !l.id) return { ok: false, erro: 'No demo.json, toda linha de WhatsApp precisa de "id".' };
-  }
-  return { ok: true, config: c };
-}
 
 /** Troca números longos por "final NNNN" e remove o valor da chave, se por acaso aparecer. */
 function limpar(texto, segredos) {
@@ -42,9 +24,10 @@ function limpar(texto, segredos) {
 }
 
 function criarDemoSistemas({ env, runner, registro, avatarDe, log, fetchFn, agora, prazoMs, cacheMs }) {
-  const ler = carregar((env || {}).DGCLAW_DEMO_CONFIG);
-  const config = ler.ok ? ler.config : null;
-  if (!ler.ok && (env || {}).DGCLAW_DEMO_CONFIG) log('erro', `Modo demonstração desligado: ${ler.erro}`);
+  const caminhoCfg = String((env || {}).DGCLAW_DEMO_CONFIG || '').trim();
+  const ler = caminhoCfg ? carregarConfig(caminhoCfg) : { erro: 'DGCLAW_DEMO_CONFIG não está definida.' };
+  const config = ler.config || null;
+  if (!config && caminhoCfg) log('erro', `Modo demonstração desligado: ${ler.erro}`);
   const buscar = fetchFn || ((url, op) => fetch(url, op));
   const hora = agora || (() => Date.now());
   const prazo = prazoMs || PRAZO_MS;
@@ -53,6 +36,7 @@ function criarDemoSistemas({ env, runner, registro, avatarDe, log, fetchFn, agor
   let voo = null;
 
   const ativo = () => !!config;
+  const configurado = () => !!caminhoCfg;
 
   /** fetch com prazo: aborta o pedido e também desiste da espera se o provedor ignorar o sinal. */
   async function pedir(url, headers) {
@@ -194,8 +178,9 @@ function criarDemoSistemas({ env, runner, registro, avatarDe, log, fetchFn, agor
   /** Trata GET /api/demo/sistemas. Devolve true se a rota era esta. */
   async function rota(req, res, url, sessao) {
     if (url.pathname !== '/api/demo/sistemas') return false;
-    if (!ativo()) { H.erroJson(res, 404, 'O modo demonstração não está ligado neste painel.'); return true; }
+    if (!configurado()) { H.erroJson(res, 404, 'O modo demonstração não está ligado neste painel.'); return true; }
     if (!sessao) { H.erroJson(res, 401, 'Você precisa entrar para ver os sistemas conectados. Faça login em /login.'); return true; }
+    if (!ativo()) { H.erroJson(res, 503, `O modo demonstração está desligado por um defeito na configuração, então não consultei nenhum sistema: ${ler.erro} Corrija e reinicie o painel.`); return true; }
     if (req.method !== 'GET') { H.erroJson(res, 405, 'Use GET para ver o estado dos sistemas conectados.'); return true; }
     try { H.enviaJson(res, 200, await sistemas()); } catch (e) {
       log('erro', `Sistemas conectados: a medição falhou: ${e.message}`);
@@ -204,7 +189,7 @@ function criarDemoSistemas({ env, runner, registro, avatarDe, log, fetchFn, agor
     return true;
   }
 
-  return { ativo, rota, sistemas };
+  return { ativo, configurado, rota, sistemas };
 }
 
-module.exports = { criarDemoSistemas, carregar, limpar };
+module.exports = { criarDemoSistemas, limpar };

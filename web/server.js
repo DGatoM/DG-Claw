@@ -1408,7 +1408,7 @@ function criarServidor(opcoes) {
     }
 
     if ((p === '/sistemas' || p === '/sistemas/') && (m === 'GET' || m === 'HEAD')) {
-      if (!demoSistemas.ativo()) return H.paginaErro(res, 404, 'Página não encontrada', 'A tela Sistemas conectados só existe no modo demonstração.');
+      if (!demoSistemas.configurado()) return H.paginaErro(res, 404, 'Página não encontrada', 'A tela Sistemas conectados só existe no modo demonstração.');
       if (!sessao) return semSessaoPagina(req, res, url);
       if (!servirArquivo(req, res, path.join(config.publicDir, 'sistemas.html'), 'no-store')) {
         log('erro', `A tela Sistemas conectados não está instalada: falta ${path.join(config.publicDir, 'sistemas.html')}.`);

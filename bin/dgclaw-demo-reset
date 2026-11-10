@@ -3,31 +3,45 @@
 # Roda como root, no host. É o que o botão "Novo cliente (Reset)" do painel chama, e também serve no terminal:
 #
 #   sudo dgclaw-demo-reset <slug> [--dados <pasta-de-dados-do-painel>] [--semente <pasta>] [--arquivo <pasta>]
+#   sudo dgclaw-demo-reset <slug> --so-politica     (só instala e confere o bloqueio dos conectores do claude.ai)
 #
 # Ordem: trava, confere tudo ANTES de mexer, para o agente, MOVE (nunca apaga) o que é do cliente anterior para
 # <arquivo>/<AAAAmmdd-HHMMSS>/, recoloca a semente, sobe o agente, espera o runner e confere o resultado.
 # Cada etapa imprime uma linha "==> ..." que o painel mostra como andamento. Falhou: sai diferente de 0 e escreve o motivo.
 #
+# Bloqueio dos conectores do claude.ai (Gmail, Agenda, Drive...): depois de ligar o agente, o reset instala
+# /etc/claude-code/managed-settings.json DENTRO do container (root, 644) a partir de templates/demo/managed-settings.json,
+# e a conferência final reprova se o arquivo não estiver lá com o conteúdo certo (sha256).
+#
 # Não toca: AGENT.md, CLAUDE.md, identidade, skills, login (.claude/.credentials.json) e cofre.
 #
 # Variáveis (para testes): DGCLAW_RAIZ (prefixo falso de /etc e /var), DGCLAW_CLI (o comando dgclaw),
-# DGCLAW_DEMO_ESPERA (segundos esperando o runner), DGCLAW_DEMO_URL_RUNNER (ignora o agentes.json).
+# DGCLAW_DEMO_ESPERA (segundos esperando o runner), DGCLAW_DEMO_URL_RUNNER (ignora o agentes.json),
+# DGCLAW_PODMAN (o comando podman), DGCLAW_DEMO_POLITICA (o modelo do managed-settings.json).
 set -euo pipefail
 umask 077
 
 RAIZ="${DGCLAW_RAIZ:-}"
 CLI="${DGCLAW_CLI:-dgclaw}"
 ESPERA="${DGCLAW_DEMO_ESPERA:-90}"
+PODMAN="${DGCLAW_PODMAN:-podman}"
+POLITICA_MODELO="${DGCLAW_DEMO_POLITICA:-$(dirname "$(readlink -f "$0")")/../templates/demo/managed-settings.json}"
+POLITICA_CAMINHO=/etc/claude-code/managed-settings.json
+# sha256 do conteúdo exato que o modelo precisa ter (um modelo editado por engano não chega ao agente).
+POLITICA_SHA=e51153f24e4df52e977f6dfe2fccbed809bd279b001258772fbbe879a1b76f7e
+SO_POLITICA=0
+LIGADO=0
 
 passo() { printf '==> %s\n' "$*"; }
 falha() { printf 'ERRO: %s\n' "$*" >&2; exit 1; }
 uso() {
     cat >&2 <<'FIM'
-Uso: dgclaw-demo-reset <slug> [--dados <pasta>] [--semente <pasta>] [--arquivo <pasta>]
+Uso: dgclaw-demo-reset <slug> [--dados <pasta>] [--semente <pasta>] [--arquivo <pasta>] [--so-politica]
   slug      o agente da demonstração (minúsculas, números e hífen, até 32 caracteres)
   --dados   pasta de dados do painel da demonstração (padrão: /var/lib/dgclaw/web)
   --semente pasta com o que volta para a casa do agente (padrão: /var/lib/dgclaw/demo-semente/<slug>)
   --arquivo pasta onde o que saiu fica guardado (padrão: /var/lib/dgclaw/demo-arquivo/<slug>)
+  --so-politica só instala e confere o bloqueio dos conectores do claude.ai no container (não move nada, não para o agente)
 FIM
     exit 1
 }
@@ -45,6 +59,7 @@ while [ $# -gt 0 ]; do
             [ $# -ge 2 ] || falha "falta o valor depois de $1."
             case "$1" in --dados) DADOS="$2" ;; --semente) SEMENTE="$2" ;; --arquivo) ARQUIVO_BASE="$2" ;; esac
             shift 2 ;;
+        --so-politica) SO_POLITICA=1; shift ;;
         *) uso ;;
     esac
 done
@@ -56,6 +71,50 @@ PASTA_TRAVA="$RAIZ/var/lock"
 for ferramenta in flock stat find cp mv chown; do
     command -v "$ferramenta" >/dev/null || falha "o programa $ferramenta não foi encontrado neste servidor. Instale-o (pacote coreutils/util-linux) e tente de novo."
 done
+
+# container_do_agente: o nome do container vem do registro (campo "container"), o mesmo que o dgclaw usa para parar e ligar.
+container_do_agente() {
+    command -v jq >/dev/null || falha "o jq não foi encontrado: preciso dele para ler o container de $SLUG no agentes.json. Instale com: apt install jq"
+    [ -r "$AGENTES_JSON" ] || falha "não consegui ler $AGENTES_JSON. Nada foi mexido."
+    CONTAINER="$(jq -r --arg s "$SLUG" '.agentes[] | select(.slug == $s) | .container // empty' "$AGENTES_JSON")"
+    [ -n "$CONTAINER" ] || falha "o agente $SLUG não tem o campo \"container\" no $AGENTES_JSON, então não sei onde instalar o bloqueio dos conectores do claude.ai. Nada foi mexido."
+}
+
+confere_modelo_da_politica() {
+    [ -r "$POLITICA_MODELO" ] || falha "não achei o modelo do bloqueio dos conectores do claude.ai em $POLITICA_MODELO. Reinstale o DG Claw. Nada foi mexido."
+    command -v sha256sum >/dev/null || falha "o programa sha256sum não foi encontrado neste servidor (pacote coreutils). Nada foi mexido."
+    [ "$(sha256sum <"$POLITICA_MODELO" | cut -d' ' -f1)" = "$POLITICA_SHA" ] \
+        || falha "o modelo $POLITICA_MODELO não tem o conteúdo esperado (sha256 diferente). Restaure-o com: git checkout -- templates/demo/managed-settings.json. Nada foi mexido."
+}
+
+# instala_politica: grava $POLITICA_CAMINHO dentro do container, como root, dono root e modo 644. Vai por STDIN
+# (podman exec -i): o podman cp quebra com "value too large for defined data type" quando o mapa de uid é alto
+# (mesmo motivo do vida_script, no bin/dgclaw).
+instala_politica() {
+    passo "Instalando o bloqueio dos conectores do claude.ai no container $CONTAINER"
+    "$PODMAN" exec -i -u 0 "$CONTAINER" sh -c 'set -e; umask 022; mkdir -p /etc/claude-code; cat > /etc/claude-code/managed-settings.json.novo; chown 0:0 /etc/claude-code/managed-settings.json.novo; chmod 644 /etc/claude-code/managed-settings.json.novo; mv -f /etc/claude-code/managed-settings.json.novo /etc/claude-code/managed-settings.json' <"$POLITICA_MODELO" \
+        || falha "não consegui instalar $POLITICA_CAMINHO dentro do container $CONTAINER. Sem ele, os conectores do claude.ai (Gmail e outros) ficam abertos para o agente. Confira se o container está ligado: $PODMAN ps"
+}
+
+confere_politica() {
+    local real dono
+    real="$("$PODMAN" exec -u 0 "$CONTAINER" sha256sum "$POLITICA_CAMINHO" 2>/dev/null | cut -d' ' -f1)" || real=""
+    [ -n "$real" ] || falha "não achei $POLITICA_CAMINHO dentro do container $CONTAINER: os conectores do claude.ai estariam abertos. Rode: dgclaw-demo-reset $SLUG --so-politica"
+    [ "$real" = "$POLITICA_SHA" ] || falha "$POLITICA_CAMINHO no container $CONTAINER não tem o conteúdo certo (sha256 $real, esperado $POLITICA_SHA): os conectores do claude.ai podem estar abertos. Rode: dgclaw-demo-reset $SLUG --so-politica"
+    dono="$("$PODMAN" exec -u 0 "$CONTAINER" stat -c '%U:%G %a' "$POLITICA_CAMINHO" 2>/dev/null)" || dono=""
+    [ "$dono" = "root:root 644" ] || falha "$POLITICA_CAMINHO no container $CONTAINER está com dono/permissão '${dono:-desconhecido}' e precisa ser 'root:root 644' (o agente não pode poder trocá-lo). Rode: dgclaw-demo-reset $SLUG --so-politica"
+}
+
+# Só o bloqueio: confere, instala e confere de novo. Não para o agente, não move nada.
+if [ "$SO_POLITICA" = 1 ]; then
+    container_do_agente
+    confere_modelo_da_politica
+    instala_politica
+    passo "Conferindo o bloqueio dos conectores do claude.ai"
+    confere_politica
+    passo "Pronto: o bloqueio dos conectores do claude.ai está em $POLITICA_CAMINHO dentro de $CONTAINER"
+    exit 0
+fi
 
 mkdir -p "$PASTA_TRAVA" 2>/dev/null || PASTA_TRAVA="${TMPDIR:-/tmp}"
 exec 9>"$PASTA_TRAVA/dgclaw-demo-reset-$SLUG.lock"
@@ -72,6 +131,9 @@ fi
 for proibido in AGENT.md CLAUDE.md .claude/.credentials.json .claude/skills .plataforma/identidade.md .plataforma/segredos; do
     [ ! -e "$SEMENTE/$proibido" ] || falha "a semente tem $proibido, que o reset nunca troca (identidade, skills e login não saem). Tire-o da semente. Nada foi mexido."
 done
+
+container_do_agente
+confere_modelo_da_politica
 
 DONO_UID="$(stat -c '%u' "$CASA")"
 DONO_GID="$(stat -c '%g' "$CASA")"
@@ -109,7 +171,12 @@ passo "Parando o agente $SLUG"
 "$CLI" agente parar "$SLUG" >/dev/null || falha "não consegui parar o agente $SLUG. Nada foi movido. Tente: $CLI agente parar $SLUG"
 
 APOS_PARAR=1
-ao_falhar() { printf 'O agente %s ficou PARADO. O que já foi movido está em %s. Corrija o motivo acima e rode o reset de novo (ou ligue o agente com: %s agente iniciar %s).\n' "$SLUG" "$DESTINO" "$CLI" "$SLUG" >&2; }
+ao_falhar() {
+    if [ "$LIGADO" = 1 ]; then
+        printf 'O agente %s está LIGADO, mas o reset não terminou (motivo acima). O que já foi movido está em %s. Corrija o motivo e rode o reset de novo.\n' "$SLUG" "$DESTINO" >&2
+        return
+    fi
+    printf 'O agente %s ficou PARADO. O que já foi movido está em %s. Corrija o motivo acima e rode o reset de novo (ou ligue o agente com: %s agente iniciar %s).\n' "$SLUG" "$DESTINO" "$CLI" "$SLUG" >&2; }
 ao_sair() { local rc=$?; if [ "$rc" -ne 0 ] && [ "${APOS_PARAR:-0}" = 1 ]; then ao_falhar; fi; }
 trap ao_sair EXIT
 
@@ -242,6 +309,8 @@ done
 # ── sobe e confere ─────────────────────────────────────────────────────────
 passo "Ligando o agente $SLUG"
 "$CLI" agente iniciar "$SLUG" >/dev/null || falha "não consegui ligar o agente $SLUG. Veja: $CLI agente iniciar $SLUG"
+LIGADO=1
+instala_politica
 
 passo "Esperando o runner responder"
 pronto=0
@@ -296,6 +365,9 @@ done <"$MOVIDOS"
 for rel in AGENT.md CLAUDE.md; do
     [ ! -e "$DESTINO/casa/$rel" ] || falha "$rel foi parar no arquivo, e ele não devia sair da casa. Recoloque-o a partir de $DESTINO/casa/$rel."
 done
+
+passo "Conferindo o bloqueio dos conectores do claude.ai"
+confere_politica
 
 APOS_PARAR=0
 passo "Pronto: $(wc -l <"$MOVIDOS" | tr -d ' ') itens guardados em $DESTINO"

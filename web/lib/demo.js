@@ -358,8 +358,9 @@ function criarDemo({ config: webConfig, registro, log, agora, fetchImpl, spawnIm
   const abertos = () => listarCartoes().filter((c) => c.estado === 'aguardando').length;
 
   // ── Portão: rotas do agente ─────────────────────────────────────────────
-  async function criarLeitura(corpo) {
-    const g = geracao;
+  async function criarLeitura(corpo, geracaoDoPedido) {
+    const g = geracaoDoPedido === undefined ? geracao : geracaoDoPedido;
+    confereGeracao(g);
     const l = linhaDe(corpo.linha);
     if (!l) throw ruim(404, 'LINHA_DESCONHECIDA', `Não existe a linha "${String(corpo.linha).slice(0, 40)}". As linhas são: ${cfg.linhas_whatsapp.map((x) => x.id).join(', ')}.`);
     const nome = typeof corpo.nome === 'string' ? corpo.nome.trim() : '';
@@ -385,8 +386,9 @@ function criarDemo({ config: webConfig, registro, log, agora, fetchImpl, spawnIm
     return c;
   }
 
-  async function criarEnvio(corpo) {
-    const g = geracao;
+  async function criarEnvio(corpo, geracaoDoPedido) {
+    const g = geracaoDoPedido === undefined ? geracao : geracaoDoPedido;
+    confereGeracao(g);
     const canal = corpo.canal;
     if (canal !== 'whatsapp' && canal !== 'email') throw ruim(400, 'CANAL_INVALIDO', 'O "canal" precisa ser "whatsapp" ou "email".');
     const texto = corpo.texto;
@@ -456,7 +458,10 @@ function criarDemo({ config: webConfig, registro, log, agora, fetchImpl, spawnIm
       let r;
       if ((r = /^\/api\/demo\/v1\/contato$/.exec(p))) {
         if (m !== 'POST') throw ruim(405, 'METODO_INVALIDO', 'Use POST com {"linha": "...", "nome": "..."}.');
-        return H.enviaJson(res, 201, Object.assign({ ok: true }, await criarLeitura(await H.lerJson(req, MAX_CORPO))));
+        const g = geracao; // antes de ler o corpo: um reset durante a leitura lenta descarta o pedido
+        const corpo = await H.lerJson(req, MAX_CORPO);
+        confereGeracao(g);
+        return H.enviaJson(res, 201, Object.assign({ ok: true }, await criarLeitura(corpo, g)));
       }
       if ((r = /^\/api\/demo\/v1\/contato\/([^/]+)$/.exec(p))) {
         if (m !== 'GET') throw ruim(405, 'METODO_INVALIDO', 'Use GET.');
@@ -486,7 +491,10 @@ function criarDemo({ config: webConfig, registro, log, agora, fetchImpl, spawnIm
       }
       if (p === '/api/demo/v1/envio') {
         if (m !== 'POST') throw ruim(405, 'METODO_INVALIDO', 'Use POST com o corpo do envio.');
-        return H.enviaJson(res, 201, Object.assign({ ok: true }, await criarEnvio(await H.lerJson(req, MAX_CORPO))));
+        const g = geracao;
+        const corpo = await H.lerJson(req, MAX_CORPO);
+        confereGeracao(g);
+        return H.enviaJson(res, 201, Object.assign({ ok: true }, await criarEnvio(corpo, g)));
       }
       if ((r = /^\/api\/demo\/v1\/envio\/([^/]+)$/.exec(p))) {
         if (m !== 'GET') throw ruim(405, 'METODO_INVALIDO', 'Use GET.');
@@ -541,7 +549,18 @@ function criarDemo({ config: webConfig, registro, log, agora, fetchImpl, spawnIm
     return { ok: true, agente: cfg.agente, resetando, cartoes: await Promise.all(abertosC.map(visao)), recentes };
   }
 
-  async function decidir(id, corpo, sessao) {
+  // Uma decisão por vez em cada cartão: a segunda espera a primeira terminar e então lê o estado já gravado.
+  const filasDecisao = new Map(); // id do cartão -> promessa da última decisão na fila
+  function decidir(id, corpo, sessao) {
+    const anterior = filasDecisao.get(id) || Promise.resolve();
+    const vez = anterior.catch(() => {}).then(() => decidirSozinha(id, corpo, sessao));
+    const marca = vez.catch(() => {});
+    filasDecisao.set(id, marca);
+    marca.then(() => { if (filasDecisao.get(id) === marca) filasDecisao.delete(id); });
+    return vez;
+  }
+
+  async function decidirSozinha(id, corpo, sessao) {
     if (resetando) throw ruim(503, 'RESET_EM_ANDAMENTO', 'Um reset está em andamento. Espere terminar.');
     const g = geracao;
     const c = lerCartao(id);
@@ -565,6 +584,11 @@ function criarDemo({ config: webConfig, registro, log, agora, fetchImpl, spawnIm
       confereGeracao(g);
       const esc = lista.find((x) => x.ref === ref);
       if (!esc) throw ruim(409, 'CANDIDATO_INVALIDO', 'Esse contato não está na lista deste cartão. Atualize a tela e escolha de novo.');
+      // A busca levou tempo: o cartão pode ter expirado ou sido decidido por outro caminho. Relê antes de gravar.
+      const atual = lerCartao(id);
+      if (!atual || atual.estado !== 'aguardando') throw ruim(409, 'CARTAO_JA_DECIDIDO', atual && atual.estado === 'expirado' ? 'Este cartão expirou enquanto eu buscava os contatos. Peça ao agente para pedir de novo.' : `Este cartão já foi decidido (${atual ? atual.estado : 'apagado'}). Cada cartão vale uma vez só.`);
+      Object.assign(c, atual);
+      c.decidido_por = quem;
       c.estado = 'liberado';
       c.contato = { nome: esc.nome, telefone: esc.telefone, ref_provedor: esc.ref };
       c.liberado_ate = agoraMs() + VALIDADE_LIBERACAO_MS;
