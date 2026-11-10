@@ -2,7 +2,7 @@
 # dgclaw-demo-reset: prepara o agente do modo demonstração para um novo cliente (docs/MODO-DEMONSTRACAO.md).
 # Roda como root, no host. É o que o botão "Novo cliente (Reset)" do painel chama, e também serve no terminal:
 #
-#   sudo dgclaw-demo-reset <slug> [--dados <pasta-de-dados-do-painel>] [--semente <pasta>] [--arquivo <pasta>]
+#   sudo dgclaw-demo-reset <slug> --dados <pasta-de-dados-do-painel-da-demonstracao> [--semente <pasta>] [--arquivo <pasta>]
 #   sudo dgclaw-demo-reset <slug> --so-politica     (só instala e confere o bloqueio dos conectores do claude.ai)
 #
 # Ordem: trava, confere tudo ANTES de mexer, para o agente, MOVE (nunca apaga) o que é do cliente anterior para
@@ -13,11 +13,22 @@
 # /etc/claude-code/managed-settings.json DENTRO do container (root, 644) a partir de templates/demo/managed-settings.json,
 # e a conferência final reprova se o arquivo não estiver lá com o conteúdo certo (sha256).
 #
+# Sem sudo para o agente: o container da imagem dá ao agente `NOPASSWD:ALL`, e com isso ele apagaria a política acima.
+# No modo demonstração o reset move /etc/sudoers.d/agente para /etc/sudoers.d/.agente-demo-desligado (nunca apaga; o sudo
+# ignora arquivos com ponto no nome) e a conferência final reprova se `sudo -n true` ainda funcionar para o agente.
+# Se instalar a política ou tirar o sudo falhar com o agente ligado, o script PARA o agente e sai com falha.
+#
+# Travas: --dados é obrigatório, não pode ser a pasta do painel principal (/var/lib/dgclaw/web) e precisa ter a marca
+# <dados>/demo/INSTANCIA gravada pelo painel da demonstração (com o slug do agente). O reset completo só roda se for chamado
+# pelo painel (DGCLAW_DEMO_PELO_PAINEL=1) ou se o painel daquela instância estiver parado (systemctl is-active
+# dgclaw-demo@<instancia>, ou a unidade em DGCLAW_DEMO_UNIDADE); senão o painel não saberia do reset.
+#
 # Não toca: AGENT.md, CLAUDE.md, identidade, skills, login (.claude/.credentials.json) e cofre.
 #
 # Variáveis (para testes): DGCLAW_RAIZ (prefixo falso de /etc e /var), DGCLAW_CLI (o comando dgclaw),
 # DGCLAW_DEMO_ESPERA (segundos esperando o runner), DGCLAW_DEMO_URL_RUNNER (ignora o agentes.json),
-# DGCLAW_PODMAN (o comando podman), DGCLAW_DEMO_POLITICA (o modelo do managed-settings.json).
+# DGCLAW_PODMAN (o comando podman), DGCLAW_DEMO_POLITICA (o modelo do managed-settings.json),
+# DGCLAW_DEMO_PELO_PAINEL (1 quando o painel chama), DGCLAW_DEMO_UNIDADE (a unidade systemd do painel da demonstração).
 set -euo pipefail
 umask 077
 
@@ -31,14 +42,17 @@ POLITICA_CAMINHO=/etc/claude-code/managed-settings.json
 POLITICA_SHA=e51153f24e4df52e977f6dfe2fccbed809bd279b001258772fbbe879a1b76f7e
 SO_POLITICA=0
 LIGADO=0
+APOS_PARAR=0
+PROTEGER=0
+SUDO_DESLIGADO=/etc/sudoers.d/.agente-demo-desligado
 
 passo() { printf '==> %s\n' "$*"; }
 falha() { printf 'ERRO: %s\n' "$*" >&2; exit 1; }
 uso() {
     cat >&2 <<'FIM'
-Uso: dgclaw-demo-reset <slug> [--dados <pasta>] [--semente <pasta>] [--arquivo <pasta>] [--so-politica]
+Uso: dgclaw-demo-reset <slug> --dados <pasta>  [--semente <pasta>] [--arquivo <pasta>] [--so-politica]
   slug      o agente da demonstração (minúsculas, números e hífen, até 32 caracteres)
-  --dados   pasta de dados do painel da demonstração (padrão: /var/lib/dgclaw/web)
+  --dados   OBRIGATÓRIO (menos com --so-politica): pasta de dados do painel da demonstração, com a marca demo/INSTANCIA
   --semente pasta com o que volta para a casa do agente (padrão: /var/lib/dgclaw/demo-semente/<slug>)
   --arquivo pasta onde o que saiu fica guardado (padrão: /var/lib/dgclaw/demo-arquivo/<slug>)
   --so-politica só instala e confere o bloqueio dos conectores do claude.ai no container (não move nada, não para o agente)
@@ -50,7 +64,7 @@ FIM
 SLUG="$1"; shift
 [[ "$SLUG" =~ ^[a-z0-9][a-z0-9-]{0,31}$ ]] || falha "o slug \"$SLUG\" não vale: use minúsculas, números e hífen, até 32 caracteres, começando por letra ou número."
 
-DADOS="$RAIZ/var/lib/dgclaw/web"
+DADOS=""
 SEMENTE="$RAIZ/var/lib/dgclaw/demo-semente/$SLUG"
 ARQUIVO_BASE="$RAIZ/var/lib/dgclaw/demo-arquivo/$SLUG"
 while [ $# -gt 0 ]; do
@@ -63,6 +77,28 @@ while [ $# -gt 0 ]; do
         *) uso ;;
     esac
 done
+
+if [ "$SO_POLITICA" = 0 ]; then
+    [ -n "$DADOS" ] || falha "falta --dados <pasta de dados do painel da demonstração>. Sem ele eu poderia mexer na Mesa, nos lembretes e nos alertas de outros agentes. Nada foi mexido."
+    [ -d "$DADOS" ] || falha "a pasta de dados do painel $DADOS não existe. Passe --dados com a pasta certa. Nada foi mexido."
+    if [ "$(readlink -f "$DADOS")" = "$(readlink -f "$RAIZ/var/lib/dgclaw/web")" ]; then
+        falha "--dados aponta para $DADOS, que é a pasta do painel principal (Mesa, lembretes e alertas de todos os agentes). O reset da demonstração nunca mexe nela. Use a pasta de dados do painel da demonstração. Nada foi mexido."
+    fi
+    MARCA="$DADOS/demo/INSTANCIA"
+    [ -f "$MARCA" ] && [ ! -L "$MARCA" ] || falha "a pasta $DADOS não tem a marca do modo demonstração ($MARCA). Ela só existe na pasta de dados de um painel que roda o modo demonstração. Confira o --dados. Nada foi mexido."
+    [ "$(sed -n 1p "$MARCA")" = "$SLUG" ] || falha "a marca $MARCA é do agente \"$(sed -n 1p "$MARCA" | cut -c1-40)\", e o reset é do agente \"$SLUG\". Confira o slug e o --dados. Nada foi mexido."
+    INSTANCIA="$(sed -n 2p "$MARCA" | sed -n 's/^instancia=//p')"
+    [[ "$INSTANCIA" =~ ^[a-z0-9][a-z0-9-]{0,31}$ ]] || INSTANCIA="$SLUG"
+    UNIDADE="${DGCLAW_DEMO_UNIDADE:-dgclaw-demo@$INSTANCIA}"
+    if [ "${DGCLAW_DEMO_PELO_PAINEL:-}" != 1 ]; then
+        if ! command -v systemctl >/dev/null; then
+            falha "este reset só roda pelo botão \"Novo cliente (Reset)\" do painel, porque o painel precisa saber que ele está acontecendo, e não consegui conferir se o painel está parado (falta o systemctl). Use o botão. Nada foi mexido."
+        fi
+        if systemctl is-active --quiet "$UNIDADE"; then
+            falha "o painel da demonstração ($UNIDADE) está rodando, e ele não saberia deste reset: ele continuaria aceitando pedidos e cartões do cliente anterior. Faça o Reset pelo botão \"Novo cliente (Reset)\" do painel, ou pare o painel antes (systemctl stop $UNIDADE) e rode de novo. Nada foi mexido."
+        fi
+    fi
+fi
 
 CASA="$RAIZ/var/lib/dgclaw/agentes/$SLUG/home"
 AGENTES_JSON="$RAIZ/etc/dgclaw/agentes.json"
@@ -96,6 +132,22 @@ instala_politica() {
         || falha "não consegui instalar $POLITICA_CAMINHO dentro do container $CONTAINER. Sem ele, os conectores do claude.ai (Gmail e outros) ficam abertos para o agente. Confira se o container está ligado: $PODMAN ps"
 }
 
+# tira_sudo: o agente da imagem tem `NOPASSWD:ALL` em /etc/sudoers.d/agente. O arquivo é MOVIDO (nunca apagado) para um
+# nome com ponto, que o sudo não lê.
+tira_sudo() {
+    passo "Tirando o sudo do agente no container $CONTAINER"
+    "$PODMAN" exec -i -u 0 "$CONTAINER" sh -c 'set -e; if [ -e /etc/sudoers.d/agente ]; then mv -f /etc/sudoers.d/agente /etc/sudoers.d/.agente-demo-desligado; fi' \
+        || falha "não consegui tirar o sudo do agente dentro do container $CONTAINER. Sem isso o agente apagaria o bloqueio dos conectores do claude.ai."
+}
+
+confere_sem_sudo() {
+    "$PODMAN" exec -u agente "$CONTAINER" true >/dev/null 2>&1 \
+        || falha "não consegui rodar um comando como o usuário agente no container $CONTAINER, então não consigo conferir que ele está sem sudo. Confira se o container está ligado: $PODMAN ps"
+    if "$PODMAN" exec -u agente "$CONTAINER" sudo -n true >/dev/null 2>&1; then
+        falha "o agente ainda consegue usar sudo no container $CONTAINER: ele poderia apagar o bloqueio dos conectores do claude.ai. Rode: dgclaw-demo-reset $SLUG --so-politica"
+    fi
+}
+
 confere_politica() {
     local real dono
     real="$("$PODMAN" exec -u 0 "$CONTAINER" sha256sum "$POLITICA_CAMINHO" 2>/dev/null | cut -d' ' -f1)" || real=""
@@ -105,14 +157,40 @@ confere_politica() {
     [ "$dono" = "root:root 644" ] || falha "$POLITICA_CAMINHO no container $CONTAINER está com dono/permissão '${dono:-desconhecido}' e precisa ser 'root:root 644' (o agente não pode poder trocá-lo). Rode: dgclaw-demo-reset $SLUG --so-politica"
 }
 
+ao_falhar() {
+    if [ "$LIGADO" = 1 ]; then
+        printf 'O agente %s está LIGADO, mas o reset não terminou (motivo acima). O que já foi movido está em %s. Corrija o motivo e rode o reset de novo.\n' "$SLUG" "$DESTINO" >&2
+        return
+    fi
+    printf 'O agente %s ficou PARADO. O que já foi movido está em %s. Corrija o motivo acima e rode o reset de novo (ou ligue o agente com: %s agente iniciar %s).\n' "$SLUG" "$DESTINO" "$CLI" "$SLUG" >&2; }
+# Falhou a proteção (política dos conectores ou retirada do sudo) com o agente ligado: o agente é PARADO, porque ligado
+# e sem proteção ele alcançaria o Gmail, a Agenda e o Drive do dono.
+para_por_protecao() {
+    if "$CLI" agente parar "$SLUG" >/dev/null 2>&1; then
+        printf 'O agente %s ficou PARADO de propósito: a proteção do modo demonstração (bloqueio dos conectores do claude.ai e agente sem sudo) não ficou garantida, e ligado ele poderia alcançar os conectores do dono. Corrija o motivo acima, rode "dgclaw-demo-reset %s --so-politica" para refazer a proteção e ligue o agente com: %s agente iniciar %s\n' "$SLUG" "$SLUG" "$CLI" "$SLUG" >&2
+    else
+        printf 'ATENÇÃO: a proteção do modo demonstração não ficou garantida e eu NÃO consegui parar o agente %s. Pare-o agora, à mão: %s agente parar %s\n' "$SLUG" "$CLI" "$SLUG" >&2
+    fi
+}
+ao_sair() {
+    local rc=$?
+    [ "$rc" -ne 0 ] || return 0
+    if [ "${PROTEGER:-0}" = 1 ]; then para_por_protecao; elif [ "${APOS_PARAR:-0}" = 1 ]; then ao_falhar; fi
+}
+
 # Só o bloqueio: confere, instala e confere de novo. Não para o agente, não move nada.
 if [ "$SO_POLITICA" = 1 ]; then
     container_do_agente
     confere_modelo_da_politica
+    trap ao_sair EXIT
+    PROTEGER=1
     instala_politica
-    passo "Conferindo o bloqueio dos conectores do claude.ai"
+    tira_sudo
+    passo "Conferindo o bloqueio dos conectores do claude.ai e o sudo"
     confere_politica
-    passo "Pronto: o bloqueio dos conectores do claude.ai está em $POLITICA_CAMINHO dentro de $CONTAINER"
+    confere_sem_sudo
+    PROTEGER=0
+    passo "Pronto: o bloqueio dos conectores do claude.ai está em $POLITICA_CAMINHO dentro de $CONTAINER, e o agente está sem sudo"
     exit 0
 fi
 
@@ -124,7 +202,6 @@ flock -n 9 || falha "já existe um reset do agente $SLUG em andamento. Espere te
 passo "Conferindo o agente e a semente"
 if [ ! -d "$CASA" ] || [ -L "$CASA" ]; then falha "a casa do agente $SLUG não existe (ou é um atalho): $CASA. Confira o slug com: dgclaw agente listar"; fi
 if [ ! -d "$SEMENTE" ] || [ -L "$SEMENTE" ]; then falha "falta a pasta de semente $SEMENTE. Crie-a com o que o agente deve ter no começo de cada cliente (pode ficar vazia) e rode de novo. Nada foi mexido."; fi
-[ -d "$DADOS" ] || falha "a pasta de dados do painel $DADOS não existe. Passe --dados com a pasta certa. Nada foi mexido."
 if [ -n "$(find "$SEMENTE" -type l -print -quit)" ]; then
     falha "a semente $SEMENTE tem atalhos (links simbólicos) e eu não os copio. Troque-os por arquivos de verdade. Nada foi mexido."
 fi
@@ -171,15 +248,7 @@ passo "Parando o agente $SLUG"
 "$CLI" agente parar "$SLUG" >/dev/null || falha "não consegui parar o agente $SLUG. Nada foi movido. Tente: $CLI agente parar $SLUG"
 
 APOS_PARAR=1
-ao_falhar() {
-    if [ "$LIGADO" = 1 ]; then
-        printf 'O agente %s está LIGADO, mas o reset não terminou (motivo acima). O que já foi movido está em %s. Corrija o motivo e rode o reset de novo.\n' "$SLUG" "$DESTINO" >&2
-        return
-    fi
-    printf 'O agente %s ficou PARADO. O que já foi movido está em %s. Corrija o motivo acima e rode o reset de novo (ou ligue o agente com: %s agente iniciar %s).\n' "$SLUG" "$DESTINO" "$CLI" "$SLUG" >&2; }
-ao_sair() { local rc=$?; if [ "$rc" -ne 0 ] && [ "${APOS_PARAR:-0}" = 1 ]; then ao_falhar; fi; }
 trap ao_sair EXIT
-
 MOVIDOS="$DESTINO/MANIFESTO.txt"
 : >"$MOVIDOS"
 
@@ -310,7 +379,10 @@ done
 passo "Ligando o agente $SLUG"
 "$CLI" agente iniciar "$SLUG" >/dev/null || falha "não consegui ligar o agente $SLUG. Veja: $CLI agente iniciar $SLUG"
 LIGADO=1
+PROTEGER=1
 instala_politica
+tira_sudo
+PROTEGER=0
 
 passo "Esperando o runner responder"
 pronto=0
@@ -366,8 +438,11 @@ for rel in AGENT.md CLAUDE.md; do
     [ ! -e "$DESTINO/casa/$rel" ] || falha "$rel foi parar no arquivo, e ele não devia sair da casa. Recoloque-o a partir de $DESTINO/casa/$rel."
 done
 
-passo "Conferindo o bloqueio dos conectores do claude.ai"
+passo "Conferindo o bloqueio dos conectores do claude.ai e o sudo do agente"
+PROTEGER=1
 confere_politica
+confere_sem_sudo
+PROTEGER=0
 
 APOS_PARAR=0
 passo "Pronto: $(wc -l <"$MOVIDOS" | tr -d ' ') itens guardados em $DESTINO"

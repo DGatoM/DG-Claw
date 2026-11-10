@@ -8,12 +8,23 @@ echo "podman $*" >> "${STUB_LOG:?}"
 [ "${1:-}" = exec ] || { echo "podman de mentira: so conheco exec (veio: $*)" >&2; exit 2; }
 shift
 [ -z "${STUB_PODMAN_FALHA:-}" ] || { echo "Error: no container with name or ID \"${*}\" found" >&2; exit 125; }
-while [ "${1:-}" = -i ] || [ "${1:-}" = -u ]; do if [ "$1" = -u ]; then [ "$2" = 0 ] || { echo "podman de mentira: esperava -u 0" >&2; exit 2; }; shift 2; else shift; fi; done
+USUARIO=""
+while [ "${1:-}" = -i ] || [ "${1:-}" = -u ]; do if [ "$1" = -u ]; then USUARIO="$2"; shift 2; else shift; fi; done
 CTR="${STUB_CTR:?}/$1"; shift
 mkdir -p "$CTR"
 arq="$CTR/managed-settings.json"
+# o agente (-u agente): "true" funciona; "sudo -n true" funciona enquanto o sudoers do agente nao foi movido.
+if [ "$USUARIO" = agente ]; then
+    case "$1" in
+        true) exit 0 ;;
+        sudo) [ -f "$CTR/sudo-desligado" ] && exit 1; exit 0 ;;
+        *) echo "podman de mentira: comando $1 do agente nao previsto" >&2; exit 2 ;;
+    esac
+fi
+[ "$USUARIO" = 0 ] || { echo "podman de mentira: esperava -u 0 ou -u agente" >&2; exit 2; }
 case "$1" in
     sh)
+        case "$3" in *sudoers.d*) [ -n "${STUB_SUDO_FICA:-}" ] || echo mv > "$CTR/sudo-desligado"; exit 0 ;; esac
         if [ -n "${STUB_POLITICA_ERRADA:-}" ]; then echo '{"permissions":{"deny":[]}}' > "$arq"; else cat > "$arq"; fi
         echo "${STUB_POLITICA_MODO:-root:root 644}" > "$arq.meta" ;;
     sha256sum) [ -f "$arq" ] || { echo "sha256sum: $2: No such file" >&2; exit 1; }; printf '%s  %s\n' "$(sha256sum < "$arq" | cut -d' ' -f1)" "$2" ;;

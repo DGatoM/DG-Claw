@@ -178,7 +178,7 @@ function criarServidor(opcoes) {
   const mesa = criarMesa({ arquivo: path.join(config.dataDir, 'mesa', 'tarefas.json'), registro, runner, log, agora: opcoes.agora, tz: config.tz, avisarDono: (aviso) => push.enviar(aviso), filtro: filtroAnon });
   // Modo demonstração: só existe com DGCLAW_DEMO_CONFIG no ambiente (docs/MODO-DEMONSTRACAO.md). O Portão do agente (/api/demo/v1/)
   // fica fora da caixa: ele tem token próprio e nenhuma rota dele manda ou lê algo sem o clique do dono.
-  const demo = criarDemo({ config, registro, log, agora: opcoes.agora, fetchImpl: opcoes.demoFetch, spawnImpl: opcoes.demoSpawn, resetBin: opcoes.demoResetBin, esquecerConversa: (slug) => conversa.esquecerAgente(slug) });
+  const demo = criarDemo({ config, registro, log, agora: opcoes.agora, fetchImpl: opcoes.demoFetch, spawnImpl: opcoes.demoSpawn, execImpl: opcoes.demoExec, resetBin: opcoes.demoResetBin, esquecerConversa: (slug) => conversa.esquecerAgente(slug) });
   // O agente fala com a Mesa pelo dgclaw-mesa, que passa pela caixa: a rota precisa estar liberada.
   caixa.permitir('/api/v1/tarefas');
   const naoLidas = criarNaoLidas({ arquivo: path.join(config.dataDir, 'nao-lidas.json'), conversa, registro, log, relogio: opcoes.agora, lerThread: conversa.threadCompartilhada });

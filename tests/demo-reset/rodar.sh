@@ -24,7 +24,7 @@ if [ "$(id -u)" = 0 ]; then DONO_U=4242; DONO_G=4343; else DONO_U="$(id -u)"; DO
 monta() {
     R="$TMP/$1"
     CASA="$R/var/lib/dgclaw/agentes/nova/home"
-    DADOS="$R/var/lib/dgclaw/web"
+    DADOS="$R/var/lib/dgclaw/demo-web"
     SEM="$R/var/lib/dgclaw/demo-semente/nova"
     mkdir -p "$CASA/.claude/projects/-home-agente" "$CASA/.claude/skills/x" "$CASA/.plataforma/dgchat" "$CASA/memory" "$CASA/arquivos" \
              "$DADOS/demo/cartoes" "$DADOS/mesa" "$SEM/memory" "$SEM/arquivos" "$R/etc/dgclaw"
@@ -40,6 +40,7 @@ monta() {
     echo "memoria do cliente anterior" >"$CASA/memory/2026-11-08.md"
     echo "# memoria" >"$CASA/MEMORY.md"
     echo "proposta" >"$CASA/arquivos/proposta.pdf"
+    printf 'nova\ninstancia=nova\n' >"$DADOS/demo/INSTANCIA"
     echo '{"id":"c1"}' >"$DADOS/demo/cartoes/c1.json"
     echo '{"evento":"x"}' >"$DADOS/demo/auditoria.jsonl"
     echo '{"tarefas":[]}' >"$DADOS/mesa/tarefas.json"
@@ -50,11 +51,11 @@ monta() {
     chown -R "$DONO_U:$DONO_G" "$CASA"
     export STUB_LOG="$R/dgclaw.log" STUB_CASA="$CASA" STUB_CTR="$R/containers"
     : >"$STUB_LOG"
-    unset STUB_PODMAN_FALHA STUB_POLITICA_ERRADA STUB_POLITICA_MODO STUB_RUNNER_FORA STUB_ESCREVE_MEMORIA STUB_FALHA_PARAR STUB_ESCREVE_ROLLOUT
+    unset STUB_PODMAN_FALHA STUB_POLITICA_ERRADA STUB_POLITICA_MODO STUB_RUNNER_FORA STUB_ESCREVE_MEMORIA STUB_FALHA_PARAR STUB_ESCREVE_ROLLOUT STUB_SUDO_FICA STUB_PAINEL_ATIVO DGCLAW_DEMO_UNIDADE
 }
 
 roda() { # roda [args...]: a saida fica em $R/saida.txt e o codigo em $RC
-    DGCLAW_RAIZ="$R" DGCLAW_CLI="$AQUI/stubs/dgclaw" DGCLAW_PODMAN="$AQUI/stubs/podman" DGCLAW_DEMO_ESPERA=2 PATH="$AQUI/stubs:$PATH" "$RESET" "$@" >"$R/saida.txt" 2>&1
+    DGCLAW_DEMO_PELO_PAINEL="${PELO_PAINEL-1}" DGCLAW_RAIZ="$R" DGCLAW_CLI="$AQUI/stubs/dgclaw" DGCLAW_PODMAN="$AQUI/stubs/podman" DGCLAW_DEMO_ESPERA=2 PATH="$AQUI/stubs:$PATH" "$RESET" "$@" >"$R/saida.txt" 2>&1
     RC=$?
 }
 arquivo_dir() { find "$R/var/lib/dgclaw/demo-arquivo/nova" -mindepth 1 -maxdepth 1 -type d | sort | tail -1; }
@@ -277,7 +278,9 @@ igual "o modelo tem o conteudo exato pedido" '{"env":{"ENABLE_CLAUDEAI_MCP_SERVE
 igual "o container instalado (nome vem do registro) tem o arquivo igual ao modelo" "$MODELO_SHA" "$(sha256sum <"$R/containers/dgclaw-nova/managed-settings.json" | cut -d' ' -f1)"
 igual "dono e permissao dentro do container" "root:root 644" "$(cat "$R/containers/dgclaw-nova/managed-settings.json.meta")"
 afirma "a saida conta a etapa do bloqueio" grep -q '^==> Instalando o bloqueio dos conectores do claude.ai' "$R/saida.txt"
-igual "ordem: parar, iniciar, instalar, conferir (sha e dono)" "dgclaw agente parar nova|dgclaw agente iniciar nova|podman exec -i -u 0 dgclaw-nova sh|podman exec -u 0 dgclaw-nova sha256sum /etc/claude-code/managed-settings.json|podman exec -u 0 dgclaw-nova stat" "$(cut -c1-120 "$STUB_LOG" | sed -E 's/(podman exec -i -u 0 dgclaw-nova sh).*/\1/; s/(stat) .*/\1/' | paste -sd'|')"
+igual "ordem: parar, iniciar, politica, sudo, conferir politica (sha e dono), conferir sem sudo" "dgclaw agente parar nova|dgclaw agente iniciar nova|podman exec -i -u 0 dgclaw-nova sh|podman exec -i -u 0 dgclaw-nova sh|podman exec -u 0 dgclaw-nova sha256sum|podman exec -u 0 dgclaw-nova stat|podman exec -u agente dgclaw-nova true|podman exec -u agente dgclaw-nova sudo -n true" "$(cut -c1-80 "$STUB_LOG" | sed -E 's/(sha256sum|stat) .*/\1/; s/(sh) -c.*/\1/' | paste -sd'|')"
+afirma "o sudoers do agente foi movido para o nome com ponto (e nao apagado)" grep -q "mv -f /etc/sudoers.d/agente /etc/sudoers.d/.agente-demo-desligado" "$STUB_LOG"
+afirma "o agente ficou sem sudo no container" test -f "$R/containers/dgclaw-nova/sudo-desligado"
 
 echo "reset: bloqueio com conteudo errado no container reprova a conferencia final"
 monta politica-errada
@@ -285,7 +288,8 @@ export STUB_POLITICA_ERRADA=1
 roda nova --dados "$DADOS"
 nega "sai com erro" test "$RC" = 0
 afirma "explica que o conteudo nao e o certo" grep -q 'não tem o conteúdo certo' "$R/saida.txt"
-afirma "avisa que o agente esta ligado" grep -q 'está LIGADO' "$R/saida.txt"
+afirma "avisa que o agente ficou parado de proposito" grep -q 'ficou PARADO de propósito' "$R/saida.txt"
+igual "o agente foi parado de novo no fim" "dgclaw agente parar nova" "$(grep '^dgclaw agente parar' "$STUB_LOG" | tail -1)"
 unset STUB_POLITICA_ERRADA
 
 echo "reset: bloqueio com dono ou permissao errados reprova a conferencia final"
@@ -333,6 +337,92 @@ export STUB_POLITICA_ERRADA=1
 roda nova --so-politica
 nega "com conteudo errado, o modo so-politica tambem reprova" test "$RC" = 0
 unset STUB_POLITICA_ERRADA
+
+echo "reset: o agente sem sudo (o container da imagem da NOPASSWD:ALL)"
+monta sem-sudo
+export STUB_SUDO_FICA=1
+roda nova --dados "$DADOS"
+nega "se o agente ainda tem sudo no fim, reprova" test "$RC" = 0
+afirma "explica que o agente ainda consegue usar sudo" grep -q 'ainda consegue usar sudo' "$R/saida.txt"
+afirma "e o agente fica parado de proposito" grep -q 'ficou PARADO de propósito' "$R/saida.txt"
+unset STUB_SUDO_FICA
+
+echo "reset: falha ao instalar a politica com o agente ligado PARA o agente"
+monta para-instala
+export STUB_PODMAN_FALHA=1
+roda nova --dados "$DADOS"
+nega "sai com erro" test "$RC" = 0
+afirma "avisa que o agente ficou parado de proposito" grep -q 'ficou PARADO de propósito' "$R/saida.txt"
+igual "o dgclaw parar rodou depois do iniciar" "dgclaw agente parar nova|dgclaw agente iniciar nova|dgclaw agente parar nova" "$(grep '^dgclaw ' "$STUB_LOG" | paste -sd'|')"
+unset STUB_PODMAN_FALHA
+
+echo "reset: --so-politica com falha tambem para o agente"
+monta so-para
+export STUB_SUDO_FICA=1
+roda nova --so-politica
+nega "sai com erro" test "$RC" = 0
+afirma "avisa que o agente ficou parado de proposito" grep -q 'ficou PARADO de propósito' "$R/saida.txt"
+afirma "o agente foi parado" grep -q '^dgclaw agente parar nova' "$STUB_LOG"
+unset STUB_SUDO_FICA
+
+echo "reset: --dados e obrigatorio e nao pode ser o painel principal"
+monta sem-dados
+roda nova
+nega "sem --dados recusa" test "$RC" = 0
+afirma "explica que falta --dados" grep -q 'falta --dados' "$R/saida.txt"
+afirma "nada foi parado nem movido" test ! -s "$STUB_LOG"
+afirma "a Mesa continua onde estava" test -f "$DADOS/mesa/tarefas.json"
+mkdir -p "$R/var/lib/dgclaw/web/mesa" "$R/var/lib/dgclaw/web/demo"
+echo '{"tarefas":["de outros agentes"]}' >"$R/var/lib/dgclaw/web/mesa/tarefas.json"
+printf 'nova\ninstancia=nova\n' >"$R/var/lib/dgclaw/web/demo/INSTANCIA"
+roda nova --dados "$R/var/lib/dgclaw/web"
+nega "o painel principal e recusado, mesmo com a marca" test "$RC" = 0
+afirma "explica que e o painel principal" grep -q 'painel principal' "$R/saida.txt"
+afirma "a Mesa dos outros agentes continua" test -f "$R/var/lib/dgclaw/web/mesa/tarefas.json"
+afirma "nada foi parado" test ! -s "$STUB_LOG"
+mkdir -p "$R/var/lib/dgclaw/web-link"; ln -s "$R/var/lib/dgclaw/web" "$R/var/lib/dgclaw/web-link/x"
+roda nova --dados "$R/var/lib/dgclaw/web-link/x"
+nega "atalho para o painel principal tambem e recusado" test "$RC" = 0
+
+echo "reset: --dados sem a marca do modo demonstracao, ou com marca de outro agente, e recusado"
+monta sem-marca
+rm "$DADOS/demo/INSTANCIA"
+roda nova --dados "$DADOS"
+nega "sem a marca recusa" test "$RC" = 0
+afirma "explica que falta a marca" grep -q 'não tem a marca do modo demonstração' "$R/saida.txt"
+afirma "nada foi parado" test ! -s "$STUB_LOG"
+printf 'outro\ninstancia=outro\n' >"$DADOS/demo/INSTANCIA"
+roda nova --dados "$DADOS"
+nega "marca de outro agente recusa" test "$RC" = 0
+afirma "explica de quem e a marca" grep -q 'é do agente "outro"' "$R/saida.txt"
+afirma "a Mesa continua" test -f "$DADOS/mesa/tarefas.json"
+
+echo "reset: pelo terminal so roda com o painel parado"
+monta terminal
+export STUB_PAINEL_ATIVO=1
+PELO_PAINEL= roda nova --dados "$DADOS"
+nega "com o painel rodando, o reset pelo terminal recusa" test "$RC" = 0
+afirma "manda usar o botao ou parar o painel" grep -q 'Novo cliente (Reset)' "$R/saida.txt"
+afirma "confere a unidade dgclaw-demo@nova" grep -q 'systemctl is-active --quiet dgclaw-demo@nova' "$STUB_LOG"
+nega "o agente nao foi parado" grep -q '^dgclaw ' "$STUB_LOG"
+afirma "a conversa antiga continua" test -f "$CASA/.claude/projects/-home-agente/sessao.jsonl"
+DGCLAW_DEMO_UNIDADE=outra.service PELO_PAINEL= roda nova --dados "$DADOS"
+nega "a unidade pode ser trocada (ainda ativa, recusa)" test "$RC" = 0
+afirma "a unidade trocada foi a consultada" grep -q 'is-active --quiet outra.service' "$STUB_LOG"
+unset STUB_PAINEL_ATIVO
+PELO_PAINEL= roda nova --dados "$DADOS"
+igual "com o painel parado, roda" 0 "$RC"
+monta pelo-painel
+export STUB_PAINEL_ATIVO=1
+roda nova --dados "$DADOS"
+igual "chamado pelo painel (DGCLAW_DEMO_PELO_PAINEL=1), roda mesmo com o painel ativo" 0 "$RC"
+nega "e nem consulta o systemctl" grep -q '^systemctl' "$STUB_LOG"
+unset STUB_PAINEL_ATIVO
+monta so-pol-painel
+export STUB_PAINEL_ATIVO=1
+PELO_PAINEL= roda nova --so-politica
+igual "--so-politica nao precisa da trava" 0 "$RC"
+unset STUB_PAINEL_ATIVO
 
 printf 'demo-reset: %s verificacoes, %s falharam\n' "$TESTES" "$FALHAS"
 [ "$FALHAS" -eq 0 ]

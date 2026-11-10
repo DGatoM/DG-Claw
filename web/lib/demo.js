@@ -9,6 +9,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const childProcess = require('node:child_process');
+const { promisify } = require('node:util');
 const H = require('./http');
 const { criarProvedores, ErroDemo, soDigitos } = require('./demo-provedores');
 
@@ -30,6 +31,7 @@ const MAX_ANEXOS = 5;
 const MAX_ANEXOS_BYTES = 20 * 1024 * 1024;
 const MAX_ANEXO_EMAIL_BYTES = 10 * 1024 * 1024;
 const PASTAS_ANEXO = ['arquivos', 'saida'];
+const PRAZO_LEITURA_ANEXO_MS = 20 * 1000;
 const FRASE_RESET = 'NOVO CLIENTE';
 
 const MIMES = {
@@ -134,7 +136,7 @@ function carregarConfig(caminho) {
 }
 
 // ── o módulo ───────────────────────────────────────────────────────────────
-function criarDemo({ config: webConfig, registro, log, agora, fetchImpl, spawnImpl, esquecerConversa, resetBin }) {
+function criarDemo({ config: webConfig, registro, log, agora, fetchImpl, spawnImpl, execImpl, esquecerConversa, resetBin }) {
   const agoraMs = () => +(agora ? agora() : Date.now());
   const caminhoCfg = String((webConfig.env && webConfig.env.DGCLAW_DEMO_CONFIG) || '').trim();
   const extrasTela = [];
@@ -178,9 +180,22 @@ function criarDemo({ config: webConfig, registro, log, agora, fetchImpl, spawnIm
   const arqReset = path.join(pasta, 'reset-estado.json');
   const binReset = resetBin || process.env.DGCLAW_DEMO_RESET_BIN || path.join(__dirname, '..', '..', 'bin', 'dgclaw-demo-reset');
 
+  // Quem lê os anexos: `podman exec` por execFile (sem shell). Injetável nos testes para não chamar o podman de verdade.
+  const executar = execImpl || promisify(childProcess.execFile);
+  const podmanBin = (webConfig.env && webConfig.env.DGCLAW_PODMAN) || process.env.DGCLAW_PODMAN || 'podman';
+
   function garantePasta(p) {
     fs.mkdirSync(p, { recursive: true, mode: 0o700 });
     try { fs.chmodSync(p, 0o700); } catch (e) { throw new ErroDemo(500, 'PASTA_DO_DEMO', `Não consegui proteger a pasta ${p} (${e.code || e.message}). Confira as permissões da pasta de dados do painel.`); }
+  }
+
+  // Marca da pasta de dados do modo demonstração: o bin/dgclaw-demo-reset só mexe numa pasta que tenha esta marca com o
+  // slug do agente (nunca na do painel principal).
+  try {
+    garantePasta(pasta);
+    fs.writeFileSync(path.join(pasta, 'INSTANCIA'), `${cfg.agente}\ninstancia=${cfg.instancia}\n`, { mode: 0o600 });
+  } catch (e) {
+    log('erro', `Modo demonstração: não consegui gravar a marca ${path.join(pasta, 'INSTANCIA')} (${e.code || e.message}). Sem ela o Reset recusa rodar. Confira as permissões de ${webConfig.dataDir}.`);
   }
 
   // ── cartões em disco ────────────────────────────────────────────────────
@@ -276,44 +291,39 @@ function criarDemo({ config: webConfig, registro, log, agora, fetchImpl, spawnIm
   }
 
   // ── anexos ──────────────────────────────────────────────────────────────
-  /** Abre um anexo da casa do agente sem seguir atalho. Devolve { nome, mime, dados, sha256, tamanho }. */
-  function lerAnexoSeguro(caminho) {
+  /**
+   * Lê um anexo DE DENTRO do container, como o usuário do agente (`podman exec -u agente <container> cat -- <caminho>`).
+   * Assim o agente só entrega o que ele mesmo já enxerga, e nenhum caminho do host é tocado (sem corrida de atalho em pasta
+   * ancestral). Valida o caminho antes (dentro de arquivos/ ou saida/, sem componente com ponto) e limita o tamanho.
+   * Devolve { nome, mime, dados, sha256, tamanho }.
+   */
+  async function lerAnexoSeguro(caminho) {
     const agente = registro.obter(cfg.agente);
-    if (!agente || !agente.home_host) throw new ErroDemo(500, 'AGENTE_SEM_CASA', `Não achei a casa do agente "${cfg.agente}" no registro, então não consigo conferir o anexo ${caminho}. Peça ao dono para conferir o agentes.json.`);
+    if (!agente) throw new ErroDemo(500, 'AGENTE_SEM_CASA', `Não achei o agente "${cfg.agente}" no registro, então não consigo conferir o anexo ${String(caminho).slice(0, 120)}. Peça ao dono para conferir o agentes.json.`);
+    if (!agente.container) throw new ErroDemo(500, 'AGENTE_SEM_CONTAINER', `O agente "${cfg.agente}" não tem o campo "container" no agentes.json, então não consigo ler o anexo de dentro dele. Peça ao dono para conferir o agentes.json.`);
     const homeC = (agente.home_container || '/home/agente').replace(/\/+$/, '');
-    const homeH = agente.home_host.replace(/\/+$/, '');
     if (typeof caminho !== 'string' || !caminho.startsWith(homeC + '/')) throw new ErroDemo(422, 'ANEXO_FORA_DA_PASTA', `O anexo ${String(caminho).slice(0, 120)} não está em ${homeC}/arquivos nem em ${homeC}/saida. Nada foi pedido.`);
     const partes = caminho.slice(homeC.length + 1).split('/');
     if (!PASTAS_ANEXO.includes(partes[0]) || partes.length < 2) throw new ErroDemo(422, 'ANEXO_FORA_DA_PASTA', `O anexo ${caminho.slice(0, 120)} não está em ${homeC}/arquivos nem em ${homeC}/saida. Nada foi pedido.`);
     for (const p of partes) {
       if (!p || p.startsWith('.') || p.includes('\0') || p.includes('\\')) throw new ErroDemo(422, 'ANEXO_CAMINHO_INVALIDO', `O caminho do anexo ${caminho.slice(0, 120)} tem um componente vazio, com ponto ou inválido. Use o caminho direto do arquivo, sem "." nem "..".`);
     }
-    let atual = homeH;
-    let ls;
-    for (const [i, p] of partes.entries()) {
-      atual = path.join(atual, p);
-      try { ls = fs.lstatSync(atual); } catch (e) { throw new ErroDemo(422, 'ANEXO_NAO_ENCONTRADO', `O anexo ${caminho.slice(0, 120)} não existe (${e.code || e.message}).`); }
-      if (ls.isSymbolicLink()) throw new ErroDemo(422, 'ANEXO_COM_ATALHO', `O anexo ${caminho.slice(0, 120)} passa por um atalho (link simbólico), que o Portão não segue. Copie o arquivo de verdade para ${homeC}/saida.`);
-      if (i < partes.length - 1 && !ls.isDirectory()) throw new ErroDemo(422, 'ANEXO_CAMINHO_INVALIDO', `O caminho do anexo ${caminho.slice(0, 120)} passa por algo que não é pasta.`);
-    }
-    if (!ls.isFile()) throw new ErroDemo(422, 'ANEXO_NAO_E_ARQUIVO', `O anexo ${caminho.slice(0, 120)} não é um arquivo comum.`);
-    if (ls.nlink > 1) throw new ErroDemo(422, 'ANEXO_COM_HARDLINK', `O anexo ${caminho.slice(0, 120)} tem mais de um nome no disco (hardlink), e o Portão não o aceita. Copie o arquivo para ${homeC}/saida.`);
-    if (ls.size > MAX_ANEXOS_BYTES) throw new ErroDemo(422, 'ANEXO_GRANDE', `O anexo ${caminho.slice(0, 120)} tem ${Math.round(ls.size / 1048576)} MB; o limite é 20 MB.`);
-    let fd;
+    let saida;
     try {
-      fd = fs.openSync(atual, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
-      const fs2 = fs.fstatSync(fd);
-      if (!fs2.isFile() || fs2.ino !== ls.ino || fs2.dev !== ls.dev || fs2.nlink > 1) throw new ErroDemo(409, 'ANEXO_MUDOU', `O anexo ${caminho.slice(0, 120)} foi trocado enquanto eu o abria. Nada foi pedido.`);
-      if (fs.realpathSync(atual) !== atual) throw new ErroDemo(422, 'ANEXO_COM_ATALHO', `O anexo ${caminho.slice(0, 120)} passa por um atalho, que o Portão não segue.`);
-      const dados = fs.readFileSync(fd);
-      const nome = partes[partes.length - 1];
-      return { nome, mime: MIMES[path.extname(nome).toLowerCase()] || 'application/octet-stream', dados, sha256: sha256(dados), tamanho: dados.length };
+      saida = await executar(podmanBin, ['exec', '-u', 'agente', agente.container, 'cat', '--', caminho], { timeout: PRAZO_LEITURA_ANEXO_MS, maxBuffer: MAX_ANEXOS_BYTES + 1, encoding: 'buffer' });
     } catch (e) {
-      if (e instanceof ErroDemo) throw e;
-      throw new ErroDemo(422, 'ANEXO_ILEGIVEL', `Não consegui abrir o anexo ${caminho.slice(0, 120)} (${e.code || e.message}).`);
-    } finally {
-      if (fd !== undefined) fs.closeSync(fd);
+      const err = String((e && e.stderr) || '');
+      if (e && (e.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' || /maxBuffer/i.test(String(e.message)))) throw new ErroDemo(422, 'ANEXO_GRANDE', `O anexo ${caminho.slice(0, 120)} passa de 20 MB, o limite.`);
+      if (e && e.killed) throw new ErroDemo(422, 'ANEXO_ILEGIVEL', `A leitura do anexo ${caminho.slice(0, 120)} demorou mais de ${PRAZO_LEITURA_ANEXO_MS / 1000}s e foi cancelada.`);
+      if (/No such file/i.test(err)) throw new ErroDemo(422, 'ANEXO_NAO_ENCONTRADO', `O anexo ${caminho.slice(0, 120)} não existe dentro do agente.`);
+      if (/Is a directory/i.test(err)) throw new ErroDemo(422, 'ANEXO_NAO_E_ARQUIVO', `O anexo ${caminho.slice(0, 120)} não é um arquivo comum.`);
+      log('erro', `Modo demonstração: não consegui ler o anexo ${caminho.slice(0, 120)} dentro do container ${agente.container} (${e && (e.code || e.message)}; ${err.trim().slice(0, 200) || 'sem mensagem'}).`);
+      throw new ErroDemo(422, 'ANEXO_ILEGIVEL', `Não consegui ler o anexo ${caminho.slice(0, 120)} dentro do agente (${err.trim().slice(0, 120) || (e && (e.code || e.message))}). Confira se o container ${agente.container} está ligado.`);
     }
+    const dados = Buffer.isBuffer(saida.stdout) ? saida.stdout : Buffer.from(saida.stdout || '');
+    if (dados.length > MAX_ANEXOS_BYTES) throw new ErroDemo(422, 'ANEXO_GRANDE', `O anexo ${caminho.slice(0, 120)} tem ${Math.round(dados.length / 1048576)} MB; o limite é 20 MB.`);
+    const nome = partes[partes.length - 1];
+    return { nome, mime: MIMES[path.extname(nome).toLowerCase()] || 'application/octet-stream', dados, sha256: sha256(dados), tamanho: dados.length };
   }
 
   // ── conferências comuns ─────────────────────────────────────────────────
@@ -402,7 +412,7 @@ function criarDemo({ config: webConfig, registro, log, agora, fetchImpl, spawnIm
     const anexos = [];
     let total = 0;
     for (const cam of caminhos) {
-      const a = lerAnexoSeguro(cam);
+      const a = await lerAnexoSeguro(cam);
       total += a.tamanho;
       if (total > MAX_ANEXOS_BYTES) throw ruim(422, 'ANEXOS_GRANDES', 'Os anexos somam mais de 20 MB. Mande menos arquivos ou arquivos menores.');
       if (canal === 'email' && a.tamanho > MAX_ANEXO_EMAIL_BYTES) throw ruim(422, 'ANEXO_GRANDE_PARA_EMAIL', `O anexo ${a.nome} passa de 10 MB, o limite do e-mail.`);
@@ -439,6 +449,7 @@ function criarDemo({ config: webConfig, registro, log, agora, fetchImpl, spawnIm
         c.destinatario = { nome: achado && achado.nome ? achado.nome : null, telefone: tel, ref_provedor: achado ? achado.ref : null, via: 'telefone' };
       }
       if (l.tipo === 'organizap' && !c.destinatario.ref_provedor) throw ruim(422, 'SEM_CONVERSA_ABERTA', 'Não achei a conversa deste contato nesta linha.');
+      if (l.tipo === 'cpdf' && !c.destinatario.telefone) throw ruim(422, 'CONTATO_SEM_NUMERO', 'Este contato do CPDF não tem número de telefone, e o envio só sai para o número exato aprovado. Peça ao usuário o número ou use outro contato.');
     }
     if (!destinoPermitido(c)) throw erroDestinoDeTeste();
     confereGeracao(g);
@@ -606,11 +617,12 @@ function criarDemo({ config: webConfig, registro, log, agora, fetchImpl, spawnIm
     if (!destinoPermitido(c)) { const e = erroDestinoDeTeste(); falhar(e); throw e; }
     let dados;
     try {
-      dados = c.anexos.map((a) => {
-        const novo = lerAnexoSeguro(a.caminho);
+      dados = [];
+      for (const a of c.anexos) {
+        const novo = await lerAnexoSeguro(a.caminho);
         if (novo.sha256 !== a.sha256) throw ruim(409, 'ANEXO_MUDOU', `O arquivo ${a.nome} mudou depois que o cartão foi criado. Por segurança nada foi enviado. Peça ao agente para pedir de novo.`);
-        return { nome: a.nome, mime: novo.mime, dados: novo.dados };
-      });
+        dados.push({ nome: a.nome, mime: novo.mime, dados: novo.dados });
+      }
     } catch (e) { if (e instanceof ErroDemo) { falhar(e); } throw e; }
     auditar('confirmou', c, { quem });
     c.estado = 'enviando';
@@ -657,7 +669,7 @@ function criarDemo({ config: webConfig, registro, log, agora, fetchImpl, spawnIm
     const lancar = spawnImpl || childProcess.spawn;
     let filho;
     try {
-      filho = lancar(binReset, [cfg.agente, '--dados', webConfig.dataDir], { stdio: ['ignore', 'pipe', 'pipe'] });
+      filho = lancar(binReset, [cfg.agente, '--dados', webConfig.dataDir], { stdio: ['ignore', 'pipe', 'pipe'], env: Object.assign({}, process.env, { DGCLAW_DEMO_PELO_PAINEL: '1' }) });
     } catch (e) {
       resetando = false;
       estadoReset = { fase: 'falhou', fim: agoraMs(), mensagem: `Não consegui iniciar o reset (${e.code || e.message}). Confira se ${binReset} existe e roda como root. Nada foi movido.`, passos: [] };

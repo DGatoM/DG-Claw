@@ -59,9 +59,12 @@ Token comparado por sha256 em tempo constante. Limite: 60 pedidos por minuto (42
 - Não existe rota de listar conversas ou contatos para o agente.
 - Em uma linha `organizap`, `telefone` só é aceito se a conversa já existir; sem conversa, `SEM_CONVERSA_ABERTA`
   diz que esse WhatsApp só fala com quem já tem conversa e sugere outra linha. Em linha `cpdf`, `telefone` é aceito.
+- Na linha do CPDF o envio sai sempre pelo telefone exato aprovado e gravado no cartão (o mesmo conferido contra `destinos_de_teste`), nunca pelo `contactId`, que é mutável. Contato do CPDF sem número não gera envio (`CONTATO_SEM_NUMERO`).
 - `anexos` são caminhos dentro de `/home/agente/arquivos` ou `/home/agente/saida`. Caminho é traduzido para a casa
-  no servidor, recusa atalho, componente com ponto e hardlink, e o arquivo é aberto com `O_NOFOLLOW` no envio. No máximo
-  5 arquivos e 20 MB. O sha256 de cada anexo é calculado ao criar o cartão e conferido no envio: mudou, `ANEXO_MUDOU`.
+  no servidor e recusa componente com ponto, caminho fora dessas pastas e arquivo fora do limite. O arquivo é lido DE DENTRO
+  do container, com o usuário do agente (`podman exec -u agente <container> cat -- <caminho>`, sem shell, com prazo e limite
+  de tamanho), então o agente só entrega o que ele mesmo enxerga e nenhum caminho do host é aberto (não há corrida de atalho
+  em pasta ancestral). O nome do container vem do campo `container` do registro. No máximo 5 arquivos e 20 MB. O sha256 de cada anexo é calculado ao criar o cartão e conferido no envio: mudou, `ANEXO_MUDOU`.
 - Texto até 4.000 caracteres (e-mail até 20.000). Cartão vale 10 minutos, depois `expirado`.
 - Quando o provedor recusa (4xx/5xx), o agente recebe só o código (`PROVEDOR_RECUSOU`) e uma mensagem nossa com o status
   HTTP. A mensagem bruta do provedor, sem a chave e sem nada com cara de credencial, vai só para o log do painel e para a
@@ -89,7 +92,18 @@ sha256 do texto, sem o corpo e sem o número completo além dos quatro últimos 
 
 ## Reset
 
-Executado por `bin/dgclaw-demo-reset <slug> [--dados <dataDir>] [--semente <pasta>] [--arquivo <pasta>] [--so-politica]`, chamado pelo Web.
+Executado por `bin/dgclaw-demo-reset <slug> --dados <dataDir> [--semente <pasta>] [--arquivo <pasta>] [--so-politica]`, chamado pelo Web.
+
+Travas do script:
+
+- `--dados` é obrigatório (menos no `--so-politica`). O script recusa a pasta do painel principal (`/var/lib/dgclaw/web`, onde
+  ficam a Mesa, os lembretes e os alertas de todos os agentes) e qualquer pasta sem a marca do modo demonstração:
+  `<dataDir>/demo/INSTANCIA`, gravada pelo painel da demonstração ao subir, com o slug do agente na primeira linha
+  (`instancia=<instância>` na segunda). Se o slug da marca não bate com o do reset, recusa.
+- Só roda quando é chamado pelo painel (o Web passa `DGCLAW_DEMO_PELO_PAINEL=1`) ou quando o painel daquela instância está
+  parado (`systemctl is-active --quiet dgclaw-demo@<instância>` falso; `DGCLAW_DEMO_UNIDADE` troca a unidade). Fora disso o
+  painel continuaria aceitando pedidos e cartões do cliente anterior, porque os marcadores de reset e de geração só mudam
+  no reset feito pela API. O `--so-politica` não tem essa trava.
 
 Ordem: trava (`flock`), para o container, move para `/var/lib/dgclaw/demo-arquivo/<slug>/<AAAAmmdd-HHMMSS>/`,
 recoloca a semente, sobe o container, instala o bloqueio dos conectores do claude.ai (abaixo), espera o runner, confere e registra o resultado.
@@ -157,7 +171,17 @@ O que realmente acontece:
   usa `podman cp` porque ele quebra com "value too large for defined data type" quando o mapa de uid é alto.
 - A conferência final reprova o reset se o arquivo não estiver no container com o mesmo sha256 do modelo e com dono
   `root:root` e modo 644. A mensagem diz o que faltou e o comando para corrigir.
-- `sudo dgclaw-demo-reset <slug> --so-politica` só instala e confere o bloqueio, sem parar o agente nem mover nada.
+- A imagem do agente dá a ele `NOPASSWD:ALL` (`/etc/sudoers.d/agente`), e com sudo ele apagaria a política. Então, no modo
+  demonstração, o reset também tira o sudo do agente: como root no container, MOVE `/etc/sudoers.d/agente` para
+  `/etc/sudoers.d/.agente-demo-desligado` (nunca apaga; o sudo ignora arquivos com ponto no nome). A conferência final
+  reprova se `podman exec -u agente <container> sudo -n true` ainda funcionar. O Containerfile não muda: vale só aqui.
+- Se instalar a política ou tirar o sudo falhar com o agente ligado (também no `--so-politica`), o script PARA o agente
+  (`dgclaw agente parar`), sai com falha e diz que o agente ficou parado de propósito. Para desfazer o sudo desligado
+  numa máquina que deixou de ser demonstração: `mv /etc/sudoers.d/.agente-demo-desligado /etc/sudoers.d/agente` dentro do container.
+- Defesa em profundidade: a assinatura do Claude usada pela Nova deve ser de uma conta SEM conectores do claude.ai
+  (Gmail, Agenda, Drive). A política e o agente sem sudo são a barreira no container, mas uma conta sem conectores
+  garante que não haveria o que alcançar mesmo se a barreira falhasse.
+- `sudo dgclaw-demo-reset <slug> --so-politica` só instala e confere o bloqueio e o sudo, sem parar o agente (a não ser que a proteção falhe) nem mover nada.
   Use depois de recriar o container (por exemplo, `dgclaw agente atualizar`), porque o arquivo vive no container.
 - O runner do Codex só leva ao agente os servidores MCP listados no `mcpConfig` dele (`runner/src/provedores/mcp-codex.ts`)
   e não liga conectores da conta, então não existe equivalente a bloquear nesse motor.
@@ -165,6 +189,11 @@ O que realmente acontece:
 ## Como operar
 
 ```bash
-sudo dgclaw-demo-reset nova           # o mesmo que o botão Reset
+# o Reset é feito pelo botão "Novo cliente (Reset)" do painel: ele avisa o painel e chama o script.
+# Pelo terminal só com o painel parado (o script recusa se o painel estiver rodando):
+sudo systemctl stop dgclaw-demo@nova
+sudo dgclaw-demo-reset nova --dados <pasta de dados do painel da demonstração>
+sudo systemctl start dgclaw-demo@nova
+sudo dgclaw-demo-reset nova --so-politica   # refaz só a proteção (política e sudo), com o painel rodando
 systemctl status dgclaw-demo@nova     # painel da demonstração
 ```

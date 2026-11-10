@@ -240,9 +240,11 @@ function criarProvedores({ fetchImpl, chaveDe, log, timeoutMs }) {
 
     async enviarWhatsapp(cfg, { ref, telefone, texto, anexos }) {
       if (anexos.length) throw new ErroDemo(422, 'ANEXO_NAO_SUPORTADO_NA_LINHA', 'Esta linha do CPDF só envia mídia por endereço público, e o Portão não publica arquivos. Mande só o texto ou use uma linha do Organizap.');
+      // Sempre pelo telefone exato aprovado no cartão (o mesmo conferido contra destinos_de_teste). O contactId é mutável
+      // (o contato pode trocar de número depois da aprovação), então nunca é enviado.
+      if (!telefone) throw new ErroDemo(422, 'CONTATO_SEM_NUMERO', 'Este contato do CPDF não tem número de telefone, e o envio só sai para o número exato aprovado. Peça ao usuário o número ou use outro contato.');
       const instanceId = await instanciaCpdf(cfg);
-      const corpo = { instanceId, message: texto };
-      if (ref) corpo.contactId = ref; else corpo.phone = telefone;
+      const corpo = { instanceId, message: texto, phone: telefone };
       const r = await chamar(cfg, 'POST', '/whatsapp/send', { corpo });
       exigeOk(r, cfg, 'O CPDF tenta duas vezes por conta própria: confira no WhatsApp se a mensagem saiu antes de tentar de novo.');
       return { confirmacao: 'confirmada' };
