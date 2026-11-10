@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# systemctl de mentira: "is-active --quiet <unidade>" responde 0 (ativo) quando STUB_PAINEL_ATIVO esta definido, senao 3.
+echo "systemctl $*" >> "${STUB_LOG:?}"
+[ "$1" = is-active ] || exit 2
+[ -n "${STUB_PAINEL_ATIVO:-}" ]

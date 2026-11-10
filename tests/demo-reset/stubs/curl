@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# curl de mentira: o runner so "responde" se STUB_RUNNER_FORA nao estiver definido.
+[ -z "${STUB_RUNNER_FORA:-}" ]

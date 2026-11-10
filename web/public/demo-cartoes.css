@@ -1,0 +1,49 @@
+/* Modo demonstração: cartão de confirmação e Reset. Legível de longe (tela de reunião) e sem rolagem lateral no celular. */
+.dc-fundo{position:fixed;inset:0;z-index:9000;background:rgba(15,28,20,.62);display:flex;align-items:center;justify-content:center;
+  padding:12px;overflow-x:hidden;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.dc-cartao{box-sizing:border-box;width:100%;max-width:760px;max-height:calc(100dvh - 24px);overflow-y:auto;overflow-x:hidden;
+  background:#fff;color:#0f1c14;border-radius:16px;padding:22px 24px;box-shadow:0 18px 60px rgba(0,0,0,.35);
+  font-size:19px;line-height:1.45;overflow-wrap:anywhere}
+.dc-titulo{margin:0 0 6px;font-size:26px;line-height:1.25}
+.dc-outros,.dc-validade{margin:0 0 10px;color:#6c8172;font-size:16px}
+.dc-info{display:flex;flex-direction:column;gap:2px;margin:10px 0}
+.dc-rotulo{font-size:14px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#6c8172}
+.dc-valor{font-size:20px}
+.dc-valor.dc-grande{font-size:28px;font-weight:700}
+.dc-texto{box-sizing:border-box;width:100%;max-height:34vh;overflow-y:auto;overflow-x:hidden;white-space:pre-wrap;
+  background:#f3f7f4;border:1px solid rgba(0,0,0,.12);border-radius:10px;padding:12px 14px;font-size:20px;line-height:1.5}
+.dc-anexos{display:flex;flex-direction:column;gap:6px;margin:12px 0}
+.dc-anexo{background:#eef3ff;border-radius:8px;padding:6px 10px;font-size:17px}
+.dc-instr{margin:10px 0}
+.dc-vazio{margin:10px 0;color:#8a5a00}
+.dc-lista{display:flex;flex-direction:column;gap:8px;margin:8px 0 12px}
+.dc-cand{display:flex;align-items:center;gap:12px;min-height:56px;padding:10px 12px;border:2px solid rgba(0,0,0,.14);border-radius:12px;cursor:pointer}
+.dc-cand:has(input:checked){border-color:#2f9e5e;background:#eafaf0}
+.dc-cand input{width:26px;height:26px;flex:0 0 26px;margin:0}
+.dc-cand-txt{display:flex;flex-direction:column;min-width:0}
+.dc-cand-txt b{font-size:22px}
+.dc-cand-txt span{color:#4a5b50;font-size:17px}
+.dc-erro{margin:10px 0 0;color:#b3261e;font-size:17px;font-weight:600}
+.dc-erro:empty{display:none}
+.dc-botoes{display:flex;gap:12px;justify-content:flex-end;margin-top:16px}
+.dc-btn{min-height:48px;min-width:140px;padding:10px 22px;border-radius:12px;border:0;font:inherit;font-size:20px;font-weight:700;cursor:pointer}
+.dc-btn:disabled{opacity:.45;cursor:not-allowed}
+.dc-ok{background:#2f9e5e;color:#fff}
+.dc-nao{background:#e6ebe8;color:#0f1c14}
+.dc-campo{box-sizing:border-box;display:block;width:100%;min-height:48px;margin-top:6px;padding:10px 12px;font-size:20px;border:2px solid rgba(0,0,0,.2);border-radius:10px}
+.dc-rotulo-campo{display:block;margin-top:14px;font-weight:600}
+.dc-passos{margin:8px 0 0;padding-left:24px;font-size:17px}
+.dc-passo-ok{color:#2f9e5e;font-weight:700}
+.dc-avisos{position:fixed;left:12px;right:12px;bottom:12px;z-index:9100;display:flex;flex-direction:column;gap:8px;pointer-events:none;align-items:center}
+.dc-aviso{box-sizing:border-box;max-width:640px;width:100%;padding:12px 16px;border-radius:12px;background:#0f1c14;color:#fff;font-size:18px;overflow-wrap:anywhere;pointer-events:auto}
+.dc-aviso.ok{background:#1f7a46}
+.dc-aviso.erro{background:#b3261e}
+#btnDemoReset{min-height:32px}
+@media (max-width:560px){
+  .dc-cartao{padding:16px 14px;font-size:17px;border-radius:14px}
+  .dc-titulo{font-size:22px}
+  .dc-valor.dc-grande{font-size:22px}
+  .dc-botoes{flex-direction:column-reverse}
+  .dc-btn{width:100%;min-height:48px}
+  .dc-campo{font-size:16px}
+}

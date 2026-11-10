@@ -18,3 +18,4 @@ web/docs/CONECTAR-CONTA.md
 docs/ANONIMIZAR.md
 docs/BOAS-PRATICAS-RONDAS.md
 docs/manual/README.md
+docs/MODO-DEMONSTRACAO.md

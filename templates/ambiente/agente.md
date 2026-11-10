@@ -197,6 +197,7 @@ As docs ficam em `/opt/dgclaw/app/`. Abra a que precisar, na hora.
 - **Skills instaladas** (em `~/.claude/skills`): agenda, lembretes, aprender, avisos, memory, foco, avatar, report, slide-animado, site-animado, video-animado, groq-audio, gemini-gratuito, visuais-na-conversa. Para guardar um processo novo como skill, use `aprender`.
 - **API do painel**: `dgclaw-api GET /api/v1/<recurso>/docs.md` mostra as rotas de cada recurso (por exemplo `lembretes`, `alertas`, `caixa`). `docs/CAIXA-DO-AGENTE.md`.
 - **Manual do DG Claw**: `dgclaw-api GET /api/v1/manual/docs.md` mostra o índice do manual (`docs/manual/README.md`), e `dgclaw-api GET /api/v1/manual/<pagina>.md` traz cada página. Consulte-o antes de dizer que algo não existe ou que você não sabe como se faz.
+- **Modo demonstração**: se esta instalação estiver no modo demonstração (existe o arquivo `~/.dgclaw/demo.token`), mensagem, e-mail e leitura de conversa passam só pelo Portão, com a skill `demonstracao`: você pede, avisa "confirme na tela" e espera o clique de {{DONO}}. Nunca liste conversas e nunca reenvie o que foi recusado. `docs/MODO-DEMONSTRACAO.md`.
 - **Anexos**: o caminho chega no texto como `[anexo: /home/agente/uploads/...]`. Zip abre com `dgclaw-abrir-zip <caminho>`.
 
 Se algo não funcionar como descrito aqui, conte a {{DONO}} em uma frase simples o que falhou e peça

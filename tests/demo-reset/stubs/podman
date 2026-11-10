@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# podman de mentira para o teste do reset: o "container" e uma pasta ($STUB_CTR). Simula so o que o reset usa:
+#   exec [-i] -u 0 <container> sh -c '<instala managed-settings.json>'   (o conteudo vem pelo STDIN)
+#   exec -u 0 <container> sha256sum <arquivo>
+#   exec -u 0 <container> stat -c '%U:%G %a' <arquivo>
+# Variaveis: STUB_PODMAN_FALHA (exec falha), STUB_POLITICA_ERRADA (grava conteudo diferente), STUB_POLITICA_MODO (meta falsa).
+echo "podman $*" >> "${STUB_LOG:?}"
+[ "${1:-}" = exec ] || { echo "podman de mentira: so conheco exec (veio: $*)" >&2; exit 2; }
+shift
+[ -z "${STUB_PODMAN_FALHA:-}" ] || { echo "Error: no container with name or ID \"${*}\" found" >&2; exit 125; }
+USUARIO=""
+while [ "${1:-}" = -i ] || [ "${1:-}" = -u ]; do if [ "$1" = -u ]; then USUARIO="$2"; shift 2; else shift; fi; done
+CTR="${STUB_CTR:?}/$1"; shift
+mkdir -p "$CTR"
+arq="$CTR/managed-settings.json"
+# o agente (-u agente): "true" funciona; "sudo -n true" funciona enquanto o sudoers do agente nao foi movido.
+if [ "$USUARIO" = agente ]; then
+    case "$1" in
+        true) exit 0 ;;
+        sudo) [ -f "$CTR/sudo-desligado" ] && exit 1; exit 0 ;;
+        *) echo "podman de mentira: comando $1 do agente nao previsto" >&2; exit 2 ;;
+    esac
+fi
+[ "$USUARIO" = 0 ] || { echo "podman de mentira: esperava -u 0 ou -u agente" >&2; exit 2; }
+case "$1" in
+    sh)
+        case "$3" in *sudoers.d*) [ -n "${STUB_SUDO_FICA:-}" ] || echo mv > "$CTR/sudo-desligado"; exit 0 ;; esac
+        if [ -n "${STUB_POLITICA_ERRADA:-}" ]; then echo '{"permissions":{"deny":[]}}' > "$arq"; else cat > "$arq"; fi
+        echo "${STUB_POLITICA_MODO:-root:root 644}" > "$arq.meta" ;;
+    sha256sum) [ -f "$arq" ] || { echo "sha256sum: $2: No such file" >&2; exit 1; }; printf '%s  %s\n' "$(sha256sum < "$arq" | cut -d' ' -f1)" "$2" ;;
+    stat) [ -f "$arq" ] || exit 1; cat "$arq.meta" ;;
+    *) echo "podman de mentira: comando $1 nao previsto" >&2; exit 2 ;;
+esac

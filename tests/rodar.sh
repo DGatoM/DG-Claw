@@ -25,6 +25,7 @@
 #  19. tela             tests/tela: travas de seguranca das unidades da Tela, o lancador do navegador e o Containerfile fora do amd64
 #  20. anonimizar      tests/anonimizar: o motor de anonimizacao de documentos (anonimizar/motor.py) e o instalador opcional dele, sem rede
 #  21. docs-em-dia     tests/docs-em-dia: o manual (docs/manual) acompanha o codigo (inventario de scripts/docs-inventario.mjs), com bancada de manual falso
+#  22. demo-reset      tests/demo-reset: o bin/dgclaw-demo-reset (reset do modo demonstracao), em raiz falsa e com dgclaw e curl de mentira
 #
 # Nada aqui encosta no sistema de verdade: nao cria container, rede nem unidade.
 #
@@ -126,7 +127,7 @@ testes_shellcheck() {
     (
         cd "$REPO" || exit 1
         arquivos=(install.sh bin/dgclaw lib/*.sh tests/rodar.sh tests/cli/*.sh tests/cli/stubs/*
-                  tests/instalador/*.sh tests/novidades/*.sh tests/changelog/*.sh tests/monitor/*.sh tests/aviso-atualizacao/*.sh tests/boletins/*.sh tests/emergencia/*.sh tests/tela/*.sh tests/anonimizar/*.sh tests/docs-em-dia/*.sh bin/dgclaw-tela-navegador tests/ronda/rodar.sh tests/ronda/stubs/* scripts/cofre-nomes.sh scripts/test-cofre-nomes.sh
+                  tests/instalador/*.sh tests/novidades/*.sh tests/changelog/*.sh tests/monitor/*.sh tests/aviso-atualizacao/*.sh tests/boletins/*.sh tests/emergencia/*.sh tests/tela/*.sh tests/anonimizar/*.sh tests/docs-em-dia/*.sh tests/demo-reset/rodar.sh tests/demo-reset/stubs/* bin/dgclaw-demo-reset templates/ambiente/skills/demonstracao/demo.sh bin/dgclaw-tela-navegador tests/ronda/rodar.sh tests/ronda/stubs/* scripts/cofre-nomes.sh scripts/test-cofre-nomes.sh
                   scripts/revisao-adversarial.sh tests/revisao-adversarial/*.sh)
         "$sc" -x "${arquivos[@]}"
     )
@@ -164,6 +165,7 @@ parte emergencia bash "$REPO/tests/emergencia/rodar.sh"
 parte tela bash "$REPO/tests/tela/rodar.sh"
 parte anonimizar bash "$REPO/tests/anonimizar/rodar.sh"
 parte docs-em-dia bash "$REPO/tests/docs-em-dia/rodar.sh"
+parte demo-reset bash "$REPO/tests/demo-reset/rodar.sh"
 
 printf '\n'
 [ "${#PULADOS[@]}" -eq 0 ] || printf 'Pulado: %s\n' "${PULADOS[@]}"

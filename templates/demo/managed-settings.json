@@ -1,0 +1,1 @@
+{"env":{"ENABLE_CLAUDEAI_MCP_SERVERS":"false"},"permissions":{"deny":["mcp__claude_ai_Gmail","mcp__claude_ai_Google_Calendar","mcp__claude_ai_Google_Drive","mcp__claude_ai_Claude_Docs","mcp__claude_ai_Figma","mcp__claude_ai_Meta_MCP"]}}

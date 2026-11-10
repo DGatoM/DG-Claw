@@ -44,6 +44,8 @@ const { criarPrefsAtencao } = require('./lib/prefs-atencao');
 const { criarModalLoginPrefs } = require('./lib/modal-login-prefs');
 const { criarVigiaAtencao } = require('./lib/vigia-atencao');
 const { criarMesa } = require('./lib/mesa');
+const { criarDemo } = require('./lib/demo');
+const { criarDemoSistemas } = require('./lib/demo-sistemas');
 const { criarManual } = require('./lib/manual');
 const { criarAvisos } = require('./lib/avisos');
 const { criarAtualizacao } = require('./lib/atualizacao');
@@ -168,10 +170,15 @@ function criarServidor(opcoes) {
   const filtroAnon = (slug, t) => (typeof t === 'string' && t && anonimizar.aplicaDigitado(slug) ? anonimizar.trocarDigitado(slug, t).texto : t);
   const lembretes = criarLembretes({ config, registro, runner, push, log, agora: opcoes.agora, filtro: filtroAnon });
   caixa.permitir('/api/v1/lembretes');
+  // Modo demonstração: só existe com DGCLAW_DEMO_CONFIG válida (docs/MODO-DEMONSTRACAO.md).
+  const demoSistemas = criarDemoSistemas({ env: config.env, runner, registro, avatarDe: (a) => avatarDe(a), log, fetchFn: opcoes.demoFetch, agora: opcoes.agora, prazoMs: opcoes.demoPrazoMs });
   // Modo foco: o agente chega pela caixa (dgclaw-api), o retrato vai para a casa dele e o PUT do agente avisa o celular.
   const foco = criarFoco({ dir: path.join(config.dataDir, 'foco'), tz: config.tz, log, registro, gravaRetrato: opcoes.gravaRetrato || caixa.gravaRetrato, push: opcoes.push || push, quemChamou: opcoes.quemChamou || quemChamou });
   caixa.permitir('/api/v1/foco');
   const mesa = criarMesa({ arquivo: path.join(config.dataDir, 'mesa', 'tarefas.json'), registro, runner, log, agora: opcoes.agora, tz: config.tz, avisarDono: (aviso) => push.enviar(aviso), filtro: filtroAnon });
+  // Modo demonstração: só existe com DGCLAW_DEMO_CONFIG no ambiente (docs/MODO-DEMONSTRACAO.md). O Portão do agente (/api/demo/v1/)
+  // fica fora da caixa: ele tem token próprio e nenhuma rota dele manda ou lê algo sem o clique do dono.
+  const demo = criarDemo({ config, registro, log, agora: opcoes.agora, fetchImpl: opcoes.demoFetch, spawnImpl: opcoes.demoSpawn, execImpl: opcoes.demoExec, resetBin: opcoes.demoResetBin, esquecerConversa: (slug) => conversa.esquecerAgente(slug) });
   // O agente fala com a Mesa pelo dgclaw-mesa, que passa pela caixa: a rota precisa estar liberada.
   caixa.permitir('/api/v1/tarefas');
   const naoLidas = criarNaoLidas({ arquivo: path.join(config.dataDir, 'nao-lidas.json'), conversa, registro, log, relogio: opcoes.agora, lerThread: conversa.threadCompartilhada });
@@ -286,6 +293,17 @@ function criarServidor(opcoes) {
     }
     res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
     return res.end(m === 'HEAD' ? undefined : texto);
+  }
+
+  /** No modo demonstração a conversa carrega a tela dos cartões e do Reset; fora dele o HTML sai como está. */
+  function servirConversaDemo(req, res) {
+    let html;
+    try { html = fs.readFileSync(path.join(config.publicDir, 'conversa.html'), 'utf8'); } catch (_) { return false; }
+    const tags = '<link rel="stylesheet" href="/demo-cartoes.css"><script defer src="/demo-cartoes.js"></script>';
+    const corpo = Buffer.from(html.includes('</head>') ? html.replace('</head>', tags + '</head>') : html + tags, 'utf8');
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Length': corpo.length, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+    res.end(req.method === 'HEAD' ? undefined : corpo);
+    return true;
   }
 
   function semSessaoPagina(req, res, url) {
@@ -455,6 +473,10 @@ function criarServidor(opcoes) {
     const m = req.method;
     if (p.startsWith('/api/v1/tarefas') && await mesa.rota(req, res, url, sessao)) return undefined;
 
+    if (await demoSistemas.rota(req, res, url, sessao)) return undefined;
+
+    if (p.startsWith('/api/demo/') && await demo.rotaTela(req, res, url, sessao)) return undefined;
+
     if (await foco.tratarRota(req, res, url, sessao)) return undefined;
 
     if ((p === '/api/v1/anonimizar' || p.startsWith('/api/v1/anonimizar/')) && await rotasAnonimizar.rotas(req, res, url, sessao)) return undefined;
@@ -512,7 +534,7 @@ function criarServidor(opcoes) {
       // Colaborador enxerga só o agente dele (o escopo já deixou passar a rota; o filtro é aqui, no handler).
       const visiveis = registro.estado().agentes.filter((a) => sessao.papel !== 'colaborador' || a.slug === sessao.agente);
       const lista = await Promise.all(visiveis.map(async (a) => Object.assign(await agentePublico(a), { ultima_ts: await conversa.ultimaMensagemTs(a) })));
-      return H.enviaJson(res, 200, { ok: true, agentes: lista, voz: lista.some((a) => a.voz), microfone: voz.microfone, limite_upload_bytes: config.maxUploadBytes, usuario: sessao.usuario });
+      return H.enviaJson(res, 200, { ok: true, agentes: lista, voz: lista.some((a) => a.voz), microfone: voz.microfone, limite_upload_bytes: config.maxUploadBytes, usuario: sessao.usuario, demo: demoSistemas.ativo() });
     }
 
     if (p === '/api/v1/nao-lidas') {
@@ -1191,6 +1213,9 @@ function criarServidor(opcoes) {
       res.setHeader('X-Frame-Options', 'SAMEORIGIN');
     }
 
+    // O Portão do modo demonstração autentica pelo token do agente (Bearer), sem cookie e sem Origin; por isso vem antes da checagem de origem.
+    if (p.startsWith('/api/demo/v1/') && !caixa.ehPedidoDaCaixa(req)) return demo.rotaAgente(req, res, url);
+
     // Pedido interno da caixa de um agente: só rotas /api/ liberadas com caixa.permitir().
     const slugCaixa = caixa.ehPedidoDaCaixa(req);
     if (slugCaixa && !(p.startsWith('/api/') && caixa.rotaPermitida(p))) {
@@ -1338,6 +1363,7 @@ function criarServidor(opcoes) {
       if (!RX_SLUG_ROTA.test(slug) || !registro.obter(slug)) {
         return H.paginaErro(res, 404, 'Agente não encontrado', `Não existe agente chamado "${H.escapaHtml(slug.slice(0, 40))}". Volte ao início para ver a lista.`);
       }
+      if (demo.configurado && servirConversaDemo(req, res)) return undefined;
       if (!servirArquivo(req, res, path.join(config.publicDir, 'conversa.html'), 'no-store')) {
         log('erro', `A tela da conversa não está instalada: falta ${path.join(config.publicDir, 'conversa.html')}.`);
         H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela da conversa não foi encontrado no servidor. Reinstale o DG Claw Web.');
@@ -1377,6 +1403,16 @@ function criarServidor(opcoes) {
       if (!servirArquivo(req, res, path.join(config.publicDir, 'mesa.html'), 'no-store')) {
         log('erro', `A tela da Mesa não está instalada: falta ${path.join(config.publicDir, 'mesa.html')}.`);
         H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela da Mesa de tarefas não foi encontrado no servidor. Reinstale o DG Claw Web.');
+      }
+      return undefined;
+    }
+
+    if ((p === '/sistemas' || p === '/sistemas/') && (m === 'GET' || m === 'HEAD')) {
+      if (!demoSistemas.configurado()) return H.paginaErro(res, 404, 'Página não encontrada', 'A tela Sistemas conectados só existe no modo demonstração.');
+      if (!sessao) return semSessaoPagina(req, res, url);
+      if (!servirArquivo(req, res, path.join(config.publicDir, 'sistemas.html'), 'no-store')) {
+        log('erro', `A tela Sistemas conectados não está instalada: falta ${path.join(config.publicDir, 'sistemas.html')}.`);
+        H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela Sistemas conectados não foi encontrado no servidor. Reinstale o DG Claw Web.');
       }
       return undefined;
     }
@@ -1445,7 +1481,7 @@ function criarServidor(opcoes) {
   });
 
   return {
-    servidor, config, registro, auth, colaboradores, proxy, midia, conversa, anonimizar, filtroAnon, log, caixa, push, lembretes, avisos, estados, vigiaAtencao, prefsAtencao,
+    servidor, config, registro, demo, auth, colaboradores, proxy, midia, conversa, anonimizar, filtroAnon, log, caixa, push, lembretes, avisos, estados, vigiaAtencao, prefsAtencao,
     ouvir(porta, host) {
       return new Promise((resolve, reject) => {
         servidor.once('error', reject);
