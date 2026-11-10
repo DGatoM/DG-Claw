@@ -143,14 +143,16 @@ agente nem serviço: isso é decisão do dono, e você reinicia só com o sim de
 - **Faxina guiada.** Rode `sudo dgclaw sentinela levantar`, mostre a lista ao dono e explique o que cada pasta é. Só apague algo
   fora do catálogo com o ok dele, pasta por pasta. Nunca apague código, bancos de dados, `.env`, conversas nem memória, e
   nunca mexa em montagens remotas. Se o catálogo basta, `sudo dgclaw sentinela faxinar --executar`.
-- **Configurar o Telegram.** O dono cria um bot no @BotFather (comando `/newbot`, que entrega o token), manda um "oi" ao bot e
-  descobre o próprio id de chat no @userinfobot (outras pessoas de confiança entram separadas por vírgula). Grave assim,
-  com o token vindo da entrada e **nunca ecoado na conversa**:
-  `printf 'TELEGRAM_TOKEN=...\nTELEGRAM_CHATS=...\n' | sudo dgclaw sentinela configurar`. Depois rode `sudo dgclaw sentinela testar-avisos`.
-- **E-mail e pulso externo.** O e-mail usa as chaves `EMAIL_*` (mesmo comando `configurar`). O pulso externo é o mais importante, porque
-  é o que avisa quando o servidor inteiro cai: guie o dono pelo passo a passo do healthchecks.io em
-  `/opt/dgclaw/app/docs/SENTINELA.md` e grave a URL com `printf 'PULSO_URL=https://...\n' | sudo dgclaw sentinela configurar`.
-  Sem Telegram nem e-mail, os alarmes só aparecem no painel: depois de instalar ou atualizar, ofereça configurar.
+- **Ligar os avisos (Telegram, e-mail, pulso externo).** O caminho recomendado é o dono preencher o formulário **Ligar avisos**
+  no cartão **Saúde do servidor** da tela Segurança (menu ☰ > Segurança): ele cola ali o token, a senha e a URL, e o painel grava
+  pelo caminho validado. Se preferir o terminal, o dono roda `sudo dgclaw sentinela configurar --perguntar`, que pergunta cada
+  campo e não mostra o que ele digita. Você só explica o caminho (mostre onde fica o formulário e conte como obter cada dado:
+  o Telegram pede um bot no @BotFather com `/newbot`, que entrega o token, um "oi" ao bot e o id de chat do dono no @userinfobot;
+  o pulso externo é o passo a passo do healthchecks.io em `/opt/dgclaw/app/docs/SENTINELA.md`). Depois confirme com `sudo dgclaw sentinela testar-avisos`.
+- **Segredos nunca passam por você.** **Nunca peça** ao dono o token do bot, a senha do e-mail nem a URL do pulso na conversa, e
+  **nunca** ponha qualquer um deles em comando (`printf`, argumento, variável na linha): ficaria no histórico do servidor e
+  em `/proc/<pid>/cmdline`. Se o dono colar um segredo na conversa por conta própria, não o repita e sugira o formulário. Sem
+  Telegram nem e-mail, os alarmes só aparecem no painel: depois de instalar ou atualizar, ofereça ligar os avisos.
 
 ### Anonimizar documentos
 

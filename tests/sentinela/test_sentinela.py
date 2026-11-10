@@ -184,7 +184,7 @@ class Cenario:
         self.agora += passo
         e = self.env()
         e.update(env)
-        return subprocess.run([sys.executable, "-I", SENTINELA, *(args or ("rodar",))], input=entrada, capture_output=True, text=True, env=e, timeout=90)
+        return subprocess.run([sys.executable, "-I", SENTINELA, *(args or ("rodar",))], input=entrada, capture_output=True, text=True, env=e, timeout=90, start_new_session=True)
 
     def painel(self):
         with open(self.raiz + "/var/lib/dgclaw/web/sentinela/estado.json", encoding="utf-8") as f:
@@ -548,7 +548,7 @@ def caso_9_alivio_de_ram():
     c = Cenario()
     c.agentes("luna", "akaki")
     dados = {"disco": [disco(10)], "ram": ram(98), "servicos": {"dgclaw-ronda.service": True},
-             "podman": {"stats": [{"name": "dgclaw-akaki", "mem_percent": "8.1%"}, {"name": "dgclaw-luna", "mem_percent": "41.5%"}, {"name": "outro-container", "mem_percent": "80%"}]}}
+             "podman": {"stats": [{"name": "dgclaw-akaki", "mem_percent": "92.0%", "mem_usage": "180MB / 200MB"}, {"name": "dgclaw-luna", "mem_percent": "11.5%", "mem_usage": "3.2GB / 28GB"}, {"name": "outro-container", "mem_percent": "80%", "mem_usage": "9GB / 10GB"}]}}
     c.falso(dados)
     for _ in range(4):
         c.rodar()
@@ -558,7 +558,7 @@ def caso_9_alivio_de_ram():
     c.rodar()
     cm = c.comandos()
     alvo = "podman exec dgclaw-luna systemctl stop dgclaw-tela-chrome.service"
-    confere(cm.count(alvo) == 1, "na rodada seguinte fecha só o navegador do container que mais usa memória (luna)")
+    confere(cm.count(alvo) == 1, "na rodada seguinte fecha só o navegador do container que mais usa memória em bytes (luna, não o akaki que está em 92% do teto pequeno)")
     for _ in range(3):
         c.rodar()
     confere(c.comandos().count(alvo) == 1, "não repete antes de 30 minutos")
@@ -615,6 +615,133 @@ def caso_9b_pastas_ignoram_montagem_remota():
     # pasta dentro de outra do mesmo disco: só a de fora
     alvos, puladas = m.filtra_alvos([c.raiz + "/var", c.raiz + "/var/log"], [])
     confere(alvos == [c.raiz + "/var"] and any("já está dentro" in p for p in puladas), "pasta dentro de outra pasta medida (mesmo disco) não é somada duas vezes")
+    c.limpar()
+
+
+def arvore_funda(raiz_dir, niveis):
+    os.makedirs(raiz_dir, exist_ok=True)
+    fd = os.open(raiz_dir, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for _ in range(niveis):
+            os.mkdir("d", dir_fd=fd)
+            novo = os.open("d", os.O_RDONLY | os.O_DIRECTORY, dir_fd=fd)
+            os.close(fd)
+            fd = novo
+        with os.fdopen(os.open("arq", os.O_WRONLY | os.O_CREAT, 0o644, dir_fd=fd), "w") as f:
+            f.write("x")
+    finally:
+        os.close(fd)
+
+
+class Gotejador:
+    """Runner comprometido: aceita e responde um byte por segundo, para sempre."""
+
+    def __init__(self):
+        import socket
+        self.srv = socket.socket()
+        self.srv.bind(("127.0.0.1", 0))
+        self.srv.listen(8)
+        self.porta = self.srv.getsockname()[1]
+        threading.Thread(target=self._aceita, daemon=True).start()
+
+    def _aceita(self):
+        while True:
+            try:
+                con, _ = self.srv.accept()
+            except OSError:
+                return
+            threading.Thread(target=self._pinga, args=(con,), daemon=True).start()
+
+    def _pinga(self, con):
+        try:
+            con.recv(4096)
+            for b in b"HTTP/1.1 200 OK\r\nX-Lento: " + b"a" * 200:
+                con.sendall(bytes([b]))
+                time.sleep(1)
+        except OSError:
+            pass
+
+    def parar(self):
+        self.srv.close()
+
+
+def caso_9c_fases_isoladas_runner_gotejando_e_arvore_funda():
+    print("9c. runner que goteja bytes, casa com 1.050 níveis e disco em 95%: o aviso sai e a rodada sai 0")
+    tg, gt = Gravador(), Gotejador()
+    c = Cenario(tg=tg)
+    reg = {"versao": 1, "agentes": [{"slug": "luna", "nome": "Luna", "tipo": "agente", "runner": f"http://127.0.0.1:{gt.porta}", "container": "dgclaw-luna"}]}
+    c.escreve("etc/dgclaw/agentes.json", json.dumps(reg))
+    arvore_funda(c.raiz + "/var/lib/dgclaw/agentes/luna/home/.cache/pip", 1050)
+    os.makedirs(c.raiz + "/var/lib/dgclaw/agentes/luna/home/.npm/_cacache")
+    c.falso({"disco": [disco(95)], "ram": ram(10)})
+    t0 = time.time()
+    r = c.rodar()
+    dur = time.time() - t0
+    confere(r.returncode == 0, f"a rodada sai 0 ({r.stderr.strip()[:200]})")
+    confere(dur < 25, f"a rodada termina rápido apesar do runner gotejando ({dur:.1f} s)")
+    confere(len(c.textos_tg()) == 2 and "Disco em 95%" in c.textos_tg()[0], "o aviso de disco saiu para os 2 chats")
+    log = c.le("var/log/dgclaw/sentinela.log")
+    confere("não respondeu em 8 s" in log or c.interno()["agentes"]["luna"]["falhas"] == 1, "o runner que não respondeu no prazo conta como falha")
+    confere("parei em luna/.cache/pip" in log and "níveis" in log, "a árvore funda é recusada com motivo (limite de profundidade), sem RecursionError")
+    confere("RecursionError" not in r.stderr + log, "nenhuma RecursionError")
+    confere(not os.path.exists(c.raiz + "/var/lib/dgclaw/agentes/luna/home/.npm/_cacache"), "o resto da faxina seguiu (.npm/_cacache apagado)")
+    confere(os.path.exists(c.raiz + "/var/lib/dgclaw/web/sentinela/estado.json"), "o estado do painel foi gravado")
+    c.limpar()
+    tg.parar()
+    gt.parar()
+
+
+def caso_9d_arvore_funda_direto_e_sem_fd_vazando():
+    print("9d. remoção iterativa: árvore de 1.050 níveis, limite de entradas, fds fechados")
+    c = Cenario()
+    m = carrega_modulo(c.raiz)
+    base = c.tmp + "/base"
+    os.makedirs(base + "/ok/a/b")
+    for rel in ("ok/x", "ok/a/y", "ok/a/b/z"):
+        with open(f"{base}/{rel}", "w") as f:
+            f.write("12345")
+    os.symlink(c.tmp, base + "/ok/elo")
+    fd = os.open(base, os.O_RDONLY | os.O_DIRECTORY)
+    antes = len(os.listdir("/proc/self/fd"))
+    tam = m.arvore(fd, "ok", False)
+    confere(tam >= 15, "simular soma os arquivos")
+    m.arvore(fd, "ok", True)
+    confere(not os.path.exists(base + "/ok") and os.path.exists(c.tmp), "apagou a árvore e o link simbólico dentro dela não foi seguido")
+    arvore_funda(base + "/funda", 1050)
+    try:
+        m.arvore(fd, "funda", True)
+        confere(False, "árvore funda devia estourar o limite")
+    except m.Excedido as e:
+        confere("níveis" in str(e), "árvore funda para no limite de profundidade (Excedido)")
+    confere(len(os.listdir("/proc/self/fd")) == antes, "nenhum fd ficou aberto depois do estouro")
+    m.MAX_ENTRADAS = 5
+    os.makedirs(base + "/larga")
+    for i in range(20):
+        open(f"{base}/larga/f{i}", "w").close()
+    try:
+        m.arvore(fd, "larga", True)
+        confere(False, "devia estourar o limite de entradas")
+    except m.Excedido:
+        confere(True, "limite de entradas por item")
+    confere(len(os.listdir("/proc/self/fd")) == antes, "nenhum fd ficou aberto depois do segundo estouro")
+    os.close(fd)
+    c.limpar()
+
+
+def caso_9e_configurar_perguntar():
+    print("9e. configurar --perguntar: pergunta no terminal, sem eco do segredo, mesmo caminho validado")
+    c = Cenario()
+    conf = c.raiz + "/etc/dgclaw/sentinela.conf"
+    with open(conf, "w") as f:
+        f.write("# da Marta\nLINHA_DA_MARTA=oi\nRESERVA_GB=0\n")
+    entrada = "\nxx\n" + TOKEN + "\n-100,5\n" + "\n" * 7
+    r = c.rodar("configurar", "--perguntar", entrada=entrada)
+    linhas = open(conf).read().splitlines()
+    confere(r.returncode == 0, f"sai 0 ({r.stderr.strip()[:200]})")
+    confere(linhas[:3] == ["# da Marta", "LINHA_DA_MARTA=oi", "RESERVA_GB=0"] and f"TELEGRAM_TOKEN={TOKEN}" in linhas and "TELEGRAM_CHATS=-100,5" in linhas, "grava as respostas válidas e preserva as linhas alheias")
+    confere("Não serve" in r.stdout and "formato" in r.stdout, "o token inválido é recusado com motivo e perguntado de novo")
+    confere(TOKEN not in r.stdout + r.stderr, "o token digitado nunca é ecoado")
+    confere(stat.S_IMODE(os.stat(conf).st_mode) == 0o600, "permissão 600")
     c.limpar()
 
 

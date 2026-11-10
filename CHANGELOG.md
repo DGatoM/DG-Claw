@@ -20,9 +20,10 @@ inclusive o do monitor externo que avisa se o servidor inteiro cair, está em `d
 
 Peça ao Admin, no chat: "atualiza o DG Claw". A sentinela já nasce ligada e o painel mostra o estado dela, mas **os avisos
 no seu celular só chegam depois que você os configurar**: sem Telegram e sem o monitor externo, os alarmes só aparecem no
-painel, e um servidor travado não consegue mostrar painel nenhum. Depois de atualizar, peça ao Admin: "configura os avisos
-da sentinela no Telegram e o monitor externo no healthchecks.io". Ele guia você e grava os dados sem deixar o token na
-conversa. Se você já tinha definido um teto para o diário do sistema (`SystemMaxUse` do journald), ele não é trocado. O
+painel, e um servidor travado não consegue mostrar painel nenhum. Depois de atualizar, abra a tela Segurança, vá ao cartão **Saúde do servidor** e preencha o formulário **Ligar avisos**
+(Telegram e o endereço do monitor externo do healthchecks.io). No terminal, o mesmo se faz com
+`sudo dgclaw sentinela configurar --perguntar`. O Admin explica o passo a passo, mas nunca pede o token, a senha nem o
+endereço do pulso na conversa. Se você já tinha definido um teto para o diário do sistema (`SystemMaxUse` do journald), ele não é trocado. O
 arquivo `/etc/dgclaw/sentinela.conf` é criado só se não existir, e nunca é reescrito.
 
 **A aba Operações volta a mostrar as barrinhas de cada rotina, com rotina, horário e resultado.** O painel do agente não

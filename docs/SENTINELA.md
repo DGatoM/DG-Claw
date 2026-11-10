@@ -81,21 +81,21 @@ O jeito mais fácil: peça ao Admin, no chat, "configura os avisos da sentinela 
 2. Abra uma conversa com o bot novo e mande qualquer mensagem (um "oi"). Sem isso o bot não pode escrever para você.
 3. Descubra o seu **id de chat**: mande uma mensagem para o **@userinfobot** e ele responde com o seu id (um número).
    Para avisar também outras pessoas de confiança, junte os ids delas separados por vírgula.
-4. Entregue as duas coisas ao Admin. Ele grava com um comando que não deixa o token aparecer na conversa nem no
-   histórico do servidor:
+4. Cadastre as duas coisas na sentinela, por um destes dois caminhos (nenhum deixa o token no histórico do servidor):
+   - **Pelo painel (recomendado):** abra a tela **Segurança**, vá ao cartão **Saúde do servidor** e preencha o formulário
+     **Ligar avisos** com o token e o id do chat.
+   - **Pelo terminal:** rode `sudo dgclaw sentinela configurar --perguntar`. Ele pergunta cada campo e não mostra o que você
+     digita no token.
 
-   ```
-   printf 'TELEGRAM_TOKEN=<o token>\nTELEGRAM_CHATS=<o id>\n' | sudo dgclaw sentinela configurar
-   ```
-
+   **Não cole o token na conversa com o Admin nem em comandos.** O Admin nunca pede token, senha ou endereço do pulso.
 5. Teste: `sudo dgclaw sentinela testar-avisos`, ou o botão **Testar avisos** do cartão Saúde do servidor. Deve chegar
    uma mensagem de teste no seu Telegram.
 
 ### Ligar os avisos por e-mail (opcional)
 
-Peça ao Admin os dados do seu servidor de e-mail (endereço do servidor SMTP, porta, usuário e senha; no Gmail, uma "senha
-de app") e as chaves `EMAIL_SMTP_HOST`, `EMAIL_SMTP_PORTA`, `EMAIL_USUARIO`, `EMAIL_SENHA`, `EMAIL_DE` e `EMAIL_PARA` são
-gravadas do mesmo jeito, pelo `sudo dgclaw sentinela configurar`.
+Separe os dados do seu servidor de e-mail (endereço do servidor SMTP, porta, usuário e senha; no Gmail, uma "senha de app")
+e preencha o formulário **Ligar avisos** do cartão **Saúde do servidor** (tela Segurança), ou rode
+`sudo dgclaw sentinela configurar --perguntar` no servidor. A senha nunca vai para a conversa nem para um comando.
 
 ## O pulso externo: quem avisa quando o servidor inteiro cai
 
@@ -111,11 +111,8 @@ O serviço gratuito mais simples é o **healthchecks.io**:
 4. Na aba **Integrations**, ligue o Telegram (ou o e-mail) para receber o alerta quando o pulso falhar. O próprio site
    explica a conexão, é só seguir os botões.
 5. Na página do check aparece uma **URL de ping**, parecida com `https://hc-ping.com/xxxxxxxx-xxxx-...`. Copie.
-6. Entregue a URL ao Admin ou rode você mesmo:
-
-   ```
-   printf 'PULSO_URL=https://hc-ping.com/<a sua url>\n' | sudo dgclaw sentinela configurar
-   ```
+6. Cole a URL no campo do pulso do formulário **Ligar avisos** (cartão Saúde do servidor, tela Segurança) ou responda a ela em
+   `sudo dgclaw sentinela configurar --perguntar`. A URL é um segredo: quem a conhece pode mandar pulsos falsos.
 
 7. Em um ou dois minutos o check fica verde no healthchecks.io. Daí em diante, se o pulso sumir por mais de uns 5
    minutos, você recebe o alerta. Quando o servidor tem um problema grave mas continua ligado, a sentinela avisa o
@@ -141,7 +138,7 @@ Ele avisa se o painel ou o Caddy cair, mesmo que o servidor continue ligado.
 | `sudo dgclaw sentinela reserva estado` | Mostra a reserva de disco (também há `liberar` e `recriar`) |
 | `sudo dgclaw sentinela testar-avisos` | Manda um aviso de teste em cada canal configurado |
 | `sudo dgclaw sentinela rodar` | Faz uma rodada agora |
-| `sudo dgclaw sentinela configurar` | Grava ajustes, lidos da entrada padrão |
+| `sudo dgclaw sentinela configurar --perguntar` | Pergunta cada ajuste no terminal (token e senhas sem aparecer) e grava |
 
 ## Quando o disco enche de coisa que a faxina não cobre
 
@@ -153,7 +150,7 @@ Se a solução for mais espaço, o caminho é aumentar o disco no provedor da VP
 ## Ajustes
 
 Os padrões servem para a maioria. O arquivo é `/etc/dgclaw/sentinela.conf` (formato `CHAVE=valor`) e a atualização do DG
-Claw nunca o reescreve. Para mudar, use `sudo dgclaw sentinela configurar`, que troca só as linhas que você mandou e mantém
+Claw nunca o reescreve. Para mudar, use `sudo dgclaw sentinela configurar --perguntar` ou o formulário do painel, que trocam só as linhas que você mandou e mantém
 as outras.
 
 | Chave | Padrão | O que é |

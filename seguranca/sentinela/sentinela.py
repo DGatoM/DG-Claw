@@ -16,7 +16,6 @@ import json
 import os
 import re
 import secrets
-import shutil
 import signal
 import smtplib
 import socket
@@ -409,8 +408,50 @@ def nome_servidor(cfg):
     return socket.gethostname()
 
 
-def configurar():
-    """CHAVE=valor pela entrada padrão (nunca por argumento: apareceria no ps e no histórico do shell)."""
+PERGUNTAS = [
+    ("NOME_SERVIDOR", "Nome do servidor nas mensagens (Enter mantém, vazio = usar o domínio)", False),
+    ("TELEGRAM_TOKEN", "Token do bot do Telegram (o BotFather entrega; não aparece enquanto você digita)", True),
+    ("TELEGRAM_CHATS", "Id(s) do seu chat no Telegram, separados por vírgula", False),
+    ("EMAIL_SMTP_HOST", "Servidor SMTP do e-mail (ex.: smtp.gmail.com; Enter pula o e-mail)", False),
+    ("EMAIL_SMTP_PORTA", "Porta SMTP (587 usa STARTTLS, 465 usa SSL)", False),
+    ("EMAIL_USUARIO", "Usuário do e-mail", False),
+    ("EMAIL_SENHA", "Senha do e-mail (senha de app; não aparece enquanto você digita)", True),
+    ("EMAIL_DE", "E-mail que envia os avisos", False),
+    ("EMAIL_PARA", "E-mail(s) que recebem os avisos, separados por vírgula", False),
+    ("PULSO_URL", "Endereço de ping do pulso externo (healthchecks.io; não aparece enquanto você digita)", True),
+]
+
+
+def pergunta_valores():
+    """Pergunta cada campo no terminal. Segredo por getpass (sem eco); o resto por input. Enter mantém o que já está; '-' apaga."""
+    import getpass
+    pares, _ = ler_pares(caminhos()["conf"])
+    novos = {}
+    print("Responda cada pergunta. Enter mantém o valor atual; digite - para apagar.")
+    for chave, texto, segredo in PERGUNTAS:
+        atual = pares.get(chave, "")
+        estado = ("já configurado" if atual else "não configurado") if segredo else (f"atual: {atual}" if atual else "não configurado")
+        for tentativa in range(3):
+            prompt = f"{texto} [{estado}]: "
+            v = (getpass.getpass(prompt) if segredo else input(prompt)).strip()
+            if v == "":
+                break
+            if v == "-":
+                novos[chave] = ""
+                break
+            try:
+                VALIDADORES[chave](v)
+            except ValueError as e:
+                print(f"  Não serve: {e}. Tente de novo.")
+                continue
+            novos[chave] = v
+            break
+        else:
+            raise ErroSentinela(f"o valor de {chave} foi recusado 3 vezes. Nada foi gravado.", "confira o formato e rode de novo: sudo dgclaw sentinela configurar --perguntar")
+    return novos
+
+
+def le_pares_da_entrada():
     novos = {}
     for n, linha in enumerate(sys.stdin.read().splitlines(), 1):
         s = linha.strip()
@@ -418,7 +459,7 @@ def configurar():
             continue
         m = re.fullmatch(r"([A-Z][A-Z0-9_]*)=(.*)", s)
         if not m:
-            raise ErroSentinela(f"a linha {n} da entrada não é CHAVE=valor.", "mande uma linha por chave, assim: printf 'TELEGRAM_CHATS=123456\\n' | sudo dgclaw sentinela configurar")
+            raise ErroSentinela(f"a linha {n} da entrada não é CHAVE=valor.", "mande uma linha por chave, ou use o modo que pergunta: sudo dgclaw sentinela configurar --perguntar")
         chave, texto = m.group(1), _tira_aspas(m.group(2))
         if chave not in PADROES:
             raise ErroSentinela(f"a chave {chave} (linha {n}) não existe na sentinela.", "as chaves válidas: " + ", ".join(PADROES))
@@ -429,8 +470,21 @@ def configurar():
                 shown = "" if chave in SEGREDOS else f" ({texto[:40]!r})"
                 raise ErroSentinela(f"valor de {chave}{shown} recusado: {e}. Nada foi gravado.", f"corrija o valor de {chave} e mande de novo.")
         novos[chave] = texto
+    return novos
+
+
+def configurar(args=()):
+    """Grava CHAVE=valor no sentinela.conf. Duas entradas, o mesmo caminho validado: --perguntar (terminal, segredo sem eco) ou
+    pares pela entrada padrão (o painel usa). Nunca por argumento de comando: apareceria no ps, em /proc/<pid>/cmdline e no histórico."""
+    if "--perguntar" in args:
+        novos = pergunta_valores()
+        if not novos:
+            print("Nada mudou.")
+            return 0
+    else:
+        novos = le_pares_da_entrada()
     if not novos:
-        raise ErroSentinela("a entrada veio vazia: não recebi nenhum CHAVE=valor.", "exemplo: printf 'TELEGRAM_CHATS=123456\\n' | sudo dgclaw sentinela configurar")
+        raise ErroSentinela("a entrada veio vazia: não recebi nenhum CHAVE=valor.", "use o modo que pergunta: sudo dgclaw sentinela configurar --perguntar")
     caminho = caminhos()["conf"]
     pares, _ = ler_pares(caminho)
     teste_cfg = dict(PADROES)
@@ -543,14 +597,14 @@ class _SemRedirecionar(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def http(url, metodo="GET", dados=None, cabecalhos=None, timeout=10):
+def http(url, metodo="GET", dados=None, cabecalhos=None, timeout=10, ler_corpo=True):
     """Devolve (status, corpo). Não segue redirecionamento. Levanta OSError com motivo legível se não houver resposta."""
     req = urllib.request.Request(url, data=dados, method=metodo, headers=cabecalhos or {})
     opener = urllib.request.build_opener(_SemRedirecionar)
     t = max(1, min(timeout, restante() - 1)) if _PRAZO["fim"] else timeout
     try:
         with opener.open(req, timeout=t) as r:
-            return r.status, r.read(65536).decode("utf-8", "replace")
+            return r.status, (r.read(65536).decode("utf-8", "replace") if ler_corpo else "")
     except urllib.error.HTTPError as e:
         try:
             corpo = e.read(2000).decode("utf-8", "replace")
@@ -786,7 +840,7 @@ def ler_agentes():
 
 
 def consulta_runner(ag):
-    """(ok, motivo_registro). Só fala com a própria máquina."""
+    """(ok, motivo_registro). Só fala com a própria máquina. Não lê o corpo: o status basta."""
     f = fake()
     if f is not None and "runners" in f:
         return f["runners"].get(ag["slug"], "ok") == "ok", ""
@@ -795,10 +849,38 @@ def consulta_runner(ag):
     if u.hostname not in ("127.0.0.1", "localhost") or not u.port:
         return None, "registro com endereço fora da máquina"
     try:
-        st, _ = http(f"http://127.0.0.1:{u.port}/api/saude", "GET", None, None, 3)
+        st, _ = http(f"http://127.0.0.1:{u.port}/api/saude", "GET", None, None, 3, ler_corpo=False)
     except OSError:
         return False, ""
     return 200 <= st < 300, ""
+
+
+def consulta_todos(agentes, prazo_s=8):
+    """Consulta todos os runners em threads daemon, com um prazo ABSOLUTO para a fase inteira. O timeout do socket só
+    limita cada espera, não o total: um runner que responde 1 byte por segundo prenderia a rodada. Quem não voltou no prazo
+    conta como falha (a thread fica para trás e morre com o processo)."""
+    import threading
+    resultados = {}
+
+    def um(ag):
+        try:
+            resultados[ag["slug"]] = consulta_runner(ag)
+        except Exception:  # noqa: BLE001 - falha de um runner é "sem resposta", nunca derruba a rodada
+            resultados[ag["slug"]] = (False, "")
+
+    fim = time.time() + prazo_s
+    ths = []
+    for ag in agentes:
+        t = threading.Thread(target=um, args=(ag,), daemon=True)
+        t.start()
+        ths.append(t)
+    for t in ths:
+        t.join(max(0.0, fim - time.time()))
+    for ag in agentes:
+        if ag["slug"] not in resultados:
+            ev(f"o runner do agente {ag['slug']} não respondeu em {prazo_s} s; contei como sem resposta.")
+            resultados[ag["slug"]] = (False, "")
+    return dict(resultados)
 
 
 def motivo_container(ag):
@@ -831,49 +913,160 @@ def espaco_livre():
         return 0
 
 
+MAX_PROFUNDIDADE = 64
+MAX_ENTRADAS = 200_000
+_ABRE_DIR = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+
+
+class Excedido(Exception):
+    """A pasta passou do limite de profundidade, de entradas ou de tempo: o item para, o resto da rodada segue."""
+
+
+def _confere_limites(entradas):
+    if entradas > MAX_ENTRADAS:
+        raise Excedido(f"mais de {MAX_ENTRADAS} entradas")
+    if _acabou_tempo():
+        raise Excedido("o tempo da faxina acabou")
+
+
+def _acabou_tempo():
+    lim = _PRAZO.get("limite")
+    return lim is not None and time.time() > lim
+
+
+def arvore(fd_pai, nome, apagar):
+    """Soma (e, se `apagar`, remove) a pasta `nome` de dentro de `fd_pai`. ITERATIVA, com pilha explícita: uma árvore de mil
+    níveis não estoura a recursão do Python. Cada pasta é aberta com O_NOFOLLOW e dir_fd; link simbólico nunca é seguido
+    (só o link é apagado). Funciona no Python 3.10 (o shutil.rmtree(dir_fd=) só existe no 3.11). Devolve os bytes."""
+    total, entradas = 0, 0
+    fd0 = os.open(nome, _ABRE_DIR, dir_fd=fd_pai)
+    pilha = []  # (fd, iterador do scandir, nome dentro do pai)
+    try:
+        try:
+            pilha.append((fd0, os.scandir(fd0), nome))
+        except BaseException:
+            os.close(fd0)
+            raise
+        while pilha:
+            fd_a, it, nome_a = pilha[-1]
+            try:
+                e = next(it)
+            except StopIteration:
+                pilha.pop()
+                it.close()
+                os.close(fd_a)
+                if apagar:
+                    os.rmdir(nome_a, dir_fd=pilha[-1][0] if pilha else fd_pai)
+                continue
+            entradas += 1
+            _confere_limites(entradas)
+            if e.is_dir(follow_symlinks=False):
+                if len(pilha) >= MAX_PROFUNDIDADE:
+                    raise Excedido(f"mais de {MAX_PROFUNDIDADE} níveis de pastas")
+                try:
+                    cfd = os.open(e.name, _ABRE_DIR, dir_fd=fd_a)
+                except FileNotFoundError:
+                    continue
+                try:
+                    pilha.append((cfd, os.scandir(cfd), e.name))
+                except BaseException:
+                    os.close(cfd)
+                    raise
+            else:
+                try:
+                    total += e.stat(follow_symlinks=False).st_size
+                except OSError:
+                    pass
+                if apagar:
+                    os.unlink(e.name, dir_fd=fd_a)
+    finally:
+        while pilha:
+            fd_a, it, _ = pilha.pop()
+            try:
+                it.close()
+            finally:
+                os.close(fd_a)
+    return total
+
+
 def apagar_velhos(raizes, padroes, dias, pular, simular=False, agora_ts=None):
-    """Apaga (ou só soma) arquivos regulares mais velhos que `dias`. Usa os.fwalk (dir_fd, sem seguir link) e unlink pelo
-    dir_fd: se alguém trocar uma pasta por um link no meio do caminho, nada fora dela é tocado. Devolve (bytes, quantos)."""
+    """Apaga (ou só soma) arquivos regulares mais velhos que `dias`. Percorre com pilha explícita, scandir(fd) e unlink pelo
+    dir_fd, sem seguir link: se alguém trocar uma pasta por um link no meio do caminho, nada fora dela é tocado. Só mexe em
+    arquivo regular do mesmo st_dev da raiz. Devolve (bytes, quantos)."""
     limite = (agora_ts or time.time()) - dias * 86400
     total, qtd = 0, 0
     for r in raizes:
         topo = P(r)
         try:
-            dev_raiz = _dev(os.lstat(topo))
+            st0 = os.lstat(topo)
+            if not stat.S_ISDIR(st0.st_mode):
+                continue
+            fd0 = os.open(topo, _ABRE_DIR)
         except OSError:
             continue
+        dev_raiz = _dev(st0)
+        pilha, entradas = [], 0
         try:
-            for _, dirnomes, arquivos, fd in os.fwalk(topo, topdown=True, follow_symlinks=False):
-                manter = []
-                for d in dirnomes:
-                    if any(fnmatch.fnmatch(d, p) for p in pular):
+            try:
+                pilha.append((fd0, os.scandir(fd0)))
+            except BaseException:
+                os.close(fd0)
+                raise
+            while pilha:
+                fd_a, it = pilha[-1]
+                try:
+                    e = next(it)
+                except StopIteration:
+                    pilha.pop()
+                    it.close()
+                    os.close(fd_a)
+                    continue
+                entradas += 1
+                _confere_limites(entradas)
+                nome = e.name
+                try:
+                    st = e.stat(follow_symlinks=False)
+                except OSError:
+                    continue
+                if stat.S_ISDIR(st.st_mode):
+                    if any(fnmatch.fnmatch(nome, p) for p in pular) or _dev(st) != dev_raiz:
+                        continue
+                    if len(pilha) >= MAX_PROFUNDIDADE:
+                        ev(f"pulei {topo}/{nome}: mais de {MAX_PROFUNDIDADE} níveis de pastas")
                         continue
                     try:
-                        if _dev(os.stat(d, dir_fd=fd, follow_symlinks=False)) != dev_raiz:
-                            continue
+                        cfd = os.open(nome, _ABRE_DIR, dir_fd=fd_a)
                     except OSError:
-                        continue
-                    manter.append(d)
-                dirnomes[:] = manter
-                for nome in arquivos:
-                    if not any(fnmatch.fnmatch(nome, p) for p in padroes) or any(fnmatch.fnmatch(nome, p) for p in pular):
                         continue
                     try:
-                        st = os.stat(nome, dir_fd=fd, follow_symlinks=False)
-                    except OSError:
+                        pilha.append((cfd, os.scandir(cfd)))
+                    except BaseException:
+                        os.close(cfd)
+                        raise
+                    continue
+                if not any(fnmatch.fnmatch(nome, p) for p in padroes) or any(fnmatch.fnmatch(nome, p) for p in pular):
+                    continue
+                if not stat.S_ISREG(st.st_mode) or _dev(st) != dev_raiz or st.st_mtime >= limite:
+                    continue
+                if not simular:
+                    try:
+                        os.unlink(nome, dir_fd=fd_a)
+                    except OSError as ex:
+                        ev(f"não apaguei {topo}/{nome}: {ex.strerror or ex}")
                         continue
-                    if not stat.S_ISREG(st.st_mode) or _dev(st) != dev_raiz or st.st_mtime >= limite:
-                        continue
-                    if not simular:
-                        try:
-                            os.unlink(nome, dir_fd=fd)
-                        except OSError as e:
-                            ev(f"não apaguei {topo}/{nome}: {e.strerror or e}")
-                            continue
-                    total += st.st_size
-                    qtd += 1
-        except OSError as e:
-            ev(f"não consegui percorrer {topo} para a faxina ({e.strerror or e}).")
+                total += st.st_size
+                qtd += 1
+        except Excedido as ex:
+            ev(f"a faxina de {topo} parou: {ex}.")
+        except OSError as ex:
+            ev(f"não consegui percorrer {topo} para a faxina ({ex.strerror or ex}).")
+        finally:
+            while pilha:
+                fd_a, it = pilha.pop()
+                try:
+                    it.close()
+                finally:
+                    os.close(fd_a)
     return total, qtd
 
 
@@ -895,17 +1088,10 @@ def _abre_filho(fd, nome, rotulo):
 
 
 def _tamanho_dir(fd_pai, nome):
-    soma = 0
     try:
-        for _, _, arqs, fd in os.fwalk(nome, dir_fd=fd_pai, follow_symlinks=False):
-            for a in arqs:
-                try:
-                    soma += os.stat(a, dir_fd=fd, follow_symlinks=False).st_size
-                except OSError:
-                    pass
-    except OSError:
-        pass
-    return soma
+        return arvore(fd_pai, nome, False)
+    except (OSError, Excedido):
+        return 0
 
 
 def _casa(fd, parte):
@@ -933,13 +1119,11 @@ def _percorre(fd, partes, rotulo, simular):
                 ev(f"pulei {rot}: é um link simbólico")
             elif not stat.S_ISDIR(st.st_mode):
                 ev(f"pulei {rot}: não é uma pasta")
-            elif simular:
-                total += _tamanho_dir(fd, nome)
             else:
-                antes = _tamanho_dir(fd, nome)
                 try:
-                    shutil.rmtree(nome, dir_fd=fd)
-                    total += antes
+                    total += arvore(fd, nome, not simular)
+                except Excedido as e:
+                    ev(f"parei em {rot}: {e}; o que ficou será tentado na próxima faxina.")
                 except OSError as e:
                     ev(f"não consegui apagar {rot} por inteiro: {e.strerror or e}")
         else:
@@ -954,10 +1138,7 @@ def _percorre(fd, partes, rotulo, simular):
 
 
 def limpar_cache_agentes(item, simular=False):
-    """Casas dos agentes: descer com O_NOFOLLOW e dir_fd, componente por componente, e apagar com rmtree(dir_fd)."""
-    if not shutil.rmtree.avoids_symlink_attacks:
-        ev("o item cache-agente não rodou: este Python não tem o rmtree à prova de link simbólico (shutil.rmtree.avoids_symlink_attacks é falso).")
-        return 0
+    """Casas dos agentes: descer com O_NOFOLLOW e dir_fd, componente por componente, e apagar com `arvore` (iterativa)."""
     base = P(item["base"])
     try:
         fd_base = os.open(base, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
@@ -1148,14 +1329,14 @@ def faxinar_agora(ids=None, executar=True):
             est = estima_item(item)
             resultado.append({"id": item["id"], "descricao": item["descricao"], "estimativa_mb": None if est is None else round(est / MB, 1)})
             continue
-        if _PRAZO["fim"] and restante() < 8:
+        if (_PRAZO["fim"] and restante() < 8) or _acabou_tempo():
             resultado.append({"id": item["id"], "descricao": item["descricao"], "liberou_mb": 0, "ok": False, "pulado": True})
             continue
         antes = espaco_livre()
         try:
-            rc = executa_item(item, 30)
-        except ErroSentinela as e:
-            ev(str(e))
+            rc = executa_item(item, 30 if not _PRAZO.get("limite") else max(1, min(30, _PRAZO["limite"] - time.time())))
+        except Exception as e:  # noqa: BLE001 - um item que falha não impede os outros
+            ev(f"faxina {item.get('id')} falhou ({type(e).__name__}: {e}).")
             resultado.append({"id": item["id"], "descricao": item["descricao"], "liberou_mb": 0, "ok": False, "pulado": False})
             continue
         lib = max(0, espaco_livre() - antes)
@@ -1380,44 +1561,52 @@ def _rodada(cfg, problemas, discos, reserva_liberada):
     vistos = set()
     painel_agentes = []
     rodada_canal = est["rodadas"] % 5 == 0
+    try:
+        respostas = consulta_todos(agentes)
+    except Exception as e:  # noqa: BLE001
+        ev(f"a consulta aos agentes falhou ({type(e).__name__}: {e}); tratei como sem resposta.")
+        respostas = {}
     for ag in agentes:
-        slug = ag["slug"]
-        vistos.add(slug)
-        s = est["agentes"].setdefault(slug, {"falhas": 0, "estado": "ok", "desde": None, "motivo": "", "canal": "ok", "canal_desde": None})
-        ok, motivo_reg = consulta_runner(ag)
-        if ok is None:
-            s["estado"], s["motivo"] = "desconhecido", motivo_reg
-        elif ok:
-            s["falhas"] = 0
-            if s["estado"] == "caido":
-                mudancas.append(("voltou", slug))
-                ev(f"agente {slug} voltou a responder.")
-            if s["estado"] in ("caido", "desconhecido"):
-                s["estado"], s["desde"], s["motivo"] = "ok", None, ""
-        else:
-            s["falhas"] += 1
-            if s["falhas"] >= cfg["AGENTE_CAIDO_RODADAS"] and s["estado"] != "caido":
-                s["estado"], s["desde"] = "caido", agora_ts
-                s["motivo"] = motivo_container(ag)
-                mudancas.append(("caiu", slug))
-                ev(f"agente {slug} fora do ar: {s['motivo']}.")
-        if rodada_canal and s["estado"] != "caido":
-            rc, st = cmd(["podman", "inspect", "-f", "{{.State.Status}}", ag["container"]], 10)
-            if rc == 0 and st.strip() == "running":
-                rc1, o1 = cmd(["podman", "exec", ag["container"], "systemctl", "is-enabled", "dgclaw-whatsapp.service"], 10)
-                if o1.strip() == "enabled":
-                    rc2, o2 = cmd(["podman", "exec", ag["container"], "systemctl", "is-active", "dgclaw-whatsapp.service"], 10)
-                    parado = o2.strip() != "active"
-                else:
-                    parado = False
-                if parado and s["canal"] == "ok":
-                    s["canal"], s["canal_desde"] = "caido", agora_ts
-                    mudancas.append(("canal", slug))
-                    ev(f"agente {slug}: o canal do WhatsApp parou.")
-                elif not parado and s["canal"] == "caido":
-                    s["canal"], s["canal_desde"] = "ok", None
-                    mudancas.append(("canal_voltou", slug))
-                    ev(f"agente {slug}: o canal do WhatsApp voltou.")
+        try:
+            slug = ag["slug"]
+            vistos.add(slug)
+            s = est["agentes"].setdefault(slug, {"falhas": 0, "estado": "ok", "desde": None, "motivo": "", "canal": "ok", "canal_desde": None})
+            ok, motivo_reg = respostas.get(ag["slug"], (False, ""))
+            if ok is None:
+                s["estado"], s["motivo"] = "desconhecido", motivo_reg
+            elif ok:
+                s["falhas"] = 0
+                if s["estado"] == "caido":
+                    mudancas.append(("voltou", slug))
+                    ev(f"agente {slug} voltou a responder.")
+                if s["estado"] in ("caido", "desconhecido"):
+                    s["estado"], s["desde"], s["motivo"] = "ok", None, ""
+            else:
+                s["falhas"] += 1
+                if s["falhas"] >= cfg["AGENTE_CAIDO_RODADAS"] and s["estado"] != "caido":
+                    s["estado"], s["desde"] = "caido", agora_ts
+                    s["motivo"] = motivo_container(ag)
+                    mudancas.append(("caiu", slug))
+                    ev(f"agente {slug} fora do ar: {s['motivo']}.")
+            if rodada_canal and s["estado"] != "caido":
+                rc, st = cmd(["podman", "inspect", "-f", "{{.State.Status}}", ag["container"]], 10)
+                if rc == 0 and st.strip() == "running":
+                    rc1, o1 = cmd(["podman", "exec", ag["container"], "systemctl", "is-enabled", "dgclaw-whatsapp.service"], 10)
+                    if o1.strip() == "enabled":
+                        rc2, o2 = cmd(["podman", "exec", ag["container"], "systemctl", "is-active", "dgclaw-whatsapp.service"], 10)
+                        parado = o2.strip() != "active"
+                    else:
+                        parado = False
+                    if parado and s["canal"] == "ok":
+                        s["canal"], s["canal_desde"] = "caido", agora_ts
+                        mudancas.append(("canal", slug))
+                        ev(f"agente {slug}: o canal do WhatsApp parou.")
+                    elif not parado and s["canal"] == "caido":
+                        s["canal"], s["canal_desde"] = "ok", None
+                        mudancas.append(("canal_voltou", slug))
+                        ev(f"agente {slug}: o canal do WhatsApp voltou.")
+        except Exception as e:  # noqa: BLE001 - uma fase que falha nunca pode impedir avisos, pulso e estado
+            ev(f"não consegui conferir o agente {ag['slug']} ({type(e).__name__}: {e}); sigo com os outros.")
     for slug in list(est["agentes"]):
         if slug not in vistos:
             del est["agentes"][slug]
@@ -1436,24 +1625,27 @@ def _rodada(cfg, problemas, discos, reserva_liberada):
     painel_servicos = []
     servicos_mal = []
     for nome in SERVICOS_SERVIDOR:
-        if not existe_servico(nome):
-            continue
-        ativo = servico_ativo(nome)
-        s = est["servicos"].setdefault(nome, {"inativo": 0, "caido": False})
-        if ativo:
+        try:
+            if not existe_servico(nome):
+                continue
+            ativo = servico_ativo(nome)
+            s = est["servicos"].setdefault(nome, {"inativo": 0, "caido": False})
+            if ativo:
+                if s["caido"]:
+                    mudancas.append(("servico_voltou", nome))
+                    ev(f"serviço {nome} voltou.")
+                s["inativo"], s["caido"] = 0, False
+            else:
+                s["inativo"] += 1
+                if s["inativo"] >= 2 and not s["caido"]:
+                    s["caido"] = True
+                    mudancas.append(("servico_caiu", nome))
+                    ev(f"serviço {nome} parado.")
+            painel_servicos.append({"nome": nome, "ativo": ativo})
             if s["caido"]:
-                mudancas.append(("servico_voltou", nome))
-                ev(f"serviço {nome} voltou.")
-            s["inativo"], s["caido"] = 0, False
-        else:
-            s["inativo"] += 1
-            if s["inativo"] >= 2 and not s["caido"]:
-                s["caido"] = True
-                mudancas.append(("servico_caiu", nome))
-                ev(f"serviço {nome} parado.")
-        painel_servicos.append({"nome": nome, "ativo": ativo})
-        if s["caido"]:
-            servicos_mal.append(nome)
+                servicos_mal.append(nome)
+        except Exception as e:  # noqa: BLE001 - uma fase que falha nunca pode impedir avisos, pulso e estado
+            ev(f"não consegui conferir o serviço {nome} ({type(e).__name__}: {e}).")
 
     geral = max(nd, nr, 3 if (agentes_mal or servicos_mal) else 0)
     dim_ag = 3 if (agentes_mal or servicos_mal) else 0
@@ -1467,42 +1659,54 @@ def _rodada(cfg, problemas, discos, reserva_liberada):
         if est["faxina"]["restantes"] or nd_ant < 2 or ultima_faxina is None or agora_ts - ultima_faxina >= 6 * 3600:
             precisa_faxina = True
     if precisa_faxina:
-        ids = est["faxina"]["restantes"] or None
-        res = faxinar_agora(ids, True)
-        est["faxina"]["restantes"] = [r["id"] for r in res if r.get("pulado")]
-        est["faxina"]["ultima"] = agora_ts
-        total_mb = sum(r.get("liberou_mb", 0) for r in res)
-        for r in res:
-            acoes.append({"em": agora_ts, "tipo": "faxina", "descricao": f"{r['id']}: liberou {r.get('liberou_mb', 0):.0f} MB" + (" (faltou tempo, fica para a próxima rodada)" if r.get("pulado") else ""),
-                          "liberou_mb": r.get("liberou_mb", 0)})
-        acoes.append({"em": agora_ts, "tipo": "faxina-resumo", "descricao": "", "texto": f"limpei caches e logs antigos (liberou {fmt_bytes(int(total_mb * MB))})"})
-        ev(f"faxina automática: liberou {total_mb:.0f} MB.")
+        _PRAZO['limite'] = min(time.time() + 20, (_PRAZO['fim'] or time.time() + 45) - 15)
+        try:
+            ids = est["faxina"]["restantes"] or None
+            res = faxinar_agora(ids, True)
+            est["faxina"]["restantes"] = [r["id"] for r in res if r.get("pulado")]
+            est["faxina"]["ultima"] = agora_ts
+            total_mb = sum(r.get("liberou_mb", 0) for r in res)
+            for r in res:
+                acoes.append({"em": agora_ts, "tipo": "faxina", "descricao": f"{r['id']}: liberou {r.get('liberou_mb', 0):.0f} MB" + (" (faltou tempo, fica para a próxima rodada)" if r.get("pulado") else ""),
+                              "liberou_mb": r.get("liberou_mb", 0)})
+            acoes.append({"em": agora_ts, "tipo": "faxina-resumo", "descricao": "", "texto": f"limpei caches e logs antigos (liberou {fmt_bytes(int(total_mb * MB))})"})
+            ev(f"faxina automática: liberou {total_mb:.0f} MB.")
+        except Exception as e:  # noqa: BLE001 - uma fase que falha nunca pode impedir avisos, pulso e estado
+            ev(f"a faxina automática falhou ({type(e).__name__}: {e}); sigo com os avisos.")
+        finally:
+            _PRAZO['limite'] = None
     # reserva
-    if cfg["RESERVA_GB"] > 0 and not reserva_existe() and reserva_liberada == 0:
-        if pior < cfg["DISCO_AVISO"] - 5:
-            est["reserva"]["abaixo_desde"] = est["reserva"]["abaixo_desde"] or agora_ts
-        else:
+    try:
+        if cfg["RESERVA_GB"] > 0 and not reserva_existe() and reserva_liberada == 0:
+            if pior < cfg["DISCO_AVISO"] - 5:
+                est["reserva"]["abaixo_desde"] = est["reserva"]["abaixo_desde"] or agora_ts
+            else:
+                est["reserva"]["abaixo_desde"] = None
+            liberada = est["reserva"]["liberada_em"]
+            pode = (liberada is None and pior < cfg["DISCO_AVISO"]) or (liberada is not None and est["reserva"]["abaixo_desde"] and agora_ts - est["reserva"]["abaixo_desde"] >= 1800)
+            if pode and nd == 0:
+                ok_r, mot = cria_reserva(cfg, discos)
+                if ok_r:
+                    recriada = liberada is not None
+                    est["reserva"]["criada_em"], est["reserva"]["liberada_em"], est["reserva"]["abaixo_desde"] = agora_ts, None, None
+                    ev(f"reserva {'recriada' if recriada else 'criada'}: {mot}.")
+                    acoes.append({"em": agora_ts, "tipo": "reserva", "descricao": f"reserva {'recriada' if recriada else 'criada'} ({mot})",
+                                  "texto": f"recriei a reserva de emergência ({mot})" if recriada else None})
+                elif est["reserva"].get("nao_criada") != mot:
+                    est["reserva"]["nao_criada"] = mot
+                    ev(f"não criei a reserva: {mot}.")
+        elif reserva_existe():
             est["reserva"]["abaixo_desde"] = None
-        liberada = est["reserva"]["liberada_em"]
-        pode = (liberada is None and pior < cfg["DISCO_AVISO"]) or (liberada is not None and est["reserva"]["abaixo_desde"] and agora_ts - est["reserva"]["abaixo_desde"] >= 1800)
-        if pode and nd == 0:
-            ok_r, mot = cria_reserva(cfg, discos)
-            if ok_r:
-                recriada = liberada is not None
-                est["reserva"]["criada_em"], est["reserva"]["liberada_em"], est["reserva"]["abaixo_desde"] = agora_ts, None, None
-                ev(f"reserva {'recriada' if recriada else 'criada'}: {mot}.")
-                acoes.append({"em": agora_ts, "tipo": "reserva", "descricao": f"reserva {'recriada' if recriada else 'criada'} ({mot})",
-                              "texto": f"recriei a reserva de emergência ({mot})" if recriada else None})
-            elif est["reserva"].get("nao_criada") != mot:
-                est["reserva"]["nao_criada"] = mot
-                ev(f"não criei a reserva: {mot}.")
-    elif reserva_existe():
-        est["reserva"]["abaixo_desde"] = None
+    except Exception as e:  # noqa: BLE001 - uma fase que falha nunca pode impedir avisos, pulso e estado
+        ev(f"a reserva de disco falhou ({type(e).__name__}: {e}); sigo com os avisos.")
     # alívio de RAM
-    if cfg["ALIVIO_RAM_AUTOMATICO"] and est["ram"]["criticas"] >= 3:
-        alivio_ram(est, agentes, agora_ts, acoes)
-    elif nr < 3:
-        est["alivio"]["ronda"] = False
+    try:
+        if cfg["ALIVIO_RAM_AUTOMATICO"] and est["ram"]["criticas"] >= 3:
+            alivio_ram(est, agentes, agora_ts, acoes)
+        elif nr < 3:
+            est["alivio"]["ronda"] = False
+    except Exception as e:  # noqa: BLE001 - uma fase que falha nunca pode impedir avisos, pulso e estado
+        ev(f"alívio de memória falhou ({type(e).__name__}: {e}); sigo com os avisos.")
 
     # --- 5/7. decidir o aviso
     aviso = decide_aviso(cfg, est, mudancas, acoes, geral, nd, nr, pior, discos, ram, painel_agentes, agentes_mal, servicos_mal, agora_ts)
@@ -1578,6 +1782,20 @@ def resumo(cfg, nd, nr, pior, ram, agentes_mal, servicos_mal):
     return (", ".join(partes) or "tudo normal") + f" em {cfg['NOME_SERVIDOR'] or nome_servidor(cfg)}"
 
 
+def bytes_de(texto):
+    """Uso de memória do `podman stats` ("1.2GB / 8GB", "512MiB / 2GiB") em bytes; só a parte antes da barra. None se não entendi.
+    Vale o uso absoluto, não o percentual do próprio teto: um container com teto pequeno aparece com % alto e gasta pouco."""
+    m = re.match(r"\s*([\d.,]+)\s*([kKmMgGtT]?)([iI]?)[bB]", texto.split("/")[0])
+    if not m:
+        return None
+    try:
+        n = float(m.group(1).replace(",", "."))
+    except ValueError:
+        return None
+    base = 1024 if m.group(3) else 1000
+    return n * base ** {"": 0, "k": 1, "m": 2, "g": 3, "t": 4}[m.group(2).lower()]
+
+
 def alivio_ram(est, agentes, agora_ts, acoes):
     """Só fecha o navegador do agente que mais usa memória; nunca runner, WhatsApp, painel, Web, Admin ou Caddy."""
     if not est["alivio"]["ronda"]:
@@ -1604,12 +1822,8 @@ def alivio_ram(est, agentes, agora_ts, acoes):
         nome = s.get("name") or s.get("Name") or ""
         if nome not in por_container:
             continue
-        raw = str(s.get("mem_percent") or s.get("MemPerc") or s.get("mem_perc") or "0").replace("%", "").replace(",", ".")
-        try:
-            v = float(raw)
-        except ValueError:
-            continue
-        if v > uso:
+        v = bytes_de(str(s.get("mem_usage") or s.get("MemUsage") or ""))
+        if v is not None and v > uso:
             melhor, uso = por_container[nome], v
     if melhor is None:
         return
@@ -1716,7 +1930,11 @@ def corpo_aviso(cfg, a, est, agentes_mal, agora_ts):
                   2: "Se o disco continuar subindo, os agentes vão parar de responder.",
                   1: "Ainda dá tempo, mas vale liberar espaço nos próximos dias."}[a["nd"]])
         if a["nd"] >= 2:
-            pastas, completo = maiores_pastas(est, agora_ts)
+            try:
+                pastas, completo = maiores_pastas(est, agora_ts)
+            except Exception as ex:  # noqa: BLE001 - sem a lista o aviso sai mesmo assim
+                ev(f"não consegui medir as maiores pastas ({type(ex).__name__}: {ex}).")
+                pastas, completo = [], False
             L.append("")
             L.append("Maiores pastas:")
             if pastas:
@@ -2014,8 +2232,9 @@ AJUDA = """dgclaw sentinela: a vigia do disco, da memória, dos agentes e dos se
   dgclaw sentinela faxinar [--executar] [--json]   sem --executar só simula e mostra quanto cada item liberaria
   dgclaw sentinela reserva estado|liberar|recriar  a reserva de disco (o balão de ar)
   dgclaw sentinela testar-avisos [--json]     manda um aviso de teste em cada canal configurado
-  dgclaw sentinela configurar                 lê CHAVE=valor da entrada padrão, sem aparecer no histórico:
-      printf 'TELEGRAM_TOKEN=...\\nTELEGRAM_CHATS=...\\n' | sudo dgclaw sentinela configurar
+  dgclaw sentinela configurar --perguntar     pergunta cada campo no terminal (token e senhas sem eco): o jeito para a pessoa
+  dgclaw sentinela configurar                 lê CHAVE=valor da entrada padrão (o painel usa). Nunca ponha segredo em
+                                              comando: ele ficaria no histórico do shell e em /proc/<pid>/cmdline
 
 Chaves: """ + ", ".join(PADROES) + "\n"
 
@@ -2030,7 +2249,7 @@ def main(argv):
     if sub == "rodar":
         return rodar()
     if sub == "configurar":
-        return configurar()
+        return configurar(resto)
     cfg, _ = ler_config()
     if sub == "estado":
         return cmd_estado(resto)

@@ -109,7 +109,7 @@ mudar nada. Quem: Root. Detalhe geral em [ATUALIZAR.md](../ATUALIZAR.md) e no `d
 | `dgclaw sentinela faxinar` | Sem `--executar` só simula; com `--executar` roda o catálogo fechado de limpeza (`--json`) | [SENTINELA.md](../SENTINELA.md) |
 | `dgclaw sentinela reserva` | Mostra (`estado`), libera (`liberar`) ou recria (`recriar`) a reserva de disco | [SENTINELA.md](../SENTINELA.md) |
 | `dgclaw sentinela testar-avisos` | Manda um aviso de teste em cada canal configurado e diz qual chegou (`--json`) | [SENTINELA.md](../SENTINELA.md) |
-| `dgclaw sentinela configurar` | Grava `CHAVE=valor` lidos da entrada padrão (token e senhas não aparecem no histórico) | [SENTINELA.md](../SENTINELA.md) |
+| `dgclaw sentinela configurar` | Com `--perguntar`, pergunta cada ajuste no terminal (token e senhas sem eco); sem ele, lê `CHAVE=valor` da entrada padrão, que é o caminho do painel. Segredo nunca vai em argumento | [SENTINELA.md](../SENTINELA.md) |
 
 ### Botão de emergência
 

@@ -1714,7 +1714,7 @@ FIM
         cat <<'FIM' | escrever_arquivo "$DG_ETC/sentinela.conf" 600
 # DG Claw: configuracao da sentinela do servidor (docs/SENTINELA.md).
 # Formato CHAVE=valor, lido linha a linha (nunca executado). Para mudar sem aparecer no historico do shell:
-#   printf 'TELEGRAM_CHATS=123456\n' | sudo dgclaw sentinela configurar
+#   sudo dgclaw sentinela configurar --perguntar   (ou o formulario Ligar avisos do painel)
 # As linhas abaixo mostram os padroes. Este arquivo nunca e reescrito pelo instalador.
 #NOME_SERVIDOR=
 #DISCO_AVISO=75
@@ -1745,7 +1745,7 @@ FIM
     ligar_unidade dgclaw-sentinela.timer
     # Roda logo: depois de instalar ou atualizar, o painel nao pode esperar um minuto para ter o primeiro estado.
     executar systemctl start --no-block dgclaw-sentinela.service
-    info "sentinela do servidor instalada. Sem Telegram ou e-mail configurados, os alarmes so aparecem no painel: peca ao Admin para configurar (docs/SENTINELA.md)."
+    info "sentinela do servidor instalada. Sem Telegram ou e-mail configurados, os alarmes so aparecem no painel: ligue os avisos no cartao Saude do servidor do painel ou com: sudo dgclaw sentinela configurar --perguntar (docs/SENTINELA.md)."
 }
 
 # --- 9d. anonimizar documentos (detector opcional) --------------------------------

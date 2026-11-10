@@ -12,7 +12,7 @@
 #   dgclaw sentinela faxinar [--executar] [--json]
 #   dgclaw sentinela reserva estado|liberar|recriar
 #   dgclaw sentinela testar-avisos [--json]
-#   dgclaw sentinela configurar                 CHAVE=valor pela entrada padrao
+#   dgclaw sentinela configurar [--perguntar]   pergunta no terminal (segredo sem eco) ou le CHAVE=valor da entrada padrao
 
 SENTINELA_PY="$APP_DIR/seguranca/sentinela/sentinela.py"
 
