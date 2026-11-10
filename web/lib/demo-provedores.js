@@ -70,7 +70,7 @@ function criarProvedores({ fetchImpl, chaveDe, log, timeoutMs }) {
       r = await f(url.toString(), { method: metodo, headers: cab, body: corpoTexto, signal: AbortSignal.timeout(prazo), redirect: 'error' });
     } catch (e) {
       const causa = e && e.name === 'TimeoutError' ? `não respondeu em ${Math.round(prazo / 1000)} segundos` : sanitiza(String((e && (e.cause && e.cause.code || e.message)) || e), chave).slice(0, 120);
-      throw new ErroDemo(502, 'PROVEDOR_FORA', `Não consegui falar com ${rotulo} (${causa}). Confira a conexão e tente de novo.`, { incerto: metodo !== 'GET' });
+      throw new ErroDemo(424, 'PROVEDOR_FORA', `Não consegui falar com ${rotulo} (${causa}). Confira a conexão e tente de novo.`, { incerto: metodo !== 'GET' });
     }
     const texto = await r.text();
     let json = null;
@@ -84,13 +84,13 @@ function criarProvedores({ fetchImpl, chaveDe, log, timeoutMs }) {
     if (r.status >= 200 && r.status < 300) return;
     const rotulo = cfg.rotulo || cfg.id || 'o provedor';
     const codigoProv = r.json && r.json.code;
-    if (r.status === 401) throw new ErroDemo(502, 'CHAVE_RECUSADA', `${rotulo} recusou a chave (401). Peça ao dono para conferir a chave desta linha. ${o}`);
-    if (r.status === 403 && codigoProv === 'INSTANCE_SEND_FORBIDDEN') throw new ErroDemo(502, 'LINHA_SEM_PERMISSAO_DE_ENVIO', `${rotulo} não deixa esta chave enviar por essa linha. ${o}`);
+    if (r.status === 401) throw new ErroDemo(424, 'CHAVE_RECUSADA', `${rotulo} recusou a chave (401). Peça ao dono para conferir a chave desta linha. ${o}`);
+    if (r.status === 403 && codigoProv === 'INSTANCE_SEND_FORBIDDEN') throw new ErroDemo(424, 'LINHA_SEM_PERMISSAO_DE_ENVIO', `${rotulo} não deixa esta chave enviar por essa linha. ${o}`);
     if (r.status === 422 && codigoProv === 'RECIPIENT_IS_LID') throw new ErroDemo(422, 'DESTINO_SEM_NUMERO', 'Esta conversa ainda não tem o número do contato, só um identificador interno do WhatsApp, e a mensagem não chegaria. Espere o contato responder ou envie pelo celular. Nada foi enviado.');
     if (r.status === 409) throw new ErroDemo(409, 'IDEMPOTENCIA_CONFLITO', `${rotulo} diz que esse envio já existia com outro conteúdo. Não repita: confira no ${rotulo} se a mensagem saiu.`);
     // O agente recebe só o código e o status. A mensagem do provedor (sanitizada) vai para o log e para a tela do dono.
     try { log('erro', `Modo demonstração: ${rotulo} respondeu HTTP ${r.status}: ${r.detalhe}`); } catch (_) { /* log nunca derruba o pedido */ }
-    throw new ErroDemo(r.status >= 500 ? 502 : 422, 'PROVEDOR_RECUSOU', `${rotulo} recusou o pedido (HTTP ${r.status}). ${o}`.trim(), null, r.detalhe);
+    throw new ErroDemo(r.status >= 500 ? 424 : 422, 'PROVEDOR_RECUSOU', `${rotulo} recusou o pedido (HTTP ${r.status}). ${o}`.trim(), null, r.detalhe);
   }
 
   // ── Organizap ────────────────────────────────────────────────────────────
@@ -147,7 +147,7 @@ function criarProvedores({ fetchImpl, chaveDe, log, timeoutMs }) {
         }
         break;
       }
-      if (!boa) throw new ErroDemo(502, 'CONVERSA_MUITO_MOVIMENTADA', 'Esta conversa tem mais de 500 mensagens no último dia e não consegui separar as mais recentes. Nada foi lido.');
+      if (!boa) throw new ErroDemo(424, 'CONVERSA_MUITO_MOVIMENTADA', 'Esta conversa tem mais de 500 mensagens no último dia e não consegui separar as mais recentes. Nada foi lido.');
       const msgs = boa.slice(-limite);
       return msgs.map((m) => ({
         quando: m.timestamp ? new Date(m.timestamp).toISOString() : null,
@@ -173,7 +173,7 @@ function criarProvedores({ fetchImpl, chaveDe, log, timeoutMs }) {
           ra = await chamar(cfg, 'POST', '/messages/send', { corpo, cabecalhos: { 'Idempotency-Key': idDerivado(id, `a${i}`) } });
           exigeOk(ra, cfg, '');
         } catch (e) {
-          throw new ErroDemo(e.status || 502, 'ENVIO_PARCIAL', `O texto foi enviado, mas o anexo ${i + 1} (${a.nome}) não: ${e.message} Não reenvie o texto; mande só o anexo que faltou.`, null, e.detalhe);
+          throw new ErroDemo(e.status || 424, 'ENVIO_PARCIAL', `O texto foi enviado, mas o anexo ${i + 1} (${a.nome}) não: ${e.message} Não reenvie o texto; mande só o anexo que faltou.`, null, e.detalhe);
         }
         status.push(ra.status === 202 ? 'na_fila' : 'enviado');
       }

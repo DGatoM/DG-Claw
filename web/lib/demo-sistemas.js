@@ -86,7 +86,7 @@ function criarDemoSistemas({ env, runner, registro, avatarDe, log, fetchFn, agor
     const r = await runner.estado(agente);
     if (!r.ok) return sis('agente', rotulo, 'agente', 'caido', limpar(r.erro || 'O runner não respondeu.'));
     const st = String((r.estado && r.estado.status) || '').toLowerCase();
-    if (/^(stopped|dead|exited|error|offline|failed)$/.test(st)) return sis('agente', rotulo, 'agente', 'caido', `O runner respondeu, mas a sessão do agente está "${st}".`);
+    if (/^(stopped|dead|exited|error|errored|crashed|offline|failed)$/.test(st)) return sis('agente', rotulo, 'agente', 'caido', `O runner respondeu, mas a sessão do agente está "${st}".`);
     return sis('agente', rotulo, 'agente', 'conectado', null, st ? `Sessão: ${st}` : 'Sessão viva');
   }
 

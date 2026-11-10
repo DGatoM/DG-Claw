@@ -207,3 +207,11 @@ test('modo ligado: sem sessão é recusado; com sessão devolve os sistemas e a 
     assert.equal((await s.c.get('/api/v1/agents')).json.demo, true);
   } finally { await s.fechar(); }
 });
+
+test('sessão do runner em "errored" (sem login, por exemplo) = agente caido, nunca conectado', async () => {
+  const runnerErro = { estado: async () => ({ ok: true, estado: { status: 'errored' } }) };
+  const { d } = monta(null, fetchFalso(BOAS()), { runner: runnerErro });
+  const r = await d.sistemas();
+  assert.equal(achar(r, 'agente').estado, 'caido');
+  assert.match(achar(r, 'agente').motivo, /errored/);
+});
