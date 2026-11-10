@@ -1,0 +1,11 @@
+/* Faixa de alerta do servidor (sentinela-faixa.js): vermelha no crítico, laranja no sério; sem rolagem horizontal no celular. */
+.sf{border-bottom:1px solid;font-size:13.5px;padding:4px 12px;max-width:100%;box-sizing:border-box}
+.sf[hidden]{display:none}
+.sf-critico{background:#fdecea;border-color:#e6a5a0;color:#8c1d18}
+.sf-serio{background:#fff1e0;border-color:#f0c28a;color:#7a4300}
+.sf-linha{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;min-height:34px}
+.sf-tit{flex:1 1 220px;min-width:0;overflow-wrap:anywhere;font-weight:600}
+.sf-link{display:inline-block;min-height:32px;line-height:32px;color:inherit;text-decoration:underline;white-space:nowrap}
+.sf-acoes{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.sf-btn{min-height:32px;padding:0 12px;border-radius:16px;border:1px solid currentColor;background:#fff;color:inherit;font:inherit;font-weight:600;cursor:pointer}
+.sf-ajuda{width:32px;height:32px;border-radius:50%;border:1px solid currentColor;background:#fff;color:inherit;font-size:15px;font-weight:700;cursor:pointer;flex:0 0 auto}

@@ -129,6 +129,31 @@ opcional e depende das variáveis `DGCLAW_SMTP_*` do `web.env`.
 Quando o dono quiser que um agente faça uma ronda (rotina periódica de CRM, suporte, comentários ou dados), o guia é
 `/opt/dgclaw/app/docs/BOAS-PRATICAS-RONDAS.md`, e quem cria a rotina é o próprio agente. A ronda de segurança do servidor é outro assunto.
 
+### Sentinela do servidor
+
+O servidor tem uma sentinela que, a cada minuto, vigia disco, memória, agentes e serviços (painel, Admin e Caddy) e avisa o
+dono por Telegram, e-mail, painel e por você. Ela limpa sozinha só o catálogo fechado (logs, caches, imagens soltas),
+guarda uma reserva de disco, e com a memória no limite fecha só o navegador do agente que mais gasta. Ela nunca reinicia
+agente nem serviço: isso é decisão do dono, e você reinicia só com o sim dele. Guia para o dono: `/opt/dgclaw/app/docs/SENTINELA.md`.
+
+- `sudo dgclaw sentinela estado` mostra o que ela vê; `levantar` lista as 20 maiores pastas (não apaga nada); `faxinar` simula
+  e `faxinar --executar` limpa o catálogo; `reserva estado|liberar|recriar`; `testar-avisos` testa cada canal; `rodar` faz uma rodada.
+- **Recado `[sentinela]`.** Quando chegar uma mensagem começando assim, ela vem da própria máquina (texto fixo, sem nada de
+  fora). Rode `sudo dgclaw sentinela estado`, conte ao dono em palavras simples o que está acontecendo e ofereça a faxina guiada.
+- **Faxina guiada.** Rode `sudo dgclaw sentinela levantar`, mostre a lista ao dono e explique o que cada pasta é. Só apague algo
+  fora do catálogo com o ok dele, pasta por pasta. Nunca apague código, bancos de dados, `.env`, conversas nem memória, e
+  nunca mexa em montagens remotas. Se o catálogo basta, `sudo dgclaw sentinela faxinar --executar`.
+- **Ligar os avisos (Telegram, e-mail, pulso externo).** O caminho recomendado é o dono preencher o formulário **Ligar avisos**
+  no cartão **Saúde do servidor** da tela Segurança (menu ☰ > Segurança): ele cola ali o token, a senha e a URL, e o painel grava
+  pelo caminho validado. Se preferir o terminal, o dono roda `sudo dgclaw sentinela configurar --perguntar`, que pergunta cada
+  campo e não mostra o que ele digita. Você só explica o caminho (mostre onde fica o formulário e conte como obter cada dado:
+  o Telegram pede um bot no @BotFather com `/newbot`, que entrega o token, um "oi" ao bot e o id de chat do dono no @userinfobot;
+  o pulso externo é o passo a passo do healthchecks.io em `/opt/dgclaw/app/docs/SENTINELA.md`). Depois confirme com `sudo dgclaw sentinela testar-avisos`.
+- **Segredos nunca passam por você.** **Nunca peça** ao dono o token do bot, a senha do e-mail nem a URL do pulso na conversa, e
+  **nunca** ponha qualquer um deles em comando (`printf`, argumento, variável na linha): ficaria no histórico do servidor e
+  em `/proc/<pid>/cmdline`. Se o dono colar um segredo na conversa por conta própria, não o repita e sugira o formulário. Sem
+  Telegram nem e-mail, os alarmes só aparecem no painel: depois de instalar ou atualizar, ofereça ligar os avisos.
+
 ### Anonimizar documentos
 
 O dono pode pedir que os documentos enviados a um agente cheguem sem os dados pessoais (nomes, CPF, telefone,

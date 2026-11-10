@@ -7,6 +7,25 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Sentinela do servidor: avisa antes de o disco encher ou a memória acabar.** Uma vigia leve olha, a cada minuto, o disco, a
+memória, os agentes (inclusive o WhatsApp deles) e os serviços do servidor. Quando algo sai do normal, ela avisa no Telegram,
+no e-mail e no painel (uma faixa no alto das telas, o cartão **Saúde do servidor** na tela Segurança e uma notificação no
+celular), e o Admin recebe um recado para conversar com você. Sozinha, ela limpa só o que um catálogo fechado permite (logs
+antigos, caches e imagens soltas), guarda uma reserva de disco que libera no último momento e, com a memória no limite, fecha
+só o navegador do agente que mais gasta. Ela nunca reinicia agente nem serviço. O painel, o ssh e o Caddy passam a ficar por
+último na fila de quem o sistema fecha quando falta memória, e o diário do sistema ganha um teto de 1 GB. O passo a passo,
+inclusive o do monitor externo que avisa se o servidor inteiro cair, está em `docs/SENTINELA.md`.
+
+### Como atualizar (sentinela)
+
+Peça ao Admin, no chat: "atualiza o DG Claw". A sentinela já nasce ligada e o painel mostra o estado dela, mas **os avisos
+no seu celular só chegam depois que você os configurar**: sem Telegram e sem o monitor externo, os alarmes só aparecem no
+painel, e um servidor travado não consegue mostrar painel nenhum. Depois de atualizar, abra a tela Segurança, vá ao cartão **Saúde do servidor** e preencha o formulário **Ligar avisos**
+(Telegram e o endereço do monitor externo do healthchecks.io). No terminal, o mesmo se faz com
+`sudo dgclaw sentinela configurar --perguntar`. O Admin explica o passo a passo, mas nunca pede o token, a senha nem o
+endereço do pulso na conversa. Se você já tinha definido um teto para o diário do sistema (`SystemMaxUse` do journald), ele não é trocado. O
+arquivo `/etc/dgclaw/sentinela.conf` é criado só se não existir, e nunca é reescrito.
+
 **A aba Operações volta a mostrar as barrinhas de cada rotina, com rotina, horário e resultado.** O painel do agente não
 tinha permissão para ler o diário do sistema, e sem ela a aba dizia que não havia histórico, mesmo com as rotinas
 rodando. Agora, dentro do contêiner, o usuário do agente passa a poder ler o diário do sistema daquele contêiner. Se o

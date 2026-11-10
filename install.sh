@@ -1026,6 +1026,8 @@ EnvironmentFile=/etc/dgclaw/web.env
 ExecStart=/usr/bin/node /opt/dgclaw/app/web/server.js
 Restart=always
 RestartSec=3
+# O painel e por onde o dono entra: com a memoria no limite, o kernel tem de sacrificar outra coisa antes dele.
+OOMScoreAdjust=-500
 # Endurecimento: so o que e compativel com o que o Web grava e executa (podman exec, systemctl
 # is-active, ffmpeg, spawn com uid/gid do agente). Diretiva que ficou de fora leva a razao.
 # /etc fica so de leitura, menos /etc/dgclaw (o Web regrava o web.env no primeiro acesso).
@@ -1633,6 +1635,119 @@ FIM
     executar systemctl start --no-block dgclaw-ronda.service
 }
 
+# --- 9d2. sentinela do servidor ---------------------------------------------------------
+# configurar_sentinela: a SENTINELA DO SERVIDOR (docs/SENTINELA.md). Vigia disco, memoria, agentes e servicos a cada minuto
+# (dgclaw-sentinela.timer chama seguranca/sentinela/sentinela.py rodar, Python da biblioteca padrao, como root) e avisa o dono.
+# Tambem protege o que nao pode morrer quando a memoria acaba: o ssh e o caddy ganham um drop-in de OOMScoreAdjust (o do
+# dgclaw-web esta na propria unidade) e o journal ganha um teto. Regras de atualizacao: o /etc/dgclaw/sentinela.conf so e criado
+# se nao existir (quem configura e `dgclaw sentinela configurar`, linha a linha) e o teto do journal so entra se a pessoa
+# nao tiver definido o dela. Nada aqui reinicia ssh, caddy ou agente: o drop-in vale na proxima vez que subirem.
+unidade_existe() { command -v systemctl >/dev/null 2>&1 && systemctl cat "$1" >/dev/null 2>&1; }
+
+journal_tem_teto() {
+    local f
+    for f in "$R/etc/systemd/journald.conf" "$R"/etc/systemd/journald.conf.d/*.conf; do
+        [ -f "$f" ] || continue
+        grep -Eq '^[[:space:]]*SystemMaxUse=' "$f" && return 0
+    done
+    return 1
+}
+
+configurar_sentinela() {
+    local p_app="${DG_APP#"$R"}" ssh_unidade="" jd="$R/etc/systemd/journald.conf.d/90-dgclaw.conf"
+    if ! command -v python3 >/dev/null 2>&1; then
+        aviso "o python3 nao esta instalado, entao a sentinela do servidor nao foi instalada. Rode: apt-get install -y python3; depois ./install.sh de novo."
+        return 0
+    fi
+    criar_pasta 700 "$DG_LIB/sentinela"
+    criar_pasta 700 "$DG_LIB/reserva"
+    criar_pasta 700 "$DG_LIB/web"
+    criar_pasta 750 "$DG_LIB/web/sentinela"
+    criar_pasta 750 "$DG_LOG"
+    cat <<FIM | escrever_arquivo "$DG_UNITS/dgclaw-sentinela.service" 644
+[Unit]
+Description=DG Claw sentinela do servidor (disco, memoria, agentes e servicos)
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/bin/python3 -I $p_app/seguranca/sentinela/sentinela.py rodar
+# A sentinela e quem avisa que o servidor esta morrendo: tem de ser a ultima a ser escolhida pelo OOM, nao pode passar de
+# 96 MB nem ficar na fila atras de quem esta sufocando a maquina. O timer roda a cada 60 s; passar de 55 s e erro.
+OOMScoreAdjust=-900
+MemoryMax=96M
+Nice=-5
+TimeoutStartSec=55
+FIM
+    cat <<'FIM' | escrever_arquivo "$DG_UNITS/dgclaw-sentinela.timer" 644
+[Unit]
+Description=DG Claw sentinela do servidor (a cada minuto)
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=1s
+Unit=dgclaw-sentinela.service
+
+[Install]
+WantedBy=timers.target
+FIM
+    # O dono nao pode ficar trancado fora: ssh e caddy so morrem depois de tudo o mais (o painel tem -500 na propria unidade).
+    if unidade_existe ssh.service; then ssh_unidade=ssh
+    elif unidade_existe sshd.service; then ssh_unidade=sshd
+    fi
+    if [ -n "$ssh_unidade" ]; then
+        printf '[Service]\nOOMScoreAdjust=-900\n' | escrever_arquivo "$DG_UNITS/$ssh_unidade.service.d/90-dgclaw-oom.conf" 644
+    else
+        info "nao achei a unidade do ssh (ssh.service nem sshd.service); pulei a protecao contra falta de memoria dele."
+    fi
+    printf '[Service]\nOOMScoreAdjust=-500\n' | escrever_arquivo "$DG_UNITS/caddy.service.d/90-dgclaw-oom.conf" 644
+    # Teto do journal: so se a pessoa nao definiu o dela e o arquivo nosso ainda nao existe (nunca se reescreve configuracao alheia).
+    if [ ! -e "$jd" ] && ! journal_tem_teto; then
+        printf '[Journal]\nSystemMaxUse=1G\n' | escrever_arquivo "$jd" 644
+        if [ "$ENSAIO" != 1 ] && command -v systemctl >/dev/null 2>&1; then
+            systemctl restart systemd-journald >/dev/null 2>&1 \
+                || aviso "nao consegui reiniciar o systemd-journald; o teto de 1 GB do journal vale a partir do proximo reinicio da maquina."
+        fi
+    fi
+    if [ ! -e "$DG_ETC/sentinela.conf" ]; then
+        cat <<'FIM' | escrever_arquivo "$DG_ETC/sentinela.conf" 600
+# DG Claw: configuracao da sentinela do servidor (docs/SENTINELA.md).
+# Formato CHAVE=valor, lido linha a linha (nunca executado). Para mudar sem aparecer no historico do shell:
+#   sudo dgclaw sentinela configurar --perguntar   (ou o formulario Ligar avisos do painel)
+# As linhas abaixo mostram os padroes. Este arquivo nunca e reescrito pelo instalador.
+#NOME_SERVIDOR=
+#DISCO_AVISO=75
+#DISCO_SERIO=85
+#DISCO_CRITICO=92
+#DISCO_EXTREMO=97
+#RAM_AVISO=85
+#RAM_SERIO=92
+#RAM_CRITICO=96
+#RESERVA_GB=2
+#FAXINA_AUTOMATICA=1
+#ALIVIO_RAM_AUTOMATICO=1
+#REPETIR_AVISO_MIN=360
+#REPETIR_SERIO_MIN=60
+#REPETIR_CRITICO_MIN=10
+#AGENTE_CAIDO_RODADAS=2
+#TELEGRAM_TOKEN=
+#TELEGRAM_CHATS=
+#EMAIL_SMTP_HOST=
+#EMAIL_SMTP_PORTA=587
+#EMAIL_USUARIO=
+#EMAIL_SENHA=
+#EMAIL_DE=
+#EMAIL_PARA=
+#PULSO_URL=
+FIM
+    fi
+    ligar_unidade dgclaw-sentinela.timer
+    # Roda logo: depois de instalar ou atualizar, o painel nao pode esperar um minuto para ter o primeiro estado.
+    executar systemctl start --no-block dgclaw-sentinela.service
+    info "sentinela do servidor instalada. Sem Telegram ou e-mail configurados, os alarmes so aparecem no painel: ligue os avisos no cartao Saude do servidor do painel ou com: sudo dgclaw sentinela configurar --perguntar (docs/SENTINELA.md)."
+}
+
 # --- 9d. anonimizar documentos (detector opcional) --------------------------------
 # A unidade-modelo dgclaw-anonimizar-instalar@<nivel>.service roda lib/anonimizar-instalar.sh como root. So o Web a
 # dispara (systemctl start --no-block), e so com os dois niveis fixos "leitores" e "completo". Aqui so se grava a
@@ -1857,6 +1972,7 @@ main() {
     configurar_aviso_atualizacao
     configurar_boletins_seguranca
     configurar_ronda_seguranca
+    configurar_sentinela
     atualizar_identidades
     configurar_anonimizar
     construir_imagem

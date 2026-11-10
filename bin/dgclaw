@@ -29,6 +29,8 @@ APP_DIR="$(cd "$(dirname "$DGCLAW_BIN_REAL")/.." && pwd)"
 . "$APP_DIR/lib/versao.sh"
 # shellcheck source=lib/ronda-seguranca.sh
 . "$APP_DIR/lib/ronda-seguranca.sh"
+# shellcheck source=lib/sentinela.sh
+. "$APP_DIR/lib/sentinela.sh"
 # shellcheck source=lib/aviso-atualizacao.sh
 . "$APP_DIR/lib/aviso-atualizacao.sh"
 # shellcheck source=lib/personalizacoes.sh
@@ -179,6 +181,9 @@ Personalizacoes do programa (o que o Admin mudou no DG Claw)
 
 Ronda de seguranca
   dgclaw seguranca [estado|resumo|rodar|aplicar|desfazer|inventario]   ver "dgclaw seguranca ajuda"
+
+Sentinela do servidor (vigia disco, memoria, agentes e servicos, e avisa por Telegram, e-mail e painel)
+  dgclaw sentinela [estado|rodar|levantar|faxinar|reserva|testar-avisos|configurar]   ver "dgclaw sentinela ajuda"
 
 Botao de emergencia (tirar o servidor do ar)
   dgclaw emergencia estado|simular|preparar|cortar|confirmar|religar
@@ -2349,6 +2354,7 @@ main() {
         imagem) imagem_main "$@" ;;
         senha) senha_main "$@" ;;
         seguranca) seguranca_main "$@" ;;
+        sentinela) sentinela_main "$@" ;;
         dominio) dominio_main "$@" ;;
         primeiro-acesso) primeiro_acesso "$@" ;;
         instalacao-remota) instalacao_remota "$@" ;;

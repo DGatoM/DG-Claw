@@ -98,6 +98,19 @@ mudar nada. Quem: Root. Detalhe geral em [ATUALIZAR.md](../ATUALIZAR.md) e no `d
 | `dgclaw seguranca pedido` | Executa um pedido do painel guardado em arquivo. É a unidade do systemd que chama; não é para uso manual | [RONDA-DE-SEGURANCA.md](../RONDA-DE-SEGURANCA.md) |
 | `dgclaw seguranca pedido-todos` | Executa a fila de pedidos do painel. Também é chamado pelo systemd | [RONDA-DE-SEGURANCA.md](../RONDA-DE-SEGURANCA.md) |
 
+### Sentinela do servidor
+
+| Comando | Para que serve | Detalhe |
+| --- | --- | --- |
+| `dgclaw sentinela ajuda` | Mostra a ajuda da sentinela | [SENTINELA.md](../SENTINELA.md) |
+| `dgclaw sentinela estado` | O que a sentinela vê agora: disco, memória, agentes, serviços, reserva e canais de aviso (`--json`) | [SENTINELA.md](../SENTINELA.md) |
+| `dgclaw sentinela rodar` | Faz uma rodada agora (o timer faz isso a cada minuto) | [SENTINELA.md](../SENTINELA.md) |
+| `dgclaw sentinela levantar` | Lista as 20 maiores pastas e diz quais a faxina cobre. Não apaga nada (`--json`) | [SENTINELA.md](../SENTINELA.md) |
+| `dgclaw sentinela faxinar` | Sem `--executar` só simula; com `--executar` roda o catálogo fechado de limpeza (`--json`) | [SENTINELA.md](../SENTINELA.md) |
+| `dgclaw sentinela reserva` | Mostra (`estado`), libera (`liberar`) ou recria (`recriar`) a reserva de disco | [SENTINELA.md](../SENTINELA.md) |
+| `dgclaw sentinela testar-avisos` | Manda um aviso de teste em cada canal configurado e diz qual chegou (`--json`) | [SENTINELA.md](../SENTINELA.md) |
+| `dgclaw sentinela configurar` | Com `--perguntar`, pergunta cada ajuste no terminal (token e senhas sem eco); sem ele, lê `CHAVE=valor` da entrada padrão, que é o caminho do painel. Segredo nunca vai em argumento | [SENTINELA.md](../SENTINELA.md) |
+
 ### Botão de emergência
 
 Tira o servidor da internet e mantém só o acesso pelo Tailscale. Se ninguém confirmar em 5 minutos, religa sozinho.
@@ -224,6 +237,7 @@ Servidas pelo DG Claw Web. Quem: Dono, salvo o que a coluna disser. Colab só pa
 | `/api/v1/atualizacao` | Diz se há versão nova e o resumo do que mudou; `/descansar` (POST com o commit publicado) dispensa a faixa até sair outra | Dono. Caixa recebe 403 | [ATUALIZACAO.md](../../web/docs/ATUALIZACAO.md) |
 | `/api/v1/seguranca` | Avisos de segurança do DG Claw: `/boletins`, e por id `/adiar` e `/dispensar` | Dono. Caixa recebe 403 | [SEGURANCA-BOLETINS.md](../../web/docs/SEGURANCA-BOLETINS.md) |
 | `/api/v1/seguranca/ronda` | Resultado da ronda e os pedidos de aplicar, agendar e desfazer (`/ronda/:id/aplicar`) | Dono | [RONDA-PAINEL.md](../../web/docs/RONDA-PAINEL.md) |
+| `/api/v1/sentinela` | Saúde do servidor lida da sentinela (disco, memória, agentes, avisos) e `/testar`, que manda um aviso de teste | Dono | [SENTINELA.md](../../web/docs/SENTINELA.md) |
 | `/api/v1/seguranca/emergencia` | Estado do botão de emergência e os pedidos `preparar`, `cortar` e `religar` | Dono | [RONDA-PAINEL.md](../../web/docs/RONDA-PAINEL.md) |
 
 ### Entrada de páginas

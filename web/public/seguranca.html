@@ -9,6 +9,7 @@
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 <link rel="icon" href="/icons/icon-192.png">
 <link rel="stylesheet" href="/seguranca.css">
+<link rel="stylesheet" href="/saude-servidor.css">
 <link rel="stylesheet" href="/casca.css">
 <link rel="stylesheet" href="/menu-lado.css">
 <link rel="stylesheet" href="/sem-zoom.css">
@@ -17,6 +18,16 @@
 <body class="rp">
 <main class="rp-main">
   <p class="rp-msg erro" id="rpMsgGeral" role="alert" hidden></p>
+
+  <section class="rp-sec" id="saude-servidor" aria-label="Saúde do servidor">
+    <h2><span>Saúde do servidor</span><button type="button" class="rp-ajuda" data-sd="ajuda" aria-label="Tutorial da saúde do servidor">?</button></h2>
+    <div id="sdCorpo"><p class="rp-vazio">Carregando…</p></div>
+    <div class="sd-teste" id="sdTestar">
+      <button type="button" class="sd-btn" data-sd="testar">Testar avisos</button>
+      <p class="sd-fraco">Manda um aviso de teste em cada canal configurado (Telegram, e-mail e pulso) e mostra qual chegou.</p>
+      <div class="sd-saida" id="sdTesteSaida" hidden></div>
+    </div>
+  </section>
 
   <section class="rp-sec" id="rpTopo" aria-label="Estado da última ronda">
     <h2><span>Ronda de segurança</span><button type="button" class="rp-ajuda" data-rp="ajuda" data-secao="topo" aria-label="Tutorial do estado da ronda">?</button></h2>
@@ -75,7 +86,9 @@
 <script src="/menu-lado.js"></script>
 <script src="/ronda-comum.js"></script>
 <script src="/atualizacao-faixa.js"></script>
+<script src="/sentinela-faixa.js"></script>
 <script src="/casca.js"></script>
+<script src="/saude-servidor.js"></script>
 <script src="/seguranca.js"></script>
 <script>
 DGCasca.monta({ pagina: 'seguranca', titulo: 'Segurança', aoTutorial: function () { if (window.DGSegurancaTela) window.DGSegurancaTela.tutorial(); } });

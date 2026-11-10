@@ -98,6 +98,7 @@ Os caminhos de teste são relativos à raiz do repositório.
 | Recurso | Estado | Onde pedir | Como foi verificado | Página |
 | --- | --- | --- | --- | --- |
 | Ronda de segurança | Pronto | `/seguranca` | teste: `tests/ronda/rodar.sh`, `web/test/ronda-painel.test.js` | [seguranca.md](seguranca.md) |
+| Sentinela do servidor | Pronto | `/seguranca` (cartão Saúde do servidor), `dgclaw sentinela` | teste: `tests/sentinela/rodar.sh`, `web/test/sentinela.test.js` | [seguranca.md](seguranca.md) |
 | Boletins de segurança | Pronto | `/seguranca` | teste: `tests/boletins/rodar.sh`, `web/test/seguranca.test.js` | [seguranca.md](seguranca.md) |
 | Botão de emergência | Pronto | `/seguranca`, `dgclaw emergencia` | teste: `tests/emergencia/rodar.sh` | [seguranca.md](seguranca.md) |
 | Saúde do agente e modo de segurança | Parcial (só Claude) | Selo do agente, `aba:socorro` | teste: `scripts/_lib/test_saude_sessao.py`, `scripts/_lib/test_reinicio.py`, `scripts/_lib/test_quarentena.py`, `panel/test-saude.mjs` | [seguranca.md](seguranca.md) |
@@ -132,7 +133,7 @@ Os caminhos de teste são relativos à raiz do repositório.
 | [canais.md](canais.md) | Chat do painel, Telegram, `whatsapp` e Gmail |
 | [provedores.md](provedores.md) | `claude`, `codex` e `gemini`, login, chave de API, paridade e risco de bloqueio da conta |
 | [memoria-e-rotinas.md](memoria-e-rotinas.md) | Memória, busca, raio-X do cérebro, rotinas da noite, pokes, lembretes, agenda e custos |
-| [seguranca.md](seguranca.md) | Ronda, boletins, emergência, saúde e isolamento |
+| [seguranca.md](seguranca.md) | Ronda, sentinela do servidor, boletins, emergência, saúde e isolamento |
 | [atualizar-e-backup.md](atualizar-e-backup.md) | Atualização, backup, restauração e avisos de versão |
 | [personalizar.md](personalizar.md) | Como mudar o DG Claw sem perder a mudança na próxima atualização |
 | [o-que-nao-faz.md](o-que-nao-faz.md) | O que o DG Claw não faz, para ninguém prometer demais |
