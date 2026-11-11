@@ -906,6 +906,18 @@ proc_falso() {
     ln -sfn "$3" "$RAIZ/proc/$1/exe"
 }
 
+# sock_falso <pid> <fd> <inode>: o fd do processo de mentira apontando para um socket.
+sock_falso() {
+    mkdir -p "$RAIZ/proc/$1/fd"
+    ln -sfn "socket:[$3]" "$RAIZ/proc/$1/fd/$2"
+}
+# tcp_falso <tcp|tcp6> <HEXPORTA> <estado> <inode>: acrescenta uma linha a $RAIZ/proc/net/<tabela>.
+tcp_falso() {
+    mkdir -p "$RAIZ/proc/net"
+    [ -s "$RAIZ/proc/net/$1" ] || printf '  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n' >"$RAIZ/proc/net/$1"
+    printf '   0: 00000000:%s 00000000:0000 %s 00000000:00000000 00:00000000 00000000     0        0 %s 1 0000000000000000 100 0 0 10 0\n' "$2" "$3" "$4" >>"$RAIZ/proc/net/$1"
+}
+
 caso_firewall_uniao_de_fontes_do_ssh() {
     novo_cenario
     EXTRA_ENV=(DGCLAW_STUB_SSHD_PORTAS=2222 DGCLAW_STUB_SSHD_LISTEN=0.0.0.1:22)
@@ -922,7 +934,9 @@ caso_firewall_uniao_de_fontes_do_ssh() {
     novo_cenario
     proc_falso 10 0 /usr/lib/openssh/sshd-session
     proc_falso 11 1000 /usr/lib/openssh/sshd-session
-    EXTRA_ENV=(DGCLAW_STUB_SSHD_PORTAS=2222 'DGCLAW_STUB_SS_ESTAB=0 0 10.0.0.9:3022 200.1.1.1:50000 users:(("sshd-session",pid=11,fd=4),("sshd-session",pid=10,fd=4))')
+    sock_falso 10 4 7001
+    tcp_falso tcp 0BCE 01 7001   # 0BCE = 3022, ESTABLISHED
+    EXTRA_ENV=(DGCLAW_STUB_SSHD_PORTAS=2222)
     afirma "instala (conexao estabelecida em porta que o sshd -T nao cita)" instalacao_basica
     afirma "libera a porta local da conexao em curso" tem "$STUB_LOG" "ufw allow 3022/tcp"
     afirma "libera a do sshd -T tambem" tem "$STUB_LOG" "ufw allow 2222/tcp"
@@ -930,11 +944,14 @@ caso_firewall_uniao_de_fontes_do_ssh() {
     novo_cenario
     proc_falso 1 0 /usr/sbin/sshd
     proc_falso 2 0 /usr/bin/node
-    EXTRA_ENV=(DGCLAW_STUB_SSHD_PORTAS= 'DGCLAW_STUB_SS_ESCUTA=LISTEN 0 128 0.0.0.0:2400 0.0.0.0:* users:(("sshd",pid=1,fd=3),("systemd",pid=3,fd=181))
-LISTEN 0 128 127.0.0.1:8300 0.0.0.0:* users:(("node",pid=2,fd=3))')
-    afirma "instala (sshd em escuta so pelo ss)" instalacao_basica
+    sock_falso 1 3 7101
+    sock_falso 2 3 7102
+    tcp_falso tcp 0960 0A 7101   # 0960 = 2400, LISTEN
+    tcp_falso tcp 205C 0A 7102   # 205C = 8284, de outro processo
+    EXTRA_ENV=(DGCLAW_STUB_SSHD_PORTAS=)
+    afirma "instala (sshd em escuta so pelo /proc)" instalacao_basica
     afirma "libera a porta em escuta do sshd" tem "$STUB_LOG" "ufw allow 2400/tcp"
-    nega "nao libera a de outro processo" tem "$STUB_LOG" "ufw allow 8300/tcp"
+    nega "nao libera a de outro processo" tem "$STUB_LOG" "ufw allow 8284/tcp"
     limpar_cenario
     novo_cenario
     EXTRA_ENV=(DGCLAW_STUB_SSHD_PORTAS= DGCLAW_STUB_ATIVOS=ssh.socket "DGCLAW_STUB_SOCKET_LISTEN=[::]:2500 (Stream)")
@@ -992,14 +1009,35 @@ caso_firewall_nao_confia_no_nome_do_processo() {
     novo_cenario
     proc_falso 20 65534 /tmp/x
     proc_falso 21 0 /usr/bin/python3
-    # pid 22 nao tem /proc: rejeitado
-    EXTRA_ENV=(DGCLAW_STUB_SSHD_PORTAS= 'DGCLAW_STUB_SS_ESCUTA=LISTEN 0 128 0.0.0.0:41000 0.0.0.0:* users:(("sshd",pid=20,fd=3))
-LISTEN 0 128 0.0.0.0:42000 0.0.0.0:* users:(("sshd",pid=21,fd=3))
-LISTEN 0 128 0.0.0.0:43000 0.0.0.0:* users:(("sshd",pid=22,fd=3))')
-    afirma "instala com processos que so se chamam sshd" instalacao_basica
-    nega "uid 65534 com exe /tmp/x nao vira regra" tem "$STUB_LOG" "ufw allow 41000/tcp"
+    sock_falso 20 3 7201; tcp_falso tcp A1F8 0A 7201   # 41464
+    sock_falso 21 3 7202; tcp_falso tcp A410 0A 7202   # 42000
+    sock_falso 22 3 7203; tcp_falso tcp A7F8 0A 7203   # 43000, pid 22 sem status/exe
+    EXTRA_ENV=(DGCLAW_STUB_SSHD_PORTAS=)
+    afirma "instala com processos que nao sao o sshd" instalacao_basica
+    nega "uid 65534 com exe /tmp/x nao vira regra" tem "$STUB_LOG" "ufw allow 41464/tcp"
     nega "uid 0 com exe python3 nao vira regra" tem "$STUB_LOG" "ufw allow 42000/tcp"
-    nega "pid sem /proc nao vira regra" tem "$STUB_LOG" "ufw allow 43000/tcp"
+    nega "pid sem status e exe nao vira regra" tem "$STUB_LOG" "ufw allow 43000/tcp"
     afirma "sem nada confiavel cai para a 22" tem "$STUB_LOG" "ufw allow 22/tcp"
+    limpar_cenario
+}
+
+caso_firewall_ataque_do_nome_com_pid_e_estados_e_tcp6() {
+    novo_cenario
+    # sshd real na 22; o atacante (uid 1000) se chama "pid=1398" e escuta na 45955 (B383)
+    proc_falso 1398 0 /usr/sbin/sshd
+    sock_falso 1398 3 7301; tcp_falso tcp 0016 0A 7301
+    proc_falso 4182 1000 /home/atacante/escuta
+    printf 'pid=1398\n' >"$RAIZ/proc/4182/comm"
+    sock_falso 4182 3 7302; tcp_falso tcp B383 0A 7302
+    # socket do sshd em TIME_WAIT (06) na 3333 (0D05): nao conta
+    sock_falso 1398 4 7303; tcp_falso tcp 0D05 06 7303
+    # tcp6 com porta 2600 (0A28), LISTEN, do sshd real
+    sock_falso 1398 5 7304; tcp_falso tcp6 0A28 0A 7304
+    EXTRA_ENV=(DGCLAW_STUB_SSHD_PORTAS=)
+    afirma "instala" instalacao_basica
+    afirma "libera a 22 do sshd real" tem "$STUB_LOG" "ufw allow 22/tcp"
+    nega "porta do atacante com nome pid=1398 nao entra" tem "$STUB_LOG" "ufw allow 45955/tcp"
+    nega "socket em TIME_WAIT nao entra" tem "$STUB_LOG" "ufw allow 3333/tcp"
+    afirma "porta do tcp6 entra" tem "$STUB_LOG" "ufw allow 2600/tcp"
     limpar_cenario
 }

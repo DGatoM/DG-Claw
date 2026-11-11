@@ -893,9 +893,6 @@ configurar_firewall() {
     passo "Configurando o firewall"
     local st="" p portas=() lista=""
     while IFS= read -r p; do portas+=("$p"); done < <(portas_ssh)
-    if ! command -v ss >/dev/null 2>&1; then
-        aviso "nao achei o comando ss, entao nao consegui conferir em quais portas o SSH esta escutando agora; liberei so as que a configuracao do sshd informa (${portas[*]}). Se voce entra por outra porta, libere-a antes com: ufw allow <porta>/tcp"
-    fi
     for p in "${portas[@]}"; do executar_log ufw allow "$p/tcp"; done
     lista="$(IFS=,; printf '%s' "${portas[*]}")"
     lista="${lista//,/, }"

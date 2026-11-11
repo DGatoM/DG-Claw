@@ -398,21 +398,33 @@ pid_e_sshd_de_verdade() {
     return 1
 }
 
-# portas_ss_sshd <argumentos do ss>: a porta local de cada linha cujo campo users:(...) tem pelo menos
-# um PID que passa em pid_e_sshd_de_verdade. Ex.: o listener aparece como ("sshd",pid=1398),("systemd",pid=1)
-# e a conexao em curso como ("sshd-session",pid=1656): por isso vale QUALQUER um dos PIDs, nao o nome.
-portas_ss_sshd() {
-    local linha local_ pid porta
-    while IFS= read -r linha; do
-        [[ "$linha" == *users:* ]] || continue
-        # o campo local e o penultimo antes de users:(...); o peer e o ultimo antes dele
-        local_="$(awk '{for (i = 1; i <= NF; i++) if ($i ~ /^users:/) {print $(i - 2); exit}}' <<<"$linha")"
-        porta="${local_##*:}"
-        [[ "$porta" =~ ^[0-9]+$ ]] || continue
-        while IFS= read -r pid; do
-            if pid_e_sshd_de_verdade "$pid"; then printf '%s\n' "$porta"; break; fi
-        done < <(grep -oE 'pid=[0-9]+' <<<"$linha" | cut -d= -f2)
-    done < <(ss "$@" 2>/dev/null || true)
+# portas_proc_sshd: as portas locais dos sockets TCP em LISTEN (0A) ou ESTABLISHED (01) que pertencem a um
+# sshd de verdade. Le direto do /proc, sem o ss, porque o texto do ss traz o NOME do processo (e ate um
+# "pid=N" dentro dele), que qualquer usuario escolhe. Aqui so vale: PID aprovado por pid_e_sshd_de_verdade,
+# os inodes dos seus sockets (/proc/N/fd/*) e as linhas de /proc/net/tcp e tcp6 com esse inode.
+portas_proc_sshd() {
+    local d pid fd alvo inodes=" " arq linha local_ st inode hex
+    for d in "$R"/proc/[0-9]*; do
+        [ -d "$d" ] || continue
+        pid="${d##*/}"
+        pid_e_sshd_de_verdade "$pid" || continue
+        for fd in "$d"/fd/*; do
+            alvo="$(readlink "$fd" 2>/dev/null)" || continue
+            if [[ "$alvo" =~ ^socket:\[([0-9]+)\]$ ]]; then inodes+="${BASH_REMATCH[1]} "; fi
+        done
+    done
+    [ "$inodes" != " " ] || return 0
+    for arq in "$R/proc/net/tcp" "$R/proc/net/tcp6"; do
+        [ -r "$arq" ] || continue
+        while read -r _ local_ _ st _ _ _ _ _ inode _; do
+            [ "$st" = 0A ] || [ "$st" = 01 ] || continue
+            [[ "$inode" =~ ^[0-9]+$ ]] || continue
+            [[ "$inodes" == *" $inode "* ]] || continue
+            hex="${local_##*:}"
+            [[ "$hex" =~ ^[0-9A-Fa-f]{1,4}$ ]] || continue
+            printf '%s\n' "$((16#$hex))"
+        done < <(tail -n +2 "$arq")
+    done
 }
 
 # portas_ssh: uma porta por linha. E a UNIAO, sem repeticao e validada (1-65535), de tudo que indica
@@ -430,9 +442,8 @@ portas_ssh() {
             listenaddress) brutas+="$(porta_de_endereco "$linha")"$'\n' ;;
         esac
     done < <(sshd -T 2>/dev/null || true)
-    # (c) e (e): so conta a linha que tem um PID de sshd de verdade (ver pid_e_sshd_de_verdade).
-    brutas+="$(portas_ss_sshd -Htlnp)"$'\n'
-    brutas+="$(portas_ss_sshd -Htnp state established)"$'\n'
+    # (c) e (e): sockets em escuta e conexoes em curso de um sshd de verdade, lidos do /proc.
+    brutas+="$(portas_proc_sshd)"$'\n'
     # (d)
     for unit in ssh.socket sshd.socket; do
         if systemctl is-active --quiet "$unit" 2>/dev/null; then
