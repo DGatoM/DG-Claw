@@ -33,6 +33,8 @@ APP_DIR="$(cd "$(dirname "$DGCLAW_BIN_REAL")/.." && pwd)"
 . "$APP_DIR/lib/aviso-atualizacao.sh"
 # shellcheck source=lib/personalizacoes.sh
 . "$APP_DIR/lib/personalizacoes.sh"
+# shellcheck source=lib/dns-containers.sh
+. "$APP_DIR/lib/dns-containers.sh"
 
 # Tempo maximo de espera (segundos) do systemd e do /api/saude de dentro do agente.
 # Variavel so para os testes nao esperarem um minuto de verdade.
@@ -808,7 +810,16 @@ criar_container() {
     local c="dgclaw-$C_SLUG" casa="$C_CASA" ub="$C_UID_BASE"
     if [ "$ENSAIO" != 1 ] && podman container exists "$c" >/dev/null 2>&1; then
         info "o container $c ja existe, so garanto que esta ligado"
+        dns_containers_calcular
+        if [ "${#DNS_CONTAINER_ARGS[@]}" -gt 0 ] \
+            && [[ "$(podman inspect -f '{{.HostConfig.Dns}}' "$c" 2>/dev/null)" != *1.1.1.1* ]]; then
+            aviso "o DNS deste servidor ($DNS_HOST_PRIVADOS) fica numa rede privada, que a cerca dos agentes bloqueia. O container $c foi criado antes e continua com o DNS do servidor (o podman nao troca o DNS de container existente), entao ele pode ficar sem DNS. Para ele passar a usar DNS publico (1.1.1.1 e 8.8.8.8): dgclaw agente recriar $C_SLUG"
+        fi
     else
+        dns_containers_calcular
+        if [ "${#DNS_CONTAINER_ARGS[@]}" -gt 0 ]; then
+            info "o DNS deste servidor ($DNS_HOST_PRIVADOS) fica numa rede privada, que a cerca dos agentes bloqueia; o container $c usa DNS publico (1.1.1.1 e 8.8.8.8)."
+        fi
         local args=(create
             --name "$c" --hostname "$C_SLUG"
             --uidmap "0:$ub:$FAIXA_UID" --gidmap "0:$ub:$FAIXA_UID"
@@ -818,6 +829,7 @@ criar_container() {
             --volume "$casa/cofre:/run/dgclaw/cofre:ro"
             --volume "$casa/config:/run/dgclaw/config:ro"
             --network "dgclaw-$C_SLUG"
+            "${DNS_CONTAINER_ARGS[@]}"
             --publish "127.0.0.1:$C_PORTA_RUNNER:4300"
             --publish "127.0.0.1:$C_PORTA_PAINEL:8300"
             --memory 2g --cpus 1.0 --pids-limit 1024 --restart unless-stopped

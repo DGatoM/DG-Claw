@@ -4,10 +4,18 @@
 # Roda no boot (dgclaw-firewall.service) e toda vez que um agente nasce. Sao tres
 # camadas, e cada uma fecha um caminho diferente:
 #
-#   DGCLAW_HOST    (filter, INPUT) o agente falando com a PROPRIA MAQUINA que o
-#                  hospeda. O gateway da rede dele (10.89.x.1) E o host: sem esta
+#   DGCLAW_HOST    (mangle e filter, INPUT) o agente falando com a PROPRIA MAQUINA
+#                  que o hospeda. O gateway da rede dele (10.89.x.1) E o host: sem esta
 #                  cadeia ele alcanca o sshd na 22 e o Caddy na 80, que servem tudo
-#                  o que existe aqui.
+#                  o que existe aqui. Fica nas DUAS tabelas pelo mesmo motivo do
+#                  DGCLAW_EGRESS abaixo: em rede criada com --disable-dns o netavark 1.16
+#                  (modo iptables) insere `-A INPUT -j NETAVARK_INPUT` na posicao 1 do
+#                  filter INPUT, com ACCEPT de udp/tcp na porta 53 para a rede do agente,
+#                  ANTES do nosso salto (medido em servidor real). Entre o start do
+#                  container e o rodar_firewall, e sempre que o netavark reinsere, o
+#                  agente alcancaria a porta 53 do host. O mangle INPUT roda antes do
+#                  filter INPUT e o netavark nao usa o mangle; a cerca da filter fica como
+#                  segunda trava.
 #   DGCLAW_EGRESS  (filter, FORWARD) o agente falando com qualquer outra rede
 #                  privada: a bridge padrao do podman, a tailnet, a rede da casa de
 #                  alguem.
@@ -83,17 +91,24 @@ cerca_egress() {
     salto_garantir "$tabela" FORWARD DGCLAW_EGRESS
 }
 
+# cerca_host <tabela>: monta a cadeia DGCLAW_HOST na tabela e liga ao INPUT.
+cerca_host() {
+    local tabela="$1"
+    cadeia_zerar "$tabela" DGCLAW_HOST
+    iptables -w -t "$tabela" -A DGCLAW_HOST -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+    iptables -w -t "$tabela" -A DGCLAW_HOST -j DROP
+    salto_garantir "$tabela" INPUT DGCLAW_HOST
+}
+
 main() {
     command -v iptables >/dev/null 2>&1 || {
         echo "dgclaw-firewall: o comando iptables nao existe nesta maquina. Instale com: apt-get install -y iptables" >&2
         exit 1
     }
 
-    # --- o agente contra o host ---
-    cadeia_zerar filter DGCLAW_HOST
-    iptables -w -A DGCLAW_HOST -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-    iptables -w -A DGCLAW_HOST -j DROP
-    salto_garantir filter INPUT DGCLAW_HOST
+    # --- o agente contra o host (mangle primeiro, filter como reforco) ---
+    cerca_host mangle
+    cerca_host filter
 
     # --- o agente contra outras redes privadas (mangle primeiro, filter como reforco) ---
     cerca_egress mangle

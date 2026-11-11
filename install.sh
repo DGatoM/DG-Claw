@@ -449,88 +449,72 @@ instalar_pacotes() {
 # nao adianta e nenhum container sai para a internet. No 24.04 o netavark ja usa iptables e a cerca
 # do lib/firewall.sh foi desenhada para isso; forcar o modo iptables e inofensivo la.
 configurar_rede_containers() {
-    passo "Ajustando a rede dos containers (netavark em iptables e DNS)"
+    passo "Ajustando a rede dos containers (netavark em modo iptables)"
     local conf_dir="$R/etc/containers/containers.conf.d"
-    local nosso="$conf_dir/50-dgclaw-firewall-iptables.conf" f outros=""
+    local nosso="$conf_dir/50-dgclaw-firewall-iptables.conf" f valor definidos="" divergentes=""
 
-    if [ ! -e "$nosso" ]; then
-        printf '[network]\nfirewall_driver = "iptables"\n' | escrever_arquivo "$nosso" 644
-        ok "gravei ${nosso#"$R"} (firewall_driver = iptables)"
-    elif grep -Eq '^[[:space:]]*firewall_driver[[:space:]]*=[[:space:]]*"iptables"' "$nosso"; then
-        ok "${nosso#"$R"} ja esta no lugar"
-    else
-        aviso "${nosso#"$R"} ja existe com outro conteudo e eu nao mexi nele. Sem firewall_driver = \"iptables\" ali, no Ubuntu 26.04 os containers dos agentes podem ficar sem internet por causa do ufw. Confira o arquivo e deixe nele: [network] firewall_driver = \"iptables\""
-    fi
-
-    for f in "$R/etc/containers/containers.conf" "$conf_dir"/*.conf; do
+    # Configuracao do dono nunca e sobreposta: se qualquer arquivo ja define firewall_driver
+    # (inclusive o padrao da distribuicao), o nosso nao e gravado.
+    for f in "$R/etc/containers/containers.conf" "$conf_dir"/*.conf "$R/usr/share/containers/containers.conf"; do
         [ -f "$f" ] || continue
         [ "$f" = "$nosso" ] && continue
-        if grep -E '^[[:space:]]*firewall_driver[[:space:]]*=' "$f" | grep -qv '"iptables"'; then
-            outros="$outros ${f#"$R"}"
-        fi
+        valor="$(sed -n 's/^[[:space:]]*firewall_driver[[:space:]]*=[[:space:]]*"\{0,1\}\([A-Za-z0-9_-]*\)"\{0,1\}.*/\1/p' "$f" | tail -n 1)"
+        [ -n "$valor" ] || continue
+        definidos="$definidos ${f#"$R"}"
+        [ "$valor" = iptables ] || divergentes="$divergentes ${f#"$R"} ($valor)"
     done
-    if [ -n "$outros" ]; then
-        aviso "firewall_driver diferente de iptables em:$outros. Nao mexi (e configuracao sua), mas com ele os containers dos agentes podem ficar sem internet por causa do ufw. Troque por \"iptables\" se faltar rede nos agentes."
-    fi
 
-    if command -v nft >/dev/null 2>&1 && nft list table inet netavark >/dev/null 2>&1; then
-        if [ -n "$(podman ps -q 2>/dev/null)" ]; then
-            aviso "existe a tabela inet netavark (regras antigas do netavark em nftables) e ha containers rodando, entao nao apaguei. Reinicie os agentes e rode ./install.sh de novo para o netavark refazer as regras em iptables."
-        else
-            executar nft delete table inet netavark
-            info "apaguei a tabela inet netavark, que sobrou do modo nftables; o netavark recria as regras em iptables."
-        fi
-    fi
-
-    configurar_dns_containers
-}
-
-# ip_na_faixa_bloqueada <ipv4>: verdadeiro se o IP cai numa faixa que a cerca (lib/firewall.sh)
-# bloqueia para os containers: 10/8, 172.16/12, 192.168/16, 169.254/16, 100.64/10 e 127/8.
-ip_na_faixa_bloqueada() {
-    local a b c d
-    IFS=. read -r a b c d <<<"$1"
-    case "$a.$b.$c.$d" in *[!0-9.]*|*..*|.*|*.) return 1 ;; esac
-    [ -n "$d" ] || return 1
-    [ "$a" -eq 10 ] && return 0
-    [ "$a" -eq 127 ] && return 0
-    [ "$a" -eq 192 ] && [ "$b" -eq 168 ] && return 0
-    [ "$a" -eq 169 ] && [ "$b" -eq 254 ] && return 0
-    [ "$a" -eq 172 ] && [ "$b" -ge 16 ] && [ "$b" -le 31 ] && return 0
-    [ "$a" -eq 100 ] && [ "$b" -ge 64 ] && [ "$b" -le 127 ] && return 0
-    return 1
-}
-
-# DNS dos containers. As redes dos agentes sao criadas com --disable-dns, entao o container herda
-# o DNS do host. Em servidor fisico dentro de uma rede de empresa (clinica, escritorio) esse DNS
-# costuma ficar numa rede privada (ex.: 192.168.25.6), que a cerca dos agentes bloqueia de
-# proposito: o agente ficava sem DNS. Em vez de abrir excecao na cerca (o agente nunca deve
-# tocar a rede interna), os containers passam a usar DNS publico.
-configurar_dns_containers() {
-    local nosso="$R/etc/containers/containers.conf.d/51-dgclaw-dns-publico.conf"
-    local resolv="$R/run/systemd/resolve/resolv.conf" ns privados=""
-    [ -f "$resolv" ] || resolv="$R/etc/resolv.conf"
-    if [ -f "$resolv" ]; then
-        while read -r chave ns _; do
-            [ "$chave" = nameserver ] || continue
-            case "$ns" in 127.0.0.53|127.0.0.54) continue ;; esac
-            if ip_na_faixa_bloqueada "$ns"; then privados="${privados:+$privados, }$ns"; fi
-        done <"$resolv"
-    fi
-    if [ -z "$privados" ]; then
-        ok "o DNS do servidor e publico: os containers usam o mesmo"
-        return 0
-    fi
     if [ -e "$nosso" ]; then
-        if grep -Eq '^[[:space:]]*dns_servers[[:space:]]*=' "$nosso"; then
+        if grep -Eq '^[[:space:]]*firewall_driver[[:space:]]*=[[:space:]]*"iptables"' "$nosso"; then
             ok "${nosso#"$R"} ja esta no lugar"
         else
-            aviso "o DNS deste servidor ($privados) fica numa rede privada, que a cerca dos agentes bloqueia, e ${nosso#"$R"} ja existe com outro conteudo, entao nao mexi nele. Sem dns_servers ali os agentes podem ficar sem DNS. Confira o arquivo e deixe nele: [containers] dns_servers = [\"1.1.1.1\", \"8.8.8.8\"]"
+            aviso "${nosso#"$R"} ja existe com outro conteudo e eu nao mexi nele. Sem firewall_driver = \"iptables\" ali, no Ubuntu 26.04 os containers dos agentes podem ficar sem internet por causa do ufw. Confira o arquivo e deixe nele: [network] firewall_driver = \"iptables\""
         fi
+        if [ -n "$divergentes" ]; then
+            aviso "firewall_driver diferente de iptables tambem em:$divergentes. Nao mexi (e configuracao sua), mas com ele os containers dos agentes podem ficar sem internet por causa do ufw. Troque por \"iptables\" se faltar rede nos agentes."
+        fi
+    elif [ -n "$divergentes" ]; then
+        aviso "firewall_driver ja definido por voce em:$divergentes. Nao gravei o meu arquivo nem mexi nesses. Com um driver diferente de iptables, no Ubuntu 26.04 os containers dos agentes ficam sem internet por causa do ufw. Troque por: firewall_driver = \"iptables\""
+    elif [ -n "$definidos" ]; then
+        ok "firewall_driver ja e iptables em:$definidos"
+    else
+        printf '[network]\nfirewall_driver = "iptables"\n' | escrever_arquivo "$nosso" 644
+        ok "gravei ${nosso#"$R"} (firewall_driver = iptables)"
+    fi
+
+    migrar_tabela_netavark
+}
+
+# Apaga a `table inet netavark` que sobrou do modo nftables, para o netavark recriar as regras em
+# iptables. So apaga quando da para ter certeza de que nenhum container esta usando a rede: se a
+# listagem falha, ou se algum container esta em qualquer estado fora de parado, preserva a tabela.
+migrar_tabela_netavark() {
+    command -v nft >/dev/null 2>&1 || return 0
+    nft list table inet netavark >/dev/null 2>&1 || return 0
+    local lista="" erro="" rc=0 nome estado ocupados="" outros=0 slugs=""
+    erro="$(mktemp)"
+    lista="$(podman ps -a --format '{{.Names}} {{.State}}' 2>"$erro")" || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        aviso "existe a tabela inet netavark (regras antigas do netavark em nftables), mas 'podman ps -a' falhou (codigo $rc: $(head -c 300 "$erro" | tr '\n' ' ')), entao nao apaguei nada. Resolva o erro do podman e rode ./install.sh de novo."
+        rm -f "$erro"
         return 0
     fi
-    info "o DNS deste servidor ($privados) fica numa rede privada, que a cerca dos agentes bloqueia; os containers usam DNS publico (1.1.1.1 e 8.8.8.8)."
-    printf '[containers]\ndns_servers = ["1.1.1.1", "8.8.8.8"]\n' | escrever_arquivo "$nosso" 644
+    rm -f "$erro"
+    while read -r nome estado; do
+        [ -n "$nome" ] || continue
+        case "$estado" in exited|created|configured|stopped) continue ;; esac
+        ocupados="$ocupados $nome"
+        case "$nome" in
+            dgclaw-*) slugs="$slugs ${nome#dgclaw-}" ;;
+            *) outros=1 ;;
+        esac
+    done <<<"$lista"
+    if [ -z "$ocupados" ]; then
+        executar nft delete table inet netavark
+        info "apaguei a tabela inet netavark, que sobrou do modo nftables; o netavark recria as regras em iptables."
+        return 0
+    fi
+    aviso "existe a tabela inet netavark (regras antigas do netavark em nftables) e estes containers nao estao parados:$ocupados. Por isso nao apaguei a tabela, e os containers podem continuar sem internet ate a troca. Para trocar: (1) pare cada agente com: sudo dgclaw agente parar <slug>${slugs:+ (agentes aqui:$slugs)}; (2) rode sudo ./install.sh de novo; (3) ligue de novo com: sudo dgclaw agente iniciar <slug>.${outros:+ Os containers que nao sao do DG Claw tambem precisam estar parados para a tabela sair.}"
 }
 
 # --- 3. dominio -----------------------------------------------------------------

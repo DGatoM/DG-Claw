@@ -1068,19 +1068,61 @@ caso_rede_containers_nao_sobrescreve_arquivo_alheio() {
     afirma "o outro arquivo continua igual" tem "$dir/10-meu.conf" 'firewall_driver = "nftables"'
 }
 
-caso_rede_containers_apaga_tabela_netavark_so_sem_container() {
+caso_rede_containers_nao_grava_se_o_dono_ja_define_o_driver() {
     novo_cenario
-    EXTRA_ENV=("DGCLAW_STUB_NFT_NETAVARK=1")
+    local dir="$RAIZ/etc/containers/containers.conf.d" conf
+    conf="$dir/50-dgclaw-firewall-iptables.conf"
+    mkdir -p "$dir" "$RAIZ/usr/share/containers"
+    printf '[network]\nfirewall_driver = "nftables"\n' >"$RAIZ/usr/share/containers/containers.conf"
     afirma "a instalacao termina com sucesso" instalacao_basica
-    afirma "apagou a tabela" tem "$STUB_LOG" "nft delete table inet netavark"
+    nega "nao gravou o meu arquivo" test -e "$conf"
+    afirma "avisa do driver divergente e do arquivo" tem "$SAIDA" "/usr/share/containers/containers.conf (nftables)"
+    limpar_cenario
+
+    novo_cenario
+    mkdir -p "$RAIZ/etc/containers"
+    printf '[network]\nfirewall_driver="iptables"\n' >"$RAIZ/etc/containers/containers.conf"
+    afirma "a instalacao com driver iptables do dono termina com sucesso" instalacao_basica
+    nega "nao gravou o meu arquivo (o dono ja usa iptables)" test -e "$RAIZ/etc/containers/containers.conf.d/50-dgclaw-firewall-iptables.conf"
+    afirma "diz que ja e iptables" tem "$SAIDA" "firewall_driver ja e iptables"
+}
+
+caso_rede_containers_apaga_tabela_netavark_so_com_tudo_parado() {
+    novo_cenario
+    EXTRA_ENV=("DGCLAW_STUB_NFT_NETAVARK=1" "DGCLAW_STUB_PS=dgclaw-ana exited\nlixo created")
+    afirma "a instalacao termina com sucesso" instalacao_basica
+    afirma "apagou a tabela (so exited e created)" tem "$STUB_LOG" "nft delete table inet netavark"
     afirma "informa que apagou" tem "$SAIDA" "apaguei a tabela inet netavark"
     limpar_cenario
 
     novo_cenario
-    EXTRA_ENV=("DGCLAW_STUB_NFT_NETAVARK=1" "DGCLAW_STUB_CONTAINERS=abc123")
-    afirma "a instalacao com container rodando termina com sucesso" instalacao_basica
-    nega "com container rodando a tabela fica" tem "$STUB_LOG" "nft delete"
-    afirma "avisa para reiniciar os agentes" tem "$SAIDA" "Reinicie os agentes"
+    EXTRA_ENV=("DGCLAW_STUB_NFT_NETAVARK=1")
+    afirma "lista vazia termina com sucesso" instalacao_basica
+    afirma "lista vazia tambem apaga" tem "$STUB_LOG" "nft delete table inet netavark"
+}
+
+caso_rede_containers_preserva_tabela_com_container_ativo() {
+    local estado
+    for estado in running paused stopping restarting unknown; do
+        novo_cenario
+        EXTRA_ENV=("DGCLAW_STUB_NFT_NETAVARK=1" "DGCLAW_STUB_PS=dgclaw-ana exited\ndgclaw-beto $estado\noutro-servico running")
+        afirma "estado $estado: a instalacao termina com sucesso" instalacao_basica
+        nega "estado $estado: a tabela fica" tem "$STUB_LOG" "nft delete"
+        afirma "estado $estado: manda parar o agente" tem "$SAIDA" "sudo dgclaw agente parar <slug>"
+        afirma "estado $estado: lista o agente que nao esta parado" tem "$SAIDA" "dgclaw-beto"
+        afirma "estado $estado: manda rodar o install.sh" tem "$SAIDA" "rode sudo ./install.sh de novo"
+        afirma "estado $estado: manda iniciar de novo" tem "$SAIDA" "sudo dgclaw agente iniciar <slug>"
+        afirma "estado $estado: container de fora tambem precisa parar" tem "$SAIDA" "nao sao do DG Claw tambem precisam estar parados"
+        limpar_cenario
+    done
+}
+
+caso_rede_containers_podman_falhando_preserva_a_tabela() {
+    novo_cenario
+    EXTRA_ENV=("DGCLAW_STUB_NFT_NETAVARK=1" "DGCLAW_STUB_PS_FALHA=1")
+    afirma "a instalacao termina com sucesso" instalacao_basica
+    nega "a tabela fica" tem "$STUB_LOG" "nft delete"
+    afirma "avisa com o erro do podman" tem "$SAIDA" "podman: erro simulado"
 }
 
 caso_rede_containers_ensaio_nao_muda_nada() {
@@ -1092,46 +1134,26 @@ caso_rede_containers_ensaio_nao_muda_nada() {
     afirma "mostra que apagaria" tem "$SAIDA" "[ensaio] nft delete table inet netavark"
 }
 
-dns_conf() { printf '%s/etc/containers/containers.conf.d/51-dgclaw-dns-publico.conf' "$RAIZ"; }
-# resolv_do_servidor <ip...>: poe os nameservers no resolv.conf do systemd-resolved da raiz falsa
-resolv_do_servidor() {
-    mkdir -p "$RAIZ/run/systemd/resolve"
-    : >"$RAIZ/run/systemd/resolve/resolv.conf"
-    local ip
-    for ip in "$@"; do printf 'nameserver %s\n' "$ip" >>"$RAIZ/run/systemd/resolve/resolv.conf"; done
+# Roda o lib/firewall.sh de verdade contra o iptables de mentira (que guarda cadeias e regras em
+# arquivos). Devolve o estado em $TMP/estado/ipt-regras.
+rodar_firewall_falso() {
+    env -i "HOME=$TMP" "PATH=$AQUI/stubs:/usr/bin:/bin" "DGCLAW_STUB_LOG=$STUB_LOG" "DGCLAW_STUB_ESTADO=$TMP/estado" \
+        bash "$REPO/lib/firewall.sh" >"$SAIDA" 2>&1
 }
 
-caso_dns_containers_privado_grava_dns_publico() {
+caso_firewall_cerca_do_host_tambem_no_mangle_input() {
     novo_cenario
-    resolv_do_servidor 192.168.25.6 127.0.0.53
-    afirma "a instalacao termina com sucesso" instalacao_basica
-    afirma "o arquivo de DNS existe" test -f "$(dns_conf)"
-    afirma "traz o DNS publico" tem "$(dns_conf)" 'dns_servers = ["1.1.1.1", "8.8.8.8"]'
-    afirma "explica o motivo, com o DNS do servidor" tem "$SAIDA" "o DNS deste servidor (192.168.25.6) fica numa rede privada"
-}
-
-caso_dns_containers_publico_nao_grava() {
-    novo_cenario
-    resolv_do_servidor 127.0.0.53 9.9.9.9 172.32.0.1
-    afirma "a instalacao termina com sucesso" instalacao_basica
-    nega "nada gravado com DNS publico (127.0.0.53 e 172.32 nao contam)" test -e "$(dns_conf)"
-}
-
-caso_dns_containers_nao_sobrescreve_arquivo_alheio() {
-    novo_cenario
-    resolv_do_servidor 10.0.0.2
-    mkdir -p "$(dirname "$(dns_conf)")"
-    printf '# meu dns\n[containers]\nsearch_domains = ["x"]\n' >"$(dns_conf)"
-    afirma "a instalacao termina com sucesso" instalacao_basica
-    afirma "o conteudo alheio sobreviveu" tem "$(dns_conf)" '# meu dns'
-    nega "nao ganhou dns_servers" tem "$(dns_conf)" 'dns_servers'
-    afirma "avisa" tem "$SAIDA" "ja existe com outro conteudo"
-}
-
-caso_dns_containers_ensaio_nao_muda_nada() {
-    novo_cenario
-    resolv_do_servidor 192.168.25.6
-    afirma "o ensaio termina com sucesso" instalar "$PAINEL_PW" --usuario maria --provedor claude --ensaio
-    nega "o ensaio nao gravou o arquivo" test -e "$(dns_conf)"
-    afirma "mostra que escreveria" tem "$SAIDA" "[ensaio] escreveria $(dns_conf)"
+    local regras="$TMP/estado/ipt-regras"
+    mkdir -p "$TMP/estado"
+    # O netavark empurrando o proprio salto para o topo do INPUT da filter antes de a cerca rodar.
+    printf '|INPUT| -j NETAVARK_INPUT\n' >"$regras"
+    afirma "o firewall termina com sucesso" rodar_firewall_falso
+    afirma "mangle INPUT salta para DGCLAW_HOST" tem "$regras" "|mangle/INPUT| -s 10.89.0.0/16 -j DGCLAW_HOST"
+    afirma "mangle DGCLAW_HOST aceita o que ja estava estabelecido" tem "$regras" "|mangle/DGCLAW_HOST| -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT"
+    afirma "mangle DGCLAW_HOST derruba o resto" tem "$regras" "|mangle/DGCLAW_HOST| -j DROP"
+    afirma "a filter continua como segunda trava" tem "$regras" "|INPUT| -s 10.89.0.0/16 -j DGCLAW_HOST"
+    afirma "na filter o salto fica antes do NETAVARK_INPUT" bash -c "grep '^|INPUT|' '$regras' | head -n 1 | grep -q 'DGCLAW_HOST'"
+    rodar_firewall_falso
+    igual "$(contar "$regras" '|mangle/INPUT| -s 10.89.0.0/16 -j DGCLAW_HOST')" 1 || { echo "      FALHOU: salto do mangle duplicado ao reaplicar"; FALHAS=$((FALHAS + 1)); }
+    igual "$(contar "$regras" '|mangle/DGCLAW_HOST| -j DROP')" 1 || { echo "      FALHOU: DROP do mangle duplicado ao reaplicar"; FALHAS=$((FALHAS + 1)); }
 }
