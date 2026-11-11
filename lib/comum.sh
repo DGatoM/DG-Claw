@@ -382,9 +382,42 @@ porta_de_endereco() {
     fi
 }
 
+# pid_e_sshd_de_verdade <pid>: 0 (sim) so se o processo e do root (Uid real 0) E o executavel e um dos
+# do OpenSSH. O NOME do processo nao vale nada: qualquer usuario o troca (prctl PR_SET_NAME "sshd") e
+# escutaria numa porta alta que viraria `ufw allow`. PID inexistente ou ilegivel: rejeita.
+pid_e_sshd_de_verdade() {
+    local pid="$1" uid exe
+    [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+    uid="$(awk '/^Uid:/ {print $2; exit}' "$R/proc/$pid/status" 2>/dev/null)" || return 1
+    [ "$uid" = 0 ] || return 1
+    exe="$(readlink -f "$R/proc/$pid/exe" 2>/dev/null)" || return 1
+    exe="${exe#"$R"}"
+    case "$exe" in
+        /usr/sbin/sshd|/usr/lib/openssh/sshd-session|/usr/lib/openssh/sshd-auth|/usr/libexec/openssh/sshd-session|/usr/libexec/openssh/sshd-auth|/usr/sbin/sshd-session) return 0 ;;
+    esac
+    return 1
+}
+
+# portas_ss_sshd <argumentos do ss>: a porta local de cada linha cujo campo users:(...) tem pelo menos
+# um PID que passa em pid_e_sshd_de_verdade. Ex.: o listener aparece como ("sshd",pid=1398),("systemd",pid=1)
+# e a conexao em curso como ("sshd-session",pid=1656): por isso vale QUALQUER um dos PIDs, nao o nome.
+portas_ss_sshd() {
+    local linha local_ pid porta
+    while IFS= read -r linha; do
+        [[ "$linha" == *users:* ]] || continue
+        # o campo local e o penultimo antes de users:(...); o peer e o ultimo antes dele
+        local_="$(awk '{for (i = 1; i <= NF; i++) if ($i ~ /^users:/) {print $(i - 2); exit}}' <<<"$linha")"
+        porta="${local_##*:}"
+        [[ "$porta" =~ ^[0-9]+$ ]] || continue
+        while IFS= read -r pid; do
+            if pid_e_sshd_de_verdade "$pid"; then printf '%s\n' "$porta"; break; fi
+        done < <(grep -oE 'pid=[0-9]+' <<<"$linha" | cut -d= -f2)
+    done < <(ss "$@" 2>/dev/null || true)
+}
+
 # portas_ssh: uma porta por linha. E a UNIAO, sem repeticao e validada (1-65535), de tudo que indica
 # onde o SSH atende: (a) "port" e (b) a porta explicita de "listenaddress" do sshd -T; (c) as portas
-# em escuta de processos sshd; (d) as portas de ssh.socket/sshd.socket ativos (ativacao por socket);
+# em escuta de processos que sao o sshd de verdade (root e executavel do OpenSSH, nao o nome); (d) as portas de ssh.socket/sshd.socket ativos (ativacao por socket);
 # (e) a porta local das conexoes SSH estabelecidas agora (o acesso de quem esta instalando).
 # Liberar uma porta de SSH a mais e aceitavel; deixar de liberar a que esta em uso tranca o dono
 # para fora. Se nada vier, 22.
@@ -397,9 +430,9 @@ portas_ssh() {
             listenaddress) brutas+="$(porta_de_endereco "$linha")"$'\n' ;;
         esac
     done < <(sshd -T 2>/dev/null || true)
-    # (c) e (e): o campo local e o penultimo antes de "users:(("; so linhas de processo sshd.
-    brutas+="$(ss -Htlnp 2>/dev/null | awk '/users:\(\("sshd"/ {for (i = 1; i <= NF; i++) if ($i ~ /^users:/) {n = split($(i - 2), a, ":"); print a[n]}}' || true)"$'\n'
-    brutas+="$(ss -Htnp state established 2>/dev/null | awk '/users:\(\("sshd"/ {for (i = 1; i <= NF; i++) if ($i ~ /^users:/) {n = split($(i - 2), a, ":"); print a[n]}}' || true)"$'\n'
+    # (c) e (e): so conta a linha que tem um PID de sshd de verdade (ver pid_e_sshd_de_verdade).
+    brutas+="$(portas_ss_sshd -Htlnp)"$'\n'
+    brutas+="$(portas_ss_sshd -Htnp state established)"$'\n'
     # (d)
     for unit in ssh.socket sshd.socket; do
         if systemctl is-active --quiet "$unit" 2>/dev/null; then

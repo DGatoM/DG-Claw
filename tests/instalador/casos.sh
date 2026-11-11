@@ -899,6 +899,13 @@ caso_claude_ausente_com_sudo_cita_o_caminho_do_root() {
     limpar_cenario
 }
 
+# proc_falso <pid> <uid> <exe>: um processo de mentira em $RAIZ/proc (so o status e o exe).
+proc_falso() {
+    mkdir -p "$RAIZ/proc/$1"
+    printf 'Name:\tqualquer\nUid:\t%s\t%s\t%s\t%s\n' "$2" "$2" "$2" "$2" >"$RAIZ/proc/$1/status"
+    ln -sfn "$3" "$RAIZ/proc/$1/exe"
+}
+
 caso_firewall_uniao_de_fontes_do_ssh() {
     novo_cenario
     EXTRA_ENV=(DGCLAW_STUB_SSHD_PORTAS=2222 DGCLAW_STUB_SSHD_LISTEN=0.0.0.1:22)
@@ -913,13 +920,17 @@ caso_firewall_uniao_de_fontes_do_ssh() {
     nega "sem porta explicita nao acrescenta a 22" tem "$STUB_LOG" "ufw allow 22/tcp"
     limpar_cenario
     novo_cenario
-    EXTRA_ENV=(DGCLAW_STUB_SSHD_PORTAS=2222 'DGCLAW_STUB_SS_ESTAB=0 0 10.0.0.9:3022 200.1.1.1:50000 users:(("sshd",pid=10,fd=4))')
+    proc_falso 10 0 /usr/lib/openssh/sshd-session
+    proc_falso 11 1000 /usr/lib/openssh/sshd-session
+    EXTRA_ENV=(DGCLAW_STUB_SSHD_PORTAS=2222 'DGCLAW_STUB_SS_ESTAB=0 0 10.0.0.9:3022 200.1.1.1:50000 users:(("sshd-session",pid=11,fd=4),("sshd-session",pid=10,fd=4))')
     afirma "instala (conexao estabelecida em porta que o sshd -T nao cita)" instalacao_basica
     afirma "libera a porta local da conexao em curso" tem "$STUB_LOG" "ufw allow 3022/tcp"
     afirma "libera a do sshd -T tambem" tem "$STUB_LOG" "ufw allow 2222/tcp"
     limpar_cenario
     novo_cenario
-    EXTRA_ENV=(DGCLAW_STUB_SSHD_PORTAS= 'DGCLAW_STUB_SS_ESCUTA=LISTEN 0 128 0.0.0.0:2400 0.0.0.0:* users:(("sshd",pid=1,fd=3))
+    proc_falso 1 0 /usr/sbin/sshd
+    proc_falso 2 0 /usr/bin/node
+    EXTRA_ENV=(DGCLAW_STUB_SSHD_PORTAS= 'DGCLAW_STUB_SS_ESCUTA=LISTEN 0 128 0.0.0.0:2400 0.0.0.0:* users:(("sshd",pid=1,fd=3),("systemd",pid=3,fd=181))
 LISTEN 0 128 127.0.0.1:8300 0.0.0.0:* users:(("node",pid=2,fd=3))')
     afirma "instala (sshd em escuta so pelo ss)" instalacao_basica
     afirma "libera a porta em escuta do sshd" tem "$STUB_LOG" "ufw allow 2400/tcp"
@@ -974,5 +985,21 @@ caso_cpu_sem_sse4_2_so_bloqueia_quem_usa_claude() {
     printf 'DGCLAW_PROVEDOR_ADMIN=codex\n' >"$RAIZ/etc/dgclaw/dgclaw.env"
     EXTRA_ENV=(DGCLAW_ARQUITETURA=x86_64)
     afirma "reinstalar com provedor codex gravado passa" instalar "$PAINEL_PW" --usuario maria
+    limpar_cenario
+}
+
+caso_firewall_nao_confia_no_nome_do_processo() {
+    novo_cenario
+    proc_falso 20 65534 /tmp/x
+    proc_falso 21 0 /usr/bin/python3
+    # pid 22 nao tem /proc: rejeitado
+    EXTRA_ENV=(DGCLAW_STUB_SSHD_PORTAS= 'DGCLAW_STUB_SS_ESCUTA=LISTEN 0 128 0.0.0.0:41000 0.0.0.0:* users:(("sshd",pid=20,fd=3))
+LISTEN 0 128 0.0.0.0:42000 0.0.0.0:* users:(("sshd",pid=21,fd=3))
+LISTEN 0 128 0.0.0.0:43000 0.0.0.0:* users:(("sshd",pid=22,fd=3))')
+    afirma "instala com processos que so se chamam sshd" instalacao_basica
+    nega "uid 65534 com exe /tmp/x nao vira regra" tem "$STUB_LOG" "ufw allow 41000/tcp"
+    nega "uid 0 com exe python3 nao vira regra" tem "$STUB_LOG" "ufw allow 42000/tcp"
+    nega "pid sem /proc nao vira regra" tem "$STUB_LOG" "ufw allow 43000/tcp"
+    afirma "sem nada confiavel cai para a 22" tem "$STUB_LOG" "ufw allow 22/tcp"
     limpar_cenario
 }
