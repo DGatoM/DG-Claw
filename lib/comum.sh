@@ -359,22 +359,61 @@ bloco_caddy() {
     if modo_tunel; then
         # Sem IP publico o Let's Encrypt nao valida o nome: certificado da CA local do Caddy, e o
         # tunel conecta em https://127.0.0.1:443 sem verificar o certificado.
-        printf '%s {\n\ttls internal\n\treverse_proxy 127.0.0.1:8300\n}\n' "$1"
+        # bind no loopback: so processos do proprio servidor (o cloudflared) alcancam o Caddy neste
+        # modo, entao ninguem da rede local consegue forjar o Cf-Connecting-IP, nem com o ufw desligado.
+        # So por isso e seguro confiar nele: o X-Forwarded-For passa a ser o IP real de quem acessa, e o
+        # painel (que usa o ultimo valor do XFF vindo do loopback) conta o limite de tentativas de login
+        # por pessoa, e nao um contador unico para todo mundo (o tunel chega sempre como 127.0.0.1).
+        printf '%s {\n\tbind 127.0.0.1\n\ttls internal\n' "$1"
+        printf '\t@tunel header Cf-Connecting-IP *\n\thandle @tunel {\n\t\treverse_proxy 127.0.0.1:8300 {\n'
+        printf '\t\t\theader_up X-Forwarded-For {http.request.header.Cf-Connecting-IP}\n\t\t}\n\t}\n'
+        printf '\thandle {\n\t\treverse_proxy 127.0.0.1:8300\n\t}\n}\n'
     else
         printf '%s {\n\treverse_proxy 127.0.0.1:8300\n}\n' "$1"
     fi
 }
 
-# portas_ssh: uma porta por linha, as em que o sshd escuta de verdade (sshd -T); 22 se nao achar nenhuma.
+# porta_de_endereco <endereco:porta>: imprime a porta explicita de um endereco (1.2.3.4:22, [::1]:22,
+# 0.0.0.0:22, *:22); nada se nao houver porta explicita.
+porta_de_endereco() {
+    local e="$1"
+    if [[ "$e" == \[*\]:* ]]; then printf '%s\n' "${e##*]:}"
+    elif [[ "$e" != *:*:* && "$e" == *:* ]]; then printf '%s\n' "${e##*:}"
+    fi
+}
+
+# portas_ssh: uma porta por linha. E a UNIAO, sem repeticao e validada (1-65535), de tudo que indica
+# onde o SSH atende: (a) "port" e (b) a porta explicita de "listenaddress" do sshd -T; (c) as portas
+# em escuta de processos sshd; (d) as portas de ssh.socket/sshd.socket ativos (ativacao por socket);
+# (e) a porta local das conexoes SSH estabelecidas agora (o acesso de quem esta instalando).
+# Liberar uma porta de SSH a mais e aceitavel; deixar de liberar a que esta em uso tranca o dono
+# para fora. Se nada vier, 22.
 portas_ssh() {
-    local p achou=0
+    local brutas="" linha campo unit p
+    # (a) e (b)
+    while read -r campo linha _; do
+        case "$campo" in
+            port) brutas+="$linha"$'\n' ;;
+            listenaddress) brutas+="$(porta_de_endereco "$linha")"$'\n' ;;
+        esac
+    done < <(sshd -T 2>/dev/null || true)
+    # (c) e (e): o campo local e o penultimo antes de "users:(("; so linhas de processo sshd.
+    brutas+="$(ss -Htlnp 2>/dev/null | awk '/users:\(\("sshd"/ {for (i = 1; i <= NF; i++) if ($i ~ /^users:/) {n = split($(i - 2), a, ":"); print a[n]}}' || true)"$'\n'
+    brutas+="$(ss -Htnp state established 2>/dev/null | awk '/users:\(\("sshd"/ {for (i = 1; i <= NF; i++) if ($i ~ /^users:/) {n = split($(i - 2), a, ":"); print a[n]}}' || true)"$'\n'
+    # (d)
+    for unit in ssh.socket sshd.socket; do
+        if systemctl is-active --quiet "$unit" 2>/dev/null; then
+            brutas+="$(systemctl show -p Listen "$unit" 2>/dev/null | grep -oE ':[0-9]+ \(Stream\)' | grep -oE '[0-9]+' || true)"$'\n'
+        fi
+    done
+    local validas=""
     while IFS= read -r p; do
         [[ "$p" =~ ^[0-9]{1,5}$ ]] || continue
         p=$((10#$p))
         if [ "$p" -lt 1 ] || [ "$p" -gt 65535 ]; then continue; fi
-        printf '%s\n' "$p"; achou=1
-    done < <(sshd -T 2>/dev/null | awk '$1=="port"{print $2}' | sort -un)
-    [ "$achou" = 1 ] || printf '22\n'
+        validas+="$p"$'\n'
+    done < <(printf '%s' "$brutas" | sort -un)
+    if [ -n "$validas" ]; then printf '%s' "$validas"; else printf '22\n'; fi
 }
 
 # escrever_site_caddy <dominio>: grava o site do DG Claw no Caddyfile proprio (quando e dele ou

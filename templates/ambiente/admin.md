@@ -62,7 +62,8 @@ firewall, autenticação do painel, isolamento dos containers e ganchos de segur
 
 Se o `/etc/dgclaw/dgclaw.env` tem `DGCLAW_ATRAS_DE_TUNEL=1`, este servidor não tem IP público e o acesso
 de fora vem por um túnel da Cloudflare. O painel usa o certificado interno do Caddy (`tls internal`) de
-propósito: não tente trocar por Let's Encrypt nem abrir as portas 80 e 443 no firewall. Para trocar o
+propósito, e o Caddy escuta só no loopback (o túnel roda neste servidor) e repassa o IP real do visitante
+pelo `Cf-Connecting-IP`: não tente trocar por Let's Encrypt nem abrir as portas 80 e 443 no firewall. Para trocar o
 endereço, use `dgclaw dominio trocar <nome>` e lembre o dono de acrescentar o nome novo no túnel.
 
 ### A lousa e a caixinha de copiar

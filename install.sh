@@ -306,16 +306,17 @@ checar_cpu() {
     [ -r "$cpuinfo" ] || return 0
     flags="$(grep -m1 '^flags' "$cpuinfo" 2>/dev/null)" || flags=""
     [ -n "$flags" ] || return 0
-    if [[ " $flags " != *" sse4_2 "* ]]; then
-        falha "a CPU deste servidor nao tem o recurso SSE4.2, e o Claude Code (que o Admin e os agentes usam) exige esse recurso para rodar."             "no hipervisor, troque o tipo de CPU desta maquina virtual para host (passthrough) ou x86-64-v2 ou superior, e reinicie a maquina. No Proxmox: Hardware > Processors > Type = host. Depois rode o instalador de novo."
+    if [[ " $flags " == *" sse4_2 "* ]]; then ok "CPU com SSE4.2"; return 0; fi
+    if [ "$PROVEDOR" = claude ]; then
+        falha "a CPU deste servidor nao tem o recurso SSE4.2, e o Claude Code (que o Admin e os agentes usam) exige esse recurso para rodar." \
+            "no hipervisor, troque o tipo de CPU desta maquina virtual para host (passthrough) ou x86-64-v2 ou superior, e reinicie a maquina. No Proxmox: Hardware > Processors > Type = host. Depois rode o instalador de novo. Se voce usa o Codex, rode com --provedor codex."
     fi
-    ok "CPU com SSE4.2"
+    aviso "a CPU deste servidor nao tem o recurso SSE4.2, entao o Claude Code nao roda aqui (nem no Admin, nem nos agentes que usarem Claude). Com o Codex segue normal. Para usar o Claude, troque o tipo de CPU da maquina virtual para host ou x86-64-v2 ou superior."
 }
 
 checar_maquina() {
     passo "Conferindo a maquina"
     if pular_checagens; then
-        if [ -r "$R/proc/cpuinfo" ]; then checar_cpu; fi
         # Raiz falsa dos testes: o resto e pulado, mas a versao do sistema ainda vale conferir
         # quando o teste forneceu um os-release.
         if [ -r "$R/etc/os-release" ]; then checar_versao_so; fi
@@ -324,7 +325,6 @@ checar_maquina() {
     fi
     local mem_kb disco_kb
     checar_versao_so
-    checar_cpu
     [ "$(id -u)" -eq 0 ] || falha "o instalador precisa rodar como root (voce e o usuario $(id -un))." \
         "rode com sudo: sudo ./install.sh --usuario $USUARIO"
     ok "rodando como root"
@@ -893,6 +893,9 @@ configurar_firewall() {
     passo "Configurando o firewall"
     local st="" p portas=() lista=""
     while IFS= read -r p; do portas+=("$p"); done < <(portas_ssh)
+    if ! command -v ss >/dev/null 2>&1; then
+        aviso "nao achei o comando ss, entao nao consegui conferir em quais portas o SSH esta escutando agora; liberei so as que a configuracao do sshd informa (${portas[*]}). Se voce entra por outra porta, libere-a antes com: ufw allow <porta>/tcp"
+    fi
     for p in "${portas[@]}"; do executar_log ufw allow "$p/tcp"; done
     lista="$(IFS=,; printf '%s' "${portas[*]}")"
     lista="${lista//,/, }"
@@ -1906,6 +1909,7 @@ main() {
     checar_maquina
     localizar_claude
     detectar_provedor
+    checar_cpu
     exigir_claude
     instalar_pacotes
     escolher_dominio

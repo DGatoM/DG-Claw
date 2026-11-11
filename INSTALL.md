@@ -10,7 +10,7 @@ inicial prepara esse acesso. O primeiro agente, o áudio e os canais são config
   acesso root, pelo menos 2 GB de memória e 15 GB livres.
 - As portas 80 e 443 disponíveis.
 - Em servidor x86_64, uma CPU com o recurso SSE4.2. O Claude Code exige esse recurso, e CPUs genéricas de
-  hipervisor (como o tipo "Common KVM processor", o `kvm64`) não o têm. O instalador confere e para com
+  hipervisor (como o tipo "Common KVM processor", o `kvm64`) não o têm. Para quem usa o Claude Code, o instalador confere e para com
   a explicação. No hipervisor, troque o tipo de CPU da máquina virtual para `host` (passthrough) ou
   `x86-64-v2` ou superior e reinicie. No Proxmox: Hardware > Processors > Type = host.
 - Claude Code ou Codex instalado e conectado à sua assinatura, no root da VPS. O Admin reutiliza esse
@@ -55,15 +55,18 @@ sudo ./install.sh --usuario <usuario> --dominio painel.exemplo.com --atras-de-tu
 ```
 
 Nesse modo o Caddy usa um certificado interno, o instalador não consulta o IP público e não abre as portas
-80 e 443 no firewall (o túnel fala com o Caddy pelo próprio servidor). A escolha fica gravada em
+80 e 443 no firewall. O Caddy escuta só no loopback (127.0.0.1 e ::1), por isso o túnel (cloudflared) precisa
+rodar no próprio servidor. Com isso o Caddy passa o IP real do visitante ao painel (cabeçalho
+`Cf-Connecting-IP`), e o limite de tentativas de login vale por pessoa, e não para todo mundo junto. A escolha fica gravada em
 `/etc/dgclaw/dgclaw.env` e vale também para reinstalações, para o `dgclaw atualizar` e para o
 `dgclaw dominio trocar`. Para desligar o modo, rode o instalador de novo com `--sem-tunel`.
 
 No túnel (Cloudflare Zero Trust), crie o Public Hostname com o domínio escolhido e aponte para
 `https://127.0.0.1:443`. Em TLS, preencha **Origin Server Name** com o próprio domínio e ligue **No TLS Verify**.
 
-Em qualquer instalação, o firewall libera as portas em que o SSH do servidor escuta de verdade (lidas do
-`sshd`), e não só a 22.
+Em qualquer instalação, o firewall libera as portas em que o SSH do servidor escuta de verdade (lidas da
+configuração do `sshd`, dos processos `sshd` em escuta, do `ssh.socket` ativo e da conexão SSH em que você
+está agora), e não só a 22. Pode liberar uma porta a mais do que o necessário, nunca a menos.
 
 ## O que o instalador faz
 

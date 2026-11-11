@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
+# ss falso. `-Htlnp` (sshd em escuta) responde com DGCLAW_STUB_SS_ESCUTA; `-Htnp state established`
+# (conexoes SSH em curso) com DGCLAW_STUB_SS_ESTAB; qualquer outra chamada, com DGCLAW_STUB_SS.
 . "$(dirname "$0")/_comum.sh"
 registrar "$@"
-[ -n "${DGCLAW_STUB_SS:-}" ] && printf '%s\n' "$DGCLAW_STUB_SS"
+case " $* " in
+    *" -Htlnp "*) [ -n "${DGCLAW_STUB_SS_ESCUTA:-}" ] && printf '%s\n' "$DGCLAW_STUB_SS_ESCUTA" ;;
+    *" -Htnp "*) [ -n "${DGCLAW_STUB_SS_ESTAB:-}" ] && printf '%s\n' "$DGCLAW_STUB_SS_ESTAB" ;;
+    *) [ -n "${DGCLAW_STUB_SS:-}" ] && printf '%s\n' "$DGCLAW_STUB_SS" ;;
+esac
 exit 0

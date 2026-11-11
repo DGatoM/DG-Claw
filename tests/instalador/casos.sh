@@ -898,3 +898,81 @@ caso_claude_ausente_com_sudo_cita_o_caminho_do_root() {
     afirma "cita o sudo -i" tem "$SAIDA" "sudo -i"
     limpar_cenario
 }
+
+caso_firewall_uniao_de_fontes_do_ssh() {
+    novo_cenario
+    EXTRA_ENV=(DGCLAW_STUB_SSHD_PORTAS=2222 DGCLAW_STUB_SSHD_LISTEN=0.0.0.1:22)
+    afirma "instala (Port 2222 + ListenAddress :22)" instalacao_basica
+    afirma "libera a 22 do listenaddress" tem "$STUB_LOG" "ufw allow 22/tcp"
+    afirma "libera a 2222 do port" tem "$STUB_LOG" "ufw allow 2222/tcp"
+    limpar_cenario
+    novo_cenario
+    EXTRA_ENV=(DGCLAW_STUB_SSHD_PORTAS=2222 "DGCLAW_STUB_SSHD_LISTEN=[::]:2300 10.0.0.5 [::1]")
+    afirma "instala (listenaddress com colchetes e sem porta)" instalacao_basica
+    afirma "libera a 2300 de [::]:2300" tem "$STUB_LOG" "ufw allow 2300/tcp"
+    nega "sem porta explicita nao acrescenta a 22" tem "$STUB_LOG" "ufw allow 22/tcp"
+    limpar_cenario
+    novo_cenario
+    EXTRA_ENV=(DGCLAW_STUB_SSHD_PORTAS=2222 'DGCLAW_STUB_SS_ESTAB=0 0 10.0.0.9:3022 200.1.1.1:50000 users:(("sshd",pid=10,fd=4))')
+    afirma "instala (conexao estabelecida em porta que o sshd -T nao cita)" instalacao_basica
+    afirma "libera a porta local da conexao em curso" tem "$STUB_LOG" "ufw allow 3022/tcp"
+    afirma "libera a do sshd -T tambem" tem "$STUB_LOG" "ufw allow 2222/tcp"
+    limpar_cenario
+    novo_cenario
+    EXTRA_ENV=(DGCLAW_STUB_SSHD_PORTAS= 'DGCLAW_STUB_SS_ESCUTA=LISTEN 0 128 0.0.0.0:2400 0.0.0.0:* users:(("sshd",pid=1,fd=3))
+LISTEN 0 128 127.0.0.1:8300 0.0.0.0:* users:(("node",pid=2,fd=3))')
+    afirma "instala (sshd em escuta so pelo ss)" instalacao_basica
+    afirma "libera a porta em escuta do sshd" tem "$STUB_LOG" "ufw allow 2400/tcp"
+    nega "nao libera a de outro processo" tem "$STUB_LOG" "ufw allow 8300/tcp"
+    limpar_cenario
+    novo_cenario
+    EXTRA_ENV=(DGCLAW_STUB_SSHD_PORTAS= DGCLAW_STUB_ATIVOS=ssh.socket "DGCLAW_STUB_SOCKET_LISTEN=[::]:2500 (Stream)")
+    afirma "instala (ativacao por socket)" instalacao_basica
+    afirma "libera a porta do ssh.socket ativo" tem "$STUB_LOG" "ufw allow 2500/tcp"
+    limpar_cenario
+    novo_cenario
+    EXTRA_ENV=(DGCLAW_STUB_SSHD_PORTAS= "DGCLAW_STUB_SOCKET_LISTEN=[::]:2500 (Stream)")
+    afirma "instala (socket inativo, nada em lugar nenhum)" instalacao_basica
+    afirma "tudo vazio cai para a 22" tem "$STUB_LOG" "ufw allow 22/tcp"
+    nega "socket inativo nao conta" tem "$STUB_LOG" "ufw allow 2500/tcp"
+    limpar_cenario
+}
+
+caso_tunel_caddy_so_no_loopback_com_ip_do_cliente() {
+    novo_cenario
+    afirma "instala em modo tunel" instalacao_basica --dominio x.exemplo.org --atras-de-tunel
+    local cf="$RAIZ/etc/caddy/Caddyfile"
+    afirma "bind so no loopback" tem "$cf" "bind 127.0.0.1"
+    afirma "repassa o IP do cliente no X-Forwarded-For" tem "$cf" "header_up X-Forwarded-For {http.request.header.Cf-Connecting-IP}"
+    afirma "so confia quando o cabecalho vem" tem "$cf" "@tunel header Cf-Connecting-IP *"
+    limpar_cenario
+    novo_cenario
+    afirma "instala no modo padrao" instalacao_basica
+    nega "padrao sem bind" tem "$RAIZ/etc/caddy/Caddyfile" "bind "
+    nega "padrao sem header_up" tem "$RAIZ/etc/caddy/Caddyfile" "header_up"
+    limpar_cenario
+}
+
+caso_cpu_sem_sse4_2_so_bloqueia_quem_usa_claude() {
+    novo_cenario
+    mkdir -p "$RAIZ/proc"
+    printf 'flags\t\t: fpu sse2\n' >"$RAIZ/proc/cpuinfo"
+    EXTRA_ENV=(DGCLAW_ARQUITETURA=x86_64)
+    nega "claude sem sse4_2 falha" instalar "$PAINEL_PW" --usuario maria --provedor claude
+    afirma "explica o SSE4.2" tem "$SAIDA" "SSE4.2"
+    limpar_cenario
+    novo_cenario
+    mkdir -p "$RAIZ/proc"
+    printf 'flags\t\t: fpu sse2\n' >"$RAIZ/proc/cpuinfo"
+    EXTRA_ENV=(DGCLAW_ARQUITETURA=x86_64)
+    afirma "codex sem sse4_2 instala" instalar "$PAINEL_PW" --usuario maria --provedor codex
+    afirma "avisa que o Claude Code nao roda" tem "$SAIDA" "o Claude Code nao roda aqui"
+    limpar_cenario
+    novo_cenario
+    mkdir -p "$RAIZ/proc" "$RAIZ/etc/dgclaw"
+    printf 'flags\t\t: fpu sse2\n' >"$RAIZ/proc/cpuinfo"
+    printf 'DGCLAW_PROVEDOR_ADMIN=codex\n' >"$RAIZ/etc/dgclaw/dgclaw.env"
+    EXTRA_ENV=(DGCLAW_ARQUITETURA=x86_64)
+    afirma "reinstalar com provedor codex gravado passa" instalar "$PAINEL_PW" --usuario maria
+    limpar_cenario
+}
