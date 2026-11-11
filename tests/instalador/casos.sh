@@ -1320,3 +1320,47 @@ caso_firewall_sem_a_trava_sai_sem_mexer_em_regra() {
     nega "nenhum comando iptables foi chamado" tem "$STUB_LOG" "iptables"
     exec 8>&-
 }
+
+caso_firewall_consulta_que_falha_interrompe_a_troca_sem_esvaziar_cadeia() {
+    novo_cenario
+    local e="$TMP/estado" regras="$TMP/estado/ipt-regras" cadeias="$TMP/estado/ipt-cadeias"
+    mkdir -p "$e"
+    afirma "a primeira aplicacao termina com sucesso" rodar_firewall_falso
+    printf 'mangle INPUT\nmangle FORWARD\nfilter INPUT\nfilter FORWARD\n' >"$e/exige-protecao"
+    # o 3o `iptables -S` do mangle (a leitura dos saltos da antiga, logo depois de pôr o salto na _NOVA) falha uma vez
+    echo "mangle 2" >"$e/falha-S"
+    local rc=0
+    rodar_firewall_falso || rc=$?
+    nega "a execucao com a consulta falha sai com erro" igual "$rc" 0
+    afirma "a mensagem diz qual comando falhou" tem "$SAIDA" "iptables -w -t mangle -S"
+    afirma "a mensagem diz que nada protetor foi esvaziado" tem "$SAIDA" "Parei antes de esvaziar ou apagar"
+    nega "nenhum -F nem -X em cadeia referenciada" test -s "$e/violacoes"
+    afirma "a cadeia antiga ainda tem as duas regras" bash -c "[ \$(grep -cF '|mangle/DGCLAW_HOST| ' '$regras') -eq 2 ]"
+    afirma "a proxima execucao termina com sucesso" rodar_firewall_falso
+    nega "sem violacao nem instante sem protecao" test -s "$e/violacoes"
+    nega "sem _NOVA sobrando" bash -c "grep -q _NOVA '$cadeias' '$regras'"
+    igual "$(contar "$regras" '|mangle/INPUT| -s 10.89.0.0/16 -j DGCLAW_HOST')" 1 || { echo "      FALHOU: salto do HOST nao e unico"; FALHAS=$((FALHAS + 1)); }
+    afirma "a cadeia do HOST termina em DROP" bash -c "grep -F '|mangle/DGCLAW_HOST| ' '$regras' | tail -n 1 | grep -q -- '-j DROP\$'"
+}
+
+caso_firewall_recupera_a_favor_da_nova_quando_a_antiga_esta_vazia() {
+    novo_cenario
+    local e="$TMP/estado" regras="$TMP/estado/ipt-regras" cadeias="$TMP/estado/ipt-cadeias" t pre
+    mkdir -p "$e"
+    for t in mangle filter; do
+        pre=""; [ "$t" = mangle ] && pre="mangle/"
+        : >"$regras"; : >"$cadeias"
+        rodar_firewall_falso
+        # _NOVA completa com salto, o salto antigo ainda la, mas a antiga ficou VAZIA (o -F do erro antigo)
+        estado_interrompido "$pre" DGCLAW_HOST INPUT 3
+        grep -vF "|${pre}DGCLAW_HOST| " "$regras" >"$regras.novo" || true; mv -f "$regras.novo" "$regras"
+        printf 'mangle INPUT\nmangle FORWARD\nfilter INPUT\nfilter FORWARD\n' >"$e/exige-protecao"
+        afirma "$t: a recuperacao termina com sucesso" rodar_firewall_falso
+        nega "$t: sem violacao nem instante sem protecao" test -s "$e/violacoes"
+        nega "$t: sem _NOVA sobrando" bash -c "grep -q _NOVA '$cadeias' '$regras'"
+        afirma "$t: a cadeia definitiva tem as duas regras (a _NOVA foi mantida)" bash -c "[ \$(grep -cF '|${pre}DGCLAW_HOST| ' '$regras') -eq 2 ]"
+        afirma "$t: termina em DROP" bash -c "grep -F '|${pre}DGCLAW_HOST| ' '$regras' | tail -n 1 | grep -q -- '-j DROP\$'"
+        igual "$(contar "$regras" "|${pre}INPUT| -s 10.89.0.0/16 -j DGCLAW_HOST")" 1 || { echo "      FALHOU: $t: salto nao e unico"; FALHAS=$((FALHAS + 1)); }
+        rm -f "$e/exige-protecao" "$e/violacoes"
+    done
+}

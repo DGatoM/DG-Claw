@@ -50,7 +50,9 @@ case "$cmd" in
         fi ;;
 esac
 case "$cmd" in
-    -X) grep -vxF "$chave" "$e/ipt-cadeias" >"$e/ipt-cadeias.novo" || true; mv -f "$e/ipt-cadeias.novo" "$e/ipt-cadeias" ;;
+    -X)
+        if regras_da_tabela | grep -qE -- " -j $cadeia\$"; then echo "iptables: Too many links." >&2; exit 1; fi
+        grep -vxF "$chave" "$e/ipt-cadeias" >"$e/ipt-cadeias.novo" || true; mv -f "$e/ipt-cadeias.novo" "$e/ipt-cadeias" ;;
     -E)
         novo="$3"
         if [ -n "$pre" ]; then
@@ -78,7 +80,22 @@ case "$cmd" in
             index($0, k) == 1 { c++; if (c == n) next }
             { print }' "$e/ipt-regras" >"$e/ipt-regras.novo"
         mv -f "$e/ipt-regras.novo" "$e/ipt-regras" ;;
-    -S) grep -F "|$chave| " "$e/ipt-regras" | sed -E "s/^\|[^|]*\| /-A $cadeia /" || true ;;
+    -S)
+        if [ -z "$cadeia" ]; then
+            # Falha transitoria de teste: $e/falha-S = "<tabela> <quantos -S deixar passar antes>"; falha UMA vez.
+            if [ -f "$e/falha-S" ]; then
+                read -r t_falha pula <"$e/falha-S"
+                if [ "$t_falha" = "${tabela:-filter}" ]; then
+                    if [ "$pula" -le 0 ]; then rm -f "$e/falha-S"; echo "iptables: Resource temporarily unavailable (erro simulado)" >&2; exit 4; fi
+                    echo "$t_falha $((pula - 1))" >"$e/falha-S"
+                fi
+            fi
+            # a tabela inteira: as cadeias criadas (-N) e todas as regras (-A), na ordem
+            grep -E "^${pre}[^/]+\$" "$e/ipt-cadeias" | sed 's/^.*\///; s/^/-N /' || true
+            regras_da_tabela | sed -E 's/^\|(mangle\/)?([^|]*)\| /-A \2 /' || true
+        else
+            grep -F "|$chave| " "$e/ipt-regras" | sed -E "s/^\|[^|]*\| /-A $cadeia /" || true
+        fi ;;
     -C) shift 2; grep -qxF "|$chave| $*" "$e/ipt-regras" ;;
 esac
 
