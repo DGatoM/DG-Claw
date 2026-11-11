@@ -18,7 +18,7 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 Rode `sudo ./install.sh` de novo (ou peça ao Admin para atualizar): ele aplica as correções sozinho. Há dois casos em que falta um passo seu:
 
 - Servidor com Ubuntu 26.04 e agentes ligados: o instalador só apaga as regras antigas do netavark quando todos os containers estão parados, para não derrubar a rede deles, e avisa com a lista do que está ligado. Nesse caso, pare cada agente com `sudo dgclaw agente parar <slug>`, rode `sudo ./install.sh` de novo e ligue cada um com `sudo dgclaw agente iniciar <slug>`. Containers que não são do DG Claw também precisam estar parados.
-- Servidor cujo DNS fica numa rede privada: o container de um agente já existente continua com o DNS antigo, porque o podman não troca o DNS de um container criado. Para ele passar a usar DNS público, rode `sudo dgclaw agente recriar <slug>` (a casa e a memória do agente não são tocadas).
+- Servidor cujo DNS fica numa rede privada: o container de um agente já existente continua com o DNS antigo, porque o podman não troca o DNS de um container criado. Para ele passar a usar DNS público, rode `sudo dgclaw agente recriar <slug> --forcar` (a casa e a memória do agente não são tocadas). O `--forcar` é preciso quando o agente está parado; com o agente ligado, o `recriar` já percebe sozinho que o DNS precisa mudar.
 
 **O DG Claw instala em servidor sem IP público, atrás de um túnel.** Com `--atras-de-tunel` (junto de `--dominio`), o Caddy usa
 certificado interno, o instalador não consulta o IP público e não abre as portas 80 e 443 no firewall; o túnel da Cloudflare

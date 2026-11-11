@@ -21,6 +21,40 @@ cmd="$1"; cadeia="$2"
 chave="$cadeia"
 [ -n "$tabela" ] && [ "$tabela" != filter ] && chave="$tabela/$cadeia"
 touch "$e/ipt-regras" "$e/ipt-cadeias"
+# Invariantes da troca sem janela: viram linhas em $e/violacoes, que o teste confere vazio.
+pre=""
+[ -n "$tabela" ] && [ "$tabela" != filter ] && pre="$tabela/"
+# linhas de regra da tabela atual (mangle tem o prefixo "|mangle/"; a filter, nenhum)
+regras_da_tabela() {
+    if [ -n "$pre" ]; then grep -F "|$pre" "$e/ipt-regras" || true
+    else grep -vF "|mangle/" "$e/ipt-regras" || true; fi
+}
+case "$cmd" in
+    -F|-X)
+        if [ "${cadeia#DGCLAW_}" != "$cadeia" ] && regras_da_tabela | grep -E "^\|${pre}(INPUT|FORWARD)\|" | grep -qE -- " -j $cadeia\$"; then
+            echo "$cmd na cadeia $chave, que ainda tem salto" >>"$e/violacoes"
+        fi ;;
+    -I)
+        alvo="${*: -1}"
+        if [ "${alvo#DGCLAW_}" != "$alvo" ]; then
+            ultima="$(grep -F "|$pre$alvo| " "$e/ipt-regras" | tail -n 1)"
+            case "$ultima" in
+                *" -j DROP"|*" -j RETURN") ;;
+                *) echo "salto para $alvo sem DROP/RETURN final (${tabela:-filter})" >>"$e/violacoes" ;;
+            esac
+        fi ;;
+esac
+case "$cmd" in
+    -X) grep -vxF "$chave" "$e/ipt-cadeias" >"$e/ipt-cadeias.novo" || true; mv -f "$e/ipt-cadeias.novo" "$e/ipt-cadeias" ;;
+    -E)
+        novo="$3"
+        if [ -n "$pre" ]; then
+            sed -i "s#^|$chave|#|$pre$novo|#; /^|mangle\//s# -j $cadeia\$# -j $novo#" "$e/ipt-regras"
+        else
+            sed -i "s#^|$chave|#|$novo|#; /^|mangle\//!s# -j $cadeia\$# -j $novo#" "$e/ipt-regras"
+        fi
+        sed -i "s#^$chave\$#$pre$novo#" "$e/ipt-cadeias" ;;
+esac
 case "$cmd" in
     -L) grep -qxF "$chave" "$e/ipt-cadeias" ;;
     -N) if grep -qxF "$chave" "$e/ipt-cadeias"; then exit 1; fi; echo "$chave" >>"$e/ipt-cadeias" ;;

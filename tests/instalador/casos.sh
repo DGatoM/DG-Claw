@@ -1076,7 +1076,7 @@ caso_rede_containers_nao_grava_se_o_dono_ja_define_o_driver() {
     printf '[network]\nfirewall_driver = "nftables"\n' >"$RAIZ/usr/share/containers/containers.conf"
     afirma "a instalacao termina com sucesso" instalacao_basica
     nega "nao gravou o meu arquivo" test -e "$conf"
-    afirma "avisa do driver divergente e do arquivo" tem "$SAIDA" "/usr/share/containers/containers.conf (nftables)"
+    afirma "avisa do driver divergente e do arquivo" tem "$SAIDA" "/usr/share/containers/containers.conf:2 (firewall_driver = \"nftables\")"
     limpar_cenario
 
     novo_cenario
@@ -1156,4 +1156,75 @@ caso_firewall_cerca_do_host_tambem_no_mangle_input() {
     rodar_firewall_falso
     igual "$(contar "$regras" '|mangle/INPUT| -s 10.89.0.0/16 -j DGCLAW_HOST')" 1 || { echo "      FALHOU: salto do mangle duplicado ao reaplicar"; FALHAS=$((FALHAS + 1)); }
     igual "$(contar "$regras" '|mangle/DGCLAW_HOST| -j DROP')" 1 || { echo "      FALHOU: DROP do mangle duplicado ao reaplicar"; FALHAS=$((FALHAS + 1)); }
+}
+
+caso_firewall_troca_de_cadeia_sem_janela() {
+    novo_cenario
+    local regras="$TMP/estado/ipt-regras" cadeias="$TMP/estado/ipt-cadeias" viol="$TMP/estado/violacoes"
+    mkdir -p "$TMP/estado"
+    afirma "a primeira aplicacao termina com sucesso" rodar_firewall_falso
+    afirma "a segunda aplicacao (a troca) termina com sucesso" rodar_firewall_falso
+    nega "nenhum -F/-X em cadeia com salto e nenhum salto para cadeia sem DROP/RETURN final" test -s "$viol"
+    nega "nao sobrou cadeia _NOVA" tem "$cadeias" "_NOVA"
+    nega "nao sobrou regra apontando para _NOVA" tem "$regras" "_NOVA"
+    local t pre
+    for t in mangle filter; do
+        pre=""; [ "$t" = mangle ] && pre="mangle/"
+        igual "$(contar "$regras" "|${pre}FORWARD| -s 10.89.0.0/16 -j DGCLAW_EGRESS")" 1 || { echo "      FALHOU: $t: salto do EGRESS nao e unico"; FALHAS=$((FALHAS + 1)); }
+        afirma "$t: EGRESS termina em RETURN" tem "$regras" "|${pre}DGCLAW_EGRESS| -j RETURN"
+        afirma "$t: o salto do EGRESS e a primeira regra do FORWARD" bash -c "grep '^|${pre}FORWARD|' '$regras' | head -n 1 | grep -q 'DGCLAW_EGRESS'"
+        afirma "$t: o salto do HOST e a primeira regra do INPUT" bash -c "grep '^|${pre}INPUT|' '$regras' | head -n 1 | grep -q 'DGCLAW_HOST'"
+        afirma "$t: HOST termina em DROP" tem "$regras" "|${pre}DGCLAW_HOST| -j DROP"
+    done
+    local antes depois
+    antes="$(cat "$regras")"
+    rodar_firewall_falso
+    depois="$(cat "$regras")"
+    igual "$antes" "$depois" || { echo "      FALHOU: reaplicar mudou o estado final"; FALHAS=$((FALHAS + 1)); }
+    nega "a terceira aplicacao tambem sem violacao" test -s "$viol"
+}
+
+caso_firewall_limpa_nova_sobrada_de_execucao_interrompida() {
+    novo_cenario
+    local regras="$TMP/estado/ipt-regras" cadeias="$TMP/estado/ipt-cadeias" viol="$TMP/estado/violacoes"
+    mkdir -p "$TMP/estado"
+    afirma "a primeira aplicacao termina com sucesso" rodar_firewall_falso
+    # execucao interrompida no meio: sobrou DGCLAW_HOST_NOVA (ja com salto) e DGCLAW_EGRESS_NOVA (vazia)
+    printf 'DGCLAW_HOST_NOVA\nDGCLAW_EGRESS_NOVA\n' >>"$cadeias"
+    printf '|DGCLAW_HOST_NOVA| -j DROP\n|INPUT| -s 10.89.0.0/16 -j DGCLAW_HOST_NOVA\n' >>"$regras"
+    afirma "a aplicacao seguinte termina com sucesso" rodar_firewall_falso
+    nega "nao sobrou _NOVA nas cadeias" tem "$cadeias" "_NOVA"
+    nega "nao sobrou regra com _NOVA" tem "$regras" "_NOVA"
+    nega "sem violacao" test -s "$viol"
+    afirma "a cerca em uso continua montada" tem "$regras" "|mangle/DGCLAW_HOST| -j DROP"
+}
+
+caso_rede_containers_entende_toml_do_dono() {
+    local conf nosso caso
+    local casos=(
+        "aspas simples nftables|[network]\nfirewall_driver = 'nftables'\n|grava=nao|avisa=sim"
+        "chave entre aspas|[network]\n\"firewall_driver\" = \"nftables\"\n|grava=nao|avisa=sim"
+        "valor nao identificado|[network]\nfirewall_driver = \$VALOR\n|grava=nao|avisa=sim"
+        "iptables com aspas simples|[network]\nfirewall_driver = 'iptables'\n|grava=nao|avisa=nao"
+        "linha comentada|[network]\n# firewall_driver = \"nftables\"\n|grava=sim|avisa=nao"
+    )
+    for caso in "${casos[@]}"; do
+        novo_cenario
+        conf="$RAIZ/etc/containers/containers.conf"
+        nosso="$RAIZ/etc/containers/containers.conf.d/50-dgclaw-firewall-iptables.conf"
+        mkdir -p "$RAIZ/etc/containers"
+        printf '%b' "$(cut -d'|' -f2 <<<"$caso")" >"$conf"
+        afirma "$(cut -d'|' -f1 <<<"$caso"): a instalacao termina com sucesso" instalacao_basica
+        case "$caso" in
+            *grava=nao*) nega "$(cut -d'|' -f1 <<<"$caso"): nao grava o nosso" test -e "$nosso" ;;
+            *) afirma "$(cut -d'|' -f1 <<<"$caso"): grava o nosso" test -e "$nosso" ;;
+        esac
+        case "$caso" in
+            *avisa=sim*)
+                afirma "$(cut -d'|' -f1 <<<"$caso"): avisa citando arquivo e linha" tem "$SAIDA" "/etc/containers/containers.conf:2 (" ;;
+            *) nega "$(cut -d'|' -f1 <<<"$caso"): nao avisa de driver divergente" tem "$SAIDA" "firewall_driver ja definido por voce" ;;
+        esac
+        afirma "$(cut -d'|' -f1 <<<"$caso"): o arquivo do dono sobreviveu" test -s "$conf"
+        limpar_cenario
+    done
 }

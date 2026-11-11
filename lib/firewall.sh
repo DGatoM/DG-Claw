@@ -38,24 +38,13 @@
 # provedor e com o resto do mundo, e filtrar por dominio pediria um proxy, que e
 # outra obra. O que importa aqui e o lado de dentro, e o lado de dentro fica fechado.
 #
-# Idempotente: rodar de novo recria as cadeias do zero e deixa exatamente UM salto
-# por cadeia de origem, sempre na posicao 1. Se alguem (o netavark, por exemplo)
-# empurrou o nosso salto para baixo, ele e reinserido no topo antes de os antigos
-# serem apagados, para nunca haver um instante sem o salto.
+# Idempotente: rodar de novo recria as cadeias (montando a nova ao lado e trocando, sem janela:
+# ver cadeia_publicar) e deixa exatamente UM salto por cadeia de origem, sempre na posicao 1.
+# Se alguem (o netavark, por exemplo) empurrou o nosso salto para baixo, ele e reinserido no
+# topo antes de os antigos serem apagados, para nunca haver um instante sem o salto.
 set -euo pipefail
 
 REDE_AGENTES=10.89.0.0/16
-
-# cadeia_zerar <tabela> <nome>: cria a cadeia, ou esvazia se ja existe. Conferir antes
-# com -L evita esconder erro de verdade (iptables ausente, sem permissao) atras de um
-# 2>/dev/null.
-cadeia_zerar() {
-    if iptables -w -t "$1" -L "$2" -n >/dev/null 2>&1; then
-        iptables -w -t "$1" -F "$2"
-    else
-        iptables -w -t "$1" -N "$2"
-    fi
-}
 
 # posicoes_do_salto <tabela> <cadeia-origem> <cadeia-destino>: imprime o numero de
 # linha (1 = topo) de cada regra que e o nosso salto, uma por linha.
@@ -80,25 +69,63 @@ salto_garantir() {
     done
 }
 
-# cerca_egress <tabela>: monta a cadeia DGCLAW_EGRESS na tabela e liga ao FORWARD.
-cerca_egress() {
-    local tabela="$1" rede
-    cadeia_zerar "$tabela" DGCLAW_EGRESS
-    for rede in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 100.64.0.0/10 127.0.0.0/8; do
-        iptables -w -t "$tabela" -A DGCLAW_EGRESS -d "$rede" -j DROP
+# saltos_remover <tabela> <cadeia-origem> <cadeia-destino>: apaga TODOS os nossos saltos para o
+# destino, de baixo para cima (para o numero dos de cima nao mudar).
+saltos_remover() {
+    local n
+    for n in $(posicoes_do_salto "$1" "$2" "$3" | sort -rn); do
+        iptables -w -t "$1" -D "$2" "$n"
     done
-    iptables -w -t "$tabela" -A DGCLAW_EGRESS -j RETURN
-    salto_garantir "$tabela" FORWARD DGCLAW_EGRESS
 }
 
-# cerca_host <tabela>: monta a cadeia DGCLAW_HOST na tabela e liga ao INPUT.
-cerca_host() {
-    local tabela="$1"
-    cadeia_zerar "$tabela" DGCLAW_HOST
-    iptables -w -t "$tabela" -A DGCLAW_HOST -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-    iptables -w -t "$tabela" -A DGCLAW_HOST -j DROP
-    salto_garantir "$tabela" INPUT DGCLAW_HOST
+# cadeia_publicar <tabela> <origem> <nome> <preencher>: troca a cadeia <nome> pela versao nova SEM
+# JANELA. Esvaziar a cadeia com -F e recolocar as regras deixaria, por um instante, o salto
+# apontando para uma cadeia vazia: nesse intervalo o pacote do agente seguiria para o ACCEPT do
+# netavark (porta 53 do host, ou rede privada) e as conexoes abertas na janela passariam pelo
+# ESTABLISHED. Entao: monta <nome>_NOVA com as regras completas (a funcao <preencher> recebe a
+# tabela e o nome da cadeia), poe o salto para ela no topo, so depois tira os saltos para a antiga,
+# esvazia e apaga a antiga, e renomeia a nova (o salto acompanha o rename). Nunca existe salto
+# para cadeia vazia ou sem o ultimo DROP/RETURN, e nunca se faz -F em cadeia com salto.
+cadeia_publicar() {
+    local tabela="$1" origem="$2" nome="$3" preencher="$4" nova="${3}_NOVA"
+    if iptables -w -t "$tabela" -L "$nova" -n >/dev/null 2>&1; then
+        # sobra de uma execucao interrompida: nunca foi a cadeia em uso, mas pode ter salto
+        saltos_remover "$tabela" "$origem" "$nova"
+        iptables -w -t "$tabela" -F "$nova"
+        iptables -w -t "$tabela" -X "$nova"
+    fi
+    iptables -w -t "$tabela" -N "$nova"
+    "$preencher" "$tabela" "$nova"
+    if iptables -w -t "$tabela" -L "$nome" -n >/dev/null 2>&1; then
+        iptables -w -t "$tabela" -I "$origem" 1 -s "$REDE_AGENTES" -j "$nova"
+        saltos_remover "$tabela" "$origem" "$nome"
+        iptables -w -t "$tabela" -F "$nome"
+        iptables -w -t "$tabela" -X "$nome"
+    fi
+    iptables -w -t "$tabela" -E "$nova" "$nome"
+    salto_garantir "$tabela" "$origem" "$nome"
 }
+
+# regras_egress <tabela> <cadeia>: as redes privadas que o agente nao alcanca.
+regras_egress() {
+    local rede
+    for rede in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 100.64.0.0/10 127.0.0.0/8; do
+        iptables -w -t "$1" -A "$2" -d "$rede" -j DROP
+    done
+    iptables -w -t "$1" -A "$2" -j RETURN
+}
+
+# regras_host <tabela> <cadeia>: o que o agente pode (so resposta) e nao pode (o resto) com o host.
+regras_host() {
+    iptables -w -t "$1" -A "$2" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+    iptables -w -t "$1" -A "$2" -j DROP
+}
+
+# cerca_egress <tabela>: monta a cadeia DGCLAW_EGRESS na tabela e liga ao FORWARD.
+cerca_egress() { cadeia_publicar "$1" FORWARD DGCLAW_EGRESS regras_egress; }
+
+# cerca_host <tabela>: monta a cadeia DGCLAW_HOST na tabela e liga ao INPUT.
+cerca_host() { cadeia_publicar "$1" INPUT DGCLAW_HOST regras_host; }
 
 main() {
     command -v iptables >/dev/null 2>&1 || {

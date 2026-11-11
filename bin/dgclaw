@@ -813,7 +813,7 @@ criar_container() {
         dns_containers_calcular
         if [ "${#DNS_CONTAINER_ARGS[@]}" -gt 0 ] \
             && [[ "$(podman inspect -f '{{.HostConfig.Dns}}' "$c" 2>/dev/null)" != *1.1.1.1* ]]; then
-            aviso "o DNS deste servidor ($DNS_HOST_PRIVADOS) fica numa rede privada, que a cerca dos agentes bloqueia. O container $c foi criado antes e continua com o DNS do servidor (o podman nao troca o DNS de container existente), entao ele pode ficar sem DNS. Para ele passar a usar DNS publico (1.1.1.1 e 8.8.8.8): dgclaw agente recriar $C_SLUG"
+            aviso "o DNS deste servidor ($DNS_HOST_PRIVADOS) fica numa rede privada, que a cerca dos agentes bloqueia. O container $c foi criado antes e continua com o DNS do servidor (o podman nao troca o DNS de container existente), entao ele pode ficar sem DNS. Para ele passar a usar DNS publico (1.1.1.1 e 8.8.8.8): dgclaw agente recriar $C_SLUG --forcar"
         fi
     else
         dns_containers_calcular
@@ -1476,8 +1476,16 @@ agente_recriar() {
     img_atual="$(podman inspect -f '{{.Image}}' "$c" 2>/dev/null || true)"
     img_nova="$(podman image inspect -f '{{.Id}}' "$DGCLAW_IMAGEM" 2>/dev/null || true)"
     if [ "$forcar" = 0 ] && [ -n "$img_nova" ] && [ "$img_atual" = "$img_nova" ]; then
-        ok "agente $slug: o container ja usa a imagem atual, nada a recriar"
-        return 0
+        # Mesma imagem, mas o DNS do servidor e privado e o container nasceu antes de o DG Claw dar
+        # DNS publico aos agentes: o podman nao troca o DNS de container existente, so recriando.
+        dns_containers_calcular
+        if [ "${#DNS_CONTAINER_ARGS[@]}" -gt 0 ] \
+            && [[ "$(podman inspect -f '{{.HostConfig.Dns}}' "$c" 2>/dev/null)" != *1.1.1.1* ]]; then
+            info "agente $slug: a imagem e a mesma, mas o DNS do servidor ($DNS_HOST_PRIVADOS) fica numa rede privada e o container ainda usa esse DNS; vou recriar para ele usar DNS publico."
+        else
+            ok "agente $slug: o container ja usa a imagem atual, nada a recriar"
+            return 0
+        fi
     fi
 
     C_SLUG="$slug"; C_CASA="$DG_CASAS/$slug"; C_HOME="$C_CASA/home"

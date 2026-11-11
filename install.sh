@@ -451,17 +451,24 @@ instalar_pacotes() {
 configurar_rede_containers() {
     passo "Ajustando a rede dos containers (netavark em modo iptables)"
     local conf_dir="$R/etc/containers/containers.conf.d"
-    local nosso="$conf_dir/50-dgclaw-firewall-iptables.conf" f valor definidos="" divergentes=""
+    local nosso="$conf_dir/50-dgclaw-firewall-iptables.conf" f linha definidos="" divergentes=""
 
     # Configuracao do dono nunca e sobreposta: se qualquer arquivo ja define firewall_driver
     # (inclusive o padrao da distribuicao), o nosso nao e gravado.
     for f in "$R/etc/containers/containers.conf" "$conf_dir"/*.conf "$R/usr/share/containers/containers.conf"; do
         [ -f "$f" ] || continue
         [ "$f" = "$nosso" ] && continue
-        valor="$(sed -n 's/^[[:space:]]*firewall_driver[[:space:]]*=[[:space:]]*"\{0,1\}\([A-Za-z0-9_-]*\)"\{0,1\}.*/\1/p' "$f" | tail -n 1)"
-        [ -n "$valor" ] || continue
+        # Qualquer linha nao comentada que cite firewall_driver conta como "o dono definiu", com ou
+        # sem aspas na chave e com qualquer aspa no valor (TOML aceita as duas). So e "iptables" quando
+        # o valor sai com seguranca e e exatamente iptables; o resto (outro valor, ou nao identificado)
+        # nao e sobreposto e vira aviso com o arquivo e a linha.
+        linha="$(grep -nE '^[[:space:]]*[^#[:space:]]' "$f" | grep 'firewall_driver' | tail -n 1)" || linha=""
+        [ -n "$linha" ] || continue
         definidos="$definidos ${f#"$R"}"
-        [ "$valor" = iptables ] || divergentes="$divergentes ${f#"$R"} ($valor)"
+        if [[ "${linha#*:}" =~ ^[[:space:]]*[\"\']?firewall_driver[\"\']?[[:space:]]*=[[:space:]]*(\"iptables\"|\'iptables\')[[:space:]]*(#.*)?$ ]]; then
+            continue
+        fi
+        divergentes="$divergentes ${f#"$R"}:${linha%%:*} (${linha#*:})"
     done
 
     if [ -e "$nosso" ]; then
