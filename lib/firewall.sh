@@ -165,7 +165,33 @@ cerca_egress() { cadeia_publicar "$1" FORWARD DGCLAW_EGRESS regras_egress RETURN
 # cerca_host <tabela>: monta a cadeia DGCLAW_HOST na tabela e liga ao INPUT.
 cerca_host() { cadeia_publicar "$1" INPUT DGCLAW_HOST regras_host DROP; }
 
+# trava_exclusiva: duas execucoes sobrepostas (dois agentes subindo juntos) corromperiam a troca de
+# cadeias: uma trataria a _NOVA da outra como sobra e daria -F nela depois de ela virar a unica
+# cerca ativa. O `iptables -w` so serializa comando a comando, entao a execucao inteira leva uma
+# trava exclusiva, mantida no descritor 9 ate o processo acabar. Sem a trava nao se mexe em regra.
+trava_exclusiva() {
+    local trava="${DGCLAW_FIREWALL_TRAVA:-/run/lock/dgclaw-firewall.lock}" espera="${DGCLAW_FIREWALL_TRAVA_ESPERA:-120}"
+    command -v flock >/dev/null 2>&1 || {
+        echo "dgclaw-firewall: o comando flock nao existe nesta maquina, e ele impede duas aplicacoes da cerca ao mesmo tempo. Nao mexi em nenhuma regra. Instale com: apt-get install -y util-linux" >&2
+        exit 1
+    }
+    if [ -L "$trava" ]; then
+        echo "dgclaw-firewall: $trava e um link simbolico, e eu nao o sigo. Nao mexi em nenhuma regra. Remova o link (rm $trava) e rode de novo." >&2
+        exit 1
+    fi
+    umask 077
+    exec 9>"$trava" || {
+        echo "dgclaw-firewall: nao consegui abrir o arquivo de trava $trava. Nao mexi em nenhuma regra. Confira se a pasta existe e se voce e root." >&2
+        exit 1
+    }
+    flock -w "$espera" 9 || {
+        echo "dgclaw-firewall: outra aplicacao da cerca segurou a trava $trava por mais de ${espera}s. Nao mexi em nenhuma regra. Veja quem segura com: fuser -v $trava (ou lsof $trava); rodar de novo costuma resolver." >&2
+        exit 1
+    }
+}
+
 main() {
+    trava_exclusiva
     command -v iptables >/dev/null 2>&1 || {
         echo "dgclaw-firewall: o comando iptables nao existe nesta maquina. Instale com: apt-get install -y iptables" >&2
         exit 1

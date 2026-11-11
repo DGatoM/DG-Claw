@@ -36,6 +36,11 @@ case "$cmd" in
         fi ;;
     -I)
         alvo="${*: -1}"
+        # Gancho de teste: com $e/pausa, para antes do primeiro salto para uma _NOVA ate $e/liberar existir.
+        if [ "${alvo%_NOVA}" != "$alvo" ] && [ -f "$e/pausa" ]; then
+            rm -f "$e/pausa"; touch "$e/pausado"
+            while [ ! -f "$e/liberar" ]; do sleep 0.1; done
+        fi
         if [ "${alvo#DGCLAW_}" != "$alvo" ]; then
             ultima="$(grep -F "|$pre$alvo| " "$e/ipt-regras" | tail -n 1)"
             case "$ultima" in

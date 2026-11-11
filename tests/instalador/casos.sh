@@ -1138,6 +1138,7 @@ caso_rede_containers_ensaio_nao_muda_nada() {
 # arquivos). Devolve o estado em $TMP/estado/ipt-regras.
 rodar_firewall_falso() {
     env -i "HOME=$TMP" "PATH=$AQUI/stubs:/usr/bin:/bin" "DGCLAW_STUB_LOG=$STUB_LOG" "DGCLAW_STUB_ESTADO=$TMP/estado" \
+        "DGCLAW_FIREWALL_TRAVA=$TMP/firewall.lock" "DGCLAW_FIREWALL_TRAVA_ESPERA=${FW_ESPERA:-120}" \
         bash "$REPO/lib/firewall.sh" >"$SAIDA" 2>&1
 }
 
@@ -1277,4 +1278,45 @@ caso_firewall_recupera_troca_interrompida_em_cada_etapa() {
             done
         done
     done
+}
+
+caso_firewall_duas_execucoes_sobrepostas_nao_esvaziam_a_cerca() {
+    novo_cenario
+    local e="$TMP/estado" regras="$TMP/estado/ipt-regras" cadeias="$TMP/estado/ipt-cadeias" i
+    mkdir -p "$e"
+    afirma "a primeira aplicacao termina com sucesso" rodar_firewall_falso
+    printf 'mangle INPUT\nmangle FORWARD\nfilter INPUT\nfilter FORWARD\n' >"$e/exige-protecao"
+    # A pausa logo antes de pôr o salto na _NOVA (ela ja esta preenchida); B nasce nesse instante.
+    touch "$e/pausa"
+    ( rodar_firewall_falso ) &
+    local pid_a=$!
+    for i in $(seq 1 100); do [ -f "$e/pausado" ] && break; sleep 0.1; done
+    afirma "A parou no ponto combinado" test -f "$e/pausado"
+    local saida_b="$TMP/saida-b.txt"
+    ( env -i "HOME=$TMP" "PATH=$AQUI/stubs:/usr/bin:/bin" "DGCLAW_STUB_LOG=$STUB_LOG" "DGCLAW_STUB_ESTADO=$e" \
+        "DGCLAW_FIREWALL_TRAVA=$TMP/firewall.lock" bash "$REPO/lib/firewall.sh" >"$saida_b" 2>&1 ) &
+    local pid_b=$!
+    sleep 1
+    touch "$e/liberar"
+    wait "$pid_a"; igual "$?" 0 || { echo "      FALHOU: A terminou com erro"; FALHAS=$((FALHAS + 1)); }
+    wait "$pid_b"; igual "$?" 0 || { echo "      FALHOU: B terminou com erro"; FALHAS=$((FALHAS + 1)); }
+    nega "sem violacao nem instante sem protecao" test -s "$e/violacoes"
+    nega "sem _NOVA sobrando" bash -c "grep -q _NOVA '$cadeias' '$regras'"
+    igual "$(contar "$regras" '|mangle/INPUT| -s 10.89.0.0/16 -j DGCLAW_HOST')" 1 || { echo "      FALHOU: salto do HOST nao e unico"; FALHAS=$((FALHAS + 1)); }
+    afirma "a cadeia do HOST termina em DROP" bash -c "grep -F '|mangle/DGCLAW_HOST| ' '$regras' | tail -n 1 | grep -q -- '-j DROP\$'"
+}
+
+caso_firewall_sem_a_trava_sai_sem_mexer_em_regra() {
+    novo_cenario
+    mkdir -p "$TMP/estado"
+    exec 8>"$TMP/firewall.lock"
+    flock 8
+    FW_ESPERA=1
+    local rc=0
+    rodar_firewall_falso 8>&- || rc=$?
+    nega "sai com erro quando nao consegue a trava" igual "$rc" 0
+    afirma "a mensagem diz o que travou e como ver quem segura" tem "$SAIDA" "fuser -v $TMP/firewall.lock"
+    afirma "diz que nao mexeu em regra" tem "$SAIDA" "Nao mexi em nenhuma regra"
+    nega "nenhum comando iptables foi chamado" tem "$STUB_LOG" "iptables"
+    exec 8>&-
 }
