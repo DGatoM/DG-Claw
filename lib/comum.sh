@@ -347,9 +347,34 @@ caddyfile_e_padrao() {
     [ "$sites" = ":80 {" ]
 }
 
+# modo_tunel: 0 (sim) se o painel esta atras de tunel. O instalador decide em DGCLAW_TUNEL_ATIVO
+# (1 ou 0, vale nesta rodada); fora dele, vale a linha DGCLAW_ATRAS_DE_TUNEL=1 do dgclaw.env.
+modo_tunel() {
+    if [ -n "${DGCLAW_TUNEL_ATIVO:-}" ]; then [ "$DGCLAW_TUNEL_ATIVO" = 1 ]; return; fi
+    [ -f "$DG_ETC/dgclaw.env" ] && grep -qx 'DGCLAW_ATRAS_DE_TUNEL=1' "$DG_ETC/dgclaw.env"
+}
+
 bloco_caddy() {
     printf '# DG Claw: gerado pelo install.sh. Rodar o instalador de novo reescreve este arquivo.\n'
-    printf '%s {\n\treverse_proxy 127.0.0.1:8300\n}\n' "$1"
+    if modo_tunel; then
+        # Sem IP publico o Let's Encrypt nao valida o nome: certificado da CA local do Caddy, e o
+        # tunel conecta em https://127.0.0.1:443 sem verificar o certificado.
+        printf '%s {\n\ttls internal\n\treverse_proxy 127.0.0.1:8300\n}\n' "$1"
+    else
+        printf '%s {\n\treverse_proxy 127.0.0.1:8300\n}\n' "$1"
+    fi
+}
+
+# portas_ssh: uma porta por linha, as em que o sshd escuta de verdade (sshd -T); 22 se nao achar nenhuma.
+portas_ssh() {
+    local p achou=0
+    while IFS= read -r p; do
+        [[ "$p" =~ ^[0-9]{1,5}$ ]] || continue
+        p=$((10#$p))
+        if [ "$p" -lt 1 ] || [ "$p" -gt 65535 ]; then continue; fi
+        printf '%s\n' "$p"; achou=1
+    done < <(sshd -T 2>/dev/null | awk '$1=="port"{print $2}' | sort -un)
+    [ "$achou" = 1 ] || printf '22\n'
 }
 
 # escrever_site_caddy <dominio>: grava o site do DG Claw no Caddyfile proprio (quando e dele ou

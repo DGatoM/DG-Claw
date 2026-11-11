@@ -2118,9 +2118,14 @@ senha_main() {
 dominio_mostrar() {
     carregar_env_dgclaw
     local ip=""
-    ip="$(ip_publico)" || ip=""
     printf 'Dominio atual do painel: %s\n' "${DGCLAW_DOMINIO:-(nao definido em $DG_ETC/dgclaw.env)}"
     if [ -n "${DGCLAW_DOMINIO:-}" ]; then printf 'Endereco do painel:      https://%s/\n' "$DGCLAW_DOMINIO"; fi
+    if modo_tunel; then
+        printf 'Este painel esta atras de um tunel (DGCLAW_ATRAS_DE_TUNEL=1): nao precisa de IP publico nem de registro A.\n'
+        printf 'O tunel tem que apontar o dominio para https://127.0.0.1:443, com o nome do servidor de origem igual ao dominio e sem verificacao do certificado. Para trocar o nome: sudo dgclaw dominio trocar <nome> (e acrescente o nome novo no tunel).\n'
+        return 0
+    fi
+    ip="$(ip_publico)" || ip=""
     printf 'IP publico desta VPS:    %s\n' "${ip:-(nao consegui descobrir: api.ipify.org e ifconfig.me nao responderam)}"
     printf 'Para usar um dominio proprio: crie um registro DNS tipo A apontando para esse IP e rode: sudo dgclaw dominio trocar <nome>\n'
 }
@@ -2153,15 +2158,23 @@ dominio_trocar() {
     novo="$(printf '%s' "$novo" | tr '[:upper:]' '[:lower:]')"
     exigir_ferramentas curl dig caddy
 
-    local ip="" cf="$R/etc/caddy/Caddyfile" confd="$R/etc/caddy/conf.d/dgclaw.caddy"
-    ip="$(ip_publico)" || ip=""
+    local ip="" cf="$R/etc/caddy/Caddyfile" confd="$R/etc/caddy/conf.d/dgclaw.caddy" tunel=0 curl_k=()
+    if modo_tunel; then tunel=1; conferir=0; curl_k=(-k); fi
+    if [ "$tunel" = 1 ]; then ip="(sem IP publico: atras de tunel)"; else ip="$(ip_publico)" || ip=""; fi
     if [ -z "$ip" ]; then
         [ "$conferir" = 0 ] || falha "nao consegui descobrir o IP publico desta VPS (api.ipify.org e ifconfig.me nao responderam)." \
             "confira se a VPS tem internet e rode de novo. Para pular a conferencia do DNS por sua conta e risco: dgclaw dominio trocar $novo --sem-conferir-dns"
         ip="(desconhecido)"
     fi
-    passo "Conferindo se $novo aponta para esta VPS ($ip)"
-    if [ "$conferir" = 1 ]; then
+    if [ "$tunel" = 1 ]; then
+        passo "Painel atras de tunel: nao confiro o DNS contra o IP publico"
+        aviso "o nome $novo precisa estar no tunel (Cloudflare: Public Hostname apontando para https://127.0.0.1:443, com o Origin Server Name igual a $novo e No TLS Verify). Sem isso o endereco novo nao abre de fora."
+    else
+        passo "Conferindo se $novo aponta para esta VPS ($ip)"
+    fi
+    if [ "$tunel" = 1 ]; then
+        info "conferencia do DNS pulada: atras de tunel o nome nao aponta para o IP do servidor."
+    elif [ "$conferir" = 1 ]; then
         if ! dns_publico_aponta "$novo" "$ip"; then
             falha "o DNS publico (1.1.1.1 e 8.8.8.8) ainda nao aponta $novo para o IP desta VPS ($ip). Nada foi mudado." \
                 "no painel de DNS de onde o dominio foi comprado, crie um registro tipo A para $novo com o valor $ip (se tiver um registro AAAA antigo para esse nome, apague; na Cloudflare, deixe a nuvem cinza). A propagacao pode levar de alguns minutos a algumas horas. Confira com: dig +short A $novo @1.1.1.1 (tem que devolver $ip) e rode este comando de novo."
@@ -2193,13 +2206,17 @@ dominio_trocar() {
         info "[ensaio] esperaria https://$novo/ responder (ate 90s) e mostraria o link novo do painel"
         return 0
     fi
-    info "esperando o certificado HTTPS de $novo (ate 90s)..."
+    if [ "$tunel" = 1 ]; then info "esperando o Caddy responder em $novo pelo loopback (ate 90s)..."; else info "esperando o certificado HTTPS de $novo (ate 90s)..."; fi
     local inicio=$SECONDS pronto=0
     while true; do
-        if curl -sS --max-time 8 -o /dev/null --resolve "$novo:443:127.0.0.1" "https://$novo/" 2>/dev/null; then pronto=1; break; fi
+        if curl -sS --max-time 8 -o /dev/null ${curl_k[@]+"${curl_k[@]}"} --resolve "$novo:443:127.0.0.1" "https://$novo/" 2>/dev/null; then pronto=1; break; fi
         [ $((SECONDS - inicio)) -ge 90 ] && break
         sleep 3
     done
+    if [ "$pronto" != 1 ] && [ "$tunel" = 1 ]; then
+        falha "o Caddy nao respondeu em https://$novo/ (pelo loopback 127.0.0.1:443) em 90s. O Caddy ja esta com o nome novo." \
+            "veja o motivo com: journalctl -u caddy -n 30. Para voltar ao endereco anterior: dgclaw dominio trocar <nome antigo>."
+    fi
     if [ "$pronto" != 1 ]; then
         falha "https://$novo/ nao respondeu em 90s. O Caddy ja esta com o nome novo, mas o certificado ainda nao saiu." \
             "confira se as portas 80 e 443 estao abertas no firewall do provedor (a Hostinger tem um firewall no painel dela) e se $novo aponta para $ip (na Cloudflare, nuvem cinza). Veja o motivo com: journalctl -u caddy -n 30. O Caddy tenta de novo sozinho; quando passar, o painel abre em https://$novo/. Para voltar ao endereco anterior: dgclaw dominio trocar <nome antigo>."

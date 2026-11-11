@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# sshd falso: so entende `sshd -T`. As portas vem de DGCLAW_STUB_SSHD_PORTAS (separadas por
+# espaco). Sem a variavel, escuta na 22 (como um servidor comum); com ela vazia, nao diz nada.
+. "$(dirname "$0")/_comum.sh"
+registrar "$@"
+if [ "${1:-}" = "-T" ]; then
+    for p in ${DGCLAW_STUB_SSHD_PORTAS-22}; do printf 'port %s\n' "$p"; done
+    printf 'permitrootlogin without-password\n'
+fi
+exit 0

@@ -3,6 +3,7 @@
 #
 #   sudo ./install.sh --usuario <nome> [--dominio <dominio>] [--provedor claude|codex]
 #                     [--senha-stdin] [--novo-primeiro-acesso]
+#                     [--atras-de-tunel] [--sem-tunel]
 #                     [--ensaio] [--com-imagem] [--sem-imagem] [--ajuda]
 #
 # O padrao e NAO pedir senha: o instalador gera um link de primeiro acesso (uso unico, vale
@@ -54,6 +55,8 @@ DOMINIO=""
 PROVEDOR=""
 VERSAO=""
 LOG_INSTALAR=""
+TUNEL_ARG=""   # 1 = --atras-de-tunel, 0 = --sem-tunel, vazio = mantem o que o dgclaw.env diz
+TUNEL=0        # modo de tunel valendo nesta rodada (resolvido em escolher_dominio)
 
 uso() {
     cat <<'FIM'
@@ -63,6 +66,9 @@ Instala o DG Claw neste servidor: painel com HTTPS, Admin e a base para criar ag
 
   --usuario <nome>      usuario para entrar no painel (obrigatorio)
   --dominio <dominio>   endereco proprio (padrao: um endereco gratuito, escolhido sozinho)
+  --atras-de-tunel      servidor sem IP publico, com o acesso de fora por um tunel (Cloudflare):
+                        exige --dominio, usa certificado interno do Caddy e nao abre as portas 80 e 443
+  --sem-tunel           desliga o modo de tunel gravado por uma instalacao anterior
   --provedor claude|codex
                         com qual assinatura o Admin trabalha (padrao: o que estiver logado aqui)
   --senha-stdin         le a senha do painel do STDIN (sem esperar; erro se vier vazia ou curta)
@@ -97,6 +103,8 @@ parse_args() {
             --dominio=*) DOMINIO_ARG="${1#*=}"; shift ;;
             --provedor) [ $# -ge 2 ] || arg_sem_valor "$1"; PROVEDOR_ARG="$2"; shift 2 ;;
             --provedor=*) PROVEDOR_ARG="${1#*=}"; shift ;;
+            --atras-de-tunel) TUNEL_ARG=1; shift ;;
+            --sem-tunel) TUNEL_ARG=0; shift ;;
             --ensaio)   ARG_ENSAIO=1; shift ;;
             --senha-stdin) ARG_SENHA_STDIN=1; shift ;;
             --novo-primeiro-acesso) ARG_NOVO_PRIMEIRO_ACESSO=1; shift ;;
@@ -290,9 +298,24 @@ checar_versao_so() {
     esac
 }
 
+# checar_cpu: o Claude Code (Bun) exige SSE4.2 em x86_64. CPU generica de hipervisor (kvm64) nao tem.
+# Sem /proc/cpuinfo legivel, ou fora do x86_64, nao confere nada e segue.
+checar_cpu() {
+    local arq="${DGCLAW_ARQUITETURA:-$(uname -m)}" cpuinfo="$R/proc/cpuinfo" flags
+    [ "$arq" = x86_64 ] || return 0
+    [ -r "$cpuinfo" ] || return 0
+    flags="$(grep -m1 '^flags' "$cpuinfo" 2>/dev/null)" || flags=""
+    [ -n "$flags" ] || return 0
+    if [[ " $flags " != *" sse4_2 "* ]]; then
+        falha "a CPU deste servidor nao tem o recurso SSE4.2, e o Claude Code (que o Admin e os agentes usam) exige esse recurso para rodar."             "no hipervisor, troque o tipo de CPU desta maquina virtual para host (passthrough) ou x86-64-v2 ou superior, e reinicie a maquina. No Proxmox: Hardware > Processors > Type = host. Depois rode o instalador de novo."
+    fi
+    ok "CPU com SSE4.2"
+}
+
 checar_maquina() {
     passo "Conferindo a maquina"
     if pular_checagens; then
+        if [ -r "$R/proc/cpuinfo" ]; then checar_cpu; fi
         # Raiz falsa dos testes: o resto e pulado, mas a versao do sistema ainda vale conferir
         # quando o teste forneceu um os-release.
         if [ -r "$R/etc/os-release" ]; then checar_versao_so; fi
@@ -301,6 +324,7 @@ checar_maquina() {
     fi
     local mem_kb disco_kb
     checar_versao_so
+    checar_cpu
     [ "$(id -u)" -eq 0 ] || falha "o instalador precisa rodar como root (voce e o usuario $(id -un))." \
         "rode com sudo: sudo ./install.sh --usuario $USUARIO"
     ok "rodando como root"
@@ -423,14 +447,21 @@ escolher_dominio() {
     passo "Escolhendo o endereco do painel"
     local atual ip nome
     atual="$(env_valor DGCLAW_DOMINIO)"
+    if [ -n "$TUNEL_ARG" ]; then TUNEL="$TUNEL_ARG"; elif [ "$(env_valor DGCLAW_ATRAS_DE_TUNEL)" = 1 ]; then TUNEL=1; else TUNEL=0; fi
+    export DGCLAW_TUNEL_ATIVO="$TUNEL"
+    if [ "$TUNEL" = 1 ] && [ -z "$DOMINIO_ARG" ] && [ -z "$atual" ]; then
+        falha "o modo de tunel (--atras-de-tunel) precisa de um dominio, e nenhum foi informado."             "rode de novo com o endereco que o tunel atende, por exemplo: sudo ./install.sh --usuario maria --dominio painel.exemplo.com --atras-de-tunel"
+    fi
     if [ -n "$DOMINIO_ARG" ]; then
         DOMINIO="$DOMINIO_ARG"
         ok "dominio informado por voce: $DOMINIO"
+        [ "$TUNEL" = 1 ] && info "modo de tunel: o servidor nao precisa de IP publico, e o Caddy usa certificado interno."
         return 0
     fi
     if [ -n "$atual" ]; then
         DOMINIO="$atual"
         ok "mantendo o dominio da instalacao anterior: $DOMINIO"
+        [ "$TUNEL" = 1 ] && info "modo de tunel: o servidor nao precisa de IP publico, e o Caddy usa certificado interno."
         return 0
     fi
     ip="$(ip_publico)" || falha "nao consegui descobrir o IP publico deste servidor (api.ipify.org e ifconfig.me nao responderam)." \
@@ -469,6 +500,10 @@ localizar_claude() {
 exigir_claude() {
     [ "$PROVEDOR" = claude ] || return 0
     if command -v claude >/dev/null 2>&1; then return 0; fi
+    if [ -n "${SUDO_USER:-}" ]; then
+        falha "o Claude Code nao foi encontrado para o root (voce entrou como $SUDO_USER e usou sudo), e o Admin precisa dele." \
+            "instale o Claude Code para o root com: curl -fsSL https://claude.ai/install.sh | sudo CLAUDE_INSTALL_ALLOW_SUDO=1 HOME=/root bash (o instalador oficial recusa rodar sob sudo sem essa variavel). Depois entre na sua assinatura com: sudo -i e, dentro dele, claude. Rode o instalador de novo. Se voce usa o Codex, rode com --provedor codex."
+    fi
     falha "o Claude Code nao foi encontrado (nem no PATH, nem em ~/.local/bin), e o Admin precisa dele." \
         "instale o Claude Code (https://code.claude.com/docs/en/setup), rode: echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.bashrc && source ~/.bashrc, entre na sua assinatura rodando: claude, e rode o instalador de novo. Se voce usa o Codex, rode com --provedor codex."
 }
@@ -799,6 +834,12 @@ instalar_codigo() {
     # Linha a linha, nunca o arquivo inteiro: o que a pessoa (ou o Admin) acrescentou ao dgclaw.env
     # sobrevive a cada atualizacao. Cria o arquivo se ele ainda nao existe.
     gravar_dgclaw_env DGCLAW_DOMINIO "$DOMINIO"
+    # So a linha do modo de tunel: 1 liga; se ja havia a linha e a pessoa pediu --sem-tunel, vira 0.
+    if [ "$TUNEL" = 1 ]; then
+        gravar_dgclaw_env DGCLAW_ATRAS_DE_TUNEL 1
+    elif [ -n "$(env_valor DGCLAW_ATRAS_DE_TUNEL)" ]; then
+        gravar_dgclaw_env DGCLAW_ATRAS_DE_TUNEL 0
+    fi
     gravar_dgclaw_env DGCLAW_VERSAO "$VERSAO"
     gravar_dgclaw_env DGCLAW_IMAGEM "$imagem"
     gravar_dgclaw_env DGCLAW_PROVEDOR_ADMIN "$PROVEDOR"
@@ -832,7 +873,11 @@ registrar_clone() {
 
 # --- 5. caddy -------------------------------------------------------------------
 configurar_caddy() {
-    passo "Configurando o Caddy (HTTPS automatico para $DOMINIO)"
+    if [ "$TUNEL" = 1 ]; then
+        passo "Configurando o Caddy (certificado interno para $DOMINIO, atras de tunel)"
+    else
+        passo "Configurando o Caddy (HTTPS automatico para $DOMINIO)"
+    fi
     local cf="$R/etc/caddy/Caddyfile"
     escrever_site_caddy "$DOMINIO"
     executar_log caddy validate --config "$cf" --adapter caddyfile
@@ -846,15 +891,23 @@ configurar_caddy() {
 # --- 6. firewall ----------------------------------------------------------------
 configurar_firewall() {
     passo "Configurando o firewall"
-    local st=""
-    executar_log ufw allow 22/tcp
-    executar_log ufw allow 80/tcp
-    executar_log ufw allow 443/tcp
+    local st="" p portas=() lista=""
+    while IFS= read -r p; do portas+=("$p"); done < <(portas_ssh)
+    for p in "${portas[@]}"; do executar_log ufw allow "$p/tcp"; done
+    lista="$(IFS=,; printf '%s' "${portas[*]}")"
+    lista="${lista//,/, }"
+    if [ "$TUNEL" = 1 ]; then
+        info "modo de tunel: nao abro as portas 80 e 443 no firewall (o tunel conecta de dentro para fora e fala com o Caddy pelo loopback)."
+    else
+        executar_log ufw allow 80/tcp
+        executar_log ufw allow 443/tcp
+    fi
     st="$(ufw status 2>/dev/null)" || st="" # sem resposta = trata como desligado e liga abaixo
     if [[ "$st" == *"Status: active"* ]]; then
-        ok "ufw ja estava ligado; as portas 22, 80 e 443 estao liberadas"
+        if [ "$TUNEL" = 1 ]; then ok "ufw ja estava ligado; a porta do SSH ($lista) esta liberada"
+        else ok "ufw ja estava ligado; as portas $lista (SSH), 80 e 443 estao liberadas"; fi
     else
-        aviso "vou ligar o firewall com a porta 22 (SSH) aberta, para voce nao perder o acesso ao servidor. Se o seu SSH usa outra porta, libere-a antes com: ufw allow <porta>/tcp"
+        aviso "vou ligar o firewall com a porta do SSH ($lista) aberta, para voce nao perder o acesso ao servidor. Se o seu SSH usa outra porta que eu nao detectei, libere-a antes com: ufw allow <porta>/tcp"
         executar_log ufw --force enable
     fi
 
@@ -1756,10 +1809,17 @@ testar_fim() {
         return 0
     fi
 
-    info "esperando o certificado HTTPS de $DOMINIO (ate ${espera}s)..."
-    esperar_http "$espera" --resolve "$DOMINIO:443:127.0.0.1" "https://$DOMINIO/" \
-        || falha "https://$DOMINIO/ nao respondeu em ${espera}s." \
-                 "confira se as portas 80 e 443 estao abertas no firewall do provedor e se $DOMINIO aponta para este servidor; veja o motivo com: journalctl -u caddy -n 30. Depois rode ./install.sh de novo."
+    if [ "$TUNEL" = 1 ]; then
+        info "esperando o Caddy responder em $DOMINIO pelo loopback (ate ${espera}s)..."
+        esperar_http "$espera" -k --resolve "$DOMINIO:443:127.0.0.1" "https://$DOMINIO/" \
+            || falha "o Caddy nao respondeu em https://$DOMINIO/ (pelo loopback 127.0.0.1:443) em ${espera}s." \
+                     "veja o motivo com: journalctl -u caddy -n 30 e confira com: systemctl status caddy. Depois rode ./install.sh de novo."
+    else
+        info "esperando o certificado HTTPS de $DOMINIO (ate ${espera}s)..."
+        esperar_http "$espera" --resolve "$DOMINIO:443:127.0.0.1" "https://$DOMINIO/" \
+            || falha "https://$DOMINIO/ nao respondeu em ${espera}s." \
+                     "confira se as portas 80 e 443 estao abertas no firewall do provedor e se $DOMINIO aponta para este servidor; veja o motivo com: journalctl -u caddy -n 30. Depois rode ./install.sh de novo."
+    fi
     ok "HTTPS respondendo em $DOMINIO"
 
     if fonte_tem web/server.js; then
@@ -1781,6 +1841,9 @@ mensagem_final() {
     printf '\n%sSeu DG Claw está instalado e configurado em https://%s.%s\n' "$_C_OK" "$DOMINIO" "$_C_0"
     printf '   Painel:   https://%s/\n' "$DOMINIO"
     printf '   Usuario:  %s\n' "$USUARIO"
+    if [ "$TUNEL" = 1 ]; then
+        printf '   Atras de tunel: o endereco so abre de fora se o tunel apontar para https://127.0.0.1:443, com o nome do servidor de origem igual a %s e sem verificacao do certificado.\n' "$DOMINIO"
+    fi
     if [ -n "$PRIMEIRO_ACESSO_TOKEN" ]; then
         printf '\n   Primeiro acesso (uso único, vale 30 min): https://%s/primeiro-acesso#%s\n' "$DOMINIO" "$PRIMEIRO_ACESSO_TOKEN"
         printf '   Abra o link de primeiro acesso, cadastre sua senha e você já entra no chat do Admin.\n'

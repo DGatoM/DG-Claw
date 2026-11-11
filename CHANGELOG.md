@@ -7,6 +7,14 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**O DG Claw instala em servidor sem IP público, atrás de um túnel.** Com `--atras-de-tunel` (junto de `--dominio`), o Caddy usa
+certificado interno, o instalador não consulta o IP público e não abre as portas 80 e 443 no firewall; o túnel da Cloudflare
+aponta para `https://127.0.0.1:443`, com o nome do servidor de origem igual ao domínio e sem verificação do certificado. A
+escolha fica no `dgclaw.env` e vale para reinstalar, atualizar e `dgclaw dominio trocar`. O firewall agora também libera a porta
+real do SSH (lida do `sshd`), e não só a 22. O instalador confere se a CPU tem SSE4.2, que o Claude Code exige (CPU genérica
+`kvm64` de hipervisor não tem), e explica como trocar o tipo de CPU da máquina virtual. Quando o Claude Code falta e você usa
+`sudo`, a mensagem mostra como instalá-lo para o root. Nada muda para quem já instalou.
+
 **A aba Operações volta a mostrar as barrinhas de cada rotina, com rotina, horário e resultado.** O painel do agente não
 tinha permissão para ler o diário do sistema, e sem ela a aba dizia que não havia histórico, mesmo com as rotinas
 rodando. Agora, dentro do contêiner, o usuário do agente passa a poder ler o diário do sistema daquele contêiner. Se o

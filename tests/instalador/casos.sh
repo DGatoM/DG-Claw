@@ -776,3 +776,125 @@ caso_unidade_do_web_endurecida_com_motivos_das_que_ficaram_de_fora() {
         afirma "systemd-analyze verify aceita a unidade" bash -c "! systemd-analyze verify '$v/dgclaw-web.service' 2>&1 | grep 'dgclaw-web' | grep -iE 'unknown (key|section)|bad|invalid|failed to parse'"
     fi
 }
+
+caso_instalacao_padrao_sem_tunel_continua_igual() {
+    novo_cenario
+    afirma "instala" instalacao_basica
+    nega "Caddyfile sem tls internal" tem "$RAIZ/etc/caddy/Caddyfile" "tls internal"
+    nega "dgclaw.env sem o modo de tunel" tem "$RAIZ/etc/dgclaw/dgclaw.env" "DGCLAW_ATRAS_DE_TUNEL"
+    afirma "ufw liberou a 80" tem "$STUB_LOG" "ufw allow 80/tcp"
+    afirma "ufw liberou a 443" tem "$STUB_LOG" "ufw allow 443/tcp"
+    afirma "usou o IP publico" tem "$STUB_LOG" "curl"
+    nega "a mensagem final nao fala de tunel" tem "$SAIDA" "Atras de tunel"
+    limpar_cenario
+}
+
+caso_tunel_sem_dominio_falha_com_mensagem() {
+    novo_cenario
+    nega "tunel sem dominio recusa" instalacao_basica --atras-de-tunel
+    afirma "diz que falta o dominio" tem "$SAIDA" "precisa de um dominio"
+    afirma "mostra o exemplo do comando" tem "$SAIDA" "--dominio painel.exemplo.com --atras-de-tunel"
+    nega "nao gravou o dgclaw.env" test -e "$RAIZ/etc/dgclaw/dgclaw.env"
+    limpar_cenario
+}
+
+caso_tunel_com_dominio_usa_certificado_interno_e_nao_abre_80_443() {
+    novo_cenario
+    afirma "instala" instalacao_basica --dominio x.exemplo.org --atras-de-tunel
+    local e="$RAIZ/etc/dgclaw/dgclaw.env" cf="$RAIZ/etc/caddy/Caddyfile"
+    afirma "grava o modo de tunel" tem "$e" "DGCLAW_ATRAS_DE_TUNEL=1"
+    afirma "grava o dominio" tem "$e" "DGCLAW_DOMINIO=x.exemplo.org"
+    afirma "Caddyfile com o dominio" tem "$cf" "x.exemplo.org {"
+    afirma "Caddyfile com tls internal" tem "$cf" "tls internal"
+    afirma "Caddyfile continua com o proxy" tem "$cf" "reverse_proxy 127.0.0.1:8300"
+    afirma "ufw liberou a 22" tem "$STUB_LOG" "ufw allow 22/tcp"
+    nega "ufw nao liberou a 80" tem "$STUB_LOG" "ufw allow 80/tcp"
+    nega "ufw nao liberou a 443" tem "$STUB_LOG" "ufw allow 443/tcp"
+    nega "nao consultou o IP publico" grep -qE '^curl .*(ipify|ifconfig)' "$STUB_LOG"
+    nega "nao consultou o DNS publico" grep -q '^dig ' "$STUB_LOG"
+    afirma "testou o HTTPS local com -k" grep -qE '^curl .*-k .*--resolve x.exemplo.org:443:127.0.0.1' "$STUB_LOG"
+    afirma "mensagem final cita o tunel" tem "$SAIDA" "https://127.0.0.1:443"
+    afirma "mensagem final cita o nome do servidor de origem" tem "$SAIDA" "nome do servidor de origem igual a x.exemplo.org"
+    limpar_cenario
+}
+
+caso_tunel_sobrevive_a_reinstalacao_e_preserva_linha_alheia() {
+    novo_cenario
+    afirma "primeira instalacao" instalacao_basica --dominio x.exemplo.org --atras-de-tunel
+    printf 'LINHA_DA_MARTA=oi\n' >>"$RAIZ/etc/dgclaw/dgclaw.env"
+    : >"$STUB_LOG"
+    afirma "reinstala sem a opcao" instalar "" --usuario maria --provedor claude
+    local e="$RAIZ/etc/dgclaw/dgclaw.env"
+    afirma "mantem o modo de tunel" tem "$e" "DGCLAW_ATRAS_DE_TUNEL=1"
+    afirma "mantem o dominio" tem "$e" "DGCLAW_DOMINIO=x.exemplo.org"
+    afirma "a linha alheia sobreviveu" tem "$e" "LINHA_DA_MARTA=oi"
+    afirma "Caddyfile segue com tls internal" tem "$RAIZ/etc/caddy/Caddyfile" "tls internal"
+    nega "segue sem abrir a 443" tem "$STUB_LOG" "ufw allow 443/tcp"
+    # --sem-tunel desliga, e a 80/443 voltam
+    afirma "reinstala com --sem-tunel" instalar "" --usuario maria --provedor claude --sem-tunel
+    afirma "modo de tunel desligado no env" tem "$e" "DGCLAW_ATRAS_DE_TUNEL=0"
+    nega "Caddyfile sem tls internal" tem "$RAIZ/etc/caddy/Caddyfile" "tls internal"
+    afirma "ufw liberou a 443" tem "$STUB_LOG" "ufw allow 443/tcp"
+    afirma "a linha alheia ainda sobreviveu" tem "$e" "LINHA_DA_MARTA=oi"
+    limpar_cenario
+}
+
+caso_firewall_libera_a_porta_real_do_ssh() {
+    novo_cenario
+    EXTRA_ENV=(DGCLAW_STUB_SSHD_PORTAS=2222)
+    afirma "instala com sshd na 2222" instalacao_basica
+    afirma "ufw liberou a 2222" tem "$STUB_LOG" "ufw allow 2222/tcp"
+    nega "ufw nao liberou a 22" tem "$STUB_LOG" "ufw allow 22/tcp"
+    afirma "o aviso cita a 2222" tem "$SAIDA" "porta do SSH (2222)"
+    limpar_cenario
+    novo_cenario
+    EXTRA_ENV=("DGCLAW_STUB_SSHD_PORTAS=22 2222")
+    afirma "instala com sshd na 22 e na 2222" instalacao_basica
+    afirma "ufw liberou a 22" tem "$STUB_LOG" "ufw allow 22/tcp"
+    afirma "ufw liberou a 2222" tem "$STUB_LOG" "ufw allow 2222/tcp"
+    limpar_cenario
+    novo_cenario
+    EXTRA_ENV=(DGCLAW_STUB_SSHD_PORTAS=)
+    afirma "instala com sshd sem dizer porta" instalacao_basica
+    afirma "cai para a 22" tem "$STUB_LOG" "ufw allow 22/tcp"
+    limpar_cenario
+    novo_cenario
+    EXTRA_ENV=("DGCLAW_STUB_SSHD_PORTAS=0 99999 abc 2200")
+    afirma "instala com portas invalidas na saida" instalacao_basica
+    afirma "so a valida passa ao ufw" tem "$STUB_LOG" "ufw allow 2200/tcp"
+    nega "porta invalida nao vai ao ufw" tem "$STUB_LOG" "ufw allow 99999/tcp"
+    limpar_cenario
+}
+
+caso_cpu_sem_sse4_2_falha_com_mensagem() {
+    novo_cenario
+    mkdir -p "$RAIZ/proc"
+    printf 'processor\t: 0\nflags\t\t: fpu vme sse sse2 ssse3 sse4_1 popcnt\n' >"$RAIZ/proc/cpuinfo"
+    EXTRA_ENV=(DGCLAW_ARQUITETURA=x86_64)
+    nega "CPU sem SSE4.2 recusa" instalacao_basica
+    afirma "explica o recurso que falta" tem "$SAIDA" "SSE4.2"
+    afirma "diz o que fazer no hipervisor" tem "$SAIDA" "Type = host"
+    limpar_cenario
+    novo_cenario
+    mkdir -p "$RAIZ/proc"
+    printf 'processor\t: 0\nflags\t\t: fpu sse4_1 sse4_2 popcnt\n' >"$RAIZ/proc/cpuinfo"
+    EXTRA_ENV=(DGCLAW_ARQUITETURA=x86_64)
+    afirma "CPU com SSE4.2 passa" instalacao_basica
+    limpar_cenario
+    novo_cenario
+    mkdir -p "$RAIZ/proc"
+    printf 'processor\t: 0\nflags\t\t: fpu sse2\n' >"$RAIZ/proc/cpuinfo"
+    EXTRA_ENV=(DGCLAW_ARQUITETURA=aarch64)
+    afirma "fora do x86_64 nao confere" instalacao_basica
+    limpar_cenario
+}
+
+caso_claude_ausente_com_sudo_cita_o_caminho_do_root() {
+    novo_cenario
+    esconder_claude
+    EXTRA_ENV=(SUDO_USER=maria)
+    nega "sem claude a instalacao falha" instalacao_basica
+    afirma "cita o CLAUDE_INSTALL_ALLOW_SUDO" tem "$SAIDA" "CLAUDE_INSTALL_ALLOW_SUDO=1"
+    afirma "cita o sudo -i" tem "$SAIDA" "sudo -i"
+    limpar_cenario
+}
