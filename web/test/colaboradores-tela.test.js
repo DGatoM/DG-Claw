@@ -57,15 +57,15 @@ test('menu do colaborador: visita curta, com as páginas do agente e sem Mesa, L
   assert.match(passos[0].oque, /Sessões de trabalho/);
   assert.doesNotMatch(JSON.stringify(passos), /Mesa|Lembretes|Avisos|Segurança|Admin/);
   const dono = M.passosMenu({ nome: 'Ana', comTroca: true, naConversa: true });
-  assert.equal(dono.length, 2);
+  assert.equal(dono.length, 4, 'o menu, a troca de agente, os grupos e um item dentro de grupo');
   assert.equal(M.chaveDoHref('/colaboradores?agente=ana'), 'colaboradores');
   assert.equal(M.LINK_COLABORADOR.href, '/colaboradores');
 });
 
 test('menu-lado.js: Convidar colaborador só para o dono e nunca para o Admin', () => {
   const js = pub('menu-lado.js');
-  assert.match(js, /if \(!colab && ag\.tipo !== 'admin' && ag\.id\)/);
-  assert.match(js, /LINK_COLABORADOR\.href\}\?agente=\$\{encodeURIComponent\(ag\.id\)\}/);
+  assert.match(js, /if \(!colab && ag && ag\.tipo !== 'admin' && id\)/);
+  assert.match(js, /LINK_COLABORADOR\.href \+ '\?agente=' \+ encodeURIComponent\(id\)/);
   // colaborador não dispara nada que o servidor nega (lista de agentes, uso), mas tem as páginas e as Sessões do agente dele
   assert.match(js, /else if \(!colab\) recarrega\(ag\)/);
   assert.match(js, /if \(colab\) \{ const uso = \$\('mlUso'\); if \(uso\) uso\.remove\(\); \} else ligaUso\(\)/);

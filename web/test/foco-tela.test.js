@@ -1,4 +1,5 @@
 'use strict';
+require('./_ds-stub');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -88,7 +89,7 @@ test('contador, progresso, ordem por "ordem" e item feito marcado', () => {
   assert.deepEqual(porClasse(r, 'foco-texto').map(e => e.textContent), ['C', 'B', 'A']);
   const feitos = porClasse(r, 'foco-item').filter(e => tem(e, 'feito'));
   assert.equal(feitos.length, 1);
-  assert.equal(porClasse(feitos[0], 'foco-caixa')[0].textContent, '✓');
+  assert.equal(porClasse(feitos[0], 'foco-caixa')[0].innerHTML, dsIcone('check'));
 });
 
 test('sem espaço: faixa recolhida; tocar abre e guarda no aparelho', () => {

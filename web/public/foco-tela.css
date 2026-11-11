@@ -4,6 +4,7 @@
 .foco button{font:inherit;color:inherit;cursor:pointer;background:none;border:0;padding:0;text-align:left}
 .foco-cab{display:flex;align-items:center;gap:4px}
 .foco-abre{flex:1;min-width:0;min-height:36px;display:flex;align-items:center;gap:8px;padding:4px 10px;font-weight:600}
+.foco-rotulo-ico{flex:0 0 auto;display:inline-flex;margin-right:6px}
 .foco-rotulo{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .foco-placar{color:var(--accent);font-weight:700;white-space:nowrap}
 .foco-seta{color:var(--muted);width:1em;text-align:center}
@@ -27,7 +28,7 @@
 .foco-caixa{flex:0 0 20px;width:20px;height:20px;margin-top:1px;border:2px solid var(--accent);border-radius:6px;box-sizing:border-box;
             display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff;background:#fff}
 .foco-texto{flex:1;min-width:0;overflow-wrap:anywhere;word-break:break-word}
-.foco-item.feito .foco-caixa{background:var(--accent)}
+.foco-item.feito .foco-caixa{background:var(--botao-fundo);border-color:var(--botao-fundo);color:var(--botao-texto)}
 .foco-item.feito .foco-texto{text-decoration:line-through;color:var(--muted)}
 .foco-aviso{margin:8px 0 0;padding:6px 8px;border-radius:8px;background:#fdecea;color:#8a2a1f;font-size:13px;overflow-wrap:anywhere}
 .foco-aviso[hidden]{display:none}
@@ -35,7 +36,7 @@
 .foco-ok{margin:2px 0 8px;padding:8px 10px;border-radius:10px;background:#e4fbcd;color:#23784a;font-weight:700;
          font-size:14px;display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;text-align:center}
 .foco-ok[hidden]{display:none}
-.foco .foco-conclui{min-height:32px;padding:0 14px;border-radius:16px;background:var(--accent);color:#fff;
+.foco .foco-conclui{min-height:32px;padding:0 14px;border-radius:16px;background:var(--botao-fundo);color:var(--botao-texto);
                     font-weight:700;text-align:center}
 .foco .foco-conclui:disabled{opacity:.6;cursor:default}
 .foco-so-erro .foco-corpo{grid-template-rows:1fr;opacity:1;visibility:visible}

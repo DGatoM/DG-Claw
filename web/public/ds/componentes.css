@@ -1,0 +1,33 @@
+/* componentes.css: só o que as telas migradas já usam (ícone e foco). Só tokens; valores ficam em tokens.css. */
+.ds-ico{width:1.25em;height:1.25em;flex:0 0 auto;display:inline-block;vertical-align:-.25em;
+  fill:none;stroke:currentColor;overflow:visible;pointer-events:none}
+.ds-ico-g{width:1.6em;height:1.6em}
+.ds-btn,.ds-icone-btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--esp-2);
+  min-height:var(--alvo-toque);min-width:var(--alvo-toque);padding:0 var(--esp-4);
+  border:1px solid var(--botao-borda);border-radius:var(--raio-1);background:var(--botao-fundo);color:var(--botao-texto);
+  font:inherit;font-weight:600;cursor:pointer;text-decoration:none}
+.ds-btn--secundario{background:var(--botao2-fundo);color:var(--botao2-texto);border-color:var(--botao2-borda)}
+.ds-btn--fantasma{background:transparent;color:var(--cor-texto-2);border-color:transparent}
+.ds-btn--perigo{background:var(--botao-perigo-fundo);color:var(--botao-perigo-texto)}
+.ds-btn--icone{padding:0}
+.ds-btn:disabled{opacity:.55;cursor:default}
+.ds-btn:active{opacity:.85}
+.ds-campo{width:100%;min-height:var(--alvo-toque);padding:0 var(--esp-3);border:1px solid var(--campo-borda);
+  border-radius:var(--raio-1);background:var(--campo-fundo);color:var(--campo-texto);font:inherit}
+.ds-campo:focus{border-color:var(--campo-borda-foco)}
+.ds-rotulo{display:block;margin:0 0 var(--esp-1);font-size:var(--texto-p);font-weight:600;color:var(--cor-texto)}
+.ds-alerta{padding:var(--esp-2) var(--esp-3);border:1px solid var(--cor-info-borda);border-radius:var(--raio-1);
+  background:var(--cor-info-fundo);color:var(--cor-texto);font-size:var(--texto-m);line-height:1.4}
+.ds-alerta--erro{background:var(--cor-perigo-fundo);border-color:var(--cor-perigo-borda);color:var(--cor-perigo)}
+.ds-alerta--aviso{background:var(--cor-aviso-fundo);border-color:var(--cor-aviso-borda);color:var(--cor-aviso)}
+.ds-alerta--sucesso{background:var(--cor-sucesso-fundo);border-color:var(--cor-sucesso-borda);color:var(--cor-sucesso)}
+.ds-cartao{background:var(--cartao-fundo);border:1px solid var(--cartao-borda);border-radius:var(--raio-2);padding:var(--esp-4)}
+.ds-modal{background:var(--cartao-fundo);color:var(--cor-texto);border:1px solid var(--cartao-borda);border-radius:var(--raio-2);padding:var(--esp-4)}
+.ds-menu{background:var(--cartao-fundo);border:1px solid var(--cartao-borda);border-radius:var(--raio-2);padding:var(--esp-1)}
+.ds-avatar{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:50%;
+  background:var(--cor-acento);color:var(--cor-sobre-acento);font-weight:600;overflow:hidden}
+
+/* foco visível em tudo que o usuário alcança pelo teclado */
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,
+summary:focus-visible,[role="button"]:focus-visible,[tabindex]:focus-visible{
+  outline:2px solid var(--cor-foco);outline-offset:2px}

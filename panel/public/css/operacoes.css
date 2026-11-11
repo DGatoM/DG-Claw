@@ -51,9 +51,9 @@
 .op-textos{min-width:0}
 .op-nome{font-size:14.5px;font-weight:600;line-height:1.35;cursor:help;overflow-wrap:anywhere}
 .op-essencial{display:inline-block;font-size:10.5px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;
-  color:var(--acento1);border:1px solid color-mix(in srgb,var(--acento1) 40%,var(--linha));border-radius:999px;padding:0 7px;
+  color:var(--acento-texto);border:1px solid color-mix(in srgb,var(--acento1) 40%,var(--linha));border-radius:999px;padding:0 7px;
   margin-left:4px;vertical-align:2px;cursor:help}
-html[data-tema="escuro"] .op-essencial{color:var(--acento2)}
+html[data-tema="escuro"] .op-essencial{color:var(--acento-texto)}
 .op-quando{font-size:12.5px;color:var(--fraco);margin-top:2px;overflow-wrap:anywhere}
 .op-semana{grid-area:semana;font-size:11.5px;color:var(--fraco);text-align:right}
 .op-detalhe{grid-area:detalhe;font-size:12.5px;white-space:pre-wrap;background:var(--fundo2);border-radius:9px;

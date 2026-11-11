@@ -59,7 +59,7 @@
           ${esc(haQuanto(c.atualizadoEm))}${quem ? ` · ${esc(quem)}` : ''}</span>
       </header>
       <div class="cb-corpo">${corpo}</div>
-      <footer class="cb-pe"><code>${esc(c.path)}</code><span>${c.editavel ? 'abrir e editar' : 'abrir'} →</span></footer>
+      <footer class="cb-pe"><code>${esc(c.path)}</code><span>${c.editavel ? 'abrir e editar' : 'abrir'} ${dsIcone('arrow-right')}</span></footer>
     </article>`;
   }
 

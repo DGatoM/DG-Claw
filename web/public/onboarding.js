@@ -34,7 +34,7 @@
     const rolo = document.createElement('div'); rolo.className = 'nas-rolo';
     const bFechar = document.createElement('button');
     bFechar.type = 'button'; bFechar.className = 'nas-fechar'; bFechar.setAttribute('aria-label', 'Fechar e continuar no chat');
-    bFechar.innerHTML = '<span aria-hidden="true">×</span>';
+    bFechar.innerHTML = dsIcone('x');
     rolo.appendChild(host); caixa.append(bFechar, rolo); modal.appendChild(caixa);
     const pilula = document.createElement('button');
     pilula.type = 'button'; pilula.className = 'nas-pilula'; pilula.hidden = true;
@@ -237,14 +237,14 @@
       host.innerHTML = cab('Dê um jeito só dele') + '<p>Me conte o que você quer delegar. Eu preparo o resto.</p><form id="nasForm">'+
         '<section data-tour="nas-nome"><div class="nas-rotulo"><label for="nasNomeCompleto">Nome</label><button type="button" data-ajuda="[data-tour=&quot;nas-nome&quot;]" aria-label="Ajuda sobre o nome">?</button></div><input id="nasNomeCompleto" name="nome" value="'+esc(nome)+'" maxlength="70" required><label for="nasDono">Como você quer ser chamado?</label><input id="nasDono" name="dono" maxlength="70" placeholder="Seu nome (opcional)" autocomplete="given-name"></section>'+
         '<section data-tour="nas-papel"><div class="nas-rotulo"><label for="nasPapel">O que ele vai fazer por você?</label><button type="button" data-ajuda="[data-tour=&quot;nas-papel&quot;]" aria-label="Ajuda sobre função e tom">?</button></div><textarea id="nasPapel" name="papel" rows="3" maxlength="700" placeholder="Ex.: organizar minha agenda e me ajudar a escrever para o Instagram" required></textarea><label for="nasTom" title="O jeito de conversar que será gravado na identidade do agente">Tom da conversa</label><select id="nasTom" name="jeito"><option>Acolhedor e direto</option><option>Descontraído e bem-humorado</option><option>Formal e objetivo</option><option>Paciente e didático</option></select></section>'+
-        '<section data-tour="nas-foto"><div class="nas-rotulo"><label for="nasFoto">Foto <span>(opcional)</span></label><button type="button" data-ajuda="[data-tour=&quot;nas-foto&quot;]" aria-label="Ajuda sobre a foto">?</button></div><div class="nas-foto"><div class="nas-avatar" id="nasPrevia" aria-label="Avatar neutro">◉</div><div><input id="nasFoto" type="file" accept="image/png,image/jpeg,image/webp"><small>PNG, JPEG ou WebP · até 5 MB</small><button type="button" id="nasGerarFoto" title="Cria um avatar ilustrado neste navegador, sem IA e sem custo">Gerar avatar</button></div></div></section>'+
+        '<section data-tour="nas-foto"><div class="nas-rotulo"><label for="nasFoto">Foto <span>(opcional)</span></label><button type="button" data-ajuda="[data-tour=&quot;nas-foto&quot;]" aria-label="Ajuda sobre a foto">?</button></div><div class="nas-foto"><div class="nas-avatar" id="nasPrevia" aria-label="Avatar neutro">' + dsIcone('user') + '</div><div><input id="nasFoto" type="file" accept="image/png,image/jpeg,image/webp"><small>PNG, JPEG ou WebP · até 5 MB</small><button type="button" id="nasGerarFoto" title="Cria um avatar ilustrado neste navegador, sem IA e sem custo">Gerar avatar</button></div></div></section>'+
         '<p class="nas-nota">Ao tocar em criar, você confirma essas escolhas. Seu agente usará a mesma assinatura do Admin e vocês conversarão aqui no painel.</p><button type="submit" class="nas-principal" data-pergunta="Crie meu agente com as escolhas deste formulário">Criar meu agente</button></form><p class="nas-erro" role="alert" hidden></p>';
       abreModal();
       ligarAjuda();
       topoDoFormulario();
       host.querySelector('#nasFoto').onchange = () => {
         const f = host.querySelector('#nasFoto').files[0]; foto = null;
-        const prev = host.querySelector('#nasPrevia'); prev.textContent = '◉';
+        const prev = host.querySelector('#nasPrevia'); prev.innerHTML = dsIcone('user');
         if (!f) return;
         if (!['image/png','image/jpeg','image/webp'].includes(f.type) || f.size > 5*1024*1024) { erro('Escolha uma foto PNG, JPEG ou WebP de até 5 MB.'); host.querySelector('#nasFoto').value = ''; return; }
         foto = f;
@@ -356,10 +356,10 @@
       const pronto = d.fase === 'pronto' && d.conversa;
       const ocupado = ['solicitado','enviando','criando','testando'].includes(d.fase);
       const tit = pronto ? 'Seu agente chegou.' : d.fase === 'login' ? 'Falta conectar sua assinatura' : d.fase === 'erro' || d.fase === 'erro-envio' ? 'Vamos resolver juntos' : 'Um começo só seu';
-      const fotoHtml = d.foto ? '<img src="'+esc(d.foto)+'" alt="Foto de '+esc(d.nome)+'">' : '<span aria-label="Avatar neutro">◉</span>';
+      const fotoHtml = d.foto ? '<img src="'+esc(d.foto)+'" alt="Foto de '+esc(d.nome)+'">' : '<span aria-label="Avatar neutro">' + dsIcone('user') + '</span>';
       host.innerHTML = cab(tit) + '<section data-tour="nas-estado"><div class="nas-rotulo"><span class="nas-status">'+(pronto?'PRONTO PARA CONVERSAR':ocupado?'PREPARANDO '+esc(d.nome).toUpperCase():'PRÓXIMO PASSO')+'</span><button type="button" data-ajuda="[data-tour=&quot;nas-estado&quot;]" aria-label="Entenda esta etapa">?</button></div><div class="nas-palco '+(pronto?'nas-abriu':ocupado?'nas-gerando':'')+'" aria-hidden="true"><div class="nas-aura"></div><div class="nas-cubo"><div class="nas-face nas-frente"></div><div class="nas-face nas-lado"></div><div class="nas-face nas-tampa"></div><div class="nas-racha"></div></div></div>'+
         barraHtml()+
-        (pronto?'<div class="nas-cx">'+botaoX(d.id, d.nome)+'<a class="nas-badge" href="'+esc(d.conversa)+'"><div class="nas-retrato">'+fotoHtml+'</div><strong>Oi, eu sou '+esc(d.nome)+'.</strong><span>Clique aqui pra gente começar a conversar <b aria-hidden="true">↗</b></span></a></div>':'<p class="nas-andamento" role="status" aria-live="polite">'+esc(d.mensagem)+'</p>')+
+        (pronto?'<div class="nas-cx">'+botaoX(d.id, d.nome)+'<a class="nas-badge" href="'+esc(d.conversa)+'"><div class="nas-retrato">'+fotoHtml+'</div><strong>Oi, eu sou '+esc(d.nome)+'.</strong><span>Clique aqui pra gente começar a conversar <b aria-hidden="true">' + dsIcone('external') + '</b></span></a></div>':'<p class="nas-andamento" role="status" aria-live="polite">'+esc(d.mensagem)+'</p>')+
         (d.fase==='login' && d.login?'<a class="nas-principal" href="'+esc(d.login)+'" target="_blank" rel="noopener">Conectar minha assinatura</a><button type="button" id="nasTestar">Já entrei. Pode testar.</button>':'')+
         (d.fase==='erro'||d.fase==='erro-envio'||comErro?'<button type="button" id="nasReparar" class="nas-principal">Pedir ajuda ao Admin</button>':'')+
         '<p class="nas-erro" role="alert" hidden></p></section>';
@@ -398,11 +398,11 @@
     atualizar();
     window.addEventListener('pagehide',()=>clearTimeout(timer),{once:true});
   }
-  const botaoX = (id, nome) => '<button type="button" class="nas-x" data-dispensar="' + esc(id) + '" aria-label="' + esc('Dispensar o cartão de ' + nome) + '"><span aria-hidden="true">×</span></button>';
+  const botaoX = (id, nome) => '<button type="button" class="nas-x" data-dispensar="' + esc(id) + '" aria-label="' + esc('Dispensar o cartão de ' + nome) + '">' + dsIcone('x') + '</button>';
   function htmlCartao(c) {
-    const retrato = c.foto ? '<img src="' + esc(c.foto) + '" alt="Foto de ' + esc(c.nome) + '" loading="lazy">' : '<span aria-label="Avatar neutro">◉</span>';
+    const retrato = c.foto ? '<img src="' + esc(c.foto) + '" alt="Foto de ' + esc(c.nome) + '" loading="lazy">' : '<span aria-label="Avatar neutro">' + dsIcone('user') + '</span>';
     const miolo = '<div class="nas-retrato">' + retrato + '</div><strong>' + esc(c.nome) + ' nasceu às ' + esc(c.hhmm) + '</strong>' +
-      (c.conversa ? '<span>Clique aqui pra conversar com ' + esc(c.nome) + ' <b aria-hidden="true">↗</b></span>' : '');
+      (c.conversa ? '<span>Clique aqui pra conversar com ' + esc(c.nome) + ' <b aria-hidden="true">' + dsIcone('external') + '</b></span>' : '');
     return '<div class="nas-hist" data-msg="' + esc('nasc-' + c.id) + '"><div class="nas-cx">' + botaoX(c.id, c.nome) + (c.conversa ? '<a class="nas-badge" href="' + esc(c.conversa) + '">' + miolo + '</a>' : '<div class="nas-badge">' + miolo + '</div>') + '</div></div>';
   }
   /* Texto da pílula que aparece com o modal minimizado (função pura, testada sem DOM). */

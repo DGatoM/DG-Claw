@@ -7,7 +7,7 @@ depender de alguém gerar um link e mandar por mensagem. O link de login vale po
 de chegar até você. Nesta página ele só nasce no instante em que você toca em **Gerar link de login**.
 
 A página tem um cartão por agente: o Admin primeiro (o agente supervisor, que cuida do servidor) e depois os
-agentes de trabalho. Entra quem já tem usuário e senha do painel. O menu ☰ tem o item **Conectar conta**.
+agentes de trabalho. Entra quem já tem usuário e senha do painel. O menu ☰ tem o item **Conectar conta**, dentro do grupo **Ferramentas**.
 
 ## Passo a passo
 

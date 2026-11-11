@@ -51,7 +51,7 @@ function extrair(nome) {
   return src.slice(i, fim + 3);
 }
 const grid = { innerHTML: '' };
-const ctx = { APP_CONFIG: { creatorName: 'Dono' }, document: { getElementById: () => grid } };
+const ctx = { APP_CONFIG: { creatorName: 'Dono' }, document: { getElementById: () => grid }, dsIcone: (n) => `<svg data-ico="${n}"></svg>` }; // dsIcone vem de /ds/icone.js no navegador
 vm.createContext(ctx);
 vm.runInContext([extrair('escapeHtml'), extrair('numeroSeguro'), extrair('renderFollowers')].join('\n'), ctx);
 vm.runInContext(`renderFollowers({ agent_owner: { trust_level: ${JSON.stringify(MAL)}, dynamic: ${JSON.stringify(MAL)} }, top_followers: [] })`, ctx);

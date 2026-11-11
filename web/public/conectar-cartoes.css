@@ -2,7 +2,7 @@
    conversa. As variáveis valem dentro de qualquer elemento com a classe .cn-escopo (o body de /conectar e o
    <dialog> do modal). Celular primeiro: 390 px sem rolagem horizontal, alvos de toque de pelo menos 44 px,
    texto longo quebra em vez de cortar. */
-.cn-escopo{--cn-txt:#0f1c14;--cn-fraco:#5f7566;--cn-linha:#dfe7e1;--cn-acento:#2f9e5e;--cn-fundo:#f3f6f3;--cn-verm:#b3261e}
+.cn-escopo{--cn-txt:#0f1c14;--cn-fraco:#5f7566;--cn-linha:#dfe7e1;--cn-acento:var(--cor-acento);--cn-fundo:#f3f6f3;--cn-verm:#b3261e}
 .cn-escopo *{box-sizing:border-box}
 .cn-escopo [hidden]{display:none}
 .cn-cartao{border:1px solid var(--cn-linha);border-radius:12px;padding:12px;min-width:0;display:flex;flex-direction:column;gap:10px;background:#fff;color:var(--cn-txt)}
@@ -28,7 +28,7 @@
 .cn-vivo{margin:0;font-size:0;height:0;overflow:hidden}
 .cn-pe{display:flex;flex-direction:column;gap:8px}
 .cn-btn{font:inherit;font-size:15.5px;font-weight:600;min-height:44px;padding:0 18px;border-radius:22px;border:1px solid var(--cn-linha);background:#f2f6f2;color:#38523f;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;text-align:center;text-decoration:none;max-width:100%}
-.cn-btn.cn-principal{background:var(--cn-acento);border-color:var(--cn-acento);color:#fff}
+.cn-btn.cn-principal{background:var(--botao-fundo);border-color:var(--botao-fundo);color:var(--botao-texto)}
 .cn-btn.cn-grande{min-height:52px;font-size:17px;width:100%}
 .cn-btn:disabled{opacity:.55;cursor:default}
 .cn-btn:focus-visible,.cn-campo:focus-visible,.cn-ajuda:focus-visible{outline:3px solid #8fc7a3;outline-offset:2px}

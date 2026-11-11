@@ -81,6 +81,22 @@ const solto = await paginaInicial('');
 ok(solto != null && !solto.includes('btn-voltar'), 'painel solto: sem botão de voltar, como antes');
 ok(solto != null && !/casca|menu-lado/.test(solto), 'painel solto: nada da casca (sem links nem placeholder)');
 
+// ── 3. O menu lateral em grupos (painel solto: js/menu-grupos.js) ─────────────
+const idx = fs.readFileSync(path.join(AQUI, 'public/index.html'), 'utf-8');
+const abas = [...idx.matchAll(/<button class="tab[^"]*" data-tab="([a-z]+)"/g)].map((m) => m[1]);
+ok(abas.length === 19 && new Set(abas).size === 19, 'menu em grupos: as 19 abas continuam no menu, sem repetir nenhuma');
+const grupos = [...idx.matchAll(/<div class="grupo" data-grupo="([a-z]+)">\s*<button type="button" class="grupo-cab" id="grp-([a-z]+)-b" aria-expanded="false" aria-controls="grp-([a-z]+)">/g)];
+ok(grupos.length === 6 && grupos.every((g) => g[1] === g[2] && g[2] === g[3]), 'menu em grupos: seis grupos, cada botão com aria-expanded e aria-controls do próprio conteúdo');
+ok(['perfil', 'dia', 'ferramentas', 'operacao', 'seguranca', 'conexoes'].every((g) => idx.includes(`id="grp-${g}" role="group" aria-labelledby="grp-${g}-b"`)), 'menu em grupos: cada conteúdo é um role=group nomeado pelo botão');
+const fixas = idx.slice(idx.indexOf('<nav class="tabs"'), idx.indexOf('<div class="grupo"')).match(/data-tab="([a-z]+)"/g) || [];
+ok(fixas.length === 2 && fixas[0].includes('conversa') && fixas[1].includes('arquivos'), 'menu em grupos: Conversa e Pasta ficam fora dos grupos, sempre à vista');
+const blocoSolto = idx.slice(idx.indexOf('<div class="solto">'), idx.indexOf('</nav>'));
+ok(/data-tab="como"/.test(blocoSolto) && /data-tab="socorro"/.test(blocoSolto), 'menu em grupos: Como funciona e Socorro ficam soltos no fim');
+ok(idx.includes('js/menu-grupos.js'), 'menu em grupos: o index.html carrega o js/menu-grupos.js');
+const mg = fs.readFileSync(path.join(AQUI, 'public/js/menu-grupos.js'), 'utf-8');
+ok(/localStorage\.setItem/.test(mg) && /não consegui guardar o grupo/.test(mg), 'menu em grupos: guarda no aparelho e explica no console quando não consegue');
+ok(/prefers-reduced-motion:reduce\)\{\.grupo-seta,\.grupo-itens/.test(fs.readFileSync(path.join(AQUI, 'public/css/main.css'), 'utf-8')), 'menu em grupos: sem animação em Reduzir Movimento');
+
 fs.rmSync(RAIZ, { recursive: true, force: true });
 console.log(falhas ? `\n${falhas} falha(s)` : '\ntudo certo');
 process.exit(falhas ? 1 : 0);

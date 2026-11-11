@@ -54,6 +54,7 @@ const { criarUso } = require('./lib/uso');
 const { criarColaboradores } = require('./lib/colaboradores');
 const { criarColaboradoresRotas } = require('./lib/colaboradores-rotas');
 const { criarEmail } = require('./lib/email');
+const { criarMarca } = require('./lib/marca');
 const escopo = require('./lib/escopo');
 
 const METODOS_QUE_ESCREVEM = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -67,9 +68,9 @@ const TIPOS_ESTATICOS = {
 };
 const RX_SLUG_ROTA = /^[a-z0-9][a-z0-9-]{0,31}$/;
 
-const LOGIN_RESERVA = '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><title>Entrar</title>' +
+const loginReserva = (nome) => '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><title>Entrar</title>' +
   '<style>body{font-family:system-ui,sans-serif;max-width:22rem;margin:14vh auto;padding:0 1rem}input,button{display:block;width:100%;margin:.5rem 0;padding:.6rem;font-size:1rem}</style></head><body>' +
-  '<h1>DG Claw</h1><p id="e" style="color:#b00"></p><form method="post" action="/login"><input name="usuario" placeholder="Usuário" autocomplete="username" required>' +
+  '<h1>' + nome + '</h1><p id="e" style="color:#b00"></p><form method="post" action="/login"><input name="usuario" placeholder="Usuário" autocomplete="username" required>' +
   '<input name="senha" type="password" placeholder="Senha" autocomplete="current-password" required><input type="hidden" name="next" value=""><button>Entrar</button></form>' +
   '<script>var q=new URLSearchParams(location.search);document.getElementById("e").textContent=q.get("erro")||"";document.querySelector("[name=next]").value=q.get("next")||"/"</script></body></html>';
 
@@ -143,6 +144,7 @@ function criarServidor(opcoes) {
   const colabRotas = criarColaboradoresRotas({ colaboradores, auth, registro, email: opcoes.email || criarEmail({ config, log }), config, log, agora: opcoes.agora, aoDerrubar: fechaStreamsDe });
   const primeiroAcesso = criarPrimeiroAcesso({ config, auth, log, agora: opcoes.agora });
   const avatares = criarAvatar({ dataDir: config.dataDir, log });
+  const marca = criarMarca({ dir: config.marcaDir, padraoJson: path.join(__dirname, 'marca-padrao.json'), padraoDir: path.join(__dirname, 'public', 'ds', 'marca-padrao'), log });
   const midia = criarMidia({ dataDir: config.dataDir, log, registro, publicDir: config.publicDir });
   const leitor = criarLeitor({ log, tz: config.tz, canalTelegram: config.canalTelegram, midia });
   const leitorRollout = criarLeitorRollout({ log, tz: config.tz, midia });
@@ -220,6 +222,16 @@ function criarServidor(opcoes) {
     const tipo = TIPOS_ESTATICOS[path.extname(caminho).toLowerCase()] || 'application/octet-stream';
     const cab = { 'Content-Type': tipo, ETag: etag, 'Cache-Control': cache || 'no-cache', 'X-Content-Type-Options': 'nosniff' };
     if (path.basename(caminho) === 'sw.js') cab['Service-Worker-Allowed'] = '/';
+    if (tipo.startsWith('text/html')) {
+      // Páginas: troca os {{MARCA_*}} (nome, slogan, tema) com escape. Sempre sem cache: a marca pode mudar a qualquer hora.
+      let corpoHtml;
+      try { corpoHtml = Buffer.from(marca.html(fs.readFileSync(caminho, 'utf8')), 'utf8'); } catch (e) {
+        log('erro', `Falha lendo a página ${caminho} (${e.code || e.message}).`); res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('Erro ao abrir a página.'); return true;
+      }
+      res.writeHead(200, { 'Content-Type': tipo, 'Cache-Control': cache || 'no-cache', 'X-Content-Type-Options': 'nosniff', 'Content-Length': corpoHtml.length });
+      res.end(req.method === 'HEAD' ? undefined : corpoHtml);
+      return true;
+    }
     if (req.headers['if-none-match'] === etag) { res.writeHead(304, cab); res.end(); return true; }
     cab['Accept-Ranges'] = 'bytes';
     // Range de um intervalo só (o iPhone só toca vídeo se o servidor responder 206). Vários intervalos: serve inteiro.
@@ -246,6 +258,36 @@ function criarServidor(opcoes) {
     const s = fs.createReadStream(caminho, status === 206 ? { start: ini, end: fim } : undefined);
     s.on('error', (e) => { log('erro', `Falha lendo o arquivo estático ${caminho} (${e.code || e.message}).`); res.destroy(); });
     s.pipe(res);
+    return true;
+  }
+
+  /** /marca.css, /manifest.webmanifest e /marca/<logo|favicon|icone-app|fonte/base|fonte/mono>. */
+  function servirMarca(req, res, p) {
+    const texto = (tipo, corpo) => {
+      const buf = Buffer.from(corpo, 'utf8');
+      res.writeHead(200, { 'Content-Type': tipo, 'Cache-Control': 'no-cache', 'X-Content-Type-Options': 'nosniff', 'Content-Length': buf.length });
+      res.end(req.method === 'HEAD' ? undefined : buf);
+      return true;
+    };
+    if (p === '/marca.css') return texto('text/css; charset=utf-8', marca.css());
+    if (p === '/manifest.webmanifest') return texto('application/manifest+json; charset=utf-8', marca.manifest());
+    const mm = /^\/marca\/(logo|favicon|icone-app|fonte\/(base|mono))$/.exec(p);
+    if (!mm) return false;
+    const a = mm[1].startsWith('fonte/') ? marca.arquivo('fonte', mm[2]) : marca.arquivo(mm[1]);
+    if (!a) return false;
+    // O arquivo já foi conferido (sem atalho, extensão e tamanho); aqui só evita servir um atalho trocado depois.
+    try { if (fs.lstatSync(a.caminho).isSymbolicLink()) return false; } catch (_) { return false; }
+    let st;
+    try { st = fs.statSync(a.caminho); } catch (_) { return false; }
+    if (!st.isFile()) return false;
+    const cab = { 'Content-Type': a.tipo, 'Content-Length': st.size, 'Cache-Control': 'no-cache', 'X-Content-Type-Options': 'nosniff', ETag: `"${st.size.toString(16)}-${Math.round(st.mtimeMs).toString(16)}"` };
+    if (a.tipo === 'image/svg+xml') cab['Content-Security-Policy'] = "sandbox; default-src 'none'; style-src 'unsafe-inline'";
+    if (req.headers['if-none-match'] === cab.ETag) { res.writeHead(304, cab); res.end(); return true; }
+    res.writeHead(200, cab);
+    if (req.method === 'HEAD') { res.end(); return true; }
+    const rs = fs.createReadStream(a.caminho);
+    rs.on('error', (e) => { log('erro', `Falha lendo o arquivo da marca ${mm[1]} (${e.code || e.message}).`); res.destroy(); });
+    rs.pipe(res);
     return true;
   }
 
@@ -1219,12 +1261,18 @@ function criarServidor(opcoes) {
       return querHtml(req) && !p.startsWith('/api/') ? H.paginaErro(res, 403, 'Pedido recusado', motivo) : H.erroJson(res, 403, motivo);
     }
 
+    // Marca (white label): rotas públicas, só GET/HEAD, sem sessão (o login precisa delas). Tudo vem validado de lib/marca.js.
+    if ((m === 'GET' || m === 'HEAD') && (p === '/marca.css' || p === '/manifest.webmanifest' || p.startsWith('/marca/'))) {
+      if (servirMarca(req, res, p)) return undefined;
+      return H.paginaErro(res, 404, 'Página não encontrada', 'Esse endereço não existe neste servidor.');
+    }
+
     if (p === '/login' && m === 'GET') {
       const ja = auth.sessaoDoPedido(req);
       if (ja) { res.writeHead(302, { Location: destinoDaSessao(ja, proximoSeguro(url.searchParams.get('next'))) }); return res.end(); }
       if (!servirArquivo(req, res, path.join(config.publicDir, 'login.html'), 'no-store')) {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-        res.end(LOGIN_RESERVA);
+        res.end(loginReserva(marca.html('{{MARCA_NOME}}')));
       }
       return undefined;
     }

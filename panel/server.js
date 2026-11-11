@@ -131,6 +131,17 @@ app.use(semParser(express.urlencoded({ extended: false })));
 // uma página de erro em inglês que ninguém no painel tinha como ler.
 app.use(semParser(express.json({ limit: '3mb' })));
 
+// Painel solto (sem o DG Claw Web na frente): as telas pedem os ícones, os tokens e a marca em /ds, /marca.css e /marca/*.
+// Atrás do Web (BASE preenchido) esses endereços são do Web, na raiz da mesma origem, e nada disto é montado.
+// A pasta vem do repositório (../web/public/ds): sem ela (instalação só do painel) os ícones simplesmente não aparecem.
+const DS_DIR = path.join(__dirname, '..', 'web', 'public', 'ds');
+if (!BASE && fs.existsSync(path.join(DS_DIR, 'icones.svg'))) {
+  app.use('/ds', express.static(DS_DIR, { index: false }));
+  app.get('/marca.css', (req, res) => res.type('text/css').send(''));
+  app.get('/marca/favicon', (req, res) => res.sendFile(path.join(DS_DIR, 'marca-padrao', 'favicon.png')));
+  app.get('/marca/icone-app', (req, res) => res.sendFile(path.join(DS_DIR, 'marca-padrao', 'icone-192.png')));
+}
+
 // Tudo daqui pra baixo vive dentro de um router, montado no prefixo BASE lá embaixo
 // (`app.use(BASE || '/', router)`). Com BASE vazio o router monta em "/" e nada muda
 // pra quem já acessa http://IP:8300/; com BASE preenchido, o Express tira o prefixo

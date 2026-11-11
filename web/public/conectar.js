@@ -84,7 +84,7 @@
 
   async function carrega() {
     if (window.DGPapel && window.DGPapel.colaborador) {
-      $('cnLista').replaceChildren(el('p', 'cn-fraco', 'O agente precisa entrar numa conta, e isso é só do dono do DG Claw. Avise o dono.'));
+      $('cnLista').replaceChildren(el('p', 'cn-fraco', 'O agente precisa entrar numa conta, e isso é só do dono do ' + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + '. Avise o dono.'));
       msgGeral('');
       return;
     }
@@ -142,7 +142,7 @@
     { alvo: '#cnPronto', titulo: 'Tudo pronto',
       oque: 'Aparece quando todos os agentes que usam assinatura estão conectados. Diz onde acessar o painel e o que você vai ver.',
       como: 'O endereço é o deste mesmo painel. O usuário vem da sua sessão e a senha é a mesma que você usou para entrar aqui; ela nunca aparece na tela.',
-      porque: 'Para você sair daqui sabendo o próximo passo e ver, em menos de 1 minuto, como o DG Claw funciona.' },
+      porque: 'Para você sair daqui sabendo o próximo passo e ver, em menos de 1 minuto, como o ' + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + ' funciona.' },
   ];
   function tutorial() { comTour([PASSOS.passos[0]].concat(PASSOS.agentes, PASSOS.pronto)); }
 

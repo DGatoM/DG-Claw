@@ -411,7 +411,7 @@
 
       caixa.innerHTML = `
         <div class="prov-j-topo"><h3 id="prov-j-titulo">Trocar o modelo do agente</h3>
-          <button type="button" class="prov-fechar" id="prov-j-x" aria-label="Fechar a janela" title="Fechar sem trocar nada.">×</button></div>
+          <button type="button" class="prov-fechar" id="prov-j-x" aria-label="Fechar a janela" title="Fechar sem trocar nada.">${dsIcone('x')}</button></div>
         <div class="prov-j-corpo">
           <fieldset><legend>Provedor</legend>${provs}</fieldset>
           <label class="prov-campo" for="prov-modelo" title="O modelo é o cérebro dentro do provedor. Os maiores pensam melhor e gastam mais; os menores respondem mais rápido.">Modelo</label>

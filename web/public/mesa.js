@@ -26,7 +26,7 @@
   /* { texto, classe } do selo. "parada?" só vale para fazendo. */
   function rotuloEstado(t) {
     const e = normEstado(t && t.estado);
-    if (e === 'concluida') return { texto: 'concluída ✓', classe: 'concluida' };
+    if (e === 'concluida') return { texto: 'concluída', classe: 'concluida' };
     if (e === 'cancelada') return { texto: 'cancelada', classe: 'cancelada' };
     if (e === ESTADO_DONO) return { texto: 'esperando você', classe: 'esperando' };
     if (e === 'travada') return { texto: 'travada', classe: 'travada' };
@@ -124,7 +124,7 @@
      o antes e o depois de cada campo) em mais de um desenho, sem quebrar se faltar algo. */
   function htmlHistorico(eventos) {
     if (eventos === 'erro') return '<p class="mz-vazio">Não consegui carregar o histórico. Feche e abra o cartão para tentar de novo.</p>';
-    if (!Array.isArray(eventos)) return '<p class="mz-vazio">Carregando o histórico...</p>';
+    if (!Array.isArray(eventos)) return '<p class="mz-vazio">' + dsCarregando({ rotulo: 'Carregando o histórico', tamanho: 'p' }) + ' Carregando o histórico…</p>';
     if (!eventos.length) return '<p class="mz-vazio">Ainda não há eventos registrados.</p>';
     return '<ol class="mz-eventos">' + eventos.map(e => {
       const quando = formataQuando(e.quando || e.em || e.data || e.criado_em || e.em_iso || e.epoch);
@@ -207,7 +207,7 @@
       : `<div class="mz-prog" data-tour-alvo="progresso"><div class="mz-barra" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${esc(Math.round(pct))}"` +
         `${origemProg ? ` title="${esc(origemProg)}"` : ''}><i style="width:${pct}%"></i></div><span class="mz-pnum">${esc(prog)}</span></div>`;
     if (passos.length) {
-      h += '<ul class="mz-passos">' + passos.map(p => `<li class="${p.feito ? 'feito' : ''}"><span aria-hidden="true">${p.feito ? '✓' : '○'}</span> ${esc(p.texto)}</li>`).join('') + '</ul>';
+      h += '<ul class="mz-passos">' + passos.map(p => `<li class="${p.feito ? 'feito' : ''}"><span aria-hidden="true">${dsIcone(p.feito ? 'check' : 'circle')}</span> ${esc(p.texto)}</li>`).join('') + '</ul>';
     }
     if (t.nota) h += `<p class="mz-nota">${esc(t.nota)}</p>`;
     if (t.origem) h += `<p class="mz-origem">${esc(t.origem)}</p>`;
@@ -476,7 +476,7 @@
 
   function renderContagem() {
     const c = E.contagem;
-    if (!c) { els.contagem.innerHTML = '<span class="mz-vazio">Carregando a mesa...</span>'; return; }
+    if (!c) { els.contagem.innerHTML = '<span class="mz-vazio">' + dsCarregando({ rotulo: 'Carregando a mesa', tamanho: 'p' }) + ' Carregando a mesa…</span>'; return; }
     const item = (n, rot, cl) => `<span class="mz-cont ${cl}${n ? ' tem' : ''}"><b>${esc(n)}</b> ${esc(rot)}</span>`;
     els.contagem.innerHTML = item(c.esperando_dono, 'esperando você', 'esperando') + item(c.travadas, 'travadas', 'travada') +
       item(c.paradas, 'paradas', 'parada') + item(c.abertas, 'abertas', 'abertas');

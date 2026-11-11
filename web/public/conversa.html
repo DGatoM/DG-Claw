@@ -1,15 +1,17 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="pt-BR" data-tema="{{MARCA_TEMA}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
-<title>Conversa - DG Claw</title>
+<title>Conversa - {{MARCA_NOME}}</title>
+<meta name="marca-nome" content="{{MARCA_NOME}}">
+<meta name="marca-logo-tem-nome" content="{{MARCA_LOGO_TEM_NOME}}">
 <link rel="manifest" href="/manifest.webmanifest">
-<meta name="theme-color" content="#2f9e5e">
+<meta name="theme-color" content="{{MARCA_COR_TEMA}}">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="DG Claw">
+<meta name="apple-mobile-web-app-title" content="{{MARCA_NOME}}">
 <script>
 /* App instalado (Tela de Início) ou navegador? Decidido antes da primeira
    pintura: no navegador a barra precisa ficar acima da barra do Safari; no app
@@ -19,8 +21,12 @@ if (navigator.standalone === true ||
   document.documentElement.classList.add('pwa');
 }
 </script>
-<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
-<link rel="icon" href="/icons/icon-192.png">
+<link rel="apple-touch-icon" href="/marca/icone-app">
+<link rel="icon" href="/marca/favicon">
+<link rel="stylesheet" href="/ds/tokens.css">
+<link rel="stylesheet" href="/ds/componentes.css">
+<link rel="stylesheet" href="/ds/carregando.css">
+<link rel="stylesheet" href="/marca.css">
 <link rel="stylesheet" href="/chat.css">
 <link rel="stylesheet" href="/conversa.css">
 <link rel="stylesheet" href="/login-expirado.css">
@@ -35,6 +41,9 @@ if (navigator.standalone === true ||
 <link rel="stylesheet" href="/foco-tela.css">
 <link rel="stylesheet" href="/sem-zoom.css">
 <link rel="stylesheet" href="/papel.css">
+<script src="/ds/marca.js"></script>
+<script src="/ds/icone.js"></script>
+<script src="/ds/carregando.js"></script>
 <script src="/sem-zoom.js"></script>
 <script src="/papel.js"></script>
 </head>
@@ -48,24 +57,24 @@ if (navigator.standalone === true ||
 </div>
 
 <header data-tour="header" id="cabecalho">
-  <button class="btn ghost" id="btnMenu" aria-label="Abrir o menu" data-tour="menu">☰</button>
+  <button class="btn ghost" id="btnMenu" aria-label="Abrir o menu" data-tour="menu"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-menu"/></svg></button>
   <div class="av" id="av" aria-hidden="true"></div>
   <div class="who" id="who" data-tour="titulo" role="button" tabindex="0" title="Mídias, links e arquivos desta conversa">
-    <b id="nomeAgente">DG Claw</b>
+    <b id="nomeAgente">{{MARCA_NOME}}</b>
     <span id="estado">conectando…</span>
   </div>
   <button class="btn" id="btnTutorial" type="button" title="Visita guiada desta tela: o que é cada parte e por que está aqui">Tutorial</button>
   <div class="ferr" id="ferr">
     <div class="tools" id="tools" role="toolbar" aria-label="Ferramentas da conversa">
-      <a id="btnMesa" class="btn" href="/mesa" data-tour="btn-mesa" title="Abrir a Mesa de tarefas" aria-label="Abrir a Mesa de tarefas">📋 <span class="lbl">Mesa</span></a>
-      <a id="btnSessoes" class="btn" href="#" hidden data-tour="btn-sessoes" title="Sessões de trabalho deste agente" aria-label="Abrir as Sessões deste agente">🖥 <span class="lbl">Sessões</span></a>
-      <a id="btnAnon" class="btn" href="/anonimizar" hidden data-tour="btn-anon" title="Documentos anonimizados: abrir a tela de Anonimizar" aria-label="Documentos anonimizados">🕶 <span class="lbl">Documentos anonimizados</span></a>
-      <a id="btnLembretes" class="btn" href="/lembretes" data-tour="btn-lembretes" title="Abrir os lembretes" aria-label="Abrir os lembretes">⏰ <span class="lbl">Lembretes</span></a>
-      <button id="btnNaoLida" class="btn" type="button" data-tour="btn-nao-lida" title="Marcar esta conversa como não lida e voltar à lista de agentes" aria-label="Marcar esta conversa como não lida">✉ <span class="lbl">não lida</span></button>
-      <button id="btnLer" class="btn" title="Ler as respostas em voz alta" data-tour="ler">🔊 <span class="lbl">ler</span></button>
+      <a id="btnMesa" class="btn" href="/mesa" data-tour="btn-mesa" title="Abrir a Mesa de tarefas" aria-label="Abrir a Mesa de tarefas"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-board"/></svg> <span class="lbl">Mesa</span></a>
+      <a id="btnSessoes" class="btn" href="#" hidden data-tour="btn-sessoes" title="Sessões de trabalho deste agente" aria-label="Abrir as Sessões deste agente"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-monitor"/></svg> <span class="lbl">Sessões</span></a>
+      <a id="btnAnon" class="btn" href="/anonimizar" hidden data-tour="btn-anon" title="Documentos anonimizados: abrir a tela de Anonimizar" aria-label="Documentos anonimizados"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-glasses"/></svg> <span class="lbl">Documentos anonimizados</span></a>
+      <a id="btnLembretes" class="btn" href="/lembretes" data-tour="btn-lembretes" title="Abrir os lembretes" aria-label="Abrir os lembretes"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-clock"/></svg> <span class="lbl">Lembretes</span></a>
+      <button id="btnNaoLida" class="btn" type="button" data-tour="btn-nao-lida" title="Marcar esta conversa como não lida e voltar à lista de agentes" aria-label="Marcar esta conversa como não lida"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-mail"/></svg> <span class="lbl">não lida</span></button>
+      <button id="btnLer" class="btn" title="Ler as respostas em voz alta" data-tour="ler"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-volume"/></svg> <span class="lbl">ler</span></button>
       <button id="btnContinua" class="btn" type="button" aria-pressed="false"
               aria-label="Conversa contínua: desligada"
-              title="Conversa contínua: ao terminar de tocar a resposta, grava de novo">🔁 <span class="lbl">contínua</span></button>
+              title="Conversa contínua: ao terminar de tocar a resposta, grava de novo"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-repeat"/></svg> <span class="lbl">contínua</span></button>
       <button id="btnParar" class="btn" type="button" style="display:none">parar</button>
     </div>
     <i class="ferr-sombra esq" id="ferrEsq" aria-hidden="true"></i>
@@ -86,10 +95,10 @@ if (navigator.standalone === true ||
   <button id="alertasAjuda" type="button" aria-label="Tutorial dos alertas" title="Como funcionam os alertas de entrega e pedido">?</button>
 </aside>
 <button id="btnFim" class="seta-fim" aria-label="Ir para a mensagem mais nova"
-        title="Ir para a mensagem mais nova" hidden>↓<span
+        title="Ir para a mensagem mais nova" hidden><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-arrow-down"/></svg><span
         id="fimNovas" class="fimnovas" hidden></span></button>
 
-<div id="faixaReinicio" role="status" aria-live="polite" hidden><span class="rico" aria-hidden="true">↻</span><span class="rtxt"></span></div>
+<div id="faixaReinicio" role="status" aria-live="polite" hidden><span class="rico" aria-hidden="true"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-refresh"/></svg></span><span class="rtxt"></span></div>
 <dialog id="dlgReinicio" aria-labelledby="dlgReinicioTit" aria-describedby="dlgReinicioTxt">
   <h2 id="dlgReinicioTit">Reiniciar a sessão?</h2>
   <p id="dlgReinicioTxt">Isto reinicia o processo do agente quando ele travar. A conversa continua de onde estava.</p>
@@ -124,9 +133,9 @@ if (navigator.standalone === true ||
   </div>
 </dialog>
 <div class="faixa" id="faixaErro"><span class="txt"></span>
-  <button class="x" aria-label="Fechar aviso">✕</button></div>
+  <button class="x" aria-label="Fechar aviso"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-x"/></svg></button></div>
 <div class="faixa" id="faixaAviso"><span class="txt"></span>
-  <button class="x" aria-label="Fechar aviso">✕</button></div>
+  <button class="x" aria-label="Fechar aviso"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-x"/></svg></button></div>
 <div class="faixa" id="faixaAudio" aria-live="polite"><span class="txt"></span></div>
 
 <div id="atividade" hidden data-tour="atividade"><span class="atv-pts" aria-hidden="true"><i></i><i></i><i></i></span><span class="atv-txt"><span class="atv-nome"></span><span class="atv-sep"> · </span><span class="atv-acao"></span></span></div>
@@ -136,12 +145,12 @@ if (navigator.standalone === true ||
   <div id="avisoAdmin" hidden>Comandos como <code>/compact</code> e <code>/clear</code> funcionam aqui.</div>
   <div class="linha1">
     <button id="btnAnexo" aria-label="Anexar fotos, vídeos, áudios ou PDFs"
-            title="Anexar fotos, vídeos, áudios ou PDFs (vários de uma vez)" data-tour="anexo">📎</button>
+            title="Anexar fotos, vídeos, áudios ou PDFs (vários de uma vez)" data-tour="anexo"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-paperclip"/></svg></button>
     <input type="file" id="arquivo" multiple>
     <div class="campo" data-tour="campo"><textarea id="entrada" rows="1" placeholder="Escrever mensagem"
               autocomplete="off" enterkeyhint="send"></textarea><span id="micTxt" aria-live="polite"></span></div>
-    <button id="btnMic" aria-label="Gravar áudio" data-tour="mic">🎤</button>
-    <button id="btnEnviar" aria-label="Enviar">➤</button>
+    <button id="btnMic" aria-label="Gravar áudio" data-tour="mic"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-mic"/></svg></button>
+    <button id="btnEnviar" aria-label="Enviar"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-send"/></svg></button>
   </div>
   <!-- celular: fileira das agentes no lugar do respiro em branco do rodapé; o conversa.js preenche -->
   <nav id="trocaBaixo" class="troca-baixo" aria-label="Trocar de agente" data-tour="troca-baixo"></nav>
@@ -153,13 +162,13 @@ if (navigator.standalone === true ||
   <div class="lbtopo">
     <span class="lbnome" id="lbNome"></span>
     <a id="lbBaixar" href="#" download>baixar</a>
-    <button id="lbFechar" aria-label="Fechar">✕</button>
+    <button id="lbFechar" aria-label="Fechar"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-x"/></svg></button>
   </div>
   <div class="lbcorpo" id="lbCorpo"></div>
 </div>
 
 <section id="acervoPainel" aria-label="Mídias, links e arquivos" hidden>
-  <header><b>Compartilhados</b><button id="acervoAjuda" title="Tutorial dos compartilhados" aria-label="Tutorial dos compartilhados">?</button><button id="acervoFechar" aria-label="Fechar compartilhados">✕</button></header>
+  <header><b>Compartilhados</b><button id="acervoAjuda" title="Tutorial dos compartilhados" aria-label="Tutorial dos compartilhados">?</button><button id="acervoFechar" aria-label="Fechar compartilhados"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-x"/></svg></button></header>
   <nav role="tablist" aria-label="Tipo de item"><button data-aba="midias" role="tab" aria-selected="true">Mídias</button><button data-aba="links" role="tab" aria-selected="false">Links</button><button data-aba="docs" role="tab" aria-selected="false">Arquivos</button></nav>
   <p id="acervoEstado" role="status"></p><div id="acervoLista" data-tour="acervo"></div>
 </section>

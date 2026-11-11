@@ -1,5 +1,6 @@
 'use strict';
 // Faixa de nova versão: funções puras (fora do DOM), escape do texto vindo do GitHub e ligação nas telas.
+require('./_ds-stub');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -47,7 +48,7 @@ test('texto vindo do GitHub sai escapado: <img onerror> nunca vira tag', () => {
   }));
   assert.doesNotMatch(h, /<img/i);
   assert.doesNotMatch(h, /<script/i);
-  assert.doesNotMatch(h, /<svg/i);
+  assert.doesNotMatch(h.replace(dsIcone('sparkle'), ''), /<svg/i); // só o ícone do próprio faixa é permitido
   assert.ok(h.includes('&lt;img src=x onerror=alert(1)&gt;'));
   assert.ok(h.includes('&quot;&gt;&lt;script&gt;alert(2)&lt;/script&gt;'));
   assert.ok(h.includes('&lt;/b&gt;&lt;svg onload=alert(3)&gt;'));

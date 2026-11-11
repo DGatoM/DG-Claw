@@ -284,7 +284,7 @@
       <li class="arq-linha">
         <button type="button" class="arq-linha-nome" data-pasta="${esc(p.nome)}"
                 title="Abrir a pasta ${esc(p.nome)}.">
-          <span class="arq-ico" aria-hidden="true">▤</span>
+          <span class="arq-ico" aria-hidden="true">${dsIcone('folder')}</span>
           <span class="arq-nome">${esc(p.nome)}</span>
         </button>
         <span class="arq-meta" title="Quando alguma coisa dentro desta pasta mudou pela última vez.">${esc(quando(p.em))}</span>
@@ -329,7 +329,7 @@
   /**
    * O quadradinho à esquerda do nome. Imagem vira a PRÓPRIA imagem.
    *
-   * Numa pasta de assets, o ícone `▩` responde "isto é uma imagem", que é a
+   * Numa pasta de assets, o ícone de imagem responde "isto é uma imagem", que é a
    * única coisa que a pessoa já sabia: ela acabou de ler o nome do arquivo. O
    * que ela quer é ver QUAL imagem, e para isso tinha que abrir uma por uma.
    *
@@ -340,13 +340,13 @@
    * achar que o painel falhou, quando quem está errado é o arquivo.
    */
   function miniatura(a, rel) {
-    const icone = a.tipo === 'video' ? '▷' : a.tipo === 'audio' ? '∿' : '▢';
+    const icone = dsIcone(a.tipo === 'video' ? 'video' : a.tipo === 'audio' ? 'volume' : 'file');
     if (a.tipo !== 'imagem') {
       return `<span class="arq-ico" aria-hidden="true">${icone}</span>`;
     }
     return `<span class="arq-ico arq-ico-img" aria-hidden="true">` +
       `<img src="${esc(urlBaixar(rel))}" alt="" loading="lazy" decoding="async"` +
-      ` onerror="this.parentNode.textContent='▩'"></span>`;
+      ` data-reserva="${esc(dsIcone('image'))}" onerror="this.parentNode.innerHTML=this.dataset.reserva"></span>`;
   }
 
   function ligarLista() {

@@ -222,6 +222,31 @@ caso_reinstalar_preserva_chaves_do_web_env() {
     limpar_cenario
 }
 
+caso_marca_pasta_nasce_vazia_e_arquivos_alheios_sobrevivem_a_reinstalar() {
+    novo_cenario
+    afirma "primeira rodada" instalacao_basica
+    local m="$RAIZ/etc/dgclaw/marca"
+    afirma "a pasta da marca foi criada" test -d "$m"
+    afirma "a pasta da marca nasce legivel (755)" modo_e "$m" 755
+    printf '{"nome": "Acme Bot"}\n' >"$m/marca.json"
+    printf 'logo-da-pessoa\n' >"$m/logo.svg"
+    chmod 700 "$m"
+    afirma "segunda rodada (reinstalar/atualizar)" instalar "" --usuario maria --provedor claude
+    afirma "o marca.json continua igual" grep -qx '{"nome": "Acme Bot"}' "$m/marca.json"
+    afirma "o logo da pessoa continua" grep -qx 'logo-da-pessoa' "$m/logo.svg"
+    afirma "o modo que a pessoa escolheu para a pasta nao foi mexido" modo_e "$m" 700
+    limpar_cenario
+}
+
+caso_marca_pasta_que_ja_existe_nao_e_recriada() {
+    novo_cenario
+    mkdir -p "$RAIZ/etc/dgclaw/marca"
+    printf 'alheio\n' >"$RAIZ/etc/dgclaw/marca/arquivo-alheio.txt"
+    afirma "instalacao com a pasta ja existente" instalacao_basica
+    afirma "o arquivo alheio sobreviveu" grep -qx 'alheio' "$RAIZ/etc/dgclaw/marca/arquivo-alheio.txt"
+    limpar_cenario
+}
+
 caso_senha_nova_troca_o_hash() {
     novo_cenario
     afirma "primeira rodada" instalacao_basica

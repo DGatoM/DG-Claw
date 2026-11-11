@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+require('./_ds-stub');
 const { subirWeb } = require('./ajuda');
 const { criarRunnerFalso } = require('./runner-falso');
 const { loja } = require('../lib/onboarding');

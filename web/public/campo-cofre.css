@@ -9,7 +9,7 @@
   border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--txt);font-family:inherit}
 .dgc-valor:focus{outline:none;border-color:var(--accent)}
 .dgc-salvar,.dgc-cancelar,.dgc-olho{flex:0 0 auto;min-height:44px;min-width:44px;padding:0 14px;border:0;border-radius:8px;
-  background:var(--accent);color:#fff;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit}
+  background:var(--botao-fundo);color:var(--botao-texto);font-size:14px;font-weight:600;cursor:pointer;font-family:inherit}
 .dgc-cancelar,.dgc-olho{background:transparent;color:var(--txt);border:1px solid var(--line)!important;font-weight:500}
 .dgc-olho{padding:0 10px;font-size:18px}
 .dgc-olho[aria-pressed="true"]{border-color:var(--accent)!important}

@@ -762,6 +762,9 @@ instalar_codigo() {
     [[ "$VERSAO" =~ ^[0-9A-Za-z._+-]+$ ]] || falha "a versao '$VERSAO' (arquivo VERSION ou plugin.json) tem caracteres estranhos." "corrija o arquivo VERSION (ou o campo version em .claude-plugin/plugin.json)."
 
     criar_pasta 755 "$DG_ETC"
+    # Marca (white label): o Web lê o marca.json, o logo e as fontes daqui. A pasta só é criada quando falta: reinstalar ou
+    # atualizar nunca a recria, esvazia nem muda o modo, porque o que há dentro é da pessoa. O Web (root) só lê.
+    [ -d "$DG_ETC/marca" ] || criar_pasta 755 "$DG_ETC/marca"
     criar_pasta 755 "$DG_OPT"
     criar_pasta 755 "$DG_APP"
     guardar_app_alterado

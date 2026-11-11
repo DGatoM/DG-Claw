@@ -1,12 +1,19 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="pt-BR" data-tema="{{MARCA_TEMA}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>Quadro de avisos - DG Claw</title>
+<title>Quadro de avisos - {{MARCA_NOME}}</title>
+<meta name="marca-nome" content="{{MARCA_NOME}}">
+<meta name="marca-logo-tem-nome" content="{{MARCA_LOGO_TEM_NOME}}">
 <link rel="manifest" href="/manifest.webmanifest">
-<meta name="theme-color" content="#2f9e5e">
-<link rel="icon" href="/icons/icon-192.png">
+<meta name="theme-color" content="{{MARCA_COR_TEMA}}">
+<link rel="apple-touch-icon" href="/marca/icone-app">
+<link rel="icon" href="/marca/favicon">
+<link rel="stylesheet" href="/ds/tokens.css">
+<link rel="stylesheet" href="/ds/componentes.css">
+<link rel="stylesheet" href="/ds/carregando.css">
+<link rel="stylesheet" href="/marca.css">
 <link rel="stylesheet" href="/avisos.css">
 <link rel="stylesheet" href="/casca.css">
 <link rel="stylesheet" href="/menu-lado.css">
@@ -16,6 +23,9 @@
   body .av-cab{display:none}
 </style>
 <link rel="stylesheet" href="/sem-zoom.css">
+<script src="/ds/marca.js"></script>
+<script src="/ds/icone.js"></script>
+<script src="/ds/carregando.js"></script>
 <script src="/sem-zoom.js"></script>
 </head>
 <body>

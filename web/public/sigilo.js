@@ -1,5 +1,5 @@
 'use strict';
-/* sigilo.js: o modo escondido (olhinho 👁) da conversa. Esconde nomes, valores e contatos para
+/* sigilo.js: o modo escondido (botão do olho) da conversa. Esconde nomes, valores e contatos para
    mostrar a tela numa aula sem expor cliente. Contrato do servidor: web/docs/SIGILO.md.
 
    Duas partes no mesmo arquivo:
@@ -11,7 +11,7 @@
       revelar.
 
    Falha fechada: com o modo ligado, uma mensagem que o JS ainda não viu fica invisível por CSS
-   (sigilo.css), e uma vista mas ainda não analisada pelo modelo mostra "🔒 escondendo…". O texto
+   (sigilo.css), e uma vista mas ainda não analisada pelo modelo mostra "escondendo…". O texto
    cru nunca é pintado. O estado fica no aparelho (localStorage), então recarregar a página no meio
    da aula não mostra nada cru. */
 (function (raiz, fabrica) {
@@ -262,7 +262,7 @@
       if (atual) return;
       const b = doc.createElement('button');
       b.type = 'button'; b.className = 'sigx'; b.setAttribute('data-sigx', '');
-      b.textContent = '🙈 esconder de novo';
+      b.textContent = 'Esconder de novo';
       (u.querySelector('.bub') || u).appendChild(b);
     }
 
@@ -508,7 +508,7 @@
       btn.title = 'Modo escondido: esconde nomes, valores e contatos para mostrar a tela';
       btn.setAttribute('aria-label', btn.title);
       btn.setAttribute('aria-pressed', 'false');
-      btn.innerHTML = '👁 <span class="lbl">mostrando</span>';
+      btn.innerHTML = '<svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-eye"/></svg> <span class="lbl">mostrando</span>';
       if (tools) tools.insertBefore(btn, doc.getElementById('btnLer') || (doc.getElementById('btnLembretes') || {}).nextSibling || tools.firstChild); else (doc.getElementById('cabecalho') || corpo).appendChild(btn);
       btn.addEventListener('click', () => liga(!ligado));
       criaAviso();
@@ -534,7 +534,7 @@
           : (caps.so_regex === true ? 'Agora só o filtro automático está ligado (falta chave de modelo): nomes de pessoas e empresas passam.' : 'Ligue o modo para ver qual modelo está ativo.');
         return {
           alvo: '#btnSigilo', titulo: 'Modo escondido (olhinho)',
-          oque: 'O botão 👁 esconde nomes, empresas, valores, e-mails, telefones, documentos e chaves de todas as mensagens da tela, trocando por asteriscos.',
+          oque: 'O botão do olho esconde nomes, empresas, valores, e-mails, telefones, documentos e chaves de todas as mensagens da tela, trocando por asteriscos.',
           como: 'Um filtro automático pega e-mail, valor, CPF, CNPJ, telefone e chave na hora. Um modelo de IA aponta o resto (nomes e empresas) e o mesmo nome some em todas as mensagens. ' + modelo + ' Toque num texto escondido para mostrar só aquela mensagem, e em "esconder de novo" para voltar. Fotos e vídeos ficam borrados. Enquanto uma mensagem não foi analisada, aparece "escondendo…" em vez do texto.',
           porque: 'Para mostrar a tela numa aula ou palestra sem expor cliente nem dado pessoal. É uma defesa, não uma garantia: confira a tela antes de gravar.',
         };

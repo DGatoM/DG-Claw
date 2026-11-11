@@ -38,7 +38,7 @@
   border: 1px solid var(--border, #2a2e35); border-radius: 999px;
   background: transparent; color: inherit; cursor: pointer; font-size: 13px;
 }
-.app-chip.ativo { border-color: var(--accent, #4a9eff); color: var(--accent, #4a9eff); }
+.app-chip.ativo { border-color: var(--acento1); color: var(--acento-texto); }
 .app-chip .ico { opacity: .8; }
 
 .app-cabeca { margin-bottom: 16px; }
@@ -85,7 +85,7 @@
   background: transparent; color: inherit; cursor: pointer;
   font: inherit; transition: border-color .15s ease;
 }
-.app-etapa:hover { border-color: var(--accent, #4a9eff); }
+.app-etapa:hover { border-color: var(--acento1); }
 .app-etapa-topo { display: flex; align-items: center; gap: 7px; }
 .app-etapa-nome { font-size: 13px; font-weight: 600; }
 .app-etapa-status { font-size: 11px; color: var(--muted, #8a8f98); margin-left: auto; white-space: nowrap; }
@@ -99,7 +99,7 @@
 .app-bolinha { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; background: var(--border, #2a2e35); }
 .st-pendente .app-bolinha { background: transparent; border: 1px solid var(--border, #4a4f57); }
 .st-em_producao .app-bolinha { background: #e0a458; }
-.st-aguardando_aprovacao .app-bolinha { background: #4a9eff; }
+.st-aguardando_aprovacao .app-bolinha { background: var(--acento1); }
 .st-concluido .app-bolinha { background: #46b96a; }
 .st-reprovado .app-bolinha { background: #d9534f; }
 .st-nao_aplicavel .app-bolinha { background: transparent; border: 1px dashed var(--border, #4a4f57); }
@@ -128,7 +128,7 @@
   background: transparent; color: inherit; cursor: pointer;
   font: inherit; font-size: 12px; padding: 3px 9px; margin-right: 4px;
 }
-.app-extra:hover { border-color: var(--accent, #4a9eff); }
+.app-extra:hover { border-color: var(--acento1); }
 .app-extra-corpo { margin-top: 12px; }
 
 /* ─── O material da etapa de assets ─────────────────────────── */
@@ -160,7 +160,7 @@
   border: 1px solid var(--linha, #2a2e35); background: var(--fundo2, rgba(255, 255, 255, .03));
 }
 .app-asset-mini img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.app-asset-mini:hover .app-asset-mini-quadro { border-color: var(--acento1, #4a9eff); }
+.app-asset-mini:hover .app-asset-mini-quadro { border-color: var(--acento1); }
 .app-asset-mini-nome {
   font-size: 11.5px; line-height: 1.35; word-break: break-word;
   /* Duas linhas e reticencias: nome de arquivo do agente passa dos 60 caracteres
@@ -176,14 +176,14 @@
   background: transparent; border: 0; color: inherit; font: inherit; cursor: pointer;
   padding: 0; min-height: 32px; text-align: left;
 }
-.app-asset-linha:hover .app-asset-nome { color: var(--acento1, #4a9eff); }
+.app-asset-linha:hover .app-asset-nome { color: var(--acento-texto); }
 .app-asset-nome { min-width: 0; overflow-wrap: anywhere; font-size: 12.5px; }
 .app-asset-baixar {
   flex-shrink: 0; font-size: 11.5px; color: var(--muted, #8a8f98); text-decoration: none;
   border: 1px solid var(--linha, #2a2e35); border-radius: 7px; padding: 5px 10px; line-height: 1;
   display: inline-flex; align-items: center; min-height: 32px;
 }
-.app-asset-baixar:hover { border-color: var(--acento1, #4a9eff); color: var(--acento1, #4a9eff); }
+.app-asset-baixar:hover { border-color: var(--acento1); color: var(--acento-texto); }
 .app-assets-lista li {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   padding: 6px 0; font-size: 13px; border-bottom: 1px solid var(--border, #2a2e35);
@@ -228,7 +228,7 @@
   padding: 10px 12px; border-radius: 6px; overflow-x: auto;
   background: var(--card, rgba(255, 255, 255, .06));
 }
-.app-markdown a { color: var(--accent, #4a9eff); }
+.app-markdown a { color: var(--acento-texto); }
 
 /* ── Tabela vinda do markdown ────────────────────────────────────────────
  * O catalogo de assets e uma tabela. A caixa de fora e quem rola na
@@ -262,14 +262,14 @@
   color: inherit; font: inherit; font-size: 12px; padding: 4px 11px; border-radius: 999px;
   min-height: 32px;
 }
-.app-tutorial-abrir:hover { border-color: var(--accent, #4a9eff); color: var(--accent, #4a9eff); }
+.app-tutorial-abrir:hover { border-color: var(--acento1); color: var(--acento-texto); }
 
 .app-ajuda-secao {
   border: 1px solid var(--border, #2a2e35); background: transparent; cursor: pointer;
   color: var(--muted, #8a8f98); font: inherit; font-size: 12px; line-height: 1;
   width: 32px; height: 32px; min-width: 32px; border-radius: 50%; padding: 0;
 }
-.app-ajuda-secao:hover { border-color: var(--accent, #4a9eff); color: var(--accent, #4a9eff); }
+.app-ajuda-secao:hover { border-color: var(--acento1); color: var(--acento-texto); }
 
 /* O fundo e transparente quando existe holofote: quem apaga a tela e a sombra
  * de 9999px em volta do alvo. No passo que fala da tela inteira nao ha alvo, e
@@ -279,13 +279,13 @@
 .app-tut-holofote {
   position: fixed; border-radius: 10px; pointer-events: none;
   box-shadow: 0 0 0 9999px rgba(0, 0, 0, .72);
-  outline: 2px solid var(--accent, #4a9eff); outline-offset: 0;
+  outline: 2px solid var(--acento1); outline-offset: 0;
   transition: top .18s ease, left .18s ease, width .18s ease, height .18s ease;
 }
 .app-tut-balao {
   position: fixed; width: min(340px, calc(100vw - 20px)); box-sizing: border-box;
   background: var(--bg, #14171c); color: inherit;
-  border: 1px solid var(--accent, #4a9eff); border-radius: 10px;
+  border: 1px solid var(--acento1); border-radius: 10px;
   padding: 14px 16px 12px; box-shadow: 0 12px 34px rgba(0, 0, 0, .5); z-index: 901;
   /* Texto longo rola; a fileira de botões (com o Pular) nunca sai da caixa. */
   max-height: 70dvh; overflow-y: auto;
@@ -307,7 +307,7 @@
   border-radius: 7px; border: 1px solid var(--border, #2a2e35);
   background: transparent; color: inherit;
 }
-.app-tut-botoes .app-tut-proximo { border-color: var(--accent, #4a9eff); color: var(--accent, #4a9eff); }
+.app-tut-botoes .app-tut-proximo { border-color: var(--acento1); color: var(--acento-texto); }
 .app-tut-botoes button[disabled] { opacity: .4; cursor: default; }
 .app-tut-x {
   position: absolute; top: 7px; right: 9px; background: transparent; border: 0;
@@ -360,9 +360,9 @@
   font: inherit; font-size: 12.5px;
   padding: 5px 12px; min-height: 32px;
   background: transparent; color: var(--texto, inherit);
-  border: 1px solid var(--accent, #4a9eff); border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--acento1); border-radius: 8px; cursor: pointer;
 }
-.app-compartilhar:hover:not(:disabled) { color: var(--accent, #4a9eff); }
+.app-compartilhar:hover:not(:disabled) { color: var(--acento-texto); }
 .app-compartilhar:disabled { opacity: .55; cursor: progress; }
 
 .app-compartilhar-saida:empty { display: none; }
@@ -385,6 +385,6 @@
   border: 1px solid var(--linha); border-radius: 8px;
   background: transparent; color: inherit; cursor: pointer; text-decoration: none;
 }
-.app-btn-copiar:hover, .app-btn-abrir:hover { border-color: var(--accent, #4a9eff); color: var(--accent, #4a9eff); }
+.app-btn-copiar:hover, .app-btn-abrir:hover { border-color: var(--acento1); color: var(--acento-texto); }
 .app-compartilhar-nota { margin: 10px 0 0; font-size: 12px; line-height: 1.5; color: var(--fraco); }
 .app-compartilhar-como { margin-top: 8px; font-size: 12.5px; line-height: 1.5; color: var(--fraco); }

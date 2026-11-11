@@ -10,7 +10,7 @@
 
 :root{
   --raio:14px;
-  --acento1:#4f46e5; --acento2:#8b5cf6;
+  --acento1:var(--cor-acento); --acento2:var(--cor-acento); --acento-texto:var(--cor-link);
   --bg:#f6f7fb; --painel:#ffffff; --fundo2:#f0f2f8; --linha:#e6e8f0;
   --texto:#1a1c25; --fraco:#6b7185;
   --sombra:0 1px 2px rgba(16,20,40,.04), 0 8px 24px rgba(16,20,40,.06);
@@ -34,6 +34,7 @@ html[data-tema="escuro"]{
 }
 @media (prefers-color-scheme:dark){
   html:not([data-tema="claro"]){
+    --acento-texto:#5CCBFF; /* mesmo azul claro do --cor-link do tema escuro, que só vale com data-tema="escuro" */
     --bg:#0e1017; --painel:#161923; --fundo2:#1c2030; --linha:#262b3a;
     --texto:#e9ebf2; --fraco:#9aa1b5;
     --sombra:0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
@@ -102,7 +103,7 @@ button,input,select{font:inherit;color:inherit}
 .tab{display:flex;align-items:center;gap:10px;padding:9px 10px;border:0;border-radius:10px;background:none;
      font-size:14px;color:var(--fraco);cursor:pointer;text-align:left;width:100%}
 .tab:hover{background:var(--fundo2);color:var(--texto)}
-.tab.active{background:linear-gradient(135deg,var(--acento1),var(--acento2));color:#fff;box-shadow:var(--sombra)}
+.tab.active{background:var(--botao-fundo);color:var(--botao-texto);box-shadow:var(--sombra)}
 .tab .ico{width:18px;text-align:center;opacity:.9;flex-shrink:0}
 .tab.locked{opacity:.5;cursor:not-allowed}
 
@@ -134,7 +135,7 @@ button,input,select{font:inherit;color:inherit}
   background:transparent;border:1px solid var(--linha);color:var(--fraco);
   border-radius:8px;padding:0 10px;min-height:28px;flex-shrink:0;
 }
-.btn-tutorial-aba:hover{border-color:var(--acento1);color:var(--acento1)}
+.btn-tutorial-aba:hover{border-color:var(--acento1);color:var(--acento-texto)}
 .header-status{display:flex;gap:8px;flex-wrap:wrap}
 .selo{display:inline-flex;align-items:center;gap:7px;background:var(--painel);border:1px solid var(--linha);
       border-radius:999px;padding:5px 12px;font-size:12.5px;box-shadow:var(--sombra);color:var(--fraco)}
@@ -210,7 +211,7 @@ button,input,select{font:inherit;color:inherit}
   color:var(--fraco);font-weight:600;padding:0 10px 9px}
 .pixel-table td{padding:10px;border-top:1px solid var(--linha);vertical-align:top}
 .pixel-table tr:hover td{background:var(--fundo2)}
-.pixel-table a{color:var(--acento1);text-decoration:none}
+.pixel-table a{color:var(--acento-texto);text-decoration:none}
 .pixel-table a:hover{text-decoration:underline}
 
 .linha-filtro{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:12px;font-size:13px;color:var(--fraco)}
@@ -277,8 +278,8 @@ button,input,select{font:inherit;color:inherit}
 .rotina-topo{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .rotina-nome{font-size:13.5px;font-weight:600;min-width:0}
 /* agenda longa ("em 13-17/10, às 00:00, 05:00, ...") quebra dentro do cartão em vez de vazar no celular */
-.rotina-quando{font-size:12.5px;color:var(--acento1);white-space:normal;overflow-wrap:anywhere;min-width:0}
-html[data-tema="escuro"] .rotina-quando{color:var(--acento2)}
+.rotina-quando{font-size:12.5px;color:var(--acento-texto);white-space:normal;overflow-wrap:anywhere;min-width:0}
+html[data-tema="escuro"] .rotina-quando{color:var(--acento-texto)}
 .rotina-recado{font-size:12.5px;color:var(--fraco);margin-top:5px;font-style:italic}
 .rotina-desc{font-size:12.5px;color:var(--fraco);margin-top:5px}
 .rotina-pe{font-size:11.5px;color:var(--fraco);margin-top:5px;font-variant-numeric:tabular-nums}
@@ -368,8 +369,8 @@ html[data-tema="escuro"] .rotina-quando{color:var(--acento2)}
 
 .bolha{max-width:min(78%,62ch);padding:10px 14px;border-radius:16px;font-size:14.5px;
   line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere;box-shadow:var(--sombra)}
-.bolha.de-voce{align-self:flex-end;border-bottom-right-radius:5px;color:#fff;
-  background:linear-gradient(135deg,var(--acento1),var(--acento2))}
+.bolha.de-voce{align-self:flex-end;border-bottom-right-radius:5px;color:var(--botao-texto);
+  background:var(--botao-fundo)}
 .bolha.de-agente{align-self:flex-start;border-bottom-left-radius:5px;
   background:var(--painel);border:1px solid var(--linha)}
 /* Falou por conta propria: puxado por uma rotina, nao e resposta a voce. Sem esta
@@ -400,8 +401,8 @@ html[data-tema="escuro"] .rotina-quando{color:var(--acento2)}
  * aparecem juntos), mas pintado de acento: parar é freio, acordar é a única coisa que
  * a dona do agente pode fazer quando a sessão caiu. */
 .btn-reativar{margin-left:auto;cursor:pointer;border:0;border-radius:999px;padding:5px 16px;
-  font-size:12px;color:#fff;min-height:32px;box-shadow:var(--sombra);
-  background:linear-gradient(135deg,var(--acento1),var(--acento2))}
+  font-size:12px;color:var(--botao-texto);min-height:32px;box-shadow:var(--sombra);
+  background:var(--botao-fundo)}
 .btn-reativar[disabled]{opacity:.55;cursor:default}
 
 .conversa-escrever{display:flex;align-items:flex-end;gap:8px;background:var(--painel);
@@ -409,8 +410,8 @@ html[data-tema="escuro"] .rotina-quando{color:var(--acento2)}
 .conversa-escrever textarea{flex:1;border:0;background:none;outline:none;resize:none;
   font-size:15px;line-height:1.5;max-height:9em;padding:6px 0;color:var(--texto)}
 .btn-enviar{cursor:pointer;border:0;border-radius:50%;width:38px;height:38px;flex-shrink:0;
-  display:grid;place-items:center;font-size:17px;color:#fff;
-  background:linear-gradient(135deg,var(--acento1),var(--acento2))}
+  display:grid;place-items:center;font-size:17px;color:var(--botao-texto);
+  background:var(--botao-fundo)}
 .btn-enviar[disabled]{opacity:.45;cursor:default}
 
 /* ─── ditado por voz ──────────────────────────────────────────────────────
@@ -611,16 +612,16 @@ body.menu-aberto .veu{opacity:1;visibility:visible}
 .rt li{margin:0 0 4px}
 .rt li:last-child{margin-bottom:0}
 .rt h3,.rt h4,.rt h5,.rt h6{margin:0 0 6px;font-size:1em}
-.rt-titulo{font-weight:700;color:var(--acento1);margin-bottom:6px;letter-spacing:.01em}
-html[data-tema="escuro"] .rt-titulo{color:var(--acento2)}
+.rt-titulo{font-weight:700;color:var(--acento-texto);margin-bottom:6px;letter-spacing:.01em}
+html[data-tema="escuro"] .rt-titulo{color:var(--acento-texto)}
 .rt code,.rt-linha code,.thought-box code,.lingering-item code,.rotina code,.op-position code,.goal-item code{
   background:var(--fundo2);border-radius:5px;padding:1px 5px;font-size:.92em;
   overflow-wrap:anywhere;word-break:break-word;white-space:pre-wrap}
 .rt a,.thought-box a,.lingering-item a,.rotina a,.op-position a,.goal-item a,.bolha a{overflow-wrap:anywhere;word-break:break-word}
 .rt pre.app-code{white-space:pre-wrap;overflow-wrap:anywhere;max-width:100%}
 .rt-mais{display:inline-block;margin-top:6px;padding:2px 0;min-height:32px;background:none;border:0;
-  color:var(--acento1);font:inherit;font-size:12.5px;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
-.rt-mais:hover{color:var(--acento2)}
+  color:var(--acento-texto);font:inherit;font-size:12.5px;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+.rt-mais:hover{color:var(--acento-texto)}
 /* Os cartões de pensamento tinham o texto em itálico/cru; aqui o parágrafo manda. */
 .thought-box,.lingering-item{white-space:normal;font-style:normal;overflow-wrap:anywhere;min-width:0}
 /* Bolha da conversa: o texto agora é rico, e o pre-wrap da bolha duplicaria o espaço entre blocos. */
@@ -630,7 +631,7 @@ html[data-tema="escuro"] .rt-titulo{color:var(--acento2)}
 
 /* ─── sob a plataforma: a casca da Conversa (web/public/casca.js) assume o menu e o cabeçalho ───
    Só vale com html.casca, que o casca.js liga. Painel solto não carrega a casca e não passa por aqui.
-   O menu lateral próprio (.lado), o véu, o ☰ e o "← conversa" saem; o cabeçalho do painel (título da
+   O menu lateral próprio (.lado), o véu, o botão de menu e o "voltar para a conversa" saem; o cabeçalho do painel (título da
    aba, Tutorial, selo de saúde) vira uma faixa de título dentro da área de conteúdo. */
 html.casca .lado,html.casca .veu,html.casca .btn-menu,html.casca .btn-voltar{display:none!important}
 html.casca .app{display:block;min-height:0}
@@ -648,7 +649,7 @@ html.casca .faixa-estado .header-status{flex:0 1 auto;margin-left:auto}
 }
 /* fonte e cor: as da casca (a pilha --fonte do casca.css e a cor do agente, --accent). Sem isto o painel seria roxo e de outra fonte. */
 html.casca body{font-family:var(--fonte)}
-html.casca{--acento1:var(--accent,#2f9e5e);--acento2:color-mix(in srgb,var(--accent,#2f9e5e) 70%,#1d3b8f)}
+html.casca{--acento1:var(--accent,var(--cor-acento));--acento2:color-mix(in srgb,var(--accent,var(--cor-acento)) 70%,#1d3b8f)}
 /* o Tutorial da aba é o do cabeçalho da casca (que clica neste botão); dois botões iguais confundem */
 html.casca .btn-tutorial-aba{display:none!important}
 
@@ -683,3 +684,32 @@ html.casca.carregando .app::after{content:"";position:fixed;top:50%;left:50%;wid
 
 /* No iPhone, campo com fonte abaixo de 16px dá zoom quando recebe o foco. Regra: nada dá zoom no app instalado. */
 @media (pointer:coarse){input,textarea,select{font-size:16px!important}}
+
+/* ─── ícones do sprite (/ds/icones.svg) ─────────────────────────────────── */
+.tab .ico{display:inline-flex;align-items:center;justify-content:center}
+.tab .ico .ds-ico{width:18px;height:18px}
+.btn-menu .ds-ico,.modal-close .ds-ico{width:20px;height:20px}
+.btn-enviar .ds-ico,.btn-microfone .ds-ico{width:20px;height:20px}
+.btn-voltar .ds-ico{width:16px;height:16px}
+.troca .seta .ds-ico{width:14px;height:14px}
+.mi-icon .ds-ico{width:18px;height:18px}
+.arq-ico .ds-ico{width:18px;height:18px}
+.stat-label .ds-ico,.tr-spk .ds-ico,.fc-name .ds-ico,.rt-panel h4 .ds-ico{width:16px;height:16px;vertical-align:-3px}
+
+/* ─── grupos do menu lateral (painel solto; js/menu-grupos.js) ───────────── */
+.grupo[hidden]{display:none}
+.grupo-cab{display:flex;align-items:center;gap:10px;width:100%;min-height:40px;padding:9px 10px;border:0;border-radius:10px;
+           background:none;font-size:14px;font-weight:600;color:var(--texto);cursor:pointer;text-align:left}
+.grupo-cab:hover{background:var(--fundo2)}
+.grupo-cab .ico{width:18px;display:inline-flex;justify-content:center;flex-shrink:0;opacity:.9}
+.grupo-nome{flex:1 1 auto;min-width:0}
+.grupo-seta{display:inline-flex;flex:0 0 auto;color:var(--fraco);transition:transform .12s ease}
+.grupo.aberto .grupo-seta{transform:rotate(180deg)}
+.grupo-itens{display:grid;grid-template-rows:0fr;visibility:hidden;transition:grid-template-rows .12s ease,visibility 0s linear .12s}
+.grupo.aberto > .grupo-itens{grid-template-rows:1fr;visibility:visible;transition:grid-template-rows .12s ease,visibility 0s}
+.grupo-lista{min-height:0;overflow:hidden;display:flex;flex-direction:column;gap:2px;padding:0 0 0 10px}
+.grupo-lista .tab{padding:7px 10px;font-size:13.5px;min-height:36px}
+.solto{display:flex;flex-direction:column;gap:2px;margin-top:6px;padding-top:6px;border-top:1px solid var(--linha)}
+.grupo-cab:focus-visible,.tab:focus-visible{outline:2px solid var(--cor-foco);outline-offset:-2px}
+@media (pointer:coarse){.tab,.grupo-cab,.grupo-lista .tab{min-height:44px}}
+@media (prefers-reduced-motion:reduce){.grupo-seta,.grupo-itens,.grupo.aberto > .grupo-itens{transition:none}}

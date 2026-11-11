@@ -35,7 +35,7 @@ Cada agente tem **um** colaborador por vez, e cada pessoa acessa **um** agente s
 
 ### Como convidar
 
-1. Abra o menu ☰ do agente e toque em **Convidar colaborador** (ou vá em `/colaboradores?agente=<agente>`).
+1. Abra o menu ☰ do agente, abra o grupo **Segurança** e toque em **Convidar colaborador** (ou vá em `/colaboradores?agente=<agente>`).
 2. Digite o e-mail da pessoa (será o login dela) e, se quiser, o nome. Toque em **Convidar**.
 3. A tela mostra o resultado:
    - se o e-mail saiu, ou por que não saiu;

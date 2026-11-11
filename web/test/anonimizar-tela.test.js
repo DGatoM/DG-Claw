@@ -80,7 +80,7 @@ test('a página real: scripts existem, tem Tutorial pela casca, um ? por seção
 });
 
 test('menu: item Anonimizar, reconhecimento da página e cache do service worker', () => {
-  assert.deepEqual(M.LINK_ANONIMIZAR, { nome: 'Anonimizar', ico: '🕶', href: '/anonimizar' });
+  assert.deepEqual(M.LINK_ANONIMIZAR, { nome: 'Anonimizar', ico: 'i-glasses', href: '/anonimizar' });
   assert.equal(M.chaveDoHref('/anonimizar?a=ana'), 'anonimizar');
   assert.match(le('sw.js'), /'\/anonimizar\.js', '\/anonimizar\.css'/);
   assert.match(le('sw.js'), /dgclaw-estaticos-v(3[5-9]|[4-9][0-9])'/);

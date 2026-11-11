@@ -1,17 +1,26 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="pt-BR" data-tema="{{MARCA_TEMA}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>Colaboradores - DG Claw</title>
+<title>Colaboradores - {{MARCA_NOME}}</title>
+<meta name="marca-nome" content="{{MARCA_NOME}}">
+<meta name="marca-logo-tem-nome" content="{{MARCA_LOGO_TEM_NOME}}">
 <link rel="manifest" href="/manifest.webmanifest">
-<meta name="theme-color" content="#2f9e5e">
-<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
-<link rel="icon" href="/icons/icon-192.png">
+<meta name="theme-color" content="{{MARCA_COR_TEMA}}">
+<link rel="apple-touch-icon" href="/marca/icone-app">
+<link rel="icon" href="/marca/favicon">
+<link rel="stylesheet" href="/ds/tokens.css">
+<link rel="stylesheet" href="/ds/componentes.css">
+<link rel="stylesheet" href="/ds/carregando.css">
+<link rel="stylesheet" href="/marca.css">
 <link rel="stylesheet" href="/colaboradores.css">
 <link rel="stylesheet" href="/casca.css">
 <link rel="stylesheet" href="/menu-lado.css">
 <link rel="stylesheet" href="/sem-zoom.css">
+<script src="/ds/marca.js"></script>
+<script src="/ds/icone.js"></script>
+<script src="/ds/carregando.js"></script>
 <script src="/sem-zoom.js"></script>
 </head>
 <body class="co">
@@ -23,7 +32,7 @@
     <label class="co-campo" for="coSeletor">Agente
       <select id="coSeletor" data-tour="co-seletor"></select>
     </label>
-    <div id="coCorpoAgente"><p class="co-fraco">Carregando…</p></div>
+    <div id="coCorpoAgente"><p class="co-fraco"><span data-carregando="Carregando" data-tam="p"></span> Carregando…</p></div>
   </section>
 
   <section class="co-sec co-convite" id="coConvite" aria-label="Convite gerado" hidden>
@@ -40,7 +49,7 @@
 
   <section class="co-sec" id="coLista" aria-label="Todos os colaboradores">
     <h2><span>Todos os colaboradores</span><button type="button" class="co-ajuda" data-co="ajuda" data-secao="lista" aria-label="Tutorial da lista">?</button></h2>
-    <div id="coCartoes"><p class="co-fraco">Carregando…</p></div>
+    <div id="coCartoes"><p class="co-fraco"><span data-carregando="Carregando" data-tam="p"></span> Carregando…</p></div>
   </section>
 </main>
 
