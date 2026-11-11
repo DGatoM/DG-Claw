@@ -76,3 +76,21 @@ case "$cmd" in
     -S) grep -F "|$chave| " "$e/ipt-regras" | sed -E "s/^\|[^|]*\| /-A $cadeia /" || true ;;
     -C) shift 2; grep -qxF "|$chave| $*" "$e/ipt-regras" ;;
 esac
+
+# Protecao continua (so quando o teste cria $e/exige-protecao, com linhas "<tabela> <origem>"):
+# depois de cada comando que muda algo, a origem precisa ter ao menos um salto da rede dos agentes
+# para uma cadeia DGCLAW_* que termine em DROP ou RETURN.
+case "$cmd" in -N|-F|-X|-E|-D|-I|-A)
+    if [ -f "$e/exige-protecao" ]; then
+        while read -r t_exig o_exig; do
+            [ -n "$t_exig" ] || continue
+            p_exig=""; [ "$t_exig" = mangle ] && p_exig="mangle/"
+            protegido=0
+            for alvo_exig in $(grep -F "|$p_exig$o_exig| -s 10.89.0.0/16 -j DGCLAW_" "$e/ipt-regras" | sed 's/.* -j //'); do
+                ult="$(grep -F "|$p_exig$alvo_exig| " "$e/ipt-regras" | tail -n 1)"
+                case "$ult" in *" -j DROP"|*" -j RETURN") protegido=1 ;; esac
+            done
+            [ "$protegido" = 1 ] || echo "sem protecao em $t_exig/$o_exig depois de: $cmd $*" >>"$e/violacoes"
+        done <"$e/exige-protecao"
+    fi ;;
+esac

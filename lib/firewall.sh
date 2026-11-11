@@ -78,8 +78,51 @@ saltos_remover() {
     done
 }
 
-# cadeia_publicar <tabela> <origem> <nome> <preencher>: troca a cadeia <nome> pela versao nova SEM
-# JANELA. Esvaziar a cadeia com -F e recolocar as regras deixaria, por um instante, o salto
+# cadeia_existe <tabela> <cadeia>
+cadeia_existe() { iptables -w -t "$1" -L "$2" -n >/dev/null 2>&1; }
+
+# cadeia_tem_final <tabela> <cadeia>: a ultima regra e DROP ou RETURN (a cadeia fecha o caminho).
+cadeia_tem_final() {
+    iptables -w -t "$1" -S "$2" 2>/dev/null | grep '^-A ' | tail -n 1 | grep -Eq -- '-j (DROP|RETURN)$'
+}
+
+# cadeia_tem_salto <tabela> <origem> <cadeia>
+cadeia_tem_salto() { [ -n "$(posicoes_do_salto "$1" "$2" "$3")" ]; }
+
+# cadeia_recuperar <tabela> <origem> <nome> <final>: trata a <nome>_NOVA que sobrou de uma troca
+# interrompida. A regra e nunca tirar a UNICA cerca ativa:
+#  - se <nome> existe e tem salto, ela ainda protege: a _NOVA e sobra e sai (sem salto, depois -F/-X);
+#  - senao a _NOVA pode ser a unica protecao (a execucao parou depois de tirar os saltos da antiga):
+#    a troca e CONCLUIDA, nao desfeita. A _NOVA sem salto e sem final e so um rascunho e e descartada.
+cadeia_recuperar() {
+    local tabela="$1" origem="$2" nome="$3" final="$4" nova="${3}_NOVA"
+    cadeia_existe "$tabela" "$nova" || return 0
+    if cadeia_existe "$tabela" "$nome" && cadeia_tem_salto "$tabela" "$origem" "$nome"; then
+        saltos_remover "$tabela" "$origem" "$nova"
+        iptables -w -t "$tabela" -F "$nova"
+        iptables -w -t "$tabela" -X "$nova"
+        return 0
+    fi
+    if ! cadeia_tem_final "$tabela" "$nova"; then
+        if ! cadeia_tem_salto "$tabela" "$origem" "$nova"; then
+            iptables -w -t "$tabela" -F "$nova"
+            iptables -w -t "$tabela" -X "$nova"
+            return 0
+        fi
+        # Tem salto mas ficou sem o final: fecha o caminho ja, sem tirar o salto.
+        iptables -w -t "$tabela" -A "$nova" -j "$final"
+    fi
+    if cadeia_existe "$tabela" "$nome"; then
+        # sem salto (testado acima): nao protege nada
+        iptables -w -t "$tabela" -F "$nome"
+        iptables -w -t "$tabela" -X "$nome"
+    fi
+    iptables -w -t "$tabela" -E "$nova" "$nome"
+    salto_garantir "$tabela" "$origem" "$nome"
+}
+
+# cadeia_publicar <tabela> <origem> <nome> <preencher> <final>: troca a cadeia <nome> pela versao
+# nova SEM JANELA. Esvaziar a cadeia com -F e recolocar as regras deixaria, por um instante, o salto
 # apontando para uma cadeia vazia: nesse intervalo o pacote do agente seguiria para o ACCEPT do
 # netavark (porta 53 do host, ou rede privada) e as conexoes abertas na janela passariam pelo
 # ESTABLISHED. Entao: monta <nome>_NOVA com as regras completas (a funcao <preencher> recebe a
@@ -87,16 +130,11 @@ saltos_remover() {
 # esvazia e apaga a antiga, e renomeia a nova (o salto acompanha o rename). Nunca existe salto
 # para cadeia vazia ou sem o ultimo DROP/RETURN, e nunca se faz -F em cadeia com salto.
 cadeia_publicar() {
-    local tabela="$1" origem="$2" nome="$3" preencher="$4" nova="${3}_NOVA"
-    if iptables -w -t "$tabela" -L "$nova" -n >/dev/null 2>&1; then
-        # sobra de uma execucao interrompida: nunca foi a cadeia em uso, mas pode ter salto
-        saltos_remover "$tabela" "$origem" "$nova"
-        iptables -w -t "$tabela" -F "$nova"
-        iptables -w -t "$tabela" -X "$nova"
-    fi
+    local tabela="$1" origem="$2" nome="$3" preencher="$4" final="$5" nova="${3}_NOVA"
+    cadeia_recuperar "$tabela" "$origem" "$nome" "$final"
     iptables -w -t "$tabela" -N "$nova"
     "$preencher" "$tabela" "$nova"
-    if iptables -w -t "$tabela" -L "$nome" -n >/dev/null 2>&1; then
+    if cadeia_existe "$tabela" "$nome"; then
         iptables -w -t "$tabela" -I "$origem" 1 -s "$REDE_AGENTES" -j "$nova"
         saltos_remover "$tabela" "$origem" "$nome"
         iptables -w -t "$tabela" -F "$nome"
@@ -122,10 +160,10 @@ regras_host() {
 }
 
 # cerca_egress <tabela>: monta a cadeia DGCLAW_EGRESS na tabela e liga ao FORWARD.
-cerca_egress() { cadeia_publicar "$1" FORWARD DGCLAW_EGRESS regras_egress; }
+cerca_egress() { cadeia_publicar "$1" FORWARD DGCLAW_EGRESS regras_egress RETURN; }
 
 # cerca_host <tabela>: monta a cadeia DGCLAW_HOST na tabela e liga ao INPUT.
-cerca_host() { cadeia_publicar "$1" INPUT DGCLAW_HOST regras_host; }
+cerca_host() { cadeia_publicar "$1" INPUT DGCLAW_HOST regras_host DROP; }
 
 main() {
     command -v iptables >/dev/null 2>&1 || {

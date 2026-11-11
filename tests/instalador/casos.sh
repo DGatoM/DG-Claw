@@ -1228,3 +1228,53 @@ caso_rede_containers_entende_toml_do_dono() {
         limpar_cenario
     done
 }
+
+# estado_interrompido <prefixo-da-tabela> <cadeia> <origem> <etapa 1..6>: a partir de uma cerca
+# completa no estado falso, reproduz uma troca interrompida logo depois da etapa:
+# 1 _NOVA criada vazia, 2 _NOVA preenchida, 3 salto para a _NOVA inserido (o antigo ainda la),
+# 4 saltos antigos removidos, 5 antiga com -F, 6 antiga com -X.
+estado_interrompido() {
+    local pre="$1" n="$2" o="$3" etapa="$4"
+    local regras="$TMP/estado/ipt-regras" cadeias="$TMP/estado/ipt-cadeias" salto novo copia
+    salto="|${pre}${o}| -s 10.89.0.0/16 -j $n"
+    novo="${n}_NOVA"
+    echo "${pre}${novo}" >>"$cadeias"
+    if [ "$etapa" -ge 2 ]; then
+        copia="$(grep -F "|${pre}${n}| " "$regras" | sed "s#^|${pre}${n}|#|${pre}${novo}|#")"
+        printf '%s\n' "$copia" >>"$regras"
+    fi
+    if [ "$etapa" -ge 3 ]; then
+        awk -v k="|${pre}${o}|" -v nova="|${pre}${o}| -s 10.89.0.0/16 -j $novo" '
+            index($0, k) == 1 && !feito { print nova; feito = 1 } { print }
+            END { if (!feito) print nova }' "$regras" >"$regras.novo" && mv -f "$regras.novo" "$regras"
+    fi
+    if [ "$etapa" -ge 4 ]; then grep -vxF "$salto" "$regras" >"$regras.novo" || true; mv -f "$regras.novo" "$regras"; fi
+    if [ "$etapa" -ge 5 ]; then grep -vF "|${pre}${n}| " "$regras" >"$regras.novo" || true; mv -f "$regras.novo" "$regras"; fi
+    if [ "$etapa" -ge 6 ]; then grep -vxF "${pre}${n}" "$cadeias" >"$cadeias.novo" || true; mv -f "$cadeias.novo" "$cadeias"; fi
+}
+
+caso_firewall_recupera_troca_interrompida_em_cada_etapa() {
+    local fam t pre n o fim etapa regras cadeias viol
+    for fam in "DGCLAW_HOST INPUT DROP" "DGCLAW_EGRESS FORWARD RETURN"; do
+        read -r n o fim <<<"$fam"
+        for t in mangle filter; do
+            pre=""; [ "$t" = mangle ] && pre="mangle/"
+            for etapa in 1 2 3 4 5 6; do
+                novo_cenario
+                regras="$TMP/estado/ipt-regras"; cadeias="$TMP/estado/ipt-cadeias"; viol="$TMP/estado/violacoes"
+                mkdir -p "$TMP/estado"
+                rodar_firewall_falso
+                estado_interrompido "$pre" "$n" "$o" "$etapa"
+                printf 'mangle INPUT\nmangle FORWARD\nfilter INPUT\nfilter FORWARD\n' >"$TMP/estado/exige-protecao"
+                afirma "$n $t etapa $etapa: a recuperacao termina com sucesso" rodar_firewall_falso
+                nega "$n $t etapa $etapa: sem violacao nem instante sem protecao" test -s "$viol"
+                nega "$n $t etapa $etapa: sem _NOVA sobrando" bash -c "grep -q _NOVA '$cadeias' '$regras'"
+                igual "$(contar "$regras" "|${pre}${o}| -s 10.89.0.0/16 -j $n")" 1 || { echo "      FALHOU: $n $t etapa $etapa: salto nao e unico"; FALHAS=$((FALHAS + 1)); }
+                afirma "$n $t etapa $etapa: o salto e a primeira regra da origem" bash -c "grep '^|${pre}${o}|' '$regras' | head -n 1 | grep -q -- '-j $n\$'"
+                afirma "$n $t etapa $etapa: a cadeia termina em $fim" bash -c "grep -F '|${pre}${n}| ' '$regras' | tail -n 1 | grep -q -- '-j $fim\$'"
+                afirma "$n $t etapa $etapa: a cadeia definitiva existe" grep -qxF "${pre}${n}" "$cadeias"
+                limpar_cenario
+            done
+        done
+    done
+}
