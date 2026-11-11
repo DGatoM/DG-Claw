@@ -7,6 +7,14 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Correção na rede dos containers no Ubuntu 26.04: netavark em modo iptables.** No Ubuntu 26.04 o netavark usa nftables por padrão, e o `ufw` (que o instalador liga) bloqueia o encaminhamento de pacotes, então nenhum container de agente tinha internet (a construção da imagem falhava com "Temporary failure resolving archive.ubuntu.com"). O instalador agora grava `/etc/containers/containers.conf.d/50-dgclaw-firewall-iptables.conf` com `firewall_driver = "iptables"`, que é o modo em que a cerca de rede do DG Claw foi desenhada. No Ubuntu 24.04 isso não muda nada. Se você já tinha esse arquivo ou outro `firewall_driver` configurado, o instalador não mexe e avisa.
+
+**Correção no DNS dos agentes em servidor dentro de rede privada.** Em servidor físico na rede de uma empresa, o DNS do servidor costuma ficar num endereço privado (por exemplo `192.168.25.6`), que a cerca de rede dos agentes bloqueia de propósito, e os agentes ficavam sem DNS. O instalador agora detecta isso e grava `/etc/containers/containers.conf.d/51-dgclaw-dns-publico.conf`, para os containers usarem DNS público (`1.1.1.1` e `8.8.8.8`) sem abrir exceção na cerca. Se o DNS do servidor já é público, nada é gravado; se o arquivo já existir com outro conteúdo, o instalador não mexe e avisa.
+
+### Como atualizar
+
+Rode o `install.sh` de novo (ou peça ao Admin para atualizar): ele aplica a correção sozinho. Se o servidor for Ubuntu 26.04 e já houver agentes rodando, o instalador não apaga as regras antigas do netavark (para não derrubar a rede deles) e avisa. Nesse caso, reinicie os agentes e rode o `install.sh` mais uma vez. Isso é necessário porque as regras antigas só saem com os containers parados.
+
 **O DG Claw instala em servidor sem IP público, atrás de um túnel.** Com `--atras-de-tunel` (junto de `--dominio`), o Caddy usa
 certificado interno, o instalador não consulta o IP público e não abre as portas 80 e 443 no firewall; o túnel da Cloudflare
 aponta para `https://127.0.0.1:443`, com o nome do servidor de origem igual ao domínio e sem verificação do certificado. A

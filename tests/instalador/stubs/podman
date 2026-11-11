@@ -5,4 +5,8 @@ if [ "${1:-}" = image ] && [ "${2:-}" = exists ]; then
     [ "${DGCLAW_STUB_IMAGEM_PRONTA:-0}" = 1 ]
     exit $?
 fi
+if [ "${1:-}" = ps ] && [ "${2:-}" = -q ]; then
+    printf '%s' "${DGCLAW_STUB_CONTAINERS:-}"
+    exit 0
+fi
 exit 0

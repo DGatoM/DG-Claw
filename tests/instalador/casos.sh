@@ -1041,3 +1041,97 @@ caso_firewall_ataque_do_nome_com_pid_e_estados_e_tcp6() {
     afirma "porta do tcp6 entra" tem "$STUB_LOG" "ufw allow 2600/tcp"
     limpar_cenario
 }
+
+caso_rede_containers_grava_o_arquivo_do_netavark() {
+    novo_cenario
+    afirma "a instalacao termina com sucesso" instalacao_basica
+    local conf="$RAIZ/etc/containers/containers.conf.d/50-dgclaw-firewall-iptables.conf"
+    afirma "o arquivo existe" test -f "$conf"
+    afirma "traz o driver iptables" tem "$conf" 'firewall_driver = "iptables"'
+    afirma "traz a secao network" tem "$conf" '[network]'
+    afirma "rodar de novo termina com sucesso" instalacao_basica
+    igual "$(contar "$conf" 'firewall_driver')" 1 || { echo "      FALHOU: o arquivo foi duplicado ao reinstalar"; FALHAS=$((FALHAS + 1)); }
+    nega "sem a tabela netavark, nada de nft delete" tem "$STUB_LOG" "nft delete"
+}
+
+caso_rede_containers_nao_sobrescreve_arquivo_alheio() {
+    novo_cenario
+    local dir="$RAIZ/etc/containers/containers.conf.d"
+    mkdir -p "$dir"
+    printf '# minha config\n[network]\nfirewall_driver = "nftables"\n' >"$dir/50-dgclaw-firewall-iptables.conf"
+    printf '[network]\nfirewall_driver = "nftables"\n' >"$dir/10-meu.conf"
+    afirma "a instalacao termina com sucesso" instalacao_basica
+    afirma "o conteudo alheio sobreviveu" tem "$dir/50-dgclaw-firewall-iptables.conf" '# minha config'
+    nega "o arquivo nao ganhou o driver iptables" tem "$dir/50-dgclaw-firewall-iptables.conf" '"iptables"'
+    afirma "avisa do arquivo existente" tem "$SAIDA" "ja existe com outro conteudo"
+    afirma "avisa do outro arquivo com driver diferente" tem "$SAIDA" "/etc/containers/containers.conf.d/10-meu.conf"
+    afirma "o outro arquivo continua igual" tem "$dir/10-meu.conf" 'firewall_driver = "nftables"'
+}
+
+caso_rede_containers_apaga_tabela_netavark_so_sem_container() {
+    novo_cenario
+    EXTRA_ENV=("DGCLAW_STUB_NFT_NETAVARK=1")
+    afirma "a instalacao termina com sucesso" instalacao_basica
+    afirma "apagou a tabela" tem "$STUB_LOG" "nft delete table inet netavark"
+    afirma "informa que apagou" tem "$SAIDA" "apaguei a tabela inet netavark"
+    limpar_cenario
+
+    novo_cenario
+    EXTRA_ENV=("DGCLAW_STUB_NFT_NETAVARK=1" "DGCLAW_STUB_CONTAINERS=abc123")
+    afirma "a instalacao com container rodando termina com sucesso" instalacao_basica
+    nega "com container rodando a tabela fica" tem "$STUB_LOG" "nft delete"
+    afirma "avisa para reiniciar os agentes" tem "$SAIDA" "Reinicie os agentes"
+}
+
+caso_rede_containers_ensaio_nao_muda_nada() {
+    novo_cenario
+    EXTRA_ENV=("DGCLAW_STUB_NFT_NETAVARK=1")
+    afirma "o ensaio termina com sucesso" instalar "$PAINEL_PW" --usuario maria --provedor claude --ensaio
+    nega "o ensaio nao gravou o arquivo" test -e "$RAIZ/etc/containers"
+    nega "o ensaio nao apagou a tabela" tem "$STUB_LOG" "nft delete"
+    afirma "mostra que apagaria" tem "$SAIDA" "[ensaio] nft delete table inet netavark"
+}
+
+dns_conf() { printf '%s/etc/containers/containers.conf.d/51-dgclaw-dns-publico.conf' "$RAIZ"; }
+# resolv_do_servidor <ip...>: poe os nameservers no resolv.conf do systemd-resolved da raiz falsa
+resolv_do_servidor() {
+    mkdir -p "$RAIZ/run/systemd/resolve"
+    : >"$RAIZ/run/systemd/resolve/resolv.conf"
+    local ip
+    for ip in "$@"; do printf 'nameserver %s\n' "$ip" >>"$RAIZ/run/systemd/resolve/resolv.conf"; done
+}
+
+caso_dns_containers_privado_grava_dns_publico() {
+    novo_cenario
+    resolv_do_servidor 192.168.25.6 127.0.0.53
+    afirma "a instalacao termina com sucesso" instalacao_basica
+    afirma "o arquivo de DNS existe" test -f "$(dns_conf)"
+    afirma "traz o DNS publico" tem "$(dns_conf)" 'dns_servers = ["1.1.1.1", "8.8.8.8"]'
+    afirma "explica o motivo, com o DNS do servidor" tem "$SAIDA" "o DNS deste servidor (192.168.25.6) fica numa rede privada"
+}
+
+caso_dns_containers_publico_nao_grava() {
+    novo_cenario
+    resolv_do_servidor 127.0.0.53 9.9.9.9 172.32.0.1
+    afirma "a instalacao termina com sucesso" instalacao_basica
+    nega "nada gravado com DNS publico (127.0.0.53 e 172.32 nao contam)" test -e "$(dns_conf)"
+}
+
+caso_dns_containers_nao_sobrescreve_arquivo_alheio() {
+    novo_cenario
+    resolv_do_servidor 10.0.0.2
+    mkdir -p "$(dirname "$(dns_conf)")"
+    printf '# meu dns\n[containers]\nsearch_domains = ["x"]\n' >"$(dns_conf)"
+    afirma "a instalacao termina com sucesso" instalacao_basica
+    afirma "o conteudo alheio sobreviveu" tem "$(dns_conf)" '# meu dns'
+    nega "nao ganhou dns_servers" tem "$(dns_conf)" 'dns_servers'
+    afirma "avisa" tem "$SAIDA" "ja existe com outro conteudo"
+}
+
+caso_dns_containers_ensaio_nao_muda_nada() {
+    novo_cenario
+    resolv_do_servidor 192.168.25.6
+    afirma "o ensaio termina com sucesso" instalar "$PAINEL_PW" --usuario maria --provedor claude --ensaio
+    nega "o ensaio nao gravou o arquivo" test -e "$(dns_conf)"
+    afirma "mostra que escreveria" tem "$SAIDA" "[ensaio] escreveria $(dns_conf)"
+}
