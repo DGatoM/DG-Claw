@@ -170,7 +170,7 @@ cerca_host() { cadeia_publicar "$1" INPUT DGCLAW_HOST regras_host DROP; }
 # cerca ativa. O `iptables -w` so serializa comando a comando, entao a execucao inteira leva uma
 # trava exclusiva, mantida no descritor 9 ate o processo acabar. Sem a trava nao se mexe em regra.
 trava_exclusiva() {
-    local trava="${DGCLAW_FIREWALL_TRAVA:-/run/lock/dgclaw-firewall.lock}" espera="${DGCLAW_FIREWALL_TRAVA_ESPERA:-120}"
+    local trava="${DGCLAW_FIREWALL_TRAVA:-/run/dgclaw-firewall.lock}" espera="${DGCLAW_FIREWALL_TRAVA_ESPERA:-120}"
     command -v flock >/dev/null 2>&1 || {
         echo "dgclaw-firewall: o comando flock nao existe nesta maquina, e ele impede duas aplicacoes da cerca ao mesmo tempo. Nao mexi em nenhuma regra. Instale com: apt-get install -y util-linux" >&2
         exit 1
