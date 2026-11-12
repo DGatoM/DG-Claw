@@ -83,7 +83,7 @@ for (const ordem of ['ri-primeiro', 'ic-primeiro']) {
     const resumo = r.eventos.map((e) => `${e.tipo}:${e.detalhes.comando || e.detalhes.ferramenta || e.texto}`.replace(/\s+/g, ' '));
     const contem = (rx) => resumo.filter((x) => rx.test(x)).length;
     assert.equal(contem(/rode os testes/), 1, resumo.join(' | '));
-    assert.equal(r.eventos.filter((e) => e.tipo === 'comando' && /npm\s+test/.test(e.detalhes.comando)).length, 1);
+    assert.equal(r.eventos.filter((e) => e.tipo === 'comando' && /^npm \[argumentos ocultos/.test(e.detalhes.comando)).length, 1);
     assert.equal(contem(/^comando:solto/), 1, 'o item sem par aparece');
     assert.equal(contem(/^ferramenta:wait/), 1, 'a chamada sem item_completed aparece');
     // o `exec` com chamada embrulhada não se compara com o item MCP: os dois ficam (repetição, nunca falta de ação)

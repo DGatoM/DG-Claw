@@ -327,7 +327,7 @@ test('codex (itens): mensagens, comando, MCP; o que não é ação é ignorado',
   assert.equal(r.eventos.length, 5);
   assert.equal(r.eventos.filter((e) => e.texto === 'rode os testes').length, 1, 'a mesma mensagem nas duas famílias aparece uma vez');
   const cmd = r.eventos.filter((e) => e.tipo === 'comando');
-  assert.equal(cmd.find((e) => e.detalhes.comando === 'npm test').resultado.erro, true);
+  assert.equal(cmd.find((e) => e.detalhes.comando === 'npm [argumentos ocultos: comando que pode levar credencial]').resultado.erro, true);
   assert.equal(cmd.find((e) => e.detalhes.comando === 'echo ok').resultado.erro, false);
   const mcp = r.eventos.find((e) => e.tipo === 'ferramenta');
   assert.equal(mcp.detalhes.ferramenta, 'dgchat/reply');

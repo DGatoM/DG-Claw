@@ -465,6 +465,25 @@ function corteBruto(s) {
   return s.slice(0, fim);
 }
 
+// Comando que pode levar credencial: o texto inteiro, sem tokenizar, é testado. Casou, só o nome do programa sai (resposta e busca).
+// Foi o que sobrou depois de várias rodadas mascarando variação por variação: o tokenizador acima fica como segunda camada.
+const PROGRAMAS_COM_CREDENCIAL = ['curl', 'wget', 'http', 'httpie', 'mysql', 'mysqldump', 'mariadb', 'psql', 'pg_dump', 'mongo', 'mongosh', 'mongodump', 'redis-cli', 'sshpass', 'htpasswd', 'ftp', 'lftp', 'smbclient', 'rsync', 'scp', 'sftp', 'ssh', 'git', 'gh', 'docker', 'podman', 'npm', 'pip', 'aws', 'gcloud', 'az', 'kubectl', 'helm', 'openssl', 'gpg', 'op', 'vault'];
+const RX_PROGRAMA_CREDENCIAL = new RegExp(`(?<![A-Za-z0-9_.-])(?:${PROGRAMAS_COM_CREDENCIAL.map((x) => x.replace(/[-_]/g, '[-_]')).join('|')})(?![A-Za-z0-9_-])`, 'i');
+const RX_MARCADOR_CREDENCIAL = /pass|pwd|token|secret|senha|auth|bearer|apikey|api_key|api-key|credential|cookie|private|-u |--user|-p|:\/\/[^\s\/]*@/i;
+const AVISO_ARGUMENTOS = ' [argumentos ocultos: comando que pode levar credencial]';
+
+function comandoComCredencial(s) {
+  return typeof s === 'string' && (RX_MARCADOR_CREDENCIAL.test(s) || RX_PROGRAMA_CREDENCIAL.test(s));
+}
+
+/** Texto de comando como pode sair: sem credencial possível passa inteiro (mascarado depois); com ela, só o programa. */
+function comandoExibivel(s) {
+  if (!comandoComCredencial(s)) return s;
+  const primeiro = (/^\s*(\S+)/.exec(s) || [])[1] || '';
+  const nome = primeiro.split('/').pop();
+  return (/^[A-Za-z0-9_.+-]{1,60}$/.test(nome) ? nome : 'comando') + AVISO_ARGUMENTOS;
+}
+
 /** Tudo o que sai da API passa por aqui: limite de 64 KB, mascarar de mascara.js e depois os padrões extras. */
 function limpa(texto, cortado) {
   if (texto == null) return '';
@@ -1128,7 +1147,8 @@ async function montaEvento(item, arq, bases, ctx) {
   const detalhes = {};
   let truncado = false;
   const busca = [];
-  const titulo = corta(limpa(r.titulo), 200).texto;
+  const ehComando = r.tipo === 'comando';
+  const titulo = corta(limpa(ehComando ? comandoExibivel(r.titulo) : r.titulo), 200).texto;
   busca.push(titulo);
   let texto = '';
   if (r.texto) {
@@ -1138,10 +1158,10 @@ async function montaEvento(item, arq, bases, ctx) {
   }
   if (r.comando != null && r.comando !== '') {
     await ctx.cede();
-    const p = preparaTexto(r.comando, TETO_COMANDO);
+    const p = preparaTexto(comandoExibivel(r.comando), TETO_COMANDO);
     detalhes.comando = p.texto; truncado = truncado || p.truncado; busca.push(p.cheio);
   }
-  if (typeof r.descricao === 'string' && r.descricao) { detalhes.descricao = corta(limpa(r.descricao), 300).texto; busca.push(detalhes.descricao); }
+  if (typeof r.descricao === 'string' && r.descricao) { detalhes.descricao = corta(limpa(ehComando ? comandoExibivel(r.descricao) : r.descricao), 300).texto; busca.push(detalhes.descricao); }
   if (r.caminho) { detalhes.caminho = limpa(caminhoRelativo(r.caminho, bases)); busca.push(detalhes.caminho); }
   if (r.operacao) detalhes.operacao = r.operacao;
   if (r.ferramenta) detalhes.ferramenta = corta(limpa(r.ferramenta), 120).texto;
@@ -1764,7 +1784,7 @@ const REGEX_AUDITAVEIS = [
 ];
 
 module.exports = {
-  mascaraComandos, comandoDeLista, REGEX_AUDITAVEIS, semBarraFinal,
+  mascaraComandos, comandoDeLista, comandoExibivel, REGEX_AUDITAVEIS, semBarraFinal,
   criarLeitor, limpa, serializa, corta, normaliza, caminhoRelativo, codificaCursor, decodificaCursor, cmp, fontesDoAgente, descobreFonte,
   abrirSeguro, ErroEntrada, ErroArquivo, TIPOS, RX_ID_CURTO, RX_UUID, MAX_LINHA,
 };

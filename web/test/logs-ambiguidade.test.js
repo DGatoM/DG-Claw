@@ -161,7 +161,7 @@ test('Codex: `exec` embrulhado nunca colapsa com o item sem o mesmo id: ficam os
   const r = await l.eventos(c.ag, { limite: 50, cursor: null });
   const cs = r.eventos.filter((e) => e.tipo === 'comando');
   assert.equal(cs.length, 7, 'os 4 exec e os 3 itens de comando');
-  assert.equal(cs.filter((e) => /tools\./.test(e.detalhes.comando)).length, 4, 'os trechos de exec aparecem');
+  assert.equal(cs.filter((e) => /tools\.|^(comando|await) \[argumentos ocultos/.test(e.detalhes.comando)).length, 4, 'os trechos de exec aparecem');
   assert.equal(r.eventos.filter((e) => e.detalhes.ferramenta === 'dgchat/reply').length, 1);
   assert.deepEqual(await paginado(l, c.ag, 1), r.eventos.map((e) => e.id));
 });

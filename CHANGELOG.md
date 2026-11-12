@@ -12,7 +12,7 @@ tudo o que cada agente fez: mensagens, comandos, arquivos e ferramentas, tanto d
 usam o Codex. Há filtros por período, tipo, sessão e palavra, e cada registro abre para mostrar o comando, o arquivo e o
 resultado. O texto sai com chaves e senhas escondidas, e a tela diz com clareza quando uma fonte não existe ou não pôde ser
 lida, em vez de parecer que o agente não fez nada. Só você, no navegador, vê os logs: colaboradores e agentes não têm acesso.
-A tela ajuda a conferir, mas não prova nada, porque um agente pode reescrever a própria casa.
+Comando que pode levar senha ou chave aparece só com o nome do programa, sem os argumentos. A tela ajuda a conferir, mas não prova nada, porque um agente pode reescrever a própria casa.
 
 ### Como atualizar (logs dos agentes)
 
