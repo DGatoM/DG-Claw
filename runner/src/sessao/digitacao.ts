@@ -122,8 +122,10 @@ export async function enviarComRecibo(s: Sessao, comandoDeBarra = false): Promis
   const espera = s.motor.reciboMs;
   // Quantas escritas o PTY deve ter contado se só estes Enters escreveram (ver vigiarReciboAtrasado).
   let entradasEsperadas = s.entradasManuais;
+  // O terminal deste envio. Se a sessão for trocada no meio, nada daqui pode tocar no terminal novo.
+  const proc = s.proc;
   for (let tentativa = 1; tentativa <= RECIBO_ENTER_TENTATIVAS; tentativa++) {
-    if (!s.proc) return;
+    if (!s.proc || s.proc !== proc) return;
     const antes = s.promptsAceitos;
     const compactAntes = s.compactsIniciados;
     s.escrever("\r");
@@ -142,18 +144,24 @@ export async function enviarComRecibo(s: Sessao, comandoDeBarra = false): Promis
     s.a("entrada"),
     `${RECIBO_ENTER_TENTATIVAS} Enters sem recibo; continuo tentando em segundo plano por ~${segundos}s (mais ${s.reciboVigiaPassosMs.length} Enters espaçados)`,
   );
-  vigiarReciboAtrasado(s, comandoDeBarra, total, entradasEsperadas);
+  if (!proc || s.proc !== proc) return;
+  vigiarReciboAtrasado(s, comandoDeBarra, total, entradasEsperadas, proc);
 }
 
 /** Continua batendo no Enter, em segundo plano, depois que as tentativas de enviarComRecibo falharam.
  *  Cada passo olha primeiro o recibo (o turno pode ter aberto sozinho, só atrasado) e só então decide
  *  se bate a tecla: com a sessão fora de idle, algo abriu turno por outro caminho e basta esperar.
  *  Só no fim, sem recibo, vem o ERRO de que o texto ficou na caixa. Uma vigia por sessão. */
-function vigiarReciboAtrasado(s: Sessao, comandoDeBarra: boolean, total: number, entradasDoEnvio: number): void {
+function vigiarReciboAtrasado(
+  s: Sessao,
+  comandoDeBarra: boolean,
+  total: number,
+  entradasDoEnvio: number,
+  proc: NonNullable<Sessao["proc"]>,
+): void {
   if (s.vigiaDoRecibo) clearTimeout(s.vigiaDoRecibo);
   s.vigiaDoRecibo = null;
-  const proc = s.proc;
-  if (!proc) return;
+  if (s.proc !== proc) return;
   const antes = s.promptsAceitos;
   const compactAntes = s.compactsIniciados;
   const inicio = Date.now();

@@ -759,6 +759,36 @@ test("recibo atrasado: escrita no terminal enquanto o 3º Enter espera o recibo 
   }
 });
 
+test("recibo atrasado: terminal trocado durante a espera do 3º Enter não recebe Enter da vigia", async () => {
+  logarClaude(amb);
+  const { enviarComRecibo } = await import("./sessao/digitacao.js");
+  const { s } = await nova({}, { reciboVigiaPassosMs: [300, 300] });
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  const original = s.escrever.bind(s);
+  const procOriginal = s.proc;
+  const escritas: Array<{ t: string; proc: unknown }> = [];
+  (s as unknown as { escrever: (t: string) => void }).escrever = (t: string) => {
+    escritas.push({ t, proc: s.proc });
+    // Logo depois do 3º Enter, o terminal é trocado por outro (como num reinício), ainda durante a espera.
+    if (t === "\r" && escritas.length === 3) {
+      setTimeout(() => {
+        (s as unknown as { proc: unknown }).proc = { trocado: true };
+      }, 10);
+    }
+  };
+  try {
+    await enviarComRecibo(s);
+    await new Promise((r) => setTimeout(r, 1_000));
+    assert.equal(escritas.length, 3, "nenhuma tecla depois da troca");
+    assert.ok(escritas.every((e) => e.proc === procOriginal), "só o terminal original recebeu Enter");
+    assert.equal(s.vigiaDoRecibo, null, "a vigia não foi armada para o terminal novo");
+  } finally {
+    (s as unknown as { proc: unknown }).proc = procOriginal;
+    (s as unknown as { escrever: (t: string) => void }).escrever = original;
+  }
+});
+
 test("recibo: /compact sem UserPromptSubmit é confirmado pelo PreCompact e não dá alarme", async () => {
   logarClaude(amb);
   const { enviarComRecibo } = await import("./sessao/digitacao.js");
