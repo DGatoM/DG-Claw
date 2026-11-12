@@ -1117,6 +1117,25 @@ caso_rede_containers_preserva_tabela_com_container_ativo() {
     done
 }
 
+caso_rede_containers_driver_do_dono_nao_iptables_preserva_a_tabela() {
+    # Com o driver efetivo em nftables, a tabela e a rede viva dos containers: nem a lista e consultada.
+    novo_cenario
+    mkdir -p "$RAIZ/usr/share/containers"
+    printf '[network]\nfirewall_driver = "nftables"\n' >"$RAIZ/usr/share/containers/containers.conf"
+    EXTRA_ENV=("DGCLAW_STUB_NFT_NETAVARK=1")
+    afirma "a instalacao termina com sucesso" instalacao_basica
+    nega "a tabela fica" tem "$STUB_LOG" "nft delete"
+    nega "nem lista os containers para migrar" tem "$STUB_LOG" "podman ps"
+    limpar_cenario
+
+    novo_cenario
+    mkdir -p "$RAIZ/etc/containers/containers.conf.d"
+    printf '# meu\n' >"$RAIZ/etc/containers/containers.conf.d/50-dgclaw-firewall-iptables.conf"
+    EXTRA_ENV=("DGCLAW_STUB_NFT_NETAVARK=1")
+    afirma "arquivo nosso com outro conteudo: termina com sucesso" instalacao_basica
+    nega "arquivo nosso com outro conteudo: a tabela fica" tem "$STUB_LOG" "nft delete"
+}
+
 caso_rede_containers_podman_falhando_preserva_a_tabela() {
     novo_cenario
     EXTRA_ENV=("DGCLAW_STUB_NFT_NETAVARK=1" "DGCLAW_STUB_PS_FALHA=1")

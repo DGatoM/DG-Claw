@@ -489,7 +489,12 @@ configurar_rede_containers() {
         ok "gravei ${nosso#"$R"} (firewall_driver = iptables)"
     fi
 
-    migrar_tabela_netavark
+    # A tabela antiga so sai quando o driver efetivo e iptables: ai um container que suba durante a
+    # migracao ja cria regras em iptables e nao depende dela. Com driver do dono diferente (ou
+    # arquivo nosso com outro conteudo), a tabela e a rede viva dos containers e fica onde esta.
+    if [ -z "$divergentes" ] && { [ ! -e "$nosso" ] || grep -Eq '^[[:space:]]*firewall_driver[[:space:]]*=[[:space:]]*"iptables"' "$nosso"; }; then
+        migrar_tabela_netavark
+    fi
 }
 
 # Apaga a `table inet netavark` que sobrou do modo nftables, para o netavark recriar as regras em

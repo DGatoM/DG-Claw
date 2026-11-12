@@ -12,5 +12,3 @@ if [ "${1:-}" = ps ]; then
     exit 0
 fi
 exit 0
-fi
-exit 0
