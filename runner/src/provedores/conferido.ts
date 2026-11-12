@@ -14,6 +14,13 @@ export interface Conferido {
   metodo: string | null;
   detalhe: string;
   em: string | null;
+  /**
+   * Por que `ok` é false, quando dá para saber. Só `sem_credencial` prova que NÃO existe conta (o CLI respondeu, claramente,
+   * que ninguém está logado). Os outros (`tempo`, `sem_binario`, `ilegivel`, `metodo_diferente`) NÃO provam ausência de
+   * credencial: quem decide algo a partir de `ok:false` (o Web, ao deixar um colaborador conectar conta) precisa tratá-los
+   * como dúvida. Runner antigo não manda o campo.
+   */
+  motivo?: "sem_credencial" | "tempo" | "sem_binario" | "ilegivel" | "metodo_diferente";
 }
 
 const PRAZO_DO_COMANDO_MS = 15_000;
@@ -37,8 +44,8 @@ function agora(): string {
   return new Date().toISOString();
 }
 
-function resultado(ok: boolean | null, metodo: string | null, detalhe: string): Conferido {
-  return { ok, metodo, detalhe, em: agora() };
+function resultado(ok: boolean | null, metodo: string | null, detalhe: string, motivo?: Conferido["motivo"]): Conferido {
+  return motivo ? { ok, metodo, detalhe, em: agora(), motivo } : { ok, metodo, detalhe, em: agora() };
 }
 
 export const CONFERINDO: Conferido = {
@@ -55,18 +62,20 @@ export function interpretarStatusDoClaude(saida: string, authEscolhido: string):
     o = JSON.parse(saida) as typeof o;
     if (!o || typeof o !== "object") throw new Error("não é um objeto");
   } catch {
-    return resultado(false, null, "Não consegui entender a resposta do 'claude auth status'. Atualize o Claude Code e tente de novo.");
+    return resultado(false, null, "Não consegui entender a resposta do 'claude auth status'. Atualize o Claude Code e tente de novo.", "ilegivel");
   }
   const logado = o.loggedIn === true;
   const metodo =
     o.authMethod === "claude.ai" ? "assinatura" : o.authMethod === "oauth_token" ? "token" : o.authMethod === "api_key" ? "api" : null;
   const plano = typeof o.subscriptionType === "string" && /^[A-Za-z0-9_-]{1,24}$/.test(o.subscriptionType) ? o.subscriptionType : null;
   if (!logado || metodo === null) {
+    // Só `loggedIn: false` explícito prova que não há conta; qualquer outra forma é resposta que não entendi.
+    const motivo: Conferido["motivo"] = o.loggedIn === false ? "sem_credencial" : "ilegivel";
     const dica =
       authEscolhido === "assinatura"
         ? "Entre com a conta do Claude pelo botão de login do painel."
         : `Confira a variável do modo '${nomeDoModo(authEscolhido)}' no Cofre do painel.`;
-    return resultado(false, null, `O Claude não está conectado neste agente. ${dica}`);
+    return resultado(false, null, `O Claude não está conectado neste agente. ${dica}`, motivo);
   }
   if (metodo !== authEscolhido) {
     return resultado(
@@ -74,6 +83,7 @@ export function interpretarStatusDoClaude(saida: string, authEscolhido: string):
       metodo,
       `O agente está configurado para ${nomeDoModo(authEscolhido)}, mas o Claude está conectado por ` +
         `${nomeDoModo(metodo)}. Corrija a forma de pagar no painel ou o que está no Cofre, e reinicie o agente.`,
+      "metodo_diferente",
     );
   }
   // Com chave falsa o CLI também diz loggedIn:true (ele não valida a chave), por isso o
@@ -96,7 +106,9 @@ export function interpretarStatusDoCodex(saida: string, codigo: number | null, a
       authEscolhido === "assinatura"
         ? "Entre com a conta do ChatGPT pelo botão de login do painel."
         : "Confira a OPENAI_API_KEY no Cofre do painel e reinicie o agente.";
-    return resultado(false, null, `O Codex não está conectado neste agente. ${dica}`);
+    // O Codex diz "Not logged in" com saída diferente de 0; outro texto ou código não prova ausência de conta.
+    const motivo: Conferido["motivo"] = codigo !== 0 && /not logged in|logged out/.test(t) ? "sem_credencial" : "ilegivel";
+    return resultado(false, null, `O Codex não está conectado neste agente. ${dica}`, motivo);
   }
   if (metodo !== authEscolhido) {
     return resultado(
@@ -104,6 +116,7 @@ export function interpretarStatusDoCodex(saida: string, codigo: number | null, a
       metodo,
       `O agente está configurado para ${nomeDoModo(authEscolhido)}, mas o Codex está conectado por ` +
         `${nomeDoModo(metodo)}. Corrija a forma de pagar no painel e reinicie o agente.`,
+      "metodo_diferente",
     );
   }
   return resultado(
@@ -148,10 +161,10 @@ export async function conferirProvedor(p: PedidoDeConferencia): Promise<Conferid
   const args = p.provedor === "claude" ? ["auth", "status", "--json"] : ["login", "status"];
   const r = await rodar(binario, args, p.env, p.cwd);
   if (r.falha === "sem-binario") {
-    return resultado(false, null, `O programa '${binario}' não está instalado neste agente (não está no PATH do serviço). Instale-o e reinicie o agente.`);
+    return resultado(false, null, `O programa '${binario}' não está instalado neste agente (não está no PATH do serviço). Instale-o e reinicie o agente.`, "sem_binario");
   }
   if (r.falha === "tempo") {
-    return resultado(false, null, `O '${binario} ${args.join(" ")}' não respondeu em ${PRAZO_DO_COMANDO_MS / 1000} s. Tente de novo; se persistir, reinicie o agente.`);
+    return resultado(false, null, `O '${binario} ${args.join(" ")}' não respondeu em ${PRAZO_DO_COMANDO_MS / 1000} s. Tente de novo; se persistir, reinicie o agente.`, "tempo");
   }
   // O `codex login status` real escreve "Logged in using ..." no STDERR (visto no teste B6, 12/10/2026:
   // chave registrada e turno respondido, e o painel dizia "não está conectado" porque só se lia o stdout).
@@ -178,7 +191,7 @@ export class Conferidor {
     let p = this.rodando.get(sessao);
     if (!p) {
       const nova: Promise<Conferido> = executar()
-        .catch((err) => resultado(false, null, `Não consegui conferir: ${err instanceof Error ? err.message : err}`))
+        .catch((err) => resultado(false, null, `Não consegui conferir: ${err instanceof Error ? err.message : err}`, "ilegivel"))
         .then((res) => {
           if (this.rodando.get(sessao) === nova) {
             this.cache.set(sessao, { res, ate: Date.now() + CACHE_MS, chave });

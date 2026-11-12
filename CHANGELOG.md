@@ -30,6 +30,67 @@ por pessoa. O firewall agora também libera a porta real do SSH (lida da configu
 `kvm64` de hipervisor não tem) e explica como trocar o tipo de CPU da máquina virtual. Quando o Claude Code falta e você usa
 `sudo`, a mensagem mostra como instalá-lo para o root. Nada muda para quem já instalou.
 
+**Convide quem vai usar o seu agente por um comando, e deixe a pessoa conectar a conta de IA dela.** Três mudanças
+nos colaboradores (pessoas convidadas para conversar com um agente só):
+
+- Novo comando no servidor, `dgclaw colaborador criar <agente> <email>`, que cria o acesso e mostra o texto do convite
+  pronto para copiar, com o endereço, o login e a senha temporária. Também há `listar`, `reenviar` e `revogar`. Ao criar
+  um agente, o Admin passa a oferecer "Quer que eu crie um usuário e senha para essa pessoa entrar?" e entrega o convite
+  na conversa, numa caixinha com o botão de copiar.
+- Se o agente ainda não tem conta de IA conectada, o colaborador agora pode conectar a dele na página **Conectar conta**,
+  sem depender do dono. Só uma pessoa conecta por vez, um agente que já tem conta continua só com o dono, e um login
+  expirado também: o colaborador só inicia o login quando o agente confirma, na hora, que não há nenhuma credencial; com
+  credencial presente, mesmo vencida e mesmo que ele a tenha conectado antes, quem reconecta é o dono, em Conectar conta. Revogar o colaborador não desconecta a conta que ele
+  conectou, e o aviso aparece no comando e no log.
+- A conversa do colaborador não tem mais a fileira nem o menu de troca de agentes, porque ele só enxerga o agente dele.
+
+### Como atualizar
+
+- Depois do `dgclaw atualizar`, reinicie o painel (`sudo systemctl restart dgclaw-web`). É o reinício que cria o canal
+  local que o novo comando `dgclaw colaborador` usa para falar com o painel. Sem ele, o comando avisa que não consegue
+  falar com o Web e diz o que fazer.
+- Para o colaborador conseguir conectar a conta, o programa de cada agente (o runner, que vai dentro da imagem dos
+  agentes) também precisa estar na versão nova. Por segurança, o painel só deixa o colaborador conectar quando o agente
+  confirma, na hora, que está sem conta; um agente com versão antiga não sabe confirmar, então o colaborador recebe
+  "avise o dono para atualizar" e nada é conectado. O `dgclaw atualizar` normal já cobre isso: ele reconstrói a imagem e
+  recria o container de cada agente que está ligado. Só um agente que você deixou **parado** continua com a versão antiga;
+  para esse, ligue-o e rode `sudo dgclaw agente recriar <agente>` (ou `dgclaw atualizar --forcar`). O convite pelo
+  comando `dgclaw colaborador` não depende disso.
+- Esta versão traz uma instrução nova para o Admin entender o comando de convite. Ela precisa entrar nas instruções dele
+  sem apagar o que você já personalizou: peça ao Admin para juntar a seção "Convidar um colaborador" do arquivo
+  `templates/ambiente/admin.md` à dele, preservando as suas alterações. Os agentes de trabalho ganham uma frase nova sobre o
+  assunto do mesmo jeito (`templates/ambiente/agente.md`).
+
+**Os agentes no ChatGPT (Codex) passam a ter as mesmas instruções dos agentes no Claude.** Até aqui o arquivo de
+instruções do agente no Codex (o `AGENTS.md`) era escrito separado do `CLAUDE.md` e tinha menos conteúdo: faltavam a
+lousa, o texto para copiar com botão, o quadro de avisos da equipe, a tela para fazer logins, o agendamento e os
+lembretes. Agora os dois arquivos saem de uma fonte só (`scripts/gerar-instrucoes.sh`), e um teste reprova a mudança se
+eles ficarem diferentes. Onde o Claude e o Codex funcionam de jeitos distintos (por exemplo, o Claude chama uma skill
+por `/nome` e o Codex abre o roteiro dela pelo nome), cada um recebe o seu caminho. O `doctor` também passou a
+conferir o `AGENTS.md` do agente. Agentes novos já nascem com as instruções completas. Os que já existem
+mantêm o arquivo como está, porque você pode tê-lo personalizado.
+
+### Como atualizar (instruções do Codex)
+
+Se você tem agentes no ChatGPT (Codex) criados antes desta versão, peça ao Admin, no chat: "atualiza o DG Claw" e depois
+"junta as seções que faltam no AGENTS.md dos meus agentes no Codex". Ele roda a verificação do agente com a opção de conserto (`--fix`, do `doctor`),
+que acrescenta no fim do `AGENTS.md` só as seções que não existem (mesa de tarefas, quadro de avisos, lousa, texto para
+copiar, tela de logins, agendamento e lembretes), guarda uma cópia do arquivo ao lado e não apaga nada do que você
+personalizou. Agentes no Claude não precisam de nenhum passo.
+
+**O agente no ChatGPT (Codex) passa a lembrar das conversas e a ler o quadro de avisos, como o do Claude.** Antes, o
+Codex não executava os lembretes automáticos do DG Claw: o agente não recebia, antes de cada resposta, as memórias
+e conversas relacionadas, não via o quadro de avisos da equipe e não começava a sessão já sabendo o que estava na
+memória de curto prazo. Agora o DG Claw liga esses lembretes no Codex usando o recurso de hooks do próprio Codex, e
+só dá confiança aos hooks que ele mesmo distribui. Um arquivo de hooks que chegue num repositório clonado pelo agente
+continua sem rodar. O ajuste acontece sozinho quando o agente sobe.
+
+### Como atualizar (hooks do Codex)
+
+Depois de atualizar, reinicie os agentes que usam o ChatGPT (Codex) para que os lembretes passem a valer: peça ao
+Admin "reinicia meus agentes no Codex". Se você mantinha um `hooks.json` seu na pasta `.codex` do agente, ele é
+preservado; só as linhas do DG Claw são regravadas. Agentes no Claude não precisam de nenhum passo.
+
 **A regra de ficar livre para conversar passa para o topo das instruções do agente.** A regra que manda o agente
 responder primeiro e separar o pedido em "na hora", "curto" (subagente) e "longo" (card) já existia, mas ficava no
 fim das instruções, depois do AGENT.md. Num agente com o AGENT.md muito personalizado ela ficava longe demais e o

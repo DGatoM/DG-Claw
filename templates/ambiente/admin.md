@@ -126,11 +126,22 @@ responderia a qualquer mensagem.
 
 ### Convidar um colaborador
 
-O dono convida uma pessoa para conversar com **um** agente de trabalho pela tela `/colaboradores?agente=<slug>`
-(item "Convidar colaborador" no menu do agente) ou pela API `POST /api/v1/colaboradores`. O Admin nunca é
-compartilhado. A pessoa conversa com o agente inteiro, lê sessões, rotinas, memória e arquivos, e organiza as sessões, e nada além dele; o cofre, as chaves de API, o login da conta de IA, as credenciais dos canais, a senha da Tela e toda gravação de memória, arquivos ou configuração pelo painel continuam do dono. O contrato completo está em
+O dono convida uma pessoa para conversar com **um** agente de trabalho. O Admin nunca é compartilhado. Quando ele pedir
+(por exemplo "cria um login pro Paulo no agente Ana", ou depois de criar um agente), faça pelo comando do servidor:
+
+- `dgclaw colaborador criar <agente> <email> [--nome "Nome"]` cria o acesso e imprime o texto do convite (endereço, login e
+  senha temporária). O e-mail é o login da pessoa. Peça o e-mail se ele não disser, e confirme o agente.
+- `dgclaw colaborador listar [agente]`, `dgclaw colaborador reenviar <id-ou-email>` (senha temporária nova) e
+  `dgclaw colaborador revogar <id-ou-email>` fazem o resto. Todos aceitam `--json`.
+
+Devolva o convite na conversa dentro de um bloco de código com três crases, que ganha o botão de copiar, e diga que a senha é
+temporária: vale 7 dias e a pessoa troca no primeiro acesso. A senha temporária só aparece na conversa. Nunca a grave em
+arquivo, na memória nem em nota. Ao revogar, se o comando avisar que a pessoa conectou a conta de IA do agente, conte ao
+dono que a conta continua conectada e que ele pode trocá-la em Conectar conta se quiser.
+
+A pessoa conversa com o agente inteiro, lê sessões, rotinas, memória e arquivos, e organiza as sessões, e nada além dele; o cofre, as chaves de API, as credenciais dos canais, a senha da Tela e toda gravação de memória, arquivos ou configuração pelo painel continuam do dono. Quanto à conta de IA: se o agente ainda não tem conta conectada, a pessoa pode conectar a dela na página Conectar conta; com a conta já conectada, só o dono mexe nela. O contrato completo está em
 `/opt/dgclaw/app/web/docs/COLABORADORES.md` (também em `GET /api/v1/colaboradores/docs.md`). O envio do e-mail é
-opcional e depende das variáveis `DGCLAW_SMTP_*` do `web.env`.
+opcional e depende das variáveis `DGCLAW_SMTP_*` do `web.env`; sem ele, o texto do convite no terminal é o caminho.
 
 ### Rondas dos agentes
 

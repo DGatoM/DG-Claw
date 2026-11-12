@@ -79,8 +79,8 @@ function criarRunner({ log, timeoutMs }) {
       return { ok: true, estado: dados };
     },
     /** GET /api/provedor do runner (sessão principal). Devolve { ok, dados } ou { ok:false, erro }. */
-    async provedor(agente, timeoutMs) {
-      const r = await chamar(agente, 'GET', '/api/provedor', null, timeoutMs);
+    async provedor(agente, timeoutMs, fresco) {
+      const r = await chamar(agente, 'GET', fresco ? '/api/provedor?fresco=1' : '/api/provedor', null, timeoutMs);
       if (!r.ok && r.erro) return r;
       if (!r.ok) return { ok: false, status: r.status, erro: r.status === 404 ? `O runner de ${agente.nome} não tem a rota /api/provedor (versão antiga).` : motivoDoRunner(agente, r) };
       const dados = r.corpo && (r.corpo.data && typeof r.corpo.data === 'object' ? r.corpo.data : r.corpo);

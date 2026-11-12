@@ -14,7 +14,7 @@ const JANELA_SENHA_MS = 15 * 60 * 1000;
 const MAX_FALHAS_SENHA = 5;
 const SO_DONO = 'Convidar e gerenciar colaboradores é só do dono do DG Claw, pelo painel.';
 
-function criarColaboradoresRotas({ colaboradores, auth, registro, email, config, log, aoDerrubar, agora }) {
+function criarColaboradoresRotas({ colaboradores, auth, registro, email, config, log, aoDerrubar, agora, conta }) {
   const relogio = agora || (() => Date.now());
   // Erros da senha atual na troca de senha: 5 em 15 min por colaborador e por IP.
   const falhasDeSenha = new Map();
@@ -48,11 +48,39 @@ function criarColaboradoresRotas({ colaboradores, auth, registro, email, config,
     ].join('\n');
   }
 
+  /**
+   * Endereço do link do convite pedido pelo comando de host: não há navegador, então não existe cabeçalho Host. Vale, nesta
+   * ordem, o `base` que o comando mandou (ele lê DGCLAW_DOMINIO do dgclaw.env), DGCLAW_DOMINIO do ambiente do Web, a primeira
+   * origem https de DGCLAW_WEB_ORIGENS e, por último, o endereço local, com um aviso de que só abre no servidor.
+   */
+  function enderecoDoHost(corpo) {
+    const dado = corpo && typeof corpo.base === 'string' ? corpo.base.trim().replace(/\/+$/, '') : '';
+    if (dado) {
+      if (!/^https?:\/\/[A-Za-z0-9.-]+(?::\d{1,5})?$/.test(dado)) {
+        const e = new Error(`O campo "base" precisa ser só o endereço (https://painel.exemplo.com), sem caminho. Recebi: ${dado.slice(0, 80)}.`);
+        e.status = 400;
+        throw e;
+      }
+      return { base: dado, aviso: null };
+    }
+    const dominio = String((config.env && config.env.DGCLAW_DOMINIO) || '').trim();
+    if (/^[A-Za-z0-9.-]+$/.test(dominio) && dominio) return { base: `https://${dominio}`, aviso: null };
+    const extra = [...(config.origensExtras || [])].find((o) => o.startsWith('https://'));
+    if (extra) return { base: extra, aviso: null };
+    return {
+      base: `http://127.0.0.1:${config.porta}`,
+      aviso: 'Este DG Claw não tem domínio configurado, então o link do convite é o endereço local e só abre no próprio servidor. Configure um domínio (sudo dgclaw dominio trocar <nome>) ou passe o endereço de acesso à pessoa.',
+    };
+  }
+
   /** Monta o convite, tenta o e-mail e devolve o objeto "convite" da resposta. A senha só existe aqui. */
-  async function convite(req, sessao, registroColab, senha) {
+  async function convite(req, sessao, registroColab, senha, corpoDoPedido) {
     const ag = registro.obter(registroColab.agente);
     const nomeAgente = ag ? ag.nome : registroColab.agente;
-    const link = `${H.origemPropria(req, config.proxiesConfiaveis)}/login?usuario=${encodeURIComponent(registroColab.email)}`;
+    let aviso = null;
+    let base;
+    if (sessao.via === 'host') { const e = enderecoDoHost(corpoDoPedido); base = e.base; aviso = e.aviso; } else base = H.origemPropria(req, config.proxiesConfiaveis);
+    const link = `${base}/login?usuario=${encodeURIComponent(registroColab.email)}`;
     const texto = textoDoConvite({
       quem: sessao.usuario, nomeAgente, nomePessoa: registroColab.nome, link, usuario: registroColab.email, senha, expira: registroColab.temporaria_expira,
     });
@@ -60,6 +88,7 @@ function criarColaboradoresRotas({ colaboradores, auth, registro, email, config,
     return {
       link, usuario: registroColab.email, senha_temporaria: senha, expira: registroColab.temporaria_expira,
       email_enviado: envio.enviado === true, email_motivo: envio.enviado ? null : envio.motivo, texto,
+      ...(aviso ? { aviso } : {}),
     };
   }
 
@@ -117,9 +146,9 @@ function criarColaboradoresRotas({ colaboradores, auth, registro, email, config,
           // Convite de um agente que foi removido e recriado com o mesmo nome não vale e não pode barrar o novo.
           const velhos = await colaboradores.revogarDeOutraInstancia(slug, instancia);
           if (velhos) log('aviso', `Convite(s) de uma instância antiga do agente ${slug} revogado(s) (${velhos}): o agente foi removido e criado de novo.`);
-          const r = await colaboradores.criar({ agente: slug, email: mail, nome: corpo.nome, criadoPor: sessao.usuario, instancia });
+          const r = await colaboradores.criar({ agente: slug, email: mail, nome: corpo.nome, criadoPor: sessao.via === 'host' ? 'admin' : sessao.usuario, instancia });
           log('info', `Colaborador convidado: ${r.registro.email} para o agente ${slug} (por ${sessao.usuario}).`);
-          const c = await convite(req, sessao, r.registro, r.senha);
+          const c = await convite(req, sessao, r.registro, r.senha, corpo);
           H.enviaJson(res, 201, { ok: true, colaborador: r.registro, convite: c });
         } catch (e) { falha(res, e, 'Não consegui criar o convite'); }
         return true;
@@ -135,18 +164,25 @@ function criarColaboradoresRotas({ colaboradores, auth, registro, email, config,
       try {
         if (mr[2] === 'reenviar') {
           if (m !== 'POST') { H.erroJson(res, 405, 'Use POST para mandar o convite de novo.'); return true; }
+          let corpoReenvio = {};
+          if (sessao.via === 'host') corpoReenvio = await H.lerJson(req, 8 * 1024);
           const r = await colaboradores.reenviar(id);
           derruba(id);
+          const enc = conta ? await conta.encerraPendencias(id, (slug) => registro.obter(slug)) : { avisos: [] };
           log('info', `Convite reenviado a ${r.registro.email} (agente ${r.registro.agente}); sessões dele derrubadas (por ${sessao.usuario}).`);
-          const c = await convite(req, sessao, r.registro, r.senha);
-          H.enviaJson(res, 200, { ok: true, colaborador: r.registro, convite: c });
+          const c = await convite(req, sessao, r.registro, r.senha, corpoReenvio);
+          H.enviaJson(res, 200, { ok: true, colaborador: r.registro, convite: c, avisos: enc.avisos });
           return true;
         }
         if (m === 'DELETE') {
           const r = await colaboradores.revogar(id);
           derruba(id);
           log('info', `Acesso de ${r.email} ao agente ${r.agente} revogado (por ${sessao.usuario}).`);
-          H.enviaJson(res, 200, { ok: true, colaborador: r });
+          const contas = conta ? conta.contasDe(id).map((x) => x.agente) : [];
+          const enc = conta ? await conta.encerraPendencias(id, (slug) => registro.obter(slug)) : { avisos: [], agentes: [] };
+          for (const a of enc.agentes) if (!contas.includes(a)) contas.push(a);
+          if (contas.length) log('aviso', `${r.email} conectou, ou deixou em andamento, a conta de IA do agente ${contas.join(', ')} e ela pode continuar conectada depois da revogação. Se quiser, entre com a sua conta em Conectar conta para trocar.`);
+          H.enviaJson(res, 200, { ok: true, colaborador: r, contas_de_ia: contas, avisos: enc.avisos });
           return true;
         }
         H.erroJson(res, 405, 'Use DELETE para revogar o acesso, ou POST em /reenviar.');
