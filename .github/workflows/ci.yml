@@ -326,6 +326,9 @@ jobs:
       - name: Reflexão noturna (tests/reflexao)
         run: bash tests/reflexao/rodar.sh
 
+      - name: Batimento do agente (tests/heartbeat)
+        run: bash tests/heartbeat/rodar.sh
+
   # ---------------------------------------------------------------------------
   # Documentação em dia: o inventário sai do código (scripts/docs-inventario.mjs) e o
   # manual (docs/manual) tem de citar cada item. Roda uma bancada com manual falso
