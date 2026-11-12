@@ -91,12 +91,25 @@ if [ -f "$WM" ]; then
     # Tira comentario, linha vazia e placeholder "- (...)". Depois tira as linhas adiadas: marca
     # "[a partir de AAAA-MM-DD]" com data futura. Data de hoje, passada ou malformada continua contando.
     BLOCK=$(awk '/^## Quero Falar com o/{f=1;next} /^## /{f=0} f' "$WM" | grep -vE '^\s*(<!--|$)' | grep -vE '^\s*-\s*\(' \
-        | awk -v hoje="$HOJE" '{
-            l = tolower($0)
-            if (match(l, /\[a partir de [^]]*\]/)) {
-                d = substr(l, RSTART + 13, RLENGTH - 14); gsub(/^ +| +$/, "", d)
-                if (d ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/ && d > hoje) next
+        | awk -v hoje="$HOJE" '
+            # data AAAA-MM-DD que existe no calendario (mes 13 ou 31/04 nao contam como adiamento)
+            function data_ok(d,   a, m, x, max) {
+                if (d !~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/) return 0
+                a = substr(d, 1, 4) + 0; m = substr(d, 6, 2) + 0; x = substr(d, 9, 2) + 0
+                if (m < 1 || m > 12 || x < 1) return 0
+                max = 31
+                if (m == 4 || m == 6 || m == 9 || m == 11) max = 30
+                if (m == 2) max = ((a % 4 == 0 && a % 100 != 0) || a % 400 == 0) ? 29 : 28
+                return x <= max
             }
+            {
+            # vale a ULTIMA marca da linha: quem adia de novo pode acrescentar outra no fim
+            l = tolower($0); d = ""
+            while (match(l, /\[a partir de [^]]*\]/)) {
+                d = substr(l, RSTART + 13, RLENGTH - 14); gsub(/^ +| +$/, "", d)
+                l = substr(l, RSTART + RLENGTH)
+            }
+            if (d != "" && data_ok(d) && d > hoje) next
             print }')
     [ -n "$BLOCK" ] && HAS_NEWS=1
 fi
@@ -142,8 +155,8 @@ sem markdown, com no maximo 1-2 emojis) e remova a linha correspondente da worki
 Se NAO houver nada que justifique interromper, nao mande nada.
 Ao terminar, a linha NAO pode ficar igual, senao o batimento te acorda de novo pelo mesmo assunto:
 (a) se voce avisou o ${DGCLAW_OWNER:-dono} ou a linha nao vale mais, remova a linha;
-(b) se prefere falar depois, mantenha a linha e acrescente no fim dela [a partir de AAAA-MM-DD],
-com a data em que quer ser lembrado. Ate la o batimento deixa essa linha quieta."
+(b) se prefere falar depois, mantenha a linha com UMA marca [a partir de AAAA-MM-DD] no fim
+(troque a anterior, se ja houver), com a data em que quer ser lembrado. Ate la o batimento deixa essa linha quieta."
 
 echo "[$(date '+%F %T')] heartbeat: injetando poke (conteudo novo ou prazo vencido) na sessao viva de ${SLUG}" >> "$LOG"
 inject_session "$SLUG" heartbeat <<< "$PROMPT" >> "$LOG" 2>&1
