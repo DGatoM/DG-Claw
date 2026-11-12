@@ -729,6 +729,36 @@ test("recibo atrasado: outra escrita no terminal durante a vigia cancela os Ente
   }
 });
 
+test("recibo atrasado: escrita no terminal enquanto o 3º Enter espera o recibo também cancela a vigia", async () => {
+  logarClaude(amb);
+  const { enviarComRecibo } = await import("./sessao/digitacao.js");
+  const { s } = await nova({}, { reciboVigiaPassosMs: [300, 300] });
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  const original = s.escrever.bind(s);
+  const escritas: string[] = [];
+  (s as unknown as { escrever: (t: string) => void }).escrever = (t: string) => {
+    escritas.push(t);
+    s.entradasManuais += 1;
+    // Logo depois do 3º Enter, o dono limpa a caixa e começa outro texto, ainda durante a espera do recibo.
+    if (t === "\r" && escritas.filter((e) => e === "\r").length === 3) {
+      setTimeout(() => {
+        s.escrever("\u0015");
+        s.escrever("rascunho ainda sem confirmacao");
+      }, 10);
+    }
+  };
+  try {
+    const marca = lerTexto(amb.logDoRunner).length;
+    await enviarComRecibo(s);
+    await new Promise((r) => setTimeout(r, 1_000));
+    assert.equal(escritas.at(-1), "rascunho ainda sem confirmacao", "nenhum Enter depois do rascunho");
+    await esperarAte(() => /parei de insistir no Enter/.test(lerTexto(amb.logDoRunner).slice(marca)), 3_000, "o log da desistência");
+  } finally {
+    (s as unknown as { escrever: (t: string) => void }).escrever = original;
+  }
+});
+
 test("recibo: /compact sem UserPromptSubmit é confirmado pelo PreCompact e não dá alarme", async () => {
   logarClaude(amb);
   const { enviarComRecibo } = await import("./sessao/digitacao.js");
