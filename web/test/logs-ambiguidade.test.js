@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { pastaTemp } = require('./ajuda');
-const { criarLeitor, limpa, decodificaCursor } = require('../lib/logs-leitor');
+const { criarLeitor, limpaCamadaAntiga: limpa, decodificaCursor } = require('../lib/logs-leitor');
 
 const U = (n) => `${String(n).padStart(8, '0')}-5555-4555-8555-555555555555`;
 const BASE_T = Date.parse('2026-11-01T12:00:00Z');
@@ -337,5 +337,5 @@ test('resposta e busca nos dois motores: nada do valor sai e procurar pelo sufix
   assert.equal(r.eventos.length, ADJACENTES.length * 2);
   assert.ok(!JSON.stringify(r).includes('ALHEIO'));
   for (const q of [SUF, 'ALHEIO']) assert.equal((await l.eventos(c.ag, { limite: 100, cursor: null, q })).eventos.length, 0);
-  assert.ok(r.eventos.every((e) => /depois/.test(e.texto)));
+  assert.ok(r.eventos.every((e) => /depois|linha oculta/.test(e.texto)));
 });

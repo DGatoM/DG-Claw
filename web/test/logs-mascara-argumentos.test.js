@@ -2,7 +2,7 @@
 // Seção Logs: cada argumento é lido uma vez só (tempo linear) e comando em lista é mascarado respeitando os limites dos elementos.
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { limpa, comandoDeLista } = require('../lib/logs-leitor');
+const { limpaCamadaAntiga: limpa, comandoDeLista } = require('../lib/logs-leitor');
 
 function medir(entrada) {
   const t0 = process.hrtime.bigint();

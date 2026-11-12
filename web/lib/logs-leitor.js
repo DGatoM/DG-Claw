@@ -484,12 +484,21 @@ function comandoExibivel(s) {
   return (/^[A-Za-z0-9_.+-]{1,60}$/.test(nome) ? nome : 'comando') + AVISO_ARGUMENTOS;
 }
 
+const LINHA_OCULTA = '[linha oculta: pode levar credencial]';
+
+/** Linha que tem um programa da lista E um marcador de credencial (xtrace, eco de comando) sai inteira escondida. */
+function ocultaLinhasComCredencial(s) {
+  if (!RX_MARCADOR_CREDENCIAL.test(s) || !RX_PROGRAMA_CREDENCIAL.test(s)) return s;
+  return s.split('\n').map((l) => (RX_MARCADOR_CREDENCIAL.test(l) && RX_PROGRAMA_CREDENCIAL.test(l) ? LINHA_OCULTA : l)).join('\n');
+}
+
 /** Tudo o que sai da API passa por aqui: limite de 64 KB, mascarar de mascara.js e depois os padrões extras. */
-function limpa(texto, cortado) {
+function limpa(texto, cortado, semLinhas) {
   if (texto == null) return '';
   const bruto = typeof texto === 'string' ? texto : String(texto);
   cortado = cortado || bruto.length > BRUTO;
   let r = corteBruto(bruto);
+  if (!semLinhas) r = ocultaLinhasComCredencial(r);
   r = mascaraAtribuicoes(mascaraComandos(r, cortado), cortado);
   for (const [rx, sub] of PRE) { rx.lastIndex = 0; r = r.replace(rx, sub); }
   r = mascarar(r.replace(RX_SEQUENCIA_LONGA, '[trecho-longo-omitido]'));
@@ -1783,8 +1792,11 @@ const REGEX_AUDITAVEIS = [
   { nome: 'RX_ID_CURTO', rx: RX_ID_CURTO, sementes: ['a', '1'] },
 ];
 
+/** Só a camada do tokenizador e das regexes, sem a ocultação de linhas: é o que os testes da camada antiga exercitam. */
+const limpaCamadaAntiga = (texto) => limpa(texto, false, true);
+
 module.exports = {
-  mascaraComandos, comandoDeLista, comandoExibivel, REGEX_AUDITAVEIS, semBarraFinal,
+  limpaCamadaAntiga, mascaraComandos, comandoDeLista, comandoExibivel, REGEX_AUDITAVEIS, semBarraFinal,
   criarLeitor, limpa, serializa, corta, normaliza, caminhoRelativo, codificaCursor, decodificaCursor, cmp, fontesDoAgente, descobreFonte,
   abrirSeguro, ErroEntrada, ErroArquivo, TIPOS, RX_ID_CURTO, RX_UUID, MAX_LINHA,
 };

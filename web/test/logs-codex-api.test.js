@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { pastaTemp } = require('./ajuda');
-const { criarLeitor, limpa } = require('../lib/logs-leitor');
+const { criarLeitor, limpaCamadaAntiga: limpa } = require('../lib/logs-leitor');
 
 const U = (n) => `${String(n).padStart(8, '0')}-6666-4666-8666-666666666666`;
 const BASE_T = Date.parse('2026-11-01T12:00:00Z');

@@ -8,7 +8,7 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { subirWeb, pastaTemp, cliente } = require('./ajuda');
 const { cenario, colaboradorAtivo } = require('./colab-ajuda');
-const { criarLeitor, limpa, decodificaCursor, codificaCursor, ErroEntrada, abrirSeguro } = require('../lib/logs-leitor');
+const { criarLeitor, limpaCamadaAntiga: limpa, decodificaCursor, codificaCursor, ErroEntrada, abrirSeguro } = require('../lib/logs-leitor');
 const { autorizado } = require('../lib/logs-rotas');
 
 // ── fixtures ────────────────────────────────────────────────────────────────
