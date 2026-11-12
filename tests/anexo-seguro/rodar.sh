@@ -76,7 +76,7 @@ if [ "$O_QUE" = "original" ]; then rm -f "$ws/AGENTS.md"; ln -s "$ALVO_EXTERNO" 
 else rm -f "$ws/$nome"; ln -s "$ALVO_EXTERNO" "$ws/$nome"; fi
 GANCHO
 chmod +x "$TMP/gancho.sh"
-for caso in "depois-do-backup-temporario:temporario" "depois-do-temporario:temporario" "antes-do-rename:temporario" "antes-do-rename:original"; do
+for caso in "depois-do-backup-temporario:temporario" "antes-da-escrita:original"; do
     etapa="${caso%%:*}"; o_que="${caso##*:}"
     rm -rf "$WS"; mkdir -p "$WS"
     printf 'conteudo do dono\n' > "$WS/AGENTS.md"
@@ -88,9 +88,25 @@ for caso in "depois-do-backup-temporario:temporario" "depois-do-temporario:tempo
     [ "$(sha256sum "$FORA/sistema")" = "$ANTES" ] && [ "$(stat -c '%U:%G %a %i' "$FORA/sistema")" = "$INFO" ] && ok "[$etapa/$o_que] o alvo externo ficou igual (conteudo, dono, modo)" || mal "[$etapa/$o_que] o alvo externo mudou"
     if [ -z "$(find "$WS" -maxdepth 1 -name '.anexo.*')" ]; then ok "[$etapa/$o_que] nenhum temporario sobrou"; else mal "[$etapa/$o_que] sobrou temporario"; fi
 done
+echo "anexo-seguro: o agente escreve no arquivo (mesmo inode) no meio da operacao"
+cat > "$TMP/gancho-escreve.sh" <<'GANCHO'
+#!/usr/bin/env bash
+[ "$1" = "antes-da-escrita" ] && printf 'linha concorrente do agente\n' >> "$2/AGENTS.md"
+exit 0
+GANCHO
+chmod +x "$TMP/gancho-escreve.sh"
+rm -rf "$WS"; mkdir -p "$WS"; printf 'conteudo do dono\n' > "$WS/AGENTS.md"
+INO="$(stat -c %i "$WS/AGENTS.md")"
+DGCLAW_ANEXO_MODO_TESTE=1 DGCLAW_ANEXO_GANCHO="$TMP/gancho-escreve.sh" \
+    anexar_secao_segura "$WS/AGENTS.md" "$WS" "$SECAO" "$WS/AGENTS.md.bak-t" "$DONO"; rc=$?
+[ "$rc" = "0" ] && ok "acrescentou (codigo 0)" || mal "codigo $rc: $ANEXO_MOTIVO"
+grep -qx 'linha concorrente do agente' "$WS/AGENTS.md" && ok "a linha que o agente escreveu no meio da operacao sobreviveu" || mal "a linha concorrente foi apagada"
+grep -q 'Texto novo da mesa' "$WS/AGENTS.md" && grep -qx 'conteudo do dono' "$WS/AGENTS.md" && ok "a secao entrou e o texto do dono ficou" || mal "conteudo do AGENTS.md"
+[ "$(stat -c %i "$WS/AGENTS.md")" = "$INO" ] && ok "o arquivo continua no mesmo inode (nao foi substituido)" || mal "o inode mudou"
+
 # sem o modo de teste o gancho e ignorado (nao e uma porta para o agente)
 rm -rf "$WS"; mkdir -p "$WS"; printf 'x\n' > "$WS/AGENTS.md"
-DGCLAW_ANEXO_GANCHO="$TMP/gancho.sh" TROCAR_NA_ETAPA="antes-do-rename" ALVO_EXTERNO="$FORA/sistema" O_QUE="original" \
+DGCLAW_ANEXO_GANCHO="$TMP/gancho.sh" TROCAR_NA_ETAPA="antes-da-escrita" ALVO_EXTERNO="$FORA/sistema" O_QUE="original" \
     anexar_secao_segura "$WS/AGENTS.md" "$WS" "$SECAO" "$WS/AGENTS.md.bak-t" "$DONO" && ok "sem DGCLAW_ANEXO_MODO_TESTE o gancho nao roda" || mal "o gancho rodou fora do modo de teste"
 
 echo "anexo-seguro: o doctor usa a funcao e nao escreve direto"

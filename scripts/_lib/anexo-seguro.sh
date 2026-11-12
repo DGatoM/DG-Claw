@@ -11,16 +11,15 @@
 #
 # anexar_secao_segura <arquivo> <workspace> <texto-da-secao> <backup> <usuario-dono>
 #   Entrega o trabalho a scripts/_lib/anexar_secao.py (python3 -I), que so usa descritores: abre a
-#   pasta do workspace e cada pasta do caminho com O_NOFOLLOW, abre o original sem seguir link, cria
-#   backup e temporario com O_EXCL|O_NOFOLLOW por dir_fd, escreve/fchmod/fchown pelo fd e troca com
-#   rename por dir_fd depois de conferir de novo, por nome, que o original e o mesmo inode que foi
-#   lido. Nenhuma operacao reabre um caminho textual dentro da pasta que o agente escreve.
+#   pasta do workspace e cada pasta do caminho com O_NOFOLLOW, abre o original sem seguir link com
+#   O_APPEND, cria o backup com O_EXCL|O_NOFOLLOW por dir_fd e escreve a secao no fim do proprio
+#   arquivo, num unico write, depois de conferir de novo, por nome, que o original e o mesmo inode que
+#   foi aberto. O arquivo nao e copiado nem substituido: o que o agente escrever durante a migracao
+#   nao se perde. Nenhuma operacao reabre um caminho textual dentro da pasta que o agente escreve.
 #   Devolve 0 se acrescentou, 1 se recusou (motivo em ANEXO_MOTIVO), 2 se falhou ao gravar.
 #
-# CORRIDA que sobra: o agente ainda pode trocar o arquivo entre a conferencia final e o rename. Isso
-# nao abre nada: o rename troca o NOME (um link plantado ali e substituido) e a escrita ja foi feita
-# nos descritores. O que ele consegue e fazer a secao nova ser perdida. O ideal seria rodar a
-# migracao como o usuario do agente; o doctor nao tem esse caminho hoje.
+# CORRIDA que sobra: se o agente trocar o nome do arquivo entre a conferencia e o write, a secao cai
+# no arquivo antigo (ja desligado do nome) e se perde; nada e escrito atraves de link.
 
 # shellcheck disable=SC2034
 ANEXO_MOTIVO=""

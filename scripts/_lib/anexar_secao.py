@@ -13,21 +13,23 @@ COMO FICA SEGURO
   - A pasta do workspace e cada pasta do caminho ate o arquivo sao abertas com
     O_DIRECTORY|O_NOFOLLOW, uma a partir da outra (dir_fd). Depois disso, TODA operacao usa
     descritor: open/stat/unlink/rename com dir_fd, e escrita, fchmod e fchown pelo fd.
-  - O original abre com O_RDONLY|O_NOFOLLOW e fstat confere que e arquivo regular.
-  - Backup e temporario sao criados com nome aleatorio, O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW, 0600.
-  - Antes do rename o original e olhado de novo POR NOME (sem seguir link): tem de ser o mesmo
-    dispositivo e inode que foi lido, e o temporario pelo nome tem de ser o mesmo inode do fd.
-  - O rename (src_dir_fd/dst_dir_fd) troca o NOME: se o agente pos um link no destino, o link e
-    substituido; nada e escrito atraves dele.
-  - Qualquer falha apaga os temporarios (unlink com dir_fd) e sai com mensagem em portugues.
+  - O original abre com O_RDWR|O_APPEND|O_NOFOLLOW e fstat confere que e arquivo regular.
+  - A operacao so ACRESCENTA: a secao e escrita no fim do proprio arquivo, pelo mesmo descritor, num
+    unico write. O arquivo nunca e copiado nem renomeado por cima, entao uma linha que o agente
+    escreva no meio da migracao nao e apagada (no pior caso a secao entra depois dela).
+  - O backup e criado com nome aleatorio, O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW, 0600, e entra no nome
+    final por rename com dir_fd. Ele guarda o que foi lido antes de acrescentar.
+  - Antes de escrever o original e olhado de novo POR NOME (sem seguir link): tem de ser o mesmo
+    dispositivo e inode que foi aberto; se o agente trocou o nome, nada e escrito.
+  - Qualquer falha apaga o temporario do backup (unlink com dir_fd) e sai com mensagem em portugues.
 
 SAIDA: 0 acrescentou; 1 recusou (link, nao e arquivo comum...); 2 falhou ao gravar. O motivo vai no
 stderr, uma linha.
 
 GANCHO DE TESTE: com DGCLAW_ANEXO_MODO_TESTE=1 e DGCLAW_ANEXO_GANCHO=<executavel>, o executavel roda
-entre as etapas ("depois-do-backup-temporario", "depois-do-temporario", "antes-do-rename") com os argumentos
-<etapa> <pasta do workspace> <nome do temporario>, para o teste simular o agente trocando o
-temporario por um link. Sem o modo de teste a variavel e ignorada.
+entre as etapas ("depois-do-backup-temporario", "antes-da-escrita") com os argumentos
+<etapa> <pasta do workspace> <nome do temporario do backup, ou - nas outras>, para o teste simular o
+agente trocando o temporario por um link, ou escrevendo no arquivo no meio da operacao. Sem o modo de teste a variavel e ignorada.
 """
 import os
 import pwd
@@ -111,7 +113,7 @@ def main(ws, rel, nome_bak, usuario, secao):
             abertos.append(dfd)
         alvo = partes[-1]
         try:
-            ofd = os.open(alvo, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dfd)
+            ofd = os.open(alvo, os.O_RDWR | os.O_APPEND | os.O_NOFOLLOW, dir_fd=dfd)
         except OSError as e:
             if os.path.lexists(os.path.join(ws, rel)) and os.path.islink(os.path.join(ws, rel)):
                 raise Recusa(f"{rel} e um link simbolico; nao leio nem escrevo por ele. Apague o link e recoloque o arquivo de verdade (ou restaure o ultimo backup .bak-*), depois rode o doctor de novo") from e
@@ -159,27 +161,18 @@ def main(ws, rel, nome_bak, usuario, secao):
                 os.rename(nb, nome_bak, src_dir_fd=dfd, dst_dir_fd=dfd)
                 criados.remove(nb)
 
-            nt, ft = _cria(dfd, uid, gid, modo, original)
-            criados.append(nt)
-            try:
-                _gancho("depois-do-temporario", ws, nt)
-                _preenche(ft, uid, gid, modo, original + b"\n" + secao + b"\n")
-                _gancho("antes-do-rename", ws, nt)
-                est_tmp = os.fstat(ft)
-            finally:
-                os.close(ft)
-            # o original, por nome e sem seguir link, tem de ser o mesmo que foi lido
+            _gancho("antes-da-escrita", ws, "-")
+            # o original, por nome e sem seguir link, tem de ser o mesmo que foi aberto
             try:
                 agora = os.stat(alvo, dir_fd=dfd, follow_symlinks=False)
             except OSError as e:
                 raise Recusa(f"{rel} sumiu ou mudou enquanto eu o lia ({e.strerror}); nao gravei nada. Rode o doctor de novo") from e
             if not stat.S_ISREG(agora.st_mode) or (agora.st_dev, agora.st_ino) != (est.st_dev, est.st_ino):
                 raise Recusa(f"{rel} mudou (ou virou link) enquanto eu o lia; nao gravei nada. Rode o doctor de novo")
-            # o temporario, por nome, tem de ser o mesmo inode que eu escrevi pelo fd
-            _mesmo_arquivo(dfd, nt, est_tmp, "o arquivo temporario")
-            os.rename(nt, alvo, src_dir_fd=dfd, dst_dir_fd=dfd)
-            criados.remove(nt)
-            os.fsync(dfd)
+            # O_APPEND: o write cai no fim atual do arquivo, depois de qualquer linha que o agente tenha escrito
+            _escreve(ofd, b"\n" + secao + b"\n")
+            os.fchown(ofd, uid, gid)
+            os.fsync(ofd)
         finally:
             for nome in criados:
                 try:
