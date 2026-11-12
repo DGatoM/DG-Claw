@@ -899,10 +899,10 @@ caso_claude_ausente_com_sudo_cita_o_caminho_do_root() {
     limpar_cenario
 }
 
-# proc_falso <pid> <uid> <exe>: um processo de mentira em $RAIZ/proc (so o status e o exe).
+# proc_falso <pid> <uid> <exe> [ppid=1]: um processo de mentira em $RAIZ/proc (so o status e o exe).
 proc_falso() {
     mkdir -p "$RAIZ/proc/$1"
-    printf 'Name:\tqualquer\nUid:\t%s\t%s\t%s\t%s\n' "$2" "$2" "$2" "$2" >"$RAIZ/proc/$1/status"
+    printf 'Name:\tqualquer\nPPid:\t%s\nUid:\t%s\t%s\t%s\t%s\n' "${4:-1}" "$2" "$2" "$2" "$2" >"$RAIZ/proc/$1/status"
     ln -sfn "$3" "$RAIZ/proc/$1/exe"
 }
 
@@ -932,14 +932,29 @@ caso_firewall_uniao_de_fontes_do_ssh() {
     nega "sem porta explicita nao acrescenta a 22" tem "$STUB_LOG" "ufw allow 22/tcp"
     limpar_cenario
     novo_cenario
-    proc_falso 10 0 /usr/lib/openssh/sshd-session
-    proc_falso 11 1000 /usr/lib/openssh/sshd-session
-    sock_falso 10 4 7001
-    tcp_falso tcp 0BCE 01 7001   # 0BCE = 3022, ESTABLISHED
+    proc_falso 10 0 /usr/sbin/sshd 1
+    proc_falso 12 0 /usr/lib/openssh/sshd-session 10
+    proc_falso 13 0 /usr/sbin/sshd 500
+    proc_falso 14 0 /usr/sbin/sshd 500
+    sock_falso 10 4 7001; tcp_falso tcp 08AE 0A 7001   # 08AE = 2222, daemon com PPid 1
+    sock_falso 12 4 7002; tcp_falso tcp 1538 0A 7002   # 1538 = 5432, ssh -R de uma sessao
+    sock_falso 13 4 7003; tcp_falso tcp 1F90 0A 7003   # 1F90 = 8080, filho sshd (PPid 500)
+    sock_falso 10 5 7004; tcp_falso tcp 1538 01 7004   # 5432 ESTABLISHED aceita no encaminhamento
+    sock_falso 14 4 7005; tcp_falso tcp 2328 0A 7005   # 2328 = 9000, MainPID do servico
+    EXTRA_ENV=(DGCLAW_STUB_SSHD_PORTAS= DGCLAW_STUB_MAINPID=14)
+    afirma "instala (daemon, sessao e encaminhamentos)" instalacao_basica
+    afirma "libera a porta do daemon sshd (PPid 1)" tem "$STUB_LOG" "ufw allow 2222/tcp"
+    afirma "libera a do MainPID do servico mesmo com PPid diferente de 1" tem "$STUB_LOG" "ufw allow 9000/tcp"
+    nega "LISTEN de sshd-session (ssh -R) nao vira regra" tem "$STUB_LOG" "ufw allow 5432/tcp"
+    nega "filho sshd que nao e daemon nem MainPID nao vira regra" tem "$STUB_LOG" "ufw allow 8080/tcp"
+    limpar_cenario
+    novo_cenario
+    proc_falso 10 0 /usr/sbin/sshd 1
+    sock_falso 10 4 7011; tcp_falso tcp 1538 01 7011   # so ESTABLISHED na 5432
     EXTRA_ENV=(DGCLAW_STUB_SSHD_PORTAS=2222)
-    afirma "instala (conexao estabelecida em porta que o sshd -T nao cita)" instalacao_basica
-    afirma "libera a porta local da conexao em curso" tem "$STUB_LOG" "ufw allow 3022/tcp"
-    afirma "libera a do sshd -T tambem" tem "$STUB_LOG" "ufw allow 2222/tcp"
+    afirma "instala (so conexao estabelecida do sshd)" instalacao_basica
+    nega "conexao ESTABLISHED nao vira regra" tem "$STUB_LOG" "ufw allow 5432/tcp"
+    afirma "libera a do sshd -T" tem "$STUB_LOG" "ufw allow 2222/tcp"
     limpar_cenario
     novo_cenario
     proc_falso 1 0 /usr/sbin/sshd

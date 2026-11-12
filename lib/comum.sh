@@ -379,16 +379,32 @@ pid_e_sshd_de_verdade() {
     return 1
 }
 
-# portas_proc_sshd: as portas locais dos sockets TCP em LISTEN (0A) ou ESTABLISHED (01) que pertencem a um
-# sshd de verdade. Le direto do /proc, sem o ss, porque o texto do ss traz o NOME do processo (e ate um
-# "pid=N" dentro dele), que qualquer usuario escolhe. Aqui so vale: PID aprovado por pid_e_sshd_de_verdade,
-# os inodes dos seus sockets (/proc/N/fd/*) e as linhas de /proc/net/tcp e tcp6 com esse inode.
+# pid_e_daemon_sshd <pid> <mainpids>: 0 (sim) so se o processo e o daemon principal do sshd, e nao uma
+# sessao: executavel exatamente /usr/sbin/sshd (sshd-session e sshd-auth sao sessao) E PPid 1 ou PID
+# igual a um dos MainPID listados (separados por espaco) de ssh.service/sshd.service.
+pid_e_daemon_sshd() {
+    local pid="$1" mainpids="$2" exe ppid
+    pid_e_sshd_de_verdade "$pid" || return 1
+    exe="$(readlink -f "$R/proc/$pid/exe" 2>/dev/null)" || return 1
+    [ "${exe#"$R"}" = /usr/sbin/sshd ] || return 1
+    ppid="$(awk '/^PPid:/ {print $2; exit}' "$R/proc/$pid/status" 2>/dev/null)" || return 1
+    [ "$ppid" = 1 ] && return 0
+    [[ " $mainpids " == *" $pid "* ]]
+}
+
+# portas_proc_sshd: as portas locais dos sockets TCP em LISTEN (0A) do processo PRINCIPAL do sshd (ver
+# pid_e_daemon_sshd). Sockets de encaminhamento de sessao (ssh -R com GatewayPorts) pertencem a processos
+# de sessao e nao sao porta de login, por isso so o daemon vale. Le direto do /proc, sem o ss, porque o
+# texto do ss traz o NOME do processo (e ate um "pid=N" dentro dele), que qualquer usuario escolhe. Aqui so
+# vale: PID aprovado, os inodes dos seus sockets (/proc/N/fd/*) e as linhas de /proc/net/tcp e tcp6 com
+# esse inode.
 portas_proc_sshd() {
-    local d pid fd alvo inodes=" " arq linha local_ st inode hex
+    local d pid fd alvo inodes=" " arq linha local_ st inode hex mainpids
+    mainpids="$(systemctl show -p MainPID --value ssh.service sshd.service 2>/dev/null | tr '\n' ' ')" || mainpids=""
     for d in "$R"/proc/[0-9]*; do
         [ -d "$d" ] || continue
         pid="${d##*/}"
-        pid_e_sshd_de_verdade "$pid" || continue
+        pid_e_daemon_sshd "$pid" "$mainpids" || continue
         for fd in "$d"/fd/*; do
             alvo="$(readlink "$fd" 2>/dev/null)" || continue
             if [[ "$alvo" =~ ^socket:\[([0-9]+)\]$ ]]; then inodes+="${BASH_REMATCH[1]} "; fi
@@ -398,7 +414,7 @@ portas_proc_sshd() {
     for arq in "$R/proc/net/tcp" "$R/proc/net/tcp6"; do
         [ -r "$arq" ] || continue
         while read -r _ local_ _ st _ _ _ _ _ inode _; do
-            [ "$st" = 0A ] || [ "$st" = 01 ] || continue
+            [ "$st" = 0A ] || continue
             [[ "$inode" =~ ^[0-9]+$ ]] || continue
             [[ "$inodes" == *" $inode "* ]] || continue
             hex="${local_##*:}"
@@ -410,8 +426,8 @@ portas_proc_sshd() {
 
 # portas_ssh: uma porta por linha. E a UNIAO, sem repeticao e validada (1-65535), de tudo que indica
 # onde o SSH atende: (a) "port" e (b) a porta explicita de "listenaddress" do sshd -T; (c) as portas
-# em escuta de processos que sao o sshd de verdade (root e executavel do OpenSSH, nao o nome); (d) as portas de ssh.socket/sshd.socket ativos (ativacao por socket);
-# (e) a porta local das conexoes SSH estabelecidas agora (o acesso de quem esta instalando).
+# em escuta do processo principal do sshd (root, /usr/sbin/sshd, PPid 1 ou MainPID do servico; nao o nome); (d) as portas de ssh.socket/sshd.socket ativos (ativacao por socket).
+# Conexoes estabelecidas nao entram: o encaminhamento de uma sessao nao e porta de login.
 # Liberar uma porta de SSH a mais e aceitavel; deixar de liberar a que esta em uso tranca o dono
 # para fora. Se nada vier, 22.
 portas_ssh() {
@@ -423,7 +439,7 @@ portas_ssh() {
             listenaddress) brutas+="$(porta_de_endereco "$linha")"$'\n' ;;
         esac
     done < <(sshd -T 2>/dev/null || true)
-    # (c) e (e): sockets em escuta e conexoes em curso de um sshd de verdade, lidos do /proc.
+    # (c): sockets em escuta do daemon do sshd, lidos do /proc.
     brutas+="$(portas_proc_sshd)"$'\n'
     # (d)
     for unit in ssh.socket sshd.socket; do
