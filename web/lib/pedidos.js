@@ -165,43 +165,23 @@ function criarPedidos(opcoes) {
     }
   }
 
-  // Só vale a mensagem escrita pelo dono no painel: o leitor da conversa marca origin 'dono' também para WhatsApp,
-// Telegram e colaborador, então a prova é positiva (via 'plataforma' e o remetente 'pessoa', sem marca de colaborador).
-const ehDoDono = (m) => m.origin === 'dono' && m.via === 'plataforma' && m.quem === 'pessoa';
-
-  /** Item entregue + resposta do dono na conversa depois da entrega: vira feito. Só roda quando há item entregue. */
-  async function reconciliar(ms, tentativa = 1) {
-    if (!dados) return;
-    const entregues = dados.pedidos.filter((p) => p.estado === 'entregue');
-    if (!entregues.length) return;
-    const porAgente = new Map();
-    for (const p of entregues) { if (!porAgente.has(p.agente)) porAgente.set(p.agente, []); porAgente.get(p.agente).push(p.id); }
-    const vira = [];
-    for (const [slug, ids] of porAgente) {
-      const r = await mensagensDe(slug);
-      if (r.erro) continue;
-      for (const id of ids) {
-        const p = entregues.find((x) => x.id === id);
-        // o limite é quando o SERVIDOR registrou a entrega, não o horário da mensagem que o agente apontou
-        if (r.msgs.some((m) => ehDoDono(m) && m.ep > p.entregue_em_epoch)) vira.push({ id, entrega_n: p.entrega_n });
+  /**
+   * O Web chama isto quando uma mensagem do DONO (não do colaborador) acaba de ser entregue ao agente pelo envio
+   * autenticado do painel: todo item entregue daquele agente vira feito. A prova é o evento no Web, nunca o
+   * transcript, que o próprio container do agente consegue escrever. Não derruba o envio: falha vira log.
+   */
+  function donoRespondeu(slug, ms) {
+    try {
+      if (!carregar()) {
+        log('aviso', `Pedidos: o dono respondeu a ${slug}, mas a fila não abriu (${falha}). Os itens entregues dele continuam entregues; o dono fecha pela tela.`);
+        return;
       }
+      if (!dados.pedidos.some((p) => p.agente === slug && p.estado === 'entregue')) return;
+      const pedidos = dados.pedidos.map((p) => (p.agente === slug && p.estado === 'entregue' ? mover(p, 'feito', { por: 'dono (respondeu na conversa)', ms }) : p));
+      gravar({ proximo_id: dados.proximo_id, pedidos }, ms);
+    } catch (e) {
+      log('erro', `Pedidos: o dono respondeu a ${slug}, mas não consegui fechar os itens entregues dele (${e.message}). Eles continuam entregues; o dono fecha pela tela ou o agente reentrega.`);
     }
-    if (!vira.length) return;
-    // a leitura da conversa foi assíncrona: reabre o arquivo e confere o estado de novo antes de mexer
-    if (!carregar()) return;
-    let pedidos = dados.pedidos;
-    let mudou = false;
-    let descartou = false;
-    for (const { id, entrega_n } of vira) {
-      const p = pedidos.find((x) => x.id === id);
-      // a entrega pode ter sido refeita durante a leitura da conversa: a confirmação antiga não vale para a nova
-      if (!p || p.estado !== 'entregue' || p.entrega_n !== entrega_n) { descartou = true; continue; }
-      pedidos = pedidos.map((x) => (x.id === id ? mover(x, 'feito', { por: 'dono (respondeu na conversa)', ms }) : x));
-      mudou = true;
-    }
-    if (mudou) gravar({ proximo_id: dados.proximo_id, pedidos }, ms);
-    // entrega trocada no meio da leitura: descarta a confirmação antiga e confere de novo, uma vez
-    if (descartou && tentativa < 2) await reconciliar(ms, tentativa + 1);
   }
 
   /** Cópia do pedido no novo estado, com o evento no histórico. Não grava. */
@@ -311,7 +291,8 @@ const ehDoDono = (m) => m.origin === 'dono' && m.via === 'plataforma' && m.quem 
     if (p.estado === novo && !(novo === 'entregue' && msg && (!p.msg_entrega || p.msg_entrega.id !== msg.id))) {
       return { status: 200, corpo: { ok: true, pedido: leitura(p, true), ja_estava: true } };
     }
-    const gravado = guarda(p, mover(p, novo, { por: porDe(quem), ms, motivo, msg }));
+    // o horário é tomado agora, depois das esperas assíncronas e da revalidação do estado
+    const gravado = guarda(p, mover(p, novo, { por: porDe(quem), ms: agoraMs(), motivo, msg }));
     const resp = { ok: true, pedido: leitura(gravado, true) };
     if (aviso) resp.aviso = aviso;
     return { status: 200, corpo: resp };
@@ -440,11 +421,6 @@ const ehDoDono = (m) => m.origin === 'dono' && m.via === 'plataforma' && m.quem 
         if (!carregar()) { H.erroJson(res, 503, falha); return true; }
       }
 
-      if (m === 'GET') {
-        await reconciliar(ms);
-        if (!carregar()) { H.erroJson(res, 503, falha); return true; }
-      }
-
       if (id === null) {
         responde(res, m === 'GET' ? listar(req, url, quem, ms) : criar(corpo, quem, ms));
         return true;
@@ -468,7 +444,7 @@ const ehDoDono = (m) => m.origin === 'dono' && m.via === 'plataforma' && m.quem 
     }
   }
 
-  return { rota };
+  return { rota, donoRespondeu };
 }
 
 module.exports = { criarPedidos, ESTADOS, ABERTOS };

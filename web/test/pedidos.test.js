@@ -50,7 +50,7 @@ async function montar() {
   let n = 0;
   const msg = (origin, extra) => { n += 1; return Object.assign({ id: String(n).padStart(16, 'a'), ep: relogio.ms / 1000 + n * 0.001, origin, via: 'plataforma', text: 't', quem: origin === 'dono' ? 'pessoa' : 'agente' }, extra || {}); };
   return {
-    dir, arquivo, cap, relogio, conv, pedir, msg, conversaFalsa: conversa,
+    dir, arquivo, cap, relogio, conv, pedir, msg, fila, conversaFalsa: conversa,
     avanca: (min) => { relogio.ms += min * 60000; },
     async fechar() { servidor.closeAllConnections(); await new Promise((r) => servidor.close(r)); fs.rmSync(dir, { recursive: true, force: true }); },
   };
@@ -221,30 +221,56 @@ test('o dono abre o item entregue: vira feito; abrir item não entregue não mud
   } finally { await m.fechar(); }
 });
 
-test('o dono responde na conversa depois da entrega: vira feito na próxima consulta; antes da entrega não conta', async () => {
+test('mensagem "do dono" forjada no transcript não fecha o item entregue: só o envio autenticado no Web fecha', async () => {
   const m = await montar();
   try {
     await criarPedido(m);
-    m.conv.luna.push(m.msg('dono'));                       // antes da entrega: não conta
     m.conv.luna.push(m.msg('agente'));
     m.avanca(1);
     await m.pedir('PATCH', '/api/v1/pedidos/1', { json: { estado: 'entregue' }, quem: 'luna' });
-    assert.equal((await m.pedir('GET', '/api/v1/pedidos/1')).json.pedido.estado, 'entregue');
     m.avanca(1);
-    m.conv.luna.push(m.msg('dono', { quem: 'colaborador: Ana (ana)' }));   // colaborador não conta
-    m.conv.luna.push(m.msg('dono', { via: 'whatsapp', quem: '5511999990000' }));   // canal externo não conta
-    m.conv.luna.push(m.msg('dono', { via: 'telegram', quem: 'pessoa' }));
-    m.conv.luna.push(m.msg('comando'));
-    assert.equal((await m.pedir('GET', '/api/v1/pedidos')).json.pedidos[0].estado, 'entregue');
     m.conv.luna.push(m.msg('dono'));
+    m.conv.luna.push(m.msg('dono', { via: 'telegram', quem: 'pessoa' }));
     const l = await m.pedir('GET', '/api/v1/pedidos');
-    assert.equal(l.json.pedidos[0].estado, 'feito');
-    const h = (await m.pedir('GET', '/api/v1/pedidos/1')).json.pedido.historico;
-    assert.match(h[h.length - 1].por, /respondeu na conversa/);
+    assert.equal(l.json.pedidos[0].estado, 'entregue');
+    assert.equal((await m.pedir('GET', '/api/v1/pedidos/1')).json.pedido.estado, 'entregue');
   } finally { await m.fechar(); }
 });
 
-test('conversa ilegível na consulta: o item continua entregue e o motivo vai para o log', async () => {
+test('donoRespondeu fecha só os entregues do agente certo; os que não estão entregues ficam como estão', async () => {
+  const m = await montar();
+  try {
+    await criarPedido(m, 'luna', 'entregue da luna');
+    await criarPedido(m, 'luna', 'ainda fazendo');
+    await criarPedido(m, 'luna', 'esperando');
+    await criarPedido(m, 'marina', 'entregue da marina');
+    m.conv.luna.push(m.msg('agente')); m.conv.marina.push(m.msg('agente'));
+    await m.pedir('PATCH', '/api/v1/pedidos/1', { json: { estado: 'entregue' }, quem: 'luna' });
+    await m.pedir('PATCH', '/api/v1/pedidos/3', { json: { estado: 'esperando_dono', motivo: 'A ou B?' }, quem: 'luna' });
+    await m.pedir('PATCH', '/api/v1/pedidos/4', { json: { estado: 'entregue' }, quem: 'marina' });
+    m.avanca(2);
+    m.fila.donoRespondeu('luna', m.relogio.ms);
+    const estados = (await m.pedir('GET', '/api/v1/pedidos?dia=todos')).json.pedidos.map((p) => `${p.id}:${p.estado}`).sort();
+    assert.deepEqual(estados, ['1:feito', '2:fazendo', '3:esperando_dono', '4:entregue']);
+    const h = (await m.pedir('GET', '/api/v1/pedidos/1')).json.pedido.historico;
+    assert.equal(h[h.length - 1].por, 'dono (respondeu na conversa)');
+    assert.equal(h[h.length - 1].em, '2026-11-12T10:02:00-03:00');
+  } finally { await m.fechar(); }
+});
+
+test('donoRespondeu com a fila ilegível: não lança, o motivo vai para o log e o item segue entregue', async () => {
+  const m = await montar();
+  try {
+    await criarPedido(m);
+    m.conv.luna.push(m.msg('agente'));
+    await m.pedir('PATCH', '/api/v1/pedidos/1', { json: { estado: 'entregue' }, quem: 'luna' });
+    fs.writeFileSync(m.arquivo, '{quebrado');
+    assert.doesNotThrow(() => m.fila.donoRespondeu('luna', m.relogio.ms));
+    assert.match(m.cap.texto(), /o dono respondeu a luna, mas a fila não abriu/);
+  } finally { await m.fechar(); }
+});
+
+test('conversa ilegível na consulta: o item continua entregue e a lista responde normalmente', async () => {
   const m = await montar();
   try {
     await criarPedido(m);
@@ -254,7 +280,6 @@ test('conversa ilegível na consulta: o item continua entregue e o motivo vai pa
     const r = await m.pedir('GET', '/api/v1/pedidos');
     assert.equal(r.status, 200);
     assert.equal(r.json.pedidos[0].estado, 'entregue');
-    assert.match(m.cap.texto(), /transcript ilegível/);
   } finally { await m.fechar(); }
 });
 
@@ -397,45 +422,22 @@ test('entregar com msg anterior à criação do pedido é recusado', async () =>
   } finally { await m.fechar(); }
 });
 
-test('resposta antiga do dono não fecha entrega nova: o limite é o momento em que o servidor registrou a entrega', async () => {
-  const m = await montar();
-  try {
-    await criarPedido(m);
-    const apontada = m.msg('agente'); m.conv.luna.push(apontada);
-    m.avanca(1);
-    const respostaAntiga = m.msg('dono'); respostaAntiga.ep = m.relogio.ms / 1000 - 30; m.conv.luna.push(respostaAntiga);
-    m.avanca(1);
-    await m.pedir('PATCH', '/api/v1/pedidos/1', { json: { estado: 'entregue', msg: apontada.id }, quem: 'luna' });
-    assert.equal((await m.pedir('GET', '/api/v1/pedidos/1')).json.pedido.estado, 'entregue');
-  } finally { await m.fechar(); }
-});
-
-test('corrida: entrega trocada durante a leitura da conversa não é fechada pela confirmação antiga', async () => {
+test('entregar: o horário da entrega é o da gravação, não o do início da requisição', async () => {
   const m = await montar();
   try {
     await criarPedido(m);
     m.conv.luna.push(m.msg('agente'));
-    await m.pedir('PATCH', '/api/v1/pedidos/1', { json: { estado: 'entregue' }, quem: 'luna' });
-    m.avanca(1);
-    m.conv.luna.push(m.msg('dono'));
-    // a primeira leitura da conversa (do GET) segura; no meio, o agente refaz a entrega
-    let liberaLeitura; const segurada = new Promise((r) => { liberaLeitura = r; });
+    let libera; const segurada = new Promise((r) => { libera = r; });
     const original = m.conversaFalsa.thread;
-    let primeira = true;
-    m.conversaFalsa.thread = async (ag) => {
-      const r = await original(ag);
-      if (primeira) { primeira = false; await segurada; }
-      return r;
-    };
-    const get = m.pedir('GET', '/api/v1/pedidos');
+    m.conversaFalsa.thread = async (ag) => { const r = await original(ag); await segurada; return r; };
+    const patch = m.pedir('PATCH', '/api/v1/pedidos/1', { json: { estado: 'entregue' }, quem: 'luna' });
     await new Promise((r) => setTimeout(r, 50));
-    await m.pedir('PATCH', '/api/v1/pedidos/1', { json: { estado: 'fazendo' }, quem: 'luna' });
-    m.avanca(1);
-    m.conv.luna.push(m.msg('agente'));
-    await m.pedir('PATCH', '/api/v1/pedidos/1', { json: { estado: 'entregue' }, quem: 'luna' });
-    liberaLeitura();
-    const r = await get;
-    assert.equal(r.json.pedidos[0].estado, 'entregue');
-    assert.equal((await m.pedir('GET', '/api/v1/pedidos/1')).json.pedido.estado, 'entregue');
+    m.avanca(7);
+    libera();
+    const r = await patch;
+    assert.equal(r.status, 200, r.texto);
+    assert.equal(r.json.pedido.entregue_em, '2026-11-12T10:07:00-03:00');
+    const h = r.json.pedido.historico;
+    assert.equal(h[h.length - 1].em, '2026-11-12T10:07:00-03:00');
   } finally { await m.fechar(); }
 });

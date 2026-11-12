@@ -1047,7 +1047,11 @@ function criarServidor(opcoes) {
       return H.erroJson(res, e.status || 500, e.status ? e.message : `Não enviei a mensagem porque não consegui trocar os dados pessoais dela: ${e.message}`, e.codigo ? { codigo: e.codigo } : undefined);
     }
     const r = await conversa.umaVez(agente, 'send', cid || null, () => conversa.enviar(agente, corpo, atorDa(sessao)), identidadeDe(sessao));
-    if (r.status < 300 && !(r.corpo && r.corpo.repetido)) marcaAutor(agente.slug, sessao, r);
+    if (r.status < 300 && !(r.corpo && r.corpo.repetido)) {
+      marcaAutor(agente.slug, sessao, r);
+      // só o dono fecha os itens entregues respondendo; colaborador não
+      if (!(sessao && sessao.papel === 'colaborador')) pedidos.donoRespondeu(agente.slug, opcoes.agora ? +opcoes.agora() : Date.now());
+    }
     return H.enviaJson(res, r.status, r.corpo);
   }
 
