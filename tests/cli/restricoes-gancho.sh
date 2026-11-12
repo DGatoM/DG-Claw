@@ -162,6 +162,33 @@ afirma "entrada que nao e JSON bloqueia" bash -c "printf '%s' '$out' | jq -e '.h
 out="$(printf '{"tool_name":"Write","tool_input":{}}' | roda_gancho)"
 afirma "pedido sem caminho bloqueia" bash -c "printf '%s' '$out' | jq -e '.hookSpecificOutput.permissionDecision == \"deny\"'"
 
+echo "bunfig.toml (o Bun le do cwd e o preload executa codigo) e protegido em qualquer pasta"
+printf '{"versao":1,"sem_bash":true,"escrita_so_em":null}\n' >"$DGCLAW_RESTRICOES"
+igual "so protegidos: bunfig.toml na raiz da casa bloqueia" "bloqueia" "$(decide Write "$CASA/bunfig.toml")"
+igual "so protegidos: bunfig.toml numa subpasta bloqueia" "bloqueia" "$(decide Write "$CASA/x/bunfig.toml")"
+igual "so protegidos: Bunfig.TOML em maiusculas trocadas bloqueia" "bloqueia" "$(decide Write "$CASA/x/Bunfig.TOML")"
+printf '{"versao":1,"sem_bash":true,"escrita_so_em":["relatorios"]}\n' >"$DGCLAW_RESTRICOES"
+igual "com pastas: bunfig.toml dentro da pasta liberada bloqueia" "bloqueia" "$(decide Write "$CASA/relatorios/bunfig.toml")"
+igual "com pastas: bunfig.toml numa subpasta liberada bloqueia" "bloqueia" "$(decide Write "$CASA/relatorios/2026/bunfig.toml")"
+igual "com pastas: bunfig.toml na raiz da casa bloqueia" "bloqueia" "$(decide Write "$CASA/bunfig.toml")"
+
+echo "os hooks do plugin nao rodam o bun com a casa como cwd"
+# shellcheck disable=SC2016 # os $ sao do texto que o jq procura, nao do shell
+afirma "todo comando do hooks.json entra na pasta do plugin antes de chamar o bun" jq -e '[.. | objects | select(has("command")) | .command] | length > 0 and all(startswith("S=\"$PWD\" && cd \"${CLAUDE_PLUGIN_ROOT}/hooks\" && ") and contains("bun \""))' "$REPO/hooks/hooks.json"
+# Rodando de verdade: um bun falso registra em que pasta foi iniciado e o que recebeu como cwd da sessao.
+PLUGIN="$TMP/plugin"; mkdir -p "$PLUGIN/hooks" "$TMP/bin-falso"
+# shellcheck disable=SC2016 # os $ sao do script falso
+printf '#!/bin/sh\npwd > "$BUN_FALSO_PWD"\nprintf "%%s" "$DGCLAW_SESSAO_CWD" > "$BUN_FALSO_SESSAO"\n' >"$TMP/bin-falso/bun"; chmod +x "$TMP/bin-falso/bun"
+iniciados=0; ruins=0
+while IFS= read -r cmd; do
+    rm -f "$TMP/bun-pwd" "$TMP/bun-sessao"
+    (cd "$CASA" && CLAUDE_PLUGIN_ROOT="$PLUGIN" PATH="$TMP/bin-falso:$PATH" BUN_FALSO_PWD="$TMP/bun-pwd" BUN_FALSO_SESSAO="$TMP/bun-sessao" bash -c "$cmd")
+    iniciados=$((iniciados + 1))
+    [ "$(cat "$TMP/bun-pwd" 2>/dev/null)" = "$(cd "$PLUGIN/hooks" && pwd -P)" ] && [ "$(cat "$TMP/bun-sessao" 2>/dev/null)" = "$CASA" ] || ruins=$((ruins + 1))
+done < <(jq -r '.. | objects | select(has("command")) | .command' "$REPO/hooks/hooks.json")
+igual "cada comando do hooks.json inicia o bun na pasta do plugin (nao na casa) e entrega a casa em DGCLAW_SESSAO_CWD" "5 0" "$iniciados $ruins"
+afirma "o dispatch.ts recebe o cwd da sessao por DGCLAW_SESSAO_CWD" grep -q 'DGCLAW_SESSAO_CWD' "$REPO/hooks/dispatch.ts"
+
 echo "o agente nao muda a politica por variavel de ambiente (settings.local.json env)"
 printf '{"versao":1,"escrita_so_em":["relatorios"]}\n' >"$DGCLAW_RESTRICOES"
 ent="$(jq -nc --arg c "$CASA" --arg f "$CASA/outra/x.md" '{tool_name:"Write",cwd:$c,tool_input:{file_path:$f}}')"

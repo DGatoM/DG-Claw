@@ -6,6 +6,7 @@ import { log } from "../logger.js";
 import { MascaraDeFluxo } from "../mascara.js";
 import { type CtxMotor, ErroDeMotor, redigirArgs } from "../provedores/motor.js";
 import { motorDe } from "../provedores/motores.js";
+import { conferirContaComRestricoes } from "../restricoes-conta.js";
 import { montarCtx } from "./configuracao.js";
 import { RESUME_MORREU_CEDO_MS } from "./constantes.js";
 import { cancelarQuietoDeBoot, cancelarStopPendente } from "./eventos.js";
@@ -138,6 +139,22 @@ async function subirSerializado(s: Sessao, modo: "retomar" | "nova", geracaoNoPe
         `então subo uma conversa NOVA e guardo a antiga em previousSessionId`,
     );
     modo = "nova";
+  }
+
+  // Restrições do dono: a conta conectada pode ser de uma organização com política remota, que vence a trava
+  // local. Vale para abrir e para retomar (as duas passam por aqui). Sem restrição ativa nada muda.
+  if (escolha.provedor === "claude") {
+    const conf = await conferirContaComRestricoes(s.ambienteDaEscolha(escolha, catalogo).env, s.descritor.config.cwd);
+    if (!conf.ok) {
+      recusarPorRestricao(s, conf.mensagem, conf.comoResolver);
+      s.modoDoUltimoSpawn = modo;
+      return modo;
+    }
+    // A conferência é um await: uma parada ou um revive que chegaram nela cancelam a subida.
+    if (s.geracao !== geracaoNoPedido) {
+      log.info(s.a("pty"), `pedido de subir (${modo}) cancelado: chegou uma parada ou um revive durante a conferência da conta`);
+      return modo;
+    }
   }
 
   const ctx = montarCtx(s, escolha, catalogo);
@@ -362,6 +379,12 @@ export function esperarLogin(s: Sessao): void {
   }, 60_000);
   // Não segura o processo de pé só por causa deste relógio.
   s.esperandoLogin.unref?.();
+}
+
+/** A conta conectada não serve com as restrições do dono: a sessão fica sem abrir, com o motivo e o que fazer. */
+export function recusarPorRestricao(s: Sessao, mensagem: string, comoResolver: string): void {
+  s.mudar({ status: "errored", error: `${mensagem} O que fazer: ${comoResolver}.`, statusReason: "runner:restricao-conta" });
+  log.erro(s.a("restricoes"), mensagem, comoResolver);
 }
 
 export function trocarPorSessaoLimpa(s: Sessao): void {

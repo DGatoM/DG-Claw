@@ -41,7 +41,9 @@ async function main() {
       ws = "";
     }
   }
-  if (!ws) ws = process.cwd();
+  // o hooks.json entra na pasta do plugin antes do bun (um bunfig.toml na casa do agente nao vale) e
+  // entrega o cwd original da sessao em DGCLAW_SESSAO_CWD
+  if (!ws) ws = process.env.DGCLAW_SESSAO_CWD || process.cwd();
   ws = resolve(ws);
 
   // marcador do modo servidor v0.1; fora dele, este hook não existe

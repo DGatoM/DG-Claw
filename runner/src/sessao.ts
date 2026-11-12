@@ -34,7 +34,8 @@ import { codexHomeDe } from "./provedores/codex.js";
 import { type CamposDeEscolha, type Escolha, type EscolhaEfetiva, type SaidaDaEscolha, gravarProvedorJson, resolverEscolha } from "./provedores/escolha.js";
 import type { CtxMotor, Motor, Recusa } from "./provedores/motor.js";
 import { motorDe } from "./provedores/motores.js";
-import { parar, pararEEsperar, reviver, subir, suspender, trocarPorSessaoLimpa } from "./sessao/ciclo.js";
+import { parar, pararEEsperar, recusarPorRestricao, reviver, subir, suspender, trocarPorSessaoLimpa } from "./sessao/ciclo.js";
+import { conferirContaComRestricoes } from "./restricoes-conta.js";
 import { ctxLeve, montarAmbienteBase } from "./sessao/configuracao.js";
 import { PAUSA_TECLA_PERGUNTA_MS, QUIETO_PARA_OLHAR_TRANSCRIPT_MS, VIGIA_LOGIN_EXPIRADO_MS } from "./sessao/constantes.js";
 import { digitarEEnviar, vencerTelaDeConfianca } from "./sessao/digitacao.js";
@@ -415,6 +416,13 @@ export class Sessao extends EventEmitter {
           : "reconectar a conta do agente pela conversa (cartão de login) ou digitando /login no terminal dele",
       };
     }
+    if (this.estado.status === "errored" && this.estado.statusReason === "runner:restricao-conta") {
+      return {
+        tipo: "restricao",
+        mensagem: this.estado.error ?? `A conta de IA de ${this.slug} não serve com as restrições do dono.`,
+        comoResolver: "conectar uma conta pessoal (Pro ou Max) ou uma chave de API, ou desligar as restrições (dgclaw agente restricoes)",
+      };
+    }
     return this.recusaDoMotor();
   }
 
@@ -431,9 +439,36 @@ export class Sessao extends EventEmitter {
 
 
 
-  /** Chamado quando o login assistido termina bem. Só age se a sessão estava parada por falta de login. */
+  /**
+   * Chamado quando o login assistido termina bem. Com restrição ativa a conta nova é conferida na hora, mesmo
+   * que a sessão já esteja de pé: conta de organização com política remota derruba a sessão. Sessão parada por
+   * falta de login ou por restrição volta a tentar (o subir confere de novo).
+   */
   aposLoginConcluido(): void {
-    if (this.estado.status === "errored" && this.estado.statusReason === "runner:sem-login") {
+    const { escolha, catalogo } = this.lerEscolha();
+    if (escolha.provedor === "claude") {
+      void conferirContaComRestricoes(this.ambienteDaEscolha(escolha, catalogo).env, this.descritor.config.cwd)
+        .catch((err): { ok: false; mensagem: string; comoResolver: string } => ({
+          ok: false,
+          mensagem: `Não consegui conferir a conta depois do login (${err instanceof Error ? err.message : err}).`,
+          comoResolver: "tentar o login de novo; se persistir, ver o log do runner",
+        }))
+        .then((conf) => {
+          if (!conf.ok) {
+            // O PTY de conversa, se existir, roda com a conta nova: parar antes de marcar o erro.
+            this.parar("login concluído com conta incompatível com as restrições");
+            recusarPorRestricao(this, conf.mensagem, conf.comoResolver);
+            return;
+          }
+          this.aposLoginConferido();
+        });
+      return;
+    }
+    this.aposLoginConferido();
+  }
+
+  private aposLoginConferido(): void {
+    if (this.estado.status === "errored" && (this.estado.statusReason === "runner:sem-login" || this.estado.statusReason === "runner:restricao-conta")) {
       trocarPorSessaoLimpa(this);
     } else if (this.estado.status === "errored" && this.estado.statusReason === "runner:login-expirado") {
       retomarAposLoginExpirado(this, "login assistido concluído");

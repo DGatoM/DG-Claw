@@ -371,7 +371,8 @@ _restricoes_conferir_suporte() {
 # IA (claude auth status --json) e imprime sem (segue), com (organizacao Team/Enterprise) ou duvida. A saida traz e-mail
 # e organizacao: ela so passa pelo jq, que olha loggedIn, authMethod e subscriptionType, e nunca e impressa, gravada
 # nem posta em mensagem de erro. O codigo de saida do comando nao conta (sem login ele sai com erro): decide a saida.
-# Sem login segue, porque o dono precisa do agente ligado para conectar a conta.
+# Sem login segue, porque o dono precisa do agente ligado para conectar a conta; o runner repete a conferencia depois
+# do login e antes de abrir cada sessao (runner/src/restricoes-conta.ts, mesma regra: mexeu aqui, mexa la).
 _restricoes_classificar_conta() {
     local saida res
     saida="$(timeout 20 podman exec --user agente "$1" claude auth status --json 2>/dev/null | head -c 65536)" || true

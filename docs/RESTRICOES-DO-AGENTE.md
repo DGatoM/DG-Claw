@@ -207,11 +207,21 @@ Caminhos protegidos, em qualquer profundidade, depois de normalizar o caminho (`
 | --- | --- |
 | qualquer pasta ou arquivo que comece por ponto (`.dgclaw`, `.claude`, `.codex`, `.plataforma`, `.config`, `.bashrc`, `.profile`, `.mcp.json`, `.git/hooks`...) | `.dgclaw/config.sh` é carregado com `source` pelo batimento e pelos temporizadores; `.dgclaw/ext/*/hooks` e `self-crons.json` são executados pelas rotinas; o Claude Code descobre `.claude/settings*` e `.claude/skills` também em subpastas (`relatorios/.claude/skills/x`); `.plataforma/dgchat.mcp.json` é o comando do servidor MCP; o shell lê `.bashrc` e `.profile` |
 | `SKILL.md`, `CLAUDE.md`, `CLAUDE.local.md` e `AGENTS.md` em qualquer pasta (sem diferenciar maiúsculas) | o Claude Code lê como instrução, e uma skill pode trazer gancho no cabeçalho |
+| `bunfig.toml` em qualquer pasta (sem diferenciar maiúsculas) | o Bun lê esse arquivo da pasta onde é iniciado, e um `preload` nele executa código do agente em todo processo `bun` (e no próprio `claude`, que é um executável do Bun) iniciado com a casa ou uma subpasta como diretório atual |
 | `AGENT.md`, `PERSONALITY.md`, `IDENTITY.md`, `ETHICS.md`, `CREATOR.md` e `LAWS.md` na raiz da casa | a identidade que o DG Claw regrava |
 
 Levantamento feito na imagem (`container/`): as unidades do systemd só executam arquivos de `/opt/dgclaw` e leem, da casa, o
 `.dgclaw/tela/vnc.senha` e `.dgclaw/whatsapp/ligado` (ambos já cobertos pelo ponto). Não há outro arquivo de nome comum na casa
 que seja carregado com `source` ou executado.
+
+Levantamento dos processos que começam com a casa do agente como diretório atual e dos arquivos não ocultos que eles carregam sozinhos:
+
+| Processo | Arquivo lido do diretório atual |
+| --- | --- |
+| `bun dispatch.ts` dos ganchos do plugin (`hooks/hooks.json`) | `bunfig.toml` (o `preload` executa código). Os comandos agora fazem `cd` para `${CLAUDE_PLUGIN_ROOT}/hooks` (de root) antes do Bun e entregam o diretório da sessão em `DGCLAW_SESSAO_CWD`; o `dispatch.ts` usa essa variável no lugar de `process.cwd()` |
+| `claude` (sessão do runner, `reflection.sh`, `consolidate.sh`, crons) e o servidor MCP do Telegram | `bunfig.toml`, pelo mesmo motivo, e por isso o nome também fica fechado no gancho de escrita |
+| `python3` do batimento, da reflexão e da consolidação | nenhum: rodam script por caminho (o diretório do script, de root, vem primeiro no caminho de módulos) ou `python3 -I`, que não põe o diretório atual nele. Um `json.py` na casa não é importado |
+| `node` (gancho de escrita, painel, canal) | nenhum: o Node não carrega arquivo de configuração do diretório atual. `package.json` e `tsconfig.json` só mudam a resolução do arquivo que o Bun executa, e esse fica em `/opt/dgclaw` (de root) |
 
 Por isso o comando também recusa, em `--escrita-so-em`, qualquer pasta que comece por ponto. As pastas que você libera não devem
 guardar scripts que alguma rotina execute; com o Bash travado o agente não cria rotinas novas, mas as que já existem continuam
@@ -274,6 +284,16 @@ responder com sucesso e o estado ser `exited`, `stopped`, `created` ou `configur
 container não existe. Erro, prazo estourado, resposta vazia, `running`, `stopping`, `paused` ou estado desconhecido não confirmam. Se nem assim ele parar, a mensagem diz que o agente está
 LIGADO SEM A TRAVA e manda parar na mão (`dgclaw agente parar <agente>`). Se o marcador não puder ser gravado (disco cheio, por
 exemplo), o agente continua parado e o comando avisa.
+
+**O runner repete a conferência da conta.** Aplicar as restrições com o agente ainda sem login é aceito (o dono precisa dele ligado para
+conectar a conta), e o login pelo painel acontece depois. Por isso o runner (`runner/src/restricoes-conta.ts`) lê o
+`restricoes.json`, montado só leitura ao lado do `runner.json`, e, com qualquer restrição ativa (`sem_bash`, `sem_enviar_arquivo` ou
+`escrita_so_em` diferente de nulo), faz a mesma classificação da CLI (política remota em `remote-settings.json` e `claude auth status
+--json`) logo depois de cada login concluído e antes de abrir ou retomar cada sessão do Claude. Conta de organização, política remota ou
+classificação incerta: a sessão não abre (`errored`, motivo `runner:restricao-conta`, código `RESTRICAO_CONTA` no envio de mensagens),
+a mensagem diz o que fazer e o log do runner registra. `restricoes.json` que existe e não dá para ler ou entender conta como
+restrição ativa. Sem restrições ativas nada muda. Depois do login com uma conta que serve, a sessão abre sozinha. O Codex fica fora
+(as travas não valem nele).
 
 Limite: o arquivo é do agente e só se lê com o container ligado. A checagem de antes de ligar (rótulo da imagem) não o vê; a
 conferência logo depois da partida o pega e para o container. A política remota baixada durante a sessão só aparece no cache no

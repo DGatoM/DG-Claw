@@ -9,7 +9,7 @@ preparar
 
 R="$LIB/agentes/ana/runner"
 criar_agente ana --nome "Ana"
-EMAIL='segredo.pessoa@empresa-exemplo.com'
+EMAIL='segredo.pessoa@example.invalid'
 conta() { printf '%s\n' "$1" >"$STUB_ESTADO/conta-saida"; }
 
 echo "achado 1: conta de organizacao sem politica no cache"

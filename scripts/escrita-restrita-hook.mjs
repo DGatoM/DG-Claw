@@ -39,8 +39,16 @@ const INTERNOS_PASTAS = ['memory'];
 //    subpastas, entao "relatorios/.claude/skills/x" vale tanto quanto "~/.claude/skills/x";
 //  - os arquivos de instrucao/skill do Claude Code em qualquer pasta (SKILL.md pode trazer hook no
 //    frontmatter), comparados sem diferenciar maiusculas;
+//  - bunfig.toml em qualquer pasta: o Bun le esse arquivo do diretorio atual e um `preload` nele executa
+//    codigo do agente em todo processo bun (e no proprio claude, que e um executavel do Bun) iniciado
+//    com a casa ou uma subpasta como cwd. Levantamento feito para este gancho: os hooks do plugin (bun
+//    dispatch.ts) rodam hoje de dentro da pasta do plugin (ver hooks/hooks.json), mas o Claude Code, o
+//    MCP e qualquer rotina que chame bun ou claude com cwd na casa continuam lendo o bunfig do cwd. As
+//    rotinas em Python (heartbeat, reflexao, consolidacao) chamam script por caminho ou usam `-I`, entao
+//    modulo com nome da stdlib na casa nao e importado; package.json e tsconfig.json so mudam a
+//    resolucao do arquivo que o Bun executa, e esse fica no plugin (de root), nao na casa;
 //  - na raiz da casa, os arquivos de identidade que o DG Claw regrava (AGENT.md e afins).
-const PROTEGIDOS_NOMES = new Set(['claude.md', 'claude.local.md', 'agents.md', 'skill.md']);
+const PROTEGIDOS_NOMES = new Set(['claude.md', 'claude.local.md', 'agents.md', 'skill.md', 'bunfig.toml']);
 const PROTEGIDOS_RAIZ = new Set(['agent.md', 'personality.md', 'identity.md', 'ethics.md', 'creator.md', 'laws.md']);
 
 function bloqueia(motivo) {
