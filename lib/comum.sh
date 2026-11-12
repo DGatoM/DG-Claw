@@ -434,7 +434,11 @@ escrever_site_caddy() {
         if cmp -s "$alvo" <(bloco_caddy "$dominio"); then
             return 0
         fi
-        if ! caddy_site_e_gerado "$alvo"; then
+        # O Caddyfile padrao do pacote (":80 { root * /usr/share/caddy ... }") nao e personalizacao: e o que
+        # o apt deixa, e o site do DG Claw o substitui (com copia para restaurar se a validacao falhar).
+        if [ "$alvo" = "$cf" ] && caddyfile_e_padrao "$cf"; then
+            :
+        elif ! caddy_site_e_gerado "$alvo"; then
             antigo="$(caddy_dominio_do_site "$alvo")"
             if [ "$modo" = trocar ]; then
                 if [ -z "$antigo" ]; then

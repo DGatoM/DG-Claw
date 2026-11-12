@@ -858,3 +858,26 @@ caso_caddy_segunda_rodada_sem_mudanca_nao_recarrega() {
     afirma "mas validou" tem "$STUB_LOG" "caddy validate"
     limpar_cenario
 }
+
+caso_caddy_caddyfile_padrao_do_pacote_e_substituido() {
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy" "$TMP/estado"
+    printf ':80 {\n\t# Set this path to your site'"'"'s directory.\n\troot * /usr/share/caddy\n\tfile_server\n}\n' >"$RAIZ/etc/caddy/Caddyfile"
+    afirma "a instalacao termina com sucesso" instalacao_basica
+    afirma "o site do DG Claw foi gravado" tem "$RAIZ/etc/caddy/Caddyfile" "$DOM_CADDY {"
+    afirma "com o proxy" tem "$RAIZ/etc/caddy/Caddyfile" "reverse_proxy 127.0.0.1:8300"
+    afirma "e a compressao" tem "$RAIZ/etc/caddy/Caddyfile" "zstd"
+    nega "o file_server do pacote saiu" tem "$RAIZ/etc/caddy/Caddyfile" "file_server"
+    limpar_cenario
+}
+
+caso_caddy_caddyfile_padrao_com_validacao_que_falha_restaura() {
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy" "$TMP/estado"
+    printf ':80 {\n\troot * /usr/share/caddy\n\tfile_server\n}\n' >"$RAIZ/etc/caddy/Caddyfile"
+    cp "$RAIZ/etc/caddy/Caddyfile" "$TMP/caddy-antes"
+    touch "$TMP/estado/caddy-falha"
+    nega "a instalacao para" instalacao_basica
+    afirma "o Caddyfile padrao voltou" cmp "$TMP/caddy-antes" "$RAIZ/etc/caddy/Caddyfile"
+    limpar_cenario
+}
