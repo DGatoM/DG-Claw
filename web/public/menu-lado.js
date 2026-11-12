@@ -27,6 +27,7 @@
   /* Entradas fixas do menu: a tela de lembretes e a de avisos (valem para qualquer agente). */
   const LINK_LEMBRETES = { nome: 'Lembretes', ico: '⏰', href: '/lembretes' };
   const LINK_AVISOS = { nome: 'Avisos', ico: '🔔', href: '/avisos' };
+  const LINK_MANUAL = { nome: 'Manual', ico: '📖', href: '/manual' };
   const LINK_SEGURANCA = { nome: 'Segurança', ico: '🛡', href: '/seguranca' };
   const LINK_CONECTAR = { nome: 'Conectar conta', ico: '🔑', href: '/conectar' };
   const LINK_COLABORADOR = { nome: 'Convidar colaborador', ico: '👥', href: '/colaboradores' };
@@ -67,6 +68,7 @@
     if (caminho === '/lembretes') return 'lembretes';
     if (caminho === '/avisos') return 'avisos';
     if (caminho === '/seguranca') return 'seguranca';
+    if (caminho === '/manual' || caminho.startsWith('/manual/')) return 'manual';
     if (caminho === '/conectar') return 'conectar';
     if (caminho === '/colaboradores') return 'colaboradores';
     if (caminho === '/anonimizar') return 'anonimizar';
@@ -279,7 +281,7 @@
     return { tipo: 'sem', texto: 'Este navegador não oferece a instalação por aqui. No Chrome ou no Edge, abra o menu do navegador e procure Instalar app. No Firefox para computador, o recurso não existe.' };
   }
 
-  if (!raiz.document) return { corUso, quandoZeraUso, miniBarraUso, itemUso, ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, LINK_SEGURANCA, LINK_CONECTAR, LINK_COLABORADOR, LINK_ANONIMIZAR, linkSessoes, linkTela, itemAgente, bolinhaMenu, seloDe, totalNaoLidas, totalPrecisam, horaCurta, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar };
+  if (!raiz.document) return { corUso, quandoZeraUso, miniBarraUso, itemUso, ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, LINK_MANUAL, LINK_SEGURANCA, LINK_CONECTAR, LINK_COLABORADOR, LINK_ANONIMIZAR, linkSessoes, linkTela, itemAgente, bolinhaMenu, seloDe, totalNaoLidas, totalPrecisam, horaCurta, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar };
 
   /* ── Parte com DOM ─────────────────────────────────────────────────────── */
   const $ = id => document.getElementById(id);
@@ -601,6 +603,9 @@
       `<span class="ml-ico" aria-hidden="true">${LINK_AVISOS.ico}</span>${LINK_AVISOS.nome}</a></div>`);
     $('mlTabs').insertAdjacentHTML('beforeend', `<div data-tour="gm-seguranca"><a class="ml-tab" href="${comAgente(LINK_SEGURANCA.href, ag.id)}">` +
       `<span class="ml-ico" aria-hidden="true">${LINK_SEGURANCA.ico}</span>${LINK_SEGURANCA.nome}</a></div>`);
+    // O manual não leva o agente na URL: a página é a mesma para todos.
+    $('mlTabs').insertAdjacentHTML('beforeend', `<div data-tour="gm-manual"><a class="ml-tab" href="${LINK_MANUAL.href}">` +
+      `<span class="ml-ico" aria-hidden="true">${LINK_MANUAL.ico}</span>${LINK_MANUAL.nome}</a></div>`);
     }
     $('mlTabs').insertAdjacentHTML('beforeend', `<div data-tour="gm-conectar"><a class="ml-tab" href="${comAgente(LINK_CONECTAR.href, ag.id)}">` +
       `<span class="ml-ico" aria-hidden="true">${LINK_CONECTAR.ico}</span>${LINK_CONECTAR.nome}</a></div>`);
@@ -670,5 +675,5 @@
       .catch(e => { console.warn('menu-lado: não consegui saber quem está logado (' + e.message + '); o menu segue sem o nome.'); });
   }
 
-  return { corUso, quandoZeraUso, miniBarraUso, itemUso, ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, LINK_SEGURANCA, LINK_CONECTAR, LINK_COLABORADOR, LINK_ANONIMIZAR, linkSessoes, linkTela, itemAgente, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar, inicia, marca, extras, defineNaoLidas, totalNaoLidas, totalPrecisam, seloDe };
+  return { corUso, quandoZeraUso, miniBarraUso, itemUso, ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, LINK_MANUAL, LINK_SEGURANCA, LINK_CONECTAR, LINK_COLABORADOR, LINK_ANONIMIZAR, linkSessoes, linkTela, itemAgente, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar, inicia, marca, extras, defineNaoLidas, totalNaoLidas, totalPrecisam, seloDe };
 });

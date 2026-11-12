@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Manual - DG Claw</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#2f9e5e">
+<link rel="icon" href="/icons/icon-192.png">
+<link rel="stylesheet" href="/manual.css">
+<link rel="stylesheet" href="/casca.css">
+<link rel="stylesheet" href="/menu-lado.css">
+<link rel="stylesheet" href="/sem-zoom.css">
+<script src="/sem-zoom.js"></script>
+</head>
+<body>
+<main class="mn-main" id="mnRaiz">
+  <details class="mn-lista" id="mnLista" data-tour="mn-lista">
+    <summary>Páginas do manual</summary>
+    <input type="search" id="mnBusca" placeholder="Buscar nas páginas" aria-label="Buscar nas páginas do manual" autocomplete="off">
+    <ul id="mnPaginas"></ul>
+  </details>
+  <article class="mn-doc" id="mnDoc" data-tour="mn-doc" aria-live="polite">Carregando o manual...</article>
+</main>
+<script src="/tour.js"></script>
+<script src="/menu-lado.js"></script>
+<script src="/casca.js"></script>
+<script src="/manual.js"></script>
+<script>
+DGCasca.monta({ pagina: 'manual', titulo: 'Manual', aoTutorial: function () { if (window.DGManualTutorial) window.DGManualTutorial(); } });
+</script>
+</body>
+</html>

@@ -152,7 +152,10 @@ RUN if [ "$COM_NAVEGADOR" = "1" ]; then \
 RUN useradd -m -u 1001 -s /bin/bash agente \
     && echo 'agente ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/agente \
     && chmod 440 /etc/sudoers.d/agente \
-    && usermod -aG crontab agente
+    && usermod -aG crontab,systemd-journal agente
+# O grupo systemd-journal deixa o painel, que roda como agente, ler o histórico das rotinas
+# (aba Operações). Não amplia o acesso: o diário lido é só o deste contêiner (nenhum diário
+# do host é montado) e o agente já tem sudo aqui dentro.
 
 # Cron ligado desde o boot; senão o agente cria a tarefa e ela nunca roda.
 RUN systemctl enable cron.service

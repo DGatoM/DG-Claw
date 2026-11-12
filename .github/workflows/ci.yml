@@ -323,3 +323,22 @@ jobs:
         run: sudo env "PATH=$PATH" bash tests/cli/rodar.sh
       - name: Testes do dgclaw-agente
         run: bash bin/test/dgclaw-agente.test.sh
+      - name: Batimento do agente (tests/heartbeat)
+        run: bash tests/heartbeat/rodar.sh
+
+  # ---------------------------------------------------------------------------
+  # Documentação em dia: o inventário sai do código (scripts/docs-inventario.mjs) e o
+  # manual (docs/manual) tem de citar cada item. Roda uma bancada com manual falso
+  # antes, para provar que o teste reprova de verdade. Sem rede, sem segredo.
+  # ---------------------------------------------------------------------------
+  docs-em-dia:
+    name: docs-em-dia
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Manual em dia com o código (tests/docs-em-dia)
+        run: bash tests/docs-em-dia/rodar.sh

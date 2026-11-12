@@ -36,8 +36,8 @@
  * O LEDGER ENTRA COMO SEGUNDA OPINIÃO. Um script pode terminar com código 0 e
  * mesmo assim ter anotado `erro` no ledger (ele pegou a exceção, registrou e saiu
  * "limpo"). Para o systemd foi sucesso; para quem lê, falhou. Então, se o job
- * terminou bem mas o ledger diz erro naquele intervalo, o quadradinho é VERMELHO
- * com o detalhe do ledger. Se diz aviso, é amarelo.
+ * terminou bem mas o ledger diz erro naquele intervalo, o quadradinho é VERMELHO.
+ * Se diz aviso, é amarelo.
  *
  * AMARELO DE "NÃO RODOU QUANDO DEVIA" é inferido da cadência do timer:
  *   - timer de intervalo ("a cada 30 min"): um buraco maior que duas vezes o
@@ -70,6 +70,9 @@ const rotinasLib = require('./rotinas');
 const { ID, CACHE_MS, DIAS, GRUPOS, GRUPO_PODERES, GRUPO_OUTRAS } = require('./operacoes-constantes');
 const { duracaoMs, horariosEsperados, intervaloDoTimer, haQuanto, listaHumana, corDoLedger } = require('./operacoes-tempo');
 const { executarPadrao, lerDiario, lerLedger, quadradosDeRotina, quadradosDeServico } = require('./operacoes-quadrados');
+
+// Semana de quem não foi medido (sem diário): null, nunca 0, que diria "nenhuma falha".
+const SEM_MEDIDA = Object.freeze({ rodadas: null, falhas: null, avisos: null, faltas: null });
 
 function buildOperacoes(config, deps = {}) {
   const SLUG = config.agentSlug || 'agente';
@@ -191,7 +194,7 @@ function buildOperacoes(config, deps = {}) {
       const ativo = r ? !!r.ativo : (proc ? proc.resumo !== 'sem-sinal' : null);
       const horario = r ? r.horario : '';
       const ultimaAntes = r && r.ultima ? Date.parse(r.ultima) : null;
-      let q = { quadrados: [], semana: { rodadas: null, falhas: 0, avisos: 0, faltas: 0 }, ultimaExecucao: null };
+      let q = { quadrados: [], semana: SEM_MEDIDA, ultimaExecucao: null };
       if (!diario.motivo) {
         q = quadradosDeRotina({ eventos: porServico.get(svc) || [], ledger, chave, horario, desde, agora, ativo, ultimaAntes });
       }
@@ -220,7 +223,7 @@ function buildOperacoes(config, deps = {}) {
         // descrição que o systemd tem da unidade, que é melhor que o id cru.
         if (!oQueE && st.descricao) base.nome = nomeAmigavel('', st.descricao, o.chave);
         const q = diario.motivo
-          ? { quadrados: [], semana: { rodadas: null, falhas: 0, avisos: 0, faltas: 0 } }
+          ? { quadrados: [], semana: SEM_MEDIDA }
           : quadradosDeServico({ eventos: porServico.get(o.unit) || [], agora, ativoAgora: st.ativo, ativoDesde: st.desde });
         let estado;
         let frase;
@@ -267,7 +270,7 @@ function buildOperacoes(config, deps = {}) {
         frase = 'o horário dela está desligado no sistema, então ela não vai rodar sozinha';
       } else if (diario.motivo) {
         estado = 'sem-dado';
-        frase = 'sem histórico: não consegui ler o diário do sistema';
+        frase = 'histórico indisponível: não consegui ler o diário do sistema';
       } else if (!ult) {
         estado = 'sem-dado';
         // O diário pode vir vazio mesmo com a rotina rodando (o sistema tem a data da
@@ -349,7 +352,7 @@ function buildOperacoes(config, deps = {}) {
         // null = não medido (sem diário ou nunca rodou). Nunca vira "deu certo".
         ultimoResultado: diario.motivo || !ult ? null : (ult.cor === 'verde' ? 'ok' : (ult.cor === 'vermelho' ? 'falha' : 'atencao')),
         ultimoTitulo: ult ? ult.titulo : null,
-        ultimoDetalhe: ult ? ult.detalhe || '' : '',
+        ultimoDetalhe: '',
         quadrados: q.quadrados.slice(-14),
       };
     });

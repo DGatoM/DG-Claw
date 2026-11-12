@@ -59,8 +59,28 @@ function mostraErroTela(titulo, texto, agentes) {
   if (barra) barra.hidden = true;
 }
 
+/* O histórico inicial sai junto com a lista de agentes (o slug já está na URL), em vez de esperar
+   por ela. carregar(true) consome a promessa; se ela falhou ou o agente não existe, carregar() pede de
+   novo pelo caminho normal, que mostra o erro de sempre (e leva ao login num 401). */
+let historicoAntecipado = null;
+const PAGINA_INICIAL = 60;   // o mesmo PAGINA de iniciaTela
+
+function antecipaHistorico(slug) {
+  historicoAntecipado = fetch('/api/v1/agents/' + encodeURIComponent(slug) + '/messages?limit=' + PAGINA_INICIAL, { cache: 'no-store' })
+    .then(async r => {
+      let corpo = null;
+      try { corpo = await r.json(); } catch (e) { corpo = null; }
+      if (!r.ok || !corpo || corpo.ok === false) throw new Error('a API respondeu ' + r.status);
+      return corpo;
+    });
+  // quem consome trata a falha; aqui só evita "unhandled rejection" se ninguém chegar a consumir
+  historicoAntecipado.catch(() => {});
+}
+
 async function boot() {
   let d = null;
+  const slugCedo = slugDaUrl();
+  if (slugCedo) antecipaHistorico(slugCedo);
   try {
     const r = await fetch('/api/v1/agents', { cache: 'no-store' });
     if (r.status === 401) {
@@ -2452,7 +2472,15 @@ const menorEp = () => msgs.reduce((m, x) => Math.min(m, x.ep), Infinity);
 async function carregar(primeiraVez) {
   let ok = false;
   try {
-    const d = await api(API + '/messages?limit=' + PAGINA);
+    let d = null;
+    if (primeiraVez && historicoAntecipado) {
+      const promessa = historicoAntecipado;
+      historicoAntecipado = null;
+      try { d = await promessa; } catch (e) {
+        console.warn('histórico antecipado falhou (' + e.message + '); peço de novo pelo caminho normal');
+      }
+    }
+    if (!d) d = await api(API + '/messages?limit=' + PAGINA);
     const novas = d.msgs || [];
     if (primeiraVez || !msgs.length) {
       geracaoJanela++;
