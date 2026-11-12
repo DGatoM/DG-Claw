@@ -894,7 +894,7 @@ function resumoDaFonte(f) {
   return {
     motor: f.motor,
     estado: f.estado,
-    motivo: f.motivo,
+    motivo: f.motivo == null ? null : limpa(f.motivo),
     arquivos: ok || f.estado === 'vazia' ? f.arquivos.length : null,
     bytes: ok || f.estado === 'vazia' ? f.arquivos.reduce((s, a) => s + a.bytes, 0) : null,
     ultima_atividade: ok && f.arquivos.length ? Math.round(f.arquivos.reduce((m, a) => Math.max(m, a.mtimeMs), 0)) : null,
