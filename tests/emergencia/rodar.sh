@@ -486,6 +486,25 @@ contem "diz que o corte não foi feito e o que foi desfeito" "$SAIDA" "O corte N
 roda estado
 contem "estado volta ao normal" "$SAIDA" "Estado: NORMAL"
 
+echo "faixa dos agentes vem do dgclaw.env, e o emergencia.conf do dono vale por cima"
+monta_ambiente; liga_tailscale
+sed -i '/^REDES_INTERNAS=/d' "$EMERGENCIA_CONF"
+printf 'DGCLAW_FAIXA_REDE=10.91.0.0/16\n' >"$RAIZ/etc/dgclaw/dgclaw.env"
+roda simular
+contem "o bloqueio cobre a faixa do dgclaw.env" "$SAIDA" "ip saddr { 10.91.0.0/16 } accept"
+[[ "$SAIDA" != *"10.89.0.0/16"* ]] && ok "a faixa padrao nao aparece" || nok "a faixa padrao 10.89 apareceu"
+printf 'REDES_INTERNAS="172.20.0.0/16"\n' >>"$EMERGENCIA_CONF"
+roda simular
+contem "emergencia.conf do dono vale por cima" "$SAIDA" "ip saddr { 172.20.0.0/16 } accept"
+sed -i '/^REDES_INTERNAS=/d' "$EMERGENCIA_CONF"
+printf 'DGCLAW_FAIXA_REDE=8.8.0.0/16\n' >"$RAIZ/etc/dgclaw/dgclaw.env"
+roda simular
+contem "faixa invalida cai na padrao" "$SAIDA" "ip saddr { 10.89.0.0/16 } accept"
+contem "e avisa" "$SAIDA" "não é um /16 privado válido"
+rm -f "$RAIZ/etc/dgclaw/dgclaw.env"
+roda simular
+contem "sem dgclaw.env usa a padrao" "$SAIDA" "ip saddr { 10.89.0.0/16 } accept"
+
 echo
 echo "Passaram: $PASSOU  Falharam: $FALHOU"
 ((FALHOU == 0))

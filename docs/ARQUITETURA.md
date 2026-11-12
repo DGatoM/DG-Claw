@@ -13,7 +13,7 @@ Navegador do dono
 Caddy (portas 80 e 443)
       │
       ▼
-DG Claw Web (127.0.0.1:8300)
+DG Claw Web (127.0.0.1:8300, ou a porta de --porta-painel)
       ├── conversa do Admin ──► runner do Admin ──► Claude Code ou Codex
       │                         (no servidor, como root)
       │
@@ -88,7 +88,7 @@ O contrato está em [Primeiro agente pelo Admin](../web/docs/PRIMEIRO-AGENTE.md)
 | `dgclaw-imagem` | Construção da imagem dos agentes, quando solicitada |
 | `dgclaw-anonimizar-instalar@` | Instalação opcional do detector de nomes da anonimização de documentos, disparada pela tela Anonimizar |
 | `dgclaw-firewall` | Regras de isolamento da rede dos agentes. O instalador força o netavark a usar iptables (`firewall_driver = "iptables"` em `/etc/containers/containers.conf.d`), porque no Ubuntu 26.04 o modo nftables padrão é bloqueado pelo `ufw` e os containers ficam sem internet |
-| `caddy` | HTTPS e encaminhamento para o Web |
+| `caddy` | HTTPS e encaminhamento para o Web (não existe no modo `--proxy-existente`: o HTTPS é do nginx ou túnel que você já tinha) |
 
 O registro `/etc/dgclaw/agentes.json` informa ao Web quais agentes existem e onde ficam seus
 serviços. Tokens e senhas não pertencem a esse registro. Os pedidos do primeiro agente ficam

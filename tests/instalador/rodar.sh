@@ -16,6 +16,8 @@ set -uo pipefail
 . "$AQUI/boletins-seguranca.sh"
 # shellcheck source=tests/instalador/ronda-seguranca.sh
 . "$AQUI/ronda-seguranca.sh"
+# shellcheck source=tests/instalador/proxy.sh
+. "$AQUI/proxy.sh"
 
 main() {
     local filtro="${1:-}" total=0 ruins=0 caso rc

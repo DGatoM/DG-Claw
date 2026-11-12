@@ -1171,8 +1171,8 @@ caso_rede_containers_ensaio_nao_muda_nada() {
 # Roda o lib/firewall.sh de verdade contra o iptables de mentira (que guarda cadeias e regras em
 # arquivos). Devolve o estado em $TMP/estado/ipt-regras.
 rodar_firewall_falso() {
-    env -i "HOME=$TMP" "PATH=$AQUI/stubs:/usr/bin:/bin" "DGCLAW_STUB_LOG=$STUB_LOG" "DGCLAW_STUB_ESTADO=$TMP/estado" \
-        "DGCLAW_FIREWALL_TRAVA=$TMP/firewall.lock" "DGCLAW_FIREWALL_TRAVA_ESPERA=${FW_ESPERA:-120}" \
+    env -i "HOME=$TMP" "PATH=$AQUI/stubs:/usr/bin:/bin" "DGCLAW_RAIZ=$RAIZ" "DGCLAW_STUB_LOG=$STUB_LOG" "DGCLAW_STUB_ESTADO=$TMP/estado" \
+        ${EXTRA_ENV[@]+"${EXTRA_ENV[@]}"} "DGCLAW_FIREWALL_TRAVA=$TMP/firewall.lock" "DGCLAW_FIREWALL_TRAVA_ESPERA=${FW_ESPERA:-120}" \
         bash "$REPO/lib/firewall.sh" >"$SAIDA" 2>&1
 }
 
@@ -1327,7 +1327,7 @@ caso_firewall_duas_execucoes_sobrepostas_nao_esvaziam_a_cerca() {
     for i in $(seq 1 100); do [ -f "$e/pausado" ] && break; sleep 0.1; done
     afirma "A parou no ponto combinado" test -f "$e/pausado"
     local saida_b="$TMP/saida-b.txt"
-    ( env -i "HOME=$TMP" "PATH=$AQUI/stubs:/usr/bin:/bin" "DGCLAW_STUB_LOG=$STUB_LOG" "DGCLAW_STUB_ESTADO=$e" \
+    ( env -i "HOME=$TMP" "PATH=$AQUI/stubs:/usr/bin:/bin" "DGCLAW_RAIZ=$RAIZ" "DGCLAW_STUB_LOG=$STUB_LOG" "DGCLAW_STUB_ESTADO=$e" \
         "DGCLAW_FIREWALL_TRAVA=$TMP/firewall.lock" bash "$REPO/lib/firewall.sh" >"$saida_b" 2>&1 ) &
     local pid_b=$!
     sleep 1
