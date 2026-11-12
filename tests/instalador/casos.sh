@@ -41,6 +41,7 @@ caso_instalacao_cria_arquivos_com_os_modos_certos() {
     afirma "token do admin com 64 hex" grep -qE '^[0-9a-f]{64}$' "$e/runner/admin.token"
     afirma "agentes.json 640" modo_e "$e/agentes.json" 640
     afirma "agentes.json com um Admin" jq -e '(.agentes | length) == 1 and .agentes[0].slug == "admin" and .agentes[0].tipo == "admin" and .agentes[0].runner == "http://127.0.0.1:4300" and .agentes[0].chat_id == "c_admin" and .agentes[0].transcripts_dir == "/root/.claude/projects/-opt-dgclaw-admin" and .agentes[0].runner_token_arquivo == "/etc/dgclaw/runner/admin.token" and .agentes[0].porta_painel == null' "$e/agentes.json"
+    afirma "Admin no Claude tambem registra o CODEX_HOME (troca para o Codex pelo painel)" jq -e '.agentes[0].codex_home_host == "/root/.codex"' "$e/agentes.json"
     nega "agentes.json sem caminho da raiz de teste" tem "$e/agentes.json" "$RAIZ"
     afirma "pasta do admin 700" modo_e "$a/admin" 700
     afirma "CLAUDE.md do admin" tem "$a/admin/CLAUDE.md" "Admin (Claude)"
@@ -73,6 +74,10 @@ caso_instalacao_cria_arquivos_com_os_modos_certos() {
         "a=\$(grep -nE 'systemctl (start|restart) dgclaw-admin.service' '$STUB_LOG' | head -1 | cut -d: -f1); w=\$(grep -nE 'systemctl (start|restart) dgclaw-web.service' '$STUB_LOG' | head -1 | cut -d: -f1); [ -n \"\$a\" ] && [ -n \"\$w\" ] && [ \"\$w\" -gt \"\$a\" ]"
     afirma "unidade da imagem com navegador (render de vídeo das skills)" tem "$u/dgclaw-imagem.service" "COM_NAVEGADOR=1"
     afirma "unidade da imagem com a versao" tem "$u/dgclaw-imagem.service" "localhost/dgclaw-agente:1.0.0-teste"
+    afirma "unidade-modelo do detector de nomes existe" test -f "$u/dgclaw-anonimizar-instalar@.service"
+    afirma "unidade do detector roda o script com o nivel (%i)" tem "$u/dgclaw-anonimizar-instalar@.service" "ExecStart=/bin/bash /opt/dgclaw/app/lib/anonimizar-instalar.sh %i"
+    afirma "unidade do detector e oneshot" tem "$u/dgclaw-anonimizar-instalar@.service" "Type=oneshot"
+    nega "o detector de nomes nao e instalado sozinho" tem "$STUB_LOG" "dgclaw-anonimizar-instalar"
     afirma "unidade do firewall" tem "$u/dgclaw-firewall.service" "ExecStart=/bin/bash /opt/dgclaw/app/lib/firewall.sh"
     afirma "chave do NodeSource" test -s "$RAIZ/usr/share/keyrings/nodesource.gpg"
     afirma "repo do NodeSource" tem "$RAIZ/etc/apt/sources.list.d/nodesource.list" "node_22.x nodistro main"
@@ -145,6 +150,7 @@ caso_provedor_codex() {
     afirma "instala com codex" instalar "$PAINEL_PW" --usuario maria --provedor codex
     afirma "runner.json usa codex-cli" jq -e '.config.provider == "codex-cli"' "$RAIZ/opt/dgclaw/admin/.plataforma/runner.json"
     afirma "agentes.json aponta as sessoes do codex" jq -e '.agentes[0].provedor == "codex" and .agentes[0].transcripts_dir == "/root/.codex/sessions"' "$RAIZ/etc/dgclaw/agentes.json"
+    afirma "registro do Admin diz onde o Codex grava os rollouts" jq -e '.agentes[0].codex_home_host == "/root/.codex"' "$RAIZ/etc/dgclaw/agentes.json"
     limpar_cenario
 }
 
@@ -740,5 +746,153 @@ caso_ensaio_nao_grava_pasta_de_migracao() {
     afirma "o ensaio anuncia a copia" tem "$SAIDA" "guardaria uma copia"
     afirma "nenhuma pasta de migracao" test ! -e "$RAIZ/opt/dgclaw/admin/personalizacoes-migracao"
     afirma "a edicao continua no app" tem "$RAIZ/opt/dgclaw/app/web/server.js" "// editado"
+    limpar_cenario
+}
+
+caso_unidade_do_web_endurecida_com_motivos_das_que_ficaram_de_fora() {
+    novo_cenario
+    afirma "a instalacao termina" instalacao_basica
+    local s="$RAIZ/etc/systemd/system/dgclaw-web.service" d
+    afirma "unidade do web existe" test -f "$s"
+    for d in ProtectSystem=full ReadWritePaths=-/etc/dgclaw PrivateTmp=yes ProtectKernelModules=yes \
+        ProtectKernelLogs=yes RestrictSUIDSGID=yes RestrictRealtime=yes LockPersonality=yes \
+        SystemCallArchitectures=native; do
+        afirma "web com $d" grep -qxF -- "$d" "$s"
+    done
+    # As diretivas que quebrariam podman exec, sudo no container ou o Node nao podem entrar.
+    for d in NoNewPrivileges ProtectSystem=strict ProtectHome PrivateDevices ProtectKernelTunables \
+        ProtectControlGroups ProtectClock ProtectHostname RestrictNamespaces RestrictAddressFamilies \
+        CapabilityBoundingSet MemoryDenyWriteExecute UMask; do
+        nega "web sem $d ativo" grep -qE "^${d}[=]?" "$s"
+        afirma "web explica por que $d ficou de fora" grep -qE "^# .*${d%%=*}.* fica(m)? de fora" "$s"
+    done
+    # Cada caminho de gravacao do Web fora de /etc precisa continuar gravavel: ProtectSystem=full
+    # so deixa /usr, /boot e /etc somente leitura, e o unico caminho ali dentro e /etc/dgclaw.
+    afirma "dados do web fora das pastas protegidas" bash -c "grep -q '^Environment=DGCLAW_WEB_DATA=/var/lib/dgclaw/web$' '$s'"
+    afirma "web.env em /etc/dgclaw coberto" bash -c "grep -q '^Environment=DGCLAW_WEB_ENV=/etc/dgclaw/web.env$' '$s' && grep -q '^ReadWritePaths=-/etc/dgclaw$' '$s'"
+    if command -v systemd-analyze >/dev/null 2>&1; then
+        local v="$TMP/verify"
+        mkdir -p "$v" && sed 's#^ExecStart=.*#ExecStart=/bin/true#;s#^WorkingDirectory=.*#WorkingDirectory=/#;/^EnvironmentFile=/d' "$s" >"$v/dgclaw-web.service"
+        afirma "systemd-analyze verify aceita a unidade" bash -c "! systemd-analyze verify '$v/dgclaw-web.service' 2>&1 | grep 'dgclaw-web' | grep -iE 'unknown (key|section)|bad|invalid|failed to parse'"
+    fi
+}
+
+# --- Caddy: compressao no site gerado e o que acontece com arquivo que ja existe ---------------
+
+DOM_CADDY="203-0-113-7.sslip.io"
+
+caso_caddy_bloco_novo_comprime_e_deixa_o_stream_de_fora() {
+    novo_cenario
+    afirma "a instalacao termina com sucesso" instalacao_basica
+    local cf="$RAIZ/etc/caddy/Caddyfile"
+    afirma "encode com zstd" grep -qE '^[[:space:]]+zstd$' "$cf"
+    afirma "encode com gzip" grep -qE '^[[:space:]]+gzip$' "$cf"
+    afirma "comprime o javascript" tem "$cf" "header Content-Type application/javascript*"
+    afirma "comprime o css" tem "$cf" "header Content-Type text/css*"
+    afirma "comprime o json" tem "$cf" "header Content-Type application/json*"
+    nega "o stream da conversa nao entra" tem "$cf" "event-stream"
+    nega "nada de text/* generico" grep -qE 'Content-Type text/\*' "$cf"
+    afirma "o proxy continua" tem "$cf" "reverse_proxy 127.0.0.1:8300"
+    limpar_cenario
+}
+
+caso_caddy_arquivo_antigo_identico_e_atualizado() {
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy" "$TMP/estado"
+    echo caddy >"$TMP/estado/ativos" # o Caddy ja esta no ar, como numa atualizacao de verdade
+    printf '# DG Claw: gerado pelo install.sh. Rodar o instalador de novo reescreve este arquivo.\n%s {\n\treverse_proxy 127.0.0.1:8300\n}\n' "$DOM_CADDY" >"$RAIZ/etc/caddy/Caddyfile"
+    afirma "a atualizacao termina com sucesso" instalacao_basica
+    afirma "ganhou a compressao" tem "$RAIZ/etc/caddy/Caddyfile" "zstd"
+    igual "$(contar "$RAIZ/etc/caddy/Caddyfile" reverse_proxy)" 1 || { echo "      FALHOU: reverse_proxy duplicado"; FALHAS=$((FALHAS + 1)); }
+    afirma "caddy validado" tem "$STUB_LOG" "caddy validate --config $RAIZ/etc/caddy/Caddyfile"
+    afirma "caddy recarregado" tem "$STUB_LOG" "systemctl reload caddy"
+    limpar_cenario
+}
+
+caso_caddy_arquivo_personalizado_e_preservado() {
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy"
+    printf '# DG Claw: gerado pelo install.sh. Rodar o instalador de novo reescreve este arquivo.\n%s {\n\treverse_proxy 127.0.0.1:8300\n\theader X-Minha-Linha "do dono"\n}\n' "$DOM_CADDY" >"$RAIZ/etc/caddy/Caddyfile"
+    cp "$RAIZ/etc/caddy/Caddyfile" "$TMP/caddy-antes"
+    afirma "a atualizacao termina com sucesso" instalacao_basica
+    afirma "arquivo personalizado intacto" cmp "$TMP/caddy-antes" "$RAIZ/etc/caddy/Caddyfile"
+    afirma "a linha do dono continua la" tem "$RAIZ/etc/caddy/Caddyfile" 'header X-Minha-Linha "do dono"'
+    afirma "avisa o que acrescentar" tem "$SAIDA" "personalizacoes suas"
+    afirma "o aviso explica o perigo do text/*" tem "$SAIDA" "event-stream"
+    limpar_cenario
+}
+
+caso_caddy_site_de_outros_continua_preservado() {
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy"
+    printf 'import conf.d/*\n\nloja.exemplo.com {\n\trespond "oi"\n}\n' >"$RAIZ/etc/caddy/Caddyfile"
+    cp "$RAIZ/etc/caddy/Caddyfile" "$TMP/caddy-antes"
+    afirma "a instalacao termina com sucesso" instalacao_basica
+    afirma "Caddyfile dos outros intacto" cmp "$TMP/caddy-antes" "$RAIZ/etc/caddy/Caddyfile"
+    afirma "site do DG Claw em conf.d com a compressao" tem "$RAIZ/etc/caddy/conf.d/dgclaw.caddy" "zstd"
+    nega "o conf.d nao ganhou event-stream" tem "$RAIZ/etc/caddy/conf.d/dgclaw.caddy" "event-stream"
+    limpar_cenario
+}
+
+caso_caddy_validacao_que_falha_nao_recarrega_e_restaura() {
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy" "$TMP/estado"
+    echo caddy >"$TMP/estado/ativos"
+    printf '# DG Claw: gerado pelo install.sh. Rodar o instalador de novo reescreve este arquivo.\n%s {\n\treverse_proxy 127.0.0.1:8300\n}\n' "$DOM_CADDY" >"$RAIZ/etc/caddy/Caddyfile"
+    cp "$RAIZ/etc/caddy/Caddyfile" "$TMP/caddy-antes"
+    touch "$TMP/estado/caddy-falha"
+    nega "a instalacao para quando o Caddy recusa" instalacao_basica
+    afirma "o arquivo voltou ao que era" cmp "$TMP/caddy-antes" "$RAIZ/etc/caddy/Caddyfile"
+    nega "nao recarregou o Caddy" tem "$STUB_LOG" "systemctl reload caddy"
+    afirma "explica o que fazer" tem "$SAIDA" "O que fazer"
+    limpar_cenario
+}
+
+caso_caddy_segunda_rodada_recarrega_de_novo() {
+    novo_cenario
+    mkdir -p "$TMP/estado"
+    afirma "primeira rodada" instalacao_basica
+    : >"$STUB_LOG"
+    afirma "segunda rodada" instalar "" --usuario maria --provedor claude
+    # um reload anterior pode ter falhado com o arquivo ja certo no disco: recarrega sempre
+    afirma "recarregou o Caddy de novo" tem "$STUB_LOG" "systemctl reload caddy"
+    afirma "mas validou" tem "$STUB_LOG" "caddy validate"
+    limpar_cenario
+}
+
+caso_caddy_caddyfile_padrao_do_pacote_e_substituido() {
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy" "$TMP/estado"
+    printf ':80 {\n\t# Set this path to your site'"'"'s directory.\n\troot * /usr/share/caddy\n\tfile_server\n}\n' >"$RAIZ/etc/caddy/Caddyfile"
+    afirma "a instalacao termina com sucesso" instalacao_basica
+    afirma "o site do DG Claw foi gravado" tem "$RAIZ/etc/caddy/Caddyfile" "$DOM_CADDY {"
+    afirma "com o proxy" tem "$RAIZ/etc/caddy/Caddyfile" "reverse_proxy 127.0.0.1:8300"
+    afirma "e a compressao" tem "$RAIZ/etc/caddy/Caddyfile" "zstd"
+    nega "o file_server do pacote saiu" tem "$RAIZ/etc/caddy/Caddyfile" "file_server"
+    limpar_cenario
+}
+
+caso_caddy_caddyfile_padrao_com_validacao_que_falha_restaura() {
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy" "$TMP/estado"
+    printf ':80 {\n\troot * /usr/share/caddy\n\tfile_server\n}\n' >"$RAIZ/etc/caddy/Caddyfile"
+    cp "$RAIZ/etc/caddy/Caddyfile" "$TMP/caddy-antes"
+    touch "$TMP/estado/caddy-falha"
+    nega "a instalacao para" instalacao_basica
+    afirma "o Caddyfile padrao voltou" cmp "$TMP/caddy-antes" "$RAIZ/etc/caddy/Caddyfile"
+    limpar_cenario
+}
+
+caso_caddy_restauracao_mantem_modo_do_arquivo() {
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy" "$TMP/estado"
+    echo caddy >"$TMP/estado/ativos"
+    printf '# DG Claw: gerado pelo install.sh. Rodar o instalador de novo reescreve este arquivo.\n%s {\n\treverse_proxy 127.0.0.1:8300\n}\n' "$DOM_CADDY" >"$RAIZ/etc/caddy/Caddyfile"
+    chmod 640 "$RAIZ/etc/caddy/Caddyfile"
+    cp -p "$RAIZ/etc/caddy/Caddyfile" "$TMP/caddy-antes"
+    touch "$TMP/estado/caddy-falha"
+    nega "a instalacao para quando o Caddy recusa" instalacao_basica
+    afirma "conteudo restaurado" cmp "$TMP/caddy-antes" "$RAIZ/etc/caddy/Caddyfile"
+    igual "$(stat -c %a "$RAIZ/etc/caddy/Caddyfile")" 640 || { echo "      FALHOU: modo do arquivo restaurado"; FALHAS=$((FALHAS + 1)); }
     limpar_cenario
 }

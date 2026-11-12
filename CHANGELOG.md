@@ -37,6 +37,183 @@ Depois de atualizar, reinicie os agentes que usam o ChatGPT (Codex) para que os 
 Admin "reinicia meus agentes no Codex". Se você mantinha um `hooks.json` seu na pasta `.codex` do agente, ele é
 preservado; só as linhas do DG Claw são regravadas. Agentes no Claude não precisam de nenhum passo.
 
+**A reflexão da noite não acorda o agente em dia sem conversa com você.** Antes, às 23h30 ela rodava todo dia, e cada rodada
+gastava o contexto inteiro da sessão (em agentes pouco usados, mais da metade das reflexões só dizia que nada aconteceu). Agora, se o
+registro das conversas foi lido por completo e você não mandou nenhuma mensagem naquele dia, a reflexão é pulada: fica anotado no
+`reflection.log` e no Pulso ("dia sem conversa com o dono; reflexão pulada"), e naquele dia não existe diário. A auditoria das 23h50 e o
+`doctor` entendem o dia pulado e não dão alarme por falta de diário. Na dúvida a reflexão roda como sempre: isso vale quando o agente
+usa o Codex, quando a configuração do agente é antiga e não informa o provedor, ou quando o registro das conversas não pôde ser lido. Para
+rodar a reflexão mesmo assim, use `DGCLAW_REFLECT_SEMPRE=1 bash scripts/reflection.sh <config>`.
+
+### Como atualizar (reflexão em dia sem conversa)
+
+Peça ao Admin, no chat: "atualiza o DG Claw". A reflexão confere o provedor do agente (Claude ou Codex) na configuração dele
+(`config.sh`) antes de pular um dia. Se um agente antigo não tem o provedor ali, a reflexão segue rodando todo dia, como antes. Para
+ele passar a pular os dias parados, peça ao Admin `dgclaw agente reparar <nome>`, que regrava essa configuração. Se você quiser que
+um agente nunca pule a reflexão, não conte com uma linha `DGCLAW_REFLECT_SEMPRE=1` acrescentada à mão no `config.sh`, porque o reparo
+regrava o arquivo e a linha se perde; defina a variável no ambiente da rotina.
+
+**O painel e a conversa passam a carregar mais rápido, sobretudo no celular.** O servidor da web agora entrega os arquivos da tela
+(scripts, estilos, páginas e dados em JSON) comprimidos: o `conversa.js`, por exemplo, sai de cerca de 243 KB para uns 77 KB. A conversa
+em tempo real continua chegando na hora, porque o fluxo dela fica de fora da compressão. A mudança é no site que o instalador grava no
+Caddy; o `dgclaw atualizar` troca esse arquivo sozinho quando ele ainda é o que o instalador gerou, e só recarrega o Caddy depois de
+conferir que a configuração nova é válida. Se algo der errado na conferência, o arquivo volta ao que era e o Caddy não é recarregado.
+
+### Como atualizar (compressão no Caddy)
+
+Nada a fazer se você nunca editou o arquivo do Caddy: peça ao Admin, no chat, "atualiza o DG Claw". Se você personalizou o
+`/etc/caddy/Caddyfile` ou o `/etc/caddy/conf.d/dgclaw.caddy` (por exemplo, acrescentou cabeçalhos ou um segundo endereço), o DG Claw não
+substitui o seu arquivo, porque ali estão as suas escolhas; ele avisa durante a atualização e a compressão fica desligada até você
+acrescentar o bloco `encode` dentro do site, antes do `reverse_proxy`. O aviso traz o bloco pronto. Não use `text/*` na lista de tipos:
+isso comprimiria também a conversa em tempo real e as mensagens deixariam de chegar na hora. Depois confira e recarregue com
+`caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile && sudo systemctl reload caddy`.
+Nesse caso o `dgclaw dominio trocar` é a exceção: como o nome do site precisa mudar, ele guarda uma cópia do seu arquivo ao lado, em
+`/etc/caddy/` (por exemplo `Caddyfile.antes-dominio-<data>`), e grava no lugar o site padrão do DG Claw com o domínio novo. O aviso mostra
+o caminho da cópia; para levar suas personalizações de volta, copie as linhas que quiser para dentro do bloco do site, valide e recarregue o Caddy.
+
+**O batimento deixa de acordar o agente várias vezes pelo mesmo assunto.** A cada 30 minutos o sistema confere a seção
+"Quero Falar com o dono Sobre" da memória de trabalho. Se o agente decidia não incomodar e não tirava a linha, o batimento
+voltava a acordá-lo sem parar (umas 9 vezes por dia), e cada despertar gastava uma parte grande da sua assinatura. Agora o
+sistema guarda o que já levou ao agente e só o acorda de novo se o conteúdo da seção mudar ou depois de 24 horas (ajustável
+com `DGCLAW_HEARTBEAT_REPETIR_H`). O agente também ganha a marca `[a partir de AAAA-MM-DD]` para adiar uma linha até a data em
+que quer ser lembrado. O sorteio de 1 em 4 e o ramo da memória de trabalho velha saíram, porque não faziam mais efeito.
+
+### Como atualizar (batimento)
+
+Peça ao Admin, no chat: "atualiza o DG Claw". O script do batimento já vem na atualização. Nesta versão há uma instrução nova
+para os seus agentes conhecerem a marca de adiar. Ela entra na identidade de cada agente, regravada com
+`dgclaw agente identidade <agente>`, sem apagar o que você personalizou neles.
+
+**A conversa abre mais rápido.** A tela pedia a lista de agentes, depois o histórico e só então ligava o tempo real, uma
+coisa de cada vez. Agora o histórico sai junto com a lista de agentes. No servidor, a lista deixa de esperar a consulta
+a cada agente quando as informações dela vencem: responde na hora com o que já sabe e atualiza em segundo plano (se a
+atualização falhar, o motivo vai para o registro e a lista segue com o último valor bom). O `dgclaw atualizar` já resolve.
+
+**A aba Operações volta a mostrar as barrinhas de cada rotina, com rotina, horário e resultado.** O painel do agente não
+tinha permissão para ler o diário do sistema, e sem ela a aba dizia que não havia histórico, mesmo com as rotinas
+rodando. Agora, dentro do contêiner, o usuário do agente passa a poder ler o diário do sistema daquele contêiner. Se o
+painel ainda assim não conseguir ler o diário, a aba explica o motivo e o que fazer, em vez de mostrar contagens como
+"nenhuma falha" sobre o que não foi medido. As barrinhas mostram só o resultado de cada execução, sem texto copiado de
+logs. O `dgclaw atualizar` já resolve. Quem não quiser atualizar tudo agora pode rodar `dgclaw agente reparar <slug>`
+para cada agente já instalado: o reparo dá o acesso e reinicia o painel dele.
+
+**Guia de boas práticas de ronda.** Quando você pedir ao seu agente uma ronda (olhar o CRM, atender o suporte, responder
+comentários, conferir dados), ele passa a seguir o novo `docs/BOAS-PRATICAS-RONDAS.md`: dez regras tiradas de erros e acertos
+reais e um checklist para combinar com você o que a ronda olha, cada quanto, quem é avisado, o que ela corrige sozinha e o que
+acontece se a fonte falhar.
+
+### Como atualizar (guia de rondas)
+
+Peça ao Admin, no chat: "atualiza o DG Claw". Nesta versão há uma instrução nova para os seus agentes conhecerem o guia. Ela
+entra na identidade de cada agente, regravada com `dgclaw agente identidade <agente>`, sem apagar o que você personalizou neles.
+
+**Manual do DG Claw no painel.** O menu ☰ ganha o item **Manual**, uma tela (`/manual`) que mostra, página por página, o que o DG Claw faz e como se usa, com busca pelos títulos e uma visita guiada. O Admin lê o mesmo manual direto da pasta `docs/manual` e os agentes o consultam pelo painel antes de dizer que algo não existe. O contrato das rotas está em `web/docs/MANUAL.md`.
+
+### Como atualizar (manual e personalização no nível do sistema)
+
+1. **Peça ao Admin, no chat: "atualiza o DG Claw".** Esta versão traz uma instrução nova para o Admin e para os agentes saberem que o manual existe e onde consultá-lo. Ela entra na seção de ambiente que o DG Claw mantém para cada agente, sem apagar o que você personalizou nas instruções deles. Se algum agente antigo não a mostrar depois da atualização, peça ao Admin para regravar essa seção com `sudo dgclaw agente identidade <nome>`.
+2. **Regra nova para o Admin.** Pedidos no nível do sistema (nova forma de gerar agentes, mudança no `bin/dgclaw`, no instalador ou no `runner/`) passam a ser permitidos. O Admin avisa você, em linguagem simples, que aquilo mexe na base e pode dar problema nas próximas atualizações; se você mantiver o pedido, ele faz, anota em `PERSONALIZACOES.md` que a mudança mexe na base e tenta mantê-la funcionando a cada atualização. Cofre e segredos, firewall, autenticação do painel, isolamento dos containers e ganchos de segurança continuam fora, mesmo a pedido. O guia está em `docs/PERSONALIZAR.md`.
+
+**Trocar de página no painel do agente deixou de mostrar o layout antigo.** Ao abrir uma página do painel (Status,
+Memória, Sessões e as outras), aparecia por um instante o menu antigo, com a foto padrão, traços "--" e a frase
+"carregando a conversa", e o conteúdo ficava cortado à direita até a tela terminar de montar. Agora o painel abre
+escondido, mostra só um indicador cinza no meio da área de conteúdo, e o cabeçalho e o menu verdadeiros aparecem assim
+que a página chega. O conteúdo passou a usar a largura toda ao lado do menu, sem sobra em monitor largo. Os arquivos
+de estilo e de script do painel agora ficam guardados no navegador, então trocar de página é mais rápido. Se a tela
+demorar mais de 8 segundos ou falhar ao abrir, ela deixa de ficar presa e diz o que aconteceu e o que fazer.
+
+### Como atualizar (troca de páginas do painel)
+
+Basta atualizar o DG Claw e recarregar a página do painel (no celular, feche e abra de novo, ou use Ctrl+F5 no
+computador). Nada precisa ser configurado nem apagado: as suas chaves, conversas e agentes continuam como estavam.
+
+**O aviso "Faça o login nos seus agentes" agora aparece uma única vez.** Antes, ele voltava a cada aba nova e a cada
+visita ao painel enquanto algum agente estivesse sem login. Agora o painel guarda, no servidor, que você já viu o aviso:
+fechar com **Fazer depois** ou recarregar a página não o traz de volta, e o novo botão **Não mostrar mais** o desliga de
+vez. Se você criar um agente novo e ele ficar sem login, o aviso aparece mais uma vez, só para ele (a não ser que você
+tenha escolhido **Não mostrar mais**). Em qualquer caso, a página **Conectar conta** e o cartão de cada agente continuam
+disponíveis. A escolha fica em `modal-login.json`, na pasta de dados do painel, e uma atualização não a apaga.
+
+**Login expirado também avisa no agente do ChatGPT.** Quando o login da conta do ChatGPT de um agente vence, o agente
+passa a mostrar o aviso "O login da conta do ChatGPT expirou", com o que fazer (reconectar pelo cartão de login da conversa
+ou rodar `codex login --device-auth` no terminal do agente), em vez de ficar parado sem explicação. Depois do novo login, o
+agente volta sozinho, na mesma conversa. Isso já funcionava para o agente do Claude. Nada precisa ser feito para atualizar.
+**O painel do Admin mostra de novo o histórico e as respostas quando o Admin usa o ChatGPT (Codex).** Antes, nesse caso a conversa do Admin ficava vazia na tela, porque o Web não procurava o registro da conversa na pasta onde o Codex do Admin o grava. Depois de atualizar, o histórico e as respostas aparecem.
+**Endurecimento do Web, do painel e do cofre.**
+
+- O proxy de `/p/<agente>/` deixa de repassar ao navegador os cabeçalhos `Set-Cookie` vindos do painel do agente,
+  tanto nas respostas HTTP quanto na abertura do WebSocket. O painel continua autenticado pelo proxy e funciona igual.
+- O upload de anexos cria `uploads/<dia>/` e grava o arquivo sem seguir atalho em nenhuma pasta do caminho, com o
+  dono da casa do agente. Se `uploads` ou a pasta do dia forem um atalho, o upload é recusado com a explicação.
+  A criação de pastas da caixa do agente passa pelo mesmo gravador.
+- A rota de mídia serve, da pasta de dados do Web, só as subpastas `avatares` e `miniaturas`.
+- A unidade `dgclaw-web.service` ganha proteções do systemd compatíveis com o que o Web executa hoje (`/usr`,
+  `/boot` e `/etc` somente leitura, exceto `/etc/dgclaw`; `/tmp` próprio; restrições de módulos, logs do kernel,
+  SUID, tempo real e arquitetura). As que ficaram de fora estão comentadas na unidade com o motivo.
+- O cofre do painel (motor `local`) só gera a chave mestra quando o arquivo não existe, e cria o arquivo sem
+  sobrescrever. Se a chave existir mas não puder ser lida ou estiver com tamanho errado, o cofre para com erro que
+  diz o caminho e o motivo, em vez de gerar outra chave.
+- O painel valida `trust_level` como número e escapa os valores vindos do servidor e da memória do agente que
+  eram inseridos no HTML sem escape.
+- A ponte do WhatsApp atualiza `follow-redirects` para 1.16.2.
+**Anonimizar documentos.** Nova tela **Anonimizar** (no menu ☰, em `/anonimizar`). Ligando a opção para um agente, os
+documentos que você manda pelo clipe da conversa passam antes por um filtro que troca nomes, CPF, telefone, e-mail e outros
+dados pessoais por marcadores, como `[PESSOA_1]` e `[CPF_1]`. O agente e o modelo na nuvem só recebem a versão com marcadores,
+e o original e o nome original do arquivo não entram na pasta dele. A tabela que liga cada marcador ao dado real fica cifrada
+no servidor. Na conversa, as respostas do agente com marcadores ganham o botão "Ver com dados reais", os arquivos que ele
+devolve ganham "Baixar versão final" (com os dados reais no lugar dos marcadores), e um selo no alto leva de volta à tela.
+Por enquanto vale só para o clipe da conversa web: o que chega por WhatsApp, Telegram ou e-mail ainda não passa pelo filtro.
+O guia está em `docs/ANONIMIZAR.md`.
+
+### Como atualizar (anonimizar documentos)
+
+1. **Peça ao Admin, no chat: "atualiza o DG Claw".** A atualização grava a unidade que instala o detector de nomes e traz a
+   tela nova. Nada é instalado nem ligado sozinho: a anonimização começa desligada em todos os agentes.
+2. **O detector de nomes é opcional e se instala pela tela Anonimizar.** Sem ele, o filtro só troca o que tem formato fixo (CPF,
+   CNPJ, telefone, e-mail) e, por segurança, bloqueia o envio de documentos até você escolher outra opção. Os leitores de PDF,
+   Word e Excel ocupam cerca de 30 MB; o detector completo, que acha nomes, empresas e endereços, ocupa cerca de 2 GB de
+   disco e precisa de uns 2,5 GB de memória livre na hora de rodar.
+3. **As instruções dos agentes ganharam um trecho novo**, para eles tratarem os marcadores do jeito certo (manter exatamente
+   como vieram, nunca adivinhar o dado real e entregar resultados em `.docx`, `.xlsx`, `.md` ou `.txt`). Depois de atualizar,
+   peça ao Admin para regravar a identidade de cada agente que você já tem (o comando é `sudo dgclaw agente identidade <agente>`);
+   o que você personalizou neles não muda.
+4. **Guarde a chave da tabela no seu backup.** Ela é criada sozinha no primeiro uso, em `/etc/dgclaw/anonimizar.chave`. Sem ela
+   a tabela não abre e os dados reais não voltam.
+5. No celular, feche e abra o app uma vez para ele buscar os arquivos novos.
+**A Tela do agente (o navegador dele, onde você faz os logins) ficou sempre à mão e passou a explicar o que falta.**
+Alunos relataram que não tinham tela nenhuma. Havia quatro causas, e as quatro foram tratadas:
+
+- *Atalho na conversa.* O menu de cada agente ganhou o item **Tela (navegador do agente)**. Ele abre o painel do agente
+  já na aba Tela, onde você digita e clica direto no navegador dele para fazer o login dos sistemas. O Admin não tem o
+  item, porque não tem navegador.
+- *Senha que nunca falta.* Se a senha da Tela ainda não foi definida, a aba abre direto em "Defina a senha da tela"
+  (de 6 a 8 caracteres), com a explicação do porquê, e a tela abre sozinha depois de gravar. Antes, a aba abria um
+  navegador que não conectava. O `dgclaw agente recriar`, o `reparar` e o `atualizar` não inventam senha: avisam, numa
+  linha por agente, que ela falta e como definir.
+- *Diagnóstico que se explica.* A aba Tela mostra o que está errado em linguagem simples (sem navegador na imagem,
+  senha não definida, tela parada, navegador sem resposta) e o que fazer. Quem administra o servidor tem o mesmo
+  em `dgclaw agente tela <slug>`, que sai com código diferente de zero quando algo falta.
+- *Servidor arm64.* Antes, a construção da imagem parava com erro nessa arquitetura, porque o Google Chrome só existe
+  para amd64, e quem instalava ficava sem imagem. Agora a imagem sai, e a Tela usa o Chromium. Para você é a mesma
+  tela; alguns sites com proteção contra robôs podem tratá-lo de outro jeito que o Chrome.
+
+O teclado também foi ajustado: letras com acento e o `ç` digitados direto na Tela devem chegar certos, e a Tela
+reconecta sozinha depois de uma troca de senha. Nada do que protegia a Tela mudou: ela continua só em `localhost`
+dentro do agente, atrás do login do painel e da senha própria dela, e agora há um teste que falha se uma dessas
+travas sumir.
+
+### Como atualizar (a Tela do agente)
+
+Peça ao Admin, no chat: "atualiza o DG Claw". Ele confirma com você e instala; agentes, conversas e configurações
+ficam como estão. Se algum dos seus agentes foi criado antes da Tela existir, ele ainda não tem a senha dela, e sem
+ela a Tela não conecta. Defina a senha uma vez, na aba Tela do painel desse agente (menu do agente, item Tela): é a
+segunda trava, além do login do painel, e o DG Claw não inventa uma por você porque ninguém saberia qual é. O resumo
+da atualização lista os agentes que ainda precisam disso. Servidor arm64 precisa reconstruir a imagem uma vez
+(o Admin faz isso na atualização).
+**Convidar um colaborador.** Agora você pode convidar uma pessoa para conversar com um dos seus agentes de trabalho, sem dar acesso ao resto do DG Claw. No menu ☰ do agente há o item **Convidar colaborador** (ou a página `/colaboradores`): você informa o e-mail da pessoa, e ela recebe o link, o login e uma senha temporária que vale por 7 dias. No primeiro acesso ela cria a própria senha e passa a usar aquele agente: a conversa e a leitura das sessões, das rotinas, da memória e dos arquivos. Ela não grava memória, arquivos nem configuração pelo painel, e o login da conta de IA do agente também fica só com você. Ela não sai desse agente: o Admin, os outros agentes e as telas da caixa inteira (chaves de API do sistema, convidar colaborador, configurações globais) continuam só seus. Dentro do agente, o cofre, as chaves de API do painel, o login da conta de IA, as credenciais dos canais e a Tela também ficam com você. Você manda o convite de novo ou revoga o acesso quando quiser, e a lista guarda o histórico com as datas. As mensagens dele chegam ao agente marcadas como vindas de um colaborador. O envio do convite por e-mail é opcional: sem configurar nada, a tela mostra o texto pronto para você copiar e mandar por WhatsApp. Para o DG Claw mandar o e-mail sozinho, veja as variáveis `DGCLAW_SMTP_*` em `web/docs/COLABORADORES.md`. Nada precisa ser feito para atualizar.
+
+**Anexos na casa do agente.** Os arquivos enviados pela conversa agora são gravados pelo dono do agente, e não mais pelo root do servidor, para que uma pasta trocada por um atalho dentro da casa do agente não leve o arquivo para fora dela. Em instalações antigas, a pasta `uploads/` que o root tinha criado passa sozinha para o dono do agente no primeiro anexo; as pastas de dias antigos ficam como estão. Nada precisa ser feito para atualizar.
+
 **Nova página Conectar conta.** Antes, para conectar a conta do Claude de um agente alguém tinha de gerar um link de login
 e mandar por mensagem, e o link vencia antes de você ver. Agora o painel tem a página **Conectar conta** (no menu ☰, ou em
 `/conectar`): você entra quando puder, toca em "Gerar link de login" no cartão do agente, entra na sua conta do Claude e cola
@@ -59,6 +236,15 @@ Nada precisa ser feito para atualizar.
 quer entregar pronto, o comando `sudo dgclaw instalacao-remota` troca a senha do painel por uma senha forte nova, reinicia o
 painel e mostra uma única vez a mensagem pronta com o endereço, o usuário e a senha. A senha não fica guardada em lugar
 nenhum, só o hash. É opcional e não muda a instalação normal. Nada precisa ser feito para atualizar.
+
+**Trocar a senha do painel agora desconecta todo mundo.** Antes, quem já estava logado continuava dentro depois da
+troca de senha (`dgclaw senha trocar`), inclusive uma sessão copiada por outra pessoa. Agora cada sessão guarda uma
+marca da senha e do usuário de quando foi aberta, e mudar qualquer um dos dois derruba as sessões abertas antes.
+
+### Como atualizar (sessão amarrada à senha)
+
+Depois desta atualização, todo mundo precisa entrar no painel de novo uma vez, porque as sessões abertas até agora
+não guardavam a marca da senha. Basta digitar usuário e senha como de costume; nada mais muda.
 
 **A ronda de segurança deixou de pesar na memória.** Em servidores pequenos, de 4 GB, a verificação de segurança podia
 passar de 1 GB de memória e fazer o sistema derrubar os seus agentes. Agora ela lê uma falha por vez e guarda só o

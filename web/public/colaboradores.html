@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Colaboradores - DG Claw</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#2f9e5e">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="icon" href="/icons/icon-192.png">
+<link rel="stylesheet" href="/colaboradores.css">
+<link rel="stylesheet" href="/casca.css">
+<link rel="stylesheet" href="/menu-lado.css">
+<link rel="stylesheet" href="/sem-zoom.css">
+<script src="/sem-zoom.js"></script>
+</head>
+<body class="co">
+<main class="co-main">
+  <p class="co-msg erro" id="coMsg" role="alert" hidden></p>
+
+  <section class="co-sec" id="coAgente" aria-label="Colaborador do agente">
+    <h2><span>Colaborador de <span id="coNomeAgente">um agente</span></span><button type="button" class="co-ajuda" data-co="ajuda" data-secao="agente" aria-label="Tutorial desta seção">?</button></h2>
+    <label class="co-campo" for="coSeletor">Agente
+      <select id="coSeletor" data-tour="co-seletor"></select>
+    </label>
+    <div id="coCorpoAgente"><p class="co-fraco">Carregando…</p></div>
+  </section>
+
+  <section class="co-sec co-convite" id="coConvite" aria-label="Convite gerado" hidden>
+    <h2><span>Convite pronto</span><button type="button" class="co-ajuda" data-co="ajuda" data-secao="convite" aria-label="Tutorial do convite">?</button></h2>
+    <p class="co-status" id="coEmailStatus" role="status"></p>
+    <p class="co-aviso">A senha temporária aparece só aqui, agora. Se você sair desta tela sem copiar, use "Mandar convite de novo" para gerar outra.</p>
+    <textarea id="coTexto" readonly rows="9" aria-label="Texto do convite para copiar"></textarea>
+    <div class="co-acoes">
+      <button type="button" class="co-btn co-pri" id="coCopiar">Copiar o texto</button>
+      <button type="button" class="co-btn" id="coFechaConvite">Já copiei, fechar</button>
+    </div>
+    <p class="co-msg" id="coCopiaMsg" role="status" hidden></p>
+  </section>
+
+  <section class="co-sec" id="coLista" aria-label="Todos os colaboradores">
+    <h2><span>Todos os colaboradores</span><button type="button" class="co-ajuda" data-co="ajuda" data-secao="lista" aria-label="Tutorial da lista">?</button></h2>
+    <div id="coCartoes"><p class="co-fraco">Carregando…</p></div>
+  </section>
+</main>
+
+<script src="/tour.js"></script>
+<script src="/menu-lado.js"></script>
+<script src="/atualizacao-faixa.js"></script>
+<script src="/casca.js"></script>
+<script src="/colaboradores.js"></script>
+</body>
+</html>

@@ -91,12 +91,26 @@ console.log('\nO caminho do websockify calculado da URL da página (js/tela.js)'
   const { contaDosCaminhos: conta, passosDoTutorial } = janela.DGTela;
   let c = conta('/');
   ok(c.path === 'tela/websockify' && c.websockify === '/tela/websockify', 'na raiz: path tela/websockify, sem barra no começo');
-  ok(c.novnc === '/tela/novnc/vnc.html?path=tela%2Fwebsockify&autoconnect=1&resize=scale', 'na raiz: a URL do noVNC');
+  ok(c.novnc === '/tela/novnc/vnc.html?path=tela%2Fwebsockify&autoconnect=1&resize=scale&reconnect=1&reconnect_delay=2000', 'na raiz: a URL do noVNC, com reconexão automática');
   c = conta('/p/ana/');
   ok(c.path === 'p/ana/tela/websockify' && c.novnc.startsWith('/p/ana/tela/novnc/vnc.html?path=p%2Fana%2Ftela%2Fwebsockify&'), 'atrás do /p/<agente>/: o prefixo entra no path');
   c = conta('/agente/ana/painel/index.html');
   ok(c.prefixo === '/agente/ana/painel' && c.path === 'agente/ana/painel/tela/websockify', 'com BASE e index.html: o prefixo é o do painel');
   ok(conta('/p/ana').path === 'p/ana/tela/websockify', 'sem barra no fim dá o mesmo caminho');
+
+  // A aba abre no formulário da senha quando ainda não há senha.
+  const { htmlDaAba } = janela.DGTela;
+  const semSenha = htmlDaAba({ ok: true, instalada: true, senha_definida: false, vnc: false, cdp: true, problemas: [{ codigo: 'senha-nao-definida', nivel: 'erro', texto: 'A senha da tela ainda não foi definida.', como_resolver: 'Defina a senha no formulário.' }] });
+  ok(semSenha.primeiro === 'senha', 'sem senha: o formulário vem antes de tudo');
+  ok(/Defina a senha da tela/.test(semSenha.senha) && /tela-primeira-senha/.test(semSenha.senha) && /porque|protegida por uma senha própria/.test(semSenha.senha), 'sem senha: o título é "Defina a senha da tela" e vem a explicação do porquê');
+  ok(semSenha.abrir === '' && !/tela-abrir-btn/.test(semSenha.abrir), 'sem senha: não há botão "Abrir a tela" que levaria a uma conexão que falha');
+  ok(/A senha da tela ainda não foi definida\./.test(semSenha.status) && /Defina a senha no formulário\./.test(semSenha.status), 'sem senha: a situação mostra o problema e o que fazer');
+  const comSenha = htmlDaAba({ ok: true, instalada: true, senha_definida: true, vnc: true, cdp: true, problemas: [] });
+  ok(comSenha.primeiro === 'status' && /tela-abrir-btn/.test(comSenha.abrir) && /Trocar a senha da tela/.test(comSenha.senha) && !/tela-primeira-senha/.test(comSenha.senha), 'com senha: ordem de sempre, botão para abrir e "Trocar a senha da tela"');
+  const semTela = htmlDaAba({ ok: true, instalada: false, senha_definida: false, vnc: false, cdp: false, problemas: [{ codigo: 'sem-navegador', nivel: 'erro', texto: 'Este agente foi criado com uma imagem sem a Tela.', como_resolver: 'Peça ao Admin.' }] });
+  ok(/imagem sem a Tela/.test(semTela.status) && /Peça ao Admin\./.test(semTela.status), 'imagem sem a Tela: o problema aparece em linguagem de dono');
+  const fonteTela = fonte;
+  ok(/reconnect=1&reconnect_delay=2000/.test(fonteTela), 'o iframe reconecta sozinho depois que o x11vnc reinicia');
 
   const passos = passosDoTutorial();
   ok(passos.length >= 4 && passos[0].alvo === null && passos.every((p) => p.titulo && p.corpo && p.porque), 'o tutorial: todo passo responde o que é, como funciona e por que está aqui');
@@ -137,6 +151,7 @@ const cdpFalso = http.createServer((req, res) => {
 });
 await new Promise((r) => cdpFalso.listen(0, '127.0.0.1', r));
 const PORTA_CDP = cdpFalso.address().port;
+const PORTA_VNC_FECHADA = await (async () => { const s = net.createServer().listen(0, '127.0.0.1'); await new Promise((r) => s.once('listening', r)); const pt = s.address().port; await new Promise((r) => s.close(r)); return pt; })();
 
 async function subir(env, nome) {
   const pasta = path.join(RAIZ, nome);
@@ -157,6 +172,7 @@ async function subir(env, nome) {
       DGCLAW_PANEL_CONFIG: cfg, DGCLAW_PANEL_PORT: String(p), DGCLAW_PANEL_HOST: '127.0.0.1',
       DGCLAW_TELA_NOVNC: `127.0.0.1:${PORTA_FALSA}`, DGCLAW_TELA_CDP: `127.0.0.1:${PORTA_CDP}`,
       DGCLAW_TELA_SENHA_ARQUIVO: path.join(pasta, 'tela', 'vnc.senha'), DGCLAW_TELA_URL_EXTERNA: '',
+      DGCLAW_TELA_VNC: `127.0.0.1:${PORTA_VNC_FECHADA}`, DGCLAW_TELA_UNIDADE: path.join(pasta, 'unidade-vnc'), DGCLAW_TELA_CHROME: path.join(pasta, 'chrome'),
       ...env,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -223,6 +239,15 @@ try {
   ok(r.status === 200 && corpo.ok === true && corpo.instalada === true && corpo.cdp === true, 'websockify e CDP falsos: instalada e cdp verdadeiros');
   ok(corpo.senha_definida === false && corpo.url_externa === null && corpo.caminho_websockify === '/tela/websockify', 'sem rfbauth: senha_definida falso; sem URL externa; caminho do websockify');
 
+  console.log('\nO diagnóstico em GET /api/tela (problemas)');
+  ok(Array.isArray(corpo.problemas) && corpo.problemas.every((x) => x.codigo && x.texto && x.como_resolver), 'problemas: lista de { codigo, texto, como_resolver }');
+  ok(corpo.problemas.some((x) => x.codigo === 'senha-nao-definida' && /formulário/.test(x.como_resolver)), 'sem senha: o problema senha-nao-definida diz onde definir');
+  ok(corpo.problemas.some((x) => x.codigo === 'navegador-alternativo' && x.nivel === 'aviso') && corpo.navegador === 'chromium', 'sem o Google Chrome: aviso do navegador alternativo (Chromium)');
+  fs.writeFileSync(path.join(p.pasta, 'chrome'), '');
+  corpo = await (await fetch(`${p.url}/api/tela`, { headers: { cookie } })).json();
+  ok(!corpo.problemas.some((x) => x.codigo === 'navegador-alternativo') && corpo.navegador === 'google-chrome', 'com o Google Chrome presente: sem aviso, navegador google-chrome');
+  ok(!corpo.problemas.some((x) => x.codigo === 'vnc-parado'), 'sem senha, o VNC parado não vira problema (a causa é a senha)');
+
   console.log('\nPUT /api/tela/senha');
   const put = (senha, extra) => fetch(`${p.url}/api/tela/senha`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json', ...extra }, body: JSON.stringify({ senha }),
@@ -242,6 +267,15 @@ try {
   ok(!p.saida.includes('abc123'), 'a senha não está no log do painel');
   r = await fetch(`${p.url}/api/tela`, { headers: { cookie } });
   ok((await r.json()).senha_definida === true, 'o status passa a dizer senha_definida');
+  {
+    const c2 = await (await fetch(`${p.url}/api/tela`, { headers: { cookie } })).json();
+    ok(c2.vnc === false && c2.problemas.some((x) => x.codigo === 'vnc-parado') && !c2.problemas.some((x) => x.codigo === 'senha-nao-definida'), 'com senha e o x11vnc parado: problema vnc-parado, e a senha deixa de ser problema');
+    const vncFalso = net.createServer((s) => s.destroy()).listen(PORTA_VNC_FECHADA, '127.0.0.1');
+    await new Promise((res) => vncFalso.once('listening', res));
+    const c3 = await (await fetch(`${p.url}/api/tela`, { headers: { cookie } })).json();
+    vncFalso.close();
+    ok(c3.vnc === true && c3.problemas.length === 0, 'com o x11vnc respondendo: nenhum problema');
+  }
 
   const chaves = buildChavesApi({ agentDir: p.pasta, creatorName: 'Dono de Teste' });
   const chave = chaves.criar({ nome: 'Teste da tela', quem: 'teste' }).token;
@@ -337,6 +371,21 @@ try {
   ok(h.status === 502 && /ainda não tem tela/.test(await h.text()), 'arquivo do noVNC sem tela: 502 com motivo');
 } finally {
   sem.fechar();
+}
+
+console.log('\nDiagnóstico: imagem sem a Tela, websockify e CDP parados');
+{
+  const fechado = async () => `127.0.0.1:${await livre()}`;
+  const d1 = await subir({ DGCLAW_TELA_NOVNC: await fechado(), DGCLAW_TELA_CDP: await fechado() }, 'diag-sem-navegador');
+  try {
+    const ck = await entrar(d1);
+    const c = await (await fetch(`${d1.url}/api/tela`, { headers: { cookie: ck } })).json();
+    ok(c.problemas.length === 1 && c.problemas[0].codigo === 'sem-navegador' && /Admin/.test(c.problemas[0].como_resolver), 'sem as unidades da Tela: um único problema, sem-navegador, com o que fazer');
+    fs.writeFileSync(path.join(d1.pasta, 'unidade-vnc'), '');
+    const c2 = await (await fetch(`${d1.url}/api/tela`, { headers: { cookie: ck } })).json();
+    const cods = c2.problemas.map((x) => x.codigo);
+    ok(cods.includes('websockify-parado') && cods.includes('cdp-parado') && cods.includes('senha-nao-definida') && !cods.includes('sem-navegador'), 'com as unidades e nada respondendo: websockify-parado, cdp-parado e senha-nao-definida');
+  } finally { d1.fechar(); }
 }
 
 falso.close(); cdpFalso.close();

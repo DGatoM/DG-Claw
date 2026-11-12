@@ -53,7 +53,9 @@ comprometido ainda consegue mandar dados para a internet (ver "Pendências").
   por 30 minutos, com o código no fragmento da URL (não vai para o log do Caddy). Em disco fica só o hash
   do código (`primeiro-acesso.json`, modo 600). Cadastrar a senha pelo link consome o código.
 - A sessão é assinada pelo servidor e vence em 30 dias. Trocar a senha invalida todas as
-  sessões abertas.
+  sessões abertas. Cada sessão guarda uma
+  marca da senha e do usuário de quando nasceu (um sha256, nunca o hash da senha); se a senha ou o
+  usuário mudam, as sessões com a marca antiga deixam de valer no próximo pedido ou no restart.
 - Depois de 10 senhas erradas em 15 minutos, o painel responde "Muitas tentativas erradas.
   Espere N minutos." e nem a senha certa entra até a janela passar.
 - Contra CSRF, toda requisição que muda alguma coisa confere `Origin` e `Sec-Fetch-Site`.

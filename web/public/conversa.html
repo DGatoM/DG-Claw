@@ -34,7 +34,9 @@ if (navigator.standalone === true ||
 <link rel="stylesheet" href="/lembretes.css">
 <link rel="stylesheet" href="/foco-tela.css">
 <link rel="stylesheet" href="/sem-zoom.css">
+<link rel="stylesheet" href="/papel.css">
 <script src="/sem-zoom.js"></script>
+<script src="/papel.js"></script>
 </head>
 <body>
 
@@ -57,6 +59,7 @@ if (navigator.standalone === true ||
     <div class="tools" id="tools" role="toolbar" aria-label="Ferramentas da conversa">
       <a id="btnMesa" class="btn" href="/mesa" data-tour="btn-mesa" title="Abrir a Mesa de tarefas" aria-label="Abrir a Mesa de tarefas">📋 <span class="lbl">Mesa</span></a>
       <a id="btnSessoes" class="btn" href="#" hidden data-tour="btn-sessoes" title="Sessões de trabalho deste agente" aria-label="Abrir as Sessões deste agente">🖥 <span class="lbl">Sessões</span></a>
+      <a id="btnAnon" class="btn" href="/anonimizar" hidden data-tour="btn-anon" title="Documentos anonimizados: abrir a tela de Anonimizar" aria-label="Documentos anonimizados">🕶 <span class="lbl">Documentos anonimizados</span></a>
       <a id="btnLembretes" class="btn" href="/lembretes" data-tour="btn-lembretes" title="Abrir os lembretes" aria-label="Abrir os lembretes">⏰ <span class="lbl">Lembretes</span></a>
       <button id="btnNaoLida" class="btn" type="button" data-tour="btn-nao-lida" title="Marcar esta conversa como não lida e voltar à lista de agentes" aria-label="Marcar esta conversa como não lida">✉ <span class="lbl">não lida</span></button>
       <button id="btnLer" class="btn" title="Ler as respostas em voz alta" data-tour="ler">🔊 <span class="lbl">ler</span></button>
@@ -110,7 +113,7 @@ if (navigator.standalone === true ||
     <h2 id="mlTit"></h2>
     <p id="mlIntro"></p>
     <div id="mlCartoes" class="ml-cartoes"></div>
-    <div class="ml-acoes"><button type="button" id="mlDepois" class="ml-link"></button></div>
+    <div class="ml-acoes"><button type="button" id="mlDepois" class="ml-link"></button><button type="button" id="mlNunca" class="ml-link"></button></div>
   </div>
   <div id="mlFim" hidden>
     <h2 id="mlTitFim"></h2>

@@ -55,9 +55,11 @@ podman build --ignorefile container/ignore --build-arg COM_NAVEGADOR=1 \
   -t localhost/dgclaw-agente:<versao>-navegador -f container/Containerfile .
 ```
 
-O Google Chrome só tem pacote para amd64; em outra arquitetura o build com `COM_NAVEGADOR=1` para
-com uma mensagem dizendo isso. No fim do build, o perfil confere que `google-chrome-stable`,
-`x11vnc`, `websockify` e `Xvfb` estão no PATH; se faltar um, a imagem não sai.
+O Google Chrome só tem pacote para amd64. Em outra arquitetura o build com `COM_NAVEGADOR=1` **não
+aborta**: instala a Tela e usa o Chromium do Playwright, com janela, no lugar do Chrome (o lançador
+`dgclaw-tela-navegador` escolhe). No fim do build, o perfil confere que `x11vnc`, `websockify` e `Xvfb`
+estão no PATH e que há um navegador (`google-chrome-stable` em amd64, o Chromium do Playwright nas outras
+arquiteturas); se faltar um, a imagem não sai.
 
 **Como ligar numa instalação existente.** O `install.sh` constrói com `COM_NAVEGADOR=1`, então a
 imagem nova já traz a Tela. Um agente criado antes ganha a Tela com `dgclaw agente recriar <slug>` e

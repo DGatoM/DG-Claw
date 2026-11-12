@@ -1,0 +1,12 @@
+#formato: docx
+ATA DA REUNIÃO ORDINÁRIA DO CONDOMÍNIO
+
+Aos [[DATA:20 de outubro de 2026]], às 19h, no salão de festas do [[EMPRESA:Condomínio Solar das Palmeiras]], situado na [[ENDERECO:Rua das Palmeiras, 1000, Bairro Aldeota, Fortaleza/CE]], reuniram-se os condôminos.
+
+Presidiu a reunião o síndico, [[PESSOA:Antônio Carlos Pimentel]]. Secretariou a Sra. [[PESSOA:Neuza Barroso]]. Estiveram presentes ainda [[PESSOA:Rosana]], do [[ENDERECO:apartamento 21]], e o Seu [[PESSOA:Raimundo]], zelador.
+
+PAUTA: 1) prestação de contas, que somou [[VALOR:R$ 48.230,75]]; 2) troca do elevador da empresa [[EMPRESA:Elevadores Norte-Sul Ltda]], CNPJ [[CNPJ:${CNPJ_ALFA_B}]], pelo valor de [[VALOR:R$ 120 mil]]; 3) assuntos gerais.
+
+Foi aprovado por maioria. O síndico informou que o contato com a administradora é o [[EMAIL:sindico@solarpalmeiras.com.br]].
+
+A próxima reunião será no [[!:primeiro sábado de dezembro]]. Nada mais havendo, encerrou-se a ata.

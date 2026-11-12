@@ -3,6 +3,7 @@
 // DG Claw Web: login, conversa com os agentes, proxy dos painéis. Node 22, sem dependências.
 
 const fs = require('node:fs');
+const crypto = require('node:crypto');
 const path = require('node:path');
 const http = require('node:http');
 
@@ -18,7 +19,10 @@ const { criarLeitor, paraContainer } = require('./lib/thread');
 const { criarLeitorRollout } = require('./lib/rollout');
 const { criarConversa, RX_CLIENTE_ID } = require('./lib/conversa');
 const { criarComandos } = require('./lib/comandos');
-const { lerMultipart, nomeSeguro, gravaSemSobrescrever } = require('./lib/uploads');
+const { lerMultipart, nomeSeguro, nomeNeutro } = require('./lib/uploads');
+const { gravaAnexo: gravaAnexoReal } = require('./lib/grava-anexo');
+const { instanciaDe } = require('./lib/instancia');
+const { entregar: entregarSeguro, ErroEntrega } = require('./lib/entrega-segura');
 const { abrirStream } = require('./lib/sse');
 const { criarProxy } = require('./lib/proxy');
 const { criarCofreAgente } = require('./lib/cofre-agente');
@@ -27,6 +31,8 @@ const { criarAlertas } = require('./lib/alertas');
 const { criarFoco } = require('./lib/foco');
 const { criarVoz } = require('./lib/voz');
 const { criarSigilo } = require('./lib/sigilo');
+const { criarAnonimizar } = require('./lib/anonimizar');
+const { criarRotasAnonimizar } = require('./lib/anonimizar-rotas');
 const { criarOnboarding } = require('./lib/onboarding');
 const { criarLogin } = require('./lib/login');
 const { criarPrimeiroAcesso } = require('./lib/primeiro-acesso');
@@ -35,14 +41,20 @@ const { criarPush } = require('./lib/push');
 const { criarLembretes } = require('./lib/lembretes');
 const { criarEstados } = require('./lib/estados');
 const { criarPrefsAtencao } = require('./lib/prefs-atencao');
+const { criarModalLoginPrefs } = require('./lib/modal-login-prefs');
 const { criarVigiaAtencao } = require('./lib/vigia-atencao');
 const { criarMesa } = require('./lib/mesa');
+const { criarManual } = require('./lib/manual');
 const { criarAvisos } = require('./lib/avisos');
 const { criarAtualizacao } = require('./lib/atualizacao');
 const { criarSeguranca } = require('./lib/seguranca');
 const { criarRondaPainel } = require('./lib/ronda-painel');
 const { criarNaoLidas } = require('./lib/nao-lidas');
 const { criarUso } = require('./lib/uso');
+const { criarColaboradores } = require('./lib/colaboradores');
+const { criarColaboradoresRotas } = require('./lib/colaboradores-rotas');
+const { criarEmail } = require('./lib/email');
+const escopo = require('./lib/escopo');
 
 const METODOS_QUE_ESCREVEM = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const TIPOS_ESTATICOS = {
@@ -68,6 +80,44 @@ function proximoSeguro(v) {
   return s;
 }
 
+/**
+ * Passa TODA resposta dinâmica de `res` pelo `filtro` (texto a texto) antes de sair: JSON e qualquer text/*.
+ * `estatica` (documentação, por nome exato de rota) segue como está. Tipo de conteúdo que não sei filtrar,
+ * com corpo, vira 503: para agente com a anonimização ligada, na dúvida não se entrega.
+ */
+function filtraRespostaDaCaixa(res, filtro, log, estatica) {
+  if (estatica) return;
+  const writeHead = res.writeHead.bind(res); const end = res.end.bind(res);
+  let status = null; let cabecalhos = {}; const pedacos = [];
+  res.writeHead = (s, h) => { status = s; cabecalhos = Object.assign({}, h && typeof h === 'object' ? h : {}); return res; };
+  res.write = (c) => { pedacos.push(Buffer.from(c)); return true; };
+  res.end = (c) => {
+    if (c) pedacos.push(Buffer.from(c));
+    let corpo = Buffer.concat(pedacos);
+    const tipo = String(Object.entries(cabecalhos).find(([k]) => k.toLowerCase() === 'content-type')?.[1] || res.getHeader('content-type') || '');
+    let codigo = status || res.statusCode;
+    let recusa = null;
+    if (corpo.length) {
+      try {
+        if (/json/i.test(tipo)) corpo = Buffer.from(JSON.stringify(filtro(JSON.parse(corpo.toString('utf8')))), 'utf8');
+        else if (/^\s*text\//i.test(tipo)) corpo = Buffer.from(filtro(corpo.toString('utf8')), 'utf8');
+        else recusa = `tipo de conteúdo "${tipo || 'desconhecido'}" que não sei filtrar`;
+      } catch (e) { recusa = e.message; }
+    }
+    if (recusa) {
+      log('erro', `Anonimizar: não consegui filtrar a resposta da caixa (${recusa}). Respondi 503.`);
+      codigo = 503;
+      corpo = Buffer.from(JSON.stringify({ ok: false, erro: 'Não consegui trocar os dados pessoais da resposta, então ela não foi entregue. Tente de novo; se repetir, peça ao dono para conferir a tela Anonimizar.' }), 'utf8');
+      cabecalhos = {};
+      cabecalhos['Content-Type'] = 'application/json; charset=utf-8';
+    }
+    for (const k of Object.keys(cabecalhos)) if (k.toLowerCase() === 'content-length') delete cabecalhos[k];
+    cabecalhos['Content-Length'] = corpo.length;
+    writeHead(codigo, cabecalhos);
+    return end(corpo);
+  };
+}
+
 function criarServidor(opcoes) {
   opcoes = opcoes || {};
   const log = opcoes.log || H.logPadrao;
@@ -83,6 +133,14 @@ function criarServidor(opcoes) {
   const registro = criarRegistro({ caminho: config.agentesPath, log });
   const runner = criarRunner({ log, timeoutMs: opcoes.timeoutRunnerMs });
   const auth = criarAuth({ config, log, agora: opcoes.agora });
+  const colaboradores = criarColaboradores({ config, log, agora: opcoes.agora, gerarHash: (senha) => auth.gerarHash(senha) });
+  auth.ligarColaboradores(colaboradores);
+  auth.ligarInstancias((slug) => instanciaDe(registro.obter(slug)));
+  log('info', config.smtp.host ? `E-mail dos convites de colaborador: ligado (${config.smtp.host}:${config.smtp.porta}).` : 'E-mail dos convites de colaborador: desligado (opcional; o convite sai pelo texto da tela). Para ligar, defina DGCLAW_SMTP_HOST e as outras DGCLAW_SMTP_* no web.env.');
+  // Conexões abertas (stream da conversa) de cada colaborador: ao revogar ou trocar a senha, fecham junto com a sessão.
+  const streamsDoColaborador = new Map();
+  const fechaStreamsDe = (id) => { for (const r of streamsDoColaborador.get(id) || []) r.destroy(); streamsDoColaborador.delete(id); proxy.fecharDoColaborador(id); };
+  const colabRotas = criarColaboradoresRotas({ colaboradores, auth, registro, email: opcoes.email || criarEmail({ config, log }), config, log, agora: opcoes.agora, aoDerrubar: fechaStreamsDe });
   const primeiroAcesso = criarPrimeiroAcesso({ config, auth, log, agora: opcoes.agora });
   const avatares = criarAvatar({ dataDir: config.dataDir, log });
   const midia = criarMidia({ dataDir: config.dataDir, log, registro, publicDir: config.publicDir });
@@ -97,17 +155,23 @@ function criarServidor(opcoes) {
   const cofreAgente = criarCofreAgente({ config, log, reiniciar: opcoes.reiniciarCofre });
   const voz = opcoes.voz || criarVoz({ env: config.env, log });
   const sigilo = opcoes.sigilo || criarSigilo({ env: config.env, registro, dataDir: config.dataDir, log, timeoutMs: opcoes.timeoutSigiloMs });
+  const anonimizar = opcoes.anonimizar || criarAnonimizar({
+    env: config.env, dataDir: config.dataDir, registro, log, paraContainer,
+    motor: opcoes.anonMotor, systemctl: opcoes.anonSystemctl, ociosoMs: opcoes.anonOciosoMs,
+  });
   const cofreRotas = criarCofreRotas({ config, runner, cofre: cofreAgente, voz, log, entregar: (...a) => conversa.entregar(...a), esperaAvisoMs: opcoes.esperaAvisoMs });
   const proxy = criarProxy({ config, registro, log, cofreRotas });
-  const caixa = criarCaixaAgente({ config, registro, log, porta: () => servidor.address().port, agora: opcoes.agora });
+  const caixa = criarCaixaAgente({ config, registro, log, porta: () => servidor.address().port, agora: opcoes.agora, filtroRetrato: (slug, o) => { const f = anonimizar.filtroSaida(slug); return f ? f(o) : o; } });
   const push = criarPush({ dataDir: config.dataDir, log, agora: opcoes.agora, enviarHttp: opcoes.enviarPush });
   try { push.garantirChaves(); } catch (e) { log('erro', e.message); }
-  const lembretes = criarLembretes({ config, registro, runner, push, log, agora: opcoes.agora });
+  // Texto livre que vai ao agente por outros caminhos (lembrete, mesa, aviso) passa pelo mesmo filtro do /send; lança se a config estiver ilegível.
+  const filtroAnon = (slug, t) => (typeof t === 'string' && t && anonimizar.aplicaDigitado(slug) ? anonimizar.trocarDigitado(slug, t).texto : t);
+  const lembretes = criarLembretes({ config, registro, runner, push, log, agora: opcoes.agora, filtro: filtroAnon });
   caixa.permitir('/api/v1/lembretes');
   // Modo foco: o agente chega pela caixa (dgclaw-api), o retrato vai para a casa dele e o PUT do agente avisa o celular.
   const foco = criarFoco({ dir: path.join(config.dataDir, 'foco'), tz: config.tz, log, registro, gravaRetrato: opcoes.gravaRetrato || caixa.gravaRetrato, push: opcoes.push || push, quemChamou: opcoes.quemChamou || quemChamou });
   caixa.permitir('/api/v1/foco');
-  const mesa = criarMesa({ arquivo: path.join(config.dataDir, 'mesa', 'tarefas.json'), registro, runner, log, agora: opcoes.agora, tz: config.tz, avisarDono: (aviso) => push.enviar(aviso) });
+  const mesa = criarMesa({ arquivo: path.join(config.dataDir, 'mesa', 'tarefas.json'), registro, runner, log, agora: opcoes.agora, tz: config.tz, avisarDono: (aviso) => push.enviar(aviso), filtro: filtroAnon });
   // O agente fala com a Mesa pelo dgclaw-mesa, que passa pela caixa: a rota precisa estar liberada.
   caixa.permitir('/api/v1/tarefas');
   const naoLidas = criarNaoLidas({ arquivo: path.join(config.dataDir, 'nao-lidas.json'), conversa, registro, log, relogio: opcoes.agora, lerThread: conversa.threadCompartilhada });
@@ -115,13 +179,19 @@ function criarServidor(opcoes) {
   // O agente consulta o uso da PRÓPRIA assinatura pela caixa (dgclaw-api GET /api/v1/uso); a rota
   // filtra pelo slug da caixa, então ele nunca vê os outros. O Admin, no host, usa a API normal.
   caixa.permitir('/api/v1/uso');
-  const avisos = criarAvisos({ config, registro, runner, caixa, log, agora: opcoes.agora });
+  const avisos = criarAvisos({ config, registro, runner, caixa, log, agora: opcoes.agora, filtro: filtroAnon });
   caixa.permitir('/api/v1/avisos');
   // Só o caminho exato da documentação do cofre (os templates mandam o agente ler); o cofre em si não é rota da caixa.
   caixa.permitir('/api/v1/cofre/docs.md');
+  // A doc do Anonimizar é pública; as rotas dele NÃO entram aqui (agente não as chama).
+  caixa.permitir('/api/v1/anonimizar/docs.md');
+  // O manual (docs/manual) é só leitura: o agente consulta pelo dgclaw-api antes de dizer que algo não existe.
+  const manual = criarManual({ dir: opcoes.manualDir || path.join(__dirname, '..', 'docs', 'manual'), log });
+  caixa.permitir('/api/v1/manual');
   // Aviso de versão nova: só o dono, pelo painel. De propósito NÃO entra em caixa.permitir (agente em container não usa).
   const estados = criarEstados({ conversa, naoLidas, registro, log });
   const prefsAtencao = criarPrefsAtencao({ arquivo: path.join(config.dataDir, 'push', 'preferencias.json'), log });
+  const modalLoginPrefs = criarModalLoginPrefs({ arquivo: path.join(config.dataDir, 'modal-login.json'), log });
   const vigiaAtencao = criarVigiaAtencao({ registro, estados, lerThread: conversa.threadCompartilhada, push: opcoes.push || push, prefs: prefsAtencao, relogio: opcoes.agora, log, intervaloMs: opcoes.vigiaIntervaloMs });
   // /api/v1/estados NÃO entra na caixa: ela só atende agentes de trabalho, e um agente não tem por que
   // enxergar o estado (nem o nome) dos vizinhos. O Admin, no host, lê os documentos e a tela.
@@ -201,7 +271,22 @@ function criarServidor(opcoes) {
     return norm === H.origemPropria(req, config.proxiesConfiaveis) || config.origensExtras.has(norm);
   }
 
+  // Só o dono, pela tela. Fora de caixa.permitir de propósito: agente em container não chama estas rotas.
+  const rotasAnonimizar = criarRotasAnonimizar({ anon: anonimizar, registro, midia, log, origemOk });
+
   const querHtml = (req) => /\btext\/html\b/.test(String(req.headers.accept || ''));
+
+  /** Texto de uma página do manual (nome 'README' = índice). Só leitura; erro com motivo em português. */
+  function servirManual(req, res, m, nome) {
+    let texto;
+    try { texto = manual.ler(nome); } catch (e) {
+      if (e.status) return H.erroJson(res, e.status, e.message);
+      log('erro', `Manual: falha ao ler a página ${String(nome).slice(0, 60)}: ${e.message}`);
+      return H.erroJson(res, 500, `Não consegui ler a página do manual (${e.message}). O detalhe está no log do servidor.`);
+    }
+    res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+    return res.end(m === 'HEAD' ? undefined : texto);
+  }
 
   function semSessaoPagina(req, res, url) {
     res.writeHead(302, { Location: `/login?next=${encodeURIComponent(url.pathname + url.search)}`, 'Cache-Control': 'no-store' });
@@ -225,6 +310,27 @@ function criarServidor(opcoes) {
     if (est.ok) return false;
     if (api) H.erroJson(res, 503, est.erro); else H.paginaErro(res, 503, 'Lista de agentes indisponível', est.erro);
     return true;
+  }
+
+  /** Para onde a pessoa vai depois de entrar. Colaborador: troca de senha pendente, senão o agente dele (ignora `next` fora do escopo). */
+  function destinoDaSessao(sessao, next) {
+    if (!sessao || sessao.papel !== 'colaborador') return next;
+    if (sessao.trocar_senha) return '/trocar-senha';
+    const padrao = `/a/${encodeURIComponent(sessao.agente)}`;
+    let alvo;
+    try { alvo = new URL(next || '/', 'http://local').pathname; } catch (_) { return padrao; }
+    return alvo !== '/' && escopo.avaliar(sessao, 'GET', alvo).ok ? next : padrao;
+  }
+
+  function negarEscopo(req, res, sessao, v, p) {
+    if (v.redirecionar && (req.method === 'GET' || req.method === 'HEAD')) {
+      res.writeHead(302, { Location: v.redirecionar, 'Cache-Control': 'no-store' });
+      return res.end();
+    }
+    const status = v.status === 302 ? 403 : v.status;
+    log('aviso', `Colaborador ${sessao.usuario} (agente ${sessao.agente}) barrado em ${req.method} ${p.slice(0, 120)}: ${v.motivo}`);
+    if (p.startsWith('/api/') || !querHtml(req)) return H.erroJson(res, status, v.motivo, v.extra);
+    return H.paginaErro(res, status, 'Acesso não liberado', v.motivo);
   }
 
   // ── login ────────────────────────────────────────────────────────────────
@@ -258,11 +364,18 @@ function criarServidor(opcoes) {
     }
     const r = await auth.verificaSenha(usuarioDigitado, String(campos.senha), ip);
     if (r.ok) {
-      const s = auth.criaSessao(r.usuario, req);
-      log('info', `Login de ${r.usuario} (ip ${ip}).`);
-      const cab = { 'Set-Cookie': s.cookie, 'Cache-Control': 'no-store' };
-      if (json) return H.enviaJson(res, 200, { ok: true, destino: next }, cab);
-      res.writeHead(303, Object.assign({ Location: next }, cab));
+      let s;
+      try { s = auth.criaSessao(r.usuario, req, r.colaborador); } catch (e) {
+        log('aviso', `Login de ${r.usuario} (ip ${ip}) não emitiu sessão: ${e.message}`);
+        return json ? H.erroJson(res, e.status || 500, e.message) : voltaAoLogin(res, 'credenciais', next, usuarioDigitado);
+      }
+      log('info', `Login de ${r.usuario}${r.colaborador ? ` (colaborador do agente ${r.colaborador.agente})` : ''} (ip ${ip}).`);
+      const cab = { 'Set-Cookie': s.cookies, 'Cache-Control': 'no-store' };
+      const destino = r.colaborador
+        ? destinoDaSessao({ papel: 'colaborador', agente: r.colaborador.agente, trocar_senha: !!(colaboradores.obter(r.colaborador.id) || {}).trocar_senha }, next)
+        : next;
+      if (json) return H.enviaJson(res, 200, { ok: true, destino }, cab);
+      res.writeHead(303, Object.assign({ Location: destino }, cab));
       return res.end();
     }
     if (r.limite) {
@@ -274,6 +387,10 @@ function criarServidor(opcoes) {
     if (r.trancado) {
       log('aviso', `Tentativa de login com o acesso trancado (ip ${ip}).`);
       return json ? H.erroJson(res, 403, r.erro, { trancado: true }) : voltaAoLogin(res, 'bloqueado', next);
+    }
+    if (r.vencida) {
+      log('aviso', `Login recusado (ip ${ip}): a senha temporária de um colaborador venceu.`);
+      return json ? H.erroJson(res, 401, r.erro) : voltaAoLogin(res, 'vencida', next, usuarioDigitado);
     }
     log('aviso', `Login recusado (ip ${ip}): usuário ou senha incorretos.`);
     if (json) return H.erroJson(res, 401, r.erro);
@@ -340,6 +457,8 @@ function criarServidor(opcoes) {
 
     if (await foco.tratarRota(req, res, url, sessao)) return undefined;
 
+    if ((p === '/api/v1/anonimizar' || p.startsWith('/api/v1/anonimizar/')) && await rotasAnonimizar.rotas(req, res, url, sessao)) return undefined;
+
     if ((p === '/api/v1/lembretes' || p.startsWith('/api/v1/lembretes/')) && await lembretes.rotas(req, res, url, sessao)) return undefined;
 
     if ((p === '/api/v1/atualizacao' || p.startsWith('/api/v1/atualizacao/')) && await atualizacao.rotas(req, res, url, sessao)) return undefined;
@@ -378,18 +497,32 @@ function criarServidor(opcoes) {
       } catch (e) { return H.erroJson(res, e.status || 500, e.status ? e.message : 'Não consegui guardar que o cartão foi dispensado. Peça ao Admin para conferir o espaço e as permissões do servidor.'); }
     }
 
-    if (p === '/api/v1/eu' && m === 'GET') return H.enviaJson(res, 200, { ok: true, usuario: sessao.usuario });
+    if (p === '/api/v1/colaboradores' || p.startsWith('/api/v1/colaboradores/')) {
+      if (await colabRotas.tratar(req, res, url, sessao)) return undefined;
+    }
+
+    if (p === '/api/v1/eu' && m === 'GET') return colabRotas.eu(res, sessao);
+    if (p === '/api/v1/eu/senha') {
+      if (m !== 'POST') return H.erroJson(res, 405, 'Use POST com {"nova": "...", "confirmacao": "...", "atual": "..."}.');
+      return colabRotas.trocarSenha(req, res, sessao);
+    }
 
     if (p === '/api/v1/agents' && m === 'GET') {
       if (falhaDoRegistro(req, res, true)) return undefined;
-      const lista = await Promise.all(registro.estado().agentes.map(async (a) => Object.assign(await agentePublico(a), { ultima_ts: await conversa.ultimaMensagemTs(a) })));
+      // Colaborador enxerga só o agente dele (o escopo já deixou passar a rota; o filtro é aqui, no handler).
+      const visiveis = registro.estado().agentes.filter((a) => sessao.papel !== 'colaborador' || a.slug === sessao.agente);
+      const lista = await Promise.all(visiveis.map(async (a) => Object.assign(await agentePublico(a), { ultima_ts: await conversa.ultimaMensagemTs(a) })));
       return H.enviaJson(res, 200, { ok: true, agentes: lista, voz: lista.some((a) => a.voz), microfone: voz.microfone, limite_upload_bytes: config.maxUploadBytes, usuario: sessao.usuario });
     }
 
     if (p === '/api/v1/nao-lidas') {
       if (falhaDoRegistro(req, res, true)) return undefined;
       if (m !== 'GET') return H.erroJson(res, 405, 'Use GET para ver quantas mensagens não lidas cada agente tem.');
-      try { return H.enviaJson(res, 200, { ok: true, agentes: await naoLidas.contar(sessao.usuario) }); } catch (e) {
+      try {
+        let contagem = await naoLidas.contar(sessao.usuario);
+        if (sessao.papel === 'colaborador') contagem = Object.fromEntries(Object.entries(contagem).filter(([slug]) => slug === sessao.agente));
+        return H.enviaJson(res, 200, { ok: true, agentes: contagem });
+      } catch (e) {
         return H.erroJson(res, e.status || 500, e.status ? e.message : `Não consegui contar as mensagens não lidas (${e.message}).`);
       }
     }
@@ -419,6 +552,19 @@ function criarServidor(opcoes) {
         return H.erroJson(res, e.status || 500, e.status ? e.message : `Não consegui montar o estado dos agentes (${e.message}).`);
       }
     }
+    if (p === '/api/v1/modal-login/preferencia') {
+      if (sessao.via === 'caixa') return H.erroJson(res, 403, 'A escolha sobre o aviso de login dos agentes é só do dono, pelo painel.');
+      if (m === 'GET') {
+        try { return H.enviaJson(res, 200, { ok: true, ...modalLoginPrefs.de(sessao.usuario) }); } catch (e) { return H.erroJson(res, e.status || 500, e.message); }
+      }
+      if (m !== 'POST') return H.erroJson(res, 405, 'Use GET para ler e POST com {"vistos": ["id"], "nao_mostrar_mais": true} para guardar.');
+      let corpo;
+      try { corpo = await H.lerJson(req, 4096); } catch (e) { return H.erroJson(res, e.status || 400, e.message); }
+      try { return H.enviaJson(res, 200, { ok: true, ...modalLoginPrefs.grava(sessao.usuario, corpo) }); } catch (e) {
+        return H.erroJson(res, e.status || 500, e.status ? e.message : `Não consegui guardar a escolha (${e.message}).`);
+      }
+    }
+
     if (p === '/api/v1/push/preferencias') {
       if (sessao.via === 'caixa') return H.erroJson(res, 403, 'As preferências de aviso do aparelho são só do dono, pelo painel.');
       if (m === 'GET') {
@@ -437,6 +583,18 @@ function criarServidor(opcoes) {
       return res.end(fs.readFileSync(path.join(__dirname, 'docs', 'MIDIAS-CACHE.md')));
     }
 
+    if (p === '/api/v1/manual' || p.startsWith('/api/v1/manual/')) {
+      if (m !== 'GET' && m !== 'HEAD') return H.erroJson(res, 405, `O manual é só para leitura: use GET em ${p.slice(0, 80)}.`, null, { Allow: 'GET, HEAD' });
+      if (p === '/api/v1/manual') {
+        try { return H.enviaJson(res, 200, Object.assign({ ok: true }, manual.listar())); } catch (e) {
+          return H.erroJson(res, e.status || 500, e.status ? e.message : `Não consegui listar o manual (${e.message}).`);
+        }
+      }
+      const mm = /^\/api\/v1\/manual\/([^/]+)\.md$/.exec(p);
+      if (!mm) return H.erroJson(res, 404, `O endereço ${p.slice(0, 80)} não existe. Use /api/v1/manual (lista) ou /api/v1/manual/<nome>.md (uma página).`);
+      return servirManual(req, res, m, mm[1]);
+    }
+
     if (p === '/api/v1/alertas/docs.md' && m === 'GET') {
       res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store' });
       return res.end(fs.readFileSync(path.join(__dirname, 'docs', 'ALERTAS.md'), 'utf8'));
@@ -450,7 +608,7 @@ function criarServidor(opcoes) {
         const loja = alertas(agente);
         if (!ar[2] && m === 'GET') {
           const t = await conversa.thread(agente);
-          return H.enviaJson(res, 200, { ok: true, alertas: loja.listar(), avisos: t.avisos });
+          return H.enviaJson(res, 200, { ok: true, alertas: loja.listar(), avisos: avisosPara(sessao, t.avisos) });
         }
         if (ar[3] === 'visto' && m === 'POST') {
           if (!loja.reconhecer(ar[2])) return H.erroJson(res, 404, 'Esse alerta não existe nesta conversa. Atualize a página.');
@@ -463,7 +621,7 @@ function criarServidor(opcoes) {
           // Carrega a origem e a sequência até o fim, sem lacuna na rolagem.
           const atuais = t.msgs.filter(x => x.ep >= mensagem.ep);
           if (!atuais.some(x => x.id === mensagem.id)) atuais.unshift(mensagem);
-          return H.enviaJson(res, 200, { ok: true, mensagem, msgs: atuais, mais_antigas: t.msgs.some(x => x.ep < mensagem.ep), avisos: t.avisos });
+          return H.enviaJson(res, 200, { ok: true, mensagem, msgs: atuais, mais_antigas: t.msgs.some(x => x.ep < mensagem.ep), avisos: avisosPara(sessao, t.avisos) });
         }
         return H.erroJson(res, 405, 'Método inválido para este alerta. Use GET para consultar ou POST para reconhecer.');
       } catch (e) {
@@ -554,19 +712,32 @@ function criarServidor(opcoes) {
         }
         catch (e) { log('aviso', `Acervo de ${agente.slug}: ${e.message}`); return H.erroJson(res, 400, e.message); }
       }
-      if (acao === 'messages' && m === 'GET') return mensagens(req, res, url, agente);
-      if (acao === 'stream' && m === 'GET') return stream(req, res, url, agente);
-      if (acao === 'wait' && m === 'GET') return esperar(req, res, url, agente);
-      if (acao === 'send' && m === 'POST') return enviar(req, res, agente);
+      if (acao === 'messages' && m === 'GET') return mensagens(req, res, url, agente, sessao);
+      if (acao === 'stream' && m === 'GET') return stream(req, res, url, agente, sessao);
+      if (acao === 'wait' && m === 'GET') return esperar(req, res, url, agente, sessao);
+      if (acao === 'send' && m === 'POST') return enviar(req, res, agente, sessao);
       if (acao === 'permissao' && m === 'POST') {
         const corpo = await lerEnvio(req, res);
         if (!corpo) return undefined;
+        if (await confirmacaoNegada(res, agente, sessao, corpo.tool_use_id)) return undefined;
+        if (!sessaoAindaVale(req, sessao)) return recusaSessaoVelha(res, sessao);
         const r = await conversa.permissao(agente, corpo.decisao, corpo.tool_use_id);
         return H.enviaJson(res, r.status, r.corpo);
       }
       if (acao === 'pergunta' && m === 'POST') {
         const corpo = await lerEnvio(req, res);
         if (!corpo) return undefined;
+        if (await confirmacaoNegada(res, agente, sessao, corpo.tool_use_id)) return undefined;
+        if (!sessaoAindaVale(req, sessao)) return recusaSessaoVelha(res, sessao);
+        // Resposta em texto livre à pergunta do agente também sai do dono para o agente: mesmo filtro do /send.
+        try {
+          if (Array.isArray(corpo.respostas) && anonimizar.aplicaDigitado(agente.slug)) {
+            for (const r of corpo.respostas) if (r && typeof r.texto === 'string') r.texto = anonimizar.trocarDigitado(agente.slug, r.texto).texto;
+          }
+        } catch (e) {
+          log('erro', `Anonimizar: resposta à pergunta de ${agente.slug} recusada (${e.codigo || e.message}).`);
+          return H.erroJson(res, e.status || 500, e.message, e.codigo ? { codigo: e.codigo } : undefined);
+        }
         const r = await conversa.responderPergunta(agente, corpo);
         return H.enviaJson(res, r.status, r.corpo);
       }
@@ -598,17 +769,18 @@ function criarServidor(opcoes) {
         vigiaAtencao.vendo(agente.slug);
         return H.enviaJson(res, 200, { ok: true });
       }
-      if (acao === 'upload' && m === 'POST') return upload(req, res, agente);
+      if (acao === 'upload' && m === 'POST') return upload(req, res, agente, sessao);
       if (acao === 'comandos' && m === 'GET') return H.enviaJson(res, 200, Object.assign({ ok: true, agente: agente.slug }, await comandos.catalogo(agente)));
-      if (acao === 'comando' && m === 'POST') return comandoPost(req, res, agente);
+      if (acao === 'comando' && m === 'POST') return comandoPost(req, res, agente, sessao);
       return H.erroJson(res, ['messages', 'stream', 'wait', 'send', 'upload', 'permissao', 'pergunta', 'reiniciar', 'lido', 'nao-lido', 'vendo', 'comandos', 'comando', ''].includes(acao) ? 405 : 404, `Não existe ${m} ${p}.`);
     }
 
     mm = /^\/api\/v1\/media\/([0-9a-f]{16})\/visual$/.exec(p);
-    if (mm && (m === 'GET' || m === 'HEAD')) return midia.servirVisual(req, res, mm[1], url.searchParams.get('tema'));
+    const slugDaMidia = sessao.papel === 'colaborador' ? sessao.agente : null;
+    if (mm && (m === 'GET' || m === 'HEAD')) return midia.servirVisual(req, res, mm[1], url.searchParams.get('tema'), slugDaMidia);
 
     mm = /^\/api\/v1\/media\/([0-9a-f]{16})(?:\/(thumb))?$/.exec(p);
-    if (mm && (m === 'GET' || m === 'HEAD')) return midia.servir(req, res, mm[1], mm[2] ? 'thumb' : 'arquivo', url.searchParams.get('baixar') === '1');
+    if (mm && (m === 'GET' || m === 'HEAD')) return midia.servir(req, res, mm[1], mm[2] ? 'thumb' : 'arquivo', url.searchParams.get('baixar') === '1', slugDaMidia);
 
     if (p === '/api/v1/sigilo/docs.md' && m === 'GET') {
       res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store' });
@@ -625,7 +797,7 @@ function criarServidor(opcoes) {
     }
 
     if (p === '/api/v1/transcribe' && m === 'POST') return transcrever(req, res);
-    if (p === '/api/v1/tts' && m === 'POST') return falar(req, res);
+    if (p === '/api/v1/tts' && m === 'POST') return falar(req, res, sessao);
     if (p === '/api/v1/tts/cota' && m === 'GET') {
       const r = await voz.cota();
       if (r.erro) return H.erroJson(res, r.status, r.erro);
@@ -634,7 +806,23 @@ function criarServidor(opcoes) {
     return H.erroJson(res, 404, `Não existe ${m} ${p}. A lista de rotas está no README do Web.`);
   }
 
-  async function mensagens(req, res, url, agente) {
+  // O que só o dono deve ver não vai ao colaborador: diagnóstico técnico do runner (avisos da thread, motivo
+  // de falha) e o detalhe do pedido de permissão ou pergunta de um turno que não é dele.
+  const AVISO_GENERICO = 'Não consegui carregar parte do histórico agora. Se continuar, avise o dono do DG Claw.';
+  const ehColab = (sessao) => !!sessao && sessao.papel === 'colaborador';
+  const avisosPara = (sessao, avisos) => (ehColab(sessao) ? (avisos && avisos.length ? [AVISO_GENERICO] : []) : avisos);
+  async function atividadePara(sessao, agente, ativ) {
+    if (!ehColab(sessao)) return ativ;
+    const copia = Object.assign({}, ativ);
+    vinculaPendencia(agente.slug, sessao, ativ);
+    const id = (ativ.permissao && ativ.permissao.id) || (ativ.pergunta && ativ.pergunta.id) || null;
+    if (!(await pendenciaEhDele(agente, sessao, id))) { delete copia.permissao; delete copia.pergunta; copia.detalhe = null; }
+    // O motivo do runner pode citar link ou código de login: o colaborador só fica sabendo que falta conta.
+    if (copia.motivo) copia.motivo = ['login_expirado', 'sem_login'].includes(copia.alerta) ? 'O agente precisa entrar numa conta, e isso é só do dono do DG Claw. Avise o dono.' : 'O agente está sem sinal agora.';
+    return copia;
+  }
+
+  async function mensagens(req, res, url, agente, sessao) {
     const q = url.searchParams;
     const t = await conversa.thread(agente);
     const todas = t.msgs;
@@ -644,7 +832,7 @@ function criarServidor(opcoes) {
       const limite = numeroOuErro(res, 'limit', q.get('limit'), 80, 1, 500);
       if (limite === undefined) return undefined;
       const mais = todas.filter((x) => x.ep > after);
-      return H.enviaJson(res, 200, { ok: true, msgs: mais.slice(0, limite), avisos: t.avisos, mais_novas: mais.length > limite, limit: limite, after });
+      return H.enviaJson(res, 200, { ok: true, msgs: mais.slice(0, limite), avisos: avisosPara(sessao, t.avisos), mais_novas: mais.length > limite, limit: limite, after });
     }
     const limite = numeroOuErro(res, 'limit', q.get('limit'), 60, 1, 500);
     if (limite === undefined) return undefined;
@@ -652,10 +840,10 @@ function criarServidor(opcoes) {
     if (before === undefined) return undefined;
     const base = before == null ? todas : todas.filter((x) => x.ep < before);
     const msgs = base.slice(Math.max(0, base.length - limite));
-    return H.enviaJson(res, 200, { ok: true, msgs, avisos: t.avisos, mais_antigas: base.length > limite, before, limit: limite });
+    return H.enviaJson(res, 200, { ok: true, msgs, avisos: avisosPara(sessao, t.avisos), mais_antigas: base.length > limite, before, limit: limite });
   }
 
-  async function esperar(req, res, url, agente) {
+  async function esperar(req, res, url, agente, sessao) {
     const q = url.searchParams;
     const since = numeroOuErro(res, 'since', q.get('since'), 0);
     if (since === undefined) return undefined;
@@ -667,18 +855,26 @@ function criarServidor(opcoes) {
     let fechou = false;
     res.on('close', () => { fechou = true; });
     for (;;) {
+      if (!sessaoAindaVale(req, sessao)) return recusaSessaoVelha(res, sessao);
       const t = await conversa.thread(agente);
+      if (!sessaoAindaVale(req, sessao)) return recusaSessaoVelha(res, sessao);
       const novas = t.msgs.filter((x) => x.ep > since);
       const doAgente = novas.some((x) => x.origin === 'agente' && !x.sistema); // aviso de sistema (compactação) não é resposta
       if (doAgente || Date.now() >= fim || fechou) {
         if (fechou) return undefined;
-        return H.enviaJson(res, 200, { ok: true, msgs: novas, timeout: !doAgente, avisos: t.avisos });
+        return H.enviaJson(res, 200, { ok: true, msgs: novas, timeout: !doAgente, avisos: avisosPara(sessao, t.avisos) });
       }
       await new Promise((r) => setTimeout(r, 700));
     }
   }
 
-  function stream(req, res, url, agente) {
+  function stream(req, res, url, agente, sessao) {
+    if (sessao && sessao.papel === 'colaborador') {
+      const abertos = streamsDoColaborador.get(sessao.colaborador_id) || new Set();
+      abertos.add(res);
+      streamsDoColaborador.set(sessao.colaborador_id, abertos);
+      res.on('close', () => { abertos.delete(res); if (!abertos.size) streamsDoColaborador.delete(sessao.colaborador_id); });
+    }
     let since = null;
     const ultimo = req.headers['last-event-id'];
     if (ultimo) { const n = Number(ultimo); if (Number.isFinite(n)) since = n; else log('aviso', `Stream de ${agente.slug}: Last-Event-ID inválido (${String(ultimo).slice(0, 30)}); uso o parâmetro since.`); }
@@ -690,38 +886,178 @@ function criarServidor(opcoes) {
     if (since == null || since <= 0) since = Date.now() / 1000 - 60;
     abrirStream({
       req, res, agente, since, log, tickMs: opcoes.tickSseMs,
-      fontes: { thread: conversa.thread, atividade: conversa.atividade, versaoJs, foco: (a) => foco.lista(a.slug) },
+      // Colaborador: a cada tique o stream confere a sessão e fecha quando ela deixou de valer (expirou, saiu, foi revogada).
+      valeAinda: ehColab(sessao) ? () => sessaoAindaVale(req, sessao) : null,
+      fontes: ehColab(sessao)
+        // Colaborador: sem a fonte do foco (é a lista do dono) e com os avisos técnicos trocados por um genérico.
+        ? { thread: async (a) => { const t = await conversa.thread(a); return Object.assign({}, t, { avisos: avisosPara(sessao, t.avisos) }); }, atividade: async (a) => atividadePara(sessao, a, await conversa.atividade(a)), versaoJs }
+        : { thread: conversa.thread, atividade: conversa.atividade, versaoJs, foco: (a) => foco.lista(a.slug) },
     });
     return undefined;
+  }
+
+  /**
+   * A sessão do colaborador ainda vale AGORA? Repete o que o pedido fez ao entrar (sessão, versão da senha, vínculo
+   * com o agente, revogação). O corpo de um pedido pode demorar a chegar: quem foi revogado ou teve o convite
+   * reenviado nesse meio tempo não pode concluir o que começou.
+   */
+  function sessaoAindaVale(req, sessao) {
+    if (!ehColab(sessao)) return true;
+    const s2 = auth.sessaoDoPedido(req);
+    return !!s2 && s2.papel === 'colaborador' && s2.colaborador_id === sessao.colaborador_id
+      && s2.senha_versao === sessao.senha_versao && s2.agente === sessao.agente;
+  }
+  function recusaSessaoVelha(res, sessao) {
+    log('aviso', `Pedido do colaborador ${sessao.usuario} recusado: a sessão deixou de valer enquanto o corpo chegava (acesso revogado ou convite reenviado).`);
+    return H.erroJson(res, 401, 'Seu acesso mudou enquanto o envio estava em andamento (foi revogado ou o convite foi reenviado). Nada foi feito. Entre de novo com o convite mais recente.');
   }
 
   async function lerEnvio(req, res) {
     try { return await H.lerJson(req, 256 * 1024); } catch (e) { H.erroJson(res, e.status || 400, e.message); return null; }
   }
 
-  async function enviar(req, res, agente) {
+  /** Quem fala na conversa: o dono (sem marca, vira "pessoa" no envelope) ou o colaborador, que o agente precisa distinguir. */
+  function atorDa(sessao) {
+    if (!sessao || sessao.papel !== 'colaborador') return undefined;
+    return { colaborador: true, colaborador_id: sessao.colaborador_id, from: `colaborador: ${sessao.nome ? `${sessao.nome} (${sessao.usuario})` : sessao.usuario}` };
+  }
+
+  // Quem iniciou o turno em curso de cada agente, e de quem é cada pendência (permissão ou pergunta) que ele abriu.
+  // O colaborador só confirma uma pendência cujo id pertence a um turno que ELE iniciou, sem mensagem de outra
+  // pessoa na fila. Um envio que só entrou na fila (o agente estava ocupado ou esperando confirmação) não inicia
+  // turno nenhum: se ele trocasse o autor, o colaborador aprovaria a operação que o dono deixou pendente.
+  // Sem registro (restart), o turno é do dono.
+  const RX_ENVIO_DO_PAINEL = /^\/api\/(?:chat|socorro|sessoes)(?:\/|$)/i;
+  const turnos = new Map(); // slug -> { autor: { dono:true } | { colaborador_id }, misto: bool }
+  const pendencias = new Map(); // slug -> { id, ok } (ok: o colaborador pode responder)
+  const autorDe = (sessao) => (sessao && sessao.papel === 'colaborador' ? { colaborador_id: sessao.colaborador_id } : { dono: true });
+  const identidadeDe = (sessao) => (sessao && sessao.papel === 'colaborador' ? `colaborador:${sessao.colaborador_id}` : 'dono');
+  const mesmoAutor = (a, b) => (a.dono ? !!b.dono : a.colaborador_id === b.colaborador_id);
+  /**
+   * Só a execução efetiva de um envio chama isto (nunca a devolução do cache de um cliente_id repetido).
+   * `r` é a resposta do envio: com `r.corpo.fila` a mensagem só entrou na fila. Turno novo, turno que muda de autor
+   * ou que fica misto invalidam as pendências já vinculadas desse agente.
+   */
+  function marcaAutor(slug, sessao, r) {
+    const autor = autorDe(sessao);
+    const atual = turnos.get(slug) || { autor: { dono: true }, misto: false };
+    if (r && r.corpo && r.corpo.fila) {
+      if (!mesmoAutor(atual.autor, autor) && !atual.misto) { atual.misto = true; pendencias.delete(slug); }
+      turnos.set(slug, atual);
+      return;
+    }
+    turnos.set(slug, { autor, misto: false });
+    pendencias.delete(slug);
+  }
+  /** Primeira vez que se vê uma pendência com este id: fixa de quem ela é. Chamado só no caminho do colaborador. */
+  function vinculaPendencia(slug, sessao, ativ) {
+    const id = (ativ && ((ativ.permissao && ativ.permissao.id) || (ativ.pergunta && ativ.pergunta.id))) || null;
+    if (!id) { pendencias.delete(slug); return; }
+    const p = pendencias.get(slug);
+    if (p && p.id === id) return;
+    const t = turnos.get(slug) || { autor: { dono: true }, misto: false };
+    pendencias.set(slug, { id, colaborador_id: !t.misto && t.autor.colaborador_id ? t.autor.colaborador_id : null });
+  }
+  /**
+   * Duas provas, as duas precisam bater. A memória do Web (turnos e pendências) só enxerga o que passou por aqui;
+   * a transcrição é o que o runner de fato executou, inclusive o que veio por Telegram, canal ou rotina. Sem as duas,
+   * a pendência é do dono.
+   */
+  const pendenciaEhDele = async (agente, sessao, id) => {
+    const slug = agente.slug;
+    const p = pendencias.get(slug);
+    const t = turnos.get(slug);
+    // Confere de novo o turno de agora: o vínculo sozinho não basta se o turno virou misto ou mudou de autor.
+    const memoria = !!(id && p && p.id === id && p.colaborador_id && p.colaborador_id === sessao.colaborador_id
+      && t && !t.misto && t.autor.colaborador_id === sessao.colaborador_id);
+    if (!memoria) return false;
+    return (await conversa.autoriaDaPendencia(agente, id)) === sessao.colaborador_id;
+  };
+  /**
+   * Para o colaborador: a confirmação precisa trazer o id da pendência que está na tela agora, e ela precisa ser de um
+   * turno dele. Devolve true depois de ter respondido a recusa. O dono nunca é barrado aqui.
+   */
+  async function confirmacaoNegada(res, agente, sessao, toolUseId) {
+    if (!sessao || sessao.papel !== 'colaborador') return false;
+    const recusa = (status, motivo) => { log('aviso', `Confirmação negada ao colaborador ${sessao.usuario} em ${agente.slug}: ${motivo}`); H.erroJson(res, status, motivo); return true; };
+    if (typeof toolUseId !== 'string' || !toolUseId) return recusa(400, 'Faltou o "tool_use_id" da confirmação (vem em "permissao.id" ou "pergunta.id" da atividade do agente).');
+    const ativ = await conversa.atividade(agente);
+    vinculaPendencia(agente.slug, sessao, ativ);
+    const idAgora = (ativ.permissao && ativ.permissao.id) || (ativ.pergunta && ativ.pergunta.id) || null;
+    if (idAgora !== toolUseId) return recusa(409, 'Essa confirmação já não é a que está pendente. Atualize a conversa.');
+    if (!(await pendenciaEhDele(agente, sessao, toolUseId))) {
+      return recusa(403, 'Essa confirmação é do dono do DG Claw. Ela é de um pedido que ele fez; aguarde ou fale com ele.');
+    }
+    return false;
+  }
+
+  async function enviar(req, res, agente, sessao) {
     const corpo = await lerEnvio(req, res);
     if (!corpo) return undefined;
     const cid = corpo.cliente_id;
     if (cid != null && cid !== '' && !(typeof cid === 'string' && RX_CLIENTE_ID.test(cid))) {
       return H.erroJson(res, 400, `O "cliente_id" veio como ${JSON.stringify(String(cid).slice(0, 80))}, que não vale: use de 8 a 64 caracteres entre letras, números, "-" e "_". Nada foi enviado.`);
     }
-    const r = await conversa.umaVez(agente, 'send', cid || null, () => conversa.enviar(agente, corpo));
+    // Anonimizar: TODO texto que chega ao agente passa pelo filtro, inclusive "//" (vira texto), comando de barra com
+    // argumentos e legenda de anexo. Só fica de fora o comando que o Web executa e que não leva texto ao agente.
+    // Config ilegível NÃO desliga o filtro em silêncio: a mensagem é recusada com 503.
+    try {
+      if (typeof corpo.text === 'string' && corpo.text.trim()) {
+        const temAnexos = Array.isArray(corpo.anexos) && corpo.anexos.length > 0;
+        const d = await comandos.decidir(agente, corpo.text, { temAnexos });
+        const chegaAoAgente = !d.erro && (d.tipo === 'texto' || /^\S+\s+\S/.test(corpo.text.trim()));
+        if (chegaAoAgente) {
+          const comAnexoAnonimizado = temAnexos && corpo.anexos.some((id) => {
+            const e = typeof id === 'string' ? midia.obter(id) : null;
+            return e && e.slug === agente.slug && /^doc-[0-9a-f]{8}\.anon\./.test(path.basename(e.path));
+          });
+          if (comAnexoAnonimizado ? anonimizar.estaLigado(agente.slug) : anonimizar.aplicaDigitado(agente.slug)) {
+            corpo.text = anonimizar.trocarDigitado(agente.slug, corpo.text).texto;
+          }
+        }
+      }
+    } catch (e) {
+      log('erro', `Anonimizar: mensagem para ${agente.slug} recusada (${e.codigo || e.message}).`);
+      return H.erroJson(res, e.status || 500, e.status ? e.message : `Não enviei a mensagem porque não consegui trocar os dados pessoais dela: ${e.message}`, e.codigo ? { codigo: e.codigo } : undefined);
+    }
+    const r = await conversa.umaVez(agente, 'send', cid || null, () => conversa.enviar(agente, corpo, atorDa(sessao)), identidadeDe(sessao));
+    if (r.status < 300 && !(r.corpo && r.corpo.repetido)) marcaAutor(agente.slug, sessao, r);
     return H.enviaJson(res, r.status, r.corpo);
   }
 
-  async function comandoPost(req, res, agente) {
+  async function comandoPost(req, res, agente, sessao) {
     const corpo = await lerEnvio(req, res);
     if (!corpo) return undefined;
     const cid = corpo.cliente_id;
     if (cid != null && cid !== '' && !(typeof cid === 'string' && RX_CLIENTE_ID.test(cid))) {
       return H.erroJson(res, 400, `O "cliente_id" veio como ${JSON.stringify(String(cid).slice(0, 80))}, que não vale: use de 8 a 64 caracteres entre letras, números, "-" e "_". Nada foi enviado.`);
     }
-    const r = await conversa.umaVez(agente, 'comando', cid || null, () => conversa.comando(agente, corpo));
+    // Argumentos de comando também chegam ao agente (skill, /compact foque em...). Monta UMA representação do que vai ao
+    // runner, como conversa.comando interpreta ("comando" + "argumentos", senão "text"), filtra esse texto final e o devolve
+    // num campo só. Combinação inválida segue para conversa.comando, que recusa com o motivo.
+    try {
+      const valido = typeof corpo.comando === 'string' && corpo.comando.trim() ? (corpo.argumentos == null || typeof corpo.argumentos === 'string') : (typeof corpo.text === 'string' && corpo.text.trim());
+      if (valido) {
+        const final = typeof corpo.comando === 'string' && corpo.comando.trim()
+          ? corpo.comando.trim() + (typeof corpo.argumentos === 'string' && corpo.argumentos.trim() ? ` ${corpo.argumentos.trim()}` : '')
+          : corpo.text.trim();
+        if (/^\S+\s+\S/.test(final) && anonimizar.aplicaDigitado(agente.slug)) {
+          corpo.text = anonimizar.trocarDigitado(agente.slug, final).texto;
+          delete corpo.comando; delete corpo.argumentos;
+        }
+      }
+    } catch (e) {
+      log('erro', `Anonimizar: comando para ${agente.slug} recusado (${e.codigo || e.message}).`);
+      return H.erroJson(res, e.status || 500, e.message, e.codigo ? { codigo: e.codigo } : undefined);
+    }
+    const r = await conversa.umaVez(agente, 'comando', cid || null, () => conversa.comando(agente, corpo, atorDa(sessao)), identidadeDe(sessao));
+    if (r.status < 300 && !(r.corpo && r.corpo.repetido)) marcaAutor(agente.slug, sessao, r);
     return H.enviaJson(res, r.status, r.corpo);
   }
 
-  async function upload(req, res, agente) {
+  const gravaAnexo = opcoes.gravaAnexo || gravaAnexoReal;
+
+  async function upload(req, res, agente, sessao) {
     if (!agente.home_host) return H.erroJson(res, 503, `O agente ${agente.nome} não tem home_host no registro, então não há onde guardar anexos.`);
     let mp;
     try { mp = await lerMultipart(req, config.maxUploadBytes); } catch (e) { return H.erroJson(res, e.status || 400, e.message); }
@@ -731,30 +1067,70 @@ function criarServidor(opcoes) {
     if (cid && !RX_CLIENTE_ID.test(cid)) return H.erroJson(res, 400, 'O "cliente_id" não vale: use de 8 a 64 caracteres entre letras, números, "-" e "_".');
     if (!arq.dados.length) return H.erroJson(res, 400, `O arquivo "${arq.nome}" chegou com 0 byte. Escolha o arquivo de novo.`);
     const soGuardar = /^(0|false|nao|não|no)$/i.test((mp.campos.enviar || '').trim());
-    const legenda = (mp.campos.legenda || '').trim();
+    const souColab = ehColab(sessao);
+    const nomeLimpo = conversa.validaControle(arq.nome, 'O nome do arquivo');
+    if (nomeLimpo.erro) return H.erroJson(res, 400, nomeLimpo.erro);
+    const legendaLimpa = conversa.validaControle((mp.campos.legenda || '').trim(), 'A legenda', { normalizarCR: !souColab });
+    if (legendaLimpa.erro) return H.erroJson(res, 400, legendaLimpa.erro);
+    const legenda = legendaLimpa.texto;
     const r = await conversa.umaVez(agente, 'upload', cid || null, async () => {
       const dia = new Intl.DateTimeFormat('en-CA', { timeZone: config.tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+      // Colaborador grava numa pasta só dele e com um prefixo aleatório no nome: nunca na pasta dos arquivos do dono.
+      const pastas = souColab ? ['uploads', dia, `colaborador-${String(sessao.colaborador_id).replace(/[^A-Za-z0-9_-]/g, '')}`] : ['uploads', dia];
       const pasta = path.join(agente.home_host, 'uploads', dia);
-      let destino;
-      try {
-        fs.mkdirSync(pasta, { recursive: true, mode: 0o755 });
-        destino = gravaSemSobrescrever(pasta, nomeSeguro(arq.nome), arq.dados);
-      } catch (e) {
-        log('erro', `Upload para ${agente.slug}: não gravei em ${pasta} (${e.code || e.message}).`);
-        return { status: 500, corpo: { ok: false, erro: `Não consegui gravar o arquivo em ${pasta} (${e.code || e.message}). Confira espaço em disco e permissão da pasta do agente.` } };
+            // Anonimizar documentos: com a opção ligada, o original NUNCA chega à casa do agente; só as saídas com marcadores.
+      const anon = await anonimizar.processarUpload(agente, { nome: arq.nome, dados: arq.dados, legenda, dia });
+      if (!anon.ok) {
+        log('aviso', `Upload para ${agente.slug} barrado pela anonimização (${anon.codigo || anon.status}). Nada foi enviado ao agente.`);
+        return { status: anon.status, corpo: { ok: false, erro: anon.erro, codigo: anon.codigo || null, anonimizado: false } };
+      }
+      let destino; let anonimizado = null; let legendaEnvio = legenda; let notaAnon = ''; let nomeArquivo = arq.nome;
+      if (!anon.id) {
+        // Sem anonimizar o arquivo (exceção escolhida pelo dono): a legenda e o nome dele também chegam ao agente.
+        try {
+          if (anonimizar.aplicaDigitado(agente.slug)) {
+            legendaEnvio = anonimizar.trocarDigitado(agente.slug, legenda).texto;
+            nomeArquivo = anonimizar.trocarDigitado(agente.slug, arq.nome).texto;
+          }
+        } catch (e) {
+          log('aviso', `Upload para ${agente.slug} barrado: não consegui filtrar a legenda e o nome do arquivo (${e.codigo || e.message}). Nada foi enviado ao agente.`);
+          return { status: e.status || 503, corpo: { ok: false, erro: `${e.message} O arquivo não foi enviado ao agente.`, codigo: e.codigo || null, anonimizado: false } };
+        }
+      }
+      if (anon.id) {
+        destino = anon.principal;
+        legendaEnvio = anon.legenda;
+        anonimizado = { id: anon.id, contagem: anon.total, por_tipo: anon.contagem, avisos: anon.avisos, nivel: anon.nivel };
+        const outras = anon.vistos.filter((v) => v !== paraContainer(destino, agente));
+        notaAnon = '[documento anonimizado: os dados pessoais foram trocados por marcadores como [PESSOA_1]. Mantenha os marcadores exatamente como estão.' +
+          (outras.length ? ` Outras versões do mesmo documento: ${outras.join(', ')}.` : '') + ']';
+      } else {
+        if (anon.semAnonimizar) anonimizado = { id: null, contagem: 0, avisos: [anon.aviso], enviado_sem_anonimizar: true };
+        const nomeEmDisco = nomeNeutro(nomeSeguro(nomeArquivo));
+        try {
+          // Sem privilégio: quem grava é um processo com o uid do dono da casa, que não segue atalho para fora dela.
+          destino = await gravaAnexo({ agente, pastas, nome: souColab ? `${crypto.randomBytes(4).toString('hex')}-${nomeEmDisco}` : nomeEmDisco, dados: arq.dados });
+        } catch (e) {
+          log('erro', `Upload para ${agente.slug}: não gravei em ${path.join(agente.home_host, ...pastas)}: ${e.message}`);
+          return { status: 500, corpo: { ok: false, erro: `Não consegui gravar o arquivo na casa de ${agente.nome}: ${e.message} Nada foi enviado ao agente.` } };
+        }
       }
       const visto = paraContainer(destino, agente);
       const media = midia.registrar(agente.slug, destino, { visto, nome: path.basename(destino) });
       const marcador = `[anexo: ${visto}]`;
-      const anexo = { id: media.id, kind: media.kind, nome: arq.nome, bytes: arq.dados.length, path: visto, url: media.url };
-      log('info', `Upload para ${agente.slug}: ${arq.nome} (${media.kind}, ${arq.dados.length} bytes) salvo em ${destino}.`);
+      const tamanho = anon.id ? fs.statSync(destino).size : arq.dados.length;
+      const anexo = { id: media.id, kind: media.kind, nome: anon.id ? path.basename(destino) : arq.nome, bytes: tamanho, path: visto, url: media.url };
+      log('info', `Upload para ${agente.slug}: ${anon.id ? `documento anonimizado ${anon.id}` : arq.nome} (${media.kind}, ${tamanho} bytes) salvo em ${destino}.`);
+      const corpoBase = anonimizado ? { anonimizado } : {};
       if (soGuardar) {
-        return { status: 201, corpo: { ok: true, enviado: false, agente: agente.slug, anexo, marcador, media } };
+        return { status: 201, corpo: Object.assign({ ok: true, enviado: false, agente: agente.slug, anexo, marcador, media }, corpoBase) };
       }
-      const e = await conversa.entregar(agente, [legenda, marcador].filter(Boolean).join('\n'), { cru: false });
+      const ator = atorDa(sessao);
+      const e = await conversa.entregar(agente, [legendaEnvio, marcador, notaAnon].filter(Boolean).join('\n'), { cru: false, from: ator && ator.from, colaboradorId: ator && ator.colaborador_id });
       if (e.status >= 300) return Object.assign(e, { corpo: Object.assign({ arquivo_salvo: visto }, e.corpo) });
-      return { status: 201, corpo: Object.assign({}, e.corpo, { enviado: true, kind: media.kind, texto: legenda, anexo, marcador, media }) };
-    });
+      marcaAutor(agente.slug, sessao, e);
+      return { status: 201, corpo: Object.assign({}, e.corpo, { enviado: true, kind: media.kind, texto: legendaEnvio, anexo, marcador, media }, corpoBase) };
+    }, identidadeDe(sessao));
     return H.enviaJson(res, r.status, r.corpo);
   }
 
@@ -770,10 +1146,12 @@ function criarServidor(opcoes) {
     return H.enviaJson(res, 200, { ok: true, text: r.texto, bytes: a.dados.length, audio_id: null });
   }
 
-  async function falar(req, res) {
+  async function falar(req, res, sessao) {
     const corpo = await lerEnvio(req, res);
     if (!corpo) return undefined;
-    const slug = typeof corpo.agent_id === 'string' ? corpo.agent_id : (registro.estado().agentes[0] || {}).slug;
+    // Colaborador só fala com a voz do agente dele, qualquer que seja o agent_id pedido.
+    const slug = sessao && sessao.papel === 'colaborador' ? sessao.agente
+      : (typeof corpo.agent_id === 'string' ? corpo.agent_id : (registro.estado().agentes[0] || {}).slug);
     const agente = registro.obter(slug);
     if (!agente) return H.erroJson(res, 404, `Não existe agente com o id "${String(slug).slice(0, 40)}".`);
     const parte = corpo.parte == null ? 0 : corpo.parte;
@@ -788,6 +1166,8 @@ function criarServidor(opcoes) {
   }
 
   // ── despacho ─────────────────────────────────────────────────────────────
+  const quemDoProxy = (sessao, req) => (sessao.papel === 'colaborador' ? { colaborador_id: sessao.colaborador_id, valeAinda: () => sessaoAindaVale(req, sessao) } : {});
+
   async function tratar(req, res) {
     let url;
     try { url = new URL(req.url, 'http://local'); } catch (_) { return H.paginaErro(res, 400, 'Endereço inválido', 'Não entendi o endereço pedido.'); }
@@ -817,6 +1197,18 @@ function criarServidor(opcoes) {
       return H.erroJson(res, 403, `A rota ${p.slice(0, 120)} não está liberada para agentes. Só as rotas que a frente liberou com caixa.permitir() respondem pela caixa.`);
     }
 
+    // Anonimização: tudo que o agente recebe pela caixa (tarefas, lembretes, avisos, foco...) passa pelo filtro dos valores
+    // conhecidos dele, campo a campo. Sem poder filtrar (config ou tabela ilegível), a resposta é 503.
+    if (slugCaixa) {
+      let filtro;
+      try { filtro = anonimizar.filtroSaida(slugCaixa); } catch (e) {
+        log('erro', `Anonimizar: resposta da caixa para ${slugCaixa} recusada (${e.codigo || e.message}).`);
+        return H.erroJson(res, e.status || 503, e.message, e.codigo ? { codigo: e.codigo } : undefined);
+      }
+      // Só a documentação estática (nome exato de rota, ex.: /api/v1/avisos/docs.md) escapa do filtro.
+      if (filtro) filtraRespostaDaCaixa(res, filtro, log, /^\/api\/v1\/[a-z-]+\/docs\.md$/.test(p));
+    }
+
     // CSRF: toda escrita exige Origin igual à do próprio Web (a caixa não vem de navegador).
     if (ehMutacao(req) && !slugCaixa && !origemOk(req)) {
       const visto = req.headers.origin ? String(req.headers.origin).slice(0, 80) : '(sem Origin)';
@@ -828,7 +1220,8 @@ function criarServidor(opcoes) {
     }
 
     if (p === '/login' && m === 'GET') {
-      if (auth.sessaoDoPedido(req)) { res.writeHead(302, { Location: proximoSeguro(url.searchParams.get('next')) }); return res.end(); }
+      const ja = auth.sessaoDoPedido(req);
+      if (ja) { res.writeHead(302, { Location: destinoDaSessao(ja, proximoSeguro(url.searchParams.get('next'))) }); return res.end(); }
       if (!servirArquivo(req, res, path.join(config.publicDir, 'login.html'), 'no-store')) {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
         res.end(LOGIN_RESERVA);
@@ -852,6 +1245,26 @@ function criarServidor(opcoes) {
 
     const sessao = slugCaixa ? { usuario: 'agente:' + slugCaixa, via: 'caixa', agente: slugCaixa } : auth.sessaoDoPedido(req);
 
+    // Única rota do Anonimizar sem sessão: a documentação, estática, para o agente ler sem credencial.
+    if (p === '/api/v1/anonimizar/docs.md' && (m === 'GET' || m === 'HEAD')) { rotasAnonimizar.servirDocs(res); return undefined; }
+    // O índice do manual também é público (o agente lê sem credencial, como as outras docs.md).
+    if (p === '/api/v1/manual/docs.md' && (m === 'GET' || m === 'HEAD')) return servirManual(req, res, m, 'README');
+    if (sessao && !sessao.via) {
+      // O cookie de papel só serve para a tela esconder o que não é do colaborador; aqui ele se conserta sozinho.
+      if (H.parseCookies(req.headers.cookie).dgclaw_papel !== sessao.papel) res.setHeader('Set-Cookie', auth.cookiePapel(sessao.papel, req));
+      // Isolamento do colaborador: negar por padrão, antes de qualquer rota (ver lib/escopo.js).
+      const veredito = escopo.avaliar(sessao, m, p, req.url);
+      if (!veredito.ok) return negarEscopo(req, res, sessao, veredito, p);
+    }
+
+    if (ehColab(sessao)) {
+      req.dgRevalidar = () => {
+        const vale = sessaoAindaVale(req, sessao);
+        if (!vale) log('aviso', `Pedido ${m} ${p.slice(0, 120)} do colaborador ${sessao.usuario} recusado: a sessão deixou de valer enquanto o corpo chegava.`);
+        return vale;
+      };
+    }
+
     if (p.startsWith('/api/')) {
       if (!sessao) return H.erroJson(res, 401, 'Você precisa entrar para usar a API. Faça login em /login.');
       return api(req, res, url, sessao);
@@ -864,14 +1277,39 @@ function criarServidor(opcoes) {
         return H.erroJson(res, 401, 'Você precisa entrar para abrir o painel. Faça login em /login.');
       }
       if (!pp[2]) { res.writeHead(302, { Location: `/p/${pp[1]}/${url.search}` }); return res.end(); }
-      return proxy.responder(req, res, pp[1], sessao.usuario);
+      // O painel do dono manda texto ao runner por conta própria (chat, recados, sessões): daqui em diante o turno
+      // em curso deixa de ser de qualquer colaborador. A transcrição é a prova de verdade; isto é a segunda trava.
+      if (!ehColab(sessao) && !sessao.via && m !== 'GET' && m !== 'HEAD' && RX_ENVIO_DO_PAINEL.test(pp[2])) {
+        const slugPainel = decodeURIComponent(pp[1]);
+        if (RX_SLUG_ROTA.test(slugPainel)) marcaAutor(slugPainel, sessao, null);
+      }
+      return proxy.responder(req, res, pp[1], sessao.usuario, quemDoProxy(sessao, req));
     }
 
     if (p === '/' && (m === 'GET' || m === 'HEAD')) {
       if (!sessao) return semSessaoPagina(req, res, url);
       if (falhaDoRegistro(req, res, false)) return undefined;
-      res.writeHead(302, { Location: `/a/${agenteInicial(req)}`, 'Cache-Control': 'no-store' });
+      res.writeHead(302, { Location: `/a/${sessao.papel === 'colaborador' ? encodeURIComponent(sessao.agente) : agenteInicial(req)}`, 'Cache-Control': 'no-store' });
       return res.end();
+    }
+
+    if (p === '/trocar-senha' && (m === 'GET' || m === 'HEAD')) {
+      if (!sessao) return semSessaoPagina(req, res, url);
+      if (sessao.papel !== 'colaborador') { res.writeHead(302, { Location: '/', 'Cache-Control': 'no-store' }); return res.end(); }
+      if (!servirArquivo(req, res, path.join(config.publicDir, 'trocar-senha.html'), 'no-store')) {
+        log('erro', `A tela de trocar senha não está instalada: falta ${path.join(config.publicDir, 'trocar-senha.html')}.`);
+        H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela de trocar senha não foi encontrado no servidor. Reinstale o DG Claw Web.');
+      }
+      return undefined;
+    }
+
+    if ((p === '/colaboradores' || p === '/colaboradores/') && (m === 'GET' || m === 'HEAD')) {
+      if (!sessao) return semSessaoPagina(req, res, url);
+      if (!servirArquivo(req, res, path.join(config.publicDir, 'colaboradores.html'), 'no-store')) {
+        log('erro', `A tela de colaboradores não está instalada: falta ${path.join(config.publicDir, 'colaboradores.html')}.`);
+        H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela de colaboradores não foi encontrado no servidor. Reinstale o DG Claw Web.');
+      }
+      return undefined;
     }
 
     if (p === '/lembretes' && (m === 'GET' || m === 'HEAD')) {
@@ -916,6 +1354,15 @@ function criarServidor(opcoes) {
       return undefined;
     }
 
+    if ((p === '/anonimizar' || p === '/anonimizar/') && (m === 'GET' || m === 'HEAD')) {
+      if (!sessao) return semSessaoPagina(req, res, url);
+      if (!servirArquivo(req, res, path.join(config.publicDir, 'anonimizar.html'), 'no-store')) {
+        log('erro', `A tela de anonimizar não está instalada: falta ${path.join(config.publicDir, 'anonimizar.html')}.`);
+        H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela de anonimizar documentos não foi encontrado no servidor. Reinstale o DG Claw Web.');
+      }
+      return undefined;
+    }
+
     if ((p === '/conectar' || p === '/conectar/') && (m === 'GET' || m === 'HEAD')) {
       if (!sessao) return semSessaoPagina(req, res, url);
       if (!servirArquivo(req, res, path.join(config.publicDir, 'conectar.html'), 'no-store')) {
@@ -930,6 +1377,18 @@ function criarServidor(opcoes) {
       if (!servirArquivo(req, res, path.join(config.publicDir, 'mesa.html'), 'no-store')) {
         log('erro', `A tela da Mesa não está instalada: falta ${path.join(config.publicDir, 'mesa.html')}.`);
         H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela da Mesa de tarefas não foi encontrado no servidor. Reinstale o DG Claw Web.');
+      }
+      return undefined;
+    }
+
+    if ((p === '/manual' || p.startsWith('/manual/')) && (m === 'GET' || m === 'HEAD')) {
+      if (!sessao) return semSessaoPagina(req, res, url);
+      if (!/^\/manual\/?$|^\/manual\/(?:[a-z0-9-]+|README)\/?$/.test(p)) {
+        return H.paginaErro(res, 404, 'Página do manual não encontrada', 'Esse endereço não existe no manual. Abra /manual para ver a lista de páginas.');
+      }
+      if (!servirArquivo(req, res, path.join(config.publicDir, 'manual.html'), 'no-store')) {
+        log('erro', `A tela do Manual não está instalada: falta ${path.join(config.publicDir, 'manual.html')}.`);
+        H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela do Manual não foi encontrado no servidor. Reinstale o DG Claw Web.');
       }
       return undefined;
     }
@@ -963,11 +1422,21 @@ function criarServidor(opcoes) {
       const nega = (status, motivo) => { socket.write(`HTTP/1.1 ${status} Recusado\r\nConnection: close\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${motivo}`); socket.destroy(); };
       if (!pp) return nega(404, 'Só o painel (/p/<agente>/) aceita WebSocket.');
       if (!sessao) return nega(401, 'Você precisa entrar antes.');
+      const veredito = escopo.websocketLiberado(sessao, url.pathname, req.url);
+      if (!veredito.ok) {
+        log('aviso', `WebSocket em ${url.pathname.slice(0, 120)} recusado para o colaborador ${sessao.usuario}: ${veredito.motivo}`);
+        return nega(403, veredito.motivo);
+      }
       if (!origemOk(req)) {
         log('aviso', `WebSocket em ${url.pathname} recusado: Origin ${String(req.headers.origin || '(sem Origin)').slice(0, 80)} não é a deste Web.`);
         return nega(403, 'Origem não permitida.');
       }
-      return proxy.upgrade(req, socket, head, pp[1], sessao.usuario);
+      const quem = quemDoProxy(sessao, req);
+      if (quem.colaborador_id) {
+        // A conferência repete o login do upgrade: o proxy a chama a cada 30 s e fecha o socket quando a sessão cai.
+        quem.valeAinda = () => { const s2 = auth.sessaoDoPedido(req); return !!s2 && s2.papel === 'colaborador' && s2.colaborador_id === quem.colaborador_id && s2.senha_versao === sessao.senha_versao; };
+      }
+      return proxy.upgrade(req, socket, head, pp[1], sessao.usuario, quem);
     } catch (e) {
       log('erro', `Falha no upgrade de ${String(req.url).split('?')[0]}: ${e.message}`);
       socket.destroy();
@@ -976,7 +1445,7 @@ function criarServidor(opcoes) {
   });
 
   return {
-    servidor, config, registro, auth, midia, conversa, log, caixa, push, lembretes, avisos, estados, vigiaAtencao, prefsAtencao,
+    servidor, config, registro, auth, colaboradores, proxy, midia, conversa, anonimizar, filtroAnon, log, caixa, push, lembretes, avisos, estados, vigiaAtencao, prefsAtencao,
     ouvir(porta, host) {
       return new Promise((resolve, reject) => {
         servidor.once('error', reject);
@@ -990,11 +1459,11 @@ function criarServidor(opcoes) {
         });
       });
     },
-    fechar() { return new Promise((resolve) => { caixa.parar(); lembretes.parar(); avisos.parar(); vigiaAtencao.parar(); proxy.fecharTudo(); servidor.closeAllConnections && servidor.closeAllConnections(); servidor.close(() => resolve()); }); },
+    fechar() { return new Promise((resolve) => { caixa.parar(); lembretes.parar(); avisos.parar(); vigiaAtencao.parar(); proxy.fecharTudo(); anonimizar.encerrar(); servidor.closeAllConnections && servidor.closeAllConnections(); servidor.close(() => resolve()); }); },
   };
 }
 
-module.exports = { criarServidor, proximoSeguro };
+module.exports = { criarServidor, proximoSeguro, filtraRespostaDaCaixa };
 
 if (require.main === module) {
   const s = criarServidor();

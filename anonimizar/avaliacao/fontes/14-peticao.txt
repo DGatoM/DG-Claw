@@ -1,0 +1,13 @@
+#formato: pdf
+EXCELENTÍSSIMO SENHOR DOUTOR JUIZ DE DIREITO DA [[!:3ª Vara Cível]] DA COMARCA DE [[!:Santos]]
+
+[[PESSOA:Gilberto Nunes Figueiredo]], brasileiro, divorciado, motorista, CPF [[CPF:${CPF_G_RAW}]], RG [[RG:56.789.012-3]], residente na [[ENDERECO:Rua do Comércio, 33, Vila Mathias, Santos/SP]], vem, por meio de seu advogado, propor AÇÃO DE COBRANÇA em face de [[EMPRESA:Transportes Rápido Litoral Ltda]], CNPJ [[CNPJ:${CNPJ_A_RAW}]].
+
+Dos fatos: em [[DATA:03/01/2026]] o autor prestou serviços de frete no valor de [[VALOR:R$ 9.800,00]], não pagos. O réu, por seu sócio [[PESSOA:Márcio Tadeu Brandão]], recusou-se a pagar.
+
+Requer a citação do réu, o pagamento da quantia acima, e que as intimações sejam enviadas para [[EMAIL:adv.pereira@exemplo.com.br]]. Dá-se à causa o valor de [[VALOR:R$ 9.800,00]].
+
+O [[!:Código de Processo Civil]] e o [[!:art. 319]] amparam o pedido. Referência: [[!:processo nº 7654321-09.2026.8.26.0562]].
+
+Santos, [[DATA:10/02/2026]].
+Dr. [[PESSOA:Rodrigo Pereira Salles]] - [[!:OAB/SP 123456]]

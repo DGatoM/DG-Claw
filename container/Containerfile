@@ -5,7 +5,8 @@
 #   podman build --ignorefile container/ignore \
 #     -t localhost/dgclaw-agente:<versao> -t localhost/dgclaw-agente:latest \
 #     -f container/Containerfile .
-# Perfil pesado (Chromium + a Tela com Google Chrome): acrescente --build-arg COM_NAVEGADOR=1.
+# Perfil pesado (Chromium + a Tela; Google Chrome em amd64, Chromium do Playwright nas outras
+# arquiteturas): acrescente --build-arg COM_NAVEGADOR=1.
 # Detalhes, tamanhos e montagens em container/README.md.
 
 # ---------------------------------------------------------------------------
@@ -119,25 +120,29 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
 # instalador constrói com COM_NAVEGADOR=1). Duas coisas:
 #  1. Chromium do Playwright com as bibliotecas do sistema (automação headless).
 #  2. A Tela do agente (docs/TELA-DO-AGENTE.md): Xvfb + fluxbox + x11vnc + noVNC/websockify
-#     e o Google Chrome estável, NÃO headless (site com anti-robô recusa headless).
-#     O Chrome vem do repositório APT oficial do Google, com a chave baixada por HTTPS e
-#     conferida pelo apt (signed-by); o chromium do Ubuntu 24.04 é snap e snap não roda em
-#     container. O pacote do Google só existe para amd64, por isso a conferência abaixo.
+#     e um navegador COM janela, NÃO headless (site com anti-robô recusa headless).
+#     Em amd64 o navegador da Tela é o Google Chrome estável, do repositório APT oficial do
+#     Google (chave baixada por HTTPS e conferida pelo apt, signed-by); o chromium do Ubuntu
+#     24.04 é snap e snap não roda em container. O pacote do Google só existe para amd64: em
+#     outra arquitetura (arm64) a imagem NÃO aborta, e o lançador dgclaw-tela-navegador usa o
+#     Chromium do Playwright, que existe para arm64, rodando com janela no mesmo display.
 # Acrescenta de 500 a 600 MB (Chromium) mais uns 400 MB (Chrome e a Tela). O diretório do
 # Playwright fica legível para o usuário agente.
 RUN if [ "$COM_NAVEGADOR" = "1" ]; then \
-      [ "$(dpkg --print-architecture)" = "amd64" ] \
-        || { echo "ERRO: o Google Chrome estavel so tem pacote para amd64 (esta imagem e $(dpkg --print-architecture)); construa sem COM_NAVEGADOR=1 ou numa maquina amd64" >&2; exit 1; }; \
       apt-get update \
       && apt-get install -y --no-install-recommends \
-           xvfb x11vnc fluxbox novnc websockify x11-utils fonts-liberation fonts-noto-color-emoji \
+           xvfb x11vnc fluxbox novnc websockify x11-utils x11-xkb-utils fonts-liberation fonts-noto-color-emoji \
       && python -m playwright install --with-deps chromium \
       && chmod -R a+rX /opt/playwright \
-      && curl --proto '=https' --tlsv1.2 -fsSL https://dl.google.com/linux/linux_signing_key.pub \
-           | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg \
-      && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] https://dl.google.com/linux/chrome/deb/ stable main" \
-           > /etc/apt/sources.list.d/google-chrome.list \
-      && apt-get update && apt-get install -y --no-install-recommends google-chrome-stable \
+      && if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
+           curl --proto '=https' --tlsv1.2 -fsSL https://dl.google.com/linux/linux_signing_key.pub \
+             | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg \
+           && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] https://dl.google.com/linux/chrome/deb/ stable main" \
+             > /etc/apt/sources.list.d/google-chrome.list \
+           && apt-get update && apt-get install -y --no-install-recommends google-chrome-stable; \
+         else \
+           echo "AVISO: o Google Chrome estavel so tem pacote para amd64 (esta imagem e $(dpkg --print-architecture)); a Tela vai usar o Chromium do Playwright" >&2; \
+         fi \
       && rm -rf /var/lib/apt/lists/*; \
     fi
 
@@ -147,7 +152,10 @@ RUN if [ "$COM_NAVEGADOR" = "1" ]; then \
 RUN useradd -m -u 1001 -s /bin/bash agente \
     && echo 'agente ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/agente \
     && chmod 440 /etc/sudoers.d/agente \
-    && usermod -aG crontab agente
+    && usermod -aG crontab,systemd-journal agente
+# O grupo systemd-journal deixa o painel, que roda como agente, ler o histórico das rotinas
+# (aba Operações). Não amplia o acesso: o diário lido é só o deste contêiner (nenhum diário
+# do host é montado) e o agente já tem sudo aqui dentro.
 
 # Cron ligado desde o boot; senão o agente cria a tarefa e ela nunca roda.
 RUN systemctl enable cron.service
@@ -174,11 +182,19 @@ RUN for c in node npm claude codex bun gh yt-dlp ffmpeg pdftotext jq rg sqlite3 
     done \
     && node --version && bun --version && claude --version && codex --version && gh --version | head -1
 
-# Mesma conferência para o perfil com navegador: sem a Tela completa, a imagem não sai.
+# Mesma conferência para o perfil com navegador: sem a Tela completa e sem um navegador que o
+# lançador consiga abrir, a imagem não sai. Em amd64 o navegador é o Google Chrome; nas outras
+# arquiteturas é o Chromium do Playwright.
 RUN if [ "$COM_NAVEGADOR" = "1" ]; then \
-      for c in google-chrome-stable x11vnc websockify Xvfb; do \
+      for c in x11vnc websockify Xvfb; do \
         command -v "$c" >/dev/null || { echo "ERRO: '$c' não está no PATH da imagem com navegador" >&2; exit 1; }; \
       done \
+      && if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
+           command -v google-chrome-stable >/dev/null || { echo "ERRO: 'google-chrome-stable' não está no PATH da imagem com navegador" >&2; exit 1; }; \
+         else \
+           ls /opt/playwright/chromium-*/chrome-linux*/chrome >/dev/null 2>&1 \
+             || { echo "ERRO: o Chromium do Playwright não foi instalado em /opt/playwright; sem ele a Tela não tem navegador nesta arquitetura" >&2; exit 1; }; \
+         fi \
       && echo 'export DISPLAY=:1' >> /etc/profile.d/agente.sh; \
     fi
 
@@ -237,6 +253,9 @@ RUN ln -s /opt/dgclaw/app/bin/dgclaw-agente /usr/local/bin/dgclaw-agente \
  && ln -s /opt/dgclaw/app/bin/dgclaw-api /usr/local/bin/dgclaw-api
 # dgclaw-mesa: o agente cria e atualiza as tarefas da Mesa (fala com o Web pela caixa, dgclaw-api).
 RUN ln -s /opt/dgclaw/app/bin/dgclaw-mesa /usr/local/bin/dgclaw-mesa
+# dgclaw-tela-navegador: o lançador do navegador da Tela (Google Chrome se existir, senão o Chromium
+# do Playwright). É o que o dgclaw-tela-chrome.service executa.
+RUN ln -s /opt/dgclaw/app/bin/dgclaw-tela-navegador /usr/local/bin/dgclaw-tela-navegador
 
 # O painel é JavaScript puro (express e afins), sem parte nativa: instala aqui, sem compilador.
 RUN cd /opt/dgclaw/app/panel && npm install --omit=dev --no-audit --no-fund && npm cache clean --force

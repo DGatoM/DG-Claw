@@ -135,7 +135,7 @@ test('modal-login.js e conectar-cartoes.js: sem innerHTML, sem localStorage, sem
   assert.ok(!/[—–]/.test(lePub('modal-login.js') + lePub('modal-login.css') + lePub('conectar-puro.js') + lePub('conversa.html')));
 });
 
-test('modal-login.js: vídeo, sessionStorage guardado, 401 volta para a conversa e sem rota nova', () => {
+test('modal-login.js: vídeo, escolha guardada no servidor, 401 volta para a conversa e só as rotas do modal', () => {
   const js = semComentario('modal-login.js');
   assert.match(js, /preload = 'none'/);
   assert.match(js, /playsInline = true/);
@@ -143,13 +143,15 @@ test('modal-login.js: vídeo, sessionStorage guardado, 401 volta para a conversa
   assert.match(js, /\/videos\/conhecendo-o-dgclaw\.jpg/);
   assert.match(js, /\/videos\/conhecendo-o-dgclaw\.mp4/);
   assert.match(js, /addEventListener\('error', \(\) => \{ bloco\.hidden = true; \}\)/);
-  assert.match(js, /dgclaw-modal-login-depois/);
-  assert.match(js, /try \{ sessionStorage\.setItem/);
+  assert.ok(!/sessionStorage|localStorage/.test(js), 'a escolha mora no servidor, não no navegador');
+  assert.match(js, /nao_mostrar_mais: true/);
+  assert.match(js, /agentesNovosParaModal/);
   assert.match(js, /voltarPara: location\.pathname \+ location\.search/);
   assert.match(js, /CustomEvent\('dgmodallogin:abriu'\)/);
   assert.match(js, /window\.DGModalLogin = \{ aberto/);
   const rotas = [...js.matchAll(/'(\/api\/[^']*)'/g)].map((m) => m[1]);
-  assert.deepEqual(rotas, ['/api/v1/agents']);
+  assert.deepEqual([...rotas].sort(), ['/api/v1/agents', '/api/v1/modal-login/preferencia']);
+  assert.match(js, /ROTA_PREF = '\/api\/v1\/modal-login\/preferencia'/);
 });
 
 test('conversa.js: o pop-up de login expirado respeita o modal (aberto ou já aberto nesta carga)', () => {
@@ -161,4 +163,17 @@ test('conversa.js: o pop-up de login expirado respeita o modal (aberto ou já ab
 
 test('segue valendo: o POST do cartão manda o provedor escolhido', () => {
   assert.match(semComentario('conectar-cartoes.js'), /\{ provedor: ia\.escolhido\.id \}/);
+});
+
+test('agentesNovosParaModal: aparece uma vez; agente novo reabre; "não mostrar mais" cala tudo', () => {
+  const ids = ['admin', 'sofia', 'rita'];
+  const selos = [S('conectado'), S('falta'), S('expirou')];
+  assert.deepEqual(P.agentesNovosParaModal(ids, selos, { vistos: [], nao_mostrar_mais: false }), ['sofia', 'rita']);
+  assert.deepEqual(P.agentesNovosParaModal(ids, selos, { vistos: ['sofia', 'rita'], nao_mostrar_mais: false }), []);
+  assert.deepEqual(P.agentesNovosParaModal(ids, selos, { vistos: ['sofia'] }), ['rita']);
+  assert.deepEqual(P.agentesNovosParaModal(ids, selos, { vistos: [], nao_mostrar_mais: true }), []);
+  assert.deepEqual(P.agentesNovosParaModal(ids, [S('api'), S('andamento'), S('sem_resposta')], {}), []);
+  assert.deepEqual(P.agentesNovosParaModal(ids, selos, null), ['sofia', 'rita']);
+  assert.deepEqual(P.agentesNovosParaModal(null, null, null), []);
+  assert.equal(P.textosModal(2).nunca, 'Não mostrar mais');
 });

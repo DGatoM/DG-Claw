@@ -213,6 +213,8 @@ function ordemDaMesa(a, b) {
 function criarMesa(opcoes) {
   const o = opcoes || {};
   const { arquivo, registro, runner } = o;
+  // Anonimização: texto do dono que vai ao agente passa por aqui (lança se não der para filtrar; aí o recado não sai).
+  const filtro = o.filtro || ((_slug, t) => t);
   const log = o.log || H.logPadrao;
   const tz = o.tz || 'UTC';
   const avisarDono = o.avisarDono || null;
@@ -316,6 +318,10 @@ function criarMesa(opcoes) {
     const ag = registro.obter(agente);
     if (!ag) {
       log('aviso', `Não mandei o recado da tarefa #${tarefaId}: o agente ${agente} não está no registro. Peça ao agente que confira a mesa em /mesa.`);
+      return 'nao_enviado';
+    }
+    try { texto = filtro(ag.slug, texto); } catch (e) {
+      log('erro', `Não mandei o recado [Mesa] da tarefa #${tarefaId} para ${agente}: ${e.message}`);
       return 'nao_enviado';
     }
     const p = Promise.resolve()

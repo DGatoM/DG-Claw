@@ -73,7 +73,9 @@ Algumas observações que evitam surpresa:
 - **Opções do `web.env`.** Existem as chaves de voz e de IA (`ELEVENLABS_API_KEY`, `GROQ_API_KEY`,
   `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`), `DGCLAW_WEB_MAX_UPLOAD_MB` (tamanho máximo de envio),
   `DGCLAW_WEB_MAX_TEXTO`, `DGCLAW_WEB_TZ` (fuso), `DGCLAW_WEB_ORIGENS` (endereços extras aceitos),
-  `DGCLAW_WEB_AVISOS=off` e `DGCLAW_SIGILO_LIBERADOS` (nomes que o modo escondido nunca esconde). A lista
+  `DGCLAW_WEB_AVISOS=off`, `DGCLAW_SIGILO_LIBERADOS` (nomes que o modo escondido nunca esconde) e as
+  `DGCLAW_SMTP_HOST`, `DGCLAW_SMTP_PORTA`, `DGCLAW_SMTP_USUARIO`, `DGCLAW_SMTP_SENHA` e `DGCLAW_SMTP_REMETENTE`
+  (opcionais; só servem para mandar por e-mail o convite de um colaborador, veja `web/docs/COLABORADORES.md`). A lista
   completa está em `web/lib/config.js`. Mexa linha a linha: o arquivo também guarda a senha do painel.
 - **Habilidades do agente que vêm de fábrica** (agenda, lembretes, memória e outras) são links para o
   programa. Uma habilidade sua, com outro nome na pasta `~/.claude/skills` do agente, não é tocada.
@@ -101,24 +103,38 @@ sua. Em outubro de 2026, as mais mexidas foram:
 Quanto menor e mais isolada a mudança, menor a chance de conflito. Um arquivo novo quase nunca esbarra em
 nada. Um ajuste no meio de `conversa.js` esbarra com frequência.
 
-## O que nunca mexer, e por quê
+## Mudanças na base do DG Claw: pode, com aviso
 
-Mesmo que o Admin saiba fazer, estes itens ficam de fora. Um erro aqui deixa a máquina insegura ou os
-agentes mudos.
+Você pode pedir mudanças no nível do sistema, por exemplo uma nova forma de gerar agentes ou um ajuste no
+comando `dgclaw`, no instalador (`install.sh` e a pasta `lib/`) ou no `runner/`. Essas peças sabem refazer
+tudo na ordem certa, com backup, então uma mudança nelas tem mais chance de atrapalhar uma atualização.
 
-- **O instalador** (`install.sh` e a pasta `lib/`) e **o comando `dgclaw`** (`bin/dgclaw`), incluindo o
-  `dgclaw atualizar`. É a peça que sabe refazer tudo na ordem certa, com backup. Se ela for alterada, a
-  atualização deixa de ser confiável.
+O combinado é este:
+
+1. O Admin avisa, em linguagem simples, que o pedido mexe na base do DG Claw e pode dar problema nas
+   próximas atualizações.
+2. Se você mantiver o pedido, o Admin faz a mudança, na branch `personalizacoes`, como qualquer outra
+   personalização.
+3. O Admin registra a mudança em `/opt/dgclaw/admin/PERSONALIZACOES.md`, dizendo que ela mexe na base.
+4. Em cada atualização, o Admin tenta manter as duas coisas funcionando: a sua mudança e a versão nova. Se
+   não conseguir, ele para e conta o que cruzou, antes de colocar no ar.
+
+## Os limites de segurança, que continuam valendo
+
+Estes itens ficam de fora mesmo que você peça, porque um erro aqui deixa a máquina insegura, expõe as suas
+chaves ou deixa os agentes mudos.
+
+- **O cofre e os segredos**: `/etc/dgclaw/runner/*.token`, `/etc/dgclaw/proxy/*.segredo` e o `cofre.env` de
+  cada agente. Trocar ou apagar derruba a conversa entre as peças ou perde chaves que só você tem. Nenhuma
+  personalização pode mostrar, copiar ou enfraquecer esses segredos.
 - **O firewall** (`lib/firewall.sh` e as regras de rede). Ele impede que um agente alcance a máquina ou
   os outros agentes.
-- **O cofre e os segredos**: `/etc/dgclaw/runner/*.token`, `/etc/dgclaw/proxy/*.segredo` e o `cofre.env` de
-  cada agente. Trocar ou apagar derruba a conversa entre as peças ou perde chaves que só você tem.
 - **A autenticação do painel**: login, hash da senha, link de primeiro acesso.
 - **A pasta `container/`** e a forma como cada agente é isolado. Ela define o que o agente pode ver e fazer
   dentro da caixa dele.
 - **Os ganchos de segurança** (`hooks/`) e os testes de isolamento.
 
-Se o seu pedido exige mexer em algum desses, o Admin explica o risco e propõe outro caminho.
+Se o seu pedido esbarra em algum desses, o Admin explica o risco e propõe outro caminho.
 
 ## O jeito certo de personalizar o programa
 

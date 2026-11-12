@@ -12,7 +12,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const http = require('node:http');
 const crypto = require('node:crypto');
-const { gravaArquivoSeguro, ErroGravacao } = require('./grava-seguro');
+const { gravaArquivoSeguro, criaPastaSemAtalho, ErroGravacao } = require('./grava-seguro');
 
 const RX_ID = /^[a-z0-9-]{8,64}$/;
 const RX_ARQ = /^[a-z0-9-]{8,64}\.json$/;
@@ -33,7 +33,7 @@ function quemChamou(sessao) {
   return { tipo: 'dono', usuario: sessao ? sessao.usuario : null };
 }
 
-function criarCaixaAgente({ config, registro, log, porta, agora }) {
+function criarCaixaAgente({ config, registro, log, porta, agora, filtroRetrato }) {
   const relogio = agora || (() => Date.now());
   const segredo = crypto.randomBytes(32).toString('hex');
   const segredoHash = crypto.createHash('sha256').update(segredo).digest();
@@ -399,9 +399,7 @@ function criarCaixaAgente({ config, registro, log, porta, agora }) {
       let s;
       try { s = fs.lstatSync(atual); } catch (e) {
         if (e.code !== 'ENOENT') throw new ErroGravacao(`Não consegui conferir ${atual} (${e.code || e.name}).`, 'FALHA_ESCRITA');
-        try { fs.mkdirSync(atual, { mode: 0o700 }); fs.chownSync(atual, st.uid, st.gid); fs.chmodSync(atual, 0o700); } catch (e2) {
-          throw new ErroGravacao(`Não consegui criar a pasta ${atual} (${e2.code || e2.name}).`, 'FALHA_ESCRITA');
-        }
+        criaPastaSemAtalho(atual, 0o700, st.uid, st.gid);
         continue;
       }
       if (s.isSymbolicLink() || !s.isDirectory()) throw new ErroGravacao(`${atual} é ${s.isSymbolicLink() ? 'um atalho' : 'algo que não é pasta'}; recusei gravar por ele.`, s.isSymbolicLink() ? 'ATALHO' : 'NAO_E_PASTA');
@@ -415,6 +413,8 @@ function criarCaixaAgente({ config, registro, log, porta, agora }) {
     if (typeof frente !== 'string' || !RX_FRENTE.test(frente)) {
       throw new ErroGravacao(`O nome da frente ${JSON.stringify(frente)} não vale para retrato: use de 1 a 40 caracteres entre a-z, 0-9 e hífen.`, 'OPCAO_INVALIDA');
     }
+    // Retrato com texto do dono (foco, avisos) vai para a casa do agente: passa pelo filtro da anonimização. Lança se não puder filtrar.
+    if (filtroRetrato) objeto = filtroRetrato(agenteOuErro(agente).slug, objeto);   // aceita slug ou objeto; sem casa, recusa
     return gravaNaCasa(agente, `retratos/${frente}.json`, Object.assign({}, objeto, { atualizado_em: new Date(relogio()).toISOString() }));
   }
 
