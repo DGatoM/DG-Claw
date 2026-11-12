@@ -20,6 +20,18 @@ Nesta versão há uma instrução nova para o Admin, que explica a tela Logs e p
 precisa entrar nas instruções dele sem apagar o que você já personalizou. O histórico que os agentes já têm aparece sozinho
 na tela, sem migração e sem nada a configurar.
 
+**A regra de ficar livre para conversar passa para o topo das instruções do agente.** A regra que manda o agente
+responder primeiro e separar o pedido em "na hora", "curto" (subagente) e "longo" (card) já existia, mas ficava no
+fim das instruções, depois do AGENT.md. Num agente com o AGENT.md muito personalizado ela ficava longe demais e o
+agente prendia a conversa em tarefa longa. Agora um resumo curto dela abre as instruções de todo agente, antes do
+AGENT.md, e o passo a passo completo continua no mesmo lugar.
+
+### Como atualizar (regra no topo)
+
+Peça ao Admin, no chat: "atualiza o DG Claw". A atualização regrava as instruções de cada agente sozinha, sem apagar
+o que você personalizou no AGENT.md. Vale a partir da próxima conversa de cada agente. Quem não quiser atualizar
+tudo agora pode rodar `dgclaw agente identidade <agente>` para cada agente.
+
 **A reflexão da noite não acorda o agente em dia sem conversa com você.** Antes, às 23h30 ela rodava todo dia, e cada rodada
 gastava o contexto inteiro da sessão (em agentes pouco usados, mais da metade das reflexões só dizia que nada aconteceu). Agora, se o
 registro das conversas foi lido por completo e você não mandou nenhuma mensagem naquele dia, a reflexão é pulada: fica anotado no
