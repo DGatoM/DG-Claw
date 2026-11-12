@@ -11,7 +11,8 @@
 // O que passa para o colaborador:
 //   - /a/<dele> e /p/<dele>/** (o painel do agente: sessões, rotinas, memória, arquivos...),
 //     menos as exceções fechadas abaixo;
-//   - /api/v1/agents/<dele>/** (todas as ações, as de hoje e as futuras), menos /comando e /comandos;
+//   - /api/v1/agents/<dele>/** (todas as ações, as de hoje e as futuras), menos /comando e /comandos. Inclui
+//     /login, /login/codigo e /login/oi: o portão real é o handler (conta-colaborador.js), que recusa na dúvida;
 //   - mídia (a entrega confere que o arquivo é do agente dele), arquivos estáticos, /, /conectar, /trocar-senha,
 //     /api/v1/eu, /api/v1/eu/senha, /api/v1/agents (só o dele, filtrado no handler), /api/v1/nao-lidas (idem),
 //     transcribe, tts e as documentações;
@@ -20,8 +21,9 @@
 // Dentro de /p/<dele>/ ficam FECHADOS (o dono é quem mexe em credencial e em conta):
 //   - o cofre do agente (/api/cofre): são as credenciais que o dono pôs;
 //   - as chaves de API do painel (/api/chaves-api): dão acesso ao painel e nenhuma chave gerencia chaves;
-//   - a conta de IA: /api/provedor* inteiro (até a leitura, que traz o link e o código do login) e
-//     /api/v1/agents/<dele>/login*, em qualquer método: é só do dono, porque o link de login autentica a conta de quem o abre;
+//   - /api/provedor* inteiro, até a leitura (traz o link e o código do login, sem nenhuma regra de quem pode). O colaborador
+//     conecta a conta de IA só pelo Web, em /api/v1/agents/<dele>/login*, onde web/lib/conta-colaborador.js decide no servidor
+//     (agente sem conta de verdade, uma pessoa por vez, resposta com lista de campos permitidos);
 //   - TODA escrita no painel fora da lista de permissão de escritaLiberada(): memória, arquivos, apps, custos, reinício
 //     e rota nova. O painel registra a escrita como do dono, e memória e arquivos viram instrução permanente;
 //   - credencial de canal (token de bot de Telegram, WhatsApp): qualquer escrita em /api/canais, /api/telegram etc.;
@@ -45,7 +47,7 @@ const TROCAR_SENHA_MOTIVO = 'Troque a senha temporária antes de continuar.';
 const MOTIVO_PAINEL = 'Este endereço do painel é só do dono do DG Claw.';
 const MOTIVO_COFRE = 'O cofre é só do dono do DG Claw.';
 const MOTIVO_CHAVES_API = 'As chaves de API do painel são só do dono do DG Claw.';
-const MOTIVO_CONTA_IA = 'O agente precisa entrar numa conta, e isso é só do dono do DG Claw. Avise o dono.';
+const MOTIVO_CONTA_IA = 'A conta de IA se conecta pela página Conectar conta, não pelo painel do agente. Se o agente já tem conta, só o dono do DG Claw mexe nela.';
 const MOTIVO_PERMANENTE = 'Isso muda o agente de forma permanente (instruções, memória, arquivos, configuração ou rotinas) e é só do dono do DG Claw.';
 const MOTIVO_CANAL = 'As credenciais dos canais (Telegram, WhatsApp) são só do dono do DG Claw.';
 const MOTIVO_TELA = 'A Tela do agente dá acesso aos arquivos e às contas dele, por isso é só do dono do DG Claw.';
@@ -197,9 +199,8 @@ function avaliaApi(m, p, meuSlug) {
     const acao = r[2] || '';
     // Comando de barra chegaria ao agente sem dizer quem mandou (ver conversa.js, enviar).
     if (acao === 'comando' || acao === 'comandos') return nega(403, MOTIVO_COMANDO);
-    // Login da conta de IA (ver o link, começar, mandar o código, cancelar): só o dono. O colaborador sabe SE falta conta
-    // pelo alerta da atividade, sem link nem código.
-    if (acao === 'login') return nega(403, MOTIVO_CONTA_IA, { extra: { error: MOTIVO_CONTA_IA } });
+    // Login da conta de IA: passa até o handler, que só deixa o colaborador agir quando o agente está sem conta de verdade
+    // (web/lib/conta-colaborador.js). O painel (/p/<dele>/api/provedor*) continua fechado, ver avaliaPainel().
     // O agente em si (editar, apagar) não é do colaborador; só a leitura.
     if (acao === '') return metodo(m === 'GET', 'Use GET para ver o seu agente.');
     return LIBERA;

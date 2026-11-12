@@ -35,6 +35,11 @@ for t in agente admin; do
     afirma "$t.md explica a marca [áudio transcrito]" grep -qF '[áudio transcrito]' "$AMB/$t.md"
 done
 
+echo "ambiente: convite de colaborador pelo comando"
+afirma "admin.md manda usar dgclaw colaborador criar" grep -qF 'dgclaw colaborador criar' "$AMB/admin.md"
+afirma "a skill criar-agente oferece o acesso na entrega" grep -qF 'dgclaw colaborador criar' "$REPO/skills/criar-agente/SKILL.md"
+nega "a skill criar-agente sem travessao nem en dash" grep -q $'—\|–' "$REPO/skills/criar-agente/SKILL.md"
+
 echo "ambiente: dgclaw agente identidade"
 criar_agente ana --nome "Ana" --dono "Marta"
 ID="$DGCLAW_RAIZ/var/lib/dgclaw/agentes/ana/home/.plataforma/identidade.md"

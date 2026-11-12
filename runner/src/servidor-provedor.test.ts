@@ -584,3 +584,13 @@ test("provedoresDisponiveis: precisa estar liberado no catálogo E ter o program
   fs.writeFileSync(path.join(pasta, "gemini"), "#!/bin/sh\n", { mode: 0o755 });
   assert.equal(provedoresDisponiveis(cat, pasta).includes("gemini"), false);
 });
+
+test("GET /api/provedor?fresco=1: refaz a conferência sem o cache e diz `fresco: true`; sem o pedido o campo não existe", async () => {
+  const normal = await req("GET", "/api/provedor");
+  assert.equal("fresco" in normal.corpo, false);
+  const fresco = await req("GET", "/api/provedor?fresco=1");
+  assert.equal(fresco.status, 200);
+  assert.equal(fresco.corpo.fresco, true);
+  assert.equal(fresco.corpo.conferido.ok, true);
+  assert.equal("fresco" in (await req("GET", "/api/provedor?fresco=0")).corpo, false);
+});

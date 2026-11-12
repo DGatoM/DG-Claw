@@ -226,6 +226,20 @@ direto, diga: "Pronto! O {nome} já aparece no menu, lá em cima à esquerda. Cl
 Se a escolha foi Telegram ou WhatsApp, acrescenta: "Lá, peça a ele: quero falar com você no Telegram."
 (ou WhatsApp).
 
+**Acesso para outra pessoa (opcional).** Depois que o agente respondeu, ofereça uma vez: "Quer que eu crie um
+usuário e senha para essa pessoa entrar no {nome}?". Se o dono disser que não, siga em frente e não insista.
+Se disser que sim:
+
+1. Peça o e-mail da pessoa (ele é o login) e, se o dono quiser, o nome dela.
+2. Rode `dgclaw colaborador criar <slug> <email> --nome "<Nome>"` (o `<slug>` é o do agente que acabou de nascer).
+   Se o comando falhar, leia o motivo, conserte o que ele aponta e rode de novo; não invente a senha.
+3. Devolva na conversa o texto do convite que o comando imprimiu (endereço, login e senha temporária), inteiro,
+   dentro de um bloco de código com três crases. A conversa desenha esse bloco como uma caixa com botão de copiar,
+   e o dono manda a caixa para a pessoa.
+4. Explique em uma frase: a senha é temporária, vale 7 dias e a pessoa cria a própria no primeiro acesso. A senha
+   só aparece aqui na conversa: não a grave em arquivo, memória nem nota.
+5. Se o agente ainda estiver sem conta de IA, diga que a própria pessoa poderá conectar a conta dela em Conectar conta.
+
 ## Quando algo dá errado
 
 O Admin explica a causa em linguagem simples, diz o que vai tentar e tenta. Exemplos: se a memória do

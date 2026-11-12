@@ -336,6 +336,7 @@
   }
 
   function pintaLista(ag, lista, erro) {
+    if (!$('mlTroca')) return;   // colaborador: sem seletor de agentes
     const caixa = $('mlLista'), troca = $('mlTroca');
     if (erro) {
       troca.hidden = false;
@@ -577,18 +578,19 @@
       : (ag.subtitulo || [ag.provedor, ag.modelo].filter(Boolean).join(' · '));
     document.documentElement.classList.add('ml-ativo');
 
-    const troca = $('mlTroca'), btn = $('mlTrocaBtn');
-    const abre = sim => { troca.classList.toggle('aberto', sim); btn.setAttribute('aria-expanded', String(sim)); };
-    btn.onclick = () => abre(!troca.classList.contains('aberto'));
-    document.addEventListener('keydown', ev => {
-      if (ev.key === 'Escape' && troca.classList.contains('aberto')) { abre(false); ev.stopPropagation(); }
-    }, true);
-    ligaAcoes(opcoes, troca);
-    if (opcoes.erroLista) { pintaLista(ag, [], opcoes.erroLista); abre(true); }   // a lista não veio: o erro aparece já aberto
-    else if (Array.isArray(opcoes.agentes)) pintaLista(ag, opcoes.agentes, null);
-    else if (!colab) recarrega(ag);
-    /* Agente criado ou apagado em outra aba aparece sem recarregar a página: a cada 30 s e quando a aba volta a ficar visível. */
+    // Colaborador: a troca de agente nem existe na página (casca.js não injeta o bloco), então não há o que ligar.
     if (!colab) {
+      const troca = $('mlTroca'), btn = $('mlTrocaBtn');
+      const abre = sim => { troca.classList.toggle('aberto', sim); btn.setAttribute('aria-expanded', String(sim)); };
+      btn.onclick = () => abre(!troca.classList.contains('aberto'));
+      document.addEventListener('keydown', ev => {
+        if (ev.key === 'Escape' && troca.classList.contains('aberto')) { abre(false); ev.stopPropagation(); }
+      }, true);
+      ligaAcoes(opcoes, troca);
+      if (opcoes.erroLista) { pintaLista(ag, [], opcoes.erroLista); abre(true); }   // a lista não veio: o erro aparece já aberto
+      else if (Array.isArray(opcoes.agentes)) pintaLista(ag, opcoes.agentes, null);
+      else recarrega(ag);
+      /* Agente criado ou apagado em outra aba aparece sem recarregar a página: a cada 30 s e quando a aba volta a ficar visível. */
       const atualiza = () => { if (document.visibilityState === 'visible') recarrega(ag, true); };
       document.addEventListener('visibilitychange', atualiza);
       setInterval(atualiza, 30000);

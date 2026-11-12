@@ -37,7 +37,7 @@ set +e
 WORKSPACE="${DGCLAW_WORKSPACE:-$PWD}"
 HOOK_INPUT=$(cat)
 
-HOOK_INPUT="$HOOK_INPUT" DGCLAW_WORKSPACE="$WORKSPACE" python3 - <<'PY'
+HOOK_INPUT="$HOOK_INPUT" DGCLAW_WORKSPACE="$WORKSPACE" python3 -I - <<'PY'
 import json, os, sys, traceback
 from datetime import datetime
 
@@ -94,7 +94,10 @@ try:
     # CLAUDE.md que ja importa a memoria (@working-memory.md / @MEMORY.md, template de
     # 05/10/2026) carrega o arquivo inteiro sozinho, no boot e depois de compactar. Reinjetar
     # aqui seria a mesma memoria duas vezes no contexto, pagando duas vezes.
-    claude_md = ler(os.path.join(ws, "CLAUDE.md")) or ""
+    # No Codex (DGCLAW_MOTOR=codex, posto pelo runner no comando do hook) as instrucoes sao o
+    # AGENTS.md, que NAO importa arquivos com "@": ai a memoria precisa ser reinjetada.
+    instrucoes = "AGENTS.md" if os.environ.get("DGCLAW_MOTOR") == "codex" else "CLAUDE.md"
+    claude_md = ler(os.path.join(ws, instrucoes)) or ""
     importados = {l.strip() for l in claude_md.splitlines() if l.startswith("@")}
     out = []
     wm = ler(os.path.join(ws, "working-memory.md"))
