@@ -8,7 +8,7 @@ const path = require('node:path');
 const PUB = path.join(__dirname, '..', 'public');
 const ler = (rel) => fs.readFileSync(path.join(PUB, rel), 'utf8');
 
-const HTML_MIGRADOS = ['login.html', 'primeiro-acesso.html', 'trocar-senha.html', 'conversa.html', 'mesa.html', 'lembretes.html', 'avisos.html', 'seguranca.html', 'anonimizar.html', 'colaboradores.html', 'conectar.html', 'manual.html'];
+const HTML_MIGRADOS = ['login.html', 'primeiro-acesso.html', 'trocar-senha.html', 'conversa.html', 'mesa.html', 'lembretes.html', 'avisos.html', 'seguranca.html', 'anonimizar.html', 'colaboradores.html', 'conectar.html', 'manual.html', 'logs.html'];
 const CSS_MIGRADOS = ['sigilo.css', 'login.css', 'trocar-senha.css', 'chat.css', 'conversa.css', 'menu-lado.css', 'casca.css', 'mesa.css', 'lembretes.css', 'avisos.css', 'seguranca.css', 'anonimizar.css', 'colaboradores.css',
   'conectar-cartoes.css', 'foco-tela.css', 'campo-cofre.css', 'atualizacao-faixa.css', 'onboarding.css'];
 const JS_MIGRADOS = ['sigilo.js', 'login.js', 'conversa.js', 'conversa-puro.js', 'menu-lado.js', 'casca.js', 'mesa.js', 'lembretes.js', 'lembretes-faixa.js', 'avisos.js', 'seguranca.js', 'seguranca-resumo.js',
@@ -128,7 +128,7 @@ test('componentes.css e carregando.css só usam tokens (sem cor, medida de tempo
 
 test('service worker: nova versão, /ds/* no cache e /marca* fora', () => {
   const sw = ler('sw.js');
-  assert.match(sw, /VERSAO = 'dgclaw-estaticos-v38'/);
+  assert.match(sw, /VERSAO = 'dgclaw-estaticos-v39'/);
   for (const a of ['/ds/tokens.css', '/ds/icones.svg', '/ds/carregando.js', '/ds/icone.js']) assert.ok(sw.includes(`'${a}'`), a);
   assert.match(sw, /PROIBIDOS = \[\/\^\\\/marca\//);
   assert.ok(!/ESTATICOS = \[[\s\S]*?'\/marca[\s\S]*?\];/.test(sw), '/marca* não pode estar na lista de cache');

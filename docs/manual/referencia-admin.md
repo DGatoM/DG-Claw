@@ -174,6 +174,7 @@ Servidas pelo DG Claw Web. Quem: Dono, salvo o que a coluna disser. Colab só pa
 | `/api/v1/eu` | Diz quem está logado, o papel (dono ou colaborador) e se precisa trocar a senha | Dono, Colab | [COLABORADORES.md](../../web/docs/COLABORADORES.md) |
 | `/api/v1/eu/senha` | O colaborador troca a própria senha (POST) | Colab | [COLABORADORES.md](../../web/docs/COLABORADORES.md) |
 | `/api/v1/colaboradores` | Lista, convida (POST), reenvia convite e revoga acesso de colaboradores | **Só a sessão do dono**. Colab e Caixa recebem 403 | [COLABORADORES.md](../../web/docs/COLABORADORES.md) |
+| `/api/v1/logs` | Lê o histórico dos agentes para a tela Logs (lista de agentes, eventos e busca), só leitura | **Só a sessão do dono**. Colab recebe 403; agentes e o Admin por token não acessam | [LOGS.md](../../web/docs/LOGS.md) |
 | `/api/v1/login` | Documentação do login da conta de IA dentro da conversa (`/api/v1/agents/<slug>/login`: ver, começar, mandar código, cancelar) | Dono. Colab recebe 403 | [LOGIN-NA-CONVERSA.md](../../web/docs/LOGIN-NA-CONVERSA.md) |
 | `/api/v1/conectar` | Documentação da página Conectar conta | Dono, Colab (só leitura do aviso) | [CONECTAR-CONTA.md](../../web/docs/CONECTAR-CONTA.md) |
 | `/api/v1/modal-login` | Guarda a escolha sobre o aviso "Faça o login nos seus agentes" (`/api/v1/modal-login/preferencia`) | Dono | [CONECTAR-CONTA.md](../../web/docs/CONECTAR-CONTA.md) |

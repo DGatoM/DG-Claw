@@ -28,6 +28,9 @@ body.co *{box-sizing:border-box}
 .co-status{margin:0 0 10px;padding:8px 12px;border-radius:10px;overflow-wrap:anywhere;font-weight:600}
 .co-status.ok{background:#eaf6ee;border:1px solid #b9dcc6;color:#1f6a3d}
 .co-status.falha{background:#fdecea;border:1px solid #e6a5a0;color:#8c1d18}
+.co-ativos{display:flex;flex-direction:column;gap:10px;margin-bottom:14px}
+.co-atual{border:1px solid var(--co-linha);border-radius:12px;padding:12px;min-width:0}
+.co-atual h3{font-size:15.5px;margin:0 0 6px;display:flex;flex-wrap:wrap;align-items:center;gap:6px;overflow-wrap:anywhere}
 .co-card{border:1px solid var(--co-linha);border-radius:12px;padding:12px;margin-top:10px;min-width:0}
 .co-card:first-child{margin-top:0}
 .co-card h3{font-size:15.5px;margin:0 0 6px;display:flex;flex-wrap:wrap;align-items:center;gap:6px;overflow-wrap:anywhere}
