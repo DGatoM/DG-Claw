@@ -165,10 +165,12 @@ function criarPedidos(opcoes) {
     }
   }
 
-  const ehDoDono = (m) => m.origin === 'dono' && !(typeof m.quem === 'string' && m.quem.startsWith('colaborador'));
+  // Só vale a mensagem escrita pelo dono no painel: o leitor da conversa marca origin 'dono' também para WhatsApp,
+// Telegram e colaborador, então a prova é positiva (via 'plataforma' e o remetente 'pessoa', sem marca de colaborador).
+const ehDoDono = (m) => m.origin === 'dono' && m.via === 'plataforma' && m.quem === 'pessoa';
 
   /** Item entregue + resposta do dono na conversa depois da entrega: vira feito. Só roda quando há item entregue. */
-  async function reconciliar(ms) {
+  async function reconciliar(ms, tentativa = 1) {
     if (!dados) return;
     const entregues = dados.pedidos.filter((p) => p.estado === 'entregue');
     if (!entregues.length) return;
@@ -180,8 +182,8 @@ function criarPedidos(opcoes) {
       if (r.erro) continue;
       for (const id of ids) {
         const p = entregues.find((x) => x.id === id);
-        const limiar = p.msg_entrega ? p.msg_entrega.ep : p.entregue_em_epoch;
-        if (r.msgs.some((m) => ehDoDono(m) && m.ep > limiar)) vira.push(id);
+        // o limite é quando o SERVIDOR registrou a entrega, não o horário da mensagem que o agente apontou
+        if (r.msgs.some((m) => ehDoDono(m) && m.ep > p.entregue_em_epoch)) vira.push({ id, entrega_n: p.entrega_n });
       }
     }
     if (!vira.length) return;
@@ -189,13 +191,17 @@ function criarPedidos(opcoes) {
     if (!carregar()) return;
     let pedidos = dados.pedidos;
     let mudou = false;
-    for (const id of vira) {
+    let descartou = false;
+    for (const { id, entrega_n } of vira) {
       const p = pedidos.find((x) => x.id === id);
-      if (!p || p.estado !== 'entregue') continue;
+      // a entrega pode ter sido refeita durante a leitura da conversa: a confirmação antiga não vale para a nova
+      if (!p || p.estado !== 'entregue' || p.entrega_n !== entrega_n) { descartou = true; continue; }
       pedidos = pedidos.map((x) => (x.id === id ? mover(x, 'feito', { por: 'dono (respondeu na conversa)', ms }) : x));
       mudou = true;
     }
     if (mudou) gravar({ proximo_id: dados.proximo_id, pedidos }, ms);
+    // entrega trocada no meio da leitura: descarta a confirmação antiga e confere de novo, uma vez
+    if (descartou && tentativa < 2) await reconciliar(ms, tentativa + 1);
   }
 
   /** Cópia do pedido no novo estado, com o evento no histórico. Não grava. */
@@ -205,7 +211,7 @@ function criarPedidos(opcoes) {
     t.estado = estado;
     if (estado === 'esperando_dono' || estado === 'cancelado') t.motivo = motivo || null;
     else t.motivo = null;
-    if (estado === 'entregue') { t.msg_entrega = msg || null; t.entregue_em = isoLocal(ms, tz); t.entregue_em_epoch = ms / 1000; }
+    if (estado === 'entregue') { t.msg_entrega = msg || null; t.entregue_em = isoLocal(ms, tz); t.entregue_em_epoch = ms / 1000; t.entrega_n = (t.entrega_n || 0) + 1; }
     if (!ABERTOS.has(estado)) t.fechado_em = isoLocal(ms, tz); else t.fechado_em = null;
     t.atualizado_em = isoLocal(ms, tz);
     t.atualizado_em_epoch = ms / 1000;
@@ -238,7 +244,7 @@ function criarPedidos(opcoes) {
     const id = dados.proximo_id;
     const t = {
       id, agente: quem.slug, texto, estado: 'fazendo', motivo: null, msg_entrega: null,
-      criado_por: porDe(quem), criado_em: isoLocal(ms, tz), atualizado_em: isoLocal(ms, tz), atualizado_em_epoch: ms / 1000,
+      criado_por: porDe(quem), criado_em: isoLocal(ms, tz), criado_em_epoch: ms / 1000, atualizado_em: isoLocal(ms, tz), atualizado_em_epoch: ms / 1000,
       entregue_em: null, entregue_em_epoch: null, fechado_em: null,
       historico: [{ em: isoLocal(ms, tz), por: porDe(quem), de: null, para: 'fazendo' }],
     };
@@ -284,6 +290,7 @@ function criarPedidos(opcoes) {
         if (r.erro) return { status: 503, erro: `${r.erro} Não dá para conferir a mensagem ${corpo.msg}; tente de novo em instantes.` };
         const m = r.msgs.find((x) => x.id === corpo.msg);
         if (!m) return { status: 400, erros: { msg: `não achei a mensagem ${corpo.msg} na conversa de ${p.agente}. Use o id de uma mensagem sua ou tire --msg para usar a última.` } };
+        if (p.criado_em_epoch && m.ep < p.criado_em_epoch) return { status: 400, erros: { msg: `a mensagem ${corpo.msg} é anterior à criação do pedido #${p.id}. A entrega tem de ser uma mensagem sua depois que o pedido foi aberto.` } };
         if (m.origin !== 'agente') return { status: 400, erros: { msg: `a mensagem ${corpo.msg} não é do agente. A entrega é uma mensagem sua na conversa.` } };
         msg = { id: m.id, ep: m.ep };
       } else if (r.erro) {
