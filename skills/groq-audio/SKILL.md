@@ -39,7 +39,7 @@ GROQ_API_KEY
 Chave da Groq
 ```
 
-Quando chegar "GROQ_API_KEY salva no cofre.", responda curto ("Tá salvo.") e siga. Se o dono colar a
+Quando chegar "[cofre] GROQ_API_KEY guardada (final xxxx).", responda curto ("Tá salvo.") e siga. Se o dono colar a
 chave no chat por engano, avise que ela ficou exposta, peça para apagar essa chave na Groq e gerar
 outra, e mande o bloco de novo. (Sem a tela da conversa, o caminho é a aba **Cofre** do painel,
 opção **Groq**.)

@@ -12,6 +12,10 @@ set -uo pipefail
 . "$AQUI/casos.sh"
 # shellcheck source=tests/instalador/aviso-atualizacao.sh
 . "$AQUI/aviso-atualizacao.sh"
+# shellcheck source=tests/instalador/boletins-seguranca.sh
+. "$AQUI/boletins-seguranca.sh"
+# shellcheck source=tests/instalador/ronda-seguranca.sh
+. "$AQUI/ronda-seguranca.sh"
 # shellcheck source=tests/instalador/proxy.sh
 . "$AQUI/proxy.sh"
 

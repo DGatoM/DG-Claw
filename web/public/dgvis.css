@@ -121,7 +121,7 @@ code { font-size: .92em; }
 
 /* margem vertical entre as peças */
 .dv-numero, .dv-grade, .dv-fluxo, .dv-ciclo, .dv-passos, .dv-compara, .dv-linha-tempo,
-.dv-tabela, .dv-barras, .dv-linhas, .dv-cartao { margin: 0 0 var(--dv-s4); }
+.dv-tabela, .dv-barras, .dv-linhas, .dv-cartao, .dv-cofre { margin: 0 0 var(--dv-s4); }
 .dv-numero:last-child, .dv-grade:last-child, .dv-fluxo:last-child, .dv-ciclo:last-child,
 .dv-passos:last-child, .dv-compara:last-child, .dv-linha-tempo:last-child, .dv-tabela:last-child,
 .dv-barras:last-child, .dv-linhas:last-child, .dv-cartao:last-child { margin-bottom: 0; }
@@ -137,7 +137,7 @@ code { font-size: .92em; }
 /* escondido até o dgvis.js liberar a entrada (se o JS falhar, nada fica escondido) */
 html.dv-prep :is(.dv-titulo, .dv-sub, .dv-numero, .dv-fluxo, .dv-ciclo, .dv-passos, .dv-compara,
   .dv-linha-tempo, .dv-tabela, .dv-barras, .dv-linhas, .dv-cartao, .dv-abas, .dv-acordeao, .dv-slider,
-  .dv-opcoes):not(.dv-vai), html.dv-prep .dv-controles { opacity: 0; }
+  .dv-opcoes, .dv-cofre):not(.dv-vai), html.dv-prep .dv-controles { opacity: 0; }
 .dv-vai { animation: dv-entra var(--dv-dur-e) var(--dv-ease) both; animation-delay: calc(var(--i, 0) * var(--dv-passo)); }
 .dv-vai.dv-fluxo, .dv-vai.dv-passos, .dv-vai.dv-linha-tempo, .dv-vai.dv-ciclo { animation: none; }
 .dv-feito, .dv-feito * { animation: none !important; }
@@ -625,3 +625,24 @@ html [data-cor="info"] { --cor: var(--dv-info); }
 
 /* No iPhone, campo com fonte abaixo de 16px dá zoom quando recebe o foco. Regra: nada dá zoom no app instalado. */
 input,textarea,select{font-size:16px!important}
+
+/* ---------- caixa de cofre (o campo de senha é do app, fora do iframe) ---------- */
+.dv-cofre {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 6px; box-sizing: border-box;
+  padding: 14px; background: var(--dv-superficie); border: 1.5px solid var(--dv-linha);
+  border-radius: var(--dv-r3); box-shadow: var(--dv-sombra);
+}
+.dv-cofre-tit { font-size: 15px; font-weight: 750; line-height: 1.3; overflow-wrap: anywhere; }
+.dv-cofre-nome { max-width: 100%; padding: 2px 8px; border-radius: 6px; background: var(--dv-superficie-2); font-family: ui-monospace, Menlo, monospace; overflow-wrap: anywhere; }
+.dv-cofre-ajuda { font-size: 13px; line-height: 1.4; color: var(--dv-suave); overflow-wrap: anywhere; }
+.dv-cofre .dv-cofre-btn { min-height: 44px; min-width: 44px; margin: 4px 0 0; }
+.dv-cofre-est { min-height: 1.2em; font-size: 13px; font-weight: 650; overflow-wrap: anywhere; }
+.dv-cofre-est:empty { display: none; }
+.dv-cofre[data-dv-cofre="espera"] { border-color: var(--dv-acento); box-shadow: 0 0 0 3px color-mix(in srgb, var(--dv-acento) 28%, transparent); }
+.dv-cofre[data-dv-cofre="ok"] { border-color: var(--dv-ok); }
+.dv-cofre[data-dv-cofre="ok"] .dv-cofre-est { color: var(--dv-ok); }
+.dv-cofre[data-dv-cofre="erro"] { border-color: var(--dv-perigo); }
+.dv-cofre[data-dv-cofre="erro"] .dv-cofre-est, .dv-cofre-erro { color: var(--dv-perigo); }
+.dv-cofre-erro { font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
+.dv-vai.dv-cofre { animation: dv-entra var(--dv-dur-e) var(--dv-ease) both; animation-delay: calc(var(--i, 0) * var(--dv-passo)); }
+html.dv-reduzido .dv-cofre, html.dv-reduzido .dv-cofre .dv-botao { animation: none; transition: none; }

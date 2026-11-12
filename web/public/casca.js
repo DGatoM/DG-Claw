@@ -26,7 +26,7 @@
     const c = ctx || {};
     const doCaminho = /^\/p\/([^/]+)/.exec(c.caminho || '');
     let doParam = null;
-    try { doParam = new URLSearchParams(c.busca || '').get('a'); } catch (_) { /* busca ilegível: segue */ }
+    try { const q = new URLSearchParams(c.busca || ''); doParam = q.get('a') || q.get('agente'); } catch (_) { /* busca ilegível: segue */ }
     let slug = null;
     try { slug = doCaminho ? decodeURIComponent(doCaminho[1]) : null; } catch (_) { /* caminho ilegível: segue */ }
     for (const id of [slug, doParam, c.guardado]) {
@@ -45,8 +45,15 @@
     '<button class="btn" id="btnTutorial" type="button" title="Visita guiada desta tela: o que é cada parte e por que está aqui">Tutorial</button>' +
     '</header>';
 
+  /* O seletor de agentes do menu. Colaborador não recebe: o elemento nem entra na página (MARCACAO_MENU_COLAB). */
+  const MARCACAO_TROCA =
+    '<div class="ml-troca" id="mlTroca" data-tour="agentes" hidden>' +
+    '<button type="button" id="mlTrocaBtn" aria-haspopup="true" aria-expanded="false"><span>trocar de agente</span><span class="ml-seta" aria-hidden="true">▾</span></button>' +
+    '<div class="ml-lista" id="mlLista" role="menu"></div></div>';
+
+
   /* A única marcação do menu: a Conversa (conversa.html) e as outras telas (monta) usam esta (menu-lado.js mexe nestes ids). */
-  const MARCACAO_MENU =
+  const montaMenu = troca =>
     '<div id="overlayMenu"></div>' +
     '<aside id="menu" aria-label="Menu do agente">' +
     '<button class="fechar" id="btnFechaMenu" type="button" aria-label="Fechar o menu">✕</button>' +
@@ -55,9 +62,8 @@
     '<div class="ml-nome" id="mlNome">DG Claw</div>' +
     '<div class="ml-sub" id="mlSub"></div>' +
     '<button type="button" class="gm-tut" id="gmTutorial" title="Visita guiada do menu: o que é cada parte e por que está aqui">Tutorial</button>' +
-    '<div class="ml-troca" id="mlTroca" data-tour="agentes" hidden>' +
-    '<button type="button" id="mlTrocaBtn" aria-haspopup="true" aria-expanded="false"><span>trocar de agente</span><span class="ml-seta" aria-hidden="true">▾</span></button>' +
-    '<div class="ml-lista" id="mlLista" role="menu"></div></div></div>' +
+    troca +
+    '</div>' +
     '<nav class="ml-tabs" id="mlTabs" aria-label="Páginas do agente">' +
     '<div data-tour="gm-conversa"><button type="button" class="ml-tab ativo" id="gmIrConversa" aria-current="page"><span class="ml-ico" aria-hidden="true">◔</span>Conversa</button></div>' +
     '<div data-tour="gm-mesa"><a class="ml-tab" href="/mesa"><span class="ml-ico" aria-hidden="true">▦</span>Mesa de tarefas</a></div>' +
@@ -70,6 +76,9 @@
     '<button type="button" class="ml-tab" id="gmReiniciar" title="Reinicia o processo do agente quando ele trava. A conversa continua de onde estava."><span class="ml-ico" aria-hidden="true">↻</span>Reiniciar sessão</button></section>' +
     '<div class="pe"><div class="conta"><form method="post" action="/sair" id="formSair"><button type="submit" class="sair">Sair</button></form></div></div>' +
     '</aside>';
+  const MARCACAO_MENU = montaMenu(MARCACAO_TROCA);
+  const MARCACAO_MENU_COLAB = montaMenu('');
+  const marcacaoMenu = () => (raiz.DGPapel && raiz.DGPapel.colaborador ? MARCACAO_MENU_COLAB : MARCACAO_MENU);
 
   /* Cookie não sensível com o último agente aberto: o servidor usa na rota "/" (localStorage ele não enxerga). */
   function guardaAgente(id) {
@@ -81,7 +90,7 @@
     } catch (e) { console.warn('casca: não consegui gravar o cookie do último agente:', e.message); }
   }
 
-  if (!raiz.document) return { escolheAgente, MARCACAO_CABECALHO, MARCACAO_MENU };
+  if (!raiz.document) return { escolheAgente, MARCACAO_CABECALHO, MARCACAO_MENU, MARCACAO_MENU_COLAB };
 
   /* ── Parte com DOM ─────────────────────────────────────────────────────── */
   const $ = id => document.getElementById(id);
@@ -133,7 +142,7 @@
         porque: 'Mantém a tela limpa: o que não é a página atual fica guardado no menu.' },
       ...raiz.DGMenuLado.passosMenu({ nome, abre: () => abreMenu(true), fecha: () => abreMenu(false),
         comTroca: est.lista.filter(a => a.tipo === 'admin').concat(est.lista.filter(a => a.tipo !== 'admin')).length > 1,
-        naConversa: false }),
+        naConversa: false, colaborador: !!(raiz.DGPapel && raiz.DGPapel.colaborador) }),
     ];
   }
 
@@ -158,7 +167,7 @@
   function injetaMenu(idPonto) {
     const ponto = $(idPonto || 'menuPonto');
     if (!ponto) { console.error('casca: o conversa.html não tem o ponto de montagem do menu (#' + (idPonto || 'menuPonto') + '); o menu não foi criado.'); return; }
-    ponto.insertAdjacentHTML('beforebegin', MARCACAO_MENU);
+    ponto.insertAdjacentHTML('beforebegin', marcacaoMenu());
     ponto.remove();
   }
 
@@ -171,6 +180,20 @@
     document.head.appendChild(s);
   }
 
+  /* O aviso único de segurança (uma janela e um selo) também aparece em todas as telas que usam a casca. */
+  function carregaAvisoSeguranca() {
+    if (raiz.DGSegurancaResumo) return;
+    const carrega = (src, depois) => {
+      const s = document.createElement('script');
+      s.src = src;
+      s.onload = depois || null;
+      s.onerror = () => console.warn('casca: ' + src + ' não carregou; as telas seguem sem o aviso de segurança.');
+      document.head.appendChild(s);
+    };
+    if (raiz.DGRondaComum) carrega('/seguranca-resumo.js');
+    else carrega('/ronda-comum.js', () => carrega('/seguranca-resumo.js'));
+  }
+
   function monta(opcoes) {
     const o = opcoes || {};
     est.pagina = o.pagina || '';
@@ -179,9 +202,13 @@
     if (!document.body) { document.addEventListener('DOMContentLoaded', () => monta(o)); return Promise.resolve(); }
     if ($('cabecalho')) return Promise.resolve();   // já montada
     document.documentElement.classList.add('casca');
-    document.body.insertAdjacentHTML('afterbegin', MARCACAO_CABECALHO + MARCACAO_MENU);
+    document.body.insertAdjacentHTML('afterbegin', MARCACAO_CABECALHO + marcacaoMenu());
     pintaTitulo();
-    carregaFaixaAtualizacao();
+    // Faixa de versão e aviso de segurança são só do dono.
+    if (!(raiz.DGPapel && raiz.DGPapel.colaborador)) {
+      carregaFaixaAtualizacao();
+      carregaAvisoSeguranca();
+    }
     $('btnMenu').onclick = () => abreMenu(true);
     $('btnFechaMenu').onclick = () => abreMenu(false);
     $('overlayMenu').onclick = () => abreMenu(false);
@@ -198,7 +225,8 @@
       .then(({ lista, erro }) => {
         est.lista = lista;
         let ag = escolheAgente(lista, ctx);
-        const slug = (/^\/p\/([^/]+)/.exec(location.pathname) || [])[1] || new URLSearchParams(location.search).get('a') || guardado || '';
+        const colab = !!(raiz.DGPapel && raiz.DGPapel.colaborador);
+        const slug = (/^\/[pa]\/([^/]+)/.exec(location.pathname) || [])[1] || (colab ? '' : (new URLSearchParams(location.search).get('a') || new URLSearchParams(location.search).get('agente') || guardado || ''));
         if (!ag) ag = { id: erro ? slug : '', nome: 'DG Claw', cor: '#2f9e5e', avatar: 'D' };
         est.agente = ag;
         pintaCabecalho(ag);

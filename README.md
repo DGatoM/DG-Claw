@@ -60,6 +60,7 @@ para `sudo dgclaw atualizar`. Quem já tem podman ou docker no servidor deve usa
 - **Container por agente**: casa de arquivos própria e sem acesso aos vizinhos nem ao servidor ([docs/SEGURANCA.md](docs/SEGURANCA.md#isolamento-entre-agentes)).
 - **Cofre por agente**: chaves de serviço que valem só para quem as guardou ([docs/COFRE-POR-API.md](docs/COFRE-POR-API.md)).
 - **Provedores**: Claude Code ou Codex, escolhidos na instalação ([docs/PROVEDORES.md](docs/PROVEDORES.md)).
+- **Manual**: o que o DG Claw faz e como se usa, página por página, aberto pelo painel em ☰ > Manual ([docs/manual/README.md](docs/manual/README.md)).
 - **Mesa de tarefas**: uma tela com o que cada agente faz, o que travou e o que espera por você ([docs/MESA-DE-TAREFAS.md](docs/MESA-DE-TAREFAS.md)).
 - **Memória semântica**: o agente acha o que você disse pelo sentido, mesmo com outras palavras ([docs/MEMORIA-SEMANTICA.md](docs/MEMORIA-SEMANTICA.md)).
 - **Canais**: o chat do painel vem pronto; o WhatsApp é um canal opcional ([docs/CANAL-WHATSAPP.md](docs/CANAL-WHATSAPP.md)).

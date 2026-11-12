@@ -59,6 +59,22 @@ falha() {
     exit 1
 }
 
+# podman_em_escopo <slug> <argumentos do podman...>
+# Roda o podman (create/start de container de agente) num escopo systemd proprio. Sem isso o
+# conmon do container nasce dentro do cgroup de quem chamou: se for o servico dgclaw-admin, reiniciar
+# o Admin espera 90 s pelo conmon e acaba matando ele com SIGKILL (o agente cai junto). O mesmo vale
+# para a atualizacao em segundo plano. Sem systemd (ou na raiz falsa dos testes, que nao tem
+# $R/run/systemd/system) cai no podman direto.
+podman_em_escopo() {
+    local slug="$1"; shift
+    if command -v systemd-run >/dev/null 2>&1 && [ -d "$R/run/systemd/system" ]; then
+        executar systemd-run --scope --quiet --collect \
+            --unit "dgclaw-conteiner-$slug-$(date +%s)-$$-$RANDOM" podman "$@"
+    else
+        executar podman "$@"
+    fi
+}
+
 # executar <comando...>
 # No ensaio, so anuncia. Fora dele, roda; se falhar, diz qual comando e com que
 # codigo, em vez de deixar o `set -e` derrubar o script em silencio.
@@ -335,28 +351,266 @@ caddyfile_e_padrao() {
     [ "$sites" = ":80 {" ]
 }
 
-# bloco_caddy <dominio> [porta]: a porta e a do DG Claw Web no host (padrao 8300, a mesma do
-# --porta-painel). Nao confundir com a 8300 de DENTRO do container de cada agente.
+# modo_tunel: 0 (sim) se o painel esta atras de tunel. O instalador decide em DGCLAW_TUNEL_ATIVO
+# (1 ou 0, vale nesta rodada); fora dele, vale a linha DGCLAW_ATRAS_DE_TUNEL=1 do dgclaw.env.
+modo_tunel() {
+    if [ -n "${DGCLAW_TUNEL_ATIVO:-}" ]; then [ "$DGCLAW_TUNEL_ATIVO" = 1 ]; return; fi
+    [ -f "$DG_ETC/dgclaw.env" ] && grep -qx 'DGCLAW_ATRAS_DE_TUNEL=1' "$DG_ETC/dgclaw.env"
+}
+
+# porta_de_endereco <endereco:porta>: imprime a porta explicita de um endereco (1.2.3.4:22, [::1]:22,
+# 0.0.0.0:22, *:22); nada se nao houver porta explicita.
+porta_de_endereco() {
+    local e="$1"
+    if [[ "$e" == \[*\]:* ]]; then printf '%s\n' "${e##*]:}"
+    elif [[ "$e" != *:*:* && "$e" == *:* ]]; then printf '%s\n' "${e##*:}"
+    fi
+}
+
+# pid_e_sshd_de_verdade <pid>: 0 (sim) so se o processo e do root (Uid real 0) E o executavel e um dos
+# do OpenSSH. O NOME do processo nao vale nada: qualquer usuario o troca (prctl PR_SET_NAME "sshd") e
+# escutaria numa porta alta que viraria `ufw allow`. PID inexistente ou ilegivel: rejeita.
+pid_e_sshd_de_verdade() {
+    local pid="$1" uid exe
+    [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+    uid="$(awk '/^Uid:/ {print $2; exit}' "$R/proc/$pid/status" 2>/dev/null)" || return 1
+    [ "$uid" = 0 ] || return 1
+    exe="$(readlink -f "$R/proc/$pid/exe" 2>/dev/null)" || return 1
+    exe="${exe#"$R"}"
+    case "$exe" in
+        /usr/sbin/sshd|/usr/lib/openssh/sshd-session|/usr/lib/openssh/sshd-auth|/usr/libexec/openssh/sshd-session|/usr/libexec/openssh/sshd-auth|/usr/sbin/sshd-session) return 0 ;;
+    esac
+    return 1
+}
+
+# pid_e_daemon_sshd <pid> <mainpids>: 0 (sim) so se o processo e o daemon principal do sshd, e nao uma
+# sessao: executavel exatamente /usr/sbin/sshd (sshd-session e sshd-auth sao sessao) E PPid 1 ou PID
+# igual a um dos MainPID listados (separados por espaco) de ssh.service/sshd.service.
+pid_e_daemon_sshd() {
+    local pid="$1" mainpids="$2" exe ppid
+    pid_e_sshd_de_verdade "$pid" || return 1
+    exe="$(readlink -f "$R/proc/$pid/exe" 2>/dev/null)" || return 1
+    [ "${exe#"$R"}" = /usr/sbin/sshd ] || return 1
+    ppid="$(awk '/^PPid:/ {print $2; exit}' "$R/proc/$pid/status" 2>/dev/null)" || return 1
+    [ "$ppid" = 1 ] && return 0
+    [[ " $mainpids " == *" $pid "* ]]
+}
+
+# portas_proc_sshd: as portas locais dos sockets TCP em LISTEN (0A) do processo PRINCIPAL do sshd (ver
+# pid_e_daemon_sshd). Sockets de encaminhamento de sessao (ssh -R com GatewayPorts) pertencem a processos
+# de sessao e nao sao porta de login, por isso so o daemon vale. Le direto do /proc, sem o ss, porque o
+# texto do ss traz o NOME do processo (e ate um "pid=N" dentro dele), que qualquer usuario escolhe. Aqui so
+# vale: PID aprovado, os inodes dos seus sockets (/proc/N/fd/*) e as linhas de /proc/net/tcp e tcp6 com
+# esse inode.
+portas_proc_sshd() {
+    local d pid fd alvo inodes=" " arq linha local_ st inode hex mainpids
+    mainpids="$(systemctl show -p MainPID --value ssh.service sshd.service 2>/dev/null | tr '\n' ' ')" || mainpids=""
+    for d in "$R"/proc/[0-9]*; do
+        [ -d "$d" ] || continue
+        pid="${d##*/}"
+        pid_e_daemon_sshd "$pid" "$mainpids" || continue
+        for fd in "$d"/fd/*; do
+            alvo="$(readlink "$fd" 2>/dev/null)" || continue
+            if [[ "$alvo" =~ ^socket:\[([0-9]+)\]$ ]]; then inodes+="${BASH_REMATCH[1]} "; fi
+        done
+    done
+    [ "$inodes" != " " ] || return 0
+    for arq in "$R/proc/net/tcp" "$R/proc/net/tcp6"; do
+        [ -r "$arq" ] || continue
+        while read -r _ local_ _ st _ _ _ _ _ inode _; do
+            [ "$st" = 0A ] || continue
+            [[ "$inode" =~ ^[0-9]+$ ]] || continue
+            [[ "$inodes" == *" $inode "* ]] || continue
+            hex="${local_##*:}"
+            [[ "$hex" =~ ^[0-9A-Fa-f]{1,4}$ ]] || continue
+            printf '%s\n' "$((16#$hex))"
+        done < <(tail -n +2 "$arq")
+    done
+}
+
+# portas_ssh: uma porta por linha. E a UNIAO, sem repeticao e validada (1-65535), de tudo que indica
+# onde o SSH atende: (a) "port" e (b) a porta explicita de "listenaddress" do sshd -T; (c) as portas
+# em escuta do processo principal do sshd (root, /usr/sbin/sshd, PPid 1 ou MainPID do servico; nao o nome); (d) as portas de ssh.socket/sshd.socket ativos (ativacao por socket).
+# Conexoes estabelecidas nao entram: o encaminhamento de uma sessao nao e porta de login.
+# Liberar uma porta de SSH a mais e aceitavel; deixar de liberar a que esta em uso tranca o dono
+# para fora. Se nada vier, 22.
+portas_ssh() {
+    local brutas="" linha campo unit p
+    # (a) e (b)
+    while read -r campo linha _; do
+        case "$campo" in
+            port) brutas+="$linha"$'\n' ;;
+            listenaddress) brutas+="$(porta_de_endereco "$linha")"$'\n' ;;
+        esac
+    done < <(sshd -T 2>/dev/null || true)
+    # (c): sockets em escuta do daemon do sshd, lidos do /proc.
+    brutas+="$(portas_proc_sshd)"$'\n'
+    # (d)
+    for unit in ssh.socket sshd.socket; do
+        if systemctl is-active --quiet "$unit" 2>/dev/null; then
+            brutas+="$(systemctl show -p Listen "$unit" 2>/dev/null | grep -oE ':[0-9]+ \(Stream\)' | grep -oE '[0-9]+' || true)"$'\n'
+        fi
+    done
+    local validas=""
+    while IFS= read -r p; do
+        [[ "$p" =~ ^[0-9]{1,5}$ ]] || continue
+        p=$((10#$p))
+        if [ "$p" -lt 1 ] || [ "$p" -gt 65535 ]; then continue; fi
+        validas+="$p"$'\n'
+    done < <(printf '%s' "$brutas" | sort -un)
+    if [ -n "$validas" ]; then printf '%s' "$validas"; else printf '22\n'; fi
+}
+
+# Tipos de conteudo que o Caddy comprime. A lista e explicita de proposito: o stream da conversa
+# (text/event-stream, web/lib/sse.js) NAO pode entrar, senao a compressao o retem e as mensagens
+# deixam de chegar na hora. Por isso nada de `text/*` generico.
+CADDY_TIPOS_COMPRIMIDOS=(
+    'text/html' 'text/css' 'text/plain' 'text/javascript' 'application/javascript'
+    'application/json' 'application/manifest+json' 'application/xml' 'image/svg+xml'
+)
+
+# bloco_caddy <dominio> [tunel|publico] [porta]: o site do DG Claw. Sem o 2o argumento vale o modo atual
+# (modo_tunel). A porta e a do DG Claw Web no host (padrao 8300, a mesma do --porta-painel); nao confundir
+# com a 8300 de DENTRO do container de cada agente.
 bloco_caddy() {
-    printf '# DG Claw: gerado pelo install.sh. Rodar o instalador de novo reescreve este arquivo.\n'
+    local tipo modo="${2:-}" porta="${3:-$DG_PORTA_PAINEL_PADRAO}"
+    if [ -z "$modo" ]; then if modo_tunel; then modo=tunel; else modo=publico; fi; fi
+    printf '# DG Claw: gerado pelo install.sh. Se voce editar este arquivo, o instalador e o dgclaw atualizar\n'
+    printf '# deixam a sua versao como esta (so o dgclaw dominio troca o nome do site).\n'
+    printf '%s {\n' "$1"
+    if [ "$modo" = tunel ]; then
+        # Sem IP publico o Let's Encrypt nao valida o nome: certificado da CA local do Caddy, e o
+        # tunel conecta em https://127.0.0.1:443 sem verificar o certificado.
+        # bind no loopback: so processos do proprio servidor (o cloudflared) alcancam o Caddy neste
+        # modo, entao ninguem da rede local consegue forjar o Cf-Connecting-IP, nem com o ufw desligado.
+        # So por isso e seguro confiar nele: o X-Forwarded-For passa a ser o IP real de quem acessa, e o
+        # painel (que usa o ultimo valor do XFF vindo do loopback) conta o limite de tentativas de login
+        # por pessoa, e nao um contador unico para todo mundo (o tunel chega sempre como 127.0.0.1).
+        printf '\tbind 127.0.0.1\n\ttls internal\n'
+    fi
+    printf '\tencode {\n\t\tzstd\n\t\tgzip\n\t\tmatch {\n'
+    for tipo in "${CADDY_TIPOS_COMPRIMIDOS[@]}"; do
+        printf '\t\t\theader Content-Type %s*\n' "$tipo"
+    done
+    printf '\t\t}\n\t}\n'
+    if [ "$modo" = tunel ]; then
+        printf '\t@tunel header Cf-Connecting-IP *\n\thandle @tunel {\n\t\treverse_proxy 127.0.0.1:%s {\n' "$porta"
+        printf '\t\t\theader_up X-Forwarded-For {http.request.header.Cf-Connecting-IP}\n\t\t}\n\t}\n'
+        printf '\thandle {\n\t\treverse_proxy 127.0.0.1:%s\n\t}\n}\n' "$porta"
+    else
+        printf '\treverse_proxy 127.0.0.1:%s\n}\n' "$porta"
+    fi
+}
+
+# bloco_caddy_antigo <dominio> [porta]: o que as versoes anteriores gravavam (sem compressao). So serve para
+# reconhecer um arquivo que o instalador gerou e que ninguem editou.
+bloco_caddy_antigo() {
     printf '%s {\n\treverse_proxy 127.0.0.1:%s\n}\n' "$1" "${2:-$DG_PORTA_PAINEL_PADRAO}"
 }
 
-# escrever_site_caddy <dominio> [porta]: grava o site do DG Claw no Caddyfile proprio (quando e dele ou
+# caddy_corpo <arquivo|->: o arquivo sem comentarios nem linhas em branco, para comparar o conteudo.
+caddy_corpo() { grep -v '^[[:space:]]*#' "$1" | grep -v '^[[:space:]]*$' || true; }
+
+# caddy_dominio_do_site <arquivo>: o endereco da primeira linha de site ("<endereco> {").
+caddy_dominio_do_site() {
+    grep -E '^[^[:space:]#]+[[:space:]]*\{[[:space:]]*$' "$1" | head -n 1 | sed -E 's/[[:space:]]*\{[[:space:]]*$//' || true
+}
+
+# caddy_site_e_gerado <arquivo> [porta]: 0 se o conteudo e exatamente o que o instalador gera (o formato novo
+# ou o antigo, com qualquer comentario no topo). Qualquer linha a mais ou a menos e personalizacao.
+caddy_site_e_gerado() {
+    local arq="$1" porta="${2:-$DG_PORTA_PAINEL_PADRAO}" dom corpo achada
+    # A porta do reverse_proxy pode ser qualquer uma valida (1024-65535): quem troca --porta-painel numa
+    # reinstalacao tem o site de antes reconhecido como gerado (e regravado), nao como personalizacao.
+    # Isso so vale se o arquivo inteiro for igual ao gerado para essa porta (abaixo): qualquer outra
+    # diferenca continua sendo personalizacao.
+    achada="$(grep -m1 -oE 'reverse_proxy 127\.0\.0\.1:[0-9]+' "$arq" | head -n 1 | sed 's/.*://' || true)"
+    if [[ "$achada" =~ ^[0-9]{4,5}$ ]] && [ "$achada" -ge 1024 ] && [ "$achada" -le 65535 ]; then porta="$achada"; fi
+    dom="$(caddy_dominio_do_site "$arq")"
+    [ -n "$dom" ] || return 1
+    corpo="$(caddy_corpo "$arq")"
+    # As duas variantes (publico e tunel) contam como geradas: um arquivo gerado no outro modo tem que ser
+    # trocado, e nunca tratado como personalizacao (senao o tunel poderia ficar sem o bind 127.0.0.1).
+    [ "$corpo" = "$(bloco_caddy "$dom" publico "$porta" | caddy_corpo -)" ] && return 0
+    [ "$corpo" = "$(bloco_caddy "$dom" tunel "$porta" | caddy_corpo -)" ] && return 0
+    [ "$corpo" = "$(bloco_caddy_antigo "$dom" "$porta" | caddy_corpo -)" ] && return 0
+    return 1
+}
+
+# Resultado de escrever_site_caddy, para quem chama validar e recarregar:
+#   CADDY_SITE_MUDOU=1 se o arquivo foi gravado; CADDY_SITE_ARQUIVO = qual; CADDY_SITE_COPIA = copia
+#   do que havia antes (vazio se o arquivo nao existia), usada por caddy_restaurar_site.
+CADDY_SITE_MUDOU=0
+CADDY_SITE_ARQUIVO=""
+CADDY_SITE_COPIA=""
+
+# caddy_restaurar_site: desfaz a ultima escrever_site_caddy (a validacao do Caddy recusou o arquivo novo).
+caddy_restaurar_site() {
+    [ "$CADDY_SITE_MUDOU" = 1 ] && [ -n "$CADDY_SITE_ARQUIVO" ] || return 0
+    if [ -n "$CADDY_SITE_COPIA" ] && [ -f "$CADDY_SITE_COPIA" ]; then
+        cp -p "$CADDY_SITE_COPIA" "$CADDY_SITE_ARQUIVO"
+    else
+        rm -f "$CADDY_SITE_ARQUIVO"
+    fi
+}
+
+# escrever_site_caddy <dominio> [trocar] [porta]: grava o site do DG Claw no Caddyfile proprio (quando e dele ou
 # padrao) ou em conf.d/dgclaw.caddy (quando o Caddyfile tem sites de outros). Nao valida nem recarrega.
+# Arquivo que ja existe e foi personalizado (diferente do que o instalador gera) nao e tocado: avisa o
+# que acrescentar. Com "trocar" (dgclaw dominio), o arquivo personalizado vira copia ao lado e o bloco gerado entra no lugar.
 escrever_site_caddy() {
-    local dominio="$1" porta="${2:-$DG_PORTA_PAINEL_PADRAO}" cf="$R/etc/caddy/Caddyfile" confd="$R/etc/caddy/conf.d/dgclaw.caddy"
+    local copia dominio="$1" modo="${2:-}" porta="${3:-$DG_PORTA_PAINEL_PADRAO}" cf="$R/etc/caddy/Caddyfile" confd="$R/etc/caddy/conf.d/dgclaw.caddy" alvo
+    CADDY_SITE_MUDOU=0
+    CADDY_SITE_ARQUIVO=""
+    CADDY_SITE_COPIA=""
     if [ ! -f "$cf" ] || grep -q '^# DG Claw' "$cf" || caddyfile_e_padrao "$cf"; then
-        bloco_caddy "$dominio" "$porta" | escrever_arquivo "$cf" 644
+        alvo="$cf"
     else
         # Ja existe um Caddyfile com sites de verdade: nao se sobrescreve o que e dos outros.
         if ! grep -Eq '^[[:space:]]*import[[:space:]]+.*conf\.d/\*' "$cf"; then
             falha "o Caddyfile em ${cf#"$R"} ja tem outros sites e nao importa a pasta conf.d, entao nao tenho onde colocar o do DG Claw sem mexer no seu." \
                 "acrescente a linha 'import conf.d/*' no topo do arquivo (fora de qualquer bloco) e rode ./install.sh de novo. Ele vai criar ${confd#"$R"} com o site do DG Claw."
         fi
-        bloco_caddy "$dominio" "$porta" | escrever_arquivo "$confd" 644
-        info "o Caddyfile existente foi preservado; o site do DG Claw ficou em ${confd#"$R"}"
+        alvo="$confd"
+        info "o Caddyfile existente foi preservado; o site do DG Claw fica em ${confd#"$R"}"
     fi
+
+    if [ -f "$alvo" ] && [ "$ENSAIO" != 1 ]; then
+        if cmp -s "$alvo" <(bloco_caddy "$dominio" "" "$porta"); then
+            return 0
+        fi
+        # O Caddyfile padrao do pacote (":80 { root * /usr/share/caddy ... }") nao e personalizacao: e o que
+        # o apt deixa, e o site do DG Claw o substitui (com copia para restaurar se a validacao falhar).
+        if [ "$alvo" = "$cf" ] && caddyfile_e_padrao "$cf"; then
+            :
+        elif ! caddy_site_e_gerado "$alvo" "$porta"; then
+            if [ "$modo" = trocar ]; then
+                # dgclaw dominio: o arquivo editado vira copia ao lado e o bloco gerado entra no lugar. A copia fica
+                # em /etc/caddy (nunca em conf.d/, que o Caddyfile importa e duplicaria o site).
+                copia="$R/etc/caddy/$(basename "$alvo").antes-dominio-$(date +%Y%m%d-%H%M%S)"
+                cp -p "$alvo" "$copia" \
+                    || falha "nao consegui guardar uma copia de ${alvo#"$R"} em ${copia#"$R"} antes de trocar o dominio (nada foi gravado)." \
+                        "confira espaco em disco e permissao de ${R}/etc/caddy e rode de novo."
+                aviso "${alvo#"$R"} tinha personalizacoes suas; guardei uma copia em ${copia#"$R"} e gravei o site padrao do DG Claw com '$dominio'. Para levar as suas personalizacoes de volta, copie as linhas que quiser da copia para dentro do bloco do site em ${alvo#"$R"}, rode caddy validate --config ${cf#"$R"} --adapter caddyfile e sudo systemctl reload caddy."
+            else
+                # Atras de tunel o bind so no loopback e o encaminhamento do IP real (Cf-Connecting-IP) sao o que
+                # impede de alcancar a origem por fora e de forjar o IP para gastar o limite de tentativas de login
+                # do dono. Conferir isso num arquivo personalizado exigiria interpretar o Caddyfile inteiro (binds
+                # acumulam entre blocos), entao personalizado no modo tunel nunca fica valendo: o instalador para.
+                if modo_tunel; then
+                    falha "o site do DG Claw em ${alvo#"$R"} tem personalizacoes suas, e no modo tunel o instalador so aceita o site que ele mesmo gera: ele precisa garantir que o Caddy escute apenas em 127.0.0.1 e que o IP real de cada visitante (Cf-Connecting-IP) chegue ao painel, senao qualquer um alcanca o painel por fora do tunel ou bloqueia o seu login com 5 tentativas erradas." \
+                        "guarde uma copia do arquivo (sudo cp ${alvo#"$R"} /root/caddy-site-antes-do-tunel), apague o original (sudo rm ${alvo#"$R"}) e rode ./install.sh de novo: ele gera o site padrao do modo tunel. Depois, se quiser, leve para dentro do bloco gerado as linhas suas que nao mexem em bind, endereco do site nem reverse_proxy, e rode caddy validate --config ${cf#"$R"} --adapter caddyfile && sudo systemctl reload caddy."
+                fi
+                aviso "${alvo#"$R"} tem personalizacoes suas e nao foi alterado, entao o site continua sem a compressao nova (a conversa e o painel ficam mais lentos no celular). Para ligar, acrescente dentro do bloco do site, antes do reverse_proxy: encode { zstd gzip match { header Content-Type text/html* header Content-Type text/css* header Content-Type text/plain* header Content-Type text/javascript* header Content-Type application/javascript* header Content-Type application/json* header Content-Type application/manifest+json* header Content-Type application/xml* header Content-Type image/svg+xml* } } (nao use 'text/*': ele comprimiria o stream da conversa, text/event-stream, e as mensagens deixariam de chegar na hora). Depois rode: caddy validate --config ${cf#"$R"} --adapter caddyfile && sudo systemctl reload caddy"
+                return 0
+            fi
+        fi
+        CADDY_SITE_COPIA="$(mktemp)"
+        cp -p "$alvo" "$CADDY_SITE_COPIA"
+    fi
+    bloco_caddy "$dominio" "" "$porta" | escrever_arquivo "$alvo" 644
+    CADDY_SITE_MUDOU=1
+    CADDY_SITE_ARQUIVO="$alvo"
 }
 
 # --- inotify ---------------------------------------------------------------------

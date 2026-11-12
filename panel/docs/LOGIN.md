@@ -46,6 +46,10 @@ dono e chegando pelo proxy. Sem nenhuma dessas três configurada, nada entra.
 
 ## Chaves de API (Bearer)
 
+Na tela, o nome é "Chaves de acesso à API". Elas deixam outro programa ou agente usar a API; não é
+onde se guarda senha ou token de serviço (OpenAI, Hostinger...), que é o formulário Guardar uma chave
+do Cofre.
+
 `Authorization: Bearer dgc_...` vale em `/api/*`, menos em `/api/chaves-api*`. Criar,
 listar e revogar: aba Cofre, `GET/POST/DELETE /api/chaves-api` (só por senha) ou
 `node panel/bin/chave-api.js`. Detalhes em `panel/docs/COFRE.md` e

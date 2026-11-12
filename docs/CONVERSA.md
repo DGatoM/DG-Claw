@@ -55,15 +55,27 @@ gravar um áudio novo interrompe a fila inteira. O botão 🎧 de cada fala do a
 O botão 👁 do cabeçalho esconde nomes, valores e contatos de todas as mensagens para mostrar a tela
 numa aula. Como funciona, variáveis, cache e limites: [MODO-ESCONDIDO.md](MODO-ESCONDIDO.md).
 
-## Campo de senha na conversa
+## Campo de senha na conversa (caixa de cofre)
 
 Quando o dono vai guardar uma chave de API, o agente responde com um bloco ```` ```dgcofre ````
 contendo o nome da variável (ex. `GROQ_API_KEY`) e, na segunda linha, um rótulo opcional. A tela
-(`web/public/campo-cofre.js`) troca o bloco por um cartão com campo de senha e o botão **Salvar no
-cofre**. O valor vai por `POST /p/<agente>/api/cofre` (com `aplicar: true`) e nunca entra na
-conversa, no histórico nem no `localStorage`; este guarda só o marcador `dgcofre-salvo:<agente>:<hash>`.
-Nome fora de `^[A-Z_][A-Z0-9_]{1,63}$` vira bloco de código comum. Depois de salvar, a tela manda ao
-agente "NOME salva no cofre." (com novas tentativas enquanto ele reinicia).
+(`web/public/campo-cofre.js`) troca o bloco por um cartão com campo de senha, botão de mostrar,
+**Salvar no cofre** e a linha fixa "O valor vai direto para o cofre. Não entra na conversa nem chega
+ao agente. Salvar reinicia o agente para a chave valer; a conversa continua de onde parou." O valor
+vai por `POST /p/<agente>/api/cofre` (com `aplicar: true`) e nunca entra na conversa, no histórico nem
+no `localStorage`; este guarda só o marcador `dgcofre-salvo:<agente>:<hash>`. Nome fora de
+`^[A-Z_][A-Z0-9_]{1,63}$` vira bloco de código comum.
+
+- Se a chave já existe, o cartão diz "Já tem uma guardada (final xxxx). Salvar de novo substitui." O
+  estado vem do servidor (`GET /p/<agente>/api/cofre`, só nomes e finais), então vale também depois de
+  recarregar a página.
+- Depois de salvar, o servidor manda ao agente `[cofre] NOME guardada (final xxxx).` (a tela só pede com
+  `avisar:true`; o servidor monta o texto e tenta de novo enquanto o agente reinicia). Na conversa a
+  mensagem aparece com a etiqueta "do cofre".
+- O campo tem `autocorrect="off"`, `data-1p-ignore` e `data-lpignore`; Enter salva, Esc limpa; o que se
+  digita ou cola nele não chega aos atalhos da conversa; o alvo de toque é de 44 px e cabe em 320 px.
+- A mesma caixa abre pela peça `dv-cofre` da lousa: [VISUAIS.md](VISUAIS.md) e
+  [COFRE-NA-CONVERSA.md](COFRE-NA-CONVERSA.md).
 
 ## Componentes
 

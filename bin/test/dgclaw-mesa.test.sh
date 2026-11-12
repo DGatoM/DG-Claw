@@ -220,6 +220,90 @@ prepara 'isto nao e json' 0
 rodar vivo 12
 ok "resposta que nao e JSON nao finge sucesso (5)" $([ $C = 5 ] && echo 0 || echo 1)
 
+# --- fila de pedidos (dgclaw-mesa pedido ...) ---------------------------------
+P7='{"ok":true,"pedido":{"id":7,"agente":"luna","texto":"Dono, 12/11 10h25: refazer a capa","estado":"fazendo","motivo":null,"msg_entrega":null,"criado_em":"2026-11-12T10:25:00-03:00","historico":[{"em":"2026-11-12T10:25:00-03:00","por":"agente luna","de":null,"para":"fazendo"}]}}'
+prepara "$P7" 0
+rodar pedido criar --texto "Dono, 12/11 10h25: refazer a capa"
+ok "pedido criar sai com 0" $([ $C = 0 ] && echo 0 || echo 1)
+[ "$(chamada)" = "POST /api/v1/pedidos" ]; ok "pedido criar faz POST /api/v1/pedidos" $?
+corpo_igual '{"texto":"Dono, 12/11 10h25: refazer a capa"}'; ok "pedido criar manda so o texto" $?
+[ "$(cat "$T/o")" = "pedido #7 criado (fazendo)" ]; ok "pedido criar imprime o id" $?
+rodar pedido criar --texto "Aspas \"x\" e \$(touch $T/invadido2) e acento é"
+corpo_igual "$(jq -nc --arg t "Aspas \"x\" e \$(touch $T/invadido2) e acento é" '{texto:$t}')"; ok "pedido criar leva aspas, \$() e acentos intactos" $?
+[ ! -e "$T/invadido2" ]; ok "pedido criar nao executa \$() do texto" $?
+rodar pedido criar
+ok "pedido criar sem --texto sai com 1" $([ $C = 1 ] && echo 0 || echo 1)
+grep -q -- "--texto" "$T/e"; ok "pedido criar sem --texto explica o que falta" $?
+rodar pedido criar --texto x --bobagem 1
+ok "pedido criar com opcao desconhecida sai com 1" $([ $C = 1 ] && echo 0 || echo 1)
+
+prepara '{"ok":true,"pedido":{"id":7,"estado":"esperando_dono","motivo":"capa azul ou verde?"}}' 0
+rodar pedido esperar 7 --motivo "capa azul ou verde?"
+[ "$(chamada)" = "PATCH /api/v1/pedidos/7" ] && corpo_igual '{"estado":"esperando_dono","motivo":"capa azul ou verde?"}'; ok "pedido esperar faz PATCH com estado e motivo" $?
+grep -q "pedido #7: esperando você: capa azul ou verde?" "$T/o"; ok "pedido esperar imprime o motivo" $?
+rodar pedido esperar 7
+ok "pedido esperar sem --motivo sai com 1" $([ $C = 1 ] && echo 0 || echo 1)
+rodar pedido esperar --motivo x
+ok "pedido esperar sem id sai com 1" $([ $C = 1 ] && echo 0 || echo 1)
+grep -q "falta o id do pedido" "$T/e"; ok "o erro de id fala em pedido, nao em tarefa" $?
+rodar pedido esperar abc --motivo x
+ok "pedido com id que nao e numero sai com 1" $([ $C = 1 ] && echo 0 || echo 1)
+
+prepara '{"ok":true,"pedido":{"id":7,"estado":"fazendo"}}' 0
+rodar pedido fazendo 7
+[ "$(chamada)" = "PATCH /api/v1/pedidos/7" ] && corpo_igual '{"estado":"fazendo"}'; ok "pedido fazendo faz PATCH estado fazendo" $?
+
+prepara '{"ok":true,"pedido":{"id":7,"estado":"entregue"}}' 0
+rodar pedido entregar 7
+[ "$(chamada)" = "PATCH /api/v1/pedidos/7" ] && corpo_igual '{"estado":"entregue"}'; ok "pedido entregar sem --msg manda so o estado" $?
+[ "$(cat "$T/o")" = "pedido #7 entregue" ]; ok "pedido entregar imprime a frase" $?
+rodar pedido entregar 7 --msg 3fa9c01b22d4e7a1
+corpo_igual '{"estado":"entregue","msg":"3fa9c01b22d4e7a1"}'; ok "pedido entregar --msg leva o id da mensagem" $?
+prepara '{"ok":true,"pedido":{"id":7,"estado":"entregue"},"aviso":"sem apontar a mensagem"}' 0
+rodar pedido entregar 7
+grep -q "aviso: sem apontar a mensagem" "$T/o"; ok "pedido entregar mostra o aviso do servidor" $?
+
+prepara '{"ok":false,"erro":"O agente não marca o pedido #7 como feito."}' 4 "dgclaw-api: HTTP 403"
+rodar pedido entregar 7
+ok "recusa do Web em pedido sai com 4" $([ $C = 4 ] && echo 0 || echo 1)
+grep -q "não marca o pedido #7 como feito" "$T/e"; ok "pedido recusado mostra a frase do Web" $?
+
+prepara '{"ok":true,"pedido":{"id":7,"estado":"cancelado"}}' 0
+rodar pedido cancelar 7 --motivo "o dono desistiu"
+[ "$(chamada)" = "DELETE /api/v1/pedidos/7" ] && corpo_igual '{"motivo":"o dono desistiu"}'; ok "pedido cancelar faz DELETE com o motivo" $?
+[ "$(cat "$T/o")" = "pedido #7 cancelado" ]; ok "pedido cancelar imprime a frase" $?
+rodar pedido cancelar 7
+ok "pedido cancelar sem --motivo sai com 1" $([ $C = 1 ] && echo 0 || echo 1)
+
+prepara "$P7" 0
+rodar pedido ver 7
+[ "$(chamada)" = "GET /api/v1/pedidos/7" ]; ok "pedido ver faz GET /api/v1/pedidos/<id>" $?
+grep -q "pedido #7 Dono, 12/11 10h25: refazer a capa" "$T/o" && grep -q "agente luna: - para fazendo" "$T/o"; ok "pedido ver mostra o pedido e o historico" $?
+
+prepara '{"ok":true,"pedidos":[{"id":7,"estado":"esperando_dono","texto":"refazer a capa","motivo":"azul ou verde?"},{"id":8,"estado":"fazendo","texto":"post","motivo":null}]}' 0
+rodar pedido listar
+[ "$(chamada)" = "GET /api/v1/pedidos" ]; ok "pedido listar faz GET /api/v1/pedidos" $?
+grep -q '^#7 esperando_dono "refazer a capa" | motivo: azul ou verde?$' "$T/o" && grep -q '^#8 fazendo "post"$' "$T/o"; ok "pedido listar imprime uma linha por pedido" $?
+rodar pedido listar --dia todos
+[ "$(chamada)" = "GET /api/v1/pedidos?dia=todos" ]; ok "pedido listar --dia vai na query" $?
+rodar pedido listar --dia amanha
+ok "pedido listar com --dia invalido sai com 1" $([ $C = 1 ] && echo 0 || echo 1)
+prepara '{"ok":true,"pedidos":[]}' 0
+rodar pedido listar
+grep -q "nenhum pedido." "$T/o"; ok "pedido listar vazio diz que nao ha pedido" $?
+rodar pedido listar --json
+[ "$(jq -c . "$T/o")" = '{"ok":true,"pedidos":[]}' ]; ok "pedido listar --json imprime a resposta crua" $?
+
+rodar pedido
+ok "pedido sem acao sai com 1" $([ $C = 1 ] && echo 0 || echo 1)
+rodar pedido voar 7
+ok "pedido com acao desconhecida sai com 1" $([ $C = 1 ] && echo 0 || echo 1)
+prepara '' 2
+rodar pedido fazendo 7
+ok "web fora do ar em pedido repassa o 2" $([ $C = 2 ] && echo 0 || echo 1)
+rodar ajuda
+grep -q "dgclaw-mesa pedido entregar" "$T/o"; ok "ajuda mostra os comandos de pedido" $?
+
 # --- dgclaw-api ausente ------------------------------------------------------
 ( export DGCLAW_API_BIN="$T/nao-existe"; rodar vivo 12; [ "$C" = 3 ] && grep -q "não está instalada" "$T/e" && grep -q "reparar" "$T/e" ); ok "sem dgclaw-api sai com 3 e diz o que fazer" $?
 

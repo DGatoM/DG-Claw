@@ -1,0 +1,903 @@
+{
+ "documentos": [
+  {
+   "id": "v1-compra-venda-veiculo",
+   "arquivo": "v1-compra-venda-veiculo.txt",
+   "formato": "txt",
+   "esperados": [
+    {
+     "tipo": "PESSOA",
+     "texto": "Anderson Luís Peixoto de Mello"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "123.456.789-09"
+    },
+    {
+     "tipo": "RG",
+     "texto": "11.222.333-4"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Avenida Brasil, nº 1500, Bloco B, Centro, Goiânia/GO"
+    },
+    {
+     "tipo": "CEP",
+     "texto": "74003-010"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "VALÉRIA CRISTINA DOS REIS"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "24681357928"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Rua 15 de Novembro, 321, Setor Oeste, Goiânia/GO"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 48.500,00"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 10.000"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "07/11/2026"
+    },
+    {
+     "tipo": "CONTA",
+     "texto": "30405-2"
+    },
+    {
+     "tipo": "AGENCIA",
+     "texto": "1122"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "62 99444-1010"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "valeria.reis@exemplo.com.br"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Osmar"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "07/11/2026"
+    }
+   ],
+   "armadilhas": [
+    {
+     "texto": "Renault Kwid"
+    },
+    {
+     "texto": "2020/2021"
+    },
+    {
+     "texto": "Receita Federal"
+    },
+    {
+     "texto": "Detran"
+    },
+    {
+     "texto": "Itaú"
+    },
+    {
+     "texto": "2026.114.887-3"
+    }
+   ],
+   "itens": [
+    {
+     "tipo": "PESSOA",
+     "texto": "Anderson Luís Peixoto de Mello"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "123.456.789-09"
+    },
+    {
+     "tipo": "RG",
+     "texto": "11.222.333-4"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Avenida Brasil, nº 1500, Bloco B, Centro, Goiânia/GO"
+    },
+    {
+     "tipo": "CEP",
+     "texto": "74003-010"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "VALÉRIA CRISTINA DOS REIS"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "24681357928"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Rua 15 de Novembro, 321, Setor Oeste, Goiânia/GO"
+    },
+    {
+     "tipo": "!",
+     "texto": "Renault Kwid"
+    },
+    {
+     "tipo": "!",
+     "texto": "2020/2021"
+    },
+    {
+     "tipo": "!",
+     "texto": "Receita Federal"
+    },
+    {
+     "tipo": "!",
+     "texto": "Detran"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 48.500,00"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 10.000"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "07/11/2026"
+    },
+    {
+     "tipo": "CONTA",
+     "texto": "30405-2"
+    },
+    {
+     "tipo": "AGENCIA",
+     "texto": "1122"
+    },
+    {
+     "tipo": "!",
+     "texto": "Itaú"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "62 99444-1010"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "valeria.reis@exemplo.com.br"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Osmar"
+    },
+    {
+     "tipo": "!",
+     "texto": "2026.114.887-3"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "07/11/2026"
+    }
+   ]
+  },
+  {
+   "id": "v2-email-trabalhista",
+   "arquivo": "v2-email-trabalhista.docx",
+   "formato": "docx",
+   "esperados": [
+    {
+     "tipo": "PESSOA",
+     "texto": "Everton Jorge Lacerda"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Everton Lacerda"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "112.358.132-07"
+    },
+    {
+     "tipo": "PIS",
+     "texto": "123.45678.90-0"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "30/11/2026"
+    },
+    {
+     "tipo": "CONTA",
+     "texto": "55667-8"
+    },
+    {
+     "tipo": "AGENCIA",
+     "texto": "3344"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 14.870,32"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Camila Veiga"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Rodoeste Transportes e Logística Ltda"
+    },
+    {
+     "tipo": "CNPJ",
+     "texto": "45.678.912/0001-55"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "(67) 99211-3040"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "everton.lacerda@exemplo.com.br"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Rua Joaquim Murtinho, 88, ap. 304, Campo Grande/MS"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Hélio"
+    }
+   ],
+   "armadilhas": [
+    {
+     "texto": "10 dias"
+    },
+    {
+     "texto": "CLT"
+    },
+    {
+     "texto": "sala 3"
+    },
+    {
+     "texto": "14h"
+    }
+   ],
+   "itens": [
+    {
+     "tipo": "PESSOA",
+     "texto": "Everton Jorge Lacerda"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Everton Lacerda"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "112.358.132-07"
+    },
+    {
+     "tipo": "PIS",
+     "texto": "123.45678.90-0"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "30/11/2026"
+    },
+    {
+     "tipo": "CONTA",
+     "texto": "55667-8"
+    },
+    {
+     "tipo": "AGENCIA",
+     "texto": "3344"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 14.870,32"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Camila Veiga"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Rodoeste Transportes e Logística Ltda"
+    },
+    {
+     "tipo": "CNPJ",
+     "texto": "45.678.912/0001-55"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "(67) 99211-3040"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "everton.lacerda@exemplo.com.br"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Rua Joaquim Murtinho, 88, ap. 304, Campo Grande/MS"
+    },
+    {
+     "tipo": "!",
+     "texto": "10 dias"
+    },
+    {
+     "tipo": "!",
+     "texto": "CLT"
+    },
+    {
+     "tipo": "!",
+     "texto": "sala 3"
+    },
+    {
+     "tipo": "!",
+     "texto": "14h"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Hélio"
+    }
+   ]
+  },
+  {
+   "id": "v3-ficha-paciente",
+   "arquivo": "v3-ficha-paciente.pdf",
+   "formato": "pdf",
+   "esperados": [
+    {
+     "tipo": "PESSOA",
+     "texto": "Maria das Dores Albuquerque Neves"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Dores"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "02 de fevereiro de 1955"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "98765432100"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Rua Sergipe, 77, Boa Viagem, Recife/PE"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "81 3466-2200"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Tiago Neves"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "(81) 98877-1234"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Valmir Cordeiro"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Hospital Santa Clara"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "15/10/2026"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 350,00"
+    }
+   ],
+   "armadilhas": [
+    {
+     "texto": "700 5081 4829 0002"
+    },
+    {
+     "texto": "bronquite aguda"
+    },
+    {
+     "texto": "amoxicilina"
+    },
+    {
+     "texto": "88213"
+    }
+   ],
+   "itens": [
+    {
+     "tipo": "PESSOA",
+     "texto": "Maria das Dores Albuquerque Neves"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Dores"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "02 de fevereiro de 1955"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "98765432100"
+    },
+    {
+     "tipo": "!",
+     "texto": "700 5081 4829 0002"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Rua Sergipe, 77, Boa Viagem, Recife/PE"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "81 3466-2200"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Tiago Neves"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "(81) 98877-1234"
+    },
+    {
+     "tipo": "!",
+     "texto": "bronquite aguda"
+    },
+    {
+     "tipo": "!",
+     "texto": "amoxicilina"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Valmir Cordeiro"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Hospital Santa Clara"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "15/10/2026"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 350,00"
+    },
+    {
+     "tipo": "!",
+     "texto": "88213"
+    }
+   ]
+  },
+  {
+   "id": "v4-whatsapp-grupo",
+   "arquivo": "v4-whatsapp-grupo.txt",
+   "formato": "txt",
+   "esperados": [
+    {
+     "tipo": "DATA",
+     "texto": "21/09/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Rafa"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Rua Alfredo Pujol, 410, Santana, São Paulo/SP"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "21/09/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Lúcio Ferraz"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "21/09/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Rafa"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 25"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "11 97788-9900"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "rafa.racha@exemplo.com.br"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "21/09/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Kleber \"Pitbull\" Amaral"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "21/09/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Rafa"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Pitbull"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "21/09/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Lúcio Ferraz"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Dudu"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "11 3221 4567"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "21/09/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Rafa"
+    }
+   ],
+   "armadilhas": [
+    {
+     "texto": "Marginal Tietê"
+    },
+    {
+     "texto": "Gatorade"
+    }
+   ],
+   "itens": [
+    {
+     "tipo": "DATA",
+     "texto": "21/09/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Rafa"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Rua Alfredo Pujol, 410, Santana, São Paulo/SP"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "21/09/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Lúcio Ferraz"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "21/09/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Rafa"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 25"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "11 97788-9900"
+    },
+    {
+     "tipo": "EMAIL",
+     "texto": "rafa.racha@exemplo.com.br"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "21/09/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Kleber \"Pitbull\" Amaral"
+    },
+    {
+     "tipo": "!",
+     "texto": "Marginal Tietê"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "21/09/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Rafa"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Pitbull"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "21/09/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Lúcio Ferraz"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Dudu"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "11 3221 4567"
+    },
+    {
+     "tipo": "DATA",
+     "texto": "21/09/2026"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Rafa"
+    },
+    {
+     "tipo": "!",
+     "texto": "Gatorade"
+    }
+   ]
+  },
+  {
+   "id": "v5-funcionarios",
+   "arquivo": "v5-funcionarios.xlsx",
+   "formato": "xlsx",
+   "esperados": [
+    {
+     "tipo": "PESSOA",
+     "texto": "Hugo Siqueira Bernardes"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "39053344705"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "11988776655"
+    },
+    {
+     "tipo": "AGENCIA",
+     "texto": "0012"
+    },
+    {
+     "tipo": "CONTA",
+     "texto": "445566-7"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Rua Itapeva, 500, Bela Vista, São Paulo/SP"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 4.100,00"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "MIRIAN ALVES CARDOSO"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "111.444.777-35"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "(11) 97766-5544"
+    },
+    {
+     "tipo": "AGENCIA",
+     "texto": "0345"
+    },
+    {
+     "tipo": "CONTA",
+     "texto": "778899-0"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Alameda Santos, 1200, Cerqueira César, São Paulo/SP"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 5.250,00"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Josué de Lima Barros"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "12345678909"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "+55 11 96655-4433"
+    },
+    {
+     "tipo": "AGENCIA",
+     "texto": "0678"
+    },
+    {
+     "tipo": "CONTA",
+     "texto": "112233-4"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Rua Vergueiro, 3000, Vila Mariana, São Paulo/SP"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 3.980,00"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Brasilar Climatização Ltda"
+    },
+    {
+     "tipo": "CNPJ",
+     "texto": "77.889.900/0001-66"
+    }
+   ],
+   "armadilhas": [
+    {
+     "texto": "1001"
+    },
+    {
+     "texto": "1002"
+    },
+    {
+     "texto": "1003"
+    },
+    {
+     "texto": "setembro de 2026"
+    }
+   ],
+   "itens": [
+    {
+     "tipo": "!",
+     "texto": "1001"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Hugo Siqueira Bernardes"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "39053344705"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "11988776655"
+    },
+    {
+     "tipo": "AGENCIA",
+     "texto": "0012"
+    },
+    {
+     "tipo": "CONTA",
+     "texto": "445566-7"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Rua Itapeva, 500, Bela Vista, São Paulo/SP"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 4.100,00"
+    },
+    {
+     "tipo": "!",
+     "texto": "1002"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "MIRIAN ALVES CARDOSO"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "111.444.777-35"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "(11) 97766-5544"
+    },
+    {
+     "tipo": "AGENCIA",
+     "texto": "0345"
+    },
+    {
+     "tipo": "CONTA",
+     "texto": "778899-0"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Alameda Santos, 1200, Cerqueira César, São Paulo/SP"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 5.250,00"
+    },
+    {
+     "tipo": "!",
+     "texto": "1003"
+    },
+    {
+     "tipo": "PESSOA",
+     "texto": "Josué de Lima Barros"
+    },
+    {
+     "tipo": "CPF",
+     "texto": "12345678909"
+    },
+    {
+     "tipo": "TELEFONE",
+     "texto": "+55 11 96655-4433"
+    },
+    {
+     "tipo": "AGENCIA",
+     "texto": "0678"
+    },
+    {
+     "tipo": "CONTA",
+     "texto": "112233-4"
+    },
+    {
+     "tipo": "ENDERECO",
+     "texto": "Rua Vergueiro, 3000, Vila Mariana, São Paulo/SP"
+    },
+    {
+     "tipo": "VALOR",
+     "texto": "R$ 3.980,00"
+    },
+    {
+     "tipo": "EMPRESA",
+     "texto": "Brasilar Climatização Ltda"
+    },
+    {
+     "tipo": "CNPJ",
+     "texto": "77.889.900/0001-66"
+    },
+    {
+     "tipo": "!",
+     "texto": "setembro de 2026"
+    }
+   ]
+  }
+ ]
+}

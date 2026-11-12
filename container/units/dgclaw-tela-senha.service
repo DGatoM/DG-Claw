@@ -1,0 +1,9 @@
+[Unit]
+Description=DG Claw Tela do agente (reinicia o VNC quando a senha muda)
+
+[Service]
+Type=oneshot
+# Como root do container, porque quem dispara e o systemd. O restart (e nao o start)
+# faz o x11vnc reler o rfbauth; com o arquivo ainda ausente a condicao da unidade do
+# VNC o mantem parado, sem erro.
+ExecStart=/usr/bin/systemctl restart --no-block dgclaw-tela-vnc.service

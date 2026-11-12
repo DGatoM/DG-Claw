@@ -21,6 +21,47 @@ cmd="$1"; cadeia="$2"
 chave="$cadeia"
 [ -n "$tabela" ] && [ "$tabela" != filter ] && chave="$tabela/$cadeia"
 touch "$e/ipt-regras" "$e/ipt-cadeias"
+# Invariantes da troca sem janela: viram linhas em $e/violacoes, que o teste confere vazio.
+pre=""
+[ -n "$tabela" ] && [ "$tabela" != filter ] && pre="$tabela/"
+# linhas de regra da tabela atual (mangle tem o prefixo "|mangle/"; a filter, nenhum)
+regras_da_tabela() {
+    if [ -n "$pre" ]; then grep -F "|$pre" "$e/ipt-regras" || true
+    else grep -vF "|mangle/" "$e/ipt-regras" || true; fi
+}
+case "$cmd" in
+    -F|-X)
+        if [ "${cadeia#DGCLAW_}" != "$cadeia" ] && regras_da_tabela | grep -E "^\|${pre}(INPUT|FORWARD)\|" | grep -qE -- " -j $cadeia\$"; then
+            echo "$cmd na cadeia $chave, que ainda tem salto" >>"$e/violacoes"
+        fi ;;
+    -I)
+        alvo="${*: -1}"
+        # Gancho de teste: com $e/pausa, para antes do primeiro salto para uma _NOVA ate $e/liberar existir.
+        if [ "${alvo%_NOVA}" != "$alvo" ] && [ -f "$e/pausa" ]; then
+            rm -f "$e/pausa"; touch "$e/pausado"
+            while [ ! -f "$e/liberar" ]; do sleep 0.1; done
+        fi
+        if [ "${alvo#DGCLAW_}" != "$alvo" ]; then
+            ultima="$(grep -F "|$pre$alvo| " "$e/ipt-regras" | tail -n 1)"
+            case "$ultima" in
+                *" -j DROP"|*" -j RETURN") ;;
+                *) echo "salto para $alvo sem DROP/RETURN final (${tabela:-filter})" >>"$e/violacoes" ;;
+            esac
+        fi ;;
+esac
+case "$cmd" in
+    -X)
+        if regras_da_tabela | grep -qE -- " -j $cadeia\$"; then echo "iptables: Too many links." >&2; exit 1; fi
+        grep -vxF "$chave" "$e/ipt-cadeias" >"$e/ipt-cadeias.novo" || true; mv -f "$e/ipt-cadeias.novo" "$e/ipt-cadeias" ;;
+    -E)
+        novo="$3"
+        if [ -n "$pre" ]; then
+            sed -i "s#^|$chave|#|$pre$novo|#; /^|mangle\//s# -j $cadeia\$# -j $novo#" "$e/ipt-regras"
+        else
+            sed -i "s#^|$chave|#|$novo|#; /^|mangle\//!s# -j $cadeia\$# -j $novo#" "$e/ipt-regras"
+        fi
+        sed -i "s#^$chave\$#$pre$novo#" "$e/ipt-cadeias" ;;
+esac
 case "$cmd" in
     -L) grep -qxF "$chave" "$e/ipt-cadeias" ;;
     -N) if grep -qxF "$chave" "$e/ipt-cadeias"; then exit 1; fi; echo "$chave" >>"$e/ipt-cadeias" ;;
@@ -39,6 +80,39 @@ case "$cmd" in
             index($0, k) == 1 { c++; if (c == n) next }
             { print }' "$e/ipt-regras" >"$e/ipt-regras.novo"
         mv -f "$e/ipt-regras.novo" "$e/ipt-regras" ;;
-    -S) grep -F "|$chave| " "$e/ipt-regras" | sed -E "s/^\|[^|]*\| /-A $cadeia /" || true ;;
+    -S)
+        if [ -z "$cadeia" ]; then
+            # Falha transitoria de teste: $e/falha-S = "<tabela> <quantos -S deixar passar antes>"; falha UMA vez.
+            if [ -f "$e/falha-S" ]; then
+                read -r t_falha pula <"$e/falha-S"
+                if [ "$t_falha" = "${tabela:-filter}" ]; then
+                    if [ "$pula" -le 0 ]; then rm -f "$e/falha-S"; echo "iptables: Resource temporarily unavailable (erro simulado)" >&2; exit 4; fi
+                    echo "$t_falha $((pula - 1))" >"$e/falha-S"
+                fi
+            fi
+            # a tabela inteira: as cadeias criadas (-N) e todas as regras (-A), na ordem
+            grep -E "^${pre}[^/]+\$" "$e/ipt-cadeias" | sed 's/^.*\///; s/^/-N /' || true
+            regras_da_tabela | sed -E 's/^\|(mangle\/)?([^|]*)\| /-A \2 /' || true
+        else
+            grep -F "|$chave| " "$e/ipt-regras" | sed -E "s/^\|[^|]*\| /-A $cadeia /" || true
+        fi ;;
     -C) shift 2; grep -qxF "|$chave| $*" "$e/ipt-regras" ;;
+esac
+
+# Protecao continua (so quando o teste cria $e/exige-protecao, com linhas "<tabela> <origem>"):
+# depois de cada comando que muda algo, a origem precisa ter ao menos um salto da rede dos agentes
+# para uma cadeia DGCLAW_* que termine em DROP ou RETURN.
+case "$cmd" in -N|-F|-X|-E|-D|-I|-A)
+    if [ -f "$e/exige-protecao" ]; then
+        while read -r t_exig o_exig; do
+            [ -n "$t_exig" ] || continue
+            p_exig=""; [ "$t_exig" = mangle ] && p_exig="mangle/"
+            protegido=0
+            for alvo_exig in $(grep -F "|$p_exig$o_exig| -s 10.89.0.0/16 -j DGCLAW_" "$e/ipt-regras" | sed 's/.* -j //'); do
+                ult="$(grep -F "|$p_exig$alvo_exig| " "$e/ipt-regras" | tail -n 1)"
+                case "$ult" in *" -j DROP"|*" -j RETURN") protegido=1 ;; esac
+            done
+            [ "$protegido" = 1 ] || echo "sem protecao em $t_exig/$o_exig depois de: $cmd $*" >>"$e/violacoes"
+        done <"$e/exige-protecao"
+    fi ;;
 esac

@@ -361,6 +361,11 @@ test('servidor: a volta de 1 s atende a caixa, a sessão é do agente e Origin n
     const navegador = await pedirCru(t.porta, 'POST', '/api/v1/push/teste', { 'Content-Type': 'application/json' });
     assert.equal(navegador.status, 403);
     assert.match(navegador.json.erro, /origem/);
+    // A documentação do cofre é liberada só no caminho exato; o cofre em si não.
+    const docsCofre = await pedirCru(t.porta, 'GET', '/api/v1/cofre/docs.md', cab);
+    assert.equal(docsCofre.status, 200);
+    assert.match(docsCofre.texto, /cofre/i);
+    assert.equal((await pedirCru(t.porta, 'GET', '/api/v1/cofre', cab)).status, 403);
     // Rota que ninguém liberou, e fora de /api/.
     assert.match((await pedirCru(t.porta, 'GET', '/api/v1/eu', cab)).json.erro, /não está liberada para agentes/);
     assert.equal((await pedirCru(t.porta, 'GET', '/login', cab)).status, 403);

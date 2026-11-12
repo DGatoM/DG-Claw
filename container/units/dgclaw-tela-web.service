@@ -1,0 +1,18 @@
+[Unit]
+Description=DG Claw Tela do agente (noVNC, so 127.0.0.1:6080)
+After=dgclaw-tela-vnc.service
+# Wants e nao Requires: se o VNC nao subiu (ainda sem senha), o noVNC fica de pe e a
+# conexao falha com clareza, em vez de a unidade inteira ficar parada.
+Wants=dgclaw-tela-vnc.service
+
+[Service]
+Type=simple
+User=agente
+# Escuta SO em 127.0.0.1: quem chega de fora passa pelo proxy autenticado do painel
+# (<base>/tela/websockify). Nunca em 0.0.0.0.
+ExecStart=/usr/bin/websockify --web=/usr/share/novnc 127.0.0.1:6080 127.0.0.1:5901
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -140,6 +140,7 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       // O compact é o único trabalho que começa e não termina em Stop. Quem
       // devolve o agente para idle é o SessionStart source=compact, lá em cima.
       cancelarStopPendente(s);
+      s.compactsIniciados += 1;
       s.mudar({ status: "working", hookLatched: false, statusReason: "hook:PreCompact" });
       break;
     case "Stop":

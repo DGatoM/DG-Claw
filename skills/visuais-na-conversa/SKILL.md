@@ -54,6 +54,7 @@ A tela de conversa desenha ele dentro do balão. Os botões do visual voltam com
 | `dv-abas`, `dv-acordeao` | várias visões sem encher o balão | cada aba é `<section data-aba="Rótulo">` |
 | `dv-slider` | controle deslizante | `<div class="dv-slider" data-rotulo="Prazo" data-min="1" data-max="24" data-valor="12"></div>` |
 | `dv-opcoes` | cartões de escolha que respondem | veja abaixo |
+| `dv-cofre` | pede uma chave ao dono; o campo de senha é do app, o valor não passa pela conversa | `<div class="dv-cofre" data-cofre="NOME_DA_CHAVE" data-rotulo="Token da Hostinger" data-ajuda="Onde gerar"></div>` |
 
 Cores: `data-cor="ok"`, `"perigo"`, `"c1"` a `"c6"`. Em checklist, use `dv-cartao dv-ok` para o que
 está feito e `dv-alerta` para o que falta, ou um `dv-passos`.

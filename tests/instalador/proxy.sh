@@ -146,6 +146,54 @@ caso_flags_opostas_juntas_falham() {
     limpar_cenario
 }
 
+caso_proxy_e_tunel_juntos_falham_por_argumento_e_pelo_dgclaw_env() {
+    novo_cenario
+    nega "as duas opcoes juntas" instalar "$PAINEL_PW" --usuario maria --provedor claude --dominio painel.exemplo.com.br --proxy-existente --atras-de-tunel
+    afirma "explica o conflito" tem "$SAIDA" "--proxy-existente e --atras-de-tunel estao ligados ao mesmo tempo"
+    afirma "diz o que fazer" tem "$SAIDA" "--sem-tunel"
+    afirma "nada foi criado" vazio "$RAIZ"
+    # Tunel gravado numa instalacao anterior + --proxy-existente agora: o gravado tambem conta.
+    afirma "instala em modo tunel" instalar "$PAINEL_PW" --usuario maria --provedor claude --dominio painel.exemplo.com.br --atras-de-tunel
+    nega "proxy por argumento com tunel gravado" instalar "$PAINEL_PW" --usuario maria --provedor claude --proxy-existente
+    afirma "explica o conflito (gravado)" tem "$SAIDA" "ligados ao mesmo tempo"
+    afirma "--sem-tunel destrava" instalar "$PAINEL_PW" --usuario maria --provedor claude --proxy-existente --sem-tunel
+    afirma "ficou em modo proxy" grep -qx 'DGCLAW_PROXY_EXISTENTE=1' "$RAIZ/etc/dgclaw/dgclaw.env"
+    # Proxy gravado + --atras-de-tunel agora: tambem recusa; --sem-proxy-existente destrava.
+    nega "tunel por argumento com proxy gravado" instalar "$PAINEL_PW" --usuario maria --provedor claude --atras-de-tunel
+    afirma "--sem-proxy-existente destrava" instalar "$PAINEL_PW" --usuario maria --provedor claude --sem-proxy-existente --atras-de-tunel
+    limpar_cenario
+}
+
+caso_trocar_a_porta_do_painel_regrava_o_caddyfile_gerado() {
+    novo_cenario
+    local cf="$RAIZ/etc/caddy/Caddyfile"
+    afirma "instala com a porta padrao" instalar "$PAINEL_PW" --usuario maria --provedor claude --dominio painel.exemplo.com.br
+    afirma "Caddyfile na 8300" tem "$cf" "reverse_proxy 127.0.0.1:8300"
+    afirma "reinstala com --porta-painel 8400" instalar "$PAINEL_PW" --usuario maria --provedor claude --porta-painel 8400
+    afirma "Caddyfile passou a apontar para 8400" tem "$cf" "reverse_proxy 127.0.0.1:8400"
+    nega "e nao ficou a 8300" tem "$cf" "127.0.0.1:8300"
+    nega "nao tratou como personalizado" tem "$SAIDA" "tem personalizacoes suas"
+    # Um site com qualquer outra diferenca continua sendo do dono.
+    printf '\theader X-Meu 1\n' >>"$cf"
+    cp "$cf" "$TMP/caddy-do-dono"
+    instalar "$PAINEL_PW" --usuario maria --provedor claude --porta-painel 8500 || true
+    afirma "site personalizado nao foi tocado" cmp -s "$cf" "$TMP/caddy-do-dono"
+    limpar_cenario
+}
+
+caso_trocar_a_porta_do_painel_regrava_o_conf_d_e_preserva_o_outro_site() {
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy"
+    printf 'import conf.d/*\n\noutro.exemplo.com {\n\trespond "oi"\n}\n' >"$RAIZ/etc/caddy/Caddyfile"
+    afirma "instala com a porta padrao" instalar "$PAINEL_PW" --usuario maria --provedor claude --dominio painel.exemplo.com.br
+    local site="$RAIZ/etc/caddy/conf.d/dgclaw.caddy"
+    afirma "site do DG Claw em conf.d na 8300" tem "$site" "reverse_proxy 127.0.0.1:8300"
+    afirma "reinstala com --porta-painel 8400" instalar "$PAINEL_PW" --usuario maria --provedor claude --porta-painel 8400
+    afirma "conf.d passou a apontar para 8400" tem "$site" "reverse_proxy 127.0.0.1:8400"
+    afirma "o site de outra pessoa sobreviveu" tem "$RAIZ/etc/caddy/Caddyfile" 'respond "oi"'
+    limpar_cenario
+}
+
 caso_modo_normal_continua_igual_com_porta_e_faixa_padrao() {
     novo_cenario
     afirma "a instalacao termina com sucesso" instalacao_basica
@@ -403,12 +451,8 @@ caso_faixa_rede_com_rede_de_agente_fora_da_faixa_nao_troca_em_silencio() {
 
 # --- lib/firewall.sh com a faixa configurada ----------------------------------------------
 
-# rodar_firewall: roda o firewall.sh de verdade contra o iptables falso (sem tocar no sistema).
-rodar_firewall_falso() {
-    env -i "HOME=$TMP" "PATH=$AQUI/stubs:/usr/bin:/bin" "DGCLAW_RAIZ=$RAIZ" \
-        "DGCLAW_STUB_LOG=$STUB_LOG" "DGCLAW_STUB_ESTADO=$TMP/estado" "${EXTRA_ENV[@]}" \
-        bash "$REPO/lib/firewall.sh" >"$SAIDA" 2>&1
-}
+# rodar_firewall_falso (em casos.sh) roda o firewall.sh de verdade contra o iptables falso, com
+# DGCLAW_RAIZ=$RAIZ para ler o dgclaw.env falso (a faixa) e nunca o /etc/dgclaw da maquina de teste.
 
 caso_firewall_usa_a_faixa_do_dgclaw_env_em_todos_os_saltos() {
     novo_cenario

@@ -27,10 +27,16 @@ APP_DIR="$(cd "$(dirname "$DGCLAW_BIN_REAL")/.." && pwd)"
 . "$APP_DIR/lib/atualizar.sh"
 # shellcheck source=lib/versao.sh
 . "$APP_DIR/lib/versao.sh"
+# shellcheck source=lib/ronda-seguranca.sh
+. "$APP_DIR/lib/ronda-seguranca.sh"
 # shellcheck source=lib/aviso-atualizacao.sh
 . "$APP_DIR/lib/aviso-atualizacao.sh"
 # shellcheck source=lib/personalizacoes.sh
 . "$APP_DIR/lib/personalizacoes.sh"
+# shellcheck source=lib/dns-containers.sh
+. "$APP_DIR/lib/dns-containers.sh"
+# shellcheck source=lib/colaborador.sh
+. "$APP_DIR/lib/colaborador.sh"
 
 # Tempo maximo de espera (segundos) do systemd e do /api/saude de dentro do agente.
 # Variavel so para os testes nao esperarem um minuto de verdade.
@@ -92,6 +98,15 @@ Agentes
       Saida: 0 deu certo, 1 recusa (o motivo vem escrito), 2 uso errado.
       Exemplo:  printf %s "$CHAVE" | dgclaw agente cofre ana guardar OPENAI_API_KEY --aplicar
 
+  dgclaw agente tela-senha <slug>        troca a senha da Tela do agente (a nova senha vem pelo STDIN)
+      A senha tem de 6 a 8 caracteres ASCII (o VNC so usa 8). Vale na hora: o agente religa o VNC sozinho.
+      Exemplo:  printf '%s\n' "Ab3dEf7h" | dgclaw agente tela-senha ana
+
+  dgclaw agente tela <slug>              confere a Tela do agente (o navegador que o dono abre pelo painel)
+      Diz, linha a linha, o que esta de pe e o que fazer no que falta. Sai com 0 se tudo esta bem,
+      1 se alguma coisa falta e 2 se o agente nao esta ligado (nao da para conferir).
+      Exemplo:  dgclaw agente tela ana
+
   dgclaw agente remover <slug> [--sim]   tira o agente do ar. Nao apaga: a casa dele vai
       para /var/lib/dgclaw/aposentados/. Pede confirmacao quando ha terminal.
       Exemplo:  dgclaw agente remover ana --sim
@@ -117,6 +132,10 @@ Painel
       Exemplo:  sudo dgclaw primeiro-acesso
   dgclaw senha [trocar]                  troca a senha do painel (a nova senha vem pelo STDIN)
       Exemplo:  printf '%s\n' "minha senha nova" | dgclaw senha trocar
+  dgclaw instalacao-remota               entrega pronto um DG Claw instalado na VPS de outra pessoa
+      Troca a senha do painel por uma forte, reinicia o painel e mostra UMA vez a mensagem pronta
+      (endereco, usuario e senha) para mandar ao dono. Pode rodar de novo: gera outra senha.
+      Exemplo:  sudo dgclaw instalacao-remota
 
 Atualizar o DG Claw
   dgclaw atualizar [opcoes]              baixa a versao nova, faz backup, reinstala e recria os agentes
@@ -165,6 +184,23 @@ Personalizacoes do programa (o que o Admin mudou no DG Claw)
   dgclaw personalizacoes concluir        marca o levantamento pendente como concluido (exige o registro)
       Exemplo:  sudo dgclaw personalizacoes conferir
 
+Colaboradores (quem conversa com UM agente)
+  dgclaw colaborador criar <agente> <email> [--nome "<Nome>"] [--json]
+      Cria o acesso e mostra o texto do convite pronto para copiar (endereco, login e senha temporaria).
+      Outros: listar [agente], reenviar <id-ou-email>, revogar <id-ou-email>. Ver "dgclaw colaborador ajuda".
+      Exemplo:  sudo dgclaw colaborador criar ana maria@empresa.com --nome "Maria"
+
+Ronda de seguranca
+  dgclaw seguranca [estado|resumo|rodar|aplicar|desfazer|inventario]   ver "dgclaw seguranca ajuda"
+
+Botao de emergencia (tirar o servidor do ar)
+  dgclaw emergencia estado|simular|preparar|cortar|confirmar|religar
+      Tira o servidor da internet (para o Caddy e fecha o firewall) e mantem so o seu acesso pelo Tailscale.
+      Se ninguem confirmar em 5 minutos, religa sozinho. 'cortar' e 'religar' pedem o codigo de uso unico
+      que 'preparar' gera (vale 2 minutos). Ordem: simular (so mostra), preparar (codigo + plano), cortar --codigo <c>,
+      confirmar, e religar --codigo <c> quando passar. O painel tambem sai do ar durante o corte. Guia: docs/EMERGENCIA.md
+      Exemplo:  sudo dgclaw emergencia simular
+
 Geral
   dgclaw versao                          mostra a versao e o commit instalados (tambem: dgclaw --version)
   dgclaw status                          confere se tudo esta de pe (sai com erro se algo essencial caiu)
@@ -193,6 +229,7 @@ exigir_casa_sem_link() {
     for p in "$casa" "$h" "$h/.dgclaw" "$h/.dgclaw/panel" "$h/.dgclaw/logs" "$h/.plataforma" \
              "$h/.plataforma/dgchat" "$h/.claude" "$h/.codex" "$h/memory" \
              "$h/.dgclaw/config.sh" "$h/.dgclaw/panel/config.json" "$h/.dgclaw/logs/permissoes.log" \
+             "$h/.dgclaw/tela" "$h/.dgclaw/tela/vnc.senha" \
              "$h/.dgclaw/canal-desejado" "$h/.plataforma/dgchat.mcp.json" "$h/.plataforma/identidade.md" \
              "$h/.claude/settings.json" "$h/.claude/settings.local.json" \
              "$h/AGENT.md" "$h/CLAUDE.md" "$h/AGENTS.md" "$h/MEMORY.md"; do
@@ -442,7 +479,7 @@ gerar_identidade() {
 }
 
 # regravar_identidade_md: monta o identidade.md, o que o runner injeta em toda sessao:
-# o AGENT.md (do disco, a pessoa pode ter editado) + a regra do canal + a secao "Onde voce
+# a regra numero 1 (templates/ambiente/topo.md) + o AGENT.md (do disco, a pessoa pode ter editado) + a regra do canal + a secao "Onde voce
 # esta e o que voce consegue fazer" (templates/ambiente/agente.md). O arquivo e DERIVADO:
 # o que a pessoa edita e o AGENT.md, entao ele e regravado sempre (so se o conteudo mudou).
 # Usa C_HOME, C_UG, C_SLUG, C_NOME e C_DONO_TEXTO do chamador.
@@ -451,7 +488,12 @@ regravar_identidade_md() {
     local C_PAPEL="${C_PAPEL:-$TEXTO_PAPEL_NEUTRO}" C_JEITO="${C_JEITO:-$TEXTO_JEITO_NEUTRO}" C_DATA="${C_DATA:-$(date +%F)}"
     [ -f "$tpl/ambiente/agente.md" ] || falha "o modelo $tpl/ambiente/agente.md nao existe." \
         "a copia do DG Claw em $APP_DIR esta incompleta; reinstale com o instalador."
+    [ -f "$tpl/ambiente/topo.md" ] || falha "o modelo $tpl/ambiente/topo.md nao existe." \
+        "a copia do DG Claw em $APP_DIR esta incompleta; reinstale com o instalador."
     {
+        # A regra numero 1 (responder primeiro, rapida/curta/longa) vai no TOPO: no fim, depois de um
+        # AGENT.md personalizado grande, o agente deixava de segui-la e prendia a conversa.
+        renderizar_template "$tpl/ambiente/topo.md"
         if [ -f "$h/AGENT.md" ]; then cat "$h/AGENT.md"; else renderizar_template "$tpl/AGENT.md.tmpl"; fi
         printf '\n---\n\n'
         regra_canal_dgchat
@@ -694,6 +736,81 @@ montar_segredos() {
     ok "token do runner e segredo do painel prontos (nunca aparecem em tela nem em log)"
 }
 
+# --- a senha da Tela do agente (docs/TELA-DO-AGENTE.md) ---------------------------------
+# Sem 0, O, 1, I, l: a senha e lida por uma pessoa e digitada noutra tela.
+TELA_ALFABETO='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'
+
+# tela_senha_aleatoria: 8 caracteres do alfabeto acima (o VNC so usa 8). O tr descarta o
+# que esta fora do alfabeto, entao nao ha vies de modulo; 512 bytes sobram para 8.
+tela_senha_aleatoria() {
+    local pool=""
+    while [ "${#pool}" -lt 8 ]; do
+        pool="$(head -c 512 /dev/urandom | LC_ALL=C tr -dc "$TELA_ALFABETO")"
+    done
+    printf '%s' "${pool:0:8}"
+}
+
+# tela_senha_script_ok: o gravador do rfbauth existe? Falha cedo, antes de gerar senha.
+tela_senha_script_ok() {
+    if [ -n "$R" ] && [ -n "${DGCLAW_TELA_SENHA_CMD:-}" ]; then return 0; fi
+    [ -f "$APP_DIR/panel/bin/tela-senha.js" ] || falha "nao achei $APP_DIR/panel/bin/tela-senha.js, que grava a senha da Tela do agente." \
+        "atualize o DG Claw (esse arquivo vem junto) e rode de novo; a senha NAO foi gravada em texto puro."
+    exigir_ferramentas node
+}
+
+# tela_senha_gravar <home> <uid:gid>: a senha vem pelo STDIN (nunca por argv) e vai para
+# o gravador, que a converte em rfbauth. Depois ajusta modo 600 e dono. DGCLAW_TELA_SENHA_CMD
+# (so com raiz falsa) troca o gravador nos testes; ele recebe o caminho em $1.
+tela_senha_gravar() {
+    local h="$1" ug="$2" alvo="$1/.dgclaw/tela/vnc.senha" rc=0
+    tela_senha_script_ok
+    criar_pasta 700 "$ug" "$h/.dgclaw/tela"
+    if [ -n "$R" ] && [ -n "${DGCLAW_TELA_SENHA_CMD:-}" ]; then
+        bash -c "$DGCLAW_TELA_SENHA_CMD" tela-senha "$alvo" || rc=$?
+    else
+        node "$APP_DIR/panel/bin/tela-senha.js" --arquivo "$alvo" || rc=$?
+    fi
+    [ "$rc" -eq 0 ] || falha "o gravador da senha da Tela terminou com codigo $rc ao gravar $alvo." \
+        "leia a mensagem dele acima (a senha precisa ter de 6 a 8 caracteres ASCII); depois rode de novo."
+    [ -s "$alvo" ] || falha "o gravador da senha da Tela terminou sem erro, mas $alvo nao existe ou esta vazio." \
+        "isso e um erro do DG Claw; rode de novo e, se repetir, avise quem mantem o DG Claw."
+    chmod 600 "$alvo"
+    dono "$ug" "$alvo"
+}
+
+# montar_tela_senha: etapa do `agente criar`. Idempotente: se a casa ja tem a senha, nao
+# toca (trocar derrubaria a sessao do dono). A senha nova fica em C_TELA_SENHA so para o
+# bloco do fim; nunca vai para log, argv ou arquivo em texto puro.
+montar_tela_senha() {
+    local h="$C_HOME" ug="$C_UG" alvo="$C_HOME/.dgclaw/tela/vnc.senha"
+    C_TELA_SENHA=""
+    if [ "$ENSAIO" = 1 ]; then
+        info "[ensaio] se $alvo nao existir: geraria uma senha de 8 caracteres, gravaria o rfbauth com panel/bin/tela-senha.js (senha pelo STDIN, modo 600, dono $ug) e mostraria a senha uma vez no fim"
+        return 0
+    fi
+    if [ -s "$alvo" ]; then
+        info "a senha da Tela ja existe em $alvo, mantida"
+        return 0
+    fi
+    tela_senha_script_ok
+    C_TELA_SENHA="$(tela_senha_aleatoria)"
+    printf '%s\n' "$C_TELA_SENHA" | tela_senha_gravar "$h" "$ug"
+    ok "senha da Tela gravada (so como rfbauth; ela aparece uma vez, no fim)"
+}
+
+# tela_senha_bloco: o aviso com a senha. Usado no fim do criar e quando o criar morre
+# depois de a senha ter nascido (senao ela se perderia: a proxima execucao ve o arquivo
+# pronto e nao mostra mais).
+tela_senha_bloco() {
+    [ -n "${C_TELA_SENHA:-}" ] || return 0
+    printf '\n  ======================================================\n'
+    printf '  SENHA DA TELA do %s: %s\n' "$C_NOME" "$C_TELA_SENHA"
+    printf '  Anote agora: ela nao aparece de novo. O dono pode trocar no\n'
+    printf '  painel, aba Tela (ou: dgclaw agente tela-senha %s).\n' "$C_SLUG"
+    printf '  ======================================================\n'
+    C_TELA_SENHA=""
+}
+
 criar_rede() {
     local rede="dgclaw-$C_SLUG"
     if [ "$ENSAIO" != 1 ] && podman network exists "$rede" >/dev/null 2>&1; then
@@ -716,7 +833,16 @@ criar_container() {
     local c="dgclaw-$C_SLUG" casa="$C_CASA" ub="$C_UID_BASE"
     if [ "$ENSAIO" != 1 ] && podman container exists "$c" >/dev/null 2>&1; then
         info "o container $c ja existe, so garanto que esta ligado"
+        dns_containers_calcular
+        if [ "${#DNS_CONTAINER_ARGS[@]}" -gt 0 ] \
+            && [[ "$(podman inspect -f '{{.HostConfig.Dns}}' "$c" 2>/dev/null)" != *1.1.1.1* ]]; then
+            aviso "o DNS deste servidor ($DNS_HOST_PRIVADOS) fica numa rede privada, que a cerca dos agentes bloqueia. O container $c foi criado antes e continua com o DNS do servidor (o podman nao troca o DNS de container existente), entao ele pode ficar sem DNS. Para ele passar a usar DNS publico (1.1.1.1 e 8.8.8.8): dgclaw agente recriar $C_SLUG --forcar"
+        fi
     else
+        dns_containers_calcular
+        if [ "${#DNS_CONTAINER_ARGS[@]}" -gt 0 ]; then
+            info "o DNS deste servidor ($DNS_HOST_PRIVADOS) fica numa rede privada, que a cerca dos agentes bloqueia; o container $c usa DNS publico (1.1.1.1 e 8.8.8.8)."
+        fi
         local args=(create
             --name "$c" --hostname "$C_SLUG"
             --uidmap "0:$ub:$FAIXA_UID" --gidmap "0:$ub:$FAIXA_UID"
@@ -726,6 +852,7 @@ criar_container() {
             --volume "$casa/cofre:/run/dgclaw/cofre:ro"
             --volume "$casa/config:/run/dgclaw/config:ro"
             --network "dgclaw-$C_SLUG"
+            "${DNS_CONTAINER_ARGS[@]}"
             --publish "127.0.0.1:$C_PORTA_RUNNER:4300"
             --publish "127.0.0.1:$C_PORTA_PAINEL:8300"
             --memory 2g --cpus 1.0 --pids-limit 1024 --restart unless-stopped
@@ -739,7 +866,7 @@ criar_container() {
         executar podman "${args[@]}" >/dev/null
         ok "container $c criado (portas so em 127.0.0.1: runner $C_PORTA_RUNNER, painel $C_PORTA_PAINEL)"
     fi
-    executar podman start "$c" >/dev/null
+    podman_em_escopo "$C_SLUG" start "$c" >/dev/null
 }
 
 # Tempo (segundos) que o `iniciar` fica olhando se o container caiu logo na partida.
@@ -862,6 +989,39 @@ echo "rotinas, runner e painel instalados"
 DENTRO
 }
 
+# Dá ao painel o grupo systemd-journal em agente que ja existia (a imagem nova ja nasce com ele).
+# Sem o grupo, o journalctl do painel devolve zero linhas e a aba Operacoes fica sem historico.
+# Roda como root dentro do container; idempotente. O grupo so vale para processo novo, entao o
+# painel e reiniciado se o processo em execucao nao o tem (isso cobre tambem o caso em que o
+# usermod ja foi feito mas o painel nao reiniciou).
+grupo_diario_script() {
+    cat <<'DENTRO'
+set -euo pipefail
+if ! getent group systemd-journal >/dev/null; then
+    echo "o grupo systemd-journal nao existe dentro do agente (a imagem e anterior a esta correcao). Atualize a imagem e recrie o agente: dgclaw imagem construir --agora && dgclaw agente recriar <slug>" >&2
+    exit 1
+fi
+# Sem pipe com grep -q: com pipefail, o SIGPIPE de quem escreve viraria falha.
+case " $(id -nG agente) " in
+    *" systemd-journal "*) ;;
+    *) usermod -aG systemd-journal agente ;;
+esac
+gid="$(getent group systemd-journal | cut -d: -f3)"
+pid="$(systemctl show -p MainPID --value dgclaw-painel.service)"
+if [ -n "$pid" ] && [ "$pid" != 0 ]; then
+    grupos="$(ps -o supgid= -p "$pid" || true)"
+    tem=0
+    # O ps separa os grupos por virgula.
+    for g in ${grupos//,/ }; do [ "$g" = "$gid" ] && tem=1; done
+    if [ "$tem" = 0 ]; then
+        systemctl restart dgclaw-painel.service
+        echo "painel reiniciado para pegar o grupo systemd-journal"
+    fi
+fi
+echo "grupo systemd-journal ok"
+DENTRO
+}
+
 # Pre-instala o plugin oficial do Telegram para o `--channels` funcionar sem pedir nada
 # ao aluno. Roda como o usuario agente, com a casa dele. Idempotente: se ja esta
 # instalado, nao faz nada. Agente do Codex nao usa o plugin do Claude e e pulado.
@@ -903,6 +1063,12 @@ instalar_vida() {
     if [ "$rc" -ne 0 ]; then
         aviso "a parte de dentro do agente (rotinas, runner, painel) nao terminou (codigo $rc). O agente continua criado. Para refazer so isso: dgclaw agente reparar $1"
         return 1
+    fi
+    # Sem o grupo, a aba Operacoes nao le o diario das rotinas; o agente funciona do mesmo jeito.
+    rc=0
+    grupo_diario_script | podman exec -i "$c" bash -s || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        aviso "nao consegui dar ao painel do agente $1 o acesso ao diario do sistema (codigo $rc). O agente funciona, mas a aba Operacoes fica sem historico e diz o motivo. Para tentar de novo: dgclaw agente reparar $1"
     fi
     # O Telegram e opcional: se o plugin nao instalar, o agente segue de pe e o canal
     # pode ser ligado depois.
@@ -979,12 +1145,13 @@ registrar_agente() {
         --arg avatar "$C_AVATAR" --arg cor "$C_COR" --arg prov "$C_PROVEDOR" --arg modelo "$C_MODELO" \
         --arg td "$transcripts" --argjson pp "$C_PORTA_PAINEL" \
         --arg psa "$DG_ETC/proxy/$C_SLUG.segredo" --arg rta "$DG_ETC/runner/$C_SLUG.token" \
-        --arg hh "$C_HOME" --arg cofre "${C_HOME%/home}/cofre/cofre.env" '
+        --arg hh "$C_HOME" --arg cofre "${C_HOME%/home}/cofre/cofre.env" \
+        --arg inst "$(od -An -N12 -tx1 /dev/urandom | tr -d ' \n')" '
         {slug: $slug, nome: $nome, tipo: "agente", runner: $runner, agente_id: $slug,
          chat_id: ("c_" + $slug), avatar: $avatar, cor: $cor, provedor: $prov, modelo: $modelo,
          transcripts_dir: $td, porta_painel: $pp, proxy_segredo_arquivo: $psa,
          runner_token_arquivo: $rta, home_host: $hh, home_container: "/home/agente",
-         cofre_arquivo: $cofre, container: ("dgclaw-" + $slug)}' \
+         cofre_arquivo: $cofre, container: ("dgclaw-" + $slug), instancia: $inst}' \
         | agentes_registrar
 }
 
@@ -1000,6 +1167,7 @@ _criar_ao_sair() {
         if podman container exists "dgclaw-$C_SLUG" >/dev/null 2>&1; then printf '  - o container dgclaw-%s\n' "$C_SLUG"; fi
         printf 'Para continuar de onde parou, rode de novo o mesmo comando (ele nao duplica nada):\n'
         printf '  dgclaw agente criar %s --nome "%s" ...\n' "$C_SLUG" "$C_NOME"
+        tela_senha_bloco
     } >&2
 }
 
@@ -1077,6 +1245,8 @@ agente_criar() {
     montar_identidade
     etapa "Gerando os segredos"
     montar_segredos
+    etapa "Preparando a senha da Tela"
+    montar_tela_senha
     etapa "Criando a rede e o container"
     criar_rede
     criar_container
@@ -1108,6 +1278,7 @@ agente_criar() {
     [ "$vida_ok" = 1 ] || printf '  Atencao: a parte de dentro nao terminou. Rode: dgclaw agente reparar %s\n' "$C_SLUG"
     printf '  Falta entrar na conta: o painel mostra o botao.\n'
     if [ "$C_CANAL" != chat ]; then printf '  O canal %s foi anotado; quem liga e a skill de canais.\n' "$C_CANAL"; fi
+    tela_senha_bloco
 }
 
 # --- demais comandos de agente ---------------------------------------------------------
@@ -1138,7 +1309,7 @@ agente_acao() {
             ok "agente $slug parado"
             ;;
         iniciar)
-            executar podman start "$c" >/dev/null
+            podman_em_escopo "$slug" start "$c" >/dev/null
             if [ "$ENSAIO" != 1 ]; then
                 local t
                 for ((t = 0; t < TEMPO_PARTIDA; t++)); do
@@ -1273,6 +1444,7 @@ agente_reparar() {
         falha "o runner do agente $slug nao respondeu em ${TEMPO_ESPERA}s em http://127.0.0.1:$porta/api/saude." \
               "veja o log: podman exec $c journalctl -u dgclaw-runner -n 50"
     fi
+    if [ "$ENSAIO" != 1 ]; then tela_avisar_sem_senha "$slug"; fi
 }
 
 # agente_recriar <slug> [--forcar]
@@ -1327,8 +1499,16 @@ agente_recriar() {
     img_atual="$(podman inspect -f '{{.Image}}' "$c" 2>/dev/null || true)"
     img_nova="$(podman image inspect -f '{{.Id}}' "$DGCLAW_IMAGEM" 2>/dev/null || true)"
     if [ "$forcar" = 0 ] && [ -n "$img_nova" ] && [ "$img_atual" = "$img_nova" ]; then
-        ok "agente $slug: o container ja usa a imagem atual, nada a recriar"
-        return 0
+        # Mesma imagem, mas o DNS do servidor e privado e o container nasceu antes de o DG Claw dar
+        # DNS publico aos agentes: o podman nao troca o DNS de container existente, so recriando.
+        dns_containers_calcular
+        if [ "${#DNS_CONTAINER_ARGS[@]}" -gt 0 ] \
+            && [[ "$(podman inspect -f '{{.HostConfig.Dns}}' "$c" 2>/dev/null)" != *1.1.1.1* ]]; then
+            info "agente $slug: a imagem e a mesma, mas o DNS do servidor ($DNS_HOST_PRIVADOS) fica numa rede privada e o container ainda usa esse DNS; vou recriar para ele usar DNS publico."
+        else
+            ok "agente $slug: o container ja usa a imagem atual, nada a recriar"
+            return 0
+        fi
     fi
 
     C_SLUG="$slug"; C_CASA="$DG_CASAS/$slug"; C_HOME="$C_CASA/home"
@@ -1626,6 +1806,144 @@ agente_cofre() {
         DGCLAW_WEB_DATA="$DG_LIB/web" node "$cofre_js" "$acao" "$slug" "$@"
 }
 
+# agente_tela_senha <slug>: troca a senha da Tela. A nova senha vem pelo STDIN (ou e
+# pedida no terminal, sem eco). Quem valida o tamanho e o alfabeto e o gravador; o
+# x11vnc religa sozinho (dgclaw-tela-senha.path, dentro do agente).
+agente_tela_senha() {
+    exigir_slug "${1:-}" tela-senha
+    local slug="$1" obj h senha="" conf="" ug
+    exigir_ferramentas jq
+    if [ "$ENSAIO" = 1 ]; then
+        info "[ensaio] leria a nova senha do STDIN e a gravaria como rfbauth em home/.dgclaw/tela/vnc.senha do agente $slug"
+        return 0
+    fi
+    obj="$(agentes_obter "$slug")"
+    [ -n "$obj" ] || falha "o agente '$slug' nao esta no agentes.json." "veja os que existem com: dgclaw agente listar"
+    h="$(printf '%s' "$obj" | jq -r '.home_host')"
+    [ -d "$h" ] || falha "a casa do agente $slug ($h) nao existe." "confira com: dgclaw agente listar"
+    tela_senha_script_ok
+    if [ -t 0 ]; then
+        printf 'Nova senha da Tela (6 a 8 caracteres, nada aparece enquanto digita): ' >&2
+        read -rs senha; printf '\n' >&2
+        printf 'Repita a senha: ' >&2
+        read -rs conf; printf '\n' >&2
+        [ "$senha" = "$conf" ] || falha "as duas senhas digitadas sao diferentes." "nada foi trocado; rode de novo."
+    else
+        IFS= read -r senha || [ -n "$senha" ] || falha "a senha nova nao chegou pelo STDIN." \
+            "envie assim: printf '%s\\n' \"senha\" | dgclaw agente tela-senha $slug"
+    fi
+    ug="$(stat -c '%u:%g' "$h")"
+    printf '%s\n' "$senha" | tela_senha_gravar "$h" "$ug"
+    senha=""; conf=""
+    ok "senha da Tela do agente $slug trocada (vale na hora; a anterior deixa de abrir)"
+}
+
+# --- a Tela do agente: conferencia e aviso de senha (docs/TELA-DO-AGENTE.md) -----------------
+
+# tela_no_container <slug>: o container do agente tem a Tela habilitada? (as unidades sao copiadas
+# em toda imagem, mas so ligadas no perfil com navegador; o link do wants diz qual e o caso.)
+tela_no_container() {
+    podman exec "dgclaw-$1" test -e /etc/systemd/system/multi-user.target.wants/dgclaw-tela-vnc.service >/dev/null 2>&1
+}
+
+# tela_sem_senha <slug>: sucesso quando o agente tem a Tela e a casa dele ainda nao tem a senha.
+tela_sem_senha() {
+    [ -s "$DG_CASAS/$1/home/.dgclaw/tela/vnc.senha" ] && return 1
+    tela_no_container "$1"
+}
+
+# tela_texto_sem_senha <slug>: a frase unica usada pelo reparar/recriar e pelo resumo do atualizar.
+tela_texto_sem_senha() {
+    local cmd="printf '%s\\n' \"Senha8ch\" | dgclaw agente tela-senha $1"
+    printf 'a senha da Tela do agente %s ainda nao foi definida, e sem ela o navegador do agente nao abre pelo painel. Defina na aba Tela do painel do agente ou com: %s' "$1" "$cmd"
+}
+
+# tela_avisar_sem_senha <slug>: NAO inventa senha escondida (a pessoa nao teria como saber qual e);
+# so conta que falta e como definir.
+tela_avisar_sem_senha() {
+    if tela_sem_senha "$1"; then aviso "$(tela_texto_sem_senha "$1")"; fi
+    return 0
+}
+
+# agente_tela <slug>: a conferencia da Tela vista do servidor. Cada linha diz o que esta bem ou o
+# que falta e o que fazer. Sai com 1 quando algo falta (como o `dgclaw status`).
+agente_tela() {
+    exigir_slug "${1:-}" tela
+    local slug="$1" c="dgclaw-$1" obj faltas=0 estado
+    exigir_ferramentas jq podman
+    if [ "$ENSAIO" = 1 ]; then
+        info "[ensaio] conferiria no agente $slug: unidades da Tela, senha, VNC, noVNC, navegador e CDP"
+        return 0
+    fi
+    obj="$(agentes_obter "$slug")"
+    [ -n "$obj" ] || falha "o agente '$slug' nao esta no agentes.json." "veja os que existem com: dgclaw agente listar"
+    estado="$(estado_container "$slug")"
+    if [ "$estado" != running ]; then
+        printf 'Tela do agente %s: nao deu para conferir, o container esta %s.\n' "$slug" "$estado" >&2
+        printf 'O que fazer: ligue o agente com: dgclaw agente iniciar %s e rode isto de novo.\n' "$slug" >&2
+        return 2
+    fi
+    printf 'Tela do agente %s\n' "$slug"
+    t_ok() { printf '  ok      %s\n' "$1"; }
+    t_falta() { printf '  FALTA   %s\n          o que fazer: %s\n' "$1" "$2"; faltas=$((faltas + 1)); }
+    t_unidade() {
+        podman exec "$c" systemctl is-active --quiet "$1" >/dev/null 2>&1
+    }
+
+    if ! tela_no_container "$slug"; then
+        t_falta "este agente nao tem a Tela na imagem (as unidades dgclaw-tela* nao estao ligadas)" \
+            "reconstrua a imagem com navegador (dgclaw imagem construir --agora) e recrie o agente: dgclaw agente recriar $slug --forcar"
+        printf '\nA Tela de %s nao esta pronta: %s item(ns) a resolver.\n' "$slug" "$faltas" >&2
+        return 1
+    fi
+    t_ok "a imagem do agente tem a Tela"
+
+    if podman exec "$c" bash -c 'command -v google-chrome-stable >/dev/null 2>&1'; then
+        t_ok "navegador da Tela: Google Chrome"
+    else
+        t_ok "navegador da Tela: Chromium do Playwright (Google Chrome so existe para amd64; alguns sites com anti-robo podem tratar o Chromium de outro jeito)"
+    fi
+
+    if [ -s "$DG_CASAS/$slug/home/.dgclaw/tela/vnc.senha" ]; then
+        t_ok "a senha da Tela esta definida"
+    else
+        t_falta "a senha da Tela ainda nao foi definida (sem ela o VNC nao sobe)" \
+            "defina na aba Tela do painel ou com: printf '%s\\n' \"Senha8ch\" | dgclaw agente tela-senha $slug"
+    fi
+
+    if t_unidade dgclaw-tela.service; then t_ok "a tela virtual (Xvfb) esta de pe"
+    else t_falta "a tela virtual (dgclaw-tela.service) esta parada" \
+        "reinicie: podman exec $c systemctl restart dgclaw-tela; se repetir, veja: podman exec $c journalctl -u dgclaw-tela -n 30"; fi
+
+    if t_unidade dgclaw-tela-vnc.service; then t_ok "o VNC (x11vnc) esta de pe, so em localhost"
+    elif [ -s "$DG_CASAS/$slug/home/.dgclaw/tela/vnc.senha" ]; then
+        t_falta "o VNC (dgclaw-tela-vnc.service) esta parado, apesar de a senha existir" \
+            "reinicie: podman exec $c systemctl restart dgclaw-tela-vnc; se repetir, veja: podman exec $c journalctl -u dgclaw-tela-vnc -n 30"
+    fi
+
+    if t_unidade dgclaw-tela-web.service \
+        && podman exec "$c" curl -fsS --max-time 3 -o /dev/null http://127.0.0.1:6080/ >/dev/null 2>&1; then
+        t_ok "o noVNC (websockify) responde em 127.0.0.1:6080"
+    else
+        t_falta "o noVNC (dgclaw-tela-web.service) nao responde em 127.0.0.1:6080" \
+            "reinicie: podman exec $c systemctl restart dgclaw-tela-web; se repetir, veja: podman exec $c journalctl -u dgclaw-tela-web -n 30"
+    fi
+
+    if t_unidade dgclaw-tela-chrome.service \
+        && podman exec "$c" curl -fsS --max-time 3 -o /dev/null http://127.0.0.1:9222/json/version >/dev/null 2>&1; then
+        t_ok "o navegador responde ao agente (CDP em 127.0.0.1:9222)"
+    else
+        t_falta "o navegador da Tela nao responde em 127.0.0.1:9222 (o agente nao consegue usar o navegador)" \
+            "reinicie: podman exec $c systemctl restart dgclaw-tela-chrome; se repetir, veja: podman exec $c journalctl -u dgclaw-tela-chrome -n 30"
+    fi
+
+    if [ "$faltas" -gt 0 ]; then
+        printf '\nA Tela de %s nao esta pronta: %s item(ns) a resolver (as linhas FALTA acima dizem o que fazer).\n' "$slug" "$faltas" >&2
+        return 1
+    fi
+    printf '\nA Tela de %s esta pronta. O dono abre pelo menu do agente na conversa (Tela) ou pela aba Tela do painel.\n' "$slug"
+}
+
 agente_main() {
     local sub="${1:-}"; shift || true
     case "$sub" in
@@ -1636,9 +1954,11 @@ agente_main() {
         recriar) agente_recriar "$@" ;;
         identidade) agente_identidade "$@" ;;
         cofre) agente_cofre "$@" ;;
+        tela-senha) agente_tela_senha "$@" ;;
+        tela) agente_tela "$@" ;;
         remover) agente_remover "$@" ;;
-        "") falha "faltou dizer o que fazer com os agentes." "use: criar, listar, parar, iniciar, reiniciar, reparar, recriar, identidade, cofre ou remover (veja dgclaw --ajuda)." ;;
-        *) falha "'agente $sub' nao existe." "use: criar, listar, parar, iniciar, reiniciar, reparar, recriar, identidade, cofre ou remover (veja dgclaw --ajuda)." ;;
+        "") falha "faltou dizer o que fazer com os agentes." "use: criar, listar, parar, iniciar, reiniciar, reparar, recriar, identidade, cofre, tela, tela-senha ou remover (veja dgclaw --ajuda)." ;;
+        *) falha "'agente $sub' nao existe." "use: criar, listar, parar, iniciar, reiniciar, reparar, recriar, identidade, cofre, tela, tela-senha ou remover (veja dgclaw --ajuda)." ;;
     esac
 }
 
@@ -1728,8 +2048,38 @@ imagem_main() {
 
 # --- senha ---------------------------------------------------------------------------------------
 
+# painel_gravar_senha <senha>: gera o hash (a senha vai pelo STDIN do gerador, nunca por argumento),
+# troca so a linha DGCLAW_PANEL_PASSWORD_HASH do web.env, apaga o primeiro-acesso.json pendente e
+# reinicia o dgclaw-web. Usada por `senha trocar` e `instalacao-remota`.
+painel_gravar_senha() {
+    local senha="$1" web_env="$DG_ETC/web.env" hash
+    if [ -n "$R" ] && [ -n "${DGCLAW_SENHA_HASH_CMD:-}" ]; then
+        hash="$(printf '%s\n' "$senha" | bash -c "$DGCLAW_SENHA_HASH_CMD")" \
+            || falha "o comando de hash de teste falhou." "isso so existe nos testes."
+    else
+        [ -f "$APP_DIR/panel/bin/senha-hash.js" ] || falha "nao achei $APP_DIR/panel/bin/senha-hash.js, que gera o hash da senha." \
+            "atualize o DG Claw (esse arquivo vem junto) e rode de novo; a senha NAO foi gravada em texto puro."
+        exigir_ferramentas node
+        hash="$(printf '%s\n' "$senha" | node "$APP_DIR/panel/bin/senha-hash.js")" \
+            || falha "o gerador de hash recusou a senha." "confira se ela tem 12 caracteres ou mais."
+    fi
+    if [[ -z "$hash" || "$hash" == *"'"* || "$hash" == *$'\n'* ]]; then
+        falha "o gerador de hash devolveu um valor invalido." "isso e um erro do DG Claw; a senha nao foi trocada."
+    fi
+
+    # O hash entra no awk pelo ambiente, nao pelo argv: o hash tem `$` e `\` que o -v interpretaria.
+    HASH_NOVO="$hash" awk '
+        BEGIN {linha = "DGCLAW_PANEL_PASSWORD_HASH=\047" ENVIRON["HASH_NOVO"] "\047"}
+        /^DGCLAW_PANEL_PASSWORD_HASH=/ {print linha; feito = 1; next}
+        {print}
+        END {if (!feito) print linha}' "$web_env" | escrever_arquivo "$web_env" 600
+    # Senha nova definida: um link de primeiro acesso pendente nao faz mais sentido.
+    rm -f "$DG_ETC/primeiro-acesso.json"
+    executar systemctl restart dgclaw-web
+}
+
 senha_trocar() {
-    local web_env="$DG_ETC/web.env" senha="" conf="" hash
+    local web_env="$DG_ETC/web.env" senha="" conf=""
     [ "$ENSAIO" = 1 ] && {
         info "[ensaio] leria a nova senha do STDIN, geraria o hash, trocaria a linha DGCLAW_PANEL_PASSWORD_HASH de $web_env e reiniciaria dgclaw-web"
         return 0
@@ -1747,30 +2097,8 @@ senha_trocar() {
     fi
     [ "${#senha}" -ge 12 ] || falha "a senha tem ${#senha} caracteres e o minimo e 12." "escolha uma senha maior; nada foi trocado."
 
-    if [ -n "$R" ] && [ -n "${DGCLAW_SENHA_HASH_CMD:-}" ]; then
-        hash="$(printf '%s\n' "$senha" | bash -c "$DGCLAW_SENHA_HASH_CMD")" \
-            || falha "o comando de hash de teste falhou." "isso so existe nos testes."
-    else
-        [ -f "$APP_DIR/panel/bin/senha-hash.js" ] || falha "nao achei $APP_DIR/panel/bin/senha-hash.js, que gera o hash da senha." \
-            "atualize o DG Claw (esse arquivo vem junto) e rode de novo; a senha NAO foi gravada em texto puro."
-        exigir_ferramentas node
-        hash="$(printf '%s\n' "$senha" | node "$APP_DIR/panel/bin/senha-hash.js")" \
-            || falha "o gerador de hash recusou a senha." "confira se ela tem 12 caracteres ou mais."
-    fi
+    painel_gravar_senha "$senha"
     senha=""; conf=""
-    if [[ -z "$hash" || "$hash" == *"'"* || "$hash" == *$'\n'* ]]; then
-        falha "o gerador de hash devolveu um valor invalido." "isso e um erro do DG Claw; a senha nao foi trocada."
-    fi
-
-    # O hash entra no awk pelo ambiente, nao pelo argv: o hash tem `$` e `\` que o -v interpretaria.
-    HASH_NOVO="$hash" awk '
-        BEGIN {linha = "DGCLAW_PANEL_PASSWORD_HASH=\047" ENVIRON["HASH_NOVO"] "\047"}
-        /^DGCLAW_PANEL_PASSWORD_HASH=/ {print linha; feito = 1; next}
-        {print}
-        END {if (!feito) print linha}' "$web_env" | escrever_arquivo "$web_env" 600
-    # Senha nova definida: um link de primeiro acesso pendente nao faz mais sentido.
-    rm -f "$DG_ETC/primeiro-acesso.json"
-    executar systemctl restart dgclaw-web
     ok "senha do painel trocada"
 }
 
@@ -1790,6 +2118,37 @@ primeiro_acesso() {
     printf 'uso unico, vale 30 min; o link anterior deixou de valer\n' >&2
 }
 
+# instalacao_remota: entrega pronto um DG Claw instalado pela equipe na VPS de outra pessoa. Troca a
+# senha do painel por uma forte, gerada aqui, reinicia o dgclaw-web e imprime UMA vez a mensagem para
+# mandar ao dono. A senha nunca vai para arquivo, log nem argumento de outro processo: so o hash
+# fica gravado. Um primeiro-acesso.json pendente e apagado (o link deixa de valer, pois a senha ja existe).
+instalacao_remota() {
+    [ "$#" -eq 0 ] || falha "o comando 'instalacao-remota' nao recebe opcoes (recebi '$1')." "use apenas: sudo dgclaw instalacao-remota"
+    local web_env="$DG_ETC/web.env" usuario="" senha="" bruto endereco
+    [ -f "$web_env" ] || falha "nao achei $web_env." "o DG Claw Web ainda nao foi instalado; rode primeiro o instalador: sudo ./install.sh --usuario <nome>"
+    usuario="$(sed -n 's/^DGCLAW_PANEL_USER=//p;T;q' "$web_env")"
+    [ -n "$usuario" ] || falha "nao achei a linha DGCLAW_PANEL_USER em $web_env, entao nao sei de quem e a senha." \
+        "rode o instalador de novo informando o usuario: sudo ./install.sh --usuario <nome>. Nada foi trocado."
+    carregar_env_dgclaw
+    [ -n "${DGCLAW_DOMINIO:-}" ] || falha "nao achei DGCLAW_DOMINIO em $DG_ETC/dgclaw.env, entao nao sei qual e o endereco do painel." \
+        "rode o instalador de novo (ele grava o endereco) ou use: sudo dgclaw dominio trocar <nome>. Nada foi trocado."
+    endereco="https://$DGCLAW_DOMINIO/"
+    if [ "$ENSAIO" = 1 ]; then
+        info "[ensaio] geraria uma senha forte para $usuario, gravaria so o hash em $web_env, apagaria o primeiro-acesso.json pendente, reiniciaria dgclaw-web e imprimiria a mensagem de entrega com o endereco $endereco"
+        return 0
+    fi
+    # 5 grupos de 4 sem caracteres ambiguos (sem 0 O 1 l I): 20 caracteres, cerca de 99 bits.
+    bruto="$(head -c 1000 /dev/urandom | LC_ALL=C tr -dc 'abcdefghjkmnpqrstuvwxyz23456789')"
+    [ "${#bruto}" -ge 20 ] || falha "nao consegui gerar caracteres aleatorios suficientes de /dev/urandom." "rode o comando de novo. Nada foi trocado."
+    senha="${bruto:0:4}-${bruto:4:4}-${bruto:8:4}-${bruto:12:4}-${bruto:16:4}"
+    bruto=""
+    painel_gravar_senha "$senha"
+    printf '\nSeu DG Claw esta pronto. Acesse %s, entre com o usuario %s e a senha %s. La dentro aparece um aviso para fazer o login do Claude nos seus agentes, um de cada vez. Quando todos estiverem conectados, aparece um tutorial rapido.\n\n' \
+        "$endereco" "$usuario" "$senha"
+    senha=""
+    printf 'Copie a mensagem acima agora e mande para a pessoa: a senha aparece so desta vez e nao fica guardada em lugar nenhum (so o hash). Para gerar outra, rode o comando de novo.\n' >&2
+}
+
 senha_main() {
     case "${1:-}" in
         ""|trocar) shift || true; senha_trocar "$@" ;;
@@ -1802,9 +2161,14 @@ senha_main() {
 dominio_mostrar() {
     carregar_env_dgclaw
     local ip=""
-    ip="$(ip_publico)" || ip=""
     printf 'Dominio atual do painel: %s\n' "${DGCLAW_DOMINIO:-(nao definido em $DG_ETC/dgclaw.env)}"
     if [ -n "${DGCLAW_DOMINIO:-}" ]; then printf 'Endereco do painel:      https://%s/\n' "$DGCLAW_DOMINIO"; fi
+    if modo_tunel; then
+        printf 'Este painel esta atras de um tunel (DGCLAW_ATRAS_DE_TUNEL=1): nao precisa de IP publico nem de registro A.\n'
+        printf 'O tunel tem que apontar o dominio para https://127.0.0.1:443, com o nome do servidor de origem igual ao dominio e sem verificacao do certificado. Para trocar o nome: sudo dgclaw dominio trocar <nome> (e acrescente o nome novo no tunel).\n'
+        return 0
+    fi
+    ip="$(ip_publico)" || ip=""
     printf 'IP publico desta VPS:    %s\n' "${ip:-(nao consegui descobrir: api.ipify.org e ifconfig.me nao responderam)}"
     if modo_proxy_existente; then
         local porta
@@ -1871,15 +2235,23 @@ dominio_trocar() {
     fi
     exigir_ferramentas curl dig caddy
 
-    local ip="" cf="$R/etc/caddy/Caddyfile" confd="$R/etc/caddy/conf.d/dgclaw.caddy"
-    ip="$(ip_publico)" || ip=""
+    local ip="" cf="$R/etc/caddy/Caddyfile" confd="$R/etc/caddy/conf.d/dgclaw.caddy" tunel=0 curl_k=()
+    if modo_tunel; then tunel=1; conferir=0; curl_k=(-k); fi
+    if [ "$tunel" = 1 ]; then ip="(sem IP publico: atras de tunel)"; else ip="$(ip_publico)" || ip=""; fi
     if [ -z "$ip" ]; then
         [ "$conferir" = 0 ] || falha "nao consegui descobrir o IP publico desta VPS (api.ipify.org e ifconfig.me nao responderam)." \
             "confira se a VPS tem internet e rode de novo. Para pular a conferencia do DNS por sua conta e risco: dgclaw dominio trocar $novo --sem-conferir-dns"
         ip="(desconhecido)"
     fi
-    passo "Conferindo se $novo aponta para esta VPS ($ip)"
-    if [ "$conferir" = 1 ]; then
+    if [ "$tunel" = 1 ]; then
+        passo "Painel atras de tunel: nao confiro o DNS contra o IP publico"
+        aviso "o nome $novo precisa estar no tunel (Cloudflare: Public Hostname apontando para https://127.0.0.1:443, com o Origin Server Name igual a $novo e No TLS Verify). Sem isso o endereco novo nao abre de fora."
+    else
+        passo "Conferindo se $novo aponta para esta VPS ($ip)"
+    fi
+    if [ "$tunel" = 1 ]; then
+        info "conferencia do DNS pulada: atras de tunel o nome nao aponta para o IP do servidor."
+    elif [ "$conferir" = 1 ]; then
         if ! dns_publico_aponta "$novo" "$ip"; then
             falha "o DNS publico (1.1.1.1 e 8.8.8.8) ainda nao aponta $novo para o IP desta VPS ($ip). Nada foi mudado." \
                 "no painel de DNS de onde o dominio foi comprado, crie um registro tipo A para $novo com o valor $ip (se tiver um registro AAAA antigo para esse nome, apague; na Cloudflare, deixe a nuvem cinza). A propagacao pode levar de alguns minutos a algumas horas. Confira com: dig +short A $novo @1.1.1.1 (tem que devolver $ip) e rode este comando de novo."
@@ -1890,14 +2262,10 @@ dominio_trocar() {
     fi
 
     passo "Reescrevendo o site do DG Claw no Caddy"
-    local bk_cf="" bk_confd="" tem_cf=0 tem_confd=0
-    if [ -f "$cf" ]; then tem_cf=1; bk_cf="$(cat "$cf")"; fi
-    if [ -f "$confd" ]; then tem_confd=1; bk_confd="$(cat "$confd")"; fi
-    escrever_site_caddy "$novo" "$(porta_painel_efetiva)"
+    escrever_site_caddy "$novo" trocar "$(porta_painel_efetiva)"
     if [ "$ENSAIO" != 1 ] && ! caddy validate --config "$cf" --adapter caddyfile >"$TMP_CADDY_LOG" 2>&1; then
         # Volta o que estava antes: o Caddy em producao nunca pode ficar com arquivo quebrado.
-        if [ "$tem_cf" = 1 ]; then printf '%s\n' "$bk_cf" >"$cf"; fi
-        if [ "$tem_confd" = 1 ]; then printf '%s\n' "$bk_confd" >"$confd"; else rm -f "$confd"; fi
+        caddy_restaurar_site   # cp -p: conteudo, modo e dono do arquivo de antes
         falha "o Caddy recusou a configuracao nova (caddy validate falhou: $(tail -n 3 "$TMP_CADDY_LOG" | tr '\n' ' ')). Voltei o arquivo ao que era; nada mudou." \
             "confira se o nome '$novo' esta certo e rode de novo; se persistir, veja: caddy validate --config $cf --adapter caddyfile"
     fi
@@ -1911,13 +2279,17 @@ dominio_trocar() {
         info "[ensaio] esperaria https://$novo/ responder (ate 90s) e mostraria o link novo do painel"
         return 0
     fi
-    info "esperando o certificado HTTPS de $novo (ate 90s)..."
+    if [ "$tunel" = 1 ]; then info "esperando o Caddy responder em $novo pelo loopback (ate 90s)..."; else info "esperando o certificado HTTPS de $novo (ate 90s)..."; fi
     local inicio=$SECONDS pronto=0
     while true; do
-        if curl -sS --max-time 8 -o /dev/null --resolve "$novo:443:127.0.0.1" "https://$novo/" 2>/dev/null; then pronto=1; break; fi
+        if curl -sS --max-time 8 -o /dev/null ${curl_k[@]+"${curl_k[@]}"} --resolve "$novo:443:127.0.0.1" "https://$novo/" 2>/dev/null; then pronto=1; break; fi
         [ $((SECONDS - inicio)) -ge 90 ] && break
         sleep 3
     done
+    if [ "$pronto" != 1 ] && [ "$tunel" = 1 ]; then
+        falha "o Caddy nao respondeu em https://$novo/ (pelo loopback 127.0.0.1:443) em 90s. O Caddy ja esta com o nome novo." \
+            "veja o motivo com: journalctl -u caddy -n 30. Para voltar ao endereco anterior: dgclaw dominio trocar <nome antigo>."
+    fi
     if [ "$pronto" != 1 ]; then
         falha "https://$novo/ nao respondeu em 90s. O Caddy ja esta com o nome novo, mas o certificado ainda nao saiu." \
             "confira se as portas 80 e 443 estao abertas no firewall do provedor (a Hostinger tem um firewall no painel dela) e se $novo aponta para $ip (na Cloudflare, nuvem cinza). Veja o motivo com: journalctl -u caddy -n 30. O Caddy tenta de novo sozinho; quando passar, o painel abre em https://$novo/. Para voltar ao endereco anterior: dgclaw dominio trocar <nome antigo>."
@@ -2073,8 +2445,11 @@ main() {
         agente) agente_main "$@" ;;
         imagem) imagem_main "$@" ;;
         senha) senha_main "$@" ;;
+        seguranca) seguranca_main "$@" ;;
+        colaborador) colaborador_main "$@" ;;
         dominio) dominio_main "$@" ;;
         primeiro-acesso) primeiro_acesso "$@" ;;
+        instalacao-remota) instalacao_remota "$@" ;;
         status) status_geral "$@" ;;
         atualizar)
             case "${1:-}" in
@@ -2085,6 +2460,7 @@ main() {
         restaurar) restaurar_main "$@" ;;
         versao|--version) versao_main "$@" ;;
         personalizacoes) personalizacoes_main "$@" ;;
+        emergencia) exec bash "$APP_DIR/lib/emergencia.sh" "$@" ;;
         *) falha "o comando '$cmd' nao existe." "veja os comandos com: dgclaw --ajuda" ;;
     esac
 }

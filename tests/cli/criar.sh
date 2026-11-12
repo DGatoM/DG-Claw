@@ -45,8 +45,9 @@ AJ="$ETC/agentes.json"
 afirma "agentes.json e um JSON valido" jq -e . "$AJ"
 igual "versao 1" "1" "$(jq -r .versao "$AJ")"
 igual "campos exatamente os do contrato, na ordem" \
-    "slug,nome,tipo,runner,agente_id,chat_id,avatar,cor,provedor,modelo,transcripts_dir,porta_painel,proxy_segredo_arquivo,runner_token_arquivo,home_host,home_container,cofre_arquivo,container" \
+    "slug,nome,tipo,runner,agente_id,chat_id,avatar,cor,provedor,modelo,transcripts_dir,porta_painel,proxy_segredo_arquivo,runner_token_arquivo,home_host,home_container,cofre_arquivo,container,instancia" \
     "$(jq -r '.agentes[0] | keys_unsorted | join(",")' "$AJ")"
+afirma "instancia e um identificador aleatorio de 24 caracteres" bash -c "jq -r '.agentes[0].instancia' '$AJ' | grep -Eq '^[0-9a-f]{24}$'"
 igual "tipo agente" "agente" "$(jq -r '.agentes[0].tipo' "$AJ")"
 igual "chat_id c_<slug>" "c_ana" "$(jq -r '.agentes[0].chat_id' "$AJ")"
 igual "transcripts_dir do Claude" "$LIB/agentes/ana/home/.claude/projects/-home-agente" "$(jq -r '.agentes[0].transcripts_dir' "$AJ")"
@@ -166,6 +167,7 @@ afirma "runner/ montada so leitura em /etc/dgclaw-runner" grep -q -- 'ana/runner
 afirma "cofre montado so leitura" grep -q -- '/cofre:/run/dgclaw/cofre:ro' <<<"$linha"
 afirma "rede criada com subnet 10.89.1.0/24 e sem DNS" grep -q 'network create --disable-dns --label dgclaw.v1=1 --label dgclaw.agente=ana --subnet 10.89.1.0/24 dgclaw-ana' "$STUB_LOG"
 afirma "container iniciado" grep -q '^podman start dgclaw-ana' "$STUB_LOG"
+nega "sem systemd (raiz falsa) o start vai direto ao podman, sem systemd-run" grep -q '^systemd-run --scope' "$STUB_LOG"
 afirma "a vida (install-timers) foi mandada por STDIN para dentro" grep -q 'install-timers.sh' "$STUB_LOG.stdin"
 afirma "enable --now do runner e do painel" grep -q 'enable --now dgclaw-runner.service dgclaw-painel.service' "$STUB_LOG.stdin"
 afirma "plugin do Telegram pre-instalado" grep -q 'plugin install telegram@claude-plugins-official' "$STUB_LOG.stdin"
@@ -222,5 +224,30 @@ nega "o alvo do link nao foi tocado pelo chown" grep -q "alvo-bia" "$DGCLAW_RAIZ
 rm "$HB/.dgclaw/logs/permissoes.log"
 criar_agente bia --nome "Bia"
 igual "sem o link, criar de novo volta a passar" "0" "$?"
+
+echo "criar: com systemd, o start roda num escopo proprio (conmon fora do cgroup do Admin)"
+preparar
+mkdir -p "$DGCLAW_RAIZ/run/systemd/system"
+criar_agente bia --nome "Bia"
+afirma "podman start dentro de systemd-run --scope" grep -Eq '^systemd-run --scope --quiet --collect --unit dgclaw-conteiner-bia-[0-9]+-[0-9]+-[0-9]+ podman start dgclaw-bia' "$STUB_LOG"
+nega "nenhum podman start solto" grep -q '^podman start dgclaw-bia' "$STUB_LOG"
+
+echo "criar: DNS publico so nos containers do DG Claw quando o DNS do servidor e privado"
+preparar
+mkdir -p "$DGCLAW_RAIZ/run/systemd/resolve"
+printf 'nameserver 192.168.25.6\nnameserver 127.0.0.53\n' >"$DGCLAW_RAIZ/run/systemd/resolve/resolv.conf"
+criar_agente dns1 --nome "Dns Um"
+afirma "DNS privado: o podman create leva --dns 1.1.1.1 e --dns 8.8.8.8" grep -q '^podman create .*--dns 1.1.1.1 --dns 8.8.8.8 ' "$STUB_LOG"
+afirma "explica o motivo, com o DNS do servidor" grep -q 'o DNS deste servidor (192.168.25.6) fica numa rede privada' "$TMP/saida.txt"
+echo "[]" >"$STUB_ESTADO/dns-dgclaw-dns1"   # simula o container criado antes do DNS publico
+criar_agente dns1 --nome "Dns Um"
+afirma "container ja existente: avisa que o DNS nao muda sozinho e cita o comando real" grep -q 'dgclaw agente recriar dns1' "$TMP/saida.txt"
+
+preparar
+mkdir -p "$DGCLAW_RAIZ/run/systemd/resolve"
+printf 'nameserver 127.0.0.53\nnameserver 9.9.9.9\n' >"$DGCLAW_RAIZ/run/systemd/resolve/resolv.conf"
+criar_agente dns2 --nome "Dns Dois"
+nega "DNS publico: o podman create nao leva --dns" grep -q '^podman create .*--dns' "$STUB_LOG"
+afirma "o create aconteceu" grep -q '^podman create ' "$STUB_LOG"
 
 fim

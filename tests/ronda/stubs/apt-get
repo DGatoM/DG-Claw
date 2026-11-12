@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+echo "apt-get $*" >>"$STUB_DIR/chamadas.log"
+[ -f "$STUB_DIR/apt_recusa" ] && { echo "E: Unable to locate package" >&2; exit 100; }
+if [ "$1" = install ]; then
+    case " $* " in
+        *" --allow-downgrades "*) [ -f "$STUB_DIR/apt_recusa_desfazer" ] && { echo "E: Version not found" >&2; exit 100; }
+            rm -f "$STUB_DIR/painel_cai" ;;
+        *) [ -f "$STUB_DIR/quebra_ao_aplicar" ] && touch "$STUB_DIR/painel_cai" ;;
+    esac
+    spec="${!#}"; p="${spec%%=*}"; v="${spec#*=}"
+    awk -F'\t' -v OFS='\t' -v p="$p" -v v="$v" '$1==p {$2=v} {print}' "$STUB_DIR/dpkg.txt" >"$STUB_DIR/dpkg.novo" && mv "$STUB_DIR/dpkg.novo" "$STUB_DIR/dpkg.txt"
+fi
+exit 0

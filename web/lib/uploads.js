@@ -6,6 +6,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { lerCorpo } = require('./http');
 
+const FLAGS_NOVO = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW;
+
 /** Lê um multipart. Devolve { campos:{nome:valor}, arquivos:[{campo,nome,tipo,dados}] }. Lança erro com .status. */
 async function lerMultipart(req, limite) {
   const ct = String(req.headers['content-type'] || '');
@@ -68,6 +70,12 @@ function nomeSeguro(original) {
   return `${raiz || 'arquivo'}${ext}`;
 }
 
+const RX_NOME_DE_INSTRUCAO = /^(?:claude\.md|claude\.local\.md|agents\.md|skill\.md|agent\.md)$/i;
+/** Nome de instrução ou configuração (CLAUDE.md, AGENTS.md...) ou oculto: o agente poderia carregá-lo como ordem. Ganha prefixo neutro. */
+function nomeNeutro(nome) {
+  return nome.startsWith('.') || RX_NOME_DE_INSTRUCAO.test(nome) ? `anexo-${nome}` : nome;
+}
+
 /** Grava sem sobrescrever (flag wx; se existir, acrescenta -1, -2...). Devolve o caminho final. */
 function gravaSemSobrescrever(pasta, nome, dados) {
   const ext = path.extname(nome);
@@ -75,13 +83,15 @@ function gravaSemSobrescrever(pasta, nome, dados) {
   for (let i = 0; i < 1000; i += 1) {
     const alvo = path.join(pasta, i === 0 ? nome : `${raiz}-${i}${ext}`);
     try {
-      fs.writeFileSync(alvo, dados, { flag: 'wx', mode: 0o644 });
+      // O_NOFOLLOW + O_EXCL: nunca grava passando por atalho, nem por cima de arquivo que já existe.
+      fs.writeFileSync(alvo, dados, { flag: FLAGS_NOVO, mode: 0o644 });
       return alvo;
     } catch (e) {
       if (e.code !== 'EEXIST') throw e;
     }
   }
-  throw new Error('Não achei um nome livre para o arquivo.');
+  if (!st.isDirectory()) throw new Error(`O home_host de ${agente.nome} (${agente.home_host}) não é uma pasta. Confira o registro de agentes.`);
+  return { uid: st.uid, gid: st.gid };
 }
 
-module.exports = { lerMultipart, nomeSeguro, gravaSemSobrescrever };
+module.exports = { lerMultipart, nomeSeguro, nomeNeutro, gravaSemSobrescrever, FLAGS_NOVO };

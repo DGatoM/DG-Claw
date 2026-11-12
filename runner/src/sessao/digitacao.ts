@@ -2,7 +2,7 @@ import type { Sessao } from "../sessao.js";
 import { log } from "../logger.js";
 import { ErroDeMotor } from "../provedores/motor.js";
 import { INTERVALO_MS, PEDACO, RECIBO_ENTER_TENTATIVAS } from "./constantes.js";
-import { telaDeConfiancaDoCodex } from "./telas.js";
+import { ehDialogoDeAutoMode, telaDeConfiancaDoCodex } from "./telas.js";
 
 /**
  * Digita e ENVIA. Espera a fila de colagem drenar antes do Enter, que é o
@@ -11,15 +11,17 @@ import { telaDeConfiancaDoCodex } from "./telas.js";
  * parte da colagem e vira quebra de linha dentro do campo. O Codex é mais
  * sensível ainda: trata texto rápido como colagem, então espera 500 ms.
  */
-export async function digitarEEnviar(s: Sessao, texto: string): Promise<void> {
+export async function digitarEEnviar(s: Sessao, texto: string, daFila = false): Promise<void> {
   if (!s.proc) throw new Error("não há terminal vivo para digitar");
   s.marcarAtividade();
-  if (s.motor.provedor === "codex") await s.vencerTelaDeConfianca();
+  if (s.motor.provedor === "codex") await s.vencerTelaDeConfianca(daFila);
+  if (s.motor.provedor === "claude") recusarSeEstiverNoAvisoDoAutoMode(s, daFila);
   const pausa = s.motor.pausaAntesDoEnterMs;
+  const ehComandoDeBarra = texto.trim().startsWith("/");
   if (texto.length <= 256) {
     s.escrever(texto);
     await new Promise((r) => setTimeout(r, pausa));
-    await enviarComRecibo(s);
+    await enviarComRecibo(s, ehComandoDeBarra);
     return;
   }
   await new Promise<void>((resolve) => {
@@ -38,7 +40,29 @@ export async function digitarEEnviar(s: Sessao, texto: string): Promise<void> {
     };
     passo();
   });
-  await enviarComRecibo(s);
+  await enviarComRecibo(s, ehComandoDeBarra);
+}
+
+/** Orientação quando a tela bloqueia a caixa. Pela fila o pedido fica guardado e a fila tenta de novo
+ *  sozinha; numa chamada direta não existe fila, então a pessoa precisa reenviar. */
+function comoResolverTelaBloqueada(daFila: boolean): string {
+  return daFila
+    ? "responder o aviso no terminal do agente (aba Sessões, botão Terminal); o pedido está guardado e é entregue sozinho assim que o aviso sumir. Não reenvie."
+    : "responder o aviso no terminal do agente e enviar a mensagem de novo";
+}
+
+/** O Claude parou na pergunta de primeira vez do auto mode: o texto digitado cairia dentro do menu e
+ *  ficaria parado (nenhum Enter vira turno). Não se responde sozinho porque aceitar muda o modo padrão
+ *  do dono. Não digita nada e falha com o motivo, como o aviso do Bypass. */
+function recusarSeEstiverNoAvisoDoAutoMode(s: Sessao, daFila: boolean): void {
+  if (!ehDialogoDeAutoMode(s.telaInteira())) return;
+  const motivo =
+    "O Claude Code está parado na pergunta 'Make auto mode your default permission mode?' (aviso de primeira vez do auto mode) " +
+    "e a chave skipAutoPermissionPrompt não chegou ao settings. Não digitei o texto para ele não cair dentro do menu.";
+  const comoResolver = comoResolverTelaBloqueada(daFila);
+  // Pela fila quem loga é ela, uma vez por bloqueio: a tentativa se repete a cada poucos segundos.
+  if (!daFila) log.erro(s.a("entrada"), motivo, comoResolver);
+  throw new ErroDeMotor(motivo, "runner:dialogo-auto-mode", comoResolver);
 }
 
 /**
@@ -48,7 +72,7 @@ export async function digitarEEnviar(s: Sessao, texto: string): Promise<void> {
  * se o menu está lá, responde 1 + Enter e só segue quando a tela mudou e o menu não voltou.
  * Se não sumir, NÃO digita: erro claro, e quem chamou trata como trata qualquer falha de digitação.
  */
-export async function vencerTelaDeConfianca(s: Sessao): Promise<void> {
+export async function vencerTelaDeConfianca(s: Sessao, daFila = false): Promise<void> {
   if (!s.proc || !telaDeConfiancaDoCodex(s.telaInteira())) return;
   const area = s.a("entrada");
   log.aviso(
@@ -75,8 +99,9 @@ export async function vencerTelaDeConfianca(s: Sessao): Promise<void> {
   const motivo =
     "O Codex está parado na tela 'Trust this folder?' e não saiu dela depois de responder 1 + Enter. " +
     "Não digitei o texto para ele não cair no menu.";
-  log.erro(area, motivo, "abrir o terminal do agente no painel, responder 1 e Enter, e reenviar a mensagem");
-  throw new ErroDeMotor(motivo, "runner:tela-de-confianca", "abrir o terminal do agente no painel, responder 1 e Enter, e reenviar a mensagem");
+  const comoResolver = comoResolverTelaBloqueada(daFila);
+  if (!daFila) log.erro(area, motivo, comoResolver);
+  throw new ErroDeMotor(motivo, "runner:tela-de-confianca", comoResolver);
 }
 
 /** O Enter, com recibo.
@@ -93,13 +118,14 @@ export async function vencerTelaDeConfianca(s: Sessao): Promise<void> {
  *  (Codex), que só aparecem quando o CLI ACEITOU o prompt. Sem recibo, batemos na
  *  tecla de novo. Um Enter a mais numa caixa já vazia é inofensivo (o TUI ignora
  *  linha vazia; testado no Codex real); um Enter a menos perde o poke.  */
-export async function enviarComRecibo(s: Sessao): Promise<void> {
+export async function enviarComRecibo(s: Sessao, comandoDeBarra = false): Promise<void> {
   const espera = s.motor.reciboMs;
   for (let tentativa = 1; tentativa <= RECIBO_ENTER_TENTATIVAS; tentativa++) {
     if (!s.proc) return;
     const antes = s.promptsAceitos;
+    const compactAntes = s.compactsIniciados;
     s.escrever("\r");
-    const recebeu = await esperarRecibo(s, antes, espera);
+    const recebeu = await esperarRecibo(s, antes, espera, comandoDeBarra ? compactAntes : undefined);
     if (recebeu) return;
     log.info(
       s.a("entrada"),
@@ -119,12 +145,16 @@ export async function enviarComRecibo(s: Sessao): Promise<void> {
  *  (agente sem hooks registrados) não existe recibo possível: aí damos o benefício da
  *  dúvida e voltamos true, para não bater na tecla três vezes à toa. No Codex o recibo
  *  vem do rollout, que vale esperar desde o primeiro Enter. */
-export function esperarRecibo(s: Sessao, antes: number, limiteMs: number): Promise<boolean> {
+export function esperarRecibo(s: Sessao, antes: number, limiteMs: number, compactAntes?: number): Promise<boolean> {
   if (!s.hooksVivos && !s.motor.reciboPorRollout) return Promise.resolve(true);
   return new Promise((resolve) => {
     const inicio = Date.now();
     const olhar = () => {
       if (s.promptsAceitos > antes) return resolve(true);
+      // Comando de barra (`/compact`) não dispara UserPromptSubmit: o PreCompact depois deste Enter é o
+      // recibo dele. Só para esse caso: PreToolUse de um turno ANTERIOR não prova que a mensagem nova
+      // entrou (ela pode estar presa na caixa), então não conta.
+      if (compactAntes !== undefined && s.compactsIniciados > compactAntes) return resolve(true);
       if (Date.now() - inicio >= limiteMs) return resolve(false);
       setTimeout(olhar, 100);
     };

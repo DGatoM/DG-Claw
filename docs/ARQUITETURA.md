@@ -75,7 +75,8 @@ O contrato está em [Primeiro agente pelo Admin](../web/docs/PRIMEIRO-AGENTE.md)
 | `dgclaw-web` | Interface web e API autenticada |
 | `dgclaw-admin` | Execução da sessão administradora |
 | `dgclaw-imagem` | Construção da imagem dos agentes, quando solicitada |
-| `dgclaw-firewall` | Regras de isolamento da rede dos agentes |
+| `dgclaw-anonimizar-instalar@` | Instalação opcional do detector de nomes da anonimização de documentos, disparada pela tela Anonimizar |
+| `dgclaw-firewall` | Regras de isolamento da rede dos agentes. O instalador força o netavark a usar iptables (`firewall_driver = "iptables"` em `/etc/containers/containers.conf.d`), porque no Ubuntu 26.04 o modo nftables padrão é bloqueado pelo `ufw` e os containers ficam sem internet |
 | `caddy` | HTTPS e encaminhamento para o Web (não existe no modo `--proxy-existente`: o HTTPS é do nginx ou túnel que você já tinha) |
 
 O registro `/etc/dgclaw/agentes.json` informa ao Web quais agentes existem e onde ficam seus

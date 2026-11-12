@@ -59,6 +59,9 @@ else
     # Sessao viva: a reflexao DEVERIA ter sido injetada e o diario escrito.
     if [ -f "$RLOG" ] && echo "$RTAIL" | grep -q "FALHA ao injetar"; then
         problem="o poke de reflexao FALHOU ao ser injetado na sessao viva (veja reflection.log)"
+    elif [ -f "$RLOG" ] && echo "$RTAIL" | grep -q "reflexao ${TODAY}: PULADA"; then
+        # Dia sem conversa com o dono: a reflexao nao roda e nao ha diario, de proposito.
+        echo "[$(date '+%F %T')] audit: a reflexao de hoje foi pulada de proposito (dia sem conversa com o dono); sem diario, sem alarme" >> "$LOG"
     elif [ ! -s "$DIARY" ]; then
         # Pode ser que a persona ainda esteja processando o poke (injetado 23:30, audit 23:50);
         # so tratamos como problema se NEM o diario nem qualquer sinal de injecao aparecer.

@@ -21,6 +21,7 @@ logica mais pesada chama um script Node do app (como a geracao do hash da senha)
 | `dgclaw agente parar\|iniciar\|reiniciar <slug>` | `reiniciar` reinicia so o runner por dentro (e o que o cofre pede) |
 | `dgclaw agente reparar <slug>` | refaz so a parte de dentro (rotinas, runner, painel, plugin do Telegram) |
 | `dgclaw agente cofre <slug> guardar\|revogar\|listar\|aplicar [NOME] [opcoes]` | chaves de API do agente. O valor vem SEMPRE pelo STDIN. Sai 0 (deu certo), 1 (recusa, com o motivo) ou 2 (uso errado) |
+| `dgclaw agente tela-senha <slug>` | troca a senha da Tela do agente (VNC); a nova senha vem pelo STDIN, de 6 a 8 caracteres ASCII. Quem grava o rfbauth e `panel/bin/tela-senha.js`; o x11vnc religa sozinho. O `agente criar` ja gera uma senha aleatoria por agente e a mostra uma vez no fim (ver `docs/TELA-DO-AGENTE.md`) |
 | `dgclaw agente remover <slug> [--sim]` | tira do ar e MOVE a casa para `/var/lib/dgclaw/aposentados/`. Nunca apaga; a faixa de uid fica queimada |
 | `dgclaw imagem status` | pronta, construindo ou falhou (com a cauda do log) |
 | `dgclaw imagem construir [--agora]` | constroi a imagem em segundo plano, ou aqui com `--agora` |
@@ -37,6 +38,6 @@ bash tests/cli/rodar.sh
 ```
 
 Usam `DGCLAW_RAIZ=<pasta temporaria>` e programas de mentira em `tests/cli/stubs/`
-(podman, systemctl, ss, curl, iptables). Nao tocam na maquina. Com `DGCLAW_RAIZ`
+(podman, systemctl, ss, curl, iptables; mais `tela-senha-falso`, o gravador de senha da Tela, ligado por `DGCLAW_TELA_SENHA_CMD` so com raiz falsa). Nao tocam na maquina. Com `DGCLAW_RAIZ`
 definido a CLI nao aplica firewall nem roda o teste de isolamento, a menos que os
 testes passem `DGCLAW_FIREWALL_CMD` / `DGCLAW_ISOLAMENTO_CMD`.

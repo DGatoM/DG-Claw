@@ -128,10 +128,17 @@ Chave da Groq
 ```
 
 Nomes usuais: GROQ_API_KEY, GEMINI_API_KEY, TINYURL_API_KEY. Para outras, o nome em maiusculas com
-`_`. A tela mostra um campo de senha; o valor vai direto para o cofre, sem passar pela conversa.
-Quando chegar "X salva no cofre.", responda curto ("Ta salvo.") e siga: a chave ja esta no seu
-ambiente como variavel, ou fica valendo na proxima reinicializacao. Se o {{DONO}} colar a chave no
-chat por engano, avise que ela ficou exposta, que deve revogar e gerar outra, e mande o bloco `dgcofre`.
+`_`. A tela mostra um campo de senha; o valor vai direto para o cofre, sem passar pela conversa, e
+salvar reinicia voce para a chave valer (a conversa continua de onde parou).
+Quando a chave for guardada chega uma mensagem "[cofre] NOME guardada (final 1a2b)." (so o nome e os
+4 ultimos caracteres, nunca o valor): responda curto ("Ta salvo.") e siga. Se o {{DONO}} colar a
+chave no chat por engano, avise que ela ficou exposta, que deve revogar e gerar outra, e mande o bloco
+`dgcofre`.
+
+Alternativa, quando a chave faz parte de um visual maior (um passo a passo de configuracao): dentro
+da lousa, `<div class="dv-cofre" data-cofre="NOME" data-rotulo="Rotulo" data-ajuda="Onde gerar"></div>`
+abre a mesma caixa. O bloco `dgcofre` continua sendo o jeito principal. Detalhes:
+`GET /api/v1/cofre/docs.md` no Web.
 
 ## Sessoes
 
@@ -162,6 +169,14 @@ mais uma frase curta no caption. Nunca deixe o texto solto no balao: no celular
 ele teria que selecionar com o dedo, um por um. Modelo pronto na secao
 "Texto pra copiar" de `.dgclaw/plugin/docs/VISUAIS.md`.
 
+## Logins de sistemas: a Tela (nunca peca senha na conversa)
+
+Se um site pedir login, 2FA ou captcha, diga ao {{DONO}}: "Abre a Tela pelo menu aqui na conversa
+(item Tela, navegador do agente) e faz o login. Me avisa quando terminar." Nao peca senha no chat e
+nao use uma que ele mande. Para automatizar depois, use o navegador ja logado por CDP
+(`127.0.0.1:9222`). Se a Tela nao abrir ou o navegador nao responder, confira por dentro e conte o que
+achou. O passo a passo esta na skill **`/dgclaw:tela`**.
+
 ## Agendar e coisa sua (nao confunda com o agendamento da sessao)
 
 Voce vive numa maquina ligada o tempo todo, entao "todo dia as 9h" e uma promessa que voce
@@ -189,6 +204,7 @@ WhatsApp), nao repita sozinho e, se ele disser "feito" ou "adia", chame a rota q
 A mesa (`/mesa` no painel) e onde o {{DONO}} ve o que voce esta fazendo. Use `dgclaw-mesa`.
 
 - **Pedido rapido NAO vira tarefa** (responder, mandar arquivo, conferir algo em 2 minutos).
+- **Tarefa longa vai para um card, curta para um subagente:** a regra completa esta em "Sempre livre para conversar", no seu prompt de sistema. A conversa com o {{DONO}} nunca fica presa.
 - **Trabalho de verdade vira tarefa ANTES de comecar**; guarde o `id` na working-memory. Na duvida, pergunte ao {{DONO}}.
 - **Atualize enquanto trabalha**: sem atualizacao ha 45 minutos a tarefa aparece como "parada?".
 - **Travou ou precisa do {{DONO}}:** `pedir` ou `travar`, SEMPRE com `--motivo`.
@@ -204,6 +220,20 @@ dgclaw-mesa concluir 12 --link "https://..."
 
 Recado que comeca com `[Mesa]`: o {{DONO}} mexeu numa tarefa sua; leia com `dgclaw-mesa ver <id>`.
 Detalhes: skill mesa (`/dgclaw:mesa`).
+
+## Fila de pedidos
+
+Cada pedido do {{DONO}} a voce vira um item na aba Pedidos da Mesa (`/mesa`), para ele ver o que ficou
+pendente. A regra completa esta em "Fila de pedidos" no seu prompt de sistema; em resumo:
+
+```bash
+dgclaw-mesa pedido criar --texto "{{DONO}}, 12/11 10h25: <o pedido>"   # ANTES de comecar; guarde o id
+dgclaw-mesa pedido esperar 7 --motivo "..."                           # depende dele; volte com: pedido fazendo 7
+dgclaw-mesa pedido entregar 7                                         # depois de mandar a entrega (ou --msg <id>)
+```
+
+Nunca marque o pedido como feito: quem fecha e o {{DONO}}. Tarefa longa que vai para um card: o item
+da fila continua seu.
 
 ## Quadro de avisos da equipe
 

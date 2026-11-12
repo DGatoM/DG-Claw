@@ -5,6 +5,7 @@
 #                     [--proxy-existente | --sem-proxy-existente] [--porta-painel <N>]
 #                     [--faixa-rede <A.B.0.0/16>]
 #                     [--senha-stdin] [--novo-primeiro-acesso]
+#                     [--atras-de-tunel] [--sem-tunel]
 #                     [--ensaio] [--com-imagem] [--sem-imagem] [--ajuda]
 #
 # O padrao e NAO pedir senha: o instalador gera um link de primeiro acesso (uso unico, vale
@@ -73,6 +74,8 @@ DOMINIO=""
 PROVEDOR=""
 VERSAO=""
 LOG_INSTALAR=""
+TUNEL_ARG=""   # 1 = --atras-de-tunel, 0 = --sem-tunel, vazio = mantem o que o dgclaw.env diz
+TUNEL=0        # modo de tunel valendo nesta rodada (resolvido em escolher_dominio)
 
 uso() {
     cat <<'FIM'
@@ -82,6 +85,9 @@ Instala o DG Claw neste servidor: painel com HTTPS, Admin e a base para criar ag
 
   --usuario <nome>      usuario para entrar no painel (obrigatorio)
   --dominio <dominio>   endereco proprio (padrao: um endereco gratuito, escolhido sozinho)
+  --atras-de-tunel      servidor sem IP publico, com o acesso de fora por um tunel (Cloudflare):
+                        exige --dominio, usa certificado interno do Caddy e nao abre as portas 80 e 443
+  --sem-tunel           desliga o modo de tunel gravado por uma instalacao anterior
   --provedor claude|codex
                         com qual assinatura o Admin trabalha (padrao: o que estiver logado aqui)
   --proxy-existente     para servidor que ja tem nginx, Caddy ou tunel nas portas 80 e 443: nao instala
@@ -135,6 +141,8 @@ parse_args() {
             --porta-painel=*) ARG_PORTA_PAINEL="${1#*=}"; [ -n "$ARG_PORTA_PAINEL" ] || arg_sem_valor "--porta-painel"; shift ;;
             --faixa-rede) [ $# -ge 2 ] || arg_sem_valor "$1"; [ -n "$2" ] || arg_sem_valor "$1"; ARG_FAIXA_REDE="$2"; shift 2 ;;
             --faixa-rede=*) ARG_FAIXA_REDE="${1#*=}"; [ -n "$ARG_FAIXA_REDE" ] || arg_sem_valor "--faixa-rede"; shift ;;
+            --atras-de-tunel) TUNEL_ARG=1; shift ;;
+            --sem-tunel) TUNEL_ARG=0; shift ;;
             --ensaio)   ARG_ENSAIO=1; shift ;;
             --senha-stdin) ARG_SENHA_STDIN=1; shift ;;
             --novo-primeiro-acesso) ARG_NOVO_PRIMEIRO_ACESSO=1; shift ;;
@@ -205,6 +213,14 @@ resolver_opcoes_rede() {
         FAIXA_REDE="$(env_valor DGCLAW_FAIXA_REDE)"
         FAIXA_REDE="${FAIXA_REDE:-$DG_FAIXA_REDE_PADRAO}"
         faixa_rede_exigir "$FAIXA_REDE" "DGCLAW_FAIXA_REDE em ${DG_ETC#"$R"}/dgclaw.env"
+    fi
+    # --proxy-existente nao instala Caddy; --atras-de-tunel depende do Caddy (certificado interno no
+    # loopback). Com os dois valores finais ja resolvidos (argumento ou dgclaw.env), os dois ligados
+    # juntos nao tem como funcionar: para aqui, antes de mexer em qualquer coisa.
+    if [ -n "$TUNEL_ARG" ]; then v="$TUNEL_ARG"; elif [ "$(env_valor DGCLAW_ATRAS_DE_TUNEL)" = 1 ]; then v=1; else v=0; fi
+    if [ "$PROXY_EXISTENTE" = 1 ] && [ "$v" = 1 ]; then
+        falha "--proxy-existente e --atras-de-tunel estao ligados ao mesmo tempo (por opcao ou gravados em ${DG_ETC#"$R"}/dgclaw.env), e um exclui o outro: o primeiro nao instala o Caddy, e o segundo depende do Caddy para o certificado interno." \
+            "use so um dos dois. Para ficar com o seu proxy e desligar o tunel gravado, rode com --sem-tunel; para ficar com o tunel do DG Claw e desligar o proxy gravado, rode com --sem-proxy-existente."
     fi
 }
 
@@ -541,6 +557,22 @@ checar_versao_so() {
     esac
 }
 
+# checar_cpu: o Claude Code (Bun) exige SSE4.2 em x86_64. CPU generica de hipervisor (kvm64) nao tem.
+# Sem /proc/cpuinfo legivel, ou fora do x86_64, nao confere nada e segue.
+checar_cpu() {
+    local arq="${DGCLAW_ARQUITETURA:-$(uname -m)}" cpuinfo="$R/proc/cpuinfo" flags
+    [ "$arq" = x86_64 ] || return 0
+    [ -r "$cpuinfo" ] || return 0
+    flags="$(grep -m1 '^flags' "$cpuinfo" 2>/dev/null)" || flags=""
+    [ -n "$flags" ] || return 0
+    if [[ " $flags " == *" sse4_2 "* ]]; then ok "CPU com SSE4.2"; return 0; fi
+    if [ "$PROVEDOR" = claude ]; then
+        falha "a CPU deste servidor nao tem o recurso SSE4.2, e o Claude Code (que o Admin e os agentes usam) exige esse recurso para rodar." \
+            "no hipervisor, troque o tipo de CPU desta maquina virtual para host (passthrough) ou x86-64-v2 ou superior, e reinicie a maquina. No Proxmox: Hardware > Processors > Type = host. Depois rode o instalador de novo. Se voce usa o Codex, rode com --provedor codex."
+    fi
+    aviso "a CPU deste servidor nao tem o recurso SSE4.2, entao o Claude Code nao roda aqui (nem no Admin, nem nos agentes que usarem Claude). Com o Codex segue normal. Para usar o Claude, troque o tipo de CPU da maquina virtual para host ou x86-64-v2 ou superior."
+}
+
 checar_maquina() {
     passo "Conferindo a maquina"
     if pular_checagens; then
@@ -675,19 +707,113 @@ instalar_pacotes() {
     fi
 }
 
+# --- 2b. rede dos containers: netavark em modo iptables -------------------------------
+# No Ubuntu 26.04 (podman 5.7, netavark 1.16) o netavark usa nftables por padrao e cria a
+# `table inet netavark`. O ufw tem politica FORWARD DROP na tabela `ip filter`, e um pacote
+# encaminhado precisa ser aceito por TODAS as cadeias base do hook forward: o ACCEPT do netavark
+# nao adianta e nenhum container sai para a internet. No 24.04 o netavark ja usa iptables e a cerca
+# do lib/firewall.sh foi desenhada para isso; forcar o modo iptables e inofensivo la.
+configurar_rede_containers() {
+    passo "Ajustando a rede dos containers (netavark em modo iptables)"
+    local conf_dir="$R/etc/containers/containers.conf.d"
+    local nosso="$conf_dir/50-dgclaw-firewall-iptables.conf" f linha definidos="" divergentes=""
+
+    # Configuracao do dono nunca e sobreposta: se qualquer arquivo ja define firewall_driver
+    # (inclusive o padrao da distribuicao), o nosso nao e gravado.
+    for f in "$R/etc/containers/containers.conf" "$conf_dir"/*.conf "$R/usr/share/containers/containers.conf"; do
+        [ -f "$f" ] || continue
+        [ "$f" = "$nosso" ] && continue
+        # Qualquer linha nao comentada que cite firewall_driver conta como "o dono definiu", com ou
+        # sem aspas na chave e com qualquer aspa no valor (TOML aceita as duas). So e "iptables" quando
+        # o valor sai com seguranca e e exatamente iptables; o resto (outro valor, ou nao identificado)
+        # nao e sobreposto e vira aviso com o arquivo e a linha.
+        linha="$(grep -nE '^[[:space:]]*[^#[:space:]]' "$f" | grep 'firewall_driver' | tail -n 1)" || linha=""
+        [ -n "$linha" ] || continue
+        definidos="$definidos ${f#"$R"}"
+        if [[ "${linha#*:}" =~ ^[[:space:]]*[\"\']?firewall_driver[\"\']?[[:space:]]*=[[:space:]]*(\"iptables\"|\'iptables\')[[:space:]]*(#.*)?$ ]]; then
+            continue
+        fi
+        divergentes="$divergentes ${f#"$R"}:${linha%%:*} (${linha#*:})"
+    done
+
+    if [ -e "$nosso" ]; then
+        if grep -Eq '^[[:space:]]*firewall_driver[[:space:]]*=[[:space:]]*"iptables"' "$nosso"; then
+            ok "${nosso#"$R"} ja esta no lugar"
+        else
+            aviso "${nosso#"$R"} ja existe com outro conteudo e eu nao mexi nele. Sem firewall_driver = \"iptables\" ali, no Ubuntu 26.04 os containers dos agentes podem ficar sem internet por causa do ufw. Confira o arquivo e deixe nele: [network] firewall_driver = \"iptables\""
+        fi
+        if [ -n "$divergentes" ]; then
+            aviso "firewall_driver diferente de iptables tambem em:$divergentes. Nao mexi (e configuracao sua), mas com ele os containers dos agentes podem ficar sem internet por causa do ufw. Troque por \"iptables\" se faltar rede nos agentes."
+        fi
+    elif [ -n "$divergentes" ]; then
+        aviso "firewall_driver ja definido por voce em:$divergentes. Nao gravei o meu arquivo nem mexi nesses. Com um driver diferente de iptables, no Ubuntu 26.04 os containers dos agentes ficam sem internet por causa do ufw. Troque por: firewall_driver = \"iptables\""
+    elif [ -n "$definidos" ]; then
+        ok "firewall_driver ja e iptables em:$definidos"
+    else
+        printf '[network]\nfirewall_driver = "iptables"\n' | escrever_arquivo "$nosso" 644
+        ok "gravei ${nosso#"$R"} (firewall_driver = iptables)"
+    fi
+
+    # A tabela antiga so sai quando o driver efetivo e iptables: ai um container que suba durante a
+    # migracao ja cria regras em iptables e nao depende dela. Com driver do dono diferente (ou
+    # arquivo nosso com outro conteudo), a tabela e a rede viva dos containers e fica onde esta.
+    if [ -z "$divergentes" ] && { [ ! -e "$nosso" ] || grep -Eq '^[[:space:]]*firewall_driver[[:space:]]*=[[:space:]]*"iptables"' "$nosso"; }; then
+        migrar_tabela_netavark
+    fi
+}
+
+# Apaga a `table inet netavark` que sobrou do modo nftables, para o netavark recriar as regras em
+# iptables. So apaga quando da para ter certeza de que nenhum container esta usando a rede: se a
+# listagem falha, ou se algum container esta em qualquer estado fora de parado, preserva a tabela.
+migrar_tabela_netavark() {
+    command -v nft >/dev/null 2>&1 || return 0
+    nft list table inet netavark >/dev/null 2>&1 || return 0
+    local lista="" erro="" rc=0 nome estado ocupados="" outros=0 slugs=""
+    erro="$(mktemp)"
+    lista="$(podman ps -a --format '{{.Names}} {{.State}}' 2>"$erro")" || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        aviso "existe a tabela inet netavark (regras antigas do netavark em nftables), mas 'podman ps -a' falhou (codigo $rc: $(head -c 300 "$erro" | tr '\n' ' ')), entao nao apaguei nada. Resolva o erro do podman e rode ./install.sh de novo."
+        rm -f "$erro"
+        return 0
+    fi
+    rm -f "$erro"
+    while read -r nome estado; do
+        [ -n "$nome" ] || continue
+        case "$estado" in exited|created|configured|stopped) continue ;; esac
+        ocupados="$ocupados $nome"
+        case "$nome" in
+            dgclaw-*) slugs="$slugs ${nome#dgclaw-}" ;;
+            *) outros=1 ;;
+        esac
+    done <<<"$lista"
+    if [ -z "$ocupados" ]; then
+        executar nft delete table inet netavark
+        info "apaguei a tabela inet netavark, que sobrou do modo nftables; o netavark recria as regras em iptables."
+        return 0
+    fi
+    aviso "existe a tabela inet netavark (regras antigas do netavark em nftables) e estes containers nao estao parados:$ocupados. Por isso nao apaguei a tabela, e os containers podem continuar sem internet ate a troca. Para trocar: (1) pare cada agente com: sudo dgclaw agente parar <slug>${slugs:+ (agentes aqui:$slugs)}; (2) rode sudo ./install.sh de novo; (3) ligue de novo com: sudo dgclaw agente iniciar <slug>.${outros:+ Os containers que nao sao do DG Claw tambem precisam estar parados para a tabela sair.}"
+}
+
 # --- 3. dominio -----------------------------------------------------------------
 escolher_dominio() {
     passo "Escolhendo o endereco do painel"
     local atual ip nome
     atual="$(env_valor DGCLAW_DOMINIO)"
+    if [ -n "$TUNEL_ARG" ]; then TUNEL="$TUNEL_ARG"; elif [ "$(env_valor DGCLAW_ATRAS_DE_TUNEL)" = 1 ]; then TUNEL=1; else TUNEL=0; fi
+    export DGCLAW_TUNEL_ATIVO="$TUNEL"
+    if [ "$TUNEL" = 1 ] && [ -z "$DOMINIO_ARG" ] && [ -z "$atual" ]; then
+        falha "o modo de tunel (--atras-de-tunel) precisa de um dominio, e nenhum foi informado."             "rode de novo com o endereco que o tunel atende, por exemplo: sudo ./install.sh --usuario maria --dominio painel.exemplo.com --atras-de-tunel"
+    fi
     if [ -n "$DOMINIO_ARG" ]; then
         DOMINIO="$DOMINIO_ARG"
         ok "dominio informado por voce: $DOMINIO"
+        [ "$TUNEL" = 1 ] && info "modo de tunel: o servidor nao precisa de IP publico, e o Caddy usa certificado interno."
         return 0
     fi
     if [ -n "$atual" ]; then
         DOMINIO="$atual"
         ok "mantendo o dominio da instalacao anterior: $DOMINIO"
+        [ "$TUNEL" = 1 ] && info "modo de tunel: o servidor nao precisa de IP publico, e o Caddy usa certificado interno."
         return 0
     fi
     # Atras do seu proxy, o nome precisa existir ANTES: o nginx ou o tunel e que respondem por ele.
@@ -732,6 +858,10 @@ localizar_claude() {
 exigir_claude() {
     [ "$PROVEDOR" = claude ] || return 0
     if command -v claude >/dev/null 2>&1; then return 0; fi
+    if [ -n "${SUDO_USER:-}" ]; then
+        falha "o Claude Code nao foi encontrado para o root (voce entrou como $SUDO_USER e usou sudo), e o Admin precisa dele." \
+            "instale o Claude Code para o root com: curl -fsSL https://claude.ai/install.sh | sudo CLAUDE_INSTALL_ALLOW_SUDO=1 HOME=/root bash (o instalador oficial recusa rodar sob sudo sem essa variavel). Depois entre na sua assinatura com: sudo -i e, dentro dele, claude. Rode o instalador de novo. Se voce usa o Codex, rode com --provedor codex."
+    fi
     falha "o Claude Code nao foi encontrado (nem no PATH, nem em ~/.local/bin), e o Admin precisa dele." \
         "instale o Claude Code (https://code.claude.com/docs/en/setup), rode: echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.bashrc && source ~/.bashrc, entre na sua assinatura rodando: claude, e rode o instalador de novo. Se voce usa o Codex, rode com --provedor codex."
 }
@@ -1062,6 +1192,12 @@ instalar_codigo() {
     # Linha a linha, nunca o arquivo inteiro: o que a pessoa (ou o Admin) acrescentou ao dgclaw.env
     # sobrevive a cada atualizacao. Cria o arquivo se ele ainda nao existe.
     gravar_dgclaw_env DGCLAW_DOMINIO "$DOMINIO"
+    # So a linha do modo de tunel: 1 liga; se ja havia a linha e a pessoa pediu --sem-tunel, vira 0.
+    if [ "$TUNEL" = 1 ]; then
+        gravar_dgclaw_env DGCLAW_ATRAS_DE_TUNEL 1
+    elif [ -n "$(env_valor DGCLAW_ATRAS_DE_TUNEL)" ]; then
+        gravar_dgclaw_env DGCLAW_ATRAS_DE_TUNEL 0
+    fi
     gravar_dgclaw_env DGCLAW_VERSAO "$VERSAO"
     gravar_dgclaw_env DGCLAW_IMAGEM "$imagem"
     gravar_dgclaw_env DGCLAW_PROVEDOR_ADMIN "$PROVEDOR"
@@ -1103,14 +1239,34 @@ configurar_caddy() {
         info "o HTTPS de $DOMINIO fica com o seu proxy (nginx, Caddy ou tunel). Nao escrevi nada em /etc/caddy e nao mexi no servico caddy."
         return 0
     fi
-    passo "Configurando o Caddy (HTTPS automatico para $DOMINIO)"
-    local cf="$R/etc/caddy/Caddyfile"
-    escrever_site_caddy "$DOMINIO" "$PORTA_PAINEL"
-    executar_log caddy validate --config "$cf" --adapter caddyfile
-    if systemctl is-active --quiet caddy; then
-        executar systemctl reload caddy
+    if [ "$TUNEL" = 1 ]; then
+        passo "Configurando o Caddy (certificado interno para $DOMINIO, atras de tunel)"
     else
+        passo "Configurando o Caddy (HTTPS automatico para $DOMINIO)"
+    fi
+    local cf="$R/etc/caddy/Caddyfile" rc=0
+    escrever_site_caddy "$DOMINIO" "" "$PORTA_PAINEL"
+    if [ "$ENSAIO" = 1 ]; then
+        executar_log caddy validate --config "$cf" --adapter caddyfile
+    else
+        printf '\n$ caddy validate --config %s --adapter caddyfile\n' "$cf" >>"$LOG_INSTALAR"
+        caddy validate --config "$cf" --adapter caddyfile </dev/null >>"$LOG_INSTALAR" 2>&1 || rc=$?
+        if [ "$rc" -ne 0 ]; then
+            # O Caddy em producao nunca pode ficar com arquivo quebrado: volta o que havia antes.
+            caddy_restaurar_site
+            printf '\n--- ultimas linhas de %s ---\n' "$LOG_INSTALAR" >&2
+            tail -n 15 "$LOG_INSTALAR" >&2
+            falha "o Caddy recusou a configuracao nova (caddy validate terminou com codigo $rc). Voltei o arquivo ${CADDY_SITE_ARQUIVO#"$R"} ao que era e nao recarreguei o Caddy." \
+                "leia as linhas acima (o registro completo esta em ${LOG_INSTALAR#"$R"}); se voce editou o Caddyfile, confira a sintaxe com: caddy validate --config $cf --adapter caddyfile. Depois rode ./install.sh de novo."
+        fi
+    fi
+    [ -z "$CADDY_SITE_COPIA" ] || rm -f "$CADDY_SITE_COPIA"
+    if ! systemctl is-active --quiet caddy; then
         executar systemctl enable --now caddy
+    else
+        # Recarrega mesmo sem mudanca no arquivo: se um reload anterior falhou, o arquivo ja esta
+        # certo no disco mas o Caddy segue com a configuracao velha, e so um reload novo a aplica.
+        executar systemctl reload caddy
     fi
 }
 
@@ -1119,7 +1275,7 @@ ufw_ativo_pelo_arquivo() { grep -qi '^ENABLED=yes' "$R/etc/ufw/ufw.conf" 2>/dev/
 
 configurar_firewall() {
     passo "Configurando o firewall"
-    local st=""
+    local st="" p portas=() lista=""
     if [ "$PROXY_EXISTENTE" = 1 ]; then
         # Modo proxy: o firewall de entrada e da pessoa. Nenhum comando ufw roda (nem para ler o
         # estado: o ufw.conf diz se ele esta ligado). Abrir a 80/443 ou ligar o ufw sozinho podia
@@ -1130,14 +1286,22 @@ configurar_firewall() {
             info "o ufw esta desligado ou nao existe aqui, e continua assim: nao liguei nem instalei firewall de entrada. Se voce usa outro firewall, ele e quem decide as portas 80 e 443."
         fi
     else
-        executar_log ufw allow 22/tcp
-        executar_log ufw allow 80/tcp
-        executar_log ufw allow 443/tcp
+        while IFS= read -r p; do portas+=("$p"); done < <(portas_ssh)
+        for p in "${portas[@]}"; do executar_log ufw allow "$p/tcp"; done
+        lista="$(IFS=,; printf '%s' "${portas[*]}")"
+        lista="${lista//,/, }"
+        if [ "$TUNEL" = 1 ]; then
+            info "modo de tunel: nao abro as portas 80 e 443 no firewall (o tunel conecta de dentro para fora e fala com o Caddy pelo loopback)."
+        else
+            executar_log ufw allow 80/tcp
+            executar_log ufw allow 443/tcp
+        fi
         st="$(ufw status 2>/dev/null)" || st="" # sem resposta = trata como desligado e liga abaixo
         if [[ "$st" == *"Status: active"* ]]; then
-            ok "ufw ja estava ligado; as portas 22, 80 e 443 estao liberadas"
+            if [ "$TUNEL" = 1 ]; then ok "ufw ja estava ligado; a porta do SSH ($lista) esta liberada"
+            else ok "ufw ja estava ligado; as portas $lista (SSH), 80 e 443 estao liberadas"; fi
         else
-            aviso "vou ligar o firewall com a porta 22 (SSH) aberta, para voce nao perder o acesso ao servidor. Se o seu SSH usa outra porta, libere-a antes com: ufw allow <porta>/tcp"
+            aviso "vou ligar o firewall com a porta do SSH ($lista) aberta, para voce nao perder o acesso ao servidor. Se o seu SSH usa outra porta que eu nao detectei, libere-a antes com: ufw allow <porta>/tcp"
             executar_log ufw --force enable
         fi
     fi
@@ -1314,10 +1478,48 @@ EnvironmentFile=/etc/dgclaw/web.env
 ExecStart=/usr/bin/node /opt/dgclaw/app/web/server.js
 Restart=always
 RestartSec=3
+# Endurecimento: so o que e compativel com o que o Web grava e executa (podman exec, systemctl
+# is-active, ffmpeg, spawn com uid/gid do agente). Diretiva que ficou de fora leva a razao.
+# /etc fica so de leitura, menos /etc/dgclaw (o Web regrava o web.env no primeiro acesso).
+ProtectSystem=full
+ReadWritePaths=-/etc/dgclaw
+# /tmp proprio: o Web so grava em /var/lib/dgclaw/web e nas casas dos agentes, nunca em /tmp.
+PrivateTmp=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+# NoNewPrivileges fica de fora: o Web roda 'podman exec', e o flag e herdado pelo processo que
+# entra no container (quebraria sudo/su e binarios setuid dentro dele).
+# ProtectSystem=strict fica de fora: as casas dos agentes (home_host) sao caminhos livres do
+# registro e o 'podman exec' grava em /var/lib/containers e /run; nao da para listar com seguranca.
+# ProtectHome fica de fora: o 'podman' do root pode ler a configuracao em /root/.config/containers.
+# PrivateDevices fica de fora: o 'podman exec' e o ffmpeg precisam de /dev/ptmx e dos dispositivos.
+# ProtectKernelTunables e ProtectControlGroups ficam de fora: o 'podman exec' entra no cgroup
+# do container e grava em /sys/fs/cgroup.
+# ProtectClock e ProtectHostname ficam de fora: implicam politica de dispositivos e namespace
+# proprio de UTS, sem ganho que compense o risco para o 'podman exec'.
+# RestrictNamespaces fica de fora: o 'podman exec' usa setns para entrar no container.
+# RestrictAddressFamilies fica de fora: o Node le as interfaces por AF_NETLINK e o podman usa
+# sockets de varias familias; a lista certa nao da para garantir.
+# CapabilityBoundingSet fica de fora: o spawn com uid/gid do agente exige CAP_SETUID/CAP_SETGID
+# e o podman precisa de CAP_SYS_ADMIN e outras.
+# MemoryDenyWriteExecute fica de fora: o JIT do Node precisa de memoria gravavel e executavel.
+# UMask fica de fora: mudar a mascara alteraria o modo de arquivos criados sem modo explicito.
 
 [Install]
 WantedBy=multi-user.target
 FIM
+    # Nao liga aqui: o Web le o agentes.json assim que sobe, e o registro so ganha o Admin em
+    # configurar_admin. Ligar antes gerava erro vermelho no primeiro boot. Ver ligar_web.
+    WEB_PRONTO_PARA_LIGAR=1
+}
+
+# ligar_web: liga (ou reinicia) o Web depois que o registro de agentes ja tem o Admin.
+ligar_web() {
+    [ "${WEB_PRONTO_PARA_LIGAR:-0}" = 1 ] || return 0
     ligar_unidade dgclaw-web.service reiniciar
 }
 
@@ -1480,13 +1682,16 @@ FIM
 
     if tem_jq; then
         agentes_garantir_arquivo
+        # codex_home_host vai sempre, mesmo com o Admin no Claude: o runner.json dele usa CODEX_HOME=/root/.codex
+        # e o dono pode trocar o Admin para o Codex pelo painel depois (provedor.json), sem rodar o instalador.
         jq -n --arg prov "$PROVEDOR" --arg transcripts "$transcripts" --arg admin "$p_admin" --arg etc "$p_etc" '
             {slug: "admin", nome: "Admin", tipo: "admin", runner: "http://127.0.0.1:4300",
              agente_id: "admin", chat_id: "c_admin", avatar: "🛠️", cor: "#64748b",
              provedor: $prov, modelo: "", transcripts_dir: $transcripts,
              porta_painel: null, proxy_segredo_arquivo: null,
              runner_token_arquivo: ($etc + "/runner/admin.token"),
-             home_host: $admin, home_container: $admin}' \
+             home_host: $admin, home_container: $admin,
+             codex_home_host: "/root/.codex"}' \
             | agentes_registrar
     fi
     configurar_monitor_admin
@@ -1591,6 +1796,318 @@ FIM
     ligar_unidade dgclaw-checar-atualizacao.timer
     # Confere logo: depois de atualizar, o estado velho ("tem versao nova") nao pode ficar ate a proxima rodada.
     executar systemctl start --no-block dgclaw-checar-atualizacao.service
+}
+
+# --- 9c. boletins de seguranca ----------------------------------------------------
+# configurar_boletins_seguranca: o AVISO DE SEGURANCA (docs/BOLETINS-DE-SEGURANCA.md). Um timer de 1 h roda
+# scripts/checar-boletins.mjs, que so le o GitHub publico e guarda os boletins pendentes em
+# /var/lib/dgclaw/web/atualizacao/boletins.json para o painel mostrar a janela e o selo. Nao baixa nem instala nada.
+# Quem desliga e a linha DGCLAW_BOLETINS_SEGURANCA=0 do dgclaw.env: o instalador a respeita e NUNCA a reescreve
+# nem a cria (sem a linha, o aviso fica ligado).
+configurar_boletins_seguranca() {
+    local p_app="${DG_APP#"$R"}" p_lib="${DG_LIB#"$R"}" p_log="${DG_LOG#"$R"}" desligar
+    desligar="$(env_valor DGCLAW_BOLETINS_SEGURANCA)"
+    desligar="${desligar//[\'\"]/}"
+    criar_pasta 700 "$DG_LIB/web"
+    criar_pasta 700 "$DG_LIB/web/atualizacao"
+    criar_pasta 750 "$DG_LOG"
+    # Alvo do flock: so existe, nunca e apagado nem recriado (trocar o arquivo no meio de uma checagem quebraria a trava).
+    executar touch "$DG_LIB/web/atualizacao/.trava-boletins"
+    executar chmod 600 "$DG_LIB/web/atualizacao/.trava-boletins"
+    cat <<FIM | escrever_arquivo "$DG_UNITS/dgclaw-checar-boletins.service" 644
+[Unit]
+Description=DG Claw confere se saiu boletim de seguranca (so le o GitHub, nao instala nada)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/bin/flock -w 90 -E 75 $p_lib/web/atualizacao/.trava-boletins /usr/bin/node $p_app/scripts/checar-boletins.mjs
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=$p_lib/web/atualizacao $p_log
+PrivateTmp=yes
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+TimeoutStartSec=120
+FIM
+    cat <<'FIM' | escrever_arquivo "$DG_UNITS/dgclaw-checar-boletins.timer" 644
+[Unit]
+Description=DG Claw confere se saiu boletim de seguranca (a cada 1 hora)
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1h
+RandomizedDelaySec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+FIM
+    if [ "$desligar" = 0 ]; then
+        executar systemctl daemon-reload
+        executar systemctl disable --now dgclaw-checar-boletins.timer
+        info "boletins de seguranca instalados, mas desligados (DGCLAW_BOLETINS_SEGURANCA=0 no dgclaw.env). Para ligar, apague essa linha e rode ./install.sh de novo."
+        return 0
+    fi
+    ligar_unidade dgclaw-checar-boletins.timer
+    # Confere logo: depois de atualizar, a lista de pendentes velha nao pode ficar ate a proxima rodada.
+    executar systemctl start --no-block dgclaw-checar-boletins.service
+}
+
+# --- 9d. ronda de seguranca ---------------------------------------------------------
+# configurar_ronda_seguranca: a RONDA DE SEGURANCA DE FABRICA (docs/RONDA-DE-SEGURANCA.md). Unidades do
+# systemd, todas rodando seguranca/ronda/ronda.py (Python da biblioteca padrao):
+#   dgclaw-ronda.timer           3 vezes ao dia (DGCLAW_RONDA_HORARIOS, padrao "07:00 13:00 19:00", fuso do servidor)
+#   dgclaw-ronda-vigia.timer     de hora em hora: confere se a rodada agendada terminou e, se nao, roda de novo uma vez
+#   dgclaw-ronda-inventario.timer a cada 3 dias refaz o inventario personalizado (o app atualizado tambem o refaz)
+#   dgclaw-seguranca-pedidos.path o painel (que nao e root) deixa pedidos em web/seguranca/pedidos; o root os executa
+#   dgclaw-emergencia-estado.timer a cada 10 min regrava o estado do botao de emergencia (`dgclaw emergencia estado`)
+# A ronda e root porque precisa ler dpkg/ss e, nos casos do catalogo fechado (seguranca/acoes-permitidas.json), aplicar
+# a acao. Por isso o endurecimento e o possivel: ProtectSystem=strict so no inventario, que nao aplica nada; nas outras
+# unidades o apt, o nft e o sysctl precisam escrever em /usr, /etc e /proc/sys. Roda tanto na instalacao quanto na
+# atualizacao (o `dgclaw atualizar` roda o instalador de novo). Quem desliga e a linha DGCLAW_RONDA_SEGURANCA=0 do
+# dgclaw.env: o instalador a respeita e NUNCA a reescreve nem a cria (sem a linha, a ronda fica ligada).
+# ronda_servidor_pequeno: verdadeiro quando a ronda deve rodar no modo economico. Mesma regra do ronda.py (modo_economico):
+# DGCLAW_RONDA_ECONOMICA=1 forca, =0 desliga; sem ela, MemTotal ate 4,5 GiB. DGCLAW_MEMINFO troca o /proc/meminfo nos testes.
+ronda_servidor_pequeno() {
+    local forcado mem_kb
+    forcado="${DGCLAW_RONDA_ECONOMICA:-$(env_valor DGCLAW_RONDA_ECONOMICA)}"
+    forcado="${forcado//[\'\"]/}"
+    case "$forcado" in
+        1) return 0 ;;
+        0) return 1 ;;
+    esac
+    # meminfo ilegivel = nao sei o tamanho: fica o modo normal (o ronda.py decide do mesmo jeito)
+    mem_kb="$(awk '/^MemTotal:/ {print $2}' "${DGCLAW_MEMINFO:-/proc/meminfo}" 2>/dev/null)" || mem_kb=""
+    [[ "$mem_kb" =~ ^[0-9]+$ ]] && [ "$mem_kb" -le 4718592 ]
+}
+
+configurar_ronda_seguranca() {
+    local p_app="${DG_APP#"$R"}" p_lib="${DG_LIB#"$R"}" p_log="${DG_LOG#"$R"}" p_bin="${DG_BIN#"$R"}" desligar horarios h linhas="" py cargas limites
+    desligar="$(env_valor DGCLAW_RONDA_SEGURANCA)"
+    desligar="${desligar//[\'\"]/}"
+    horarios="$(env_valor DGCLAW_RONDA_HORARIOS)"
+    horarios="${horarios//[\'\"]/}"
+    if [ -z "$horarios" ]; then
+        # Servidor pequeno (ate 4,5 GiB): a ronda e a maior consumidora de memoria da fabrica, entao roda uma vez por dia,
+        # de madrugada. Horario escolhido pela pessoa em DGCLAW_RONDA_HORARIOS sempre vale.
+        if ronda_servidor_pequeno; then
+            horarios="04:00"
+            info "servidor pequeno (ate 4,5 GB de memoria): a ronda de seguranca roda uma vez por dia, as 04:00, no modo economico. Para outro horario, ponha DGCLAW_RONDA_HORARIOS=\"HH:MM\" no dgclaw.env e rode ./install.sh de novo."
+        else
+            horarios="07:00 13:00 19:00"
+        fi
+    fi
+    for h in $horarios; do
+        if [[ "$h" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]]; then
+            linhas+="OnCalendar=*-*-* $h:00"$'\n'
+        else
+            aviso "o horario '$h' de DGCLAW_RONDA_HORARIOS no dgclaw.env nao e HH:MM; usei o padrao 07:00 13:00 19:00. Corrija a linha e rode ./install.sh de novo."
+            linhas=""
+            break
+        fi
+    done
+    [ -n "$linhas" ] || linhas=$'OnCalendar=*-*-* 07:00:00\nOnCalendar=*-*-* 13:00:00\nOnCalendar=*-*-* 19:00:00\n'
+    if ! command -v python3 >/dev/null 2>&1; then
+        aviso "o python3 nao esta instalado, entao a ronda de seguranca nao foi instalada. Rode: apt-get install -y python3; depois ./install.sh de novo."
+        return 0
+    fi
+    criar_pasta 700 "$DG_LIB/seguranca"
+    criar_pasta 700 "$DG_LIB/web"
+    criar_pasta 700 "$DG_LIB/web/seguranca"
+    criar_pasta 700 "$DG_LIB/web/seguranca/pedidos"
+    criar_pasta 700 "$DG_LIB/web/seguranca/pedidos/feitos"
+    criar_pasta 750 "$DG_LOG"
+    py="/usr/bin/python3 -I $p_app/seguranca/ronda/ronda.py"
+    # Sem RestrictSUIDSGID aqui: o apt do catalogo pode atualizar pacote com binario setuid (sudo, openssh), e a trava
+    # barraria o dpkg. O inventario, que nao instala nada, leva a trava.
+    cargas="NoNewPrivileges=yes
+ProtectHome=read-only
+PrivateTmp=yes
+ProtectControlGroups=yes
+ProtectKernelModules=yes
+ProtectClock=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native"
+    # Limites so da ronda, do vigia e do inventario (os pedidos do dono rodam apt e nft e nao podem morrer no meio). Num
+    # servidor de 4 GB o OOM do kernel tem de escolher a ronda e nunca um agente: OOMScoreAdjust a poe no topo da lista,
+    # MemoryMax faz o cgroup matar so ela, e o vigia, ao ver o oom-kill, refaz a rodada no modo economico.
+    limites="MemoryHigh=450M
+MemoryMax=600M
+MemorySwapMax=0
+OOMScoreAdjust=1000
+Nice=19
+IOSchedulingClass=idle
+CPUQuota=50%"
+    cat <<FIM | escrever_arquivo "$DG_UNITS/dgclaw-ronda.service" 644
+[Unit]
+Description=DG Claw ronda de seguranca (varre as falhas que afetam esta instalacao)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=$py executar
+TimeoutStartSec=1800
+$cargas
+$limites
+FIM
+    {
+        printf '[Unit]\nDescription=DG Claw ronda de seguranca (horarios de DGCLAW_RONDA_HORARIOS)\n\n[Timer]\n'
+        printf '%s' "$linhas"
+        printf 'RandomizedDelaySec=20min\nPersistent=true\nUnit=dgclaw-ronda.service\n\n[Install]\nWantedBy=timers.target\n'
+    } | escrever_arquivo "$DG_UNITS/dgclaw-ronda.timer" 644
+    cat <<FIM | escrever_arquivo "$DG_UNITS/dgclaw-ronda-vigia.service" 644
+[Unit]
+Description=DG Claw confere se a ronda de seguranca terminou (e roda de novo uma vez se nao)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=$py vigiar
+TimeoutStartSec=3600
+$cargas
+$limites
+FIM
+    cat <<'FIM' | escrever_arquivo "$DG_UNITS/dgclaw-ronda-vigia.timer" 644
+[Unit]
+Description=DG Claw vigia da ronda de seguranca (de hora em hora)
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=2min
+Persistent=true
+Unit=dgclaw-ronda-vigia.service
+
+[Install]
+WantedBy=timers.target
+FIM
+    cat <<FIM | escrever_arquivo "$DG_UNITS/dgclaw-ronda-inventario.service" 644
+[Unit]
+Description=DG Claw refaz o inventario da ronda de seguranca (so le, nao aplica nada)
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=$py inventariar
+TimeoutStartSec=600
+ProtectSystem=strict
+ReadWritePaths=$p_lib/seguranca $p_log
+ProtectKernelTunables=yes
+RestrictSUIDSGID=yes
+$cargas
+$limites
+FIM
+    cat <<'FIM' | escrever_arquivo "$DG_UNITS/dgclaw-ronda-inventario.timer" 644
+[Unit]
+Description=DG Claw inventario da ronda de seguranca (a cada 3 dias)
+
+[Timer]
+OnBootSec=40min
+OnUnitActiveSec=3d
+RandomizedDelaySec=1h
+Persistent=true
+Unit=dgclaw-ronda-inventario.service
+
+[Install]
+WantedBy=timers.target
+FIM
+    # PathChanged e nao DirectoryNotEmpty: a pasta nunca fica vazia (feitos/ mora dentro dela), e DirectoryNotEmpty
+    # religaria o servico sem parar ate o systemd barrar a unidade por excesso de partidas. O Web grava
+    # .<uuid>.tmp e renomeia para <uuid>.json; o rename dispara o PathChanged, e o executor ignora o que comeca com ponto.
+    cat <<FIM | escrever_arquivo "$DG_UNITS/dgclaw-seguranca-pedidos.path" 644
+[Unit]
+Description=DG Claw pedidos do painel para a ronda de seguranca
+
+[Path]
+PathChanged=$p_lib/web/seguranca/pedidos
+MakeDirectory=yes
+DirectoryMode=0700
+Unit=dgclaw-seguranca-pedidos.service
+
+[Install]
+WantedBy=multi-user.target
+FIM
+    cat <<FIM | escrever_arquivo "$DG_UNITS/dgclaw-seguranca-pedidos.service" 644
+[Unit]
+Description=DG Claw executa os pedidos do painel para a ronda de seguranca (so os tipos aceitos, nunca comando livre)
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=$p_bin/dgclaw seguranca pedido-todos
+TimeoutStartSec=1800
+$cargas
+Nice=10
+FIM
+    cat <<FIM | escrever_arquivo "$DG_UNITS/dgclaw-emergencia-estado.service" 644
+[Unit]
+Description=DG Claw regrava o estado do botao de emergencia para a tela do painel
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=$p_bin/dgclaw emergencia estado
+TimeoutStartSec=120
+FIM
+    cat <<'FIM' | escrever_arquivo "$DG_UNITS/dgclaw-emergencia-estado.timer" 644
+[Unit]
+Description=DG Claw estado do botao de emergencia (a cada 10 minutos)
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=10min
+Unit=dgclaw-emergencia-estado.service
+
+[Install]
+WantedBy=timers.target
+FIM
+    if [ "$desligar" = 0 ]; then
+        executar systemctl daemon-reload
+        executar systemctl disable --now dgclaw-ronda.timer dgclaw-ronda-vigia.timer dgclaw-ronda-inventario.timer dgclaw-seguranca-pedidos.path dgclaw-emergencia-estado.timer
+        info "ronda de seguranca instalada, mas desligada (DGCLAW_RONDA_SEGURANCA=0 no dgclaw.env). Para ligar, apague essa linha e rode ./install.sh de novo."
+        return 0
+    fi
+    ligar_unidade dgclaw-ronda.timer
+    ligar_unidade dgclaw-ronda-vigia.timer
+    ligar_unidade dgclaw-ronda-inventario.timer
+    ligar_unidade dgclaw-seguranca-pedidos.path
+    ligar_unidade dgclaw-emergencia-estado.timer
+    # Roda logo: depois de instalar ou atualizar, o painel nao pode esperar ate o proximo horario para ter a primeira ronda.
+    executar systemctl start --no-block dgclaw-ronda.service
+}
+
+# --- 9d. anonimizar documentos (detector opcional) --------------------------------
+# A unidade-modelo dgclaw-anonimizar-instalar@<nivel>.service roda lib/anonimizar-instalar.sh como root. So o Web a
+# dispara (systemctl start --no-block), e so com os dois niveis fixos "leitores" e "completo". Aqui so se grava a
+# unidade; nada e instalado ate o dono pedir pela tela Anonimizar. Reescrever a unidade nao apaga o que ja foi instalado.
+configurar_anonimizar() {
+    passo "Preparando a instalacao opcional do detector de nomes (Anonimizar documentos)"
+    if ! fonte_tem lib/anonimizar-instalar.sh; then
+        aviso "lib/anonimizar-instalar.sh ainda nao existe neste repositorio; a unidade do detector de nomes nao foi criada."
+        return 0
+    fi
+    cat <<'FIM' | escrever_arquivo "$DG_UNITS/dgclaw-anonimizar-instalar@.service" 644
+[Unit]
+Description=DG Claw: instalar o detector de nomes da anonimizacao (%i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/dgclaw/app
+TimeoutStartSec=3600
+ExecStart=/bin/bash /opt/dgclaw/app/lib/anonimizar-instalar.sh %i
+FIM
+    executar systemctl daemon-reload
 }
 
 # --- 10. imagem -----------------------------------------------------------------
@@ -1699,6 +2216,12 @@ testar_fim() {
         # O nginx ou o tunel ainda nao foram apontados para o DG Claw (isso e o ultimo passo, na
         # mao da pessoa), entao testar https://dominio aqui falharia sempre.
         info "modo proxy existente: nao testo https://$DOMINIO/, porque o seu proxy ainda nao aponta para o DG Claw."
+    elif [ "$TUNEL" = 1 ]; then
+        info "esperando o Caddy responder em $DOMINIO pelo loopback (ate ${espera}s)..."
+        esperar_http "$espera" -k --resolve "$DOMINIO:443:127.0.0.1" "https://$DOMINIO/" \
+            || falha "o Caddy nao respondeu em https://$DOMINIO/ (pelo loopback 127.0.0.1:443) em ${espera}s." \
+                     "veja o motivo com: journalctl -u caddy -n 30 e confira com: systemctl status caddy. Depois rode ./install.sh de novo."
+        ok "HTTPS respondendo em $DOMINIO"
     else
         info "esperando o certificado HTTPS de $DOMINIO (ate ${espera}s)..."
         esperar_http "$espera" --resolve "$DOMINIO:443:127.0.0.1" "https://$DOMINIO/" \
@@ -1733,6 +2256,9 @@ mensagem_final() {
         printf '   Painel:   https://%s/\n' "$DOMINIO"
     fi
     printf '   Usuario:  %s\n' "$USUARIO"
+    if [ "$TUNEL" = 1 ]; then
+        printf '   Atras de tunel: o endereco so abre de fora se o tunel apontar para https://127.0.0.1:443, com o nome do servidor de origem igual a %s e sem verificacao do certificado.\n' "$DOMINIO"
+    fi
     if [ -n "$PRIMEIRO_ACESSO_TOKEN" ]; then
         printf '\n   Primeiro acesso (uso único, vale 30 min): https://%s/primeiro-acesso#%s\n' "$DOMINIO" "$PRIMEIRO_ACESSO_TOKEN"
         if [ "$PROXY_EXISTENTE" = 1 ]; then
@@ -1801,8 +2327,10 @@ main() {
     checar_faixa_rede
     localizar_claude
     detectar_provedor
+    checar_cpu
     exigir_claude
     instalar_pacotes
+    configurar_rede_containers
     escolher_dominio
     instalar_codigo
     configurar_caddy
@@ -1811,8 +2339,12 @@ main() {
     configurar_senha
     configurar_web
     configurar_admin
+    ligar_web
     configurar_aviso_atualizacao
+    configurar_boletins_seguranca
+    configurar_ronda_seguranca
     atualizar_identidades
+    configurar_anonimizar
     construir_imagem
     testar_fim
     mensagem_final

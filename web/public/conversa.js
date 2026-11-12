@@ -59,8 +59,28 @@ function mostraErroTela(titulo, texto, agentes) {
   if (barra) barra.hidden = true;
 }
 
+/* O histórico inicial sai junto com a lista de agentes (o slug já está na URL), em vez de esperar
+   por ela. carregar(true) consome a promessa; se ela falhou ou o agente não existe, carregar() pede de
+   novo pelo caminho normal, que mostra o erro de sempre (e leva ao login num 401). */
+let historicoAntecipado = null;
+const PAGINA_INICIAL = 60;   // o mesmo PAGINA de iniciaTela
+
+function antecipaHistorico(slug) {
+  historicoAntecipado = fetch('/api/v1/agents/' + encodeURIComponent(slug) + '/messages?limit=' + PAGINA_INICIAL, { cache: 'no-store' })
+    .then(async r => {
+      let corpo = null;
+      try { corpo = await r.json(); } catch (e) { corpo = null; }
+      if (!r.ok || !corpo || corpo.ok === false) throw new Error('a API respondeu ' + r.status);
+      return corpo;
+    });
+  // quem consome trata a falha; aqui só evita "unhandled rejection" se ninguém chegar a consumir
+  historicoAntecipado.catch(() => {});
+}
+
 async function boot() {
   let d = null;
+  const slugCedo = slugDaUrl();
+  if (slugCedo) antecipaHistorico(slugCedo);
   try {
     const r = await fetch('/api/v1/agents', { cache: 'no-store' });
     if (r.status === 401) {
@@ -194,6 +214,9 @@ const btnFim = $('btnFim'), fimNovas = $('fimNovas');
 const API = '/api/v1/agents/' + encodeURIComponent(AGENTE.id);
 const AQUI = location.pathname + location.search;
 const EH_ADMIN = AGENTE.tipo === 'admin';
+/* Colaborador: só este agente. Tira da tela o que é do dono (o servidor também barra; aqui é para não sobrar botão que não leva a lugar nenhum). */
+const COLAB = !!(window.DGPapel && window.DGPapel.colaborador);
+if (COLAB) for (const id of ['btnMesa', 'btnLembretes', 'btnNaoLida', 'trocaBaixo']) { const e = $(id); if (e) e.remove(); }
 /* A Mesa e os Lembretes levam o agente junto (?a=), para o menu deles ser o deste agente. */
 (function () {
   // localStorage para a casca das outras telas; o cookie é o que o servidor lê na rota "/" (abre o último agente usado)
@@ -203,9 +226,29 @@ const EH_ADMIN = AGENTE.tipo === 'admin';
     if (el) el.href = window.DGMenuLado.comAgente(href, AGENTE.id);
   });
 })();
-if (window.campoCofre) window.campoCofre.configurar({ agente: AGENTE.id, enviar: texto => new Promise((resolve, reject) => { enviarTexto(texto, null, { aoEntregar: (ok, motivo) => ok ? resolve() : reject(new Error(motivo || 'O agente não recebeu a mensagem.')) }); }) });
+if (window.campoCofre) window.campoCofre.configurar({ agente: AGENTE.id, nome: AGENTE.nome });
+
+/* Anonimizar documentos (docs/ANONIMIZAR.md). Com a opção ligada para este agente: o selo no cabeçalho leva à tela,
+   o anexo que o agente manda ganha "Baixar versão final" e a resposta com marcadores ganha "Ver com dados reais".
+   anonVistos guarda, por mensagem, o texto já revertido: só existe na memória desta aba. */
+let anonLigado = false;
+const anonVistos = new Map();
+const API_ANON = '/api/v1/anonimizar/' + encodeURIComponent(AGENTE.id);
+(function () {
+  const selo = $('btnAnon');
+  if (selo) selo.href = window.DGMenuLado.comAgente('/anonimizar', AGENTE.id);
+  fetch(API_ANON + '/config', { credentials: 'same-origin', cache: 'no-store' })
+    .then(r => r.json().catch(() => null).then(d => ({ r, d })))
+    .then(({ r, d }) => {
+      if (!r.ok || !d || !d.config) { console.warn('anonimizar: não consegui ler a configuração (' + ((d && d.erro) || r.status) + '); os botões de dados reais ficam escondidos.'); return; }
+      anonLigado = !!d.config.ligado;
+      if (selo) selo.hidden = !anonLigado;
+      if (anonLigado) render({ semRolar: true });
+    })
+    .catch(e => console.warn('anonimizar: não consegui ler a configuração (' + e.message + ').'));
+})();
 if (window.DGOnboarding) window.DGOnboarding.iniciar({ agente: AGENTE, enviar: texto => new Promise((resolve, reject) => { enviarTexto(texto, null, { aoEntregar: (ok, motivo) => ok ? resolve() : reject(new Error(motivo || 'O Admin não recebeu a mensagem.')) }); }), refazer: () => render({ semRolar: true }) });
-if (window.DGBarra) window.DGBarra.liga(entrada, { url: API + '/comandos' });   // lista de comandos ao digitar /
+if (window.DGBarra && !COLAB) window.DGBarra.liga(entrada, { url: API + '/comandos' });   // lista de comandos ao digitar /
 let novasAbaixo = 0, setaVisivel = false;   // a seta pro fim e o contador dela
 /* mp3 de 0,08s em silêncio: é o que destrava o áudio no iOS dentro do gesto. */
 const SILENCIO = 'data:audio/mpeg;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjYwLjE2LjEwMAAAAAAAAAAAAAAA//NwwAAAAAAAAAAAAEluZm8AAAAPAAAABgAAAVMAnZ2dnZ2dnZ2dnZ2dnZ2dnbGxsbGxsbGxsbGxsbGxsbGxxcXFxcXFxcXFxcXFxcXFxdjY2NjY2NjY2NjY2NjY2NjY7Ozs7Ozs7Ozs7Ozs7Ozs7Oz/////////////////////AAAAAExhdmM2MC4zMQAAAAAAAAAAAAAAACQEUQAAAAAAAAFTx3TIuwAAAAAAAAAAAAAAAAD/8xDEAAAAA0gAAAAATEFNRTMuMTAwVVVVVf/zEsQNAAADSAAAAABVVVVVVVVVVVVVVVVVVf/zEMQbAAADSAAAAABVVVVVVVVVVVVVVVVV//MQxCgAAANIAAAAAFVVVVVVVVVVVVVVVVX/8xDENQAAA0gAAAAAVVVVVVVVVVVVVVVVVf/zEMRCAAADSAAAAABVVVVVVVVVVVVVVVVV';
@@ -643,7 +686,14 @@ async function lcCopia(texto) {
 }
 
 /* Abre o cartão. `manual`: veio do /login (fica mesmo com a conta conectada). */
+let lcAvisouColab = false;
 function lcAbre(manual, semConferir) {
+  // Colaborador conecta a conta pela página Conectar conta (que confere no servidor se o agente está sem conta).
+  // Aqui só avisa, uma vez, em vez de abrir o cartão do dono.
+  if (window.DGPapel && window.DGPapel.colaborador) {
+    if (!lcAvisouColab) { lcAvisouColab = true; mostraAviso('O agente ainda não tem uma conta de IA conectada. Você pode conectar a sua em Conectar conta, no menu. Se o login expirou e a conta não é sua, avise o dono do DG Claw.'); }
+    return;
+  }
   if (lc.aberto) { if (manual) { lc.manual = true; lc.dispensado = false; } lcDesenha(); return; }
   Object.assign(lc, { aberto: true, manual: !!manual, iniciado: false, erro: '', codigo: '', carregando: !semConferir,
                       dados: { estado: 'nenhum', provedor: AGENTE.provedor, precisa_login: !manual } });
@@ -721,10 +771,17 @@ function leDesenha() {
   sec.hidden = !(f === 'aviso' || f === 'nao_voltou');
   nao.hidden = f === 'pronto';
   nao.textContent = f === 'aviso' || f === 'cartao' ? t.agoraNao : 'Fechar';
+  $('leConectar').hidden = f === 'pronto';
 }
 
+/* O modal "Faça o login nos seus agentes" (modal-login.js) substitui este pop-up: se ele está aberto, ou se já
+   abriu nesta carga da página, o pop-up não abre (nada de dois avisos sobre a mesma coisa). */
+function leModalLoginAtivo() {
+  const m = window.DGModalLogin;
+  return !!m && (m.aberto() || m.abriuNestaCarga());
+}
 function leAbre() {
-  if (!LE || !leDlg || le.aberto) return;
+  if (!LE || !leDlg || le.aberto || leModalLoginAtivo()) return;
   le.est = leEstAtual();
   Object.assign(le, { aberto: true, fase: 'aviso', erro: '', concluiu: false });
   leDesenha();
@@ -835,8 +892,12 @@ function leAbreAoRecusar() {
   const est = leEstAtual();
   if (le.aberto) return;
   if (est && LE.expirado(est)) { lc.expirado = true; }
+  if (leModalLoginAtivo()) { mostraErro('O login da conta expirou. Reconecte pelo cartão de login no fim da conversa ou pela página Conectar conta, no menu.'); return; }
   leAbre();
 }
+
+// o modal de login abriu depois do pop-up: ele toma o lugar do pop-up, que fecha sem dispensar nada
+document.addEventListener('dgmodallogin:abriu', () => leFecha(false));
 
 if (leDlg && LE) {
   $('lePrimario').onclick = () => { leReconectar(); };
@@ -1281,6 +1342,13 @@ function paragrafos(txt, fmt) {
   return html;
 }
 
+/* Texto com os dados reais: só escapado, em parágrafos. Sem linkify e sem markdown, para um dado real que pareça URL
+   (ou traga ](...)) não virar link nem imagem. */
+function textoPuroEmParagrafos(txt) {
+  return String(txt).split(/\n{2,}/).filter(p => p.trim())
+    .map(p => `<div class="p">${esc(p.trim()).replace(/\n/g, '<br>')}</div>`).join('');
+}
+
 const ROTULO_MIDIA = { photo: '📷 foto', video: '🎬 vídeo',
                        document: '📄 arquivo', voice: '🎤 áudio',
                        audio: '🎤 áudio' };
@@ -1518,6 +1586,14 @@ function separaDoVisual(txt) {
   return r ? { titulo: r[1].trim(), texto: r[2] } : null;
 }
 
+/* Aviso do cofre ("[cofre] NOME guardada (final 1a2b)."): a mensagem que o campo de senha manda ao
+   agente depois de guardar. Na tela vira a etiqueta "do cofre" e o texto sem o prefixo; nunca
+   leva o valor da chave, só o nome e o final. */
+function separaDoCofre(txt) {
+  const r = /^\[cofre\] ([\s\S]*)$/.exec(String(txt || ''));
+  return r ? { texto: r[1] } : null;
+}
+
 function htmlCorpo(m) {
   let midia = '';
   if (m.local && m.local.anexos) {
@@ -1545,10 +1621,29 @@ function htmlCorpo(m) {
     leg = dv.texto;
     doVisual = `<div class="dovisual">📊 do visual${dv.titulo ? ': ' + esc(dv.titulo) : ''}</div>`;
   }
+  const dc = !dv && ehDono(m) ? separaDoCofre(leg) : null;
+  if (dc) {
+    leg = dc.texto;
+    doVisual = `<div class="dovisual">🔑 do cofre</div>`;
+  }
   // [ver a criação] só vira botão em mensagem de quem não é o dono (o texto já sai escapado de paragrafos)
   let htmlLeg = leg ? paragrafos(leg, m.fmt) : '';
   if (htmlLeg && !ehDono(m) && window.DGOnboarding && window.DGOnboarding.marcadorParaBotao) htmlLeg = window.DGOnboarding.marcadorParaBotao(htmlLeg);
-  const corpo = leg ? doVisual + htmlLeg : doVisual;
+  // Anonimizar: texto revertido (só na memória desta aba) e os botões de dados reais, só para o dono e só nas mensagens do agente
+  let anonBotoes = '';
+  if (anonLigado && ehAgente(m) && !m.pendente) {
+    if (m.id && leg && /\[[A-Z]+_\d+\]/.test(leg)) {
+      const ver = anonVistos.has(String(m.id));
+      if (ver) htmlLeg = textoPuroEmParagrafos(anonVistos.get(String(m.id)));
+      anonBotoes += `<button type="button" class="anon-btn" data-anon-ver="${esc(m.id)}" aria-pressed="${ver}">` +
+        `${ver ? 'Esconder os dados reais' : 'Ver com dados reais'}</button>`;
+    }
+    if (m.media && m.media.disponivel && m.media.kind === 'document') {
+      anonBotoes += `<button type="button" class="anon-btn" data-anon-final="${esc(m.media.id)}" ` +
+        `title="Baixa o arquivo com os dados reais no lugar dos marcadores">Baixar versão final</button>`;
+    }
+  }
+  const corpo = (leg ? doVisual + htmlLeg : doVisual) + (anonBotoes ? `<div class="anon-linha">${anonBotoes}</div>` : '');
   const reac = (m.reacoes && m.reacoes.length)
     ? `<span class="reac">${m.reacoes.map(esc).join(' ')}</span>` : '';
   // fone: ouvir esta fala de novo (só aparece com o modo de ouvir ligado, pelo CSS)
@@ -1636,6 +1731,29 @@ function horaLocal(m) {
   if (typeof m.ep !== 'number' || !isFinite(m.ep)) return;
   const f = fmtLocal(m.ep);
   m.dia = f.dia; m.hhmm = f.hhmm;
+}
+
+/* Grudado no fundo. Ao abrir a conversa, a tela ia pro fim e logo depois os
+   visuais (iframes) terminavam de carregar e cresciam: o fim se afastava e a tela
+   ficava parada no visual, com mensagens abaixo. Enquanto a pessoa está no fim,
+   qualquer crescimento do #wrap (visual, imagem, fonte) leva a tela junto. Só sai
+   do fim quando ela mesma rola pra cima; volta a grudar ao chegar de novo no fundo. */
+let grudadoNoFim = true;
+let ultimoTopoChat = 0;
+chat.addEventListener('scroll', () => {
+  if (!chat.clientHeight) { ultimoTopoChat = chat.scrollTop; return; }   // tela escondida
+  const dist = chat.scrollHeight - chat.scrollTop - chat.clientHeight;
+  if (dist < 8) grudadoNoFim = true;
+  else if (chat.scrollTop < ultimoTopoChat - 2) grudadoNoFim = false;     // subiu: quer ler o de cima
+  ultimoTopoChat = chat.scrollTop;
+}, { passive: true });
+if (typeof ResizeObserver !== 'undefined') {
+  new ResizeObserver(() => {
+    if (!grudadoNoFim || !chat.clientHeight) return;
+    if (chat.scrollHeight - chat.scrollTop - chat.clientHeight > 1) {
+      chat.scrollTop = chat.scrollHeight; ultimoTopoChat = chat.scrollTop;
+    }
+  }).observe(wrap);
 }
 
 function render(opt) {
@@ -1938,8 +2056,92 @@ function fechaBarra(lim) {
   b.el.remove();
   lim.barra = null;
 }
+/* ── Caixa de cofre da peça .dv-cofre (campo-cofre.js) ──────────────────
+   O iframe só PEDE (postMessage 'cofre'). O cartão com o campo de senha é do app, desenhado abaixo do
+   visual (ou na tela cheia) fora do iframe: o valor nunca passa por ele. Uma caixa por visual. */
+const visCofres = new Map();        // id da mídia -> { est, el, relogio }
+const VIS_COFRE_FECHA_MS = 4000;
+
+function alvoDoVisual(est) {
+  return est.win && visuais.get(est.win) === est ? est
+    : Array.from(visEstados).find(e => e.md.id === est.md.id && e.win);
+}
+function recusaCofre(est, id, motivo, msg) {
+  enviaAoVisual(est, { tipo: 'cofre-erro', id, motivo, msg });
+}
+function fechaCofre(mediaId) {
+  const c = visCofres.get(mediaId);
+  if (!c) return;
+  clearTimeout(c.relogio);
+  c.el.remove();
+  visCofres.delete(mediaId);
+}
+function fechaCofreDe(est) {
+  const c = est.md && visCofres.get(est.md.id);
+  if (c && c.est === est) fechaCofre(est.md.id);
+}
+
+function tratarCofre(est, d, id) {
+  const v = window.campoCofre ? window.campoCofre.validaPedido(d) : null;
+  if (!v) return recusaCofre(est, id, 'indisponivel', 'A caixa de cofre não carregou. Recarregue a conversa.');
+  if (v.erro) return recusaCofre(est, id, v.erro.motivo, v.erro.msg);
+  if (document.visibilityState !== 'visible' || (!est.cheia && !est.noViewport)) {
+    return recusaCofre(est, id, 'fora', 'O visual não está à vista agora.');
+  }
+  if (visCofres.has(est.md.id)) return recusaCofre(est, id, 'ocupado', 'Já tem uma caixa de cofre aberta neste visual.');
+  const { nome, rotulo, ajuda } = v.ok;
+  const el = document.createElement('div');
+  el.className = 'viscofre' + (est.cheia ? ' viscofre-cheia' : '');
+  const reg = { est, el, relogio: 0 };
+  visCofres.set(est.md.id, reg);
+  if (est.cheia) visTelaEl.appendChild(el); else est.caixa.after(el);
+  window.campoCofre.montar(el, {
+    envName: nome, rotulo, ajuda,
+    aoGuardar: ({ final }) => {
+      const alvo = alvoDoVisual(est);
+      if (alvo) enviaAoVisual(alvo, { tipo: 'cofre-ok', id, nome });  // sem o final: o visual não é confiável
+      reg.relogio = setTimeout(() => fechaCofre(est.md.id), VIS_COFRE_FECHA_MS);
+    },
+    aoErro: ({ motivo, msg }) => { const alvo = alvoDoVisual(est); if (alvo) recusaCofre(alvo, id, motivo, msg); },
+    aoCancelar: () => {
+      fechaCofre(est.md.id);
+      const alvo = alvoDoVisual(est);
+      if (alvo) recusaCofre(alvo, id, 'cancelado', 'Você cancelou.');
+    },
+  });
+  if (!est.cheia) {
+    // rola só o #chat (scrollIntoView poderia mexer na página inteira no iPhone)
+    const r = el.getBoundingClientRect(), c = chat.getBoundingClientRect();
+    if (r.bottom > c.bottom - 8) { chat.scrollTop += r.bottom - c.bottom + 8; rolagem.captura(); }
+  }
+  enviaAoVisual(est, { tipo: 'cofre-espera', id });
+}
+
+/* O visual pergunta, ao carregar, quais nomes já estão guardados. Resposta: só {guardada: bool} por nome,
+   nunca o final da chave (o visual é código não confiável). Só responde com o visual à vista, no máximo
+   1 vez a cada 3 s e até 20 nomes por pedido; o excesso é ignorado, com um único aviso por visual. */
+const visCofreEstado = new Map();   // id da mídia -> { ultimo, avisou }
+function tratarCofreEstado(est, d) {
+  if (!window.campoCofre) return;
+  if (document.visibilityState !== 'visible' || (!est.cheia && !est.noViewport)) return;
+  const bruto = Array.isArray(d.nomes) ? d.nomes.filter(n => typeof n === 'string') : [];
+  let reg = visCofreEstado.get(est.md.id);
+  if (!reg) { reg = { ultimo: 0, avisou: false }; visCofreEstado.set(est.md.id, reg); }
+  const f = window.campoCofre.freioEstado(reg, Date.now(), bruto.length);
+  if (!f.ok) {
+    if (f.avisar) console.warn('visual ' + est.md.id + ' (' + est.md.nome + '): pedidos de estado do cofre demais ou rápidos demais; ignorando o excesso (máximo 1 a cada 3 s e 20 nomes).');
+    return;
+  }
+  const v = bruto.filter(n => window.campoCofre.validaPedido({ nome: n }).ok);
+  if (!v.length) return;
+  window.campoCofre.estados(v).then(
+    estados => enviaAoVisual(est, { tipo: 'cofre-estado', estados }),
+    e => console.warn('visual ' + est.md.id + ': não consegui consultar o cofre para o visual:', e && e.message));
+}
+
 /* Balão desmontado ou tela cheia fechada: a barrinha some sem mandar nada. */
 function fechaBarraDe(est) {
+  fechaCofreDe(est);
   const lim = est.md && visLimites.get(est.md.id);
   if (lim && lim.barra && lim.barra.est === est) fechaBarra(lim);
 }
@@ -2072,6 +2274,12 @@ window.addEventListener('message', ev => {
     const id = Number(d.id);
     if (!isFinite(id) || id < 0 || Math.floor(id) !== id) return;
     tratarPergunta(est, d, id);
+  } else if (d.tipo === 'cofre') {
+    const id = Number(d.id);
+    if (!isFinite(id) || id < 0 || Math.floor(id) !== id) return;
+    tratarCofre(est, d, id);
+  } else if (d.tipo === 'cofre-estado?') {
+    tratarCofreEstado(est, d);
   } else if (d.tipo === 'erro') {
     est.caixa.classList.add('on');
     const msg = typeof d.msg === 'string' ? d.msg.slice(0, 400) : 'erro sem mensagem';
@@ -2264,7 +2472,15 @@ const menorEp = () => msgs.reduce((m, x) => Math.min(m, x.ep), Infinity);
 async function carregar(primeiraVez) {
   let ok = false;
   try {
-    const d = await api(API + '/messages?limit=' + PAGINA);
+    let d = null;
+    if (primeiraVez && historicoAntecipado) {
+      const promessa = historicoAntecipado;
+      historicoAntecipado = null;
+      try { d = await promessa; } catch (e) {
+        console.warn('histórico antecipado falhou (' + e.message + '); peço de novo pelo caminho normal');
+      }
+    }
+    if (!d) d = await api(API + '/messages?limit=' + PAGINA);
     const novas = d.msgs || [];
     if (primeiraVez || !msgs.length) {
       geracaoJanela++;
@@ -2862,6 +3078,13 @@ function prontoAnexo(a, d) {
   a.pct = null;
   a.id = d.anexo.id;
   a.path = d.anexo.path;
+  if (d.anonimizado) {
+    const n = d.anonimizado.contagem || 0;
+    a.anonTexto = d.anonimizado.id ? 'Anonimizado: ' + n + (n === 1 ? ' dado trocado' : ' dados trocados') : 'Enviado SEM anonimizar';
+    const tam = a.el && a.el.querySelector('.anxtam');
+    if (tam) { tam.textContent = a.anonTexto; tam.classList.add('anon'); }
+    if (Array.isArray(d.anonimizado.avisos) && d.anonimizado.avisos.length) mostraAviso(d.anonimizado.avisos.join(' '));
+  }
   atualizaCartao(a);
   pintaInfoAnexos();
   tocaSubidas();
@@ -3223,6 +3446,7 @@ if (btnNaoLida) btnNaoLida.onclick = () => {
     .finally(() => { btnNaoLida.disabled = false; });
 };
 function atualizaNaoLidas() {
+  if (COLAB) return Promise.resolve();   // /api/v1/estados é do dono; o colaborador tem só uma conversa
   if (naoLidasEmVoo) return naoLidasEmVoo;
   naoLidasEmVoo = api('/api/v1/estados', { timeoutMs: 15000 }).then(d => {
     if (!d || typeof d.agentes !== 'object' || !d.agentes) throw new Error('a resposta não trouxe o campo "agentes"');
@@ -4480,6 +4704,47 @@ wrap.addEventListener('click', ev => {
   ouvirAPartirDe({ id: m.id, texto: texto });
 });
 
+/* Anonimizar: "Ver com dados reais" troca o texto da mensagem pelo texto revertido (entra pelo mesmo
+   caminho de sempre, paragrafos(), que escapa tudo) e "Baixar versão final" baixa o arquivo com os dados reais. */
+wrap.addEventListener('click', async ev => {
+  const ver = ev.target.closest ? ev.target.closest('button[data-anon-ver]') : null;
+  const fin = ev.target.closest ? ev.target.closest('button[data-anon-final]') : null;
+  if (!ver && !fin) return;
+  const bt = ver || fin;
+  if (bt.disabled) return;
+  bt.disabled = true;
+  try {
+    if (ver) {
+      const id = ver.getAttribute('data-anon-ver');
+      if (anonVistos.has(id)) { anonVistos.delete(id); render({ semRolar: true }); return; }
+      const m = msgs.find(x => String(x.id) === id);
+      if (!m || !m.text) { mostraAviso('Não achei o texto desta mensagem. Recarregue a conversa.'); return; }
+      const r = await fetch(API_ANON + '/reverter-texto', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ texto: m.text }) });
+      const d = await r.json().catch(() => null);
+      if (!r.ok || !d || d.ok === false || typeof d.texto !== 'string') { mostraAviso('Não consegui mostrar os dados reais: ' + ((d && d.erro) || ('o app respondeu ' + r.status)) + '.'); return; }
+      anonVistos.set(id, d.texto);
+      render({ semRolar: true });
+      return;
+    }
+    const r = await fetch(API_ANON + '/final/' + encodeURIComponent(fin.getAttribute('data-anon-final')), { credentials: 'same-origin', cache: 'no-store' });
+    if (!r.ok) {
+      const d = await r.json().catch(() => null);
+      mostraAviso('Não consegui gerar a versão final: ' + ((d && d.erro) || ('o app respondeu ' + r.status)));
+      return;
+    }
+    const nome = (/filename\*=UTF-8''([^;]+)/i.exec(r.headers.get('Content-Disposition') || '') || [])[1];
+    const url = URL.createObjectURL(await r.blob());
+    const a = document.createElement('a');
+    a.href = url; a.download = nome ? decodeURIComponent(nome) : 'versao-final';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+  } catch (e) {
+    mostraAviso('Não consegui falar com o app para ' + (ver ? 'mostrar os dados reais' : 'gerar a versão final') + ' (' + e.message + ').');
+  } finally {
+    bt.disabled = false;
+  }
+});
+
 /* ── Modo texto e toggles ─────────────────────────────────────────────────── */
 function enviarDoCampo() {
   if (anexos.length) {
@@ -4615,7 +4880,7 @@ function passosTutorial() {
   const abreM = () => abreMenu(true), fechaM = () => abreMenu(false);
   const nome = AGENTE.nome;
   const passos = [
-    ...window.DGMenuLado.passosMenu({ nome, abre: abreM, fecha: fechaM, comTroca: agentesMenu.length > 1, naConversa: true }),
+    ...window.DGMenuLado.passosMenu({ nome, abre: abreM, fecha: fechaM, comTroca: !COLAB && agentesMenu.length > 1, naConversa: true, colaborador: COLAB }),
     { alvo: '#chat', antes: fechaM, titulo: 'A conversa',
       oque: 'Aqui aparece tudo o que você e ' + nome + ' já escreveram, na ordem, como num aplicativo de mensagens.',
       como: 'As respostas chegam sozinhas, sem precisar atualizar a página. Role para cima para ver as mensagens mais antigas; a seta no canto leva de volta para a mais nova. Quando uma mensagem veio ou foi respondida pelo WhatsApp ou pelo Telegram, ela ganha um selinho com o nome do canal; passe o dedo ou o mouse nele para ver os detalhes.',
@@ -4632,6 +4897,10 @@ function passosTutorial() {
       oque: 'O clipe serve para mandar fotos, vídeos, áudios e PDFs para o agente.',
       como: 'Toque nele e escolha os arquivos (até 10 por mensagem), ou cole uma imagem direto no campo. Cada arquivo sobe em segundo plano e a mensagem sai quando todos estiverem prontos.',
       porque: 'Muita coisa é mais fácil de mostrar do que de explicar: um print de erro, um documento, uma foto.' },
+    { alvo: document.querySelector('.dgcofre') ? '.dgcofre' : '#chat', titulo: 'A caixa de cofre',
+      oque: 'Quando ' + nome + ' precisa de uma senha ou chave de um serviço (OpenAI, Hostinger, Groq...), ele mostra aqui um cartão com um campo de senha, em vez de pedir para você colar a chave na conversa.',
+      como: 'Cole a chave no campo e toque em Salvar no cofre. O valor vai direto para o cofre de ' + nome + ' e não entra na conversa nem chega a ele; só o nome e o final da chave são avisados. Salvar reinicia ' + nome + ' para a chave valer, e a conversa continua de onde parou. O olho mostra o que você colou, e o Esc limpa o campo.',
+      porque: 'Tudo o que passa pela conversa fica guardado no histórico. Aqui a chave nunca passa por ele, e você pode trocar a chave quando quiser: o cartão avisa se já existe uma guardada.' },
   ];
   if (caps.microfone) {
     passos.push({ alvo: '#btnMic', titulo: 'O microfone',
@@ -4681,7 +4950,8 @@ function passosTutorial() {
       como: 'Pede a sua confirmação, reinicia e mostra uma faixa no topo até ele voltar. A conversa continua de onde estava, porque o agente retoma a mesma sessão.',
       porque: 'Quando o agente para de responder, reiniciar costuma resolver, e aqui é um toque.' });
   }
-  passos.push({ alvo: '#loginCartao', titulo: 'Conectar a sua conta',
+  // O cartão de login da conversa é do dono; o colaborador conecta pela página Conectar conta (ver conectar.js).
+  if (!COLAB) passos.push({ alvo: '#loginCartao', titulo: 'Conectar a sua conta',
     antes: () => {
       if (lc.aberto) return;
       lc.demo = true; lc.aberto = true; lc.manual = true; lc.carregando = false; lc.iniciado = false;
@@ -4698,6 +4968,7 @@ function passosTutorial() {
       como: 'Toque nele e a tela de Sessões abre dentro do painel do agente, na mesma janela. No celular o texto some e fica só o ícone 🖥.',
       porque: 'É o mini-Bunker do agente: você acompanha e cria trabalhos longos sem sair procurando no menu, e o botão fica no topo, em todas as telas.' });
   }
+  if (!COLAB) {
   passos.push({ alvo: '#btnMesa', titulo: 'O botão Mesa',
     oque: 'Um atalho para a Mesa de tarefas, onde ficam as tarefas de todos os agentes.',
     como: 'Toque nele e a Mesa abre na mesma janela. Lá você acompanha o que está pendente e o que já foi feito.',
@@ -4710,10 +4981,16 @@ function passosTutorial() {
     oque: 'Um atalho para a tela de lembretes.',
     como: 'Toque nele e a lista abre na mesma janela. Lá você cria, confirma e apaga lembretes.',
     porque: 'Lembrete que insiste até você confirmar só ajuda se for fácil de achar, por isso fica no topo.' });
+  }
+  if ($('btnAnon') && !$('btnAnon').hidden) passos.push({ alvo: '#btnAnon', titulo: 'Documentos anonimizados',
+    oque: 'Um selo que aparece só quando a anonimização de documentos está ligada para ' + nome + '. Ele leva à tela Anonimizar.',
+    como: 'Os documentos que você manda pelo clipe passam por um filtro que troca nomes, CPF, telefone e outros dados por marcadores como [PESSOA_1]. O agente só vê os marcadores. Nas respostas dele, o botão "Ver com dados reais" mostra o texto de verdade e "Baixar versão final" entrega o arquivo com os dados reais.',
+    porque: 'O agente e o modelo na nuvem trabalham sem receber os dados pessoais dos seus clientes, e você continua lendo tudo completo.' });
   if (window.DGSigilo) passos.push(window.DGSigilo.passoTour());
   passos.push(passoAlertas());
-  if (window.DGFoco) passos.push(window.DGFoco.passoTutorial());
+  if (window.DGFoco && !COLAB) passos.push(window.DGFoco.passoTutorial());
   passos.push(passoAcervo());
+  if (window.DGSegurancaResumo) passos.push(window.DGSegurancaResumo.passoSelo());
   return passos;
 }
 
@@ -4838,7 +5115,23 @@ if (emCache) {
   render();
   rolagem.aoFim();
 }
-carregar(true).then(() => ligaStream());
+/* Link da fila de pedidos: /a/<agente>?msg=<id> abre a conversa rolada até a mensagem da entrega. */
+async function pulaParaMensagemDoLink() {
+  const id = new URLSearchParams(location.search).get('msg');
+  if (!id || !/^[a-f0-9]{16}$/.test(id)) return;
+  try {
+    const d = await api(API + '/compartilhados?mensagem=' + encodeURIComponent(id));
+    const porId = new Map([...(d.msgs || []), ...msgs].map(m => [m.id, m]));
+    msgs = [...porId.values()].sort((a, b) => a.ep - b.ep);
+    render({ semRolar: true });
+    const el = wrap.querySelector('[data-msg="' + CSS.escape(d.mensagem.id) + '"]');
+    if (!el) throw new Error('A mensagem não apareceu na tela. Atualize a conversa.');
+    rolagem.mostra(el, { block: 'center' });
+    el.classList.add('alerta-destaque');
+    setTimeout(() => el.classList.remove('alerta-destaque'), 3000);
+  } catch (err) { mostraErro('Não consegui ir até a mensagem da entrega: ' + err.message); }
+}
+carregar(true).then(() => ligaStream()).then(pulaParaMensagemDoLink);
 ligaResync();
 if (caps.voz) conferecota();
 if ('serviceWorker' in navigator) {

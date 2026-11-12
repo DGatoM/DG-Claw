@@ -4,6 +4,7 @@
 // O código colado e o link de login (que carrega o estado do OAuth) nunca vão para o log.
 
 const { motivoDoRunner } = require('./runner');
+const PROV = require('../public/provedores');
 
 const RX_CODIGO_PROIBIDO = /[\s\x00-\x1f\x7f]/;
 const MAX_CODIGO = 512;
@@ -13,7 +14,7 @@ const OI_JANELA_MS = 10 * 60 * 1000;
 
 const nomeDoProvedor = (p) => (/codex/i.test(String(p || '')) ? 'Codex' : 'Claude');
 
-function criarLogin({ runner, conversa, log, agora, oiPrazoMs, oiPassoMs }) {
+function criarLogin({ runner, conversa, log, agora, oiPrazoMs, oiPassoMs, provedores }) {
   const relogio = agora || (() => Date.now());
   const prazo = oiPrazoMs || OI_PRAZO_PADRAO_MS;
   const passo = oiPassoMs || OI_PASSO_PADRAO_MS;
@@ -44,19 +45,57 @@ function criarLogin({ runner, conversa, log, agora, oiPrazoMs, oiPassoMs }) {
     return { provedor: nomeDoProvedor(agente.provedor).toLowerCase(), auth: null, conferido: null };
   }
 
-  async function ver(agente) {
+  /** As três consultas juntas (runner, provedor e estado). Quem decide o que mostrar é quem chama. */
+  async function consultar(agente) {
     const [lg, prov, est] = await Promise.all([
       runner.pedir(agente, 'GET', '/api/provedor/login'),
       sobreOProvedor(agente),
       conversa.estado(agente),
     ]);
-    if (!lg.ok) return falha(agente, lg, 'consulta');
-    const semLogin = est.ok && est.estado.status === 'errored' && (est.estado.statusReason === 'runner:sem-login' || est.estado.statusReason === 'runner:login-expirado');
-    const precisa = semLogin || (prov.conferido != null && prov.conferido.ok === false);
-    return { status: 200, corpo: Object.assign({}, lg.corpo, { ok: true, provedor: prov.provedor, auth: prov.auth, conferido: prov.conferido, precisa_login: precisa }) };
+    return { lg, prov, est };
   }
 
-  async function comecar(agente) {
+  /**
+   * Como consultar(), mas SEM nenhum cache: o estado do runner vai direto (sem o cache de 2 s) e a conferência do CLI é
+   * refeita (`?fresco=1`, sem o cache de 60 s). `fresco` diz se o runner entendeu o pedido: runner antigo não manda o
+   * campo, e então a conferência pode estar velha (quem decide trata como dúvida).
+   */
+  async function consultarFresco(agente) {
+    const [lg, pr, est] = await Promise.all([
+      runner.pedir(agente, 'GET', '/api/provedor/login'),
+      runner.provedor(agente, 30000, true),
+      runner.estado(agente),
+    ]);
+    const d = pr.ok ? pr.dados : null;
+    const prov = pr.ok
+      ? { provedor: nomeDoProvedor(d.provedor).toLowerCase(), auth: typeof d.auth === 'string' ? d.auth : null, conferido: d.conferido && typeof d.conferido === 'object' ? d.conferido : null }
+      : { provedor: nomeDoProvedor(agente.provedor).toLowerCase(), auth: null, conferido: null };
+    return { lg, prov, est, fresco: !!(d && d.fresco === true) };
+  }
+
+  /** O corpo de GET /login a partir do que consultar() trouxe (a consulta ao runner já deu certo). */
+  function corpoDaConsulta({ lg, prov, est }) {
+    const expirado = est.ok && est.estado.status === 'errored' && est.estado.statusReason === 'runner:login-expirado';
+    const semLogin = expirado || (est.ok && est.estado.status === 'errored' && est.estado.statusReason === 'runner:sem-login');
+    const precisa = semLogin || (prov.conferido != null && prov.conferido.ok === false);
+    return Object.assign({}, lg.corpo, { ok: true, provedor: prov.provedor, auth: prov.auth, conferido: prov.conferido, precisa_login: precisa, login_expirado: expirado });
+  }
+
+  async function ver(agente) {
+    const c = await consultar(agente);
+    if (!c.lg.ok) return falha(agente, c.lg, 'consulta');
+    return { status: 200, corpo: corpoDaConsulta(c) };
+  }
+
+  async function comecar(agente, corpo) {
+    // A IA escolhida na tela. Sem `provedor` o comportamento é o de sempre. Com um que não é o do agente,
+    // recusa: é neste ponto que a troca de IA vai entrar no futuro (hoje o agente usa a IA em que nasceu).
+    const pedido = corpo && corpo.provedor;
+    if (pedido !== undefined && pedido !== null && pedido !== '') {
+      const prov = await sobreOProvedor(agente);
+      const v = PROV.valida(pedido, prov.provedor, provedores);
+      if (!v.ok) return erro(400, v.erro);
+    }
     const r = await runner.pedir(agente, 'POST', '/api/provedor/login', {});
     if (!r.ok) return falha(agente, r, 'início');
     log('info', `Login de ${agente.slug} iniciado (estado: ${(r.corpo && r.corpo.estado) || 'desconhecido'}).`);
@@ -122,7 +161,7 @@ function criarLogin({ runner, conversa, log, agora, oiPrazoMs, oiPassoMs }) {
     }
   }
 
-  return { ver, comecar, enviarCodigo, cancelar, primeiroOi };
+  return { ver, consultar, consultarFresco, corpoDaConsulta, falha, comecar, enviarCodigo, cancelar, primeiroOi };
 }
 
 module.exports = { criarLogin, nomeDoProvedor };

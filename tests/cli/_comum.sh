@@ -24,6 +24,9 @@ preparar() {
     PATH="$AQUI/stubs:$PATH"
     export PATH
     printf 'DGCLAW_DOMINIO=teste.exemplo.org\n' >"$DGCLAW_RAIZ/etc/dgclaw/dgclaw.env"
+    # O gravador da senha da Tela de verdade (panel/bin/tela-senha.js) e de outro codigo;
+    # aqui entra o de mentira, que recebe o caminho em $1 e a senha pelo STDIN.
+    export DGCLAW_TELA_SENHA_CMD="\"$AQUI/stubs/tela-senha-falso\" \"\$1\""
     # shellcheck disable=SC2034 # usadas pelos testes que carregam este arquivo
     ETC="$DGCLAW_RAIZ/etc/dgclaw"
     # shellcheck disable=SC2034
