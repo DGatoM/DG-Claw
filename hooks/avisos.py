@@ -20,7 +20,7 @@ DOIS MODOS (mesmo arquivo)
                   mensagem receber a injecao completa de novo.
 
 QUANDO NAO FAZ NADA
-  - DGCLAW_AVISOS=off (no ambiente ou no .dgclaw/config.sh);
+  - DGCLAW_AVISOS=off (no ambiente ou lido, sem executar, do .dgclaw/config.sh);
   - retrato ausente (o Web ainda nao gravou): sai calado, nao e erro;
   - recado de rotina (poke): rotina publica nunca recebe aviso interno da equipe. O cursor
     fica parado, e a proxima fala do dono recebe o que chegou.
@@ -31,7 +31,7 @@ FALHA: sempre em silencio pro turno (exit 0, sem stdout), com o motivo em
 """
 import json
 import os
-import subprocess
+import re
 import sys
 from datetime import datetime, timedelta
 
@@ -39,6 +39,8 @@ KEEP_SESSIONS = 30
 MAX_CHARS = 2000
 JANELA_DIAS = 2
 VERSAO = 1
+_LINHA_AVISOS = re.compile(
+    r"""^\s*(?:export\s+)?DGCLAW_AVISOS=(?:"([^"]*)"|'([^']*)'|([^\s#"'`$;&|()<>\\]*))\s*(?:#.*)?$""")
 
 
 def _ws(payload):
@@ -124,17 +126,27 @@ class Hook:
 
 
 def _avisos_off(ws):
-    """DGCLAW_AVISOS=off no ambiente ou, se la nao estiver, no .dgclaw/config.sh."""
+    """DGCLAW_AVISOS=off no ambiente ou, se la nao estiver, no .dgclaw/config.sh.
+
+    O config.sh e LIDO COMO DADO, nunca executado: o workspace pode ser (ou conter) um repositorio
+    de terceiros, e um config.sh dele nao pode rodar comando por causa deste hook. Procura linhas
+    `DGCLAW_AVISOS=valor` (com `export` na frente, valor sem aspas ou entre aspas simples/duplas,
+    comentario `#` no fim); vale a ultima ocorrencia.
+    """
     if os.environ.get("DGCLAW_AVISOS", "").lower() == "off":
         return True
     cfg = os.path.join(ws, ".dgclaw", "config.sh")
     try:
-        out = subprocess.run(
-            ["bash", "-c", '. "$1" >/dev/null 2>&1; printf "%s" "${DGCLAW_AVISOS:-}"', "_", cfg],
-            capture_output=True, text=True, timeout=3).stdout
-        return out.strip().lower() == "off"
-    except (OSError, subprocess.SubprocessError):
+        with open(cfg, encoding="utf-8", errors="replace") as f:
+            linhas = f.read().splitlines()
+    except OSError:
         return False
+    valor = ""
+    for ln in linhas:
+        m = _LINHA_AVISOS.match(ln)
+        if m:
+            valor = m.group(1) if m.group(1) is not None else (m.group(2) if m.group(2) is not None else m.group(3))
+    return valor.strip().lower() == "off"
 
 
 def _data(iso):

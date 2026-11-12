@@ -27,6 +27,8 @@
 #  21. docs-em-dia     tests/docs-em-dia: o manual (docs/manual) acompanha o codigo (inventario de scripts/docs-inventario.mjs), com bancada de manual falso
 #  22. heartbeat       tests/heartbeat: o batimento (scripts/heartbeat.sh) so acorda o agente quando o assunto muda, com plugin e sessao falsos
 #  23. reflexao        tests/reflexao: o scripts/reflection.sh pula o dia sem conversa com o dono e, na duvida, roda (workspace e plugin falsos)
+#  24. instrucoes      tests/instrucoes: CLAUDE.md e AGENTS.md (agente e Admin) gerados da mesma fonte, com as mesmas secoes
+#  25. anexo-seguro    tests/anexo-seguro: o doctor --fix acrescenta secoes sem seguir link simbolico
 #
 # Nada aqui encosta no sistema de verdade: nao cria container, rede nem unidade.
 #
@@ -71,7 +73,7 @@ testes_runner() {
         # O "build" do runner usa o tsconfig.build.json, que deixa os testes de fora da
         # imagem; quem compila COM os testes e roda e o "npm test" (tsc + node --test).
         # Fora do repo o caminho relativo do catalogo nao existe: aponta o do repo.
-        DGCLAW_CATALOGO="$REPO/providers/catalogo.json" npm test
+        DGCLAW_REPO_RAIZ="$REPO" DGCLAW_CATALOGO="$REPO/providers/catalogo.json" npm test
     ) || rc=$?
     rm -rf "$tmp"
     return "$rc"
@@ -128,8 +130,7 @@ testes_shellcheck() {
     (
         cd "$REPO" || exit 1
         arquivos=(install.sh bin/dgclaw lib/*.sh tests/rodar.sh tests/cli/*.sh tests/cli/stubs/*
-
-                  tests/instalador/*.sh tests/novidades/*.sh tests/changelog/*.sh tests/monitor/*.sh tests/aviso-atualizacao/*.sh tests/boletins/*.sh tests/emergencia/*.sh tests/tela/*.sh tests/anonimizar/*.sh tests/docs-em-dia/*.sh tests/heartbeat/*.sh scripts/heartbeat.sh tests/reflexao/*.sh bin/dgclaw-tela-navegador tests/ronda/rodar.sh tests/ronda/stubs/* scripts/cofre-nomes.sh scripts/test-cofre-nomes.sh
+                  tests/instalador/*.sh tests/novidades/*.sh tests/changelog/*.sh tests/monitor/*.sh tests/aviso-atualizacao/*.sh tests/boletins/*.sh tests/emergencia/*.sh tests/tela/*.sh tests/anonimizar/*.sh tests/docs-em-dia/*.sh tests/heartbeat/*.sh scripts/heartbeat.sh tests/reflexao/*.sh tests/instrucoes/*.sh tests/anexo-seguro/*.sh scripts/_lib/anexo-seguro.sh scripts/gerar-instrucoes.sh bin/dgclaw-tela-navegador tests/ronda/rodar.sh tests/ronda/stubs/* scripts/cofre-nomes.sh scripts/test-cofre-nomes.sh
                   scripts/revisao-adversarial.sh tests/revisao-adversarial/*.sh)
         "$sc" -x "${arquivos[@]}"
     )
@@ -168,8 +169,9 @@ parte tela bash "$REPO/tests/tela/rodar.sh"
 parte anonimizar bash "$REPO/tests/anonimizar/rodar.sh"
 parte docs-em-dia bash "$REPO/tests/docs-em-dia/rodar.sh"
 parte reflexao bash "$REPO/tests/reflexao/rodar.sh"
-
 parte heartbeat bash "$REPO/tests/heartbeat/rodar.sh"
+parte instrucoes bash "$REPO/tests/instrucoes/rodar.sh"
+parte anexo-seguro bash "$REPO/tests/anexo-seguro/rodar.sh"
 
 printf '\n'
 [ "${#PULADOS[@]}" -eq 0 ] || printf 'Pulado: %s\n' "${PULADOS[@]}"

@@ -175,6 +175,8 @@ export function ctxDeTeste(parcial: Partial<import("./provedores/motor.js").CtxM
     variavelDoModo: null,
     pastaDeHooks: "/tmp/hooks-de-teste",
     pastaDeEstado: "/tmp/estado-de-teste",
+    // Sem plugin por padrão: o resultado dos testes não pode depender de onde o runner está instalado.
+    raizDoPlugin: null,
     identidade: { arquivo: null, texto: null },
     settings: null,
     nonce: "a1b2c3d4".repeat(8),

@@ -95,7 +95,7 @@ sua. Em outubro de 2026, as mais mexidas foram:
 | --- | --- |
 | `web/server.js`, `web/public/conversa.js`, `conversa.html`, `conversa.css`, `sw.js` | Alto (a tela de conversa evolui toda semana) |
 | `web/public/menu-lado.*`, `onboarding.*`, `mesa.*` | Alto |
-| `templates/CLAUDE.md.tmpl`, `AGENTS.md.tmpl` e `templates/admin/` | Alto |
+| `templates/CLAUDE.md.tmpl`, `AGENTS.md.tmpl` e `templates/admin/` (gerados de `templates/instrucoes-agente.md.tmpl` e `templates/admin/instrucoes-admin.md.tmpl`; edite a fonte e rode `scripts/gerar-instrucoes.sh`) | Alto |
 | `panel/public/js/app.js`, `index.html`, `css/main.css`, `panel/server.js` | Médio a alto |
 | `web/lib/` e `panel/lib/` | Médio |
 | `skills/` de fábrica | Médio |
