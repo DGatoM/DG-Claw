@@ -166,9 +166,58 @@ function lerArgumento(s, i, sem) {
       continue;
     }
     if (c === '"' || c === "'") { j = fimDaAspa(s, j, sem); continue; }
+    if (c === '$' && s[j + 1] === '(') {
+      const k = fimDeParenteses(s, j, n, sem);
+      if (k >= 0) { j = k + 1; continue; }
+    } else if (c === '`') {
+      const k = s.indexOf('`', j + 1);
+      if (k >= 0) { j = k + 1; continue; }
+    }
     j++;
   }
   return j;
+}
+
+/** Índice do `)` que fecha o `$(` em `i`, contando parênteses; -1 se não fecha antes de `limite`. `sem.pf` lembra que já se procurou em vão. */
+function fimDeParenteses(s, i, limite, sem) {
+  if (sem.pf) return -1;
+  let prof = 0;
+  for (let k = i + 1; k < limite; k++) {
+    const c = s[k];
+    if (c === '(') prof++;
+    else if (c === ')' && --prof === 0) return k;
+  }
+  sem.pf = true;
+  return -1;
+}
+
+const PROF_SUBST_MAX = 3;
+const SUBST_MAX = 16 * 1024;
+
+/**
+ * Substituições de comando dentro do argumento `s[i, fim)` (`$( ... )` e crases): o conteúdo é mascarado pelo mesmo tokenizador, em
+ * recursão limitada (profundidade e tamanho). Passou do limite, o argumento inteiro sai escondido.
+ */
+function mascaraSubstituicoes(s, i, fim, sem, mascaras) {
+  const prof = sem.prof || 0;
+  let j = i;
+  while (j < fim) {
+    let x = -1;
+    let y = -1;
+    let prox = j + 1;
+    if (s[j] === '$' && s[j + 1] === '(') {
+      const k = fimDeParenteses(s, j, fim, sem);
+      if (k >= 0) { x = j + 2; y = k; prox = k + 1; }
+    } else if (s[j] === '`') {
+      const k = s.indexOf('`', j + 1);
+      if (k >= 0 && k < fim) { x = j + 1; y = k; prox = k + 1; }
+    }
+    if (x >= 0) {
+      if (prof >= PROF_SUBST_MAX || y - x > SUBST_MAX) { mascaras.push([i, fim]); return; }
+      for (const [a, b] of coletaMascaras(s.slice(x, y), prof + 1)) mascaras.push([a + x, b + x]);
+    }
+    j = prox;
+  }
 }
 
 /**
@@ -265,6 +314,7 @@ function varreComando(s, pos, cmd, sem, mascaras) {
     const c0 = s[i];
     if (c0 === '\n' || c0 === '\r' || ehFimDeComando(c0)) break;
     const fim = lerArgumento(s, i, sem);
+    mascaraSubstituicoes(s, i, fim, sem, mascaras);
     // Todas as regras abaixo decidem pelo valor desaspado do argumento (a.v), nunca pelo texto cru.
     const a = desaspar(s, i, fim);
     const v = a.v;
@@ -304,9 +354,10 @@ function varreComando(s, pos, cmd, sem, mascaras) {
   return i;
 }
 
-function mascaraComandos(s) {
+/** Intervalos `[ini, fim)` a esconder em `s`. `prof` conta quantas substituições de comando já foram abertas. */
+function coletaMascaras(s, prof) {
   const mascaras = [];
-  const sem = {};
+  const sem = { prof };
   RX_COMANDO.lastIndex = 0;
   let m;
   while ((m = RX_COMANDO.exec(s)) !== null) {
@@ -325,18 +376,41 @@ function mascaraComandos(s) {
       RX_COMANDO.lastIndex = Math.max(fim, m.index + m[0].length);
     } else {
       // argumento já lido por inteiro: a próxima busca começa depois dele, senão o mesmo trecho seria varrido de novo (custo quadrático)
+      mascaraSubstituicoes(s, m.index, fimFlag, sem, mascaras);
       RX_COMANDO.lastIndex = Math.max(fimFlag, m.index + m[0].length);
     }
   }
+  return mascaras;
+}
+
+/** Troca os intervalos por OCULTO. Com `cortado`, região sensível que ficou com aspa aberta vai até o fim do texto disponível. */
+function aplicaMascaras(s, mascaras, cortado) {
   if (!mascaras.length) return s;
+  if (cortado) for (const mk of mascaras) if (mk[1] < s.length && aspaAbertaNoFim(s, mk[0], mk[1])) mk[1] = s.length;
+  mascaras.sort((x, y) => x[0] - y[0]);
   let saida = '';
   let ultimo = 0;
   for (const [a, b] of mascaras) {
-    if (a < ultimo) continue;
+    if (a < ultimo) { if (b > ultimo) ultimo = b; continue; }
     saida += s.slice(ultimo, a) + OCULTO;
     ultimo = b;
   }
   return saida + s.slice(ultimo);
+}
+
+/** O trecho `s[i, fim)` termina dentro de aspas abertas (o fechamento ficou depois do corte do texto). */
+function aspaAbertaNoFim(s, i, fim) {
+  let q = '';
+  for (let j = i; j < fim; j++) {
+    const c = s[j];
+    if (c === '\\' && q !== "'") { j++; continue; }
+    if (q) { if (c === q) q = ''; } else if (c === '"' || c === "'") q = c;
+  }
+  return q !== '';
+}
+
+function mascaraComandos(s, cortado) {
+  return aplicaMascaras(s, coletaMascaras(s, 0), cortado);
 }
 
 // Atribuição `NOME=valor` de segredo: o valor é lido como argumento de shell, então continuação de linha (`\` + quebra) e aspas
@@ -362,7 +436,7 @@ function lerValorAtribuicao(s, i, sem) {
   return j;
 }
 
-function mascaraAtribuicoes(s) {
+function mascaraAtribuicoes(s, cortado) {
   const mascaras = [];
   const sem = {};
   RX_ATRIBUICAO.lastIndex = 0;
@@ -373,14 +447,7 @@ function mascaraAtribuicoes(s) {
     if (fim > ini) mascaras.push([ini, fim]);
     RX_ATRIBUICAO.lastIndex = Math.max(fim, ini);
   }
-  if (!mascaras.length) return s;
-  let saida = '';
-  let ultimo = 0;
-  for (const [a, b] of mascaras) {
-    saida += s.slice(ultimo, a) + OCULTO;
-    ultimo = b;
-  }
-  return saida + s.slice(ultimo);
+  return aplicaMascaras(s, mascaras, cortado);
 }
 
 // Os padrões de mascara.js (principalmente a atribuição NOME=valor) varrem cada trecho de letras e números até o fim
@@ -399,10 +466,12 @@ function corteBruto(s) {
 }
 
 /** Tudo o que sai da API passa por aqui: limite de 64 KB, mascarar de mascara.js e depois os padrões extras. */
-function limpa(texto) {
+function limpa(texto, cortado) {
   if (texto == null) return '';
-  let r = corteBruto(typeof texto === 'string' ? texto : String(texto));
-  r = mascaraAtribuicoes(mascaraComandos(r));
+  const bruto = typeof texto === 'string' ? texto : String(texto);
+  cortado = cortado || bruto.length > BRUTO;
+  let r = corteBruto(bruto);
+  r = mascaraAtribuicoes(mascaraComandos(r, cortado), cortado);
   for (const [rx, sub] of PRE) { rx.lastIndex = 0; r = r.replace(rx, sub); }
   r = mascarar(r.replace(RX_SEQUENCIA_LONGA, '[trecho-longo-omitido]'));
   for (const [rx, sub] of EXTRAS) { rx.lastIndex = 0; r = r.replace(rx, sub); }
@@ -412,7 +481,7 @@ function limpa(texto) {
 
 // Chaves de objeto com nome de segredo: o valor sai escondido por inteiro, em qualquer nível.
 const RX_CHAVE_LONGA = /^[A-Za-z0-9_.+\/=-]+$/;
-const RX_CHAVE_SENSIVEL = /api[_-]?key|passw(?:or)?d|pwd|senha|secret|token|authorization|cookie|chave|credential/i;
+const RX_CHAVE_SENSIVEL = /api[_-]?key|passw(?:or)?d|pwd|senha|secret|token|authorization|(?:^|[^a-z])auth(?:[^a-z]|$)|cookie|chave|credential/i;
 const PROF_MAX = 6;
 const NOS_MAX = 2000;
 const CARACTERES_MAX = 64 * 1024;
@@ -439,7 +508,7 @@ function redige(v, est, prof) {
       try { obj = JSON.parse(s); } catch (_) { obj = undefined; }
       if (obj && typeof obj === 'object') return JSON.stringify(redige(obj, est, prof + 1));
     }
-    return limpa(s);
+    return limpa(s, v.length > BRUTO);
   }
   if (typeof v === 'number' || typeof v === 'boolean' || v === null) return v;
   if (!v || typeof v !== 'object') return '';
