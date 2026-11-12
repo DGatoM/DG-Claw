@@ -16,7 +16,8 @@ const { isoLocal, diaLocal } = require('./mesa');
 const MAX_CORPO = 16 * 1024;
 const MAX_HISTORICO = 50;
 const MAX_ABERTOS_POR_AGENTE = 100;
-const MAX_FECHADOS = 5000;
+// cota de encerrados POR AGENTE: quem cria e cancela em massa só consome a própria cota, nunca a dos outros
+const MAX_FECHADOS_POR_AGENTE = 500;
 const DIAS_FECHADOS = 180;
 const LIMITES = { texto: 300, motivo: 300 };
 
@@ -103,11 +104,18 @@ function criarPedidos(opcoes) {
   function poda(pedidos, ms) {
     const corte = ms - DIAS_FECHADOS * 86400000;
     let saida = pedidos.filter((p) => ABERTOS.has(p.estado) || !p.fechado_em || (Date.parse(p.fechado_em) || ms) >= corte);
-    const fechados = saida.filter((p) => !ABERTOS.has(p.estado));
-    if (fechados.length > MAX_FECHADOS) {
-      const fora = new Set(fechados.sort((a, b) => a.atualizado_em_epoch - b.atualizado_em_epoch).slice(0, fechados.length - MAX_FECHADOS).map((p) => p.id));
-      saida = saida.filter((p) => !fora.has(p.id));
+    const porAgente = new Map();
+    for (const p of saida) {
+      if (ABERTOS.has(p.estado)) continue;
+      if (!porAgente.has(p.agente)) porAgente.set(p.agente, []);
+      porAgente.get(p.agente).push(p);
     }
+    const fora = new Set();
+    for (const fechados of porAgente.values()) {
+      if (fechados.length <= MAX_FECHADOS_POR_AGENTE) continue;
+      fechados.sort((a, b) => a.atualizado_em_epoch - b.atualizado_em_epoch).slice(0, fechados.length - MAX_FECHADOS_POR_AGENTE).forEach((p) => fora.add(p.id));
+    }
+    if (fora.size) saida = saida.filter((p) => !fora.has(p.id));
     return saida;
   }
 
@@ -166,18 +174,30 @@ function criarPedidos(opcoes) {
   }
 
   /**
-   * O Web chama isto quando uma mensagem do DONO (não do colaborador) acaba de ser entregue ao agente pelo envio
-   * autenticado do painel: todo item entregue daquele agente vira feito. A prova é o evento no Web, nunca o
-   * transcript, que o próprio container do agente consegue escrever. Não derruba o envio: falha vira log.
+   * Itens do agente já entregues AGORA, com o número da entrega. O Web chama isto de forma síncrona antes de enviar a
+   * mensagem do dono: só a entrega que já existia antes do envio pode ser fechada por ele.
    */
-  function donoRespondeu(slug, ms) {
+  function entreguesDe(slug) {
+    if (!carregar()) return [];
+    return dados.pedidos.filter((p) => p.agente === slug && p.estado === 'entregue').map((p) => ({ id: p.id, entrega_n: p.entrega_n }));
+  }
+
+  /**
+   * O Web chama isto quando uma mensagem do DONO (não do colaborador) acaba de ser entregue ao agente pelo envio
+   * autenticado do painel: os itens `capturados` (entregues antes do envio) que continuam entregues, com o mesmo
+   * número de entrega, viram feito. A prova é o evento no Web, nunca o transcript, que o próprio container do agente
+   * consegue escrever. Não derruba o envio: falha vira log.
+   */
+  function donoRespondeu(slug, ms, capturados) {
     try {
+      if (!capturados || !capturados.length) return;
       if (!carregar()) {
         log('aviso', `Pedidos: o dono respondeu a ${slug}, mas a fila não abriu (${falha}). Os itens entregues dele continuam entregues; o dono fecha pela tela.`);
         return;
       }
-      if (!dados.pedidos.some((p) => p.agente === slug && p.estado === 'entregue')) return;
-      const pedidos = dados.pedidos.map((p) => (p.agente === slug && p.estado === 'entregue' ? mover(p, 'feito', { por: 'dono (respondeu na conversa)', ms }) : p));
+      const vale = (p) => p.agente === slug && p.estado === 'entregue' && capturados.some((c) => c.id === p.id && c.entrega_n === p.entrega_n);
+      if (!dados.pedidos.some(vale)) return;
+      const pedidos = dados.pedidos.map((p) => (vale(p) ? mover(p, 'feito', { por: 'dono (respondeu na conversa)', ms }) : p));
       gravar({ proximo_id: dados.proximo_id, pedidos }, ms);
     } catch (e) {
       log('erro', `Pedidos: o dono respondeu a ${slug}, mas não consegui fechar os itens entregues dele (${e.message}). Eles continuam entregues; o dono fecha pela tela ou o agente reentrega.`);
@@ -276,10 +296,11 @@ function criarPedidos(opcoes) {
       } else if (r.erro) {
         aviso = `Marquei como entregue, mas sem apontar a mensagem: ${r.erro} O dono abre o item e vai para a conversa, sem pular até a mensagem.`;
       } else {
-        const suas = r.msgs.filter((m) => m.origin === 'agente' && !m.sistema);
+        // mesmo limite do --msg explícito: a entrega é uma mensagem do agente depois que o pedido foi aberto
+        const suas = r.msgs.filter((m) => m.origin === 'agente' && !m.sistema && !(p.criado_em_epoch && m.ep < p.criado_em_epoch));
         const ultima = suas[suas.length - 1];
         if (ultima) msg = { id: ultima.id, ep: ultima.ep };
-        else aviso = 'Marquei como entregue, mas a conversa ainda não tem mensagem sua para apontar.';
+        else aviso = 'Marquei como entregue, mas a conversa ainda não tem mensagem sua posterior à criação do pedido para apontar.';
       }
       // o pedido pode ter mudado durante a leitura da conversa
       if (!carregar()) return { status: 503, erro: falha };
@@ -444,7 +465,7 @@ function criarPedidos(opcoes) {
     }
   }
 
-  return { rota, donoRespondeu };
+  return { rota, donoRespondeu, entreguesDe };
 }
 
 module.exports = { criarPedidos, ESTADOS, ABERTOS };

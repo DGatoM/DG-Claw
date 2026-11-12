@@ -249,7 +249,7 @@ test('donoRespondeu fecha só os entregues do agente certo; os que não estão e
     await m.pedir('PATCH', '/api/v1/pedidos/3', { json: { estado: 'esperando_dono', motivo: 'A ou B?' }, quem: 'luna' });
     await m.pedir('PATCH', '/api/v1/pedidos/4', { json: { estado: 'entregue' }, quem: 'marina' });
     m.avanca(2);
-    m.fila.donoRespondeu('luna', m.relogio.ms);
+    m.fila.donoRespondeu('luna', m.relogio.ms, m.fila.entreguesDe('luna'));
     const estados = (await m.pedir('GET', '/api/v1/pedidos?dia=todos')).json.pedidos.map((p) => `${p.id}:${p.estado}`).sort();
     assert.deepEqual(estados, ['1:feito', '2:fazendo', '3:esperando_dono', '4:entregue']);
     const h = (await m.pedir('GET', '/api/v1/pedidos/1')).json.pedido.historico;
@@ -265,7 +265,7 @@ test('donoRespondeu com a fila ilegível: não lança, o motivo vai para o log e
     m.conv.luna.push(m.msg('agente'));
     await m.pedir('PATCH', '/api/v1/pedidos/1', { json: { estado: 'entregue' }, quem: 'luna' });
     fs.writeFileSync(m.arquivo, '{quebrado');
-    assert.doesNotThrow(() => m.fila.donoRespondeu('luna', m.relogio.ms));
+    assert.doesNotThrow(() => m.fila.donoRespondeu('luna', m.relogio.ms, [{ id: 1, entrega_n: 1 }]));
     assert.match(m.cap.texto(), /o dono respondeu a luna, mas a fila não abriu/);
   } finally { await m.fechar(); }
 });
@@ -439,5 +439,43 @@ test('entregar: o horário da entrega é o da gravação, não o do início da r
     assert.equal(r.json.pedido.entregue_em, '2026-11-12T10:07:00-03:00');
     const h = r.json.pedido.historico;
     assert.equal(h[h.length - 1].em, '2026-11-12T10:07:00-03:00');
+  } finally { await m.fechar(); }
+});
+
+test('retenção por agente: a cota cheia de Luna poda só item de Luna; o de Marina continua lá', async () => {
+  const m = await montar();
+  try {
+    const iso = '2026-11-12T09:00:00-03:00'; const ep = EP0 - 3600;
+    const base = (id, agente, estado, extra) => Object.assign({
+      id, agente, texto: `p${id}`, estado, motivo: null, msg_entrega: null, criado_por: `agente ${agente}`, criado_em: iso, criado_em_epoch: ep - 100,
+      atualizado_em: iso, atualizado_em_epoch: ep + id, entregue_em: null, entregue_em_epoch: null, fechado_em: iso, historico: [{ em: iso, por: 'x', de: null, para: estado }],
+    }, extra || {});
+    const lista = [];
+    for (let i = 1; i <= 500; i++) lista.push(base(i, 'luna', 'cancelado'));
+    lista.push(base(501, 'marina', 'cancelado', { atualizado_em_epoch: ep - 5000 }));   // o mais antigo de todos
+    lista.push(base(502, 'luna', 'fazendo', { fechado_em: null }));
+    fs.mkdirSync(path.dirname(m.arquivo), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(m.arquivo, JSON.stringify({ versao: 1, proximo_id: 503, pedidos: lista }), { mode: 0o600 });
+    const c = await m.pedir('DELETE', '/api/v1/pedidos/502', { json: { motivo: 'desisti' }, quem: 'luna' });
+    assert.equal(c.status, 200, c.texto);
+    const todos = (await m.pedir('GET', '/api/v1/pedidos?dia=todos')).json.pedidos;
+    assert.equal(todos.filter((p) => p.agente === 'luna').length, 500);
+    assert.ok(!todos.some((p) => p.id === 1), 'o mais antigo de Luna saiu');
+    assert.ok(todos.some((p) => p.id === 502), 'o recém-cancelado de Luna ficou');
+    assert.equal((await m.pedir('GET', '/api/v1/pedidos/501')).status, 200);
+  } finally { await m.fechar(); }
+});
+
+test('entregar sem msg: mensagem do agente anterior à criação do pedido não vale; segue sem mensagem e com aviso', async () => {
+  const m = await montar();
+  try {
+    m.conv.luna.push(m.msg('agente'));
+    m.avanca(5);
+    await criarPedido(m);
+    const r = await m.pedir('PATCH', '/api/v1/pedidos/1', { json: { estado: 'entregue' }, quem: 'luna' });
+    assert.equal(r.status, 200, r.texto);
+    assert.equal(r.json.pedido.estado, 'entregue');
+    assert.equal(r.json.pedido.msg_entrega, null);
+    assert.match(r.json.aviso, /posterior à criação do pedido/);
   } finally { await m.fechar(); }
 });

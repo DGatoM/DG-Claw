@@ -1046,11 +1046,13 @@ function criarServidor(opcoes) {
       log('erro', `Anonimizar: mensagem para ${agente.slug} recusada (${e.codigo || e.message}).`);
       return H.erroJson(res, e.status || 500, e.status ? e.message : `Não enviei a mensagem porque não consegui trocar os dados pessoais dela: ${e.message}`, e.codigo ? { codigo: e.codigo } : undefined);
     }
+    // capturado ANTES das esperas do envio: uma entrega marcada durante a espera não é respondida por esta mensagem
+    const entreguesAntes = pedidos.entreguesDe(agente.slug);
     const r = await conversa.umaVez(agente, 'send', cid || null, () => conversa.enviar(agente, corpo, atorDa(sessao)), identidadeDe(sessao));
     if (r.status < 300 && !(r.corpo && r.corpo.repetido)) {
       marcaAutor(agente.slug, sessao, r);
       // só o dono fecha os itens entregues respondendo; colaborador não
-      if (!(sessao && sessao.papel === 'colaborador')) pedidos.donoRespondeu(agente.slug, opcoes.agora ? +opcoes.agora() : Date.now());
+      if (!(sessao && sessao.papel === 'colaborador')) pedidos.donoRespondeu(agente.slug, opcoes.agora ? +opcoes.agora() : Date.now(), entreguesAntes);
     }
     return H.enviaJson(res, r.status, r.corpo);
   }

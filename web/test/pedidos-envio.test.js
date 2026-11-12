@@ -65,3 +65,21 @@ test('item que não está entregue não é afetado pela resposta do dono', async
     assert.equal(p.historico.length, 1);
   } finally { await s.fechar(); }
 });
+
+test('entrega marcada durante a espera do envio não é fechada por aquela mensagem', async () => {
+  let libera; const segurada = new Promise((r) => { libera = r; });
+  const s = await cenario({ runnerAna: { seguraInput: segurada } });
+  try {
+    semeia(s, 'fazendo');
+    const arq = path.join(s.t.dados, 'pedidos', 'pedidos.json');
+    const envio = s.dono.post('/api/v1/agents/ana/send', { json: { text: 'como está?' } });
+    await new Promise((r) => setTimeout(r, 300));   // o runner está segurando a resposta do envio
+    const d = JSON.parse(fs.readFileSync(arq, 'utf8'));
+    d.pedidos[0].estado = 'entregue'; d.pedidos[0].entrega_n = 1; d.pedidos[0].entregue_em_epoch = Date.now() / 1000;
+    fs.writeFileSync(arq, JSON.stringify(d), { mode: 0o600 });
+    libera();
+    const r = await envio;
+    assert.equal(r.status, 200, r.texto);
+    assert.equal((await estadoDo(s)).estado, 'entregue');
+  } finally { libera(); await s.fechar(); }
+});
