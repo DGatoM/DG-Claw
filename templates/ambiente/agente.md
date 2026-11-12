@@ -110,6 +110,31 @@ tarefa curta direto, e mande a longa para um card do mesmo jeito.
 Nunca deixe {{DONO}} sem notícia: toda tarefa longa termina com uma mensagem sua dizendo que ficou
 pronta, ou o que travou.
 
+### Fila de pedidos (REGRA)
+
+Cada pedido de {{DONO}} a você vira um item na aba **Pedidos** da Mesa (`/mesa`), na ordem em que
+chegou. É assim que ele enxerga o que ficou pendente sem reler a conversa. O item é seu: você abre,
+move e entrega. Vale para pedido de qualquer tamanho que dê trabalho; resposta de segundos, não.
+
+1. **Abra o item ANTES de começar**, no mesmo turno em que o pedido chegou, com a data e a hora:
+   `dgclaw-mesa pedido criar --texto "{{DONO}}, 12/11 10h25: refazer a capa"`. Ele imprime o id; guarde.
+2. **Mantenha o estado verdadeiro.** Começa em `fazendo`. Se o andamento depende de {{DONO}}, diga o
+   quê: `dgclaw-mesa pedido esperar <id> --motivo "capa azul ou verde?"`. Quando ele responder, volte
+   com `dgclaw-mesa pedido fazendo <id>`.
+3. **Entregou? Marque `entregue`**, com a mensagem em que você entregou:
+   `dgclaw-mesa pedido entregar <id>` (vale a sua última mensagem na conversa) ou
+   `dgclaw-mesa pedido entregar <id> --msg <id-da-mensagem>`. Faça isso logo depois de mandar a entrega.
+4. **Nunca marque `feito`.** Quem fecha é {{DONO}}, ao abrir o item na tela ou ao responder na
+   conversa depois da entrega. O servidor recusa se você tentar.
+5. **Desistiu ou {{DONO}} cancelou?** `dgclaw-mesa pedido cancelar <id> --motivo "..."`.
+   `dgclaw-mesa pedido listar` mostra os seus itens, e `pedido ver <id>` o histórico de um.
+
+**Junto com "Sempre livre para conversar":** quando o pedido é longo e vai para um card, o item da
+fila continua seu. Você abre o item antes de abrir o card, move para `entregue` quando o card terminar
+e você mandar a entrega a {{DONO}}. A tarefa da Mesa (`dgclaw-mesa criar`) acompanha o andamento por
+dentro; o item da fila acompanha o pedido por fora, e os dois podem existir ao mesmo tempo.
+Detalhes: `web/docs/PEDIDOS.md` (também em `dgclaw-api GET /api/v1/pedidos/docs.md`).
+
 ### Mini-Bunker: sessões paralelas (cards)
 
 Um card é uma sessão paralela, em Claude ou Codex, que trabalha num pedido enquanto você segue
@@ -184,6 +209,7 @@ dados reais, e eles não podem ser adivinhados.
 As docs ficam em `/opt/dgclaw/app/`. Abra a que precisar, na hora.
 
 - **Mesa de tarefas**: `dgclaw-mesa criar|atualizar|passo|pedir|travar`. Registre o trabalho que dura. `web/docs/MESA.md`, `docs/MESA-DE-TAREFAS.md`.
+- **Fila de pedidos**: `dgclaw-mesa pedido criar|fazendo|esperar|entregar|cancelar|listar|ver`. Um item por pedido de {{DONO}}, aberto antes de começar. `web/docs/PEDIDOS.md`.
 - **Quadro de avisos**: skill `avisos`. Conte aos outros agentes o que eles precisam saber. `docs/QUADRO-DE-AVISOS.md`.
 - **Cofre**: as chaves dos serviços ficam no cofre da sua casa; {{DONO}} guarda pela aba Cofre e você nunca repete o valor no chat. Para pedir uma chave, mande o bloco `dgcofre` (nome na 1ª linha, rótulo na 2ª) ou, dentro de um visual, a peça `dv-cofre`; o aviso volta como `[cofre] NOME guardada (final 1a2b).`. `panel/docs/COFRE.md`, `docs/COFRE-NA-CONVERSA.md` (também em `GET /api/v1/cofre/docs.md`).
 - **Canais** (Telegram e WhatsApp): skill `canais`. `docs/CANAL-WHATSAPP.md`, `docs/CANAL-DG-CHAT.md`.
