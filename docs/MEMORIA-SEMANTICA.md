@@ -27,7 +27,7 @@ Vem **ligada de fábrica, sem conta, sem chave e sem custo**: um modelo pequeno 
 | Wizard | `/dgclaw:setup`, passo 9.3 | Confere o modelo, faz o primeiro índice do agente e diz ao dono se a memória semântica ficou ligada. |
 | Toda madrugada | timer `dgclaw-<slug>-memory-reindex`, 04:20 | Reindex incremental, com `nice` e `ionice`, para não disputar a CPU com a conversa. |
 | Cada mensagem do dono | `hooks/memory-recall.sh` | Só quando a busca em conversas não acha nada e a mensagem tem palavra estranha: roda a busca rápida, com teto de 3 s e no máximo ~700 caracteres de lembrete. `DGCLAW_SEMANTIC_RECALL=off` desliga. |
-| Toda noite | `scripts/reflection.sh` | "Eco do passado": busca o que a working-memory de hoje lembra do passado e entrega à reflexão. |
+| Toda noite com conversa | `scripts/reflection.sh` | "Eco do passado": busca o que a working-memory de hoje lembra do passado e entrega à reflexão. |
 | Quando algo sai do lugar | `scripts/doctor.sh`, seção 4b | Diz se está ligada, com qual modelo e quantos trechos. Com `--fix`, instala o modelo ou refaz o índice. |
 
 **Quanto pesa.** O modelo só ocupa memória enquanto uma busca acontece: o `llama-server`

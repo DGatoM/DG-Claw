@@ -7,6 +7,22 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**A reflexão da noite não acorda o agente em dia sem conversa com você.** Antes, às 23h30 ela rodava todo dia, e cada rodada
+gastava o contexto inteiro da sessão (em agentes pouco usados, mais da metade das reflexões só dizia que nada aconteceu). Agora, se o
+registro das conversas foi lido por completo e você não mandou nenhuma mensagem naquele dia, a reflexão é pulada: fica anotado no
+`reflection.log` e no Pulso ("dia sem conversa com o dono; reflexão pulada"), e naquele dia não existe diário. A auditoria das 23h50 e o
+`doctor` entendem o dia pulado e não dão alarme por falta de diário. Na dúvida a reflexão roda como sempre: isso vale quando o agente
+usa o Codex, quando a configuração do agente é antiga e não informa o provedor, ou quando o registro das conversas não pôde ser lido. Para
+rodar a reflexão mesmo assim, use `DGCLAW_REFLECT_SEMPRE=1 bash scripts/reflection.sh <config>`.
+
+### Como atualizar (reflexão em dia sem conversa)
+
+Peça ao Admin, no chat: "atualiza o DG Claw". A reflexão confere o provedor do agente (Claude ou Codex) na configuração dele
+(`config.sh`) antes de pular um dia. Se um agente antigo não tem o provedor ali, a reflexão segue rodando todo dia, como antes. Para
+ele passar a pular os dias parados, peça ao Admin `dgclaw agente reparar <nome>`, que regrava essa configuração. Se você quiser que
+um agente nunca pule a reflexão, não conte com uma linha `DGCLAW_REFLECT_SEMPRE=1` acrescentada à mão no `config.sh`, porque o reparo
+regrava o arquivo e a linha se perde; defina a variável no ambiente da rotina.
+
 **O painel e a conversa passam a carregar mais rápido, sobretudo no celular.** O servidor da web agora entrega os arquivos da tela
 (scripts, estilos, páginas e dados em JSON) comprimidos: o `conversa.js`, por exemplo, sai de cerca de 243 KB para uns 77 KB. A conversa
 em tempo real continua chegando na hora, porque o fluxo dela fica de fora da compressão. A mudança é no site que o instalador grava no
