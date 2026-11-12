@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Conectar conta - DG Claw</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#2f9e5e">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="icon" href="/icons/icon-192.png">
+<link rel="stylesheet" href="/conectar-cartoes.css">
+<link rel="stylesheet" href="/conectar.css">
+<link rel="stylesheet" href="/casca.css">
+<link rel="stylesheet" href="/menu-lado.css">
+<link rel="stylesheet" href="/sem-zoom.css">
+<link rel="stylesheet" href="/papel.css">
+<script src="/sem-zoom.js"></script>
+<script src="/papel.js"></script>
+</head>
+<body class="cn cn-escopo">
+<main class="cn-main">
+  <p class="cn-aviso-geral" id="cnMsgGeral" role="alert" hidden></p>
+
+  <section class="cn-sec" id="cnPassos" aria-label="Como conectar">
+    <h1><span>Conectar a conta do Claude</span><button type="button" class="cn-ajuda" data-cn="ajuda" data-secao="passos" aria-label="Tutorial do passo a passo">?</button></h1>
+    <ol class="cn-passos">
+      <li>Toque em <b>Gerar link de login</b> no cartão do agente.</li>
+      <li>Abra o link e entre com a sua conta do Claude.</li>
+      <li>Copie o código que aparece no fim e cole aqui no cartão.</li>
+      <li>Repita no próximo cartão.</li>
+    </ol>
+    <p class="cn-fraco">O link vale por poucos minutos. Gere só quando for fazer o login na hora.</p>
+  </section>
+
+
+  <section class="cn-sec" id="cnAgentes" aria-label="Os seus agentes">
+    <h2><span>Os seus agentes</span><button type="button" class="cn-ajuda" data-cn="ajuda" data-secao="agentes" aria-label="Tutorial da lista de agentes">?</button></h2>
+    <div id="cnLista"><p class="cn-fraco">Carregando…</p></div>
+  </section>
+
+  <section class="cn-sec cn-pronto" id="cnPronto" aria-label="Tudo pronto" hidden>
+    <h2><span id="cnProntoTitulo">Tudo pronto! Agora é só usar</span><button type="button" class="cn-ajuda" data-cn="ajuda" data-secao="pronto" aria-label="Tutorial do que fazer depois de conectar">?</button></h2>
+    <div id="cnProntoCorpo"></div>
+  </section>
+</main>
+
+<script src="/tour.js"></script>
+<script src="/menu-lado.js"></script>
+<script src="/atualizacao-faixa.js"></script>
+<script src="/casca.js"></script>
+<script src="/login-cartao.js"></script>
+<script src="/provedores.js"></script>
+<script src="/conectar-puro.js"></script>
+<script src="/conectar-cartoes.js"></script>
+<script src="/conectar.js"></script>
+<script>
+DGCasca.monta({ pagina: 'conectar', titulo: 'Conectar conta', aoTutorial: function () { if (window.DGConectarTela) window.DGConectarTela.tutorial(); } });
+</script>
+</body>
+</html>

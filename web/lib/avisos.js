@@ -271,6 +271,7 @@ function textoRecado(a) {
 function criarAvisos(opcoes) {
   const o = opcoes || {};
   const { config, registro, runner, caixa } = o;
+  const filtro = o.filtro || ((_slug, t) => t);
   const log = o.log || H.logPadrao;
   const agora = o.agora || (() => Date.now());
   const env = o.env || process.env;
@@ -414,7 +415,7 @@ function criarAvisos(opcoes) {
         await Promise.all(dests.map(async (s) => {
           const ag = lista.find((x) => x.slug === s);
           try {
-            const r = await comTimeout(runner.input(ag, { text: texto, submit: true, injectWhenIdle: true }), TIMEOUT_RUNNER_MS, `O runner de ${ag.nome}`);
+            const r = await comTimeout(runner.input(ag, { text: filtro(s, texto), submit: true, injectWhenIdle: true }), TIMEOUT_RUNNER_MS, `O runner de ${ag.nome}`);
             if (r && r.ok) resultado[s].recado_em = iso(agora());
             else throw new Error((r && r.erro) || 'o runner recusou o recado sem dizer o motivo');
           } catch (e) {

@@ -1,0 +1,17 @@
+#formato: txt
+NOTA FISCAL DE SERVIÇOS ELETRÔNICA - NFS-e nº [[!:004512]]
+
+Prestador: [[EMPRESA:Padaria Pão Quente ME]]
+CNPJ: [[CNPJ:${CNPJ_B}]]
+Endereço: [[ENDERECO:Rua Tiradentes, 77, Centro, Londrina/PR]] - CEP [[CEP:86010-190]]
+Telefone: [[TELEFONE:(43) 3322-1100]]
+
+Tomador: [[PESSOA:JOSÉ ANTÔNIO MENDES DA ROCHA]]
+CPF: [[CPF:${CPF_D_RAW}]]
+E-mail: [[EMAIL:ZE.MENDES@EXEMPLO.COM.BR]]
+
+Descrição: fornecimento de 120 pães de queijo e 3 bolos para o evento. Referência do pedido: [[!:#458812]].
+Valor dos serviços: [[VALOR:R$ 1.450,50]]
+Data de emissão: [[DATA:12/05/2026]] às 14:32.
+
+Código de verificação: [[!:A7K2-9PQ1]]. Consulte em [[!:nfse.exemplo.gov.br]] usando o [[!:número da nota]].

@@ -18,7 +18,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { marcar } = require('./alertas');
-const { descreveUso } = require('./trilha');
+const { descreveUso, descrevePerguntas } = require('./trilha');
 
 const DGCHAT_ABRE = /<dgchat\b[^>]*>/;
 const DGCHAT_ATTR = /\b(from|chat|msg|ts)="([^"]*)"/g;
@@ -86,7 +86,7 @@ function parseDgchat(texto) {
   let interno = texto.slice(m.index + m[0].length);
   const fim = interno.lastIndexOf(DGCHAT_FECHA);
   if (fim >= 0) interno = interno.slice(0, fim);
-  interno = interno.split('<\\/dgchat>').join(DGCHAT_FECHA).trim();
+  interno = interno.split('<\\/dgchat').join('</dgchat').split('<\\dgchat').join('<dgchat').trim();
   return { attrs, interno };
 }
 
@@ -146,6 +146,13 @@ function paraHost(caminho, agente) {
   if (cont && host && (c === cont || c.startsWith(cont + '/'))) return host + c.slice(cont.length);
   return c;
 }
+/** O caminho (já no host) está dentro de <home_host>/uploads? Compara o caminho normalizado, então `uploads/../.claude` não passa. */
+function ehUploadDoServidor(host, agente) {
+  if (!agente.home_host || !host) return false;
+  const pasta = path.resolve(agente.home_host, 'uploads');
+  const alvo = path.resolve(host);
+  return alvo.startsWith(pasta + path.sep);
+}
 function paraContainer(caminhoHost, agente) {
   const cont = agente.home_container && agente.home_container.replace(/\/+$/, '');
   const host = agente.home_host && agente.home_host.replace(/\/+$/, '');
@@ -189,12 +196,17 @@ function criarMontagem({ tz, midia }) {
     });
   }
 
-  /** A fala do dono, com os marcadores [anexo: ...] virando mídia. `dg` vem de parseDgchat. */
+  /** A fala da pessoa, com os marcadores [anexo: ...] virando mídia. `dg` vem de parseDgchat.
+   *  Texto digitado pela pessoa (o dono ou um colaborador) é só texto: quem escreve `[anexo: /qualquer/caminho]`
+   *  não pode transformar um arquivo do servidor em mídia. Só vira mídia o caminho dentro de `uploads/` da
+   *  casa do agente, que é onde o próprio servidor grava o que a pessoa enviou (e de onde a mídia volta depois
+   *  de um restart). O resto fica no texto, como a pessoa escreveu. */
   function empurraDono(estado, agente, dg, ep) {
     const caminhos = [];
-    const corpo = dg.interno.replace(ANEXO_LINHA, (_, cam) => {
+    const corpo = dg.interno.replace(ANEXO_LINHA, (linha, cam) => {
       const visto = cam.trim();
       const host = paraHost(visto, agente);
+      if (!ehUploadDoServidor(host, agente)) return linha;
       caminhos.push({ host, visto, nome: path.basename(host) });
       return '';
     }).replace(/\n{3,}/g, '\n\n').trim();
@@ -457,7 +469,7 @@ function criarLeitor({ log, tz, canalTelegram, midia }) {
     // meio (a sessão voltou a responder sem compact_boundary). Sem isso, uma resposta em texto puro, sem dgchat
     // nem ferramenta, era descartada aqui e o "já volto" ficava pendurado até vencer o prazo.
     const provaInterrupcao = estado.compactandoEp !== null && /"type"\s*:\s*"assistant"/.test(linha);
-    if (!resultadoPendente && !provaInterrupcao && !/dgchat|<channel|canal-externo|plataforma|dgclaw-poke|command-name|local-command-std|compact_boundary|"content"\s*:\s*"\s*\/compact|telegram__|__whatsapp_|"name":"(?:Bash|Write|Edit|MultiEdit|NotebookEdit)"/.test(linha)) return;
+    if (!resultadoPendente && !provaInterrupcao && !/dgchat|<channel|canal-externo|plataforma|dgclaw-poke|command-name|local-command-std|compact_boundary|"content"\s*:\s*"\s*\/compact|telegram__|__whatsapp_|"name":"(?:Bash|Write|Edit|MultiEdit|NotebookEdit|AskUserQuestion)"/.test(linha)) return;
 
     let o;
     try { o = JSON.parse(linha); } catch (_) { return; } // linha truncada (transcript sendo escrito) não derruba nada
@@ -575,9 +587,15 @@ function criarLeitor({ log, tz, canalTelegram, midia }) {
         const nome = String(b.name || '');
         const inp = b.input || {};
         const origin = estado.trigger === 'cron' ? 'rotina' : 'agente';
+        if (nome === 'AskUserQuestion') {
+          // Pergunta de escolha: fica no mesmo controle de pendentes (o tool_result tira), mas sem `uso`,
+          // para não aparecer como comando no cartão de permissão. A tela de pergunta lê por perguntaPendente().
+          if (typeof b.id === 'string' && b.id) estado.trilhaPend.set(b.id, { ep: epDe(o.timestamp, estado), perguntaId: b.id, perguntas: descrevePerguntas(inp) });
+          continue;
+        }
         const uso = descreveUso(nome, inp);
         if (uso) {
-          if (typeof b.id === 'string' && b.id) estado.trilhaPend.set(b.id, { ep: epDe(o.timestamp, estado), uso });
+          if (typeof b.id === 'string' && b.id) estado.trilhaPend.set(b.id, { ep: epDe(o.timestamp, estado), uso, id: b.id });
           continue;
         }
         if (nome.endsWith(TOOL_TEXTO) || nome.endsWith(TOOL_ARQUIVO)) {
@@ -614,11 +632,101 @@ function criarLeitor({ log, tz, canalTelegram, midia }) {
     const estado = estados.get(`${slug}|${caminho}`);
     if (!estado || !estado.trilhaPend.size) return null;
     let ultimo = null;
-    for (const p of estado.trilhaPend.values()) if (!ultimo || p.ep >= ultimo.ep) ultimo = p;
-    return ultimo ? { ferramenta: ultimo.uso.ferramenta, titulo: ultimo.uso.titulo, comando: ultimo.uso.comando } : null;
+    for (const p of estado.trilhaPend.values()) if (p.uso && (!ultimo || p.ep >= ultimo.ep)) ultimo = p;
+    return ultimo ? { id: ultimo.id || null, ferramenta: ultimo.uso.ferramenta, titulo: ultimo.uso.titulo, comando: ultimo.uso.comando } : null;
   }
 
-  return { ler, pendente, esquece(caminho, slug) { estados.delete(`${slug}|${caminho}`); } };
+  /**
+   * A pergunta de escolha (AskUserQuestion) mais recente sem resultado: { id, perguntas } ou null.
+   * Devolve null também quando o input veio num formato que não dá para dirigir pelo teclado com segurança.
+   */
+  function perguntaPendente(caminho, slug) {
+    const estado = estados.get(`${slug}|${caminho}`);
+    if (!estado || !estado.trilhaPend.size) return null;
+    let ultimo = null;
+    for (const p of estado.trilhaPend.values()) if (p.perguntaId && (!ultimo || p.ep >= ultimo.ep)) ultimo = p;
+    return ultimo && ultimo.perguntas ? { id: ultimo.perguntaId, perguntas: ultimo.perguntas } : null;
+  }
+
+  return { ler, pendente, perguntaPendente, esquece(caminho, slug) { estados.delete(`${slug}|${caminho}`); } };
 }
 
-module.exports = { parseCanalExterno, desescapa, criarLeitor, criarMontagem, lerIncremental, fmtHoraDia, parseDgchat, parseCanalTelegram, paraHost, paraContainer, textoDosBlocos, ROTULO_EMOJI };
+// ── prova de autoria de uma pendência ────────────────────────────────────────
+const CAUDA_AUTORIA = 4 * 1024 * 1024;
+const ABRE_ENVELOPE = /^<dgchat\b([^>]*)>/;
+const ATTR_GENERICO = /\b([a-z_]+)="([^"]*)"/g;
+const LINHA_DE_INTERESSE = /"type"\s*:\s*"(?:user|assistant|attachment|queue-operation)"/;
+const cacheAutoria = new Map(); // caminho -> { chave, valor }
+
+/** Lê só o envelope que o servidor monta. O corpo da mensagem não é lido: nada do que a pessoa digita vale aqui. */
+function envelopeDoServidor(texto) {
+  const m = ABRE_ENVELOPE.exec(texto);
+  if (!m) return null;
+  const attrs = {};
+  let a;
+  ATTR_GENERICO.lastIndex = 0;
+  while ((a = ATTR_GENERICO.exec(m[1])) !== null) { if (!(a[1] in attrs)) attrs[a[1]] = a[2]; }
+  return attrs.chat && attrs.msg ? attrs : null;
+}
+
+/**
+ * Quem enviou a última mensagem de usuário antes do uso de ferramenta `toolUseId`, lida do transcript que o runner
+ * de fato executou. Devolve o `colaborador_id` do envelope se (e só se): a última mensagem de usuário antes do uso
+ * é um envelope <dgchat> do chat do agente com esse atributo, e nenhuma outra mensagem de usuário (de qualquer
+ * origem) vem depois dela, a não ser a própria (a mesma mensagem reentregue da fila). Dúvida de qualquer tipo
+ * (arquivo ilegível, linha quebrada, id fora da cauda lida, formato novo) devolve null: a pendência é do dono.
+ */
+function provaAutoria(caminho, toolUseId, chatEsperado) {
+  if (!caminho || !toolUseId || !chatEsperado) return null;
+  let st;
+  try { st = fs.statSync(caminho); } catch (_) { return null; }
+  const chave = `${st.size}|${st.mtimeMs}|${toolUseId}|${chatEsperado}`;
+  const guardado = cacheAutoria.get(caminho);
+  if (guardado && guardado.chave === chave) return guardado.valor;
+  let valor = null;
+  try { valor = provaAutoriaSemCache(caminho, st.size, toolUseId, chatEsperado); } catch (_) { valor = null; }
+  cacheAutoria.set(caminho, { chave, valor });
+  return valor;
+}
+
+function provaAutoriaSemCache(caminho, tamanho, toolUseId, chatEsperado) {
+  const ini = Math.max(0, tamanho - CAUDA_AUTORIA);
+  const buf = Buffer.alloc(tamanho - ini);
+  const fd = fs.openSync(caminho, 'r');
+  try { fs.readSync(fd, buf, 0, buf.length, ini); } finally { fs.closeSync(fd); }
+  let linhas = buf.toString('utf8').split('\n');
+  if (ini > 0) linhas = linhas.slice(1); // a primeira linha da cauda pode estar cortada
+  const itens = []; // { uso: true } ou { env }
+  for (let i = 0; i < linhas.length; i++) {
+    const linha = linhas[i];
+    if (!linha.trim() || !LINHA_DE_INTERESSE.test(linha)) continue;
+    let o;
+    try { o = JSON.parse(linha); } catch (_) { return null; }
+    if (!o || o.isSidechain === true) continue;
+    if (o.type === 'assistant') {
+      const c = o.message && o.message.content;
+      if (Array.isArray(c) && c.some((b) => b && b.type === 'tool_use' && b.id === toolUseId)) itens.push({ uso: true });
+      continue;
+    }
+    const fila = (o.type === 'attachment' && o.attachment && o.attachment.type === 'queued_command') || (o.type === 'queue-operation' && o.operation === 'enqueue');
+    if (o.type !== 'user' && !fila) continue;
+    const cont = fila ? (o.type === 'attachment' ? o.attachment.prompt : o.content) : (o.message && o.message.content);
+    // Devolução de ferramenta não é mensagem de ninguém.
+    if (Array.isArray(cont) && cont.length && cont.every((b) => b && b.type === 'tool_result')) continue;
+    const txt = textoDosBlocos(cont).replace(REMINDER, '').trim();
+    const env = o.isMeta === true || o.isCompactSummary === true ? null : envelopeDoServidor(txt);
+    itens.push({ env });
+  }
+  const iUso = itens.findIndex((x) => x.uso);
+  if (iUso < 0) return null;
+  const antes = itens.slice(0, iUso).filter((x) => !x.uso);
+  const ultima = antes[antes.length - 1];
+  if (!ultima || !ultima.env || ultima.env.chat !== chatEsperado || !ultima.env.colaborador_id) return null;
+  for (const x of itens.slice(iUso + 1)) {
+    if (x.uso) continue;
+    if (!x.env || x.env.msg !== ultima.env.msg || x.env.colaborador_id !== ultima.env.colaborador_id) return null;
+  }
+  return ultima.env.colaborador_id;
+}
+
+module.exports = { provaAutoria, parseCanalExterno, desescapa, criarLeitor, criarMontagem, lerIncremental, fmtHoraDia, parseDgchat, parseCanalTelegram, paraHost, paraContainer, textoDosBlocos, ROTULO_EMOJI };

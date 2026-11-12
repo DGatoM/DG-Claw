@@ -54,6 +54,8 @@ rotinas mudam uma linha do `config.sh` (`DGCLAW_BUNKER_URL`).
 | `DELETE /api/agents/:id/remove` | encerra o terminal (não apaga nada do disco) |
 | `GET /api/agents/:id/conversation` | as últimas mensagens |
 | `POST /api/agent-hook` | o hook de status, chamado pelo próprio agente |
+| `POST /api/agent-uso` | o `statusLine` do Claude manda aqui o `rate_limits` (nonce do spawn, sem Bearer) |
+| `GET /api/agents/:id/uso` | o uso da assinatura (janela de 5 horas e semanal), ver "Uso da assinatura" |
 | `GET /api/saude` | está de pé? tem PTY? em que sessão? |
 | `ws://.../ws` | `full_sync`, `agent_update`, `terminal_data`, `terminal_input` |
 
@@ -71,6 +73,11 @@ settings de hooks e `runner-state.json` próprios
 (`<pasta do descritor>/sessoes/<id>/runner-state.json`). A primeira é a de
 `bastidores`: o canto escondido onde o dono conserta coisas. Tudo passa pela
 MESMA porta (o container publica uma só).
+
+Modo de permissão: a principal roda em `bypassPermissions` (obrigatório) e toda sessão
+paralela sobe em `auto`, sem herdar da principal e sem campo para mudar isso. Os pedidos
+de permissão da paralela aparecem na tela pelo cartão de permissão
+(`web/docs/TRILHA-E-PERMISSAO.md`). No Codex, `auto` vira `--ask-for-approval on-request`.
 
 Campos novos do `runner.json`, todos opcionais: `chatPrincipal` (padrão
 `c_<slug>`), `notasPrincipal` (padrão `.plataforma/bastidores/notas.jsonl`),
@@ -206,6 +213,42 @@ criação): a que passa do limite recebe 429 `LIMITE_DE_SESSOES`, com o jeito de
 `test/fixtures/bin/` e vão na frente do PATH; os testes usam chave falsa montada sem o
 literal do prefixo real e provam que nenhum valor de chave aparece em log, argv ou resposta HTTP.
 
+## Uso da assinatura
+
+O runner guarda quanto da janela de 5 horas e da janela semanal já foi gasto, sem consultar a conta
+e sem rede. Duas fontes, as duas só leem o que o próprio CLI já entrega:
+
+- **Claude:** o settings de cada spawn ganha um `statusLine` que chama `runner-uso.mjs` (gravado ao
+  lado de `runner-hook.mjs`). O Claude Code (2.1.80 ou mais novo) passa no stdin um JSON que inclui
+  `rate_limits.five_hour` e `rate_limits.seven_day`. O handler envia **só** o `rate_limits` (o resto do
+  JSON tem caminho e custo e nunca sai do processo), no máximo um POST a cada 15 s (carimbo
+  `<id>.uso.carimbo`), sempre sai com 0 e imprime nada. Se o descritor declara um `statusLine` próprio,
+  o runner não instala o dele e avisa no log (o Status do painel então mostra "sem dado"). O settings
+  do usuário e o do projeto não contam: o `--settings` do spawn ganha deles (conferido em 19/10/2026
+  com o Claude Code 2.1.304, que entrega `rate_limits.five_hour` e `seven_day` ao statusLine).
+- **Codex:** o vigia do rollout lê os eventos `token_count` com `rate_limits`. Cada janela é
+  classificada pela duração (`window_minutes` <= 360 é a de 5 horas, >= 1440 é a semanal), não pela
+  posição. Aceita `resets_at` (epoch em segundos) e o antigo `resets_in_seconds` (somado ao horário do
+  evento).
+
+Valor fora de 0 a 100, não numérico ou sem horário vira "não medido" (`null`) com um aviso no log;
+nunca vira 0. Uma leitura nova substitui as duas janelas de uma vez. O último valor fica em
+`uso.json` (modo 600, gravação atômica) e sobrevive a reinício. Medição de outro provedor não vale
+depois de uma troca de Claude para Codex.
+
+`GET /api/agents/:id/uso` (com Bearer):
+
+```json
+{"ok":true,"uso":{"provedor":"claude",
+  "sessao_5h":{"usado_pct":37.5,"zera_em":"2026-10-19T21:40:00.000Z","vencida":false},
+  "semanal":null,"plano":null,"medido_em":"2026-10-19T18:02:11.000Z","fonte":"statusline"}}
+```
+
+Nunca medido: janelas `null`, `medido_em: null` e um `motivo` em português. Janela cujo `zera_em` já
+passou continua com o valor velho e `vencida: true`; quem mostra não deve exibir esse percentual como
+atual. `POST /api/agent-uso` é livre de Bearer (o nonce do spawn autentica, como no hook) e responde
+401 com `howToFix` se o nonce for de um spawn antigo. Código: `src/uso.ts`, `src/uso-handler-source.ts`.
+
 ## Os arquivos de um agente
 
 ```
@@ -219,6 +262,7 @@ literal do prefixo real e provam que nenhum valor de chave aparece em log, argv 
 <pasta de estado>/runner-hooks/        handler e settings de hook por spawn, e os
                                        arquivos de MCP do Codex (apagados na saída).
 <pasta de estado>/provedor.json        a escolha de provedor feita pelo painel.
+<pasta de estado>/uso.json             o último uso da assinatura medido (modo 600).
 <pasta de estado>/sessoes/<id>/        estado (e provedor.json) das paralelas.
 <pasta de estado>/sessoes-extras.json  as sessões criadas por POST /api/sessoes.
 <casa>/.dgclaw/canais.json             canais ligados na principal (Telegram).

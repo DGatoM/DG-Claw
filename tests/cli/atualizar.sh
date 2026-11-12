@@ -394,9 +394,12 @@ COMMIT_NOVO="$(git -C "$CLONE" rev-parse HEAD)"
 afirma "o clone ja esta no commit novo" test "$COMMIT_NOVO" != "$COMMIT_ANTES"
 sed -i '/^DGCLAW_COMMIT=/d; s/^DGCLAW_VERSAO=.*/DGCLAW_VERSAO=v1-'"${COMMIT_ANTES:0:12}"'/' "$ETC/dgclaw.env"
 : >"$STUB_LOG"
+rm -f "$LIB/agentes/beto/home/.dgclaw/tela/vnc.senha"   # agente de antes da Tela: sem a senha dela
 dgclaw atualizar --sem-baixar --simular >/dev/null 2>&1
 dgclaw atualizar --sem-baixar --ok-do-dono >"$TMP/o10.txt" 2>&1; rc=$?
 igual "atualizar --sem-baixar sai com 0" "0" "$rc"
+afirma "o resumo lista o agente sem senha da Tela, com o que fazer" grep -q 'Tela sem senha: a senha da Tela do agente beto ainda nao foi definida.*dgclaw agente tela-senha beto' "$TMP/o10.txt"
+nega "o resumo nao lista a Ana, que tem a senha" grep -q 'Tela sem senha: a senha da Tela do agente ana' "$TMP/o10.txt"
 [ "$rc" -eq 0 ] || sed 's/^/      | /' "$TMP/o10.txt" | tail -n 30
 afirma "algum manifesto grava o commit antigo certo" grep -rqx "commit=$COMMIT_ANTES" "$BACKUPS"
 nega "nenhum manifesto grava o commit novo como o antigo" grep -rqx "commit=$COMMIT_NOVO" "$BACKUPS"

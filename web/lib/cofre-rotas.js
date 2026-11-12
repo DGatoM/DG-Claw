@@ -31,7 +31,13 @@ const SEM_RUNNER = {
 
 const LIMITE_AUDIO = 25 * 1024 * 1024;
 
-function criarCofreRotas({ config, runner, cofre, voz, log }) {
+const TENTATIVAS_AVISO = 5;
+const ESPERA_AVISO_MS = 3000;
+
+function criarCofreRotas({ config, runner, cofre, voz, log, entregar, esperaAvisoMs }) {
+  const esperaAviso = Number.isFinite(esperaAvisoMs) ? esperaAvisoMs : ESPERA_AVISO_MS;
+  const pausa = (ms) => new Promise((r) => { const t = setTimeout(r, ms); if (t.unref) t.unref(); });
+
   let catalogoCache = null;
   async function catalogo() {
     if (catalogoCache) return catalogoCache;
@@ -93,22 +99,57 @@ function criarCofreRotas({ config, runner, cofre, voz, log }) {
     }
   }
 
+  /** Texto fixo do aviso ao agente. Só nome e final: o valor nunca chega aqui. */
+  function textoAviso(envName, final, naoAplicou) {
+    return `[cofre] ${envName} guardada` + (final ? ` (final ${final})` : '') + '.' +
+      (naoAplicou ? ' O agente ainda não reiniciou para usar a chave.' : '');
+  }
+
+  /**
+   * Entrega o aviso em segundo plano: o reinício do `aplicar` derruba o runner por uns segundos, então
+   * espera e tenta de novo. A resposta HTTP não espera por isto. Cada falha e a desistência vão ao log.
+   */
+  function agendarAviso(agente, texto) {
+    (async () => {
+      let ultimo = 'sem resposta';
+      for (let i = 1; i <= TENTATIVAS_AVISO; i++) {
+        await pausa(esperaAviso);
+        try {
+          const r = await entregar(agente, texto, { cru: false });
+          if (r && r.status === 200) return;
+          ultimo = (r && r.corpo && r.corpo.erro) || `status ${r && r.status}`;
+        } catch (e) { ultimo = (e && e.message) || 'erro inesperado'; }
+        log('aviso', `Cofre /p/${agente.slug}: o agente ainda não recebeu o aviso da chave (tentativa ${i} de ${TENTATIVAS_AVISO}): ${limpar(ultimo)}`);
+      }
+      log('erro', `Cofre /p/${agente.slug}: desisti de avisar o agente depois de ${TENTATIVAS_AVISO} tentativas (${limpar(ultimo)}). A chave ficou guardada; peça a ${agente.nome} para ler o cofre ou avise-o na conversa.`);
+    })().catch((e) => log('erro', `Cofre /p/${agente.slug}: o aviso ao agente quebrou (${limpar(e && e.message)}).`));
+  }
+
   async function guardarRota(req, res, agente, usuario) {
     const p = await lerJsonDoPedido(req, res, agente.slug); if (!p) return;
     const b = p.json;
     const g = cofre.guardar(agente, { envName: b.envName, valor: b.valor, provedor: b.provedor, quem: usuario, origem: 'tela' });
-    if (g.erro || b.aplicar !== true) return recusarOuJson(res, g);
+    if (g.erro) return recusarOuJson(res, g);
+    // O texto sai do registro do servidor; campo "aviso"/"texto" do corpo é ignorado.
+    const avisar = b.avisar === true && typeof entregar === 'function';
+    const aviso = (naoAplicou) => {
+      if (!avisar) return {};
+      const texto = textoAviso(g.envName, g.ultimos4, naoAplicou);
+      agendarAviso(agente, texto);
+      return { aviso: texto, aviso_agendado: true };
+    };
+    if (b.aplicar !== true) return enviaJson(res, 200, Object.assign({}, g, aviso(false)));
     const a = await cofre.aplicar(agente);
     if (a.erro) {
       // A chave CONTINUA guardada; a resposta diz as duas coisas, com status de erro.
-      return enviaJson(res, a.status || 500, {
+      return enviaJson(res, a.status || 500, Object.assign({
         error: `A chave foi guardada. ${a.erro}`,
         howToFix: a.howToFix || 'Guardar já foi feito; falta só reiniciar o agente (aba Cofre, "aplicar e reiniciar").',
         guardado: g,
         aplicado: { ok: false, erro: a.erro },
-      });
+      }, aviso(true)));
     }
-    enviaJson(res, 200, Object.assign({}, g, { aplicado: a }));
+    enviaJson(res, 200, Object.assign({}, g, { aplicado: a }, aviso(false)));
   }
 
   function recusarOuJson(res, r) { if (r && r.erro) return recusar(res, r); return enviaJson(res, 200, r); }
@@ -301,7 +342,36 @@ function criarCofreRotas({ config, runner, cofre, voz, log }) {
     }
   }
 
-  return { casa, tratar };
+  /** O pedido é o POST/PUT de guardar chave de um agente legado (sem cofre_arquivo)? O painel dele guarda. */
+  function casaLegado(req, slug) {
+    if (req.method !== 'POST' && req.method !== 'PUT') return false;
+    const bruto = String(req.url || '').split('?')[0];
+    const prefixo = `/p/${slug}`;
+    if (!bruto.startsWith(prefixo)) return false;
+    return bruto.slice(prefixo.length).toLowerCase().replace(/\/+$/, '') === '/api/cofre';
+  }
+
+  /**
+   * Agente legado: o painel guardou a chave e respondeu; se o navegador pediu `avisar === true`, o aviso sai
+   * daqui, montado só com a RESPOSTA do painel (envName e ultimos4), nunca com o corpo do navegador.
+   * Só avisa quando a chave ficou guardada: 2xx, ou erro do `aplicar` que traz `guardado`.
+   */
+  function avisarLegado(agente, corpoPedido, status, corpoResposta) {
+    if (typeof entregar !== 'function') return;
+    let pedido; let resp;
+    try { pedido = JSON.parse(corpoPedido.toString('utf8')); } catch (_) { return; }
+    if (!pedido || pedido.avisar !== true) return;
+    try { resp = JSON.parse(corpoResposta.toString('utf8')); } catch (_) { resp = null; }
+    if (!resp || typeof resp !== 'object') return;
+    const ok = status >= 200 && status < 300;
+    const g = ok ? resp : resp.guardado;
+    if (!g || typeof g !== 'object' || typeof g.envName !== 'string' || !g.envName) return;
+    if (!ok && !g.ok) return;
+    const final = typeof g.ultimos4 === 'string' ? g.ultimos4 : '';
+    agendarAviso(agente, textoAviso(g.envName, final, !ok));
+  }
+
+  return { casa, tratar, casaLegado, avisarLegado };
 }
 
 module.exports = { criarCofreRotas };

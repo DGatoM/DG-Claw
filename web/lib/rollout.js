@@ -102,48 +102,71 @@ function acharNoCodexHome(codexHome, sessionId, recusados, raizReal) {
   return null;
 }
 
-/** Traduz o CODEX_HOME visto de dentro do container para o do host. Devolve { dir } ou { erro }. */
-function codexHomeNoHost(agente, codexHome) {
-  const home = agente.home_host && path.resolve(agente.home_host);
-  if (!home) return { erro: `O runner informou o CODEX_HOME ${codexHome}, mas o registro de ${agente.nome} não tem home_host para eu traduzir esse caminho.` };
-  const dir = path.resolve(paraHost(codexHome, agente));
-  if (dir !== home && !dir.startsWith(home + path.sep)) {
-    return { erro: `O CODEX_HOME que o runner informou (${codexHome}) cai fora da casa do agente (${home}). Recusei por segurança e não li nada dali.` };
+/**
+ * As raízes (caminhos do host) dentro das quais um rollout do Codex pode ser lido: a casa do agente
+ * e, só no Admin, o codex_home_host (o Admin roda como root e o Codex grava fora da casa dele).
+ * Agente de container nunca ganha raiz extra, mesmo que o registro traga o campo.
+ */
+function raizesDeRollout(agente) {
+  const raizes = [];
+  if (agente && agente.home_host) raizes.push(agente.home_host);
+  if (agente && agente.tipo === 'admin' && typeof agente.codex_home_host === 'string' && path.isAbsolute(agente.codex_home_host)) {
+    raizes.push(agente.codex_home_host);
   }
-  if (!realOuNull(dir)) return { dir }; // não existe: não há o que ler, o aviso de "não achei" cobre
-  const c = confinar(dir, agente.home_host, 'o CODEX_HOME informado pelo runner');
+  return raizes;
+}
+
+/** Traduz o CODEX_HOME visto de dentro do container para o do host. Devolve { dir, raiz } ou { erro }. */
+function codexHomeNoHost(agente, codexHome) {
+  const raizes = raizesDeRollout(agente);
+  if (!raizes.length) return { erro: `O runner informou o CODEX_HOME ${codexHome}, mas o registro de ${agente.nome} não tem home_host para eu traduzir esse caminho.` };
+  const dir = path.resolve(paraHost(codexHome, agente));
+  const raiz = raizes.find((r) => { const b = path.resolve(r); return dir === b || dir.startsWith(b + path.sep); });
+  if (!raiz) {
+    return { erro: `O CODEX_HOME que o runner informou (${codexHome}) cai fora da casa do agente (${path.resolve(raizes[0])}). Recusei por segurança e não li nada dali.` };
+  }
+  if (!realOuNull(dir)) return { dir, raiz }; // não existe: não há o que ler, o aviso de "não achei" cobre
+  const c = confinar(dir, raiz, 'o CODEX_HOME informado pelo runner');
   if (c.erro) return { erro: c.erro };
-  return { dir: c.real };
+  return { dir: c.real, raiz };
 }
 
 /**
  * Acha o rollout de uma sessão. Com `codexHome` (de dentro do container, vindo do runner) lê só
- * ali; sem ele tenta, na ordem, <home_host>/.plataforma/codex-api/<id>/ e <home_host>/.codex.
+ * ali; sem ele tenta, na ordem, <home_host>/.plataforma/codex-api/<id>/, <home_host>/.codex e,
+ * no Admin, <codex_home_host>.
  * Devolve { arquivo, procurados, erro }: `procurados` lista o que foi olhado, para o aviso.
  */
 function acharRollout(agente, sessionId, codexHome) {
   const procurados = [];
   const recusados = [];
   if (!RX_SESSAO.test(sessionId)) return { arquivo: null, procurados, erro: `O id da sessão (${String(sessionId).slice(0, 40)}) não parece um id do Codex.` };
-  const homes = [];
+  const homes = []; // { dir, raiz }
   if (typeof codexHome === 'string' && codexHome.trim()) {
     const t = codexHomeNoHost(agente, codexHome.trim());
     if (t.erro) return { arquivo: null, procurados, erro: t.erro };
-    homes.push(t.dir);
+    homes.push({ dir: t.dir, raiz: t.raiz });
   } else {
     if (!agente.home_host) return { arquivo: null, procurados, erro: `O registro de ${agente.nome} não tem home_host, então não sei onde ficam os rollouts do Codex.` };
     const base = path.resolve(agente.home_host);
     try {
       const api = path.join(base, '.plataforma', 'codex-api');
-      for (const d of fs.readdirSync(api, { withFileTypes: true })) if (d.isDirectory()) homes.push(path.join(api, d.name));
+      for (const d of fs.readdirSync(api, { withFileTypes: true })) if (d.isDirectory()) homes.push({ dir: path.join(api, d.name), raiz: agente.home_host });
     } catch (_) { /* sem pasta codex-api: o agente não está no modo api */ }
-    homes.push(path.join(base, '.codex'));
+    homes.push({ dir: path.join(base, '.codex'), raiz: agente.home_host });
+    const extra = raizesDeRollout(agente).filter((r) => r !== agente.home_host);
+    for (const r of extra) homes.push({ dir: r, raiz: r });
   }
-  const casaReal = realOuNull(agente.home_host);
-  if (!casaReal) return { arquivo: null, procurados, erro: `Não consegui resolver (realpath) a casa do agente ${agente.nome} (${agente.home_host}). Nada foi lido.` };
+  const reais = new Map();
   for (const h of homes) {
-    procurados.push(path.join(h, 'sessions'));
-    const f = acharNoCodexHome(h, sessionId, recusados, casaReal);
+    if (!reais.has(h.raiz)) reais.set(h.raiz, realOuNull(h.raiz));
+    const raizReal = reais.get(h.raiz);
+    if (!raizReal) {
+      if (h.raiz === agente.home_host) return { arquivo: null, procurados, erro: `Não consegui resolver (realpath) a casa do agente ${agente.nome} (${agente.home_host}). Nada foi lido.` };
+      continue; // raiz extra que não existe (Codex ainda não rodou): nada a ler
+    }
+    procurados.push(path.join(h.dir, 'sessions'));
+    const f = acharNoCodexHome(h.dir, sessionId, recusados, raizReal);
     if (f) return { arquivo: f, procurados };
   }
   if (recusados.length) return { arquivo: null, procurados, erro: recusados.join(' ') };
@@ -307,4 +330,4 @@ function criarLeitorRollout({ log, tz, midia }) {
   return { ler, pendente, esquece(caminho, slug) { estados.delete(`${slug}|${caminho}`); } };
 }
 
-module.exports = { criarLeitorRollout, acharRollout, ehRollout, confinar, textoDoRollout };
+module.exports = { criarLeitorRollout, acharRollout, ehRollout, raizesDeRollout, confinar, textoDoRollout };

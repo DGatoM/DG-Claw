@@ -18,6 +18,7 @@
 //   GET    /api/provedor/login           estado do login
 //   POST   /api/provedor/login/codigo    {codigo}: cola o código no terminal do login
 //   DELETE /api/provedor/login           cancela
+//   GET    /api/uso                      uso da assinatura (janela de 5 horas e semanal)
 //
 // Doc para quem opera por API: panel/docs/PROVEDOR-NA-TELA.md.
 
@@ -199,6 +200,42 @@ module.exports = function registrarRotasDeProvedor(router, { CONFIG, cofre, serv
       });
     } catch (err) {
       falhaGeral(res, 'ler o modelo do agente', {}, err);
+    }
+  });
+
+  // ── GET /api/uso ─────────────────────────────────────────────────────────
+  // O uso da assinatura (janela de 5 horas e semanal), como o runner mediu. O painel só repassa:
+  // não calcula nada e não guarda nada. Janela sem medição vem null (nunca 0).
+  router.get('/api/uso', async (req, res) => {
+    try {
+      const { sessao } = alvo();
+      if (!sessao) {
+        console.error('[uso] GET /api/uso: o painel não sabe o id do agente (faltam bunkerCard no config.json e DGCLAW_BUNKER_CARD); respondi 503');
+        return res.status(503).json({
+          error: 'O painel não sabe qual é o agente para consultar o uso da assinatura.',
+          howToFix: 'Confira o bunkerCard no config.json do painel (ou DGCLAW_BUNKER_CARD) e reinicie o painel.',
+        });
+      }
+      const r = await runner('GET', `/api/agents/${encodeURIComponent(sessao)}/uso`);
+      if (r.fora) {
+        console.error(`[uso] GET /api/uso: o runner não respondeu ou é antigo (${limpar(r.motivo)}); respondi 502`);
+        return res.status(502).json({
+          error: 'Não consegui perguntar ao agente quanto da assinatura já foi usado.',
+          howToFix: 'Se o agente acabou de reiniciar, tente de novo em um minuto. Se a versão do DG Claw é antiga, atualize: o medidor de uso é novo.',
+        });
+      }
+      if (r.status >= 400) {
+        const c = r.corpo || {};
+        console.error(`[uso] GET /api/uso: o runner recusou ${r.status}: ${limpar(c.error || c.erro || '')}`);
+        return res.status(502).json({
+          error: `O agente recusou a consulta de uso: ${limpar(c.error || c.erro || 'sem motivo informado')}`,
+          howToFix: limpar(c.howToFix || 'Tente de novo em um minuto. Se continuar, avise quem cuida do sistema.'),
+        });
+      }
+      const c = r.corpo || {};
+      res.json({ ok: true, uso: c.uso ?? null, ...(c.motivo ? { motivo: limpar(c.motivo) } : {}) });
+    } catch (err) {
+      falhaGeral(res, 'ler o uso da assinatura', {}, err);
     }
   });
 

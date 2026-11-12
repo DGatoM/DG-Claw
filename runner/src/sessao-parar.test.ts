@@ -81,3 +81,193 @@ test("pararEEsperar: CLI que ignora o SIGHUP é morto com SIGKILL depois do praz
     delete process.env.FAKE_IGNORAR_HUP;
   }
 });
+
+test("PTY que sai sozinho deixando um filho no grupo: o runner mata o filho antes de subir outro", async () => {
+  const arquivo = path.join(amb.raiz, "filho.pid");
+  process.env.FAKE_FILHO_PIDFILE = arquivo;
+  try {
+    const s = await nova();
+    await s.subir("nova");
+    await esperarAte(() => s.estado.status === "idle" && fs.existsSync(arquivo) && lerTexto(arquivo) !== "", 8_000, "o filho do CLI nascer");
+    const filho = Number(lerTexto(arquivo));
+    const lider = pidDe(s);
+    assert.equal(vivo(filho), true, "o filho começa vivo");
+    // Saída NÃO pedida: só o líder cai (como o sinal 6 da Layla); o filho fica órfão no grupo.
+    process.kill(lider, "SIGKILL");
+    await esperarAte(() => !s.temPtyVivo(), 5_000, "o runner notar a saída do PTY");
+    // Quem sobe de novo tem que esperar a faxina do grupo.
+    await s.subir("nova");
+    assert.equal(vivo(filho), false, "o filho do grupo antigo não pode sobreviver à reação do runner");
+    assert.notEqual(pidDe(s), lider);
+    assert.match(lerTexto(amb.logDoRunner), new RegExp(`PTY \\(pid ${lider}\\) saiu .*deixando processos no grupo`));
+  } finally {
+    delete process.env.FAKE_FILHO_PIDFILE;
+  }
+});
+
+test("revive (parar + subir nova): a saída tardia do PTY antigo não derruba nem orfana o PTY novo", async () => {
+  const s = await nova();
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 8_000, "o SessionStart virar idle");
+  const antigo = pidDe(s);
+  s.parar("revive");
+  await s.subir("nova");
+  const novo = pidDe(s);
+  assert.notEqual(novo, antigo);
+  // Dá tempo de o evento de saída do antigo chegar (ele é assíncrono) e confere o que sobrou.
+  await esperarAte(() => !vivo(antigo), 5_000, "o PTY antigo morrer");
+  await new Promise((r) => setTimeout(r, 400));
+  assert.equal(s.temPtyVivo(), true, "o PTY novo continua sendo o atual");
+  assert.equal(pidDe(s), novo);
+  assert.equal(vivo(novo), true, "o claude novo está vivo");
+  assert.notEqual(s.estado.status, "resumable", "a saída do antigo não pode marcar a sessão nova como caída");
+  assert.match(lerTexto(amb.logDoRunner), new RegExp(`PTY antigo \\(pid ${antigo}\\) terminou depois de ter sido encerrado`));
+});
+
+test("parar + subir('retomar') logo em seguida: espera o antigo sair e o grupo ser varrido, e fica um claude só", async () => {
+  const arquivo = path.join(amb.raiz, "filho-janela.pid");
+  process.env.FAKE_FILHO_PIDFILE = arquivo;
+  try {
+    const s = await nova();
+    await s.subir("nova");
+    await esperarAte(() => s.estado.status === "idle" && fs.existsSync(arquivo) && lerTexto(arquivo) !== "", 8_000, "o filho do CLI nascer");
+    const filho = Number(lerTexto(arquivo));
+    const antigo = pidDe(s);
+    // Sem esperar nada: é a janela entre parar() zerar o proc e o onExit chegar.
+    s.parar("janela");
+    await s.subir("retomar");
+    assert.equal(vivo(antigo), false, "o líder antigo já morreu quando o subir() devolve");
+    assert.equal(vivo(filho), false, "o filho órfão do grupo antigo também");
+    const novo = pidDe(s);
+    assert.notEqual(novo, antigo);
+    await new Promise((r) => setTimeout(r, 400));
+    assert.equal(pidDe(s), novo, "a saída tardia do antigo não zera o PTY novo");
+    assert.equal(vivo(novo), true);
+    assert.notEqual(s.estado.status, "resumable");
+    assert.notEqual(s.estado.status, "errored");
+  } finally {
+    delete process.env.FAKE_FILHO_PIDFILE;
+  }
+});
+
+test("grupo antigo que sobrou vivo: subir() recusa com runner:antigo-vivo e segue quando ele some", async () => {
+  const { spawn } = await import("node:child_process");
+  const s = await nova();
+  // Um grupo próprio (detached = setsid) que faz o papel do grupo que resistiu ao SIGKILL.
+  const resistente = spawn("sleep", ["300"], { detached: true, stdio: "ignore" });
+  const pgid = resistente.pid as number;
+  try {
+    (s as unknown as { grupoQueSobrou: number | null }).grupoQueSobrou = pgid;
+    await s.subir("nova");
+    assert.equal(s.temPtyVivo(), false, "nenhum claude novo ao lado do antigo");
+    assert.equal(s.estado.status, "errored");
+    assert.equal(s.estado.statusReason, "runner:antigo-vivo");
+    assert.match(String(s.estado.error), new RegExp(`${pgid}.*ps -o pid,pgid,stat,cmd -g ${pgid}`));
+    process.kill(-pgid, "SIGKILL");
+    await esperarAte(() => !vivo(pgid), 3_000, "o grupo resistente morrer");
+    await s.subir("nova");
+    assert.equal(s.temPtyVivo(), true, "com o grupo antigo morto, o spawn segue normal");
+  } finally {
+    try { process.kill(-pgid, "SIGKILL"); } catch { /* já morreu */ }
+  }
+});
+
+const quantosPtys = (): number => (lerTexto(amb.logDoRunner).match(/PTY de pé, pid/g) ?? []).length;
+
+test("subir() concorrente depois de parar(): um claude só, a segunda chamada cai no 'já existe PTY vivo'", async () => {
+  const s = await nova();
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 8_000, "o SessionStart virar idle");
+  s.parar("teste"); // deixa uma saída pendente para as duas chamadas esperarem juntas
+  const antes = quantosPtys();
+  await Promise.all([s.subir("retomar"), s.subir("retomar")]);
+  assert.equal(quantosPtys() - antes, 1, "só um spawn para dois pedidos simultâneos");
+  assert.equal(s.temPtyVivo(), true);
+  assert.match(lerTexto(amb.logDoRunner), /pedido de subir ignorado: já existe PTY vivo/);
+});
+
+test("parar() durante um subir() que espera a faxina cancela esse subir: nenhum claude novo", async () => {
+  process.env.FAKE_IGNORAR_HUP = "1"; // o antigo ignora o SIGHUP, então a saída pendente dura até o SIGKILL
+  try {
+    const s = await nova();
+    await s.subir("nova");
+    await esperarAte(() => s.estado.status === "idle", 8_000, "o SessionStart virar idle");
+    const pid = pidDe(s);
+    s.parar("primeira parada");
+    const antes = quantosPtys();
+    const subida = s.subir("retomar");
+    await new Promise((r) => setTimeout(r, 200));
+    s.parar("remove durante o revive"); // s.proc já é nulo aqui: antes do conserto não fazia nada
+    process.kill(-pid, "SIGKILL");
+    await subida;
+    assert.equal(quantosPtys() - antes, 0, "nenhum claude novo");
+    assert.equal(s.temPtyVivo(), false);
+    assert.equal(s.estado.status, "resumable");
+    assert.match(lerTexto(amb.logDoRunner), /pedido de subir \(retomar\) cancelado: chegou uma parada/);
+    delete process.env.FAKE_IGNORAR_HUP; // o claude desta subida tem que obedecer ao SIGHUP do fim do arquivo
+    await s.subir("retomar");
+    assert.equal(s.temPtyVivo(), true, "um subir pedido depois da parada sobe normalmente");
+  } finally {
+    delete process.env.FAKE_IGNORAR_HUP;
+  }
+});
+
+test("reviver(): um resume 100 ms depois espera o revive e termina com a sessão NOVA e um claude só", async () => {
+  const s = await nova();
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 8_000, "o SessionStart virar idle");
+  const original = s.estado.sessionId;
+  assert.ok(original);
+  const antes = quantosPtys();
+  const revive = s.reviver();
+  await new Promise((r) => setTimeout(r, 100));
+  const resume = s.subir("retomar");
+  await Promise.all([revive, resume]);
+  assert.equal(quantosPtys() - antes, 1, "um spawn só");
+  assert.notEqual(s.estado.sessionId, original, "a conversa foi trocada, não retomada");
+  assert.equal(s.estado.previousSessionId, original);
+  assert.equal(s.temPtyVivo(), true);
+});
+
+test("reviver(): parar() antes de o PTY antigo sair cancela a subida nova", async () => {
+  process.env.FAKE_IGNORAR_HUP = "1";
+  try {
+    const s = await nova();
+    await s.subir("nova");
+    await esperarAte(() => s.estado.status === "idle", 8_000, "o SessionStart virar idle");
+    const pid = pidDe(s);
+    const antes = quantosPtys();
+    const revive = s.reviver();
+    await new Promise((r) => setTimeout(r, 200));
+    s.parar("remove durante o revive"); // s.proc já é nulo: só o contador de paradas cancela a subida
+    process.kill(-pid, "SIGKILL");
+    await revive;
+    assert.equal(quantosPtys() - antes, 0, "nenhum claude novo");
+    assert.equal(s.temPtyVivo(), false);
+    assert.equal(s.estado.status, "resumable");
+  } finally {
+    delete process.env.FAKE_IGNORAR_HUP;
+  }
+});
+
+test("reviver(): revive, resume e remove em sequência não deixam nenhum claude subir", async () => {
+  process.env.FAKE_IGNORAR_HUP = "1";
+  try {
+    const s = await nova();
+    await s.subir("nova");
+    await esperarAte(() => s.estado.status === "idle", 8_000, "o SessionStart virar idle");
+    const pid = pidDe(s);
+    const antes = quantosPtys();
+    const revive = s.reviver();
+    await new Promise((r) => setTimeout(r, 100));
+    const resume = s.subir("retomar");
+    await new Promise((r) => setTimeout(r, 100));
+    s.parar("remove durante o revive");
+    process.kill(-pid, "SIGKILL");
+    await Promise.all([revive, resume]);
+    assert.equal(quantosPtys() - antes, 0, "nem o revive nem o resume sobem");
+    assert.equal(s.temPtyVivo(), false);
+  } finally {
+    delete process.env.FAKE_IGNORAR_HUP;
+  }
+});

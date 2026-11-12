@@ -46,7 +46,7 @@ const erroOriginal = console.error;
 console.error = (...a) => { logs.push(a.map((x) => (x instanceof Error ? x.stack : String(x))).join(' ')); };
 
 // ── o runner falso ───────────────────────────────────────────────────────────
-const runner = { recebidos: [], modo: 'ok', escolha: { provedor: 'claude', auth: 'assinatura', modelo: 'claude-opus-5-5' }, extra: {} };
+const runner = { recebidos: [], modo: 'ok', uso: null, escolha: { provedor: 'claude', auth: 'assinatura', modelo: 'claude-opus-5-5' }, extra: {} };
 const srv = http.createServer((req, res) => {
   let corpo = '';
   req.on('data', (d) => { corpo += d; });
@@ -62,6 +62,10 @@ const srv = http.createServer((req, res) => {
         conferido: { ok: true, metodo: 'claude auth status --json', detalhe: 'logado', em: new Date().toISOString() },
         login: { estado: 'nenhum' }, ...runner.extra,
       });
+    }
+    if (url.pathname === '/api/agents/cardX/uso' && req.method === 'GET') {
+      if (runner.uso === 'recusa') return json(500, { success: false, error: 'o medidor quebrou', howToFix: 'reiniciar o runner', code: 'X' });
+      return json(200, runner.uso || { ok: true, uso: { provedor: 'claude', sessao_5h: null, semanal: null, plano: null, medido_em: null, fonte: null }, motivo: 'Ainda não houve resposta' });
     }
     if (url.pathname === '/api/provedor' && req.method === 'POST') return json(200, { ok: true, rotulo: 'rotulo novo' });
     if (url.pathname === '/api/provedor/login' && req.method === 'POST') return json(200, { estado: 'aguardando_link' });
@@ -219,6 +223,30 @@ console.log('\nLogin assistido repassado');
   ok(c2.status === 400 && runner.recebidos.length === n + 1, 'código vazio: 400 sem incomodar o runner');
   const cod = runner.recebidos.find((x) => x.caminho.endsWith('/codigo'));
   ok(JSON.parse(cod.corpo).codigo === 'ABC-123', 'o runner recebeu o código');
+}
+
+console.log('\nGET /api/uso');
+{
+  resetar();
+  const r = await chamar('GET /api/uso');
+  ok(r.status === 200 && r.corpo.ok === true && r.corpo.uso.sessao_5h === null && r.corpo.uso.semanal === null, 'nunca medido: janelas null (nunca 0)');
+  ok(/Ainda não houve resposta/.test(r.corpo.motivo), 'o motivo do runner chega à tela');
+  ok(runner.recebidos[0].caminho === '/api/agents/cardX/uso', 'o painel pergunta ao runner pelo id do agente');
+  runner.uso = { ok: true, uso: { provedor: 'codex', sessao_5h: { usado_pct: 12.5, zera_em: '2026-10-19T21:00:00.000Z', vencida: false }, semanal: null, plano: 'prolite', medido_em: '2026-10-19T18:00:00.000Z', fonte: 'rollout' } };
+  const r2 = await chamar('GET /api/uso');
+  ok(r2.corpo.uso.sessao_5h.usado_pct === 12.5 && r2.corpo.uso.semanal === null && !('motivo' in r2.corpo), 'medido: repassa as janelas como vieram');
+  runner.uso = 'recusa';
+  const r3 = await chamar('GET /api/uso');
+  ok(r3.status === 502 && /medidor quebrou/.test(r3.corpo.error) && r3.corpo.howToFix, 'runner recusou: 502 com motivo e o que fazer');
+  runner.uso = null;
+  runner.modo = 'antigo';
+  const r4 = await chamar('GET /api/uso');
+  ok(r4.status === 502 && r4.corpo.error && r4.corpo.howToFix, 'runner antigo (sem a rota): 502 explicado');
+  runner.modo = 'ok';
+  const cartao = CONFIG.bunkerCard; CONFIG.bunkerCard = '';
+  const r5 = await chamar('GET /api/uso');
+  ok(r5.status === 503 && /bunkerCard/.test(r5.corpo.howToFix), 'sem id do agente: 503 que diz o que conferir');
+  CONFIG.bunkerCard = cartao;
 }
 
 console.log('\nNenhuma chave vazou');

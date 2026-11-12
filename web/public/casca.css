@@ -22,6 +22,8 @@ html.casca #cabecalho{position:sticky;top:0;z-index:20;min-height:58px;backgroun
 html.casca #cabecalho .av{width:40px;height:40px;border-radius:50%;flex:0 0 40px;display:flex;align-items:center;
   justify-content:center;font-size:18px;font-weight:600;color:#fff;background:linear-gradient(180deg,#57c98a,#2f9e5e);overflow:hidden}
 html.casca #cabecalho .av img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block}
+/* foto ainda pintando não pode mostrar o verde da cor do agente por baixo (iPhone, 21/10) */
+html.casca #cabecalho .av:has(>img){background:#e4eae6}
 html.casca #cabecalho .who{flex:1;min-width:0}
 html.casca #cabecalho .who b{display:block;font-size:15.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 html.casca #cabecalho .who span{display:block;font-size:12.5px;color:var(--accent,#2f9e5e);

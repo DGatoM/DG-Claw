@@ -161,5 +161,7 @@ module.exports = function buildCfAccess({ auth }) {
     });
   }
 
-  return { cfAccessAuth };
+  // O WebSocket da Tela (lib/tela.js) não passa pelo Express: o 'upgrade' confere o Access
+  // com estas mesmas peças, em server.js.
+  return { cfAccessAuth, ligado: () => CF_ENABLED, cfVerifyAccessJwt, cfLogOnce };
 };

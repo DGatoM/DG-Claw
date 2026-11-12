@@ -1,0 +1,4 @@
+# Itens que deliberadamente nao entram no manual.
+# Formato (campos separados por TAB): tipo<TAB>id<TAB>justificativa
+# tipo: tela, rota, comando, skill, power, canal ou provedor. Linha sem justificativa reprova o teste.
+# Exemplo: rota	/api/v1/media	caminho interno, so a conversa usa

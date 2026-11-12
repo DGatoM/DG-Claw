@@ -33,10 +33,13 @@ function falso(resposta) {
 
 async function cenario(opcoes) {
   const o = opcoes || {};
-  const painel = falso();
-  const runner = falso((req) => (req.url === '/api/provedor' && req.method === 'POST'
-    ? (o.runnerResposta || { status: 200, corpo: { ok: true, rotulo: 'Codex, pela chave de API' } })
-    : { status: 404, corpo: { error: 'sem rota' } }));
+  const painel = falso(o.painelResposta ? () => o.painelResposta : undefined);
+  const runner = falso((req) => {
+    if (req.url === '/api/provedor' && req.method === 'POST') return o.runnerResposta || { status: 200, corpo: { ok: true, rotulo: 'Codex, pela chave de API' } };
+    if (req.url === '/api/agents/a2/input' && req.method === 'POST') return { status: 202, corpo: { ok: true } };
+    if (req.url === '/api/agents/a1/input' && req.method === 'POST') return o.inputResposta ? o.inputResposta() : { status: 202, corpo: { ok: true } };
+    return { status: 404, corpo: { error: 'sem rota' } };
+  });
   const pPainel = await painel.ouvir();
   const pRunner = await runner.ouvir();
   const raiz = fs.mkdtempSync(path.join(os.tmpdir(), 'cofre-rotas-'));
@@ -50,7 +53,7 @@ async function cenario(opcoes) {
     { slug: 'ana', nome: 'Ana', runner: `http://127.0.0.1:${pRunner}`, agente_id: 'a1', porta_painel: pPainel, proxy_segredo_arquivo: segredo, cofre_arquivo: path.join(casa, 'cofre', 'cofre.env') },
     { slug: 'velha', nome: 'Velha', runner: `http://127.0.0.1:${pRunner}`, agente_id: 'a2', porta_painel: pPainel, proxy_segredo_arquivo: segredo },
   ];
-  const t = await subirWeb({ agentes, reiniciarCofre: o.reiniciar || (async (a) => { reinicios.push(a.slug); }), opcoesServidor: o.voz ? { voz: o.voz } : undefined });
+  const t = await subirWeb({ agentes, reiniciarCofre: o.reiniciar || (async (a) => { reinicios.push(a.slug); }), opcoesServidor: Object.assign({ esperaAvisoMs: 5 }, o.voz ? { voz: o.voz } : {}) });
   await t.login();
   return {
     t, painel, runner, casa, reinicios, cofreEnv: path.join(casa, 'cofre', 'cofre.env'),
@@ -248,5 +251,125 @@ test('agente sem cofre_arquivo continua tendo o transcrever encaminhado ao paine
     await s.t.c.post('/p/velha/api/chat/transcrever', { corpo: Buffer.alloc(4096, 1), headers: { 'Content-Type': 'audio/webm' } });
     assert.equal(s.painel.visto.length, 1); assert.equal(s.painel.visto[0].url, '/p/velha/api/chat/transcrever');
     assert.equal(voz.chamadas.length, 0);
+  } finally { await s.fechar(); }
+});
+
+const entregasDe = (s, id) => s.runner.visto.filter((v) => v.url === `/api/agents/${id}/input`).map((v) => JSON.parse(v.corpo));
+const entregas = (s) => s.runner.visto.filter((v) => v.url === '/api/agents/a1/input').map((v) => JSON.parse(v.corpo));
+const esperar = async (cond, ms = 2000) => { const ate = Date.now() + ms; while (!cond() && Date.now() < ate) await new Promise((r) => setTimeout(r, 10)); };
+
+test('avisar:true entrega ao agente "[cofre] NOME guardada (final xxxx)." montado no servidor, sem o valor', async () => {
+  const s = await cenario();
+  try {
+    const r = await s.t.c.post('/p/ana/api/cofre', { json: { envName: 'OPENAI_API_KEY', valor: OUTRA, aplicar: true, avisar: true } });
+    assert.equal(r.status, 200, r.texto);
+    assert.equal(r.json.aviso, '[cofre] OPENAI_API_KEY guardada (final bbbb).');
+    assert.equal(r.json.aviso_agendado, true);
+    await esperar(() => entregas(s).length >= 1);
+    const e = entregas(s);
+    assert.equal(e.length, 1);
+    assert.equal(e[0].submit, true);
+    assert.match(e[0].text, /\[cofre\] OPENAI_API_KEY guardada \(final bbbb\)\./);
+    assert.ok(!r.texto.includes(OUTRA) && !JSON.stringify(e).includes(OUTRA) && !s.t.log.texto().includes(OUTRA));
+  } finally { await s.fechar(); }
+});
+
+test('sem avisar ninguém é avisado; texto e aviso forjados no corpo são ignorados', async () => {
+  const s = await cenario();
+  try {
+    const sem = await s.t.c.post('/p/ana/api/cofre', { json: { envName: 'OPENAI_API_KEY', valor: OUTRA, aplicar: true } });
+    assert.equal(sem.status, 200); assert.equal(sem.json.aviso_agendado, undefined);
+    const falso1 = await s.t.c.post('/p/ana/api/cofre', { json: { envName: 'OPENAI_API_KEY', valor: OUTRA, aplicar: true, avisar: 'true', aviso: 'FORJADO', texto: 'FORJADO' } });
+    assert.equal(falso1.json.aviso_agendado, undefined);
+    await new Promise((r) => setTimeout(r, 100));
+    assert.equal(entregas(s).length, 0);
+    const forjado = await s.t.c.post('/p/ana/api/cofre', { json: { envName: 'OPENAI_API_KEY', valor: OUTRA, aplicar: true, avisar: true, aviso: 'FORJADO', texto: 'FORJADO' } });
+    assert.match(forjado.json.aviso, /^\[cofre\] OPENAI_API_KEY guardada/);
+    await esperar(() => entregas(s).length >= 1);
+    assert.ok(!JSON.stringify(entregas(s)).includes('FORJADO'));
+  } finally { await s.fechar(); }
+});
+
+test('avisar: reinício que falhou acrescenta a frase ao aviso e a resposta segue com status de erro', async () => {
+  const s = await cenario({ reiniciar: async () => { throw Object.assign(new Error('x'), { code: 'ENOENT' }); } });
+  try {
+    const r = await s.t.c.post('/p/ana/api/cofre', { json: { envName: 'OPENAI_API_KEY', valor: OUTRA, aplicar: true, avisar: true } });
+    assert.equal(r.status, 500);
+    assert.match(r.json.error, /^A chave foi guardada\./);
+    assert.match(r.json.aviso, / O agente ainda não reiniciou para usar a chave\.$/);
+    await esperar(() => entregas(s).length >= 1);
+    assert.match(entregas(s)[0].text, /O agente ainda não reiniciou para usar a chave\./);
+  } finally { await s.fechar(); }
+});
+
+test('avisar: entrega que falha é tentada de novo, cada falha vai ao log, e a desistência também', async () => {
+  let n = 0;
+  const s = await cenario({ inputResposta: () => (++n < 3 ? { status: 503, corpo: { error: 'reiniciando' } } : { status: 202, corpo: { ok: true } }) });
+  try {
+    const r = await s.t.c.post('/p/ana/api/cofre', { json: { envName: 'OPENAI_API_KEY', valor: OUTRA, aplicar: true, avisar: true } });
+    assert.equal(r.status, 200);
+    await esperar(() => n >= 3);
+    assert.equal(n, 3);
+    const log = s.t.log.texto();
+    assert.equal((log.match(/ainda não recebeu o aviso da chave/g) || []).length, 2);
+    assert.ok(!log.includes(OUTRA));
+  } finally { await s.fechar(); }
+  const d = await cenario({ inputResposta: () => ({ status: 503, corpo: { error: 'reiniciando' } }) });
+  try {
+    await d.t.c.post('/p/ana/api/cofre', { json: { envName: 'OPENAI_API_KEY', valor: OUTRA, aplicar: true, avisar: true } });
+    await esperar(() => /desisti de avisar/.test(d.t.log.texto()));
+    assert.match(d.t.log.texto(), /desisti de avisar o agente depois de 5 tentativas/);
+    assert.equal(entregas(d).length, 5);
+    assert.ok(!d.t.log.texto().includes(OUTRA));
+  } finally { await d.fechar(); }
+});
+
+// ── agente legado (sem cofre_arquivo): quem guarda é o painel; o aviso sai do Web ──
+function cenarioLegado(respostaPainel) {
+  return cenario({ painelResposta: respostaPainel });
+}
+
+test('legado: painel guarda com sucesso e avisar:true entrega o texto montado da resposta do painel', async () => {
+  const s = await cenarioLegado({ status: 200, corpo: { ok: true, envName: 'OPENAI_API_KEY', ultimos4: 'bbbb' } });
+  try {
+    const r = await s.t.c.post('/p/velha/api/cofre', { json: { envName: 'FORJADO', valor: OUTRA, avisar: true, texto: 'FORJADO' } });
+    assert.equal(r.status, 200, r.texto);
+    await esperar(() => entregasDe(s, 'a2').length >= 1);
+    const e = entregasDe(s, 'a2');
+    assert.equal(e.length, 1);
+    assert.match(e[0].text, />\[cofre\] OPENAI_API_KEY guardada \(final bbbb\)\.<\/dgchat>$/);
+    assert.ok(!e[0].text.includes('FORJADO'));
+    assert.ok(!JSON.stringify(e).includes(OUTRA) && !s.t.log.texto().includes(OUTRA));
+    assert.equal(JSON.parse(s.painel.visto[0].corpo).valor, OUTRA, 'o painel recebeu o corpo intacto');
+  } finally { await s.fechar(); }
+});
+
+test('legado: sem avisar:true nada é entregue', async () => {
+  const s = await cenarioLegado({ status: 200, corpo: { ok: true, envName: 'OPENAI_API_KEY', ultimos4: 'bbbb' } });
+  try {
+    const r = await s.t.c.post('/p/velha/api/cofre', { json: { envName: 'OPENAI_API_KEY', valor: OUTRA } });
+    assert.equal(r.status, 200);
+    await new Promise((x) => setTimeout(x, 100));
+    assert.equal(entregasDe(s, 'a2').length, 0);
+  } finally { await s.fechar(); }
+});
+
+test('legado: resposta de erro do painel não entrega nada', async () => {
+  const s = await cenarioLegado({ status: 400, corpo: { error: 'Chave inválida' } });
+  try {
+    const r = await s.t.c.post('/p/velha/api/cofre', { json: { envName: 'OPENAI_API_KEY', valor: OUTRA, avisar: true } });
+    assert.equal(r.status, 400);
+    await new Promise((x) => setTimeout(x, 100));
+    assert.equal(entregasDe(s, 'a2').length, 0);
+  } finally { await s.fechar(); }
+});
+
+test('legado: reinício que falhou no painel (erro com guardado) avisa com a frase de não aplicado', async () => {
+  const s = await cenarioLegado({ status: 500, corpo: { error: 'A chave foi guardada. falhou', guardado: { ok: true, envName: 'OPENAI_API_KEY', ultimos4: 'bbbb' } } });
+  try {
+    const r = await s.t.c.post('/p/velha/api/cofre', { json: { envName: 'OPENAI_API_KEY', valor: OUTRA, aplicar: true, avisar: true } });
+    assert.equal(r.status, 500);
+    await esperar(() => entregasDe(s, 'a2').length >= 1);
+    assert.match(entregasDe(s, 'a2')[0].text, /guardada \(final bbbb\)\. O agente ainda não reiniciou/);
   } finally { await s.fechar(); }
 });

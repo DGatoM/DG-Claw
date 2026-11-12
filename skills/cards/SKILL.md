@@ -46,6 +46,9 @@ dgclaw-card esperar "$id" --max 900
 dgclaw-card ler "$id" --n 2
 ```
 
+- `esperar` serve para card CURTO ou segunda opinião, em que a resposta sai em poucos minutos. Para tarefa
+  longa, a sessão principal NÃO espera: abre o card com `--monitor`, fica livre para conversar com o dono
+  e deixa o monitor acordá-la (ver "Tarefa longa" abaixo e "Sempre livre para conversar" no seu prompt).
 - `esperar` volta quando o card termina o turno. Se estourar o tempo (código 7), o card segue
   trabalhando: avise o dono e espere mais com `--max`, ou leia o parcial com `ler`.
 - Para uma pergunta nova no mesmo card: `dgclaw-card mandar "$id" "texto"` e espere de novo.

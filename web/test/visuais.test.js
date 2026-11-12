@@ -129,3 +129,16 @@ test('mídia crua: html e svg saem com o CSP de sandbox e nosniff; png não leva
     assert.equal(png.headers['content-security-policy'], undefined);
   } finally { await s.fechar(); }
 });
+
+test('visual: a peça .dv-cofre chega intacta ao iframe, sem campo de senha e sem rede', async () => {
+  const peca = '<div class="dv-cofre" data-cofre="HOSTINGER_API_TOKEN" data-rotulo="Token" data-ajuda="hPanel"></div>';
+  const s = await cenario({ 'vis-cofre.html': peca });
+  try {
+    const r = await s.t.c.get(`/api/v1/media/${s.id('vis-cofre.html')}/visual`);
+    assert.equal(r.status, 200, r.texto.slice(0, 300));
+    assert.ok(r.texto.trimEnd().endsWith(peca));
+    assert.ok(!/<input[^>]*password/.test(r.texto), 'o campo de senha nunca fica no iframe');
+    assert.equal(r.headers['content-security-policy'], CSP_VISUAL);
+    assert.ok(r.headers['content-security-policy'].includes("connect-src 'none'"));
+  } finally { await s.fechar(); }
+});

@@ -1,0 +1,16 @@
+#formato: txt
+CONTRATO DE LOCAÇÃO RESIDENCIAL
+
+Pelo presente instrumento particular, de um lado [[PESSOA:Mariana Albuquerque Teixeira]], brasileira, solteira, empresária, inscrita no CPF sob o nº [[CPF:${CPF_A}]] e no RG nº [[RG:12.345.678-9]], residente na [[ENDERECO:Rua das Acácias, nº 450, apartamento 12, Bairro Jardim Botânico, Curitiba/PR]], CEP [[CEP:80210-050]], doravante denominada LOCADORA, e de outro lado [[PESSOA:Ricardo Fernandes de Oliveira]], brasileiro, casado, engenheiro, CPF [[CPF:${CPF_B_RAW}]], residente na [[ENDERECO:Avenida Getúlio Vargas, 1200, Belo Horizonte/MG]], doravante denominado LOCATÁRIO.
+
+CLÁUSULA PRIMEIRA. O imóvel locado fica na [[ENDERECO:Rua Quinze de Novembro, 88, centro, Florianópolis/SC]]. O prazo é de 30 meses, a contar de [[DATA:15 de março de 2026]].
+
+CLÁUSULA SEGUNDA. O aluguel mensal é de [[VALOR:R$ 3.200,00]], pago por transferência para a conta [[CONTA:45678-9]], agência [[AGENCIA:1234]], em nome da LOCADORA. A caução equivale a [[VALOR:três mil e duzentos reais]].
+
+CLÁUSULA TERCEIRA. O LOCATÁRIO informa o telefone [[TELEFONE:(41) 99876-5432]] e o e-mail [[EMAIL:ricardo.oliveira@exemplo.com.br]] para avisos. [[PESSOA:Mariana]] receberá as chaves e [[PESSOA:Ricardo]] assinará o termo de vistoria.
+
+Fiadora: [[PESSOA:Helena Cristina Duarte]], CPF [[CPF:${CPF_C}]].
+
+Em caso de dúvida, vale o [[!:Código Civil]] e o disposto na [[!:Lei 8.245/91]]. O processo de registro recebeu o [[!:protocolo 2026-889123]].
+
+Curitiba, [[DATA:02/03/2026]].

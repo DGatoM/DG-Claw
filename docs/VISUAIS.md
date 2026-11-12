@@ -86,6 +86,37 @@ function copiar(b){const t=b.previousElementSibling;t.focus();t.select();
 </script>
 ```
 
+## Pedir uma chave: caixa de cofre
+
+Para o dono guardar uma senha ou token sem colar na conversa há duas portas que abrem a mesma caixa.
+A **principal** é o bloco `dgcofre` na resposta do agente. A **secundária** é a peça `.dv-cofre`, para
+quando a chave faz parte de um visual maior:
+
+```html
+<title>Chave da Hostinger</title>
+<div class="dv-cofre" data-cofre="HOSTINGER_API_TOKEN"
+     data-rotulo="Token da API da Hostinger"
+     data-ajuda="hPanel > Perfil > API > Criar token"></div>
+```
+
+A peça mostra um cartão com o botão **Colar a chave** e os estados pendente, esperando, guardada
+(`Guardada ✓`, sem o final) e erro. Ao tocar, o visual manda
+`{dgvis: 1, tipo: 'cofre', id, nome, rotulo, ajuda}` e o app abre, abaixo do visual (ou na tela cheia),
+o MESMO cartão do bloco `dgcofre` (`web/public/campo-cofre.js`). Ao carregar, o visual pergunta
+`{tipo: 'cofre-estado?', nomes}` e recebe `{tipo: 'cofre-estado', estados: {NOME: {guardada}}}`.
+O app só responde com o visual à vista, no máximo 1 vez a cada 3 s por visual e até 20 nomes por pedido (o excesso é ignorado, com um aviso único no console).
+Respostas do app: `cofre-espera`, `cofre-ok {id, nome}` e `cofre-erro {motivo, msg}` (motivos: nome,
+ocupado, fora, cancelado, envio, indisponivel). Em JavaScript, `dgvis.cofre(nome, {rotulo, ajuda})`.
+
+Garantias: o campo de senha fica FORA do iframe, então o código do agente nunca lê o valor, e o valor
+nunca vai ao iframe, e o final da chave também não: o visual é código do agente, não confiável, e
+qualquer pedido de estado por nome revelaria o final de chaves existentes sem o dono tocar em nada. O
+final aparece só no cartão desenhado pelo app, fora do iframe. O app trata o pedido como entrada hostil: confere
+`ev.source`, o nome (`^[A-Z_][A-Z0-9_]{1,63}$` e a lista de nomes permitidos do cofre) e põe rótulo
+e ajuda como texto puro. Há uma caixa por visual, e ela só abre com o visual à vista. O agente recebe
+`[cofre] NOME guardada (final 1a2b).`, com a etiqueta "do cofre" na conversa. Exemplo completo em
+`docs/VISUAIS-EXEMPLOS/vis-exemplo-cofre.html`; o contrato do agente em `docs/COFRE-NA-CONVERSA.md`.
+
 ## O que a caixa bloqueia
 
 O visual roda num `<iframe sandbox="allow-scripts">` (origem opaca) e a rota

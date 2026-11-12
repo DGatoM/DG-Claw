@@ -89,6 +89,7 @@ test('trilha: tool_use Bash sem resultado não gera item, mas fica pendente (car
   ].join('\n') + '\n');
   assert.deepEqual(leitor.ler(arq, agente).eventos.map((e) => e.origin), ['dono']);
   assert.equal(leitor.pendente(arq, 'ana').titulo, 'Roda os testes');
+  assert.equal(leitor.pendente(arq, 'ana').id, 'tu1', 'o id do tool_use vai junto, para a tela mandá-lo na decisão');
   fs.appendFileSync(arq, resultado('2026-10-16T10:00:03.000Z', 'tu1', 'ok') + '\n');
   assert.deepEqual(leitor.ler(arq, agente).eventos.map((e) => e.origin), ['dono']);
   assert.equal(leitor.pendente(arq, 'ana'), null);
@@ -156,6 +157,31 @@ test('permissao: agente esperando => aprova e nega, repassando ao runner', async
     r = await pede(s, 'negar');
     assert.equal(r.status, 200);
     assert.deepEqual(s.runner.rec.permissoes, ['aprovar', 'negar']);
+  } finally { await s.fechar(); }
+});
+
+test('permissao: o id do pedido que a tela mostra é repassado ao runner; sem id segue como antes', async () => {
+  const s = await cenario({ status: 'waiting_input', motivo: 'permissao' });
+  try {
+    let r = await s.t.c.post('/api/v1/agents/ana/permissao', { json: { decisao: 'aprovar', tool_use_id: 'toolu_X' } });
+    assert.equal(r.status, 200, r.texto);
+    r = await pede(s, 'negar');
+    assert.equal(r.status, 200);
+    assert.deepEqual(s.runner.rec.permissaoIds, ['toolu_X', null]);
+    r = await s.t.c.post('/api/v1/agents/ana/permissao', { json: { decisao: 'aprovar', tool_use_id: 42 } });
+    assert.equal(r.status, 400);
+    assert.equal(s.runner.rec.permissoes.length, 2);
+  } finally { await s.fechar(); }
+});
+
+test('permissao: com pergunta de escolha aberta => 409 sem chamar o runner', async () => {
+  const s = await cenario({ status: 'waiting_input', motivo: 'pergunta' });
+  try {
+    const r = await pede(s, 'aprovar');
+    assert.equal(r.status, 409);
+    assert.match(r.json.erro, /pergunta de escolha, não uma permissão/);
+    assert.match(r.json.erro, /cartão da pergunta/);
+    assert.equal(s.runner.rec.permissoes.length, 0);
   } finally { await s.fechar(); }
 });
 
@@ -244,6 +270,7 @@ test('atividade: esperando permissão traz o comando pendente do transcript', as
     assert.equal(a.alerta, 'permissao');
     assert.equal(a.acao, 'esperando permissão');
     assert.equal(a.permissao.ferramenta, 'Bash');
+    assert.equal(a.permissao.id, 'tu1');
     assert.match(a.permissao.comando, /config\.json/);
     assert.equal(a.detalhe, 'Bash: Grava a config');
   } finally { await s.fechar(); }

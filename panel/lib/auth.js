@@ -376,6 +376,20 @@ function buildAuth(o) {
     return a === '::1' || a === '127.0.0.1' || a.startsWith('::ffff:127.');
   }
 
+  /** null se a Origin é a deste painel (ou não veio); senão { origem, meu } para o log.
+   *  Lê req.headers e não req.get: o upgrade de WebSocket chega cru, sem os métodos do Express. */
+  function origemDiferente(req) {
+    const origem = req.headers.origin;
+    if (!origem) return null;
+    let host = '';
+    try { host = new URL(origem).host.toLowerCase(); } catch { /* "null" ou lixo: cai na recusa abaixo */ }
+    // X-Forwarded-Host só vale vindo do proxy local; de fora, qualquer um o forjaria.
+    const encaminhado = deLoopback(req) ? String(req.headers['x-forwarded-host'] || '').split(',')[0].trim().toLowerCase() : '';
+    const meu = encaminhado || String(req.headers.host || '').toLowerCase();
+    if (host && (host === meu || extras.includes(host))) return null;
+    return { origem, meu };
+  }
+
   function csrf(req, res, next) {
     if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next();
     // Bearer não é mandado sozinho pelo navegador; o proxy já conferiu a Origin do dono.
@@ -388,14 +402,9 @@ function buildAuth(o) {
         howToFix: 'Abra o painel pelo endereço dele e refaça a ação por lá.',
       });
     }
-    const origem = req.get('origin');
-    if (!origem) return next();
-    let host = '';
-    try { host = new URL(origem).host.toLowerCase(); } catch { /* "null" ou lixo: cai na recusa abaixo */ }
-    // X-Forwarded-Host só vale vindo do proxy local; de fora, qualquer um o forjaria.
-    const encaminhado = deLoopback(req) ? String(req.get('x-forwarded-host') || '').split(',')[0].trim().toLowerCase() : '';
-    const meu = encaminhado || String(req.get('host') || '').toLowerCase();
-    if (host && (host === meu || extras.includes(host))) return next();
+    const dif = origemDiferente(req);
+    if (!dif) return next();
+    const { origem, meu } = dif;
     log(`[painel] CSRF: ${req.method} ${req.originalUrl} recusado, Origin ${origem} não é o endereço deste painel (${meu}).`);
     return res.status(403).json({
       error: 'Este pedido veio de outro site, e não da tela do painel. Recusei por segurança.',
@@ -404,10 +413,37 @@ function buildAuth(o) {
     });
   }
 
+  // ─── WebSocket (upgrade) ───────────────────────────────────────────────────
+  // A MESMA regra do requireAuth para quem entra pelo navegador (cookie de sessão) ou pelo
+  // proxy do dono (segredo), com duas diferenças de propósito: chave de API Bearer NÃO abre
+  // (a Tela dá controle de um navegador logado nos sistemas do dono) e o cookie exige
+  // Origin da mesma origem, porque WebSocket não tem CORS e o navegador manda o cookie
+  // sozinho para quem o pedir de qualquer site. Devolve { ok:true, via } ou
+  // { ok:false, status, motivo } com o motivo em português para escrever no socket.
+  function autenticarUpgrade(req) {
+    const doProxy = req.headers['x-dgclaw-proxy'];
+    if (segredoProxy && doProxy && iguais(doProxy, segredoProxy)) return { ok: true, via: 'proxy' };
+
+    const cookie = String(req.headers.cookie || '').split(';').map((p) => p.trim())
+      .find((p) => p.startsWith('dash_token='));
+    const token = cookie ? cookie.slice('dash_token='.length) : '';
+    if (!conferirToken(token)) {
+      return { ok: false, status: 401, motivo: 'Você precisa entrar no painel antes de abrir a tela. Recarregue a página e entre com a senha.' };
+    }
+    if (String(req.headers['sec-fetch-site'] || '').toLowerCase() === 'cross-site') {
+      return { ok: false, status: 403, motivo: 'Este pedido veio de outro site, e não da tela do painel. Recusei por segurança.' };
+    }
+    const dif = origemDiferente(req);
+    if (dif) {
+      return { ok: false, status: 403, motivo: `Este pedido veio de ${String(dif.origem).slice(0, 80)}, e não do endereço deste painel (${dif.meu}). Abra a tela pelo painel.`, origemErrada: dif };
+    }
+    return { ok: true, via: 'cookie' };
+  }
+
   return {
     trancado, motivo: config.motivo || null, modo: config.modo, usuarioObrigatorio: !!usuario,
     emitirToken, conferirToken, senhaConfere, minutosBloqueado,
-    login, cabecalhos, requireAuth, csrf,
+    login, cabecalhos, requireAuth, csrf, autenticarUpgrade, origemDiferente,
   };
 }
 

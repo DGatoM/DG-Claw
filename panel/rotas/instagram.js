@@ -4,6 +4,25 @@ const { readJSON, readJSONL, readJSONLLast, todayStr } = require('../lib/readers
 
 // Rotas do poder `instagram`: posts, comentários e seguidores.
 
+/**
+ * O `trust_level` vem do relationships.json, que fica na memória do agente e que ele mesmo
+ * escreve: não dá para confiar no tipo. A tela mostra de 0 a 100 (o modelo traz 95). Número
+ * finito (ou texto que é só um número) entra, arredondado e preso a essa faixa; qualquer
+ * outra coisa vira `null`, e a tela cai no valor padrão em vez de desenhar o texto.
+ */
+function normalizarTrustLevel(v) {
+  const n = typeof v === 'string' && v.trim() !== '' ? Number(v) : v;
+  if (typeof n !== 'number' || !Number.isFinite(n)) return null;
+  return Math.min(100, Math.max(0, Math.round(n)));
+}
+
+/** Cópia do bloco de relacionamento com o `trust_level` já normalizado (outros campos intactos). */
+function comTrustNormalizado(bloco) {
+  if (!bloco || typeof bloco !== 'object' || Array.isArray(bloco)) return bloco;
+  if (!('trust_level' in bloco)) return bloco;
+  return { ...bloco, trust_level: normalizarTrustLevel(bloco.trust_level) };
+}
+
 module.exports = function registrar(router, ctx) {
   const { CONFIG, P, TZ, requirePower } = ctx;
 
@@ -96,12 +115,12 @@ module.exports = function registrar(router, ctx) {
   router.get('/api/followers/top', requirePower('instagram'), (req, res) => {
     const raw = readJSON(P.RELATIONSHIPS_FILE);
     const rels = raw.relationships || raw;
-    const owner = rels[CONFIG.creatorKey] || null;
+    const owner = comTrustNormalizado(rels[CONFIG.creatorKey] || null);
     const topFollowers = rels.top_followers || {};
 
     const followersArray = Object.entries(topFollowers).map(([username, data]) => ({
       username,
-      ...data,
+      ...comTrustNormalizado(data),
     }));
 
     res.json({
@@ -131,3 +150,6 @@ module.exports = function registrar(router, ctx) {
     res.json({ total, tiers });
   });
 };
+
+module.exports.normalizarTrustLevel = normalizarTrustLevel;
+module.exports.comTrustNormalizado = comTrustNormalizado;

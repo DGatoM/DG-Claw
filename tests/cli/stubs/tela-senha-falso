@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Gravador de senha da Tela de mentira (no lugar de panel/bin/tela-senha.js). Recebe o caminho
+# em $1 e a senha pelo STDIN, como o de verdade. Confere o tamanho (6 a 8), grava um "rfbauth"
+# falso que NAO contem a senha e guarda o que recebeu em $STUB_ESTADO/tela-senhas-recebidas,
+# fora da raiz falsa, para o teste conferir sem a senha aparecer em nenhum arquivo da casa.
+set -euo pipefail
+senha="$(cat)"
+senha="${senha%$'\n'}"
+if [ "${#senha}" -lt 6 ] || [ "${#senha}" -gt 8 ]; then
+    echo "a senha da tela precisa ter de 6 a 8 caracteres (veio com ${#senha})" >&2
+    exit 1
+fi
+printf '%s\n' "$senha" >>"${STUB_ESTADO:?}/tela-senhas-recebidas"
+printf 'RFBAUTH-FALSO\n' >"$1"

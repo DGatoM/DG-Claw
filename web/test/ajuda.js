@@ -8,7 +8,19 @@ const os = require('node:os');
 const path = require('node:path');
 const { criarServidor } = require('../server');
 
-function pastaTemp(prefixo) { return fs.mkdtempSync(path.join(os.tmpdir(), `dgclaw-web-${prefixo || 't'}-`)); }
+function pastaTemp(prefixo) {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), `dgclaw-web-${prefixo || 't'}-`));
+  fs.chmodSync(d, 0o755); // o gravador de anexos roda com o uid do dono da casa e precisa atravessar a pasta
+  return d;
+}
+
+/** Como root, entrega a casa (e o que já tem dentro) ao uid 65534: o Web recusa casa de root. Fora do root não faz nada. */
+function entregaAoAgente(dir) {
+  if (typeof process.getuid !== 'function' || process.getuid() !== 0) return dir;
+  const vai = (p) => { fs.lchownSync(p, 65534, 65534); if (fs.lstatSync(p).isDirectory()) for (const f of fs.readdirSync(p)) vai(path.join(p, f)); };
+  vai(dir);
+  return dir;
+}
 
 /** Gera um hash no formato scrypt$N$r$p$sal$hash (N pequeno para o teste ser rápido). */
 function gerarHash(senha, N) {
@@ -95,4 +107,4 @@ async function subirWeb(opcoes) {
   };
 }
 
-module.exports = { pastaTemp, gerarHash, capturaLog, cliente, subirWeb };
+module.exports = { pastaTemp, entregaAoAgente, gerarHash, capturaLog, cliente, subirWeb };

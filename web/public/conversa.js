@@ -59,8 +59,28 @@ function mostraErroTela(titulo, texto, agentes) {
   if (barra) barra.hidden = true;
 }
 
+/* O histórico inicial sai junto com a lista de agentes (o slug já está na URL), em vez de esperar
+   por ela. carregar(true) consome a promessa; se ela falhou ou o agente não existe, carregar() pede de
+   novo pelo caminho normal, que mostra o erro de sempre (e leva ao login num 401). */
+let historicoAntecipado = null;
+const PAGINA_INICIAL = 60;   // o mesmo PAGINA de iniciaTela
+
+function antecipaHistorico(slug) {
+  historicoAntecipado = fetch('/api/v1/agents/' + encodeURIComponent(slug) + '/messages?limit=' + PAGINA_INICIAL, { cache: 'no-store' })
+    .then(async r => {
+      let corpo = null;
+      try { corpo = await r.json(); } catch (e) { corpo = null; }
+      if (!r.ok || !corpo || corpo.ok === false) throw new Error('a API respondeu ' + r.status);
+      return corpo;
+    });
+  // quem consome trata a falha; aqui só evita "unhandled rejection" se ninguém chegar a consumir
+  historicoAntecipado.catch(() => {});
+}
+
 async function boot() {
   let d = null;
+  const slugCedo = slugDaUrl();
+  if (slugCedo) antecipaHistorico(slugCedo);
   try {
     const r = await fetch('/api/v1/agents', { cache: 'no-store' });
     if (r.status === 401) {
@@ -194,6 +214,9 @@ const btnFim = $('btnFim'), fimNovas = $('fimNovas');
 const API = '/api/v1/agents/' + encodeURIComponent(AGENTE.id);
 const AQUI = location.pathname + location.search;
 const EH_ADMIN = AGENTE.tipo === 'admin';
+/* Colaborador: só este agente. Tira da tela o que é do dono (o servidor também barra; aqui é para não sobrar botão que não leva a lugar nenhum). */
+const COLAB = !!(window.DGPapel && window.DGPapel.colaborador);
+if (COLAB) for (const id of ['btnMesa', 'btnLembretes', 'btnNaoLida', 'trocaBaixo']) { const e = $(id); if (e) e.remove(); }
 /* A Mesa e os Lembretes levam o agente junto (?a=), para o menu deles ser o deste agente. */
 (function () {
   // localStorage para a casca das outras telas; o cookie é o que o servidor lê na rota "/" (abre o último agente usado)
@@ -203,9 +226,29 @@ const EH_ADMIN = AGENTE.tipo === 'admin';
     if (el) el.href = window.DGMenuLado.comAgente(href, AGENTE.id);
   });
 })();
-if (window.campoCofre) window.campoCofre.configurar({ agente: AGENTE.id, enviar: texto => new Promise((resolve, reject) => { enviarTexto(texto, null, { aoEntregar: (ok, motivo) => ok ? resolve() : reject(new Error(motivo || 'O agente não recebeu a mensagem.')) }); }) });
+if (window.campoCofre) window.campoCofre.configurar({ agente: AGENTE.id, nome: AGENTE.nome });
+
+/* Anonimizar documentos (docs/ANONIMIZAR.md). Com a opção ligada para este agente: o selo no cabeçalho leva à tela,
+   o anexo que o agente manda ganha "Baixar versão final" e a resposta com marcadores ganha "Ver com dados reais".
+   anonVistos guarda, por mensagem, o texto já revertido: só existe na memória desta aba. */
+let anonLigado = false;
+const anonVistos = new Map();
+const API_ANON = '/api/v1/anonimizar/' + encodeURIComponent(AGENTE.id);
+(function () {
+  const selo = $('btnAnon');
+  if (selo) selo.href = window.DGMenuLado.comAgente('/anonimizar', AGENTE.id);
+  fetch(API_ANON + '/config', { credentials: 'same-origin', cache: 'no-store' })
+    .then(r => r.json().catch(() => null).then(d => ({ r, d })))
+    .then(({ r, d }) => {
+      if (!r.ok || !d || !d.config) { console.warn('anonimizar: não consegui ler a configuração (' + ((d && d.erro) || r.status) + '); os botões de dados reais ficam escondidos.'); return; }
+      anonLigado = !!d.config.ligado;
+      if (selo) selo.hidden = !anonLigado;
+      if (anonLigado) render({ semRolar: true });
+    })
+    .catch(e => console.warn('anonimizar: não consegui ler a configuração (' + e.message + ').'));
+})();
 if (window.DGOnboarding) window.DGOnboarding.iniciar({ agente: AGENTE, enviar: texto => new Promise((resolve, reject) => { enviarTexto(texto, null, { aoEntregar: (ok, motivo) => ok ? resolve() : reject(new Error(motivo || 'O Admin não recebeu a mensagem.')) }); }), refazer: () => render({ semRolar: true }) });
-if (window.DGBarra) window.DGBarra.liga(entrada, { url: API + '/comandos' });   // lista de comandos ao digitar /
+if (window.DGBarra && !COLAB) window.DGBarra.liga(entrada, { url: API + '/comandos' });   // lista de comandos ao digitar /
 let novasAbaixo = 0, setaVisivel = false;   // a seta pro fim e o contador dela
 /* mp3 de 0,08s em silêncio: é o que destrava o áudio no iOS dentro do gesto. */
 const SILENCIO = 'data:audio/mpeg;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjYwLjE2LjEwMAAAAAAAAAAAAAAA//NwwAAAAAAAAAAAAEluZm8AAAAPAAAABgAAAVMAnZ2dnZ2dnZ2dnZ2dnZ2dnbGxsbGxsbGxsbGxsbGxsbGxxcXFxcXFxcXFxcXFxcXFxdjY2NjY2NjY2NjY2NjY2NjY7Ozs7Ozs7Ozs7Ozs7Ozs7Oz/////////////////////AAAAAExhdmM2MC4zMQAAAAAAAAAAAAAAACQEUQAAAAAAAAFTx3TIuwAAAAAAAAAAAAAAAAD/8xDEAAAAA0gAAAAATEFNRTMuMTAwVVVVVf/zEsQNAAADSAAAAABVVVVVVVVVVVVVVVVVVf/zEMQbAAADSAAAAABVVVVVVVVVVVVVVVVV//MQxCgAAANIAAAAAFVVVVVVVVVVVVVVVVX/8xDENQAAA0gAAAAAVVVVVVVVVVVVVVVVVf/zEMRCAAADSAAAAABVVVVVVVVVVVVVVVVV';
@@ -307,6 +350,9 @@ function atvFrase(est) {
     return { nome: nome + ' esperando a sua permissão', acao: est.detalhe ? est.detalhe.split('\n')[0].slice(0, 80) : '',
              classe: 'atv-alerta', titulo: est.detalhe || '' };
   }
+  if (est.alerta === 'pergunta') {
+    return { nome: nome + ' fez uma pergunta para você', acao: '', classe: 'atv-alerta', titulo: 'O agente abriu uma pergunta de escolha e está parado até ela ser respondida' };
+  }
   if (est.alerta === 'ferramenta_longa') {
     return { nome: nome, acao: (est.detalhe || est.acao) + ' rodando' + (d ? ' há ' + d : ''), classe: 'atv-alerta',
              titulo: est.detalhe || '' };
@@ -370,6 +416,7 @@ function integraAtividade(d) {
   lcSincroniza();
   leSincroniza();
   pcSincroniza();
+  pqSincroniza();
   filaSincroniza();
 }
 if (atividadeEl) {
@@ -639,7 +686,14 @@ async function lcCopia(texto) {
 }
 
 /* Abre o cartão. `manual`: veio do /login (fica mesmo com a conta conectada). */
+let lcAvisouColab = false;
 function lcAbre(manual, semConferir) {
+  // Colaborador conecta a conta pela página Conectar conta (que confere no servidor se o agente está sem conta).
+  // Aqui só avisa, uma vez, em vez de abrir o cartão do dono.
+  if (window.DGPapel && window.DGPapel.colaborador) {
+    if (!lcAvisouColab) { lcAvisouColab = true; mostraAviso('O agente ainda não tem uma conta de IA conectada. Você pode conectar a sua em Conectar conta, no menu. Se o login expirou e a conta não é sua, avise o dono do DG Claw.'); }
+    return;
+  }
   if (lc.aberto) { if (manual) { lc.manual = true; lc.dispensado = false; } lcDesenha(); return; }
   Object.assign(lc, { aberto: true, manual: !!manual, iniciado: false, erro: '', codigo: '', carregando: !semConferir,
                       dados: { estado: 'nenhum', provedor: AGENTE.provedor, precisa_login: !manual } });
@@ -717,10 +771,17 @@ function leDesenha() {
   sec.hidden = !(f === 'aviso' || f === 'nao_voltou');
   nao.hidden = f === 'pronto';
   nao.textContent = f === 'aviso' || f === 'cartao' ? t.agoraNao : 'Fechar';
+  $('leConectar').hidden = f === 'pronto';
 }
 
+/* O modal "Faça o login nos seus agentes" (modal-login.js) substitui este pop-up: se ele está aberto, ou se já
+   abriu nesta carga da página, o pop-up não abre (nada de dois avisos sobre a mesma coisa). */
+function leModalLoginAtivo() {
+  const m = window.DGModalLogin;
+  return !!m && (m.aberto() || m.abriuNestaCarga());
+}
 function leAbre() {
-  if (!LE || !leDlg || le.aberto) return;
+  if (!LE || !leDlg || le.aberto || leModalLoginAtivo()) return;
   le.est = leEstAtual();
   Object.assign(le, { aberto: true, fase: 'aviso', erro: '', concluiu: false });
   leDesenha();
@@ -831,8 +892,12 @@ function leAbreAoRecusar() {
   const est = leEstAtual();
   if (le.aberto) return;
   if (est && LE.expirado(est)) { lc.expirado = true; }
+  if (leModalLoginAtivo()) { mostraErro('O login da conta expirou. Reconecte pelo cartão de login no fim da conversa ou pela página Conectar conta, no menu.'); return; }
   leAbre();
 }
+
+// o modal de login abriu depois do pop-up: ele toma o lugar do pop-up, que fecha sem dispensar nada
+document.addEventListener('dgmodallogin:abriu', () => leFecha(false));
 
 if (leDlg && LE) {
   $('lePrimario').onclick = () => { leReconectar(); };
@@ -850,7 +915,7 @@ if (leDlg && LE) {
    ainda espera. O cartão some sozinho quando o estado sai de waiting_input. */
 const TR = window.DGTrilha;
 const pcEl = $('permCartao');
-const pc = { aberto: false, ocupado: false, decidido: '', erro: '', chave: '' };
+const pc = { aberto: false, ocupado: false, decidido: '', erro: '', chave: '', id: '' };
 
 function pcSincroniza() {
   if (!pcEl || !TR) return;
@@ -870,6 +935,8 @@ function pcSincroniza() {
 }
 
 function pcDesenha(pedido, abrindo) {
+  // O id do tool_use que a tela mostra vai junto da decisão: o runner recusa se o pedido de agora for outro.
+  pc.id = (pedido && typeof pedido.id === 'string') ? pedido.id : '';
   const filho = (tag, classe, texto) => {
     const e = document.createElement(tag);
     if (classe) e.className = classe;
@@ -907,13 +974,184 @@ async function pcDecide(decisao) {
   pc.ocupado = true; pc.erro = '';
   pcSincroniza();
   try {
-    await api(API + '/permissao', { method: 'POST', body: { decisao }, timeoutMs: 20000 });
+    await api(API + '/permissao', { method: 'POST', body: pc.id ? { decisao, tool_use_id: pc.id } : { decisao }, timeoutMs: 20000 });
     pc.decidido = decisao;
   } catch (e) {
     pc.erro = 'Não consegui enviar a decisão: ' + e.message;
   } finally {
     pc.ocupado = false;
     pcSincroniza();
+  }
+}
+
+/* ── Cartão "O agente fez uma pergunta de escolha" ───────────────────────
+   Aparece quando a foto de atividade traz alerta 'pergunta' (o agente chamou AskUserQuestion e a tela dele espera
+   a resposta). Com `pergunta` na foto desenha as escolhas (única: botões de rádio + "Outra resposta"; múltipla:
+   caixinhas) e manda POST /pergunta com o tool_use_id; o servidor digita as teclas no terminal. Sem `pergunta`
+   (formato que o servidor não conseguiu ler) o cartão só manda a pessoa para o terminal na aba Sessões.
+   As escolhas ficam em `pq` e os eventos mexem no DOM direto: a foto chega a cada poucos segundos e redesenhar
+   apagaria o que a pessoa está digitando. */
+const pqEl = $('perguntaCartao');
+const pq = { aberto: false, ocupado: false, feito: '', erro: '', noTerminal: false, id: '', chave: '', sel: [], texto: [], btnEnvia: null };
+
+function pqReinicia() {
+  Object.assign(pq, { aberto: false, ocupado: false, feito: '', erro: '', id: '', chave: '', sel: [], texto: [], btnEnvia: null });
+  if (pqEl) { pqEl.hidden = true; pqEl.textContent = ''; }
+}
+
+function pqSincroniza() {
+  if (!pqEl) return;
+  const est = window.atividadeFoto && window.atividadeFoto.agentes ? window.atividadeFoto.agentes[AGENTE.id] : null;
+  const pede = !!est && est.alerta === 'pergunta' && streamAberto;
+  if (!pede) { if (pq.aberto) pqReinicia(); return; }
+  const perg = est.pergunta || null;
+  const id = perg ? perg.id : '';
+  if (pq.aberto && pq.id !== id) pqReinicia();   // outra pergunta no lugar da anterior: começa limpo
+  const chave = JSON.stringify([est.desde, id, pq.ocupado, pq.feito, pq.erro, pq.noTerminal]);
+  if (pq.aberto && chave === pq.chave) return;
+  const novo = !pq.aberto;
+  if (novo) {
+    pq.id = id; pq.feito = ''; pq.erro = ''; pq.noTerminal = false;
+    pq.sel = perg ? perg.perguntas.map(q => (q.multipla ? [] : null)) : [];
+    pq.texto = perg ? perg.perguntas.map(() => '') : [];
+  }
+  pq.aberto = true;
+  pq.chave = chave;
+  pqDesenha(perg, novo);
+}
+
+/* Cada pergunta tem uma resposta quando: múltipla com pelo menos uma caixinha; única com opção ou texto. */
+function pqCompleto(perg) {
+  return perg.perguntas.every((q, i) => (q.multipla ? pq.sel[i].length > 0 : (pq.sel[i] != null || pq.texto[i].trim() !== '')));
+}
+
+function pqDesenha(perg, abrindo) {
+  const filho = (tag, classe, texto) => {
+    const e = document.createElement(tag);
+    if (classe) e.className = classe;
+    if (texto != null) e.textContent = texto;
+    return e;
+  };
+  const travado = pq.ocupado || !!pq.feito;
+  pqEl.textContent = '';
+  pqEl.appendChild(filho('strong', 'pc-titulo', AGENTE.nome + ' fez uma pergunta para você'));
+  if (!perg) {
+    pqEl.appendChild(filho('p', 'pc-texto', 'Não consegui ler a pergunta para mostrar as escolhas aqui. Responda pelo terminal do agente, na aba Sessões.'));
+    const sess = $('btnSessoes');
+    if (sess && !sess.hidden && sess.getAttribute('href') && sess.getAttribute('href') !== '#') {
+      const a = filho('a', 'pc-btn pc-nega pq-link', 'Abrir a aba Sessões');
+      a.href = sess.getAttribute('href');
+      pqEl.appendChild(a);
+    }
+    pqEl.hidden = false;
+    pqEl.classList.toggle('entra', !!abrindo);
+    return;
+  }
+  pqEl.appendChild(filho('p', 'pc-texto', 'Ele parou até você responder. Mensagens enviadas pelo chat ficam bloqueadas enquanto isso.'));
+  const atualizaEnvio = () => { if (pq.btnEnvia) pq.btnEnvia.disabled = travado || !pqCompleto(perg); };
+  perg.perguntas.forEach((q, i) => {
+    const caixa = filho('fieldset', 'pq-bloco');
+    caixa.disabled = travado;
+    const leg = filho('legend', 'pq-pergunta');
+    if (q.cabecalho) leg.appendChild(filho('span', 'pq-cabecalho', q.cabecalho));
+    leg.appendChild(document.createTextNode(q.pergunta));
+    caixa.appendChild(leg);
+    const campoTexto = q.multipla ? null : filho('input', 'pq-texto');
+    q.opcoes.forEach((o, k) => {
+      const num = k + 1;
+      const rot = filho('label', 'pq-opcao');
+      const inp = document.createElement('input');
+      inp.type = q.multipla ? 'checkbox' : 'radio';
+      inp.name = 'pq-' + i;
+      inp.checked = q.multipla ? pq.sel[i].includes(num) : pq.sel[i] === num;
+      inp.addEventListener('change', () => {
+        if (q.multipla) {
+          pq.sel[i] = inp.checked ? pq.sel[i].concat(num).sort((a, b) => a - b) : pq.sel[i].filter(x => x !== num);
+        } else {
+          pq.sel[i] = num; pq.texto[i] = ''; campoTexto.value = '';
+        }
+        atualizaEnvio();
+      });
+      rot.appendChild(inp);
+      const txt = filho('span', 'pq-rotulo');
+      txt.appendChild(filho('span', 'pq-nome', o.rotulo));
+      if (o.descricao) txt.appendChild(filho('span', 'pq-desc', o.descricao));
+      rot.appendChild(txt);
+      caixa.appendChild(rot);
+    });
+    if (campoTexto) {
+      campoTexto.type = 'text';
+      campoTexto.maxLength = 2000;
+      campoTexto.placeholder = 'Outra resposta (escreva em uma linha)';
+      campoTexto.setAttribute('aria-label', 'Outra resposta para a pergunta ' + (i + 1));
+      campoTexto.value = pq.texto[i];
+      campoTexto.addEventListener('input', () => {
+        pq.texto[i] = campoTexto.value;
+        if (campoTexto.value.trim()) {
+          pq.sel[i] = null;
+          for (const r of caixa.querySelectorAll('input[type=radio]')) r.checked = false;
+        }
+        atualizaEnvio();
+      });
+      caixa.appendChild(campoTexto);
+    }
+    pqEl.appendChild(caixa);
+  });
+  if (pq.erro) pqEl.appendChild(filho('p', 'pc-erro', pq.erro));
+  if (pq.noTerminal) {
+    const sess = $('btnSessoes');
+    if (sess && !sess.hidden && sess.getAttribute('href') && sess.getAttribute('href') !== '#') {
+      const a = filho('a', 'pc-btn pc-nega pq-link', 'Abrir a aba Sessões');
+      a.href = sess.getAttribute('href');
+      pqEl.appendChild(a);
+    }
+  }
+  const linha = filho('div', 'pc-botoes');
+  const envia = filho('button', 'pc-btn pc-aprova', 'Enviar resposta');
+  envia.type = 'button';
+  envia.addEventListener('click', () => pqEnvia(perg, false));
+  const cancela = filho('button', 'pc-btn pc-nega', 'Cancelar pergunta');
+  cancela.type = 'button';
+  cancela.disabled = travado;
+  cancela.addEventListener('click', () => pqEnvia(perg, true));
+  pq.btnEnvia = envia;
+  linha.appendChild(envia);
+  linha.appendChild(cancela);
+  pqEl.appendChild(linha);
+  atualizaEnvio();
+  const msg = pq.feito === 'cancelada' ? 'Pergunta cancelada. Aguardando o agente continuar…'
+    : pq.feito ? 'Resposta enviada. Aguardando o agente continuar…'
+    : (pq.ocupado ? 'Enviando a sua resposta (leva alguns segundos)…' : '');
+  const vivo = filho('p', 'pc-status', msg);
+  vivo.setAttribute('role', 'status');
+  pqEl.appendChild(vivo);
+  pqEl.hidden = false;
+  pqEl.classList.toggle('entra', !!abrindo);
+}
+
+async function pqEnvia(perg, cancelar) {
+  if (pq.ocupado || pq.feito) return;
+  if (!cancelar && !pqCompleto(perg)) return;
+  const body = cancelar ? { tool_use_id: pq.id, cancelar: true } : {
+    tool_use_id: pq.id,
+    respostas: perg.perguntas.map((q, i) => (q.multipla ? { opcoes: pq.sel[i] }
+      : pq.sel[i] != null ? { opcao: pq.sel[i] } : { texto: pq.texto[i].trim() })),
+  };
+  pq.ocupado = true; pq.erro = ''; pq.noTerminal = false;
+  pqSincroniza();
+  try {
+    // o servidor espera ~350 ms entre as teclas; várias perguntas somam alguns segundos
+    await api(API + '/pergunta', { method: 'POST', body, timeoutMs: 45000 });
+    pq.feito = cancelar ? 'cancelada' : 'respondida';
+  } catch (e) {
+    pq.erro = 'Não consegui ' + (cancelar ? 'cancelar' : 'enviar') + ' a resposta: ' + e.message;
+    // Terminal já mexeu na pergunta: o chat não pode mais responder, só o terminal.
+    pq.noTerminal = e.codigo === 'PERGUNTA_JA_MEXIDA';
+    if (pq.noTerminal && e.dados && e.dados.howToFix) pq.erro += ' ' + e.dados.howToFix;
+  } finally {
+    pq.ocupado = false;
+    pq.chave = '';   // força o redesenho com o resultado
+    pqSincroniza();
   }
 }
 
@@ -932,12 +1170,13 @@ function filaSincroniza() {
 
 /* O estado de descanso da tela depende do stream: sem ele as mensagens novas
    não chegam sozinhas, e a pessoa precisa ler isso (sem animação nenhuma). */
-const ESTADOS_CONEXAO = ['pronto', 'conectando…', 'reconectando…', 'conferindo agente…', 'agente sem sinal', 'esperando a sua permissão'];
+const ESTADOS_CONEXAO = ['pronto', 'conectando…', 'reconectando…', 'conferindo agente…', 'agente sem sinal', 'esperando a sua permissão', 'esperando a sua resposta'];
 function estadoOcioso() {
   if (!streamAberto) return setEstado(jaConectou ? 'reconectando…' : 'conectando…');
   const est = window.atividadeFoto?.agentes?.[AGENTE.id];
   if (!est) return setEstado('conferindo agente…');
   if (est.alerta === 'permissao') return setEstado('esperando a sua permissão');
+  if (est.alerta === 'pergunta') return setEstado('esperando a sua resposta');
   setEstado(est.estado === 'sem_sinal' ? 'agente sem sinal' : 'pronto', est.estado === 'sem_sinal');
 }
 
@@ -1101,6 +1340,13 @@ function paragrafos(txt, fmt) {
             `${ICONE_COPIAR}</button><pre>${esc(cod)}</pre></div>`;
   }
   return html;
+}
+
+/* Texto com os dados reais: só escapado, em parágrafos. Sem linkify e sem markdown, para um dado real que pareça URL
+   (ou traga ](...)) não virar link nem imagem. */
+function textoPuroEmParagrafos(txt) {
+  return String(txt).split(/\n{2,}/).filter(p => p.trim())
+    .map(p => `<div class="p">${esc(p.trim()).replace(/\n/g, '<br>')}</div>`).join('');
 }
 
 const ROTULO_MIDIA = { photo: '📷 foto', video: '🎬 vídeo',
@@ -1340,6 +1586,14 @@ function separaDoVisual(txt) {
   return r ? { titulo: r[1].trim(), texto: r[2] } : null;
 }
 
+/* Aviso do cofre ("[cofre] NOME guardada (final 1a2b)."): a mensagem que o campo de senha manda ao
+   agente depois de guardar. Na tela vira a etiqueta "do cofre" e o texto sem o prefixo; nunca
+   leva o valor da chave, só o nome e o final. */
+function separaDoCofre(txt) {
+  const r = /^\[cofre\] ([\s\S]*)$/.exec(String(txt || ''));
+  return r ? { texto: r[1] } : null;
+}
+
 function htmlCorpo(m) {
   let midia = '';
   if (m.local && m.local.anexos) {
@@ -1367,14 +1621,36 @@ function htmlCorpo(m) {
     leg = dv.texto;
     doVisual = `<div class="dovisual">📊 do visual${dv.titulo ? ': ' + esc(dv.titulo) : ''}</div>`;
   }
+  const dc = !dv && ehDono(m) ? separaDoCofre(leg) : null;
+  if (dc) {
+    leg = dc.texto;
+    doVisual = `<div class="dovisual">🔑 do cofre</div>`;
+  }
   // [ver a criação] só vira botão em mensagem de quem não é o dono (o texto já sai escapado de paragrafos)
   let htmlLeg = leg ? paragrafos(leg, m.fmt) : '';
   if (htmlLeg && !ehDono(m) && window.DGOnboarding && window.DGOnboarding.marcadorParaBotao) htmlLeg = window.DGOnboarding.marcadorParaBotao(htmlLeg);
-  const corpo = leg ? doVisual + htmlLeg : doVisual;
+  // Anonimizar: texto revertido (só na memória desta aba) e os botões de dados reais, só para o dono e só nas mensagens do agente
+  let anonBotoes = '';
+  if (anonLigado && ehAgente(m) && !m.pendente) {
+    if (m.id && leg && /\[[A-Z]+_\d+\]/.test(leg)) {
+      const ver = anonVistos.has(String(m.id));
+      if (ver) htmlLeg = textoPuroEmParagrafos(anonVistos.get(String(m.id)));
+      anonBotoes += `<button type="button" class="anon-btn" data-anon-ver="${esc(m.id)}" aria-pressed="${ver}">` +
+        `${ver ? 'Esconder os dados reais' : 'Ver com dados reais'}</button>`;
+    }
+    if (m.media && m.media.disponivel && m.media.kind === 'document') {
+      anonBotoes += `<button type="button" class="anon-btn" data-anon-final="${esc(m.media.id)}" ` +
+        `title="Baixa o arquivo com os dados reais no lugar dos marcadores">Baixar versão final</button>`;
+    }
+  }
+  const corpo = (leg ? doVisual + htmlLeg : doVisual) + (anonBotoes ? `<div class="anon-linha">${anonBotoes}</div>` : '');
   const reac = (m.reacoes && m.reacoes.length)
     ? `<span class="reac">${m.reacoes.map(esc).join(' ')}</span>` : '';
+  // fone: ouvir esta fala de novo (só aparece com o modo de ouvir ligado, pelo CSS)
+  const fone = ehAgente(m) && !m.pendente && m.id && leg && !ehVisual(m.media)
+    ? `<button class="fone" type="button" data-fone="${esc(m.id)}" aria-label="Ouvir de novo" title="Ouvir de novo">🎧</button> ` : '';
   let meta = m.pendente ? metaPendente(m.local)
-    : `<span class="meta">${m.editada ? 'editada · ' : ''}${esc(m.hhmm)}</span>`;
+    : `<span class="meta">${fone}${m.editada ? 'editada · ' : ''}${esc(m.hhmm)}</span>`;
   if (viaAudio) meta = meta.replace(/^<span class="meta"[^>]*>/, '$&<span title="Falado e transcrito automaticamente">🎤</span> · ');
   return htmlSelo(m) + cita + midia + corpo + reac + meta;
 }
@@ -1457,6 +1733,29 @@ function horaLocal(m) {
   m.dia = f.dia; m.hhmm = f.hhmm;
 }
 
+/* Grudado no fundo. Ao abrir a conversa, a tela ia pro fim e logo depois os
+   visuais (iframes) terminavam de carregar e cresciam: o fim se afastava e a tela
+   ficava parada no visual, com mensagens abaixo. Enquanto a pessoa está no fim,
+   qualquer crescimento do #wrap (visual, imagem, fonte) leva a tela junto. Só sai
+   do fim quando ela mesma rola pra cima; volta a grudar ao chegar de novo no fundo. */
+let grudadoNoFim = true;
+let ultimoTopoChat = 0;
+chat.addEventListener('scroll', () => {
+  if (!chat.clientHeight) { ultimoTopoChat = chat.scrollTop; return; }   // tela escondida
+  const dist = chat.scrollHeight - chat.scrollTop - chat.clientHeight;
+  if (dist < 8) grudadoNoFim = true;
+  else if (chat.scrollTop < ultimoTopoChat - 2) grudadoNoFim = false;     // subiu: quer ler o de cima
+  ultimoTopoChat = chat.scrollTop;
+}, { passive: true });
+if (typeof ResizeObserver !== 'undefined') {
+  new ResizeObserver(() => {
+    if (!grudadoNoFim || !chat.clientHeight) return;
+    if (chat.scrollHeight - chat.scrollTop - chat.clientHeight > 1) {
+      chat.scrollTop = chat.scrollHeight; ultimoTopoChat = chat.scrollTop;
+    }
+  }).observe(wrap);
+}
+
 function render(opt) {
   opt = opt || {};
   for (const m of msgs) horaLocal(m);
@@ -1525,7 +1824,7 @@ function render(opt) {
   // mesma lista de nós na mesma ordem: não encosta no DOM
   const atuais = wrap.children;
   const igual = atuais.length === nos.length && nos.every((el, i) => atuais[i] === el);
-  if (igual) return;
+  if (igual) { pintaFilaLeitura(); return; }
   // Mensagens antigas entrando no topo, mensagem nova no fim, balão refeito: a posição
   // fica por conta do observador de rolagem (no fim acompanha, lendo mais acima não mexe).
   aplicaNos(nos);
@@ -1533,6 +1832,7 @@ function render(opt) {
   respiroDasFaixas();
   guardaCache();
   atualizaSeta();
+  pintaFilaLeitura();   // os balões foram refeitos: o selo da fila volta
 }
 
 /* Põe a lista de nós no #wrap mexendo só no que mudou. O replaceChildren
@@ -1756,8 +2056,92 @@ function fechaBarra(lim) {
   b.el.remove();
   lim.barra = null;
 }
+/* ── Caixa de cofre da peça .dv-cofre (campo-cofre.js) ──────────────────
+   O iframe só PEDE (postMessage 'cofre'). O cartão com o campo de senha é do app, desenhado abaixo do
+   visual (ou na tela cheia) fora do iframe: o valor nunca passa por ele. Uma caixa por visual. */
+const visCofres = new Map();        // id da mídia -> { est, el, relogio }
+const VIS_COFRE_FECHA_MS = 4000;
+
+function alvoDoVisual(est) {
+  return est.win && visuais.get(est.win) === est ? est
+    : Array.from(visEstados).find(e => e.md.id === est.md.id && e.win);
+}
+function recusaCofre(est, id, motivo, msg) {
+  enviaAoVisual(est, { tipo: 'cofre-erro', id, motivo, msg });
+}
+function fechaCofre(mediaId) {
+  const c = visCofres.get(mediaId);
+  if (!c) return;
+  clearTimeout(c.relogio);
+  c.el.remove();
+  visCofres.delete(mediaId);
+}
+function fechaCofreDe(est) {
+  const c = est.md && visCofres.get(est.md.id);
+  if (c && c.est === est) fechaCofre(est.md.id);
+}
+
+function tratarCofre(est, d, id) {
+  const v = window.campoCofre ? window.campoCofre.validaPedido(d) : null;
+  if (!v) return recusaCofre(est, id, 'indisponivel', 'A caixa de cofre não carregou. Recarregue a conversa.');
+  if (v.erro) return recusaCofre(est, id, v.erro.motivo, v.erro.msg);
+  if (document.visibilityState !== 'visible' || (!est.cheia && !est.noViewport)) {
+    return recusaCofre(est, id, 'fora', 'O visual não está à vista agora.');
+  }
+  if (visCofres.has(est.md.id)) return recusaCofre(est, id, 'ocupado', 'Já tem uma caixa de cofre aberta neste visual.');
+  const { nome, rotulo, ajuda } = v.ok;
+  const el = document.createElement('div');
+  el.className = 'viscofre' + (est.cheia ? ' viscofre-cheia' : '');
+  const reg = { est, el, relogio: 0 };
+  visCofres.set(est.md.id, reg);
+  if (est.cheia) visTelaEl.appendChild(el); else est.caixa.after(el);
+  window.campoCofre.montar(el, {
+    envName: nome, rotulo, ajuda,
+    aoGuardar: ({ final }) => {
+      const alvo = alvoDoVisual(est);
+      if (alvo) enviaAoVisual(alvo, { tipo: 'cofre-ok', id, nome });  // sem o final: o visual não é confiável
+      reg.relogio = setTimeout(() => fechaCofre(est.md.id), VIS_COFRE_FECHA_MS);
+    },
+    aoErro: ({ motivo, msg }) => { const alvo = alvoDoVisual(est); if (alvo) recusaCofre(alvo, id, motivo, msg); },
+    aoCancelar: () => {
+      fechaCofre(est.md.id);
+      const alvo = alvoDoVisual(est);
+      if (alvo) recusaCofre(alvo, id, 'cancelado', 'Você cancelou.');
+    },
+  });
+  if (!est.cheia) {
+    // rola só o #chat (scrollIntoView poderia mexer na página inteira no iPhone)
+    const r = el.getBoundingClientRect(), c = chat.getBoundingClientRect();
+    if (r.bottom > c.bottom - 8) { chat.scrollTop += r.bottom - c.bottom + 8; rolagem.captura(); }
+  }
+  enviaAoVisual(est, { tipo: 'cofre-espera', id });
+}
+
+/* O visual pergunta, ao carregar, quais nomes já estão guardados. Resposta: só {guardada: bool} por nome,
+   nunca o final da chave (o visual é código não confiável). Só responde com o visual à vista, no máximo
+   1 vez a cada 3 s e até 20 nomes por pedido; o excesso é ignorado, com um único aviso por visual. */
+const visCofreEstado = new Map();   // id da mídia -> { ultimo, avisou }
+function tratarCofreEstado(est, d) {
+  if (!window.campoCofre) return;
+  if (document.visibilityState !== 'visible' || (!est.cheia && !est.noViewport)) return;
+  const bruto = Array.isArray(d.nomes) ? d.nomes.filter(n => typeof n === 'string') : [];
+  let reg = visCofreEstado.get(est.md.id);
+  if (!reg) { reg = { ultimo: 0, avisou: false }; visCofreEstado.set(est.md.id, reg); }
+  const f = window.campoCofre.freioEstado(reg, Date.now(), bruto.length);
+  if (!f.ok) {
+    if (f.avisar) console.warn('visual ' + est.md.id + ' (' + est.md.nome + '): pedidos de estado do cofre demais ou rápidos demais; ignorando o excesso (máximo 1 a cada 3 s e 20 nomes).');
+    return;
+  }
+  const v = bruto.filter(n => window.campoCofre.validaPedido({ nome: n }).ok);
+  if (!v.length) return;
+  window.campoCofre.estados(v).then(
+    estados => enviaAoVisual(est, { tipo: 'cofre-estado', estados }),
+    e => console.warn('visual ' + est.md.id + ': não consegui consultar o cofre para o visual:', e && e.message));
+}
+
 /* Balão desmontado ou tela cheia fechada: a barrinha some sem mandar nada. */
 function fechaBarraDe(est) {
+  fechaCofreDe(est);
   const lim = est.md && visLimites.get(est.md.id);
   if (lim && lim.barra && lim.barra.est === est) fechaBarra(lim);
 }
@@ -1890,6 +2274,12 @@ window.addEventListener('message', ev => {
     const id = Number(d.id);
     if (!isFinite(id) || id < 0 || Math.floor(id) !== id) return;
     tratarPergunta(est, d, id);
+  } else if (d.tipo === 'cofre') {
+    const id = Number(d.id);
+    if (!isFinite(id) || id < 0 || Math.floor(id) !== id) return;
+    tratarCofre(est, d, id);
+  } else if (d.tipo === 'cofre-estado?') {
+    tratarCofreEstado(est, d);
   } else if (d.tipo === 'erro') {
     est.caixa.classList.add('on');
     const msg = typeof d.msg === 'string' ? d.msg.slice(0, 400) : 'erro sem mensagem';
@@ -2082,7 +2472,15 @@ const menorEp = () => msgs.reduce((m, x) => Math.min(m, x.ep), Infinity);
 async function carregar(primeiraVez) {
   let ok = false;
   try {
-    const d = await api(API + '/messages?limit=' + PAGINA);
+    let d = null;
+    if (primeiraVez && historicoAntecipado) {
+      const promessa = historicoAntecipado;
+      historicoAntecipado = null;
+      try { d = await promessa; } catch (e) {
+        console.warn('histórico antecipado falhou (' + e.message + '); peço de novo pelo caminho normal');
+      }
+    }
+    if (!d) d = await api(API + '/messages?limit=' + PAGINA);
     const novas = d.msgs || [];
     if (primeiraVez || !msgs.length) {
       geracaoJanela++;
@@ -2680,6 +3078,13 @@ function prontoAnexo(a, d) {
   a.pct = null;
   a.id = d.anexo.id;
   a.path = d.anexo.path;
+  if (d.anonimizado) {
+    const n = d.anonimizado.contagem || 0;
+    a.anonTexto = d.anonimizado.id ? 'Anonimizado: ' + n + (n === 1 ? ' dado trocado' : ' dados trocados') : 'Enviado SEM anonimizar';
+    const tam = a.el && a.el.querySelector('.anxtam');
+    if (tam) { tam.textContent = a.anonTexto; tam.classList.add('anon'); }
+    if (Array.isArray(d.anonimizado.avisos) && d.anonimizado.avisos.length) mostraAviso(d.anonimizado.avisos.join(' '));
+  }
   atualizaCartao(a);
   pintaInfoAnexos();
   tocaSubidas();
@@ -3014,36 +3419,52 @@ document.addEventListener('keydown', ev => {
 
 /* Foto, seletor de agentes, páginas do painel e Configurações: tudo no menu-lado.js.
    A lista já veio do boot, então não é buscada de novo. */
-window.DGMenuLado.inicia({ agente: AGENTE, agentes: agentesMenu, fecha: () => abreMenu(false) });
+window.DGMenuLado.inicia({ agente: AGENTE, agentes: agentesMenu, fecha: () => abreMenu(false), marcarNaoLida: (slug, ligar) => marcaNaoLida(slug, ligar) });
 
 /* ── Bolinha de não lidas ────────────────────────────────────────────────────
    Quem guarda o "visto" é o servidor (por usuário e por agente), então o celular e o computador
    concordam. Aqui a tela só pede a contagem, pinta e avisa até onde esta conversa foi vista. */
-let naoLidas = {};              // slug -> { nao_lidas, mais, visto_ep, ultima_ep, marco_novo, erro }
+/* Desde o selo de atenção, a contagem vem de GET /api/v1/estados, que traz por agente também o estado
+   (trabalhando / precisa_de_voce / terminou / ocioso / sem_sinal), o resumo e a marca "não lida". */
+let naoLidas = {};              // slug -> { estado, resumo, nao_lidas, mais, marcada_nao_lida, visto_ep, ultima_ep, marco_novo, erro }
 let naoLidasEmVoo = null;
 function textoBolinha(n) { return n && (n.mais || n.nao_lidas > 99) ? '99+' : String(n.nao_lidas); }
-/* null (não medido) e o agente atual nunca mostram bolinha. */
-function bolinhaDe(a) {
-  const n = naoLidas[a.id];
-  if (a.id === AGENTE.id || !n || typeof n.nao_lidas !== 'number' || n.nao_lidas <= 0) return null;
-  return n;
+/* Marca (ligar=true) ou desmarca a conversa de um agente como não lida. O servidor guarda por usuário;
+   a tela repinta com o estado que ele devolver na contagem seguinte. */
+function marcaNaoLida(slug, ligar) {
+  return api('/api/v1/agents/' + encodeURIComponent(slug) + '/nao-lido', ligar ? { method: 'POST', body: {}, timeoutMs: 15000 } : { method: 'DELETE', timeoutMs: 15000 })
+    .then(() => atualizaNaoLidas());
 }
+/* No cabeçalho da conversa aberta: marca e leva a pessoa para fora (abre o menu), porque ficar nesta tela
+   a faria "ler" de novo e o objetivo é voltar a isto depois. A marca só sai quando ela abrir a conversa. */
+const btnNaoLida = $('btnNaoLida');
+if (btnNaoLida) btnNaoLida.onclick = () => {
+  btnNaoLida.disabled = true;
+  marcaNaoLida(AGENTE.id, true)
+    .then(() => { abreMenu(true); })
+    .catch(e => mostraErro('Não consegui marcar a conversa como não lida: ' + e.message))
+    .finally(() => { btnNaoLida.disabled = false; });
+};
 function atualizaNaoLidas() {
+  if (COLAB) return Promise.resolve();   // /api/v1/estados é do dono; o colaborador tem só uma conversa
   if (naoLidasEmVoo) return naoLidasEmVoo;
-  naoLidasEmVoo = api('/api/v1/nao-lidas', { timeoutMs: 15000 }).then(d => {
+  naoLidasEmVoo = api('/api/v1/estados', { timeoutMs: 15000 }).then(d => {
     if (!d || typeof d.agentes !== 'object' || !d.agentes) throw new Error('a resposta não trouxe o campo "agentes"');
     const novo = {};
     for (const slug of Object.keys(d.agentes)) {
       const n = d.agentes[slug];
-      // falha pontual de um agente (nao_lidas null) não apaga a contagem que já tínhamos dele
-      novo[slug] = (n && typeof n.nao_lidas !== 'number' && naoLidas[slug]) ? naoLidas[slug] : n;
+      // falha pontual de um agente (nao_lidas null) não apaga a contagem que já tínhamos dele,
+      // mas o estado novo (trabalhando, precisa de você, sem sinal) vale sempre
+      novo[slug] = (n && typeof n.nao_lidas !== 'number' && naoLidas[slug])
+        ? Object.assign({}, naoLidas[slug], { estado: n.estado, motivo: n.motivo, resumo: n.resumo, marcada_nao_lida: n.marcada_nao_lida })
+        : n;
     }
     naoLidas = novo;
     window.DGMenuLado.defineNaoLidas(naoLidas);
     pintaTrocaBaixo();
     pintaBolinhaMenu();
   }).catch(e => {
-    console.warn('não consegui atualizar as mensagens não lidas (mantive a contagem anterior):', e.message);
+    console.warn('não consegui atualizar o estado dos agentes e as não lidas (mantive o que a tela já tinha):', e.message);
   }).finally(() => { naoLidasEmVoo = null; });
   return naoLidasEmVoo;
 }
@@ -3054,9 +3475,16 @@ function pintaBolinhaMenu() {
   if (!btn) return;
   const total = window.DGMenuLado.totalNaoLidas(agentesMenu, naoLidas, AGENTE.id);
   let b = btn.querySelector('.bolinha-menu');
-  if (!total) { if (b) b.remove(); btn.setAttribute('aria-label', 'Abrir o menu'); return; }
+  const precisam = window.DGMenuLado.totalPrecisam(agentesMenu, naoLidas, AGENTE.id);
+  /* Quem precisa de você ganha o selo âmbar com "!" (vale mais que a bolinha vermelha de não lidas). */
+  btn.classList.toggle('precisa', precisam > 0);
+  let partes = [];
+  if (precisam) partes.push(precisam + (precisam === 1 ? ' agente precisa de você' : ' agentes precisam de você'));
+  if (total) partes.push(total + (total === 1 ? ' mensagem não lida' : ' mensagens não lidas') + ' em outros agentes');
+  if (!total && !precisam) { if (b) b.remove(); btn.setAttribute('aria-label', 'Abrir o menu'); return; }
   if (!b) { b = document.createElement('span'); b.className = 'bolinha-menu'; b.setAttribute('aria-hidden', 'true'); btn.appendChild(b); }
-  btn.setAttribute('aria-label', 'Abrir o menu, ' + total + (total === 1 ? ' mensagem não lida' : ' mensagens não lidas') + ' em outros agentes');
+  b.textContent = precisam ? '!' : '';
+  btn.setAttribute('aria-label', 'Abrir o menu, ' + partes.join(', '));
 }
 
 let epLidoEnviado = 0, lidoTimer = null;
@@ -3078,16 +3506,42 @@ function agendaLido() {
       .catch(e => console.warn('não consegui avisar o servidor que a conversa foi lida (tento de novo na próxima mensagem):', e.message));
   }, 1000);
 }
+/* "Abri a conversa": só isto limpa a marca "não lida" (o lido automático da rolagem não limpa, senão desfaria
+   a marca na hora). Uma vez por carregamento da página, quando ela está visível. */
+let abriuAvisado = false;
+function avisaAbriu() {
+  if (abriuAvisado || document.visibilityState !== 'visible') return;
+  abriuAvisado = true;
+  api(API + '/lido', { method: 'POST', body: { abriu: true }, timeoutMs: 15000 })
+    .catch(e => { abriuAvisado = false; console.warn('não consegui avisar o servidor que abri a conversa (a marca de não lida pode continuar):', e.message); });
+}
+/* "Estou vendo": a cada 20 s com a aba visível. O servidor deixa de mandar aviso no celular de uma conversa
+   que a pessoa está olhando agora. */
+function avisaVendo() {
+  if (document.visibilityState !== 'visible') return;
+  api(API + '/vendo', { method: 'POST', body: {}, timeoutMs: 10000 })
+    .catch(e => console.warn('não consegui avisar que estou vendo esta conversa (o celular pode avisar à toa):', e.message));
+}
+avisaAbriu(); avisaVendo();
+setInterval(avisaVendo, 20000);
 ouvintesChegada.push(agendaLido);
 // voltar a rolar até o fim reavalia (o debounce de agendaLido junta a rolagem toda)
 chat.addEventListener('scroll', agendaLido, { passive: true });
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
+  avisaAbriu(); avisaVendo();
   agendaLido();
   atualizaNaoLidas();
 });
-// quem fica parado nesta conversa também vê chegar mensagem em outro agente
-setInterval(() => { if (document.visibilityState === 'visible') atualizaNaoLidas(); }, 60000);
+// quem fica parado nesta conversa também vê chegar mensagem e mudança de estado em outro agente:
+// a cada 10 s com a aba visível, a cada 60 s escondida
+let ultimoEstados = 0;
+setInterval(() => {
+  const agora = Date.now();
+  if (document.visibilityState !== 'visible' && agora - ultimoEstados < 60000) return;
+  ultimoEstados = agora;
+  atualizaNaoLidas();
+}, 10000);
 atualizaNaoLidas();
 
 /* Celular: a mesma lista do menu vira uma fileira de avatares embaixo, com a agente atual
@@ -3102,12 +3556,17 @@ function pintaTrocaBaixo() {
     const foto = a.avatar_img || (/^https:\/\//i.test(a.avatar || '') ? a.avatar : '');
     const av = foto ? `<img src="${esc(foto)}" alt="">` : esc(a.avatar || (a.nome || '?').slice(0, 1));
     const rot = a.nome + (a.subtitulo ? ', ' + a.subtitulo : '');
-    const nl = bolinhaDe(a);
-    const aviso = nl ? `, ${nl.nao_lidas} ${nl.nao_lidas === 1 ? 'mensagem não lida' : 'mensagens não lidas'}${nl.mais ? ' ou mais' : ''}` : '';
+    const selo = window.DGMenuLado.seloDe(naoLidas[a.id], atual);
+    const aviso = selo ? ', ' + selo.rotulo : '';
+    const marcaSelo = !selo ? ''
+      : selo.tipo === 'precisa' ? '<span class="selo-aten" aria-hidden="true">!</span>'
+      : selo.tipo === 'nao_lido' ? `<span class="bolinha-nl" aria-hidden="true">${textoBolinha(naoLidas[a.id])}</span>`
+      : selo.tipo === 'marcada' ? '<span class="bolinha-nl ponto" aria-hidden="true"></span>'
+      : '<span class="selo-trab" aria-hidden="true"></span>';
     return `<a href="/a/${encodeURIComponent(a.id)}" title="${esc(rot)}" ` +
       (atual ? `class="atual" aria-current="page" style="--cor-troca:${esc(a.cor || '#2f9e5e')}" ` : '') +
       `aria-label="Abrir a conversa com ${esc(rot + aviso)}"><div class="av" style="background:${esc(a.cor || '#2f9e5e')}">${av}</div>` +
-      `${nl ? `<span class="bolinha-nl" aria-hidden="true">${textoBolinha(nl)}</span>` : ''}</a>`;
+      `${marcaSelo}</a>`;
   }).join('');
   centralizaTrocaBaixo();
 }
@@ -3240,6 +3699,8 @@ async function comecaGravar() {
   setEstado('pedindo o microfone…');
   let stream;
   pedindoMic = true;
+  // a leitura em curso é pausada (não cancelada) e a fila espera a gravação acabar
+  pausaPelaGravacao();
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: true });
   } catch (e) {
@@ -3257,6 +3718,7 @@ async function comecaGravar() {
     return;
   } finally {
     pedindoMic = false;
+    if (!stream) filaRetoma();    // o microfone não abriu: a leitura volta
   }
   const g = { stream: stream, rec: null, pedacos: [], mime: mime, inicio: 0, parado: false,
               erro: null, blob: null, aoParar: null };
@@ -3267,6 +3729,7 @@ async function comecaGravar() {
     soltaMicrofone(g);
     mostraErro('Não consegui iniciar a gravação (' + e.message + ').');
     setEstado('erro no microfone', true);
+    filaRetoma();
     return;
   }
   g.rec = r;
@@ -3316,6 +3779,7 @@ async function comecaGravar() {
     pintaMic();
     mostraErro('Não consegui começar a gravar (' + e.message + ').');
     setEstado('erro no microfone', true);
+    filaRetoma();
   }
 }
 
@@ -3351,6 +3815,7 @@ async function paraEEnvia(direto) {
   const blob = await paraGravacao();
   gravando = false;
   pintaMic();
+  filaRetoma();    // na hora, sem esperar a transcrição
   if (!blob || blob.size < 1024) {
     mostraErro('A gravação saiu vazia (' + (blob ? blob.size : 0) + ' bytes). ' +
                'Toque no microfone, espere aparecer "gravando", fale, e toque de novo.');
@@ -3367,9 +3832,11 @@ async function cancelaGravacao() {
   micAbrindo = false;
   pintaMic();
   estadoOcioso();
+  filaRetoma();
 }
 
 btnMic.onclick = () => {
+  destravarAudio();
   if (transcrevendo) return;
   if (gravando) paraEEnvia(false); else comecaGravar();
 };
@@ -3570,6 +4037,7 @@ async function mandaTexto(pend, semEsperar) {
   const corpo = pend.anexos ? { text: pend.texto, anexos: pend.anexos.map(a => a.id) }
                             : { text: pend.texto };
   corpo.cliente_id = pend.cid;
+  if (lerRespostas) corpo.voz = true;   // o agente sabe que a resposta vai ser ouvida e responde curto
   try {
     d = await api(API + '/send', { method: 'POST', body: corpo,
                                    timeoutMs: pend.anexos ? 120000 : 75000 });
@@ -3584,6 +4052,23 @@ async function mandaTexto(pend, semEsperar) {
         mostraErro('Comando recusado: ' + motivo + ' Toque em "descartar" no balão.');
       }
       avisaEntrega(pend, false, motivo);
+      return false;
+    }
+    if (e.codigo === 'PERGUNTA_PENDENTE') {
+      // O agente espera a resposta de uma pergunta de escolha e a mensagem NÃO foi enviada: o texto volta ao campo
+      // (antes de qualquer coisa que a pessoa já tenha digitado) e o erro diz o que fazer.
+      const quando = pendentes.includes(pend) && pend.tentativa === tentativa;
+      if (quando && !pend.anexos) {
+        descartar(pend);
+        const novo = entrada.value.trim();
+        entrada.value = novo ? pend.texto + '\n' + entrada.value : pend.texto;
+        ajustaCampo();
+      } else if (quando) {
+        marcaFalhou(pend, e.message, 'Não consegui entregar a mensagem: ');
+      }
+      const how = e.dados && e.dados.howToFix ? ' ' + e.dados.howToFix : '';
+      mostraErro(e.message + how);
+      avisaEntrega(pend, false, e.message);
       return false;
     }
     if (e.codigo === 'LOGIN_EXPIRADO' && !pend.anexos) {
@@ -3709,27 +4194,249 @@ async function esperaPeloWait(since, limite) {
 
 /* Resposta = qualquer fala nova do agente depois do envio. */
 const ehResposta = (m, since) => ehAgente(m) && m.ep > since;
+/* Só a conversa normal (origin 'agente') entra na fila de voz automática. A rotina também
+   conta como resposta para a espera, mas só toca em voz se a pessoa apertar o 🎧 do balão. */
+const ehRespostaFalavel = (m, since) => !!m && m.origin === 'agente' && m.ep > since;
 
 /* Depois da pergunta por voz, por 5 minutos, toda resposta nova dele também é
    lida (ele costuma mandar "vou fazer" e, um tempo depois, o resultado). */
 const ESCUTA_MS = 5 * 60000;
 let escuta = null;            // { since, ate }
 const faladas = new Set();
+/* ── Fila de leitura ──────────────────────────────────────────────────────
+   Regra do Danilo (21/10/2026): resposta nova NUNCA derruba a que ele está
+   ouvindo. Ela entra no fim da fila e é lida depois, uma por vez. Com o
+   microfone aberto nada toca; a leitura em curso é pausada e guardada
+   (`retomadaLeitura`), e quando a gravação termina ela continua de onde parou,
+   seguida do resto da fila. O 🎧 de um balão pula pra ele e segue dali.
+   Parada pedida pela pessoa (cancelaFala) descarta tudo, e `corteFala` registra
+   isso para o fim da fila não reabrir o microfone depois de um "parar".
+   Este bloco só decide a ordem. Quem fala de verdade vem de fora, por estas
+   dependências (o teste em test/voz-fila-leitura.test.js injeta versões de mentira):
+     gravando, pedindoMic, gravacao (via microfoneOcupado), esperando, transcrevendo,
+     msgs, continua, pararPedido, mostraAviso, estadoOcioso, comecaGravar,
+     pintaFilaLeitura, posicaoDoPlayer(), pararSomAtual(),
+     tocarMensagemNaFila(item, desde) -> Promise que resolve quando acaba, OU quando
+     pararSomAtual() a interrompe, OU com `false` se o aparelho NÃO tocou o som. */
+const LIMITE_REINICIO = 0.20;   // pausada antes de 20% do 1º pedaço: recomeça do início
+const filaLeitura = [];         // pendentes, em ordem de chegada: { id, texto, desde? }
+let tocandoAgora = null;        // { id, texto, parte, tempo, duracao }
+let retomadaLeitura = null;     // a que a gravação pausou: { id, texto, parte, tempo, duracao }
+let drenoAtivo = false;
+let geracaoFila = 0;            // sobe a cada pausa, parada ou pulo: o dreno antigo se aposenta sozinho
+// Sobe a cada parada pedida pela pessoa. É separado de faloGeracao, que cada mensagem
+// sobe ao começar a tocar.
+let corteFala = 0;
+// O 🎧 não reabre o microfone no fim (ouvir de novo não é a vez da pessoa falar). Uma
+// resposta nova do agente chegando devolve o fluxo normal da conversa contínua.
+let fimSemMic = false;
+/* `filaFala` é a promessa do dreno em curso (ou uma já resolvida, se não há
+   dreno). esperaResposta faz `await filaFala` para só soltar a tela quando a
+   leitura acabou. Com o microfone aberto NÃO há dreno, então a promessa já
+   está resolvida e o await nunca fica pendurado esperando a gravação. */
 let filaFala = Promise.resolve();
+
+const filaTemTrabalho = () => !!(retomadaLeitura || filaLeitura.length);
+const mesmoId = (a, b) => String(a) === String(b);
+
+/* De onde recomeçar a mensagem pausada: do início se mal tinha começado
+   (menos de 20% do primeiro pedaço), senão do pedaço e do segundo em que parou. */
+function decideInicio(r) {
+  const ratio = r.duracao > 0 ? r.tempo / r.duracao : (r.tempo > 0 ? 1 : 0);
+  if ((r.parte || 0) === 0 && ratio < LIMITE_REINICIO) return { parte: 0, tempo: 0 };
+  return { parte: r.parte || 0, tempo: r.tempo || 0 };
+}
+
+function enfileiraFala(item) {
+  if (!item || !item.id || !item.texto) {
+    console.warn('fila de leitura: mensagem sem id ou sem texto, ignorada:', item);
+    return false;
+  }
+  const jaTem = (tocandoAgora && mesmoId(tocandoAgora.id, item.id)) ||
+                (retomadaLeitura && mesmoId(retomadaLeitura.id, item.id)) ||
+                filaLeitura.some(p => mesmoId(p.id, item.id));
+  if (jaTem) return false;
+  filaLeitura.push({ id: item.id, texto: item.texto });
+  fimSemMic = false;
+  pintaFilaLeitura();
+  iniciaDreno();
+  return true;
+}
+
+function iniciaDreno() {
+  if (drenoAtivo || microfoneOcupado() || !filaTemTrabalho()) return;
+  drenoAtivo = true;
+  filaFala = drena(++geracaoFila, corteFala);
+}
+
+async function drena(g, corte) {
+  const minha = () => g === geracaoFila;
+  while (minha() && !microfoneOcupado()) {
+    let item, desde;
+    if (retomadaLeitura) {
+      item = retomadaLeitura;
+      desde = decideInicio(item);
+      retomadaLeitura = null;
+    } else if (filaLeitura.length) {
+      item = filaLeitura.shift();
+      desde = item.desde || { parte: 0, tempo: 0 };
+    } else break;
+    tocandoAgora = { id: item.id, texto: item.texto, parte: desde.parte, tempo: desde.tempo, duracao: 0 };
+    pintaFilaLeitura();
+    let resultado;
+    try {
+      resultado = await tocarMensagemNaFila(tocandoAgora, desde);
+    } catch (e) {
+      console.warn('fila de leitura: a leitura da mensagem ' + item.id + ' falhou:', e);
+      mostraAviso('Não consegui ler uma resposta em voz alta (' + e.message +
+                  '). O texto está na tela. Toque no 🎧 do balão para tentar de novo.');
+    }
+    if (!minha()) return;          // pausaram, pararam ou pularam: o novo dreno cuida do resto
+    if (resultado === false) {
+      // o aparelho não tocou (o aviso com o motivo já saiu): tentar as outras só
+      // gastaria cota de voz à toa. Para a fila inteira; o texto segue na tela.
+      pararTudoFila();
+      estadoOcioso();
+      return;
+    }
+    tocandoAgora = null;
+  }
+  if (!minha()) return;
+  drenoAtivo = false;
+  pintaFilaLeitura();
+  const semMic = fimSemMic;
+  fimSemMic = false;
+  // fim da fila inteira: só agora a conversa contínua reabre o microfone.
+  // Se a pergunta dele ainda está sendo transcrita ou esperando resposta, não
+  // reabre: a leitura da resposta (esperaResposta) é que fecha esse ciclo.
+  if (!microfoneOcupado() && !filaTemTrabalho() && continua && !pararPedido &&
+      corte === corteFala && !semMic && !esperando && !transcrevendo) {
+    mostraAviso('');
+    await comecaGravar();
+  }
+}
+
+/* O microfone vai abrir: o que estava tocando é pausado e guardado. Se não há
+   nada tocando nem dreno em curso, não mexe em nada (nem no estado da tela).
+   `pos` só é passado quando o player não reflete o pedaço atual (ainda não tocou). */
+function pausaPelaGravacao(pos) {
+  if (!tocandoAgora && !drenoAtivo) return;
+  if (tocandoAgora) {
+    // `tocando` só fica true entre o play() e o fim do pedaço: antes disso o player ainda
+    // guarda a posição da mensagem ANTERIOR e usá-la pularia o começo desta
+    pos = pos || (tocandoAgora.tocando ? posicaoDoPlayer() : { tempo: 0, duracao: 0 });
+    retomadaLeitura = { id: tocandoAgora.id, texto: tocandoAgora.texto,
+                        parte: tocandoAgora.parte || 0, tempo: pos.tempo, duracao: pos.duracao };
+    tocandoAgora = null;
+  }
+  geracaoFila++;
+  drenoAtivo = false;
+  pararSomAtual();
+  pintaFilaLeitura();
+}
+
+/* A gravação acabou (enviou, cancelou, saiu vazia, deu erro): retoma na hora,
+   sem esperar a transcrição. */
+function filaRetoma() {
+  iniciaDreno();
+}
+
+/* 🎧: toca esta e depois as que vêm depois dela na conversa. O que estava
+   tocando é descartado (ele pediu). Pendente mais antigo que a escolhida é
+   descartado (ele pulou); mais novo fica. */
+function ouvirAPartirDe(item) {
+  if (microfoneOcupado()) {
+    mostraAviso('Termine a gravação antes de ouvir de novo: o som entraria no áudio que você está gravando.');
+    return false;
+  }
+  const pos = id => msgs.findIndex(x => mesmoId(x.id, id));
+  const alvo = pos(item.id);
+  // posição desconhecida (-1): na dúvida mantém, melhor repetir do que perder
+  const depois = p => alvo < 0 || pos(p.id) < 0 || pos(p.id) > alvo;
+  const mantidos = filaLeitura.filter(p => !mesmoId(p.id, item.id) && depois(p));
+  if (retomadaLeitura && !mesmoId(retomadaLeitura.id, item.id) && depois(retomadaLeitura)) {
+    mantidos.unshift({ id: retomadaLeitura.id, texto: retomadaLeitura.texto,
+                       desde: decideInicio(retomadaLeitura) });
+  }
+  geracaoFila++;
+  drenoAtivo = false;
+  tocandoAgora = null;
+  retomadaLeitura = null;
+  pararSomAtual();
+  filaLeitura.length = 0;
+  filaLeitura.push({ id: item.id, texto: item.texto }, ...mantidos);
+  fimSemMic = true;
+  pintaFilaLeitura();
+  iniciaDreno();
+  return true;
+}
+
+/* Parar de falar, pedido pela pessoa: para a atual E esvazia tudo. */
+function pararTudoFila() {
+  geracaoFila++;
+  drenoAtivo = false;
+  tocandoAgora = null;
+  retomadaLeitura = null;
+  filaLeitura.length = 0;
+  fimSemMic = false;
+  pararSomAtual();
+  pintaFilaLeitura();
+}
+
+/* Retrato do estado, pro selo dos balões e pro teste. */
+function estadoFilaLeitura() {
+  return { tocando: tocandoAgora ? tocandoAgora.id : null,
+           pausada: retomadaLeitura ? retomadaLeitura.id : null,
+           fila: filaLeitura.map(p => p.id) };
+}
+/* ── fim da fila de leitura ── */
+
+/* Selo no balão: "tocando agora", "na fila (n)" ou "continua quando você enviar". */
+function pintaFilaLeitura() {
+  if (typeof wrap === 'undefined' || !wrap.querySelectorAll) return;
+  const e = estadoFilaLeitura();
+  for (const row of wrap.querySelectorAll('.row.fila-tocando, .row.fila-espera, .row.fila-pausada')) {
+    row.classList.remove('fila-tocando', 'fila-espera', 'fila-pausada');
+  }
+  for (const s of wrap.querySelectorAll('.selo-fila')) s.remove();
+  const marca = (id, classe, texto) => {
+    if (id == null) return;
+    const row = wrap.querySelector('.row[data-msg="' + CSS.escape(String(id)) + '"]');
+    const bub = row && row.querySelector('.bub');
+    if (!bub) return;
+    row.classList.add(classe);
+    const s = document.createElement('span');
+    s.className = 'selo-fila';
+    s.textContent = texto;
+    bub.appendChild(s);
+  };
+  marca(e.tocando, 'fila-tocando', '🔊 tocando agora');
+  marca(e.pausada, 'fila-pausada', '⏸ continua quando você enviar');
+  e.fila.forEach((id, i) => marca(id, 'fila-espera', '⏳ na fila (' + (i + 1) + ')'));
+}
 
 function falaNovas() {
   if (!escuta || !lerRespostas || Date.now() > escuta.ate) return;
-  // visual (vis-*.html) é desenho: não tem o que ler em voz alta
-  const novas = msgs.filter(m => ehResposta(m, escuta.since) && !faladas.has(m.id) &&
+  // visual (vis-*.html) é desenho: não tem o que ler em voz alta. Rotina não entra
+  // sozinha na fila: só toca se a pessoa apertar o 🎧.
+  const novas = msgs.filter(m => ehRespostaFalavel(m, escuta.since) && !faladas.has(m.id) &&
                               !ehVisual(m.media));
   if (!novas.length) return;
-  for (const m of novas) faladas.add(m.id);
-  filaFala = filaFala.then(async () => {
-    if (gravando) return;
-    await falar(novas.map(m => legendaUtil(m) || m.text).join('\n\n'));
-  });
+  for (const m of novas) {
+    faladas.add(m.id);
+    enfileiraFala({ id: m.id, texto: legendaUtil(m) || m.text });
+  }
 }
+
 ouvintesChegada.push(() => { if (!esperando) falaNovas(); });
+
+/* Pergunta nova: antes de trocar a janela de escuta, enfileira o que já chegou
+   na antiga (inclusive durante a gravação), senão uma resposta que veio entre
+   as duas perguntas ficaria sem ser lida. */
+function armaEscuta(since) {
+  falaNovas();
+  escuta = { since: since, ate: Date.now() + ESCUTA_MS };
+}
 
 async function esperaResposta(since) {
   esperando = true;
@@ -3770,9 +4477,9 @@ async function esperaResposta(since) {
   } else if (!respostas.length) {
     // sem faixa de propósito: a resposta chega sozinha pelo stream, e a escuta continua
     estadoOcioso();
-    if (lerRespostas) escuta = { since: since, ate: Date.now() + ESCUTA_MS };
+    if (lerRespostas) armaEscuta(since);
   } else if (lerRespostas) {
-    escuta = { since: since, ate: Date.now() + ESCUTA_MS };
+    armaEscuta(since);
     falaNovas();
     await filaFala;
   } else {
@@ -3782,91 +4489,261 @@ async function esperaResposta(since) {
 
 btnParar.onclick = () => {
   pararPedido = true;
-  if (falando) pararFala();
+  escuta = null;                     // parar também encerra a escuta automática
+  cancelaFala();
   btnParar.textContent = 'parando…';
 };
 
 /* ── Falar a resposta ─────────────────────────────────────────────────────── */
+let faloGeracao = 0;      // sobe a cada parada ou fala nova: a leitura antiga morre sozinha
+let faloAbort = null;     // cancela o pedido de voz em voo
+let fimToque = null;      // resolve o pedaço que está tocando (parar não deixa a fila pendurada)
+const vozCache = new Map();   // texto -> { partes, blobs[] }: ouvir de novo sem gerar de novo
+const VOZ_CACHE_MAX = 12;
+
+/* Parada pedida pela pessoa: além de calar o que toca, descarta o que espera na fila. */
+function cancelaFala() {
+  corteFala++;
+  pararFala();
+}
+
+/* Parar de falar, pedido pela pessoa: para a atual e esvazia a fila inteira. */
 function pararFala() {
-  try {
-    player.pause();
-  } catch (e) {
-    console.warn('pararFala: player.pause() falhou:', e.message);
-  }
-  falando = false;
-  btnParar.style.display = 'none';
+  pararTudoFila();
   estadoOcioso();
 }
 
-async function falar(texto) {
-  setEstado('preparando a voz…');
-  let blob;
+/* Só silencia o que está no ar; a fila decide o que fazer depois. Usada ao começar
+   a gravar (a leitura pausa, não é cancelada) e dentro da própria fila. */
+function pararSomAtual() {
+  faloGeracao++;
+  if (faloAbort) { faloAbort.abort(); faloAbort = null; }
   try {
-    const r = await fetch('/api/v1/tts', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ agent_id: AGENTE.id, text: texto }),
-    });
-    if (r.status === 401) {
-      location.href = '/login?next=' + encodeURIComponent(AQUI);
-      return;
+    player.pause();
+  } catch (e) {
+    console.warn('pararSomAtual: player.pause() falhou:', e.message);
+  }
+  if (fimToque) fimToque();
+  falando = false;
+  btnParar.style.display = 'none';
+}
+
+/* Onde o player está (para retomar depois de uma pausa). duration é NaN antes do
+   metadata carregar: vira 0, e a regra dos 20% trata 0 como "recomeça". */
+function posicaoDoPlayer() {
+  const d = player.duration;
+  return { tempo: player.currentTime || 0, duracao: Number.isFinite(d) ? d : 0 };
+}
+
+/* Um pedaço da voz. O servidor fatia o texto (parágrafo, frase) e devolve o pedaço `i`,
+   com o total em X-TTS-Partes. Pedaço já gerado fica na memória: o blob é solto junto com
+   o texto mais antigo quando o cache enche, e a URL de cada toque é revogada ao fim dele. */
+async function pegaPedacoVoz(texto, i, sinal) {
+  let c = vozCache.get(texto);
+  if (c && c.blobs[i]) return { blob: c.blobs[i], partes: c.partes };
+  const r = await fetch('/api/v1/tts', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: sinal,
+    body: JSON.stringify({ agent_id: AGENTE.id, text: texto, parte: i }),
+  });
+  if (r.status === 401) {
+    location.href = '/login?next=' + encodeURIComponent(AQUI);
+    throw new Error('sessão expirada');
+  }
+  if (!r.ok) {
+    let motivo = 'a API respondeu ' + r.status;
+    try { const d = await r.json(); if (d && d.erro) motivo = d.erro; }
+    catch (e) { console.warn('tts: a resposta de erro não veio em JSON:', e.message); }
+    throw new Error(motivo);
+  }
+  const partes = parseInt(r.headers.get('X-TTS-Partes') || '1', 10) || 1;
+  const blob = await r.blob();
+  if (!c) {
+    c = { partes, blobs: [] };
+    vozCache.set(texto, c);
+    if (vozCache.size > VOZ_CACHE_MAX) vozCache.delete(vozCache.keys().next().value);
+  }
+  c.blobs[i] = blob;
+  return { blob, partes };
+}
+
+/* Resolve true se o pedaço tocou até o fim (ou foi parado) e false se o aparelho não tocou. */
+function tocaPedaco(blob, inicio) {
+  return new Promise(resolve => {
+    const url = URL.createObjectURL(blob);
+    let pronto = false;
+    const fim = (tocou = true) => {
+      if (pronto) return;
+      pronto = true;
+      fimToque = null;
+      URL.revokeObjectURL(url);
+      resolve(tocou);
+    };
+    fimToque = fim;
+    player.onended = fim;
+    player.onerror = () => {
+      mostraAviso('O iPhone não tocou o áudio da resposta. O texto está na tela.');
+      fim(false);
+    };
+    player.src = url;
+    // o iOS ignora currentTime antes do metadata: posiciona só depois dele
+    if (inicio > 0) {
+      player.addEventListener('loadedmetadata', () => {
+        try {
+          player.currentTime = inicio;
+        } catch (e) {
+          console.warn('retomada: não consegui posicionar o áudio em ' + inicio +
+                       's (' + e.message + '); o pedaço começa do início.');
+        }
+      }, { once: true });
     }
-    if (!r.ok) {
-      let motivo = 'a API respondeu ' + r.status;
-      try { const d = await r.json(); if (d && d.erro) motivo = d.erro; }
-      catch (e) { console.warn('tts: a resposta de erro não veio em JSON:', e.message); }
+    const p = player.play();
+    if (p && p.catch) {
+      p.catch(e => {
+        mostraAviso('O iPhone bloqueou o som (' + e.message + '). Toque no ' +
+                    'microfone uma vez para liberar o áudio e tente de novo.');
+        fim(false);
+      });
+    }
+  });
+}
+
+/* Pedaço já gerado, sem esperar nada: a retomada depois da gravação chama
+   player.play() colada no toque, sem await no caminho (o iPhone exige). */
+function pedacoEmCache(texto, i) {
+  const c = vozCache.get(texto);
+  return c && c.blobs[i] ? { blob: c.blobs[i], partes: c.partes } : null;
+}
+
+/* Microfone abrindo ou gravando: tocar agora faria o alto-falante entrar na gravação, e a fala
+   do agente voltaria a ele como se fosse da pessoa. */
+function microfoneOcupado() {
+  return !!(gravando || pedindoMic || gravacao);
+}
+
+/* Toca UMA mensagem, a partir do pedaço `desde.parte` e do segundo `desde.tempo`, sem
+   interromper ninguém (quem decide a ordem é a fila). Lê a resposta INTEIRA: toca o pedaço
+   inicial assim que chega e já pede o seguinte enquanto ele toca. `item.parte` acompanha o
+   pedaço em curso (a pausa da gravação lê). Resolve false se o aparelho NÃO tocou. */
+async function tocarMensagemNaFila(item, desde) {
+  const texto = item.texto;
+  const minha = ++faloGeracao;
+  const viva = () => minha === faloGeracao;
+  const ctl = new AbortController();
+  faloAbort = ctl;
+  let i = desde.parte || 0;
+  let atual = pedacoEmCache(texto, i);
+  if (!atual) {
+    setEstado('preparando a voz…');
+    try {
+      atual = await pegaPedacoVoz(texto, i, ctl.signal);
+    } catch (e) {
+      if (!viva()) return;
       // a resposta JÁ está na tela: isto é aviso, não é falha do ciclo
-      mostraAviso(motivo);
+      mostraAviso(e.name === 'TypeError' ? 'A resposta está na tela, mas não consegui gerar a voz: ' + e.message : e.message);
       setEstado('resposta só em texto');
       return;
     }
-    if (r.headers.get('X-TTS-Cortado') === '1') {
-      mostraAviso('A resposta é longa: a voz leu os primeiros 1200 caracteres. ' +
-                  'O texto completo está na tela.');
-    }
-    blob = await r.blob();
-  } catch (e) {
-    mostraAviso('A resposta está na tela, mas não consegui gerar a voz: ' + e.message);
-    setEstado('resposta só em texto');
-    return;
+    if (!viva()) return;
   }
 
   falando = true;
   btnParar.style.display = '';
   btnParar.textContent = 'parar de falar';
   setEstado('falando…');
-  const url = URL.createObjectURL(blob);
-  await new Promise(resolve => {
-    let pronto = false;
-    const fim = () => {
-      if (pronto) return;
-      pronto = true;
-      URL.revokeObjectURL(url);
-      resolve();
-    };
-    player.onended = fim;
-    player.onerror = () => {
-      mostraAviso('O iPhone não tocou o áudio da resposta. O texto está na tela.');
-      fim();
-    };
-    player.src = url;
-    const p = player.play();
-    if (p && p.catch) {
-      p.catch(e => {
-        mostraAviso('O iPhone bloqueou o som (' + e.message + '). Toque no ' +
-                    'microfone uma vez para liberar o áudio e tente de novo.');
-        fim();
-      });
+  const total = atual.partes;
+  let inicio = desde.tempo || 0;
+  for (; i < total && viva(); i++) {
+    item.parte = i;
+    // pré-gera o próximo enquanto o atual toca
+    const proximo = i + 1 < total ? pegaPedacoVoz(texto, i + 1, ctl.signal) : null;
+    if (proximo) proximo.catch(() => {});   // o erro é tratado quando a vez dele chega
+    if (microfoneOcupado()) {
+      // o microfone abriu enquanto a voz era gerada: guarda este pedaço para a retomada
+      pausaPelaGravacao({ tempo: inicio, duracao: 0 });
+      return;
     }
-  });
+    // aparelho que não toca não gasta mais cota: avisa a fila, que para e cancela o próximo já pedido
+    item.tocando = true;
+    const tocou = await tocaPedaco(atual.blob, inicio);
+    item.tocando = false;
+    if (!tocou) {
+      if (!viva()) return;
+      pararSomAtual();
+      return false;
+    }
+    inicio = 0;
+    if (!viva() || !proximo) break;
+    try {
+      atual = await proximo;
+    } catch (e) {
+      if (!viva()) return;
+      mostraAviso('A voz parou no pedaço ' + (i + 2) + ' de ' + total + ': ' + e.message +
+                  ' O texto completo está na tela.');
+      break;
+    }
+  }
+  if (!viva()) return;               // pararam ou pausaram: quem fez isso arrumou a tela
+  faloAbort = null;
   falando = false;
   btnParar.style.display = 'none';
-  if (pararPedido) { estadoOcioso(); return; }
   estadoOcioso();
-  if (continua) {
-    mostraAviso('');
-    await comecaGravar();
-  }
 }
+
+/* Fone no balão: pula para esta mensagem e segue dali pelas seguintes. */
+wrap.addEventListener('click', ev => {
+  const bt = ev.target.closest ? ev.target.closest('button[data-fone]') : null;
+  if (!bt) return;
+  const m = msgs.find(x => String(x.id) === bt.getAttribute('data-fone'));
+  const texto = m && legendaUtil(m);
+  if (!texto) {
+    mostraAviso('Não achei o texto desta mensagem para ler de novo. Recarregue a conversa.');
+    return;
+  }
+  destravarAudio();
+  // pula para esta mensagem e segue pelas seguintes; recusa com o microfone aberto
+  ouvirAPartirDe({ id: m.id, texto: texto });
+});
+
+/* Anonimizar: "Ver com dados reais" troca o texto da mensagem pelo texto revertido (entra pelo mesmo
+   caminho de sempre, paragrafos(), que escapa tudo) e "Baixar versão final" baixa o arquivo com os dados reais. */
+wrap.addEventListener('click', async ev => {
+  const ver = ev.target.closest ? ev.target.closest('button[data-anon-ver]') : null;
+  const fin = ev.target.closest ? ev.target.closest('button[data-anon-final]') : null;
+  if (!ver && !fin) return;
+  const bt = ver || fin;
+  if (bt.disabled) return;
+  bt.disabled = true;
+  try {
+    if (ver) {
+      const id = ver.getAttribute('data-anon-ver');
+      if (anonVistos.has(id)) { anonVistos.delete(id); render({ semRolar: true }); return; }
+      const m = msgs.find(x => String(x.id) === id);
+      if (!m || !m.text) { mostraAviso('Não achei o texto desta mensagem. Recarregue a conversa.'); return; }
+      const r = await fetch(API_ANON + '/reverter-texto', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ texto: m.text }) });
+      const d = await r.json().catch(() => null);
+      if (!r.ok || !d || d.ok === false || typeof d.texto !== 'string') { mostraAviso('Não consegui mostrar os dados reais: ' + ((d && d.erro) || ('o app respondeu ' + r.status)) + '.'); return; }
+      anonVistos.set(id, d.texto);
+      render({ semRolar: true });
+      return;
+    }
+    const r = await fetch(API_ANON + '/final/' + encodeURIComponent(fin.getAttribute('data-anon-final')), { credentials: 'same-origin', cache: 'no-store' });
+    if (!r.ok) {
+      const d = await r.json().catch(() => null);
+      mostraAviso('Não consegui gerar a versão final: ' + ((d && d.erro) || ('o app respondeu ' + r.status)));
+      return;
+    }
+    const nome = (/filename\*=UTF-8''([^;]+)/i.exec(r.headers.get('Content-Disposition') || '') || [])[1];
+    const url = URL.createObjectURL(await r.blob());
+    const a = document.createElement('a');
+    a.href = url; a.download = nome ? decodeURIComponent(nome) : 'versao-final';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+  } catch (e) {
+    mostraAviso('Não consegui falar com o app para ' + (ver ? 'mostrar os dados reais' : 'gerar a versão final') + ' (' + e.message + ').');
+  } finally {
+    bt.disabled = false;
+  }
+});
 
 /* ── Modo texto e toggles ─────────────────────────────────────────────────── */
 function enviarDoCampo() {
@@ -3896,6 +4773,7 @@ entrada.addEventListener('keydown', ev => {
 });
 
 function pintaLer() {
+  document.body.classList.toggle('ler-on', lerRespostas);   // mostra os fones dos balões
   btnLer.classList.toggle('on', lerRespostas);
   btnLer.title = lerRespostas ? 'Ler respostas em voz alta: ligado'
                               : 'Ler respostas em voz alta: desligado';
@@ -3904,7 +4782,13 @@ function pintaLer() {
   btnLer.innerHTML = (lerRespostas ? '🔊' : '🔇') +
     ' <span class="lbl">' + (lerRespostas ? 'ler: sim' : 'ler: não') + '</span>';
 }
-btnLer.onclick = () => { destravarAudio(); lerRespostas = !lerRespostas; pintaLer(); };
+btnLer.onclick = () => {
+  destravarAudio();
+  lerRespostas = !lerRespostas;
+  // desligou a leitura: o que ainda esperava na fila não pode falar depois
+  if (!lerRespostas && (falando || tocandoAgora || retomadaLeitura || filaLeitura.length)) pararFala();
+  pintaLer();
+};
 
 function pintaContinua() {
   btnContinua.classList.toggle('on', continua);
@@ -3996,7 +4880,7 @@ function passosTutorial() {
   const abreM = () => abreMenu(true), fechaM = () => abreMenu(false);
   const nome = AGENTE.nome;
   const passos = [
-    ...window.DGMenuLado.passosMenu({ nome, abre: abreM, fecha: fechaM, comTroca: agentesMenu.length > 1, naConversa: true }),
+    ...window.DGMenuLado.passosMenu({ nome, abre: abreM, fecha: fechaM, comTroca: !COLAB && agentesMenu.length > 1, naConversa: true, colaborador: COLAB }),
     { alvo: '#chat', antes: fechaM, titulo: 'A conversa',
       oque: 'Aqui aparece tudo o que você e ' + nome + ' já escreveram, na ordem, como num aplicativo de mensagens.',
       como: 'As respostas chegam sozinhas, sem precisar atualizar a página. Role para cima para ver as mensagens mais antigas; a seta no canto leva de volta para a mais nova. Quando uma mensagem veio ou foi respondida pelo WhatsApp ou pelo Telegram, ela ganha um selinho com o nome do canal; passe o dedo ou o mouse nele para ver os detalhes.',
@@ -4013,6 +4897,10 @@ function passosTutorial() {
       oque: 'O clipe serve para mandar fotos, vídeos, áudios e PDFs para o agente.',
       como: 'Toque nele e escolha os arquivos (até 10 por mensagem), ou cole uma imagem direto no campo. Cada arquivo sobe em segundo plano e a mensagem sai quando todos estiverem prontos.',
       porque: 'Muita coisa é mais fácil de mostrar do que de explicar: um print de erro, um documento, uma foto.' },
+    { alvo: document.querySelector('.dgcofre') ? '.dgcofre' : '#chat', titulo: 'A caixa de cofre',
+      oque: 'Quando ' + nome + ' precisa de uma senha ou chave de um serviço (OpenAI, Hostinger, Groq...), ele mostra aqui um cartão com um campo de senha, em vez de pedir para você colar a chave na conversa.',
+      como: 'Cole a chave no campo e toque em Salvar no cofre. O valor vai direto para o cofre de ' + nome + ' e não entra na conversa nem chega a ele; só o nome e o final da chave são avisados. Salvar reinicia ' + nome + ' para a chave valer, e a conversa continua de onde parou. O olho mostra o que você colou, e o Esc limpa o campo.',
+      porque: 'Tudo o que passa pela conversa fica guardado no histórico. Aqui a chave nunca passa por ele, e você pode trocar a chave quando quiser: o cartão avisa se já existe uma guardada.' },
   ];
   if (caps.microfone) {
     passos.push({ alvo: '#btnMic', titulo: 'O microfone',
@@ -4062,7 +4950,8 @@ function passosTutorial() {
       como: 'Pede a sua confirmação, reinicia e mostra uma faixa no topo até ele voltar. A conversa continua de onde estava, porque o agente retoma a mesma sessão.',
       porque: 'Quando o agente para de responder, reiniciar costuma resolver, e aqui é um toque.' });
   }
-  passos.push({ alvo: '#loginCartao', titulo: 'Conectar a sua conta',
+  // O cartão de login da conversa é do dono; o colaborador conecta pela página Conectar conta (ver conectar.js).
+  if (!COLAB) passos.push({ alvo: '#loginCartao', titulo: 'Conectar a sua conta',
     antes: () => {
       if (lc.aberto) return;
       lc.demo = true; lc.aberto = true; lc.manual = true; lc.carregando = false; lc.iniciado = false;
@@ -4079,18 +4968,29 @@ function passosTutorial() {
       como: 'Toque nele e a tela de Sessões abre dentro do painel do agente, na mesma janela. No celular o texto some e fica só o ícone 🖥.',
       porque: 'É o mini-Bunker do agente: você acompanha e cria trabalhos longos sem sair procurando no menu, e o botão fica no topo, em todas as telas.' });
   }
+  if (!COLAB) {
   passos.push({ alvo: '#btnMesa', titulo: 'O botão Mesa',
     oque: 'Um atalho para a Mesa de tarefas, onde ficam as tarefas de todos os agentes.',
     como: 'Toque nele e a Mesa abre na mesma janela. Lá você acompanha o que está pendente e o que já foi feito.',
     porque: 'Você confere o andamento do trabalho sem sair procurando no menu.' });
+  passos.push({ alvo: '#btnNaoLida', titulo: 'Os selos dos agentes e o "não lida"',
+    oque: 'Cada agente do menu e da fileira de avatares ganha um selo: pontinhos verdes quando está trabalhando, bolinha vermelha quando terminou e você ainda não leu, e um "!" laranja quando ele precisa de você (pede permissão, fez uma pergunta ou perdeu o login). Este botão marca a conversa de ' + nome + ' como não lida.',
+    como: 'O selo vem do estado que o runner de cada agente informa, atualizado a cada 10 segundos com a tela aberta. A bolinha conta as respostas depois da última que você viu. Quem pede a sua atenção também pode mandar um aviso ao celular (ligue em "Ativar avisos neste aparelho"). Ao tocar em "não lida", o menu abre e a bolinha fica até você abrir a conversa de novo; nos outros agentes, use o ⋯ ou segure o dedo no nome.',
+    porque: 'Com vários agentes trabalhando, você vê de relance quem espera por você e deixa para depois uma resposta que não quer ler agora, sem perder o fio.' });
   passos.push({ alvo: '#btnLembretes', titulo: 'O botão Lembretes',
     oque: 'Um atalho para a tela de lembretes.',
     como: 'Toque nele e a lista abre na mesma janela. Lá você cria, confirma e apaga lembretes.',
     porque: 'Lembrete que insiste até você confirmar só ajuda se for fácil de achar, por isso fica no topo.' });
+  }
+  if ($('btnAnon') && !$('btnAnon').hidden) passos.push({ alvo: '#btnAnon', titulo: 'Documentos anonimizados',
+    oque: 'Um selo que aparece só quando a anonimização de documentos está ligada para ' + nome + '. Ele leva à tela Anonimizar.',
+    como: 'Os documentos que você manda pelo clipe passam por um filtro que troca nomes, CPF, telefone e outros dados por marcadores como [PESSOA_1]. O agente só vê os marcadores. Nas respostas dele, o botão "Ver com dados reais" mostra o texto de verdade e "Baixar versão final" entrega o arquivo com os dados reais.',
+    porque: 'O agente e o modelo na nuvem trabalham sem receber os dados pessoais dos seus clientes, e você continua lendo tudo completo.' });
   if (window.DGSigilo) passos.push(window.DGSigilo.passoTour());
   passos.push(passoAlertas());
-  if (window.DGFoco) passos.push(window.DGFoco.passoTutorial());
+  if (window.DGFoco && !COLAB) passos.push(window.DGFoco.passoTutorial());
   passos.push(passoAcervo());
+  if (window.DGSegurancaResumo) passos.push(window.DGSegurancaResumo.passoSelo());
   return passos;
 }
 
@@ -4215,7 +5115,23 @@ if (emCache) {
   render();
   rolagem.aoFim();
 }
-carregar(true).then(() => ligaStream());
+/* Link da fila de pedidos: /a/<agente>?msg=<id> abre a conversa rolada até a mensagem da entrega. */
+async function pulaParaMensagemDoLink() {
+  const id = new URLSearchParams(location.search).get('msg');
+  if (!id || !/^[a-f0-9]{16}$/.test(id)) return;
+  try {
+    const d = await api(API + '/compartilhados?mensagem=' + encodeURIComponent(id));
+    const porId = new Map([...(d.msgs || []), ...msgs].map(m => [m.id, m]));
+    msgs = [...porId.values()].sort((a, b) => a.ep - b.ep);
+    render({ semRolar: true });
+    const el = wrap.querySelector('[data-msg="' + CSS.escape(d.mensagem.id) + '"]');
+    if (!el) throw new Error('A mensagem não apareceu na tela. Atualize a conversa.');
+    rolagem.mostra(el, { block: 'center' });
+    el.classList.add('alerta-destaque');
+    setTimeout(() => el.classList.remove('alerta-destaque'), 3000);
+  } catch (err) { mostraErro('Não consegui ir até a mensagem da entrega: ' + err.message); }
+}
+carregar(true).then(() => ligaStream()).then(pulaParaMensagemDoLink);
 ligaResync();
 if (caps.voz) conferecota();
 if ('serviceWorker' in navigator) {

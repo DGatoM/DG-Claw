@@ -1,6 +1,6 @@
 'use strict';
 // Mídia: registro de id -> caminho e entrega com suporte a Range.
-// Só sai arquivo que esteja DENTRO do home_host do agente dono (ou de DGCLAW_WEB_DATA),
+// Só sai arquivo que esteja DENTRO do home_host do agente dono (ou das subpastas de mídia de DGCLAW_WEB_DATA),
 // conferido com realpath a cada pedido (link simbólico para fora é recusado).
 
 const crypto = require('node:crypto');
@@ -103,6 +103,9 @@ function dentro(raiz, alvo) {
   return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
 }
 
+/** Subpastas do dataDir que a rota de mídia pode servir. Nenhuma outra do dataDir sai por ela. */
+const SUBPASTAS_DE_MIDIA_DO_DATADIR = ['avatares', 'miniaturas'];
+
 function criarMidia({ dataDir, log, registro, publicDir }) {
   const reg = new Map(); // id -> { path, kind, mime, nome, slug }
   const baseVisual = new Map(); // nome do arquivo -> { mtime, texto }
@@ -164,10 +167,24 @@ function criarMidia({ dataDir, log, registro, publicDir }) {
     const raizes = [];
     const ag = slug ? registro.obter(slug) : null;
     if (ag && ag.home_host) raizes.push(ag.home_host);
-    raizes.push(dataDir);
+    // Do dataDir só saem as subpastas de mídia (fotos de perfil e miniaturas). O resto dele guarda
+    // sessões, chaves de push, cofre e estado do Web, e um caminho que o agente cite na conversa
+    // não pode virar download disso.
+    for (const sub of SUBPASTAS_DE_MIDIA_DO_DATADIR) raizes.push(path.join(dataDir, sub));
     return raizes;
   }
   function realpathOuNull(p) { try { return fs.realpathSync(p); } catch (_) { return null; } }
+
+  /** Colaborador só baixa arquivo comum da casa do agente dele: nada oculto (.claude, .codex, .ssh, qualquer
+   *  componente com ponto) e nada fora da casa (o dataDir do Web, por exemplo). */
+  function foraDoAlcanceDoColaborador(slug, real) {
+    const ag = registro.obter(slug);
+    const casa = ag && ag.home_host ? realpathOuNull(ag.home_host) : null;
+    if (!casa) return true;
+    const rel = path.relative(casa, real);
+    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return true;
+    return rel.split(path.sep).some((parte) => parte.startsWith('.'));
+  }
 
   /** O caminho (sem realpath ainda) está dentro de alguma raiz permitida? Devolve o realpath ou null. */
   function caminhoPermitido(slug, caminho) {
@@ -219,19 +236,24 @@ function criarMidia({ dataDir, log, registro, publicDir }) {
     obter(id) { return reg.get(id) || null; },
 
     /** GET|HEAD /api/v1/media/<id>/visual?tema=claro|escuro (ver docs/VISUAIS.md). */
-    servirVisual(req, res, id, temaPedido) {
+    servirVisual(req, res, id, temaPedido, slugPermitido) {
       const tema = temaPedido === 'escuro' ? 'escuro' : 'claro';
       const e = reg.get(id);
-      if (!e) {
+      // slugPermitido (colaborador): mídia de outro agente responde igual a mídia que não existe, para não revelar o id
+      if (!e || (slugPermitido && e.slug !== slugPermitido)) {
         erroVisual(req, res, 404, 'Não conheço esta mídia. Ela pode ter sido registrada antes de o servidor reiniciar: recarregue a conversa para ela voltar.', tema);
         return;
       }
       const nome = e.nome;
+      const real = caminhoPermitido(e.slug, e.path);
+      if (real && slugPermitido && foraDoAlcanceDoColaborador(e.slug, real)) {
+        erroVisual(req, res, 404, 'Não conheço esta mídia. Ela pode ter sido registrada antes de o servidor reiniciar: recarregue a conversa para ela voltar.', tema);
+        return;
+      }
       if (!/\.html?$/i.test(e.path)) {
         erroVisual(req, res, 415, `'${nome}' não é um arquivo .html, então não dá para desenhar como visual. Peça ao agente um arquivo vis-<assunto>.html, ou use o botão de baixar.`, tema, nome);
         return;
       }
-      const real = caminhoPermitido(e.slug, e.path);
       if (!real) {
         const sumiu = !fs.existsSync(e.path);
         erroVisual(req, res, sumiu ? 410 : 404, sumiu
@@ -258,9 +280,9 @@ function criarMidia({ dataDir, log, registro, publicDir }) {
     },
 
     /** Serve o arquivo. `modo` é 'arquivo' ou 'thumb'. */
-    async servir(req, res, id, modo, baixar) {
+    async servir(req, res, id, modo, baixar, slugPermitido) {
       const e = reg.get(id);
-      if (!e) {
+      if (!e || (slugPermitido && e.slug !== slugPermitido)) {
         erroJson(res, 404, 'Não conheço esta mídia. Ela pode ter sido registrada antes de o servidor reiniciar: recarregue a conversa para ela voltar.');
         return;
       }
@@ -269,6 +291,11 @@ function criarMidia({ dataDir, log, registro, publicDir }) {
         return;
       }
       const real = caminhoPermitido(e.slug, e.path);
+      if (real && slugPermitido && foraDoAlcanceDoColaborador(e.slug, real)) {
+        log('aviso', `Mídia ${id} negada ao colaborador: ${e.nome} é oculta ou fica fora da casa do agente ${e.slug}.`);
+        erroJson(res, 404, 'Não conheço esta mídia. Ela pode ter sido registrada antes de o servidor reiniciar: recarregue a conversa para ela voltar.');
+        return;
+      }
       if (!real) {
         log('aviso', `Mídia ${id} recusada: ${e.path} saiu da pasta permitida do agente ${e.slug || '-'} ou não existe mais (link simbólico para fora? arquivo apagado?).`);
         erroJson(res, 404, 'O arquivo não está mais disponível dentro da pasta do agente.');

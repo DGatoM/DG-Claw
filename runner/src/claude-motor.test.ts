@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { chaveFalsa, ctxDeTeste, pastaTemporaria } from "./apoio-teste.js";
-import { arquivoClaudeJson, confiarNaPasta, dicaDeLogin, motorClaude, preAprovarChaveDeApi, pularPrimeiraExecucao } from "./provedores/claude.js";
+import { arquivoClaudeJson, confiarNaPasta, dicaDeLogin, motorClaude, preAprovarChaveDeApi, pularAvisoDoAutoMode, pularPrimeiraExecucao } from "./provedores/claude.js";
 
 test("pré-aprovação: grava os ÚLTIMOS 20 caracteres, é idempotente e preserva o resto do JSON", () => {
   const dir = pastaTemporaria("claudejson");
@@ -166,4 +166,23 @@ test("RUNNER_LOGIN_HINT: {host} vira o hostname; vazio não acrescenta nada à m
   } finally {
     delete process.env.RUNNER_LOGIN_HINT;
   }
+});
+
+test("pularAvisoDoAutoMode: marca o aviso como visto, preserva o resto e é idempotente", () => {
+  const dir = pastaTemporaria("automode");
+  const arq = path.join(dir, ".claude.json");
+  fs.writeFileSync(arq, JSON.stringify({ numStartups: 3, hasSeenAutoModeEntryWarning: false }));
+  pularAvisoDoAutoMode({ CLAUDE_CONFIG_DIR: dir }, "spawn");
+  const o = JSON.parse(fs.readFileSync(arq, "utf8"));
+  assert.equal(o.hasSeenAutoModeEntryWarning, true);
+  assert.equal(o.hasSeenAutoDefaultNotice, true);
+  assert.equal(o.numStartups, 3);
+  const bytes = fs.readFileSync(arq);
+  pularAvisoDoAutoMode({ CLAUDE_CONFIG_DIR: dir }, "spawn");
+  assert.deepEqual(fs.readFileSync(arq), bytes, "a segunda vez não reescreve");
+  assert.deepEqual(fs.readdirSync(dir), [".claude.json"], "nenhum temporário sobra");
+
+  const novo = pastaTemporaria("automode2");
+  pularAvisoDoAutoMode({ CLAUDE_CONFIG_DIR: novo }, "spawn");
+  assert.equal(JSON.parse(fs.readFileSync(path.join(novo, ".claude.json"), "utf8")).hasSeenAutoModeEntryWarning, true);
 });

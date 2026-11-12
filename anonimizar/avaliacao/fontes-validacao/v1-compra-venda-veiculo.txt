@@ -1,0 +1,15 @@
+#formato: txt
+CONTRATO PARTICULAR DE COMPRA E VENDA DE VEÍCULO
+
+VENDEDOR: [[PESSOA:Anderson Luís Peixoto de Mello]], brasileiro, mecânico, CPF [[CPF:${CPF_C}]], RG [[RG:11.222.333-4]], residente à [[ENDERECO:Avenida Brasil, nº 1500, Bloco B, Centro, Goiânia/GO]], CEP [[CEP:74003-010]].
+
+COMPRADORA: [[PESSOA:VALÉRIA CRISTINA DOS REIS]], CPF [[CPF:${CPF_E_RAW}]], moradora da [[ENDERECO:Rua 15 de Novembro, 321, Setor Oeste, Goiânia/GO]].
+
+OBJETO: um [[!:Renault Kwid]] 2021, cor prata, ano de fabricação [[!:2020/2021]], com documentação regular na [[!:Receita Federal]] e no [[!:Detran]].
+
+PREÇO: [[VALOR:R$ 48.500,00]], pagos assim: [[VALOR:R$ 10.000]] de entrada em [[DATA:07/11/2026]] e o saldo em 12 parcelas por transferência para a conta [[CONTA:30405-2]], agência [[AGENCIA:1122]] do [[!:Itaú]], em nome do vendedor.
+
+O vendedor pode ser localizado no celular [[TELEFONE:62 99444-1010]] e a compradora pelo e-mail [[EMAIL:valeria.reis@exemplo.com.br]]. A testemunha, o Sr. [[PESSOA:Osmar]], assina abaixo.
+
+Pedido de transferência protocolado sob o número [[!:2026.114.887-3]].
+Goiânia, [[DATA:07/11/2026]].

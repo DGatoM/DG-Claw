@@ -1,0 +1,18 @@
+[Unit]
+Description=DG Claw Tela do agente (Xvfb + gerenciador de janelas)
+# Estas quatro unidades "dgclaw-tela*" so sao HABILITADAS na imagem com navegador
+# (COM_NAVEGADOR=1). Ver o Containerfile e docs/TELA-DO-AGENTE.md.
+
+[Service]
+Type=simple
+User=agente
+Environment=HOME=/home/agente
+# Xvfb e fluxbox no mesmo servico (KillMode padrao mata os dois juntos). A espera de
+# 2 s deixa o display :1 abrir antes do fluxbox. -nolisten tcp: a tela so aceita
+# cliente local (Chrome, x11vnc).
+ExecStart=/bin/bash -c '/usr/bin/Xvfb :1 -screen 0 1440x900x24 -nolisten tcp & sleep 2; exec env DISPLAY=:1 /usr/bin/fluxbox'
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

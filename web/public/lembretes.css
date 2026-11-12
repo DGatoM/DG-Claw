@@ -101,3 +101,8 @@ body.lp #tourCaixa button{min-height:36px;padding:0 14px;border-radius:18px;bord
 body.lp #tourCaixa button.pri{background:var(--lp-acento);border-color:var(--lp-acento);color:#fff}
 body.lp #tourCaixa button:disabled{opacity:.4;cursor:default}
 body.lp #tourCaixa .tour-x{margin-right:auto}
+
+/* interruptores dos avisos de atenção dos agentes */
+.lp-prefs{display:flex;flex-direction:column;gap:2px;margin:10px 0 2px}
+.lp-check{display:flex;align-items:center;gap:10px;min-height:36px;font-size:14px;color:#38523f;cursor:pointer}
+.lp-check input{width:20px;height:20px;flex:0 0 20px;accent-color:var(--lp-acento)}

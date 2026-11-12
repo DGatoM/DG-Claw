@@ -5,4 +5,10 @@ if [ "${1:-}" = image ] && [ "${2:-}" = exists ]; then
     [ "${DGCLAW_STUB_IMAGEM_PRONTA:-0}" = 1 ]
     exit $?
 fi
+if [ "${1:-}" = ps ]; then
+    # DGCLAW_STUB_PS_FALHA=1 simula o podman quebrado; DGCLAW_STUB_PS e a listagem "<nome> <estado>" (\n literal separa linhas).
+    if [ "${DGCLAW_STUB_PS_FALHA:-0}" = 1 ]; then echo "podman: erro simulado" >&2; exit 125; fi
+    [ -z "${DGCLAW_STUB_PS:-}" ] || printf '%b\n' "$DGCLAW_STUB_PS"
+    exit 0
+fi
 exit 0

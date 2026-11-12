@@ -27,6 +27,7 @@ ATU_ETAPA=""
 ATU_BACKUP=""
 ATU_PROBLEMAS=0
 ATU_AGENTES_FALHOS=""   # slugs que nao foram recriados ou nao responderam no fim (separados por espaco)
+ATU_TELA_SEM_SENHA=""   # slugs que tem a Tela mas ainda nao tem a senha dela (separados por espaco)
 ATU_COMMIT_ANTIGO=""    # o commit que estava INSTALADO antes desta atualizacao (nao o HEAD do clone)
 ATU_COMMIT_ORIGEM=""
 ATU_VOLTAR_SOZINHO=0    # 1 = se o instalador novo ou a conferencia de configuracao falharem, desfaz sozinho
@@ -254,6 +255,19 @@ atualizar_aplicar() {
         ATU_PROBLEMAS=$((ATU_PROBLEMAS + 1))
         printf '   FALHOU  nao consegui recriar:%s (leia as mensagens acima; a casa deles esta intacta). Para refazer cada um: dgclaw agente recriar <slug> --forcar\n' "$falhou" >&2
     fi
+    atualizar_juntar_tela_sem_senha
+}
+
+# atualizar_juntar_tela_sem_senha: agente criado antes da Tela nao tem a senha dela, e o recriar so
+# avisa (nao inventa senha). Aqui os avisos viram uma lista unica para o resumo final.
+atualizar_juntar_tela_sem_senha() {
+    local slug
+    [ "$ENSAIO" != 1 ] || return 0
+    ATU_TELA_SEM_SENHA=""
+    while IFS= read -r slug; do
+        [ -n "$slug" ] || continue
+        if tela_sem_senha "$slug"; then ATU_TELA_SEM_SENHA+="${ATU_TELA_SEM_SENHA:+ }$slug"; fi
+    done < <(agentes_ler | jq -r '.agentes[] | select(.tipo == "agente") | .slug')
 }
 
 # atualizar_checar_vida: o status geral e a saude de cada agente que estava ligado.
@@ -356,6 +370,7 @@ atualizar_montar_resumo() {
     printf '  Para voltar atras: sudo dgclaw atualizar --voltar %s\n' "$ATU_BACKUP"
     printf '  Agentes que ficaram bem: %s\n' "${oks:-nenhum}"
     personalizacoes_linha_resumo
+    for slug in $ATU_TELA_SEM_SENHA; do printf '  Tela sem senha: %s\n' "$(tela_texto_sem_senha "$slug")"; done
     if [ -n "${ATU_AGENTES_FALHOS// /}" ]; then
         printf '  Agentes COM PROBLEMA:%s\n' "$ATU_AGENTES_FALHOS"
         for slug in $ATU_AGENTES_FALHOS; do printf '    para refazer: dgclaw agente recriar %s --forcar\n' "$slug"; done

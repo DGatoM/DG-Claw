@@ -15,7 +15,7 @@
   var agora = function () { return W.performance && W.performance.now ? W.performance.now() : Date.now(); };
   var emb = !!(W.parent && W.parent !== W);
 
-  var PECAS = '.dv-titulo,.dv-sub,.dv-numero,.dv-fluxo,.dv-ciclo,.dv-passos,.dv-compara,.dv-linha-tempo,.dv-tabela,.dv-barras,.dv-linhas,.dv-cartao,.dv-abas,.dv-acordeao,.dv-slider,.dv-opcoes';
+  var PECAS = '.dv-titulo,.dv-sub,.dv-numero,.dv-fluxo,.dv-ciclo,.dv-passos,.dv-compara,.dv-linha-tempo,.dv-tabela,.dv-barras,.dv-linhas,.dv-cartao,.dv-abas,.dv-acordeao,.dv-slider,.dv-opcoes,.dv-cofre';
   var CDNS = 'só cdn.jsdelivr.net e cdnjs.cloudflare.com são aceitos, e nenhum pedido de dados (fetch/XHR) é permitido';
 
   var estado = {
@@ -195,6 +195,7 @@
     if (c.contains('dv-acordeao')) return 'acordeao';
     if (c.contains('dv-slider')) return 'slider';
     if (c.contains('dv-opcoes')) return 'opcoes';
+    if (c.contains('dv-cofre')) return 'cofre';
     if (c.contains('dv-fluxo') || c.contains('dv-passos') || c.contains('dv-compara')) return 'lista';
     return null;
   }
@@ -577,6 +578,103 @@
     dispara(el);
   }, true);
 
+
+  // ---------- caixa de cofre (.dv-cofre) ----------
+  // O iframe só PEDE a caixa. O campo de senha é desenhado pelo app, fora do iframe: o valor da chave
+  // nunca passa por aqui, e o final dele também não: o app não manda o final ao visual. Estados: pendente, espera, ok, erro.
+  var NOME_COFRE = /^[A-Z_][A-Z0-9_]{1,63}$/;
+  var cofreSeq = 0, cofrePedidos = {}, cofres = [], cofreAgenda = 0;
+  function cofreEstado(el, st, rot, ms) {
+    var c = el._dvCofre; if (!c) return;
+    if (c.t) { clrT(c.t); c.t = 0; }
+    el.setAttribute('data-dv-cofre', st);
+    c.est.textContent = rot || '';
+    if (rot) anuncia(rot);
+    c.btn.disabled = st === 'espera';
+    c.btn.textContent = st === 'ok' ? 'Colar de novo' : 'Colar a chave';
+    if (ms) c.t = setT(function () { c.t = 0; cofreEstado(el, c.guardada ? 'ok' : 'pendente', c.guardada ? c.rotOk : ''); }, ms);
+    agendaAltura();
+  }
+  function cofreRotOk() { return 'Guardada ✓'; }
+  function pedirCofre(el) {
+    var c = el._dvCofre; if (!c) return -1;
+    if (!emb) { cofreEstado(el, 'erro', 'só funciona dentro do app', 4000); return -1; }
+    var id = ++cofreSeq;
+    cofrePedidos[id] = { el: el };
+    c.id = id;
+    manda({ tipo: 'cofre', id: id, nome: c.nome, rotulo: c.rotulo, ajuda: c.ajuda });
+    cofreEstado(el, 'espera', 'abrindo a caixa…');
+    // app antigo ou sem resposta: não deixa o botão preso
+    c.t = setT(function () {
+      c.t = 0;
+      if (c.id === id && el.getAttribute('data-dv-cofre') === 'espera' && !c.aberta) {
+        delete cofrePedidos[id]; cofreEstado(el, 'erro', 'o app não respondeu', 4000);
+      }
+    }, 6000);
+    return id;
+  }
+  function montaCofre(el) {
+    var nome = (el.getAttribute('data-cofre') || '').trim();
+    var rotulo = (el.getAttribute('data-rotulo') || '').trim().slice(0, 80);
+    var ajuda = (el.getAttribute('data-ajuda') || '').trim().slice(0, 200);
+    el.textContent = '';
+    if (!NOME_COFRE.test(nome)) {
+      var e = D.createElement('div'); e.className = 'dv-cofre-erro'; e.setAttribute('role', 'alert');
+      e.textContent = 'dv-cofre: data-cofre="' + nome.slice(0, 40) + '" não é um nome de variável válido. Use letras maiúsculas, números e _ (por exemplo HOSTINGER_API_TOKEN).';
+      el.appendChild(e); el.setAttribute('data-dv-cofre', 'erro');
+      return null;
+    }
+    var tit = D.createElement('div'); tit.className = 'dv-cofre-tit'; tit.textContent = rotulo || 'Chave segura';
+    var cod = D.createElement('code'); cod.className = 'dv-cofre-nome'; cod.textContent = nome;
+    el.append(tit, cod);
+    if (ajuda) { var aj = D.createElement('div'); aj.className = 'dv-cofre-ajuda'; aj.textContent = ajuda; el.appendChild(aj); }
+    var btn = D.createElement('button'); btn.type = 'button'; btn.className = 'dv-botao dv-cofre-btn'; btn.textContent = 'Colar a chave';
+    var est = D.createElement('div'); est.className = 'dv-cofre-est';
+    el.append(btn, est);
+    el._dvCofre = { nome: nome, rotulo: rotulo, ajuda: ajuda, btn: btn, est: est, t: 0, id: 0, aberta: false, guardada: false, rotOk: '' };
+    el.setAttribute('data-dv-cofre', 'pendente');
+    btn.addEventListener('click', function (ev) { ev.preventDefault(); if (el.getAttribute('data-dv-cofre') !== 'espera') pedirCofre(el); });
+    cofres.push(el);
+    // uma pergunta só, depois que as peças da página montaram
+    if (!cofreAgenda) cofreAgenda = setT(function () {
+      cofreAgenda = 0;
+      var nomes = []; cofres.forEach(function (x) { if (x._dvCofre && nomes.indexOf(x._dvCofre.nome) < 0) nomes.push(x._dvCofre.nome); });
+      if (emb && nomes.length) manda({ tipo: 'cofre-estado?', nomes: nomes.slice(0, 20) });
+    }, 0);
+    return null;
+  }
+  function aoCofreEstado(d) {
+    var es = d.estados && typeof d.estados === 'object' ? d.estados : {};
+    cofres.forEach(function (el) {
+      var c = el._dvCofre, e = c && es[c.nome];
+      if (!c || !e || !e.guardada || el.getAttribute('data-dv-cofre') === 'espera') return;
+      c.guardada = true; c.rotOk = cofreRotOk();
+      cofreEstado(el, 'ok', c.rotOk);
+    });
+  }
+  function aoCofre(d, novo) {
+    var id = Num(d.id), p = cofrePedidos[id];
+    if (!p) return;
+    var el = p.el, c = el && el._dvCofre;
+    if (novo === 'espera') { if (c) { c.aberta = true; cofreEstado(el, 'espera', 'cole a chave no app ↓'); } return; }
+    delete cofrePedidos[id];
+    if (c) {
+      c.aberta = false;
+      if (novo === 'ok') { c.guardada = true; c.rotOk = cofreRotOk(); cofreEstado(el, 'ok', c.rotOk); }
+      else cofreEstado(el, 'erro', typeof d.msg === 'string' && d.msg ? d.msg.slice(0, 200) : 'não guardou', 5000);
+    }
+    emite('cofre', { id: id, estado: novo, nome: c ? c.nome : p.nome, motivo: d.motivo ? Str(d.motivo) : '' });
+  }
+  // JavaScript puro: dgvis.cofre(nome, {rotulo, ajuda}) faz o mesmo pedido, sem cartão.
+  function cofreApi(nome, opts) {
+    nome = Str(nome == null ? '' : nome).trim(); opts = opts || {};
+    if (!emb || !NOME_COFRE.test(nome)) return -1;
+    var id = ++cofreSeq;
+    cofrePedidos[id] = { el: null, nome: nome };
+    manda({ tipo: 'cofre', id: id, nome: nome, rotulo: Str(opts.rotulo || '').slice(0, 80), ajuda: Str(opts.ajuda || '').slice(0, 200) });
+    return id;
+  }
+
   // ---------- peças da fase 2 ----------
   // Dentro de aba fechada ou acordeão fechado nada é medido nem animado: anima quando aparece.
   function escondida(el) {
@@ -827,8 +925,8 @@
     };
   }
 
-  var MONTA = { numero: montaNumero, barras: montaBarras, linhas: montaLinhas, ciclo: montaCiclo, tabela: montaTabela, tempo: montaTempo, passos: function (el) { numeraFilhos(el); return montaPassosPlay(el); }, abas: montaAbas, acordeao: montaAcordeao, slider: montaSlider, opcoes: montaOpcoes, lista: function (el) { numeraFilhos(el); return null; } };
-  var NOMES = { numero: 'o .dv-numero', barras: 'o .dv-barras', linhas: 'o .dv-linhas', ciclo: 'o .dv-ciclo', tabela: 'a .dv-tabela', tempo: 'a .dv-linha-tempo', passos: 'os .dv-passos com data-play', abas: 'o .dv-abas', acordeao: 'o .dv-acordeao', slider: 'o .dv-slider', opcoes: 'o .dv-opcoes', lista: 'a peça' };
+  var MONTA = { numero: montaNumero, barras: montaBarras, linhas: montaLinhas, ciclo: montaCiclo, tabela: montaTabela, tempo: montaTempo, passos: function (el) { numeraFilhos(el); return montaPassosPlay(el); }, abas: montaAbas, acordeao: montaAcordeao, slider: montaSlider, opcoes: montaOpcoes, cofre: montaCofre, lista: function (el) { numeraFilhos(el); return null; } };
+  var NOMES = { numero: 'o .dv-numero', barras: 'o .dv-barras', linhas: 'o .dv-linhas', ciclo: 'o .dv-ciclo', tabela: 'a .dv-tabela', tempo: 'a .dv-linha-tempo', passos: 'os .dv-passos com data-play', abas: 'o .dv-abas', acordeao: 'o .dv-acordeao', slider: 'o .dv-slider', opcoes: 'o .dv-opcoes', cofre: 'o .dv-cofre', lista: 'a peça' };
 
   function monta(el) {
     if (el._dvPeca) return el._dvPeca;
@@ -897,6 +995,14 @@
       aoPergunta(d, 'ok');
     } else if (d.tipo === 'pergunta-erro') {
       aoPergunta(d, 'erro');
+    } else if (d.tipo === 'cofre-estado') {
+      aoCofreEstado(d);
+    } else if (d.tipo === 'cofre-espera') {
+      aoCofre(d, 'espera');
+    } else if (d.tipo === 'cofre-ok') {
+      aoCofre(d, 'ok');
+    } else if (d.tipo === 'cofre-erro') {
+      aoCofre(d, 'erro');
     } else if (d.tipo === 'tela') {
       estado.tela = !!d.cheia; ROOT.classList.toggle('dv-tela-cheia', estado.tela);
       emite('tela', estado.tela); agendaAltura();
@@ -935,7 +1041,7 @@
     agendaAltura();
   }
   var api = {
-    on: on, cores: cores, anima: anima, formata: formata, perguntar: perguntar
+    on: on, cores: cores, anima: anima, formata: formata, perguntar: perguntar, cofre: cofreApi
   };
   ['tema', 'reduzido', 'visivel', 'tela'].forEach(function (k) {
     Object.defineProperty(api, k, { get: function () { return estado[k]; }, enumerable: true });

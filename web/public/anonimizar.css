@@ -1,0 +1,52 @@
+/* anonimizar.css: a tela /anonimizar (classes an-). Celular primeiro: 390 px sem rolagem horizontal,
+   alvos de toque de pelo menos 32 px, campos com 16 px (o iPhone não amplia a tela ao focar). */
+body.an{--an-txt:#0f1c14;--an-fraco:#5f7566;--an-linha:#dfe7e1;--an-acento:#2f9e5e;--an-fundo:#f3f6f3;--an-verm:#b3261e;
+  margin:0;background:var(--an-fundo);color:var(--an-txt);overflow:auto;height:auto;
+  font:15.5px/1.46 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;-webkit-text-size-adjust:100%}
+body.an *{box-sizing:border-box}
+.an-main{max-width:980px;margin:0 auto;padding:14px;display:flex;flex-direction:column;gap:14px}
+.an-sec{background:#fff;border:1px solid var(--an-linha);border-radius:14px;padding:14px;min-width:0}
+.an-sec h2{font-size:16.5px;margin:0 0 8px;display:flex;align-items:center;gap:8px}
+.an-sec h2 span{flex:1;min-width:0}
+.an-sec p{margin:0 0 8px;overflow-wrap:anywhere}
+.an-ajuda{width:34px;height:34px;border-radius:50%;border:1px solid var(--an-linha);background:#f2f6f2;color:#38523f;font-weight:700;cursor:pointer;flex:0 0 auto}
+.an-fraco,.an-vazio{color:var(--an-fraco);font-size:14px}
+.an-limite{padding:8px 12px;border-radius:10px;background:#fff7e0;border:1px solid #e3c27a;color:#6b4a00;font-size:14.5px}
+.an-card{border:1px solid var(--an-linha);border-radius:12px;padding:12px;margin-top:10px;min-width:0}
+.an-card:first-child{margin-top:0}
+.an-card h3{font-size:15.5px;margin:0;overflow-wrap:anywhere}
+.an-topo{display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap}
+.an-chave{display:inline-flex;align-items:center;gap:8px;min-height:36px;font-weight:600;cursor:pointer}
+.an-chave input{width:22px;height:22px;accent-color:var(--an-acento)}
+.an-op{margin-top:8px}
+.an-op summary{cursor:pointer;min-height:34px;display:flex;align-items:center;font-weight:600;color:#1f5fae}
+.an-opcoes{display:grid;gap:8px;margin-top:6px}
+.an-linha-op{display:flex;align-items:flex-start;gap:8px;min-height:32px;font-size:14.5px}
+.an-linha-op input{width:20px;height:20px;margin-top:2px;flex:0 0 auto;accent-color:var(--an-acento)}
+.an-campo{display:flex;flex-direction:column;gap:4px;font-size:14px;font-weight:600;margin:0 0 8px;min-width:0}
+.an-campo small{font-weight:400;color:var(--an-fraco)}
+.an-sec select,.an-sec textarea,.an-sec input[type=text]{font:inherit;font-size:16px;min-height:38px;padding:6px 10px;border:1px solid var(--an-linha);border-radius:10px;max-width:100%;width:100%;background:#fff;color:var(--an-txt)}
+.an-sec textarea{resize:vertical}
+.an-acoes{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.an-btn{font:inherit;font-size:14px;font-weight:600;min-height:36px;padding:0 14px;border-radius:18px;border:1px solid var(--an-linha);background:#f2f6f2;color:#38523f;cursor:pointer;touch-action:manipulation}
+.an-btn.an-pri{background:var(--an-acento);border-color:var(--an-acento);color:#fff}
+.an-btn.an-perigo{background:#fff;border-color:#e6a5a0;color:var(--an-verm)}
+.an-btn:disabled{opacity:.5;cursor:default}
+.an-barra{height:10px;border-radius:5px;background:#e6ede7;overflow:hidden;margin:6px 0}
+.an-barra i{display:block;height:100%;background:var(--an-acento);width:30%;animation:an-corre 1.4s ease-in-out infinite alternate}
+@keyframes an-corre{from{margin-left:0}to{margin-left:70%}}
+.an-saida{margin-top:10px;padding:10px 12px;border-radius:10px;background:#f4f6f8;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word}
+.an-saida[hidden]{display:none}
+.an-marca{background:#dff3e6;color:#14552f;border-radius:5px;padding:0 4px;font-weight:700}
+.an-doc{display:flex;align-items:center;gap:8px;justify-content:space-between;flex-wrap:wrap;padding:8px 0;border-top:1px solid var(--an-linha)}
+.an-doc:first-child{border-top:0}
+.an-doc-nome{flex:1 1 180px;min-width:0;overflow-wrap:anywhere}
+.an-doc-nome small{display:block;color:var(--an-fraco)}
+.an-tab{display:grid;grid-template-columns:minmax(90px,130px) minmax(0,1fr);gap:4px 10px;font-size:14px}
+.an-tab b{font-weight:700;color:#4a5968}
+.an-aviso-real{padding:8px 12px;border-radius:10px;background:#fdecea;border:1px solid #e6a5a0;color:#8c1d18;margin-bottom:8px}
+.an-msg{margin:8px 0 0;font-size:14px;overflow-wrap:anywhere}
+.an-msg.erro{color:#a01818}
+.an-msg.ok{color:#1f7a45}
+.an-msg[hidden]{display:none}
+@media (max-width:420px){.an-tab{grid-template-columns:1fr;gap:0}.an-acoes .an-btn{flex:1 1 auto}}

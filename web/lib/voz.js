@@ -5,7 +5,57 @@
 // Sem chave a rota responde 503 com o motivo e a tela esconde os botões.
 
 const ELEVEN = 'https://api.elevenlabs.io';
-const TETO_TTS = 4500;
+const TTS_MAX_CHARS = 1200;     // tamanho máximo de cada pedaço de voz (a resposta inteira é lida, em pedaços)
+const TTS_PRIMEIRO_CHARS = 450; // o 1º pedaço é menor: a voz começa a tocar mais cedo
+const TTS_MAX_PARTES = 40;      // trava contra texto absurdo (cota de custo da ElevenLabs)
+
+/** Tira o que é para o olho e não para o ouvido. Preserva as quebras de parágrafo (o fatiamento precisa delas). */
+function limparParaTts(texto) {
+  return String(texto || '')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/^[ \t]*\|.*$/gm, '')          // linha de tabela não é fala
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/https?:\/\/\S+/g, ' ')
+    .replace(/[*_`#>~|]/g, '')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/ *\n */g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/**
+ * Quebra o texto já limpo em pedaços para a voz, sem cortar frase no meio: junta parágrafos e frases
+ * enquanto couberem, frase grande demais quebra no último espaço e, sem espaço, no meio. O 1º pedaço usa
+ * o limite menor. Determinístico: a tela pede cada pedaço pelo índice e precisa que o texto dê sempre os mesmos.
+ */
+function fatiarParaTts(textoLimpo, limite = TTS_MAX_CHARS, primeiro = TTS_PRIMEIRO_CHARS) {
+  const atomos = []; // { t, fimPar }
+  for (const par of String(textoLimpo || '').split(/\n\s*\n/)) {
+    const frases = par.trim().split(/(?<=[.!?…])\s+/).map((f) => f.trim()).filter(Boolean);
+    frases.forEach((frase, i) => {
+      let f = frase;
+      for (;;) {
+        const teto = atomos.length ? limite : primeiro;
+        if (f.length <= teto) break;
+        let corte = f.lastIndexOf(' ', teto);
+        if (corte < teto / 2) corte = teto;
+        atomos.push({ t: f.slice(0, corte).trim(), fimPar: false });
+        f = f.slice(corte).trim();
+      }
+      atomos.push({ t: f, fimPar: i === frases.length - 1 });
+    });
+  }
+  const pedacos = [];
+  let atual = '';
+  for (const { t, fimPar } of atomos) {
+    const teto = pedacos.length ? limite : primeiro;
+    const junto = atual ? `${atual} ${t}` : t;
+    if (atual && junto.length > teto) { pedacos.push(atual); atual = t; } else atual = junto;
+    if (fimPar && atual) atual += '\n';
+  }
+  if (atual.trim()) pedacos.push(atual);
+  return pedacos.map((p) => p.trim()).filter(Boolean);
+}
 
 function criarVoz({ env, log }) {
   const temEleven = !!env.ELEVENLABS_API_KEY;
@@ -66,27 +116,28 @@ function criarVoz({ env, log }) {
       return { texto };
     },
 
-    /** { audio:Buffer } ou { erro, status } */
-    async falar(agente, texto, vozPedida) {
+    /** { audio:Buffer, chars, partes, parte } ou { erro, status }. `parte` (0 a partes-1) é o pedaço pedido. */
+    async falar(agente, texto, vozPedida, parte = 0) {
       if (!this.vozDoAgente(agente) && !(temEleven && vozPedida)) return { erro: semChaveFala, status: 503 };
       const voz = vozPedida || agente.voz || env.ELEVENLABS_VOICE_ID;
       if (!/^[A-Za-z0-9]{10,40}$/.test(voz)) return { erro: `O id de voz ${JSON.stringify(String(voz).slice(0, 40))} não vale (letras e números, 10 a 40 caracteres).`, status: 400 };
-      let limpo = String(texto || '')
-        .replace(/```[\s\S]*?```/g, ' ')
-        .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
-        .replace(/https?:\/\/\S+/g, ' ')
-        .replace(/[*_`#>~|]/g, '')
-        .replace(/\s+/g, ' ').trim();
-      if (!limpo) return { erro: 'Depois de tirar formatação e links não sobrou nada para falar.', status: 400 };
-      const cortado = limpo.length > TETO_TTS;
-      if (cortado) limpo = `${limpo.slice(0, TETO_TTS).trimEnd()}...`;
+      const limpo = limparParaTts(texto);
+      if (!limpo) return { erro: 'Depois de tirar formatação, tabelas e links não sobrou nada para falar.', status: 400 };
+      const pedacos = fatiarParaTts(limpo);
+      if (pedacos.length > TTS_MAX_PARTES) {
+        return { erro: `O texto rende ${pedacos.length} pedaços de voz e o limite é ${TTS_MAX_PARTES} (para não estourar a cota da ElevenLabs). Mande um trecho menor.`, status: 413 };
+      }
+      if (!Number.isInteger(parte) || parte < 0 || parte >= pedacos.length) {
+        return { erro: `O texto tem ${pedacos.length} pedaço(s) de voz, numerados de 0 a ${pedacos.length - 1}. Pediu o ${JSON.stringify(parte)}.`, status: 400 };
+      }
+      const pedaco = pedacos[parte];
       const r = await chama('voz (ElevenLabs)', `${ELEVEN}/v1/text-to-speech/${voz}?output_format=mp3_44100_128`, {
         method: 'POST',
         headers: { 'xi-api-key': env.ELEVENLABS_API_KEY, 'Content-Type': 'application/json', Accept: 'audio/mpeg' },
-        body: JSON.stringify({ text: limpo, model_id: 'eleven_multilingual_v2' }),
+        body: JSON.stringify({ text: pedaco, model_id: 'eleven_multilingual_v2' }),
       });
       if (r.erro) return r;
-      return { audio: Buffer.from(await r.resposta.arrayBuffer()), chars: limpo.length, cortado };
+      return { audio: Buffer.from(await r.resposta.arrayBuffer()), chars: pedaco.length, partes: pedacos.length, parte };
     },
 
     async cota() {
@@ -102,4 +153,4 @@ function criarVoz({ env, log }) {
   };
 }
 
-module.exports = { criarVoz };
+module.exports = { criarVoz, limparParaTts, fatiarParaTts, TTS_MAX_CHARS, TTS_PRIMEIRO_CHARS, TTS_MAX_PARTES };

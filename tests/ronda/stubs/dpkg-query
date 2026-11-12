@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# dpkg-query de mentira: lê $STUB_DIR/dpkg.txt (pacote<TAB>versao<TAB>fonte<TAB>versao-da-fonte)
+# shellcheck disable=SC2016 # ${Version} e o formato do dpkg-query, nao uma variavel do shell
+if [ "${3:-}" = '${Version}' ]; then
+    awk -F'\t' -v p="$4" '$1==p {print $2; f=1} END {exit !f}' "$STUB_DIR/dpkg.txt"
+    exit $?
+fi
+cat "$STUB_DIR/dpkg.txt"

@@ -18,7 +18,7 @@ function semToken(motivo: string): TokenDoRunner {
   log.erro(
     "auth",
     motivo,
-    "crie o arquivo com um token de 32+ caracteres (ex.: openssl rand -hex 32), chmod 600, e aponte RUNNER_TOKEN_FILE para ele; sem isso o runner recusa tudo com 401, menos GET /api/saude e POST /api/agent-hook",
+    "crie o arquivo com um token de 32+ caracteres (ex.: openssl rand -hex 32), chmod 600, e aponte RUNNER_TOKEN_FILE para ele; sem isso o runner recusa tudo com 401, menos GET /api/saude, POST /api/agent-hook e POST /api/agent-uso",
   );
   return { token: null, motivo };
 }
@@ -58,6 +58,8 @@ export function rotaLivre(rota: string, metodo: string): boolean {
   if (metodo === "GET" && (rota === "/api/saude" || rota === "/saude")) return true;
   // O hook tem nonce próprio, que o runner confere na rota.
   if (metodo === "POST" && rota === "/api/agent-hook") return true;
+  // O statusLine do Claude (medidor de uso) também carrega o nonce do spawn.
+  if (metodo === "POST" && rota === "/api/agent-uso") return true;
   return false;
 }
 

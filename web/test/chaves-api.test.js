@@ -6,8 +6,9 @@ const path = require('node:path');
 const { pastaTemp, capturaLog } = require('./ajuda');
 const { criarChavesApi, ESCOPOS } = require('../lib/chaves-api');
 
-function loja(opcoes) {
-  const dataDir = pastaTemp('chaves');
+function loja(opcoes, { pastaNova = false } = {}) {
+  // pastaNova: a pasta ainda não existe, quem a cria é a própria loja (o teste confere que ela nasce em 0700).
+  const dataDir = pastaNova ? path.join(pastaTemp('chaves'), 'dados') : pastaTemp('chaves');
   const cap = capturaLog();
   let t = 1_800_000_000_000;
   const relogio = { avanca: (ms) => { t += ms; } };
@@ -21,7 +22,7 @@ test('o único escopo aceito hoje é diagnostico', () => {
 });
 
 test('criar: o token aparece uma vez e só o hash vai para o disco', () => {
-  const l = loja();
+  const l = loja(undefined, { pastaNova: true });
   const r = l.api.criar({ nome: 'Suporte DG', escopos: ['diagnostico'], quem: 'dono' });
   assert.equal(r.ok, true);
   assert.match(r.token, /^dgc_[A-Za-z0-9_-]{43}$/);

@@ -53,7 +53,9 @@ comprometido ainda consegue mandar dados para a internet (ver "Pendências").
   por 30 minutos, com o código no fragmento da URL (não vai para o log do Caddy). Em disco fica só o hash
   do código (`primeiro-acesso.json`, modo 600). Cadastrar a senha pelo link consome o código.
 - A sessão é assinada pelo servidor e vence em 30 dias. Trocar a senha invalida todas as
-  sessões abertas.
+  sessões abertas. Cada sessão guarda uma
+  marca da senha e do usuário de quando nasceu (um sha256, nunca o hash da senha); se a senha ou o
+  usuário mudam, as sessões com a marca antiga deixam de valer no próximo pedido ou no restart.
 - Depois de 10 senhas erradas em 15 minutos, o painel responde "Muitas tentativas erradas.
   Espere N minutos." e nem a senha certa entra até a janela passar.
 - Contra CSRF, toda requisição que muda alguma coisa confere `Origin` e `Sec-Fetch-Site`.
@@ -101,6 +103,13 @@ sem tela.
 - Cada agente roda num container sem privilégio, com usuário remapeado.
 - O firewall da jaula descarta qualquer pacote do container para o host, para o gateway, para os
   outros containers e para redes privadas. A saída para a internet fica aberta.
+  A cerca contra o host fica também na tabela `mangle` (que roda antes da `filter` e que o netavark
+  não usa), porque o netavark insere uma regra que libera a porta 53 do host à frente da cerca da
+  `filter` toda vez que um container sobe. Quando o DNS do servidor fica numa rede privada (comum em
+  servidor físico na rede de uma empresa), a cerca não ganha exceção: só os containers do DG Claw
+  são criados com DNS público (`--dns 1.1.1.1 --dns 8.8.8.8`).
+  A aplicação da cerca troca as cadeias sem deixar instante desprotegido e roda sob uma trava
+  exclusiva (`flock`), para duas partidas de agente ao mesmo tempo não se atrapalharem.
 - **Como provar:** `bash scripts/teste-isolamento.sh <slug>` roda, de dentro do container, uma
   bateria de conexões contra o host, o gateway, as portas internas, os vizinhos, as redes
   privadas e o endereço de metadados da nuvem. Sai com 0 quando tudo foi bloqueado e a internet

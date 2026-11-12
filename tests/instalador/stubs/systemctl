@@ -9,6 +9,9 @@ case "${1:-}" in
         quieto=0; for a in "$@"; do [ "$a" = --quiet ] && quieto=1; done
         if esta_na_lista ativos "$u" "${DGCLAW_STUB_ATIVOS:-}"; then [ "$quieto" = 1 ] || echo active; exit 0; fi
         [ "$quieto" = 1 ] || echo inactive; exit 3 ;;
+    show)
+        case " $* " in *" MainPID "*) [ -n "${DGCLAW_STUB_MAINPID:-}" ] && echo "$DGCLAW_STUB_MAINPID"; exit 0 ;; esac
+        [ -n "${DGCLAW_STUB_SOCKET_LISTEN:-}" ] && printf 'Listen=%s\n' "$DGCLAW_STUB_SOCKET_LISTEN" ;;
     enable) if [ "${2:-}" = --now ]; then ativar "${3:-}"; fi ;;
     start|restart)
         case " $* " in *" --no-block "*) ;; *) ativar "${!#}" ;; esac ;;

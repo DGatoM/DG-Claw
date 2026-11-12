@@ -1,0 +1,14 @@
+[Unit]
+Description=DG Claw Tela do agente (observa o arquivo da senha do VNC)
+
+[Path]
+# PathChanged cobre as duas coisas que importam: a troca de senha pelo painel (vale na
+# hora) e a PRIMEIRA gravacao do arquivo (o x11vnc nao subiu por falta dele e agora sobe).
+# De proposito NAO usa PathExists: com o arquivo sempre presente ele dispararia o servico
+# sem parar ate estourar o limite de partidas. Se o arquivo ja existe no boot, o proprio
+# dgclaw-tela-vnc.service sobe sozinho.
+PathChanged=/home/agente/.dgclaw/tela/vnc.senha
+Unit=dgclaw-tela-senha.service
+
+[Install]
+WantedBy=multi-user.target

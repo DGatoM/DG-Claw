@@ -148,6 +148,8 @@
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') atualiza(); });
   }
 
+  // Colaborador não vê lembretes: o servidor negaria a chamada.
+  if (raiz.DGPapel && raiz.DGPapel.colaborador) return;
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', inicia);
   else inicia();
 

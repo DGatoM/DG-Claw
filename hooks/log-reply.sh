@@ -12,7 +12,7 @@ mkdir -p "$(dirname "$TAIL")" || echo "log-reply: nao consegui criar a pasta de 
 
 HOOK_INPUT=$(cat)
 
-printf '%s' "$HOOK_INPUT" | python3 -c "
+printf '%s' "$HOOK_INPUT" | python3 -I -c "
 import json, sys, os
 TAIL = os.environ.get('TAIL') or '$TAIL'
 try:

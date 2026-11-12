@@ -1,6 +1,6 @@
 'use strict';
 /* avisos-aparelho.js: liga e desliga os avisos (web push) neste aparelho. Sem dependências.
-   Expõe window.DGClawAvisos = { suportado, estado, ativar, desativar, testar }.
+   Expõe window.DGClawAvisos = { suportado, estado, ativar, desativar, testar, preferencias, salvarPreferencia }.
    Quem desenha o botão chama estas funções; nada aqui mexe na tela.
    Toda função que pode falhar devolve { ok:false, erro:"frase em português com o que fazer" }.
    Contrato das rotas: web/docs/AVISOS-NO-APARELHO.md. */
@@ -149,5 +149,19 @@
     return { ok: true, enviados: r.json.enviados };
   }
 
-  window.DGClawAvisos = { suportado, estado, ativar, desativar, testar };
+  /** O que o dono quer receber no aparelho: { precisa_de_voce, terminou } (padrão: os dois ligados). */
+  async function preferencias() {
+    const r = await chamar('GET', '/api/v1/push/preferencias');
+    if (!r.ok) return { ok: false, erro: r.erro };
+    return { ok: true, preferencias: r.json.preferencias };
+  }
+
+  /** Liga ou desliga um tipo de aviso: salvarPreferencia('terminou', false). Vale para todos os aparelhos. */
+  async function salvarPreferencia(tipo, ligado) {
+    const r = await chamar('POST', '/api/v1/push/preferencias', { [tipo]: !!ligado });
+    if (!r.ok) return { ok: false, erro: r.erro };
+    return { ok: true, preferencias: r.json.preferencias };
+  }
+
+  window.DGClawAvisos = { suportado, estado, ativar, desativar, testar, preferencias, salvarPreferencia };
 })();

@@ -54,3 +54,5 @@ com você a correção e a data de divulgação, e damos o crédito a quem quise
   ainda não protege.
 - [docs/RISCO-DE-BLOQUEIO-DE-CONTA.md](docs/RISCO-DE-BLOQUEIO-DE-CONTA.md): por que usar o DG Claw
   com a sua assinatura do Claude ou da OpenAI não infringe as regras dessas empresas, e as fontes.
+- [docs/TELA-DO-AGENTE.md](docs/TELA-DO-AGENTE.md): a Tela do agente (Chrome com login feito pelo dono),
+  a senha dela, o que nunca deve ser exposto (portas 5901, 6080 e 9222) e como ligar.
