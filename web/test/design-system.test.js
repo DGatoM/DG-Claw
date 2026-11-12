@@ -8,7 +8,7 @@ const path = require('node:path');
 const PUB = path.join(__dirname, '..', 'public');
 const ler = (rel) => fs.readFileSync(path.join(PUB, rel), 'utf8');
 
-const HTML_MIGRADOS = ['login.html', 'primeiro-acesso.html', 'trocar-senha.html', 'conversa.html', 'mesa.html', 'lembretes.html', 'avisos.html', 'seguranca.html', 'anonimizar.html', 'colaboradores.html', 'conectar.html'];
+const HTML_MIGRADOS = ['login.html', 'primeiro-acesso.html', 'trocar-senha.html', 'conversa.html', 'mesa.html', 'lembretes.html', 'avisos.html', 'seguranca.html', 'anonimizar.html', 'colaboradores.html', 'conectar.html', 'manual.html'];
 const CSS_MIGRADOS = ['sigilo.css', 'login.css', 'trocar-senha.css', 'chat.css', 'conversa.css', 'menu-lado.css', 'casca.css', 'mesa.css', 'lembretes.css', 'avisos.css', 'seguranca.css', 'anonimizar.css', 'colaboradores.css',
   'conectar-cartoes.css', 'foco-tela.css', 'campo-cofre.css', 'atualizacao-faixa.css', 'onboarding.css'];
 const JS_MIGRADOS = ['sigilo.js', 'login.js', 'conversa.js', 'conversa-puro.js', 'menu-lado.js', 'casca.js', 'mesa.js', 'lembretes.js', 'lembretes-faixa.js', 'avisos.js', 'seguranca.js', 'seguranca-resumo.js',
@@ -202,4 +202,14 @@ test('painel solto: o server.js serve /ds e a marca padrão só quando não há 
   const srv = fs.readFileSync(path.join(PAINEL, '..', 'server.js'), 'utf8');
   assert.match(srv, /if \(!BASE && fs\.existsSync\(path\.join\(DS_DIR, 'icones\.svg'\)\)\)/);
   assert.match(srv, /app\.use\('\/ds', express\.static\(DS_DIR/);
+});
+
+test('toda página que carrega a casca carrega /ds/icone.js antes dela (os avisos da casca usam dsIcone)', () => {
+  for (const f of fs.readdirSync(PUB).filter((n) => n.endsWith('.html'))) {
+    const t = ler(f);
+    const casca = t.indexOf('src="/casca.js"');
+    if (casca < 0) continue;
+    const icone = t.indexOf('src="/ds/icone.js"');
+    assert.ok(icone >= 0 && icone < casca, `${f}: carrega /casca.js sem /ds/icone.js antes`);
+  }
 });
