@@ -78,12 +78,16 @@
     const corpo = $('coCorpoAgente');
     $('coNomeAgente').textContent = est.agente ? nomeDoAgente(est.agente) : 'um agente';
     if (!est.agente) { corpo.replaceChildren(el('p', 'co-fraco', 'Ainda não há agente de trabalho para convidar alguém. Peça ao Admin para criar o primeiro.')); return; }
-    const atual = est.colabs.find(c => c.agente === est.agente && c.estado !== 'revogado');
-    if (!atual) { corpo.replaceChildren(formulario()); return; }
-    corpo.replaceChildren(cartaoAtual(atual));
+    const ativos = est.colabs.filter(c => c.agente === est.agente && c.estado !== 'revogado');
+    const f = formulario(ativos.length);
+    if (!ativos.length) { corpo.replaceChildren(f); return; }
+    const lista = el('div', 'co-ativos');
+    lista.setAttribute('data-tour', 'co-ativos');
+    lista.append(...ativos.map(cartaoAtual));
+    corpo.replaceChildren(lista, f);
   }
 
-  function formulario() {
+  function formulario(quantos) {
     const f = el('form', 'co-form');
     f.setAttribute('data-tour', 'co-form');
     f.autocomplete = 'off';
@@ -99,7 +103,9 @@
     const [lNome, iNome] = campo('Nome (opcional)', 'coNome', 'text', { maxLength: 80 });
     const b = el('button', 'co-btn co-pri', 'Convidar');
     b.type = 'submit';
-    f.append(el('p', 'co-fraco', 'Este agente ainda não tem colaborador. A pessoa recebe um e-mail com o link, o login e uma senha temporária.'), lMail, lNome, b);
+    f.append(el('p', 'co-fraco', quantos
+      ? 'Para convidar mais uma pessoa para este agente, preencha abaixo. Ela recebe um e-mail com o link, o login e uma senha temporária.'
+      : 'Este agente ainda não tem colaborador. A pessoa recebe um e-mail com o link, o login e uma senha temporária.'), lMail, lNome, b);
     f.addEventListener('submit', async ev => {
       ev.preventDefault();
       mostraErro('');
@@ -228,18 +234,18 @@
   /* ── Tutorial ───────────────────────────────────────────────────────────── */
   const PASSOS = {
     agente: [
-      { alvo: '#coAgente', titulo: 'O colaborador deste agente',
-        oque: 'Quem você convidou para usar este agente. Cada agente tem um colaborador por vez, e cada pessoa acessa um agente só.',
-        como: 'Sem ninguém convidado, a tela mostra o formulário. Com alguém convidado, mostra o estado dele (aguardando o primeiro acesso, ativo) e os botões para mandar o convite de novo ou revogar o acesso.',
+      { alvo: '#coAgente', titulo: 'Os colaboradores deste agente',
+        oque: 'As pessoas que você convidou para usar este agente. Dá para convidar quantas quiser para o mesmo agente, e cada pessoa acessa um agente só.',
+        como: 'Cada colaborador aparece num cartão, com o estado dele (aguardando o primeiro acesso, ativo) e os botões para mandar o convite de novo ou revogar o acesso. O formulário para convidar mais uma pessoa fica sempre logo abaixo dos cartões.',
         porque: 'A pessoa usa este agente por inteiro: a conversa, as sessões, as rotinas, a memória, os arquivos e a Tela. Não vê o Admin nem outros agentes, e o cofre, as chaves de API, a troca da conta de IA, as credenciais dos canais e a senha da Tela continuam com você.' },
-      { alvo: '[data-tour="co-form"]', titulo: 'Convidar',
+      { alvo: '[data-tour="co-form"]', titulo: 'Convidar mais uma pessoa',
         oque: 'O e-mail da pessoa (que será o login dela) e, se quiser, o nome.',
         como: 'Ao tocar em Convidar, o DG Claw gera uma senha temporária que vale 7 dias e tenta mandar um e-mail com o link. No primeiro acesso a pessoa cria a senha dela.',
-        porque: 'O e-mail só sai se o servidor de e-mail estiver configurado (opcional). Se não estiver, a tela mostra o texto pronto para você mandar por WhatsApp.' },
+        porque: 'O e-mail só sai se o servidor de e-mail estiver configurado (opcional). Se não estiver, a tela mostra o texto pronto para você mandar por WhatsApp. Um e-mail que já é colaborador de outro agente é recusado, porque cada pessoa acessa um agente só.' },
       { alvo: '[data-tour="co-atual"]', titulo: 'Convite de novo e revogar',
-        oque: 'Os dois botões do colaborador atual.',
-        como: 'Mandar convite de novo gera outra senha temporária e derruba as sessões abertas dele. Revogar acesso encerra tudo na hora, e o registro continua na lista, com a data.',
-        porque: 'Serve para quando a pessoa perdeu a senha ou quando o acesso dela precisa acabar.' },
+        oque: 'Os dois botões de cada colaborador do agente.',
+        como: 'Mandar convite de novo gera outra senha temporária e derruba as sessões abertas só dessa pessoa. Revogar acesso encerra tudo dela na hora, e o registro continua na lista, com a data. Nenhuma das duas ações mexe nos outros colaboradores do agente.',
+        porque: 'Serve para quando uma pessoa perdeu a senha ou quando o acesso dela precisa acabar, sem atrapalhar quem continua trabalhando com o agente.' },
     ],
     convite: [
       { alvo: '#coConvite', titulo: 'O convite pronto',
