@@ -344,7 +344,16 @@ test('Claude: uma linha com 50 blocos caros não para o laço (cede entre os eve
   assert.equal(r.eventos.length, 50);
   assert.ok(m.timerDuranteALeitura, 'o setTimeout(0) disparou durante a leitura');
   assert.ok(m.maior < 300, `o laço ficou ${m.maior} ms parado`);
-  assert.ok(m.ticks >= 10, `o laço só respirou ${m.ticks} vezes (cede entre os eventos e os campos)`);
+  // Quantas vezes cede depende da velocidade da máquina; com um relógio que anda 8 ms a cada consulta,
+  // todo ponto de cessão cede de fato, e a contagem passa a medir os pontos, e não a CPU.
+  let t = 0;
+  const l2 = criarLeitor({ agora: () => (t += 8), orcamento: { maxMs: 1e12 } });
+  let voltas = 0;
+  let parar = false;
+  const gira = () => { if (!parar) { voltas++; setImmediate(gira); } };
+  setImmediate(gira);
+  try { await l2.eventos(c.ag, { limite: 100, cursor: null }); } finally { parar = true; }
+  assert.ok(voltas >= 50, `o laço só respirou ${voltas} vezes (cede entre os eventos e os campos)`);
 });
 
 test('Codex: muitos itens caros seguidos não param o laço', async () => {

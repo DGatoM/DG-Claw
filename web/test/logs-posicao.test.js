@@ -223,9 +223,12 @@ test('mais arquivos em andamento do que cabem em "h": a busca continua correta e
     fs.writeFileSync(arq, jl([cUser(i * 10, `a${i}`), cUser(10000 + i * 10, `b${i}`), cUser(20000 + i * 10, `c${i}`)]));
     fs.utimesSync(arq, mt, mt);
   }
-  const base = (await criarLeitor().eventos(c.ag, { limite: 500, cursor: null })).eventos.map((e) => e.id);
+  // Prazo de descoberta folgado: numa máquina carregada os 3 s padrão podem estourar, e aí a lista fica parcial (com aviso
+  // "limite"), o que é outro cenário. Aqui o que se confere é a posição com os arquivos em andamento além do "h".
+  const leitor = () => criarLeitor({ orcamento: { descobertaMs: 600000 } });
+  const base = (await leitor().eventos(c.ag, { limite: 500, cursor: null })).eventos.map((e) => e.id);
   assert.equal(base.length, 240);
-  const r = await paginar(criarLeitor(), c.ag, {}, 5);
+  const r = await paginar(leitor(), c.ag, {}, 5);
   assert.deepEqual(r.ids, base);
   assert.ok(r.avisos.includes('hints_omitidos'));
 });

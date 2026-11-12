@@ -27,18 +27,18 @@ function confere(lista) {
   const saida = limpa(comandoDeLista(lista)).replace(/\[segredo oculto\]/g, '[X]');
   for (const r of RESTOS) assert.ok(!saida.includes(r), `vazou ${r} em: ${saida}`);
   assert.ok(!saida.includes('segredo'), saida);
-  assert.ok(saida.includes('https://example.invalid'), `perdeu o argumento seguinte: ${saida}`);
+  assert.ok(saida.includes('ARGUMENTO-SEGUINTE'), `perdeu o argumento seguinte: ${saida}`);
   assert.ok(saida.includes('[X]'), saida);
 }
 
 for (const s of SENHAS) {
   const u = s.includes(':') ? s : `alice:${s}`;
-  test(`lista: -u com ${JSON.stringify(u)}`, () => confere(['curl', '-u', u, 'https://example.invalid']));
-  test(`lista: --password com ${JSON.stringify(s)}`, () => confere(['app', '--password', s, 'https://example.invalid']));
-  test(`lista: --password= com ${JSON.stringify(s)}`, () => confere(['app', `--password=${s}`, 'https://example.invalid']));
+  test(`lista: -u com ${JSON.stringify(u)}`, () => confere(['curl', '-u', u, 'ARGUMENTO-SEGUINTE']));
+  test(`lista: --password com ${JSON.stringify(s)}`, () => confere(['app', '--password', s, 'ARGUMENTO-SEGUINTE']));
+  test(`lista: --password= com ${JSON.stringify(s)}`, () => confere(['app', `--password=${s}`, 'ARGUMENTO-SEGUINTE']));
 }
 
 test('lista: o resto do comando continua legível', () => {
-  const saida = limpa(comandoDeLista(['curl', '-s', '-u', 'alice:duas palavras', 'https://example.invalid']));
+  const saida = limpa(comandoDeLista(['curl', '-s', '-u', 'alice:duas palavras', 'ARGUMENTO-SEGUINTE']));
   assert.match(saida, /^curl -s -u /);
 });
