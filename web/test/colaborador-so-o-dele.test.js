@@ -19,6 +19,7 @@ test('a conversa chega ao colaborador sem a fileira #trocaBaixo (o elemento nem 
     const colab = await x.c.get('/a/ana', { headers: { Accept: 'text/html' } });
     assert.equal(colab.status, 200);
     assert.doesNotMatch(colab.texto, /trocaBaixo|troca-baixo|Trocar de agente/);
+    assert.doesNotMatch(colab.texto, /\{\{MARCA_[A-Z_]+\}\}/, 'a conversa do colaborador chega com a marca aplicada');
     assert.match(colab.texto, /id="entrada"/, 'o resto da conversa está lá');
     const dono = await s.dono.get('/a/ana', { headers: { Accept: 'text/html' } });
     assert.match(dono.texto, /id="trocaBaixo"/);

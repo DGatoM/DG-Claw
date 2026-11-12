@@ -225,6 +225,10 @@ function criarServidor(opcoes) {
     let html;
     try { html = fs.readFileSync(path.join(config.publicDir, 'conversa.html'), 'utf8'); } catch (_) { return false; }
     html = html.replace(/[ \t]*<nav id="trocaBaixo"[^>]*><\/nav>\n?/, '');
+    // Mesma troca dos {{MARCA_*}} (com escape) que o servirArquivo faz para o dono.
+    try { html = marca.html(html); } catch (e) {
+      log('erro', `Falha aplicando a marca na conversa do colaborador (${e.code || e.message}).`); return false;
+    }
     const corpoHtml = Buffer.from(html, 'utf8');
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Length': corpoHtml.length, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
     res.end(m === 'HEAD' ? undefined : corpoHtml);
