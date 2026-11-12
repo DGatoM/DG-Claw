@@ -323,6 +323,11 @@ jobs:
         run: sudo env "PATH=$PATH" bash tests/cli/rodar.sh
       - name: Testes do dgclaw-agente
         run: bash bin/test/dgclaw-agente.test.sh
+      - name: Reflexão noturna (tests/reflexao)
+        run: bash tests/reflexao/rodar.sh
+
+      - name: Batimento do agente (tests/heartbeat)
+        run: bash tests/heartbeat/rodar.sh
 
   # ---------------------------------------------------------------------------
   # Documentação em dia: o inventário sai do código (scripts/docs-inventario.mjs) e o

@@ -30,6 +30,58 @@ por pessoa. O firewall agora também libera a porta real do SSH (lida da configu
 `kvm64` de hipervisor não tem) e explica como trocar o tipo de CPU da máquina virtual. Quando o Claude Code falta e você usa
 `sudo`, a mensagem mostra como instalá-lo para o root. Nada muda para quem já instalou.
 
+**A reflexão da noite não acorda o agente em dia sem conversa com você.** Antes, às 23h30 ela rodava todo dia, e cada rodada
+gastava o contexto inteiro da sessão (em agentes pouco usados, mais da metade das reflexões só dizia que nada aconteceu). Agora, se o
+registro das conversas foi lido por completo e você não mandou nenhuma mensagem naquele dia, a reflexão é pulada: fica anotado no
+`reflection.log` e no Pulso ("dia sem conversa com o dono; reflexão pulada"), e naquele dia não existe diário. A auditoria das 23h50 e o
+`doctor` entendem o dia pulado e não dão alarme por falta de diário. Na dúvida a reflexão roda como sempre: isso vale quando o agente
+usa o Codex, quando a configuração do agente é antiga e não informa o provedor, ou quando o registro das conversas não pôde ser lido. Para
+rodar a reflexão mesmo assim, use `DGCLAW_REFLECT_SEMPRE=1 bash scripts/reflection.sh <config>`.
+
+### Como atualizar (reflexão em dia sem conversa)
+
+Peça ao Admin, no chat: "atualiza o DG Claw". A reflexão confere o provedor do agente (Claude ou Codex) na configuração dele
+(`config.sh`) antes de pular um dia. Se um agente antigo não tem o provedor ali, a reflexão segue rodando todo dia, como antes. Para
+ele passar a pular os dias parados, peça ao Admin `dgclaw agente reparar <nome>`, que regrava essa configuração. Se você quiser que
+um agente nunca pule a reflexão, não conte com uma linha `DGCLAW_REFLECT_SEMPRE=1` acrescentada à mão no `config.sh`, porque o reparo
+regrava o arquivo e a linha se perde; defina a variável no ambiente da rotina.
+
+**O painel e a conversa passam a carregar mais rápido, sobretudo no celular.** O servidor da web agora entrega os arquivos da tela
+(scripts, estilos, páginas e dados em JSON) comprimidos: o `conversa.js`, por exemplo, sai de cerca de 243 KB para uns 77 KB. A conversa
+em tempo real continua chegando na hora, porque o fluxo dela fica de fora da compressão. A mudança é no site que o instalador grava no
+Caddy; o `dgclaw atualizar` troca esse arquivo sozinho quando ele ainda é o que o instalador gerou, e só recarrega o Caddy depois de
+conferir que a configuração nova é válida. Se algo der errado na conferência, o arquivo volta ao que era e o Caddy não é recarregado.
+
+### Como atualizar (compressão no Caddy)
+
+Nada a fazer se você nunca editou o arquivo do Caddy: peça ao Admin, no chat, "atualiza o DG Claw". Se você personalizou o
+`/etc/caddy/Caddyfile` ou o `/etc/caddy/conf.d/dgclaw.caddy` (por exemplo, acrescentou cabeçalhos ou um segundo endereço), o DG Claw não
+substitui o seu arquivo, porque ali estão as suas escolhas; ele avisa durante a atualização e a compressão fica desligada até você
+acrescentar o bloco `encode` dentro do site, antes do `reverse_proxy`. O aviso traz o bloco pronto. Não use `text/*` na lista de tipos:
+isso comprimiria também a conversa em tempo real e as mensagens deixariam de chegar na hora. Depois confira e recarregue com
+`caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile && sudo systemctl reload caddy`.
+Nesse caso o `dgclaw dominio trocar` é a exceção: como o nome do site precisa mudar, ele guarda uma cópia do seu arquivo ao lado, em
+`/etc/caddy/` (por exemplo `Caddyfile.antes-dominio-<data>`), e grava no lugar o site padrão do DG Claw com o domínio novo. O aviso mostra
+o caminho da cópia; para levar suas personalizações de volta, copie as linhas que quiser para dentro do bloco do site, valide e recarregue o Caddy.
+
+**O batimento deixa de acordar o agente várias vezes pelo mesmo assunto.** A cada 30 minutos o sistema confere a seção
+"Quero Falar com o dono Sobre" da memória de trabalho. Se o agente decidia não incomodar e não tirava a linha, o batimento
+voltava a acordá-lo sem parar (umas 9 vezes por dia), e cada despertar gastava uma parte grande da sua assinatura. Agora o
+sistema guarda o que já levou ao agente e só o acorda de novo se o conteúdo da seção mudar ou depois de 24 horas (ajustável
+com `DGCLAW_HEARTBEAT_REPETIR_H`). O agente também ganha a marca `[a partir de AAAA-MM-DD]` para adiar uma linha até a data em
+que quer ser lembrado. O sorteio de 1 em 4 e o ramo da memória de trabalho velha saíram, porque não faziam mais efeito.
+
+### Como atualizar (batimento)
+
+Peça ao Admin, no chat: "atualiza o DG Claw". O script do batimento já vem na atualização. Nesta versão há uma instrução nova
+para os seus agentes conhecerem a marca de adiar. Ela entra na identidade de cada agente, regravada com
+`dgclaw agente identidade <agente>`, sem apagar o que você personalizou neles.
+
+**A conversa abre mais rápido.** A tela pedia a lista de agentes, depois o histórico e só então ligava o tempo real, uma
+coisa de cada vez. Agora o histórico sai junto com a lista de agentes. No servidor, a lista deixa de esperar a consulta
+a cada agente quando as informações dela vencem: responde na hora com o que já sabe e atualiza em segundo plano (se a
+atualização falhar, o motivo vai para o registro e a lista segue com o último valor bom). O `dgclaw atualizar` já resolve.
+
 **A aba Operações volta a mostrar as barrinhas de cada rotina, com rotina, horário e resultado.** O painel do agente não
 tinha permissão para ler o diário do sistema, e sem ela a aba dizia que não havia histórico, mesmo com as rotinas
 rodando. Agora, dentro do contêiner, o usuário do agente passa a poder ler o diário do sistema daquele contêiner. Se o
