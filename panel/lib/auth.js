@@ -279,7 +279,7 @@ function buildAuth(o) {
       res.cookie('dash_token', emitirToken(), {
         maxAge: SESSAO_MS, httpOnly: true, sameSite: 'lax', secure: !!req.secure, path: base || '/',
       });
-      return res.redirect(base + '/');
+      return res.redirect(baseDe(req) + '/');
     }
 
     const lista = falhasRecentes(ip);
@@ -288,8 +288,21 @@ function buildAuth(o) {
     // Nunca vai a senha nem o usuário digitados: quem erra costuma ter colado a
     // senha no campo errado, e o log viraria um vazamento.
     log(`[painel] login recusado de ${ip}: ${usuario ? 'usuário ou senha' : 'senha'} incorreta (${lista.length} de ${MAX_FALHAS} falhas nos últimos 15 min).`);
-    return res.redirect(base + '/login.html?error=1');
+    return res.redirect(baseDe(req) + '/login.html?error=1');
   }
+
+  // ─── Base do painel isolado ────────────────────────────────────────────────
+  // O Web pode servir este painel numa origem opaca (iframe sandbox), por /pv/<token>/..., em vez de /p/<slug>/.
+  // Ele diz isso em X-DGClaw-Base, e só vale junto com o segredo do proxy: o navegador nunca consegue mandar o
+  // par, e sem ele o painel ignora o cabeçalho. Os links que o painel gera passam a levar esse prefixo.
+  const RX_BASE_ISOLADA = /^\/pv\/[A-Za-z0-9_.-]{20,400}$/;
+  function baseIsolada(req) {
+    const doProxy = req.headers['x-dgclaw-proxy'];
+    if (!base || !segredoProxy || !doProxy || !iguais(doProxy, segredoProxy)) return null;
+    const b = req.headers['x-dgclaw-base'];
+    return typeof b === 'string' && RX_BASE_ISOLADA.test(b) ? b : null;
+  }
+  const baseDe = (req) => baseIsolada(req) || base;
 
   // ─── Cabeçalhos ────────────────────────────────────────────────────────────
   function cabecalhos(req, res, next) {
@@ -443,7 +456,7 @@ function buildAuth(o) {
   return {
     trancado, motivo: config.motivo || null, modo: config.modo, usuarioObrigatorio: !!usuario,
     emitirToken, conferirToken, senhaConfere, minutosBloqueado,
-    login, cabecalhos, requireAuth, csrf, autenticarUpgrade, origemDiferente,
+    login, cabecalhos, requireAuth, csrf, autenticarUpgrade, origemDiferente, baseIsolada, baseDe,
   };
 }
 

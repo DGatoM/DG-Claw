@@ -533,7 +533,7 @@
 
   <!-- window.DGCLAW_BASE precisa existir ANTES de api.js/app.js: os dois leem no
        carregamento do script pra montar toda chamada e todo caminho de asset. -->
-  <script>window.DGCLAW_BASE={{BASE_JSON}}</script>
+  <script>window.DGCLAW_BASE={{BASE_JSON}};window.DGCLAW_ISOLADO={{ISOLADO_JSON}}</script>
   <script src="{{BASE}}/js/api.js"></script>
   <!-- Os dois compartilhados vêm ANTES das abas que os usam: o visualizador de
        arquivo e o motor do tutorial servem tanto a aba Apps quanto a aba Pasta. -->

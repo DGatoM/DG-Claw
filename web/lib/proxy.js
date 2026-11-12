@@ -3,6 +3,10 @@
 // Só chega aqui quem tem sessão (o server.js confere antes). Acrescenta os cabeçalhos de
 // confiança X-DGClaw-Proxy (segredo) e X-DGClaw-Usuario, e apaga os que vieram do navegador.
 // O segredo nunca vai para log nem para resposta.
+//
+// Pedido que chega por /pv/<token>/... (o painel isolado, numa origem opaca; ver painel-token.js) traz `req.dgPv`
+// ({ base: '/pv/<token>' }): o Web já trocou o caminho por /p/<slug>/..., e aqui o painel recebe a base nova no
+// cabeçalho X-DGClaw-Base, NENHUM cookie, e a resposta sai com a CSP sandbox e o CORS sem credencial.
 
 const fs = require('node:fs');
 const http = require('node:http');
@@ -10,7 +14,25 @@ const { erroJson, paginaErro, ipDoPedido, esquemaDoPedido, hostDoPedido, lerCorp
 const { NOME_COOKIE } = require('./auth');
 
 const HOP = new Set(['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'proxy-connection']);
-const PROIBIDOS_DO_NAVEGADOR = new Set(['x-dgclaw-proxy', 'x-dgclaw-usuario', 'x-dgclaw-papel', 'x-dgclaw-colaborador']);
+const PROIBIDOS_DO_NAVEGADOR = new Set(['x-dgclaw-proxy', 'x-dgclaw-usuario', 'x-dgclaw-papel', 'x-dgclaw-colaborador', 'x-dgclaw-base']);
+
+// Resposta de /pv/: documento em sandbox sem allow-same-origin (origem opaca, sem cookie, sem storage) e que só o próprio
+// Web enquadra. A credencial é o token no caminho, por isso o CORS é aberto e sem Allow-Credentials.
+const CSP_PV = "sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads; frame-ancestors 'self'";
+// Resposta de /p/ (origem do Web) repassada do painel: nenhum script roda se alguém abrir isso como documento.
+const CSP_P = "sandbox; default-src 'none'";
+const CABECALHOS_PV = {
+  'Content-Security-Policy': CSP_PV,
+  'Referrer-Policy': 'no-referrer',
+  'X-Content-Type-Options': 'nosniff',
+  'Access-Control-Allow-Origin': '*',
+};
+const CORS_PREFLIGHT_PV = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Accept, X-Requested-With, If-None-Match, Range',
+  'Access-Control-Max-Age': '600',
+};
 const INTERVALO_REVALIDA_MS = 30 * 1000;
 
 /** Tira o cookie de sessão do Web do que vai para o painel (ele não precisa do nosso token). */
@@ -80,8 +102,10 @@ function criarProxy({ config, registro, log, cofreRotas }) {
       if (HOP.has(nome) || PROIBIDOS_DO_NAVEGADOR.has(nome) || nome === 'cookie') continue;
       h[nome] = v;
     }
-    const ck = limpaCookie(req.headers.cookie);
+    // Painel isolado: sem credencial ambiente. Nem o cookie do painel passa (o token no caminho é quem autentica).
+    const ck = req.dgPv ? null : limpaCookie(req.headers.cookie);
     if (ck) h.cookie = ck;
+    if (req.dgPv) h['x-dgclaw-base'] = req.dgPv.base;
     h['x-forwarded-for'] = ipDoPedido(req, config.proxiesConfiaveis);
     h['x-forwarded-proto'] = esquemaDoPedido(req, config.proxiesConfiaveis);
     h['x-forwarded-host'] = hostDoPedido(req, config.proxiesConfiaveis);
@@ -166,10 +190,21 @@ function criarProxy({ config, registro, log, cofreRotas }) {
     if (corpoLido) opcoes.headers['content-length'] = String(corpoLido.length);
     const preq = http.request(opcoes, (pres) => {
       const h = {};
+      const csps = [];
       // Set-Cookie do painel do agente nunca chega ao navegador: o painel pode estar comprometido
       // e plantaria cookie no domínio do Web. O painel não depende de cookie atrás do proxy
-      // (confia no X-DGClaw-Proxy).
-      for (const [k, v] of Object.entries(pres.headers)) if (!HOP.has(k.toLowerCase()) && k.toLowerCase() !== 'set-cookie') h[k] = v;
+      // (confia no X-DGClaw-Proxy). O CORS também é nosso: o painel não abre a resposta para outro site.
+      // A CSP do painel, se houver, fica; a nossa entra como segundo cabeçalho e nunca é trocada.
+      for (const [k, v] of Object.entries(pres.headers)) {
+        const nome = k.toLowerCase();
+        if (HOP.has(nome) || nome === 'set-cookie' || nome.startsWith('access-control-')) continue;
+        if (nome === 'content-security-policy') { csps.push(...[].concat(v)); continue; }
+        if (req.dgPv && (nome === 'referrer-policy' || nome === 'x-content-type-options')) continue;
+        h[k] = v;
+      }
+      csps.push(req.dgPv ? CSP_PV : CSP_P);
+      h['Content-Security-Policy'] = csps;
+      if (req.dgPv) Object.assign(h, CABECALHOS_PV, { 'Content-Security-Policy': csps });
       res.writeHead(pres.statusCode, pres.statusMessage, h);
       pres.pipe(res);
       pres.on('error', () => res.destroy());
@@ -249,4 +284,4 @@ function criarProxy({ config, registro, log, cofreRotas }) {
   return { responder, upgrade, destino, fecharDoColaborador, revalidar, fecharTudo() { clearInterval(relogio); for (const x of socketsAbertos) x.destroy(); socketsAbertos.clear(); deColaborador.clear(); } };
 }
 
-module.exports = { criarProxy, limpaCookie };
+module.exports = { criarProxy, limpaCookie, CABECALHOS_PV, CORS_PREFLIGHT_PV, CSP_PV, CSP_P };

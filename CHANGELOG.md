@@ -7,6 +7,12 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Correção de segurança: o painel de cada agente passou a rodar isolado do resto do DG Claw.** Até aqui, o JavaScript servido pelo painel de um agente rodava na mesma origem do DG Claw Web, com o cookie de sessão do dono. Um painel adulterado (por exemplo, por uma injeção de prompt que fizesse o agente escrever HTML no próprio painel) conseguiria chamar a API do Web como se fosse você, mandar mensagem ao Admin ou ler conversas, e o painel de um agente alcançaria o de outro. Agora o painel abre dentro de uma moldura, num iframe isolado que não enxerga o cookie nem a API do Web, e fala com a própria API por um endereço com validade de até 12 horas. O que você vê não muda: o cabeçalho, o menu, o botão Tutorial e os links `/p/<agente>/#aba=...` continuam iguais. Também ficou mais rígida a API do Web, que passou a recusar pedidos que não nasceram na própria tela do DG Claw (de outro site ou de uma página isolada), mesmo com o cookie do dono.
+
+### Como atualizar (painel isolado)
+
+Nesta versão a moldura do Web e o painel dentro do container precisam estar na mesma versão. O Web novo abre o painel num iframe isolado, e um painel antigo não sabe se montar assim: ele carrega em branco ou pela metade, com o aviso de que a página passou de 8 segundos carregando. O painel novo, por outro lado, continua funcionando atrás de um Web antigo. Por isso, depois de atualizar o Web, atualize também os agentes: `sudo dgclaw atualizar` já faz tudo na ordem certa (baixa a versão, reconstrói a imagem e recria o container de cada agente, sem tocar na casa, na memória nem no cofre). Se você instalou o Web por outro caminho, rode `sudo dgclaw imagem construir --agora` e depois `sudo dgclaw agente recriar <agente>` para cada agente. Quem já estava com o painel aberto no navegador só precisa recarregar a página.
+
 **Nova tela Logs no Admin.** No menu do Admin, o item **Logs** (endereço `/logs`) mostra, do mais novo para o mais antigo,
 tudo o que cada agente fez: mensagens, comandos, arquivos e ferramentas, tanto dos agentes que usam o Claude quanto dos que
 usam o Codex. Há filtros por período, tipo, sessão e palavra, e cada registro abre para mostrar o comando, o arquivo e o

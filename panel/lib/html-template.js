@@ -29,14 +29,19 @@ module.exports = function buildHtmlTemplate({ BASE, CONFIG, serverDir, getAuth }
   // O slug vem do próprio BASE ("/p/<slug>"), com o do config como reserva.
   const SLUG_DA_FACHADA = (BASE.match(/^\/p\/([^/]+)/) || [])[1] || CONFIG.agentSlug || '';
   const URL_CONVERSA = SLUG_DA_FACHADA ? `/a/${encodeURIComponent(SLUG_DA_FACHADA)}` : '/';
-  const VOLTAR_HTML =
-    `<a class="btn-voltar" href="${URL_CONVERSA}" aria-label="voltar para a conversa">` +
-    '<span aria-hidden="true">←</span><span class="btn-voltar-texto">conversa</span></a>';
+  const VOLTAR_CORPO = '<span aria-hidden="true">←</span><span class="btn-voltar-texto">conversa</span>';
+  const VOLTAR_HTML = `<a class="btn-voltar" href="${URL_CONVERSA}" aria-label="voltar para a conversa">${VOLTAR_CORPO}</a>`;
+  // Isolado, o iframe não pode navegar o topo: o link pede à moldura, que decide (casca-ponte.js).
+  const VOLTAR_ISOLADO_HTML = `<a class="btn-voltar" href="#" data-dgclaw-ir="${URL_CONVERSA}" aria-label="voltar para a conversa">${VOLTAR_CORPO}</a>`;
 
   // {{CASCA}}: o cabeçalho e o menu da Conversa também no painel (web/public/casca.js).
   // Só sob a plataforma (BASE preenchido): os arquivos são servidos pelo Web, na raiz da MESMA origem,
   // por isso os caminhos são absolutos e não levam o prefixo. Painel solto não tem esses arquivos:
   // vira vazio e a tela fica exatamente como era. O casca.css vem ANTES do menu-lado.css (a ordem importa).
+  //
+  // Dentro da moldura do Web (painel isolado, X-DGClaw-Base) esses arquivos não valem: eles chamariam a API do Web, que
+  // recusa quem não é da própria origem dele. No lugar entra o casca-ponte.js, que repassa à moldura, por postMessage,
+  // só dados sem segredo (chave da aba, título, lista de extras).
   const CASCA_HTML = [
     '<link rel="stylesheet" href="/casca.css">',
     '<link rel="stylesheet" href="/menu-lado.css">',
@@ -44,6 +49,8 @@ module.exports = function buildHtmlTemplate({ BASE, CONFIG, serverDir, getAuth }
     '<script src="/menu-lado.js"></script>',
     '<script src="/casca.js"></script>',
   ].join('\n  ');
+
+  const CASCA_PONTE_HTML = '<script src="{{BASE}}/js/casca-ponte.js"></script>';
 
   // Sob a plataforma o HTML já nasce com a classe da casca: o layout antigo nunca chega a aparecer
   // (main.css, html.casca.carregando). Sem a plataforma o painel solto fica como era.
@@ -81,32 +88,39 @@ module.exports = function buildHtmlTemplate({ BASE, CONFIG, serverDir, getAuth }
     "<script>setTimeout(function(){var h=document.documentElement;if(!h.classList.contains('carregando'))return;h.classList.remove('carregando');if(!document.getElementById('cabecalho'))h.classList.remove('casca');console.warn('[painel] a tela passou de 8 segundos no estado carregando e foi liberada à força. Recarregue a página; se repetir, confira o console por erros do app.js.')},8000)</script>",
   ].join('\n  ');
 
-  // Devolve o HTML já com {{BASE}} trocado, ou null se o arquivo não existe.
-  function carregarTemplate(filePath) {
+  // Devolve o HTML do arquivo, com {{BASE}} trocado por `baseIsolada` quando o pedido veio pela moldura do Web
+  // (senão pelo BASE fixo), ou null se o arquivo não existe. O que depende só do arquivo fica em cache por mtime;
+  // a troca da base é por pedido, porque cada token do painel isolado tem a sua.
+  function carregarTemplate(filePath, baseIsolada) {
     let mtimeMs;
     try {
       mtimeMs = fs.statSync(filePath).mtimeMs;
     } catch {
       return null;
     }
-    const cached = _htmlCache.get(filePath);
-    if (cached && cached.mtimeMs === mtimeMs) return cached.html;
-    const html = fs.readFileSync(filePath, 'utf-8')
-      .split('{{HTML_CLASSE}}').join(BASE ? HTML_CLASSE_PLATAFORMA : '')
-      .split('{{CARREGANDO}}').join(BASE ? CARREGANDO_HTML : '')
-      .split('{{CASCA}}').join(BASE ? CASCA_HTML : '')
-      .split('{{VOLTAR}}').join(BASE ? VOLTAR_HTML : '')
-      .split('{{BASE_JSON}}').join(JSON.stringify(BASE))
-      .split('{{BASE}}').join(BASE)
+    let cached = _htmlCache.get(filePath);
+    if (!cached || cached.mtimeMs !== mtimeMs) {
+      const html = fs.readFileSync(filePath, 'utf-8')
+        .split('{{HTML_CLASSE}}').join(BASE ? HTML_CLASSE_PLATAFORMA : '')
+        .split('{{CARREGANDO}}').join(BASE ? CARREGANDO_HTML : '');
+      cached = { mtimeMs, html };
+      _htmlCache.set(filePath, cached);
+    }
+    const efetiva = baseIsolada || BASE;
+    // Ordem: os blocos primeiro (eles trazem {{BASE}} dentro), depois a base, depois o ?v= dos css/js.
+    return cached.html
+      .split('{{CASCA}}').join(BASE ? (baseIsolada ? CASCA_PONTE_HTML : CASCA_HTML) : '')
+      .split('{{VOLTAR}}').join(BASE ? (baseIsolada ? VOLTAR_ISOLADO_HTML : VOLTAR_HTML) : '')
+      .split('{{ISOLADO_JSON}}').join(baseIsolada ? JSON.stringify({ slug: SLUG_DA_FACHADA }) : 'null')
+      .split('{{BASE_JSON}}').join(JSON.stringify(efetiva))
+      .split('{{BASE}}').join(efetiva)
       // css/js do painel ganham ?v=<versão>; o valor entra a cada pedido (comVersao), não no cache do arquivo.
       .replace(/((?:href|src)="[^"]*\/(?:css|js)\/[^"?]+)"/g, '$1?v={{VERSAO_ASSETS}}"');
-    _htmlCache.set(filePath, { mtimeMs, html });
-    return html;
   }
 
   function renderHtmlTemplate(filePath) {
     return (req, res) => {
-      const html = carregarTemplate(filePath);
+      const html = carregarTemplate(filePath, getAuth().baseIsolada(req));
       if (html === null) return res.status(404).send('Nao encontrado.');
       res.type('html').send(comVersao(html));
     };
@@ -125,7 +139,7 @@ module.exports = function buildHtmlTemplate({ BASE, CONFIG, serverDir, getAuth }
   //   {{LOGIN_ERRO}}   '' | 'bloqueado:<minutos>' (erro de senha vem por ?error=1)
   function renderLogin(req, res, o = {}) {
     const auth = getAuth();
-    const html = carregarTemplate(LOGIN_HTML);
+    const html = carregarTemplate(LOGIN_HTML, auth.baseIsolada(req));
     if (html === null) return res.status(404).send('Nao encontrado.');
     const modo = auth.trancado ? 'trancado' : (auth.usuarioObrigatorio ? 'usuario' : 'senha');
     const erro = o.erro === 'bloqueado' ? `bloqueado:${o.min || 1}` : '';

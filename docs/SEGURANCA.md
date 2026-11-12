@@ -127,6 +127,38 @@ O DG Claw Web faz o login do dono e repassa as requisições para o painel do ag
 - O Web confere o `Origin` e **sobrescreve** o `X-DGClaw-Proxy` que vier do navegador, então
   ninguém de fora consegue forjar o cabeçalho.
 
+## Origem isolada dos painéis
+
+O painel de cada agente é um programa que roda dentro do container dele, e o que o agente escreve ali (por exemplo,
+levado por uma injeção de prompt) pode virar HTML e JavaScript entregues ao navegador do dono. Se esse JavaScript rodasse
+na mesma origem do Web, ele usaria o cookie de sessão do dono e chamaria a API do Web como ele: mandaria mensagem ao Admin
+(que é root), leria conversas e alcançaria os painéis dos outros agentes, que dividiriam a mesma origem.
+
+- **O painel nunca roda na origem do Web.** Abrir `/p/<agente>/...` no navegador devolve uma página do próprio Web (a
+  moldura), que monta o cabeçalho e o menu e põe o painel num `<iframe>` com `sandbox` e **sem** `allow-same-origin`. Dentro
+  do iframe a origem é opaca: sem cookie do Web, sem `localStorage` e sem acesso à API do Web. Cada painel fica numa origem
+  só dele, então o painel de um agente também não alcança o de outro. O iframe não pode navegar a página de cima
+  (sem `allow-top-navigation`); para abrir uma página do Web ele pede à moldura, que só aceita um endereço da lista de páginas do menu.
+- **O painel fala com a própria API por um token no caminho**, `/pv/<token>/...`. O token é assinado (HMAC-SHA256, chave de
+  32 bytes em `painel-token.chave`, modo 600, na pasta de dados do Web) e leva o agente, um identificador da sessão que não
+  é o cookie nem um hash dele, e a validade (no máximo 12 horas e nunca mais que a sessão). O Web resolve a sessão de volta a
+  cada pedido, então sair, trocar a senha, revogar um colaborador ou a sessão expirar derruba o token na hora. O token de um agente não abre outro.
+- **Nenhum cookie vai ao painel isolado**, e o painel isolado não usa cookie nenhum. Ele recebe o cabeçalho `X-DGClaw-Base`
+  (que o Web apaga se vier do navegador) para montar os endereços certos, e só o respeita junto do `X-DGClaw-Proxy` correto.
+- **Tudo o que o `/p/` nega, o `/pv/` nega.** O escopo do colaborador, o bloqueio dos logs, o registro de quem mandou cada
+  mensagem e o cofre usam o mesmo caminho de código. Escrita em `/pv/` só vale com `Origin: null` ou sem `Origin`; qualquer outra origem leva 403.
+- **A API e o `/p/` só atendem a própria tela do Web.** Pedido com `Sec-Fetch-Site` diferente de `same-origin` (`none`, que é o
+  dono digitando o endereço, só vale na API) ou com `Origin` `null` ou de outro site leva 403, com o cookie do dono ou sem ele.
+- **Cabeçalhos das respostas.** `/pv/` sai com `Content-Security-Policy: sandbox ...; frame-ancestors 'self'` (a CSP do painel,
+  se existir, fica e a nossa entra como segunda), `Referrer-Policy: no-referrer` e CORS aberto sem credencial. O que o painel
+  repassa em `/p/` sai com `sandbox; default-src 'none'`, e `Set-Cookie` e `Access-Control-*` do painel nunca passam.
+- O token não vai a log (todo caminho impresso mostra `/pv/[token]`) e `/pv/` fica fora do cache do service worker.
+
+**Limites.** Um painel comprometido continua mandando em si mesmo: ele pode usar a API do próprio painel, que é o que o
+agente dono dele já faz. O que deixa de existir é o salto para a API do Web e para os outros painéis. O token aparece no
+endereço do iframe, então vale tanto quanto a sessão que o gerou (até 12 horas); ele não aparece nos logs do Web. O
+isolamento depende de o navegador respeitar `sandbox` e `Sec-Fetch-Site`, o que todos os navegadores atuais fazem.
+
 ## Runner
 
 O runner é o processo que mantém a sessão do agente viva. Ele escuta só em `127.0.0.1` e exige

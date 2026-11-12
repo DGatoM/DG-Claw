@@ -3,9 +3,9 @@
 
    Guarda só os arquivos estáticos da tela (CSS, JS, ícones, manifesto), para ela
    abrir rápido e para o app instalado ter o que mostrar. NUNCA mexe em /api/,
-   /p/, /login, /sair nem nas páginas de conversa (/a/...): conteúdo da conversa,
+   /p/, /pv/, /login, /sair nem nas páginas de conversa (/a/...): conteúdo da conversa,
    painéis e sessão passam direto para a rede, sem cópia nenhuma. */
-const VERSAO = 'dgclaw-estaticos-v36';
+const VERSAO = 'dgclaw-estaticos-v37';
 const ESTATICOS = [
   '/conversa.css', '/chat.css', '/conversa.js', '/menu-lado.js', '/menu-lado.css', '/casca.js', '/casca.css', '/login-cartao.js', '/login-expirado.js', '/login-expirado.css', '/trilha-tela.js', '/rolagem.js', '/conversa-puro.js', '/tour.js',
   '/onboarding.js', '/onboarding.css',
@@ -26,7 +26,7 @@ const ESTATICOS = [
   '/manifest.webmanifest',
   '/icons/icon-192.png', '/icons/icon-512.png', '/icons/apple-touch-icon.png',
 ];
-const PROIBIDOS = [/^\/api\//, /^\/p\//, /^\/login/, /^\/sair/, /^\/a\//];
+const PROIBIDOS = [/^\/api\//, /^\/p\//, /^\/pv\//, /^\/login/, /^\/sair/, /^\/a\//];
 
 self.addEventListener('install', ev => {
   ev.waitUntil(
