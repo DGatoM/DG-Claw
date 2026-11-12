@@ -118,10 +118,15 @@ const EXTRAS = [
 // comando sem executar nada: aspas, escapes e `\`+quebra de linha contam como no shell, o comando acaba em `;` `|` `&` ou quebra de
 // linha fora de aspas, e só os valores sensíveis são trocados (o resto do texto fica byte a byte).
 const NOME_FLAG_SENSIVEL = String.raw`--(?:[a-z0-9_-]{0,30}?(?:password|passwd|passphrase|pwd|token|secret|senha|api[-_]?key|apikey)[a-z0-9_-]{0,30}|pass|auth)`;
-// Acha duas coisas: uma palavra de comando (grupo 1) ou uma flag longa de segredo em qualquer comando (grupo 2): --password,
-// --passwd, --passphrase, --pwd, --token, --secret, --senha, --api-key, --api_key, --apikey, --pass, --auth e variações com prefixo ou
-// sufixo (--access-token, --client-secret...). Flag longa não depende do nome do comando.
-const RX_COMANDO = new RegExp(String.raw`(?<![A-Za-z0-9_.-])(?:(curl|sshpass|htpasswd|mysql(?:dump|admin|import|check)?)(?=[ \t\r\n\\]|$)|(${NOME_FLAG_SENSIVEL})(?=[=\s\\]|$))`, 'gi');
+// Acha duas coisas: uma palavra de comando (grupo 1) ou o começo de uma flag longa (grupo 2). Aspas e escapes entre as letras e em
+// volta (`"curl"`, `c"ur"l`, `'--user'`, `--us"er"`) fazem parte do casamento: quem decide é o valor já desaspado (desaspar), e a
+// flag longa só segue adiante se, depois de desaspada, for de segredo: --password, --passwd, --passphrase, --pwd, --token, --secret,
+// --senha, --api-key, --api_key, --apikey, --pass, --auth e variações com prefixo ou sufixo (--access-token, --client-secret...).
+// Flag longa não depende do nome do comando.
+const ASPA_OPC = String.raw`["'\\]{0,2}`;
+const intercala = (palavra) => palavra.split('').join(ASPA_OPC);
+const PALAVRAS_RX = ['mysqlcheck', 'mysqlimport', 'mysqladmin', 'mysqldump', 'mysql', 'htpasswd', 'sshpass', 'curl'].map(intercala).join('|');
+const RX_COMANDO = new RegExp(String.raw`(?<![A-Za-z0-9_.-])(?:(${PALAVRAS_RX})["']{0,2}(?=[ \t\r\n\\]|$)|(["']{0,2}--(?=[A-Za-z0-9_"'\\-])))`, 'gi');
 const RX_FLAG_SENSIVEL = new RegExp(String.raw`^${NOME_FLAG_SENSIVEL}$`, 'i');
 const PALAVRAS_DE_COMANDO = /^(?:curl|sshpass|htpasswd|mysql(?:dump|admin|import|check)?)$/i;
 
@@ -166,15 +171,54 @@ function lerArgumento(s, i, sem) {
   return j;
 }
 
+/**
+ * Valor do argumento que vai de `i` a `fim` depois de interpretar aspas e escapes como o shell (sem executar expansões): `"-sSu"`,
+ * `-"u"` e `--us"er"` viram `-sSu`, `-u` e `--user`. Devolve também, para cada caractere do valor, a posição original no texto, para
+ * mascarar o pedaço certo. Só lê os primeiros MAX_DESASPAR caracteres: as regras olham o começo do argumento.
+ */
+const MAX_DESASPAR = 100;
+function desaspar(s, i, fim) {
+  let v = '';
+  const pos = [];
+  let j = i;
+  while (j < fim && v.length < MAX_DESASPAR) {
+    const c = s[j];
+    if (c === '\\') {
+      if (s[j + 1] === '\n') { j += 2; continue; }
+      if (s[j + 1] === '\r' && s[j + 2] === '\n') { j += 3; continue; }
+      if (j + 1 < fim) { v += s[j + 1]; pos.push(j + 1); j += 2; continue; }
+      j++;
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      let k = j + 1;
+      while (k < fim && v.length < MAX_DESASPAR) {
+        const d = s[k];
+        if (d === c) break;
+        if (c === '"' && d === '\\' && k + 1 < fim) {
+          const e = s[k + 1];
+          if (e === '\n') { k += 2; continue; }
+          if (e === '"' || e === '\\' || e === '$' || e === '`') { v += e; pos.push(k + 1); k += 2; continue; }
+        }
+        v += d; pos.push(k); k++;
+      }
+      j = k + 1;
+      continue;
+    }
+    v += c; pos.push(j); j++;
+  }
+  return { v, pos, completo: j >= fim };
+}
+
 /** `--flag=valor` mascara o valor; `--flag` sozinha pede que o próximo argumento seja mascarado (flagLongaSensivel.espera). */
-function flagLongaSensivel(s, i, fim, mascaras) {
+function flagLongaSensivel(a, fim, mascaras) {
   flagLongaSensivel.espera = false;
-  const cab = s.slice(i, Math.min(fim, i + 90));
-  const eq = cab.indexOf('=');
-  const nome = eq >= 0 ? cab.slice(0, eq) : cab;
-  if (!RX_FLAG_SENSIVEL.test(nome)) return false;
-  if (eq >= 0) mascaras.push([i + eq + 1, fim]);
-  else if (fim - i === nome.length) flagLongaSensivel.espera = true;
+  const { v, pos } = a;
+  const eq = v.indexOf('=');
+  const nome = eq >= 0 ? v.slice(0, eq) : v;
+  if (nome.length > 90 || !RX_FLAG_SENSIVEL.test(nome)) return false;
+  if (eq >= 0) mascaras.push([pos[eq] + 1, fim]);
+  else if (a.completo) flagLongaSensivel.espera = true;
   else return false;
   return true;
 }
@@ -184,18 +228,18 @@ const CURL_CURTAS_COM_VALOR = 'AbcCdDeEFHKmoPQrtTuUwXxyYz';
 const CURL_CURTAS_SENSIVEIS = 'uUb';       // -u/-U: usuário:senha; -b: cookies
 
 /**
- * Argumento curto do curl, possivelmente agrupado (`-sSu usuario:senha`, `-sSuusuario:senha`, `-uusuario:senha`): anda letra por
- * letra até a primeira opção que consome valor. Devolve true quando o valor sensível é o próximo argumento; o valor colado já entra
- * em `mascaras`. Opção que leva valor não sensível (`-H`, `-o`...) também encerra o grupo, para o texto dela não ser lido como letras.
+ * Argumento curto do curl, possivelmente agrupado (`-sSu usuario:senha`, `-sSuusuario:senha`, `-uusuario:senha`), já desaspado: anda
+ * letra por letra até a primeira opção que consome valor. Devolve true quando o valor sensível é o próximo argumento; o valor colado
+ * já entra em `mascaras`. Opção que leva valor não sensível (`-H`, `-o`...) também encerra o grupo.
  */
-function curlCurtas(s, i, fim, mascaras) {
-  for (let j = i + 1; j < fim; j++) {
-    const c = s[j];
-    if (c === '"' || c === "'" || c === '\\') return false;
+function curlCurtas(a, fim, mascaras) {
+  const { v, pos } = a;
+  for (let j = 1; j < v.length; j++) {
+    const c = v[j];
     if (!CURL_CURTAS_COM_VALOR.includes(c)) continue;
     const sensivel = CURL_CURTAS_SENSIVEIS.includes(c);
-    if (j + 1 < fim) { if (sensivel) mascaras.push([j + 1, fim]); return false; }
-    return sensivel;
+    if (j + 1 < v.length) { if (sensivel) mascaras.push([pos[j] + 1, fim]); return false; }
+    return sensivel && a.completo;
   }
   return false;
 }
@@ -221,35 +265,37 @@ function varreComando(s, pos, cmd, sem, mascaras) {
     const c0 = s[i];
     if (c0 === '\n' || c0 === '\r' || ehFimDeComando(c0)) break;
     const fim = lerArgumento(s, i, sem);
-    const tam = fim - i;
-    const cab = s.slice(i, Math.min(fim, i + 16));
-    if (espera) { mascaras.push([i, fim]); espera = false; } else if (posicionais > 0 && c0 !== '-') {
+    // Todas as regras abaixo decidem pelo valor desaspado do argumento (a.v), nunca pelo texto cru.
+    const a = desaspar(s, i, fim);
+    const v = a.v;
+    if (espera) { mascaras.push([i, fim]); espera = false; } else if (posicionais > 0 && v[0] !== '-') {
       if (htIni < 0) htIni = i;
       htFim = fim;
       posicionais--;
-    } else if (tam <= 12 && PALAVRAS_DE_COMANDO.test(s.slice(i, fim))) {
+    } else if (a.completo && v.length <= 12 && PALAVRAS_DE_COMANDO.test(v)) {
       fecha();
-      cmd = s.slice(i, fim).toLowerCase();       // `sshpass -p x curl -u ...`: passa a valer a regra do curl
-    } else if (c0 === '-' && cab[1] === '-' && flagLongaSensivel(s, i, fim, mascaras)) {
+      cmd = v.toLowerCase();       // `sshpass -p x curl -u ...`: passa a valer a regra do curl
+    } else if (v[0] === '-' && v[1] === '-' && flagLongaSensivel(a, fim, mascaras)) {
       espera = flagLongaSensivel.espera;
-    } else if (c0 === '-') {
+    } else if (v[0] === '-') {
       if (cmd === 'curl') {
-        if (cab.startsWith('--')) {
-          if (cab === '--user' || cab === '--proxy-user' || cab === '--oauth2-bearer' || cab === '--cookie') { if (tam === cab.length) espera = true; }
-          else if (cab.startsWith('--user=')) mascaras.push([i + 7, fim]);
-          else if (cab.startsWith('--proxy-user=')) mascaras.push([i + 13, fim]);
-          else if (cab.startsWith('--oauth2-bearer=')) mascaras.push([i + 16, fim]);
-          else if (cab.startsWith('--cookie=')) mascaras.push([i + 9, fim]);
+        if (v[1] === '-') {
+          const eq = v.indexOf('=');
+          const nome = eq >= 0 ? v.slice(0, eq) : v;
+          if (nome === '--user' || nome === '--proxy-user' || nome === '--oauth2-bearer' || nome === '--cookie') {
+            if (eq >= 0) mascaras.push([a.pos[eq] + 1, fim]);
+            else if (a.completo) espera = true;
+          }
         } else {
-          espera = curlCurtas(s, i, fim, mascaras);
+          espera = curlCurtas(a, fim, mascaras);
         }
       } else if (cmd === 'sshpass') {
-        if (tam === 2 && cab === '-p') espera = true;
-        else if (tam > 2 && cab.startsWith('-p')) mascaras.push([i + 2, fim]);
+        if (v === '-p' && a.completo) espera = true;
+        else if (v.length > 2 && v.startsWith('-p')) mascaras.push([a.pos[1] + 1, fim]);
       } else if (cmd === 'htpasswd') {
-        if (tam <= 13 && /^-[A-Za-z]+$/.test(cab) && cab.includes('b')) posicionais = cab.includes('n') ? 2 : 3;
-      } else if (tam > 2 && cab.startsWith('-p')) {     // mysql*: -pSENHA, sem espaço (com espaço o -p só pede a senha no terminal)
-        mascaras.push([i + 2, fim]);
+        if (a.completo && v.length <= 13 && /^-[A-Za-z]+$/.test(v) && v.includes('b')) posicionais = v.includes('n') ? 2 : 3;
+      } else if (v.length > 2 && v.startsWith('-p')) {     // mysql*: -pSENHA, sem espaço (com espaço o -p só pede a senha no terminal)
+        mascaras.push([a.pos[1] + 1, fim]);
       }
     }
     i = fim;
@@ -264,10 +310,20 @@ function mascaraComandos(s) {
   RX_COMANDO.lastIndex = 0;
   let m;
   while ((m = RX_COMANDO.exec(s)) !== null) {
-    // palavra de comando: os argumentos vêm depois dela; flag longa: ela própria é o primeiro argumento
-    const ini = m[1] ? m.index + m[0].length : m.index;
-    const fim = varreComando(s, ini, m[1] ? m[1].toLowerCase() : '', sem, mascaras);
-    RX_COMANDO.lastIndex = Math.max(fim, m.index + m[0].length);
+    if (m[1]) {
+      // palavra de comando (já sem aspas): os argumentos vêm depois dela
+      const fim = varreComando(s, m.index + m[0].length, m[1].replace(/["'\\]/g, '').toLowerCase(), sem, mascaras);
+      RX_COMANDO.lastIndex = Math.max(fim, m.index + m[0].length);
+      continue;
+    }
+    // começo de flag longa: só segue se, desaspada, for flag de segredo; ela própria é o primeiro argumento
+    const fimFlag = lerArgumento(s, m.index, sem);
+    const { v } = desaspar(s, m.index, fimFlag);
+    const nome = v.indexOf('=') >= 0 ? v.slice(0, v.indexOf('=')) : v;
+    if (nome.length <= 90 && RX_FLAG_SENSIVEL.test(nome)) {
+      const fim = varreComando(s, m.index, '', sem, mascaras);
+      RX_COMANDO.lastIndex = Math.max(fim, m.index + m[0].length);
+    }
   }
   if (!mascaras.length) return s;
   let saida = '';
