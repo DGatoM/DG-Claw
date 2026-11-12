@@ -852,10 +852,10 @@ configurar_caddy() {
     [ -z "$CADDY_SITE_COPIA" ] || rm -f "$CADDY_SITE_COPIA"
     if ! systemctl is-active --quiet caddy; then
         executar systemctl enable --now caddy
-    elif [ "$CADDY_SITE_MUDOU" = 1 ]; then
-        executar systemctl reload caddy
     else
-        info "o site do Caddy ja estava como deve ser; nao precisei recarregar"
+        # Recarrega mesmo sem mudanca no arquivo: se um reload anterior falhou, o arquivo ja esta
+        # certo no disco mas o Caddy segue com a configuracao velha, e so um reload novo a aplica.
+        executar systemctl reload caddy
     fi
 }
 

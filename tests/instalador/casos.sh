@@ -848,13 +848,14 @@ caso_caddy_validacao_que_falha_nao_recarrega_e_restaura() {
     limpar_cenario
 }
 
-caso_caddy_segunda_rodada_sem_mudanca_nao_recarrega() {
+caso_caddy_segunda_rodada_recarrega_de_novo() {
     novo_cenario
     mkdir -p "$TMP/estado"
     afirma "primeira rodada" instalacao_basica
     : >"$STUB_LOG"
     afirma "segunda rodada" instalar "" --usuario maria --provedor claude
-    nega "nao recarregou o Caddy sem necessidade" tem "$STUB_LOG" "systemctl reload caddy"
+    # um reload anterior pode ter falhado com o arquivo ja certo no disco: recarrega sempre
+    afirma "recarregou o Caddy de novo" tem "$STUB_LOG" "systemctl reload caddy"
     afirma "mas validou" tem "$STUB_LOG" "caddy validate"
     limpar_cenario
 }
