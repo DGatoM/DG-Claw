@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# ip de mentira: so `ip -4 route show`, que devolve o conteudo de DGCLAW_STUB_ROTAS (vazio por padrao).
+. "$(dirname "$0")/_comum.sh"
+registrar "$@"
+if [ "${1:-}" = -4 ] && [ "${2:-}" = route ]; then
+    [ -n "${DGCLAW_STUB_ROTAS:-}" ] && printf '%s\n' "$DGCLAW_STUB_ROTAS"
+    exit 0
+fi
+exit 0

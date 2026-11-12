@@ -45,6 +45,10 @@ por pessoa. O firewall agora também libera a porta real do SSH (lida da configu
 `kvm64` de hipervisor não tem) e explica como trocar o tipo de CPU da máquina virtual. Quando o Claude Code falta e você usa
 `sudo`, a mensagem mostra como instalá-lo para o root. Nada muda para quem já instalou.
 
+**Instalação atrás de um proxy que já existe (`--proxy-existente`).** Para servidor que já tem nginx, Caddy ou túnel da Cloudflare nas portas 80 e 443, o instalador ganhou `--proxy-existente`. Nesse modo ele não instala o Caddy, não mexe no ufw (nem para ler o estado) e trata as portas 80 e 443 ocupadas como aviso. O DG Claw Web escuta só em `127.0.0.1`, na porta de `--porta-painel` (padrão 8300), e o instalador imprime no fim o trecho pronto para o nginx e as linhas do `ingress` para o túnel, com o link de primeiro acesso. O domínio passa a ser obrigatório nesse modo. O modo e a porta ficam no `dgclaw.env` e valem nas próximas execuções e no `dgclaw atualizar`; `--sem-proxy-existente` volta ao Caddy do DG Claw. Os comandos `dgclaw dominio`, `dgclaw dominio trocar` e `dgclaw status` respeitam o modo. O modo não combina com `--atras-de-tunel`, porque o túnel do DG Claw depende do Caddy: o instalador recusa os dois juntos (por opção ou gravados) e diz qual desligar.
+
+**Faixa de rede própria dos agentes (`--faixa-rede`).** A nova opção `--faixa-rede <A.B.0.0/16>` (padrão 10.89.0.0/16, a de sempre) deixa escolher a faixa de IPs das redes dos agentes. Antes de mexer em qualquer coisa, o instalador confere as redes do podman e as rotas da máquina e recusa uma faixa que outro sistema já usa, dizendo qual e sugerindo outra. Com agentes já criados ele não troca a faixa em silêncio. A cerca de firewall (`lib/firewall.sh`, nas tabelas filter e mangle) e o botão de emergência seguem a faixa gravada em `DGCLAW_FAIXA_REDE`. A porta do painel também pode ser trocada numa reinstalação com `--porta-painel`: o Caddyfile que o próprio instalador gerou é regravado com a porta nova, e um Caddyfile que você personalizou continua como está.
+
 **Aba Pedidos na Mesa: a fila de tudo o que você pediu aos agentes.** A Mesa (`/mesa`) ganha uma aba nova, a primeira e a que
 abre por padrão. Cada pedido seu a um agente vira um item, na ordem em que chegou, com o estado: fazendo, esperando você (com o
 motivo), entregue, feito ou cancelado. O agente abre o item antes de começar e vai movendo enquanto trabalha. Quando ele marca
@@ -53,6 +57,14 @@ responder ao agente na conversa depois da entrega. O agente não fecha o pedido 
 hoje e de ontem (o resto fica em "Ver arquivados") e acende uma bolinha quando há algo esperando você. Nesta versão não existe um
 vigia que crie sozinho o item que o agente esqueceu, porque isso gastaria a assinatura de quem instalou. O contrato das rotas e do
 comando `dgclaw-mesa pedido` está em `web/docs/PEDIDOS.md`.
+
+### Como atualizar (proxy existente e faixa de rede)
+
+Quem já instalou e não usa as opções novas não precisa fazer nada: o `dgclaw atualizar` continua como sempre, o DG Claw segue com o Caddy e com a faixa 10.89.0.0/16.
+
+Se o `dgclaw atualizar` ou o `./install.sh` parar dizendo que a faixa 10.89.0.0/16 se sobrepõe a outra rede da máquina (uma rede de outro sistema no podman ou no docker, uma rota de VPN), o motivo é que outro programa passou a usar parte dessa faixa. A mensagem mostra o que está ocupado e sugere uma faixa livre. Com agentes já criados a faixa não troca sozinha, porque trocar exige recriar a rede de cada agente, e o instalador recusa em vez de fazer isso em silêncio. Você tem dois caminhos seguros. O primeiro é liberar a faixa: tire do ar ou mude a rede do outro sistema e rode a atualização de novo. O segundo é recomeçar com a faixa nova: remova cada agente com `sudo dgclaw agente remover <agente>` (a casa dele fica guardada em `/var/lib/dgclaw/aposentados/`) e rode `sudo ./install.sh --faixa-rede <faixa sugerida>`; a faixa escolhida fica gravada e vale nas próximas execuções.
+
+Para usar o proxy que você já tem, rode `sudo ./install.sh --usuario <nome> --dominio <seu domínio> --proxy-existente` (com `--porta-painel` se a 8300 estiver ocupada) e cole no nginx ou no túnel o trecho que o instalador mostra no fim. Se a sua instalação usa `--atras-de-tunel`, essas duas opções não funcionam juntas: use `--sem-tunel` para ficar com o seu proxy, ou `--sem-proxy-existente` para voltar ao Caddy do DG Claw.
 
 ### Como atualizar (fila de pedidos)
 
