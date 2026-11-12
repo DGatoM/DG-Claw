@@ -103,6 +103,8 @@ test('páginas novas: tutorial, viewport sem zoom, campos de 16 px e nada de tra
   }
   assert.match(pub('colaboradores.js'), /DGCasca\.monta\(\{ pagina: 'colaboradores'/);
   assert.match(pub('colaboradores.html'), /data-co="ajuda"/);
+  assert.doesNotMatch(pub('colaboradores.js'), /colaborador por vez/);
+  assert.match(pub('colaboradores.js'), /quantas quiser para o mesmo agente/);
   assert.match(pub('trocar-senha.js'), /tsTutorial/);
   assert.match(pub('colaboradores.css'), /font-size:16px/);
   for (const n of ['colaboradores.html', 'colaboradores.js', 'colaboradores.css', 'trocar-senha.html', 'trocar-senha.js', 'trocar-senha.css', 'papel.js', 'papel.css']) {

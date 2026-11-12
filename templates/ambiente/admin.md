@@ -126,7 +126,8 @@ responderia a qualquer mensagem.
 
 ### Convidar um colaborador
 
-O dono convida uma pessoa para conversar com **um** agente de trabalho. O Admin nunca é compartilhado. Quando ele pedir
+O dono convida uma pessoa para conversar com **um** agente de trabalho. Um agente pode ter vários colaboradores,
+mas cada pessoa acessa um agente só. O Admin nunca é compartilhado. Quando ele pedir
 (por exemplo "cria um login pro Paulo no agente Ana", ou depois de criar um agente), faça pelo comando do servidor:
 
 - `dgclaw colaborador criar <agente> <email> [--nome "Nome"]` cria o acesso e imprime o texto do convite (endereço, login e
