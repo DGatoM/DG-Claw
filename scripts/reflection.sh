@@ -14,6 +14,11 @@
 #            leve no dia seguinte. Use onde a injecao na sessao viva NAO funciona (kernel
 #            legacy_tiocsti=0 + sem tmux). Custa API 1x/dia (so a consolidacao pede Opus).
 #
+# DIA SEM CONVERSA: se o registro das sessoes foi lido com sucesso e nao ha NENHUMA mensagem do dono
+# no dia, a reflexao e pulada (log + Pulso "ok" + exit 0): acordar o modelo so para dizer "nada
+# aconteceu" custa cache de contexto a toa. Na duvida (leitura falhou, pasta ausente, motor que o
+# thread_log nao le, config antiga sem DGCLAW_PROVEDOR) ela roda. DGCLAW_REFLECT_SEMPRE=1 forca.
+#
 # Uso:  bash reflection.sh <.dgclaw/config.sh>
 # Roda pelo timer dgclaw-<slug>-reflection.timer.
 
@@ -117,8 +122,11 @@ fi
 # conversas". E a materia-prima dos objetivos, das tarefas, das crencas e da sugestao de
 # skill. Teto de ~4 KB pra o recado nao virar um livro.
 CONVERSA_BLOCK=""
-CONVERSA=$(DGCLAW_REFLECT_DIA="$TODAY" python3 - "$PLUGIN/scripts/_lib" <<'PYCONV' 2>>"$LOG"
-import os, sys
+# A contagem de mensagens do dono (sem LLM) sai por um arquivo a parte, para nao misturar com o texto
+# que vai para o prompt: so um numero quando a leitura foi completa, ou "duvida: <motivo>".
+CONTAGEM_ARQ="$(mktemp 2>/dev/null)" || CONTAGEM_ARQ=""
+CONVERSA=$(DGCLAW_REFLECT_DIA="$TODAY" DGCLAW_REFLECT_CONTAGEM_ARQ="$CONTAGEM_ARQ" python3 - "$PLUGIN/scripts/_lib" <<'PYCONV' 2>>"$LOG"
+import json, os, sys
 from datetime import datetime, timezone, timedelta
 sys.path.insert(0, sys.argv[1])
 import thread_log
@@ -128,8 +136,18 @@ try:
 except Exception:  # noqa: BLE001  python antigo: -03:00
     tz = timezone(timedelta(hours=-3))
 dia = os.environ["DGCLAW_REFLECT_DIA"]
+contagem_arq = os.environ.get("DGCLAW_REFLECT_CONTAGEM_ARQ")
+
+
+def informa(texto):
+    if contagem_arq:
+        with open(contagem_arq, "w") as f:
+            f.write(texto + "\n")
+
+
 sd = thread_log.resolve_session_dir()
 if not sd.is_dir():
+    informa(f"duvida: a pasta de sessoes {sd} nao existe")
     sys.exit(0)
 try:
     # A conversa que travou o agente (modo de seguranca) nao volta pela reflexao: este
@@ -139,9 +157,76 @@ try:
 except Exception as e:  # noqa: BLE001
     print(f"reflexao: nao consegui ler a quarentena ({e}); sigo sem o filtro", file=sys.stderr)
     regras = None
+
+try:
+    inicio_do_dia = datetime.strptime(dia, "%Y-%m-%d").replace(tzinfo=tz).timestamp() - 3600
+except ValueError:
+    inicio_do_dia = None
+# Path.glob engole PermissionError e devolveria lista vazia ("zero mensagens"): lista com scandir.
+try:
+    with os.scandir(sd) as it:
+        todos = sorted((sd / d.name for d in it if d.name.endswith(".jsonl")),
+                       key=lambda q: q.stat().st_mtime, reverse=True)
+except OSError as e:
+    informa(f"duvida: nao consegui listar {sd}: {e}")
+    sys.exit(0)
+cache = {}
+
+
+def leitura_falha(p):
+    """Motivo de o transcript nao ter sido lido por inteiro, ou "". build_thread_log devolve [] se nao
+    abre o arquivo e pula linha JSON invalida; para CONTAR mensagens isso viraria "zero". Unica
+    tolerancia: a ULTIMA linha sem quebra de linha no fim, que e uma escrita em andamento naquele
+    instante (se ela ja terminou com \\n e esta quebrada, e transcript corrompido: duvida)."""
+    try:
+        with open(p, "rb") as f:
+            linhas = f.read().split(b"\n")
+    except OSError as e:
+        return f"nao consegui abrir {p.name} ({e})"
+    for i, l in enumerate(linhas):
+        if not l.strip():
+            continue
+        try:
+            json.loads(l)
+        except ValueError:
+            if i == len(linhas) - 1:  # sem \n no fim: ainda sendo escrita
+                continue
+            return f"linha {i + 1} de {p.name} nao e JSON valido (transcript truncado ou corrompido)"
+    return ""
+
+
+def eventos(p):
+    if p not in cache:
+        cache[p] = thread_log.build_thread_log(str(p), last=0)
+    return cache[p]
+
+
+# Conta as mensagens do dono no dia em TODA sessao mexida desde o comeco do dia (um arquivo
+# parado antes disso nao pode ter fala deste dia). Antes do filtro da quarentena: mensagem
+# bloqueada continua sendo conversa. Data que nao da para ler = duvida, nunca "zero".
+dono_no_dia, duvida = 0, ""
+for p in todos:
+    if inicio_do_dia is not None and p.stat().st_mtime < inicio_do_dia:
+        continue
+    motivo = leitura_falha(p)
+    if motivo:
+        duvida = duvida or motivo
+        continue
+    for e in eventos(p):
+        if e.get("origin") != "owner":
+            continue
+        try:
+            q = datetime.fromisoformat(e["ts"]).replace(tzinfo=timezone.utc).astimezone(tz)
+        except (ValueError, KeyError):
+            duvida = f"mensagem do dono sem data legivel em {p.name}"
+            continue
+        if q.strftime("%Y-%m-%d") == dia:
+            dono_no_dia += 1
+informa(f"duvida: {duvida}" if duvida else str(dono_no_dia))
+
 linhas, vistos = [], set()
-for p in sorted(sd.glob("*.jsonl"), key=lambda q: q.stat().st_mtime, reverse=True)[:5]:
-    for e in thread_log.build_thread_log(str(p), last=0):
+for p in todos[:5]:
+    for e in eventos(p):
         if regras and regras.evento_bloqueado(p.stem, e.get("ts"), e.get("text")):
             continue
         try:
@@ -168,6 +253,7 @@ for _, l in reversed(linhas):  # do fim pro comeco: se nao couber, sobra o mais 
 print("\n".join(reversed(out)))
 PYCONV
 )
+CONVERSA_RC=$?
 if [ -n "$CONVERSA" ]; then
     CONVERSA_BLOCK="
 
@@ -176,6 +262,35 @@ if [ -n "$CONVERSA" ]; then
 ${CONVERSA}"
 else
     echo "[$(date '+%F %T')] reflexao ${TODAY}: nenhuma mensagem no canal hoje (ou transcript ilegivel; ver linhas acima)" >> "$LOG"
+fi
+
+# ─── dia sem conversa com o dono: nao acorda o modelo ─────────────────────────
+# So pula com certeza. Qualquer duvida cai em "reflete" (o custo de uma reflexao a mais e
+# pequeno; o de perder o dia de quem conversou so por um canal que nao li e alto).
+CONTAGEM=""
+[ -n "$CONTAGEM_ARQ" ] && CONTAGEM="$(head -n 1 "$CONTAGEM_ARQ" 2>/dev/null)"
+[ -n "$CONTAGEM_ARQ" ] && rm -f "$CONTAGEM_ARQ"
+if [ "${DGCLAW_REFLECT_SEMPRE:-0}" = "1" ]; then
+    echo "[$(date '+%F %T')] reflexao ${TODAY}: DGCLAW_REFLECT_SEMPRE=1, reflito mesmo sem conversa com o dono" >> "$LOG"
+elif [ "${DGCLAW_PROVEDOR:-}" != "claude" ]; then
+    # So o registro do Claude e lido aqui. Codex (rollout em outra pasta) e config sem DGCLAW_PROVEDOR
+    # (agente criado antes da variavel existir; 'dgclaw agente reparar <slug>' regrava) nao tem prova.
+    echo "[$(date '+%F %T')] reflexao ${TODAY}: provedor '${DGCLAW_PROVEDOR:-nao informado}'; so pulo o dia sem conversa quando o provedor e 'claude' (leio so o registro dele), entao reflito" >> "$LOG"
+elif [ "$CONVERSA_RC" -ne 0 ]; then
+    echo "[$(date '+%F %T')] reflexao ${TODAY}: a leitura das conversas falhou (codigo ${CONVERSA_RC}, motivo nas linhas acima); sem prova de que o dia foi parado, reflito" >> "$LOG"
+elif [ -z "$CONTAGEM_ARQ" ]; then
+    echo "[$(date '+%F %T')] reflexao ${TODAY}: nao consegui criar o arquivo temporario da contagem de mensagens do dono (mktemp falhou; confira espaco em disco e permissao de /tmp); reflito" >> "$LOG"
+elif [ "$CONTAGEM" = "0" ]; then
+    echo "[$(date '+%F %T')] reflexao ${TODAY}: PULADA, dia sem conversa com o dono (0 mensagens dele no registro das sessoes). Para rodar mesmo assim: DGCLAW_REFLECT_SEMPRE=1 bash ${PLUGIN}/scripts/reflection.sh ${CONFIG}" >> "$LOG"
+    # O doctor usa esta lista para nao acusar "reflexao sem escrever diario" nos dias parados.
+    echo "$TODAY" >> "$DGCLAW_WORKSPACE/.dgclaw/logs/reflexoes-puladas.txt" \
+        || echo "[$(date '+%F %T')] reflexao ${TODAY}: nao consegui anotar o dia em reflexoes-puladas.txt; o doctor pode estranhar a falta do diario" >> "$LOG"
+    declare -F pulso >/dev/null && pulso ok "dia sem conversa com o dono; reflexão pulada"
+    exit 0
+elif [[ "$CONTAGEM" =~ ^[0-9]+$ ]]; then
+    echo "[$(date '+%F %T')] reflexao ${TODAY}: ${CONTAGEM} mensagem(ns) do dono no dia; reflito" >> "$LOG"
+else
+    echo "[$(date '+%F %T')] reflexao ${TODAY}: contagem de mensagens do dono incerta (${CONTAGEM:-vazia}); reflito" >> "$LOG"
 fi
 
 # ─── passos extras vindos das extensoes instaladas ────────────────────────────

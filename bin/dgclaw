@@ -2180,14 +2180,10 @@ dominio_trocar() {
     fi
 
     passo "Reescrevendo o site do DG Claw no Caddy"
-    local bk_cf="" bk_confd="" tem_cf=0 tem_confd=0
-    if [ -f "$cf" ]; then tem_cf=1; bk_cf="$(cat "$cf")"; fi
-    if [ -f "$confd" ]; then tem_confd=1; bk_confd="$(cat "$confd")"; fi
-    escrever_site_caddy "$novo"
+    escrever_site_caddy "$novo" trocar
     if [ "$ENSAIO" != 1 ] && ! caddy validate --config "$cf" --adapter caddyfile >"$TMP_CADDY_LOG" 2>&1; then
         # Volta o que estava antes: o Caddy em producao nunca pode ficar com arquivo quebrado.
-        if [ "$tem_cf" = 1 ]; then printf '%s\n' "$bk_cf" >"$cf"; fi
-        if [ "$tem_confd" = 1 ]; then printf '%s\n' "$bk_confd" >"$confd"; else rm -f "$confd"; fi
+        caddy_restaurar_site   # cp -p: conteudo, modo e dono do arquivo de antes
         falha "o Caddy recusou a configuracao nova (caddy validate falhou: $(tail -n 3 "$TMP_CADDY_LOG" | tr '\n' ' ')). Voltei o arquivo ao que era; nada mudou." \
             "confira se o nome '$novo' esta certo e rode de novo; se persistir, veja: caddy validate --config $cf --adapter caddyfile"
     fi
