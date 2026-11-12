@@ -51,6 +51,7 @@ mudar nada. Quem: Root. Detalhe geral em [ATUALIZAR.md](../ATUALIZAR.md) e no `d
 | `dgclaw agente cofre` | Guarda, revoga, lista ou aplica chaves de API do agente (`guardar`, `revogar`, `listar`, `aplicar`). O valor vem sempre pelo STDIN | [COFRE-POR-API.md](../COFRE-POR-API.md) |
 | `dgclaw agente tela` | Confere a Tela do agente e diz, linha a linha, o que falta | [TELA-DO-AGENTE.md](../TELA-DO-AGENTE.md) |
 | `dgclaw agente tela-senha` | Troca a senha da Tela (6 a 8 caracteres ASCII, pelo STDIN) | [TELA-DO-AGENTE.md](../TELA-DO-AGENTE.md) |
+| `dgclaw agente restricoes` | Mostra ou muda as travas do agente (`--sem-bash`, `--sem-enviar-arquivo`, `--escrita-so-em` ou `--escrita-livre`). Ficam fora da caixa e voltam sozinhas ao criar, reparar, recriar e atualizar. Não vale para o Admin nem, nesta versão, para agentes no Codex | [RESTRICOES-DO-AGENTE.md](../RESTRICOES-DO-AGENTE.md) |
 | `dgclaw agente remover` | Tira o agente do ar sem apagar: a casa vai para `/var/lib/dgclaw/aposentados/`. Pede confirmação, ou `--sim` | [ATUALIZAR.md](../ATUALIZAR.md) |
 
 ### Colaboradores: convidar quem vai usar um agente
