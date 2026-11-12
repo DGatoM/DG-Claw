@@ -7,6 +7,22 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Aba Pedidos na Mesa: a fila de tudo o que você pediu aos agentes.** A Mesa (`/mesa`) ganha uma aba nova, a primeira e a que
+abre por padrão. Cada pedido seu a um agente vira um item, na ordem em que chegou, com o estado: fazendo, esperando você (com o
+motivo), entregue, feito ou cancelado. O agente abre o item antes de começar e vai movendo enquanto trabalha. Quando ele marca
+"entregue", tocar no item leva você à conversa, já na mensagem da entrega, e o pedido vira "feito". Ele também vira "feito" se você
+responder ao agente na conversa depois da entrega. O agente não fecha o pedido por você. A aba mostra os abertos e os fechados de
+hoje e de ontem (o resto fica em "Ver arquivados") e acende uma bolinha quando há algo esperando você. Nesta versão não existe um
+vigia que crie sozinho o item que o agente esqueceu, porque isso gastaria a assinatura de quem instalou. O contrato das rotas e do
+comando `dgclaw-mesa pedido` está em `web/docs/PEDIDOS.md`.
+
+### Como atualizar (fila de pedidos)
+
+Peça ao Admin, no chat: "atualiza o DG Claw". A aba e as rotas já vêm na atualização. Nesta versão há uma instrução nova para os
+seus agentes abrirem e moverem os itens da fila. Ela entra na identidade de cada agente, regravada com
+`dgclaw agente identidade <agente>`, sem apagar o que você personalizou neles. Agentes novos já nascem com ela. Os itens ficam
+guardados na pasta de dados do Web, e as suas chaves, conversas e agentes continuam como estavam.
+
 **O batimento deixa de acordar o agente várias vezes pelo mesmo assunto.** A cada 30 minutos o sistema confere a seção
 "Quero Falar com o dono Sobre" da memória de trabalho. Se o agente decidia não incomodar e não tirava a linha, o batimento
 voltava a acordá-lo sem parar (umas 9 vezes por dia), e cada despertar gastava uma parte grande da sua assinatura. Agora o

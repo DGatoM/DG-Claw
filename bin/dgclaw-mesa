@@ -20,6 +20,16 @@
 #   dgclaw-mesa listar [--todos] [--dia hoje|todos|AAAA-MM-DD] [--retrato]
 #   dgclaw-mesa ajuda
 #
+# Fila de pedidos (um item por pedido do dono; o agente NUNCA marca "feito", isso e do dono):
+#   dgclaw-mesa pedido criar --texto "Dono, 12/11 10h25: refazer a capa"   imprime o id do pedido
+#   dgclaw-mesa pedido fazendo <id>                        de volta a fazendo
+#   dgclaw-mesa pedido esperar <id> --motivo M             esperando o dono (diga o que precisa dele)
+#   dgclaw-mesa pedido entregar <id> [--msg <id-da-mensagem>]
+#                     entregue; sem --msg vale a sua ultima mensagem na conversa
+#   dgclaw-mesa pedido cancelar <id> --motivo M            cancela (nao apaga)
+#   dgclaw-mesa pedido ver <id>                            o pedido com o historico
+#   dgclaw-mesa pedido listar [--dia recentes|hoje|todos|AAAA-MM-DD]   os seus pedidos
+#
 # Todo subcomando aceita --json: imprime a resposta crua da API em vez da frase.
 # "listar" mostra as suas tarefas abertas e as fechadas hoje; --todos mostra a mesa inteira;
 # --retrato le a ultima copia que o Web deixou em ~/.dgclaw/retratos/mesa.json, sem chamar o Web.
@@ -88,10 +98,12 @@ exigir() { # $1 = opcao, $2 = exemplo
 }
 
 ID=""
+OBJ="tarefa"     # "pedido" nos subcomandos da fila de pedidos (so muda as frases de erro)
+LISTAR="dgclaw-mesa listar"
 pegar_id() { # exige exatamente o id como primeiro posicional
-  [ "${#POS[@]}" -ge 1 ] || die "falta o id da tarefa em '$SUB'. Veja os ids com 'dgclaw-mesa listar'."
+  [ "${#POS[@]}" -ge 1 ] || die "falta o id do $OBJ em '$SUB'. Veja os ids com '$LISTAR'."
   ID="${POS[0]}"
-  [[ "$ID" =~ ^[0-9]+$ ]] || die "id de tarefa inválido: '$ID'. O id é o número depois do # (veja com 'dgclaw-mesa listar')."
+  [[ "$ID" =~ ^[0-9]+$ ]] || die "id de $OBJ inválido: '$ID'. O id é o número depois do # (veja com '$LISTAR')."
 }
 
 so_o_id() {
@@ -316,6 +328,94 @@ cmd_listar() {
   jq -r --arg todos "$todos" "$DEFS $FILTRO_LISTA" <<<"$RESP"
 }
 
+# --- fila de pedidos --------------------------------------------------------
+DEFS_P='
+def p: "pedido #\(.id)";
+'
+
+pedido_criar() {
+  parse "texto" "$@"
+  [ "${#POS[@]}" = 0 ] || die "argumento a mais em '$SUB': '${POS[0]}'. Textos com espaço vão entre aspas."
+  exigir texto '--texto "Dono, 12/11 10h25: refazer a capa"'
+  c_str texto "${O[texto]}"
+  chamar POST /api/v1/pedidos "$CORPO"
+  if [ "$JSON" = 1 ]; then printf '%s\n' "$RESP"; return 0; fi
+  exigir_json
+  jq -r "$DEFS_P"'.pedido | "\(p) criado (\(.estado))"' <<<"$RESP"
+}
+
+pedido_fazendo() {
+  parse "" "$@"; pegar_id; so_o_id
+  chamar PATCH "/api/v1/pedidos/$ID" '{"estado":"fazendo"}'
+  saida_pedido '.pedido | "\(p): de volta a fazendo"'
+}
+
+pedido_esperar() {
+  parse "motivo" "$@"; pegar_id; so_o_id
+  exigir motivo '7 --motivo "capa azul ou verde? mandei as duas na conversa"'
+  c_str estado esperando_dono; c_str motivo "${O[motivo]}"
+  chamar PATCH "/api/v1/pedidos/$ID" "$CORPO"
+  saida_pedido '.pedido | "\(p): esperando você: \(.motivo)"'
+}
+
+pedido_entregar() {
+  parse "msg" "$@"; pegar_id; so_o_id
+  c_str estado entregue
+  ! tem msg || c_str msg "${O[msg]}"
+  chamar PATCH "/api/v1/pedidos/$ID" "$CORPO"
+  saida_pedido '(.pedido | "\(p) entregue"), (if .aviso then "aviso: \(.aviso)" else empty end)'
+}
+
+pedido_cancelar() {
+  parse "motivo" "$@"; pegar_id; so_o_id
+  exigir motivo '7 --motivo "o dono desistiu"'
+  c_str motivo "${O[motivo]}"
+  chamar DELETE "/api/v1/pedidos/$ID" "$CORPO"
+  saida_pedido 'if .ja_estava then "\(.pedido | p) já estava cancelado" else "\(.pedido | p) cancelado" end'
+}
+
+pedido_ver() {
+  parse "" "$@"; pegar_id; so_o_id
+  chamar GET "/api/v1/pedidos/$ID"
+  saida_pedido '.pedido as $x | $x | (
+      "\(p) \(.texto)",
+      "estado: \(.estado)" + (if .msg_entrega then "   mensagem da entrega: \(.msg_entrega.id)" else "" end),
+      (if .motivo then "motivo: \(.motivo)" else empty end),
+      "criado em: \(.criado_em)"
+    ),
+    (if ($x.historico // []) | length > 0 then "histórico:", ($x.historico[] | "  \(.em // "") \(.por // "?"): \(.de // "-") para \(.para // "?")" + (if .motivo then " (\(.motivo))" else "" end)) else empty end)'
+}
+
+pedido_listar() {
+  parse "dia" "$@"
+  [ "${#POS[@]}" = 0 ] || die "argumento a mais em '$SUB': '${POS[0]}'."
+  local rota="/api/v1/pedidos"
+  if tem dia; then
+    [[ "${O[dia]}" =~ ^(recentes|hoje|todos|[0-9]{4}-[0-9]{2}-[0-9]{2})$ ]] || die "--dia precisa ser recentes, hoje, todos ou uma data AAAA-MM-DD (recebido: '${O[dia]}')."
+    rota="$rota?dia=${O[dia]}"
+  fi
+  chamar GET "$rota"
+  saida_pedido '(.pedidos // []) as $l | if ($l | length) == 0 then "nenhum pedido." else $l[] | "#\(.id) \(.estado) \"\(.texto)\"" + (if .motivo then " | motivo: \(.motivo)" else "" end) end'
+}
+
+# Como "saida", com as definicoes da fila de pedidos.
+saida_pedido() {
+  if [ "$JSON" = 1 ]; then printf '%s\n' "$RESP"; return 0; fi
+  exigir_json
+  jq -r "$DEFS_P $1" <<<"$RESP"
+}
+
+cmd_pedido() {
+  local acao="${1:-}"
+  case "$acao" in
+    criar|fazendo|esperar|entregar|cancelar|ver|listar) shift ;;
+    "") die "falta o que fazer com o pedido. Use: dgclaw-mesa pedido criar|fazendo|esperar|entregar|cancelar|ver|listar. Veja 'dgclaw-mesa ajuda'." ;;
+    *) die "ação desconhecida em 'pedido': '$acao'. Use criar, fazendo, esperar, entregar, cancelar, ver ou listar." ;;
+  esac
+  SUB="pedido $acao"; OBJ="pedido"; LISTAR="dgclaw-mesa pedido listar"
+  "pedido_$acao" "$@"
+}
+
 cmd_ajuda() {
   sed -n '3,/^set -euo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'
 }
@@ -324,6 +424,6 @@ SUB="${1:-ajuda}"
 [ $# -eq 0 ] || shift
 case "$SUB" in
   ajuda|-h|--help) cmd_ajuda; exit 0 ;;
-  criar|atualizar|passo|pedir|travar|retomar|concluir|cancelar|vivo|ver|listar) "cmd_$SUB" "$@" ;;
-  *) die "subcomando desconhecido: '$SUB'. Use criar, atualizar, passo, pedir, travar, retomar, concluir, cancelar, vivo, ver, listar ou ajuda." ;;
+  criar|atualizar|passo|pedir|travar|retomar|concluir|cancelar|vivo|ver|listar|pedido) "cmd_$SUB" "$@" ;;
+  *) die "subcomando desconhecido: '$SUB'. Use criar, atualizar, passo, pedir, travar, retomar, concluir, cancelar, vivo, ver, listar, pedido ou ajuda." ;;
 esac

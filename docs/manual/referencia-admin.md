@@ -207,6 +207,7 @@ Servidas pelo DG Claw Web. Quem: Dono, salvo o que a coluna disser. Colab só pa
 | `/api/v1/lembretes` | Lembretes (listar, criar, editar, pausar, retomar, apagar; `/disparar` manda um agora; confirmar ou adiar uma ocorrência) | Dono, Caixa (cada agente mexe nos próprios) | [LEMBRETES.md](../../web/docs/LEMBRETES.md) |
 | `/api/v1/foco` | Modo foco: a lista de itens de cada agente (ler, trocar, acrescentar, ticar, apagar) e os eventos de mudança | Dono, Caixa | [MODO-FOCO.md](../../web/docs/MODO-FOCO.md) |
 | `/api/v1/tarefas` | Mesa de tarefas | Dono (todas), Caixa (cria para si, altera as próprias) | [MESA.md](../../web/docs/MESA.md) |
+| `/api/v1/pedidos` | Fila de pedidos (o agente cria e move os próprios itens; o dono abre, marca como feito e cancela) | Dono (todos), Caixa (só os próprios) | [PEDIDOS.md](../../web/docs/PEDIDOS.md) |
 | `/api/v1/uso` | Quanto da assinatura de cada agente já foi usado (`null` é "não medido") | Dono, Caixa (só o próprio agente) | [USO-DA-ASSINATURA.md](../../web/docs/USO-DA-ASSINATURA.md) |
 | `/api/v1/avisos` | Quadro de avisos entre os agentes e o dono (postar, ler, retirar); `/injecao` mostra o texto que entra na conversa do agente e `/preferencias` as preferências do dono que estão valendo | Dono, Caixa | [QUADRO-DE-AVISOS.md](../QUADRO-DE-AVISOS.md) |
 | `/api/v1/caixa` | Documentação da caixa do agente | Dono, Colab | [CAIXA-DO-AGENTE.md](../CAIXA-DO-AGENTE.md) |

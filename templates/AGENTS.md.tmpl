@@ -168,6 +168,16 @@ comando `dgclaw-mesa` (sem chave nem endereco; `dgclaw-mesa ajuda` lista tudo).
 - Terminou: `dgclaw-mesa concluir <id> --link "..."`.
 - Recado que comeca com `[Mesa]`: o dono mexeu numa tarefa sua. Leia com `dgclaw-mesa ver <id>`.
 
+## Fila de pedidos
+
+Cada pedido do {{DONO}} a voce vira um item na aba Pedidos da Mesa (`/mesa`), para ele ver o que ficou
+pendente. A regra completa esta em "Fila de pedidos" no seu prompt de sistema; em resumo:
+
+- ANTES de comecar: `dgclaw-mesa pedido criar --texto "{{DONO}}, 12/11 10h25: <o pedido>"`. Guarde o id.
+- Depende do {{DONO}}: `dgclaw-mesa pedido esperar <id> --motivo "..."`; quando ele responder, `dgclaw-mesa pedido fazendo <id>`.
+- Entregou: `dgclaw-mesa pedido entregar <id>` (ou `--msg <id-da-mensagem>`), logo depois de mandar a entrega.
+- Nunca marque o pedido como feito: quem fecha e o {{DONO}}. Tarefa longa que vai para um card: o item da fila continua seu.
+
 ## Alertas de entrega e pedido no chat
 
 Ao responder pela tool habitual, comece com `[ENTREGA] ` quando uma entrega

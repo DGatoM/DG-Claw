@@ -74,6 +74,7 @@ dgclaw agente reparar ana >"$TMP/rep.txt" 2>&1
 igual "reparar completo sai com 0" "0" "$?"
 afirma "o reparar completo regrava a secao no identidade.md" grep -qxF "$MARCA" "$ID"
 afirma "a regra da tarefa longa chega ao agente antigo" grep -q 'Sempre livre para conversar' "$ID"
+afirma "a regra da fila de pedidos chega ao agente antigo" grep -q 'Fila de pedidos (REGRA)' "$ID"
 
 nega "slug inexistente recusa" dgclaw agente identidade fantasma
 nega "sem slug recusa" dgclaw agente identidade
