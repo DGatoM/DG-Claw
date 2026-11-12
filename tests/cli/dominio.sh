@@ -66,49 +66,45 @@ igual "outros sites: sai com 0" "0" "$?"
 afirma "outros sites: site do DG Claw em conf.d" grep -q '^outro.exemplo.com.br {' "$CONFD"
 afirma "outros sites: Caddyfile dos outros preservado" grep -q 'loja.exemplo.com' "$CF"
 
-# Caddyfile personalizado: o comando falha, nada e gravado (arquivo, permissao, dominio registrado)
+# Caddyfile personalizado (0640): vira copia ao lado e o bloco gerado entra no lugar
 printf '# DG Claw: gerado\nantigo.exemplo.com {\n\treverse_proxy 127.0.0.1:8300\n\theader X-Minha-Linha "do dono"\n}\n' >"$CF"
-rm -f "$CONFD"
+rm -f "$CONFD" "$DGCLAW_RAIZ"/etc/caddy/*.antes-dominio-*
 chmod 640 "$CF"
 cp -p "$CF" "$TMP/cf-antes"
 printf 'DGCLAW_DOMINIO=antigo.exemplo.com\n' >"$ETC/dgclaw.env"
-cp -p "$ETC/dgclaw.env" "$TMP/env-antes"
-: >"$STUB_LOG"
 dgclaw dominio trocar personalizado.exemplo.com.br --sem-conferir-dns >"$TMP/o.txt" 2>&1
-igual "personalizado: sai com 1" "1" "$?"
-afirma "personalizado: explica o que fazer" grep -q 'tem personalizacoes suas' "$TMP/o.txt"
-afirma "personalizado: arquivo intacto byte a byte" cmp "$CF" "$TMP/cf-antes"
-igual "personalizado: permissao intacta" "640" "$(stat -c %a "$CF")"
-afirma "personalizado: dominio registrado nao mudou" cmp "$ETC/dgclaw.env" "$TMP/env-antes"
-nega "personalizado: nao recarregou o caddy" grep -q 'systemctl reload caddy' "$STUB_LOG"
-# o dono edita o nome do site a mao e roda de novo: o DG Claw registra o dominio
-sed -i 's/^antigo.exemplo.com {/personalizado.exemplo.com.br {/' "$CF"
-dgclaw dominio trocar personalizado.exemplo.com.br --sem-conferir-dns >"$TMP/o.txt" 2>&1
-igual "personalizado editado a mao: sai com 0" "0" "$?"
-afirma "personalizado editado a mao: dominio registrado" grep -qx 'DGCLAW_DOMINIO=personalizado.exemplo.com.br' "$ETC/dgclaw.env"
-afirma "personalizado editado a mao: linha do dono intacta" grep -q 'header X-Minha-Linha "do dono"' "$CF"
-igual "personalizado editado a mao: permissao intacta" "640" "$(stat -c %a "$CF")"
+igual "personalizado: sai com 0" "0" "$?"
+afirma "personalizado: avisa da copia" grep -q 'guardei uma copia em' "$TMP/o.txt"
+afirma "personalizado: arquivo novo e o bloco gerado com o dominio novo" grep -q '^personalizado.exemplo.com.br {' "$CF"
+nega "personalizado: a linha do dono nao esta no arquivo novo" grep -q 'X-Minha-Linha' "$CF"
+afirma "personalizado: dominio registrado" grep -qx 'DGCLAW_DOMINIO=personalizado.exemplo.com.br' "$ETC/dgclaw.env"
+COPIA="$(find "$DGCLAW_RAIZ/etc/caddy" -maxdepth 1 -name "Caddyfile.antes-dominio-*" | head -n 1)"
+afirma "personalizado: copia existe ao lado, em /etc/caddy" test -f "$COPIA"
+afirma "personalizado: copia igual ao original byte a byte" cmp "$COPIA" "$TMP/cf-antes"
+igual "personalizado: copia com 640" "640" "$(stat -c %a "$COPIA")"
 
-# Dois sites no mesmo arquivo personalizado: so vale o site do painel (reverse_proxy para 8300)
-printf 'import conf.d/*\n\nloja.exemplo.com {\n\treverse_proxy 127.0.0.1:9000\n}\n\nantigo.exemplo.com {\n\treverse_proxy 127.0.0.1:8300\n\theader X-Minha-Linha "do dono"\n}\n' >"$CF"
-printf '# DG Claw: personalizado\n' | cat - "$CF" >"$TMP/cf2" && mv "$TMP/cf2" "$CF"
-rm -f "$CONFD"; chmod 640 "$CF"; cp -p "$CF" "$TMP/cf-antes"
+# validate falho restaura o personalizado com 640 e nao grava o env
+printf '# DG Claw: gerado\nantigo.exemplo.com {\n\treverse_proxy 127.0.0.1:8300\n\theader X-Minha-Linha "do dono"\n}\n' >"$CF"
+chmod 640 "$CF"; cp -p "$CF" "$TMP/cf-antes"
 printf 'DGCLAW_DOMINIO=antigo.exemplo.com\n' >"$ETC/dgclaw.env"; cp -p "$ETC/dgclaw.env" "$TMP/env-antes"
-dgclaw dominio trocar loja.exemplo.com --sem-conferir-dns >"$TMP/o.txt" 2>&1
-igual "dois sites: trocar para o da loja falha" "1" "$?"
-afirma "dois sites: arquivo intacto" cmp "$CF" "$TMP/cf-antes"
-afirma "dois sites: env intacto" cmp "$ETC/dgclaw.env" "$TMP/env-antes"
-sed -i 's/^antigo.exemplo.com {/painel.exemplo.com, www.exemplo.com:443 {/' "$CF"
-dgclaw dominio trocar www.exemplo.com --sem-conferir-dns >"$TMP/o.txt" 2>&1
-igual "dominio junto com outro na linha do painel: passa" "0" "$?"
-afirma "dominio junto com outro: registrado" grep -qx 'DGCLAW_DOMINIO=www.exemplo.com' "$ETC/dgclaw.env"
+touch "$STUB_ESTADO/caddy-falha"
+dgclaw dominio trocar outro-novo.exemplo.com.br --sem-conferir-dns >"$TMP/o.txt" 2>&1
+igual "personalizado + validate falho: sai com 1" "1" "$?"
+rm -f "$STUB_ESTADO/caddy-falha"
+afirma "personalizado + validate falho: arquivo restaurado" cmp "$CF" "$TMP/cf-antes"
+igual "personalizado + validate falho: 640" "640" "$(stat -c %a "$CF")"
+afirma "personalizado + validate falho: env intacto" cmp "$ETC/dgclaw.env" "$TMP/env-antes"
+
+# a copia de um site em conf.d fica fora de conf.d (o Caddyfile importa conf.d/*)
+printf 'import conf.d/*\n\nloja.exemplo.com {\n\trespond "oi"\n}\n' >"$CF"
+mkdir -p "$(dirname "$CONFD")"
+printf 'antigo.exemplo.com {\n\treverse_proxy 127.0.0.1:8300\n\theader X-Minha-Linha "do dono"\n}\n' >"$CONFD"
 printf 'DGCLAW_DOMINIO=antigo.exemplo.com\n' >"$ETC/dgclaw.env"
-sed -i 's/^painel.exemplo.com, www.exemplo.com:443 {/painel.exemplo.com {/' "$CF"
-dgclaw dominio trocar www.exemplo.com --sem-conferir-dns >"$TMP/o.txt" 2>&1
-igual "dominio que nao esta em nenhum bloco: falha" "1" "$?"
-dgclaw dominio trocar painel.exemplo.com --sem-conferir-dns >"$TMP/o.txt" 2>&1
-igual "painel editado a mao para o nome novo: passa" "0" "$?"
-afirma "painel editado a mao: registrado" grep -qx 'DGCLAW_DOMINIO=painel.exemplo.com' "$ETC/dgclaw.env"
+dgclaw dominio trocar confd.exemplo.com.br --sem-conferir-dns >"$TMP/o.txt" 2>&1
+igual "conf.d personalizado: sai com 0" "0" "$?"
+afirma "conf.d: copia em /etc/caddy" ls "$DGCLAW_RAIZ"/etc/caddy/dgclaw.caddy.antes-dominio-*
+nega "conf.d: nenhuma copia dentro de conf.d" bash -c "ls '$(dirname "$CONFD")'/*antes-dominio* 2>/dev/null"
+afirma "conf.d: site novo gravado" grep -q '^confd.exemplo.com.br {' "$CONFD"
 
 # Caddyfile gerado pelo instalador: ganha a compressao ao trocar
 printf '# DG Claw: gerado\nantigo.exemplo.com {\n\treverse_proxy 127.0.0.1:8300\n}\n' >"$CF"

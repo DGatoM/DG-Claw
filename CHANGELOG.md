@@ -37,8 +37,9 @@ substitui o seu arquivo, porque ali estão as suas escolhas; ele avisa durante a
 acrescentar o bloco `encode` dentro do site, antes do `reverse_proxy`. O aviso traz o bloco pronto. Não use `text/*` na lista de tipos:
 isso comprimiria também a conversa em tempo real e as mensagens deixariam de chegar na hora. Depois confira e recarregue com
 `caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile && sudo systemctl reload caddy`.
-Nesse caso o `dgclaw dominio trocar` também não reescreve o seu arquivo: ele para com a instrução. Troque o nome do site do painel à mão,
-recarregue o Caddy e rode `dgclaw dominio trocar <nome> --sem-conferir-dns` de novo, para o DG Claw registrar o domínio novo.
+Nesse caso o `dgclaw dominio trocar` é a exceção: como o nome do site precisa mudar, ele guarda uma cópia do seu arquivo ao lado, em
+`/etc/caddy/` (por exemplo `Caddyfile.antes-dominio-<data>`), e grava no lugar o site padrão do DG Claw com o domínio novo. O aviso mostra
+o caminho da cópia; para levar suas personalizações de volta, copie as linhas que quiser para dentro do bloco do site, valide e recarregue o Caddy.
 
 **A aba Operações volta a mostrar as barrinhas de cada rotina, com rotina, horário e resultado.** O painel do agente não
 tinha permissão para ler o diário do sistema, e sem ela a aba dizia que não havia histórico, mesmo com as rotinas

@@ -409,41 +409,12 @@ caddy_restaurar_site() {
     fi
 }
 
-# caddy_site_do_painel <arquivo> <dominio>: 0 se EXATAMENTE um bloco de site do arquivo tem o dominio entre os
-# enderecos (com ou sem esquema e porta; varios separados por virgula ou espaco) e esse mesmo bloco, contando a
-# profundidade das chaves, tem um reverse_proxy para 127.0.0.1:8300 ou localhost:8300. Qualquer outro caso
-# (dominio em bloco de outro backend, em mais de um bloco, chaves que nao fecham) devolve 1.
-caddy_site_do_painel() {
-    awk -v dom="$2" '
-    function limpa(t) { sub(/^https?:\/\//, "", t); sub(/:[0-9]+$/, "", t); return tolower(t) }
-    {
-        linha = $0; sub(/[ \t]*#.*$/, "", linha)
-        eh_cab = (depth == 0 && linha ~ /\{[ \t]*$/)
-        if (eh_cab) {
-            ender = linha; sub(/\{[ \t]*$/, "", ender)
-            n = split(ender, a, /[ ,\t]+/); tem = 0
-            for (i = 1; i <= n; i++) if (a[i] != "" && limpa(a[i]) == tolower(dom)) tem = 1
-            atual_tem = tem; atual_ok = 0
-        }
-        if (depth >= 1 && linha ~ /^[ \t]*reverse_proxy[ \t]/) {
-            m = split(linha, t, /[ \t]+/)
-            for (i = 2; i <= m; i++) { u = t[i]; sub(/^http:\/\//, "", u); if (u == "127.0.0.1:8300" || u == "localhost:8300") atual_ok = 1 }
-        }
-        abre = gsub(/\{/, "{", linha); fecha = gsub(/\}/, "}", linha)
-        depth += abre - fecha
-        if (depth < 0) { ruim = 1 }
-        if (depth == 0 && atual_tem) { com_dom++; if (atual_ok) ok++; atual_tem = 0 }
-    }
-    END { exit (!ruim && depth == 0 && com_dom == 1 && ok == 1) ? 0 : 1 }
-    ' "$1"
-}
-
 # escrever_site_caddy <dominio> [trocar]: grava o site do DG Claw no Caddyfile proprio (quando e dele ou
 # padrao) ou em conf.d/dgclaw.caddy (quando o Caddyfile tem sites de outros). Nao valida nem recarrega.
 # Arquivo que ja existe e foi personalizado (diferente do que o instalador gera) nao e tocado: avisa o
-# que acrescentar. Com "trocar" (dgclaw dominio), arquivo personalizado faz falhar com instrucao, sem gravar nada.
+# que acrescentar. Com "trocar" (dgclaw dominio), o arquivo personalizado vira copia ao lado e o bloco gerado entra no lugar.
 escrever_site_caddy() {
-    local dominio="$1" modo="${2:-}" cf="$R/etc/caddy/Caddyfile" confd="$R/etc/caddy/conf.d/dgclaw.caddy" alvo
+    local copia dominio="$1" modo="${2:-}" cf="$R/etc/caddy/Caddyfile" confd="$R/etc/caddy/conf.d/dgclaw.caddy" alvo
     CADDY_SITE_MUDOU=0
     CADDY_SITE_ARQUIVO=""
     CADDY_SITE_COPIA=""
@@ -468,18 +439,18 @@ escrever_site_caddy() {
         if [ "$alvo" = "$cf" ] && caddyfile_e_padrao "$cf"; then
             :
         elif ! caddy_site_e_gerado "$alvo"; then
-            if [ "$modo" = trocar ] && caddy_site_do_painel "$alvo" "$dominio"; then
-                info "${alvo#"$R"} (personalizado) ja tem o site '$dominio' apontando para o painel; deixei como esta"
+            if [ "$modo" = trocar ]; then
+                # dgclaw dominio: o arquivo editado vira copia ao lado e o bloco gerado entra no lugar. A copia fica
+                # em /etc/caddy (nunca em conf.d/, que o Caddyfile importa e duplicaria o site).
+                copia="$R/etc/caddy/$(basename "$alvo").antes-dominio-$(date +%Y%m%d-%H%M%S)"
+                cp -p "$alvo" "$copia" \
+                    || falha "nao consegui guardar uma copia de ${alvo#"$R"} em ${copia#"$R"} antes de trocar o dominio (nada foi gravado)." \
+                        "confira espaco em disco e permissao de ${R}/etc/caddy e rode de novo."
+                aviso "${alvo#"$R"} tinha personalizacoes suas; guardei uma copia em ${copia#"$R"} e gravei o site padrao do DG Claw com '$dominio'. Para levar as suas personalizacoes de volta, copie as linhas que quiser da copia para dentro do bloco do site em ${alvo#"$R"}, rode caddy validate --config ${cf#"$R"} --adapter caddyfile e sudo systemctl reload caddy."
+            else
+                aviso "${alvo#"$R"} tem personalizacoes suas e nao foi alterado, entao o site continua sem a compressao nova (a conversa e o painel ficam mais lentos no celular). Para ligar, acrescente dentro do bloco do site, antes do reverse_proxy: encode { zstd gzip match { header Content-Type text/html* header Content-Type text/css* header Content-Type text/plain* header Content-Type text/javascript* header Content-Type application/javascript* header Content-Type application/json* header Content-Type application/manifest+json* header Content-Type application/xml* header Content-Type image/svg+xml* } } (nao use 'text/*': ele comprimiria o stream da conversa, text/event-stream, e as mensagens deixariam de chegar na hora). Depois rode: caddy validate --config ${cf#"$R"} --adapter caddyfile && sudo systemctl reload caddy"
                 return 0
             fi
-            if [ "$modo" = trocar ]; then
-                # Nao se renomeia site em arquivo editado a mao: o primeiro bloco pode nao ser o do painel
-                # e regravar mudaria a permissao de um arquivo que pode ter credencial.
-                falha "o arquivo ${alvo#"$R"} tem personalizacoes suas, entao nao troquei o dominio sozinho (nada foi gravado, nem o dominio registrado)." \
-                    "abra o arquivo, troque o nome do site do painel (o bloco com 'reverse_proxy 127.0.0.1:8300') por '$dominio', confira com: caddy validate --config ${cf#"$R"} --adapter caddyfile, rode: sudo systemctl reload caddy. Depois rode de novo: sudo dgclaw dominio trocar $dominio --sem-conferir-dns (o Caddy ja estara com o nome novo e o DG Claw registra o dominio)."
-            fi
-            aviso "${alvo#"$R"} tem personalizacoes suas e nao foi alterado, entao o site continua sem a compressao nova (a conversa e o painel ficam mais lentos no celular). Para ligar, acrescente dentro do bloco do site, antes do reverse_proxy: encode { zstd gzip match { header Content-Type text/html* header Content-Type text/css* header Content-Type text/plain* header Content-Type text/javascript* header Content-Type application/javascript* header Content-Type application/json* header Content-Type application/manifest+json* header Content-Type application/xml* header Content-Type image/svg+xml* } } (nao use 'text/*': ele comprimiria o stream da conversa, text/event-stream, e as mensagens deixariam de chegar na hora). Depois rode: caddy validate --config ${cf#"$R"} --adapter caddyfile && sudo systemctl reload caddy"
-            return 0
         fi
         CADDY_SITE_COPIA="$(mktemp)"
         cp -p "$alvo" "$CADDY_SITE_COPIA"
