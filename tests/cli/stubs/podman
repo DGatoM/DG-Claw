@@ -16,8 +16,10 @@ case "${1:-}" in
             rm) rm -f "$est/n-$3" ;;
         esac ;;
     create)
-        while [ $# -gt 0 ]; do [ "$1" = --name ] && nome="$2"; shift; done
+        dns=""
+        while [ $# -gt 0 ]; do [ "$1" = --name ] && nome="$2"; [ "$1" = --dns ] && dns="$dns $2"; shift; done
         echo created > "$est/c-$nome"
+        echo "[${dns# }]" > "$est/dns-$nome"
         # O container nasce com a imagem que estava "atual" na hora (para o `agente recriar` comparar).
         cat "$est/imagem-id" 2>/dev/null > "$est/img-$nome" || echo imagem-nova > "$est/img-$nome"
         echo "container-id" ;;
@@ -57,6 +59,7 @@ case "${1:-}" in
                 else echo $((resta - 1)) > "$est/stopping-resta-$nome"; fi
             fi
         fi
+        if printf '%s ' "$@" | grep -q 'HostConfig.Dns'; then cat "$est/dns-$nome" 2>/dev/null || echo "[]"; exit 0; fi
         if printf '%s ' "$@" | grep -q '{{.Image}}'; then cat "$est/img-$nome" 2>/dev/null || echo imagem-velha; exit 0; fi
         if printf '%s ' "$@" | grep -q ExitCode; then
             printf '%s %s\n' "$(cat "$est/c-$nome")" "$(cat "$est/codigo-$nome" 2>/dev/null || echo 0)"

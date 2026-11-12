@@ -777,6 +777,628 @@ caso_unidade_do_web_endurecida_com_motivos_das_que_ficaram_de_fora() {
     fi
 }
 
+caso_instalacao_padrao_sem_tunel_continua_igual() {
+    novo_cenario
+    afirma "instala" instalacao_basica
+    nega "Caddyfile sem tls internal" tem "$RAIZ/etc/caddy/Caddyfile" "tls internal"
+    nega "dgclaw.env sem o modo de tunel" tem "$RAIZ/etc/dgclaw/dgclaw.env" "DGCLAW_ATRAS_DE_TUNEL"
+    afirma "ufw liberou a 80" tem "$STUB_LOG" "ufw allow 80/tcp"
+    afirma "ufw liberou a 443" tem "$STUB_LOG" "ufw allow 443/tcp"
+    afirma "usou o IP publico" tem "$STUB_LOG" "curl"
+    nega "a mensagem final nao fala de tunel" tem "$SAIDA" "Atras de tunel"
+    limpar_cenario
+}
+
+caso_tunel_sem_dominio_falha_com_mensagem() {
+    novo_cenario
+    nega "tunel sem dominio recusa" instalacao_basica --atras-de-tunel
+    afirma "diz que falta o dominio" tem "$SAIDA" "precisa de um dominio"
+    afirma "mostra o exemplo do comando" tem "$SAIDA" "--dominio painel.exemplo.com --atras-de-tunel"
+    nega "nao gravou o dgclaw.env" test -e "$RAIZ/etc/dgclaw/dgclaw.env"
+    limpar_cenario
+}
+
+caso_tunel_com_dominio_usa_certificado_interno_e_nao_abre_80_443() {
+    novo_cenario
+    afirma "instala" instalacao_basica --dominio x.exemplo.org --atras-de-tunel
+    local e="$RAIZ/etc/dgclaw/dgclaw.env" cf="$RAIZ/etc/caddy/Caddyfile"
+    afirma "grava o modo de tunel" tem "$e" "DGCLAW_ATRAS_DE_TUNEL=1"
+    afirma "grava o dominio" tem "$e" "DGCLAW_DOMINIO=x.exemplo.org"
+    afirma "Caddyfile com o dominio" tem "$cf" "x.exemplo.org {"
+    afirma "Caddyfile com tls internal" tem "$cf" "tls internal"
+    afirma "Caddyfile continua com o proxy" tem "$cf" "reverse_proxy 127.0.0.1:8300"
+    afirma "ufw liberou a 22" tem "$STUB_LOG" "ufw allow 22/tcp"
+    nega "ufw nao liberou a 80" tem "$STUB_LOG" "ufw allow 80/tcp"
+    nega "ufw nao liberou a 443" tem "$STUB_LOG" "ufw allow 443/tcp"
+    nega "nao consultou o IP publico" grep -qE '^curl .*(ipify|ifconfig)' "$STUB_LOG"
+    nega "nao consultou o DNS publico" grep -q '^dig ' "$STUB_LOG"
+    afirma "testou o HTTPS local com -k" grep -qE '^curl .*-k .*--resolve x.exemplo.org:443:127.0.0.1' "$STUB_LOG"
+    afirma "mensagem final cita o tunel" tem "$SAIDA" "https://127.0.0.1:443"
+    afirma "mensagem final cita o nome do servidor de origem" tem "$SAIDA" "nome do servidor de origem igual a x.exemplo.org"
+    limpar_cenario
+}
+
+caso_tunel_sobrevive_a_reinstalacao_e_preserva_linha_alheia() {
+    novo_cenario
+    afirma "primeira instalacao" instalacao_basica --dominio x.exemplo.org --atras-de-tunel
+    printf 'LINHA_DA_MARTA=oi\n' >>"$RAIZ/etc/dgclaw/dgclaw.env"
+    : >"$STUB_LOG"
+    afirma "reinstala sem a opcao" instalar "" --usuario maria --provedor claude
+    local e="$RAIZ/etc/dgclaw/dgclaw.env"
+    afirma "mantem o modo de tunel" tem "$e" "DGCLAW_ATRAS_DE_TUNEL=1"
+    afirma "mantem o dominio" tem "$e" "DGCLAW_DOMINIO=x.exemplo.org"
+    afirma "a linha alheia sobreviveu" tem "$e" "LINHA_DA_MARTA=oi"
+    afirma "Caddyfile segue com tls internal" tem "$RAIZ/etc/caddy/Caddyfile" "tls internal"
+    nega "segue sem abrir a 443" tem "$STUB_LOG" "ufw allow 443/tcp"
+    # --sem-tunel desliga, e a 80/443 voltam
+    afirma "reinstala com --sem-tunel" instalar "" --usuario maria --provedor claude --sem-tunel
+    afirma "modo de tunel desligado no env" tem "$e" "DGCLAW_ATRAS_DE_TUNEL=0"
+    nega "Caddyfile sem tls internal" tem "$RAIZ/etc/caddy/Caddyfile" "tls internal"
+    afirma "ufw liberou a 443" tem "$STUB_LOG" "ufw allow 443/tcp"
+    afirma "a linha alheia ainda sobreviveu" tem "$e" "LINHA_DA_MARTA=oi"
+    limpar_cenario
+}
+
+caso_firewall_libera_a_porta_real_do_ssh() {
+    novo_cenario
+    EXTRA_ENV=(DGCLAW_STUB_SSHD_PORTAS=2222)
+    afirma "instala com sshd na 2222" instalacao_basica
+    afirma "ufw liberou a 2222" tem "$STUB_LOG" "ufw allow 2222/tcp"
+    nega "ufw nao liberou a 22" tem "$STUB_LOG" "ufw allow 22/tcp"
+    afirma "o aviso cita a 2222" tem "$SAIDA" "porta do SSH (2222)"
+    limpar_cenario
+    novo_cenario
+    EXTRA_ENV=("DGCLAW_STUB_SSHD_PORTAS=22 2222")
+    afirma "instala com sshd na 22 e na 2222" instalacao_basica
+    afirma "ufw liberou a 22" tem "$STUB_LOG" "ufw allow 22/tcp"
+    afirma "ufw liberou a 2222" tem "$STUB_LOG" "ufw allow 2222/tcp"
+    limpar_cenario
+    novo_cenario
+    EXTRA_ENV=(DGCLAW_STUB_SSHD_PORTAS=)
+    afirma "instala com sshd sem dizer porta" instalacao_basica
+    afirma "cai para a 22" tem "$STUB_LOG" "ufw allow 22/tcp"
+    limpar_cenario
+    novo_cenario
+    EXTRA_ENV=("DGCLAW_STUB_SSHD_PORTAS=0 99999 abc 2200")
+    afirma "instala com portas invalidas na saida" instalacao_basica
+    afirma "so a valida passa ao ufw" tem "$STUB_LOG" "ufw allow 2200/tcp"
+    nega "porta invalida nao vai ao ufw" tem "$STUB_LOG" "ufw allow 99999/tcp"
+    limpar_cenario
+}
+
+caso_cpu_sem_sse4_2_falha_com_mensagem() {
+    novo_cenario
+    mkdir -p "$RAIZ/proc"
+    printf 'processor\t: 0\nflags\t\t: fpu vme sse sse2 ssse3 sse4_1 popcnt\n' >"$RAIZ/proc/cpuinfo"
+    EXTRA_ENV=(DGCLAW_ARQUITETURA=x86_64)
+    nega "CPU sem SSE4.2 recusa" instalacao_basica
+    afirma "explica o recurso que falta" tem "$SAIDA" "SSE4.2"
+    afirma "diz o que fazer no hipervisor" tem "$SAIDA" "Type = host"
+    limpar_cenario
+    novo_cenario
+    mkdir -p "$RAIZ/proc"
+    printf 'processor\t: 0\nflags\t\t: fpu sse4_1 sse4_2 popcnt\n' >"$RAIZ/proc/cpuinfo"
+    EXTRA_ENV=(DGCLAW_ARQUITETURA=x86_64)
+    afirma "CPU com SSE4.2 passa" instalacao_basica
+    limpar_cenario
+    novo_cenario
+    mkdir -p "$RAIZ/proc"
+    printf 'processor\t: 0\nflags\t\t: fpu sse2\n' >"$RAIZ/proc/cpuinfo"
+    EXTRA_ENV=(DGCLAW_ARQUITETURA=aarch64)
+    afirma "fora do x86_64 nao confere" instalacao_basica
+    limpar_cenario
+}
+
+caso_claude_ausente_com_sudo_cita_o_caminho_do_root() {
+    novo_cenario
+    esconder_claude
+    EXTRA_ENV=(SUDO_USER=maria)
+    nega "sem claude a instalacao falha" instalacao_basica
+    afirma "cita o CLAUDE_INSTALL_ALLOW_SUDO" tem "$SAIDA" "CLAUDE_INSTALL_ALLOW_SUDO=1"
+    afirma "cita o sudo -i" tem "$SAIDA" "sudo -i"
+    limpar_cenario
+}
+
+# proc_falso <pid> <uid> <exe> [ppid=1]: um processo de mentira em $RAIZ/proc (so o status e o exe).
+proc_falso() {
+    mkdir -p "$RAIZ/proc/$1"
+    printf 'Name:\tqualquer\nPPid:\t%s\nUid:\t%s\t%s\t%s\t%s\n' "${4:-1}" "$2" "$2" "$2" "$2" >"$RAIZ/proc/$1/status"
+    ln -sfn "$3" "$RAIZ/proc/$1/exe"
+}
+
+# sock_falso <pid> <fd> <inode>: o fd do processo de mentira apontando para um socket.
+sock_falso() {
+    mkdir -p "$RAIZ/proc/$1/fd"
+    ln -sfn "socket:[$3]" "$RAIZ/proc/$1/fd/$2"
+}
+# tcp_falso <tcp|tcp6> <HEXPORTA> <estado> <inode>: acrescenta uma linha a $RAIZ/proc/net/<tabela>.
+tcp_falso() {
+    mkdir -p "$RAIZ/proc/net"
+    [ -s "$RAIZ/proc/net/$1" ] || printf '  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n' >"$RAIZ/proc/net/$1"
+    printf '   0: 00000000:%s 00000000:0000 %s 00000000:00000000 00:00000000 00000000     0        0 %s 1 0000000000000000 100 0 0 10 0\n' "$2" "$3" "$4" >>"$RAIZ/proc/net/$1"
+}
+
+caso_firewall_uniao_de_fontes_do_ssh() {
+    novo_cenario
+    EXTRA_ENV=(DGCLAW_STUB_SSHD_PORTAS=2222 DGCLAW_STUB_SSHD_LISTEN=0.0.0.1:22)
+    afirma "instala (Port 2222 + ListenAddress :22)" instalacao_basica
+    afirma "libera a 22 do listenaddress" tem "$STUB_LOG" "ufw allow 22/tcp"
+    afirma "libera a 2222 do port" tem "$STUB_LOG" "ufw allow 2222/tcp"
+    limpar_cenario
+    novo_cenario
+    EXTRA_ENV=(DGCLAW_STUB_SSHD_PORTAS=2222 "DGCLAW_STUB_SSHD_LISTEN=[::]:2300 10.0.0.5 [::1]")
+    afirma "instala (listenaddress com colchetes e sem porta)" instalacao_basica
+    afirma "libera a 2300 de [::]:2300" tem "$STUB_LOG" "ufw allow 2300/tcp"
+    nega "sem porta explicita nao acrescenta a 22" tem "$STUB_LOG" "ufw allow 22/tcp"
+    limpar_cenario
+    novo_cenario
+    proc_falso 10 0 /usr/sbin/sshd 1
+    proc_falso 12 0 /usr/lib/openssh/sshd-session 10
+    proc_falso 13 0 /usr/sbin/sshd 500
+    proc_falso 14 0 /usr/sbin/sshd 500
+    sock_falso 10 4 7001; tcp_falso tcp 08AE 0A 7001   # 08AE = 2222, daemon com PPid 1
+    sock_falso 12 4 7002; tcp_falso tcp 1538 0A 7002   # 1538 = 5432, ssh -R de uma sessao
+    sock_falso 13 4 7003; tcp_falso tcp 1F90 0A 7003   # 1F90 = 8080, filho sshd (PPid 500)
+    sock_falso 10 5 7004; tcp_falso tcp 1538 01 7004   # 5432 ESTABLISHED aceita no encaminhamento
+    sock_falso 14 4 7005; tcp_falso tcp 2328 0A 7005   # 2328 = 9000, MainPID do servico
+    EXTRA_ENV=(DGCLAW_STUB_SSHD_PORTAS= DGCLAW_STUB_MAINPID=14)
+    afirma "instala (daemon, sessao e encaminhamentos)" instalacao_basica
+    afirma "libera a porta do daemon sshd (PPid 1)" tem "$STUB_LOG" "ufw allow 2222/tcp"
+    afirma "libera a do MainPID do servico mesmo com PPid diferente de 1" tem "$STUB_LOG" "ufw allow 9000/tcp"
+    nega "LISTEN de sshd-session (ssh -R) nao vira regra" tem "$STUB_LOG" "ufw allow 5432/tcp"
+    nega "filho sshd que nao e daemon nem MainPID nao vira regra" tem "$STUB_LOG" "ufw allow 8080/tcp"
+    limpar_cenario
+    novo_cenario
+    proc_falso 10 0 /usr/sbin/sshd 1
+    sock_falso 10 4 7011; tcp_falso tcp 1538 01 7011   # so ESTABLISHED na 5432
+    EXTRA_ENV=(DGCLAW_STUB_SSHD_PORTAS=2222)
+    afirma "instala (so conexao estabelecida do sshd)" instalacao_basica
+    nega "conexao ESTABLISHED nao vira regra" tem "$STUB_LOG" "ufw allow 5432/tcp"
+    afirma "libera a do sshd -T" tem "$STUB_LOG" "ufw allow 2222/tcp"
+    limpar_cenario
+    novo_cenario
+    proc_falso 1 0 /usr/sbin/sshd
+    proc_falso 2 0 /usr/bin/node
+    sock_falso 1 3 7101
+    sock_falso 2 3 7102
+    tcp_falso tcp 0960 0A 7101   # 0960 = 2400, LISTEN
+    tcp_falso tcp 205C 0A 7102   # 205C = 8284, de outro processo
+    EXTRA_ENV=(DGCLAW_STUB_SSHD_PORTAS=)
+    afirma "instala (sshd em escuta so pelo /proc)" instalacao_basica
+    afirma "libera a porta em escuta do sshd" tem "$STUB_LOG" "ufw allow 2400/tcp"
+    nega "nao libera a de outro processo" tem "$STUB_LOG" "ufw allow 8284/tcp"
+    limpar_cenario
+    novo_cenario
+    EXTRA_ENV=(DGCLAW_STUB_SSHD_PORTAS= DGCLAW_STUB_ATIVOS=ssh.socket "DGCLAW_STUB_SOCKET_LISTEN=[::]:2500 (Stream)")
+    afirma "instala (ativacao por socket)" instalacao_basica
+    afirma "libera a porta do ssh.socket ativo" tem "$STUB_LOG" "ufw allow 2500/tcp"
+    limpar_cenario
+    novo_cenario
+    EXTRA_ENV=(DGCLAW_STUB_SSHD_PORTAS= "DGCLAW_STUB_SOCKET_LISTEN=[::]:2500 (Stream)")
+    afirma "instala (socket inativo, nada em lugar nenhum)" instalacao_basica
+    afirma "tudo vazio cai para a 22" tem "$STUB_LOG" "ufw allow 22/tcp"
+    nega "socket inativo nao conta" tem "$STUB_LOG" "ufw allow 2500/tcp"
+    limpar_cenario
+}
+
+caso_tunel_caddy_so_no_loopback_com_ip_do_cliente() {
+    novo_cenario
+    afirma "instala em modo tunel" instalacao_basica --dominio x.exemplo.org --atras-de-tunel
+    local cf="$RAIZ/etc/caddy/Caddyfile"
+    afirma "bind so no loopback" tem "$cf" "bind 127.0.0.1"
+    afirma "repassa o IP do cliente no X-Forwarded-For" tem "$cf" "header_up X-Forwarded-For {http.request.header.Cf-Connecting-IP}"
+    afirma "so confia quando o cabecalho vem" tem "$cf" "@tunel header Cf-Connecting-IP *"
+    limpar_cenario
+    novo_cenario
+    afirma "instala no modo padrao" instalacao_basica
+    nega "padrao sem bind" tem "$RAIZ/etc/caddy/Caddyfile" "bind "
+    nega "padrao sem header_up" tem "$RAIZ/etc/caddy/Caddyfile" "header_up"
+    limpar_cenario
+}
+
+caso_cpu_sem_sse4_2_so_bloqueia_quem_usa_claude() {
+    novo_cenario
+    mkdir -p "$RAIZ/proc"
+    printf 'flags\t\t: fpu sse2\n' >"$RAIZ/proc/cpuinfo"
+    EXTRA_ENV=(DGCLAW_ARQUITETURA=x86_64)
+    nega "claude sem sse4_2 falha" instalar "$PAINEL_PW" --usuario maria --provedor claude
+    afirma "explica o SSE4.2" tem "$SAIDA" "SSE4.2"
+    limpar_cenario
+    novo_cenario
+    mkdir -p "$RAIZ/proc"
+    printf 'flags\t\t: fpu sse2\n' >"$RAIZ/proc/cpuinfo"
+    EXTRA_ENV=(DGCLAW_ARQUITETURA=x86_64)
+    afirma "codex sem sse4_2 instala" instalar "$PAINEL_PW" --usuario maria --provedor codex
+    afirma "avisa que o Claude Code nao roda" tem "$SAIDA" "o Claude Code nao roda aqui"
+    limpar_cenario
+    novo_cenario
+    mkdir -p "$RAIZ/proc" "$RAIZ/etc/dgclaw"
+    printf 'flags\t\t: fpu sse2\n' >"$RAIZ/proc/cpuinfo"
+    printf 'DGCLAW_PROVEDOR_ADMIN=codex\n' >"$RAIZ/etc/dgclaw/dgclaw.env"
+    EXTRA_ENV=(DGCLAW_ARQUITETURA=x86_64)
+    afirma "reinstalar com provedor codex gravado passa" instalar "$PAINEL_PW" --usuario maria
+    limpar_cenario
+}
+
+caso_firewall_nao_confia_no_nome_do_processo() {
+    novo_cenario
+    proc_falso 20 65534 /tmp/x
+    proc_falso 21 0 /usr/bin/python3
+    sock_falso 20 3 7201; tcp_falso tcp A1F8 0A 7201   # 41464
+    sock_falso 21 3 7202; tcp_falso tcp A410 0A 7202   # 42000
+    sock_falso 22 3 7203; tcp_falso tcp A7F8 0A 7203   # 43000, pid 22 sem status/exe
+    EXTRA_ENV=(DGCLAW_STUB_SSHD_PORTAS=)
+    afirma "instala com processos que nao sao o sshd" instalacao_basica
+    nega "uid 65534 com exe /tmp/x nao vira regra" tem "$STUB_LOG" "ufw allow 41464/tcp"
+    nega "uid 0 com exe python3 nao vira regra" tem "$STUB_LOG" "ufw allow 42000/tcp"
+    nega "pid sem status e exe nao vira regra" tem "$STUB_LOG" "ufw allow 43000/tcp"
+    afirma "sem nada confiavel cai para a 22" tem "$STUB_LOG" "ufw allow 22/tcp"
+    limpar_cenario
+}
+
+caso_firewall_ataque_do_nome_com_pid_e_estados_e_tcp6() {
+    novo_cenario
+    # sshd real na 22; o atacante (uid 1000) se chama "pid=1398" e escuta na 45955 (B383)
+    proc_falso 1398 0 /usr/sbin/sshd
+    sock_falso 1398 3 7301; tcp_falso tcp 0016 0A 7301
+    proc_falso 4182 1000 /home/atacante/escuta
+    printf 'pid=1398\n' >"$RAIZ/proc/4182/comm"
+    sock_falso 4182 3 7302; tcp_falso tcp B383 0A 7302
+    # socket do sshd em TIME_WAIT (06) na 3333 (0D05): nao conta
+    sock_falso 1398 4 7303; tcp_falso tcp 0D05 06 7303
+    # tcp6 com porta 2600 (0A28), LISTEN, do sshd real
+    sock_falso 1398 5 7304; tcp_falso tcp6 0A28 0A 7304
+    EXTRA_ENV=(DGCLAW_STUB_SSHD_PORTAS=)
+    afirma "instala" instalacao_basica
+    afirma "libera a 22 do sshd real" tem "$STUB_LOG" "ufw allow 22/tcp"
+    nega "porta do atacante com nome pid=1398 nao entra" tem "$STUB_LOG" "ufw allow 45955/tcp"
+    nega "socket em TIME_WAIT nao entra" tem "$STUB_LOG" "ufw allow 3333/tcp"
+    afirma "porta do tcp6 entra" tem "$STUB_LOG" "ufw allow 2600/tcp"
+    limpar_cenario
+}
+
+caso_rede_containers_grava_o_arquivo_do_netavark() {
+    novo_cenario
+    afirma "a instalacao termina com sucesso" instalacao_basica
+    local conf="$RAIZ/etc/containers/containers.conf.d/50-dgclaw-firewall-iptables.conf"
+    afirma "o arquivo existe" test -f "$conf"
+    afirma "traz o driver iptables" tem "$conf" 'firewall_driver = "iptables"'
+    afirma "traz a secao network" tem "$conf" '[network]'
+    afirma "rodar de novo termina com sucesso" instalacao_basica
+    igual "$(contar "$conf" 'firewall_driver')" 1 || { echo "      FALHOU: o arquivo foi duplicado ao reinstalar"; FALHAS=$((FALHAS + 1)); }
+    nega "sem a tabela netavark, nada de nft delete" tem "$STUB_LOG" "nft delete"
+}
+
+caso_rede_containers_nao_sobrescreve_arquivo_alheio() {
+    novo_cenario
+    local dir="$RAIZ/etc/containers/containers.conf.d"
+    mkdir -p "$dir"
+    printf '# minha config\n[network]\nfirewall_driver = "nftables"\n' >"$dir/50-dgclaw-firewall-iptables.conf"
+    printf '[network]\nfirewall_driver = "nftables"\n' >"$dir/10-meu.conf"
+    afirma "a instalacao termina com sucesso" instalacao_basica
+    afirma "o conteudo alheio sobreviveu" tem "$dir/50-dgclaw-firewall-iptables.conf" '# minha config'
+    nega "o arquivo nao ganhou o driver iptables" tem "$dir/50-dgclaw-firewall-iptables.conf" '"iptables"'
+    afirma "avisa do arquivo existente" tem "$SAIDA" "ja existe com outro conteudo"
+    afirma "avisa do outro arquivo com driver diferente" tem "$SAIDA" "/etc/containers/containers.conf.d/10-meu.conf"
+    afirma "o outro arquivo continua igual" tem "$dir/10-meu.conf" 'firewall_driver = "nftables"'
+}
+
+caso_rede_containers_nao_grava_se_o_dono_ja_define_o_driver() {
+    novo_cenario
+    local dir="$RAIZ/etc/containers/containers.conf.d" conf
+    conf="$dir/50-dgclaw-firewall-iptables.conf"
+    mkdir -p "$dir" "$RAIZ/usr/share/containers"
+    printf '[network]\nfirewall_driver = "nftables"\n' >"$RAIZ/usr/share/containers/containers.conf"
+    afirma "a instalacao termina com sucesso" instalacao_basica
+    nega "nao gravou o meu arquivo" test -e "$conf"
+    afirma "avisa do driver divergente e do arquivo" tem "$SAIDA" "/usr/share/containers/containers.conf:2 (firewall_driver = \"nftables\")"
+    limpar_cenario
+
+    novo_cenario
+    mkdir -p "$RAIZ/etc/containers"
+    printf '[network]\nfirewall_driver="iptables"\n' >"$RAIZ/etc/containers/containers.conf"
+    afirma "a instalacao com driver iptables do dono termina com sucesso" instalacao_basica
+    nega "nao gravou o meu arquivo (o dono ja usa iptables)" test -e "$RAIZ/etc/containers/containers.conf.d/50-dgclaw-firewall-iptables.conf"
+    afirma "diz que ja e iptables" tem "$SAIDA" "firewall_driver ja e iptables"
+}
+
+caso_rede_containers_apaga_tabela_netavark_so_com_tudo_parado() {
+    novo_cenario
+    EXTRA_ENV=("DGCLAW_STUB_NFT_NETAVARK=1" "DGCLAW_STUB_PS=dgclaw-ana exited\nlixo created")
+    afirma "a instalacao termina com sucesso" instalacao_basica
+    afirma "apagou a tabela (so exited e created)" tem "$STUB_LOG" "nft delete table inet netavark"
+    afirma "informa que apagou" tem "$SAIDA" "apaguei a tabela inet netavark"
+    limpar_cenario
+
+    novo_cenario
+    EXTRA_ENV=("DGCLAW_STUB_NFT_NETAVARK=1")
+    afirma "lista vazia termina com sucesso" instalacao_basica
+    afirma "lista vazia tambem apaga" tem "$STUB_LOG" "nft delete table inet netavark"
+}
+
+caso_rede_containers_preserva_tabela_com_container_ativo() {
+    local estado
+    for estado in running paused stopping restarting unknown; do
+        novo_cenario
+        EXTRA_ENV=("DGCLAW_STUB_NFT_NETAVARK=1" "DGCLAW_STUB_PS=dgclaw-ana exited\ndgclaw-beto $estado\noutro-servico running")
+        afirma "estado $estado: a instalacao termina com sucesso" instalacao_basica
+        nega "estado $estado: a tabela fica" tem "$STUB_LOG" "nft delete"
+        afirma "estado $estado: manda parar o agente" tem "$SAIDA" "sudo dgclaw agente parar <slug>"
+        afirma "estado $estado: lista o agente que nao esta parado" tem "$SAIDA" "dgclaw-beto"
+        afirma "estado $estado: manda rodar o install.sh" tem "$SAIDA" "rode sudo ./install.sh de novo"
+        afirma "estado $estado: manda iniciar de novo" tem "$SAIDA" "sudo dgclaw agente iniciar <slug>"
+        afirma "estado $estado: container de fora tambem precisa parar" tem "$SAIDA" "nao sao do DG Claw tambem precisam estar parados"
+        limpar_cenario
+    done
+}
+
+caso_rede_containers_driver_do_dono_nao_iptables_preserva_a_tabela() {
+    # Com o driver efetivo em nftables, a tabela e a rede viva dos containers: nem a lista e consultada.
+    novo_cenario
+    mkdir -p "$RAIZ/usr/share/containers"
+    printf '[network]\nfirewall_driver = "nftables"\n' >"$RAIZ/usr/share/containers/containers.conf"
+    EXTRA_ENV=("DGCLAW_STUB_NFT_NETAVARK=1")
+    afirma "a instalacao termina com sucesso" instalacao_basica
+    nega "a tabela fica" tem "$STUB_LOG" "nft delete"
+    nega "nem lista os containers para migrar" tem "$STUB_LOG" "podman ps"
+    limpar_cenario
+
+    novo_cenario
+    mkdir -p "$RAIZ/etc/containers/containers.conf.d"
+    printf '# meu\n' >"$RAIZ/etc/containers/containers.conf.d/50-dgclaw-firewall-iptables.conf"
+    EXTRA_ENV=("DGCLAW_STUB_NFT_NETAVARK=1")
+    afirma "arquivo nosso com outro conteudo: termina com sucesso" instalacao_basica
+    nega "arquivo nosso com outro conteudo: a tabela fica" tem "$STUB_LOG" "nft delete"
+}
+
+caso_rede_containers_podman_falhando_preserva_a_tabela() {
+    novo_cenario
+    EXTRA_ENV=("DGCLAW_STUB_NFT_NETAVARK=1" "DGCLAW_STUB_PS_FALHA=1")
+    afirma "a instalacao termina com sucesso" instalacao_basica
+    nega "a tabela fica" tem "$STUB_LOG" "nft delete"
+    afirma "avisa com o erro do podman" tem "$SAIDA" "podman: erro simulado"
+}
+
+caso_rede_containers_ensaio_nao_muda_nada() {
+    novo_cenario
+    EXTRA_ENV=("DGCLAW_STUB_NFT_NETAVARK=1")
+    afirma "o ensaio termina com sucesso" instalar "$PAINEL_PW" --usuario maria --provedor claude --ensaio
+    nega "o ensaio nao gravou o arquivo" test -e "$RAIZ/etc/containers"
+    nega "o ensaio nao apagou a tabela" tem "$STUB_LOG" "nft delete"
+    afirma "mostra que apagaria" tem "$SAIDA" "[ensaio] nft delete table inet netavark"
+}
+
+# Roda o lib/firewall.sh de verdade contra o iptables de mentira (que guarda cadeias e regras em
+# arquivos). Devolve o estado em $TMP/estado/ipt-regras.
+rodar_firewall_falso() {
+    env -i "HOME=$TMP" "PATH=$AQUI/stubs:/usr/bin:/bin" "DGCLAW_STUB_LOG=$STUB_LOG" "DGCLAW_STUB_ESTADO=$TMP/estado" \
+        "DGCLAW_FIREWALL_TRAVA=$TMP/firewall.lock" "DGCLAW_FIREWALL_TRAVA_ESPERA=${FW_ESPERA:-120}" \
+        bash "$REPO/lib/firewall.sh" >"$SAIDA" 2>&1
+}
+
+caso_firewall_cerca_do_host_tambem_no_mangle_input() {
+    novo_cenario
+    local regras="$TMP/estado/ipt-regras"
+    mkdir -p "$TMP/estado"
+    # O netavark empurrando o proprio salto para o topo do INPUT da filter antes de a cerca rodar.
+    printf '|INPUT| -j NETAVARK_INPUT\n' >"$regras"
+    afirma "o firewall termina com sucesso" rodar_firewall_falso
+    afirma "mangle INPUT salta para DGCLAW_HOST" tem "$regras" "|mangle/INPUT| -s 10.89.0.0/16 -j DGCLAW_HOST"
+    afirma "mangle DGCLAW_HOST aceita o que ja estava estabelecido" tem "$regras" "|mangle/DGCLAW_HOST| -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT"
+    afirma "mangle DGCLAW_HOST derruba o resto" tem "$regras" "|mangle/DGCLAW_HOST| -j DROP"
+    afirma "a filter continua como segunda trava" tem "$regras" "|INPUT| -s 10.89.0.0/16 -j DGCLAW_HOST"
+    afirma "na filter o salto fica antes do NETAVARK_INPUT" bash -c "grep '^|INPUT|' '$regras' | head -n 1 | grep -q 'DGCLAW_HOST'"
+    rodar_firewall_falso
+    igual "$(contar "$regras" '|mangle/INPUT| -s 10.89.0.0/16 -j DGCLAW_HOST')" 1 || { echo "      FALHOU: salto do mangle duplicado ao reaplicar"; FALHAS=$((FALHAS + 1)); }
+    igual "$(contar "$regras" '|mangle/DGCLAW_HOST| -j DROP')" 1 || { echo "      FALHOU: DROP do mangle duplicado ao reaplicar"; FALHAS=$((FALHAS + 1)); }
+}
+
+caso_firewall_troca_de_cadeia_sem_janela() {
+    novo_cenario
+    local regras="$TMP/estado/ipt-regras" cadeias="$TMP/estado/ipt-cadeias" viol="$TMP/estado/violacoes"
+    mkdir -p "$TMP/estado"
+    afirma "a primeira aplicacao termina com sucesso" rodar_firewall_falso
+    afirma "a segunda aplicacao (a troca) termina com sucesso" rodar_firewall_falso
+    nega "nenhum -F/-X em cadeia com salto e nenhum salto para cadeia sem DROP/RETURN final" test -s "$viol"
+    nega "nao sobrou cadeia _NOVA" tem "$cadeias" "_NOVA"
+    nega "nao sobrou regra apontando para _NOVA" tem "$regras" "_NOVA"
+    local t pre
+    for t in mangle filter; do
+        pre=""; [ "$t" = mangle ] && pre="mangle/"
+        igual "$(contar "$regras" "|${pre}FORWARD| -s 10.89.0.0/16 -j DGCLAW_EGRESS")" 1 || { echo "      FALHOU: $t: salto do EGRESS nao e unico"; FALHAS=$((FALHAS + 1)); }
+        afirma "$t: EGRESS termina em RETURN" tem "$regras" "|${pre}DGCLAW_EGRESS| -j RETURN"
+        afirma "$t: o salto do EGRESS e a primeira regra do FORWARD" bash -c "grep '^|${pre}FORWARD|' '$regras' | head -n 1 | grep -q 'DGCLAW_EGRESS'"
+        afirma "$t: o salto do HOST e a primeira regra do INPUT" bash -c "grep '^|${pre}INPUT|' '$regras' | head -n 1 | grep -q 'DGCLAW_HOST'"
+        afirma "$t: HOST termina em DROP" tem "$regras" "|${pre}DGCLAW_HOST| -j DROP"
+    done
+    local antes depois
+    antes="$(cat "$regras")"
+    rodar_firewall_falso
+    depois="$(cat "$regras")"
+    igual "$antes" "$depois" || { echo "      FALHOU: reaplicar mudou o estado final"; FALHAS=$((FALHAS + 1)); }
+    nega "a terceira aplicacao tambem sem violacao" test -s "$viol"
+}
+
+caso_firewall_limpa_nova_sobrada_de_execucao_interrompida() {
+    novo_cenario
+    local regras="$TMP/estado/ipt-regras" cadeias="$TMP/estado/ipt-cadeias" viol="$TMP/estado/violacoes"
+    mkdir -p "$TMP/estado"
+    afirma "a primeira aplicacao termina com sucesso" rodar_firewall_falso
+    # execucao interrompida no meio: sobrou DGCLAW_HOST_NOVA (ja com salto) e DGCLAW_EGRESS_NOVA (vazia)
+    printf 'DGCLAW_HOST_NOVA\nDGCLAW_EGRESS_NOVA\n' >>"$cadeias"
+    printf '|DGCLAW_HOST_NOVA| -j DROP\n|INPUT| -s 10.89.0.0/16 -j DGCLAW_HOST_NOVA\n' >>"$regras"
+    afirma "a aplicacao seguinte termina com sucesso" rodar_firewall_falso
+    nega "nao sobrou _NOVA nas cadeias" tem "$cadeias" "_NOVA"
+    nega "nao sobrou regra com _NOVA" tem "$regras" "_NOVA"
+    nega "sem violacao" test -s "$viol"
+    afirma "a cerca em uso continua montada" tem "$regras" "|mangle/DGCLAW_HOST| -j DROP"
+}
+
+caso_rede_containers_entende_toml_do_dono() {
+    local conf nosso caso
+    local casos=(
+        "aspas simples nftables|[network]\nfirewall_driver = 'nftables'\n|grava=nao|avisa=sim"
+        "chave entre aspas|[network]\n\"firewall_driver\" = \"nftables\"\n|grava=nao|avisa=sim"
+        "valor nao identificado|[network]\nfirewall_driver = \$VALOR\n|grava=nao|avisa=sim"
+        "iptables com aspas simples|[network]\nfirewall_driver = 'iptables'\n|grava=nao|avisa=nao"
+        "linha comentada|[network]\n# firewall_driver = \"nftables\"\n|grava=sim|avisa=nao"
+    )
+    for caso in "${casos[@]}"; do
+        novo_cenario
+        conf="$RAIZ/etc/containers/containers.conf"
+        nosso="$RAIZ/etc/containers/containers.conf.d/50-dgclaw-firewall-iptables.conf"
+        mkdir -p "$RAIZ/etc/containers"
+        printf '%b' "$(cut -d'|' -f2 <<<"$caso")" >"$conf"
+        afirma "$(cut -d'|' -f1 <<<"$caso"): a instalacao termina com sucesso" instalacao_basica
+        case "$caso" in
+            *grava=nao*) nega "$(cut -d'|' -f1 <<<"$caso"): nao grava o nosso" test -e "$nosso" ;;
+            *) afirma "$(cut -d'|' -f1 <<<"$caso"): grava o nosso" test -e "$nosso" ;;
+        esac
+        case "$caso" in
+            *avisa=sim*)
+                afirma "$(cut -d'|' -f1 <<<"$caso"): avisa citando arquivo e linha" tem "$SAIDA" "/etc/containers/containers.conf:2 (" ;;
+            *) nega "$(cut -d'|' -f1 <<<"$caso"): nao avisa de driver divergente" tem "$SAIDA" "firewall_driver ja definido por voce" ;;
+        esac
+        afirma "$(cut -d'|' -f1 <<<"$caso"): o arquivo do dono sobreviveu" test -s "$conf"
+        limpar_cenario
+    done
+}
+
+# estado_interrompido <prefixo-da-tabela> <cadeia> <origem> <etapa 1..6>: a partir de uma cerca
+# completa no estado falso, reproduz uma troca interrompida logo depois da etapa:
+# 1 _NOVA criada vazia, 2 _NOVA preenchida, 3 salto para a _NOVA inserido (o antigo ainda la),
+# 4 saltos antigos removidos, 5 antiga com -F, 6 antiga com -X.
+estado_interrompido() {
+    local pre="$1" n="$2" o="$3" etapa="$4"
+    local regras="$TMP/estado/ipt-regras" cadeias="$TMP/estado/ipt-cadeias" salto novo copia
+    salto="|${pre}${o}| -s 10.89.0.0/16 -j $n"
+    novo="${n}_NOVA"
+    echo "${pre}${novo}" >>"$cadeias"
+    if [ "$etapa" -ge 2 ]; then
+        copia="$(grep -F "|${pre}${n}| " "$regras" | sed "s#^|${pre}${n}|#|${pre}${novo}|#")"
+        printf '%s\n' "$copia" >>"$regras"
+    fi
+    if [ "$etapa" -ge 3 ]; then
+        awk -v k="|${pre}${o}|" -v nova="|${pre}${o}| -s 10.89.0.0/16 -j $novo" '
+            index($0, k) == 1 && !feito { print nova; feito = 1 } { print }
+            END { if (!feito) print nova }' "$regras" >"$regras.novo" && mv -f "$regras.novo" "$regras"
+    fi
+    if [ "$etapa" -ge 4 ]; then grep -vxF "$salto" "$regras" >"$regras.novo" || true; mv -f "$regras.novo" "$regras"; fi
+    if [ "$etapa" -ge 5 ]; then grep -vF "|${pre}${n}| " "$regras" >"$regras.novo" || true; mv -f "$regras.novo" "$regras"; fi
+    if [ "$etapa" -ge 6 ]; then grep -vxF "${pre}${n}" "$cadeias" >"$cadeias.novo" || true; mv -f "$cadeias.novo" "$cadeias"; fi
+}
+
+caso_firewall_recupera_troca_interrompida_em_cada_etapa() {
+    local fam t pre n o fim etapa regras cadeias viol
+    for fam in "DGCLAW_HOST INPUT DROP" "DGCLAW_EGRESS FORWARD RETURN"; do
+        read -r n o fim <<<"$fam"
+        for t in mangle filter; do
+            pre=""; [ "$t" = mangle ] && pre="mangle/"
+            for etapa in 1 2 3 4 5 6; do
+                novo_cenario
+                regras="$TMP/estado/ipt-regras"; cadeias="$TMP/estado/ipt-cadeias"; viol="$TMP/estado/violacoes"
+                mkdir -p "$TMP/estado"
+                rodar_firewall_falso
+                estado_interrompido "$pre" "$n" "$o" "$etapa"
+                printf 'mangle INPUT\nmangle FORWARD\nfilter INPUT\nfilter FORWARD\n' >"$TMP/estado/exige-protecao"
+                afirma "$n $t etapa $etapa: a recuperacao termina com sucesso" rodar_firewall_falso
+                nega "$n $t etapa $etapa: sem violacao nem instante sem protecao" test -s "$viol"
+                nega "$n $t etapa $etapa: sem _NOVA sobrando" bash -c "grep -q _NOVA '$cadeias' '$regras'"
+                igual "$(contar "$regras" "|${pre}${o}| -s 10.89.0.0/16 -j $n")" 1 || { echo "      FALHOU: $n $t etapa $etapa: salto nao e unico"; FALHAS=$((FALHAS + 1)); }
+                afirma "$n $t etapa $etapa: o salto e a primeira regra da origem" bash -c "grep '^|${pre}${o}|' '$regras' | head -n 1 | grep -q -- '-j $n\$'"
+                afirma "$n $t etapa $etapa: a cadeia termina em $fim" bash -c "grep -F '|${pre}${n}| ' '$regras' | tail -n 1 | grep -q -- '-j $fim\$'"
+                afirma "$n $t etapa $etapa: a cadeia definitiva existe" grep -qxF "${pre}${n}" "$cadeias"
+                limpar_cenario
+            done
+        done
+    done
+}
+
+caso_firewall_duas_execucoes_sobrepostas_nao_esvaziam_a_cerca() {
+    novo_cenario
+    local e="$TMP/estado" regras="$TMP/estado/ipt-regras" cadeias="$TMP/estado/ipt-cadeias" i
+    mkdir -p "$e"
+    afirma "a primeira aplicacao termina com sucesso" rodar_firewall_falso
+    printf 'mangle INPUT\nmangle FORWARD\nfilter INPUT\nfilter FORWARD\n' >"$e/exige-protecao"
+    # A pausa logo antes de pôr o salto na _NOVA (ela ja esta preenchida); B nasce nesse instante.
+    touch "$e/pausa"
+    ( rodar_firewall_falso ) &
+    local pid_a=$!
+    for i in $(seq 1 100); do [ -f "$e/pausado" ] && break; sleep 0.1; done
+    afirma "A parou no ponto combinado" test -f "$e/pausado"
+    local saida_b="$TMP/saida-b.txt"
+    ( env -i "HOME=$TMP" "PATH=$AQUI/stubs:/usr/bin:/bin" "DGCLAW_STUB_LOG=$STUB_LOG" "DGCLAW_STUB_ESTADO=$e" \
+        "DGCLAW_FIREWALL_TRAVA=$TMP/firewall.lock" bash "$REPO/lib/firewall.sh" >"$saida_b" 2>&1 ) &
+    local pid_b=$!
+    sleep 1
+    touch "$e/liberar"
+    wait "$pid_a"; igual "$?" 0 || { echo "      FALHOU: A terminou com erro"; FALHAS=$((FALHAS + 1)); }
+    wait "$pid_b"; igual "$?" 0 || { echo "      FALHOU: B terminou com erro"; FALHAS=$((FALHAS + 1)); }
+    nega "sem violacao nem instante sem protecao" test -s "$e/violacoes"
+    nega "sem _NOVA sobrando" bash -c "grep -q _NOVA '$cadeias' '$regras'"
+    igual "$(contar "$regras" '|mangle/INPUT| -s 10.89.0.0/16 -j DGCLAW_HOST')" 1 || { echo "      FALHOU: salto do HOST nao e unico"; FALHAS=$((FALHAS + 1)); }
+    afirma "a cadeia do HOST termina em DROP" bash -c "grep -F '|mangle/DGCLAW_HOST| ' '$regras' | tail -n 1 | grep -q -- '-j DROP\$'"
+}
+
+caso_firewall_sem_a_trava_sai_sem_mexer_em_regra() {
+    novo_cenario
+    mkdir -p "$TMP/estado"
+    exec 8>"$TMP/firewall.lock"
+    flock 8
+    FW_ESPERA=1
+    local rc=0
+    rodar_firewall_falso 8>&- || rc=$?
+    nega "sai com erro quando nao consegue a trava" igual "$rc" 0
+    afirma "a mensagem diz o que travou e como ver quem segura" tem "$SAIDA" "fuser -v $TMP/firewall.lock"
+    afirma "diz que nao mexeu em regra" tem "$SAIDA" "Nao mexi em nenhuma regra"
+    nega "nenhum comando iptables foi chamado" tem "$STUB_LOG" "iptables"
+    exec 8>&-
+}
+
+caso_firewall_consulta_que_falha_interrompe_a_troca_sem_esvaziar_cadeia() {
+    novo_cenario
+    local e="$TMP/estado" regras="$TMP/estado/ipt-regras" cadeias="$TMP/estado/ipt-cadeias"
+    mkdir -p "$e"
+    afirma "a primeira aplicacao termina com sucesso" rodar_firewall_falso
+    printf 'mangle INPUT\nmangle FORWARD\nfilter INPUT\nfilter FORWARD\n' >"$e/exige-protecao"
+    # o 3o `iptables -S` do mangle (a leitura dos saltos da antiga, logo depois de pôr o salto na _NOVA) falha uma vez
+    echo "mangle 2" >"$e/falha-S"
+    local rc=0
+    rodar_firewall_falso || rc=$?
+    nega "a execucao com a consulta falha sai com erro" igual "$rc" 0
+    afirma "a mensagem diz qual comando falhou" tem "$SAIDA" "iptables -w -t mangle -S"
+    afirma "a mensagem diz que nada protetor foi esvaziado" tem "$SAIDA" "Parei antes de esvaziar ou apagar"
+    nega "nenhum -F nem -X em cadeia referenciada" test -s "$e/violacoes"
+    afirma "a cadeia antiga ainda tem as duas regras" bash -c "[ \$(grep -cF '|mangle/DGCLAW_HOST| ' '$regras') -eq 2 ]"
+    afirma "a proxima execucao termina com sucesso" rodar_firewall_falso
+    nega "sem violacao nem instante sem protecao" test -s "$e/violacoes"
+    nega "sem _NOVA sobrando" bash -c "grep -q _NOVA '$cadeias' '$regras'"
+    igual "$(contar "$regras" '|mangle/INPUT| -s 10.89.0.0/16 -j DGCLAW_HOST')" 1 || { echo "      FALHOU: salto do HOST nao e unico"; FALHAS=$((FALHAS + 1)); }
+    afirma "a cadeia do HOST termina em DROP" bash -c "grep -F '|mangle/DGCLAW_HOST| ' '$regras' | tail -n 1 | grep -q -- '-j DROP\$'"
+}
+
+caso_firewall_recupera_a_favor_da_nova_quando_a_antiga_esta_vazia() {
+    novo_cenario
+    local e="$TMP/estado" regras="$TMP/estado/ipt-regras" cadeias="$TMP/estado/ipt-cadeias" t pre
+    mkdir -p "$e"
+    for t in mangle filter; do
+        pre=""; [ "$t" = mangle ] && pre="mangle/"
+        : >"$regras"; : >"$cadeias"
+        rodar_firewall_falso
+        # _NOVA completa com salto, o salto antigo ainda la, mas a antiga ficou VAZIA (o -F do erro antigo)
+        estado_interrompido "$pre" DGCLAW_HOST INPUT 3
+        grep -vF "|${pre}DGCLAW_HOST| " "$regras" >"$regras.novo" || true; mv -f "$regras.novo" "$regras"
+        printf 'mangle INPUT\nmangle FORWARD\nfilter INPUT\nfilter FORWARD\n' >"$e/exige-protecao"
+        afirma "$t: a recuperacao termina com sucesso" rodar_firewall_falso
+        nega "$t: sem violacao nem instante sem protecao" test -s "$e/violacoes"
+        nega "$t: sem _NOVA sobrando" bash -c "grep -q _NOVA '$cadeias' '$regras'"
+        afirma "$t: a cadeia definitiva tem as duas regras (a _NOVA foi mantida)" bash -c "[ \$(grep -cF '|${pre}DGCLAW_HOST| ' '$regras') -eq 2 ]"
+        afirma "$t: termina em DROP" bash -c "grep -F '|${pre}DGCLAW_HOST| ' '$regras' | tail -n 1 | grep -q -- '-j DROP\$'"
+        igual "$(contar "$regras" "|${pre}INPUT| -s 10.89.0.0/16 -j DGCLAW_HOST")" 1 || { echo "      FALHOU: $t: salto nao e unico"; FALHAS=$((FALHAS + 1)); }
+        rm -f "$e/exige-protecao" "$e/violacoes"
+    done
+}
+
 # --- Caddy: compressao no site gerado e o que acontece com arquivo que ja existe ---------------
 
 DOM_CADDY="203-0-113-7.sslip.io"
@@ -819,6 +1441,37 @@ caso_caddy_arquivo_personalizado_e_preservado() {
     afirma "a linha do dono continua la" tem "$RAIZ/etc/caddy/Caddyfile" 'header X-Minha-Linha "do dono"'
     afirma "avisa o que acrescentar" tem "$SAIDA" "personalizacoes suas"
     afirma "o aviso explica o perigo do text/*" tem "$SAIDA" "event-stream"
+    limpar_cenario
+}
+
+caso_tunel_caddy_personalizado_sempre_para() {
+    local cf base
+    base="$(printf '%s {\n\tbind 127.0.0.1\n\ttls internal\n\theader X-Minha-Linha "do dono"\n' "$DOM_CADDY")"
+    # 1) so o bind: para e explica
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy"; cf="$RAIZ/etc/caddy/Caddyfile"
+    printf '# DG Claw: gerado pelo install.sh.\n%s\n\treverse_proxy 127.0.0.1:8300\n}\n' "$base" >"$cf"
+    cp "$cf" "$TMP/caddy-antes"
+    nega "personalizado so com bind: a instalacao para" instalacao_basica --dominio "$DOM_CADDY" --atras-de-tunel
+    afirma "explica o porque" tem "$SAIDA" "so aceita o site que ele mesmo gera"
+    afirma "diz como sair (copia e apaga)" tem "$SAIDA" "/root/caddy-site-antes-do-tunel"
+    afirma "o Caddyfile do dono ficou intacto" cmp "$TMP/caddy-antes" "$cf"
+    limpar_cenario
+    # 2) bind + header, mas com um segundo bind externo (os binds acumulam no Caddy): tambem para
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy"; cf="$RAIZ/etc/caddy/Caddyfile"
+    printf '# DG Claw: gerado pelo install.sh.\n%s\tbind 0.0.0.0\n\t@tunel header Cf-Connecting-IP *\n\thandle @tunel {\n\t\treverse_proxy 127.0.0.1:8300 {\n\t\t\theader_up X-Forwarded-For {http.request.header.Cf-Connecting-IP}\n\t\t}\n\t}\n\thandle {\n\t\treverse_proxy 127.0.0.1:8300\n\t}\n}\n' "$base" >"$cf"
+    cp "$cf" "$TMP/caddy-antes"
+    nega "personalizado com bind extra: a instalacao para" instalacao_basica --dominio "$DOM_CADDY" --atras-de-tunel
+    afirma "o Caddyfile do dono ficou intacto" cmp "$TMP/caddy-antes" "$cf"
+    limpar_cenario
+    # 3) gerado (publico, sem edicao): e reescrito para o modo tunel
+    novo_cenario
+    afirma "instala em modo publico" instalacao_basica --dominio "$DOM_CADDY"
+    nega "sem bind no modo publico" tem "$RAIZ/etc/caddy/Caddyfile" "bind 127.0.0.1"
+    afirma "reinstala em modo tunel" instalar "" --usuario maria --provedor claude --atras-de-tunel
+    afirma "reescrito com bind" tem "$RAIZ/etc/caddy/Caddyfile" "bind 127.0.0.1"
+    afirma "reescrito com o IP real" tem "$RAIZ/etc/caddy/Caddyfile" "header_up X-Forwarded-For {http.request.header.Cf-Connecting-IP}"
     limpar_cenario
 }
 

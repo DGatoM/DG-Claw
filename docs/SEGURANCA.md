@@ -103,6 +103,13 @@ sem tela.
 - Cada agente roda num container sem privilégio, com usuário remapeado.
 - O firewall da jaula descarta qualquer pacote do container para o host, para o gateway, para os
   outros containers e para redes privadas. A saída para a internet fica aberta.
+  A cerca contra o host fica também na tabela `mangle` (que roda antes da `filter` e que o netavark
+  não usa), porque o netavark insere uma regra que libera a porta 53 do host à frente da cerca da
+  `filter` toda vez que um container sobe. Quando o DNS do servidor fica numa rede privada (comum em
+  servidor físico na rede de uma empresa), a cerca não ganha exceção: só os containers do DG Claw
+  são criados com DNS público (`--dns 1.1.1.1 --dns 8.8.8.8`).
+  A aplicação da cerca troca as cadeias sem deixar instante desprotegido e roda sob uma trava
+  exclusiva (`flock`), para duas partidas de agente ao mesmo tempo não se atrapalharem.
 - **Como provar:** `bash scripts/teste-isolamento.sh <slug>` roda, de dentro do container, uma
   bateria de conexões contra o host, o gateway, as portas internas, os vizinhos, as redes
   privadas e o endereço de metadados da nuvem. Sai com 0 quando tudo foi bloqueado e a internet
