@@ -446,31 +446,47 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     return est;
   }
 
-  // ── rótulo do provedor (cache de 60 s, 1,5 s de espera, reserva do registro) ─
+  // ── rótulo do provedor (cache de 60 s que atualiza por trás depois de vencido, 1,5 s de espera na 1ª vez, reserva do registro) ─
   function reservaDoRotulo(agente) {
     return [agente.provedor, agente.modelo].filter(Boolean).join(', ');
   }
+  // Uma consulta por agente de cada vez: quem chega com ela em andamento recebe a mesma promessa.
+  // Não rejeita nunca: falha vira a reserva do registro e um aviso no log.
+  const rotulosEmAndamento = new Map(); // slug -> promessa que resolve com o rótulo (e grava o cache)
+  function buscaRotulo(agente) {
+    const em = rotulosEmAndamento.get(agente.slug);
+    if (em) return em;
+    const promessa = (async () => {
+      const espera = new Promise((resolve) => { setTimeout(() => resolve({ ok: false, erro: 'demorou mais de 1,5 s' }), 1500).unref(); });
+      let r;
+      try {
+        r = await Promise.race([runner.provedor(agente, 1500), espera]);
+      } catch (e) {
+        r = { ok: false, erro: e.message };
+      }
+      let valor;
+      if (r.ok && typeof r.dados.rotulo === 'string' && r.dados.rotulo.trim()) {
+        valor = r.dados.rotulo.trim();
+        esquece(`rotulo|${agente.slug}`);
+      } else {
+        valor = reservaDoRotulo(agente);
+        const motivo = r.ok ? 'a resposta não trouxe o campo "rotulo"' : r.erro;
+        avisaUmaVez(`rotulo|${agente.slug}`, 'aviso', `Rótulo do provedor de ${agente.nome}: ${motivo}. Uso a reserva do registro de agentes ("${valor}").`);
+      }
+      rotulos.set(agente.slug, { ts: relogio(), valor });
+      return valor;
+    })();
+    const limpa = () => { if (rotulosEmAndamento.get(agente.slug) === promessa) rotulosEmAndamento.delete(agente.slug); };
+    promessa.then(limpa, limpa);
+    rotulosEmAndamento.set(agente.slug, promessa);
+    return promessa;
+  }
+  // Cache vencido não faz ninguém esperar: devolve o valor antigo e atualiza por trás.
   async function rotuloProvedor(agente) {
     const c = rotulos.get(agente.slug);
     if (c && relogio() - c.ts < TTL_ROTULO_MS) return c.valor;
-    const espera = new Promise((resolve) => { setTimeout(() => resolve({ ok: false, erro: 'demorou mais de 1,5 s' }), 1500).unref(); });
-    let r;
-    try {
-      r = await Promise.race([runner.provedor(agente, 1500), espera]);
-    } catch (e) {
-      r = { ok: false, erro: e.message };
-    }
-    let valor;
-    if (r.ok && typeof r.dados.rotulo === 'string' && r.dados.rotulo.trim()) {
-      valor = r.dados.rotulo.trim();
-      esquece(`rotulo|${agente.slug}`);
-    } else {
-      valor = reservaDoRotulo(agente);
-      const motivo = r.ok ? 'a resposta não trouxe o campo "rotulo"' : r.erro;
-      avisaUmaVez(`rotulo|${agente.slug}`, 'aviso', `Rótulo do provedor de ${agente.nome}: ${motivo}. Uso a reserva do registro de agentes ("${valor}").`);
-    }
-    rotulos.set(agente.slug, { ts: relogio(), valor });
-    return valor;
+    const voo = buscaRotulo(agente);
+    return c ? c.valor : voo;
   }
 
   // ── thread compartilhada: quem pede enquanto outra leitura roda recebe a mesma promessa ─
@@ -512,6 +528,9 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
   async function ultimaMensagemTs(agente) {
     const c = ultimas.get(agente.slug);
     if (c && relogio() - c.ts < TTL_ROTULO_MS) return c.valor;
+    // Vencido: devolve o valor antigo e atualiza por trás (leUltimaMensagem já avisa no log se falhar
+    // e, nesse caso, o valor antigo continua valendo até a próxima tentativa).
+    if (c) { leUltimaMensagem(agente); return c.valor; }
     let espera;
     const limite = new Promise((resolve) => { espera = setTimeout(() => resolve(null), 1500); espera.unref(); });
     const r = await Promise.race([leUltimaMensagem(agente), limite]);

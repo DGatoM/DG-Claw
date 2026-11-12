@@ -302,9 +302,10 @@ function abrirAba(tab, botao) {
   currentTab = tab;
   tituloDaAba(tab, botao);
   if (NA_PLATAFORMA && window.DGCasca) window.DGCasca.ativa(tab, (document.getElementById('titulo-aba') || {}).textContent || '');
-  loadPanel(tab);
+  const carregando = loadPanel(tab);
   // replaceState: trocar de aba não empilha histórico, e o link da barra fica compartilhável.
   if (NA_PLATAFORMA) history.replaceState(null, '', `#aba=${tab}`);
+  return carregando;
 }
 
 document.getElementById('tabs').addEventListener('click', (e) => {
@@ -2417,12 +2418,62 @@ async function initPowers() {
   });
 }
 
+// ─── Estado "carregando" (só sob a plataforma) ──────
+// O servidor entrega o HTML com <html class="casca carregando"> (lib/html-template.js): o painel fica escondido,
+// atrás de uma marcação neutra, até a aba inicial estar aberta (css/main.css). Há três saídas, e nenhuma deixa a
+// tela presa: a aba abriu (init), o init falhou (falhaNoBoot) ou passou de 8 segundos (script no index.html).
+function sairDoCarregando() {
+  document.documentElement.classList.remove('carregando');
+}
+
+function falhaNoBoot(e) {
+  const motivo = (e && e.message) || String(e);
+  console.error(`[painel] não consegui abrir a tela. Motivo: ${motivo}`, e);
+  sairDoCarregando();
+  const aviso = document.createElement('div');
+  aviso.className = 'erro-boot';
+  aviso.setAttribute('role', 'alert');
+  const titulo = document.createElement('b');
+  titulo.textContent = 'Não consegui abrir esta página do painel.';
+  aviso.append(titulo, `O que aconteceu: ${motivo}. O que fazer: recarregue a página. Se o aviso voltar, peça ao Admin do seu DG Claw para conferir se o painel deste agente está de pé.`);
+  const lugar = document.querySelector('main.content') || document.body;
+  lugar.insertBefore(aviso, lugar.firstChild);
+}
+
+// Monta o cabeçalho e o menu da casca na hora, sem esperar /api/config nem /api/powers: dependem só do DOM e do
+// #aba= da URL. Os itens extras do menu (poderes) esperam o initPowers (ligaExtrasDaCasca).
+function montaCascaCedo(abaInicial) {
+  if (!NA_PLATAFORMA) return false;
+  if (!window.DGCasca) {
+    // Sem a casca o menu antigo precisa aparecer: tira as classes que o escondem.
+    document.documentElement.classList.remove('casca', 'carregando');
+    console.warn('[painel] a casca da Conversa (/casca.js) não carregou: o painel usa o menu antigo. Confira se o Web serve /casca.js.');
+    return false;
+  }
+  const bi = document.querySelector(`.tab[data-tab="${abaInicial}"]`);
+  window.DGCasca.monta({ pagina: abaInicial, titulo: bi ? rotuloDaAba(bi) : '', aoTutorial: tutorialDaCasca });
+  moveEstadoParaConteudo();
+  return true;
+}
+
+function ligaExtrasDaCasca() {
+  sincronizaCasca();
+  // Sessões e os poderes aparecem e somem depois do boot: o menu acompanha as abas
+  const tabs = document.getElementById('tabs');
+  if (tabs && window.MutationObserver) {
+    new MutationObserver(sincronizaCasca).observe(tabs, { attributes: true, subtree: true, attributeFilter: ['hidden', 'class'] });
+  }
+}
+
 // ─── Init ──────────────────────────────────────
 
 (async function init() {
-  // Config + powers ANTES de tudo (branding, sprites, abas travadas).
-  await initConfig();
-  await initPowers();
+  const abaInicial = NA_PLATAFORMA ? abaInicialDaPlataforma() : 'conversa';
+  // Cabeçalho e menu reais primeiro, antes de qualquer espera de rede.
+  const comCasca = montaCascaCedo(abaInicial);
+  // Config + powers ANTES de tudo (branding, sprites, abas travadas). Um não usa o resultado do outro:
+  // vão juntos.
+  await Promise.all([initConfig(), initPowers()]);
   // Depois do initPowers, que é quem decide quais abas estão travadas.
   aplicarTooltipsDasAbas();
   ligarLinksEntreAbas();
@@ -2431,21 +2482,8 @@ async function initPowers() {
   // cabeçalho precisa nascer apontando para ela. Sem esta linha ele só apareceria
   // depois da primeira troca de aba, e quem entrasse e ficasse na Conversa nunca
   // veria que existe visita guiada.
-  const abaInicial = NA_PLATAFORMA ? abaInicialDaPlataforma() : 'conversa';
   atualizarBotaoTutorial(abaInicial);
-  if (NA_PLATAFORMA && window.DGCasca) {
-    const bi = document.querySelector(`.tab[data-tab="${abaInicial}"]`);
-    window.DGCasca.monta({ pagina: abaInicial, titulo: bi ? rotuloDaAba(bi) : '', aoTutorial: tutorialDaCasca });
-    moveEstadoParaConteudo();
-    sincronizaCasca();
-    // Sessões e os poderes aparecem e somem depois do boot: o menu acompanha as abas
-    const tabs = document.getElementById('tabs');
-    if (tabs && window.MutationObserver) {
-      new MutationObserver(sincronizaCasca).observe(tabs, { attributes: true, subtree: true, attributeFilter: ['hidden', 'class'] });
-    }
-  } else if (NA_PLATAFORMA) {
-    console.warn('[painel] a casca da Conversa (/casca.js) não carregou: o painel usa o menu antigo. Confira se o Web serve /casca.js.');
-  }
+  if (comCasca) ligaExtrasDaCasca();
 
   // A saúde começa ANTES da conversa: é ela que decide se a faixa de aviso aparece
   // e, com ela, se o botão "acordar" fica ou sai. Não espero: a conversa não depende.
@@ -2455,12 +2493,16 @@ async function initPowers() {
   if (NA_PLATAFORMA) {
     // A conversa fica no chat: aqui a tela de entrada é a aba pedida no link, ou status.
     const botaoInicial = document.querySelector(`.tab[data-tab="${abaInicial}"]`);
+    let aberta = null;
     if (botaoInicial && botaoInicial.classList.contains('locked')) {
       console.warn(`[painel] aba "${abaInicial}" travada (poder não instalado). Abrindo status.`);
-      abrirAba('status', document.querySelector('.tab[data-tab="status"]'));
+      aberta = abrirAba('status', document.querySelector('.tab[data-tab="status"]'));
     } else if (botaoInicial) {
-      abrirAba(abaInicial, botaoInicial);
+      aberta = abrirAba(abaInicial, botaoInicial);
     }
+    // Sai do "carregando" quando a aba inicial terminou de carregar, sem segurar o resto do boot.
+    // Se a leitura da aba falhar, a própria aba mostra a causa; a tela não fica escondida por isso.
+    Promise.resolve(aberta).catch((e) => console.error(`[painel] a aba inicial não terminou de carregar: ${(e && e.message) || e}`, e)).finally(sairDoCarregando);
   } else {
     await loadPanel('conversa');
   }
@@ -2501,7 +2543,7 @@ async function initPowers() {
   // Costs panel listeners
   document.getElementById('costs-refresh')?.addEventListener('click', () => loadCosts(true));
   document.getElementById('costs-hours')?.addEventListener('change', () => loadCostsExecutions());
-})();
+})().catch(falhaNoBoot);
 
 // ─── COSTS Panel ───────────────────────────────
 

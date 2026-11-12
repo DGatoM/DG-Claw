@@ -69,6 +69,8 @@
   /** "nos últimos 7 dias: 329 rodadas, nenhuma falha" */
   function textoDaSemana(op, dias) {
     const s = op.semana || {};
+    // Sem medida (diário ilegível): nenhum número, nem "nenhuma falha".
+    if (s.rodadas == null && s.falhas == null && s.avisos == null) return '';
     if (op.porHora) {
       const ruins = (s.falhas || 0) + (s.avisos || 0);
       return ruins ? `nas últimas 48 h: ${s.falhas || 0} hora(s) com queda, ${s.avisos || 0} com reinício` : 'nas últimas 48 h: de pé o tempo todo';
@@ -99,13 +101,15 @@
     return f;
   }
 
-  function linhaDaOperacao(op, dias) {
+  function linhaDaOperacao(op, dias, historico) {
     // Mais recente PRIMEIRO no DOM: com flex-direction:row-reverse ele fica na
     // direita, e o que não cabe some pela esquerda (os mais antigos).
     const qs = (op.quadrados || []).slice().reverse();
     const fileira = qs.length
       ? qs.map((q, i) => `<span class="opq ${esc(q.cor)}${q.falta ? ' falta' : ''}" data-i="${i}" title="${esc(textoDoQuadrado(q, op.porHora))}"></span>`).join('')
-      : '<span class="opq-vazia">sem histórico para mostrar</span>';
+      : (historico && historico.disponivel === false
+        ? `<span class="opq-vazia" title="${esc(historico.motivo || '')}">não consegui ler o histórico</span>`
+        : '<span class="opq-vazia">sem histórico para mostrar</span>');
     const crit = op.crit === 'alta' ? '<span class="op-essencial" title="Se esta cai, o agente para de responder.">essencial</span>' : '';
     return `<div class="op-linha estado-${esc(op.estado)}" id="op-${esc(op.id)}" data-id="${esc(op.id)}">
       <div class="op-cabeca">
@@ -250,7 +254,7 @@
     grupos.innerHTML = dados.grupos.map((g) => `<section class="op-grupo">
         <div class="section-title" title="${esc(g.explica)}">${esc(g.titulo)}${botaoAjuda('operations', 'fileiras')}</div>
         <p class="ajuda-secao">${esc(g.explica)}</p>
-        ${g.operacoes.map((op) => linhaDaOperacao(op, dias)).join('')}
+        ${g.operacoes.map((op) => linhaDaOperacao(op, dias, dados.historico)).join('')}
       </section>`).join('');
     ligarFileiras(grupos, dados);
     ligarAjudas(grupos);

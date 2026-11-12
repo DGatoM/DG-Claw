@@ -155,7 +155,19 @@ router.get('/login.html', (req, res) => html.renderLogin(req, res));
 // Static files: só o que NÃO precisa de template (css/js/assets). `index: false` pra
 // nunca deixar o express.static servir o index.html CRU (sem {{BASE}} trocado); as duas
 // rotas acima, registradas antes, já respondem por "/" de qualquer forma.
-router.use(express.static(html.PUBLIC_DIR, { index: false }));
+// Arquivo pedido com ?v=<versão> (o index.html põe a versão nos css/js) é guardado pelo navegador por um ano:
+// a versão muda sozinha quando o arquivo muda. Sem ?v= nada muda (sempre revalida). Fica depois da
+// autenticação acima, então quem não entrou continua sem receber arquivo nenhum.
+router.use((req, res, next) => {
+  if (/^[0-9a-f]{6,64}$/.test(String(req.query.v || '')) && /\.(css|js)$/.test(req.path)) res.locals.assetVersionado = true;
+  next();
+});
+router.use(express.static(html.PUBLIC_DIR, {
+  index: false,
+  setHeaders: (res) => {
+    if (res.locals.assetVersionado) res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
+  },
+}));
 
 // ─── Auth Routes ──────────────────────────────────────────────
 

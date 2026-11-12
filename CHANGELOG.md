@@ -20,6 +20,96 @@ Nesta versão há uma instrução nova para o Admin, que explica a tela Logs e p
 precisa entrar nas instruções dele sem apagar o que você já personalizou. O histórico que os agentes já têm aparece sozinho
 na tela, sem migração e sem nada a configurar.
 
+**A reflexão da noite não acorda o agente em dia sem conversa com você.** Antes, às 23h30 ela rodava todo dia, e cada rodada
+gastava o contexto inteiro da sessão (em agentes pouco usados, mais da metade das reflexões só dizia que nada aconteceu). Agora, se o
+registro das conversas foi lido por completo e você não mandou nenhuma mensagem naquele dia, a reflexão é pulada: fica anotado no
+`reflection.log` e no Pulso ("dia sem conversa com o dono; reflexão pulada"), e naquele dia não existe diário. A auditoria das 23h50 e o
+`doctor` entendem o dia pulado e não dão alarme por falta de diário. Na dúvida a reflexão roda como sempre: isso vale quando o agente
+usa o Codex, quando a configuração do agente é antiga e não informa o provedor, ou quando o registro das conversas não pôde ser lido. Para
+rodar a reflexão mesmo assim, use `DGCLAW_REFLECT_SEMPRE=1 bash scripts/reflection.sh <config>`.
+
+### Como atualizar (reflexão em dia sem conversa)
+
+Peça ao Admin, no chat: "atualiza o DG Claw". A reflexão confere o provedor do agente (Claude ou Codex) na configuração dele
+(`config.sh`) antes de pular um dia. Se um agente antigo não tem o provedor ali, a reflexão segue rodando todo dia, como antes. Para
+ele passar a pular os dias parados, peça ao Admin `dgclaw agente reparar <nome>`, que regrava essa configuração. Se você quiser que
+um agente nunca pule a reflexão, não conte com uma linha `DGCLAW_REFLECT_SEMPRE=1` acrescentada à mão no `config.sh`, porque o reparo
+regrava o arquivo e a linha se perde; defina a variável no ambiente da rotina.
+
+**O painel e a conversa passam a carregar mais rápido, sobretudo no celular.** O servidor da web agora entrega os arquivos da tela
+(scripts, estilos, páginas e dados em JSON) comprimidos: o `conversa.js`, por exemplo, sai de cerca de 243 KB para uns 77 KB. A conversa
+em tempo real continua chegando na hora, porque o fluxo dela fica de fora da compressão. A mudança é no site que o instalador grava no
+Caddy; o `dgclaw atualizar` troca esse arquivo sozinho quando ele ainda é o que o instalador gerou, e só recarrega o Caddy depois de
+conferir que a configuração nova é válida. Se algo der errado na conferência, o arquivo volta ao que era e o Caddy não é recarregado.
+
+### Como atualizar (compressão no Caddy)
+
+Nada a fazer se você nunca editou o arquivo do Caddy: peça ao Admin, no chat, "atualiza o DG Claw". Se você personalizou o
+`/etc/caddy/Caddyfile` ou o `/etc/caddy/conf.d/dgclaw.caddy` (por exemplo, acrescentou cabeçalhos ou um segundo endereço), o DG Claw não
+substitui o seu arquivo, porque ali estão as suas escolhas; ele avisa durante a atualização e a compressão fica desligada até você
+acrescentar o bloco `encode` dentro do site, antes do `reverse_proxy`. O aviso traz o bloco pronto. Não use `text/*` na lista de tipos:
+isso comprimiria também a conversa em tempo real e as mensagens deixariam de chegar na hora. Depois confira e recarregue com
+`caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile && sudo systemctl reload caddy`.
+Nesse caso o `dgclaw dominio trocar` é a exceção: como o nome do site precisa mudar, ele guarda uma cópia do seu arquivo ao lado, em
+`/etc/caddy/` (por exemplo `Caddyfile.antes-dominio-<data>`), e grava no lugar o site padrão do DG Claw com o domínio novo. O aviso mostra
+o caminho da cópia; para levar suas personalizações de volta, copie as linhas que quiser para dentro do bloco do site, valide e recarregue o Caddy.
+
+**O batimento deixa de acordar o agente várias vezes pelo mesmo assunto.** A cada 30 minutos o sistema confere a seção
+"Quero Falar com o dono Sobre" da memória de trabalho. Se o agente decidia não incomodar e não tirava a linha, o batimento
+voltava a acordá-lo sem parar (umas 9 vezes por dia), e cada despertar gastava uma parte grande da sua assinatura. Agora o
+sistema guarda o que já levou ao agente e só o acorda de novo se o conteúdo da seção mudar ou depois de 24 horas (ajustável
+com `DGCLAW_HEARTBEAT_REPETIR_H`). O agente também ganha a marca `[a partir de AAAA-MM-DD]` para adiar uma linha até a data em
+que quer ser lembrado. O sorteio de 1 em 4 e o ramo da memória de trabalho velha saíram, porque não faziam mais efeito.
+
+### Como atualizar (batimento)
+
+Peça ao Admin, no chat: "atualiza o DG Claw". O script do batimento já vem na atualização. Nesta versão há uma instrução nova
+para os seus agentes conhecerem a marca de adiar. Ela entra na identidade de cada agente, regravada com
+`dgclaw agente identidade <agente>`, sem apagar o que você personalizou neles.
+
+**A conversa abre mais rápido.** A tela pedia a lista de agentes, depois o histórico e só então ligava o tempo real, uma
+coisa de cada vez. Agora o histórico sai junto com a lista de agentes. No servidor, a lista deixa de esperar a consulta
+a cada agente quando as informações dela vencem: responde na hora com o que já sabe e atualiza em segundo plano (se a
+atualização falhar, o motivo vai para o registro e a lista segue com o último valor bom). O `dgclaw atualizar` já resolve.
+
+**A aba Operações volta a mostrar as barrinhas de cada rotina, com rotina, horário e resultado.** O painel do agente não
+tinha permissão para ler o diário do sistema, e sem ela a aba dizia que não havia histórico, mesmo com as rotinas
+rodando. Agora, dentro do contêiner, o usuário do agente passa a poder ler o diário do sistema daquele contêiner. Se o
+painel ainda assim não conseguir ler o diário, a aba explica o motivo e o que fazer, em vez de mostrar contagens como
+"nenhuma falha" sobre o que não foi medido. As barrinhas mostram só o resultado de cada execução, sem texto copiado de
+logs. O `dgclaw atualizar` já resolve. Quem não quiser atualizar tudo agora pode rodar `dgclaw agente reparar <slug>`
+para cada agente já instalado: o reparo dá o acesso e reinicia o painel dele.
+
+**Guia de boas práticas de ronda.** Quando você pedir ao seu agente uma ronda (olhar o CRM, atender o suporte, responder
+comentários, conferir dados), ele passa a seguir o novo `docs/BOAS-PRATICAS-RONDAS.md`: dez regras tiradas de erros e acertos
+reais e um checklist para combinar com você o que a ronda olha, cada quanto, quem é avisado, o que ela corrige sozinha e o que
+acontece se a fonte falhar.
+
+### Como atualizar (guia de rondas)
+
+Peça ao Admin, no chat: "atualiza o DG Claw". Nesta versão há uma instrução nova para os seus agentes conhecerem o guia. Ela
+entra na identidade de cada agente, regravada com `dgclaw agente identidade <agente>`, sem apagar o que você personalizou neles.
+
+**Manual do DG Claw no painel.** O menu ☰ ganha o item **Manual**, uma tela (`/manual`) que mostra, página por página, o que o DG Claw faz e como se usa, com busca pelos títulos e uma visita guiada. O Admin lê o mesmo manual direto da pasta `docs/manual` e os agentes o consultam pelo painel antes de dizer que algo não existe. O contrato das rotas está em `web/docs/MANUAL.md`.
+
+### Como atualizar (manual e personalização no nível do sistema)
+
+1. **Peça ao Admin, no chat: "atualiza o DG Claw".** Esta versão traz uma instrução nova para o Admin e para os agentes saberem que o manual existe e onde consultá-lo. Ela entra na seção de ambiente que o DG Claw mantém para cada agente, sem apagar o que você personalizou nas instruções deles. Se algum agente antigo não a mostrar depois da atualização, peça ao Admin para regravar essa seção com `sudo dgclaw agente identidade <nome>`.
+2. **Regra nova para o Admin.** Pedidos no nível do sistema (nova forma de gerar agentes, mudança no `bin/dgclaw`, no instalador ou no `runner/`) passam a ser permitidos. O Admin avisa você, em linguagem simples, que aquilo mexe na base e pode dar problema nas próximas atualizações; se você mantiver o pedido, ele faz, anota em `PERSONALIZACOES.md` que a mudança mexe na base e tenta mantê-la funcionando a cada atualização. Cofre e segredos, firewall, autenticação do painel, isolamento dos containers e ganchos de segurança continuam fora, mesmo a pedido. O guia está em `docs/PERSONALIZAR.md`.
+
+**Trocar de página no painel do agente deixou de mostrar o layout antigo.** Ao abrir uma página do painel (Status,
+Memória, Sessões e as outras), aparecia por um instante o menu antigo, com a foto padrão, traços "--" e a frase
+"carregando a conversa", e o conteúdo ficava cortado à direita até a tela terminar de montar. Agora o painel abre
+escondido, mostra só um indicador cinza no meio da área de conteúdo, e o cabeçalho e o menu verdadeiros aparecem assim
+que a página chega. O conteúdo passou a usar a largura toda ao lado do menu, sem sobra em monitor largo. Os arquivos
+de estilo e de script do painel agora ficam guardados no navegador, então trocar de página é mais rápido. Se a tela
+demorar mais de 8 segundos ou falhar ao abrir, ela deixa de ficar presa e diz o que aconteceu e o que fazer.
+
+### Como atualizar (troca de páginas do painel)
+
+Basta atualizar o DG Claw e recarregar a página do painel (no celular, feche e abra de novo, ou use Ctrl+F5 no
+computador). Nada precisa ser configurado nem apagado: as suas chaves, conversas e agentes continuam como estavam.
+
 **O aviso "Faça o login nos seus agentes" agora aparece uma única vez.** Antes, ele voltava a cada aba nova e a cada
 visita ao painel enquanto algum agente estivesse sem login. Agora o painel guarda, no servidor, que você já viu o aviso:
 fechar com **Fazer depois** ou recarregar a página não o traz de volta, e o novo botão **Não mostrar mais** o desliga de

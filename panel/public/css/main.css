@@ -652,5 +652,34 @@ html.casca{--acento1:var(--accent,#2f9e5e);--acento2:color-mix(in srgb,var(--acc
 /* o Tutorial da aba é o do cabeçalho da casca (que clica neste botão); dois botões iguais confundem */
 html.casca .btn-tutorial-aba{display:none!important}
 
+/* Largura: sob a casca a área de conteúdo usa a tela toda ao lado do menu (o teto de 1280px deixava sobra em monitor largo).
+   O min-width:0 evita que tabela ou código largo empurre a página para os lados; quem precisar rola dentro do próprio bloco. */
+html.casca .content{max-width:none;min-width:0}
+html.casca .principal,html.casca .panel{min-width:0;max-width:100%}
+
+/* ─── sob a plataforma, ENQUANTO a tela abre (html.casca.carregando, posto pelo servidor no HTML) ───
+   O painel nasce escondido: nada do layout antigo (retrato, "--", "carregando a conversa") chega a ser pintado.
+   No lugar fica a marcação do cabeçalho (58px) e, no computador, do menu fixo (240px), com as mesmas medidas
+   e cores do casca.css e do menu-lado.css para não haver salto quando os reais aparecem por cima, e um
+   indicador neutro no meio da área de conteúdo. O app.js tira a classe quando a aba inicial está aberta. */
+html.casca.carregando body{background:#fff}
+html.casca.carregando .principal{visibility:hidden}
+html.casca.carregando body::before{content:"";position:fixed;top:0;left:0;right:0;height:calc(58px + env(safe-area-inset-top));
+  background:#fff;border-bottom:1px solid rgba(0,0,0,.08);box-shadow:0 1px 4px rgba(0,0,0,.08);z-index:18}
+html.casca.carregando .app::after{content:"";position:fixed;top:50%;left:50%;width:28px;height:28px;margin:-14px 0 0 -14px;
+  border:3px solid #dfe5e1;border-top-color:#9aa6a0;border-radius:50%;z-index:19;animation:painel-gira .9s linear infinite}
+@keyframes painel-gira{to{transform:rotate(360deg)}}
+@media (min-width:1100px){
+  html.casca.carregando body::after{content:"";position:fixed;top:0;bottom:0;left:0;width:240px;background:#fff;
+    border-right:1px solid #e1e8e3;z-index:19}
+  html.casca.carregando .app::after{left:calc(50% + 120px)}
+}
+@media (prefers-reduced-motion:reduce){html.casca.carregando .app::after{animation:none}}
+
+/* Falha ao abrir a tela (app.js, falhaNoBoot): a causa e o que fazer aparecem na própria tela. */
+.erro-boot{margin:16px;padding:14px 16px;border:1px solid #e0b4b0;border-left-width:4px;border-radius:10px;background:#fff6f5;
+  color:#5b1a14;font-size:14px;line-height:1.5;overflow-wrap:anywhere}
+.erro-boot b{display:block;margin-bottom:4px;font-size:15px}
+
 /* No iPhone, campo com fonte abaixo de 16px dá zoom quando recebe o foco. Regra: nada dá zoom no app instalado. */
 @media (pointer:coarse){input,textarea,select{font-size:16px!important}}
