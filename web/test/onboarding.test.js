@@ -3,6 +3,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const os = require('node:os');
 const { subirWeb } = require('./ajuda');
 const { criarRunnerFalso } = require('./runner-falso');
 const { loja } = require('../lib/onboarding');
@@ -150,4 +151,22 @@ test('nome repetido ganha sufixo e a CLI lê o pedido pelo STDIN',async t=>{
   assert.notEqual(r.status,0);assert.match(r.stderr,/Não chegou nada pelo STDIN.*\{"nome"/);
   const r2=spawnSync(process.execPath,[path.join(__dirname,'../bin/onboarding.js'),'pedir'],{input:'{ruim',encoding:'utf8'});
   assert.notEqual(r2.status,0);assert.match(r2.stderr,/JSON recebido pelo STDIN é inválido/);
+});
+
+test('loja: gravação de outro processo no mesmo tique do mtime da pasta não deixa a foto velha', () => {
+  const dados = fs.mkdtempSync(path.join(os.tmpdir(), 'dgclaw-loja-'));
+  try {
+    const leitor = loja(dados), outro = loja(dados);
+    const id = 'a'.repeat(32), base = { id, criado: new Date().toISOString(), slug: 'sofia' };
+    // As duas gravações deixam a pasta com o mesmo mtime (segundos inteiros, para o valor voltar exato),
+    // como acontece quando caem no mesmo tique do relógio do sistema de arquivos.
+    const tique = Math.ceil(Date.now() / 1000) + 1;
+    outro.gravar({ ...base, fase: 'login' });
+    fs.utimesSync(leitor.dir, tique, tique);
+    assert.equal(leitor.ultimo().fase, 'login');
+    outro.gravar({ ...base, fase: 'testando' });
+    fs.utimesSync(leitor.dir, tique, tique);
+    assert.equal(fs.statSync(leitor.dir).mtimeMs, tique * 1000);
+    assert.equal(leitor.ultimo().fase, 'testando');
+  } finally { fs.rmSync(dados, { recursive: true, force: true }); }
 });
