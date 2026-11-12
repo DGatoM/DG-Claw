@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { cenario, colaboradorAtivo } = require('./colab-ajuda');
+const { instanciaDe } = require('../lib/instancia');
 
 function semeia(s, estado) {
   const arq = path.join(s.t.dados, 'pedidos', 'pedidos.json');
@@ -12,7 +13,7 @@ function semeia(s, estado) {
   const ep = Date.now() / 1000 - 60;
   const iso = new Date(ep * 1000).toISOString();
   const p = {
-    id: 1, agente: 'ana', texto: 'refazer a capa', estado, motivo: null, msg_entrega: null,
+    id: 1, agente: 'ana', instancia: instanciaDe({ home_host: s.homeAna }), texto: 'refazer a capa', estado, motivo: null, msg_entrega: null,
     criado_por: 'agente ana', criado_em: iso, criado_em_epoch: ep - 60, atualizado_em: iso, atualizado_em_epoch: ep,
     entregue_em: estado === 'entregue' ? iso : null, entregue_em_epoch: estado === 'entregue' ? ep : null, entrega_n: estado === 'entregue' ? 1 : 0,
     fechado_em: null, historico: [{ em: iso, por: 'agente ana', de: null, para: estado }],

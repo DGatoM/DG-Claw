@@ -7,7 +7,7 @@ const path = require('node:path');
 const { criarPedidos } = require('../lib/pedidos');
 const { pastaTemp, capturaLog, subirWeb } = require('./ajuda');
 
-const AGENTES = [{ slug: 'luna', nome: 'Luna' }, { slug: 'marina', nome: 'Marina' }];
+const AGENTES = [{ slug: 'luna', nome: 'Luna', instancia: 'a1' }, { slug: 'marina', nome: 'Marina', instancia: 'm1' }];
 const registroFalso = {
   estado: () => ({ ok: true, agentes: AGENTES, erro: null }),
   obter: (slug) => AGENTES.find((a) => a.slug === slug) || null,
@@ -16,6 +16,7 @@ const EP0 = Date.parse('2026-11-12T10:00:00-03:00') / 1000;
 
 /** Fila com relógio controlado, conversa falsa (msgs por agente) e servidor HTTP; quem vem no cabeçalho x-quem. */
 async function montar() {
+  AGENTES[0].instancia = 'a1'; AGENTES[1].instancia = 'm1';
   const dir = pastaTemp('pedidos');
   const dados = path.join(dir, 'dados');
   fs.mkdirSync(dados, { mode: 0o700 });
@@ -447,7 +448,7 @@ test('retenção por agente: a cota cheia de Luna poda só item de Luna; o de Ma
   try {
     const iso = '2026-11-12T09:00:00-03:00'; const ep = EP0 - 3600;
     const base = (id, agente, estado, extra) => Object.assign({
-      id, agente, texto: `p${id}`, estado, motivo: null, msg_entrega: null, criado_por: `agente ${agente}`, criado_em: iso, criado_em_epoch: ep - 100,
+      id, agente, instancia: agente === 'luna' ? 'i:a1' : 'i:m1', texto: `p${id}`, estado, motivo: null, msg_entrega: null, criado_por: `agente ${agente}`, criado_em: iso, criado_em_epoch: ep - 100,
       atualizado_em: iso, atualizado_em_epoch: ep + id, entregue_em: null, entregue_em_epoch: null, fechado_em: iso, historico: [{ em: iso, por: 'x', de: null, para: estado }],
     }, extra || {});
     const lista = [];
@@ -477,5 +478,44 @@ test('entregar sem msg: mensagem do agente anterior à criação do pedido não 
     assert.equal(r.json.pedido.estado, 'entregue');
     assert.equal(r.json.pedido.msg_entrega, null);
     assert.match(r.json.aviso, /posterior à criação do pedido/);
+  } finally { await m.fechar(); }
+});
+
+test('pedido preso à instância: agente recriado com o mesmo slug não lista, não lê nem cancela os do antigo; o dono vê tudo', async () => {
+  const m = await montar();
+  try {
+    await criarPedido(m, 'luna', 'da instância A');
+    assert.equal((await m.pedir('GET', '/api/v1/pedidos', { quem: 'luna' })).json.pedidos.length, 1);
+    AGENTES[0].instancia = 'b1';                            // luna removida e recriada: mesmo slug, outra instância
+    const lista = await m.pedir('GET', '/api/v1/pedidos?dia=todos', { quem: 'luna' });
+    assert.equal(lista.status, 200);
+    assert.deepEqual(lista.json.pedidos, []);
+    assert.equal((await m.pedir('GET', '/api/v1/pedidos/1', { quem: 'luna' })).status, 404);
+    assert.equal((await m.pedir('PATCH', '/api/v1/pedidos/1', { json: { estado: 'cancelado', motivo: 'x' }, quem: 'luna' })).status, 404);
+    assert.equal((await m.pedir('DELETE', '/api/v1/pedidos/1', { json: { motivo: 'x' }, quem: 'luna' })).status, 404);
+    const dono = await m.pedir('GET', '/api/v1/pedidos?dia=todos');
+    assert.equal(dono.json.pedidos.length, 1);
+    assert.equal(dono.json.pedidos[0].estado, 'fazendo');
+    const novo = await criarPedido(m, 'luna', 'da instância B');
+    assert.equal(novo.id, 2);
+    const minha = await m.pedir('GET', '/api/v1/pedidos', { quem: 'luna' });
+    assert.deepEqual(minha.json.pedidos.map((p) => p.id), [2]);
+    m.conv.luna.push(m.msg('agente'));
+    assert.equal((await m.pedir('PATCH', '/api/v1/pedidos/2', { json: { estado: 'entregue' }, quem: 'luna' })).status, 200);
+    // a resposta do dono fecha só o da instância atual; o antigo (aberto, de A) não é tocado
+    m.fila.donoRespondeu('luna', m.relogio.ms, m.fila.entreguesDe('luna'));
+    const estados = (await m.pedir('GET', '/api/v1/pedidos?dia=todos')).json.pedidos.map((p) => `${p.id}:${p.estado}`).sort();
+    assert.deepEqual(estados, ['1:fazendo', '2:feito']);
+  } finally { await m.fechar(); }
+});
+
+test('agente sem instância identificável não cria pedido e recebe erro claro', async () => {
+  const m = await montar();
+  try {
+    AGENTES[0].instancia = undefined;
+    const r = await m.pedir('POST', '/api/v1/pedidos', { json: { texto: 'x' }, quem: 'luna' });
+    assert.equal(r.status, 503);
+    assert.match(r.json.erro, /instância do agente luna/);
+    assert.equal((await m.pedir('GET', '/api/v1/pedidos?dia=todos')).json.pedidos.length, 0);
   } finally { await m.fechar(); }
 });

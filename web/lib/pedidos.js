@@ -12,6 +12,7 @@ const crypto = require('node:crypto');
 const H = require('./http');
 const { gravaArquivoSeguro } = require('./grava-seguro');
 const { isoLocal, diaLocal } = require('./mesa');
+const { instanciaDe } = require('./instancia');
 
 const MAX_CORPO = 16 * 1024;
 const MAX_HISTORICO = 50;
@@ -55,6 +56,10 @@ function criarPedidos(opcoes) {
     ? { tipo: 'agente', slug: s.agente }
     : { tipo: 'dono', usuario: s && s.usuario }));
   const docsPath = path.join(__dirname, '..', 'docs', 'PEDIDOS.md');
+  // Um agente removido e recriado com o mesmo nome mantém o slug mas é outra instância: o pedido fica preso à que o criou.
+  const instanciaAtual = (slug) => (o.instancia ? o.instancia(slug) : instanciaDe(registro.obter(slug)));
+  // O agente só enxerga e mexe no que a instância dele criou; pedido sem instância gravada (antigo) é só do dono.
+  const doAgente = (p, quem) => p.agente === quem.slug && !!quem.inst && p.instancia === quem.inst;
 
   let dados = null;        // { versao, proximo_id, pedidos }
   let assinatura = null;
@@ -179,7 +184,8 @@ function criarPedidos(opcoes) {
    */
   function entreguesDe(slug) {
     if (!carregar()) return [];
-    return dados.pedidos.filter((p) => p.agente === slug && p.estado === 'entregue').map((p) => ({ id: p.id, entrega_n: p.entrega_n }));
+    const inst = instanciaAtual(slug);
+    return dados.pedidos.filter((p) => p.agente === slug && !!inst && p.instancia === inst && p.estado === 'entregue').map((p) => ({ id: p.id, entrega_n: p.entrega_n }));
   }
 
   /**
@@ -195,7 +201,8 @@ function criarPedidos(opcoes) {
         log('aviso', `Pedidos: o dono respondeu a ${slug}, mas a fila não abriu (${falha}). Os itens entregues dele continuam entregues; o dono fecha pela tela.`);
         return;
       }
-      const vale = (p) => p.agente === slug && p.estado === 'entregue' && capturados.some((c) => c.id === p.id && c.entrega_n === p.entrega_n);
+      const inst = instanciaAtual(slug);
+      const vale = (p) => p.agente === slug && !!inst && p.instancia === inst && p.estado === 'entregue' && capturados.some((c) => c.id === p.id && c.entrega_n === p.entrega_n);
       if (!dados.pedidos.some(vale)) return;
       const pedidos = dados.pedidos.map((p) => (vale(p) ? mover(p, 'feito', { por: 'dono (respondeu na conversa)', ms }) : p));
       gravar({ proximo_id: dados.proximo_id, pedidos }, ms);
@@ -235,15 +242,16 @@ function criarPedidos(opcoes) {
     if (corpo.agente !== undefined && corpo.agente !== null && corpo.agente !== quem.slug) {
       return { status: 403, erro: `O agente ${quem.slug} só cria pedido para si mesmo (veio agente ${JSON.stringify(String(corpo.agente).slice(0, 40))}). Tire o campo "agente".` };
     }
+    if (!quem.inst) return { status: 503, erro: `Não consegui identificar a instância do agente ${quem.slug} (o registro não tem o campo "instancia" nem a casa do agente). Nenhum pedido foi criado; peça ao dono para conferir o agente com o dgclaw.` };
     const erros = {};
     const texto = textoCampo(corpo.texto, 'texto', LIMITES.texto, { obrigatorio: true }, erros);
     if (Object.keys(erros).length) return { status: 400, erros };
-    if (dados.pedidos.filter((p) => p.agente === quem.slug && ABERTOS.has(p.estado)).length >= MAX_ABERTOS_POR_AGENTE) {
+    if (dados.pedidos.filter((p) => doAgente(p, quem) && ABERTOS.has(p.estado)).length >= MAX_ABERTOS_POR_AGENTE) {
       return { status: 409, erro: `O agente ${quem.slug} já tem ${MAX_ABERTOS_POR_AGENTE} pedidos abertos. Entregue ou cancele alguns antes de abrir outro.` };
     }
     const id = dados.proximo_id;
     const t = {
-      id, agente: quem.slug, texto, estado: 'fazendo', motivo: null, msg_entrega: null,
+      id, agente: quem.slug, instancia: quem.inst, texto, estado: 'fazendo', motivo: null, msg_entrega: null,
       criado_por: porDe(quem), criado_em: isoLocal(ms, tz), criado_em_epoch: ms / 1000, atualizado_em: isoLocal(ms, tz), atualizado_em_epoch: ms / 1000,
       entregue_em: null, entregue_em_epoch: null, fechado_em: null,
       historico: [{ em: isoLocal(ms, tz), por: porDe(quem), de: null, para: 'fazendo' }],
@@ -265,7 +273,7 @@ function criarPedidos(opcoes) {
     const novo = corpo.estado;
 
     if (quem.tipo === 'agente') {
-      if (p.agente !== quem.slug) return { status: 403, erro: `O pedido #${p.id} é do agente ${p.agente}; o agente ${quem.slug} só mexe nos próprios.` };
+      if (!doAgente(p, quem)) return { status: 403, erro: `O pedido #${p.id} não é deste agente (${quem.slug}); o agente só mexe nos próprios.` };
       if (novo === 'feito') return { status: 403, erro: `O agente não marca o pedido #${p.id} como feito: quem faz isso é o dono, ao abrir o item na tela ou ao responder na conversa depois da entrega. Marque como "entregue".` };
     } else if (novo !== 'feito' && novo !== 'cancelado') {
       return { status: 403, erro: 'O dono só marca pedido como "feito" ou "cancelado". Os outros estados são do agente.' };
@@ -369,6 +377,7 @@ function criarPedidos(opcoes) {
     };
     const pedidos = dados.pedidos
       .filter((p) => !agentes || agentes.includes(p.agente))
+      .filter((p) => quem.tipo !== 'agente' || doAgente(p, quem))
       .filter((p) => !estados || estados.includes(p.estado))
       .filter(noDia)
       .sort(ordem)
@@ -429,6 +438,7 @@ function criarPedidos(opcoes) {
 
       if (!carregar()) { H.erroJson(res, 503, falha); return true; }
       const quem = quemChamou(sessao);
+      if (quem.tipo === 'agente') quem.inst = instanciaAtual(quem.slug);
       const ms = agoraMs();
 
       let corpo = {};
@@ -448,7 +458,7 @@ function criarPedidos(opcoes) {
       }
       const ped = dados.pedidos.find((x) => x.id === id);
       // Para o agente, o pedido de outro não existe: nem confirma que o número está em uso.
-      if (!ped || (quem.tipo === 'agente' && ped.agente !== quem.slug)) {
+      if (!ped || (quem.tipo === 'agente' && !doAgente(ped, quem))) {
         H.erroJson(res, 404, `Não existe o pedido #${id}${quem.tipo === 'agente' ? ' entre os seus' : ''}. Veja a lista em GET /api/v1/pedidos (os fechados há muito tempo saem da fila).`);
         return true;
       }
