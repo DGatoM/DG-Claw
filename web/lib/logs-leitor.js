@@ -323,6 +323,9 @@ function mascaraComandos(s) {
     if (nome.length <= 90 && RX_FLAG_SENSIVEL.test(nome)) {
       const fim = varreComando(s, m.index, '', sem, mascaras);
       RX_COMANDO.lastIndex = Math.max(fim, m.index + m[0].length);
+    } else {
+      // argumento já lido por inteiro: a próxima busca começa depois dele, senão o mesmo trecho seria varrido de novo (custo quadrático)
+      RX_COMANDO.lastIndex = Math.max(fimFlag, m.index + m[0].length);
     }
   }
   if (!mascaras.length) return s;
@@ -878,10 +881,17 @@ function resultadoDe(bruto, erro) {
   return { erro: !!erro, texto: p.texto, truncado: p.truncado };
 }
 
+/** Elemento da lista como um argumento só: o que tem espaço ou caractere especial vai entre aspas simples, para o mascarador ler os mesmos limites da lista. */
+function argumentoDeLista(e) {
+  const v = str(e);
+  if (v !== '' && /^[A-Za-z0-9_\/:.,=@%+-]+$/.test(v)) return v;
+  return `'${v.replace(/'/g, `'\\''`)}'`;
+}
+
 function comandoDeLista(c) {
   if (Array.isArray(c)) {
     if (c.length >= 3 && typeof c[1] === 'string' && RX_SHELL_C.test(c[1])) return str(c[2]);
-    return c.map(str).join(' ');
+    return c.map(argumentoDeLista).join(' ');
   }
   return typeof c === 'string' ? c : '';
 }
@@ -1685,7 +1695,7 @@ const REGEX_AUDITAVEIS = [
 ];
 
 module.exports = {
-  mascaraComandos, REGEX_AUDITAVEIS, semBarraFinal,
+  mascaraComandos, comandoDeLista, REGEX_AUDITAVEIS, semBarraFinal,
   criarLeitor, limpa, serializa, corta, normaliza, caminhoRelativo, codificaCursor, decodificaCursor, cmp, fontesDoAgente, descobreFonte,
   abrirSeguro, ErroEntrada, ErroArquivo, TIPOS, RX_ID_CURTO, RX_UUID, MAX_LINHA,
 };
