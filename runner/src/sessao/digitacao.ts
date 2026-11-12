@@ -156,6 +156,10 @@ function vigiarReciboAtrasado(s: Sessao, comandoDeBarra: boolean, total: number)
   const inicio = Date.now();
   const passos = s.reciboVigiaPassosMs;
   const aceito = () => s.promptsAceitos > antes || (comandoDeBarra && s.compactsIniciados > compactAntes);
+  // Toda escrita no PTY passa por s.escrever() e soma em entradasManuais. Se o número mudou sem ser pela
+  // própria vigia, alguém mexeu na caixa (o dono pelo terminal, ou um texto novo sendo digitado): o que
+  // está lá já não é o texto que esta vigia tenta enviar, e um Enter dela poderia mandar um rascunho.
+  let entradasEsperadas = s.entradasManuais;
 
   const passo = (i: number): void => {
     s.vigiaDoRecibo = null;
@@ -175,12 +179,20 @@ function vigiarReciboAtrasado(s: Sessao, comandoDeBarra: boolean, total: number)
       );
       return;
     }
+    if (s.entradasManuais !== entradasEsperadas) {
+      log.info(
+        s.a("entrada"),
+        "parei de insistir no Enter: houve outra escrita no terminal depois do texto, e a caixa já não é a mesma",
+      );
+      return;
+    }
     if (s.estado.status === "idle") {
       log.info(
         s.a("entrada"),
         `o Enter atrasado ${RECIBO_ENTER_TENTATIVAS + i + 1}/${total} (ainda sem recibo); batendo na tecla de novo`,
       );
       s.escrever("\r");
+      entradasEsperadas = s.entradasManuais;
     }
     agendar(i + 1);
   };
