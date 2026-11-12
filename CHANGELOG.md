@@ -38,6 +38,36 @@ nos colaboradores (pessoas convidadas para conversar com um agente só):
   `templates/ambiente/admin.md` à dele, preservando as suas alterações. Os agentes de trabalho ganham uma frase nova sobre o
   assunto do mesmo jeito (`templates/ambiente/agente.md`).
 
+**Os agentes no ChatGPT (Codex) passam a ter as mesmas instruções dos agentes no Claude.** Até aqui o arquivo de
+instruções do agente no Codex (o `AGENTS.md`) era escrito separado do `CLAUDE.md` e tinha menos conteúdo: faltavam a
+lousa, o texto para copiar com botão, o quadro de avisos da equipe, a tela para fazer logins, o agendamento e os
+lembretes. Agora os dois arquivos saem de uma fonte só (`scripts/gerar-instrucoes.sh`), e um teste reprova a mudança se
+eles ficarem diferentes. Onde o Claude e o Codex funcionam de jeitos distintos (por exemplo, o Claude chama uma skill
+por `/nome` e o Codex abre o roteiro dela pelo nome), cada um recebe o seu caminho. O `doctor` também passou a
+conferir o `AGENTS.md` do agente. Agentes novos já nascem com as instruções completas. Os que já existem
+mantêm o arquivo como está, porque você pode tê-lo personalizado.
+
+### Como atualizar (instruções do Codex)
+
+Se você tem agentes no ChatGPT (Codex) criados antes desta versão, peça ao Admin, no chat: "atualiza o DG Claw" e depois
+"junta as seções que faltam no AGENTS.md dos meus agentes no Codex". Ele roda a verificação do agente com a opção de conserto (`--fix`, do `doctor`),
+que acrescenta no fim do `AGENTS.md` só as seções que não existem (mesa de tarefas, quadro de avisos, lousa, texto para
+copiar, tela de logins, agendamento e lembretes), guarda uma cópia do arquivo ao lado e não apaga nada do que você
+personalizou. Agentes no Claude não precisam de nenhum passo.
+
+**O agente no ChatGPT (Codex) passa a lembrar das conversas e a ler o quadro de avisos, como o do Claude.** Antes, o
+Codex não executava os lembretes automáticos do DG Claw: o agente não recebia, antes de cada resposta, as memórias
+e conversas relacionadas, não via o quadro de avisos da equipe e não começava a sessão já sabendo o que estava na
+memória de curto prazo. Agora o DG Claw liga esses lembretes no Codex usando o recurso de hooks do próprio Codex, e
+só dá confiança aos hooks que ele mesmo distribui. Um arquivo de hooks que chegue num repositório clonado pelo agente
+continua sem rodar. O ajuste acontece sozinho quando o agente sobe.
+
+### Como atualizar (hooks do Codex)
+
+Depois de atualizar, reinicie os agentes que usam o ChatGPT (Codex) para que os lembretes passem a valer: peça ao
+Admin "reinicia meus agentes no Codex". Se você mantinha um `hooks.json` seu na pasta `.codex` do agente, ele é
+preservado; só as linhas do DG Claw são regravadas. Agentes no Claude não precisam de nenhum passo.
+
 **A regra de ficar livre para conversar passa para o topo das instruções do agente.** A regra que manda o agente
 responder primeiro e separar o pedido em "na hora", "curto" (subagente) e "longo" (card) já existia, mas ficava no
 fim das instruções, depois do AGENT.md. Num agente com o AGENT.md muito personalizado ela ficava longe demais e o
