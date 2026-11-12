@@ -409,6 +409,35 @@ caddy_restaurar_site() {
     fi
 }
 
+# caddy_site_do_painel <arquivo> <dominio>: 0 se EXATAMENTE um bloco de site do arquivo tem o dominio entre os
+# enderecos (com ou sem esquema e porta; varios separados por virgula ou espaco) e esse mesmo bloco, contando a
+# profundidade das chaves, tem um reverse_proxy para 127.0.0.1:8300 ou localhost:8300. Qualquer outro caso
+# (dominio em bloco de outro backend, em mais de um bloco, chaves que nao fecham) devolve 1.
+caddy_site_do_painel() {
+    awk -v dom="$2" '
+    function limpa(t) { sub(/^https?:\/\//, "", t); sub(/:[0-9]+$/, "", t); return tolower(t) }
+    {
+        linha = $0; sub(/[ \t]*#.*$/, "", linha)
+        eh_cab = (depth == 0 && linha ~ /\{[ \t]*$/)
+        if (eh_cab) {
+            ender = linha; sub(/\{[ \t]*$/, "", ender)
+            n = split(ender, a, /[ ,\t]+/); tem = 0
+            for (i = 1; i <= n; i++) if (a[i] != "" && limpa(a[i]) == tolower(dom)) tem = 1
+            atual_tem = tem; atual_ok = 0
+        }
+        if (depth >= 1 && linha ~ /^[ \t]*reverse_proxy[ \t]/) {
+            m = split(linha, t, /[ \t]+/)
+            for (i = 2; i <= m; i++) { u = t[i]; sub(/^http:\/\//, "", u); if (u == "127.0.0.1:8300" || u == "localhost:8300") atual_ok = 1 }
+        }
+        abre = gsub(/\{/, "{", linha); fecha = gsub(/\}/, "}", linha)
+        depth += abre - fecha
+        if (depth < 0) { ruim = 1 }
+        if (depth == 0 && atual_tem) { com_dom++; if (atual_ok) ok++; atual_tem = 0 }
+    }
+    END { exit (!ruim && depth == 0 && com_dom == 1 && ok == 1) ? 0 : 1 }
+    ' "$1"
+}
+
 # escrever_site_caddy <dominio> [trocar]: grava o site do DG Claw no Caddyfile proprio (quando e dele ou
 # padrao) ou em conf.d/dgclaw.caddy (quando o Caddyfile tem sites de outros). Nao valida nem recarrega.
 # Arquivo que ja existe e foi personalizado (diferente do que o instalador gera) nao e tocado: avisa o
@@ -439,8 +468,8 @@ escrever_site_caddy() {
         if [ "$alvo" = "$cf" ] && caddyfile_e_padrao "$cf"; then
             :
         elif ! caddy_site_e_gerado "$alvo"; then
-            if [ "$modo" = trocar ] && grep -Eq "^[[:space:]]*${dominio//./\\.}[[:space:]]*(,|\\{)" "$alvo"; then
-                info "${alvo#"$R"} (personalizado) ja tem o site '$dominio'; deixei como esta"
+            if [ "$modo" = trocar ] && caddy_site_do_painel "$alvo" "$dominio"; then
+                info "${alvo#"$R"} (personalizado) ja tem o site '$dominio' apontando para o painel; deixei como esta"
                 return 0
             fi
             if [ "$modo" = trocar ]; then
