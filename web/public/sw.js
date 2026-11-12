@@ -22,6 +22,7 @@ const ESTATICOS = [
   '/login.css', '/login.js', '/sem-zoom.css', '/sem-zoom.js', '/papel.js', '/papel.css',
   '/colaboradores.js', '/colaboradores.css', '/trocar-senha.js',
   '/anonimizar.js', '/anonimizar.css',
+  '/logs.js', '/logs.css',
   '/manifest.webmanifest',
   '/icons/icon-192.png', '/icons/icon-512.png', '/icons/apple-touch-icon.png',
 ];

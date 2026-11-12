@@ -31,13 +31,13 @@ Isso vale no servidor, não só na tela: o endereço de qualquer outro agente ou
 | A **Tela** do agente (a página, o noVNC, o WebSocket e a senha) | O navegador da Tela roda como o agente e abre arquivos do servidor, como as credenciais da assinatura. Ele lê: "A Tela do agente dá acesso aos arquivos e às contas dele, por isso é só do dono do DG Claw." |
 | **Mandar mensagem, instrução ou decisão pelo painel**: o chat do painel, a sessão de socorro e, em Sessões, criar, mandar recado, decidir pedido, retomar, passar o bastão, anexar e apagar | O painel não sabe quem é o colaborador e trataria a mensagem como sua. Ele conversa e confirma permissões só pela conversa do agente, onde cada mensagem e cada confirmação leva o nome dele. Em Sessões ele só acompanha, arquiva, renomeia e marca favorito. |
 
-Cada agente tem **um** colaborador por vez, e cada pessoa acessa **um** agente só. As mensagens dele chegam ao agente marcadas como vindas de um colaborador (`colaborador: Nome (e-mail)`), para o agente saber que não é você.
+Um agente pode ter **vários** colaboradores ao mesmo tempo, e cada pessoa acessa **um** agente só. As mensagens de cada um chegam ao agente marcadas como vindas de um colaborador (`colaborador: Nome (e-mail)`), para o agente saber quem falou e que não é você.
 
 ### Como convidar
 
 1. Abra o menu ☰ do agente e toque em **Convidar colaborador** (ou vá em `/colaboradores?agente=<agente>`).
 2. Digite o e-mail da pessoa (será o login dela) e, se quiser, o nome. Toque em **Convidar**.
-3. A tela mostra o resultado:
+3. A tela mostra um cartão para cada colaborador do agente, com o formulário para convidar mais uma pessoa logo abaixo. Depois de convidar, ela mostra o resultado:
    - se o e-mail saiu, ou por que não saiu;
    - o **texto do convite**, com o link, o login e a senha temporária, e o botão **Copiar**. A senha temporária aparece só nessa hora. Se você sair da tela sem copiar, use **Mandar convite de novo**.
 4. A pessoa abre o link, entra com a senha temporária e a tela pede uma senha nova (de 10 a 128 caracteres). Depois disso ela cai direto na conversa com o agente.
@@ -46,8 +46,8 @@ A senha temporária vale por 7 dias. Passado o prazo, o login dela avisa que a s
 
 ### Mandar o convite de novo, revogar e a lista
 
-- **Mandar convite de novo** gera outra senha temporária, derruba as sessões abertas da pessoa e a obriga a criar a senha de novo. Serve para senha esquecida ou vencida.
-- **Revogar acesso** encerra tudo na hora: no próximo toque dela, a sessão cai. O registro continua na lista, com a data da revogação, e o agente fica livre para outro colaborador.
+- **Mandar convite de novo** gera outra senha temporária, derruba as sessões abertas da pessoa e a obriga a criar a senha de novo. Serve para senha esquecida ou vencida. Os outros colaboradores do mesmo agente não são afetados.
+- **Revogar acesso** encerra tudo na hora: no próximo toque dela, a sessão cai. O registro continua na lista, com a data da revogação, e as outras pessoas do mesmo agente continuam com o acesso.
 - A lista de baixo mostra todos os colaboradores de todos os agentes, inclusive os revogados.
 
 ### E-mail (opcional)
@@ -155,7 +155,7 @@ Resposta `201`:
 
 A `senha_temporaria` aparece só nesta resposta (e na do reenvio). O `texto` é a mensagem pronta para copiar e mandar por outro meio. Com o e-mail desligado ou com falha, `email_enviado` é `false` e `email_motivo` explica.
 
-Erros: `400` (e-mail inválido ou igual ao usuário do dono, agente é o Admin, nome inválido, falta o `agente`), `404` (agente inexistente), `409` (o agente já tem colaborador ativo, ou o e-mail já é colaborador ativo de outro agente), `500` (o arquivo `colaboradores.json` está ilegível ou não foi possível gravar; o motivo vem na resposta).
+Erros: `400` (e-mail inválido ou igual ao usuário do dono, agente é o Admin, nome inválido, falta o `agente`), `404` (agente inexistente), `409` (o e-mail já é colaborador ativo de um agente, este ou outro), `500` (o arquivo `colaboradores.json` está ilegível ou não foi possível gravar; o motivo vem na resposta).
 
 ### `POST /api/v1/colaboradores/<id>/reenviar`
 

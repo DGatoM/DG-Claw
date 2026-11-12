@@ -50,6 +50,7 @@ const { criarManual } = require('./lib/manual');
 const { criarAvisos } = require('./lib/avisos');
 const { criarAtualizacao } = require('./lib/atualizacao');
 const { criarSeguranca } = require('./lib/seguranca');
+const { criarLogsRotas, autorizado: logsAutorizado } = require('./lib/logs-rotas');
 const { criarRondaPainel } = require('./lib/ronda-painel');
 const { criarNaoLidas } = require('./lib/nao-lidas');
 const { criarUso } = require('./lib/uso');
@@ -206,6 +207,9 @@ function criarServidor(opcoes) {
   const seguranca = criarSeguranca({ dataDir: config.dataDir, log, agora: opcoes.agora });
   // Ronda de fábrica e botão de emergência: também só do dono (fora de caixa.permitir). O Web só grava pedidos; o root executa.
   const rondaPainel = criarRondaPainel({ dataDir: config.dataDir, log, agora: opcoes.agora });
+  // Logs do Admin: o histórico de tudo o que cada agente fez, só para o dono e só pela tela. De propósito NÃO entra em caixa.permitir:
+  // texto de log não é de confiança e não pode chegar ao contexto de um agente (nem do Admin).
+  const logsRotas = criarLogsRotas({ registro, log, agora: opcoes.agora, orcamento: opcoes.logsOrcamento, leitor: opcoes.logsLeitor });
 
   let versaoJsCache = { ts: 0, valor: '0' };
   /** Versão da tela: mtime de conversa.js. A tela compara com a que carregou e se recarrega sozinha. */
@@ -485,6 +489,8 @@ function criarServidor(opcoes) {
     if (p.startsWith('/api/v1/seguranca/') && await rondaPainel.rotas(req, res, url, sessao)) return undefined;
 
     if ((p === '/api/v1/seguranca' || p.startsWith('/api/v1/seguranca/')) && await seguranca.rotas(req, res, url, sessao)) return undefined;
+
+    if ((p === '/api/v1/logs' || p.startsWith('/api/v1/logs/')) && await logsRotas.rotas(req, res, url, sessao)) return undefined;
 
     if (p === '/api/v1/onboarding') {
       if (falhaDoRegistro(req, res, true)) return;
@@ -954,6 +960,8 @@ function criarServidor(opcoes) {
   // turno nenhum: se ele trocasse o autor, o colaborador aprovaria a operação que o dono deixou pendente.
   // Sem registro (restart), o turno é do dono.
   const RX_ENVIO_DO_PAINEL = /^\/api\/(?:chat|socorro|sessoes)(?:\/|$)/i;
+  const RX_LOGS_NO_PAINEL = /^\/(?:api\/v1\/)?logs(?:\/|$)/i;
+  const decodificaSeguro = (t) => { try { return decodeURIComponent(t); } catch (_) { return t; } };
   const turnos = new Map(); // slug -> { autor: { dono:true } | { colaborador_id }, misto: bool }
   const pendencias = new Map(); // slug -> { id, ok } (ok: o colaborador pode responder)
   const autorDe = (sessao) => (sessao && sessao.papel === 'colaborador' ? { colaborador_id: sessao.colaborador_id } : { dono: true });
@@ -1309,6 +1317,10 @@ function criarServidor(opcoes) {
         return H.erroJson(res, 401, 'Você precisa entrar para abrir o painel. Faça login em /login.');
       }
       if (!pp[2]) { res.writeHead(302, { Location: `/p/${pp[1]}/${url.search}` }); return res.end(); }
+      // Os logs só existem na tela do Admin: nenhum painel os serve, e nenhum caminho por /p/ chega perto deles.
+      if (RX_LOGS_NO_PAINEL.test(pp[2]) || RX_LOGS_NO_PAINEL.test(decodificaSeguro(pp[2]))) {
+        return H.erroJson(res, 403, 'Os logs só existem na tela do Admin');
+      }
       // O painel do dono manda texto ao runner por conta própria (chat, recados, sessões): daqui em diante o turno
       // em curso deixa de ser de qualquer colaborador. A transcrição é a prova de verdade; isto é a segunda trava.
       if (!ehColab(sessao) && !sessao.via && m !== 'GET' && m !== 'HEAD' && RX_ENVIO_DO_PAINEL.test(pp[2])) {
@@ -1392,6 +1404,16 @@ function criarServidor(opcoes) {
       if (!servirArquivo(req, res, path.join(config.publicDir, 'conversa.html'), 'no-store')) {
         log('erro', `A tela da conversa não está instalada: falta ${path.join(config.publicDir, 'conversa.html')}.`);
         H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela da conversa não foi encontrado no servidor. Reinstale o DG Claw Web.');
+      }
+      return undefined;
+    }
+
+    if ((p === '/logs' || p === '/logs/') && (m === 'GET' || m === 'HEAD')) {
+      if (!sessao) return semSessaoPagina(req, res, url);
+      if (!logsAutorizado(sessao)) return H.paginaErro(res, 403, 'Acesso não liberado', 'Os logs dos agentes são só do dono do DG Claw, pela tela Logs do Admin.');
+      if (!servirArquivo(req, res, path.join(config.publicDir, 'logs.html'), 'no-store')) {
+        log('erro', `A tela de logs não está instalada: falta ${path.join(config.publicDir, 'logs.html')}.`);
+        H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela de logs não foi encontrado no servidor. Reinstale o DG Claw Web.');
       }
       return undefined;
     }

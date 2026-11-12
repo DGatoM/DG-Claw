@@ -49,14 +49,16 @@ test('convite: quando o e-mail não sai, a resposta diz por quê e traz o texto 
   } finally { await s.fechar(); }
 });
 
-test('convite: um colaborador por agente, um agente por colaborador, Admin e e-mail do dono recusados', async () => {
+test('convite: vários colaboradores por agente, um agente por colaborador, Admin e e-mail do dono recusados', async () => {
   const s = await cenario({ env: { DGCLAW_PANEL_USER: 'dono@x.com' } });
   try {
     assert.equal((await s.convida({ agente: 'ana', email: 'maria@x.com' })).status, 201);
-    const outro = await s.convida({ agente: 'ana', email: 'joao@x.com' });
-    assert.equal(outro.status, 409); assert.match(outro.json.erro, /já tem um colaborador ativo/);
+    assert.equal((await s.convida({ agente: 'ana', email: 'joao@x.com' })).status, 201);
+    assert.equal((await s.convida({ agente: 'ana', email: 'rita@x.com' })).status, 201);
     const mesmo = await s.convida({ agente: 'bob', email: 'MARIA@x.com' });
     assert.equal(mesmo.status, 409); assert.match(mesmo.json.erro, /agente ana/);
+    const repetido = await s.convida({ agente: 'ana', email: 'joao@x.com' });
+    assert.equal(repetido.status, 409); assert.match(repetido.json.erro, /deste agente \(ana\)/);
     const adm = await s.convida({ agente: 'admin', email: 'novo@x.com' });
     assert.equal(adm.status, 400); assert.match(adm.json.erro, /Admin nunca pode ser compartilhado/);
     assert.equal((await s.convida({ agente: 'fantasma', email: 'novo@x.com' })).status, 404);
@@ -67,6 +69,37 @@ test('convite: um colaborador por agente, um agente por colaborador, Admin e e-m
     assert.equal((await s.convida({ agente: 'bob', email: 'a@b.com', nome: 'Maria <b>' })).status, 400);
     assert.equal((await s.convida({ agente: 'bob', email: 'a@b.com', nome: 'x'.repeat(81) })).status, 400);
     assert.equal((await s.convida({ email: 'a@b.com' })).status, 400);
+  } finally { await s.fechar(); }
+});
+
+test('vários no mesmo agente: revogar ou reenviar um não derruba a sessão dos outros', async () => {
+  const s = await cenario();
+  try {
+    const entra = async (email) => {
+      const r = await s.convida({ agente: 'ana', email });
+      const c = cliente(s.t.porta);
+      const l = await c.post('/login', { json: { usuario: email, senha: r.json.convite.senha_temporaria } });
+      assert.equal(l.status, 200);
+      const t = await c.post('/api/v1/eu/senha', { json: { nova: 'senha-nova-123', confirmacao: 'senha-nova-123' } });
+      assert.equal(t.status, 200);
+      return { c, id: r.json.colaborador.id };
+    };
+    const maria = await entra('maria@x.com');
+    const joao = await entra('joao@x.com');
+    const rita = await entra('rita@x.com');
+    const eu = async (x) => (await x.c.get('/api/v1/eu')).status;
+    assert.equal(await eu(maria), 200); assert.equal(await eu(joao), 200); assert.equal(await eu(rita), 200);
+
+    assert.equal((await s.dono.pedir('DELETE', '/api/v1/colaboradores/' + maria.id)).status, 200);
+    assert.equal(await eu(maria), 401);
+    assert.equal(await eu(joao), 200); assert.equal(await eu(rita), 200);
+
+    assert.equal((await s.dono.pedir('POST', '/api/v1/colaboradores/' + joao.id + '/reenviar')).status, 200);
+    assert.equal(await eu(joao), 401);
+    assert.equal(await eu(rita), 200);
+
+    const ativos = (await s.dono.pedir('GET', '/api/v1/colaboradores?agente=ana')).json.colaboradores.filter((c) => c.estado !== 'revogado');
+    assert.equal(ativos.length, 2);
   } finally { await s.fechar(); }
 });
 
