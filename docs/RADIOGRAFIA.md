@@ -58,7 +58,7 @@ para arrumar as ideias, e o agente usa a noite para isso.
 
 **Como funciona, em dois tempos:**
 
-- **23h30, a reflexão:** ele relê o dia inteiro, escreve o diário, atualiza seus objetivos e
+- **23h30, a reflexão (só nos dias em que você falou com ele):** ele relê o dia inteiro, escreve o diário, atualiza seus objetivos e
   tarefas, corrige o que achava de você se algo mudou, e deixa um resumo do dia no caderno.
   Se percebeu que vocês fizeram um processo que vai se repetir, anota para te perguntar se
   vale virar uma receita (item 5).

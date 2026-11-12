@@ -776,3 +776,123 @@ caso_unidade_do_web_endurecida_com_motivos_das_que_ficaram_de_fora() {
         afirma "systemd-analyze verify aceita a unidade" bash -c "! systemd-analyze verify '$v/dgclaw-web.service' 2>&1 | grep 'dgclaw-web' | grep -iE 'unknown (key|section)|bad|invalid|failed to parse'"
     fi
 }
+
+# --- Caddy: compressao no site gerado e o que acontece com arquivo que ja existe ---------------
+
+DOM_CADDY="203-0-113-7.sslip.io"
+
+caso_caddy_bloco_novo_comprime_e_deixa_o_stream_de_fora() {
+    novo_cenario
+    afirma "a instalacao termina com sucesso" instalacao_basica
+    local cf="$RAIZ/etc/caddy/Caddyfile"
+    afirma "encode com zstd" grep -qE '^[[:space:]]+zstd$' "$cf"
+    afirma "encode com gzip" grep -qE '^[[:space:]]+gzip$' "$cf"
+    afirma "comprime o javascript" tem "$cf" "header Content-Type application/javascript*"
+    afirma "comprime o css" tem "$cf" "header Content-Type text/css*"
+    afirma "comprime o json" tem "$cf" "header Content-Type application/json*"
+    nega "o stream da conversa nao entra" tem "$cf" "event-stream"
+    nega "nada de text/* generico" grep -qE 'Content-Type text/\*' "$cf"
+    afirma "o proxy continua" tem "$cf" "reverse_proxy 127.0.0.1:8300"
+    limpar_cenario
+}
+
+caso_caddy_arquivo_antigo_identico_e_atualizado() {
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy" "$TMP/estado"
+    echo caddy >"$TMP/estado/ativos" # o Caddy ja esta no ar, como numa atualizacao de verdade
+    printf '# DG Claw: gerado pelo install.sh. Rodar o instalador de novo reescreve este arquivo.\n%s {\n\treverse_proxy 127.0.0.1:8300\n}\n' "$DOM_CADDY" >"$RAIZ/etc/caddy/Caddyfile"
+    afirma "a atualizacao termina com sucesso" instalacao_basica
+    afirma "ganhou a compressao" tem "$RAIZ/etc/caddy/Caddyfile" "zstd"
+    igual "$(contar "$RAIZ/etc/caddy/Caddyfile" reverse_proxy)" 1 || { echo "      FALHOU: reverse_proxy duplicado"; FALHAS=$((FALHAS + 1)); }
+    afirma "caddy validado" tem "$STUB_LOG" "caddy validate --config $RAIZ/etc/caddy/Caddyfile"
+    afirma "caddy recarregado" tem "$STUB_LOG" "systemctl reload caddy"
+    limpar_cenario
+}
+
+caso_caddy_arquivo_personalizado_e_preservado() {
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy"
+    printf '# DG Claw: gerado pelo install.sh. Rodar o instalador de novo reescreve este arquivo.\n%s {\n\treverse_proxy 127.0.0.1:8300\n\theader X-Minha-Linha "do dono"\n}\n' "$DOM_CADDY" >"$RAIZ/etc/caddy/Caddyfile"
+    cp "$RAIZ/etc/caddy/Caddyfile" "$TMP/caddy-antes"
+    afirma "a atualizacao termina com sucesso" instalacao_basica
+    afirma "arquivo personalizado intacto" cmp "$TMP/caddy-antes" "$RAIZ/etc/caddy/Caddyfile"
+    afirma "a linha do dono continua la" tem "$RAIZ/etc/caddy/Caddyfile" 'header X-Minha-Linha "do dono"'
+    afirma "avisa o que acrescentar" tem "$SAIDA" "personalizacoes suas"
+    afirma "o aviso explica o perigo do text/*" tem "$SAIDA" "event-stream"
+    limpar_cenario
+}
+
+caso_caddy_site_de_outros_continua_preservado() {
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy"
+    printf 'import conf.d/*\n\nloja.exemplo.com {\n\trespond "oi"\n}\n' >"$RAIZ/etc/caddy/Caddyfile"
+    cp "$RAIZ/etc/caddy/Caddyfile" "$TMP/caddy-antes"
+    afirma "a instalacao termina com sucesso" instalacao_basica
+    afirma "Caddyfile dos outros intacto" cmp "$TMP/caddy-antes" "$RAIZ/etc/caddy/Caddyfile"
+    afirma "site do DG Claw em conf.d com a compressao" tem "$RAIZ/etc/caddy/conf.d/dgclaw.caddy" "zstd"
+    nega "o conf.d nao ganhou event-stream" tem "$RAIZ/etc/caddy/conf.d/dgclaw.caddy" "event-stream"
+    limpar_cenario
+}
+
+caso_caddy_validacao_que_falha_nao_recarrega_e_restaura() {
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy" "$TMP/estado"
+    echo caddy >"$TMP/estado/ativos"
+    printf '# DG Claw: gerado pelo install.sh. Rodar o instalador de novo reescreve este arquivo.\n%s {\n\treverse_proxy 127.0.0.1:8300\n}\n' "$DOM_CADDY" >"$RAIZ/etc/caddy/Caddyfile"
+    cp "$RAIZ/etc/caddy/Caddyfile" "$TMP/caddy-antes"
+    touch "$TMP/estado/caddy-falha"
+    nega "a instalacao para quando o Caddy recusa" instalacao_basica
+    afirma "o arquivo voltou ao que era" cmp "$TMP/caddy-antes" "$RAIZ/etc/caddy/Caddyfile"
+    nega "nao recarregou o Caddy" tem "$STUB_LOG" "systemctl reload caddy"
+    afirma "explica o que fazer" tem "$SAIDA" "O que fazer"
+    limpar_cenario
+}
+
+caso_caddy_segunda_rodada_recarrega_de_novo() {
+    novo_cenario
+    mkdir -p "$TMP/estado"
+    afirma "primeira rodada" instalacao_basica
+    : >"$STUB_LOG"
+    afirma "segunda rodada" instalar "" --usuario maria --provedor claude
+    # um reload anterior pode ter falhado com o arquivo ja certo no disco: recarrega sempre
+    afirma "recarregou o Caddy de novo" tem "$STUB_LOG" "systemctl reload caddy"
+    afirma "mas validou" tem "$STUB_LOG" "caddy validate"
+    limpar_cenario
+}
+
+caso_caddy_caddyfile_padrao_do_pacote_e_substituido() {
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy" "$TMP/estado"
+    printf ':80 {\n\t# Set this path to your site'"'"'s directory.\n\troot * /usr/share/caddy\n\tfile_server\n}\n' >"$RAIZ/etc/caddy/Caddyfile"
+    afirma "a instalacao termina com sucesso" instalacao_basica
+    afirma "o site do DG Claw foi gravado" tem "$RAIZ/etc/caddy/Caddyfile" "$DOM_CADDY {"
+    afirma "com o proxy" tem "$RAIZ/etc/caddy/Caddyfile" "reverse_proxy 127.0.0.1:8300"
+    afirma "e a compressao" tem "$RAIZ/etc/caddy/Caddyfile" "zstd"
+    nega "o file_server do pacote saiu" tem "$RAIZ/etc/caddy/Caddyfile" "file_server"
+    limpar_cenario
+}
+
+caso_caddy_caddyfile_padrao_com_validacao_que_falha_restaura() {
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy" "$TMP/estado"
+    printf ':80 {\n\troot * /usr/share/caddy\n\tfile_server\n}\n' >"$RAIZ/etc/caddy/Caddyfile"
+    cp "$RAIZ/etc/caddy/Caddyfile" "$TMP/caddy-antes"
+    touch "$TMP/estado/caddy-falha"
+    nega "a instalacao para" instalacao_basica
+    afirma "o Caddyfile padrao voltou" cmp "$TMP/caddy-antes" "$RAIZ/etc/caddy/Caddyfile"
+    limpar_cenario
+}
+
+caso_caddy_restauracao_mantem_modo_do_arquivo() {
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy" "$TMP/estado"
+    echo caddy >"$TMP/estado/ativos"
+    printf '# DG Claw: gerado pelo install.sh. Rodar o instalador de novo reescreve este arquivo.\n%s {\n\treverse_proxy 127.0.0.1:8300\n}\n' "$DOM_CADDY" >"$RAIZ/etc/caddy/Caddyfile"
+    chmod 640 "$RAIZ/etc/caddy/Caddyfile"
+    cp -p "$RAIZ/etc/caddy/Caddyfile" "$TMP/caddy-antes"
+    touch "$TMP/estado/caddy-falha"
+    nega "a instalacao para quando o Caddy recusa" instalacao_basica
+    afirma "conteudo restaurado" cmp "$TMP/caddy-antes" "$RAIZ/etc/caddy/Caddyfile"
+    igual "$(stat -c %a "$RAIZ/etc/caddy/Caddyfile")" 640 || { echo "      FALHOU: modo do arquivo restaurado"; FALHAS=$((FALHAS + 1)); }
+    limpar_cenario
+}
