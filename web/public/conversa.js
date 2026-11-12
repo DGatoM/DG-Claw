@@ -5115,7 +5115,23 @@ if (emCache) {
   render();
   rolagem.aoFim();
 }
-carregar(true).then(() => ligaStream());
+/* Link da fila de pedidos: /a/<agente>?msg=<id> abre a conversa rolada até a mensagem da entrega. */
+async function pulaParaMensagemDoLink() {
+  const id = new URLSearchParams(location.search).get('msg');
+  if (!id || !/^[a-f0-9]{16}$/.test(id)) return;
+  try {
+    const d = await api(API + '/compartilhados?mensagem=' + encodeURIComponent(id));
+    const porId = new Map([...(d.msgs || []), ...msgs].map(m => [m.id, m]));
+    msgs = [...porId.values()].sort((a, b) => a.ep - b.ep);
+    render({ semRolar: true });
+    const el = wrap.querySelector('[data-msg="' + CSS.escape(d.mensagem.id) + '"]');
+    if (!el) throw new Error('A mensagem não apareceu na tela. Atualize a conversa.');
+    rolagem.mostra(el, { block: 'center' });
+    el.classList.add('alerta-destaque');
+    setTimeout(() => el.classList.remove('alerta-destaque'), 3000);
+  } catch (err) { mostraErro('Não consegui ir até a mensagem da entrega: ' + err.message); }
+}
+carregar(true).then(() => ligaStream()).then(pulaParaMensagemDoLink);
 ligaResync();
 if (caps.voz) conferecota();
 if ('serviceWorker' in navigator) {

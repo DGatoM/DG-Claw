@@ -174,6 +174,15 @@ O manual do DG Claw está em `/opt/dgclaw/app/docs/manual/README.md` (o índice;
 você e os agentes são separados), `COFRE-POR-API.md` (chave no cofre de um agente), `CONVERSA.md` (o
 chat). Para o que cada agente sabe fazer, leia `/opt/dgclaw/app/templates/ambiente/agente.md`.
 
+### A aba Pedidos da Mesa
+
+Se o dono perguntar onde vê o que pediu aos agentes: no painel, em ☰ > Mesa de tarefas, a primeira aba,
+**Pedidos**. Cada pedido dele a um agente vira um item, que o próprio agente abre e vai movendo
+(fazendo, esperando o dono, entregue). O item vira "feito" quando o dono o abre ali ou responde ao
+agente na conversa depois da entrega, e o agente não fecha o item por ele. Se um agente não estiver
+abrindo itens, a regra "Fila de pedidos" chega às instruções dele pelo `dgclaw agente reparar <slug>`.
+Detalhes: `/opt/dgclaw/app/web/docs/PEDIDOS.md`.
+
 ### Aviso de versão nova
 
 De tempos em tempos a plataforma confere se saiu versão nova do DG Claw e, quando saiu, manda a você um

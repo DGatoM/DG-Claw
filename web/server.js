@@ -45,6 +45,7 @@ const { criarPrefsAtencao } = require('./lib/prefs-atencao');
 const { criarModalLoginPrefs } = require('./lib/modal-login-prefs');
 const { criarVigiaAtencao } = require('./lib/vigia-atencao');
 const { criarMesa } = require('./lib/mesa');
+const { criarPedidos } = require('./lib/pedidos');
 const { criarManual } = require('./lib/manual');
 const { criarAvisos } = require('./lib/avisos');
 const { criarAtualizacao } = require('./lib/atualizacao');
@@ -176,6 +177,9 @@ function criarServidor(opcoes) {
   const mesa = criarMesa({ arquivo: path.join(config.dataDir, 'mesa', 'tarefas.json'), registro, runner, log, agora: opcoes.agora, tz: config.tz, avisarDono: (aviso) => push.enviar(aviso), filtro: filtroAnon });
   // O agente fala com a Mesa pelo dgclaw-mesa, que passa pela caixa: a rota precisa estar liberada.
   caixa.permitir('/api/v1/tarefas');
+  // Fila de pedidos: o agente cria e move os próprios itens pelo dgclaw-mesa pedido; o dono acompanha na aba Pedidos da Mesa.
+  const pedidos = criarPedidos({ arquivo: path.join(config.dataDir, 'pedidos', 'pedidos.json'), raiz: config.dataDir, registro, conversa, log, agora: opcoes.agora, tz: config.tz });
+  caixa.permitir('/api/v1/pedidos');
   const naoLidas = criarNaoLidas({ arquivo: path.join(config.dataDir, 'nao-lidas.json'), conversa, registro, log, relogio: opcoes.agora, lerThread: conversa.threadCompartilhada });
   const uso = criarUso({ registro, runner, log, timeoutMs: opcoes.timeoutUsoMs });
   // O agente consulta o uso da PRÓPRIA assinatura pela caixa (dgclaw-api GET /api/v1/uso); a rota
@@ -467,6 +471,8 @@ function criarServidor(opcoes) {
     const p = url.pathname;
     const m = req.method;
     if (p.startsWith('/api/v1/tarefas') && await mesa.rota(req, res, url, sessao)) return undefined;
+
+    if (p.startsWith('/api/v1/pedidos') && await pedidos.rota(req, res, url, sessao)) return undefined;
 
     if (await foco.tratarRota(req, res, url, sessao)) return undefined;
 
@@ -1040,8 +1046,14 @@ function criarServidor(opcoes) {
       log('erro', `Anonimizar: mensagem para ${agente.slug} recusada (${e.codigo || e.message}).`);
       return H.erroJson(res, e.status || 500, e.status ? e.message : `Não enviei a mensagem porque não consegui trocar os dados pessoais dela: ${e.message}`, e.codigo ? { codigo: e.codigo } : undefined);
     }
+    // capturado ANTES das esperas do envio: uma entrega marcada durante a espera não é respondida por esta mensagem
+    const entreguesAntes = pedidos.entreguesDe(agente.slug);
     const r = await conversa.umaVez(agente, 'send', cid || null, () => conversa.enviar(agente, corpo, atorDa(sessao)), identidadeDe(sessao));
-    if (r.status < 300 && !(r.corpo && r.corpo.repetido)) marcaAutor(agente.slug, sessao, r);
+    if (r.status < 300 && !(r.corpo && r.corpo.repetido)) {
+      marcaAutor(agente.slug, sessao, r);
+      // só o dono fecha os itens entregues respondendo; colaborador não
+      if (!(sessao && sessao.papel === 'colaborador')) pedidos.donoRespondeu(agente.slug, opcoes.agora ? +opcoes.agora() : Date.now(), entreguesAntes);
+    }
     return H.enviaJson(res, r.status, r.corpo);
   }
 
