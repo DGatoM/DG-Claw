@@ -214,6 +214,17 @@ function criarServidor(opcoes) {
   }
 
   // ── arquivos estáticos e páginas ─────────────────────────────────────────
+  // Conversa do colaborador: o mesmo conversa.html sem a fileira de troca de agente. Devolve false se o arquivo não pôde ser lido.
+  function servirConversaColab(res, m) {
+    let html;
+    try { html = fs.readFileSync(path.join(config.publicDir, 'conversa.html'), 'utf8'); } catch (_) { return false; }
+    html = html.replace(/[ \t]*<nav id="trocaBaixo"[^>]*><\/nav>\n?/, '');
+    const corpoHtml = Buffer.from(html, 'utf8');
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Length': corpoHtml.length, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+    res.end(m === 'HEAD' ? undefined : corpoHtml);
+    return true;
+  }
+
   function servirArquivo(req, res, caminho, cache) {
     let st;
     try { st = fs.statSync(caminho); } catch (_) { return false; }
@@ -1362,16 +1373,7 @@ function criarServidor(opcoes) {
         return H.paginaErro(res, 404, 'Agente não encontrado', `Não existe agente chamado "${H.escapaHtml(slug.slice(0, 40))}". Volte ao início para ver a lista.`);
       }
       // Colaborador: a fileira de troca de agente (#trocaBaixo) nem é enviada. Ele só tem este agente.
-      if (ehColab(sessao)) {
-        let html;
-        try { html = fs.readFileSync(path.join(config.publicDir, 'conversa.html'), 'utf8'); } catch (_) { html = null; }
-        if (html != null) {
-          html = html.replace(/[ \t]*<nav id="trocaBaixo"[^>]*><\/nav>\n?/, '');
-          const corpoHtml = Buffer.from(html, 'utf8');
-          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Length': corpoHtml.length, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
-          return res.end(m === 'HEAD' ? undefined : corpoHtml);
-        }
-      }
+      if (ehColab(sessao) && servirConversaColab(res, m)) return undefined;
       if (!servirArquivo(req, res, path.join(config.publicDir, 'conversa.html'), 'no-store')) {
         log('erro', `A tela da conversa não está instalada: falta ${path.join(config.publicDir, 'conversa.html')}.`);
         H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela da conversa não foi encontrado no servidor. Reinstale o DG Claw Web.');
