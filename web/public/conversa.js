@@ -688,9 +688,10 @@ async function lcCopia(texto) {
 /* Abre o cartão. `manual`: veio do /login (fica mesmo com a conta conectada). */
 let lcAvisouColab = false;
 function lcAbre(manual, semConferir) {
-  // Colaborador não conecta conta: o servidor nega o login inteiro. Só avisa, uma vez, em vez de abrir o cartão.
+  // Colaborador conecta a conta pela página Conectar conta (que confere no servidor se o agente está sem conta).
+  // Aqui só avisa, uma vez, em vez de abrir o cartão do dono.
   if (window.DGPapel && window.DGPapel.colaborador) {
-    if (!lcAvisouColab) { lcAvisouColab = true; mostraAviso('O agente precisa entrar numa conta, e isso é só do dono do DG Claw. Avise o dono.'); }
+    if (!lcAvisouColab) { lcAvisouColab = true; mostraAviso('O agente ainda não tem uma conta de IA conectada. Você pode conectar a sua em Conectar conta, no menu. Se o login expirou e a conta não é sua, avise o dono do DG Claw.'); }
     return;
   }
   if (lc.aberto) { if (manual) { lc.manual = true; lc.dispensado = false; } lcDesenha(); return; }
@@ -4949,7 +4950,8 @@ function passosTutorial() {
       como: 'Pede a sua confirmação, reinicia e mostra uma faixa no topo até ele voltar. A conversa continua de onde estava, porque o agente retoma a mesma sessão.',
       porque: 'Quando o agente para de responder, reiniciar costuma resolver, e aqui é um toque.' });
   }
-  passos.push({ alvo: '#loginCartao', titulo: 'Conectar a sua conta',
+  // O cartão de login da conversa é do dono; o colaborador conecta pela página Conectar conta (ver conectar.js).
+  if (!COLAB) passos.push({ alvo: '#loginCartao', titulo: 'Conectar a sua conta',
     antes: () => {
       if (lc.aberto) return;
       lc.demo = true; lc.aberto = true; lc.manual = true; lc.carregando = false; lc.iniciado = false;

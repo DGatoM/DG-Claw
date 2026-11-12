@@ -53,6 +53,16 @@ mudar nada. Quem: Root. Detalhe geral em [ATUALIZAR.md](../ATUALIZAR.md) e no `d
 | `dgclaw agente tela-senha` | Troca a senha da Tela (6 a 8 caracteres ASCII, pelo STDIN) | [TELA-DO-AGENTE.md](../TELA-DO-AGENTE.md) |
 | `dgclaw agente remover` | Tira o agente do ar sem apagar: a casa vai para `/var/lib/dgclaw/aposentados/`. Pede confirmação, ou `--sim` | [ATUALIZAR.md](../ATUALIZAR.md) |
 
+### Colaboradores: convidar quem vai usar um agente
+
+| Comando | Para que serve | Detalhe |
+| --- | --- | --- |
+| `dgclaw colaborador criar` | Cria o acesso de uma pessoa a um agente (`<agente> <email>`) e mostra o convite pronto para copiar, com endereço, login e senha temporária | [agentes.md](agentes.md) |
+| `dgclaw colaborador listar` | Lista os colaboradores e os agentes a que cada um tem acesso | [agentes.md](agentes.md) |
+| `dgclaw colaborador reenviar` | Gera uma senha temporária nova e mostra o convite de novo | [agentes.md](agentes.md) |
+| `dgclaw colaborador revogar` | Tira o acesso e derruba as sessões da pessoa. Se ela conectou a conta de IA do agente, a conta continua conectada e o comando avisa | [agentes.md](agentes.md) |
+| `dgclaw colaborador ajuda` | Mostra o uso do comando | [agentes.md](agentes.md) |
+
 ### Painel: domínio, senha e primeiro acesso
 
 | Comando | Para que serve | Detalhe |

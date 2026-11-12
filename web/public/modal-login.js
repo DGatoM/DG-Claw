@@ -16,6 +16,8 @@
    - Erro na conferência inicial (rede, 401, 5xx) não abre modal nem redireciona: só um aviso no console com a
      causa. Só o 401 DURANTE o uso do modal leva ao login e volta para esta mesma conversa.
    - Nenhuma rota nova: usa GET /api/v1/agents e as rotas de login que /conectar já usa.
+   - Colaborador: abre só quando o agente dele está com "Falta conectar", sem memória entre cargas e sem "Não mostrar mais"
+     (a rota de preferência é do dono).
 
    SEGREDOS: link de login e código colado nunca vão para console, storage, URL nem title (conectar-cartoes.js).
    Todo texto do servidor entra com textContent. Contrato: web/docs/CONECTAR-CONTA.md. */
@@ -23,6 +25,7 @@
   const P = window.DGConectar;
   const CC = window.DGConectarCartoes;
   const dlg = document.getElementById('dlgModalLogin');
+  const COLAB = !!(window.DGPapel && window.DGPapel.colaborador);
   const VIDEO = '/videos/conhecendo-o-dgclaw.mp4';
   const POSTER = '/videos/conhecendo-o-dgclaw.jpg';
   const est = { aberto: false, abriu: false, fim: false, ctrl: null, video: null };
@@ -47,7 +50,7 @@
   function textoDe(id, texto) { $(id).textContent = texto; }
 
   function desenhaInicio(n, principalNome) {
-    const t = P.textosModal(n, { principalNome, colaborador: !!(window.DGPapel && window.DGPapel.colaborador) });
+    const t = P.textosModal(n, { principalNome, colaborador: COLAB });
     textoDe('mlTit', t.titulo);
     textoDe('mlIntro', t.intro);
     textoDe('mlDepois', t.depois);
@@ -77,7 +80,7 @@
   function mostraFim(n, principalNome) {
     if (est.fim) return;
     est.fim = true;
-    const t = P.textosModal(n, { principalNome, colaborador: !!(window.DGPapel && window.DGPapel.colaborador) });
+    const t = P.textosModal(n, { principalNome, colaborador: COLAB });
     textoDe('mlTitFim', t.tituloFim);
     textoDe('mlAgora', t.agora);
     const ul = $('mlItens');
@@ -118,10 +121,14 @@
       console.warn('modal de login: ' + (!dlg ? 'falta #dlgModalLogin na página' : 'um dos scripts (conectar-puro, conectar-cartoes, login-cartao) não carregou') + '. A página Conectar conta continua funcionando.');
       return;
     }
-    if (window.DGPapel && window.DGPapel.colaborador) return; // login da conta é só do dono
+    // Colaborador: não tem acesso à preferência do dono (rota fechada), então não há memória entre cargas: o modal abre quando o agente dele está sem conta.
     let pref = null;
-    try { pref = await lePref(); } catch (e) { console.warn('modal de login: não consegui ler se a pessoa já viu o aviso (' + e.message + '); não abro o modal.'); return; }
-    if (pref && pref.nao_mostrar_mais === true) return;
+    if (COLAB) {
+      const nunca = $('mlNunca'); if (nunca) nunca.hidden = true;
+    } else {
+      try { pref = await lePref(); } catch (e) { console.warn('modal de login: não consegui ler se a pessoa já viu o aviso (' + e.message + '); não abro o modal.'); return; }
+      if (pref && pref.nao_mostrar_mais === true) return;
+    }
     let dados = null;
     try {
       const r = await fetch('/api/v1/agents', { credentials: 'same-origin', cache: 'no-store' });
@@ -140,9 +147,10 @@
     });
     est.ctrl = ctrl;
     try { await ctrl.inicia(); } catch (e) { console.warn('modal de login: a conferência dos logins falhou (' + e.message + '); não abro o modal.'); ctrl.para(); return; }
-    const novos = P.agentesNovosParaModal(agentes.map(a => a.id), ctrl.selos(), pref);
+    const novos = COLAB ? agentes.filter((a, i) => ctrl.selos()[i].chave === 'falta').map(a => a.id)
+      : P.agentesNovosParaModal(agentes.map(a => a.id), ctrl.selos(), pref);
     if (novos.length) {
-      guardaPref({ vistos: novos });
+      if (!COLAB) guardaPref({ vistos: novos });
       abre(ctrl, agentes.length, principal && principal.nome);
     } else ctrl.para();
   }

@@ -67,7 +67,7 @@ test('menu-lado.js: Convidar colaborador só para o dono e nunca para o Admin', 
   assert.match(js, /if \(!colab && ag\.tipo !== 'admin' && ag\.id\)/);
   assert.match(js, /LINK_COLABORADOR\.href\}\?agente=\$\{encodeURIComponent\(ag\.id\)\}/);
   // colaborador não dispara nada que o servidor nega (lista de agentes, uso), mas tem as páginas e as Sessões do agente dele
-  assert.match(js, /else if \(!colab\) recarrega\(ag\)/);
+  assert.match(js, /if \(!colab\) \{\n      const troca = \$\('mlTroca'\)/, 'a troca de agente nem é ligada para o colaborador');
   assert.match(js, /if \(colab\) \{ const uso = \$\('mlUso'\); if \(uso\) uso\.remove\(\); \} else ligaUso\(\)/);
   assert.doesNotMatch(js, /if \(!colab\) ligaSessoes/);
   assert.match(js, /filter\(l => !colab \|\| chaveDoHref\(l\.href\) !== 'cofre'\)/, 'o cofre do agente não aparece no menu do colaborador');

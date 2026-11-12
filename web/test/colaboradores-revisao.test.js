@@ -136,31 +136,33 @@ test('achado 3: login que verificou o hash antigo não emite sessão depois de u
 
 // ── 4. confirmação do turno do dono: ver colaboradores-correcoes.test.js (autor preso ao turno e ao id da pendência) ──
 
-// ── 5. login da conta do agente é só do dono ──
-test('achado 5: colaborador não vê o link, não inicia, não manda código e não cancela o login, com ou sem conta, em andamento ou não', async () => {
+// ── 5. login da conta do agente: o colaborador só age quando o agente está sem conta de verdade (ver conta-colaborador.test.js) ──
+test('achado 5: sem confirmação clara de que falta conta, o colaborador não vê, não inicia, não manda código e não cancela o login', async () => {
+  // Runner sem /api/provedor (auth e conferido desconhecidos) e login expirado: é dúvida, e na dúvida se recusa.
   for (const runnerAna of [undefined, { status: 'errored', statusReason: 'runner:login-expirado' }]) {
     const s = await cenario(runnerAna ? { runnerAna } : undefined);
     try {
       const x = await colaboradorAtivo(s);
       for (const [m, p] of [['GET', ''], ['POST', ''], ['DELETE', ''], ['POST', '/codigo'], ['POST', '/oi']]) {
         const r = await x.c.pedir(m, '/api/v1/agents/ana/login' + p, m === 'GET' ? {} : { json: { codigo: 'abc123' } });
-        assert.equal(r.status, 403, `${m} ${p}: ${r.texto}`);
-        assert.match(r.json.erro, /precisa entrar numa conta, e isso é só do dono do DG Claw\. Avise o dono\./);
+        assert.ok(r.status >= 400, `${m} ${p}: ${r.status} ${r.texto}`);
+        assert.ok(!/claude\.ai|"link"|codigoDispositivo/.test(r.texto), `${m} ${p} vazou algo: ${r.texto}`);
       }
       assert.equal((await x.c.get('/p/ana/api/provedor/login')).status, 403);
       assert.equal(s.rAna.rec.loginPosts, 0);
+      assert.equal(s.rAna.rec.loginDeletes, 0);
       assert.equal(s.rAna.rec.codigos.length, 0);
       assert.equal((await s.dono.post('/api/v1/agents/ana/login', { json: {} })).status, 202, 'o dono continua podendo');
     } finally { await s.fechar(); }
   }
 });
 
-test('achado 5: o colaborador que segura o corpo do login enquanto o dono conecta não troca a conta', async () => {
-  const s = await cenario({ runnerAna: { status: 'errored', statusReason: 'runner:login-expirado' } });
+test('achado 5: login expirado de conta que não é dele continua só do dono', async () => {
+  const s = await cenario({ runnerAna: { status: 'errored', statusReason: 'runner:login-expirado', provedor: { provedor: 'claude', auth: 'assinatura', conferido: { ok: false } } } });
   try {
     const x = await colaboradorAtivo(s);
     const r = await x.c.post('/api/v1/agents/ana/login', { json: {} });
-    assert.equal(r.status, 403);
+    assert.equal(r.status, 403); assert.match(r.json.erro, /só o dono do DG Claw reconecta/);
     assert.equal(s.rAna.rec.loginPosts, 0);
   } finally { await s.fechar(); }
 });

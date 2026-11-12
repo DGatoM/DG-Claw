@@ -42,7 +42,7 @@ A página `/conectar` do painel usa as mesmas rotas para conectar a conta de tod
 ## Rotas
 
 Todas exigem a sessão do login e, nas escritas, `Origin` igual ao do Web, como as outras rotas.
-Valem para qualquer agente do registro, o Admin incluso. O Web fala direto com o runner (o Admin
+Valem para qualquer agente do registro, o Admin incluso. O colaborador usa as mesmas rotas só no agente dele, com as regras e o filtro de campos descritos em `web/docs/CONECTAR-CONTA.md` ("Respostas para o colaborador"). O Web fala direto com o runner (o Admin
 não tem painel). Erros vêm como `{ok:false, erro:"o que falhou e o que fazer"}` com o status certo
 (runner fora do ar: 503; recusa do runner: o mesmo status, com `error` e `howToFix` juntos).
 
