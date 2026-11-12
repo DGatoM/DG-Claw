@@ -565,11 +565,13 @@ escrever_site_caddy() {
                         "confira espaco em disco e permissao de ${R}/etc/caddy e rode de novo."
                 aviso "${alvo#"$R"} tinha personalizacoes suas; guardei uma copia em ${copia#"$R"} e gravei o site padrao do DG Claw com '$dominio'. Para levar as suas personalizacoes de volta, copie as linhas que quiser da copia para dentro do bloco do site em ${alvo#"$R"}, rode caddy validate --config ${cf#"$R"} --adapter caddyfile e sudo systemctl reload caddy."
             else
-                # Atras de tunel o bind no loopback e o que impede de forjar o IP de quem acessa: arquivo
-                # personalizado sem ele nao pode ficar valendo em silencio.
-                if modo_tunel && ! grep -Eq '^[[:space:]]*bind[[:space:]]+127\.0\.0\.1[[:space:]]*$' "$alvo"; then
-                    falha "o site do DG Claw em ${alvo#"$R"} tem personalizacoes suas e nao tem a linha 'bind 127.0.0.1', que o modo tunel exige para que so o proprio servidor alcance o Caddy." \
-                        "acrescente 'bind 127.0.0.1' e 'tls internal' dentro do bloco do site, ou apague o arquivo para o instalador gerar o padrao, e rode ./install.sh de novo."
+                # Atras de tunel o bind no loopback e o encaminhamento do IP real (Cf-Connecting-IP) sao o que
+                # impede de forjar o IP e de um visitante gastar o limite de tentativas de login do dono:
+                # arquivo personalizado sem os dois nao pode ficar valendo em silencio.
+                if modo_tunel && { ! grep -Eq '^[[:space:]]*bind[[:space:]]+127\.0\.0\.1[[:space:]]*$' "$alvo" \
+                    || ! grep -Eq 'header_up[[:space:]]+X-Forwarded-For[[:space:]]+\{http\.request\.header\.Cf-Connecting-IP\}' "$alvo"; }; then
+                    falha "o site do DG Claw em ${alvo#"$R"} tem personalizacoes suas e nao tem, os dois, 'bind 127.0.0.1' e o encaminhamento de Cf-Connecting-IP para X-Forwarded-For, que o modo tunel exige: sem o bind, qualquer um da rede alcanca o Caddy; sem o encaminhamento, o painel ve todo visitante como o mesmo IP, e 5 tentativas erradas de qualquer pessoa bloqueiam o seu login por 15 minutos." \
+                        "dentro do bloco do site, mantendo as suas linhas, acrescente 'bind 127.0.0.1', 'tls internal' e troque o reverse_proxy por: @tunel header Cf-Connecting-IP * / handle @tunel { reverse_proxy 127.0.0.1:8300 { header_up X-Forwarded-For {http.request.header.Cf-Connecting-IP} } } / handle { reverse_proxy 127.0.0.1:8300 } (o bloco completo que o instalador gera esta em: bloco_caddy em lib/comum.sh). Depois rode caddy validate --config ${cf#"$R"} --adapter caddyfile e ./install.sh de novo. Ou apague o arquivo para o instalador gerar o padrao."
                 fi
                 aviso "${alvo#"$R"} tem personalizacoes suas e nao foi alterado, entao o site continua sem a compressao nova (a conversa e o painel ficam mais lentos no celular). Para ligar, acrescente dentro do bloco do site, antes do reverse_proxy: encode { zstd gzip match { header Content-Type text/html* header Content-Type text/css* header Content-Type text/plain* header Content-Type text/javascript* header Content-Type application/javascript* header Content-Type application/json* header Content-Type application/manifest+json* header Content-Type application/xml* header Content-Type image/svg+xml* } } (nao use 'text/*': ele comprimiria o stream da conversa, text/event-stream, e as mensagens deixariam de chegar na hora). Depois rode: caddy validate --config ${cf#"$R"} --adapter caddyfile && sudo systemctl reload caddy"
                 return 0
