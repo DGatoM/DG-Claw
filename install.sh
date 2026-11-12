@@ -339,16 +339,21 @@ ler_senha() {
 # --- 1. checagens ---------------------------------------------------------------
 pular_checagens() { [ -n "$R" ] && [ "${DGCLAW_PULAR_CHECAGENS:-}" = 1 ]; }
 
-# porta_painel_e_nossa <nome do processo> <porta>: quem escuta na porta do painel e o DG Claw Web de
-# uma instalacao anterior? Aqui "nosso" quer dizer: processo node, a unidade dgclaw-web ativa e a
-# porta igual a que o dgclaw.env anterior guardou (8300 se nao guardou nada). Sem as tres coisas a
-# porta e de outro programa, e seguir derrubaria o painel logo depois de instalar.
+# porta_painel_e_nossa <nome do processo> <porta> <pid>: quem escuta na porta do painel e o DG Claw Web
+# de uma instalacao anterior? Aqui "nosso" quer dizer: processo node, a unidade dgclaw-web ativa, a
+# porta igual a que o dgclaw.env anterior guardou (8300 se nao guardou nada) e o PID do processo
+# dentro da unidade dgclaw-web.service (lido em $R/proc/<pid>/cgroup). Sem o PID, ou sem o cgroup,
+# nao e nosso: outro node na mesma porta nao pode passar por painel. Sem tudo isso a porta e de outro
+# programa, e seguir derrubaria o painel logo depois de instalar.
 porta_painel_e_nossa() {
-    local anterior
+    local anterior pid="${3:-}"
     [ "$1" = node ] || return 1
     systemctl is-active --quiet dgclaw-web.service || return 1
     anterior="$(env_valor DGCLAW_PORTA_PAINEL)"
-    [ "$2" = "${anterior:-$DG_PORTA_PAINEL_PADRAO}" ]
+    [ "$2" = "${anterior:-$DG_PORTA_PAINEL_PADRAO}" ] || return 1
+    case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+    [ -r "$R/proc/$pid/cgroup" ] || return 1
+    grep -q '/dgclaw-web\.service' "$R/proc/$pid/cgroup"
 }
 
 checar_portas() {
@@ -359,15 +364,16 @@ checar_portas() {
         executar_log apt-get update
         executar_log apt-get install -y --no-install-recommends iproute2
     fi
-    local linhas loc proc porta nome ocupadas="" painel_ocupado=""
+    local linhas loc proc porta nome pid ocupadas="" painel_ocupado=""
     linhas="$(ss -ltnpH 2>/dev/null)" || falha "nao consegui rodar 'ss -ltnp' para ver as portas em uso." \
         "instale o pacote iproute2 (apt-get install -y iproute2) e rode de novo."
     while read -r _ _ _ loc _ proc; do
         [ -n "$loc" ] || continue
         porta="${loc##*:}"
         nome="$(printf '%s' "$proc" | sed -n 's/.*users:(("\([^"]*\)".*/\1/p')"
+        pid="$(printf '%s' "$proc" | sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p')"
         if [ "$porta" = "$PORTA_PAINEL" ]; then
-            if ! porta_painel_e_nossa "$nome" "$porta"; then
+            if ! porta_painel_e_nossa "$nome" "$porta" "$pid"; then
                 painel_ocupado="${nome:-processo que nao consegui identificar}"
             fi
             continue

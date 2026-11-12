@@ -116,4 +116,23 @@ igual "outro agente criando (trava compartilhada) nao atrapalha" 0 "$?"
 afirma "a rede foi criada" grep -q 'network create' "$STUB_LOG"
 kill "$SEGURA" 2>/dev/null; wait "$SEGURA" 2>/dev/null
 
+echo "criar: o podman nao herda a trava da faixa (descritor 8)"
+preparar
+mkdir -p "$DGCLAW_RAIZ/run/systemd/system" "$TMP/stubs-fd"
+cat >"$TMP/stubs-fd/systemd-run" <<'STUB'
+#!/usr/bin/env bash
+# systemd-run de mentira que anota se o fd 8 chegou aberto e executa o podman que vem nos argumentos.
+if [ -e /proc/self/fd/8 ]; then echo aberto >>"$STUB_ESTADO/fd8-systemd-run"; else echo fechado >>"$STUB_ESTADO/fd8-systemd-run"; fi
+while [ $# -gt 0 ] && [ "$1" != podman ]; do shift; done
+shift
+exec podman "$@"
+STUB
+chmod +x "$TMP/stubs-fd/systemd-run"
+PATH="$TMP/stubs-fd:$PATH" criar_agente fdt --nome "Fd Teste"
+igual "criar com escopo systemd termina bem" 0 "$?"
+afirma "o systemd-run foi usado" test -s "$STUB_ESTADO/fd8-systemd-run"
+nega "o systemd-run nunca viu o fd 8 aberto" grep -q aberto "$STUB_ESTADO/fd8-systemd-run"
+afirma "o systemd-run viu o fd 8 fechado" grep -q fechado "$STUB_ESTADO/fd8-systemd-run"
+afirma "o podman start chegou a rodar" grep -q '^podman start ' "$STUB_LOG"
+
 fim

@@ -64,14 +64,16 @@ falha() {
 # conmon do container nasce dentro do cgroup de quem chamou: se for o servico dgclaw-admin, reiniciar
 # o Admin espera 90 s pelo conmon e acaba matando ele com SIGKILL (o agente cai junto). O mesmo vale
 # para a atualizacao em segundo plano. Sem systemd (ou na raiz falsa dos testes, que nao tem
-# $R/run/systemd/system) cai no podman direto.
+# $R/run/systemd/system) cai no podman direto. Nas duas chamadas o descritor 8 (a trava da faixa de
+# rede, ver trava_faixa_pegar) e fechado: e por aqui que todo container de agente nasce, e o conmon,
+# que vive ate o container parar, herdaria o descritor e seguraria a trava.
 podman_em_escopo() {
     local slug="$1"; shift
     if command -v systemd-run >/dev/null 2>&1 && [ -d "$R/run/systemd/system" ]; then
         executar systemd-run --scope --quiet --collect \
-            --unit "dgclaw-conteiner-$slug-$(date +%s)-$$-$RANDOM" podman "$@"
+            --unit "dgclaw-conteiner-$slug-$(date +%s)-$$-$RANDOM" podman "$@" 8>&-
     else
-        executar podman "$@"
+        executar podman "$@" 8>&-
     fi
 }
 
@@ -266,8 +268,9 @@ com_trava() {
 #    sem /etc/dgclaw ainda nao ha agente que possa nascer, entao nao cria a pasta so para isso);
 #  - `agente criar` pega a trava COMPARTILHADA da leitura da configuracao ate a cerca publicada
 #    (varios agentes podem nascer juntos; so o instalador espera por eles, e eles por ele).
-# A trava e o descritor 8 do processo; `agente criar` passa o podman com ele fechado (ver bin/dgclaw), para
-# o conmon, que vive ate o container parar, nao segurar a trava.
+# A trava e o descritor 8 do processo; o podman precisa rodar com ele fechado, para o conmon, que vive
+# ate o container parar, nao segurar a trava: podman_em_escopo (por onde todo container de agente nasce)
+# fecha o 8, e `agente criar` faz o mesmo nas demais chamadas (ver o wrapper em bin/dgclaw).
 DG_TRAVA_FAIXA="$DG_ETC/.faixa-rede.lock"
 
 # trava_faixa_pegar <-s|-x>: espera ate DGCLAW_TRAVA_FAIXA_ESPERA segundos (padrao 900).

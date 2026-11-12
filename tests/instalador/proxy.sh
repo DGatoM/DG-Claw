@@ -303,7 +303,30 @@ caso_porta_painel_do_proprio_web_de_uma_instalacao_anterior_passa() {
     mkdir -p "$RAIZ/etc/dgclaw"; printf 'DGCLAW_DOMINIO=antigo.exemplo.org\n' >"$RAIZ/etc/dgclaw/dgclaw.env"
     EXTRA_ENV=("DGCLAW_TESTAR_PORTAS=1" "DGCLAW_STUB_ATIVOS=dgclaw-web.service"
         'DGCLAW_STUB_SS=LISTEN 0 511 127.0.0.1:8300 0.0.0.0:* users:(("node",pid=900,fd=4))')
+    mkdir -p "$RAIZ/proc/900"; printf '0::/system.slice/dgclaw-web.service\n' >"$RAIZ/proc/900/cgroup"
     afirma "node do dgclaw-web na 8300 e nosso" instalacao_basica
+    limpar_cenario
+
+    # Achado da revisao: o env diz 8400, o Web de verdade esta na 8300 (pid 101) e OUTRO node (pid 202,
+    # fora da unidade dgclaw-web) escuta na 8400: nao pode passar por painel.
+    novo_cenario
+    mkdir -p "$RAIZ/etc/dgclaw"; printf 'DGCLAW_DOMINIO=antigo.exemplo.org\nDGCLAW_PORTA_PAINEL=8400\n' >"$RAIZ/etc/dgclaw/dgclaw.env"
+    EXTRA_ENV=("DGCLAW_TESTAR_PORTAS=1" "DGCLAW_STUB_ATIVOS=dgclaw-web.service"
+        'DGCLAW_STUB_SS=LISTEN 0 511 127.0.0.1:8300 0.0.0.0:* users:(("node",pid=101,fd=4))
+LISTEN 0 511 127.0.0.1:8400 0.0.0.0:* users:(("node",pid=202,fd=4))')
+    mkdir -p "$RAIZ/proc/101" "$RAIZ/proc/202"
+    printf '0::/system.slice/dgclaw-web.service\n' >"$RAIZ/proc/101/cgroup"
+    printf '0::/system.slice/outro-node.service\n' >"$RAIZ/proc/202/cgroup"
+    nega "node alheio (pid 202) na 8400 nao e o painel, mesmo com o env dizendo 8400" instalacao_basica --porta-painel 8400
+    afirma "diz quem ocupa" tem "$SAIDA" "ja esta em uso por node"
+    limpar_cenario
+
+    # Sem o cgroup do PID (nao da para provar que e da unidade): recusa.
+    novo_cenario
+    mkdir -p "$RAIZ/etc/dgclaw"; printf 'DGCLAW_DOMINIO=antigo.exemplo.org\n' >"$RAIZ/etc/dgclaw/dgclaw.env"
+    EXTRA_ENV=("DGCLAW_TESTAR_PORTAS=1" "DGCLAW_STUB_ATIVOS=dgclaw-web.service"
+        'DGCLAW_STUB_SS=LISTEN 0 511 127.0.0.1:8300 0.0.0.0:* users:(("node",pid=900,fd=4))')
+    nega "node na 8300 sem cgroup legivel do pid: de outro" instalacao_basica
     limpar_cenario
 
     novo_cenario
