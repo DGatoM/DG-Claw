@@ -179,6 +179,27 @@ function flagLongaSensivel(s, i, fim, mascaras) {
   return true;
 }
 
+// Opções curtas do curl que levam argumento (o resto do grupo, ou o próximo argumento, é o valor delas).
+const CURL_CURTAS_COM_VALOR = 'AbcCdDeEFHKmoPQrtTuUwXxyYz';
+const CURL_CURTAS_SENSIVEIS = 'uUb';       // -u/-U: usuário:senha; -b: cookies
+
+/**
+ * Argumento curto do curl, possivelmente agrupado (`-sSu usuario:senha`, `-sSuusuario:senha`, `-uusuario:senha`): anda letra por
+ * letra até a primeira opção que consome valor. Devolve true quando o valor sensível é o próximo argumento; o valor colado já entra
+ * em `mascaras`. Opção que leva valor não sensível (`-H`, `-o`...) também encerra o grupo, para o texto dela não ser lido como letras.
+ */
+function curlCurtas(s, i, fim, mascaras) {
+  for (let j = i + 1; j < fim; j++) {
+    const c = s[j];
+    if (c === '"' || c === "'" || c === '\\') return false;
+    if (!CURL_CURTAS_COM_VALOR.includes(c)) continue;
+    const sensivel = CURL_CURTAS_SENSIVEIS.includes(c);
+    if (j + 1 < fim) { if (sensivel) mascaras.push([j + 1, fim]); return false; }
+    return sensivel;
+  }
+  return false;
+}
+
 function varreComando(s, pos, cmd, sem, mascaras) {
   const n = s.length;
   let i = pos;
@@ -213,10 +234,15 @@ function varreComando(s, pos, cmd, sem, mascaras) {
       espera = flagLongaSensivel.espera;
     } else if (c0 === '-') {
       if (cmd === 'curl') {
-        if ((tam === 2 && (cab === '-u' || cab === '-U')) || cab === '--user' || cab === '--proxy-user') { if (tam === cab.length) espera = true; }
-        else if (cab.startsWith('--user=')) mascaras.push([i + 7, fim]);
-        else if (cab.startsWith('--proxy-user=')) mascaras.push([i + 13, fim]);
-        else if (tam > 2 && (cab.startsWith('-u') || cab.startsWith('-U')) && cab[2] !== '-') mascaras.push([i + 2, fim]);
+        if (cab.startsWith('--')) {
+          if (cab === '--user' || cab === '--proxy-user' || cab === '--oauth2-bearer' || cab === '--cookie') { if (tam === cab.length) espera = true; }
+          else if (cab.startsWith('--user=')) mascaras.push([i + 7, fim]);
+          else if (cab.startsWith('--proxy-user=')) mascaras.push([i + 13, fim]);
+          else if (cab.startsWith('--oauth2-bearer=')) mascaras.push([i + 16, fim]);
+          else if (cab.startsWith('--cookie=')) mascaras.push([i + 9, fim]);
+        } else {
+          espera = curlCurtas(s, i, fim, mascaras);
+        }
       } else if (cmd === 'sshpass') {
         if (tam === 2 && cab === '-p') espera = true;
         else if (tam > 2 && cab.startsWith('-p')) mascaras.push([i + 2, fim]);
@@ -254,6 +280,50 @@ function mascaraComandos(s) {
   return saida + s.slice(ultimo);
 }
 
+// Atribuição `NOME=valor` de segredo: o valor é lido como argumento de shell, então continuação de linha (`\` + quebra) e aspas
+// que atravessam linhas entram por inteiro (as regexes de PRE param na quebra e deixariam o resto do segredo). Aspa sem
+// fechamento vai até o fim da linha; sem aspas, até o próximo espaço não escapado.
+const RX_ATRIBUICAO = /(?:api[_-]?key|passw(?:or)?d|pwd|senha|secret|token|credential|chave|cookie|auth)[A-Za-z0-9_.-]{0,60}["']?[ \t]{0,20}=[ \t]{0,20}/gi;
+
+function lerValorAtribuicao(s, i, sem) {
+  const n = s.length;
+  let j = i;
+  while (j < n) {
+    const c = s[j];
+    if (ehEspaco(c)) break;
+    if (c === '\\') {
+      if (j + 1 >= n) { j++; break; }
+      if (s[j + 1] === '\r' && s[j + 2] === '\n') { j += 3; continue; }
+      j += 2;
+      continue;
+    }
+    if (c === '"' || c === "'") { j = fimDaAspa(s, j, sem); continue; }
+    j++;
+  }
+  return j;
+}
+
+function mascaraAtribuicoes(s) {
+  const mascaras = [];
+  const sem = {};
+  RX_ATRIBUICAO.lastIndex = 0;
+  let m;
+  while ((m = RX_ATRIBUICAO.exec(s)) !== null) {
+    const ini = m.index + m[0].length;
+    const fim = lerValorAtribuicao(s, ini, sem);
+    if (fim > ini) mascaras.push([ini, fim]);
+    RX_ATRIBUICAO.lastIndex = Math.max(fim, ini);
+  }
+  if (!mascaras.length) return s;
+  let saida = '';
+  let ultimo = 0;
+  for (const [a, b] of mascaras) {
+    saida += s.slice(ultimo, a) + OCULTO;
+    ultimo = b;
+  }
+  return saida + s.slice(ultimo);
+}
+
 // Os padrões de mascara.js (principalmente a atribuição NOME=valor) varrem cada trecho de letras e números até o fim
 // para achar uma palavra-chave: numa sequência de 64 KB sem espaço isso vira conta quadrática, e o agente é quem escreve
 // o texto. Sequência longa demais não é palavra nem segredo conhecido (um JWT ou uma chave em base64 também cai aqui):
@@ -273,7 +343,7 @@ function corteBruto(s) {
 function limpa(texto) {
   if (texto == null) return '';
   let r = corteBruto(typeof texto === 'string' ? texto : String(texto));
-  r = mascaraComandos(r);
+  r = mascaraAtribuicoes(mascaraComandos(r));
   for (const [rx, sub] of PRE) { rx.lastIndex = 0; r = r.replace(rx, sub); }
   r = mascarar(r.replace(RX_SEQUENCIA_LONGA, '[trecho-longo-omitido]'));
   for (const [rx, sub] of EXTRAS) { rx.lastIndex = 0; r = r.replace(rx, sub); }
