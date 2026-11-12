@@ -474,7 +474,7 @@ gerar_identidade() {
 }
 
 # regravar_identidade_md: monta o identidade.md, o que o runner injeta em toda sessao:
-# o AGENT.md (do disco, a pessoa pode ter editado) + a regra do canal + a secao "Onde voce
+# a regra numero 1 (templates/ambiente/topo.md) + o AGENT.md (do disco, a pessoa pode ter editado) + a regra do canal + a secao "Onde voce
 # esta e o que voce consegue fazer" (templates/ambiente/agente.md). O arquivo e DERIVADO:
 # o que a pessoa edita e o AGENT.md, entao ele e regravado sempre (so se o conteudo mudou).
 # Usa C_HOME, C_UG, C_SLUG, C_NOME e C_DONO_TEXTO do chamador.
@@ -483,7 +483,12 @@ regravar_identidade_md() {
     local C_PAPEL="${C_PAPEL:-$TEXTO_PAPEL_NEUTRO}" C_JEITO="${C_JEITO:-$TEXTO_JEITO_NEUTRO}" C_DATA="${C_DATA:-$(date +%F)}"
     [ -f "$tpl/ambiente/agente.md" ] || falha "o modelo $tpl/ambiente/agente.md nao existe." \
         "a copia do DG Claw em $APP_DIR esta incompleta; reinstale com o instalador."
+    [ -f "$tpl/ambiente/topo.md" ] || falha "o modelo $tpl/ambiente/topo.md nao existe." \
+        "a copia do DG Claw em $APP_DIR esta incompleta; reinstale com o instalador."
     {
+        # A regra numero 1 (responder primeiro, rapida/curta/longa) vai no TOPO: no fim, depois de um
+        # AGENT.md personalizado grande, o agente deixava de segui-la e prendia a conversa.
+        renderizar_template "$tpl/ambiente/topo.md"
         if [ -f "$h/AGENT.md" ]; then cat "$h/AGENT.md"; else renderizar_template "$tpl/AGENT.md.tmpl"; fi
         printf '\n---\n\n'
         regra_canal_dgchat
