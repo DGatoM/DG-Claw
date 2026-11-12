@@ -20,6 +20,11 @@ Peça ao Admin, no chat: "atualiza o DG Claw". O script do batimento já vem na 
 para os seus agentes conhecerem a marca de adiar. Ela entra na identidade de cada agente, regravada com
 `dgclaw agente identidade <agente>`, sem apagar o que você personalizou neles.
 
+**A conversa abre mais rápido.** A tela pedia a lista de agentes, depois o histórico e só então ligava o tempo real, uma
+coisa de cada vez. Agora o histórico sai junto com a lista de agentes. No servidor, a lista deixa de esperar a consulta
+a cada agente quando as informações dela vencem: responde na hora com o que já sabe e atualiza em segundo plano (se a
+atualização falhar, o motivo vai para o registro e a lista segue com o último valor bom). O `dgclaw atualizar` já resolve.
+
 **A aba Operações volta a mostrar as barrinhas de cada rotina, com rotina, horário e resultado.** O painel do agente não
 tinha permissão para ler o diário do sistema, e sem ela a aba dizia que não havia histórico, mesmo com as rotinas
 rodando. Agora, dentro do contêiner, o usuário do agente passa a poder ler o diário do sistema daquele contêiner. Se o
