@@ -126,7 +126,7 @@ CONVERSA_BLOCK=""
 # que vai para o prompt: so um numero quando a leitura foi completa, ou "duvida: <motivo>".
 CONTAGEM_ARQ="$(mktemp 2>/dev/null)" || CONTAGEM_ARQ=""
 CONVERSA=$(DGCLAW_REFLECT_DIA="$TODAY" DGCLAW_REFLECT_CONTAGEM_ARQ="$CONTAGEM_ARQ" python3 - "$PLUGIN/scripts/_lib" <<'PYCONV' 2>>"$LOG"
-import os, sys
+import json, os, sys
 from datetime import datetime, timezone, timedelta
 sys.path.insert(0, sys.argv[1])
 import thread_log
@@ -166,6 +166,28 @@ todos = sorted(sd.glob("*.jsonl"), key=lambda q: q.stat().st_mtime, reverse=True
 cache = {}
 
 
+def leitura_falha(p):
+    """Motivo de o transcript nao ter sido lido por inteiro, ou "". build_thread_log devolve [] se nao
+    abre o arquivo e pula linha JSON invalida; para CONTAR mensagens isso viraria "zero". Unica
+    tolerancia: a ULTIMA linha sem quebra de linha no fim, que e uma escrita em andamento naquele
+    instante (se ela ja terminou com \\n e esta quebrada, e transcript corrompido: duvida)."""
+    try:
+        with open(p, "rb") as f:
+            linhas = f.read().split(b"\n")
+    except OSError as e:
+        return f"nao consegui abrir {p.name} ({e})"
+    for i, l in enumerate(linhas):
+        if not l.strip():
+            continue
+        try:
+            json.loads(l)
+        except ValueError:
+            if i == len(linhas) - 1:  # sem \n no fim: ainda sendo escrita
+                continue
+            return f"linha {i + 1} de {p.name} nao e JSON valido (transcript truncado ou corrompido)"
+    return ""
+
+
 def eventos(p):
     if p not in cache:
         cache[p] = thread_log.build_thread_log(str(p), last=0)
@@ -178,6 +200,10 @@ def eventos(p):
 dono_no_dia, duvida = 0, ""
 for p in todos:
     if inicio_do_dia is not None and p.stat().st_mtime < inicio_do_dia:
+        continue
+    motivo = leitura_falha(p)
+    if motivo:
+        duvida = duvida or motivo
         continue
     for e in eventos(p):
         if e.get("origin") != "owner":

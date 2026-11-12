@@ -143,6 +143,26 @@ novo_cenario ""
 rodar env
 afirma "config sem DGCLAW_PROVEDOR: injeta" injetou
 
+echo "leitura com falha conta como duvida: reflete"
+novo_cenario
+mkdir "$SESSOES/ilegivel.jsonl"   # abrir um diretorio falha igual a falta de permissao, mesmo como root
+touch -d "$DIA 12:00" "$SESSOES/ilegivel.jsonl"
+rodar env
+afirma "arquivo ilegivel: injeta" injetou
+afirma "arquivo ilegivel: o log diz o motivo" bash -c "grep -q 'nao consegui abrir ilegivel.jsonl' '$WS/.dgclaw/logs/reflection.log'"
+
+novo_cenario
+{ linha_poke 11:00:00; echo '{"type":"user","timest'; linha_resposta 12:00:05 "oi"; } | sessao quebrada "$DIA 12:00"
+rodar env
+afirma "linha JSON quebrada no meio: injeta" injetou
+afirma "linha quebrada: o log diz o motivo" bash -c "grep -q 'nao e JSON valido' '$WS/.dgclaw/logs/reflection.log'"
+nega "linha quebrada: nao anota dia pulado" test -f "$WS/.dgclaw/logs/reflexoes-puladas.txt"
+
+novo_cenario
+{ linha_poke 11:00:00; printf '{"type":"user","timest'; } | sessao em-escrita "$DIA 12:00"
+rodar env
+afirma "ultima linha sem quebra (escrita em andamento) nao impede o pulo" bash -c "! grep -q '^inject_session' '$CHAMADAS'"
+
 echo "DGCLAW_REFLECT_SEMPRE=1 forca"
 novo_cenario
 : >"$SESSOES/vazia.jsonl"
