@@ -589,10 +589,13 @@ test("recibo: esperarRecibo aceita PreCompact só quando é comando de barra; Pr
   assert.equal(await espera3, true, "UserPromptSubmit continua sendo o recibo normal");
 });
 
+const ERRO_SEM_RECIBO = /digitei (\d) Enters e nenhum abriu turno/;
+const PASSOS_CURTOS = { reciboVigiaPassosMs: [150, 150] };
+
 test("recibo: turno anterior emitindo PreToolUse com a mensagem presa NÃO esconde o erro; o 2º Enter que entrega confirma", async () => {
   logarClaude(amb);
   const { enviarComRecibo } = await import("./sessao/digitacao.js");
-  const { s } = await nova();
+  const { s } = await nova({}, { ...PASSOS_CURTOS });
   await s.subir("nova");
   await esperarAte(() => s.estado.status === "idle", 8_000);
   const nonce = s.nonce ?? undefined;
@@ -606,9 +609,11 @@ test("recibo: turno anterior emitindo PreToolUse com a mensagem presa NÃO escon
     const ticker = setInterval(() => hook("PreToolUse", { toolName: "Bash" }), 300);
     const marca = lerTexto(amb.logDoRunner).length;
     await enviarComRecibo(s);
+    assert.equal(enters.length, 3, "os 3 Enters normais saíram e a função já voltou");
+    assert.match(lerTexto(amb.logDoRunner).slice(marca), /continuo tentando em segundo plano/);
+    await esperarAte(() => ERRO_SEM_RECIBO.test(lerTexto(amb.logDoRunner).slice(marca)), 5_000, "o erro final da vigia");
     clearInterval(ticker);
-    assert.equal(enters.length, 3, "os 3 Enters saíram");
-    assert.match(lerTexto(amb.logDoRunner).slice(marca), /digitei \d Enters e nenhum abriu turno/);
+    assert.match(lerTexto(amb.logDoRunner).slice(marca), /digitei 5 Enters e nenhum abriu turno/);
 
     // O 2º Enter entrega: o UserPromptSubmit chega depois dele e o runner para por aí.
     enters.length = 0;
@@ -616,9 +621,85 @@ test("recibo: turno anterior emitindo PreToolUse com a mensagem presa NÃO escon
     const marca2 = lerTexto(amb.logDoRunner).length;
     await enviarComRecibo(s);
     assert.equal(enters.length, 2);
-    assert.doesNotMatch(lerTexto(amb.logDoRunner).slice(marca2), /digitei \d Enters e nenhum abriu turno/);
+    assert.doesNotMatch(lerTexto(amb.logDoRunner).slice(marca2), ERRO_SEM_RECIBO);
   } finally {
     trocar(original);
+  }
+});
+
+test("recibo atrasado: o turno só abre no 4º Enter, a vigia loga 'abriu atrasado' e não dá o ERRO", async () => {
+  logarClaude(amb);
+  const { enviarComRecibo } = await import("./sessao/digitacao.js");
+  const { s } = await nova({}, { ...PASSOS_CURTOS });
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  const original = s.escrever.bind(s);
+  const enters: string[] = [];
+  const trocar = (f: (t: string) => void) => { (s as unknown as { escrever: (t: string) => void }).escrever = f; };
+  try {
+    trocar((t) => {
+      enters.push(t);
+      if (enters.length === 4) s.receberHook({ agentId: s.id, event: "UserPromptSubmit", nonce: s.nonce ?? undefined });
+    });
+    const marca = lerTexto(amb.logDoRunner).length;
+    await enviarComRecibo(s);
+    await esperarAte(() => /abriu atrasado/.test(lerTexto(amb.logDoRunner).slice(marca)), 5_000, "o log do turno atrasado");
+    // A sessão fica em working depois do hook e o 5º passo não bate mais nada.
+    await new Promise((r) => setTimeout(r, 500));
+    assert.equal(enters.length, 4, "3 normais + 1 atrasado");
+    assert.match(lerTexto(amb.logDoRunner).slice(marca), /o Enter atrasado 4\/5/);
+    assert.doesNotMatch(lerTexto(amb.logDoRunner).slice(marca), ERRO_SEM_RECIBO);
+  } finally {
+    trocar(original);
+  }
+});
+
+test("recibo atrasado: o recibo chega sozinho logo depois do 3º Enter, sem Enter extra e sem ERRO", async () => {
+  logarClaude(amb);
+  const { enviarComRecibo } = await import("./sessao/digitacao.js");
+  const { s } = await nova({}, { ...PASSOS_CURTOS });
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  const original = s.escrever.bind(s);
+  const enters: string[] = [];
+  const trocar = (f: (t: string) => void) => { (s as unknown as { escrever: (t: string) => void }).escrever = f; };
+  try {
+    trocar((t) => {
+      enters.push(t);
+      // Aceita 80ms depois da janela do 3º Enter (reciboMs), sozinho.
+      if (enters.length === 3) setTimeout(() => s.receberHook({ agentId: s.id, event: "UserPromptSubmit", nonce: s.nonce ?? undefined }), s.motor.reciboMs + 80);
+    });
+    const marca = lerTexto(amb.logDoRunner).length;
+    await enviarComRecibo(s);
+    await esperarAte(() => /abriu atrasado/.test(lerTexto(amb.logDoRunner).slice(marca)), 5_000, "o log do turno atrasado");
+    assert.equal(enters.length, 3, "nenhum Enter a mais");
+    assert.doesNotMatch(lerTexto(amb.logDoRunner).slice(marca), ERRO_SEM_RECIBO);
+  } finally {
+    trocar(original);
+  }
+});
+
+test("recibo atrasado: parar a sessão durante a vigia não escreve mais Enter", async () => {
+  logarClaude(amb);
+  const { enviarComRecibo } = await import("./sessao/digitacao.js");
+  const { s } = await nova({}, { reciboVigiaPassosMs: [400, 400] });
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  const original = s.escrever.bind(s);
+  const enters: string[] = [];
+  (s as unknown as { escrever: (t: string) => void }).escrever = (t: string) => { enters.push(t); };
+  try {
+    const marca = lerTexto(amb.logDoRunner).length;
+    await enviarComRecibo(s);
+    assert.equal(enters.length, 3);
+    s.parar("teste: parada durante a vigia");
+    (s as unknown as { escrever: (t: string) => void }).escrever = original;
+    (s as unknown as { escrever: (t: string) => void }).escrever = (t: string) => { enters.push(t); };
+    await new Promise((r) => setTimeout(r, 1_200));
+    assert.equal(enters.length, 3, "nenhum Enter depois da parada");
+    assert.doesNotMatch(lerTexto(amb.logDoRunner).slice(marca), ERRO_SEM_RECIBO);
+  } finally {
+    (s as unknown as { escrever: (t: string) => void }).escrever = original;
   }
 });
 

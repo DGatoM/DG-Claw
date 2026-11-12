@@ -92,6 +92,9 @@ function agendarReintento(s: Sessao): void {
 export function cancelarReintentoDaFila(s: Sessao): void {
   if (s.reintentoDaFila) clearTimeout(s.reintentoDaFila);
   s.reintentoDaFila = null;
+  // A vigia do Enter sem recibo também morre quando a sessão para.
+  if (s.vigiaDoRecibo) clearTimeout(s.vigiaDoRecibo);
+  s.vigiaDoRecibo = null;
   s.bloqueioDaFilaLogado = false;
 }
 

@@ -250,6 +250,30 @@ class TestContrato(unittest.TestCase):
         self.assertEqual(pub["estado"], "indeterminado")
 
 
+def resumo_compactacao(m, compact=True):
+    corpo = ("This session is being continued from a previous conversation. Summary:\n"
+             f'O dono escreveu <dgchat from="Fulano" chat="c_x" msg="m1" ts="{ts(m)}">oi</dgchat> e o agente respondeu.')
+    o = {"type": "user", "timestamp": ts(m), "sessionId": SID,
+         "message": {"role": "user", "content": corpo}}
+    if compact:
+        o["isCompactSummary"] = True
+    return o
+
+
+class TestResumoDaCompactacao(unittest.TestCase):
+    def test_resumo_nao_e_evento(self):
+        self.assertIsNone(ss.evento(resumo_compactacao(5)))
+
+    def test_resumo_depois_de_resposta_nao_vira_sem_resposta(self):
+        regs = [dono(0), resposta(1), resumo_compactacao(2)]
+        pub, _ = analisar(regs, 30, parada_min=30)
+        self.assertNotEqual(pub["tipo"], "sem_resposta")
+        self.assertEqual((pub["estado"], pub["tipo"]), ("ativo", "ok"))
+
+    def test_controle_sem_a_marca_continua_sendo_dono(self):
+        self.assertEqual(ss.evento(resumo_compactacao(5, compact=False))["kind"], "dono")
+
+
 class TestDiagnostico(unittest.TestCase):
     """O caminho completo, por arquivo, com a vida da sessao afirmada pelo teste."""
 

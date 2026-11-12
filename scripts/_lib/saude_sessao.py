@@ -319,6 +319,11 @@ def evento(o):
         if isinstance(conteudo, list) and all(
                 isinstance(b, dict) and b.get("type") == "tool_result" for b in conteudo):
             return None  # resultado de ferramenta: meio de turno, nao e gatilho
+        # O resumo que o /compact grava como "user" CITA mensagens antigas do dono com as tags
+        # <dgchat>. Sem esta saida ele viraria "dono sem resposta" e o vigia reiniciaria a
+        # sessao em laco, ja que depois do resumo nao vem turno nenhum ate chegar mensagem nova.
+        if o.get("isCompactSummary"):
+            return None
         if _DONO_DGCHAT.search(texto) or _DONO_CANAL.search(texto[:400]):
             return {"kind": "dono", "ts": ts, "sid": o.get("sessionId")}
         if _POKE.search(texto):
