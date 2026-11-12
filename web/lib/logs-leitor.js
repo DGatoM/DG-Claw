@@ -272,9 +272,9 @@ function varreComando(s, pos, cmd, sem, mascaras) {
       if (htIni < 0) htIni = i;
       htFim = fim;
       posicionais--;
-    } else if (a.completo && v.length <= 12 && PALAVRAS_DE_COMANDO.test(v)) {
+    } else if ((cmd === 'sshpass' || cmd === '') && a.completo && v.length <= 12 && PALAVRAS_DE_COMANDO.test(v)) {
       fecha();
-      cmd = v.toLowerCase();       // `sshpass -p x curl -u ...`: passa a valer a regra do curl
+      cmd = v.toLowerCase();       // `sshpass -p x curl -u ...`: passa a valer a regra do curl. Só o sshpass embrulha outro comando; em `curl -o mysql` a palavra é valor de opção
     } else if (v[0] === '-' && v[1] === '-' && flagLongaSensivel(a, fim, mascaras)) {
       espera = flagLongaSensivel.espera;
     } else if (v[0] === '-') {
