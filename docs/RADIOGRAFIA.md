@@ -90,7 +90,8 @@ trabalho, mesmo sem ninguém falando com ele.
 ## 7. O batimento, o vigia e o modo de segurança
 
 **O batimento** acontece a cada 30 minutos: o agente confere se tem motivo para falar com você
-(uma pendência, um prazo, algo que prometeu). Sem motivo, fica quieto. É o que faz ele ser
+(uma pendência, um prazo, algo que prometeu). Sem motivo, fica quieto, e o mesmo assunto só volta a
+acordar o agente se o conteúdo mudar ou depois de 24 horas. É o que faz ele ser
 proativo sem ser chato.
 
 **O vigia** olha de 5 em 5 minutos se o cérebro acordado continua de pé. Se caiu, levanta de
