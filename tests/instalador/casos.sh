@@ -1429,24 +1429,25 @@ caso_caddy_arquivo_personalizado_e_preservado() {
     limpar_cenario
 }
 
-caso_tunel_caddy_personalizado_exige_bind_e_ip_real() {
+caso_tunel_caddy_personalizado_sempre_para() {
     local cf base
     base="$(printf '%s {\n\tbind 127.0.0.1\n\ttls internal\n\theader X-Minha-Linha "do dono"\n' "$DOM_CADDY")"
-    # 1) so o bind: recusa e explica o que acrescentar
+    # 1) so o bind: para e explica
     novo_cenario
     mkdir -p "$RAIZ/etc/caddy"; cf="$RAIZ/etc/caddy/Caddyfile"
     printf '# DG Claw: gerado pelo install.sh.\n%s\n\treverse_proxy 127.0.0.1:8300\n}\n' "$base" >"$cf"
     cp "$cf" "$TMP/caddy-antes"
     nega "personalizado so com bind: a instalacao para" instalacao_basica --dominio "$DOM_CADDY" --atras-de-tunel
-    afirma "explica o encaminhamento do IP real" tem "$SAIDA" "header_up X-Forwarded-For {http.request.header.Cf-Connecting-IP}"
+    afirma "explica o porque" tem "$SAIDA" "so aceita o site que ele mesmo gera"
+    afirma "diz como sair (copia e apaga)" tem "$SAIDA" "/root/caddy-site-antes-do-tunel"
     afirma "o Caddyfile do dono ficou intacto" cmp "$TMP/caddy-antes" "$cf"
     limpar_cenario
-    # 2) bind + header: aceita e preserva
+    # 2) bind + header, mas com um segundo bind externo (os binds acumulam no Caddy): tambem para
     novo_cenario
     mkdir -p "$RAIZ/etc/caddy"; cf="$RAIZ/etc/caddy/Caddyfile"
-    printf '# DG Claw: gerado pelo install.sh.\n%s\t@tunel header Cf-Connecting-IP *\n\thandle @tunel {\n\t\treverse_proxy 127.0.0.1:8300 {\n\t\t\theader_up X-Forwarded-For {http.request.header.Cf-Connecting-IP}\n\t\t}\n\t}\n\thandle {\n\t\treverse_proxy 127.0.0.1:8300\n\t}\n}\n' "$base" >"$cf"
+    printf '# DG Claw: gerado pelo install.sh.\n%s\tbind 0.0.0.0\n\t@tunel header Cf-Connecting-IP *\n\thandle @tunel {\n\t\treverse_proxy 127.0.0.1:8300 {\n\t\t\theader_up X-Forwarded-For {http.request.header.Cf-Connecting-IP}\n\t\t}\n\t}\n\thandle {\n\t\treverse_proxy 127.0.0.1:8300\n\t}\n}\n' "$base" >"$cf"
     cp "$cf" "$TMP/caddy-antes"
-    afirma "personalizado com bind e header: a instalacao passa" instalacao_basica --dominio "$DOM_CADDY" --atras-de-tunel
+    nega "personalizado com bind extra: a instalacao para" instalacao_basica --dominio "$DOM_CADDY" --atras-de-tunel
     afirma "o Caddyfile do dono ficou intacto" cmp "$TMP/caddy-antes" "$cf"
     limpar_cenario
     # 3) gerado (publico, sem edicao): e reescrito para o modo tunel
