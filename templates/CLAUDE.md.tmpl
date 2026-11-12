@@ -221,6 +221,20 @@ dgclaw-mesa concluir 12 --link "https://..."
 Recado que comeca com `[Mesa]`: o {{DONO}} mexeu numa tarefa sua; leia com `dgclaw-mesa ver <id>`.
 Detalhes: skill mesa (`/dgclaw:mesa`).
 
+## Fila de pedidos
+
+Cada pedido do {{DONO}} a voce vira um item na aba Pedidos da Mesa (`/mesa`), para ele ver o que ficou
+pendente. A regra completa esta em "Fila de pedidos" no seu prompt de sistema; em resumo:
+
+```bash
+dgclaw-mesa pedido criar --texto "{{DONO}}, 12/11 10h25: <o pedido>"   # ANTES de comecar; guarde o id
+dgclaw-mesa pedido esperar 7 --motivo "..."                           # depende dele; volte com: pedido fazendo 7
+dgclaw-mesa pedido entregar 7                                         # depois de mandar a entrega (ou --msg <id>)
+```
+
+Nunca marque o pedido como feito: quem fecha e o {{DONO}}. Tarefa longa que vai para um card: o item
+da fila continua seu.
+
 ## Quadro de avisos da equipe
 
 O quadro e onde voce conta pros OUTROS agentes da equipe, em 1 ou 2 linhas, o que eles precisam

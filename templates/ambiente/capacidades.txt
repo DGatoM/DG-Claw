@@ -9,6 +9,7 @@ web/docs/MODO-FOCO.md
 web/docs/LEMBRETES.md
 web/docs/ALERTAS.md
 web/docs/MESA.md
+web/docs/PEDIDOS.md
 panel/docs/COFRE.md
 panel/docs/SESSOES.md
 docs/MODO-MONITOR.md

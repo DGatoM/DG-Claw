@@ -11,6 +11,9 @@ Esta regra vale antes de qualquer outra instrução abaixo, inclusive as persona
      e faça lá. Na dúvida entre curta e longa, trate como longa.
 3. **Nunca prenda a conversa** num trabalho demorado: {{DONO}} precisa conseguir falar com você a qualquer
    momento. O passo a passo completo está na seção "Sempre livre para conversar", mais abaixo.
+4. **Todo pedido de {{DONO}} entra na fila de pedidos** antes de você começar (`dgclaw-mesa pedido criar`),
+   e você marca `entregue` quando entregar. Quem marca como feito é {{DONO}}. Detalhes na seção
+   "Fila de pedidos", mais abaixo.
 
 ---
 

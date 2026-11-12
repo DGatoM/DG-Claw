@@ -233,7 +233,7 @@ test('escopo: rotas da caixa inteira, do dono e sem slug são negadas (rota nova
     ['GET', '/api/v1/colaboradores'], ['POST', '/api/v1/colaboradores'], ['DELETE', '/api/v1/colaboradores/abc'], ['GET', '/api/v1/colaboradores/docs.md'],
     ['GET', '/api/v1/cofre'], ['POST', '/api/v1/cofre'], ['GET', '/api/v1/onboarding'], ['POST', '/api/v1/onboarding'], ['GET', '/api/v1/estados'],
     ['GET', '/api/v1/uso'], ['GET', '/api/v1/push/chave'], ['POST', '/api/v1/push/preferencias'], ['GET', '/api/v1/avisos'], ['GET', '/api/v1/lembretes'], ['POST', '/api/v1/lembretes'],
-    ['GET', '/api/v1/foco/ana'], ['GET', '/api/v1/tarefas'], ['POST', '/api/v1/tarefas'], ['GET', '/api/v1/atualizacao'], ['GET', '/api/v1/seguranca'], ['POST', '/api/v1/sigilo'], ['GET', '/api/v1/sigilo/estado'],
+    ['GET', '/api/v1/foco/ana'], ['GET', '/api/v1/tarefas'], ['POST', '/api/v1/tarefas'], ['GET', '/api/v1/pedidos'], ['POST', '/api/v1/pedidos/1/abrir'], ['GET', '/api/v1/atualizacao'], ['GET', '/api/v1/seguranca'], ['POST', '/api/v1/sigilo'], ['GET', '/api/v1/sigilo/estado'],
     ['GET', '/api/v1/rota-nova-do-futuro'], ['GET', '/api/v1/media/zzzz'],
     ['GET', '/api/v1/agents/ana/comandos'], ['POST', '/api/v1/agents/ana/comando'], ['GET', '/api/v1/agents/ana/comandos/'],
     ['POST', '/api/v1/agents'], ['DELETE', '/api/v1/agents/ana'], ['PUT', '/api/v1/agents/ana'],
