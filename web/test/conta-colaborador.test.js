@@ -572,6 +572,40 @@ test('revogar: o login conclui entre a conferência e o cancelamento, e a tentat
   });
 });
 
+test('conclusão seguida de cancelamento antes do GET (pela API e pelo painel do dono): a autoria fica e a revogação avisa, em Claude e Codex', async () => {
+  for (const provedor of ['claude', 'codex']) {
+    const sem = { status: 'errored', statusReason: 'runner:sem-login', provedor: { provedor, auth: 'assinatura', conferido: { ok: false, motivo: 'sem_credencial' } } };
+    const com = { status: 'idle', provedor: { provedor, auth: 'assinatura', conferido: { ok: true, email: 'conta-secreta@gmail.com' } } };
+    for (const via of ['colaborador', 'painel-dono']) {
+      await comColab(sem, async (s, x) => {
+        await x.c.post(LOGIN, { json: {} });
+        muda(s, { login: { estado: 'aguardando_codigo', link: LINK } });
+        await x.c.post(LOGIN + '/codigo', { json: { codigo: 'abc123' } });
+        muda(s, Object.assign({}, com, { login: { estado: 'concluido' } }));   // a credencial entrou; ninguém fez GET
+        const canc = via === 'colaborador' ? await x.c.pedir('DELETE', LOGIN) : await s.dono.pedir('DELETE', '/p/ana/api/provedor/login');
+        if (via === 'colaborador') assert.ok(canc.status < 300, `${provedor}/${via}: ${canc.texto}`);   // o painel de teste não existe: o efeito é o que importa
+        const j = JSON.parse(fs.readFileSync(path.join(s.t.dados, 'conta-agentes.json'), 'utf8')).agentes;
+        assert.equal(j.ana.por, 'colaborador', `${provedor}/${via}`); assert.equal(j.ana.colaborador_id, x.id); assert.equal(j.ana.provedor, provedor);
+        assert.equal(j['ana:pendente'], undefined);
+        const r = await s.dono.pedir('DELETE', `/api/v1/colaboradores/${x.id}`);
+        assert.equal(r.status, 200, r.texto);
+        assert.deepEqual(r.json.contas_de_ia, ['ana'], `${provedor}/${via}: ${JSON.stringify(r.json)}`);
+      });
+    }
+    // conferência em dúvida depois do cancelamento: a tentativa continua registrada e a revogação avisa
+    await comColab(sem, async (s, x) => {
+      await x.c.post(LOGIN, { json: {} });
+      muda(s, { login: { estado: 'aguardando_codigo', link: LINK } });
+      await x.c.post(LOGIN + '/codigo', { json: { codigo: 'abc123' } });
+      s.rAna.opcoes.aoCancelarLogin = (o) => { o.provedor = { provedor, auth: 'assinatura', conferido: { ok: false, motivo: 'tempo' } }; };
+      const canc = await x.c.pedir('DELETE', LOGIN);
+      assert.ok(canc.status < 300, canc.texto);
+      const j = JSON.parse(fs.readFileSync(path.join(s.t.dados, 'conta-agentes.json'), 'utf8')).agentes;
+      assert.equal(j['ana:pendente'].colaborador_id, x.id, provedor);
+    });
+  }
+});
+
 test('revogar com a tentativa cancelada e sem conta: apaga o rastro e não avisa; sem poder confirmar, avisa "confira a conta"', async () => {
   await comColab({}, async (s, x) => {
     await x.c.post(LOGIN, { json: {} });

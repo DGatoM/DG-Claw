@@ -224,6 +224,37 @@ function criarContaColaborador({ dataDir, login, log, agora, escreveArquivo }) {
   }
 
   /**
+   * Cancela o login no runner e reconcilia a tentativa pendente do colaborador `colabId` com a conferência SEM cache feita
+   * depois do cancelamento (cancelar não remove uma credencial já gravada). Conta presente: grava a autoria dele.
+   * Dúvida (conferência falhou ou o runner é antigo): mantém a tentativa pendente. Ausência comprovada: apaga o rastro.
+   * É o único lugar que apaga a tentativa depois de um cancelamento. Devolve { res, conta } com o resultado do cancelamento.
+   */
+  async function cancelaEReconcilia(agente, colabId) {
+    const res = await login.cancelar(agente);
+    if (res.status >= 300 || !colabId) return { res, conta: false };
+    const pend = pendenteDe(agente);
+    if (!pend || pend.colaborador_id !== colabId) return { res, conta: false };
+    let situ = null; let motivo = '';
+    let c = null;
+    try { c = await login.consultarFresco(agente); } catch (e) { motivo = e.message; }
+    if (c && !c.lg.ok) { motivo = c.lg.erro || 'o runner não respondeu'; c = null; }
+    if (c) {
+      if (!c.fresco) motivo = 'o runner é de versão antiga e não refaz a conferência na hora';
+      else { const t = situacao(c); if (t.tipo === 'duvida') motivo = t.motivo; else situ = t; }
+    }
+    if (situ && (situ.tipo === 'conectado' || situ.tipo === 'expirado')) {
+      await registra(agente, { por: 'colaborador', colaborador_id: colabId, email: pend.email, provedor: c.prov.provedor }, `${pend.email} (colaborador)`);
+      return { res, conta: true };
+    }
+    if (!situ) {
+      log('aviso', `Cancelei o login de ${pend.email} no agente ${agente.slug}, mas não consegui confirmar se a conta entrou (${motivo}). A tentativa continua registrada para a revogação avisar o dono.`);
+      return { res, conta: false };
+    }
+    await limpaPendente(agente, colabId);
+    return { res, conta: false };
+  }
+
+  /**
    * O GET observa o estado. A reserva só se resolve com conclusão COMPROVADA daquela tentativa: o runner diz `concluido`,
    * ou o código foi enviado e o login não está mais em andamento (nem falhou). Enquanto o login está em andamento a
    * credencial antiga pode ser a que está conectada, então a reserva fica.
@@ -374,11 +405,8 @@ function criarContaColaborador({ dataDir, login, log, agora, escreveArquivo }) {
     return emFila(agente.slug, async () => {
       const r = reservaViva(agente.slug);
       if (q.tipo === 'colaborador' && !mesma(r, q)) return erro(403, 'Você só pode cancelar o login que você mesmo começou. Se for de outra pessoa, avise o dono do DG Claw.');
-      const res = await login.cancelar(agente);
-      if (res.status < 300) {
-        reservas.delete(agente.slug);
-        if (r && r.tipo === 'colaborador') await limpaPendente(agente, r.id);
-      }
+      const { res } = await cancelaEReconcilia(agente, r && r.tipo === 'colaborador' ? r.id : null);
+      if (res.status < 300) reservas.delete(agente.slug);
       return filtraResultado(res, q);
     });
   }
@@ -493,7 +521,8 @@ function criarContaColaborador({ dataDir, login, log, agora, escreveArquivo }) {
       const r = reservaViva(agente.slug);
       if (r && r.tipo === 'colaborador' && metodo !== 'DELETE') return erro(409, MSG_DONO_OCUPADO(r.email));
       if (metodo === 'DELETE') {
-        if (r && r.tipo === 'colaborador') await limpaPendente(agente, r.id);
+        // O cancelamento real segue pelo proxy; aqui ele é feito antes só para reconciliar a tentativa do colaborador.
+        if (r && r.tipo === 'colaborador') await cancelaEReconcilia(agente, r.id);
         reservas.delete(agente.slug);
         return null;
       }
