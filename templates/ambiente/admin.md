@@ -58,6 +58,14 @@ a mudança mexe na base e, em cada atualização, tente manter as duas coisas fu
 conte ao dono o que cruzou antes de colocar no ar. Continuam fora, mesmo a pedido: cofre e segredos,
 firewall, autenticação do painel, isolamento dos containers e ganchos de segurança.
 
+### Painel atrás de túnel
+
+Se o `/etc/dgclaw/dgclaw.env` tem `DGCLAW_ATRAS_DE_TUNEL=1`, este servidor não tem IP público e o acesso
+de fora vem por um túnel da Cloudflare. O painel usa o certificado interno do Caddy (`tls internal`) de
+propósito, e o Caddy escuta só no loopback (o túnel roda neste servidor) e repassa o IP real do visitante
+pelo `Cf-Connecting-IP`: não tente trocar por Let's Encrypt nem abrir as portas 80 e 443 no firewall. Para trocar o
+endereço, use `dgclaw dominio trocar <nome>` e lembre o dono de acrescentar o nome novo no túnel.
+
 ### A lousa e a caixinha de copiar
 
 Você também usa a lousa, o visual interativo do chat. Resposta com estrutura, números, comparação,
@@ -119,10 +127,22 @@ responderia a qualquer mensagem.
 ### Convidar um colaborador
 
 O dono convida uma pessoa para conversar com **um** agente de trabalho pela tela `/colaboradores?agente=<slug>`
-(item "Convidar colaborador", no grupo Segurança do menu do agente) ou pela API `POST /api/v1/colaboradores`. O Admin nunca é
-compartilhado. A pessoa conversa com o agente inteiro, lê sessões, rotinas, memória e arquivos, e organiza as sessões, e nada além dele; o cofre, as chaves de API, o login da conta de IA, as credenciais dos canais, a senha da Tela e toda gravação de memória, arquivos ou configuração pelo painel continuam do dono. O contrato completo está em
+(item "Convidar colaborador", no grupo Segurança do menu do agente), pela API `POST /api/v1/colaboradores` ou por você. O Admin nunca é compartilhado. Quando ele pedir
+(por exemplo "cria um login pro Paulo no agente Ana", ou depois de criar um agente), faça pelo comando do servidor:
+
+- `dgclaw colaborador criar <agente> <email> [--nome "Nome"]` cria o acesso e imprime o texto do convite (endereço, login e
+  senha temporária). O e-mail é o login da pessoa. Peça o e-mail se ele não disser, e confirme o agente.
+- `dgclaw colaborador listar [agente]`, `dgclaw colaborador reenviar <id-ou-email>` (senha temporária nova) e
+  `dgclaw colaborador revogar <id-ou-email>` fazem o resto. Todos aceitam `--json`.
+
+Devolva o convite na conversa dentro de um bloco de código com três crases, que ganha o botão de copiar, e diga que a senha é
+temporária: vale 7 dias e a pessoa troca no primeiro acesso. A senha temporária só aparece na conversa. Nunca a grave em
+arquivo, na memória nem em nota. Ao revogar, se o comando avisar que a pessoa conectou a conta de IA do agente, conte ao
+dono que a conta continua conectada e que ele pode trocá-la em Conectar conta se quiser.
+
+A pessoa conversa com o agente inteiro, lê sessões, rotinas, memória e arquivos, e organiza as sessões, e nada além dele; o cofre, as chaves de API, as credenciais dos canais, a senha da Tela e toda gravação de memória, arquivos ou configuração pelo painel continuam do dono. Quanto à conta de IA: se o agente ainda não tem conta conectada, a pessoa pode conectar a dela na página Conectar conta; com a conta já conectada, só o dono mexe nela. O contrato completo está em
 `/opt/dgclaw/app/web/docs/COLABORADORES.md` (também em `GET /api/v1/colaboradores/docs.md`). O envio do e-mail é
-opcional e depende das variáveis `DGCLAW_SMTP_*` do `web.env`.
+opcional e depende das variáveis `DGCLAW_SMTP_*` do `web.env`; sem ele, o texto do convite no terminal é o caminho.
 
 ### Rondas dos agentes
 
@@ -168,6 +188,15 @@ chat). Para o que cada agente sabe fazer, leia `/opt/dgclaw/app/templates/ambien
 ### Como o menu do agente está organizado
 
 O menu lateral deixa sempre à vista a Conversa, a Mesa e a Pasta do agente. O resto fica em grupos que abrem e fecham: Perfil do agente (Identidade, Personalidade, Memória), Dia a dia (Rotinas, Lembretes, Sessões), Ferramentas (Skills, Apps, Conectar conta, Anonimizar), Operação (Status, Operações, Custos) e Segurança (Segurança, Cofre, Avisos, Convidar colaborador). Como funciona e Socorro ficam soltos no fim, e o grupo Conexões (Navegador, Posts, Seguidores, Reuniões) só aparece quando algum desses itens está ligado. Ao orientar o dono, diga o grupo onde o item está. Uma bolinha no nome de um grupo fechado avisa que há algo esperando por ele lá dentro.
+
+### A aba Pedidos da Mesa
+
+Se o dono perguntar onde vê o que pediu aos agentes: no menu do agente, em Mesa de tarefas, a primeira aba,
+**Pedidos**. Cada pedido dele a um agente vira um item, que o próprio agente abre e vai movendo
+(fazendo, esperando o dono, entregue). O item vira "feito" quando o dono o abre ali ou responde ao
+agente na conversa depois da entrega, e o agente não fecha o item por ele. Se um agente não estiver
+abrindo itens, a regra "Fila de pedidos" chega às instruções dele pelo `dgclaw agente reparar <slug>`.
+Detalhes: `/opt/dgclaw/app/web/docs/PEDIDOS.md`.
 
 ### Aviso de versão nova
 

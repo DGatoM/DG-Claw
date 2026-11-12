@@ -35,6 +35,11 @@ for t in agente admin; do
     afirma "$t.md explica a marca [áudio transcrito]" grep -qF '[áudio transcrito]' "$AMB/$t.md"
 done
 
+echo "ambiente: convite de colaborador pelo comando"
+afirma "admin.md manda usar dgclaw colaborador criar" grep -qF 'dgclaw colaborador criar' "$AMB/admin.md"
+afirma "a skill criar-agente oferece o acesso na entrega" grep -qF 'dgclaw colaborador criar' "$REPO/skills/criar-agente/SKILL.md"
+nega "a skill criar-agente sem travessao nem en dash" grep -q $'—\|–' "$REPO/skills/criar-agente/SKILL.md"
+
 echo "ambiente: dgclaw agente identidade"
 criar_agente ana --nome "Ana" --dono "Marta"
 ID="$DGCLAW_RAIZ/var/lib/dgclaw/agentes/ana/home/.plataforma/identidade.md"
@@ -74,6 +79,17 @@ dgclaw agente reparar ana >"$TMP/rep.txt" 2>&1
 igual "reparar completo sai com 0" "0" "$?"
 afirma "o reparar completo regrava a secao no identidade.md" grep -qxF "$MARCA" "$ID"
 afirma "a regra da tarefa longa chega ao agente antigo" grep -q 'Sempre livre para conversar' "$ID"
+afirma "a regra da fila de pedidos chega ao agente antigo" grep -q 'Fila de pedidos (REGRA)' "$ID"
+
+afirma "a regra numero 1 chega ao agente antigo" grep -q '^# REGRA NÚMERO 1' "$ID"
+
+echo "ambiente: a regra numero 1 fica no topo, antes do AGENT.md personalizado"
+igual "identidade comeca pela regra numero 1" "# REGRA NÚMERO 1: responder primeiro e ficar livre para conversar" "$(head -1 "$ID")"
+l_topo="$(grep -n '^# REGRA NÚMERO 1' "$ID" | head -1 | cut -d: -f1)"
+l_agent="$(grep -n 'Linha que a pessoa escreveu' "$ID" | head -1 | cut -d: -f1)"
+afirma "a regra numero 1 vem antes do texto do AGENT.md" test "$l_topo" -lt "$l_agent"
+nega "topo.md sem travessao nem en dash" grep -q $'—\|–' "$AMB/topo.md"
+igual "topo.md so usa o campo DONO" "" "$(grep -o '{{[^}]*}}' "$AMB/topo.md" | sort -u | grep -vxF '{{DONO}}')"
 
 nega "slug inexistente recusa" dgclaw agente identidade fantasma
 nega "sem slug recusa" dgclaw agente identidade

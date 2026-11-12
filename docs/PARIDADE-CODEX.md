@@ -48,7 +48,7 @@ agente (régua: feature de ~2 mil linhas leva 10 a 30 min).
 | Recurso | No Claude | No Codex hoje | Prova | Como fazer no Codex | Horas |
 | --- | --- | --- | --- | --- | --- |
 | Identidade e instruções | `--append-system-prompt-file` + `CLAUDE.md` do workspace | funciona | `runner/src/provedores/codex.ts:297-309` (`developer_instructions`, teto de 120 KB) | nada | 0 |
-| `AGENTS.md` do agente | `CLAUDE.md.tmpl` (288 linhas) | parcial | `templates/AGENTS.md.tmpl` tem 218 linhas; faltam lousa, quadro de avisos, tela de logins, agendar, texto para copiar | gerar os dois arquivos de uma fonte só; `doctor.sh` conferir o `AGENTS.md` também (`doctor.sh:253,618`) | 0,5 |
+| `AGENTS.md` do agente | `CLAUDE.md.tmpl` | funciona | `templates/instrucoes-agente.md.tmpl` é a fonte única; `scripts/gerar-instrucoes.sh` gera `templates/CLAUDE.md.tmpl` e `AGENTS.md.tmpl` (e o par do Admin a partir de `templates/admin/instrucoes-admin.md.tmpl`); `tests/instrucoes/rodar.sh` reprova arquivo desatualizado, seção do Claude ausente no Codex e marcador sobrando; `scripts/doctor.sh` confere e, com `--fix`, completa o `AGENTS.md` do agente | exceção de motor registrada no teste: a seção do canal Telegram (plugin do Claude Code) fica só no Claude; no Codex as skills são abertas pelo nome (`.dgclaw/plugin/skills/<nome>/SKILL.md`) e a memória é lida no começo da sessão, sem o `@` | 0 |
 | Envio de mensagem e fila | PTY, recibo pelo hook `UserPromptSubmit` | funciona | `runner/src/sessao/digitacao.ts:14-163`; recibo por `task_started` do rollout | nada (o app-server elimina o Enter duplo) | 0 |
 | Ocioso e ocupado | hooks do `--settings` | funciona | `runner/src/sessao/vigias.ts:282-326`, `codex-rollout.ts:172-185` | nada | 0 |
 | Esperando resposta (pergunta ou permissão) | `Notification` e `AskUserQuestion` | não funciona | `runner/src/sessao.ts:472,506` (`PERMISSAO_SO_CLAUDE`, `PERGUNTA_SO_CLAUDE` = 501) | app-server: `item/tool/requestUserInput` e `item/*/requestApproval` | na linha do app-server |
@@ -66,9 +66,9 @@ agente (régua: feature de ~2 mil linhas leva 10 a 30 min).
 
 | Recurso | No Claude | No Codex hoje | Prova | Como fazer no Codex | Horas |
 | --- | --- | --- | --- | --- | --- |
-| Recall de memória a cada mensagem | hook `UserPromptSubmit` (`hooks/memory-recall.sh`) | não funciona | `codex.ts:214-221` ignora `promptHooks` | hook nativo do Codex chamando o mesmo `hooks/dispatch.ts` | 1 (os quatro hooks juntos) |
-| Quadro de avisos | hook `avisos` (`hooks/avisos.py`) | parcial | postar funciona; a leitura é hook | mesmo hook nativo; seção que falta no `AGENTS.md.tmpl` | (incluso acima) |
-| Contexto de início e pós-compactação | hook `SessionStart` (`hooks/session-context.sh`, `avisos-reset`) | não funciona | `hooks/hooks.json` só chega ao Claude | `SessionStart` nativo do Codex (`source` = `startup`, `resume`, `compact`) | (incluso acima) |
+| Recall de memória a cada mensagem | hook `UserPromptSubmit` (`hooks/memory-recall.sh`) | funciona (07/11) | `runner/src/provedores/codex-hooks.ts` grava o hook nativo; `dispatch.ts user-prompt` com o stdin do Codex devolveu `MEMORIA RELACIONADA ... ABACAXI-7731`; num turno real do `codex exec` o hook rodou (`hook: UserPromptSubmit Completed`) | feito: `CODEX_HOME/hooks.json` + `[hooks.state]` no `config.toml` | 0 (feito) |
+| Quadro de avisos | hook `avisos` (`hooks/avisos.py`) | funciona (07/11) | mesmo hook nativo (`avisos` e `avisos-reset`); roda com os mesmos campos (`session_id`, `prompt`), e sai calado sem o retrato local, como no Claude | feito | (incluso) |
+| Contexto de início e pós-compactação | hook `SessionStart` (`hooks/session-context.sh`, `avisos-reset`) | funciona (07/11) | turno real: o modelo respondeu o conteúdo da `working-memory.md` sem abrir arquivo; `session-context.sh` lê o `AGENTS.md` (não o `CLAUDE.md`) quando `DGCLAW_MOTOR=codex`, porque o Codex não importa arquivos com `@` | feito (`source` = `compact` aciona `avisos-reset` pelo `matcher` `compact\|clear`; a compactação em si não foi reproduzida num turno real) | (incluso) |
 | Fio do Telegram na mensagem | hook `inject-telegram-thread.py` | não se aplica | depende do Telegram | volta junto com a ponte de Telegram | (na ponte) |
 | Skills do DG Claw | link em `~/.claude/skills` (`bin/dgclaw:926-940`) | parcial | só o painel contorna, mandando o caminho do `SKILL.md` (`web/lib/comandos.js:357`) | linkar as mesmas pastas em `.agents/skills` do agente Codex; trocar `${CLAUDE_PLUGIN_ROOT}` pelo caminho `.dgclaw/plugin` que já existe | 0,5 |
 | Comandos `/dgclaw:*` | namespace do plugin | exclusivo Anthropic | o Codex não tem plugin com namespace de comandos | a skill nativa cobre o mesmo uso (o agente chama a skill pelo nome) | (nas skills) |
@@ -98,7 +98,7 @@ agente (régua: feature de ~2 mil linhas leva 10 a 30 min).
 | Custos (tokens por mensagem) | `channels-tokens-logger.py` lê o transcript | não funciona | `scripts/channels-tokens-logger.py:76-80,119-136` | ler `token_count` do rollout; na assinatura do ChatGPT não há custo em dólar, só tokens | 0,25 |
 | Mesa de tarefas | `dgclaw-mesa` | funciona | `templates/AGENTS.md.tmpl:155` | nada | 0 |
 | Modo monitor | `dgclaw-monitor` | funciona | `docs/MODO-MONITOR.md:40` | nada | 0 |
-| Modo escondido, voz, anexos, visuais | rodam no Web | funciona | `web/lib/sigilo.js`, `voz.js`, `uploads.js`, `rollout.js:34` (`send_file`) | seção da lousa no `AGENTS.md.tmpl` | (no `AGENTS.md`) |
+| Modo escondido, voz, anexos, visuais | rodam no Web | funciona | `web/lib/sigilo.js`, `voz.js`, `uploads.js`, `rollout.js:34` (`send_file`) | a seção da lousa já está no `AGENTS.md.tmpl` | 0 |
 | Ronda de segurança | lê configs de Claude e Codex | funciona | `seguranca/ronda/ronda.py:986,1141` | nada | 0 |
 | Radiografia | texto fixo | funciona | `docs/RADIOGRAFIA.md:117` diz "assinatura do Claude" | texto neutro | 0,05 |
 
@@ -152,6 +152,30 @@ levar dias.
    **Admin, que roda como root**, vale o mesmo, e o arquivo de hooks do DG Claw tem de ser de root e
    ficar fora de qualquer pasta em que um agente escreva. A Fase 1 só fecha com um teste que põe um
    hook externo malicioso num projeto e confere que ele **não** roda.
+
+   **Feito em 07/11 (hooks nativos do Codex).** Onde o Codex 0.163 lê: `<CODEX_HOME>/hooks.json` (fonte
+   `user`); a chave de cada hook é `<caminho do hooks.json>:<evento em snake_case>:<grupo>:<posição>`.
+   A confiança mora no `config.toml`, em `[hooks.state."<chave>"]` com `trusted_hash = "sha256:..."`,
+   e o hash é o sha256 do JSON compacto, de chaves ordenadas, de `{event_name, matcher, hooks:[{type,
+   command, timeout, async:false}]}` (conferido contra o `currentHash` do `hooks/list` do app-server).
+   O runner (`runner/src/provedores/codex-hooks.ts`, chamado em `preparar` do motor Codex) mescla no
+   `hooks.json` os hooks do DG Claw (`dispatch.ts session-start`, `avisos-reset`, `user-prompt`,
+   `avisos`, com os timeouts do `hooks/hooks.json`) mais um hook fixo, `hooks/prompt-hooks-sessao.py`,
+   que roda os `promptHooks` da sessão. O conjunto sai só de dados do runner e é igual para todas as
+   sessões do agente; o que já estava no arquivo e tem a marca do DG Claw mas não é um desses
+   comandos é descartado, e a pessoa mantém os hooks dela, sem confiança nossa. Os `promptHooks` de
+   cada sessão ficam em `<pasta de estado do runner>/prompt-hooks/<id da sessão>.json` (0600, gravado
+   no preparo; o id só aceita letras, números, `_` e `-`), e o despachante os lê pelo
+   `DGCLAW_SESSAO_ID` que o runner põe no ambiente do Codex. A confiança é gravada SÓ para esses
+   comandos, regravando o hash quando o conteúdo muda; a leitura e a gravação rodam sob uma trava de
+   pasta e, sem a trava, nada é gravado. O plugin é achado a partir do
+   próprio runner (`/opt/dgclaw/app`, da imagem, de root), nunca em `.dgclaw/plugin`, que o agente
+   escreve. Nada passa `--dangerously-bypass-hook-trust`. Prova: `hooks/list` mostra os cinco como
+   `trusted`; um turno real com `.codex/hooks.json` malicioso no projeto (pasta confiada) não
+   executou o hook externo (ele fica `untrusted`), e o teste `codex-hooks.test.ts` repete isso com o
+   codex real. No Admin o arquivo é o `/root/.codex/hooks.json`, de root; atalho no lugar do arquivo
+   é recusado. Fica de fora: a prova de uma compactação real (só o `source=compact` simulado) e o
+   hook `post-tool` do fio do Telegram (depende da ponte).
 2. **O Codex muda toda semana.** Hooks, skills e app-server são recentes, e o protocolo do
    app-server muda de versão em versão. Fixar a versão testada no instalador e o `doctor` avisar
    quando sair dela.
@@ -161,8 +185,8 @@ levar dias.
 4. **`codex exec` pendura sem stdin fechado** ("Reading additional input from stdin"). Todo script
    headless tem de chamar com `</dev/null`.
 5. **Duas fontes de instrução.** O Codex lê o `AGENTS.md` e usa o `CLAUDE.md` só quando não existe
-   `AGENTS.md` na pasta (`project_doc_fallback_filenames`). Se os dois forem escritos à mão, eles
-   divergem, como já aconteceu (218 contra 288 linhas).
+   `AGENTS.md` na pasta (`project_doc_fallback_filenames`). Por isso os dois saem de uma fonte só
+   (`scripts/gerar-instrucoes.sh`); antes, escritos à mão, eles divergiram (218 contra 288 linhas).
 6. **Prova de campo.** A maior parte das linhas "funciona" vem do código e de testes com rollouts
    fabricados. Cada fase só fecha depois de rodar num agente Codex de verdade.
 7. **Gmail sem trava equivalente.** Um MCP próprio de Gmail só pode ser liberado com a lista de

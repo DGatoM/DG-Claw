@@ -48,6 +48,7 @@ Os caminhos de teste são relativos à raiz do repositório.
 | Criar, listar, parar, reiniciar, reparar, recriar e remover agentes | Pronto | Admin: "cria um agente" | teste: `tests/cli/criar.sh`, `tests/cli/gestao.sh`, `tests/cli/recriar.sh` | [agentes.md](agentes.md) |
 | Identidade e personalidade (editar e regravar) | Pronto | `aba:identity`, `aba:personality` | teste: `tests/cli/criar.sh`, `tests/ambiente/rodar.sh`, `panel/test-memoria-editar.mjs` | [agentes.md](agentes.md) |
 | Mesa de tarefas | Pronto | `/mesa` | teste: `web/test/mesa.test.js`, `web/test/mesa-tela.test.js`, `bin/test/dgclaw-mesa.test.sh` | [agentes.md](agentes.md) |
+| Fila de pedidos (aba Pedidos da Mesa) | Pronto | `/mesa`, primeira aba | teste: `web/test/pedidos.test.js`, `web/test/pedidos-tela.test.js`, `bin/test/dgclaw-mesa.test.sh` | [agentes.md](agentes.md) |
 | Quadro de avisos entre agentes | Pronto | `/avisos` | teste: `web/test/avisos.test.js`, `web/test/avisos-tela.test.js`, `web/test/avisos-ponta.test.js`; o gancho `hooks/avisos.py`, que injetaria os avisos a cada mensagem, não achei ligado na criação do agente (a leitura pela API existe) | [agentes.md](agentes.md) |
 | Tela (navegador do agente) | Pronto | Menu "Navegador", `aba:tela` | teste: `tests/tela/rodar.sh`, `tests/cli/tela.sh`, `panel/test-tela.mjs` | [agentes.md](agentes.md) |
 | Sessões e cards (mini-Bunker) | Pronto | `aba:sessoes`, "abre um card" | teste: `panel/test-sessoes-local.mjs`, `bin/test/dgclaw-card.test.sh`, `runner/src/sessoes-modo.test.ts` | [agentes.md](agentes.md) |

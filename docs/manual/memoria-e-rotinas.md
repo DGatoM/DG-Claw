@@ -47,7 +47,7 @@ Antes de tudo, uma regra que vale para o resto da página: a memória do agente 
 
 | Rotina | Quando | O que faz |
 | --- | --- | --- |
-| Reflexão | Todo dia às 23h30 | O agente relê o dia, escreve o diário, atualiza objetivos e tarefas e corrige o que achava do dono, se algo mudou |
+| Reflexão | Às 23h30, nos dias em que o dono conversou com o agente | O agente relê o dia, escreve o diário, atualiza objetivos e tarefas e corrige o que achava do dono, se algo mudou. Em dia sem nenhuma mensagem do dono ela é pulada (fica registrado no log e no Pulso) e não há diário daquele dia; na dúvida, ela roda |
 | Remontagem do caderno | Todo dia às 7h | Sem IA nenhuma: o resumo de hoje vira "ontem" e o caderno fica pronto para o dia novo |
 | Índice da busca | A cada 15 minutos | Atualiza a busca em conversas |
 | Reindexação semântica | Todo dia às 4h20 | Atualiza a memória semântica (só com o modelo instalado) |

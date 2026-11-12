@@ -2,9 +2,8 @@
 
 Data: 08/11/2026. Código testado: o worktree `dgclaw-oficial-nevoa` (branch `feat/redesign-nevoa`) como será servido, sem etapa de build.
 Ambiente: servidor Web e painel de um agente falso ("Tina") numa pasta temporária, em porta alta (`qa/montar-ambiente.mjs`), Chromium
-headless do `~/.cache/ms-playwright`, Playwright 1.64. O roteiro de teste e os prints ficam fora do git, em
-`/root/claude/projetos/dgclaw-vitrine-arte/redesign-interface/qa/` (`qa-redesign.mjs`, pasta `redesign/` com os prints e o `resultado.json`,
-mais `menu-1440.png` e `menu-390.png`).
+headless do `~/.cache/ms-playwright`, Playwright 1.64. O roteiro de teste e os prints ficam fora do git, na máquina de quem fez o QA (`qa-redesign.mjs`, pasta `redesign/` com os prints e o
+`resultado.json`, mais `menu-1440.png` e `menu-390.png`).
 
 ## Telas e fluxos exercitados (1440x900 e 390x844)
 

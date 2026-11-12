@@ -9,11 +9,19 @@ inicial prepara esse acesso. O primeiro agente, o áudio e os canais são config
 - Uma VPS Ubuntu 24.04 ou 22.04 (o 26.04 também instala, com um aviso de que foi testado menos), com
   acesso root, pelo menos 2 GB de memória e 15 GB livres.
 - As portas 80 e 443 disponíveis.
+- Em servidor x86_64, uma CPU com o recurso SSE4.2. O Claude Code exige esse recurso, e CPUs genéricas de
+  hipervisor (como o tipo "Common KVM processor", o `kvm64`) não o têm. Para quem usa o Claude Code, o instalador confere e para com
+  a explicação. No hipervisor, troque o tipo de CPU da máquina virtual para `host` (passthrough) ou
+  `x86-64-v2` ou superior e reinicie. No Proxmox: Hardware > Processors > Type = host.
 - Claude Code ou Codex instalado e conectado à sua assinatura, no root da VPS. O Admin reutiliza esse
   login, sem copiá-lo aos agentes; a assinatura é necessária para o Admin conversar.
 - `--provedor claude` ou `--provedor codex` define o motor do Admin. Sem a opção, o instalador mantém a
   escolha anterior; numa máquina nova, procura primeiro um login (Claude, depois Codex) e só então o
   programa instalado.
+- Se você entra no servidor com um usuário comum e usa `sudo`, instale o Claude Code para o root com
+  `curl -fsSL https://claude.ai/install.sh | sudo CLAUDE_INSTALL_ALLOW_SUDO=1 HOME=/root bash`
+  (o instalador oficial recusa rodar sob `sudo` sem essa variável) e faça o login com `sudo -i`, seguido
+  de `claude`.
 
 ## Os três comandos
 
@@ -35,6 +43,30 @@ Se você prefere pedir ao Claude Code, escreva no terminal da VPS:
 
 Com o projeto já aberto, basta **"instala"**. O Claude roda o comando acima sem senha nenhuma e mostra
 os dois links no fim. Ele não pergunta a senha no chat nem a passa por stdin.
+
+## Servidor sem IP público (atrás de túnel)
+
+Em um servidor sem IP público (por exemplo, atrás de NAT, com o acesso de fora feito por um túnel da
+Cloudflare que conecta de dentro para fora), o Let's Encrypt não consegue validar o domínio. Use a opção
+`--atras-de-tunel`, sempre com `--dominio`:
+
+```sh
+sudo ./install.sh --usuario <usuario> --dominio painel.exemplo.com --atras-de-tunel --com-imagem
+```
+
+Nesse modo o Caddy usa um certificado interno, o instalador não consulta o IP público e não abre as portas
+80 e 443 no firewall. O Caddy escuta só no loopback (127.0.0.1 e ::1), por isso o túnel (cloudflared) precisa
+rodar no próprio servidor. Com isso o Caddy passa o IP real do visitante ao painel (cabeçalho
+`Cf-Connecting-IP`), e o limite de tentativas de login vale por pessoa, e não para todo mundo junto. A escolha fica gravada em
+`/etc/dgclaw/dgclaw.env` e vale também para reinstalações, para o `dgclaw atualizar` e para o
+`dgclaw dominio trocar`. Para desligar o modo, rode o instalador de novo com `--sem-tunel`.
+
+No túnel (Cloudflare Zero Trust), crie o Public Hostname com o domínio escolhido e aponte para
+`https://127.0.0.1:443`. Em TLS, preencha **Origin Server Name** com o próprio domínio e ligue **No TLS Verify**.
+
+Em qualquer instalação, o firewall libera as portas em que o SSH do servidor escuta de verdade (lidas da
+configuração do `sshd`, dos processos `sshd` em escuta, do `ssh.socket` ativo e da conexão SSH em que você
+está agora), e não só a 22. Pode liberar uma porta a mais do que o necessário, nunca a menos.
 
 ## O que o instalador faz
 

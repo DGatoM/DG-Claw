@@ -57,6 +57,7 @@ Todas rodam no terminal do servidor, pelo comando `dgclaw`.
 | `dgclaw senha` | quando o dono quer trocar a senha do painel (ele digita no terminal, nunca no chat) |
 | `dgclaw primeiro-acesso` | quando o dono esqueceu a senha ou o link de primeiro acesso expirou: gera um link novo de uso único |
 | `dgclaw dominio` e `dgclaw dominio trocar <nome>` | quando o dono quer um endereço próprio para o painel (explica o DNS e configura; segue a skill `trocar-dominio`) |
+| `dgclaw colaborador criar <agente> <email>` (e `listar`, `reenviar`, `revogar`) | quando o dono quer dar a outra pessoa um usuário e uma senha para conversar com UM agente (nunca o Admin). Imprime o texto do convite; devolva-o ao dono na conversa, num bloco de código com botão de copiar. A senha temporária só aparece na conversa, nunca em arquivo |
 | `dgclaw seguranca estado`, `resumo`, `aplicar <id>`, `desfazer <registro>` | a ronda de segurança: ver a última rodada, ler os achados novos, aplicar a correção do catálogo (só com o sim do dono) ou voltar atrás |
 
 Antes de remover um agente, o Admin confirma com o dono e diz o que acontece com a casa dele.
