@@ -347,6 +347,116 @@ caddyfile_e_padrao() {
     [ "$sites" = ":80 {" ]
 }
 
+# modo_tunel: 0 (sim) se o painel esta atras de tunel. O instalador decide em DGCLAW_TUNEL_ATIVO
+# (1 ou 0, vale nesta rodada); fora dele, vale a linha DGCLAW_ATRAS_DE_TUNEL=1 do dgclaw.env.
+modo_tunel() {
+    if [ -n "${DGCLAW_TUNEL_ATIVO:-}" ]; then [ "$DGCLAW_TUNEL_ATIVO" = 1 ]; return; fi
+    [ -f "$DG_ETC/dgclaw.env" ] && grep -qx 'DGCLAW_ATRAS_DE_TUNEL=1' "$DG_ETC/dgclaw.env"
+}
+
+# porta_de_endereco <endereco:porta>: imprime a porta explicita de um endereco (1.2.3.4:22, [::1]:22,
+# 0.0.0.0:22, *:22); nada se nao houver porta explicita.
+porta_de_endereco() {
+    local e="$1"
+    if [[ "$e" == \[*\]:* ]]; then printf '%s\n' "${e##*]:}"
+    elif [[ "$e" != *:*:* && "$e" == *:* ]]; then printf '%s\n' "${e##*:}"
+    fi
+}
+
+# pid_e_sshd_de_verdade <pid>: 0 (sim) so se o processo e do root (Uid real 0) E o executavel e um dos
+# do OpenSSH. O NOME do processo nao vale nada: qualquer usuario o troca (prctl PR_SET_NAME "sshd") e
+# escutaria numa porta alta que viraria `ufw allow`. PID inexistente ou ilegivel: rejeita.
+pid_e_sshd_de_verdade() {
+    local pid="$1" uid exe
+    [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+    uid="$(awk '/^Uid:/ {print $2; exit}' "$R/proc/$pid/status" 2>/dev/null)" || return 1
+    [ "$uid" = 0 ] || return 1
+    exe="$(readlink -f "$R/proc/$pid/exe" 2>/dev/null)" || return 1
+    exe="${exe#"$R"}"
+    case "$exe" in
+        /usr/sbin/sshd|/usr/lib/openssh/sshd-session|/usr/lib/openssh/sshd-auth|/usr/libexec/openssh/sshd-session|/usr/libexec/openssh/sshd-auth|/usr/sbin/sshd-session) return 0 ;;
+    esac
+    return 1
+}
+
+# pid_e_daemon_sshd <pid> <mainpids>: 0 (sim) so se o processo e o daemon principal do sshd, e nao uma
+# sessao: executavel exatamente /usr/sbin/sshd (sshd-session e sshd-auth sao sessao) E PPid 1 ou PID
+# igual a um dos MainPID listados (separados por espaco) de ssh.service/sshd.service.
+pid_e_daemon_sshd() {
+    local pid="$1" mainpids="$2" exe ppid
+    pid_e_sshd_de_verdade "$pid" || return 1
+    exe="$(readlink -f "$R/proc/$pid/exe" 2>/dev/null)" || return 1
+    [ "${exe#"$R"}" = /usr/sbin/sshd ] || return 1
+    ppid="$(awk '/^PPid:/ {print $2; exit}' "$R/proc/$pid/status" 2>/dev/null)" || return 1
+    [ "$ppid" = 1 ] && return 0
+    [[ " $mainpids " == *" $pid "* ]]
+}
+
+# portas_proc_sshd: as portas locais dos sockets TCP em LISTEN (0A) do processo PRINCIPAL do sshd (ver
+# pid_e_daemon_sshd). Sockets de encaminhamento de sessao (ssh -R com GatewayPorts) pertencem a processos
+# de sessao e nao sao porta de login, por isso so o daemon vale. Le direto do /proc, sem o ss, porque o
+# texto do ss traz o NOME do processo (e ate um "pid=N" dentro dele), que qualquer usuario escolhe. Aqui so
+# vale: PID aprovado, os inodes dos seus sockets (/proc/N/fd/*) e as linhas de /proc/net/tcp e tcp6 com
+# esse inode.
+portas_proc_sshd() {
+    local d pid fd alvo inodes=" " arq linha local_ st inode hex mainpids
+    mainpids="$(systemctl show -p MainPID --value ssh.service sshd.service 2>/dev/null | tr '\n' ' ')" || mainpids=""
+    for d in "$R"/proc/[0-9]*; do
+        [ -d "$d" ] || continue
+        pid="${d##*/}"
+        pid_e_daemon_sshd "$pid" "$mainpids" || continue
+        for fd in "$d"/fd/*; do
+            alvo="$(readlink "$fd" 2>/dev/null)" || continue
+            if [[ "$alvo" =~ ^socket:\[([0-9]+)\]$ ]]; then inodes+="${BASH_REMATCH[1]} "; fi
+        done
+    done
+    [ "$inodes" != " " ] || return 0
+    for arq in "$R/proc/net/tcp" "$R/proc/net/tcp6"; do
+        [ -r "$arq" ] || continue
+        while read -r _ local_ _ st _ _ _ _ _ inode _; do
+            [ "$st" = 0A ] || continue
+            [[ "$inode" =~ ^[0-9]+$ ]] || continue
+            [[ "$inodes" == *" $inode "* ]] || continue
+            hex="${local_##*:}"
+            [[ "$hex" =~ ^[0-9A-Fa-f]{1,4}$ ]] || continue
+            printf '%s\n' "$((16#$hex))"
+        done < <(tail -n +2 "$arq")
+    done
+}
+
+# portas_ssh: uma porta por linha. E a UNIAO, sem repeticao e validada (1-65535), de tudo que indica
+# onde o SSH atende: (a) "port" e (b) a porta explicita de "listenaddress" do sshd -T; (c) as portas
+# em escuta do processo principal do sshd (root, /usr/sbin/sshd, PPid 1 ou MainPID do servico; nao o nome); (d) as portas de ssh.socket/sshd.socket ativos (ativacao por socket).
+# Conexoes estabelecidas nao entram: o encaminhamento de uma sessao nao e porta de login.
+# Liberar uma porta de SSH a mais e aceitavel; deixar de liberar a que esta em uso tranca o dono
+# para fora. Se nada vier, 22.
+portas_ssh() {
+    local brutas="" linha campo unit p
+    # (a) e (b)
+    while read -r campo linha _; do
+        case "$campo" in
+            port) brutas+="$linha"$'\n' ;;
+            listenaddress) brutas+="$(porta_de_endereco "$linha")"$'\n' ;;
+        esac
+    done < <(sshd -T 2>/dev/null || true)
+    # (c): sockets em escuta do daemon do sshd, lidos do /proc.
+    brutas+="$(portas_proc_sshd)"$'\n'
+    # (d)
+    for unit in ssh.socket sshd.socket; do
+        if systemctl is-active --quiet "$unit" 2>/dev/null; then
+            brutas+="$(systemctl show -p Listen "$unit" 2>/dev/null | grep -oE ':[0-9]+ \(Stream\)' | grep -oE '[0-9]+' || true)"$'\n'
+        fi
+    done
+    local validas=""
+    while IFS= read -r p; do
+        [[ "$p" =~ ^[0-9]{1,5}$ ]] || continue
+        p=$((10#$p))
+        if [ "$p" -lt 1 ] || [ "$p" -gt 65535 ]; then continue; fi
+        validas+="$p"$'\n'
+    done < <(printf '%s' "$brutas" | sort -un)
+    if [ -n "$validas" ]; then printf '%s' "$validas"; else printf '22\n'; fi
+}
+
 # Tipos de conteudo que o Caddy comprime. A lista e explicita de proposito: o stream da conversa
 # (text/event-stream, web/lib/sse.js) NAO pode entrar, senao a compressao o retem e as mensagens
 # deixam de chegar na hora. Por isso nada de `text/*` generico.
@@ -355,15 +465,35 @@ CADDY_TIPOS_COMPRIMIDOS=(
     'application/json' 'application/manifest+json' 'application/xml' 'image/svg+xml'
 )
 
+# bloco_caddy <dominio> [tunel|publico]: o site do DG Claw. Sem o 2o argumento vale o modo atual (modo_tunel).
 bloco_caddy() {
-    local tipo
+    local tipo modo="${2:-}"
+    if [ -z "$modo" ]; then if modo_tunel; then modo=tunel; else modo=publico; fi; fi
     printf '# DG Claw: gerado pelo install.sh. Se voce editar este arquivo, o instalador e o dgclaw atualizar\n'
     printf '# deixam a sua versao como esta (so o dgclaw dominio troca o nome do site).\n'
-    printf '%s {\n\tencode {\n\t\tzstd\n\t\tgzip\n\t\tmatch {\n' "$1"
+    printf '%s {\n' "$1"
+    if [ "$modo" = tunel ]; then
+        # Sem IP publico o Let's Encrypt nao valida o nome: certificado da CA local do Caddy, e o
+        # tunel conecta em https://127.0.0.1:443 sem verificar o certificado.
+        # bind no loopback: so processos do proprio servidor (o cloudflared) alcancam o Caddy neste
+        # modo, entao ninguem da rede local consegue forjar o Cf-Connecting-IP, nem com o ufw desligado.
+        # So por isso e seguro confiar nele: o X-Forwarded-For passa a ser o IP real de quem acessa, e o
+        # painel (que usa o ultimo valor do XFF vindo do loopback) conta o limite de tentativas de login
+        # por pessoa, e nao um contador unico para todo mundo (o tunel chega sempre como 127.0.0.1).
+        printf '\tbind 127.0.0.1\n\ttls internal\n'
+    fi
+    printf '\tencode {\n\t\tzstd\n\t\tgzip\n\t\tmatch {\n'
     for tipo in "${CADDY_TIPOS_COMPRIMIDOS[@]}"; do
         printf '\t\t\theader Content-Type %s*\n' "$tipo"
     done
-    printf '\t\t}\n\t}\n\treverse_proxy 127.0.0.1:8300\n}\n'
+    printf '\t\t}\n\t}\n'
+    if [ "$modo" = tunel ]; then
+        printf '\t@tunel header Cf-Connecting-IP *\n\thandle @tunel {\n\t\treverse_proxy 127.0.0.1:8300 {\n'
+        printf '\t\t\theader_up X-Forwarded-For {http.request.header.Cf-Connecting-IP}\n\t\t}\n\t}\n'
+        printf '\thandle {\n\t\treverse_proxy 127.0.0.1:8300\n\t}\n}\n'
+    else
+        printf '\treverse_proxy 127.0.0.1:8300\n}\n'
+    fi
 }
 
 # bloco_caddy_antigo <dominio>: o que as versoes anteriores gravavam (sem compressao). So serve para
@@ -387,7 +517,10 @@ caddy_site_e_gerado() {
     dom="$(caddy_dominio_do_site "$arq")"
     [ -n "$dom" ] || return 1
     corpo="$(caddy_corpo "$arq")"
-    [ "$corpo" = "$(bloco_caddy "$dom" | caddy_corpo -)" ] && return 0
+    # As duas variantes (publico e tunel) contam como geradas: um arquivo gerado no outro modo tem que ser
+    # trocado, e nunca tratado como personalizacao (senao o tunel poderia ficar sem o bind 127.0.0.1).
+    [ "$corpo" = "$(bloco_caddy "$dom" publico | caddy_corpo -)" ] && return 0
+    [ "$corpo" = "$(bloco_caddy "$dom" tunel | caddy_corpo -)" ] && return 0
     [ "$corpo" = "$(bloco_caddy_antigo "$dom" | caddy_corpo -)" ] && return 0
     return 1
 }
@@ -448,6 +581,14 @@ escrever_site_caddy() {
                         "confira espaco em disco e permissao de ${R}/etc/caddy e rode de novo."
                 aviso "${alvo#"$R"} tinha personalizacoes suas; guardei uma copia em ${copia#"$R"} e gravei o site padrao do DG Claw com '$dominio'. Para levar as suas personalizacoes de volta, copie as linhas que quiser da copia para dentro do bloco do site em ${alvo#"$R"}, rode caddy validate --config ${cf#"$R"} --adapter caddyfile e sudo systemctl reload caddy."
             else
+                # Atras de tunel o bind so no loopback e o encaminhamento do IP real (Cf-Connecting-IP) sao o que
+                # impede de alcancar a origem por fora e de forjar o IP para gastar o limite de tentativas de login
+                # do dono. Conferir isso num arquivo personalizado exigiria interpretar o Caddyfile inteiro (binds
+                # acumulam entre blocos), entao personalizado no modo tunel nunca fica valendo: o instalador para.
+                if modo_tunel; then
+                    falha "o site do DG Claw em ${alvo#"$R"} tem personalizacoes suas, e no modo tunel o instalador so aceita o site que ele mesmo gera: ele precisa garantir que o Caddy escute apenas em 127.0.0.1 e que o IP real de cada visitante (Cf-Connecting-IP) chegue ao painel, senao qualquer um alcanca o painel por fora do tunel ou bloqueia o seu login com 5 tentativas erradas." \
+                        "guarde uma copia do arquivo (sudo cp ${alvo#"$R"} /root/caddy-site-antes-do-tunel), apague o original (sudo rm ${alvo#"$R"}) e rode ./install.sh de novo: ele gera o site padrao do modo tunel. Depois, se quiser, leve para dentro do bloco gerado as linhas suas que nao mexem em bind, endereco do site nem reverse_proxy, e rode caddy validate --config ${cf#"$R"} --adapter caddyfile && sudo systemctl reload caddy."
+                fi
                 aviso "${alvo#"$R"} tem personalizacoes suas e nao foi alterado, entao o site continua sem a compressao nova (a conversa e o painel ficam mais lentos no celular). Para ligar, acrescente dentro do bloco do site, antes do reverse_proxy: encode { zstd gzip match { header Content-Type text/html* header Content-Type text/css* header Content-Type text/plain* header Content-Type text/javascript* header Content-Type application/javascript* header Content-Type application/json* header Content-Type application/manifest+json* header Content-Type application/xml* header Content-Type image/svg+xml* } } (nao use 'text/*': ele comprimiria o stream da conversa, text/event-stream, e as mensagens deixariam de chegar na hora). Depois rode: caddy validate --config ${cf#"$R"} --adapter caddyfile && sudo systemctl reload caddy"
                 return 0
             fi

@@ -119,4 +119,21 @@ igual "ensaio: sai com 0" "0" "$?"
 afirma "ensaio: dgclaw.env intacto" grep -qx 'DGCLAW_DOMINIO=teste.exemplo.org' "$ETC/dgclaw.env"
 nega "ensaio: conf.d nao ganhou o nome" grep -q 'sem-dns' "$CONFD"
 
+# atras de tunel: sem conferir DNS contra o IP publico, HTTPS por loopback com -k, tls internal
+printf 'DGCLAW_DOMINIO=teste.exemplo.org\nDGCLAW_ATRAS_DE_TUNEL=1\nLINHA_DA_MARTA=oi\n' >"$ETC/dgclaw.env"
+printf '# DG Claw: antigo\nteste.exemplo.org {\n\ttls internal\n\treverse_proxy 127.0.0.1:8300\n}\n' >"$CF"
+dgclaw dominio >"$TMP/o.txt" 2>&1
+afirma "tunel mostrar: diz que esta atras de tunel" grep -q 'atras de um tunel' "$TMP/o.txt"
+nega "tunel mostrar: nao manda criar registro A" grep -q 'registro DNS tipo A' "$TMP/o.txt"
+: >"$STUB_LOG"
+echo 192.0.2.55 >"$STUB_ESTADO/dns-tunel.exemplo.com.br" # DNS "errado" de proposito: nao pode importar
+dgclaw dominio trocar tunel.exemplo.com.br >"$TMP/o.txt" 2>&1
+igual "tunel trocar: sai com 0" "0" "$?"
+afirma "tunel trocar: Caddyfile com o nome novo e tls internal" bash -c "grep -q '^tunel.exemplo.com.br {' '$CF' && grep -q 'tls internal' '$CF'"
+afirma "tunel trocar: avisa que o nome precisa estar no tunel" grep -q 'precisa estar no tunel' "$TMP/o.txt"
+nega "tunel trocar: nao consultou o IP publico" grep -qE '^curl .*(ipify|ifconfig)' "$STUB_LOG"
+nega "tunel trocar: nao consultou o DNS" grep -q '^dig ' "$STUB_LOG"
+afirma "tunel trocar: HTTPS local com -k" grep -qE '^curl .*-k .*resolve tunel.exemplo.com.br:443:127.0.0.1' "$STUB_LOG"
+afirma "tunel trocar: manteve o modo e a linha alheia" bash -c "grep -qx 'DGCLAW_ATRAS_DE_TUNEL=1' '$ETC/dgclaw.env' && grep -qx 'LINHA_DA_MARTA=oi' '$ETC/dgclaw.env'"
+
 fim

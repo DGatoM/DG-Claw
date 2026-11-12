@@ -20,6 +20,29 @@ Nesta versão há uma instrução nova para o Admin, que explica a tela Logs e p
 precisa entrar nas instruções dele sem apagar o que você já personalizou. O histórico que os agentes já têm aparece sozinho
 na tela, sem migração e sem nada a configurar.
 
+**Correção na rede dos containers no Ubuntu 26.04: netavark em modo iptables.** No Ubuntu 26.04 o netavark usa nftables por padrão, e o `ufw` (que o instalador liga) bloqueia o encaminhamento de pacotes, então nenhum container de agente tinha internet (a construção da imagem falhava com "Temporary failure resolving archive.ubuntu.com"). O instalador agora grava `/etc/containers/containers.conf.d/50-dgclaw-firewall-iptables.conf` com `firewall_driver = "iptables"`, que é o modo em que a cerca de rede do DG Claw foi desenhada. No Ubuntu 24.04 isso não muda nada. Se você já definiu `firewall_driver` em qualquer arquivo do podman (`/etc/containers/containers.conf`, a pasta `containers.conf.d` ou o padrão em `/usr/share/containers`), o instalador não grava o dele e não mexe no seu: só avisa quando o valor não é `iptables`.
+
+**A cerca contra o servidor também vale antes de o netavark mexer no firewall.** Ao subir um container, o netavark libera a porta 53 do servidor para a rede do agente numa regra que ficava à frente da cerca, e o agente alcançava essa porta por alguns segundos, até a cerca ser reaplicada. A cerca agora também fica na tabela `mangle` (que o netavark não usa), do mesmo jeito que já era feito para o tráfego entre redes, e o teste de isolamento passou a conferir a porta 53 do servidor.
+
+**Correção no DNS dos agentes em servidor dentro de rede privada.** Em servidor físico na rede de uma empresa, o DNS do servidor costuma ficar num endereço privado (por exemplo `192.168.25.6`), que a cerca de rede dos agentes bloqueia de propósito, e os agentes ficavam sem DNS. Agora, quando isso acontece, só os containers do DG Claw (os agentes e a sonda do teste de isolamento) são criados com DNS público (`1.1.1.1` e `8.8.8.8`), sem abrir exceção na cerca e sem mudar a configuração do podman no resto do servidor. Se o DNS do servidor já é público, nada muda.
+
+### Como atualizar
+
+Rode `sudo ./install.sh` de novo (ou peça ao Admin para atualizar): ele aplica as correções sozinho. Há dois casos em que falta um passo seu:
+
+- Servidor com Ubuntu 26.04 e agentes ligados: o instalador só apaga as regras antigas do netavark quando todos os containers estão parados, para não derrubar a rede deles, e avisa com a lista do que está ligado. Nesse caso, pare cada agente com `sudo dgclaw agente parar <slug>`, rode `sudo ./install.sh` de novo e ligue cada um com `sudo dgclaw agente iniciar <slug>`. Containers que não são do DG Claw também precisam estar parados.
+- Servidor cujo DNS fica numa rede privada: o container de um agente já existente continua com o DNS antigo, porque o podman não troca o DNS de um container criado. Para ele passar a usar DNS público, rode `sudo dgclaw agente recriar <slug> --forcar` (a casa e a memória do agente não são tocadas). O `--forcar` é preciso quando o agente está parado; com o agente ligado, o `recriar` já percebe sozinho que o DNS precisa mudar.
+
+**O DG Claw instala em servidor sem IP público, atrás de um túnel.** Com `--atras-de-tunel` (junto de `--dominio`), o Caddy usa
+certificado interno, o instalador não consulta o IP público e não abre as portas 80 e 443 no firewall; o túnel da Cloudflare
+aponta para `https://127.0.0.1:443`, com o nome do servidor de origem igual ao domínio e sem verificação do certificado. A
+escolha fica no `dgclaw.env` e vale para reinstalar, atualizar e `dgclaw dominio trocar`. Nesse modo o Caddy escuta só no loopback, então o túnel
+precisa rodar no próprio servidor, e ele passa o IP real do visitante ao painel, para o limite de tentativas de login valer
+por pessoa. O firewall agora também libera a porta real do SSH (lida da configuração do `sshd`, dos processos em escuta, do
+`ssh.socket` e da sua conexão atual), e não só a 22. Para quem usa o Claude Code, o instalador confere se a CPU tem SSE4.2 (CPU genérica
+`kvm64` de hipervisor não tem) e explica como trocar o tipo de CPU da máquina virtual. Quando o Claude Code falta e você usa
+`sudo`, a mensagem mostra como instalá-lo para o root. Nada muda para quem já instalou.
+
 **Aba Pedidos na Mesa: a fila de tudo o que você pediu aos agentes.** A Mesa (`/mesa`) ganha uma aba nova, a primeira e a que
 abre por padrão. Cada pedido seu a um agente vira um item, na ordem em que chegou, com o estado: fazendo, esperando você (com o
 motivo), entregue, feito ou cancelado. O agente abre o item antes de começar e vai movendo enquanto trabalha. Quando ele marca

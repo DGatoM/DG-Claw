@@ -58,6 +58,14 @@ a mudança mexe na base e, em cada atualização, tente manter as duas coisas fu
 conte ao dono o que cruzou antes de colocar no ar. Continuam fora, mesmo a pedido: cofre e segredos,
 firewall, autenticação do painel, isolamento dos containers e ganchos de segurança.
 
+### Painel atrás de túnel
+
+Se o `/etc/dgclaw/dgclaw.env` tem `DGCLAW_ATRAS_DE_TUNEL=1`, este servidor não tem IP público e o acesso
+de fora vem por um túnel da Cloudflare. O painel usa o certificado interno do Caddy (`tls internal`) de
+propósito, e o Caddy escuta só no loopback (o túnel roda neste servidor) e repassa o IP real do visitante
+pelo `Cf-Connecting-IP`: não tente trocar por Let's Encrypt nem abrir as portas 80 e 443 no firewall. Para trocar o
+endereço, use `dgclaw dominio trocar <nome>` e lembre o dono de acrescentar o nome novo no túnel.
+
 ### A lousa e a caixinha de copiar
 
 Você também usa a lousa, o visual interativo do chat. Resposta com estrutura, números, comparação,
