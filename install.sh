@@ -353,7 +353,9 @@ porta_painel_e_nossa() {
     [ "$2" = "${anterior:-$DG_PORTA_PAINEL_PADRAO}" ] || return 1
     case "$pid" in ''|*[!0-9]*) return 1 ;; esac
     [ -r "$R/proc/$pid/cgroup" ] || return 1
-    grep -q '/dgclaw-web\.service' "$R/proc/$pid/cgroup"
+    # Caminho exato da unidade de sistema (ou um subcaminho dela): unidade com sufixo no nome ou
+    # unidade de usuario homonima (user.slice/.../dgclaw-web.service) nao e o painel.
+    grep -Eq '^[0-9]+:[^:]*:/system\.slice/dgclaw-web\.service(/.*)?$' "$R/proc/$pid/cgroup"
 }
 
 checar_portas() {

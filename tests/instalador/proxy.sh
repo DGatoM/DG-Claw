@@ -329,6 +329,18 @@ LISTEN 0 511 127.0.0.1:8400 0.0.0.0:* users:(("node",pid=202,fd=4))')
     nega "node na 8300 sem cgroup legivel do pid: de outro" instalacao_basica
     limpar_cenario
 
+    # Nome parecido nao basta: unidade com sufixo e unidade de usuario homonima ficam de fora.
+    for cg in '0::/system.slice/dgclaw-web.service-backup.service' \
+              '0::/user.slice/user-1000.slice/user@1000.service/app.slice/dgclaw-web.service'; do
+        novo_cenario
+        mkdir -p "$RAIZ/etc/dgclaw"; printf 'DGCLAW_DOMINIO=antigo.exemplo.org\n' >"$RAIZ/etc/dgclaw/dgclaw.env"
+        EXTRA_ENV=("DGCLAW_TESTAR_PORTAS=1" "DGCLAW_STUB_ATIVOS=dgclaw-web.service"
+            'DGCLAW_STUB_SS=LISTEN 0 511 127.0.0.1:8300 0.0.0.0:* users:(("node",pid=900,fd=4))')
+        mkdir -p "$RAIZ/proc/900"; printf '%s\n' "$cg" >"$RAIZ/proc/900/cgroup"
+        nega "node na 8300 com cgroup $cg: de outro" instalacao_basica
+        limpar_cenario
+    done
+
     novo_cenario
     mkdir -p "$RAIZ/etc/dgclaw"; printf 'DGCLAW_DOMINIO=antigo.exemplo.org\n' >"$RAIZ/etc/dgclaw/dgclaw.env"
     EXTRA_ENV=("DGCLAW_TESTAR_PORTAS=1"
