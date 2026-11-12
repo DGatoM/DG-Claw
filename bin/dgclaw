@@ -1219,6 +1219,11 @@ agente_criar() {
 
     exigir_ferramentas jq podman ss curl
     C_ETAPA="validacao"
+    # Trava compartilhada da faixa de rede: da leitura da configuracao (a faixa) ate a cerca publicada.
+    # O instalador, que pode trocar a faixa, espera por ela (ver trava_faixa_pegar em lib/comum.sh).
+    trava_faixa_pegar -s
+    # O podman nao herda o descritor da trava: o conmon vive ate o container parar e a seguraria.
+    podman() { command podman "$@" 8>&-; }
     carregar_env_dgclaw
     if ! podman image exists "$DGCLAW_IMAGEM" >/dev/null 2>&1; then
         falha "a imagem dos agentes ($DGCLAW_IMAGEM) ainda nao existe nesta maquina." \
@@ -1252,6 +1257,7 @@ agente_criar() {
     criar_container
     etapa "Aplicando as regras de firewall"
     rodar_firewall
+    trava_faixa_soltar
     etapa "Esperando a maquina do agente ligar"
     esperar_systemd "dgclaw-$C_SLUG"
     etapa "Instalando as rotinas, o runner e o painel dentro do agente"

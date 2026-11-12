@@ -80,6 +80,7 @@ faixa_lida() {
 }
 
 REDE_AGENTES=""
+FAIXAS_EXTRAS=()
 
 # abortar <tabela> <o que aconteceu>: sai sem mexer em mais nada. Nao pode ser chamada dentro de $(...),
 # senao o exit so encerraria o subshell; por isso as consultas devolvem o resultado em variaveis globais.
@@ -130,14 +131,38 @@ cadeia_tem_salto() { posicoes_do_salto "$1" "$2" "$3"; [ -n "$POSICOES" ]; }
 # saltos_de_outra_faixa <tabela> <cadeia-origem> <cadeia-destino>: numero de linha de cada salto
 # NOSSO (`-s <faixa> -j <destino>`) cuja faixa nao e a atual, ex.: sobra de uma faixa anterior.
 # So olha regra que salta para a nossa cadeia: qualquer outra regra e de outra pessoa e nao se toca.
+# Os saltos das faixas em FAIXAS_EXTRAS (ainda com rede de agente) ficam de fora, salvo com o 4o argumento
+# "todas" (usado so ao trocar a cadeia inteira: os extras ja foram repostos na cadeia nova).
 saltos_de_outra_faixa() {
     snapshot "$1"
     grep -- "^-A $2 " <<<"$SNAP" \
         | awk -v pre="-A $2 -s " -v suf=" -j $3" -v atual="$REDE_AGENTES" '
             index($0, pre) == 1 && substr($0, length($0) - length(suf) + 1) == suf {
                 f = substr($0, length(pre) + 1, length($0) - length(pre) - length(suf))
-                if (f != atual && f !~ /[[:space:]]/) print NR
-            }' || true
+                if (f != atual && f !~ /[[:space:]]/) print NR, f
+            }' | while read -r nr f; do
+                # Faixa antiga que ainda tem rede de agente: o salto dela fica (ver faixas_extras_calcular).
+                if [ "${4:-}" = todas ] || ! faixa_e_extra "$f"; then printf '%s\n' "$nr"; fi
+            done || true
+}
+
+# extras_inserir <tabela> <cadeia-origem> <cadeia-destino>: poe o salto de cada faixa em FAIXAS_EXTRAS
+# (faixa antiga que ainda tem rede de agente do DG Claw) para o destino, se ainda nao existir.
+extras_inserir() {
+    local f
+    for f in "${FAIXAS_EXTRAS[@]}"; do
+        snapshot "$1"
+        if ! grep -qxF -- "-A $2 -s $f -j $3" <<<"$SNAP"; then
+            iptables -w -t "$1" -I "$2" 1 -s "$f" -j "$3"
+        fi
+    done
+}
+
+# faixa_e_extra <faixa>: 0 se a faixa esta em FAIXAS_EXTRAS (o salto dela nao pode ser removido).
+faixa_e_extra() {
+    local f
+    for f in "${FAIXAS_EXTRAS[@]}"; do [ "$f" = "$1" ] && return 0; done
+    return 1
 }
 
 # salto_garantir <tabela> <cadeia-origem> <cadeia-destino>: deixa o salto UMA vez so,
@@ -161,6 +186,7 @@ salto_garantir() {
     for n in $extras; do
         iptables -w -t "$tabela" -D "$origem" "$n"
     done
+    extras_inserir "$tabela" "$origem" "$destino"
 }
 
 # saltos_remover <tabela> <cadeia-origem> <cadeia-destino>: apaga TODOS os nossos saltos para o
@@ -174,7 +200,7 @@ saltos_remover() {
     done
     # Tambem os de uma faixa anterior (--faixa-rede mudou): sem isso a cadeia antiga ainda teria salto
     # apontando para ela e cadeia_remover abortaria. So saltos para a NOSSA cadeia; regra alheia nao se toca.
-    lista="$(saltos_de_outra_faixa "$1" "$2" "$3" | sort -rn)"
+    lista="$(saltos_de_outra_faixa "$1" "$2" "$3" todas | sort -rn)"
     for n in $lista; do
         iptables -w -t "$1" -D "$2" "$n"
     done
@@ -221,6 +247,7 @@ cadeia_recuperar() {
     if ! cadeia_tem_salto "$tabela" "$origem" "$nova"; then
         iptables -w -t "$tabela" -I "$origem" 1 -s "$REDE_AGENTES" -j "$nova"
     fi
+    extras_inserir "$tabela" "$origem" "$nova"
     if cadeia_existe "$tabela" "$nome"; then
         saltos_remover "$tabela" "$origem" "$nome"
         cadeia_remover "$tabela" "$nome"
@@ -244,6 +271,7 @@ cadeia_publicar() {
     "$preencher" "$tabela" "$nova"
     if cadeia_existe "$tabela" "$nome"; then
         iptables -w -t "$tabela" -I "$origem" 1 -s "$REDE_AGENTES" -j "$nova"
+        extras_inserir "$tabela" "$origem" "$nova"
         saltos_remover "$tabela" "$origem" "$nome"
         cadeia_remover "$tabela" "$nome"
     fi
@@ -271,6 +299,52 @@ cerca_egress() { cadeia_publicar "$1" FORWARD DGCLAW_EGRESS regras_egress RETURN
 
 # cerca_host <tabela>: monta a cadeia DGCLAW_HOST na tabela e liga ao INPUT.
 cerca_host() { cadeia_publicar "$1" INPUT DGCLAW_HOST regras_host DROP 2; }
+
+# faixas_extras_calcular: preenche FAIXAS_EXTRAS com as faixas /16 (A.B.0.0/16) DIFERENTES da atual que
+# ainda tem rede de agente do DG Claw (label dgclaw.v1=1, ou dgclaw-<slug> de agente do agentes.json).
+# O salto de uma faixa assim NUNCA e removido: se o dono gravou uma faixa nova no dgclaw.env (ou outro
+# processo gravou, por exemplo um `agente criar` concorrente), o agente que ficou na faixa antiga
+# continuaria sem passar pelas cercas. Se o podman nao responde, nao da para saber: vale o que ja
+# estava no iptables (as faixas dos saltos atuais para as nossas cadeias ficam).
+faixas_extras_calcular() {
+    local nome linha subs resto rotulo s f json="${DGCLAW_RAIZ:-}/etc/dgclaw/agentes.json" lista="" falhou=0 nossa
+    FAIXAS_EXTRAS=()
+    if command -v podman >/dev/null 2>&1; then
+        local nomes
+        if nomes="$(podman network ls --format '{{.Name}}' 2>"$ERRO_IPT")"; then
+            while IFS= read -r nome; do
+                [ -n "$nome" ] || continue
+                if ! linha="$(podman network inspect "$nome" --format '{{range .Subnets}}{{.Subnet}} {{end}}|{{.NetworkInterface}}|{{index .Labels "dgclaw.v1"}}' 2>>"$ERRO_IPT")"; then
+                    falhou=1; continue
+                fi
+                subs="${linha%%|*}"; resto="${linha#*|}"; rotulo="${resto#*|}"; rotulo="${rotulo//[[:space:]]/}"
+                nossa=0
+                if [ "$rotulo" = 1 ]; then nossa=1
+                elif [[ "$nome" == dgclaw-?* ]] && [ -f "$json" ] \
+                    && grep -Eq "\"slug\"[[:space:]]*:[[:space:]]*\"${nome#dgclaw-}\"" "$json"; then nossa=1; fi
+                [ "$nossa" = 1 ] || continue
+                for s in $subs; do
+                    [[ "$s" =~ ^([0-9]+)\.([0-9]+)\.[0-9]+\.[0-9]+/ ]] || continue
+                    f="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.0.0/16"
+                    [ "$f" = "$REDE_AGENTES" ] && continue
+                    faixa_e_extra "$f" || FAIXAS_EXTRAS+=("$f")
+                    echo "dgclaw-firewall: a rede '$nome' do DG Claw esta em $s, fora da faixa atual $REDE_AGENTES. Mantive o salto da faixa $f na cerca, para ela continuar isolada. Para resolver: volte DGCLAW_FAIXA_REDE para $f em /etc/dgclaw/dgclaw.env, ou recrie o agente na faixa nova (sudo dgclaw agente remover <agente>) e rode a cerca de novo." >&2
+                done
+            done <<<"$nomes"
+        else
+            falhou=1
+        fi
+    fi
+    if [ "$falhou" = 1 ]; then
+        echo "dgclaw-firewall: nao consegui ler todas as redes do podman ($(head -c 200 "$ERRO_IPT" | tr '\n' ' ')). Mantive os saltos de faixa antiga que ja estavam no iptables, por seguranca." >&2
+        snapshot filter
+        lista="$(grep -E -- '^-A (INPUT|FORWARD) -s [^ ]+ -j DGCLAW_(HOST|EGRESS)$' <<<"$SNAP" | awk '{print $4}' | sort -u || true)"
+        for f in $lista; do
+            [ "$f" = "$REDE_AGENTES" ] && continue
+            faixa_e_extra "$f" || FAIXAS_EXTRAS+=("$f")
+        done
+    fi
+}
 
 # trava_exclusiva: duas execucoes sobrepostas (dois agentes subindo juntos) corromperiam a troca de
 # cadeias: uma trataria a _NOVA da outra como sobra e daria -F nela depois de ela virar a unica
@@ -306,6 +380,8 @@ main() {
         echo "dgclaw-firewall: o comando iptables nao existe nesta maquina. Instale com: apt-get install -y iptables" >&2
         exit 1
     }
+
+    faixas_extras_calcular
 
     # --- o agente contra o host (mangle primeiro, filter como reforco) ---
     cerca_host mangle

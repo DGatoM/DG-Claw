@@ -88,7 +88,7 @@ caso_proxy_com_caddy_ja_instalado_nao_mexe_nele() {
     EXTRA_ENV=("DGCLAW_STUB_INSTALADOS=caddy")
     afirma "a instalacao termina com sucesso" proxy_basico
     afirma "o Caddyfile dele ficou intacto" grep -q '^loja.exemplo.com {' "$RAIZ/etc/caddy/Caddyfile"
-    igual "e sem nenhuma linha nossa" 0 "$(grep -c 'DG Claw' "$RAIZ/etc/caddy/Caddyfile")"
+    afirma "e sem nenhuma linha nossa" igual 0 "$(grep -c 'DG Claw' "$RAIZ/etc/caddy/Caddyfile")"
     nega "nenhum systemctl de caddy" grep -qE '^systemctl .*caddy' "$STUB_LOG"
     limpar_cenario
 }
@@ -122,7 +122,7 @@ caso_proxy_reexecucao_sem_a_flag_mantem_o_modo_e_sem_proxy_existente_volta_ao_no
     afirma "continua em modo proxy" grep -qx 'DGCLAW_PROXY_EXISTENTE=1' "$env"
     afirma "continua com a porta 8400" grep -qx 'DGCLAW_PORTA_PAINEL=8400' "$env"
     afirma "continua com a faixa 10.91" grep -qx 'DGCLAW_FAIXA_REDE=10.91.0.0/16' "$env"
-    igual "uma so linha de modo" 1 "$(grep -c '^DGCLAW_PROXY_EXISTENTE=' "$env")"
+    afirma "uma so linha de modo" igual 1 "$(grep -c '^DGCLAW_PROXY_EXISTENTE=' "$env")"
     afirma "a unidade manteve a porta" tem "$RAIZ/etc/systemd/system/dgclaw-web.service" "DGCLAW_WEB_PORT=8400"
     afirma "os trechos continuam saindo" tem "$SAIDA" "proxy_pass http://127.0.0.1:8400;"
     nega "continua sem caddy" test -e "$RAIZ/etc/caddy"
@@ -191,6 +191,46 @@ caso_trocar_a_porta_do_painel_regrava_o_conf_d_e_preserva_o_outro_site() {
     afirma "reinstala com --porta-painel 8400" instalar "$PAINEL_PW" --usuario maria --provedor claude --porta-painel 8400
     afirma "conf.d passou a apontar para 8400" tem "$site" "reverse_proxy 127.0.0.1:8400"
     afirma "o site de outra pessoa sobreviveu" tem "$RAIZ/etc/caddy/Caddyfile" 'respond "oi"'
+    limpar_cenario
+}
+
+caso_instalador_espera_pela_trava_da_faixa_e_falha_dizendo_por_que() {
+    novo_cenario
+    mkdir -p "$RAIZ/etc/dgclaw"
+    # Um `agente criar` em andamento segura a trava compartilhada.
+    ( exec 8>"$RAIZ/etc/dgclaw/.faixa-rede.lock"; flock -s 8; sleep 20 ) &
+    local segura=$!
+    sleep 1
+    EXTRA_ENV=("DGCLAW_TRAVA_FAIXA_ESPERA=1")
+    nega "o instalador nao segue enquanto um agente esta sendo criado" instalacao_basica --dominio painel.exemplo.com.br
+    afirma "explica a trava" tem "$SAIDA" "trava da faixa de rede"
+    afirma "diz o que fazer" tem "$SAIDA" "fuser -v"
+    nega "nada foi instalado" test -e "$RAIZ/opt/dgclaw/app"
+    kill "$segura" 2>/dev/null; wait "$segura" 2>/dev/null
+    EXTRA_ENV=()
+    afirma "sem ninguem segurando, instala" instalacao_basica --dominio painel.exemplo.com.br
+    limpar_cenario
+}
+
+caso_porta_do_painel_reservada_do_dgclaw_e_recusada() {
+    local porta
+    for porta in 4300 4311 4399 8311 8399; do
+        novo_cenario
+        nega "porta $porta recusada" instalacao_basica --dominio painel.exemplo.com.br --porta-painel "$porta"
+        afirma "porta $porta: diz que e reservada" tem "$SAIDA" "e reservada ao DG Claw"
+        afirma "porta $porta: sugere outra" tem "$SAIDA" "--porta-painel 8400"
+        afirma "porta $porta: nada criado" vazio "$RAIZ"
+        limpar_cenario
+    done
+    # Porta que um agente ja reservou (portas.tsv), mesmo parado e fora das faixas.
+    novo_cenario
+    mkdir -p "$RAIZ/etc/dgclaw"
+    printf 'ana\t4311\t9555\n' >"$RAIZ/etc/dgclaw/portas.tsv"
+    nega "porta de agente do portas.tsv recusada" instalacao_basica --dominio painel.exemplo.com.br --porta-painel 9555
+    afirma "diz que o agente tem a porta" tem "$SAIDA" "portas.tsv"
+    limpar_cenario
+    novo_cenario
+    afirma "8400 continua valendo" instalacao_basica --dominio painel.exemplo.com.br --porta-painel 8400
     limpar_cenario
 }
 
@@ -464,7 +504,8 @@ caso_firewall_usa_a_faixa_do_dgclaw_env_em_todos_os_saltos() {
     afirma "salto FORWARD filter -> DGCLAW_EGRESS na faixa" grep -qxF '|FORWARD| -s 10.91.0.0/16 -j DGCLAW_EGRESS' "$regras"
     afirma "salto FORWARD mangle -> DGCLAW_EGRESS na faixa" grep -qxF '|mangle/FORWARD| -s 10.91.0.0/16 -j DGCLAW_EGRESS' "$regras"
     nega "nenhum -s com a faixa padrao" grep -q -- '-s 10.89.0.0/16' "$regras"
-    igual "tres saltos, todos com -s" 3 "$(grep -c -- '-s 10.91.0.0/16 -j DGCLAW_' "$regras")"
+    afirma "salto INPUT mangle -> DGCLAW_HOST na faixa" grep -qxF '|mangle/INPUT| -s 10.91.0.0/16 -j DGCLAW_HOST' "$regras"
+    afirma "quatro saltos (INPUT e FORWARD, em filter e mangle), todos com -s" igual 4 "$(grep -c -- '-s 10.91.0.0/16 -j DGCLAW_' "$regras")"
     limpar_cenario
 }
 
@@ -488,7 +529,7 @@ caso_firewall_com_faixa_invalida_falha_sem_tocar_no_iptables() {
         mkdir -p "$RAIZ/etc/dgclaw"; printf 'DGCLAW_FAIXA_REDE=%s\n' "$v" >"$RAIZ/etc/dgclaw/dgclaw.env"
         nega "faixa '$v' recusada" rodar_firewall_falso
         afirma "faixa '$v': diz a faixa, o arquivo e o exemplo" grep -q "a faixa de rede '$v'.*10.91.0.0/16" "$SAIDA"
-        igual "faixa '$v': nenhum iptables chamado" 0 "$(contar "$STUB_LOG" 'iptables')"
+        afirma "faixa '$v': nenhum iptables chamado" igual 0 "$(contar "$STUB_LOG" 'iptables')"
         limpar_cenario
     done
 }
@@ -509,8 +550,36 @@ caso_firewall_remove_saltos_de_faixa_antiga_sem_tocar_nas_regras_dos_outros() {
     nega "salto antigo do mangle sumiu" grep -qxF '|mangle/FORWARD| -s 10.89.0.0/16 -j DGCLAW_EGRESS' "$r"
     afirma "a regra alheia com -s ficou" grep -qxF '|INPUT| -s 10.200.0.0/16 -j ACCEPT' "$r"
     afirma "a regra alheia do ssh ficou" grep -qxF '|INPUT| -p tcp --dport 22 -j ACCEPT' "$r"
-    igual "o salto novo esta na posicao 1 da INPUT" "|INPUT| -s 10.91.0.0/16 -j DGCLAW_HOST" "$(grep -F '|INPUT|' "$r" | head -n 1)"
-    igual "um salto so na INPUT para a cadeia nossa" 1 "$(grep -c '|INPUT| .*-j DGCLAW_HOST' "$r")"
+    afirma "o salto novo esta na posicao 1 da INPUT" igual "|INPUT| -s 10.91.0.0/16 -j DGCLAW_HOST" "$(grep -F '|INPUT|' "$r" | head -n 1)"
+    afirma "um salto so na INPUT para a cadeia nossa" igual 1 "$(grep -c '|INPUT| .*-j DGCLAW_HOST' "$r")"
+    limpar_cenario
+}
+
+caso_firewall_nao_remove_o_salto_da_faixa_antiga_enquanto_ha_rede_de_agente_nela() {
+    novo_cenario
+    mkdir -p "$RAIZ/etc/dgclaw"; printf 'DGCLAW_FAIXA_REDE=10.89.0.0/16\n' >"$RAIZ/etc/dgclaw/dgclaw.env"
+    afirma "aplica na faixa antiga" rodar_firewall_falso
+    # Um agente nasce na faixa antiga e, no meio, a faixa nova e gravada.
+    EXTRA_ENV=('DGCLAW_STUB_REDES=dgclaw-ana|10.89.1.0/24|podman1|1')
+    printf 'DGCLAW_FAIXA_REDE=10.91.0.0/16\n' >"$RAIZ/etc/dgclaw/dgclaw.env"
+    afirma "reaplica na faixa nova" rodar_firewall_falso
+    local r="$TMP/estado/ipt-regras" t
+    for t in '|INPUT|' '|mangle/INPUT|'; do
+        afirma "$t: salto da faixa nova para DGCLAW_HOST" grep -qxF "$t -s 10.91.0.0/16 -j DGCLAW_HOST" "$r"
+        afirma "$t: salto da faixa antiga continua" grep -qxF "$t -s 10.89.0.0/16 -j DGCLAW_HOST" "$r"
+    done
+    for t in '|FORWARD|' '|mangle/FORWARD|'; do
+        afirma "$t: salto da faixa nova para DGCLAW_EGRESS" grep -qxF "$t -s 10.91.0.0/16 -j DGCLAW_EGRESS" "$r"
+        afirma "$t: salto da faixa antiga continua" grep -qxF "$t -s 10.89.0.0/16 -j DGCLAW_EGRESS" "$r"
+    done
+    afirma "avisa o que fazer" tem "$SAIDA" "Mantive o salto da faixa 10.89.0.0/16"
+    nega "nenhuma cadeia _NOVA sobrou" grep -q '_NOVA' "$r"
+    afirma "reaplicar de novo nao duplica" rodar_firewall_falso
+    afirma "um salto so da faixa antiga na INPUT" igual 1 "$(grep -c '^|INPUT| -s 10.89.0.0/16 -j DGCLAW_HOST' "$r")"
+    # Sem a rede do agente na faixa antiga, o salto antigo some na rodada seguinte.
+    EXTRA_ENV=('DGCLAW_STUB_REDES=')
+    afirma "sem rede na faixa antiga" rodar_firewall_falso
+    nega "salto antigo removido" grep -q -- '-s 10.89.0.0/16' "$r"
     limpar_cenario
 }
 
@@ -519,7 +588,7 @@ caso_firewall_nao_apaga_o_salto_certo_ao_rodar_de_novo() {
     mkdir -p "$RAIZ/etc/dgclaw"; printf 'DGCLAW_FAIXA_REDE=10.91.0.0/16\n' >"$RAIZ/etc/dgclaw/dgclaw.env"
     afirma "primeira vez" rodar_firewall_falso
     afirma "segunda vez" rodar_firewall_falso
-    igual "um salto so na INPUT" 1 "$(grep -c '|INPUT| .*-j DGCLAW_HOST' "$TMP/estado/ipt-regras")"
+    afirma "um salto so na INPUT" igual 1 "$(grep -c '|INPUT| .*-j DGCLAW_HOST' "$TMP/estado/ipt-regras")"
     limpar_cenario
 }
 

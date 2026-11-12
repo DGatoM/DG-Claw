@@ -98,4 +98,22 @@ igual "status sai com 1 com o caddy parado" "1" "$?"
 afirma "cobra o caddy" grep -q 'FALHOU servico caddy parado' "$TMP/o.txt"
 afirma "Web na 8300" grep -q 'Web responde em 127.0.0.1:8300' "$TMP/o.txt"
 
+echo "criar: trava compartilhada da faixa de rede"
+preparar
+( exec 8>"$ETC/.faixa-rede.lock"; flock -x 8; sleep 15 ) &
+SEGURA=$!
+sleep 1
+DGCLAW_TRAVA_FAIXA_ESPERA=1 criar_agente ana --nome "Ana"
+igual "criar espera pela trava exclusiva (instalador trocando a faixa) e falha" 1 "$?"
+afirma "a mensagem explica a trava" grep -q 'trava da faixa de rede' "$TMP/saida.txt"
+nega "nenhuma rede foi criada" grep -q 'network create' "$STUB_LOG"
+kill "$SEGURA" 2>/dev/null; wait "$SEGURA" 2>/dev/null
+( exec 8>"$ETC/.faixa-rede.lock"; flock -s 8; sleep 15 ) &
+SEGURA=$!
+sleep 1
+DGCLAW_TRAVA_FAIXA_ESPERA=3 criar_agente ana --nome "Ana"
+igual "outro agente criando (trava compartilhada) nao atrapalha" 0 "$?"
+afirma "a rede foi criada" grep -q 'network create' "$STUB_LOG"
+kill "$SEGURA" 2>/dev/null; wait "$SEGURA" 2>/dev/null
+
 fim

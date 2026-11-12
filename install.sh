@@ -2324,6 +2324,9 @@ main() {
 
     ler_senha
     checar_maquina
+    # A faixa de rede nao pode mudar de baixo de um `agente criar` em andamento: a trava vale da
+    # conferencia da faixa ate a cerca publicada (configurar_firewall).
+    trava_faixa_pegar -x
     checar_faixa_rede
     localizar_claude
     detectar_provedor
@@ -2335,6 +2338,7 @@ main() {
     instalar_codigo
     configurar_caddy
     configurar_firewall
+    trava_faixa_soltar
     configurar_inotify
     configurar_senha
     configurar_web

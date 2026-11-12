@@ -258,6 +258,33 @@ com_trava() {
     ) 9>"$DG_TRAVA"
 }
 
+# --- trava da faixa de rede ---------------------------------------------------------------
+# A faixa dos agentes (DGCLAW_FAIXA_REDE) e lida por `agente criar` ao montar a rede do agente e e
+# trocada pelo instalador. Sem uma trava compartilhada, um agente que nasce na faixa antiga enquanto o
+# instalador grava a faixa nova e reaplica a cerca ficaria sem passar pelas cercas. Por isso:
+#  - o instalador pega a trava EXCLUSIVA da conferencia da faixa ate a cerca publicada (numa maquina
+#    sem /etc/dgclaw ainda nao ha agente que possa nascer, entao nao cria a pasta so para isso);
+#  - `agente criar` pega a trava COMPARTILHADA da leitura da configuracao ate a cerca publicada
+#    (varios agentes podem nascer juntos; so o instalador espera por eles, e eles por ele).
+# A trava e o descritor 8 do processo; `agente criar` passa o podman com ele fechado (ver bin/dgclaw), para
+# o conmon, que vive ate o container parar, nao segurar a trava.
+DG_TRAVA_FAIXA="$DG_ETC/.faixa-rede.lock"
+
+# trava_faixa_pegar <-s|-x>: espera ate DGCLAW_TRAVA_FAIXA_ESPERA segundos (padrao 900).
+trava_faixa_pegar() {
+    [ "$ENSAIO" = 1 ] && return 0
+    local espera="${DGCLAW_TRAVA_FAIXA_ESPERA:-900}"
+    if [ "$1" = -x ] && [ ! -d "$(dirname "$DG_TRAVA_FAIXA")" ]; then return 0; fi
+    mkdir -p "$(dirname "$DG_TRAVA_FAIXA")"
+    exec 8>"$DG_TRAVA_FAIXA" || falha "nao consegui abrir a trava da faixa de rede em $DG_TRAVA_FAIXA." \
+        "confira se voce e root e se a pasta $(dirname "$DG_TRAVA_FAIXA") existe e aceita gravar."
+    flock "$1" -w "$espera" 8 || falha "a trava da faixa de rede ($DG_TRAVA_FAIXA) ficou com outro comando por mais de ${espera}s: a instalacao e a criacao de agente nao rodam ao mesmo tempo, para a cerca de rede nunca ficar com a faixa errada." \
+        "espere o outro comando terminar e rode de novo. Se nada estiver rodando, veja quem segura com: fuser -v $DG_TRAVA_FAIXA"
+}
+
+# trava_faixa_soltar: larga a trava (fecha o descritor 8).
+trava_faixa_soltar() { exec 8>&-; }
+
 # definir_linha_env <arquivo> <CHAVE> <valor> [modo]
 # Poe CHAVE=valor num arquivo de configuracao (dgclaw.env, web.env...) sem reescrever o resto:
 # troca a linha no lugar se ela ja existe, acrescenta no fim se nao existe, e deixa TODAS as
@@ -675,8 +702,33 @@ faixa_rede_exigir() {
         "use por exemplo --faixa-rede 10.91.0.0/16. Cada agente ganha uma rede /24 dentro dessa faixa, por isso ela tem que ser /16."
 }
 
+# porta_painel_reservada <porta>: se a porta e do proprio DG Claw (o runner do Admin, 4300; as faixas
+# de portas dos agentes, 4311 a 4399 de runner e 8311 a 8399 de painel; e as que o agentes.json e o
+# portas.tsv ja reservaram, inclusive de agente parado), imprime quem a reserva e sai com 0.
+# Sai com 1 (sem imprimir) se esta livre para o painel. Painel e Admin na mesma porta deixariam o
+# proxy do usuario alcancar o runner direto.
+porta_painel_reservada() {
+    local p="$1"
+    if [ "$p" = 4300 ]; then printf 'o runner do Admin do DG Claw'; return 0; fi
+    if [ "$p" -ge 4311 ] && [ "$p" -le 4399 ]; then printf 'a faixa de portas dos runners dos agentes (4311 a 4399)'; return 0; fi
+    if [ "$p" -ge 8311 ] && [ "$p" -le 8399 ]; then printf 'a faixa de portas dos paineis dos agentes (8311 a 8399)'; return 0; fi
+    if [ -f "$DG_ETC/portas.tsv" ] && awk -F'\t' -v p="$p" '$2 == p || $3 == p {f = 1} END {exit !f}' "$DG_ETC/portas.tsv"; then
+        printf 'um agente que ja tem essa porta reservada em %s' "${DG_ETC#"$R"}/portas.tsv"; return 0
+    fi
+    if [ -s "$DG_AGENTES_JSON" ] && command -v jq >/dev/null 2>&1 \
+        && jq -e --arg p "$p" '.agentes[]? | select((.porta_painel // "" | tostring) == $p or ((.runner // "") | sub("^.*:"; "")) == $p)' "$DG_AGENTES_JSON" >/dev/null 2>&1; then
+        printf 'um agente registrado em %s' "${DG_AGENTES_JSON#"$R"}"; return 0
+    fi
+    return 1
+}
+
 # porta_painel_exigir <valor> <origem>: o mesmo para a porta do DG Claw Web.
 porta_painel_exigir() {
+    local quem
+    if porta_painel_valida "$1" && quem="$(porta_painel_reservada "$1")"; then
+        falha "a porta do painel '$1' ($2) e reservada ao DG Claw: $quem." \
+            "escolha outra porta, por exemplo --porta-painel 8300 (o padrao) ou --porta-painel 8400. Ficam reservadas a 4300, de 4311 a 4399 e de 8311 a 8399."
+    fi
     porta_painel_valida "$1" && return 0
     falha "a porta do painel '$1' ($2) nao serve: precisa ser um numero inteiro de 1024 a 65535." \
         "use por exemplo --porta-painel 8300 (o padrao) ou --porta-painel 8400."
