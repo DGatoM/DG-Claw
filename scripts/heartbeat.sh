@@ -13,9 +13,15 @@
 # (checagem logo depois do passo 1, antes do "nada a fazer"). Sessao ocupada: "ok", o poke fica
 # pro proximo batimento.
 #
-# So injeta SE houver motivo:
-#   (a) a secao "Quero Falar com o <dono> Sobre" tem linha real (nao comentario/placeholder), ou
-#   (b) a working-memory esta velha (>8h sem rebuild).
+# So injeta SE houver motivo, e a decisao e do script, nao do modelo:
+#   - a secao "Quero Falar com o <dono> Sobre" tem linha real (nao comentario/placeholder). Linha
+#     com a marca "[a partir de AAAA-MM-DD]" e data futura fica quieta ate la (data malformada conta);
+#   - e o conteudo dessa secao (sha256) e diferente do que ja foi levado ao agente no ultimo poke,
+#     ou ja passaram DGCLAW_HEARTBEAT_REPETIR_H horas (padrao 24) desde ele.
+# O estado (hash e epoch do ultimo poke) fica em .dgclaw/state/heartbeat.state e so e gravado
+# depois que a injecao volta 0. Sem isso, uma linha que o agente decide nao levar ao dono (e nao
+# apaga) acordava o modelo a cada poucos batimentos, pra sempre, reescrevendo o cache inteiro.
+# DGCLAW_HEARTBEAT_FORCE=1 pula o filtro do hash (debug/teste).
 #
 # Uso:  bash heartbeat.sh <.dgclaw/config.sh>
 
@@ -77,40 +83,52 @@ if ! is_session_alive "$SLUG"; then
     exit 2
 fi
 
-# --- 2. tem algo pra falar com o dono? ---
+# --- 2. tem algo novo pra falar com o dono? ---
 HAS_NEWS=0
+BLOCK=""
+HOJE="$(date +%F)"
 if [ -f "$WM" ]; then
-    BLOCK=$(awk '/^## Quero Falar com o/{f=1;next} /^## /{f=0} f' "$WM" | grep -vE '^\s*(<!--|$)' | grep -vE '^\s*-\s*\(' )
+    # Tira comentario, linha vazia e placeholder "- (...)". Depois tira as linhas adiadas: marca
+    # "[a partir de AAAA-MM-DD]" com data futura. Data de hoje, passada ou malformada continua contando.
+    BLOCK=$(awk '/^## Quero Falar com o/{f=1;next} /^## /{f=0} f' "$WM" | grep -vE '^\s*(<!--|$)' | grep -vE '^\s*-\s*\(' \
+        | awk -v hoje="$HOJE" '{
+            l = tolower($0)
+            if (match(l, /\[a partir de [^]]*\]/)) {
+                d = substr(l, RSTART + 13, RLENGTH - 14); gsub(/^ +| +$/, "", d)
+                if (d ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/ && d > hoje) next
+            }
+            print }')
     [ -n "$BLOCK" ] && HAS_NEWS=1
 fi
 
-# --- 3. working-memory velha? (>8h) ---
-STALE=0
-if [ -f "$WM" ]; then
-    AGE_H=$(( ( $(date +%s) - $(stat -c %Y "$WM") ) / 3600 ))
-    [ "$AGE_H" -ge 8 ] && STALE=1
-fi
-
-if [ "$HAS_NEWS" = "0" ] && [ "$STALE" = "0" ]; then
+if [ "$HAS_NEWS" = "0" ]; then
     echo "[$(date '+%F %T')] heartbeat: nada a fazer" >> "$LOG"
     exit 0
 fi
 
-# --- 3.5 sorteio de proatividade (1/4) ---
-# Mesmo HAVENDO motivo, nem todo batimento deve incomodar o dono: a vida nao avisa
-# de tudo o tempo todo. Sorteamos 1 em 4 (~25%), o que corta ~60% das chamadas que
-# PASSARAM no smart-check. Ja rodamos os ganchos e refrescamos o "## Agora" acima, entao
-# perder este sorteio nao perde estado — so adia o poke pro proximo batimento.
-# EXCECAO: se a working-memory esta velha (STALE), nao sorteamos — refrescar e barato/seguro
-# e nao queremos deixar a memoria envelhecer indefinidamente.
-# Override: DGCLAW_HEARTBEAT_FORCE=1 pula o sorteio (debug/teste).
-if [ "$STALE" = "0" ] && [ "${DGCLAW_HEARTBEAT_FORCE:-0}" != "1" ]; then
-    DICE=$(( RANDOM % 4 ))
-    if [ "$DICE" -ne 0 ]; then
-        echo "[$(date '+%F %T')] heartbeat: motivo presente (news=$HAS_NEWS) mas sorteio nao caiu (dice=$DICE/4) — adiando poke" >> "$LOG"
-        exit 0
+# --- 3. esse mesmo conteudo ja foi levado ao agente? ---
+STATE_DIR="$DGCLAW_WORKSPACE/.dgclaw/state"
+STATE="$STATE_DIR/heartbeat.state"
+REPETIR_H="${DGCLAW_HEARTBEAT_REPETIR_H:-24}"
+if ! [[ "$REPETIR_H" =~ ^[1-9][0-9]*$ ]]; then
+    echo "[$(date '+%F %T')] heartbeat: aviso, DGCLAW_HEARTBEAT_REPETIR_H='$REPETIR_H' nao e um numero inteiro positivo de horas; usando 24" >> "$LOG"
+    REPETIR_H=24
+fi
+HASH="$(printf '%s\n' "$BLOCK" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sha256sum | cut -d' ' -f1)"
+AGORA_EPOCH="$(date +%s)"
+
+if [ "${DGCLAW_HEARTBEAT_FORCE:-0}" = "1" ]; then
+    echo "[$(date '+%F %T')] heartbeat: DGCLAW_HEARTBEAT_FORCE=1, pulando o filtro do conteudo ja levado" >> "$LOG"
+elif [ -f "$STATE" ]; then
+    read -r OLD_HASH OLD_EPOCH _ < "$STATE" 2>/dev/null
+    if [[ "${OLD_HASH:-}" =~ ^[0-9a-f]{64}$ ]] && [[ "${OLD_EPOCH:-}" =~ ^[0-9]+$ ]]; then
+        if [ "$OLD_HASH" = "$HASH" ] && [ $(( AGORA_EPOCH - OLD_EPOCH )) -lt $(( REPETIR_H * 3600 )) ]; then
+            echo "[$(date '+%F %T')] heartbeat: mesmo assunto ja levado ao agente em $(date -d "@$OLD_EPOCH" '+%F %T'); so acordo de novo se o conteudo mudar ou depois de ${REPETIR_H}h" >> "$LOG"
+            exit 0
+        fi
+    else
+        echo "[$(date '+%F %T')] heartbeat: o arquivo de estado $STATE esta ilegivel ou fora do formato (esperado: hash e epoch); tratando como sem poke anterior. Ele e regravado depois do proximo poke" >> "$LOG"
     fi
-    echo "[$(date '+%F %T')] heartbeat: sorteio caiu (dice=0/4) — seguindo pro poke" >> "$LOG"
 fi
 
 # --- 4. ha motivo: injeta o poke de proatividade na sessao viva (fire-and-forget) ---
@@ -121,13 +139,26 @@ Olhe a working-memory.md, em especial a secao 'Quero Falar com o ${DGCLAW_OWNER:
 Se houver algo REALMENTE digno de avisar o ${DGCLAW_OWNER:-dono} agora (um achado, um recado seu,
 algo que nao pode esperar), mande a mensagem curta e natural pra ele pelo seu canal (texto corrido,
 sem markdown, com no maximo 1-2 emojis) e remova a linha correspondente da working-memory.
-Se NAO houver nada que justifique interromper, nao mande nada — so siga em frente."
+Se NAO houver nada que justifique interromper, nao mande nada.
+Ao terminar, a linha NAO pode ficar igual, senao o batimento te acorda de novo pelo mesmo assunto:
+(a) se voce avisou o ${DGCLAW_OWNER:-dono} ou a linha nao vale mais, remova a linha;
+(b) se prefere falar depois, mantenha a linha e acrescente no fim dela [a partir de AAAA-MM-DD],
+com a data em que quer ser lembrado. Ate la o batimento deixa essa linha quieta."
 
-echo "[$(date '+%F %T')] heartbeat: injetando poke (news=$HAS_NEWS stale=$STALE) na sessao viva de ${SLUG}" >> "$LOG"
+echo "[$(date '+%F %T')] heartbeat: injetando poke (conteudo novo ou prazo vencido) na sessao viva de ${SLUG}" >> "$LOG"
 inject_session "$SLUG" heartbeat <<< "$PROMPT" >> "$LOG" 2>&1
 RC=$?
 case "$RC" in
-    0) echo "[$(date '+%F %T')] heartbeat: poke injetado (rc=0)" >> "$LOG" ;;
+    0)
+        echo "[$(date '+%F %T')] heartbeat: poke injetado (rc=0)" >> "$LOG"
+        # So agora o assunto conta como levado; rc 75 ou falha deixam o estado como estava.
+        if mkdir -p "$STATE_DIR" && printf '%s %s\n' "$HASH" "$AGORA_EPOCH" > "$STATE.tmp.$$" && mv "$STATE.tmp.$$" "$STATE"; then
+            :
+        else
+            rm -f "$STATE.tmp.$$"
+            echo "[$(date '+%F %T')] heartbeat: aviso, nao consegui gravar $STATE (confira a permissao da pasta); o proximo batimento vai injetar de novo o mesmo assunto" >> "$LOG"
+        fi
+        ;;
     2)
         # A sessao caiu entre a checagem do passo 1.5 e a injecao: mesmo tratamento de morta.
         MSG="a sessão do agente caiu às $(date '+%H:%M') na hora de injetar o batimento. O que fazer: ligar o agente e conferir de novo no Pulso"
