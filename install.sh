@@ -833,13 +833,29 @@ registrar_clone() {
 # --- 5. caddy -------------------------------------------------------------------
 configurar_caddy() {
     passo "Configurando o Caddy (HTTPS automatico para $DOMINIO)"
-    local cf="$R/etc/caddy/Caddyfile"
+    local cf="$R/etc/caddy/Caddyfile" rc=0
     escrever_site_caddy "$DOMINIO"
-    executar_log caddy validate --config "$cf" --adapter caddyfile
-    if systemctl is-active --quiet caddy; then
-        executar systemctl reload caddy
+    if [ "$ENSAIO" = 1 ]; then
+        executar_log caddy validate --config "$cf" --adapter caddyfile
     else
+        printf '\n$ caddy validate --config %s --adapter caddyfile\n' "$cf" >>"$LOG_INSTALAR"
+        caddy validate --config "$cf" --adapter caddyfile </dev/null >>"$LOG_INSTALAR" 2>&1 || rc=$?
+        if [ "$rc" -ne 0 ]; then
+            # O Caddy em producao nunca pode ficar com arquivo quebrado: volta o que havia antes.
+            caddy_restaurar_site
+            printf '\n--- ultimas linhas de %s ---\n' "$LOG_INSTALAR" >&2
+            tail -n 15 "$LOG_INSTALAR" >&2
+            falha "o Caddy recusou a configuracao nova (caddy validate terminou com codigo $rc). Voltei o arquivo ${CADDY_SITE_ARQUIVO#"$R"} ao que era e nao recarreguei o Caddy." \
+                "leia as linhas acima (o registro completo esta em ${LOG_INSTALAR#"$R"}); se voce editou o Caddyfile, confira a sintaxe com: caddy validate --config $cf --adapter caddyfile. Depois rode ./install.sh de novo."
+        fi
+    fi
+    [ -z "$CADDY_SITE_COPIA" ] || rm -f "$CADDY_SITE_COPIA"
+    if ! systemctl is-active --quiet caddy; then
         executar systemctl enable --now caddy
+    else
+        # Recarrega mesmo sem mudanca no arquivo: se um reload anterior falhou, o arquivo ja esta
+        # certo no disco mas o Caddy segue com a configuracao velha, e so um reload novo a aplica.
+        executar systemctl reload caddy
     fi
 }
 
