@@ -22,6 +22,21 @@ cartão espera sozinho você terminar.
 Só um cartão fica no meio do login por vez. Os outros botões de gerar ficam desligados, com a frase
 "Termine o login do <nome> primeiro".
 
+## Para o colaborador
+
+O colaborador (pessoa convidada para um agente só) abre a mesma página, mas vê um cartão só, o do agente dele, sem menção ao Admin. O que ele pode fazer depende de o agente estar sem conta:
+
+| Situação do agente | O que o cartão dele mostra |
+| --- | --- |
+| Sem conta de IA | O botão **Gerar link de login** e o passo a passo, igual ao do dono. |
+| Já conectado | Só "Este agente já está conectado.", sem nenhum botão. |
+| Outra pessoa conectando agora | "Outra pessoa está conectando a conta deste agente agora...", sem link, sem código e sem botão. |
+| Login expirado (e a conta não é dele) | Pede para avisar o dono, sem botão. Se foi ele quem conectou a conta, ele reconecta. |
+| Usa chave de API | Aviso de que não há conta para conectar. |
+| O agente não confirmou o estado | Erro 503 explicando; ele tenta de novo mais tarde ou avisa o dono. |
+
+O modal "Faça o login no seu agente" abre para ele com os mesmos textos, só quando o agente dele está com "Falta conectar", sem a memória entre cargas do dono e sem o botão "Não mostrar mais". As regras de quem pode o quê vivem no servidor (`web/lib/conta-colaborador.js`); a tela só reflete.
+
 ## Os rótulos dos cartões
 
 Cada cartão mostra um rótulo, com o nome do agente ao lado: **Agente admin** ("Para administrar: atualizar o DG Claw,
@@ -112,6 +127,19 @@ Contrato completo em `web/docs/LOGIN-NA-CONVERSA.md`.
 - `DELETE /api/v1/agents/<id>/login`: cancela.
 - `POST /api/v1/agents/<id>/login/oi`: quando o login conclui, pede ao agente um oi curto. Se falhar, a conta continua conectada e a página avisa a causa.
 - `GET /api/v1/conectar/docs.md`: este documento.
+
+### Respostas para o colaborador
+
+As rotas de login são as mesmas, mas o servidor filtra a resposta e aplica as regras abaixo (código em `web/lib/conta-colaborador.js`):
+
+- `GET`: com a conta conectada devolve só `{ok, conectado:true, precisa_login:false, provedor}`. Sem conta, devolve `estado`, `link`, `codigoDispositivo` e `mensagem` **só se a reserva em andamento for dele** (senão `ocupado:true` e `estado:"nenhum"`), mais `conectado:false`, `precisa_login:true` e `provedor`. Login expirado que não é dele: `so_dono:true`, `login_expirado:true`. Chave de API: `chave_api:true`. Nunca `auth`, `conferido`, e-mail da conta.
+- `POST` (começar): só com o agente sem conta (confirmado na hora); `409` se já há conta, se usa chave de API ou se outra pessoa tem a reserva; `403` se o login expirou (só o dono reconecta, mesmo que o colaborador tenha conectado a conta); `503` na dúvida.
+- `POST .../codigo`: só com a reserva dele, e reconfere que a conta ainda não existe imediatamente antes de mandar ao runner.
+- `DELETE`: só a própria reserva (`403` sem reserva). `POST .../oi`: só com reserva dele ou se foi ele quem conectou a conta.
+- **Reserva:** uma por agente, em memória, de 15 minutos, com fila por agente cobrindo a conferência e a reserva. O dono também a segura quando começa um login; o dono recebe `409` no `POST` e no `codigo` enquanto o colaborador está conectando, e vê `login_de:"colaborador"` e `login_de_email` no `GET` (sem link nem código). O dono pode cancelar com `DELETE`.
+- Quando o `GET` observa a conta conectada depois de uma reserva com código enviado, grava quem conectou em `conta-agentes.json` e solta a reserva. O log diz `Conta de IA do agente <slug> conectada por <e-mail> (colaborador|dono)` e nunca traz link, código ou senha.
+- `sem conta` = `status errored` com `runner:sem-login`, ou `conferido.ok:false` com `conferido.motivo:"sem_credencial"`. Qualquer outro `ok:false` (tempo, ilegível, método diferente, runner antigo sem o campo) é dúvida e recusa. Antes de iniciar e de mandar o código a conferência é refeita sem cache (`GET /api/provedor?fresco=1` no runner, que responde `fresco:true`); runner antigo é dúvida.
+- A sessão é conferida de novo depois de ler o corpo; se o acesso foi revogado no meio, `401`.
 
 ## O que nunca vai para log
 

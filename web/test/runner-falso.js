@@ -74,12 +74,16 @@ function criarRunnerFalso(opcoes) {
     if (rota === '/api/provedor' && req.method === 'GET') {
       rec.provedorPedidos += 1;
       if (!o.provedor) return json(404, { success: false, error: 'rota inexistente' });
-      return setTimeout(() => json(200, o.provedor), o.atrasoProvedorMs);
+      // ?fresco=1: o runner novo refaz a conferência sem cache e responde `fresco:true` (o antigo ignora o pedido).
+      const fresco = /[?&]fresco=1(&|$)/.test(req.url);
+      if (fresco) rec.provedorFrescos = (rec.provedorFrescos || 0) + 1;
+      const corpo = fresco && !o.runnerAntigo ? Object.assign({}, o.provedorFresco || o.provedor, { fresco: true }) : o.provedor;
+      return setTimeout(() => json(200, corpo), o.atrasoProvedorMs);
     }
     if (rota === '/api/provedor/login' && ['GET', 'POST', 'DELETE'].includes(req.method)) {
       if (req.method === 'GET') return json(200, o.login);
       if (o.loginRecusa) return json(o.loginRecusa.status, o.loginRecusa.corpo);
-      if (req.method === 'DELETE') { rec.loginDeletes += 1; o.login = { estado: 'nenhum' }; return json(200, { ok: true, estado: 'nenhum' }); }
+      if (req.method === 'DELETE') { rec.loginDeletes += 1; o.login = { estado: 'nenhum' }; if (o.aoCancelarLogin) o.aoCancelarLogin(o); return json(200, { ok: true, estado: 'nenhum' }); }
       rec.loginPosts += 1;
       if (o.login.estado === 'nenhum' || o.login.estado === 'falhou' || o.login.estado === 'concluido') o.login = { estado: 'aguardando_link' };
       return json(202, o.login);

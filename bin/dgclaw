@@ -33,6 +33,8 @@ APP_DIR="$(cd "$(dirname "$DGCLAW_BIN_REAL")/.." && pwd)"
 . "$APP_DIR/lib/aviso-atualizacao.sh"
 # shellcheck source=lib/personalizacoes.sh
 . "$APP_DIR/lib/personalizacoes.sh"
+# shellcheck source=lib/colaborador.sh
+. "$APP_DIR/lib/colaborador.sh"
 
 # Tempo maximo de espera (segundos) do systemd e do /api/saude de dentro do agente.
 # Variavel so para os testes nao esperarem um minuto de verdade.
@@ -176,6 +178,12 @@ Personalizacoes do programa (o que o Admin mudou no DG Claw)
   dgclaw personalizacoes conferir        confere o registro contra a versao nova (git fetch) e diz se algo cruza; nao muda nada
   dgclaw personalizacoes concluir        marca o levantamento pendente como concluido (exige o registro)
       Exemplo:  sudo dgclaw personalizacoes conferir
+
+Colaboradores (quem conversa com UM agente)
+  dgclaw colaborador criar <agente> <email> [--nome "<Nome>"] [--json]
+      Cria o acesso e mostra o texto do convite pronto para copiar (endereco, login e senha temporaria).
+      Outros: listar [agente], reenviar <id-ou-email>, revogar <id-ou-email>. Ver "dgclaw colaborador ajuda".
+      Exemplo:  sudo dgclaw colaborador criar ana maria@empresa.com --nome "Maria"
 
 Ronda de seguranca
   dgclaw seguranca [estado|resumo|rodar|aplicar|desfazer|inventario]   ver "dgclaw seguranca ajuda"
@@ -2350,6 +2358,7 @@ main() {
         imagem) imagem_main "$@" ;;
         senha) senha_main "$@" ;;
         seguranca) seguranca_main "$@" ;;
+        colaborador) colaborador_main "$@" ;;
         dominio) dominio_main "$@" ;;
         primeiro-acesso) primeiro_acesso "$@" ;;
         instalacao-remota) instalacao_remota "$@" ;;
