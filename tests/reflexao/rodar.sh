@@ -163,6 +163,30 @@ novo_cenario
 rodar env
 afirma "ultima linha sem quebra (escrita em andamento) nao impede o pulo" bash -c "! grep -q '^inject_session' '$CHAMADAS'"
 
+novo_cenario
+echo x >"$TMP/nao-e-pasta"
+rodar env DGCLAW_SESSION_DIR="$TMP/nao-e-pasta"
+afirma "pasta de sessoes que nao pode ser listada: injeta" injetou
+afirma "pasta nao listavel: o log explica" bash -c "grep -q 'duvida\|nao existe\|incerta' '$WS/.dgclaw/logs/reflection.log'"
+
+# scandir que falha com PermissionError (simulado por sitecustomize, so neste caso)
+novo_cenario
+: >"$SESSOES/a.jsonl"
+mkdir -p "$TMP/sc"
+cat >"$TMP/sc/sitecustomize.py" <<'PY'
+import os
+_orig = os.scandir
+def _scandir(p="."):
+    if "sessoes" in str(p):
+        raise PermissionError(13, "Permission denied", str(p))
+    return _orig(p)
+os.scandir = _scandir
+PY
+rodar env PYTHONPATH="$TMP/sc"
+afirma "listagem com PermissionError: injeta" injetou
+afirma "listagem com PermissionError: o log explica" bash -c "grep -q 'nao consegui listar' '$WS/.dgclaw/logs/reflection.log'"
+nega "listagem com PermissionError: nao anota dia pulado" test -f "$WS/.dgclaw/logs/reflexoes-puladas.txt"
+
 echo "DGCLAW_REFLECT_SEMPRE=1 forca"
 novo_cenario
 : >"$SESSOES/vazia.jsonl"

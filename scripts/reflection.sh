@@ -162,7 +162,14 @@ try:
     inicio_do_dia = datetime.strptime(dia, "%Y-%m-%d").replace(tzinfo=tz).timestamp() - 3600
 except ValueError:
     inicio_do_dia = None
-todos = sorted(sd.glob("*.jsonl"), key=lambda q: q.stat().st_mtime, reverse=True)
+# Path.glob engole PermissionError e devolveria lista vazia ("zero mensagens"): lista com scandir.
+try:
+    with os.scandir(sd) as it:
+        todos = sorted((sd / d.name for d in it if d.name.endswith(".jsonl")),
+                       key=lambda q: q.stat().st_mtime, reverse=True)
+except OSError as e:
+    informa(f"duvida: nao consegui listar {sd}: {e}")
+    sys.exit(0)
 cache = {}
 
 
