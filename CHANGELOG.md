@@ -16,7 +16,8 @@ nos colaboradores (pessoas convidadas para conversar com um agente só):
   na conversa, numa caixinha com o botão de copiar.
 - Se o agente ainda não tem conta de IA conectada, o colaborador agora pode conectar a dele na página **Conectar conta**,
   sem depender do dono. Só uma pessoa conecta por vez, um agente que já tem conta continua só com o dono, e um login
-  expirado só é do colaborador se foi ele quem conectou aquela conta. Revogar o colaborador não desconecta a conta que ele
+  expirado também: o colaborador só inicia o login quando o agente confirma, na hora, que não há nenhuma credencial; com
+  credencial presente, mesmo vencida e mesmo que ele a tenha conectado antes, quem reconecta é o dono, em Conectar conta. Revogar o colaborador não desconecta a conta que ele
   conectou, e o aviso aparece no comando e no log.
 - A conversa do colaborador não tem mais a fileira nem o menu de troca de agentes, porque ele só enxerga o agente dele.
 

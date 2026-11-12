@@ -143,13 +143,13 @@ test('código com a conta já conectada no meio: 409 e nada vai ao runner', asyn
   });
 });
 
-test('login expirado: só é dele se foi ele quem conectou; senão o dono reconecta', async () => {
+test('login expirado: o colaborador nunca reconecta, nem a conta que ele mesmo conectou; só o dono', async () => {
   const EXPIRADO = { status: 'errored', statusReason: 'runner:login-expirado', provedor: { provedor: 'claude', auth: 'assinatura', conferido: { ok: false } } };
   await comColab(EXPIRADO, async (s, x) => {
     const g = await x.c.get(LOGIN);
     assert.equal(g.json.so_dono, true); assert.equal(g.json.precisa_login, false);
     const p = await x.c.post(LOGIN, { json: {} });
-    assert.equal(p.status, 409); assert.match(p.json.erro, /só o dono do DG Claw reconecta/);
+    assert.equal(p.status, 403); assert.match(p.json.erro, /só o dono do DG Claw reconecta/);
     assert.equal(s.rAna.rec.loginPosts, 0);
   });
   await comColab({}, async (s, x) => {
@@ -160,8 +160,10 @@ test('login expirado: só é dele se foi ele quem conectou; senão o dono recone
     muda(s, Object.assign({}, COM_CONTA, { login: { estado: 'concluido' } }));
     await x.c.get(LOGIN);
     muda(s, Object.assign({}, EXPIRADO, { login: { estado: 'nenhum' } }));
+    // credencial presente, mesmo vencida e com autoria dele: só o dono reconecta
     const p = await x.c.post(LOGIN, { json: {} });
-    assert.equal(p.status, 202, p.texto);
+    assert.equal(p.status, 403, p.texto); assert.match(p.json.erro, /só o dono do DG Claw reconecta.*Conectar conta/);
+    assert.equal(s.rAna.rec.loginPosts, 1, 'só o login original chegou ao runner');
   });
 });
 
@@ -266,7 +268,7 @@ test('registro durável de outra instância do agente não vale: agente recriado
     fs.writeFileSync(arq, JSON.stringify(j));
     fs.utimesSync(arq, new Date(Date.now() + 5000), new Date(Date.now() + 5000)); // o Web relê quando o mtime muda
     muda(s, Object.assign({}, { status: 'errored', statusReason: 'runner:login-expirado', provedor: { provedor: 'claude', auth: 'assinatura', conferido: { ok: false } }, login: { estado: 'nenhum' } }));
-    assert.equal((await x.c.post(LOGIN, { json: {} })).status, 409, 'expirado e o registro é de outra instância: só o dono');
+    assert.equal((await x.c.post(LOGIN, { json: {} })).status, 403, 'expirado e o registro é de outra instância: só o dono');
   });
 });
 
@@ -311,7 +313,7 @@ test('conta conectada pelo dono é registrada como do dono e vale por cima da do
     assert.ok(!s.t.log.texto().includes('codigo-do-dono'));
     // agora a conta expirou: não é mais dele
     muda(s, { status: 'errored', statusReason: 'runner:login-expirado', provedor: { provedor: 'claude', auth: 'assinatura', conferido: { ok: false } }, login: { estado: 'nenhum' } });
-    assert.equal((await x.c.post(LOGIN, { json: {} })).status, 409);
+    assert.equal((await x.c.post(LOGIN, { json: {} })).status, 403);
   });
 });
 
@@ -359,7 +361,7 @@ test('device-auth do dono com a credencial antiga ainda conectada: a reserva fic
     await s.dono.get(LOGIN);
     assert.equal(JSON.parse(fs.readFileSync(arq, 'utf8')).agentes.ana.por, 'dono');
     muda(s, { status: 'errored', statusReason: 'runner:login-expirado', login: { estado: 'nenhum' } });
-    assert.equal((await x.c.post(LOGIN, { json: {} })).status, 409, 'o colaborador antigo não reconecta a conta nova do dono');
+    assert.equal((await x.c.post(LOGIN, { json: {} })).status, 403, 'o colaborador antigo não reconecta a conta nova do dono');
   });
 });
 
@@ -681,7 +683,7 @@ test('"sem conta" exige a prova da conferência fresca: runner:sem-login com tem
   }
 });
 
-test('a autoria vale só para o provedor em que foi feita: Claude para Codex e Codex para Claude', async () => {
+test('credencial presente de outro provedor ou vencida: o colaborador não inicia, mesmo com autoria registrada (Claude e Codex)', async () => {
   for (const [de, para] of [['claude', 'codex'], ['codex', 'claude']]) {
     await comColab({ provedor: { provedor: de, auth: 'assinatura', conferido: { ok: false, motivo: 'sem_credencial' } } }, async (s, x) => {
       await x.c.post(LOGIN, { json: {} });
@@ -689,20 +691,54 @@ test('a autoria vale só para o provedor em que foi feita: Claude para Codex e C
       await x.c.post(LOGIN + '/codigo', { json: { codigo: 'abc123' } });
       muda(s, { status: 'idle', provedor: { provedor: de, auth: 'assinatura', conferido: { ok: true } }, login: { estado: 'concluido' } });
       await x.c.get(LOGIN);
-      const arq = path.join(s.t.dados, 'conta-agentes.json');
-      assert.equal(JSON.parse(fs.readFileSync(arq, 'utf8')).agentes.ana.provedor, de);
-      // expira com o MESMO provedor: ainda é dele
-      const expira = (prov) => muda(s, { status: 'errored', statusReason: 'runner:login-expirado', provedor: { provedor: prov, auth: 'assinatura', conferido: { ok: false, motivo: 'sem_credencial' } }, login: { estado: 'nenhum' } });
-      expira(de);
-      assert.equal((await x.c.get(LOGIN)).json.so_dono, undefined, `${de}: expirado do mesmo provedor é dele`);
-      // o provedor do agente mudou (sem passar pelas rotas que invalidam, ex.: edição do descritor) e expirou: não é mais dele
-      expira(para);
-      const g = await x.c.get(LOGIN);
-      assert.equal(g.json.so_dono, true, `${de} para ${para}`);
-      assert.equal((await x.c.post(LOGIN, { json: {} })).status, 409);
+      assert.equal(JSON.parse(fs.readFileSync(path.join(s.t.dados, 'conta-agentes.json'), 'utf8')).agentes.ana.provedor, de);
+      for (const prov of [de, para]) {
+        muda(s, { status: 'errored', statusReason: 'runner:login-expirado', provedor: { provedor: prov, auth: 'assinatura', conferido: { ok: false, motivo: 'sem_credencial' } }, login: { estado: 'nenhum' } });
+        assert.equal((await x.c.get(LOGIN)).json.so_dono, true, `${de} com ${prov}`);
+        assert.equal((await x.c.post(LOGIN, { json: {} })).status, 403);
+      }
       assert.equal(s.rAna.rec.loginPosts, 1);
     });
   }
+});
+
+test('o provedor muda no meio da tentativa e a conta que entra é de outro provedor: a autoria não é registrada (Claude e Codex)', async () => {
+  for (const [de, para] of [['claude', 'codex'], ['codex', 'claude']]) {
+    await comColab({ provedor: { provedor: de, auth: 'assinatura', conferido: { ok: false, motivo: 'sem_credencial' } } }, async (s, x) => {
+      await x.c.post(LOGIN, { json: {} });
+      muda(s, { login: { estado: 'aguardando_codigo', link: LINK } });
+      await x.c.post(LOGIN + '/codigo', { json: { codigo: 'abc123' } });
+      // o provedor passou a ser o outro, que já tinha a conta do dono, e o login do colaborador concluiu
+      muda(s, { status: 'idle', provedor: { provedor: para, auth: 'assinatura', conferido: { ok: true } }, login: { estado: 'concluido' } });
+      await x.c.get(LOGIN);
+      const j = JSON.parse(fs.readFileSync(path.join(s.t.dados, 'conta-agentes.json'), 'utf8')).agentes;
+      assert.equal(j.ana, undefined, `${de} para ${para}: sem autoria`); assert.equal(j['ana:pendente'], undefined);
+      assert.match(s.t.log.texto(), /passou a ser/);
+    });
+  }
+});
+
+test('a troca de provedor pelo painel segura a fila do login até liberar: o colaborador não começa nem conclui no meio', async () => {
+  const { criarContaColaborador } = require('../lib/conta-colaborador');
+  const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'conta-colab-'));
+  try {
+    const consulta = { lg: { ok: true, corpo: { estado: 'nenhum' } }, prov: { provedor: 'codex', auth: 'assinatura', conferido: { ok: false, motivo: 'sem_credencial' } }, est: { ok: true, estado: { status: 'errored', statusReason: 'runner:sem-login' } }, fresco: true };
+    let comecos = 0;
+    const loginFalso = { consultar: async () => consulta, consultarFresco: async () => consulta, corpoDaConsulta: () => ({}), comecar: async () => { comecos += 1; return { status: 202, corpo: { ok: true, estado: 'aguardando_link' } }; }, cancelar: async () => ({ status: 200, corpo: { ok: true } }), falha: () => ({ status: 503, corpo: { ok: false } }) };
+    const conta = criarContaColaborador({ dataDir: dir, login: loginFalso, log: () => {}, agora: () => Date.now() });
+    const agente = { slug: 'ana', instancia: 'x1', provedor: 'codex' };
+    const seg = await conta.seguraProvedorNoPainelDoDono(agente);
+    assert.equal(typeof seg.liberar, 'function');
+    const colab = { papel: 'colaborador', colaborador_id: 'c1', usuario: 'maria@x.com' };
+    let resolvido = false;
+    const p = conta.comecar(agente, colab, {}).then((r) => { resolvido = true; return r; });
+    await new Promise((r) => setTimeout(r, 80));
+    assert.equal(resolvido, false, 'o colaborador espera enquanto o POST do provedor ainda está em andamento');
+    assert.equal(comecos, 0);
+    seg.liberar();
+    assert.equal((await p).status, 202);
+    assert.equal(comecos, 1);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('o dono mexer no provedor pelo painel (POST/PUT/PATCH/DELETE em /p/<slug>/api/provedor) invalida a autoria, e respeita a reserva do colaborador', async () => {

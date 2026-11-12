@@ -836,11 +836,8 @@ function criarServidor(opcoes) {
     // O motivo do runner pode citar link ou código de login: o colaborador só fica sabendo que falta conta, sem link.
     if (copia.motivo) {
       if (copia.alerta === 'sem_login') copia.motivo = 'O agente ainda não tem uma conta de IA conectada. Você pode conectar a sua em Conectar conta, no menu.';
-      else if (copia.alerta === 'login_expirado') {
-        copia.motivo = contaColab.conectouEste(agente, sessao)
-          ? 'O login da conta que você conectou expirou. Você pode conectar de novo em Conectar conta, no menu.'
-          : 'O login do agente expirou, e só o dono do DG Claw reconecta. Avise o dono.';
-      } else copia.motivo = 'O agente está sem sinal agora.';
+      else if (copia.alerta === 'login_expirado') copia.motivo = 'O login do agente expirou, e só o dono do DG Claw reconecta. Avise o dono.';
+      else copia.motivo = 'O agente está sem sinal agora.';
     }
     return copia;
   }
@@ -1312,9 +1309,15 @@ function criarServidor(opcoes) {
         const mp = /^\/api\/provedor\/login(\/codigo)?\/?$/i.exec(pp[2]);
         const slugP = (() => { try { return decodeURIComponent(pp[1]); } catch (_) { return ''; } })();
         const agP = RX_SLUG_ROTA.test(slugP) ? registro.obter(slugP) : null;
-        if (agP) {
-          const veto = mp && (m === 'POST' || m === 'DELETE') ? await contaColab.noPainelDoDono(agP, sessao, m, !!mp[1]) : await contaColab.provedorNoPainelDoDono(agP);
+        if (agP && mp && (m === 'POST' || m === 'DELETE')) {
+          const veto = await contaColab.noPainelDoDono(agP, sessao, m, !!mp[1]);
           if (veto) return H.erroJson(res, veto.status, veto.corpo.erro);
+        } else if (agP) {
+          // Troca de provedor: a fila do login do colaborador fica trancada até a resposta do painel terminar.
+          const seg = await contaColab.seguraProvedorNoPainelDoDono(agP);
+          if (seg.veto) return H.erroJson(res, seg.veto.status, seg.veto.corpo.erro);
+          res.once('close', seg.liberar);
+          try { return await proxy.responder(req, res, pp[1], sessao.usuario, quemDoProxy(sessao, req)); } catch (e) { seg.liberar(); throw e; }
         }
       }
       return proxy.responder(req, res, pp[1], sessao.usuario, quemDoProxy(sessao, req));

@@ -162,7 +162,7 @@ test('achado 5: login expirado de conta que não é dele continua só do dono', 
   try {
     const x = await colaboradorAtivo(s);
     const r = await x.c.post('/api/v1/agents/ana/login', { json: {} });
-    assert.equal(r.status, 409); assert.match(r.json.erro, /só o dono do DG Claw reconecta/);
+    assert.equal(r.status, 403); assert.match(r.json.erro, /só o dono do DG Claw reconecta/);
     assert.equal(s.rAna.rec.loginPosts, 0);
   } finally { await s.fechar(); }
 });

@@ -133,7 +133,7 @@ Contrato completo em `web/docs/LOGIN-NA-CONVERSA.md`.
 As rotas de login são as mesmas, mas o servidor filtra a resposta e aplica as regras abaixo (código em `web/lib/conta-colaborador.js`):
 
 - `GET`: com a conta conectada devolve só `{ok, conectado:true, precisa_login:false, provedor}`. Sem conta, devolve `estado`, `link`, `codigoDispositivo` e `mensagem` **só se a reserva em andamento for dele** (senão `ocupado:true` e `estado:"nenhum"`), mais `conectado:false`, `precisa_login:true` e `provedor`. Login expirado que não é dele: `so_dono:true`, `login_expirado:true`. Chave de API: `chave_api:true`. Nunca `auth`, `conferido`, e-mail da conta.
-- `POST` (começar): só com o agente sem conta (confirmado na hora); `409` se já há conta, se o login expirado não é dele, se usa chave de API ou se outra pessoa tem a reserva; `503` na dúvida.
+- `POST` (começar): só com o agente sem conta (confirmado na hora); `409` se já há conta, se usa chave de API ou se outra pessoa tem a reserva; `403` se o login expirou (só o dono reconecta, mesmo que o colaborador tenha conectado a conta); `503` na dúvida.
 - `POST .../codigo`: só com a reserva dele, e reconfere que a conta ainda não existe imediatamente antes de mandar ao runner.
 - `DELETE`: só a própria reserva (`403` sem reserva). `POST .../oi`: só com reserva dele ou se foi ele quem conectou a conta.
 - **Reserva:** uma por agente, em memória, de 15 minutos, com fila por agente cobrindo a conferência e a reserva. O dono também a segura quando começa um login; o dono recebe `409` no `POST` e no `codigo` enquanto o colaborador está conectando, e vê `login_de:"colaborador"` e `login_de_email` no `GET` (sem link nem código). O dono pode cancelar com `DELETE`.
