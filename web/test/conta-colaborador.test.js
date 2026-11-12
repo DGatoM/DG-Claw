@@ -539,6 +539,39 @@ test('revogar logo depois de ele concluir o login (sem nenhum GET ter observado)
   });
 });
 
+test('revogar: o login conclui entre a conferência e o cancelamento, e a tentativa não é apagada (conta fica, dono avisado)', async () => {
+  await comColab({}, async (s, x) => {
+    await x.c.post(LOGIN, { json: {} });
+    muda(s, { login: { estado: 'aguardando_codigo', link: LINK } });
+    await x.c.post(LOGIN + '/codigo', { json: { codigo: 'abc123' } });
+    // a conferência sem cache ainda vê "sem credencial"; a credencial é gravada durante o cancelamento
+    s.rAna.opcoes.aoCancelarLogin = (o) => { Object.assign(o, COM_CONTA); };
+    const r = await s.dono.pedir('DELETE', `/api/v1/colaboradores/${x.id}`);
+    assert.equal(r.status, 200, r.texto);
+    assert.equal(s.rAna.rec.loginDeletes, 1);
+    assert.deepEqual(r.json.contas_de_ia, ['ana']);
+    assert.equal(r.json.avisos.length, 1, JSON.stringify(r.json.avisos));
+    assert.match(r.json.avisos[0], /continua conectada no agente ana/);
+    assert.match(r.json.avisos[0], /desconecte pela página Conectar conta/);
+    const j = JSON.parse(fs.readFileSync(path.join(s.t.dados, 'conta-agentes.json'), 'utf8')).agentes;
+    assert.equal(j.ana.por, 'colaborador'); assert.equal(j.ana.revogado, true); assert.equal(j.ana.colaborador_id, x.id);
+    assert.equal(j['ana:pendente'], undefined);
+  });
+  // a reconferência depois do cancelamento falha: dúvida, a tentativa fica marcada como revogada e o dono é avisado
+  await comColab({}, async (s, x) => {
+    await x.c.post(LOGIN, { json: {} });
+    muda(s, { login: { estado: 'aguardando_codigo', link: LINK } });
+    await x.c.post(LOGIN + '/codigo', { json: { codigo: 'abc123' } });
+    s.rAna.opcoes.aoCancelarLogin = (o) => { o.provedor = { provedor: 'claude', auth: 'assinatura', conferido: { ok: false, motivo: 'tempo' } }; };
+    const r = await s.dono.pedir('DELETE', `/api/v1/colaboradores/${x.id}`);
+    assert.equal(r.status, 200, r.texto);
+    assert.deepEqual(r.json.contas_de_ia, ['ana']);
+    assert.ok(r.json.avisos.some((a) => /Não consegui confirmar o estado da conta do agente ana/.test(a)), JSON.stringify(r.json.avisos));
+    const j = JSON.parse(fs.readFileSync(path.join(s.t.dados, 'conta-agentes.json'), 'utf8')).agentes;
+    assert.equal(j['ana:pendente'].revogado, true);
+  });
+});
+
 test('revogar com a tentativa cancelada e sem conta: apaga o rastro e não avisa; sem poder confirmar, avisa "confira a conta"', async () => {
   await comColab({}, async (s, x) => {
     await x.c.post(LOGIN, { json: {} });

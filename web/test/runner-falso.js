@@ -83,7 +83,7 @@ function criarRunnerFalso(opcoes) {
     if (rota === '/api/provedor/login' && ['GET', 'POST', 'DELETE'].includes(req.method)) {
       if (req.method === 'GET') return json(200, o.login);
       if (o.loginRecusa) return json(o.loginRecusa.status, o.loginRecusa.corpo);
-      if (req.method === 'DELETE') { rec.loginDeletes += 1; o.login = { estado: 'nenhum' }; return json(200, { ok: true, estado: 'nenhum' }); }
+      if (req.method === 'DELETE') { rec.loginDeletes += 1; o.login = { estado: 'nenhum' }; if (o.aoCancelarLogin) o.aoCancelarLogin(o); return json(200, { ok: true, estado: 'nenhum' }); }
       rec.loginPosts += 1;
       if (o.login.estado === 'nenhum' || o.login.estado === 'falhou' || o.login.estado === 'concluido') o.login = { estado: 'aguardando_link' };
       return json(202, o.login);

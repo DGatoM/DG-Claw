@@ -427,16 +427,20 @@ function criarContaColaborador({ dataDir, login, log, agora, escreveArquivo }) {
         const email = (dele && r.email) || (pend && pend.email) || colaboradorId;
         const confira = `Confira a conta de IA do agente ${slug} em Conectar conta (troque-a se quiser).`;
         if (!agente) { if (dele) reservas.delete(slug); avisos.push(`${email} tinha um login pendente no agente ${slug}, que não está mais no registro.`); return; }
-        let c = null; let motivo = '';
-        try {
-          c = await login.consultarFresco(agente);
-          if (!c.lg.ok) { motivo = c.lg.erro || 'o runner não respondeu'; c = null; }
-        } catch (e) { motivo = e.message; c = null; }
-        let situ = null;
-        if (c) {
-          situ = c.fresco ? situacao(c) : { tipo: 'duvida', motivo: 'o runner é de versão antiga e não refaz a conferência na hora' };
-          if (situ.tipo === 'duvida') { motivo = situ.motivo; situ = null; }
-        }
+        const confere = async () => {
+          let cc = null; let mot = '';
+          try {
+            cc = await login.consultarFresco(agente);
+            if (!cc.lg.ok) { mot = cc.lg.erro || 'o runner não respondeu'; cc = null; }
+          } catch (e) { mot = e.message; cc = null; }
+          let sit = null;
+          if (cc) {
+            sit = cc.fresco ? situacao(cc) : { tipo: 'duvida', motivo: 'o runner é de versão antiga e não refaz a conferência na hora' };
+            if (sit.tipo === 'duvida') { mot = sit.motivo; sit = null; }
+          }
+          return { c: cc, situ: sit, motivo: mot };
+        };
+        let { c, situ, motivo } = await confere();
         const estado = c && c.lg.corpo ? c.lg.corpo.estado : undefined;
         let cancelFalhou = '';
         if (dele || (pend && (!c || EM_ANDAMENTO.has(estado)))) {
@@ -446,6 +450,14 @@ function criarContaColaborador({ dataDir, login, log, agora, escreveArquivo }) {
           } catch (e) { cancelFalhou = e.message; }
         }
         if (dele && reservas.get(slug) === r) reservas.delete(slug);
+        // O colaborador pode ter concluído o login entre a conferência e o cancelamento, e cancelar não remove uma
+        // credencial já gravada: reconfere depois, e se entrou conta (ou não dá para saber) a tentativa não é apagada.
+        let aposCancelar = false;
+        if (pend && !cancelFalhou && situ && !(situ.tipo === 'conectado' || situ.tipo === 'expirado')) {
+          const depois = await confere();
+          c = depois.c; situ = depois.situ; motivo = depois.motivo;
+          aposCancelar = true;
+        }
         if (cancelFalhou) {
           log('aviso', `Não consegui cancelar o login pendente de ${email} no agente ${slug} (${cancelFalhou}). Ele pode concluir a tentativa mesmo revogado; se a conta entrar, ela fica registrada como dele.`);
           avisos.push(`Não consegui cancelar o login que ${email} deixou em andamento no agente ${slug} (${cancelFalhou}). Cancele pelo botão Cancelar em Conectar conta. ${confira}`);
@@ -453,7 +465,9 @@ function criarContaColaborador({ dataDir, login, log, agora, escreveArquivo }) {
         const existe = situ && (situ.tipo === 'conectado' || situ.tipo === 'expirado');
         if (existe && pend) {
           await registra(agente, { por: 'colaborador', colaborador_id: colaboradorId, email, revogado: true, provedor: c.prov.provedor }, `${email} (colaborador já revogado)`);
-          avisos.push(`O agente ${slug} está com conta conectada e ${email} tinha uma tentativa de login em andamento: a conta pode ser a dele. ${confira}`);
+          avisos.push(aposCancelar
+            ? `A conta do colaborador ${email} continua conectada no agente ${slug}: o login dele terminou enquanto o acesso era revogado, e cancelar não desconecta uma conta que já entrou. Para trocá-la, desconecte pela página Conectar conta.`
+            : `O agente ${slug} está com conta conectada e ${email} tinha uma tentativa de login em andamento: a conta pode ser a dele. ${confira}`);
           agentes.push(slug);
         } else if (!situ || cancelFalhou) {
           if (pend) { try { await grava({ [kPend(slug)]: Object.assign({}, pend, { revogado: true }) }); } catch (e) { log('erro', `Não consegui marcar a tentativa revogada de ${email} no agente ${slug} (${e.message}).`); } }
