@@ -1,4 +1,5 @@
 const fs = require('fs');
+const crypto = require('crypto');
 const path = require('path');
 const { COMO_RESOLVER } = require('./auth');
 
@@ -44,6 +45,42 @@ module.exports = function buildHtmlTemplate({ BASE, CONFIG, serverDir, getAuth }
     '<script src="/casca.js"></script>',
   ].join('\n  ');
 
+  // Sob a plataforma o HTML já nasce com a classe da casca: o layout antigo nunca chega a aparecer
+  // (main.css, html.casca.carregando). Sem a plataforma o painel solto fica como era.
+  const HTML_CLASSE_PLATAFORMA = ' class="casca carregando"';
+
+  // Versão dos css/js: hash do tamanho e da data de cada arquivo de public/js e public/css. Recalculada
+  // a cada 5 segundos no máximo: um `git pull` sem reiniciar o painel muda o ?v= junto com os arquivos,
+  // e o navegador, que guarda o arquivo versionado por um ano, busca o novo.
+  const _versao = { em: 0, valor: '0' };
+  function versaoDosAssets() {
+    const agora = Date.now();
+    if (agora - _versao.em < 5000) return _versao.valor;
+    const h = crypto.createHash('sha1');
+    for (const sub of ['css', 'js']) {
+      let nomes = [];
+      try { nomes = fs.readdirSync(path.join(PUBLIC_DIR, sub)).sort(); } catch { /* pasta ausente: entra vazia */ }
+      for (const n of nomes) {
+        try {
+          const st = fs.statSync(path.join(PUBLIC_DIR, sub, n));
+          if (st.isFile()) h.update(`${sub}/${n}:${st.size}:${Math.floor(st.mtimeMs)};`);
+        } catch { /* arquivo sumiu entre a lista e a leitura */ }
+      }
+    }
+    _versao.valor = h.digest('hex').slice(0, 10);
+    _versao.em = agora;
+    return _versao.valor;
+  }
+  const comVersao = (html) => html.split('{{VERSAO_ASSETS}}').join(versaoDosAssets());
+
+  // {{CARREGANDO}}: o noscript e o vigia do estado "carregando". Só sob a plataforma, junto da classe no <html>.
+  // O vigia fica no HTML (e não no app.js) para valer também quando o app.js nem chega a carregar: se a tela
+  // não abrir em 8 segundos ela é liberada, e sem a casca montada volta o menu antigo.
+  const CARREGANDO_HTML = [
+    '<noscript><style>html.casca.carregando .principal{visibility:visible}html.casca.carregando body::before,html.casca.carregando body::after,html.casca.carregando .app::after{display:none}</style></noscript>',
+    "<script>setTimeout(function(){var h=document.documentElement;if(!h.classList.contains('carregando'))return;h.classList.remove('carregando');if(!document.getElementById('cabecalho'))h.classList.remove('casca');console.warn('[painel] a tela passou de 8 segundos no estado carregando e foi liberada à força. Recarregue a página; se repetir, confira o console por erros do app.js.')},8000)</script>",
+  ].join('\n  ');
+
   // Devolve o HTML já com {{BASE}} trocado, ou null se o arquivo não existe.
   function carregarTemplate(filePath) {
     let mtimeMs;
@@ -55,10 +92,14 @@ module.exports = function buildHtmlTemplate({ BASE, CONFIG, serverDir, getAuth }
     const cached = _htmlCache.get(filePath);
     if (cached && cached.mtimeMs === mtimeMs) return cached.html;
     const html = fs.readFileSync(filePath, 'utf-8')
+      .split('{{HTML_CLASSE}}').join(BASE ? HTML_CLASSE_PLATAFORMA : '')
+      .split('{{CARREGANDO}}').join(BASE ? CARREGANDO_HTML : '')
       .split('{{CASCA}}').join(BASE ? CASCA_HTML : '')
       .split('{{VOLTAR}}').join(BASE ? VOLTAR_HTML : '')
       .split('{{BASE_JSON}}').join(JSON.stringify(BASE))
-      .split('{{BASE}}').join(BASE);
+      .split('{{BASE}}').join(BASE)
+      // css/js do painel ganham ?v=<versão>; o valor entra a cada pedido (comVersao), não no cache do arquivo.
+      .replace(/((?:href|src)="[^"]*\/(?:css|js)\/[^"?]+)"/g, '$1?v={{VERSAO_ASSETS}}"');
     _htmlCache.set(filePath, { mtimeMs, html });
     return html;
   }
@@ -67,7 +108,7 @@ module.exports = function buildHtmlTemplate({ BASE, CONFIG, serverDir, getAuth }
     return (req, res) => {
       const html = carregarTemplate(filePath);
       if (html === null) return res.status(404).send('Nao encontrado.');
-      res.type('html').send(html);
+      res.type('html').send(comVersao(html));
     };
   }
 
@@ -88,7 +129,7 @@ module.exports = function buildHtmlTemplate({ BASE, CONFIG, serverDir, getAuth }
     if (html === null) return res.status(404).send('Nao encontrado.');
     const modo = auth.trancado ? 'trancado' : (auth.usuarioObrigatorio ? 'usuario' : 'senha');
     const erro = o.erro === 'bloqueado' ? `bloqueado:${o.min || 1}` : '';
-    res.status(o.status || 200).type('html').send(html
+    res.status(o.status || 200).type('html').send(comVersao(html)
       .split('{{LOGIN_MODO}}').join(modo)
       .split('{{LOGIN_MOTIVO}}').join(escHtml(auth.motivo || ''))
       .split('{{LOGIN_COMO}}').join(escHtml(COMO_RESOLVER))

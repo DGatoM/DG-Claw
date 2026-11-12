@@ -34,8 +34,9 @@
   }
 
   /** Rótulo e frase de papel em linguagem de leigo. O subtítulo do agente, se houver, vai à parte. */
-  function papel(agente, ehPrincipal) {
+  function papel(agente, ehPrincipal, colaborador) {
     const a = agente || {};
+    if (colaborador) return { rotulo: 'Seu agente', papel: 'O agente com quem você conversa por aqui.', subtitulo: a.subtitulo ? String(a.subtitulo) : '' };
     const adm = a.tipo === 'admin';
     return {
       rotulo: adm ? ROTULO_ADMIN : ehPrincipal ? ROTULO_PRINCIPAL : ROTULO_TRABALHO,
@@ -55,6 +56,14 @@
   function selo(d, ctx) {
     ctx = ctx || {};
     if (!d || ctx.erroConferir) return { chave: 'sem_resposta', texto: 'Não consegui conferir', cor: 'cinza' };
+    // Colaborador: a resposta do servidor não traz auth nem conferido (lista de campos permitidos); vem conectado/precisa_login.
+    if (ctx.colaborador) {
+      if (d.chave_api === true) return { chave: 'api', texto: 'Usa chave de API', cor: 'cinza' };
+      if (d.estado === 'concluido' && ctx.concluiuAgora) return { chave: 'conectado', texto: 'Conectado', cor: 'verde' };
+      if (emAndamento(d.estado)) return { chave: 'andamento', texto: 'Conectando', cor: 'ambar' };
+      if (d.login_expirado) return { chave: 'expirou', texto: 'Login expirou', cor: 'vermelho' };
+      return d.conectado === true ? { chave: 'conectado', texto: 'Conectado', cor: 'verde' } : { chave: 'falta', texto: 'Falta conectar', cor: 'ambar' };
+    }
     if (usaChaveDeApi(d.auth)) return { chave: 'api', texto: 'Usa chave de API', cor: 'cinza' };
     if (d.estado === 'concluido' && ctx.concluiuAgora) return { chave: 'conectado', texto: 'Conectado', cor: 'verde' };
     if (emAndamento(d.estado)) return { chave: 'andamento', texto: 'Conectando', cor: 'ambar' };
@@ -97,7 +106,7 @@
    * `status` é o HTTP (0 ou ausente = a rede falhou); `mensagem` é o `erro` que o servidor mandou.
    * Nunca devolve texto vazio: toda frase diz o que houve e o que fazer.
    */
-  function traduzErro(status, mensagem, acao, nome) {
+  function traduzErro(status, mensagem, acao, nome, colaborador) {
     const msg = String(mensagem || '').trim();
     const quem = nome || 'o agente';
     const fazer = ACOES[acao] || 'concluir isso';
@@ -106,6 +115,11 @@
     }
     if (!status) {
       return { sessaoExpirada: false, texto: 'Não consegui falar com o painel para ' + fazer + (msg ? ' (' + msg + ')' : '') + '. Confira a internet do aparelho e tente de novo.' };
+    }
+    // Colaborador: o servidor já explica em português quem pode o quê (outra pessoa conectando, agente já conectado...).
+    if (colaborador && msg && (status === 403 || status === 409)) return { sessaoExpirada: false, texto: msg };
+    if (colaborador && status === 503) {
+      return { sessaoExpirada: false, texto: 'O agente não respondeu' + (msg ? ' (' + msg + ')' : '') + '. Tente de novo em instantes; se continuar, avise o dono do DG Claw.' };
     }
     if (status === 400) {
       return { sessaoExpirada: false, texto: msg || ('O painel recusou o pedido para ' + fazer + '. Confira o que foi digitado e tente de novo.') };
@@ -123,7 +137,7 @@
     }
     if (acao === 'codigo' && RX_CODIGO_RUIM.test(msg)) return { sessaoExpirada: false, texto: FRASE_CODIGO_RUIM };
     if (RX_PRAZO.test(msg)) return { sessaoExpirada: false, texto: FRASE_PRAZO };
-    return { sessaoExpirada: false, texto: 'Não consegui ' + fazer + ' (erro ' + status + (msg ? ': ' + msg : '') + '). Tente de novo e, se repetir, peça ajuda ao Admin.' };
+    return { sessaoExpirada: false, texto: 'Não consegui ' + fazer + ' (erro ' + status + (msg ? ': ' + msg : '') + '). Tente de novo e, se repetir, ' + (colaborador ? 'avise o dono do DG Claw.' : 'peça ajuda ao Admin.') };
   }
 
   /**
@@ -160,7 +174,7 @@
     const nome = agente.nome || 'O agente';
     const sel = selo(d, ctx);
     const prov = LC.nomeProvedor(d && d.provedor ? d.provedor : agente.provedor);
-    const p = papel(agente, !!ctx.principal);
+    const p = papel(agente, !!ctx.principal, !!ctx.colaborador);
     const base = {
       id: agente.id, nome, rotulo: p.rotulo, papel: p.papel, subtitulo: p.subtitulo, provedor: prov, selo: sel,
       fase: 'inicio', texto: '', passos: [], gerar: false, gerarRotulo: 'Gerar link de login', gerarBloqueio: '',
@@ -168,6 +182,12 @@
       ia: escolhaDeIA(d && d.provedor ? Object.assign({}, agente, { provedor: d.provedor }) : agente),
     };
     const bloqueio = ctx.outroNome ? 'Termine o login do ' + ctx.outroNome + ' primeiro.' : '';
+    if (ctx.colaborador) {
+      // Só o agente dele, sem menção a Admin. Já conectado: uma frase e nenhum botão.
+      if (sel.chave === 'api') return Object.assign(base, { fase: 'api', texto: (d && d.mensagem) || (nome + ' usa uma chave de API, e não há conta para conectar aqui.') });
+      if (d && d.so_dono) return Object.assign(base, { fase: 'so_dono', texto: d.mensagem || 'O login deste agente expirou. Avise o dono do DG Claw.' });
+      if (d && d.ocupado) return Object.assign(base, { fase: 'ocupado', texto: d.mensagem || 'Outra pessoa está conectando a conta deste agente agora.' });
+    }
     if (sel.chave === 'sem_resposta') {
       return Object.assign(base, {
         fase: 'sem_resposta', gerar: false,
@@ -198,6 +218,7 @@
           aviso: 'Esperando você terminar o login na página',
         });
       case 'concluido':
+        if (ctx.colaborador) return Object.assign(base, { fase: 'concluido', texto: 'Este agente já está conectado.', aviso: 'Conectado' });
         return Object.assign(base, { fase: 'concluido', texto: 'Seu agente DG Claw já está conectado.', entrarOutra: true, aviso: 'Conectado' });
       case 'falhou':
         return Object.assign(base, {
@@ -205,6 +226,7 @@
           aviso: 'O login falhou',
         });
       default:
+        if (sel.chave === 'conectado' && ctx.colaborador) return Object.assign(base, { fase: 'conectado', texto: 'Este agente já está conectado.' });
         if (sel.chave === 'conectado') {
           return Object.assign(base, {
             fase: 'conectado', texto: nome + ' já usa a sua conta do ' + prov + '. Só entre com outra conta se quiser trocar.',
@@ -213,9 +235,11 @@
         }
         return Object.assign(base, {
           fase: 'inicio', gerar: !bloqueio, gerarBloqueio: bloqueio,
-          texto: sel.chave === 'expirou'
-            ? 'A conta do ' + prov + ' de ' + nome + ' expirou e ele parou de responder. Reconecte para ele voltar.'
-            : nome + ' precisa da sua conta do ' + prov + ' para responder.',
+          texto: ctx.colaborador
+            ? nome + ' ainda não tem uma conta de IA conectada. Conecte a sua conta do ' + prov + ' para o agente poder responder.'
+            : sel.chave === 'expirou'
+              ? 'A conta do ' + prov + ' de ' + nome + ' expirou e ele parou de responder. Reconecte para ele voltar.'
+              : nome + ' precisa da sua conta do ' + prov + ' para responder.',
         });
     }
   }

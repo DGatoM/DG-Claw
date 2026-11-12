@@ -14,6 +14,7 @@
   const AQUI = '/conectar';
   const $ = id => document.getElementById(id);
 
+  const COLAB = !!(window.DGPapel && window.DGPapel.colaborador);
   const est = { usuario: '', pronto: false, principal: null, ctrl: null };
 
   function msgGeral(texto) {
@@ -52,7 +53,7 @@
   /* Montado uma vez só: refazer o vídeo a cada desenho reiniciaria a reprodução. */
   function desenhaPronto() {
     const endereco = location.origin + '/';
-    const t = P.pronto({ usuario: est.usuario, principalNome: est.principal && est.principal.nome, endereco, colaborador: !!(window.DGPapel && window.DGPapel.colaborador) });
+    const t = P.pronto({ usuario: est.usuario, principalNome: est.principal && est.principal.nome, endereco, colaborador: COLAB });
     const corpo = [];
     corpo.push(el('p', 'cn-texto', t.passo1));
     corpo.push(el('div', 'cn-endereco', t.endereco));
@@ -82,12 +83,18 @@
     $('cnProntoCorpo').replaceChildren(...corpo);
   }
 
+  /* Colaborador: a página é a mesma, mas fala do agente dele e não manda "repetir no próximo cartão". */
+  function adaptaParaColaborador() {
+    const titulo = document.querySelector('#cnAgentes h2 span');
+    if (titulo) titulo.textContent = 'O seu agente';
+    const ultimo = document.querySelector('#cnPassos .cn-passos li:last-child');
+    if (ultimo) ultimo.remove();
+    const aviso = document.querySelector('#cnPassos .cn-fraco');
+    if (aviso) aviso.textContent = 'Só dá para conectar quando o agente ainda não tem uma conta. O link vale por poucos minutos: gere só quando for fazer o login na hora.';
+  }
+
   async function carrega() {
-    if (window.DGPapel && window.DGPapel.colaborador) {
-      $('cnLista').replaceChildren(el('p', 'cn-fraco', 'O agente precisa entrar numa conta, e isso é só do dono do DG Claw. Avise o dono.'));
-      msgGeral('');
-      return;
-    }
+    if (COLAB) adaptaParaColaborador();
     const r = await CC.chama('GET', '/api/v1/agents', undefined, 'conferir', 'os agentes', 15000, AQUI);
     if (!r.ok) {
       $('cnLista').replaceChildren(el('p', 'cn-erro', 'Não consegui carregar a lista de agentes. ' + r.erro.texto));
@@ -134,7 +141,14 @@
     ],
   };
 
+  /* Os mesmos passos, com o texto de quem tem um agente só e não vê o Admin. */
+  const TEXTO_COLAB = {
+    '#cnPassos': { oque: 'Os passos para conectar a sua conta do Claude ao seu agente, sem terminal.', como: 'Você gera o link, entra na sua conta do Claude, copia o código que a página mostra e cola no cartão. Só dá para conectar quando o agente ainda não tem conta.' },
+    '#cnAgentes': { titulo: 'O seu agente', oque: 'O cartão do seu agente, que mostra se ele já tem uma conta conectada.', como: 'O cartão pergunta ao programa do agente como está a conta dele. Se já estiver conectado, só aparece o aviso, sem botões.', porque: 'O agente precisa de uma conta conectada para responder. Se a conta já é do dono, quem mexe nela é o dono.' },
+    '[data-tour="cn-selo"]': { como: 'O selo vem do próprio agente, que confere na hora se a conta está conectada. Se outra pessoa estiver conectando no mesmo momento, o cartão avisa e espera ela terminar (no máximo 15 minutos).' },
+  };
   function comTour(passos) {
+    if (COLAB) passos = passos.map(p => Object.assign({}, p, TEXTO_COLAB[p.alvo] || {}));
     if (!window.DGTour) { msgGeral('A visita guiada não carregou. Recarregue a página e tente de novo.'); return; }
     window.DGTour.inicia({ passos: passos.filter(p => document.querySelector(p.alvo)) });
   }

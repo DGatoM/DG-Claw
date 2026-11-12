@@ -29,7 +29,9 @@ function executarPadrao(cmd, args, opts) {
  * a leitura NÃO aconteceu (e não que não houve evento).
  */
 async function lerDiario(executar, padroes, desdeMs) {
-  const args = ['-o', 'json', '--no-pager', '--quiet', `--since=@${Math.floor(desdeMs / 1000)}`];
+  // Sem --quiet de propósito: ele escondia o aviso de falta de permissão, e o painel lia
+  // "zero linhas" como "ninguém rodou".
+  const args = ['-o', 'json', '--no-pager', `--since=@${Math.floor(desdeMs / 1000)}`];
   for (const p of padroes) args.push('-u', p);
   for (const id of Object.values(ID)) args.push(`MESSAGE_ID=${id}`);
   args.push('--output-fields=UNIT,JOB_RESULT,JOB_TYPE,MESSAGE_ID,UNIT_RESULT');
@@ -39,20 +41,24 @@ async function lerDiario(executar, padroes, desdeMs) {
     return { eventos: [], motivo: 'esta máquina não tem o journalctl, então não há diário do sistema para ler o histórico' };
   }
   const queixa = `${r.stderr}`;
-  if (/insufficient permissions|No journal files were opened|not seeing messages from other users/i.test(queixa) && !r.stdout.trim()) {
+  // Permissão faltando devolve motivo mesmo com linhas na saída: a leitura ficou parcial.
+  if (/insufficient permissions|No journal files were opened|not seeing messages from other users/i.test(queixa)) {
     return {
       eventos: [],
-      motivo: 'o painel não tem permissão para ler o diário do sistema (journal). '
-        + 'Quem cuida da máquina resolve colocando o usuário do painel no grupo "systemd-journal".',
+      motivo: 'o painel não tem permissão para ler o diário do sistema (journal), '
+        + 'então o histórico das rotinas não pode ser mostrado. Isso não quer dizer que elas não rodaram. '
+        + 'Para resolver, peça ao Admin para reparar este agente (dgclaw agente reparar), '
+        + 'o que dá ao painel o grupo "systemd-journal".',
     };
   }
-  if (!r.ok && !r.stdout.trim()) {
+  // Sem --quiet o journalctl escreve "-- No entries --" em stdout: não é evento nem erro.
+  const linhasJson = r.stdout.split('\n').filter((l) => l.trim() && !l.startsWith('-- '));
+  if (!r.ok && !linhasJson.length) {
     return { eventos: [], motivo: `o journalctl não respondeu (${(queixa || r.erro || 'sem detalhe').trim().slice(0, 200)})` };
   }
   const eventos = [];
   let ruins = 0;
-  for (const linha of r.stdout.split('\n')) {
-    if (!linha.trim()) continue;
+  for (const linha of linhasJson) {
     let o;
     try { o = JSON.parse(linha); } catch { ruins++; continue; }
     const t = Number(o.__REALTIME_TIMESTAMP) / 1000;
@@ -96,7 +102,7 @@ function lerLedger(pulsoDir, desdeMs) {
       const id = o.id || o.component || o.name;
       const t = Date.parse(o.ts || o.timestamp || '');
       if (!id || !Number.isFinite(t) || t < desdeMs - 3600000) continue;
-      saida.push({ id: String(id), t, status: o.status || o.estado || '', detalhe: o.detalhe || o.detail || '' });
+      saida.push({ id: String(id), t, status: o.status || o.estado || '' });
     }
   }
   return saida;
@@ -131,10 +137,9 @@ function quadradosDeRotina({ eventos, ledger, chave, horario, desde, agora, ativ
   const semana = { rodadas: execucoes.length, falhas: 0, avisos: 0, faltas: 0 };
 
   for (const x of execucoes) {
-    const base = RESULTADO[x.resultado] || { cor: 'vermelho', titulo: `Terminou de um jeito que o sistema chama de "${x.resultado}"` };
+    const base = RESULTADO[x.resultado] || { cor: 'vermelho', titulo: 'Terminou com um resultado que o sistema não classificou' };
     let cor = base.cor;
     let titulo = base.titulo;
-    let detalhe = '';
     // A segunda opinião: o que o próprio script anotou enquanto rodava.
     const janelaIni = x.ini - 5000;
     const janelaFim = x.fim + 90000;
@@ -145,22 +150,18 @@ function quadradosDeRotina({ eventos, ledger, chave, horario, desde, agora, ativ
       if (pior && pior.c === 'vermelho') {
         cor = 'vermelho';
         titulo = 'Terminou sem erro para o sistema, mas o registro dela diz que falhou';
-        detalhe = pior.n.detalhe || '';
       } else if (pior && pior.c === 'amarelo') {
         cor = 'amarelo';
         titulo = 'Rodou, com um aviso no registro dela';
-        detalhe = pior.n.detalhe || '';
       }
-    } else if (notas.length && cor === 'vermelho') {
-      const comDetalhe = notas.find((n) => n.detalhe);
-      if (comDetalhe) detalhe = comDetalhe.detalhe;
     }
     if (cor === 'vermelho') semana.falhas++;
     if (cor === 'amarelo') semana.avisos++;
     quadrados.push({
       em: new Date(x.ini).toISOString(),
       ate: new Date(x.fim).toISOString(),
-      cor, titulo, detalhe,
+      // Só resultado estruturado na tela: texto livre do log ou do registro não passa.
+      cor, titulo, detalhe: '',
       duracao: x.fim > x.ini ? duracaoHumana(x.fim - x.ini) : '',
     });
   }

@@ -23,7 +23,7 @@ para as ferramentas de arquivo: pastas e arquivos ocultos em qualquer profundida
 agente sem Bash editaria o próprio `config.sh` e executaria o que quisesse. No modo sem pastas, o agente também só grava na casa dele e em `/tmp`; o resto do sistema fica fechado. As rotinas que rodam sozinhas dentro da caixa (reflexão, batimento, crons) passam a usar `python3 -I` e a ler o texto da memória do agente como dado, não como parte do programa: um agente sem terminal não consegue mais executar código gravando um `datetime.py` na casa ou aspas no `working-memory.md`. O gancho de escrita bloqueia quando falha
 (não inicia, falta memória, passa do tempo) em vez de liberar.
 
-A trava mora na configuração administrada do Claude Code, que o agente não consegue desligar pelas próprias configurações.
+A trava fica na configuração administrada do Claude Code, que o agente não consegue desligar pelas próprias configurações.
 Com a trava de pastas ligada, o agente só grava a memória dele; as pastas de configuração (`.dgclaw`, `.claude`, `.codex`,
 `.plataforma`) e `/tmp` ficam fechadas, porque são lidas e executadas pelas rotinas do agente.
 
@@ -61,6 +61,208 @@ nele uma conta pessoal (Pro ou Max) ou uma chave de API. Como o agente fica para
 restrições nesta versão, nem quando a política pede para combinar com a local, porque a própria organização pode desligar os
 ganchos nela. Quando o DG Claw para o agente por esse motivo, ele só considera o container parado quando o podman confirma isso; sem
 confirmação, a mensagem diz que o agente pode estar ligado sem a trava e como pará-lo na mão.
+
+**Correção na rede dos containers no Ubuntu 26.04: netavark em modo iptables.** No Ubuntu 26.04 o netavark usa nftables por padrão, e o `ufw` (que o instalador liga) bloqueia o encaminhamento de pacotes, então nenhum container de agente tinha internet (a construção da imagem falhava com "Temporary failure resolving archive.ubuntu.com"). O instalador agora grava `/etc/containers/containers.conf.d/50-dgclaw-firewall-iptables.conf` com `firewall_driver = "iptables"`, que é o modo em que a cerca de rede do DG Claw foi desenhada. No Ubuntu 24.04 isso não muda nada. Se você já definiu `firewall_driver` em qualquer arquivo do podman (`/etc/containers/containers.conf`, a pasta `containers.conf.d` ou o padrão em `/usr/share/containers`), o instalador não grava o dele e não mexe no seu: só avisa quando o valor não é `iptables`.
+
+**A cerca contra o servidor também vale antes de o netavark mexer no firewall.** Ao subir um container, o netavark libera a porta 53 do servidor para a rede do agente numa regra que ficava à frente da cerca, e o agente alcançava essa porta por alguns segundos, até a cerca ser reaplicada. A cerca agora também fica na tabela `mangle` (que o netavark não usa), do mesmo jeito que já era feito para o tráfego entre redes, e o teste de isolamento passou a conferir a porta 53 do servidor.
+
+**Correção no DNS dos agentes em servidor dentro de rede privada.** Em servidor físico na rede de uma empresa, o DNS do servidor costuma ficar num endereço privado (por exemplo `192.168.25.6`), que a cerca de rede dos agentes bloqueia de propósito, e os agentes ficavam sem DNS. Agora, quando isso acontece, só os containers do DG Claw (os agentes e a sonda do teste de isolamento) são criados com DNS público (`1.1.1.1` e `8.8.8.8`), sem abrir exceção na cerca e sem mudar a configuração do podman no resto do servidor. Se o DNS do servidor já é público, nada muda.
+
+### Como atualizar
+
+Rode `sudo ./install.sh` de novo (ou peça ao Admin para atualizar): ele aplica as correções sozinho. Há dois casos em que falta um passo seu:
+
+- Servidor com Ubuntu 26.04 e agentes ligados: o instalador só apaga as regras antigas do netavark quando todos os containers estão parados, para não derrubar a rede deles, e avisa com a lista do que está ligado. Nesse caso, pare cada agente com `sudo dgclaw agente parar <slug>`, rode `sudo ./install.sh` de novo e ligue cada um com `sudo dgclaw agente iniciar <slug>`. Containers que não são do DG Claw também precisam estar parados.
+- Servidor cujo DNS fica numa rede privada: o container de um agente já existente continua com o DNS antigo, porque o podman não troca o DNS de um container criado. Para ele passar a usar DNS público, rode `sudo dgclaw agente recriar <slug> --forcar` (a casa e a memória do agente não são tocadas). O `--forcar` é preciso quando o agente está parado; com o agente ligado, o `recriar` já percebe sozinho que o DNS precisa mudar.
+
+**O DG Claw instala em servidor sem IP público, atrás de um túnel.** Com `--atras-de-tunel` (junto de `--dominio`), o Caddy usa
+certificado interno, o instalador não consulta o IP público e não abre as portas 80 e 443 no firewall; o túnel da Cloudflare
+aponta para `https://127.0.0.1:443`, com o nome do servidor de origem igual ao domínio e sem verificação do certificado. A
+escolha fica no `dgclaw.env` e vale para reinstalar, atualizar e `dgclaw dominio trocar`. Nesse modo o Caddy escuta só no loopback, então o túnel
+precisa rodar no próprio servidor, e ele passa o IP real do visitante ao painel, para o limite de tentativas de login valer
+por pessoa. O firewall agora também libera a porta real do SSH (lida da configuração do `sshd`, dos processos em escuta, do
+`ssh.socket` e da sua conexão atual), e não só a 22. Para quem usa o Claude Code, o instalador confere se a CPU tem SSE4.2 (CPU genérica
+`kvm64` de hipervisor não tem) e explica como trocar o tipo de CPU da máquina virtual. Quando o Claude Code falta e você usa
+`sudo`, a mensagem mostra como instalá-lo para o root. Nada muda para quem já instalou.
+
+**Aba Pedidos na Mesa: a fila de tudo o que você pediu aos agentes.** A Mesa (`/mesa`) ganha uma aba nova, a primeira e a que
+abre por padrão. Cada pedido seu a um agente vira um item, na ordem em que chegou, com o estado: fazendo, esperando você (com o
+motivo), entregue, feito ou cancelado. O agente abre o item antes de começar e vai movendo enquanto trabalha. Quando ele marca
+"entregue", tocar no item leva você à conversa, já na mensagem da entrega, e o pedido vira "feito". Ele também vira "feito" se você
+responder ao agente na conversa depois da entrega. O agente não fecha o pedido por você. A aba mostra os abertos e os fechados de
+hoje e de ontem (o resto fica em "Ver arquivados") e acende uma bolinha quando há algo esperando você. Nesta versão não existe um
+vigia que crie sozinho o item que o agente esqueceu, porque isso gastaria a assinatura de quem instalou. O contrato das rotas e do
+comando `dgclaw-mesa pedido` está em `web/docs/PEDIDOS.md`.
+
+### Como atualizar (fila de pedidos)
+
+Peça ao Admin, no chat: "atualiza o DG Claw". A aba e as rotas já vêm na atualização. Nesta versão há uma instrução nova para os
+seus agentes abrirem e moverem os itens da fila. Ela entra na identidade de cada agente, regravada com
+`dgclaw agente identidade <agente>`, sem apagar o que você personalizou neles. Agentes novos já nascem com ela. Os itens ficam
+guardados na pasta de dados do Web, e as suas chaves, conversas e agentes continuam como estavam.
+
+**Convide quem vai usar o seu agente por um comando, e deixe a pessoa conectar a conta de IA dela.** Três mudanças
+nos colaboradores (pessoas convidadas para conversar com um agente só):
+
+- Novo comando no servidor, `dgclaw colaborador criar <agente> <email>`, que cria o acesso e mostra o texto do convite
+  pronto para copiar, com o endereço, o login e a senha temporária. Também há `listar`, `reenviar` e `revogar`. Ao criar
+  um agente, o Admin passa a oferecer "Quer que eu crie um usuário e senha para essa pessoa entrar?" e entrega o convite
+  na conversa, numa caixinha com o botão de copiar.
+- Se o agente ainda não tem conta de IA conectada, o colaborador agora pode conectar a dele na página **Conectar conta**,
+  sem depender do dono. Só uma pessoa conecta por vez, um agente que já tem conta continua só com o dono, e um login
+  expirado também: o colaborador só inicia o login quando o agente confirma, na hora, que não há nenhuma credencial; com
+  credencial presente, mesmo vencida e mesmo que ele a tenha conectado antes, quem reconecta é o dono, em Conectar conta. Revogar o colaborador não desconecta a conta que ele
+  conectou, e o aviso aparece no comando e no log.
+- A conversa do colaborador não tem mais a fileira nem o menu de troca de agentes, porque ele só enxerga o agente dele.
+
+### Como atualizar
+
+- Depois do `dgclaw atualizar`, reinicie o painel (`sudo systemctl restart dgclaw-web`). É o reinício que cria o canal
+  local que o novo comando `dgclaw colaborador` usa para falar com o painel. Sem ele, o comando avisa que não consegue
+  falar com o Web e diz o que fazer.
+- Para o colaborador conseguir conectar a conta, o programa de cada agente (o runner, que vai dentro da imagem dos
+  agentes) também precisa estar na versão nova. Por segurança, o painel só deixa o colaborador conectar quando o agente
+  confirma, na hora, que está sem conta; um agente com versão antiga não sabe confirmar, então o colaborador recebe
+  "avise o dono para atualizar" e nada é conectado. O `dgclaw atualizar` normal já cobre isso: ele reconstrói a imagem e
+  recria o container de cada agente que está ligado. Só um agente que você deixou **parado** continua com a versão antiga;
+  para esse, ligue-o e rode `sudo dgclaw agente recriar <agente>` (ou `dgclaw atualizar --forcar`). O convite pelo
+  comando `dgclaw colaborador` não depende disso.
+- Esta versão traz uma instrução nova para o Admin entender o comando de convite. Ela precisa entrar nas instruções dele
+  sem apagar o que você já personalizou: peça ao Admin para juntar a seção "Convidar um colaborador" do arquivo
+  `templates/ambiente/admin.md` à dele, preservando as suas alterações. Os agentes de trabalho ganham uma frase nova sobre o
+  assunto do mesmo jeito (`templates/ambiente/agente.md`).
+
+**Os agentes no ChatGPT (Codex) passam a ter as mesmas instruções dos agentes no Claude.** Até aqui o arquivo de
+instruções do agente no Codex (o `AGENTS.md`) era escrito separado do `CLAUDE.md` e tinha menos conteúdo: faltavam a
+lousa, o texto para copiar com botão, o quadro de avisos da equipe, a tela para fazer logins, o agendamento e os
+lembretes. Agora os dois arquivos saem de uma fonte só (`scripts/gerar-instrucoes.sh`), e um teste reprova a mudança se
+eles ficarem diferentes. Onde o Claude e o Codex funcionam de jeitos distintos (por exemplo, o Claude chama uma skill
+por `/nome` e o Codex abre o roteiro dela pelo nome), cada um recebe o seu caminho. O `doctor` também passou a
+conferir o `AGENTS.md` do agente. Agentes novos já nascem com as instruções completas. Os que já existem
+mantêm o arquivo como está, porque você pode tê-lo personalizado.
+
+### Como atualizar (instruções do Codex)
+
+Se você tem agentes no ChatGPT (Codex) criados antes desta versão, peça ao Admin, no chat: "atualiza o DG Claw" e depois
+"junta as seções que faltam no AGENTS.md dos meus agentes no Codex". Ele roda a verificação do agente com a opção de conserto (`--fix`, do `doctor`),
+que acrescenta no fim do `AGENTS.md` só as seções que não existem (mesa de tarefas, quadro de avisos, lousa, texto para
+copiar, tela de logins, agendamento e lembretes), guarda uma cópia do arquivo ao lado e não apaga nada do que você
+personalizou. Agentes no Claude não precisam de nenhum passo.
+
+**O agente no ChatGPT (Codex) passa a lembrar das conversas e a ler o quadro de avisos, como o do Claude.** Antes, o
+Codex não executava os lembretes automáticos do DG Claw: o agente não recebia, antes de cada resposta, as memórias
+e conversas relacionadas, não via o quadro de avisos da equipe e não começava a sessão já sabendo o que estava na
+memória de curto prazo. Agora o DG Claw liga esses lembretes no Codex usando o recurso de hooks do próprio Codex, e
+só dá confiança aos hooks que ele mesmo distribui. Um arquivo de hooks que chegue num repositório clonado pelo agente
+continua sem rodar. O ajuste acontece sozinho quando o agente sobe.
+
+### Como atualizar (hooks do Codex)
+
+Depois de atualizar, reinicie os agentes que usam o ChatGPT (Codex) para que os lembretes passem a valer: peça ao
+Admin "reinicia meus agentes no Codex". Se você mantinha um `hooks.json` seu na pasta `.codex` do agente, ele é
+preservado; só as linhas do DG Claw são regravadas. Agentes no Claude não precisam de nenhum passo.
+
+**A regra de ficar livre para conversar passa para o topo das instruções do agente.** A regra que manda o agente
+responder primeiro e separar o pedido em "na hora", "curto" (subagente) e "longo" (card) já existia, mas ficava no
+fim das instruções, depois do AGENT.md. Num agente com o AGENT.md muito personalizado ela ficava longe demais e o
+agente prendia a conversa em tarefa longa. Agora um resumo curto dela abre as instruções de todo agente, antes do
+AGENT.md, e o passo a passo completo continua no mesmo lugar.
+
+### Como atualizar (regra no topo)
+
+Peça ao Admin, no chat: "atualiza o DG Claw". A atualização regrava as instruções de cada agente sozinha, sem apagar
+o que você personalizou no AGENT.md. Vale a partir da próxima conversa de cada agente. Quem não quiser atualizar
+tudo agora pode rodar `dgclaw agente identidade <agente>` para cada agente.
+
+**A reflexão da noite não acorda o agente em dia sem conversa com você.** Antes, às 23h30 ela rodava todo dia, e cada rodada
+gastava o contexto inteiro da sessão (em agentes pouco usados, mais da metade das reflexões só dizia que nada aconteceu). Agora, se o
+registro das conversas foi lido por completo e você não mandou nenhuma mensagem naquele dia, a reflexão é pulada: fica anotado no
+`reflection.log` e no Pulso ("dia sem conversa com o dono; reflexão pulada"), e naquele dia não existe diário. A auditoria das 23h50 e o
+`doctor` entendem o dia pulado e não dão alarme por falta de diário. Na dúvida a reflexão roda como sempre: isso vale quando o agente
+usa o Codex, quando a configuração do agente é antiga e não informa o provedor, ou quando o registro das conversas não pôde ser lido. Para
+rodar a reflexão mesmo assim, use `DGCLAW_REFLECT_SEMPRE=1 bash scripts/reflection.sh <config>`.
+
+### Como atualizar (reflexão em dia sem conversa)
+
+Peça ao Admin, no chat: "atualiza o DG Claw". A reflexão confere o provedor do agente (Claude ou Codex) na configuração dele
+(`config.sh`) antes de pular um dia. Se um agente antigo não tem o provedor ali, a reflexão segue rodando todo dia, como antes. Para
+ele passar a pular os dias parados, peça ao Admin `dgclaw agente reparar <nome>`, que regrava essa configuração. Se você quiser que
+um agente nunca pule a reflexão, não conte com uma linha `DGCLAW_REFLECT_SEMPRE=1` acrescentada à mão no `config.sh`, porque o reparo
+regrava o arquivo e a linha se perde; defina a variável no ambiente da rotina.
+
+**O painel e a conversa passam a carregar mais rápido, sobretudo no celular.** O servidor da web agora entrega os arquivos da tela
+(scripts, estilos, páginas e dados em JSON) comprimidos: o `conversa.js`, por exemplo, sai de cerca de 243 KB para uns 77 KB. A conversa
+em tempo real continua chegando na hora, porque o fluxo dela fica de fora da compressão. A mudança é no site que o instalador grava no
+Caddy; o `dgclaw atualizar` troca esse arquivo sozinho quando ele ainda é o que o instalador gerou, e só recarrega o Caddy depois de
+conferir que a configuração nova é válida. Se algo der errado na conferência, o arquivo volta ao que era e o Caddy não é recarregado.
+
+### Como atualizar (compressão no Caddy)
+
+Nada a fazer se você nunca editou o arquivo do Caddy: peça ao Admin, no chat, "atualiza o DG Claw". Se você personalizou o
+`/etc/caddy/Caddyfile` ou o `/etc/caddy/conf.d/dgclaw.caddy` (por exemplo, acrescentou cabeçalhos ou um segundo endereço), o DG Claw não
+substitui o seu arquivo, porque ali estão as suas escolhas; ele avisa durante a atualização e a compressão fica desligada até você
+acrescentar o bloco `encode` dentro do site, antes do `reverse_proxy`. O aviso traz o bloco pronto. Não use `text/*` na lista de tipos:
+isso comprimiria também a conversa em tempo real e as mensagens deixariam de chegar na hora. Depois confira e recarregue com
+`caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile && sudo systemctl reload caddy`.
+Nesse caso o `dgclaw dominio trocar` é a exceção: como o nome do site precisa mudar, ele guarda uma cópia do seu arquivo ao lado, em
+`/etc/caddy/` (por exemplo `Caddyfile.antes-dominio-<data>`), e grava no lugar o site padrão do DG Claw com o domínio novo. O aviso mostra
+o caminho da cópia; para levar suas personalizações de volta, copie as linhas que quiser para dentro do bloco do site, valide e recarregue o Caddy.
+
+**O batimento deixa de acordar o agente várias vezes pelo mesmo assunto.** A cada 30 minutos o sistema confere a seção
+"Quero Falar com o dono Sobre" da memória de trabalho. Se o agente decidia não incomodar e não tirava a linha, o batimento
+voltava a acordá-lo sem parar (umas 9 vezes por dia), e cada despertar gastava uma parte grande da sua assinatura. Agora o
+sistema guarda o que já levou ao agente e só o acorda de novo se o conteúdo da seção mudar ou depois de 24 horas (ajustável
+com `DGCLAW_HEARTBEAT_REPETIR_H`). O agente também ganha a marca `[a partir de AAAA-MM-DD]` para adiar uma linha até a data em
+que quer ser lembrado. O sorteio de 1 em 4 e o ramo da memória de trabalho velha saíram, porque não faziam mais efeito.
+
+### Como atualizar (batimento)
+
+Peça ao Admin, no chat: "atualiza o DG Claw". O script do batimento já vem na atualização. Nesta versão há uma instrução nova
+para os seus agentes conhecerem a marca de adiar. Ela entra na identidade de cada agente, regravada com
+`dgclaw agente identidade <agente>`, sem apagar o que você personalizou neles.
+
+**A conversa abre mais rápido.** A tela pedia a lista de agentes, depois o histórico e só então ligava o tempo real, uma
+coisa de cada vez. Agora o histórico sai junto com a lista de agentes. No servidor, a lista deixa de esperar a consulta
+a cada agente quando as informações dela vencem: responde na hora com o que já sabe e atualiza em segundo plano (se a
+atualização falhar, o motivo vai para o registro e a lista segue com o último valor bom). O `dgclaw atualizar` já resolve.
+
+**A aba Operações volta a mostrar as barrinhas de cada rotina, com rotina, horário e resultado.** O painel do agente não
+tinha permissão para ler o diário do sistema, e sem ela a aba dizia que não havia histórico, mesmo com as rotinas
+rodando. Agora, dentro do contêiner, o usuário do agente passa a poder ler o diário do sistema daquele contêiner. Se o
+painel ainda assim não conseguir ler o diário, a aba explica o motivo e o que fazer, em vez de mostrar contagens como
+"nenhuma falha" sobre o que não foi medido. As barrinhas mostram só o resultado de cada execução, sem texto copiado de
+logs. O `dgclaw atualizar` já resolve. Quem não quiser atualizar tudo agora pode rodar `dgclaw agente reparar <slug>`
+para cada agente já instalado: o reparo dá o acesso e reinicia o painel dele.
+
+**Guia de boas práticas de ronda.** Quando você pedir ao seu agente uma ronda (olhar o CRM, atender o suporte, responder
+comentários, conferir dados), ele passa a seguir o novo `docs/BOAS-PRATICAS-RONDAS.md`: dez regras tiradas de erros e acertos
+reais e um checklist para combinar com você o que a ronda olha, cada quanto, quem é avisado, o que ela corrige sozinha e o que
+acontece se a fonte falhar.
+
+### Como atualizar (guia de rondas)
+
+Peça ao Admin, no chat: "atualiza o DG Claw". Nesta versão há uma instrução nova para os seus agentes conhecerem o guia. Ela
+entra na identidade de cada agente, regravada com `dgclaw agente identidade <agente>`, sem apagar o que você personalizou neles.
+
+**Manual do DG Claw no painel.** O menu ☰ ganha o item **Manual**, uma tela (`/manual`) que mostra, página por página, o que o DG Claw faz e como se usa, com busca pelos títulos e uma visita guiada. O Admin lê o mesmo manual direto da pasta `docs/manual` e os agentes o consultam pelo painel antes de dizer que algo não existe. O contrato das rotas está em `web/docs/MANUAL.md`.
+
+### Como atualizar (manual e personalização no nível do sistema)
+
+1. **Peça ao Admin, no chat: "atualiza o DG Claw".** Esta versão traz uma instrução nova para o Admin e para os agentes saberem que o manual existe e onde consultá-lo. Ela entra na seção de ambiente que o DG Claw mantém para cada agente, sem apagar o que você personalizou nas instruções deles. Se algum agente antigo não a mostrar depois da atualização, peça ao Admin para regravar essa seção com `sudo dgclaw agente identidade <nome>`.
+2. **Regra nova para o Admin.** Pedidos no nível do sistema (nova forma de gerar agentes, mudança no `bin/dgclaw`, no instalador ou no `runner/`) passam a ser permitidos. O Admin avisa você, em linguagem simples, que aquilo mexe na base e pode dar problema nas próximas atualizações; se você mantiver o pedido, ele faz, anota em `PERSONALIZACOES.md` que a mudança mexe na base e tenta mantê-la funcionando a cada atualização. Cofre e segredos, firewall, autenticação do painel, isolamento dos containers e ganchos de segurança continuam fora, mesmo a pedido. O guia está em `docs/PERSONALIZAR.md`.
+
+**Trocar de página no painel do agente deixou de mostrar o layout antigo.** Ao abrir uma página do painel (Status,
+Memória, Sessões e as outras), aparecia por um instante o menu antigo, com a foto padrão, traços "--" e a frase
+"carregando a conversa", e o conteúdo ficava cortado à direita até a tela terminar de montar. Agora o painel abre
+escondido, mostra só um indicador cinza no meio da área de conteúdo, e o cabeçalho e o menu verdadeiros aparecem assim
+que a página chega. O conteúdo passou a usar a largura toda ao lado do menu, sem sobra em monitor largo. Os arquivos
+de estilo e de script do painel agora ficam guardados no navegador, então trocar de página é mais rápido. Se a tela
+demorar mais de 8 segundos ou falhar ao abrir, ela deixa de ficar presa e diz o que aconteceu e o que fazer.
+
+### Como atualizar (troca de páginas do painel)
+
+Basta atualizar o DG Claw e recarregar a página do painel (no celular, feche e abra de novo, ou use Ctrl+F5 no
+computador). Nada precisa ser configurado nem apagado: as suas chaves, conversas e agentes continuam como estavam.
 
 **O aviso "Faça o login nos seus agentes" agora aparece uma única vez.** Antes, ele voltava a cada aba nova e a cada
 visita ao painel enquanto algum agente estivesse sem login. Agora o painel guarda, no servidor, que você já viu o aviso:

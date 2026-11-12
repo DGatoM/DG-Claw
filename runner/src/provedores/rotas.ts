@@ -112,6 +112,10 @@ export async function tratarRotasDeProvedor(
     const { escolha, catalogo } = s.lerEscolha();
     const amb = s.ambienteDaEscolha(escolha, catalogo);
     const home = amb.codexHome ?? undefined;
+    // ?fresco=1: sem o cache de 60 s, para quem vai decidir algo a partir do resultado (o Web, antes de deixar um colaborador
+    // conectar conta). O campo `fresco` na resposta é o sinal de que este runner entende o pedido; runner antigo não o manda.
+    const fresco = url.searchParams.get("fresco") === "1";
+    if (fresco) conferidor.invalidar(s.id);
     const conferido = await conferidor.obter(s.id, `${escolha.provedor}|${escolha.auth}`, () =>
       conferirProvedor({
         provedor: escolha.provedor,
@@ -120,6 +124,7 @@ export async function tratarRotasDeProvedor(
         cwd: s.config.cwd,
         codexApiAindaSemLogin: escolha.provedor === "codex" && escolha.auth === "api" && !!home && !fs.existsSync(path.join(home, "auth.json")),
       }),
+      fresco ? 25_000 : undefined,
     );
     const canais =
       s.papel === "principal"
@@ -143,6 +148,7 @@ export async function tratarRotasDeProvedor(
       origem: escolha.origem,
       disponiveis: provedoresDisponiveis(catalogo, amb.env.PATH ?? process.env.PATH),
       conferido,
+      ...(fresco ? { fresco: true } : {}),
       login: login.visao(s.id),
       ...canais,
     });

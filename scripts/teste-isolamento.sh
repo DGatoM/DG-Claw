@@ -45,6 +45,11 @@
 
 set -euo pipefail
 
+# Mesma regra de DNS dos containers do DG Claw (bin/dgclaw, criar_container): a sonda tem de
+# nascer com o mesmo DNS que os agentes, senao o teste mede um ambiente diferente.
+# shellcheck source=lib/dns-containers.sh
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/dns-containers.sh"
+
 ETC="${DGCLAW_ETC:-/etc/dgclaw}"
 REGISTRO="$ETC/registro.tsv"
 REDE_SONDA="dgclaw-sonda"
@@ -235,7 +240,7 @@ testar() {
   fi
 
   # Todas as portas que o host serve para os agentes, mais Admin, Web e ssh.
-  local portas=(22 4300 8300) i r p
+  local portas=(22 53 4300 8300) i r p
   for i in "${!SLUGS[@]}"; do
     read -r r p <<<"$(portas_agente "${SLUGS[$i]}" "${NUMS[$i]}")"
     portas+=("$r" "$p")
@@ -378,7 +383,8 @@ subir_sonda() {
   fi
   # --entrypoint: a imagem sobe systemd (/sbin/init); a sonda so precisa de um processo vivo.
   SONDA_CRIADA=1
-  podman run -d --rm --http-proxy=false --name "$CTR_SONDA" --network "$REDE_SONDA" --entrypoint sleep "$img" 300 >/dev/null \
+  dns_containers_calcular
+  podman run -d --rm --http-proxy=false "${DNS_CONTAINER_ARGS[@]}" --name "$CTR_SONDA" --network "$REDE_SONDA" --entrypoint sleep "$img" 300 >/dev/null \
     || erro_ambiente "nao consegui subir a sonda $CTR_SONDA com a imagem $img" \
        "rode 'podman run --rm --entrypoint true $img' para ver o erro da imagem"
 }

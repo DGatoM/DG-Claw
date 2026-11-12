@@ -318,7 +318,12 @@
     if (h && abas.some(a => a.id === h)) return h;
     const g = guardado(CHAVE_ABA);
     if (g && abas.some(a => a.id === g)) return g;
-    return 'tarefas';
+    return abaPadrao();
+  }
+
+  /* A aba Pedidos, quando registrada, é a primeira e a padrão; sem ela, Tarefas. */
+  function abaPadrao() {
+    return abas.some(a => a.id === 'pedidos') ? 'pedidos' : 'tarefas';
   }
 
   function escolheAba(id, deUsuario) {
@@ -334,7 +339,7 @@
     bolinha(aba.id, false);
     if (deUsuario) {
       guardado(CHAVE_ABA, aba.id);
-      history.replaceState(null, '', aba.id === 'tarefas' ? location.pathname : '#' + aba.id);
+      history.replaceState(null, '', aba.id === abaPadrao() ? location.pathname : '#' + aba.id);
     }
     if (!aba.montada) {
       aba.montada = true;
@@ -786,7 +791,8 @@
   }
 
   function tick() {
-    if (document.visibilityState !== 'visible' || abaAtual !== 'tarefas') return;
+    // com outra aba na frente a Mesa continua conferindo (ETag, barato): é ela que acende a bolinha da aba Tarefas
+    if (document.visibilityState !== 'visible') return;
     atualiza(false);
   }
 
@@ -808,8 +814,19 @@
     abasIniciadas = true;
     for (const a of abas) criaAba(a);
     escolheAba(abaDesejada());
+    // Tarefas nem sempre é a aba aberta (a padrão é Pedidos), mas precisa estar montada para acender a bolinha dela
+    const tarefas = abas.find(a => a.id === 'tarefas');
+    if (tarefas && !tarefas.montada) {
+      tarefas.montada = true;
+      try { tarefas.montar(tarefas.painel, { bolinha: tarefas.interruptor }); } catch (e) {
+        console.warn('mesa: a aba tarefas falhou ao montar:', e);
+        tarefas.painel.innerHTML = `<div class="mz-erro" role="alert"><p>Não consegui montar a aba "Tarefas": ${esc(e && e.message)}.</p></div>`;
+      }
+    }
     // o botão Tutorial agora fica no cabeçalho da casca (casca.js), que chama esta função
     raiz.DGMesaTutorial = () => {
+      // a aba Pedidos tem a visita guiada dela; as outras abas registradas caem na da Mesa de tarefas
+      if (abaAtual === 'pedidos' && raiz.DGPedidos && typeof raiz.DGPedidos.tour === 'function') { raiz.DGPedidos.tour(); return; }
       if (abaAtual !== 'tarefas') escolheAba('tarefas', true);
       iniciaPassos(passosPagina());
     };

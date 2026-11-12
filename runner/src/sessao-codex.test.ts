@@ -233,7 +233,7 @@ test("recursos só do Claude numa sessão Codex: um aviso por spawn dizendo o qu
   const { s } = await nova({ stopHooks: ["python3 /x/stop.py"], promptHooks: ["echo oi"], allowTools: ["mcp__dgchat"], extraArgs: ["--verbose"] });
   await s.subir("nova");
   const log = lerTexto(amb.logDoRunner);
-  assert.match(log, /AVISO .*ignorei stopHooks, promptHooks, allowTools\/askTools\/denyTools, extraArgs \(são flags do Claude\)/);
+  assert.match(log, /AVISO .*ignorei stopHooks, allowTools\/askTools\/denyTools, extraArgs \(são flags do Claude\)/);
 });
 
 test("Codex com o canal Telegram ligado: aviso de que o oficial só existe no Claude, e nada quebra", async () => {

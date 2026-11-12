@@ -23,6 +23,7 @@
 (function () {
   const P = window.DGConectar;
   const LC = window.DGLoginCartao;
+  const COLAB = !!(window.DGPapel && window.DGPapel.colaborador);
 
   function paraOLogin(voltarPara) { location.href = '/login?next=' + encodeURIComponent(voltarPara || '/conectar'); }
 
@@ -41,9 +42,9 @@
     } catch (e) {
       falhaRede = ctl.signal.aborted ? 'o painel não respondeu a tempo' : (e && e.message) || 'sem rede';
     } finally { clearTimeout(relogio); }
-    if (!r) return { ok: false, status: 0, dados: null, erro: P.traduzErro(0, falhaRede, acao, nome) };
+    if (!r) return { ok: false, status: 0, dados: null, erro: P.traduzErro(0, falhaRede, acao, nome, COLAB) };
     if (r.ok && !(dados && dados.ok === false)) return { ok: true, status: r.status, dados: dados || {}, erro: null };
-    const t = P.traduzErro(r.status, dados && dados.erro, acao, nome);
+    const t = P.traduzErro(r.status, dados && dados.erro, acao, nome, COLAB);
     if (t.sessaoExpirada) paraOLogin(voltarPara);
     return { ok: false, status: r.status, dados, erro: t };
   }
@@ -100,7 +101,7 @@
 
     function visaoDe(a) {
       const e = est.por[a.id];
-      return P.visaoCartao(e.dados, { agente: a, iniciado: e.iniciado, concluiuAgora: e.concluiuAgora, erroConferir: e.erroConferir, outroNome: outroEmAndamento(a.id), principal: !!est.principal && est.principal.id === a.id });
+      return P.visaoCartao(e.dados, { agente: a, iniciado: e.iniciado, concluiuAgora: e.concluiuAgora, erroConferir: e.erroConferir, outroNome: outroEmAndamento(a.id), principal: !!est.principal && est.principal.id === a.id, colaborador: COLAB });
     }
     const selos = () => est.agentes.map(a => visaoDe(a).selo);
 
@@ -219,7 +220,8 @@
         const eraEmAndamento = emAndamento(e);
         e.dados = r.dados;
         if (emAndamento(e)) e.iniciado = true;
-        else if (r.dados.estado === 'concluido' && (e.iniciado || eraEmAndamento)) { e.iniciado = true; conclui(a); }
+        // O GET do colaborador só diz { conectado: true } quando já há conta (sem `estado`).
+        else if ((r.dados.estado === 'concluido' || (COLAB && r.dados.conectado === true)) && (e.iniciado || eraEmAndamento)) { e.iniciado = true; conclui(a); }
       }
       desenhaCartao(a);
       desenhaTudo();

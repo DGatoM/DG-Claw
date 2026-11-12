@@ -30,7 +30,7 @@ async function cenario(opcoes) {
   const relogio = { t: Date.now() };
   const enviados = [];
   const email = { enviar: async (m) => { enviados.push(m); return o.emailFalha ? { enviado: false, motivo: o.emailFalha } : { enviado: true }; } };
-  const t = await subirWeb({ agentes, env: o.env, opcoesServidor: { agora: () => relogio.t, email } });
+  const t = await subirWeb({ agentes, env: o.env, opcoesServidor: Object.assign({ agora: () => relogio.t, email }, o.opcoesServidor) });
   const donoUsuario = (o.env && o.env.DGCLAW_PANEL_USER) || 'dono';
   await t.c.post('/login', { json: { usuario: donoUsuario, senha: t.senha } });
   const idAna = t.web.midia.registrar('ana', path.join(homeAna, 'out', 'a.txt')).id;

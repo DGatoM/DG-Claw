@@ -14,6 +14,8 @@
 
 set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=_lib/anexo-seguro.sh
+source "$SCRIPT_DIR/_lib/anexo-seguro.sh"
 
 CONFIG="${1:-${DGCLAW_CONFIG:-}}"
 [ -n "$CONFIG" ] || { echo "uso: doctor.sh <.dgclaw/config.sh> [--fix]" >&2; exit 1; }
@@ -251,10 +253,10 @@ if [ -f "$WS/CLAUDE.md" ]; then
     else
         W "CLAUDE.md sem as linhas @MEMORY.md e @working-memory.md: o agente comeca a sessao sem as regras que aprendeu (instalacao anterior a 05/10/2026) -> rode com --fix"
         if [ "$FIX" = "1" ] && [ -f "$PLUGIN/templates/CLAUDE.md.tmpl" ]; then
-            cp -p "$WS/CLAUDE.md" "$WS/CLAUDE.md.bak-$(date +%Y%m%d)"
-            { echo; sed -n '/^### O que voce ja aprendeu entra sozinho/,/^@working-memory.md/p' \
-                "$PLUGIN/templates/CLAUDE.md.tmpl" | sed "s/{{DONO}}/${DGCLAW_OWNER:-dono}/g"; } >> "$WS/CLAUDE.md"
-            if grep -q "^@MEMORY.md" "$WS/CLAUDE.md"; then
+            if ! anexar_secao_segura "$WS/CLAUDE.md" "$WS" "$(sed -n '/^### O que voce ja aprendeu entra sozinho/,/^@working-memory.md/p' \
+                "$PLUGIN/templates/CLAUDE.md.tmpl" | sed "s/{{DONO}}/${DGCLAW_OWNER:-dono}/g")" "$WS/CLAUDE.md.bak-$(date +%Y%m%d)" "$WS_OWNER"; then
+                B "CLAUDE.md: nao acrescentei a secao da memoria: $ANEXO_MOTIVO"
+            elif grep -q "^@MEMORY.md" "$WS/CLAUDE.md"; then
                 F "secao da memoria acrescentada no fim do CLAUDE.md (backup ao lado; vale na proxima sessao)"
             else
                 B "nao consegui acrescentar a secao: o template em $PLUGIN/templates nao tem o trecho (copia do plugin antiga? rode install-core.sh bootstrap)"
@@ -265,12 +267,15 @@ fi
 if [ -f "$WS/MEMORY.md" ] && ! grep -q "^## Regras aprendidas" "$WS/MEMORY.md"; then
     W "MEMORY.md sem a secao Regras aprendidas: as correcoes do dono nao tem onde ficar (a reflexao da noite cria sozinha)"
     if [ "$FIX" = "1" ]; then
-        printf '\n---\n\n## Regras aprendidas\n\n<!-- O que o dono ensinou ou corrigiu e vale pra sempre. UMA linha datada por regra: - (DD/MM/AAAA) <regra>. -->\n\n' \
-            >> "$WS/MEMORY.md" && F "secao Regras aprendidas criada no MEMORY.md"
+        if anexar_secao_segura "$WS/MEMORY.md" "$WS" "$(printf -- '---\n\n## Regras aprendidas\n\n<!-- O que o dono ensinou ou corrigiu e vale pra sempre. UMA linha datada por regra: - (DD/MM/AAAA) <regra>. -->\n')" "$WS/MEMORY.md.bak-$(date +%Y%m%d)" "$WS_OWNER"; then
+            F "secao Regras aprendidas criada no MEMORY.md"
+        else
+            B "MEMORY.md: nao criei a secao Regras aprendidas: $ANEXO_MOTIVO"
+        fi
     fi
 fi
 if [ "$FIX" = "1" ] && [ "$WS_OWNER" != "root" ]; then
-    chown "$WS_OWNER:" "$WS/CLAUDE.md" "$WS/MEMORY.md" \
+    chown -h "$WS_OWNER:" "$WS/CLAUDE.md" "$WS/MEMORY.md" \
         || W "nao consegui passar CLAUDE.md e MEMORY.md para o usuario $WS_OWNER (o agente pode nao conseguir gravar neles) -> rode como root"
 fi
 
@@ -375,13 +380,24 @@ ULTIMO_DIARIO=""
 for d in "$WS"/memory/20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].md; do
     [ -f "$d" ] && ULTIMO_DIARIO="$(basename "$d" .md)"   # o glob ja vem em ordem de data
 done
+# Dia sem conversa com o dono: a reflexao e pulada de proposito e nao ha diario. Ela anota o dia
+# aqui; para a conta de "dias sem diario", o dia pulado vale como dia em que a reflexao funcionou.
+ULTIMA_PULADA="$(grep -E '^20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]$' "$WS/.dgclaw/logs/reflexoes-puladas.txt" 2>/dev/null | sort | tail -n 1)"
+if [ -n "$ULTIMA_PULADA" ] && [[ "$ULTIMA_PULADA" > "$ULTIMO_DIARIO" ]]; then
+    ULTIMO_DIARIO="$ULTIMA_PULADA"
+    DIARIO_PULADO=1
+fi
 if [ -z "$ULTIMO_DIARIO" ]; then
     I "nenhum diario escrito ainda (normal no primeiro dia de vida)"
 else
     # date -d falha com nome de diario fora do formato de data; cai em "hoje" (0 dias) em vez de abortar.
     DIAS_SEM=$(( ( $(date +%s) - $(date -d "$ULTIMO_DIARIO" +%s 2>/dev/null || date +%s) ) / 86400 ))
     if [ "$DIAS_SEM" -le 1 ]; then
-        P "a reflexao da noite esta escrevendo o diario (ultimo: $ULTIMO_DIARIO)"
+        if [ "${DIARIO_PULADO:-0}" = 1 ]; then
+            P "a reflexao da noite esta em dia (a de $ULTIMO_DIARIO foi pulada de proposito: dia sem conversa com o dono, por isso nao tem diario)"
+        else
+            P "a reflexao da noite esta escrevendo o diario (ultimo: $ULTIMO_DIARIO)"
+        fi
     else
         B "a reflexao da noite nao escreve o diario ha $DIAS_SEM dias (ultimo: $ULTIMO_DIARIO). O recado das 23:30 sai, mas a sessao nao executa: veja a secao 6 acima e o docs/EMERGENCIA.md, secoes 3.3 (login vencido ou outro erro no ultimo turno) e 3.7 (sessao travada)"
     fi
@@ -616,12 +632,12 @@ if [ -f "$WS/CLAUDE.md" ]; then
     else
         W "o CLAUDE.md nao tem a secao Mesa de tarefas atual: o agente nao sabe quando criar e atualizar tarefas na mesa -> rode com --fix"
         if [ "$FIX" = "1" ] && grep -q '^## Mesa de tarefas *$' "$PLUGIN/templates/CLAUDE.md.tmpl" 2>/dev/null; then
-            [ -f "$WS/CLAUDE.md.bak-$(date +%Y%m%d)-mesa" ] || cp -p "$WS/CLAUDE.md" "$WS/CLAUDE.md.bak-$(date +%Y%m%d)-mesa"
-            { echo; awk '/^## /{f=($0 ~ /^## Mesa de tarefas *$/)} f' "$PLUGIN/templates/CLAUDE.md.tmpl" \
-                | sed "s/{{DONO}}/${DGCLAW_OWNER:-dono}/g"; } >> "$WS/CLAUDE.md"
-            [ "$WS_OWNER" != "root" ] && { chown "$WS_OWNER:" "$WS/CLAUDE.md" \
-                || W "nao consegui passar o CLAUDE.md para o usuario $WS_OWNER (o agente pode nao conseguir gravar nele) -> rode como root"; }
-            F "secao Mesa de tarefas acrescentada no fim do CLAUDE.md (backup ao lado; vale na proxima leitura)"
+            if anexar_secao_segura "$WS/CLAUDE.md" "$WS" "$(awk '/^## /{f=($0 ~ /^## Mesa de tarefas *$/)} f' "$PLUGIN/templates/CLAUDE.md.tmpl" \
+                    | sed "s/{{DONO}}/${DGCLAW_OWNER:-dono}/g")" "$WS/CLAUDE.md.bak-$(date +%Y%m%d)-mesa" "$WS_OWNER"; then
+                F "secao Mesa de tarefas acrescentada no fim do CLAUDE.md (backup ao lado; vale na proxima leitura)"
+            else
+                B "CLAUDE.md: nao acrescentei a secao Mesa de tarefas: $ANEXO_MOTIVO"
+            fi
         fi
     fi
 fi
@@ -653,12 +669,12 @@ else
     while [ -f "$WS/CLAUDE.md" ] && ! grep -q "^## $SECAO" "$WS/CLAUDE.md"; do
         W "a mesa esta configurada, mas o CLAUDE.md nao tem a secao $SECAO: o agente nao sabe quando usar -> rode com --fix"
         if [ "$FIX" = "1" ] && grep -q "^## $SECAO" "$PLUGIN/templates/CLAUDE.md.tmpl" 2>/dev/null; then
-            [ -f "$WS/CLAUDE.md.bak-$(date +%Y%m%d)-mesa" ] || cp -p "$WS/CLAUDE.md" "$WS/CLAUDE.md.bak-$(date +%Y%m%d)-mesa"
-            { echo; SECAO="$SECAO" awk '/^## /{f=(index($0, "## " ENVIRON["SECAO"]) == 1)} f' "$PLUGIN/templates/CLAUDE.md.tmpl" \
-                | sed "s/{{DONO}}/${DGCLAW_OWNER:-dono}/g"; } >> "$WS/CLAUDE.md"
-            [ "$WS_OWNER" != "root" ] && { chown "$WS_OWNER:" "$WS/CLAUDE.md" \
-                || W "nao consegui passar o CLAUDE.md para o usuario $WS_OWNER (o agente pode nao conseguir gravar nele) -> rode como root"; }
-            F "secao $SECAO acrescentada no fim do CLAUDE.md (backup ao lado; vale na proxima leitura)"
+            if anexar_secao_segura "$WS/CLAUDE.md" "$WS" "$(SECAO="$SECAO" awk '/^## /{f=(index($0, "## " ENVIRON["SECAO"]) == 1)} f' "$PLUGIN/templates/CLAUDE.md.tmpl" \
+                    | sed "s/{{DONO}}/${DGCLAW_OWNER:-dono}/g")" "$WS/CLAUDE.md.bak-$(date +%Y%m%d)-mesa" "$WS_OWNER"; then
+                F "secao $SECAO acrescentada no fim do CLAUDE.md (backup ao lado; vale na proxima leitura)"
+            else
+                B "CLAUDE.md: nao acrescentei a secao $SECAO: $ANEXO_MOTIVO"
+            fi
         fi
         break
     done
@@ -705,13 +721,40 @@ fi
 if [ -f "$WS/CLAUDE.md" ] && ! grep -q "^## Quadro de avisos da equipe" "$WS/CLAUDE.md"; then
     W "o CLAUDE.md nao tem a secao Quadro de avisos da equipe: o agente nao sabe quando postar -> rode com --fix"
     if [ "$FIX" = "1" ] && grep -q "^## Quadro de avisos da equipe" "$PLUGIN/templates/CLAUDE.md.tmpl" 2>/dev/null; then
-        [ -f "$WS/CLAUDE.md.bak-$(date +%Y%m%d)-avisos" ] || cp -p "$WS/CLAUDE.md" "$WS/CLAUDE.md.bak-$(date +%Y%m%d)-avisos"
-        { echo; awk '/^## /{f=(index($0, "## Quadro de avisos da equipe") == 1)} f' "$PLUGIN/templates/CLAUDE.md.tmpl" \
-            | sed "s/{{DONO}}/${DGCLAW_OWNER:-dono}/g"; } >> "$WS/CLAUDE.md"
-        [ "$WS_OWNER" != "root" ] && { chown "$WS_OWNER:" "$WS/CLAUDE.md" \
-                || W "nao consegui passar o CLAUDE.md para o usuario $WS_OWNER (o agente pode nao conseguir gravar nele) -> rode como root"; }
-        F "secao Quadro de avisos da equipe acrescentada no fim do CLAUDE.md (backup ao lado; vale na proxima leitura)"
+        if anexar_secao_segura "$WS/CLAUDE.md" "$WS" "$(awk '/^## /{f=(index($0, "## Quadro de avisos da equipe") == 1)} f' "$PLUGIN/templates/CLAUDE.md.tmpl" \
+                | sed "s/{{DONO}}/${DGCLAW_OWNER:-dono}/g")" "$WS/CLAUDE.md.bak-$(date +%Y%m%d)-avisos" "$WS_OWNER"; then
+            F "secao Quadro de avisos da equipe acrescentada no fim do CLAUDE.md (backup ao lado; vale na proxima leitura)"
+        else
+            B "CLAUDE.md: nao acrescentei a secao Quadro de avisos da equipe: $ANEXO_MOTIVO"
+        fi
     fi
+fi
+
+# AGENTS.md (o Codex le este arquivo; o Claude le o CLAUDE.md): as mesmas secoes que o CLAUDE.md
+# precisa ter. Os dois nascem da mesma fonte (scripts/gerar-instrucoes.sh), mas o AGENTS.md de um
+# agente criado antes dessa versao nao tem as secoes novas. So se acrescenta o que falta, no fim,
+# com backup ao lado: o que o dono personalizou nunca e reescrito.
+if [ -L "$WS/AGENTS.md" ]; then
+    # Nem ler: um link para fora do workspace faria o root abrir (e, com --fix, escrever em) outro arquivo.
+    anexo_arquivo_seguro "$WS/AGENTS.md" "$WS" || true
+    B "AGENTS.md: $ANEXO_MOTIVO"
+elif [ -f "$WS/AGENTS.md" ]; then
+    AG_FALTA=0
+    for SECAO in "Mesa de tarefas" "Quadro de avisos da equipe" "A lousa" "Texto pra copiar" "Logins de sistemas" "Agendar e coisa sua" "Lembretes para o"; do
+        if grep -q "^## $SECAO" "$WS/AGENTS.md"; then continue; fi
+        AG_FALTA=1
+        W "o AGENTS.md nao tem a secao \"$SECAO\": o agente no Codex nao sabe essa parte das instrucoes -> rode com --fix"
+        if [ "$FIX" = "1" ] && grep -q "^## $SECAO" "$PLUGIN/templates/AGENTS.md.tmpl" 2>/dev/null; then
+            if anexar_secao_segura "$WS/AGENTS.md" "$WS" "$(SECAO="$SECAO" awk '/^## /{f=(index($0, "## " ENVIRON["SECAO"]) == 1)} f' "$PLUGIN/templates/AGENTS.md.tmpl" \
+                    | sed "s/{{DONO}}/${DGCLAW_OWNER:-dono}/g")" "$WS/AGENTS.md.bak-$(date +%Y%m%d)" "$WS_OWNER"; then
+                F "secao $SECAO acrescentada no fim do AGENTS.md (backup ao lado; vale na proxima sessao)"
+            else
+                B "AGENTS.md: nao acrescentei a secao $SECAO: $ANEXO_MOTIVO"
+                break
+            fi
+        fi
+    done
+    [ "$AG_FALTA" = "0" ] && P "AGENTS.md tem as secoes da mesa, do quadro de avisos, da lousa, da tela, da agenda e dos lembretes"
 fi
 
 # Instalacao da era anterior a fusao: enquanto as duas camadas existirem juntas, rotina

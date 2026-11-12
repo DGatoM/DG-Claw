@@ -59,8 +59,28 @@ function mostraErroTela(titulo, texto, agentes) {
   if (barra) barra.hidden = true;
 }
 
+/* O histórico inicial sai junto com a lista de agentes (o slug já está na URL), em vez de esperar
+   por ela. carregar(true) consome a promessa; se ela falhou ou o agente não existe, carregar() pede de
+   novo pelo caminho normal, que mostra o erro de sempre (e leva ao login num 401). */
+let historicoAntecipado = null;
+const PAGINA_INICIAL = 60;   // o mesmo PAGINA de iniciaTela
+
+function antecipaHistorico(slug) {
+  historicoAntecipado = fetch('/api/v1/agents/' + encodeURIComponent(slug) + '/messages?limit=' + PAGINA_INICIAL, { cache: 'no-store' })
+    .then(async r => {
+      let corpo = null;
+      try { corpo = await r.json(); } catch (e) { corpo = null; }
+      if (!r.ok || !corpo || corpo.ok === false) throw new Error('a API respondeu ' + r.status);
+      return corpo;
+    });
+  // quem consome trata a falha; aqui só evita "unhandled rejection" se ninguém chegar a consumir
+  historicoAntecipado.catch(() => {});
+}
+
 async function boot() {
   let d = null;
+  const slugCedo = slugDaUrl();
+  if (slugCedo) antecipaHistorico(slugCedo);
   try {
     const r = await fetch('/api/v1/agents', { cache: 'no-store' });
     if (r.status === 401) {
@@ -668,9 +688,10 @@ async function lcCopia(texto) {
 /* Abre o cartão. `manual`: veio do /login (fica mesmo com a conta conectada). */
 let lcAvisouColab = false;
 function lcAbre(manual, semConferir) {
-  // Colaborador não conecta conta: o servidor nega o login inteiro. Só avisa, uma vez, em vez de abrir o cartão.
+  // Colaborador conecta a conta pela página Conectar conta (que confere no servidor se o agente está sem conta).
+  // Aqui só avisa, uma vez, em vez de abrir o cartão do dono.
   if (window.DGPapel && window.DGPapel.colaborador) {
-    if (!lcAvisouColab) { lcAvisouColab = true; mostraAviso('O agente precisa entrar numa conta, e isso é só do dono do DG Claw. Avise o dono.'); }
+    if (!lcAvisouColab) { lcAvisouColab = true; mostraAviso('O agente ainda não tem uma conta de IA conectada. Você pode conectar a sua em Conectar conta, no menu. Se o login expirou e a conta não é sua, avise o dono do DG Claw.'); }
     return;
   }
   if (lc.aberto) { if (manual) { lc.manual = true; lc.dispensado = false; } lcDesenha(); return; }
@@ -2451,7 +2472,15 @@ const menorEp = () => msgs.reduce((m, x) => Math.min(m, x.ep), Infinity);
 async function carregar(primeiraVez) {
   let ok = false;
   try {
-    const d = await api(API + '/messages?limit=' + PAGINA);
+    let d = null;
+    if (primeiraVez && historicoAntecipado) {
+      const promessa = historicoAntecipado;
+      historicoAntecipado = null;
+      try { d = await promessa; } catch (e) {
+        console.warn('histórico antecipado falhou (' + e.message + '); peço de novo pelo caminho normal');
+      }
+    }
+    if (!d) d = await api(API + '/messages?limit=' + PAGINA);
     const novas = d.msgs || [];
     if (primeiraVez || !msgs.length) {
       geracaoJanela++;
@@ -4921,7 +4950,8 @@ function passosTutorial() {
       como: 'Pede a sua confirmação, reinicia e mostra uma faixa no topo até ele voltar. A conversa continua de onde estava, porque o agente retoma a mesma sessão.',
       porque: 'Quando o agente para de responder, reiniciar costuma resolver, e aqui é um toque.' });
   }
-  passos.push({ alvo: '#loginCartao', titulo: 'Conectar a sua conta',
+  // O cartão de login da conversa é do dono; o colaborador conecta pela página Conectar conta (ver conectar.js).
+  if (!COLAB) passos.push({ alvo: '#loginCartao', titulo: 'Conectar a sua conta',
     antes: () => {
       if (lc.aberto) return;
       lc.demo = true; lc.aberto = true; lc.manual = true; lc.carregando = false; lc.iniciado = false;
@@ -5085,7 +5115,23 @@ if (emCache) {
   render();
   rolagem.aoFim();
 }
-carregar(true).then(() => ligaStream());
+/* Link da fila de pedidos: /a/<agente>?msg=<id> abre a conversa rolada até a mensagem da entrega. */
+async function pulaParaMensagemDoLink() {
+  const id = new URLSearchParams(location.search).get('msg');
+  if (!id || !/^[a-f0-9]{16}$/.test(id)) return;
+  try {
+    const d = await api(API + '/compartilhados?mensagem=' + encodeURIComponent(id));
+    const porId = new Map([...(d.msgs || []), ...msgs].map(m => [m.id, m]));
+    msgs = [...porId.values()].sort((a, b) => a.ep - b.ep);
+    render({ semRolar: true });
+    const el = wrap.querySelector('[data-msg="' + CSS.escape(d.mensagem.id) + '"]');
+    if (!el) throw new Error('A mensagem não apareceu na tela. Atualize a conversa.');
+    rolagem.mostra(el, { block: 'center' });
+    el.classList.add('alerta-destaque');
+    setTimeout(() => el.classList.remove('alerta-destaque'), 3000);
+  } catch (err) { mostraErro('Não consegui ir até a mensagem da entrega: ' + err.message); }
+}
+carregar(true).then(() => ligaStream()).then(pulaParaMensagemDoLink);
 ligaResync();
 if (caps.voz) conferecota();
 if ('serviceWorker' in navigator) {

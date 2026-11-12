@@ -232,4 +232,22 @@ criar_agente bia --nome "Bia"
 afirma "podman start dentro de systemd-run --scope" grep -Eq '^systemd-run --scope --quiet --collect --unit dgclaw-conteiner-bia-[0-9]+-[0-9]+-[0-9]+ podman start dgclaw-bia' "$STUB_LOG"
 nega "nenhum podman start solto" grep -q '^podman start dgclaw-bia' "$STUB_LOG"
 
+echo "criar: DNS publico so nos containers do DG Claw quando o DNS do servidor e privado"
+preparar
+mkdir -p "$DGCLAW_RAIZ/run/systemd/resolve"
+printf 'nameserver 192.168.25.6\nnameserver 127.0.0.53\n' >"$DGCLAW_RAIZ/run/systemd/resolve/resolv.conf"
+criar_agente dns1 --nome "Dns Um"
+afirma "DNS privado: o podman create leva --dns 1.1.1.1 e --dns 8.8.8.8" grep -q '^podman create .*--dns 1.1.1.1 --dns 8.8.8.8 ' "$STUB_LOG"
+afirma "explica o motivo, com o DNS do servidor" grep -q 'o DNS deste servidor (192.168.25.6) fica numa rede privada' "$TMP/saida.txt"
+echo "[]" >"$STUB_ESTADO/dns-dgclaw-dns1"   # simula o container criado antes do DNS publico
+criar_agente dns1 --nome "Dns Um"
+afirma "container ja existente: avisa que o DNS nao muda sozinho e cita o comando real" grep -q 'dgclaw agente recriar dns1' "$TMP/saida.txt"
+
+preparar
+mkdir -p "$DGCLAW_RAIZ/run/systemd/resolve"
+printf 'nameserver 127.0.0.53\nnameserver 9.9.9.9\n' >"$DGCLAW_RAIZ/run/systemd/resolve/resolv.conf"
+criar_agente dns2 --nome "Dns Dois"
+nega "DNS publico: o podman create nao leva --dns" grep -q '^podman create .*--dns' "$STUB_LOG"
+afirma "o create aconteceu" grep -q '^podman create ' "$STUB_LOG"
+
 fim
