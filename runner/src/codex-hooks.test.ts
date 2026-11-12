@@ -281,7 +281,7 @@ test("toml: instalar com cabeçalho equivalente (comentário) não duplica a tab
   const r = instala(c);
   assert.equal(r.instalados, 5);
   const t = lerTexto(path.join(c.home, "config.toml"));
-  assert.equal((t.match(new RegExp(ch.replace(/[/.]/g, "\\$&"), "g")) ?? []).length, 1, "a mesma chave não aparece em duas tabelas");
+  assert.equal((t.match(new RegExp(ch.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&"), "g")) ?? []).length, 1, "a mesma chave não aparece em duas tabelas");
   assert.ok(t.startsWith(`# topo\nmodel = "gpt-5"\n\n[ hooks.state.'${ch}' ] # meu hook\nenabled = false\ntrusted_hash = "sha256:`));
   assert.ok(t.includes('[projects."/a"]\ntrust_level = "trusted"\n'));
   assert.ok(t.indexOf("[projects") > t.indexOf("# meu hook"));
