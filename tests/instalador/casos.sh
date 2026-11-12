@@ -881,3 +881,17 @@ caso_caddy_caddyfile_padrao_com_validacao_que_falha_restaura() {
     afirma "o Caddyfile padrao voltou" cmp "$TMP/caddy-antes" "$RAIZ/etc/caddy/Caddyfile"
     limpar_cenario
 }
+
+caso_caddy_restauracao_mantem_modo_do_arquivo() {
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy" "$TMP/estado"
+    echo caddy >"$TMP/estado/ativos"
+    printf '# DG Claw: gerado pelo install.sh. Rodar o instalador de novo reescreve este arquivo.\n%s {\n\treverse_proxy 127.0.0.1:8300\n}\n' "$DOM_CADDY" >"$RAIZ/etc/caddy/Caddyfile"
+    chmod 640 "$RAIZ/etc/caddy/Caddyfile"
+    cp -p "$RAIZ/etc/caddy/Caddyfile" "$TMP/caddy-antes"
+    touch "$TMP/estado/caddy-falha"
+    nega "a instalacao para quando o Caddy recusa" instalacao_basica
+    afirma "conteudo restaurado" cmp "$TMP/caddy-antes" "$RAIZ/etc/caddy/Caddyfile"
+    igual "$(stat -c %a "$RAIZ/etc/caddy/Caddyfile")" 640 || { echo "      FALHOU: modo do arquivo restaurado"; FALHAS=$((FALHAS + 1)); }
+    limpar_cenario
+}

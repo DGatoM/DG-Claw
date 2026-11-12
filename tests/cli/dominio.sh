@@ -66,14 +66,28 @@ igual "outros sites: sai com 0" "0" "$?"
 afirma "outros sites: site do DG Claw em conf.d" grep -q '^outro.exemplo.com.br {' "$CONFD"
 afirma "outros sites: Caddyfile dos outros preservado" grep -q 'loja.exemplo.com' "$CF"
 
-# Caddyfile personalizado: so o nome do site muda, a linha do dono sobrevive
+# Caddyfile personalizado: o comando falha, nada e gravado (arquivo, permissao, dominio registrado)
 printf '# DG Claw: gerado\nantigo.exemplo.com {\n\treverse_proxy 127.0.0.1:8300\n\theader X-Minha-Linha "do dono"\n}\n' >"$CF"
 rm -f "$CONFD"
+chmod 640 "$CF"
+cp -p "$CF" "$TMP/cf-antes"
+printf 'DGCLAW_DOMINIO=antigo.exemplo.com\n' >"$ETC/dgclaw.env"
+cp -p "$ETC/dgclaw.env" "$TMP/env-antes"
+: >"$STUB_LOG"
 dgclaw dominio trocar personalizado.exemplo.com.br --sem-conferir-dns >"$TMP/o.txt" 2>&1
-igual "personalizado: sai com 0" "0" "$?"
-afirma "personalizado: nome novo no site" grep -q '^personalizado.exemplo.com.br {' "$CF"
-afirma "personalizado: linha do dono intacta" grep -q 'header X-Minha-Linha "do dono"' "$CF"
-nega "personalizado: nome antigo some" grep -q 'antigo.exemplo.com' "$CF"
+igual "personalizado: sai com 1" "1" "$?"
+afirma "personalizado: explica o que fazer" grep -q 'tem personalizacoes suas' "$TMP/o.txt"
+afirma "personalizado: arquivo intacto byte a byte" cmp "$CF" "$TMP/cf-antes"
+igual "personalizado: permissao intacta" "640" "$(stat -c %a "$CF")"
+afirma "personalizado: dominio registrado nao mudou" cmp "$ETC/dgclaw.env" "$TMP/env-antes"
+nega "personalizado: nao recarregou o caddy" grep -q 'systemctl reload caddy' "$STUB_LOG"
+# o dono edita o nome do site a mao e roda de novo: o DG Claw registra o dominio
+sed -i 's/^antigo.exemplo.com {/personalizado.exemplo.com.br {/' "$CF"
+dgclaw dominio trocar personalizado.exemplo.com.br --sem-conferir-dns >"$TMP/o.txt" 2>&1
+igual "personalizado editado a mao: sai com 0" "0" "$?"
+afirma "personalizado editado a mao: dominio registrado" grep -qx 'DGCLAW_DOMINIO=personalizado.exemplo.com.br' "$ETC/dgclaw.env"
+afirma "personalizado editado a mao: linha do dono intacta" grep -q 'header X-Minha-Linha "do dono"' "$CF"
+igual "personalizado editado a mao: permissao intacta" "640" "$(stat -c %a "$CF")"
 
 # Caddyfile gerado pelo instalador: ganha a compressao ao trocar
 printf '# DG Claw: gerado\nantigo.exemplo.com {\n\treverse_proxy 127.0.0.1:8300\n}\n' >"$CF"
