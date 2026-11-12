@@ -45,9 +45,9 @@ dgclaw colaborador criar admin x@y.com >"$TMP/o.txt" 2>&1
 igual "criar no Admin: sai com 1" "1" "$?"
 afirma "criar no Admin: repete o motivo da API" grep -q 'O Admin nunca pode ser compartilhado' "$TMP/o.txt"
 afirma "criar no Admin: diz o que fazer" grep -q 'O que fazer:' "$TMP/o.txt"
-zera; resposta 409 '{"ok":false,"erro":"O agente ana já tem um colaborador ativo (maria@empresa.com)."}'
+zera; resposta 409 '{"ok":false,"erro":"O e-mail maria@empresa.com já é colaborador deste agente (ana)."}'
 dgclaw colaborador criar ana joao@y.com >"$TMP/o.txt" 2>&1
-afirma "criar duplicado: repete o erro e aponta a lista" bash -c "grep -q 'já tem um colaborador ativo' '$TMP/o.txt' && grep -q 'colaborador listar' '$TMP/o.txt'"
+afirma "criar duplicado: repete o erro e aponta a lista" bash -c "grep -q 'já é colaborador deste agente' '$TMP/o.txt' && grep -q 'colaborador listar' '$TMP/o.txt'"
 zera; touch "$STUB_ESTADO/curl-sem-socket"
 dgclaw colaborador criar ana joao@y.com >"$TMP/o.txt" 2>&1
 igual "Web fora do ar: sai com 1" "1" "$?"
