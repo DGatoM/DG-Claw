@@ -143,7 +143,6 @@ function criarColaboradores({ config, log, agora, gerarHash }) {
       const e = String(email || '').trim().toLowerCase();
       return e ? ativos().find((c) => c.email === e) || null : null;
     },
-    ativoDoAgente(slug) { return ativos().find((c) => c.agente === slug) || null; },
 
     /** Cria o convite. As regras que dependem do registro de agentes (existe? é o Admin?) ficam na rota. */
     criar({ agente, email, nome, criadoPor, instancia }) {
@@ -151,9 +150,8 @@ function criarColaboradores({ config, log, agora, gerarHash }) {
         if (!instancia) throw erroStatus(500, `Não consegui identificar esta instância do agente ${agente} (casa ausente ou ilegível), e o convite precisa dela para não valer num agente recriado com o mesmo nome. Rode "dgclaw agente reparar ${agente}" e convide de novo.`);
         const mail = normalizaEmail(email);
         const nomeOk = normalizaNome(nome);
-        const doAgente = lista.find((c) => !c.revogado_em && c.agente === agente);
-        if (doAgente) throw erroStatus(409, `O agente ${agente} já tem um colaborador ativo (${doAgente.email}). Hoje cada agente tem um colaborador só: revogue o acesso atual antes de convidar outra pessoa.`);
         const doEmail = lista.find((c) => !c.revogado_em && c.email === mail);
+        if (doEmail && doEmail.agente === agente) throw erroStatus(409, `O e-mail ${mail} já é colaborador deste agente (${agente}). Se a pessoa perdeu a senha, use "Mandar convite de novo" no cartão dela.`);
         if (doEmail) throw erroStatus(409, `O e-mail ${mail} já é colaborador do agente ${doEmail.agente}. Hoje cada pessoa acessa um agente só: revogue o acesso dela lá antes de convidar para este.`);
         const senha = geraSenhaTemporaria();
         const hash = await gerarHash(senha);
