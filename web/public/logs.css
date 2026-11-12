@@ -1,0 +1,49 @@
+/* logs.css: a tela /logs (classes lg-). Celular primeiro: 390 px sem rolagem horizontal, alvos de toque de pelo menos 32 px,
+   campos com fonte de 16 px (o iPhone não dá zoom) e texto longo quebrando em vez de cortar. As variáveis são as da casca.css. */
+body.lg{--line:rgba(0,0,0,.08);--muted:#6c8172;--txt:#0f1c14;--lg-acento:#2f9e5e;--lg-fundo:#f3f6f3;--lg-verm:#b3261e;
+  margin:0;background:var(--lg-fundo);color:var(--txt);overflow:auto;height:auto;
+  font:15.5px/1.46 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;-webkit-text-size-adjust:100%}
+body.lg *{box-sizing:border-box}
+.lg-main{max-width:980px;margin:0 auto;padding:14px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.lg-sec{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px;min-width:0}
+.lg-sec h2{font-size:16.5px;margin:0 0 8px;display:flex;align-items:center;gap:8px}
+.lg-sec h2 span{flex:1;min-width:0}
+.lg-ajuda{width:34px;height:34px;border-radius:50%;border:1px solid var(--line);background:#f2f6f2;color:#38523f;font-weight:700;cursor:pointer;flex:0 0 auto}
+.lg-fraco{color:var(--muted);font-size:14px;margin:6px 0 0;overflow-wrap:anywhere}
+.lg-rotulo{display:flex;flex-direction:column;gap:3px;font-size:13.5px;font-weight:600;min-width:0;margin-top:8px}
+.lg-campo{font:inherit;font-size:16px;min-height:40px;padding:6px 10px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--txt);max-width:100%;min-width:0;width:100%}
+.lg-linha{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px}
+.lg-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.lg-chip{font:inherit;font-size:14px;font-weight:600;min-height:34px;padding:0 14px;border-radius:17px;border:1px solid var(--line);background:#f2f6f2;color:#38523f;cursor:pointer}
+.lg-chip[aria-pressed="true"]{background:var(--lg-acento);border-color:var(--lg-acento);color:#fff}
+.lg-acoes{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.lg-acoes[hidden]{display:none}
+.lg-btn{font:inherit;font-size:14px;font-weight:600;min-height:36px;padding:0 14px;border-radius:18px;border:1px solid var(--line);background:#f2f6f2;color:#38523f;cursor:pointer}
+.lg-btn.lg-pri{background:var(--lg-acento);border-color:var(--lg-acento);color:#fff}
+.lg-btn:disabled{opacity:.5;cursor:default}
+.lg-msg{margin:0;padding:10px 12px;border-radius:10px;overflow-wrap:anywhere}
+.lg-msg.erro{background:#fdecea;border:1px solid #e6a5a0;color:#8c1d18}
+.lg-msg[hidden]{display:none}
+.lg-faixa{margin:0 0 8px;padding:8px 12px;border-radius:10px;overflow-wrap:anywhere;font-size:14px}
+.lg-amarela{background:#fff7e0;border:1px solid #e3c27a;color:#6b4a00}
+.lg-vermelha{background:#fdecea;border:1px solid #e6a5a0;color:#8c1d18}
+.lg-neutra{background:#f4f6f8;border:1px solid #d5dde5;color:#33414f}
+.lg-fontes{display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+.lg-fonte{border:1px solid var(--line);border-radius:12px;padding:10px 12px;min-width:0;overflow-wrap:anywhere}
+.lg-fonte b{display:block}
+.lg-fonte small{display:block;color:var(--muted);margin-top:2px}
+.lg-lista{display:flex;flex-direction:column;gap:10px;margin-top:8px;min-width:0}
+.lg-card{border:1px solid var(--line);border-radius:12px;padding:10px 12px;min-width:0;overflow-wrap:anywhere}
+.lg-topo{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
+.lg-tag{font-size:12px;font-weight:700;padding:2px 8px;border-radius:10px;background:#eef2ee;color:#38523f}
+.lg-tag.lg-susp{background:#fff0dc;color:#8a4b00}
+.lg-tag.lg-sub{background:#e8eef9;color:#1f4a8a}
+.lg-titulo{margin:6px 0 0;font-weight:700;overflow-wrap:anywhere}
+.lg-texto{margin:6px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word}
+.lg-detalhe summary{cursor:pointer;min-height:32px;display:flex;align-items:center;font-weight:600;color:#1f5fae}
+.lg-detalhe dl{margin:4px 0 0;display:grid;gap:6px}
+.lg-detalhe dt{font-weight:700;color:#4a5968;font-size:13px}
+.lg-detalhe dd{margin:0;min-width:0}
+.lg-detalhe pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;font:13px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;background:#f6f8f6;border-radius:8px;padding:8px}
+.lg-erro-res{color:var(--lg-verm)}
+@media (max-width:520px){.lg-main{padding:10px}.lg-sec{padding:12px}}
