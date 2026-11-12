@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
 . "$(dirname "$0")/_comum.sh"
 registrar "$@"
+if [ -f "$(estado_dir)/caddy-falha" ]; then
+    echo "Error: configuracao invalida (simulada pelo teste)" >&2
+    exit 1
+fi
 exit 0

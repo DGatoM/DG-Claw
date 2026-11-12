@@ -347,26 +347,118 @@ caddyfile_e_padrao() {
     [ "$sites" = ":80 {" ]
 }
 
+# Tipos de conteudo que o Caddy comprime. A lista e explicita de proposito: o stream da conversa
+# (text/event-stream, web/lib/sse.js) NAO pode entrar, senao a compressao o retem e as mensagens
+# deixam de chegar na hora. Por isso nada de `text/*` generico.
+CADDY_TIPOS_COMPRIMIDOS=(
+    'text/html' 'text/css' 'text/plain' 'text/javascript' 'application/javascript'
+    'application/json' 'application/manifest+json' 'application/xml' 'image/svg+xml'
+)
+
 bloco_caddy() {
-    printf '# DG Claw: gerado pelo install.sh. Rodar o instalador de novo reescreve este arquivo.\n'
+    local tipo
+    printf '# DG Claw: gerado pelo install.sh. Se voce editar este arquivo, o instalador e o dgclaw atualizar\n'
+    printf '# deixam a sua versao como esta (so o dgclaw dominio troca o nome do site).\n'
+    printf '%s {\n\tencode {\n\t\tzstd\n\t\tgzip\n\t\tmatch {\n' "$1"
+    for tipo in "${CADDY_TIPOS_COMPRIMIDOS[@]}"; do
+        printf '\t\t\theader Content-Type %s*\n' "$tipo"
+    done
+    printf '\t\t}\n\t}\n\treverse_proxy 127.0.0.1:8300\n}\n'
+}
+
+# bloco_caddy_antigo <dominio>: o que as versoes anteriores gravavam (sem compressao). So serve para
+# reconhecer um arquivo que o instalador gerou e que ninguem editou.
+bloco_caddy_antigo() {
     printf '%s {\n\treverse_proxy 127.0.0.1:8300\n}\n' "$1"
 }
 
-# escrever_site_caddy <dominio>: grava o site do DG Claw no Caddyfile proprio (quando e dele ou
+# caddy_corpo <arquivo|->: o arquivo sem comentarios nem linhas em branco, para comparar o conteudo.
+caddy_corpo() { grep -v '^[[:space:]]*#' "$1" | grep -v '^[[:space:]]*$' || true; }
+
+# caddy_dominio_do_site <arquivo>: o endereco da primeira linha de site ("<endereco> {").
+caddy_dominio_do_site() {
+    grep -E '^[^[:space:]#]+[[:space:]]*\{[[:space:]]*$' "$1" | head -n 1 | sed -E 's/[[:space:]]*\{[[:space:]]*$//' || true
+}
+
+# caddy_site_e_gerado <arquivo>: 0 se o conteudo e exatamente o que o instalador gera (o formato novo
+# ou o antigo, com qualquer comentario no topo). Qualquer linha a mais ou a menos e personalizacao.
+caddy_site_e_gerado() {
+    local arq="$1" dom corpo
+    dom="$(caddy_dominio_do_site "$arq")"
+    [ -n "$dom" ] || return 1
+    corpo="$(caddy_corpo "$arq")"
+    [ "$corpo" = "$(bloco_caddy "$dom" | caddy_corpo -)" ] && return 0
+    [ "$corpo" = "$(bloco_caddy_antigo "$dom" | caddy_corpo -)" ] && return 0
+    return 1
+}
+
+# Resultado de escrever_site_caddy, para quem chama validar e recarregar:
+#   CADDY_SITE_MUDOU=1 se o arquivo foi gravado; CADDY_SITE_ARQUIVO = qual; CADDY_SITE_COPIA = copia
+#   do que havia antes (vazio se o arquivo nao existia), usada por caddy_restaurar_site.
+CADDY_SITE_MUDOU=0
+CADDY_SITE_ARQUIVO=""
+CADDY_SITE_COPIA=""
+
+# caddy_restaurar_site: desfaz a ultima escrever_site_caddy (a validacao do Caddy recusou o arquivo novo).
+caddy_restaurar_site() {
+    [ "$CADDY_SITE_MUDOU" = 1 ] && [ -n "$CADDY_SITE_ARQUIVO" ] || return 0
+    if [ -n "$CADDY_SITE_COPIA" ] && [ -f "$CADDY_SITE_COPIA" ]; then
+        cp -f "$CADDY_SITE_COPIA" "$CADDY_SITE_ARQUIVO"
+    else
+        rm -f "$CADDY_SITE_ARQUIVO"
+    fi
+}
+
+# escrever_site_caddy <dominio> [trocar]: grava o site do DG Claw no Caddyfile proprio (quando e dele ou
 # padrao) ou em conf.d/dgclaw.caddy (quando o Caddyfile tem sites de outros). Nao valida nem recarrega.
+# Arquivo que ja existe e foi personalizado (diferente do que o instalador gera) nao e tocado: avisa o
+# que acrescentar. Com "trocar" (dgclaw dominio) so o nome do site e trocado, o resto fica como esta.
 escrever_site_caddy() {
-    local dominio="$1" cf="$R/etc/caddy/Caddyfile" confd="$R/etc/caddy/conf.d/dgclaw.caddy"
+    local dominio="$1" modo="${2:-}" cf="$R/etc/caddy/Caddyfile" confd="$R/etc/caddy/conf.d/dgclaw.caddy" alvo antigo
+    CADDY_SITE_MUDOU=0
+    CADDY_SITE_ARQUIVO=""
+    CADDY_SITE_COPIA=""
     if [ ! -f "$cf" ] || grep -q '^# DG Claw' "$cf" || caddyfile_e_padrao "$cf"; then
-        bloco_caddy "$dominio" | escrever_arquivo "$cf" 644
+        alvo="$cf"
     else
         # Ja existe um Caddyfile com sites de verdade: nao se sobrescreve o que e dos outros.
         if ! grep -Eq '^[[:space:]]*import[[:space:]]+.*conf\.d/\*' "$cf"; then
             falha "o Caddyfile em ${cf#"$R"} ja tem outros sites e nao importa a pasta conf.d, entao nao tenho onde colocar o do DG Claw sem mexer no seu." \
                 "acrescente a linha 'import conf.d/*' no topo do arquivo (fora de qualquer bloco) e rode ./install.sh de novo. Ele vai criar ${confd#"$R"} com o site do DG Claw."
         fi
-        bloco_caddy "$dominio" | escrever_arquivo "$confd" 644
-        info "o Caddyfile existente foi preservado; o site do DG Claw ficou em ${confd#"$R"}"
+        alvo="$confd"
+        info "o Caddyfile existente foi preservado; o site do DG Claw fica em ${confd#"$R"}"
     fi
+
+    if [ -f "$alvo" ] && [ "$ENSAIO" != 1 ]; then
+        if cmp -s "$alvo" <(bloco_caddy "$dominio"); then
+            return 0
+        fi
+        if ! caddy_site_e_gerado "$alvo"; then
+            antigo="$(caddy_dominio_do_site "$alvo")"
+            if [ "$modo" = trocar ]; then
+                if [ -z "$antigo" ]; then
+                    falha "o arquivo ${alvo#"$R"} foi personalizado e nao achei nele a linha do site ('<nome> {') para trocar o nome." \
+                        "abra o arquivo, troque o nome do site por '$dominio' e rode: sudo systemctl reload caddy"
+                fi
+                CADDY_SITE_COPIA="$(mktemp)"
+                cp -f "$alvo" "$CADDY_SITE_COPIA"
+                awk -v novo="$dominio" '!feito && /^[^[:space:]#]+[[:space:]]*\{[[:space:]]*$/ { sub(/^[^[:space:]#]+/, novo); feito = 1 } { print }' \
+                    "$CADDY_SITE_COPIA" | escrever_arquivo "$alvo" 644
+                CADDY_SITE_MUDOU=1
+                CADDY_SITE_ARQUIVO="$alvo"
+                info "o arquivo ${alvo#"$R"} tem personalizacoes suas: troquei so o nome do site ($antigo para $dominio) e deixei o resto"
+                return 0
+            fi
+            aviso "${alvo#"$R"} tem personalizacoes suas e nao foi alterado, entao o site continua sem a compressao nova (a conversa e o painel ficam mais lentos no celular). Para ligar, acrescente dentro do bloco do site, antes do reverse_proxy: encode { zstd gzip match { header Content-Type text/html* header Content-Type text/css* header Content-Type text/plain* header Content-Type text/javascript* header Content-Type application/javascript* header Content-Type application/json* header Content-Type application/manifest+json* header Content-Type application/xml* header Content-Type image/svg+xml* } } (nao use 'text/*': ele comprimiria o stream da conversa, text/event-stream, e as mensagens deixariam de chegar na hora). Depois rode: caddy validate --config ${cf#"$R"} --adapter caddyfile && sudo systemctl reload caddy"
+            return 0
+        fi
+        CADDY_SITE_COPIA="$(mktemp)"
+        cp -f "$alvo" "$CADDY_SITE_COPIA"
+    fi
+    bloco_caddy "$dominio" | escrever_arquivo "$alvo" 644
+    CADDY_SITE_MUDOU=1
+    CADDY_SITE_ARQUIVO="$alvo"
 }
 
 # --- inotify ---------------------------------------------------------------------

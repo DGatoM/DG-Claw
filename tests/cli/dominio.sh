@@ -66,6 +66,21 @@ igual "outros sites: sai com 0" "0" "$?"
 afirma "outros sites: site do DG Claw em conf.d" grep -q '^outro.exemplo.com.br {' "$CONFD"
 afirma "outros sites: Caddyfile dos outros preservado" grep -q 'loja.exemplo.com' "$CF"
 
+# Caddyfile personalizado: so o nome do site muda, a linha do dono sobrevive
+printf '# DG Claw: gerado\nantigo.exemplo.com {\n\treverse_proxy 127.0.0.1:8300\n\theader X-Minha-Linha "do dono"\n}\n' >"$CF"
+rm -f "$CONFD"
+dgclaw dominio trocar personalizado.exemplo.com.br --sem-conferir-dns >"$TMP/o.txt" 2>&1
+igual "personalizado: sai com 0" "0" "$?"
+afirma "personalizado: nome novo no site" grep -q '^personalizado.exemplo.com.br {' "$CF"
+afirma "personalizado: linha do dono intacta" grep -q 'header X-Minha-Linha "do dono"' "$CF"
+nega "personalizado: nome antigo some" grep -q 'antigo.exemplo.com' "$CF"
+
+# Caddyfile gerado pelo instalador: ganha a compressao ao trocar
+printf '# DG Claw: gerado\nantigo.exemplo.com {\n\treverse_proxy 127.0.0.1:8300\n}\n' >"$CF"
+dgclaw dominio trocar gerado.exemplo.com.br --sem-conferir-dns >"$TMP/o.txt" 2>&1
+afirma "gerado: nome novo com compressao" grep -q 'zstd' "$CF"
+nega "gerado: sem event-stream" grep -q 'event-stream' "$CF"
+
 # sem conferir DNS e ensaio
 printf 'DGCLAW_DOMINIO=teste.exemplo.org\n' >"$ETC/dgclaw.env"
 dgclaw --ensaio dominio trocar sem-dns.exemplo.com --sem-conferir-dns >"$TMP/o.txt" 2>&1
