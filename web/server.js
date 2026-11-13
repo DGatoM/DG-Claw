@@ -1257,7 +1257,29 @@ function criarServidor(opcoes) {
   }
 
   // ── despacho ─────────────────────────────────────────────────────────────
-  const quemDoProxy = (sessao, req) => (sessao.papel === 'colaborador' ? { colaborador_id: sessao.colaborador_id, valeAinda: () => sessaoAindaVale(req, sessao) } : {});
+  const MSG_PV_MUDOU = 'O acesso do painel mudou enquanto o envio estava em andamento (o prazo venceu, a sessão terminou ou o agente foi recriado). Nada foi feito. Recarregue a página.';
+
+  /**
+   * O acesso por /pv/ ainda vale AGORA? Repete o que resolverPv conferiu na entrada (prazo, agente e instância, sessão),
+   * porque o corpo de um envio lento pode terminar depois que o agente foi removido e recriado com o mesmo nome.
+   */
+  function pvAindaVale(req, sessao) {
+    const pv = req.dgPv;
+    const relogio = opcoes.agora || Date.now;
+    if (pv.expira <= Math.floor(relogio() / 1000)) return false;
+    const ag2 = registro.obter(pv.slug);
+    if (!ag2 || (instanciaDe(ag2) || '') !== pv.instancia) return false;
+    const s2 = auth.sessaoPorIdPainel(pv.id);
+    if (!s2) return false;
+    if (ehColab(sessao)) return sessaoAindaVale(req, sessao);
+    return s2.papel !== 'colaborador';
+  }
+
+  function quemDoProxy(sessao, req) {
+    const quem = sessao.papel === 'colaborador' ? { colaborador_id: sessao.colaborador_id, valeAinda: () => sessaoAindaVale(req, sessao) } : {};
+    if (req.dgPv) quem.valeAinda = () => pvAindaVale(req, sessao);
+    return quem;
+  }
 
   // ── painel isolado (/pv/<token>/...) ─────────────────────────────────────
   // O painel do agente roda num iframe sandbox de origem opaca e fala com a própria API por um token no caminho
@@ -1428,7 +1450,14 @@ function criarServidor(opcoes) {
       if (!veredito.ok) return negarEscopo(req, res, sessao, veredito, p);
     }
 
-    if (ehColab(sessao)) {
+    if (req.dgPv) {
+      req.dgRevalidarMsg = MSG_PV_MUDOU;
+      req.dgRevalidar = () => {
+        const vale = pvAindaVale(req, sessao);
+        if (!vale) log('aviso', `Pedido ${m} ${p.slice(0, 120)} pelo painel isolado recusado: o acesso do painel deixou de valer enquanto o corpo chegava.`);
+        return vale;
+      };
+    } else if (ehColab(sessao)) {
       req.dgRevalidar = () => {
         const vale = sessaoAindaVale(req, sessao);
         if (!vale) log('aviso', `Pedido ${m} ${p.slice(0, 120)} do colaborador ${sessao.usuario} recusado: a sessão deixou de valer enquanto o corpo chegava.`);
@@ -1648,16 +1677,7 @@ function criarServidor(opcoes) {
       const quem = quemDoProxy(sessao, req);
       if (req.dgPv) {
         // Por /pv/ o dono também entra na revalidação (a cada 30 s): logout, troca de senha, sessão que expira ou o prazo do token fecham o socket.
-        const relogio = opcoes.agora || Date.now;
-        quem.valeAinda = () => {
-          if (req.dgPv.expira <= Math.floor(relogio() / 1000)) return false;
-          const ag2 = registro.obter(req.dgPv.slug);
-          if (!ag2 || (instanciaDe(ag2) || '') !== req.dgPv.instancia) return false;
-          const s2 = auth.sessaoPorIdPainel(req.dgPv.id);
-          if (!s2) return false;
-          if (!quem.colaborador_id) return s2.papel !== 'colaborador';
-          return s2.papel === 'colaborador' && s2.colaborador_id === quem.colaborador_id && s2.senha_versao === sessao.senha_versao;
-        };
+        quem.valeAinda = () => pvAindaVale(req, sessao);
       } else if (quem.colaborador_id) {
         // A conferência repete o login do upgrade: o proxy a chama a cada 30 s e fecha o socket quando a sessão cai.
         quem.valeAinda = () => {

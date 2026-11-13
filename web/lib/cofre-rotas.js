@@ -81,7 +81,9 @@ function criarCofreRotas({ config, runner, cofre, voz, log, entregar, esperaAvis
   async function lerJsonDoPedido(req, res, slug) {
     let buf;
     try { buf = await lerCorpo(req, LIMITE_CORPO); } catch (e) {
-      if (e.status === 413) {
+      if (e.status === 401) {
+        enviaJson(res, 401, { error: e.message, howToFix: 'Recarregue a página e tente de novo.' });
+      } else if (e.status === 413) {
         enviaJson(res, 413, { error: `O pedido passou de ${LIMITE_CORPO / 1024} KB, que é muito mais do que uma chave precisa.`, howToFix: 'Mande só o nome e o valor da chave.' });
       } else {
         log('erro', `Cofre /p/${slug}: não consegui ler o corpo do pedido (${e.code || e.message}).`);

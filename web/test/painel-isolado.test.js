@@ -252,6 +252,45 @@ test('/pv/: token de agente removido e recriado com o mesmo nome (instância nov
   } finally { await m.fechar(); }
 });
 
+/** POST em duas metades: manda o começo, espera `entre()` (que mexe no estado) e só então manda o resto. */
+function postEmPartes(porta, caminho, metade1, metade2, entre) {
+  return new Promise((resolve, reject) => {
+    const total = metade1 + metade2;
+    const req = http.request({ host: '127.0.0.1', port: porta, method: 'POST', path: caminho, headers: { 'Content-Type': 'application/json', 'Content-Length': String(Buffer.byteLength(total)), Origin: 'null' } }, (res) => {
+      const partes = [];
+      res.on('data', (c) => partes.push(c));
+      res.on('end', () => resolve({ status: res.statusCode, texto: Buffer.concat(partes).toString('utf8') }));
+    });
+    req.on('error', reject);
+    req.write(metade1);
+    setTimeout(() => { Promise.resolve(entre()).then(() => req.end(metade2)).catch(reject); }, 100);
+  });
+}
+
+for (const [rotulo, caminho, corpo] of [
+  ['rota de escrita comum', '/api/enviar', JSON.stringify({ texto: 'ola' })],
+  ['cofre de agente legado', '/api/cofre', JSON.stringify({ envName: 'CHAVE_X', valor: 'valor-secreto-123' })],
+]) {
+  test(`/pv/ do DONO, ${rotulo}: agente recriado enquanto o corpo chega leva 401 e nada chega ao painel; sem troca, o pedido passa`, async () => {
+    const m = await montar();
+    try {
+      trocaInstanciaAna(m, 'primeira-1');
+      const tok = await m.mintar(m.dono, 'ana');
+      const meio = Math.floor(corpo.length / 2);
+      const antes = m.painel.visto.length;
+      const ok = await postEmPartes(m.porta, `/pv/${tok}${caminho}`, corpo.slice(0, meio), corpo.slice(meio), () => {});
+      assert.equal(ok.status, 200, ok.texto);
+      assert.equal(m.painel.visto.length, antes + 1, 'o controle chegou ao painel');
+
+      const r = await postEmPartes(m.porta, `/pv/${tok}${caminho}`, corpo.slice(0, meio), corpo.slice(meio), () => trocaInstanciaAna(m, 'segunda-2'));
+      assert.equal(r.status, 401, r.texto);
+      assert.match(r.texto, /Nada foi feito\. Recarregue a página/);
+      assert.equal(r.texto.includes('valor-secreto-123'), false);
+      assert.equal(m.painel.visto.length, antes + 1, 'nada novo foi encaminhado ao painel');
+    } finally { await m.fechar(); }
+  });
+}
+
 test('WebSocket por /pv/ fecha na revalidação quando o agente é recriado (instância muda)', async () => {
   const m = await montar();
   try {

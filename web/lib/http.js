@@ -109,7 +109,7 @@ function lerCorpo(req, max) {
       acabou = true;
       // O servidor pendura `dgRevalidar` no pedido do colaborador: se a sessão caiu enquanto o corpo chegava, nada do corpo vale.
       if (typeof req.dgRevalidar === 'function' && !req.dgRevalidar()) {
-        const e = new Error('Seu acesso mudou enquanto o envio estava em andamento (foi revogado ou o convite foi reenviado). Nada foi feito. Entre de novo com o convite mais recente.');
+        const e = new Error(req.dgRevalidarMsg || 'Seu acesso mudou enquanto o envio estava em andamento (foi revogado ou o convite foi reenviado). Nada foi feito. Entre de novo com o convite mais recente.');
         e.status = 401;
         reject(e);
         return;

@@ -136,8 +136,8 @@ function criarProxy({ config, registro, log, cofreRotas }) {
     const qual = agente && agente.cofre_arquivo ? cofreRotas.casa(req, slug) : null;
     if (!qual) {
       const escrita = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);
-      if (!(quem && quem.colaborador_id && escrita)) return encaminhar(req, res, slug, usuario, null, undefined, quem);
-      // Colaborador: o painel age quando o corpo termina. Lê tudo aqui, confere a sessão e só então abre a conexão com o painel.
+      if (!(escrita && ((quem && quem.colaborador_id) || req.dgPv))) return encaminhar(req, res, slug, usuario, null, undefined, quem);
+      // Colaborador ou painel isolado: o painel age quando o corpo termina. Lê tudo aqui, confere a sessão e só então abre a conexão com o painel.
       const limite = config.maxUploadBytes + 64 * 1024;
       lerCorpo(req, limite).then((buf) => {
         encaminhar(req, res, slug, usuario, buf.length ? buf : null, undefined, quem, true);
@@ -167,6 +167,7 @@ function criarProxy({ config, registro, log, cofreRotas }) {
     lerCorpo(req, 64 * 1024).then((buf) => {
       encaminhar(req, res, slug, usuario, buf, (status, resposta) => cofreRotas.avisarLegado(agente, buf, status, resposta), quem);
     }).catch((e) => {
+      if (e && e.status === 401) return recusaSessaoVelha(res, slug, quem);
       if (e && e.status === 413) return erroJson(res, 413, 'O pedido passou de 64 KB, que é muito mais do que uma chave precisa. Mande só o nome e o valor da chave.');
       log('erro', `Proxy /p/${slug}: não consegui ler o corpo do pedido do cofre (${(e && (e.code || e.message)) || 'erro'}).`);
       return erroJson(res, 400, 'Não consegui ler o corpo do pedido. Tente de novo.');
@@ -174,13 +175,17 @@ function criarProxy({ config, registro, log, cofreRotas }) {
   }
 
   function recusaSessaoVelha(res, slug, quem) {
+    if (!quem.colaborador_id) {
+      log('aviso', `Proxy /p/${slug}: pedido do painel isolado recusado, o acesso deixou de valer enquanto o corpo chegava. Nada foi ao painel.`);
+      return erroJson(res, 401, 'O acesso do painel mudou enquanto o envio estava em andamento. Nada foi feito. Recarregue a página.');
+    }
     log('aviso', `Proxy /p/${slug}: pedido do colaborador ${quem.colaborador_id} recusado, a sessão deixou de valer enquanto o corpo chegava. Nada foi ao painel.`);
     return erroJson(res, 401, 'Seu acesso mudou enquanto o envio estava em andamento (foi revogado ou o convite foi reenviado). Nada foi feito. Entre de novo com o convite mais recente.');
   }
 
   function encaminhar(req, res, slug, usuario, corpoLido, aoTerminar, quem, corpoJaConferido) {
     // Corpo lido por outro caminho (cofre, legado): a sessão é conferida de novo antes de abrir a conexão.
-    if (!corpoJaConferido && corpoLido && quem && quem.colaborador_id && typeof quem.valeAinda === 'function' && !quem.valeAinda()) return recusaSessaoVelha(res, slug, quem);
+    if (!corpoJaConferido && corpoLido && quem && (quem.colaborador_id || req.dgPv) && typeof quem.valeAinda === 'function' && !quem.valeAinda()) return recusaSessaoVelha(res, slug, quem);
     const d = destino(slug);
     if (d.status) {
       if (/\btext\/html\b/.test(String(req.headers.accept || ''))) paginaErro(res, d.status, 'Painel indisponível', d.motivo);
