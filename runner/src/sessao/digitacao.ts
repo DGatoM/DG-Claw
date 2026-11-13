@@ -120,11 +120,16 @@ export async function vencerTelaDeConfianca(s: Sessao, daFila = false): Promise<
  *  linha vazia; testado no Codex real); um Enter a menos perde o poke.  */
 export async function enviarComRecibo(s: Sessao, comandoDeBarra = false): Promise<void> {
   const espera = s.motor.reciboMs;
+  // Quantas escritas o PTY deve ter contado se só estes Enters escreveram (ver vigiarReciboAtrasado).
+  let entradasEsperadas = s.entradasManuais;
+  // O terminal deste envio. Se a sessão for trocada no meio, nada daqui pode tocar no terminal novo.
+  const proc = s.proc;
   for (let tentativa = 1; tentativa <= RECIBO_ENTER_TENTATIVAS; tentativa++) {
-    if (!s.proc) return;
+    if (!s.proc || s.proc !== proc) return;
     const antes = s.promptsAceitos;
     const compactAntes = s.compactsIniciados;
     s.escrever("\r");
+    entradasEsperadas = s.entradasManuais;
     const recebeu = await esperarRecibo(s, antes, espera, comandoDeBarra ? compactAntes : undefined);
     if (recebeu) return;
     log.info(
@@ -132,13 +137,84 @@ export async function enviarComRecibo(s: Sessao, comandoDeBarra = false): Promis
       `o Enter ${tentativa}/${RECIBO_ENTER_TENTATIVAS} não virou turno em ${espera}ms; batendo na tecla de novo`,
     );
   }
-  // Não dá para consertar daqui, mas dá para NÃO mentir: quem lê o log precisa
-  // saber que o texto está na caixa e que ninguém vai processá-lo.
-  log.erro(
+  // Ainda dá para insistir sem segurar quem chamou: a vigia segue em segundo plano e só ela dá o ERRO final.
+  const total = RECIBO_ENTER_TENTATIVAS + s.reciboVigiaPassosMs.length;
+  const segundos = Math.round(s.reciboVigiaPassosMs.reduce((a, b) => a + b, 0) / 1000);
+  log.info(
     s.a("entrada"),
-    `digitei ${RECIBO_ENTER_TENTATIVAS} Enters e nenhum abriu turno: o texto ficou escrito na caixa de entrada do agente`,
-    "olhar a tela (GET /api/agents/:id/terminal) e dar um Enter à mão, ou reenviar por POST /api/agents/:id/input",
+    `${RECIBO_ENTER_TENTATIVAS} Enters sem recibo; continuo tentando em segundo plano por ~${segundos}s (mais ${s.reciboVigiaPassosMs.length} Enters espaçados)`,
   );
+  if (!proc || s.proc !== proc) return;
+  vigiarReciboAtrasado(s, comandoDeBarra, total, entradasEsperadas, proc);
+}
+
+/** Continua batendo no Enter, em segundo plano, depois que as tentativas de enviarComRecibo falharam.
+ *  Cada passo olha primeiro o recibo (o turno pode ter aberto sozinho, só atrasado) e só então decide
+ *  se bate a tecla: com a sessão fora de idle, algo abriu turno por outro caminho e basta esperar.
+ *  Só no fim, sem recibo, vem o ERRO de que o texto ficou na caixa. Uma vigia por sessão. */
+function vigiarReciboAtrasado(
+  s: Sessao,
+  comandoDeBarra: boolean,
+  total: number,
+  entradasDoEnvio: number,
+  proc: NonNullable<Sessao["proc"]>,
+): void {
+  if (s.vigiaDoRecibo) clearTimeout(s.vigiaDoRecibo);
+  s.vigiaDoRecibo = null;
+  if (s.proc !== proc) return;
+  const antes = s.promptsAceitos;
+  const compactAntes = s.compactsIniciados;
+  const inicio = Date.now();
+  const passos = s.reciboVigiaPassosMs;
+  const aceito = () => s.promptsAceitos > antes || (comandoDeBarra && s.compactsIniciados > compactAntes);
+  // Toda escrita no PTY passa por s.escrever() e soma em entradasManuais. Se o número mudou sem ser pela
+  // própria vigia, alguém mexeu na caixa (o dono pelo terminal, ou um texto novo sendo digitado): o que
+  // está lá já não é o texto que esta vigia tenta enviar, e um Enter dela poderia mandar um rascunho.
+  // O ponto de partida vem de enviarComRecibo (o valor logo depois do último Enter dele), para pegar
+  // também a escrita feita enquanto ele esperava o recibo do último Enter.
+  let entradasEsperadas = entradasDoEnvio;
+
+  const passo = (i: number): void => {
+    s.vigiaDoRecibo = null;
+    if (s.proc !== proc) return;
+    if (aceito()) {
+      log.info(
+        s.a("entrada"),
+        `o turno abriu atrasado, ${Math.round((Date.now() - inicio) / 1000)}s depois do texto digitado`,
+      );
+      return;
+    }
+    if (i >= passos.length) {
+      log.erro(
+        s.a("entrada"),
+        `digitei ${total} Enters e nenhum abriu turno: o texto ficou escrito na caixa de entrada do agente`,
+        "olhar a tela (GET /api/agents/:id/terminal) e dar um Enter à mão, ou reenviar por POST /api/agents/:id/input",
+      );
+      return;
+    }
+    if (s.entradasManuais !== entradasEsperadas) {
+      log.info(
+        s.a("entrada"),
+        "parei de insistir no Enter: houve outra escrita no terminal depois do texto, e a caixa já não é a mesma",
+      );
+      return;
+    }
+    if (s.estado.status === "idle") {
+      log.info(
+        s.a("entrada"),
+        `o Enter atrasado ${RECIBO_ENTER_TENTATIVAS + i + 1}/${total} (ainda sem recibo); batendo na tecla de novo`,
+      );
+      s.escrever("\r");
+      entradasEsperadas = s.entradasManuais;
+    }
+    agendar(i + 1);
+  };
+  // O último passo só confere o recibo do último Enter, então espera o mesmo que o Enter normal.
+  const agendar = (i: number): void => {
+    s.vigiaDoRecibo = setTimeout(() => passo(i), i < passos.length ? passos[i] : s.motor.reciboMs);
+    s.vigiaDoRecibo.unref();
+  };
+  agendar(0);
 }
 
 /** Espera o contador de prompts aceitos passar de `antes`. No Claude, sem hook vivo
