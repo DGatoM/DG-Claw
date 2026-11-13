@@ -219,6 +219,49 @@ test("pergunta dispensada: o Stop sem PostToolUse não deixa o agente preso em w
   assert.equal(s.estado.motivo, null);
 });
 
+test("StopBloqueado depois do Stop cancela o idle agendado", async () => {
+  const { s, hook } = await novaComRedeCurta(60_000);
+  hook("UserPromptSubmit");
+  hook("Stop");
+  assert.ok(s.stopPendente, "o Stop agenda o idle");
+  hook("StopBloqueado");
+  assert.equal(s.stopPendente, null, "o idle agendado foi cancelado, então a fila não é solta");
+  assert.equal(s.estado.status, "working");
+  assert.equal(s.estado.statusReason, "hook:Stop devolvido pela trava de resposta");
+  // A recuperação rápida (reenvio pela tool em menos de 6s) termina num Stop que precisa valer.
+  hook("PreToolUse", { toolName: "mcp__dgchat__reply" });
+  hook("Stop");
+  assert.ok(s.stopPendente, "o Stop da recuperação agenda o idle, o agente não fica preso em working");
+});
+
+test("aviso da trava que sobrou (Stop perdido) não engole o Stop da recuperação", async () => {
+  const { s, hook } = await novaComRedeCurta(60_000);
+  hook("UserPromptSubmit");
+  hook("StopBloqueado");
+  hook("PreToolUse", { toolName: "mcp__dgchat__reply" });
+  hook("Stop");
+  assert.ok(s.stopPendente, "atividade nova zera o aviso, e o Stop seguinte agenda o idle");
+});
+
+test("StopBloqueado antes do Stop faz o Stop seguinte ser ignorado, uma vez só", async () => {
+  const { s, hook } = await novaComRedeCurta(60_000);
+  hook("UserPromptSubmit");
+  hook("StopBloqueado");
+  hook("Stop");
+  assert.equal(s.stopPendente, null, "o Stop do mesmo turno não agenda idle");
+  assert.equal(s.estado.status, "working");
+  hook("Stop");
+  assert.ok(s.stopPendente, "o Stop seguinte, sem novo bloqueio, volta ao normal");
+});
+
+test("Stop normal, sem StopBloqueado, agenda o idle", async () => {
+  const { s, hook } = await novaComRedeCurta(60_000);
+  hook("UserPromptSubmit");
+  hook("Stop");
+  assert.ok(s.stopPendente);
+  assert.equal(s.estado.status, "working");
+});
+
 test("modelo escolhido vai em --model (id canônico, também pelo apelido)", async () => {
   logarClaude(amb);
   const { s, pasta, id } = await nova();

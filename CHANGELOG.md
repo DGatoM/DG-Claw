@@ -10,6 +10,7 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 ### Corrigido
 
 - O vigia de saúde não confunde mais o resumo da compactação com uma mensagem sua sem resposta. Antes, depois de cada compactação, o agente era reiniciado várias vezes seguidas sem motivo e o painel avisava que ele não estava respondendo.
+- Os agentes que usam o Claude deixam de "responder no vazio". Às vezes o agente escrevia a resposta como texto solto no fim do turno, sem usar a ferramenta de resposta do chat (ou do WhatsApp), e esse texto ficava no terminal sem chegar a você. Agora, quando isso acontece, a plataforma devolve o turno uma vez e o agente reenvia a resposta pelo canal certo. Recados da própria plataforma, turnos sem nenhum texto e qualquer falha da conferência passam sem cobrança, e as decisões ficam no arquivo `trava-resposta.log`, sem o conteúdo das mensagens. Só vale como resposta a ferramenta do canal certo e que não falhou, e, quando o turno é devolvido, o painel continua mostrando o agente como trabalhando até ele terminar de verdade.
 - Quando o texto entregue ao agente demora a ser aceito, o sistema continua tentando enviar por mais de um minuto em vez de deixá-lo parado na caixa de entrada.
 
 **Nova tela Logs no Admin.** No menu do Admin, o item **Logs** (endereço `/logs`) mostra, do mais novo para o mais antigo,
@@ -24,6 +25,10 @@ Comando que pode levar senha ou chave aparece só com o nome do programa, sem os
 Nesta versão há uma instrução nova para o Admin, que explica a tela Logs e pede que ele não leia o conteúdo dos logs. Ela
 precisa entrar nas instruções dele sem apagar o que você já personalizou. O histórico que os agentes já têm aparece sozinho
 na tela, sem migração e sem nada a configurar.
+
+### Como atualizar (resposta no chat)
+
+Depois de atualizar, reinicie cada agente que usa o Claude para ele ganhar a conferência de resposta: ela é gravada nas configurações que o agente recebe ao subir. Não há nada para configurar nem para juntar às instruções dele.
 
 **Vários colaboradores no mesmo agente.** Antes, cada agente aceitava um colaborador só, e um segundo convite era recusado até você revogar o primeiro. Agora você convida quantas pessoas quiser para o mesmo agente. Na tela **Convidar colaborador** cada pessoa aparece num cartão, com os botões de mandar o convite de novo e de revogar o acesso, e o formulário para convidar mais alguém fica sempre abaixo. Revogar ou reenviar o convite de uma pessoa não mexe nas outras. Cada pessoa continua acessando um agente só, e as mensagens de cada uma chegam ao agente marcadas com o nome e o e-mail de quem falou. Nada precisa ser feito para atualizar.
 
