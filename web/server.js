@@ -1499,7 +1499,7 @@ function criarServidor(opcoes) {
           // Painel isolado: o corpo é lido e revalidado ANTES de a fila do agente ser tocada; assim um token velho nunca cria reserva.
           let corpoPv;
           if (req.dgPv) {
-            try { corpoPv = await H.lerCorpo(req, config.maxUploadBytes + 64 * 1024); } catch (e) {
+            try { corpoPv = await H.lerCorpo(req, config.maxUploadBytes + 64 * 1024); req.dgCorpoLido = corpoPv; } catch (e) {
               if (e && e.status === 413) return H.erroJson(res, 413, `O envio passou do limite de ${Math.round(config.maxUploadBytes / 1048576)} MB. Mande um arquivo menor.`);
               if (e && e.status === 401) return H.erroJson(res, 401, e.message);
               log('erro', `Painel isolado /p/${slugP}: não consegui ler o corpo do pedido (${(e && (e.code || e.message)) || 'erro'}).`);

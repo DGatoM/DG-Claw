@@ -54,7 +54,7 @@ async function montar(extra) {
   const porta = await painel.ouvir();
   const arq = path.join(pastaTemp('proxy'), 'proxy.txt');
   fs.writeFileSync(arq, `${SEGREDO_DO_PROXY}\n`);
-  const s = await cenario(Object.assign({ painelAna: { porta_painel: porta, proxy_segredo_arquivo: arq } }, extra || {}));
+  const s = await cenario(Object.assign({ painelAna: Object.assign({ porta_painel: porta, proxy_segredo_arquivo: arq }, (extra && extra.painelAna) || {}) }, Object.fromEntries(Object.entries(extra || {}).filter(([k]) => k !== 'painelAna'))));
   // A moldura é um arquivo de web/public: o teste usa o verdadeiro.
   for (const f of ['painel.html']) fs.copyFileSync(path.join(__dirname, '..', 'public', f), path.join(s.t.publico, f));
   const dono = s.dono;
@@ -644,5 +644,132 @@ test('/pv/ do DONO, POST /api/provedor/login sem recriação: passa e chega ao p
     const prov = await postEmPartes(m.porta, `/pv/${tok}/api/provedor`, corpo.slice(0, meio), corpo.slice(meio), () => {});
     assert.equal(prov.status, 200, prov.texto);
     assert.equal(m.painel.visto[antes + 2].corpo, corpo);
+  } finally { await m.fechar(); }
+});
+
+// ---- /pv/ do DONO em agente com cofre no host: o Web (cofre-rotas) trata /api/provedor e lê o corpo de novo ----
+const CHAVE_COFRE = 'sk-teste-valor-secreto-de-teste-9999aaaa';
+const OUTRA_COFRE = 'sk-teste-outro-valor-secreto-de-teste-7777bbbb';
+
+/** Runner falso mínimo: só o POST /api/provedor que o cofre-rotas usa depois de guardar a chave. */
+function runnerProvedor() {
+  const visto = [];
+  const servidor = http.createServer((req, res) => {
+    const partes = [];
+    req.on('data', (c) => partes.push(c));
+    req.on('end', () => {
+      visto.push({ metodo: req.method, url: req.url, corpo: Buffer.concat(partes).toString('utf8') });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, rotulo: 'Codex, pela chave de API' }));
+    });
+  });
+  return {
+    visto,
+    ouvir: () => new Promise((r) => servidor.listen(0, '127.0.0.1', () => r(servidor.address().port))),
+    fechar: () => new Promise((r) => { servidor.closeAllConnections(); servidor.close(() => r()); }),
+  };
+}
+
+/** Agente "ana" com cofre no host (cofre_arquivo) e runner que atende a troca de motor. */
+async function montarComCofre() {
+  const runner = runnerProvedor();
+  const pRunner = await runner.ouvir();
+  const casa = pastaTemp('casa-cofre');
+  fs.mkdirSync(path.join(casa, 'cofre'), { recursive: true }); fs.mkdirSync(path.join(casa, 'config'));
+  fs.chmodSync(casa, 0o711); fs.chmodSync(path.join(casa, 'cofre'), 0o700); fs.chmodSync(path.join(casa, 'config'), 0o755);
+  const cofreEnv = path.join(casa, 'cofre', 'cofre.env');
+  const reinicios = [];
+  const m = await montar({
+    painelAna: { cofre_arquivo: cofreEnv, runner: `http://127.0.0.1:${pRunner}` },
+    opcoesServidor: { reiniciarCofre: async (a) => { reinicios.push(a.slug); } },
+  });
+  const fecharMontagem = m.fechar;
+  const fechar = async () => { await fecharMontagem(); await runner.fechar(); };
+  return Object.assign(m, { runner, cofreEnv, reinicios, fechar });
+}
+
+/** Falha em vez de esperar para sempre se o pedido pendurar. */
+function semPendurar(promessa, ms) {
+  let t;
+  const limite = new Promise((_, rej) => { t = setTimeout(() => rej(new Error(`o pedido ficou pendurado por mais de ${ms || 4000} ms`)), ms || 4000); });
+  return Promise.race([promessa, limite]).finally(() => clearTimeout(t));
+}
+
+const lerCofre = (m) => (fs.existsSync(m.cofreEnv) ? fs.readFileSync(m.cofreEnv, 'utf8') : '');
+
+for (const [rotulo, corpo] of [
+  ['Claude por assinatura', { provedor: 'claude', auth: 'assinatura', modelo: '' }],
+  ['Codex por assinatura', { provedor: 'codex', auth: 'assinatura', modelo: '' }],
+]) {
+  test(`/pv/ do DONO, agente com cofre: trocar para ${rotulo} sem chave responde sem pendurar, igual ao /p/, e chega ao painel`, async () => {
+    const m = await montarComCofre();
+    try {
+      const tok = await m.mintar(m.dono, 'ana');
+      const texto = JSON.stringify(corpo);
+      const viaP = await semPendurar(m.dono.post('/p/ana/api/provedor', { corpo: texto, headers: { 'Content-Type': 'application/json', 'Sec-Fetch-Site': 'same-origin' } }));
+      assert.equal(viaP.status, 200, viaP.texto);
+      assert.equal(m.painel.visto.length, 1, '/p/ repassou ao painel');
+      const meio = Math.floor(texto.length / 2);
+      const viaPv = await semPendurar(postEmPartes(m.porta, `/pv/${tok}/api/provedor`, texto.slice(0, meio), texto.slice(meio), () => {}));
+      assert.equal(viaPv.status, viaP.status, viaPv.texto);
+      assert.equal(m.painel.visto.length, 2, '/pv/ também repassou ao painel');
+      assert.equal(m.painel.visto[1].corpo, texto, 'o corpo chegou inteiro');
+      assert.equal(m.painel.visto[1].corpo, m.painel.visto[0].corpo);
+      assert.equal(m.runner.visto.length, 0, 'sem chave o cofre não fala com o runner');
+      assert.equal(lerCofre(m), '', 'nada foi gravado no cofre');
+    } finally { await m.fechar(); }
+  });
+}
+
+test('/pv/ do DONO, agente com cofre: trocar de motor COM chave responde sem pendurar, guarda a chave como no /p/ e não a devolve', async () => {
+  const m = await montarComCofre();
+  try {
+    const tok = await m.mintar(m.dono, 'ana');
+    const viaP = await semPendurar(m.dono.post('/p/ana/api/provedor', { json: { provedor: 'codex', auth: 'api', modelo: '', chave: CHAVE_COFRE }, headers: { 'Sec-Fetch-Site': 'same-origin' } }));
+    assert.equal(viaP.status, 200, viaP.texto);
+    assert.equal(lerCofre(m), `OPENAI_API_KEY='${CHAVE_COFRE}'\n`);
+
+    const texto = JSON.stringify({ provedor: 'codex', auth: 'api', modelo: '', chave: OUTRA_COFRE });
+    const meio = Math.floor(texto.length / 2);
+    const viaPv = await semPendurar(postEmPartes(m.porta, `/pv/${tok}/api/provedor`, texto.slice(0, meio), texto.slice(meio), () => {}));
+    assert.equal(viaPv.status, viaP.status, viaPv.texto);
+    assert.equal(JSON.parse(viaPv.texto).ok, true);
+    assert.equal(lerCofre(m), `OPENAI_API_KEY='${OUTRA_COFRE}'\n`, 'a chave nova foi guardada');
+    assert.equal(viaPv.texto.includes(OUTRA_COFRE), false, 'a chave não volta na resposta');
+    assert.equal(m.painel.visto.length, 0, 'a chave não chegou ao painel');
+    assert.equal(m.runner.visto.length, 2);
+    for (const v of m.runner.visto) assert.equal(v.corpo.includes('sk-teste'), false, 'a chave não foi ao runner');
+    assert.deepEqual(m.reinicios, ['ana', 'ana']);
+    assert.equal(m.s.t.log.texto().includes(OUTRA_COFRE), false);
+  } finally { await m.fechar(); }
+});
+
+test('/pv/ do DONO, agente com cofre: corpo acima de 64 KB em /api/provedor leva 413 sem pendurar e sem gravar', async () => {
+  const m = await montarComCofre();
+  try {
+    const tok = await m.mintar(m.dono, 'ana');
+    const r = await semPendurar(m.pv('POST', tok, '/api/provedor', { json: { provedor: 'codex', auth: 'api', chave: 'x'.repeat(70 * 1024) } }));
+    assert.equal(r.status, 413, r.texto);
+    assert.equal(m.painel.visto.length, 0);
+    assert.equal(m.runner.visto.length, 0);
+    assert.equal(lerCofre(m), '');
+  } finally { await m.fechar(); }
+});
+
+test('/pv/ do DONO, agente com cofre: instância trocada no meio do corpo leva 401 e nada é gravado', async () => {
+  const m = await montarComCofre();
+  try {
+    trocaInstanciaAna(m, 'primeira-1');
+    const tok = await m.mintar(m.dono, 'ana');
+    const texto = JSON.stringify({ provedor: 'codex', auth: 'api', modelo: '', chave: CHAVE_COFRE });
+    const meio = Math.floor(texto.length / 2);
+    const r = await semPendurar(postEmPartes(m.porta, `/pv/${tok}/api/provedor`, texto.slice(0, meio), texto.slice(meio), () => trocaInstanciaAna(m, 'segunda-2')));
+    assert.equal(r.status, 401, r.texto);
+    assert.equal(r.texto.includes(CHAVE_COFRE), false);
+    assert.equal(lerCofre(m), '', 'nada foi gravado no cofre');
+    assert.equal(m.runner.visto.length, 0);
+    assert.equal(m.painel.visto.length, 0);
+    assert.deepEqual(m.reinicios, []);
+    assert.equal(fs.existsSync(path.join(m.s.t.dados, 'cofre', 'ana.json')), false, 'nem metadado de chave');
   } finally { await m.fechar(); }
 });
