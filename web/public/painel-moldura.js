@@ -138,7 +138,13 @@
         break;
       case 'extras': raiz.DGCasca.extras(msg.lista); break;
       case 'tutorial-menu': raiz.DGCasca.tutorialMenu(); break;
-      case 'ir': location.assign(msg.para); break;
+      case 'ir': {
+        // Mesmo endereço já aprovado pela triagem, remontado só se for do próprio Web e do menu.
+        const u = new URL(msg.para, location.origin);
+        if (u.origin !== location.origin || !destinoValido(u.pathname + u.search + u.hash)) { console.warn('painel: recusei abrir ' + String(msg.para).slice(0, 80) + ' (não é uma página do menu).'); break; }
+        location.assign(u.pathname + u.search + u.hash);
+        break;
+      }
       case 'expirou':
         if (jaRenovou) { mostraErro('O acesso deste painel expirou e não consegui renovar. Recarregue a página.'); break; }
         jaRenovou = true;

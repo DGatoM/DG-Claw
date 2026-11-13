@@ -95,3 +95,11 @@ test('painel.html: iframe com sandbox sem allow-same-origin nem navegação do t
 test('sem travessão nos arquivos novos da moldura', () => {
   for (const f of ['painel.html', 'painel-moldura.js', 'painel-moldura.css']) assert.ok(!/[—–]/.test(pub(f)), f);
 });
+
+test('ir: a navegação usa o endereço remontado (new URL do próprio origin), nunca o texto cru do iframe', () => {
+  const src = pub('painel-moldura.js');
+  assert.match(src, /const u = new URL\(msg\.para, location\.origin\)/);
+  assert.match(src, /u\.origin !== location\.origin \|\| !destinoValido\(u\.pathname \+ u\.search \+ u\.hash\)/);
+  assert.match(src, /location\.assign\(u\.pathname \+ u\.search \+ u\.hash\)/);
+  assert.ok(!/location\.assign\(msg\./.test(src));
+});
