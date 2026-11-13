@@ -392,13 +392,16 @@ Quatro coisas que não podem ser trocadas por engano:
   `agent`, um por agente. Repassar apagaria do banco todos os cards do Bunker.
 - **O mesmo agente no Bunker E no runner** é o pior estado possível (dois PTYs na
   mesma conversa). O `backends.ts` detecta e loga como erro.
-- **O `Stop` tem DOIS hooks em série**, nesta ordem: primeiro o `runner-hook.mjs`
-  (o status), depois cada comando de `config.stopHooks` (no caso dos agentes de
-  canal, o `stop-force-reply.py`). É a mesma ordem que o Bunker usava. Se um dia
-  o segundo bloquear sem motivo aparente, lembrar que o primeiro roda antes.
-- **Recado de operação mandado à mão precisa de envelope.** O `stop-force-reply.py`
-  distingue a fala da PESSOA (`<dgchat `) do recado da PLATAFORMA (`<plataforma `,
-  o `envelope()` do poker.ts). Um texto cru enviado por `curl` no `/input` não é
-  nenhum dos dois, então o hook o trata como a pessoa falando e cobra a resposta
-  pela tool. Aconteceu na migração de 20/08: o recado "você saiu do Bunker" foi
-  injetado pelado, e o agente reclamou do hook. O hook estava certo.
+- **O `Stop` tem hooks em série**, nesta ordem: o `runner-hook.mjs` (o status), a trava de
+  resposta nativa (`trava-resposta.mjs`, só nos agentes Claude) e depois cada comando de
+  `config.stopHooks`. A trava cobra UMA vez por turno: se a fala que abriu o turno veio num
+  envelope `<dgchat>` (ou `<canal-externo>`) e o agente terminou só com texto, sem chamar
+  `mcp__dgchat__reply`/`send_file` (ou `whatsapp_reply`/`whatsapp_send_file`), ela devolve o
+  turno pedindo o reenvio pela tool. Deixa passar na segunda parada do mesmo turno, em recado
+  `<plataforma>`, texto cru, turno sem nenhum texto do agente e em qualquer erro dela. Registra
+  as decisões (sem o conteúdo das mensagens) em `trava-resposta.log`, ao lado do script, na
+  pasta `runner-hooks` do estado. O antigo `stop-force-reply.py` do Bunker não existe aqui.
+- **Recado de operação mandado à mão precisa de envelope.** A trava de resposta distingue a fala
+  da PESSOA (`<dgchat `) do recado da PLATAFORMA (`<plataforma `, o `envelope()` do poker.ts) e
+  só cobra a primeira. Texto cru enviado por `curl` no `/input` passa sem cobrança, então o agente
+  não é lembrado de responder pela tool: use o envelope certo para o que espera resposta.

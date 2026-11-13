@@ -4,6 +4,7 @@ import type { Sessao } from "../sessao.js";
 import { randomBytes } from "node:crypto";
 import { HOOK_HANDLER_SOURCE } from "../hook-handler-source.js";
 import { log } from "../logger.js";
+import { TRAVA_RESPOSTA_SOURCE } from "../trava-resposta-source.js";
 import { USO_HANDLER_SOURCE } from "../uso-handler-source.js";
 import { type ResultadoDoAmbiente, montarAmbiente, nomesDoCofre } from "../provedores/ambiente.js";
 import { lerCanais, pastaTelegramDesligado } from "../provedores/canais.js";
@@ -174,7 +175,26 @@ export function escreverSettings(s: Sessao, nonce: string): string | null {
     const para = (ev: string, matcher = "") => [
       { matcher, hooks: [{ type: "command", command: `${base} --event ${ev}` }] },
     ];
-    const stop = [{ type: "command", command: `${base} --event Stop` }];
+    const stop: { type: string; command: string; timeout?: number }[] = [
+      { type: "command", command: `${base} --event Stop` },
+    ];
+    // A trava de resposta (só Claude; o Codex ignora stopHooks) vem logo depois do hook do runner e antes
+    // dos stopHooks do descritor. Falha ao gravar o arquivo tira só a trava, e o resto do settings segue.
+    if (s.motor.provedor === "claude") {
+      const trava = path.join(dir, "trava-resposta.mjs");
+      try {
+        const travaAtual = fs.existsSync(trava) ? fs.readFileSync(trava, "utf8") : "";
+        if (travaAtual !== TRAVA_RESPOSTA_SOURCE) fs.writeFileSync(trava, TRAVA_RESPOSTA_SOURCE, "utf8");
+        stop.push({ type: "command", command: `"${process.execPath}" "${trava}"`, timeout: 10 });
+      } catch (err) {
+        log.erro(
+          s.a("hook"),
+          `não consegui preparar ${trava}: ${err instanceof Error ? err.message : err}`,
+          `o agente sobe normalmente, mas sem a trava que devolve o turno quando ele responde só em texto ` +
+            `(a resposta fica no terminal e não chega ao dono). Conferir se esse caminho é um arquivo gravável e reiniciar o agente`,
+        );
+      }
+    }
     for (const extra of cfg.stopHooks ?? []) {
       if (typeof extra === "string" && extra.trim()) {
         stop.push({ type: "command", command: extra.trim() });
