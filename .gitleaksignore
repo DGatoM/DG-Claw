@@ -7,3 +7,5 @@ f542263221c8f7b49033e4f823eebed3da0f3714:web/test/colaboradores.test.js:generic-
 # Comandos curl sintéticos dos testes da tela Logs (senha montada em tempo de execução, ${S} e 'p '.repeat), usados para conferir a máscara.
 c3bb26c79cfa1e9f2d95b3e97376b4b909389227:web/test/logs-comando-oculto.test.js:curl-auth-user:17
 59b19a767dc1984f78075bb533345b4238f8fefa:web/test/logs-ambiguidade.test.js:curl-auth-user:36
+# Senha fictícia do painel de teste (test-isolamento.mjs), usada só no painel que o teste sobe numa pasta temporária.
+17cd0d058cd5798f5fc7812605c029b6a4b85398:panel/test-isolamento.mjs:generic-api-key:40

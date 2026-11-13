@@ -110,6 +110,7 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
   // ── sessões (no disco só o sha256 do token) ──────────────────────────────
   const arquivo = path.join(config.dataDir, 'sessoes.json');
   let sessoes = new Map(); // sha256hex -> { usuario, criada, expira, marca }
+  let idPainel = null;
   // "Marca" da credencial: sha256 de usuário + hash da senha. Cada sessão carrega a marca de quando nasceu,
   // então trocar a senha ou o usuário derruba as sessões antigas. O hash em si nunca vai para o disco.
   const marcaAtual = () => sha256hex(`${usuario}\n${hashAtual}`);
@@ -292,12 +293,23 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
     sessaoDoPedido(req) {
       const token = parseCookies(req.headers.cookie)[NOME_COOKIE];
       if (!token || token.length > 200) return null;
-      const s = sessoes.get(sha256hex(token));
-      if (!s) return null;
-      if (!marcaConfere(s)) { sessoes.delete(sha256hex(token)); salva(); return null; }
-      if (s.expira <= relogio()) { sessoes.delete(sha256hex(token)); salva(); return null; }
-      if (s.papel === 'colaborador') return sessaoDeColaborador(token, s);
-      return { usuario: s.usuario, expira: s.expira, papel: 'dono', agente: null };
+      return resolveSessao(sha256hex(token));
+    },
+
+    /** `fn(chaveDoMapa)` devolve o identificador do painel isolado daquela sessão (ver painel-token.js). Sem ela, nenhum token resolve. */
+    ligarIdPainel(fn) { idPainel = fn; },
+    /** Identificador (para o token do painel) da sessão do cookie do pedido, ou null se não há sessão válida. */
+    idPainelDe(req) {
+      const token = parseCookies(req.headers.cookie)[NOME_COOKIE];
+      if (!token || token.length > 200 || !idPainel) return null;
+      const chave = sha256hex(token);
+      return resolveSessao(chave) ? idPainel(chave) : null;
+    },
+    /** A sessão (mesma forma de sessaoDoPedido, com as mesmas regras de marca, expiração e colaborador) de um identificador de painel, ou null. */
+    sessaoPorIdPainel(id) {
+      if (!idPainel || typeof id !== 'string') return null;
+      for (const chave of sessoes.keys()) if (idPainel(chave) === id) return resolveSessao(chave);
+      return null;
     },
 
     ligarColaboradores(modulo) { colaboradores = modulo; },
@@ -386,17 +398,27 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
     return { ok: true, usuario: visto.email, papel: 'colaborador', colaborador: { id: visto.id, agente: visto.agente, senha_versao: visto.versao, hash: visto.hash } };
   }
 
+  /** A sessão do mapa sob esta chave, se ainda vale (marca da senha, expiração, colaborador); senão apaga e devolve null. */
+  function resolveSessao(chave) {
+    const s = sessoes.get(chave);
+    if (!s) return null;
+    if (!marcaConfere(s)) { sessoes.delete(chave); salva(); return null; }
+    if (s.expira <= relogio()) { sessoes.delete(chave); salva(); return null; }
+    if (s.papel === 'colaborador') return sessaoDeColaborador(chave, s);
+    return { usuario: s.usuario, expira: s.expira, papel: 'dono', agente: null };
+  }
+
   /** Confere a CADA pedido que o colaborador ainda vale: a revogação e a troca de senha derrubam a sessão no pedido seguinte. */
-  function sessaoDeColaborador(token, s) {
+  function sessaoDeColaborador(chave, s) {
     const c = colaboradores ? colaboradores.obter(s.colaborador_id) : null;
     if (!c || c.revogado_em || c.agente !== s.agente || (c.senha_versao || 1) !== s.senha_versao || instanciaMudou(c)) {
       if (c && instanciaMudou(c)) log('aviso', `Sessão do colaborador ${c.email} derrubada: o agente ${c.agente} foi removido e recriado, e o convite era da instância antiga.`);
-      sessoes.delete(sha256hex(token));
+      sessoes.delete(chave);
       salva();
       return null;
     }
     if (c.trocar_senha && Number(c.temporaria_expira) <= relogio()) {
-      sessoes.delete(sha256hex(token));
+      sessoes.delete(chave);
       salva();
       return null;
     }

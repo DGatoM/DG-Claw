@@ -86,6 +86,22 @@ function paginaErro(res, status, titulo, motivo, cabecalhos) {
 
 /** Lê o corpo inteiro até `max` bytes. Passou disso: rejeita com { status: 413 }. */
 function lerCorpo(req, max) {
+  // O Web já consumiu o corpo (painel isolado, rotas do provedor): quem lê de novo recebe o mesmo Buffer, com o mesmo limite
+  // e a mesma revalidação, em vez de esperar um fim de stream que nunca mais chega.
+  if (Buffer.isBuffer(req.dgCorpoLido)) {
+    const buf = req.dgCorpoLido;
+    if (buf.length > max) {
+      const e = new Error(`O corpo do pedido passou de ${max} bytes.`);
+      e.status = 413;
+      return Promise.reject(e);
+    }
+    if (typeof req.dgRevalidar === 'function' && !req.dgRevalidar()) {
+      const e = new Error(req.dgRevalidarMsg || 'Seu acesso mudou enquanto o envio estava em andamento (foi revogado ou o convite foi reenviado). Nada foi feito. Entre de novo com o convite mais recente.');
+      e.status = 401;
+      return Promise.reject(e);
+    }
+    return Promise.resolve(buf);
+  }
   return new Promise((resolve, reject) => {
     const pedacos = [];
     let total = 0;
@@ -109,7 +125,7 @@ function lerCorpo(req, max) {
       acabou = true;
       // O servidor pendura `dgRevalidar` no pedido do colaborador: se a sessão caiu enquanto o corpo chegava, nada do corpo vale.
       if (typeof req.dgRevalidar === 'function' && !req.dgRevalidar()) {
-        const e = new Error('Seu acesso mudou enquanto o envio estava em andamento (foi revogado ou o convite foi reenviado). Nada foi feito. Entre de novo com o convite mais recente.');
+        const e = new Error(req.dgRevalidarMsg || 'Seu acesso mudou enquanto o envio estava em andamento (foi revogado ou o convite foi reenviado). Nada foi feito. Entre de novo com o convite mais recente.');
         e.status = 401;
         reject(e);
         return;

@@ -24,7 +24,8 @@ const { gravaAnexo: gravaAnexoReal } = require('./lib/grava-anexo');
 const { instanciaDe } = require('./lib/instancia');
 const { entregar: entregarSeguro, ErroEntrega } = require('./lib/entrega-segura');
 const { abrirStream } = require('./lib/sse');
-const { criarProxy } = require('./lib/proxy');
+const { criarProxy, CABECALHOS_PV, CORS_PREFLIGHT_PV } = require('./lib/proxy');
+const { criarPainelToken } = require('./lib/painel-token');
 const { criarCofreAgente } = require('./lib/cofre-agente');
 const { criarCofreRotas } = require('./lib/cofre-rotas');
 const { criarAlertas } = require('./lib/alertas');
@@ -136,6 +137,8 @@ function criarServidor(opcoes) {
   const registro = criarRegistro({ caminho: config.agentesPath, log });
   const runner = criarRunner({ log, timeoutMs: opcoes.timeoutRunnerMs });
   const auth = criarAuth({ config, log, agora: opcoes.agora });
+  const painelToken = criarPainelToken({ dataDir: config.dataDir, agora: opcoes.agora });
+  auth.ligarIdPainel((chaveDoMapa) => painelToken.idDaSessao(chaveDoMapa));
   const colaboradores = criarColaboradores({ config, log, agora: opcoes.agora, gerarHash: (senha) => auth.gerarHash(senha) });
   auth.ligarColaboradores(colaboradores);
   auth.ligarInstancias((slug) => instanciaDe(registro.obter(slug)));
@@ -290,6 +293,35 @@ function criarServidor(opcoes) {
     if (!o || o === 'null') return false;
     const norm = String(o).replace(/\/+$/, '');
     return norm === H.origemPropria(req, config.proxiesConfiaveis) || config.origensExtras.has(norm);
+  }
+
+  // Painel isolado (/pv/): a origem do iframe sandbox é opaca, então o navegador manda `Origin: null` ou nada.
+  // Qualquer outra origem num pedido que escreve é outro site tentando usar o token.
+  const origemPvOk = (req) => !req.headers.origin || req.headers.origin === 'null';
+
+  // O token do painel nunca vai para log: todo caminho impresso passa por aqui.
+  const semToken = (t) => String(t).replace(/\/pv\/[^/?#\s]*/g, '/pv/[token]');
+
+  const PUBLICO_SEM_ORIGEM = /^\/api\/v1\/[a-z-]+\/docs\.md$/;
+  /**
+   * Pedido de navegação a /p/<slug>/...: quem abre o painel no navegador. Nunca é repassado ao painel (a origem do Web
+   * não pode rodar o JavaScript dele): o Web responde a moldura, que abre o painel por /pv/ num iframe sandbox.
+   */
+  const ehNavegacaoDoPainel = (req) => (req.method === 'GET' || req.method === 'HEAD')
+    && (/\btext\/html\b/.test(String(req.headers.accept || '')) || String(req.headers['sec-fetch-dest'] || '').toLowerCase() === 'document');
+  /**
+   * Pedido que não nasceu na própria tela do Web (outro site, ou uma página em sandbox com origem opaca) não usa o cookie
+   * do dono em /api/ nem em /p/. `Sec-Fetch-Site: none` (o dono digitou a URL) só vale em /api/. Devolve o motivo ou null.
+   */
+  function origemCruzada(req, p) {
+    const ehApi = p.startsWith('/api/');
+    if (!ehApi && !p.startsWith('/p/')) return null;
+    if (ehApi && (p === '/api/saude' || p === '/api/login-estado' || PUBLICO_SEM_ORIGEM.test(p))) return null;
+    if (!ehApi && ehNavegacaoDoPainel(req)) return null;
+    const sfs = String(req.headers['sec-fetch-site'] || '').toLowerCase();
+    if (sfs && sfs !== 'same-origin' && !(ehApi && sfs === 'none')) return `o navegador disse que o pedido veio de outro site (Sec-Fetch-Site: ${sfs.slice(0, 20)})`;
+    if (req.headers.origin !== undefined && !origemOk(req)) return `a origem ${String(req.headers.origin).slice(0, 80)} não é a deste site`;
+    return null;
   }
 
   // Só o dono, pela tela. Fora de caixa.permitir de propósito: agente em container não chama estas rotas.
@@ -624,6 +656,24 @@ function criarServidor(opcoes) {
       res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store' });
       return res.end(fs.readFileSync(path.join(__dirname, 'docs', 'ALERTAS.md'), 'utf8'));
     }
+    const pt = /^\/api\/v1\/agents\/([^/]+)\/painel-token$/.exec(p);
+    if (pt) {
+      if (m !== 'POST') return H.erroJson(res, 405, 'Use POST para pedir o acesso ao painel deste agente.');
+      if (falhaDoRegistro(req, res, true)) return undefined;
+      const agente = agenteOuErro(res, decodeURIComponent(pt[1]));
+      if (!agente) return undefined;
+      if (!agente.porta_painel) return H.erroJson(res, 404, `${agente.nome} não tem painel (porta_painel vazia no registro). A conversa fica em /a/${agente.slug}.`);
+      try {
+        const id = auth.idPainelDe(req);
+        if (!id) return H.erroJson(res, 401, 'Sua sessão não vale mais. Faça login em /login.');
+        const t = painelToken.emitir({ slug: agente.slug, id, sessaoExpiraMs: sessao.expira, instancia: instanciaDe(agente) });
+        return H.enviaJson(res, 200, { ok: true, token: t.token, expira: t.expira });
+      } catch (e) {
+        log('erro', `Painel isolado: não consegui emitir o acesso de ${agente.slug} (${e.message})`);
+        return H.erroJson(res, 500, 'Não consegui preparar o acesso ao painel. O motivo foi registrado no log do DG Claw Web.');
+      }
+    }
+
     const ar = /^\/api\/v1\/agents\/([^/]+)\/alertas(?:\/([a-f0-9]{24})\/(visto|mensagem))?$/.exec(p);
     if (ar) {
       if (falhaDoRegistro(req, res, true)) return;
@@ -935,7 +985,8 @@ function criarServidor(opcoes) {
    */
   function sessaoAindaVale(req, sessao) {
     if (!ehColab(sessao)) return true;
-    const s2 = auth.sessaoDoPedido(req);
+    // Pedido por /pv/: não há cookie, a sessão volta pelo identificador do token.
+    const s2 = req.dgPv ? auth.sessaoPorIdPainel(req.dgPv.id) : auth.sessaoDoPedido(req);
     return !!s2 && s2.papel === 'colaborador' && s2.colaborador_id === sessao.colaborador_id
       && s2.senha_versao === sessao.senha_versao && s2.agente === sessao.agente;
   }
@@ -1206,13 +1257,94 @@ function criarServidor(opcoes) {
   }
 
   // ── despacho ─────────────────────────────────────────────────────────────
-  const quemDoProxy = (sessao, req) => (sessao.papel === 'colaborador' ? { colaborador_id: sessao.colaborador_id, valeAinda: () => sessaoAindaVale(req, sessao) } : {});
+  const MSG_PV_MUDOU = 'O acesso do painel mudou enquanto o envio estava em andamento (o prazo venceu, a sessão terminou ou o agente foi recriado). Nada foi feito. Recarregue a página.';
+
+  /**
+   * O acesso por /pv/ ainda vale AGORA? Repete o que resolverPv conferiu na entrada (prazo, agente e instância, sessão),
+   * porque o corpo de um envio lento pode terminar depois que o agente foi removido e recriado com o mesmo nome.
+   */
+  function pvAindaVale(req, sessao) {
+    const pv = req.dgPv;
+    const relogio = opcoes.agora || Date.now;
+    if (pv.expira <= Math.floor(relogio() / 1000)) return false;
+    const ag2 = registro.obter(pv.slug);
+    if (!ag2 || (instanciaDe(ag2) || '') !== pv.instancia) return false;
+    const s2 = auth.sessaoPorIdPainel(pv.id);
+    if (!s2) return false;
+    if (ehColab(sessao)) return sessaoAindaVale(req, sessao);
+    return s2.papel !== 'colaborador';
+  }
+
+  function quemDoProxy(sessao, req) {
+    const quem = sessao.papel === 'colaborador' ? { colaborador_id: sessao.colaborador_id, valeAinda: () => sessaoAindaVale(req, sessao) } : {};
+    if (req.dgPv) quem.valeAinda = () => pvAindaVale(req, sessao);
+    return quem;
+  }
+
+  // ── painel isolado (/pv/<token>/...) ─────────────────────────────────────
+  // O painel do agente roda num iframe sandbox de origem opaca e fala com a própria API por um token no caminho
+  // (ver lib/painel-token.js). Aqui o token vira sessão, o caminho volta a ser /p/<slug>/... e o pedido segue as
+  // MESMAS regras do /p/ (escopo do colaborador, logs fechados, autoria, cofre).
+  const RX_PV = /^\/pv\/([A-Za-z0-9_.-]{20,400})(\/[^?]*)?$/;
+  const RX_DESVIO_PV = /(?:^|\/)(?:\.|%2e){1,2}(?:\/|$)|\\|%5c|%00/i;
+  const MOTIVO_PV_EXPIROU = 'O acesso deste painel expirou. Recarregue a página.';
+
+  /** Confere o token do pedido. Devolve { pv, sessao } ou { status, motivo }. Nada aqui escreve o token em log. */
+  function resolverPv(req) {
+    const bruto = String(req.url);
+    const q = bruto.indexOf('?');
+    const caminho = q === -1 ? bruto : bruto.slice(0, q);
+    const busca = q === -1 ? '' : bruto.slice(q);
+    const mm = RX_PV.exec(caminho);
+    if (!mm) return { status: 401, motivo: 'O endereço do painel não é válido. Recarregue a página.' };
+    let v; let sessao;
+    try {
+      v = painelToken.verificar(mm[1]);
+      if (v.ok) sessao = auth.sessaoPorIdPainel(v.id);
+    } catch (e) {
+      log('erro', `Painel isolado: não consegui conferir o acesso (${e.message})`);
+      return { status: 500, motivo: 'Não consegui conferir o acesso ao painel. O motivo foi registrado no log do DG Claw Web.' };
+    }
+    if (!v.ok) return { status: 401, motivo: `${v.motivo} Recarregue a página.` };
+    if (!sessao) return { status: 401, motivo: MOTIVO_PV_EXPIROU };
+    const agente = RX_SLUG_ROTA.test(v.slug) ? registro.obter(v.slug) : null;
+    if (!agente || !agente.porta_painel) return { status: 404, motivo: 'Este agente não tem painel. Recarregue a página ou volte à conversa.' };
+    if ((instanciaDe(agente) || '') !== v.instancia) return { status: 401, motivo: MOTIVO_PV_EXPIROU }; // agente removido e recriado com o mesmo nome
+    const resto = mm[2] || '/';
+    if (RX_DESVIO_PV.test(resto)) return { status: 400, motivo: 'Este endereço tem caracteres que não são aceitos no painel.' };
+    const caminhoPainel = `/p/${v.slug}${resto}`;
+    return { pv: { base: `/pv/${mm[1]}`, id: v.id, instancia: v.instancia, expira: v.expira, slug: v.slug, caminho: caminhoPainel, url: caminhoPainel + busca }, sessao };
+  }
+
+  function recusaPv(req, res, r) {
+    if (r.status !== 401 || !querHtml(req)) return H.erroJson(res, r.status, r.motivo);
+    // Navegação dentro do iframe: a página avisa a moldura, que pede um token novo e recarrega.
+    const html = '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+      + '<title>Painel indisponível</title><style>body{font-family:system-ui,sans-serif;max-width:34rem;margin:12vh auto;padding:0 1rem;color:#222}h1{font-size:1.3rem}</style></head><body>'
+      + `<h1>Painel indisponível</h1><p>${H.escapaHtml(r.motivo)}</p>`
+      + '<script>try{parent.postMessage({dgclaw:1,tipo:"expirou"},"*")}catch(e){}</script></body></html>';
+    res.writeHead(401, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Length': Buffer.byteLength(html), 'Cache-Control': 'no-store' });
+    return res.end(html);
+  }
+
+  /** A moldura: a página do Web que monta a casca e o iframe sandbox do painel (web/public/painel.html). */
+  function servirMoldura(req, res) {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'same-origin');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    const arq = path.join(config.publicDir, 'painel.html');
+    if (!servirArquivo(req, res, arq, 'no-store')) {
+      log('erro', `A moldura do painel não está instalada: falta ${arq}.`);
+      H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da moldura do painel não foi encontrado no servidor. Reinstale o DG Claw Web.');
+    }
+  }
 
   async function tratar(req, res) {
     let url;
     try { url = new URL(req.url, 'http://local'); } catch (_) { return H.paginaErro(res, 400, 'Endereço inválido', 'Não entendi o endereço pedido.'); }
-    const p = url.pathname;
+    let p = url.pathname;
     const m = req.method;
+    let sessaoPv = null;
 
     if (p === '/api/saude' && (m === 'GET' || m === 'HEAD')) {
       const est = registro.estado();
@@ -1225,6 +1357,18 @@ function criarServidor(opcoes) {
       return H.enviaJson(res, 200, { ok: true, trancado: auth.trancado, sem_senha: false, mensagem: auth.trancado ? `O acesso está trancado: ${auth.motivoTrancado} Rode o gerador de hash do instalador e coloque o resultado no web.env.` : null });
     }
 
+    if (String(req.url).startsWith('/pv/')) {
+      for (const [k, v] of Object.entries(CABECALHOS_PV)) res.setHeader(k, v);
+      const r = resolverPv(req);
+      if (!r.pv) return recusaPv(req, res, r);
+      if (m === 'OPTIONS') { res.writeHead(204, Object.assign({ 'Cache-Control': 'no-store' }, CORS_PREFLIGHT_PV)); return res.end(); }
+      // Daqui em diante o pedido é um /p/<slug>/... comum, feito pela sessão que o token aponta.
+      req.dgPv = r.pv; sessaoPv = r.sessao;
+      req.url = r.pv.url;
+      url = new URL(req.url, 'http://local');
+      p = r.pv.caminho;
+    }
+
     if (!p.startsWith('/p/')) {
       res.setHeader('X-Content-Type-Options', 'nosniff');
       res.setHeader('Referrer-Policy', 'same-origin');
@@ -1232,7 +1376,7 @@ function criarServidor(opcoes) {
     }
 
     // Pedido interno da caixa de um agente: só rotas /api/ liberadas com caixa.permitir().
-    const slugCaixa = caixa.ehPedidoDaCaixa(req);
+    const slugCaixa = req.dgPv ? null : caixa.ehPedidoDaCaixa(req);
     if (slugCaixa && !(p.startsWith('/api/') && caixa.rotaPermitida(p))) {
       return H.erroJson(res, 403, `A rota ${p.slice(0, 120)} não está liberada para agentes. Só as rotas que a frente liberou com caixa.permitir() respondem pela caixa.`);
     }
@@ -1250,13 +1394,22 @@ function criarServidor(opcoes) {
     }
 
     // CSRF: toda escrita exige Origin igual à do próprio Web (a caixa não vem de navegador).
-    if (ehMutacao(req) && !slugCaixa && !origemOk(req)) {
+    if (ehMutacao(req) && !slugCaixa && !(req.dgPv ? origemPvOk(req) : origemOk(req))) {
       const visto = req.headers.origin ? String(req.headers.origin).slice(0, 80) : '(sem Origin)';
-      log('aviso', `Pedido ${m} ${p} recusado: Origin ${visto} não é a deste Web (${H.origemPropria(req, config.proxiesConfiaveis)}).`);
+      log('aviso', `Pedido ${m} ${p} recusado: Origin ${visto} não é a deste Web (${req.dgPv ? 'o painel isolado só aceita Origin null ou nenhuma' : H.origemPropria(req, config.proxiesConfiaveis)}).`);
       const motivo = `Pedido recusado: a origem ${visto} não é a deste site. Abra o DG Claw pelo endereço normal e tente de novo.`;
       const jsonPedido = /application\/json/i.test(String(req.headers['content-type'] || '')) || /application\/json/i.test(String(req.headers.accept || ''));
       if (p === '/login' && !jsonPedido) return voltaAoLogin(res, 'origem', '/');
       return querHtml(req) && !p.startsWith('/api/') ? H.paginaErro(res, 403, 'Pedido recusado', motivo) : H.erroJson(res, 403, motivo);
+    }
+
+    // Origem opaca (painel em sandbox) ou outro site não usam o cookie do dono em /api/ nem em /p/.
+    if (!req.dgPv && !slugCaixa) {
+      const cruzada = origemCruzada(req, p);
+      if (cruzada) {
+        log('aviso', `Pedido ${m} ${p.slice(0, 120)} recusado: ${cruzada}.`);
+        return H.erroJson(res, 403, `Pedido recusado: ${cruzada}. A API e o painel só atendem pedidos que nascem na própria tela do DG Claw, aberta pelo endereço normal.`);
+      }
     }
 
     if (p === '/login' && m === 'GET') {
@@ -1283,7 +1436,7 @@ function criarServidor(opcoes) {
       return res.end();
     }
 
-    const sessao = slugCaixa ? { usuario: 'agente:' + slugCaixa, via: 'caixa', agente: slugCaixa } : auth.sessaoDoPedido(req);
+    const sessao = sessaoPv || (slugCaixa ? { usuario: 'agente:' + slugCaixa, via: 'caixa', agente: slugCaixa } : auth.sessaoDoPedido(req));
 
     // Única rota do Anonimizar sem sessão: a documentação, estática, para o agente ler sem credencial.
     if (p === '/api/v1/anonimizar/docs.md' && (m === 'GET' || m === 'HEAD')) { rotasAnonimizar.servirDocs(res); return undefined; }
@@ -1291,13 +1444,20 @@ function criarServidor(opcoes) {
     if (p === '/api/v1/manual/docs.md' && (m === 'GET' || m === 'HEAD')) return servirManual(req, res, m, 'README');
     if (sessao && !sessao.via) {
       // O cookie de papel só serve para a tela esconder o que não é do colaborador; aqui ele se conserta sozinho.
-      if (H.parseCookies(req.headers.cookie).dgclaw_papel !== sessao.papel) res.setHeader('Set-Cookie', auth.cookiePapel(sessao.papel, req));
+      if (!req.dgPv && H.parseCookies(req.headers.cookie).dgclaw_papel !== sessao.papel) res.setHeader('Set-Cookie', auth.cookiePapel(sessao.papel, req));
       // Isolamento do colaborador: negar por padrão, antes de qualquer rota (ver lib/escopo.js).
       const veredito = escopo.avaliar(sessao, m, p, req.url);
       if (!veredito.ok) return negarEscopo(req, res, sessao, veredito, p);
     }
 
-    if (ehColab(sessao)) {
+    if (req.dgPv) {
+      req.dgRevalidarMsg = MSG_PV_MUDOU;
+      req.dgRevalidar = () => {
+        const vale = pvAindaVale(req, sessao);
+        if (!vale) log('aviso', `Pedido ${m} ${p.slice(0, 120)} pelo painel isolado recusado: o acesso do painel deixou de valer enquanto o corpo chegava.`);
+        return vale;
+      };
+    } else if (ehColab(sessao)) {
       req.dgRevalidar = () => {
         const vale = sessaoAindaVale(req, sessao);
         if (!vale) log('aviso', `Pedido ${m} ${p.slice(0, 120)} do colaborador ${sessao.usuario} recusado: a sessão deixou de valer enquanto o corpo chegava.`);
@@ -1321,11 +1481,13 @@ function criarServidor(opcoes) {
       if (RX_LOGS_NO_PAINEL.test(pp[2]) || RX_LOGS_NO_PAINEL.test(decodificaSeguro(pp[2]))) {
         return H.erroJson(res, 403, 'Os logs só existem na tela do Admin');
       }
+      // Navegação ao painel: quem responde é a moldura (iframe sandbox). O HTML do painel nunca roda na origem do Web.
+      if (!req.dgPv && ehNavegacaoDoPainel(req)) return servirMoldura(req, res);
       // O painel do dono manda texto ao runner por conta própria (chat, recados, sessões): daqui em diante o turno
       // em curso deixa de ser de qualquer colaborador. A transcrição é a prova de verdade; isto é a segunda trava.
       if (!ehColab(sessao) && !sessao.via && m !== 'GET' && m !== 'HEAD' && RX_ENVIO_DO_PAINEL.test(pp[2])) {
         const slugPainel = decodeURIComponent(pp[1]);
-        if (RX_SLUG_ROTA.test(slugPainel)) marcaAutor(slugPainel, sessao, null);
+        if (RX_SLUG_ROTA.test(slugPainel) && (!req.dgPv || pvAindaVale(req, sessao))) marcaAutor(slugPainel, sessao, null);
       }
       // O dono também inicia/cancela o login da conta de IA pelo painel do agente, sem passar pelas rotas /login do Web:
       // aqui respeita a reserva do colaborador e invalida a autoria dele (web/lib/conta-colaborador.js).
@@ -1333,15 +1495,29 @@ function criarServidor(opcoes) {
         const mp = /^\/api\/provedor\/login(\/codigo)?\/?$/i.exec(pp[2]);
         const slugP = (() => { try { return decodeURIComponent(pp[1]); } catch (_) { return ''; } })();
         const agP = RX_SLUG_ROTA.test(slugP) ? registro.obter(slugP) : null;
-        if (agP && mp && (m === 'POST' || m === 'DELETE')) {
-          const veto = await contaColab.noPainelDoDono(agP, sessao, m, !!mp[1]);
-          if (veto) return H.erroJson(res, veto.status, veto.corpo.erro);
-        } else if (agP) {
-          // Troca de provedor: a fila do login do colaborador fica trancada até a resposta do painel terminar.
-          const seg = await contaColab.seguraProvedorNoPainelDoDono(agP);
-          if (seg.veto) return H.erroJson(res, seg.veto.status, seg.veto.corpo.erro);
-          res.once('close', seg.liberar);
-          try { return await proxy.responder(req, res, pp[1], sessao.usuario, quemDoProxy(sessao, req)); } catch (e) { seg.liberar(); throw e; }
+        if (agP) {
+          // Painel isolado: o corpo é lido e revalidado ANTES de a fila do agente ser tocada; assim um token velho nunca cria reserva.
+          let corpoPv;
+          if (req.dgPv) {
+            try { corpoPv = await H.lerCorpo(req, config.maxUploadBytes + 64 * 1024); req.dgCorpoLido = corpoPv; } catch (e) {
+              if (e && e.status === 413) return H.erroJson(res, 413, `O envio passou do limite de ${Math.round(config.maxUploadBytes / 1048576)} MB. Mande um arquivo menor.`);
+              if (e && e.status === 401) return H.erroJson(res, 401, e.message);
+              log('erro', `Painel isolado /p/${slugP}: não consegui ler o corpo do pedido (${(e && (e.code || e.message)) || 'erro'}).`);
+              return H.erroJson(res, 400, 'Não consegui ler o corpo do pedido. Tente de novo.');
+            }
+          }
+          const aindaVale = req.dgPv ? () => pvAindaVale(req, sessao) : undefined;
+          if (mp && (m === 'POST' || m === 'DELETE')) {
+            const veto = await contaColab.noPainelDoDono(agP, sessao, m, !!mp[1], aindaVale);
+            if (veto) return H.erroJson(res, veto.status, veto.corpo.erro);
+          } else {
+            // Troca de provedor: a fila do login do colaborador fica trancada até a resposta do painel terminar.
+            const seg = await contaColab.seguraProvedorNoPainelDoDono(agP, aindaVale);
+            if (seg.veto) return H.erroJson(res, seg.veto.status, seg.veto.corpo.erro);
+            res.once('close', seg.liberar);
+            try { return await proxy.responder(req, res, pp[1], sessao.usuario, quemDoProxy(sessao, req), corpoPv); } catch (e) { seg.liberar(); throw e; }
+          }
+          return proxy.responder(req, res, pp[1], sessao.usuario, quemDoProxy(sessao, req), corpoPv);
         }
       }
       return proxy.responder(req, res, pp[1], sessao.usuario, quemDoProxy(sessao, req));
@@ -1481,7 +1657,7 @@ function criarServidor(opcoes) {
 
   const servidor = http.createServer((req, res) => {
     tratar(req, res).catch((e) => {
-      log('erro', `Erro inesperado em ${req.method} ${String(req.url).split('?')[0]}: ${e && e.stack ? e.stack.split('\n').slice(0, 3).join(' | ') : e}`);
+      log('erro', `Erro inesperado em ${req.method} ${semToken(String(req.url).split('?')[0])}: ${e && e.stack ? e.stack.split('\n').slice(0, 3).join(' | ') : e}`);
       if (!res.headersSent) H.erroJson(res, 500, 'Erro interno do servidor. O detalhe foi registrado no log; tente de novo e, se repetir, avise quem instalou.');
       else res.destroy();
     });
@@ -1489,10 +1665,18 @@ function criarServidor(opcoes) {
 
   servidor.on('upgrade', (req, socket, head) => {
     try {
+      const nega = (status, motivo) => { socket.write(`HTTP/1.1 ${status} Recusado\r\nConnection: close\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${motivo}`); socket.destroy(); };
+      // Painel isolado: o token do caminho faz o papel do cookie (a origem do iframe é opaca: Origin null ou nenhuma).
+      let sessaoPv = null;
+      if (String(req.url).startsWith('/pv/')) {
+        const r = resolverPv(req);
+        if (!r.pv) return nega(r.status, r.motivo);
+        req.dgPv = r.pv; sessaoPv = r.sessao;
+        req.url = r.pv.url;
+      }
       const url = new URL(req.url, 'http://local');
       const pp = /^\/p\/([^/]+)(\/.*)?$/.exec(url.pathname);
-      const sessao = auth.sessaoDoPedido(req);
-      const nega = (status, motivo) => { socket.write(`HTTP/1.1 ${status} Recusado\r\nConnection: close\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${motivo}`); socket.destroy(); };
+      const sessao = sessaoPv || auth.sessaoDoPedido(req);
       if (!pp) return nega(404, 'Só o painel (/p/<agente>/) aceita WebSocket.');
       if (!sessao) return nega(401, 'Você precisa entrar antes.');
       const veredito = escopo.websocketLiberado(sessao, url.pathname, req.url);
@@ -1500,18 +1684,24 @@ function criarServidor(opcoes) {
         log('aviso', `WebSocket em ${url.pathname.slice(0, 120)} recusado para o colaborador ${sessao.usuario}: ${veredito.motivo}`);
         return nega(403, veredito.motivo);
       }
-      if (!origemOk(req)) {
+      if (!(req.dgPv ? origemPvOk(req) : origemOk(req))) {
         log('aviso', `WebSocket em ${url.pathname} recusado: Origin ${String(req.headers.origin || '(sem Origin)').slice(0, 80)} não é a deste Web.`);
         return nega(403, 'Origem não permitida.');
       }
       const quem = quemDoProxy(sessao, req);
-      if (quem.colaborador_id) {
+      if (req.dgPv) {
+        // Por /pv/ o dono também entra na revalidação (a cada 30 s): logout, troca de senha, sessão que expira ou o prazo do token fecham o socket.
+        quem.valeAinda = () => pvAindaVale(req, sessao);
+      } else if (quem.colaborador_id) {
         // A conferência repete o login do upgrade: o proxy a chama a cada 30 s e fecha o socket quando a sessão cai.
-        quem.valeAinda = () => { const s2 = auth.sessaoDoPedido(req); return !!s2 && s2.papel === 'colaborador' && s2.colaborador_id === quem.colaborador_id && s2.senha_versao === sessao.senha_versao; };
+        quem.valeAinda = () => {
+          const s2 = auth.sessaoDoPedido(req);
+          return !!s2 && s2.papel === 'colaborador' && s2.colaborador_id === quem.colaborador_id && s2.senha_versao === sessao.senha_versao;
+        };
       }
       return proxy.upgrade(req, socket, head, pp[1], sessao.usuario, quem);
     } catch (e) {
-      log('erro', `Falha no upgrade de ${String(req.url).split('?')[0]}: ${e.message}`);
+      log('erro', `Falha no upgrade de ${semToken(String(req.url).split('?')[0])}: ${e.message}`);
       socket.destroy();
       return undefined;
     }

@@ -3,6 +3,10 @@
 // Só chega aqui quem tem sessão (o server.js confere antes). Acrescenta os cabeçalhos de
 // confiança X-DGClaw-Proxy (segredo) e X-DGClaw-Usuario, e apaga os que vieram do navegador.
 // O segredo nunca vai para log nem para resposta.
+//
+// Pedido que chega por /pv/<token>/... (o painel isolado, numa origem opaca; ver painel-token.js) traz `req.dgPv`
+// ({ base: '/pv/<token>' }): o Web já trocou o caminho por /p/<slug>/..., e aqui o painel recebe a base nova no
+// cabeçalho X-DGClaw-Base, NENHUM cookie, e a resposta sai com a CSP sandbox e o CORS sem credencial.
 
 const fs = require('node:fs');
 const http = require('node:http');
@@ -10,7 +14,30 @@ const { erroJson, paginaErro, ipDoPedido, esquemaDoPedido, hostDoPedido, lerCorp
 const { NOME_COOKIE } = require('./auth');
 
 const HOP = new Set(['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'proxy-connection']);
-const PROIBIDOS_DO_NAVEGADOR = new Set(['x-dgclaw-proxy', 'x-dgclaw-usuario', 'x-dgclaw-papel', 'x-dgclaw-colaborador']);
+const PROIBIDOS_DO_NAVEGADOR = new Set(['x-dgclaw-proxy', 'x-dgclaw-usuario', 'x-dgclaw-papel', 'x-dgclaw-colaborador', 'x-dgclaw-base']);
+
+// Resposta de /pv/: documento em sandbox sem allow-same-origin (origem opaca, sem cookie, sem storage) e que só o próprio
+// Web enquadra. A credencial é o token no caminho, por isso o CORS é aberto e sem Allow-Credentials.
+// Sem frame-ancestors: o noVNC da aba Tela é um iframe dentro do painel, e o ancestral do painel tem origem opaca, que nunca casa com 'self'.
+// Quem enquadra um /pv/ precisa do token, que é segredo e só a moldura tem.
+const CSP_PV = 'sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads';
+// Resposta de /p/ (origem do Web) repassada do painel: nenhum script roda se alguém abrir isso como documento.
+const CSP_P = "sandbox; default-src 'none'";
+const CABECALHOS_PV = {
+  // O endereço leva o token: nada de /pv/ fica em cache, nem o que o painel manda como imutável.
+  'Cache-Control': 'no-store',
+  'Content-Security-Policy': CSP_PV,
+  'Referrer-Policy': 'no-referrer',
+  'X-Content-Type-Options': 'nosniff',
+  'Access-Control-Allow-Origin': '*',
+};
+const CORS_PREFLIGHT_PV = {
+  'Access-Control-Allow-Origin': '*',
+  'Cache-Control': 'no-store',
+  'Access-Control-Allow-Methods': 'GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Accept, X-Requested-With, If-None-Match, Range',
+  'Access-Control-Max-Age': '600',
+};
 const INTERVALO_REVALIDA_MS = 30 * 1000;
 
 /** Tira o cookie de sessão do Web do que vai para o painel (ele não precisa do nosso token). */
@@ -38,8 +65,8 @@ function criarProxy({ config, registro, log, cofreRotas }) {
   function revalidar() {
     for (const r of [...deColaborador]) {
       let vale = false;
-      try { vale = !!r.valeAinda(); } catch (e) { log('erro', `Proxy: não consegui revalidar a sessão de um WebSocket de colaborador (${e.message}); fechei a conexão.`); }
-      if (!vale) { log('aviso', 'Proxy: fechei o WebSocket de um colaborador cuja sessão deixou de valer.'); fechaPar(r); }
+      try { vale = !!r.valeAinda(); } catch (e) { log('erro', `Proxy: não consegui revalidar a sessão de um WebSocket (${e.message}); fechei a conexão.`); }
+      if (!vale) { log('aviso', 'Proxy: fechei um WebSocket cuja sessão (ou o prazo do acesso ao painel) deixou de valer.'); fechaPar(r); }
     }
   }
   const relogio = setInterval(revalidar, INTERVALO_REVALIDA_MS);
@@ -80,8 +107,10 @@ function criarProxy({ config, registro, log, cofreRotas }) {
       if (HOP.has(nome) || PROIBIDOS_DO_NAVEGADOR.has(nome) || nome === 'cookie') continue;
       h[nome] = v;
     }
-    const ck = limpaCookie(req.headers.cookie);
+    // Painel isolado: sem credencial ambiente. Nem o cookie do painel passa (o token no caminho é quem autentica).
+    const ck = req.dgPv ? null : limpaCookie(req.headers.cookie);
     if (ck) h.cookie = ck;
+    if (req.dgPv) h['x-dgclaw-base'] = req.dgPv.base;
     h['x-forwarded-for'] = ipDoPedido(req, config.proxiesConfiaveis);
     h['x-forwarded-proto'] = esquemaDoPedido(req, config.proxiesConfiaveis);
     h['x-forwarded-host'] = hostDoPedido(req, config.proxiesConfiaveis);
@@ -98,17 +127,22 @@ function criarProxy({ config, registro, log, cofreRotas }) {
    * respondidas pelo Web (./cofre-rotas) e nunca chegam ao painel. Se o Web leu o corpo para
    * decidir e a rota é do painel, o corpo lido segue como Buffer.
    */
-  function responder(req, res, slug, usuario, quem) {
+  function responder(req, res, slug, usuario, quem, corpoPreLido) {
     const agente = cofreRotas ? registro.obter(slug) : null;
     if (agente && !agente.cofre_arquivo && cofreRotas.casaLegado(req, slug)) {
       legadoComAviso(req, res, slug, usuario, agente, quem);
       return undefined;
     }
     const qual = agente && agente.cofre_arquivo ? cofreRotas.casa(req, slug) : null;
+    if (!qual && corpoPreLido) {
+      // O Web já leu e revalidou o corpo (painel isolado): encaminhar confere a sessão mais uma vez antes de abrir a conexão.
+      encaminhar(req, res, slug, usuario, corpoPreLido.length ? corpoPreLido : null, undefined, quem, false, true);
+      return undefined;
+    }
     if (!qual) {
       const escrita = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);
-      if (!(quem && quem.colaborador_id && escrita)) return encaminhar(req, res, slug, usuario, null, undefined, quem);
-      // Colaborador: o painel age quando o corpo termina. Lê tudo aqui, confere a sessão e só então abre a conexão com o painel.
+      if (!(escrita && ((quem && quem.colaborador_id) || req.dgPv))) return encaminhar(req, res, slug, usuario, null, undefined, quem);
+      // Colaborador ou painel isolado: o painel age quando o corpo termina. Lê tudo aqui, confere a sessão e só então abre a conexão com o painel.
       const limite = config.maxUploadBytes + 64 * 1024;
       lerCorpo(req, limite).then((buf) => {
         encaminhar(req, res, slug, usuario, buf.length ? buf : null, undefined, quem, true);
@@ -138,6 +172,7 @@ function criarProxy({ config, registro, log, cofreRotas }) {
     lerCorpo(req, 64 * 1024).then((buf) => {
       encaminhar(req, res, slug, usuario, buf, (status, resposta) => cofreRotas.avisarLegado(agente, buf, status, resposta), quem);
     }).catch((e) => {
+      if (e && e.status === 401) return recusaSessaoVelha(res, slug, quem);
       if (e && e.status === 413) return erroJson(res, 413, 'O pedido passou de 64 KB, que é muito mais do que uma chave precisa. Mande só o nome e o valor da chave.');
       log('erro', `Proxy /p/${slug}: não consegui ler o corpo do pedido do cofre (${(e && (e.code || e.message)) || 'erro'}).`);
       return erroJson(res, 400, 'Não consegui ler o corpo do pedido. Tente de novo.');
@@ -145,13 +180,17 @@ function criarProxy({ config, registro, log, cofreRotas }) {
   }
 
   function recusaSessaoVelha(res, slug, quem) {
+    if (!quem.colaborador_id) {
+      log('aviso', `Proxy /p/${slug}: pedido do painel isolado recusado, o acesso deixou de valer enquanto o corpo chegava. Nada foi ao painel.`);
+      return erroJson(res, 401, 'O acesso do painel mudou enquanto o envio estava em andamento. Nada foi feito. Recarregue a página.');
+    }
     log('aviso', `Proxy /p/${slug}: pedido do colaborador ${quem.colaborador_id} recusado, a sessão deixou de valer enquanto o corpo chegava. Nada foi ao painel.`);
     return erroJson(res, 401, 'Seu acesso mudou enquanto o envio estava em andamento (foi revogado ou o convite foi reenviado). Nada foi feito. Entre de novo com o convite mais recente.');
   }
 
-  function encaminhar(req, res, slug, usuario, corpoLido, aoTerminar, quem, corpoJaConferido) {
+  function encaminhar(req, res, slug, usuario, corpoLido, aoTerminar, quem, corpoJaConferido, corpoConsumido) {
     // Corpo lido por outro caminho (cofre, legado): a sessão é conferida de novo antes de abrir a conexão.
-    if (!corpoJaConferido && corpoLido && quem && quem.colaborador_id && typeof quem.valeAinda === 'function' && !quem.valeAinda()) return recusaSessaoVelha(res, slug, quem);
+    if (!corpoJaConferido && (corpoLido || corpoConsumido) && quem && (quem.colaborador_id || req.dgPv) && typeof quem.valeAinda === 'function' && !quem.valeAinda()) return recusaSessaoVelha(res, slug, quem);
     const d = destino(slug);
     if (d.status) {
       if (/\btext\/html\b/.test(String(req.headers.accept || ''))) paginaErro(res, d.status, 'Painel indisponível', d.motivo);
@@ -166,10 +205,21 @@ function criarProxy({ config, registro, log, cofreRotas }) {
     if (corpoLido) opcoes.headers['content-length'] = String(corpoLido.length);
     const preq = http.request(opcoes, (pres) => {
       const h = {};
+      const csps = [];
       // Set-Cookie do painel do agente nunca chega ao navegador: o painel pode estar comprometido
       // e plantaria cookie no domínio do Web. O painel não depende de cookie atrás do proxy
-      // (confia no X-DGClaw-Proxy).
-      for (const [k, v] of Object.entries(pres.headers)) if (!HOP.has(k.toLowerCase()) && k.toLowerCase() !== 'set-cookie') h[k] = v;
+      // (confia no X-DGClaw-Proxy). O CORS também é nosso: o painel não abre a resposta para outro site.
+      // A CSP do painel, se houver, fica; a nossa entra como segundo cabeçalho e nunca é trocada.
+      for (const [k, v] of Object.entries(pres.headers)) {
+        const nome = k.toLowerCase();
+        if (HOP.has(nome) || nome === 'set-cookie' || nome.startsWith('access-control-')) continue;
+        if (nome === 'content-security-policy') { csps.push(...[].concat(v)); continue; }
+        if (req.dgPv && ['referrer-policy', 'x-content-type-options', 'cache-control', 'expires', 'pragma'].includes(nome)) continue;
+        h[k] = v;
+      }
+      csps.push(req.dgPv ? CSP_PV : CSP_P);
+      h['Content-Security-Policy'] = csps;
+      if (req.dgPv) Object.assign(h, CABECALHOS_PV, { 'Content-Security-Policy': csps });
       res.writeHead(pres.statusCode, pres.statusMessage, h);
       pres.pipe(res);
       pres.on('error', () => res.destroy());
@@ -190,7 +240,7 @@ function criarProxy({ config, registro, log, cofreRotas }) {
     });
     res.on('close', () => { if (!res.writableEnded) preq.destroy(); });
     if (corpoLido) preq.end(corpoLido);
-    else if (req.readableEnded || req.complete && !req.readable) preq.end();
+    else if (corpoConsumido || req.readableEnded || req.complete && !req.readable) preq.end();
     else req.pipe(preq);
   }
 
@@ -218,8 +268,8 @@ function criarProxy({ config, registro, log, cofreRotas }) {
       if (phead && phead.length) socket.write(phead);
       if (head && head.length) psocket.write(head);
       socketsAbertos.add(socket); socketsAbertos.add(psocket);
-      // WebSocket de colaborador: guardado com a conferência da sessão, para fechar quando ela deixar de valer.
-      if (quem && quem.colaborador_id) {
+      // WebSocket de colaborador (ou aberto por /pv/): guardado com a conferência da sessão, para fechar quando ela deixar de valer.
+      if (quem && typeof quem.valeAinda === 'function') {
         const reg = { colaborador_id: quem.colaborador_id, valeAinda: quem.valeAinda, socket, psocket };
         deColaborador.add(reg);
         socket.on('close', () => deColaborador.delete(reg));
@@ -249,4 +299,4 @@ function criarProxy({ config, registro, log, cofreRotas }) {
   return { responder, upgrade, destino, fecharDoColaborador, revalidar, fecharTudo() { clearInterval(relogio); for (const x of socketsAbertos) x.destroy(); socketsAbertos.clear(); deColaborador.clear(); } };
 }
 
-module.exports = { criarProxy, limpaCookie };
+module.exports = { criarProxy, limpaCookie, CABECALHOS_PV, CORS_PREFLIGHT_PV, CSP_PV, CSP_P };

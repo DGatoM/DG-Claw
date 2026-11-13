@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Painel - DG Claw</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#2f9e5e">
+<link rel="icon" href="/icons/icon-192.png">
+<link rel="stylesheet" href="/casca.css">
+<link rel="stylesheet" href="/menu-lado.css">
+<link rel="stylesheet" href="/painel-moldura.css">
+<link rel="stylesheet" href="/sem-zoom.css">
+<link rel="stylesheet" href="/papel.css">
+<script src="/sem-zoom.js"></script>
+<script src="/papel.js"></script>
+</head>
+<body>
+<!-- O painel do agente roda aqui dentro, numa origem opaca (sem allow-same-origin): o JavaScript dele não alcança o cookie
+     nem a API do Web. O endereço (src) é posto pelo painel-moldura.js com um token novo a cada abertura. -->
+<iframe id="painelQuadro" title="Painel do agente"
+  sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads"
+  allow="clipboard-write; fullscreen" referrerpolicy="no-referrer"></iframe>
+<p id="painelErro" role="alert" hidden></p>
+<script src="/tour.js"></script>
+<script src="/menu-lado.js"></script>
+<script src="/casca.js"></script>
+<script src="/painel-moldura.js"></script>
+</body>
+</html>

@@ -135,8 +135,10 @@ for (const rel of arquivosWeb) {
     telas.add(rota, `${rel}:${i + 1}`);
     htmlMapeado.add(m[1]);
   });
+  // painel.html e a moldura do painel do agente: servida em /p/<slug>/... por servirMoldura (nao tem rota propria de tela).
+  const SEM_ROTA_PROPRIA = new Set(['painel.html']);
   for (const h of listar('web/public', (e) => e.isFile() && e.name.endsWith('.html'))) {
-    if (!htmlMapeado.has(h)) quebrou(`web/public/${h} existe mas nenhuma rota de ${rel} o serve (ou o extrator nao entendeu a rota).`, 'ajuste a heuristica de telas em scripts/docs-inventario.mjs, ou apague o html que ninguem serve.');
+    if (!htmlMapeado.has(h) && !SEM_ROTA_PROPRIA.has(h)) quebrou(`web/public/${h} existe mas nenhuma rota de ${rel} o serve (ou o extrator nao entendeu a rota).`, 'ajuste a heuristica de telas em scripts/docs-inventario.mjs, ou apague o html que ninguem serve.');
   }
 }
 // "pagina:/x" que nao e tela vira rota exata (ex.: /sair); as que sao tela somem do detalhe.

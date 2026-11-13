@@ -177,11 +177,11 @@ router.post('/login', (req, res, next) => {
 
 // Sair é POST: um GET que muda estado deixaria qualquer página de fora deslogar o dono
 // com uma tag <img>. O GET continua só levando para a tela de login, sem efeito.
-router.get('/logout', (req, res) => res.redirect((BASE || '') + '/login.html'));
+router.get('/logout', (req, res) => res.redirect(auth.baseDe(req) + '/login.html'));
 router.post('/logout', (req, res) => {
   // path precisa bater com o do cookie.set, senão o navegador não o mata de verdade.
   res.clearCookie('dash_token', { path: BASE || '/' });
-  res.redirect((BASE || '') + '/login.html');
+  res.redirect(auth.baseDe(req) + '/login.html');
 });
 
 // ─── Rotas por área (rotas/*.js) ──────────────────────────────

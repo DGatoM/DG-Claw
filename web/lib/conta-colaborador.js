@@ -39,6 +39,7 @@ function criarContaColaborador({ dataDir, login, log, agora, escreveArquivo }) {
   const reservas = new Map();   // slug -> { tipo, id, email, desde, codigoEnviado }
   const filas = new Map();      // slug -> promessa encadeada
 
+  const MSG_ACESSO_MUDOU_NA_FILA = 'O acesso do painel mudou enquanto o pedido esperava a vez (o prazo venceu, a sessão terminou ou o agente foi recriado). Nada foi feito. Recarregue a página.';
   const erro = (status, motivo, extra) => ({ status, corpo: Object.assign({ ok: false, erro: motivo }, extra || {}) });
 
   // ── registro durável ───────────────────────────────────────────────────────
@@ -528,9 +529,10 @@ function criarContaColaborador({ dataDir, login, log, agora, escreveArquivo }) {
    * rotas acima. Chamado pelo Web antes do proxy: respeita a reserva do colaborador (409), invalida a autoria dele quando o
    * dono começa e acompanha a reserva do dono. Devolve null para seguir ao proxy, ou { status, corpo } para recusar.
    */
-  function noPainelDoDono(agente, sessao, metodo, codigo) {
+  function noPainelDoDono(agente, sessao, metodo, codigo, aindaVale) {
     const q = quem(sessao);
     return emFila(agente.slug, async () => {
+      if (aindaVale && !aindaVale()) return erro(401, MSG_ACESSO_MUDOU_NA_FILA);
       const r = reservaViva(agente.slug);
       if (r && r.tipo === 'colaborador' && metodo !== 'DELETE') return erro(409, MSG_DONO_OCUPADO(r.email));
       if (metodo === 'DELETE') {
@@ -560,9 +562,10 @@ function criarContaColaborador({ dataDir, login, log, agora, escreveArquivo }) {
    * começa nem conclui um login enquanto o provedor está mudando. Devolve { veto } ou { liberar }; sem `liberar` a fila
    * se destrava sozinha depois de SEGURA_MAX_MS.
    */
-  function seguraProvedorNoPainelDoDono(agente) {
+  function seguraProvedorNoPainelDoDono(agente, aindaVale) {
     return new Promise((resolve) => {
       emFila(agente.slug, async () => {
+        if (aindaVale && !aindaVale()) { resolve({ veto: erro(401, MSG_ACESSO_MUDOU_NA_FILA) }); return; }
         const r = reservaViva(agente.slug);
         const veto = r && r.tipo === 'colaborador' ? erro(409, MSG_DONO_OCUPADO(r.email)) : await invalidaAutoria(agente);
         if (veto) { resolve({ veto }); return; }

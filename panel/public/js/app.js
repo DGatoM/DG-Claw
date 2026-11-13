@@ -281,8 +281,15 @@ const tabLoaded = {};
 // Sob a plataforma (BASE = "/p/<slug>") a tela principal do agente é a conversa do chat
 // (/a/<slug>) e este painel são as "páginas" dele. Painel solto tem BASE vazio: nada muda.
 const NA_PLATAFORMA = !!BASE;
-const SLUG_PLATAFORMA = (BASE.match(/^\/p\/([^/]+)/) || [])[1] || '';
+// Dentro da moldura do Web (iframe sandbox, BASE = "/pv/<token>") o servidor diz o agente em DGCLAW_ISOLADO e o painel
+// não navega o topo: pede à moldura, por postMessage (casca-ponte.js).
+const ISOLADO = !!window.DGCLAW_ISOLADO;
+const SLUG_PLATAFORMA = ISOLADO ? String(window.DGCLAW_ISOLADO.slug || '') : ((BASE.match(/^\/p\/([^/]+)/) || [])[1] || '');
 const URL_CONVERSA = SLUG_PLATAFORMA ? `/a/${SLUG_PLATAFORMA}` : '/';
+function irParaPaginaDoWeb(url) {
+  if (ISOLADO && window.DGCasca && window.DGCasca.ir) window.DGCasca.ir(url);
+  else location.href = url;
+}
 const ABAS_VALIDAS = [...document.querySelectorAll('.tab[data-tab]')].map((t) => t.dataset.tab);
 
 // O retrato grande do menu antigo (.lado). Sob a plataforma a foto do agente é UMA só, a da casca
@@ -324,7 +331,7 @@ document.getElementById('tabs').addEventListener('click', (e) => {
 
   // Sob a plataforma a conversa é a tela principal do chat, não uma aba daqui.
   if (NA_PLATAFORMA && tab === 'conversa') {
-    location.href = URL_CONVERSA;
+    irParaPaginaDoWeb(URL_CONVERSA);
     return;
   }
 
@@ -1175,7 +1182,7 @@ async function loadReunioes(query) {
 
   try {
     const url = BASE + '/api/reunioes' + (query ? `?q=${encodeURIComponent(query)}` : '');
-    const res = await fetch(url, { credentials: 'include' });
+    const res = await fetch(url, { credentials: 'same-origin' });
     const data = await res.json();
     if (!data.items || data.items.length === 0) {
       listEl.innerHTML = '<div style="color:var(--text-dim);padding:20px">Nenhuma reunião encontrada.</div>';
@@ -1219,7 +1226,7 @@ async function openReuniaoDetail(id) {
   detailEl.innerHTML = 'Carregando...';
 
   try {
-    const res = await fetch(`${BASE}/api/reunioes/${id}`, { credentials: 'include' });
+    const res = await fetch(`${BASE}/api/reunioes/${id}`, { credentials: 'same-origin' });
     const m = await res.json();
     if (!res.ok) throw new Error(m.error || 'erro');
     const dt = m.date ? new Date(m.date) : null;
@@ -2851,7 +2858,7 @@ function htmlSeletorPlataforma(agentes, slugAtual, fotoAtual) {
       ${atual ? '<span class="aqui">aqui</span>' : ''}`;
     return atual
       ? `<span class="item">${miolo}</span>`
-      : `<a href="/a/${encodeURIComponent(a.id)}">${miolo}</a>`;
+      : `<a href="/a/${encodeURIComponent(a.id)}" data-dgclaw-ir="/a/${encodeURIComponent(a.id)}">${miolo}</a>`;
   }).join('');
 }
 
@@ -2909,6 +2916,8 @@ async function atualizarSeletorDeAgentes() {
   const troca = document.getElementById('troca');
   const lista = document.getElementById('lista-agentes');
   if (!troca || !lista) return;
+  // Isolado: a lista de agentes é da API do Web, que este painel não alcança. O seletor da casca (na moldura) já troca de agente.
+  if (ISOLADO) { troca.style.display = 'none'; return; }
 
   let agentes = [];
   let falha = '';
@@ -2916,7 +2925,7 @@ async function atualizarSeletorDeAgentes() {
     // Sob a plataforma a lista vem da rota do chat (mesma origem, cookie já vale), com a foto
     // de cada agente. Fora dela, da rota do próprio painel.
     const url = NA_PLATAFORMA ? '/api/v1/agents' : BASE + '/api/agents';
-    const r = await fetch(url, { credentials: 'include' });
+    const r = await fetch(url, { credentials: 'same-origin' });
     // A rota do chat devolve `agentes`; a do painel, `agents`.
     if (r.ok) { const d = await r.json(); agentes = (NA_PLATAFORMA ? d.agentes : d.agents) || []; }
     else if (NA_PLATAFORMA) falha = `A lista de agentes respondeu ${r.status}.`;
