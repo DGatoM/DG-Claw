@@ -18,10 +18,14 @@ const PROIBIDOS_DO_NAVEGADOR = new Set(['x-dgclaw-proxy', 'x-dgclaw-usuario', 'x
 
 // Resposta de /pv/: documento em sandbox sem allow-same-origin (origem opaca, sem cookie, sem storage) e que só o próprio
 // Web enquadra. A credencial é o token no caminho, por isso o CORS é aberto e sem Allow-Credentials.
-const CSP_PV = "sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads; frame-ancestors 'self'";
+// Sem frame-ancestors: o noVNC da aba Tela é um iframe dentro do painel, e o ancestral do painel tem origem opaca, que nunca casa com 'self'.
+// Quem enquadra um /pv/ precisa do token, que é segredo e só a moldura tem.
+const CSP_PV = 'sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads';
 // Resposta de /p/ (origem do Web) repassada do painel: nenhum script roda se alguém abrir isso como documento.
 const CSP_P = "sandbox; default-src 'none'";
 const CABECALHOS_PV = {
+  // O endereço leva o token: nada de /pv/ fica em cache, nem o que o painel manda como imutável.
+  'Cache-Control': 'no-store',
   'Content-Security-Policy': CSP_PV,
   'Referrer-Policy': 'no-referrer',
   'X-Content-Type-Options': 'nosniff',
@@ -29,6 +33,7 @@ const CABECALHOS_PV = {
 };
 const CORS_PREFLIGHT_PV = {
   'Access-Control-Allow-Origin': '*',
+  'Cache-Control': 'no-store',
   'Access-Control-Allow-Methods': 'GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Accept, X-Requested-With, If-None-Match, Range',
   'Access-Control-Max-Age': '600',
@@ -60,8 +65,8 @@ function criarProxy({ config, registro, log, cofreRotas }) {
   function revalidar() {
     for (const r of [...deColaborador]) {
       let vale = false;
-      try { vale = !!r.valeAinda(); } catch (e) { log('erro', `Proxy: não consegui revalidar a sessão de um WebSocket de colaborador (${e.message}); fechei a conexão.`); }
-      if (!vale) { log('aviso', 'Proxy: fechei o WebSocket de um colaborador cuja sessão deixou de valer.'); fechaPar(r); }
+      try { vale = !!r.valeAinda(); } catch (e) { log('erro', `Proxy: não consegui revalidar a sessão de um WebSocket (${e.message}); fechei a conexão.`); }
+      if (!vale) { log('aviso', 'Proxy: fechei um WebSocket cuja sessão (ou o prazo do acesso ao painel) deixou de valer.'); fechaPar(r); }
     }
   }
   const relogio = setInterval(revalidar, INTERVALO_REVALIDA_MS);
@@ -199,7 +204,7 @@ function criarProxy({ config, registro, log, cofreRotas }) {
         const nome = k.toLowerCase();
         if (HOP.has(nome) || nome === 'set-cookie' || nome.startsWith('access-control-')) continue;
         if (nome === 'content-security-policy') { csps.push(...[].concat(v)); continue; }
-        if (req.dgPv && (nome === 'referrer-policy' || nome === 'x-content-type-options')) continue;
+        if (req.dgPv && ['referrer-policy', 'x-content-type-options', 'cache-control', 'expires', 'pragma'].includes(nome)) continue;
         h[k] = v;
       }
       csps.push(req.dgPv ? CSP_PV : CSP_P);
@@ -253,8 +258,8 @@ function criarProxy({ config, registro, log, cofreRotas }) {
       if (phead && phead.length) socket.write(phead);
       if (head && head.length) psocket.write(head);
       socketsAbertos.add(socket); socketsAbertos.add(psocket);
-      // WebSocket de colaborador: guardado com a conferência da sessão, para fechar quando ela deixar de valer.
-      if (quem && quem.colaborador_id) {
+      // WebSocket de colaborador (ou aberto por /pv/): guardado com a conferência da sessão, para fechar quando ela deixar de valer.
+      if (quem && typeof quem.valeAinda === 'function') {
         const reg = { colaborador_id: quem.colaborador_id, valeAinda: quem.valeAinda, socket, psocket };
         deColaborador.add(reg);
         socket.on('close', () => deColaborador.delete(reg));

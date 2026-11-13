@@ -29,6 +29,8 @@ function painelFalso() {
         'Access-Control-Allow-Credentials': 'true',
         'Content-Security-Policy': "default-src 'self'",
         'Referrer-Policy': 'same-origin',
+        'Cache-Control': 'public, max-age=31536000, immutable',
+        Expires: 'Wed, 01 Jan 2031 00:00:00 GMT',
       });
       res.end(JSON.stringify({ ok: true, do_painel: true }));
     });
@@ -264,7 +266,8 @@ test('cabeçalhos de /pv/: CSP sandbox sem allow-same-origin (e a do painel pres
     const r = await m.pv('GET', tok, '/api/estado');
     const csp = String(r.headers['content-security-policy']);
     assert.match(csp, /default-src 'self'/, 'a CSP do painel fica');
-    assert.match(csp, /sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads; frame-ancestors 'self'/, 'a nossa entra');
+    assert.match(csp, /sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads/, 'a nossa entra');
+    assert.ok(!/frame-ancestors/.test(csp), 'sem frame-ancestors: a Tela (iframe aninhado) precisa enquadrar sob origem opaca');
     assert.ok(csp.indexOf("default-src 'self'") < csp.indexOf('sandbox allow-scripts'), 'a nossa é o segundo cabeçalho');
     assert.ok(!/allow-same-origin|allow-top-navigation/.test(csp));
     assert.equal(r.headers['access-control-allow-origin'], '*');
@@ -272,6 +275,8 @@ test('cabeçalhos de /pv/: CSP sandbox sem allow-same-origin (e a do painel pres
     assert.equal(r.headers['set-cookie'], undefined);
     assert.equal(r.headers['referrer-policy'], 'no-referrer');
     assert.equal(r.headers['x-content-type-options'], 'nosniff');
+    assert.equal(r.headers['cache-control'], 'no-store', 'o cache imutável do painel não vale: o endereço leva o token');
+    assert.equal(r.headers.expires, undefined);
 
     const pre = await m.pv('OPTIONS', tok, '/api/acao', { headers: { 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'content-type' } });
     assert.equal(pre.status, 204);
@@ -279,6 +284,7 @@ test('cabeçalhos de /pv/: CSP sandbox sem allow-same-origin (e a do painel pres
     assert.match(pre.headers['access-control-allow-methods'], /POST/);
     assert.match(pre.headers['access-control-allow-headers'].toLowerCase(), /content-type/);
     assert.equal(pre.headers['access-control-allow-credentials'], undefined);
+    assert.equal(pre.headers['cache-control'], 'no-store');
     assert.equal(m.painel.visto.length, 1, 'o preflight não chega ao painel');
 
     // as respostas do próprio Web em /pv/ (erro de escopo, 401) levam o mesmo conjunto
@@ -288,6 +294,8 @@ test('cabeçalhos de /pv/: CSP sandbox sem allow-same-origin (e a do painel pres
     assert.match(String(neg.headers['content-security-policy']), /^sandbox allow-scripts/);
     const inv = await m.pv('GET', 'x'.repeat(30), '/api/estado');
     assert.equal(inv.headers['access-control-allow-origin'], '*');
+    assert.equal(inv.headers['cache-control'], 'no-store');
+    assert.equal(neg.headers['cache-control'], 'no-store');
   } finally { await m.fechar(); }
 });
 
@@ -408,6 +416,65 @@ test('o WebSocket de colaborador por /pv/ fecha quando o acesso é revogado', as
     const limite = new Promise((r) => setTimeout(() => r('aberto'), 4000));
     m.s.t.web.proxy.revalidar();
     assert.notEqual(await Promise.race([fechou.then(() => 'fechou'), limite]), 'aberto', 'a conexão devia ter caído');
+  } finally { await m.fechar(); }
+});
+
+function wsAberto(porta, caminho) {
+  return new Promise((resolve) => {
+    const req = http.request({ host: '127.0.0.1', port: porta, path: caminho, headers: { Connection: 'Upgrade', Upgrade: 'websocket', 'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==', 'Sec-WebSocket-Version': '13', Origin: 'null' } }); // gitleaks:allow
+    req.on('upgrade', (res, socket) => resolve({ status: res.statusCode, socket, fechou: new Promise((r) => socket.on('close', r)) }));
+    req.on('response', (res) => { res.resume(); resolve({ status: res.statusCode }); });
+    req.on('error', (e) => resolve({ erro: e.code }));
+    req.end();
+  });
+}
+const caiu = (ws) => Promise.race([ws.fechou.then(() => true), new Promise((r) => setTimeout(() => r(false), 1500))]);
+
+test('WebSocket por /pv/ do DONO fecha na revalidação: logout, troca de senha e prazo do token', async () => {
+  const m = await montar();
+  try {
+    const revalida = () => m.s.t.web.proxy.revalidar();
+    // logout
+    const outro = cliente(m.porta);
+    await m.s.t.login(outro);
+    const t1 = await m.mintar(outro, 'ana');
+    const w1 = await wsAberto(m.porta, `/pv/${t1}/tela/websockify`);
+    assert.equal(w1.status, 101);
+    revalida();
+    assert.equal(await caiu(w1), false, 'com a sessão de pé, segue aberto');
+    await outro.post('/sair', { origin: ORIGEM(m.porta) });
+    revalida();
+    assert.equal(await caiu(w1), true, 'logout fecha o socket');
+    // prazo do token (relógio falso)
+    const t2 = await m.mintar(m.dono, 'ana');
+    const w2 = await wsAberto(m.porta, `/pv/${t2}/tela/websockify`);
+    assert.equal(w2.status, 101);
+    m.s.relogio.t += 12 * 3600 * 1000 + 5000;
+    revalida();
+    assert.equal(await caiu(w2), true, 'token vencido fecha o socket');
+    m.s.relogio.t -= 12 * 3600 * 1000 + 5000;
+    // troca de senha
+    const t3 = await m.mintar(m.dono, 'ana');
+    const w3 = await wsAberto(m.porta, `/pv/${t3}/tela/websockify`);
+    assert.equal(w3.status, 101);
+    m.s.t.web.auth.definirHash(require('./ajuda').gerarHash('outra-senha-bem-longa-9'));
+    revalida();
+    assert.equal(await caiu(w3), true, 'troca de senha fecha o socket');
+  } finally { await m.fechar(); }
+});
+
+test('WebSocket por /pv/ de COLABORADOR também fecha quando o prazo do token vence', async () => {
+  const m = await montar();
+  try {
+    const x = await colaboradorAtivo(m.s);
+    const tok = await m.mintar(x.c, 'ana');
+    const w = await wsAberto(m.porta, `/pv/${tok}/api/eventos`);
+    assert.equal(w.status, 101);
+    m.s.t.web.proxy.revalidar();
+    assert.equal(await caiu(w), false);
+    m.s.relogio.t += 12 * 3600 * 1000 + 5000;
+    m.s.t.web.proxy.revalidar();
+    assert.equal(await caiu(w), true);
   } finally { await m.fechar(); }
 });
 

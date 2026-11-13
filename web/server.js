@@ -1290,7 +1290,7 @@ function criarServidor(opcoes) {
     const resto = mm[2] || '/';
     if (RX_DESVIO_PV.test(resto)) return { status: 400, motivo: 'Este endereço tem caracteres que não são aceitos no painel.' };
     const caminhoPainel = `/p/${v.slug}${resto}`;
-    return { pv: { base: `/pv/${mm[1]}`, id: v.id, slug: v.slug, caminho: caminhoPainel, url: caminhoPainel + busca }, sessao };
+    return { pv: { base: `/pv/${mm[1]}`, id: v.id, expira: v.expira, slug: v.slug, caminho: caminhoPainel, url: caminhoPainel + busca }, sessao };
   }
 
   function recusaPv(req, res, r) {
@@ -1645,10 +1645,20 @@ function criarServidor(opcoes) {
         return nega(403, 'Origem não permitida.');
       }
       const quem = quemDoProxy(sessao, req);
-      if (quem.colaborador_id) {
+      if (req.dgPv) {
+        // Por /pv/ o dono também entra na revalidação (a cada 30 s): logout, troca de senha, sessão que expira ou o prazo do token fecham o socket.
+        const relogio = opcoes.agora || Date.now;
+        quem.valeAinda = () => {
+          if (req.dgPv.expira <= Math.floor(relogio() / 1000)) return false;
+          const s2 = auth.sessaoPorIdPainel(req.dgPv.id);
+          if (!s2) return false;
+          if (!quem.colaborador_id) return s2.papel !== 'colaborador';
+          return s2.papel === 'colaborador' && s2.colaborador_id === quem.colaborador_id && s2.senha_versao === sessao.senha_versao;
+        };
+      } else if (quem.colaborador_id) {
         // A conferência repete o login do upgrade: o proxy a chama a cada 30 s e fecha o socket quando a sessão cai.
         quem.valeAinda = () => {
-          const s2 = req.dgPv ? auth.sessaoPorIdPainel(req.dgPv.id) : auth.sessaoDoPedido(req);
+          const s2 = auth.sessaoDoPedido(req);
           return !!s2 && s2.papel === 'colaborador' && s2.colaborador_id === quem.colaborador_id && s2.senha_versao === sessao.senha_versao;
         };
       }

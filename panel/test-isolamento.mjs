@@ -37,7 +37,7 @@ async function comPainel(base, env, fn) {
     cofreDir: path.join(pasta, 'cofre'), cofreChaveMestra: path.join(pasta, 'cofre.chave'), cofreRuntimeDir: path.join(pasta, 'run'), cofreUnidade: 'dgclaw-teste-que-nao-existe-000',
   }));
   const penv = {
-    ...process.env, HOME: pasta, DGCLAW_PANEL_PORT: String(PORTA), DGCLAW_PANEL_HOST: '127.0.0.1', DGCLAW_PANEL_PASSWORD: 'senha-de-teste-bem-longa-123',
+    ...process.env, HOME: pasta, DGCLAW_PANEL_PORT: String(PORTA), DGCLAW_PANEL_HOST: '127.0.0.1', DGCLAW_PANEL_PASSWORD: `senha-${'x'.repeat(24)}`,
     DGCLAW_PANEL_PASSWORD_HASH: '', DGCLAW_PANEL_USER: '', DGCLAW_PANEL_BASE: base, DGCLAW_PANEL_CONFIG: cfg, DGCLAW_SAUDE_CHECAR_LOGIN: 'off',
     DGCLAW_PANEL_PROXY_SECRET: '', DGCLAW_PANEL_PROXY_SECRET_FILE: '', ...env,
   };

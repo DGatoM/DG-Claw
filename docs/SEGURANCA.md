@@ -149,8 +149,8 @@ na mesma origem do Web, ele usaria o cookie de sessão do dono e chamaria a API 
   mensagem e o cofre usam o mesmo caminho de código. Escrita em `/pv/` só vale com `Origin: null` ou sem `Origin`; qualquer outra origem leva 403.
 - **A API e o `/p/` só atendem a própria tela do Web.** Pedido com `Sec-Fetch-Site` diferente de `same-origin` (`none`, que é o
   dono digitando o endereço, só vale na API) ou com `Origin` `null` ou de outro site leva 403, com o cookie do dono ou sem ele.
-- **Cabeçalhos das respostas.** `/pv/` sai com `Content-Security-Policy: sandbox ...; frame-ancestors 'self'` (a CSP do painel,
-  se existir, fica e a nossa entra como segunda), `Referrer-Policy: no-referrer` e CORS aberto sem credencial. O que o painel
+- **Cabeçalhos das respostas.** `/pv/` sai com `Content-Security-Policy: sandbox ...` (a CSP do painel,
+  se existir, fica e a nossa entra como segunda), `Cache-Control: no-store` (o endereço leva o token), `Referrer-Policy: no-referrer` e CORS aberto sem credencial. Não há `frame-ancestors`, porque a Tela dentro do painel é um iframe aninhado sob um ancestral de origem opaca; quem enquadra um `/pv/` precisa do token, que só a moldura tem. O que o painel
   repassa em `/p/` sai com `sandbox; default-src 'none'`, e `Set-Cookie` e `Access-Control-*` do painel nunca passam.
 - O token não vai a log (todo caminho impresso mostra `/pv/[token]`) e `/pv/` fica fora do cache do service worker.
 
