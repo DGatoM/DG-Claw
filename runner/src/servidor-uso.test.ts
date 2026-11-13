@@ -136,7 +136,7 @@ test("settings do Claude: o Stop leva o hook do runner e depois a trava de respo
   const hooks = JSON.parse(fs.readFileSync(arquivo!, "utf8")).hooks.Stop[0].hooks;
   assert.ok(hooks.length >= 3);
   assert.match(hooks[0].command, /runner-hook\.mjs/);
-  assert.match(hooks[1].command, /trava-resposta\.mjs"$/);
+  assert.match(hooks[1].command, /trava-resposta\.mjs" --agent .* --port \d+ --nonce [0-9a-f]{64}$/);
   assert.equal(hooks[1].timeout, 10);
   assert.equal(hooks[2].command, "echo extra");
   const f = path.join(amb.estado, "runner-hooks", "trava-resposta.mjs");

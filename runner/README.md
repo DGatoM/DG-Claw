@@ -399,6 +399,11 @@ Quatro coisas que não podem ser trocadas por engano:
   `mcp__dgchat__reply`/`send_file` (ou `whatsapp_reply`/`whatsapp_send_file`), ela devolve o
   turno pedindo o reenvio pela tool. Deixa passar na segunda parada do mesmo turno, em recado
   `<plataforma>`, texto cru, turno sem nenhum texto do agente e em qualquer erro dela. Registra
+  Só conta a chamada da tool do canal certo (`reply`/`send_file` para `<dgchat>`, as de WhatsApp para
+  `<canal-externo>`) cujo `tool_result` não veio com `is_error`; erro de entrega incerta ("Pode ou não
+  ter saído") conta como entregue, para não duplicar a mensagem. Ao bloquear, ela avisa o runner com o
+  evento `StopBloqueado` (`/api/agent-hook`, mesmo nonce do runner-hook), que cancela o idle agendado
+  pelo `Stop` e a soltura da fila (`stopBloqueadoAte` cobre o aviso chegar antes do `Stop`). Registra
   as decisões (sem o conteúdo das mensagens) em `trava-resposta.log`, ao lado do script, na
   pasta `runner-hooks` do estado. O antigo `stop-force-reply.py` do Bunker não existe aqui.
 - **Recado de operação mandado à mão precisa de envelope.** A trava de resposta distingue a fala

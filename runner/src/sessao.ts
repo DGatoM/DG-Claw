@@ -104,6 +104,8 @@ export class Sessao extends EventEmitter {
    *  barra como `/compact`, que não dispara UserPromptSubmit; ver esperarRecibo(). */
   compactsIniciados = 0;
   stopPendente: NodeJS.Timeout | null = null;
+  /** Até quando um Stop deve ser ignorado porque a trava de resposta devolveu o turno (evento StopBloqueado). */
+  stopBloqueadoAte = 0;
   /** A máscara de segredo do spawn atual e o relógio que a descarrega no silêncio. */
   mascaraAtual: MascaraDeFluxo | null = null;
   descargaDaMascara: NodeJS.Timeout | null = null;

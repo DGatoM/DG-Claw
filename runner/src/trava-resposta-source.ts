@@ -12,20 +12,41 @@
 //   2. Um bug da trava nunca bloqueia o agente: na dúvida, passa.
 //   3. Nunca segura o turno por mais de ~4s (cinto de segurança armado antes de qualquer leitura).
 //   4. Cobra UMA vez por turno: na segunda parada (`stop_hook_active`) deixa passar, para nunca entrar em laço.
-//   5. Nunca grava o conteúdo das mensagens no log (é conversa privada).
+//   5. Nunca grava o conteúdo das mensagens no log (é conversa privada). Os erros são registrados com
+//      diagnóstico fixo (nunca com o `message` de uma exceção, que pode trazer trecho da entrada).
+//   6. Ao bloquear, o stdout do block sai ANTES do aviso ao runner (StopBloqueado), e o aviso é best-effort.
+//
+// Só uma chamada que de fato entregou a resposta no canal certo dispensa a cobrança: `<dgchat>` pede
+// `reply`/`send_file`; `<canal-externo>` pede `whatsapp_reply`/`whatsapp_send_file`. Chamada com erro não
+// conta, exceto o erro de entrega incerta do servidor dgchat ("Pode ou não ter saído"), para não duplicar.
 export const TRAVA_RESPOSTA_SOURCE = String.raw`import fs from "node:fs";
 import path from "node:path";
+import http from "node:http";
 import { fileURLToPath } from "node:url";
 
 // Cinto de segurança, armado ANTES de qualquer leitura e SEM unref: ele precisa conseguir matar o processo.
 setTimeout(() => process.exit(0), 4000);
 
-const TOOLS_DE_RESPOSTA = new Set([
-  "mcp__dgchat__reply",
-  "mcp__dgchat__send_file",
-  "mcp__dgchat__whatsapp_reply",
-  "mcp__dgchat__whatsapp_send_file",
-]);
+function arg(name) {
+  const i = process.argv.indexOf(name);
+  return i >= 0 && i + 1 < process.argv.length ? process.argv[i + 1] : null;
+}
+const agentId = arg("--agent") || "";
+const port = parseInt(arg("--port") || "0", 10);
+const nonce = arg("--nonce") || "";
+
+const TOOLS_DO_CANAL = {
+  dgchat: new Set(["mcp__dgchat__reply", "mcp__dgchat__send_file"]),
+  externo: new Set(["mcp__dgchat__whatsapp_reply", "mcp__dgchat__whatsapp_send_file"]),
+};
+// Texto que o servidor dgchat põe no erro de entrega incerta (scripts/dgchat-mcp/server.mjs, INCERTO).
+const ENTREGA_INCERTA = "Pode ou não ter saído";
+
+// Só o nome da classe e o código do erro: o message pode trazer trecho da entrada (conversa privada).
+function diagnostico(err) {
+  const nome = err && err.constructor && err.constructor.name ? err.constructor.name : "Error";
+  return err && typeof err.code === "string" ? nome + " " + err.code : nome;
+}
 const TETO_TRANSCRIPT = 2 * 1024 * 1024;
 const TETO_LOG = 256 * 1024;
 const ARQUIVO_LOG = path.join(path.dirname(fileURLToPath(import.meta.url)), "trava-resposta.log");
@@ -104,9 +125,65 @@ function textoDaFala(e) {
   return null;
 }
 
+function textoDoResultado(c) {
+  if (typeof c === "string") return c;
+  if (Array.isArray(c)) return c.map((x) => (x && typeof x.text === "string" ? x.text : "")).join("\n");
+  return "";
+}
+
+// A chamada entregou? Sem tool_result achado, conta como entregue (conservador). Com is_error, só conta
+// se for a entrega incerta.
+function entregou(entradas, depoisDe, id) {
+  if (typeof id !== "string") return true;
+  for (let j = depoisDe + 1; j < entradas.length; j++) {
+    const e = entradas[j];
+    if (!e || e.type !== "user") continue;
+    for (const b of blocos(e)) {
+      if (b && b.type === "tool_result" && b.tool_use_id === id) {
+        if (b.is_error !== true) return true;
+        return textoDoResultado(b.content).includes(ENTREGA_INCERTA);
+      }
+    }
+  }
+  return true;
+}
+
 function blocos(e) {
   const c = e && e.message && e.message.content;
   return Array.isArray(c) ? c : [];
+}
+
+// Avisa o runner de que o fim de turno foi devolvido (cancela o idle que o Stop do runner-hook agendou).
+// Best-effort: uma tentativa, ~1s. Resolve sempre; falha vai para o log e nunca impede o block.
+function avisarRunner(ev) {
+  return new Promise((resolve) => {
+    if (!agentId || !port) {
+      registrar("erro", "não avisei o runner do bloqueio: faltou --agent ou --port no comando da trava", "o block saiu igual; reiniciar o agente para regravar o settings");
+      resolve();
+      return;
+    }
+    const payload = JSON.stringify({ agentId, nonce, event: "StopBloqueado", sessionId: ev.session_id || null });
+    let feito = false;
+    const fim = (falha) => {
+      if (feito) return;
+      feito = true;
+      if (falha) registrar("erro", "aviso StopBloqueado ao runner falhou: " + falha, "o block saiu igual; o runner pode marcar o agente como ocioso antes da continuação, sem outro efeito");
+      resolve();
+    };
+    try {
+      const req = http.request(
+        { host: "127.0.0.1", port, path: "/api/agent-hook", method: "POST", timeout: 1000,
+          headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) } },
+        (res) => { res.resume(); res.on("end", () => fim(res.statusCode && res.statusCode >= 400 ? "HTTP " + res.statusCode : null)); res.on("error", () => fim("erro na resposta")); },
+      );
+      req.on("error", (err) => fim(diagnostico(err)));
+      req.on("timeout", () => { try { req.destroy(); } catch { /* já caiu */ } fim("timeout de 1s"); });
+      req.write(payload);
+      req.end();
+    } catch (err) {
+      fim(diagnostico(err));
+    }
+  });
 }
 
 function decidir(ev) {
@@ -119,7 +196,7 @@ function decidir(ev) {
   try {
     texto = lerFinal(transcript);
   } catch (err) {
-    registrar("erro", "transcript ilegível: " + transcript + ": " + (err && err.message ? err.message : err), "o turno passou sem conferência; conferir se o arquivo existe e se o agente pode lê-lo");
+    registrar("erro", "transcript ilegível: " + transcript + ": " + diagnostico(err), "o turno passou sem conferência; conferir se o arquivo existe e se o agente pode lê-lo");
     return null;
   }
   const entradas = texto.split("\n").filter((l) => l.trim()).map(parsear).filter(Boolean);
@@ -143,7 +220,7 @@ function decidir(ev) {
     const e = entradas[i];
     if (e.type !== "assistant") continue;
     for (const b of blocos(e)) {
-      if (b && b.type === "tool_use" && TOOLS_DE_RESPOSTA.has(b.name)) return null;
+      if (b && b.type === "tool_use" && TOOLS_DO_CANAL[canal].has(b.name) && entregou(entradas, i, b.id)) return null;
       if (b && b.type === "text" && typeof b.text === "string" && b.text.trim()) temTexto = true;
     }
   }
@@ -159,7 +236,7 @@ try {
   } else {
     let ev = null;
     try { ev = JSON.parse(stdin); } catch (err) {
-      registrar("erro", "stdin não é JSON: " + (err && err.message ? err.message : err), "o turno passou sem conferência; se repetir, conferir a versão do Claude Code");
+      registrar("erro", "stdin não é JSON", "o turno passou sem conferência; se repetir, conferir a versão do Claude Code");
     }
     if (ev && typeof ev === "object") {
       if (ev.stop_hook_active === true) {
@@ -173,12 +250,13 @@ try {
             decision: "block",
             reason: "Você respondeu só em texto, e o texto do terminal não chega ao usuário. Reenvie a resposta pela tool " + tool + ", com o mesmo conteúdo.",
           }));
+          await avisarRunner(ev);
         }
       }
     }
   }
 } catch (err) {
-  registrar("erro", "exceção inesperada: " + (err && err.message ? err.message : err), "o turno passou sem conferência; avisar quem mantém o DG Claw se repetir");
+  registrar("erro", "exceção inesperada: " + diagnostico(err), "o turno passou sem conferência; avisar quem mantém o DG Claw se repetir");
 }
 process.exit(0);
 `;

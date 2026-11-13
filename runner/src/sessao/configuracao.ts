@@ -185,7 +185,7 @@ export function escreverSettings(s: Sessao, nonce: string): string | null {
       try {
         const travaAtual = fs.existsSync(trava) ? fs.readFileSync(trava, "utf8") : "";
         if (travaAtual !== TRAVA_RESPOSTA_SOURCE) fs.writeFileSync(trava, TRAVA_RESPOSTA_SOURCE, "utf8");
-        stop.push({ type: "command", command: `"${process.execPath}" "${trava}"`, timeout: 10 });
+        stop.push({ type: "command", command: `"${process.execPath}" "${trava}" --agent ${s.descritor.id} --port ${s.porta} --nonce ${nonce}`, timeout: 10 });
       } catch (err) {
         log.erro(
           s.a("hook"),
