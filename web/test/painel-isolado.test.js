@@ -49,12 +49,12 @@ function painelFalso() {
   };
 }
 
-async function montar() {
+async function montar(extra) {
   const painel = painelFalso();
   const porta = await painel.ouvir();
   const arq = path.join(pastaTemp('proxy'), 'proxy.txt');
   fs.writeFileSync(arq, `${SEGREDO_DO_PROXY}\n`);
-  const s = await cenario({ painelAna: { porta_painel: porta, proxy_segredo_arquivo: arq } });
+  const s = await cenario(Object.assign({ painelAna: { porta_painel: porta, proxy_segredo_arquivo: arq } }, extra || {}));
   // A moldura é um arquivo de web/public: o teste usa o verdadeiro.
   for (const f of ['painel.html']) fs.copyFileSync(path.join(__dirname, '..', 'public', f), path.join(s.t.publico, f));
   const dono = s.dono;
@@ -581,4 +581,68 @@ test('o token nunca aparece em linha de log', async () => {
 test('sw.js deixa /pv/ fora do cache', () => {
   const sw = fs.readFileSync(path.join(__dirname, '..', 'public', 'sw.js'), 'utf8');
   assert.match(sw, /const PROIBIDOS = \[[^\]]*\/\^\\\/pv\\\//);
+});
+
+/** POST com o corpo incompleto: devolve { termina(), resposta } para fechar o corpo depois. */
+function postAberto(porta, caminho, metade1, metade2) {
+  let termina;
+  const resposta = new Promise((resolve, reject) => {
+    const total = metade1 + metade2;
+    const req = http.request({ host: '127.0.0.1', port: porta, method: 'POST', path: caminho, headers: { 'Content-Type': 'application/json', 'Content-Length': String(Buffer.byteLength(total)), Origin: 'null' } }, (res) => {
+      const partes = [];
+      res.on('data', (c) => partes.push(c));
+      res.on('end', () => resolve({ status: res.statusCode, texto: Buffer.concat(partes).toString('utf8') }));
+    });
+    req.on('error', reject);
+    req.write(metade1);
+    termina = () => req.end(metade2);
+  });
+  return { termina: () => termina(), resposta };
+}
+
+test('/pv/ do DONO no login e no provedor: agente recriado enquanto os corpos chegam leva 401 nos dois e não deixa reserva na instância nova', async () => {
+  const m = await montar({ runnerAna: { status: 'errored', statusReason: 'runner:sem-login', provedor: { provedor: 'claude', auth: 'assinatura', conferido: { ok: false, motivo: 'sem_credencial' } } } });
+  try {
+    const { colaboradorAtivo: ativo } = require('./colab-ajuda');
+    trocaInstanciaAna(m, 'primeira-1');
+    const tok = await m.mintar(m.dono, 'ana');
+    const corpo = JSON.stringify({ provedor: 'claude' });
+    const meio = Math.floor(corpo.length / 2);
+    const antes = m.painel.visto.length;
+    const a = postAberto(m.porta, `/pv/${tok}/api/provedor`, corpo.slice(0, meio), corpo.slice(meio));
+    const b = postAberto(m.porta, `/pv/${tok}/api/provedor/login`, '{', '}');
+    await new Promise((r) => setTimeout(r, 150));
+    trocaInstanciaAna(m, 'segunda-2');
+    a.termina(); b.termina();
+    const [ra, rb] = await Promise.all([a.resposta, b.resposta]);
+    assert.equal(ra.status, 401, ra.texto);
+    assert.equal(rb.status, 401, rb.texto);
+    assert.match(rb.texto, /Nada foi feito\. Recarregue a página/);
+    assert.equal(m.painel.visto.length, antes, 'nada chegou ao painel');
+    const x = await ativo(m.s, 'joao@x.com');   // colaborador da instância nova
+    const l = await x.c.post('/api/v1/agents/ana/login', { json: {} });
+    assert.notEqual(l.status, 409, `sobrou reserva do dono: ${l.texto}`);
+    assert.equal(l.status, 202, l.texto);
+  } finally { await m.fechar(); }
+});
+
+test('/pv/ do DONO, POST /api/provedor/login sem recriação: passa e chega ao painel com o corpo intacto', async () => {
+  const m = await montar();
+  try {
+    trocaInstanciaAna(m, 'primeira-1');
+    const tok = await m.mintar(m.dono, 'ana');
+    const corpo = JSON.stringify({ provedor: 'claude', marca: 'corpo-intacto-42' });
+    const meio = Math.floor(corpo.length / 2);
+    const antes = m.painel.visto.length;
+    const r = await postEmPartes(m.porta, `/pv/${tok}/api/provedor/login`, corpo.slice(0, meio), corpo.slice(meio), () => {});
+    assert.equal(r.status, 200, r.texto);
+    assert.equal(m.painel.visto.length, antes + 1);
+    assert.equal(m.painel.visto[antes].corpo, corpo);
+    const vazio = await m.pv('POST', tok, '/api/provedor/login');
+    assert.equal(vazio.status, 200, vazio.texto);
+    assert.equal(m.painel.visto[antes + 1].corpo, '');
+    const prov = await postEmPartes(m.porta, `/pv/${tok}/api/provedor`, corpo.slice(0, meio), corpo.slice(meio), () => {});
+    assert.equal(prov.status, 200, prov.texto);
+    assert.equal(m.painel.visto[antes + 2].corpo, corpo);
+  } finally { await m.fechar(); }
 });

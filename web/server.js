@@ -1487,7 +1487,7 @@ function criarServidor(opcoes) {
       // em curso deixa de ser de qualquer colaborador. A transcrição é a prova de verdade; isto é a segunda trava.
       if (!ehColab(sessao) && !sessao.via && m !== 'GET' && m !== 'HEAD' && RX_ENVIO_DO_PAINEL.test(pp[2])) {
         const slugPainel = decodeURIComponent(pp[1]);
-        if (RX_SLUG_ROTA.test(slugPainel)) marcaAutor(slugPainel, sessao, null);
+        if (RX_SLUG_ROTA.test(slugPainel) && (!req.dgPv || pvAindaVale(req, sessao))) marcaAutor(slugPainel, sessao, null);
       }
       // O dono também inicia/cancela o login da conta de IA pelo painel do agente, sem passar pelas rotas /login do Web:
       // aqui respeita a reserva do colaborador e invalida a autoria dele (web/lib/conta-colaborador.js).
@@ -1495,15 +1495,29 @@ function criarServidor(opcoes) {
         const mp = /^\/api\/provedor\/login(\/codigo)?\/?$/i.exec(pp[2]);
         const slugP = (() => { try { return decodeURIComponent(pp[1]); } catch (_) { return ''; } })();
         const agP = RX_SLUG_ROTA.test(slugP) ? registro.obter(slugP) : null;
-        if (agP && mp && (m === 'POST' || m === 'DELETE')) {
-          const veto = await contaColab.noPainelDoDono(agP, sessao, m, !!mp[1]);
-          if (veto) return H.erroJson(res, veto.status, veto.corpo.erro);
-        } else if (agP) {
-          // Troca de provedor: a fila do login do colaborador fica trancada até a resposta do painel terminar.
-          const seg = await contaColab.seguraProvedorNoPainelDoDono(agP);
-          if (seg.veto) return H.erroJson(res, seg.veto.status, seg.veto.corpo.erro);
-          res.once('close', seg.liberar);
-          try { return await proxy.responder(req, res, pp[1], sessao.usuario, quemDoProxy(sessao, req)); } catch (e) { seg.liberar(); throw e; }
+        if (agP) {
+          // Painel isolado: o corpo é lido e revalidado ANTES de a fila do agente ser tocada; assim um token velho nunca cria reserva.
+          let corpoPv;
+          if (req.dgPv) {
+            try { corpoPv = await H.lerCorpo(req, config.maxUploadBytes + 64 * 1024); } catch (e) {
+              if (e && e.status === 413) return H.erroJson(res, 413, `O envio passou do limite de ${Math.round(config.maxUploadBytes / 1048576)} MB. Mande um arquivo menor.`);
+              if (e && e.status === 401) return H.erroJson(res, 401, e.message);
+              log('erro', `Painel isolado /p/${slugP}: não consegui ler o corpo do pedido (${(e && (e.code || e.message)) || 'erro'}).`);
+              return H.erroJson(res, 400, 'Não consegui ler o corpo do pedido. Tente de novo.');
+            }
+          }
+          const aindaVale = req.dgPv ? () => pvAindaVale(req, sessao) : undefined;
+          if (mp && (m === 'POST' || m === 'DELETE')) {
+            const veto = await contaColab.noPainelDoDono(agP, sessao, m, !!mp[1], aindaVale);
+            if (veto) return H.erroJson(res, veto.status, veto.corpo.erro);
+          } else {
+            // Troca de provedor: a fila do login do colaborador fica trancada até a resposta do painel terminar.
+            const seg = await contaColab.seguraProvedorNoPainelDoDono(agP, aindaVale);
+            if (seg.veto) return H.erroJson(res, seg.veto.status, seg.veto.corpo.erro);
+            res.once('close', seg.liberar);
+            try { return await proxy.responder(req, res, pp[1], sessao.usuario, quemDoProxy(sessao, req), corpoPv); } catch (e) { seg.liberar(); throw e; }
+          }
+          return proxy.responder(req, res, pp[1], sessao.usuario, quemDoProxy(sessao, req), corpoPv);
         }
       }
       return proxy.responder(req, res, pp[1], sessao.usuario, quemDoProxy(sessao, req));

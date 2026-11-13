@@ -127,13 +127,18 @@ function criarProxy({ config, registro, log, cofreRotas }) {
    * respondidas pelo Web (./cofre-rotas) e nunca chegam ao painel. Se o Web leu o corpo para
    * decidir e a rota é do painel, o corpo lido segue como Buffer.
    */
-  function responder(req, res, slug, usuario, quem) {
+  function responder(req, res, slug, usuario, quem, corpoPreLido) {
     const agente = cofreRotas ? registro.obter(slug) : null;
     if (agente && !agente.cofre_arquivo && cofreRotas.casaLegado(req, slug)) {
       legadoComAviso(req, res, slug, usuario, agente, quem);
       return undefined;
     }
     const qual = agente && agente.cofre_arquivo ? cofreRotas.casa(req, slug) : null;
+    if (!qual && corpoPreLido) {
+      // O Web já leu e revalidou o corpo (painel isolado): encaminhar confere a sessão mais uma vez antes de abrir a conexão.
+      encaminhar(req, res, slug, usuario, corpoPreLido.length ? corpoPreLido : null, undefined, quem, false, true);
+      return undefined;
+    }
     if (!qual) {
       const escrita = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);
       if (!(escrita && ((quem && quem.colaborador_id) || req.dgPv))) return encaminhar(req, res, slug, usuario, null, undefined, quem);
@@ -183,9 +188,9 @@ function criarProxy({ config, registro, log, cofreRotas }) {
     return erroJson(res, 401, 'Seu acesso mudou enquanto o envio estava em andamento (foi revogado ou o convite foi reenviado). Nada foi feito. Entre de novo com o convite mais recente.');
   }
 
-  function encaminhar(req, res, slug, usuario, corpoLido, aoTerminar, quem, corpoJaConferido) {
+  function encaminhar(req, res, slug, usuario, corpoLido, aoTerminar, quem, corpoJaConferido, corpoConsumido) {
     // Corpo lido por outro caminho (cofre, legado): a sessão é conferida de novo antes de abrir a conexão.
-    if (!corpoJaConferido && corpoLido && quem && (quem.colaborador_id || req.dgPv) && typeof quem.valeAinda === 'function' && !quem.valeAinda()) return recusaSessaoVelha(res, slug, quem);
+    if (!corpoJaConferido && (corpoLido || corpoConsumido) && quem && (quem.colaborador_id || req.dgPv) && typeof quem.valeAinda === 'function' && !quem.valeAinda()) return recusaSessaoVelha(res, slug, quem);
     const d = destino(slug);
     if (d.status) {
       if (/\btext\/html\b/.test(String(req.headers.accept || ''))) paginaErro(res, d.status, 'Painel indisponível', d.motivo);
@@ -235,7 +240,7 @@ function criarProxy({ config, registro, log, cofreRotas }) {
     });
     res.on('close', () => { if (!res.writableEnded) preq.destroy(); });
     if (corpoLido) preq.end(corpoLido);
-    else if (req.readableEnded || req.complete && !req.readable) preq.end();
+    else if (corpoConsumido || req.readableEnded || req.complete && !req.readable) preq.end();
     else req.pipe(preq);
   }
 

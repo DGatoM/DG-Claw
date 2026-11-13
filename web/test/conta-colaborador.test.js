@@ -762,3 +762,27 @@ test('o dono mexer no provedor pelo painel (POST/PUT/PATCH/DELETE em /p/<slug>/a
     assert.equal(r.status, 409); assert.match(r.json.erro, /maria@x\.com/);
   });
 });
+
+test('aindaVale falso na fila: noPainelDoDono e seguraProvedorNoPainelDoDono recusam com 401 sem mexer em reservas nem autoria', async () => {
+  const { criarContaColaborador } = require('../lib/conta-colaborador');
+  const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'conta-colab-'));
+  try {
+    const consulta = { lg: { ok: true, corpo: { estado: 'nenhum' } }, prov: { provedor: 'codex', auth: 'assinatura', conferido: { ok: false, motivo: 'sem_credencial' } }, est: { ok: true, estado: { status: 'errored', statusReason: 'runner:sem-login' } }, fresco: true };
+    let comecos = 0;
+    const loginFalso = { consultar: async () => consulta, consultarFresco: async () => consulta, corpoDaConsulta: () => ({}), comecar: async () => { comecos += 1; return { status: 202, corpo: { ok: true, estado: 'aguardando_link' } }; }, cancelar: async () => ({ status: 200, corpo: { ok: true } }), falha: () => ({ status: 503, corpo: { ok: false } }) };
+    const conta = criarContaColaborador({ dataDir: dir, login: loginFalso, log: () => {}, agora: () => Date.now() });
+    const agente = { slug: 'ana', instancia: 'x1', provedor: 'codex' };
+    const dono = { papel: 'dono', usuario: 'dono' };
+    const veto = await conta.noPainelDoDono(agente, dono, 'POST', false, () => false);
+    assert.equal(veto.status, 401);
+    assert.match(veto.corpo.erro, /Nada foi feito\. Recarregue a página/);
+    const seg = await conta.seguraProvedorNoPainelDoDono(agente, () => false);
+    assert.equal(seg.veto.status, 401);
+    assert.equal(seg.liberar, undefined);
+    assert.equal(fs.existsSync(path.join(dir, 'conta-agentes.json')), false, 'a autoria não foi tocada');
+    // a fila foi liberada e nenhuma reserva ficou: o colaborador começa na hora
+    const r = await conta.comecar(agente, { papel: 'colaborador', colaborador_id: 'c1', usuario: 'maria@x.com' }, {});
+    assert.equal(r.status, 202);
+    assert.equal(comecos, 1);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
