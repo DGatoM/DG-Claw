@@ -231,6 +231,42 @@ test('/pv/: logout, expiração e agente sem painel invalidam o token na hora', 
   } finally { await m.fechar(); }
 });
 
+function trocaInstanciaAna(m, instancia) {
+  const j = JSON.parse(fs.readFileSync(m.s.t.agentesPath, 'utf8'));
+  for (const a of j.agentes) if (a.slug === 'ana') a.instancia = instancia;
+  fs.writeFileSync(m.s.t.agentesPath, JSON.stringify(j));
+  const futuro = new Date(Date.now() + 5000); fs.utimesSync(m.s.t.agentesPath, futuro, futuro);
+}
+
+test('/pv/: token de agente removido e recriado com o mesmo nome (instância nova) é recusado', async () => {
+  const m = await montar();
+  try {
+    trocaInstanciaAna(m, 'primeira-1');
+    const tok = await m.mintar(m.dono, 'ana');
+    assert.equal((await m.pv('GET', tok, '/api/estado')).status, 200);
+    trocaInstanciaAna(m, 'segunda-2');
+    const r = await m.pv('GET', tok, '/api/estado');
+    assert.equal(r.status, 401);
+    assert.equal(r.json.erro, 'O acesso deste painel expirou. Recarregue a página.');
+    assert.equal((await m.pv('GET', await m.mintar(m.dono, 'ana'), '/api/estado')).status, 200, 'o token novo vale');
+  } finally { await m.fechar(); }
+});
+
+test('WebSocket por /pv/ fecha na revalidação quando o agente é recriado (instância muda)', async () => {
+  const m = await montar();
+  try {
+    trocaInstanciaAna(m, 'primeira-1');
+    const tok = await m.mintar(m.dono, 'ana');
+    const w = await wsAberto(m.porta, `/pv/${tok}/tela/websockify`);
+    assert.equal(w.status, 101);
+    m.s.t.web.proxy.revalidar();
+    assert.equal(await caiu(w), false);
+    trocaInstanciaAna(m, 'segunda-2');
+    m.s.t.web.proxy.revalidar();
+    assert.equal(await caiu(w), true);
+  } finally { await m.fechar(); }
+});
+
 test('/pv/: trocar a senha do dono derruba o token na hora', async () => {
   const m = await montar();
   try {

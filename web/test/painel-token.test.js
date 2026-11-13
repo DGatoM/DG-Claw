@@ -43,7 +43,7 @@ test('o token tem só caracteres de caminho de URL e leva slug, identificador e 
   assert.match(token, /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
   assert.ok(token.length < 400);
   const v = pt.verificar(token);
-  assert.deepEqual(v, { ok: true, slug: 'ana', id, expira });
+  assert.deepEqual(v, { ok: true, slug: 'ana', instancia: '', id, expira });
   assert.equal(expira, Math.floor(rel.t / 1000) + 3600);
 });
 
@@ -94,4 +94,18 @@ test('adulteração: slug, identificador, expiração, MAC, tamanho e formato', 
   const falso = Buffer.from('nao e json').toString('base64url');
   const crypto = require('node:crypto');
   assert.equal(pt.verificar(`${falso}.${crypto.randomBytes(32).toString('base64url')}`).ok, false);
+});
+
+test('a instância do agente vai assinada no token; sem identidade vira string vazia; campo adulterado falha no MAC', () => {
+  const { pt, rel } = novo();
+  const id = pt.idDaSessao('k');
+  const exp = rel.t + 3600_000;
+  assert.equal(pt.verificar(pt.emitir({ slug: 'ana', id, sessaoExpiraMs: exp, instancia: 'i:a1' }).token).instancia, 'i:a1');
+  assert.equal(pt.verificar(pt.emitir({ slug: 'ana', id, sessaoExpiraMs: exp }).token).instancia, '');
+  assert.equal(pt.verificar(pt.emitir({ slug: 'ana', id, sessaoExpiraMs: exp, instancia: null }).token).instancia, '');
+  const [corpo, mac] = pt.emitir({ slug: 'ana', id, sessaoExpiraMs: exp, instancia: 'i:a1' }).token.split('.');
+  const dados = JSON.parse(Buffer.from(corpo, 'base64url').toString());
+  dados.n = 'i:b2';
+  const falso = `${Buffer.from(JSON.stringify(dados)).toString('base64url')}.${mac}`;
+  assert.deepEqual(pt.verificar(falso), { ok: false, motivo: 'O endereço do painel não é válido.' });
 });

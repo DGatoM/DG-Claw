@@ -2,8 +2,12 @@
 // Token do painel isolado (/pv/<token>/...). O painel de cada agente roda numa origem opaca, dentro de um iframe
 // sandbox, e fala com a própria API por este token no caminho: ele é a credencial, porque a origem opaca não leva cookie.
 //
-// Formato: base64url(JSON {s: slug, i: idDaSessao, e: expiraEpochSeg}) + "." + base64url(HMAC-SHA256 do primeiro pedaço).
+// Formato: base64url(JSON {s: slug, n: instanciaDoAgente, i: idDaSessao, e: expiraEpochSeg}) + "." + base64url(HMAC-SHA256 do primeiro pedaço).
 // Só letras, números, "_", "-" e ".": seguro para caminho de URL.
+//
+// `n` é a instância do agente (instanciaDe, lib/instancia.js): remover e recriar o agente com o mesmo nome devolve o mesmo
+// slug, mas outra instância, e o token antigo deixa de valer no agente novo. Agente sem identidade (null) assina string
+// vazia e o servidor compara '' com '' (null vira ''); quem tem identidade nunca bate com um token sem ela.
 //
 // O token não prova a sessão sozinho: `i` é um identificador derivado (HMAC da chave do mapa de sessões, nunca o valor do
 // cookie nem o hash dele) e o servidor resolve de volta a sessão a CADA pedido (auth.sessaoPorIdPainel). Logout, troca de
@@ -62,10 +66,10 @@ function criarPainelToken({ dataDir, agora }) {
   }
 
   /** `sessaoExpiraMs` é a expiração da sessão (epoch ms); o token vale no máximo 12 h e nunca mais que a sessão. */
-  function emitir({ slug, id, sessaoExpiraMs }) {
+  function emitir({ slug, id, sessaoExpiraMs, instancia }) {
     const agoraS = Math.floor(relogio() / 1000);
     const e = Math.min(Math.floor(sessaoExpiraMs / 1000), agoraS + VIDA_MAX_S);
-    const corpo = Buffer.from(JSON.stringify({ s: slug, i: id, e }), 'utf8').toString('base64url');
+    const corpo = Buffer.from(JSON.stringify({ s: slug, n: instancia || '', i: id, e }), 'utf8').toString('base64url');
     return { token: `${corpo}.${assina(corpo)}`, expira: e };
   }
 
@@ -78,9 +82,9 @@ function criarPainelToken({ dataDir, agora }) {
     if (esperado.length !== recebido.length || !crypto.timingSafeEqual(esperado, recebido)) return { ok: false, motivo: 'O endereço do painel não é válido.' };
     let dados;
     try { dados = JSON.parse(Buffer.from(corpo, 'base64url').toString('utf8')); } catch (_) { return { ok: false, motivo: 'O endereço do painel não é válido.' }; }
-    if (!dados || typeof dados.s !== 'string' || typeof dados.i !== 'string' || !Number.isInteger(dados.e)) return { ok: false, motivo: 'O endereço do painel não é válido.' };
+    if (!dados || typeof dados.s !== 'string' || typeof dados.n !== 'string' || typeof dados.i !== 'string' || !Number.isInteger(dados.e)) return { ok: false, motivo: 'O endereço do painel não é válido.' };
     if (dados.e <= Math.floor(relogio() / 1000)) return { ok: false, motivo: 'O acesso deste painel expirou.' };
-    return { ok: true, slug: dados.s, id: dados.i, expira: dados.e };
+    return { ok: true, slug: dados.s, instancia: dados.n, id: dados.i, expira: dados.e };
   }
 
   return { idDaSessao, emitir, verificar };

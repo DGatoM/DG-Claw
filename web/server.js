@@ -666,7 +666,7 @@ function criarServidor(opcoes) {
       try {
         const id = auth.idPainelDe(req);
         if (!id) return H.erroJson(res, 401, 'Sua sessão não vale mais. Faça login em /login.');
-        const t = painelToken.emitir({ slug: agente.slug, id, sessaoExpiraMs: sessao.expira });
+        const t = painelToken.emitir({ slug: agente.slug, id, sessaoExpiraMs: sessao.expira, instancia: instanciaDe(agente) });
         return H.enviaJson(res, 200, { ok: true, token: t.token, expira: t.expira });
       } catch (e) {
         log('erro', `Painel isolado: não consegui emitir o acesso de ${agente.slug} (${e.message})`);
@@ -1287,10 +1287,11 @@ function criarServidor(opcoes) {
     if (!sessao) return { status: 401, motivo: MOTIVO_PV_EXPIROU };
     const agente = RX_SLUG_ROTA.test(v.slug) ? registro.obter(v.slug) : null;
     if (!agente || !agente.porta_painel) return { status: 404, motivo: 'Este agente não tem painel. Recarregue a página ou volte à conversa.' };
+    if ((instanciaDe(agente) || '') !== v.instancia) return { status: 401, motivo: MOTIVO_PV_EXPIROU }; // agente removido e recriado com o mesmo nome
     const resto = mm[2] || '/';
     if (RX_DESVIO_PV.test(resto)) return { status: 400, motivo: 'Este endereço tem caracteres que não são aceitos no painel.' };
     const caminhoPainel = `/p/${v.slug}${resto}`;
-    return { pv: { base: `/pv/${mm[1]}`, id: v.id, expira: v.expira, slug: v.slug, caminho: caminhoPainel, url: caminhoPainel + busca }, sessao };
+    return { pv: { base: `/pv/${mm[1]}`, id: v.id, instancia: v.instancia, expira: v.expira, slug: v.slug, caminho: caminhoPainel, url: caminhoPainel + busca }, sessao };
   }
 
   function recusaPv(req, res, r) {
@@ -1650,6 +1651,8 @@ function criarServidor(opcoes) {
         const relogio = opcoes.agora || Date.now;
         quem.valeAinda = () => {
           if (req.dgPv.expira <= Math.floor(relogio() / 1000)) return false;
+          const ag2 = registro.obter(req.dgPv.slug);
+          if (!ag2 || (instanciaDe(ag2) || '') !== req.dgPv.instancia) return false;
           const s2 = auth.sessaoPorIdPainel(req.dgPv.id);
           if (!s2) return false;
           if (!quem.colaborador_id) return s2.papel !== 'colaborador';
