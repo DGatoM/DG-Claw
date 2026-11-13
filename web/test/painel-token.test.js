@@ -84,7 +84,7 @@ test('adulteração: slug, identificador, expiração, MAC, tamanho e formato', 
   const enc = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
   const ruins = [
     `${enc({ ...d, s: 'bob' })}.${mac}`, `${enc({ ...d, i: 'outro' })}.${mac}`, `${enc({ ...d, e: d.e + 1000 })}.${mac}`,
-    `${corpo}.${mac.slice(0, -1)}A`, `${corpo}.${mac.slice(1)}`, `${corpo}.`, `.${mac}`, corpo, `${corpo}.${mac}.x`, `${corpo}.${mac}=`,
+    `${corpo}.${mac.slice(0, -1)}${mac.endsWith('A') ? 'B' : 'A'}`, `${corpo}.${mac.slice(1)}`, `${corpo}.`, `.${mac}`, corpo, `${corpo}.${mac}.x`, `${corpo}.${mac}=`,
     'x'.repeat(401), '', null, undefined, 42, {}, `${corpo}.${mac}/../x`,
   ];
   for (const t of ruins) assert.equal(pt.verificar(t).ok, false, String(t).slice(0, 40));
