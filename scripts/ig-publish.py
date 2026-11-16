@@ -62,11 +62,13 @@ def _graph_error(resp):
     """Extrai mensagem de erro legivel da resposta da Graph API."""
     try:
         err = resp.json().get("error", {})
+        if not isinstance(err, dict):
+            raise ValueError("erro fora do formato")
         msg = err.get("message", resp.text[:300])
         code = err.get("code", resp.status_code)
         sub = err.get("error_user_msg") or ""
         return f"Graph API erro {code}: {msg}" + (f" | {sub}" if sub else "")
-    except (ValueError, json.JSONDecodeError):
+    except (ValueError, AttributeError, json.JSONDecodeError):
         return f"HTTP {resp.status_code}: {resp.text[:300]}"
 
 
@@ -116,15 +118,37 @@ def publish_image(account, image_url, caption, token, wait=2):
 
 
 def reply_comment(comment_id, message, token):
-    r = requests.post(
-        f"{GRAPH}/{comment_id}/replies",
-        data={"message": message, "access_token": token},
-        timeout=60,
-    )
+    # Codigos de saida: 0 publicou | 1 o Instagram RECUSOU (4xx com erro da Graph API: nada foi
+    # publicado) | 4 resultado DESCONHECIDO (queda de rede, tempo esgotado ou erro 5xx: o servidor
+    # pode ter publicado a resposta). Quem chama so pode tentar de novo no codigo 1.
+    try:
+        r = requests.post(
+            f"{GRAPH}/{comment_id}/replies",
+            data={"message": message, "access_token": token},
+            timeout=60,
+        )
+    except requests.RequestException as e:
+        print(f"RESULTADO INCERTO: a chamada falhou no meio ({type(e).__name__}); o Instagram pode ter "
+              "publicado a resposta. Confira na conta antes de tentar de novo.", file=sys.stderr)
+        sys.exit(4)
+    if r.status_code >= 500:
+        print(f"RESULTADO INCERTO: o Instagram respondeu HTTP {r.status_code}; pode ter publicado a resposta. "
+              "Confira na conta antes de tentar de novo.", file=sys.stderr)
+        sys.exit(4)
     if r.status_code != 200:
+        # Recusa CONFIRMADA: 4xx com o JSON de erro da Graph API ({"error": {...}}). Qualquer outra coisa
+        # (corpo estranho, status inesperado) e resultado desconhecido.
+        try:
+            confirmada = isinstance(r.json().get("error"), dict) and 400 <= r.status_code < 500
+        except (ValueError, AttributeError):
+            confirmada = False
         print(_graph_error(r), file=sys.stderr)
-        sys.exit(1)
-    reply_id = r.json().get("id")
+        sys.exit(1 if confirmada else 4)
+    try:
+        corpo = r.json()
+        reply_id = corpo.get("id") if isinstance(corpo, dict) else None
+    except ValueError:
+        reply_id = None  # HTTP 200: a resposta FOI publicada, mesmo que o corpo nao seja JSON (ou nao seja objeto)
     print(json.dumps({"ok": True, "replyId": reply_id, "commentId": comment_id}, ensure_ascii=False))
     return 0
 
@@ -171,7 +195,14 @@ def main():
         if not message.strip():
             print("ERRO: mensagem de resposta vazia.", file=sys.stderr)
             sys.exit(2)
-        return reply_comment(args.comment_id, message, token)
+        try:
+            return reply_comment(args.comment_id, message, token)
+        except SystemExit:
+            raise
+        except Exception as e:  # noqa: BLE001 - depois de iniciar o POST, falha inesperada = resultado desconhecido
+            print(f"RESULTADO INCERTO: erro inesperado ({type(e).__name__}: {e}); o Instagram pode ter publicado "
+                  "a resposta. Confira na conta antes de tentar de novo.", file=sys.stderr)
+            sys.exit(4)
     if args.cmd == "validate":
         return validate(token)
 
