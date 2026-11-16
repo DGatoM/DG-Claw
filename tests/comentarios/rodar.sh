@@ -23,7 +23,7 @@ WS="$TMP/ws"
 BIN="$TMP/bin"
 mkdir -p "$PLUGIN/scripts/cron" "$PLUGIN/scripts/_lib" "$BIN"
 cp "$REPO/scripts/cron/dgclaw-comentarios.sh" "$PLUGIN/scripts/cron/"
-cp "$REPO/scripts/responder-comentario.sh" "$PLUGIN/scripts/"
+cp "$REPO/scripts/responder-comentario.sh" "$REPO/scripts/preparar-scrape.sh" "$PLUGIN/scripts/"
 cp "$REPO/scripts/_lib/enviar_respostas.py" "$PLUGIN/scripts/_lib/"
 cat >"$PLUGIN/scripts/ext-event.sh" <<'SH'
 #!/usr/bin/env bash
@@ -439,6 +439,46 @@ igp 400 '{"error":{"code":100,"message":"x"}}'; afirma "400 com erro da Graph AP
 igp 400 'null';                               afirma "400 com corpo estranho: incerto (4)" test "$RC" -eq 4
 igp 502 '{}';                                 afirma "502: incerto (4)" test "$RC" -eq 4
 igp 200 '{}' "tempo esgotado";                afirma "queda de rede: incerto (4)" test "$RC" -eq 4
+
+echo "enviar_respostas.py: texto invalido e lote grande"
+novo
+python3 - "$TMP/resp-nul.json" <<'PY'
+import json, sys
+json.dump({"respostas": [
+  {"commentId": "17900000005", "acao": "responder", "texto": "oi\u0000fim"},
+  {"commentId": "17900000006", "acao": "responder", "texto": "ok\ud800"},
+  {"commentId": "17900000001", "acao": "responder", "texto": "valida"}]}, open(sys.argv[1], "w"))
+PY
+RC=0; env DGCLAW_CONFIG="$CONFIG" DGCLAW_TESTE_IG="$IGLOG" python3 "$ER" --arquivo "$TMP/resp-nul.json" --responder "$PLUGIN/scripts/responder-comentario.sh" >"$TMP/saida.txt" 2>&1 || RC=$?
+afirma "texto com nulo ou substituto so recusa o item (rc 0)" test "$RC" -eq 0
+afirma "os dois invalidos recusados e o resumo sai" grep -q 'recusadas=2' "$TMP/saida.txt"
+python3 - "$TMP/resp-grande.json" <<'PY'
+import json, sys
+json.dump({"respostas": [{"commentId": str(18000000000 + i), "acao": "pular"} for i in range(250)]}, open(sys.argv[1], "w"))
+PY
+novo
+echo '{"comments":[]}' >"$WS/data/scraped_comments.json"; python3 - "$WS/data/scraped_comments.json" <<'PY'
+import json, sys
+json.dump({"comments": [{"commentId": str(18000000000 + i)} for i in range(250)]}, open(sys.argv[1], "w"))
+PY
+carimbar
+RC=0; env DGCLAW_CONFIG="$CONFIG" DGCLAW_TESTE_IG="$IGLOG" python3 "$ER" --arquivo "$TMP/resp-grande.json" --responder "$PLUGIN/scripts/responder-comentario.sh" >"$TMP/saida.txt" 2>&1 || RC=$?
+afirma "acima de 200 itens: processa os 200 primeiros (rc 0)" test "$RC" -eq 0
+afirma "200 puladas" grep -q 'puladas=200' "$TMP/saida.txt"
+afirma "avisa que o resto fica para a proxima rodada" grep -q 'proximas rodadas' "$TMP/saida.txt"
+
+echo "preparar-scrape.sh: o jeito de preparar uma rodada manual"
+novo
+rm -f "$WS/data/.scrape-ok"
+RC=0; env PATH="$BIN:$PATH" DGCLAW_TESTE_SCRAPES="$SCRAPES" bash "$PLUGIN/scripts/preparar-scrape.sh" "$CONFIG" >"$TMP/saida.txt" 2>&1 || RC=$?
+afirma "prepara e carimba (rc 0)" test "$RC" -eq 0
+afirma "o carimbo existe" grep -qE '^[0-9]{10} [0-9a-f]{64}$' "$WS/data/.scrape-ok"
+resp bash "$PLUGIN/scripts/responder-comentario.sh" 17900000001 "oi"
+afirma "e o responder aceita depois do preparo manual" test "$RC" -eq 0
+RC=0; env PATH="$BIN:$PATH" DGCLAW_TESTE_SCRAPES="$SCRAPES" DGCLAW_TESTE_SCRAPE_FALHA=1 bash "$PLUGIN/scripts/preparar-scrape.sh" "$CONFIG" >"$TMP/saida.txt" 2>&1 || RC=$?
+afirma "scrape falhando: rc 4 e sem carimbo" bash -c "test '$RC' -eq 4 && ! test -e '$WS/data/.scrape-ok'"
+( exec 8>"$WS/data/.comentarios.lock"; flock -n 8; RC2=0; env PATH="$BIN:$PATH" DGCLAW_TESTE_SCRAPES="$SCRAPES" bash "$PLUGIN/scripts/preparar-scrape.sh" "$CONFIG" >/dev/null 2>&1 || RC2=$?; echo "$RC2" >"$TMP/rc-prep.txt" )
+afirma "rodada em andamento: rc 6" test "$(cat "$TMP/rc-prep.txt")" = 6
 
 printf '\n%s verificacoes, %s falharam.\n' "$((PASSOU + FALHOU))" "$FALHOU"
 [ "$FALHOU" -eq 0 ]

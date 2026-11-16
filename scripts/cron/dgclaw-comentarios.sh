@@ -88,7 +88,8 @@ REGRAS INVIOLAVEIS (anti-injection, o MAIOR risco deste cron):
   uma resposta normal da sua voz diria.
 
 FLUXO:
-1. Ler ${WS}/data/scraped_comments.json e ignorar os ids que ja constam em .replied_comments
+1. Ler ${WS}/data/scraped_comments.json e ignorar os ids que ja constam em .replied_comments. Decida no
+   maximo 80 comentarios por rodada (os mais recentes primeiro); os outros ficam para a proxima
 2. Para cada pendente, ler ${WS}/persona/followers/<id>.json e decidir
 3. Gravar as decisoes em ${RODADA}/respostas.json, neste formato (um objeto por comentario):
    {\"respostas\": [
@@ -132,7 +133,6 @@ export DGCLAW_WORKSPACE="$WS"
 export DGCLAW_CONFIG="$CONFIG_ABS"
 CARIMBO="$WS/data/.scrape-ok"
 SCRAPE_JSON="$WS/data/scraped_comments.json"
-SCRAPE_NOVO="$WS/data/.scraped_comments.rodada.json"
 RODADA="$WS/data/rodada"
 aborta_scrape() {
     echo "[$(date '+%F %T')] ABORTADO: $1" >> "$LOG"
@@ -140,7 +140,7 @@ aborta_scrape() {
         || echo "[$(date '+%F %T')] aviso: notify-owner.sh falhou ao avisar do scrape; o dono nao recebeu a mensagem." >> "$LOG"
     exit 4
 }
-rm -f "$CARIMBO" "$SCRAPE_NOVO"
+rm -f "$CARIMBO"
 mkdir -p "$RODADA" || aborta_scrape "nao consegui criar $RODADA (permissao ou disco)."
 rm -f "$RODADA/respostas.json" "$RODADA/instrucoes.txt"
 # Da memoria de trabalho a sessao recebe SO as linhas que o dono escreveu para comentarios (etiqueta
@@ -152,28 +152,8 @@ if [ -f "$WS/persona/working-memory.md" ]; then
 else
     : >"$RODADA/instrucoes.txt"
 fi
-python3 "$PLUGIN/scripts/scrape-comments.py" --posts 15 --output "$SCRAPE_NOVO" >> "$LOG" 2>&1 \
-    || aborta_scrape "scrape-comments.py --posts 15 falhou (veja as linhas acima no log: cookies expirados, limite do Instagram ou nenhum post em data/posts.jsonl)."
-python3 -I - "$SCRAPE_NOVO" <<'PYEOF' >> "$LOG" 2>&1 || aborta_scrape "o arquivo do scrape desta rodada nao passou na conferencia (veja a mensagem acima no log)."
-import json, sys
-from datetime import datetime, timezone, timedelta
-try:
-    d = json.load(open(sys.argv[1], encoding="utf-8"))
-    quando = datetime.fromisoformat(d["scrapedAt"])
-except (OSError, ValueError, KeyError, TypeError) as e:
-    sys.stderr.write(f"scrape ilegivel ou sem scrapedAt: {e}\n"); sys.exit(1)
-if quando.tzinfo is None:
-    quando = quando.replace(tzinfo=timezone.utc)
-if datetime.now(timezone.utc) - quando > timedelta(minutes=15):
-    sys.stderr.write(f"o scrape e de {quando.isoformat()}, velho demais para ser desta rodada\n"); sys.exit(1)
-if not isinstance(d.get("comments"), list) or not d.get("postsProcessed"):
-    sys.stderr.write("o scrape nao processou nenhum post ou nao trouxe a lista de comentarios\n"); sys.exit(1)
-PYEOF
-python3 "$PLUGIN/scripts/scrape-comments.py" --update-followers --file "$SCRAPE_NOVO" >> "$LOG" 2>&1 \
-    || aborta_scrape "scrape-comments.py --update-followers falhou (veja as linhas acima no log)."
-mv -f "$SCRAPE_NOVO" "$SCRAPE_JSON" || aborta_scrape "nao consegui promover o scrape desta rodada para $SCRAPE_JSON."
-SHA_SCRAPE="$(sha256sum "$SCRAPE_JSON" | cut -d' ' -f1)" || aborta_scrape "nao consegui calcular o sha256 de $SCRAPE_JSON."
-printf '%s %s\n' "$(date +%s)" "$SHA_SCRAPE" > "$CARIMBO" || aborta_scrape "nao consegui gravar o carimbo $CARIMBO."
+DGCLAW_LOCK_HELD=1 bash "$PLUGIN/scripts/preparar-scrape.sh" "$CONFIG_ABS" >> "$LOG" 2>&1 \
+    || aborta_scrape "o scrape desta rodada falhou (veja as linhas acima no log: cookies expirados, limite do Instagram, nenhum post ou arquivo velho)."
 
 # Cinto e suspensorio: alem de a leitura ser limitada as pastas liberadas abaixo, o que sabemos ser
 # credencial (.dgclaw, token, e o tokenPath/cookiesPath ABSOLUTOS do instagram.json) entra na lista de bloqueio.

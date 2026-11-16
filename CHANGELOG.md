@@ -20,7 +20,7 @@ Mais travas na mesma rotina: a sessão agora roda **sem terminal** (só ler e ed
 leitura como `grep -r` furava o bloqueio da pasta de credenciais; ela não lê a configuração da conta, o token nem os
 cookies, e escreve **só** o arquivo de respostas da rodada (`data/rodada/respostas.json`).
 Em vez de responder ela mesma, a sessão grava `data/rodada/respostas.json` e o próprio cron envia cada resposta pelo
-`responder-comentario.sh`. O scrape é feito pelo cron antes da sessão, para um arquivo da rodada, e só vira o oficial
+`responder-comentario.sh`. O scrape é feito pelo cron antes da sessão (e, numa rodada manual, pelo `scripts/preparar-scrape.sh`, que faz o scrape, confere e carimba sob a mesma trava), para um arquivo da rodada, e só vira o oficial
 depois de conferido (data recente e posts processados); se falhar, nada é respondido e você é avisado. A sessão
 não usa a memória automática do Claude, não herda nenhuma configuração de permissão (um `allow` antigo, de usuário ou de projeto, não amplia o que ela faz), roda
 dentro da pasta da rodada e só lê o que foi liberado: SOUL, PERSONALITY, a skill, o scrape da rodada, os cadastros de seguidores e as linhas de instrução do dono marcadas para comentários (sem acesso à memória privada). **A sessão deixou de escrever na memória, nos cadastros de seguidores e na memória de trabalho** (e de marcar

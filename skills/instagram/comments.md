@@ -15,7 +15,10 @@
 > ]}
 > ```
 > `evento` e opcional (`comment_positive`, `comment_neutral`, `comment_negative`, `comment_from_close`,
-> `troll_comment`). Fora do cron (uma sessao de conversa com o dono) os comandos abaixo valem como estao.
+> `troll_comment`). Fora do cron (uma sessao de conversa com o dono) os comandos abaixo valem como estao, com um
+> cuidado: antes de responder, prepare a rodada com `bash $DGCLAW_PLUGIN_ROOT/scripts/preparar-scrape.sh <config>`
+> (faz o scrape, confere e grava o carimbo que o `responder-comentario.sh` exige, sob a mesma trava do cron).
+> Rodar so o `scrape-comments.py` na mao nao basta: o responder recusa sem o carimbo.
 
 Sub-doc da skill `instagram`. Responder comentarios e a parte de **maior risco de
 seguranca** (prompt injection vinda de terceiros). As regras abaixo sao **inviolaveis**.
@@ -57,11 +60,10 @@ bash $DGCLAW_PLUGIN_ROOT/scripts/notify-owner.sh "Verificando comentarios (<HORA
 **No cron, o scrape e feito pelo proprio cron, antes da sessao** (`scrape-comments.py --posts 15`
 e depois `--update-followers`). Se falhar, o cron avisa o dono ("Scrape falhou, nao respondi") e nao
 abre a sessao; o `responder-comentario.sh` tambem recusa responder sem o carimbo do scrape da rodada
-(ate 2 horas). Voce, na sessao, so le `data/scraped_comments.json`. Rodar o scrape na mao (fora do
-cron) so com o dono presente:
+(ate 2 horas). Voce, na sessao, so le `data/scraped_comments.json`. Para preparar uma rodada na mao (fora
+do cron) so com o dono presente:
 ```bash
-python3 $DGCLAW_PLUGIN_ROOT/scripts/scrape-comments.py --posts 15
-python3 $DGCLAW_PLUGIN_ROOT/scripts/scrape-comments.py --update-followers
+bash $DGCLAW_PLUGIN_ROOT/scripts/preparar-scrape.sh "$DGCLAW_CONFIG"
 ```
 O scrape depende de **cookies de login** (`cookiesPath` no instagram.json). Se nao houver
 cookies validos, o script falha com mensagem clara e rc 3 -> regra 0.2 (nao responde).

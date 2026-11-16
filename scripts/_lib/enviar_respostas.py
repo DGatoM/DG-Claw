@@ -56,8 +56,9 @@ def main():
         erro(f"{a.arquivo} esta ilegivel ou fora do formato ({e}). Nada foi enviado.")
         return 1
     if len(itens) > MAX_ITENS:
-        erro(f"{len(itens)} itens em {a.arquivo}; o limite por rodada e {MAX_ITENS}. Nada foi enviado.")
-        return 1
+        erro(f"{len(itens)} itens em {a.arquivo}; processo so os {MAX_ITENS} primeiros. Os demais comentarios "
+             "continuam pendentes e entram nas proximas rodadas.")
+        itens = itens[:MAX_ITENS]
 
     cont = {"enviadas": 0, "puladas": 0, "recusadas": 0, "incertas": 0}
     # Valida o esquema de TODOS os itens antes de enviar qualquer um: um item malformado nao derruba o lote.
@@ -75,6 +76,16 @@ def main():
         if acao == "pular":
             cmd = ["bash", a.responder, "--pular", cid]
         elif acao == "responder" and isinstance(texto, str):
+            try:
+                texto.encode("utf-8")
+            except UnicodeEncodeError:
+                erro(f"item {n} ({cid}): o texto tem caractere que nao da para codificar em UTF-8; ignorado.")
+                cont["recusadas"] += 1
+                continue
+            if "\x00" in texto:
+                erro(f"item {n} ({cid}): o texto tem caractere nulo; ignorado.")
+                cont["recusadas"] += 1
+                continue
             cmd = ["bash", a.responder, cid, texto]
         else:
             erro(f"item {n} ({cid}): 'acao' precisa ser 'responder' (com 'texto' em texto) ou 'pular'; ignorado.")
@@ -92,7 +103,7 @@ def main():
             erro(f"item {n} ({cid}): o envio passou de 5 minutos; resultado INCERTO. Confira na conta do Instagram.")
             cont["incertas"] += 1
             continue
-        except OSError as e:
+        except (OSError, ValueError) as e:
             erro(f"item {n} ({cid}): nao consegui rodar o responder-comentario.sh ({e}); recusado.")
             cont["recusadas"] += 1
             continue
