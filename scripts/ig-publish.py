@@ -62,11 +62,13 @@ def _graph_error(resp):
     """Extrai mensagem de erro legivel da resposta da Graph API."""
     try:
         err = resp.json().get("error", {})
+        if not isinstance(err, dict):
+            raise ValueError("erro fora do formato")
         msg = err.get("message", resp.text[:300])
         code = err.get("code", resp.status_code)
         sub = err.get("error_user_msg") or ""
         return f"Graph API erro {code}: {msg}" + (f" | {sub}" if sub else "")
-    except (ValueError, json.JSONDecodeError):
+    except (ValueError, AttributeError, json.JSONDecodeError):
         return f"HTTP {resp.status_code}: {resp.text[:300]}"
 
 
@@ -134,12 +136,19 @@ def reply_comment(comment_id, message, token):
               "Confira na conta antes de tentar de novo.", file=sys.stderr)
         sys.exit(4)
     if r.status_code != 200:
+        # Recusa CONFIRMADA: 4xx com o JSON de erro da Graph API ({"error": {...}}). Qualquer outra coisa
+        # (corpo estranho, status inesperado) e resultado desconhecido.
+        try:
+            confirmada = isinstance(r.json().get("error"), dict) and 400 <= r.status_code < 500
+        except (ValueError, AttributeError):
+            confirmada = False
         print(_graph_error(r), file=sys.stderr)
-        sys.exit(1)
+        sys.exit(1 if confirmada else 4)
     try:
-        reply_id = r.json().get("id")
+        corpo = r.json()
+        reply_id = corpo.get("id") if isinstance(corpo, dict) else None
     except ValueError:
-        reply_id = None  # HTTP 200: a resposta FOI publicada, mesmo que o corpo nao seja JSON
+        reply_id = None  # HTTP 200: a resposta FOI publicada, mesmo que o corpo nao seja JSON (ou nao seja objeto)
     print(json.dumps({"ok": True, "replyId": reply_id, "commentId": comment_id}, ensure_ascii=False))
     return 0
 
@@ -186,7 +195,14 @@ def main():
         if not message.strip():
             print("ERRO: mensagem de resposta vazia.", file=sys.stderr)
             sys.exit(2)
-        return reply_comment(args.comment_id, message, token)
+        try:
+            return reply_comment(args.comment_id, message, token)
+        except SystemExit:
+            raise
+        except Exception as e:  # noqa: BLE001 - depois de iniciar o POST, falha inesperada = resultado desconhecido
+            print(f"RESULTADO INCERTO: erro inesperado ({type(e).__name__}: {e}); o Instagram pode ter publicado "
+                  "a resposta. Confira na conta antes de tentar de novo.", file=sys.stderr)
+            sys.exit(4)
     if args.cmd == "validate":
         return validate(token)
 

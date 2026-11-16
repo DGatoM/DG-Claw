@@ -105,7 +105,7 @@ O cron envia as respostas e avisa o ${DGCLAW_OWNER:-dono} do resultado. Voce nao
 # Se esta versao do Claude Code nao conhece as flags de restricao, NAO roda: melhor um cron parado
 # e avisado do que um cron solto.
 AJUDA_CLAUDE="$("$CLAUDE_BIN" --help 2>&1)" || AJUDA_CLAUDE=""
-for flag in '--allowedTools' '--disallowedTools' '--tools' 'dontAsk' '--strict-mcp-config' '--disable-slash-commands' '--setting-sources'; do
+for flag in '--allowedTools' '--disallowedTools' '--tools' 'dontAsk' '--strict-mcp-config' '--disable-slash-commands' '--setting-sources' '--settings'; do
     if ! printf '%s' "$AJUDA_CLAUDE" | grep -qF -- "$flag"; then
         MSG="a versao do Claude Code instalada ($CLAUDE_BIN) nao reconhece '$flag', e sem as restricoes de ferramenta o cron de comentarios nao pode ler texto de terceiros com seguranca. Nada foi respondido. Atualize o Claude Code (rode: claude update) e o cron volta sozinho na proxima rodada."
         echo "[$(date '+%F %T')] ABORTADO: $MSG" >> "$LOG"
@@ -203,7 +203,13 @@ fi
 #   - escrita SO em respostas.json (nada de memoria, cadastro de seguidor ou arquivo que outra sessao leia
 #     depois com permissao ampla) e leitura SO do que a resposta precisa, sem memoria privada.
 cd "$RODADA" || aborta_scrape "nao consegui entrar em $RODADA."
+# Memoria automatica do Claude DESLIGADA (variavel e configuracao): ela e compartilhada entre sessoes do
+# mesmo repositorio e deixaria texto de comentario chegar a uma sessao com permissao ampla, ou vazar o
+# que as outras sessoes guardaram. As pastas de estado do Claude tambem entram na lista de bloqueio.
+export CLAUDE_CODE_DISABLE_AUTO_MEMORY=1
+NEGAR_LEITURA+=("Read(/${HOME#/}/.claude/**)" "Edit(/${HOME#/}/.claude/**)" "Read(/${HOME#/}/.claude.json)")
 "$CLAUDE_BIN" --print \
+    --settings '{"autoMemoryEnabled": false}' \
     --no-session-persistence \
     --permission-mode dontAsk \
     --setting-sources "" \

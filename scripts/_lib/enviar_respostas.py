@@ -60,14 +60,16 @@ def main():
         return 1
 
     cont = {"enviadas": 0, "puladas": 0, "recusadas": 0, "incertas": 0}
+    # Valida o esquema de TODOS os itens antes de enviar qualquer um: um item malformado nao derruba o lote.
+    validos = []
     for n, it in enumerate(itens, 1):
         if not isinstance(it, dict):
             erro(f"item {n}: nao e um objeto; ignorado.")
             cont["recusadas"] += 1
             continue
-        cid, acao, texto = str(it.get("commentId", "")), it.get("acao"), it.get("texto")
-        if not ID_RE.match(cid):
-            erro(f"item {n}: commentId invalido ({cid[:40]!r}); ignorado.")
+        cid, acao, texto, ev = it.get("commentId"), it.get("acao"), it.get("texto"), it.get("evento")
+        if not isinstance(cid, str) or not ID_RE.match(cid):
+            erro(f"item {n}: commentId invalido ({str(cid)[:40]!r}); ignorado.")
             cont["recusadas"] += 1
             continue
         if acao == "pular":
@@ -75,21 +77,33 @@ def main():
         elif acao == "responder" and isinstance(texto, str):
             cmd = ["bash", a.responder, cid, texto]
         else:
-            erro(f"item {n} ({cid}): 'acao' precisa ser 'responder' (com 'texto') ou 'pular'; ignorado.")
+            erro(f"item {n} ({cid}): 'acao' precisa ser 'responder' (com 'texto' em texto) ou 'pular'; ignorado.")
             cont["recusadas"] += 1
             continue
+        if ev is not None and not (isinstance(ev, str) and ev in EVENTOS):
+            erro(f"item {n} ({cid}): 'evento' invalido; o evento foi ignorado, a resposta segue.")
+            ev = None
+        validos.append((n, cid, acao, cmd, ev))
+
+    for n, cid, acao, cmd, ev in validos:
         try:
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         except subprocess.TimeoutExpired:
             erro(f"item {n} ({cid}): o envio passou de 5 minutos; resultado INCERTO. Confira na conta do Instagram.")
             cont["incertas"] += 1
             continue
+        except OSError as e:
+            erro(f"item {n} ({cid}): nao consegui rodar o responder-comentario.sh ({e}); recusado.")
+            cont["recusadas"] += 1
+            continue
         saida = (r.stdout + r.stderr).strip().replace("\n", " ")[:400]
         if r.returncode == 0:
             cont["puladas" if acao == "pular" else "enviadas"] += 1
-            ev = it.get("evento")
-            if acao == "responder" and ev in EVENTOS and a.ext_event:
-                subprocess.run(["bash", a.ext_event, ev], capture_output=True, text=True, timeout=60)
+            if acao == "responder" and ev and a.ext_event:
+                try:
+                    subprocess.run(["bash", a.ext_event, ev], capture_output=True, text=True, timeout=60)
+                except (OSError, subprocess.TimeoutExpired) as e:
+                    erro(f"item {n} ({cid}): a resposta saiu, mas o evento {ev} nao foi anunciado ({e}).")
         elif r.returncode == 5:
             erro(f"item {n} ({cid}): {saida}")
             cont["incertas"] += 1

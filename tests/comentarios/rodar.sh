@@ -74,12 +74,13 @@ cat >"$BIN/claude" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = "--help" ]; then
     if [ "${DGCLAW_TESTE_SEM_FLAGS:-}" = 1 ]; then echo "Usage: claude [options]  --print --model"; else
-        echo "--allowedTools --disallowedTools --tools --strict-mcp-config --disable-slash-commands --setting-sources --permission-mode (choices: \"default\", \"dontAsk\", \"bypassPermissions\")"; fi
+        echo "--allowedTools --disallowedTools --tools --strict-mcp-config --disable-slash-commands --setting-sources --settings --permission-mode (choices: \"default\", \"dontAsk\", \"bypassPermissions\")"; fi
     exit 0
 fi
 printf '%s\n' "$@" >"$DGCLAW_TESTE_ARGV"
 # Simula a sessao: ela so escreve respostas.json na pasta da rodada (que e o diretorio de trabalho dela).
 pwd >"$DGCLAW_TESTE_ARGV.cwd"
+env | grep "^CLAUDE_CODE_DISABLE_AUTO_MEMORY=" >"$DGCLAW_TESTE_ARGV.env"
 if [ -n "${DGCLAW_TESTE_RESP_JSON:-}" ]; then cp "$DGCLAW_TESTE_RESP_JSON" "$DGCLAW_WORKSPACE/data/rodada/respostas.json"; fi
 exit 0
 SH
@@ -207,6 +208,8 @@ echo "cron: a sessao nao herda configuracao nem le fora do que foi liberado"
 novo
 cron env
 afirma "ignora configuracao herdada (--setting-sources vazio)" bash -c "grep -qx -- '--setting-sources' '$ARGV' && grep -xA1 -- '--setting-sources' '$ARGV' | tail -1 | grep -qx ''"
+afirma "memoria automatica do Claude desligada (variavel e configuracao)" bash -c "grep -qx 'CLAUDE_CODE_DISABLE_AUTO_MEMORY=1' '$ARGV.env' && grep -q 'autoMemoryEnabled' '$ARGV'"
+afirma "bloqueia a pasta de estado do Claude" grep -q 'Read(/.*/.claude/\*\*)' "$ARGV"
 nega "nao usa --add-dir (a leitura fora das regras fica negada)" grep -qx -- '--add-dir' "$ARGV"
 afirma "o diretorio de trabalho da sessao e a pasta da rodada" test "$(cat "$ARGV.cwd")" = "$WS/data/rodada"
 nega "nao libera a pasta data/ inteira para leitura" grep -qE 'Read\(/.*/data/\*\*\)' "$ARGV"
@@ -379,6 +382,63 @@ else
     ok "(sem a lib requests nesta maquina: o CI cobre o scrape)"
 fi
 
+
+echo "enviar_respostas.py: esquema validado antes de enviar"
+ER="$REPO/scripts/_lib/enviar_respostas.py"
+novo
+cat >"$TMP/resp-evt.json" <<'EOF'
+{"respostas":[
+ {"commentId":"17900000001","acao":"responder","texto":"oi","evento":[]},
+ {"commentId":"17900000002","acao":"responder","texto":"tchau","evento":{"x":1}},
+ {"commentId":["x"],"acao":"pular"}
+]}
+EOF
+RC=0; env DGCLAW_CONFIG="$CONFIG" DGCLAW_TESTE_IG="$IGLOG" DGCLAW_TESTE_EVENTOS="$EVENTOS" python3 "$ER" --arquivo "$TMP/resp-evt.json" --responder "$PLUGIN/scripts/responder-comentario.sh" --ext-event "$PLUGIN/scripts/ext-event.sh" >"$TMP/saida.txt" 2>&1 || RC=$?
+afirma "evento de tipo errado nao derruba o lote (rc 0)" test "$RC" -eq 0
+afirma "as duas respostas validas sairam" test "$(grep -c '^reply' "$IGLOG")" -eq 2
+afirma "commentId que nao e texto: recusado sem erro" grep -q 'recusadas=1' "$TMP/saida.txt"
+novo
+cat >"$TMP/resp-inc.json" <<'EOF'
+{"respostas":[
+ {"commentId":"17900000001","acao":"responder","texto":"oi","evento":["x"]},
+ {"commentId":"17900000002","acao":"responder","texto":"tchau"}
+]}
+EOF
+RC=0; env DGCLAW_CONFIG="$CONFIG" DGCLAW_TESTE_IG="$IGLOG" DGCLAW_TESTE_EVENTOS="$EVENTOS" DGCLAW_TESTE_IG_AMBIGUO=1 python3 "$ER" --arquivo "$TMP/resp-inc.json" --responder "$PLUGIN/scripts/responder-comentario.sh" >"$TMP/saida.txt" 2>&1 || RC=$?
+afirma "resultado incerto preserva o rc 5 mesmo com item malformado" test "$RC" -eq 5
+afirma "e conta os dois incertos" grep -q 'incertas=2' "$TMP/saida.txt"
+
+echo "ig-publish.py reply-comment: so recusa confirmada libera a reserva"
+IGP="$REPO/scripts/ig-publish.py"
+echo tokenfalso >"$TMP/tok"
+igp() { # $1 = status, $2 = corpo, [$3 = excecao]
+    RC=0; python3 - "$IGP" "$1" "$2" "${3:-}" "$TMP/tok" >"$TMP/saida.txt" 2>&1 <<'PY' || RC=$?
+import importlib.util, sys, types, json
+caminho, status, corpo, exc, tok = sys.argv[1:6]
+req = types.ModuleType("requests")
+class RequestException(Exception): pass
+req.RequestException = RequestException
+class R:
+    status_code = int(status); text = corpo
+    def json(self):
+        return json.loads(corpo)
+def post(*a, **k):
+    if exc: raise RequestException(exc)
+    return R()
+req.post = post
+sys.modules["requests"] = req
+spec = importlib.util.spec_from_file_location("igp", caminho); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+sys.argv = ["ig-publish.py", "reply-comment", "--comment-id", "123", "--message", "oi", "--token-file", tok]
+sys.exit(m.main() or 0)
+PY
+}
+igp 200 '{"id":"9"}';                         afirma "200 com id: sucesso (0)" test "$RC" -eq 0
+igp 200 'null';                               afirma "200 com corpo null: continua sucesso (0), a resposta saiu" test "$RC" -eq 0
+igp 200 '[1,2]';                              afirma "200 com corpo lista: sucesso (0)" test "$RC" -eq 0
+igp 400 '{"error":{"code":100,"message":"x"}}'; afirma "400 com erro da Graph API: recusa confirmada (1)" test "$RC" -eq 1
+igp 400 'null';                               afirma "400 com corpo estranho: incerto (4)" test "$RC" -eq 4
+igp 502 '{}';                                 afirma "502: incerto (4)" test "$RC" -eq 4
+igp 200 '{}' "tempo esgotado";                afirma "queda de rede: incerto (4)" test "$RC" -eq 4
 
 printf '\n%s verificacoes, %s falharam.\n' "$((PASSOU + FALHOU))" "$FALHOU"
 [ "$FALHOU" -eq 0 ]
