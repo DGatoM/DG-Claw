@@ -1558,7 +1558,7 @@ DG_UNIDADES_REPARAR="reflection audit build-wm heartbeat cron-audit channels-tok
 # lido pelo Admin, que roda como root. Por isso so passam letras, numeros e . _ / @ + : , = ~ -
 # (o resto vira "?", inclusive espaco, controle e acento) e cada linha corta em 160 caracteres.
 # Assim uma frase de ordem escondida num nome de arquivo nao chega inteira nem com cara de frase.
-_inv_sanear() { LC_ALL=C tr -c 'A-Za-z0-9._/@+:,=~\n-' '?' | cut -c1-160; }
+_inv_sanear() { LC_ALL=C tr -c 'A-Za-z0-9._/@+:,=~%\n-' '?' | cut -c1-160; }
 
 # inventario_container <slug> <arquivo-de-saida>
 # Lista o que existe SO dentro do container do agente (fora da casa, que e bind mount e fica): pacotes
@@ -1586,9 +1586,10 @@ inventario_container() {
     difusao="$dirtmp/diff"
     # O formato de texto do podman nao escapa quebra de linha no nome do arquivo: um nome com "\nA /x" viraria
     # dois registros e esconderia um caminho real. O JSON guarda cada caminho como um valor indivisivel;
-    # caracteres de controle viram "?" ja aqui, antes de qualquer filtro.
+    # caracteres de controle e o proprio % viram %HH (reversivel, sem colisao entre nomes diferentes) ja aqui, antes de qualquer filtro; o "?" so aparece na exibicao.
     podman diff --format json "$c" 2>"$difusao.err" | jq -r '
-        def esc: gsub("[\u0001-\u001f\u007f]"; "?");
+        def hx: "0123456789ABCDEF"[(. / 16 | floor):(. / 16 | floor) + 1] + "0123456789ABCDEF"[(. % 16):(. % 16) + 1];
+        def esc: explode | map(if . < 32 or . == 127 or . == 37 then "%" + hx else ([.] | implode) end) | join("");
         ((.added // [])[] | "A " + esc), ((.changed // [])[] | "C " + esc), ((.deleted // [])[] | "D " + esc)' >"$difusao" 2>>"$difusao.err"
     rc_a=("${PIPESTATUS[@]}")
     if [ "${rc_a[0]}" -ne 0 ] || [ "${rc_a[1]}" -ne 0 ]; then
@@ -1598,6 +1599,7 @@ inventario_container() {
     fi
     estado_c="$(estado_container "$slug")"
     if [ "$estado_c" = running ]; then
+        # shellcheck disable=SC2015
         pacs_c="$(mktemp)" && pacs_i="$(mktemp)" || { INV_MOTIVO="nao consegui criar um arquivo temporario."; _inv_limpar; return 1; }
         podman exec "$c" dpkg-query -W -f '${Package}\n' 2>/dev/null | LC_ALL=C sort -u >"$pacs_c"
         rc_a=("${PIPESTATUS[@]}")
@@ -1719,15 +1721,27 @@ inventario_container() {
     # Timer padrao que o dono DESLIGOU (systemctl disable): o link nasceu depois da imagem, entao o diff nao mostra a
     # remocao, e o `systemctl enable --now` da recriacao religaria a rotina. Consulta o estado de cada um.
     if [ "$estado_c" = running ]; then
-        local un=() n u st
+        local un=() n u ex st
         for n in $DG_UNIDADES_REPARAR; do un+=("dgclaw-$slug-$n.timer"); done
-        podman exec "$c" sh -c 'for u in "$@"; do printf "%s %s\n" "$u" "$(systemctl is-enabled "$u" 2>/dev/null)"; done' sh "${un[@]}" >"$difusao.on" 2>/dev/null \
+        podman exec "$c" sh -c 'for u in "$@"; do e=0; [ -e "/etc/systemd/system/$u" ] && e=1; s="$(systemctl is-enabled "$u" 2>/dev/null)"; printf "%s %s %s\n" "$u" "$e" "${s:-VAZIO}"; done' sh "${un[@]}" >"$difusao.on" 2>/dev/null \
             || { INV_MOTIVO="nao consegui consultar quais rotinas padrao estao ligadas (systemctl is-enabled)."; _inv_limpar; return 1; }
-        while read -r u st; do
-            [ "$st" = disabled ] || continue
-            printf 'D /etc/systemd/system/timers.target.wants/%s\n' "$u" >>"$difusao.arq" \
-                || { INV_MOTIVO="nao consegui gravar a lista de rotinas desligadas."; _inv_limpar; return 1; }
+        local lidos=0
+        while read -r u ex st; do
+            lidos=$((lidos + 1))
+            [ "$ex" = 1 ] || continue   # a unidade nem existe neste agente: nada a religar
+            case "$st" in
+                disabled)
+                    printf 'D /etc/systemd/system/timers.target.wants/%s\n' "$u" >>"$difusao.arq" \
+                        || { INV_MOTIVO="nao consegui gravar a lista de rotinas desligadas."; _inv_limpar; return 1; } ;;
+                enabled|enabled-runtime|static|indirect|alias|linked|linked-runtime|generated|transient|masked|masked-runtime) ;;
+                *) INV_MOTIVO="o systemctl nao respondeu o estado de $u (resposta '$st'), entao nao da para saber se o dono a desligou."
+                   _inv_limpar; return 1 ;;
+            esac
         done <"$difusao.on"
+        if [ "$lidos" -ne "${#un[@]}" ]; then
+            INV_MOTIVO="a consulta das rotinas padrao devolveu $lidos resposta(s) para ${#un[@]} unidade(s)."
+            _inv_limpar; return 1
+        fi
     fi
     # runner e painel vem da imagem: so somem da lista se o arquivo do container e IDENTICO ao da imagem.
     if [ -s "$difusao.img" ]; then
@@ -1736,6 +1750,7 @@ inventario_container() {
             _inv_limpar; return 1
         fi
         mapfile -t arqs <"$difusao.img"
+        # shellcheck disable=SC2015
         atuais="$(podman exec "$c" sha256sum "${arqs[@]}" 2>/dev/null)" \
             && ref="$(podman run --rm --entrypoint sha256sum "$DGCLAW_IMAGEM" "${arqs[@]}" 2>/dev/null)" \
             || { INV_MOTIVO="nao consegui comparar o runner e o painel com os da imagem (sha256sum)."; _inv_limpar; return 1; }
@@ -1754,7 +1769,9 @@ inventario_container() {
             INV_MOTIVO="o container nao esta ligado, entao nao da para conferir as permissoes dos diretorios alterados."
             _inv_limpar; return 1
         fi
+        # shellcheck disable=SC2016
         local lemeta='while IFS= read -r d; do stat -c "%a %u %g" -- "$d" 2>/dev/null || echo ERRO; done'
+        # shellcheck disable=SC2015
         podman exec -i "$c" sh -c "$lemeta" <"$difusao.dirs" >"$difusao.dm" 2>/dev/null \
             && ref="$(podman run --rm -i --entrypoint sh "$DGCLAW_IMAGEM" -c "$lemeta" <"$difusao.dirs" 2>/dev/null)" \
             || { INV_MOTIVO="nao consegui comparar as permissoes dos diretorios alterados com os da imagem (stat)."; _inv_limpar; return 1; }

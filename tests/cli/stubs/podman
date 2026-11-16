@@ -107,8 +107,9 @@ case "${1:-}" in
         # `sh -c '...systemctl is-enabled...' sh <unidades>`: "unidade estado"; estado/timer-desligado lista as desligadas.
         if printf '%s ' "$@" | grep -q 'is-enabled'; then
             [ -f "$est/enabled-falha" ] && exit 1
-            for u in "${@:6}"; do
-                if grep -qxF "$u" "$est/timer-desligado" 2>/dev/null; then echo "$u disabled"; else echo "$u enabled"; fi
+            for u in "${@:7}"; do
+                if grep -qxF "$u" "$est/timer-vazio" 2>/dev/null; then echo "$u 1 VAZIO"
+                elif grep -qxF "$u" "$est/timer-desligado" 2>/dev/null; then echo "$u 1 disabled"; else echo "$u 1 enabled"; fi
             done
             exit 0
         fi

@@ -268,6 +268,7 @@ afirma "a mensagem final aponta o arquivo" grep -q 'Veja a lista completa em' "$
 # A lista de rotinas que o reparar regrava (DG_UNIDADES_REPARAR) tem que acompanhar o install-timers.sh.
 PRODUTOS_REPARAR="$(sed -n 's/^DG_UNIDADES_REPARAR="\(.*\)"$/\1/p' "$AQUI/../../bin/dgclaw" | head -n1)"
 NOMES_INSTALL="$( { grep -oE '^ *"[a-z0-9-]+\|' "$AQUI/../../scripts/install-timers.sh" | tr -d ' "|'; echo monitor; } | sort | tr '\n' ' ')"
+# shellcheck disable=SC2086
 igual "a lista de rotinas regravadas acompanha o install-timers.sh" "$NOMES_INSTALL" "$(printf '%s\n' $PRODUTOS_REPARAR | sort | tr '\n' ' ')"
 
 # 11) erro de escrita na lista de pacotes: para, nao vira "nada a perder"
@@ -416,6 +417,24 @@ nega "nao deu para consultar: falha" test "$?" -eq 0
 afirma "explica" grep -q 'quais rotinas padrao estao ligadas' "$TMP/rec.txt"
 rm -f "$STUB_ESTADO/enabled-falha"
 # os intermediarios do inventario ficam em pasta privada (700), nunca soltos em /tmp
+# shellcheck disable=SC2016
 afirma "o inventario usa pasta temporaria privada" grep -q 'dirtmp="$(mktemp -d)"' "$AQUI/../../bin/dgclaw"
+
+# 18) resposta vazia do systemctl nao vira "ligado"; nomes que so diferem por caracter de controle nao colidem
+echo imagem-v26 >"$STUB_ESTADO/imagem-id"
+: >"$STUB_ESTADO/diff-dgclaw-rita"
+printf 'dgclaw-rita-heartbeat.timer\n' >"$STUB_ESTADO/timer-vazio"
+recriar rita
+nega "resposta vazia: falha" test "$?" -eq 0
+afirma "explica que o systemctl nao respondeu" grep -q 'nao respondeu o estado' "$TMP/rec.txt"
+rm -f "$STUB_ESTADO/timer-vazio"
+cat >"$STUB_ESTADO/diff-json-dgclaw-rita" <<'EOF'
+{"added":["/opt/dados?.db","/opt/dados\n.db","/opt/dados\n.db/__pycache__/x","/opt/dados\n.db/real.txt"],"changed":[],"deleted":[]}
+EOF
+recriar rita
+nega "colisao de nomes: falha" test "$?" -eq 0
+afirma "o banco de nome simples continua na lista" grep -q 'A /opt/dados?.db' "$TMP/rec.txt"
+afirma "o nome com quebra de linha tambem (escapado)" grep -q 'A /opt/dados%0A.db/real.txt' "$TMP/rec.txt"
+rm -f "$STUB_ESTADO/diff-json-dgclaw-rita"
 
 fim
