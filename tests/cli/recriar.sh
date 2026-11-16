@@ -84,4 +84,20 @@ afirma "criou com as portas do registro" grep -q -- '--publish 127.0.0.1:[0-9]*:
 nega "nao tentou parar nem remover o que nao existe" grep -q '^podman \(stop\|rm\) ' "$STUB_LOG"
 : "$porta"
 
+echo "mesma imagem: o DNS privado do servidor faz recriar; DNS publico mantem 'nada a recriar'"
+preparar
+export DGCLAW_TEMPO_PARADA=3
+criar_agente dina --nome "Dina"
+recriar dina
+afirma "DNS do servidor publico + mesma imagem: nada a recriar" grep -q "nada a recriar" "$TMP/rec.txt"
+nega "nao tocou no container" grep -q '^podman \(stop\|rm\|create\) ' "$STUB_LOG"
+mkdir -p "$DGCLAW_RAIZ/run/systemd/resolve"
+printf 'nameserver 192.168.25.6\n' >"$DGCLAW_RAIZ/run/systemd/resolve/resolv.conf"
+recriar dina
+igual "DNS privado + container sem 1.1.1.1: recria (0)" "0" "$?"
+afirma "diz o motivo" grep -q "a imagem e a mesma, mas o DNS do servidor (192.168.25.6)" "$TMP/rec.txt"
+afirma "criou o container com DNS publico" grep -q '^podman create .*--name dgclaw-dina .*--dns 1.1.1.1 --dns 8.8.8.8' "$STUB_LOG"
+recriar dina
+afirma "agora o container ja tem 1.1.1.1: nada a recriar" grep -q "nada a recriar" "$TMP/rec.txt"
+
 fim

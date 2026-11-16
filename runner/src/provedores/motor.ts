@@ -47,6 +47,8 @@ export interface CtxMotor {
   variavelDoModo: string | null;
   pastaDeHooks: string;
   pastaDeEstado: string;
+  /** Raiz do plugin do DG Claw (a pasta com hooks/dispatch.ts). undefined = descobrir subindo a partir do runner; null = não há plugin. */
+  raizDoPlugin?: string | null;
   /** A identidade (persona) concatenada: o arquivo gravado e o texto dele. */
   identidade: { arquivo: string | null; texto: string | null };
   /** Só o Claude: o arquivo de `--settings` com os hooks de status. */

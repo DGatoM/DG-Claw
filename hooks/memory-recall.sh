@@ -47,7 +47,7 @@ logerr() { printf '[%s] %s\n' "$(date '+%F %T')" "$1" >> "$LOGF" 2>/dev/null; }
 HOOK_INPUT=$(cat)
 
 # O prompt cru (com o envelope do canal) e o texto limpo da fala.
-PROMPT_RAW=$(printf '%s' "$HOOK_INPUT" | python3 -c "
+PROMPT_RAW=$(printf '%s' "$HOOK_INPUT" | python3 -I -c "
 import json, sys
 try:
     print(json.loads(sys.stdin.read()).get('prompt','') or '')
@@ -61,7 +61,7 @@ case "$PROMPT_RAW" in
     *"/tmp/dgclaw-poke-"*|*"<plataforma "*) exit 0 ;;
 esac
 
-USER_TEXT=$(printf '%s' "$PROMPT_RAW" | python3 -c "
+USER_TEXT=$(printf '%s' "$PROMPT_RAW" | python3 -I -c "
 import re, sys
 p = sys.stdin.read()
 for tag in ('channel', 'dgchat'):
@@ -96,17 +96,17 @@ T0=$(date +%s%3N)
 RC=""
 if [ -f "$FTS" ] && [ -f "$FTS_DB" ]; then
     # o codigo de saida do timeout precisa sair de dentro da substituicao de comando
-    SAIDA=$(printf '%s' "$PROMPT_RAW" | python3 -c "import json,sys; print(json.dumps({'input': sys.stdin.read()}))" \
-        | DGCLAW_WORKSPACE="$WORKSPACE" timeout 4 python3 "$FTS" --workspace "$WORKSPACE" recall 2>>"$LOGF"
+    SAIDA=$(printf '%s' "$PROMPT_RAW" | python3 -I -c "import json,sys; print(json.dumps({'input': sys.stdin.read()}))" \
+        | DGCLAW_WORKSPACE="$WORKSPACE" timeout 4 python3 -I "$FTS" --workspace "$WORKSPACE" recall 2>>"$LOGF"
         echo "__rc=${PIPESTATUS[2]}")
     RC="${SAIDA##*__rc=}"
     [ "$RC" = "124" ] && logerr "a busca em conversas passou de 4s e foi abandonada nesta mensagem (indice grande demais ou travado por outro processo?)"
     [ "$RC" != "0" ] && [ "$RC" != "124" ] && logerr "a busca em conversas saiu com codigo $RC (detalhe nas linhas acima deste log)"
-    RECALL_TEXT=$(printf '%s' "${SAIDA%__rc=*}" | python3 -c "$extrai_recall" 2>>"$LOGF")
+    RECALL_TEXT=$(printf '%s' "${SAIDA%__rc=*}" | python3 -I -c "$extrai_recall" 2>>"$LOGF")
 else
-    RECALL_TEXT=$(printf '%s' "$USER_TEXT" | python3 -c "import json,sys; print(json.dumps({'input': sys.stdin.read()}))" \
-        | DGCLAW_WORKSPACE="$WORKSPACE" timeout 5 python3 "$RECALL_LOCAL" 2>>"$LOGF" \
-        | python3 -c "$extrai_recall" 2>>"$LOGF")
+    RECALL_TEXT=$(printf '%s' "$USER_TEXT" | python3 -I -c "import json,sys; print(json.dumps({'input': sys.stdin.read()}))" \
+        | DGCLAW_WORKSPACE="$WORKSPACE" timeout 5 python3 -I "$RECALL_LOCAL" 2>>"$LOGF" \
+        | python3 -I -c "$extrai_recall" 2>>"$LOGF")
 fi
 
 # --- complemento semantico: so quando a busca em conversas voltou vazia ---
@@ -120,15 +120,15 @@ if [ -z "$RECALL_TEXT" ] && [ "$RC" != "124" ] && [ "${DGCLAW_SEMANTIC_RECALL:-o
     SOBRA_MS=$(( 6500 - ($(date +%s%3N) - T0) ))
     [ "$SOBRA_MS" -gt 3000 ] && SOBRA_MS=3000
     if [ "$SOBRA_MS" -ge 1500 ]; then
-        SEM=$(printf '%s' "$USER_TEXT" | python3 -c "import json,sys; print(json.dumps({'input': sys.stdin.read()}))" \
+        SEM=$(printf '%s' "$USER_TEXT" | python3 -I -c "import json,sys; print(json.dumps({'input': sys.stdin.read()}))" \
             | DGCLAW_WORKSPACE="$WORKSPACE" timeout "$((SOBRA_MS / 1000)).$((SOBRA_MS % 1000 / 100))" \
-              nice -n 5 python3 "$FAST" 2>>"$LOGF"
+              nice -n 5 python3 -I "$FAST" 2>>"$LOGF"
             echo "__rc=${PIPESTATUS[2]}")
         SRC="${SEM##*__rc=}"
         [ "$SRC" = "124" ] && logerr "a busca semantica passou de ${SOBRA_MS}ms e foi abandonada nesta mensagem (maquina ocupada? veja docs/MEMORIA-SEMANTICA.md)"
         # orcamento de contexto: no maximo ~700 caracteres, igual ao teto da busca em conversas
-        RECALL_TEXT=$(printf '%s' "${SEM%__rc=*}" | python3 -c "$extrai_recall" 2>>"$LOGF" \
-            | python3 -c "import sys; t=sys.stdin.read().strip(); print(t if len(t)<=700 else t[:700].rstrip()+' (...)')" 2>>"$LOGF")
+        RECALL_TEXT=$(printf '%s' "${SEM%__rc=*}" | python3 -I -c "$extrai_recall" 2>>"$LOGF" \
+            | python3 -I -c "import sys; t=sys.stdin.read().strip(); print(t if len(t)<=700 else t[:700].rstrip()+' (...)')" 2>>"$LOGF")
     fi
 fi
 
@@ -136,7 +136,7 @@ fi
 # As duas buscas leem as conversas antigas, inclusive a que fez ele travar. Ver _lib/quarentena.py.
 QUAR="$SCRIPTS/../_lib/quarentena.py"
 if [ -n "$RECALL_TEXT" ] && [ -f "$QUAR" ] && { [ -d "$WORKSPACE/.dgclaw/quarentena" ] || [ -f "$WORKSPACE/.dgclaw/modo-seguro.json" ]; }; then
-    RECALL_TEXT=$(printf '%s' "$RECALL_TEXT" | timeout 3 python3 "$QUAR" filtrar-linhas --workspace "$WORKSPACE" 2>>"$LOGF") \
+    RECALL_TEXT=$(printf '%s' "$RECALL_TEXT" | timeout 3 python3 -I "$QUAR" filtrar-linhas --workspace "$WORKSPACE" 2>>"$LOGF") \
         || { logerr "o filtro da quarentena falhou nesta mensagem; por seguranca o recall nao entrou"; RECALL_TEXT=""; }
 fi
 
@@ -147,7 +147,7 @@ CTX=""
 }$COMPACT_NOTE"
 [ -z "$CTX" ] && exit 0
 
-CTX="$CTX" python3 -c "
+CTX="$CTX" python3 -I -c "
 import json, os
 print(json.dumps({'hookSpecificOutput': {'hookEventName':'UserPromptSubmit','additionalContext': os.environ['CTX']}}, ensure_ascii=False))
 " 2>>"$LOGF"

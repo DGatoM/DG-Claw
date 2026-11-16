@@ -33,6 +33,10 @@ APP_DIR="$(cd "$(dirname "$DGCLAW_BIN_REAL")/.." && pwd)"
 . "$APP_DIR/lib/aviso-atualizacao.sh"
 # shellcheck source=lib/personalizacoes.sh
 . "$APP_DIR/lib/personalizacoes.sh"
+# shellcheck source=lib/dns-containers.sh
+. "$APP_DIR/lib/dns-containers.sh"
+# shellcheck source=lib/colaborador.sh
+. "$APP_DIR/lib/colaborador.sh"
 
 # Tempo maximo de espera (segundos) do systemd e do /api/saude de dentro do agente.
 # Variavel so para os testes nao esperarem um minuto de verdade.
@@ -109,10 +113,13 @@ Agentes
 
 Dominio do painel
   dgclaw dominio [mostrar]               mostra o dominio atual do painel e o IP publico da VPS
+      (instalado com --proxy-existente: mostra tambem a porta local e os trechos para o seu nginx ou tunel)
   dgclaw dominio trocar <nome> [--sem-conferir-dns]
       Passa o painel para um dominio proprio. Antes, o DNS do nome precisa apontar para o IP da VPS
       (registro tipo A); o comando confere e, se nao apontar, explica o que falta e nao muda nada.
       Depois reescreve o Caddy, recarrega, grava o dominio e espera o HTTPS (o certificado sai sozinho).
+      Instalado com --proxy-existente, o HTTPS e do seu proxy: o comando so grava o nome e mostra os
+      trechos novos para voce atualizar o nginx ou o tunel (nao mexe no Caddy, nao confere DNS).
       Exemplo:  dgclaw dominio trocar painel.minhaempresa.com.br
 
 Imagem dos agentes
@@ -176,6 +183,12 @@ Personalizacoes do programa (o que o Admin mudou no DG Claw)
   dgclaw personalizacoes conferir        confere o registro contra a versao nova (git fetch) e diz se algo cruza; nao muda nada
   dgclaw personalizacoes concluir        marca o levantamento pendente como concluido (exige o registro)
       Exemplo:  sudo dgclaw personalizacoes conferir
+
+Colaboradores (quem conversa com UM agente)
+  dgclaw colaborador criar <agente> <email> [--nome "<Nome>"] [--json]
+      Cria o acesso e mostra o texto do convite pronto para copiar (endereco, login e senha temporaria).
+      Outros: listar [agente], reenviar <id-ou-email>, revogar <id-ou-email>. Ver "dgclaw colaborador ajuda".
+      Exemplo:  sudo dgclaw colaborador criar ana maria@empresa.com --nome "Maria"
 
 Ronda de seguranca
   dgclaw seguranca [estado|resumo|rodar|aplicar|desfazer|inventario]   ver "dgclaw seguranca ajuda"
@@ -466,7 +479,7 @@ gerar_identidade() {
 }
 
 # regravar_identidade_md: monta o identidade.md, o que o runner injeta em toda sessao:
-# o AGENT.md (do disco, a pessoa pode ter editado) + a regra do canal + a secao "Onde voce
+# a regra numero 1 (templates/ambiente/topo.md) + o AGENT.md (do disco, a pessoa pode ter editado) + a regra do canal + a secao "Onde voce
 # esta e o que voce consegue fazer" (templates/ambiente/agente.md). O arquivo e DERIVADO:
 # o que a pessoa edita e o AGENT.md, entao ele e regravado sempre (so se o conteudo mudou).
 # Usa C_HOME, C_UG, C_SLUG, C_NOME e C_DONO_TEXTO do chamador.
@@ -475,7 +488,12 @@ regravar_identidade_md() {
     local C_PAPEL="${C_PAPEL:-$TEXTO_PAPEL_NEUTRO}" C_JEITO="${C_JEITO:-$TEXTO_JEITO_NEUTRO}" C_DATA="${C_DATA:-$(date +%F)}"
     [ -f "$tpl/ambiente/agente.md" ] || falha "o modelo $tpl/ambiente/agente.md nao existe." \
         "a copia do DG Claw em $APP_DIR esta incompleta; reinstale com o instalador."
+    [ -f "$tpl/ambiente/topo.md" ] || falha "o modelo $tpl/ambiente/topo.md nao existe." \
+        "a copia do DG Claw em $APP_DIR esta incompleta; reinstale com o instalador."
     {
+        # A regra numero 1 (responder primeiro, rapida/curta/longa) vai no TOPO: no fim, depois de um
+        # AGENT.md personalizado grande, o agente deixava de segui-la e prendia a conversa.
+        renderizar_template "$tpl/ambiente/topo.md"
         if [ -f "$h/AGENT.md" ]; then cat "$h/AGENT.md"; else renderizar_template "$tpl/AGENT.md.tmpl"; fi
         printf '\n---\n\n'
         regra_canal_dgchat
@@ -799,16 +817,32 @@ criar_rede() {
         info "a rede $rede ja existe"
         return 0
     fi
-    # Sem DNS e uma faixa so dele: dois agentes na mesma ponte se enxergam.
-    executar podman network create --disable-dns --subnet "10.89.$C_N.0/24" "$rede" >/dev/null
-    ok "rede $rede (10.89.$C_N.0/24)"
+    # Sem DNS e uma faixa so dele: dois agentes na mesma ponte se enxergam. A faixa (/16) e a do
+    # dgclaw.env (--faixa-rede do instalador, padrao 10.89.0.0/16); cada agente ganha o /24 do seu numero.
+    local faixa prefixo
+    faixa="$(faixa_rede_efetiva)"
+    prefixo="${faixa%.0.0/16}"
+    # O label dgclaw.v1=1 marca a rede como do DG Claw v1: o instalador usa isso para nao confundir com
+    # redes de outro sistema que tambem comecam com "dgclaw-" (ele checa a faixa contra elas).
+    executar podman network create --disable-dns --label dgclaw.v1=1 --label "dgclaw.agente=$C_SLUG" \
+        --subnet "$prefixo.$C_N.0/24" "$rede" >/dev/null
+    ok "rede $rede ($prefixo.$C_N.0/24)"
 }
 
 criar_container() {
     local c="dgclaw-$C_SLUG" casa="$C_CASA" ub="$C_UID_BASE"
     if [ "$ENSAIO" != 1 ] && podman container exists "$c" >/dev/null 2>&1; then
         info "o container $c ja existe, so garanto que esta ligado"
+        dns_containers_calcular
+        if [ "${#DNS_CONTAINER_ARGS[@]}" -gt 0 ] \
+            && [[ "$(podman inspect -f '{{.HostConfig.Dns}}' "$c" 2>/dev/null)" != *1.1.1.1* ]]; then
+            aviso "o DNS deste servidor ($DNS_HOST_PRIVADOS) fica numa rede privada, que a cerca dos agentes bloqueia. O container $c foi criado antes e continua com o DNS do servidor (o podman nao troca o DNS de container existente), entao ele pode ficar sem DNS. Para ele passar a usar DNS publico (1.1.1.1 e 8.8.8.8): dgclaw agente recriar $C_SLUG --forcar"
+        fi
     else
+        dns_containers_calcular
+        if [ "${#DNS_CONTAINER_ARGS[@]}" -gt 0 ]; then
+            info "o DNS deste servidor ($DNS_HOST_PRIVADOS) fica numa rede privada, que a cerca dos agentes bloqueia; o container $c usa DNS publico (1.1.1.1 e 8.8.8.8)."
+        fi
         local args=(create
             --name "$c" --hostname "$C_SLUG"
             --uidmap "0:$ub:$FAIXA_UID" --gidmap "0:$ub:$FAIXA_UID"
@@ -818,6 +852,7 @@ criar_container() {
             --volume "$casa/cofre:/run/dgclaw/cofre:ro"
             --volume "$casa/config:/run/dgclaw/config:ro"
             --network "dgclaw-$C_SLUG"
+            "${DNS_CONTAINER_ARGS[@]}"
             --publish "127.0.0.1:$C_PORTA_RUNNER:4300"
             --publish "127.0.0.1:$C_PORTA_PAINEL:8300"
             --memory 2g --cpus 1.0 --pids-limit 1024 --restart unless-stopped
@@ -954,6 +989,39 @@ echo "rotinas, runner e painel instalados"
 DENTRO
 }
 
+# Dá ao painel o grupo systemd-journal em agente que ja existia (a imagem nova ja nasce com ele).
+# Sem o grupo, o journalctl do painel devolve zero linhas e a aba Operacoes fica sem historico.
+# Roda como root dentro do container; idempotente. O grupo so vale para processo novo, entao o
+# painel e reiniciado se o processo em execucao nao o tem (isso cobre tambem o caso em que o
+# usermod ja foi feito mas o painel nao reiniciou).
+grupo_diario_script() {
+    cat <<'DENTRO'
+set -euo pipefail
+if ! getent group systemd-journal >/dev/null; then
+    echo "o grupo systemd-journal nao existe dentro do agente (a imagem e anterior a esta correcao). Atualize a imagem e recrie o agente: dgclaw imagem construir --agora && dgclaw agente recriar <slug>" >&2
+    exit 1
+fi
+# Sem pipe com grep -q: com pipefail, o SIGPIPE de quem escreve viraria falha.
+case " $(id -nG agente) " in
+    *" systemd-journal "*) ;;
+    *) usermod -aG systemd-journal agente ;;
+esac
+gid="$(getent group systemd-journal | cut -d: -f3)"
+pid="$(systemctl show -p MainPID --value dgclaw-painel.service)"
+if [ -n "$pid" ] && [ "$pid" != 0 ]; then
+    grupos="$(ps -o supgid= -p "$pid" || true)"
+    tem=0
+    # O ps separa os grupos por virgula.
+    for g in ${grupos//,/ }; do [ "$g" = "$gid" ] && tem=1; done
+    if [ "$tem" = 0 ]; then
+        systemctl restart dgclaw-painel.service
+        echo "painel reiniciado para pegar o grupo systemd-journal"
+    fi
+fi
+echo "grupo systemd-journal ok"
+DENTRO
+}
+
 # Pre-instala o plugin oficial do Telegram para o `--channels` funcionar sem pedir nada
 # ao aluno. Roda como o usuario agente, com a casa dele. Idempotente: se ja esta
 # instalado, nao faz nada. Agente do Codex nao usa o plugin do Claude e e pulado.
@@ -995,6 +1063,12 @@ instalar_vida() {
     if [ "$rc" -ne 0 ]; then
         aviso "a parte de dentro do agente (rotinas, runner, painel) nao terminou (codigo $rc). O agente continua criado. Para refazer so isso: dgclaw agente reparar $1"
         return 1
+    fi
+    # Sem o grupo, a aba Operacoes nao le o diario das rotinas; o agente funciona do mesmo jeito.
+    rc=0
+    grupo_diario_script | podman exec -i "$c" bash -s || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        aviso "nao consegui dar ao painel do agente $1 o acesso ao diario do sistema (codigo $rc). O agente funciona, mas a aba Operacoes fica sem historico e diz o motivo. Para tentar de novo: dgclaw agente reparar $1"
     fi
     # O Telegram e opcional: se o plugin nao instalar, o agente segue de pe e o canal
     # pode ser ligado depois.
@@ -1145,6 +1219,11 @@ agente_criar() {
 
     exigir_ferramentas jq podman ss curl
     C_ETAPA="validacao"
+    # Trava compartilhada da faixa de rede: da leitura da configuracao (a faixa) ate a cerca publicada.
+    # O instalador, que pode trocar a faixa, espera por ela (ver trava_faixa_pegar em lib/comum.sh).
+    trava_faixa_pegar -s
+    # O podman nao herda o descritor da trava: o conmon vive ate o container parar e a seguraria.
+    podman() { command podman "$@" 8>&-; }
     carregar_env_dgclaw
     if ! podman image exists "$DGCLAW_IMAGEM" >/dev/null 2>&1; then
         falha "a imagem dos agentes ($DGCLAW_IMAGEM) ainda nao existe nesta maquina." \
@@ -1178,6 +1257,7 @@ agente_criar() {
     criar_container
     etapa "Aplicando as regras de firewall"
     rodar_firewall
+    trava_faixa_soltar
     etapa "Esperando a maquina do agente ligar"
     esperar_systemd "dgclaw-$C_SLUG"
     etapa "Instalando as rotinas, o runner e o painel dentro do agente"
@@ -1197,7 +1277,7 @@ agente_criar() {
     trap - EXIT
 
     local base
-    if [ -n "${DGCLAW_DOMINIO:-}" ]; then base="https://$DGCLAW_DOMINIO"; else base="http://127.0.0.1:8300"; fi
+    base="$(url_base_painel)"
     printf '\n%s esta criado.\n' "$C_NOME"
     printf '  Provedor: %s (%s)\n' "$C_PROVEDOR" "$C_AUTH"
     printf '  Painel: %s/p/%s\n' "$base" "$C_SLUG"
@@ -1425,8 +1505,16 @@ agente_recriar() {
     img_atual="$(podman inspect -f '{{.Image}}' "$c" 2>/dev/null || true)"
     img_nova="$(podman image inspect -f '{{.Id}}' "$DGCLAW_IMAGEM" 2>/dev/null || true)"
     if [ "$forcar" = 0 ] && [ -n "$img_nova" ] && [ "$img_atual" = "$img_nova" ]; then
-        ok "agente $slug: o container ja usa a imagem atual, nada a recriar"
-        return 0
+        # Mesma imagem, mas o DNS do servidor e privado e o container nasceu antes de o DG Claw dar
+        # DNS publico aos agentes: o podman nao troca o DNS de container existente, so recriando.
+        dns_containers_calcular
+        if [ "${#DNS_CONTAINER_ARGS[@]}" -gt 0 ] \
+            && [[ "$(podman inspect -f '{{.HostConfig.Dns}}' "$c" 2>/dev/null)" != *1.1.1.1* ]]; then
+            info "agente $slug: a imagem e a mesma, mas o DNS do servidor ($DNS_HOST_PRIVADOS) fica numa rede privada e o container ainda usa esse DNS; vou recriar para ele usar DNS publico."
+        else
+            ok "agente $slug: o container ja usa a imagem atual, nada a recriar"
+            return 0
+        fi
     fi
 
     C_SLUG="$slug"; C_CASA="$DG_CASAS/$slug"; C_HOME="$C_CASA/home"
@@ -2031,7 +2119,7 @@ primeiro_acesso() {
     }
     carregar_env_dgclaw
     tk="$(gerar_primeiro_acesso "$usuario")"
-    if [ -n "${DGCLAW_DOMINIO:-}" ]; then base="https://$DGCLAW_DOMINIO"; else base="http://127.0.0.1:8300"; fi
+    base="$(url_base_painel)"
     printf '%s/primeiro-acesso#%s\n' "$base" "$tk"
     printf 'uso unico, vale 30 min; o link anterior deixou de valer\n' >&2
 }
@@ -2079,11 +2167,45 @@ senha_main() {
 dominio_mostrar() {
     carregar_env_dgclaw
     local ip=""
-    ip="$(ip_publico)" || ip=""
     printf 'Dominio atual do painel: %s\n' "${DGCLAW_DOMINIO:-(nao definido em $DG_ETC/dgclaw.env)}"
     if [ -n "${DGCLAW_DOMINIO:-}" ]; then printf 'Endereco do painel:      https://%s/\n' "$DGCLAW_DOMINIO"; fi
+    if modo_tunel; then
+        printf 'Este painel esta atras de um tunel (DGCLAW_ATRAS_DE_TUNEL=1): nao precisa de IP publico nem de registro A.\n'
+        printf 'O tunel tem que apontar o dominio para https://127.0.0.1:443, com o nome do servidor de origem igual ao dominio e sem verificacao do certificado. Para trocar o nome: sudo dgclaw dominio trocar <nome> (e acrescente o nome novo no tunel).\n'
+        return 0
+    fi
+    ip="$(ip_publico)" || ip=""
     printf 'IP publico desta VPS:    %s\n' "${ip:-(nao consegui descobrir: api.ipify.org e ifconfig.me nao responderam)}"
+    if modo_proxy_existente; then
+        local porta
+        porta="$(porta_painel_efetiva)"
+        printf 'Modo:                    atras de proxy existente (o HTTPS e do seu nginx, Caddy ou tunel)\n'
+        printf 'Porta local do painel:   127.0.0.1:%s\n' "$porta"
+        if [ -n "${DGCLAW_DOMINIO:-}" ]; then
+            printf 'Para o seu proxy apontar para o DG Claw, use um destes trechos:\n'
+            imprimir_trechos_proxy "$DGCLAW_DOMINIO" "$porta"
+        fi
+        printf '\nPara usar outro nome: sudo dgclaw dominio trocar <nome> (grava o nome e mostra os trechos de novo; o seu proxy voce atualiza).\n'
+        return 0
+    fi
     printf 'Para usar um dominio proprio: crie um registro DNS tipo A apontando para esse IP e rode: sudo dgclaw dominio trocar <nome>\n'
+}
+
+# dominio_trocar_proxy <novo>: no modo --proxy-existente o HTTPS e do proxy da pessoa. Aqui so se
+# grava o nome e se mostra o que ela precisa atualizar la; nao toca no Caddy (que nem precisa
+# existir), nao confere DNS (pode apontar para um tunel, nao para o IP desta VPS) e nao espera HTTPS.
+dominio_trocar_proxy() {
+    local novo="$1" porta
+    porta="$(porta_painel_efetiva)"
+    passo "Gravando o dominio $novo (modo proxy existente)"
+    info "o Caddy, o DNS e o HTTPS sao do seu proxy: nao mexi em nada disso."
+    dominio_gravar_env "$novo"
+    ok "dominio gravado em $DG_ETC/dgclaw.env"
+    printf '\nFalta atualizar o seu proxy para o nome novo (o antigo deixa de ser o do DG Claw quando voce trocar). Use o trecho do seu caso:\n'
+    imprimir_trechos_proxy "$novo" "$porta"
+    printf '\nDepois que o proxy estiver apontando, o painel abre em: https://%s/\n' "$novo"
+    printf 'A senha e os agentes continuam os mesmos; quem estava logado precisa entrar de novo no endereco novo.\n'
+    printf 'Se precisar de um link de primeiro acesso novo: sudo dgclaw primeiro-acesso\n'
 }
 
 # dominio_gravar_env <dominio>: troca (ou acrescenta) so a linha DGCLAW_DOMINIO do dgclaw.env.
@@ -2112,17 +2234,30 @@ dominio_trocar() {
         || falha "o dominio '$novo' nao parece um endereco valido." "use so o nome, sem https:// e sem barra, por exemplo: painel.minhaempresa.com.br"
     [[ "$novo" == *.* ]] || falha "o dominio '$novo' nao tem ponto, entao nao e um endereco da internet." "use o nome completo, por exemplo: painel.minhaempresa.com.br"
     novo="$(printf '%s' "$novo" | tr '[:upper:]' '[:lower:]')"
+    carregar_env_dgclaw
+    if modo_proxy_existente; then
+        dominio_trocar_proxy "$novo"
+        return 0
+    fi
     exigir_ferramentas curl dig caddy
 
-    local ip="" cf="$R/etc/caddy/Caddyfile" confd="$R/etc/caddy/conf.d/dgclaw.caddy"
-    ip="$(ip_publico)" || ip=""
+    local ip="" cf="$R/etc/caddy/Caddyfile" confd="$R/etc/caddy/conf.d/dgclaw.caddy" tunel=0 curl_k=()
+    if modo_tunel; then tunel=1; conferir=0; curl_k=(-k); fi
+    if [ "$tunel" = 1 ]; then ip="(sem IP publico: atras de tunel)"; else ip="$(ip_publico)" || ip=""; fi
     if [ -z "$ip" ]; then
         [ "$conferir" = 0 ] || falha "nao consegui descobrir o IP publico desta VPS (api.ipify.org e ifconfig.me nao responderam)." \
             "confira se a VPS tem internet e rode de novo. Para pular a conferencia do DNS por sua conta e risco: dgclaw dominio trocar $novo --sem-conferir-dns"
         ip="(desconhecido)"
     fi
-    passo "Conferindo se $novo aponta para esta VPS ($ip)"
-    if [ "$conferir" = 1 ]; then
+    if [ "$tunel" = 1 ]; then
+        passo "Painel atras de tunel: nao confiro o DNS contra o IP publico"
+        aviso "o nome $novo precisa estar no tunel (Cloudflare: Public Hostname apontando para https://127.0.0.1:443, com o Origin Server Name igual a $novo e No TLS Verify). Sem isso o endereco novo nao abre de fora."
+    else
+        passo "Conferindo se $novo aponta para esta VPS ($ip)"
+    fi
+    if [ "$tunel" = 1 ]; then
+        info "conferencia do DNS pulada: atras de tunel o nome nao aponta para o IP do servidor."
+    elif [ "$conferir" = 1 ]; then
         if ! dns_publico_aponta "$novo" "$ip"; then
             falha "o DNS publico (1.1.1.1 e 8.8.8.8) ainda nao aponta $novo para o IP desta VPS ($ip). Nada foi mudado." \
                 "no painel de DNS de onde o dominio foi comprado, crie um registro tipo A para $novo com o valor $ip (se tiver um registro AAAA antigo para esse nome, apague; na Cloudflare, deixe a nuvem cinza). A propagacao pode levar de alguns minutos a algumas horas. Confira com: dig +short A $novo @1.1.1.1 (tem que devolver $ip) e rode este comando de novo."
@@ -2133,14 +2268,10 @@ dominio_trocar() {
     fi
 
     passo "Reescrevendo o site do DG Claw no Caddy"
-    local bk_cf="" bk_confd="" tem_cf=0 tem_confd=0
-    if [ -f "$cf" ]; then tem_cf=1; bk_cf="$(cat "$cf")"; fi
-    if [ -f "$confd" ]; then tem_confd=1; bk_confd="$(cat "$confd")"; fi
-    escrever_site_caddy "$novo"
+    escrever_site_caddy "$novo" trocar "$(porta_painel_efetiva)"
     if [ "$ENSAIO" != 1 ] && ! caddy validate --config "$cf" --adapter caddyfile >"$TMP_CADDY_LOG" 2>&1; then
         # Volta o que estava antes: o Caddy em producao nunca pode ficar com arquivo quebrado.
-        if [ "$tem_cf" = 1 ]; then printf '%s\n' "$bk_cf" >"$cf"; fi
-        if [ "$tem_confd" = 1 ]; then printf '%s\n' "$bk_confd" >"$confd"; else rm -f "$confd"; fi
+        caddy_restaurar_site   # cp -p: conteudo, modo e dono do arquivo de antes
         falha "o Caddy recusou a configuracao nova (caddy validate falhou: $(tail -n 3 "$TMP_CADDY_LOG" | tr '\n' ' ')). Voltei o arquivo ao que era; nada mudou." \
             "confira se o nome '$novo' esta certo e rode de novo; se persistir, veja: caddy validate --config $cf --adapter caddyfile"
     fi
@@ -2154,13 +2285,17 @@ dominio_trocar() {
         info "[ensaio] esperaria https://$novo/ responder (ate 90s) e mostraria o link novo do painel"
         return 0
     fi
-    info "esperando o certificado HTTPS de $novo (ate 90s)..."
+    if [ "$tunel" = 1 ]; then info "esperando o Caddy responder em $novo pelo loopback (ate 90s)..."; else info "esperando o certificado HTTPS de $novo (ate 90s)..."; fi
     local inicio=$SECONDS pronto=0
     while true; do
-        if curl -sS --max-time 8 -o /dev/null --resolve "$novo:443:127.0.0.1" "https://$novo/" 2>/dev/null; then pronto=1; break; fi
+        if curl -sS --max-time 8 -o /dev/null ${curl_k[@]+"${curl_k[@]}"} --resolve "$novo:443:127.0.0.1" "https://$novo/" 2>/dev/null; then pronto=1; break; fi
         [ $((SECONDS - inicio)) -ge 90 ] && break
         sleep 3
     done
+    if [ "$pronto" != 1 ] && [ "$tunel" = 1 ]; then
+        falha "o Caddy nao respondeu em https://$novo/ (pelo loopback 127.0.0.1:443) em 90s. O Caddy ja esta com o nome novo." \
+            "veja o motivo com: journalctl -u caddy -n 30. Para voltar ao endereco anterior: dgclaw dominio trocar <nome antigo>."
+    fi
     if [ "$pronto" != 1 ]; then
         falha "https://$novo/ nao respondeu em 90s. O Caddy ja esta com o nome novo, mas o certificado ainda nao saiu." \
             "confira se as portas 80 e 443 estao abertas no firewall do provedor (a Hostinger tem um firewall no painel dela) e se $novo aponta para $ip (na Cloudflare, nuvem cinza). Veja o motivo com: journalctl -u caddy -n 30. O Caddy tenta de novo sozinho; quando passar, o painel abre em https://$novo/. Para voltar ao endereco anterior: dgclaw dominio trocar <nome antigo>."
@@ -2231,12 +2366,19 @@ status_geral() {
     if [ -n "${DGCLAW_DOMINIO:-}" ]; then s_ok "dominio: $DGCLAW_DOMINIO"; else s_aviso "dominio: nao definido em $DG_ETC/dgclaw.env"; fi
 
     local u
-    for u in caddy dgclaw-web dgclaw-admin; do
+    local unidades=(caddy dgclaw-web dgclaw-admin) porta_web
+    porta_web="$(porta_painel_efetiva)"
+    if modo_proxy_existente; then
+        # O HTTPS e do proxy da pessoa (nginx, Caddy dela, tunel): nao e servico nosso para cobrar.
+        unidades=(dgclaw-web dgclaw-admin)
+        s_ok "modo proxy existente: o HTTPS fica com o seu proxy (DG Claw Web so em 127.0.0.1:$porta_web)"
+    fi
+    for u in "${unidades[@]}"; do
         if [ "$(systemctl is-active "$u" 2>/dev/null)" = active ]; then s_ok "servico $u de pe"
         else s_mal "servico $u parado. Veja: systemctl status $u  (ligar: systemctl start $u)"; fi
     done
-    if curl -s -o /dev/null --max-time 3 http://127.0.0.1:8300/; then s_ok "Web responde em 127.0.0.1:8300"
-    else s_mal "o Web nao responde em 127.0.0.1:8300. Veja: journalctl -u dgclaw-web -n 50"; fi
+    if curl -s -o /dev/null --max-time 3 "http://127.0.0.1:$porta_web/"; then s_ok "Web responde em 127.0.0.1:$porta_web"
+    else s_mal "o Web nao responde em 127.0.0.1:$porta_web. Veja: journalctl -u dgclaw-web -n 50"; fi
     if curl -fsS -o /dev/null --max-time 3 http://127.0.0.1:4300/api/saude; then s_ok "Admin responde (/api/saude em 127.0.0.1:4300)"
     else s_mal "o Admin nao responde em 127.0.0.1:4300/api/saude. Veja: journalctl -u dgclaw-admin -n 50"; fi
 
@@ -2310,6 +2452,7 @@ main() {
         imagem) imagem_main "$@" ;;
         senha) senha_main "$@" ;;
         seguranca) seguranca_main "$@" ;;
+        colaborador) colaborador_main "$@" ;;
         dominio) dominio_main "$@" ;;
         primeiro-acesso) primeiro_acesso "$@" ;;
         instalacao-remota) instalacao_remota "$@" ;;

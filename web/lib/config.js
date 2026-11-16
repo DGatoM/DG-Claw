@@ -52,6 +52,8 @@ function carregaConfig(opcoes, log) {
     porta: opcoes.porta != null ? opcoes.porta : num(env.DGCLAW_WEB_PORT, 8300),
     agentesPath: opcoes.agentesPath || env.DGCLAW_AGENTES || '/etc/dgclaw/agentes.json',
     dataDir: opcoes.dataDir || env.DGCLAW_WEB_DATA || '/var/lib/dgclaw/web',
+    // Pasta da marca (white label): fica fora da instalação e sobrevive à atualização.
+    marcaDir: opcoes.marcaDir || env.DGCLAW_MARCA_DIR || '/etc/dgclaw/marca',
     publicDir: opcoes.publicDir || path.join(__dirname, '..', 'public'),
     origensExtras: new Set(String(env.DGCLAW_WEB_ORIGENS || '').split(',').map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean)),
     proxiesConfiaveis: new Set(String(env.DGCLAW_WEB_PROXIES_CONFIAVEIS || '').split(',').map((s) => s.trim()).filter(Boolean)),

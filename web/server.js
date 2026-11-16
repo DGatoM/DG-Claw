@@ -35,6 +35,7 @@ const { criarAnonimizar } = require('./lib/anonimizar');
 const { criarRotasAnonimizar } = require('./lib/anonimizar-rotas');
 const { criarOnboarding } = require('./lib/onboarding');
 const { criarLogin } = require('./lib/login');
+const { criarContaColaborador } = require('./lib/conta-colaborador');
 const { criarPrimeiroAcesso } = require('./lib/primeiro-acesso');
 const { criarCaixaAgente, quemChamou } = require('./lib/caixa-agente');
 const { criarPush } = require('./lib/push');
@@ -44,9 +45,12 @@ const { criarPrefsAtencao } = require('./lib/prefs-atencao');
 const { criarModalLoginPrefs } = require('./lib/modal-login-prefs');
 const { criarVigiaAtencao } = require('./lib/vigia-atencao');
 const { criarMesa } = require('./lib/mesa');
+const { criarPedidos } = require('./lib/pedidos');
+const { criarManual } = require('./lib/manual');
 const { criarAvisos } = require('./lib/avisos');
 const { criarAtualizacao } = require('./lib/atualizacao');
 const { criarSeguranca } = require('./lib/seguranca');
+const { criarLogsRotas, autorizado: logsAutorizado } = require('./lib/logs-rotas');
 const { criarRondaPainel } = require('./lib/ronda-painel');
 const { criarNaoLidas } = require('./lib/nao-lidas');
 const { criarUso } = require('./lib/uso');
@@ -54,6 +58,7 @@ const { criarColaboradores } = require('./lib/colaboradores');
 const { criarColaboradoresRotas } = require('./lib/colaboradores-rotas');
 const { criarEmail } = require('./lib/email');
 const { criarCadeado, MSG_TRAVADO } = require('./lib/cadeado');
+const { criarMarca } = require('./lib/marca');
 const escopo = require('./lib/escopo');
 
 const METODOS_QUE_ESCREVEM = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -67,9 +72,9 @@ const TIPOS_ESTATICOS = {
 };
 const RX_SLUG_ROTA = /^[a-z0-9][a-z0-9-]{0,31}$/;
 
-const LOGIN_RESERVA = '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><title>Entrar</title>' +
+const loginReserva = (nome) => '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><title>Entrar</title>' +
   '<style>body{font-family:system-ui,sans-serif;max-width:22rem;margin:14vh auto;padding:0 1rem}input,button{display:block;width:100%;margin:.5rem 0;padding:.6rem;font-size:1rem}</style></head><body>' +
-  '<h1>DG Claw</h1><p id="e" style="color:#b00"></p><form method="post" action="/login"><input name="usuario" placeholder="Usuário" autocomplete="username" required>' +
+  '<h1>' + nome + '</h1><p id="e" style="color:#b00"></p><form method="post" action="/login"><input name="usuario" placeholder="Usuário" autocomplete="username" required>' +
   '<input name="senha" type="password" placeholder="Senha" autocomplete="current-password" required><input type="hidden" name="next" value=""><button>Entrar</button></form>' +
   '<script>var q=new URLSearchParams(location.search);document.getElementById("e").textContent=q.get("erro")||"";document.querySelector("[name=next]").value=q.get("next")||"/"</script></body></html>';
 
@@ -145,9 +150,9 @@ function criarServidor(opcoes) {
   // Conexões abertas (stream da conversa) de cada colaborador: ao revogar ou trocar a senha, fecham junto com a sessão.
   const streamsDoColaborador = new Map();
   const fechaStreamsDe = (id) => { for (const r of streamsDoColaborador.get(id) || []) r.destroy(); streamsDoColaborador.delete(id); proxy.fecharDoColaborador(id); };
-  const colabRotas = criarColaboradoresRotas({ colaboradores, auth, registro, email: opcoes.email || criarEmail({ config, log }), config, log, agora: opcoes.agora, aoDerrubar: fechaStreamsDe, aoRevogar: (id) => cadeado.removerDoTitular(`colaborador:${id}`).catch((e) => log('erro', `Cadeado: não apaguei as passkeys do colaborador ${id} ao revogar (${e.message}). Rode a revogação de novo ou apague-as em passkeys.json.`)) });
   const primeiroAcesso = criarPrimeiroAcesso({ config, auth, log, agora: opcoes.agora });
   const avatares = criarAvatar({ dataDir: config.dataDir, log });
+  const marca = criarMarca({ dir: config.marcaDir, padraoJson: path.join(__dirname, 'marca-padrao.json'), padraoDir: path.join(__dirname, 'public', 'ds', 'marca-padrao'), log });
   const midia = criarMidia({ dataDir: config.dataDir, log, registro, publicDir: config.publicDir });
   const leitor = criarLeitor({ log, tz: config.tz, canalTelegram: config.canalTelegram, midia });
   const leitorRollout = criarLeitorRollout({ log, tz: config.tz, midia });
@@ -159,6 +164,8 @@ function criarServidor(opcoes) {
   const login = criarLogin({ runner, conversa, log, agora: opcoes.agora, oiPrazoMs: opcoes.loginOiPrazoMs, oiPassoMs: opcoes.loginOiPassoMs, provedores: opcoes.provedores });
   const cofreAgente = criarCofreAgente({ config, log, reiniciar: opcoes.reiniciarCofre });
   const voz = opcoes.voz || criarVoz({ env: config.env, log });
+  const contaColab = criarContaColaborador({ dataDir: config.dataDir, login, log, agora: opcoes.agora, escreveArquivo: opcoes.escreveContaAgentes });
+  const colabRotas = criarColaboradoresRotas({ colaboradores, auth, registro, email: opcoes.email || criarEmail({ config, log }), config, log, agora: opcoes.agora, aoDerrubar: fechaStreamsDe, conta: contaColab, aoRevogar: (id) => cadeado.removerDoTitular(`colaborador:${id}`).catch((e) => log('erro', `Cadeado: não apaguei as passkeys do colaborador ${id} ao revogar (${e.message}). Rode a revogação de novo ou apague-as em passkeys.json.`)) });
   const sigilo = opcoes.sigilo || criarSigilo({ env: config.env, registro, dataDir: config.dataDir, log, timeoutMs: opcoes.timeoutSigiloMs });
   const anonimizar = opcoes.anonimizar || criarAnonimizar({
     env: config.env, dataDir: config.dataDir, registro, log, paraContainer,
@@ -179,6 +186,9 @@ function criarServidor(opcoes) {
   const mesa = criarMesa({ arquivo: path.join(config.dataDir, 'mesa', 'tarefas.json'), registro, runner, log, agora: opcoes.agora, tz: config.tz, avisarDono: (aviso) => push.enviar(aviso), filtro: filtroAnon });
   // O agente fala com a Mesa pelo dgclaw-mesa, que passa pela caixa: a rota precisa estar liberada.
   caixa.permitir('/api/v1/tarefas');
+  // Fila de pedidos: o agente cria e move os próprios itens pelo dgclaw-mesa pedido; o dono acompanha na aba Pedidos da Mesa.
+  const pedidos = criarPedidos({ arquivo: path.join(config.dataDir, 'pedidos', 'pedidos.json'), raiz: config.dataDir, registro, conversa, log, agora: opcoes.agora, tz: config.tz });
+  caixa.permitir('/api/v1/pedidos');
   const naoLidas = criarNaoLidas({ arquivo: path.join(config.dataDir, 'nao-lidas.json'), conversa, registro, log, relogio: opcoes.agora, lerThread: conversa.threadCompartilhada });
   const uso = criarUso({ registro, runner, log, timeoutMs: opcoes.timeoutUsoMs });
   // O agente consulta o uso da PRÓPRIA assinatura pela caixa (dgclaw-api GET /api/v1/uso); a rota
@@ -190,6 +200,9 @@ function criarServidor(opcoes) {
   caixa.permitir('/api/v1/cofre/docs.md');
   // A doc do Anonimizar é pública; as rotas dele NÃO entram aqui (agente não as chama).
   caixa.permitir('/api/v1/anonimizar/docs.md');
+  // O manual (docs/manual) é só leitura: o agente consulta pelo dgclaw-api antes de dizer que algo não existe.
+  const manual = criarManual({ dir: opcoes.manualDir || path.join(__dirname, '..', 'docs', 'manual'), log });
+  caixa.permitir('/api/v1/manual');
   // Aviso de versão nova: só o dono, pelo painel. De propósito NÃO entra em caixa.permitir (agente em container não usa).
   const estados = criarEstados({ conversa, naoLidas, registro, log });
   const prefsAtencao = criarPrefsAtencao({ arquivo: path.join(config.dataDir, 'push', 'preferencias.json'), log });
@@ -202,6 +215,9 @@ function criarServidor(opcoes) {
   const seguranca = criarSeguranca({ dataDir: config.dataDir, log, agora: opcoes.agora });
   // Ronda de fábrica e botão de emergência: também só do dono (fora de caixa.permitir). O Web só grava pedidos; o root executa.
   const rondaPainel = criarRondaPainel({ dataDir: config.dataDir, log, agora: opcoes.agora });
+  // Logs do Admin: o histórico de tudo o que cada agente fez, só para o dono e só pela tela. De propósito NÃO entra em caixa.permitir:
+  // texto de log não é de confiança e não pode chegar ao contexto de um agente (nem do Admin).
+  const logsRotas = criarLogsRotas({ registro, log, agora: opcoes.agora, orcamento: opcoes.logsOrcamento, leitor: opcoes.logsLeitor });
 
   let versaoJsCache = { ts: 0, valor: '0' };
   /** Versão da tela: mtime de conversa.js. A tela compara com a que carregou e se recarrega sozinha. */
@@ -214,6 +230,21 @@ function criarServidor(opcoes) {
   }
 
   // ── arquivos estáticos e páginas ─────────────────────────────────────────
+  // Conversa do colaborador: o mesmo conversa.html sem a fileira de troca de agente. Devolve false se o arquivo não pôde ser lido.
+  function servirConversaColab(res, m) {
+    let html;
+    try { html = fs.readFileSync(path.join(config.publicDir, 'conversa.html'), 'utf8'); } catch (_) { return false; }
+    html = html.replace(/[ \t]*<nav id="trocaBaixo"[^>]*><\/nav>\n?/, '');
+    // Mesma troca dos {{MARCA_*}} (com escape) que o servirArquivo faz para o dono.
+    try { html = marca.html(html); } catch (e) {
+      log('erro', `Falha aplicando a marca na conversa do colaborador (${e.code || e.message}).`); return false;
+    }
+    const corpoHtml = Buffer.from(html, 'utf8');
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Length': corpoHtml.length, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+    res.end(m === 'HEAD' ? undefined : corpoHtml);
+    return true;
+  }
+
   function servirArquivo(req, res, caminho, cache) {
     let st;
     try { st = fs.statSync(caminho); } catch (_) { return false; }
@@ -222,6 +253,16 @@ function criarServidor(opcoes) {
     const tipo = TIPOS_ESTATICOS[path.extname(caminho).toLowerCase()] || 'application/octet-stream';
     const cab = { 'Content-Type': tipo, ETag: etag, 'Cache-Control': cache || 'no-cache', 'X-Content-Type-Options': 'nosniff' };
     if (path.basename(caminho) === 'sw.js') cab['Service-Worker-Allowed'] = '/';
+    if (tipo.startsWith('text/html')) {
+      // Páginas: troca os {{MARCA_*}} (nome, slogan, tema) com escape. Sempre sem cache: a marca pode mudar a qualquer hora.
+      let corpoHtml;
+      try { corpoHtml = Buffer.from(marca.html(fs.readFileSync(caminho, 'utf8')), 'utf8'); } catch (e) {
+        log('erro', `Falha lendo a página ${caminho} (${e.code || e.message}).`); res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('Erro ao abrir a página.'); return true;
+      }
+      res.writeHead(200, { 'Content-Type': tipo, 'Cache-Control': cache || 'no-cache', 'X-Content-Type-Options': 'nosniff', 'Content-Length': corpoHtml.length });
+      res.end(req.method === 'HEAD' ? undefined : corpoHtml);
+      return true;
+    }
     if (req.headers['if-none-match'] === etag) { res.writeHead(304, cab); res.end(); return true; }
     cab['Accept-Ranges'] = 'bytes';
     // Range de um intervalo só (o iPhone só toca vídeo se o servidor responder 206). Vários intervalos: serve inteiro.
@@ -251,6 +292,36 @@ function criarServidor(opcoes) {
     return true;
   }
 
+  /** /marca.css, /manifest.webmanifest e /marca/<logo|favicon|icone-app|fonte/base|fonte/mono>. */
+  function servirMarca(req, res, p) {
+    const texto = (tipo, corpo) => {
+      const buf = Buffer.from(corpo, 'utf8');
+      res.writeHead(200, { 'Content-Type': tipo, 'Cache-Control': 'no-cache', 'X-Content-Type-Options': 'nosniff', 'Content-Length': buf.length });
+      res.end(req.method === 'HEAD' ? undefined : buf);
+      return true;
+    };
+    if (p === '/marca.css') return texto('text/css; charset=utf-8', marca.css());
+    if (p === '/manifest.webmanifest') return texto('application/manifest+json; charset=utf-8', marca.manifest());
+    const mm = /^\/marca\/(logo|favicon|icone-app|fonte\/(base|mono))$/.exec(p);
+    if (!mm) return false;
+    const a = mm[1].startsWith('fonte/') ? marca.arquivo('fonte', mm[2]) : marca.arquivo(mm[1]);
+    if (!a) return false;
+    // O arquivo já foi conferido (sem atalho, extensão e tamanho); aqui só evita servir um atalho trocado depois.
+    try { if (fs.lstatSync(a.caminho).isSymbolicLink()) return false; } catch (_) { return false; }
+    let st;
+    try { st = fs.statSync(a.caminho); } catch (_) { return false; }
+    if (!st.isFile()) return false;
+    const cab = { 'Content-Type': a.tipo, 'Content-Length': st.size, 'Cache-Control': 'no-cache', 'X-Content-Type-Options': 'nosniff', ETag: `"${st.size.toString(16)}-${Math.round(st.mtimeMs).toString(16)}"` };
+    if (a.tipo === 'image/svg+xml') cab['Content-Security-Policy'] = "sandbox; default-src 'none'; style-src 'unsafe-inline'";
+    if (req.headers['if-none-match'] === cab.ETag) { res.writeHead(304, cab); res.end(); return true; }
+    res.writeHead(200, cab);
+    if (req.method === 'HEAD') { res.end(); return true; }
+    const rs = fs.createReadStream(a.caminho);
+    rs.on('error', (e) => { log('erro', `Falha lendo o arquivo da marca ${mm[1]} (${e.code || e.message}).`); res.destroy(); });
+    rs.pipe(res);
+    return true;
+  }
+
   function arquivoPublico(urlPath) {
     let rel;
     try { rel = decodeURIComponent(urlPath); } catch (_) { return null; }
@@ -277,6 +348,18 @@ function criarServidor(opcoes) {
   const rotasAnonimizar = criarRotasAnonimizar({ anon: anonimizar, registro, midia, log, origemOk });
 
   const querHtml = (req) => /\btext\/html\b/.test(String(req.headers.accept || ''));
+
+  /** Texto de uma página do manual (nome 'README' = índice). Só leitura; erro com motivo em português. */
+  function servirManual(req, res, m, nome) {
+    let texto;
+    try { texto = manual.ler(nome); } catch (e) {
+      if (e.status) return H.erroJson(res, e.status, e.message);
+      log('erro', `Manual: falha ao ler a página ${String(nome).slice(0, 60)}: ${e.message}`);
+      return H.erroJson(res, 500, `Não consegui ler a página do manual (${e.message}). O detalhe está no log do servidor.`);
+    }
+    res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+    return res.end(m === 'HEAD' ? undefined : texto);
+  }
 
   function semSessaoPagina(req, res, url) {
     res.writeHead(302, { Location: `/login?next=${encodeURIComponent(url.pathname + url.search)}`, 'Cache-Control': 'no-store' });
@@ -447,6 +530,8 @@ function criarServidor(opcoes) {
 
     if (p.startsWith('/api/v1/tarefas') && await mesa.rota(req, res, url, sessao)) return undefined;
 
+    if (p.startsWith('/api/v1/pedidos') && await pedidos.rota(req, res, url, sessao)) return undefined;
+
     if (await foco.tratarRota(req, res, url, sessao)) return undefined;
 
     if ((p === '/api/v1/anonimizar' || p.startsWith('/api/v1/anonimizar/')) && await rotasAnonimizar.rotas(req, res, url, sessao)) return undefined;
@@ -458,6 +543,8 @@ function criarServidor(opcoes) {
     if (p.startsWith('/api/v1/seguranca/') && await rondaPainel.rotas(req, res, url, sessao)) return undefined;
 
     if ((p === '/api/v1/seguranca' || p.startsWith('/api/v1/seguranca/')) && await seguranca.rotas(req, res, url, sessao)) return undefined;
+
+    if ((p === '/api/v1/logs' || p.startsWith('/api/v1/logs/')) && await logsRotas.rotas(req, res, url, sessao)) return undefined;
 
     if (p === '/api/v1/onboarding') {
       if (falhaDoRegistro(req, res, true)) return;
@@ -575,6 +662,18 @@ function criarServidor(opcoes) {
       return res.end(fs.readFileSync(path.join(__dirname, 'docs', 'MIDIAS-CACHE.md')));
     }
 
+    if (p === '/api/v1/manual' || p.startsWith('/api/v1/manual/')) {
+      if (m !== 'GET' && m !== 'HEAD') return H.erroJson(res, 405, `O manual é só para leitura: use GET em ${p.slice(0, 80)}.`, null, { Allow: 'GET, HEAD' });
+      if (p === '/api/v1/manual') {
+        try { return H.enviaJson(res, 200, Object.assign({ ok: true }, manual.listar())); } catch (e) {
+          return H.erroJson(res, e.status || 500, e.status ? e.message : `Não consegui listar o manual (${e.message}).`);
+        }
+      }
+      const mm = /^\/api\/v1\/manual\/([^/]+)\.md$/.exec(p);
+      if (!mm) return H.erroJson(res, 404, `O endereço ${p.slice(0, 80)} não existe. Use /api/v1/manual (lista) ou /api/v1/manual/<nome>.md (uma página).`);
+      return servirManual(req, res, m, mm[1]);
+    }
+
     if (p === '/api/v1/alertas/docs.md' && m === 'GET') {
       res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store' });
       return res.end(fs.readFileSync(path.join(__dirname, 'docs', 'ALERTAS.md'), 'utf8'));
@@ -623,20 +722,23 @@ function criarServidor(opcoes) {
       if (falhaDoRegistro(req, res, true)) return undefined;
       const agente = agenteOuErro(res, decodeURIComponent(lr[1]));
       if (!agente) return undefined;
-      let r = null;
-      if (!lr[2] && m === 'GET') r = await login.ver(agente);
-      else if (!lr[2] && m === 'POST') {
-        const corpo = await lerEnvio(req, res);
+      const sub = lr[2];
+      const vale = () => sessaoAindaVale(req, sessao);
+      let corpo = {};
+      if (m === 'POST' && (!sub || sub === 'codigo')) {
+        corpo = await lerEnvio(req, res);
         if (!corpo) return undefined;
-        r = await login.comecar(agente, corpo);
+        // O corpo pode ter demorado: quem foi revogado ou teve o convite reenviado nesse meio tempo não conecta nada.
+        if (!vale()) return recusaSessaoVelha(res, sessao);
       }
-      else if (!lr[2] && m === 'DELETE') r = await login.cancelar(agente);
-      else if (lr[2] === 'codigo' && m === 'POST') {
-        const corpo = await lerEnvio(req, res);
-        if (!corpo) return undefined;
-        r = await login.enviarCodigo(agente, corpo);
-      } else if (lr[2] === 'oi' && m === 'POST') r = await login.primeiroOi(agente);
+      let r = null;
+      if (!sub && m === 'GET') r = await contaColab.ver(agente, sessao);
+      else if (!sub && m === 'POST') r = await contaColab.comecar(agente, sessao, corpo, vale);
+      else if (!sub && m === 'DELETE') r = await contaColab.cancelar(agente, sessao);
+      else if (sub === 'codigo' && m === 'POST') r = await contaColab.enviarCodigo(agente, sessao, corpo, vale);
+      else if (sub === 'oi' && m === 'POST') r = await contaColab.oi(agente, sessao);
       if (!r) return H.erroJson(res, 405, `Método inválido para ${p}. Use GET, POST e DELETE em /login, e POST em /login/codigo e /login/oi.`);
+      if (r.sessaoVelha) return recusaSessaoVelha(res, sessao);
       return H.enviaJson(res, r.status, r.corpo);
     }
 
@@ -797,8 +899,12 @@ function criarServidor(opcoes) {
     vinculaPendencia(agente.slug, sessao, ativ);
     const id = (ativ.permissao && ativ.permissao.id) || (ativ.pergunta && ativ.pergunta.id) || null;
     if (!(await pendenciaEhDele(agente, sessao, id))) { delete copia.permissao; delete copia.pergunta; copia.detalhe = null; }
-    // O motivo do runner pode citar link ou código de login: o colaborador só fica sabendo que falta conta.
-    if (copia.motivo) copia.motivo = ['login_expirado', 'sem_login'].includes(copia.alerta) ? 'O agente precisa entrar numa conta, e isso é só do dono do DG Claw. Avise o dono.' : 'O agente está sem sinal agora.';
+    // O motivo do runner pode citar link ou código de login: o colaborador só fica sabendo que falta conta, sem link.
+    if (copia.motivo) {
+      if (copia.alerta === 'sem_login') copia.motivo = 'O agente ainda não tem uma conta de IA conectada. Você pode conectar a sua em Conectar conta, no menu.';
+      else if (copia.alerta === 'login_expirado') copia.motivo = 'O login do agente expirou, e só o dono do DG Claw reconecta. Avise o dono.';
+      else copia.motivo = 'O agente está sem sinal agora.';
+    }
     return copia;
   }
 
@@ -910,6 +1016,8 @@ function criarServidor(opcoes) {
   // turno nenhum: se ele trocasse o autor, o colaborador aprovaria a operação que o dono deixou pendente.
   // Sem registro (restart), o turno é do dono.
   const RX_ENVIO_DO_PAINEL = /^\/api\/(?:chat|socorro|sessoes)(?:\/|$)/i;
+  const RX_LOGS_NO_PAINEL = /^\/(?:api\/v1\/)?logs(?:\/|$)/i;
+  const decodificaSeguro = (t) => { try { return decodeURIComponent(t); } catch (_) { return t; } };
   const turnos = new Map(); // slug -> { autor: { dono:true } | { colaborador_id }, misto: bool }
   const pendencias = new Map(); // slug -> { id, ok } (ok: o colaborador pode responder)
   const autorDe = (sessao) => (sessao && sessao.papel === 'colaborador' ? { colaborador_id: sessao.colaborador_id } : { dono: true });
@@ -1002,8 +1110,14 @@ function criarServidor(opcoes) {
       log('erro', `Anonimizar: mensagem para ${agente.slug} recusada (${e.codigo || e.message}).`);
       return H.erroJson(res, e.status || 500, e.status ? e.message : `Não enviei a mensagem porque não consegui trocar os dados pessoais dela: ${e.message}`, e.codigo ? { codigo: e.codigo } : undefined);
     }
+    // capturado ANTES das esperas do envio: uma entrega marcada durante a espera não é respondida por esta mensagem
+    const entreguesAntes = pedidos.entreguesDe(agente.slug);
     const r = await conversa.umaVez(agente, 'send', cid || null, () => conversa.enviar(agente, corpo, atorDa(sessao)), identidadeDe(sessao));
-    if (r.status < 300 && !(r.corpo && r.corpo.repetido)) marcaAutor(agente.slug, sessao, r);
+    if (r.status < 300 && !(r.corpo && r.corpo.repetido)) {
+      marcaAutor(agente.slug, sessao, r);
+      // só o dono fecha os itens entregues respondendo; colaborador não
+      if (!(sessao && sessao.papel === 'colaborador')) pedidos.donoRespondeu(agente.slug, opcoes.agora ? +opcoes.agora() : Date.now(), entreguesAntes);
+    }
     return H.enviaJson(res, r.status, r.corpo);
   }
 
@@ -1201,12 +1315,18 @@ function criarServidor(opcoes) {
       return querHtml(req) && !p.startsWith('/api/') ? H.paginaErro(res, 403, 'Pedido recusado', motivo) : H.erroJson(res, 403, motivo);
     }
 
+    // Marca (white label): rotas públicas, só GET/HEAD, sem sessão (o login precisa delas). Tudo vem validado de lib/marca.js.
+    if ((m === 'GET' || m === 'HEAD') && (p === '/marca.css' || p === '/manifest.webmanifest' || p.startsWith('/marca/'))) {
+      if (servirMarca(req, res, p)) return undefined;
+      return H.paginaErro(res, 404, 'Página não encontrada', 'Esse endereço não existe neste servidor.');
+    }
+
     if (p === '/login' && m === 'GET') {
       const ja = auth.sessaoDoPedido(req);
       if (ja) { res.writeHead(302, { Location: destinoDaSessao(ja, proximoSeguro(url.searchParams.get('next'))) }); return res.end(); }
       if (!servirArquivo(req, res, path.join(config.publicDir, 'login.html'), 'no-store')) {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-        res.end(LOGIN_RESERVA);
+        res.end(loginReserva(marca.html('{{MARCA_NOME}}')));
       }
       return undefined;
     }
@@ -1229,6 +1349,8 @@ function criarServidor(opcoes) {
 
     // Única rota do Anonimizar sem sessão: a documentação, estática, para o agente ler sem credencial.
     if (p === '/api/v1/anonimizar/docs.md' && (m === 'GET' || m === 'HEAD')) { rotasAnonimizar.servirDocs(res); return undefined; }
+    // O índice do manual também é público (o agente lê sem credencial, como as outras docs.md).
+    if (p === '/api/v1/manual/docs.md' && (m === 'GET' || m === 'HEAD')) return servirManual(req, res, m, 'README');
     if (sessao && !sessao.via) {
       // O cookie de papel só serve para a tela esconder o que não é do colaborador; aqui ele se conserta sozinho.
       if (H.parseCookies(req.headers.cookie).dgclaw_papel !== sessao.papel) res.setHeader('Set-Cookie', auth.cookiePapel(sessao.papel, req));
@@ -1274,6 +1396,10 @@ function criarServidor(opcoes) {
         return H.erroJson(res, 401, 'Você precisa entrar para abrir o painel. Faça login em /login.');
       }
       if (!pp[2]) { res.writeHead(302, { Location: `/p/${pp[1]}/${url.search}` }); return res.end(); }
+      // Os logs só existem na tela do Admin: nenhum painel os serve, e nenhum caminho por /p/ chega perto deles.
+      if (RX_LOGS_NO_PAINEL.test(pp[2]) || RX_LOGS_NO_PAINEL.test(decodificaSeguro(pp[2]))) {
+        return H.erroJson(res, 403, 'Os logs só existem na tela do Admin');
+      }
       // O painel do dono manda texto ao runner por conta própria (chat, recados, sessões): daqui em diante o turno
       // em curso deixa de ser de qualquer colaborador. A transcrição é a prova de verdade; isto é a segunda trava.
       if (!ehColab(sessao) && !sessao.via && m !== 'GET' && m !== 'HEAD' && RX_ENVIO_DO_PAINEL.test(pp[2])) {
@@ -1283,6 +1409,23 @@ function criarServidor(opcoes) {
       const quemP = quemDoProxy(sessao, req);
       // Dono com Face ID ligado: como o colaborador, o Web lê o corpo antes e só então abre a conexão com o painel (o painel age quando o corpo termina).
       if (!sessao.via && !quemP.colaborador_id && cadeado.ligado(req, sessao)) quemP.lerCorpoAntes = true;
+      // O dono também inicia/cancela o login da conta de IA pelo painel do agente, sem passar pelas rotas /login do Web:
+      // aqui respeita a reserva do colaborador e invalida a autoria dele (web/lib/conta-colaborador.js).
+      if (!ehColab(sessao) && !sessao.via && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(m) && /^\/api\/provedor(\/|$)/i.test(pp[2])) {
+        const mp = /^\/api\/provedor\/login(\/codigo)?\/?$/i.exec(pp[2]);
+        const slugP = (() => { try { return decodeURIComponent(pp[1]); } catch (_) { return ''; } })();
+        const agP = RX_SLUG_ROTA.test(slugP) ? registro.obter(slugP) : null;
+        if (agP && mp && (m === 'POST' || m === 'DELETE')) {
+          const veto = await contaColab.noPainelDoDono(agP, sessao, m, !!mp[1]);
+          if (veto) return H.erroJson(res, veto.status, veto.corpo.erro);
+        } else if (agP) {
+          // Troca de provedor: a fila do login do colaborador fica trancada até a resposta do painel terminar.
+          const seg = await contaColab.seguraProvedorNoPainelDoDono(agP);
+          if (seg.veto) return H.erroJson(res, seg.veto.status, seg.veto.corpo.erro);
+          res.once('close', seg.liberar);
+          try { return await proxy.responder(req, res, pp[1], sessao.usuario, quemP); } catch (e) { seg.liberar(); throw e; }
+        }
+      }
       return proxy.responder(req, res, pp[1], sessao.usuario, quemP);
     }
 
@@ -1358,9 +1501,21 @@ function criarServidor(opcoes) {
       if (!RX_SLUG_ROTA.test(slug) || !registro.obter(slug)) {
         return H.paginaErro(res, 404, 'Agente não encontrado', `Não existe agente chamado "${H.escapaHtml(slug.slice(0, 40))}". Volte ao início para ver a lista.`);
       }
+      // Colaborador: a fileira de troca de agente (#trocaBaixo) nem é enviada. Ele só tem este agente.
+      if (ehColab(sessao) && servirConversaColab(res, m)) return undefined;
       if (!servirArquivo(req, res, path.join(config.publicDir, 'conversa.html'), 'no-store')) {
         log('erro', `A tela da conversa não está instalada: falta ${path.join(config.publicDir, 'conversa.html')}.`);
         H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela da conversa não foi encontrado no servidor. Reinstale o DG Claw Web.');
+      }
+      return undefined;
+    }
+
+    if ((p === '/logs' || p === '/logs/') && (m === 'GET' || m === 'HEAD')) {
+      if (!sessao) return semSessaoPagina(req, res, url);
+      if (!logsAutorizado(sessao)) return H.paginaErro(res, 403, 'Acesso não liberado', 'Os logs dos agentes são só do dono do DG Claw, pela tela Logs do Admin.');
+      if (!servirArquivo(req, res, path.join(config.publicDir, 'logs.html'), 'no-store')) {
+        log('erro', `A tela de logs não está instalada: falta ${path.join(config.publicDir, 'logs.html')}.`);
+        H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela de logs não foi encontrado no servidor. Reinstale o DG Claw Web.');
       }
       return undefined;
     }
@@ -1397,6 +1552,18 @@ function criarServidor(opcoes) {
       if (!servirArquivo(req, res, path.join(config.publicDir, 'mesa.html'), 'no-store')) {
         log('erro', `A tela da Mesa não está instalada: falta ${path.join(config.publicDir, 'mesa.html')}.`);
         H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela da Mesa de tarefas não foi encontrado no servidor. Reinstale o DG Claw Web.');
+      }
+      return undefined;
+    }
+
+    if ((p === '/manual' || p.startsWith('/manual/')) && (m === 'GET' || m === 'HEAD')) {
+      if (!sessao) return semSessaoPagina(req, res, url);
+      if (!/^\/manual\/?$|^\/manual\/(?:[a-z0-9-]+|README)\/?$/.test(p)) {
+        return H.paginaErro(res, 404, 'Página do manual não encontrada', 'Esse endereço não existe no manual. Abra /manual para ver a lista de páginas.');
+      }
+      if (!servirArquivo(req, res, path.join(config.publicDir, 'manual.html'), 'no-store')) {
+        log('erro', `A tela do Manual não está instalada: falta ${path.join(config.publicDir, 'manual.html')}.`);
+        H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela do Manual não foi encontrado no servidor. Reinstale o DG Claw Web.');
       }
       return undefined;
     }
@@ -1460,8 +1627,56 @@ function criarServidor(opcoes) {
     }
   });
 
+  // ── socket de administração do host ──────────────────────────────────────────
+  // O comando `dgclaw colaborador` (root, no servidor) fala com o Web por um socket Unix em <dataDir>/admin.sock
+  // (pasta 0700, socket 0600). Só atende /api/v1/colaboradores*; a sessão é a do dono, sem cookie. Quem chega por ele já
+  // é root no servidor, e nenhum agente, caixa ou colaborador consegue abrir esse arquivo.
+  const caminhoSocketAdmin = path.join(config.dataDir, 'admin.sock');
+  const sessaoDoHost = () => ({ usuario: auth.usuario, via: 'host', papel: 'dono' });
+  const servidorAdmin = http.createServer(async (req, res) => {
+    try {
+      let url;
+      try { url = new URL(req.url, 'http://local'); } catch (_) { return H.erroJson(res, 400, 'Não entendi o endereço pedido.'); }
+      const p = url.pathname;
+      if (p !== '/api/v1/colaboradores' && !p.startsWith('/api/v1/colaboradores/')) {
+        return H.erroJson(res, 404, `Este canal do servidor só atende /api/v1/colaboradores (recebi ${req.method} ${p.slice(0, 120)}). As outras rotas são do painel, no navegador.`);
+      }
+      if (falhaDoRegistro(req, res, true)) return undefined;
+      if (await colabRotas.tratar(req, res, url, sessaoDoHost())) return undefined;
+      return H.erroJson(res, 404, `Não existe ${req.method} ${p}.`);
+    } catch (e) {
+      log('erro', `Socket de administração: ${req.method} ${String(req.url).slice(0, 120)} falhou: ${e && e.stack ? e.stack.split('\n').slice(0, 3).join(' | ') : e}`);
+      if (!res.headersSent) return H.erroJson(res, 500, 'Erro interno do servidor. O detalhe foi registrado no log do Web.');
+      res.destroy();
+      return undefined;
+    }
+  });
+
+  /** Abre o socket. Nunca derruba o Web: se não der, o comando `dgclaw colaborador` diz que o Web não responde e o log diz por quê. */
+  function abreSocketAdmin() {
+    return new Promise((resolve) => {
+      const falhou = (motivo) => { log('erro', `Não abri o socket de administração ${caminhoSocketAdmin} (${motivo}). O Web segue funcionando, mas o comando "dgclaw colaborador" não vai conseguir falar com ele até isso ser resolvido. Confira a permissão da pasta ${config.dataDir} e o tamanho do caminho (o limite de um socket Unix é de uns 100 caracteres).`); resolve(false); };
+      try {
+        let st = null;
+        try { st = fs.lstatSync(caminhoSocketAdmin); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+        if (st) {
+          if (!st.isSocket()) return falhou('já existe um arquivo que não é um socket nesse caminho e eu não o apaguei');
+          fs.unlinkSync(caminhoSocketAdmin);
+        }
+      } catch (e) { return falhou(e.code || e.message); }
+      servidorAdmin.once('error', (e) => falhou(e.code || e.message));
+      try {
+        servidorAdmin.listen(caminhoSocketAdmin, () => {
+          try { fs.chmodSync(caminhoSocketAdmin, 0o600); } catch (e) { servidorAdmin.close(); return falhou(`não consegui pôr permissão 600: ${e.code || e.message}`); }
+          log('info', `Socket de administração do host em ${caminhoSocketAdmin}.`);
+          return resolve(true);
+        });
+      } catch (e) { falhou(e.code || e.message); }
+    });
+  }
+
   return {
-    servidor, config, registro, auth, colaboradores, cadeado, proxy, midia, conversa, anonimizar, filtroAnon, log, caixa, push, lembretes, avisos, estados, vigiaAtencao, prefsAtencao,
+    servidor, servidorAdmin, caminhoSocketAdmin, config, registro, auth, colaboradores, cadeado, contaColab, proxy, midia, conversa, anonimizar, filtroAnon, log, caixa, push, lembretes, avisos, estados, vigiaAtencao, prefsAtencao,
     ouvir(porta, host) {
       return new Promise((resolve, reject) => {
         servidor.once('error', reject);
@@ -1471,11 +1686,12 @@ function criarServidor(opcoes) {
           lembretes.iniciar();
           avisos.iniciar();
           vigiaAtencao.iniciar();
-          resolve(servidor.address());
+          if (opcoes.semSocketAdmin) return resolve(servidor.address());
+          return abreSocketAdmin().then(() => resolve(servidor.address()));
         });
       });
     },
-    fechar() { return cadeado.aguardar().catch(() => {}).then(() => new Promise((resolve) => { caixa.parar(); lembretes.parar(); avisos.parar(); vigiaAtencao.parar(); proxy.fecharTudo(); anonimizar.encerrar(); servidor.closeAllConnections && servidor.closeAllConnections(); servidor.close(() => resolve()); })); },
+    fechar() { return cadeado.aguardar().catch(() => {}).then(() => new Promise((resolve) => { caixa.parar(); lembretes.parar(); avisos.parar(); vigiaAtencao.parar(); proxy.fecharTudo(); anonimizar.encerrar(); servidorAdmin.closeAllConnections(); servidorAdmin.close(); servidor.closeAllConnections && servidor.closeAllConnections(); servidor.close(() => resolve()); })); },
   };
 }
 

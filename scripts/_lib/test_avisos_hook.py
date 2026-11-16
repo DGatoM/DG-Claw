@@ -129,6 +129,25 @@ class TestAvisosHook(Base):
         (self.ws / ".dgclaw" / "config.sh").write_text("export DGCLAW_AVISOS=off\n")
         self.assertEqual(self.roda(), "")
 
+    def test_off_no_config_sh_aceita_formas_comuns(self):
+        self.retrato([aviso(1, "x")])
+        for linha in ('DGCLAW_AVISOS=off', 'export DGCLAW_AVISOS="off"', "  export DGCLAW_AVISOS='OFF'  # desligado"):
+            (self.ws / ".dgclaw" / "config.sh").write_text(f"export DGCLAW_AVISOS=on\n{linha}\n")
+            self.assertEqual(self.roda(), "", linha)
+        # vale a ultima ocorrencia
+        (self.ws / ".dgclaw" / "config.sh").write_text("DGCLAW_AVISOS=off\nDGCLAW_AVISOS=on\n")
+        self.assertIn("x", self.contexto(self.roda()))
+
+    def test_config_sh_nunca_e_executado(self):
+        # Um repositorio malicioso com .dgclaw/config.sh nao pode rodar comando pelo hook.
+        self.retrato([aviso(1, "x")])
+        marcador = self.ws / "EXECUTOU"
+        (self.ws / ".dgclaw" / "config.sh").write_text(
+            f"touch {marcador}\nDGCLAW_AVISOS=off\n$(touch {marcador})\n`touch {marcador}`\n")
+        self.assertEqual(self.roda(), "", "o off em linha simples continua valendo")
+        self.assertEqual(self.roda("reset"), "")
+        self.assertFalse(marcador.exists(), "o hook executou o config.sh")
+
     def test_retrato_ausente_sai_calado(self):
         self.assertEqual(self.roda(), "")
         self.assertEqual(self.log(), "")

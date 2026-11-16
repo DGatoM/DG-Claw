@@ -23,6 +23,7 @@ Pense em lugares diferentes, cada um com a sua regra.
 | `/opt/dgclaw/admin` | A casa do Admin: instruções dele, habilidades próprias, registro das suas personalizações | Preservada |
 | `/var/lib/dgclaw/agentes/<nome>/home` | A casa de cada agente: memória, identidade, personalidade, rotinas, habilidades | Preservada |
 | `/etc/dgclaw` | Configurações e segredos (senha do painel, chaves, lista de agentes) | Preservada |
+| `/etc/dgclaw/marca` | A marca da sua empresa: `marca.json`, logo, favicon, ícone do app e fontes | Preservada, o instalador nunca a recria nem a esvazia |
 
 O ponto central: o instalador copia o clone para `/opt/dgclaw/app` com `rsync -a --delete`, que deixa a
 pasta de destino idêntica à de origem e apaga o que não estiver lá. Se alguém editar um arquivo direto em
@@ -60,6 +61,7 @@ direto, sem o procedimento da branch.
 | Chaves de voz, limites de envio, fuso, endereços permitidos | `/etc/dgclaw/web.env` (a linha certa, sem apagar as outras) | "Admin, liga o microfone com a minha chave do Groq" |
 | Configuração de um agente (assinatura, conexões, memória, arquivos) | Painel do próprio agente, em `/p/<nome>/` | "Conecta o Telegram da Bia" |
 | Chaves de serviços externos | Cofre do agente, pelo painel dele | "Guarda esta chave da minha agenda no cofre da Bia" |
+| Nome, logo, favicon, cores e fontes | `/etc/dgclaw/marca/marca.json` e os arquivos ao lado dele (veja [WHITE-LABEL.md](WHITE-LABEL.md)) | "Admin, troca o nome para Acme Bot e deixa os botões vermelhos" |
 
 Algumas observações que evitam surpresa:
 
@@ -79,7 +81,7 @@ Algumas observações que evitam surpresa:
   completa está em `web/lib/config.js`. Mexa linha a linha: o arquivo também guarda a senha do painel.
 - **Habilidades do agente que vêm de fábrica** (agenda, lembretes, memória e outras) são links para o
   programa. Uma habilidade sua, com outro nome na pasta `~/.claude/skills` do agente, não é tocada.
-- **Não existe, por enquanto, um lugar para CSS, botões ou itens de menu próprios.** Veja o fim deste guia.
+- **Nome, logo, favicon, cores e fontes têm um lugar próprio:** a pasta `/etc/dgclaw/marca/`, descrita em [WHITE-LABEL.md](WHITE-LABEL.md). Para botões e itens de menu novos, ainda não existe uma pasta de extensão; veja o fim deste guia.
 
 ## O que a atualização troca
 
@@ -95,7 +97,7 @@ sua. Em outubro de 2026, as mais mexidas foram:
 | --- | --- |
 | `web/server.js`, `web/public/conversa.js`, `conversa.html`, `conversa.css`, `sw.js` | Alto (a tela de conversa evolui toda semana) |
 | `web/public/menu-lado.*`, `onboarding.*`, `mesa.*` | Alto |
-| `templates/CLAUDE.md.tmpl`, `AGENTS.md.tmpl` e `templates/admin/` | Alto |
+| `templates/CLAUDE.md.tmpl`, `AGENTS.md.tmpl` e `templates/admin/` (gerados de `templates/instrucoes-agente.md.tmpl` e `templates/admin/instrucoes-admin.md.tmpl`; edite a fonte e rode `scripts/gerar-instrucoes.sh`) | Alto |
 | `panel/public/js/app.js`, `index.html`, `css/main.css`, `panel/server.js` | Médio a alto |
 | `web/lib/` e `panel/lib/` | Médio |
 | `skills/` de fábrica | Médio |
@@ -103,24 +105,38 @@ sua. Em outubro de 2026, as mais mexidas foram:
 Quanto menor e mais isolada a mudança, menor a chance de conflito. Um arquivo novo quase nunca esbarra em
 nada. Um ajuste no meio de `conversa.js` esbarra com frequência.
 
-## O que nunca mexer, e por quê
+## Mudanças na base do DG Claw: pode, com aviso
 
-Mesmo que o Admin saiba fazer, estes itens ficam de fora. Um erro aqui deixa a máquina insegura ou os
-agentes mudos.
+Você pode pedir mudanças no nível do sistema, por exemplo uma nova forma de gerar agentes ou um ajuste no
+comando `dgclaw`, no instalador (`install.sh` e a pasta `lib/`) ou no `runner/`. Essas peças sabem refazer
+tudo na ordem certa, com backup, então uma mudança nelas tem mais chance de atrapalhar uma atualização.
 
-- **O instalador** (`install.sh` e a pasta `lib/`) e **o comando `dgclaw`** (`bin/dgclaw`), incluindo o
-  `dgclaw atualizar`. É a peça que sabe refazer tudo na ordem certa, com backup. Se ela for alterada, a
-  atualização deixa de ser confiável.
+O combinado é este:
+
+1. O Admin avisa, em linguagem simples, que o pedido mexe na base do DG Claw e pode dar problema nas
+   próximas atualizações.
+2. Se você mantiver o pedido, o Admin faz a mudança, na branch `personalizacoes`, como qualquer outra
+   personalização.
+3. O Admin registra a mudança em `/opt/dgclaw/admin/PERSONALIZACOES.md`, dizendo que ela mexe na base.
+4. Em cada atualização, o Admin tenta manter as duas coisas funcionando: a sua mudança e a versão nova. Se
+   não conseguir, ele para e conta o que cruzou, antes de colocar no ar.
+
+## Os limites de segurança, que continuam valendo
+
+Estes itens ficam de fora mesmo que você peça, porque um erro aqui deixa a máquina insegura, expõe as suas
+chaves ou deixa os agentes mudos.
+
+- **O cofre e os segredos**: `/etc/dgclaw/runner/*.token`, `/etc/dgclaw/proxy/*.segredo` e o `cofre.env` de
+  cada agente. Trocar ou apagar derruba a conversa entre as peças ou perde chaves que só você tem. Nenhuma
+  personalização pode mostrar, copiar ou enfraquecer esses segredos.
 - **O firewall** (`lib/firewall.sh` e as regras de rede). Ele impede que um agente alcance a máquina ou
   os outros agentes.
-- **O cofre e os segredos**: `/etc/dgclaw/runner/*.token`, `/etc/dgclaw/proxy/*.segredo` e o `cofre.env` de
-  cada agente. Trocar ou apagar derruba a conversa entre as peças ou perde chaves que só você tem.
 - **A autenticação do painel**: login, hash da senha, link de primeiro acesso.
 - **A pasta `container/`** e a forma como cada agente é isolado. Ela define o que o agente pode ver e fazer
   dentro da caixa dele.
 - **Os ganchos de segurança** (`hooks/`) e os testes de isolamento.
 
-Se o seu pedido exige mexer em algum desses, o Admin explica o risco e propõe outro caminho.
+Se o seu pedido esbarra em algum desses, o Admin explica o risco e propõe outro caminho.
 
 ## O jeito certo de personalizar o programa
 
@@ -258,13 +274,13 @@ Nunca com `git reset --hard`, que apaga trabalho sem volta. Depois, a entrada no
 
 ## Sugestão para o futuro: um ponto de extensão para botões e CSS
 
-Isto **não está implementado**. Hoje não existe nenhuma pasta de fora do programa de onde o painel leia CSS,
-JavaScript ou itens de menu: tudo o que a tela mostra vem de `web/public/` e `panel/public/`, que a
-atualização troca. A consequência é que um botão novo ou uma cor nova exigem o caminho da branch.
+Isto **não está implementado**. Cores, fontes, nome e logo já têm a pasta `/etc/dgclaw/marca/` ([WHITE-LABEL.md](WHITE-LABEL.md)). Para
+CSS livre, JavaScript ou itens de menu, não existe pasta de fora do programa: tudo o que a tela mostra vem de
+`web/public/` e `panel/public/`, que a atualização troca. A consequência é que um botão novo exige o caminho da branch.
 
 Uma forma de resolver: o painel passaria a ler uma pasta como `/var/lib/dgclaw/web/extras/`, preservada
 na atualização, com um `extra.css` (carregado depois do estilo oficial) e um `menu.json` (itens extras do
-menu lateral, com nome, ícone e destino). Com isso, "muda a cor do botão" e "põe um atalho para a minha
-planilha no menu" virariam pedidos simples e sem risco de conflito. Seria preciso decidir o que um script
+menu lateral, com nome, ícone e destino). Com isso, "põe um atalho para a minha
+planilha no menu" e ajustes de CSS além dos tokens virariam pedidos simples e sem risco de conflito. Seria preciso decidir o que um script
 próprio poderia fazer, porque JavaScript solto na tela do painel enxerga as conversas. Até lá, vale o
 procedimento da branch.

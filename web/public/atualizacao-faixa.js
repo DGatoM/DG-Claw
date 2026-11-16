@@ -39,7 +39,7 @@
   }
 
   function faixaHtml(estado) {
-    return '<div class="af-linha"><span class="af-tit">🆕 Nova versão do DG Claw disponível ' +
+    return '<div class="af-linha"><span class="af-tit">' + dsIcone('sparkle') + ' Nova versão do DG Claw disponível ' +
       `<b>(${esc(rotuloVersoes(estado))})</b></span>` +
       '<span class="af-acoes">' +
       '<button type="button" class="af-btn" data-af="ver" aria-expanded="false" aria-controls="faixaAtualizacaoLista">Ver o que mudou</button>' +

@@ -6,7 +6,7 @@ Servidor Node 22, sem nenhuma dependência npm (só módulos nativos), que roda 
 2. **Chat** em `/a/<agente>` (e `/`, que leva ao primeiro agente): a conversa com cada agente, montada a partir do registro da sessão dele.
 3. **Proxy** dos painéis em `/p/<agente>/...`, só para quem está logado.
 
-Ele escuta em `127.0.0.1:8300` e fica atrás de um proxy reverso com HTTPS (Caddy, nginx). Roda como root, porque lê as pastas dos agentes.
+Ele escuta em `127.0.0.1:8300` (o instalador troca a porta com `--porta-painel`) e fica atrás de um proxy reverso com HTTPS (Caddy, nginx). Roda como root, porque lê as pastas dos agentes.
 
 ## Como rodar
 
@@ -109,6 +109,7 @@ API (todas com sessão; erros sempre `{ok:false, erro:"motivo em português"}`):
 | `GET /api/v1/cofre/docs.md` | Como o agente pede uma chave ao dono pela conversa (bloco `dgcofre` ou peça `dv-cofre`), o aviso `[cofre] NOME guardada (final xxxx).` e as garantias. Fonte: `docs/COFRE-NA-CONVERSA.md`. A caixa grava pela rota do cofre do agente (`POST /p/<agente>/api/cofre`). |
 | `GET`/`PUT`/`DELETE /api/v1/foco/:agente`, `POST .../itens`, `PATCH`/`DELETE .../itens/:id`, `GET .../eventos?desde_id`, `GET /api/v1/foco/docs.md` | Modo foco: lista curta por agente que o agente monta e o dono tica na tela; evento `foco` no stream. Docs em `docs/MODO-FOCO.md`. |
 | `GET`/`POST`/`PATCH`/`DELETE /api/v1/tarefas[/:id]` | Mesa de tarefas dos agentes (criar, atualizar, concluir, cancelar). Contrato completo em `docs/MESA.md` (também em `GET /api/v1/tarefas/docs.md`). |
+| `GET`/`POST`/`PATCH`/`DELETE /api/v1/pedidos[/:id]`, `POST /api/v1/pedidos/:id/abrir` | Fila de pedidos (aba Pedidos da Mesa): o agente cria e move os próprios itens; o dono abre, marca como feito e cancela. O agente não marca feito. Contrato em `docs/PEDIDOS.md` (também em `GET /api/v1/pedidos/docs.md`). |
 | `ANY /p/<slug>/*` | Proxy do painel do agente. |
 
 **Mensagem da thread:** `{id, ep, hhmm, dia, origin, text, kind, media, fmt, editada, reacoes, cita, via, quem}`. `origin` é `dono`, `agente` ou `rotina`. `media` é `{id, kind, nome, bytes, disponivel, url, thumb, path}`.

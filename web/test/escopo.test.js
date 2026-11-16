@@ -123,19 +123,27 @@ test('escopo: trocar a conta de IA pelo painel é fechado (qualquer escrita); a 
     for (const v of ['/p/ana/api/provedor', '/p/ana/api/provedor/', '/p/ana/API/Provedor', '/p/ana/api/provedor/login', '/p/ana/api/provedor/login/codigo']) {
       const r = avalia(COLAB, m, v);
       assert.equal(r.ok, false, `${m} ${v}`); assert.equal(r.status, 403, `${m} ${v}`);
-      assert.match(r.motivo, /precisa entrar numa conta/, `${m} ${v}`);
+      assert.match(r.motivo, /página Conectar conta/, `${m} ${v}`);
     }
   }
   assert.equal(avalia(COLAB, 'GET', '/p/ana/api/provedor').ok, false, 'a leitura traz o link e o código do login');
 });
 
-test('escopo: login da conta do agente é só do dono, em /api/v1 e em /p/, em qualquer método (inclusive ver o link)', () => {
-  const rotas = ['/api/v1/agents/ana/login', '/api/v1/agents/ana/login/codigo', '/api/v1/agents/ana/login/oi', '/p/ana/api/provedor/login', '/p/ana/api/provedor/login/codigo'];
+test('escopo: login da conta de IA do agente dele chega ao handler (que decide); o do painel (/p/.../api/provedor*) continua fechado', () => {
+  for (const [m, v] of [['GET', '/api/v1/agents/ana/login'], ['POST', '/api/v1/agents/ana/login'], ['DELETE', '/api/v1/agents/ana/login'], ['POST', '/api/v1/agents/ana/login/codigo'], ['POST', '/api/v1/agents/ana/login/oi']]) {
+    assert.deepEqual(avalia(COLAB, m, v), { ok: true }, `${m} ${v}`);
+  }
+  // de outro agente, nunca
+  for (const v of ['/api/v1/agents/bob/login', '/api/v1/agents/bob/login/codigo', '/api/v1/agents/admin/login', '/api/v1/agents/ANA/login', '/api/v1/agents/An%61/login/oi']) {
+    for (const m of ['GET', 'POST', 'DELETE']) assert.equal(avalia(COLAB, m, v).ok, false, `${m} ${v}`);
+  }
+  // com a senha temporária pendente, nada disso
+  assert.equal(avalia(COLAB_TEMP, 'POST', '/api/v1/agents/ana/login').ok, false);
+  // o painel do agente continua sem a conta de IA, em qualquer método e forma
   for (const m of ['GET', 'POST', 'DELETE', 'PUT']) {
-    for (const v of rotas) {
+    for (const v of ['/p/ana/api/provedor', '/p/ana/api/provedor/login', '/p/ana/api/provedor/login/codigo', '/p/ana/API/Provedor/Login/', '/p/ana/api/provedor/qualquer']) {
       const r = avalia(COLAB, m, v);
       assert.equal(r.ok, false, `${m} ${v}`); assert.equal(r.status, 403, `${m} ${v}`);
-      assert.match(r.motivo, /precisa entrar numa conta.*só do dono/, `${m} ${v}`);
     }
   }
 });
@@ -225,7 +233,7 @@ test('escopo: rotas da caixa inteira, do dono e sem slug são negadas (rota nova
     ['GET', '/api/v1/colaboradores'], ['POST', '/api/v1/colaboradores'], ['DELETE', '/api/v1/colaboradores/abc'], ['GET', '/api/v1/colaboradores/docs.md'],
     ['GET', '/api/v1/cofre'], ['POST', '/api/v1/cofre'], ['GET', '/api/v1/onboarding'], ['POST', '/api/v1/onboarding'], ['GET', '/api/v1/estados'],
     ['GET', '/api/v1/uso'], ['GET', '/api/v1/push/chave'], ['POST', '/api/v1/push/preferencias'], ['GET', '/api/v1/avisos'], ['GET', '/api/v1/lembretes'], ['POST', '/api/v1/lembretes'],
-    ['GET', '/api/v1/foco/ana'], ['GET', '/api/v1/tarefas'], ['POST', '/api/v1/tarefas'], ['GET', '/api/v1/atualizacao'], ['GET', '/api/v1/seguranca'], ['POST', '/api/v1/sigilo'], ['GET', '/api/v1/sigilo/estado'],
+    ['GET', '/api/v1/foco/ana'], ['GET', '/api/v1/tarefas'], ['POST', '/api/v1/tarefas'], ['GET', '/api/v1/pedidos'], ['POST', '/api/v1/pedidos/1/abrir'], ['GET', '/api/v1/atualizacao'], ['GET', '/api/v1/seguranca'], ['POST', '/api/v1/sigilo'], ['GET', '/api/v1/sigilo/estado'],
     ['GET', '/api/v1/rota-nova-do-futuro'], ['GET', '/api/v1/media/zzzz'],
     ['GET', '/api/v1/agents/ana/comandos'], ['POST', '/api/v1/agents/ana/comando'], ['GET', '/api/v1/agents/ana/comandos/'],
     ['POST', '/api/v1/agents'], ['DELETE', '/api/v1/agents/ana'], ['PUT', '/api/v1/agents/ana'],
@@ -282,4 +290,18 @@ test('escopo: nenhum WebSocket para o colaborador; dono e caixa seguem a regra d
   assert.equal(websocketLiberado(DONO, '/p/bob/x', '/p/bob/x').ok, true);
   assert.equal(websocketLiberado(CAIXA, '/p/ana/x', '/p/ana/x').ok, true);
   assert.equal(websocketLiberado(null, '/p/ana/x', '/p/ana/x').status, 401);
+});
+
+test('escopo: os logs dos agentes são fechados para o colaborador (rotas, documentação e página)', () => {
+  const COLAB_LOGS = { usuario: 'maria@x.com', papel: 'colaborador', agente: 'ana' };
+  for (const p of ['/api/v1/logs/agentes', '/api/v1/logs/agentes/ana/eventos', '/api/v1/logs/agentes/ana/sessoes', '/api/v1/logs/docs.md', '/api/v1/logs']) {
+    const r = avalia(COLAB_LOGS, 'GET', p);
+    assert.equal(r.ok, false, p);
+    assert.equal(r.status, 403, p);
+  }
+  const pag = avalia(COLAB_LOGS, 'GET', '/logs');
+  assert.equal(pag.ok, false);
+  assert.equal(pag.status, 302);
+  assert.equal(pag.redirecionar, '/a/ana');
+  assert.equal(avalia(COLAB_LOGS, 'GET', '/p/ana/api/v1/logs/agentes').ok, true, 'o painel da ana é dela; a trava de /p/.../logs fica no server.js');
 });

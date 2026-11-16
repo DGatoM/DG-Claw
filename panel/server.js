@@ -131,6 +131,19 @@ app.use(semParser(express.urlencoded({ extended: false })));
 // uma página de erro em inglês que ninguém no painel tinha como ler.
 app.use(semParser(express.json({ limit: '3mb' })));
 
+// Painel solto (sem o DG Claw Web na frente): as telas pedem os ícones, os tokens e a marca em /ds, /marca.css e /marca/*.
+// Atrás do Web (BASE preenchido) esses endereços são do Web, na raiz da mesma origem, e nada disto é montado.
+// A pasta vem do repositório (../web/public/ds): sem ela (instalação só do painel) os ícones simplesmente não aparecem.
+const DS_DIR = path.join(__dirname, '..', 'web', 'public', 'ds');
+if (!BASE && fs.existsSync(path.join(DS_DIR, 'icones.svg'))) {
+  app.use('/ds', express.static(DS_DIR, { index: false }));
+  app.get('/marca.css', (req, res) => res.type('text/css').send(''));
+  // Arquivos fixos, mas com teto de pedidos como o resto do painel que lê do disco.
+  const limiteMarca = rateLimit({ windowMs: 60000, max: 300 });
+  app.get('/marca/favicon', limiteMarca, (req, res) => res.sendFile(path.join(DS_DIR, 'marca-padrao', 'favicon.png')));
+  app.get('/marca/icone-app', limiteMarca, (req, res) => res.sendFile(path.join(DS_DIR, 'marca-padrao', 'icone-192.png')));
+}
+
 // Tudo daqui pra baixo vive dentro de um router, montado no prefixo BASE lá embaixo
 // (`app.use(BASE || '/', router)`). Com BASE vazio o router monta em "/" e nada muda
 // pra quem já acessa http://IP:8300/; com BASE preenchido, o Express tira o prefixo
@@ -155,7 +168,19 @@ router.get('/login.html', (req, res) => html.renderLogin(req, res));
 // Static files: só o que NÃO precisa de template (css/js/assets). `index: false` pra
 // nunca deixar o express.static servir o index.html CRU (sem {{BASE}} trocado); as duas
 // rotas acima, registradas antes, já respondem por "/" de qualquer forma.
-router.use(express.static(html.PUBLIC_DIR, { index: false }));
+// Arquivo pedido com ?v=<versão> (o index.html põe a versão nos css/js) é guardado pelo navegador por um ano:
+// a versão muda sozinha quando o arquivo muda. Sem ?v= nada muda (sempre revalida). Fica depois da
+// autenticação acima, então quem não entrou continua sem receber arquivo nenhum.
+router.use((req, res, next) => {
+  if (/^[0-9a-f]{6,64}$/.test(String(req.query.v || '')) && /\.(css|js)$/.test(req.path)) res.locals.assetVersionado = true;
+  next();
+});
+router.use(express.static(html.PUBLIC_DIR, {
+  index: false,
+  setHeaders: (res) => {
+    if (res.locals.assetVersionado) res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
+  },
+}));
 
 // ─── Auth Routes ──────────────────────────────────────────────
 

@@ -9,11 +9,19 @@ inicial prepara esse acesso. O primeiro agente, o áudio e os canais são config
 - Uma VPS Ubuntu 24.04 ou 22.04 (o 26.04 também instala, com um aviso de que foi testado menos), com
   acesso root, pelo menos 2 GB de memória e 15 GB livres.
 - As portas 80 e 443 disponíveis.
+- Em servidor x86_64, uma CPU com o recurso SSE4.2. O Claude Code exige esse recurso, e CPUs genéricas de
+  hipervisor (como o tipo "Common KVM processor", o `kvm64`) não o têm. Para quem usa o Claude Code, o instalador confere e para com
+  a explicação. No hipervisor, troque o tipo de CPU da máquina virtual para `host` (passthrough) ou
+  `x86-64-v2` ou superior e reinicie. No Proxmox: Hardware > Processors > Type = host.
 - Claude Code ou Codex instalado e conectado à sua assinatura, no root da VPS. O Admin reutiliza esse
   login, sem copiá-lo aos agentes; a assinatura é necessária para o Admin conversar.
 - `--provedor claude` ou `--provedor codex` define o motor do Admin. Sem a opção, o instalador mantém a
   escolha anterior; numa máquina nova, procura primeiro um login (Claude, depois Codex) e só então o
   programa instalado.
+- Se você entra no servidor com um usuário comum e usa `sudo`, instale o Claude Code para o root com
+  `curl -fsSL https://claude.ai/install.sh | sudo CLAUDE_INSTALL_ALLOW_SUDO=1 HOME=/root bash`
+  (o instalador oficial recusa rodar sob `sudo` sem essa variável) e faça o login com `sudo -i`, seguido
+  de `claude`.
 
 ## Os três comandos
 
@@ -35,6 +43,30 @@ Se você prefere pedir ao Claude Code, escreva no terminal da VPS:
 
 Com o projeto já aberto, basta **"instala"**. O Claude roda o comando acima sem senha nenhuma e mostra
 os dois links no fim. Ele não pergunta a senha no chat nem a passa por stdin.
+
+## Servidor sem IP público (atrás de túnel)
+
+Em um servidor sem IP público (por exemplo, atrás de NAT, com o acesso de fora feito por um túnel da
+Cloudflare que conecta de dentro para fora), o Let's Encrypt não consegue validar o domínio. Use a opção
+`--atras-de-tunel`, sempre com `--dominio`:
+
+```sh
+sudo ./install.sh --usuario <usuario> --dominio painel.exemplo.com --atras-de-tunel --com-imagem
+```
+
+Nesse modo o Caddy usa um certificado interno, o instalador não consulta o IP público e não abre as portas
+80 e 443 no firewall. O Caddy escuta só no loopback (127.0.0.1 e ::1), por isso o túnel (cloudflared) precisa
+rodar no próprio servidor. Com isso o Caddy passa o IP real do visitante ao painel (cabeçalho
+`Cf-Connecting-IP`), e o limite de tentativas de login vale por pessoa, e não para todo mundo junto. A escolha fica gravada em
+`/etc/dgclaw/dgclaw.env` e vale também para reinstalações, para o `dgclaw atualizar` e para o
+`dgclaw dominio trocar`. Para desligar o modo, rode o instalador de novo com `--sem-tunel`.
+
+No túnel (Cloudflare Zero Trust), crie o Public Hostname com o domínio escolhido e aponte para
+`https://127.0.0.1:443`. Em TLS, preencha **Origin Server Name** com o próprio domínio e ligue **No TLS Verify**.
+
+Em qualquer instalação, o firewall libera as portas em que o SSH do servidor escuta de verdade (lidas da
+configuração do `sshd`, dos processos `sshd` em escuta, do `ssh.socket` ativo e da conexão SSH em que você
+está agora), e não só a 22. Pode liberar uma porta a mais do que o necessário, nunca a menos.
 
 ## O que o instalador faz
 
@@ -64,6 +96,67 @@ A duração depende da rede e dos pacotes já instalados. `--ensaio` mostra as m
 aplicá-las. Com `--com-imagem`, a imagem dos futuros agentes é construída enquanto você cadastra a senha
 e conhece o painel (de 10 a 20 minutos na primeira vez); acompanhe com `dgclaw imagem status`. Sem essa
 opção, o Admin faz a preparação quando você cria o primeiro agente, e a espera acontece nessa hora.
+
+## Opções do instalador
+
+| Opção | O que faz |
+| --- | --- |
+| `--usuario <nome>` | Usuário do painel (obrigatório). |
+| `--dominio <nome>` | Endereço próprio do painel (padrão: um endereço gratuito, escolhido sozinho). |
+| `--provedor claude\|codex` | Com qual assinatura o Admin trabalha (padrão: o que estiver logado no servidor). |
+| `--proxy-existente` | Para servidor que já tem nginx, Caddy ou túnel nas portas 80 e 443. Exige `--dominio`. Fica valendo nas próximas execuções. |
+| `--sem-proxy-existente` | Volta ao modo normal (Caddy do DG Claw) numa nova execução. |
+| `--porta-painel <N>` | Porta local do DG Claw Web, de 1024 a 65535 (padrão 8300). |
+| `--faixa-rede <A.B.0.0/16>` | Faixa de IPs das redes dos agentes (padrão 10.89.0.0/16). Não muda depois que há agentes criados. |
+| `--senha-stdin`, `--novo-primeiro-acesso` | Senha pela entrada padrão, ou um link de primeiro acesso novo. |
+| `--ensaio` | Mostra o que faria, sem mudar nada. |
+| `--com-imagem`, `--sem-imagem` | Constrói a imagem dos agentes já na instalação, ou deixa para o primeiro agente. |
+
+## Instalar numa VPS que já tem nginx (ou outro proxy)
+
+Se o servidor já usa as portas 80 e 443 (um nginx com outros sites, um Caddy seu, um túnel da
+Cloudflare), o instalador normal para com a mensagem de que elas estão ocupadas. Use o modo de proxy
+existente:
+
+```sh
+sudo ./install.sh --usuario maria --dominio painel.minhaempresa.com.br --proxy-existente --faixa-rede 10.91.0.0/16
+```
+
+O que muda nesse modo:
+
+- **O HTTPS é do seu proxy.** O instalador não instala nem configura o Caddy (se ele já existe, não é
+  tocado) e não mexe no ufw: nenhuma regra nova, nada ligado. As portas 80 e 443 ocupadas viram só um
+  aviso.
+- **O DG Claw Web escuta somente em `127.0.0.1:8300`.** Para outra porta, use `--porta-painel 8400`. Se a
+  porta estiver em uso por outro programa, o instalador para e pede outra.
+- **O domínio é obrigatório.** O nginx ou o túnel precisa de um nome para responder, e os endereços
+  gratuitos (sslip.io, hstgr.cloud) só funcionam apontando para o Caddy do DG Claw.
+- **No fim, o instalador imprime os trechos prontos para copiar:** o bloco `server` do nginx (com limite
+  de upload, WebSocket e respostas em streaming) e as linhas do `ingress` do túnel da Cloudflare, mais o
+  comando do DNS. Para o nginx: salve em `/etc/nginx/sites-available/dgclaw`, ligue com um link em
+  `sites-enabled`, rode `nginx -t && systemctl reload nginx` e peça o HTTPS com `certbot --nginx -d <dominio>`.
+- **O link de primeiro acesso só abre depois que o proxy estiver apontando** para o DG Claw, e vale 30
+  minutos. Se expirar, `sudo dgclaw primeiro-acesso` gera outro.
+- **O modo fica guardado** (`DGCLAW_PROXY_EXISTENTE=1` no `dgclaw.env`), então rodar o instalador de novo
+  e `sudo dgclaw atualizar` continuam atrás do seu proxy sem repetir a opção. Para voltar ao Caddy do DG
+  Claw: `sudo ./install.sh --usuario maria --sem-proxy-existente`.
+- `sudo dgclaw dominio` mostra o domínio, a porta e os trechos de novo, e `sudo dgclaw dominio trocar
+  <nome>` só grava o nome e imprime os trechos novos (o proxy você atualiza). Fora isso, a cerca de rede
+  que isola os agentes do servidor é instalada igual nos dois modos.
+
+### Já tenho podman ou docker neste servidor: use `--faixa-rede`
+
+Cada agente ganha uma rede própria dentro da faixa 10.89.0.0/16 (a rede do agente número 1 é
+10.89.1.0/24, a do 2 é 10.89.2.0/24 e assim por diante). Se o servidor já tem podman, docker, uma VPN ou
+a rede do provedor usando parte dessa faixa, os pacotes dos agentes podem ir parar no lugar errado.
+Por isso o instalador confere as redes do podman e as rotas da máquina antes de mexer em qualquer coisa,
+e recusa uma faixa que já esteja ocupada, dizendo qual rede ou rota está no caminho.
+
+Para quem já tem podman ou docker, a sugestão é `--faixa-rede 10.91.0.0/16` (a 10.89 é a que as
+instalações existentes do DG Claw usam). A faixa precisa ser um `/16` privado: `10.x.0.0/16`,
+`172.16.0.0/16` até `172.31.0.0/16` ou `192.168.0.0/16`. Ela fica guardada em `DGCLAW_FAIXA_REDE` no
+`dgclaw.env`. Com agentes já criados, o instalador não troca a faixa em silêncio: trocar exige recriar a
+rede de cada agente, então ele para e explica.
 
 ## Primeiro acesso
 

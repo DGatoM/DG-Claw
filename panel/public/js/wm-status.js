@@ -79,7 +79,7 @@
       + 'seções mais descartáveis e manda o excesso para memory/wm-transbordo.md, que continua pesquisável.',
     remontagem: 'Todo dia às 7h uma rotina remonta a memória: vira o "Hoje" em "Ontem", atualiza as últimas conversas e corta o '
       + 'que passou do teto. Conferido no registro do pulso e no relógio do sistema (o timer da remontagem).',
-    pendencias: 'A linha "⚡ PENDÊNCIAS ATIVAS" do topo do arquivo: um resumo, escrito por ele, do que está em aberto com você. '
+    pendencias: 'A linha que começa com o raio e o texto PENDÊNCIAS ATIVAS, no topo do arquivo: um resumo, escrito por ele, do que está em aberto com você. '
       + 'É a primeira coisa que ele lê ao começar uma conversa.',
   };
 
@@ -182,12 +182,12 @@
       ${problema}
       <div class="wms-grade">${atualizada}${tamanho}${ocupacao}${remontagem}</div>
       <div class="wms-pend">
-        <span class="wms-rot" title="${esc(TIP.pendencias)}">⚡ Pendências ativas</span>
+        <span class="wms-rot" title="${esc(TIP.pendencias)}">${dsIcone('bolt')} Pendências ativas</span>
         ${pend}
       </div>
       ${avisos}
       <div class="wms-rodape">
-        <a href="#" class="wms-ir-memoria" title="Abre a aba Memória, onde está o texto inteiro da memória de trabalho, para ler e corrigir à mão.">Ler a memória de trabalho inteira, na aba Memória →</a>
+        <a href="#" class="wms-ir-memoria" title="Abre a aba Memória, onde está o texto inteiro da memória de trabalho, para ler e corrigir à mão.">Ler a memória de trabalho inteira, na aba Memória ${dsIcone('arrow-right')}</a>
         <code title="O arquivo, dentro da pasta dele">${esc(s.arquivo ? s.arquivo.caminho : '')}</code>
       </div>`;
 

@@ -203,7 +203,7 @@ test('rodada 6, achado 1: o colaborador não lê /api/provedor (traz link e cód
   for (const m of ['GET', 'HEAD', 'POST']) {
     for (const p of ['/p/ana/api/provedor', '/p/ana/api/provedor/', '/p/ana/api/provedor/login', '/p/ana/API/Provedor/login']) {
       const r = avaliar(COLAB, m, p, p);
-      assert.equal(r.ok, false, `${m} ${p}`); assert.match(r.motivo, /precisa entrar numa conta/);
+      assert.equal(r.ok, false, `${m} ${p}`); assert.match(r.motivo, /página Conectar conta/);
     }
   }
   const s = await cenario({ runnerAna: { status: 'errored', statusReason: 'runner:sem-login', erroEstado: 'abra https://claude.ai/oauth/authorize?code=segredo-de-teste' } });
