@@ -265,6 +265,8 @@ Para outra conexão (Evolution, API oficial), o agente usa o mesmo módulo: o qu
 
 Se o histórico não puder ser gravado depois de um envio, a mensagem já saiu, a resposta traz o campo `aviso` e os envios seguintes ficam travados (sem histórico as travas de ritmo ficariam cegas). A trava entre processos (a ponte e o script da Z-API) só é tomada de volta quando o processo que a segurava morreu, nunca por idade. As tools MCP esperam até 90 s pela resposta de texto, para caber o intervalo.
 
+Antes de cada envio o módulo grava um marcador `PENDENTE` e o apaga quando o resultado é conhecido. Se o processo morrer no meio, ou o disco recusar o arquivo `PARADO` depois de um erro, o marcador continua e segura os envios (resultado incerto) até o dono conferir o número e liberar com `retomar`. O prazo de um pedido na fila conta do momento em que ele chegou à ponte, então nada sai depois de o cliente já ter recebido a falha.
+
 A queda comum de rede (reconexão normal do Baileys) não trava, porque acontece o tempo todo. O erro de envio
 trava de propósito: continuar tentando num número que o WhatsApp está recusando é o jeito mais rápido de
 perdê-lo. A mensagem do erro diz que ela pode ou não ter saído e que não se deve repetir às cegas.

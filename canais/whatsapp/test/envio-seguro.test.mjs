@@ -376,3 +376,29 @@ test('conferir() recusa o envio depois da espera, sem travar', async () => {
   assert.equal(fs.existsSync(path.join(m.home, 'envio', 'PARADO')), false);
   m.limpar();
 });
+
+// --- Revisao adversarial, rodada 4 ----------------------------------------------
+
+test('se o disco recusa o PARADO depois de um erro, o marcador PENDENTE segura os envios em outro processo', async () => {
+  const m = montar();
+  const r = await m.envio.enviar({ para: A, texto: 'primeira mensagem para a Ana', executar: async () => {
+    fs.mkdirSync(path.join(m.home, 'envio', 'PARADO'), { recursive: true }); // a partir daqui, gravar PARADO falha
+    throw new Error('api caiu');
+  } });
+  assert.equal(r.codigo, 'FALHA_ENVIO');
+  fs.rmSync(path.join(m.home, 'envio', 'PARADO'), { recursive: true });
+  const outro = criarEnvioSeguro({ dir: path.join(m.home, 'envio'), arqConfig: m.arqConfig });
+  assert.match(outro.paradoMotivo(), /resultado conhecido/);
+  assert.equal(outro.liberar(), false); // so havia o PENDENTE, que foi removido
+  assert.equal(outro.paradoMotivo(), null);
+  m.limpar();
+});
+
+test('sucesso nao deixa PENDENTE; pasta sem escrita recusa antes de enviar', async () => {
+  const m = montar();
+  assert.equal((await m.mandar(A, 'primeira mensagem para a Ana')).ok, true);
+  assert.equal(fs.existsSync(path.join(m.home, 'envio', 'PENDENTE')), false);
+  fs.mkdirSync(path.join(m.home, 'envio', 'PENDENTE'));
+  assert.ok(m.envio.paradoMotivo());
+  m.limpar();
+});

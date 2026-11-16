@@ -142,6 +142,7 @@ export function criarEnvioSeguro({ dir, arqConfig, agora = () => new Date(), dor
   const arqEstado = path.join(dir, 'estado.json');
   const arqParado = path.join(dir, 'PARADO');
   const arqTrava = path.join(dir, 'envio.lock');
+  const arqPendente = path.join(dir, 'PENDENTE'); // marcador: ha (ou houve) um envio cujo resultado nao se sabe
   let parouNaMemoria = null; // a trava vale mesmo se o disco recusar o arquivo PARADO
 
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -183,6 +184,7 @@ export function criarEnvioSeguro({ dir, arqConfig, agora = () => new Date(), dor
   }
 
   function paradoMotivo() {
+    if (fs.existsSync(arqPendente)) return 'um envio anterior nao terminou com resultado conhecido (a mensagem pode ou nao ter saido); confira no celular antes de liberar';
     if (parouNaMemoria) return `${parouNaMemoria} (o arquivo PARADO nao pode ser gravado; reinicie para destravar depois de resolver)`;
     let s;
     try { s = fs.readFileSync(arqParado, 'utf8'); } catch (e) {
@@ -194,6 +196,7 @@ export function criarEnvioSeguro({ dir, arqConfig, agora = () => new Date(), dor
 
   function liberar() {
     parouNaMemoria = null;
+    try { fs.unlinkSync(arqPendente); } catch { /* nao havia */ }
     try { fs.unlinkSync(arqParado); return true; } catch (e) {
       if (e.code === 'ENOENT') return false;
       throw e;
@@ -359,8 +362,15 @@ export function criarEnvioSeguro({ dir, arqConfig, agora = () => new Date(), dor
 
     // 5. Envia. Qualquer erro trava tudo: continuar tentando e como um robo em panico.
     let resultado;
+    // Marca antes de chamar o WhatsApp: se o processo morrer ou o disco recusar a trava depois, o marcador segura os envios.
+    try {
+      fs.writeFileSync(arqPendente, new Date(t).toISOString() + '\n', { mode: 0o600 });
+    } catch (e) {
+      return falha('ESTADO_INVALIDO', `nao consegui gravar ${arqPendente} (${motivoErro(e)}); sem isso nao ha como travar com seguranca depois de um erro. Nada foi enviado. Confira o espaco em disco e as permissoes`);
+    }
     try {
       resultado = await executar();
+      try { fs.unlinkSync(arqPendente); } catch { /* ja removido */ }
     } catch (e) {
       travar(`o envio falhou (${motivoErro(e)}); pode ser desconexao ou bloqueio do numero`);
       return falha('FALHA_ENVIO', `o envio falhou (${motivoErro(e)}) e os envios ficaram TRAVADOS por seguranca. A mensagem pode ou nao ter saido: nao repita. Avise o dono, que confere o numero no celular e libera com "dgclaw-agente canal whatsapp retomar"`);

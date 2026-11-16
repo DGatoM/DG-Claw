@@ -450,7 +450,7 @@ cmd_wa_desligar() {
 cmd_wa_retomar() {
   # So o dono pede isto, no chat do DG Claw, depois de conferir o numero no celular (docs/CANAL-WHATSAPP.md).
   local f achou=""
-  for f in "$WADIR/envio/PARADO" "$WADIR/zapi/PARADO"; do
+  for f in "$WADIR/envio/PARADO" "$WADIR/zapi/PARADO" "$WADIR/envio/PENDENTE" "$WADIR/zapi/PENDENTE"; do
     if [ -f "$f" ] && [ ! -L "$f" ]; then
       rm -f -- "$f" || die "nao consegui apagar $f; confira a permissao da pasta"
       achou=1
@@ -480,9 +480,9 @@ status_whatsapp() {
     echo "  estado: sem registro da ponte ainda"
   fi
   local pf pm
-  for pf in "$WADIR/envio/PARADO" "$WADIR/zapi/PARADO"; do
+  for pf in "$WADIR/envio/PARADO" "$WADIR/zapi/PARADO" "$WADIR/envio/PENDENTE" "$WADIR/zapi/PENDENTE"; do
     [ -f "$pf" ] || continue
-    pm="$(js 'return d.motivo' < "$pf")"
+    case "$pf" in */PENDENTE) pm="um envio anterior ficou sem resultado conhecido";; *) pm="$(js 'return d.motivo' < "$pf")";; esac
     echo "  ENVIOS TRAVADOS: ${pm:-sem motivo registrado}. O dono libera com: dgclaw-agente canal whatsapp retomar"
   done
   ler_permitidos

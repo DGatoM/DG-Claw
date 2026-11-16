@@ -27,6 +27,7 @@ export function criarPedidos({ lerPermitidos, estaPermitido, validarArquivo, mon
   }
 
   async function tratarPedido(linha) {
+    const inicio = Date.now(); // o prazo conta do pedido recebido, nao de quando a fila chega a vez dele
     let p;
     try {
       p = JSON.parse(linha);
@@ -98,7 +99,7 @@ export function criarPedidos({ lerPermitidos, estaPermitido, validarArquivo, mon
         // O socket e lido na hora de enviar: uma reconexao durante a espera troca o socket.
         executar: () => ligacao().sock.sendMessage(jid, conteudo),
         // Menor que o prazo do socket (75 s texto, 120 s arquivo): pedido que ficou velho na fila nao e enviado.
-        prazoMs: p.acao === 'enviar' ? 65000 : 105000,
+        prazoMs: (p.acao === 'enviar' ? 65000 : 105000) - (Date.now() - inicio),
         // A lista pode ter mudado durante a espera da fila: o dono removeu o numero, a mensagem nao sai.
         conferir: () => {
           if (!estaPermitido(numero)) return falha('FORA_DA_LISTA', `${numero} saiu da lista de permitidos enquanto o pedido esperava; nada foi enviado`);
