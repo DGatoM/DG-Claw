@@ -7,7 +7,7 @@
 # sem ancora (adocao, impressao digital, --exigir-assinatura, --chave-assinatura); volta a adocao
 # depois de ativada; HEAD nunca autenticado; skip-worktree; personalizacoes; estado gravado depois da
 # instalacao; config hostil no clone; tag que muda depois da conferencia; HEAD diferente do assinado.
-# shellcheck disable=SC2034 # variaveis lidas pelas funcoes de lib/assinatura.sh e lib/personalizacoes.sh
+# shellcheck disable=SC2030,SC2031,SC2034 # variaveis lidas pelas funcoes de lib/assinatura.sh e lib/personalizacoes.sh
 set -uo pipefail
 # shellcheck source=tests/cli/_comum.sh
 . "$(dirname "$0")/_comum.sh"
@@ -378,6 +378,10 @@ igual "sai com 0" "0" "$RC"
 igual "o destino e a v1.2.0, nao a tag renomeada" "$C3" "$DEST"
 afirma "a conferencia de arquivos aceita a regravacao do estado de assinatura" grep -q 'etc/dgclaw/assinatura/\*)' "$REPO/lib/atualizar.sh"
 
+
+echo "impressao digital de arquivo de chaves sem newline final"
+printf 'releases namespaces="git" %s' "$(cut -d' ' -f1,2 "$KD.pub")" >"$TMP/sem-newline"
+afirma "mostra a impressao digital mesmo sem newline" bash -c ". '$REPO/lib/comum.sh'; . '$REPO/lib/assinatura.sh'; _ass_impressoes '$TMP/sem-newline' | grep -q '^SHA256:'"
 
 echo "volta (rollback): nao repete a conferencia da atualizacao"
 afirma "atualizar_voltar zera o estado de assinatura antes de reinstalar" bash -c "sed -n '/^atualizar_voltar()/,/^}/p' '$REPO/lib/atualizar.sh' | grep -q 'ATU_ASSINATURA=\"\"; ASS_DESTINO=\"\"'"

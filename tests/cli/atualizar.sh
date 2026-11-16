@@ -782,7 +782,7 @@ mkdir -p "$CLONE/seguranca/assinatura"
 printf 'releases namespaces="git" %s\n' "$(cut -d' ' -f1,2 "$KD.pub")" >"$CLONE/seguranca/assinatura/allowed_signers"
 git -C "$CLONE" add seguranca; git -C "$CLONE" commit -q -m "traz a chave de assinatura"
 git -C "$CLONE" push -q origin HEAD:main
-echo "$(git -C "$CLONE" rev-parse HEAD)" >"$TMP/head-com-chave"
+git -C "$CLONE" rev-parse HEAD >"$TMP/head-com-chave"
 # A chave que vale fica fora do clone (gravada por uma atualizacao anterior); o commit instalado e este.
 mkdir -p "$ETC/assinatura"; cp "$CLONE/seguranca/assinatura/allowed_signers" "$ETC/assinatura/allowed_signers"
 date +%F >"$ETC/assinatura/ativada"; git -C "$CLONE" rev-parse HEAD >"$ETC/assinatura/instalado"
@@ -816,7 +816,7 @@ nega "opcao inexistente em atualizar e recusada" dgclaw atualizar --simular --na
 echo "assinatura: atualizacao REAL com tag assinada (estado ja gravado) conclui e regrava o estado, sem rollback"
 git -C "$TRAB" tag -d v9.0.2 >/dev/null 2>&1; git -C "$TRAB" push -q origin :refs/tags/v9.0.2 2>/dev/null; git -C "$CLONE" tag -d v9.0.2 >/dev/null 2>&1
 git -C "$CLONE" fetch -q origin; git -C "$CLONE" reset -q --hard origin/main
-echo "$(git -C "$CLONE" rev-parse HEAD)" >"$ETC/assinatura/instalado"
+git -C "$CLONE" rev-parse HEAD >"$ETC/assinatura/instalado"
 git -C "$TRAB" fetch -q origin; git -C "$TRAB" reset -q --hard origin/main
 echo 'versao real' >>"$TRAB/README.md"; git -C "$TRAB" commit -q -am "versao real"
 git -C "$TRAB" -c gpg.format=ssh -c "user.signingkey=$KD" tag -s -m "versao" v9.0.3

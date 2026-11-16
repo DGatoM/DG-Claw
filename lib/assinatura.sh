@@ -63,7 +63,7 @@ assinatura_limpar() {
 _ass_impressoes() {
     local arq="$1" linha chave tmp
     command -v ssh-keygen >/dev/null 2>&1 || { printf '(sem ssh-keygen para calcular a impressao digital)\n'; return 0; }
-    while IFS= read -r linha; do
+    while IFS= read -r linha || [ -n "$linha" ]; do
         case "$linha" in ''|'#'*) continue ;; esac
         # a chave e o primeiro campo que comeca com um tipo ssh (ssh-ed25519, sk-ssh-..., ecdsa-...)
         chave="$(printf '%s\n' "$linha" | awk '{for (i = 1; i < NF; i++) if ($i ~ /^(ssh-|sk-ssh-|ecdsa-sha2-)/) {print $i " " $(i + 1); exit}}')"
@@ -348,7 +348,8 @@ assinatura_exigir_head() {
         base="$ASS_DESTINO"
     fi
     # Indice novo: nao herda skip-worktree nem assume-unchanged do indice do clone.
-    idx="$(mktemp -u)"
+    idx="$(mktemp)" || falha "nao consegui criar um arquivo temporario para conferir o clone." "confira o espaco em disco e a permissao de /tmp. Nada foi instalado."
+    rm -f "$idx"   # o git cria o indice novo no mesmo caminho, que acabou de ser criado por nos (nome nao previsivel)
     GIT_INDEX_FILE="$idx" _ass_git read-tree "$base" >/dev/null 2>&1 \
         && GIT_INDEX_FILE="$idx" _ass_git update-index -q --refresh >/dev/null 2>&1 \
         && GIT_INDEX_FILE="$idx" _ass_git diff-files --quiet >/dev/null 2>&1 || rc=1
