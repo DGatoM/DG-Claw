@@ -1102,3 +1102,22 @@ test('envio seguro: numero removido da lista durante a espera nao recebe a mensa
   assert.equal(a.sock.enviados.length, 1);
   await a.fim();
 });
+
+test('envio seguro: reconexao durante a espera usa o socket novo e nao trava', async () => {
+  let a;
+  a = await ambiente({
+    lista: [DONO, '+5521999998888'],
+    extra: { aleatorioEnvio: () => 1, dormirEnvio: async () => {
+      a.sock.ev.emit('connection.update', { connection: 'close', ...erroCodigo(500) });
+      await esperar(() => a.falso.socks.length === 2);
+      a.falso.socks[1].ev.emit('connection.update', { connection: 'open' });
+      await esperar(() => a.ponte.estado() === 'conectado');
+    } },
+  });
+  await pedir(a.sockPath, { acao: 'enviar', para: DONO, texto: 'primeira mensagem para o dono' });
+  const r = await pedir(a.sockPath, { acao: 'enviar', para: '+5521999998888', texto: 'segunda mensagem para outra pessoa' });
+  assert.equal(r.ok, true);
+  assert.equal(a.falso.socks[1].enviados.length, 1);
+  assert.equal(fs.existsSync(path.join(a.dir, 'envio', 'PARADO')), false);
+  await a.fim();
+});

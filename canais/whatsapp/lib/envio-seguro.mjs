@@ -107,7 +107,8 @@ function validar(c, arquivo) {
   if (!erros.length && c.intervalo_min_s > c.intervalo_max_s) {
     erros.push(`"intervalo_min_s" (${c.intervalo_min_s}) nao pode ser maior que "intervalo_max_s" (${c.intervalo_max_s})${onde}`);
   }
-  if (c.numero_novo_desde != null && !/^\d{4}-\d{2}-\d{2}$/.test(String(c.numero_novo_desde))) {
+  const dataValida = (d) => /^\d{4}-\d{2}-\d{2}$/.test(String(d)) && Number.isFinite(Date.parse(`${d}T00:00:00Z`)) && new Date(`${d}T00:00:00Z`).toISOString().slice(0, 10) === String(d);
+  if (c.numero_novo_desde != null && !dataValida(c.numero_novo_desde)) {
     erros.push(`"numero_novo_desde"${onde} tem que ser uma data AAAA-MM-DD ou null (veio ${JSON.stringify(c.numero_novo_desde)})`);
   }
   return erros.length ? { erro: erros[0] } : { config: c };

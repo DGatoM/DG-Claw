@@ -95,12 +95,18 @@ export function criarPedidos({ lerPermitidos, estaPermitido, validarArquivo, mon
       const r = await envioSeguro.enviar({
         para: numero,
         texto: p.acao === 'enviar' ? p.texto : (p.legenda || ''),
-        executar: () => sock.sendMessage(jid, conteudo),
+        // O socket e lido na hora de enviar: uma reconexao durante a espera troca o socket.
+        executar: () => ligacao().sock.sendMessage(jid, conteudo),
         // Menor que o prazo do socket (75 s texto, 120 s arquivo): pedido que ficou velho na fila nao e enviado.
         prazoMs: p.acao === 'enviar' ? 65000 : 105000,
         // A lista pode ter mudado durante a espera da fila: o dono removeu o numero, a mensagem nao sai.
-        conferir: () => (estaPermitido(numero) ? null
-          : falha('FORA_DA_LISTA', `${numero} saiu da lista de permitidos enquanto o pedido esperava; nada foi enviado`)),
+        conferir: () => {
+          if (!estaPermitido(numero)) return falha('FORA_DA_LISTA', `${numero} saiu da lista de permitidos enquanto o pedido esperava; nada foi enviado`);
+          // Queda durante a espera nao e erro de envio: nada saiu, nao trava, tente de novo.
+          const l = ligacao();
+          if (!l.conectado || !l.sock) return falha('DESCONECTADO', 'a conexao caiu enquanto o pedido esperava; nada foi enviado e nada foi travado. Tente de novo em instantes');
+          return null;
+        },
       });
       if (!r.ok) return r;
       const ok = { ok: true, para: numero, id: (r.resultado && r.resultado.key && r.resultado.key.id) || null };

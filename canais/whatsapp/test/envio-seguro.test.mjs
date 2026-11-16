@@ -149,6 +149,8 @@ test('configuracao: valor ruim recusa o envio com o motivo, nunca vira padrao em
     [{ teto_dia: 100000 }, /teto_dia/],
     [{ inventada: 1 }, /desconhecida/],
     [{ numero_novo_desde: 'ontem' }, /AAAA-MM-DD/],
+    [{ numero_novo_desde: '2026-13-16' }, /AAAA-MM-DD/],
+    [{ numero_novo_desde: '2026-02-30' }, /AAAA-MM-DD/],
   ]) {
     const m = montar({ config: cfg });
     const r = await m.mandar(A, 'mensagem qualquer para alguem');
