@@ -261,7 +261,7 @@ afirma "a mensagem final aponta o arquivo" grep -q 'Veja a lista completa em' "$
 
 # A lista de rotinas que o reparar regrava (DG_UNIDADES_REPARAR) tem que acompanhar o install-timers.sh.
 PRODUTOS_REPARAR="$(sed -n 's/^DG_UNIDADES_REPARAR="\(.*\)"$/\1/p' "$AQUI/../../bin/dgclaw" | head -n1)"
-NOMES_INSTALL="$( { grep -oE '^ *"[a-z-]+\|' "$AQUI/../../scripts/install-timers.sh" | tr -d ' "|'; echo monitor; } | sort | tr '\n' ' ')"
+NOMES_INSTALL="$( { grep -oE '^ *"[a-z0-9-]+\|' "$AQUI/../../scripts/install-timers.sh" | tr -d ' "|'; echo monitor; } | sort | tr '\n' ' ')"
 igual "a lista de rotinas regravadas acompanha o install-timers.sh" "$NOMES_INSTALL" "$(printf '%s\n' $PRODUTOS_REPARAR | sort | tr '\n' ' ')"
 
 # 11) erro de escrita na lista de pacotes: para, nao vira "nada a perder"
@@ -275,6 +275,15 @@ nega "erro de escrita, sem --forcar: falha" test "$?" -eq 0
 afirma "explica a falha de gravacao" grep -q 'nao consegui gravar a lista de pacotes' "$TMP/rec.txt"
 afirma "nao trocou o container" sem_troca
 rm -f "$STUB_ESTADO/cut-falha" "$STUB_ESTADO/pacotes-container" "$STUB_ESTADO/pacotes-imagem"
+
+# manifesto de impressoes digitais que o reparar grava na casa (os caminhos das rotinas padrao, HASH-FIXO)
+manifesto() {
+    mkdir -p "$CASA_RITA/home/.dgclaw"
+    for n in $PRODUTOS_REPARAR; do
+        for e in service timer; do echo "HASH-FIXO  /etc/systemd/system/dgclaw-rita-$n.$e"; done
+    done >"$CASA_RITA/home/.dgclaw/unidades-padrao.sha256"
+}
+manifesto
 
 # 12) agente padrao completo: as rotinas que o reparar regrava nao contam como perda
 echo imagem-v20 >"$STUB_ESTADO/imagem-id"
@@ -312,10 +321,16 @@ afirma "rotina de post do Instagram aparece (ninguem a regrava)" grep -q 'dgclaw
 afirma "rotina de comentarios aparece" grep -q 'dgclaw-rita-comments.service' "$TMP/rec.txt"
 afirma "vigia do canal aparece" grep -q 'dgclaw-rita-channel-watchdog.timer' "$TMP/rec.txt"
 rm -f "$STUB_ESTADO/unidade-editada"
+# sem o manifesto (agente anterior a esta versao): as rotinas padrao entram como possivel perda
+mv "$CASA_RITA/home/.dgclaw/unidades-padrao.sha256" "$TMP/manifesto.bak"
+recriar rita
+nega "sem manifesto, sem --forcar: falha" test "$?" -eq 0
+afirma "sem manifesto a rotina padrao aparece como possivel perda" grep -q 'dgclaw-rita-heartbeat.timer' "$TMP/rec.txt"
+mv "$TMP/manifesto.bak" "$CASA_RITA/home/.dgclaw/unidades-padrao.sha256"
 touch "$STUB_ESTADO/unidade-conferir-falha"
 recriar rita
 nega "nao deu para conferir as unidades: falha" test "$?" -eq 0
-afirma "explica" grep -q 'conferir as unidades padrao' "$TMP/rec.txt"
+afirma "explica" grep -q 'conferir as rotinas padrao' "$TMP/rec.txt"
 rm -f "$STUB_ESTADO/unidade-conferir-falha"
 
 

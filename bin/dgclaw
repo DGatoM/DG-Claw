@@ -980,6 +980,14 @@ for u in /etc/systemd/system/dgclaw-*.service; do
     [ -f "$u" ] || continue
     sed -i 's|^User=root$|User=agente|; s|^Environment=HOME=/root$|Environment=HOME=/home/agente|' "$u"
 done
+# Impressao digital das unidades que o produto acabou de gerar (referencia confiavel para o
+# `agente recriar` saber se alguem as editou depois). So as que nao sao do proprio agente (self-*).
+( cd /etc/systemd/system && for u in /etc/systemd/system/dgclaw-*.service /etc/systemd/system/dgclaw-*.timer; do
+    [ -f "$u" ] || continue
+    case "$u" in *-self-*) continue ;; esac
+    sha256sum "$u"
+done ) >"$CASA/.dgclaw/unidades-padrao.sha256"
+chown agente:agente "$CASA/.dgclaw/unidades-padrao.sha256"
 # As skills que o proprio agente usa (agenda, memoria...) vem na imagem, mas o Claude Code
 # so as enxerga em ~/.claude/skills. Sem isto o agente nasce sem elas, e "me lembra daqui a
 # 2 minutos" fica sem o roteiro da agenda. Link (e nao copia): a imagem nova traz a versao
@@ -1470,7 +1478,7 @@ agente_reparar() {
 # Rotinas que o `reparar` (vida_script -> install-timers.sh) regrava no container novo: nao contam como
 # perda. O teste tests/cli/recriar.sh confere que esta lista acompanha o install-timers.sh.
 # As rotinas do Instagram (post-*, comments) e o channel-watchdog NAO estao aqui: ninguem as regrava.
-DG_UNIDADES_REPARAR="reflection audit build-wm heartbeat cron-audit channels-tokens-logger cost-alerts poke-verify conversas-fts memory-reindex watchdog auto-compact monitor"
+DG_UNIDADES_REPARAR="reflection audit build-wm heartbeat cron-audit channels-tokens-logger cost-alerts poke-verify conversas-fts memory-reindex pulso-report-1 pulso-report-2 pulso-report-3 watchdog auto-compact monitor"
 
 # _inv_sanear: filtro de stdin para stdout. O inventario mostra texto que vem de DENTRO do container
 # (nomes de pacote e de arquivo, que o agente ou um terceiro pode ter escolhido a dedo) e que acaba
@@ -1493,7 +1501,7 @@ _inv_sanear() { LC_ALL=C tr -c 'A-Za-z0-9._/@+:,=~\n-' '?' | cut -c1-160; }
 # devolvidas) e dgclaw-runner/dgclaw-painel (regravados pelo reparar). Qualquer outra unidade dgclaw-*
 # ou arquivo em /var/backups e /var/lib/private e coisa que se perde e continua na lista.
 inventario_container() {
-    local slug="$1" saida="$2" difusao="" pacs_c="" pacs_i="" novos estado_c c rc_a rc_b ruins validos prod
+    local slug="$1" saida="$2" difusao="" pacs_c="" pacs_i="" novos estado_c c rc_a rc_b ruins validos atuais ref linha
     c="dgclaw-$slug"
     INV_MOTIVO=""
     _inv_limpar() { rm -f "$difusao" "$difusao.err" "$difusao.arq" "$difusao.prod" "$pacs_c" "$pacs_i" 2>/dev/null || true; }
@@ -1591,15 +1599,24 @@ inventario_container() {
         _inv_limpar
         return 1
     fi
-    # Unidades padrao do produto: as que nao tem mais a cara do que o produto gera (alguem editou) voltam
-    # para a lista, porque o reparar as regrava e a edicao se perderia.
-    if [ -s "$difusao.prod" ] && [ "$estado_c" = running ]; then
-        prod="$(podman exec "$c" sh -c 'for f; do grep -q "^Description=DG Claw " "$f" 2>/dev/null || echo "$f"; done' _ $(cat "$difusao.prod") 2>/dev/null)" \
-            || { INV_MOTIVO="nao consegui conferir as unidades padrao dentro do container (podman exec)."; _inv_limpar; return 1; }
-        if [ -n "$prod" ]; then
-            printf '%s\n' "$prod" | sed 's/^/C /' >>"$difusao.arq" \
-                || { INV_MOTIVO="nao consegui gravar a lista de unidades alteradas."; _inv_limpar; return 1; }
+    # Unidades padrao do produto: so somem da lista se o arquivo e IDENTICO ao que o produto gerou (impressao
+    # digital gravada na casa pelo reparar: .dgclaw/unidades-padrao.sha256). Sem essa referencia (agente
+    # anterior a esta versao) ou com o arquivo diferente, a unidade entra na lista como possivel perda.
+    if [ -s "$difusao.prod" ]; then
+        if [ "$estado_c" != running ]; then
+            INV_MOTIVO="o container nao esta ligado, entao nao da para conferir se alguem editou as rotinas padrao dele."
+            _inv_limpar; return 1
         fi
+        ref="$DG_CASAS/$slug/home/.dgclaw/unidades-padrao.sha256"
+        atuais="$(podman exec "$c" sha256sum $(cat "$difusao.prod") 2>/dev/null)" \
+            || { INV_MOTIVO="nao consegui conferir as rotinas padrao dentro do container (podman exec sha256sum)."; _inv_limpar; return 1; }
+        while IFS= read -r linha; do
+            [ -n "$linha" ] || continue
+            if ! { [ -f "$ref" ] && grep -qxF -- "$linha" "$ref"; }; then
+                printf 'C %s\n' "${linha#*  }" >>"$difusao.arq" \
+                    || { INV_MOTIVO="nao consegui gravar a lista de unidades alteradas."; _inv_limpar; return 1; }
+            fi
+        done <<<"$atuais"
     fi
     if [ -s "$difusao.arq" ]; then
         {

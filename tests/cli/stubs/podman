@@ -70,11 +70,14 @@ case "${1:-}" in
         # `exec -i <container> bash -s` recebe o script por STDIN: guarda para o teste ler.
         if printf '%s ' "$@" | grep -q -- ' -i '; then cat >> "$STUB_LOG.stdin"; fi
         if printf '%s ' "$@" | grep -q is-system-running; then echo running; fi
-        # Conferencia das unidades padrao: `sh -c 'for f; ... grep "^Description=DG Claw " ...' _ <arquivos>`.
-        # estado/unidade-editada lista (um caminho por linha) as que "nao tem mais a cara do produto".
-        if printf '%s ' "$@" | grep -q 'Description=DG Claw'; then
+        # Conferencia das unidades padrao: `sha256sum <arquivos>`. Imprime "HASH-FIXO  <arquivo>", ou "OUTRO  <arquivo>"
+        # para os caminhos listados em estado/unidade-editada. estado/unidade-conferir-falha faz o comando falhar.
+        if printf '%s ' "$@" | grep -q 'sha256sum'; then
             [ -f "$est/unidade-conferir-falha" ] && exit 1
-            cat "$est/unidade-editada" 2>/dev/null; exit 0
+            for f in "${@:4}"; do
+                if grep -qxF "$f" "$est/unidade-editada" 2>/dev/null; then echo "OUTRO  $f"; else echo "HASH-FIXO  $f"; fi
+            done
+            exit 0
         fi
         # `exec <container> dpkg-query ...`: pacotes do container (estado/pacotes-container).
         if printf '%s ' "$@" | grep -q dpkg-query; then
