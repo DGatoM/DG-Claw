@@ -169,20 +169,24 @@ rodar env DGCLAW_SESSION_DIR="$TMP/nao-e-pasta"
 afirma "pasta de sessoes que nao pode ser listada: injeta" injetou
 afirma "pasta nao listavel: o log explica" bash -c "grep -q 'duvida\|nao existe\|incerta' '$WS/.dgclaw/logs/reflection.log'"
 
-# scandir que falha com PermissionError (simulado por sitecustomize, so neste caso)
+# scandir que falha com PermissionError. As rotinas rodam com `python3 -I`, que ignora PYTHONPATH e
+# sitecustomize; por isso a falha e simulada no thread_log.py do plugin falso (que o script importa
+# antes de listar), so neste caso, e o original volta logo depois.
 novo_cenario
 : >"$SESSOES/a.jsonl"
-mkdir -p "$TMP/sc"
-cat >"$TMP/sc/sitecustomize.py" <<'PY'
-import os
-_orig = os.scandir
-def _scandir(p="."):
+cp "$PLUGIN/scripts/_lib/thread_log.py" "$TMP/thread_log.py.orig"
+cat >>"$PLUGIN/scripts/_lib/thread_log.py" <<'PY'
+
+import os as _os_teste
+_orig_scandir_teste = _os_teste.scandir
+def _scandir_teste(p="."):
     if "sessoes" in str(p):
         raise PermissionError(13, "Permission denied", str(p))
-    return _orig(p)
-os.scandir = _scandir
+    return _orig_scandir_teste(p)
+_os_teste.scandir = _scandir_teste
 PY
-rodar env PYTHONPATH="$TMP/sc"
+rodar
+cp "$TMP/thread_log.py.orig" "$PLUGIN/scripts/_lib/thread_log.py"
 afirma "listagem com PermissionError: injeta" injetou
 afirma "listagem com PermissionError: o log explica" bash -c "grep -q 'nao consegui listar' '$WS/.dgclaw/logs/reflection.log'"
 nega "listagem com PermissionError: nao anota dia pulado" test -f "$WS/.dgclaw/logs/reflexoes-puladas.txt"

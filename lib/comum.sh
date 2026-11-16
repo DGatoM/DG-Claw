@@ -67,13 +67,14 @@ falha() {
 # $R/run/systemd/system) cai no podman direto. Nas duas chamadas o descritor 8 (a trava da faixa de
 # rede, ver trava_faixa_pegar) e fechado: e por aqui que todo container de agente nasce, e o conmon,
 # que vive ate o container parar, herdaria o descritor e seguraria a trava.
+# O 9>&- fecha a trava das restricoes (lib/restricoes.sh) pelo mesmo motivo.
 podman_em_escopo() {
     local slug="$1"; shift
     if command -v systemd-run >/dev/null 2>&1 && [ -d "$R/run/systemd/system" ]; then
         executar systemd-run --scope --quiet --collect \
-            --unit "dgclaw-conteiner-$slug-$(date +%s)-$$-$RANDOM" podman "$@" 8>&-
+            --unit "dgclaw-conteiner-$slug-$(date +%s)-$$-$RANDOM" podman "$@" 8>&- 9>&-
     else
-        executar podman "$@" 8>&-
+        executar podman "$@" 8>&- 9>&-
     fi
 }
 

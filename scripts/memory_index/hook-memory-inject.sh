@@ -95,7 +95,7 @@ HOOK_INPUT=$(cat)
 
 # Extrai o texto do user. Channels manda como:
 #   <channel source="..." chat_id="..." ...>TEXTO</channel>
-USER_TEXT=$(printf '%s' "$HOOK_INPUT" | python3 -c "
+USER_TEXT=$(printf '%s' "$HOOK_INPUT" | python3 -I -c "
 import json, sys, re
 try:
     d = json.loads(sys.stdin.read())
@@ -119,7 +119,7 @@ fi
 case "$EMB_MOTIVO" in *"local"*) _TETO=5 ;; *) _TETO=3 ;; esac
 TIMEOUT_S="${DGCLAW_MEMORY_HOOK_TIMEOUT:-$_TETO}"
 RESULT=$(
-    printf '%s' "$USER_TEXT" | python3 -c "
+    printf '%s' "$USER_TEXT" | python3 -I -c "
 import json, sys
 print(json.dumps({'input': sys.stdin.read()}))
 " 2>>"$LOG" | timeout "$TIMEOUT_S" python3 "$SEARCH" 2>>"$LOG"
@@ -134,7 +134,7 @@ fi
 # Compativel com a saida tanto do memory_search_fast (campo 'recall') quanto do
 # memory_search (campo 'recall' tambem). 'fired' so existe no fast; o full usa 'recall'
 # nao-nulo como sinal. Tratamos ambos.
-printf '%s' "$RESULT" | python3 -c "
+printf '%s' "$RESULT" | python3 -I -c "
 import json, sys
 try:
     d = json.loads(sys.stdin.read())
@@ -158,7 +158,7 @@ print(json.dumps(out, ensure_ascii=False))
 
 # ─── Log de diagnostico (best-effort) ──────────────────────────────────────────
 SHORT_TEXT=$(printf '%s' "$USER_TEXT" | head -c 80 | tr '\n' ' ')
-SHORT_RESULT=$(printf '%s' "$RESULT" | python3 -c "
+SHORT_RESULT=$(printf '%s' "$RESULT" | python3 -I -c "
 import json, sys
 try:
     d = json.loads(sys.stdin.read())
