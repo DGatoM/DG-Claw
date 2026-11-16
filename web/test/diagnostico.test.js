@@ -192,13 +192,39 @@ test('login expirado: quebrado com a hora, sem prompt, e a sessão aponta para o
   m.casa.limpa();
 });
 
-test('conferência da conta recusada: quebrado; sem conferência: sem medida', async () => {
-  let m = montar({ provedor: { ok: true, dados: { conferido: { ok: false, detalhe: 'Conta recusada', em: new Date(AGORA).toISOString() }, canais: {} } } });
-  assert.equal(achar(await m.diag.coletar(), 'agente.tina.login').estado, 'quebrado');
+test('conferência da conta: só a falta de credencial comprovada é quebrado; o resto é sem medida', async () => {
+  const conf = (extra) => ({ provedor: { ok: true, dados: { conferido: Object.assign({ ok: false, detalhe: 'x', em: new Date(AGORA).toISOString() }, extra), canais: {} } } });
+  let m = montar(conf({ motivo: 'sem_credencial' }));
+  let r = achar(await m.diag.coletar(), 'agente.tina.login');
+  assert.equal(r.estado, 'quebrado');
+  assert.match(r.o_que_fazer, /refaça o login/);
   m.casa.limpa();
+  for (const motivo of ['tempo', 'ilegivel', 'metodo_diferente', 'sem_binario', 'motivo-inventado', undefined]) {
+    m = montar(conf({ motivo }));
+    r = achar(await m.diag.coletar(), 'agente.tina.login');
+    assert.equal(r.estado, 'nao_medido', `motivo ${motivo} não prova falta de login`);
+    if (motivo === 'sem_binario') assert.match(r.prompt_sugerido, /dgclaw agente reiniciar tina/);
+    else assert.equal(r.prompt_sugerido, null);
+    m.casa.limpa();
+  }
   m = montar({ provedor: { ok: true, dados: { conferido: null, canais: {} } } });
   assert.equal(achar(await m.diag.coletar(), 'agente.tina.login').estado, 'nao_medido');
   m.casa.limpa();
+});
+
+test('sessão: resposta do runner fora do formato (corpo vazio, status desconhecido, ptyVivo ausente) é sem medida, nunca ok', async () => {
+  const casos = [
+    { ok: true, status: 200, corpo: {} },
+    { ok: true, status: 200, corpo: { ok: true, agente: { status: 'inventado', ptyVivo: true } } },
+    { ok: true, status: 200, corpo: { ok: true, agente: { status: 'idle' } } },
+    { ok: true, status: 200, corpo: { ok: true, agente: { status: 'idle', ptyVivo: 'sim' } } },
+  ];
+  for (const saude of casos) {
+    const m = montar({ saude, estado: { ok: false, erro: 'x' } });
+    const r = achar(await m.diag.coletar(), 'agente.tina.sessao');
+    assert.equal(r.estado, 'nao_medido', JSON.stringify(saude.corpo));
+    m.casa.limpa();
+  }
 });
 
 test('rotina que falhou: evidência com exit code e linhas do journal sem segredo', async () => {

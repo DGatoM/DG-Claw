@@ -54,14 +54,35 @@ function analisaLogin(ag, dados, tz) {
   const conf = provedor.dados.conferido;
   const emMs = conf && typeof conf.em === 'string' ? Date.parse(conf.em) : NaN;
   if (conf && conf.ok === false) {
-    return {
-      estado: 'quebrado',
-      motivo: 'A conferência da conta do Claude falhou: a conta aparece como desconectada ou recusada.',
-      ultimo_sinal: U.iso(emMs),
-      evidencia: { horario: U.iso(emMs), codigo_saida: null, sinal: 'conferência da conta do Claude falhou' },
-      o_que_fazer: refazer,
-      prompt_sugerido: null,
-    };
+    // O motivo vem do container: só vale se for um dos que o runner conhece, e só frases nossas saem daqui.
+    const motivoConf = U.dentro(conf.motivo, U.ENUMS.motivoConferencia);
+    const evid = (sinal) => ({ horario: U.iso(emMs), codigo_saida: null, sinal });
+    const semMedida = (motivo, extra) => Object.assign({ estado: 'nao_medido', motivo, ultimo_sinal: U.iso(emMs), evidencia: null, o_que_fazer: null, prompt_sugerido: null }, extra || {});
+    if (motivoConf === 'sem_credencial') {
+      return {
+        estado: 'quebrado',
+        motivo: 'A conferência da conta do Claude falhou: o programa respondeu que não há conta conectada.',
+        ultimo_sinal: U.iso(emMs),
+        evidencia: evid('conferência da conta: sem credencial'),
+        o_que_fazer: refazer,
+        prompt_sugerido: null,
+      };
+    }
+    if (motivoConf === 'sem_binario') {
+      const cmd = comandoDeReinicio(ag);
+      return semMedida(`Não deu para conferir a conta ${doo(ag)}: o programa de login não está instalado ${admin(ag) ? 'no Admin' : 'nesse agente'}.`, {
+        evidencia: evid('conferência da conta: programa ausente'),
+        o_que_fazer: U.ONDE_COLAR,
+        prompt_sugerido: U.promptAdmin(`o programa de login ${dooP(ag)} não está instalado, então a conta não pôde ser conferida.`, '`dgclaw status` e o log do runner; se faltar mesmo, repare ou recrie o agente', cmd),
+      });
+    }
+    if (motivoConf === 'metodo_diferente') {
+      return semMedida(`A conta ${doo(ag)} está conectada de um jeito diferente do configurado (por exemplo assinatura em vez de chave). Isso não prova que falta login; confira a forma de pagar no painel e reinicie o agente.`);
+    }
+    if (motivoConf === 'tempo') {
+      return semMedida(`A conferência da conta ${doo(ag)} demorou demais e não terminou, então não deu para saber se o login está bom. Tente o diagnóstico de novo em alguns minutos.`);
+    }
+    return semMedida(`Não deu para conferir a conta ${doo(ag)}: a resposta do runner veio ilegível ou sem o motivo da falha. Isso não prova que falta login.`);
   }
   if (!conf || conf.ok !== true) {
     return { estado: 'nao_medido', motivo: 'O runner ainda não conferiu a conta conectada (a resposta veio sem o resultado da conferência).', ultimo_sinal: null, evidencia: null, o_que_fazer: null, prompt_sugerido: null };
@@ -97,8 +118,8 @@ function analisaSessao(ag, dados, { agoraMs, tz, contMorto }) {
       evidencia: { horario: null, codigo_saida: codigoHttp, sinal: recusou ? 'token do runner recusado' : 'runner sem resposta' },
     }, fix(viu.charAt(0).toUpperCase() + viu.slice(1)));
   }
-  const corpo = saude.corpo || {};
-  const agente = corpo.agente || {};
+  const corpo = saude.corpo && typeof saude.corpo === 'object' ? saude.corpo : {};
+  const agente = corpo.agente && typeof corpo.agente === 'object' ? corpo.agente : {};
   const status = U.dentro(agente.status, U.ENUMS.statusRunner);
   const saidaMs = Number.isFinite(corpo.ultimaSaidaEm) ? corpo.ultimaSaidaEm : null;
   const atualMs = estado && estado.ok && Number.isFinite(estado.estado.updatedAt) ? estado.estado.updatedAt : null;
@@ -113,6 +134,10 @@ function analisaSessao(ag, dados, { agoraMs, tz, contMorto }) {
       o_que_fazer: 'Refaça o login conforme o item de login deste agente; a sessão volta sozinha depois.',
       prompt_sugerido: null,
     }, base);
+  }
+  // Sem status conhecido e sem ptyVivo booleano não há como dizer que a sessão está bem: falta evidência, não saúde.
+  if (status == null || typeof agente.ptyVivo !== 'boolean') {
+    return { estado: 'nao_medido', motivo: 'O runner respondeu, mas sem o status da sessão ou sem dizer se há terminal vivo (resposta fora do formato esperado), então não deu para conferir a sessão.', ultimo_sinal: U.iso(sinalMs), evidencia: null, o_que_fazer: null, prompt_sugerido: null };
   }
   if (status === 'errored') {
     return Object.assign({

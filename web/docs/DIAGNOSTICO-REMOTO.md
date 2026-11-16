@@ -150,8 +150,8 @@ medi" e nunca é zero: `atualizacao_disponivel: null` é diferente de `false`.
 | `versao` | Versão instalada e se há atualização disponível (`docs/ATUALIZAR.md`) |
 | `admin.sessao` | O Admin: runner, sessão viva e login |
 | `agente.<slug>.container` | O container no podman: rodando, parado, e se o processo conmon que o sustenta está vivo |
-| `agente.<slug>.sessao` | O runner e a sessão do Claude: viva, parada ou parecendo travada (30 minutos trabalhando sem escrever nada) |
-| `agente.<slug>.login` | Se a conta do Claude está conectada, expirou ou foi recusada |
+| `agente.<slug>.sessao` | O runner e a sessão do Claude: viva, parada ou parecendo travada (30 minutos trabalhando sem escrever nada). Resposta do runner sem status conhecido ou sem dizer se há terminal vivo vira `nao_medido` |
+| `agente.<slug>.login` | Se a conta do Claude está conectada, expirou ou não existe. Só a falta de credencial comprovada vira `quebrado`; conferência que demorou, veio ilegível, sem o programa ou com método de pagamento diferente vira `nao_medido` |
 | `agente.<slug>.saude_resposta` | O vigia da sessão (watchdog): recusa, limite, sobrecarga, contexto cheio, sem resposta e outros |
 | `agente.<slug>.canal.painel` | Se a conversa pelo painel está alcançável |
 | `agente.<slug>.canal.telegram` | Telegram ligado ou desligado e se o canal está respondendo. Desligado é `ok` e não é defeito |

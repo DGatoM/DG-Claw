@@ -20,6 +20,7 @@ const ENUMS = {
   estadoSaude: ['ativo', 'inativo', 'atencao', 'indeterminado'],
   statusRunner: ['spawning', 'working', 'waiting_input', 'idle', 'completed', 'errored', 'stopped', 'resumable'],
   razaoRunner: ['runner:login-expirado', 'runner:sem-login', 'runner:sem-chave', 'runner:identidade-grande', 'runner:dialogo-bypass', 'runner:login-por-chave-falhou', 'hook:SessionStart', 'hook:PreCompact', 'hook:StopFailure rate_limit', 'transcript:turno encerrado sem o hook Stop'],
+  motivoConferencia: ['sem_credencial', 'tempo', 'sem_binario', 'ilegivel', 'metodo_diferente'],
   ponteWhatsapp: ['conectado', 'deslogado', 'erro', 'reconectando', 'aguardando_codigo', 'codigo_pronto', 'pareado', 'desligado'],
 };
 /** O valor, se estiver na lista; senão null. */
