@@ -1,5 +1,6 @@
 'use strict';
 // Aviso único de segurança: regras puras (o que conta, texto, ordem, quando reabre) e a janela com um DOM simulado.
+require('./_ds-stub');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -52,8 +53,8 @@ test('fontes ausentes (null, sem rede) não derrubam: lista vazia', () => {
 test('texto da contagem e do selo: singular e plural', () => {
   assert.equal(S.textoContagem(1), 'Encontramos 1 ponto de segurança que precisa da sua atenção.');
   assert.equal(S.textoContagem(3), 'Encontramos 3 pontos de segurança que precisam da sua atenção.');
-  assert.equal(S.textoSelo(1), '🛡 1 ponto de segurança');
-  assert.equal(S.textoSelo(4), '🛡 4 pontos de segurança');
+  assert.equal(S.textoSelo(1), '1 ponto de segurança');
+  assert.equal(S.textoSelo(4), '4 pontos de segurança');
   assert.equal(S.textoResto(1), 'e mais 1 ponto');
   assert.equal(S.textoResto(3), 'e mais 3 pontos');
 });
@@ -161,6 +162,7 @@ function montaPagina({ boletins, ronda: r, caminho = '/', storage = memoria(), s
       if (url.endsWith('/emergencia')) return emergencia ? emergencia() : resposta({ estado: { cortado: false } });
       return resposta(r);
     },
+    dsIcone: (n) => '<svg class="ds-ico" data-ico="' + n + '"></svg>',
     setInterval() {}, console: { warn() {}, log() {}, error() {} },
   };
   if (storageBloqueado) Object.defineProperty(ctx, 'localStorage', { get() { throw new Error('SecurityError: acesso negado'); } });

@@ -4,7 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <title>DG Claw - Painel</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%234f46e5'/%3E%3Cstop offset='1' stop-color='%238b5cf6'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='url(%23g)'/%3E%3Ccircle cx='16' cy='16' r='6' fill='white'/%3E%3C/svg%3E">
+  <link rel="icon" href="/marca/favicon">
+  <link rel="stylesheet" href="/ds/tokens.css">
+  <link rel="stylesheet" href="/ds/componentes.css">
+  <link rel="stylesheet" href="/ds/carregando.css">
+  <link rel="stylesheet" href="/marca.css">
   <link rel="stylesheet" href="{{BASE}}/css/main.css">
   <link rel="stylesheet" href="{{BASE}}/css/apps.css">
   <link rel="stylesheet" href="{{BASE}}/css/arquivos.css">
@@ -22,6 +26,12 @@
   <link rel="stylesheet" href="{{BASE}}/css/sem-zoom.css">
   {{CARREGANDO}}
   <script src="{{BASE}}/js/sem-zoom.js"></script>
+  <script src="/ds/marca.js"></script>
+  <script src="/ds/icone.js"></script>
+  <script src="/ds/carregando.js"></script>
+  <script src="{{BASE}}/js/marca-painel.js"></script>
+  <script src="{{BASE}}/js/carregando-painel.js"></script>
+  <script src="{{BASE}}/js/menu-grupos.js" defer></script>
 </head>
 <body>
   <div id="app" class="app">
@@ -38,7 +48,7 @@
         </div>
         <div class="char-name" id="char-name">--</div>
         <div class="char-level" id="char-level" style="display:none">Lv. --</div>
-        <div class="char-papel" id="header-title">DG Claw</div>
+        <div class="char-papel" id="header-title" data-marca-nome>DG Claw</div>
 
         <!-- Nasce ESCONDIDO e só aparece se houver mesmo para onde ir. Antes ele
              nascia visível e o JavaScript o escondia quando a lista voltava com um
@@ -49,7 +59,7 @@
           <button type="button" id="btn-troca">
             <img src="{{BASE}}/assets/sprites/avatar.jpg" alt="" class="mini" id="header-avatar" loading="lazy">
             <span>trocar de agente</span>
-            <span class="seta" aria-hidden="true">▾</span>
+            <span class="seta" aria-hidden="true"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-chevron-down"/></svg></span>
           </button>
           <div class="lista" id="lista-agentes"></div>
         </div>
@@ -57,33 +67,65 @@
 
       <nav class="tabs" id="tabs">
         <!-- Conversa é o PRIMEIRO item e abre por padrão: é o que a dona vem fazer aqui.
-             O resto do painel é sobre o agente; esta aba é o agente. -->
-        <button class="tab active" data-tab="conversa"><span class="ico">◔</span>Conversa</button>
-        <button class="tab" data-tab="status"><span class="ico">◉</span>Status</button>
-        <button class="tab" data-tab="memory"><span class="ico">▤</span>Memória</button>
-        <!-- Operações e Pulso viraram UMA aba em 01/10/2026: nem o mantenedor sabia
-             dizer a diferença entre as duas. Ver panel/docs/OPERACOES.md. -->
-        <button class="tab" data-tab="operations"><span class="ico">⚙</span>Operações</button>
+             O resto do painel é sobre o agente; esta aba é o agente. Conversa e Pasta ficam sempre à vista;
+             o resto fica em grupos que abrem e fecham (js/menu-grupos.js), e Como funciona e Socorro ficam soltos no fim.
+             O balão de cada aba mora no EXPLICACAO_ABA do js/app.js, e é aplicado no boot. Fonte única: escrever aqui
+             também criaria dois textos para a mesma aba, e um dia eles discordam. -->
+        <button class="tab active" data-tab="conversa"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-message"/></svg></span>Conversa</button>
+        <button class="tab" data-tab="arquivos"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-folder"/></svg></span>Pasta</button>
+        <div class="grupo" data-grupo="perfil">
+          <button type="button" class="grupo-cab" id="grp-perfil-b" aria-expanded="false" aria-controls="grp-perfil"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-id"/></svg></span><span class="grupo-nome">Perfil do agente</span><span class="grupo-seta" aria-hidden="true"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-chevron-down"/></svg></span></button>
+          <div class="grupo-itens" id="grp-perfil" role="group" aria-labelledby="grp-perfil-b"><div class="grupo-lista">
+            <button class="tab" data-tab="identity"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-id"/></svg></span>Identidade</button>
+            <button class="tab" data-tab="personality"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-smile"/></svg></span>Personalidade</button>
+            <button class="tab" data-tab="memory"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-brain"/></svg></span>Memória</button>
+          </div></div>
+        </div>
         <!-- Sessões (12/10/2026): nasce escondida; js/sessoes.js mostra quando /api/sessoes-config diz ligado:true. -->
-        <button class="tab" data-tab="sessoes" hidden><span class="ico">◫</span>Sessões</button>
-        <button class="tab" data-tab="costs"><span class="ico">◇</span>Custos</button>
-        <button class="tab" data-tab="como"><span class="ico">◎</span>Como funciona</button>
-        <button class="tab" data-tab="identity"><span class="ico">◈</span>Identidade</button>
-        <button class="tab" data-tab="personality"><span class="ico">◐</span>Personalidade</button>
-        <!-- O balão de cada aba mora no EXPLICACAO_ABA do js/app.js, e é aplicado no
-             boot. Fonte única: escrever aqui também criaria dois textos para a mesma
-             aba, e um dia eles discordam. -->
-        <button class="tab" data-tab="apps"><span class="ico">▨</span>Apps</button>
-        <button class="tab" data-tab="skills"><span class="ico">✦</span>Skills</button>
-        <button class="tab" data-tab="rotinas"><span class="ico">↻</span>Rotinas</button>
-        <button class="tab" data-tab="arquivos"><span class="ico">▢</span>Pasta</button>
-        <button class="tab" data-tab="tela"><span class="ico">▭</span>Tela</button>
-        <!-- A aba Socorro (outra frente) entra aqui, antes do Cofre. -->
-        <button class="tab" data-tab="socorro"><span class="ico">✚</span>Socorro</button>
-        <button class="tab" data-tab="cofre"><span class="ico">⚿</span>Cofre</button>
-        <button class="tab" data-tab="posts" data-power="instagram"><span class="ico">▣</span>Posts</button>
-        <button class="tab" data-tab="followers" data-power="instagram"><span class="ico">◍</span>Seguidores</button>
-        <button class="tab" data-tab="reunioes" data-power="meetings"><span class="ico">▷</span>Reuniões</button>
+        <div class="grupo" data-grupo="dia">
+          <button type="button" class="grupo-cab" id="grp-dia-b" aria-expanded="false" aria-controls="grp-dia"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-calendar"/></svg></span><span class="grupo-nome">Dia a dia</span><span class="grupo-seta" aria-hidden="true"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-chevron-down"/></svg></span></button>
+          <div class="grupo-itens" id="grp-dia" role="group" aria-labelledby="grp-dia-b"><div class="grupo-lista">
+            <button class="tab" data-tab="rotinas"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-refresh"/></svg></span>Rotinas</button>
+            <button class="tab" data-tab="sessoes" hidden><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-monitor"/></svg></span>Sessões</button>
+          </div></div>
+        </div>
+        <div class="grupo" data-grupo="ferramentas">
+          <button type="button" class="grupo-cab" id="grp-ferramentas-b" aria-expanded="false" aria-controls="grp-ferramentas"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-package"/></svg></span><span class="grupo-nome">Ferramentas</span><span class="grupo-seta" aria-hidden="true"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-chevron-down"/></svg></span></button>
+          <div class="grupo-itens" id="grp-ferramentas" role="group" aria-labelledby="grp-ferramentas-b"><div class="grupo-lista">
+            <button class="tab" data-tab="skills"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-sparkle"/></svg></span>Skills</button>
+            <button class="tab" data-tab="apps"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-layout"/></svg></span>Apps</button>
+          </div></div>
+        </div>
+        <!-- Operações e Pulso viraram UMA aba em 01/10/2026: nem o mantenedor sabia dizer a diferença entre as duas.
+             Ver panel/docs/OPERACOES.md. -->
+        <div class="grupo" data-grupo="operacao">
+          <button type="button" class="grupo-cab" id="grp-operacao-b" aria-expanded="false" aria-controls="grp-operacao"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-activity"/></svg></span><span class="grupo-nome">Operação</span><span class="grupo-seta" aria-hidden="true"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-chevron-down"/></svg></span></button>
+          <div class="grupo-itens" id="grp-operacao" role="group" aria-labelledby="grp-operacao-b"><div class="grupo-lista">
+            <button class="tab" data-tab="status"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-activity"/></svg></span>Status</button>
+            <button class="tab" data-tab="operations"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-settings"/></svg></span>Operações</button>
+            <button class="tab" data-tab="costs"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-chart"/></svg></span>Custos</button>
+          </div></div>
+        </div>
+        <div class="grupo" data-grupo="seguranca">
+          <button type="button" class="grupo-cab" id="grp-seguranca-b" aria-expanded="false" aria-controls="grp-seguranca"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-shield"/></svg></span><span class="grupo-nome">Segurança</span><span class="grupo-seta" aria-hidden="true"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-chevron-down"/></svg></span></button>
+          <div class="grupo-itens" id="grp-seguranca" role="group" aria-labelledby="grp-seguranca-b"><div class="grupo-lista">
+            <button class="tab" data-tab="cofre"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-vault"/></svg></span>Cofre</button>
+          </div></div>
+        </div>
+        <!-- Só existe com pelo menos uma aba visível (Tela, ou as de Instagram e reuniões quando o poder está ligado). -->
+        <div class="grupo" data-grupo="conexoes">
+          <button type="button" class="grupo-cab" id="grp-conexoes-b" aria-expanded="false" aria-controls="grp-conexoes"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-globe"/></svg></span><span class="grupo-nome">Conexões</span><span class="grupo-seta" aria-hidden="true"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-chevron-down"/></svg></span></button>
+          <div class="grupo-itens" id="grp-conexoes" role="group" aria-labelledby="grp-conexoes-b"><div class="grupo-lista">
+            <button class="tab" data-tab="tela"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-presentation"/></svg></span>Tela</button>
+            <button class="tab" data-tab="posts" data-power="instagram"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-image"/></svg></span>Posts</button>
+            <button class="tab" data-tab="followers" data-power="instagram"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-users"/></svg></span>Seguidores</button>
+            <button class="tab" data-tab="reunioes" data-power="meetings"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-video"/></svg></span>Reuniões</button>
+          </div></div>
+        </div>
+        <div class="solto">
+        <button class="tab" data-tab="como"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-info"/></svg></span>Como funciona</button>
+        <button class="tab" data-tab="socorro"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-lifebuoy"/></svg></span>Socorro</button>
+        </div>
       </nav>
 
       <div class="rodape-lado">
@@ -110,7 +152,7 @@
     <!-- Area principal -->
     <div class="principal">
       <header class="header">
-        <button type="button" class="btn-menu" id="btn-menu" aria-label="abrir o menu" aria-expanded="false">☰</button>
+        <button type="button" class="btn-menu" id="btn-menu" aria-label="abrir o menu" aria-expanded="false"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-menu"/></svg></button>
         <!-- A setinha de voltar fica AQUI, no cabeçalho, e não dentro da gaveta: no
              celular a gaveta está fechada, e uma saída que exige abrir o menu para ser
              encontrada não é uma saída. Só aparece quando o painel é servido pela
@@ -164,7 +206,7 @@
                  atenção, com a frase, o que fazer e o botão certo para aquele caso. -->
             <div class="faixa-saude" id="conversa-faixa" hidden></div>
             <div class="conversa-lista" id="conversa-lista" aria-live="polite">
-              <div class="conversa-vazia">carregando a conversa...</div>
+              <div class="conversa-vazia"><span data-carregando="Carregando a conversa" data-tam="m"></span><br>carregando a conversa...</div>
             </div>
 
             <div class="conversa-recado" id="conversa-recado" hidden></div>
@@ -187,8 +229,8 @@
                 <textarea id="conversa-texto" rows="1" placeholder="Escreva aqui..."
                           aria-label="sua mensagem"></textarea>
                 <button type="button" class="btn-microfone" id="btn-microfone"
-                        aria-label="gravar um áudio" title="falar em vez de escrever">🎤</button>
-                <button type="submit" class="btn-enviar" id="btn-enviar" aria-label="enviar">↑</button>
+                        aria-label="gravar um áudio" title="falar em vez de escrever"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-mic"/></svg></button>
+                <button type="submit" class="btn-enviar" id="btn-enviar" aria-label="enviar"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-send"/></svg></button>
               </form>
               <!-- A linha que só existe enquanto grava ou transcreve. Ela mostra o
                    tempo correndo, porque gravação sem relógio é a forma mais fácil de
@@ -313,7 +355,7 @@
           <div class="cartao">
             <div class="section-title" title="Só as rotinas que você pediu a ele. As do sistema (batimento, reflexão, vigia) ficam na aba Operações.">Suas rotinas</div>
             <p class="ajuda-secao">O que você pediu para ele fazer sozinho, de tempos em tempos: quando roda, a próxima vez, e se a última deu certo.</p>
-            <div id="home-rotinas"><div class="vazio-util">Carregando...</div></div>
+            <div id="home-rotinas"><div class="vazio-util"><span data-carregando="Carregando" data-tam="p"></span> Carregando...</div></div>
           </div>
         </div>
 
@@ -414,19 +456,19 @@
         <!-- A tela inteira é desenhada por js/apps.js: o que existe aqui é só o
              lugar onde ela nasce. A lista de apps vem do agente, não do painel. -->
         <div class="panel" id="panel-apps">
-          <div id="apps-root">Carregando...</div>
+          <div id="apps-root"><span data-carregando="Carregando" data-tam="m"></span> Carregando...</div>
         </div>
 
         <!-- SKILLS: desenhada por js/skills.js a partir de /api/skills. -->
         <div class="panel" id="panel-skills">
-          <div id="skills-root">Carregando...</div>
+          <div id="skills-root"><span data-carregando="Carregando" data-tam="m"></span> Carregando...</div>
         </div>
 
         <!-- ROTINAS: a mesma lista do Status (renderSuasRotinas), em página própria, com recarga a cada 15 s. -->
         <div class="panel" id="panel-rotinas">
           <section class="cartao">
             <div class="section-title">Suas rotinas</div>
-            <div id="rotinas-lista"><div class="vazio-util">Carregando...</div></div>
+            <div id="rotinas-lista"><div class="vazio-util"><span data-carregando="Carregando" data-tam="p"></span> Carregando...</div></div>
           </section>
         </div>
 
@@ -435,7 +477,7 @@
              enxerga é travada em <agentDir>/arquivos no servidor, e o porquê
              está no topo de panel/lib/arquivos.js. -->
         <div class="panel" id="panel-arquivos">
-          <div id="arquivos-root">Carregando...</div>
+          <div id="arquivos-root"><span data-carregando="Carregando" data-tam="m"></span> Carregando...</div>
         </div>
 
         <!-- COMO FUNCIONA -->
@@ -449,7 +491,7 @@
           </section>
           <section class="cartao">
             <div class="section-title">Como ele funciona</div>
-            <div id="como-doc"><div class="vazio-util">Carregando...</div></div>
+            <div id="como-doc"><div class="vazio-util"><span data-carregando="Carregando" data-tam="p"></span> Carregando...</div></div>
           </section>
         </div>
 
@@ -525,7 +567,7 @@
     <div class="modal-box">
       <div class="modal-header">
         <span class="modal-title" id="modal-title">Arquivo</span>
-        <button class="modal-close" onclick="closeModal()">✕</button>
+        <button class="modal-close" onclick="closeModal()" aria-label="Fechar"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-x"/></svg></button>
       </div>
       <div class="modal-body" id="modal-body"></div>
     </div>

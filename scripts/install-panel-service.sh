@@ -230,6 +230,23 @@ else
 fi
 echo "==> panel/ copiado para $PANEL_DST"
 
+# ── 3a. Ícones, tokens e marca padrão (web/public/ds) ao lado da cópia ─────
+# O panel/server.js serve /ds a partir de ../web/public/ds; sem essa pasta as telas
+# do painel solto ficam sem dsIcone e param na inicialização.
+DS_SRC="$(cd "$SCRIPT_DIR/.." && pwd)/web/public/ds"
+DS_DST="$WS/.dgclaw/web/public/ds"
+if [ -f "$DS_SRC/icones.svg" ]; then
+  mkdir -p "$DS_DST"
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a --delete "$DS_SRC"/ "$DS_DST"/
+  else
+    cp -a "$DS_SRC"/. "$DS_DST"/
+  fi
+  echo "==> web/public/ds copiado para $DS_DST"
+else
+  echo "AVISO: $DS_SRC/icones.svg nao existe; o painel vai subir sem os icones. Atualize o plugin inteiro e rode este script de novo." >&2
+fi
+
 # ── 3b. O painel e os scripts que ele chama precisam ser da MESMA versao ─────
 # A aba Conversa nao le nem escreve sozinha: ela chama o `inject.py` e o
 # `thread_log.py`, que NAO moram no painel, e sim na copia estavel do plugin

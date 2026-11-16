@@ -240,7 +240,7 @@
         porque: 'A pessoa usa este agente por inteiro: a conversa, as sessões, as rotinas, a memória, os arquivos e a Tela. Não vê o Admin nem outros agentes, e o cofre, as chaves de API, a troca da conta de IA, as credenciais dos canais e a senha da Tela continuam com você.' },
       { alvo: '[data-tour="co-form"]', titulo: 'Convidar mais uma pessoa',
         oque: 'O e-mail da pessoa (que será o login dela) e, se quiser, o nome.',
-        como: 'Ao tocar em Convidar, o DG Claw gera uma senha temporária que vale 7 dias e tenta mandar um e-mail com o link. No primeiro acesso a pessoa cria a senha dela.',
+        como: 'Ao tocar em Convidar, o ' + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + ' gera uma senha temporária que vale 7 dias e tenta mandar um e-mail com o link. No primeiro acesso a pessoa cria a senha dela.',
         porque: 'O e-mail só sai se o servidor de e-mail estiver configurado (opcional). Se não estiver, a tela mostra o texto pronto para você mandar por WhatsApp. Um e-mail que já é colaborador de outro agente é recusado, porque cada pessoa acessa um agente só.' },
       { alvo: '[data-tour="co-atual"]', titulo: 'Convite de novo e revogar',
         oque: 'Os dois botões de cada colaborador do agente.',
