@@ -174,7 +174,7 @@ tem "(e2) mensagem clara" "dgclaw-bia nao esta rodando"
 # (f) sonda: sem agentes rodando, cria e remove a rede, mesmo com falha
 rodar bash "$SCRIPT"
 cod "(f) sonda limpa sai 0" 0
-grep -qF "network create --disable-dns --subnet 10.89.254.0/24 dgclaw-sonda" "$FAKE_LOG" && ok "(f) criou a rede da sonda" || falhou "(f) nao criou a rede da sonda"
+grep -qF "network create --disable-dns --label dgclaw.v1=1 --subnet 10.89.254.0/24 dgclaw-sonda" "$FAKE_LOG" && ok "(f) criou a rede da sonda" || falhou "(f) nao criou a rede da sonda"
 grep -qF -- "--entrypoint sleep localhost/dgclaw-agente:teste" "$FAKE_LOG" && ok "(f) subiu com entrypoint" || falhou "(f) sem entrypoint"
 grep -qF "network rm -f dgclaw-sonda" "$FAKE_LOG" && ok "(f) removeu a rede" || falhou "(f) nao removeu a rede"
 [ ! -e "$FAKE_ESTADO/rede-dgclaw-sonda" ] && ok "(f) rede nao sobrou" || falhou "(f) rede sobrou"

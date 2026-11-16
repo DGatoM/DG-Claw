@@ -28,6 +28,12 @@ Nesta versão há uma instrução nova para o seu Admin, sobre como trocar a mar
 para juntar a seção "Trocar a marca" ao seu texto, sem apagar o que você escreveu. Quem não personalizou esses arquivos não
 precisa fazer nada.
 
+### Corrigido
+
+- O vigia de saúde não confunde mais o resumo da compactação com uma mensagem sua sem resposta. Antes, depois de cada compactação, o agente era reiniciado várias vezes seguidas sem motivo e o painel avisava que ele não estava respondendo.
+- Os agentes que usam o Claude deixam de "responder no vazio". Às vezes o agente escrevia a resposta como texto solto no fim do turno, sem usar a ferramenta de resposta do chat (ou do WhatsApp), e esse texto ficava no terminal sem chegar a você. Agora, quando isso acontece, a plataforma devolve o turno uma vez e o agente reenvia a resposta pelo canal certo. Recados da própria plataforma, turnos sem nenhum texto e qualquer falha da conferência passam sem cobrança, e as decisões ficam no arquivo `trava-resposta.log`, sem o conteúdo das mensagens. Só vale como resposta a ferramenta do canal certo e que não falhou, e, quando o turno é devolvido, o painel continua mostrando o agente como trabalhando até ele terminar de verdade.
+- Quando o texto entregue ao agente demora a ser aceito, o sistema continua tentando enviar por mais de um minuto em vez de deixá-lo parado na caixa de entrada.
+
 **Nova tela Logs no Admin.** No menu do Admin, o item **Logs** (endereço `/logs`) mostra, do mais novo para o mais antigo,
 tudo o que cada agente fez: mensagens, comandos, arquivos e ferramentas, tanto dos agentes que usam o Claude quanto dos que
 usam o Codex. Há filtros por período, tipo, sessão e palavra, e cada registro abre para mostrar o comando, o arquivo e o
@@ -40,6 +46,10 @@ Comando que pode levar senha ou chave aparece só com o nome do programa, sem os
 Nesta versão há uma instrução nova para o Admin, que explica a tela Logs e pede que ele não leia o conteúdo dos logs. Ela
 precisa entrar nas instruções dele sem apagar o que você já personalizou. O histórico que os agentes já têm aparece sozinho
 na tela, sem migração e sem nada a configurar.
+
+### Como atualizar (resposta no chat)
+
+Depois de atualizar, reinicie cada agente que usa o Claude para ele ganhar a conferência de resposta: ela é gravada nas configurações que o agente recebe ao subir. Não há nada para configurar nem para juntar às instruções dele.
 
 **Vários colaboradores no mesmo agente.** Antes, cada agente aceitava um colaborador só, e um segundo convite era recusado até você revogar o primeiro. Agora você convida quantas pessoas quiser para o mesmo agente. Na tela **Convidar colaborador** cada pessoa aparece num cartão, com os botões de mandar o convite de novo e de revogar o acesso, e o formulário para convidar mais alguém fica sempre abaixo. Revogar ou reenviar o convite de uma pessoa não mexe nas outras. Cada pessoa continua acessando um agente só, e as mensagens de cada uma chegam ao agente marcadas com o nome e o e-mail de quem falou. Nada precisa ser feito para atualizar.
 
@@ -66,6 +76,10 @@ por pessoa. O firewall agora também libera a porta real do SSH (lida da configu
 `kvm64` de hipervisor não tem) e explica como trocar o tipo de CPU da máquina virtual. Quando o Claude Code falta e você usa
 `sudo`, a mensagem mostra como instalá-lo para o root. Nada muda para quem já instalou.
 
+**Instalação atrás de um proxy que já existe (`--proxy-existente`).** Para servidor que já tem nginx, Caddy ou túnel da Cloudflare nas portas 80 e 443, o instalador ganhou `--proxy-existente`. Nesse modo ele não instala o Caddy, não mexe no ufw (nem para ler o estado) e trata as portas 80 e 443 ocupadas como aviso. O DG Claw Web escuta só em `127.0.0.1`, na porta de `--porta-painel` (padrão 8300), e o instalador imprime no fim o trecho pronto para o nginx e as linhas do `ingress` para o túnel, com o link de primeiro acesso. O domínio passa a ser obrigatório nesse modo. O modo e a porta ficam no `dgclaw.env` e valem nas próximas execuções e no `dgclaw atualizar`; `--sem-proxy-existente` volta ao Caddy do DG Claw. Os comandos `dgclaw dominio`, `dgclaw dominio trocar` e `dgclaw status` respeitam o modo. O modo não combina com `--atras-de-tunel`, porque o túnel do DG Claw depende do Caddy: o instalador recusa os dois juntos (por opção ou gravados) e diz qual desligar.
+
+**Faixa de rede própria dos agentes (`--faixa-rede`).** A nova opção `--faixa-rede <A.B.0.0/16>` (padrão 10.89.0.0/16, a de sempre) deixa escolher a faixa de IPs das redes dos agentes. Antes de mexer em qualquer coisa, o instalador confere as redes do podman e as rotas da máquina e recusa uma faixa que outro sistema já usa, dizendo qual e sugerindo outra. Com agentes já criados ele não troca a faixa em silêncio. A cerca de firewall (`lib/firewall.sh`, nas tabelas filter e mangle) e o botão de emergência seguem a faixa gravada em `DGCLAW_FAIXA_REDE`. A porta do painel também pode ser trocada numa reinstalação com `--porta-painel`: o Caddyfile que o próprio instalador gerou é regravado com a porta nova, e um Caddyfile que você personalizou continua como está.
+
 **Aba Pedidos na Mesa: a fila de tudo o que você pediu aos agentes.** A Mesa (`/mesa`) ganha uma aba nova, a primeira e a que
 abre por padrão. Cada pedido seu a um agente vira um item, na ordem em que chegou, com o estado: fazendo, esperando você (com o
 motivo), entregue, feito ou cancelado. O agente abre o item antes de começar e vai movendo enquanto trabalha. Quando ele marca
@@ -74,6 +88,14 @@ responder ao agente na conversa depois da entrega. O agente não fecha o pedido 
 hoje e de ontem (o resto fica em "Ver arquivados") e acende uma bolinha quando há algo esperando você. Nesta versão não existe um
 vigia que crie sozinho o item que o agente esqueceu, porque isso gastaria a assinatura de quem instalou. O contrato das rotas e do
 comando `dgclaw-mesa pedido` está em `web/docs/PEDIDOS.md`.
+
+### Como atualizar (proxy existente e faixa de rede)
+
+Quem já instalou e não usa as opções novas não precisa fazer nada: o `dgclaw atualizar` continua como sempre, o DG Claw segue com o Caddy e com a faixa 10.89.0.0/16.
+
+Se o `dgclaw atualizar` ou o `./install.sh` parar dizendo que a faixa 10.89.0.0/16 se sobrepõe a outra rede da máquina (uma rede de outro sistema no podman ou no docker, uma rota de VPN), o motivo é que outro programa passou a usar parte dessa faixa. A mensagem mostra o que está ocupado e sugere uma faixa livre. Com agentes já criados a faixa não troca sozinha, porque trocar exige recriar a rede de cada agente, e o instalador recusa em vez de fazer isso em silêncio. Você tem dois caminhos seguros. O primeiro é liberar a faixa: tire do ar ou mude a rede do outro sistema e rode a atualização de novo. O segundo é recomeçar com a faixa nova: remova cada agente com `sudo dgclaw agente remover <agente>` (a casa dele fica guardada em `/var/lib/dgclaw/aposentados/`) e rode `sudo ./install.sh --faixa-rede <faixa sugerida>`; a faixa escolhida fica gravada e vale nas próximas execuções.
+
+Para usar o proxy que você já tem, rode `sudo ./install.sh --usuario <nome> --dominio <seu domínio> --proxy-existente` (com `--porta-painel` se a 8300 estiver ocupada) e cole no nginx ou no túnel o trecho que o instalador mostra no fim. Se a sua instalação usa `--atras-de-tunel`, essas duas opções não funcionam juntas: use `--sem-tunel` para ficar com o seu proxy, ou `--sem-proxy-existente` para voltar ao Caddy do DG Claw.
 
 ### Como atualizar (fila de pedidos)
 

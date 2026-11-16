@@ -6,7 +6,7 @@ Servidor Node 22, sem nenhuma dependência npm (só módulos nativos), que roda 
 2. **Chat** em `/a/<agente>` (e `/`, que leva ao primeiro agente): a conversa com cada agente, montada a partir do registro da sessão dele.
 3. **Proxy** dos painéis em `/p/<agente>/...`, só para quem está logado.
 
-Ele escuta em `127.0.0.1:8300` e fica atrás de um proxy reverso com HTTPS (Caddy, nginx). Roda como root, porque lê as pastas dos agentes.
+Ele escuta em `127.0.0.1:8300` (o instalador troca a porta com `--porta-painel`) e fica atrás de um proxy reverso com HTTPS (Caddy, nginx). Roda como root, porque lê as pastas dos agentes.
 
 ## Como rodar
 
