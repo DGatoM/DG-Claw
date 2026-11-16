@@ -17,6 +17,7 @@ set -uo pipefail
 CONFIG="${1:?Uso: dgclaw-comentarios.sh <.dgclaw/config.sh>}"
 [ -f "$CONFIG" ] || { echo "config nao encontrada: $CONFIG" >&2; exit 1; }
 
+CONFIG_ABS="$(cd "$(dirname "$CONFIG")" && pwd)/$(basename "$CONFIG")"
 # shellcheck disable=SC1090
 source "$CONFIG"
 : "${DGCLAW_WORKSPACE:?config sem DGCLAW_WORKSPACE}"
@@ -91,16 +92,48 @@ FLUXO (sub-doc comments.md tem o detalhe):
 2. scrape-comments.py --update-followers
 4. Filtrar contra .replied_comments (path canonico = raiz do workspace)
 5. PARA CADA pendente: search-follower.py --create --increment, ler tier/nome/historico de
-   memory/relationships.json e persona/followers/, responder via ig-publish.py reply-comment,
-   gravar .replied_comments IMEDIATAMENTE, registrar em data/comments.jsonl
+   memory/relationships.json e persona/followers/, responder SO com:
+     bash $PLUGIN/scripts/responder-comentario.sh <commentId numerico> \"<texto>\"
+   (ele valida o id, envia e grava .replied_comments e data/comments.jsonl sozinho)
 6. Atualizar persona/working-memory.md (secoes 'Hoje', 'Pessoas Proximas', 'Quero Falar com o ${DGCLAW_OWNER:-dono} Sobre')
 
 Avise o ${DGCLAW_OWNER:-dono} via:  bash $PLUGIN/scripts/notify-owner.sh \"mensagem\"
 (inicio ja avisado pelo cron). Mensagens: so o aviso de scrape ok/falhou e o relatorio final."
 
+# --- Ferramentas minimas (o prompt carrega texto de terceiros) ---
+# Sem esta trava, um comentario com instrucao viraria ordem para uma sessao com permissao total.
+# Se esta versao do Claude Code nao conhece as flags de restricao, NAO roda: melhor um cron parado
+# e avisado do que um cron solto.
+AJUDA_CLAUDE="$("$CLAUDE_BIN" --help 2>&1)" || AJUDA_CLAUDE=""
+for flag in '--allowedTools' '--disallowedTools' '--tools' 'dontAsk'; do
+    if ! printf '%s' "$AJUDA_CLAUDE" | grep -qF -- "$flag"; then
+        MSG="a versao do Claude Code instalada ($CLAUDE_BIN) nao reconhece '$flag', e sem as restricoes de ferramenta o cron de comentarios nao pode ler texto de terceiros com seguranca. Nada foi respondido. Atualize o Claude Code (rode: claude update) e o cron volta sozinho na proxima rodada."
+        echo "[$(date '+%F %T')] ABORTADO: $MSG" >> "$LOG"
+        bash "$PLUGIN/scripts/notify-owner.sh" "Cron de comentarios (${HORA}) NAO rodou ($NAME): $MSG" >/dev/null 2>&1 \
+            || echo "[$(date '+%F %T')] aviso: notify-owner.sh falhou ao avisar do aborto; o dono nao recebeu a mensagem." >> "$LOG"
+        exit 3
+    fi
+done
+
+# O texto da resposta so sai pelo responder-comentario.sh (id numerico + texto).
+export DGCLAW_CONFIG="$CONFIG_ABS"
 "$CLAUDE_BIN" --print \
     --no-session-persistence \
-    --permission-mode bypassPermissions \
+    --permission-mode dontAsk \
+    --tools "Read,Write,Edit,Bash,Glob,Grep" \
+    --allowedTools \
+        "Read" "Glob" "Grep" \
+        "Bash(python3 $PLUGIN/scripts/scrape-comments.py:*)" \
+        "Bash(python3 $PLUGIN/scripts/search-follower.py:*)" \
+        "Bash(bash $PLUGIN/scripts/responder-comentario.sh:*)" \
+        "Bash(bash $PLUGIN/scripts/notify-owner.sh:*)" \
+        "Bash(bash $PLUGIN/scripts/ext-event.sh:*)" \
+        "Edit(/$WS/.replied_comments)" "Write(/$WS/.replied_comments)" \
+        "Edit(/$WS/data/comments.jsonl)" "Write(/$WS/data/comments.jsonl)" \
+        "Edit(/$WS/memory/relationships.json)" "Write(/$WS/memory/relationships.json)" \
+        "Edit(/$WS/persona/working-memory.md)" "Write(/$WS/persona/working-memory.md)" \
+        "Edit(/$WS/persona/followers/**)" "Write(/$WS/persona/followers/**)" \
+    --disallowedTools "WebFetch" "WebSearch" "Task" "Agent" "NotebookEdit" "Bash(curl:*)" "Bash(wget:*)" \
     --add-dir "$WS" \
     --model "$COMMENTS_MODEL" \
     -p "$PROMPT" >> "$LOG" 2>&1

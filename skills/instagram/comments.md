@@ -83,16 +83,14 @@ junto com PERSONALITY.md pra calibrar a voz das respostas.
 4. **Compor a resposta** na voz da persona, considerando humor + tier + historico.
 5. **Responder via Graph API:**
    ```bash
-   python3 $DGCLAW_PLUGIN_ROOT/scripts/ig-publish.py reply-comment \
-     --comment-id "$COMMENT_ID" \
-     --message-file /tmp/reply.txt \
-     --token-file "$TOKEN_PATH"
+   bash $DGCLAW_PLUGIN_ROOT/scripts/responder-comentario.sh "$COMMENT_ID" "<texto da resposta>"
    ```
-6. **Gravar IMEDIATAMENTE** (antes do proximo comentario):
-   ```bash
-   echo "$COMMENT_ID" >> .replied_comments
-   echo '{"date":"'$(date +%F)'","time":"'$(date +%H:%M)'","postId":"'$POST_ID'","commentId":"'$COMMENT_ID'","instagramId":"'$INSTAGRAM_ID'","username":"'$USERNAME'","message":"<original>","myReply":"<resposta>","sentiment":"positive"}' >> data/comments.jsonl
-   ```
+   Na sessao do cron este e o **unico** caminho permitido: o script so aceita o `commentId`
+   numerico de um comentario do scrape desta rodada, nunca responde duas vezes ao mesmo
+   e lê conta e token da configuracao. Ele ja grava o `.replied_comments` e o `data/comments.jsonl`.
+6. **Registro:** o `responder-comentario.sh` ja gravou o comentario em `.replied_comments` e em
+   `data/comments.jsonl`. Para um comentario que voce PULOU (injecao ou link externo), grave
+   `__INJ_SKIP__` e o `commentId` em `.replied_comments`, como na regra 0.4.
 7. **Enriquecer o perfil** (returning/regular/close): atualize `myPerception`, `lifeDetails`,
    `emotionalDiary` em `persona/followers/<id>.json` e, se for top, `memory/relationships.json`.
 

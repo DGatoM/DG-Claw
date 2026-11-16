@@ -7,6 +7,26 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Correção de segurança: o cron de comentários do Instagram não roda mais com permissão total.** A rotina que responde
+os comentários lia o texto de desconhecidos dentro do pedido ao agente e rodava sem nenhuma lista de ferramentas, com a
+permissão toda liberada. Um comentário escrito como ordem podia virar ação no servidor. Agora a sessão roda só com as
+ferramentas de que precisa (ler, o scrape, o cadastro de seguidores, o aviso ao dono e a memória dela), sem internet e
+sem rodar comandos livres. A resposta ao comentário sai por um script novo (`scripts/responder-comentario.sh`) que só
+aceita o número do comentário e o texto, confere que o comentário veio do scrape da rodada, não responde duas vezes e
+lê a conta e a chave da configuração, nunca de quem pede. Se o Claude Code instalado for antigo e não conhecer as
+travas, o cron não roda e avisa você em vez de rodar solto. As rotinas de post e de consolidação foram examinadas e não
+recebem texto de terceiros no pedido, então ficaram como estavam.
+Falhas reportadas por Renato Gracie (divulgação responsável).
+
+### Como atualizar (comentários do Instagram)
+
+1. **Atualize com o `dgclaw atualizar` padrão.** O cron novo passa a valer na próxima rodada.
+2. **Confira a versão do Claude Code.** Se, depois de atualizar, você receber o aviso "Cron de comentários NÃO rodou", peça
+   ao Admin para rodar `claude update` no agente. O aviso diz exatamente qual trava a versão antiga não tem.
+3. **Se você personalizou as instruções do Instagram** (`skills/instagram/comments.md` do seu agente), troque o passo de
+   responder para usar `bash $DGCLAW_PLUGIN_ROOT/scripts/responder-comentario.sh "<id do comentário>" "<texto>"`. É o único
+   jeito que o cron agora permite, e ele já anota o comentário como respondido.
+
 **Face ID no painel: uma trava opcional, ligada aparelho por aparelho.** Nova tela **Face ID** (no menu ☰, em `/face-id`).
 Quem liga o recurso num aparelho passa a ter o painel travado sozinho depois de alguns minutos sem uso (15 por padrão, de 1
 a 120 à sua escolha) e destrava com o rosto, a digital ou o código do aparelho (Face ID, Touch ID ou biometria, conforme o

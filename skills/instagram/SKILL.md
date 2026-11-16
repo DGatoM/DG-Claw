@@ -82,7 +82,7 @@ Sempre via `$DGCLAW_PLUGIN_ROOT/scripts/`:
 | Script | Para que |
 |---|---|
 | `ig-publish.py publish-image` | publicar foto via Graph API |
-| `ig-publish.py reply-comment` | responder comentario via Graph API |
+| `responder-comentario.sh <id> <texto>` | responder comentario (chama `ig-publish.py reply-comment`; unico caminho do cron) |
 | `ig-publish.py validate` | validar token (`GET /me`) |
 | `scrape-comments.py` | obter username/user_id dos comentarios (API privada + cookies) |
 | `search-follower.py` | buscar/criar/atualizar seguidor (tiers) |
