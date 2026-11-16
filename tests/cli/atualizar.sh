@@ -761,6 +761,9 @@ printf 'releases namespaces="git" %s\n' "$(cut -d' ' -f1,2 "$KD.pub")" >"$CLONE/
 git -C "$CLONE" add seguranca; git -C "$CLONE" commit -q -m "traz a chave de assinatura"
 git -C "$CLONE" push -q origin HEAD:main
 echo "$(git -C "$CLONE" rev-parse HEAD)" >"$TMP/head-com-chave"
+# A chave que vale fica fora do clone (gravada por uma atualizacao anterior); o commit instalado e este.
+mkdir -p "$ETC/assinatura"; cp "$CLONE/seguranca/assinatura/allowed_signers" "$ETC/assinatura/allowed_signers"
+date +%F >"$ETC/assinatura/ativada"; git -C "$CLONE" rev-parse HEAD >"$ETC/assinatura/instalado"
 git -C "$TRAB" pull -q --ff-only origin main 2>/dev/null || git -C "$TRAB" fetch -q origin
 git -C "$TRAB" reset -q --hard origin/main
 echo 'versao nova' >>"$TRAB/README.md"; git -C "$TRAB" commit -q -am "versao nova"

@@ -12,8 +12,10 @@ o `install.sh` dele como root sem conferir de onde vinha. Quem controlasse o rep
 root em todos os servidores. Agora, quando o seu DG Claw tem a chave de assinatura do projeto (arquivo
 `seguranca/assinatura/allowed_signers`), a atualização instala a **tag de versão assinada mais nova** (`vX.Y.Z`) e recusa tag
 sem assinatura, tag assinada por outra chave e versão que tente remover ou trocar a chave sem a assinatura da chave anterior. A
-chave que vale é a do código já instalado, nunca a da versão nova. O `git` roda isolado nessa conferência, e o instalador só
-roda depois de conferir de novo que o clone está exatamente na versão assinada. Se a conferência recusar, a mensagem diz o que
+chave que vale fica gravada fora do clone (`/etc/dgclaw/assinatura`), só vale assinatura SSH, e uma vez ligada a proteção não
+volta para o modo sem conferência. A chave do repositório só entra depois que a versão que a traz foi aceita e instalada. O `git`
+roda isolado nessa conferência, e o instalador só roda depois de conferir de novo que o clone está exatamente na versão assinada,
+sem arquivo rastreado alterado. Se a conferência recusar, a mensagem diz o que
 aconteceu e o que fazer, e nada é instalado. Detalhes e o passo a passo de quem assina: `docs/ASSINATURA.md`.
 Falhas reportadas por Renato Gracie (divulgação responsável).
 

@@ -225,6 +225,8 @@ atualizar_rodar_install() {
     set -e
     [ "$rc" -eq 0 ] || falha "o instalador ($ATU_REPO/install.sh) terminou com codigo $rc." \
         "leia as linhas acima, que mostram a causa. Seus dados estao no backup; rodar de novo e seguro: sudo dgclaw atualizar --sem-baixar"
+    # Instalou: so agora a chave e o commit conferidos passam a valer como estado desta maquina (fora do clone).
+    assinatura_gravar_estado
 }
 
 # atualizar_aplicar: instalar + imagem + agentes. Compartilhado pela atualizacao e pelo --voltar.
@@ -830,6 +832,8 @@ atualizar_segundo_plano() {
 # atualizar_voltar <backup> <sem-homes> <mesmo-assim>
 atualizar_voltar() {
     local b="$1" sem_homes="$2" mesmo_assim="$3" commit_alvo ramo_novo extras="" backup_agora log_arq resumo_arq
+    # A volta devolve o commit e o estado de assinatura que estao no backup: nao se aplica a conferencia da atualizacao.
+    ATU_ASSINATURA=""; ASS_DESTINO=""
     ATU_ETAPA="conferindo o backup a restaurar"
     b="$(backup_conferir_pasta "$b")"
     commit_alvo="$(_env_de "$b/MANIFESTO.txt" commit)"
