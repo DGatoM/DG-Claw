@@ -7,6 +7,20 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Prévias de vídeo e foto passam a funcionar em qualquer servidor.** O painel monta a miniatura dos vídeos e das
+fotos com o programa ffmpeg, que o instalador não colocava no servidor. Em um servidor de um cliente, o vídeo que o
+agente enviou apareceu só como botão de arquivo, sem prévia, e o registro do painel repetia "Miniatura: ENOENT"
+a cada abertura da conversa. Agora o instalador instala o ffmpeg sozinho, e o `dgclaw atualizar` faz o mesmo nos
+servidores que já existem. Se o ffmpeg já estiver lá, nada é reinstalado e nenhum serviço reinicia. Se a instalação
+dele falhar, a atualização continua e avisa o que rodar (`apt-get install -y ffmpeg`), porque ele só serve para a
+prévia. O `dgclaw status` ganhou uma linha dizendo se o ffmpeg está instalado.
+
+### Como atualizar (ffmpeg para as prévias)
+
+Peça ao Admin, no chat: "atualiza o DG Claw". A atualização instala o ffmpeg sozinha; agentes, conversas e
+configurações ficam como estão. Se preferir instalar na hora, rode no servidor: `sudo apt-get install -y ffmpeg`.
+As prévias dos arquivos que já estavam na conversa aparecem na próxima vez que você abrir a conversa.
+
 **Ícone e texto sempre legíveis sobre fundo forte (regra geral de contraste).** Quando um botão ou selo muda para uma cor
 forte, como o botão de gravar áudio que fica vermelho durante a gravação, o ícone e o texto agora trocam sozinhos para
 branco ou escuro, o que contrastar mais com o fundo (mínimo de 4,5:1 para texto e 3:1 para ícone). A conta vale para o
