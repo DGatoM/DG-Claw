@@ -164,7 +164,7 @@ test('menuHtml: cada grupo é um botão com aria-expanded e aria-controls, o con
   assert.match(html, /<div class="ml-grupo-itens" id="mlG-dia" role="group" aria-labelledby="mlG-dia-b">/);
   assert.match(html, /<div class="ml-grupo aberto" data-grupo="dia"/);
   assert.doesNotMatch(html, /<div class="ml-grupo aberto" data-grupo="perfil"/);
-  for (const t of ['gm-lembretes', 'gm-avisos', 'gm-seguranca', 'gm-conectar', 'gm-anonimizar', 'gm-colaborador', 'gm-sessoes', 'gm-tela']) assert.ok(html.includes(`data-tour="${t}"`), t);
+  for (const t of ['gm-lembretes', 'gm-avisos', 'gm-seguranca', 'gm-conectar', 'gm-faceid', 'gm-anonimizar', 'gm-colaborador', 'gm-sessoes', 'gm-tela']) assert.ok(html.includes(`data-tour="${t}"`), t);
   assert.match(html, /data-selos/, 'o cabeçalho tem lugar para o selo de atenção');
   // sem item em Conexões o grupo nasce escondido; com Navegador aparece
   assert.match(M.menuHtml(M.organizaMenu([]), {}), /data-grupo="conexoes"[^>]*hidden/);

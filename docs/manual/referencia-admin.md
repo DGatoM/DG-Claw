@@ -248,6 +248,8 @@ Servidas pelo DG Claw Web. Quem: Dono, salvo o que a coluna disser. Colab só pa
 | `/api/v1/chaves-api` | Chaves de API do suporte remoto: listar (GET), criar (POST, o token aparece uma vez só) e revogar (DELETE `?id=<código>`) | Dono. Caixa recebe 403 | [DIAGNOSTICO-REMOTO.md](../../web/docs/DIAGNOSTICO-REMOTO.md) |
 | `/api/v1/diagnostico` | Estado de saúde da máquina e de cada agente, só leitura (GET e HEAD); `/api/v1/diagnostico/docs.md` é público | Dono, ou chave de escopo `diagnostico` | [DIAGNOSTICO-REMOTO.md](../../web/docs/DIAGNOSTICO-REMOTO.md) |
 | `/suporte` | Tela Suporte remoto: criar, listar e revogar as chaves | Dono | [DIAGNOSTICO-REMOTO.md](../../web/docs/DIAGNOSTICO-REMOTO.md) |
+| `/api/v1/cadeado` | Face ID: estado, ligar, destravar, aparelhos, passkeys e tempo de trava; as rotas estão em `/api/v1/cadeado/docs.md` | Dono e colaborador, cada um só com as próprias passkeys. Caixa não alcança | [CADEADO.md](../../web/docs/CADEADO.md) |
+| `/face-id` | Tela Face ID: ligar neste aparelho, escolher o tempo e remover passkeys | Dono e colaborador | [CADEADO.md](../../web/docs/CADEADO.md) |
 
 ### Entrada de páginas
 

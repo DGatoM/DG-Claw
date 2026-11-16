@@ -4,6 +4,9 @@
 9236f41b6295a8a554cc1640d3b6459186ca275e:web/test/colaboradores.test.js:generic-api-key:183
 c4d0dd653c0f1bf76df27672363798493586297f:web/test/colaborador-painel.test.js:generic-api-key:134
 f542263221c8f7b49033e4f823eebed3da0f3714:web/test/colaboradores.test.js:generic-api-key:224
+8d46abf82f6c30400fb794e1ccbcf1b8b30ef483:web/test/cadeado.test.js:generic-api-key:239
+8503cee93624f097415ca73e32a3556b91ea9b6c:web/test/cadeado.test.js:generic-api-key:715
+e507df58122e94e5b5b2ca6f30e0a1ee1af687fa:web/test/cadeado.test.js:generic-api-key:1571
 # Comandos curl sintéticos dos testes da tela Logs (senha montada em tempo de execução, ${S} e 'p '.repeat), usados para conferir a máscara.
 c3bb26c79cfa1e9f2d95b3e97376b4b909389227:web/test/logs-comando-oculto.test.js:curl-auth-user:17
 59b19a767dc1984f78075bb533345b4238f8fefa:web/test/logs-ambiguidade.test.js:curl-auth-user:36
@@ -13,3 +16,5 @@ c3bb26c79cfa1e9f2d95b3e97376b4b909389227:web/test/logs-comando-oculto.test.js:cu
 08c30fa2a8e2c744bbdbd7fae19556fe1f8254e8:web/test/logs-ambiguidade.test.js:curl-auth-user:36
 # Segredos de mentira do teste do diagnóstico remoto, montados com join() para conferir a máscara.
 754c67e16b95a325c8abf8adef4fb44b673b2db1:web/test/diagnostico.test.js:generic-api-key:206
+2e204f6202646cdf41aad060f40533fb4a58652a:web/test/logs-comando-oculto.test.js:curl-auth-user:17
+2e204f6202646cdf41aad060f40533fb4a58652a:web/test/logs-ambiguidade.test.js:curl-auth-user:36
