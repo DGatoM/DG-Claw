@@ -177,6 +177,9 @@ Resposta: `{"ok":true,"para":"+55...","id":"<id da mensagem>"}` ou
 | `TETO_DIA` | o teto de 60 mensagens em 24 horas foi atingido |
 | `AQUECIMENTO` | número novo no teto do dia de aquecimento |
 | `TEXTO_REPETIDO` | o mesmo texto já foi para outra pessoa nas últimas 24 horas |
+| `ESTADO_INVALIDO` | o histórico de envios (`envio/estado.json`) existe mas não pôde ser lido; nada sai até o dono conferir (apagar recomeça o histórico) |
+| `EXPIRADO` | o pedido esperou na fila além do prazo e não foi enviado; a tool já tinha desistido |
+| `OCUPADO` | outro envio segurou a vez por mais de 45 s |
 | `CONFIG_INVALIDA` | o `envio.json` tem valor errado; o erro diz qual |
 
 **Pastas permitidas para envio de arquivo** (revisão do card 4, 12/10): só a casa do agente
@@ -259,6 +262,8 @@ Para outra conexão (Evolution, API oficial), o agente usa o mesmo módulo: o qu
 | Texto igual | recusa o mesmo texto para 2 pessoas em 24 h | vale para textos de 15 letras ou mais; reescreva para cada pessoa |
 | Trava | no primeiro erro de envio, desconexão forçada (401, 403) ou sinal de bloqueio | cria o arquivo `PARADO`; nada mais sai até o dono liberar com `retomar` |
 | Número novo | `numero_novo_desde` com a data de início | teto por dia de aquecimento: dias 1 a 3, 10 mensagens; 4 a 7, 30; 8 a 14, 60 |
+
+Se o histórico não puder ser gravado depois de um envio, a mensagem já saiu, a resposta traz o campo `aviso` e os envios seguintes ficam travados (sem histórico as travas de ritmo ficariam cegas). A trava entre processos (a ponte e o script da Z-API) só é tomada de volta quando o processo que a segurava morreu, nunca por idade. As tools MCP esperam até 90 s pela resposta de texto, para caber o intervalo.
 
 A queda comum de rede (reconexão normal do Baileys) não trava, porque acontece o tempo todo. O erro de envio
 trava de propósito: continuar tentando num número que o WhatsApp está recusando é o jeito mais rápido de

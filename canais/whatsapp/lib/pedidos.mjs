@@ -96,9 +96,13 @@ export function criarPedidos({ lerPermitidos, estaPermitido, validarArquivo, mon
         para: numero,
         texto: p.acao === 'enviar' ? p.texto : (p.legenda || ''),
         executar: () => sock.sendMessage(jid, conteudo),
+        // Menor que o prazo do socket (75 s texto, 120 s arquivo): pedido que ficou velho na fila nao e enviado.
+        prazoMs: p.acao === 'enviar' ? 65000 : 105000,
       });
       if (!r.ok) return r;
-      return { ok: true, para: numero, id: (r.resultado && r.resultado.key && r.resultado.key.id) || null };
+      const ok = { ok: true, para: numero, id: (r.resultado && r.resultado.key && r.resultado.key.id) || null };
+      if (r.aviso) ok.aviso = r.aviso;
+      return ok;
     } finally {
       if (arq && arq.fd != null) fs.closeSync(arq.fd);
     }

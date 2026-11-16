@@ -265,3 +265,66 @@ test('script do agente: sem as chaves diz quais faltam, sem enviar', async () =>
   assert.match(r.resposta.erro, /ZAPI_INSTANCE/);
   fs.rmSync(home, { recursive: true, force: true });
 });
+
+// --- Revisao adversarial, rodada 1 ----------------------------------------------
+
+test('historico corrompido recusa o envio em vez de zerar os contadores', async () => {
+  const m = montar();
+  await m.mandar(A, 'primeira mensagem para a Ana');
+  fs.writeFileSync(path.join(m.home, 'envio', 'estado.json'), '{"envios":');
+  const r = await m.mandar(B, 'segunda mensagem para o Bruno');
+  assert.equal(r.codigo, 'ESTADO_INVALIDO');
+  assert.equal(m.enviados.length, 1);
+  m.limpar();
+});
+
+test('historico que nao grava: a mensagem ja saiu, avisa, e o resto fica travado', async () => {
+  const m = montar();
+  fs.mkdirSync(path.join(m.home, 'envio', `estado.json.${process.pid}.tmp`), { recursive: true }); // gravar o historico falha
+  const r = await m.mandar(A, 'primeira mensagem para a Ana');
+  assert.equal(r.ok, true);
+  assert.match(r.aviso, /travados/);
+  const r2 = await m.mandar(B, 'segunda mensagem para o Bruno');
+  assert.equal(r2.codigo, 'PARADO');
+  assert.equal(m.enviados.length, 1);
+  m.limpar();
+});
+
+test('trava na memoria vale mesmo se o arquivo PARADO nao puder ser gravado', async () => {
+  const m = montar();
+  fs.mkdirSync(path.join(m.home, 'envio', 'PARADO'), { recursive: true }); // escrever o arquivo falha
+  m.envio.travar('teste');
+  assert.ok(m.envio.paradoMotivo());
+  assert.equal((await m.mandar(A, 'mensagem qualquer para alguem')).codigo, 'PARADO');
+  m.limpar();
+});
+
+test('a trava entre processos nao e tomada por idade: so quando o dono morreu', async () => {
+  const m = montar();
+  const arq = path.join(m.home, 'envio', 'envio.lock');
+  // dono vivo (o pai deste processo) com arquivo "velho": nao pode ser roubada, vira OCUPADO no prazo
+  fs.writeFileSync(arq, String(process.ppid));
+  const velho = new Date(Date.now() - 3600 * 1000);
+  fs.utimesSync(arq, velho, velho);
+  const t0 = Date.now();
+  const origNow = Date.now;
+  let n = 0;
+  Date.now = () => origNow() + (n++ > 3 ? 60000 : 0); // faz o prazo de 45 s estourar sem esperar
+  const r = await m.mandar(A, 'mensagem qualquer para alguem');
+  Date.now = origNow;
+  assert.equal(r.codigo, 'OCUPADO');
+  assert.equal(m.enviados.length, 0);
+  assert.ok(Date.now() - t0 < 5000);
+  // dono morto (pid inexistente): a trava e tomada
+  fs.writeFileSync(arq, '999999999');
+  assert.equal((await m.mandar(A, 'mensagem qualquer para alguem')).ok, true);
+  m.limpar();
+});
+
+test('pedido velho na fila (prazo vencido) nao e enviado', async () => {
+  const m = montar();
+  const r = await m.envio.enviar({ para: A, texto: 'x', prazoMs: -1, executar: async () => { throw new Error('nao devia enviar'); } });
+  assert.equal(r.codigo, 'EXPIRADO');
+  assert.equal(fs.existsSync(path.join(m.home, 'envio', 'PARADO')), false);
+  m.limpar();
+});

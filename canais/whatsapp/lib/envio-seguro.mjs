@@ -138,18 +138,25 @@ export function criarEnvioSeguro({ dir, arqConfig, agora = () => new Date(), dor
   const arqParado = path.join(dir, 'PARADO');
   const arqTrava = path.join(dir, 'envio.lock');
   let fila = Promise.resolve();
+  let parouNaMemoria = null; // a trava vale mesmo se o disco recusar o arquivo PARADO
 
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   fs.chmodSync(dir, 0o700);
 
+  /** Arquivo ausente e historico vazio. Arquivo que existe e nao le NAO e vazio: recusa o envio (nao zera os contadores). */
   function lerEstado() {
+    let bruto;
     try {
-      const o = JSON.parse(fs.readFileSync(arqEstado, 'utf8'));
-      if (o && Array.isArray(o.envios)) return o;
+      bruto = fs.readFileSync(arqEstado, 'utf8');
     } catch (e) {
-      if (e.code !== 'ENOENT') registrar(`envio: estado.json ilegivel (${motivoErro(e)}); recomecando o historico de envios`);
+      if (e.code === 'ENOENT') return { versao: 1, envios: [] };
+      return { erro: `nao consegui ler ${arqEstado} (${motivoErro(e)})` };
     }
-    return { versao: 1, envios: [] };
+    try {
+      const o = JSON.parse(bruto);
+      if (o && Array.isArray(o.envios)) return o;
+    } catch { /* cai no erro abaixo */ }
+    return { erro: `${arqEstado} esta corrompido` };
   }
 
   function gravarEstado(o) {
@@ -165,12 +172,14 @@ export function criarEnvioSeguro({ dir, arqConfig, agora = () => new Date(), dor
     try {
       fs.writeFileSync(arqParado, JSON.stringify({ quando, motivo: texto }) + '\n', { mode: 0o600 });
     } catch (e) {
+      parouNaMemoria = texto;
       registrar(`envio: NAO consegui gravar a trava ${arqParado} (${motivoErro(e)}); pare os envios na mao`);
     }
     registrar(`envio: TRAVADO, ${texto}`);
   }
 
   function paradoMotivo() {
+    if (parouNaMemoria) return `${parouNaMemoria} (o arquivo PARADO nao pode ser gravado; reinicie para destravar depois de resolver)`;
     let s;
     try { s = fs.readFileSync(arqParado, 'utf8'); } catch (e) {
       if (e.code === 'ENOENT') return null;
@@ -180,6 +189,7 @@ export function criarEnvioSeguro({ dir, arqConfig, agora = () => new Date(), dor
   }
 
   function liberar() {
+    parouNaMemoria = null;
     try { fs.unlinkSync(arqParado); return true; } catch (e) {
       if (e.code === 'ENOENT') return false;
       throw e;
@@ -187,6 +197,12 @@ export function criarEnvioSeguro({ dir, arqConfig, agora = () => new Date(), dor
   }
 
   // Exclusao entre processos (a ponte e o script do agente podem mandar ao mesmo tempo).
+  // O arquivo guarda o pid de quem a segura. Ela so e tomada de volta quando esse processo morreu:
+  // idade nunca basta, porque um envio legitimo pode demorar (a espera do intervalo vem antes do envio).
+  const viva = (pid) => {
+    if (!Number.isInteger(pid) || pid <= 0) return false;
+    try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
+  };
   async function comTrava(fn) {
     const limite = Date.now() + 45000;
     for (;;) {
@@ -195,9 +211,14 @@ export function criarEnvioSeguro({ dir, arqConfig, agora = () => new Date(), dor
         break;
       } catch (e) {
         if (e.code !== 'EEXIST') throw e;
-        try {
-          if (Date.now() - fs.statSync(arqTrava).mtimeMs > 5 * MIN) { fs.unlinkSync(arqTrava); continue; }
-        } catch { /* sumiu entre o stat e o unlink: tenta de novo */ }
+        let dono = NaN;
+        try { dono = Number(fs.readFileSync(arqTrava, 'utf8').trim()); } catch (e2) { if (e2.code === 'ENOENT') continue; }
+        // Dentro deste processo a fila ja garante um de cada vez, entao um arquivo com o nosso proprio pid e sobra
+        // de uma execucao anterior que reaproveitou o pid.
+        if (dono === process.pid || !viva(dono)) {
+          try { fs.unlinkSync(arqTrava); } catch { /* outro processo tomou antes */ }
+          continue;
+        }
         if (Date.now() > limite) return falha('OCUPADO', 'outro envio esta em andamento ha mais de 45 segundos; espere ele terminar e tente de novo');
         await new Promise((r) => setTimeout(r, 200));
       }
@@ -209,13 +230,19 @@ export function criarEnvioSeguro({ dir, arqConfig, agora = () => new Date(), dor
    * Passa pelas travas e envia. `executar` faz o envio real e devolve o resultado (ou lanca).
    * Devolve { ok:true, resultado, disparo, esperou_ms } ou { ok:false, codigo, erro }.
    */
-  function enviar({ para, texto = '', executar }) {
-    const minha = fila.then(() => comTrava(() => tentar({ para, texto, executar })));
+  function enviar({ para, texto = '', executar, prazoMs = null }) {
+    // `prazoMs`: depois dele quem pediu ja desistiu; entao nao se envia mais (nada de mensagem "fantasma").
+    const ate = prazoMs ? Date.now() + prazoMs : null;
+    const minha = fila.then(() => comTrava(() => tentar({ para, texto, executar, ate })));
     fila = minha.catch(() => {});
     return minha;
   }
 
-  async function tentar({ para, texto, executar }) {
+  const expirou = (ate) => ate != null && Date.now() > ate;
+  const EXPIRADO = () => falha('EXPIRADO', 'o pedido esperou na fila alem do prazo e NAO foi enviado; tente de novo, uma mensagem de cada vez');
+
+  async function tentar({ para, texto, executar, ate }) {
+    if (expirou(ate)) return EXPIRADO();
     const parado = paradoMotivo();
     if (parado) {
       return falha('PARADO', `os envios estao travados: ${parado}. Nao tente de novo: avise o dono, que confere o numero no celular e libera com "dgclaw-agente canal whatsapp retomar"`);
@@ -226,6 +253,9 @@ export function criarEnvioSeguro({ dir, arqConfig, agora = () => new Date(), dor
 
     const t = agora().getTime();
     const est = lerEstado();
+    if (est.erro) {
+      return falha('ESTADO_INVALIDO', `${est.erro}; sem o historico as travas de ritmo ficariam cegas. Nada foi enviado. O dono confere o arquivo (se estiver corrompido, apagar e recomecar o historico) e tenta de novo`);
+    }
     const envios = est.envios.filter((e) => t - e.t < DIA * 30 && t - e.t >= -MIN);
     const pessoa = sha(String(para).replace(/\D/g, '') || String(para));
     const norm = normalizarTexto(texto);
@@ -277,7 +307,11 @@ export function criarEnvioSeguro({ dir, arqConfig, agora = () => new Date(), dor
       if (falta > c.espera_max_s * 1000) {
         return falha('RITMO', `a mensagem anterior saiu ha pouco; espere ${fmtEspera(falta)} e mande a proxima. Uma mensagem por chamada, sem pressa`);
       }
-      if (falta > 0) { esperouMs = Math.ceil(falta); await esperar(esperouMs); }
+      if (falta > 0) {
+        if (ate != null && Date.now() + falta > ate) return EXPIRADO();
+        esperouMs = Math.ceil(falta);
+        await esperar(esperouMs);
+      }
     }
 
     // 4. Envia. Qualquer erro trava tudo: continuar tentando e como um robo em panico.
@@ -293,7 +327,9 @@ export function criarEnvioSeguro({ dir, arqConfig, agora = () => new Date(), dor
     try {
       gravarEstado({ versao: 1, envios: envios.filter((e) => agoraMs - e.t < DIA * 30) });
     } catch (e) {
-      registrar(`envio: nao consegui gravar o historico em ${arqEstado} (${motivoErro(e)}); as travas de ritmo ficam cegas ate isso voltar`);
+      // A mensagem JA saiu. Sem historico as travas de ritmo ficariam cegas, entao trava o resto.
+      travar(`nao consegui gravar o historico de envios em ${arqEstado} (${motivoErro(e)}); confira o espaco em disco e as permissoes`);
+      return { ok: true, resultado, disparo, esperou_ms: esperouMs, aviso: 'a mensagem saiu, mas os envios ficaram travados porque o historico nao pode ser gravado' };
     }
     return { ok: true, resultado, disparo, esperou_ms: esperouMs };
   }

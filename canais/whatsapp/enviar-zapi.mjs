@@ -74,7 +74,7 @@ export async function executar(argv, { env = process.env, home = os.homedir(), s
   }
   const r = await envio.enviar({ para: numero, texto, executar: () => adaptador.enviarTexto(numero, texto) });
   if (!r.ok) return { codigoSaida: 1, resposta: r };
-  return { codigoSaida: 0, resposta: { ok: true, para: numero, id: r.resultado.id, disparo: r.disparo, esperou_ms: r.esperou_ms } };
+  return { codigoSaida: 0, resposta: { ok: true, para: numero, id: r.resultado.id, disparo: r.disparo, esperou_ms: r.esperou_ms, ...(r.aviso ? { aviso: r.aviso } : {}) } };
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
