@@ -6,6 +6,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const contraste = require('../public/ds/contraste.js');
 
 const RX_COR = /^#[0-9a-fA-F]{6}$/;
 const RX_FAMILIA = /^[\p{L}0-9 -]{1,60}$/u;
@@ -23,7 +24,8 @@ const EXT_LOGO = ['.svg', '.png', '.webp', '.jpg'];
 const TETO = { logo: 512 * 1024, favicon: 256 * 1024, icone_app: 2 * 1024 * 1024, fonte: 1536 * 1024, json: 64 * 1024 };
 const TOKENS_COR = new Set([
   'cor-fundo', 'cor-superficie', 'cor-texto', 'cor-texto-2', 'cor-borda', 'cor-acento', 'cor-sobre-acento', 'cor-link',
-  'cor-perigo', 'cor-sucesso', 'cor-aviso', 'botao-fundo', 'botao-texto', 'botao-borda', 'botao2-fundo', 'botao2-texto',
+  'cor-perigo', 'cor-sucesso', 'cor-aviso', 'cor-gravando', 'cor-atencao', 'cor-sobre-perigo', 'cor-sobre-sucesso',
+  'cor-sobre-aviso', 'cor-sobre-gravando', 'cor-sobre-atencao', 'botao-perigo-fundo', 'botao-perigo-texto', 'botao-fundo', 'botao-texto', 'botao-borda', 'botao2-fundo', 'botao2-texto',
   'campo-fundo', 'campo-texto', 'campo-borda', 'cartao-fundo', 'cartao-borda', 'login-fundo', 'login-pontos',
   'logo-no', 'logo-centro', 'conversa-fundo', 'balao-meu-fundo', 'balao-meu-texto', 'balao-agente-fundo', 'balao-agente-texto',
 ]);
@@ -204,12 +206,29 @@ function criarMarca(cfg) {
     return texto.replace(/\{\{(MARCA_[A-Z_]+)\}\}/g, (m, k) => (k in mapa ? escapaHtml(mapa[k]) : m));
   }
 
+  // Regra de contraste (web/public/ds/contraste.js): fundo trocado pela marca sem o "sobre" correspondente, ou com um "sobre"
+  // que não chega a 4,5:1, ganha o "sobre" (branco ou grafite) calculado pela luminância. A escolha explícita que passa é mantida.
+  const PARES = [
+    ['cor-acento', 'cor-sobre-acento'], ['cor-perigo', 'cor-sobre-perigo'], ['cor-sucesso', 'cor-sobre-sucesso'],
+    ['cor-aviso', 'cor-sobre-aviso'], ['cor-gravando', 'cor-sobre-gravando'], ['cor-atencao', 'cor-sobre-atencao'],
+    ['botao-fundo', 'botao-texto'], ['botao-perigo-fundo', 'botao-perigo-texto'],
+  ];
+  function comSobre(cores) {
+    const r = { ...cores };
+    for (const [fundo, sobre] of PARES) {
+      if (!r[fundo]) continue;
+      if (r[sobre] && contraste.razao(r[fundo], r[sobre]) >= contraste.MIN_TEXTO) continue;
+      r[sobre] = contraste.corSobre(r[fundo]);
+    }
+    return r;
+  }
+
   function css() {
     const d = obter();
     const bloco = (mapa) => Object.entries(mapa).map(([k, v]) => `--${k}:${v};`).join('');
     let s = '/* gerado do marca.json validado; não edite */\n';
     let fontes = '';
-    const vars = bloco(d.cores);
+    const vars = bloco(comSobre(d.cores));
     let raiz = vars;
     let fonteVars = '';
     for (const [papel, dado] of Object.entries(d.fontes)) {
@@ -220,7 +239,7 @@ function criarMarca(cfg) {
     if (fonteVars) s += `html:root{${fonteVars}}\n`;
     // Especificidade maior que a do :root de tokens.css: vale mesmo se o marca.css vier antes de um CSS que importa os tokens.
     if (raiz) s += `html:root:not([data-tema="escuro"]){${raiz}}\n`;
-    const esc = bloco(d.cores_escuro);
+    const esc = bloco(comSobre(d.cores_escuro));
     if (esc) s += `html[data-tema="escuro"]:root{${esc}}\n`;
     if (d.logo) {
       s += '.ds-carregando svg{display:none}\n' +
