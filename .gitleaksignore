@@ -27,5 +27,7 @@ c3bb26c79cfa1e9f2d95b3e97376b4b909389227:web/test/logs-comando-oculto.test.js:cu
 08c30fa2a8e2c744bbdbd7fae19556fe1f8254e8:web/test/logs-ambiguidade.test.js:curl-auth-user:36
 # Segredos de mentira do teste do diagnóstico remoto, montados com join() para conferir a máscara.
 754c67e16b95a325c8abf8adef4fb44b673b2db1:web/test/diagnostico.test.js:generic-api-key:206
+58513416913ff5f9528998dcaf02350171700366:web/test/diagnostico.test.js:generic-api-key:232
+5c95f1403f61e9fd1a9b7d3c1282d9fed7648653:web/test/diagnostico.test.js:generic-api-key:232
 2e204f6202646cdf41aad060f40533fb4a58652a:web/test/logs-comando-oculto.test.js:curl-auth-user:17
 2e204f6202646cdf41aad060f40533fb4a58652a:web/test/logs-ambiguidade.test.js:curl-auth-user:36
