@@ -244,7 +244,7 @@ afirma "/var/lib/private aparece" grep -q 'A /var/lib/private/segredo.db' "$TMP/
 afirma "unidade dgclaw-* que nao e do agente aparece" grep -q 'dgclaw-outra.service' "$TMP/rec.txt"
 afirma "unidade de outro agente com prefixo parecido aparece" grep -q 'dgclaw-ritax-self-2.timer' "$TMP/rec.txt"
 nega "a rotina do proprio agente nao aparece" grep -q 'dgclaw-rita-self-1' "$TMP/rec.txt"
-nega "o runner (regravado pelo reparar) nao aparece" grep -q 'dgclaw-runner.service' "$TMP/rec.txt"
+afirma "o runner sem impressao digital de referencia aparece (so some se identico ao gerado)" grep -q 'dgclaw-runner.service' "$TMP/rec.txt"
 rm -f "$CASA_RITA"/perdido-no-recriar-*.txt
 
 # 10) lista longa: a tela mostra o comeco, o arquivo guarda TUDO e ja existe antes da confirmacao
@@ -282,6 +282,7 @@ manifesto() {
     for n in $PRODUTOS_REPARAR; do
         for e in service timer; do echo "HASH-FIXO  /etc/systemd/system/dgclaw-rita-$n.$e"; done
     done >"$CASA_RITA/home/.dgclaw/unidades-padrao.sha256"
+    printf 'HASH-FIXO  /etc/systemd/system/dgclaw-runner.service\nHASH-FIXO  /etc/systemd/system/dgclaw-painel.service\n' >>"$CASA_RITA/home/.dgclaw/unidades-padrao.sha256"
 }
 manifesto
 
@@ -332,6 +333,25 @@ recriar rita
 nega "nao deu para conferir as unidades: falha" test "$?" -eq 0
 afirma "explica" grep -q 'conferir as rotinas padrao' "$TMP/rec.txt"
 rm -f "$STUB_ESTADO/unidade-conferir-falha"
+
+
+
+# 14) runner/painel alterados pelo dono entram na lista; nome de arquivo com quebra de linha nao esconde nada
+echo imagem-v22 >"$STUB_ESTADO/imagem-id"
+printf 'C /etc/systemd/system/dgclaw-runner.service\nA /etc/systemd/system/dgclaw-painel.service\n' >"$STUB_ESTADO/diff-dgclaw-rita"
+printf '/etc/systemd/system/dgclaw-runner.service\n' >"$STUB_ESTADO/unidade-editada"
+recriar rita
+nega "runner alterado, sem --forcar: falha" test "$?" -eq 0
+afirma "o runner alterado aparece" grep -q 'dgclaw-runner.service' "$TMP/rec.txt"
+nega "o painel igual ao gerado nao aparece" grep -q 'dgclaw-painel.service' "$TMP/rec.txt"
+rm -f "$STUB_ESTADO/unidade-editada"
+cat >"$STUB_ESTADO/diff-json-dgclaw-rita" <<'EOF'
+{"added":["/tmp/\nA ","/tmp/\nA /opt/dados.db/__pycache__/x","/opt/dados.db"],"changed":[],"deleted":[]}
+EOF
+recriar rita
+nega "nome com quebra de linha, sem --forcar: falha" test "$?" -eq 0
+afirma "o banco de verdade continua na lista" grep -q 'A /opt/dados.db' "$TMP/rec.txt"
+rm -f "$STUB_ESTADO/diff-json-dgclaw-rita"
 
 
 fim

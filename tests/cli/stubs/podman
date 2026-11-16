@@ -107,6 +107,11 @@ case "${1:-}" in
         # estado/diff-falha faz o comando falhar.
         nome="${*: -1}"
         if [ -f "$est/diff-falha" ]; then echo "Error: no such container $nome" >&2; exit 125; fi
+        if printf '%s ' "$@" | grep -q -- '--format json'; then
+            if [ -f "$est/diff-json-$nome" ]; then cat "$est/diff-json-$nome"; exit 0; fi
+            jq -Rn '[inputs] | {added: [.[] | select(startswith("A ")) | .[2:]], changed: [.[] | select(startswith("C ")) | .[2:]], deleted: [.[] | select(startswith("D ")) | .[2:]]}' < "$est/diff-$nome" 2>/dev/null || echo '{}'
+            exit 0
+        fi
         cat "$est/diff-$nome" 2>/dev/null; exit 0 ;;
     run)
         # `run --rm --entrypoint dpkg-query <imagem> ...`: pacotes da imagem (estado/pacotes-imagem).

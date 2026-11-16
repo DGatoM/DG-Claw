@@ -980,14 +980,6 @@ for u in /etc/systemd/system/dgclaw-*.service; do
     [ -f "$u" ] || continue
     sed -i 's|^User=root$|User=agente|; s|^Environment=HOME=/root$|Environment=HOME=/home/agente|' "$u"
 done
-# Impressao digital das unidades que o produto acabou de gerar (referencia confiavel para o
-# `agente recriar` saber se alguem as editou depois). So as que nao sao do proprio agente (self-*).
-( cd /etc/systemd/system && for u in /etc/systemd/system/dgclaw-*.service /etc/systemd/system/dgclaw-*.timer; do
-    [ -f "$u" ] || continue
-    case "$u" in *-self-*) continue ;; esac
-    sha256sum "$u"
-done ) >"$CASA/.dgclaw/unidades-padrao.sha256"
-chown agente:agente "$CASA/.dgclaw/unidades-padrao.sha256"
 # As skills que o proprio agente usa (agenda, memoria...) vem na imagem, mas o Claude Code
 # so as enxerga em ~/.claude/skills. Sem isto o agente nasce sem elas, e "me lembra daqui a
 # 2 minutos" fica sem o roteiro da agenda. Link (e nao copia): a imagem nova traz a versao
@@ -1007,6 +999,14 @@ systemctl daemon-reload
 # --now porque o container ja esta de pe: so `enable` deixaria o runner esperando um
 # reboot que ninguem vai dar.
 systemctl enable --now dgclaw-runner.service dgclaw-painel.service >/dev/null
+# Impressao digital das unidades que o produto acabou de gerar (referencia confiavel para o
+# `agente recriar` saber se alguem as editou depois). So as que nao sao do proprio agente (self-*).
+( cd /etc/systemd/system && for u in /etc/systemd/system/dgclaw-*.service /etc/systemd/system/dgclaw-*.timer; do
+    [ -f "$u" ] || continue
+    case "$u" in *-self-*) continue ;; esac
+    sha256sum "$u"
+done ) >"$CASA/.dgclaw/unidades-padrao.sha256"
+chown agente:agente "$CASA/.dgclaw/unidades-padrao.sha256"
 echo "rotinas, runner e painel instalados"
 DENTRO
 }
@@ -1507,8 +1507,15 @@ inventario_container() {
     _inv_limpar() { rm -f "$difusao" "$difusao.err" "$difusao.arq" "$difusao.prod" "$pacs_c" "$pacs_i" 2>/dev/null || true; }
     : >"$saida" || { INV_MOTIVO="nao consegui gravar o arquivo do inventario ($saida)."; return 1; }
     difusao="$(mktemp)" || { INV_MOTIVO="nao consegui criar um arquivo temporario."; return 1; }
-    if ! podman diff "$c" >"$difusao" 2>"$difusao.err"; then
-        INV_MOTIVO="o 'podman diff $c' falhou ($(head -n 1 "$difusao.err" 2>/dev/null | _inv_sanear))."
+    # O formato de texto do podman nao escapa quebra de linha no nome do arquivo: um nome com "\nA /x" viraria
+    # dois registros e esconderia um caminho real. O JSON guarda cada caminho como um valor indivisivel;
+    # caracteres de controle viram "?" ja aqui, antes de qualquer filtro.
+    podman diff --format json "$c" 2>"$difusao.err" | jq -r '
+        def esc: gsub("[\u0001-\u001f\u007f]"; "?");
+        ((.added // [])[] | "A " + esc), ((.changed // [])[] | "C " + esc), ((.deleted // [])[] | "D " + esc)' >"$difusao" 2>>"$difusao.err"
+    rc_a=("${PIPESTATUS[@]}")
+    if [ "${rc_a[0]}" -ne 0 ] || [ "${rc_a[1]}" -ne 0 ]; then
+        INV_MOTIVO="o 'podman diff --format json $c' falhou ou nao deu para ler a resposta ($(head -n 1 "$difusao.err" 2>/dev/null | _inv_sanear))."
         _inv_limpar
         return 1
     fi
@@ -1580,7 +1587,8 @@ inventario_container() {
                 if (index(p, "/etc/systemd/system/") == 1) {
                     u = p; sub(/^\/etc\/systemd\/system\/([^\/]*\.wants\/)?/, "", u)
                     if (index(u, "dgclaw-" slug "-self-") == 1) continue
-                    if (u ~ /^dgclaw-(runner|painel)\.(service|timer)$/) continue
+                    # runner e painel: tambem so somem se identicos ao que foi gerado (conferido depois, por impressao digital)
+                    if (u ~ /^dgclaw-(runner|painel)\.(service|timer)$/) { if (p !~ /\.wants\//) print p >> prodarq; continue }
                     # Rotina padrao que o reparar regrava (lista em DG_UNIDADES_REPARAR): so some da lista
                     # se o arquivo ainda tem a cara do que o produto gera (conferido depois, no container).
                     pre = "dgclaw-" slug "-"
