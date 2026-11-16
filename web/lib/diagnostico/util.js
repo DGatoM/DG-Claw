@@ -1,0 +1,317 @@
+'use strict';
+// Peças pequenas do diagnóstico: executar comando sem shell, tempo limite, datas do systemd e montagem das verificações.
+
+const { execFile } = require('node:child_process');
+
+const RX_NOME_SEGURO = /^[a-z0-9][a-z0-9-]{0,40}$/;
+const RX_UNIT = /^dgclaw-[a-z0-9-]{1,60}\.(?:timer|service)$/;
+
+// Tudo o que vem do container, de arquivo da casa do agente ou de comando precisa passar por uma enumeração
+// fechada ou por um formato estrito antes de entrar em qualquer texto. Fora da lista vira null.
+const INESPERADO = 'o sistema devolveu um valor inesperado';
+const ENUMS = {
+  load: ['loaded', 'not-found', 'error', 'masked', 'bad-setting', 'stub', 'merged'],
+  ativo: ['active', 'reloading', 'inactive', 'failed', 'activating', 'deactivating', 'maintenance', 'refreshing'],
+  sub: ['dead', 'running', 'exited', 'failed', 'waiting', 'start', 'start-pre', 'start-post', 'start-chown', 'condition', 'reload', 'stop', 'stop-watchdog', 'stop-sigterm', 'stop-sigkill', 'stop-post', 'final-watchdog', 'final-sigterm', 'final-sigkill', 'auto-restart', 'auto-restart-queued', 'cleaning', 'elapsed', 'listening', 'mounted', 'abandoned', 'active'],
+  resultado: ['success', 'protocol', 'timeout', 'exit-code', 'signal', 'core-dump', 'watchdog', 'start-limit-hit', 'resources', 'oom-kill', 'exec-condition', 'condition', 'skipped', 'dependency', 'clean'],
+  container: ['created', 'running', 'paused', 'exited', 'stopped', 'stopping', 'configured', 'initialized', 'removing', 'dead', 'unknown'],
+  politica: ['no', 'always', 'on-failure', 'unless-stopped'],
+  tipoSaude: ['ok', 'recusa', 'login', 'limite', 'sobrecarga', 'contexto', 'sem_resposta', 'erro_api', 'sessao_caida', 'desconhecido'],
+  estadoSaude: ['ativo', 'inativo', 'atencao', 'indeterminado'],
+  statusRunner: ['spawning', 'working', 'waiting_input', 'idle', 'completed', 'errored', 'stopped', 'resumable'],
+  razaoRunner: ['runner:login-expirado', 'runner:sem-login', 'runner:sem-chave', 'runner:identidade-grande', 'runner:dialogo-bypass', 'runner:login-por-chave-falhou', 'hook:SessionStart', 'hook:PreCompact', 'hook:StopFailure rate_limit', 'transcript:turno encerrado sem o hook Stop'],
+  motivoConferencia: ['sem_credencial', 'tempo', 'sem_binario', 'ilegivel', 'metodo_diferente'],
+  ponteWhatsapp: ['conectado', 'deslogado', 'erro', 'reconectando', 'aguardando_codigo', 'codigo_pronto', 'pareado', 'desligado'],
+};
+/** O valor, se estiver na lista; senão null. */
+function dentro(valor, lista) {
+  return typeof valor === 'string' && lista.includes(valor) ? valor : null;
+}
+/** Inteiro de 0 a 255 (código de saída) a partir de texto ou número; senão null. */
+function codigoDeSaida(v) {
+  const n = typeof v === 'number' ? v : (typeof v === 'string' && v.length <= 3 && /^\d{1,3}$/.test(v) ? Number(v) : NaN);
+  return Number.isInteger(n) && n >= 0 && n <= 255 ? n : null;
+}
+
+/**
+ * Roda um comando SEM shell. Nunca rejeita: devolve { codigo, stdout, stderr, erro }.
+ * `opcoes.signal` mata o subprocesso quando o prazo da verificação ou da coleta vence (erro 'prazo');
+ * `opcoes.timeout` é o limite próprio da chamada (erro 'timeout').
+ */
+function execPadrao(cmd, args, opcoes) {
+  const timeout = (opcoes && opcoes.timeout) || 5000;
+  const signal = opcoes && opcoes.signal ? opcoes.signal : undefined;
+  return new Promise((resolve) => {
+    execFile(cmd, args, { timeout, signal, killSignal: 'SIGKILL', maxBuffer: 1024 * 1024, encoding: 'utf8', windowsHide: true }, (err, stdout, stderr) => {
+      if (!err) { resolve({ codigo: 0, stdout, stderr, erro: null }); return; }
+      const abortado = err.name === 'AbortError' || err.code === 'ABORT_ERR';
+      resolve({
+        codigo: typeof err.code === 'number' ? err.code : null,
+        stdout: stdout || '',
+        stderr: stderr || '',
+        erro: abortado ? 'prazo' : (err.killed ? 'timeout' : (typeof err.code === 'string' ? err.code : null)),
+      });
+    });
+  });
+}
+
+/** true quando o comando foi interrompido por tempo (limite da chamada ou prazo da verificação/coleta). */
+const demorou = (r) => !!r && (r.erro === 'timeout' || r.erro === 'prazo');
+const PARADO_POR_TEMPO = 'o diagnóstico parou por tempo';
+
+/**
+ * Prazo com cancelamento: expira em `ms` (ou antes, se o `pai` expirar). `signal` aborta os subprocessos,
+ * `expirou()` é o que os laços consultam antes de começar qualquer chamada nova. Chame `encerrar()` ao terminar.
+ */
+function criarPrazo(ms, pai) {
+  const ctl = new AbortController();
+  const fim = performance.now() + ms;
+  const timer = setTimeout(() => ctl.abort(), ms);
+  timer.unref();
+  const doPai = () => ctl.abort();
+  if (pai) {
+    if (pai.signal.aborted) ctl.abort();
+    else pai.signal.addEventListener('abort', doPai, { once: true });
+  }
+  return {
+    signal: ctl.signal,
+    expirou: () => ctl.signal.aborted || performance.now() >= fim,
+    restanteMs: () => {
+      const meu = ctl.signal.aborted ? 0 : Math.max(0, fim - performance.now());
+      return pai ? Math.min(meu, pai.restanteMs()) : meu;
+    },
+    abortar: () => ctl.abort(),
+    encerrar: () => { clearTimeout(timer); if (pai) pai.signal.removeEventListener('abort', doPai); },
+  };
+}
+
+/**
+ * Envolve um executor: nenhum subprocesso novo começa depois que o prazo venceu, e o que está em andamento
+ * recebe o signal. O prazo vem de `opcoes.prazo` ou de `atual()` (o prazo da verificação em curso).
+ */
+function comPrazo(base, atual) {
+  return async (cmd, args, opcoes) => {
+    const op = opcoes || {};
+    const prazo = op.prazo || (atual && atual());
+    if (!prazo) return base(cmd, args, op);
+    if (prazo.expirou()) return { codigo: null, stdout: '', stderr: '', erro: 'prazo' };
+    const timeout = Math.max(1, Math.min(op.timeout || 5000, Math.ceil(prazo.restanteMs())));
+    return base(cmd, args, Object.assign({}, op, { timeout, signal: prazo.signal }));
+  };
+}
+
+/** Resolve com o resultado de `promessa` ou com { estourou:true } depois de `ms`. */
+function comLimite(promessa, ms) {
+  let t;
+  const espera = new Promise((resolve) => { t = setTimeout(() => resolve({ estourou: true }), ms); });
+  return Promise.race([Promise.resolve(promessa).then((valor) => ({ valor })), espera]).finally(() => clearTimeout(t));
+}
+
+const MAX_DATA = 64;
+const MAX_DURACAO = 64;
+const MAX_VALOR_PROP = 200;
+
+/** "Wed 2026-10-21 09:11:30 -03", "@1792549819" ou "n/a" para milissegundos; null se não der para ler com certeza. */
+function dataSystemd(texto) {
+  if (typeof texto !== 'string') return null;
+  const s = texto.slice(0, MAX_DATA).trim();
+  if (!s || s === 'n/a' || s === '0') return null;
+  if (/^@\d{1,15}$/.test(s)) return Number(s.slice(1)) * 1000;
+  const m = s.match(/(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})(?:\.\d+)? ?(UTC|GMT|Z|[+-]\d{2}(?::?\d{2})?)?$/);
+  if (!m) return null;
+  let desloc = 0;
+  if (m[7] && !/^(UTC|GMT|Z)$/.test(m[7])) {
+    const d = m[7].replace(':', '');
+    const sinal = d[0] === '-' ? -1 : 1;
+    desloc = sinal * (Number(d.slice(1, 3)) * 60 + Number(d.slice(3, 5) || 0));
+  } else if (!m[7]) {
+    return null; // sem fuso (ou abreviação como BRT): não dá para saber o instante com certeza
+  }
+  return Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]) - desloc * 60000;
+}
+
+// Lista fechada de unidades do systemd (systemd.time(7)). "m" é minuto e "M" é mês.
+const UNIDADES_MS = {
+  us: 0.001, ms: 1,
+  s: 1000, sec: 1000, second: 1000, seconds: 1000,
+  m: 60000, min: 60000, minute: 60000, minutes: 60000,
+  h: 3600000, hr: 3600000, hour: 3600000, hours: 3600000,
+  d: 86400000, day: 86400000, days: 86400000,
+  w: 604800000, week: 604800000, weeks: 604800000,
+  M: 2592000000, month: 2592000000, months: 2592000000,
+  y: 31557600000, year: 31557600000, years: 31557600000,
+};
+const ehDigito = (c) => c >= 48 && c <= 57;
+const ehLetra = (c) => (c >= 65 && c <= 90) || (c >= 97 && c <= 122);
+
+/**
+ * "1h 30min" -> milissegundos; null se qualquer pedaço fugir do formato. Analisador de uma passada só, à mão
+ * (sem regex): o texto é cortado em 64 caracteres, o número tem no máximo 12 dígitos e a unidade tem de estar
+ * na lista fechada acima. Custo proporcional ao tamanho do texto, que nunca passa de 64.
+ */
+function duracaoSystemd(texto) {
+  if (typeof texto !== 'string') return null;
+  const s = texto.slice(0, MAX_DURACAO);
+  const n = s.length;
+  const pulaEspaco = (i) => { while (i < n && (s[i] === ' ' || s[i] === '\t')) i += 1; return i; };
+  let i = 0;
+  let total = 0;
+  let achou = false;
+  for (;;) {
+    i = pulaEspaco(i);
+    if (i >= n) break;
+    const ini = i;
+    while (i < n && ehDigito(s.charCodeAt(i))) i += 1;
+    if (i === ini || i - ini > 12) return null;
+    if (s[i] === '.') {
+      i += 1;
+      const f = i;
+      while (i < n && ehDigito(s.charCodeAt(i))) i += 1;
+      if (i === f || i - f > 9) return null;
+    }
+    const valor = Number(s.slice(ini, i));
+    i = pulaEspaco(i);
+    const iniU = i;
+    while (i < n && ehLetra(s.charCodeAt(i))) i += 1;
+    if (i === iniU || i - iniU > 8) return null;
+    const unidade = s.slice(iniU, i);
+    if (!Object.prototype.hasOwnProperty.call(UNIDADES_MS, unidade)) return null;
+    if (i < n && s[i] !== ' ' && s[i] !== '\t') return null;
+    total += valor * UNIDADES_MS[unidade];
+    achou = true;
+  }
+  return achou ? total : null;
+}
+
+/** Primeira palavra da linha (até espaço ou tab), no máximo `max` caracteres; null se a palavra for maior. Sem regex. */
+function primeiroToken(linha, max = 100) {
+  const s = String(linha == null ? '' : linha).slice(0, max + 1);
+  let i = 0;
+  while (i < s.length && (s[i] === ' ' || s[i] === '\t' || s[i] === '\r')) i += 1;
+  let f = i;
+  while (f < s.length && s[f] !== ' ' && s[f] !== '\t' && s[f] !== '\r') f += 1;
+  return f - i > max || f === i ? null : s.slice(i, f);
+}
+
+// Tetos para texto que vem de fora (container, systemd, podman). Nada abaixo roda sobre texto sem passar por eles.
+const MAX_SAIDA_BYTES = 256 * 1024;
+const MAX_SAIDA_LINHAS = 4000;
+const MAX_JSON_BYTES = 512 * 1024;
+const MAX_VALORES_POR_PROP = 20;
+const MAX_BLOCOS_SHOW = 400; // até 200 timers e os 200 services deles
+// Só as propriedades que algum coletor lê (cron.js e maquina.js). O resto da saída é ignorado.
+const PROPS_SHOW = new Set(['Id', 'LoadState', 'ActiveState', 'SubState', 'Result', 'ExecMainStatus', 'ExecMainStartTimestamp', 'ActiveEnterTimestamp', 'ExecMainExitTimestamp', 'LastTriggerUSec', 'NextElapseUSecRealtime', 'TimersCalendar', 'TimersMonotonic', 'OnUnitActiveUSec']);
+
+/** Corta o texto em MAX_SAIDA_BYTES e devolve no máximo MAX_SAIDA_LINHAS linhas (cada uma com até `maxLinha` caracteres, 2000 se omitido). */
+function linhasLimitadas(saida, maxLinha = 2000) {
+  const texto = String(saida == null ? '' : saida).slice(0, MAX_SAIDA_BYTES);
+  const linhas = [];
+  let ini = 0;
+  while (ini <= texto.length && linhas.length < MAX_SAIDA_LINHAS) {
+    let fim = texto.indexOf('\n', ini);
+    if (fim === -1) fim = texto.length;
+    linhas.push(texto.slice(ini, Math.min(fim, ini + maxLinha)));
+    ini = fim + 1;
+  }
+  return linhas;
+}
+
+/** JSON.parse com teto de tamanho: texto maior que o teto vira null (quem chama trata como formato desconhecido). */
+function jsonLimitado(texto) {
+  if (typeof texto !== 'string' || texto.length > MAX_JSON_BYTES) return null;
+  try { return JSON.parse(texto); } catch (_) { return null; }
+}
+
+/**
+ * Saída de `systemctl show` com várias units: { <Id>: { Chave: valor | [valores] } }.
+ * Custo linear: texto cortado antes, lista fechada de propriedades, valor de até 200 caracteres, no máximo 20 valores
+ * por propriedade e 400 blocos. Se a mesma unit aparece de novo, vale a primeira ocorrência.
+ */
+function lerShow(saida) {
+  const porId = Object.create(null);
+  let blocos = 0;
+  let props = Object.create(null);
+  const fecha = () => {
+    if (props.Id && typeof props.Id === 'string' && !(props.Id in porId)) porId[props.Id] = props;
+    props = Object.create(null);
+  };
+  for (const linha of linhasLimitadas(saida, 64 + MAX_VALOR_PROP)) {
+    if (!linha.trim()) {
+      if (Object.keys(props).length) { fecha(); blocos += 1; if (blocos >= MAX_BLOCOS_SHOW) return porId; }
+      continue;
+    }
+    const i = linha.indexOf('=');
+    if (i <= 0) continue;
+    if (i > 40) continue;
+    const k = linha.slice(0, i);
+    if (!PROPS_SHOW.has(k)) continue;
+    const v = linha.slice(i + 1, i + 1 + MAX_VALOR_PROP);
+    const atual = props[k];
+    if (atual === undefined) props[k] = v;
+    else if (Array.isArray(atual)) { if (atual.length < MAX_VALORES_POR_PROP) atual.push(v); }
+    else props[k] = [atual, v];
+  }
+  if (Object.keys(props).length) fecha();
+  return porId;
+}
+
+const iso = (ms) => (Number.isFinite(ms) ? new Date(ms).toISOString().replace(/\.\d+Z$/, 'Z') : null);
+
+/** "20/10 às 00h10" no fuso da instalação. */
+function quando(ms, tz) {
+  if (!Number.isFinite(ms)) return 'horário desconhecido';
+  const partes = new Intl.DateTimeFormat('pt-BR', { timeZone: tz || 'UTC', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+    .formatToParts(new Date(ms)).reduce((a, p) => { a[p.type] = p.value; return a; }, {});
+  return `${partes.day}/${partes.month} às ${partes.hour}h${partes.minute}`;
+}
+
+/** "3 h 20 min", "12 min", "2 dias". */
+function duracaoCurta(ms) {
+  const min = Math.max(0, Math.round(ms / 60000));
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60);
+  if (h < 48) return min % 60 ? `${h} h ${min % 60} min` : `${h} h`;
+  return `${Math.floor(h / 24)} dias`;
+}
+
+// O Admin roda como root e lê a saída de tudo o que o prompt manda conferir. Por isso "conferir" só aceita comandos do
+// HOST cuja saída é do próprio DG Claw (estado, lista, disco, memória). Nunca log, journal, `systemctl status` nem
+// nada de dentro do container ou da casa do agente: o agente pode estar comprometido e escrever instruções ali.
+const CONFERIR_ATOMOS = [
+  /^`dgclaw status`$/, /^`dgclaw agente listar`$/, /^`dgclaw atualizar --checar`$/, /^`podman ps( -a)?`$/,
+  /^`systemctl (?:is-active|list-timers) (?:dgclaw-[a-z0-9-]{1,60}|caddy)(?:\.(?:timer|service))?`$/, /^`systemctl list-timers --all`$/,
+  /^`df -h`$/, /^`du -sh \/var\/lib\/dgclaw\/\* \/var\/backups\/dgclaw`$/, /^`free -h`$/, /^`podman stats --no-stream`$/,
+];
+function conferirPermitido(conferir) {
+  const partes = String(conferir).split(' e ');
+  if (!partes.length || !partes.every((p) => CONFERIR_ATOMOS.some((rx) => rx.test(p)))) {
+    throw new TypeError(`promptAdmin: "conferir" só aceita comandos do host da lista fechada (recebi: ${String(conferir).slice(0, 80)}).`);
+  }
+}
+
+/** Texto que o cliente cola na conversa do Admin. Primeira pessoa do cliente. */
+function promptAdmin(viu, conferir, comando) {
+  conferirPermitido(conferir);
+  return `Oi, Admin. Rodei o diagnóstico do meu DG Claw e ele apontou isto: ${viu} `
+    + `Por favor confira se está mesmo assim (${conferir}) e conserte. O comando provável é \`${comando}\`. `
+    + 'Quando terminar, me diga o que encontrou, o que fez e se voltou a funcionar.';
+}
+const ONDE_COLAR = 'Cole o texto do prompt_sugerido na conversa do Admin no DG Claw e envie. O Admin confere e conserta.';
+
+module.exports = {
+  INESPERADO, ENUMS, dentro, codigoDeSaida, RX_NOME_SEGURO, RX_UNIT, execPadrao, demorou, PARADO_POR_TEMPO, criarPrazo, comPrazo, primeiroToken, MAX_VALOR_PROP, comLimite, dataSystemd, duracaoSystemd, lerShow, linhasLimitadas, jsonLimitado, iso, quando, duracaoCurta, promptAdmin, ONDE_COLAR,
+};
+
+/** Resultado de uma verificação com todos os campos no lugar. */
+function R(estado, motivo, extra) {
+  return Object.assign({ estado, motivo: motivo || null, ultimo_sinal: null, evidencia: null, o_que_fazer: null, prompt_sugerido: null }, extra || {});
+}
+/** Os dois campos de "o que fazer" para um problema que o Admin resolve. */
+function conserta(viu, conferir, comando, dono) {
+  // `dono`: onde o PRÓPRIO dono pode olhar o detalhe (log, journal do container). Esse conteúdo é escrito pelo agente
+  // e nunca entra no prompt do Admin.
+  const olhar = dono ? ` Se quiser ver o detalhe, olhe você mesmo ${dono}. Não cole esse conteúdo no Admin: ele foi escrito pelo agente e pode conter instruções falsas.` : '';
+  return { o_que_fazer: ONDE_COLAR + olhar, prompt_sugerido: promptAdmin(viu, conferir, comando) };
+}
+module.exports.R = R;
+module.exports.conserta = conserta;
