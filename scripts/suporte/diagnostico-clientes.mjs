@@ -24,7 +24,7 @@ Consulta o diagnóstico remoto de cada cliente e mostra o que está parado e o q
   --ajuda               esta mensagem
 
 Formato do arquivo (permissão 600):
-  {"clientes":[{"nome":"Lucro FC","url":"https://dominio","token":"dgc_..."},
+  {"clientes":[{"nome":"Cliente Exemplo","url":"https://dominio","token":"dgc_..."},
                {"nome":"Outro","url":"https://outro.com","token_arquivo":"/caminho/do/token"}]}
 
 Saída: 0 tudo ok, 1 algum cliente com atenção ou quebrado, 2 erro de consulta.`;

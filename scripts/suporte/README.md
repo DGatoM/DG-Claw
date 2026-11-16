@@ -27,7 +27,7 @@ Não precisa instalar nada além do Node 18 ou mais novo. A fonte do formato da 
 
 ```bash
 node scripts/suporte/diagnostico-clientes.mjs                  # todos os clientes
-node scripts/suporte/diagnostico-clientes.mjs --cliente "Lucro FC"
+node scripts/suporte/diagnostico-clientes.mjs --cliente "Cliente Exemplo"
 node scripts/suporte/diagnostico-clientes.mjs --detalhe        # com evidência (sinal e categorias de erro) e prompt para o cliente colar
 node scripts/suporte/diagnostico-clientes.mjs --json > hoje.json
 node scripts/suporte/diagnostico-clientes.mjs --arquivo /outro/caminho.json

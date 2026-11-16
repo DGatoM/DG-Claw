@@ -40,14 +40,14 @@ test('rótulos: Admin, principal (primeiro agente de trabalho) e demais, com o p
 });
 
 test('mini tutorial: endereço, usuário, itens e legenda do vídeo; nunca senha', () => {
-  const t = P.pronto({ usuario: 'danilo', principalNome: 'Lucro FC', endereco: 'https://x.test/' });
+  const t = P.pronto({ usuario: 'danilo', principalNome: 'Cliente Exemplo', endereco: 'https://x.test/' });
   assert.equal(t.titulo, 'Tudo pronto! Agora é só usar');
   assert.equal(t.passo1, '1. Acesse o seu painel:');
   assert.equal(t.endereco, 'https://x.test/');
   assert.equal(t.passo2, '2. Entre com o usuário danilo e a mesma senha que você usou para entrar aqui.');
   assert.equal(t.passo3, '3. O que você vai ver:');
   assert.deepEqual(t.itens, ['Admin: para administrar (atualizar o DG Claw, criar agentes e configurar).',
-    'Lucro FC: o seu agente do dia a dia. Você pode trocar o nome dele depois, é só pedir ao Admin.']);
+    'Cliente Exemplo: o seu agente do dia a dia. Você pode trocar o nome dele depois, é só pedir ao Admin.']);
   assert.equal(t.legendaVideo, 'Veja em menos de 1 minuto');
   assert.equal(P.pronto({ endereco: 'x' }).itens.length, 1);
   assert.match(P.pronto({ endereco: 'x' }).passo2, /usuário que você escolheu/);
