@@ -7,6 +7,17 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Correção: o instalador não para por repositório de terceiro.** Se o `apt-get update` falhava por causa de um repositório do
+servidor que não é do DG Claw (um de terceiro, fora do ar ou com chave vencida), a instalação inteira abortava. Agora vira um
+aviso e a instalação segue; se algum pacote realmente faltar, o passo de instalar dele avisa com a mensagem do próprio apt, e o
+instalador confere que o Node ficou na versão 22 ou mais antes de seguir (se o repositório dele falhou e o Node ficou velho,
+ele para e explica o que fazer).
+Falhas reportadas por Renato Gracie (divulgação responsável).
+
+### Como atualizar (instalador)
+
+Nada além do `dgclaw atualizar` padrão.
+
 **As restrições de cada agente sobrevivem à atualização.** Se você tirou de um agente o terminal (Bash) ou o envio de
 arquivos, ou deixou ele gravar só em certas pastas, essa trava ficava dentro da caixa dele, e a atualização recria a
 caixa: a trava sumia sem aviso. Agora existe um lugar oficial, fora da caixa e fora do alcance do agente, e um comando para
