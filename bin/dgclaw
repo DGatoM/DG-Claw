@@ -1467,6 +1467,11 @@ agente_reparar() {
     if [ "$ENSAIO" != 1 ]; then tela_avisar_sem_senha "$slug"; fi
 }
 
+# Rotinas que o `reparar` (vida_script -> install-timers.sh) regrava no container novo: nao contam como
+# perda. O teste tests/cli/recriar.sh confere que esta lista acompanha o install-timers.sh.
+# As rotinas do Instagram (post-*, comments) e o channel-watchdog NAO estao aqui: ninguem as regrava.
+DG_UNIDADES_REPARAR="reflection audit build-wm heartbeat cron-audit channels-tokens-logger cost-alerts poke-verify conversas-fts memory-reindex watchdog auto-compact monitor"
+
 # _inv_sanear: filtro de stdin para stdout. O inventario mostra texto que vem de DENTRO do container
 # (nomes de pacote e de arquivo, que o agente ou um terceiro pode ter escolhido a dedo) e que acaba
 # lido pelo Admin, que roda como root. Por isso so passam letras, numeros e . _ / @ + : , = ~ -
@@ -1488,10 +1493,10 @@ _inv_sanear() { LC_ALL=C tr -c 'A-Za-z0-9._/@+:,=~\n-' '?' | cut -c1-160; }
 # devolvidas) e dgclaw-runner/dgclaw-painel (regravados pelo reparar). Qualquer outra unidade dgclaw-*
 # ou arquivo em /var/backups e /var/lib/private e coisa que se perde e continua na lista.
 inventario_container() {
-    local slug="$1" saida="$2" difusao="" pacs_c="" pacs_i="" novos estado_c c rc_a rc_b ruins
+    local slug="$1" saida="$2" difusao="" pacs_c="" pacs_i="" novos estado_c c rc_a rc_b ruins validos prod
     c="dgclaw-$slug"
     INV_MOTIVO=""
-    _inv_limpar() { rm -f "$difusao" "$difusao.err" "$difusao.arq" "$pacs_c" "$pacs_i" 2>/dev/null || true; }
+    _inv_limpar() { rm -f "$difusao" "$difusao.err" "$difusao.arq" "$difusao.prod" "$pacs_c" "$pacs_i" 2>/dev/null || true; }
     : >"$saida" || { INV_MOTIVO="nao consegui gravar o arquivo do inventario ($saida)."; return 1; }
     difusao="$(mktemp)" || { INV_MOTIVO="nao consegui criar um arquivo temporario."; return 1; }
     if ! podman diff "$c" >"$difusao" 2>"$difusao.err"; then
@@ -1514,18 +1519,43 @@ inventario_container() {
         fi
         novos="$(LC_ALL=C comm -23 "$pacs_c" "$pacs_i")" || { INV_MOTIVO="a comparacao dos pacotes (comm) falhou."; _inv_limpar; return 1; }
         if [ -n "$novos" ]; then
-            ruins="$(printf '%s\n' "$novos" | grep -vcE '^[a-z0-9][a-z0-9+.-]*(:[a-z0-9-]+)?$' || true)"
-            {
-                printf 'Pacotes instalados so neste container (nao estao na imagem):\n'
-                printf '%s\n' "$novos" | grep -E '^[a-z0-9][a-z0-9+.-]*(:[a-z0-9-]+)?$' | cut -c1-80 | sed 's/^/  /' || true
-                if [ "${ruins:-0}" -gt 0 ]; then
-                    printf '  (mais %s pacote(s) com nome fora do formato do Debian, nao mostrado(s))\n' "$ruins"
+            # Cada gravacao e conferida: "grep sem resultado" (codigo 1) nao e erro, mas qualquer outra
+            # falha (disco cheio, /dev/full, processo morto) para a conferencia em vez de virar lista vazia.
+            validos="$(mktemp)" || { INV_MOTIVO="nao consegui criar um arquivo temporario."; _inv_limpar; return 1; }
+            printf '%s\n' "$novos" | grep -E '^[a-z0-9][a-z0-9+.-]*(:[a-z0-9-]+)?$' >"$validos"
+            rc_a=("${PIPESTATUS[@]}")
+            if [ "${rc_a[0]}" -ne 0 ] || [ "${rc_a[1]}" -gt 1 ]; then
+                INV_MOTIVO="nao consegui separar os nomes de pacote validos (erro ao gravar ou ao filtrar)."
+                rm -f "$validos"; _inv_limpar; return 1
+            fi
+            printf '%s\n' "$novos" | grep -vcE '^[a-z0-9][a-z0-9+.-]*(:[a-z0-9-]+)?$' >"$validos.n"
+            rc_b=("${PIPESTATUS[@]}")
+            if [ "${rc_b[0]}" -ne 0 ] || [ "${rc_b[1]}" -gt 1 ]; then
+                INV_MOTIVO="nao consegui contar os nomes de pacote fora do formato."
+                rm -f "$validos" "$validos.n"; _inv_limpar; return 1
+            fi
+            ruins="$(cat "$validos.n")" || { INV_MOTIVO="nao consegui ler a contagem de pacotes fora do formato."; rm -f "$validos" "$validos.n"; _inv_limpar; return 1; }
+            rm -f "$validos.n"
+            printf 'Pacotes instalados so neste container (nao estao na imagem):\n' >>"$saida" \
+                || { INV_MOTIVO="nao consegui gravar a lista de pacotes em $saida."; rm -f "$validos"; _inv_limpar; return 1; }
+            if [ -s "$validos" ]; then
+                cut -c1-80 "$validos" | sed 's/^/  /' >>"$saida"
+                rc_a=("${PIPESTATUS[@]}")
+                if [ "${rc_a[0]}" -ne 0 ] || [ "${rc_a[1]}" -ne 0 ]; then
+                    INV_MOTIVO="nao consegui gravar a lista de pacotes em $saida (erro de escrita)."
+                    rm -f "$validos"; _inv_limpar; return 1
                 fi
-            } >>"$saida" || { INV_MOTIVO="nao consegui gravar a lista de pacotes em $saida."; _inv_limpar; return 1; }
+            fi
+            if [ "${ruins:-0}" -gt 0 ]; then
+                printf '  (mais %s pacote(s) com nome fora do formato do Debian, nao mostrado(s))\n' "$ruins" >>"$saida" \
+                    || { INV_MOTIVO="nao consegui gravar a lista de pacotes em $saida."; rm -f "$validos"; _inv_limpar; return 1; }
+            fi
+            rm -f "$validos"
         fi
     fi
     # Arquivos: tira o ruido e deixa so as folhas (diretorio pai so aparece porque o filho mudou).
-    if ! awk -v slug="$slug" '
+    if ! awk -v slug="$slug" -v produto="$DG_UNIDADES_REPARAR" -v prodarq="$difusao.prod" '
+        BEGIN { np = split(produto, tmp, " "); for (k = 1; k <= np; k++) eh_produto[tmp[k]] = 1 }
         { tipo = substr($0, 1, 1); caminho = substr($0, 3); linhas[NR] = caminho; tipos[NR] = tipo }
         END {
             for (i = 1; i <= NR; i++) {
@@ -1543,6 +1573,13 @@ inventario_container() {
                     u = p; sub(/^\/etc\/systemd\/system\/([^\/]*\.wants\/)?/, "", u)
                     if (index(u, "dgclaw-" slug "-self-") == 1) continue
                     if (u ~ /^dgclaw-(runner|painel)\.(service|timer)$/) continue
+                    # Rotina padrao que o reparar regrava (lista em DG_UNIDADES_REPARAR): so some da lista
+                    # se o arquivo ainda tem a cara do que o produto gera (conferido depois, no container).
+                    pre = "dgclaw-" slug "-"
+                    if (index(u, pre) == 1) {
+                        nome = substr(u, length(pre) + 1); sub(/\.(service|timer)$/, "", nome)
+                        if (nome in eh_produto) { if (p ~ /\.(service|timer)$/ && p !~ /\.wants\//) print p >> prodarq; continue }
+                    }
                 }
                 if (p ~ /^\/root\/\.(cache|npm|local\/share\/claude)(\/|$)/) continue
                 if (p ~ /(^|\/)__pycache__(\/|$)/ || p ~ /\.pyc$/) continue
@@ -1553,6 +1590,16 @@ inventario_container() {
         INV_MOTIVO="o awk que filtra a lista de arquivos do container falhou."
         _inv_limpar
         return 1
+    fi
+    # Unidades padrao do produto: as que nao tem mais a cara do que o produto gera (alguem editou) voltam
+    # para a lista, porque o reparar as regrava e a edicao se perderia.
+    if [ -s "$difusao.prod" ] && [ "$estado_c" = running ]; then
+        prod="$(podman exec "$c" sh -c 'for f; do grep -q "^Description=DG Claw " "$f" 2>/dev/null || echo "$f"; done' _ $(cat "$difusao.prod") 2>/dev/null)" \
+            || { INV_MOTIVO="nao consegui conferir as unidades padrao dentro do container (podman exec)."; _inv_limpar; return 1; }
+        if [ -n "$prod" ]; then
+            printf '%s\n' "$prod" | sed 's/^/C /' >>"$difusao.arq" \
+                || { INV_MOTIVO="nao consegui gravar a lista de unidades alteradas."; _inv_limpar; return 1; }
+        fi
     fi
     if [ -s "$difusao.arq" ]; then
         {

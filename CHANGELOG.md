@@ -16,7 +16,7 @@ ali. Se houver algo na lista, ele **não troca nada** e pede `--forcar`; se não
 qualquer confirmação (a tela mostra só o começo, e o arquivo guarda tudo). Como os nomes vêm de dentro do container, o
 comando os simplifica (só letras, números e alguns símbolos) e avisa que a lista é dado, nunca instrução; o Admin foi
 orientado a não obedecer nada que apareça nela. Se qualquer passo da conferência falhar, o comando para em vez de
-tratar como "nada a perder". A casa, o cofre, as portas e as rotinas do agente continuam intactos como antes.
+tratar como "nada a perder". As rotinas padrão do agente (reflexão, vigia, coletas e afins), que o `reparar` regrava sozinho, não entram na lista, a menos que alguém tenha editado o arquivo da rotina; as rotinas do Instagram e o vigia do canal, que ninguém regrava, entram. A casa, o cofre, as portas e as rotinas do agente continuam intactos como antes.
 Falhas reportadas por Renato Gracie (divulgação responsável).
 
 ### Como atualizar (recriar com inventário)

@@ -258,4 +258,65 @@ afirma "o arquivo tem as 60 entradas" bash -c "[ \"\$(grep -c 'A /opt/lote/arqui
 afirma "a mensagem final aponta o arquivo" grep -q 'Veja a lista completa em' "$TMP/rec.txt"
 
 
+
+# A lista de rotinas que o reparar regrava (DG_UNIDADES_REPARAR) tem que acompanhar o install-timers.sh.
+PRODUTOS_REPARAR="$(sed -n 's/^DG_UNIDADES_REPARAR="\(.*\)"$/\1/p' "$AQUI/../../bin/dgclaw" | head -n1)"
+NOMES_INSTALL="$( { grep -oE '^ *"[a-z-]+\|' "$AQUI/../../scripts/install-timers.sh" | tr -d ' "|'; echo monitor; } | sort | tr '\n' ' ')"
+igual "a lista de rotinas regravadas acompanha o install-timers.sh" "$NOMES_INSTALL" "$(printf '%s\n' $PRODUTOS_REPARAR | sort | tr '\n' ' ')"
+
+# 11) erro de escrita na lista de pacotes: para, nao vira "nada a perder"
+echo imagem-v19 >"$STUB_ESTADO/imagem-id"
+: >"$STUB_ESTADO/diff-dgclaw-rita"
+printf 'base-files\nbash\nferramenta-ok\n' >"$STUB_ESTADO/pacotes-container"
+printf 'base-files\nbash\n' >"$STUB_ESTADO/pacotes-imagem"
+touch "$STUB_ESTADO/cut-falha"
+recriar rita
+nega "erro de escrita, sem --forcar: falha" test "$?" -eq 0
+afirma "explica a falha de gravacao" grep -q 'nao consegui gravar a lista de pacotes' "$TMP/rec.txt"
+afirma "nao trocou o container" sem_troca
+rm -f "$STUB_ESTADO/cut-falha" "$STUB_ESTADO/pacotes-container" "$STUB_ESTADO/pacotes-imagem"
+
+# 12) agente padrao completo: as rotinas que o reparar regrava nao contam como perda
+echo imagem-v20 >"$STUB_ESTADO/imagem-id"
+{
+    echo "C /etc/systemd/system"
+    for n in $PRODUTOS_REPARAR; do
+        echo "A /etc/systemd/system/dgclaw-rita-$n.service"
+        echo "A /etc/systemd/system/dgclaw-rita-$n.timer"
+        echo "A /etc/systemd/system/timers.target.wants/dgclaw-rita-$n.timer"
+    done
+    echo "A /etc/systemd/system/dgclaw-runner.service"
+    echo "A /etc/systemd/system/dgclaw-painel.service"
+    echo "A /etc/systemd/system/multi-user.target.wants/dgclaw-runner.service"
+    echo "A /etc/systemd/system/dgclaw-rita-self-1.timer"
+} >"$STUB_ESTADO/diff-dgclaw-rita"
+recriar rita
+igual "agente padrao completo recria sem --forcar (0)" "0" "$?"
+afirma "diz que nao perde nada" grep -q 'nada existe so dentro do container' "$TMP/rec.txt"
+
+# 13) rotina padrao que alguem editou volta para a lista; as do Instagram e o vigia do canal sempre contam
+echo imagem-v21 >"$STUB_ESTADO/imagem-id"
+cat >"$STUB_ESTADO/diff-dgclaw-rita" <<'EOF'
+A /etc/systemd/system/dgclaw-rita-heartbeat.service
+A /etc/systemd/system/dgclaw-rita-heartbeat.timer
+A /etc/systemd/system/dgclaw-rita-post-09h.timer
+A /etc/systemd/system/dgclaw-rita-comments.service
+A /etc/systemd/system/dgclaw-rita-channel-watchdog.timer
+EOF
+printf '/etc/systemd/system/dgclaw-rita-heartbeat.service\n' >"$STUB_ESTADO/unidade-editada"
+recriar rita
+nega "sem --forcar: falha" test "$?" -eq 0
+afirma "a rotina padrao editada aparece" grep -q 'dgclaw-rita-heartbeat.service' "$TMP/rec.txt"
+nega "a rotina padrao igual ao produto nao aparece" grep -q 'dgclaw-rita-heartbeat.timer' "$TMP/rec.txt"
+afirma "rotina de post do Instagram aparece (ninguem a regrava)" grep -q 'dgclaw-rita-post-09h.timer' "$TMP/rec.txt"
+afirma "rotina de comentarios aparece" grep -q 'dgclaw-rita-comments.service' "$TMP/rec.txt"
+afirma "vigia do canal aparece" grep -q 'dgclaw-rita-channel-watchdog.timer' "$TMP/rec.txt"
+rm -f "$STUB_ESTADO/unidade-editada"
+touch "$STUB_ESTADO/unidade-conferir-falha"
+recriar rita
+nega "nao deu para conferir as unidades: falha" test "$?" -eq 0
+afirma "explica" grep -q 'conferir as unidades padrao' "$TMP/rec.txt"
+rm -f "$STUB_ESTADO/unidade-conferir-falha"
+
+
 fim
