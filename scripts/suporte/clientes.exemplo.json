@@ -1,0 +1,6 @@
+{
+  "clientes": [
+    { "nome": "Cliente Exemplo", "url": "https://agentes.cliente-exemplo.com.br", "token": "dgc_COLE_AQUI_O_TOKEN_DO_CLIENTE" },
+    { "nome": "Outro Cliente", "url": "https://claw.outro-exemplo.com.br", "token_arquivo": "/home/voce/.config/dgclaw-suporte/outro-cliente.token" }
+  ]
+}
