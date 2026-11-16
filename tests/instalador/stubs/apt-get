@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 . "$(dirname "$0")/_comum.sh"
 registrar "$@"
+# DGCLAW_STUB_APT_UPDATE_FALHA=1: o update falha como quando um repositorio de terceiro esta fora do ar.
+if [ "${1:-}" = update ] && [ "${DGCLAW_STUB_APT_UPDATE_FALHA:-}" = 1 ]; then
+    echo "E: Failed to fetch https://repo-de-terceiro.invalid/ InRelease" >&2
+    exit 100
+fi
 if [ "${1:-}" = install ]; then
     shift
     # DGCLAW_STUB_APT_FALHA=<pacote>: simula o apt falhando quando esse pacote esta no pedido.
@@ -11,7 +16,8 @@ if [ "${1:-}" = install ]; then
         fi
     done
     for p in "$@"; do
-        case "$p" in -*) ;; *) echo "$p" >>"$(estado_dir)/instalados" ;; esac
+        # DGCLAW_STUB_APT_NAO_INSTALA=<pacote>: o apt "instala" sem trocar o pacote (indice velho).
+        case "$p" in -*) ;; "${DGCLAW_STUB_APT_NAO_INSTALA:-}") ;; *) echo "$p" >>"$(estado_dir)/instalados" ;; esac
     done
 fi
 exit 0
