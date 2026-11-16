@@ -102,9 +102,19 @@ Avise o ${DGCLAW_OWNER:-dono} no inicio e no fim usando:
   bash $PLUGIN/scripts/notify-owner.sh \"mensagem\"
 (o cron ja mandou o aviso de inicio; mande o relatorio final por essa via).${NOTA_19H}"
 
+# Restricoes do dono: com restricao ativa, so roda se a conta de IA for compativel (a mesma regra do runner) e o
+# motor recebe as ferramentas negadas. Recusa = exit 1, sem chamar o claude.
+# shellcheck disable=SC1091
+. "$PLUGIN/scripts/_lib/restricoes-rotina.sh"
+if ! restricoes_conferir_rotina "post ${SLUG} ${HORARIO}" "$LOG"; then
+    avisar_dono "Cron de post ${HORARIO} NAO rodou: as restricoes do agente nao valem com a conta de IA conectada, confira o log ($NAME)"
+    exit 1
+fi
+
 "$CLAUDE_BIN" --print \
     --no-session-persistence \
     --permission-mode bypassPermissions \
+    "${RESTRICAO_DENY_ARGS[@]}" \
     --add-dir "$WS" \
     --model "$POST_MODEL" \
     -p "$PROMPT" >> "$LOG" 2>&1

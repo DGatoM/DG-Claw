@@ -299,6 +299,16 @@ a mensagem diz o que fazer e o log do runner registra. `restricoes.json` que exi
 restrição ativa. Sem restrições ativas nada muda. Depois do login com uma conta que serve, a sessão abre sozinha. O Codex fica fora
 (as travas não valem nele).
 
+**As rotinas autônomas fora do runner fazem a mesma conferência.** A reflexão noturna em modo `headless`
+(`scripts/reflection.sh`), os crons de publicação e de comentários (`scripts/cron/dgclaw-post.sh`,
+`scripts/cron/dgclaw-comentarios.sh`) e a consolidação (`scripts/consolidate.sh`) rodam o `claude --print` direto, sem passar pela
+sessão de conversa. Antes de cada execução elas chamam `scripts/_lib/restricoes-rotina.sh`, que roda `runner/dist/conferir-conta-cli.js`
+(a mesma regra do runner, sobre a conta atual a cada vez). Com restrição ativa e conta incompatível, ou com qualquer dúvida (sem o
+conferidor, sem o node, arquivo ilegível), a rotina não roda: o log registra `RECUSADA` com o motivo e o que fazer, e ela sai com
+código diferente de 0. Aprovada, ela recebe as mesmas ferramentas negadas do runner (`--disallowedTools`). Sem restrição nada muda.
+Ficam de fora o `lista_rapida.py` e o `memory_search.py`: eles chamam o Claude sem ferramentas e sem `bypassPermissions`, só para
+gerar texto, e não gravam nada.
+
 Limite: o arquivo é do agente e só se lê com o container ligado. A checagem de antes de ligar (rótulo da imagem) não o vê; a
 conferência logo depois da partida o pega e para o container. A política remota baixada durante a sessão só aparece no cache no
 início da seguinte, e a conferência a pega no próximo `iniciar`/`reiniciar`/consulta. A prova com o Claude Code real fica para o

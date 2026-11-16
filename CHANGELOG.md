@@ -27,6 +27,10 @@ A trava fica na configuração administrada do Claude Code, que o agente não co
 Com a trava de pastas ligada, o agente só grava a memória dele; as pastas de configuração (`.dgclaw`, `.claude`, `.codex`,
 `.plataforma`) e `/tmp` ficam fechadas, porque são lidas e executadas pelas rotinas do agente.
 
+As rotinas automáticas do agente (reflexão da noite, posts, respostas a comentários e consolidação) agora respeitam as restrições do
+mesmo jeito que a conversa: com restrição ligada, só rodam se a conta de IA conectada for compatível, e recebem as mesmas ferramentas
+travadas. Se recusarem, o log da rotina diz o motivo e o que fazer. Nada muda para quem não usa restrições.
+
 ### Como atualizar (restrições do agente)
 
 A imagem dos agentes precisa ser a nova (ela liga o arquivo de política administrada do Claude Code). O `dgclaw atualizar` já

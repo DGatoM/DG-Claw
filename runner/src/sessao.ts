@@ -464,6 +464,9 @@ export class Sessao extends EventEmitter {
         .then((conf) => {
           if (!conf.ok) {
             // O PTY de conversa, se existir, roda com a conta nova: parar antes de marcar o erro.
+            // As rotinas autônomas fora do runner (reflexão headless, crons de publicação e de comentários)
+            // não dependem deste estado: cada execução consulta a conta atual por
+            // scripts/_lib/restricoes-rotina.sh (conferir-conta-cli.ts) e recusa com o mesmo critério.
             this.parar("login concluído com conta incompatível com as restrições");
             recusarPorRestricao(this, conf.mensagem, conf.comoResolver);
             return;

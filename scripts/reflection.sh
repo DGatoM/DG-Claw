@@ -421,10 +421,16 @@ if [ "$REFLECT_MODE" = "headless" ]; then
     REFLECT_MODEL="${DGCLAW_REFLECT_MODEL:-opus}"
     RESTART_THRESHOLD="${DGCLAW_REFLECT_RESTART_THRESHOLD:-100000}"
 
+    # Restricoes do dono: com restricao ativa, so roda se a conta de IA for compativel (a mesma regra do runner)
+    # e o motor recebe as ferramentas negadas. Recusa = exit 1, sem chamar o claude.
+    # shellcheck disable=SC1091
+    . "$PLUGIN/scripts/_lib/restricoes-rotina.sh"
+    restricoes_conferir_rotina "reflexao ${TODAY}" "$LOG" || exit 1
     echo "[$(date '+%F %T')] reflexao ${TODAY}: consolidacao HEADLESS (claude --print, model=$REFLECT_MODEL)" >> "$LOG"
     "$CLAUDE_BIN" --print \
         --no-session-persistence \
         --permission-mode bypassPermissions \
+        "${RESTRICAO_DENY_ARGS[@]}" \
         --add-dir "$DGCLAW_WORKSPACE" \
         --model "$REFLECT_MODEL" \
         -p "$PROMPT" >> "$LOG" 2>&1
