@@ -195,7 +195,7 @@ suporte_ler_diretiva() {
         if [ -n "$q" ]; then
             if [ "$ch" = "$q" ]; then q=""; else cur+="$ch"; fi
         elif [ "$ch" = '"' ] || [ "$ch" = "'" ]; then q="$ch"
-        elif [ "$ch" = " " ] || [ "$ch" = $'\t' ] || [ "$ch" = "=" ]; then break
+        elif [ "$ch" = " " ] || [ "$ch" = $'\t' ] || [ "$ch" = $'\r' ] || [ "$ch" = "=" ]; then break
         else cur+="$ch"; fi
     done
     if [ -n "$q" ]; then SUP_CFG_ERRO="linha com aspas sem fechar: $(suporte_seguro "${l:0:80}")"; return 2; fi
@@ -210,7 +210,7 @@ suporte_ler_diretiva() {
         if [ -n "$q" ]; then
             if [ "$ch" = "$q" ]; then q=""; else cur+="$ch"; fi
         elif [ "$ch" = '"' ] || [ "$ch" = "'" ]; then q="$ch"; tem=1
-        elif [ "$ch" = " " ] || [ "$ch" = $'\t' ]; then
+        elif [ "$ch" = " " ] || [ "$ch" = $'\t' ] || [ "$ch" = $'\r' ]; then
             if [ "$tem" = 1 ]; then SUP_ARGS+=("$cur"); cur=""; tem=0; fi
         elif [ "$ch" = "#" ] && [ "$tem" = 0 ]; then break
         else cur+="$ch"; tem=1; fi
@@ -260,6 +260,10 @@ suporte_varrer_config() {
                     while [[ "$d" == *[\*\?\[]* ]]; do d="$(dirname "$d")"; done
                     if [ -e "$d" ] && { [ ! -d "$d" ] || [ ! -r "$d" ] || [ ! -x "$d" ]; }; then
                         SUP_CFG_ERRO="nao consegui listar $d para resolver o Include $padrao em $arq"; return 2
+                    fi
+                    # Caractere de controle (CR, etc.) no padrao: o sshd nao o leria assim; falha fechada em vez de sucesso mudo.
+                    if [[ "$padrao" == *[[:cntrl:]]* ]]; then
+                        SUP_CFG_ERRO="o Include em $arq tem caractere de controle no caminho ($(suporte_seguro "$padrao"))"; return 2
                     fi
                     shopt -q nullglob && ant_nullglob=1 || ant_nullglob=0
                     shopt -s nullglob
