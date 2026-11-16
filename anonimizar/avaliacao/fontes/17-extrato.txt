@@ -1,0 +1,15 @@
+#formato: txt
+EXTRATO RESUMIDO - CONTA CORRENTE
+
+Titular: [[PESSOA:Ernesto Valadares Filho]]
+Agência [[AGENCIA:5678]] Conta [[CONTA:12345-6]]
+
+[[DATA:01/08/2026]]  Saldo anterior                 [[VALOR:R$ 4.321,09]]
+[[DATA:03/08/2026]]  PIX recebido de [[PESSOA:LUCIANA PRATES]]  [[VALOR:R$ 800,00]]
+[[DATA:05/08/2026]]  Pagamento boleto [[EMPRESA:Companhia de Energia Elétrica]]  [[VALOR:R$ 289,45]]
+[[DATA:07/08/2026]]  Compra cartão final [[!:4521]] [[EMPRESA:Supermercado Bom Preço]]  [[VALOR:R$ 312,30]]
+[[DATA:09/08/2026]]  Transferência para [[PESSOA:Ana Beatriz Cunha]], CPF [[CPF:${CPF_E}]]  [[VALOR:R$ 1.500,00]]
+
+Cartão de crédito: [[CARTAO:4111 1111 1111 1111]]
+Atendimento: [[TELEFONE:4004-0001]] ou [[EMAIL:ouvidoria@exemplo.com.br]]
+Código de autenticação [[!:9F3A-77B2]]. Pedido [[!:#889012]]. Pesquisa de satisfação em [[!:agosto]].

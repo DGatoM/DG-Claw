@@ -1,0 +1,8 @@
+#formato: txt
+[[[DATA:21/09/2026]] 18:01] [[PESSOA:Rafa]]: galera, o racha do sábado é na quadra da [[ENDERECO:Rua Alfredo Pujol, 410, Santana, São Paulo/SP]]
+[[[DATA:21/09/2026]] 18:03] [[PESSOA:Lúcio Ferraz]]: fechou, eu levo a bola
+[[[DATA:21/09/2026]] 18:04] [[PESSOA:Rafa]]: cada um paga [[VALOR:R$ 25]], manda pro pix [[TELEFONE:11 97788-9900]] ou [[EMAIL:rafa.racha@exemplo.com.br]]
+[[[DATA:21/09/2026]] 18:10] [[PESSOA:Kleber "Pitbull" Amaral]]: vou chegar atrasado, trânsito na [[!:Marginal Tietê]]
+[[[DATA:21/09/2026]] 18:11] [[PESSOA:Rafa]]: de boa [[PESSOA:Pitbull]]
+[[[DATA:21/09/2026]] 18:15] [[PESSOA:Lúcio Ferraz]]: o [[PESSOA:Dudu]] confirmou? o tel dele é [[TELEFONE:11 3221 4567]]
+[[[DATA:21/09/2026]] 18:16] [[PESSOA:Rafa]]: confirmou sim, e trouxe o [[!:Gatorade]]

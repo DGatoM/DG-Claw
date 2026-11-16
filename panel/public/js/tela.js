@@ -33,7 +33,7 @@
   function contaDosCaminhos(pathname) {
     const prefixo = String(pathname || '/').replace(/\/index\.html$/, '').replace(/\/+$/, '');
     const websockify = `${prefixo}/tela/websockify`;
-    const params = `path=${encodeURIComponent(websockify.replace(/^\//, ''))}&autoconnect=1&resize=scale`;
+    const params = `path=${encodeURIComponent(websockify.replace(/^\//, ''))}&autoconnect=1&resize=scale&reconnect=1&reconnect_delay=2000`;
     return {
       prefixo,
       websockify,
@@ -57,7 +57,7 @@
         chave: 'status',
         alvo: '#tela-status',
         titulo: 'Está tudo pronto?',
-        corpo: 'Três verificações: a tela está instalada neste agente, a senha da tela já foi definida, e o navegador do agente está de pé. Cada linha diz sim ou não e, quando é não, o que fazer. O que o painel não conseguiu verificar aparece como "não consegui ver", e não como "não".',
+        corpo: 'Três verificações: a tela está instalada neste agente, a senha da tela já foi definida, e o navegador do agente está de pé. Cada linha diz sim ou não e, embaixo, uma caixa explica o que houve e o que fazer. O que o painel não conseguiu verificar aparece como "não consegui ver", e não como "não".',
         porque: 'Se a tela não abre, a causa quase sempre é uma destas três. Mostrar as três de uma vez poupa você de adivinhar qual faltou.',
       },
       {
@@ -88,6 +88,8 @@
   let sonda = null;       // WebSocket de teste em andamento
   let relogioSonda = null;
   let abrindo = false;
+  let carregou = false;   // a aba já foi desenhada uma vez
+  let esperandoVnc = false; // depois de gravar a primeira senha, espera o x11vnc subir para abrir a tela
 
   function raiz() { return document.getElementById('tela-root'); }
 
@@ -134,6 +136,20 @@
         <span class="tela-rotulo"><b>${esc(rotulo)}</b>${detalhe ? `<span class="tela-detalhe">${esc(detalhe)}</span>` : ''}</span></li>`;
   }
 
+  // A tela só faz sentido com a senha definida: sem ela o x11vnc nem sobe, e o noVNC abriria
+  // para uma falha de conexão sem explicação. Então a aba abre direto no formulário.
+  function precisaDefinirSenha(s) {
+    return !!(s && !s.erro && s.senha_definida === false);
+  }
+
+  function blocoProblemas(s) {
+    const lista = (s && Array.isArray(s.problemas)) ? s.problemas : [];
+    if (!lista.length) return '';
+    const itens = lista.map((p) => `<li class="tela-problema ${p.nivel === 'aviso' ? 'aviso' : 'erro'}">
+        <strong>${esc(p.texto)}</strong><p>${esc(p.como_resolver)}</p></li>`).join('');
+    return `<ul class="tela-problemas">${itens}</ul>`;
+  }
+
   function blocoStatus() {
     const s = estado;
     let corpo;
@@ -145,8 +161,7 @@
         ${linhaStatus('Senha da tela definida', s.senha_definida, s.senha_definida, s.senha_definida ? '' : 'defina uma abaixo para poder abrir a tela')}
         ${linhaStatus('Navegador do agente respondendo', s.cdp, s.cdp, s.cdp ? '' : 'o agente ainda não consegue usar o navegador')}
       </ul>
-      ${s.instalada ? '' : `<div class="app-erro tela-sem-tela"><strong>Este agente ainda não tem tela.</strong>
-        <p>Ela vem na imagem com navegador; peça a quem instalou para recriar o agente com a tela.</p></div>`}`;
+      ${blocoProblemas(s)}`;
     }
     return `<div class="cartao" id="tela-status">
         <div class="section-title">Situação
@@ -157,6 +172,7 @@
 
   function blocoAbrir() {
     const s = estado || {};
+    if (precisaDefinirSenha(s)) return '';
     const pronto = s.instalada && s.senha_definida;
     let motivo = '';
     if (!s.instalada) motivo = 'A tela não está instalada neste agente.';
@@ -180,7 +196,10 @@
 
   function blocoSenha() {
     const definida = !!(estado && estado.senha_definida);
-    const titulo = definida ? 'Trocar a senha da tela' : 'Definir a senha da tela';
+    const titulo = definida ? 'Trocar a senha da tela' : 'Defina a senha da tela';
+    const porque = definida ? '' : `<div class="tela-primeira" id="tela-primeira-senha"><p><b>Falta só isto para abrir a tela.</b>
+          A tela do navegador do agente é protegida por uma senha própria, além do login do painel, porque ali você fica logado nos seus sistemas.
+          Escolha uma agora (de 6 a 8 caracteres): depois de gravar, a tela abre sozinha.</p></div>`;
     const aviso_ = aviso
       ? `<div class="${aviso.tipo === 'ok' ? 'cofre-ok' : 'app-erro'} tela-aviso"><p>${esc(aviso.texto)}</p></div>` : '';
     return `<div class="cartao" id="tela-senha">
@@ -188,6 +207,7 @@
           <button type="button" class="app-ajuda-secao" data-tutorial="senha"
                   aria-label="Sobre a senha da tela" title="Sobre a senha da tela">?</button>
         </div>
+        ${porque}
         <p class="tela-nota">Use de 6 a 8 caracteres, com letras sem acento, números e símbolos do teclado.
           O VNC, o programa que mostra a tela, só usa 8 caracteres, então o painel não aceita mais que isso.
           ${definida ? '<b>Trocar a senha desconecta quem estiver vendo a tela agora.</b>' : ''}</p>
@@ -214,6 +234,13 @@
     document.getElementById('tela-vaga-senha').innerHTML = blocoSenha();
     const vagaAbrir = document.getElementById('tela-vaga-abrir');
     if (!vagaAbrir.querySelector('iframe')) vagaAbrir.innerHTML = blocoAbrir();
+    // Sem senha, o formulário vem antes de tudo; com senha, a ordem de sempre (situação, abrir, senha).
+    const ordem = precisaDefinirSenha(estado) ? ['senha', 'status', 'abrir'] : ['status', 'abrir', 'senha'];
+    const pai = document.getElementById('tela-corpo');
+    // Só mexe na ordem quando ela mudou: mover o iframe no documento o recarregaria.
+    if ([...pai.children].map((c) => c.id).join() !== ordem.map((v) => `tela-vaga-${v}`).join()) {
+      ordem.forEach((v) => pai.appendChild(document.getElementById(`tela-vaga-${v}`)));
+    }
     ligarCorpo();
   }
 
@@ -341,8 +368,39 @@
       desenhar();
       return;
     }
-    aviso = { tipo: 'ok', texto: `Senha da tela gravada. ${(r.corpo.aviso || '').replace(/^./, (x) => x.toUpperCase())}.` };
+    const primeira = precisaDefinirSenha(estado);
+    aviso = primeira
+      ? { tipo: 'ok', texto: 'Senha da tela gravada. Ligando a tela...' }
+      : { tipo: 'ok', texto: `Senha da tela gravada. ${(r.corpo.aviso || '').replace(/^./, (x) => x.toUpperCase())}.` };
     await atualizar();
+    if (primeira) await abrirQuandoOVncSubir();
+  }
+
+  // Na primeira senha o x11vnc ainda não tinha subido (a unidade espera o arquivo) e sobe logo
+  // depois da gravação. O painel pergunta de novo a cada 1,5 s, por até 20 s, e abre a tela
+  // sozinho quando ele responde; assim o dono não cai numa conexão que falha.
+  async function abrirQuandoOVncSubir() {
+    if (esperandoVnc) return;
+    esperandoVnc = true;
+    try {
+      const ligando = () => mostrarResultado('<p class="tela-nota">Ligando a tela, só um instante...</p>');
+      ligando();
+      for (let i = 0; i < 14; i++) {
+        if (estado && estado.vnc !== false) break;
+        await new Promise((res) => setTimeout(res, 1500));
+        const r = await chamar('/api/tela');
+        if (r.ok) { estado = r.corpo; desenhar(); ligando(); }
+      }
+      if (estado && estado.vnc === false) {
+        mostrarResultado(`<div class="app-erro"><strong>A tela ainda não ligou.</strong>
+          <p>A senha foi gravada, mas o programa que mostra a tela não respondeu em 20 segundos. Atualize a página e clique em
+          "Abrir a tela". Se continuar assim, peça ao Admin para rodar "dgclaw agente tela" com o nome deste agente.</p></div>`);
+        return;
+      }
+      abrirTela();
+    } finally {
+      esperandoVnc = false;
+    }
   }
 
   // ─── Carregar ─────────────────────────────────────────────────
@@ -356,6 +414,7 @@
   async function carregar() {
     const el = raiz();
     if (!el) return;
+    carregou = true;
     el.innerHTML = cabecalho();
     const t = document.getElementById('tela-tutorial-abrir');
     if (t) t.addEventListener('click', () => abrirTutorial(0));
@@ -376,18 +435,36 @@
     if (!aba || aba._tela) return;
     aba._tela = true;
     aba.title = EXPLICACAO;
-    let carregou = false;
+    // Quem carrega a aba na primeira vez é o loadPanel do app.js (clique ou link #aba=tela);
+    // o clique seguinte só atualiza o estado.
     aba.addEventListener('click', () => {
       setTimeout(() => {
         const sub = document.getElementById('subtitulo-aba');
         if (sub) sub.textContent = SUBTITULO;
       }, 0);
-      if (!carregou) { carregou = true; carregar(); } else atualizar();
+      if (carregou) atualizar();
     });
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', pendurar);
   else pendurar();
 
-  window.DGTela = { carregar, abrirTutorial, passosDoTutorial, contaDosCaminhos };
+  // htmlDaAba: o que a aba desenharia para um estado, sem tocar no documento (usado pelos testes).
+  function htmlDaAba(s) {
+    const anterior = estado;
+    estado = s;
+    try {
+      const semSenha = precisaDefinirSenha(s);
+      return {
+        primeiro: semSenha ? 'senha' : 'status',
+        status: blocoStatus(),
+        senha: blocoSenha(),
+        abrir: blocoAbrir(),
+      };
+    } finally {
+      estado = anterior;
+    }
+  }
+
+  window.DGTela = { carregar, abrirTutorial, passosDoTutorial, contaDosCaminhos, htmlDaAba };
 })();

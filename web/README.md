@@ -6,7 +6,7 @@ Servidor Node 22, sem nenhuma dependência npm (só módulos nativos), que roda 
 2. **Chat** em `/a/<agente>` (e `/`, que leva ao primeiro agente): a conversa com cada agente, montada a partir do registro da sessão dele.
 3. **Proxy** dos painéis em `/p/<agente>/...`, só para quem está logado.
 
-Ele escuta em `127.0.0.1:8300` e fica atrás de um proxy reverso com HTTPS (Caddy, nginx). Roda como root, porque lê as pastas dos agentes.
+Ele escuta em `127.0.0.1:8300` (o instalador troca a porta com `--porta-painel`) e fica atrás de um proxy reverso com HTTPS (Caddy, nginx). Roda como root, porque lê as pastas dos agentes.
 
 ## Como rodar
 
@@ -41,6 +41,10 @@ Valem as do processo e, por baixo delas, as do arquivo `DGCLAW_WEB_ENV` (formato
 | `ANTHROPIC_API_KEY` | vazio | Liga o modo escondido completo (Claude Haiku). Sem nenhuma chave de modelo, só o filtro automático da tela age. |
 | `DGCLAW_SIGILO_MODELO` | `claude-haiku-4-5` ou `gpt-4.1-mini` | Troca o modelo do modo escondido. |
 | `DGCLAW_SIGILO_LIBERADOS` | vazio | Nomes que o modo escondido nunca esconde, separados por vírgula. |
+| `DGCLAW_SMTP_HOST` | vazio | Servidor de e-mail para mandar o convite do colaborador. Sem ele o convite sai só pelo texto da tela. Opcional. |
+| `DGCLAW_SMTP_PORTA` | `587` | `465` abre TLS direto; `587` exige STARTTLS; outra porta só funciona se o servidor oferecer STARTTLS. |
+| `DGCLAW_SMTP_USUARIO`, `DGCLAW_SMTP_SENHA` | vazio | Login do servidor de e-mail (AUTH PLAIN ou LOGIN, sempre com criptografia). |
+| `DGCLAW_SMTP_REMETENTE` | o usuário, se for um e-mail | De quem o convite parece vir, por exemplo `DG Claw <voce@exemplo.com>`. |
 
 Sem chave de voz, `voz` e `microfone` saem `false` em `/api/v1/agents` (a tela esconde os botões) e as rotas respondem 503 com o motivo.
 
@@ -70,7 +74,7 @@ Sem chave de voz, `voz` e `microfone` saem `false` em `/api/v1/agents` (a tela e
 
 ## Rotas
 
-Páginas: `GET /login`, `POST /login` (campos `usuario`, `senha`, `next`), `GET|POST /sair`, `GET /` (leva ao primeiro agente), `GET /a/<slug>`, `GET /mesa` (Mesa de tarefas). Sem sessão, a página redireciona para `/login?next=...`; a API responde 401 JSON.
+Páginas: `GET /login`, `POST /login` (campos `usuario`, `senha`, `next`), `GET|POST /sair`, `GET /` (leva ao primeiro agente), `GET /a/<slug>`, `GET /mesa` (Mesa de tarefas), `GET /colaboradores` (só o dono: convidar e revogar o colaborador de um agente, ver `docs/COLABORADORES.md`) e `GET /trocar-senha` (o colaborador cria a senha dele). Sem sessão, a página redireciona para `/login?next=...`; a API responde 401 JSON.
 
 O erro do login por formulário volta como 302 para `/login?erro=<código>&next=...`. Códigos: `credenciais`, `limite` (429 de tentativas), `origem` (Origin recusada), `campos` (faltou campo), `bloqueado` (login trancado, sem hash). Quem pede JSON (`Accept` ou `Content-Type` `application/json`) recebe o status e `{ok:false, erro}`.
 
@@ -100,10 +104,12 @@ API (todas com sessão; erros sempre `{ok:false, erro:"motivo em português"}`):
 | `POST /api/v1/tts` | `{agent_id, text, parte?}`; responde o áudio (`audio/mpeg`) de um pedaço do texto (até 40 pedaços; `parte` fora do intervalo dá 400). Cabeçalhos `X-TTS-Partes`, `X-TTS-Parte` e `X-TTS-Chars`. Ver `docs/CONVERSA.md`. |
 | `GET /api/v1/tts/cota` | Uso da cota de voz. |
 | `POST /api/v1/sigilo` | `{textos:[...]}` (até 600). Aponta os trechos sensíveis de cada texto para o modo escondido: `{trechos, avisos, analisados, modelo, so_regex}`. `GET /api/v1/sigilo/estado` diz o modelo ativo; docs em `GET /api/v1/sigilo/docs.md`. Ver `docs/MODO-ESCONDIDO.md`. |
-| `GET /api/v1/eu` | `{ok, usuario}`. |
+| `GET /api/v1/eu` | `{ok, usuario, papel, agente, nome, trocar_senha}`. `papel` é `dono` ou `colaborador` (para o dono, `agente` é `null`). |
+| `GET`/`POST`/`DELETE /api/v1/colaboradores[/:id]`, `POST .../:id/reenviar`, `POST /api/v1/eu/senha` | Colaborador convidado para um agente: só o dono convida e revoga; o colaborador troca a própria senha. O colaborador enxerga só o agente dele (`lib/escopo.js` nega o que não está na lista). Contrato completo em `docs/COLABORADORES.md` (também em `GET /api/v1/colaboradores/docs.md`). |
 | `GET /api/v1/cofre/docs.md` | Como o agente pede uma chave ao dono pela conversa (bloco `dgcofre` ou peça `dv-cofre`), o aviso `[cofre] NOME guardada (final xxxx).` e as garantias. Fonte: `docs/COFRE-NA-CONVERSA.md`. A caixa grava pela rota do cofre do agente (`POST /p/<agente>/api/cofre`). |
 | `GET`/`PUT`/`DELETE /api/v1/foco/:agente`, `POST .../itens`, `PATCH`/`DELETE .../itens/:id`, `GET .../eventos?desde_id`, `GET /api/v1/foco/docs.md` | Modo foco: lista curta por agente que o agente monta e o dono tica na tela; evento `foco` no stream. Docs em `docs/MODO-FOCO.md`. |
 | `GET`/`POST`/`PATCH`/`DELETE /api/v1/tarefas[/:id]` | Mesa de tarefas dos agentes (criar, atualizar, concluir, cancelar). Contrato completo em `docs/MESA.md` (também em `GET /api/v1/tarefas/docs.md`). |
+| `GET`/`POST`/`PATCH`/`DELETE /api/v1/pedidos[/:id]`, `POST /api/v1/pedidos/:id/abrir` | Fila de pedidos (aba Pedidos da Mesa): o agente cria e move os próprios itens; o dono abre, marca como feito e cancela. O agente não marca feito. Contrato em `docs/PEDIDOS.md` (também em `GET /api/v1/pedidos/docs.md`). |
 | `ANY /p/<slug>/*` | Proxy do painel do agente. |
 
 **Mensagem da thread:** `{id, ep, hhmm, dia, origin, text, kind, media, fmt, editada, reacoes, cita, via, quem}`. `origin` é `dono`, `agente` ou `rotina`. `media` é `{id, kind, nome, bytes, disponivel, url, thumb, path}`.

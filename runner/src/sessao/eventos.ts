@@ -49,7 +49,7 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
     });
   }
 
-  if (["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "StopFailure", "PreCompact"].includes(payload.event ?? "")) s.marcarAtividade();
+  if (["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "StopBloqueado", "StopFailure", "PreCompact"].includes(payload.event ?? "")) s.marcarAtividade();
   s.hooksVivos = true;
   if (!s.estado.hookActive) s.estado.hookActive = true;
 
@@ -77,6 +77,8 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       break;
     case "UserPromptSubmit":
       cancelarStopPendente(s);
+      // Atividade nova: o aviso da trava (se sobrou de um Stop que se perdeu) não pode engolir o Stop que vem.
+      s.stopBloqueadoAte = 0;
       // O contador é o RECIBO do Enter: é a única prova, vinda do próprio CLI,
       // de que o texto virou turno em vez de ficar escrito na caixa. Quem espera
       // por ele é o enviarComRecibo().
@@ -86,6 +88,7 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       break;
     case "PreToolUse":
       cancelarStopPendente(s);
+      s.stopBloqueadoAte = 0;
       // Guardado sempre: o Notification de permissão não traz o id, e o do último PreToolUse é o da ferramenta que pede.
       s.ultimoToolUseId = payload.toolUseId ?? null;
       // A pergunta de escolha do Claude (AskUserQuestion) abre a tela de opções logo depois deste hook
@@ -149,7 +152,29 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       if (s.estado.status === "waiting_input" && s.estado.motivo === "pergunta") {
         s.mudar({ status: "working", hookLatched: false, statusReason: "hook:Stop com pergunta aberta" });
       }
+      // A trava de resposta pode ter devolvido este turno (StopBloqueado): o Claude Code roda os hooks
+      // do mesmo evento em paralelo, então o aviso pode ter chegado ANTES do Stop. Nesse caso o fim de
+      // turno não vale e não agenda o idle.
+      if (Date.now() < (s.stopBloqueadoAte ?? 0)) {
+        log.debug(s.a("hook"), "Stop ignorado: a trava de resposta devolveu o turno ao agente, então ele continua trabalhando");
+        s.stopBloqueadoAte = 0;
+        break;
+      }
       agendarStop(s);
+      break;
+    case "StopBloqueado":
+      // A trava de resposta devolveu o turno: o agente vai continuar. Cancela o fim de turno já agendado
+      // (e a soltura da fila). Só lembra do aviso quando o Stop deste turno AINDA não chegou: se ele já
+      // chegou (havia fim de turno agendado), o próximo Stop é o da recuperação e precisa valer, senão o
+      // agente ficaria "working" para sempre.
+      {
+        const stopJaChegou = s.stopPendente !== null;
+        cancelarStopPendente(s);
+        if (s.estado.status === "idle" || s.estado.status === "working") {
+          s.mudar({ status: "working", hookLatched: false, statusReason: "hook:Stop devolvido pela trava de resposta" });
+        }
+        s.stopBloqueadoAte = stopJaChegou ? 0 : Date.now() + STOP_CONFIRM_MS;
+      }
       break;
     case "StopFailure": {
       // O turno terminou com erro da API e o hook Stop NÃO dispara: sem este ramo o agente fica

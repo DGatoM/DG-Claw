@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
-const { subirWeb, pastaTemp } = require('./ajuda');
+const { subirWeb, pastaTemp, entregaAoAgente } = require('./ajuda');
 const { criarRunnerFalso } = require('./runner-falso');
 const { montarEnvelope } = require('../lib/conversa');
 
@@ -24,6 +24,7 @@ async function cenario(opRunner, opWeb) {
   fs.mkdirSync(path.join(home, 'out'), { recursive: true });
   fs.writeFileSync(path.join(home, 'uploads', '2026-10-12', 'foto.png'), 'png');
   fs.writeFileSync(path.join(home, 'out', 'relatorio.pdf'), '0123456789');
+  entregaAoAgente(home);
   const agentes = [
     { slug: 'ana', nome: 'Ana', tipo: 'agente', runner: `http://127.0.0.1:${pAna}`, agente_id: 'ana1', chat_id: 'c_ana', avatar: '🌿', cor: '#2f9e5e', provedor: 'claude', modelo: 'sonnet', transcripts_dir: transcripts, home_host: home, home_container: '/home/agente' },
     { slug: 'admin', nome: 'Admin', tipo: 'admin', runner: `http://127.0.0.1:${pAdmin}`, agente_id: 'adm1', chat_id: 'c_admin', avatar: '🛠', provedor: 'claude', modelo: 'opus', transcripts_dir: transcripts, home_host: pastaTemp('home-adm'), home_container: '/opt/dgclaw/admin' },
@@ -581,4 +582,19 @@ test('montarEnvelope: voz só com true', () => {
   assert.equal(montarEnvelope({ ...base, voz: true }), '<dgchat from="pessoa" chat="c" msg="m" ts="t" voz="1">x</dgchat>');
   assert.equal(montarEnvelope({ ...base, voz: 'true' }), '<dgchat from="pessoa" chat="c" msg="m" ts="t">x</dgchat>');
   assert.equal(montarEnvelope(base), '<dgchat from="pessoa" chat="c" msg="m" ts="t">x</dgchat>');
+});
+
+test('upload: se o agente trocou uploads por um atalho, a rota recusa com motivo e nada é gravado fora da casa', async () => {
+  const s = await cenario();
+  const alvo = pastaTemp('alvo-upload');
+  try {
+    fs.rmSync(path.join(s.home, 'uploads'), { recursive: true, force: true });
+    fs.symlinkSync(alvo, path.join(s.home, 'uploads'));
+    const limite = '----teste1234';
+    const r = await s.t.c.post('/api/v1/agents/ana/upload', { corpo: multipart(limite, { enviar: '0' }, 'x.png', Buffer.from([1, 2])), headers: { 'Content-Type': `multipart/form-data; boundary=${limite}` } });
+    assert.equal(r.status, 500);
+    assert.equal(r.json.ok, false);
+    assert.match(r.json.erro, /atalho/);
+    assert.deepEqual(fs.readdirSync(alvo), [], 'nada apareceu no alvo do atalho');
+  } finally { await s.fechar(); fs.rmSync(alvo, { recursive: true, force: true }); }
 });

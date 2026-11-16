@@ -22,6 +22,10 @@ export const INTERVALO_MS = 25;
 /** Quantas vezes batemos no Enter se ele não virar turno. Quanto esperar pelo recibo
  *  depende do motor (Motor.reciboMs). Ver enviarComRecibo(). */
 export const RECIBO_ENTER_TENTATIVAS = 3;
+/** Depois das tentativas acima sem recibo, a vigia em segundo plano bate mais um Enter a cada um destes
+ *  intervalos (5s, 10s, 20s e 40s depois do último: ~75s no total). Medido em produção: texto grande
+ *  colado em pedaços às vezes demora mais que 3,6s para ser aceito. */
+export const RECIBO_VIGIA_PASSOS_MS = [5_000, 10_000, 20_000, 40_000];
 /** Um `--resume` que morre dentro desta janela morreu por causa da sessão, não
  *  do trabalho. Medido: `claude --resume <id>` de um id sem transcript no disco
  *  sai com código 1 em ~2s. */

@@ -1,0 +1,12 @@
+#formato: txt
+RECIBO Nº [[!:0087]]
+
+Recebi de [[EMPRESA:Mercearia Estrela do Sul Ltda]], CNPJ [[CNPJ:${CNPJ_C_RAW}]], a quantia de [[VALOR:R$ 2.750,00]] ([[VALOR:dois mil setecentos e cinquenta reais]]), referente ao aluguel do mês de julho.
+
+Pagamento via PIX para a chave [[EMAIL:locador.silva@exemplo.com.br]].
+
+[[PESSOA:Osvaldo Silva Neto]]
+CPF [[CPF:${CPF_E_RAW}]]
+Telefone: [[TELEFONE:(62) 3344-5566]]
+
+Goiânia, [[DATA:05/07/2026]].

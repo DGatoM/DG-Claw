@@ -1,0 +1,16 @@
+#formato: pdf
+LAUDO MÉDICO
+
+Paciente: [[PESSOA:Sandra Regina Cavalcanti]]
+Data de nascimento: [[DATA:14/08/1978]]
+CPF: [[CPF:${CPF_A_RAW}]]
+Convênio: carteira nº [[!:0034 5567 8890 1122]]
+
+A paciente, residente na [[ENDERECO:Rua das Hortênsias, 310, Gramado/RS]], compareceu ao consultório em [[DATA:22/07/2026]] com queixa de dor lombar.
+
+Diagnóstico: lombalgia aguda, [[!:CID M54.5]]. Foi prescrito [[!:ibuprofeno]] 600 mg e fisioterapia. O [[!:Dr.]] orientou retorno em 15 dias.
+
+O paciente deve manter contato pelo telefone [[TELEFONE:(54) 99911-2233]] ou pelo e-mail [[EMAIL:sandra.cavalcanti@exemplo.com.br]].
+
+Médico responsável: Dr. [[PESSOA:Eduardo Martins Campos]], CRM [[!:12345/RS]].
+Gramado, [[DATA:22/07/2026]].

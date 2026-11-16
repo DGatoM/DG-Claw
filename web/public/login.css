@@ -1,32 +1,45 @@
-/* login.css: a tela de entrada do DG Claw (celular primeiro, mesma paleta da conversa). */
+/* login.css: a tela de entrada (também usada por primeiro-acesso e trocar-senha). Visual Névoa: fundo claro com grade
+   de pontos, painel branco de 400px com borda de 1px. Todos os valores vêm de ds/tokens.css. */
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-:root{--accent:#2f9e5e;--txt:#0f1c14;--muted:#6c8172;--line:rgba(0,0,0,.12)}
-html,body{height:100%}
-body{margin:0;color:var(--txt);display:flex;align-items:center;justify-content:center;
-  padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right))
-          max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));
-  font:15.5px/1.46 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
-  background:
-    radial-gradient(ellipse at 15% 0%,rgba(255,255,255,.55),transparent 55%),
-    radial-gradient(ellipse at 90% 100%,rgba(139,196,146,.40),transparent 55%),
-    linear-gradient(165deg,#e6f2df 0%,#d8ead1 45%,#cde3c6 100%);
-  background-attachment:fixed}
-.cartao{width:100%;max-width:380px;background:#fff;border-radius:18px;padding:26px 22px 24px;
-  box-shadow:0 4px 22px rgba(0,0,0,.16)}
-.marca{display:flex;align-items:center;gap:10px}
-.marca .emoji{font-size:34px;line-height:1}
-.marca h1{margin:0;font-size:24px;font-weight:700}
-.sub{margin:6px 0 16px;color:var(--muted);font-size:14.5px}
-.erro{margin:0 0 14px;padding:10px 12px;border-radius:10px;background:#fbe0e0;color:#8f2f2f;
-  border:1px solid #f0bcbc;font-size:14px;line-height:1.4}
+:root{--accent:var(--cor-acento);--txt:var(--cor-texto);--muted:var(--cor-texto-2);--line:var(--cor-borda)}
+html,body{min-height:100%}
+body{margin:0;color:var(--cor-texto);display:flex;align-items:center;justify-content:center;min-height:100vh;min-height:100dvh;
+  padding:max(var(--esp-4),env(safe-area-inset-top)) max(var(--esp-4),env(safe-area-inset-right))
+          max(var(--esp-4),env(safe-area-inset-bottom)) max(var(--esp-4),env(safe-area-inset-left));
+  font:var(--texto-g)/1.46 var(--fonte-base);
+  background-color:var(--login-fundo);
+  background-image:radial-gradient(circle,var(--login-pontos) 1px,transparent 1.4px);
+  background-size:22px 22px}
+.cartao{width:100%;max-width:400px;background:var(--cartao-fundo);border:1px solid var(--cartao-borda);
+  border-radius:var(--raio-2);padding:var(--esp-5) var(--esp-5) var(--esp-4)}
+.marca{display:flex;align-items:center;gap:var(--esp-3);margin:0 0 var(--esp-4)}
+.marca-logo{width:56px;height:56px;object-fit:contain;display:block;flex:0 0 56px}
+.marca-nome{font-size:var(--texto-h1);font-weight:600;letter-spacing:-.01em}
+html[data-logo-nome="sim"] .marca-nome{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+h1{margin:0 0 var(--esp-4);font-size:var(--texto-h1);line-height:1.25;font-weight:600;letter-spacing:-.015em}
+.sub{margin:0 0 var(--esp-4);color:var(--cor-texto-2);font-size:var(--texto-m)}
+.slogan{margin:var(--esp-4) 0 0;text-align:center;color:var(--cor-texto-2);font-size:var(--texto-p)}
+.slogan:empty{display:none}
+.erro{margin:0 0 var(--esp-3);padding:var(--esp-2) var(--esp-3);border-radius:var(--raio-1);background:var(--cor-perigo-fundo);
+  color:var(--cor-perigo);border:1px solid var(--cor-perigo-borda);font-size:var(--texto-m);line-height:1.4}
+.erro.info{background:var(--cor-info-fundo);color:var(--cor-texto);border-color:var(--cor-info-borda)}
 .erro[hidden]{display:none}
-label{display:block;margin:12px 0 5px;font-size:13px;font-weight:600;color:#38523f}
-input[type=text],input[type=password]{width:100%;min-height:46px;padding:11px 14px;border:1px solid var(--line);
-  border-radius:12px;font:inherit;font-size:16px;background:#f4f8f4;color:var(--txt);outline:none}
-input:focus{border-color:var(--accent);background:#fff}
-button{width:100%;margin-top:20px;min-height:48px;border:0;border-radius:24px;background:var(--accent);
-  color:#fff;font:inherit;font-size:16px;font-weight:700;cursor:pointer}
+label{display:block;margin:var(--esp-3) 0 var(--esp-1);font-size:var(--texto-p);font-weight:600;color:var(--cor-texto)}
+input[type=text],input[type=password]{width:100%;min-height:44px;padding:0 var(--esp-3);border:1px solid var(--campo-borda);
+  border-radius:var(--raio-1);font:inherit;font-size:16px;background:var(--campo-fundo);color:var(--campo-texto)}
+input:focus{outline:none;border-color:var(--campo-borda-foco);box-shadow:0 0 0 2px var(--cor-foco)}
+.campo-senha{position:relative}
+.campo-senha input{padding-right:48px}
+.cartao .ver-senha{position:absolute;right:2px;top:50%;transform:translateY(-50%);width:40px;height:40px;min-height:0;margin:0;
+  padding:0;border:0;border-radius:var(--raio-1);background:transparent;color:var(--cor-texto-2);
+  display:flex;align-items:center;justify-content:center}
+.cartao .ver-senha[aria-pressed="true"]{color:var(--cor-texto)}
+button{width:100%;margin-top:var(--esp-4);min-height:44px;border:1px solid var(--botao-borda);border-radius:var(--raio-1);
+  background:var(--botao-fundo);color:var(--botao-texto);font:inherit;font-size:16px;font-weight:600;cursor:pointer;
+  display:inline-flex;align-items:center;justify-content:center;gap:var(--esp-2)}
 button:active{opacity:.85}
+button:disabled{opacity:.7;cursor:default}
+button:focus-visible{outline:2px solid var(--cor-foco);outline-offset:2px}
 
 /* No iPhone, campo com fonte abaixo de 16px dá zoom quando recebe o foco. Regra: nada dá zoom no app instalado. */
 @media (pointer:coarse){input,textarea,select{font-size:16px!important}}

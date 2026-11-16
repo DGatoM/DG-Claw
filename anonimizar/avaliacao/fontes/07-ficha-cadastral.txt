@@ -1,0 +1,15 @@
+#formato: txt
+FICHA CADASTRAL DE CLIENTE
+
+Nome completo: [[PESSOA:Thiago Augusto Barreto Monteiro]]
+Apelido: [[PESSOA:"Tato"]]
+Nome da mãe: [[PESSOA:Odete Barreto Monteiro]]
+Nascimento: [[DATA:09/11/1990]]
+CPF: [[CPF:${CPF_B}]]    RG: [[RG:45.678.901-2]]
+Endereço: [[ENDERECO:Travessa dos Ipês, 15, casa 2, Vila Nova, Campinas/SP]]  CEP [[CEP:13015100]]
+Celular: [[TELEFONE:19 99877-0011]]    Fixo: [[TELEFONE:3233-4455]]
+E-mail: [[EMAIL:tato.monteiro@exemplo.com.br]]
+Profissão: analista. Empresa: [[EMPRESA:Brasil Dados Consultoria EIRELI]]
+Renda mensal: [[VALOR:R$ 7.800]]
+Banco: agência [[AGENCIA:3456-7]], conta corrente [[CONTA:65432-1]]
+Cadastro realizado em [[DATA:01/02/2026]] pelo atendente [[PESSOA:Wagner]].

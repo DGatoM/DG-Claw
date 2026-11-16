@@ -34,9 +34,9 @@ import { codexHomeDe } from "./provedores/codex.js";
 import { type CamposDeEscolha, type Escolha, type EscolhaEfetiva, type SaidaDaEscolha, gravarProvedorJson, resolverEscolha } from "./provedores/escolha.js";
 import type { CtxMotor, Motor, Recusa } from "./provedores/motor.js";
 import { motorDe } from "./provedores/motores.js";
-import { parar, pararEEsperar, subir, suspender, trocarPorSessaoLimpa } from "./sessao/ciclo.js";
+import { parar, pararEEsperar, reviver, subir, suspender, trocarPorSessaoLimpa } from "./sessao/ciclo.js";
 import { ctxLeve, montarAmbienteBase } from "./sessao/configuracao.js";
-import { PAUSA_TECLA_PERGUNTA_MS, QUIETO_PARA_OLHAR_TRANSCRIPT_MS, VIGIA_LOGIN_EXPIRADO_MS } from "./sessao/constantes.js";
+import { PAUSA_TECLA_PERGUNTA_MS, QUIETO_PARA_OLHAR_TRANSCRIPT_MS, RECIBO_VIGIA_PASSOS_MS, VIGIA_LOGIN_EXPIRADO_MS } from "./sessao/constantes.js";
 import { digitarEEnviar, vencerTelaDeConfianca } from "./sessao/digitacao.js";
 import { MedidorDeUso } from "./uso.js";
 import { type PayloadDeHook, receberHook } from "./sessao/eventos.js";
@@ -74,6 +74,8 @@ export interface OpcoesDaSessao {
   reintentoTelaBloqueadaMs?: number;
   /** Pausa entre as teclas da resposta de uma pergunta de escolha (ver responderPergunta). Testes usam valor curto. */
   pausaTeclaPerguntaMs?: number;
+  /** Intervalos da vigia que insiste no Enter quando as tentativas normais não geraram recibo. Testes usam valores curtos. */
+  reciboVigiaPassosMs?: number[];
   /** Comandos extras do evento UserPromptSubmit, depois do hook do runner. */
   promptHooks?: string[];
   ociosoMinutos?: number;
@@ -102,6 +104,8 @@ export class Sessao extends EventEmitter {
    *  barra como `/compact`, que não dispara UserPromptSubmit; ver esperarRecibo(). */
   compactsIniciados = 0;
   stopPendente: NodeJS.Timeout | null = null;
+  /** Até quando um Stop deve ser ignorado porque a trava de resposta devolveu o turno (evento StopBloqueado). */
+  stopBloqueadoAte = 0;
   /** A máscara de segredo do spawn atual e o relógio que a descarrega no silêncio. */
   mascaraAtual: MascaraDeFluxo | null = null;
   descargaDaMascara: NodeJS.Timeout | null = null;
@@ -162,6 +166,9 @@ export class Sessao extends EventEmitter {
   reintentoDaFila: NodeJS.Timeout | null = null;
   bloqueioDaFilaLogado = false;
   readonly reintentoTelaBloqueadaMs: number;
+  /** Vigia do Enter sem recibo (ver vigiarReciboAtrasado): um timer por vez e os intervalos dela. */
+  vigiaDoRecibo: NodeJS.Timeout | null = null;
+  readonly reciboVigiaPassosMs: number[];
   ultimaAtividade = Date.now();
   /** Quando o spawn atual foi uma RETOMADA, e quando ele começou. É o que
    *  permite separar "a sessão não abre" de "o agente trabalhou e saiu". */
@@ -169,6 +176,18 @@ export class Sessao extends EventEmitter {
   /** Sessões cuja retomada já falhou. Sem esta marca, um transcript ilegível
    *  daria um laço: retoma, morre, retoma de novo, para sempre. */
   retomadasQueFalharam = new Set<string>();
+  /** Faxinas de grupo em curso (uma por PTY que saiu); subir() espera todas terminarem. */
+  readonly varreduras = new Set<Promise<void>>();
+  /** Fila de subir(): uma subida por vez, para dois pedidos juntos não criarem dois claude. */
+  filaDeSubida: Promise<unknown> = Promise.resolve();
+  /** O revive em andamento; subir() de fora espera por ele e um segundo revive divide a mesma operação. */
+  reviveEmCurso: Promise<void> | null = null;
+  /** Sobe a cada parar() e a cada reviver(). Todo subir() guarda o valor na entrada e desiste se ele mudou enquanto esperava. */
+  geracao = 0;
+  /** Do instante em que parar() larga o PTY até o onExit dele chegar e o grupo ser varrido (ou o prazo vencer). */
+  saidaPendente: Promise<void> | null = null;
+  /** Líder do grupo de um PTY antigo que continuou com processos vivos depois dos sinais. subir() recusa enquanto existir. */
+  grupoQueSobrou: number | null = null;
 
   /** O motor e a escolha do último spawn (ou a resolvida no construtor, antes do primeiro). */
   motor: Motor;
@@ -206,6 +225,7 @@ export class Sessao extends EventEmitter {
     this.quietoParaOlharTranscriptMs = opcoes.quietoParaOlharTranscriptMs ?? QUIETO_PARA_OLHAR_TRANSCRIPT_MS;
     this.vigiaLoginExpiradoMs = opcoes.vigiaLoginExpiradoMs ?? VIGIA_LOGIN_EXPIRADO_MS;
     this.reintentoTelaBloqueadaMs = opcoes.reintentoTelaBloqueadaMs ?? 5_000;
+    this.reciboVigiaPassosMs = opcoes.reciboVigiaPassosMs ?? RECIBO_VIGIA_PASSOS_MS;
     this.pausaTeclaPerguntaMs = opcoes.pausaTeclaPerguntaMs ?? PAUSA_TECLA_PERGUNTA_MS;
     this.arquivoDeEstado = opcoes.arquivoDeEstado ?? STATE_FILE;
     this.pastaDeEstado = opcoes.pastaDeEstado ?? PASTA_DE_ESTADO;
@@ -398,7 +418,9 @@ export class Sessao extends EventEmitter {
       return {
         tipo: "login-expirado",
         mensagem: this.estado.error ?? `O login da conta de ${this.slug} expirou.`,
-        comoResolver: "reconectar a conta do agente pela conversa (cartão de login) ou digitando /login no terminal dele",
+        comoResolver: this.motor.provedor === "codex"
+          ? "reconectar a conta do agente pela conversa (cartão de login) ou rodando `codex login --device-auth` no terminal dele"
+          : "reconectar a conta do agente pela conversa (cartão de login) ou digitando /login no terminal dele",
       };
     }
     return this.recusaDoMotor();
@@ -615,6 +637,11 @@ export class Sessao extends EventEmitter {
   /** Sobe o PTY (ver sessao/ciclo.ts). */
   subir(modo: "retomar" | "nova"): Promise<"retomar" | "nova"> {
     return subir(this, modo);
+  }
+
+  /** Sessão nova guardando a anterior, numa operação só (ver sessao/ciclo.ts). */
+  reviver(): Promise<void> {
+    return reviver(this);
   }
 
   /** Encerra o PTY sem matar o serviço (ver sessao/ciclo.ts). */

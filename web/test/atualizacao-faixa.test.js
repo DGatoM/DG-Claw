@@ -1,5 +1,7 @@
 'use strict';
 // Faixa de nova versão: funções puras (fora do DOM), escape do texto vindo do GitHub e ligação nas telas.
+require('./_ds-stub');
+/* global dsIcone -- definido em global pelo _ds-stub */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -47,7 +49,7 @@ test('texto vindo do GitHub sai escapado: <img onerror> nunca vira tag', () => {
   }));
   assert.doesNotMatch(h, /<img/i);
   assert.doesNotMatch(h, /<script/i);
-  assert.doesNotMatch(h, /<svg/i);
+  assert.doesNotMatch(h.replace(dsIcone('sparkle'), ''), /<svg/i); // só o ícone do próprio faixa é permitido
   assert.ok(h.includes('&lt;img src=x onerror=alert(1)&gt;'));
   assert.ok(h.includes('&quot;&gt;&lt;script&gt;alert(2)&lt;/script&gt;'));
   assert.ok(h.includes('&lt;/b&gt;&lt;svg onload=alert(3)&gt;'));
@@ -63,7 +65,7 @@ test('o botão Instalar leva ao Admin com o pedido já escrito, sem enviar nada'
   assert.equal(F.CAMINHO_ADMIN, '/a/admin');
   assert.equal(F.TEXTO_INSTALAR, 'Quero instalar a atualização do DG Claw');
   const src = pub('atualizacao-faixa.js');
-  assert.match(src, /'\?texto=' \+ encodeURIComponent\(TEXTO_INSTALAR\)/, 'usa o ?texto= que a conversa já sabe preencher');
+  assert.match(src, /'\?texto=' \+ encodeURIComponent\(texto\)/, 'usa o ?texto= que a conversa já sabe preencher');
   assert.doesNotMatch(src.slice(src.indexOf('function instalar')), /\/messages|\/api\/v1\/agents/, 'o botão não manda mensagem sozinho');
   assert.match(pub('conversa.js'), /searchParams\.get\('texto'\)/, 'a conversa preenche o campo e não envia');
 });

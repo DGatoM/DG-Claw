@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# `nft list table inet netavark` sai 0 so se DGCLAW_STUB_NFT_NETAVARK=1 e a tabela ainda nao foi apagada.
+. "$(dirname "$0")/_comum.sh"
+registrar "$@"
+e="$(estado_dir)"
+case "$*" in
+    "list table inet netavark") [ "${DGCLAW_STUB_NFT_NETAVARK:-0}" = 1 ] && [ ! -f "$e/nft-apagada" ] ;;
+    "delete table inet netavark") touch "$e/nft-apagada" ;;
+esac

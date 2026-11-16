@@ -338,3 +338,102 @@ test('rollout: WhatsApp, entrada, tools de envio, sem duplicata e falha de entre
     ['plataforma', 'agente', 'Resposta no painel'],
   ]);
 });
+
+// ── Admin no Codex: o rollout fica em <root>/.codex, fora da casa (/opt/dgclaw/admin) ──
+
+function cenarioAdmin(extra) {
+  const raiz = pastaTemp('adm');
+  const home = path.join(raiz, 'opt', 'dgclaw', 'admin');
+  const codexHome = path.join(raiz, 'root', '.codex');
+  const dir = path.join(codexHome, 'sessions', '2026', '10', '12');
+  fs.mkdirSync(home, { recursive: true });
+  fs.mkdirSync(dir, { recursive: true });
+  const arq = path.join(dir, `rollout-2026-10-12T15-00-00-${SID}.jsonl`);
+  fs.copyFileSync(FIXTURE, arq);
+  const agente = Object.assign({ slug: 'admin', nome: 'Admin', tipo: 'admin', chat_id: 'c_ana', home_host: home, home_container: home, codex_home_host: codexHome }, extra);
+  return { raiz, home, codexHome, dir, arq, agente };
+}
+
+test('admin Codex: sem codex_home_host o rollout fora da casa continua recusado (o bug)', () => {
+  const c = cenarioAdmin({ codex_home_host: null });
+  const a = acharRollout(c.agente, SID, c.codexHome);
+  assert.equal(a.arquivo, null);
+  assert.match(a.erro, /fora da casa do agente/);
+  const b = acharRollout(c.agente, SID, null);
+  assert.equal(b.arquivo, null);
+});
+
+test('admin Codex: com codex_home_host lê o rollout, com e sem codexHome do runner', () => {
+  const c = cenarioAdmin();
+  const real = fs.realpathSync(c.arq);
+  const a = acharRollout(c.agente, SID, c.codexHome);
+  assert.equal(a.erro, undefined);
+  assert.equal(a.arquivo, real);
+  const b = acharRollout(c.agente, SID, null);
+  assert.equal(b.erro, undefined);
+  assert.equal(b.arquivo, real);
+  assert.ok(b.procurados.includes(path.join(c.codexHome, 'sessions')));
+  // e o leitor traduz o arquivo de verdade
+  const cap = capturaLog();
+  const leitor = criarLeitorRollout({ log: cap.log, tz: 'America/Sao_Paulo', midia: criarMidia({ dataDir: pastaTemp('dados'), log: cap.log, registro: { obter: () => c.agente } }) });
+  assert.equal(leitor.ler(b.arquivo, c.agente).eventos.length, 9);
+});
+
+test('admin instalado no Claude e trocado para o Codex pelo painel: o registro diz provedor claude e o rollout é lido', () => {
+  const c = cenarioAdmin({ provedor: 'claude', transcripts_dir: '/root/.claude/projects/-opt-dgclaw-admin' });
+  const a = acharRollout(c.agente, SID, c.codexHome);
+  assert.equal(a.erro, undefined);
+  assert.equal(a.arquivo, fs.realpathSync(c.arq));
+});
+
+test('admin Codex: agente comum com codex_home_host continua recusado; relativo é ignorado', () => {
+  const c = cenarioAdmin({ tipo: 'agente', slug: 'ana' });
+  assert.equal(acharRollout(c.agente, SID, c.codexHome).arquivo, null);
+  assert.equal(acharRollout(c.agente, SID, null).arquivo, null);
+  const r = cenarioAdmin({ codex_home_host: 'root/.codex' });
+  assert.equal(acharRollout(r.agente, SID, null).arquivo, null);
+  assert.equal(acharRollout(r.agente, SID, r.codexHome).arquivo, null);
+});
+
+test('admin Codex: atalho dentro de <codex_home_host>/sessions apontando para fora é recusado', () => {
+  const c = cenarioAdmin();
+  fs.rmSync(path.join(c.codexHome, 'sessions'), { recursive: true });
+  const fora = path.join(c.raiz, 'fora', 'sessions', '2026', '10', '12');
+  fs.mkdirSync(fora, { recursive: true });
+  fs.writeFileSync(path.join(fora, `rollout-2026-10-12T15-00-00-${SID}.jsonl`), 'x\n');
+  fs.symlinkSync(path.join(c.raiz, 'fora', 'sessions'), path.join(c.codexHome, 'sessions'));
+  for (const ch of [c.codexHome, null]) {
+    const r = acharRollout(c.agente, SID, ch);
+    assert.equal(r.arquivo, null);
+    assert.match(r.erro, /cai fora/);
+  }
+});
+
+test('rota messages: Admin em Codex com o rollout em <codex_home_host>', async () => {
+  const c = cenarioAdmin();
+  for (const codexHome of [c.codexHome, undefined]) {
+    const runner = criarRunnerFalso({ agenteId: 'admin', sessionId: SID, provedor: { sessao: 's', provedor: 'codex', auth: 'api', rotulo: 'Codex, na API' }, codexHome });
+    const porta = await runner.ouvir();
+    const agentes = [Object.assign({}, c.agente, { runner: `http://127.0.0.1:${porta}`, agente_id: 'admin', provedor: 'codex', modelo: 'gpt', transcripts_dir: path.join(pastaTemp('vazio'), 'projects') })];
+    const t = await subirWeb({ agentes });
+    try {
+      await t.login();
+      const r = await t.c.get('/api/v1/agents/admin/messages');
+      assert.equal(r.status, 200);
+      assert.deepEqual(r.json.avisos, []);
+      assert.equal(r.json.msgs.length, 9);
+      assert.equal(r.json.msgs[0].text, 'Oi, tudo bem?');
+    } finally { await t.fechar(); await runner.fechar(); }
+  }
+});
+
+test('registro: codex_home_host só vale no Admin e com caminho absoluto', () => {
+  const { normaliza } = require('../lib/registro');
+  const base = { runner: 'http://127.0.0.1:4300', agente_id: 'x' };
+  const avisos = [];
+  const av = (m) => avisos.push(m);
+  assert.equal(normaliza({ ...base, slug: 'admin', codex_home_host: '/root/.codex' }, 0, av).agente.codex_home_host, '/root/.codex');
+  assert.equal(normaliza({ ...base, slug: 'ana', codex_home_host: '/root/.codex' }, 0, av).agente.codex_home_host, null);
+  assert.equal(normaliza({ ...base, slug: 'admin', codex_home_host: 'root/.codex' }, 0, av).agente.codex_home_host, null);
+  assert.equal(avisos.length, 2);
+});

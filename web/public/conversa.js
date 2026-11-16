@@ -21,7 +21,7 @@ const $ = id => document.getElementById(id);
 /* Regras puras da conversa (conversa-puro.js). Se o arquivo não carregar, a tela segue de pé com
    versões mínimas que não separam nada: o render não pode quebrar por causa de um arquivo auxiliar. */
 const PURO = window.DGConversaPuro || (() => {
-  console.warn('conversa-puro.js não carregou (a página não encontrou /conversa-puro.js). A conversa abre, mas o áudio transcrito aparece sem o 🎤, os avisos fechados não descansam e o Reiniciar não confirma a volta do agente. Recarregue a página; se persistir, confira se o arquivo existe em web/public.');
+  console.warn('conversa-puro.js não carregou (a página não encontrou /conversa-puro.js). A conversa abre, mas o áudio transcrito aparece sem o ícone de microfone, os avisos fechados não descansam e o Reiniciar não confirma a volta do agente. Recarregue a página; se persistir, confira se o arquivo existe em web/public.');
   return {
     avisoDescansando: () => false,
     registraFechamento: mapa => mapa || {},
@@ -59,8 +59,28 @@ function mostraErroTela(titulo, texto, agentes) {
   if (barra) barra.hidden = true;
 }
 
+/* O histórico inicial sai junto com a lista de agentes (o slug já está na URL), em vez de esperar
+   por ela. carregar(true) consome a promessa; se ela falhou ou o agente não existe, carregar() pede de
+   novo pelo caminho normal, que mostra o erro de sempre (e leva ao login num 401). */
+let historicoAntecipado = null;
+const PAGINA_INICIAL = 60;   // o mesmo PAGINA de iniciaTela
+
+function antecipaHistorico(slug) {
+  historicoAntecipado = fetch('/api/v1/agents/' + encodeURIComponent(slug) + '/messages?limit=' + PAGINA_INICIAL, { cache: 'no-store' })
+    .then(async r => {
+      let corpo = null;
+      try { corpo = await r.json(); } catch (e) { corpo = null; }
+      if (!r.ok || !corpo || corpo.ok === false) throw new Error('a API respondeu ' + r.status);
+      return corpo;
+    });
+  // quem consome trata a falha; aqui só evita "unhandled rejection" se ninguém chegar a consumir
+  historicoAntecipado.catch(() => {});
+}
+
 async function boot() {
   let d = null;
+  const slugCedo = slugDaUrl();
+  if (slugCedo) antecipaHistorico(slugCedo);
   try {
     const r = await fetch('/api/v1/agents', { cache: 'no-store' });
     if (r.status === 401) {
@@ -194,6 +214,9 @@ const btnFim = $('btnFim'), fimNovas = $('fimNovas');
 const API = '/api/v1/agents/' + encodeURIComponent(AGENTE.id);
 const AQUI = location.pathname + location.search;
 const EH_ADMIN = AGENTE.tipo === 'admin';
+/* Colaborador: só este agente. Tira da tela o que é do dono (o servidor também barra; aqui é para não sobrar botão que não leva a lugar nenhum). */
+const COLAB = !!(window.DGPapel && window.DGPapel.colaborador);
+if (COLAB) for (const id of ['btnMesa', 'btnLembretes', 'btnNaoLida', 'trocaBaixo']) { const e = $(id); if (e) e.remove(); }
 /* A Mesa e os Lembretes levam o agente junto (?a=), para o menu deles ser o deste agente. */
 (function () {
   // localStorage para a casca das outras telas; o cookie é o que o servidor lê na rota "/" (abre o último agente usado)
@@ -204,8 +227,28 @@ const EH_ADMIN = AGENTE.tipo === 'admin';
   });
 })();
 if (window.campoCofre) window.campoCofre.configurar({ agente: AGENTE.id, nome: AGENTE.nome });
+
+/* Anonimizar documentos (docs/ANONIMIZAR.md). Com a opção ligada para este agente: o selo no cabeçalho leva à tela,
+   o anexo que o agente manda ganha "Baixar versão final" e a resposta com marcadores ganha "Ver com dados reais".
+   anonVistos guarda, por mensagem, o texto já revertido: só existe na memória desta aba. */
+let anonLigado = false;
+const anonVistos = new Map();
+const API_ANON = '/api/v1/anonimizar/' + encodeURIComponent(AGENTE.id);
+(function () {
+  const selo = $('btnAnon');
+  if (selo) selo.href = window.DGMenuLado.comAgente('/anonimizar', AGENTE.id);
+  fetch(API_ANON + '/config', { credentials: 'same-origin', cache: 'no-store' })
+    .then(r => r.json().catch(() => null).then(d => ({ r, d })))
+    .then(({ r, d }) => {
+      if (!r.ok || !d || !d.config) { console.warn('anonimizar: não consegui ler a configuração (' + ((d && d.erro) || r.status) + '); os botões de dados reais ficam escondidos.'); return; }
+      anonLigado = !!d.config.ligado;
+      if (selo) selo.hidden = !anonLigado;
+      if (anonLigado) render({ semRolar: true });
+    })
+    .catch(e => console.warn('anonimizar: não consegui ler a configuração (' + e.message + ').'));
+})();
 if (window.DGOnboarding) window.DGOnboarding.iniciar({ agente: AGENTE, enviar: texto => new Promise((resolve, reject) => { enviarTexto(texto, null, { aoEntregar: (ok, motivo) => ok ? resolve() : reject(new Error(motivo || 'O Admin não recebeu a mensagem.')) }); }), refazer: () => render({ semRolar: true }) });
-if (window.DGBarra) window.DGBarra.liga(entrada, { url: API + '/comandos' });   // lista de comandos ao digitar /
+if (window.DGBarra && !COLAB) window.DGBarra.liga(entrada, { url: API + '/comandos' });   // lista de comandos ao digitar /
 let novasAbaixo = 0, setaVisivel = false;   // a seta pro fim e o contador dela
 /* mp3 de 0,08s em silêncio: é o que destrava o áudio no iOS dentro do gesto. */
 const SILENCIO = 'data:audio/mpeg;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjYwLjE2LjEwMAAAAAAAAAAAAAAA//NwwAAAAAAAAAAAAEluZm8AAAAPAAAABgAAAVMAnZ2dnZ2dnZ2dnZ2dnZ2dnbGxsbGxsbGxsbGxsbGxsbGxxcXFxcXFxcXFxcXFxcXFxdjY2NjY2NjY2NjY2NjY2NjY7Ozs7Ozs7Ozs7Ozs7Ozs7Oz/////////////////////AAAAAExhdmM2MC4zMQAAAAAAAAAAAAAAACQEUQAAAAAAAAFTx3TIuwAAAAAAAAAAAAAAAAD/8xDEAAAAA0gAAAAATEFNRTMuMTAwVVVVVf/zEsQNAAADSAAAAABVVVVVVVVVVVVVVVVVVf/zEMQbAAADSAAAAABVVVVVVVVVVVVVVVVV//MQxCgAAANIAAAAAFVVVVVVVVVVVVVVVVX/8xDENQAAA0gAAAAAVVVVVVVVVVVVVVVVVf/zEMRCAAADSAAAAABVVVVVVVVVVVVVVVVV';
@@ -240,7 +283,7 @@ function pintaAvatar(el, a) {
   el.style.background = a.cor || '#2f9e5e';
 }
 document.documentElement.style.setProperty('--accent', AGENTE.cor || '#2f9e5e');
-document.title = AGENTE.nome + ' - DG Claw';
+document.title = AGENTE.nome + ' - ' + dsMarca.nome;
 $('nomeAgente').textContent = AGENTE.nome;
 pintaAvatar(avEl, AGENTE);
 entrada.placeholder = 'Escrever para ' + AGENTE.nome;
@@ -643,7 +686,14 @@ async function lcCopia(texto) {
 }
 
 /* Abre o cartão. `manual`: veio do /login (fica mesmo com a conta conectada). */
+let lcAvisouColab = false;
 function lcAbre(manual, semConferir) {
+  // Colaborador conecta a conta pela página Conectar conta (que confere no servidor se o agente está sem conta).
+  // Aqui só avisa, uma vez, em vez de abrir o cartão do dono.
+  if (window.DGPapel && window.DGPapel.colaborador) {
+    if (!lcAvisouColab) { lcAvisouColab = true; mostraAviso('O agente ainda não tem uma conta de IA conectada. Você pode conectar a sua em Conectar conta, no menu. Se o login expirou e a conta não é sua, avise o dono do ' + dsMarca.nome + '.'); }
+    return;
+  }
   if (lc.aberto) { if (manual) { lc.manual = true; lc.dispensado = false; } lcDesenha(); return; }
   Object.assign(lc, { aberto: true, manual: !!manual, iniciado: false, erro: '', codigo: '', carregando: !semConferir,
                       dados: { estado: 'nenhum', provedor: AGENTE.provedor, precisa_login: !manual } });
@@ -721,10 +771,17 @@ function leDesenha() {
   sec.hidden = !(f === 'aviso' || f === 'nao_voltou');
   nao.hidden = f === 'pronto';
   nao.textContent = f === 'aviso' || f === 'cartao' ? t.agoraNao : 'Fechar';
+  $('leConectar').hidden = f === 'pronto';
 }
 
+/* O modal "Faça o login nos seus agentes" (modal-login.js) substitui este pop-up: se ele está aberto, ou se já
+   abriu nesta carga da página, o pop-up não abre (nada de dois avisos sobre a mesma coisa). */
+function leModalLoginAtivo() {
+  const m = window.DGModalLogin;
+  return !!m && (m.aberto() || m.abriuNestaCarga());
+}
 function leAbre() {
-  if (!LE || !leDlg || le.aberto) return;
+  if (!LE || !leDlg || le.aberto || leModalLoginAtivo()) return;
   le.est = leEstAtual();
   Object.assign(le, { aberto: true, fase: 'aviso', erro: '', concluiu: false });
   leDesenha();
@@ -835,8 +892,12 @@ function leAbreAoRecusar() {
   const est = leEstAtual();
   if (le.aberto) return;
   if (est && LE.expirado(est)) { lc.expirado = true; }
+  if (leModalLoginAtivo()) { mostraErro('O login da conta expirou. Reconecte pelo cartão de login no fim da conversa ou pela página Conectar conta, no menu.'); return; }
   leAbre();
 }
+
+// o modal de login abriu depois do pop-up: ele toma o lugar do pop-up, que fecha sem dispensar nada
+document.addEventListener('dgmodallogin:abriu', () => leFecha(false));
 
 if (leDlg && LE) {
   $('lePrimario').onclick = () => { leReconectar(); };
@@ -1167,7 +1228,7 @@ function respiroDasFaixas() {
 const mostraErro = t => faixa(fErro, t);
 fErro.querySelector('.x').onclick = () => faixa(fErro, '');
 
-/* Aviso amarelo fechado no ✕ descansa 48 h (a cota de voz voltava toda hora). Passou o prazo
+/* Aviso amarelo fechado no X descansa 48 h (a cota de voz voltava toda hora). Passou o prazo
    e o problema continua, ele volta. Sem localStorage, o aviso só deixa de ser silenciado.
    Não confundir com fechaAviso, que é outra coisa. */
 const CHAVE_DESCANSO = 'dgclaw:avisos-fechados';
@@ -1192,7 +1253,7 @@ fAviso.querySelector('.x').onclick = fechaFaixaAviso;
 /* Avisos que vêm da thread (ex.: "Nenhum transcript...") valem enquanto o
    servidor manda. Lista vazia limpa a faixa, mas só se o que está nela é o aviso
    da thread: aviso de TTS ou de cota fica. O mesmo aviso repetido não reabre a
-   faixa que foi fechada no ✕. */
+   faixa que foi fechada no X. */
 function trataAvisosThread(avisos) {
   if (!Array.isArray(avisos)) return;
   if (avisos.length) {
@@ -1281,9 +1342,23 @@ function paragrafos(txt, fmt) {
   return html;
 }
 
-const ROTULO_MIDIA = { photo: '📷 foto', video: '🎬 vídeo',
-                       document: '📄 arquivo', voice: '🎤 áudio',
-                       audio: '🎤 áudio' };
+/* Texto com os dados reais: só escapado, em parágrafos. Sem linkify e sem markdown, para um dado real que pareça URL
+   (ou traga ](...)) não virar link nem imagem. */
+function textoPuroEmParagrafos(txt) {
+  return String(txt).split(/\n{2,}/).filter(p => p.trim())
+    .map(p => `<div class="p">${esc(p.trim()).replace(/\n/g, '<br>')}</div>`).join('');
+}
+
+/* Rótulo de cada tipo de mídia: o ícone (do sprite) e o texto. `rotuloHtml` sai pronto para entrar em HTML; `rotuloTxt`,
+   para atributos (alt, aria-label). Os textos antigos que o servidor guardava como legenda ("foto") ficam em
+   LEGENDAS_ANTIGAS, só para reconhecer e esconder a legenda repetida. */
+const ROTULO_MIDIA = { photo: { ico: 'camera', txt: 'foto' }, video: { ico: 'video', txt: 'vídeo' },
+                       document: { ico: 'file', txt: 'arquivo' }, voice: { ico: 'mic', txt: 'áudio' },
+                       audio: { ico: 'mic', txt: 'áudio' } };
+const rotuloDe = (kind) => ROTULO_MIDIA[kind] || ROTULO_MIDIA.document;
+const rotuloHtml = (kind) => { const r = rotuloDe(kind); return dsIcone(r.ico) + ' ' + r.txt; };
+const rotuloTxt = (kind) => rotuloDe(kind).txt;
+const LEGENDAS_ANTIGAS = ['\u{1F4F7} foto', '\u{1F3AC} vídeo', '\u{1F4C4} arquivo', '\u{1F3A4} áudio'];
 
 /* Mídia da thread por id, pro lightbox achar o que abrir sem reconsultar a API. */
 const midias = {};
@@ -1301,7 +1376,8 @@ function htmlMidia(m) {
   const md = m.media;
   if (!md) return '';
   midias[md.id] = md;
-  const rot = ROTULO_MIDIA[md.kind] || '📄 arquivo';
+  const rot = rotuloHtml(md.kind);
+  const rotT = rotuloTxt(md.kind);
   if (!md.disponivel) {
     return `<span class="midoff">${rot} (o arquivo não está mais disponível)` +
            `<br><small>${esc(md.nome || '')}</small></span>`;
@@ -1311,35 +1387,35 @@ function htmlMidia(m) {
     // data-aud: é por ele que o render reconhece o player que já está tocando e
     // reaproveita o mesmo nó, em vez de criar outro do zero a cada poll.
     return `<span class="midaudio combx"><audio controls playsinline preload="none" ` +
-           `data-aud="${esc(md.id)}" src="${esc(md.url)}"></audio>${botaoBaixaMidia(md, rot)}</span>`;
+           `data-aud="${esc(md.id)}" src="${esc(md.url)}"></audio>${botaoBaixaMidia(md, rotT)}</span>`;
   }
   if (md.kind === 'document' && !md.thumb && !/\.pdf$/i.test(md.nome || '')) {
-    return `<span class="midcx cxarq">${cartaoArquivo(md, md.id)}${botaoBaixaMidia(md, rot)}</span>`;
+    return `<span class="midcx cxarq">${cartaoArquivo(md, md.id)}${botaoBaixaMidia(md, rotT)}</span>`;
   }
   const legenda = esc(md.nome || '') + (md.bytes ? ' (' + tamanhoHumano(md.bytes) + ')' : '');
   if (md.thumb) {
-    return `<span class="midcx"><button class="mid" data-mid="${esc(md.id)}" aria-label="Abrir ${rot}">` +
-           `<img loading="lazy" alt="${rot}" src="${esc(md.thumb)}" ` +
+    return `<span class="midcx"><button class="mid" data-mid="${esc(md.id)}" aria-label="Abrir ${rotT}">` +
+           `<img loading="lazy" alt="${rotT}" src="${esc(md.thumb)}" ` +
            `onerror="semThumb(this)">` +
            `<span class="midfb">${rot} ${legenda}</span>` +
-           (md.kind === 'video' ? '<span class="play" aria-hidden="true">▶</span>' : '') +
+           (md.kind === 'video' ? `<span class="play" aria-hidden="true">${dsIcone('play')}</span>` : '') +
            `<span class="lupa">${md.kind === 'video' ? 'vídeo' : 'toque para abrir'}</span></button>` +
-           `${botaoBaixaMidia(md, rot)}</span>`;
+           `${botaoBaixaMidia(md, rotT)}</span>`;
   }
   return `<span class="midcx"><button class="mid semthumb" data-mid="${esc(md.id)}">` +
          `<img alt="" src="" hidden><span class="midfb">${rot} ${legenda}</span></button>` +
-         `${botaoBaixaMidia(md, rot)}</span>`;
+         `${botaoBaixaMidia(md, rotT)}</span>`;
 }
 
 /* Cartão de arquivo que não é mídia (zip, planilha, texto, código...): ícone pelo tipo,
    nome como texto comum (outras partes da tela leem e mascaram o texto do balão, então
    o nome não pode ficar só em atributo) e "tamanho · TIPO". */
 const ICONES_ARQ = [
-  ['🗜️', /^(zip|rar|7z|tar|gz|tgz|bz2|xz)$/],
-  ['📊', /^(xlsx|xls|csv|tsv|ods|numbers)$/],
-  ['📝', /^(docx?|odt|rtf|txt|md|pages)$/],
-  ['📽️', /^(pptx?|key|odp)$/],
-  ['🧩', /^(js|mjs|cjs|ts|tsx|jsx|py|sh|bash|json|html?|css|ya?ml|xml|sql|toml|ini|rb|go|rs|java|c|cpp|h|php|ipynb)$/],
+  ['archive', /^(zip|rar|7z|tar|gz|tgz|bz2|xz)$/],
+  ['chart', /^(xlsx|xls|csv|tsv|ods|numbers)$/],
+  ['file-text', /^(docx?|odt|rtf|txt|md|pages)$/],
+  ['presentation', /^(pptx?|key|odp)$/],
+  ['code', /^(js|mjs|cjs|ts|tsx|jsx|py|sh|bash|json|html?|css|ya?ml|xml|sql|toml|ini|rb|go|rs|java|c|cpp|h|php|ipynb)$/],
 ];
 function extDe(nome) {
   const m = /\.([A-Za-z0-9]{1,8})$/.exec(nome || '');
@@ -1347,7 +1423,7 @@ function extDe(nome) {
 }
 function cartaoArquivo(md, mid) {
   const ext = extDe(md.nome);
-  const ic = (ICONES_ARQ.find(i => i[1].test(ext)) || ['📄'])[0];
+  const ic = dsIcone((ICONES_ARQ.find(i => i[1].test(ext)) || ['file'])[0]);
   const info = [md.bytes ? tamanhoHumano(md.bytes) : '', ext ? ext.toUpperCase() : 'ARQUIVO']
     .filter(Boolean).join(' · ');
   const abre = mid ? ` data-mid="${esc(mid)}"` : '';
@@ -1358,11 +1434,11 @@ function cartaoArquivo(md, mid) {
          `<span class="cartaoarq-info">${esc(info)}</span></span></${tag}>`;
 }
 
-/* O ⬇ de todo anexo da thread: um link com `download`, FORA do botão da mídia
+/* O botão de baixar de todo anexo da thread: um link com `download`, FORA do botão da mídia
    (botão dentro de botão não vale). */
 function botaoBaixaMidia(md, rot) {
   return `<a class="midbx" href="${esc(md.url)}" download="${esc(md.nome || '')}" ` +
-         `title="Baixar ${esc(md.nome || '')}" aria-label="Baixar ${rot.replace(/^\S+\s/, '')}">⬇</a>`;
+         `title="Baixar ${esc(md.nome || '')}" aria-label="Baixar ${esc(rot)}">${dsIcone('download')}</a>`;
 }
 
 /* Miniatura que não veio (documento que não é PDF, ou geração falhou): o balão
@@ -1387,7 +1463,7 @@ function htmlAnexosLocal(lista) {
     if (a.kind === 'document' && !/\.pdf$/i.test(a.nome || '')) {
       return cartaoArquivo({ nome: a.nome, bytes: a.bytes }, null);
     }
-    return `<span class="midoff">${ROTULO_MIDIA[a.kind] || '📄 arquivo'} ` +
+    return `<span class="midoff">${rotuloHtml(a.kind)} ` +
            `${esc(a.nome || '')} (${tamanhoHumano(a.bytes)})</span>`;
   });
   return `<span class="midgrade${lista.length > 1 ? ' varios' : ''}">${itens.join('')}</span>`;
@@ -1462,7 +1538,7 @@ function transplantaAudio(velho, novo) {
   }
 }
 
-/* Três estados do balão otimista. 'enviada' fica como "✓ hh:mm" até a cópia
+/* Três estados do balão otimista. 'enviada' fica como "visto + hh:mm" até a cópia
    real aparecer (e para sempre, se ela não vier: a mensagem foi entregue).
    'falhou' não some sozinho: a pessoa decide se reenvia ou descarta. */
 function metaPendente(p) {
@@ -1470,9 +1546,9 @@ function metaPendente(p) {
     if (p.fila && TR) {
       const est = window.atividadeFoto && window.atividadeFoto.agentes ? window.atividadeFoto.agentes[AGENTE.id] : null;
       const t = TR.textoFila(p.fila, !!est && est.alerta === 'permissao');
-      if (t) return `<span class="meta fila" title="entregue ao agente, que ainda não chegou nela">✓ ${esc(p.hhmm)} · ${esc(t)}</span>`;
+      if (t) return `<span class="meta fila" title="entregue ao agente, que ainda não chegou nela">${dsIcone('check')} ${esc(p.hhmm)} · ${esc(t)}</span>`;
     }
-    return `<span class="meta" title="entregue">✓ ${esc(p.hhmm)}</span>`;
+    return `<span class="meta" title="entregue">${dsIcone('check')} ${esc(p.hhmm)}</span>`;
   }
   if (p.estado === 'falhou' && p.recusado) {   // comando recusado: reenviar daria o mesmo erro
     return `<span class="meta"><span style="color:#c0392b;font-weight:600">recusado</span> ` +
@@ -1492,10 +1568,10 @@ function metaPendente(p) {
   return '<span class="meta">enviando…</span>';
 }
 
-/* A legenda que só repete o tipo ("📷 foto" embaixo da foto) não aparece. */
+/* A legenda que só repete o tipo (a antiga "foto" com ícone, embaixo da foto) não aparece. */
 function legendaUtil(m) {
   if (!m.text) return '';
-  if (m.media && Object.values(ROTULO_MIDIA).includes(m.text)) return '';
+  if (m.media && LEGENDAS_ANTIGAS.includes(m.text)) return '';
   return m.text;
 }
 
@@ -1534,9 +1610,9 @@ function htmlCorpo(m) {
     midia = htmlMidia(m);
   } else if (m.kind && m.kind !== 'text' && ROTULO_MIDIA[m.kind]) {
     // veio marcado como mídia e o arquivo não chegou até aqui: o rótulo explica o que era
-    midia = `<span class="midia">${ROTULO_MIDIA[m.kind]} (não baixada)</span>`;
+    midia = `<span class="midia">${rotuloHtml(m.kind)} (não baixada)</span>`;
   }
-  // a marca de áudio transcrito é para o agente: na tela vira um 🎤 no rodapé do balão
+  // a marca de áudio transcrito é para o agente: na tela vira um ícone de microfone no rodapé do balão
   const citaDono = !!m.cita && ehDono({ origin: m.cita.origin });
   const cita = m.cita ? `<div class="cita"><b>${citaDono ? 'Você' :
       esc(AGENTE.nome)}</b>${esc(citaDono ? PURO.separaAudio(m.cita.texto).texto : m.cita.texto)}</div>` : '';
@@ -1551,25 +1627,39 @@ function htmlCorpo(m) {
   const dv = ehDono(m) ? separaDoVisual(leg) : null;
   if (dv) {
     leg = dv.texto;
-    doVisual = `<div class="dovisual">📊 do visual${dv.titulo ? ': ' + esc(dv.titulo) : ''}</div>`;
+    doVisual = `<div class="dovisual">${dsIcone('chart')} do visual${dv.titulo ? ': ' + esc(dv.titulo) : ''}</div>`;
   }
   const dc = !dv && ehDono(m) ? separaDoCofre(leg) : null;
   if (dc) {
     leg = dc.texto;
-    doVisual = `<div class="dovisual">🔑 do cofre</div>`;
+    doVisual = `<div class="dovisual">${dsIcone('key')} do cofre</div>`;
   }
   // [ver a criação] só vira botão em mensagem de quem não é o dono (o texto já sai escapado de paragrafos)
   let htmlLeg = leg ? paragrafos(leg, m.fmt) : '';
   if (htmlLeg && !ehDono(m) && window.DGOnboarding && window.DGOnboarding.marcadorParaBotao) htmlLeg = window.DGOnboarding.marcadorParaBotao(htmlLeg);
-  const corpo = leg ? doVisual + htmlLeg : doVisual;
+  // Anonimizar: texto revertido (só na memória desta aba) e os botões de dados reais, só para o dono e só nas mensagens do agente
+  let anonBotoes = '';
+  if (anonLigado && ehAgente(m) && !m.pendente) {
+    if (m.id && leg && /\[[A-Z]+_\d+\]/.test(leg)) {
+      const ver = anonVistos.has(String(m.id));
+      if (ver) htmlLeg = textoPuroEmParagrafos(anonVistos.get(String(m.id)));
+      anonBotoes += `<button type="button" class="anon-btn" data-anon-ver="${esc(m.id)}" aria-pressed="${ver}">` +
+        `${ver ? 'Esconder os dados reais' : 'Ver com dados reais'}</button>`;
+    }
+    if (m.media && m.media.disponivel && m.media.kind === 'document') {
+      anonBotoes += `<button type="button" class="anon-btn" data-anon-final="${esc(m.media.id)}" ` +
+        `title="Baixa o arquivo com os dados reais no lugar dos marcadores">Baixar versão final</button>`;
+    }
+  }
+  const corpo = (leg ? doVisual + htmlLeg : doVisual) + (anonBotoes ? `<div class="anon-linha">${anonBotoes}</div>` : '');
   const reac = (m.reacoes && m.reacoes.length)
     ? `<span class="reac">${m.reacoes.map(esc).join(' ')}</span>` : '';
   // fone: ouvir esta fala de novo (só aparece com o modo de ouvir ligado, pelo CSS)
   const fone = ehAgente(m) && !m.pendente && m.id && leg && !ehVisual(m.media)
-    ? `<button class="fone" type="button" data-fone="${esc(m.id)}" aria-label="Ouvir de novo" title="Ouvir de novo">🎧</button> ` : '';
+    ? `<button class="fone" type="button" data-fone="${esc(m.id)}" aria-label="Ouvir de novo" title="Ouvir de novo">${dsIcone('headphones')}</button> ` : '';
   let meta = m.pendente ? metaPendente(m.local)
     : `<span class="meta">${fone}${m.editada ? 'editada · ' : ''}${esc(m.hhmm)}</span>`;
-  if (viaAudio) meta = meta.replace(/^<span class="meta"[^>]*>/, '$&<span title="Falado e transcrito automaticamente">🎤</span> · ');
+  if (viaAudio) meta = meta.replace(/^<span class="meta"[^>]*>/, '$&<span title="Falado e transcrito automaticamente">' + dsIcone('mic') + '</span> · ');
   return htmlSelo(m) + cita + midia + corpo + reac + meta;
 }
 
@@ -1619,7 +1709,7 @@ wrap.addEventListener('toggle', ev => {
 
 /* Conversa vazia: nunca tela em branco. */
 function htmlVazio() {
-  return '<div class="vazio"><div class="vz-ico" aria-hidden="true">🦞</div>' +
+  return '<div class="vazio"><div class="vz-ico" aria-hidden="true">' + dsIcone('message') + '</div>' +
     `<b>O ${esc(AGENTE.nome)} está acordando...</b>` +
     '<small>Ele ainda não escreveu nada por aqui. Assim que responder, a conversa ' +
     'aparece nesta tela sozinha. Você já pode mandar a primeira mensagem.</small></div>';
@@ -1649,6 +1739,29 @@ function horaLocal(m) {
   if (typeof m.ep !== 'number' || !isFinite(m.ep)) return;
   const f = fmtLocal(m.ep);
   m.dia = f.dia; m.hhmm = f.hhmm;
+}
+
+/* Grudado no fundo. Ao abrir a conversa, a tela ia pro fim e logo depois os
+   visuais (iframes) terminavam de carregar e cresciam: o fim se afastava e a tela
+   ficava parada no visual, com mensagens abaixo. Enquanto a pessoa está no fim,
+   qualquer crescimento do #wrap (visual, imagem, fonte) leva a tela junto. Só sai
+   do fim quando ela mesma rola pra cima; volta a grudar ao chegar de novo no fundo. */
+let grudadoNoFim = true;
+let ultimoTopoChat = 0;
+chat.addEventListener('scroll', () => {
+  if (!chat.clientHeight) { ultimoTopoChat = chat.scrollTop; return; }   // tela escondida
+  const dist = chat.scrollHeight - chat.scrollTop - chat.clientHeight;
+  if (dist < 8) grudadoNoFim = true;
+  else if (chat.scrollTop < ultimoTopoChat - 2) grudadoNoFim = false;     // subiu: quer ler o de cima
+  ultimoTopoChat = chat.scrollTop;
+}, { passive: true });
+if (typeof ResizeObserver !== 'undefined') {
+  new ResizeObserver(() => {
+    if (!grudadoNoFim || !chat.clientHeight) return;
+    if (chat.scrollHeight - chat.scrollTop - chat.clientHeight > 1) {
+      chat.scrollTop = chat.scrollHeight; ultimoTopoChat = chat.scrollTop;
+    }
+  }).observe(wrap);
 }
 
 function render(opt) {
@@ -1789,10 +1902,10 @@ function urlVisual(md) {
 function htmlVisual(m, md) {
   const tit = tituloProvisorio(md.nome);
   return `<div class="visb"><div class="vish">` +
-    `<span class="vist">📊 <span class="visn" data-visn="${esc(md.id)}">${esc(tit)}</span></span>` +
+    `<span class="vist">${dsIcone('chart')} <span class="visn" data-visn="${esc(md.id)}">${esc(tit)}</span></span>` +
     `<button type="button" class="visfull" data-visfull="${esc(md.id)}" ` +
-    `title="Abrir em tela cheia" aria-label="Abrir o visual em tela cheia">⛶</button>` +
-    `${botaoBaixaMidia(md, ROTULO_MIDIA.document)}</div>` +
+    `title="Abrir em tela cheia" aria-label="Abrir o visual em tela cheia">${dsIcone('expand')}</button>` +
+    `${botaoBaixaMidia(md, rotuloTxt('document'))}</div>` +
     `<div class="visq" data-vis="${esc(md.id)}"><span class="visq-msg">carregando o visual…</span></div>` +
     `</div>`;
 }
@@ -1822,7 +1935,7 @@ function mostraTarjaVisual(est, texto) {
 function semPronto(est) {
   if (est.pronto || est.falhou) return;
   mostraTarjaVisual(est, 'O visual não respondeu em ' + (VIS_PRONTO_MS / 1000) +
-    ' s: o script dele travou ou o arquivo não é um visual. Use ⬇ para ver o arquivo.');
+    ' s: o script dele travou ou o arquivo não é um visual. Use o botão de baixar para ver o arquivo.');
   est.semPronto = true;
   console.warn('visual ' + est.md.id + ' (' + est.md.nome + '): sem "pronto" em ' +
                (VIS_PRONTO_MS / 1000) + ' s depois do load');
@@ -2062,7 +2175,7 @@ function abreBarra(est, lim, id, texto) {
   const nao = document.createElement('button');
   nao.type = 'button';
   nao.className = 'vispede-nao';
-  nao.textContent = '✕';
+  nao.innerHTML = dsIcone('x');
   nao.setAttribute('aria-label', 'Cancelar');
   bts.append(ok, nao);
   el.append(rot, tx, bts);
@@ -2148,7 +2261,7 @@ window.addEventListener('message', ev => {
     const desc = typeof d.descricao === 'string' ? d.descricao.trim().slice(0, 300) : '';
     if (tit) {
       est.titulo = tit;
-      if (est.cheia) { if (visTelaNome) visTelaNome.textContent = '📊 ' + tit; }
+      if (est.cheia) { if (visTelaNome) visTelaNome.innerHTML = dsIcone('chart') + ' ' + esc(tit); }
       else {
         const n = est.caixa.parentElement.querySelector('.visn');
         if (n) n.textContent = tit;
@@ -2186,7 +2299,7 @@ window.addEventListener('message', ev => {
                  (isFinite(linha) && linha > 0 ? ' (linha ' + linha + ')' : ''));
     if (doServidor) return;
     if (d.vazio === true) { est.falhou = true; mostraTarjaVisual(est, 'O visual chegou vazio: o arquivo não desenhou nada.'); return; }
-    mostraTarjaVisual(est, '⚠️ O visual teve um erro: ' + msg +
+    mostraTarjaVisual(est, 'O visual teve um erro: ' + msg +
                            (isFinite(linha) && linha > 0 ? ' (linha ' + linha + ')' : ''));
   }
 });
@@ -2213,7 +2326,7 @@ function montaTelaVisual() {
   visTelaEl.setAttribute('aria-label', 'Visual em tela cheia');
   visTelaEl.innerHTML = '<div class="vtctopo"><span class="vtcnome" id="visTelaNome"></span>' +
     '<span id="visTelaBaixa"></span>' +
-    '<button type="button" class="vtcfecha" id="visTelaFecha" aria-label="Fechar">✕</button></div>' +
+    '<button type="button" class="vtcfecha" id="visTelaFecha" aria-label="Fechar">' + dsIcone('x') + '</button></div>' +
     '<div class="vtccorpo" id="visTelaCorpo"></div>';
   document.body.appendChild(visTelaEl);
   visTelaCorpo = document.getElementById('visTelaCorpo');
@@ -2240,8 +2353,8 @@ function abreTelaVisual(md) {
   const jaAberta = visTelaAberta();
   limpaTelaVisual();
   midias[md.id] = md;
-  visTelaNome.textContent = '📊 ' + tituloProvisorio(md.nome);
-  visTelaBaixa.innerHTML = botaoBaixaMidia(md, ROTULO_MIDIA.document);
+  visTelaNome.innerHTML = dsIcone('chart') + ' ' + esc(tituloProvisorio(md.nome));
+  visTelaBaixa.innerHTML = botaoBaixaMidia(md, rotuloTxt('document'));
   const est = { md, caixa: visTelaCorpo, iframe: null, win: null, pronto: false, falhou: false,
                 noViewport: true, relogio: null, tarja: null, cheia: true };
   visTelaEst = est;
@@ -2271,7 +2384,7 @@ function fechaTelaVisual(peloHistorico) {
   }
 }
 /* Registrado antes do popstate do visor de arquivos: se o visor estiver aberto por
-   cima (ex.: ⬇ no celular), este voltar é DELE e a tela cheia continua. */
+   cima (ex.: o botão de baixar no celular), este voltar é DELE e a tela cheia continua. */
 window.addEventListener('popstate', () => {
   if (visTelaVoltaPend) { visTelaVoltaPend = false; clearTimeout(visTelaVoltaRelogio); return; }
   if (visTelaAberta() && visTelaNoHist && !visorAberto()) {
@@ -2367,7 +2480,15 @@ const menorEp = () => msgs.reduce((m, x) => Math.min(m, x.ep), Infinity);
 async function carregar(primeiraVez) {
   let ok = false;
   try {
-    const d = await api(API + '/messages?limit=' + PAGINA);
+    let d = null;
+    if (primeiraVez && historicoAntecipado) {
+      const promessa = historicoAntecipado;
+      historicoAntecipado = null;
+      try { d = await promessa; } catch (e) {
+        console.warn('histórico antecipado falhou (' + e.message + '); peço de novo pelo caminho normal');
+      }
+    }
+    if (!d) d = await api(API + '/messages?limit=' + PAGINA);
     const novas = d.msgs || [];
     if (primeiraVez || !msgs.length) {
       geracaoJanela++;
@@ -2628,7 +2749,7 @@ function ligaResync() {
 
 /* ── Visor de arquivos ────────────────────────────────────────────────────
    Foto, vídeo e áudio abrem direto do arquivo. PDF abre numa moldura (no
-   computador) e todo o resto vira um cartão com "abrir" e "baixar". O ✕ fica
+   computador) e todo o resto vira um cartão com "abrir" e "baixar". O X fica
    sempre no topo (abaixo do notch), e o "voltar" do sistema fecha o visor em
    vez de sair da conversa (pushState ao abrir, popstate fecha). */
 let lbMid = null;
@@ -2636,7 +2757,7 @@ let visorNoHistorico = false, voltaPendente = false, voltaRelogio = null;
 const visorAberto = () => lightbox.classList.contains('abre');
 const btnLbFechar = $('lbFechar');
 const lbTopo = lightbox.querySelector('.lbtopo');
-// o ✕ vai pra esquerda, onde o polegar procura o "voltar" no iPhone
+// o X vai pra esquerda, onde o polegar procura o "voltar" no iPhone
 if (lbTopo && lbTopo.firstElementChild !== btnLbFechar) lbTopo.prepend(btnLbFechar);
 btnLbFechar.setAttribute('aria-label', 'Fechar o arquivo e voltar pra conversa');
 
@@ -2663,10 +2784,10 @@ window.addEventListener('popstate', () => {
   }
 });
 
-const ICONE_DOC = { document: '📄', photo: '🖼️', video: '🎬', audio: '🎤', voice: '🎤' };
+const ICONE_DOC = { document: 'file', photo: 'image', video: 'video', audio: 'mic', voice: 'mic' };
 
 function cartaoDoc(md) {
-  const ico = ICONE_DOC[md.kind] || '📦';
+  const ico = dsIcone(ICONE_DOC[md.kind] || 'package');
   const tam = md.bytes ? tamanhoHumano(md.bytes) : '';
   return `<div class="vcard"><div class="ico" aria-hidden="true">${ico}</div>` +
     `<b>${esc(md.nome || 'arquivo')}</b>` +
@@ -2949,12 +3070,12 @@ function falhaAnexo(a, motivo) {
   if (enviarQuandoSubir) {
     enviarQuandoSubir = false;
     mostraErro('A mensagem NÃO saiu: o anexo ' + quem + ' não subiu (' + motivo +
-               '). Toque em "tentar de novo" no cartão dele, ou tire ele no ✕, ' +
+               '). Toque em "tentar de novo" no cartão dele, ou tire ele no X, ' +
                'e envie de novo.');
     setEstado('anexo não subiu', true);
   } else {
     mostraErro('O anexo ' + quem + ' não subiu (' + motivo + '). Toque em ' +
-               '"tentar de novo" no cartão dele ou tire ele no ✕.');
+               '"tentar de novo" no cartão dele ou tire ele no X.');
   }
   tocaSubidas();
 }
@@ -2965,6 +3086,13 @@ function prontoAnexo(a, d) {
   a.pct = null;
   a.id = d.anexo.id;
   a.path = d.anexo.path;
+  if (d.anonimizado) {
+    const n = d.anonimizado.contagem || 0;
+    a.anonTexto = d.anonimizado.id ? 'Anonimizado: ' + n + (n === 1 ? ' dado trocado' : ' dados trocados') : 'Enviado SEM anonimizar';
+    const tam = a.el && a.el.querySelector('.anxtam');
+    if (tam) { tam.textContent = a.anonTexto; tam.classList.add('anon'); }
+    if (Array.isArray(d.anonimizado.avisos) && d.anonimizado.avisos.length) mostraAviso(d.anonimizado.avisos.join(' '));
+  }
   atualizaCartao(a);
   pintaInfoAnexos();
   tocaSubidas();
@@ -2988,7 +3116,7 @@ function enviarComAnexos() {
     mostraErro('A mensagem não saiu: ' + (falhos.length === 1
       ? 'o anexo "' + falhos[0].nome + '" não subiu'
       : falhos.length + ' anexos não subiram (' + falhos.map(a => a.nome).join(', ') + ')') +
-      '. Toque em "tentar de novo" no cartão, ou tire no ✕, e envie de novo.');
+      '. Toque em "tentar de novo" no cartão, ou tire no X, e envie de novo.');
     return;
   }
   if (anexos.every(a => a.estado === 'pronto')) { despachaAnexos(); return; }
@@ -3015,11 +3143,11 @@ function despachaAnexos() {
 }
 
 btnAnexo.onclick = () => {
-  if (gravando) { cancelaGravacao(); return; }   // durante a gravação o 📎 vira ✕
+  if (gravando) { cancelaGravacao(); return; }   // durante a gravação o clipe vira X
   destravarAudio(); inputArquivo.click();
 };
-/* O 📎 também passa pelo chip: anexa, mostra a prévia, a legenda vai no campo
-   e só o Enter (ou ➤) manda, tudo numa mensagem só. O input
+/* O clipe também passa pelo chip: anexa, mostra a prévia, a legenda vai no campo
+   e só o Enter (ou seta de enviar) manda, tudo numa mensagem só. O input
    tem `multiple`: no iPhone dá pra marcar várias fotos de uma vez. */
 inputArquivo.onchange = () => {
   const fs = Array.from(inputArquivo.files || []);
@@ -3030,7 +3158,7 @@ inputArquivo.onchange = () => {
 /* ── Anexo pendente: colar (Ctrl+V) ou arrastar ───────────────────────────── */
 /* Print colado ou arquivo solto na thread não vai na hora: vira um cartão no
    chip acima do campo (sobe em segundo plano), a pessoa escreve a legenda se
-   quiser, e o Enter (ou ➤) manda tudo junto. */
+   quiser, e o Enter (ou seta de enviar) manda tudo junto. */
 const PLACEHOLDER_ORIGINAL = entrada.placeholder;
 const raiz = document.documentElement;
 
@@ -3081,29 +3209,28 @@ function criaCartao(a) {
   el.className = 'anx';
   el.setAttribute('role', 'listitem');
   el.dataset.anx = String(a.n);
-  const rotulo = ROTULO_MIDIA[a.kind] || '📄 arquivo';
   let mid;
   if (a.url && a.kind === 'photo') {
     mid = `<img alt="${esc(a.nome)}" src="${a.url}">`;
   } else if (a.url && a.kind === 'video') {
     mid = `<video src="${a.url}" muted playsinline preload="metadata"></video>` +
-          '<span class="anxplay" aria-hidden="true">▶</span>';
+          '<span class="anxplay" aria-hidden="true">' + dsIcone('play') + '</span>';
   } else {
-    mid = `<span class="anxico">${esc(rotulo.split(' ')[0])}</span>`;
+    mid = `<span class="anxico">${dsIcone(rotuloDe(a.kind).ico)}</span>`;
   }
   el.innerHTML =
     `<div class="anxmid">${mid}<span class="anxest"></span></div>` +
     `<div class="anxnome" title="${esc(a.nome)}">${esc(a.nome)}</div>` +
     `<div class="anxtam">${esc(tamanhoHumano(a.bytes))}</div>` +
     `<button class="anxde" type="button" hidden>tentar de novo</button>` +
-    `<button class="anxx" type="button" aria-label="Tirar ${esc(a.nome)} da mensagem">✕</button>`;
+    `<button class="anxx" type="button" aria-label="Tirar ${esc(a.nome)} da mensagem">${dsIcone('x')}</button>`;
   // imagem que o navegador não desenha (HEIC no Chrome): fica o ícone, o envio segue
   const img = el.querySelector('img');
   if (img) {
     img.onerror = () => {
       a.semPrevia = true;
       img.replaceWith(Object.assign(document.createElement('span'),
-                                    { className: 'anxico', textContent: '📷' }));
+                                    { className: 'anxico', innerHTML: dsIcone('camera') }));
     };
   }
   a.el = el;
@@ -3115,9 +3242,9 @@ function atualizaCartao(a) {
   const est = a.el.querySelector('.anxest');
   a.el.dataset.estado = a.estado;
   if (a.estado === 'subindo') a.el.style.setProperty('--pct', (a.pct || 0) + '%');
-  est.textContent = a.estado === 'subindo' ? a.pct + '%'
+  est.innerHTML = a.estado === 'subindo' ? a.pct + '%'
     : a.estado === 'espera' ? 'na fila'
-    : a.estado === 'falhou' ? '⚠ não subiu' : '✓';
+    : a.estado === 'falhou' ? dsIcone('alert') + ' não subiu' : dsIcone('check');
   a.el.title = a.estado === 'falhou' ? a.nome + ': ' + a.erro : a.nome;
   a.el.querySelector('.anxde').hidden = a.estado !== 'falhou';
 }
@@ -3126,7 +3253,7 @@ function atualizaCartao(a) {
 function pintaInfoAnexos() {
   pintaInfoAnexosTexto();
   // o cartão que falhou ganha o botão "tentar de novo" e a linha pode quebrar:
-  // a barra cresce, e as faixas de aviso sobem junto (senão cobrem o ✕)
+  // a barra cresce, e as faixas de aviso sobem junto (senão cobrem o X)
   ajustaBarra();
 }
 
@@ -3282,7 +3409,7 @@ chat.addEventListener('drop', ev => {
   else console.warn('drop na thread sem arquivo legível:', ev.dataTransfer.types);
 });
 
-/* ── Menu lateral (gaveta do ☰) ───────────────────────────────────────────── */
+/* ── Menu lateral (gaveta do menu) ───────────────────────────────────────────── */
 function abreMenu(abrir) {
   if (abrir) atualizaNaoLidas();
   menu.classList.toggle('abre', abrir);
@@ -3326,6 +3453,7 @@ if (btnNaoLida) btnNaoLida.onclick = () => {
     .finally(() => { btnNaoLida.disabled = false; });
 };
 function atualizaNaoLidas() {
+  if (COLAB) return Promise.resolve();   // /api/v1/estados é do dono; o colaborador tem só uma conversa
   if (naoLidasEmVoo) return naoLidasEmVoo;
   naoLidasEmVoo = api('/api/v1/estados', { timeoutMs: 15000 }).then(d => {
     if (!d || typeof d.agentes !== 'object' || !d.agentes) throw new Error('a resposta não trouxe o campo "agentes"');
@@ -3348,7 +3476,7 @@ function atualizaNaoLidas() {
   return naoLidasEmVoo;
 }
 
-/* Bolinha no ☰ com a soma dos outros agentes: no computador a fileira de avatares não aparece. */
+/* Bolinha no menu com a soma dos outros agentes: no computador a fileira de avatares não aparece. */
 function pintaBolinhaMenu() {
   const btn = $('btnMenu');
   if (!btn) return;
@@ -3534,19 +3662,19 @@ function tempoGravando() {
 
 function pintaMic() {
   btnMic.classList.toggle('gravando', gravando);
-  btnMic.textContent = gravando ? '■' : '🎤';
+  btnMic.innerHTML = gravando ? dsIcone('stop') : dsIcone('mic');
   btnMic.setAttribute('aria-label', gravando
     ? (continua ? 'Parar e enviar' : 'Parar e escrever no campo')
     : 'Gravar áudio');
   btnEnviar.classList.toggle('direto', gravando);
   btnEnviar.setAttribute('aria-label', gravando ? 'Parar e enviar direto' : 'Enviar');
-  /* O estado vai dentro do campo (#micTxt) e o 📎 vira ✕ que cancela a gravação. */
+  /* O estado vai dentro do campo (#micTxt) e o clipe vira um X que cancela a gravação. */
   if (micAbrindo) micTxt.textContent = 'abrindo o microfone…';
   else if (gravando) micTxt.textContent = '● ' + tempoGravando();
   else micTxt.textContent = '';
   micTxt.classList.toggle('vivo', gravando && !micAbrindo);
   btnAnexo.classList.toggle('cancela', gravando);
-  btnAnexo.textContent = gravando ? '✕' : '📎';
+  btnAnexo.innerHTML = gravando ? dsIcone('x') : dsIcone('paperclip');
   btnAnexo.setAttribute('aria-label', gravando ? 'Cancelar a gravação'
     : 'Anexar fotos, vídeos, áudios ou PDFs');
   btnAnexo.title = gravando ? 'Cancelar a gravação (nada é enviado)'
@@ -3690,7 +3818,7 @@ function paraGravacao() {
 /* Para e transcreve. `direto`: manda na hora; senão o texto vai pro campo. */
 async function paraEEnvia(direto) {
   micAbrindo = false;
-  if (!gravando && !gravacao) return;   // dois toques no ■: o segundo não faz nada
+  if (!gravando && !gravacao) return;   // dois toques no parar: o segundo não faz nada
   const blob = await paraGravacao();
   gravando = false;
   pintaMic();
@@ -4074,7 +4202,7 @@ async function esperaPeloWait(since, limite) {
 /* Resposta = qualquer fala nova do agente depois do envio. */
 const ehResposta = (m, since) => ehAgente(m) && m.ep > since;
 /* Só a conversa normal (origin 'agente') entra na fila de voz automática. A rotina também
-   conta como resposta para a espera, mas só toca em voz se a pessoa apertar o 🎧 do balão. */
+   conta como resposta para a espera, mas só toca em voz se a pessoa apertar o fone do balão. */
 const ehRespostaFalavel = (m, since) => !!m && m.origin === 'agente' && m.ep > since;
 
 /* Depois da pergunta por voz, por 5 minutos, toda resposta nova dele também é
@@ -4087,7 +4215,7 @@ const faladas = new Set();
    ouvindo. Ela entra no fim da fila e é lida depois, uma por vez. Com o
    microfone aberto nada toca; a leitura em curso é pausada e guardada
    (`retomadaLeitura`), e quando a gravação termina ela continua de onde parou,
-   seguida do resto da fila. O 🎧 de um balão pula pra ele e segue dali.
+   seguida do resto da fila. O fone de um balão pula pra ele e segue dali.
    Parada pedida pela pessoa (cancelaFala) descarta tudo, e `corteFala` registra
    isso para o fim da fila não reabrir o microfone depois de um "parar".
    Este bloco só decide a ordem. Quem fala de verdade vem de fora, por estas
@@ -4106,7 +4234,7 @@ let geracaoFila = 0;            // sobe a cada pausa, parada ou pulo: o dreno an
 // Sobe a cada parada pedida pela pessoa. É separado de faloGeracao, que cada mensagem
 // sobe ao começar a tocar.
 let corteFala = 0;
-// O 🎧 não reabre o microfone no fim (ouvir de novo não é a vez da pessoa falar). Uma
+// O fone não reabre o microfone no fim (ouvir de novo não é a vez da pessoa falar). Uma
 // resposta nova do agente chegando devolve o fluxo normal da conversa contínua.
 let fimSemMic = false;
 /* `filaFala` é a promessa do dreno em curso (ou uma já resolvida, se não há
@@ -4168,7 +4296,7 @@ async function drena(g, corte) {
     } catch (e) {
       console.warn('fila de leitura: a leitura da mensagem ' + item.id + ' falhou:', e);
       mostraAviso('Não consegui ler uma resposta em voz alta (' + e.message +
-                  '). O texto está na tela. Toque no 🎧 do balão para tentar de novo.');
+                  '). O texto está na tela. Toque no fone do balão para tentar de novo.');
     }
     if (!minha()) return;          // pausaram, pararam ou pularam: o novo dreno cuida do resto
     if (resultado === false) {
@@ -4220,7 +4348,7 @@ function filaRetoma() {
   iniciaDreno();
 }
 
-/* 🎧: toca esta e depois as que vêm depois dela na conversa. O que estava
+/* fone: toca esta e depois as que vêm depois dela na conversa. O que estava
    tocando é descartado (ele pediu). Pendente mais antigo que a escolhida é
    descartado (ele pulou); mais novo fica. */
 function ouvirAPartirDe(item) {
@@ -4278,7 +4406,7 @@ function pintaFilaLeitura() {
     row.classList.remove('fila-tocando', 'fila-espera', 'fila-pausada');
   }
   for (const s of wrap.querySelectorAll('.selo-fila')) s.remove();
-  const marca = (id, classe, texto) => {
+  const marca = (id, classe, icone, texto) => {
     if (id == null) return;
     const row = wrap.querySelector('.row[data-msg="' + CSS.escape(String(id)) + '"]');
     const bub = row && row.querySelector('.bub');
@@ -4286,18 +4414,18 @@ function pintaFilaLeitura() {
     row.classList.add(classe);
     const s = document.createElement('span');
     s.className = 'selo-fila';
-    s.textContent = texto;
+    s.innerHTML = dsIcone(icone) + ' ' + esc(texto);
     bub.appendChild(s);
   };
-  marca(e.tocando, 'fila-tocando', '🔊 tocando agora');
-  marca(e.pausada, 'fila-pausada', '⏸ continua quando você enviar');
-  e.fila.forEach((id, i) => marca(id, 'fila-espera', '⏳ na fila (' + (i + 1) + ')'));
+  marca(e.tocando, 'fila-tocando', 'volume', 'tocando agora');
+  marca(e.pausada, 'fila-pausada', 'pause', 'continua quando você enviar');
+  e.fila.forEach((id, i) => marca(id, 'fila-espera', 'hourglass', 'na fila (' + (i + 1) + ')'));
 }
 
 function falaNovas() {
   if (!escuta || !lerRespostas || Date.now() > escuta.ate) return;
   // visual (vis-*.html) é desenho: não tem o que ler em voz alta. Rotina não entra
-  // sozinha na fila: só toca se a pessoa apertar o 🎧.
+  // sozinha na fila: só toca se a pessoa apertar o fone.
   const novas = msgs.filter(m => ehRespostaFalavel(m, escuta.since) && !faladas.has(m.id) &&
                               !ehVisual(m.media));
   if (!novas.length) return;
@@ -4583,6 +4711,47 @@ wrap.addEventListener('click', ev => {
   ouvirAPartirDe({ id: m.id, texto: texto });
 });
 
+/* Anonimizar: "Ver com dados reais" troca o texto da mensagem pelo texto revertido (entra pelo mesmo
+   caminho de sempre, paragrafos(), que escapa tudo) e "Baixar versão final" baixa o arquivo com os dados reais. */
+wrap.addEventListener('click', async ev => {
+  const ver = ev.target.closest ? ev.target.closest('button[data-anon-ver]') : null;
+  const fin = ev.target.closest ? ev.target.closest('button[data-anon-final]') : null;
+  if (!ver && !fin) return;
+  const bt = ver || fin;
+  if (bt.disabled) return;
+  bt.disabled = true;
+  try {
+    if (ver) {
+      const id = ver.getAttribute('data-anon-ver');
+      if (anonVistos.has(id)) { anonVistos.delete(id); render({ semRolar: true }); return; }
+      const m = msgs.find(x => String(x.id) === id);
+      if (!m || !m.text) { mostraAviso('Não achei o texto desta mensagem. Recarregue a conversa.'); return; }
+      const r = await fetch(API_ANON + '/reverter-texto', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ texto: m.text }) });
+      const d = await r.json().catch(() => null);
+      if (!r.ok || !d || d.ok === false || typeof d.texto !== 'string') { mostraAviso('Não consegui mostrar os dados reais: ' + ((d && d.erro) || ('o app respondeu ' + r.status)) + '.'); return; }
+      anonVistos.set(id, d.texto);
+      render({ semRolar: true });
+      return;
+    }
+    const r = await fetch(API_ANON + '/final/' + encodeURIComponent(fin.getAttribute('data-anon-final')), { credentials: 'same-origin', cache: 'no-store' });
+    if (!r.ok) {
+      const d = await r.json().catch(() => null);
+      mostraAviso('Não consegui gerar a versão final: ' + ((d && d.erro) || ('o app respondeu ' + r.status)));
+      return;
+    }
+    const nome = (/filename\*=UTF-8''([^;]+)/i.exec(r.headers.get('Content-Disposition') || '') || [])[1];
+    const url = URL.createObjectURL(await r.blob());
+    const a = document.createElement('a');
+    a.href = url; a.download = nome ? decodeURIComponent(nome) : 'versao-final';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+  } catch (e) {
+    mostraAviso('Não consegui falar com o app para ' + (ver ? 'mostrar os dados reais' : 'gerar a versão final') + ' (' + e.message + ').');
+  } finally {
+    bt.disabled = false;
+  }
+});
+
 /* ── Modo texto e toggles ─────────────────────────────────────────────────── */
 function enviarDoCampo() {
   if (anexos.length) {
@@ -4617,7 +4786,7 @@ function pintaLer() {
                               : 'Ler respostas em voz alta: desligado';
   btnLer.setAttribute('aria-pressed', String(lerRespostas));
   btnLer.setAttribute('aria-label', 'Leitura em voz alta: ' + (lerRespostas ? 'ligada' : 'desligada'));
-  btnLer.innerHTML = (lerRespostas ? '🔊' : '🔇') +
+  btnLer.innerHTML = (lerRespostas ? dsIcone('volume') : dsIcone('volume-off')) +
     ' <span class="lbl">' + (lerRespostas ? 'ler: sim' : 'ler: não') + '</span>';
 }
 btnLer.onclick = () => {
@@ -4632,7 +4801,7 @@ function pintaContinua() {
   btnContinua.classList.toggle('on', continua);
   btnContinua.setAttribute('aria-pressed', String(continua));
   btnContinua.setAttribute('aria-label', 'Conversa contínua: ' + (continua ? 'ligada' : 'desligada'));
-  btnContinua.innerHTML = '🔁 <span class="lbl">' + (continua ? 'contínua: sim' : 'contínua: não') + '</span>';
+  btnContinua.innerHTML = dsIcone('repeat') + ' <span class="lbl">' + (continua ? 'contínua: sim' : 'contínua: não') + '</span>';
 }
 btnContinua.onclick = () => {
   destravarAudio();
@@ -4718,7 +4887,7 @@ function passosTutorial() {
   const abreM = () => abreMenu(true), fechaM = () => abreMenu(false);
   const nome = AGENTE.nome;
   const passos = [
-    ...window.DGMenuLado.passosMenu({ nome, abre: abreM, fecha: fechaM, comTroca: agentesMenu.length > 1, naConversa: true }),
+    ...window.DGMenuLado.passosMenu({ nome, abre: abreM, fecha: fechaM, comTroca: !COLAB && agentesMenu.length > 1, naConversa: true, colaborador: COLAB }),
     { alvo: '#chat', antes: fechaM, titulo: 'A conversa',
       oque: 'Aqui aparece tudo o que você e ' + nome + ' já escreveram, na ordem, como num aplicativo de mensagens.',
       como: 'As respostas chegam sozinhas, sem precisar atualizar a página. Role para cima para ver as mensagens mais antigas; a seta no canto leva de volta para a mais nova. Quando uma mensagem veio ou foi respondida pelo WhatsApp ou pelo Telegram, ela ganha um selinho com o nome do canal; passe o dedo ou o mouse nele para ver os detalhes.',
@@ -4761,14 +4930,14 @@ function passosTutorial() {
     como: 'Ela mostra o que ele está fazendo naquele momento. Fica amarela se ele estiver esperando uma autorização sua, e cinza se a conexão com ele cair ("sem sinal").',
     porque: 'Alguns pedidos demoram. Com a faixa você sabe que o agente não travou, e sabe quando precisa agir.' });
   passos.push({ alvo: '#btnMenu', antes: fechaM, titulo: 'O botão do menu',
-    oque: 'No celular, o botão ☰ abre o menu do agente. No computador ele não aparece, porque o menu já fica fixo à esquerda.',
-    como: 'Toque nele quando quiser trocar de agente, abrir uma página do painel ou sair. Toque fora do menu, no ✕ ou na tecla Esc para fechar.',
+    oque: 'No celular, o botão de menu (as três linhas) abre o menu do agente. No computador ele não aparece, porque o menu já fica fixo à esquerda.',
+    como: 'Toque nele quando quiser trocar de agente, abrir uma página do painel ou sair. Toque fora do menu, no X ou na tecla Esc para fechar.',
     porque: 'Mantém a tela da conversa limpa: o que não é conversa fica guardado no menu.' });
   if ($('trocaBaixo') && $('trocaBaixo').offsetParent !== null) {
     passos.push({ alvo: '#trocaBaixo', antes: fechaM, titulo: 'A fileira de agentes',
       oque: 'Um avatar por agente, logo abaixo da barra de escrever. A conversa em que você está fica com um anel na cor dela.',
       como: 'Toque no avatar de outro agente para abrir a conversa com ele. Arraste para o lado se não couberem todos. Ela some enquanto o teclado está aberto.',
-      porque: 'Trocar de agente com o polegar, sem abrir o menu ☰.' });
+      porque: 'Trocar de agente com o polegar, sem abrir o menu.' });
   }
   if (!EH_ADMIN) {
     passos.push({ alvo: '#mlPainel', antes: abreM, titulo: 'As páginas do painel de ' + nome,
@@ -4778,7 +4947,7 @@ function passosTutorial() {
   }
   if (!$('mlConfig').hidden) {
     passos.push({ alvo: '#mlConfig', antes: abreM, titulo: 'Configurações',
-      oque: 'Hoje tem um item: Instalar o app, que coloca o DG Claw como aplicativo na tela inicial do aparelho.',
+      oque: 'Hoje tem um item: Instalar o app, que coloca o ' + dsMarca.nome + ' como aplicativo na tela inicial do aparelho.',
       como: 'No Android e no computador, com Chrome ou Edge, o toque abre o pedido de instalação do navegador. No iPhone e no iPad, o item mostra o caminho: Compartilhar e depois Adicionar à Tela de Início. O item some sozinho quando o app já está instalado.',
       porque: 'O app instalado abre sem a barra do navegador e fica a um toque, como qualquer outro aplicativo.' });
   }
@@ -4788,7 +4957,8 @@ function passosTutorial() {
       como: 'Pede a sua confirmação, reinicia e mostra uma faixa no topo até ele voltar. A conversa continua de onde estava, porque o agente retoma a mesma sessão.',
       porque: 'Quando o agente para de responder, reiniciar costuma resolver, e aqui é um toque.' });
   }
-  passos.push({ alvo: '#loginCartao', titulo: 'Conectar a sua conta',
+  // O cartão de login da conversa é do dono; o colaborador conecta pela página Conectar conta (ver conectar.js).
+  if (!COLAB) passos.push({ alvo: '#loginCartao', titulo: 'Conectar a sua conta',
     antes: () => {
       if (lc.aberto) return;
       lc.demo = true; lc.aberto = true; lc.manual = true; lc.carregando = false; lc.iniciado = false;
@@ -4802,9 +4972,10 @@ function passosTutorial() {
   if ($('btnSessoes') && !$('btnSessoes').hidden) {
     passos.push({ alvo: '#btnSessoes', titulo: 'O botão Sessões',
       oque: 'Um atalho para as sessões de trabalho de ' + nome + ': os cards que andam em paralelo com esta conversa. Uma bolinha vermelha avisa quando alguma espera uma decisão sua.',
-      como: 'Toque nele e a tela de Sessões abre dentro do painel do agente, na mesma janela. No celular o texto some e fica só o ícone 🖥.',
+      como: 'Toque nele e a tela de Sessões abre dentro do painel do agente, na mesma janela. No celular o texto some e fica só o ícone do monitor.',
       porque: 'É o mini-Bunker do agente: você acompanha e cria trabalhos longos sem sair procurando no menu, e o botão fica no topo, em todas as telas.' });
   }
+  if (!COLAB) {
   passos.push({ alvo: '#btnMesa', titulo: 'O botão Mesa',
     oque: 'Um atalho para a Mesa de tarefas, onde ficam as tarefas de todos os agentes.',
     como: 'Toque nele e a Mesa abre na mesma janela. Lá você acompanha o que está pendente e o que já foi feito.',
@@ -4817,10 +4988,16 @@ function passosTutorial() {
     oque: 'Um atalho para a tela de lembretes.',
     como: 'Toque nele e a lista abre na mesma janela. Lá você cria, confirma e apaga lembretes.',
     porque: 'Lembrete que insiste até você confirmar só ajuda se for fácil de achar, por isso fica no topo.' });
+  }
+  if ($('btnAnon') && !$('btnAnon').hidden) passos.push({ alvo: '#btnAnon', titulo: 'Documentos anonimizados',
+    oque: 'Um selo que aparece só quando a anonimização de documentos está ligada para ' + nome + '. Ele leva à tela Anonimizar.',
+    como: 'Os documentos que você manda pelo clipe passam por um filtro que troca nomes, CPF, telefone e outros dados por marcadores como [PESSOA_1]. O agente só vê os marcadores. Nas respostas dele, o botão "Ver com dados reais" mostra o texto de verdade e "Baixar versão final" entrega o arquivo com os dados reais.',
+    porque: 'O agente e o modelo na nuvem trabalham sem receber os dados pessoais dos seus clientes, e você continua lendo tudo completo.' });
   if (window.DGSigilo) passos.push(window.DGSigilo.passoTour());
   passos.push(passoAlertas());
-  if (window.DGFoco) passos.push(window.DGFoco.passoTutorial());
+  if (window.DGFoco && !COLAB) passos.push(window.DGFoco.passoTutorial());
   passos.push(passoAcervo());
+  if (window.DGSegurancaResumo) passos.push(window.DGSegurancaResumo.passoSelo());
   return passos;
 }
 
@@ -4880,9 +5057,9 @@ function pintaAcervo() {
     else {
       const md = it.media; midias[md.id] = md;
       const img = md.disponivel && md.thumb ? `<img src="${esc(md.thumb)}" loading="lazy" decoding="async" width="320" height="320" alt="${esc(md.nome)}" onerror="this.hidden=true">` : '';
-      corpo = `<button class="${acAba === 'midias' ? 'acfoto' : 'aclinha'}" data-midia="${esc(md.id)}">${esc(md.kind === 'video' ? '▶ ' : '📎 ')}${esc(md.nome)}${img}</button>`;
+      corpo = `<button class="${acAba === 'midias' ? 'acfoto' : 'aclinha'}" data-midia="${esc(md.id)}">${dsIcone(md.kind === 'video' ? 'play' : 'paperclip')} ${esc(md.nome)}${img}</button>`;
     }
-    html += `<div class="acitem">${corpo}<button class="acir" data-origem="${esc(it.msg_id)}" title="Ir para a mensagem de origem">${esc(it.dia || '')} ${esc(it.hhmm || '')} ↪</button></div>`;
+    html += `<div class="acitem">${corpo}<button class="acir" data-origem="${esc(it.msg_id)}" title="Ir para a mensagem de origem">${esc(it.dia || '')} ${esc(it.hhmm || '')} ${dsIcone('reply')}</button></div>`;
   }
   if (acAba === 'midias') html += '</div>';
   if (d.erro && cacheMidias) html += '<button class="acmais" data-tentar>Atualizar novamente</button>';
@@ -4945,7 +5122,23 @@ if (emCache) {
   render();
   rolagem.aoFim();
 }
-carregar(true).then(() => ligaStream());
+/* Link da fila de pedidos: /a/<agente>?msg=<id> abre a conversa rolada até a mensagem da entrega. */
+async function pulaParaMensagemDoLink() {
+  const id = new URLSearchParams(location.search).get('msg');
+  if (!id || !/^[a-f0-9]{16}$/.test(id)) return;
+  try {
+    const d = await api(API + '/compartilhados?mensagem=' + encodeURIComponent(id));
+    const porId = new Map([...(d.msgs || []), ...msgs].map(m => [m.id, m]));
+    msgs = [...porId.values()].sort((a, b) => a.ep - b.ep);
+    render({ semRolar: true });
+    const el = wrap.querySelector('[data-msg="' + CSS.escape(d.mensagem.id) + '"]');
+    if (!el) throw new Error('A mensagem não apareceu na tela. Atualize a conversa.');
+    rolagem.mostra(el, { block: 'center' });
+    el.classList.add('alerta-destaque');
+    setTimeout(() => el.classList.remove('alerta-destaque'), 3000);
+  } catch (err) { mostraErro('Não consegui ir até a mensagem da entrega: ' + err.message); }
+}
+carregar(true).then(() => ligaStream()).then(pulaParaMensagemDoLink);
 ligaResync();
 if (caps.voz) conferecota();
 if ('serviceWorker' in navigator) {
@@ -4963,7 +5156,7 @@ function desenhaAlertas() {
   for (const a of alertasLista) {
     if (alertasEmCurso.has(a.id)) continue;
     const b = document.createElement('button');
-    b.type = 'button'; b.textContent = a.tipo === 'entrega' ? '✅' : '⚠️';
+    b.type = 'button'; b.innerHTML = a.tipo === 'entrega' ? dsIcone('check-circle') : dsIcone('alert');
     b.title = (a.tipo === 'entrega' ? 'Entrega pronta' : 'Pedido esperando sua decisão') + ': ir até a mensagem e retirar o aviso';
     b.setAttribute('aria-label', b.title);
     b.onclick = async () => {
@@ -4993,7 +5186,7 @@ function desenhaAlertas() {
 }
 function passoAlertas() {
   return { alvo: '[data-tour="alertas"]', titulo: 'Entregas e pedidos',
-    oque: '✅ Uma entrega importante ficou pronta. ⚠️ O agente espera uma decisão sua.',
+    oque: 'Um ícone de visto indica que uma entrega importante ficou pronta. Um ícone de alerta indica que o agente espera uma decisão sua.',
     como: 'Cada ícone corresponde a uma mensagem marcada pelo agente. Toque para ir até ela e retirar o aviso em todos os aparelhos. A cor do balão permanece. Retirar um pedido não significa autorizá-lo: responda na conversa.',
     porque: 'A pilha lembra o que merece atenção, mesmo depois de fechar o app. Você limpa um aviso por vez, sem uma tela de gestão.' };
 }
@@ -5030,7 +5223,7 @@ window.addEventListener('resize', posicionaAlertas);
     clearTimeout(sumir);
     faixaR.className = tipo;
     faixaR.hidden = false;
-    ico.textContent = tipo === 'ok' ? '✓' : tipo === 'erro' ? '!' : '↻';
+    ico.innerHTML = tipo === 'ok' ? dsIcone('check') : tipo === 'erro' ? dsIcone('alert') : dsIcone('refresh');
     txt.textContent = texto;
     faixaR.querySelectorAll('.racoes').forEach(e => e.remove());
     if (acoes && acoes.length) {

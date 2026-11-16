@@ -1,0 +1,20 @@
+{
+  "inventario_dias": 3,
+  "janelas": {"novo_dias": 7, "noticias_horas": 48, "usn_dias": 7, "ja_tratadas_dias": 14},
+  "osv": {"max_paginas": 25, "max_detalhes": 3000},
+  "github": {"max_pedidos_por_rodada": 24, "reserva_pedidos": 4, "usn_max_arquivos": 300, "advisories_max_paginas": 3},
+  "profundidade_lockfiles": 3,
+  "redes_ignoradas": ["10.89.0.0/16", "10.88.0.0/16"],
+  "dpkg_observados": ["openssh-server", "openssh-client", "openssl", "podman", "caddy", "nodejs", "ufw", "nftables", "sudo", "systemd", "libc6", "curl", "python3.12", "python3.10", "python3.11"],
+  "nvd": {"termos_base": ["linux kernel", "ubuntu"], "max_termos": 8},
+  "hn_termos": ["vulnerability", "CVE", "zero-day", "supply chain", "npm malware", "exploit"],
+  "hn_componentes_base": ["linux", "ubuntu", "openssh", "node.js", "nodejs", "npm", "podman", "caddy", "claude", "anthropic", "pillow", "playwright", "openssl", "glibc", "sudo"],
+  "nomes_amigaveis": {
+    "linux": "kernel Linux", "openssh": "OpenSSH", "openssl": "OpenSSL", "podman": "Podman", "caddy": "Caddy",
+    "nodejs": "Node.js", "sudo": "sudo", "glibc": "biblioteca C do sistema", "systemd": "systemd",
+    "pillow": "Pillow", "requests": "requests (Python)", "numpy": "NumPy", "playwright": "Playwright",
+    "yt-dlp": "yt-dlp", "express": "Express", "@anthropic-ai/claude-code": "Claude Code"
+  },
+  "servicos_saude": ["dgclaw-web.service", "dgclaw-admin.service"],
+  "max_ids_no_recado": 15
+}

@@ -1,0 +1,16 @@
+/* pedidos.css: a aba Pedidos da Mesa (classes pd-). Reaproveita os botões, selos e cartões do mesa.css. */
+.pd-raiz{max-width:900px;margin:0 auto;padding:4px 0 32px}
+.pd-barra{display:flex;align-items:center;gap:8px;margin:10px 0}
+.pd-lista{display:flex;flex-direction:column;gap:10px}
+.pd-cartao .mz-cab{min-height:40px}
+.pd-cartao.est-entregue{border-left-color:#1f7ac2}
+.mz-selo.entregue{background:#e1f0fb;color:#1f6aa8}
+.mz-cont.entregue.tem{background:#e1f0fb;color:#1f6aa8}
+html[data-tema="escuro"] .mz-selo.entregue,html[data-tema="escuro"] .mz-cont.entregue.tem{background:#1b3347;color:#8cc8f2}
+@media(prefers-color-scheme:dark){
+  html:not([data-tema="claro"]) .mz-selo.entregue,html:not([data-tema="claro"]) .mz-cont.entregue.tem{background:#1b3347;color:#8cc8f2}
+}
+.pd-cartao .mz-acoes .mz-btn{min-height:34px}
+@media(max-width:420px){
+  .pd-cartao .mz-acoes{flex-direction:column;align-items:stretch}
+}

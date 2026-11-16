@@ -235,7 +235,7 @@
           <button type="button" class="dgl-x" aria-label="Fechar" title="Fechar (Esc)">&times;</button>
         </header>
         <div class="dgl-recado" hidden></div>
-        <div class="dgl-corpo"><p class="dgl-vazio">Carregando o arquivo...</p></div>
+        <div class="dgl-corpo"><p class="dgl-vazio">${dsCarregando({ rotulo: 'Carregando o arquivo', tamanho: 'p' })} Carregando o arquivo...</p></div>
       </div>`;
     document.body.appendChild(fundo);
     document.body.classList.add('dgl-aberto');

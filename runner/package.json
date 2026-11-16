@@ -13,10 +13,10 @@
   },
   "dependencies": {
     "node-pty": "^1.1.0",
-    "ws": "^8.18.0"
+    "ws": "^8.22.1"
   },
   "devDependencies": {
-    "@types/node": "^26.6.5",
+    "@types/node": "^26.6.6",
     "@types/ws": "^8.5.0",
     "typescript": "^7.0.2"
   }

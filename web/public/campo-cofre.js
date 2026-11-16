@@ -56,7 +56,7 @@
   }
 
   function htmlSalvo(envName, final) {
-    return `<span class="dgc-ok" role="status">✓ <code>${esc(envName)}</code> salva no cofre` +
+    return `<span class="dgc-ok" role="status">${dsIcone('check')} <code>${esc(envName)}</code> salva no cofre` +
       (final ? ` (final ${esc(final)})` : '') + `</span>`;
   }
 
@@ -71,7 +71,7 @@
       `<div class="dgc-linha"><input type="password" class="dgc-valor" autocomplete="off" autocapitalize="off" ` +
       `autocorrect="off" spellcheck="false" data-1p-ignore data-lpignore="true" ` +
       `aria-label="Valor de ${esc(d.envName)}" placeholder="Cole a chave aqui">` +
-      `<button type="button" class="dgc-olho" aria-label="Mostrar a chave" aria-pressed="false">👁</button>` +
+      `<button type="button" class="dgc-olho" aria-label="Mostrar a chave" aria-pressed="false">${dsIcone('eye')}</button>` +
       `<button type="button" class="dgc-salvar">Salvar no cofre</button>` +
       (cancelavel ? `<button type="button" class="dgc-cancelar">Cancelar</button>` : '') + `</div>` +
       `<div class="dgc-msg" role="alert" hidden></div>` +
@@ -80,7 +80,11 @@
   }
 
   /* HTML do cartão. `id` identifica o cartão (hash da mensagem) para o marcador. */
+  const SO_DONO = 'O cofre é só do dono do ' + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + '.';
+  const ehColaborador = () => !!(raiz.DGPapel && raiz.DGPapel.colaborador);
+
   function html(envName, rotulo, id, extra) {
+    if (ehColaborador()) return `<div class="dgcofre dgcofre-bloqueado"><div class="dgc-aviso">${SO_DONO}</div></div>`;
     const x = extra || {};
     const d = { envName, rotulo: rotulo || '', ajuda: x.ajuda || '' };
     const salvo = !!(id && jaSalvo(cfg.agente, id));
@@ -118,6 +122,7 @@
      código do agente, não confiável, e só o cartão desenhado pelo app (fora do iframe) mostra o final.
      Usa o cache e a promessa pendente: pedidos repetidos não geram GET novo. */
   async function estados(nomes) {
+    if (ehColaborador()) { const fora = {}; nomes.forEach(n => { fora[n] = { guardada: false }; }); return fora; }
     const m = await consultaEstado(false);
     const out = {};
     nomes.forEach(n => { out[n] = { guardada: !!m[n] }; });
@@ -187,6 +192,7 @@
   }
 
   function hidratar(card) {
+    if (card.classList && card.classList.contains('dgcofre-bloqueado')) return;
     if (card.dataset.hid === '1') return;
     card.dataset.hid = '1';
     armaSalvar(card);
@@ -202,6 +208,7 @@
   }
 
   async function salvar(card) {
+    if (card.classList && card.classList.contains('dgcofre-bloqueado')) return;
     if (card.dataset.enviando === '1') return;
     const inp = card.querySelector('.dgc-valor');
     const btn = card.querySelector('.dgc-salvar');
@@ -283,6 +290,7 @@
         inp.type = ver ? 'text' : 'password';
         o.setAttribute('aria-pressed', ver ? 'true' : 'false');
         o.setAttribute('aria-label', ver ? 'Esconder a chave' : 'Mostrar a chave');
+        o.innerHTML = dsIcone(ver ? 'eye-off' : 'eye');
         return;
       }
       const c = t.closest('.dgcofre .dgc-cancelar');

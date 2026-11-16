@@ -1,0 +1,14 @@
+{
+  "versao": 1,
+  "paliativos": [
+    {
+      "id": "mptcp-desligado",
+      "casa": {"ids": ["CVE-2026-98432"]},
+      "descricao": "MPTCP desligado no kernel (net.mptcp.enabled = 0)",
+      "efeito": "Desliga o Multipath TCP, que servidores comuns não usam. Conexões TCP normais seguem iguais.",
+      "verifica": {"tipo": "sysctl", "chave": "net.mptcp.enabled", "valor": "0"},
+      "acao_id": "sysctl-mptcp-off",
+      "pode_sozinho": true
+    }
+  ]
+}

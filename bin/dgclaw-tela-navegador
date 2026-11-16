@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# dgclaw-tela-navegador: abre o navegador da Tela do agente (docs/TELA-DO-AGENTE.md).
+# Roda DENTRO do container, como "agente", chamado pelo dgclaw-tela-chrome.service.
+#
+# Escolhe o navegador: o Google Chrome estavel, quando existe (amd64); senao o Chromium do
+# Playwright, que existe tambem em arm64. Os dois sobem COM janela (nao headless: site com
+# anti-robo recusa headless), no display da Tela, com o mesmo perfil e o CDP so em 127.0.0.1.
+#
+# Variaveis (so para teste; a unidade nao define nenhuma):
+#   DGCLAW_TELA_PERFIL     pasta do perfil (padrao: ~/.tela-chrome)
+#   DGCLAW_TELA_CHROMIUM   caminho do Chromium do Playwright (padrao: o que houver em
+#                          $PLAYWRIGHT_BROWSERS_PATH, padrao /opt/playwright)
+set -euo pipefail
+
+perfil="${DGCLAW_TELA_PERFIL:-${HOME:-/home/agente}/.tela-chrome}"
+nome=""
+bin=""
+
+if command -v google-chrome-stable >/dev/null 2>&1; then
+    nome="Google Chrome"
+    bin="$(command -v google-chrome-stable)"
+else
+    if [ -n "${DGCLAW_TELA_CHROMIUM:-}" ]; then
+        bin="$DGCLAW_TELA_CHROMIUM"
+    else
+        for candidato in "${PLAYWRIGHT_BROWSERS_PATH:-/opt/playwright}"/chromium-*/chrome-linux*/chrome; do
+            if [ -x "$candidato" ]; then bin="$candidato"; break; fi
+        done
+    fi
+    nome="Chromium do Playwright"
+fi
+
+if [ -z "$bin" ] || [ ! -x "$bin" ]; then
+    {
+        echo "dgclaw-tela-navegador: nao achei nenhum navegador para a Tela."
+        echo "  Procurei google-chrome-stable no PATH e o Chromium do Playwright em ${PLAYWRIGHT_BROWSERS_PATH:-/opt/playwright}/chromium-*/chrome-linux*/chrome."
+        echo "  O que fazer: peca a quem administra o DG Claw para reconstruir a imagem (dgclaw imagem construir --agora) e recriar este agente (dgclaw agente recriar <slug>)."
+    } >&2
+    # 78 = configuracao ausente; a unidade nao fica reiniciando em laco por isso.
+    exit 78
+fi
+
+echo "dgclaw-tela-navegador: abrindo $nome ($bin) com o perfil $perfil" >&2
+
+# Sem headless de proposito. --no-sandbox: no podman com uidmap o sandbox do navegador nao
+# sobe; o isolamento real e o do container. Flags economicas: sem GPU, sem /dev/shm (o do
+# container e pequeno), poucos renderers.
+exec "$bin" --user-data-dir="$perfil" \
+    --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 \
+    --no-first-run --no-default-browser-check --disable-gpu --disable-dev-shm-usage \
+    --renderer-process-limit=4 --disable-features=Translate,MediaRouter \
+    --password-store=basic --lang=pt-BR \
+    --window-position=0,0 --window-size=1440,900 --start-maximized --no-sandbox --no-zygote

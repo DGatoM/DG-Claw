@@ -14,21 +14,21 @@ function makeBar(label, value, maxVal, colorClass, delta) {
   // Escala de 0 a 10 (personalidade, proatividade) mostra "7/10"; escrever "7%" ao lado
   // de uma barra 70% cheia fazia a tela se contradizer (vistoria de 08/10/2026).
   const emDez = maxVal > 1;
-  const displayVal = emDez ? value : (typeof value === 'number' && value <= 1 ? Math.round(value * 100) : value);
+  const displayVal = escapeHtml(emDez ? value : (typeof value === 'number' && value <= 1 ? Math.round(value * 100) : value));
   let deltaHtml = '';
   if (delta !== undefined && delta !== 0) {
     const absDelta = Math.abs(delta);
     const displayDelta = maxVal <= 1 ? Math.round(absDelta * 100) : absDelta;
     if (delta > 0) {
-      deltaHtml = `<span class="delta-badge up">▲${displayDelta}</span>`;
+      deltaHtml = `<span class="delta-badge up">${dsIcone('arrow-up')}${displayDelta}</span>`;
     } else {
-      deltaHtml = `<span class="delta-badge down">▼${displayDelta}</span>`;
+      deltaHtml = `<span class="delta-badge down">${dsIcone('arrow-down')}${displayDelta}</span>`;
     }
   }
   // Nome e numero na MESMA linha, barra embaixo: duas linhas por medida, nunca tres.
   return `<div class="rpg-bar">
-    <div class="rpg-bar-label"><span>${label}</span><span class="rpg-bar-value">${displayVal}${emDez ? '/' + maxVal : '%'}${deltaHtml}</span></div>
-    <div class="rpg-bar-track"><div class="rpg-bar-fill ${colorClass}" style="width:${pct}%"></div></div>
+    <div class="rpg-bar-label"><span>${escapeHtml(label)}</span><span class="rpg-bar-value">${displayVal}${emDez ? '/' + maxVal : '%'}${deltaHtml}</span></div>
+    <div class="rpg-bar-track"><div class="rpg-bar-fill ${escapeHtml(colorClass)}" style="width:${pct}%"></div></div>
   </div>`;
 }
 
@@ -66,7 +66,7 @@ function updatedTag(isoDate, label) {
   const text = formatAge(isoDate);
   const prefix = label ? `${label}: ` : '';
   const dica = `Quando ${label ? `o arquivo ${label}` : 'este arquivo'} foi alterado pela última vez. A cor vai do verde (mexeu há pouco) ao vermelho (faz muito tempo que ninguém mexe).`;
-  return `<span class="updated-tag" style="color:${color}" title="${escapeHtml(dica)}">● ${prefix}${text}</span>`;
+  return `<span class="updated-tag" style="color:${color}" title="${escapeHtml(dica)}">${dsIcone('dot')} ${prefix}${text}</span>`;
 }
 
 function encurtar(str, len) {
@@ -125,9 +125,15 @@ document.addEventListener('click', (ev) => {
 });
 
 function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
+  // Escapa também as aspas: vários usos são DENTRO de atributo (title="...", data-x="...").
+  if (str == null) return '';
+  return String(str).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+/** Número vindo do servidor ou da memória do agente: se não for número finito, vira o padrão. */
+function numeroSeguro(v, padrao = 0) {
+  const n = typeof v === 'string' && v.trim() !== '' ? Number(v) : v;
+  return typeof n === 'number' && Number.isFinite(n) ? n : padrao;
 }
 
 // Markdown para HTML: delega para o js/markdown.js, o renderizador ÚNICO do painel.
@@ -296,9 +302,10 @@ function abrirAba(tab, botao) {
   currentTab = tab;
   tituloDaAba(tab, botao);
   if (NA_PLATAFORMA && window.DGCasca) window.DGCasca.ativa(tab, (document.getElementById('titulo-aba') || {}).textContent || '');
-  loadPanel(tab);
+  const carregando = loadPanel(tab);
   // replaceState: trocar de aba não empilha histórico, e o link da barra fica compartilhável.
   if (NA_PLATAFORMA) history.replaceState(null, '', `#aba=${tab}`);
+  return carregando;
 }
 
 document.getElementById('tabs').addEventListener('click', (e) => {
@@ -420,6 +427,7 @@ const SUBTITULO_ABA = {
   rotinas: 'o que ele faz sozinho, na hora marcada',
   arquivos: 'os arquivos que ele guarda, e os que você sobe',
   cofre: 'as chaves de serviço que ele pode usar',
+  tela: 'o navegador do agente, para você fazer login',
   posts: 'o que ele publicou',
   followers: 'quem conversa com ele',
   reunioes: 'o que foi dito e o que ficou',
@@ -526,7 +534,7 @@ function tituloDaAba(tab, botao) {
   const t = document.getElementById('titulo-aba');
   const sub = document.getElementById('subtitulo-aba');
   if (t && botao) {
-    // O rotulo do botao vem com o icone colado no texto ("▨Apps"), porque o
+    // O rotulo do botao vem com o icone colado no texto (o ícone mais "Apps"), porque o
     // <span class="ico"> entra no textContent. No titulo grande da pagina o
     // simbolo nao ajuda a ler e vira um retangulo estranho grudado na palavra.
     const semIcone = [...botao.childNodes]
@@ -640,6 +648,9 @@ async function loadPanel(tab, force) {
     // A aba Socorro (js/socorro.js, de outra frente) se carrega sozinha no clique da
     // aba dela. Chamar daqui também carregaria duas vezes.
     case 'cofre': await window.DGCofre.carregar(); break;
+    // A Tela é aberta também por link (#aba=tela, o item do menu do agente na conversa), que não
+    // passa pelo clique da aba; por isso quem carrega é o loadPanel, e o clique só atualiza.
+    case 'tela': await window.DGTela.carregar(); break;
     case 'costs': await loadCosts(); break;
     case 'reunioes': await loadReunioes(); break;
     case 'identity': await loadIdentity(); break;
@@ -965,7 +976,7 @@ function bolhaDaMensagem(m) {
     : '';
   const corpo =
     m.tipo === 'arquivo'
-      ? `<span class="bolha-arquivo">📎 ${escapeHtml(m.texto || 'arquivo')}</span>`
+      ? `<span class="bolha-arquivo">${dsIcone('paperclip')} ${escapeHtml(m.texto || 'arquivo')}</span>`
       : ricoBloco(m.texto || '');
   return `<div class="${classes.join(' ')}">${etiqueta}${corpo}<span class="bolha-pe">${escapeHtml(pe)}</span></div>`;
 }
@@ -1051,10 +1062,10 @@ async function enviarDaConversa() {
   if (!texto) return;
 
   _conversaEnviando = true;
-  if (botao) { botao.disabled = true; botao.textContent = '…'; }
+  if (botao) { botao.disabled = true; botao.innerHTML = dsCarregando({ rotulo: 'Enviando', tamanho: 'p' }); }
   const r = await API.chatEnviar(texto);
   _conversaEnviando = false;
-  if (botao) { botao.disabled = false; botao.textContent = '↑'; }
+  if (botao) { botao.disabled = false; botao.innerHTML = dsIcone('send'); }
 
   if (r && r.ok) {
     // Só limpa a caixa depois da confirmação. Se não saiu, o texto continua ali para
@@ -1151,7 +1162,7 @@ async function loadReunioes(query) {
   const detailEl = document.getElementById('reunioes-detail');
   detailEl.style.display = 'none';
   listEl.style.display = 'block';
-  listEl.innerHTML = 'Carregando...';
+  listEl.innerHTML = dsCarregando({ rotulo: 'Carregando', tamanho: 'p' }) + ' Carregando...';
 
   const search = document.getElementById('reunioes-search');
   if (search && !search._wired) {
@@ -1172,23 +1183,23 @@ async function loadReunioes(query) {
     }
     listEl.innerHTML = data.items.map((m) => {
       const dt = m.date ? new Date(m.date) : null;
-      const dtStr = dt ? dt.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : m.id;
-      const dur = m.duration_min != null ? `${m.duration_min}min` : '?';
-      const parts = (m.participants || []).join(', ') || 'sem participantes';
+      const dtStr = escapeHtml(dt ? dt.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : m.id);
+      const dur = m.duration_min != null ? `${escapeHtml(m.duration_min)}min` : '?';
+      const parts = escapeHtml((m.participants || []).join(', ') || 'sem participantes');
       const tldr = m.tldr ? m.tldr.slice(0, 200) + (m.tldr.length > 200 ? '...' : '') : '(sem resumo)';
-      const cost = m.total_usd != null ? `$${m.total_usd.toFixed(3)}` : '--';
+      const cost = m.total_usd != null ? `$${numeroSeguro(m.total_usd).toFixed(3)}` : '--';
       return `
-        <div class="reuniao-card" data-id="${m.id}">
+        <div class="reuniao-card" data-id="${escapeHtml(m.id)}">
           <div class="reuniao-head">
             <span class="reuniao-date">${dtStr}</span>
             <span class="reuniao-dur">${dur}</span>
-            <span class="reuniao-mode">${m.mode || '?'}</span>
+            <span class="reuniao-mode">${escapeHtml(m.mode || '?')}</span>
             <span class="reuniao-cost">${cost}</span>
           </div>
-          <div class="reuniao-participants">👥 ${parts}</div>
+          <div class="reuniao-participants">${dsIcone('users')} ${parts}</div>
           <div class="reuniao-tldr">${escapeHTML(tldr)}</div>
           <div class="reuniao-meta">
-            ${m.decisoes_count} decisões · ${m.action_items_count} action items
+            ${escapeHtml(m.decisoes_count)} decisões · ${escapeHtml(m.action_items_count)} action items
           </div>
         </div>`;
     }).join('');
@@ -1196,7 +1207,7 @@ async function loadReunioes(query) {
       el.addEventListener('click', () => openReuniaoDetail(el.dataset.id));
     });
   } catch (e) {
-    listEl.innerHTML = `<div style="color:#f88">Erro: ${e.message}</div>`;
+    listEl.innerHTML = `<div style="color:#f88">Erro: ${escapeHtml(e.message)}</div>`;
   }
 }
 
@@ -1205,15 +1216,15 @@ async function openReuniaoDetail(id) {
   const detailEl = document.getElementById('reunioes-detail');
   listEl.style.display = 'none';
   detailEl.style.display = 'block';
-  detailEl.innerHTML = 'Carregando...';
+  detailEl.innerHTML = dsCarregando({ rotulo: 'Carregando', tamanho: 'p' }) + ' Carregando...';
 
   try {
     const res = await fetch(`${BASE}/api/reunioes/${id}`, { credentials: 'include' });
     const m = await res.json();
     if (!res.ok) throw new Error(m.error || 'erro');
     const dt = m.date ? new Date(m.date) : null;
-    const dtStr = dt ? dt.toLocaleString('pt-BR') : id;
-    const dur = m.duration_min != null ? `${m.duration_min}min` : '?';
+    const dtStr = escapeHtml(dt ? dt.toLocaleString('pt-BR') : id);
+    const dur = m.duration_min != null ? `${escapeHtml(m.duration_min)}min` : '?';
 
     // Cor por speaker (estável via hash simples)
     const colorFor = (name) => {
@@ -1226,27 +1237,27 @@ async function openReuniaoDetail(id) {
     // Renderizar blocos
     const transcriptHTML = (m.blocks || []).map((b) => {
       if (b.kind === 'audio') {
-        return `<div class="tr-block tr-audio" style="border-left-color:${colorFor(b.speaker)}">
-          <div class="tr-spk" style="color:${colorFor(b.speaker)}">${escapeHTML(b.speaker)} <span class="tr-ts">${b.start_ts}</span></div>
+        return `<div class="tr-block tr-audio" style="border-left-color:${colorFor(String(b.speaker || ""))}">
+          <div class="tr-spk" style="color:${colorFor(String(b.speaker || ""))}">${escapeHTML(b.speaker)} <span class="tr-ts">${escapeHtml(b.start_ts)}</span></div>
           <div class="tr-text">${escapeHTML(b.text)}</div>
         </div>`;
       }
       if (b.kind === 'agent-chat') {
         const agent = escapeHTML(APP_CONFIG.agentName || 'Agente');
         return `<div class="tr-block tr-agent-chat">
-          <div class="tr-spk">💚 ${agent} (chat) <span class="tr-ts">${b.start_ts}</span></div>
+          <div class="tr-spk">${dsIcone('heart')} ${agent} (chat) <span class="tr-ts">${escapeHtml(b.start_ts)}</span></div>
           <div class="tr-text">${escapeHTML(b.text)}</div>
         </div>`;
       }
       if (b.kind === 'chat') {
         return `<div class="tr-block tr-chat">
-          <div class="tr-spk">💬 ${escapeHTML(b.speaker)} <span class="tr-ts">${b.start_ts}</span></div>
+          <div class="tr-spk">${dsIcone('message')} ${escapeHTML(b.speaker)} <span class="tr-ts">${escapeHtml(b.start_ts)}</span></div>
           <div class="tr-text">${escapeHTML(b.text)}</div>
         </div>`;
       }
       if (b.kind === 'tool-result' || b.kind === 'tool-call') {
         return `<div class="tr-block tr-tool">
-          <div class="tr-spk">⚙ ${b.kind} <span class="tr-ts">${b.start_ts}</span></div>
+          <div class="tr-spk">${dsIcone('settings')} ${escapeHtml(b.kind)} <span class="tr-ts">${escapeHtml(b.start_ts)}</span></div>
           <div class="tr-text">${escapeHTML(b.text)}</div>
         </div>`;
       }
@@ -1260,19 +1271,19 @@ async function openReuniaoDetail(id) {
     ).join('');
     const proxHTML = (s.proximos_passos || []).map((p) => `<li>${escapeHTML(p)}</li>`).join('');
     const campHTML = (s.campanhas || []).map((c) =>
-      `<li><strong>${escapeHTML(c.nome || '?')}</strong> <span style="color:var(--text-dim)">[${c.status || '?'}]</span>: ${escapeHTML(c.detalhe || '')}</li>`
+      `<li><strong>${escapeHTML(c.nome || '?')}</strong> <span style="color:var(--text-dim)">[${escapeHTML(String(c.status || '?'))}]</span>: ${escapeHTML(c.detalhe || '')}</li>`
     ).join('');
 
     const costRows = Object.entries(m.cost?.by_provider || {})
       .sort((a, b) => b[1] - a[1])
-      .map(([p, u]) => `<tr><td>${p}</td><td style="text-align:right">$${u.toFixed(4)}</td></tr>`).join('');
+      .map(([p, u]) => `<tr><td>${escapeHtml(p)}</td><td style="text-align:right">$${numeroSeguro(u).toFixed(4)}</td></tr>`).join('');
 
     detailEl.innerHTML = `
       <div class="reuniao-detail-head">
-        <button class="back-btn" id="back-to-list">← voltar</button>
+        <button class="back-btn" id="back-to-list">${dsIcone('arrow-left')} voltar</button>
         <div>
           <div class="reuniao-title">${dtStr}</div>
-          <div class="reuniao-sub">${dur} · modo: ${m.mode || '?'} · ${(m.participants || []).join(', ')}</div>
+          <div class="reuniao-sub">${dur} · modo: ${escapeHtml(m.mode || '?')} · ${escapeHtml((m.participants || []).join(', '))}</div>
         </div>
       </div>
 
@@ -1285,16 +1296,16 @@ async function openReuniaoDetail(id) {
 
       <div class="rt-panel active" id="rt-resumo">
         ${s.tldr ? `<div class="rt-tldr">${escapeHTML(s.tldr)}</div>` : ''}
-        ${decisoesHTML ? `<h4>📋 Decisões</h4><ul>${decisoesHTML}</ul>` : ''}
-        ${actionHTML ? `<h4>✅ Action Items</h4><ul>${actionHTML}</ul>` : ''}
-        ${proxHTML ? `<h4>🎯 Próximos Passos</h4><ul>${proxHTML}</ul>` : ''}
-        ${campHTML ? `<h4>📣 Campanhas</h4><ul>${campHTML}</ul>` : ''}
+        ${decisoesHTML ? `<h4>${dsIcone('clipboard')} Decisões</h4><ul>${decisoesHTML}</ul>` : ''}
+        ${actionHTML ? `<h4>${dsIcone('check-circle')} Action Items</h4><ul>${actionHTML}</ul>` : ''}
+        ${proxHTML ? `<h4>${dsIcone('target')} Próximos Passos</h4><ul>${proxHTML}</ul>` : ''}
+        ${campHTML ? `<h4>${dsIcone('megaphone')} Campanhas</h4><ul>${campHTML}</ul>` : ''}
       </div>
 
       <div class="rt-panel" id="rt-transcript">
         ${m.batch_text ? `
           <details open style="margin-bottom:14px">
-            <summary style="font-size:11px;color:#7ee787;cursor:pointer">📜 Transcrição oficial Scribe batch (texto contínuo, mais fiel)</summary>
+            <summary style="font-size:11px;color:#7ee787;cursor:pointer">${dsIcone('scroll')} Transcrição oficial Scribe batch (texto contínuo, mais fiel)</summary>
             <div class="rt-tldr" style="border-left-color:#7ee787;white-space:pre-wrap">${escapeHTML(m.batch_text)}</div>
           </details>` : ''}
         <div style="font-size:10px;color:var(--text-dim);margin-bottom:6px">Timeline diarizado (realtime + chat)</div>
@@ -1302,7 +1313,7 @@ async function openReuniaoDetail(id) {
       </div>
 
       <div class="rt-panel" id="rt-custos">
-        <div class="rt-total">Total: <strong>$${(m.cost?.total_usd || 0).toFixed(4)}</strong></div>
+        <div class="rt-total">Total: <strong>$${numeroSeguro(m.cost?.total_usd).toFixed(4)}</strong></div>
         <table class="rt-cost-table">
           <thead><tr><th>Provider</th><th style="text-align:right">USD</th></tr></thead>
           <tbody>${costRows || '<tr><td colspan="2">(sem custos registrados)</td></tr>'}</tbody>
@@ -1314,8 +1325,8 @@ async function openReuniaoDetail(id) {
 
       <div class="rt-panel" id="rt-audio">
         ${m.has_audio
-          ? `<audio controls src="${BASE}/api/reunioes/${m.id}/audio.wav" style="width:100%"></audio>
-             <div style="color:var(--text-dim);margin-top:8px">${(m.bytes_audio / 1024 / 1024).toFixed(1)} MB</div>`
+          ? `<audio controls src="${BASE}/api/reunioes/${encodeURIComponent(m.id)}/audio.wav" style="width:100%"></audio>
+             <div style="color:var(--text-dim);margin-top:8px">${(numeroSeguro(m.bytes_audio) / 1024 / 1024).toFixed(1)} MB</div>`
           : '(sem audio.raw)'}
       </div>
     `;
@@ -1330,12 +1341,12 @@ async function openReuniaoDetail(id) {
       });
     });
   } catch (e) {
-    detailEl.innerHTML = `<div style="color:#f88">Erro: ${e.message}</div>`;
+    detailEl.innerHTML = `<div style="color:#f88">Erro: ${escapeHtml(e.message)}</div>`;
   }
 }
 
 function escapeHTML(s) {
-  return (s || '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
 // ─── STATUS Panel ──────────────────────────────
@@ -1445,9 +1456,9 @@ function renderDestaqueSessao(s) {
 // ─── Suas rotinas (as que o dono pediu) ─────────────────────────────
 
 const RESULTADO_ROTINA = {
-  ok: { classe: 'status-ok', icone: '✓', texto: 'a última deu certo' },
-  falha: { classe: 'status-err', icone: '✕', texto: 'a última falhou' },
-  atencao: { classe: 'status-warn', icone: '!', texto: 'a última pede atenção' },
+  ok: { classe: 'status-ok', icone: dsIcone('check'), texto: 'a última deu certo' },
+  falha: { classe: 'status-err', icone: dsIcone('x'), texto: 'a última falhou' },
+  atencao: { classe: 'status-warn', icone: dsIcone('alert'), texto: 'a última pede atenção' },
 };
 
 /**
@@ -1579,9 +1590,9 @@ function renderEmotions(data) {
   // Acontecimentos recentes
   const eventsHtml = achatarEventos(recentEvents).reverse().slice(0, 12).map(e => {
     const tipo = e.type || '';
-    const icon = /positiv|success|elogio/.test(tipo) ? '<span class="status-ok">♥</span>' :
-                 /negativ|error|fail|falh/.test(tipo) ? '<span class="status-err">✕</span>' :
-                 '<span class="status-warn">★</span>';
+    const icon = /positiv|success|elogio/.test(tipo) ? `<span class="status-ok">${dsIcone('heart')}</span>` :
+                 /negativ|error|fail|falh/.test(tipo) ? `<span class="status-err">${dsIcone('x')}</span>` :
+                 `<span class="status-warn">${dsIcone('star')}</span>`;
     const vezes = e.count > 1 ? ` <span style="color:var(--fraco)">(${e.count}x)</span>` : '';
     return `<div>${icon} ${escapeHtml(EVENTO_LABELS[tipo] || tipo.replace(/_/g, ' '))}${vezes} ` +
       `<span style="color:var(--fraco)">${formatDate(e.timestamp)}</span></div>`;
@@ -1640,7 +1651,7 @@ function renderThoughts(data) {
   const metas = goals.shortTerm || [];
   let goalsHtml = metas.slice(0, 8).map((g) => {
     const feita = typeof g === 'object' && g && (g.progress || 0) >= 100;
-    const icon = feita ? '<span class="check">☑</span>' : '<span class="uncheck">☐</span>';
+    const icon = feita ? `<span class="check">${dsIcone('check-square')}</span>` : `<span class="uncheck">${dsIcone('square')}</span>`;
     return `<div class="goal-item">${icon} ${ricoLinhaCurta(textoDoItem(g), 200)}</div>`;
   }).join('');
   if (metas.length > 8) goalsHtml += `<div class="vazio-util">+ ${metas.length - 8} que não couberam aqui.</div>`;
@@ -1660,9 +1671,9 @@ async function loadPosts() {
 
   if (stats) {
     document.getElementById('posts-stats').innerHTML = `
-      <div class="stat-block"><div class="stat-val">${stats.total}</div><div class="stat-label">TOTAL POSTS</div></div>
-      <div class="stat-block"><div class="stat-val">${stats.today}</div><div class="stat-label">HOJE</div></div>
-      <div class="stat-block"><div class="stat-val">${stats.streak}</div><div class="stat-label">STREAK (DIAS)</div></div>
+      <div class="stat-block"><div class="stat-val">${numeroSeguro(stats.total)}</div><div class="stat-label">TOTAL POSTS</div></div>
+      <div class="stat-block"><div class="stat-val">${numeroSeguro(stats.today)}</div><div class="stat-label">HOJE</div></div>
+      <div class="stat-block"><div class="stat-val">${numeroSeguro(stats.streak)}</div><div class="stat-label">STREAK (DIAS)</div></div>
     `;
     document.getElementById('ft-posts').textContent = stats.today + '/' + 3;
   }
@@ -1680,15 +1691,15 @@ async function loadPosts() {
 }
 
 function renderPostsTable(posts) {
-  const typeIcons = { foto: '📷', carrossel: '📚', reels: '🎬', video: '🎬', carousel: '📚' };
+  const typeIcons = { foto: 'camera', carrossel: 'layers', reels: 'film', video: 'film', carousel: 'layers' };
   const tbody = document.getElementById('posts-table');
   tbody.innerHTML = (posts || []).map(p => {
     const status = (p.status || '').toLowerCase();
     const ok = status.includes('publicado') || status.includes('ok') || status.includes('published');
-    const icon = ok ? '<span class="status-ok">✓</span>' : '<span class="status-err">✕</span>';
+    const icon = ok ? `<span class="status-ok">${dsIcone('check')}</span>` : `<span class="status-err">${dsIcone('x')}</span>`;
     const type = (p.type || 'foto').toLowerCase();
-    const typeIcon = typeIcons[type] || '📷';
-    const link = p.postUrl ? `<a href="${escapeHtml(p.postUrl)}" target="_blank" style="color:var(--cyan);text-decoration:none">🔗</a>` : '--';
+    const typeIcon = dsIcone(typeIcons[type] || 'camera');
+    const link = p.postUrl ? `<a href="${escapeHtml(p.postUrl)}" target="_blank" style="color:var(--cyan);text-decoration:none" aria-label="Abrir o post">${dsIcone('link')}</a>` : '--';
     return `<tr>
       <td>${icon}</td>
       <td>${escapeHtml(p.date || '')}</td>
@@ -1711,11 +1722,11 @@ async function loadFollowers() {
   if (stats) {
     const { tiers, total } = stats;
     document.getElementById('followers-stats').innerHTML = `
-      <div class="stat-block"><div class="stat-val">${total}</div><div class="stat-label">TOTAL</div></div>
-      <div class="stat-block"><div class="stat-val">${tiers.close || 0}</div><div class="stat-label">❤️ CLOSE</div></div>
-      <div class="stat-block"><div class="stat-val">${tiers.regular || 0}</div><div class="stat-label">⭐ REGULAR</div></div>
-      <div class="stat-block"><div class="stat-val">${tiers.returning || 0}</div><div class="stat-label">⚔️ RETURNING</div></div>
-      <div class="stat-block"><div class="stat-val">${tiers.newcomer || 0}</div><div class="stat-label">🛡️ NEWCOMER</div></div>
+      <div class="stat-block"><div class="stat-val">${numeroSeguro(total)}</div><div class="stat-label">TOTAL</div></div>
+      <div class="stat-block"><div class="stat-val">${numeroSeguro(tiers.close)}</div><div class="stat-label">${dsIcone('heart')} CLOSE</div></div>
+      <div class="stat-block"><div class="stat-val">${numeroSeguro(tiers.regular)}</div><div class="stat-label">${dsIcone('star')} REGULAR</div></div>
+      <div class="stat-block"><div class="stat-val">${numeroSeguro(tiers.returning)}</div><div class="stat-label">${dsIcone('sword')} RETURNING</div></div>
+      <div class="stat-block"><div class="stat-val">${numeroSeguro(tiers.newcomer)}</div><div class="stat-label">${dsIcone('shield')} NEWCOMER</div></div>
     `;
   }
 
@@ -1724,7 +1735,7 @@ async function loadFollowers() {
 
 function renderFollowers(data) {
   const topFollowers = data.top_followers || [];
-  const tierIcons = { close: '❤️', regular: '⭐', returning: '⚔️', newcomer: '🛡️', negative: '💀' };
+  const tierIcons = { close: 'heart', regular: 'star', returning: 'sword', newcomer: 'shield', negative: 'skull' };
   const grid = document.getElementById('followers-grid');
 
   // Also show the creator (owner) card
@@ -1733,14 +1744,14 @@ function renderFollowers(data) {
     const d = data.agent_owner;
     const creator = (APP_CONFIG.creatorName || 'Dono').toUpperCase();
     html += `<div class="follower-card" style="border-color:var(--green)">
-      <div class="fc-name">👑 ${escapeHtml(creator)} (Criador)</div>
-      <div class="fc-tier">Trust: ${d.trust_level || 95}%</div>
+      <div class="fc-name">${dsIcone('crown')} ${escapeHtml(creator)} (Criador)</div>
+      <div class="fc-tier">Trust: ${numeroSeguro(d.trust_level, 95) || 95}%</div>
       <div class="fc-detail">${escapeHtml(d.dynamic || '')}</div>
     </div>`;
   }
 
   html += topFollowers.map(f => {
-    const icon = tierIcons[f.tier] || '🛡️';
+    const icon = dsIcone(tierIcons[f.tier] || 'shield');
     const sentiment = (f.sentiment || '').toLowerCase();
     const sentColor = sentiment.includes('positiv') ? 'var(--green)' : sentiment.includes('negativ') ? 'var(--red)' : 'var(--yellow)';
     return `<div class="follower-card">
@@ -1767,18 +1778,18 @@ async function loadMemory() {
   const item = (caminho, icone, nome, f, dica) => `<button type="button" class="memory-item" data-path="${escapeHtml(caminho)}" title="${escapeHtml(dica)}">
       <span class="mi-icon" aria-hidden="true">${icone}</span>
       <span class="mi-name">${escapeHtml(nome)}</span>
-      <span class="mi-size">${(f.size / 1024).toFixed(1).replace('.', ',')} KB</span>
+      <span class="mi-size">${(numeroSeguro(f.size) / 1024).toFixed(1).replace('.', ',')} KB</span>
       <span class="mi-date">${formatDate(f.modified)}</span>
     </button>`;
 
   let html = '';
   if (data.main && data.main.modified) {
-    html += item('MEMORY.md', '📜', 'MEMORY.md, a memória longa', data.main,
+    html += item('MEMORY.md', dsIcone('scroll'), 'MEMORY.md, a memória longa', data.main,
       'Os fatos que ficam: uma linha por coisa importante, com o link para o diário do dia. Clique para ler e editar.');
   }
   for (const f of data.files || []) {
     const isDate = /^\d{4}-\d{2}-\d{2}\.md$/.test(f.name);
-    const icon = isDate ? '📅' : (f.name.endsWith('.json') ? '💎' : '📖');
+    const icon = dsIcone(isDate ? 'calendar' : (f.name.endsWith('.json') ? 'gem' : 'book'));
     const nome = isDate ? `${f.name.slice(8, 10)}/${f.name.slice(5, 7)}/${f.name.slice(0, 4)}, diário` : f.name;
     const dica = isDate ? 'O diário que a reflexão da noite escreveu sobre este dia.' : 'Um assunto que ele separou num arquivo próprio.';
     html += item(`memory/${f.name}`, icon, nome, f, dica);
@@ -1945,12 +1956,12 @@ async function loadIdentity() {
   // compartilhado. Antes cada um abria embaixo do título em letra de 8px, sem
   // botão de editar, com o tutorial prometendo "edite ali mesmo".
   const files = [
-    { name: 'SOUL.md', icon: '🔥', dica: 'A alma dele: o jeito de ser e de falar.' },
-    { name: 'IDENTITY.md', icon: '👤', dica: 'O nome, o papel e o que ele faz para você.' },
-    { name: 'PERSONALITY.md', icon: '🧠', dica: 'Os traços de personalidade, em números e em palavras.' },
-    { name: 'CREATOR.md', icon: '🤝', dica: 'O que ele sabe sobre você, o dono.' },
-    { name: 'ETHICS.md', icon: '⚖️', dica: 'O código de ética. Só leitura: ele protege você e quem fala com ele.' },
-    { name: 'LAWS.md', icon: '📜', dica: 'As leis que ele nunca quebra. Só leitura, por desenho.' },
+    { name: 'SOUL.md', icon: 'flame', dica: 'A alma dele: o jeito de ser e de falar.' },
+    { name: 'IDENTITY.md', icon: 'user', dica: 'O nome, o papel e o que ele faz para você.' },
+    { name: 'PERSONALITY.md', icon: 'brain', dica: 'Os traços de personalidade, em números e em palavras.' },
+    { name: 'CREATOR.md', icon: 'users', dica: 'O que ele sabe sobre você, o dono.' },
+    { name: 'ETHICS.md', icon: 'scale', dica: 'O código de ética. Só leitura: ele protege você e quem fala com ele.' },
+    { name: 'LAWS.md', icon: 'scroll', dica: 'As leis que ele nunca quebra. Só leitura, por desenho.' },
   ];
   // Arquivo que este agente não tem não aparece: um cartão que abre em "não achei"
   // ensina a pessoa a desconfiar da tela.
@@ -1964,9 +1975,9 @@ async function loadIdentity() {
     return;
   }
   el.innerHTML = `<div class="memory-list">${existentes.map((f) => `<button type="button" class="memory-item" data-path="${f.name}" title="${escapeHtml(f.dica)}">
-      <span class="mi-icon" aria-hidden="true">${f.icon}</span>
+      <span class="mi-icon" aria-hidden="true">${dsIcone(f.icon)}</span>
       <span class="mi-name">${f.name}<small class="mi-dica">${escapeHtml(f.dica)}</small></span>
-      <span class="mi-date">abrir →</span>
+      <span class="mi-date">abrir ${dsIcone('arrow-right')}</span>
     </button>`).join('')}</div>`;
   el.querySelectorAll('[data-path]').forEach((b) => b.addEventListener('click', () => window.DGLeitor.abrir(b.dataset.path)));
 }
@@ -2398,7 +2409,7 @@ async function initPowers() {
       if (!tab.querySelector('.lock')) {
         const lock = document.createElement('span');
         lock.className = 'lock';
-        lock.textContent = '🔒';
+        lock.innerHTML = dsIcone('lock');
         tab.insertBefore(lock, tab.firstChild);
       }
       const label = POWER_LABELS[power] || power;
@@ -2407,12 +2418,62 @@ async function initPowers() {
   });
 }
 
+// ─── Estado "carregando" (só sob a plataforma) ──────
+// O servidor entrega o HTML com <html class="casca carregando"> (lib/html-template.js): o painel fica escondido,
+// atrás de uma marcação neutra, até a aba inicial estar aberta (css/main.css). Há três saídas, e nenhuma deixa a
+// tela presa: a aba abriu (init), o init falhou (falhaNoBoot) ou passou de 8 segundos (script no index.html).
+function sairDoCarregando() {
+  document.documentElement.classList.remove('carregando');
+}
+
+function falhaNoBoot(e) {
+  const motivo = (e && e.message) || String(e);
+  console.error(`[painel] não consegui abrir a tela. Motivo: ${motivo}`, e);
+  sairDoCarregando();
+  const aviso = document.createElement('div');
+  aviso.className = 'erro-boot';
+  aviso.setAttribute('role', 'alert');
+  const titulo = document.createElement('b');
+  titulo.textContent = 'Não consegui abrir esta página do painel.';
+  aviso.append(titulo, `O que aconteceu: ${motivo}. O que fazer: recarregue a página. Se o aviso voltar, peça ao Admin do seu DG Claw para conferir se o painel deste agente está de pé.`);
+  const lugar = document.querySelector('main.content') || document.body;
+  lugar.insertBefore(aviso, lugar.firstChild);
+}
+
+// Monta o cabeçalho e o menu da casca na hora, sem esperar /api/config nem /api/powers: dependem só do DOM e do
+// #aba= da URL. Os itens extras do menu (poderes) esperam o initPowers (ligaExtrasDaCasca).
+function montaCascaCedo(abaInicial) {
+  if (!NA_PLATAFORMA) return false;
+  if (!window.DGCasca) {
+    // Sem a casca o menu antigo precisa aparecer: tira as classes que o escondem.
+    document.documentElement.classList.remove('casca', 'carregando');
+    console.warn('[painel] a casca da Conversa (/casca.js) não carregou: o painel usa o menu antigo. Confira se o Web serve /casca.js.');
+    return false;
+  }
+  const bi = document.querySelector(`.tab[data-tab="${abaInicial}"]`);
+  window.DGCasca.monta({ pagina: abaInicial, titulo: bi ? rotuloDaAba(bi) : '', aoTutorial: tutorialDaCasca });
+  moveEstadoParaConteudo();
+  return true;
+}
+
+function ligaExtrasDaCasca() {
+  sincronizaCasca();
+  // Sessões e os poderes aparecem e somem depois do boot: o menu acompanha as abas
+  const tabs = document.getElementById('tabs');
+  if (tabs && window.MutationObserver) {
+    new MutationObserver(sincronizaCasca).observe(tabs, { attributes: true, subtree: true, attributeFilter: ['hidden', 'class'] });
+  }
+}
+
 // ─── Init ──────────────────────────────────────
 
 (async function init() {
-  // Config + powers ANTES de tudo (branding, sprites, abas travadas).
-  await initConfig();
-  await initPowers();
+  const abaInicial = NA_PLATAFORMA ? abaInicialDaPlataforma() : 'conversa';
+  // Cabeçalho e menu reais primeiro, antes de qualquer espera de rede.
+  const comCasca = montaCascaCedo(abaInicial);
+  // Config + powers ANTES de tudo (branding, sprites, abas travadas). Um não usa o resultado do outro:
+  // vão juntos.
+  await Promise.all([initConfig(), initPowers()]);
   // Depois do initPowers, que é quem decide quais abas estão travadas.
   aplicarTooltipsDasAbas();
   ligarLinksEntreAbas();
@@ -2421,21 +2482,8 @@ async function initPowers() {
   // cabeçalho precisa nascer apontando para ela. Sem esta linha ele só apareceria
   // depois da primeira troca de aba, e quem entrasse e ficasse na Conversa nunca
   // veria que existe visita guiada.
-  const abaInicial = NA_PLATAFORMA ? abaInicialDaPlataforma() : 'conversa';
   atualizarBotaoTutorial(abaInicial);
-  if (NA_PLATAFORMA && window.DGCasca) {
-    const bi = document.querySelector(`.tab[data-tab="${abaInicial}"]`);
-    window.DGCasca.monta({ pagina: abaInicial, titulo: bi ? rotuloDaAba(bi) : '', aoTutorial: tutorialDaCasca });
-    moveEstadoParaConteudo();
-    sincronizaCasca();
-    // Sessões e os poderes aparecem e somem depois do boot: o menu acompanha as abas
-    const tabs = document.getElementById('tabs');
-    if (tabs && window.MutationObserver) {
-      new MutationObserver(sincronizaCasca).observe(tabs, { attributes: true, subtree: true, attributeFilter: ['hidden', 'class'] });
-    }
-  } else if (NA_PLATAFORMA) {
-    console.warn('[painel] a casca da Conversa (/casca.js) não carregou: o painel usa o menu antigo. Confira se o Web serve /casca.js.');
-  }
+  if (comCasca) ligaExtrasDaCasca();
 
   // A saúde começa ANTES da conversa: é ela que decide se a faixa de aviso aparece
   // e, com ela, se o botão "acordar" fica ou sai. Não espero: a conversa não depende.
@@ -2445,12 +2493,16 @@ async function initPowers() {
   if (NA_PLATAFORMA) {
     // A conversa fica no chat: aqui a tela de entrada é a aba pedida no link, ou status.
     const botaoInicial = document.querySelector(`.tab[data-tab="${abaInicial}"]`);
+    let aberta = null;
     if (botaoInicial && botaoInicial.classList.contains('locked')) {
       console.warn(`[painel] aba "${abaInicial}" travada (poder não instalado). Abrindo status.`);
-      abrirAba('status', document.querySelector('.tab[data-tab="status"]'));
+      aberta = abrirAba('status', document.querySelector('.tab[data-tab="status"]'));
     } else if (botaoInicial) {
-      abrirAba(abaInicial, botaoInicial);
+      aberta = abrirAba(abaInicial, botaoInicial);
     }
+    // Sai do "carregando" quando a aba inicial terminou de carregar, sem segurar o resto do boot.
+    // Se a leitura da aba falhar, a própria aba mostra a causa; a tela não fica escondida por isso.
+    Promise.resolve(aberta).catch((e) => console.error(`[painel] a aba inicial não terminou de carregar: ${(e && e.message) || e}`, e)).finally(sairDoCarregando);
   } else {
     await loadPanel('conversa');
   }
@@ -2491,16 +2543,16 @@ async function initPowers() {
   // Costs panel listeners
   document.getElementById('costs-refresh')?.addEventListener('click', () => loadCosts(true));
   document.getElementById('costs-hours')?.addEventListener('change', () => loadCostsExecutions());
-})();
+})().catch(falhaNoBoot);
 
 // ─── COSTS Panel ───────────────────────────────
 
 const CATEGORY_LABELS = {
-  'crons': '🟦 Crons',
-  'dm': '🟪 DM',
-  'webhook': '🟧 Webhook',
-  'heartbeat': '🟩 Heartbeat',
-  'outro': '⬜ Outro',
+  'crons': 'Crons',
+  'dm': 'DM',
+  'webhook': 'Webhook',
+  'heartbeat': 'Heartbeat',
+  'outro': 'Outro',
 };
 
 function fmtUSD(n) {
@@ -2544,10 +2596,10 @@ async function loadCosts(force) {
       </div>
       ${barraHtml}
       <div style="margin-top:8px;display:flex;gap:18px;flex-wrap:wrap">
-        <span>Hoje: <strong>${fmtUSD(o.today.total)}</strong> <span style="color:var(--text-dim)">(${o.today.executions} exec)</span></span>
+        <span>Hoje: <strong>${fmtUSD(o.today.total)}</strong> <span style="color:var(--text-dim)">(${numeroSeguro(o.today.executions)} exec)</span></span>
         <span>Ontem: <strong>${fmtUSD(o.yesterday.total)}</strong></span>
         <span>7d: <strong>${fmtUSD(o.week.total)}</strong></span>
-        <span style="color:var(--text-dim)">Total exec mês: ${o.month.executions}</span>
+        <span style="color:var(--text-dim)">Total exec mês: ${numeroSeguro(o.month.executions)}</span>
       </div>
     </div>
   `;
@@ -2566,11 +2618,11 @@ async function loadCosts(force) {
       const label = CATEGORY_LABELS[cat] || cat;
       return `
         <div style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:4px">
-          <span style="min-width:200px">${label}</span>
+          <span style="min-width:200px">${escapeHtml(label)}</span>
           <div class="rpg-bar-track" style="flex:1;max-width:300px;height:10px">
             <div class="rpg-bar-fill green" style="width:${catPct}%"></div>
           </div>
-          <span style="min-width:80px;text-align:right">${fmtUSD(v.cost)} <span style="color:var(--text-dim)">(${v.executions})</span></span>
+          <span style="min-width:80px;text-align:right">${fmtUSD(v.cost)} <span style="color:var(--text-dim)">(${numeroSeguro(v.executions)})</span></span>
         </div>
       `;
     }).join('');
@@ -2586,7 +2638,7 @@ async function loadCosts(force) {
         ${o.topCrons.map(r => `
           <tr>
             <td>${escapeHtml(r.cron)}</td>
-            <td>${r.executions}</td>
+            <td>${numeroSeguro(r.executions)}</td>
             <td>${fmtUSD(r.cost)}</td>
             <td>${fmtUSD4(r.cost / Math.max(1, r.executions))}</td>
           </tr>
@@ -2612,14 +2664,14 @@ async function loadCostsExecutions() {
     const cost = Number(e.total_cost_usd) || 0;
     const costColor = cost > 1 ? 'var(--red)' : cost > 0.3 ? 'var(--yellow)' : 'var(--text)';
     return `
-      <tr style="cursor:pointer" onclick="openExecutionDetail('${e.session_id}')">
+      <tr style="cursor:pointer" data-sid="${escapeHtml(e.session_id)}" onclick="openExecutionDetail(this.dataset.sid)">
         <td style="font-size:12px">${formatDate(e.timestamp)}</td>
         <td>${escapeHtml(e.cron || '?')}</td>
         <td style="color:var(--text-dim);font-size:12px">${escapeHtml(e.tag || '')}</td>
         <td style="font-size:12px">${escapeHtml(e.model || '?')}</td>
-        <td>${e.num_turns || '--'}</td>
+        <td>${escapeHtml(e.num_turns || '--')}</td>
         <td style="font-size:12px">${fmtDur(e.duration_ms)}</td>
-        <td style="color:${costColor};font-weight:bold">${fmtUSD4(cost)}${e.is_error ? ' ⚠️' : ''}</td>
+        <td style="color:${costColor};font-weight:bold">${fmtUSD4(cost)}${e.is_error ? ' '+dsIcone('alert') : ''}</td>
       </tr>
     `;
   }).join('');
@@ -2634,7 +2686,7 @@ async function openExecutionDetail(sessionId) {
 
   const modelUsageHtml = Object.entries(modelUsage).map(([m, v]) => `
     <div style="font-size:12px;margin-bottom:4px">
-      <strong>${escapeHtml(m)}:</strong> cost=${fmtUSD4(v.costUSD)} | in=${v.inputTokens || 0} | out=${v.outputTokens || 0} | cache_read=${(v.cacheReadInputTokens || 0).toLocaleString()} | cache_create=${(v.cacheCreationInputTokens || 0).toLocaleString()}
+      <strong>${escapeHtml(m)}:</strong> cost=${fmtUSD4(v.costUSD)} | in=${numeroSeguro(v.inputTokens)} | out=${numeroSeguro(v.outputTokens)} | cache_read=${numeroSeguro(v.cacheReadInputTokens).toLocaleString()} | cache_create=${numeroSeguro(v.cacheCreationInputTokens).toLocaleString()}
     </div>
   `).join('');
 
@@ -2642,20 +2694,20 @@ async function openExecutionDetail(sessionId) {
   document.getElementById('modal-body').innerHTML = `
     <div style="font-size:13px;line-height:1.7">
       <div><strong>Custo:</strong> ${fmtUSD4(detail.total_cost_usd)}</div>
-      <div><strong>Modelo:</strong> ${detail.model} | <strong>Turns:</strong> ${detail.num_turns} | <strong>Duração:</strong> ${fmtDur(detail.duration_ms)}</div>
-      <div><strong>Session:</strong> <code style="font-size:12px">${detail.session_id || '?'}</code></div>
+      <div><strong>Modelo:</strong> ${escapeHtml(detail.model)} | <strong>Turns:</strong> ${escapeHtml(detail.num_turns)} | <strong>Duração:</strong> ${fmtDur(detail.duration_ms)}</div>
+      <div><strong>Session:</strong> <code style="font-size:12px">${escapeHtml(detail.session_id || '?')}</code></div>
       <div><strong>Tag:</strong> ${escapeHtml(detail.tag || '--')}</div>
-      ${detail.is_error ? '<div style="color:var(--red)"><strong>⚠️ ERROR</strong></div>' : ''}
+      ${detail.is_error ? `<div style="color:var(--red)"><strong>${dsIcone('alert')} ERROR</strong></div>` : ''}
 
-      <div style="margin-top:12px"><strong>📥 Cache read:</strong> ${(usage.cache_read_input_tokens || 0).toLocaleString()} tokens</div>
-      <div><strong>🆕 Cache create:</strong> ${(usage.cache_creation_input_tokens || 0).toLocaleString()} tokens</div>
-      <div><strong>📤 Output:</strong> ${(usage.output_tokens || 0).toLocaleString()} tokens</div>
-      <div><strong>↪️ Input direto:</strong> ${(usage.input_tokens || 0).toLocaleString()} tokens</div>
+      <div style="margin-top:12px"><strong>${dsIcone('download')} Cache read:</strong> ${numeroSeguro(usage.cache_read_input_tokens).toLocaleString()} tokens</div>
+      <div><strong>${dsIcone('sparkle')} Cache create:</strong> ${numeroSeguro(usage.cache_creation_input_tokens).toLocaleString()} tokens</div>
+      <div><strong>${dsIcone('upload')} Output:</strong> ${numeroSeguro(usage.output_tokens).toLocaleString()} tokens</div>
+      <div><strong>${dsIcone('reply')} Input direto:</strong> ${numeroSeguro(usage.input_tokens).toLocaleString()} tokens</div>
 
       ${modelUsageHtml ? `<div style="margin-top:12px"><strong>Breakdown por modelo:</strong></div>${modelUsageHtml}` : ''}
 
       <div style="margin-top:14px">
-        <button class="tab haiku-analysis-btn" onclick="runHaikuAnalysis('${detail.session_id}')">🤖 ANÁLISE HAIKU</button>
+        <button class="tab haiku-analysis-btn" data-sid="${escapeHtml(detail.session_id)}" onclick="runHaikuAnalysis(this.dataset.sid)">${dsIcone('bot')} ANÁLISE HAIKU</button>
         <span style="font-size:12px;color:var(--text-dim);margin-left:8px">(~$0.005, sob demanda)</span>
       </div>
       <div id="haiku-analysis-out" style="margin-top:12px"></div>
@@ -2680,10 +2732,10 @@ async function runHaikuAnalysis(sessionId) {
   const a = result.analysis;
   out.innerHTML = `
     <div style="background:var(--bg-card);border:2px solid var(--border);padding:10px;font-size:13px;line-height:1.7">
-      <div style="font-weight:bold;margin-bottom:6px">🤖 ANÁLISE HAIKU</div>
+      <div style="font-weight:bold;margin-bottom:6px">${dsIcone('bot')} ANÁLISE HAIKU</div>
       <div><strong>Resumo:</strong> ${ricoLinha(a.summary || '--')}</div>
       <div style="margin-top:6px"><strong>Onde foi o dinheiro:</strong> ${ricoLinha(a.where_money_went || '--')}</div>
-      <div style="margin-top:6px"><strong>Eficiência:</strong> ${a.efficiency || '--'}/10 <span style="color:var(--text-dim)">${ricoLinha(a.efficiency_reason || '')}</span></div>
+      <div style="margin-top:6px"><strong>Eficiência:</strong> ${escapeHtml(a.efficiency || '--')}/10 <span style="color:var(--text-dim)">${ricoLinha(a.efficiency_reason || '')}</span></div>
       <div style="margin-top:6px"><strong>Sugestões:</strong></div>
       <ul style="margin:4px 0 0 16px">${(a.suggestions || []).map(s => `<li>${ricoLinha(s)}</li>`).join('')}</ul>
       <div style="margin-top:8px;color:var(--text-dim);font-size:12px">Transcript ${result.transcript_found ? 'encontrado' : 'não encontrado'} · análise baseada ${result.transcript_found ? 'em transcript + métricas' : 'só em métricas'}</div>
@@ -2825,7 +2877,7 @@ function htmlSeletorLocal(agentes) {
     // Sem painel instalado nao ha pra onde ir: mostramos o agente, mas sem link morto.
     return (a.atual || !a.url)
       ? `<span class="item"${a.atual ? '' : ' style="opacity:.6"'}>${miolo}</span>`
-      : `<a href="${a.url}" target="_blank" rel="noopener">${miolo}</a>`;
+      : `<a href="${escapeHtml(a.url)}" target="_blank" rel="noopener">${miolo}</a>`;
   }).join('') +
   '<span class="item vazio">Cada agente tem o painel dele, numa porta própria. Abrir outro não desliga este.</span>';
 }

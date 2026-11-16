@@ -1,4 +1,5 @@
 'use strict';
+require('./_ds-stub');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -16,7 +17,7 @@ test('rótulo do estado cobre todos os casos', () => {
   assert.equal(M.rotuloEstado({ ...base, estado: 'travada' }).texto, 'travada');
   assert.equal(M.rotuloEstado({ ...base, estado: 'esperando_dono' }).texto, 'esperando você');
   assert.equal(M.rotuloEstado({ ...base, estado: 'esperando_danilo' }).texto, 'esperando você');
-  assert.equal(M.rotuloEstado({ ...base, estado: 'concluida' }).texto, 'concluída ✓');
+  assert.equal(M.rotuloEstado({ ...base, estado: 'concluida' }).texto, 'concluída');
   assert.equal(M.rotuloEstado({ ...base, estado: 'cancelada' }).texto, 'cancelada');
 });
 
@@ -120,7 +121,7 @@ test('mesa.html: ordem dos scripts, casca no lugar do cabeçalho antigo e o Quad
 
 test('o menu da conversa tem o item Mesa de tarefas', () => {
   // o menu é o da casca (uma fonte só); a conversa.html monta ele pelo ponto de montagem
-  assert.match(require('../public/casca').MARCACAO_MENU, /<a class="ml-tab" href="\/mesa"><span class="ml-ico" aria-hidden="true">▦<\/span>Mesa de tarefas<\/a>/);
+  assert.match(require('../public/casca').MARCACAO_MENU, /<a class="ml-tab" href="\/mesa"><span class="ml-ico" aria-hidden="true"><svg class="ds-ico" aria-hidden="true"><use href="\/ds\/icones.svg#i-board"\/><\/svg><\/span>Mesa de tarefas<\/a>/);
 });
 
 const filtroVazio = () => ({ estado: new Set(), agente: new Set(), tipo: new Set(), q: '' });

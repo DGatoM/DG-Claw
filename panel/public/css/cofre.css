@@ -72,7 +72,7 @@
 }
 
 .cofre-onde { margin: -6px 0 14px; overflow-wrap: anywhere; }
-.cofre-onde a { color: var(--acento1); }
+.cofre-onde a { color: var(--acento-texto); }
 
 .cofre-botoes { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 
@@ -81,7 +81,7 @@
  * credencial e reiniciar o agente. Quando a segunda aparecer, ele sobe. */
 .btn-principal {
   font: inherit; font-size: 13px; cursor: pointer; line-height: 1;
-  border: 1px solid var(--acento1); background: var(--acento1); color: #fff;
+  border: 1px solid var(--acento1); background: var(--botao-fundo); color: var(--botao-texto);
   border-radius: 9px; padding: 0 16px; min-height: 38px;
   display: inline-flex; align-items: center; justify-content: center;
 }

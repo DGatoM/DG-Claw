@@ -1,0 +1,6 @@
+#formato: xlsx
+Matrícula | Nome do funcionário | CPF | Celular | Banco/Agência | Conta | Endereço | Salário
+[[!:1001]] | [[PESSOA:Hugo Siqueira Bernardes]] | [[CPF:${CPF_A_RAW}]] | [[TELEFONE:11988776655]] | [[AGENCIA:0012]] | [[CONTA:445566-7]] | [[ENDERECO:Rua Itapeva, 500, Bela Vista, São Paulo/SP]] | [[VALOR:R$ 4.100,00]]
+[[!:1002]] | [[PESSOA:MIRIAN ALVES CARDOSO]] | [[CPF:${CPF_B}]] | [[TELEFONE:(11) 97766-5544]] | [[AGENCIA:0345]] | [[CONTA:778899-0]] | [[ENDERECO:Alameda Santos, 1200, Cerqueira César, São Paulo/SP]] | [[VALOR:R$ 5.250,00]]
+[[!:1003]] | [[PESSOA:Josué de Lima Barros]] | [[CPF:${CPF_C_RAW}]] | [[TELEFONE:+55 11 96655-4433]] | [[AGENCIA:0678]] | [[CONTA:112233-4]] | [[ENDERECO:Rua Vergueiro, 3000, Vila Mariana, São Paulo/SP]] | [[VALOR:R$ 3.980,00]]
+Empresa: [[EMPRESA:Brasilar Climatização Ltda]] | CNPJ [[CNPJ:${CNPJ_C}]] | folha de [[!:setembro de 2026]]

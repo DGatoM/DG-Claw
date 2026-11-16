@@ -5,7 +5,8 @@
  * vai usar. O agente usa depois esse mesmo Chrome já logado, por CDP, e a senha do dono
  * nunca passa pela conversa.
  *
- *   GET /api/tela             status: { ok, instalada, senha_definida, cdp, url_externa, caminho_websockify }
+ *   GET /api/tela             status: { ok, instalada, senha_definida, vnc, cdp, navegador, url_externa, caminho_websockify,
+ *                                       problemas: [{ codigo, nivel, texto, como_resolver }] }
  *   PUT /api/tela/senha       { senha } grava o rfbauth (só humano: chave de API recebe 403)
  *   GET /tela/novnc/*         os arquivos do noVNC, buscados por HTTP em DGCLAW_TELA_NOVNC
  *   WS  /tela/websockify      o WebSocket do noVNC, repassado em bytes crus (server.on('upgrade'))
@@ -20,6 +21,10 @@
  *   DGCLAW_TELA_SENHA_ARQUIVO   /home/agente/.dgclaw/tela/vnc.senha  o rfbauth do x11vnc
  *   DGCLAW_TELA_URL_EXTERNA     (vazia)  endereço alternativo, para quando a fachada não deixa o WebSocket passar
  *   DGCLAW_TELA_CDP             127.0.0.1:9222  só para o status ("o navegador respondeu?")
+ *   DGCLAW_TELA_VNC             127.0.0.1:5901  só para o status ("o x11vnc está de pé?")
+ *   DGCLAW_TELA_UNIDADE         /etc/systemd/system/multi-user.target.wants/dgclaw-tela-vnc.service  só para o status
+ *                               ("esta imagem tem a Tela ligada?"); o diagnóstico só olha isto quando o noVNC não responde
+ *   DGCLAW_TELA_CHROME          /usr/bin/google-chrome-stable  só para o status ("o navegador é o Chrome ou o Chromium?")
  *
  * Quem reinicia o x11vnc depois da troca de senha NÃO é o painel: uma unidade .path do container
  * observa o arquivo. O painel só grava.
@@ -34,6 +39,9 @@ const { validarSenha, gravarRfbauth } = require('./tela-senha');
 const PADRAO_NOVNC = '127.0.0.1:6080';
 const PADRAO_SENHA = '/home/agente/.dgclaw/tela/vnc.senha';
 const PADRAO_CDP = '127.0.0.1:9222';
+const PADRAO_VNC = '127.0.0.1:5901';
+const PADRAO_UNIDADE = '/etc/systemd/system/multi-user.target.wants/dgclaw-tela-vnc.service';
+const PADRAO_CHROME = '/usr/bin/google-chrome-stable';
 const SONDA_MS = 2000;
 const CONEXAO_MS = 5000;
 
@@ -81,6 +89,70 @@ function sondar(destino, caminho, soStatus) {
   });
 }
 
+/** Abre uma conexão TCP e fecha; resolve true se alguém atendeu. */
+function sondarTcp(destino) {
+  return new Promise((resolve) => {
+    const s = net.connect({ host: destino.host, port: destino.port });
+    const fim = (v) => { s.destroy(); resolve(v); };
+    s.setTimeout(SONDA_MS, () => fim(false));
+    s.on('connect', () => fim(true));
+    s.on('error', () => fim(false));
+  });
+}
+
+/**
+ * A conferência em linguagem de dono. Cada problema diz o que houve e o que fazer; quem está
+ * dentro do painel não sabe o nome do agente nem tem terminal, então o caminho é sempre o painel
+ * ou "peça ao Admin".
+ * @param {object} e  { unidades, instalada, senha, vnc, cdp, chromeExiste }  (null = não consegui ver)
+ */
+function montarProblemas(e) {
+  const p = [];
+  if (!e.instalada && !e.unidades) {
+    p.push({
+      codigo: 'sem-navegador', nivel: 'erro',
+      texto: 'Este agente foi criado com uma imagem sem a Tela, então ele não tem navegador para você abrir.',
+      como_resolver: 'Peça ao Admin para reconstruir a imagem com navegador e recriar este agente (dgclaw imagem construir --agora e depois dgclaw agente recriar <nome do agente>). A casa e as conversas dele não são tocadas.',
+    });
+    return p;
+  }
+  if (!e.instalada) {
+    p.push({
+      codigo: 'websockify-parado', nivel: 'erro',
+      texto: 'O serviço que leva a tela até o painel (noVNC/websockify) não está respondendo.',
+      como_resolver: 'Peça ao Admin para conferir com "dgclaw agente tela <nome do agente>" e reiniciar o serviço dgclaw-tela-web. Se acabou de recriar o agente, espere um minuto e atualize esta página.',
+    });
+  }
+  if (e.senha === false) {
+    p.push({
+      codigo: 'senha-nao-definida', nivel: 'erro',
+      texto: 'A senha da tela ainda não foi definida. Sem ela o navegador do agente não abre para você.',
+      como_resolver: 'Defina a senha no formulário "Defina a senha da tela" desta página (de 6 a 8 caracteres). Ela vale na hora.',
+    });
+  } else if (e.senha === true && e.vnc === false) {
+    p.push({
+      codigo: 'vnc-parado', nivel: 'erro',
+      texto: 'A senha da tela existe, mas o programa que mostra a tela (x11vnc) está parado.',
+      como_resolver: 'Espere uns 10 segundos e atualize: ele religa sozinho depois de uma troca de senha. Se continuar assim, peça ao Admin para rodar "dgclaw agente tela <nome do agente>".',
+    });
+  }
+  if (e.cdp === false) {
+    p.push({
+      codigo: 'cdp-parado', nivel: 'erro',
+      texto: 'O navegador do agente não está respondendo, então o agente não consegue usá-lo.',
+      como_resolver: 'Peça ao Admin para rodar "dgclaw agente tela <nome do agente>" e reiniciar o serviço dgclaw-tela-chrome.',
+    });
+  }
+  if (e.chromeExiste === false) {
+    p.push({
+      codigo: 'navegador-alternativo', nivel: 'aviso',
+      texto: 'Este servidor não é amd64, onde existe o Google Chrome. A tela usa o Chromium, que funciona igual para você, mas alguns sites com proteção contra robôs podem tratá-lo de outro jeito.',
+      como_resolver: 'Nada a fazer. Se um site recusar o login, tente de novo pela tela e avise o agente.',
+    });
+  }
+  return p;
+}
+
 /**
  * @param {object} router  o router do painel, já depois de cfAccess + requireAuth + csrf
  * @param {object} o
@@ -98,6 +170,9 @@ function registrar(router, o) {
   const novnc = lerHostPorta(env.DGCLAW_TELA_NOVNC || PADRAO_NOVNC, 'DGCLAW_TELA_NOVNC');
   const cdp = lerHostPorta(env.DGCLAW_TELA_CDP || PADRAO_CDP, 'DGCLAW_TELA_CDP');
   const arquivoSenha = String(env.DGCLAW_TELA_SENHA_ARQUIVO || '').trim() || PADRAO_SENHA;
+  const vnc = lerHostPorta(env.DGCLAW_TELA_VNC || PADRAO_VNC, 'DGCLAW_TELA_VNC');
+  const arquivoUnidade = String(env.DGCLAW_TELA_UNIDADE || '').trim() || PADRAO_UNIDADE;
+  const arquivoChrome = String(env.DGCLAW_TELA_CHROME || '').trim() || PADRAO_CHROME;
   const urlExterna = lerUrlExterna(env.DGCLAW_TELA_URL_EXTERNA, log);
   if (novnc.erro) log(`[painel] Tela DESLIGADA: ${novnc.erro} Corrija na configuração do painel; até lá a aba Tela diz que a tela não está instalada.`);
   if (cdp.erro) log(`[painel] ${cdp.erro} O status da Tela vai mostrar "não consegui ver" para o navegador.`);
@@ -118,17 +193,28 @@ function registrar(router, o) {
 
   router.get('/api/tela', async (req, res) => {
     try {
-      const [instalada, cdpOk] = await Promise.all([
+      const [instalada, cdpOk, vncOk] = await Promise.all([
         novnc.erro ? false : sondar(novnc, '/'),
         cdp.erro ? false : sondar(cdp, '/json/version', 200),
+        vnc.erro ? null : sondarTcp(vnc),
       ]);
+      const senha = senhaDefinida();
+      const chromeExiste = fs.existsSync(arquivoChrome);
+      const problemas = montarProblemas({
+        unidades: fs.existsSync(arquivoUnidade), instalada, senha, vnc: vncOk, cdp: cdpOk,
+        // Só vale dizer "navegador alternativo" quando a Tela está de pé: sem ela a pergunta é outra.
+        chromeExiste: instalada ? chromeExiste : null,
+      });
       res.json({
         ok: true,
         instalada,
-        senha_definida: senhaDefinida(),
+        senha_definida: senha,
+        vnc: vncOk,
         cdp: cdpOk,
+        navegador: instalada ? (chromeExiste ? 'google-chrome' : 'chromium') : null,
         url_externa: urlExterna || null,
         caminho_websockify: caminhoWebsockify,
+        problemas,
       });
     } catch (err) {
       log(`[painel] Tela: GET /api/tela quebrou: ${err.stack || err.message}`);
@@ -275,4 +361,4 @@ function registrar(router, o) {
   return { aoUpgrade, config: { novnc, cdp, arquivoSenha, urlExterna, caminhoWebsockify } };
 }
 
-module.exports = { registrar, lerHostPorta, lerUrlExterna };
+module.exports = { registrar, lerHostPorta, lerUrlExterna, montarProblemas };

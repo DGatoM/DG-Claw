@@ -33,7 +33,7 @@ function painelFalso() {
   });
   servidor.on('upgrade', (req, socket) => {
     visto.push({ metodo: 'UPGRADE', url: req.url, headers: req.headers });
-    socket.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n');
+    socket.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSet-Cookie: ws=1; Path=/\r\nset-cookie: ws2=1\r\nX-Do-Painel: ws\r\n\r\n');
     socket.on('data', (d) => socket.write(Buffer.concat([Buffer.from('eco:'), d])));
     socket.on('end', () => socket.end());
     socket.on('error', () => socket.destroy());
@@ -81,7 +81,9 @@ test('proxy: apaga X-DGClaw-* do navegador (em qualquer caixa) e acrescenta os d
     const r = await s.t.c.get('/p/ana/api/estado?x=1', { headers: { 'X-DGClaw-Proxy': 'forjado', 'x-dgclaw-usuario': 'invasor', 'X-DGCLAW-PROXY': 'forjado2', Accept: 'application/json' } });
     assert.equal(r.status, 200);
     assert.equal(r.headers['x-do-painel'], 'sim', 'cabeçalhos do painel passam');
-    assert.match(r.headers['set-cookie'][0], /^dash=1/);
+    assert.equal(r.headers['set-cookie'], undefined, 'Set-Cookie do painel não chega ao navegador');
+    assert.equal(r.json.ok, true, 'o corpo chega igual');
+    assert.match(String(r.headers['content-type']), /application\/json/);
     const v = s.painel.visto[0];
     assert.equal(v.url, '/p/ana/api/estado?x=1', 'o caminho segue inteiro, com o prefixo do painel');
     assert.equal(v.headers['x-dgclaw-proxy'], VALOR_PROXY);
@@ -173,7 +175,7 @@ test('proxy: WebSocket (upgrade) passa com os mesmos cabeçalhos de confiança e
       const req = http.request({ host: '127.0.0.1', port: s.t.porta, path: '/p/ana/ws', headers: Object.assign({ Connection: 'Upgrade', Upgrade: 'websocket', 'Sec-WebSocket-Key': 'dGVzdGVkZXRlc3RlMTIzNA==', 'Sec-WebSocket-Version': '13' }, headers) });
       req.on('upgrade', (res, socket) => {
         socket.write('oi');
-        socket.once('data', (d) => { socket.destroy(); resolve({ status: res.statusCode, eco: d.toString() }); });
+        socket.once('data', (d) => { socket.destroy(); resolve({ status: res.statusCode, eco: d.toString(), headers: res.headers }); });
       });
       req.on('response', (res) => { res.resume(); resolve({ status: res.statusCode }); });
       req.on('error', (e) => resolve({ erro: e.code }));
@@ -181,6 +183,8 @@ test('proxy: WebSocket (upgrade) passa com os mesmos cabeçalhos de confiança e
     });
     const ok = await abre({ Cookie: cookie, Origin: `http://127.0.0.1:${s.t.porta}`, 'X-DGClaw-Proxy': 'forjado' });
     assert.equal(ok.status, 101); assert.equal(ok.eco, 'eco:oi');
+    assert.equal(ok.headers['set-cookie'], undefined, 'Set-Cookie do painel não passa na resposta 101');
+    assert.equal(ok.headers['x-do-painel'], 'ws', 'os outros cabeçalhos da 101 passam');
     const up = s.painel.visto.find((v) => v.metodo === 'UPGRADE');
     assert.equal(up.headers['x-dgclaw-proxy'], VALOR_PROXY);
     assert.equal(up.headers['x-dgclaw-usuario'], 'dono');

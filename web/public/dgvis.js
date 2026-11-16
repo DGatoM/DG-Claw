@@ -539,12 +539,12 @@
     if (!p) return;
     var el = p.el, motivo = d.motivo ? Str(d.motivo) : '';
     if (novo === 'confirme') {
-      if (el) pEstado(el, 'confirme', 'confirme no app ↓', 90000);
+      if (el) pEstado(el, 'confirme', 'confirme no app', 90000);
     } else {
       delete pedidos[id];
       if (el) {
         el._dvPedido = 0;
-        if (novo === 'ok') { pEstado(el, 'ok', 'enviado ✓', 4000); marcaEscolha(el); }
+        if (novo === 'ok') { pEstado(el, 'ok', 'enviado', 4000); marcaEscolha(el); }
         else pEstado(el, 'erro', ROT_ERRO[motivo] || 'não foi enviado', 4000);
       }
     }
@@ -595,7 +595,7 @@
     if (ms) c.t = setT(function () { c.t = 0; cofreEstado(el, c.guardada ? 'ok' : 'pendente', c.guardada ? c.rotOk : ''); }, ms);
     agendaAltura();
   }
-  function cofreRotOk() { return 'Guardada ✓'; }
+  function cofreRotOk() { return 'Guardada'; }
   function pedirCofre(el) {
     var c = el._dvCofre; if (!c) return -1;
     if (!emb) { cofreEstado(el, 'erro', 'só funciona dentro do app', 4000); return -1; }
@@ -656,7 +656,7 @@
     var id = Num(d.id), p = cofrePedidos[id];
     if (!p) return;
     var el = p.el, c = el && el._dvCofre;
-    if (novo === 'espera') { if (c) { c.aberta = true; cofreEstado(el, 'espera', 'cole a chave no app ↓'); } return; }
+    if (novo === 'espera') { if (c) { c.aberta = true; cofreEstado(el, 'espera', 'cole a chave no app'); } return; }
     delete cofrePedidos[id];
     if (c) {
       c.aberta = false;

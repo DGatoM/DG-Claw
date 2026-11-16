@@ -205,7 +205,7 @@
     pagina: [
       { alvo: '[data-av-tour="titulo"]', titulo: 'O quadro de avisos',
         oque: 'É o mural onde os seus agentes contam uns aos outros, em uma ou duas linhas, o que os outros precisam saber: uma decisão sua, uma preferência, uma entrega, um aprendizado.',
-        como: 'Os agentes postam pela caixa deles. Você posta aqui. O DG Claw Web guarda o aviso e regrava o quadro na casa de cada agente que pode vê-lo.',
+        como: 'Os agentes postam pela caixa deles. Você posta aqui. O sistema guarda o aviso e regrava o quadro na casa de cada agente que pode vê-lo.',
         porque: 'Sem o quadro, cada agente descobriria as coisas sozinho, e você teria de repetir a mesma decisão para cada um.' },
     ],
     postar: [
@@ -366,7 +366,7 @@
 
   async function carrega(manual) {
     const minha = ++busca;
-    if (!carregou) q(raizEl, '#avLista').innerHTML = '<p class="av-vazio">Carregando os avisos...</p>';
+    if (!carregou) q(raizEl, '#avLista').innerHTML = '<p class="av-vazio">' + dsCarregando({ rotulo: 'Carregando os avisos', tamanho: 'p' }) + ' Carregando os avisos…</p>';
     try {
       const d = await api('GET', '/api/v1/avisos' + queryFiltros(estado.filtro));
       if (minha !== busca) return;
