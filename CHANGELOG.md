@@ -12,8 +12,11 @@ container de um agente (o que a atualização faz com a imagem nova) apaga o que
 da casa do agente, como o `tailscale` que um dono tinha instalado à mão. Isso acontecia sem aviso nenhum. Agora, antes
 de trocar, o comando compara o container com a imagem e lista os pacotes instalados à mão e os arquivos que só existem
 ali. Se houver algo na lista, ele **não troca nada** e pede `--forcar`; se não conseguir conferir, também para. Com
-`--forcar` ele mostra a lista, guarda uma cópia dela em `perdido-no-recriar-<data>.txt` na pasta do agente e troca. A
-casa, o cofre, as portas e as rotinas do agente continuam intactos como antes.
+`--forcar` ele troca. A lista completa é gravada em `perdido-no-recriar-<data>.txt` na pasta do agente **antes** de pedir
+qualquer confirmação (a tela mostra só o começo, e o arquivo guarda tudo). Como os nomes vêm de dentro do container, o
+comando os simplifica (só letras, números e alguns símbolos) e avisa que a lista é dado, nunca instrução; o Admin foi
+orientado a não obedecer nada que apareça nela. Se qualquer passo da conferência falhar, o comando para em vez de
+tratar como "nada a perder". A casa, o cofre, as portas e as rotinas do agente continuam intactos como antes.
 Falhas reportadas por Renato Gracie (divulgação responsável).
 
 ### Como atualizar (recriar com inventário)

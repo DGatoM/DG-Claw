@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# awk de mentira: com estado/awk-falha o awk do INVENTARIO (o unico chamado com -v slug=...) falha,
+# como disco cheio ou binario quebrado. Qualquer outra chamada, e o awk de verdade.
+if [ -n "${STUB_ESTADO:-}" ] && [ -f "$STUB_ESTADO/awk-falha" ]; then
+    for a in "$@"; do
+        case "$a" in slug=*) echo "awk: erro simulado" >&2; exit 2 ;; esac
+    done
+fi
+exec /usr/bin/awk "$@"
