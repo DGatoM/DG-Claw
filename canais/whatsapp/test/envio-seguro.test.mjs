@@ -480,3 +480,15 @@ test('script do agente: retomar libera a trava', async () => {
   assert.equal(r.resposta.achou, false);
   fs.rmSync(home, { recursive: true, force: true });
 });
+
+test('envio que nunca responde: passado o limite, trava, mantem PENDENTE e solta a vez', async () => {
+  const m = montar();
+  const envio = criarEnvioSeguro({ dir: path.join(m.home, 'envio'), arqConfig: m.arqConfig, limiteExecucaoMs: 50 });
+  const r = await envio.enviar({ para: A, texto: 'primeira mensagem para a Ana', executar: () => new Promise(() => {}) });
+  assert.equal(r.codigo, 'FALHA_ENVIO');
+  assert.match(r.erro, /incerto/);
+  assert.equal(envio.pendente(), true);
+  assert.ok(envio.paradoMotivo());
+  assert.equal(fs.existsSync(path.join(m.home, 'envio', 'envio.lock')), false);
+  m.limpar();
+});

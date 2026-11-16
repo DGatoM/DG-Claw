@@ -5,7 +5,7 @@ import { GUARDAR_IDS, LIMITE_MIDIA_ENTRADA } from './limites.mjs';
 import { numeroDeJid } from './numeros.mjs';
 import { dataLocal, escaparCorpo, extensaoDe, horaLocal, motivoErro, numeroDe } from './util.mjs';
 
-export function criarEntrada({ opcoes, registrar, agora, lids, aprenderLid, estaPermitido, entregar, gravarAtomico, arqUltimo, dirUploads, downloadMediaMessage, pendentes }) {
+export function criarEntrada({ envioSeguro, opcoes, registrar, agora, lids, aprenderLid, estaPermitido, entregar, gravarAtomico, arqUltimo, dirUploads, downloadMediaMessage, pendentes }) {
   const idsVistos = new Set();
 
   const recusasRecentes = new Map();
@@ -125,7 +125,9 @@ export function criarEntrada({ opcoes, registrar, agora, lids, aprenderLid, esta
         ? 'Sua mensagem não chegou ao agente: ele está sem login ou sem chave. Avise o dono para abrir o painel do DG Claw.'
         : 'Sua mensagem não chegou ao agente agora. Tente de novo daqui a pouco.';
       try {
-        await sock.sendMessage(jid, { text: aviso });
+        // O aviso automatico tambem e mensagem enviada: passa pelas mesmas travas (ritmo, teto, trava).
+        const env = await envioSeguro.enviar({ para: numero, texto: aviso, prazoMs: 30000, executar: () => sock.sendMessage(jid, { text: aviso }) });
+        if (!env.ok) registrar(`nao avisei ${numero} que a mensagem ${id} falhou (${env.codigo}): ${env.erro}`);
       } catch (e) {
         registrar(`nao consegui avisar ${numero} que a mensagem ${id} falhou: ${motivoErro(e)}`);
       }

@@ -1121,3 +1121,14 @@ test('envio seguro: reconexao durante a espera usa o socket novo e nao trava', a
   assert.equal(fs.existsSync(path.join(a.dir, 'envio', 'PARADO')), false);
   await a.fim();
 });
+
+test('envio seguro: o aviso automatico de falha de entrega tambem respeita a trava', async () => {
+  const a = await ambiente();
+  a.runner.padrao = 409;
+  fs.mkdirSync(path.join(a.dir, 'envio'), { recursive: true });
+  fs.writeFileSync(path.join(a.dir, 'envio', 'PARADO'), JSON.stringify({ quando: 'x', motivo: 'teste' }));
+  await receber(a, mensagem('oi'));
+  assert.equal(a.sock.enviados.length, 0);
+  assert.match(a.log(), /nao avisei .*PARADO/);
+  await a.fim();
+});

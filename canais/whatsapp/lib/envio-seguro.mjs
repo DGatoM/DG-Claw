@@ -137,7 +137,7 @@ function fmtEspera(ms) {
  * @param {() => number} [o.aleatorio]  0 a 1
  * @param {(msg:string) => void} [o.registrar]  log sem segredo e sem corpo de mensagem
  */
-export function criarEnvioSeguro({ dir, arqConfig, agora = () => new Date(), dormir, aleatorio = Math.random, registrar = () => {} }) {
+export function criarEnvioSeguro({ dir, arqConfig, limiteExecucaoMs = 100000, agora = () => new Date(), dormir, aleatorio = Math.random, registrar = () => {} }) {
   const esperar = dormir || ((ms) => new Promise((r) => setTimeout(r, ms)));
   const arqEstado = path.join(dir, 'estado.json');
   const arqParado = path.join(dir, 'PARADO');
@@ -237,7 +237,11 @@ export function criarEnvioSeguro({ dir, arqConfig, agora = () => new Date(), dor
       fs.writeFileSync(arqRetomada, String(process.pid), { flag: 'wx', mode: 0o600 });
     } catch (e) {
       if (e.code !== 'EEXIST') throw e;
-      try { if (Date.now() - fs.statSync(arqRetomada).mtimeMs > 10000) fs.unlinkSync(arqRetomada); } catch { /* outro resolveu */ }
+      // A trava auxiliar guarda o pid; so e removida quando esse processo morreu (nunca por idade).
+      try {
+        const d = Number(fs.readFileSync(arqRetomada, 'utf8').trim());
+        if (d !== process.pid && !viva(d)) fs.unlinkSync(arqRetomada);
+      } catch { /* outro resolveu */ }
       return;
     }
     try {
@@ -372,7 +376,17 @@ export function criarEnvioSeguro({ dir, arqConfig, agora = () => new Date(), dor
       return falha('ESTADO_INVALIDO', `nao consegui gravar ${arqPendente} (${motivoErro(e)}); sem isso nao ha como travar com seguranca depois de um erro. Nada foi enviado. Confira o espaco em disco e as permissoes`);
     }
     try {
-      resultado = await executar();
+      // Um envio que nunca responde nao pode segurar a vez para sempre: passado o limite, o resultado e incerto,
+      // o PENDENTE fica, tudo trava e a fila segue (o dono confere o numero no celular).
+      let relogio;
+      const limite = new Promise((_, rej) => {
+        relogio = setTimeout(() => rej(new Error(`sem resposta em ${Math.round(limiteExecucaoMs / 1000)} segundos; resultado incerto`)), limiteExecucaoMs);
+      });
+      try {
+        resultado = await Promise.race([executar(), limite]);
+      } finally {
+        clearTimeout(relogio);
+      }
     } catch (e) {
       travar(`o envio falhou (${motivoErro(e)}); pode ser desconexao ou bloqueio do numero`);
       return falha('FALHA_ENVIO', `o envio falhou (${motivoErro(e)}) e os envios ficaram TRAVADOS por seguranca. A mensagem pode ou nao ter saido: nao repita. Avise o dono, que confere o numero no celular e libera com "dgclaw-agente canal whatsapp retomar"`);

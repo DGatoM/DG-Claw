@@ -108,7 +108,7 @@ Quem cria e cuida dos agentes é o Admin, a sessão administradora do servidor. 
 
 Skill é um roteiro escrito (um arquivo `SKILL.md`) que o agente lê antes de fazer um trabalho. O dono pede em português e o agente escolhe a skill; para chamar uma delas direto, digite `/` na conversa (veja [conversa-e-telas.md](conversa-e-telas.md)). A aba `aba:skills` lista todas as que o agente tem. Quando o dono e o agente repetem um processo de 3 passos ou mais, a skill `aprender` oferece guardá-lo como skill própria, e só cria com o "sim" do dono.
 
-A criação de um agente liga estas 14 skills à casa dele: `agenda`, `lembretes`, `aprender`, `avisos`, `memory`, `foco`, `avatar`, `report`, `slide-animado`, `site-animado`, `video-animado`, `groq-audio`, `gemini-gratuito` e `visuais-na-conversa`. O Admin recebe `criar-agente` e `trocar-dominio`. As demais estão no repositório (`/opt/dgclaw/app/skills/`), mas o instalador e a criação não as ligam a ninguém.
+A criação de um agente liga estas 15 skills à casa dele: `agenda`, `lembretes`, `aprender`, `avisos`, `memory`, `foco`, `avatar`, `report`, `slide-animado`, `site-animado`, `video-animado`, `groq-audio`, `gemini-gratuito`, `visuais-na-conversa` e `whatsapp-enviar`. O Admin recebe `criar-agente` e `trocar-dominio`. As demais estão no repositório (`/opt/dgclaw/app/skills/`), mas o instalador e a criação não as ligam a ninguém.
 
 | Skill | Quem tem | O que faz |
 | --- | --- | --- |
@@ -119,6 +119,7 @@ A criação de um agente liga estas 14 skills à casa dele: `agenda`, `lembretes
 | `foco` | agentes | Monta a lista do modo foco |
 | `gemini-gratuito` | agentes | Conecta a chave gratuita do Gemini e habilita a análise de vídeos |
 | `groq-audio` | agentes | Conecta a chave gratuita da Groq para falar por áudio e transcrever |
+| `whatsapp-enviar` | agentes | Manda WhatsApp para outras pessoas com as travas contra banimento (intervalo aleatório, tetos, texto repetido recusado, trava no primeiro erro) |
 | `lembretes` | agentes | Agenda lembretes que insistem até o dono confirmar |
 | `memory` | agentes | Busca em conversas antigas e na memória, e gerencia a memória. Veja [memoria-e-rotinas.md](memoria-e-rotinas.md) |
 | `report` | agentes | Monta um relatório de erro para o autor, sem dados pessoais |

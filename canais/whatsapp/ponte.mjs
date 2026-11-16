@@ -292,17 +292,18 @@ export async function iniciar(opcoes = {}) {
   const { entregar } = criarEntregaRunner({
     opcoes, env, runnerUrl, tokenFile, runnerJson, esperasEntrega, dormir, estaEncerrando: () => encerrando,
   });
-  const { aoReceber } = criarEntrada({
-    opcoes, registrar, agora, lids, aprenderLid, estaPermitido, entregar, gravarAtomico,
-    arqUltimo, dirUploads, downloadMediaMessage, pendentes,
-  });
-  const raizesArquivo = opcoes.raizesArquivo || [home];
-  const { validarArquivo, montarEnvioArquivo } = criarEnvioArquivo({ home, raizesArquivo });
   // Travas contra banimento: ritmo, tetos, texto repetido e trava no primeiro erro (docs/CANAL-WHATSAPP.md).
   const envioSeguro = opcoes.envioSeguro || criarEnvioSeguro({
     dir: path.join(dir, 'envio'), arqConfig: path.join(dir, 'envio.json'), agora, registrar,
     dormir: opcoes.dormirEnvio, aleatorio: opcoes.aleatorioEnvio,
   });
+  const { aoReceber } = criarEntrada({
+    envioSeguro,
+    opcoes, registrar, agora, lids, aprenderLid, estaPermitido, entregar, gravarAtomico,
+    arqUltimo, dirUploads, downloadMediaMessage, pendentes,
+  });
+  const raizesArquivo = opcoes.raizesArquivo || [home];
+  const { validarArquivo, montarEnvioArquivo } = criarEnvioArquivo({ home, raizesArquivo });
   const { tratarPedido } = criarPedidos({
     envioSeguro,
     lerPermitidos,
