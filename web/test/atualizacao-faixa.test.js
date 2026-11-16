@@ -1,6 +1,7 @@
 'use strict';
 // Faixa de nova versão: funções puras (fora do DOM), escape do texto vindo do GitHub e ligação nas telas.
 require('./_ds-stub');
+/* global dsIcone -- definido em global pelo _ds-stub */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');

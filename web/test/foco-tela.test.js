@@ -1,5 +1,6 @@
 'use strict';
 require('./_ds-stub');
+/* global dsIcone -- definido em global pelo _ds-stub */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
