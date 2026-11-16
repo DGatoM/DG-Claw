@@ -802,6 +802,30 @@ migrar_tabela_netavark() {
     aviso "existe a tabela inet netavark (regras antigas do netavark em nftables) e estes containers nao estao parados:$ocupados. Por isso nao apaguei a tabela, e os containers podem continuar sem internet ate a troca. Para trocar: (1) pare cada agente com: sudo dgclaw agente parar <slug>${slugs:+ (agentes aqui:$slugs)}; (2) rode sudo ./install.sh de novo; (3) ligue de novo com: sudo dgclaw agente iniciar <slug>.${outros:+ Os containers que nao sao do DG Claw tambem precisam estar parados para a tabela sair.}"
 }
 
+# instalar_ffmpeg: o painel gera a miniatura de video e de foto com o ffmpeg do servidor. E so a previa,
+# entao nunca derruba a instalacao: se o apt falhar, avisa o que rodar e segue. Idempotente (ja instalado
+# nao mexe em nada) e nao reinicia servico nenhum: o painel acha o ffmpeg na hora de gerar a miniatura.
+instalar_ffmpeg() {
+    if pacote_instalado ffmpeg || [ -x "$R/usr/bin/ffmpeg" ] || [ -x "$R/usr/local/bin/ffmpeg" ]; then
+        ok "ffmpeg ja instalado (miniaturas de video e foto)"
+        return 0
+    fi
+    if [ "$ENSAIO" = 1 ]; then
+        printf '   [ensaio] apt-get install -y ffmpeg\n'
+        return 0
+    fi
+    info "instalando o ffmpeg (miniaturas de video e foto no painel)"
+    local rc=0
+    printf '\n$ apt-get install -y ffmpeg\n' >>"$LOG_INSTALAR"
+    env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg </dev/null >>"$LOG_INSTALAR" 2>&1 || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        aviso "nao consegui instalar o ffmpeg (apt terminou com codigo $rc; detalhes em ${LOG_INSTALAR#"$R"}). O resto da instalacao segue; so as miniaturas de video e foto ficam sem previa ate resolver. Rode: apt-get install -y ffmpeg"
+    else
+        ok "ffmpeg instalado"
+    fi
+    return 0
+}
+
 # --- 3. dominio -----------------------------------------------------------------
 escolher_dominio() {
     passo "Escolhendo o endereco do painel"
@@ -2344,6 +2368,7 @@ main() {
     checar_cpu
     exigir_claude
     instalar_pacotes
+    instalar_ffmpeg
     configurar_rede_containers
     escolher_dominio
     instalar_codigo
