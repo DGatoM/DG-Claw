@@ -3,6 +3,12 @@
    O painel é servido na mesma origem do DG Claw Web, que publica o nome em /manifest.webmanifest. Lê de lá e troca
    o texto dos elementos marcados com data-marca-nome e o título da aba. Sem o Web por perto (painel solto), a rota
    não existe, o nome fica "DG Claw" e nada é trocado. */
+// Sem /ds (painel instalado sem a pasta web/public/ds), as telas seguem funcionando, só sem ícone e sem a constelação.
+if (typeof window.dsIcone !== 'function') {
+  console.warn('marca-painel: /ds/icone.js não carregou; o painel segue sem ícones. Reinstale o painel com o plugin inteiro.');
+  window.dsIcone = function () { return ''; };
+}
+if (typeof window.dsCarregando !== 'function') window.dsCarregando = function () { return ''; };
 (function () {
   const PADRAO = 'DG Claw';
   function aplicar(nome) {
