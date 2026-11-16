@@ -98,6 +98,9 @@ export function criarPedidos({ lerPermitidos, estaPermitido, validarArquivo, mon
         executar: () => sock.sendMessage(jid, conteudo),
         // Menor que o prazo do socket (75 s texto, 120 s arquivo): pedido que ficou velho na fila nao e enviado.
         prazoMs: p.acao === 'enviar' ? 65000 : 105000,
+        // A lista pode ter mudado durante a espera da fila: o dono removeu o numero, a mensagem nao sai.
+        conferir: () => (estaPermitido(numero) ? null
+          : falha('FORA_DA_LISTA', `${numero} saiu da lista de permitidos enquanto o pedido esperava; nada foi enviado`)),
       });
       if (!r.ok) return r;
       const ok = { ok: true, para: numero, id: (r.resultado && r.resultado.key && r.resultado.key.id) || null };

@@ -328,3 +328,49 @@ test('pedido velho na fila (prazo vencido) nao e enviado', async () => {
   assert.equal(fs.existsSync(path.join(m.home, 'envio', 'PARADO')), false);
   m.limpar();
 });
+
+// --- Revisao adversarial, rodada 2 ----------------------------------------------
+
+test('duas instancias na mesma pasta entram uma de cada vez', async () => {
+  const m = montar();
+  const outra = criarEnvioSeguro({ dir: path.join(m.home, 'envio'), arqConfig: m.arqConfig, agora: () => new Date(m.relogio.t), dormir: async () => {}, aleatorio: () => 0 });
+  let dentro = 0; let max = 0;
+  const exec = async () => { dentro++; max = Math.max(max, dentro); await new Promise((r) => setTimeout(r, 20)); dentro--; return {}; };
+  await Promise.all([
+    m.envio.enviar({ para: A, texto: 'mensagem para a Ana, primeira', executar: exec }),
+    outra.enviar({ para: B, texto: 'mensagem para o Bruno, segunda', executar: exec }),
+  ]);
+  assert.equal(max, 1);
+  const est = JSON.parse(fs.readFileSync(path.join(m.home, 'envio', 'estado.json'), 'utf8'));
+  assert.equal(est.envios.length, 2);
+  m.limpar();
+});
+
+test('trava de dono morto e retomada uma vez so, e a trava nunca nasce vazia', async () => {
+  const m = montar();
+  fs.writeFileSync(path.join(m.home, 'envio', 'envio.lock'), '999999999');
+  const rs = await Promise.all([A, B, C].map((p, i) => m.mandar(p, `mensagem numero ${i} bem diferente`)));
+  assert.ok(rs.every((r) => r.ok));
+  assert.equal(fs.existsSync(path.join(m.home, 'envio', 'envio.lock')), false);
+  m.limpar();
+});
+
+test('trava acionada durante a espera impede o envio pendente', async () => {
+  const m = montar();
+  await m.mandar(A, 'primeira mensagem para a Ana');
+  const envio = criarEnvioSeguro({
+    dir: path.join(m.home, 'envio'), arqConfig: m.arqConfig, agora: () => new Date(m.relogio.t), aleatorio: () => 1,
+    dormir: async () => { envio.travar('desconexao 403 durante a espera'); },
+  });
+  const r = await envio.enviar({ para: B, texto: 'segunda mensagem para o Bruno', executar: async () => { throw new Error('nao devia enviar'); } });
+  assert.equal(r.codigo, 'PARADO');
+  m.limpar();
+});
+
+test('conferir() recusa o envio depois da espera, sem travar', async () => {
+  const m = montar();
+  const r = await m.envio.enviar({ para: A, texto: 'x', conferir: () => ({ ok: false, codigo: 'FORA_DA_LISTA', erro: 'saiu' }), executar: async () => { throw new Error('nao devia enviar'); } });
+  assert.equal(r.codigo, 'FORA_DA_LISTA');
+  assert.equal(fs.existsSync(path.join(m.home, 'envio', 'PARADO')), false);
+  m.limpar();
+});

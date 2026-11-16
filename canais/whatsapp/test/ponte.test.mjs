@@ -1087,3 +1087,18 @@ test('envio seguro: 401 (aparelho encerrado) trava os envios', async () => {
   assert.equal(fs.existsSync(path.join(a.dir, 'envio', 'PARADO')), true);
   await a.limpar();
 });
+
+test('envio seguro: numero removido da lista durante a espera nao recebe a mensagem', async () => {
+  let a;
+  a = await ambiente({
+    lista: [DONO, '+5521999998888'],
+    extra: { aleatorioEnvio: () => 1, dormirEnvio: async () => {
+      fs.writeFileSync(path.join(a.dir, 'permitidos.json'), JSON.stringify({ versao: 1, numeros: [DONO] }));
+    } },
+  });
+  assert.equal((await pedir(a.sockPath, { acao: 'enviar', para: DONO, texto: 'primeira mensagem para o dono' })).ok, true);
+  const r = await pedir(a.sockPath, { acao: 'enviar', para: '+5521999998888', texto: 'segunda mensagem para outra pessoa' });
+  assert.equal(r.codigo, 'FORA_DA_LISTA');
+  assert.equal(a.sock.enviados.length, 1);
+  await a.fim();
+});

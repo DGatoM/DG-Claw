@@ -51,6 +51,10 @@ const MIN = 60 * 1000;
 const HORA = 60 * MIN;
 const DIA = 24 * HORA;
 
+// Uma fila por pasta e o conjunto de travas que ESTE processo segura (valem entre instancias do mesmo processo).
+const FILAS = new Map();
+const SEGURANDO = new Set();
+
 const sha = (s) => crypto.createHash('sha256').update(s).digest('hex').slice(0, 16);
 
 function normalizarTexto(t) {
@@ -137,7 +141,6 @@ export function criarEnvioSeguro({ dir, arqConfig, agora = () => new Date(), dor
   const arqEstado = path.join(dir, 'estado.json');
   const arqParado = path.join(dir, 'PARADO');
   const arqTrava = path.join(dir, 'envio.lock');
-  let fila = Promise.resolve();
   let parouNaMemoria = null; // a trava vale mesmo se o disco recusar o arquivo PARADO
 
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -203,45 +206,78 @@ export function criarEnvioSeguro({ dir, arqConfig, agora = () => new Date(), dor
     if (!Number.isInteger(pid) || pid <= 0) return false;
     try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
   };
+  const arqRetomada = `${arqTrava}.retomada`;
+  const filaDoDir = () => {
+    const chave = path.resolve(dir);
+    if (!FILAS.has(chave)) FILAS.set(chave, Promise.resolve());
+    return chave;
+  };
+
+  /** Cria o arquivo ja com o pid dentro (link atomico): ninguem ve a trava vazia. */
+  function criarTrava() {
+    const tmp = `${arqTrava}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+    fs.writeFileSync(tmp, String(process.pid), { mode: 0o600 });
+    try {
+      fs.linkSync(tmp, arqTrava);
+    } finally {
+      try { fs.unlinkSync(tmp); } catch { /* ja removido */ }
+    }
+  }
+
+  /** Tira a trava de um dono morto. So um processo por vez faz isso (trava curta da retomada), e confere de novo la dentro. */
+  function retomarTravaMorta() {
+    try {
+      fs.writeFileSync(arqRetomada, String(process.pid), { flag: 'wx', mode: 0o600 });
+    } catch (e) {
+      if (e.code !== 'EEXIST') throw e;
+      try { if (Date.now() - fs.statSync(arqRetomada).mtimeMs > 10000) fs.unlinkSync(arqRetomada); } catch { /* outro resolveu */ }
+      return;
+    }
+    try {
+      let dono = NaN;
+      try { dono = Number(fs.readFileSync(arqTrava, 'utf8').trim()); } catch { return; }
+      const nossaSobra = dono === process.pid && !SEGURANDO.has(arqTrava);
+      if (nossaSobra || !viva(dono)) { try { fs.unlinkSync(arqTrava); } catch { /* ja sumiu */ } }
+    } finally {
+      try { fs.unlinkSync(arqRetomada); } catch { /* ja removida */ }
+    }
+  }
+
   async function comTrava(fn) {
     const limite = Date.now() + 45000;
     for (;;) {
       try {
-        fs.writeFileSync(arqTrava, String(process.pid), { flag: 'wx', mode: 0o600 });
+        criarTrava();
         break;
       } catch (e) {
         if (e.code !== 'EEXIST') throw e;
-        let dono = NaN;
-        try { dono = Number(fs.readFileSync(arqTrava, 'utf8').trim()); } catch (e2) { if (e2.code === 'ENOENT') continue; }
-        // Dentro deste processo a fila ja garante um de cada vez, entao um arquivo com o nosso proprio pid e sobra
-        // de uma execucao anterior que reaproveitou o pid.
-        if (dono === process.pid || !viva(dono)) {
-          try { fs.unlinkSync(arqTrava); } catch { /* outro processo tomou antes */ }
-          continue;
-        }
+        retomarTravaMorta();
         if (Date.now() > limite) return falha('OCUPADO', 'outro envio esta em andamento ha mais de 45 segundos; espere ele terminar e tente de novo');
-        await new Promise((r) => setTimeout(r, 200));
+        await new Promise((r) => setTimeout(r, 100));
       }
     }
-    try { return await fn(); } finally { try { fs.unlinkSync(arqTrava); } catch { /* ja removida */ } }
+    SEGURANDO.add(arqTrava);
+    try { return await fn(); } finally { SEGURANDO.delete(arqTrava); try { fs.unlinkSync(arqTrava); } catch { /* ja removida */ } }
   }
 
   /**
    * Passa pelas travas e envia. `executar` faz o envio real e devolve o resultado (ou lanca).
    * Devolve { ok:true, resultado, disparo, esperou_ms } ou { ok:false, codigo, erro }.
    */
-  function enviar({ para, texto = '', executar, prazoMs = null }) {
+  function enviar({ para, texto = '', executar, prazoMs = null, conferir = null }) {
     // `prazoMs`: depois dele quem pediu ja desistiu; entao nao se envia mais (nada de mensagem "fantasma").
     const ate = prazoMs ? Date.now() + prazoMs : null;
-    const minha = fila.then(() => comTrava(() => tentar({ para, texto, executar, ate })));
-    fila = minha.catch(() => {});
+    // A fila e por pasta: duas instancias deste processo na mesma pasta tambem entram uma de cada vez.
+    const chave = filaDoDir();
+    const minha = FILAS.get(chave).then(() => comTrava(() => tentar({ para, texto, executar, ate, conferir })));
+    FILAS.set(chave, minha.catch(() => {}));
     return minha;
   }
 
   const expirou = (ate) => ate != null && Date.now() > ate;
   const EXPIRADO = () => falha('EXPIRADO', 'o pedido esperou na fila alem do prazo e NAO foi enviado; tente de novo, uma mensagem de cada vez');
 
-  async function tentar({ para, texto, executar, ate }) {
+  async function tentar({ para, texto, executar, ate, conferir }) {
     if (expirou(ate)) return EXPIRADO();
     const parado = paradoMotivo();
     if (parado) {
@@ -314,7 +350,13 @@ export function criarEnvioSeguro({ dir, arqConfig, agora = () => new Date(), dor
       }
     }
 
-    // 4. Envia. Qualquer erro trava tudo: continuar tentando e como um robo em panico.
+    // 4. Depois da espera o mundo pode ter mudado: confere de novo trava, prazo e autorizacao do destino.
+    const parado2 = paradoMotivo();
+    if (parado2) return falha('PARADO', `os envios foram travados enquanto este esperava: ${parado2}. Nada foi enviado`);
+    if (expirou(ate)) return EXPIRADO();
+    if (conferir) { const negado = conferir(); if (negado) return negado; }
+
+    // 5. Envia. Qualquer erro trava tudo: continuar tentando e como um robo em panico.
     let resultado;
     try {
       resultado = await executar();
