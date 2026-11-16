@@ -29,9 +29,9 @@ const NOMES = {
   monitor: 'Monitor dos cards (5 min)',
 };
 
-// O sufixo vem do nome da unit que o container informou: só entra se tiver o formato de slug.
+// Só para o título exibido na tela: o sufixo vem do container e nunca entra em prompt_sugerido nem em comando.
 function nomeAmigavel(nome) {
-  if (NOMES[nome]) return NOMES[nome];
+  if (Object.prototype.hasOwnProperty.call(NOMES, nome) && NOMES[nome]) return NOMES[nome];
   if (nome.startsWith('self-')) return `Rotina própria: ${nome.slice(5)}`;
   return `Rotina ${nome}`;
 }
@@ -201,8 +201,12 @@ async function conferir(ctx, ag, ledgerP, prazo) {
     const pulso = ultimoRegistroDoPulso(ledger, nome);
     const falhaPulso = pulso && /^(erro|error|falha|fail)/i.test(pulso.status) ? pulso : null;
     const ocorrenciasPulso = falhaPulso ? classificar(falhaPulso.detalhe, { soErros: false, fallbackMs: Date.parse(falhaPulso.ts) || null }) : [];
-    const fixTexto = (viu, comando) => ({ o_que_fazer: U.ONDE_COLAR, prompt_sugerido: U.promptAdmin(viu, `\`podman exec dgclaw-${slug} systemctl status ${servico}\``, comando) });
-    const rotina = `a rotina "${nomeAmigavel(nome)}" do agente ${slug}`;
+    // O prompt_sugerido só cita rotina da lista fechada NOMES (as que o DG Claw instala). Rotina própria ou
+    // desconhecida vem do container, que pode estar comprometido: o texto é fixo e nenhum nome dela entra no prompt.
+    const conhecida = Object.prototype.hasOwnProperty.call(NOMES, nome);
+    const conferirCom = conhecida ? `\`podman exec dgclaw-${slug} systemctl status ${servico}\`` : `\`podman exec dgclaw-${slug} systemctl list-timers --all\``;
+    const fixTexto = (viu, comando) => ({ o_que_fazer: U.ONDE_COLAR, prompt_sugerido: U.promptAdmin(viu, conferirCom, comando) });
+    const rotina = conhecida ? `a rotina "${NOMES[nome]}" do agente ${slug}` : `uma rotina própria (que não é do DG Claw) do agente ${slug}`;
 
     if (ativoTimer !== 'active') {
       itens.push(Object.assign(item, {

@@ -1840,10 +1840,12 @@ chave_api() {
     [ -f "$chave_js" ] || falha "nao achei o programa das chaves de API em $chave_js." \
         "atualize o DG Claw (rode de novo o instalador: sudo ./install.sh --usuario <nome>) e tente outra vez."
     if [ "$ENSAIO" = 1 ]; then
-        info "[ensaio] rodaria: node $chave_js $acao (com DGCLAW_WEB_ENV=$DG_ETC/web.env DGCLAW_WEB_DATA=$DG_LIB/web); o token, quando houver, sai so no stdout"
+        info "[ensaio] rodaria: node $chave_js $acao (com DGCLAW_WEB_ENV=$DG_ETC/web.env; a pasta de dados e a do web.env, ou $DG_LIB/web se ele nao definir); o token, quando houver, sai so no stdout"
         return 0
     fi
-    exec env DGCLAW_WEB_ENV="$DG_ETC/web.env" DGCLAW_WEB_DATA="$DG_LIB/web" node "$chave_js" "$@"
+    # A pasta de dados e a MESMA que o Web usa: quem decide e o web.env (lido pelo proprio node, sem shell).
+    # $DG_LIB/web so vale como padrao quando o web.env nao define DGCLAW_WEB_DATA.
+    exec env -u DGCLAW_WEB_DATA DGCLAW_WEB_ENV="$DG_ETC/web.env" DGCLAW_WEB_DATA_PADRAO="$DG_LIB/web" node "$chave_js" "$@"
 }
 
 # agente_tela_senha <slug>: troca a senha da Tela. A nova senha vem pelo STDIN (ou e

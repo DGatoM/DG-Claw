@@ -9,7 +9,7 @@
 // `criar` imprime SÓ o token no stdout (dá para capturar com $(...)); os avisos vão para o stderr.
 // O token nunca é gravado em log nem passa por argumento de outro processo.
 // Saída: 0 deu certo, 1 recusa (o motivo vem escrito), 2 uso errado.
-// Lê DGCLAW_WEB_ENV e DGCLAW_WEB_DATA, como o servidor: o arquivo é <dados do Web>/chaves-api.json.
+// Lê DGCLAW_WEB_ENV e DGCLAW_WEB_DATA (pela mesma função de configuração do servidor): o arquivo é <dados do Web>/chaves-api.json.
 
 const { carregaConfig } = require('../lib/config');
 const { criarChavesApi, ESCOPOS } = require('../lib/chaves-api');
@@ -67,7 +67,11 @@ function main(argv) {
   const log = (nivel, msg) => {
     if (nivel === 'erro' || (nivel === 'aviso' && !/^Não li o arquivo de ambiente/.test(msg))) process.stderr.write(`[${nivel}] ${msg}\n`);
   };
+  // A pasta de dados é a mesma que o servidor usa: DGCLAW_WEB_DATA do web.env (ou do ambiente). A CLI só informa
+  // o padrão (DGCLAW_WEB_DATA_PADRAO) para quando o web.env não define pasta nenhuma.
+  const padrao = process.env.DGCLAW_WEB_DATA_PADRAO;
   const config = carregaConfig({}, log);
+  if (padrao && !config.env.DGCLAW_WEB_DATA) config.dataDir = padrao;
   const chaves = criarChavesApi({ config, log });
   const quem = op.quem || 'administrador (linha de comando)';
   const recusou = (rec) => {

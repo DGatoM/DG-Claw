@@ -91,4 +91,27 @@ igual "escopo desconhecido sai 1" "1" "$?"
 afirma "o motivo cita o escopo" grep -q 'escrita' "$TMP/e.txt"
 nega "o stdout fica vazio na recusa" test -s "$TMP/o.txt"
 
+echo "pasta de dados personalizada no web.env"
+# O Web usa a pasta do web.env; a CLI tem que mexer no MESMO chaves-api.json, e nao numa copia antiga em $LIB/web.
+CUSTOM="$TMP/dados-personalizados"
+mkdir -p "$CUSTOM" "$ETC"
+roda chave-api criar --nome "Pasta velha" --escopo diagnostico
+igual "criar na pasta padrao sai 0" "0" "$?"
+cp "$ARQ" "$CUSTOM/chaves-api.json"
+ID2="$(node -e "const c=JSON.parse(require('fs').readFileSync('$ARQ','utf8')).chaves.find(k=>k.nome==='Pasta velha');console.log(c.id)")"
+printf 'DGCLAW_WEB_USUARIO=x\nDGCLAW_WEB_DATA=%s\n' "$CUSTOM" >"$ETC/web.env"
+roda chave-api revogar "$ID2"
+igual "revogar com pasta personalizada sai 0" "0" "$?"
+igual "a chave ficou revogada na pasta que o Web usa" "sim" "$(node -e "const c=JSON.parse(require('fs').readFileSync('$CUSTOM/chaves-api.json','utf8')).chaves.find(k=>k.id==='$ID2');console.log(c.revogadaEm?'sim':'nao')")"
+igual "a copia antiga nao foi tocada" "nao" "$(node -e "const c=JSON.parse(require('fs').readFileSync('$ARQ','utf8')).chaves.find(k=>k.id==='$ID2');console.log(c.revogadaEm?'sim':'nao')")"
+roda chave-api criar --nome "Na pasta personalizada" --escopo diagnostico
+igual "criar com pasta personalizada sai 0" "0" "$?"
+afirma "a chave nova foi para a pasta do web.env" grep -q 'Na pasta personalizada' "$CUSTOM/chaves-api.json"
+nega "e nao para a pasta padrao" grep -q 'Na pasta personalizada' "$ARQ"
+# Sem DGCLAW_WEB_DATA no web.env, volta ao padrao $LIB/web.
+printf 'DGCLAW_WEB_USUARIO=x\n' >"$ETC/web.env"
+roda chave-api criar --nome "De volta ao padrao" --escopo diagnostico
+afirma "sem pasta no web.env, usa a padrao" grep -q 'De volta ao padrao' "$ARQ"
+rm -f "$ETC/web.env"
+
 fim

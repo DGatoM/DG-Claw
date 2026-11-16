@@ -177,7 +177,9 @@ estrito: estados do systemd, resultados, códigos de saída de 0 a 255, datas qu
 formato `dgclaw-...`, motivos conhecidos do runner. Valor fora da lista vira `desconhecido`, e o item mostra "o
 sistema devolveu um valor inesperado" em vez do valor. Os campos `motivo`, `o_que_fazer` e `prompt_sugerido` são
 montados só com frases fixas do código e esses valores conferidos, e o `prompt_sugerido` identifica o agente pelo
-slug. Assim texto escrito dentro de um container nunca chega a um prompt que o dono cola na conversa do Admin.
+slug. O nome de uma rotina só entra no prompt quando ela é da lista fechada das que o DG Claw instala; rotina própria
+ou desconhecida aparece só como título do item na tela, e o prompt dela usa um texto fixo. Assim texto escrito dentro de
+um container nunca chega a um prompt que o dono cola na conversa do Admin.
 Por fim, o texto lido de fora tem tamanho máximo antes de qualquer análise (1000 caracteres por linha), para que
 um arquivo gigante não trave o painel. Os arquivos dentro da casa de cada agente só são lidos se forem arquivos
 comuns que ficam dentro dela (um link que aponte para fora é recusado) e só pelos campos permitidos.
