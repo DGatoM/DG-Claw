@@ -43,7 +43,7 @@ fi
 # --- Modelo dos comentarios (default sonnet) ---
 COMMENTS_MODEL="sonnet"
 if [ -f "$IG_JSON" ]; then
-    COMMENTS_MODEL=$(python3 -c "import json;print(json.load(open('$IG_JSON')).get('commentsModel') or 'sonnet')" 2>>"$LOG") || {
+    COMMENTS_MODEL=$(python3 -I -c "import json;print(json.load(open('$IG_JSON')).get('commentsModel') or 'sonnet')" 2>>"$LOG") || {
         echo "[$(date '+%F %T')] aviso: nao consegui ler commentsModel em $IG_JSON; usando o modelo padrao sonnet. Confira se o JSON esta valido." >> "$LOG"
         COMMENTS_MODEL="sonnet"
     }
@@ -98,9 +98,16 @@ FLUXO (sub-doc comments.md tem o detalhe):
 Avise o ${DGCLAW_OWNER:-dono} via:  bash $PLUGIN/scripts/notify-owner.sh \"mensagem\"
 (inicio ja avisado pelo cron). Mensagens: so o aviso de scrape ok/falhou e o relatorio final."
 
+# Restricoes do dono: com restricao ativa, so roda se a conta de IA for compativel (a mesma regra do runner) e o
+# motor recebe as ferramentas negadas. Recusa = exit 1, sem chamar o claude.
+# shellcheck disable=SC1091
+. "$PLUGIN/scripts/_lib/restricoes-rotina.sh"
+restricoes_conferir_rotina "comentarios ${SLUG} ${HORA}" "$LOG" || exit 1
+
 "$CLAUDE_BIN" --print \
     --no-session-persistence \
     --permission-mode bypassPermissions \
+    "${RESTRICAO_DENY_ARGS[@]}" \
     --add-dir "$WS" \
     --model "$COMMENTS_MODEL" \
     -p "$PROMPT" >> "$LOG" 2>&1

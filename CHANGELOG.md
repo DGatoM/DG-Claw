@@ -7,22 +7,104 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
-**Correção de segurança: memória de trabalho não vira código na reflexão, e o instalador não para por repositório de terceiro.**
-Na reflexão automática, o texto da memória de trabalho do agente era colado dentro de um trecho de código Python. Quem
-conseguisse colocar uma sequência de três aspas duplas nessa memória (por exemplo, numa mensagem que o agente guardou)
-fazia o resto do texto rodar como código. Agora a memória segue por variável de ambiente e o trecho de código não recebe
-nada do texto. Também no instalador: se o `apt-get update` falhava por causa de um repositório do servidor que não é do
-DG Claw (um de terceiro, fora do ar ou com chave vencida), a instalação inteira abortava. Agora vira um aviso e a
-instalação segue; se algum pacote realmente faltar, o passo de instalar dele avisa com a mensagem do próprio apt, e o
+**Correção: o instalador não para por repositório de terceiro.** Se o `apt-get update` falhava por causa de um repositório do
+servidor que não é do DG Claw (um de terceiro, fora do ar ou com chave vencida), a instalação inteira abortava. Agora vira um
+aviso e a instalação segue; se algum pacote realmente faltar, o passo de instalar dele avisa com a mensagem do próprio apt, e o
 instalador confere que o Node ficou na versão 22 ou mais antes de seguir (se o repositório dele falhou e o Node ficou velho,
 ele para e explica o que fazer).
 Falhas reportadas por Renato Gracie (divulgação responsável).
 
-### Como atualizar (reflexão e instalador)
+### Como atualizar (instalador)
 
-Nada além do `dgclaw atualizar` padrão. O script da reflexão é substituído pela versão nova e passa a valer na
-próxima reflexão da noite. Quem já tinha uma memória de trabalho com aspas triplas não perde nada: o texto continua
-igual, só deixou de poder ser executado.
+Nada além do `dgclaw atualizar` padrão.
+
+**As restrições de cada agente sobrevivem à atualização.** Se você tirou de um agente o terminal (Bash) ou o envio de
+arquivos, ou deixou ele gravar só em certas pastas, essa trava ficava dentro da caixa dele, e a atualização recria a
+caixa: a trava sumia sem aviso. Agora existe um lugar oficial, fora da caixa e fora do alcance do agente, e um comando para
+usá-lo: `sudo dgclaw agente restricoes <agente> --sem-bash sim --sem-enviar-arquivo sim --escrita-so-em pasta1,pasta2`
+(sem opções, ele só mostra o estado; `--escrita-livre` solta de novo a gravação). Criar de novo, reparar, recriar e
+atualizar reaplicam as travas sozinhos, e um arquivo de restrições estragado faz o comando parar com a explicação, em vez
+de soltar a trava. A trava de pastas só barra as ferramentas de arquivo: com o Bash ligado, o terminal ainda grava em
+qualquer lugar, então combine as duas (o comando avisa). Travar o envio de arquivos só é aceito junto com a trava do
+terminal (`--sem-bash sim`), porque com o terminal liberado o agente manda o arquivo por fora das ferramentas. Nos agentes que rodam no Codex essas travas ainda não valem, e o
+comando também avisa. Guia: `docs/RESTRICOES-DO-AGENTE.md`.
+
+Qualquer restrição (inclusive só o terminal ou só o envio de arquivos) fecha também os arquivos de configuração do agente
+para as ferramentas de arquivo: pastas e arquivos ocultos em qualquer profundidade, `SKILL.md`, `CLAUDE.md` e `AGENTS.md`. Sem isso, um
+agente sem Bash editaria o próprio `config.sh` e executaria o que quisesse. No modo sem pastas, o agente também só grava na casa dele e em `/tmp`; o resto do sistema fica fechado. As rotinas que rodam sozinhas dentro da caixa (reflexão, batimento, crons) passam a usar `python3 -I` e a ler o texto da memória do agente como dado, não como parte do programa: um agente sem terminal não consegue mais executar código gravando um `datetime.py` na casa ou aspas no `working-memory.md`. O gancho de escrita bloqueia quando falha
+(não inicia, falta memória, passa do tempo) em vez de liberar.
+
+A trava fica na configuração administrada do Claude Code, que o agente não consegue desligar pelas próprias configurações.
+Com a trava de pastas ligada, o agente só grava a memória dele; as pastas de configuração (`.dgclaw`, `.claude`, `.codex`,
+`.plataforma`) e `/tmp` ficam fechadas, porque são lidas e executadas pelas rotinas do agente.
+
+As rotinas automáticas do agente (reflexão da noite, posts, respostas a comentários e consolidação) agora respeitam as restrições do
+mesmo jeito que a conversa: com restrição ligada, só rodam se a conta de IA conectada for compatível, e recebem as mesmas ferramentas
+travadas. Se recusarem, o log da rotina diz o motivo e o que fazer. Nada muda para quem não usa restrições.
+A reflexão da noite confere a conta antes de qualquer chamada ao Claude, inclusive a busca de lembranças antigas, que agora roda com
+ferramentas e conexões externas desligadas. Quando uma recusa por conta incompatível acontece com um processo antigo do agente ainda
+vivo, o runner o encerra e só então registra a recusa; se não conseguir, avisa que não confirmou a parada.
+
+### Como atualizar (restrições do agente)
+
+A imagem dos agentes precisa ser a nova (ela liga o arquivo de política administrada do Claude Code). O `dgclaw atualizar` já
+reconstrói a imagem e recria cada agente, então basta atualizar; um agente que você deixou parado ganha a trava quando for recriado
+(`sudo dgclaw agente recriar <agente> --forcar`).
+
+Se você já tinha travado algum agente por conta própria, mexendo dentro da caixa dele (por exemplo, editando o
+`settings.json` ou as permissões por lá), essa trava não é lida pelo novo mecanismo e continua sujeita a sumir na próxima
+atualização. Refaça uma vez, pelo comando novo, cada trava que você quer manter: peça ao Admin ("tira o Bash da Ana",
+"a Ana só grava na pasta relatórios") ou rode `sudo dgclaw agente restricoes <agente> ...`. Depois de refeitas, não
+precisam ser repetidas. Confira com `sudo dgclaw agente restricoes <agente>`.
+
+Contas Team e Enterprise do claude.ai não são compatíveis com as restrições nesta versão: uma organização pode passar a
+mandar uma política própria a qualquer momento, e ela substitui a configuração do DG Claw. Se o agente usa uma conta
+dessas, o comando `restricoes` recusa e para o agente; conecte uma conta pessoal (Pro ou Max) ou uma chave de API no painel
+do agente e rode o comando de novo. Um token OAuth ou login por assinatura sem plano Pro ou Max legível também é recusado, porque pode ser de uma organização. A consulta (`sudo dgclaw agente restricoes <agente>`) também passa a comparar o que está
+aplicado com o que você pediu, e mostra `NAO VALE` quando uma restrição foi gravada e não chegou a ser aplicada.
+
+Um agente que tem restrições agora só liga (`dgclaw agente iniciar`) ou reinicia o runner (`dgclaw agente reiniciar`) depois de
+os arquivos de política serem refeitos a partir das suas restrições e de a imagem dele ser conferida, porque o agente sobe
+sozinho e uma conferência feita depois deixaria um intervalo sem a trava. Se ele estiver numa imagem antiga, não liga e a
+mensagem pede para recriar. Quem deixou um agente parado com restrições e uma imagem antiga precisa rodar uma vez
+`sudo dgclaw imagem construir --agora` (se a imagem do servidor também for antiga) e `sudo dgclaw agente recriar <agente>`.
+Com o terminal travado, o `Monitor` também fica negado, porque ele executa comandos por conta própria.
+
+Se a conta de IA conectada a um agente pertence a uma organização do claude.ai (planos Team ou Enterprise) com política
+administrada remota, essa política substitui a configuração do DG Claw e as restrições deixam de valer. Para um agente
+com restrições, o `iniciar`, o `reiniciar` e a consulta passam a detectar isso, param o agente e explicam. A saída é conectar
+nele uma conta pessoal (Pro ou Max) ou uma chave de API. Como o agente fica parado, a ordem é: desligar as restrições
+(`sudo dgclaw agente restricoes <agente> --sem-bash nao --sem-enviar-arquivo nao --escrita-livre`), ligar o agente
+(`sudo dgclaw agente iniciar <agente>`), trocar a conta no painel do agente e ligar as restrições de novo com o mesmo comando `restricoes`. Conta de organização com política administrada remota não é compatível com as
+restrições nesta versão, nem quando a política pede para combinar com a local, porque a própria organização pode desligar os
+ganchos nela. Quando o DG Claw para o agente por esse motivo, ele só considera o container parado quando o podman confirma isso; sem
+confirmação, a mensagem diz que o agente pode estar ligado sem a trava e como pará-lo na mão.
+
+A conta de IA também é conferida depois que o agente já está ligado. Antes, quem conectava uma conta Team ou Enterprise pelo
+painel depois de aplicar as restrições escapava da conferência, e a política remota da organização podia desligar as travas. Agora,
+com qualquer restrição ativa, o runner confere a conta logo depois de cada login pelo painel e antes de abrir ou retomar cada
+sessão do Claude. Se a conta for de uma organização, tiver política remota ou não der para saber qual é, a sessão não abre: o
+painel mostra o motivo e o que fazer (conectar uma conta pessoal Pro ou Max, ou uma chave de API, ou desligar as restrições), e o
+log do runner registra. Se o arquivo de restrições existir e estiver ilegível, o runner trata o agente como restrito e também não
+abre a sessão. Sem restrições ativas nada muda. Depois de conectar a conta certa, a sessão abre sozinha.
+
+O Bun, que roda os ganchos do plugin, lê o arquivo `bunfig.toml` da pasta onde é iniciado, e um `preload` nele executa código. Um
+agente sem terminal, mas com escrita livre na casa, podia gravar esse arquivo e recuperar a execução de comandos. Agora os ganchos
+entram na pasta do plugin antes de chamar o Bun, e o gancho de escrita também recusa `bunfig.toml` em qualquer pasta.
+
+**Prévias de vídeo e foto passam a funcionar em qualquer servidor.** O painel monta a miniatura dos vídeos e das
+fotos com o programa ffmpeg, que o instalador não colocava no servidor. Em um servidor de um cliente, o vídeo que o
+agente enviou apareceu só como botão de arquivo, sem prévia, e o registro do painel repetia "Miniatura: ENOENT"
+a cada abertura da conversa. Agora o instalador instala o ffmpeg sozinho, e o `dgclaw atualizar` faz o mesmo nos
+servidores que já existem. Se o ffmpeg já estiver lá, nada é reinstalado e nenhum serviço reinicia. Se a instalação
+dele falhar, a atualização continua e avisa o que rodar (`apt-get install -y ffmpeg`), porque ele só serve para a
+prévia. O `dgclaw status` ganhou uma linha dizendo se o ffmpeg está instalado.
+
+### Como atualizar (ffmpeg para as prévias)
+
+Peça ao Admin, no chat: "atualiza o DG Claw". A atualização instala o ffmpeg sozinha; agentes, conversas e
+configurações ficam como estão. Se preferir instalar na hora, rode no servidor: `sudo apt-get install -y ffmpeg`.
+As prévias dos arquivos que já estavam na conversa aparecem na próxima vez que você abrir a conversa.
 
 **Ícone e texto sempre legíveis sobre fundo forte (regra geral de contraste).** Quando um botão ou selo muda para uma cor
 forte, como o botão de gravar áudio que fica vermelho durante a gravação, o ícone e o texto agora trocam sozinhos para
@@ -553,6 +635,35 @@ aprovar sem querer o comando que surgiu em seguida, e o botão Aprovar de uma te
 
 ### Adicionado
 
+- **Análise obrigatória antes de instalar uma atualização.** O relatório do `sudo dgclaw atualizar --simular`
+  ganhou a seção "O que este DG Claw usa e o que a versão nova toca": para cada agente, as rotinas, os
+  scripts próprios, as skills e os canais ligados, mais as personalizações registradas (só contagens, ids e nomes no padrão, nunca o texto livre de dentro das casas), cruzados com os
+  arquivos que a versão nova muda ou remove e com os comandos do `dgclaw` que saíram ou mudaram de nome. Cada
+  cruzamento aparece como ponto de atenção ("a rotina X do agente Y chama scripts/foo.sh, que muda nesta
+  versão"). Além disso, a instalação agora exige um parecer: o Admin lê o relatório, cruza com o que você usa no
+  dia a dia, diz a você se a atualização é segura e se vale a pena, e grava o veredito com
+  `sudo dgclaw atualizar --parecer segura|arriscada --motivo "<frase>"`. O `--ok-do-dono` só passa com parecer
+  `segura` para aquela mesma versão. Parecer `arriscada` bloqueia a instalação, e só `--ok-do-dono
+  --apesar-do-alerta` a libera, quando você, depois de ouvir o alerta, pedir. Tudo fica em
+  `/var/log/dgclaw/atualizar-pareceres.log`. O recado do aviso de versão nova ao Admin agora manda fazer essa
+  análise. O aviso continua sendo uma checagem a cada 6 horas, e não um webhook, para o seu servidor não precisar abrir porta
+  nem ser cadastrado em lugar nenhum.
+- **Guia de projeto de cliente** (`docs/PROJETO-DE-CLIENTE.md`): o padrão de instalar o DG Claw oficial completo na VPS do próprio cliente, o passo a passo com o acesso temporário do suporte, a comparação com as outras formas de acesso e o checklist de onboarding e entrega.
+- **Acesso temporário do suporte DG: `dgclaw suporte`.** Quando o time DG precisa ajustar a sua instalação,
+  você libera uma chave SSH nossa com prazo (`sudo dgclaw suporte ligar --chave '<linha>' --dias 7`, de 1 a 30
+  dias). O servidor recusa a chave sozinho quando o prazo acaba, e um timer diário tira a linha vencida do
+  arquivo. `sudo dgclaw suporte desligar` tira o acesso na hora e lista as sessões SSH de root abertas naquele momento, marcando a sua (se ainda houver outra, avisa que o acesso não está totalmente desligado; `--derrubar-sessoes` encerra todas as outras, menos a sua), `sudo dgclaw suporte status` mostra o que está
+  ligado e até quando, e o `dgclaw status` ganhou a linha "suporte: desligado" ou "suporte: ligado até ...". Só as
+  chaves do suporte são tocadas; as suas ficam como estão. Cada ligar e desligar fica em
+  `/var/log/dgclaw/suporte.log`, só com o fingerprint, nunca com a chave inteira. Exige OpenSSH 8.2 ou mais novo
+  (o Ubuntu 24.04 já tem). O Admin conhece o comando e só liga quando você pede.
+- **Regra de ação em massa ou destrutiva.** Todo agente e o Admin passam a nascer sabendo que, antes de
+  apagar, sobrescrever, mover, mandar mensagem para vários, mudar a etapa de vários registros num CRM,
+  cancelar, importar ou qualquer coisa que atinja mais de um item de uma vez ou não dê para desfazer, eles
+  primeiro mapeiam o que seria atingido sem mudar nada, mostram a você o número e uma amostra, esperam o seu
+  sim para aquele número, fazem em lotes e contam o que foi feito. Rotina automática com ação em massa só
+  roda se você aprovou a rotina antes, com o número estimado. A regra está nas instruções de cada agente
+  (`CLAUDE.md` e `AGENTS.md`), no `LAWS.md` e nas do Admin.
 - **Caixa de cofre na conversa.** Quando o agente precisa de uma senha ou chave de um serviço (OpenAI,
   Hostinger, Groq...), ele mostra na própria conversa um cartão com um campo de senha, e o valor vai
   direto para o cofre dele, sem passar pela conversa. O cartão ficou mais completo: avisa "Já tem uma
@@ -602,6 +713,24 @@ aprovar sem querer o comando que surgiu em seguida, e o botão Aprovar de uma te
   parou), seguida das que chegaram nesse meio tempo. Cada balão mostra se está tocando agora ou na fila. Para
   pular, toque no 🎧 do balão que quer ouvir: ele toca e segue dali. Só as respostas normais do agente entram
   na fila sozinhas; as mensagens de rotina só tocam se você apertar o 🎧 delas.
+
+### Como atualizar (regra de ação em massa)
+
+Nesta versão há uma regra nova nas instruções dos agentes: nada de apagar ou mexer em muita coisa de uma vez
+sem mostrar o número a você e esperar o seu sim. Os agentes que você já tem guardam o próprio `CLAUDE.md`, que
+é seu e pode estar personalizado, então a atualização não o substitui. Peça ao Admin para levar a seção "Ação
+destrutiva ou em massa: pergunte antes" do modelo novo (`templates/CLAUDE.md.tmpl`) para o `CLAUDE.md` de cada
+agente, sem apagar o que você escreveu. Agentes criados depois da atualização já nascem com ela. O mesmo vale
+para o `CLAUDE.md` e o `AGENTS.md` do Admin: a versão nova chega como `.novo`, e a seção entra no seu arquivo.
+
+### Como atualizar (parecer antes de instalar)
+
+A partir desta versão o `--ok-do-dono` só funciona depois de um parecer gravado. Se você já usa o Admin para
+atualizar, nada muda na conversa: ele vai analisar, contar o que achou, e só então pedir o seu sim. Se você
+roda o comando na mão, grave antes o parecer sobre a versão que vai instalar, com
+`sudo dgclaw atualizar --parecer segura --commit <commit do DESTINO> --motivo "<uma frase>"`. Se o `CLAUDE.md` ou o `AGENTS.md` do Admin
+estiverem personalizados, leve do `.novo` para o seu arquivo a parte "Atualizar o DG Claw", sem apagar o que
+você escreveu, para o Admin saber fazer a análise.
 
 ### Como atualizar (voz)
 

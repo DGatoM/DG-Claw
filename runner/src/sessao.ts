@@ -34,7 +34,8 @@ import { codexHomeDe } from "./provedores/codex.js";
 import { type CamposDeEscolha, type Escolha, type EscolhaEfetiva, type SaidaDaEscolha, gravarProvedorJson, resolverEscolha } from "./provedores/escolha.js";
 import type { CtxMotor, Motor, Recusa } from "./provedores/motor.js";
 import { motorDe } from "./provedores/motores.js";
-import { parar, pararEEsperar, reviver, subir, suspender, trocarPorSessaoLimpa } from "./sessao/ciclo.js";
+import { parar, pararEEsperar, recusarPorRestricaoComContencao, reviver, subir, suspender, trocarPorSessaoLimpa } from "./sessao/ciclo.js";
+import { conferirContaComRestricoes } from "./restricoes-conta.js";
 import { ctxLeve, montarAmbienteBase } from "./sessao/configuracao.js";
 import { PAUSA_TECLA_PERGUNTA_MS, QUIETO_PARA_OLHAR_TRANSCRIPT_MS, RECIBO_VIGIA_PASSOS_MS, VIGIA_LOGIN_EXPIRADO_MS } from "./sessao/constantes.js";
 import { digitarEEnviar, vencerTelaDeConfianca } from "./sessao/digitacao.js";
@@ -186,6 +187,8 @@ export class Sessao extends EventEmitter {
   geracao = 0;
   /** Do instante em que parar() larga o PTY até o onExit dele chegar e o grupo ser varrido (ou o prazo vencer). */
   saidaPendente: Promise<void> | null = null;
+  /** Pids dos PTYs largados por parar() cuja saída e varredura ainda não terminaram; a contenção por restrição os usa para saber quem matar. */
+  readonly pidsPendentes = new Set<number>();
   /** Líder do grupo de um PTY antigo que continuou com processos vivos depois dos sinais. subir() recusa enquanto existir. */
   grupoQueSobrou: number | null = null;
 
@@ -423,6 +426,13 @@ export class Sessao extends EventEmitter {
           : "reconectar a conta do agente pela conversa (cartão de login) ou digitando /login no terminal dele",
       };
     }
+    if (this.estado.status === "errored" && this.estado.statusReason === "runner:restricao-conta") {
+      return {
+        tipo: "restricao",
+        mensagem: this.estado.error ?? `A conta de IA de ${this.slug} não serve com as restrições do dono.`,
+        comoResolver: "conectar uma conta pessoal (Pro ou Max) ou uma chave de API, ou desligar as restrições (dgclaw agente restricoes)",
+      };
+    }
     return this.recusaDoMotor();
   }
 
@@ -439,9 +449,50 @@ export class Sessao extends EventEmitter {
 
 
 
-  /** Chamado quando o login assistido termina bem. Só age se a sessão estava parada por falta de login. */
+  /**
+   * Chamado quando o login assistido termina bem. Com restrição ativa a conta nova é conferida na hora, mesmo
+   * que a sessão já esteja de pé: conta de organização com política remota derruba a sessão. Sessão parada por
+   * falta de login ou por restrição volta a tentar (o subir confere de novo).
+   */
   aposLoginConcluido(): void {
-    if (this.estado.status === "errored" && this.estado.statusReason === "runner:sem-login") {
+    const { escolha, catalogo } = this.lerEscolha();
+    if (escolha.provedor === "claude") {
+      void conferirContaComRestricoes(this.ambienteDaEscolha(escolha, catalogo).env, this.descritor.config.cwd)
+        .catch((err): { ok: false; mensagem: string; comoResolver: string } => ({
+          ok: false,
+          mensagem: `Não consegui conferir a conta depois do login (${err instanceof Error ? err.message : err}).`,
+          comoResolver: "tentar o login de novo; se persistir, ver o log do runner",
+        }))
+        .then(async (conf) => {
+          if (!conf.ok) {
+            // As sessões do agente (principal e paralelas) dividem as credenciais: a conta nova vale para todas,
+            // então a recusa também. As rotinas autônomas fora do runner (reflexão headless, crons de publicação
+            // e de comentários) não dependem deste estado: cada execução consulta a conta atual por
+            // scripts/_lib/restricoes-rotina.sh (conferir-conta-cli.ts) e recusa com o mesmo critério.
+            await Promise.all(this.sessoesDaMesmaConta().map((x) => recusarPorRestricaoComContencao(x, conf.mensagem, conf.comoResolver)));
+            return;
+          }
+          this.aposLoginConferido();
+          // Quem estava recusada por restrição (por um login anterior incompatível) volta a tentar com a conta aprovada.
+          for (const x of this.sessoesDaMesmaConta()) {
+            if (x !== this && x.estado.status === "errored" && x.estado.statusReason === "runner:restricao-conta") x.aposLoginConferido();
+          }
+        });
+      return;
+    }
+    this.aposLoginConferido();
+  }
+
+  /** Todas as sessões Claude do agente (a principal e as paralelas): elas dividem o mesmo CLAUDE_CONFIG_DIR, então a mesma conta. A própria vem primeiro. */
+  private sessoesDaMesmaConta(): Sessao[] {
+    return [this, ...this.irmas().filter((x) => x !== this && x.motor.provedor === "claude")];
+  }
+
+  /** Quem lista as sessões do mesmo agente; o gerente de sessões preenche. Sozinha, a sessão só conhece a si mesma. */
+  irmas: () => Sessao[] = () => [];
+
+  private aposLoginConferido(): void {
+    if (this.estado.status === "errored" && (this.estado.statusReason === "runner:sem-login" || this.estado.statusReason === "runner:restricao-conta")) {
       trocarPorSessaoLimpa(this);
     } else if (this.estado.status === "errored" && this.estado.statusReason === "runner:login-expirado") {
       retomarAposLoginExpirado(this, "login assistido concluído");
@@ -650,7 +701,7 @@ export class Sessao extends EventEmitter {
   }
 
   /** Como parar(), mas só volta depois que o processo morreu (ver sessao/ciclo.ts). */
-  pararEEsperar(motivo: string, prazoMs = 5_000): Promise<void> {
+  pararEEsperar(motivo: string, prazoMs = 5_000): Promise<boolean> {
     return pararEEsperar(this, motivo, prazoMs);
   }
 
