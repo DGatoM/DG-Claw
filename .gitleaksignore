@@ -12,3 +12,5 @@ c3bb26c79cfa1e9f2d95b3e97376b4b909389227:web/test/logs-comando-oculto.test.js:cu
 59b19a767dc1984f78075bb533345b4238f8fefa:web/test/logs-ambiguidade.test.js:curl-auth-user:36
 535c597bb06564dc88e52f726c28e100805fe35c:web/test/logs-comando-oculto.test.js:curl-auth-user:17
 535c597bb06564dc88e52f726c28e100805fe35c:web/test/logs-ambiguidade.test.js:curl-auth-user:36
+2e204f6202646cdf41aad060f40533fb4a58652a:web/test/logs-comando-oculto.test.js:curl-auth-user:17
+2e204f6202646cdf41aad060f40533fb4a58652a:web/test/logs-ambiguidade.test.js:curl-auth-user:36
