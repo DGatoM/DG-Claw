@@ -209,7 +209,9 @@ novo
 cron env
 afirma "ignora configuracao herdada (--setting-sources vazio)" bash -c "grep -qx -- '--setting-sources' '$ARGV' && grep -xA1 -- '--setting-sources' '$ARGV' | tail -1 | grep -qx ''"
 afirma "memoria automatica do Claude desligada (variavel e configuracao)" bash -c "grep -qx 'CLAUDE_CODE_DISABLE_AUTO_MEMORY=1' '$ARGV.env' && grep -q 'autoMemoryEnabled' '$ARGV'"
-afirma "bloqueia a pasta de estado do Claude" grep -q 'Read(/.*/.claude/\*\*)' "$ARGV"
+afirma "bloqueia a pasta de estado do Claude (duas barras, caminho absoluto)" grep -q '^Read(//.*/.claude/\*\*)' "$ARGV"
+afirma "e tambem pela forma ~/" grep -qxF 'Read(~/.claude/**)' "$ARGV"
+nega "nenhuma regra do estado do Claude com uma barra so (ficaria relativa)" grep -qE '^(Read|Edit)\(/[^/].*\.claude' "$ARGV"
 nega "nao usa --add-dir (a leitura fora das regras fica negada)" grep -qx -- '--add-dir' "$ARGV"
 afirma "o diretorio de trabalho da sessao e a pasta da rodada" test "$(cat "$ARGV.cwd")" = "$WS/data/rodada"
 nega "nao libera a pasta data/ inteira para leitura" grep -qE 'Read\(/.*/data/\*\*\)' "$ARGV"
@@ -226,6 +228,28 @@ sha_antes="$(sha256sum "$WS/persona/working-memory.md" | cut -d' ' -f1)"
 cron env
 igual_sha() { [ "$(sha256sum "$WS/persona/working-memory.md" | cut -d' ' -f1)" = "$sha_antes" ]; }
 afirma "o cron nunca altera a memoria de trabalho viva" igual_sha
+
+echo "cron: acesso EFETIVO ao estado do Claude (Claude Code de verdade contra uma API de mentira)"
+if command -v claude >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
+    novo
+    cron env
+    RODADA_REAL="$(cat "$ARGV.cwd")"
+    MEM="$TMP/casa/.claude/projects/$(printf '%s' "$(cd "$RODADA_REAL" && pwd -P)" | sed 's|[/.]|-|g')/memory"
+    mkdir -p "$MEM"; echo "SEGREDO-DA-MEMORIA" >"$MEM/MEMORY.md"
+    PORTA="$(python3 -I -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1])')"
+    python3 -I "$AQUI/fake-anthropic.py" "$PORTA" "$MEM/MEMORY.md" "$TMP/api.log" & SRV=$!
+    sleep 1
+    NEGAR=(); while IFS= read -r r; do NEGAR+=("$r"); done < <(grep -E '^(Read|Edit)\(' "$ARGV" | grep -E '\.claude|\.dgclaw|\.env|\.instagram_token')
+    PERMITIR=(); while IFS= read -r r; do PERMITIR+=("$r"); done < <(grep -E '^(Read|Edit)\(' "$ARGV" | grep -vE '\.claude|\.dgclaw|\.env|\.instagram_token')
+    ( cd "$RODADA_REAL" && echo ler | env HOME="$TMP/casa" ANTHROPIC_BASE_URL="http://127.0.0.1:$PORTA" ANTHROPIC_API_KEY=sk-fake CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 \
+        timeout 90 claude --print --no-session-persistence --permission-mode dontAsk --setting-sources "" --strict-mcp-config \
+        --disable-slash-commands --tools "Read,Write,Edit" --allowedTools "${PERMITIR[@]}" --disallowedTools "${NEGAR[@]}" >/dev/null 2>&1 )
+    kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null
+    afirma "a sessao chegou a pedir a leitura da memoria (a API de mentira foi usada)" test -s "$TMP/api.log"
+    nega "o conteudo da memoria do Claude NAO chegou ao modelo" grep -q 'SEGREDO-DA-MEMORIA' "$TMP/api.log"
+else
+    echo "  (claude ou python3 ausente: teste de acesso efetivo pulado)"
+fi
 
 echo "cron: as respostas saem pelo cron, depois da sessao"
 novo

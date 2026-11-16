@@ -186,7 +186,15 @@ cd "$RODADA" || aborta_scrape "nao consegui entrar em $RODADA."
 # mesmo repositorio e deixaria texto de comentario chegar a uma sessao com permissao ampla, ou vazar o
 # que as outras sessoes guardaram. As pastas de estado do Claude tambem entram na lista de bloqueio.
 export CLAUDE_CODE_DISABLE_AUTO_MEMORY=1
-NEGAR_LEITURA+=("Read(/${HOME#/}/.claude/**)" "Edit(/${HOME#/}/.claude/**)" "Read(/${HOME#/}/.claude.json)")
+# Caminho absoluto no Claude Code leva DUAS barras (//caminho); com uma so a regra vira relativa ao diretorio de
+# trabalho e nao protege nada. As formas com ~/ cobrem o mesmo lugar por outro caminho; CLAUDE_CONFIG_DIR, se
+# existir, e o diretorio de estado efetivo.
+NEGAR_LEITURA+=("Read(//${HOME#/}/.claude/**)" "Edit(//${HOME#/}/.claude/**)" "Read(//${HOME#/}/.claude.json)" "Edit(//${HOME#/}/.claude.json)"
+               "Read(~/.claude/**)" "Edit(~/.claude/**)" "Read(~/.claude.json)" "Edit(~/.claude.json)")
+if [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
+    CFG_ABS="$(readlink -f -- "$CLAUDE_CONFIG_DIR" 2>/dev/null || printf '%s' "$CLAUDE_CONFIG_DIR")"
+    NEGAR_LEITURA+=("Read(//${CFG_ABS#/}/**)" "Edit(//${CFG_ABS#/}/**)")
+fi
 "$CLAUDE_BIN" --print \
     --settings '{"autoMemoryEnabled": false}' \
     --no-session-persistence \
