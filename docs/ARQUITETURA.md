@@ -29,6 +29,17 @@ As respostas e os registros da sessão alimentam a conversa exibida no navegador
 O painel de cada agente, em `/p/<nome>/`, reúne configurações como assinatura, conexões,
 arquivos e memória. O chat fica em `/a/<nome>`. O Admin tem a conversa `/a/admin`.
 
+### Origem isolada do painel
+
+O painel é um processo dentro do container do agente, e o navegador nunca o recebe na origem do Web.
+Abrir `/p/<nome>/...` devolve uma moldura (`web/public/painel.html` e `painel-moldura.js`): o Web monta o
+cabeçalho e o menu e põe o painel num iframe com `sandbox`, sem `allow-same-origin`. O iframe carrega
+`/pv/<token>/...`, e o Web troca o token pela sessão, reescreve o caminho para `/p/<nome>/...` e repassa ao painel
+pelo mesmo proxy de sempre, com o cabeçalho `X-DGClaw-Base: /pv/<token>` para o painel gerar os endereços
+certos. Dentro do iframe o painel não carrega a casca do Web: `panel/public/js/casca-ponte.js` repassa à moldura,
+por `postMessage`, só a aba ativa, o título e os itens extras do menu. O desenho e os limites estão em
+[SEGURANCA.md](SEGURANCA.md#origem-isolada-dos-painéis).
+
 ## Admin e agentes de trabalho
 
 O Admin é uma sessão normal de Claude Code ou Codex com permissão de administrador da VPS.

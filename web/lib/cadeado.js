@@ -271,6 +271,17 @@ function criarCadeado({ config, log, agora, sessoesDoCadeado, gravaSessoes, ence
     }
     return relogio() > venceDe(e, titular);
   }
+  /** Como travada(), para quem não traz o cookie (painel isolado em /pv/: o iframe tem origem opaca e só leva o token do caminho).
+      Aponta a sessão pelo hash do registro do auth (o mesmo guardado em `auth` no estado e na marca). Sem registro de cadeado: não trava. */
+  function travadaPorAuth(authHash, sessao) {
+    const titular = titularDe(sessao);
+    if (!titular || !authHash) return false;
+    for (const e of estados.values()) {
+      if (e.titular === titular && e.exige && e.auth === authHash) return relogio() > venceDe(e, titular);
+    }
+    // O auth diz que a sessão exige o cadeado mas o estado se perdeu: sem prova de uso recente, trava (como em travada()).
+    return !!(lerMarca && lerMarca(authHash));
+  }
   /** O instante absoluto em que a sessão trava. Gravado no uso (uso + tempo da época), para que mudar o tempo depois, ou perder
       os ajustes, não desfaça um bloqueio já vencido. Registro antigo, sem `vence`, é calculado uma vez; com os ajustes
       ilegíveis vale como vencido. */
@@ -889,7 +900,7 @@ function criarCadeado({ config, log, agora, sessoesDoCadeado, gravaSessoes, ence
   }
 
   return {
-    rotas, gate, travada, ligado, livreTravado, aoCriarSessao, marcaParaSessaoNova, removerDoTitular, limpaOrfaos, destinoSeguro,
+    rotas, gate, travada, travadaPorAuth, ligado, livreTravado, aoCriarSessao, marcaParaSessaoNova, removerDoTitular, limpaOrfaos, destinoSeguro,
     get falhaCarga() { return falhaCarga; },
     aguardar() { return Promise.all([gravConf.aguardar(), gravEstado.aguardar(), fila]); },
   };

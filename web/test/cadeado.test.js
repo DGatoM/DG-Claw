@@ -625,17 +625,17 @@ test('HTTPS: sem ele (e fora de localhost) o cadastro explica o motivo; atrás d
     const d = pessoa(s);
     await d.login('dono', s.t.senha);
     // http puro num nome que não é localhost
-    const http1 = await d.get('/api/v1/cadeado/cadastro/opcoes', { headers: { Host: 'painel.exemplo.com' } });
+    const http1 = await d.get('/api/v1/cadeado/cadastro/opcoes', { origin: 'http://painel.exemplo.com', headers: { Host: 'painel.exemplo.com' } });
     assert.equal(http1.status, 400); assert.equal(http1.json.motivo, 'ambiente'); assert.match(http1.json.erro, /HTTPS/);
-    const est = await d.get('/api/v1/cadeado/estado', { headers: { Host: 'painel.exemplo.com' } });
+    const est = await d.get('/api/v1/cadeado/estado', { origin: 'http://painel.exemplo.com', headers: { Host: 'painel.exemplo.com' } });
     assert.equal(est.json.https, null); assert.match(est.json.ambiente_erro, /HTTPS/);
     // IP não serve de rpId
-    const ip = await d.get('/api/v1/cadeado/cadastro/opcoes', { headers: { 'X-Forwarded-Proto': 'https', 'X-Forwarded-Host': '203.0.113.7' } });
+    const ip = await d.get('/api/v1/cadeado/cadastro/opcoes', { origin: 'https://203.0.113.7', headers: { 'X-Forwarded-Proto': 'https', 'X-Forwarded-Host': '203.0.113.7' } });
     assert.equal(ip.status, 400); assert.match(ip.json.erro, /IP/);
     // proxy local avisando https (como o Caddy faz)
     const cab = { 'X-Forwarded-Proto': 'https', 'X-Forwarded-Host': 'painel.exemplo.com' };
     const origem = 'https://painel.exemplo.com';
-    const op = await d.pedir('GET', '/api/v1/cadeado/cadastro/opcoes', { headers: cab });
+    const op = await d.pedir('GET', '/api/v1/cadeado/cadastro/opcoes', { origin: origem, headers: cab });
     assert.equal(op.status, 200, op.texto); assert.equal(op.json.publicKey.rp.id, 'painel.exemplo.com'); assert.equal(op.json.publicKey.rp.name, 'DG Claw');
     assert.equal(op.json.publicKey.authenticatorSelection.userVerification, 'required');
     const ap = aparelhoFalso();
@@ -643,7 +643,7 @@ test('HTTPS: sem ele (e fora de localhost) o cadastro explica o motivo; atrás d
     assert.equal(r.status, 201, r.texto);
     assert.match([].concat(r.headers['set-cookie']).find((x) => x.startsWith('dgclaw_aparelho=')), /; Secure/);
     // a passkey é presa ao endereço: em outro endereço não há o que verificar
-    const outro = await d.get('/api/v1/cadeado/verificar/opcoes', { headers: { 'X-Forwarded-Proto': 'https', 'X-Forwarded-Host': 'outro.exemplo.com' } });
+    const outro = await d.get('/api/v1/cadeado/verificar/opcoes', { origin: 'https://outro.exemplo.com', headers: { 'X-Forwarded-Proto': 'https', 'X-Forwarded-Host': 'outro.exemplo.com' } });
     assert.equal(outro.status, 404); assert.equal(outro.json.motivo, 'sem_passkey');
   });
 });
@@ -1855,3 +1855,24 @@ for (const [nome, estraga] of [['ausente', (f) => fs.rmSync(f)], ['corrompido', 
     } finally { await t.fechar(); }
   });
 }
+
+test('painel isolado (/pv/): o token não fura o cadeado; trava junto com a sessão e volta quando ela destrava', async () => {
+  const s = await cenarioWs();
+  try {
+    const d = pessoa(s);
+    await d.login('dono', s.t.senha);
+    const ap = aparelhoFalso();
+    assert.equal((await d.cadastra(ap, 'iPhone')).status, 201);
+    const r = await d.post('/api/v1/agents/ana/painel-token');
+    assert.equal(r.status, 200, r.texto);
+    const token = r.json.token;
+    const sandbox = cliente(s.t.porta);
+    const pv = () => sandbox.pedir('GET', `/pv/${token}/api/x`, { semCookie: true, origin: 'null' });
+    assert.equal((await pv()).status, 200, 'destravada, o painel isolado responde');
+    s.relogio.t += 16 * MIN;
+    const travado = await pv();
+    assert.equal(travado.status, 423, `travada, o token não vale: ${travado.texto}`);
+    assert.equal((await d.destrava(ap)).status, 200);
+    assert.equal((await pv()).status, 200, 'destravada de novo, o mesmo token volta a valer');
+  } finally { await s.fechar(); }
+});
