@@ -14,8 +14,22 @@ afirma() { local d="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$d"; else nok 
 nega() { local d="$1"; shift; if "$@" >/dev/null 2>&1; then nok "$d"; else ok "$d"; fi; }
 
 command -v node >/dev/null 2>&1 || { echo "  node nao esta instalado aqui; o teste nao rodou." >&2; exit 1; }
-DIST="$REPO/runner/dist"
-[ -f "$DIST/conferir-conta-cli.js" ] || { echo "  falta compilar o runner (cd runner && npm run build): $DIST/conferir-conta-cli.js" >&2; exit 1; }
+# O dist do runner: usa o que o ambiente indicar (DGCLAW_RUNNER_DIST); sem ele, compila o runner do commit
+# atual numa pasta temporaria (sem node_modules e sem dist, como o testes_runner de tests/rodar.sh), para
+# nunca gravar runner/dist no working tree.
+DIST="${DGCLAW_RUNNER_DIST:-}"
+if [ -z "$DIST" ] || [ ! -f "$DIST/conferir-conta-cli.js" ]; then
+    command -v npm >/dev/null 2>&1 || { echo "  falta o npm no PATH; instale o Node 22 ou aponte DGCLAW_RUNNER_DIST para um runner/dist ja compilado." >&2; exit 1; }
+    mkdir -p "$TMP/runner"
+    tar -C "$REPO/runner" --exclude=node_modules --exclude=dist -cf - . | tar -C "$TMP/runner" -xf -
+    (
+        cd "$TMP/runner" || exit 1
+        npm ci --ignore-scripts --no-audit --no-fund >"$TMP/npm.log" 2>&1 && npm run build >>"$TMP/npm.log" 2>&1
+    ) || { echo "  nao consegui compilar o runner; fim do log:" >&2; tail -20 "$TMP/npm.log" >&2; exit 1; }
+    DIST="$TMP/runner/dist"
+    [ -f "$DIST/conferir-conta-cli.js" ] || { echo "  o build nao gerou $DIST/conferir-conta-cli.js" >&2; exit 1; }
+fi
+export DGCLAW_RUNNER_DIST="$DIST"
 
 # Claude falso: "auth status" devolve $FALSO_CONTA; qualquer outra chamada grava os argumentos e sai com 1
 # (assim a reflexao nao dispara o restart-fresh).
