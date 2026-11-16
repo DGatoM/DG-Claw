@@ -22,18 +22,45 @@ const PADROES = [
   /Bearer\s+[A-Za-z0-9._~+\/=-]{20,}/g,
   /\b\d{8,10}:[A-Za-z0-9_-]{35}\b/g,
   /\b[a-z][a-z0-9+.\-]{0,20}:\/\/[^\s:/?#@'"<>]+:[^\s@/?#'"<>]+@[^\s'"<>]+/gi,
+  /dgc_[A-Za-z0-9_-]{16,}/g,                                                 // chave de API do DG Claw
+  /eyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]*/g,                    // JWT
+];
+
+// Dados de pessoas e identificadores longos. Ficam fora de PADROES porque a trilha mostra comandos e
+// saídas, onde data, id e contagem têm 10 dígitos e precisam continuar legíveis. O diagnóstico remoto
+// usa mascararDados, que vale para o que sai da máquina do cliente.
+const PADROES_DADOS = [
+  /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/g,                      // e-mail
+  /\+\d{1,3}[\s.-]?\(?\d{2}\)?[\s.-]?\d{4,5}[\s.-]?\d{4}\b/g,                    // telefone com +
+  /\(\d{2}\)\s?\d{4,5}-?\d{4}/g,                                               // (11) 99999-9999
+  /\b\d{2}\s\d{4,5}-\d{4}\b/g,                                                // 11 99999-9999
+  /\b\d{10,}\b/g,                                                            // 10+ dígitos seguidos
+  /\b[0-9a-fA-F]{32,}\b/g,                                                    // hexadecimal longo (hash, token)
 ];
 
 // NOME=valor, "nome": "valor", nome: valor, quando o nome sugere segredo. Mantém o nome, esconde o valor.
-const ATRIBUICAO = /((?:[A-Za-z0-9_.-]*(?:api[_-]?key|secret|token|passw(?:or)?d|senha|credential|auth)[A-Za-z0-9_.-]*)["']?\s*[=:]\s*)("[^"\n]*"|'[^'\n]*'|[^\s"'&;|]+)/gi;
+// Começa na palavra-chave (sem \w* antes dela): o prefixo do nome continua no texto e o custo deixa de crescer com o tamanho da linha.
+// Cabeçalho Cookie/Set-Cookie: o nome fica, o valor inteiro (vários pares separados por ';') sai escondido.
+const COOKIE = /\b((?:Set-)?Cookie[ \t]{0,20}:[ \t]{0,20})[^\r\n]+/gi;
+
+const ATRIBUICAO = /((?:api[_-]?key|secret|token|passw(?:or)?d|senha|credential|auth)[A-Za-z0-9_.-]*["']?\s*[=:]\s*)("[^"\n]*"|'[^'\n]*'|[^\s"'&;|]+)/gi;
 
 function mascarar(texto) {
   if (texto == null) return '';
   let r = String(texto);
   for (const p of PADROES) { p.lastIndex = 0; r = r.replace(p, OCULTO); }
+  COOKIE.lastIndex = 0;
+  r = r.replace(COOKIE, '$1' + OCULTO);
   ATRIBUICAO.lastIndex = 0;
   r = r.replace(ATRIBUICAO, (_, nome, valor) => (valor === OCULTO ? nome + valor : nome + OCULTO));
   return r;
 }
 
-module.exports = { mascarar, OCULTO };
+/** mascarar + e-mails, telefones e hexadecimais longos. */
+function mascararDados(texto) {
+  let r = mascarar(texto);
+  for (const p of PADROES_DADOS) { p.lastIndex = 0; r = r.replace(p, OCULTO); }
+  return r;
+}
+
+module.exports = { mascarar, mascararDados, OCULTO };
