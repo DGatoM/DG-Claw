@@ -187,6 +187,30 @@ afirma "listagem com PermissionError: injeta" injetou
 afirma "listagem com PermissionError: o log explica" bash -c "grep -q 'nao consegui listar' '$WS/.dgclaw/logs/reflection.log'"
 nega "listagem com PermissionError: nao anota dia pulado" test -f "$WS/.dgclaw/logs/reflexoes-puladas.txt"
 
+echo "memoria de trabalho com \"\"\" e codigo: nada executa, e o texto chega inteiro na busca"
+novo_cenario
+IDX="$TMP/idx"
+rm -rf "$IDX"
+mkdir -p "$IDX"
+: >"$IDX/chunks.db"
+cat >"$IDX/memory_search.py" <<'PY'
+import json, sys
+d = json.load(sys.stdin)
+open(sys.argv[0] + ".recebido", "w").write(d["input"])
+print(json.dumps({"recall": ""}))
+PY
+MARCA="$TMP/EXECUTOU"
+rm -f "$MARCA"
+printf 'nota normal\n""" + str(__import__("os").system("touch %s")) + """\nfim ${HOME} $(touch %s.sub) `touch %s.crase`\n' "$MARCA" "$MARCA" "$MARCA" >"$WS/working-memory.md"
+{ linha_dono 12:00:00 "bom dia"; linha_resposta 12:00:05 "bom dia!"; } | sessao hoje "$DIA 12:01"
+rodar env DGCLAW_MEMORY_INDEX_DIR="$IDX"
+afirma "sai com 0" test "$RC" -eq 0
+nega "o codigo escondido na memoria nao executou" test -e "$MARCA"
+nega "a substituicao de comando nao executou" test -e "$MARCA.sub"
+nega "a crase nao executou" test -e "$MARCA.crase"
+afirma "a busca recebeu o texto literal, com as aspas triplas" grep -qF '""" + str(__import__' "$IDX/memory_search.py.recebido"
+afirma "a busca recebeu o dollar-HOME sem expandir" grep -qF '${HOME}' "$IDX/memory_search.py.recebido"
+
 echo "DGCLAW_REFLECT_SEMPRE=1 forca"
 novo_cenario
 : >"$SESSOES/vazia.jsonl"

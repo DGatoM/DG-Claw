@@ -1574,3 +1574,13 @@ caso_caddy_restauracao_mantem_modo_do_arquivo() {
     igual "$(stat -c %a "$RAIZ/etc/caddy/Caddyfile")" 640 || { echo "      FALHOU: modo do arquivo restaurado"; FALHAS=$((FALHAS + 1)); }
     limpar_cenario
 }
+
+caso_apt_update_falhando_vira_aviso_e_nao_aborta() {
+    novo_cenario
+    EXTRA_ENV=(DGCLAW_STUB_APT_UPDATE_FALHA=1)
+    afirma "a instalacao termina com sucesso mesmo com o apt-get update falhando" instalacao_basica
+    afirma "o aviso diz o que aconteceu" tem "$SAIDA" "o 'apt-get update' terminou com codigo 100"
+    afirma "o aviso diz que a instalacao segue" tem "$SAIDA" "Sigo com a instalacao"
+    afirma "os pacotes continuaram a ser instalados" tem "$TMP/estado/instalados" "podman"
+    afirma "o detalhe do repositorio que falhou ficou no registro" tem "$RAIZ/var/log/dgclaw/instalar.log" "repo-de-terceiro.invalid"
+}

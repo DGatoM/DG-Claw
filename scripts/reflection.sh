@@ -85,10 +85,11 @@ else
     EMBED_STATUS=$(python3 "$PLUGIN/scripts/memory_index/embedder.py" status 2>&1 | head -1)
     echo "[$(date '+%F %T')] eco do passado: ${EMBED_STATUS:-embedder sem resposta (so o termo exato)}" >> "$LOG"
     WM_INPUT=$(head -c 3000 "$WM_FILE" 2>/dev/null | iconv -f UTF-8 -t UTF-8 -c 2>/dev/null || head -c 3000 "$WM_FILE" 2>/dev/null)
-    RECALL=$(python3 - "$ECHO_SEARCH" <<PYEOF 2>>"$LOG"
-import json, sys, subprocess
+    # O texto da memoria vai por variavel de ambiente e o heredoc tem aspas: nada do texto vira codigo Python.
+    RECALL=$(DGCLAW_WM_INPUT="$WM_INPUT" python3 - "$ECHO_SEARCH" <<'PYEOF' 2>>"$LOG"
+import json, os, sys, subprocess
 search = sys.argv[1]
-wm = """${WM_INPUT}""".replace(chr(0), "")
+wm = os.environ.get("DGCLAW_WM_INPUT", "").replace(chr(0), "")
 payload = json.dumps({"input": wm, "recent": []})
 try:
     r = subprocess.run(["python3", search], input=payload,

@@ -7,6 +7,21 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Correção de segurança: memória de trabalho não vira código na reflexão, e o instalador não para por repositório de terceiro.**
+Na reflexão automática, o texto da memória de trabalho do agente era colado dentro de um trecho de código Python. Quem
+conseguisse colocar uma sequência de três aspas duplas nessa memória (por exemplo, numa mensagem que o agente guardou)
+fazia o resto do texto rodar como código. Agora a memória segue por variável de ambiente e o trecho de código não recebe
+nada do texto. Também no instalador: se o `apt-get update` falhava por causa de um repositório do servidor que não é do
+DG Claw (um de terceiro, fora do ar ou com chave vencida), a instalação inteira abortava. Agora vira um aviso e a
+instalação segue; se algum pacote realmente faltar, o passo de instalar dele avisa com a mensagem do próprio apt.
+Falhas reportadas por Renato Gracie (divulgação responsável).
+
+### Como atualizar (reflexão e instalador)
+
+Nada além do `dgclaw atualizar` padrão. O script da reflexão é substituído pela versão nova e passa a valer na
+próxima reflexão da noite. Quem já tinha uma memória de trabalho com aspas triplas não perde nada: o texto continua
+igual, só deixou de poder ser executado.
+
 **Face ID no painel: uma trava opcional, ligada aparelho por aparelho.** Nova tela **Face ID** (no menu ☰, em `/face-id`).
 Quem liga o recurso num aparelho passa a ter o painel travado sozinho depois de alguns minutos sem uso (15 por padrão, de 1
 a 120 à sua escolha) e destrava com o rosto, a digital ou o código do aparelho (Face ID, Touch ID ou biometria, conforme o

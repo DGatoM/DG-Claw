@@ -358,12 +358,28 @@ porta_painel_e_nossa() {
     grep -Eq '^[0-9]+:[^:]*:/system\.slice/dgclaw-web\.service(/.*)?$' "$R/proc/$pid/cgroup"
 }
 
+# apt-get update que falha (tipicamente um repositorio de terceiro fora do ar ou sem chave valida,
+# alheio ao DG Claw) nao derruba a instalacao: vira aviso. Quem decide se falta algo e o
+# apt-get install seguinte, que aborta com a mensagem dele se o pacote realmente nao existe.
+atualizar_indice_apt() {
+    if [ "$ENSAIO" = 1 ]; then
+        printf '   [ensaio] apt-get update\n'
+        return 0
+    fi
+    local rc=0
+    printf '\n$ apt-get update\n' >>"$LOG_INSTALAR"
+    apt-get update </dev/null >>"$LOG_INSTALAR" 2>&1 || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        aviso "o 'apt-get update' terminou com codigo $rc (algum repositorio do servidor, que nao e do DG Claw, falhou). Sigo com a instalacao; se faltar algum pacote, o proximo passo avisa. Detalhes em ${LOG_INSTALAR#"$R"}."
+    fi
+}
+
 checar_portas() {
     # Imagens Ubuntu mínimas podem vir sem ss. A checagem precisa preparar a
     # ferramenta antes de usá-la, sem obrigar o dono a voltar ao terminal.
     if ! command -v ss >/dev/null 2>&1; then
         criar_pasta 750 "$DG_LOG"
-        executar_log apt-get update
+        atualizar_indice_apt
         executar_log apt-get install -y --no-install-recommends iproute2
     fi
     local linhas loc proc porta nome pid ocupadas="" painel_ocupado=""
@@ -653,7 +669,7 @@ instalar_pacotes() {
 
     criar_pasta 750 "$DG_LOG"
 
-    executar_log apt-get update
+    atualizar_indice_apt
     for p in "${base[@]}"; do pacote_instalado "$p" || faltam+=("$p"); done
     if [ "${#faltam[@]}" -gt 0 ]; then
         executar_log env DEBIAN_FRONTEND=noninteractive apt-get install -y "${faltam[@]}"
@@ -699,7 +715,7 @@ instalar_pacotes() {
     else
         ok "Node ${major} ja instalado"
     fi
-    if [ "$repos_novos" = 1 ]; then executar_log apt-get update; fi
+    if [ "$repos_novos" = 1 ]; then atualizar_indice_apt; fi
 
     faltam=()
     for p in "${todos[@]}"; do

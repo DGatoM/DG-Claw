@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 . "$(dirname "$0")/_comum.sh"
 registrar "$@"
+# DGCLAW_STUB_APT_UPDATE_FALHA=1: o update falha como quando um repositorio de terceiro esta fora do ar.
+if [ "${1:-}" = update ] && [ "${DGCLAW_STUB_APT_UPDATE_FALHA:-}" = 1 ]; then
+    echo "E: Failed to fetch https://repo-de-terceiro.invalid/ InRelease" >&2
+    exit 100
+fi
 if [ "${1:-}" = install ]; then
     shift
     for p in "$@"; do
