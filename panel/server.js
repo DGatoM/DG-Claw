@@ -138,8 +138,10 @@ const DS_DIR = path.join(__dirname, '..', 'web', 'public', 'ds');
 if (!BASE && fs.existsSync(path.join(DS_DIR, 'icones.svg'))) {
   app.use('/ds', express.static(DS_DIR, { index: false }));
   app.get('/marca.css', (req, res) => res.type('text/css').send(''));
-  app.get('/marca/favicon', (req, res) => res.sendFile(path.join(DS_DIR, 'marca-padrao', 'favicon.png')));
-  app.get('/marca/icone-app', (req, res) => res.sendFile(path.join(DS_DIR, 'marca-padrao', 'icone-192.png')));
+  // Arquivos fixos, mas com teto de pedidos como o resto do painel que lê do disco.
+  const limiteMarca = rateLimit({ windowMs: 60000, max: 300 });
+  app.get('/marca/favicon', limiteMarca, (req, res) => res.sendFile(path.join(DS_DIR, 'marca-padrao', 'favicon.png')));
+  app.get('/marca/icone-app', limiteMarca, (req, res) => res.sendFile(path.join(DS_DIR, 'marca-padrao', 'icone-192.png')));
 }
 
 // Tudo daqui pra baixo vive dentro de um router, montado no prefixo BASE lá embaixo
