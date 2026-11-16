@@ -1833,6 +1833,47 @@ FIM
     executar systemctl start --no-block dgclaw-checar-atualizacao.service
 }
 
+# --- 9e. limpeza diaria das chaves do suporte ---------------------------------------
+# configurar_suporte_limpar: um timer diario roda `dgclaw suporte limpar`, que tira do authorized_keys do
+# root as chaves do suporte DG que ja venceram (docs/PROJETO-DE-CLIENTE.md). O sshd ja recusa a chave vencida
+# sozinho (expiry-time); o timer so tira a linha morta do arquivo. Nao liga acesso nenhum: sem chave do
+# suporte no arquivo ele nao faz nada. ProtectHome fica desligado porque o arquivo mora em /root/.ssh.
+configurar_suporte_limpar() {
+    local p_log="${DG_LOG#"$R"}" p_bin="${DG_BIN#"$R"}" p_lib="${DG_LIB#"$R"}"
+    criar_pasta 750 "$DG_LOG"
+    criar_pasta 700 "$DG_LIB/suporte"
+    cat <<FIM | escrever_arquivo "$DG_UNITS/dgclaw-suporte-limpar.service" 644
+[Unit]
+Description=DG Claw tira as chaves vencidas do suporte DG (authorized_keys do root)
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=$p_bin/dgclaw suporte limpar
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/root/.ssh $p_log $p_lib/suporte
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+TimeoutStartSec=60
+FIM
+    cat <<'FIM' | escrever_arquivo "$DG_UNITS/dgclaw-suporte-limpar.timer" 644
+[Unit]
+Description=DG Claw tira as chaves vencidas do suporte DG (uma vez por dia)
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+FIM
+    ligar_unidade dgclaw-suporte-limpar.timer
+}
+
 # --- 9c. boletins de seguranca ----------------------------------------------------
 # configurar_boletins_seguranca: o AVISO DE SEGURANCA (docs/BOLETINS-DE-SEGURANCA.md). Um timer de 1 h roda
 # scripts/checar-boletins.mjs, que so le o GitHub publico e guarda os boletins pendentes em
@@ -2383,6 +2424,7 @@ main() {
     configurar_aviso_atualizacao
     configurar_boletins_seguranca
     configurar_ronda_seguranca
+    configurar_suporte_limpar
     atualizar_identidades
     configurar_anonimizar
     construir_imagem
