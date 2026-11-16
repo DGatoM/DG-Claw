@@ -7,6 +7,15 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Ícone e texto sempre legíveis sobre fundo forte (regra geral de contraste).** Quando um botão ou selo muda para uma cor
+forte, como o botão de gravar áudio que fica vermelho durante a gravação, o ícone e o texto agora trocam sozinhos para
+branco ou escuro, o que contrastar mais com o fundo (mínimo de 4,5:1 para texto e 3:1 para ícone). A conta vale para o
+visual todo, nos temas claro e escuro, e também para as cores da marca configurável (`marca.json`): se você trocar o
+fundo de um botão e não escolher a cor do texto, o painel escolhe a certa. Se você escolher uma cor de texto que não
+passa do mínimo, o painel a corrige. Com isso o botão de perigo no tema escuro deixou de ter texto branco sobre vermelho
+claro, e o verde de sucesso ficou um pouco mais escuro para o texto passar do mínimo sobre o fundo verde claro. Nada
+muda para quem não personalizou as cores, e o `dgclaw atualizar` padrão basta.
+
 **Face ID no painel: uma trava opcional, ligada aparelho por aparelho.** Nova tela **Face ID** (no menu ☰, em `/face-id`).
 Quem liga o recurso num aparelho passa a ter o painel travado sozinho depois de alguns minutos sem uso (15 por padrão, de 1
 a 120 à sua escolha) e destrava com o rosto, a digital ou o código do aparelho (Face ID, Touch ID ou biometria, conforme o
