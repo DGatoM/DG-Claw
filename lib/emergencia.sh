@@ -41,6 +41,8 @@ PRAZO_CONFIRMAR_MIN=5
 URLS_TESTE_RELIGAR=""
 URLS_NA_CONF=0
 ESTADO_DIR="/var/lib/dgclaw/emergencia"
+REDES_NA_CONF=0
+AVISOS_FAIXA=""
 
 SERVICOS=()
 INTERFACES=()
@@ -114,6 +116,29 @@ dominio_do_painel() {
   sed -n 's/^DGCLAW_DOMINIO=//p;T;q' "$arq"
 }
 
+# faixa_dos_agentes: a faixa de rede dos agentes (DGCLAW_FAIXA_REDE do dgclaw.env), lida sem `source`
+# e validada como /16 privado (10.x, 172.16-31.x ou 192.168.x), igual ao lib/firewall.sh. Ausente
+# poe o resultado em REDES_INTERNAS (nao em $(...), para o aviso de faixa invalida sobreviver).
+# Ausente: a padrao em silencio. Invalida: a padrao, com o motivo em AVISOS_FAIXA.
+faixa_dos_agentes() {
+  local arq="$RAIZ/etc/dgclaw/dgclaw.env" v="" oct='(0|[1-9][0-9]{0,2})' a b ok=0
+  [[ -f "$arq" ]] && v="$(sed -n 's/^DGCLAW_FAIXA_REDE=//p;T;q' "$arq")"
+  if [[ -z "$v" ]]; then REDES_INTERNAS="10.89.0.0/16"; return 0; fi
+  if [[ "$v" =~ ^$oct\.$oct\.0\.0/16$ ]]; then
+    a="${BASH_REMATCH[1]}"; b="${BASH_REMATCH[2]}"
+    if ((a <= 255 && b <= 255)); then
+      case "$a" in
+        10) ok=1 ;;
+        172) ((b >= 16 && b <= 31)) && ok=1 ;;
+        192) ((b == 168)) && ok=1 ;;
+      esac
+    fi
+  fi
+  if ((ok)); then REDES_INTERNAS="$v"; return 0; fi
+  AVISOS_FAIXA="DGCLAW_FAIXA_REDE='$v' em ${arq#"$RAIZ"} não é um /16 privado válido (ex.: 10.91.0.0/16); usei 10.89.0.0/16 como rede dos agentes. Corrija a linha ou defina REDES_INTERNAS em emergencia.conf."
+  REDES_INTERNAS="10.89.0.0/16"
+}
+
 carrega_conf() {
   local arq="${EMERGENCIA_CONF:-$RAIZ/etc/dgclaw/emergencia.conf}"
   if [[ -f "$arq" ]]; then
@@ -133,7 +158,7 @@ carrega_conf() {
         SERVICOS_PUBLICOS) SERVICOS_PUBLICOS="$valor" ;;
         INTERFACES_ADMIN) INTERFACES_ADMIN="$valor" ;;
         IPS_ADMIN) IPS_ADMIN="$valor" ;;
-        REDES_INTERNAS) REDES_INTERNAS="$valor" ;;
+        REDES_INTERNAS) REDES_INTERNAS="$valor"; REDES_NA_CONF=1 ;;
         PORTA_SSH) PORTA_SSH="$valor" ;;
         PRAZO_CONFIRMAR_MIN) PRAZO_CONFIRMAR_MIN="$valor" ;;
         URLS_TESTE_RELIGAR) URLS_TESTE_RELIGAR="$valor"; URLS_NA_CONF=1 ;;
@@ -143,6 +168,11 @@ carrega_conf() {
     done <"$arq"
   elif [[ -n "${EMERGENCIA_CONF:-}" ]]; then
     falhar "EMERGENCIA_CONF aponta para '$EMERGENCIA_CONF', que não existe. Crie o arquivo (modelo em docs/EMERGENCIA.md)."
+  fi
+
+  if ((! REDES_NA_CONF)); then
+    faixa_dos_agentes
+    if [[ -n "$AVISOS_FAIXA" ]]; then aviso "$AVISOS_FAIXA"; log "$AVISOS_FAIXA"; fi
   fi
 
   if ((! URLS_NA_CONF)); then

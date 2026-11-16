@@ -101,6 +101,11 @@ test('onboarding: a foto dos pedidos só é relida do disco quando a pasta muda'
   const id = 'a'.repeat(32);
   assert.deepEqual(o.db.todos(), []);
   o.db.gravar({ id, criado: '2026-11-12T10:00:00.000Z', slug: 'ana', foto: null, fase: 'solicitado' });
+  // A foto só vale quando foi tirada mais de FOLGA_MTIME_MS depois da última mudança da pasta; recua o mtime
+  // para o teste não depender de quanto tempo passou desde a gravação.
+  const pastaOnb = path.join(dataDir, 'onboarding');
+  const st0 = fs.statSync(pastaOnb);
+  fs.utimesSync(pastaOnb, st0.atime, new Date(st0.mtimeMs - 5000));
   const lidos = [];
   const lerOriginal = fs.readFileSync;
   fs.readFileSync = function (p, ...r) { if (String(p).startsWith(dataDir)) lidos.push(String(p)); return lerOriginal.call(this, p, ...r); };

@@ -4,12 +4,16 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <title>DG Claw - entrar no painel</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%234f46e5'/%3E%3Cstop offset='1' stop-color='%238b5cf6'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='url(%23g)'/%3E%3Ccircle cx='16' cy='16' r='6' fill='white'/%3E%3C/svg%3E">
+  <link rel="icon" href="/marca/favicon">
+  <link rel="stylesheet" href="/ds/tokens.css">
+  <link rel="stylesheet" href="/ds/componentes.css">
+  <link rel="stylesheet" href="/ds/carregando.css">
+  <link rel="stylesheet" href="/marca.css">
   <style>
     /* Mesma linguagem do painel: tema do sistema, acento em gradiente, sombra fraca.
        Nada vem de fora, entao a tela de login abre sem internet de saida. */
     :root{
-      --acento1:#4f46e5; --acento2:#8b5cf6;
+      --acento1:var(--cor-acento); --acento2:var(--cor-acento);
       --bg:#f6f7fb; --painel:#fff; --linha:#e6e8f0; --texto:#1a1c25; --fraco:#6b7185;
       --erro:#dc2b46; --sombra:0 1px 2px rgba(16,20,40,.04), 0 12px 34px rgba(16,20,40,.08);
     }
@@ -34,7 +38,7 @@
           background:var(--bg);color:var(--texto);font-size:15px}
     input:focus{outline:2px solid color-mix(in srgb,var(--acento1) 45%,transparent);outline-offset:1px}
     button{width:100%;margin-top:12px;padding:11px 14px;border:0;border-radius:10px;cursor:pointer;
-           background:linear-gradient(135deg,var(--acento1),var(--acento2));color:#fff;font-size:15px;font-weight:600}
+           background:var(--botao-fundo);color:var(--botao-texto);font-size:15px;font-weight:600}
     button:hover{filter:brightness(1.05)}
     .erro{color:var(--erro);font-size:13px;margin-bottom:12px}
     .rodape{color:var(--fraco);font-size:12px;margin-top:20px}
@@ -49,6 +53,7 @@
   </style>
   <link rel="stylesheet" href="{{BASE}}/css/sem-zoom.css">
   <script src="{{BASE}}/js/sem-zoom.js"></script>
+  <script src="{{BASE}}/js/marca-painel.js"></script>
 </head>
 <body data-modo="{{LOGIN_MODO}}" data-erro="{{LOGIN_ERRO}}">
   <div class="caixa">
@@ -66,7 +71,7 @@
       <p>{{LOGIN_MOTIVO}}</p>
       <p>Para destrancar: {{LOGIN_COMO}}</p>
     </div>
-    <p class="rodape">DG Claw</p>
+    <p class="rodape" data-marca-nome>DG Claw</p>
   </div>
   <script>
     (function () {

@@ -24,7 +24,7 @@
     }
     if (r.status === 401) { location.href = '/login'; throw new Error('Sua sessão acabou. Entre de novo.'); }
     const d = await r.json().catch(() => null);
-    if (!r.ok || !d || d.ok === false) throw new Error((d && d.erro) || ('O servidor respondeu ' + r.status + '. Tente de novo; se repetir, avise o dono do DG Claw.'));
+    if (!r.ok || !d || d.ok === false) throw new Error((d && d.erro) || ('O servidor respondeu ' + r.status + '. Tente de novo; se repetir, avise o dono do ' + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + '.'));
     return d;
   }
 
@@ -77,7 +77,7 @@
     { alvo: '[data-tour="ts-nova"]', titulo: 'A senha nova',
       oque: 'O campo da senha que você vai usar daqui para a frente.',
       como: 'Precisa ter de ' + MIN + ' a ' + MAX + ' caracteres e ser diferente da temporária. Uma frase longa é fácil de lembrar e difícil de adivinhar.',
-      porque: 'O tamanho protege mais que símbolos esquisitos. Se esquecer, o dono do DG Claw manda um convite novo.' },
+      porque: 'O tamanho protege mais que símbolos esquisitos. Se esquecer, o dono do ' + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + ' manda um convite novo.' },
     { alvo: '[data-tour="ts-conf"]', titulo: 'Repetir a senha',
       oque: 'O mesmo texto da senha nova, escrito de novo.',
       como: 'Se as duas não forem iguais, a tela avisa antes de enviar e nada é salvo.',

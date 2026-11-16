@@ -48,7 +48,7 @@ function montar({ colaborador }) {
   envoltoMesa.pai = mlTabs; mlTabs.filhos.push(envoltoMesa);
   const outros = new Map();
   const document = {
-    getElementById(id) { if (id === 'mlTabs') return mlTabs; if (id === 'mlSessoes') { const e = mlTabs.filhos.find((f) => f.html.includes('id="mlSessoes"')); return e ? { parentElement: e } : null; } if (!outros.has(id)) outros.set(id, solto()); return outros.get(id); },
+    getElementById(id) { if (id === 'mlTabs') return mlTabs; if (id === 'mlSessoes') { const h = String((outros.get('mlPainel') || {}).innerHTML || ''); return h.includes('id="mlSessoes"') ? solto() : null; } if (!outros.has(id)) outros.set(id, solto()); return outros.get(id); },
     querySelector(seletor) { if (seletor === '#mlTabs a[href="/mesa"]') return envoltoMesa.pai ? ancoraMesa : (ancoraMesa.pai ? ancoraMesa : null); return solto(); },
     querySelectorAll() { return []; },
     createElement() { return solto(); },
@@ -67,16 +67,18 @@ function montar({ colaborador }) {
   janela.window = janela;
   vm.createContext(janela);
   vm.runInContext(codigo, janela, { filename: 'menu-lado.js' });
-  return { janela, mlTabs, ancoraMesa, envoltoMesa };
+  // O miolo do menu (os grupos) é escrito em #mlPainel.innerHTML; o teste lê de lá.
+  const painelHtml = () => String((outros.get('mlPainel') || {}).innerHTML || '') + mlTabs.todoHtml();
+  return { janela, mlTabs, ancoraMesa, envoltoMesa, painelHtml };
 }
 
 const AGENTE = { id: 'ana', nome: 'Ana', tipo: 'agente', tem_painel: true, painel_url: '/p/ana/', provedor: 'claude', modelo: 'sonnet' };
 
 test('menu do colaborador: a inicialização completa não estoura, Sessões entra e a Mesa sai', () => {
-  const { janela, mlTabs, envoltoMesa } = montar({ colaborador: true });
+  const { janela, painelHtml, envoltoMesa } = montar({ colaborador: true });
   assert.ok(janela.DGMenuLado && janela.DGMenuLado.inicia, 'o menu carregou com DOM');
   janela.DGMenuLado.inicia({ agente: AGENTE, agentes: [AGENTE], fecha() {}, extras: [] });
-  const html = mlTabs.todoHtml();
+  const html = painelHtml();
   assert.match(html, /id="mlSessoes"/, 'o item Sessões foi inserido');
   assert.match(html, /href="\/p\/ana\/#aba=sessoes"/);
   assert.match(html, /Conectar conta/);
@@ -84,23 +86,26 @@ test('menu do colaborador: a inicialização completa não estoura, Sessões ent
   assert.equal(envoltoMesa.pai, null, 'a Mesa foi retirada do menu do colaborador');
 });
 
-test('menu do dono: a Mesa fica, leva o agente, e Sessões entra logo depois', () => {
-  const { janela, mlTabs, ancoraMesa, envoltoMesa } = montar({ colaborador: false });
+test('menu do dono: a Mesa fica e leva o agente, e Sessões entra dentro do grupo Dia a dia', () => {
+  const { janela, painelHtml, ancoraMesa } = montar({ colaborador: false });
   janela.DGMenuLado.inicia({ agente: AGENTE, agentes: [AGENTE], fecha() {}, extras: [] });
   assert.equal(ancoraMesa.attrs.href, '/mesa?a=ana');
-  const i = mlTabs.filhos.indexOf(envoltoMesa);
-  assert.match(mlTabs.filhos[i + 1].html, /id="mlSessoes"/);
+  const dia = painelHtml().match(/<div class="ml-grupo[^"]*" data-grupo="dia"[\s\S]*?<\/div><\/div><\/div>/);
+  assert.ok(dia, 'o grupo Dia a dia existe');
+  assert.match(dia[0], /id="mlSessoes"/);
+  assert.match(dia[0], /Rotinas/);
+  assert.match(dia[0], /Lembretes/);
 });
 
 test('Navegador: o dono vê o item, que abre em outra aba; o colaborador não vê', () => {
   const dono = montar({ colaborador: false });
   dono.janela.DGMenuLado.inicia({ agente: AGENTE, agentes: [AGENTE], fecha() {}, extras: [] });
-  const htmlDono = dono.mlTabs.todoHtml();
+  const htmlDono = dono.painelHtml();
   assert.match(htmlDono, /id="mlTela" href="\/p\/ana\/#aba=tela" target="_blank" rel="noopener"/);
   assert.match(htmlDono, /Navegador/);
   const colab = montar({ colaborador: true });
   colab.janela.DGMenuLado.inicia({ agente: AGENTE, agentes: [AGENTE], fecha() {}, extras: [] });
-  const htmlColab = colab.mlTabs.todoHtml();
+  const htmlColab = colab.painelHtml();
   assert.doesNotMatch(htmlColab, /mlTela|Navegador|aba=tela/);
 });
 

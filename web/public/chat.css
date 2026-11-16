@@ -3,23 +3,26 @@
    O que muda de tela pra tela virou variável (--header-h, --barra-h, --accent),
    pra tela de conversa poder ter barra de digitação mais alta e cor por agente
    sem reescrever regra nenhuma. */
+@import url("/ds/tokens.css");
+@import url("/ds/componentes.css");
+@import url("/ds/carregando.css");
 
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 :root{
-  --header:#ffffff;
-  --bub-in:#ffffff;          /* balão da agente: branco */
-  --bub-out:#e4fbcd;         /* balão de quem escreve: verdinho */
-  --txt:#0f1c14;
-  --muted:#6c8172;
-  --time:#82997f;
-  --accent:#2f9e5e;
-  --line:rgba(0,0,0,.08);
+  --header:var(--cor-superficie);
+  --bub-in:var(--balao-agente-fundo);   /* balão da agente */
+  --bub-out:var(--balao-meu-fundo);     /* balão de quem escreve */
+  --txt:var(--cor-texto);
+  --muted:var(--cor-texto-2);
+  --time:var(--balao-hora);
+  --accent:var(--cor-acento);           /* o conversa.js troca pela cor do agente */
+  --line:var(--cor-borda);
   --header-h:58px;
   --barra-h:54px;
 }
 html,body{height:100%;overflow:hidden;overscroll-behavior:none}
 body{margin:0;color:var(--txt);overflow:hidden;
-     font:15.5px/1.46 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif}
+     font:15.5px/1.46 var(--fonte-base)}
 
 /* Cabeçalho */
 header{position:fixed;top:0;left:0;right:0;height:var(--header-h);background:var(--header);
@@ -28,29 +31,26 @@ header{position:fixed;top:0;left:0;right:0;height:var(--header-h);background:var
        box-shadow:0 1px 4px rgba(0,0,0,.08)}
 .av{width:40px;height:40px;border-radius:50%;flex:0 0 40px;display:flex;align-items:center;
     justify-content:center;font-size:18px;font-weight:600;color:#fff;
-    background:linear-gradient(180deg,#57c98a,#2f9e5e)}
+    background:var(--cor-acento)}
 .who{flex:1;min-width:0}
 .who b{display:block;font-size:15.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .who span{display:block;font-size:12.5px;color:var(--accent);
           white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tools{display:flex;align-items:center;gap:6px}
 .btn{border:1px solid var(--line);border-radius:18px;padding:8px 12px;font-size:13px;font-weight:600;
-     cursor:pointer;background:#f2f6f2;color:#38523f;white-space:nowrap;min-height:34px}
+     cursor:pointer;background:var(--cor-fundo);color:var(--cor-texto);white-space:nowrap;min-height:34px}
 .btn:active{opacity:.7}
-.btn.on{background:var(--accent);color:#fff;border-color:transparent}
+.btn.on{background:var(--botao-fundo);color:var(--botao-texto);border-color:transparent}
 .btn.ghost{background:transparent;border-color:transparent;color:var(--muted);padding:8px}
 select.btn{-webkit-appearance:none;appearance:none;padding-right:26px;
-           background-image:linear-gradient(45deg,transparent 50%,#38523f 50%),linear-gradient(135deg,#38523f 50%,transparent 50%);
+           background-image:linear-gradient(45deg,transparent 50%,var(--cor-texto) 50%),linear-gradient(135deg,var(--cor-texto) 50%,transparent 50%);
            background-position:calc(100% - 14px) 15px,calc(100% - 9px) 15px;
            background-size:5px 5px,5px 5px;background-repeat:no-repeat}
 
 /* Área do chat: fundo verdinho com gradiente leve */
 #chat{position:absolute;top:var(--header-h);bottom:var(--barra-h);left:0;right:0;overflow-y:auto;
       padding:16px 12px 14px;-webkit-overflow-scrolling:touch;overflow-anchor:none;
-      background:
-        radial-gradient(ellipse at 15% 0%,rgba(255,255,255,.55),transparent 55%),
-        radial-gradient(ellipse at 90% 100%,rgba(139,196,146,.40),transparent 55%),
-        linear-gradient(165deg,#e6f2df 0%,#d8ead1 45%,#cde3c6 100%);
+      background:var(--conversa-fundo);
       /* Com "local" o fundo andava junto com os balões e, no elástico do iOS no fim
          da conversa, o verde subia e deixava uma faixa branca. Com "scroll" ele fica
          preso à caixa; o contain impede o elástico de passar para a página. */
@@ -70,8 +70,8 @@ select.btn{-webkit-appearance:none;appearance:none;padding-right:26px;
 .bub{max-width:min(76%,620px);padding:9px 13px 7px;border-radius:14px;position:relative;
      word-wrap:break-word;overflow-wrap:anywhere;font-size:15.5px;
      box-shadow:0 1px 2px rgba(0,0,0,.14)}
-.row.her .bub{background:var(--bub-in);border-bottom-left-radius:5px}
-.row.me  .bub{background:var(--bub-out);border-bottom-right-radius:5px}
+.row.her .bub{background:var(--bub-in);color:var(--balao-agente-texto);border-bottom-left-radius:5px}
+.row.me  .bub{background:var(--bub-out);color:var(--balao-meu-texto);border-bottom-right-radius:5px}
 .row.cron .bub{background:var(--bub-in);border-bottom-left-radius:5px;
                border-left:3px solid var(--accent)}
 
@@ -85,7 +85,8 @@ select.btn{-webkit-appearance:none;appearance:none;padding-right:26px;
 .meta.fila,.meta.longa{white-space:normal;line-height:1.3;overflow-wrap:anywhere}
 .tag{display:block;font-size:10.5px;font-weight:700;letter-spacing:.5px;color:var(--accent);
      margin-bottom:5px;text-transform:uppercase}
-.bub a{color:#1f7ac2}
+.bub a{color:var(--cor-link)}
+.bub a.midbx{color:#fff}
 .mk{box-shadow:0 1px 2px rgba(0,0,0,.14),0 0 0 1.5px rgba(47,158,94,.35)}
 
 /* placeholder de mídia (Fase 2 troca por miniatura) */
@@ -104,10 +105,10 @@ select.btn{-webkit-appearance:none;appearance:none;padding-right:26px;
 .row.vis .bub{max-width:min(94%,720px);width:min(94%,720px);padding:8px 8px 7px}
 .visb{display:block;min-width:0}
 .vish{display:flex;align-items:center;gap:6px;margin:0 0 6px;min-width:0}
-.vist{flex:1;min-width:0;font-size:13.5px;font-weight:700;color:#38523f;overflow:hidden;
+.vist{flex:1;min-width:0;font-size:13.5px;font-weight:700;color:var(--cor-texto);overflow:hidden;
       text-overflow:ellipsis;white-space:nowrap}
 .vish .visfull,.vish .midbx{position:static;transform:none;margin:0;flex:0 0 auto;width:32px;
-      height:32px;border:1px solid var(--line);border-radius:50%;background:#f2f6f2;color:#38523f;
+      height:32px;border:1px solid var(--line);border-radius:50%;background:var(--cor-fundo);color:var(--cor-texto);
       font-size:16px;line-height:1;cursor:pointer;display:flex;align-items:center;
       justify-content:center;padding:0;font-family:inherit}
 .vish .visfull:active,.vish .midbx:active{opacity:.7}
@@ -128,7 +129,7 @@ select.btn{-webkit-appearance:none;appearance:none;padding-right:26px;
   .row.vis .bub{max-width:100%;width:100%}
 }
 
-/* Tela cheia: abaixo do visor de arquivos (z 70), que o ⬇ do celular pode abrir por cima. */
+/* Tela cheia: abaixo do visor de arquivos (z 70), que o baixar do celular pode abrir por cima. */
 #visTela{position:fixed;inset:0;z-index:68;background:#fff;display:none;flex-direction:column;
          padding-top:env(safe-area-inset-top);padding-left:env(safe-area-inset-left);
          padding-right:env(safe-area-inset-right)}
@@ -138,7 +139,7 @@ select.btn{-webkit-appearance:none;appearance:none;padding-right:26px;
 .vtcnome{flex:1;min-width:0;font-size:14.5px;font-weight:700;color:var(--txt);overflow:hidden;
          text-overflow:ellipsis;white-space:nowrap}
 .vtctopo .midbx,.vtcfecha{position:static;transform:none;margin:0;width:36px;height:36px;
-      border:1px solid var(--line);border-radius:50%;background:#f2f6f2;color:#38523f;
+      border:1px solid var(--line);border-radius:50%;background:var(--cor-fundo);color:var(--cor-texto);
       font-size:17px;line-height:1;cursor:pointer;display:flex;align-items:center;
       justify-content:center;padding:0;font-family:inherit}
 #visTela .vistarja{margin:0;border-radius:0;border-width:0 0 1px}
@@ -151,14 +152,14 @@ select.btn{-webkit-appearance:none;appearance:none;padding-right:26px;
 .vispede{margin:6px 0 0;padding:8px 10px;border-radius:10px;background:#eef6ef;
          border:1px solid var(--accent);color:var(--txt);font-size:13.5px;line-height:1.35;
          min-width:0;max-width:100%}
-.vispede-rot{font-size:12px;font-weight:700;color:#38523f}
+.vispede-rot{font-size:12px;font-weight:700;color:var(--cor-texto)}
 .vispede-txt{margin:3px 0 8px;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word}
 .vispede-bts{display:flex;gap:8px;justify-content:flex-end}
 .vispede-ok,.vispede-nao{min-height:40px;border-radius:20px;font-size:14px;font-weight:700;
          font-family:inherit;cursor:pointer;border:1px solid var(--line);padding:0 16px}
-.vispede-ok{background:var(--accent);color:#fff;border-color:transparent;min-width:96px}
+.vispede-ok{background:var(--botao-fundo);color:var(--botao-texto);border-color:transparent;min-width:96px}
 .vispede-ok:disabled{opacity:.45;cursor:default}
-.vispede-nao{background:#f2f6f2;color:#38523f;min-width:48px;padding:0 12px}
+.vispede-nao{background:var(--cor-fundo);color:var(--cor-texto);min-width:48px;padding:0 12px}
 .vispede-ok:not(:disabled):active,.vispede-nao:active{opacity:.7}
 #visTela .vispede-cheia{flex:0 0 auto;margin:0;border-radius:0;border-width:1px 0 0;
          padding:10px calc(10px + env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom)) 10px;
@@ -167,7 +168,7 @@ select.btn{-webkit-appearance:none;appearance:none;padding-right:26px;
 
 /* Etiqueta da mensagem do dono que saiu de um visual. */
 .dovisual{display:inline-block;margin:0 0 4px;padding:2px 8px;border-radius:10px;
-          background:rgba(0,0,0,.07);font-size:11.5px;font-weight:700;color:#38523f;
+          background:rgba(0,0,0,.07);font-size:11.5px;font-weight:700;color:var(--cor-texto);
           max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
           vertical-align:top}
 

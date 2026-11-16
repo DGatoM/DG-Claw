@@ -132,7 +132,7 @@ test('texto da tela sem travessão no meio de frase nem a fórmula "não é X, �
 
 // ── menu ────────────────────────────────────────────────────────────────────
 test('menu: item Logs só no Admin do dono', () => {
-  assert.deepEqual(M.LINK_LOGS, { nome: 'Logs', ico: '≡', href: '/logs' });
+  assert.deepEqual(M.LINK_LOGS, { nome: 'Logs', ico: 'i-scroll', href: '/logs' });
   assert.equal(M.chaveDoHref('/logs'), 'logs');
   assert.equal(M.chaveDoHref('/logs/'), 'logs');
   assert.equal(M.chaveDoHref('/logs?a=admin'), 'logs');
@@ -141,7 +141,13 @@ test('menu: item Logs só no Admin do dono', () => {
   assert.equal(M.mostraLogs({ id: 'admin', tipo: 'admin' }, true), false, 'colaborador nunca');
   assert.equal(M.mostraLogs(null, false), false);
   const src = pub('menu-lado.js');
-  assert.match(src, /if \(mostraLogs\(ag, colab\)\) \{[\s\S]*LINK_LOGS\.href/);
+  assert.match(src, /if \(mostraLogs\(ag, colab\)\) fixo\('logs', LINK_LOGS, 'gm-logs'\)/);
+  // No menu em grupos, Logs fica em Operação e só aparece no Admin do dono
+  const itensAdmin = M.montaItens({ id: 'admin', tipo: 'admin', tem_painel: false }, false);
+  assert.ok(itensAdmin.some(i => i.chave === 'logs' && i.href === '/logs?a=admin'), 'Admin do dono tem Logs');
+  assert.ok(!M.montaItens({ id: 'admin', tipo: 'admin', tem_painel: false }, true).some(i => i.chave === 'logs'), 'colaborador não');
+  assert.ok(!M.montaItens({ id: 'ana', tipo: 'agente', tem_painel: false }, false).some(i => i.chave === 'logs'), 'agente de trabalho não');
+  assert.ok(M.GRUPOS_MENU.find(g => g.id === 'operacao').chaves.includes('logs'));
   assert.ok(M.passosMenu({ nome: 'Admin', naConversa: true })[0].como.includes('Logs'), 'o tutorial do menu cita o item');
 });
 

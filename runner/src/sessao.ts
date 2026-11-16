@@ -37,7 +37,7 @@ import { motorDe } from "./provedores/motores.js";
 import { parar, pararEEsperar, recusarPorRestricao, reviver, subir, suspender, trocarPorSessaoLimpa } from "./sessao/ciclo.js";
 import { conferirContaComRestricoes } from "./restricoes-conta.js";
 import { ctxLeve, montarAmbienteBase } from "./sessao/configuracao.js";
-import { PAUSA_TECLA_PERGUNTA_MS, QUIETO_PARA_OLHAR_TRANSCRIPT_MS, VIGIA_LOGIN_EXPIRADO_MS } from "./sessao/constantes.js";
+import { PAUSA_TECLA_PERGUNTA_MS, QUIETO_PARA_OLHAR_TRANSCRIPT_MS, RECIBO_VIGIA_PASSOS_MS, VIGIA_LOGIN_EXPIRADO_MS } from "./sessao/constantes.js";
 import { digitarEEnviar, vencerTelaDeConfianca } from "./sessao/digitacao.js";
 import { MedidorDeUso } from "./uso.js";
 import { type PayloadDeHook, receberHook } from "./sessao/eventos.js";
@@ -75,6 +75,8 @@ export interface OpcoesDaSessao {
   reintentoTelaBloqueadaMs?: number;
   /** Pausa entre as teclas da resposta de uma pergunta de escolha (ver responderPergunta). Testes usam valor curto. */
   pausaTeclaPerguntaMs?: number;
+  /** Intervalos da vigia que insiste no Enter quando as tentativas normais não geraram recibo. Testes usam valores curtos. */
+  reciboVigiaPassosMs?: number[];
   /** Comandos extras do evento UserPromptSubmit, depois do hook do runner. */
   promptHooks?: string[];
   ociosoMinutos?: number;
@@ -103,6 +105,8 @@ export class Sessao extends EventEmitter {
    *  barra como `/compact`, que não dispara UserPromptSubmit; ver esperarRecibo(). */
   compactsIniciados = 0;
   stopPendente: NodeJS.Timeout | null = null;
+  /** Até quando um Stop deve ser ignorado porque a trava de resposta devolveu o turno (evento StopBloqueado). */
+  stopBloqueadoAte = 0;
   /** A máscara de segredo do spawn atual e o relógio que a descarrega no silêncio. */
   mascaraAtual: MascaraDeFluxo | null = null;
   descargaDaMascara: NodeJS.Timeout | null = null;
@@ -163,6 +167,9 @@ export class Sessao extends EventEmitter {
   reintentoDaFila: NodeJS.Timeout | null = null;
   bloqueioDaFilaLogado = false;
   readonly reintentoTelaBloqueadaMs: number;
+  /** Vigia do Enter sem recibo (ver vigiarReciboAtrasado): um timer por vez e os intervalos dela. */
+  vigiaDoRecibo: NodeJS.Timeout | null = null;
+  readonly reciboVigiaPassosMs: number[];
   ultimaAtividade = Date.now();
   /** Quando o spawn atual foi uma RETOMADA, e quando ele começou. É o que
    *  permite separar "a sessão não abre" de "o agente trabalhou e saiu". */
@@ -219,6 +226,7 @@ export class Sessao extends EventEmitter {
     this.quietoParaOlharTranscriptMs = opcoes.quietoParaOlharTranscriptMs ?? QUIETO_PARA_OLHAR_TRANSCRIPT_MS;
     this.vigiaLoginExpiradoMs = opcoes.vigiaLoginExpiradoMs ?? VIGIA_LOGIN_EXPIRADO_MS;
     this.reintentoTelaBloqueadaMs = opcoes.reintentoTelaBloqueadaMs ?? 5_000;
+    this.reciboVigiaPassosMs = opcoes.reciboVigiaPassosMs ?? RECIBO_VIGIA_PASSOS_MS;
     this.pausaTeclaPerguntaMs = opcoes.pausaTeclaPerguntaMs ?? PAUSA_TECLA_PERGUNTA_MS;
     this.arquivoDeEstado = opcoes.arquivoDeEstado ?? STATE_FILE;
     this.pastaDeEstado = opcoes.pastaDeEstado ?? PASTA_DE_ESTADO;

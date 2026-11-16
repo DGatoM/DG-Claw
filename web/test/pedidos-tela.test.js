@@ -11,7 +11,7 @@ test('rótulo do estado cobre os cinco estados e um desconhecido', () => {
   assert.equal(P.rotuloEstado('fazendo').texto, 'fazendo');
   assert.equal(P.rotuloEstado('esperando_dono').texto, 'esperando você');
   assert.equal(P.rotuloEstado('entregue').texto, 'entregue');
-  assert.equal(P.rotuloEstado('feito').texto, 'feito ✓');
+  assert.equal(P.rotuloEstado('feito').texto, 'feito');
   assert.equal(P.rotuloEstado('cancelado').texto, 'cancelado');
   assert.equal(P.rotuloEstado('abacaxi').texto, 'abacaxi');
   assert.equal(P.rotuloEstado(undefined).texto, 'sem estado');

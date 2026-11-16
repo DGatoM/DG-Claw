@@ -1,6 +1,6 @@
 /* seguranca.css: a tela /seguranca (classes rp-). Celular primeiro: 390 px sem rolagem horizontal,
    alvos de toque com pelo menos 34 px, texto longo quebra em vez de cortar. */
-body.rp{--rp-txt:#0f1c14;--rp-fraco:#5f7566;--rp-linha:#dfe7e1;--rp-acento:#2f9e5e;--rp-fundo:#f3f6f3;--rp-verm:#b3261e;
+body.rp{--rp-txt:#0f1c14;--rp-fraco:#5f7566;--rp-linha:#dfe7e1;--rp-acento:var(--cor-acento);--rp-fundo:#f3f6f3;--rp-verm:#b3261e;
   margin:0;background:var(--rp-fundo);color:var(--rp-txt);overflow:auto;height:auto;
   font:15.5px/1.46 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;-webkit-text-size-adjust:100%}
 body.rp *{box-sizing:border-box}
@@ -41,7 +41,7 @@ body.rp *{box-sizing:border-box}
 .rp-detalhe summary{cursor:pointer;min-height:34px;display:flex;align-items:center;font-weight:600;color:#1f5fae}
 .rp-acoes{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
 .rp-btn{font:inherit;font-size:14px;font-weight:600;min-height:36px;padding:0 14px;border-radius:18px;border:1px solid var(--rp-linha);background:#f2f6f2;color:#38523f;cursor:pointer}
-.rp-btn.rp-pri{background:var(--rp-acento);border-color:var(--rp-acento);color:#fff}
+.rp-btn.rp-pri{background:var(--botao-fundo);border-color:var(--botao-fundo);color:var(--botao-texto)}
 .rp-btn.rp-perigo{background:#fff;border-color:#e6a5a0;color:var(--rp-verm)}
 .rp-btn.rp-perigo:not(:disabled):hover{background:#fdecea}
 .rp-btn:disabled{opacity:.5;cursor:default}

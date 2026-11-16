@@ -106,7 +106,7 @@
       let html = '';
       itens = [];
       if (buscando && !catalogo) {
-        html = '<div class="barra-msg">Carregando os comandos…</div>';
+        html = '<div class="barra-msg">' + dsCarregando({ rotulo: 'Carregando os comandos', tamanho: 'p' }) + ' Carregando os comandos…</div>';
       } else if (erro && !catalogo) {
         html = '<div class="barra-msg erro">Não consegui carregar os comandos: ' + esc(erro) +
                '. Você ainda pode enviar; o servidor confere o comando.</div>';
