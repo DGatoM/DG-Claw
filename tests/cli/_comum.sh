@@ -36,6 +36,18 @@ preparar() {
 
 dgclaw() { "$CLI" "$@"; }
 
+# parecer_com <segura|arriscada> <motivo> [opcoes de atualizar]: roda o --simular, pega o commit da linha DESTINO=
+# do relatorio e grava o parecer sobre ele (o --commit e obrigatorio, lib/atualizar.sh). parecer_segura e o atalho
+# do parecer que o --ok-do-dono passou a exigir.
+# Repete as opcoes do comando que vem a seguir (--forcar-local, --sem-baixar...) para ler o mesmo destino.
+parecer_com() {
+    local veredito="$1" motivo="$2" dest; shift 2
+    dgclaw atualizar --simular "$@" >"$TMP/parecer-simular.txt" 2>&1 || true
+    dest="$(sed -n 's/^DESTINO=//p' "$TMP/parecer-simular.txt" | head -n 1)"
+    dgclaw atualizar --parecer "$veredito" --commit "$dest" --motivo "$motivo" "$@" >"$TMP/parecer.txt" 2>&1
+}
+parecer_segura() { parecer_com segura "teste: versao conferida" "$@"; }
+
 # criar_agente <args>: roda `agente criar` guardando a saida em $TMP/saida.txt.
 criar_agente() { dgclaw agente criar "$@" >"$TMP/saida.txt" 2>&1; }
 
@@ -57,6 +69,34 @@ igual() {
     if [ "$esperado" = "$obtido" ]; then ok "$desc"
     else mal "$desc (esperado '$esperado', veio '$obtido')"; fi
 }
+
+# marcar_settings_alheio <slug>: poe no settings.json do agente uma linha que o DG Claw nao controla
+# (outra chave de hooks e uma chave solta). Depois de qualquer comando, ela tem de continuar la.
+marcar_settings_alheio() {
+    local st="$LIB/agentes/$1/home/.claude/settings.json"
+    jq '.hooks.PostToolUse = [{matcher: "Read", hooks: [{type: "command", command: "echo alheio"}]}] | .minhaLinha = "do-aluno"' "$st" >"$st.novo" \
+        && mv -f "$st.novo" "$st" && chmod 444 "$st"
+}
+
+# confere_travas <slug> <quando>: as tres travas (sem Bash, sem enviar arquivo, escrita so em
+# relatorios) estao no runner.json e no settings.json, o gancho esta uma vez so, a linha alheia
+# sobreviveu e o restricoes.json e o mesmo de antes ($RESTR_HASH_<slug> guardado por guardar_restricoes).
+confere_travas() {
+    local s="$1" q="$2" rj="$LIB/agentes/$1/runner/runner.json" st="$LIB/agentes/$1/home/.claude/settings.json"
+    afirma "$q: runner.json trava Bash, BashOutput, KillShell e Monitor" jq -e '(.config.denyTools | index("Monitor")) != null and (.config.denyTools | index("Bash")) != null and (.config.denyTools | index("BashOutput")) != null and (.config.denyTools | index("KillShell")) != null' "$rj"
+    afirma "$q: runner.json trava os dois envios de arquivo" jq -e '(.config.denyTools | index("mcp__dgchat__send_file")) != null and (.config.denyTools | index("mcp__dgchat__whatsapp_send_file")) != null' "$rj"
+    afirma "$q: send_file saiu dos allowTools e as respostas de texto ficaram" jq -e '(.config.allowTools | index("mcp__dgchat__send_file")) == null and (.config.allowTools | index("mcp__dgchat__whatsapp_send_file")) == null and (.config.allowTools | index("mcp__dgchat__reply")) != null and (.config.allowTools | index("mcp__dgchat__whatsapp_reply")) != null' "$rj"
+    afirma "$q: runner.json continua com os ganchos e o resto" jq -e '.config.promptHooks | length == 2' "$rj"
+    local ms="$LIB/agentes/$1/runner/managed-settings.json"
+    afirma "$q: o gancho de escrita esta na configuracao administrada, uma vez so" jq -e '[.hooks.PreToolUse[]?.hooks[]? | select(.command | test("escrita-restrita-hook"))] | length == 1' "$ms"
+    afirma "$q: a configuracao administrada nega Bash e os envios de arquivo" jq -e '(.permissions.deny | index("Bash")) != null and (.permissions.deny | index("mcp__dgchat__send_file")) != null and (.permissions.deny | index("mcp__dgchat__whatsapp_send_file")) != null' "$ms"
+    igual "$q: managed-settings.json 444" "444" "$(stat -c %a "$ms")"
+    nega "$q: o settings.json da casa NAO tem o gancho (o agente poderia desliga-lo)" grep -q 'escrita-restrita-hook' "$st"
+    afirma "$q: a linha alheia do settings.json sobreviveu" jq -e '.minhaLinha == "do-aluno" and .hooks.PostToolUse[0].hooks[0].command == "echo alheio" and .skipDangerousModePermissionPrompt == true' "$st"
+    afirma "$q: restricoes.json intacto" bash -c "[ \"\$(sha256sum <'$LIB/agentes/$s/runner/restricoes.json')\" = \"$(cat "$TMP/restr-hash-$s" 2>/dev/null)\" ]"
+    igual "$q: restricoes.json continua 444 de root" "444" "$(stat -c %a "$LIB/agentes/$s/runner/restricoes.json")"
+}
+guardar_restricoes() { sha256sum <"$LIB/agentes/$1/runner/restricoes.json" >"$TMP/restr-hash-$1"; }
 
 fim() {
     printf '%s: %s verificacoes, %s falharam\n' "$(basename "$0")" "$TESTES" "$FALHAS"

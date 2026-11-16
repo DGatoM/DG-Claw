@@ -67,6 +67,7 @@ para `sudo dgclaw atualizar`. Quem já tem podman ou docker no servidor deve usa
 - **Modo escondido**: mascara nomes, valores e chaves na tela para mostrar uma conversa sem expor dados ([docs/MODO-ESCONDIDO.md](docs/MODO-ESCONDIDO.md)).
 - **Saúde e modo seguro**: o painel confere se cada agente está respondendo, não só de pé ([docs/SAUDE-E-MODO-SEGURO.md](docs/SAUDE-E-MODO-SEGURO.md)).
 - **Emergência**: roteiro de socorro para quando um agente para ou fica estranho ([docs/EMERGENCIA.md](docs/EMERGENCIA.md)).
+- **Projeto de cliente**: o DG Claw oficial na VPS do cliente, com acesso temporário do suporte por chave SSH ([docs/PROJETO-DE-CLIENTE.md](docs/PROJETO-DE-CLIENTE.md)).
 
 ## Como funciona
 

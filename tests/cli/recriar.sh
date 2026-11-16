@@ -401,4 +401,21 @@ afirma "o painel desligado aparece" grep -q 'D /etc/systemd/system/multi-user.ta
 nega "ligar (A) um timer padrao nao conta" grep -q 'dgclaw-rita-reflection' "$TMP/rec.txt"
 nega "a rotina do proprio agente (self) continua de fora" grep -q 'self-7' "$TMP/rec.txt"
 
+# 17) timer padrao desligado pelo dono (o link nasceu depois da imagem, o diff nao mostra): consulta o systemctl
+echo imagem-v25 >"$STUB_ESTADO/imagem-id"
+: >"$STUB_ESTADO/diff-dgclaw-rita"
+printf 'dgclaw-rita-heartbeat.timer\n' >"$STUB_ESTADO/timer-desligado"
+recriar rita
+nega "timer desligado, sem --forcar: falha" test "$?" -eq 0
+afirma "o timer desligado aparece na lista" grep -q 'dgclaw-rita-heartbeat.timer' "$TMP/rec.txt"
+nega "os ligados nao aparecem" grep -q 'dgclaw-rita-reflection.timer' "$TMP/rec.txt"
+rm -f "$STUB_ESTADO/timer-desligado"
+touch "$STUB_ESTADO/enabled-falha"
+recriar rita
+nega "nao deu para consultar: falha" test "$?" -eq 0
+afirma "explica" grep -q 'quais rotinas padrao estao ligadas' "$TMP/rec.txt"
+rm -f "$STUB_ESTADO/enabled-falha"
+# os intermediarios do inventario ficam em pasta privada (700), nunca soltos em /tmp
+afirma "o inventario usa pasta temporaria privada" grep -q 'dirtmp="$(mktemp -d)"' "$AQUI/../../bin/dgclaw"
+
 fim

@@ -6,6 +6,7 @@ import { log } from "../logger.js";
 import { MascaraDeFluxo } from "../mascara.js";
 import { type CtxMotor, ErroDeMotor, redigirArgs } from "../provedores/motor.js";
 import { motorDe } from "../provedores/motores.js";
+import { conferirContaComRestricoes } from "../restricoes-conta.js";
 import { montarCtx } from "./configuracao.js";
 import { RESUME_MORREU_CEDO_MS } from "./constantes.js";
 import { cancelarQuietoDeBoot, cancelarStopPendente } from "./eventos.js";
@@ -138,6 +139,22 @@ async function subirSerializado(s: Sessao, modo: "retomar" | "nova", geracaoNoPe
         `então subo uma conversa NOVA e guardo a antiga em previousSessionId`,
     );
     modo = "nova";
+  }
+
+  // Restrições do dono: a conta conectada pode ser de uma organização com política remota, que vence a trava
+  // local. Vale para abrir e para retomar (as duas passam por aqui). Sem restrição ativa nada muda.
+  if (escolha.provedor === "claude") {
+    const conf = await conferirContaComRestricoes(s.ambienteDaEscolha(escolha, catalogo).env, s.descritor.config.cwd);
+    if (!conf.ok) {
+      recusarPorRestricao(s, conf.mensagem, conf.comoResolver);
+      s.modoDoUltimoSpawn = modo;
+      return modo;
+    }
+    // A conferência é um await: uma parada ou um revive que chegaram nela cancelam a subida.
+    if (s.geracao !== geracaoNoPedido) {
+      log.info(s.a("pty"), `pedido de subir (${modo}) cancelado: chegou uma parada ou um revive durante a conferência da conta`);
+      return modo;
+    }
   }
 
   const ctx = montarCtx(s, escolha, catalogo);
@@ -364,6 +381,12 @@ export function esperarLogin(s: Sessao): void {
   s.esperandoLogin.unref?.();
 }
 
+/** A conta conectada não serve com as restrições do dono: a sessão fica sem abrir, com o motivo e o que fazer. */
+export function recusarPorRestricao(s: Sessao, mensagem: string, comoResolver: string): void {
+  s.mudar({ status: "errored", error: `${mensagem} O que fazer: ${comoResolver}.`, statusReason: "runner:restricao-conta" });
+  log.erro(s.a("restricoes"), mensagem, comoResolver);
+}
+
 export function trocarPorSessaoLimpa(s: Sessao): void {
   if (s.esperandoLogin) {
     clearInterval(s.esperandoLogin);
@@ -415,10 +438,12 @@ export function parar(s: Sessao, motivo: string, statusReason?: string): void {
  *  janela em que o dono escolheu um modo e outro continua gastando (B6, card 4,
  *  12/10/2026). O SIGHUP do parar() não basta se o CLI o ignora; passado o prazo,
  *  vai SIGKILL no grupo inteiro (o node-pty faz o filho líder de sessão, então
- *  -pid pega também os servidores MCP). Nunca lança. */
-export async function pararEEsperar(s: Sessao, motivo: string, prazoMs = 5_000): Promise<void> {
+ *  -pid pega também os servidores MCP). Nunca lança. Devolve true quando a morte
+ *  foi confirmada (evento de saída ou grupo sem processos) e false quando o
+ *  processo continua vivo depois do SIGKILL. */
+export async function pararEEsperar(s: Sessao, motivo: string, prazoMs = 5_000): Promise<boolean> {
   const antigo = s.proc;
-  if (!antigo) return;
+  if (!antigo) return true;
   const pid = antigo.pid;
   let saiu = false;
   let acordar: () => void = () => {};
@@ -442,7 +467,7 @@ export async function pararEEsperar(s: Sessao, motivo: string, prazoMs = 5_000):
   };
 
   await esperar(prazoMs);
-  if (saiu) return;
+  if (saiu) return true;
 
   let forcou = "mandei SIGKILL no grupo do processo";
   try {
@@ -461,13 +486,49 @@ export async function pararEEsperar(s: Sessao, motivo: string, prazoMs = 5_000):
   );
 
   await esperar(2_000);
-  if (saiu) return;
+  if (saiu) return true;
+  // Sem o evento de saída, o grupo sem processos (ESRCH) também prova que o processo morreu.
+  if (!grupoVivo(pid)) return true;
   s.grupoQueSobrou = pid;
   log.erro(
     s.a("pty"),
     `o processo antigo (pid ${pid}) continuou vivo mesmo depois do SIGKILL (${motivo}); ele pode estar rodando com o ambiente do modo antigo`,
     `conferir com "ps -o pid,cmd -p ${pid}" e encerrar esse processo à mão antes de confiar na troca`,
   );
+  return false;
+}
+
+/**
+ * Recusa por restrição com contenção confirmada: encerra o PTY (SIGHUP, 3 s de espera, SIGKILL no grupo) e só
+ * marca `runner:restricao-conta` depois de provada a morte do processo. Se não der para provar, a sessão fica
+ * em `runner:restricao-sem-contencao`: falha de segurança explícita, porque um processo com a conta
+ * incompatível pode continuar trabalhando mesmo com a recusa aparecendo no painel.
+ */
+export async function recusarPorRestricaoComContencao(s: Sessao, mensagem: string, comoResolver: string): Promise<void> {
+  let pid = s.proc?.pid;
+  // Sem PTY, pararEEsperar() volta na hora sem tocar na geração. Um subir() que ainda espera a conferência da
+  // conta (feita antes do login incompatível) não pode seguir para o spawn depois da recusa: a marca velha o cancela.
+  s.geracao++;
+  let morreu = await pararEEsperar(s, "conta incompatível com as restrições", 3_000);
+  // pararEEsperar() devolve true na hora quando s.proc já é nulo, mas um PTY largado antes (saída pendente) ou um
+  // grupo que sobrou podem continuar vivos: só vale a recusa com todos confirmadamente mortos.
+  const vivos = await conterProcessosLargados(s);
+  if (vivos.length > 0) {
+    morreu = false;
+    pid = vivos[0];
+  }
+  if (morreu) {
+    recusarPorRestricao(s, mensagem, comoResolver);
+    return;
+  }
+  const quemReiniciar = `dgclaw agente reiniciar ${s.descritor.slug}`;
+  const detalhe = `Recusei a conta incompatível com as restrições, mas não consegui confirmar que o processo do agente (pid ${pid}) parou: ele pode continuar trabalhando com a conta nova.`;
+  s.mudar({
+    status: "errored",
+    error: `${detalhe} O que fazer: reiniciar o agente com ${quemReiniciar}.`,
+    statusReason: "runner:restricao-sem-contencao",
+  });
+  log.erro(s.a("restricoes"), `${detalhe} Motivo da recusa: ${mensagem}`, `reiniciar o agente com ${quemReiniciar}; conferir com "ps -o pid,pgid,stat,cmd -g ${pid}"`);
 }
 
 /** Dorme uma sessão PARALELA para devolver memória. Ela fica `resumable` e a
@@ -493,6 +554,57 @@ export function suspender(s: Sessao, motivo: string): boolean {
   return true;
 }
 
+/** Garante a morte dos processos que parar() largou (saída pendente) e do grupo que sobrou de uma parada anterior:
+ *  espera a saída pendente por até 3 s, manda SIGKILL no grupo (ou no pid) de quem ainda vive e confirma a morte
+ *  por até 2 s. Devolve os pids que continuam vivos (e deixa `grupoQueSobrou` apontando para o primeiro). Nunca lança. */
+async function conterProcessosLargados(s: Sessao): Promise<number[]> {
+  const pids = new Set<number>(s.pidsPendentes);
+  if (s.grupoQueSobrou !== null) pids.add(s.grupoQueSobrou);
+  if (s.saidaPendente) {
+    let timer: NodeJS.Timeout | undefined;
+    const limite = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, 3_000);
+      timer.unref();
+    });
+    await Promise.race([s.saidaPendente, limite]);
+    if (timer) clearTimeout(timer);
+  }
+  if (s.grupoQueSobrou !== null) pids.add(s.grupoQueSobrou);
+  const vivos: number[] = [];
+  for (const pid of pids) {
+    if (pid <= 1 || pid === process.pid || !grupoVivo(pid)) {
+      if (s.grupoQueSobrou === pid) s.grupoQueSobrou = null;
+      continue;
+    }
+    let forcou = "mandei SIGKILL no grupo do processo";
+    try {
+      process.kill(-pid, "SIGKILL");
+    } catch {
+      forcou = "mandei SIGKILL só no processo";
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch (err) {
+        forcou = `tentei o SIGKILL e não consegui (${err instanceof Error ? err.message : err})`;
+      }
+    }
+    log.aviso(s.a("pty"), `o processo largado (pid ${pid}) ainda estava vivo na recusa por restrição da conta; ${forcou}`);
+    const limite = Date.now() + 2_000;
+    while (Date.now() < limite && grupoVivo(pid)) await new Promise((r) => setTimeout(r, 50));
+    if (grupoVivo(pid)) {
+      vivos.push(pid);
+      s.grupoQueSobrou = pid;
+      log.erro(
+        s.a("pty"),
+        `o processo largado (pid ${pid}) continuou vivo mesmo depois do SIGKILL na recusa por restrição da conta`,
+        `conferir com "ps -o pid,pgid,stat,cmd -g ${pid}" e encerrar à mão`,
+      );
+    } else if (s.grupoQueSobrou === pid) {
+      s.grupoQueSobrou = null;
+    }
+  }
+  return vivos;
+}
+
 /** O grupo `-pgid` ainda tem algum processo? (EPERM também conta como vivo.) */
 function grupoVivo(pgid: number): boolean {
   try {
@@ -515,6 +627,7 @@ const varreduraDoPty = new WeakMap<object, Promise<void>>();
 function registrarSaidaPendente(s: Sessao, antigo: Sessao["proc"]): void {
   if (!antigo) return;
   const pid = antigo.pid;
+  s.pidsPendentes.add(pid);
   const pend = new Promise<void>((resolve) => {
     let saiu = false;
     const prazo = setTimeout(() => {
@@ -533,6 +646,7 @@ function registrarSaidaPendente(s: Sessao, antigo: Sessao["proc"]): void {
       })();
     });
   }).finally(() => {
+    s.pidsPendentes.delete(pid);
     if (s.saidaPendente === pend) s.saidaPendente = null;
   });
   s.saidaPendente = pend;
