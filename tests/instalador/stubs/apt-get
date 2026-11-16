@@ -9,7 +9,8 @@ fi
 if [ "${1:-}" = install ]; then
     shift
     for p in "$@"; do
-        case "$p" in -*) ;; *) echo "$p" >>"$(estado_dir)/instalados" ;; esac
+        # DGCLAW_STUB_APT_NAO_INSTALA=<pacote>: o apt "instala" sem trocar o pacote (indice velho).
+        case "$p" in -*) ;; "${DGCLAW_STUB_APT_NAO_INSTALA:-}") ;; *) echo "$p" >>"$(estado_dir)/instalados" ;; esac
     done
 fi
 exit 0

@@ -729,6 +729,16 @@ instalar_pacotes() {
     else
         ok "todos os pacotes ja estao instalados"
     fi
+    # O apt-get update tolerante (atualizar_indice_apt) pode ter deixado o indice do NodeSource sem
+    # atualizar, e o apt-get install de um nodejs ja instalado sai com sucesso sem trocar a versao.
+    # Por isso o Node e conferido depois de instalar, antes de qualquer coisa que dependa dele.
+    if [ "$precisa_node" = 1 ] && [ "$ENSAIO" != 1 ]; then
+        major="$(node -v 2>/dev/null | sed -n 's/^v\([0-9]*\)\..*/\1/p')" || major=""
+        if [ "${major:-0}" -lt 22 ]; then
+            falha "depois de instalar os pacotes, o Node do servidor continua na versao ${major:-ausente}, e o DG Claw precisa da 22 ou mais. O mais provavel e o 'apt-get update' ter falhado para o repositorio do NodeSource (veja o aviso acima e ${LOG_INSTALAR#"$R"})." \
+                  "confira a internet e o repositorio (cat /etc/apt/sources.list.d/nodesource.list; apt-get update); depois rode ./install.sh de novo, e seguro repetir."
+        fi
+    fi
 }
 
 # --- 2b. rede dos containers: netavark em modo iptables -------------------------------

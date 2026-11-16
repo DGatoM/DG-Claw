@@ -13,7 +13,9 @@ conseguisse colocar uma sequência de três aspas duplas nessa memória (por exe
 fazia o resto do texto rodar como código. Agora a memória segue por variável de ambiente e o trecho de código não recebe
 nada do texto. Também no instalador: se o `apt-get update` falhava por causa de um repositório do servidor que não é do
 DG Claw (um de terceiro, fora do ar ou com chave vencida), a instalação inteira abortava. Agora vira um aviso e a
-instalação segue; se algum pacote realmente faltar, o passo de instalar dele avisa com a mensagem do próprio apt.
+instalação segue; se algum pacote realmente faltar, o passo de instalar dele avisa com a mensagem do próprio apt, e o
+instalador confere que o Node ficou na versão 22 ou mais antes de seguir (se o repositório dele falhou e o Node ficou velho,
+ele para e explica o que fazer).
 Falhas reportadas por Renato Gracie (divulgação responsável).
 
 ### Como atualizar (reflexão e instalador)

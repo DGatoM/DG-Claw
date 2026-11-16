@@ -1584,3 +1584,13 @@ caso_apt_update_falhando_vira_aviso_e_nao_aborta() {
     afirma "os pacotes continuaram a ser instalados" tem "$TMP/estado/instalados" "podman"
     afirma "o detalhe do repositorio que falhou ficou no registro" tem "$RAIZ/var/log/dgclaw/instalar.log" "repo-de-terceiro.invalid"
 }
+
+caso_apt_update_falhando_com_node_velho_aborta_e_explica() {
+    novo_cenario
+    EXTRA_ENV=(DGCLAW_STUB_APT_UPDATE_FALHA=1 DGCLAW_STUB_APT_NAO_INSTALA=nodejs)
+    nega "a instalacao para quando o Node continua velho" instalacao_basica
+    afirma "o aviso do apt aparece" tem "$SAIDA" "o 'apt-get update' terminou com codigo 100"
+    afirma "a mensagem diz que o Node continua velho" tem "$SAIDA" "o Node do servidor continua na versao 18"
+    afirma "a mensagem diz o que fazer" tem "$SAIDA" "rode ./install.sh de novo"
+    nega "nao chegou a copiar o codigo" test -e "$RAIZ/opt/dgclaw/app/install.sh"
+}
