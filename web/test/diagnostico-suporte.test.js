@@ -186,3 +186,54 @@ test('--detalhe mostra categorias de erro sem texto de log', async () => {
   s.s.close();
   l.limpa();
 });
+
+test('resposta de mais de 1 MiB é descartada com explicação, sem travar, e os outros clientes seguem', async () => {
+  const enorme = await servidor((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    const pedaco = Buffer.alloc(64 * 1024, 'a');
+    let enviados = 0;
+    const enviar = () => {
+      while (enviados < 32) {
+        enviados += 1;
+        if (!res.write(pedaco)) { res.once('drain', enviar); return; }
+      }
+      res.end();
+    };
+    enviar();
+  });
+  const bom = await servidor((req, res) => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(resposta('ok', []))); });
+  const l = lista([{ nome: 'Enorme', url: enorme.url, token: TOKEN }, { nome: 'Bom', url: bom.url, token: TOKEN }]);
+  const r = await rodar(['--arquivo', l.arq]);
+  assert.equal(r.codigo, 2);
+  assert.match(r.stdout, /Enorme\s+não consegui consultar/);
+  assert.match(r.stdout, /passou de 1 MiB e foi descartada/);
+  assert.match(r.stdout, /Bom\s+Tudo certo/);
+  assert.ok(!r.stdout.includes(TOKEN) && !r.stderr.includes(TOKEN));
+  enorme.s.closeAllConnections();
+  enorme.s.close(); bom.s.close();
+  l.limpa();
+});
+
+test('Content-Length declarado acima do teto é recusado sem ler o corpo', async () => {
+  const s = await servidor((req, res) => { res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': String(3 * 1024 * 1024) }); res.write('{'); });
+  const l = lista([{ nome: 'Declara', url: s.url, token: TOKEN }]);
+  const r = await rodar(['--arquivo', l.arq]);
+  assert.equal(r.codigo, 2);
+  assert.match(r.stdout, /passou de 1 MiB/);
+  s.s.closeAllConnections();
+  s.s.close();
+  l.limpa();
+});
+
+test('JSON malformado na lista de clientes não deixa nenhum trecho do arquivo (nem do token) na saída', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sup-'));
+  const arq = path.join(dir, 'clientes.json');
+  fs.writeFileSync(arq, '{"clientes":[{"nome":"X","url":"https://exemplo.test","token":dgc_FAKEPR123"}]}', { mode: 0o600 });
+  const r = await rodar(['--arquivo', arq]);
+  assert.equal(r.codigo, 2);
+  assert.match(r.stderr, /não é um JSON válido/);
+  assert.match(r.stderr, /clientes\.exemplo\.json/);
+  assert.ok(!r.stderr.includes('dgc_FAKEPR') && !r.stderr.includes('FAKEPR'));
+  assert.ok(!r.stdout.includes('FAKEPR'));
+  fs.rmSync(dir, { recursive: true, force: true });
+});

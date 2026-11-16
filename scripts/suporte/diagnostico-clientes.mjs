@@ -10,6 +10,9 @@ import os from 'node:os';
 import path from 'node:path';
 
 const TEMPO_MS = 25000;
+// Teto da resposta de cada cliente e de consultas simultâneas: um servidor defeituoso ou comprometido não enche a memória.
+const MAX_BYTES = 1024 * 1024;
+const MAX_SIMULTANEAS = 8;
 const ARQUIVO_PADRAO = path.join(os.homedir(), '.config', 'dgclaw-suporte', 'clientes.json');
 const AJUDA = `Uso: diagnostico-clientes.mjs [opções]
 
@@ -65,13 +68,19 @@ function conferirPermissao(caminho, oQue) {
   }
 }
 
+/** O e.message do JSON.parse mostra trechos do arquivo (e o arquivo guarda tokens): só a posição numérica sai daqui. */
+function posicaoDoErro(e) {
+  const m = /position (\d+)/.exec(String(e && e.message));
+  return m ? ` (perto da posição ${m[1]})` : '';
+}
+
 const HOSTS_LOCAIS = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
 function carregarClientes(caminho, httpLocal) {
   conferirPermissao(caminho, 'a lista de clientes');
   let json;
   try { json = JSON.parse(fs.readFileSync(caminho, 'utf8')); } catch (e) {
-    falha(`A lista de clientes (${caminho}) não é um JSON válido: ${e.message}. Veja o formato em clientes.exemplo.json.`);
+    falha(`A lista de clientes (${caminho}) não é um JSON válido${posicaoDoErro(e)}. Veja o formato em clientes.exemplo.json.`);
   }
   if (!json || !Array.isArray(json.clientes) || !json.clientes.length) {
     falha(`A lista de clientes (${caminho}) precisa ter {"clientes":[...]} com pelo menos um cliente. Veja clientes.exemplo.json.`);
@@ -99,6 +108,45 @@ function carregarClientes(caminho, httpLocal) {
 /** O servidor do cliente escreve esses textos: tira cor e caracteres de controle antes de ir para o terminal. */
 const limpa = (t) => String(t == null ? '' : t).replace(/\x1b\[[0-9;?]*[ -/]*[@-~]|[\x00-\x08\x0b-\x1f\x7f]/g, ' ');
 
+/** Lê o corpo aos pedaços e desiste ao passar de MAX_BYTES, sem guardar o resto. */
+async function lerCorpoLimitado(res) {
+  const declarado = Number(res.headers.get('content-length'));
+  if (Number.isFinite(declarado) && declarado > MAX_BYTES) {
+    if (res.body) await res.body.cancel().catch(() => {});
+    return { grande: true };
+  }
+  if (!res.body) return { texto: '' };
+  const reader = res.body.getReader();
+  const partes = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_BYTES) {
+      await reader.cancel().catch(() => {});
+      return { grande: true };
+    }
+    partes.push(value);
+  }
+  return { texto: Buffer.concat(partes).toString('utf8') };
+}
+
+/** Pool simples: no máximo `limite` tarefas ao mesmo tempo, resultados na ordem da lista. */
+async function emPool(itens, limite, tarefa) {
+  const resultados = new Array(itens.length);
+  let proximo = 0;
+  const trabalhador = async () => {
+    while (proximo < itens.length) {
+      const i = proximo;
+      proximo += 1;
+      resultados[i] = await tarefa(itens[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limite, itens.length) }, trabalhador));
+  return resultados;
+}
+
 async function consultar(c) {
   const url = `${c.base}/api/v1/diagnostico`;
   try {
@@ -107,7 +155,11 @@ async function consultar(c) {
     if (res.status >= 300 && res.status < 400) {
       return { cliente: c.nome, url: c.base, status: res.status, erro: `O endereço do cliente respondeu com um redirecionamento (HTTP ${res.status}) e a ferramenta não o seguiu, para não mandar a chave a outro endereço. Confira se a "url" está certa e completa (por exemplo, com o domínio final e https://).` };
     }
-    const texto = await res.text();
+    const lido = await lerCorpoLimitado(res);
+    if (lido.grande) {
+      return { cliente: c.nome, url: c.base, status: res.status, erro: 'A resposta do cliente passou de 1 MiB e foi descartada sem ler o resto. O servidor do cliente pode estar com defeito ou comprometido.' };
+    }
+    const texto = lido.texto;
     let corpo = null;
     try { corpo = JSON.parse(texto); } catch (_) { /* resposta que não é JSON é tratada abaixo */ }
     if (res.ok && corpo && corpo.schema) return { cliente: c.nome, url: c.base, status: res.status, resposta: corpo };
@@ -177,7 +229,7 @@ async function principal() {
     clientes = clientes.filter((c) => c.nome.toLowerCase() === alvo);
     if (!clientes.length) falha(`Não há cliente chamado "${op.cliente}" na lista ${op.arquivo}.`);
   }
-  const resultados = await Promise.all(clientes.map(consultar));
+  const resultados = await emPool(clientes, MAX_SIMULTANEAS, consultar);
   if (op.json) {
     process.stdout.write(`${JSON.stringify(resultados, null, 2)}\n`);
   } else {
