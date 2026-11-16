@@ -19,19 +19,51 @@ Uso:
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from datetime import datetime
 
+# Este script roda dentro de uma sessao que le texto de terceiros (cron de comentarios): o id e o
+# username chegam de argumento, e o id decide o NOME DO ARQUIVO gravado. So se aceita o formato
+# que o Instagram usa, e o destino sai sempre do valor validado, nunca de um caminho vindo de
+# argumento ou de dentro de um JSON.
+ID_RE = re.compile(r"^(?:[0-9]{1,30}|username_[A-Za-z0-9._]{1,30})$")
+USERNAME_RE = re.compile(r"^[A-Za-z0-9._]{1,30}$")
+
+
+def recusa(msg):
+    print(f"search-follower: {msg}", file=sys.stderr)
+    sys.exit(2)
+
+
+def id_valido(valor):
+    if not isinstance(valor, str) or not ID_RE.match(valor):
+        recusa(f"id recusado ({str(valor)[:40]!r}): use so numeros (ate 30 digitos), como no commentId "
+               "do scrape. O id nunca vira caminho.")
+    return valor
+
+
+def username_valido(valor):
+    if not isinstance(valor, str) or not USERNAME_RE.match(valor):
+        recusa(f"username recusado ({str(valor)[:40]!r}): use so letras, numeros, ponto e sublinhado (ate 30).")
+    return valor
+
 
 def resolve_followers_dir(argv):
     ws = None
+    env = os.environ.get("DGCLAW_WORKSPACE")
     for i, a in enumerate(argv):
         if a == "--workspace" and i + 1 < len(argv):
             ws = Path(argv[i + 1])
-    if ws is None:
-        env = os.environ.get("DGCLAW_WORKSPACE")
-        ws = Path(env) if env else Path(__file__).parent.parent
+    if env:
+        # O cron define o workspace; a sessao nao pode apontar para outro lugar com --workspace.
+        if ws is not None and os.path.realpath(ws) != os.path.realpath(env):
+            recusa("--workspace diferente do workspace do agente foi recusado. "
+                   "Rode sem --workspace; o agente ja sabe onde fica a pasta dele.")
+        ws = Path(env)
+    elif ws is None:
+        ws = Path(__file__).parent.parent
     return ws / "persona" / "followers"
 
 
@@ -71,8 +103,20 @@ def _bump_counter(instagram_id):
     return counter[str(instagram_id)]
 
 
+def _arquivo_do_id(instagram_id):
+    """Caminho do cadastro, derivado so do id validado. Recusa o que escapa da pasta ou e link."""
+    id_valido(instagram_id)
+    base = os.path.realpath(FOLLOWERS_DIR)
+    alvo = FOLLOWERS_DIR / f"{instagram_id}.json"
+    if alvo.is_symlink():
+        recusa(f"{alvo} e um link simbolico; recusado. Apague o link ou mova o cadastro de verdade para la.")
+    if os.path.dirname(os.path.realpath(alvo)) != base:
+        recusa(f"o cadastro de {instagram_id} cairia fora de {FOLLOWERS_DIR}; recusado.")
+    return alvo
+
+
 def find_by_id(instagram_id):
-    filepath = FOLLOWERS_DIR / f"{instagram_id}.json"
+    filepath = _arquivo_do_id(instagram_id)
     if filepath.exists():
         return json.loads(filepath.read_text(encoding='utf-8'))
     return None
@@ -83,6 +127,8 @@ def find_by_username(username):
         return None
     username_lower = username.lower()
     for filepath in FOLLOWERS_DIR.glob("*.json"):
+        if filepath.is_symlink():
+            continue
         try:
             data = json.loads(filepath.read_text(encoding='utf-8'))
         except (json.JSONDecodeError, OSError):
@@ -147,13 +193,19 @@ def update_follower(follower, username=None, increment_interaction=False):
     return follower
 
 
-def save_follower(follower):
-    instagram_id = follower.get("instagramId")
+def save_follower(follower, instagram_id=None):
+    # O nome do arquivo vem do id validado. O campo instagramId de dentro do JSON lido de
+    # disco nao decide caminho: se diverge, vale o id pelo qual o cadastro foi achado.
+    instagram_id = instagram_id or follower.get("instagramId")
     if not instagram_id:
         return False
+    instagram_id = str(instagram_id)
     FOLLOWERS_DIR.mkdir(parents=True, exist_ok=True)
-    (FOLLOWERS_DIR / f"{instagram_id}.json").write_text(
-        json.dumps(follower, indent=2, ensure_ascii=False), encoding='utf-8')
+    alvo = _arquivo_do_id(instagram_id)
+    follower["instagramId"] = instagram_id
+    fd = os.open(alvo, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o644)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(json.dumps(follower, indent=2, ensure_ascii=False))
     return True
 
 
@@ -162,6 +214,8 @@ def list_all_followers():
         return []
     followers = []
     for filepath in FOLLOWERS_DIR.glob("*.json"):
+        if filepath.is_symlink():
+            continue
         try:
             data = json.loads(filepath.read_text(encoding='utf-8'))
         except (json.JSONDecodeError, OSError):
@@ -179,6 +233,8 @@ def get_stats():
         return {"total": 0}
     stats = {"total": 0, "byTier": {}, "withName": 0, "askNamePending": 0}
     for filepath in FOLLOWERS_DIR.glob("*.json"):
+        if filepath.is_symlink():
+            continue
         try:
             data = json.loads(filepath.read_text(encoding='utf-8'))
         except (json.JSONDecodeError, OSError):
@@ -214,26 +270,37 @@ def main():
         if arg == "--username" and i + 1 < len(args):
             username = args[i + 1]
 
+    # Valida ANTES de qualquer leitura ou gravacao.
+    if instagram_id is not None:
+        id_valido(instagram_id)
+    if username is not None:
+        username_valido(username)
+
     result = None
     if instagram_id:
         result = find_by_id(instagram_id)
         if result:
             result = update_follower(result, username, increment)
             if increment or username:
-                save_follower(result)
+                save_follower(result, instagram_id)
     if not result and username:
         result = find_by_username(username)
         if result:
+            achado_id = str(result.get("instagramId") or "")
             result = update_follower(result, username, increment)
             if increment:
-                save_follower(result)
+                if ID_RE.match(achado_id):
+                    save_follower(result, achado_id)
+                else:
+                    recusa("o cadastro achado por username tem um instagramId fora do formato valido; "
+                           "nao gravei. Corrija o arquivo em persona/followers/.")
     if not result and create:
         if instagram_id:
             result = create_new_follower(instagram_id, username)
-            save_follower(result)
+            save_follower(result, instagram_id)
         elif username:
             result = create_new_follower(f"username_{username}", username)
-            save_follower(result)
+            save_follower(result, f"username_{username}")
 
     if result:
         print(json.dumps(result, indent=2, ensure_ascii=False))

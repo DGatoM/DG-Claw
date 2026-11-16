@@ -37,6 +37,8 @@ mkdir -p "$TMP/bin"
 cat >"$TMP/bin/claude" <<'SH'
 #!/bin/bash
 if [ "$1" = "auth" ]; then printf '%s\n' "${FALSO_CONTA:-}"; exit 0; fi
+# A rotina de comentarios confere no --help que a CLI conhece as flags de restricao antes de rodar.
+if [ "$1" = "--help" ]; then echo "--allowedTools --disallowedTools --tools dontAsk --strict-mcp-config --disable-slash-commands --setting-sources --settings"; exit 0; fi
 printf '%s\n' "$*" >>"$FALSO_CHAMADAS"
 # Um argumento por linha, entre colchetes, para conferir argumentos vazios (como --tools "").
 { printf 'CHAMADA'; for a in "$@"; do printf ' [%s]' "$a"; done; printf '\n'; } >>"$FALSO_CHAMADAS.argv"
@@ -48,7 +50,7 @@ WS="$TMP/ws"; PLUGIN="$TMP/plugin"; CASA="$TMP/casa"; ETC="$TMP/etc"
 mkdir -p "$WS/.dgclaw/logs" "$PLUGIN/scripts" "$CASA/.claude" "$ETC"
 cp -r "$REPO/scripts/_lib" "$PLUGIN/scripts/_lib"
 printf '#!/bin/bash\nexit 0\n' >"$PLUGIN/scripts/powers.py"
-for s in notify-owner.sh ext-event.sh; do printf '#!/bin/bash\nexit 0\n' >"$PLUGIN/scripts/$s"; done
+for s in notify-owner.sh ext-event.sh preparar-scrape.sh; do printf '#!/bin/bash\nexit 0\n' >"$PLUGIN/scripts/$s"; done
 printf '#!/bin/bash\necho PREAMBULO\n' >"$PLUGIN/scripts/untrusted.py"
 # powers.py e untrusted.py sao chamados com python3: viram scripts python de uma linha.
 printf 'import sys\nsys.exit(0)\n' >"$PLUGIN/scripts/powers.py"
@@ -104,7 +106,13 @@ for qual in reflexao post comentarios consolidacao; do
     echo "$qual: sem restricao"
     rotina "$qual" "$CONTA_ORG" nao
     afirma "$qual: chamou o motor, mesmo com conta de organizacao" chamou
-    nega "$qual: sem nenhuma ferramenta negada" bash -c "grep -q disallowedTools '$CHAMADAS'"
+    # A sessao de comentarios ja nasce com as suas proprias ferramentas negadas (sem Bash etc.); o que nao pode
+    # aparecer sem restricao sao as negadas do runner.json.
+    if [ "$qual" = comentarios ]; then
+        nega "$qual: sem as ferramentas negadas do runner" bash -c "grep -q -- '--disallowedTools BashOutput' '$CHAMADAS'"
+    else
+        nega "$qual: sem nenhuma ferramenta negada" bash -c "grep -q disallowedTools '$CHAMADAS'"
+    fi
 done
 
 echo "falha fechada: restricoes.json ilegivel, conta ilegivel e conferidor ausente"

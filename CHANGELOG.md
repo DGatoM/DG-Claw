@@ -7,6 +7,46 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Correção de segurança: o cron de comentários do Instagram não roda mais com permissão total.** A rotina que responde
+os comentários lia o texto de desconhecidos dentro do pedido ao agente e rodava sem nenhuma lista de ferramentas, com a
+permissão toda liberada. Um comentário escrito como ordem podia virar ação no servidor. Agora a sessão roda só com as
+ferramentas de que precisa (ler, o scrape, o cadastro de seguidores, o aviso ao dono e a memória dela), sem internet e
+sem rodar comandos livres. A resposta ao comentário sai por um script novo (`scripts/responder-comentario.sh`) que só
+aceita o número do comentário e o texto, confere que o comentário veio do scrape da rodada, não responde duas vezes e
+lê a conta e a chave da configuração, nunca de quem pede. Se o Claude Code instalado for antigo e não conhecer as
+travas, o cron não roda e avisa você em vez de rodar solto. As rotinas de post e de consolidação foram examinadas e não
+recebem texto de terceiros no pedido, então ficaram como estavam.
+Mais travas na mesma rotina: a sessão agora roda **sem terminal** (só ler e editar arquivos), porque até um comando de
+leitura como `grep -r` furava o bloqueio da pasta de credenciais; ela não lê a configuração da conta, o token nem os
+cookies, e escreve **só** o arquivo de respostas da rodada (`data/rodada/respostas.json`).
+Em vez de responder ela mesma, a sessão grava `data/rodada/respostas.json` e o próprio cron envia cada resposta pelo
+`responder-comentario.sh`. O scrape é feito pelo cron antes da sessão (e, numa rodada manual, pelo `scripts/preparar-scrape.sh`, que faz o scrape, confere e carimba sob a mesma trava), para um arquivo da rodada, e só vira o oficial
+depois de conferido (data recente e posts processados); se falhar, nada é respondido e você é avisado. A sessão
+não usa a memória automática do Claude, não herda nenhuma configuração de permissão (um `allow` antigo, de usuário ou de projeto, não amplia o que ela faz), roda
+dentro da pasta da rodada e só lê o que foi liberado: SOUL, PERSONALITY, a skill, o scrape da rodada, os cadastros de seguidores e as linhas de instrução do dono marcadas para comentários (sem acesso à memória privada). **A sessão deixou de escrever na memória, nos cadastros de seguidores e na memória de trabalho** (e de marcar
+instruções como "aplicadas"); o perfil dos seguidores segue sendo atualizado pelo scrape: a seção "Instruções do dono" que a rotina de posts obedece só muda por você, e a atualização
+das seções "Hoje" e "Pessoas Próximas" fica para a sua sessão principal, não para esta rotina. Duas rodadas nunca rodam juntas. O registro de comentários respondidos
+tem trava e reserva do número antes do envio, e a reserva só é desfeita quando o Instagram recusa de verdade: se a
+conexão cair no meio e não der para saber se a resposta saiu, o número fica reservado, você é avisado e confere na
+conta (nunca há resposta em dobro). O cadastro de seguidores só aceita número de conta e nome de usuário em formato
+válido e nunca grava fora da própria pasta.
+Falhas reportadas por Renato Gracie (divulgação responsável).
+
+### Como atualizar (comentários do Instagram)
+
+1. **Atualize com o `dgclaw atualizar` padrão.** O cron novo passa a valer na próxima rodada.
+2. **Confira a versão do Claude Code.** Se, depois de atualizar, você receber o aviso "Cron de comentários NÃO rodou", peça
+   ao Admin para rodar `claude update` no agente. O aviso diz exatamente qual trava a versão antiga não tem.
+3. **Se você personalizou as instruções do Instagram** (`skills/instagram/comments.md` do seu agente), troque o passo de
+   responder para usar `bash $DGCLAW_PLUGIN_ROOT/scripts/responder-comentario.sh "<id do comentário>" "<texto>"`. É o único
+   jeito que o cron agora permite, e ele já anota o comentário como respondido. Para pular um comentário, use
+   `responder-comentario.sh --pular "<id>"`, e retire do texto o passo de rodar o scrape, que agora é do cron.
+4. **Instruções do dono na memória de trabalho** continuam do jeito que você escreve, e a sessão de comentários não
+   escreve mais ali nem marca instrução como aplicada: uma instrução com a etiqueta `[comentarios]` vale em toda rodada
+   até você apagá-la.
+5. **Se você personalizou o prompt do cron de comentários**, saiba que a sessão não tem mais terminal: ela grava as
+   decisões em `data/rodada/respostas.json` e o cron faz o scrape, o envio e o aviso.
+
 **Correção: o instalador não para por repositório de terceiro.** Se o `apt-get update` falhava por causa de um repositório do
 servidor que não é do DG Claw (um de terceiro, fora do ar ou com chave vencida), a instalação inteira abortava. Agora vira um
 aviso e a instalação segue; se algum pacote realmente faltar, o passo de instalar dele avisa com a mensagem do próprio apt, e o

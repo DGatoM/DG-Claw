@@ -27,6 +27,7 @@
 #  21. docs-em-dia     tests/docs-em-dia: o manual (docs/manual) acompanha o codigo (inventario de scripts/docs-inventario.mjs), com bancada de manual falso
 #  22. heartbeat       tests/heartbeat: o batimento (scripts/heartbeat.sh) so acorda o agente quando o assunto muda, com plugin e sessao falsos
 #  23. reflexao        tests/reflexao: o scripts/reflection.sh pula o dia sem conversa com o dono e, na duvida, roda (workspace e plugin falsos)
+#  23b. comentarios     tests/comentarios: o cron de comentarios roda com ferramentas restritas e responde so pelo responder-comentario.sh (claude, plugin e Instagram falsos)
 #  24. instrucoes      tests/instrucoes: CLAUDE.md e AGENTS.md (agente e Admin) gerados da mesma fonte, com as mesmas secoes
 #  25. anexo-seguro    tests/anexo-seguro: o doctor --fix acrescenta secoes sem seguir link simbolico
 #
@@ -130,7 +131,7 @@ testes_shellcheck() {
     (
         cd "$REPO" || exit 1
         arquivos=(install.sh bin/dgclaw lib/*.sh tests/rodar.sh tests/cli/*.sh tests/cli/stubs/*
-                  tests/instalador/*.sh tests/novidades/*.sh tests/changelog/*.sh tests/monitor/*.sh tests/aviso-atualizacao/*.sh tests/boletins/*.sh tests/emergencia/*.sh tests/tela/*.sh tests/anonimizar/*.sh tests/docs-em-dia/*.sh tests/heartbeat/*.sh scripts/heartbeat.sh tests/reflexao/*.sh tests/instrucoes/*.sh tests/anexo-seguro/*.sh scripts/_lib/anexo-seguro.sh scripts/gerar-instrucoes.sh bin/dgclaw-tela-navegador tests/ronda/rodar.sh tests/ronda/stubs/* scripts/cofre-nomes.sh scripts/test-cofre-nomes.sh
+                  tests/instalador/*.sh tests/novidades/*.sh tests/changelog/*.sh tests/monitor/*.sh tests/aviso-atualizacao/*.sh tests/boletins/*.sh tests/emergencia/*.sh tests/tela/*.sh tests/anonimizar/*.sh tests/docs-em-dia/*.sh tests/heartbeat/*.sh scripts/heartbeat.sh tests/reflexao/*.sh tests/comentarios/*.sh scripts/responder-comentario.sh scripts/cron/dgclaw-comentarios.sh tests/instrucoes/*.sh tests/anexo-seguro/*.sh scripts/_lib/anexo-seguro.sh scripts/gerar-instrucoes.sh bin/dgclaw-tela-navegador tests/ronda/rodar.sh tests/ronda/stubs/* scripts/cofre-nomes.sh scripts/test-cofre-nomes.sh
                   scripts/revisao-adversarial.sh tests/revisao-adversarial/*.sh)
         "$sc" -x "${arquivos[@]}"
     )
@@ -168,6 +169,7 @@ parte emergencia bash "$REPO/tests/emergencia/rodar.sh"
 parte tela bash "$REPO/tests/tela/rodar.sh"
 parte anonimizar bash "$REPO/tests/anonimizar/rodar.sh"
 parte docs-em-dia bash "$REPO/tests/docs-em-dia/rodar.sh"
+parte comentarios bash "$REPO/tests/comentarios/rodar.sh"
 parte reflexao bash "$REPO/tests/reflexao/rodar.sh"
 parte heartbeat bash "$REPO/tests/heartbeat/rodar.sh"
 parte instrucoes bash "$REPO/tests/instrucoes/rodar.sh"
