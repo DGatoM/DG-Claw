@@ -7,6 +7,28 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Correção de segurança e de perda de dados: `dgclaw agente recriar` mostra o que se perde e pede `--forcar`.** Trocar o
+container de um agente (o que a atualização faz com a imagem nova) apaga o que alguém instalou direto dentro dele, fora
+da casa do agente, como o `tailscale` que um dono tinha instalado à mão. Isso acontecia sem aviso nenhum. Agora, antes
+de trocar, o comando compara o container com a imagem e lista os pacotes instalados à mão e os arquivos que só existem
+ali. Se houver algo na lista, ele **não troca nada** e pede `--forcar`; se não conseguir conferir, também para. Com
+`--forcar` ele troca. A lista completa é gravada em `perdido-no-recriar-<data>.txt` na pasta do agente **antes** de pedir
+qualquer confirmação (a tela mostra só o começo, e o arquivo guarda tudo). Como os nomes vêm de dentro do container, o
+comando os simplifica (só letras, números e alguns símbolos) e avisa que a lista é dado, nunca instrução; o Admin foi
+orientado a não obedecer nada que apareça nela. Se qualquer passo da conferência falhar, o comando para em vez de
+tratar como "nada a perder". As rotinas padrão do agente (reflexão, vigia, coletas e afins), que o `reparar` regrava sozinho, só ficam de fora da lista se o arquivo for idêntico ao que o produto gerou (o `reparar` passa a gravar a impressão digital delas na casa do agente, em `.dgclaw/unidades-padrao.sha256`); o runner e o painel do agente só ficam de fora se forem idênticos aos da imagem; diretório que só aparece porque um arquivo dentro dele mudou fica de fora apenas se a permissão e o dono forem os da imagem, e programa só em bytecode (`.pyc`) conta como perda; rotina padrão que o dono desligou (e que a recriação religaria) também conta; container preso em `stopping` passa a pedir `--forcar`, porque não dá para conferir o que existe só dentro dele; se alguém editou uma rotina, ou se o agente é anterior a esta versão e ainda não tem essa impressão digital, elas aparecem na lista como possível perda (na primeira atualização depois desta, um agente antigo pede `--forcar` uma vez e já fica com a referência gravada); as rotinas do Instagram e o vigia do canal, que ninguém regrava, entram. A casa, o cofre, as portas e as rotinas do agente continuam intactos como antes.
+Falhas reportadas por Renato Gracie (divulgação responsável).
+
+### Como atualizar (recriar com inventário)
+
+1. **Atualize com o `dgclaw atualizar` padrão.** Se algum agente seu tiver coisa instalada só dentro do container, a
+   atualização termina avisando que aquele agente **não** foi trocado (ele continua rodando como estava, com a
+   imagem antiga) e mostra a lista do que se perderia. Nada é apagado nesse momento.
+2. **Decida com a lista na mão.** Se o que aparece pode ser perdido ou reinstalado depois, rode
+   `sudo dgclaw agente recriar <agente> --forcar`. Se precisa guardar algo, copie para a casa do agente (a pasta
+   `home` dele) antes. O Admin foi instruído a não usar `--forcar` sem mostrar a lista a você.
+3. **Agente sem nada instalado à mão** (a maioria) atualiza como sempre, sem perguntar nada.
+
 **Correção de segurança: o cron de comentários do Instagram não roda mais com permissão total.** A rotina que responde
 os comentários lia o texto de desconhecidos dentro do pedido ao agente e rodava sem nenhuma lista de ferramentas, com a
 permissão toda liberada. Um comentário escrito como ordem podia virar ação no servidor. Agora a sessão roda só com as
