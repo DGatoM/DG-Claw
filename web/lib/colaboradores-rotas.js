@@ -14,7 +14,7 @@ const JANELA_SENHA_MS = 15 * 60 * 1000;
 const MAX_FALHAS_SENHA = 5;
 const SO_DONO = 'Convidar e gerenciar colaboradores é só do dono do DG Claw, pelo painel.';
 
-function criarColaboradoresRotas({ colaboradores, auth, registro, email, config, log, aoDerrubar, agora, conta }) {
+function criarColaboradoresRotas({ colaboradores, auth, registro, email, config, log, aoDerrubar, aoRevogar, agora, conta }) {
   const relogio = agora || (() => Date.now());
   // Erros da senha atual na troca de senha: 5 em 15 min por colaborador e por IP.
   const falhasDeSenha = new Map();
@@ -30,7 +30,12 @@ function criarColaboradoresRotas({ colaboradores, auth, registro, email, config,
   };
   const registraFalha = (chaves) => { const t = relogio(); for (const k of chaves) falhasDeSenha.set(k, [...(falhasDeSenha.get(k) || []), t]); };
   /** Derruba as sessões do colaborador e fecha as conexões abertas dele (o stream da conversa). */
-  const derruba = (id) => { auth.encerraDoColaborador(id); if (aoDerrubar) aoDerrubar(id); };
+  const derruba = (id) => {
+    const r = auth.encerraDoColaborador(id);
+    if (aoDerrubar) aoDerrubar(id);
+    if (!r.gravou) log('erro', `As sessões do colaborador ${id} caíram na memória, mas o disco não aceitou regravar o registro de sessões. O acesso já está revogado ou trocado (a conferência olha o registro dele a cada pedido), então nenhuma sessão antiga vale; confira o espaço em ${config.dataDir}.`);
+    return r.gravou;
+  };
 
   const fmtData = (ms) => new Intl.DateTimeFormat('pt-BR', { timeZone: config.tz, day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(ms));
 
@@ -176,13 +181,16 @@ function criarColaboradoresRotas({ colaboradores, auth, registro, email, config,
         }
         if (m === 'DELETE') {
           const r = await colaboradores.revogar(id);
-          derruba(id);
+          const gravou = derruba(id);
+          if (aoRevogar) await aoRevogar(id);
           log('info', `Acesso de ${r.email} ao agente ${r.agente} revogado (por ${sessao.usuario}).`);
           const contas = conta ? conta.contasDe(id).map((x) => x.agente) : [];
           const enc = conta ? await conta.encerraPendencias(id, (slug) => registro.obter(slug)) : { avisos: [], agentes: [] };
           for (const a of enc.agentes) if (!contas.includes(a)) contas.push(a);
           if (contas.length) log('aviso', `${r.email} conectou, ou deixou em andamento, a conta de IA do agente ${contas.join(', ')} e ela pode continuar conectada depois da revogação. Se quiser, entre com a sua conta em Conectar conta para trocar.`);
-          H.enviaJson(res, 200, { ok: true, colaborador: r, contas_de_ia: contas, avisos: enc.avisos });
+          const resposta = { ok: true, colaborador: r, contas_de_ia: contas, avisos: enc.avisos };
+          if (!gravou) resposta.aviso = 'O acesso foi revogado e nenhuma sessão antiga vale, mas o disco não aceitou regravar o registro de sessões. Libere espaço no servidor e avise o Admin.';
+          H.enviaJson(res, 200, resposta);
           return true;
         }
         H.erroJson(res, 405, 'Use DELETE para revogar o acesso, ou POST em /reenviar.');
