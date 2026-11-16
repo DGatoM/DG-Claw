@@ -14,7 +14,7 @@
 .av-btn:disabled{opacity:.5;cursor:default}
 .av-primario{background:var(--botao-fundo);border-color:var(--botao-fundo);color:var(--botao-texto);font-weight:600;min-height:40px}
 .av-primario:hover{background:#278850}
-.av-perigo{background:#c0392b;border-color:#c0392b;color:#fff}
+.av-perigo{background:var(--cor-perigo);border-color:var(--cor-perigo);color:var(--cor-sobre-perigo)}
 .av-perigo:hover{background:#a93226}
 .av-mini{min-height:32px;padding:0 12px;font-size:13px}
 .av-ajuda{width:32px;height:32px;border-radius:50%;border:1px solid var(--av-linha);background:#fff;
