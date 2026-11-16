@@ -52,7 +52,7 @@ export async function executar(argv, { env = process.env, home = os.homedir(), s
 
   if (cmd === 'status') {
     const p = envio.paradoMotivo();
-    return { codigoSaida: 0, resposta: { ok: true, parado: !!p, motivo: p } };
+    return { codigoSaida: 0, resposta: { ok: true, parado: !!p, motivo: p, pendente: envio.pendente() } };
   }
   if (cmd !== 'enviar') return { codigoSaida: 2, resposta: falha('USO_INVALIDO', 'use "enviar --para <numero> --texto ..." ou "status"') };
 

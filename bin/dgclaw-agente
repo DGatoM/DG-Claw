@@ -449,13 +449,28 @@ cmd_wa_desligar() {
 
 cmd_wa_retomar() {
   # So o dono pede isto, no chat do DG Claw, depois de conferir o numero no celular (docs/CANAL-WHATSAPP.md).
-  local f achou=""
+  local f achou="" lock="$WADIR/envio/envio.lock" tmp pid
+  # A mesma exclusao dos envios: ninguem libera nada enquanto um envio esta no ar (o marcador PENDENTE e dele).
+  if [ -d "$WADIR/envio" ]; then
+    tmp="$WADIR/envio/envio.lock.$$.tmp"
+    echo "$$" > "$tmp" || die "nao consegui gravar em $WADIR/envio; confira o espaco em disco e as permissoes"
+    if ! ln "$tmp" "$lock" 2>/dev/null; then
+      pid="$(cat "$lock" 2>/dev/null || true)"
+      if [ -n "$pid" ] && [ "$pid" != "$$" ] && kill -0 "$pid" 2>/dev/null; then
+        rm -f -- "$tmp"
+        die "ha um envio no ar agora (processo $pid). Espere ele terminar e rode 'retomar' de novo."
+      fi
+      rm -f -- "$lock"; ln "$tmp" "$lock" 2>/dev/null || { rm -f -- "$tmp"; die "outro processo pegou a vez agora; rode 'retomar' de novo."; }
+    fi
+    rm -f -- "$tmp"
+  fi
   for f in "$WADIR/envio/PARADO" "$WADIR/zapi/PARADO" "$WADIR/envio/PENDENTE" "$WADIR/zapi/PENDENTE"; do
     if [ -f "$f" ] && [ ! -L "$f" ]; then
-      rm -f -- "$f" || die "nao consegui apagar $f; confira a permissao da pasta"
+      rm -f -- "$f" || { rm -f -- "$lock"; die "nao consegui apagar $f; confira a permissao da pasta"; }
       achou=1
     fi
   done
+  rm -f -- "$lock"
   if [ -n "$achou" ]; then echo "Envios liberados. As travas de ritmo continuam valendo."
   else echo "Nao havia trava de envio ativa."; fi
 }
@@ -479,10 +494,15 @@ status_whatsapp() {
   else
     echo "  estado: sem registro da ponte ainda"
   fi
-  local pf pm
+  local pf pm lk
   for pf in "$WADIR/envio/PARADO" "$WADIR/zapi/PARADO" "$WADIR/envio/PENDENTE" "$WADIR/zapi/PENDENTE"; do
     [ -f "$pf" ] || continue
-    case "$pf" in */PENDENTE) pm="um envio anterior ficou sem resultado conhecido";; *) pm="$(js 'return d.motivo' < "$pf")";; esac
+    case "$pf" in
+      */PENDENTE)
+        # Com a trava de exclusao segura por um processo vivo, e um envio normal no ar, nao problema.
+        lk="$(dirname "$pf")/envio.lock"
+        if [ -f "$lk" ] && kill -0 "$(cat "$lk" 2>/dev/null)" 2>/dev/null; then continue; fi
+        pm="um envio anterior ficou sem resultado conhecido";; *) pm="$(js 'return d.motivo' < "$pf")";; esac
     echo "  ENVIOS TRAVADOS: ${pm:-sem motivo registrado}. O dono libera com: dgclaw-agente canal whatsapp retomar"
   done
   ler_permitidos

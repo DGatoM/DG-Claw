@@ -184,7 +184,6 @@ export function criarEnvioSeguro({ dir, arqConfig, agora = () => new Date(), dor
   }
 
   function paradoMotivo() {
-    if (fs.existsSync(arqPendente)) return 'um envio anterior nao terminou com resultado conhecido (a mensagem pode ou nao ter saido); confira no celular antes de liberar';
     if (parouNaMemoria) return `${parouNaMemoria} (o arquivo PARADO nao pode ser gravado; reinicie para destravar depois de resolver)`;
     let s;
     try { s = fs.readFileSync(arqParado, 'utf8'); } catch (e) {
@@ -193,6 +192,10 @@ export function criarEnvioSeguro({ dir, arqConfig, agora = () => new Date(), dor
     }
     try { const o = JSON.parse(s); return `${o.motivo} (desde ${o.quando})`; } catch { return s.trim() || 'sem motivo registrado'; }
   }
+
+  /** Marcador de envio sem resultado conhecido. So significa "interrompido" quando NINGUEM segura a trava (dentro dela, e). */
+  const pendente = () => fs.existsSync(arqPendente);
+  const MOTIVO_PENDENTE = 'um envio anterior nao terminou com resultado conhecido (a mensagem pode ou nao ter saido); confira no celular antes de liberar';
 
   function liberar() {
     parouNaMemoria = null;
@@ -283,7 +286,7 @@ export function criarEnvioSeguro({ dir, arqConfig, agora = () => new Date(), dor
 
   async function tentar({ para, texto, executar, ate, conferir }) {
     if (expirou(ate)) return EXPIRADO();
-    const parado = paradoMotivo();
+    const parado = paradoMotivo() || (pendente() ? MOTIVO_PENDENTE : null);
     if (parado) {
       return falha('PARADO', `os envios estao travados: ${parado}. Nao tente de novo: avise o dono, que confere o numero no celular e libera com "dgclaw-agente canal whatsapp retomar"`);
     }
@@ -388,5 +391,5 @@ export function criarEnvioSeguro({ dir, arqConfig, agora = () => new Date(), dor
     return { ok: true, resultado, disparo, esperou_ms: esperouMs };
   }
 
-  return { enviar, travar, liberar, paradoMotivo };
+  return { enviar, travar, liberar, paradoMotivo, pendente };
 }

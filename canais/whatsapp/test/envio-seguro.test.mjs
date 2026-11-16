@@ -388,9 +388,11 @@ test('se o disco recusa o PARADO depois de um erro, o marcador PENDENTE segura o
   assert.equal(r.codigo, 'FALHA_ENVIO');
   fs.rmSync(path.join(m.home, 'envio', 'PARADO'), { recursive: true });
   const outro = criarEnvioSeguro({ dir: path.join(m.home, 'envio'), arqConfig: m.arqConfig });
-  assert.match(outro.paradoMotivo(), /resultado conhecido/);
+  const bloqueado = await outro.enviar({ para: B, texto: 'segunda mensagem para o Bruno', executar: async () => { throw new Error('nao devia enviar'); } });
+  assert.equal(bloqueado.codigo, 'PARADO');
+  assert.match(bloqueado.erro, /resultado conhecido/);
   assert.equal(outro.liberar(), false); // so havia o PENDENTE, que foi removido
-  assert.equal(outro.paradoMotivo(), null);
+  assert.equal(outro.pendente(), false);
   m.limpar();
 });
 
@@ -399,7 +401,7 @@ test('sucesso nao deixa PENDENTE; pasta sem escrita recusa antes de enviar', asy
   assert.equal((await m.mandar(A, 'primeira mensagem para a Ana')).ok, true);
   assert.equal(fs.existsSync(path.join(m.home, 'envio', 'PENDENTE')), false);
   fs.mkdirSync(path.join(m.home, 'envio', 'PENDENTE'));
-  assert.ok(m.envio.paradoMotivo());
+  assert.equal(m.envio.pendente(), true);
   m.limpar();
 });
 
@@ -411,7 +413,24 @@ test('marcador PENDENTE so sai depois do historico gravado; se o historico falha
   } });
   assert.equal(fs.existsSync(path.join(m.home, 'envio', 'PENDENTE')), true);
   const outro = criarEnvioSeguro({ dir: path.join(m.home, 'envio'), arqConfig: m.arqConfig });
-  assert.ok(outro.paradoMotivo());
+  assert.equal(outro.pendente(), true);
+  assert.equal((await outro.enviar({ para: B, texto: 'segunda mensagem para o Bruno', executar: async () => ({}) })).codigo, 'PARADO');
+  m.limpar();
+});
+
+test('um envio em andamento nao faz o segundo pedido ver PARADO: ele espera a vez', async () => {
+  const m = montar();
+  let solta;
+  const segura = new Promise((r) => { solta = r; });
+  const outra = criarEnvioSeguro({ dir: path.join(m.home, 'envio'), arqConfig: m.arqConfig, agora: () => new Date(m.relogio.t), dormir: async () => {}, aleatorio: () => 0 });
+  const p1 = m.envio.enviar({ para: A, texto: 'primeira mensagem para a Ana', executar: async () => { await segura; return {}; } });
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(m.envio.pendente(), true);
+  const p2 = outra.enviar({ para: B, texto: 'segunda mensagem para o Bruno', executar: async () => ({}) });
+  await new Promise((r) => setTimeout(r, 30));
+  solta();
+  assert.equal((await p1).ok, true);
+  assert.equal((await p2).ok, true);
   m.limpar();
 });
 
