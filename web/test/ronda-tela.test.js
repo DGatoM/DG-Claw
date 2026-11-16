@@ -294,7 +294,7 @@ test('ligação nas telas: página, casca, menu, conversa, service worker e CSS 
   for (const a of ['/seguranca.js', '/seguranca.css', '/ronda-comum.js', '/seguranca-resumo.js', '/seguranca-resumo.css']) assert.ok(sw.includes(`'${a}'`), a);
   assert.ok(!sw.includes('ronda-aviso') && !sw.includes('seguranca-aviso'), 'o service worker não guarda as janelas antigas');
   const M = require('../public/menu-lado');
-  assert.deepEqual(M.LINK_SEGURANCA, { nome: 'Segurança', ico: '🛡', href: '/seguranca' });
+  assert.deepEqual(M.LINK_SEGURANCA, { nome: 'Segurança', ico: 'i-shield', href: '/seguranca' });
   assert.equal(M.chaveDoHref(M.comAgente(M.LINK_SEGURANCA.href, 'luna')), 'seguranca');
   const css = pub('seguranca.css');
   assert.match(css, /@media \(max-width:420px\)/);

@@ -1,5 +1,5 @@
 'use strict';
-/* lembretes-faixa.js: a faixa ⏰ no alto da conversa com os lembretes que estão tocando agora.
+/* lembretes-faixa.js: a faixa de lembretes no alto da conversa com os lembretes que estão tocando agora.
 
    Lê GET /api/v1/lembretes (campo "insistindo") a cada 15 s e quando a aba volta ao foco. Cada
    ocorrência vira uma linha com o agente, o texto, "aviso n de teto" e os botões Feito e Adiar
@@ -38,7 +38,7 @@
     alvo: '#faixaLembretes',
     titulo: 'Faixa de lembretes',
     oque: 'Os lembretes que estão tocando agora, de qualquer agente. Cada linha mostra quem lembra, o que é e quantos avisos já saíram.',
-    como: 'O DG Claw confere a cada 15 segundos e repete o aviso no intervalo do lembrete (5 minutos, se você não mudou) até o teto. Feito encerra a ocorrência em todos os aparelhos. Adiar traz o aviso de volta no prazo que você escolher, com a contagem de avisos zerada.',
+    como: 'O ' + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + ' confere a cada 15 segundos e repete o aviso no intervalo do lembrete (5 minutos, se você não mudou) até o teto. Feito encerra a ocorrência em todos os aparelhos. Adiar traz o aviso de volta no prazo que você escolher, com a contagem de avisos zerada.',
     porque: 'Para você não esquecer de algo que pediu para ser lembrado, mesmo que tenha deixado passar o primeiro aviso.',
   };
 
@@ -59,7 +59,7 @@
     faixa.setAttribute('aria-live', 'polite');
     faixa.setAttribute('aria-label', 'Lembretes tocando agora');
     faixa.hidden = true;
-    faixa.innerHTML = '<div class="lf-topo"><span class="lf-tit">⏰ Lembretes</span>' +
+    faixa.innerHTML = '<div class="lf-topo"><span class="lf-tit">' + dsIcone('clock') + ' Lembretes</span>' +
       '<a class="lf-ver" href="/lembretes">ver todos</a>' +
       '<button type="button" class="lf-ajuda" id="faixaLembretesAjuda" aria-label="Tutorial da faixa de lembretes" ' +
       'title="O que é esta faixa">?</button></div><ul class="lf-lista" id="faixaLembretesLista"></ul>' +

@@ -43,6 +43,8 @@ normal.
 | `sessao_caida` | inativo | `reiniciar` (ou `modo_seguro`) | O terminal do agente não está rodando. Se a última coisa antes da queda foi uma recusa, a recomendação vira modo de segurança. |
 | `desconhecido` | atenção | `esperar` | Uma resposta fora do normal que o sistema não reconhece. Ela é sinalizada mesmo assim: qualquer coisa diferente do normal aparece. |
 
+O resumo que o `/compact` grava na conversa não conta como mensagem do dono, mesmo citando mensagens antigas dele: ele nunca dispara `sem_resposta`.
+
 Um turno normal **depois** do erro apaga o erro: o problema é passado, volta a `ativo`.
 As regras acima estão no cabeçalho de `scripts/_lib/saude_sessao.py`.
 

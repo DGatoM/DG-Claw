@@ -14,7 +14,7 @@
 #dlgModalLogin .ml-acoes{display:flex;flex-direction:column;align-items:stretch;gap:8px}
 #dlgModalLogin .ml-acoes button{min-height:44px;padding:8px 16px;border-radius:22px;font-size:15px;font-weight:600;cursor:pointer;
                                 border:1px solid #dfe7e1;background:#f2f6f2;color:#38523f;box-sizing:border-box}
-#dlgModalLogin .ml-acoes .ml-primario{background:#2f9e5e;border-color:#2f9e5e;color:#fff}
+#dlgModalLogin .ml-acoes .ml-primario{background:var(--botao-fundo);border-color:var(--botao-fundo);color:var(--botao-texto)}
 #dlgModalLogin .ml-acoes .ml-link{border:0;background:transparent;font-weight:500;text-decoration:underline;color:#4d6b55}
 #dlgModalLogin .ml-acoes button:focus-visible{outline:3px solid #8fc7a3;outline-offset:2px}
 @media (min-width:700px){

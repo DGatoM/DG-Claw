@@ -1,21 +1,31 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="pt-BR" data-tema="{{MARCA_TEMA}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="referrer" content="no-referrer">
-<title>Primeiro acesso - DG Claw</title>
+<title>Primeiro acesso - {{MARCA_NOME}}</title>
+<meta name="marca-nome" content="{{MARCA_NOME}}">
+<meta name="marca-logo-tem-nome" content="{{MARCA_LOGO_TEM_NOME}}">
 <link rel="manifest" href="/manifest.webmanifest">
-<meta name="theme-color" content="#2f9e5e">
-<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
-<link rel="icon" href="/icons/icon-192.png">
+<meta name="theme-color" content="{{MARCA_COR_TEMA}}">
+<link rel="apple-touch-icon" href="/marca/icone-app">
+<link rel="icon" href="/marca/favicon">
+<link rel="stylesheet" href="/ds/tokens.css">
+<link rel="stylesheet" href="/ds/componentes.css">
+<link rel="stylesheet" href="/ds/carregando.css">
+<link rel="stylesheet" href="/marca.css">
 <link rel="stylesheet" href="/login.css">
 <link rel="stylesheet" href="/sem-zoom.css">
+<script src="/ds/marca.js"></script>
+<script src="/ds/icone.js"></script>
+<script src="/ds/carregando.js"></script>
 <script src="/sem-zoom.js"></script>
 </head>
 <body>
 <main class="cartao">
-  <div class="marca"><span class="emoji" aria-hidden="true">🦞</span><h1>Primeiro acesso</h1></div>
+  <div class="marca"><img class="marca-logo" src="/marca/logo" alt="" width="56" height="56"><span class="marca-nome">{{MARCA_NOME}}</span></div>
+  <h1>Primeiro acesso</h1>
   <p class="sub">Cadastre sua senha</p>
   <div id="erro" class="erro" role="alert" hidden></div>
   <form id="form" autocomplete="off">

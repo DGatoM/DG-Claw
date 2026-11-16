@@ -1,5 +1,5 @@
 /* avisos.css: a tela do quadro de avisos (classes av-). Celular primeiro. */
-.av-raiz{--av-linha:#e1e8e3;--av-texto:#0f1c14;--av-fraco:#6c8172;--av-fundo2:#f0f4f1;--av-acento:#2f9e5e;
+.av-raiz{--av-linha:#e1e8e3;--av-texto:#0f1c14;--av-fraco:#5f7566;--av-fundo2:#f0f4f1;--av-acento:var(--cor-acento);
   max-width:760px;margin:0 auto;padding:12px 12px 40px;color:var(--av-texto);box-sizing:border-box;
   overflow-wrap:anywhere;word-break:break-word}
 .av-raiz *{box-sizing:border-box}
@@ -12,7 +12,7 @@
   font:inherit;font-size:14px;color:var(--av-texto);cursor:pointer}
 .av-btn:hover{background:var(--av-fundo2)}
 .av-btn:disabled{opacity:.5;cursor:default}
-.av-primario{background:var(--av-acento);border-color:var(--av-acento);color:#fff;font-weight:600;min-height:40px}
+.av-primario{background:var(--botao-fundo);border-color:var(--botao-fundo);color:var(--botao-texto);font-weight:600;min-height:40px}
 .av-primario:hover{background:#278850}
 .av-perigo{background:#c0392b;border-color:#c0392b;color:#fff}
 .av-perigo:hover{background:#a93226}
@@ -48,7 +48,7 @@
 .av-dia:first-child .av-dia-t{margin-top:0}
 .av-aviso{border:1px solid var(--av-linha);border-left:4px solid var(--av-cor,#6c8172);border-radius:10px;
   padding:10px 12px;margin-bottom:8px;background:#fff}
-.av-t-decisao{--av-cor:#2f6fd0}.av-t-preferencia{--av-cor:#8e44ad}.av-t-entrega{--av-cor:#2f9e5e}
+.av-t-decisao{--av-cor:#2f6fd0}.av-t-preferencia{--av-cor:#8e44ad}.av-t-entrega{--av-cor:var(--cor-sucesso)}
 .av-t-aprendizado{--av-cor:#d68910}.av-t-referencia{--av-cor:#16a0a0}.av-t-pedido{--av-cor:#d35400}
 .av-t-resumo_do_dia{--av-cor:#6c8172}
 .av-apagado{opacity:.55;background:var(--av-fundo2)}
@@ -87,11 +87,11 @@
 #tourCaixa h4{margin:0 0 2px;font-size:15.5px}
 #tourCaixa .tour-n{font-size:11.5px;color:#6c8172;margin-bottom:6px}
 #tourCaixa p{margin:0 0 6px}
-#tourCaixa p b{color:#1f7a45}
+#tourCaixa p b{color:var(--cor-link)}
 #tourCaixa .tour-acoes{display:flex;gap:8px;justify-content:flex-end;margin-top:10px;flex-wrap:wrap;position:sticky;bottom:0;background:#fff;padding:8px 0 0}
 #tourCaixa button{min-height:36px;padding:0 14px;border-radius:18px;border:1px solid #e1e8e3;
   background:#fff;font-size:13.5px;font-weight:600;cursor:pointer;font-family:inherit;color:#38523f}
-#tourCaixa button.pri{background:#2f9e5e;border-color:#2f9e5e;color:#fff}
+#tourCaixa button.pri{background:var(--botao-fundo);border-color:var(--botao-fundo);color:var(--botao-texto)}
 #tourCaixa button:disabled{opacity:.4;cursor:default}
 #tourCaixa .tour-x{margin-right:auto}
 [hidden]{display:none !important}

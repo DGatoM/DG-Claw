@@ -63,8 +63,9 @@ module.exports = [
     languageOptions: {
       ecmaVersion: 2023,
       sourceType: 'script',
-      // `DGMidias` vem de outro <script> da página (conversa.html do Web).
-      globals: { ...globals.browser, DGMidias: 'readonly' },
+      // `DGMidias` vem de outro <script> da página (conversa.html do Web). `dsIcone`, `dsMarca` e
+      // `dsCarregando` vêm dos scripts do design system (web/public/ds/), carregados antes das telas.
+      globals: { ...globals.browser, DGMidias: 'readonly', dsIcone: 'readonly', dsMarca: 'readonly', dsCarregando: 'readonly' },
     },
     rules: regras,
   },

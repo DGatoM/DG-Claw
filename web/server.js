@@ -50,6 +50,7 @@ const { criarManual } = require('./lib/manual');
 const { criarAvisos } = require('./lib/avisos');
 const { criarAtualizacao } = require('./lib/atualizacao');
 const { criarSeguranca } = require('./lib/seguranca');
+const { criarLogsRotas, autorizado: logsAutorizado } = require('./lib/logs-rotas');
 const { criarRondaPainel } = require('./lib/ronda-painel');
 const { criarNaoLidas } = require('./lib/nao-lidas');
 const { criarChavesApi, ESCOPOS } = require('./lib/chaves-api');
@@ -57,6 +58,7 @@ const { criarUso } = require('./lib/uso');
 const { criarColaboradores } = require('./lib/colaboradores');
 const { criarColaboradoresRotas } = require('./lib/colaboradores-rotas');
 const { criarEmail } = require('./lib/email');
+const { criarMarca } = require('./lib/marca');
 const escopo = require('./lib/escopo');
 
 const METODOS_QUE_ESCREVEM = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -70,9 +72,9 @@ const TIPOS_ESTATICOS = {
 };
 const RX_SLUG_ROTA = /^[a-z0-9][a-z0-9-]{0,31}$/;
 
-const LOGIN_RESERVA = '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><title>Entrar</title>' +
+const loginReserva = (nome) => '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><title>Entrar</title>' +
   '<style>body{font-family:system-ui,sans-serif;max-width:22rem;margin:14vh auto;padding:0 1rem}input,button{display:block;width:100%;margin:.5rem 0;padding:.6rem;font-size:1rem}</style></head><body>' +
-  '<h1>DG Claw</h1><p id="e" style="color:#b00"></p><form method="post" action="/login"><input name="usuario" placeholder="Usuário" autocomplete="username" required>' +
+  '<h1>' + nome + '</h1><p id="e" style="color:#b00"></p><form method="post" action="/login"><input name="usuario" placeholder="Usuário" autocomplete="username" required>' +
   '<input name="senha" type="password" placeholder="Senha" autocomplete="current-password" required><input type="hidden" name="next" value=""><button>Entrar</button></form>' +
   '<script>var q=new URLSearchParams(location.search);document.getElementById("e").textContent=q.get("erro")||"";document.querySelector("[name=next]").value=q.get("next")||"/"</script></body></html>';
 
@@ -169,6 +171,7 @@ function criarServidor(opcoes) {
   const fechaStreamsDe = (id) => { for (const r of streamsDoColaborador.get(id) || []) r.destroy(); streamsDoColaborador.delete(id); proxy.fecharDoColaborador(id); };
   const primeiroAcesso = criarPrimeiroAcesso({ config, auth, log, agora: opcoes.agora });
   const avatares = criarAvatar({ dataDir: config.dataDir, log });
+  const marca = criarMarca({ dir: config.marcaDir, padraoJson: path.join(__dirname, 'marca-padrao.json'), padraoDir: path.join(__dirname, 'public', 'ds', 'marca-padrao'), log });
   const midia = criarMidia({ dataDir: config.dataDir, log, registro, publicDir: config.publicDir });
   const leitor = criarLeitor({ log, tz: config.tz, canalTelegram: config.canalTelegram, midia });
   const leitorRollout = criarLeitorRollout({ log, tz: config.tz, midia });
@@ -231,6 +234,9 @@ function criarServidor(opcoes) {
   const seguranca = criarSeguranca({ dataDir: config.dataDir, log, agora: opcoes.agora });
   // Ronda de fábrica e botão de emergência: também só do dono (fora de caixa.permitir). O Web só grava pedidos; o root executa.
   const rondaPainel = criarRondaPainel({ dataDir: config.dataDir, log, agora: opcoes.agora });
+  // Logs do Admin: o histórico de tudo o que cada agente fez, só para o dono e só pela tela. De propósito NÃO entra em caixa.permitir:
+  // texto de log não é de confiança e não pode chegar ao contexto de um agente (nem do Admin).
+  const logsRotas = criarLogsRotas({ registro, log, agora: opcoes.agora, orcamento: opcoes.logsOrcamento, leitor: opcoes.logsLeitor });
 
   // Chave de suporte: lê só o diagnóstico (ver docs/interno/PLANO-DIAGNOSTICO-REMOTO.md).
   const chavesApi = criarChavesApi({ config, log, agora: opcoes.agora });
@@ -252,6 +258,10 @@ function criarServidor(opcoes) {
     let html;
     try { html = fs.readFileSync(path.join(config.publicDir, 'conversa.html'), 'utf8'); } catch (_) { return false; }
     html = html.replace(/[ \t]*<nav id="trocaBaixo"[^>]*><\/nav>\n?/, '');
+    // Mesma troca dos {{MARCA_*}} (com escape) que o servirArquivo faz para o dono.
+    try { html = marca.html(html); } catch (e) {
+      log('erro', `Falha aplicando a marca na conversa do colaborador (${e.code || e.message}).`); return false;
+    }
     const corpoHtml = Buffer.from(html, 'utf8');
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Length': corpoHtml.length, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
     res.end(m === 'HEAD' ? undefined : corpoHtml);
@@ -266,6 +276,16 @@ function criarServidor(opcoes) {
     const tipo = TIPOS_ESTATICOS[path.extname(caminho).toLowerCase()] || 'application/octet-stream';
     const cab = { 'Content-Type': tipo, ETag: etag, 'Cache-Control': cache || 'no-cache', 'X-Content-Type-Options': 'nosniff' };
     if (path.basename(caminho) === 'sw.js') cab['Service-Worker-Allowed'] = '/';
+    if (tipo.startsWith('text/html')) {
+      // Páginas: troca os {{MARCA_*}} (nome, slogan, tema) com escape. Sempre sem cache: a marca pode mudar a qualquer hora.
+      let corpoHtml;
+      try { corpoHtml = Buffer.from(marca.html(fs.readFileSync(caminho, 'utf8')), 'utf8'); } catch (e) {
+        log('erro', `Falha lendo a página ${caminho} (${e.code || e.message}).`); res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('Erro ao abrir a página.'); return true;
+      }
+      res.writeHead(200, { 'Content-Type': tipo, 'Cache-Control': cache || 'no-cache', 'X-Content-Type-Options': 'nosniff', 'Content-Length': corpoHtml.length });
+      res.end(req.method === 'HEAD' ? undefined : corpoHtml);
+      return true;
+    }
     if (req.headers['if-none-match'] === etag) { res.writeHead(304, cab); res.end(); return true; }
     cab['Accept-Ranges'] = 'bytes';
     // Range de um intervalo só (o iPhone só toca vídeo se o servidor responder 206). Vários intervalos: serve inteiro.
@@ -292,6 +312,36 @@ function criarServidor(opcoes) {
     const s = fs.createReadStream(caminho, status === 206 ? { start: ini, end: fim } : undefined);
     s.on('error', (e) => { log('erro', `Falha lendo o arquivo estático ${caminho} (${e.code || e.message}).`); res.destroy(); });
     s.pipe(res);
+    return true;
+  }
+
+  /** /marca.css, /manifest.webmanifest e /marca/<logo|favicon|icone-app|fonte/base|fonte/mono>. */
+  function servirMarca(req, res, p) {
+    const texto = (tipo, corpo) => {
+      const buf = Buffer.from(corpo, 'utf8');
+      res.writeHead(200, { 'Content-Type': tipo, 'Cache-Control': 'no-cache', 'X-Content-Type-Options': 'nosniff', 'Content-Length': buf.length });
+      res.end(req.method === 'HEAD' ? undefined : buf);
+      return true;
+    };
+    if (p === '/marca.css') return texto('text/css; charset=utf-8', marca.css());
+    if (p === '/manifest.webmanifest') return texto('application/manifest+json; charset=utf-8', marca.manifest());
+    const mm = /^\/marca\/(logo|favicon|icone-app|fonte\/(base|mono))$/.exec(p);
+    if (!mm) return false;
+    const a = mm[1].startsWith('fonte/') ? marca.arquivo('fonte', mm[2]) : marca.arquivo(mm[1]);
+    if (!a) return false;
+    // O arquivo já foi conferido (sem atalho, extensão e tamanho); aqui só evita servir um atalho trocado depois.
+    try { if (fs.lstatSync(a.caminho).isSymbolicLink()) return false; } catch (_) { return false; }
+    let st;
+    try { st = fs.statSync(a.caminho); } catch (_) { return false; }
+    if (!st.isFile()) return false;
+    const cab = { 'Content-Type': a.tipo, 'Content-Length': st.size, 'Cache-Control': 'no-cache', 'X-Content-Type-Options': 'nosniff', ETag: `"${st.size.toString(16)}-${Math.round(st.mtimeMs).toString(16)}"` };
+    if (a.tipo === 'image/svg+xml') cab['Content-Security-Policy'] = "sandbox; default-src 'none'; style-src 'unsafe-inline'";
+    if (req.headers['if-none-match'] === cab.ETag) { res.writeHead(304, cab); res.end(); return true; }
+    res.writeHead(200, cab);
+    if (req.method === 'HEAD') { res.end(); return true; }
+    const rs = fs.createReadStream(a.caminho);
+    rs.on('error', (e) => { log('erro', `Falha lendo o arquivo da marca ${mm[1]} (${e.code || e.message}).`); res.destroy(); });
+    rs.pipe(res);
     return true;
   }
 
@@ -537,6 +587,8 @@ function criarServidor(opcoes) {
     if (p.startsWith('/api/v1/seguranca/') && await rondaPainel.rotas(req, res, url, sessao)) return undefined;
 
     if ((p === '/api/v1/seguranca' || p.startsWith('/api/v1/seguranca/')) && await seguranca.rotas(req, res, url, sessao)) return undefined;
+
+    if ((p === '/api/v1/logs' || p.startsWith('/api/v1/logs/')) && await logsRotas.rotas(req, res, url, sessao)) return undefined;
 
     if (p === '/api/v1/onboarding') {
       if (falhaDoRegistro(req, res, true)) return;
@@ -1014,6 +1066,8 @@ function criarServidor(opcoes) {
   // turno nenhum: se ele trocasse o autor, o colaborador aprovaria a operação que o dono deixou pendente.
   // Sem registro (restart), o turno é do dono.
   const RX_ENVIO_DO_PAINEL = /^\/api\/(?:chat|socorro|sessoes)(?:\/|$)/i;
+  const RX_LOGS_NO_PAINEL = /^\/(?:api\/v1\/)?logs(?:\/|$)/i;
+  const decodificaSeguro = (t) => { try { return decodeURIComponent(t); } catch (_) { return t; } };
   const turnos = new Map(); // slug -> { autor: { dono:true } | { colaborador_id }, misto: bool }
   const pendencias = new Map(); // slug -> { id, ok } (ok: o colaborador pode responder)
   const autorDe = (sessao) => (sessao && sessao.papel === 'colaborador' ? { colaborador_id: sessao.colaborador_id } : { dono: true });
@@ -1357,12 +1411,18 @@ function criarServidor(opcoes) {
       return querHtml(req) && !p.startsWith('/api/') ? H.paginaErro(res, 403, 'Pedido recusado', motivo) : H.erroJson(res, 403, motivo);
     }
 
+    // Marca (white label): rotas públicas, só GET/HEAD, sem sessão (o login precisa delas). Tudo vem validado de lib/marca.js.
+    if ((m === 'GET' || m === 'HEAD') && (p === '/marca.css' || p === '/manifest.webmanifest' || p.startsWith('/marca/'))) {
+      if (servirMarca(req, res, p)) return undefined;
+      return H.paginaErro(res, 404, 'Página não encontrada', 'Esse endereço não existe neste servidor.');
+    }
+
     if (p === '/login' && m === 'GET') {
       const ja = auth.sessaoDoPedido(req);
       if (ja) { res.writeHead(302, { Location: destinoDaSessao(ja, proximoSeguro(url.searchParams.get('next'))) }); return res.end(); }
       if (!servirArquivo(req, res, path.join(config.publicDir, 'login.html'), 'no-store')) {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-        res.end(LOGIN_RESERVA);
+        res.end(loginReserva(marca.html('{{MARCA_NOME}}')));
       }
       return undefined;
     }
@@ -1415,6 +1475,10 @@ function criarServidor(opcoes) {
         return H.erroJson(res, 401, 'Você precisa entrar para abrir o painel. Faça login em /login.');
       }
       if (!pp[2]) { res.writeHead(302, { Location: `/p/${pp[1]}/${url.search}` }); return res.end(); }
+      // Os logs só existem na tela do Admin: nenhum painel os serve, e nenhum caminho por /p/ chega perto deles.
+      if (RX_LOGS_NO_PAINEL.test(pp[2]) || RX_LOGS_NO_PAINEL.test(decodificaSeguro(pp[2]))) {
+        return H.erroJson(res, 403, 'Os logs só existem na tela do Admin');
+      }
       // O painel do dono manda texto ao runner por conta própria (chat, recados, sessões): daqui em diante o turno
       // em curso deixa de ser de qualquer colaborador. A transcrição é a prova de verdade; isto é a segunda trava.
       if (!ehColab(sessao) && !sessao.via && m !== 'GET' && m !== 'HEAD' && RX_ENVIO_DO_PAINEL.test(pp[2])) {
@@ -1507,6 +1571,16 @@ function criarServidor(opcoes) {
       if (!servirArquivo(req, res, path.join(config.publicDir, 'conversa.html'), 'no-store')) {
         log('erro', `A tela da conversa não está instalada: falta ${path.join(config.publicDir, 'conversa.html')}.`);
         H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela da conversa não foi encontrado no servidor. Reinstale o DG Claw Web.');
+      }
+      return undefined;
+    }
+
+    if ((p === '/logs' || p === '/logs/') && (m === 'GET' || m === 'HEAD')) {
+      if (!sessao) return semSessaoPagina(req, res, url);
+      if (!logsAutorizado(sessao)) return H.paginaErro(res, 403, 'Acesso não liberado', 'Os logs dos agentes são só do dono do DG Claw, pela tela Logs do Admin.');
+      if (!servirArquivo(req, res, path.join(config.publicDir, 'logs.html'), 'no-store')) {
+        log('erro', `A tela de logs não está instalada: falta ${path.join(config.publicDir, 'logs.html')}.`);
+        H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela de logs não foi encontrado no servidor. Reinstale o DG Claw Web.');
       }
       return undefined;
     }

@@ -1,6 +1,6 @@
 /* manual.css: a tela do Manual (/manual). Celular primeiro; em tela larga a lista de páginas vira coluna ao lado. */
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-:root{--fundo:#eef4ec;--cartao:#fff;--txt:#0f1c14;--muted:#5d7365;--accent:#2f9e5e;--line:rgba(0,0,0,.1);--suave:#f2f6f2;--link:#1f7ac2}
+:root{--fundo:#eef4ec;--cartao:#fff;--txt:#0f1c14;--muted:#5d7365;--accent:var(--cor-acento);--line:rgba(0,0,0,.1);--suave:#f2f6f2;--link:#1f7ac2}
 @media(prefers-color-scheme:dark){
   :root{--fundo:#0f1713;--cartao:#18241d;--txt:#e2f5e8;--muted:#9bb5a4;--line:rgba(255,255,255,.14);--suave:#223229;--link:#7ab8ea}
 }

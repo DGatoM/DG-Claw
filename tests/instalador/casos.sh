@@ -222,6 +222,31 @@ caso_reinstalar_preserva_chaves_do_web_env() {
     limpar_cenario
 }
 
+caso_marca_pasta_nasce_vazia_e_arquivos_alheios_sobrevivem_a_reinstalar() {
+    novo_cenario
+    afirma "primeira rodada" instalacao_basica
+    local m="$RAIZ/etc/dgclaw/marca"
+    afirma "a pasta da marca foi criada" test -d "$m"
+    afirma "a pasta da marca nasce legivel (755)" modo_e "$m" 755
+    printf '{"nome": "Acme Bot"}\n' >"$m/marca.json"
+    printf 'logo-da-pessoa\n' >"$m/logo.svg"
+    chmod 700 "$m"
+    afirma "segunda rodada (reinstalar/atualizar)" instalar "" --usuario maria --provedor claude
+    afirma "o marca.json continua igual" grep -qx '{"nome": "Acme Bot"}' "$m/marca.json"
+    afirma "o logo da pessoa continua" grep -qx 'logo-da-pessoa' "$m/logo.svg"
+    afirma "o modo que a pessoa escolheu para a pasta nao foi mexido" modo_e "$m" 700
+    limpar_cenario
+}
+
+caso_marca_pasta_que_ja_existe_nao_e_recriada() {
+    novo_cenario
+    mkdir -p "$RAIZ/etc/dgclaw/marca"
+    printf 'alheio\n' >"$RAIZ/etc/dgclaw/marca/arquivo-alheio.txt"
+    afirma "instalacao com a pasta ja existente" instalacao_basica
+    afirma "o arquivo alheio sobreviveu" grep -qx 'alheio' "$RAIZ/etc/dgclaw/marca/arquivo-alheio.txt"
+    limpar_cenario
+}
+
 caso_senha_nova_troca_o_hash() {
     novo_cenario
     afirma "primeira rodada" instalacao_basica
@@ -1171,8 +1196,8 @@ caso_rede_containers_ensaio_nao_muda_nada() {
 # Roda o lib/firewall.sh de verdade contra o iptables de mentira (que guarda cadeias e regras em
 # arquivos). Devolve o estado em $TMP/estado/ipt-regras.
 rodar_firewall_falso() {
-    env -i "HOME=$TMP" "PATH=$AQUI/stubs:/usr/bin:/bin" "DGCLAW_STUB_LOG=$STUB_LOG" "DGCLAW_STUB_ESTADO=$TMP/estado" \
-        "DGCLAW_FIREWALL_TRAVA=$TMP/firewall.lock" "DGCLAW_FIREWALL_TRAVA_ESPERA=${FW_ESPERA:-120}" \
+    env -i "HOME=$TMP" "PATH=$AQUI/stubs:/usr/bin:/bin" "DGCLAW_RAIZ=$RAIZ" "DGCLAW_STUB_LOG=$STUB_LOG" "DGCLAW_STUB_ESTADO=$TMP/estado" \
+        ${EXTRA_ENV[@]+"${EXTRA_ENV[@]}"} "DGCLAW_FIREWALL_TRAVA=$TMP/firewall.lock" "DGCLAW_FIREWALL_TRAVA_ESPERA=${FW_ESPERA:-120}" \
         bash "$REPO/lib/firewall.sh" >"$SAIDA" 2>&1
 }
 
@@ -1327,7 +1352,7 @@ caso_firewall_duas_execucoes_sobrepostas_nao_esvaziam_a_cerca() {
     for i in $(seq 1 100); do [ -f "$e/pausado" ] && break; sleep 0.1; done
     afirma "A parou no ponto combinado" test -f "$e/pausado"
     local saida_b="$TMP/saida-b.txt"
-    ( env -i "HOME=$TMP" "PATH=$AQUI/stubs:/usr/bin:/bin" "DGCLAW_STUB_LOG=$STUB_LOG" "DGCLAW_STUB_ESTADO=$e" \
+    ( env -i "HOME=$TMP" "PATH=$AQUI/stubs:/usr/bin:/bin" "DGCLAW_RAIZ=$RAIZ" "DGCLAW_STUB_LOG=$STUB_LOG" "DGCLAW_STUB_ESTADO=$e" \
         "DGCLAW_FIREWALL_TRAVA=$TMP/firewall.lock" bash "$REPO/lib/firewall.sh" >"$saida_b" 2>&1 ) &
     local pid_b=$!
     sleep 1

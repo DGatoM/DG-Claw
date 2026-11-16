@@ -23,7 +23,7 @@
     fazendo: { texto: 'fazendo', classe: 'fazendo' },
     esperando_dono: { texto: 'esperando você', classe: 'esperando' },
     entregue: { texto: 'entregue', classe: 'entregue' },
-    feito: { texto: 'feito ✓', classe: 'concluida' },
+    feito: { texto: 'feito', classe: 'concluida' },
     cancelado: { texto: 'cancelado', classe: 'cancelada' },
   };
 

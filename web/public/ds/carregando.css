@@ -1,0 +1,43 @@
+/* carregando.css: a constelação do logo batendo como um coração. Tamanhos: --p (16px), --m (28px), --g (48px).
+   As três bolinhas saem de dentro da central e voltam, em ordem, quase juntas. Cada uma anda sobre a própria ligação:
+   a ligação estica de 0 até k e a bolinha vai para k vezes a sua posição (--x, --y no sistema com o centro em 0,0).
+   Com Reduzir Movimento a batida continua, mais curta e sem passar do ponto: o carregamento precisa dizer que está
+   trabalhando e o deslocamento fica dentro do próprio símbolo. Cor e tempo vêm do tokens.css. */
+.ds-carregando{--ds-car:28px;display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;
+  width:var(--ds-car);height:var(--ds-car);line-height:0;flex:0 0 auto}
+.ds-carregando--p{--ds-car:16px}
+.ds-carregando--m{--ds-car:28px}
+.ds-carregando--g{--ds-car:48px}
+.ds-carregando svg{width:100%;height:100%;display:block;overflow:visible}
+.ds-carregando .b1{--x:-97px;--y:-134px}
+.ds-carregando .b2{--x:181px;--y:48px;--ds-car-atraso:var(--tempo-carregando-defasagem)}
+.ds-carregando .b3{--x:-76px;--y:139px;--ds-car-atraso:calc(var(--tempo-carregando-defasagem)*2)}
+.ds-carregando .ds-car-lig{stroke:var(--logo-no);stroke-width:7;stroke-linecap:round;fill:none;transform-origin:0 0;
+  animation:ds-car-lig var(--tempo-carregando) cubic-bezier(.34,0,.2,1) var(--ds-car-atraso,0s) infinite both}
+.ds-carregando .ds-car-no{fill:var(--logo-no);transform:translate(var(--x),var(--y));
+  animation:ds-car-no var(--tempo-carregando) cubic-bezier(.34,0,.2,1) var(--ds-car-atraso,0s) infinite both}
+.ds-carregando .ds-car-centro{fill:var(--logo-centro);transform-origin:0 0;
+  animation:ds-car-coracao var(--tempo-carregando) ease-in-out infinite both}
+.ds-carregando-logo{display:none;width:100%;height:100%}
+
+@keyframes ds-car-lig{0%,100%{transform:scale(.1)}32%{transform:scale(1.14)}46%,60%{transform:scale(1)}88%{transform:scale(.1)}}
+@keyframes ds-car-no{
+  0%,100%{transform:translate(calc(var(--x)*.1),calc(var(--y)*.1))}
+  32%{transform:translate(calc(var(--x)*1.14),calc(var(--y)*1.14))}
+  46%,60%{transform:translate(var(--x),var(--y))}
+  88%{transform:translate(calc(var(--x)*.1),calc(var(--y)*.1))}}
+@keyframes ds-car-coracao{0%,100%{transform:scale(1.16)}30%{transform:scale(.92)}60%{transform:scale(1)}90%{transform:scale(1.16)}}
+
+@keyframes ds-car-lig-curta{0%,100%{transform:scale(.62)}45%,60%{transform:scale(1)}}
+@keyframes ds-car-no-curta{
+  0%,100%{transform:translate(calc(var(--x)*.62),calc(var(--y)*.62))}
+  45%,60%{transform:translate(var(--x),var(--y))}}
+@keyframes ds-car-coracao-curta{0%,100%{transform:scale(1.06)}45%{transform:scale(.97)}}
+/* Usado pelo logo próprio do white label (marca.css): ele não tem bolinhas para mover, então respira. */
+@keyframes ds-car-quieto{0%,100%{opacity:.55}50%{opacity:1}}
+
+@media (prefers-reduced-motion:reduce){
+  .ds-carregando .ds-car-lig{animation:ds-car-lig-curta var(--tempo-carregando-quieto) ease-in-out var(--ds-car-atraso,0s) infinite both}
+  .ds-carregando .ds-car-no{animation:ds-car-no-curta var(--tempo-carregando-quieto) ease-in-out var(--ds-car-atraso,0s) infinite both}
+  .ds-carregando .ds-car-centro{animation:ds-car-coracao-curta var(--tempo-carregando-quieto) ease-in-out infinite both}
+}

@@ -24,7 +24,6 @@ const PADROES = [
   /\b[a-z][a-z0-9+.\-]{0,20}:\/\/[^\s:/?#@'"<>]+:[^\s@/?#'"<>]+@[^\s'"<>]+/gi,
   /dgc_[A-Za-z0-9_-]{16,}/g,                                                 // chave de API do DG Claw
   /eyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]*/g,                    // JWT
-  /\b(?:Set-)?Cookie:[ \t]*[^\r\n]+/gi,                                        // cabeçalho de cookie inteiro
 ];
 
 // Dados de pessoas e identificadores longos. Ficam fora de PADROES porque a trilha mostra comandos e
@@ -41,12 +40,17 @@ const PADROES_DADOS = [
 
 // NOME=valor, "nome": "valor", nome: valor, quando o nome sugere segredo. Mantém o nome, esconde o valor.
 // Começa na palavra-chave (sem \w* antes dela): o prefixo do nome continua no texto e o custo deixa de crescer com o tamanho da linha.
+// Cabeçalho Cookie/Set-Cookie: o nome fica, o valor inteiro (vários pares separados por ';') sai escondido.
+const COOKIE = /\b((?:Set-)?Cookie[ \t]{0,20}:[ \t]{0,20})[^\r\n]+/gi;
+
 const ATRIBUICAO = /((?:api[_-]?key|secret|token|passw(?:or)?d|senha|credential|auth)[A-Za-z0-9_.-]*["']?\s*[=:]\s*)("[^"\n]*"|'[^'\n]*'|[^\s"'&;|]+)/gi;
 
 function mascarar(texto) {
   if (texto == null) return '';
   let r = String(texto);
   for (const p of PADROES) { p.lastIndex = 0; r = r.replace(p, OCULTO); }
+  COOKIE.lastIndex = 0;
+  r = r.replace(COOKIE, '$1' + OCULTO);
   ATRIBUICAO.lastIndex = 0;
   r = r.replace(ATRIBUICAO, (_, nome, valor) => (valor === OCULTO ? nome + valor : nome + OCULTO));
   return r;

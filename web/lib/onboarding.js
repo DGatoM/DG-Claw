@@ -126,13 +126,14 @@ function estadoSystemd(unidade, log) {
     });
   });
 }
+const FOLGA_MTIME_MS = 100;
 function loja(dataDir) {
   const dir = path.join(dataDir, 'onboarding');
   function arquivo(id) { if (!RX_ID.test(id || '')) throw erro('Pedido inválido. Abra o Admin e tente novamente.'); return path.join(dir, id + '.json'); }
   function ler(id) { try { return JSON.parse(fs.readFileSync(arquivo(id), 'utf8')); } catch (e) { if (e.code === 'ENOENT') return null; throw e; } }
   // Foto dos pedidos na memória: só relê do disco quando a pasta mudou (a gravação é por rename,
   // que muda o mtime da pasta) ou quando este próprio servidor grava.
-  let foto = null; // { assinatura, lista }
+  let foto = null; // { assinatura, lista, tirada }
   function gravar(p) {
     foto = null;
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -145,13 +146,16 @@ function loja(dataDir) {
     return p;
   }
   function todos() {
-    let assinatura;
-    try { const st = fs.statSync(dir); assinatura = `${st.ino}:${st.mtimeMs}`; } catch (e) { foto = null; if (e.code === 'ENOENT') return []; throw e; }
-    if (foto && foto.assinatura === assinatura) return structuredClone(foto.lista);
+    let assinatura, st;
+    try { st = fs.statSync(dir); assinatura = `${st.ino}:${st.mtimeMs}`; } catch (e) { foto = null; if (e.code === 'ENOENT') return []; throw e; }
+    // Só confia na foto se ela foi tirada bem depois da última mudança da pasta: o mtime anda em tiques de alguns
+    // milissegundos, e uma gravação no mesmo tique da foto não mudaria a assinatura (a foto ficaria velha).
+    if (foto && foto.assinatura === assinatura && foto.tirada - st.mtimeMs > FOLGA_MTIME_MS) return structuredClone(foto.lista);
+    const tirada = Date.now();
     let nomes;
     try { nomes = fs.readdirSync(dir); } catch (e) { foto = null; if (e.code === 'ENOENT') return []; throw e; }
     const lista = nomes.filter(f => /^[a-f0-9]{32}\.json$/.test(f)).map(f => ler(f.slice(0, -5))).filter(Boolean).sort((a,b) => b.criado.localeCompare(a.criado));
-    foto = { assinatura, lista };
+    foto = { assinatura, lista, tirada };
     return structuredClone(lista);
   }
   function ultimo() { return todos()[0] || null; }
