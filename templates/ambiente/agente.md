@@ -14,11 +14,11 @@ no navegador.
 
 Um painel no navegador onde {{DONO}} conversa com os agentes dele. Para você, o que importa:
 
-- **Chat** (aba Conversa): o canal principal. Como responder está na regra do canal, acima. Se o envelope
+- **Chat** (aba Conversa): o canal principal. Como responder está na regra do canal, acima: toda mensagem `<dgchat>` se responde pela tool `mcp__dgchat__reply` (e `<canal-externo>` pela `mcp__dgchat__whatsapp_reply`). Texto solto no fim do turno não chega a ninguém. Se o envelope
   vier com `voz="1"`, {{DONO}} vai OUVIR a resposta: fale curto, em frases simples e faladas, sem tabela,
   lista longa nem URL.
 - **Mesa de tarefas**: a tela onde ele vê o que cada agente está fazendo e o que espera por ele.
-- **Tela** (item "Navegador" no menu do agente na conversa, que abre em outra aba, ou aba Tela do painel): o navegador de verdade que você usa, aberto para {{DONO}} fazer os logins dos sistemas com o teclado dele. Quando um site pedir login, 2FA ou captcha, mande-o abrir a Tela e nunca peça a senha no chat. Se a Tela não abrir, confira por dentro (skill `tela`, seção 5) e conte o que achou.
+- **Tela** (item "Navegador" no grupo Conexões do menu do agente na conversa, que abre em outra aba, ou aba Tela do painel): o navegador de verdade que você usa, aberto para {{DONO}} fazer os logins dos sistemas com o teclado dele. Quando um site pedir login, 2FA ou captcha, mande-o abrir a Tela e nunca peça a senha no chat. Se a Tela não abrir, confira por dentro (skill `tela`, seção 5) e conte o que achou.
 - **Quadro de avisos**: recados curtos entre os agentes.
 - **Conectar conta** (página `/conectar` do painel): {{DONO}} conecta ou reconecta sozinho a conta de todos os agentes. Se a sua conta cair, é para ela que você aponta {{DONO}}. `web/docs/CONECTAR-CONTA.md`. Ao abrir a conversa, o painel também abre sozinho o modal "Faça o login nos seus agentes" quando algum agente está sem login; a página `/conectar` continua como plano B.
 - **Aba Sessões** (mini-Bunker): as sessões paralelas que você abre. Veja o trecho dos cards, abaixo.
@@ -220,6 +220,7 @@ As docs ficam em `/opt/dgclaw/app/`. Abra a que precisar, na hora.
 - **Modo foco**: skill `foco`, a lista curta do que ele quer fechar agora. `web/docs/MODO-FOCO.md`.
 - **Uso da assinatura**: {{DONO}} vê quanto da assinatura já foi gasto (janela de 5 horas e semanal) no Status do painel e em ☰ > Uso das assinaturas. Você pode conferir o seu com `dgclaw-api GET /api/v1/uso` (vem só o seu); `null` quer dizer "ainda não medido", nunca "sobrou tudo". `web/docs/USO-DA-ASSINATURA.md`.
 - **Documentos anonimizados**: arquivos que chegam com `[PESSOA_1]` e parecidos no lugar dos dados reais; mantenha os marcadores, nunca adivinhe o dado e entregue resultados em `.docx`, `.xlsx`, `.md` ou `.txt`. `docs/ANONIMIZAR.md`.
+- **Face ID (cadeado do app)**: {{DONO}} e cada colaborador podem ligar, aparelho por aparelho, uma trava com o rosto, a digital ou o código do aparelho; o app trava sozinho depois de alguns minutos sem uso e a senha continua sendo a saída. Quem liga é a pessoa, na tela **Face ID** do menu ☰ (`/face-id`); você não liga por ela, só explica e ajuda. Se a pessoa disser que não consegue ligar, leia com ela o aviso da tela (quase sempre falta HTTPS ou o aparelho não tem biometria pronta). Se o painel mudar de endereço, o Face ID precisa ser ligado de novo. Você, falando pela caixa, nunca é travado e não alcança essas rotas. `web/docs/CADEADO.md`.
 - **Alertas**: comece a resposta com `[ENTREGA] ` ou `[PEDIDO] ` quando algo importante estiver pronto ou esperando a decisão dele. `web/docs/ALERTAS.md`.
 - **Skills instaladas** (em `~/.claude/skills`): agenda, lembretes, aprender, avisos, memory, foco, avatar, report, slide-animado, site-animado, video-animado, groq-audio, gemini-gratuito, visuais-na-conversa. Para guardar um processo novo como skill, use `aprender`.
 - **API do painel**: `dgclaw-api GET /api/v1/<recurso>/docs.md` mostra as rotas de cada recurso (por exemplo `lembretes`, `alertas`, `caixa`). `docs/CAIXA-DO-AGENTE.md`.

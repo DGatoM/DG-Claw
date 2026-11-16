@@ -5,7 +5,7 @@
 .af-tit{flex:1 1 220px;min-width:0;overflow-wrap:anywhere}
 .af-acoes{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
 .af-btn{min-height:32px;padding:0 12px;border-radius:16px;border:1px solid #9bbbe6;background:#fff;color:#1c3557;font:inherit;font-weight:600;cursor:pointer}
-.af-btn.af-instalar{background:#1f5fae;border-color:#1f5fae;color:#fff}
+.af-btn.af-instalar{background:var(--botao-fundo);border-color:var(--botao-fundo);color:var(--botao-texto)}
 .af-btn:disabled{opacity:.6;cursor:default}
 .af-ajuda{width:32px;height:32px;border-radius:50%;border:1px solid #9bbbe6;background:#fff;color:#1c3557;font-size:15px;font-weight:700;cursor:pointer;flex:0 0 auto}
 .af-lista{margin:4px 0 6px;padding:0 0 0 18px;max-height:40vh;overflow-y:auto;overflow-wrap:anywhere}

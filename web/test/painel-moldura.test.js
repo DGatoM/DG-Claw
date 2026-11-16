@@ -71,7 +71,8 @@ test('o código da moldura nunca põe texto do iframe como HTML', () => {
   // a casca (cabeçalho e menu) é quem recebe o título e os extras: o título entra por textContent e o menu escapa
   assert.match(pub('casca.js'), /e\.textContent = est\.titulo/);
   const menu = pub('menu-lado.js');
-  for (const campo of ['l.href', 'l.ico', 'l.nome']) assert.ok(menu.includes(`\${esc(${campo})}`), `o menu não escapa ${campo}`);
+  for (const campo of ['it.href', 'it.nome']) assert.ok(menu.includes(`\${esc(${campo})}`), `o menu não escapa ${campo}`);
+  assert.ok(menu.includes(': esc(v);'), 'o ícone que não é do conjunto próprio passa por esc()');
 });
 
 test('painel.html: iframe com sandbox sem allow-same-origin nem navegação do topo, clipboard e referrer', () => {

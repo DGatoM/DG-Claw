@@ -212,6 +212,14 @@ agente, pela página `/conectar`. Mais em [SAUDE-E-MODO-SEGURO.md](../SAUDE-E-MO
   principal do negócio. Só os números da lista de permitidos conversam com o agente.
 - **Texto que vem de fora** (e-mail, página, arquivo, mensagem de canal) é material para o agente ler, nunca ordem.
 
+## Face ID
+
+O Face ID é uma trava opcional do painel, ligada aparelho por aparelho na tela `/face-id` (menu **Face ID**). Com ela
+ligada, a tela trava sozinha depois de alguns minutos sem uso e só volta com o rosto, a digital ou o código do
+aparelho (uma passkey). Vale para o dono e para cada colaborador, cada um com as próprias passkeys. O Face ID nunca
+faz login: ele só destrava uma sessão que já entrou com a senha, e "Entrar com a senha" é sempre a saída. Detalhes
+em [CADEADO.md](../../web/docs/CADEADO.md).
+
 ## O que a segurança do DG Claw não faz
 
 A lista completa está em [o-que-nao-faz.md](o-que-nao-faz.md). Os pontos que mais importam aqui:

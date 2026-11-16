@@ -237,6 +237,8 @@ Servidas pelo DG Claw Web. Quem: Dono, salvo o que a coluna disser. Colab só pa
 | `/api/v1/seguranca` | Avisos de segurança do DG Claw: `/boletins`, e por id `/adiar` e `/dispensar` | Dono. Caixa recebe 403 | [SEGURANCA-BOLETINS.md](../../web/docs/SEGURANCA-BOLETINS.md) |
 | `/api/v1/seguranca/ronda` | Resultado da ronda e os pedidos de aplicar, agendar e desfazer (`/ronda/:id/aplicar`) | Dono | [RONDA-PAINEL.md](../../web/docs/RONDA-PAINEL.md) |
 | `/api/v1/seguranca/emergencia` | Estado do botão de emergência e os pedidos `preparar`, `cortar` e `religar` | Dono | [RONDA-PAINEL.md](../../web/docs/RONDA-PAINEL.md) |
+| `/api/v1/cadeado` | Face ID: estado, ligar, destravar, aparelhos, passkeys e tempo de trava; as rotas estão em `/api/v1/cadeado/docs.md` | Dono e colaborador, cada um só com as próprias passkeys. Caixa não alcança | [CADEADO.md](../../web/docs/CADEADO.md) |
+| `/face-id` | Tela Face ID: ligar neste aparelho, escolher o tempo e remover passkeys | Dono e colaborador | [CADEADO.md](../../web/docs/CADEADO.md) |
 
 ### Entrada de páginas
 
@@ -249,6 +251,17 @@ Telas servidas pelo Web. Todas pedem login, salvo `/login` e `/primeiro-acesso`.
 | `/trocar-senha` | Troca da senha temporária do colaborador | Colab |
 | `/seguranca` | Tela Segurança: avisos, ronda e botão de emergência | Dono |
 | `/p/:slug` | Repassa ao painel do agente (`/p/<slug>/`), com o segredo do proxy | Dono, Colab (só o agente dele, com escrita limitada) |
+
+### Marca (white label)
+
+Rotas públicas, sem login, porque a tela de entrada também usa o nome, o logo e as cores. Detalhes em [WHITE-LABEL.md](../WHITE-LABEL.md).
+
+| Rota | O que faz |
+| --- | --- |
+| `/marca.css` | Cores e fontes da marca, no Web. No painel de cada agente, `GET /marca.css` |
+| `/manifest.webmanifest` | Nome e ícones do app instalado |
+| `GET /marca/favicon` | Favicon da marca, no painel de cada agente |
+| `GET /marca/icone-app` | Ícone do app instalado, no painel de cada agente |
 
 ## Rotas do painel de cada agente
 

@@ -29,7 +29,7 @@ module.exports = function buildHtmlTemplate({ BASE, CONFIG, serverDir, getAuth }
   // O slug vem do próprio BASE ("/p/<slug>"), com o do config como reserva.
   const SLUG_DA_FACHADA = (BASE.match(/^\/p\/([^/]+)/) || [])[1] || CONFIG.agentSlug || '';
   const URL_CONVERSA = SLUG_DA_FACHADA ? `/a/${encodeURIComponent(SLUG_DA_FACHADA)}` : '/';
-  const VOLTAR_CORPO = '<span aria-hidden="true">←</span><span class="btn-voltar-texto">conversa</span>';
+  const VOLTAR_CORPO = '<svg class="ds-ico" aria-hidden="true" focusable="false"><use href="/ds/icones.svg#i-arrow-left"/></svg><span class="btn-voltar-texto">conversa</span>';
   const VOLTAR_HTML = `<a class="btn-voltar" href="${URL_CONVERSA}" aria-label="voltar para a conversa">${VOLTAR_CORPO}</a>`;
   // Isolado, o iframe não pode navegar o topo: o link pede à moldura, que decide (casca-ponte.js).
   const VOLTAR_ISOLADO_HTML = `<a class="btn-voltar" href="#" data-dgclaw-ir="${URL_CONVERSA}" aria-label="voltar para a conversa">${VOLTAR_CORPO}</a>`;

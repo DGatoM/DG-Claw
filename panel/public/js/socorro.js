@@ -167,7 +167,7 @@
         + `<span class="bolha-pe">socorro · ${esc(hora(e.em))}</span></div>`;
     }
     if (e.tipo === 'ferramenta') {
-      return `<div class="socorro-ferramenta" title="O que o ajudante consultou para responder. Ele só lê, a não ser que você autorize uma mudança.">↳ ${rl(e.texto)}</div>`;
+      return `<div class="socorro-ferramenta" title="O que o ajudante consultou para responder. Ele só lê, a não ser que você autorize uma mudança.">${dsIcone('chevron-right')} ${rl(e.texto)}</div>`;
     }
     if (e.tipo === 'erro') {
       return `<div class="app-erro socorro-erro"><strong>O socorro teve um problema.</strong><p>${rl(e.texto)}</p></div>`;

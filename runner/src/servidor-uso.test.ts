@@ -127,3 +127,19 @@ test("falha no arquivo do medidor desliga só o statusLine e mantém as regras d
     delete cfg.denyTools;
   }
 });
+
+test("settings do Claude: o Stop leva o hook do runner e depois a trava de resposta, com timeout", async () => {
+  const { TRAVA_RESPOSTA_SOURCE } = await import("./trava-resposta-source.js");
+  (principal.descritor.config as { stopHooks?: string[] }).stopHooks = ["echo extra"];
+  const arquivo = escreverSettings(principal, NONCE);
+  assert.ok(arquivo);
+  const hooks = JSON.parse(fs.readFileSync(arquivo!, "utf8")).hooks.Stop[0].hooks;
+  assert.ok(hooks.length >= 3);
+  assert.match(hooks[0].command, /runner-hook\.mjs/);
+  assert.match(hooks[1].command, /trava-resposta\.mjs" --agent .* --port \d+ --nonce [0-9a-f]{64}$/);
+  assert.equal(hooks[1].timeout, 10);
+  assert.equal(hooks[2].command, "echo extra");
+  const f = path.join(amb.estado, "runner-hooks", "trava-resposta.mjs");
+  assert.equal(fs.readFileSync(f, "utf8"), TRAVA_RESPOSTA_SOURCE);
+  delete (principal.descritor.config as { stopHooks?: string[] }).stopHooks;
+});

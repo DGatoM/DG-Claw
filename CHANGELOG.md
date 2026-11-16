@@ -13,6 +13,53 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 Nesta versão a moldura do Web e o painel dentro do container precisam estar na mesma versão. O Web novo abre o painel num iframe isolado, e um painel antigo não sabe se montar assim: ele carrega em branco ou pela metade, com o aviso de que a página passou de 8 segundos carregando. O painel novo, por outro lado, continua funcionando atrás de um Web antigo. Por isso, depois de atualizar o Web, atualize também os agentes: `sudo dgclaw atualizar` já faz tudo na ordem certa (baixa a versão, reconstrói a imagem e recria o container de cada agente, sem tocar na casa, na memória nem no cofre). Se você instalou o Web por outro caminho, rode `sudo dgclaw imagem construir --agora` e depois `sudo dgclaw agente recriar <agente>` para cada agente. Quem já estava com o painel aberto no navegador só precisa recarregar a página.
 
+**Face ID no painel: uma trava opcional, ligada aparelho por aparelho.** Nova tela **Face ID** (no menu ☰, em `/face-id`).
+Quem liga o recurso num aparelho passa a ter o painel travado sozinho depois de alguns minutos sem uso (15 por padrão, de 1
+a 120 à sua escolha) e destrava com o rosto, a digital ou o código do aparelho (Face ID, Touch ID ou biometria, conforme o
+aparelho). Vale para o dono e para cada colaborador, cada um com as próprias passkeys, e quem não ligar não percebe nada.
+O Face ID nunca faz login: ele só destrava uma sessão que já entrou com a senha, e o botão "Entrar com a senha" da tela
+travada continua sendo a saída para aparelho sem biometria. Com a tela travada, as conversas, as APIs, os painéis dos
+agentes (`/p/`) e os WebSockets ficam fechados no servidor, e os agentes que trabalham pela caixa não são afetados. A tela
+Face ID mostra o motivo quando o recurso não pode ser ligado (endereço sem HTTPS, navegador sem passkeys, aparelho sem
+biometria pronta) e explica que a passkey fica presa ao endereço do painel. O guia está em `web/docs/CADEADO.md`.
+
+### Como atualizar (Face ID)
+
+1. **Peça ao Admin, no chat: "atualiza o DG Claw".** O painel reinicia por alguns segundos para carregar a trava. Nada é
+   ligado sozinho: depois de atualizar, ninguém tem Face ID até ligar na tela nova.
+2. **Cada pessoa liga no próprio aparelho.** Abra **Face ID** no menu ☰ e toque em "Ligar neste aparelho". O recurso é por
+   aparelho: ligar no celular não trava o computador, e quem usa o painel em mais de um aparelho liga em cada um.
+3. **O Face ID precisa de HTTPS.** Se o seu painel ainda abre por um endereço de IP, a tela avisa e a trava não liga. Peça
+   ao Admin para colocar um endereço com HTTPS (veja a skill de trocar o domínio). A senha continua valendo em qualquer caso.
+4. **Se você trocar o endereço do painel, ligue o Face ID de novo.** A passkey fica presa ao endereço em que foi criada.
+
+**Visual novo: ícones próprios, azul de destaque e carregamento com a constelação do logo.** Todas as telas do Web e o painel de
+cada agente trocaram os emojis e símbolos de interface (✓, ✕, ☰, 📎, 🎯 e outros) por ícones de um conjunto próprio, de traço
+fino. O destaque deixou de ser verde e roxo e passou a ser azul, os botões e o foco usam as mesmas cores em toda parte, e os
+carregamentos mostram a constelação do logo batendo, inclusive para quem liga "Reduzir movimento" no aparelho. A conversa
+mantém o papel de parede verde e os balões de hoje.
+
+**Menu do agente em grupos.** O menu lateral tinha mais de vinte itens em fila. Agora a Conversa, a Mesa e a Pasta do agente ficam sempre à vista, e o resto está em grupos que abrem e fecham: Perfil do agente, Dia a dia, Ferramentas, Operação e Segurança. Como funciona e Socorro ficam soltos no fim, e um grupo Conexões (Navegador, Posts, Seguidores, Reuniões) só aparece quando algum deles está ligado. O grupo da página em que você está abre sozinho, o menu lembra neste aparelho o que você deixou aberto, e uma bolinha no nome do grupo fechado avisa quando há algo esperando você lá dentro. Nenhum item foi removido: Conectar conta e Anonimizar ficam em Ferramentas, e Convidar colaborador em Segurança. O painel do agente rodando sozinho, sem o
+Web na frente, também mostra os ícones.
+
+**Marca própria (white label).** Quem quiser o DG Claw com o próprio nome, logo, favicon, cores e fontes cria um `marca.json` na
+pasta `/etc/dgclaw/marca/` (o instalador a cria se faltar e nunca a esvazia). A mudança vale sem reiniciar. O passo a passo está
+em `docs/WHITE-LABEL.md` e a explicação das cores, dos ícones e do carregamento em `docs/DESIGN-SYSTEM.md`. O Admin sabe fazer a
+troca quando você pedir.
+
+### Como atualizar
+
+Nesta versão há uma instrução nova para o seu Admin, sobre como trocar a marca. Se você personalizou o `CLAUDE.md` ou o
+`AGENTS.md` do Admin, a atualização não os substitui, e a versão nova do modelo fica ao lado com final `.novo`. Peça ao Admin
+para juntar a seção "Trocar a marca" ao seu texto, sem apagar o que você escreveu. Quem não personalizou esses arquivos não
+precisa fazer nada.
+
+### Corrigido
+
+- O vigia de saúde não confunde mais o resumo da compactação com uma mensagem sua sem resposta. Antes, depois de cada compactação, o agente era reiniciado várias vezes seguidas sem motivo e o painel avisava que ele não estava respondendo.
+- Os agentes que usam o Claude deixam de "responder no vazio". Às vezes o agente escrevia a resposta como texto solto no fim do turno, sem usar a ferramenta de resposta do chat (ou do WhatsApp), e esse texto ficava no terminal sem chegar a você. Agora, quando isso acontece, a plataforma devolve o turno uma vez e o agente reenvia a resposta pelo canal certo. Recados da própria plataforma, turnos sem nenhum texto e qualquer falha da conferência passam sem cobrança, e as decisões ficam no arquivo `trava-resposta.log`, sem o conteúdo das mensagens. Só vale como resposta a ferramenta do canal certo e que não falhou, e, quando o turno é devolvido, o painel continua mostrando o agente como trabalhando até ele terminar de verdade.
+- Quando o texto entregue ao agente demora a ser aceito, o sistema continua tentando enviar por mais de um minuto em vez de deixá-lo parado na caixa de entrada.
+
 **Nova tela Logs no Admin.** No menu do Admin, o item **Logs** (endereço `/logs`) mostra, do mais novo para o mais antigo,
 tudo o que cada agente fez: mensagens, comandos, arquivos e ferramentas, tanto dos agentes que usam o Claude quanto dos que
 usam o Codex. Há filtros por período, tipo, sessão e palavra, e cada registro abre para mostrar o comando, o arquivo e o
@@ -25,6 +72,10 @@ Comando que pode levar senha ou chave aparece só com o nome do programa, sem os
 Nesta versão há uma instrução nova para o Admin, que explica a tela Logs e pede que ele não leia o conteúdo dos logs. Ela
 precisa entrar nas instruções dele sem apagar o que você já personalizou. O histórico que os agentes já têm aparece sozinho
 na tela, sem migração e sem nada a configurar.
+
+### Como atualizar (resposta no chat)
+
+Depois de atualizar, reinicie cada agente que usa o Claude para ele ganhar a conferência de resposta: ela é gravada nas configurações que o agente recebe ao subir. Não há nada para configurar nem para juntar às instruções dele.
 
 **Vários colaboradores no mesmo agente.** Antes, cada agente aceitava um colaborador só, e um segundo convite era recusado até você revogar o primeiro. Agora você convida quantas pessoas quiser para o mesmo agente. Na tela **Convidar colaborador** cada pessoa aparece num cartão, com os botões de mandar o convite de novo e de revogar o acesso, e o formulário para convidar mais alguém fica sempre abaixo. Revogar ou reenviar o convite de uma pessoa não mexe nas outras. Cada pessoa continua acessando um agente só, e as mensagens de cada uma chegam ao agente marcadas com o nome e o e-mail de quem falou. Nada precisa ser feito para atualizar.
 

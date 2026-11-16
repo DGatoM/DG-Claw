@@ -71,7 +71,7 @@
       : 'Encontramos ' + n + ' pontos de segurança que precisam da sua atenção.';
   }
 
-  function textoSelo(n) { return '🛡 ' + n + (n === 1 ? ' ponto de segurança' : ' pontos de segurança'); }
+  function textoSelo(n) { return n + (n === 1 ? ' ponto de segurança' : ' pontos de segurança'); }
 
   /* No máximo MAX_LISTA itens; o resto vira "e mais X". */
   function recorta(itens, max) {
@@ -118,7 +118,7 @@
     return '<div class="sr-caixa" id="srCaixa">' +
       '<div class="sr-cab"><h2 id="srTitulo">Seu ambiente está em risco</h2>' +
       '<button type="button" class="sr-icone" data-sr="ajuda" aria-label="Tutorial do aviso de segurança" title="O que é este aviso">?</button>' +
-      '<button type="button" class="sr-icone" data-sr="fechar" aria-label="Fechar o aviso" title="Fechar">✕</button></div>' +
+      '<button type="button" class="sr-icone" data-sr="fechar" aria-label="Fechar o aviso" title="Fechar">' + dsIcone('x') + '</button></div>' +
       '<p class="sr-texto" id="srTexto">' + esc(textoContagem(itens.length)) + '</p>' +
       '<ul class="sr-lista" id="srLista">' + mostrados.map(itemHtml).join('') +
       (resto ? '<li class="sr-resto">' + esc(textoResto(resto)) + '</li>' : '') + '</ul>' +
@@ -132,7 +132,7 @@
     return [
       { alvo: '#srTexto', titulo: 'O aviso único',
         oque: 'Uma janela só que junta tudo o que está pedindo atenção na segurança do seu ambiente: avisos sobre ferramentas com falha e falhas críticas achadas pela ronda.',
-        como: 'O painel soma os avisos de segurança do DG Claw que você ainda não dispensou com as falhas críticas abertas da ronda. Nada é enviado para fora: ele só lê o que o seu servidor já sabe.',
+        como: 'O painel soma os avisos de segurança do ' + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + ' que você ainda não dispensou com as falhas críticas abertas da ronda. Nada é enviado para fora: ele só lê o que o seu servidor já sabe.',
         porque: 'Para você não precisar fechar uma janela por problema. É um aviso só, e o detalhe de cada um fica na tela Segurança.' },
       { alvo: '#srLista', titulo: 'Os pontos em risco',
         oque: 'Os nomes simples dos problemas e a gravidade de cada um, os mais graves primeiro (no máximo 5, o resto aparece como "e mais").',
@@ -211,7 +211,7 @@
   function pintaSelo() {
     if (!itens.length || naTelaSeguranca()) { if (selo) selo.hidden = true; return; }
     garanteSelo();
-    selo.textContent = textoSelo(itens.length);
+    selo.innerHTML = dsIcone('shield') + ' ' + esc(textoSelo(itens.length));
     selo.hidden = false;
   }
 
