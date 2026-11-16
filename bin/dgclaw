@@ -1588,14 +1588,24 @@ inventario_container() {
                 if (index(p, "/etc/systemd/system/") == 1) {
                     u = p; sub(/^\/etc\/systemd\/system\/([^\/]*\.wants\/)?/, "", u)
                     if (index(u, "dgclaw-" slug "-self-") == 1) continue
+                    # Link em .wants: ligar (A) e o que o recriar faz de novo; DESLIGAR (D) uma rotina padrao e uma
+                    # escolha do dono que o `systemctl enable` religaria, entao entra na lista.
+                    ehlink = (p ~ /\.wants\//)
                     # runner e painel: so somem se identicos aos da imagem (conferido depois, por impressao digital)
-                    if (u ~ /^dgclaw-(runner|painel)\.(service|timer)$/) { if (p !~ /\.wants\//) print p >> imgarq; continue }
+                    if (u ~ /^dgclaw-(runner|painel)\.(service|timer)$/) {
+                        if (ehlink) { if (tipos[i] == "D") print "D " p; continue }
+                        print p >> imgarq; continue
+                    }
                     # Rotina padrao que o reparar regrava (lista em DG_UNIDADES_REPARAR): so some da lista
                     # se o arquivo ainda tem a cara do que o produto gera (conferido depois, no container).
                     pre = "dgclaw-" slug "-"
                     if (index(u, pre) == 1) {
                         nome = substr(u, length(pre) + 1); sub(/\.(service|timer)$/, "", nome)
-                        if (nome in eh_produto) { if (p ~ /\.(service|timer)$/ && p !~ /\.wants\//) print p >> prodarq; continue }
+                        if (nome in eh_produto) {
+                            if (ehlink) { if (tipos[i] == "D") print "D " p; continue }
+                            if (p ~ /\.(service|timer)$/) print p >> prodarq
+                            continue
+                        }
                     }
                 }
                 if (p ~ /^\/root\/\.(cache|npm|local\/share\/claude)(\/|$)/) continue
@@ -1693,8 +1703,7 @@ inventario_container() {
 # Agente que alguem desligou (exited/created) nao e mexido sem --forcar: a decisao de te-lo
 # desligado e de quem desligou. Com --forcar, qualquer estado (exited, created, stopping, ausente)
 # e recriado; "ausente" cria do zero com os mesmos volumes e portas. Um container preso em
-# "stopping" nao e decisao de ninguem: e uma troca anterior que travou, entao e recriado mesmo
-# sem --forcar. Quanto espera o container parar: DGCLAW_TEMPO_PARADA (segundos, padrao 90).
+# "stopping" tambem pede --forcar: nao da para conferir o que existe so dentro dele. Quanto espera o container parar: DGCLAW_TEMPO_PARADA (segundos, padrao 90).
 agente_recriar() {
     local forcar=0 slug="" a
     for a in "$@"; do
@@ -1722,8 +1731,11 @@ agente_recriar() {
     case "$estado" in
         running) ;;
         stopping)
-            info "agente $slug: o container esta preso em 'stopping' (uma troca anterior travou); vou recriar."
-            forcar=1 ;;
+            if [ "$forcar" = 0 ] && [ "$ENSAIO" != 1 ]; then
+                falha "nao troquei o container do agente $slug: ele esta preso em 'stopping' (uma troca anterior travou) e nao da para conferir o que existe so dentro dele." \
+                      "nada foi mexido. Se pode perder o que estiver so dentro dele, rode: dgclaw agente recriar $slug --forcar"
+            fi
+            info "agente $slug: o container esta preso em 'stopping' (uma troca anterior travou); recrio porque voce pediu --forcar." ;;
         *)
             if [ "$forcar" = 0 ]; then
                 info "agente $slug: container $estado; deixei como esta (ligue com: dgclaw agente iniciar $slug e rode isto de novo, ou recrie mesmo assim com: dgclaw agente recriar $slug --forcar)."
@@ -1754,7 +1766,13 @@ agente_recriar() {
     # Antes de trocar o container: o que existe so nele (pacotes e arquivos fora da casa) se perde.
     # Se houver algo, mostra e so segue com --forcar. Sem poder conferir, tambem para.
     if [ "$estado" = stopping ]; then
+        # Container preso: nao da para conferir o que existe so dentro dele, e isso se perde na troca.
+        # Destravar nao e autorizar a perda: sem --forcar, para.
         aviso "agente $slug: o container esta preso em 'stopping' e nao da para conferir o que existe so dentro dele. Se voce instalou algo la dentro a mao (fora da casa), isso se perde."
+        if [ "$forcar" = 0 ] && [ "$ENSAIO" != 1 ]; then
+            falha "nao troquei o container do agente $slug: ele esta preso em 'stopping' e nao consegui conferir o que se perderia." \
+                  "nada foi mexido. Se pode perder o que estiver so dentro dele, rode: dgclaw agente recriar $slug --forcar"
+        fi
     else
         inv="$(mktemp)" || falha "nao consegui criar um arquivo temporario para o inventario do agente $slug." "confira o espaco em disco e rode de novo; nada foi mexido."
         if ! inventario_container "$slug" "$inv"; then

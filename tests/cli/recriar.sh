@@ -56,8 +56,14 @@ nega "nao diz 'foi removido'" grep -q 'foi removido e o novo NAO' "$TMP/rec.txt"
 afirma "diz o comando para tentar de novo" grep -q 'dgclaw agente recriar ana --forcar' "$TMP/rec.txt"
 rm -f "$STUB_ESTADO/mounts-volume"
 
-echo "sem --forcar, 'stopping' e a troca que travou: recria"
+echo "'stopping' sem --forcar: nao da para conferir o que se perde, entao para"
 recriar ana
+nega "sem --forcar: falha" test "$?" -eq 0
+afirma "explica que esta preso e que nao deu para conferir" grep -q "preso em 'stopping'.*nao da para conferir" "$TMP/rec.txt"
+afirma "pede --forcar" grep -q 'dgclaw agente recriar ana --forcar' "$TMP/rec.txt"
+nega "nao trocou o container" grep -q '^podman \(create\) ' "$STUB_LOG"
+echo "'stopping' com --forcar: recria"
+recriar ana --forcar
 igual "recria e termina com 0" "0" "$?"
 afirma "avisa que estava preso em stopping" grep -q "preso em 'stopping'" "$TMP/rec.txt"
 rm -f "$STUB_ESTADO/stop-trava-dgclaw-ana"
@@ -379,5 +385,20 @@ nega "nao deu para conferir os diretorios: falha" test "$?" -eq 0
 afirma "explica a falha dos diretorios" grep -q 'permissoes dos diretorios' "$TMP/rec.txt"
 rm -f "$STUB_ESTADO/dir-conferir-falha" "$STUB_ESTADO/dir-alterado"
 afirma "o manifesto nao grava runner nem painel" grep -q 'dgclaw-runner\.\*|\*/dgclaw-painel\.\*' "$AQUI/../../bin/dgclaw"
+
+# 16) rotina padrao que o dono DESLIGOU (link .wants removido) volta a ligar na recriacao: entra na lista
+echo imagem-v24 >"$STUB_ESTADO/imagem-id"
+cat >"$STUB_ESTADO/diff-dgclaw-rita" <<'EOF'
+D /etc/systemd/system/timers.target.wants/dgclaw-rita-heartbeat.timer
+A /etc/systemd/system/timers.target.wants/dgclaw-rita-reflection.timer
+D /etc/systemd/system/multi-user.target.wants/dgclaw-painel.service
+D /etc/systemd/system/timers.target.wants/dgclaw-rita-self-7.timer
+EOF
+recriar rita
+nega "sem --forcar: falha" test "$?" -eq 0
+afirma "o timer padrao desligado aparece" grep -q 'D /etc/systemd/system/timers.target.wants/dgclaw-rita-heartbeat.timer' "$TMP/rec.txt"
+afirma "o painel desligado aparece" grep -q 'D /etc/systemd/system/multi-user.target.wants/dgclaw-painel.service' "$TMP/rec.txt"
+nega "ligar (A) um timer padrao nao conta" grep -q 'dgclaw-rita-reflection' "$TMP/rec.txt"
+nega "a rotina do proprio agente (self) continua de fora" grep -q 'self-7' "$TMP/rec.txt"
 
 fim

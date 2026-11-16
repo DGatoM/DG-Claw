@@ -382,9 +382,9 @@ volte tudo com `--voltar`.
 
 **Container preso em `stopping`.** O `podman stop` devolve, mas o estado fica `stopping` e o `podman rm`
 recusa ("running or paused containers cannot be removed"). O `agente recriar` já trata sozinho (espera e
-usa `rm -f` só do container). Se mesmo assim falhar, a mensagem diz que o container **antigo** continua
-lá e em que estado; nada foi removido. Rode `sudo dgclaw agente recriar <slug> --forcar` (recria também
-um container preso em `stopping`).
+usa `rm -f` só do container), mas só com `--forcar`: num container preso não dá para conferir o que existe só
+dentro dele, e destravar não autoriza perder isso. Sem `--forcar` o comando para e pede. Se falhar, a mensagem diz
+que o container **antigo** continua lá e em que estado; nada foi removido. Rode `sudo dgclaw agente recriar <slug> --forcar`.
 
 **Container de um agente que não sobe.** O comando diz qual agente. A casa dele está intacta. Veja:
 `podman logs --tail 40 dgclaw-<slug>`. Se terminar com código 255, é falta de inotify: `sysctl -w
