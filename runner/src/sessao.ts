@@ -34,7 +34,7 @@ import { codexHomeDe } from "./provedores/codex.js";
 import { type CamposDeEscolha, type Escolha, type EscolhaEfetiva, type SaidaDaEscolha, gravarProvedorJson, resolverEscolha } from "./provedores/escolha.js";
 import type { CtxMotor, Motor, Recusa } from "./provedores/motor.js";
 import { motorDe } from "./provedores/motores.js";
-import { parar, pararEEsperar, recusarPorRestricao, reviver, subir, suspender, trocarPorSessaoLimpa } from "./sessao/ciclo.js";
+import { parar, pararEEsperar, recusarPorRestricaoComContencao, reviver, subir, suspender, trocarPorSessaoLimpa } from "./sessao/ciclo.js";
 import { conferirContaComRestricoes } from "./restricoes-conta.js";
 import { ctxLeve, montarAmbienteBase } from "./sessao/configuracao.js";
 import { PAUSA_TECLA_PERGUNTA_MS, QUIETO_PARA_OLHAR_TRANSCRIPT_MS, RECIBO_VIGIA_PASSOS_MS, VIGIA_LOGIN_EXPIRADO_MS } from "./sessao/constantes.js";
@@ -461,22 +461,33 @@ export class Sessao extends EventEmitter {
           mensagem: `Não consegui conferir a conta depois do login (${err instanceof Error ? err.message : err}).`,
           comoResolver: "tentar o login de novo; se persistir, ver o log do runner",
         }))
-        .then((conf) => {
+        .then(async (conf) => {
           if (!conf.ok) {
-            // O PTY de conversa, se existir, roda com a conta nova: parar antes de marcar o erro.
-            // As rotinas autônomas fora do runner (reflexão headless, crons de publicação e de comentários)
-            // não dependem deste estado: cada execução consulta a conta atual por
+            // As sessões do agente (principal e paralelas) dividem as credenciais: a conta nova vale para todas,
+            // então a recusa também. As rotinas autônomas fora do runner (reflexão headless, crons de publicação
+            // e de comentários) não dependem deste estado: cada execução consulta a conta atual por
             // scripts/_lib/restricoes-rotina.sh (conferir-conta-cli.ts) e recusa com o mesmo critério.
-            this.parar("login concluído com conta incompatível com as restrições");
-            recusarPorRestricao(this, conf.mensagem, conf.comoResolver);
+            await Promise.all(this.sessoesDaMesmaConta().map((x) => recusarPorRestricaoComContencao(x, conf.mensagem, conf.comoResolver)));
             return;
           }
           this.aposLoginConferido();
+          // Quem estava recusada por restrição (por um login anterior incompatível) volta a tentar com a conta aprovada.
+          for (const x of this.sessoesDaMesmaConta()) {
+            if (x !== this && x.estado.status === "errored" && x.estado.statusReason === "runner:restricao-conta") x.aposLoginConferido();
+          }
         });
       return;
     }
     this.aposLoginConferido();
   }
+
+  /** Todas as sessões Claude do agente (a principal e as paralelas): elas dividem o mesmo CLAUDE_CONFIG_DIR, então a mesma conta. A própria vem primeiro. */
+  private sessoesDaMesmaConta(): Sessao[] {
+    return [this, ...this.irmas().filter((x) => x !== this && x.motor.provedor === "claude")];
+  }
+
+  /** Quem lista as sessões do mesmo agente; o gerente de sessões preenche. Sozinha, a sessão só conhece a si mesma. */
+  irmas: () => Sessao[] = () => [];
 
   private aposLoginConferido(): void {
     if (this.estado.status === "errored" && (this.estado.statusReason === "runner:sem-login" || this.estado.statusReason === "runner:restricao-conta")) {
@@ -688,7 +699,7 @@ export class Sessao extends EventEmitter {
   }
 
   /** Como parar(), mas só volta depois que o processo morreu (ver sessao/ciclo.ts). */
-  pararEEsperar(motivo: string, prazoMs = 5_000): Promise<void> {
+  pararEEsperar(motivo: string, prazoMs = 5_000): Promise<boolean> {
     return pararEEsperar(this, motivo, prazoMs);
   }
 

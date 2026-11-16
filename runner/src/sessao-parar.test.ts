@@ -271,3 +271,67 @@ test("reviver(): revive, resume e remove em sequência não deixam nenhum claude
     delete process.env.FAKE_IGNORAR_HUP;
   }
 });
+
+// Processo de verdade num grupo próprio, escondido atrás de um PTY falso cujo kill() não faz o que devia.
+async function ptyFalso(comoMatar: "ignora" | "lanca") {
+  const { spawn } = await import("node:child_process");
+  const filho = spawn("sleep", ["60"], { detached: true, stdio: "ignore" });
+  const ouvintes: Array<() => void> = [];
+  filho.on("exit", () => ouvintes.forEach((f) => f()));
+  const fake = {
+    pid: filho.pid!,
+    kill: () => {
+      if (comoMatar === "lanca") throw new Error("kill falhou de propósito");
+    },
+    onData: () => ({ dispose() {} }),
+    onExit: (f: () => void) => {
+      ouvintes.push(f);
+      return { dispose() {} };
+    },
+  };
+  return { filho, fake };
+}
+
+for (const como of ["ignora", "lanca"] as const) {
+  test(`recusa por restrição: PTY que ${como === "ignora" ? "ignora o primeiro sinal" : "tem kill() que lança erro"} morre no SIGKILL e a recusa só vale com a morte confirmada`, async () => {
+    const { recusarPorRestricaoComContencao } = await import("./sessao/ciclo.js");
+    const s = await nova();
+    const { filho, fake } = await ptyFalso(como);
+    (s as unknown as { proc: unknown }).proc = fake;
+    try {
+      await recusarPorRestricaoComContencao(s, "conta incompatível", "trocar a conta");
+      assert.equal(s.estado.statusReason, "runner:restricao-conta");
+      assert.equal(s.estado.status, "errored");
+      assert.equal(vivo(fake.pid), false, "o processo precisa estar morto quando a recusa aparece");
+    } finally {
+      try { process.kill(-fake.pid, "SIGKILL"); } catch { /* já morreu */ }
+      filho.kill("SIGKILL");
+    }
+  });
+}
+
+test("recusa por restrição: sem conseguir confirmar a morte vira falha de segurança explícita", async (t) => {
+  const { recusarPorRestricaoComContencao } = await import("./sessao/ciclo.js");
+  const s = await nova();
+  // Pid inexistente e process.kill trocado: nada morre, nada some, e o sinal 0 diz que o grupo está vivo.
+  const real = process.kill;
+  t.mock.method(process, "kill", () => true);
+  const ouvintes: Array<() => void> = [];
+  (s as unknown as { proc: unknown }).proc = {
+    pid: 999_999,
+    kill: () => {},
+    onData: () => ({ dispose() {} }),
+    onExit: (f: () => void) => {
+      ouvintes.push(f);
+      return { dispose() {} };
+    },
+  };
+  await recusarPorRestricaoComContencao(s, "conta incompatível", "trocar a conta");
+  process.kill = real;
+  assert.equal(s.estado.statusReason, "runner:restricao-sem-contencao");
+  assert.equal(s.estado.status, "errored");
+  assert.match(s.estado.error ?? "", /não consegui confirmar que o processo do agente \(pid 999999\) parou/);
+  assert.match(s.estado.error ?? "", /dgclaw agente reiniciar/);
+  assert.equal(s.grupoQueSobrou, 999_999);
+  s.grupoQueSobrou = null;
+});

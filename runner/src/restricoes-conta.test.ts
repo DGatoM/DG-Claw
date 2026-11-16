@@ -162,6 +162,36 @@ test("depois do login: conta de organização derruba a sessão aberta; conta pe
   await esperarAte(() => s.estado.status === "idle", 12_000, "voltar com conta pessoal");
 });
 
+test("login incompatível feito pela paralela derruba a principal também (a conta é uma só)", async () => {
+  restringir(COM_TRAVA);
+  const principal = await nova();
+  const paralela = await nova();
+  const todas = () => [principal, paralela];
+  principal.irmas = todas;
+  paralela.irmas = todas;
+  await principal.subir("nova");
+  await paralela.subir("nova");
+  await esperarAte(() => principal.estado.status === "idle" && paralela.estado.status === "idle", 8_000, "abrir as duas");
+
+  // Conta pessoal: nada muda para nenhuma das duas.
+  paralela.aposLoginConcluido();
+  await new Promise((r) => setTimeout(r, 800));
+  assert.equal(principal.estado.status, "idle");
+  assert.equal(paralela.estado.status, "idle");
+
+  // Login Team/Enterprise pela paralela: as duas são paradas e recusadas.
+  process.env.FAKE_CLAUDE_STATUS = CONTA_DE_ORG + "\n";
+  paralela.aposLoginConcluido();
+  await esperarAte(
+    () => principal.estado.statusReason === "runner:restricao-conta" && paralela.estado.statusReason === "runner:restricao-conta",
+    8_000,
+    "recusar as duas sessões",
+  );
+  assert.equal(principal.temPtyVivo(), false);
+  assert.equal(paralela.temPtyVivo(), false);
+  assert.equal(principal.estado.status, "errored");
+});
+
 test("classificação da conta: a mesma regra da CLI", () => {
   const c = classificarSaidaDaConta;
   assert.equal(c('{"loggedIn":false,"authMethod":"none"}'), "sem");

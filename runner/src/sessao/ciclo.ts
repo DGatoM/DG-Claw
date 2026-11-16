@@ -438,10 +438,12 @@ export function parar(s: Sessao, motivo: string, statusReason?: string): void {
  *  janela em que o dono escolheu um modo e outro continua gastando (B6, card 4,
  *  12/10/2026). O SIGHUP do parar() não basta se o CLI o ignora; passado o prazo,
  *  vai SIGKILL no grupo inteiro (o node-pty faz o filho líder de sessão, então
- *  -pid pega também os servidores MCP). Nunca lança. */
-export async function pararEEsperar(s: Sessao, motivo: string, prazoMs = 5_000): Promise<void> {
+ *  -pid pega também os servidores MCP). Nunca lança. Devolve true quando a morte
+ *  foi confirmada (evento de saída ou grupo sem processos) e false quando o
+ *  processo continua vivo depois do SIGKILL. */
+export async function pararEEsperar(s: Sessao, motivo: string, prazoMs = 5_000): Promise<boolean> {
   const antigo = s.proc;
-  if (!antigo) return;
+  if (!antigo) return true;
   const pid = antigo.pid;
   let saiu = false;
   let acordar: () => void = () => {};
@@ -465,7 +467,7 @@ export async function pararEEsperar(s: Sessao, motivo: string, prazoMs = 5_000):
   };
 
   await esperar(prazoMs);
-  if (saiu) return;
+  if (saiu) return true;
 
   let forcou = "mandei SIGKILL no grupo do processo";
   try {
@@ -484,13 +486,39 @@ export async function pararEEsperar(s: Sessao, motivo: string, prazoMs = 5_000):
   );
 
   await esperar(2_000);
-  if (saiu) return;
+  if (saiu) return true;
+  // Sem o evento de saída, o grupo sem processos (ESRCH) também prova que o processo morreu.
+  if (!grupoVivo(pid)) return true;
   s.grupoQueSobrou = pid;
   log.erro(
     s.a("pty"),
     `o processo antigo (pid ${pid}) continuou vivo mesmo depois do SIGKILL (${motivo}); ele pode estar rodando com o ambiente do modo antigo`,
     `conferir com "ps -o pid,cmd -p ${pid}" e encerrar esse processo à mão antes de confiar na troca`,
   );
+  return false;
+}
+
+/**
+ * Recusa por restrição com contenção confirmada: encerra o PTY (SIGHUP, 3 s de espera, SIGKILL no grupo) e só
+ * marca `runner:restricao-conta` depois de provada a morte do processo. Se não der para provar, a sessão fica
+ * em `runner:restricao-sem-contencao`: falha de segurança explícita, porque um processo com a conta
+ * incompatível pode continuar trabalhando mesmo com a recusa aparecendo no painel.
+ */
+export async function recusarPorRestricaoComContencao(s: Sessao, mensagem: string, comoResolver: string): Promise<void> {
+  const pid = s.proc?.pid;
+  const morreu = await pararEEsperar(s, "conta incompatível com as restrições", 3_000);
+  if (morreu) {
+    recusarPorRestricao(s, mensagem, comoResolver);
+    return;
+  }
+  const quemReiniciar = `dgclaw agente reiniciar ${s.descritor.slug}`;
+  const detalhe = `Recusei a conta incompatível com as restrições, mas não consegui confirmar que o processo do agente (pid ${pid}) parou: ele pode continuar trabalhando com a conta nova.`;
+  s.mudar({
+    status: "errored",
+    error: `${detalhe} O que fazer: reiniciar o agente com ${quemReiniciar}.`,
+    statusReason: "runner:restricao-sem-contencao",
+  });
+  log.erro(s.a("restricoes"), `${detalhe} Motivo da recusa: ${mensagem}`, `reiniciar o agente com ${quemReiniciar}; conferir com "ps -o pid,pgid,stat,cmd -g ${pid}"`);
 }
 
 /** Dorme uma sessão PARALELA para devolver memória. Ela fica `resumable` e a
