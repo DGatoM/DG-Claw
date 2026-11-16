@@ -1000,10 +1000,11 @@ systemctl daemon-reload
 # reboot que ninguem vai dar.
 systemctl enable --now dgclaw-runner.service dgclaw-painel.service >/dev/null
 # Impressao digital das unidades que o produto acabou de gerar (referencia confiavel para o
-# `agente recriar` saber se alguem as editou depois). So as que nao sao do proprio agente (self-*).
+# `agente recriar` saber se alguem as editou depois). Ficam de fora as do proprio agente (self-*) e o
+# runner e o painel: estes vem da imagem (a referencia deles e a imagem, nao um arquivo que pode ter sido editado).
 ( cd /etc/systemd/system && for u in /etc/systemd/system/dgclaw-*.service /etc/systemd/system/dgclaw-*.timer; do
     [ -f "$u" ] || continue
-    case "$u" in *-self-*) continue ;; esac
+    case "$u" in *-self-*|*/dgclaw-runner.*|*/dgclaw-painel.*) continue ;; esac
     sha256sum "$u"
 done ) >"$CASA/.dgclaw/unidades-padrao.sha256"
 chown agente:agente "$CASA/.dgclaw/unidades-padrao.sha256"
@@ -1501,10 +1502,10 @@ _inv_sanear() { LC_ALL=C tr -c 'A-Za-z0-9._/@+:,=~\n-' '?' | cut -c1-160; }
 # devolvidas) e dgclaw-runner/dgclaw-painel (regravados pelo reparar). Qualquer outra unidade dgclaw-*
 # ou arquivo em /var/backups e /var/lib/private e coisa que se perde e continua na lista.
 inventario_container() {
-    local slug="$1" saida="$2" difusao="" pacs_c="" pacs_i="" novos estado_c c rc_a rc_b ruins validos atuais ref linha
+    local arqs=() slug="$1" saida="$2" difusao="" pacs_c="" pacs_i="" novos estado_c c rc_a rc_b ruins validos atuais ref linha
     c="dgclaw-$slug"
     INV_MOTIVO=""
-    _inv_limpar() { rm -f "$difusao" "$difusao.err" "$difusao.arq" "$difusao.prod" "$pacs_c" "$pacs_i" 2>/dev/null || true; }
+    _inv_limpar() { rm -f "$difusao" "$difusao.err" "$difusao.arq" "$difusao.prod" "$difusao.img" "$difusao.dirs" "$difusao.dm" "$pacs_c" "$pacs_i" 2>/dev/null || true; }
     : >"$saida" || { INV_MOTIVO="nao consegui gravar o arquivo do inventario ($saida)."; return 1; }
     difusao="$(mktemp)" || { INV_MOTIVO="nao consegui criar um arquivo temporario."; return 1; }
     # O formato de texto do podman nao escapa quebra de linha no nome do arquivo: um nome com "\nA /x" viraria
@@ -1569,7 +1570,7 @@ inventario_container() {
         fi
     fi
     # Arquivos: tira o ruido e deixa so as folhas (diretorio pai so aparece porque o filho mudou).
-    if ! awk -v slug="$slug" -v produto="$DG_UNIDADES_REPARAR" -v prodarq="$difusao.prod" '
+    if ! awk -v slug="$slug" -v produto="$DG_UNIDADES_REPARAR" -v prodarq="$difusao.prod" -v imgarq="$difusao.img" -v dirarq="$difusao.dirs" '
         BEGIN { np = split(produto, tmp, " "); for (k = 1; k <= np; k++) eh_produto[tmp[k]] = 1 }
         { tipo = substr($0, 1, 1); caminho = substr($0, 3); linhas[NR] = caminho; tipos[NR] = tipo }
         END {
@@ -1587,8 +1588,8 @@ inventario_container() {
                 if (index(p, "/etc/systemd/system/") == 1) {
                     u = p; sub(/^\/etc\/systemd\/system\/([^\/]*\.wants\/)?/, "", u)
                     if (index(u, "dgclaw-" slug "-self-") == 1) continue
-                    # runner e painel: tambem so somem se identicos ao que foi gerado (conferido depois, por impressao digital)
-                    if (u ~ /^dgclaw-(runner|painel)\.(service|timer)$/) { if (p !~ /\.wants\//) print p >> prodarq; continue }
+                    # runner e painel: so somem se identicos aos da imagem (conferido depois, por impressao digital)
+                    if (u ~ /^dgclaw-(runner|painel)\.(service|timer)$/) { if (p !~ /\.wants\//) print p >> imgarq; continue }
                     # Rotina padrao que o reparar regrava (lista em DG_UNIDADES_REPARAR): so some da lista
                     # se o arquivo ainda tem a cara do que o produto gera (conferido depois, no container).
                     pre = "dgclaw-" slug "-"
@@ -1598,8 +1599,10 @@ inventario_container() {
                     }
                 }
                 if (p ~ /^\/root\/\.(cache|npm|local\/share\/claude)(\/|$)/) continue
-                if (p ~ /(^|\/)__pycache__(\/|$)/ || p ~ /\.pyc$/) continue
-                if (pai[p]) continue
+                if (p ~ /(^|\/)__pycache__(\/|$)/) continue
+                # Diretorio que so aparece porque um filho mudou: se o proprio diretorio mudou (permissao, dono),
+                # isso e conferido depois contra a imagem.
+                if (pai[p]) { if (tipos[i] == "C") print p >> dirarq; continue }
                 print tipos[i] " " p
             }
         }' "$difusao" >"$difusao.arq"; then
@@ -1616,7 +1619,8 @@ inventario_container() {
             _inv_limpar; return 1
         fi
         ref="$DG_CASAS/$slug/home/.dgclaw/unidades-padrao.sha256"
-        atuais="$(podman exec "$c" sha256sum $(cat "$difusao.prod") 2>/dev/null)" \
+        mapfile -t arqs <"$difusao.prod"
+        atuais="$(podman exec "$c" sha256sum "${arqs[@]}" 2>/dev/null)" \
             || { INV_MOTIVO="nao consegui conferir as rotinas padrao dentro do container (podman exec sha256sum)."; _inv_limpar; return 1; }
         while IFS= read -r linha; do
             [ -n "$linha" ] || continue
@@ -1625,6 +1629,46 @@ inventario_container() {
                     || { INV_MOTIVO="nao consegui gravar a lista de unidades alteradas."; _inv_limpar; return 1; }
             fi
         done <<<"$atuais"
+    fi
+    # runner e painel vem da imagem: so somem da lista se o arquivo do container e IDENTICO ao da imagem.
+    if [ -s "$difusao.img" ]; then
+        if [ "$estado_c" != running ]; then
+            INV_MOTIVO="o container nao esta ligado, entao nao da para conferir se alguem editou o runner ou o painel."
+            _inv_limpar; return 1
+        fi
+        mapfile -t arqs <"$difusao.img"
+        atuais="$(podman exec "$c" sha256sum "${arqs[@]}" 2>/dev/null)" \
+            && ref="$(podman run --rm --entrypoint sha256sum "$DGCLAW_IMAGEM" "${arqs[@]}" 2>/dev/null)" \
+            || { INV_MOTIVO="nao consegui comparar o runner e o painel com os da imagem (sha256sum)."; _inv_limpar; return 1; }
+        while IFS= read -r linha; do
+            [ -n "$linha" ] || continue
+            if ! grep -qxF -- "$linha" <<<"$ref"; then
+                printf 'C %s\n' "${linha#*  }" >>"$difusao.arq" \
+                    || { INV_MOTIVO="nao consegui gravar a lista de unidades alteradas."; _inv_limpar; return 1; }
+            fi
+        done <<<"$atuais"
+    fi
+    # Diretorios que so apareceriam por causa de um filho: se o proprio diretorio tem permissao ou dono
+    # diferente da imagem, a mudanca e dele e entra na lista. Qualquer falha de leitura conta como diferente.
+    if [ -s "$difusao.dirs" ]; then
+        if [ "$estado_c" != running ]; then
+            INV_MOTIVO="o container nao esta ligado, entao nao da para conferir as permissoes dos diretorios alterados."
+            _inv_limpar; return 1
+        fi
+        local lemeta='while IFS= read -r d; do stat -c "%a %u %g" -- "$d" 2>/dev/null || echo ERRO; done'
+        podman exec -i "$c" sh -c "$lemeta" <"$difusao.dirs" >"$difusao.dm" 2>/dev/null \
+            && ref="$(podman run --rm -i --entrypoint sh "$DGCLAW_IMAGEM" -c "$lemeta" <"$difusao.dirs" 2>/dev/null)" \
+            || { INV_MOTIVO="nao consegui comparar as permissoes dos diretorios alterados com os da imagem (stat)."; _inv_limpar; return 1; }
+        local n=0 m_c m_i d
+        while IFS= read -r d; do
+            n=$((n + 1))
+            m_c="$(sed -n "${n}p" "$difusao.dm")"
+            m_i="$(sed -n "${n}p" <<<"$ref")"
+            if [ -z "$m_c" ] || [ "$m_c" = ERRO ] || [ "$m_c" != "$m_i" ]; then
+                printf 'C %s\n' "$d" >>"$difusao.arq" \
+                    || { INV_MOTIVO="nao consegui gravar a lista de diretorios alterados."; _inv_limpar; return 1; }
+            fi
+        done <"$difusao.dirs"
     fi
     if [ -s "$difusao.arq" ]; then
         {

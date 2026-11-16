@@ -244,7 +244,7 @@ afirma "/var/lib/private aparece" grep -q 'A /var/lib/private/segredo.db' "$TMP/
 afirma "unidade dgclaw-* que nao e do agente aparece" grep -q 'dgclaw-outra.service' "$TMP/rec.txt"
 afirma "unidade de outro agente com prefixo parecido aparece" grep -q 'dgclaw-ritax-self-2.timer' "$TMP/rec.txt"
 nega "a rotina do proprio agente nao aparece" grep -q 'dgclaw-rita-self-1' "$TMP/rec.txt"
-afirma "o runner sem impressao digital de referencia aparece (so some se identico ao gerado)" grep -q 'dgclaw-runner.service' "$TMP/rec.txt"
+nega "o runner igual ao da imagem nao aparece" grep -q 'dgclaw-runner.service' "$TMP/rec.txt"
 rm -f "$CASA_RITA"/perdido-no-recriar-*.txt
 
 # 10) lista longa: a tela mostra o comeco, o arquivo guarda TUDO e ja existe antes da confirmacao
@@ -282,7 +282,6 @@ manifesto() {
     for n in $PRODUTOS_REPARAR; do
         for e in service timer; do echo "HASH-FIXO  /etc/systemd/system/dgclaw-rita-$n.$e"; done
     done >"$CASA_RITA/home/.dgclaw/unidades-padrao.sha256"
-    printf 'HASH-FIXO  /etc/systemd/system/dgclaw-runner.service\nHASH-FIXO  /etc/systemd/system/dgclaw-painel.service\n' >>"$CASA_RITA/home/.dgclaw/unidades-padrao.sha256"
 }
 manifesto
 
@@ -343,7 +342,7 @@ printf '/etc/systemd/system/dgclaw-runner.service\n' >"$STUB_ESTADO/unidade-edit
 recriar rita
 nega "runner alterado, sem --forcar: falha" test "$?" -eq 0
 afirma "o runner alterado aparece" grep -q 'dgclaw-runner.service' "$TMP/rec.txt"
-nega "o painel igual ao gerado nao aparece" grep -q 'dgclaw-painel.service' "$TMP/rec.txt"
+nega "o painel igual ao da imagem nao aparece" grep -q 'dgclaw-painel.service' "$TMP/rec.txt"
 rm -f "$STUB_ESTADO/unidade-editada"
 cat >"$STUB_ESTADO/diff-json-dgclaw-rita" <<'EOF'
 {"added":["/tmp/\nA ","/tmp/\nA /opt/dados.db/__pycache__/x","/opt/dados.db"],"changed":[],"deleted":[]}
@@ -353,5 +352,32 @@ nega "nome com quebra de linha, sem --forcar: falha" test "$?" -eq 0
 afirma "o banco de verdade continua na lista" grep -q 'A /opt/dados.db' "$TMP/rec.txt"
 rm -f "$STUB_ESTADO/diff-json-dgclaw-rita"
 
+
+# 15) bytecode que e a unica copia de um programa, e diretorio cuja permissao mudou
+echo imagem-v23 >"$STUB_ESTADO/imagem-id"
+cat >"$STUB_ESTADO/diff-dgclaw-rita" <<'EOF'
+C /opt
+A /opt/ferramenta
+A /opt/ferramenta/main.pyc
+A /opt/ferramenta/__pycache__
+A /opt/ferramenta/__pycache__/x.cpython-311.pyc
+C /opt/servico
+A /opt/servico/cache.bin
+C /opt/outro
+A /opt/outro/dado.bin
+EOF
+printf '/opt/servico\n' >"$STUB_ESTADO/dir-alterado"
+recriar rita
+nega "sem --forcar: falha" test "$?" -eq 0
+afirma "o .pyc sem fonte aparece" grep -q 'A /opt/ferramenta/main.pyc' "$TMP/rec.txt"
+nega "o cache __pycache__ continua de fora" grep -q '__pycache__' "$TMP/rec.txt"
+afirma "o diretorio com permissao diferente da imagem aparece" grep -q 'C /opt/servico$' "$TMP/rec.txt"
+nega "o diretorio igual ao da imagem continua de fora" grep -q 'C /opt/outro$' "$TMP/rec.txt"
+touch "$STUB_ESTADO/dir-conferir-falha"
+recriar rita
+nega "nao deu para conferir os diretorios: falha" test "$?" -eq 0
+afirma "explica a falha dos diretorios" grep -q 'permissoes dos diretorios' "$TMP/rec.txt"
+rm -f "$STUB_ESTADO/dir-conferir-falha" "$STUB_ESTADO/dir-alterado"
+afirma "o manifesto nao grava runner nem painel" grep -q 'dgclaw-runner\.\*|\*/dgclaw-painel\.\*' "$AQUI/../../bin/dgclaw"
 
 fim

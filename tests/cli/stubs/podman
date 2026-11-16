@@ -67,6 +67,15 @@ case "${1:-}" in
             cat "$est/c-$nome"
         fi ;;
     exec)
+        # Permissao e dono dos diretorios (`sh -c '... stat -c ...'`, caminhos por STDIN): uma linha por caminho.
+        # No container, os caminhos listados em estado/dir-alterado saem com 700; na imagem, tudo e 755.
+        if printf '%s ' "$@" | grep -q 'stat -c'; then
+            [ -f "$est/dir-conferir-falha" ] && exit 1
+            while IFS= read -r d; do
+                if grep -qxF "$d" "$est/dir-alterado" 2>/dev/null; then echo "700 0 0"; else echo "755 0 0"; fi
+            done
+            exit 0
+        fi
         # `exec -i <container> bash -s` recebe o script por STDIN: guarda para o teste ler.
         if printf '%s ' "$@" | grep -q -- ' -i '; then cat >> "$STUB_LOG.stdin"; fi
         if printf '%s ' "$@" | grep -q is-system-running; then echo running; fi
@@ -114,6 +123,15 @@ case "${1:-}" in
         fi
         cat "$est/diff-$nome" 2>/dev/null; exit 0 ;;
     run)
+        # `run --rm --entrypoint sha256sum <imagem> <arquivos>`: a referencia da imagem (sempre HASH-FIXO).
+        if printf '%s ' "$@" | grep -q 'entrypoint sha256sum'; then
+            for f in "${@:6}"; do echo "HASH-FIXO  $f"; done
+            exit 0
+        fi
+        if printf '%s ' "$@" | grep -q 'stat -c'; then
+            while IFS= read -r d; do echo "755 0 0"; done
+            exit 0
+        fi
         # `run --rm --entrypoint dpkg-query <imagem> ...`: pacotes da imagem (estado/pacotes-imagem).
         if printf '%s ' "$@" | grep -q dpkg-query; then
             if [ -f "$est/pacotes-sem-dpkg" ]; then exit 1; fi
