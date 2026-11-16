@@ -449,6 +449,19 @@ test('ponte e Z-API dividem o mesmo estado: texto repetido e trava valem entre e
   fs.rmSync(home, { recursive: true, force: true });
 });
 
+test('retomar logo depois de um envio incerto e recusado ate passar o tempo de seguranca', async () => {
+  const m = montar();
+  const envio = criarEnvioSeguro({ dir: path.join(m.home, 'envio'), arqConfig: m.arqConfig, limiteExecucaoMs: 30 });
+  await envio.enviar({ para: A, texto: 'primeira mensagem para a Ana', executar: () => new Promise(() => {}) });
+  const r = await envio.liberarComTrava();
+  assert.equal(r.codigo, 'AINDA_PODE_ESTAR_ENVIANDO');
+  assert.equal(envio.pendente(), true);
+  const velho = new Date(Date.now() - 10 * 60 * 1000);
+  fs.utimesSync(path.join(m.home, 'envio', 'PENDENTE'), velho, velho);
+  assert.equal((await envio.liberarComTrava()).ok, true);
+  m.limpar();
+});
+
 test('liberarComTrava espera o envio no ar terminar e so entao apaga PARADO e PENDENTE', async () => {
   const m = montar();
   let solta;

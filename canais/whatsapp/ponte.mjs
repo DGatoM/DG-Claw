@@ -299,6 +299,7 @@ export async function iniciar(opcoes = {}) {
   });
   const { aoReceber } = criarEntrada({
     envioSeguro,
+    ligacao: () => ({ conectado, sock: sockAtual }),
     opcoes, registrar, agora, lids, aprenderLid, estaPermitido, entregar, gravarAtomico,
     arqUltimo, dirUploads, downloadMediaMessage, pendentes,
   });

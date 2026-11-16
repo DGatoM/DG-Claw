@@ -178,6 +178,7 @@ Resposta: `{"ok":true,"para":"+55...","id":"<id da mensagem>"}` ou
 | `TEXTO_REPETIDO` | o mesmo texto já foi para outra pessoa nas últimas 24 horas |
 | `ESTADO_INVALIDO` | o histórico de envios (`envio/estado.json`) existe mas não pôde ser lido; nada sai até o dono conferir (apagar recomeça o histórico) |
 | `EXPIRADO` | o pedido esperou na fila além do prazo e não foi enviado; a tool já tinha desistido |
+| `AINDA_PODE_ESTAR_ENVIANDO` | o `retomar` veio logo depois de um envio sem resposta; espere 5 minutos, confira o celular e rode de novo |
 | `OCUPADO` | outro envio segurou a vez por mais de 45 s |
 | `CONFIG_INVALIDA` | o `envio.json` tem valor errado; o erro diz qual |
 

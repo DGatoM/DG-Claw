@@ -52,6 +52,7 @@ const HORA = 60 * MIN;
 const DIA = 24 * HORA;
 
 // Uma fila por pasta e o conjunto de travas que ESTE processo segura (valem entre instancias do mesmo processo).
+const ESPERA_APOS_INCERTO_MS = 5 * 60 * 1000;
 const FILAS = new Map();
 const SEGURANDO = new Set();
 
@@ -411,6 +412,13 @@ export function criarEnvioSeguro({ dir, arqConfig, limiteExecucaoMs = 100000, ag
   /** Libera PARADO e PENDENTE pela MESMA exclusao dos envios: nunca com um envio no ar. */
   async function liberarComTrava() {
     return comTrava(async () => {
+      // Um envio que estourou o limite pode ainda estar a caminho (o transporte nao se cancela): espera um tempo antes de liberar.
+      try {
+        const idade = Date.now() - fs.statSync(arqPendente).mtimeMs;
+        if (idade < ESPERA_APOS_INCERTO_MS) {
+          return falha('AINDA_PODE_ESTAR_ENVIANDO', `o ultimo envio ficou sem resposta ha ${Math.round(idade / 1000)} segundos e ainda pode estar a caminho. Espere ${Math.ceil((ESPERA_APOS_INCERTO_MS - idade) / 60000)} minuto(s), confira o celular e rode "retomar" de novo`);
+        }
+      } catch (e) { if (e.code !== 'ENOENT') throw e; }
       let achou = false;
       for (const f of [arqParado, arqPendente]) {
         try { fs.unlinkSync(f); achou = true; } catch (e) { if (e.code !== 'ENOENT') throw e; }
