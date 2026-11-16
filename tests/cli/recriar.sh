@@ -438,4 +438,14 @@ afirma "o banco de nome simples continua na lista" grep -q 'A /opt/dados?.db' "$
 afirma "o nome com quebra de linha tambem (escapado)" grep -q 'A /opt/dados%0A.db/real.txt' "$TMP/rec.txt"
 rm -f "$STUB_ESTADO/diff-json-dgclaw-rita"
 
+# 19) rotina do proprio agente (self-*) desligada pelo dono: a devolucao faria enable --now, entao entra na lista
+echo imagem-v27 >"$STUB_ESTADO/imagem-id"
+: >"$STUB_ESTADO/diff-dgclaw-rita"
+printf 'dgclaw-rita-self-7.timer 1 disabled\ndgclaw-rita-self-8.timer 1 enabled\n' >"$STUB_ESTADO/self-timers"
+recriar rita
+nega "self desligado, sem --forcar: falha" test "$?" -eq 0
+afirma "o self-7 desligado aparece" grep -q 'dgclaw-rita-self-7.timer' "$TMP/rec.txt"
+nega "o self-8 ligado nao aparece" grep -q 'self-8' "$TMP/rec.txt"
+rm -f "$STUB_ESTADO/self-timers"
+
 fim
