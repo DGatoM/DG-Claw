@@ -449,29 +449,14 @@ cmd_wa_desligar() {
 
 cmd_wa_retomar() {
   # So o dono pede isto, no chat do DG Claw, depois de conferir o numero no celular (docs/CANAL-WHATSAPP.md).
-  local f achou="" lock="$WADIR/envio/envio.lock" tmp pid
-  # A mesma exclusao dos envios: ninguem libera nada enquanto um envio esta no ar (o marcador PENDENTE e dele).
-  if [ -d "$WADIR/envio" ]; then
-    tmp="$WADIR/envio/envio.lock.$$.tmp"
-    echo "$$" > "$tmp" || die "nao consegui gravar em $WADIR/envio; confira o espaco em disco e as permissoes"
-    if ! ln "$tmp" "$lock" 2>/dev/null; then
-      pid="$(cat "$lock" 2>/dev/null || true)"
-      if [ -n "$pid" ] && [ "$pid" != "$$" ] && kill -0 "$pid" 2>/dev/null; then
-        rm -f -- "$tmp"
-        die "ha um envio no ar agora (processo $pid). Espere ele terminar e rode 'retomar' de novo."
-      fi
-      rm -f -- "$lock"; ln "$tmp" "$lock" 2>/dev/null || { rm -f -- "$tmp"; die "outro processo pegou a vez agora; rode 'retomar' de novo."; }
-    fi
-    rm -f -- "$tmp"
-  fi
-  for f in "$WADIR/envio/PARADO" "$WADIR/zapi/PARADO" "$WADIR/envio/PENDENTE" "$WADIR/zapi/PENDENTE"; do
-    if [ -f "$f" ] && [ ! -L "$f" ]; then
-      rm -f -- "$f" || { rm -f -- "$lock"; die "nao consegui apagar $f; confira a permissao da pasta"; }
-      achou=1
-    fi
-  done
-  rm -f -- "$lock"
-  if [ -n "$achou" ]; then echo "Envios liberados. As travas de ritmo continuam valendo."
+  # Quem libera e o proprio modulo de envio, pela mesma exclusao dos envios: nunca com um envio no ar.
+  local script out
+  achar_ponte
+  script="$(dirname "$PONTE")/enviar-zapi.mjs"
+  [ -f "$script" ] || die "nao achei $script; confira a instalacao do DG Claw (dgclaw atualizar)."
+  [ -d "$WADIR/envio" ] || { echo "Nao havia trava de envio ativa."; return 0; }
+  out="$(node "$script" retomar 2>&1)" || die "nao consegui liberar os envios: $out"
+  if printf '%s' "$out" | grep -q '"achou":true'; then echo "Envios liberados. As travas de ritmo continuam valendo."
   else echo "Nao havia trava de envio ativa."; fi
 }
 

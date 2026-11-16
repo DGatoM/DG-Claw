@@ -448,3 +448,35 @@ test('ponte e Z-API dividem o mesmo estado: texto repetido e trava valem entre e
   assert.equal(r.resposta.codigo, 'PARADO');
   fs.rmSync(home, { recursive: true, force: true });
 });
+
+test('liberarComTrava espera o envio no ar terminar e so entao apaga PARADO e PENDENTE', async () => {
+  const m = montar();
+  let solta;
+  const segura = new Promise((r) => { solta = r; });
+  const p1 = m.envio.enviar({ para: A, texto: 'primeira mensagem para a Ana', executar: async () => { await segura; return {}; } });
+  await new Promise((r) => setTimeout(r, 30));
+  const outra = criarEnvioSeguro({ dir: path.join(m.home, 'envio'), arqConfig: m.arqConfig });
+  let liberou = false;
+  const p2 = outra.liberarComTrava().then((r) => { liberou = true; return r; });
+  await new Promise((r) => setTimeout(r, 400));
+  assert.equal(liberou, false); // esperando o envio no ar
+  assert.equal(m.envio.pendente(), true);
+  solta();
+  await p1;
+  const r = await p2;
+  assert.equal(r.ok, true);
+  assert.equal(m.envio.pendente(), false);
+  m.limpar();
+});
+
+test('script do agente: retomar libera a trava', async () => {
+  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'zapi-')));
+  const opc = { env: {}, home };
+  fs.mkdirSync(path.join(home, '.dgclaw', 'whatsapp', 'envio'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.dgclaw', 'whatsapp', 'envio', 'PARADO'), '{"motivo":"x","quando":"y"}');
+  let r = await executar(['retomar'], opc);
+  assert.deepEqual(r.resposta, { ok: true, achou: true });
+  r = await executar(['retomar'], opc);
+  assert.equal(r.resposta.achou, false);
+  fs.rmSync(home, { recursive: true, force: true });
+});

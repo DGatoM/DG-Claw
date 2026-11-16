@@ -391,5 +391,17 @@ export function criarEnvioSeguro({ dir, arqConfig, agora = () => new Date(), dor
     return { ok: true, resultado, disparo, esperou_ms: esperouMs };
   }
 
-  return { enviar, travar, liberar, paradoMotivo, pendente };
+  /** Libera PARADO e PENDENTE pela MESMA exclusao dos envios: nunca com um envio no ar. */
+  async function liberarComTrava() {
+    return comTrava(async () => {
+      let achou = false;
+      for (const f of [arqParado, arqPendente]) {
+        try { fs.unlinkSync(f); achou = true; } catch (e) { if (e.code !== 'ENOENT') throw e; }
+      }
+      parouNaMemoria = null;
+      return { ok: true, achou };
+    });
+  }
+
+  return { enviar, travar, liberar, liberarComTrava, paradoMotivo, pendente };
 }

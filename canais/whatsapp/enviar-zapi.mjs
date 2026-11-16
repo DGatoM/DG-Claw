@@ -3,6 +3,7 @@
 //
 //   node enviar-zapi.mjs enviar --para +5511999999999 [--texto "..." | --texto-stdin]
 //   node enviar-zapi.mjs status
+//   node enviar-zapi.mjs retomar      (so o dono, pelo comando dgclaw-agente canal whatsapp retomar)
 //
 // Saida: uma linha JSON. {"ok":true,"para":"+55...","id":"...","disparo":false,"esperou_ms":0}
 //        ou {"ok":false,"codigo":"...","erro":"motivo em portugues, com o que fazer"}.
@@ -53,6 +54,10 @@ export async function executar(argv, { env = process.env, home = os.homedir(), s
   if (cmd === 'status') {
     const p = envio.paradoMotivo();
     return { codigoSaida: 0, resposta: { ok: true, parado: !!p, motivo: p, pendente: envio.pendente() } };
+  }
+  if (cmd === 'retomar') {
+    const r = await envio.liberarComTrava();
+    return { codigoSaida: r.ok ? 0 : 1, resposta: r };
   }
   if (cmd !== 'enviar') return { codigoSaida: 2, resposta: falha('USO_INVALIDO', 'use "enviar --para <numero> --texto ..." ou "status"') };
 
