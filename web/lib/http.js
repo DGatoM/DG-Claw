@@ -61,7 +61,8 @@ function enviaJson(res, status, corpo, cabecalhos) {
 
 /** Erro padrão da API: { ok:false, erro:"motivo em português" } com o status certo. */
 function erroJson(res, status, motivo, extra, cabecalhos) {
-  enviaJson(res, status, Object.assign({ ok: false, erro: motivo }, extra || {}), cabecalhos);
+  // 423 é sempre "tela travada pelo cadeado": a tela reconhece pelo campo travado.
+  enviaJson(res, status, Object.assign({ ok: false, erro: motivo }, status === 423 ? { travado: true } : {}, extra || {}), cabecalhos);
 }
 
 function escapaHtml(s) {
@@ -107,12 +108,22 @@ function lerCorpo(req, max) {
     req.on('end', () => {
       if (acabou) return;
       acabou = true;
-      // O servidor pendura `dgRevalidar` no pedido do colaborador: se a sessão caiu enquanto o corpo chegava, nada do corpo vale.
-      if (typeof req.dgRevalidar === 'function' && !req.dgRevalidar()) {
-        const e = new Error('Seu acesso mudou enquanto o envio estava em andamento (foi revogado ou o convite foi reenviado). Nada foi feito. Entre de novo com o convite mais recente.');
-        e.status = 401;
-        reject(e);
-        return;
+      // O servidor pendura `dgRevalidar` no pedido de toda sessão de cookie. Devolve true (segue), false (o acesso do colaborador
+      // mudou: 401) ou { status, mensagem } (por exemplo 423, a tela travou enquanto o corpo chegava). Nada do corpo vale então.
+      if (typeof req.dgRevalidar === 'function') {
+        const v = req.dgRevalidar();
+        if (v === false) {
+          const e = new Error('Seu acesso mudou enquanto o envio estava em andamento (foi revogado ou o convite foi reenviado). Nada foi feito. Entre de novo com o convite mais recente.');
+          e.status = 401;
+          reject(e);
+          return;
+        }
+        if (v && v !== true) {
+          const e = new Error(v.mensagem);
+          e.status = v.status;
+          reject(e);
+          return;
+        }
       }
       resolve(Buffer.concat(pedacos));
     });
