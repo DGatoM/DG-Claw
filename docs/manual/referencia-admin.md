@@ -94,6 +94,14 @@ mudar nada. Quem: Root. Detalhe geral em [ATUALIZAR.md](../ATUALIZAR.md) e no `d
 | `dgclaw personalizacoes conferir` | Confere o registro contra a versão nova e diz se algo cruza; não muda nada | [PERSONALIZAR.md](../PERSONALIZAR.md) |
 | `dgclaw personalizacoes concluir` | Marca o levantamento pendente como concluído | [PERSONALIZAR.md](../PERSONALIZAR.md) |
 
+### Chaves de API e suporte remoto
+
+| Comando | Para que serve | Detalhe |
+| --- | --- | --- |
+| `dgclaw chave-api criar` | Cria uma chave de API (`--nome "<nome>" --escopo diagnostico`); o valor aparece uma vez só | [DIAGNOSTICO-REMOTO.md](../../web/docs/DIAGNOSTICO-REMOTO.md) |
+| `dgclaw chave-api listar` | Lista as chaves: nome, final, último acesso e se foi revogada (`--json`) | [DIAGNOSTICO-REMOTO.md](../../web/docs/DIAGNOSTICO-REMOTO.md) |
+| `dgclaw chave-api revogar <id>` | A chave deixa de valer na hora; o registro continua na lista, com a data | [DIAGNOSTICO-REMOTO.md](../../web/docs/DIAGNOSTICO-REMOTO.md) |
+
 ### Ronda de segurança
 
 | Comando | Para que serve | Detalhe |
@@ -237,6 +245,9 @@ Servidas pelo DG Claw Web. Quem: Dono, salvo o que a coluna disser. Colab só pa
 | `/api/v1/seguranca` | Avisos de segurança do DG Claw: `/boletins`, e por id `/adiar` e `/dispensar` | Dono. Caixa recebe 403 | [SEGURANCA-BOLETINS.md](../../web/docs/SEGURANCA-BOLETINS.md) |
 | `/api/v1/seguranca/ronda` | Resultado da ronda e os pedidos de aplicar, agendar e desfazer (`/ronda/:id/aplicar`) | Dono | [RONDA-PAINEL.md](../../web/docs/RONDA-PAINEL.md) |
 | `/api/v1/seguranca/emergencia` | Estado do botão de emergência e os pedidos `preparar`, `cortar` e `religar` | Dono | [RONDA-PAINEL.md](../../web/docs/RONDA-PAINEL.md) |
+| `/api/v1/chaves-api` | Chaves de API do suporte remoto: listar (GET), criar (POST, o token aparece uma vez só) e revogar (DELETE `?id=<código>`) | Dono. Caixa recebe 403 | [DIAGNOSTICO-REMOTO.md](../../web/docs/DIAGNOSTICO-REMOTO.md) |
+| `/api/v1/diagnostico` | Estado de saúde da máquina e de cada agente, só leitura (GET e HEAD); `/api/v1/diagnostico/docs.md` é público | Dono, ou chave de escopo `diagnostico` | [DIAGNOSTICO-REMOTO.md](../../web/docs/DIAGNOSTICO-REMOTO.md) |
+| `/suporte` | Tela Suporte remoto: criar, listar e revogar as chaves | Dono | [DIAGNOSTICO-REMOTO.md](../../web/docs/DIAGNOSTICO-REMOTO.md) |
 
 ### Entrada de páginas
 

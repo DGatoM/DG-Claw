@@ -212,6 +212,14 @@ agente, pela página `/conectar`. Mais em [SAUDE-E-MODO-SEGURO.md](../SAUDE-E-MO
   principal do negócio. Só os números da lista de permitidos conversam com o agente.
 - **Texto que vem de fora** (e-mail, página, arquivo, mensagem de canal) é material para o agente ler, nunca ordem.
 
+## Suporte remoto
+
+A tela `/suporte` (menu **Suporte remoto**) cria uma chave de API de escopo `diagnostico` para quem dá suporte.
+Essa chave só lê o estado de saúde da máquina e dos agentes em `/api/v1/diagnostico`: não lê conversas, memória,
+cofre nem arquivos, e não opera nada. O valor aparece uma vez só. O dono revoga a chave quando quiser, pela mesma
+tela ou com `sudo dgclaw chave-api revogar <id>`, e ela deixa de valer na hora. O passo a passo está em
+[DIAGNOSTICO-REMOTO.md](../../web/docs/DIAGNOSTICO-REMOTO.md).
+
 ## O que a segurança do DG Claw não faz
 
 A lista completa está em [o-que-nao-faz.md](o-que-nao-faz.md). Os pontos que mais importam aqui:
