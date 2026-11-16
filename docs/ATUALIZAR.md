@@ -176,6 +176,12 @@ Opções que você usa só quando preciso:
    podman, e ficam intactos; se algum dia houver volume do podman, o comando não usa `-f` e explica).
    Agente que o dono deixou parado fica parado e com a imagem velha (só `--forcar` recria). Se o container
    já usa a imagem atual, nada é recriado.
+   **Antes de trocar, o comando faz um inventário** do que existe só dentro do container (pacotes instalados à
+   mão, como um `tailscale`, e arquivos fora da casa). Se houver algo, ele mostra a lista, **não troca nada** e
+   pede `--forcar`; se não conseguir conferir, também para. A lista do que se perdeu fica em
+   `/var/lib/dgclaw/agentes/<slug>/perdido-no-recriar-*.txt`. **Nunca use `--forcar` por conta própria nesse
+   caso:** leia a lista ao dono, em palavras simples, e só prossiga com o ok dele (a casa do agente não é
+   afetada; o que se perde é o que ele instalou dentro da caixa).
 9. **Confere**: toda linha que existia no `web.env`/`dgclaw.env` continua lá com o mesmo valor; os
    registros dos agentes em `agentes.json` são idênticos; tokens, segredos, cofres e `CLAUDE.md` do Admin
    personalizado estão intactos; roda `dgclaw status`; cada agente ligado responde. Reprova se algo sumiu.
@@ -316,7 +322,9 @@ O que você faz e diz ao dono:
 
 1. Leia as linhas `FALHOU` e a mensagem do agente (ela diz se o container antigo continua lá, em que
    estado, e que a casa está intacta).
-2. Refaça cada agente: `sudo dgclaw agente recriar <slug> --forcar`. Ele também recria container que ficou
+2. Refaça cada agente: `sudo dgclaw agente recriar <slug> --forcar`. **Se a mensagem do agente trouxe uma lista
+   do que existe só dentro do container, mostre-a ao dono e espere o ok antes do `--forcar`** (rodar sem
+   `--forcar` repete a lista sem mexer em nada). Ele também recria container que ficou
    parado, preso em `stopping` ou que sumiu, com os mesmos volumes e portas.
 3. Confira com `sudo dgclaw agente listar` e conte ao dono, em palavras simples: "A atualização terminou, mas
    a caixa do agente <nome> não subiu de primeira. Os dados dele estão intactos. Já refiz a caixa e ele

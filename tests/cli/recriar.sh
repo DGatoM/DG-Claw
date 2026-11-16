@@ -100,4 +100,98 @@ afirma "criou o container com DNS publico" grep -q '^podman create .*--name dgcl
 recriar dina
 afirma "agora o container ja tem 1.1.1.1: nada a recriar" grep -q "nada a recriar" "$TMP/rec.txt"
 
+echo "inventario: o que existe so no container exige --forcar"
+preparar
+export DGCLAW_TEMPO_PARADA=3
+criar_agente rita --nome "Rita"
+echo imagem-v9 >"$STUB_ESTADO/imagem-id"
+CASA_RITA="$LIB/agentes/rita"
+sem_troca() { ! grep -q '^podman \(stop\|rm\|create\) ' "$STUB_LOG"; }
+
+# 1) so ruido (tmp, logs, apt, unidades do proprio DG Claw): nao perde nada, recria sem --forcar
+cat >"$STUB_ESTADO/diff-dgclaw-rita" <<'EOF'
+C /tmp
+A /tmp/lixo.txt
+C /var/log
+A /var/log/journal/abc/system.journal
+C /var/lib/apt
+A /var/lib/apt/lists/x
+C /etc
+A /etc/systemd/system/dgclaw-rita-self-1.timer
+A /etc/systemd/system/timers.target.wants/dgclaw-rita-self-1.timer
+C /etc/machine-id
+A /usr/lib/python3/dist-packages/__pycache__/x.cpython-312.pyc
+EOF
+recriar rita
+igual "so ruido: recria sem --forcar (0)" "0" "$?"
+afirma "diz que nao perde nada" grep -q 'nada existe so dentro do container' "$TMP/rec.txt"
+afirma "trocou o container" grep -q '^podman create .*--name dgclaw-rita ' "$STUB_LOG"
+
+# 2) tailscale instalado a mao + pacote novo: para, lista, nao mexe em nada
+echo imagem-v10 >"$STUB_ESTADO/imagem-id"
+cat >"$STUB_ESTADO/diff-dgclaw-rita" <<'EOF'
+C /usr
+C /usr/bin
+A /usr/bin/tailscale
+A /usr/sbin/tailscaled
+C /var/lib
+A /var/lib/tailscale/tailscaled.state
+EOF
+printf 'base-files\nbash\ntailscale\n' >"$STUB_ESTADO/pacotes-container"
+printf 'base-files\nbash\n' >"$STUB_ESTADO/pacotes-imagem"
+recriar rita
+nega "sem --forcar: falha" test "$?" -eq 0
+afirma "lista o pacote instalado a mao" grep -q '^   *tailscale$' "$TMP/rec.txt"
+afirma "lista o binario criado" grep -q 'A /usr/bin/tailscale' "$TMP/rec.txt"
+afirma "lista o estado criado fora da casa" grep -q 'A /var/lib/tailscale/tailscaled.state' "$TMP/rec.txt"
+nega "nao lista o diretorio pai que so mudou por causa do filho" grep -q 'C /usr$' "$TMP/rec.txt"
+afirma "diz como seguir" grep -q 'dgclaw agente recriar rita --forcar' "$TMP/rec.txt"
+afirma "diz que nada foi mexido" grep -q 'nada foi mexido' "$TMP/rec.txt"
+afirma "nao parou, removeu nem criou container" sem_troca
+nega "nao guardou rotinas (nao chegou a mexer)" test -e "$CASA_RITA/.unidades-self.tar"
+
+# 3) com --forcar: mostra, guarda a lista e troca
+recriar rita --forcar
+igual "com --forcar: recria (0)" "0" "$?"
+afirma "mostra o que se perde" grep -q 'A /usr/bin/tailscale' "$TMP/rec.txt"
+afirma "guardou a lista na pasta do agente" bash -c "ls '$CASA_RITA'/perdido-no-recriar-*.txt >/dev/null 2>&1 && grep -q tailscale '$CASA_RITA'/perdido-no-recriar-*.txt"
+afirma "a lista guardada so o dono le" bash -c "[ \"\$(stat -c %a \$(ls '$CASA_RITA'/perdido-no-recriar-*.txt | head -n1))\" = 600 ]"
+afirma "trocou o container" grep -q '^podman create .*--name dgclaw-rita ' "$STUB_LOG"
+
+# 4) so pacote novo (arquivos so de ruido): tambem para
+echo imagem-v11 >"$STUB_ESTADO/imagem-id"
+: >"$STUB_ESTADO/diff-dgclaw-rita"
+recriar rita
+nega "so pacote novo, sem --forcar: falha" test "$?" -eq 0
+afirma "lista o pacote" grep -q '^   *tailscale$' "$TMP/rec.txt"
+afirma "nao trocou" sem_troca
+
+# 5) nao deu para conferir: para tambem (e --forcar segue com aviso)
+echo imagem-v12 >"$STUB_ESTADO/imagem-id"
+rm -f "$STUB_ESTADO/pacotes-container" "$STUB_ESTADO/pacotes-imagem"
+touch "$STUB_ESTADO/diff-falha"
+recriar rita
+nega "podman diff falha, sem --forcar: falha" test "$?" -eq 0
+afirma "explica que nao conferiu" grep -q 'nao deu para conferir o que se perderia' "$TMP/rec.txt"
+afirma "nao trocou" sem_troca
+recriar rita --forcar
+igual "com --forcar segue (0)" "0" "$?"
+afirma "avisa que seguiu sem conferir" grep -q 'Sigo porque voce pediu --forcar' "$TMP/rec.txt"
+rm -f "$STUB_ESTADO/diff-falha"
+echo imagem-v13 >"$STUB_ESTADO/imagem-id"
+touch "$STUB_ESTADO/pacotes-sem-dpkg"
+recriar rita
+nega "sem dpkg-query para comparar pacotes: falha sem --forcar" test "$?" -eq 0
+afirma "nao trocou" sem_troca
+rm -f "$STUB_ESTADO/pacotes-sem-dpkg"
+
+# 6) ensaio: mostra e nao troca nada
+echo imagem-v14 >"$STUB_ESTADO/imagem-id"
+printf 'A /opt/ferramenta/bin/x\n' >"$STUB_ESTADO/diff-dgclaw-rita"
+: >"$STUB_LOG"
+dgclaw --ensaio agente recriar rita >"$TMP/rec.txt" 2>&1
+afirma "ensaio mostra o que se perderia" grep -q 'A /opt/ferramenta/bin/x' "$TMP/rec.txt"
+afirma "ensaio diz que pediria --forcar" grep -q 'pararia aqui e pediria --forcar' "$TMP/rec.txt"
+afirma "ensaio nao troca nada" sem_troca
+
 fim

@@ -86,6 +86,9 @@ Agentes
       Troca a maquina (container) do agente pela da imagem nova, mantendo a casa, o cofre, as
       portas e as rotinas dele. So recria se o container usa uma imagem diferente da atual
       (--forcar recria mesmo assim). Agente parado fica como esta. E o que `atualizar` usa.
+      Antes de trocar, mostra o que existe so dentro do container (pacotes instalados a mao,
+      arquivos fora da casa) e, se houver algo, so segue com --forcar; a lista do que se perdeu
+      fica guardada na pasta do agente.
       Exemplo:  dgclaw agente recriar ana
 
   dgclaw agente identidade <slug>        regrava so o identidade.md (AGENT.md + regra do canal + "Onde voce esta e o que voce consegue fazer")
@@ -1453,6 +1456,77 @@ agente_reparar() {
     if [ "$ENSAIO" != 1 ]; then tela_avisar_sem_senha "$slug"; fi
 }
 
+# inventario_container <slug> <arquivo-de-saida>
+# Lista o que existe SO dentro do container do agente (fora da casa, que e bind mount e fica): pacotes
+# instalados a mao e arquivos criados, alterados ou apagados em relacao a imagem. E isso que a troca
+# do container perde. Escreve a lista em <arquivo-de-saida> (vazio = nada a perder).
+# Retorno: 0 conferiu (com ou sem itens); 1 nao deu para conferir (o motivo vai em INV_MOTIVO).
+# Fica de fora do que conta: tmp, run, logs, caches, estado do apt/dpkg/systemd (o dpkg entra pela
+# lista de pacotes) e as unidades dgclaw-* (as rotinas do agente sao guardadas e devolvidas, e o
+# runner e o painel sao regravados pelo reparar).
+inventario_container() {
+    local slug="$1" saida="$2" difusao pacs_c pacs_i novos estado_c c
+    c="dgclaw-$slug"
+    INV_MOTIVO=""
+    : >"$saida"
+    difusao="$(mktemp)" || { INV_MOTIVO="nao consegui criar um arquivo temporario."; return 1; }
+    if ! podman diff "$c" >"$difusao" 2>"$difusao.err"; then
+        INV_MOTIVO="o 'podman diff $c' falhou ($(head -n 1 "$difusao.err" 2>/dev/null))."
+        rm -f "$difusao" "$difusao.err"
+        return 1
+    fi
+    rm -f "$difusao.err"
+    estado_c="$(estado_container "$slug")"
+    if [ "$estado_c" = running ]; then
+        pacs_c="$(mktemp)"; pacs_i="$(mktemp)"
+        if podman exec "$c" dpkg-query -W -f '${Package}\n' 2>/dev/null | sort -u >"$pacs_c" \
+            && podman run --rm --entrypoint dpkg-query "$DGCLAW_IMAGEM" -W -f '${Package}\n' 2>/dev/null | sort -u >"$pacs_i" \
+            && [ -s "$pacs_c" ] && [ -s "$pacs_i" ]; then
+            novos="$(comm -23 "$pacs_c" "$pacs_i")"
+            if [ -n "$novos" ]; then
+                printf 'Pacotes instalados so neste container (nao estao na imagem):\n' >>"$saida"
+                printf '%s\n' "$novos" | sed 's/^/  /' >>"$saida"
+            fi
+        else
+            INV_MOTIVO="nao consegui listar os pacotes do container (dpkg-query) nem os da imagem para comparar."
+            rm -f "$difusao" "$pacs_c" "$pacs_i"
+            return 1
+        fi
+        rm -f "$pacs_c" "$pacs_i"
+    fi
+    # Arquivos: tira o ruido e deixa so as folhas (diretorio pai so aparece porque o filho mudou).
+    awk -v slug="$slug" '
+        { tipo = substr($0, 1, 1); caminho = substr($0, 3); linhas[NR] = caminho; tipos[NR] = tipo }
+        END {
+            for (i = 1; i <= NR; i++) {
+                p = linhas[i]; n = split(p, partes, "/"); acc = ""
+                for (j = 2; j < n; j++) { acc = acc "/" partes[j]; pai[acc] = 1 }
+            }
+            for (i = 1; i <= NR; i++) {
+                p = linhas[i]
+                if (p ~ /^\/(tmp|run|proc|sys|dev)(\/|$)/) continue
+                if (p ~ /^\/var\/(tmp|log|cache|backups|run|lock)(\/|$)/) continue
+                if (p ~ /^\/var\/lib\/(apt|dpkg|systemd|ucf|private|logrotate)(\/|$)/) continue
+                if (p ~ /^\/(var|etc)\/\.updated$/) continue
+                if (p ~ /^\/etc\/(machine-id|hostname|hosts|resolv\.conf|\.pwd\.lock|ld\.so\.cache|mtab|adjtime)$/) continue
+                if (p ~ /^\/etc\/systemd\/system\/(.*\.wants\/)?dgclaw-/) continue
+                if (p ~ /^\/root\/\.(cache|npm|local\/share\/claude)(\/|$)/) continue
+                if (p ~ /(^|\/)__pycache__(\/|$)/ || p ~ /\.pyc$/) continue
+                if (pai[p]) continue
+                print tipos[i] " " p
+            }
+        }' "$difusao" >"$difusao.arq"
+    if [ -s "$difusao.arq" ]; then
+        printf 'Arquivos criados (A), alterados (C) ou apagados (D) so neste container:\n' >>"$saida"
+        head -n 40 "$difusao.arq" | sed 's/^/  /' >>"$saida"
+        local total
+        total="$(wc -l <"$difusao.arq")"
+        [ "$total" -le 40 ] || printf '  ... e mais %s arquivo(s)\n' "$((total - 40))" >>"$saida"
+    fi
+    rm -f "$difusao" "$difusao.arq"
+    return 0
+}
+
 # agente_recriar <slug> [--forcar]
 # Troca o container do agente pelo da imagem atual, sem mexer em nada que e dele:
 #   - a casa (home, cofre, runner, segredos), as portas, a faixa de uid e a rede ficam onde estao;
@@ -1460,7 +1534,9 @@ agente_reparar() {
 #   - o que vive DENTRO do container fora da casa (as rotinas que o proprio agente criou, que
 #     sao unidades do systemd) e guardado antes e devolvido depois;
 #   - o que alguem instalou dentro do container com apt/pip fora da casa nao volta (a imagem
-#     nova e o que vale). A casa, onde mora o trabalho do agente, nao e tocada.
+#     nova e o que vale). Por isso, antes de trocar, o inventario_container lista isso e, havendo
+#     algo (ou nao dando para conferir), a troca exige --forcar. A casa, onde mora o trabalho do
+#     agente, nao e tocada.
 # Agente que alguem desligou (exited/created) nao e mexido sem --forcar: a decisao de te-lo
 # desligado e de quem desligou. Com --forcar, qualquer estado (exited, created, stopping, ausente)
 # e recriado; "ausente" cria do zero com os mesmos volumes e portas. Um container preso em
@@ -1478,7 +1554,7 @@ agente_recriar() {
     exigir_slug "$slug" recriar
     exigir_ferramentas jq podman curl
     carregar_env_dgclaw
-    local c="dgclaw-$slug" obj aloc estado img_atual img_nova unidades
+    local c="dgclaw-$slug" obj aloc estado img_atual img_nova unidades inv
     obj="$(agentes_obter "$slug")"
     [ -n "$obj" ] || falha "o agente '$slug' nao esta no agentes.json." "veja os que existem com: dgclaw agente listar"
     podman image exists "$DGCLAW_IMAGEM" >/dev/null 2>&1 \
@@ -1521,6 +1597,46 @@ agente_recriar() {
     aloc="$(alocar_recursos "$slug")"
     read -r C_UID_BASE C_N C_PORTA_RUNNER C_PORTA_PAINEL <<<"$aloc"
     exigir_casa_sem_link "$C_CASA" "$C_HOME" "$slug" "dgclaw agente recriar $slug"
+
+    # Antes de trocar o container: o que existe so nele (pacotes e arquivos fora da casa) se perde.
+    # Se houver algo, mostra e so segue com --forcar. Sem poder conferir, tambem para.
+    if [ "$estado" = stopping ]; then
+        aviso "agente $slug: o container esta preso em 'stopping' e nao da para conferir o que existe so dentro dele. Se voce instalou algo la dentro a mao (fora da casa), isso se perde."
+    else
+        inv="$(mktemp)" || falha "nao consegui criar um arquivo temporario para o inventario do agente $slug." "confira o espaco em disco e rode de novo; nada foi mexido."
+        if ! inventario_container "$slug" "$inv"; then
+            rm -f "$inv"
+            if [ "$forcar" = 0 ]; then
+                aviso "agente $slug: nao consegui conferir o que existe so dentro do container: $INV_MOTIVO"
+                falha "nao troquei o container do agente $slug, porque nao deu para conferir o que se perderia." \
+                      "nada foi mexido. Veja se o container responde (podman exec dgclaw-$slug true). Se pode perder o que estiver so dentro dele, rode: dgclaw agente recriar $slug --forcar"
+            fi
+            aviso "agente $slug: $INV_MOTIVO Sigo porque voce pediu --forcar."
+        elif [ -s "$inv" ]; then
+            printf '\n   O container do agente %s tem coisas que NAO estao na imagem nem na casa. Trocar o container apaga tudo isto:\n' "$slug" >&2
+            sed 's/^/   /' "$inv" >&2
+            if [ "$forcar" = 0 ] && [ "$ENSAIO" != 1 ]; then
+                rm -f "$inv"
+                falha "nao troquei o container do agente $slug: ele tem o que esta listado acima, que so existe dentro dele." \
+                      "nada foi mexido. Se pode perder isso (ou se vai reinstalar depois), rode: dgclaw agente recriar $slug --forcar. Se precisa guardar algo, copie para a casa do agente antes."
+            fi
+            if [ "$ENSAIO" = 1 ]; then
+                info "[ensaio] sem --forcar, pararia aqui e pediria --forcar."
+            else
+                local inv_arq
+                inv_arq="$C_CASA/perdido-no-recriar-$(date +%Y%m%d-%H%M%S).txt"
+                if ( umask 077; cp "$inv" "$inv_arq" ); then
+                    info "a lista do que se perde ficou guardada em $inv_arq"
+                else
+                    aviso "nao consegui guardar a lista em $inv_arq; ela esta acima, nesta tela."
+                fi
+            fi
+            rm -f "$inv"
+        else
+            rm -f "$inv"
+            info "agente $slug: nada existe so dentro do container; a troca nao perde nada."
+        fi
+    fi
 
     unidades="$C_CASA/.unidades-self.tar"
     if [ "$estado" = running ]; then

@@ -7,6 +7,25 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Correção de segurança e de perda de dados: `dgclaw agente recriar` mostra o que se perde e pede `--forcar`.** Trocar o
+container de um agente (o que a atualização faz com a imagem nova) apaga o que alguém instalou direto dentro dele, fora
+da casa do agente, como o `tailscale` que um dono tinha instalado à mão. Isso acontecia sem aviso nenhum. Agora, antes
+de trocar, o comando compara o container com a imagem e lista os pacotes instalados à mão e os arquivos que só existem
+ali. Se houver algo na lista, ele **não troca nada** e pede `--forcar`; se não conseguir conferir, também para. Com
+`--forcar` ele mostra a lista, guarda uma cópia dela em `perdido-no-recriar-<data>.txt` na pasta do agente e troca. A
+casa, o cofre, as portas e as rotinas do agente continuam intactos como antes.
+Falhas reportadas por Renato Gracie (divulgação responsável).
+
+### Como atualizar (recriar com inventário)
+
+1. **Atualize com o `dgclaw atualizar` padrão.** Se algum agente seu tiver coisa instalada só dentro do container, a
+   atualização termina avisando que aquele agente **não** foi trocado (ele continua rodando como estava, com a
+   imagem antiga) e mostra a lista do que se perderia. Nada é apagado nesse momento.
+2. **Decida com a lista na mão.** Se o que aparece pode ser perdido ou reinstalado depois, rode
+   `sudo dgclaw agente recriar <agente> --forcar`. Se precisa guardar algo, copie para a casa do agente (a pasta
+   `home` dele) antes. O Admin foi instruído a não usar `--forcar` sem mostrar a lista a você.
+3. **Agente sem nada instalado à mão** (a maioria) atualiza como sempre, sem perguntar nada.
+
 **Face ID no painel: uma trava opcional, ligada aparelho por aparelho.** Nova tela **Face ID** (no menu ☰, em `/face-id`).
 Quem liga o recurso num aparelho passa a ter o painel travado sozinho depois de alguns minutos sem uso (15 por padrão, de 1
 a 120 à sua escolha) e destrava com o rosto, a digital ou o código do aparelho (Face ID, Touch ID ou biometria, conforme o
