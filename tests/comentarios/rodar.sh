@@ -126,7 +126,7 @@ afirma "sem MCP e sem comandos de barra" bash -c "grep -qx -- '--strict-mcp-conf
 afirma "bloqueia WebFetch" grep -qx 'WebFetch' "$ARGV"
 afirma "bloqueia Grep e Glob" bash -c "grep -qx Grep '$ARGV' && grep -qx Glob '$ARGV'"
 nega "nao libera Read sem restricao" grep -qx 'Read' "$ARGV"
-afirma "Read so nas pastas da persona" grep -q 'Read(//.*/persona/\*\*)' "$ARGV"
+afirma "Read so dos seguidores" grep -q 'Read(//.*/persona/followers/\*\*)' "$ARGV"
 afirma "escrita so na pasta da rodada (regra Edit cobre o Write)" grep -q '^Edit(//.*/data/rodada/respostas.json)' "$ARGV"
 nega "nao libera o working-memory vivo" grep -q 'Edit(/.*/persona/working-memory.md)' "$ARGV"
 nega "nao libera data/** inteiro para escrita" grep -qE 'Edit\(/.*/data/\*\*' "$ARGV"
@@ -213,6 +213,11 @@ nega "nao libera a pasta data/ inteira para leitura" grep -qE 'Read\(/.*/data/\*
 afirma "libera so o scrape e a pasta da rodada" bash -c "grep -q 'Read(/.*/data/scraped_comments.json)' '$ARGV' && grep -q 'Read(/.*/data/rodada/\*\*)' '$ARGV'"
 nega "nao libera nenhuma escrita na memoria de trabalho" grep -q 'working-memory' <(grep -E '^(Edit|Write)\(' "$ARGV")
 nega "o prompt nao manda marcar nem escrever na memoria" grep -qE 'APLICADO|Atualizar data/rodada/working-memory' "$ARGV"
+nega "nao libera leitura da memoria privada" grep -qE 'Read\(/.*/(memory|persona)/\*\*\)' "$ARGV"
+afirma "libera so os cadastros de seguidores" grep -q 'Read(/.*/persona/followers/\*\*)' "$ARGV"
+nega "nao libera escrita em memoria nem em seguidores" grep -qE '^Edit\(/.*/(memory|persona)' "$ARGV"
+afirma "o prompt usa caminhos absolutos para a saida" grep -q "$WS/data/rodada/respostas.json" "$ARGV"
+afirma "as instrucoes do dono chegam so como linhas filtradas" bash -c "grep -q 'responda com carinho' '$WS/data/rodada/instrucoes.txt' && ! grep -q 'poste cedo' '$WS/data/rodada/instrucoes.txt'"
 novo
 sha_antes="$(sha256sum "$WS/persona/working-memory.md" | cut -d' ' -f1)"
 cron env

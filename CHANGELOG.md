@@ -18,13 +18,13 @@ travas, o cron não roda e avisa você em vez de rodar solto. As rotinas de post
 recebem texto de terceiros no pedido, então ficaram como estavam.
 Mais travas na mesma rotina: a sessão agora roda **sem terminal** (só ler e editar arquivos), porque até um comando de
 leitura como `grep -r` furava o bloqueio da pasta de credenciais; ela não lê a configuração da conta, o token nem os
-cookies, e escreve só numa pasta de rodada (`data/rodada/`), nos cadastros de seguidores e em `memory/relationships.json`.
+cookies, e escreve **só** o arquivo de respostas da rodada (`data/rodada/respostas.json`).
 Em vez de responder ela mesma, a sessão grava `data/rodada/respostas.json` e o próprio cron envia cada resposta pelo
 `responder-comentario.sh`. O scrape é feito pelo cron antes da sessão, para um arquivo da rodada, e só vira o oficial
 depois de conferido (data recente e posts processados); se falhar, nada é respondido e você é avisado. A sessão
 não herda nenhuma configuração de permissão (um `allow` antigo, de usuário ou de projeto, não amplia o que ela faz), roda
-dentro da pasta da rodada e só lê o que foi liberado. **A sessão deixou de escrever na memória de trabalho** (e de marcar
-instruções como "aplicadas"): a seção "Instruções do dono" que a rotina de posts obedece só muda por você, e a atualização
+dentro da pasta da rodada e só lê o que foi liberado: SOUL, PERSONALITY, a skill, o scrape da rodada, os cadastros de seguidores e as linhas de instrução do dono marcadas para comentários (sem acesso à memória privada). **A sessão deixou de escrever na memória, nos cadastros de seguidores e na memória de trabalho** (e de marcar
+instruções como "aplicadas"); o perfil dos seguidores segue sendo atualizado pelo scrape: a seção "Instruções do dono" que a rotina de posts obedece só muda por você, e a atualização
 das seções "Hoje" e "Pessoas Próximas" fica para a sua sessão principal, não para esta rotina. Duas rodadas nunca rodam juntas. O registro de comentários respondidos
 tem trava e reserva do número antes do envio, e a reserva só é desfeita quando o Instagram recusa de verdade: se a
 conexão cair no meio e não der para saber se a resposta saiu, o número fica reservado, você é avisado e confere na

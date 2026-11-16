@@ -2,11 +2,12 @@
 
 > **Dentro do cron de comentarios a sessao NAO tem Bash** (nem internet, nem acesso a conta). Tudo o que
 > abaixo aparece como comando `bash`/`python3` e feito pelo proprio cron: o scrape antes da sessao, e o envio
-> das respostas, o `--pular`, os eventos e o aviso ao dono depois dela. A sessao so le os arquivos (persona,
-> memoria, SOUL, PERSONALITY, skill e o scrape da rodada), edita `persona/followers/<id>.json` e
-> `memory/relationships.json`, e **grava `data/rodada/respostas.json`**. Ela **nao escreve** em
-> `persona/working-memory.md`: as instrucoes do dono la sao so dele, e as secoes 'Hoje' e 'Pessoas Proximas'
-> sao atualizadas pela sua sessao principal, nao por este cron. O resumo da rodada o cron manda ao dono.
+> das respostas, o `--pular`, os eventos e o aviso ao dono depois dela. A sessao so le SOUL, PERSONALITY,
+> a skill, o scrape da rodada, `persona/followers/<id>.json` e `data/rodada/instrucoes.txt` (as linhas de
+> instrucao do dono com a etiqueta `[comentarios]` ou `[qualquer]`, extraidas pelo cron), e **grava so
+> `data/rodada/respostas.json`**. Ela **nao le memoria privada** nem escreve em memoria, em seguidores ou em
+> `persona/working-memory.md`: o que outra sessao le depois com permissao ampla nao pode vir de comentario.
+> Perfil e memoria dos seguidores sao atualizados pelo scrape e pela sua sessao principal. O cron manda o resumo ao dono.
 > ```json
 > {"respostas": [
 >   {"commentId": "<numero>", "acao": "responder", "texto": "<resposta>", "evento": "comment_positive"},
