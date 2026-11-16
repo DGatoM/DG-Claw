@@ -246,6 +246,8 @@ Servidas pelo DG Claw Web. Quem: Dono, salvo o que a coluna disser. Colab só pa
 | `/api/v1/seguranca` | Avisos de segurança do DG Claw: `/boletins`, e por id `/adiar` e `/dispensar` | Dono. Caixa recebe 403 | [SEGURANCA-BOLETINS.md](../../web/docs/SEGURANCA-BOLETINS.md) |
 | `/api/v1/seguranca/ronda` | Resultado da ronda e os pedidos de aplicar, agendar e desfazer (`/ronda/:id/aplicar`) | Dono | [RONDA-PAINEL.md](../../web/docs/RONDA-PAINEL.md) |
 | `/api/v1/seguranca/emergencia` | Estado do botão de emergência e os pedidos `preparar`, `cortar` e `religar` | Dono | [RONDA-PAINEL.md](../../web/docs/RONDA-PAINEL.md) |
+| `/api/v1/cadeado` | Face ID: estado, ligar, destravar, aparelhos, passkeys e tempo de trava; as rotas estão em `/api/v1/cadeado/docs.md` | Dono e colaborador, cada um só com as próprias passkeys. Caixa não alcança | [CADEADO.md](../../web/docs/CADEADO.md) |
+| `/face-id` | Tela Face ID: ligar neste aparelho, escolher o tempo e remover passkeys | Dono e colaborador | [CADEADO.md](../../web/docs/CADEADO.md) |
 
 ### Entrada de páginas
 
