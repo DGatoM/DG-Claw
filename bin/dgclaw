@@ -35,6 +35,10 @@ APP_DIR="$(cd "$(dirname "$DGCLAW_BIN_REAL")/.." && pwd)"
 . "$APP_DIR/lib/aviso-atualizacao.sh"
 # shellcheck source=lib/personalizacoes.sh
 . "$APP_DIR/lib/personalizacoes.sh"
+# shellcheck source=lib/uso-atualizacao.sh
+. "$APP_DIR/lib/uso-atualizacao.sh"
+# shellcheck source=lib/suporte.sh
+. "$APP_DIR/lib/suporte.sh"
 # shellcheck source=lib/dns-containers.sh
 . "$APP_DIR/lib/dns-containers.sh"
 # shellcheck source=lib/colaborador.sh
@@ -139,6 +143,17 @@ Painel
       (endereco, usuario e senha) para mandar ao dono. Pode rodar de novo: gera outra senha.
       Exemplo:  sudo dgclaw instalacao-remota
 
+Suporte remoto (chave que so le o diagnostico de saude)
+  dgclaw chave-api criar --nome "<nome>" --escopo diagnostico
+      Cria uma chave de suporte e imprime SO o token na saida (o resto vai para o stderr). Ele nao
+      aparece de novo. A chave so le GET /api/v1/diagnostico: nao le conversas, memoria nem arquivos
+      e nao muda nada.
+      Exemplo:  sudo dgclaw chave-api criar --nome "Suporte DG" --escopo diagnostico
+  dgclaw chave-api listar [--json]       mostra as chaves (nome, final, ultimo acesso, se foi revogada)
+  dgclaw chave-api revogar <id>          a chave deixa de valer na hora (o id aparece em listar)
+      Exemplo:  sudo dgclaw chave-api revogar 3fa9c21b07
+      Saida: 0 deu certo, 1 recusa (o motivo vem escrito), 2 uso errado.
+
 Atualizar o DG Claw
   dgclaw atualizar [opcoes]              baixa a versao nova, faz backup, reinstala e recria os agentes
       Faz, nesta ordem: confere o clone, faz o backup datado em /var/backups/dgclaw/, baixa a versao
@@ -147,7 +162,7 @@ Atualizar o DG Claw
       reinicia o Admin por ultimo. Se o clone estiver na branch `personalizacoes`, confere o registro
       de personalizacoes contra a versao nova: para se algo cruzar e reaplica por cima se nao cruzar
       (--simular ja mostra o cruzamento). Antes do backup, mostra o relatorio "O que muda" (commits,
-      CHANGELOG, pontos de atencao; gravado em /var/log/dgclaw/) e so segue com --ok-do-dono. Opcoes:
+      CHANGELOG, pontos de atencao e o que este DG Claw usa; gravado em /var/log/dgclaw/) e so segue com --ok-do-dono. Opcoes:
         --simular               mostra tudo o que faria, sem mudar nada
         --repo <pasta>          onde esta o clone do DG Claw (o instalador anota; so precisa se ele nao souber)
         --forcar-local          se o clone tiver alteracao local, guarda num stash datado e segue
@@ -155,7 +170,13 @@ Atualizar o DG Claw
         --sem-backup-agentes    pula o backup das casas dos agentes (so se a pessoa pedir; o resto entra)
         --sem-voltar-sozinho    se o instalador novo ou a conferencia falharem, para e deixa como esta
                                 (o padrao e voltar sozinho ao backup; agente que nao sobe NUNCA faz voltar)
-        --ok-do-dono            o dono leu o relatorio "O que muda" e autorizou; sem isso a atualizacao de verdade nao segue
+        --parecer segura|arriscada --motivo "<texto curto>"
+                                grava o parecer de quem analisou o relatorio (o que muda cruzado com o que este
+                                DG Claw usa) para a versao de destino; nao instala nada. Obrigatorio antes do ok
+        --ok-do-dono            o dono leu o relatorio "O que muda" e autorizou; sem isso a atualizacao de verdade nao segue.
+                                Exige parecer 'segura' para a mesma versao; parecer 'arriscada' bloqueia
+        --apesar-do-alerta      com --ok-do-dono: instala mesmo com parecer 'arriscada'. So quando o dono, depois de
+                                ouvir o alerta, pedir explicitamente
         --exigir-assinatura     recusa a atualizacao se esta instalacao ainda nao tem a chave de assinatura (use com --chave-assinatura)
         --chave-assinatura <arquivo>  entrega de fora o allowed_signers do projeto (sem depender do repositorio)
         --segundo-plano         roda solto do terminal (recomendado para o Admin) e deixa o log em /var/log/dgclaw/
@@ -204,6 +225,18 @@ Botao de emergencia (tirar o servidor do ar)
       que 'preparar' gera (vale 2 minutos). Ordem: simular (so mostra), preparar (codigo + plano), cortar --codigo <c>,
       confirmar, e religar --codigo <c> quando passar. O painel tambem sai do ar durante o corte. Guia: docs/EMERGENCIA.md
       Exemplo:  sudo dgclaw emergencia simular
+Suporte DG
+  dgclaw suporte ligar --chave '<linha ssh-ed25519 ...>' [--dias N]
+      Libera o time de suporte DG por uma chave SSH TEMPORARIA (padrao 7 dias, maximo 30). Depois do prazo o
+      servidor recusa a chave sozinho. So as chaves do suporte sao tocadas; as suas ficam como estao.
+      Exemplo:  sudo dgclaw suporte ligar --chave 'ssh-ed25519 AAAAC3... suporte' --dias 7
+  dgclaw suporte desligar [--derrubar-sessoes]
+      Tira as chaves do suporte e lista as sessoes SSH de root abertas agora, marcando a sua. Se houver outra,
+      avisa que o acesso ainda nao esta totalmente desligado. Com --derrubar-sessoes encerra TODAS as sessoes SSH
+      de root, menos a de quem roda o comando.
+  dgclaw suporte status                  mostra as chaves do suporte, ate quando valem, as vencidas e as sessoes de root abertas
+  dgclaw suporte limpar                  tira so as chaves vencidas (um timer diario ja faz isso)
+      Exemplo:  sudo dgclaw suporte status
 
 Geral
   dgclaw versao                          mostra a versao e o commit instalados (tambem: dgclaw --version)
@@ -1816,6 +1849,31 @@ agente_cofre() {
         DGCLAW_WEB_DATA="$DG_LIB/web" node "$cofre_js" "$acao" "$slug" "$@"
 }
 
+# chave_api criar|listar|revogar [opcoes]
+# Embrulho fino de web/bin/chave-api.js: o token sai so no stdout do node e o bash nao o le,
+# nao o guarda nem o imprime. O codigo de saida (0, 1 recusa, 2 uso errado) volta intacto.
+chave_api() {
+    local acao="${1:-}"
+    case "$acao" in
+        criar|listar|revogar) ;;
+        '') falha_uso "faltou dizer o que fazer com as chaves de API." \
+            "use: criar, listar ou revogar. Exemplo: dgclaw chave-api criar --nome \"Suporte DG\" --escopo diagnostico" ;;
+        *) falha_uso "'$acao' nao e uma acao das chaves de API." \
+            "use: criar, listar ou revogar. Exemplo: dgclaw chave-api listar" ;;
+    esac
+    exigir_ferramentas node
+    local chave_js="$DG_APP/web/bin/chave-api.js"
+    [ -f "$chave_js" ] || falha "nao achei o programa das chaves de API em $chave_js." \
+        "atualize o DG Claw (rode de novo o instalador: sudo ./install.sh --usuario <nome>) e tente outra vez."
+    if [ "$ENSAIO" = 1 ]; then
+        info "[ensaio] rodaria: node $chave_js $acao (com DGCLAW_WEB_ENV=$DG_ETC/web.env; a pasta de dados e a do web.env, ou $DG_LIB/web se ele nao definir); o token, quando houver, sai so no stdout"
+        return 0
+    fi
+    # A pasta de dados e a MESMA que o Web usa: quem decide e o web.env (lido pelo proprio node, sem shell).
+    # $DG_LIB/web so vale como padrao quando o web.env nao define DGCLAW_WEB_DATA.
+    exec env -u DGCLAW_WEB_DATA DGCLAW_WEB_ENV="$DG_ETC/web.env" DGCLAW_WEB_DATA_PADRAO="$DG_LIB/web" node "$chave_js" "$@"
+}
+
 # agente_tela_senha <slug>: troca a senha da Tela. A nova senha vem pelo STDIN (ou e
 # pedida no terminal, sem eco). Quem valida o tamanho e o alfabeto e o gravador; o
 # x11vnc religa sozinho (dgclaw-tela-senha.path, dentro do agente).
@@ -2386,6 +2444,9 @@ status_geral() {
     if curl -fsS -o /dev/null --max-time 3 http://127.0.0.1:4300/api/saude; then s_ok "Admin responde (/api/saude em 127.0.0.1:4300)"
     else s_mal "o Admin nao responde em 127.0.0.1:4300/api/saude. Veja: journalctl -u dgclaw-admin -n 50"; fi
 
+    if command -v ffmpeg >/dev/null 2>&1 || [ -x "$R/usr/bin/ffmpeg" ]; then s_ok "ffmpeg instalado (miniaturas de video e foto)"
+    else s_aviso "ffmpeg nao instalado: videos e fotos aparecem sem previa na conversa. Instale com: apt-get install -y ffmpeg"; fi
+
     if podman image exists "$DGCLAW_IMAGEM" >/dev/null 2>&1; then s_ok "imagem dos agentes pronta"
     else s_aviso "imagem dos agentes ainda nao esta pronta (veja: dgclaw imagem status)"; fi
 
@@ -2421,6 +2482,7 @@ status_geral() {
     done < <(agentes_ler | jq -r '.agentes[] | select(.tipo == "agente") | [.slug, .runner, (.home_host // "")] | @tsv')
 
     aviso_atualizacao_status
+    suporte_status_linha
 
     if [ "$S_FALHAS" -gt 0 ]; then
         printf '\n%s coisa(s) essencial(is) fora do ar. Veja as linhas FALHOU acima.\n' "$S_FALHAS" >&2
@@ -2459,6 +2521,7 @@ main() {
         colaborador) colaborador_main "$@" ;;
         dominio) dominio_main "$@" ;;
         primeiro-acesso) primeiro_acesso "$@" ;;
+        chave-api) chave_api "$@" ;;
         instalacao-remota) instalacao_remota "$@" ;;
         status) status_geral "$@" ;;
         atualizar)
@@ -2471,6 +2534,7 @@ main() {
         versao|--version) versao_main "$@" ;;
         personalizacoes) personalizacoes_main "$@" ;;
         emergencia) exec bash "$APP_DIR/lib/emergencia.sh" "$@" ;;
+        suporte) suporte_main "$@" ;;
         *) falha "o comando '$cmd' nao existe." "veja os comandos com: dgclaw --ajuda" ;;
     esac
 }

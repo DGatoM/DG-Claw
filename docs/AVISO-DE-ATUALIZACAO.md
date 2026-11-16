@@ -7,6 +7,14 @@ do que mudou, e um recado ao Admin, que conta ao dono no chat e pergunta se ele 
 **Nada é baixado nem instalado sem o ok do dono.** O aviso só informa. Quem atualiza continua sendo o
 `sudo dgclaw atualizar` ([ATUALIZAR.md](ATUALIZAR.md)), e o Admin só o roda depois de um sim explícito.
 
+**Por que é uma checagem periódica e não um webhook:** a instalação do cliente não precisa abrir porta nem ser
+cadastrada em lugar nenhum, funciona atrás de NAT, e o repositório não precisa saber quem são os clientes.
+
+**O aviso não instala, e o Admin não atualiza às cegas.** O recado ao Admin manda analisar antes: rodar
+`dgclaw atualizar --simular`, ler o relatório (inclusive a seção do que aquela instalação usa e o que a
+versão nova toca), contar ao dono se é segura e se vale a pena, e gravar o parecer. A instalação exige esse
+parecer ([ATUALIZAR.md](ATUALIZAR.md), "Ler o que muda antes de instalar").
+
 ## O que é consultado, e o que sai do servidor
 
 A cada 6 horas (e 15 minutos depois de ligar o servidor) um timer roda `scripts/checar-atualizacao.mjs`.

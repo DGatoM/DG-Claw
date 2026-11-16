@@ -7,10 +7,28 @@ f542263221c8f7b49033e4f823eebed3da0f3714:web/test/colaboradores.test.js:generic-
 8d46abf82f6c30400fb794e1ccbcf1b8b30ef483:web/test/cadeado.test.js:generic-api-key:239
 8503cee93624f097415ca73e32a3556b91ea9b6c:web/test/cadeado.test.js:generic-api-key:715
 e507df58122e94e5b5b2ca6f30e0a1ee1af687fa:web/test/cadeado.test.js:generic-api-key:1571
+93439a79771621657cb9bc46bcee894a8f5bdd54:web/test/cadeado.test.js:generic-api-key:239
+93439a79771621657cb9bc46bcee894a8f5bdd54:web/test/cadeado.test.js:generic-api-key:732
+93439a79771621657cb9bc46bcee894a8f5bdd54:web/test/cadeado.test.js:generic-api-key:1571
+20d7a964ffe08cfbd8deaa1c9f17d92befd64483:web/test/cadeado.test.js:generic-api-key:239
+20d7a964ffe08cfbd8deaa1c9f17d92befd64483:web/test/cadeado.test.js:generic-api-key:732
+20d7a964ffe08cfbd8deaa1c9f17d92befd64483:web/test/cadeado.test.js:generic-api-key:1571
 # Comandos curl sintéticos dos testes da tela Logs (senha montada em tempo de execução, ${S} e 'p '.repeat), usados para conferir a máscara.
 c3bb26c79cfa1e9f2d95b3e97376b4b909389227:web/test/logs-comando-oculto.test.js:curl-auth-user:17
 59b19a767dc1984f78075bb533345b4238f8fefa:web/test/logs-ambiguidade.test.js:curl-auth-user:36
 535c597bb06564dc88e52f726c28e100805fe35c:web/test/logs-comando-oculto.test.js:curl-auth-user:17
 535c597bb06564dc88e52f726c28e100805fe35c:web/test/logs-ambiguidade.test.js:curl-auth-user:36
+08c30fa2a8e2c744bbdbd7fae19556fe1f8254e8:web/test/logs-comando-oculto.test.js:curl-auth-user:17
+08c30fa2a8e2c744bbdbd7fae19556fe1f8254e8:web/test/logs-ambiguidade.test.js:curl-auth-user:36
+# Segredos de mentira do teste do diagnóstico remoto, montados com join() para conferir a máscara.
+754c67e16b95a325c8abf8adef4fb44b673b2db1:web/test/diagnostico.test.js:generic-api-key:206
 2e204f6202646cdf41aad060f40533fb4a58652a:web/test/logs-comando-oculto.test.js:curl-auth-user:17
 2e204f6202646cdf41aad060f40533fb4a58652a:web/test/logs-ambiguidade.test.js:curl-auth-user:36
+# Valores sintéticos de teste (cadeado, diagnóstico, tela Logs) que chegam ao #76 pelos merges da main.
+3c7fc42160e5d51f15039e2fd2ef5c56cc575420:web/test/cadeado.test.js:generic-api-key:1571
+3c7fc42160e5d51f15039e2fd2ef5c56cc575420:web/test/cadeado.test.js:generic-api-key:239
+3c7fc42160e5d51f15039e2fd2ef5c56cc575420:web/test/cadeado.test.js:generic-api-key:732
+44ee862c9a84bc53234164b7d1d714a6a1eb3ad1:web/test/diagnostico.test.js:generic-api-key:232
+58513416913ff5f9528998dcaf02350171700366:web/test/diagnostico.test.js:generic-api-key:232
+b149c1e726043aa9f840b391ec6562f2872cce7e:web/test/logs-ambiguidade.test.js:curl-auth-user:36
+b149c1e726043aa9f840b391ec6562f2872cce7e:web/test/logs-comando-oculto.test.js:curl-auth-user:17
