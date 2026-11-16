@@ -7,6 +7,31 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Correção de segurança: a atualização só instala versão assinada.** O `dgclaw atualizar` baixava o código do GitHub e rodava
+o `install.sh` dele como root sem conferir de onde vinha. Quem controlasse o repositório ou o clone executaria código como
+root em todos os servidores. Agora, quando o seu DG Claw tem a chave de assinatura do projeto (arquivo
+`seguranca/assinatura/allowed_signers`), a atualização instala a **tag de versão assinada mais nova** (`vX.Y.Z`) e recusa tag
+sem assinatura, tag assinada por outra chave e versão que tente remover ou trocar a chave sem a assinatura da chave anterior. A
+chave que vale fica gravada fora do clone (`/etc/dgclaw/assinatura`), só vale assinatura SSH, e uma vez ligada a proteção não
+volta para o modo sem conferência. A chave do repositório só entra depois que a versão que a traz foi aceita e instalada. O `git`
+roda isolado nessa conferência, e o instalador só roda depois de conferir de novo que o clone está exatamente na versão assinada,
+sem arquivo rastreado alterado. Se a conferência recusar, a mensagem diz o que
+aconteceu e o que fazer, e nada é instalado. Detalhes e o passo a passo de quem assina: `docs/ASSINATURA.md`.
+Falhas reportadas por Renato Gracie (divulgação responsável).
+
+### Como atualizar (assinatura das versões)
+
+1. **A atualização em que a conferência passa a existir não tem como ser conferida.** A sua instalação ainda não tem a chave,
+   e ela chega junto com a versão nova. O comando mostra a impressão digital (`SHA256:...`) da chave que passa a valer.
+   Confira com a que o Danilo divulgou fora do repositório (aula, site ou mensagem direta); se for diferente, não siga e volte
+   com `sudo dgclaw atualizar --voltar <backup>`.
+2. **Para não depender nem desse momento**, peça o arquivo `allowed_signers` por um canal de confiança e rode
+   `sudo dgclaw atualizar --exigir-assinatura --chave-assinatura <arquivo>`.
+3. **Depois disso, cada atualização é conferida sozinha.** Se aparecer "versão nova SEM assinatura válida", não contorne:
+   espere a versão assinada e avise quem mantém o DG Claw. Quem precisa instalar algo sem assinatura atualiza o clone à mão e
+   usa `--sem-baixar`, sabendo que nesse caso nada é conferido.
+4. **A atualização passa a instalar a versão (tag) assinada mais nova**, e não mais a ponta da `main`.
+
 **Correção de segurança: o cron de comentários do Instagram não roda mais com permissão total.** A rotina que responde
 os comentários lia o texto de desconhecidos dentro do pedido ao agente e rodava sem nenhuma lista de ferramentas, com a
 permissão toda liberada. Um comentário escrito como ordem podia virar ação no servidor. Agora a sessão roda só com as
