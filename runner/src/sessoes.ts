@@ -152,6 +152,7 @@ export class GerenteDeSessoes {
       porta,
       { pastaDeEstado, idsEmUso: () => this.idsDeSessaoEmUso() },
     );
+    this.principal.irmas = () => this.todas();
     for (const s of validarSessoes(descritor)) this.registrar(s, "boot");
     this.carregarExtras();
   }
@@ -199,6 +200,7 @@ export class GerenteDeSessoes {
       escolhaDescrita: { provider: s.provider, model: s.model, auth: s.auth },
       idsEmUso: () => this.idsDeSessaoEmUso(),
     });
+    sessao.irmas = () => this.todas();
     this.mapaParalelas.set(s.id, sessao);
     log.info("boot", `sessão paralela ${s.id} (${s.tipo}, chat ${s.chat}${origem === "extra" ? ", criada por API" : ""}) registrada, dormindo até alguém escrever`);
     for (const f of this.aoCriar) f(sessao);

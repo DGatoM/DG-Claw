@@ -209,6 +209,11 @@ def call_haiku(prompt: str, timeout: int = 60):
         CLAUDE_BIN, "--print",
         "--model", "haiku",
         "--no-session-persistence",
+        # Texto entra como dado: sem ferramentas, sem MCP e sem configuracao do projeto, um turno so.
+        "--tools", "",
+        "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
+        "--setting-sources", "",
+        "--max-turns", "1",
         "--output-format", "json",
         "-p", prompt,
     ]

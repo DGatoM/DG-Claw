@@ -32,6 +32,80 @@ Falhas reportadas por Renato Gracie (divulgação responsável).
    usa `--sem-baixar`, sabendo que nesse caso nada é conferido.
 4. **A atualização passa a instalar a versão (tag) assinada mais nova**, e não mais a ponta da `main`.
 
+**As restrições de cada agente sobrevivem à atualização.** Se você tirou de um agente o terminal (Bash) ou o envio de
+arquivos, ou deixou ele gravar só em certas pastas, essa trava ficava dentro da caixa dele, e a atualização recria a
+caixa: a trava sumia sem aviso. Agora existe um lugar oficial, fora da caixa e fora do alcance do agente, e um comando para
+usá-lo: `sudo dgclaw agente restricoes <agente> --sem-bash sim --sem-enviar-arquivo sim --escrita-so-em pasta1,pasta2`
+(sem opções, ele só mostra o estado; `--escrita-livre` solta de novo a gravação). Criar de novo, reparar, recriar e
+atualizar reaplicam as travas sozinhos, e um arquivo de restrições estragado faz o comando parar com a explicação, em vez
+de soltar a trava. A trava de pastas só barra as ferramentas de arquivo: com o Bash ligado, o terminal ainda grava em
+qualquer lugar, então combine as duas (o comando avisa). Travar o envio de arquivos só é aceito junto com a trava do
+terminal (`--sem-bash sim`), porque com o terminal liberado o agente manda o arquivo por fora das ferramentas. Nos agentes que rodam no Codex essas travas ainda não valem, e o
+comando também avisa. Guia: `docs/RESTRICOES-DO-AGENTE.md`.
+
+Qualquer restrição (inclusive só o terminal ou só o envio de arquivos) fecha também os arquivos de configuração do agente
+para as ferramentas de arquivo: pastas e arquivos ocultos em qualquer profundidade, `SKILL.md`, `CLAUDE.md` e `AGENTS.md`. Sem isso, um
+agente sem Bash editaria o próprio `config.sh` e executaria o que quisesse. No modo sem pastas, o agente também só grava na casa dele e em `/tmp`; o resto do sistema fica fechado. As rotinas que rodam sozinhas dentro da caixa (reflexão, batimento, crons) passam a usar `python3 -I` e a ler o texto da memória do agente como dado, não como parte do programa: um agente sem terminal não consegue mais executar código gravando um `datetime.py` na casa ou aspas no `working-memory.md`. O gancho de escrita bloqueia quando falha
+(não inicia, falta memória, passa do tempo) em vez de liberar.
+
+A trava fica na configuração administrada do Claude Code, que o agente não consegue desligar pelas próprias configurações.
+Com a trava de pastas ligada, o agente só grava a memória dele; as pastas de configuração (`.dgclaw`, `.claude`, `.codex`,
+`.plataforma`) e `/tmp` ficam fechadas, porque são lidas e executadas pelas rotinas do agente.
+
+As rotinas automáticas do agente (reflexão da noite, posts, respostas a comentários e consolidação) agora respeitam as restrições do
+mesmo jeito que a conversa: com restrição ligada, só rodam se a conta de IA conectada for compatível, e recebem as mesmas ferramentas
+travadas. Se recusarem, o log da rotina diz o motivo e o que fazer. Nada muda para quem não usa restrições.
+A reflexão da noite confere a conta antes de qualquer chamada ao Claude, inclusive a busca de lembranças antigas, que agora roda com
+ferramentas e conexões externas desligadas. Quando uma recusa por conta incompatível acontece com um processo antigo do agente ainda
+vivo, o runner o encerra e só então registra a recusa; se não conseguir, avisa que não confirmou a parada.
+
+### Como atualizar (restrições do agente)
+
+A imagem dos agentes precisa ser a nova (ela liga o arquivo de política administrada do Claude Code). O `dgclaw atualizar` já
+reconstrói a imagem e recria cada agente, então basta atualizar; um agente que você deixou parado ganha a trava quando for recriado
+(`sudo dgclaw agente recriar <agente> --forcar`).
+
+Se você já tinha travado algum agente por conta própria, mexendo dentro da caixa dele (por exemplo, editando o
+`settings.json` ou as permissões por lá), essa trava não é lida pelo novo mecanismo e continua sujeita a sumir na próxima
+atualização. Refaça uma vez, pelo comando novo, cada trava que você quer manter: peça ao Admin ("tira o Bash da Ana",
+"a Ana só grava na pasta relatórios") ou rode `sudo dgclaw agente restricoes <agente> ...`. Depois de refeitas, não
+precisam ser repetidas. Confira com `sudo dgclaw agente restricoes <agente>`.
+
+Contas Team e Enterprise do claude.ai não são compatíveis com as restrições nesta versão: uma organização pode passar a
+mandar uma política própria a qualquer momento, e ela substitui a configuração do DG Claw. Se o agente usa uma conta
+dessas, o comando `restricoes` recusa e para o agente; conecte uma conta pessoal (Pro ou Max) ou uma chave de API no painel
+do agente e rode o comando de novo. Um token OAuth ou login por assinatura sem plano Pro ou Max legível também é recusado, porque pode ser de uma organização. A consulta (`sudo dgclaw agente restricoes <agente>`) também passa a comparar o que está
+aplicado com o que você pediu, e mostra `NAO VALE` quando uma restrição foi gravada e não chegou a ser aplicada.
+
+Um agente que tem restrições agora só liga (`dgclaw agente iniciar`) ou reinicia o runner (`dgclaw agente reiniciar`) depois de
+os arquivos de política serem refeitos a partir das suas restrições e de a imagem dele ser conferida, porque o agente sobe
+sozinho e uma conferência feita depois deixaria um intervalo sem a trava. Se ele estiver numa imagem antiga, não liga e a
+mensagem pede para recriar. Quem deixou um agente parado com restrições e uma imagem antiga precisa rodar uma vez
+`sudo dgclaw imagem construir --agora` (se a imagem do servidor também for antiga) e `sudo dgclaw agente recriar <agente>`.
+Com o terminal travado, o `Monitor` também fica negado, porque ele executa comandos por conta própria.
+
+Se a conta de IA conectada a um agente pertence a uma organização do claude.ai (planos Team ou Enterprise) com política
+administrada remota, essa política substitui a configuração do DG Claw e as restrições deixam de valer. Para um agente
+com restrições, o `iniciar`, o `reiniciar` e a consulta passam a detectar isso, param o agente e explicam. A saída é conectar
+nele uma conta pessoal (Pro ou Max) ou uma chave de API. Como o agente fica parado, a ordem é: desligar as restrições
+(`sudo dgclaw agente restricoes <agente> --sem-bash nao --sem-enviar-arquivo nao --escrita-livre`), ligar o agente
+(`sudo dgclaw agente iniciar <agente>`), trocar a conta no painel do agente e ligar as restrições de novo com o mesmo comando `restricoes`. Conta de organização com política administrada remota não é compatível com as
+restrições nesta versão, nem quando a política pede para combinar com a local, porque a própria organização pode desligar os
+ganchos nela. Quando o DG Claw para o agente por esse motivo, ele só considera o container parado quando o podman confirma isso; sem
+confirmação, a mensagem diz que o agente pode estar ligado sem a trava e como pará-lo na mão.
+
+A conta de IA também é conferida depois que o agente já está ligado. Antes, quem conectava uma conta Team ou Enterprise pelo
+painel depois de aplicar as restrições escapava da conferência, e a política remota da organização podia desligar as travas. Agora,
+com qualquer restrição ativa, o runner confere a conta logo depois de cada login pelo painel e antes de abrir ou retomar cada
+sessão do Claude. Se a conta for de uma organização, tiver política remota ou não der para saber qual é, a sessão não abre: o
+painel mostra o motivo e o que fazer (conectar uma conta pessoal Pro ou Max, ou uma chave de API, ou desligar as restrições), e o
+log do runner registra. Se o arquivo de restrições existir e estiver ilegível, o runner trata o agente como restrito e também não
+abre a sessão. Sem restrições ativas nada muda. Depois de conectar a conta certa, a sessão abre sozinha.
+
+O Bun, que roda os ganchos do plugin, lê o arquivo `bunfig.toml` da pasta onde é iniciado, e um `preload` nele executa código. Um
+agente sem terminal, mas com escrita livre na casa, podia gravar esse arquivo e recuperar a execução de comandos. Agora os ganchos
+entram na pasta do plugin antes de chamar o Bun, e o gancho de escrita também recusa `bunfig.toml` em qualquer pasta.
+
 **Prévias de vídeo e foto passam a funcionar em qualquer servidor.** O painel monta a miniatura dos vídeos e das
 fotos com o programa ffmpeg, que o instalador não colocava no servidor. Em um servidor de um cliente, o vídeo que o
 agente enviou apareceu só como botão de arquivo, sem prévia, e o registro do painel repetia "Miniatura: ENOENT"

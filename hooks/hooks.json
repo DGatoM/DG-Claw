@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch.ts\" user-prompt",
+            "command": "S=\"$PWD\" && cd \"${CLAUDE_PLUGIN_ROOT}/hooks\" && DGCLAW_SESSAO_CWD=\"$S\" bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch.ts\" user-prompt",
             "timeout": 8
           }
         ]
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch.ts\" avisos",
+            "command": "S=\"$PWD\" && cd \"${CLAUDE_PLUGIN_ROOT}/hooks\" && DGCLAW_SESSAO_CWD=\"$S\" bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch.ts\" avisos",
             "timeout": 6
           }
         ]
@@ -27,7 +27,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch.ts\" post-tool",
+            "command": "S=\"$PWD\" && cd \"${CLAUDE_PLUGIN_ROOT}/hooks\" && DGCLAW_SESSAO_CWD=\"$S\" bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch.ts\" post-tool",
             "timeout": 6
           }
         ]
@@ -38,7 +38,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch.ts\" session-start",
+            "command": "S=\"$PWD\" && cd \"${CLAUDE_PLUGIN_ROOT}/hooks\" && DGCLAW_SESSAO_CWD=\"$S\" bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch.ts\" session-start",
             "timeout": 8
           }
         ]
@@ -48,7 +48,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch.ts\" avisos-reset",
+            "command": "S=\"$PWD\" && cd \"${CLAUDE_PLUGIN_ROOT}/hooks\" && DGCLAW_SESSAO_CWD=\"$S\" bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch.ts\" avisos-reset",
             "timeout": 5
           }
         ]

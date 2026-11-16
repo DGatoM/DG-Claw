@@ -100,7 +100,7 @@ if ! grep -qx -- "--strict-mcp-config" "$D_SEM/argv.txt" 2>/dev/null; then
 else
     falhou "3b. passou --strict-mcp-config"
 fi
-SERVIDOR="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['mcpServers']['dgchat']['args'][0])" "$MCP_JSON" 2>/dev/null)"
+SERVIDOR="$(python3 -I -c "import json,sys; print(json.load(open(sys.argv[1]))['mcpServers']['dgchat']['args'][0])" "$MCP_JSON" 2>/dev/null)"
 if [ -n "$SERVIDOR" ] && [ -f "$SERVIDOR" ]; then
     ok "3c. o mcp.json aponta para um server.mjs que existe de verdade ($(basename "$(dirname "$SERVIDOR")")/$(basename "$SERVIDOR"))"
 else

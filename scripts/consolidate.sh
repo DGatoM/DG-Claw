@@ -42,9 +42,15 @@ echo "[$(date '+%F %T')] iniciando consolidacao em $DGCLAW_WORKSPACE" >> "$LOG"
 if ! python3 "$GUARDA" guardar --ws "$DGCLAW_WORKSPACE" >> "$LOG" 2>&1; then
     echo "[$(date '+%F %T')] NAO consegui guardar a copia do MEMORY.md (motivo na linha acima). A consolidacao vai rodar SEM copia de seguranca." >> "$LOG"
 fi
+# Restricoes do dono: com restricao ativa, so roda se a conta de IA for compativel (a mesma regra do runner) e o
+# motor recebe as ferramentas negadas. Recusa = exit 1, sem chamar o claude.
+# shellcheck disable=SC1091
+. "$(dirname "${BASH_SOURCE[0]}")/_lib/restricoes-rotina.sh"
+restricoes_conferir_rotina "consolidacao" "$LOG" || exit 1
 "$CLAUDE_BIN" --print \
     --no-session-persistence \
     --permission-mode bypassPermissions \
+    "${RESTRICAO_DENY_ARGS[@]}" \
     --add-dir "$DGCLAW_WORKSPACE" \
     -p "$PROMPT" >> "$LOG" 2>&1
 echo "[$(date '+%F %T')] consolidacao terminou (rc=$?)" >> "$LOG"
