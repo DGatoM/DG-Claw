@@ -47,7 +47,7 @@ export function lerRestricoes(arquivo: string = arquivoDeRestricoes()): LeituraD
   return ativa ? { ativa: true } : { ativa: false };
 }
 
-/** A saída de `claude auth status --json` vira sem (segue), com (organização Team/Enterprise) ou duvida. */
+/** A saída de `claude auth status --json` vira sem (segue), com (organização Team/Enterprise) ou duvida. Assinatura (claude.ai ou OAuth) só é "sem" com plano pro ou max. */
 export function classificarSaidaDaConta(saida: string): ClasseDaConta {
   let j: unknown;
   try {
@@ -60,7 +60,11 @@ export function classificarSaidaDaConta(saida: string): ClasseDaConta {
   if (typeof o.loggedIn !== "boolean" || typeof o.authMethod !== "string") return "duvida";
   const tipo = typeof o.subscriptionType === "string" ? o.subscriptionType.toLowerCase() : null;
   if (tipo === "team" || tipo === "enterprise") return "com";
-  if (o.loggedIn === true && o.authMethod === "claude.ai" && tipo === null) return "duvida";
+  // Login por assinatura (claude.ai ou token OAuth): só um plano pessoal comprovado (lista fechada) segue. Token
+  // OAuth de uma organização Team/Enterprise recebe a política remota depois, e sem plano legível não há prova.
+  const metodo = o.authMethod.toLowerCase();
+  const porAssinatura = metodo === "claude.ai" || metodo.includes("oauth");
+  if (o.loggedIn === true && porAssinatura && tipo !== "pro" && tipo !== "max") return "duvida";
   return "sem";
 }
 

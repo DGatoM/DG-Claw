@@ -381,7 +381,8 @@ _restricoes_classificar_conta() {
         if type != "object" then "duvida"
         elif (.loggedIn | type) != "boolean" or (.authMethod | type) != "string" then "duvida"
         elif (.subscriptionType | type) == "string" and ((.subscriptionType | ascii_downcase) as $t | $t == "team" or $t == "enterprise") then "com"
-        elif .loggedIn == true and .authMethod == "claude.ai" and (.subscriptionType | type) != "string" then "duvida"
+        elif .loggedIn == true and (.authMethod | ascii_downcase | . == "claude.ai" or contains("oauth"))
+             and ((.subscriptionType | type) != "string" or ((.subscriptionType | ascii_downcase) as $t | $t != "pro" and $t != "max")) then "duvida"
         else "sem" end' 2>/dev/null)"; then res=duvida; fi
     case "$res" in sem|com|duvida) printf '%s' "$res" ;; *) printf duvida ;; esac
 }

@@ -150,6 +150,14 @@ test("classificação da conta: a mesma regra da CLI", () => {
   assert.equal(c('{"loggedIn":true,"authMethod":"claude.ai"}'), "duvida");
   assert.equal(c('{"loggedIn":true,"authMethod":"api_key"}'), "sem");
   assert.equal(c('{"loggedIn":true}'), "duvida");
+  // Token OAuth sem plano pessoal comprovado é dúvida (pode ser de organização que recebe política remota depois).
+  assert.equal(c('{"loggedIn":true,"authMethod":"oauth_token","apiProvider":"firstParty"}'), "duvida");
+  assert.equal(c('{"loggedIn":true,"authMethod":"oauth_token","subscriptionType":null}'), "duvida");
+  assert.equal(c('{"loggedIn":true,"authMethod":"oauth_token","subscriptionType":"free"}'), "duvida");
+  assert.equal(c('{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"outro"}'), "duvida");
+  assert.equal(c('{"loggedIn":true,"authMethod":"oauth_token","subscriptionType":"team"}'), "com");
+  assert.equal(c('{"loggedIn":true,"authMethod":"oauth_token","subscriptionType":"Max"}'), "sem");
+  assert.equal(c('{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"pro"}'), "sem");
   assert.equal(c("[]"), "duvida");
   assert.equal(c(""), "duvida");
 });

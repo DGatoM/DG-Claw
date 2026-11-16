@@ -19,6 +19,10 @@ reprovam=(
     'sem-plano|{"loggedIn":true,"authMethod":"claude.ai","email":"'"$EMAIL"'","orgName":"Empresa Secreta"}'
     'plano-nulo|{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":null,"email":"'"$EMAIL"'"}'
     'plano-numero|{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":7,"email":"'"$EMAIL"'"}'
+    'oauth-sem-plano|{"loggedIn":true,"authMethod":"oauth_token","apiProvider":"firstParty"}'
+    'oauth-plano-nulo|{"loggedIn":true,"authMethod":"oauth_token","subscriptionType":null}'
+    'oauth-plano-desconhecido|{"loggedIn":true,"authMethod":"oauth_token","subscriptionType":"free"}'
+    'claudeai-plano-desconhecido|{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"outro"}'
     'lixo|isto nao e json '"$EMAIL"
     'vazia|'
     'lista|["'"$EMAIL"'"]'

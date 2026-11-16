@@ -42,7 +42,7 @@ precisam ser repetidas. Confira com `sudo dgclaw agente restricoes <agente>`.
 Contas Team e Enterprise do claude.ai não são compatíveis com as restrições nesta versão: uma organização pode passar a
 mandar uma política própria a qualquer momento, e ela substitui a configuração do DG Claw. Se o agente usa uma conta
 dessas, o comando `restricoes` recusa e para o agente; conecte uma conta pessoal (Pro ou Max) ou uma chave de API no painel
-do agente e rode o comando de novo. A consulta (`sudo dgclaw agente restricoes <agente>`) também passa a comparar o que está
+do agente e rode o comando de novo. Um token OAuth ou login por assinatura sem plano Pro ou Max legível também é recusado, porque pode ser de uma organização. A consulta (`sudo dgclaw agente restricoes <agente>`) também passa a comparar o que está
 aplicado com o que você pediu, e mostra `NAO VALE` quando uma restrição foi gravada e não chegou a ser aplicada.
 
 Um agente que tem restrições agora só liga (`dgclaw agente iniciar`) ou reinicia o runner (`dgclaw agente reiniciar`) depois de

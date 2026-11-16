@@ -267,8 +267,12 @@ não são compatíveis com as restrições nesta versão:
 | Conta | Resultado |
 | --- | --- |
 | `subscriptionType` team ou enterprise | falha: as restrições não valem e o container é parado |
-| `claude.ai` com login e sem plano legível, saída que não é JSON, vazia ou prazo estourado | falha, pela dúvida |
-| sem login, chave de API, token OAuth, Pro ou Max | segue (sem login o dono precisa do agente ligado para conectar a conta) |
+| login por assinatura (`claude.ai` ou token OAuth) sem plano `pro` ou `max` legível, saída que não é JSON, vazia ou prazo estourado | falha, pela dúvida |
+| sem login, chave de API, `claude.ai` ou token OAuth com plano Pro ou Max | segue (sem login o dono precisa do agente ligado para conectar a conta) |
+
+Um token OAuth de uma organização Team ou Enterprise recebe a política remota depois, então só um plano pessoal comprovado (Pro ou Max)
+libera a sessão; token sem plano legível vale como dúvida. A defesa é a recusa na conferência (ao aplicar, ao iniciar, ao reiniciar
+e, no runner, depois do login e antes de cada sessão); não há reconferência periódica com a sessão já aberta.
 
 Para resolver, em ordem (funciona com o agente parado, que é como o DG Claw o deixa, e o `reiniciar` recusa agente parado):
 
