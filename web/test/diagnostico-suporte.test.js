@@ -237,3 +237,20 @@ test('JSON malformado na lista de clientes não deixa nenhum trecho do arquivo (
   assert.ok(!r.stdout.includes('FAKEPR'));
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test('resposta 200 fora do formato vira erro só daquele cliente e o relatório continua', async () => {
+  const faz = (corpo) => servidor((req, res) => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(corpo)); });
+  const semResumo = await faz({ schema: 1 });
+  const verifObjeto = await faz(Object.assign(resposta('ok', []), { verificacoes: {} }));
+  const bom = await faz(resposta('ok', []));
+  const l = lista([{ nome: 'SemResumo', url: semResumo.url, token: TOKEN }, { nome: 'VerifObjeto', url: verifObjeto.url, token: TOKEN }, { nome: 'Bom', url: bom.url, token: TOKEN }]);
+  const r = await rodar(['--arquivo', l.arq]);
+  assert.equal(r.codigo, 2);
+  assert.match(r.stdout, /SemResumo\s+não consegui consultar/);
+  assert.match(r.stdout, /formato esperado \(campo resumo\)/);
+  assert.match(r.stdout, /formato esperado \(campo verificacoes\)/);
+  assert.match(r.stdout, /Bom\s+Tudo certo/);
+  assert.ok(!r.stderr.includes('TypeError'));
+  for (const x of [semResumo, verifObjeto, bom]) x.s.close();
+  l.limpa();
+});

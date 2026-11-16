@@ -108,6 +108,28 @@ function carregarClientes(caminho, httpLocal) {
 /** O servidor do cliente escreve esses textos: tira cor e caracteres de controle antes de ir para o terminal. */
 const limpa = (t) => String(t == null ? '' : t).replace(/\x1b\[[0-9;?]*[ -/]*[@-~]|[\x00-\x08\x0b-\x1f\x7f]/g, ' ');
 
+const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+/** Confere o que o relatório e o --detalhe leem. Devolve o nome do primeiro campo fora do formato, ou null. */
+function campoInvalido(d) {
+  if (d.schema !== 1) return 'schema';
+  if (!ehObjeto(d.resumo)) return 'resumo';
+  if (typeof d.resumo.estado !== 'string') return 'resumo.estado';
+  if (typeof d.resumo.frase !== 'string') return 'resumo.frase';
+  if (d.versao != null && !ehObjeto(d.versao)) return 'versao';
+  if (!Array.isArray(d.verificacoes)) return 'verificacoes';
+  for (const i of d.verificacoes) {
+    if (!ehObjeto(i)) return 'verificacoes (item que não é objeto)';
+    if (typeof i.estado !== 'string') return 'verificacoes[].estado';
+    if (i.evidencia != null && !ehObjeto(i.evidencia)) return 'verificacoes[].evidencia';
+    if (i.evidencia && i.evidencia.ocorrencias != null) {
+      if (!Array.isArray(i.evidencia.ocorrencias)) return 'verificacoes[].evidencia.ocorrencias';
+      if (i.evidencia.ocorrencias.some((o) => !ehObjeto(o))) return 'verificacoes[].evidencia.ocorrencias[]';
+    }
+  }
+  return null;
+}
+
 /** Lê o corpo aos pedaços e desiste ao passar de MAX_BYTES, sem guardar o resto. */
 async function lerCorpoLimitado(res) {
   const declarado = Number(res.headers.get('content-length'));
@@ -162,6 +184,10 @@ async function consultar(c) {
     const texto = lido.texto;
     let corpo = null;
     try { corpo = JSON.parse(texto); } catch (_) { /* resposta que não é JSON é tratada abaixo */ }
+    if (res.ok && corpo && corpo.schema) {
+      const campo = campoInvalido(corpo);
+      if (campo) return { cliente: c.nome, url: c.base, status: res.status, erro: `A resposta do cliente não está no formato esperado (campo ${campo}). Confira se o DG Claw dele está atualizado.` };
+    }
     if (res.ok && corpo && corpo.schema) return { cliente: c.nome, url: c.base, status: res.status, resposta: corpo };
     return { cliente: c.nome, url: c.base, status: res.status, erro: explicarStatus(res.status, corpo) };
   } catch (e) {
@@ -233,10 +259,15 @@ async function principal() {
   if (op.json) {
     process.stdout.write(`${JSON.stringify(resultados, null, 2)}\n`);
   } else {
-    for (const r of resultados) imprimirCliente(r, op.detalhe);
+    for (const r of resultados) {
+      try { imprimirCliente(r, op.detalhe); } catch (e) {
+        r.erro = 'A resposta do cliente não está no formato esperado e não pôde ser mostrada. Confira se o DG Claw dele está atualizado.';
+        imprimirCliente(r, op.detalhe);
+      }
+    }
   }
   if (resultados.some((r) => r.erro)) process.exit(2);
-  if (resultados.some((r) => r.resposta.resumo.estado !== 'ok')) process.exit(1);
+  if (resultados.some((r) => r.resposta && r.resposta.resumo.estado !== 'ok')) process.exit(1);
   process.exit(0);
 }
 
