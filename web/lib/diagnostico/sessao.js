@@ -73,7 +73,7 @@ function analisaLogin(ag, dados, tz) {
       return semMedida(`Não deu para conferir a conta ${doo(ag)}: o programa de login não está instalado ${admin(ag) ? 'no Admin' : 'nesse agente'}.`, {
         evidencia: evid('conferência da conta: programa ausente'),
         o_que_fazer: U.ONDE_COLAR,
-        prompt_sugerido: U.promptAdmin(`o programa de login ${dooP(ag)} não está instalado, então a conta não pôde ser conferida.`, '`dgclaw status` e o log do runner; se faltar mesmo, repare ou recrie o agente', cmd),
+        prompt_sugerido: U.promptAdmin(`o programa de login ${dooP(ag)} não está instalado, então a conta não pôde ser conferida.`, '`dgclaw status`', cmd),
       });
     }
     if (motivoConf === 'metodo_diferente') {
@@ -99,7 +99,7 @@ function analisaSessao(ag, dados, { agoraMs, tz, contMorto }) {
   const cmd = comandoDeReinicio(ag);
   const fix = (viu) => ({
     o_que_fazer: U.ONDE_COLAR,
-    prompt_sugerido: U.promptAdmin(viu, `\`dgclaw status\` e o log do runner`, cmd),
+    prompt_sugerido: U.promptAdmin(viu, '`dgclaw status`', cmd),
   });
   if (!saude || !saude.ok) {
     if (contMorto) return { estado: 'nao_medido', motivo: 'O container está parado, então o runner não responde e não deu para conferir a sessão.', ultimo_sinal: null, evidencia: null, o_que_fazer: null, prompt_sugerido: null };

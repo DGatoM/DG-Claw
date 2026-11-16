@@ -655,3 +655,57 @@ test('memória: o log da casa do agente sai só como categoria, nunca como linha
   assert.ok(!tudo.includes('Fulano') && !tudo.includes('cliente-confidencial') && !tudo.includes('/home/agente'));
   m.casa.limpa();
 });
+
+test('nenhum prompt_sugerido manda o Admin ler log, journal ou saída de dentro do container', async () => {
+  const PROIBIDOS = [/podman exec/i, /journalctl/i, /\.dgclaw\b/i, /\blogs?\b/i, /systemctl status/i, /\bcat\b/, /\btail\b/, /\bgrep\b/, /watchdog|memory-recall|session-context/i];
+  const dgDe = (casa) => path.join(casa.home, '.dgclaw');
+  const cenarios = [
+    { inspect: { State: { Status: 'exited', Running: false, ExitCode: 137, StartedAt: '2026-10-19T17:19:43Z', FinishedAt: '2026-10-20T10:00:00Z' }, HostConfig: { RestartPolicy: { Name: 'no' } } } },
+    { conmonVivo: false },
+    { runner: 'fora' },
+    { timers: [{ nome: 'reflection', ativo: 'inactive' }, { nome: 'build-wm', resultado: 'exit-code', codigo: 3 }, { nome: 'heartbeat', ultimoMs: AGORA - 30 * H }, { nome: 'proprio' }] },
+    { timers: [] },
+    { statfs: () => ({ bsize: 4096, blocks: 1000000, bfree: 40000, bavail: 40000 }), meminfo: 'MemTotal: 1000000 kB\nMemAvailable: 30000 kB\n', uptime: 3600, servicos: { 'dgclaw-web': { ActiveState: 'failed', SubState: 'failed', Result: 'exit-code', codigo: 1 }, caddy: { ActiveState: 'inactive', SubState: 'dead', Result: 'success' } } },
+    { registro: { ok: false, erro: 'x', agentes: [] } },
+    { atualizacao: { estado: { desligado: false, disponivel: true, publicado: { commit: 'b'.repeat(40), versao: '1.1.0', data: null }, instalado: { commit: 'a'.repeat(40), versao: '1.0.0' }, commits_a_frente: 2, verificado_em: new Date(AGORA - 3 * H).toISOString(), erro: 'falhou' } } },
+    {
+      whatsappAtivo: 'inactive',
+      provedor: { ok: true, dados: { conferido: { ok: true, em: new Date(AGORA).toISOString() }, canais: { telegram: 'ligado' } } },
+      saude: { ok: false, status: 401, erro: 'recusou' },
+      ajusta: (casa) => {
+        const dg = dgDe(casa);
+        fs.mkdirSync(path.join(dg, 'whatsapp'), { recursive: true });
+        fs.writeFileSync(path.join(dg, 'whatsapp', 'ligado'), '');
+        fs.writeFileSync(path.join(dg, 'whatsapp', 'estado.json'), JSON.stringify({ versao: 1, estado: 'erro', desde: new Date(AGORA - 2 * H).toISOString() }));
+        fs.writeFileSync(path.join(dg, 'canais.json'), JSON.stringify({ versao: 1, telegram: { ligado: true } }));
+        fs.writeFileSync(path.join(dg, 'logs', 'channel-watchdog.state'), 'dead 3 1792000000 1792000000\n');
+        fs.writeFileSync(path.join(dg, 'logs', 'memory-recall.log'), '[2026-10-21 08:00:00] erro ao buscar a memória\n');
+        fs.rmSync(path.join(casa.home, 'working-memory.md'));
+        fs.writeFileSync(path.join(dg, 'logs', '.tina-compact-state.json'), JSON.stringify({ last_compact_ts: new Date(AGORA - H).toISOString(), consecutive_fail: 5 }));
+        fs.writeFileSync(path.join(dg, 'logs', 'saude.json'), JSON.stringify({ estado: 'inativo', tipo: 'sem_resposta', frase: 'x', verificadoEm: new Date(AGORA - 60000).toISOString(), desde: new Date(AGORA - H).toISOString() }));
+      },
+    },
+    {
+      whatsappAtivo: 'inactive',
+      ajusta: (casa) => {
+        const dg = dgDe(casa);
+        fs.mkdirSync(path.join(dg, 'whatsapp'), { recursive: true });
+        fs.writeFileSync(path.join(dg, 'whatsapp', 'ligado'), '');
+        fs.writeFileSync(path.join(dg, 'whatsapp', 'estado.json'), JSON.stringify({ versao: 1, estado: 'conectado', desde: new Date(AGORA - 2 * H).toISOString() }));
+        fs.writeFileSync(path.join(dg, 'logs', 'saude.json'), JSON.stringify({ estado: 'ativo', tipo: 'ok', frase: 'x', verificadoEm: new Date(AGORA - 3 * H).toISOString() }));
+        fs.writeFileSync(path.join(casa.home, 'working-memory.md'), 'x'.repeat(15000));
+      },
+    },
+  ];
+  const itens = [];
+  for (const c of cenarios) {
+    const m = montar(c);
+    itens.push(...(await m.diag.coletar()).verificacoes);
+    m.casa.limpa();
+  }
+  const comPrompt = itens.filter((i) => i.prompt_sugerido);
+  assert.ok(comPrompt.length >= 15, `poucos prompts gerados (${comPrompt.length}): o teste não está cobrindo os cenários de falha`);
+  for (const i of comPrompt) {
+    for (const rx of PROIBIDOS) assert.ok(!rx.test(i.prompt_sugerido), `${i.id}: o prompt casa ${rx}: ${i.prompt_sugerido}`);
+  }
+});

@@ -55,7 +55,7 @@ function tarefasDaMaquina(ctx) {
         if (carga === 'not-found') {
           return R(s.critico ? 'quebrado' : 'atencao', `O serviço ${s.unit} não está instalado nesta máquina.`, {
             evidencia: { horario: null, codigo_saida: null, sinal: 'serviço não encontrado pelo systemd' },
-            ...conserta(`o serviço ${s.unit} não está instalado na máquina.`, `\`systemctl status ${s.unit}\``, 'dgclaw status'),
+            ...conserta(`o serviço ${s.unit} não está instalado na máquina.`, `\`systemctl is-active ${s.unit}\``, 'dgclaw status'),
           });
         }
         const entrouMs = U.dataSystemd(p.ActiveEnterTimestamp);
@@ -65,7 +65,7 @@ function tarefasDaMaquina(ctx) {
         const resultado = U.dentro(p.Result, U.ENUMS.resultado) || 'desconhecido';
         const ocorrencias = await ocorrenciasDoHost(exec, s.unit);
         const evid = { horario: U.iso(entrouMs), codigo_saida: codigo, sinal: `estado ${ativo}/${sub}, resultado ${resultado}`, ocorrencias };
-        const fix = conserta(`o serviço ${s.unit} da máquina está parado (estado ${ativo}, resultado ${resultado}).`, `\`systemctl status ${s.unit}\` e \`journalctl -u ${s.unit} -n 50\``, `systemctl restart ${s.unit}`);
+        const fix = conserta(`o serviço ${s.unit} da máquina está parado (estado ${ativo}, resultado ${resultado}).`, `\`systemctl is-active ${s.unit}\``, `systemctl restart ${s.unit}`);
         if (ativo === 'activating') return R('atencao', `O serviço ${s.unit} está subindo e ainda não terminou.`, { ultimo_sinal: U.iso(entrouMs), evidencia: evid, ...fix });
         return R('quebrado', `O serviço ${s.unit} está parado (${ativo}, resultado "${resultado}"${codigo != null ? `, código de saída ${codigo}` : ''}).`, { ultimo_sinal: U.iso(entrouMs), evidencia: evid, ...fix });
       },
@@ -92,14 +92,14 @@ function tarefasDaMaquina(ctx) {
         if (ativoTimer !== 'active') {
           return R(t.desligavel ? 'atencao' : 'quebrado', `A rotina está desligada (timer "${ativoTimer}").${t.desligavel ? ' Se foi o dono que desligou o aviso automático, não há o que fazer.' : ''}`, {
             ultimo_sinal: U.iso(ultimoMs), evidencia: { horario: U.iso(ultimoMs), codigo_saida: null, sinal: `timer ${ativoTimer}` },
-            ...conserta(`o timer ${t.unit} está desligado.`, `\`systemctl status ${t.unit}.timer\``, `systemctl enable --now ${t.unit}.timer`),
+            ...conserta(`o timer ${t.unit} está desligado.`, `\`systemctl list-timers ${t.unit}.timer\``, `systemctl enable --now ${t.unit}.timer`),
           });
         }
         if (resultado && resultado !== 'success') {
           const ocorrencias = await ocorrenciasDoHost(exec, t.unit);
           return R('quebrado', `A última execução falhou: resultado "${resultado}"${codigo != null ? `, código de saída ${codigo}` : ''}.`, {
             ultimo_sinal: U.iso(ultimoMs), evidencia: { horario: U.iso(ultimoMs), codigo_saida: codigo, sinal: `resultado ${resultado}`, ocorrencias },
-            ...conserta(`a rotina ${t.unit} falhou na última execução (resultado ${resultado}).`, `\`journalctl -u ${t.unit}.service -n 50\``, `systemctl start ${t.unit}.service`),
+            ...conserta(`a rotina ${t.unit} falhou na última execução (resultado ${resultado}).`, `\`systemctl is-active ${t.unit}.service\``, `systemctl start ${t.unit}.service`),
           });
         }
         if (ultimoMs && agora() - ultimoMs > t.maxMs) {

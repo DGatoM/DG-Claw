@@ -180,13 +180,22 @@ montados só com frases fixas do código e esses valores conferidos, e o `prompt
 slug. O nome de uma rotina só entra no prompt quando ela é da lista fechada das que o DG Claw instala; rotina própria
 ou desconhecida aparece só como título do item na tela, e o prompt dela usa um texto fixo. Assim texto escrito dentro de
 um container nunca chega a um prompt que o dono cola na conversa do Admin.
+O `prompt_sugerido` também nunca manda o Admin (que roda como root) ler conteúdo escrito pelo container: nada de log
+do agente, journal ou `systemctl status` de dentro do container, `podman exec` ou arquivo da casa do agente. Ele só
+pede para conferir comandos do servidor cuja saída é do próprio DG Claw (`dgclaw status`, `podman ps`, `df -h` e
+parecidos, de uma lista fechada). Quando o detalhe está num log do agente, o `o_que_fazer` diz ao dono onde olhar e
+avisa para não colar esse conteúdo no Admin.
 Por fim, o texto lido de fora tem tamanho máximo antes de qualquer análise (1000 caracteres por linha), para que
 um arquivo gigante não trave o painel. Os arquivos dentro da casa de cada agente só são lidos se forem arquivos
 comuns que ficam dentro dela (um link que aponte para fora é recusado) e só pelos campos permitidos.
 
 ## Limites
 
-- A resposta fica em cache por 20 segundos. Pedidos feitos ao mesmo tempo dividem a mesma coleta.
+- A resposta fica em cache por 20 segundos. Pedidos feitos ao mesmo tempo dividem a mesma coleta. Se a coleta anterior
+  ainda estiver encerrando, o último resultado só é reaproveitado até 2 minutos de idade; depois disso uma coleta nova
+  começa.
+- Cada consulta ao runner tem prazo total (herdado da verificação), é cancelada junto com ela, tem a conexão derrubada
+  ao vencer e a resposta é cortada em 256 KB. Um runner que manda dados sem parar não trava as coletas seguintes.
 - Cada verificação tem 5 segundos para responder. Se estourar, o item vira `nao_medido` e as outras seguem. A coleta
   inteira leva poucos segundos.
 - Tentativas com chave inválida são limitadas por IP (`429`).

@@ -159,7 +159,7 @@ async function conferir(ctx, ag, ledgerP, prazo) {
       motivo: `Não há nenhuma rotina automática instalada para ${ag.nome}. Sem elas a memória não é consolidada e o vigia da sessão não roda.`,
       ultimo_sinal: null, evidencia: null,
       o_que_fazer: U.ONDE_COLAR,
-      prompt_sugerido: U.promptAdmin(`o agente ${slug} está sem nenhuma rotina automática (timers dgclaw-${slug}-*) dentro do container.`, `\`podman exec dgclaw-${slug} systemctl list-timers --all\``, cmdReparar),
+      prompt_sugerido: U.promptAdmin(`o agente ${slug} está sem nenhuma rotina automática (timers dgclaw-${slug}-*) dentro do container.`, '`dgclaw status`', cmdReparar),
     } };
   }
   const unidades = timers.flatMap((t) => [t, t.replace(/\.timer$/, '.service')]);
@@ -204,8 +204,9 @@ async function conferir(ctx, ag, ledgerP, prazo) {
     // O prompt_sugerido só cita rotina da lista fechada NOMES (as que o DG Claw instala). Rotina própria ou
     // desconhecida vem do container, que pode estar comprometido: o texto é fixo e nenhum nome dela entra no prompt.
     const conhecida = Object.prototype.hasOwnProperty.call(NOMES, nome);
-    const conferirCom = conhecida ? `\`podman exec dgclaw-${slug} systemctl status ${servico}\`` : `\`podman exec dgclaw-${slug} systemctl list-timers --all\``;
-    const fixTexto = (viu, comando) => ({ o_que_fazer: U.ONDE_COLAR, prompt_sugerido: U.promptAdmin(viu, conferirCom, comando) });
+    // Nada de `podman exec` no prompt: a saída de dentro do container é escrita pelo agente e entraria no contexto root do Admin.
+    const dono = `com \`podman exec dgclaw-${slug} systemctl status ${conhecida ? servico : 'dgclaw-' + slug + '-*'}\``;
+    const fixTexto = (viu, comando) => U.conserta(viu, '`dgclaw status`', comando, dono);
     const rotina = conhecida ? `a rotina "${NOMES[nome]}" do agente ${slug}` : `uma rotina própria (que não é do DG Claw) do agente ${slug}`;
 
     if (ativoTimer !== 'active') {

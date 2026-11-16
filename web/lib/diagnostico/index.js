@@ -24,6 +24,8 @@ const ARQUIVO_DOCS = path.join(__dirname, '..', '..', 'docs', 'DIAGNOSTICO-REMOT
 const CACHE_MS = 20000;
 const LIMITE_PADRAO_MS = 5000;     // cada verificação
 const PRAZO_COLETA_MS = 12000;     // a coleta inteira
+const GRACA_MS = 3000;             // depois do prazo da coleta, quanto esperar o que ficou pendente antes de liberar
+const IDADE_MAXIMA_CACHE_MS = 120000; // além disso o último resultado não é devolvido no lugar de uma coleta nova
 const SCHEMA = 1;
 const GRAVIDADE = { ok: 0, nao_medido: 1, atencao: 2, quebrado: 3 };
 
@@ -32,8 +34,20 @@ function criarDiagnostico(deps) {
   // O prazo da verificação em curso viaja junto com a chamada assíncrona, para que todo exec (inclusive os das
   // verificações que não recebem o prazo como argumento) pare de criar subprocessos quando ele vence.
   const prazoAtual = new AsyncLocalStorage();
+  // Toda consulta ao runner feita pelo diagnóstico herda o prazo da verificação em curso (cancelamento, prazo total
+  // e teto de bytes), para um runner que nunca termina de responder não prender a coleta.
+  const LIMITE_BYTES_RUNNER = 262144;
+  const opcoesRunner = () => {
+    const p = prazoAtual.getStore();
+    return p ? { signal: p.signal, prazoMs: Math.max(1, Math.ceil(p.restanteMs())), maxBytes: LIMITE_BYTES_RUNNER } : { maxBytes: LIMITE_BYTES_RUNNER };
+  };
+  const runnerComPrazo = {
+    pedir: (ag, m, c, corpo, t) => runner.pedir(ag, m, c, corpo, t, opcoesRunner()),
+    estado: (ag) => runner.estado(ag, opcoesRunner()),
+    provedor: (ag, t, fresco) => runner.provedor(ag, t, fresco, opcoesRunner()),
+  };
   const ctx = {
-    config, runner, log,
+    config, runner: runnerComPrazo, log,
     exec: U.comPrazo(deps.exec || U.execPadrao, () => prazoAtual.getStore()),
     lerArquivo: deps.lerArquivo || lerSeguro,
     agora: deps.agora || (() => Date.now()),
@@ -47,6 +61,8 @@ function criarDiagnostico(deps) {
   ctx.tz = config.tz;
   const limiteMs = deps.limiteMs || LIMITE_PADRAO_MS;
   const prazoColetaMs = deps.prazoColetaMs || PRAZO_COLETA_MS;
+  const gracaMs = deps.gracaMs || GRACA_MS;
+  const idadeMaximaMs = deps.idadeMaximaMs || IDADE_MAXIMA_CACHE_MS;
 
   /**
    * Roda uma tarefa (uma vez só) com prazo próprio, dentro do prazo da coleta, e devolve o resultado já completo e
@@ -122,7 +138,7 @@ function criarDiagnostico(deps) {
     for (const t of tarefasDaMaquina(ctx)) add(t, 'maquina', null, `maquina.${t.sufixo}`);
     if (!reg.ok) {
       add({ nome: 'Registro de agentes', fn: async () => U.R('quebrado', 'Não consegui ler a lista de agentes. Sem ela o painel não sabe quem existe.', {
-        o_que_fazer: U.ONDE_COLAR, prompt_sugerido: U.promptAdmin('o registro de agentes (agentes.json) do DG Claw não pôde ser lido.', '`dgclaw agente listar` e o log do serviço dgclaw-web', 'dgclaw status'),
+        o_que_fazer: U.ONDE_COLAR, prompt_sugerido: U.promptAdmin('o registro de agentes (agentes.json) do DG Claw não pôde ser lido.', '`dgclaw agente listar`', 'dgclaw status'),
       }) }, 'maquina', null, 'maquina.registro');
     }
     add(tarefaDeVersao(ctx), 'versao', null, 'versao');
@@ -130,7 +146,7 @@ function criarDiagnostico(deps) {
     const admin = reg.ok ? reg.agentes.find((a) => a.tipo === 'admin') : null;
     if (admin) {
       add({ nome: 'Sessão do Admin', async fn() {
-        const [saude, estado, provedor] = await Promise.all([runner.pedir(admin, 'GET', '/api/saude', null, 4000), runner.estado(admin), runner.provedor(admin, 4000)]);
+        const [saude, estado, provedor] = await Promise.all([ctx.runner.pedir(admin, 'GET', '/api/saude', null, 4000), ctx.runner.estado(admin), ctx.runner.provedor(admin, 4000)]);
         const login = analisaLogin(admin, { estado, provedor }, ctx.tz);
         if (login.estado === 'quebrado') return login;
         const sessao = analisaSessao(admin, { saude, estado }, { agoraMs: ctx.agora(), tz: ctx.tz, contMorto: false });
@@ -191,7 +207,7 @@ function criarDiagnostico(deps) {
 
   async function coletar() {
     if (emAndamento) return emAndamento;
-    if (encerrando && cache) return cache.valor;
+    if (encerrando && cache && ctx.agora() - cache.em < idadeMaximaMs) return cache.valor;
     if (encerrando) await encerrando;
     if (emAndamento) return emAndamento;
     const coleta = { prazo: U.criarPrazo(prazoColetaMs), pendentes: [] };
@@ -199,7 +215,14 @@ function criarDiagnostico(deps) {
     emAndamento = minha;
     const solta = () => {
       if (emAndamento === minha) emAndamento = null;
-      const fim = Promise.allSettled(coleta.pendentes).then(() => {
+      // O que ainda estiver pendente depois do prazo mais a graça é abandonado: o cancelamento já foi mandado
+      // (e derruba a conexão), então `encerrando` nunca fica preso a uma consulta que não termina.
+      let timerGraca;
+      const fim = Promise.race([
+        Promise.allSettled(coleta.pendentes),
+        new Promise((resolve) => { timerGraca = setTimeout(resolve, Math.ceil(coleta.prazo.restanteMs()) + gracaMs); timerGraca.unref(); }),
+      ]).then(() => {
+        clearTimeout(timerGraca);
         coleta.prazo.abortar();
         coleta.prazo.encerrar();
         if (encerrando === fim) encerrando = null;

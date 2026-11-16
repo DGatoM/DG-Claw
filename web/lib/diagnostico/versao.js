@@ -57,7 +57,7 @@ function tarefaDeVersao(ctx) {
       if (Number.isFinite(verificadoMs) && agora() - verificadoMs > DOIS_DIAS_MS) {
         return Object.assign(R('atencao', `A procura por versão nova não roda há ${U.duracaoCurta(agora() - verificadoMs)}.`), base, {
           o_que_fazer: 'Cole o prompt na conversa do Admin para ele conferir o timer de verificação.',
-          prompt_sugerido: U.promptAdmin('a procura automática por versão nova do DG Claw não roda há mais de dois dias.', '`systemctl status dgclaw-checar-atualizacao.timer`', 'dgclaw atualizar --checar'),
+          prompt_sugerido: U.promptAdmin('a procura automática por versão nova do DG Claw não roda há mais de dois dias.', '`systemctl list-timers dgclaw-checar-atualizacao.timer`', 'dgclaw atualizar --checar'),
         });
       }
       return Object.assign(R('ok', null), base);

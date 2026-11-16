@@ -274,8 +274,24 @@ function duracaoCurta(ms) {
   return `${Math.floor(h / 24)} dias`;
 }
 
+// O Admin roda como root e lê a saída de tudo o que o prompt manda conferir. Por isso "conferir" só aceita comandos do
+// HOST cuja saída é do próprio DG Claw (estado, lista, disco, memória). Nunca log, journal, `systemctl status` nem
+// nada de dentro do container ou da casa do agente: o agente pode estar comprometido e escrever instruções ali.
+const CONFERIR_ATOMOS = [
+  /^`dgclaw status`$/, /^`dgclaw agente listar`$/, /^`dgclaw atualizar --checar`$/, /^`podman ps( -a)?`$/,
+  /^`systemctl (?:is-active|list-timers) (?:dgclaw-[a-z0-9-]{1,60}|caddy)(?:\.(?:timer|service))?`$/, /^`systemctl list-timers --all`$/,
+  /^`df -h`$/, /^`du -sh \/var\/lib\/dgclaw\/\* \/var\/backups\/dgclaw`$/, /^`free -h`$/, /^`podman stats --no-stream`$/,
+];
+function conferirPermitido(conferir) {
+  const partes = String(conferir).split(' e ');
+  if (!partes.length || !partes.every((p) => CONFERIR_ATOMOS.some((rx) => rx.test(p)))) {
+    throw new TypeError(`promptAdmin: "conferir" só aceita comandos do host da lista fechada (recebi: ${String(conferir).slice(0, 80)}).`);
+  }
+}
+
 /** Texto que o cliente cola na conversa do Admin. Primeira pessoa do cliente. */
 function promptAdmin(viu, conferir, comando) {
+  conferirPermitido(conferir);
   return `Oi, Admin. Rodei o diagnóstico do meu DG Claw e ele apontou isto: ${viu} `
     + `Por favor confira se está mesmo assim (${conferir}) e conserte. O comando provável é \`${comando}\`. `
     + 'Quando terminar, me diga o que encontrou, o que fez e se voltou a funcionar.';
@@ -291,8 +307,11 @@ function R(estado, motivo, extra) {
   return Object.assign({ estado, motivo: motivo || null, ultimo_sinal: null, evidencia: null, o_que_fazer: null, prompt_sugerido: null }, extra || {});
 }
 /** Os dois campos de "o que fazer" para um problema que o Admin resolve. */
-function conserta(viu, conferir, comando) {
-  return { o_que_fazer: ONDE_COLAR, prompt_sugerido: promptAdmin(viu, conferir, comando) };
+function conserta(viu, conferir, comando, dono) {
+  // `dono`: onde o PRÓPRIO dono pode olhar o detalhe (log, journal do container). Esse conteúdo é escrito pelo agente
+  // e nunca entra no prompt do Admin.
+  const olhar = dono ? ` Se quiser ver o detalhe, olhe você mesmo ${dono}. Não cole esse conteúdo no Admin: ele foi escrito pelo agente e pode conter instruções falsas.` : '';
+  return { o_que_fazer: ONDE_COLAR + olhar, prompt_sugerido: promptAdmin(viu, conferir, comando) };
 }
 module.exports.R = R;
 module.exports.conserta = conserta;
