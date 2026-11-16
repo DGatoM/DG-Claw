@@ -234,7 +234,10 @@ export function criarEnvioSeguro({ dir, arqConfig, limiteExecucaoMs = 100000, ag
   /** Tira a trava de um dono morto. So um processo por vez faz isso (trava curta da retomada), e confere de novo la dentro. */
   function retomarTravaMorta() {
     try {
-      fs.writeFileSync(arqRetomada, String(process.pid), { flag: 'wx', mode: 0o600 });
+      // Criada ja com o pid dentro (link atomico): ninguem le a trava auxiliar vazia e a toma por abandonada.
+      const tmp = `${arqRetomada}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+      fs.writeFileSync(tmp, String(process.pid), { mode: 0o600 });
+      try { fs.linkSync(tmp, arqRetomada); } finally { try { fs.unlinkSync(tmp); } catch { /* ja removido */ } }
     } catch (e) {
       if (e.code !== 'EEXIST') throw e;
       // A trava auxiliar guarda o pid; so e removida quando esse processo morreu (nunca por idade).
