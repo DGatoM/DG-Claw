@@ -32,7 +32,10 @@ function criarRunner({ log, timeoutMs }) {
    * Faz uma chamada. Devolve { ok, status, corpo } quando o runner respondeu (qualquer status)
    * ou { ok:false, erro } quando nem chegou lá.
    */
-  function chamar(agente, metodo, caminho, corpo, timeoutPedido) {
+  function chamar(agente, metodo, caminho, corpo, timeoutPedido, opcoes) {
+    // opcoes (só o diagnóstico usa): { signal, prazoMs, maxBytes }. O prazo é TOTAL (o timeout do http só mede
+    // inatividade, e um runner que manda fragmentos sem parar nunca o dispara); o signal cancela de fora.
+    const op = opcoes || {};
     return new Promise((resolve) => {
       const t = lerToken(agente);
       if (t.erro) { log('erro', t.erro); resolve({ ok: false, erro: t.erro, antesDoEnvio: true }); return; }
@@ -47,10 +50,30 @@ function criarRunner({ log, timeoutMs }) {
       if (t.token) headers.Authorization = `Bearer ${t.token}`;
       const lib = url.protocol === 'https:' ? https : http;
       let terminou = false;
-      const fim = (r) => { if (!terminou) { terminou = true; resolve(r); } };
-      const req = lib.request(url, { method: metodo, headers, timeout: timeoutPedido || limite }, (res) => {
+      let timerTotal = null;
+      let aoAbortar = null;
+      let req = null;
+      const fim = (r) => {
+        if (terminou) return;
+        terminou = true;
+        if (timerTotal) clearTimeout(timerTotal);
+        if (aoAbortar && op.signal) op.signal.removeEventListener('abort', aoAbortar);
+        resolve(r);
+      };
+      const derrubar = (erro) => { fim({ ok: false, erro }); if (req) req.destroy(); };
+      if (op.signal && op.signal.aborted) { derrubar(`A consulta ao runner de ${agente.nome} foi cancelada porque o prazo do diagnóstico acabou.`); return; }
+      req = lib.request(url, { method: metodo, headers, timeout: timeoutPedido || limite }, (res) => {
         const partes = [];
-        res.on('data', (c) => partes.push(c));
+        let bytes = 0;
+        res.on('data', (c) => {
+          bytes += c.length;
+          if (op.maxBytes && bytes > op.maxBytes) {
+            res.destroy();
+            derrubar(`A resposta do runner de ${agente.nome} passou de ${op.maxBytes} bytes e foi descartada.`);
+            return;
+          }
+          partes.push(c);
+        });
         res.on('end', () => {
           const texto = Buffer.concat(partes).toString('utf8');
           let json = null;
@@ -63,6 +86,14 @@ function criarRunner({ log, timeoutMs }) {
       // antesDoEnvio: a conexão nem abriu, então o pedido com certeza não chegou. Timeout e conexão
       // derrubada no meio (ECONNRESET, EPIPE) ficam sem a marca: o runner pode ter recebido.
       req.on('error', (e) => fim({ ok: false, antesDoEnvio: ERROS_ANTES_DO_ENVIO.has(e.code), erro: `Não consegui falar com o runner de ${agente.nome} em ${agente.runner} (${e.code || e.message}). Confira se o serviço do agente está rodando.` }));
+      if (op.prazoMs > 0) {
+        timerTotal = setTimeout(() => derrubar(`O runner de ${agente.nome} não terminou de responder em ${Math.round(op.prazoMs / 100) / 10} s (prazo total da consulta).`), op.prazoMs);
+        timerTotal.unref();
+      }
+      if (op.signal) {
+        aoAbortar = () => derrubar(`A consulta ao runner de ${agente.nome} foi cancelada porque o prazo do diagnóstico acabou.`);
+        op.signal.addEventListener('abort', aoAbortar, { once: true });
+      }
       if (dados) req.write(dados);
       req.end();
     });
@@ -70,8 +101,8 @@ function criarRunner({ log, timeoutMs }) {
 
   return {
     /** Estado do agente: { ok, estado:{status,sessionId,currentTool,...} } ou { ok:false, erro }. */
-    async estado(agente) {
-      const r = await chamar(agente, 'GET', `/api/agents/${encodeURIComponent(agente.agente_id)}`);
+    async estado(agente, opcoes) {
+      const r = await chamar(agente, 'GET', `/api/agents/${encodeURIComponent(agente.agente_id)}`, null, undefined, opcoes);
       if (!r.ok && r.erro) return r;
       if (!r.ok) return { ok: false, status: r.status, erro: motivoDoRunner(agente, r) };
       const dados = r.corpo && (r.corpo.data || r.corpo);
@@ -79,8 +110,8 @@ function criarRunner({ log, timeoutMs }) {
       return { ok: true, estado: dados };
     },
     /** GET /api/provedor do runner (sessão principal). Devolve { ok, dados } ou { ok:false, erro }. */
-    async provedor(agente, timeoutMs, fresco) {
-      const r = await chamar(agente, 'GET', fresco ? '/api/provedor?fresco=1' : '/api/provedor', null, timeoutMs);
+    async provedor(agente, timeoutMs, fresco, opcoes) {
+      const r = await chamar(agente, 'GET', fresco ? '/api/provedor?fresco=1' : '/api/provedor', null, timeoutMs, opcoes);
       if (!r.ok && r.erro) return r;
       if (!r.ok) return { ok: false, status: r.status, erro: r.status === 404 ? `O runner de ${agente.nome} não tem a rota /api/provedor (versão antiga).` : motivoDoRunner(agente, r) };
       const dados = r.corpo && (r.corpo.data && typeof r.corpo.data === 'object' ? r.corpo.data : r.corpo);
@@ -100,7 +131,7 @@ function criarRunner({ log, timeoutMs }) {
      * Chamada genérica (para rotas que o Web só repassa, como POST /api/provedor). Devolve
      * { ok, status, corpo, texto } quando o runner respondeu, ou { ok:false, erro } quando nem chegou lá.
      */
-    pedir(agente, metodo, caminho, corpo, timeoutPedido) { return chamar(agente, metodo, caminho, corpo, timeoutPedido); },
+    pedir(agente, metodo, caminho, corpo, timeoutPedido, opcoes) { return chamar(agente, metodo, caminho, corpo, timeoutPedido, opcoes); },
     /** Digita no agente. Devolve { ok, status, enfileirado } ou { ok:false, status, erro }. */
     async input(agente, corpo) {
       const r = await chamar(agente, 'POST', `/api/agents/${encodeURIComponent(agente.agente_id)}/input`, corpo);

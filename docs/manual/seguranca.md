@@ -220,6 +220,14 @@ aparelho (uma passkey). Vale para o dono e para cada colaborador, cada um com as
 faz login: ele só destrava uma sessão que já entrou com a senha, e "Entrar com a senha" é sempre a saída. Detalhes
 em [CADEADO.md](../../web/docs/CADEADO.md).
 
+## Suporte remoto
+
+A tela `/suporte` (menu **Suporte remoto**) cria uma chave de API de escopo `diagnostico` para quem dá suporte.
+Essa chave só lê o estado de saúde da máquina e dos agentes em `/api/v1/diagnostico`: não lê conversas, memória,
+cofre nem arquivos, e não opera nada. O valor aparece uma vez só. O dono revoga a chave quando quiser, pela mesma
+tela ou com `sudo dgclaw chave-api revogar <id>`, e ela deixa de valer na hora. O passo a passo está em
+[DIAGNOSTICO-REMOTO.md](../../web/docs/DIAGNOSTICO-REMOTO.md).
+
 ## O que a segurança do DG Claw não faz
 
 A lista completa está em [o-que-nao-faz.md](o-que-nao-faz.md). Os pontos que mais importam aqui:
