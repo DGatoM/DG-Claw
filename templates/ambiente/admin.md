@@ -238,3 +238,5 @@ versão nova, diga que o resumo está na faixa e pergunte se quer instalar agora
 `dgclaw atualizar` depois de um sim explícito dele**, e então siga `/opt/dgclaw/app/docs/ATUALIZAR.md`.
 `dgclaw atualizar --checar` confere na hora (mostra só as versões; para o resumo, mande o dono ver a faixa do painel), e `dgclaw atualizar --aviso desligar` desliga o aviso se o dono
 pedir. Detalhes: `/opt/dgclaw/app/docs/AVISO-DE-ATUALIZACAO.md`.
+
+- `dgclaw atualizar` só instala versão (tag `vX.Y.Z`) assinada pela chave do projeto. Se ele recusar por falta de assinatura, **não contorne** (nem com `--sem-baixar`, nem baixando na mão): conte ao dono o que a mensagem disse e espere a versão assinada. Na primeira adoção ele imprime a impressão digital da chave nova: mostre ao dono e peça que confira com a que o Danilo divulgou fora do repositório. Detalhes: `docs/ASSINATURA.md`.

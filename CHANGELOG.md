@@ -7,6 +7,29 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Correção de segurança: a atualização só instala versão assinada.** O `dgclaw atualizar` baixava o código do GitHub e rodava
+o `install.sh` dele como root sem conferir de onde vinha. Quem controlasse o repositório ou o clone executaria código como
+root em todos os servidores. Agora, quando o seu DG Claw tem a chave de assinatura do projeto (arquivo
+`seguranca/assinatura/allowed_signers`), a atualização instala a **tag de versão assinada mais nova** (`vX.Y.Z`) e recusa tag
+sem assinatura, tag assinada por outra chave e versão que tente remover ou trocar a chave sem a assinatura da chave anterior. A
+chave que vale é a do código já instalado, nunca a da versão nova. O `git` roda isolado nessa conferência, e o instalador só
+roda depois de conferir de novo que o clone está exatamente na versão assinada. Se a conferência recusar, a mensagem diz o que
+aconteceu e o que fazer, e nada é instalado. Detalhes e o passo a passo de quem assina: `docs/ASSINATURA.md`.
+Falhas reportadas por Renato Gracie (divulgação responsável).
+
+### Como atualizar (assinatura das versões)
+
+1. **A atualização em que a conferência passa a existir não tem como ser conferida.** A sua instalação ainda não tem a chave,
+   e ela chega junto com a versão nova. O comando mostra a impressão digital (`SHA256:...`) da chave que passa a valer.
+   Confira com a que o Danilo divulgou fora do repositório (aula, site ou mensagem direta); se for diferente, não siga e volte
+   com `sudo dgclaw atualizar --voltar <backup>`.
+2. **Para não depender nem desse momento**, peça o arquivo `allowed_signers` por um canal de confiança e rode
+   `sudo dgclaw atualizar --exigir-assinatura --chave-assinatura <arquivo>`.
+3. **Depois disso, cada atualização é conferida sozinha.** Se aparecer "versão nova SEM assinatura válida", não contorne:
+   espere a versão assinada e avise quem mantém o DG Claw. Quem precisa instalar algo sem assinatura atualiza o clone à mão e
+   usa `--sem-baixar`, sabendo que nesse caso nada é conferido.
+4. **A atualização passa a instalar a versão (tag) assinada mais nova**, e não mais a ponta da `main`.
+
 **Face ID no painel: uma trava opcional, ligada aparelho por aparelho.** Nova tela **Face ID** (no menu ☰, em `/face-id`).
 Quem liga o recurso num aparelho passa a ter o painel travado sozinho depois de alguns minutos sem uso (15 por padrão, de 1
 a 120 à sua escolha) e destrava com o rosto, a digital ou o código do aparelho (Face ID, Touch ID ou biometria, conforme o

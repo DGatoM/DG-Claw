@@ -416,4 +416,40 @@ dgclaw atualizar --sem-baixar --ok-do-dono >"$TMP/o11.txt" 2>&1; rc=$?
 igual "sai com 0" "0" "$rc"
 afirma "avisa que usou o HEAD do clone" grep -q 'uso o HEAD do clone' "$TMP/o11.txt"
 
+echo "assinatura: com a chave instalada, so se atualiza para tag assinada (simulacao, sem baixar nada)"
+sed -i '/^DGCLAW_COMMIT=/d' "$ETC/dgclaw.env"
+KD="$TMP/k-dono"; KA="$TMP/k-atacante"
+ssh-keygen -q -t ed25519 -N '' -C dono -f "$KD"; ssh-keygen -q -t ed25519 -N '' -C atacante -f "$KA"
+git -C "$CLONE" checkout -q -- . 2>/dev/null; git -C "$CLONE" reset -q 2>/dev/null
+mkdir -p "$CLONE/seguranca/assinatura"
+printf 'releases namespaces="git" %s\n' "$(cut -d' ' -f1,2 "$KD.pub")" >"$CLONE/seguranca/assinatura/allowed_signers"
+git -C "$CLONE" add seguranca; git -C "$CLONE" commit -q -m "traz a chave de assinatura"
+git -C "$CLONE" push -q origin HEAD:main
+echo "$(git -C "$CLONE" rev-parse HEAD)" >"$TMP/head-com-chave"
+git -C "$TRAB" pull -q --ff-only origin main 2>/dev/null || git -C "$TRAB" fetch -q origin
+git -C "$TRAB" reset -q --hard origin/main
+echo 'versao nova' >>"$TRAB/README.md"; git -C "$TRAB" commit -q -am "versao nova"
+git -C "$TRAB" tag -a -m "sem assinar" v9.0.0
+git -C "$TRAB" push -q origin HEAD:main --tags
+dgclaw atualizar --simular --ok-do-dono >"$TMP/o12.txt" 2>&1; rc=$?
+nega "tag nova SEM assinatura: a atualizacao recusa" test "$rc" -eq 0
+afirma "diz que nao tem assinatura valida e que nada foi instalado" grep -q 'SEM assinatura valida.*Nao instalei nada' "$TMP/o12.txt"
+afirma "nao fez backup nem mexeu em nada" bash -c "! grep -q 'Fazendo o backup' '$TMP/o12.txt'"
+git -C "$TRAB" tag -d v9.0.0 >/dev/null; git -C "$TRAB" push -q origin :refs/tags/v9.0.0
+git -C "$CLONE" tag -d v9.0.0 >/dev/null 2>&1
+git -C "$TRAB" -c gpg.format=ssh -c "user.signingkey=$KD" tag -s -m "versao" v9.0.1
+git -C "$TRAB" push -q origin --tags
+dgclaw atualizar --simular --ok-do-dono >"$TMP/o13.txt" 2>&1; rc=$?
+igual "tag nova assinada pela chave do projeto: a simulacao segue (0)" "0" "$rc"
+[ "$rc" -eq 0 ] || sed 's/^/      | /' "$TMP/o13.txt" | tail -n 20
+afirma "diz que a assinatura da v9.0.1 e valida" grep -q 'versao v9.0.1: assinatura valida' "$TMP/o13.txt"
+git -C "$TRAB" tag -d v9.0.1 >/dev/null; git -C "$TRAB" push -q origin :refs/tags/v9.0.1; git -C "$CLONE" tag -d v9.0.1 >/dev/null 2>&1
+echo 'mais um' >>"$TRAB/README.md"; git -C "$TRAB" commit -q -am "outra"
+git -C "$TRAB" -c gpg.format=ssh -c "user.signingkey=$KA" tag -s -m "do atacante" v9.0.2
+git -C "$TRAB" push -q origin HEAD:main --tags
+dgclaw atualizar --simular --ok-do-dono >"$TMP/o14.txt" 2>&1; rc=$?
+nega "tag assinada por OUTRA chave: recusa" test "$rc" -eq 0
+afirma "explica" grep -q 'SEM assinatura valida' "$TMP/o14.txt"
+nega "opcao inexistente em atualizar e recusada" dgclaw atualizar --simular --nao-existe
+
 fim

@@ -624,6 +624,13 @@ atualizar_o_que_muda() {
             para="$(_git rev-parse "origin/${DGCLAW_RAMO_OFICIAL:-main}" 2>/dev/null || true)"
         fi
     fi
+    # Assinatura: com a chave instalada, o destino e a tag assinada mais nova, nao a ponta da branch.
+    if [ "$ATU_SEM_BAIXAR" = 1 ]; then
+        info "--sem-baixar: nao conferi assinatura de nada, porque nao baixo nada; o instalador roda com o clone como esta."
+    else
+        assinatura_resolver "$para"
+        if [ -n "$ASS_DESTINO" ]; then para="$ASS_DESTINO"; fi
+    fi
     if [ -z "$para" ]; then
         aviso "nao achei a versao de destino para ler o que muda."
         _om_exigir_ok "nao consegui descobrir a versao de destino da atualizacao" ""
