@@ -333,6 +333,38 @@ git -C "$TRAB" add -A; git -C "$TRAB" commit -q -m "traz a chave"; publicar
 afirma "a adocao grava a chave da versao instalada" test -s "$ASS_ANCORA"
 afirma "e liga o marcador ativada" test -e "$ASS_ATIVADA"
 
+echo "tag leve falsa em ancestral nao congela as atualizacoes"
+monta com-chave
+C1="$(git -C "$TRAB" rev-parse HEAD)"
+git -C "$TRAB" tag v999.0.0 "$C1"
+novo_commit v2; assinar "$KD" v1.1.0; publicar
+C2="$(git -C "$TRAB" rev-parse HEAD)"
+resolver
+igual "sai com 0" "0" "$RC"
+igual "ainda acha a versao assinada" "$C2" "$DEST"
+
+echo "falha ao gravar a primeira ancora (chave de fora): nao instala"
+monta com-chave; rm -rf "$ASS_DIR"
+novo_commit v2; assinar "$KD" v1.1.0; publicar
+ATU_CHAVE_EXTERNA="$TMP/de-fora"; signers "$KD" >"$ATU_CHAVE_EXTERNA"
+(
+    assinatura_resolver ""
+    ENSAIO=0
+    DG_ETC_BAK="$ASS_DIR"; ASS_DIR="/proc/nao-existe/assinatura"; ASS_ANCORA="$ASS_DIR/allowed_signers"; ASS_ATIVADA="$ASS_DIR/ativada"
+    assinatura_persistir_antes
+) >"$TMP/s.txt" 2>&1
+nega "falha de escrita aborta antes do instalador" test "$?" -eq 0
+afirma "explica que nada foi instalado" grep -q 'Nada foi instalado' "$TMP/s.txt"
+(
+    assinatura_resolver ""
+    ENSAIO=0
+    assinatura_persistir_antes
+) >"$TMP/s.txt" 2>&1
+igual "com a pasta gravavel grava" "0" "$?"
+afirma "a ancora e o marcador existem" bash -c "[ -s '$ASS_ANCORA' ] && [ -e '$ASS_ATIVADA' ]"
+ATU_CHAVE_EXTERNA=""
+
+
 echo "volta (rollback): nao repete a conferencia da atualizacao"
 afirma "atualizar_voltar zera o estado de assinatura antes de reinstalar" bash -c "sed -n '/^atualizar_voltar()/,/^}/p' '$REPO/lib/atualizar.sh' | grep -q 'ATU_ASSINATURA=\"\"; ASS_DESTINO=\"\"'"
 afirma "o estado so e gravado depois que o instalador termina com sucesso" bash -c "sed -n '/^atualizar_rodar_install()/,/^}/p' '$REPO/lib/atualizar.sh' | tail -n 3 | grep -q assinatura_gravar_estado"

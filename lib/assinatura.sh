@@ -179,6 +179,25 @@ _ass_head_autenticado() {
     return 1
 }
 
+# _ass_persistir <arquivo de chaves> [commit]: grava a ancora, o marcador "ativada" e (se vier) o commit instalado.
+_ass_persistir() {
+    ( umask 022; mkdir -p "$ASS_DIR" && chmod 755 "$ASS_DIR" \
+        && cp "$1" "$ASS_ANCORA.novo" && chmod 644 "$ASS_ANCORA.novo" && mv -f "$ASS_ANCORA.novo" "$ASS_ANCORA" \
+        && date +%Y-%m-%d >"$ASS_ATIVADA" \
+        && { [ -z "${2:-}" ] || { printf '%s\n' "$2" >"$ASS_INSTALADO.novo" && mv -f "$ASS_INSTALADO.novo" "$ASS_INSTALADO"; }; } )
+}
+
+# assinatura_persistir_antes: com a chave entregue de fora (--chave-assinatura) e ainda sem ancora gravada, grava a ancora e
+# o marcador ANTES do instalador: se nao der, nada e instalado (senao a proxima rodada voltaria para a adocao).
+assinatura_persistir_antes() {
+    [ "$ATU_ASSINATURA" = ativa ] && [ "$ENSAIO" != 1 ] || return 0
+    [ -n "$ATU_CHAVE_EXTERNA" ] && [ -s "$ATU_ASSINATURA_CHAVE" ] || return 0
+    if [ -s "$ASS_ANCORA" ] && [ -e "$ASS_ATIVADA" ]; then return 0; fi
+    _ass_persistir "$ATU_ASSINATURA_CHAVE" "" \
+        || falha "nao consegui gravar a chave de assinatura em $ASS_DIR antes de instalar; sem ela o DG Claw voltaria a atualizar sem conferir." \
+                 "confira a permissao e o espaco de $DG_ETC e rode de novo. Nada foi instalado."
+}
+
 # assinatura_gravar_estado: depois que o instalador terminou com sucesso, grava (fora do clone) a chave que
 # vale, o marcador "ativada" e o commit instalado. Na primeira adocao, a chave e a da versao que acabou de ser
 # instalada (a impressao digital foi mostrada antes).
@@ -198,11 +217,9 @@ assinatura_gravar_estado() {
         *) rm -f "$tmp"; return 0 ;;
     esac
     if [ -n "$fonte" ]; then
-        ( umask 022; mkdir -p "$ASS_DIR" && chmod 755 "$ASS_DIR" \
-            && cp "$fonte" "$ASS_ANCORA.novo" && chmod 644 "$ASS_ANCORA.novo" && mv -f "$ASS_ANCORA.novo" "$ASS_ANCORA" \
-            && date +%Y-%m-%d >"$ASS_ATIVADA" \
-            && printf '%s\n' "$commit" >"$ASS_INSTALADO.novo" && mv -f "$ASS_INSTALADO.novo" "$ASS_INSTALADO" ) \
-            || aviso "nao consegui gravar a chave de assinatura em $ASS_DIR (a versao foi instalada). Confira a permissao da pasta; na proxima atualizacao o DG Claw tenta de novo."
+        _ass_persistir "$fonte" "$commit" \
+            || { rm -f "$tmp"; falha "instalei a versao, mas nao consegui gravar a chave de assinatura em $ASS_DIR; sem ela a proxima atualizacao nao seria conferida." \
+                 "confira a permissao e o espaco de $DG_ETC e rode de novo: sudo dgclaw atualizar --sem-baixar"; }
     fi
     rm -f "$tmp"
     return 0
@@ -257,13 +274,16 @@ assinatura_resolver() {
     for t in $tags; do
         commit="$(_ass_git rev-parse --verify --quiet "refs/tags/$t^{commit}")" || continue
         # mesma versao ou anterior a que esta instalada: nada a instalar (e as seguintes, mais velhas, tambem nao)
-        if [ "$commit" = "$atual" ] || _ass_git merge-base --is-ancestor "$commit" "$atual" 2>/dev/null; then break; fi
+        # Uma tag nao autenticada nunca decide nada: so a tag com assinatura valida pode encerrar a busca.
         if [ "$(_ass_git cat-file -t "refs/tags/$t" 2>/dev/null)" != tag ]; then
-            recusadas="$recusadas $t(tag sem assinatura)"; continue
+            if [ "$commit" != "$atual" ] && ! _ass_git merge-base --is-ancestor "$commit" "$atual" 2>/dev/null; then recusadas="$recusadas $t(tag sem assinatura)"; fi
+            continue
         fi
         if ! _ass_tag_valida "$t"; then
-            recusadas="$recusadas $t(assinatura invalida, de outra chave ou de outro formato)"; continue
+            if [ "$commit" != "$atual" ] && ! _ass_git merge-base --is-ancestor "$commit" "$atual" 2>/dev/null; then recusadas="$recusadas $t(assinatura invalida, de outra chave ou de outro formato)"; fi
+            continue
         fi
+        if [ "$commit" = "$atual" ] || _ass_git merge-base --is-ancestor "$commit" "$atual" 2>/dev/null; then break; fi
         if ! _ass_commit_chaves "$commit"; then
             falha "a versao assinada $t nao traz um arquivo de chaves valido ($ASS_ARQ_REL ausente, vazio ou ilegivel); instalar deixaria o DG Claw sem conferir assinatura nas proximas vezes." \
                   "nao instalei. Avise quem mantem o DG Claw: uma versao assinada nao pode remover a chave. Nada foi mudado."

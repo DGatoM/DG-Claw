@@ -205,6 +205,7 @@ atualizar_conferir() {
 atualizar_rodar_install() {
     local usuario dominio prov rc=0 args=()
     assinatura_exigir_head
+    assinatura_persistir_antes
     usuario="${DGCLAW_USUARIO:-$(_env_de "$DG_ETC/web.env" DGCLAW_PANEL_USER)}"
     [ -n "$usuario" ] || falha "nao descobri o usuario do painel (nem DGCLAW_USUARIO no dgclaw.env, nem DGCLAW_PANEL_USER no web.env)." \
         "diga qual e: sudo ./install.sh --usuario <nome> dentro do clone ($ATU_REPO) e depois rode de novo."
