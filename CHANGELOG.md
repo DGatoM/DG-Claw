@@ -16,6 +16,12 @@ aceita o número do comentário e o texto, confere que o comentário veio do scr
 lê a conta e a chave da configuração, nunca de quem pede. Se o Claude Code instalado for antigo e não conhecer as
 travas, o cron não roda e avisa você em vez de rodar solto. As rotinas de post e de consolidação foram examinadas e não
 recebem texto de terceiros no pedido, então ficaram como estavam.
+Mais travas na mesma rotina: a sessão não lê mais a configuração da conta, o token nem os cookies (só as pastas da
+persona e da memória); o scrape dos comentários passa a ser feito pelo próprio cron, antes da sessão, e se falhar nada
+é respondido e você é avisado; a seção "Instruções do dono" da memória de trabalho, que a rotina de posts obedece, é
+conferida depois da sessão e volta ao que era se algo mudou (só o marcador de "aplicado" é aceito); o registro de
+comentários respondidos passa a ter trava e reserva do número antes do envio, e a sessão não o edita; o cadastro de
+seguidores só aceita número de conta e nome de usuário em formato válido e nunca grava fora da própria pasta.
 Falhas reportadas por Renato Gracie (divulgação responsável).
 
 ### Como atualizar (comentários do Instagram)
@@ -25,7 +31,10 @@ Falhas reportadas por Renato Gracie (divulgação responsável).
    ao Admin para rodar `claude update` no agente. O aviso diz exatamente qual trava a versão antiga não tem.
 3. **Se você personalizou as instruções do Instagram** (`skills/instagram/comments.md` do seu agente), troque o passo de
    responder para usar `bash $DGCLAW_PLUGIN_ROOT/scripts/responder-comentario.sh "<id do comentário>" "<texto>"`. É o único
-   jeito que o cron agora permite, e ele já anota o comentário como respondido.
+   jeito que o cron agora permite, e ele já anota o comentário como respondido. Para pular um comentário, use
+   `responder-comentario.sh --pular "<id>"`, e retire do texto o passo de rodar o scrape, que agora é do cron.
+4. **Se você escreveu instruções do dono na memória de trabalho durante uma rodada de comentários**, a rotina as
+   desfaz (guarda a cópia em `data/rejeitadas/` e avisa). Escreva as instruções fora do horário do cron de comentários.
 
 **Ícone e texto sempre legíveis sobre fundo forte (regra geral de contraste).** Quando um botão ou selo muda para uma cor
 forte, como o botão de gravar áudio que fica vermelho durante a gravação, o ícone e o texto agora trocam sozinhos para
