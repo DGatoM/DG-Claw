@@ -142,6 +142,9 @@ _ass_ancora() {
 _ass_tag_ssh() {
     local obj
     obj="$(_ass_git cat-file tag "refs/tags/$1" 2>/dev/null)" || return 1
+    # O nome DENTRO do objeto assinado tem que ser o da referencia: senao uma tag antiga assinada, republicada com outro
+    # nome (v999.0.0), passaria a decidir a ordem das versoes.
+    [ "$(printf '%s\n' "$obj" | sed -n 's/^tag //p' | head -n 1)" = "$1" ] || return 1
     printf '%s\n' "$obj" | grep -q -- '^-----BEGIN SSH SIGNATURE-----' || return 1
     ! printf '%s\n' "$obj" | grep -qE -- '^-----BEGIN (PGP|SIGNED MESSAGE)'
 }

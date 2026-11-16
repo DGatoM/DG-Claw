@@ -813,4 +813,22 @@ nega "tag assinada por OUTRA chave: recusa" test "$rc" -eq 0
 afirma "explica" grep -q 'SEM assinatura valida' "$TMP/o14.txt"
 nega "opcao inexistente em atualizar e recusada" dgclaw atualizar --simular --nao-existe
 
+echo "assinatura: atualizacao REAL com tag assinada (estado ja gravado) conclui e regrava o estado, sem rollback"
+git -C "$TRAB" tag -d v9.0.2 >/dev/null 2>&1; git -C "$TRAB" push -q origin :refs/tags/v9.0.2 2>/dev/null; git -C "$CLONE" tag -d v9.0.2 >/dev/null 2>&1
+git -C "$CLONE" fetch -q origin; git -C "$CLONE" reset -q --hard origin/main
+echo "$(git -C "$CLONE" rev-parse HEAD)" >"$ETC/assinatura/instalado"
+git -C "$TRAB" fetch -q origin; git -C "$TRAB" reset -q --hard origin/main
+echo 'versao real' >>"$TRAB/README.md"; git -C "$TRAB" commit -q -am "versao real"
+git -C "$TRAB" -c gpg.format=ssh -c "user.signingkey=$KD" tag -s -m "versao" v9.0.3
+git -C "$TRAB" push -q origin HEAD:main --tags
+COMMIT_REAL="$(git -C "$TRAB" rev-parse HEAD)"
+parecer_segura
+dgclaw atualizar --ok-do-dono >"$TMP/o15.txt" 2>&1; rc=$?
+[ "$rc" -eq 0 ] || sed 's/^/      | /' "$TMP/o15.txt" | tail -n 25
+igual "atualizacao real assinada termina com 0" "0" "$rc"
+afirma "diz que concluiu" grep -q 'Atualizacao concluida' "$TMP/o15.txt"
+nega "a conferencia nao reclama do estado de assinatura" grep -q 'FALHOU etc/dgclaw/assinatura' "$TMP/o15.txt"
+nega "nao desfez a atualizacao" grep -qi 'voltei\|desfeita' "$TMP/o15.txt"
+igual "o commit instalado gravado e o da tag" "$COMMIT_REAL" "$(cat "$ETC/assinatura/instalado")"
+
 fim

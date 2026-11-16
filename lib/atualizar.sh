@@ -185,6 +185,10 @@ atualizar_conferir() {
                 if [ "$sha_atual" != "$hash" ] && ! modelo_admin_sha_de_fabrica "$hash" "$nome" "$ATU_REPO"; then
                     _atu_problema "$rel estava personalizado e foi alterado (o backup tem a sua versao: $b/admin.tar.gz)"
                 fi ;;
+            etc/dgclaw/assinatura/*)
+                # A atualizacao assinada regrava de proposito o commit instalado, o marcador e, na troca de chave,
+                # o arquivo de chaves (lib/assinatura.sh); a verificacao deles e a da propria assinatura.
+                if [ "$sha_atual" != "$hash" ]; then info "$rel foi atualizado pela conferencia de assinatura (esperado)"; fi ;;
             var/lib/dgclaw/web/sessoes.json|var/lib/dgclaw/agentes/*/home/*)
                 # Quem escreve aqui e o uso normal (conversas, memoria do agente): mudar nao e erro.
                 if [ "$sha_atual" != "$hash" ]; then

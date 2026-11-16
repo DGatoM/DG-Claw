@@ -365,6 +365,20 @@ afirma "a ancora e o marcador existem" bash -c "[ -s '$ASS_ANCORA' ] && [ -e '$A
 ATU_CHAVE_EXTERNA=""
 
 
+echo "tag antiga assinada republicada com outro nome nao esconde a versao nova"
+monta com-chave
+novo_commit v2; assinar "$KD" v1.1.0; publicar
+C2="$(git -C "$TRAB" rev-parse HEAD)"
+novo_commit v3; assinar "$KD" v1.2.0
+git -C "$TRAB" update-ref refs/tags/v999.0.0 "$(git -C "$TRAB" rev-parse refs/tags/v1.1.0)"
+publicar
+C3="$(git -C "$TRAB" rev-parse "v1.2.0^{commit}")"
+resolver
+igual "sai com 0" "0" "$RC"
+igual "o destino e a v1.2.0, nao a tag renomeada" "$C3" "$DEST"
+afirma "a conferencia de arquivos aceita a regravacao do estado de assinatura" grep -q 'etc/dgclaw/assinatura/\*)' "$REPO/lib/atualizar.sh"
+
+
 echo "volta (rollback): nao repete a conferencia da atualizacao"
 afirma "atualizar_voltar zera o estado de assinatura antes de reinstalar" bash -c "sed -n '/^atualizar_voltar()/,/^}/p' '$REPO/lib/atualizar.sh' | grep -q 'ATU_ASSINATURA=\"\"; ASS_DESTINO=\"\"'"
 afirma "o estado so e gravado depois que o instalador termina com sucesso" bash -c "sed -n '/^atualizar_rodar_install()/,/^}/p' '$REPO/lib/atualizar.sh' | tail -n 3 | grep -q assinatura_gravar_estado"
