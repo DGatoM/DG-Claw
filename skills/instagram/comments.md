@@ -2,10 +2,11 @@
 
 > **Dentro do cron de comentarios a sessao NAO tem Bash** (nem internet, nem acesso a conta). Tudo o que
 > abaixo aparece como comando `bash`/`python3` e feito pelo proprio cron: o scrape antes da sessao, e o envio
-> das respostas, o `--pular`, os eventos e o aviso ao dono depois dela. A sessao so le os arquivos, edita
-> `data/rodada/working-memory.md` (copia da memoria; o cron publica por secao e **nunca deixa uma instrucao
-> entrar**), edita `persona/followers/<id>.json` e `memory/relationships.json`, e **grava
-> `data/rodada/respostas.json`**:
+> das respostas, o `--pular`, os eventos e o aviso ao dono depois dela. A sessao so le os arquivos (persona,
+> memoria, SOUL, PERSONALITY, skill e o scrape da rodada), edita `persona/followers/<id>.json` e
+> `memory/relationships.json`, e **grava `data/rodada/respostas.json`**. Ela **nao escreve** em
+> `persona/working-memory.md`: as instrucoes do dono la sao so dele, e as secoes 'Hoje' e 'Pessoas Proximas'
+> sao atualizadas pela sua sessao principal, nao por este cron. O resumo da rodada o cron manda ao dono.
 > ```json
 > {"respostas": [
 >   {"commentId": "<numero>", "acao": "responder", "texto": "<resposta>", "evento": "comment_positive"},
@@ -125,8 +126,8 @@ bash $DGCLAW_PLUGIN_ROOT/scripts/ext-event.sh troll_comment
 
 ## 8. Memoria e relatorio
 
-Atualize `working-memory.md` (secoes **Hoje**, **Pessoas Proximas**, **Quero Falar
-com o <dono> Sobre**). Relatorio final:
+Fora do cron, atualize `working-memory.md` (secoes **Hoje**, **Pessoas Proximas**, **Quero Falar
+com o <dono> Sobre**). No cron isso nao e feito (veja o aviso no topo). Relatorio final:
 ```bash
 bash $DGCLAW_PLUGIN_ROOT/scripts/notify-owner.sh "Comentarios concluidos: N respondidos"
 ```

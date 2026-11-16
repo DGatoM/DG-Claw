@@ -21,10 +21,11 @@ leitura como `grep -r` furava o bloqueio da pasta de credenciais; ela não lê a
 cookies, e escreve só numa pasta de rodada (`data/rodada/`), nos cadastros de seguidores e em `memory/relationships.json`.
 Em vez de responder ela mesma, a sessão grava `data/rodada/respostas.json` e o próprio cron envia cada resposta pelo
 `responder-comentario.sh`. O scrape é feito pelo cron antes da sessão, para um arquivo da rodada, e só vira o oficial
-depois de conferido (data recente e posts processados); se falhar, nada é respondido e você é avisado. A memória de
-trabalho é publicada por seção a partir de uma cópia: qualquer seção com "instruções" no título (em qualquer nível de
-título) fica sempre como você escreveu, o que a sessão tentar colocar ali é descartado e guardado em `data/rejeitadas/`,
-e uma edição sua durante a rodada não se perde. Duas rodadas nunca rodam juntas. O registro de comentários respondidos
+depois de conferido (data recente e posts processados); se falhar, nada é respondido e você é avisado. A sessão
+não herda nenhuma configuração de permissão (um `allow` antigo, de usuário ou de projeto, não amplia o que ela faz), roda
+dentro da pasta da rodada e só lê o que foi liberado. **A sessão deixou de escrever na memória de trabalho** (e de marcar
+instruções como "aplicadas"): a seção "Instruções do dono" que a rotina de posts obedece só muda por você, e a atualização
+das seções "Hoje" e "Pessoas Próximas" fica para a sua sessão principal, não para esta rotina. Duas rodadas nunca rodam juntas. O registro de comentários respondidos
 tem trava e reserva do número antes do envio, e a reserva só é desfeita quando o Instagram recusa de verdade: se a
 conexão cair no meio e não der para saber se a resposta saiu, o número fica reservado, você é avisado e confere na
 conta (nunca há resposta em dobro). O cadastro de seguidores só aceita número de conta e nome de usuário em formato
@@ -40,8 +41,9 @@ Falhas reportadas por Renato Gracie (divulgação responsável).
    responder para usar `bash $DGCLAW_PLUGIN_ROOT/scripts/responder-comentario.sh "<id do comentário>" "<texto>"`. É o único
    jeito que o cron agora permite, e ele já anota o comentário como respondido. Para pular um comentário, use
    `responder-comentario.sh --pular "<id>"`, e retire do texto o passo de rodar o scrape, que agora é do cron.
-4. **Instruções do dono na memória de trabalho** continuam do jeito que você escreve. Se alguma vez a sessão de
-   comentários tentar escrever ali, a rotina descarta, guarda a cópia em `data/rejeitadas/` e avisa você.
+4. **Instruções do dono na memória de trabalho** continuam do jeito que você escreve, e a sessão de comentários não
+   escreve mais ali nem marca instrução como aplicada: uma instrução com a etiqueta `[comentarios]` vale em toda rodada
+   até você apagá-la.
 5. **Se você personalizou o prompt do cron de comentários**, saiba que a sessão não tem mais terminal: ela grava as
    decisões em `data/rodada/respostas.json` e o cron faz o scrape, o envio e o aviso.
 
