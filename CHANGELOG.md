@@ -16,6 +16,34 @@ passa do mínimo, o painel a corrige. Com isso o botão de perigo no tema escuro
 claro, e o verde de sucesso ficou um pouco mais escuro para o texto passar do mínimo sobre o fundo verde claro. Nada
 muda para quem não personalizou as cores, e o `dgclaw atualizar` padrão basta.
 
+**Suporte remoto: chave de diagnóstico só-leitura.** Quando algo para de funcionar, quem dá suporte
+ao seu DG Claw precisa saber o que está parado e por quê, e você não quer entregar a senha da sua
+máquina para isso. Agora você cria uma chave de suporte que faz uma coisa só: ler o diagnóstico de
+saúde (`GET /api/v1/diagnostico`), que lista quais serviços, agentes e rotinas estão funcionando e o
+motivo de cada falha. A chave não lê conversas, memória nem arquivos, e não consegue mudar nada: em
+qualquer outra rota do sistema ela recebe uma recusa. A máquina é sua, então você revoga a chave
+quando quiser e o acesso acaba na hora. A nova tela **Suporte remoto**, no menu, mostra as chaves
+(quando foram usadas pela última vez e de qual endereço), cria e revoga, e mostra o diagnóstico
+exatamente como o suporte o vê. O sistema guarda só uma marca de cada chave, então o token aparece
+uma única vez, na criação. Quem erra a chave 20 vezes em 10 minutos fica bloqueado por um tempo.
+
+### Como atualizar (diagnóstico remoto)
+
+Nada precisa ser feito para o resto do DG Claw continuar como está. Com a instalação padrão, também
+não há mudança de rede: o Caddy já repassa o cabeçalho da chave ao painel. Para usar o suporte remoto:
+
+1. **Crie a chave.** Pela tela: abra **Suporte remoto** no menu, deixe o nome "Suporte DG" (ou escolha
+   outro) e toque em **Criar chave**. Pelo terminal da máquina:
+   `sudo dgclaw chave-api criar --escopo diagnostico --nome "Suporte DG"`. Em qualquer caminho o token
+   aparece uma única vez: copie na hora e passe só para quem vai dar o suporte. Se perder, revogue e
+   crie outra.
+2. **Para revogar**, toque em **Revogar** ao lado da chave na tela, ou rode `sudo dgclaw chave-api listar`
+   para ver o código e `sudo dgclaw chave-api revogar <código>`. A chave para de valer na hora.
+3. **Se você colocou o Cloudflare Access (ou outro porteiro) na frente do painel**, libere o caminho
+   `/api/v1/diagnostico` para a chave passar. Sem isso o porteiro barra o pedido antes de ele chegar ao
+   DG Claw e o suporte recebe uma tela de login no lugar do diagnóstico. Quem usa a instalação padrão
+   não precisa fazer nada aqui.
+
 **Face ID no painel: uma trava opcional, ligada aparelho por aparelho.** Nova tela **Face ID** (no menu ☰, em `/face-id`).
 Quem liga o recurso num aparelho passa a ter o painel travado sozinho depois de alguns minutos sem uso (15 por padrão, de 1
 a 120 à sua escolha) e destrava com o rosto, a digital ou o código do aparelho (Face ID, Touch ID ou biometria, conforme o
