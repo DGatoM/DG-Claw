@@ -132,7 +132,6 @@ fi
 export DGCLAW_WORKSPACE="$WS"
 export DGCLAW_CONFIG="$CONFIG_ABS"
 CARIMBO="$WS/data/.scrape-ok"
-SCRAPE_JSON="$WS/data/scraped_comments.json"
 RODADA="$WS/data/rodada"
 aborta_scrape() {
     echo "[$(date '+%F %T')] ABORTADO: $1" >> "$LOG"
