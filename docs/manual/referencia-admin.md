@@ -63,6 +63,15 @@ mudar nada. Quem: Root. Detalhe geral em [ATUALIZAR.md](../ATUALIZAR.md) e no `d
 | `dgclaw colaborador revogar` | Tira o acesso e derruba as sessões da pessoa. Se ela conectou a conta de IA do agente, a conta continua conectada e o comando avisa | [agentes.md](agentes.md) |
 | `dgclaw colaborador ajuda` | Mostra o uso do comando | [agentes.md](agentes.md) |
 
+### Suporte DG: acesso temporário por chave SSH
+
+| Comando | Para que serve | Detalhe |
+| --- | --- | --- |
+| `dgclaw suporte ligar` | Libera o time de suporte por uma chave SSH temporária (`--chave '<linha>' [--dias N]`, padrão 7 dias, máximo 30). Depois do prazo o servidor recusa a chave sozinho | [PROJETO-DE-CLIENTE.md](../PROJETO-DE-CLIENTE.md) |
+| `dgclaw suporte desligar` | Tira as chaves do suporte e lista as sessões SSH de root abertas. Com `--derrubar-sessoes` encerra todas, menos a de quem roda o comando | [PROJETO-DE-CLIENTE.md](../PROJETO-DE-CLIENTE.md) |
+| `dgclaw suporte status` | Mostra as chaves do suporte, até quando valem, as vencidas e as sessões de root abertas | [PROJETO-DE-CLIENTE.md](../PROJETO-DE-CLIENTE.md) |
+| `dgclaw suporte limpar` | Tira só as chaves vencidas (um timer diário já faz isso) | [PROJETO-DE-CLIENTE.md](../PROJETO-DE-CLIENTE.md) |
+
 ### Painel: domínio, senha e primeiro acesso
 
 | Comando | Para que serve | Detalhe |
@@ -93,6 +102,14 @@ mudar nada. Quem: Root. Detalhe geral em [ATUALIZAR.md](../ATUALIZAR.md) e no `d
 | `dgclaw personalizacoes levantar` | Lista o que foi personalizado no programa (registro, clone, cópias do instalador, conversas do Admin) | [PERSONALIZAR.md](../PERSONALIZAR.md) |
 | `dgclaw personalizacoes conferir` | Confere o registro contra a versão nova e diz se algo cruza; não muda nada | [PERSONALIZAR.md](../PERSONALIZAR.md) |
 | `dgclaw personalizacoes concluir` | Marca o levantamento pendente como concluído | [PERSONALIZAR.md](../PERSONALIZAR.md) |
+
+### Chaves de API e suporte remoto
+
+| Comando | Para que serve | Detalhe |
+| --- | --- | --- |
+| `dgclaw chave-api criar` | Cria uma chave de API (`--nome "<nome>" --escopo diagnostico`); o valor aparece uma vez só | [DIAGNOSTICO-REMOTO.md](../../web/docs/DIAGNOSTICO-REMOTO.md) |
+| `dgclaw chave-api listar` | Lista as chaves: nome, final, último acesso e se foi revogada (`--json`) | [DIAGNOSTICO-REMOTO.md](../../web/docs/DIAGNOSTICO-REMOTO.md) |
+| `dgclaw chave-api revogar <id>` | A chave deixa de valer na hora; o registro continua na lista, com a data | [DIAGNOSTICO-REMOTO.md](../../web/docs/DIAGNOSTICO-REMOTO.md) |
 
 ### Ronda de segurança
 
@@ -237,6 +254,9 @@ Servidas pelo DG Claw Web. Quem: Dono, salvo o que a coluna disser. Colab só pa
 | `/api/v1/seguranca` | Avisos de segurança do DG Claw: `/boletins`, e por id `/adiar` e `/dispensar` | Dono. Caixa recebe 403 | [SEGURANCA-BOLETINS.md](../../web/docs/SEGURANCA-BOLETINS.md) |
 | `/api/v1/seguranca/ronda` | Resultado da ronda e os pedidos de aplicar, agendar e desfazer (`/ronda/:id/aplicar`) | Dono | [RONDA-PAINEL.md](../../web/docs/RONDA-PAINEL.md) |
 | `/api/v1/seguranca/emergencia` | Estado do botão de emergência e os pedidos `preparar`, `cortar` e `religar` | Dono | [RONDA-PAINEL.md](../../web/docs/RONDA-PAINEL.md) |
+| `/api/v1/chaves-api` | Chaves de API do suporte remoto: listar (GET), criar (POST, o token aparece uma vez só) e revogar (DELETE `?id=<código>`) | Dono. Caixa recebe 403 | [DIAGNOSTICO-REMOTO.md](../../web/docs/DIAGNOSTICO-REMOTO.md) |
+| `/api/v1/diagnostico` | Estado de saúde da máquina e de cada agente, só leitura (GET e HEAD); `/api/v1/diagnostico/docs.md` é público | Dono, ou chave de escopo `diagnostico` | [DIAGNOSTICO-REMOTO.md](../../web/docs/DIAGNOSTICO-REMOTO.md) |
+| `/suporte` | Tela Suporte remoto: criar, listar e revogar as chaves | Dono | [DIAGNOSTICO-REMOTO.md](../../web/docs/DIAGNOSTICO-REMOTO.md) |
 | `/api/v1/cadeado` | Face ID: estado, ligar, destravar, aparelhos, passkeys e tempo de trava; as rotas estão em `/api/v1/cadeado/docs.md` | Dono e colaborador, cada um só com as próprias passkeys. Caixa não alcança | [CADEADO.md](../../web/docs/CADEADO.md) |
 | `/face-id` | Tela Face ID: ligar neste aparelho, escolher o tempo e remover passkeys | Dono e colaborador | [CADEADO.md](../../web/docs/CADEADO.md) |
 

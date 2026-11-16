@@ -114,7 +114,7 @@ test('marca: rotas públicas do Web (sem sessão), logo SVG isolado, manifesto d
     const css = await t.c.get('/marca.css');
     assert.equal(css.status, 200); assert.match(css.headers['content-type'], /text\/css/);
     assert.match(css.texto, /--botao-fundo:#ff0000;/); assert.ok(!css.texto.includes(dir));
-    assert.ok(!css.texto.includes('botao-texto'));
+    assert.ok(!css.texto.includes('oops')); assert.match(css.texto, /--botao-texto:#(000000|ffffff|1b2430);/); // valor inválido ignorado; a regra de contraste escolhe a cor
     const logo = await t.c.get('/marca/logo');
     assert.equal(logo.status, 200); assert.equal(logo.headers['content-type'], 'image/svg+xml');
     assert.equal(logo.headers['x-content-type-options'], 'nosniff');

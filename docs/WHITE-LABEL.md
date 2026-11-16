@@ -61,7 +61,8 @@ Os campos são todos opcionais. O que você não escrever fica com o valor de f�
 - **Favicon** e **ícone do app**: o primeiro vai na aba do navegador, o segundo na tela de início do celular.
 - **Tema**: `"claro"` (padrão) ou `"escuro"`.
 - **Cores**: no formato `#RRGGBB`. Os nomes aceitos são `cor-fundo`, `cor-superficie`, `cor-texto`, `cor-texto-2`,
-  `cor-borda`, `cor-acento`, `cor-sobre-acento`, `cor-link`, `cor-perigo`, `cor-sucesso`, `cor-aviso`, `botao-fundo`,
+  `cor-borda`, `cor-acento`, `cor-sobre-acento`, `cor-link`, `cor-perigo`, `cor-sucesso`, `cor-aviso`, `cor-gravando`, `cor-atencao`, `cor-sobre-perigo`,
+  `cor-sobre-sucesso`, `cor-sobre-aviso`, `cor-sobre-gravando`, `cor-sobre-atencao`, `botao-perigo-fundo`, `botao-perigo-texto`, `botao-fundo`,
   `botao-texto`, `botao-borda`, `botao2-fundo`, `botao2-texto`, `campo-fundo`, `campo-texto`, `campo-borda`, `cartao-fundo`,
   `cartao-borda`, `login-fundo`, `login-pontos`, `logo-no`, `logo-centro`, `conversa-fundo`, `balao-meu-fundo`,
   `balao-meu-texto`, `balao-agente-fundo` e `balao-agente-texto`. O bloco `cores_escuro` vale só no tema escuro.
@@ -70,8 +71,9 @@ Os campos são todos opcionais. O que você não escrever fica com o valor de f�
 Algumas receitas:
 
 - Mudar todos os botões: `botao-fundo` e `botao-texto`.
-- Mudar o destaque do sistema inteiro (foco, abas ativas): `cor-acento` e `cor-sobre-acento`. Garanta contraste: texto claro
-  sobre um acento escuro, texto escuro sobre um acento claro.
+- Mudar o destaque do sistema inteiro (foco, abas ativas): `cor-acento` e `cor-sobre-acento`. O painel garante o contraste: se você trocar
+  um fundo e não escolher a cor do texto e do ícone, ele escolhe branco ou escuro (o que contrastar mais, 4,5:1 no mínimo); uma
+  cor de texto sua que não chega a 4,5:1 é corrigida.
 - Fundo azul na conversa: `"conversa-fundo": "#DCEBFA"`.
 
 ## Regras de segurança dos arquivos

@@ -5,7 +5,7 @@
    abrir rápido e para o app instalado ter o que mostrar. NUNCA mexe em /api/,
    /p/, /pv/, /login, /sair nem nas páginas de conversa (/a/...): conteúdo da conversa,
    painéis e sessão passam direto para a rede, sem cópia nenhuma. */
-const VERSAO = 'dgclaw-estaticos-v41';
+const VERSAO = 'dgclaw-estaticos-v43';
 const ESTATICOS = [
   '/conversa.css', '/chat.css', '/conversa.js', '/menu-lado.js', '/menu-lado.css', '/casca.js', '/casca.css', '/login-cartao.js', '/login-expirado.js', '/login-expirado.css', '/trilha-tela.js', '/rolagem.js', '/conversa-puro.js', '/tour.js',
   '/onboarding.js', '/onboarding.css',
@@ -23,7 +23,7 @@ const ESTATICOS = [
   '/colaboradores.js', '/colaboradores.css', '/trocar-senha.js',
   '/trava.js', '/face-id.js', '/face-id.css',
   '/anonimizar.js', '/anonimizar.css',
-  '/ds/tokens.css', '/ds/componentes.css', '/ds/carregando.css', '/ds/carregando.js', '/ds/icone.js', '/ds/marca.js', '/ds/icones.svg',
+  '/ds/tokens.css', '/ds/componentes.css', '/ds/carregando.css', '/ds/carregando.js', '/ds/icone.js', '/ds/contraste.js', '/ds/marca.js', '/ds/icones.svg',
   '/ds/fontes/geist-latin-wght-normal.woff2', '/ds/fontes/geist-latin-ext-wght-normal.woff2', '/ds/fontes/geist-mono-latin-wght-normal.woff2', '/ds/fontes/geist-mono-latin-ext-wght-normal.woff2',
   '/logs.js', '/logs.css',
   '/icons/icon-192.png', '/icons/icon-512.png', '/icons/apple-touch-icon.png',
