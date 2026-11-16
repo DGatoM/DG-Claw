@@ -21,6 +21,32 @@ export function arquivoDeRestricoes(): string {
 
 export type LeituraDeRestricoes = { ativa: false } | { ativa: true; erro?: string };
 
+function descreve(v: unknown): string {
+  const t = JSON.stringify(v);
+  return t === undefined ? "nada" : t.length > 60 ? `${t.slice(0, 60)}...` : t;
+}
+
+/** Mesmas regras de restricoes_validar em lib/restricoes.sh (menos a combinação, que é da CLI). Devolve o motivo ou null. */
+function esquemaInvalido(r: Record<string, unknown>): string | null {
+  const como = (campo: string, quer: string, v: unknown) =>
+    `"${campo}" precisa ser ${quer}, mas recebi ${descreve(v)}. O dono do servidor corrige com: dgclaw agente restricoes <nome-do-agente>`;
+  if (r.versao !== 1) return como("versao", "1", r.versao);
+  for (const campo of ["sem_bash", "sem_enviar_arquivo"]) {
+    const v = r[campo];
+    if (v !== undefined && typeof v !== "boolean") return como(campo, "true ou false", v);
+  }
+  const pastas = r.escrita_so_em;
+  if (pastas !== undefined && pastas !== null) {
+    if (!Array.isArray(pastas)) return como("escrita_so_em", "uma lista de pastas ou null", pastas);
+    if (pastas.length === 0) return como("escrita_so_em", "uma lista com pelo menos uma pasta (use null para gravar em qualquer lugar)", pastas);
+    const ruim = pastas.find(
+      (p) => typeof p !== "string" || p.length === 0 || p.startsWith("/") || p.startsWith(".") || /(^|\/)\.{1,2}(\/|$)/.test(p) || /[\u0000-\u001f\u007f]/.test(p),
+    );
+    if (ruim !== undefined) return como("escrita_so_em", "pastas relativas à casa do agente, sem \"..\", sem começar por \"/\" nem por ponto", ruim);
+  }
+  return null;
+}
+
 /**
  * Há restrição ativa? Arquivo ausente = não. Arquivo que existe e não dá para ler ou entender = SIM, com o
  * motivo (falha fechada): na dúvida o agente é tratado como restrito.
@@ -43,6 +69,9 @@ export function lerRestricoes(arquivo: string = arquivoDeRestricoes()): LeituraD
   }
   if (!j || typeof j !== "object" || Array.isArray(j)) return { ativa: true, erro: `${arquivo} não é um objeto JSON` };
   const r = j as Record<string, unknown>;
+  // Mesmas regras de restricoes_validar (lib/restricoes.sh): esquema inválido nunca vira "sem restrição".
+  const invalido = esquemaInvalido(r);
+  if (invalido) return { ativa: true, erro: `${arquivo} está inválido: ${invalido}` };
   const ativa = r.sem_bash === true || r.sem_enviar_arquivo === true || (r.escrita_so_em !== undefined && r.escrita_so_em !== null);
   return ativa ? { ativa: true } : { ativa: false };
 }

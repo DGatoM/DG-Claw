@@ -154,8 +154,10 @@ for (const p of soProtegidos ? [] : pastas) {
 
 // Protegido: vale para o caminho pedido normalizado E para o resolvido (atalho de uma pasta comum para
 // dentro de .dgclaw, por exemplo). Antes de qualquer liberacao, inclusive dentro das pastas liberadas.
-function protegido(abs) {
-  const rel = path.relative(casa, abs);
+// `base` é a raiz a partir da qual os componentes são lidos (a casa ou /tmp). Os arquivos de identidade só
+// valem na raiz da casa (`raizDaCasa`).
+function protegido(abs, base = casa, raizDaCasa = true) {
+  const rel = path.relative(base, abs);
   if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return null;
   const partes = rel.split(path.sep).filter(Boolean);
   for (const parte of partes) {
@@ -163,7 +165,7 @@ function protegido(abs) {
   }
   const nome = partes[partes.length - 1].toLowerCase();
   if (PROTEGIDOS_NOMES.has(nome)) return partes[partes.length - 1];
-  if (partes.length === 1 && PROTEGIDOS_RAIZ.has(nome)) return partes[0];
+  if (raizDaCasa && partes.length === 1 && PROTEGIDOS_RAIZ.has(nome)) return partes[0];
   return null;
 }
 const achado = protegido(alvo) || protegido(path.resolve(cwd, pedido));
@@ -176,7 +178,21 @@ if (achado) {
 // Fora da casa: nada, exceto /tmp no modo so-protegidos. O usuario agente tem sudo dentro da caixa e pode
 // ser dono de arquivos que o sistema executa (crontab em /var/spool/cron, sudoers.d, /opt/dgclaw...), entao
 // "libera o resto" vale so para a casa e /tmp. Com pastas, /tmp tambem fica fechado (como sempre).
-if (soProtegidos && dentro(alvo, resolve('/tmp')) && !protegido(alvo)) libera();
+// Dentro de /tmp vale a mesma proteção de nomes (.claude, settings, SKILL.md, bunfig.toml e afins), no
+// caminho resolvido e no pedido, relativos a /tmp ou a /tmp resolvido (se /tmp for atalho).
+const TMP_REAL = resolve('/tmp');
+const pedidoAbs = path.resolve(cwd, pedido);
+if (soProtegidos && dentro(alvo, TMP_REAL)) {
+  const achadoTmp =
+    protegido(alvo, TMP_REAL, false) || protegido(pedidoAbs, '/tmp', false) || protegido(pedidoAbs, TMP_REAL, false);
+  if (achadoTmp) {
+    bloqueia(
+      `${alvo} é um arquivo de configuração ou instrução do agente (${achadoTmp}), que só o dono altera, mesmo dentro de /tmp. ` +
+        'Não tente contornar; grave um arquivo comum em /tmp ou avise o dono se precisar de outra configuração.',
+    );
+  }
+  libera();
+}
 if (soProtegidos && dentro(alvo, casa)) libera();
 if (soProtegidos) {
   bloqueia(

@@ -113,6 +113,25 @@ test("restricoes.json inválido recusa (falha fechada)", async () => {
   assert.match(s.estado.error ?? "", /não é um objeto/);
 });
 
+test("restricoes.json com esquema inválido recusa, dizendo o campo e o que recebeu", () => {
+  const casos: Array<[string, RegExp]> = [
+    ['{"versao":1,"sem_bash":"true"}', /"sem_bash" precisa ser true ou false, mas recebi "true"/],
+    ['{"versao":1,"sem_enviar_arquivo":1}', /"sem_enviar_arquivo" precisa ser true ou false, mas recebi 1/],
+    ['{"versao":999}', /"versao" precisa ser 1, mas recebi 999/],
+    ['{"sem_bash":true}', /"versao" precisa ser 1, mas recebi nada/],
+    ['{"versao":1,"escrita_so_em":[]}', /"escrita_so_em"/],
+    ['{"versao":1,"escrita_so_em":["../fora"]}', /"escrita_so_em"/],
+  ];
+  for (const [conteudo, re] of casos) {
+    restringir(conteudo);
+    const r = lerRestricoes(ARQ_RESTRICOES);
+    assert.equal(r.ativa, true, conteudo);
+    assert.match((r as { erro?: string }).erro ?? "", re, conteudo);
+  }
+  restringir('{"versao":1,"sem_bash":true,"escrita_so_em":["relatorios"]}');
+  assert.deepEqual(lerRestricoes(ARQ_RESTRICOES), { ativa: true });
+});
+
 test("restricoes.json com tudo desligado não conta como restrição", async () => {
   restringir('{"versao":1,"sem_bash":false,"sem_enviar_arquivo":false,"escrita_so_em":null}');
   assert.deepEqual(lerRestricoes(ARQ_RESTRICOES), { ativa: false });
