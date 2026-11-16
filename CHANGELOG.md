@@ -16,12 +16,19 @@ aceita o número do comentário e o texto, confere que o comentário veio do scr
 lê a conta e a chave da configuração, nunca de quem pede. Se o Claude Code instalado for antigo e não conhecer as
 travas, o cron não roda e avisa você em vez de rodar solto. As rotinas de post e de consolidação foram examinadas e não
 recebem texto de terceiros no pedido, então ficaram como estavam.
-Mais travas na mesma rotina: a sessão não lê mais a configuração da conta, o token nem os cookies (só as pastas da
-persona e da memória); o scrape dos comentários passa a ser feito pelo próprio cron, antes da sessão, e se falhar nada
-é respondido e você é avisado; a seção "Instruções do dono" da memória de trabalho, que a rotina de posts obedece, é
-conferida depois da sessão e volta ao que era se algo mudou (só o marcador de "aplicado" é aceito); o registro de
-comentários respondidos passa a ter trava e reserva do número antes do envio, e a sessão não o edita; o cadastro de
-seguidores só aceita número de conta e nome de usuário em formato válido e nunca grava fora da própria pasta.
+Mais travas na mesma rotina: a sessão agora roda **sem terminal** (só ler e editar arquivos), porque até um comando de
+leitura como `grep -r` furava o bloqueio da pasta de credenciais; ela não lê a configuração da conta, o token nem os
+cookies, e escreve só numa pasta de rodada (`data/rodada/`), nos cadastros de seguidores e em `memory/relationships.json`.
+Em vez de responder ela mesma, a sessão grava `data/rodada/respostas.json` e o próprio cron envia cada resposta pelo
+`responder-comentario.sh`. O scrape é feito pelo cron antes da sessão, para um arquivo da rodada, e só vira o oficial
+depois de conferido (data recente e posts processados); se falhar, nada é respondido e você é avisado. A memória de
+trabalho é publicada por seção a partir de uma cópia: qualquer seção com "instruções" no título (em qualquer nível de
+título) fica sempre como você escreveu, o que a sessão tentar colocar ali é descartado e guardado em `data/rejeitadas/`,
+e uma edição sua durante a rodada não se perde. Duas rodadas nunca rodam juntas. O registro de comentários respondidos
+tem trava e reserva do número antes do envio, e a reserva só é desfeita quando o Instagram recusa de verdade: se a
+conexão cair no meio e não der para saber se a resposta saiu, o número fica reservado, você é avisado e confere na
+conta (nunca há resposta em dobro). O cadastro de seguidores só aceita número de conta e nome de usuário em formato
+válido e nunca grava fora da própria pasta.
 Falhas reportadas por Renato Gracie (divulgação responsável).
 
 ### Como atualizar (comentários do Instagram)
@@ -33,8 +40,10 @@ Falhas reportadas por Renato Gracie (divulgação responsável).
    responder para usar `bash $DGCLAW_PLUGIN_ROOT/scripts/responder-comentario.sh "<id do comentário>" "<texto>"`. É o único
    jeito que o cron agora permite, e ele já anota o comentário como respondido. Para pular um comentário, use
    `responder-comentario.sh --pular "<id>"`, e retire do texto o passo de rodar o scrape, que agora é do cron.
-4. **Se você escreveu instruções do dono na memória de trabalho durante uma rodada de comentários**, a rotina as
-   desfaz (guarda a cópia em `data/rejeitadas/` e avisa). Escreva as instruções fora do horário do cron de comentários.
+4. **Instruções do dono na memória de trabalho** continuam do jeito que você escreve. Se alguma vez a sessão de
+   comentários tentar escrever ali, a rotina descarta, guarda a cópia em `data/rejeitadas/` e avisa você.
+5. **Se você personalizou o prompt do cron de comentários**, saiba que a sessão não tem mais terminal: ela grava as
+   decisões em `data/rodada/respostas.json` e o cron faz o scrape, o envio e o aviso.
 
 **Ícone e texto sempre legíveis sobre fundo forte (regra geral de contraste).** Quando um botão ou selo muda para uma cor
 forte, como o botão de gravar áudio que fica vermelho durante a gravação, o ícone e o texto agora trocam sozinhos para

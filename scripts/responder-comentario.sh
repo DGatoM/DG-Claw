@@ -15,7 +15,8 @@
 #   - le a conta e o token da configuracao do agente, nunca de argumento;
 #   - limita o tamanho do texto (2200 caracteres, o teto do Instagram) e rejeita caractere de controle;
 #   - grava sozinho o registro (.replied_comments e data/comments.jsonl).
-# Saida: 0 respondeu; 2 entrada recusada (a mensagem diz o motivo); 1 falha ao falar com o Instagram.
+# Saida: 0 respondeu; 2 entrada recusada (a mensagem diz o motivo); 1 o Instagram recusou (nada publicado);
+#        5 resultado INCERTO (pode ter publicado; a reserva do id fica).
 set -uo pipefail
 
 CONFIG="${DGCLAW_CONFIG:-}"
@@ -109,12 +110,26 @@ printf '%s' "$TEXTO" >"$MSG_ARQ"
 # Reserva o id ANTES de enviar: se o processo for morto no meio, o pior caso e um comentario sem
 # resposta (volta so se o dono apagar a linha), nunca duas respostas.
 printf '%s\n' "$ID" >>"$REPLIED" || erro "nao consegui gravar $REPLIED (reserva do comentario $ID). Nao enviei nada. Confira permissao e espaco em disco." 1
-SAIDA="$(python3 "$DIR/ig-publish.py" reply-comment --comment-id "$ID" --message-file "$MSG_ARQ" --token-file "$TOKEN_ARQ" 2>&1)" || {
-    truncate -s "$TAM_ANTES" "$REPLIED" || echo "responder-comentario: ATENCAO: nao consegui desfazer a reserva de $ID em $REPLIED; apague a ultima linha na mao se quiser tentar de novo." >&2
-    echo "responder-comentario: o Instagram recusou a resposta ao comentario $ID: ${SAIDA:0:400}" >&2
-    echo "Nao gravei como respondido; ele volta na proxima rodada." >&2
-    exit 1
-}
+SAIDA="$(python3 "$DIR/ig-publish.py" reply-comment --comment-id "$ID" --message-file "$MSG_ARQ" --token-file "$TOKEN_ARQ" 2>&1)"
+RC_IG=$?
+if [ "$RC_IG" -ne 0 ]; then
+    case "$RC_IG" in
+        1|2)
+            # Recusa CONFIRMADA (a Graph API respondeu com erro, ou o script parou antes de enviar):
+            # nada foi publicado, entao a reserva pode ser desfeita.
+            truncate -s "$TAM_ANTES" "$REPLIED" || echo "responder-comentario: ATENCAO: nao consegui desfazer a reserva de $ID em $REPLIED; apague a ultima linha na mao se quiser tentar de novo." >&2
+            echo "responder-comentario: o Instagram recusou a resposta ao comentario $ID: ${SAIDA:0:400}" >&2
+            echo "Nao gravei como respondido; ele volta na proxima rodada." >&2
+            exit 1 ;;
+        *)
+            # Resultado DESCONHECIDO (rede caiu, tempo esgotado, erro 5xx, processo morto): o Instagram
+            # pode ter publicado. A reserva FICA, para nunca responder duas vezes ao mesmo comentario.
+            mkdir -p "$WS/data" 2>/dev/null && printf '%s %s\n' "$(date '+%F %T')" "$ID" >>"$WS/data/respostas-incertas.txt" 2>/dev/null
+            echo "responder-comentario: resultado INCERTO ao responder o comentario $ID (codigo $RC_IG): ${SAIDA:0:300}" >&2
+            echo "Mantive o id em .replied_comments para nao responder duas vezes. Confira na conta do Instagram: se a resposta NAO apareceu, apague a linha $ID de .replied_comments para ele voltar na proxima rodada." >&2
+            exit 5 ;;
+    esac
+fi
 
 mkdir -p "$WS/data"
 DGCLAW_ID="$ID" DGCLAW_TXT="$TEXTO" python3 -I -c '

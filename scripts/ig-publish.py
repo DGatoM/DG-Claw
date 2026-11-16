@@ -116,15 +116,30 @@ def publish_image(account, image_url, caption, token, wait=2):
 
 
 def reply_comment(comment_id, message, token):
-    r = requests.post(
-        f"{GRAPH}/{comment_id}/replies",
-        data={"message": message, "access_token": token},
-        timeout=60,
-    )
+    # Codigos de saida: 0 publicou | 1 o Instagram RECUSOU (4xx com erro da Graph API: nada foi
+    # publicado) | 4 resultado DESCONHECIDO (queda de rede, tempo esgotado ou erro 5xx: o servidor
+    # pode ter publicado a resposta). Quem chama so pode tentar de novo no codigo 1.
+    try:
+        r = requests.post(
+            f"{GRAPH}/{comment_id}/replies",
+            data={"message": message, "access_token": token},
+            timeout=60,
+        )
+    except requests.RequestException as e:
+        print(f"RESULTADO INCERTO: a chamada falhou no meio ({type(e).__name__}); o Instagram pode ter "
+              "publicado a resposta. Confira na conta antes de tentar de novo.", file=sys.stderr)
+        sys.exit(4)
+    if r.status_code >= 500:
+        print(f"RESULTADO INCERTO: o Instagram respondeu HTTP {r.status_code}; pode ter publicado a resposta. "
+              "Confira na conta antes de tentar de novo.", file=sys.stderr)
+        sys.exit(4)
     if r.status_code != 200:
         print(_graph_error(r), file=sys.stderr)
         sys.exit(1)
-    reply_id = r.json().get("id")
+    try:
+        reply_id = r.json().get("id")
+    except ValueError:
+        reply_id = None  # HTTP 200: a resposta FOI publicada, mesmo que o corpo nao seja JSON
     print(json.dumps({"ok": True, "replyId": reply_id, "commentId": comment_id}, ensure_ascii=False))
     return 0
 

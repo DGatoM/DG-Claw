@@ -210,8 +210,9 @@ def scrape_comments(ws, num_posts=None, num_days=3, output_file=None, cookie_fil
 
     posts = get_recent_posts(data_dir)
     if not posts:
-        print("ERRO: nenhum post publicado encontrado em data/posts.jsonl", file=sys.stderr)
-        return None
+        print("ERRO: nenhum post publicado encontrado em data/posts.jsonl. O scrape NAO foi feito e "
+              "o scraped_comments.json anterior, se existir, e velho: nao o use.", file=sys.stderr)
+        sys.exit(3)
 
     if num_posts:
         posts_to_process = posts[:num_posts]

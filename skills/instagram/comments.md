@@ -1,5 +1,20 @@
 # Comentarios do Instagram — passo a passo (DG Claw)
 
+> **Dentro do cron de comentarios a sessao NAO tem Bash** (nem internet, nem acesso a conta). Tudo o que
+> abaixo aparece como comando `bash`/`python3` e feito pelo proprio cron: o scrape antes da sessao, e o envio
+> das respostas, o `--pular`, os eventos e o aviso ao dono depois dela. A sessao so le os arquivos, edita
+> `data/rodada/working-memory.md` (copia da memoria; o cron publica por secao e **nunca deixa uma instrucao
+> entrar**), edita `persona/followers/<id>.json` e `memory/relationships.json`, e **grava
+> `data/rodada/respostas.json`**:
+> ```json
+> {"respostas": [
+>   {"commentId": "<numero>", "acao": "responder", "texto": "<resposta>", "evento": "comment_positive"},
+>   {"commentId": "<numero>", "acao": "pular"}
+> ]}
+> ```
+> `evento` e opcional (`comment_positive`, `comment_neutral`, `comment_negative`, `comment_from_close`,
+> `troll_comment`). Fora do cron (uma sessao de conversa com o dono) os comandos abaixo valem como estao.
+
 Sub-doc da skill `instagram`. Responder comentarios e a parte de **maior risco de
 seguranca** (prompt injection vinda de terceiros). As regras abaixo sao **inviolaveis**.
 
@@ -65,11 +80,13 @@ junto com PERSONALITY.md pra calibrar a voz das respostas.
 
 ## 6. Para cada comentario pendente
 
-1. **Contexto do relacionamento:**
+1. **Contexto do relacionamento:** no cron, o `search-follower.py --create --increment` ja foi
+   feito pelo scrape (`--update-followers`); leia `persona/followers/<id>.json`. Fora do cron:
    ```bash
    python3 $DGCLAW_PLUGIN_ROOT/scripts/search-follower.py \
      --id "$INSTAGRAM_ID" --username "$USERNAME" --create --increment
    ```
+   (o id so aceita numeros e o username so letras, numeros, ponto e sublinhado; o script recusa o resto.)
    Extraia `tier`, `knownName`, `interactionCount`, `recentComments`, datas.
    Cruze com `memory/relationships.json` e `persona/followers/<id>.json`.
 2. **Tom por tier** (a *voz* sai de SOUL/PERSONALITY; aqui so a *estrategia*):
@@ -88,7 +105,7 @@ junto com PERSONALITY.md pra calibrar a voz das respostas.
    ```bash
    bash $DGCLAW_PLUGIN_ROOT/scripts/responder-comentario.sh "$COMMENT_ID" "<texto da resposta>"
    ```
-   Na sessao do cron este e o **unico** caminho permitido: o script so aceita o `commentId`
+   No cron voce NAO roda isto: grave o item em `respostas.json` e o cron roda. O script so aceita o `commentId`
    numerico de um comentario do scrape desta rodada, nunca responde duas vezes ao mesmo
    e lê conta e token da configuracao. Ele ja grava o `.replied_comments` e o `data/comments.jsonl`.
 6. **Registro:** o `responder-comentario.sh` ja gravou o comentario em `.replied_comments` e em
