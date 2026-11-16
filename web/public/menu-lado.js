@@ -30,6 +30,7 @@
   /* Entradas fixas do menu: a tela de lembretes e a de avisos (valem para qualquer agente). */
   const LINK_LEMBRETES = { nome: 'Lembretes', ico: 'i-clock', href: '/lembretes' };
   const LINK_AVISOS = { nome: 'Avisos', ico: 'i-bell', href: '/avisos' };
+  const LINK_SUPORTE = { nome: 'Suporte remoto', ico: 'i-lifebuoy', href: '/suporte' };
   const LINK_MANUAL = { nome: 'Manual', ico: 'i-book', href: '/manual' };
   const LINK_SEGURANCA = { nome: 'Segurança', ico: 'i-shield', href: '/seguranca' };
   const LINK_CONECTAR = { nome: 'Conectar conta', ico: 'i-key', href: '/conectar' };
@@ -72,6 +73,7 @@
     if (caminho === '/mesa') return 'mesa';
     if (caminho === '/lembretes') return 'lembretes';
     if (caminho === '/avisos') return 'avisos';
+    if (caminho === '/suporte') return 'suporte';
     if (caminho === '/seguranca') return 'seguranca';
     if (caminho === '/manual' || caminho.startsWith('/manual/')) return 'manual';
     if (caminho === '/conectar') return 'conectar';
@@ -106,7 +108,7 @@
     { id: 'dia', nome: 'Dia a dia', ico: 'i-calendar', chaves: ['rotinas', 'lembretes', 'sessoes'] },
     { id: 'ferramentas', nome: 'Ferramentas', ico: 'i-package', chaves: ['skills', 'apps', 'conectar', 'faceid', 'anonimizar'] },
     { id: 'operacao', nome: 'Operação', ico: 'i-activity', chaves: ['status', 'operations', 'costs', 'logs'] },
-    { id: 'seguranca', nome: 'Segurança', ico: 'i-shield', chaves: ['seguranca', 'cofre', 'avisos', 'colaboradores'] },
+    { id: 'seguranca', nome: 'Segurança', ico: 'i-shield', chaves: ['seguranca', 'cofre', 'avisos', 'suporte', 'colaboradores'] },
   ];
   const GRUPO_CONEXOES = { id: 'conexoes', nome: 'Conexões', ico: 'i-globe' };
   const CHAVES_FIXAS = ['arquivos'];
@@ -119,7 +121,7 @@
       .map(l => ({ chave: chaveDoHref(l.href), nome: l.nome, ico: l.ico, href: l.href }));
     const id = ag && ag.id;
     const fixo = (chave, l, tour) => itens.push({ chave, nome: l.nome, ico: l.ico, href: comAgente(l.href, id), tour });
-    if (!colab) { fixo('lembretes', LINK_LEMBRETES, 'gm-lembretes'); fixo('avisos', LINK_AVISOS, 'gm-avisos'); fixo('seguranca', LINK_SEGURANCA, 'gm-seguranca'); itens.push({ chave: 'manual', nome: LINK_MANUAL.nome, ico: LINK_MANUAL.ico, href: LINK_MANUAL.href, tour: 'gm-manual' }); }
+    if (!colab) { fixo('lembretes', LINK_LEMBRETES, 'gm-lembretes'); fixo('avisos', LINK_AVISOS, 'gm-avisos'); fixo('suporte', LINK_SUPORTE, 'gm-suporte'); fixo('seguranca', LINK_SEGURANCA, 'gm-seguranca'); itens.push({ chave: 'manual', nome: LINK_MANUAL.nome, ico: LINK_MANUAL.ico, href: LINK_MANUAL.href, tour: 'gm-manual' }); }
     fixo('conectar', LINK_CONECTAR, 'gm-conectar');
     fixo('faceid', LINK_FACEID, 'gm-faceid');
     if (!colab) fixo('anonimizar', LINK_ANONIMIZAR, 'gm-anonimizar');
@@ -204,7 +206,7 @@
       alvo: '#mlMoldura', antes: abre, titulo: 'O menu do agente',
       oque: 'A foto, o nome e as páginas de ' + nome + ', sempre no lado esquerdo. No computador ele fica aberto o tempo todo; no celular abre pelo botão de menu (as três linhas).',
       como: (o.naConversa ? 'O item Conversa (esta tela) fica no alto.' : 'O item Conversa, no alto, leva de volta ao chat.') +
-        ' Os outros itens levam à Mesa, às Sessões de trabalho dele, à Tela (o navegador dele, onde você faz os logins), aos Lembretes, aos Avisos, à Segurança, à Anonimizar (documentos sem dados pessoais), aos Logs (só no Admin: o histórico do que cada agente fez), a Conectar conta (onde você conecta a conta do Claude de cada agente), ao Face ID (a trava do app com o rosto ou a digital, ligada aparelho por aparelho) e às páginas do painel dele. O Tutorial, aqui em cima, repete esta visita.',
+        ' Os outros itens levam à Mesa, às Sessões de trabalho dele, à Tela (o navegador dele, onde você faz os logins), aos Lembretes, aos Avisos, ao Suporte remoto, à Segurança, à Anonimizar (documentos sem dados pessoais), aos Logs (só no Admin: o histórico do que cada agente fez), a Conectar conta (onde você conecta a conta do Claude de cada agente), ao Face ID (a trava do app com o rosto ou a digital, ligada aparelho por aparelho) e às páginas do painel dele. O Tutorial, aqui em cima, repete esta visita.',
       porque: 'Assim a conversa e o painel de cada agente ficam no mesmo lugar, sem link escondido.',
     }];
     if (o.comTroca) {
@@ -402,7 +404,7 @@
     return { tipo: 'sem', texto: 'Este navegador não oferece a instalação por aqui. No Chrome ou no Edge, abra o menu do navegador e procure Instalar app. No Firefox para computador, o recurso não existe.' };
   }
 
-  if (!raiz.document) return { GRUPOS_MENU, GRUPO_CONEXOES, montaItens, organizaMenu, menuHtml, grupoHtml, grupoDaChave, corUso, quandoZeraUso, miniBarraUso, itemUso, ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, LINK_MANUAL, LINK_SEGURANCA, LINK_CONECTAR, LINK_FACEID, LINK_COLABORADOR, LINK_ANONIMIZAR, LINK_LOGS, mostraLogs, linkSessoes, linkTela, itemAgente, bolinhaMenu, seloDe, totalNaoLidas, totalPrecisam, horaCurta, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar };
+  if (!raiz.document) return { GRUPOS_MENU, GRUPO_CONEXOES, montaItens, organizaMenu, menuHtml, grupoHtml, grupoDaChave, corUso, quandoZeraUso, miniBarraUso, itemUso, ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, LINK_SUPORTE, LINK_MANUAL, LINK_SEGURANCA, LINK_CONECTAR, LINK_FACEID, LINK_COLABORADOR, LINK_ANONIMIZAR, LINK_LOGS, mostraLogs, linkSessoes, linkTela, itemAgente, bolinhaMenu, seloDe, totalNaoLidas, totalPrecisam, horaCurta, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar };
 
   /* ── Parte com DOM ─────────────────────────────────────────────────────── */
   const $ = id => document.getElementById(id);
@@ -814,5 +816,5 @@
       .catch(e => { console.warn('menu-lado: não consegui saber quem está logado (' + e.message + '); o menu segue sem o nome.'); });
   }
 
-  return { GRUPOS_MENU, GRUPO_CONEXOES, montaItens, organizaMenu, menuHtml, grupoHtml, grupoDaChave, abreGrupo, corUso, quandoZeraUso, miniBarraUso, itemUso, ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, LINK_MANUAL, LINK_SEGURANCA, LINK_CONECTAR, LINK_FACEID, LINK_COLABORADOR, LINK_ANONIMIZAR, LINK_LOGS, mostraLogs, linkSessoes, linkTela, itemAgente, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar, inicia, marca, extras, defineNaoLidas, totalNaoLidas, totalPrecisam, seloDe };
+  return { GRUPOS_MENU, GRUPO_CONEXOES, montaItens, organizaMenu, menuHtml, grupoHtml, grupoDaChave, abreGrupo, corUso, quandoZeraUso, miniBarraUso, itemUso, ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, LINK_SUPORTE, LINK_MANUAL, LINK_SEGURANCA, LINK_CONECTAR, LINK_FACEID, LINK_COLABORADOR, LINK_ANONIMIZAR, LINK_LOGS, mostraLogs, linkSessoes, linkTela, itemAgente, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar, inicia, marca, extras, defineNaoLidas, totalNaoLidas, totalPrecisam, seloDe };
 });
