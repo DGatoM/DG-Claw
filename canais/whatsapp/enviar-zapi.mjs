@@ -8,7 +8,8 @@
 //        ou {"ok":false,"codigo":"...","erro":"motivo em portugues, com o que fazer"}.
 // Codigo de saida 0 quando enviou, 1 quando recusou ou falhou, 2 quando o comando foi mal usado.
 // Chaves no ambiente: ZAPI_INSTANCE, ZAPI_TOKEN, ZAPI_CLIENT_TOKEN (vem do cofre do agente).
-// Estado e config ficam em ~/.dgclaw/whatsapp/zapi/ e ~/.dgclaw/whatsapp/envio.json (a config e a mesma da ponte).
+// Estado e config ficam em ~/.dgclaw/whatsapp/envio/ e ~/.dgclaw/whatsapp/envio.json, os mesmos da ponte:
+// ponte e Z-API contam como UM so remetente (mesmo ritmo, mesmo teto, mesma trava).
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -45,7 +46,7 @@ export async function executar(argv, { env = process.env, home = os.homedir(), s
   const dirBase = path.join(home, '.dgclaw', 'whatsapp');
   const registrar = (m) => process.stderr.write(`whatsapp-zapi: ${String(m).replace(/[\r\n]+/g, ' ')}\n`);
   const envio = criarEnvioSeguro({
-    dir: path.join(dirBase, 'zapi'), arqConfig: path.join(dirBase, 'envio.json'), agora, dormir, aleatorio, registrar,
+    dir: path.join(dirBase, 'envio'), arqConfig: path.join(dirBase, 'envio.json'), agora, dormir, aleatorio, registrar,
   });
   const cmd = a._[0];
 

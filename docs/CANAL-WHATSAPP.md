@@ -81,8 +81,7 @@ fora do backup.
 | `codigo` | ponte, no pareamento | uma linha, `ABCD-1234`. Apagado quando o pareamento termina ou expira. |
 | `ultimo.json` | ponte | `{"numero":"+55...","ts":"<iso>"}`: quem mandou a última mensagem aceita (informativo; não decide destino) |
 | `envio.json` | dono (opcional) | configuração das travas contra banimento (abaixo). Sem o arquivo, valem os padrões |
-| `envio/` | ponte | histórico de envios (só hora e hashes, nunca número nem texto) e o arquivo `PARADO` quando há trava |
-| `zapi/` | script da Z-API | o mesmo que `envio/`, para quem usa a Z-API |
+| `envio/` | ponte e script da Z-API | histórico de envios (só hora e hashes, nunca número nem texto), a trava `PARADO` e o marcador `PENDENTE`. A ponte e a Z-API usam a mesma pasta: contam como um só remetente, com o mesmo ritmo, teto e trava |
 | `lids.json` | ponte | `{"versao":1,"lids":{"123@lid":"+55..."}}`: mapa de LID para número (600, escrita atômica) |
 
 Valores de `estado`: `aguardando_codigo` (pareamento pedindo o código), `codigo_pronto` (código no

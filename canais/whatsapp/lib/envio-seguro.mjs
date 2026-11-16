@@ -370,7 +370,6 @@ export function criarEnvioSeguro({ dir, arqConfig, agora = () => new Date(), dor
     }
     try {
       resultado = await executar();
-      try { fs.unlinkSync(arqPendente); } catch { /* ja removido */ }
     } catch (e) {
       travar(`o envio falhou (${motivoErro(e)}); pode ser desconexao ou bloqueio do numero`);
       return falha('FALHA_ENVIO', `o envio falhou (${motivoErro(e)}) e os envios ficaram TRAVADOS por seguranca. A mensagem pode ou nao ter saido: nao repita. Avise o dono, que confere o numero no celular e libera com "dgclaw-agente canal whatsapp retomar"`);
@@ -379,6 +378,8 @@ export function criarEnvioSeguro({ dir, arqConfig, agora = () => new Date(), dor
     envios.push({ t: agoraMs, p: pessoa, h: hTexto, d: disparo });
     try {
       gravarEstado({ versao: 1, envios: envios.filter((e) => agoraMs - e.t < DIA * 30) });
+      // So agora o resultado esta conhecido E contado: o marcador pode sair. Qualquer falha antes disso o preserva.
+      try { fs.unlinkSync(arqPendente); } catch { /* ja removido */ }
     } catch (e) {
       // A mensagem JA saiu. Sem historico as travas de ritmo ficariam cegas, entao trava o resto.
       travar(`nao consegui gravar o historico de envios em ${arqEstado} (${motivoErro(e)}); confira o espaco em disco e as permissoes`);

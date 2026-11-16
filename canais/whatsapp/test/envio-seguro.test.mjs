@@ -402,3 +402,30 @@ test('sucesso nao deixa PENDENTE; pasta sem escrita recusa antes de enviar', asy
   assert.ok(m.envio.paradoMotivo());
   m.limpar();
 });
+
+test('marcador PENDENTE so sai depois do historico gravado; se o historico falha, ele fica', async () => {
+  const m = montar();
+  await m.envio.enviar({ para: A, texto: 'primeira mensagem para a Ana', executar: async () => {
+    fs.mkdirSync(path.join(m.home, 'envio', `estado.json.${process.pid}.tmp`), { recursive: true }); // gravar o historico falha
+    return {};
+  } });
+  assert.equal(fs.existsSync(path.join(m.home, 'envio', 'PENDENTE')), true);
+  const outro = criarEnvioSeguro({ dir: path.join(m.home, 'envio'), arqConfig: m.arqConfig });
+  assert.ok(outro.paradoMotivo());
+  m.limpar();
+});
+
+test('ponte e Z-API dividem o mesmo estado: texto repetido e trava valem entre elas', async () => {
+  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'zapi-')));
+  const ponte = criarEnvioSeguro({ dir: path.join(home, '.dgclaw', 'whatsapp', 'envio'), arqConfig: path.join(home, '.dgclaw', 'whatsapp', 'envio.json') });
+  const texto = 'Oi, tudo bem? Passando para avisar da reuniao';
+  assert.equal((await ponte.enviar({ para: A, texto, executar: async () => ({}) })).ok, true);
+  const env = { ZAPI_INSTANCE: 'I', ZAPI_TOKEN: 'T', ZAPI_CLIENT_TOKEN: 'C' };
+  const fetchImpl = async () => ({ ok: true, status: 200, json: async () => ({ messageId: 'M' }) });
+  let r = await executar(['enviar', '--para', B, '--texto', texto], { env, home, fetchImpl, dormir: async () => {} });
+  assert.equal(r.resposta.codigo, 'TEXTO_REPETIDO');
+  ponte.travar('teste');
+  r = await executar(['enviar', '--para', B, '--texto', 'outro texto bem diferente do anterior'], { env, home, fetchImpl, dormir: async () => {} });
+  assert.equal(r.resposta.codigo, 'PARADO');
+  fs.rmSync(home, { recursive: true, force: true });
+});
