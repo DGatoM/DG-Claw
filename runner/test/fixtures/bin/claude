@@ -21,6 +21,9 @@ function registrar(extra) {
 
 if (argv[0] === "auth" && argv[1] === "status") {
   registrar({ modo: "auth-status" });
+  // FAKE_CLAUDE_STATUS_ATRASO_MS: simula uma conferência lenta (testes de concorrência).
+  const atraso = Number(process.env.FAKE_CLAUDE_STATUS_ATRASO_MS || 0);
+  if (atraso > 0) require("node:child_process").spawnSync("sleep", [String(atraso / 1000)]);
   process.stdout.write(
     process.env.FAKE_CLAUDE_STATUS ||
       JSON.stringify({

@@ -44,11 +44,17 @@ fi
 # --- Modelo dos comentarios (default sonnet) ---
 COMMENTS_MODEL="sonnet"
 if [ -f "$IG_JSON" ]; then
-    COMMENTS_MODEL=$(python3 -c "import json;print(json.load(open('$IG_JSON')).get('commentsModel') or 'sonnet')" 2>>"$LOG") || {
+    COMMENTS_MODEL=$(python3 -I -c "import json;print(json.load(open('$IG_JSON')).get('commentsModel') or 'sonnet')" 2>>"$LOG") || {
         echo "[$(date '+%F %T')] aviso: nao consegui ler commentsModel em $IG_JSON; usando o modelo padrao sonnet. Confira se o JSON esta valido." >> "$LOG"
         COMMENTS_MODEL="sonnet"
     }
 fi
+
+# Restricoes do dono: com restricao ativa, so roda se a conta de IA for compativel (a mesma regra do runner) e o
+# motor recebe as ferramentas negadas. Recusa = exit 1, antes do scrape e sem chamar o claude.
+# shellcheck disable=SC1091
+. "$PLUGIN/scripts/_lib/restricoes-rotina.sh"
+restricoes_conferir_rotina "comentarios ${SLUG} ${HORA}" "$LOG" || exit 1
 
 echo "[$(date '+%F %T')] Iniciando comentarios ${SLUG} (${HORA}, model=$COMMENTS_MODEL)" >> "$LOG"
 bash "$PLUGIN/scripts/notify-owner.sh" "Cron de comentarios (${HORA}) iniciado ($NAME)" >/dev/null 2>&1 \
@@ -211,6 +217,7 @@ fi
         "Edit(/$WS/data/rodada/respostas.json)" \
     --disallowedTools "Bash" "WebFetch" "WebSearch" "Task" "Agent" "NotebookEdit" "Grep" "Glob" \
         "${NEGAR_LEITURA[@]}" \
+    "${RESTRICAO_DENY_ARGS[@]}" \
     --model "$COMMENTS_MODEL" \
     -p "$PROMPT" >> "$LOG" 2>&1
 RC=$?

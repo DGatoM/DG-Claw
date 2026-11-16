@@ -51,6 +51,7 @@ mudar nada. Quem: Root. Detalhe geral em [ATUALIZAR.md](../ATUALIZAR.md) e no `d
 | `dgclaw agente cofre` | Guarda, revoga, lista ou aplica chaves de API do agente (`guardar`, `revogar`, `listar`, `aplicar`). O valor vem sempre pelo STDIN | [COFRE-POR-API.md](../COFRE-POR-API.md) |
 | `dgclaw agente tela` | Confere a Tela do agente e diz, linha a linha, o que falta | [TELA-DO-AGENTE.md](../TELA-DO-AGENTE.md) |
 | `dgclaw agente tela-senha` | Troca a senha da Tela (6 a 8 caracteres ASCII, pelo STDIN) | [TELA-DO-AGENTE.md](../TELA-DO-AGENTE.md) |
+| `dgclaw agente restricoes` | Mostra ou muda as travas do agente (`--sem-bash`, `--sem-enviar-arquivo`, `--escrita-so-em` ou `--escrita-livre`). Ficam fora da caixa e voltam sozinhas ao criar, reparar, recriar e atualizar. Não vale para o Admin nem, nesta versão, para agentes no Codex | [RESTRICOES-DO-AGENTE.md](../RESTRICOES-DO-AGENTE.md) |
 | `dgclaw agente remover` | Tira o agente do ar sem apagar: a casa vai para `/var/lib/dgclaw/aposentados/`. Pede confirmação, ou `--sim` | [ATUALIZAR.md](../ATUALIZAR.md) |
 
 ### Colaboradores: convidar quem vai usar um agente
@@ -62,6 +63,15 @@ mudar nada. Quem: Root. Detalhe geral em [ATUALIZAR.md](../ATUALIZAR.md) e no `d
 | `dgclaw colaborador reenviar` | Gera uma senha temporária nova e mostra o convite de novo | [agentes.md](agentes.md) |
 | `dgclaw colaborador revogar` | Tira o acesso e derruba as sessões da pessoa. Se ela conectou a conta de IA do agente, a conta continua conectada e o comando avisa | [agentes.md](agentes.md) |
 | `dgclaw colaborador ajuda` | Mostra o uso do comando | [agentes.md](agentes.md) |
+
+### Suporte DG: acesso temporário por chave SSH
+
+| Comando | Para que serve | Detalhe |
+| --- | --- | --- |
+| `dgclaw suporte ligar` | Libera o time de suporte por uma chave SSH temporária (`--chave '<linha>' [--dias N]`, padrão 7 dias, máximo 30). Depois do prazo o servidor recusa a chave sozinho | [PROJETO-DE-CLIENTE.md](../PROJETO-DE-CLIENTE.md) |
+| `dgclaw suporte desligar` | Tira as chaves do suporte e lista as sessões SSH de root abertas. Com `--derrubar-sessoes` encerra todas, menos a de quem roda o comando | [PROJETO-DE-CLIENTE.md](../PROJETO-DE-CLIENTE.md) |
+| `dgclaw suporte status` | Mostra as chaves do suporte, até quando valem, as vencidas e as sessões de root abertas | [PROJETO-DE-CLIENTE.md](../PROJETO-DE-CLIENTE.md) |
+| `dgclaw suporte limpar` | Tira só as chaves vencidas (um timer diário já faz isso) | [PROJETO-DE-CLIENTE.md](../PROJETO-DE-CLIENTE.md) |
 
 ### Painel: domínio, senha e primeiro acesso
 

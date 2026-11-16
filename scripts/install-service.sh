@@ -39,7 +39,7 @@ fi
 
 echo "==> pre-gravando trust + skip-dangerous (evita dialogos que travam o boot)"
 # (a) trust do workspace + onboarding completo, no .claude.json do config dir
-python3 - "$CONFIG_JSON" "$DGCLAW_WORKSPACE" <<'PY'
+python3 -I - "$CONFIG_JSON" "$DGCLAW_WORKSPACE" <<'PY'
 import json, os, sys
 path, ws = sys.argv[1], sys.argv[2]
 os.makedirs(os.path.dirname(path), exist_ok=True) if os.path.dirname(path) else None
@@ -61,7 +61,7 @@ PY
 #     (NAO em project settings — o claude ignora la por protecao de CVE).
 mkdir -p "$DGCLAW_WORKSPACE/.claude"
 LOCAL_SETTINGS="$DGCLAW_WORKSPACE/.claude/settings.local.json"
-python3 - "$LOCAL_SETTINGS" <<'PY'
+python3 -I - "$LOCAL_SETTINGS" <<'PY'
 import json, sys
 path = sys.argv[1]
 try:

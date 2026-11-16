@@ -24,7 +24,7 @@ BIN="$TMP/bin"
 mkdir -p "$PLUGIN/scripts/cron" "$PLUGIN/scripts/_lib" "$BIN"
 cp "$REPO/scripts/cron/dgclaw-comentarios.sh" "$PLUGIN/scripts/cron/"
 cp "$REPO/scripts/responder-comentario.sh" "$REPO/scripts/preparar-scrape.sh" "$PLUGIN/scripts/"
-cp "$REPO/scripts/_lib/enviar_respostas.py" "$PLUGIN/scripts/_lib/"
+cp "$REPO/scripts/_lib/enviar_respostas.py" "$REPO/scripts/_lib/restricoes-rotina.sh" "$PLUGIN/scripts/_lib/"
 cat >"$PLUGIN/scripts/ext-event.sh" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$DGCLAW_TESTE_EVENTOS"
