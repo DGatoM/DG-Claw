@@ -27,6 +27,15 @@
 .ds-avatar{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:50%;
   background:var(--cor-acento);color:var(--cor-sobre-acento);font-weight:600;overflow:hidden}
 
+/* selos e chips de fundo forte: texto e ícone vêm do token "sobre" da cor (regra de contraste em ds/contraste.js) */
+.ds-selo{display:inline-flex;align-items:center;gap:var(--esp-1);padding:2px var(--esp-2);border-radius:var(--raio-pilula);
+  font-size:var(--texto-p);font-weight:600;background:var(--cor-acento);color:var(--cor-sobre-acento)}
+.ds-selo--perigo{background:var(--cor-perigo);color:var(--cor-sobre-perigo)}
+.ds-selo--sucesso{background:var(--cor-sucesso);color:var(--cor-sobre-sucesso)}
+.ds-selo--aviso{background:var(--cor-aviso);color:var(--cor-sobre-aviso)}
+.ds-selo--atencao{background:var(--cor-atencao);color:var(--cor-sobre-atencao)}
+.ds-btn--gravando{background:var(--cor-gravando);color:var(--cor-sobre-gravando)}
+
 /* foco visível em tudo que o usuário alcança pelo teclado */
 a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,
 summary:focus-visible,[role="button"]:focus-visible,[tabindex]:focus-visible{

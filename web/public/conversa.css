@@ -27,7 +27,7 @@
   #btnMic{flex:0 0 56px;width:56px;height:56px;border-radius:50%;border:0;
           background:var(--botao-fundo);color:var(--botao-texto);font-size:24px;cursor:pointer;
           display:flex;align-items:center;justify-content:center}
-  #btnMic.gravando{background:#c0392b}
+  #btnMic.gravando{background:var(--cor-gravando);color:var(--cor-sobre-gravando)}
   #btnMic:disabled{opacity:.45}
   /* Sem segunda linha no rodapé (10/10/2026): o estado do microfone fica DENTRO
      do campo ("ponto 0:07" gravando, "transcrevendo…"), sem mudar a altura dele. */
@@ -69,7 +69,7 @@
   .anxest{position:absolute;left:0;right:0;bottom:0;background:rgba(10,24,16,.62);color:#fff;
           font-size:11.5px;font-weight:600;text-align:center;padding:2px 0}
   .anx[data-estado="pronto"] .anxest{background:rgba(31,122,72,.78)}
-  .anx[data-estado="falhou"] .anxest{background:#c0392b}
+  .anx[data-estado="falhou"] .anxest{background:var(--cor-perigo);color:var(--cor-sobre-perigo)}
   .anx[data-estado="falhou"] .anxmid{outline:2px solid #c0392b;outline-offset:-2px}
   .anxnome,.anxtam{font-size:11.5px;line-height:1.25;overflow:hidden;text-overflow:ellipsis;
                    white-space:nowrap}
@@ -179,7 +179,7 @@
   #btnMenu{position:relative}
   /* bolinha do menu: soma das não lidas dos outros agentes (no computador a fileira de avatares não aparece) */
   /* menu com agente que precisa de você: a bolinha vira o selo âmbar com "!" */
-  #btnMenu.precisa .bolinha-menu{width:16px;height:16px;top:1px;right:1px;background:#e8890c;color:#fff;
+  #btnMenu.precisa .bolinha-menu{width:16px;height:16px;top:1px;right:1px;background:var(--cor-atencao);color:var(--cor-sobre-atencao);
     font-size:11px;font-weight:800;line-height:12px;text-align:center;box-sizing:border-box}
   #btnMenu .bolinha-menu{position:absolute;top:4px;right:4px;width:10px;height:10px;border-radius:50%;background:#d93025;border:2px solid var(--header,#fff);pointer-events:none}
   /* ── Cabeçalho: alvos de toque de verdade (eram 26 a 38 px) ── */
@@ -389,7 +389,7 @@
   /* bolinha de não lidas no canto do avatar; a borda na cor do fundo a recorta do avatar */
   /* precisa de você: âmbar com "!"; trabalhando: ponto verde que respira (parado para quem pede menos movimento) */
   .troca-baixo .selo-aten{position:absolute;top:-3px;right:-4px;width:18px;height:18px;border-radius:50%;
-    box-sizing:border-box;background:#e8890c;color:#fff;font-size:12px;font-weight:800;line-height:14px;
+    box-sizing:border-box;background:var(--cor-atencao);color:var(--cor-sobre-atencao);font-size:12px;font-weight:800;line-height:14px;
     text-align:center;border:2px solid var(--header,#fff);pointer-events:none}
   .troca-baixo .selo-trab{position:absolute;top:0;right:-1px;width:10px;height:10px;border-radius:50%;
     background:var(--cor-acento);border:2px solid var(--header,#fff);box-sizing:content-box;pointer-events:none;
