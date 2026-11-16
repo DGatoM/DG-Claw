@@ -28,6 +28,7 @@ Todo valor de cor, tamanho e tempo vive em `tokens.css`. As telas só citam `var
 | Primitivos | `--p-azul`, `--p-azul-escuro`, `--p-grafite`, `--p-cinza-*`, `--p-vermelho`, `--p-verde`, `--p-ambar` | A paleta crua. Ninguém usa direto nas telas |
 | Cores semânticas | `--cor-fundo`, `--cor-superficie`, `--cor-texto`, `--cor-texto-2`, `--cor-borda`, `--cor-acento`, `--cor-sobre-acento`, `--cor-link`, `--cor-foco` | O papel de cada cor. `--cor-sobre-acento` é o texto que fica em cima do acento |
 | Estados | `--cor-perigo`, `--cor-sucesso`, `--cor-aviso` (cada um com `-fundo` e `-borda`), `--cor-info-fundo` | Erros, sucessos e avisos |
+| Cor sobre fundo forte | `--cor-sobre-perigo`, `--cor-sobre-sucesso`, `--cor-sobre-aviso`, `--cor-sobre-gravando`, `--cor-sobre-atencao` (e `--cor-sobre-acento`) | O texto e o ícone (que usam `currentColor`) em cima de cada fundo forte. Regra única em `ds/contraste.js`: branco ou grafite, o que der maior contraste WCAG (4,5:1 mínimo). Todo fundo forte novo ganha o seu `--cor-sobre-*`; o teste `web/test/contraste.test.js` reprova par abaixo do mínimo, nos temas claro e escuro |
 | Botões | `--botao-fundo`, `--botao-texto`, `--botao-borda`, `--botao2-*`, `--botao-perigo-*` | Botão principal, secundário e de perigo |
 | Campos e cartões | `--campo-*`, `--cartao-fundo`, `--cartao-borda` | Caixas de texto e cartões |
 | Conversa | `--conversa-fundo`, `--balao-meu-*`, `--balao-agente-*`, `--balao-hora` | O papel de parede e os balões |
@@ -136,6 +137,7 @@ O indicador de digitação da conversa (os três pontos do agente escrevendo) é
   mensagens, texto digitado, nomes e o emoji que a pessoa escolhe para o avatar de um agente.
 - Nunca escrever cor, tamanho de fonte ou duração de animação literais numa tela. Se falta um valor, crie o token em
   `tokens.css`.
+- Fundo forte (vermelho do gravar, selos, botão de perigo) sempre com `color: var(--cor-sobre-X)`; fundo escolhido na hora (JS) usa `dsContraste.aplicar(elemento)`. Nunca deixar o ícone ou o texto na cor herdada.
 - Nunca pôr texto branco sobre o acento azul. Use `--cor-sobre-acento` (ou `--botao-texto`).
 - Nunca usar o acento puro como cor de texto sobre fundo claro. Use `--cor-link`.
 - Nunca montar o nome de um ícone com texto vindo de fora (nome de arquivo, campo do agente, resposta da API).
