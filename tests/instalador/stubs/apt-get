@@ -3,6 +3,13 @@
 registrar "$@"
 if [ "${1:-}" = install ]; then
     shift
+    # DGCLAW_STUB_APT_FALHA=<pacote>: simula o apt falhando quando esse pacote esta no pedido.
+    for p in "$@"; do
+        if [ -n "${DGCLAW_STUB_APT_FALHA:-}" ] && [ "$p" = "$DGCLAW_STUB_APT_FALHA" ]; then
+            echo "E: Unable to locate package $p" >&2
+            exit 100
+        fi
+    done
     for p in "$@"; do
         case "$p" in -*) ;; *) echo "$p" >>"$(estado_dir)/instalados" ;; esac
     done

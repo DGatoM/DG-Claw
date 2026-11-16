@@ -31,3 +31,11 @@ c3bb26c79cfa1e9f2d95b3e97376b4b909389227:web/test/logs-comando-oculto.test.js:cu
 5c95f1403f61e9fd1a9b7d3c1282d9fed7648653:web/test/diagnostico.test.js:generic-api-key:232
 2e204f6202646cdf41aad060f40533fb4a58652a:web/test/logs-comando-oculto.test.js:curl-auth-user:17
 2e204f6202646cdf41aad060f40533fb4a58652a:web/test/logs-ambiguidade.test.js:curl-auth-user:36
+# Valores sintéticos de teste (cadeado, diagnóstico, tela Logs) que chegam ao #76 pelos merges da main.
+3c7fc42160e5d51f15039e2fd2ef5c56cc575420:web/test/cadeado.test.js:generic-api-key:1571
+3c7fc42160e5d51f15039e2fd2ef5c56cc575420:web/test/cadeado.test.js:generic-api-key:239
+3c7fc42160e5d51f15039e2fd2ef5c56cc575420:web/test/cadeado.test.js:generic-api-key:732
+44ee862c9a84bc53234164b7d1d714a6a1eb3ad1:web/test/diagnostico.test.js:generic-api-key:232
+58513416913ff5f9528998dcaf02350171700366:web/test/diagnostico.test.js:generic-api-key:232
+b149c1e726043aa9f840b391ec6562f2872cce7e:web/test/logs-ambiguidade.test.js:curl-auth-user:36
+b149c1e726043aa9f840b391ec6562f2872cce7e:web/test/logs-comando-oculto.test.js:curl-auth-user:17

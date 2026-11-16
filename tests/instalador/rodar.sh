@@ -14,6 +14,8 @@ set -uo pipefail
 . "$AQUI/aviso-atualizacao.sh"
 # shellcheck source=tests/instalador/boletins-seguranca.sh
 . "$AQUI/boletins-seguranca.sh"
+# shellcheck source=tests/instalador/ffmpeg.sh
+. "$AQUI/ffmpeg.sh"
 # shellcheck source=tests/instalador/ronda-seguranca.sh
 . "$AQUI/ronda-seguranca.sh"
 # shellcheck source=tests/instalador/proxy.sh

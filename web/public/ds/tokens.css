@@ -18,7 +18,7 @@
 :root{
   /* primitivos */
   --p-cinza-50:#F3F5F8; --p-branco:#FFFFFF; --p-grafite:#1B2430; --p-cinza-500:#66707F; --p-cinza-200:#DFE4EA;
-  --p-azul:#00B4FF; --p-azul-escuro:#0074A8; --p-vermelho:#C62828; --p-verde:#1B7F4B; --p-ambar:#9A5B05;
+  --p-azul:#00B4FF; --p-azul-escuro:#0074A8; --p-vermelho:#C62828; --p-verde:#197744; --p-ambar:#9A5B05;
   --p-no-logo:#9AA3B0;
 
   /* cores semânticas */
@@ -30,6 +30,11 @@
   --cor-acento:var(--p-azul);
   --cor-sobre-acento:var(--p-grafite);   /* branco sobre #00B4FF reprova AA */
   --cor-link:var(--p-azul-escuro);
+  /* "cor sobre" (texto E ícone, que usam currentColor) para todo fundo forte. Regra única: o que der maior
+     contraste WCAG com o fundo, branco ou grafite (ds/contraste.js). O teste web/test/contraste.test.js confere 4,5:1. */
+  --cor-sobre-perigo:#FFFFFF; --cor-sobre-sucesso:#FFFFFF; --cor-sobre-aviso:#FFFFFF;
+  --cor-gravando:var(--p-vermelho);  --cor-sobre-gravando:#FFFFFF;   /* botão de gravar áudio em uso */
+  --cor-atencao:#E8890C;             --cor-sobre-atencao:var(--p-grafite);   /* selo âmbar "precisa de você" */
   --cor-perigo:var(--p-vermelho);   --cor-perigo-fundo:#FDECEC;   --cor-perigo-borda:#F2BDBD;
   --cor-sucesso:var(--p-verde);     --cor-sucesso-fundo:#E6F5EC;  --cor-sucesso-borda:#B7DEC8;
   --cor-aviso:var(--p-ambar);       --cor-aviso-fundo:#FFF4DD;    --cor-aviso-borda:#F0D79A;
@@ -40,7 +45,7 @@
   /* botões, campos, cartões */
   --botao-fundo:var(--cor-acento);   --botao-texto:var(--cor-sobre-acento);   --botao-borda:transparent;
   --botao2-fundo:var(--cor-fundo);   --botao2-texto:var(--cor-texto);          --botao2-borda:var(--cor-borda);
-  --botao-perigo-fundo:var(--cor-perigo); --botao-perigo-texto:#FFFFFF;
+  --botao-perigo-fundo:var(--cor-perigo); --botao-perigo-texto:var(--cor-sobre-perigo);
   --campo-fundo:var(--cor-superficie); --campo-texto:var(--cor-texto); --campo-borda:var(--cor-borda); --campo-borda-foco:var(--cor-acento);
   --cartao-fundo:var(--cor-superficie); --cartao-borda:var(--cor-borda);
   --login-fundo:var(--cor-fundo);
@@ -76,6 +81,8 @@
 html[data-tema="escuro"]{
   --cor-fundo:#0F141B; --cor-superficie:#171E27; --cor-texto:#E8ECF1; --cor-texto-2:#98A2B0; --cor-borda:#2A3441;
   --cor-link:#5CCBFF; --cor-foco:var(--p-azul);
+  --cor-sobre-perigo:var(--p-grafite); --cor-sobre-sucesso:var(--p-grafite); --cor-sobre-aviso:var(--p-grafite);
+  --cor-gravando:#FF7B7B; --cor-sobre-gravando:var(--p-grafite);
   --cor-perigo:#FF7B7B; --cor-perigo-fundo:#3A1A1D; --cor-perigo-borda:#6B2B30;
   --cor-sucesso:#5ED08F; --cor-sucesso-fundo:#12301F; --cor-sucesso-borda:#245A3A;
   --cor-aviso:#F0B35A;   --cor-aviso-fundo:#33260F; --cor-aviso-borda:#5E4519;
