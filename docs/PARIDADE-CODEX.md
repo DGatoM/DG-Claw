@@ -96,6 +96,7 @@ agente (régua: feature de ~2 mil linhas leva 10 a 30 min).
 | Lembretes | agendador do Web + `/input` | funciona | `web/lib/lembretes.js:207` | nada | 0 |
 | Pokes e heartbeat | `inject.py` em modo bunker | funciona | `scripts/_lib/inject.py:442-474,552`; `poke_ledger.py` não depende do motor | nada | 0 |
 | Crons headless (reflexão headless, post, comentários, poderes) | `claude --print` | não funciona | `reflection.sh:303-313`, `scripts/cron/dgclaw-post.sh:105`, `dgclaw-comentarios.sh:101` | um `motor-headless` que escolhe `claude -p` ou `codex exec ... </dev/null` | 0,5 |
+| Busca do eco do passado (`memory_search.py`, Haiku sem ferramentas e sem MCP) | `claude --print --model haiku` | não funciona | `scripts/memory_index/memory_search.py` (`call_haiku`) | usar o mesmo `motor-headless` dos crons; até lá a busca com Codex cai no termo exato do índice | 0,25 |
 | Custos (tokens por mensagem) | `channels-tokens-logger.py` lê o transcript | não funciona | `scripts/channels-tokens-logger.py:76-80,119-136` | ler `token_count` do rollout; na assinatura do ChatGPT não há custo em dólar, só tokens | 0,25 |
 | Mesa de tarefas | `dgclaw-mesa` | funciona | `templates/AGENTS.md.tmpl:155` | nada | 0 |
 | Modo monitor | `dgclaw-monitor` | funciona | `docs/MODO-MONITOR.md:40` | nada | 0 |

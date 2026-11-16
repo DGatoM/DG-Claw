@@ -306,8 +306,10 @@ sessão de conversa. Antes de cada execução elas chamam `scripts/_lib/restrico
 (a mesma regra do runner, sobre a conta atual a cada vez). Com restrição ativa e conta incompatível, ou com qualquer dúvida (sem o
 conferidor, sem o node, arquivo ilegível), a rotina não roda: o log registra `RECUSADA` com o motivo e o que fazer, e ela sai com
 código diferente de 0. Aprovada, ela recebe as mesmas ferramentas negadas do runner (`--disallowedTools`). Sem restrição nada muda.
-Ficam de fora o `lista_rapida.py` e o `memory_search.py`: eles chamam o Claude sem ferramentas e sem `bypassPermissions`, só para
-gerar texto, e não gravam nada.
+A reflexão confere a conta antes de qualquer subprocesso que chame o Claude, inclusive a busca do eco do passado. Essa busca
+(`memory_search.py`) e o `lista_rapida.py` chamam o Claude com as ferramentas e os MCPs desligados explicitamente (`--tools ""`,
+`--strict-mcp-config` com lista vazia, `--setting-sources ""`, `--max-turns 1`) e sem `bypassPermissions`, só para gerar texto, e
+não gravam nada. Por isso ficam fora do `--disallowedTools`.
 
 Limite: o arquivo é do agente e só se lê com o container ligado. A checagem de antes de ligar (rótulo da imagem) não o vê; a
 conferência logo depois da partida o pega e para o container. A política remota baixada durante a sessão só aparece no cache no

@@ -38,6 +38,8 @@ cat >"$TMP/bin/claude" <<'SH'
 #!/bin/bash
 if [ "$1" = "auth" ]; then printf '%s\n' "${FALSO_CONTA:-}"; exit 0; fi
 printf '%s\n' "$*" >>"$FALSO_CHAMADAS"
+# Um argumento por linha, entre colchetes, para conferir argumentos vazios (como --tools "").
+{ printf 'CHAMADA'; for a in "$@"; do printf ' [%s]' "$a"; done; printf '\n'; } >>"$FALSO_CHAMADAS.argv"
 exit 1
 SH
 chmod +x "$TMP/bin/claude"
@@ -128,6 +130,26 @@ env PATH="$TMP/bin:$PATH" HOME="$CASA" FALSO_CONTA="$CONTA_PESSOAL" FALSO_CHAMAD
     bash -c ". '$REPO/scripts/_lib/restricoes-rotina.sh'; restricoes_conferir_rotina teste '$TMP/l.log'" 2>"$TMP/err.txt" || RC=$?
 nega "sem o conferidor compilado (e sem o da imagem): recusa" test "$RC" -eq 0
 afirma "sem o conferidor: o motivo diz o que fazer" grep -q 'O que fazer' "$TMP/err.txt"
+
+echo "reflexao com indice e working-memory: o eco do passado so roda depois da conferencia"
+printf '{"versao":1,"sem_bash":true,"sem_enviar_arquivo":false,"escrita_so_em":null}\n' >"$TMP/restricoes.json"
+printf '{"config":{"denyTools":["Bash"]}}\n' >"$ETC/runner.json"
+mkdir -p "$PLUGIN/scripts/memory_index" "$WS/.dgclaw/memory_index"
+cp "$REPO"/scripts/memory_index/*.py "$PLUGIN/scripts/memory_index/"
+: >"$WS/.dgclaw/memory_index/chunks.db"
+printf 'Hoje conversei com a Marta sobre o projeto Aurora e o contrato novo.\n' >"$WS/working-memory.md"
+rm -f "$CHAMADAS.argv"
+rotina reflexao "$CONTA_ORG" sim
+nega "eco: conta incompativel, nenhum claude foi chamado (nem o da busca de memoria)" chamou
+nega "eco: conta incompativel, nenhuma chamada registrada com argumentos" test -s "$CHAMADAS.argv"
+nega "eco: conta incompativel, a rotina sai com codigo diferente de 0" test "$RC" -eq 0
+rm -f "$CHAMADAS.argv"
+rotina reflexao "$CONTA_PESSOAL" sim
+afirma "eco: conta compativel, a busca de memoria chamou o claude" grep -q 'Voce e detector de saliencia' "$CHAMADAS.argv"
+afirma "eco: a busca de memoria roda sem ferramentas (--tools vazio)" grep -q '\[--tools\] \[\]' "$CHAMADAS.argv"
+afirma "eco: a busca de memoria roda sem MCP (--strict-mcp-config)" grep -q '\[--strict-mcp-config\]' "$CHAMADAS.argv"
+afirma "eco: a busca de memoria roda um turno so (--max-turns 1)" grep -q '\[--max-turns\] \[1\]' "$CHAMADAS.argv"
+rm -rf "$PLUGIN/scripts/memory_index" "$WS/.dgclaw/memory_index" "$WS/working-memory.md" "$CHAMADAS.argv"
 
 echo
 echo "Restricoes das rotinas autonomas: $PASSOU ok, $FALHOU falha(s)."

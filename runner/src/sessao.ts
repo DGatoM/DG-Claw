@@ -187,6 +187,8 @@ export class Sessao extends EventEmitter {
   geracao = 0;
   /** Do instante em que parar() larga o PTY até o onExit dele chegar e o grupo ser varrido (ou o prazo vencer). */
   saidaPendente: Promise<void> | null = null;
+  /** Pids dos PTYs largados por parar() cuja saída e varredura ainda não terminaram; a contenção por restrição os usa para saber quem matar. */
+  readonly pidsPendentes = new Set<number>();
   /** Líder do grupo de um PTY antigo que continuou com processos vivos depois dos sinais. subir() recusa enquanto existir. */
   grupoQueSobrou: number | null = null;
 

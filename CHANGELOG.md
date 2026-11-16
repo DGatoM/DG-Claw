@@ -30,6 +30,9 @@ Com a trava de pastas ligada, o agente só grava a memória dele; as pastas de c
 As rotinas automáticas do agente (reflexão da noite, posts, respostas a comentários e consolidação) agora respeitam as restrições do
 mesmo jeito que a conversa: com restrição ligada, só rodam se a conta de IA conectada for compatível, e recebem as mesmas ferramentas
 travadas. Se recusarem, o log da rotina diz o motivo e o que fazer. Nada muda para quem não usa restrições.
+A reflexão da noite confere a conta antes de qualquer chamada ao Claude, inclusive a busca de lembranças antigas, que agora roda com
+ferramentas e conexões externas desligadas. Quando uma recusa por conta incompatível acontece com um processo antigo do agente ainda
+vivo, o runner o encerra e só então registra a recusa; se não conseguir, avisa que não confirmou a parada.
 
 ### Como atualizar (restrições do agente)
 

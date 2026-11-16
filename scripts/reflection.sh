@@ -52,6 +52,13 @@ TODAY="${DGCLAW_REFLECT_DATE:-$(date '+%Y-%m-%d')}"
 # date -d falha com data fora do formato esperado; o `||` cai no dia de hoje.
 DOW=$(date -d "$TODAY" '+%d' 2>/dev/null || date '+%d')
 
+# Restricoes do dono: com restricao ativa, so roda se a conta de IA for compativel (a mesma regra do runner)
+# e o motor recebe as ferramentas negadas. A conferencia vem ANTES de qualquer subprocesso que chame o
+# Claude (inclusive a busca do eco do passado, que chama o Haiku). Recusa = exit 1, sem chamar o claude.
+# shellcheck disable=SC1091
+. "$PLUGIN/scripts/_lib/restricoes-rotina.sh"
+restricoes_conferir_rotina "reflexao ${TODAY}" "$LOG" || exit 1
+
 # ─── eco do passado (Module 4): memory_search sobre a working-memory de hoje ────
 # Antes de montar o poke, deixa a busca semantica detectar "ecos" do passado no que a
 # persona viveu hoje. Se bater algo, anexa um bloco "Eco do passado: ..." no prompt da
@@ -421,11 +428,6 @@ if [ "$REFLECT_MODE" = "headless" ]; then
     REFLECT_MODEL="${DGCLAW_REFLECT_MODEL:-opus}"
     RESTART_THRESHOLD="${DGCLAW_REFLECT_RESTART_THRESHOLD:-100000}"
 
-    # Restricoes do dono: com restricao ativa, so roda se a conta de IA for compativel (a mesma regra do runner)
-    # e o motor recebe as ferramentas negadas. Recusa = exit 1, sem chamar o claude.
-    # shellcheck disable=SC1091
-    . "$PLUGIN/scripts/_lib/restricoes-rotina.sh"
-    restricoes_conferir_rotina "reflexao ${TODAY}" "$LOG" || exit 1
     echo "[$(date '+%F %T')] reflexao ${TODAY}: consolidacao HEADLESS (claude --print, model=$REFLECT_MODEL)" >> "$LOG"
     "$CLAUDE_BIN" --print \
         --no-session-persistence \

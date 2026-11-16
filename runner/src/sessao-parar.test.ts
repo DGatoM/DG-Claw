@@ -335,3 +335,62 @@ test("recusa por restrição: sem conseguir confirmar a morte vira falha de segu
   assert.equal(s.grupoQueSobrou, 999_999);
   s.grupoQueSobrou = null;
 });
+
+test("recusa por restrição: PTY já largado (s.proc nulo, saída pendente) que ignora o sinal é morto antes da recusa", async () => {
+  const { spawn } = await import("node:child_process");
+  const { recusarPorRestricaoComContencao } = await import("./sessao/ciclo.js");
+  const s = await nova();
+  // Processo real, em grupo próprio, que ignora HUP e TERM.
+  const filho = spawn("sh", ["-c", 'trap "" HUP TERM; sleep 60 & wait'], { detached: true, stdio: "ignore" });
+  const pid = filho.pid as number;
+  const ouvintes: Array<() => void> = [];
+  filho.on("exit", () => ouvintes.forEach((f) => f()));
+  try {
+    await new Promise((r) => setTimeout(r, 300)); // dá tempo de o trap valer
+    (s as unknown as { proc: unknown }).proc = {
+      pid,
+      kill: (sinal?: string) => { try { process.kill(pid, (sinal as NodeJS.Signals) ?? "SIGHUP"); } catch { /* já morreu */ } },
+      onData: () => ({ dispose() {} }),
+      onExit: (f: () => void) => { ouvintes.push(f); return { dispose() {} }; },
+    };
+    s.parar("parada anterior"); // larga o PTY: s.proc fica nulo e a saída fica pendente
+    assert.equal(s.temPtyVivo(), false);
+    assert.equal(vivo(pid), true, "o processo ignorou o primeiro sinal e continua vivo");
+    await recusarPorRestricaoComContencao(s, "conta incompatível", "trocar a conta");
+    assert.equal(vivo(pid), false, "o processo antigo precisa estar morto quando a recusa aparece");
+    assert.equal(s.estado.statusReason, "runner:restricao-conta");
+  } finally {
+    try { process.kill(-pid, "SIGKILL"); } catch { /* já morreu */ }
+  }
+});
+
+test("recusa por restrição: grupo que sobrou vivo e morre no SIGKILL deixa a recusa valer", async () => {
+  const { spawn } = await import("node:child_process");
+  const { recusarPorRestricaoComContencao } = await import("./sessao/ciclo.js");
+  const s = await nova();
+  const filho = spawn("sleep", ["300"], { detached: true, stdio: "ignore" });
+  const pgid = filho.pid as number;
+  try {
+    (s as unknown as { grupoQueSobrou: number | null }).grupoQueSobrou = pgid;
+    await recusarPorRestricaoComContencao(s, "conta incompatível", "trocar a conta");
+    assert.equal(vivo(pgid), false, "o grupo que sobrou precisa estar morto");
+    assert.equal(s.estado.statusReason, "runner:restricao-conta");
+    assert.equal(s.grupoQueSobrou, null);
+  } finally {
+    try { process.kill(-pgid, "SIGKILL"); } catch { /* já morreu */ }
+  }
+});
+
+test("recusa por restrição: grupo que sobrou e não dá para confirmar morto vira restricao-sem-contencao com o pid certo", async (t) => {
+  const { recusarPorRestricaoComContencao } = await import("./sessao/ciclo.js");
+  const s = await nova();
+  const real = process.kill;
+  t.mock.method(process, "kill", () => true); // o grupo "continua vivo" para sempre
+  s.grupoQueSobrou = 888_888;
+  await recusarPorRestricaoComContencao(s, "conta incompatível", "trocar a conta");
+  process.kill = real;
+  assert.equal(s.estado.statusReason, "runner:restricao-sem-contencao");
+  assert.match(s.estado.error ?? "", /\(pid 888888\)/);
+  assert.equal(s.grupoQueSobrou, 888_888);
+  s.grupoQueSobrou = null;
+});
