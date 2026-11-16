@@ -12,6 +12,7 @@
 #   dgclaw-agente canal whatsapp remover <numero>
 #   dgclaw-agente canal whatsapp ligar
 #   dgclaw-agente canal whatsapp desligar [--apagar]
+#   dgclaw-agente canal whatsapp retomar                      (libera os envios travados pelas travas contra banimento)
 #   dgclaw-agente canal status
 #
 # Variaveis de ambiente:
@@ -446,6 +447,19 @@ cmd_wa_desligar() {
   echo "WhatsApp desligado e dados apagados (conexao e lista de permitidos). Os arquivos recebidos em ~/uploads/whatsapp ficaram."
 }
 
+cmd_wa_retomar() {
+  # So o dono pede isto, no chat do DG Claw, depois de conferir o numero no celular (docs/CANAL-WHATSAPP.md).
+  local f achou=""
+  for f in "$WADIR/envio/PARADO" "$WADIR/zapi/PARADO"; do
+    if [ -f "$f" ] && [ ! -L "$f" ]; then
+      rm -f -- "$f" || die "nao consegui apagar $f; confira a permissao da pasta"
+      achou=1
+    fi
+  done
+  if [ -n "$achou" ]; then echo "Envios liberados. As travas de ritmo continuam valendo."
+  else echo "Nao havia trava de envio ativa."; fi
+}
+
 status_whatsapp() {
   montar_systemctl
   local ativo="" l e m desde nb
@@ -465,6 +479,12 @@ status_whatsapp() {
   else
     echo "  estado: sem registro da ponte ainda"
   fi
+  local pf pm
+  for pf in "$WADIR/envio/PARADO" "$WADIR/zapi/PARADO"; do
+    [ -f "$pf" ] || continue
+    pm="$(js 'return d.motivo' < "$pf")"
+    echo "  ENVIOS TRAVADOS: ${pm:-sem motivo registrado}. O dono libera com: dgclaw-agente canal whatsapp retomar"
+  done
   ler_permitidos
   echo "  permitidos: $(lista_texto)"
 }
@@ -478,7 +498,7 @@ cmd_status() {
   status_whatsapp
 }
 
-[ "${1:-}" = "canal" ] || die "uso: dgclaw-agente canal telegram (token|conferir|parear|ligar|desligar) | canal whatsapp (parear|permitir|remover|ligar|desligar) | canal status"
+[ "${1:-}" = "canal" ] || die "uso: dgclaw-agente canal telegram (token|conferir|parear|ligar|desligar) | canal whatsapp (parear|permitir|remover|ligar|desligar|retomar) | canal status"
 shift
 case "${1:-}" in
   status) cmd_status ;;
@@ -500,7 +520,8 @@ case "${1:-}" in
       remover) shift; cmd_wa_remover "$@" ;;
       ligar) cmd_wa_ligar ;;
       desligar) shift; cmd_wa_desligar "$@" ;;
-      *) die "subcomando do WhatsApp desconhecido: '${1:-}'. Use parear, permitir, remover, ligar ou desligar." ;;
+      retomar) cmd_wa_retomar ;;
+      *) die "subcomando do WhatsApp desconhecido: '${1:-}'. Use parear, permitir, remover, ligar, desligar ou retomar." ;;
     esac ;;
   *) die "canal desconhecido: '${1:-}'. Use 'telegram', 'whatsapp' ou 'status'." ;;
 esac

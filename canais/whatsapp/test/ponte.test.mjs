@@ -1040,3 +1040,50 @@ test('lid: lista que muda com a ponte conectada sincroniza de novo', async () =>
   assert.equal(a.runner.reqs.length, 2);
   await a.fim();
 });
+
+// ---------------------------------------------------------------------------
+// Travas contra banimento aplicadas a ponte (a logica fina esta em envio-seguro.test.mjs)
+// ---------------------------------------------------------------------------
+test('envio seguro: dois numeros em seguida e disparo, com espera aleatoria entre eles', async () => {
+  const esperas = [];
+  const a = await ambiente({ lista: [DONO, '+5521999998888'], extra: { dormirEnvio: async (ms) => { esperas.push(ms); }, aleatorioEnvio: () => 0 } });
+  let r = await pedir(a.sockPath, { acao: 'enviar', para: DONO, texto: 'primeira mensagem para o dono' });
+  assert.equal(r.ok, true);
+  r = await pedir(a.sockPath, { acao: 'enviar', para: '+5521999998888', texto: 'segunda mensagem para outra pessoa' });
+  assert.equal(r.ok, true);
+  assert.equal(esperas.length, 1);
+  assert.ok(esperas[0] > 7000 && esperas[0] <= 8000, `esperou ${esperas[0]}`);
+  assert.ok(!a.log().includes('primeira mensagem'));
+  await a.fim();
+});
+
+test('envio seguro: o WhatsApp recusar o envio trava a ponte, e o arquivo PARADO fica 600', async () => {
+  const a = await ambiente();
+  a.sock.sendMessage = async () => { throw new Error('connection closed'); };
+  let r = await pedir(a.sockPath, { acao: 'enviar', para: DONO, texto: 'oi' });
+  assert.equal(r.codigo, 'FALHA_ENVIO');
+  assert.match(r.erro, /TRAVADOS/);
+  r = await pedir(a.sockPath, { acao: 'enviar', para: DONO, texto: 'oi de novo' });
+  assert.equal(r.codigo, 'PARADO');
+  assert.equal(modo(path.join(a.dir, 'envio', 'PARADO')), 0o600);
+  await a.fim();
+});
+
+test('envio seguro: o WhatsApp recusar o aparelho (403) trava; queda comum (500) nao', async () => {
+  const a = await ambiente();
+  a.sock.ev.emit('connection.update', { connection: 'close', ...erroCodigo(500) });
+  await esperar(() => a.falso.socks.length === 2);
+  assert.equal(fs.existsSync(path.join(a.dir, 'envio', 'PARADO')), false);
+  a.sock.ev.emit('connection.update', { connection: 'close', ...erroCodigo(403) });
+  await esperar(() => a.falso.socks.length === 3);
+  assert.equal(fs.existsSync(path.join(a.dir, 'envio', 'PARADO')), true);
+  await a.fim();
+});
+
+test('envio seguro: 401 (aparelho encerrado) trava os envios', async () => {
+  const a = await ambiente();
+  a.sock.ev.emit('connection.update', { connection: 'close', ...erroCodigo(401) });
+  assert.equal(await a.ponte.concluido, 0);
+  assert.equal(fs.existsSync(path.join(a.dir, 'envio', 'PARADO')), true);
+  await a.limpar();
+});

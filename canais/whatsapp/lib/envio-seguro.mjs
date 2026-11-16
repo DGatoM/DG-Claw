@@ -1,0 +1,302 @@
+// Envio seguro: as travas contra banimento, valem para QUALQUER conexao de WhatsApp
+// (a ponte Baileys, a Z-API, a Evolution, a API oficial). Quem envia passa pelo `enviar()`
+// daqui e entrega a funcao que faz o envio de verdade; o modulo decide se pode, espera o
+// intervalo certo e, no primeiro erro, trava tudo ate o dono liberar.
+//
+// Por que existe: o que derruba um numero e comportamento de robo (muitas mensagens de uma vez,
+// texto igual, ritmo fixo). Conversa de verdade, com poucas mensagens, tem risco muito baixo.
+// Os valores padrao e as fontes que os calibraram estao em docs/CANAL-WHATSAPP.md.
+//
+// O que fica no disco (pasta `dir`, 700): estado.json (600) com, por envio, so a hora, um hash
+// do destino e um hash do texto. Nunca o numero, nunca o texto. E o arquivo PARADO (a trava).
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import { falha, motivoErro } from './util.mjs';
+
+export const PADRAO = Object.freeze({
+  // Disparo = 2 pessoas diferentes dentro desta janela. Abaixo disso e conversa: sem espera.
+  janela_disparo_min: 60,
+  pessoas_disparo: 2,
+  // Num disparo, intervalo aleatorio e unico entre uma mensagem e a seguinte.
+  intervalo_min_s: 8,
+  intervalo_max_s: 20,
+  // Rodada = sequencia de disparo sem pausa maior que `pausa_rodada_min`.
+  teto_rodada: 30,
+  pausa_rodada_min: 30,
+  // Teto de mensagens nas ultimas 24 h, por agente, quando se esta em disparo.
+  teto_dia: 60,
+  // O mesmo texto nao vai para 2 pessoas dentro desta janela (so vale de `texto_minimo` letras).
+  repetido_horas: 24,
+  texto_minimo: 15,
+  // Numero recem-conectado: data (AAAA-MM-DD) em que comecou. Aplica o aquecimento por dias.
+  numero_novo_desde: null,
+  // Maior espera que o envio aceita fazer de uma vez; acima disso devolve RITMO com o tempo restante.
+  espera_max_s: 25,
+});
+
+// Pisos que a configuracao nao ultrapassa (o dono pode ir mais devagar, nao mais rapido).
+const PISO_INTERVALO_S = 3;
+const TETO_DIA_MAX = 500;
+const TETO_RODADA_MAX = 100;
+
+// Aquecimento de numero novo: teto de mensagens por dia (todas, nao so disparo), por idade do numero.
+const AQUECIMENTO = [
+  { ate_dia: 3, teto: 10 },
+  { ate_dia: 7, teto: 30 },
+  { ate_dia: 14, teto: 60 },
+];
+
+const MIN = 60 * 1000;
+const HORA = 60 * MIN;
+const DIA = 24 * HORA;
+
+const sha = (s) => crypto.createHash('sha256').update(s).digest('hex').slice(0, 16);
+
+function normalizarTexto(t) {
+  return String(t || '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+/** Junta o padrao com o que o dono pos em envio.json. Valor invalido NAO vira padrao em silencio. */
+export function lerConfig(arquivo) {
+  let bruto = null;
+  try {
+    bruto = fs.readFileSync(arquivo, 'utf8');
+  } catch (e) {
+    if (e.code !== 'ENOENT') {
+      return { erro: `nao consegui ler ${arquivo} (${motivoErro(e)}); confira a permissao do arquivo` };
+    }
+  }
+  const cfg = { ...PADRAO };
+  if (bruto != null) {
+    let o;
+    try {
+      o = JSON.parse(bruto);
+    } catch (e) {
+      return { erro: `${arquivo} nao e um JSON valido (${motivoErro(e)}); corrija ou apague o arquivo para usar os valores padrao` };
+    }
+    if (!o || typeof o !== 'object' || Array.isArray(o)) return { erro: `${arquivo} tem que ser um objeto JSON, como {"intervalo_min_s": 10}` };
+    for (const [k, v] of Object.entries(o)) {
+      if (!(k in PADRAO)) return { erro: `${arquivo} tem a chave desconhecida "${String(k).slice(0, 40)}"; as validas sao: ${Object.keys(PADRAO).join(', ')}` };
+      cfg[k] = v;
+    }
+  }
+  return validar(cfg, arquivo);
+}
+
+function validar(c, arquivo) {
+  const onde = arquivo ? ` em ${arquivo}` : '';
+  const inteiro = (k, min, max) => (Number.isFinite(c[k]) && c[k] >= min && c[k] <= max
+    ? null : `"${k}"${onde} tem que ser um numero entre ${min} e ${max} (veio ${JSON.stringify(c[k])})`);
+  const erros = [
+    inteiro('janela_disparo_min', 1, 24 * 60),
+    inteiro('pessoas_disparo', 2, 50),
+    inteiro('intervalo_min_s', PISO_INTERVALO_S, 3600),
+    inteiro('intervalo_max_s', PISO_INTERVALO_S, 3600),
+    inteiro('teto_rodada', 1, TETO_RODADA_MAX),
+    inteiro('pausa_rodada_min', 1, 24 * 60),
+    inteiro('teto_dia', 1, TETO_DIA_MAX),
+    inteiro('repetido_horas', 1, 24 * 30),
+    inteiro('texto_minimo', 1, 1000),
+    inteiro('espera_max_s', 1, 300),
+  ].filter(Boolean);
+  if (!erros.length && c.intervalo_min_s > c.intervalo_max_s) {
+    erros.push(`"intervalo_min_s" (${c.intervalo_min_s}) nao pode ser maior que "intervalo_max_s" (${c.intervalo_max_s})${onde}`);
+  }
+  if (c.numero_novo_desde != null && !/^\d{4}-\d{2}-\d{2}$/.test(String(c.numero_novo_desde))) {
+    erros.push(`"numero_novo_desde"${onde} tem que ser uma data AAAA-MM-DD ou null (veio ${JSON.stringify(c.numero_novo_desde)})`);
+  }
+  return erros.length ? { erro: erros[0] } : { config: c };
+}
+
+function tetoAquecimento(c, agora) {
+  if (!c.numero_novo_desde) return null;
+  const inicio = Date.parse(`${c.numero_novo_desde}T00:00:00Z`);
+  if (!Number.isFinite(inicio)) return null;
+  const dia = Math.floor((agora - inicio) / DIA) + 1;
+  for (const f of AQUECIMENTO) if (dia <= f.ate_dia) return { dia, teto: f.teto };
+  return null;
+}
+
+function fmtEspera(ms) {
+  const s = Math.ceil(ms / 1000);
+  return s >= 120 ? `${Math.ceil(s / 60)} minutos` : `${s} segundos`;
+}
+
+/**
+ * @param {object} o
+ * @param {string} o.dir         pasta de estado (criada 700)
+ * @param {string} o.arqConfig   envio.json do dono (opcional, pode nao existir)
+ * @param {() => Date} [o.agora]
+ * @param {(ms:number) => Promise<void>} [o.dormir]
+ * @param {() => number} [o.aleatorio]  0 a 1
+ * @param {(msg:string) => void} [o.registrar]  log sem segredo e sem corpo de mensagem
+ */
+export function criarEnvioSeguro({ dir, arqConfig, agora = () => new Date(), dormir, aleatorio = Math.random, registrar = () => {} }) {
+  const esperar = dormir || ((ms) => new Promise((r) => setTimeout(r, ms)));
+  const arqEstado = path.join(dir, 'estado.json');
+  const arqParado = path.join(dir, 'PARADO');
+  const arqTrava = path.join(dir, 'envio.lock');
+  let fila = Promise.resolve();
+
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  fs.chmodSync(dir, 0o700);
+
+  function lerEstado() {
+    try {
+      const o = JSON.parse(fs.readFileSync(arqEstado, 'utf8'));
+      if (o && Array.isArray(o.envios)) return o;
+    } catch (e) {
+      if (e.code !== 'ENOENT') registrar(`envio: estado.json ilegivel (${motivoErro(e)}); recomecando o historico de envios`);
+    }
+    return { versao: 1, envios: [] };
+  }
+
+  function gravarEstado(o) {
+    const tmp = `${arqEstado}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(o), { mode: 0o600 });
+    fs.renameSync(tmp, arqEstado);
+  }
+
+  /** A trava: dura ate o dono apagar o arquivo (comando "canal whatsapp retomar"). */
+  function travar(motivo) {
+    const quando = agora().toISOString();
+    const texto = String(motivo).replace(/[\r\n]+/g, ' ').slice(0, 500);
+    try {
+      fs.writeFileSync(arqParado, JSON.stringify({ quando, motivo: texto }) + '\n', { mode: 0o600 });
+    } catch (e) {
+      registrar(`envio: NAO consegui gravar a trava ${arqParado} (${motivoErro(e)}); pare os envios na mao`);
+    }
+    registrar(`envio: TRAVADO, ${texto}`);
+  }
+
+  function paradoMotivo() {
+    let s;
+    try { s = fs.readFileSync(arqParado, 'utf8'); } catch (e) {
+      if (e.code === 'ENOENT') return null;
+      return `o arquivo ${arqParado} existe mas nao consegui le-lo (${motivoErro(e)})`;
+    }
+    try { const o = JSON.parse(s); return `${o.motivo} (desde ${o.quando})`; } catch { return s.trim() || 'sem motivo registrado'; }
+  }
+
+  function liberar() {
+    try { fs.unlinkSync(arqParado); return true; } catch (e) {
+      if (e.code === 'ENOENT') return false;
+      throw e;
+    }
+  }
+
+  // Exclusao entre processos (a ponte e o script do agente podem mandar ao mesmo tempo).
+  async function comTrava(fn) {
+    const limite = Date.now() + 45000;
+    for (;;) {
+      try {
+        fs.writeFileSync(arqTrava, String(process.pid), { flag: 'wx', mode: 0o600 });
+        break;
+      } catch (e) {
+        if (e.code !== 'EEXIST') throw e;
+        try {
+          if (Date.now() - fs.statSync(arqTrava).mtimeMs > 5 * MIN) { fs.unlinkSync(arqTrava); continue; }
+        } catch { /* sumiu entre o stat e o unlink: tenta de novo */ }
+        if (Date.now() > limite) return falha('OCUPADO', 'outro envio esta em andamento ha mais de 45 segundos; espere ele terminar e tente de novo');
+        await new Promise((r) => setTimeout(r, 200));
+      }
+    }
+    try { return await fn(); } finally { try { fs.unlinkSync(arqTrava); } catch { /* ja removida */ } }
+  }
+
+  /**
+   * Passa pelas travas e envia. `executar` faz o envio real e devolve o resultado (ou lanca).
+   * Devolve { ok:true, resultado, disparo, esperou_ms } ou { ok:false, codigo, erro }.
+   */
+  function enviar({ para, texto = '', executar }) {
+    const minha = fila.then(() => comTrava(() => tentar({ para, texto, executar })));
+    fila = minha.catch(() => {});
+    return minha;
+  }
+
+  async function tentar({ para, texto, executar }) {
+    const parado = paradoMotivo();
+    if (parado) {
+      return falha('PARADO', `os envios estao travados: ${parado}. Nao tente de novo: avise o dono, que confere o numero no celular e libera com "dgclaw-agente canal whatsapp retomar"`);
+    }
+    const lc = arqConfig ? lerConfig(arqConfig) : validar({ ...PADRAO });
+    if (lc.erro) return falha('CONFIG_INVALIDA', `${lc.erro}. Nada foi enviado`);
+    const c = lc.config;
+
+    const t = agora().getTime();
+    const est = lerEstado();
+    const envios = est.envios.filter((e) => t - e.t < DIA * 30 && t - e.t >= -MIN);
+    const pessoa = sha(String(para).replace(/\D/g, '') || String(para));
+    const norm = normalizarTexto(texto);
+    const hTexto = norm.length >= c.texto_minimo ? sha(norm) : null;
+
+    // 1. O mesmo texto para duas pessoas
+    if (hTexto) {
+      const repetido = envios.find((e) => e.h === hTexto && e.p !== pessoa && t - e.t < c.repetido_horas * HORA);
+      if (repetido) {
+        return falha('TEXTO_REPETIDO', `esse mesmo texto ja foi para outra pessoa nas ultimas ${c.repetido_horas} horas; texto igual para varias pessoas e o que mais derruba um numero. Reescreva a mensagem para esta pessoa, com o nome dela e o que e dela`);
+      }
+    }
+
+    // 2. Aquecimento de numero novo (vale para todas as mensagens)
+    const aq = tetoAquecimento(c, t);
+    const ult24 = envios.filter((e) => t - e.t < DIA);
+    if (aq && ult24.length >= aq.teto) {
+      return falha('AQUECIMENTO', `o numero esta no dia ${aq.dia} de aquecimento e o teto de hoje e ${aq.teto} mensagens; ja foram ${ult24.length}. Continue amanha`);
+    }
+
+    // 3. Disparo ou conversa?
+    const janela = envios.filter((e) => t - e.t < c.janela_disparo_min * MIN);
+    const pessoas = new Set(janela.map((e) => e.p));
+    pessoas.add(pessoa);
+    const disparo = pessoas.size >= c.pessoas_disparo;
+    let esperouMs = 0;
+
+    if (disparo) {
+      if (ult24.length >= c.teto_dia) {
+        return falha('TETO_DIA', `o teto de ${c.teto_dia} mensagens em 24 horas foi atingido. Continue amanha, ou o dono sobe "teto_dia" em ${arqConfig || 'envio.json'} sabendo do risco`);
+      }
+      // Rodada: os envios de disparo seguidos, sem pausa maior que a pausa da rodada.
+      const disp = envios.filter((e) => e.d).sort((a, b) => b.t - a.t);
+      let n = 0;
+      let anterior = t;
+      for (const e of disp) {
+        if (anterior - e.t >= c.pausa_rodada_min * MIN) break;
+        n += 1;
+        anterior = e.t;
+      }
+      if (n >= c.teto_rodada) {
+        const faltam = disp[0].t + c.pausa_rodada_min * MIN - t;
+        return falha('PAUSA_DA_RODADA', `a rodada chegou a ${c.teto_rodada} mensagens; descanse ${fmtEspera(faltam)} antes de continuar. Nao e erro: e a pausa que protege o numero`);
+      }
+      // Intervalo aleatorio desde a ultima mensagem
+      const ultimo = envios.reduce((m, e) => Math.max(m, e.t), 0);
+      const alvo = (c.intervalo_min_s + aleatorio() * (c.intervalo_max_s - c.intervalo_min_s)) * 1000;
+      const falta = ultimo ? alvo - (t - ultimo) : 0;
+      if (falta > c.espera_max_s * 1000) {
+        return falha('RITMO', `a mensagem anterior saiu ha pouco; espere ${fmtEspera(falta)} e mande a proxima. Uma mensagem por chamada, sem pressa`);
+      }
+      if (falta > 0) { esperouMs = Math.ceil(falta); await esperar(esperouMs); }
+    }
+
+    // 4. Envia. Qualquer erro trava tudo: continuar tentando e como um robo em panico.
+    let resultado;
+    try {
+      resultado = await executar();
+    } catch (e) {
+      travar(`o envio falhou (${motivoErro(e)}); pode ser desconexao ou bloqueio do numero`);
+      return falha('FALHA_ENVIO', `o envio falhou (${motivoErro(e)}) e os envios ficaram TRAVADOS por seguranca. A mensagem pode ou nao ter saido: nao repita. Avise o dono, que confere o numero no celular e libera com "dgclaw-agente canal whatsapp retomar"`);
+    }
+    const agoraMs = agora().getTime();
+    envios.push({ t: agoraMs, p: pessoa, h: hTexto, d: disparo });
+    try {
+      gravarEstado({ versao: 1, envios: envios.filter((e) => agoraMs - e.t < DIA * 30) });
+    } catch (e) {
+      registrar(`envio: nao consegui gravar o historico em ${arqEstado} (${motivoErro(e)}); as travas de ritmo ficam cegas ate isso voltar`);
+    }
+    return { ok: true, resultado, disparo, esperou_ms: esperouMs };
+  }
+
+  return { enviar, travar, liberar, paradoMotivo };
+}
