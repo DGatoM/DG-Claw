@@ -1734,7 +1734,7 @@ inventario_container() {
                     printf 'D /etc/systemd/system/timers.target.wants/%s\n' "$u" >>"$difusao.arq" \
                         || { INV_MOTIVO="nao consegui gravar a lista de rotinas desligadas."; _inv_limpar; return 1; } ;;
                 enabled|enabled-runtime|static|indirect|alias|linked|linked-runtime|generated|transient|masked|masked-runtime) ;;
-                *) INV_MOTIVO="o systemctl nao respondeu o estado de $u (resposta '$st'), entao nao da para saber se o dono a desligou."
+                *) INV_MOTIVO="o systemctl de dentro do container devolveu um estado inesperado para uma das rotinas padrao (a resposta nao e mostrada porque vem de dentro do container), entao nao da para saber se o dono a desligou. Confira com: podman exec dgclaw-$slug systemctl list-timers"
                    _inv_limpar; return 1 ;;
             esac
         done <"$difusao.on"

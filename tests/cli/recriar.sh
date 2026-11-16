@@ -426,7 +426,8 @@ echo imagem-v26 >"$STUB_ESTADO/imagem-id"
 printf 'dgclaw-rita-heartbeat.timer\n' >"$STUB_ESTADO/timer-vazio"
 recriar rita
 nega "resposta vazia: falha" test "$?" -eq 0
-afirma "explica que o systemctl nao respondeu" grep -q 'nao respondeu o estado' "$TMP/rec.txt"
+nega "nao reproduz a resposta de dentro do container" grep -q VAZIO "$TMP/rec.txt"
+afirma "explica que o estado veio inesperado" grep -q 'estado inesperado para uma das rotinas padrao' "$TMP/rec.txt"
 rm -f "$STUB_ESTADO/timer-vazio"
 cat >"$STUB_ESTADO/diff-json-dgclaw-rita" <<'EOF'
 {"added":["/opt/dados?.db","/opt/dados\n.db","/opt/dados\n.db/__pycache__/x","/opt/dados\n.db/real.txt"],"changed":[],"deleted":[]}

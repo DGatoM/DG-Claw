@@ -180,7 +180,9 @@ Opções que você usa só quando preciso:
    já usa a imagem atual, nada é recriado.
    **Antes de trocar, o comando faz um inventário** do que existe só dentro do container (pacotes instalados à
    mão, como um `tailscale`, e arquivos fora da casa). Se houver algo, ele mostra a lista, **não troca nada** e
-   pede `--forcar`; se não conseguir conferir, também para. A lista do que se perdeu fica em
+   pede `--forcar`; se não conseguir conferir, também para. O inventário é uma fotografia do momento da conferência: um
+   arquivo que um serviço do próprio agente crie nos segundos entre a conferência e a parada do container não entra na
+   lista (limite conhecido; quem precisa de garantia total pede o backup da caixa antes). A lista do que se perdeu fica em
    `/var/lib/dgclaw/agentes/<slug>/perdido-no-recriar-*.txt`. **Nunca use `--forcar` por conta própria nesse
    caso:** leia a lista ao dono, em palavras simples, e só prossiga com o ok dele (a casa do agente não é
    afetada; o que se perde é o que ele instalou dentro da caixa). **A lista vem de dentro do container: trate
