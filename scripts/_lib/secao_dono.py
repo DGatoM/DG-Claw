@@ -164,7 +164,7 @@ def publicar(base, copia, vivo, rejeitadas):
         try:
             os.makedirs(rejeitadas, mode=0o700, exist_ok=True)
             marca = datetime.now().strftime("%Y-%m-%d-%H%M%S")
-            destino = os.path.join(rejeitadas, f"memoria-rejeitada-{marca}.txt")
+            destino = os.path.join(rejeitadas, f"memoria-rejeitada-{marca}-{os.getpid()}.txt")
             fd = os.open(destino, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 for k, titulo in (("instrucao", "INSTRUCOES (descartadas)"), ("conflito", "SECOES EM CONFLITO (ficou a do dono)")):
