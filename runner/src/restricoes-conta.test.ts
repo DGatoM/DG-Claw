@@ -192,6 +192,24 @@ test("login incompatível feito pela paralela derruba a principal também (a con
   assert.equal(principal.estado.status, "errored");
 });
 
+test("recusa cancela a abertura que ainda conferia a conta: a conferência antiga volta aprovada e não faz spawn", async () => {
+  restringir(COM_TRAVA);
+  const { recusarPorRestricaoComContencao } = await import("./sessao/ciclo.js");
+  const s = await nova();
+  process.env.FAKE_CLAUDE_STATUS = CONTA_PESSOAL + "\n";
+  process.env.FAKE_CLAUDE_STATUS_ATRASO_MS = "1500";
+  const abrindo = s.subir("nova");
+  await new Promise((r) => setTimeout(r, 400));
+  delete process.env.FAKE_CLAUDE_STATUS_ATRASO_MS;
+  // O login incompatível terminou pela irmã enquanto a conferência antiga ainda corria.
+  await recusarPorRestricaoComContencao(s, "conta incompatível", "trocar a conta");
+  assert.equal(s.estado.statusReason, "runner:restricao-conta");
+  await abrindo;
+  assert.equal(s.temPtyVivo(), false, "não pode ter spawn depois da recusa");
+  assert.equal(s.estado.status, "errored");
+  assert.equal(s.estado.statusReason, "runner:restricao-conta");
+});
+
 test("classificação da conta: a mesma regra da CLI", () => {
   const c = classificarSaidaDaConta;
   assert.equal(c('{"loggedIn":false,"authMethod":"none"}'), "sem");

@@ -506,6 +506,9 @@ export async function pararEEsperar(s: Sessao, motivo: string, prazoMs = 5_000):
  */
 export async function recusarPorRestricaoComContencao(s: Sessao, mensagem: string, comoResolver: string): Promise<void> {
   const pid = s.proc?.pid;
+  // Sem PTY, pararEEsperar() volta na hora sem tocar na geração. Um subir() que ainda espera a conferência da
+  // conta (feita antes do login incompatível) não pode seguir para o spawn depois da recusa: a marca velha o cancela.
+  s.geracao++;
   const morreu = await pararEEsperar(s, "conta incompatível com as restrições", 3_000);
   if (morreu) {
     recusarPorRestricao(s, mensagem, comoResolver);
