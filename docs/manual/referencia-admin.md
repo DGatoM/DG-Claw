@@ -284,6 +284,7 @@ Rotas públicas, sem login, porque a tela de entrada também usa o nome, o logo 
 | `/manifest.webmanifest` | Nome e ícones do app instalado |
 | `GET /marca/favicon` | Favicon da marca, no painel de cada agente |
 | `GET /marca/icone-app` | Ícone do app instalado, no painel de cada agente |
+| `GET /marca/logo` | Logo da marca, no painel de cada agente (centro da aba Integrações quando o agente não tem foto) |
 
 ## Rotas do painel de cada agente
 
