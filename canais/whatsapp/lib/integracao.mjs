@@ -1,5 +1,5 @@
 // Anota o resultado do WhatsApp no registro de integracoes do agente (docs/PLANO-INTEGRACOES-E-VIGIA.md),
-// chamando o comando `dgclaw-integracao`. Chamada sem shell, sem esperar e sem nunca derrubar a ponte.
+// chamando o comando `dgclaw-integracao`. Chamada sem shell, um registro por vez e sem nunca derrubar a ponte.
 import { execFile } from 'node:child_process';
 import { motivoErro } from './util.mjs';
 
@@ -14,8 +14,50 @@ export function criarAnotadorIntegracao({ registrar, env, opcoes = {} }) {
   const bin = opcoes.binIntegracao || env.DGCLAW_INTEGRACAO_BIN || 'dgclaw-integracao';
   let avisouAusente = false;
   const PRAZO_MS = 3000;
+  const MAX_FILA = 20;
+  // Um registro por vez: uma rajada de mensagens nao abre um processo por mensagem.
+  // "ok" repetido logo em seguida e condensado; a ordem das falhas e mantida.
+  const fila = [];
+  let rodando = false;
+  let avisouCheia = false;
 
   function anotar(resultado, origem) {
+    const ultimo = fila[fila.length - 1];
+    if (ultimo && ultimo.resultado === 'ok' && resultado === 'ok' && ultimo.origem === origem) return comPrazo(ultimo.promessa);
+    if (fila.length >= MAX_FILA) {
+      if (!avisouCheia) { avisouCheia = true; registrar(`a fila de registros do mapa de integracoes passou de ${MAX_FILA}; "${resultado}" do WhatsApp nao foi anotado`); }
+      return Promise.resolve();
+    }
+    const item = { resultado, origem };
+    item.promessa = new Promise((resolve) => { item.resolve = resolve; });
+    fila.push(item);
+    proximo();
+    return comPrazo(item.promessa);
+  }
+
+  // Quem espera (o logout) nunca espera mais que o prazo, mesmo com registros na frente da fila.
+  function comPrazo(promessa) {
+    return new Promise((resolve) => {
+      const t = setTimeout(resolve, PRAZO_MS);
+      if (typeof t.unref === 'function') t.unref();
+      promessa.then(() => { clearTimeout(t); resolve(); });
+    });
+  }
+
+  function proximo() {
+    if (rodando || !fila.length) return;
+    rodando = true;
+    const item = fila[0];
+    executar(item.resultado, item.origem).then(() => {
+      fila.shift();
+      rodando = false;
+      if (!fila.length) avisouCheia = false;
+      item.resolve();
+      proximo();
+    });
+  }
+
+  function executar(resultado, origem) {
     return new Promise((resolve) => {
       let timer = null;
       const fim = () => { if (timer) clearTimeout(timer); resolve(); };
