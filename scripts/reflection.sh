@@ -429,6 +429,14 @@ if [ "$REFLECT_MODE" = "headless" ]; then
     RESTART_THRESHOLD="${DGCLAW_REFLECT_RESTART_THRESHOLD:-100000}"
 
     echo "[$(date '+%F %T')] reflexao ${TODAY}: consolidacao HEADLESS (claude --print, model=$REFLECT_MODEL)" >> "$LOG"
+    # O cwd e o --add-dir precisam estar marcados como confiaveis (Claude Code 2.1.326); falha so avisa no log.
+    if [ -f "$PLUGIN/scripts/_lib/confiar-pastas.sh" ]; then
+        # shellcheck disable=SC1091
+        . "$PLUGIN/scripts/_lib/confiar-pastas.sh"
+        confiar_pastas "$DGCLAW_WORKSPACE" >> "$LOG" 2>&1 || true
+    else
+        echo "[$(date '+%F %T')] aviso: $PLUGIN/scripts/_lib/confiar-pastas.sh nao existe (copia do plugin antiga); a pasta nao foi marcada como confiavel e o Claude pode parar no dialogo de confianca. Atualize o DG Claw." >> "$LOG"
+    fi
     "$CLAUDE_BIN" --print \
         --no-session-persistence \
         --permission-mode bypassPermissions \

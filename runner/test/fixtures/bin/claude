@@ -105,6 +105,20 @@ if (process.env.FAKE_AVISO_BYPASS && !pulaAvisoBypass) {
   return;
 }
 
+// FAKE_DIALOGO_CONFIANCA=1: como o Claude 2.1.326, abre o diálogo de confiança de pasta no boot.
+if (process.env.FAKE_DIALOGO_CONFIANCA) {
+  registrar({ modo: "dialogo-confianca" });
+  process.stdout.write(
+    "\u001b[2J\u001b[H" + process.cwd() + "\r\n\r\n Is this a directory you created or one you trust?\r\n\r\n" +
+      " \u276f 1.\u001b[1CNo,\u001b[1Cexit\r\n   2.\u001b[1CYes,\u001b[1CI\u001b[1Ctrust\u001b[1Cthis\u001b[1Cfolder\r\n",
+  );
+  if (process.stdin.isTTY) process.stdin.setRawMode(true);
+  process.stdin.on("data", (d) => registrar({ modo: "tecla-no-aviso", bytes: d.length }));
+  process.on("SIGTERM", () => process.exit(0));
+  setInterval(() => {}, 1000);
+  return;
+}
+
 process.stdout.write("fake claude pronto\r\n");
 if (process.env.FAKE_IMPRIMIR) {
   // O texto sai em dois pedaços, com um intervalo no meio, como um segredo partido na saída do PTY.

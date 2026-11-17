@@ -53,31 +53,65 @@ export function arquivoClaudeJson(env: Record<string, string>): string {
 
 function lerClaudeJson(arquivo: string): Record<string, unknown> {
   if (!fs.existsSync(arquivo)) return {};
-  const o = JSON.parse(fs.readFileSync(arquivo, "utf8")) as unknown;
+  let o: unknown;
+  try {
+    o = JSON.parse(fs.readFileSync(arquivo, "utf8"));
+  } catch (err) {
+    // A mensagem do JSON.parse cita um trecho do arquivo, e o .claude.json pode ter token de MCP: não vai para o log.
+    if (err instanceof SyntaxError) throw new Error("o conteúdo não é um JSON válido (trecho omitido do log, pode conter credencial)");
+    throw err;
+  }
   if (!o || typeof o !== "object" || Array.isArray(o)) throw new Error("o conteúdo não é um objeto JSON");
   return o as Record<string, unknown>;
 }
 
-/** Marca a casa como confiável ANTES do PTY subir. Sem isto, na primeira vez
- *  numa pasta o CLI abre "Do you trust the files in this folder?", e o primeiro
- *  texto digitado cai dentro do diálogo e se perde. */
-export function confiarNaPasta(cwd: string, env: Record<string, string>, area: string): void {
+/** As pastas que o Claude 2.1.326 em diante pergunta "is this a directory you trust?" no boot, uma por
+ *  uma: o cwd e cada `--add-dir <p>` / `--add-dir=<p>` dos args. Caminho relativo vale contra o cwd. */
+export function pastasParaConfiar(cwd: string, args: readonly string[]): string[] {
+  const achadas = [cwd];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    let p: string | undefined;
+    if (a === "--add-dir") {
+      // o flag aceita várias pastas seguidas: vale até o próximo argumento que começa com "-"
+      for (let j = i + 1; j < args.length && !String(args[j]).startsWith("-"); j++) achadas.push(path.resolve(cwd, args[j]));
+      continue;
+    }
+    if (typeof a === "string" && a.startsWith("--add-dir=")) p = a.slice("--add-dir=".length);
+    if (p) achadas.push(path.resolve(cwd, p));
+  }
+  return [...new Set(achadas)];
+}
+
+/** Marca as pastas como confiáveis ANTES do PTY subir. Sem isto, na primeira vez numa pasta o CLI abre
+ *  "Is this a directory you created or one you trust?" (cursor em "No, exit"), e quem sobe sem ninguém no
+ *  teclado fica parado nele. Lê o arquivo uma vez e grava uma vez, só se algo mudou. */
+export function confiarNasPastas(pastas: readonly string[], env: Record<string, string>, area: string): void {
   const arquivo = arquivoClaudeJson(env);
   try {
     const atual = lerClaudeJson(arquivo);
     const projetos = ((atual as Record<string, Record<string, Record<string, unknown>>>).projects ??= {});
-    const proj = (projetos[cwd] ??= {});
-    if (proj.hasTrustDialogAccepted === true) return;
-    proj.hasTrustDialogAccepted = true;
+    const novas: string[] = [];
+    for (const pasta of pastas) {
+      const proj = (projetos[pasta] ??= {});
+      if (proj.hasTrustDialogAccepted === true) continue;
+      proj.hasTrustDialogAccepted = true;
+      novas.push(pasta);
+    }
+    if (novas.length === 0) return;
     gravarJsonAtomico(arquivo, atual);
-    log.info(area, `casa ${cwd} marcada como confiável em ${arquivo}`);
+    log.info(area, `pastas marcadas como confiáveis em ${arquivo}: ${novas.join(", ")}`);
   } catch (err) {
     log.aviso(
       area,
-      `não consegui marcar ${cwd} como confiável (${err instanceof Error ? err.message : err}); ` +
-        `se o CLI abrir o diálogo de confiança, a primeira mensagem enviada vai se perder dentro dele`,
+      `não consegui marcar ${pastas.join(", ")} como confiável (${err instanceof Error ? err.message : err}); ` +
+        `se o CLI abrir o diálogo de confiança, o agente fica parado nele`,
     );
   }
+}
+
+export function confiarNaPasta(cwd: string, env: Record<string, string>, area: string): void {
+  confiarNasPastas([cwd], env, area);
 }
 
 /** Pula a tela de primeira execução (boas-vindas, tema, onboarding do projeto).
@@ -233,7 +267,7 @@ export const motorClaude: Motor = {
   },
 
   async preparar(ctx) {
-    confiarNaPasta(ctx.cwd, ctx.env, ctx.a("spawn"));
+    confiarNasPastas(pastasParaConfiar(ctx.cwd, ctx.config.extraArgs ?? []), ctx.env, ctx.a("spawn"));
     pularPrimeiraExecucao(ctx.cwd, ctx.env, ctx.a("spawn"));
     if (ctx.config.permissionMode === "auto") pularAvisoDoAutoMode(ctx.env, ctx.a("spawn"));
     if (ctx.escolha.auth === "api") {
