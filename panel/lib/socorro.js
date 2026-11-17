@@ -72,6 +72,55 @@ function resumoDaFerramenta(nome, entrada) {
   return `usou ${nome}`;
 }
 
+/** O `.claude.json` que o Claude do socorro vai usar: dentro do CLAUDE_CONFIG_DIR quando há um, senão `$HOME/.claude.json`. */
+function arquivoClaudeJson(env) {
+  const dir = String(env.CLAUDE_CONFIG_DIR || '').trim();
+  return dir ? path.join(dir, '.claude.json') : path.join(String(env.HOME || '').trim() || os.homedir(), '.claude.json');
+}
+
+/** Marca as pastas como confiáveis no `.claude.json`, ANTES de o `claude` subir: o Claude Code 2.1.326
+ *  abre "Is this a directory you created or one you trust?" para o cwd e cada `--add-dir` ainda não
+ *  marcado, e um `claude -p` sem ninguém no teclado não passa dali. Preserva as outras chaves e o modo do
+ *  arquivo, grava por tmp + rename na mesma pasta e não regrava se nada mudou. Se o arquivo existe e
+ *  não é um JSON de objeto, LANÇA sem tocar nele. Devolve as pastas que passaram a ser confiáveis. */
+function confiarNasPastas(arquivo, pastas) {
+  let atual = {};
+  let modo = 0o600;
+  let existe = false;
+  try {
+    modo = fs.statSync(arquivo).mode & 0o777;
+    existe = true;
+  } catch (e) {
+    if (e.code !== 'ENOENT') throw e;
+  }
+  if (existe) {
+    const texto = fs.readFileSync(arquivo, 'utf8');
+    atual = texto.trim() ? JSON.parse(texto) : {};
+    if (!atual || typeof atual !== 'object' || Array.isArray(atual)) throw new Error('o conteúdo não é um objeto JSON');
+  }
+  if (!atual.projects || typeof atual.projects !== 'object' || Array.isArray(atual.projects)) atual.projects = {};
+  const marcadas = [];
+  for (const pasta of pastas) {
+    const proj = atual.projects[pasta] && typeof atual.projects[pasta] === 'object' ? atual.projects[pasta] : (atual.projects[pasta] = {});
+    if (proj.hasTrustDialogAccepted === true) continue;
+    proj.hasTrustDialogAccepted = true;
+    marcadas.push(pasta);
+  }
+  if (!marcadas.length && existe) return marcadas;
+  const pasta = path.dirname(arquivo);
+  fs.mkdirSync(pasta, { recursive: true });
+  const tmp = path.join(pasta, `.${path.basename(arquivo)}.${process.pid}.${Date.now()}.tmp`);
+  try {
+    fs.writeFileSync(tmp, `${JSON.stringify(atual, null, 2)}\n`, { mode: modo, flag: 'wx' });
+    fs.chmodSync(tmp, modo);
+    fs.renameSync(tmp, arquivo);
+  } catch (e) {
+    try { fs.rmSync(tmp, { force: true }); } catch { /* já não existe */ }
+    throw e;
+  }
+  return marcadas;
+}
+
 function buildSocorro(CONFIG, serverDir) {
   const LIGADO = CONFIG.socorro !== false;
   const MODELO = CONFIG.socorroModelo || 'sonnet';
@@ -245,6 +294,16 @@ function buildSocorro(CONFIG, serverDir) {
     if (!sessao.iniciadaEm) sessao.iniciadaEm = new Date().toISOString();
     evento('voce', limpo);
 
+    // Cwd e --add-dir precisam estar marcados como confiáveis, senão o claude para no diálogo de confiança.
+    // Falha aqui não impede a tentativa: registra o que houve e segue.
+    const arqClaude = arquivoClaudeJson(ambiente());
+    try {
+      const marcadas = confiarNasPastas(arqClaude, [SALA, WS]);
+      if (marcadas.length) console.log(`[socorro] pastas marcadas como confiáveis em ${arqClaude}: ${marcadas.join(', ')}`);
+    } catch (e) {
+      console.error(`[socorro] nao consegui marcar ${SALA} e ${WS} como confiaveis em ${arqClaude}: ${e.message}. Se o claude abrir o dialogo de confianca o socorro nao responde; confira se o arquivo e um JSON valido e se o usuario do painel pode escrever nele.`);
+    }
+
     const minha = sessao; // se "encerrar" trocar a sessão no meio, os eventos tardios não vazam para a nova
     let proc;
     try {
@@ -326,4 +385,4 @@ function buildSocorro(CONFIG, serverDir) {
   return { estado, mensagem, encerrar, LIGADO, _prompt: promptDoSistema };
 }
 
-module.exports = { buildSocorro, resumoDaFerramenta };
+module.exports = { buildSocorro, resumoDaFerramenta, confiarNasPastas, arquivoClaudeJson };

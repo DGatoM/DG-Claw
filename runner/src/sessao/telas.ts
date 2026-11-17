@@ -49,6 +49,34 @@ export function ehDialogoDeAutoMode(tela: string): boolean {
   return depois.length <= 80;
 }
 
+/** O diálogo de confiança de pasta do Claude Code ("Is this a directory you created or one you trust?" no
+ *  2.1.326 em diante, "Do you trust the files in this folder?" nas versões antigas), que abre no boot para o
+ *  cwd e para cada --add-dir ainda não marcado. Mesmo cuidado do auto mode: o buffer é o fluxo bruto do PTY,
+ *  então só conta se for a ÚLTIMA coisa desenhada (depois das opções sobra pouco texto), para não disparar
+ *  por diálogo já respondido nem por alguém que cita a frase na conversa. */
+export function ehDialogoDeConfiancaDoClaude(tela: string): boolean {
+  const t = semAnsi(desdeAUltimaLimpezaDeTela(tela)).replace(/\s+/g, "").toLowerCase();
+  const pergunta = ["isthisadirectoryyoucreatedoroneyoutrust", "doyoutrustthefilesinthisfolder"]
+    .map((p) => t.lastIndexOf(p))
+    .reduce((a, b) => Math.max(a, b), -1);
+  if (pergunta < 0) return false;
+  const i = t.indexOf("no,exit", pergunta);
+  if (i < 0 || !t.includes("yes,", pergunta)) return false;
+  const depois = t.slice(i + "no,exit".length);
+  if (depois.includes("❯") || depois.includes("?forshortcuts")) return false;
+  return depois.length <= 120;
+}
+
+/** A pasta que o diálogo de confiança pergunta (a linha com o caminho vem antes da pergunta). Melhor
+ *  esforço: o TUI pode comer espaços, e sem caminho reconhecível devolve null. */
+export function pastaDoDialogoDeConfianca(tela: string): string | null {
+  const t = semAnsi(desdeAUltimaLimpezaDeTela(tela));
+  const i = t.search(/This\s*session\s*hasn.t\s*worked|Do\s*you\s*trust\s*the\s*files|Is\s*this\s*a\s*directory/i);
+  const antes = i < 0 ? t : t.slice(Math.max(0, i - 600), i);
+  const m = [...antes.matchAll(/(\/[\w.@+~-]+(?:\/[\w.@+~-]+)*)/g)];
+  return m.length ? m[m.length - 1][1] : null;
+}
+
 /** O menu de confiança de pasta do Codex, olhando só o fim da tela (a tela velha pode ainda estar no buffer).
  *
  *  O buffer é o fluxo bruto do PTY, e o Codex redesenha com movimento de cursor, quase sem quebra de

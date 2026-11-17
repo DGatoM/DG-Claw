@@ -218,6 +218,30 @@ ok(path.resolve(chamadas[0].cwd) !== path.resolve(WS), 'o cwd NÃO é a casa do 
 ok(!chamadas[0].env.includes('DGCLAW_PANEL_PASSWORD'), 'a senha do painel não entra no ambiente do socorro');
 ok(fs.readdirSync(path.join(WS, '.dgclaw', 'socorro')).some((f) => f.endsWith('.jsonl')), 'o histórico fica em .dgclaw/socorro/<data>.jsonl');
 
+// Confiança de pasta (Claude Code 2.1.326): o cwd (a sala) e o --add-dir (a casa) ficam marcados antes do spawn.
+{
+  const cj = JSON.parse(fs.readFileSync(path.join(HOME, '.claude.json'), 'utf8'));
+  ok(cj.projects?.[WS]?.hasTrustDialogAccepted === true, 'socorro: a casa do agente (--add-dir) fica marcada como confiável');
+  ok(cj.projects?.[path.join(WS, '.dgclaw', 'socorro', 'sala')]?.hasTrustDialogAccepted === true, 'socorro: a sala (cwd) fica marcada como confiável');
+  const { confiarNasPastas } = require('./lib/socorro');
+  const arq = path.join(RAIZ, 'trust-unit', '.claude.json');
+  fs.mkdirSync(path.dirname(arq), { recursive: true });
+  fs.writeFileSync(arq, JSON.stringify({ numStartups: 4, projects: { '/ja': { hasTrustDialogAccepted: true, x: 1 }, '/c': { allowed: [1] } } }), { mode: 0o640 });
+  fs.chmodSync(arq, 0o640);
+  const m1 = confiarNasPastas(arq, ['/c', '/a', '/ja']);
+  const o = JSON.parse(fs.readFileSync(arq, 'utf8'));
+  ok(m1.join() === '/c,/a', 'confiança: devolve só as pastas que passaram a ser confiáveis');
+  ok(o.numStartups === 4 && o.projects['/ja'].x === 1 && o.projects['/c'].allowed[0] === 1 && o.projects['/a'].hasTrustDialogAccepted === true, 'confiança: preserva chave alheia e o que já existia');
+  ok((fs.statSync(arq).mode & 0o777) === 0o640, 'confiança: preserva o modo do arquivo');
+  const bytes = fs.readFileSync(arq);
+  ok(confiarNasPastas(arq, ['/c', '/a']).length === 0 && fs.readFileSync(arq).equals(bytes), 'confiança: nada mudou, não regrava');
+  ok(fs.readdirSync(path.dirname(arq)).join() === '.claude.json', 'confiança: nenhum temporário sobra');
+  fs.writeFileSync(arq, '{quebrado');
+  let lancou = false;
+  try { confiarNasPastas(arq, ['/c']); } catch { lancou = true; }
+  ok(lancou && fs.readFileSync(arq, 'utf8') === '{quebrado', 'confiança: JSON inválido lança e NÃO é apagado nem reescrito');
+}
+
 r = await chamar('POST', '/api/socorro/mensagem', { body: { texto: 'sim, pode' } });
 for (let i = 0; i < 40; i++) {
   est = (await chamar('GET', '/api/socorro/estado')).corpo;

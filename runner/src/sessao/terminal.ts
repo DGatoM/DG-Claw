@@ -3,7 +3,7 @@ import { log } from "../logger.js";
 import { MascaraDeFluxo } from "../mascara.js";
 import { BUFFER_MAX, QUIETO_DE_BOOT_MS, SILENCIO_DA_MASCARA_MS } from "./constantes.js";
 import { cancelarQuietoDeBoot } from "./eventos.js";
-import { ehDialogoDeBypass, semAnsi } from "./telas.js";
+import { ehDialogoDeBypass, ehDialogoDeConfiancaDoClaude, pastaDoDialogoDeConfianca, semAnsi } from "./telas.js";
 
 export function aoReceberDados(s: Sessao, dados: string, mascara: MascaraDeFluxo): void {
   s.ultimaSaidaEm = Date.now();
@@ -20,6 +20,10 @@ export function aoReceberDados(s: Sessao, dados: string, mascara: MascaraDeFluxo
     s.caudaDaTela = (s.caudaDaTela + dados).slice(-8_192);
     if (ehDialogoDeBypass(s.caudaDaTela)) {
       pararNoDialogoDeBypass(s);
+      return;
+    }
+    if (ehDialogoDeConfiancaDoClaude(s.caudaDaTela)) {
+      pararNoDialogoDeConfianca(s);
       return;
     }
   }
@@ -63,6 +67,27 @@ export function pararNoDialogoDeBypass(s: Sessao): void {
     s.a("pty"),
     "o Claude Code está parado no aviso 'Bypass Permissions mode' (1. No, exit / 2. Yes, I accept) e a chave skipDangerousModePermissionPrompt não chegou ao settings",
     "acrescentar \"skipDangerousModePermissionPrompt\": true ao ~/.claude/settings.json do HOME do motor, ou atualizar o runner; depois reiniciar o agente. Nenhuma tecla foi enviada",
+  );
+}
+
+/**
+ * O Claude parou no diálogo de confiança de pasta (2.1.326: abre para o cwd e para cada --add-dir sem
+ * `hasTrustDialogAccepted`, com o cursor em "No, exit"). Sem ninguém no teclado ele fica ali com o processo
+ * vivo, e um vigia que olha só o processo diria "no ar". Não se responde com teclas.
+ */
+export function pararNoDialogoDeConfianca(s: Sessao): void {
+  const pasta = pastaDoDialogoDeConfianca(s.caudaDaTela);
+  const qual = pasta ? ` (pasta: ${pasta})` : "";
+  const mensagem =
+    `O Claude Code parou no diálogo de confiança de pasta${qual} ("Is this a directory you created or one you trust?") ` +
+    "e ficou esperando resposta. O DG Claw não responde sozinho (o Enter escolheria \"No, exit\"). " +
+    "O que fazer: marcar a pasta como confiável no .claude.json do motor (projects.<pasta>.hasTrustDialogAccepted = true) " +
+    "ou reiniciar o agente, porque o DG Claw tenta marcar sozinho antes do boot.";
+  s.mudar({ status: "errored", error: mensagem, statusReason: "runner:tela-de-confianca" });
+  log.erro(
+    s.a("pty"),
+    `o Claude Code está parado no diálogo de confiança de pasta${qual} e a pasta não estava marcada em hasTrustDialogAccepted`,
+    "marcar a pasta como confiável no .claude.json do motor ou reiniciar o agente (o DG Claw marca o cwd e cada --add-dir antes do boot). Nenhuma tecla foi enviada",
   );
 }
 

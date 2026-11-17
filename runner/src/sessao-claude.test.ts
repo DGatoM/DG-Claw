@@ -442,6 +442,38 @@ test("aviso do modo Bypass na tela: errored/runner:dialogo-bypass, nenhuma tecla
   }
 });
 
+test("diálogo de confiança de pasta na tela: errored/runner:tela-de-confianca, com a pasta e nenhuma tecla enviada", async () => {
+  logarClaude(amb);
+  process.env.FAKE_DIALOGO_CONFIANCA = "1";
+  try {
+    const { s, id } = await nova({ permissionMode: "default" });
+    await s.subir("nova");
+    await esperarAte(() => s.estado.status === "errored", 8_000, "o runner reconhecer o diálogo de confiança");
+    assert.equal(s.estado.statusReason, "runner:tela-de-confianca");
+    assert.match(s.estado.error ?? "", /hasTrustDialogAccepted/);
+    assert.match(s.estado.error ?? "", new RegExp(`pasta: ${amb.casa.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+    assert.match(lerTexto(amb.logDoRunner), /diálogo de confiança de pasta.*Nenhuma tecla foi enviada/s);
+    const teclas = lerLinhasJson(amb.logDosClis).filter((l) => l.bin === "claude" && l.modo === "tecla-no-aviso");
+    assert.equal(teclas.length, 0, "nenhum Enter nem texto escrito no PTY");
+  } finally {
+    delete process.env.FAKE_DIALOGO_CONFIANCA;
+  }
+});
+
+test("ehDialogoDeConfiancaDoClaude: reconhece o diálogo aberto, ignora o respondido e a citação solta", async () => {
+  const { ehDialogoDeConfiancaDoClaude, pastaDoDialogoDeConfianca } = await import("./sessao/telas.js");
+  const dialogo =
+    "\u001b[2J\u001b[H\u001b[1m/srv/agente/casa\u001b[0m\r\n\r\nIs\u001b[1Cthis\u001b[1Ca\u001b[1Cdirectory\u001b[1Cyou\u001b[1Ccreated\u001b[1Cor\u001b[1Cone\u001b[1Cyou\u001b[1Ctrust?\r\n" +
+    "\u276f 1. No, exit\r\n  2. Yes, I trust this folder\r\nEnter to confirm \u00b7 Esc to cancel";
+  assert.equal(ehDialogoDeConfiancaDoClaude(dialogo), true);
+  assert.equal(pastaDoDialogoDeConfianca(dialogo), "/srv/agente/casa");
+  assert.equal(ehDialogoDeConfiancaDoClaude("Do you trust the files in this folder?\r\n1. Yes, proceed\r\n2. No, exit"), true, "texto das versões antigas");
+  assert.equal(ehDialogoDeConfiancaDoClaude(dialogo + "\r\n\u276f \r\n? for shortcuts"), false, "já respondido: o prompt voltou");
+  assert.equal(ehDialogoDeConfiancaDoClaude(dialogo + "\u001b[2J\u001b[H\u276f"), false, "limpou a tela depois");
+  assert.equal(ehDialogoDeConfiancaDoClaude("o usuário perguntou: Is this a directory you created or one you trust?"), false);
+  assert.equal(ehDialogoDeConfiancaDoClaude("citando 'Is this a directory you created or one you trust?' e depois " + "texto longo da conversa ".repeat(20)), false);
+});
+
 test("aviso do modo Bypass: com a chave no settings por spawn o fake não abre o aviso e o agente sobe", async () => {
   logarClaude(amb);
   process.env.FAKE_AVISO_BYPASS = "1";

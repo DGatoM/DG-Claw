@@ -112,6 +112,7 @@ agente (régua: feature de ~2 mil linhas leva 10 a 30 min).
 | Conectores do claude.ai (Gmail, Agenda, Drive e outros) | MCP próprio por serviço; até lá, o que precisa deles fica num agente Claude ou num card Claude |
 | Namespace de comandos de plugin (`/dgclaw:x`) | skills nativas do Codex pelo nome |
 | `statusLine` | o rollout e o app-server já trazem o uso do plano |
+| Diálogo de confiança por `--add-dir` (Claude Code 2.1.326: marcação de `hasTrustDialogAccepted` antes do boot e erro `runner:tela-de-confianca`) | Sem equivalente a fazer: o Codex não pergunta por pasta extra, só tem o menu "Trust this folder?" do cwd, que já é tratado por `telaDeConfiancaDoCodex` e pelo `trust_level` gravado. A correção é específica do Claude porque a pergunta nasce no CLI dele |
 | Regras `allow`/`ask`/`deny` por ferramenta | `enabled_tools`/`disabled_tools` por servidor MCP e a política de aprovação do Codex |
 
 ## Total
