@@ -252,6 +252,7 @@ Servidas pelo DG Claw Web. Quem: Dono, salvo o que a coluna disser. Colab só pa
 | Rota | Para que serve | Quem | Detalhe |
 | --- | --- | --- | --- |
 | `/api/v1/atualizacao` | Diz se há versão nova e o resumo do que mudou; `/descansar` (POST com o commit publicado) dispensa a faixa até sair outra | Dono. Caixa recebe 403 | [ATUALIZACAO.md](../../web/docs/ATUALIZACAO.md) |
+| `/api/v1/integracoes` | Integrações com defeito: a faixa vermelha, `/lembrar` (adia 1 hora), `/silenciar` e `/reativar` (POST com agente e integração), `/automatico` (POST: o Admin chamado sozinho, desligado de fábrica) | Só o dono: colaborador e caixa recebem 403 | [INTEGRACOES.md](../../web/docs/INTEGRACOES.md) |
 | `/api/v1/seguranca` | Avisos de segurança do DG Claw: `/boletins`, e por id `/adiar` e `/dispensar` | Dono. Caixa recebe 403 | [SEGURANCA-BOLETINS.md](../../web/docs/SEGURANCA-BOLETINS.md) |
 | `/api/v1/seguranca/ronda` | Resultado da ronda e os pedidos de aplicar, agendar e desfazer (`/ronda/:id/aplicar`) | Dono | [RONDA-PAINEL.md](../../web/docs/RONDA-PAINEL.md) |
 | `/api/v1/seguranca/emergencia` | Estado do botão de emergência e os pedidos `preparar`, `cortar` e `religar` | Dono | [RONDA-PAINEL.md](../../web/docs/RONDA-PAINEL.md) |
