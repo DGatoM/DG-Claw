@@ -18,6 +18,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const skillsLib = require('./skills');
 
 const ID_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;
@@ -138,11 +139,25 @@ function lerDesligadas(dir) {
 }
 
 function gravarDesligadas(dir, lista) {
+  // A pasta e do agente: nao grava se ela for atalho (link simbolico) ou nao for pasta.
   fs.mkdirSync(dir, { recursive: true, mode: 0o755 });
+  const st = fs.lstatSync(dir);
+  if (st.isSymbolicLink() || !st.isDirectory()) throw new Error(`${dir} é um link simbólico ou não é uma pasta, então não gravei nada ali`);
   const arq = path.join(dir, 'preferencias.json');
-  const tmp = `${arq}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify({ desligadas: lista }, null, 1) + '\n', { mode: 0o644 });
-  fs.renameSync(tmp, arq);
+  const tmp = path.join(dir, `.preferencias.${crypto.randomBytes(8).toString('hex')}.tmp`);
+  const flags = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | (fs.constants.O_NOFOLLOW || 0);
+  let fd = null;
+  try {
+    fd = fs.openSync(tmp, flags, 0o600);
+    fs.writeSync(fd, JSON.stringify({ desligadas: lista }, null, 1) + '\n');
+    fs.closeSync(fd);
+    fd = null;
+    fs.renameSync(tmp, arq);
+  } catch (e) {
+    if (fd !== null) { try { fs.closeSync(fd); } catch (_) { /* já fechado */ } }
+    try { fs.unlinkSync(tmp); } catch (_) { /* o temporário pode nem ter sido criado */ }
+    throw e;
+  }
 }
 
 /** Monta a resposta do GET. `agora` e injetavel para teste. */
@@ -160,7 +175,8 @@ function montar(CONFIG, serverDir, agora = new Date()) {
   if (v.erro) return { ...base, integracoes: [], medido: false, motivo: `Não foi possível medir as integrações: ${v.erro}.` };
 
   const catalogo = lerCatalogo(serverDir);
-  const desligadas = new Set(lerDesligadas(dir) || []);
+  const listaDesligadas = lerDesligadas(dir);
+  const desligadas = new Set(listaDesligadas || []);
   const skillsPorId = {};
   try {
     for (const sk of skillsLib.listar(CONFIG.agentDir, process.env.DGCLAW_PANEL_SKILLS_DIR).skills) {
@@ -190,6 +206,9 @@ function montar(CONFIG, serverDir, agora = new Date()) {
       skills: skillsPorId[it.id] || [],
     };
   });
+  if (listaDesligadas === null) {
+    return { ...base, integracoes, medido: false, motivo: 'Não foi possível medir as integrações: o arquivo de preferências está ilegível ou fora do formato, então não sei quais estão desligadas.' };
+  }
   return { ...base, integracoes, medido: true };
 }
 

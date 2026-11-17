@@ -93,7 +93,7 @@ class No {
   get ownerSVGElement() { return this; }
   busca(fn, saida = []) { for (const f of this.filhos) { if (fn(f)) saida.push(f); f.busca(fn, saida); } return saida; }
 }
-function montaTela(foto) {
+function montaTela(foto, chamadas) {
   const ids = {};
   for (const id of ['int-mapa', 'int-mapa-caixa', 'int-resumo-texto', 'int-aviso', 'int-cartao', 'int-resumo', 'int-alternar', 'panel-integracoes']) ids[id] = new No('div');
   const doc = { hidden: false, createElementNS: (ns, tag) => new No(tag), createElement: (tag) => new No(tag),
@@ -106,7 +106,7 @@ function montaTela(foto) {
   const win = { matchMedia: () => ({ matches: false }), requestAnimationFrame: () => 0, cancelAnimationFrame() {},
     setInterval: () => 0, addEventListener() {} };
   // O api.js real, carregado como script clássico: `const API` fica no escopo do script, não em window.
-  const fetchFalso = async () => ({ ok: true, status: 200, json: async () => dados });
+  const fetchFalso = async (url, op) => { if (chamadas) chamadas.push({ url, metodo: (op && op.method) || 'GET', corpo: op && op.body }); return { ok: true, status: 200, json: async () => dados }; };
   const API = new Function('window', 'fetch', `${fonteApi}\n;return API;`)({ DGCLAW_BASE: '' }, fetchFalso);
   new Function('window', 'document', 'performance', 'API', fonte)(win, doc, { now: () => 0 }, API);
   return { ids, tela: win.DGIntegracoes, dados };
@@ -149,6 +149,25 @@ const imagens = (raiz) => raiz.busca((n) => n.tagName === 'image');
   await tela.carregar();
   ok(/^Ainda não usou nenhum sistema externo/.test(ids['int-resumo-texto'].textContent) && ids['int-mapa-caixa'].hidden === true, 'lista vazia mostra o convite e esconde o palco');
 }
+
+console.log('\nBotões Ligar/Desligar no mapa (api.js real, fetch falso)');
+for (const [estadoInicial, rotulo, sufixo] of [['verde', 'Desligar no mapa', '/desligar'], ['desligado', 'Ligar no mapa', '/ligar']]) {
+  const chamadas = [];
+  const { ids, tela, dados } = montaTela('', chamadas);
+  dados.integracoes = [{ id: 'instagram', nome: 'Instagram', icone: 'camera', estado: estadoInicial, palavra: 'x', skills: [] }];
+  await tela.carregar({ foto: '' });
+  const placa = ids['int-mapa'].busca((n) => n.tagName === 'g' && n.getAttribute('role') === 'button')[0];
+  placa.dispara('click');
+  const botao = ids['int-cartao'].busca((n) => n.tagName === 'button' && /int-botao/.test(n.getAttribute('class') || ''))[0];
+  ok(botao && botao.textContent === rotulo, `o cartão mostra o botão "${rotulo}"`);
+  chamadas.length = 0;
+  await Promise.all((botao.ouvintes.click || []).map((fn) => fn({})));
+  const post = chamadas.find((c) => c.metodo === 'POST');
+  ok(post && post.url === `/api/integracoes/instagram${sufixo}`, `clicar faz POST em /api/integracoes/instagram${sufixo} (veio ${post && post.url})`);
+  ok(post && post.corpo === '{}', 'o corpo do POST é {}');
+  ok(chamadas.some((c) => c.metodo === 'GET' && c.url === '/api/integracoes'), 'depois do POST a tela recarrega o mapa');
+}
+ok(!/raiz\.API|window\.API/.test(fonte), 'a tela não usa raiz.API nem window.API (o API do api.js é um const de script)');
 
 console.log('\nSegurança do arquivo');
 ok(!/innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval\(/.test(fonte), 'nenhum innerHTML, outerHTML, insertAdjacentHTML, write ou eval');

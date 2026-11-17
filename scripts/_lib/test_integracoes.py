@@ -7,11 +7,13 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, AQUI)
 import integracoes as I  # noqa: E402
 
+ERA_ROOT = os.geteuid() == 0   # antes de qualquer mock
 T0 = datetime.datetime(2026, 11, 17, 12, 0, 0, tzinfo=datetime.timezone.utc)
 
 
@@ -29,8 +31,12 @@ class Base(unittest.TestCase):
         self.dir = os.path.join(self.tmp.name, "integracoes")
         self._antigo = os.environ.get("DGCLAW_INTEGRACOES_DIR")
         os.environ["DGCLAW_INTEGRACOES_DIR"] = self.dir
+        # o registro recusa root; os testes simulam o usuario do agente (os de root usam o proprio mock)
+        self._nao_root = mock.patch.object(I.os, "geteuid", return_value=1000)
+        self._nao_root.start()
 
     def tearDown(self):
+        self._nao_root.stop()
         if self._antigo is None:
             os.environ.pop("DGCLAW_INTEGRACOES_DIR", None)
         else:
@@ -125,6 +131,35 @@ class TestGravacao(Base):
         self.assertFalse([n for n in os.listdir(self.dir) if n.startswith(".tmp-")])
         self.assertEqual(self.estado()["versao"], 1)
 
+    def test_root_e_recusado_com_mensagem_clara(self):
+        with mock.patch.object(I.os, "geteuid", return_value=0):
+            with self.assertRaises(I.ErroGravacao) as c:
+                I.registrar("groq", "ok", agora=T0)
+        self.assertIn("root", str(c.exception))
+        self.assertFalse(os.path.exists(self.dir))
+        antigo, sys.stderr = sys.stderr, open(os.devnull, "w")
+        try:
+            with mock.patch.object(I.os, "geteuid", return_value=0):
+                I.registrar_silencioso("groq", "ok")   # nao levanta
+        finally:
+            sys.stderr.close()
+            sys.stderr = antigo
+
+    def test_pasta_que_ja_existe_nao_tem_o_modo_mexido(self):
+        os.makedirs(self.dir, mode=0o700)
+        os.chmod(self.dir, 0o700)
+        I.registrar("groq", "ok", agora=T0)
+        self.assertEqual(os.stat(self.dir).st_mode & 0o777, 0o700)
+
+    def test_pasta_final_link_simbolico_e_recusada(self):
+        alvo = os.path.join(self.tmp.name, "outra")
+        os.makedirs(alvo)
+        os.symlink(alvo, self.dir)
+        with self.assertRaises(I.ErroGravacao) as c:
+            I.registrar("groq", "ok", agora=T0)
+        self.assertIn("link simbolico", str(c.exception))
+        self.assertEqual(os.listdir(alvo), [])
+
     def test_linha_estragada_e_ignorada(self):
         os.makedirs(self.dir)
         with open(os.path.join(self.dir, "eventos.jsonl"), "w") as f:
@@ -156,6 +191,7 @@ class TestGravacao(Base):
     def test_concorrencia_dois_processos_sem_perder_linha(self):
         codigo = (
             "import sys; sys.path.insert(0, sys.argv[1]); import integracoes as I\n"
+            "import os; os.geteuid = lambda: 1000\n"
             "for i in range(40): I.registrar(sys.argv[2], 'erro')\n"
         )
         env = dict(os.environ)
@@ -296,8 +332,28 @@ class TestCli(Base):
         return subprocess.run([os.path.join(AQUI, "..", "..", "bin", "dgclaw-integracao"), *args],
                               capture_output=True, text=True, env=dict(os.environ))
 
+    def rodar_sem_root(self, *args):
+        """Como root o registro recusa; neste caso roda o comando como o usuario sem privilegio."""
+        if not ERA_ROOT:
+            return self.rodar(*args)
+        os.chmod(self.tmp.name, 0o777)
+        def baixa():
+            os.setgid(65534)
+            os.setuid(65534)
+        return subprocess.run([os.path.join(AQUI, "..", "..", "bin", "dgclaw-integracao"), *args],
+                              capture_output=True, text=True, env=dict(os.environ), preexec_fn=baixa)
+
+    def test_registrar_como_root_sai_1_com_mensagem(self):
+        if not ERA_ROOT:
+            self.skipTest("so faz sentido rodando como root")
+        r = self.rodar("registrar", "instagram", "ok")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("root", r.stderr)
+        self.assertFalse(os.path.exists(self.dir))
+
     def test_registrar_e_estado(self):
-        self.assertEqual(self.rodar("registrar", "instagram", "ok").returncode, 0)
+        r0 = self.rodar_sem_root("registrar", "instagram", "ok")
+        self.assertEqual(r0.returncode, 0, r0.stderr)
         r = self.rodar("estado")
         self.assertEqual(r.returncode, 0)
         self.assertEqual(json.loads(r.stdout)["integracoes"][0]["id"], "instagram")

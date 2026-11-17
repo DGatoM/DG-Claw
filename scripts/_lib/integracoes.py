@@ -188,13 +188,16 @@ def registrar(iid, resultado, origem="uso", agora=None):
     if origem not in ORIGENS:
         raise ErroUso(f"A origem {origem!r} nao existe. Use uma destas: {', '.join(ORIGENS)}.")
     agora = (agora or _agora()).astimezone(datetime.timezone.utc).replace(microsecond=0)
+    if os.geteuid() == 0:
+        raise ErroGravacao("O registro de integracoes e do usuario do agente e nao pode rodar como root: como root ele "
+                           "gravaria numa pasta que o agente controla. Rode o comando como o usuario do agente "
+                           "(dentro do container do agente) e nao como root.")
     d = pasta()
     try:
+        # Modo so na criacao: pasta que ja existe nao tem o modo mexido.
         os.makedirs(d, mode=0o755, exist_ok=True)
-        try:
-            os.chmod(d, 0o755)
-        except OSError:
-            pass
+        if stat.S_ISLNK(os.lstat(d).st_mode):
+            raise ErroGravacao(f"{d} e um link simbolico, entao nao gravei nada ali. Peca ao dono para conferir essa pasta.")
         fd_trava = os.open(os.path.join(d, ".trava"), os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
         with os.fdopen(fd_trava, "a") as trava:
             _pegar_trava(trava, d)

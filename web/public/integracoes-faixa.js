@@ -31,6 +31,12 @@
     return item.integracaoNome + ' (agente ' + item.agenteNome + '): ' + item.categoriaTexto + '.';
   }
 
+  /* Uma linha por agente cujas integrações não deu para medir (o motivo é texto fixo do servidor). */
+  function textoNaoMedido(n) {
+    const nome = n && (n.agenteNome || n.agente) ? (n.agenteNome || n.agente) : 'um agente';
+    return 'Não consegui medir as integrações de ' + nome + ': ' + (n && n.motivo ? n.motivo : 'sem motivo informado');
+  }
+
   /* Endereço do painel do agente já na aba Integrações; slug fora do formato não gera link. */
   function hrefPainel(slug) {
     return typeof slug === 'string' && RX_ID.test(slug) ? '/p/' + slug + '/#aba=integracoes' : null;
@@ -44,7 +50,7 @@
     porque: 'Para você saber na hora, sem abrir cada agente, e pedir ao Admin para verificar. Nada é consertado sozinho. Lembrar em 1 hora esconde o aviso por uma hora.',
   };
 
-  if (!raiz.document) return { textoDaFaixa, textoDaLinha, hrefPainel, PASSO, POLL_MS };
+  if (!raiz.document) return { textoDaFaixa, textoDaLinha, textoNaoMedido, hrefPainel, PASSO, POLL_MS };
 
   /* ── Parte com DOM ─────────────────────────────────────────────────────── */
   let faixa = null;
@@ -156,7 +162,30 @@
     faixa.appendChild(erro);
   }
 
+  /* Linhas discretas dos agentes que não deu para medir, mesmo sem nenhum incidente. Só textContent. */
+  let naoMedidosEl = null;
+  function pintaNaoMedidos(estado) {
+    const lista = estado && Array.isArray(estado.naoMedidos) ? estado.naoMedidos : [];
+    if (!lista.length) {
+      if (naoMedidosEl) { naoMedidosEl.hidden = true; naoMedidosEl.textContent = ''; }
+      return;
+    }
+    if (!naoMedidosEl) {
+      garanteCss();
+      naoMedidosEl = el('section', 'if-nm');
+      naoMedidosEl.id = 'faixaIntegracoesNaoMedidas';
+      naoMedidosEl.setAttribute('aria-label', 'Integrações que não deu para medir');
+      const ancora = faixa || document.querySelector('header');
+      if (ancora && ancora.parentNode) ancora.parentNode.insertBefore(naoMedidosEl, ancora.nextSibling);
+      else document.body.insertBefore(naoMedidosEl, document.body.firstChild);
+    }
+    naoMedidosEl.textContent = '';
+    for (const n of lista.slice(0, 20)) naoMedidosEl.appendChild(el('p', 'if-nm-linha', textoNaoMedido(n)));
+    naoMedidosEl.hidden = false;
+  }
+
   function pinta(estado) {
+    pintaNaoMedidos(estado);
     if (!estado || !Array.isArray(estado.faixa) || !estado.faixa.length) {
       if (faixa) { faixa.hidden = true; faixa.textContent = ''; }
       atual = null;
@@ -246,9 +275,9 @@
   }
 
   // Integrações de todos os agentes: só o dono.
-  if (raiz.DGPapel && raiz.DGPapel.colaborador) return { textoDaFaixa, textoDaLinha, hrefPainel, PASSO, POLL_MS };
+  if (raiz.DGPapel && raiz.DGPapel.colaborador) return { textoDaFaixa, textoDaLinha, textoNaoMedido, hrefPainel, PASSO, POLL_MS };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', inicia);
   else inicia();
 
-  return { textoDaFaixa, textoDaLinha, hrefPainel, PASSO, POLL_MS, atualiza };
+  return { textoDaFaixa, textoDaLinha, textoNaoMedido, hrefPainel, PASSO, POLL_MS, atualiza };
 });

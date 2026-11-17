@@ -487,7 +487,7 @@
 
   async function alternarLigada(id, desligar) {
     const url = '/api/integracoes/' + encodeURIComponent(id) + (desligar ? '/desligar' : '/ligar');
-    if (raiz.API && raiz.API.post) return raiz.API.post(url, {});
+    if (typeof API !== 'undefined' && API.post) return API.post(url, {});
     return { ok: false, corpo: { error: 'O painel não carregou por inteiro.', howToFix: 'Recarregue a página.' } };
   }
 

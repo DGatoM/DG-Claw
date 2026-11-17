@@ -16,3 +16,6 @@
 .if-link{display:inline-flex;align-items:center;min-height:32px;color:inherit;font-weight:600}
 .if-erro{margin:4px 0;overflow-wrap:anywhere}
 .if-erro[hidden]{display:none}
+.if-nm{font-size:12px;padding:2px 12px;max-width:100%;box-sizing:border-box;color:var(--cor-texto-suave,inherit)}
+.if-nm[hidden]{display:none}
+.if-nm-linha{margin:2px 0;overflow-wrap:anywhere}

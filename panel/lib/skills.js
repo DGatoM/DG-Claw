@@ -42,6 +42,30 @@ function lerIntegracoes(valor) {
   return ids;
 }
 
+const MAX_CABECALHO = 64 * 1024;
+
+/**
+ * Le so o comeco do SKILL.md (o cabecalho basta): abre sem seguir atalho e sem travar em FIFO, confere pelo
+ * descritor que e arquivo comum e le no maximo 64 KB. O agente escreve esse arquivo, entao e entrada de fora.
+ */
+function lerCabecalho(arquivo) {
+  const flags = fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK || 0) | (fs.constants.O_NOFOLLOW || 0);
+  const fd = fs.openSync(arquivo, flags);
+  try {
+    if (!fs.fstatSync(fd).isFile()) throw new Error('não é um arquivo comum');
+    const buf = Buffer.alloc(MAX_CABECALHO);
+    let lidos = 0;
+    while (lidos < MAX_CABECALHO) {
+      const n = fs.readSync(fd, buf, lidos, MAX_CABECALHO - lidos, lidos);
+      if (n <= 0) break;
+      lidos += n;
+    }
+    return buf.subarray(0, lidos).toString('utf-8');
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 /** Devolve { name, description } do frontmatter, ou null se o arquivo nao abre com `---`. */
 function lerFrontmatter(texto) {
   const linhas = texto.replace(/^﻿/, '').split(/\r?\n/);
@@ -87,7 +111,7 @@ function listar(agentDir, extras) {
       if (!fs.existsSync(arquivo)) continue;
       const item = { nome: ent.name, descricao: '', pasta, origem: dir };
       try {
-        const fm = lerFrontmatter(fs.readFileSync(arquivo, 'utf-8'));
+        const fm = lerFrontmatter(lerCabecalho(arquivo));
         if (!fm) item.erro = `O SKILL.md em ${arquivo} não começa com o bloco de cabeçalho entre "---". Peça ao agente para corrigir o arquivo.`;
         else {
           if (fm.name) item.nome = fm.name;
@@ -97,6 +121,7 @@ function listar(agentDir, extras) {
         }
       } catch (e) {
         item.erro = `Não consegui ler ${arquivo}: ${e.message}`;
+        console.warn(`[painel] ignorei a skill em ${arquivo}: ${e.message}.`);
       }
       skills.push(item);
     }
@@ -104,4 +129,4 @@ function listar(agentDir, extras) {
   return { skills, pastas: infoPastas };
 }
 
-module.exports = { listar, pastasDeSkills, lerFrontmatter, lerIntegracoes };
+module.exports = { listar, lerCabecalho, MAX_CABECALHO, pastasDeSkills, lerFrontmatter, lerIntegracoes };

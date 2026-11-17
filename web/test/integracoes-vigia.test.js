@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { criarIntegracoesVigia, textoDoPedido } = require('../lib/integracoes-vigia');
+const { criarIntegracoesVigia, textoDoPedido, CATEGORIAS } = require('../lib/integracoes-vigia');
 const { subirWeb } = require('./ajuda');
 
 const T0 = Date.parse('2026-11-17T12:00:00Z');
@@ -33,7 +33,7 @@ function leituraFalsa(dados) {
 }
 function runnerFalso(opcoes) {
   const o = opcoes || {};
-  const r = { chamadas: [], input: async (agente, corpo) => { r.chamadas.push({ agente: agente.slug, corpo }); return o.falha ? { ok: false, erro: 'o terminal sumiu' } : { ok: true }; } };
+  const r = { chamadas: [], input: async (agente, corpo) => { r.chamadas.push({ agente: agente.slug, corpo }); return o.falha ? { ok: false, erro: 'o terminal sumiu', ...(o.antesDoEnvio ? { antesDoEnvio: true } : {}) } : { ok: true }; } };
   return r;
 }
 function montar(opcoes) {
@@ -43,7 +43,7 @@ function montar(opcoes) {
   const logs = [];
   const runner = o.runner || runnerFalso();
   const reg = o.registro || registro();
-  const criar = () => criarIntegracoesVigia({ dataDir, registro: reg, runner, log: (n, m) => logs.push(`[${n}] ${m}`), agora: () => T0, leitura: leituraFalsa(dados) });
+  const criar = () => criarIntegracoesVigia({ dataDir, registro: reg, runner, log: (n, m) => logs.push(`[${n}] ${m}`), agora: () => T0, leitura: leituraFalsa(dados), ...(o.extra || {}) });
   return { dataDir, dados, logs, runner, criar, v: criar(), limpa: () => fs.rmSync(dataDir, { recursive: true, force: true }) };
 }
 
@@ -135,7 +135,7 @@ test('preferências ilegíveis: o agente vira não medido, sem abrir incidente n
     assert.equal(t.v.estado().incidentes.length, 0);
     await t.v.reavaliar(T0);
     const r = await chamar(t.v, 'GET', '/api/v1/integracoes', { papel: 'dono' });
-    assert.deepEqual(r.json.naoMedidos, [{ agente: 'luna', motivo: 'as preferências do agente estão ilegíveis' }]);
+    assert.deepEqual(r.json.naoMedidos, [{ agente: 'luna', agenteNome: 'Luna', motivo: 'as preferências do agente estão ilegíveis' }]);
   } finally { t.limpa(); }
 });
 
@@ -237,13 +237,22 @@ test('automático: no máximo 1 a cada 6 h por integração e 5 por dia no total
   } finally { t2.limpa(); }
 });
 
-test('automático: falha do runner vai ao log como erro e não conta como enviado', async () => {
-  const t = montar({ dados: { luna: { itens: [item()] } }, runner: runnerFalso({ falha: true }) });
+test('automático: falha do runner SÓ devolve a reserva quando garante que nada foi enfileirado (antesDoEnvio)', async () => {
+  // timeout (ok:false sem antesDoEnvio): incerto, mantém a reserva e loga
+  const t0 = montar({ dados: { luna: { itens: [item()] } }, runner: runnerFalso({ falha: true }) });
+  try {
+    const v = ligado(t0);
+    await v.reavaliar(T0);
+    assert.equal(v.estado().automatico.envios.length, 1, 'a reserva continua');
+    assert.ok(v.estado().incidentes[0].pedidoAutomaticoEm);
+    assert.ok(t0.logs.some((l) => l.startsWith('[erro]') && /incerto/.test(l) && /não será reenviado/.test(l)));
+  } finally { t0.limpa(); }
+  const t = montar({ dados: { luna: { itens: [item()] } }, runner: runnerFalso({ falha: true, antesDoEnvio: true }) });
   try {
     const v = ligado(t);
     await v.reavaliar(T0);
     assert.equal(t.runner.chamadas.length, 1);
-    assert.ok(t.logs.some((l) => l.startsWith('[erro]') && /recusou/.test(l)));
+    assert.ok(t.logs.some((l) => l.startsWith('[erro]') && /não chegou ao runner/.test(l)));
     assert.equal(v.estado().automatico.envios.length, 0);
     assert.equal(v.estado().incidentes[0].pedidoAutomaticoEm, null);
   } finally { t.limpa(); }
@@ -414,4 +423,111 @@ test('servidor inteiro: sem sessão 401, POST sem Origin recusado e docs.md serv
     assert.equal(d.status, 200);
     assert.match(d.texto, /Integrações com defeito/);
   } finally { await w.fechar(); }
+});
+
+test('anonimização: o pedido automático passa pelo filtro do /send, com o slug do Admin, antes da reserva', async () => {
+  const chamadasFiltro = [];
+  const filtro = (slug, texto) => { chamadasFiltro.push(slug); return texto.replace('Agente luna', 'Agente PESSOA-1'); };
+  const t = montar({ dados: { luna: { itens: [item()] } }, extra: { filtro } });
+  try {
+    const v = ligado(t);
+    await v.reavaliar(T0);
+    assert.deepEqual(chamadasFiltro, ['admin']);
+    assert.equal(t.runner.chamadas.length, 1);
+    assert.match(t.runner.chamadas[0].corpo.text, /Agente PESSOA-1/);
+    assert.doesNotMatch(t.runner.chamadas[0].corpo.text, /Agente luna/);
+  } finally { t.limpa(); }
+});
+
+test('anonimização: se o filtro lança, não envia, não reserva e loga', async () => {
+  const t = montar({ dados: { luna: { itens: [item()] } }, extra: { filtro: () => { throw new Error('tabela ilegível'); } } });
+  try {
+    const v = ligado(t);
+    await v.reavaliar(T0);
+    assert.equal(t.runner.chamadas.length, 0);
+    assert.equal(v.estado().automatico.envios.length, 0);
+    assert.equal(v.estado().incidentes[0].pedidoAutomaticoEm, null);
+    assert.ok(t.logs.some((l) => l.startsWith('[erro]') && /filtro de anonimização falhou/.test(l) && /tabela ilegível/.test(l)));
+  } finally { t.limpa(); }
+});
+
+test('incidentes.json existe mas está ruim: guarda cópia, suspende o automático até o dono mexer no interruptor', async () => {
+  for (const ruim of ['{quebrado', JSON.stringify({ versao: 1, outraCoisa: true })]) {
+    const t = montar({ dados: { luna: { itens: [item()] } } });
+    try {
+      const dir = path.join(t.dataDir, 'integracoes');
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'incidentes.json'), ruim);
+      fs.writeFileSync(path.join(dir, 'incidentes.json.corrompido'), 'cópia antiga');
+      fs.writeFileSync(path.join(dir, 'automatico.json'), JSON.stringify({ ligado: true, alteradoEm: iso(T0), envios: [] }));
+      const v = t.criar();
+      assert.equal(fs.readFileSync(path.join(dir, 'incidentes.json.corrompido'), 'utf8'), ruim, 'a cópia nova sobrescreve a antiga');
+      await v.reavaliar(T0);
+      assert.equal(t.runner.chamadas.length, 0, 'suspenso: não envia');
+      assert.ok(t.logs.some((l) => /suspenso/.test(l) && /incidentes\.json/.test(l)));
+      // o incidente foi aberto e gravado por cima, mas a cópia do arquivo ruim continua
+      assert.equal(fs.readFileSync(path.join(dir, 'incidentes.json.corrompido'), 'utf8'), ruim);
+      // o dono mexe no interruptor: volta ao normal
+      const r = await chamar(v, 'POST', '/api/v1/integracoes/automatico', { papel: 'dono' }, { ligado: true, entendoORisco: true });
+      assert.equal(r.status, 200);
+      t.dados.luna.itens = [item({ id: 'groq' })];
+      await v.reavaliar(T0 + 60000);
+      assert.equal(t.runner.chamadas.length, 1, 'depois de mexer no interruptor, envia');
+    } finally { t.limpa(); }
+  }
+  // ausente = primeira instalação: segue normal e sem cópia
+  const t = montar({ dados: { luna: { itens: [item()] } } });
+  try {
+    const v = ligado(t);
+    await v.reavaliar(T0);
+    assert.equal(t.runner.chamadas.length, 1);
+    assert.ok(!fs.existsSync(path.join(t.dataDir, 'integracoes', 'incidentes.json.corrompido')));
+  } finally { t.limpa(); }
+});
+
+test('instância: slug reaproveitado com instância nova não herda incidente nem silêncio; registro antigo adota a atual', async () => {
+  const inst = { luna: 'i:um' };
+  const t = montar({ dados: { luna: { itens: [item()] } }, extra: { instancia: (a) => inst[a.slug] || null } });
+  try {
+    await t.v.reavaliar(T0);
+    assert.equal(t.v.estado().incidentes[0].instancia, 'i:um', 'o incidente guarda a instância');
+    t.v.silenciar('luna', 'groq');
+    assert.equal(t.v.estado().silenciadas[0].instancia, 'i:um');
+    // o agente é removido e recriado com o mesmo slug: instância nova
+    inst.luna = 'i:dois';
+    t.dados.luna.itens = [];
+    await t.v.reavaliar(T0 + 60000);
+    assert.equal(t.v.estado().incidentes.length, 0, 'o incidente do agente antigo some');
+    assert.equal(t.v.estado().silenciadas.length, 0, 'o silêncio do agente antigo não é herdado');
+  } finally { t.limpa(); }
+  // registro antigo (sem instância) adota a atual na primeira reavaliação
+  const t2 = montar({ dados: { luna: { itens: [item()] } } });
+  try {
+    const dir = path.join(t2.dataDir, 'integracoes');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'incidentes.json'), JSON.stringify({ versao: 1, incidentes: [], silenciadas: [{ agente: 'luna', integracao: 'groq' }] }));
+    const v = criarIntegracoesVigia({ dataDir: t2.dataDir, registro: registro(), runner: t2.runner, log: () => {}, agora: () => T0, leitura: leituraFalsa(t2.dados), instancia: () => 'i:atual' });
+    await v.reavaliar(T0);
+    assert.deepEqual(v.estado().silenciadas, [{ agente: 'luna', integracao: 'groq', instancia: 'i:atual' }]);
+  } finally { t2.limpa(); }
+});
+
+test('pedido manual longo: no máximo 9 linhas, com a frase fixa do excedente, e cabe nos 2.000 caracteres do ?texto= da conversa', () => {
+  const slug = 'a'.repeat(32);
+  const integ = 'x'.repeat(32);
+  const reg = { estado: () => ({ agentes: [{ slug, nome: 'A', tipo: 'agente' }] }) };
+  const cat = { [integ]: { nome: 'N' } };
+  const inc = (n, categoria) => Array.from({ length: n }, () => ({ id: 'a'.repeat(40), agente: slug, integracao: integ, categoria }));
+  const pior = textoDoPedido(inc(9, 'desconectado'), reg, cat);
+  assert.equal(pior.split('\n').filter((l) => l.startsWith('- ')).length, 9);
+  assert.doesNotMatch(pior, /e mais/);
+  const longo = textoDoPedido(inc(25, 'desconectado'), reg, cat);
+  assert.equal(longo.split('\n').filter((l) => l.startsWith('- ')).length, 9);
+  assert.ok(longo.endsWith('e mais 16 integrações com defeito; a lista completa está na faixa do painel.'));
+  assert.ok(textoDoPedido(inc(10, 'desconectado'), reg, cat).endsWith('e mais 1 integração com defeito; a lista completa está na faixa do painel.'));
+  // web/public/conversa.js corta o ?texto= em 2000 caracteres: o pior caso de cada categoria tem que caber
+  for (const categoria of Object.keys(CATEGORIAS)) {
+    const t = textoDoPedido(inc(500, categoria), reg, cat);
+    assert.ok(t.length <= 2000, `com a categoria ${categoria} o pedido tem ${t.length} caracteres`);
+  }
 });

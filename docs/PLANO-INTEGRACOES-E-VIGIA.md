@@ -75,7 +75,7 @@ Instrumentação inicial, nos programas que já existem:
 | `scripts/ig-publish.py` | `instagram` | depois de cada publicação: `ok`, `credencial_recusada`, `incerto` |
 | `scripts/transcribe.py` | o provedor que atendeu | depois de cada transcrição remota |
 | ponte do WhatsApp | `whatsapp` | `ok` ao entregar mensagem (`origem: uso`); `desconectado` quando o WhatsApp encerra o aparelho (`origem: canal`) |
-| `channel-watchdog.sh` | `telegram` | na mudança do estado do canal (`origem: canal`) |
+| `channel-watchdog.sh` | `telegram` | hoje o Telegram não é anotado: o watchdog roda como root e o registro é do usuário do agente |
 | `openrouter-credit-alert.py` | `openrouter` | `ok`, `vencendo` (saldo baixo) ou `sem_saldo` |
 
 Skills de cliente (CRM, banco, nota fiscal) chamam o mesmo comando; as instruções do agente

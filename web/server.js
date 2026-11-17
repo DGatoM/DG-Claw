@@ -238,7 +238,7 @@ function criarServidor(opcoes) {
   // enxergar o estado (nem o nome) dos vizinhos. O Admin, no host, lê os documentos e a tela.
   const atualizacao = criarAtualizacao({ dataDir: config.dataDir, log });
   // Integrações com defeito: só o dono, pelo painel (fora de caixa.permitir de propósito: agente não chama estas rotas).
-  const integracoesVigia = criarIntegracoesVigia({ dataDir: config.dataDir, registro, runner, log, agora: opcoes.agora, leitura: opcoes.leituraIntegracoes, catalogoArquivo: opcoes.catalogoIntegracoes, intervaloMs: opcoes.integracoesIntervaloMs });
+  const integracoesVigia = criarIntegracoesVigia({ dataDir: config.dataDir, registro, runner, log, agora: opcoes.agora, leitura: opcoes.leituraIntegracoes, catalogoArquivo: opcoes.catalogoIntegracoes, intervaloMs: opcoes.integracoesIntervaloMs, filtro: filtroAnon });
   // Aviso de segurança: só o dono, pelo painel (mesma regra da faixa de versão), por isso também fora de caixa.permitir.
   const seguranca = criarSeguranca({ dataDir: config.dataDir, log, agora: opcoes.agora });
   // Ronda de fábrica e botão de emergência: também só do dono (fora de caixa.permitir). O Web só grava pedidos; o root executa.

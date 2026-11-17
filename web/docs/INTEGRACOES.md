@@ -26,7 +26,7 @@ Relê o estado de todos os agentes e devolve o que está na faixa agora.
   "pedido": "texto pronto para o Admin, ou null quando a faixa está vazia",
   "automatico": {"ligado": false},
   "silenciadas": [{"agente": "luna", "integracao": "instagram"}],
-  "naoMedidos": [{"agente": "ana", "motivo": "o estado.json está com o JSON quebrado"}]
+  "naoMedidos": [{"agente": "ana", "agenteNome": "Ana", "motivo": "o estado.json está com o JSON quebrado"}]
 }
 ```
 
@@ -35,7 +35,11 @@ Relê o estado de todos os agentes e devolve o que está na faixa agora.
   Fecha quando a integração volta ao verde, é desligada, some da lista ou o agente sai do registro.
   Amarelo ou "sem uso recente" não fecha o incidente, mas ele sai da faixa.
 - Um incidente por agente e integração. O id é gerado no host. Recarregar a página ou reiniciar o Web
-  não duplica nada (`<DGCLAW_WEB_DATA>/integracoes/incidentes.json`, modo 0600).
+  não duplica nada (`<DGCLAW_WEB_DATA>/integracoes/incidentes.json`, modo 0600). Se esse arquivo
+  existir mas estiver ilegível, o Web guarda uma cópia em `incidentes.json.corrompido` e deixa o
+  pedido automático suspenso até o dono mexer no interruptor da tela Segurança.
+- O pedido ao Admin lista no máximo 9 incidentes, para caber no campo da conversa; o resto aparece
+  como "e mais N integrações com defeito" e continua na faixa.
 - `categoria`: `credencial_recusada` ("a chave de acesso foi recusada"), `sem_saldo` ("o saldo ou
   crédito acabou"), `fora_do_ar` ("o sistema está fora do ar"), `desconectado` ("a conexão caiu e
   precisa ser refeita") ou `outra` ("falha sem classificação").

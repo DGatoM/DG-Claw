@@ -27,6 +27,14 @@ test('linha de detalhe de cada incidente', () => {
   assert.equal(F.textoDaLinha(item()), 'WhatsApp (agente Luna): a conexão caiu e precisa ser refeita.');
 });
 
+test('agente que não deu para medir: uma linha discreta com o nome e o motivo', () => {
+  assert.equal(F.textoNaoMedido({ agente: 'luna', agenteNome: 'Luna', motivo: 'o estado.json está ilegível' }), 'Não consegui medir as integrações de Luna: o estado.json está ilegível');
+  assert.equal(F.textoNaoMedido({ agente: 'luna', motivo: 'x' }), 'Não consegui medir as integrações de luna: x');
+  const js = pub('integracoes-faixa.js');
+  assert.match(js, /pintaNaoMedidos\(estado\);\s*\n\s*if \(!estado/, 'as linhas aparecem mesmo sem incidente: são pintadas antes da saída sem faixa');
+  assert.match(js, /el\('p', 'if-nm-linha', textoNaoMedido\(n\)\)/, 'o texto entra por textContent (el)');
+});
+
 test('link do painel do agente na aba Integrações; slug fora do formato não gera link', () => {
   assert.equal(F.hrefPainel('luna'), '/p/luna/#aba=integracoes');
   assert.equal(F.hrefPainel('../x'), null);

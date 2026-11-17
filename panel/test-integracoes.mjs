@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 
 const AQUI = path.dirname(new URL(import.meta.url).pathname);
 let falhas = 0;
@@ -30,7 +30,9 @@ const SENHA = 'senha-de-teste-bem-longa-123';
 const cfg = path.join(RAIZ, 'config.json');
 fs.writeFileSync(cfg, JSON.stringify({ agentName: 'Agente Teste', agentSlug: 'agente-teste', agentDir: agente }));
 const env = { ...process.env, HOME: RAIZ, DGCLAW_PANEL_PORT: String(PORTA), DGCLAW_PANEL_HOST: '127.0.0.1',
-  DGCLAW_PANEL_PASSWORD: SENHA, DGCLAW_SAUDE_CHECAR_LOGIN: 'off', DGCLAW_PANEL_CONFIG: cfg };
+  DGCLAW_PANEL_PASSWORD: SENHA, DGCLAW_SAUDE_CHECAR_LOGIN: 'off', DGCLAW_PANEL_CONFIG: cfg,
+  // Sem herdar do ambiente de quem roda o teste: a casa do agente e as skills extras apontam para a pasta temporária.
+  DGCLAW_INTEGRACOES_DIR: pasta, DGCLAW_PANEL_SKILLS_DIR: '' };
 const filho = spawn('node', ['server.js'], { cwd: AQUI, env, stdio: 'ignore' });
 const URL_ = `http://127.0.0.1:${PORTA}`;
 
@@ -97,6 +99,36 @@ try {
   ok(JSON.stringify(por.instagram?.skills?.sort()) === JSON.stringify(['postar-codex', 'publicar']), 'skills do .claude e do .agents anotam a integração');
   ok(JSON.stringify(por.openai?.skills) === '["publicar"]', 'id inválido do frontmatter é ignorado; id válido anota');
   ok(!por['nao-existe-no-mapa'], 'o frontmatter não cria nó no mapa');
+
+  // skill que não é arquivo comum (FIFO) ou é enorme não trava nem derruba o mapa
+  execFileSync('mkfifo', [path.join(skillsDir, 'fifo-skill')]);
+  fs.mkdirSync(path.join(skillsDir, 'fifo'), { recursive: true });
+  fs.renameSync(path.join(skillsDir, 'fifo-skill'), path.join(skillsDir, 'fifo', 'SKILL.md'));
+  mk(skillsDir, 'grande', '---\nname: grande\ndescription: Skill com corpo enorme\nintegracoes: groq\n---\n' + 'x'.repeat(300 * 1024));
+  r = await get();
+  const por2 = Object.fromEntries((r.j.integracoes || []).map((x) => [x.id, x]));
+  ok(r.status === 200 && r.j.medido === true, 'skill FIFO no meio: o mapa continua respondendo');
+  ok(JSON.stringify(por2.instagram?.skills?.sort()) === JSON.stringify(['postar-codex', 'publicar']), 'a skill FIFO é ignorada e as outras seguem anotando');
+  ok(JSON.stringify(por2.groq?.skills) === '["grande"]', 'skill com corpo de 300 KB: só o cabeçalho é lido e a integração é anotada');
+
+  // preferências ilegíveis: o mapa não diz "Funcionando", diz que não mediu
+  fs.writeFileSync(path.join(pasta, 'preferencias.json'), '{quebrado');
+  r = await get();
+  ok(r.j.medido === false && /preferências/.test(r.j.motivo), 'preferencias.json ilegível: GET traz medido:false com motivo');
+  fs.rmSync(path.join(pasta, 'preferencias.json'));
+
+  // pasta de integrações que é link simbólico: a gravação recusa e nada vai para o destino do link
+  const alvoLink = path.join(RAIZ, 'alvo-do-link');
+  fs.mkdirSync(alvoLink);
+  const pastaReal = `${pasta}.real`;
+  fs.renameSync(pasta, pastaReal);
+  fs.symlinkSync(alvoLink, pasta);
+  let pl = await post('instagram/desligar');
+  ok(pl.status === 500 && /link simbólico/.test(JSON.stringify(await pl.json())), 'pasta de integrações é link simbólico: POST recusa');
+  ok(fs.readdirSync(alvoLink).length === 0, 'nada foi gravado no destino do link');
+  fs.rmSync(pasta);
+  fs.renameSync(pastaReal, pasta);
+  ok(!fs.readdirSync(pasta).some((n) => n.endsWith('.tmp')), 'nenhum temporário ficou na pasta');
 
   // desligar / ligar
   let p = await post('instagram/desligar');
