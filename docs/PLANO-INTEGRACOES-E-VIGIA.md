@@ -54,21 +54,27 @@ programas que fazem a chamada** (e não só pelo modelo, que pode esquecer):
 - `<id>`: `^[a-z0-9][a-z0-9-]{0,31}$`. Sistema conhecido usa o id do catálogo; sistema próprio
   do cliente usa o nome que o agente escolher, no mesmo formato.
 - `<resultado>`: um valor de uma lista fechada: `ok`, `credencial_recusada`, `sem_saldo`,
-  `limite`, `fora_do_ar`, `rede`, `incerto`, `vencendo`, `erro`. **Não há campo de texto livre**:
+  `limite`, `fora_do_ar`, `desconectado`, `rede`, `incerto`, `vencendo`, `erro`. **Não há campo de texto livre**:
   resposta do provedor, URL, cabeçalho, telefone e corpo HTTP nunca entram no registro.
 - Grava, com trava de arquivo (`flock`), uma linha em `~/.dgclaw/integracoes/eventos.jsonl`
   (`{em, id, resultado, origem}`, com `origem` também de lista fechada: `uso`, `canal`) e
   recalcula `~/.dgclaw/integracoes/estado.json` por troca atômica. O arquivo de eventos é
   aparado (últimos 30 dias, no máximo 5.000 linhas).
 - Limite de 50 ids distintos por agente; o 51º é recusado com motivo.
+- **Só operação real registra, e no nome de quem foi chamado de fato.** Uma consulta de teste
+  (como o `validate` do Instagram, que só lê `/me`) não registra `ok`, porque não prova que a
+  publicação funciona. A transcrição registra o provedor que atendeu (Groq ou outro); a
+  transcrição local não registra nada. Assim um sucesso de outra operação nunca fecha a pane de
+  uma integração.
+- Sucesso repetido é aparado: no máximo um `ok` por hora por integração (falha sempre grava).
 
 Instrumentação inicial, nos programas que já existem:
 
 | Programa | Id | Como |
 | --- | --- | --- |
-| `scripts/ig-publish.py` | `instagram` | depois de cada publicação ou validação: `ok`, `credencial_recusada`, `incerto` |
-| `scripts/transcribe.py` | `groq` | depois de cada transcrição |
-| ponte do WhatsApp | `whatsapp` | na mudança de estado da ponte (`origem: canal`) |
+| `scripts/ig-publish.py` | `instagram` | depois de cada publicação: `ok`, `credencial_recusada`, `incerto` |
+| `scripts/transcribe.py` | o provedor que atendeu | depois de cada transcrição remota |
+| ponte do WhatsApp | `whatsapp` | `ok` ao entregar mensagem (`origem: uso`); `desconectado` quando o WhatsApp encerra o aparelho (`origem: canal`) |
 | `channel-watchdog.sh` | `telegram` | na mudança do estado do canal (`origem: canal`) |
 | `openrouter-credit-alert.py` | `openrouter` | `ok`, `vencendo` (saldo baixo) ou `sem_saldo` |
 
@@ -97,7 +103,7 @@ O estado de cada integração vem **só dos eventos dela**:
 | --- | --- |
 | verde | o evento mais recente é `ok` |
 | amarelo | o mais recente é `rede`, `limite`, `incerto`, `vencendo` ou `erro`, ou houve um único `credencial_recusada`/`sem_saldo`/`fora_do_ar` ainda não confirmado |
-| vermelho | duas observações **distintas** (horários diferentes, a pelo menos 2 minutos uma da outra) de `credencial_recusada`, `sem_saldo` ou `fora_do_ar`, sem `ok` depois delas |
+| vermelho | duas observações **distintas** (horários diferentes, a pelo menos 2 minutos uma da outra) de `credencial_recusada`, `sem_saldo` ou `fora_do_ar`, sem `ok` depois delas; ou **um** `desconectado`, que é conclusivo (o serviço encerrou a conexão e ela não volta sozinha) |
 | apagado | o dono desligou a integração na tela, ou o canal está desligado. Aparece escrito "desligado" |
 | sem medida recente | nenhum evento há mais de 7 dias. Cinza, escrito "sem uso recente". Nunca verde |
 
@@ -125,12 +131,13 @@ O estado de cada integração vem **só dos eventos dela**:
 **Leitura blindada.** O Web roda como root e o `estado.json` é escrito pelo agente. O Web:
 
 1. deriva a casa do agente do próprio registro do host, nunca de dado do agente;
-2. abre um caminho relativo fixo (`.dgclaw/integracoes/estado.json`) sem seguir atalho
-   (`O_NOFOLLOW` em cada componente, ou o mesmo leitor seguro do diagnóstico), confere pelo
-   descritor aberto que é arquivo comum e do dono esperado;
-3. recusa o arquivo inteiro acima de 64 KB, valida o esquema (ids pelo formato, resultados pela
-   lista fechada, no máximo 50 itens) e, em qualquer falha, mostra "não foi possível medir" em vez
-   de verde.
+2. abre um caminho relativo fixo (`.dgclaw/integracoes/estado.json`) ancorado nessa casa, com
+   abertura **não bloqueante** e sem seguir atalho (`O_RDONLY | O_NONBLOCK | O_NOFOLLOW` em cada
+   componente), para que um FIFO ou um atalho plantado não prenda nem desvie o Web;
+3. confere **pelo descritor aberto** que é arquivo comum, do UID do agente e dentro da casa;
+4. recusa a leitura inteira se qualquer conferência falhar ou se o arquivo passar de 64 KiB
+   (nunca lê só o fim), valida o esquema (ids pelo formato, resultados pela lista fechada, no
+   máximo 50 itens) e, em qualquer falha, mostra "não foi possível medir" em vez de verde.
 
 Toda escrita na tela usa `textContent`. Ícone e classe vêm de tabelas do próprio código.
 
@@ -151,9 +158,16 @@ incidente. Nada escrito pelo agente ou vindo do provedor entra no texto. O pedid
 `[PEDIDO]`, e o dono aprova na conversa.
 
 Limites do automático: um pedido por incidente, no máximo um a cada 6 horas por integração e no
-máximo 5 por dia no total. Como o agente consegue escrever eventos falsos, o pior que ele obtém é
-fazer o Admin investigar um defeito inexistente, com texto fixo, dentro desses limites. Isso fica
-escrito na documentação.
+máximo 5 por dia no total. O pedido manda o Admin começar pelo diagnóstico de leitura que já
+existe e trazer a proposta como `[PEDIDO]` antes de qualquer mudança.
+
+**Risco aceito, registrado para o dono.** O Admin é root e uma frase não o restringe de fato. Como
+o agente consegue escrever eventos falsos, com o automático ligado ele consegue fazer o Admin
+olhar uma integração que não quebrou, dentro desses limites e com texto fixo, sem colocar
+nenhuma palavra sua no pedido. É o mesmo ato que o dono faria clicando no botão. Por isso o
+automático nasce desligado, a tela diz isso ao ligar, e a documentação registra o risco. Não há,
+para chave de API, uma confirmação independente no host que não exija carregar segredo fora do
+container (o que a seção 3.8 proíbe).
 
 ### 3.7 Paridade e instruções
 
@@ -233,6 +247,10 @@ credenciais, e **sem merge até o ok do dono**.
 | Detalhe livre vazando pelo relatório do pulso | Nada de texto livre no registro |
 | Histerese incoerente com intervalos de 6 h | Sem sonda periódica na primeira entrega; vermelho exige duas observações distintas |
 | Faixa dos 7 dias podia nunca abrir | Elegibilidade reavaliada a cada tentativa real, incidente persistido |
+| (2ª rodada) Leitura root podia travar num FIFO | Abertura não bloqueante, conferência pelo descritor, recusa total |
+| (2ª rodada) Sucesso de outra operação fechava a pane | Só operação real registra, no nome do provedor que atendeu |
+| (2ª rodada) Logout do WhatsApp ficava amarelo | `desconectado` é conclusivo |
+| (2ª rodada) Automático aciona sessão root | Risco aceito e registrado (3.6), automático desligado de fábrica |
 | Ledger não cria linha na Operações | Promessa cortada; a fonte da tela é o `estado.json` |
 | Frontmatter recriando lista de fábrica | Frontmatter só anota; quem cria o nó é o evento |
 | Timer de 1 minuto | Cortado; eventos na hora, conferência ativa futura no batimento |
