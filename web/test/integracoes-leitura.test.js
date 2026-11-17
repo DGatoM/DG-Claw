@@ -162,6 +162,16 @@ test('preferencias.json: lista as desligadas; falha vira nenhuma', semUidDoAgent
     c.entrega();
     assert.deepEqual(lerDesligadas(c.agente), ['whatsapp']);
     fs.writeFileSync(path.join(c.pasta, 'preferencias.json'), '{quebrado');
-    assert.deepEqual(lerDesligadas(c.agente), []);
+    assert.equal(lerDesligadas(c.agente), null, 'existe mas está quebrado: null (não medido), não "nenhuma desligada"');
+    fs.writeFileSync(path.join(c.pasta, 'preferencias.json'), JSON.stringify({ outra: 1 }));
+    c.entrega();
+    assert.equal(lerDesligadas(c.agente), null, 'existe mas sem a lista: null');
   } finally { limpa(c); }
+});
+
+test('estado.json: id que não é texto ou que se repete recusa a lista inteira', semUidDoAgente, () => {
+  for (const itens of [[ITEM({ id: ['whatsapp'] })], [ITEM(), ITEM()]]) {
+    const c = casa({ estado: ESTADO(itens) });
+    try { ruim(lerEstado(c.agente)); } finally { limpa(c); }
+  }
 });

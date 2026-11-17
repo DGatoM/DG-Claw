@@ -109,6 +109,11 @@ try {
   ok(p.status === 200 && (await p.json()).desligada === false, 'POST ligar responde 200');
   r = await get();
   ok(r.j.integracoes.find((x) => x.id === 'instagram').estado === 'vermelho', 'depois de ligar volta ao estado calculado');
+  // preferências existentes mas inválidas: recusa gravar (não parte de lista vazia) e não apaga o arquivo
+  fs.writeFileSync(path.join(pasta, 'preferencias.json'), '{quebrado');
+  p = await post('instagram/desligar');
+  ok(p.status === 409 && fs.readFileSync(path.join(pasta, 'preferencias.json'), 'utf8') === '{quebrado', 'preferencias.json inválido: o POST recusa com 409 e não sobrescreve');
+  fs.rmSync(path.join(pasta, 'preferencias.json'));
   p = await post('Id%20Ruim/desligar');
   ok(p.status === 400 && /howToFix|Use de 1/.test(JSON.stringify(await p.json())), 'id fora do formato no POST: 400 com orientação');
   const cross = await fetch(`${URL_}/api/integracoes/instagram/desligar`, { method: 'POST', headers: { cookie, 'sec-fetch-site': 'cross-site' } });

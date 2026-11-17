@@ -101,32 +101,39 @@ function validarEstado(j) {
   }
   if (j.integracoes.length > MAX_ITENS) return { erro: `o estado.json lista mais de ${MAX_ITENS} integrações` };
   const itens = [];
+  const vistos = new Set();
   for (const it of j.integracoes) {
-    if (!it || typeof it !== 'object' || !ID_RE.test(String(it.id)) || !ESTADOS.includes(it.estado)
+    if (!it || typeof it !== 'object' || typeof it.id !== 'string' || !ID_RE.test(it.id) || vistos.has(it.id) || !ESTADOS.includes(it.estado)
         || !RESULTADOS.includes(it.ultimoResultado) || typeof it.ultimoEvento !== 'string' || !ISO_RE.test(it.ultimoEvento)
         || !ehIsoOuNulo(it.ultimoOk ?? null) || !ehIsoOuNulo(it.ultimaFalha ?? null)
         || !(it.ultimaFalhaResultado == null || RESULTADOS.includes(it.ultimaFalhaResultado))) {
       return { erro: 'o estado.json tem uma integração fora do formato (id, estado, resultado ou data inválidos)' };
     }
+    vistos.add(it.id);
     itens.push(it);
   }
   return { itens };
 }
 
+/** Ausente: []. Existe mas está ilegível ou inválido: null (quem grava não pode partir de lista vazia). */
 function lerDesligadas(dir) {
   const arq = path.join(dir, 'preferencias.json');
   const r = lerArquivoPequeno(arq);
   if (r.ausente) return [];
   if (r.erro) {
     console.warn(`[painel] ignorei as preferências de integrações: ${r.erro}.`);
-    return [];
+    return null;
   }
   try {
     const j = JSON.parse(r.texto);
-    return Array.isArray(j.desligadas) ? j.desligadas.filter((x) => typeof x === 'string' && ID_RE.test(x)) : [];
+    if (!j || typeof j !== 'object' || !Array.isArray(j.desligadas)) {
+      console.warn(`[painel] ignorei ${arq}: não tem a lista "desligadas".`);
+      return null;
+    }
+    return j.desligadas.filter((x) => typeof x === 'string' && ID_RE.test(x));
   } catch (e) {
-    console.warn(`[painel] ignorei ${arq}: o JSON está quebrado (${e.message}). Desligar e ligar de novo regrava o arquivo.`);
-    return [];
+    console.warn(`[painel] ignorei ${arq}: o JSON está quebrado (${e.message}).`);
+    return null;
   }
 }
 
@@ -153,7 +160,7 @@ function montar(CONFIG, serverDir, agora = new Date()) {
   if (v.erro) return { ...base, integracoes: [], medido: false, motivo: `Não foi possível medir as integrações: ${v.erro}.` };
 
   const catalogo = lerCatalogo(serverDir);
-  const desligadas = new Set(lerDesligadas(dir));
+  const desligadas = new Set(lerDesligadas(dir) || []);
   const skillsPorId = {};
   try {
     for (const sk of skillsLib.listar(CONFIG.agentDir, process.env.DGCLAW_PANEL_SKILLS_DIR).skills) {
@@ -205,7 +212,11 @@ function registrar(router, { CONFIG, serverDir }) {
       }
       const dir = pastaIntegracoes(CONFIG);
       try {
-        const set = new Set(lerDesligadas(dir));
+        const atual = lerDesligadas(dir);
+        if (atual === null) {
+          return res.status(409).json({ error: `Não gravei a preferência da integração ${id}: o arquivo preferencias.json em ${dir} existe, mas está ilegível ou fora do formato, e gravar agora apagaria o que ele guarda.`, howToFix: 'Peça ao Admin para conferir o arquivo preferencias.json dessa pasta (ou apague-o se não precisar do que ele guarda) e tente de novo.' });
+        }
+        const set = new Set(atual);
         if (desligar) set.add(id); else set.delete(id);
         gravarDesligadas(dir, [...set].sort());
         res.json({ ok: true, id, desligada: desligar });

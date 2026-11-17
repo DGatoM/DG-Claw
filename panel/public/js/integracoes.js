@@ -562,7 +562,7 @@
     if (opcoes && typeof opcoes.foto === 'string') estadoTela.foto = opcoes.foto;
     if (!el$('int-mapa')) return;
     ligar();
-    const get = raiz.API && raiz.API.pedir ? raiz.API.pedir('/api/integracoes') : null;
+    const get = typeof API !== 'undefined' && API.integracoes ? API.integracoes() : null;
     if (!get) { mostrarErro({ corpo: { error: 'O painel não carregou por inteiro.', howToFix: 'Recarregue a página.' } }); return; }
     const r = await get;
     if (!r.ok || !r.corpo || r.corpo.ok === false) { mostrarErro(r); return; }

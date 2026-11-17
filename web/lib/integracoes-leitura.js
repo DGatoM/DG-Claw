@@ -39,13 +39,15 @@ function validarEstado(j) {
   }
   if (j.integracoes.length > MAX_ITENS) return { erro: 'o estado.json lista integrações demais' };
   const itens = [];
+  const vistos = new Set();
   for (const it of j.integracoes) {
-    if (!it || typeof it !== 'object' || !ID_RE.test(String(it.id)) || !ESTADOS.includes(it.estado)
+    if (!it || typeof it !== 'object' || typeof it.id !== 'string' || !ID_RE.test(it.id) || vistos.has(it.id) || !ESTADOS.includes(it.estado)
         || !RESULTADOS.includes(it.ultimoResultado) || typeof it.ultimoEvento !== 'string' || !ISO_RE.test(it.ultimoEvento)
         || !ehIsoOuNulo(it.ultimoOk ?? null) || !ehIsoOuNulo(it.ultimaFalha ?? null) || !ehIsoOuNulo(it.ultimaTentativaReal ?? null)
         || !(it.ultimaFalhaResultado == null || RESULTADOS.includes(it.ultimaFalhaResultado))) {
-      return { erro: 'o estado.json tem uma integração fora do formato' };
+      return { erro: 'o estado.json tem uma integração fora do formato (ou com id repetido)' };
     }
+    vistos.add(it.id);
     itens.push({
       id: it.id, estado: it.estado, ultimoEvento: it.ultimoEvento, ultimoResultado: it.ultimoResultado,
       ultimoOk: it.ultimoOk ?? null, ultimaTentativaReal: it.ultimaTentativaReal ?? null,
@@ -143,15 +145,19 @@ function lerEstado(agente) {
   }
 }
 
-/** Ids que o dono desligou no painel. Qualquer falha vale como "nenhuma desligada". */
+/**
+ * Ids que o dono desligou no painel. Arquivo ausente vale como "nenhuma desligada". Arquivo que existe mas
+ * está ilegível ou inválido devolve null: o vigia trata o agente como não medido, em vez de abrir incidente.
+ */
 function lerDesligadas(agente) {
   try {
     const r = lerTexto(agente, 'preferencias.json');
     if (r.ausente) return [];
     const j = JSON.parse(r.texto);
-    return j && Array.isArray(j.desligadas) ? j.desligadas.filter((x) => typeof x === 'string' && ID_RE.test(x)) : [];
+    if (!j || typeof j !== 'object' || !Array.isArray(j.desligadas)) return null;
+    return j.desligadas.filter((x) => typeof x === 'string' && ID_RE.test(x));
   } catch (_) {
-    return [];
+    return null;
   }
 }
 

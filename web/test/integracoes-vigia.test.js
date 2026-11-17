@@ -28,7 +28,7 @@ const item = (extra) => Object.assign({
 function leituraFalsa(dados) {
   return {
     lerEstado: (ag) => { const d = dados[ag.slug]; if (!d) return { medido: true, itens: [] }; return d.medido === false ? { medido: false, motivo: 'teste' } : { medido: true, itens: d.itens || [] }; },
-    lerDesligadas: (ag) => (dados[ag.slug] && dados[ag.slug].desligadas) || [],
+    lerDesligadas: (ag) => (dados[ag.slug] && dados[ag.slug].desligadas !== undefined ? dados[ag.slug].desligadas : []),
   };
 }
 function runnerFalso(opcoes) {
@@ -124,7 +124,18 @@ test('desligada no preferencias.json não abre; não medido não abre nem fecha'
     t.dados.luna = { medido: false };
     await t.v.reavaliar(T0);
     assert.equal(t.v.estado().incidentes.length, 1, 'não medido não fecha');
-    assert.deepEqual(t.v.estado().naFaixaIds.size, 0, 'e também não mostra na faixa');
+    assert.equal(t.v.estado().naFaixaIds.size, 1, 'o incidente já aberto continua na faixa: sem medir, não se diz que se recuperou');
+  } finally { t.limpa(); }
+});
+
+test('preferências ilegíveis: o agente vira não medido, sem abrir incidente novo', async () => {
+  const t = montar({ dados: { luna: { itens: [item()], desligadas: null } } });
+  try {
+    await t.v.reavaliar(T0);
+    assert.equal(t.v.estado().incidentes.length, 0);
+    await t.v.reavaliar(T0);
+    const r = await chamar(t.v, 'GET', '/api/v1/integracoes', { papel: 'dono' });
+    assert.deepEqual(r.json.naoMedidos, [{ agente: 'luna', motivo: 'as preferências do agente estão ilegíveis' }]);
   } finally { t.limpa(); }
 });
 
@@ -232,9 +243,55 @@ test('automático: falha do runner vai ao log como erro e não conta como enviad
     const v = ligado(t);
     await v.reavaliar(T0);
     assert.equal(t.runner.chamadas.length, 1);
-    assert.ok(t.logs.some((l) => l.startsWith('[erro]') && /falhou/.test(l)));
+    assert.ok(t.logs.some((l) => l.startsWith('[erro]') && /recusou/.test(l)));
     assert.equal(v.estado().automatico.envios.length, 0);
     assert.equal(v.estado().incidentes[0].pedidoAutomaticoEm, null);
+  } finally { t.limpa(); }
+});
+
+test('automático: o runner lançar exceção ou não responder deixa o envio contado (incerto) e não reenvia', async () => {
+  for (const input of [async () => { throw new Error('conexão caiu'); }, async () => undefined]) {
+    const t = montar({ dados: { luna: { itens: [item()] } }, runner: { chamadas: [], input } });
+    try {
+      const v = ligado(t);
+      await v.reavaliar(T0);
+      assert.equal(v.estado().automatico.envios.length, 1, 'continua contado como enviado');
+      assert.ok(v.estado().incidentes[0].pedidoAutomaticoEm);
+      assert.ok(t.logs.some((l) => /incert/.test(l) && /não será reenviado/.test(l)));
+      const gravado = JSON.parse(fs.readFileSync(path.join(t.dataDir, 'integracoes', 'automatico.json'), 'utf8'));
+      assert.equal(gravado.envios.length, 1, 'a reserva está no disco');
+    } finally { t.limpa(); }
+  }
+});
+
+test('automático: se a reserva não grava no disco, o pedido não é enviado', async () => {
+  const t = montar({ dados: { luna: { itens: [item()] } } });
+  try {
+    const v = ligado(t);
+    fs.rmSync(path.join(t.dataDir, 'integracoes', 'automatico.json'));
+    fs.mkdirSync(path.join(t.dataDir, 'integracoes', 'automatico.json'));   // gravar por cima de uma pasta falha
+    await v.reavaliar(T0);
+    assert.equal(t.runner.chamadas.length, 0, 'não enviou');
+    assert.equal(v.estado().automatico.envios.length, 0, 'a reserva foi desfeita na memória');
+    assert.equal(v.estado().incidentes[0].pedidoAutomaticoEm, null);
+    assert.ok(t.logs.some((l) => l.startsWith('[erro]') && /reserva/.test(l)));
+  } finally { t.limpa(); }
+});
+
+test('rota /automatico: ligar só vale se gravar; desligar vale na hora mesmo sem gravar', async () => {
+  const t = montar({ dados: { luna: { itens: [item()] } } });
+  const dono = { papel: 'dono' };
+  try {
+    fs.mkdirSync(path.join(t.dataDir, 'integracoes', 'automatico.json'), { recursive: true });   // a gravação vai falhar
+    let r = await chamar(t.v, 'POST', '/api/v1/integracoes/automatico', dono, { ligado: true, entendoORisco: true });
+    assert.equal(r.status, 500);
+    assert.equal(t.v.estado().automatico.ligado, false, 'não gravou, não ligou');
+    t.v.estado().automatico.ligado = true;   // simula um automático já ligado
+    r = await chamar(t.v, 'POST', '/api/v1/integracoes/automatico', dono, { ligado: false });
+    assert.equal(r.status, 500);
+    assert.match(r.json.erro, /já está desligado agora/);
+    assert.match(r.json.erro, /volta ligado/);
+    assert.equal(t.v.estado().automatico.ligado, false, 'parou de enviar na hora');
   } finally { t.limpa(); }
 });
 
@@ -310,6 +367,7 @@ test('rotas: ligar sem entendoORisco = 400; com ele liga; desligar é direto; si
     assert.equal(r.status, 200);
     assert.equal(r.json.automatico.ligado, true);
     assert.equal(fs.statSync(path.join(t.dataDir, 'integracoes', 'automatico.json')).mode & 0o777, 0o600);
+    await t.v.reavaliar(T0);   // o GET só devolve a última avaliação
     r = await chamar(t.v, 'GET', '/api/v1/integracoes', dono);
     assert.equal(r.json.automatico.ligado, true);
     assert.equal(r.json.faixa.length, 1);
@@ -326,6 +384,7 @@ test('rotas: ligar sem entendoORisco = 400; com ele liga; desligar é direto; si
     assert.equal(r.json.faixa.length, 0);
     assert.deepEqual(r.json.silenciadas, [{ agente: 'luna', integracao: 'whatsapp' }]);
     assert.equal((await chamar(t.v, 'POST', '/api/v1/integracoes/reativar', dono, { agente: 'luna', integracao: 'whatsapp' })).status, 200);
+    await t.v.reavaliar(T0);
     r = await chamar(t.v, 'GET', '/api/v1/integracoes', dono);
     assert.equal(r.json.faixa.length, 1);
     r = await chamar(t.v, 'POST', '/api/v1/integracoes/lembrar', dono, {});

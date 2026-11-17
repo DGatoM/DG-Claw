@@ -115,9 +115,9 @@ function criarIntegracoesVigia({ dataDir, registro, runner, log, agora, leitura,
   function carregar() {
     const i = lerJsonOuVazio(arqIncidentes);
     if (i && Array.isArray(i.incidentes)) {
-      incidentes = i.incidentes.filter((x) => x && typeof x.id === 'string' && RX_SLUG.test(String(x.agente)) && RX_ID.test(String(x.integracao)))
+      incidentes = i.incidentes.filter((x) => x && typeof x.id === 'string' && typeof x.agente === 'string' && RX_SLUG.test(x.agente) && typeof x.integracao === 'string' && RX_ID.test(x.integracao))
         .map((x) => ({ id: x.id, agente: x.agente, integracao: x.integracao, categoria: categoriaDe(x.categoria), abertoEm: String(x.abertoEm), adiadoAte: x.adiadoAte || null, pedidoAutomaticoEm: x.pedidoAutomaticoEm || null }));
-      silenciadas = Array.isArray(i.silenciadas) ? i.silenciadas.filter((s) => s && RX_SLUG.test(String(s.agente)) && RX_ID.test(String(s.integracao))).map((s) => ({ agente: s.agente, integracao: s.integracao })) : [];
+      silenciadas = Array.isArray(i.silenciadas) ? i.silenciadas.filter((s) => s && typeof s.agente === 'string' && RX_SLUG.test(s.agente) && typeof s.integracao === 'string' && RX_ID.test(s.integracao)).map((s) => ({ agente: s.agente, integracao: s.integracao })) : [];
     } else if (i) {
       log('erro', `Integrações: ${arqIncidentes} não tem o formato esperado; começo vazio.`);
     }
@@ -167,17 +167,34 @@ function criarIntegracoesVigia({ dataDir, registro, runner, log, agora, leitura,
     const texto = textoDoPedido([inc], registro, catalogo);
     if (!texto) return null;
     const em = new Date(agoraMs).toISOString();
-    // Reserva antes de esperar o runner: duas reavaliações seguidas não mandam o mesmo pedido duas vezes.
+    // Reserva e grava ANTES de chamar o runner: se o Web cair no meio do envio, o disco já diz que foi enviado
+    // e o pedido não sai duas vezes. Se não der para gravar a reserva, não envia.
     inc.pedidoAutomaticoEm = em;
-    automatico.envios.push({ em, agente: inc.agente, integracao: inc.integracao, incidente: inc.id });
+    const reserva = { em, agente: inc.agente, integracao: inc.integracao, incidente: inc.id };
+    automatico.envios.push(reserva);
+    const desfazReserva = () => {
+      inc.pedidoAutomaticoEm = null;
+      automatico.envios = automatico.envios.filter((e) => e !== reserva);
+    };
+    if (!tentaGravar(() => { gravaIncidentes(); gravaAutomatico(); }, 'a reserva do pedido automático')) {
+      desfazReserva();
+      log('erro', `Integrações: o pedido automático ao Admin para ${rotulo} (incidente ${inc.id}) não foi enviado porque não consegui gravar a reserva no disco. Peça pelo botão "Pedir ao Admin para verificar".`);
+      return null;
+    }
     return (async () => {
       let r;
-      try { r = await runner.input(admin, { text: texto, submit: true, injectWhenIdle: true }); } catch (e) { r = { ok: false, erro: e.message }; }
+      try { r = await runner.input(admin, { text: texto, submit: true, injectWhenIdle: true }); } catch (e) {
+        log('erro', `Integrações: o resultado do pedido automático ao Admin para ${rotulo} (incidente ${inc.id}) ficou incerto (${e.message}). Ele continua contado como enviado e por isso não será reenviado; se o Admin não apareceu, peça pelo botão "Pedir ao Admin para verificar".`);
+        return false;
+      }
       if (r && r.ok) return true;
-      inc.pedidoAutomaticoEm = null;
-      automatico.envios = automatico.envios.filter((e) => e.incidente !== inc.id);
-      log('erro', `Integrações: o pedido automático ao Admin para ${rotulo} (incidente ${inc.id}) falhou: ${(r && r.erro) || 'o runner não respondeu'}. Não contou como enviado; peça pelo botão "Pedir ao Admin para verificar".`);
-      tentaGravar(() => { gravaIncidentes(); gravaAutomatico(); }, 'os incidentes');
+      if (r && r.ok === false) {
+        desfazReserva();
+        log('erro', `Integrações: o runner recusou o pedido automático ao Admin para ${rotulo} (incidente ${inc.id}): ${r.erro || 'sem motivo informado'}. Não contou como enviado; peça pelo botão "Pedir ao Admin para verificar".`);
+        tentaGravar(() => { gravaIncidentes(); gravaAutomatico(); }, 'os incidentes');
+        return false;
+      }
+      log('erro', `Integrações: o runner não respondeu ao pedido automático ao Admin para ${rotulo} (incidente ${inc.id}); o resultado ficou incerto. Ele continua contado como enviado e por isso não será reenviado; se o Admin não apareceu, peça pelo botão "Pedir ao Admin para verificar".`);
       return false;
     })();
   }
@@ -206,8 +223,20 @@ function criarIntegracoesVigia({ dataDir, registro, runner, log, agora, leitura,
 
     for (const ag of agentes) {
       const lido = L.lerEstado(ag);
-      if (!lido.medido) { nao.push({ agente: ag.slug, motivo: lido.motivo }); continue; }
-      const desligadas = new Set(L.lerDesligadas(ag));
+      if (!lido.medido) {
+        nao.push({ agente: ag.slug, motivo: lido.motivo });
+        // sem medir, não dá para dizer que se recuperou: os incidentes já abertos continuam na faixa
+        for (const inc of incidentes) if (inc.agente === ag.slug) faixa.add(inc.id);
+        continue;
+      }
+      const listaDesligadas = L.lerDesligadas(ag);
+      if (listaDesligadas === null) {
+        // preferências existem mas não dá para ler: não se abre incidente, e os abertos continuam à vista
+        nao.push({ agente: ag.slug, motivo: 'as preferências do agente estão ilegíveis' });
+        for (const inc of incidentes) if (inc.agente === ag.slug) faixa.add(inc.id);
+        continue;
+      }
+      const desligadas = new Set(listaDesligadas);
       const porId = new Map(lido.itens.map((it) => [it.id, it]));
       // fecha o que ficou verde, foi desligado ou sumiu
       incidentes = incidentes.filter((inc) => {
@@ -240,7 +269,7 @@ function criarIntegracoesVigia({ dataDir, registro, runner, log, agora, leitura,
     const enviosAntes = automatico.envios.length;
     automatico.envios = automatico.envios.filter((e) => Date.parse(e.em) >= corte);
     if (JSON.stringify([incidentes, silenciadas]) !== antes || novos.length) tentaGravar(gravaIncidentes, 'incidentes.json');
-    if (novos.some((i) => i.pedidoAutomaticoEm) || automatico.envios.length !== enviosAntes) tentaGravar(gravaAutomatico, 'automatico.json');
+    if (automatico.envios.length !== enviosAntes) tentaGravar(gravaAutomatico, 'automatico.json');
     return Promise.all(envios);
   }
 
@@ -269,10 +298,16 @@ function criarIntegracoesVigia({ dataDir, registro, runner, log, agora, leitura,
     return tentaGravar(gravaIncidentes, 'incidentes.json');
   }
 
+  /** Ligar só vale depois de gravar. Desligar vale na hora (para de enviar) mesmo se a gravação falhar. */
   function definirAutomatico(ligado, agoraMs) {
-    automatico.ligado = ligado;
-    automatico.alteradoEm = new Date(agoraMs).toISOString();
-    return tentaGravar(gravaAutomatico, 'automatico.json');
+    const copia = { ...automatico, ligado, alteradoEm: new Date(agoraMs).toISOString() };
+    if (ligado) {
+      if (!tentaGravar(() => grava(arqAutomatico, copia), 'automatico.json')) return { gravou: false };
+      automatico = copia;
+      return { gravou: true };
+    }
+    automatico = copia;
+    return { gravou: tentaGravar(gravaAutomatico, 'automatico.json') };
   }
 
   // ── rotas ──────────────────────────────────────────────────────────────────
@@ -340,9 +375,7 @@ function criarIntegracoesVigia({ dataDir, registro, runner, log, agora, leitura,
     try {
       if (sub === '') {
         if (m !== 'GET') return metodoErrado('GET');
-        const t = relogio();
-        reavaliar(t);   // a parte síncrona já acertou os incidentes; o envio automático segue sozinho
-        H.enviaJson(res, 200, resposta(t));
+        H.enviaJson(res, 200, resposta(relogio()));   // só devolve a última avaliação; quem avalia é o temporizador
         return true;
       }
       if (sub === '/docs.md') { if (m !== 'GET') return metodoErrado('GET'); docs(res); return true; }
@@ -370,7 +403,12 @@ function criarIntegracoesVigia({ dataDir, registro, runner, log, agora, leitura,
           H.erroJson(res, 400, 'Para ligar, mande também {"entendoORisco": true}. Ligado, o Web chama o Admin sozinho quando uma integração cai. O Admin tem acesso total ao servidor, e um agente consegue registrar uma falha que não aconteceu, o que faria o Admin olhar uma integração que está boa. O pedido tem texto fixo e há limites (um por defeito, um a cada 6 horas por integração, cinco por dia).');
           return true;
         }
-        if (!definirAutomatico(corpo.ligado, relogio())) { H.erroJson(res, 500, `Não consegui guardar a escolha no disco. Confira o espaço e as permissões de ${dir}.`); return true; }
+        if (!definirAutomatico(corpo.ligado, relogio()).gravou) {
+          H.erroJson(res, 500, corpo.ligado
+            ? `Não consegui guardar a escolha no disco, então o automático continua desligado. Confira o espaço e as permissões de ${dir} e tente de novo.`
+            : `O automático já está desligado agora e o Web não envia mais pedidos, mas não consegui guardar a escolha no disco: se o Web reiniciar, ele volta ligado. Confira o espaço e as permissões de ${dir} e desligue de novo.`);
+          return true;
+        }
         H.enviaJson(res, 200, { ok: true, automatico: { ligado: automatico.ligado } });
         return true;
       }

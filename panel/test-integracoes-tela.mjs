@@ -10,6 +10,7 @@ let falhas = 0;
 const ok = (cond, msg) => { console.log(cond ? `  ok   ${msg}` : `  FALHOU  ${msg}`); if (!cond) falhas++; };
 
 const fonte = fs.readFileSync(path.join(AQUI, 'public/js/integracoes.js'), 'utf-8');
+const fonteApi = fs.readFileSync(path.join(AQUI, 'public/js/api.js'), 'utf-8');
 const janela = {};
 new Function('window', 'document', fonte)(janela, {});
 const { puro } = janela.DGIntegracoes;
@@ -103,8 +104,11 @@ function montaTela(foto) {
     { id: 'instagram', nome: 'Instagram', icone: 'camera', estado: 'vermelho', palavra: 'Com defeito', skills: [] },
     { id: 'telegram', nome: 'Telegram', icone: 'send', estado: 'sem_uso_recente', palavra: 'Sem uso recente', skills: [] }] };
   const win = { matchMedia: () => ({ matches: false }), requestAnimationFrame: () => 0, cancelAnimationFrame() {},
-    setInterval: () => 0, addEventListener() {}, API: { pedir: async () => ({ ok: true, status: 200, corpo: dados }) } };
-  new Function('window', 'document', 'performance', fonte)(win, doc, { now: () => 0 });
+    setInterval: () => 0, addEventListener() {} };
+  // O api.js real, carregado como script clássico: `const API` fica no escopo do script, não em window.
+  const fetchFalso = async () => ({ ok: true, status: 200, json: async () => dados });
+  const API = new Function('window', 'fetch', `${fonteApi}\n;return API;`)({ DGCLAW_BASE: '' }, fetchFalso);
+  new Function('window', 'document', 'performance', 'API', fonte)(win, doc, { now: () => 0 }, API);
   return { ids, tela: win.DGIntegracoes, dados };
 }
 const imagens = (raiz) => raiz.busca((n) => n.tagName === 'image');

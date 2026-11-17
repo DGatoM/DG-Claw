@@ -14,7 +14,8 @@ $HOME/.dgclaw/integracoes.
 Regras:
   * Nunca ha texto livre: id pelo formato, resultado e origem de listas fechadas.
   * So operacao real registra (consulta de teste nao).
-  * `ok` repetido e aparado: no maximo um por hora por integracao. Falha sempre grava.
+  * `ok` consecutivo e aparado: um ok logo depois de outro ok, dentro de uma hora, nao grava. Um ok
+    depois de uma falha sempre grava, e a falha sempre grava.
   * No maximo 50 integracoes por agente.
   * Poda: 30 dias e 5000 linhas.
 
@@ -32,8 +33,10 @@ import fcntl
 import json
 import os
 import re
+import stat
 import sys
 import tempfile
+import time
 
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
 RESULTADOS = (
@@ -50,6 +53,8 @@ DIAS_RETENCAO = 30
 DIAS_SEM_USO = 7
 APARO_OK_SEG = 60 * 60
 CONFIRMACAO_SEG = 120
+ESPERA_TRAVA_SEG = 2.0
+MAX_BYTES_LEITURA = 1024 * 1024   # cabe com folga as 5000 linhas da poda (~100 bytes cada)
 
 FORMATO_TEMPO = "%Y-%m-%dT%H:%M:%SZ"
 
@@ -107,8 +112,10 @@ def calcular_estado(eventos, agora):
     Tabela do plano (3.4): verde, amarelo, vermelho, sem_uso_recente. Quem esta desligado e
     marcado depois, pelo painel (preferencia do dono).
     """
+    # A ordem e a de REGISTRO no arquivo (nao a do horario): o que veio depois do ultimo ok e o que foi
+    # gravado depois dele, mesmo que o relogio tenha empatado ou voltado.
     por_id = {}
-    for e in sorted(eventos, key=lambda x: x["em"]):
+    for e in eventos:
         por_id.setdefault(e["id"], []).append(e)
     itens = []
     for iid in sorted(por_id):
@@ -119,14 +126,16 @@ def calcular_estado(eventos, agora):
         if idade > DIAS_RETENCAO * 86400:
             continue
         ultimo_ok = None
-        for e in evs:
+        pos_ok = -1
+        for i, e in enumerate(evs):
             if e["resultado"] == "ok":
                 ultimo_ok = e["em"]
+                pos_ok = i
         falha = None
         for e in evs:
             if e["resultado"] != "ok":
                 falha = e
-        apos_ok = [e for e in evs if ultimo_ok is None or e["em"] > ultimo_ok]
+        apos_ok = evs[pos_ok + 1:]
         graves = [_parse(e["em"]) for e in apos_ok if e["resultado"] in GRAVES]
         desconectado = any(e["resultado"] == "desconectado" for e in apos_ok)
         if idade > DIAS_SEM_USO * 86400:
@@ -186,8 +195,9 @@ def registrar(iid, resultado, origem="uso", agora=None):
             os.chmod(d, 0o755)
         except OSError:
             pass
-        with open(os.path.join(d, ".trava"), "a") as trava:
-            fcntl.flock(trava.fileno(), fcntl.LOCK_EX)
+        fd_trava = os.open(os.path.join(d, ".trava"), os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+        with os.fdopen(fd_trava, "a") as trava:
+            _pegar_trava(trava, d)
             try:
                 return _registrar_travado(d, iid, resultado, origem, agora)
             finally:
@@ -199,13 +209,54 @@ def registrar(iid, resultado, origem="uso", agora=None):
                            "Confira se a pasta existe e se este usuario pode escrever nela.") from e
 
 
+def _pegar_trava(trava, d):
+    """Espera a trava por no maximo ESPERA_TRAVA_SEG; passado o prazo desiste, para nao prender quem chamou."""
+    limite = time.monotonic() + ESPERA_TRAVA_SEG
+    while True:
+        try:
+            fcntl.flock(trava.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return
+        except BlockingIOError:
+            if time.monotonic() >= limite:
+                raise ErroGravacao(f"Nao consegui a trava de {d} em {ESPERA_TRAVA_SEG:g} segundos: outro programa esta "
+                                   "gravando o registro. O resultado nao foi anotado; tente de novo em instantes.") from None
+            time.sleep(0.05)
+
+
+def _ler_eventos(arq):
+    """Le o eventos.jsonl sem seguir link simbolico, so se for arquivo comum, e so o fim (MAX_BYTES_LEITURA)."""
+    try:
+        fd = os.open(arq, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        return []
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise ErroGravacao(f"{arq} nao e um arquivo comum, entao nao o li nem o substitui. "
+                               "Peca ao dono para conferir essa pasta.")
+        cortado = st.st_size > MAX_BYTES_LEITURA
+        if cortado:
+            os.lseek(fd, st.st_size - MAX_BYTES_LEITURA, os.SEEK_SET)
+        pedacos = []
+        restante = MAX_BYTES_LEITURA
+        while restante > 0:
+            b = os.read(fd, restante)
+            if not b:
+                break
+            pedacos.append(b)
+            restante -= len(b)
+    finally:
+        os.close(fd)
+    texto = b"".join(pedacos).decode("utf-8", errors="replace")
+    linhas = texto.split("\n")
+    if cortado:
+        linhas = linhas[1:]   # a primeira linha do pedaco pode estar cortada ao meio
+    return _eventos_validos(linhas)
+
+
 def _registrar_travado(d, iid, resultado, origem, agora):
     arq_eventos = os.path.join(d, "eventos.jsonl")
-    try:
-        with open(arq_eventos, "r", encoding="utf-8", errors="replace") as f:
-            eventos = _eventos_validos(f.readlines())
-    except FileNotFoundError:
-        eventos = []
+    eventos = _ler_eventos(arq_eventos)
     corte = _fmt(agora - datetime.timedelta(days=DIAS_RETENCAO))
     eventos = [e for e in eventos if e["em"] >= corte]
     ids = {e["id"] for e in eventos}
@@ -216,7 +267,9 @@ def _registrar_travado(d, iid, resultado, origem, agora):
     resultado_gravacao = "gravado"
     if resultado == "ok":
         limite_aparo = _fmt(agora - datetime.timedelta(seconds=APARO_OK_SEG))
-        if any(e["id"] == iid and e["resultado"] == "ok" and e["em"] > limite_aparo for e in eventos):
+        anteriores = [e for e in eventos if e["id"] == iid]
+        # so condensa ok CONSECUTIVO: se o ultimo registro desta integracao e um ok recente
+        if anteriores and anteriores[-1]["resultado"] == "ok" and anteriores[-1]["em"] > limite_aparo:
             resultado_gravacao = "aparado"
     if resultado_gravacao == "gravado":
         eventos.append({"em": _fmt(agora), "id": iid, "resultado": resultado, "origem": origem})

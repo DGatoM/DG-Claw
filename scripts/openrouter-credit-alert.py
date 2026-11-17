@@ -155,7 +155,14 @@ def main():
         pass  # sem estado anterior (primeira execucao ou arquivo ilegivel): parte de "ok"
 
     print(f"saldo OpenRouter: ${bal:.2f} (de ${total:.0f}) — nivel {lvl}")
-    registrar_silencioso("openrouter", {"ok": "ok", "aviso": "vencendo", "critico": "sem_saldo"}[lvl])
+    # sem_saldo so quando o saldo acabou de verdade; positivo abaixo do limiar e "vencendo"
+    if lvl == "ok":
+        resultado_integracao = "ok"
+    elif lvl == "critico" and bal <= 0:
+        resultado_integracao = "sem_saldo"
+    else:
+        resultado_integracao = "vencendo"
+    registrar_silencioso("openrouter", resultado_integracao)
 
     if lvl != prev_lvl:
         if lvl == "critico":

@@ -46,8 +46,10 @@ log() { echo "$(date '+%Y-%m-%dT%H:%M:%S%z') $*" >> "$LOGF" 2>/dev/null || echo 
 # Anota a mudanca de estado do canal no mapa de integracoes (docs/PLANO-INTEGRACOES-E-VIGIA.md).
 # So se o comando existir; falha dele nunca quebra o watchdog.
 registrar_integracao() { # $1 = fora_do_ar | ok
-    local bin="$SELF_DIR/../bin/dgclaw-integracao"
-    [ -x "$bin" ] || bin="$(command -v dgclaw-integracao 2>/dev/null || true)"
+    # como root, gravar na pasta do agente seria seguir caminho que o agente controla
+    [ "$(id -u)" = 0 ] && return 0
+    local bin
+    bin="$(command -v dgclaw-integracao 2>/dev/null || true)"
     [ -n "$bin" ] || return 0
     DGCLAW_WORKSPACE="$WS" "$bin" registrar telegram "$1" --origem canal >>"$LOGF" 2>&1 \
         || log "nao consegui anotar telegram $1 no mapa de integracoes (veja a linha acima); o watchdog segue"

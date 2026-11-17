@@ -232,6 +232,65 @@ class TestEstado(unittest.TestCase):
         self.assertEqual((r["a"]["estado"], r["b"]["estado"]), ("verde", "vermelho"))
 
 
+    def test_ok_apos_falha_termina_verde(self):
+        r = self.calc([ev(0, "a", "ok"), ev(120, "a", "desconectado", "canal"), ev(240, "a", "ok")], 250)["a"]
+        self.assertEqual(r["estado"], "verde")
+
+    def test_empate_de_horario_vale_a_ordem_de_registro(self):
+        r = self.calc([ev(0, "a", "ok"), ev(0, "a", "desconectado", "canal")], 5)["a"]
+        self.assertEqual(r["estado"], "vermelho")
+
+
+class TestAparoConsecutivo(Base):
+    def test_ok_depois_de_falha_nunca_e_descartado(self):
+        self.assertEqual(I.registrar("groq", "ok", agora=em(0)), "gravado")
+        self.assertEqual(I.registrar("groq", "desconectado", "canal", agora=em(120)), "gravado")
+        self.assertEqual(I.registrar("groq", "ok", agora=em(240)), "gravado")
+        self.assertEqual(self.estado_de("groq")["estado"], "verde")
+
+
+class TestLeituraEtrava(Base):
+    def test_link_simbolico_no_eventos_e_recusado(self):
+        os.makedirs(self.dir)
+        alvo = os.path.join(self.tmp.name, "alvo.jsonl")
+        with open(alvo, "w") as f:
+            f.write("")
+        os.symlink(alvo, os.path.join(self.dir, "eventos.jsonl"))
+        with self.assertRaises(I.ErroGravacao):
+            I.registrar("groq", "ok", agora=T0)
+
+    def test_eventos_que_nao_e_arquivo_comum_e_recusado(self):
+        os.makedirs(os.path.join(self.dir, "eventos.jsonl"))
+        with self.assertRaises(I.ErroGravacao):
+            I.registrar("groq", "ok", agora=T0)
+
+    def test_leitura_limitada_ao_fim_do_arquivo(self):
+        os.makedirs(self.dir)
+        linha = json.dumps(ev(0, "velho", "ok")) + "\n"
+        com_o_velho = linha * (I.MAX_BYTES_LEITURA // len(linha) + 50)
+        with open(os.path.join(self.dir, "eventos.jsonl"), "w") as f:
+            f.write(com_o_velho)
+            f.write(json.dumps(ev(10, "novo", "ok")) + "\n")
+        lidos = I._ler_eventos(os.path.join(self.dir, "eventos.jsonl"))
+        self.assertLess(len(lidos), I.MAX_BYTES_LEITURA // len(linha) + 50)
+        self.assertEqual(lidos[-1]["id"], "novo")
+        self.assertTrue(all(e["id"] in ("velho", "novo") for e in lidos))  # a linha cortada ao meio ficou de fora
+
+    def test_trava_ocupada_desiste_no_prazo(self):
+        import fcntl
+        os.makedirs(self.dir)
+        antigo = I.ESPERA_TRAVA_SEG
+        I.ESPERA_TRAVA_SEG = 0.2
+        with open(os.path.join(self.dir, ".trava"), "a") as t:
+            fcntl.flock(t.fileno(), fcntl.LOCK_EX)
+            try:
+                with self.assertRaises(I.ErroGravacao) as c:
+                    I.registrar("groq", "ok", agora=T0)
+            finally:
+                I.ESPERA_TRAVA_SEG = antigo
+        self.assertIn("trava", str(c.exception))
+
+
 class TestCli(Base):
     def rodar(self, *args):
         return subprocess.run([os.path.join(AQUI, "..", "..", "bin", "dgclaw-integracao"), *args],

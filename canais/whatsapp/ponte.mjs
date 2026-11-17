@@ -406,7 +406,7 @@ export async function iniciar(opcoes = {}) {
         if (codigo === LOGGED_OUT) {
           registrar('o WhatsApp encerrou este aparelho (401). Pareie de novo com "dgclaw-agente canal whatsapp parear <numero-secundario>".');
           definirEstado('deslogado', 'o WhatsApp encerrou o aparelho; é preciso parear de novo');
-          anotarIntegracao('desconectado', 'canal');
+          await anotarIntegracao('desconectado', 'canal');   // espera (com prazo) antes de encerrar
           finalizar(0);
           return 'parar';
         }
