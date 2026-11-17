@@ -1,6 +1,6 @@
 # Plano: aba Integrações e vigia de saúde das integrações
 
-Status: **proposta, esperando o ok do dono do projeto.** Nada daqui está construído.
+Status: **aprovado para construção em 17/11/2026**, com as decisões da seção 5.
 Data: 17/11/2026.
 
 ## 1. O pedido
@@ -75,10 +75,14 @@ alcançar a casa de cada um, e junta tudo para a faixa de alerta.
 
 ### 3.2 Como o sistema descobre as integrações
 
-Quatro fontes, juntadas nesta ordem:
+**Não existe lista de integrações de fábrica.** Entra no mapa só o que o agente integrou de
+verdade, e toda integração nova é anexada sozinha, na primeira vez que aparece uma prova dela.
+As provas, juntadas nesta ordem:
 
-1. **A skill declara.** Uma linha nova no frontmatter do `SKILL.md`, que o leitor atual já entende
-   (uma chave, uma linha):
+1. **Uso real.** O agente (ou um script dele) chamou `dgclaw-integracao registrar <id> ok|erro`
+   depois de usar o sistema. É a prova mais forte e a que anexa a maioria das integrações.
+2. **A skill declara.** Uma linha nova no frontmatter do `SKILL.md`, que o leitor atual já entende
+   (uma chave, uma linha). A integração entra no mapa como "ainda não usada" até o primeiro uso:
 
    ```yaml
    ---
@@ -87,16 +91,19 @@ Quatro fontes, juntadas nesta ordem:
    ---
    ```
 
-2. **O catálogo** (`templates/integracoes/catalogo.json`) diz, para cada id, o nome bonito, o
-   ícone, as variáveis de ambiente que a credencial usa, como conferir, de quanto em quanto tempo e
-   se é importante. Ele **absorve a lista de serviços do cofre** (`cofre-regras.js`), para não
-   haver duas listas.
-3. **O cofre e os canais.** Uma chave guardada que bate com o catálogo vira integração, mesmo sem
-   skill declarando. O WhatsApp e o Telegram entram pelo estado da ponte e do canal.
+3. **Canal conectado.** O WhatsApp e o Telegram entram quando a ponte ou o canal existe e está
+   ligado neste agente.
 4. **Integração própria do cliente** (um CRM, um sistema interno): o agente escreve
    `<agente>/.dgclaw/integracoes.json` com o nome, a variável da chave e a forma de conferir.
 
-Uma chave guardada que nenhuma skill declara aparece com o fio pontilhado: "guardada, ninguém usa".
+O **catálogo** (`templates/integracoes/catalogo.json`) não decide o que aparece. Ele só sabe, para
+os sistemas conhecidos, o nome bonito, o ícone do sprite do DG Claw, as variáveis de ambiente da
+credencial e como conferir de graça. Ele absorve a lista de serviços do cofre
+(`cofre-regras.js`), para não haver duas listas. Sistema que não está no catálogo entra assim
+mesmo, com o ícone genérico de ligação e só a vigilância passiva.
+
+Uma chave guardada no cofre sozinha não é prova de integração: ela não entra no mapa. Aparece só
+numa linha discreta embaixo ("3 chaves guardadas que nenhuma integração usou ainda").
 
 ### 3.3 Passiva antes de ativa
 
@@ -142,8 +149,10 @@ Um alarme que toca com tudo certo ensina a pessoa a ignorar a cor (lição do `p
    servidor ("sem internet"), e não dez integrações.
 4. **Sem dado nunca é verde.** Integração ainda não medida fica cinza e fora da conta.
 5. **Só avisa na mudança de estado,** e avisa também quando volta ao normal.
-6. **Importância declarada.** Só integração marcada como importante abre a faixa vermelha. As
-   outras aparecem na aba e na Operações.
+6. **Faixa vermelha só para o que está em uso.** Como não há lista de importantes, a regra é por
+   prova: abre a faixa vermelha a integração que ficou vermelha e teve uso real nos últimos 7
+   dias. Uma integração parada há semanas fica vermelha na aba e na Operações, sem faixa. O dono
+   pode silenciar a faixa de uma integração específica.
 7. **Aviso antecipado.** Token, certificado e saldo ficam amarelos antes de acabar (por exemplo,
    14 dias antes do vencimento, 15% de saldo).
 
@@ -173,8 +182,16 @@ tela escapa todo texto vindo do `estado.json`, porque o agente consegue escrever
   sabemos ("uso real" ou "conferência leve"), quais skills usam e o que fazer.
 - **Modo aula:** um alternador que mostra só as integrações verdes e ligadas, para a vitrine.
   Nunca pinta de verde o que está quebrado.
-- Aproveita a linguagem visual do grafo de skills que já fizemos em outro painel (núcleo pulsando,
-  fios com brilho, pontos de luz viajando), no azul da marca. SVG e CSS, sem biblioteca nova.
+- **Desenho no estilo do DG Claw, como uma constelação (a do logo):** o agente no centro, cada
+  sistema num nó, ligado por uma **linha reta**, no traço e nas cores dos gráficos do DG Claw
+  (tokens `--cor-*`, tema claro e escuro). Os nós ficam a **distâncias um pouco diferentes** do
+  centro (raio variando por uma semente fixa do id, para o desenho não mudar a cada visita) e em
+  ângulos distribuídos, para não parecer um relógio. O pulso é um ponto que anda pela reta.
+- **Ícones do sprite do DG Claw** (`web/public/ds/icones.svg`, `dsIcone`), nunca emoji. O catálogo
+  diz o nome do ícone por uma tabela do próprio código (por exemplo WhatsApp `message`, Instagram
+  `camera`, e-mail `mail`, banco `vault`, nota fiscal `file-text`, CRM `users`, agenda
+  `calendar`), e o desconhecido usa `link`. Ícone faltando entra no sprite pelo processo do
+  `docs/DESIGN-SYSTEM.md`. SVG e CSS, sem biblioteca nova.
 - `prefers-reduced-motion`: sem pulso, só a cor. Celular: os sistemas viram uma lista com bolinha
   colorida abaixo do agente.
 - Tudo pela API, como manda o piso dos sistemas: `GET /api/integracoes`,
@@ -196,15 +213,16 @@ Prazos em horas de agente executando, sem contar as rodadas da revisão adversar
 Cada fase é um PR separado, com a revisão adversarial do Codex e a revisão de credenciais antes
 do merge, e o ok do dono.
 
-## 5. Decisões para o dono
+## 5. Decisões do dono (17/11/2026)
 
-1. **Começar pela fase 1 e 2** (a tela, só com o que já dá para saber de graça) e só depois o vigia
-   ativo? Recomendo que sim: a vitrine fica pronta antes, e a fase passiva sozinha já pega a
-   maioria das quebras.
-2. **"Chamar o Admin sozinho" nasce desligado?** Recomendo que sim, para o dono ver alguns alertas
-   antes de deixar a máquina agir.
-3. **Quais integrações são importantes de fábrica?** Proposta: canais (WhatsApp, Telegram), e-mail,
-   Instagram, banco e nota fiscal. As de IA (OpenAI, ElevenLabs) começam como não importantes.
+1. **Pode construir** o vigia e a tela de Integrações.
+2. **"Chamar o Admin sozinho" vem desligado de fábrica.** O cliente liga se quiser.
+3. **Sem lista de integrações de fábrica.** Entra o que o agente integrar de verdade, e cada
+   integração nova é anexada sozinha ao mapa (seção 3.2). A faixa vermelha segue a regra de uso
+   real (seção 3.4, item 6).
+4. **Layout:** ícones do DG Claw e linhas retas, com os nós a distâncias um pouco diferentes do
+   centro (seção 3.6).
+5. Antes de construir, este plano passa por uma revisão do Codex.
 
 ## 6. Paridade de motores
 
