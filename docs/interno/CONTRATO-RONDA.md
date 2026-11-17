@@ -140,7 +140,7 @@ Regras da rodada:
 1. correção instalável (ação do catálogo que não é paliativo, `atualizar-dgclaw`, ou apt de um achado KEV): `aberto`, como sempre. Se houver
    paliativo verificado, o texto diz que a proteção provisória está ativa enquanto isso. Correção pelo apt de um achado só de pacotes Ubuntu, sem ação
    do catálogo e que não é KEV, com confirmação positiva de que **todos** os afetados têm candidato >= corrigida: `atualizacao-sistema`
-   se a atualização automática está ligada, ou `aberto` no nível 3 (sem pressa) se não está (veja abaixo). Sem a confirmação (apt `None`), `aberto` como sempre.
+   (veja abaixo). Sem a confirmação (apt `None`), `aberto` como sempre.
 2. sem correção instalável e paliativo verificado: `protegido-aguardando`.
 3. sem correção instalável, paliativo casado e **não** verificado, com `acao_id`: `aberto`, com
    `correcao = {"tipo": "acao-catalogo", "acao_id", "exige_reinicio": false, "disponivel": true, "executavel": true, "paliativo": true}`
@@ -159,23 +159,27 @@ definitiva por `acao_do_catalogo`.
 `POST /ronda/<id>/desfazer` aceitam `protegido-aguardando` com `aplicado.desfazer` preenchido.
 
 **Estado `atualizacao-sistema` (segundo plano).** Falha só de pacotes Ubuntu (dpkg, kernel e afins) cuja correção o apt deste servidor
-já oferece, **confirmado para todos os pacotes afetados** (`correcao.tipo == "apt"`, `disponivel`, candidato do apt >= corrigida em cada um),
-sem ação do catálogo e sem `explorada_ativamente`, e com a atualização automática ligada (ou reinício pendente, no kernel).
-A correção entra pela atualização automática do Ubuntu (ou no próximo reinício, no kernel), então o achado não pede nada ao dono:
-fica fora do aviso único, do selo, do recado ao Admin e da contagem por nível (que, como em `aguardando_correcao`, ganha um campo
-próprio em `dgclaw seguranca estado`: `atualizacoes_sistema: {"total", "reinicio"}`). Vale para os níveis 2 e 3, e `nivel` e `severidade`
-ficam como o motor calculou, só para registro (o segundo plano vai para o fim da lista antes do corte de 80 achados); a tela não mostra gravidade nem cor de alerta. Não é desfazível nem aplicável pelo painel
-e não é "tratado": segue reavaliado a cada rodada e some quando o pacote é atualizado. `como_corrigir` é calmo: "Já existe correção. Ela entra sozinha na atualização automática do Ubuntu; nada a fazer agora."
-A atualização automática vale como ligada só com o `unattended-upgrade` instalado e a configuração efetiva (`apt-config dump`)
-com `APT::Periodic::Unattended-Upgrade` diferente de `"0"` e `APT::Periodic::Enable` diferente de `"0"`; erro ou ausência vale como desligada.
-Achado de kernel com `/var/run/reboot-required` presente **e** uma imagem `linux-image-*` instalada (mesma série e variante do kernel em
-execução) com versão >= corrigida traz `reinicio_pendente: true` e o texto "A correção já foi instalada e passa a valer no próximo
-reinício", mesmo com a atualização automática desligada.
-O KEV continua `aberto`, em destaque; se a fonte KEV não respondeu na rodada, vale a última marca KEV guardada no registro do achado.
+já oferece, **confirmado para todos os pacotes afetados** (`correcao.tipo == "apt"`, `disponivel`; candidato do apt >= corrigida em cada
+binário, sem corte da lista; no kernel, em algum metapacote de imagem: `linux-image-*`, `linux-generic`, `linux-virtual` e afins, nunca
+`linux-headers-*` nem `linux-tools-*`), sem ação do catálogo e sem `explorada_ativamente`. Fica fora do aviso único, do selo e da contagem
+por nível (que, como em `aguardando_correcao`, ganha um campo próprio em `dgclaw seguranca estado`: `atualizacoes_sistema: {"total"}`).
+Vale para os níveis 2 e 3; `nivel` e `severidade` ficam como o motor calculou, só para registro, e a tela não mostra gravidade nem cor de
+alerta. O segundo plano vai para o fim da lista antes do corte de 80 achados. Não é desfazível nem aplicável pelo painel (`409`), e não é
+"tratado": segue reavaliado a cada rodada e some quando o pacote é atualizado.
 
-**Atualização automática desligada.** O mesmo achado (pacote do sistema com correção confirmada no apt, sem KEV) fica `aberto`, `nivel: 3`,
-com `como_corrigir` "Já existe correção. Ela entra na próxima atualização do sistema (sudo apt-get update && sudo apt-get upgrade), ou peça ao
-Admin." e `correcao.tipo: "apt"` (o painel oferece Pedir ao Admin). Nível 3 não conta como ponto em risco.
+O contrato traz o campo `automatica: true|false`:
 
-**Marcador de versão da regra.** O motor novo grava `"regra_segundo_plano": 1` no nível do documento do `ronda.json`. O painel só
-reclassifica achados de um documento sem esse marcador (veja `web/docs/RONDA-PAINEL.md`).
+- `true` (atualização automática confirmada): `como_corrigir` é "Já existe correção. Ela entra sozinha na atualização automática do
+  Ubuntu; nada a fazer agora.", mais " O kernel novo passa a valer no próximo reinício do servidor; reinicie quando for conveniente." se
+  for kernel. Fica fora do recado ao Admin.
+- `false` (desligada ou não confirmada): "Já existe correção, mas a atualização automática deste servidor não está ligada. Peça ao Admin
+  para atualizar o sistema" (kernel: " e reiniciar o servidor no melhor horário") + ".", sem comando de apt. A tela mostra o botão
+  Pedir ao Admin no cartão, e o achado entra no recado ao Admin uma vez (regra de `avisado_em`), sem contar como ponto em risco.
+
+A atualização automática é "confirmada" só com as quatro condições: `unattended-upgrade` instalado; `apt-config dump` com
+`APT::Periodic::Unattended-Upgrade` diferente de `"0"` e `APT::Periodic::Enable` diferente de `"0"`; `Unattended-Upgrade::Package-Blacklist`
+vazia; e `systemctl is-enabled apt-daily-upgrade.timer` igual a `enabled`. Erro ou ausência vale como não confirmada.
+
+**KEV.** O KEV continua `aberto`, em destaque. A marca KEV confirmada fica no registro do achado (`kev`); se a fonte KEV não respondeu na
+rodada, vale a guardada (registro antigo, só com `ultimo.explorada_ativamente`, migra para ela) e só se rebaixa quando a fonte responde e
+não lista mais. Achado que vira KEV depois de já avisado tem `avisado_em` zerado, e o Admin recebe um recado novo.

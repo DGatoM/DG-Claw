@@ -33,7 +33,7 @@
 
   const FRASE_AGUARDANDO = 'Estas falhas ainda não têm correção publicada pelo fornecedor. Nada a fazer agora: a ronda confere a cada rodada e avisa quando a correção sair.';
   const VAZIO_AGUARDANDO = 'Nenhuma falha esperando a correção do fornecedor.';
-  const FRASE_ATUALIZACOES = 'Estas falhas já têm correção. Ela entra sozinha na atualização automática do Ubuntu (ou, no kernel, no próximo reinício); nada a fazer agora.';
+  const FRASE_ATUALIZACOES = 'Estas falhas já têm correção e não são alarme. Com a atualização automática do Ubuntu ligada, ela entra sozinha; se não estiver, o cartão traz o botão para pedir ao Admin.';
   const VAZIO_ATUALIZACOES = 'Nenhuma atualização do sistema na fila.';
 
   /* ── avisos de segurança do DG Claw (boletins) ──────────────────────────── */
@@ -161,9 +161,11 @@
   /* Pacote do sistema com correção no apt: card neutro, sem etiqueta de gravidade. O kernel sozinho junta dezenas de falhas,
      então cada componente vira UMA linha recolhida; abrir mostra cada falha. */
   function cardAtualizacaoHtml(a) {
+    const pede = R.podePedirAtualizacao(a)
+      ? '<div class="rp-acoes"><button type="button" class="rp-btn rp-pri" data-rp="pedir-admin">Pedir ao Admin</button></div>' : '';
     return '<article class="rp-card rp-aguarda" data-id="' + esc(a.id) + '"><h3>' + esc(a.nome_simples) + ' <span class="rp-tag">' +
-      esc(R.estadoRotulo(a.estado)) + '</span>' + (a.reinicio_pendente ? ' <span class="rp-tag">Reinício pendente</span>' : '') + '</h3>' +
-      '<p class="rp-texto">' + esc(a.como_corrigir || FRASE_ATUALIZACOES) + '</p>' +
+      esc(R.estadoRotulo(a.estado)) + '</span></h3>' +
+      '<p class="rp-texto">' + esc(a.como_corrigir || FRASE_ATUALIZACOES) + '</p>' + pede +
       '<details class="rp-detalhe"><summary>Ver detalhes da falha</summary>' + R.fatosHtml(a) + '</details>' +
       '<p class="rp-msg" role="status" hidden></p></article>';
   }
@@ -182,9 +184,7 @@
 
   function resumoGrupoAtualizacoes(g) {
     const n = g.itens.length;
-    const reinicio = g.itens.filter(a => a.reinicio_pendente).length;
-    return g.nome.charAt(0).toUpperCase() + g.nome.slice(1) + ': ' + plural(n, 'correção', 'correções') + ' na fila da atualização do sistema' +
-      (reinicio ? ' (' + plural(reinicio, 'já instalada, vale', 'já instaladas, valem') + ' depois de reiniciar o servidor)' : '');
+    return g.nome.charAt(0).toUpperCase() + g.nome.slice(1) + ': ' + plural(n, 'correção', 'correções') + ' na fila da atualização do sistema';
   }
 
   function listaAtualizacoesHtml(achados) {
@@ -330,8 +330,8 @@
     atualizacoes: [
       { alvo: '#secAtualizacoes', titulo: 'Atualizações do sistema',
         oque: 'As falhas de pacotes do Ubuntu (o kernel Linux, por exemplo) que já têm correção pronta. Ficam numa linha por componente, como "Kernel Linux: 12 correções na fila da atualização do sistema". Toque na linha para ver cada falha.',
-        como: 'A cada rodada a ronda pergunta ao apt deste servidor se a versão corrigida já pode ser instalada. Se pode para todos os pacotes da falha, ela não está sendo explorada por criminosos e a atualização automática do Ubuntu está ligada, ela entra aqui, e o número da linha é a quantidade de falhas desse componente nessa situação. Quando o pacote é atualizado, a falha some sozinha. No kernel, se a correção já foi instalada e falta só reiniciar, o cartão avisa.',
-        porque: 'A correção entra sozinha pela atualização automática do Ubuntu, então você não precisa decidir nada. Se a atualização automática estiver desligada, a falha aparece em "Para corrigir sem pressa", com o botão de pedir ao Admin. Por isso elas não entram no aviso de risco nem no selo, e ficam recolhidas aqui, à vista.' },
+        como: 'A cada rodada a ronda pergunta ao apt deste servidor se a versão corrigida já pode ser instalada. Se pode para todos os pacotes da falha, ela não está sendo explorada por criminosos, ela entra aqui, e o número da linha é a quantidade de falhas desse componente nessa situação. Quando o pacote é atualizado, a falha some sozinha.',
+        porque: 'Com a atualização automática do Ubuntu ligada, a correção entra sozinha e você não precisa decidir nada. Se ela não estiver ligada (ou a ronda não conseguir confirmar), o cartão traz o botão Pedir ao Admin, que abre a conversa com o pedido já escrito. Por isso elas não entram no aviso de risco nem no selo, e ficam recolhidas aqui, à vista.' },
     ],
     tratadas: [
       { alvo: '#secTratadas', titulo: 'Já tratadas',

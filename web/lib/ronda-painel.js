@@ -38,7 +38,6 @@ const TIPOS_CORRECAO = ['acao-catalogo', 'atualizar-dgclaw', 'apt', 'nenhuma'];
 const ESTADOS = ['aberto', 'aplicado-sozinho', 'aplicado-pelo-dono', 'mitigado', 'agendado', 'protegido-aguardando', 'aguardando-fornecedor', 'atualizacao-sistema'];
 // Estados em que a falha está sem correção instalável: informativos, não pedem decisão. O painel só deixa desfazer o que já foi aplicado.
 // `atualizacao-sistema`: pacote do sistema com correção que entra pelo apt. Segundo plano, nunca desfazível.
-const TEXTO_ATUALIZACAO_ANTIGA = 'Já existe correção. Ela entra na próxima atualização do sistema (sudo apt-get update && sudo apt-get upgrade), ou peça ao Admin.';
 const ESTADOS_DESFAZIVEIS = ['aplicado-sozinho', 'protegido-aguardando'];
 
 const idAchado = (v) => (typeof v === 'string' && RX_ID_ACHADO.test(v) ? v.toUpperCase() : null);
@@ -62,7 +61,7 @@ const lista = (v, max) => (Array.isArray(v) ? v.slice(0, max) : []);
 const inteiro = (v, min, max) => (Number.isInteger(v) && v >= min && v <= max ? v : null);
 
 /** { achado } ou { id, motivo }. */
-function validaAchado(a, opcoes) {
+function validaAchado(a) {
   if (!a || typeof a !== 'object' || Array.isArray(a)) return { motivo: 'o item não é um objeto' };
   const id = idAchado(a.id);
   if (!id) return { motivo: 'id fora do formato' };
@@ -126,15 +125,7 @@ function validaAchado(a, opcoes) {
     primeira_vez_em: data(a.primeira_vez_em),
   };
   if (a.explorada_ativamente === true) achado.explorada_ativamente = true;
-  if (a.reinicio_pendente === true && achado.estado === 'atualizacao-sistema') achado.reinicio_pendente = true;
-  // ronda.json de um motor antigo (sem `regra_segundo_plano` no documento): o achado só de kernel (todo `onde` começa com "kernel ",
-  // o formato do motor) com correção no apt e sem exploração ativa ainda vem como "aberto". O motor novo reclassifica na próxima
-  // rodada; até lá, a tela já o trata como segundo plano. Documento novo ou qualquer outro caso fica como o motor mandou.
-  if (opcoes && opcoes.reclassificaAntigo && achado.estado === 'aberto' && correcao.tipo === 'apt' && correcao.disponivel && !achado.explorada_ativamente
-    && achado.onde.length && achado.onde.every((o) => o.startsWith('kernel '))) {
-    achado.estado = 'atualizacao-sistema';
-    achado.como_corrigir = TEXTO_ATUALIZACAO_ANTIGA;
-  }
+  if (achado.estado === 'atualizacao-sistema') achado.automatica = a.automatica === true;
   if (paliativo) achado.paliativo = paliativo;
   return { achado };
 }
@@ -172,7 +163,7 @@ function validaRonda(j, descarte) {
   const achados = [];
   const vistos = new Set();
   for (const item of j.achados.slice(0, 500)) {
-    const r = validaAchado(item, { reclassificaAntigo: !(Number.isInteger(j.regra_segundo_plano) && j.regra_segundo_plano >= 1) });
+    const r = validaAchado(item);
     if (r.achado && !vistos.has(r.achado.id)) { vistos.add(r.achado.id); achados.push(r.achado); } else if (descarte) descarte(r.id || (r.achado && r.achado.id), r.motivo || 'id repetido');
   }
   achados.sort((a, b) => a.nivel - b.nivel || PESO[a.severidade] - PESO[b.severidade]);

@@ -184,23 +184,17 @@ test('atualização do sistema: nunca é ponto em risco, sai das listas de decis
   assert.ok(!R.fatosHtml(atualizacao()).includes('Gravidade'));
 });
 
-test('correção no apt com atualização automática desligada: nível 3 aberto, com Pedir ao Admin e fora dos pontos em risco', () => {
-  const a = achado({ id: 'KERNEL-9', nivel: 3, severidade: 'CRITICAL', correcao: { tipo: 'apt', disponivel: true, executavel: false, exige_reinicio: true } });
-  assert.deepEqual(R.criticasEmAberto({ niveis: { 1: [], 2: [], 3: [a] } }, memoria(), AGORA, null), []);
-  const h = T.listaNivelHtml([a], 3, AGORA);
-  assert.ok(h.includes('KERNEL-9'));
-  assert.match(h, /data-rp="pedir-admin"/);
-});
-
-test('seção Atualizações do sistema: uma linha por componente, texto calmo, reinício pendente, sem vermelho e tudo escapado', () => {
-  const h = T.listaAtualizacoesHtml([atualizacao(), atualizacao({ id: 'KERNEL-2', reinicio_pendente: true, como_corrigir: 'A correção já foi instalada e passa a valer no próximo reinício do servidor. Reinicie quando for conveniente.' }),
-    atualizacao({ id: 'SSL-1', componente: 'openssl' })], AGORA);
+test('seção Atualizações do sistema: uma linha por componente, texto calmo, Pedir ao Admin só sem automática, sem vermelho e tudo escapado', () => {
+  const sem = atualizacao({ id: 'KERNEL-2', automatica: false, como_corrigir: 'Já existe correção, mas a atualização automática deste servidor não está ligada. Peça ao Admin para atualizar o sistema e reiniciar o servidor no melhor horário.' });
+  const h = T.listaAtualizacoesHtml([atualizacao({ automatica: true }), sem, atualizacao({ id: 'SSL-1', componente: 'openssl', automatica: true })], AGORA);
   assert.ok(h.includes(T.FRASE_ATUALIZACOES));
-  assert.ok(h.includes('Kernel Linux: 2 correções na fila da atualização do sistema (1 já instalada, vale depois de reiniciar o servidor)'));
+  assert.ok(h.includes('Kernel Linux: 2 correções na fila da atualização do sistema'));
   assert.ok(h.includes('Openssl: 1 correção na fila da atualização do sistema'));
   assert.ok(h.includes('Já existe correção. Ela entra sozinha na atualização automática do Ubuntu; nada a fazer agora.'));
-  assert.match(h, /Reinício pendente/);
-  assert.ok(!/rp-grav-|rp-n2|data-rp=/.test(h), 'sem etiqueta de gravidade, sem cor de alerta, sem botão');
+  assert.equal((h.match(/data-rp="pedir-admin"/g) || []).length, 1, 'só o cartão com automatica false pede ao Admin');
+  assert.equal(R.podePedirAtualizacao(sem), true);
+  assert.equal(R.podePedirAtualizacao(atualizacao({ automatica: true })), false);
+  assert.ok(!/rp-grav-|rp-n2|data-rp="(aplicar|corrigir|tirar-do-ar)"/.test(h), 'sem etiqueta de gravidade, sem cor de alerta, sem ação que aplica');
   assert.equal(T.tituloAtualizacoes(3), 'Atualizações do sistema (3)');
   assert.ok(T.listaAtualizacoesHtml([], AGORA).includes(T.VAZIO_ATUALIZACOES));
   assert.ok(!T.listaAtualizacoesHtml([atualizacao({ nome_simples: '<img src=x onerror=1>', componente: '<script>x</script>' })], AGORA).includes('<img'));

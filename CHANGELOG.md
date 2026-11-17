@@ -11,22 +11,22 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 instalada, o aviso "Seu ambiente está em risco" e a tela Segurança mostravam como crítica uma falha do kernel Linux que o Ubuntu
 já corrige pela atualização automática (por exemplo, a CVE-2024-52560, do `ntfs3`, que só acontece ao montar um disco NTFS
 malicioso). Agora, quando o `apt` confirma que a correção de todos os pacotes de uma falha do sistema (kernel, openssl e afins) já pode
-ser instalada, e a atualização automática do Ubuntu está ligada, a ronda a coloca num estado de segundo plano, "Atualização do
-sistema". Se a atualização automática estiver desligada (ou a ronda não conseguir saber), a falha fica no nível 3, sem pressa, fora do
-aviso de risco, com o texto do comando de atualizar e o botão de pedir ao Admin. As falhas em segundo plano aparecem só na seção recolhida "Atualizações do sistema" da tela Segurança,
-agrupadas por componente ("Kernel Linux: 12 correções na fila da atualização do sistema") e sem cor de alerta, e não entram no
-aviso de risco, no selo nem no recado ao Admin. O texto diz que a correção entra sozinha na atualização automática do Ubuntu. Quando a correção do kernel já foi
-instalada (a ronda confere a imagem de kernel no dpkg) e falta só reiniciar, o cartão avisa que ela vale no próximo reinício. A ronda confere a cada rodada, e a falha some sozinha quando o pacote é
-atualizado. Continuam em destaque as falhas que a CISA diz estar sendo exploradas (e, se a CISA não responder numa rodada, a ronda mantém a marca que já
-tinha) e as que dependem de uma ação sua. O
-`dgclaw seguranca estado` e o resumo para o Admin ganharam o grupo "Atualizações do sistema (entram sozinhas)".
+ser instalada, a ronda a coloca num estado de segundo plano, "Atualização do sistema". Essas falhas aparecem só na seção recolhida
+"Atualizações do sistema" da tela Segurança, agrupadas por componente ("Kernel Linux: 12 correções na fila da atualização do sistema")
+e sem cor de alerta, e não entram no aviso de risco nem no selo. Se a atualização automática do Ubuntu está confirmada (programa
+instalado, ligado, sem pacote bloqueado e com o temporizador do sistema ativo), o texto diz que a correção entra sozinha e o Admin
+não é avisado. Se não está, o texto diz isso, o cartão ganha o botão para pedir ao Admin atualizar, e o Admin recebe um recado uma vez.
+A ronda confere a cada rodada, e a falha some sozinha quando o pacote é atualizado. Continuam em destaque as falhas que a CISA diz
+estar sendo exploradas (e, se a CISA não responder numa rodada, a ronda mantém a marca que já tinha; uma falha que vira explorada
+depois de avisada gera recado novo) e as que dependem de uma ação sua. O `dgclaw seguranca estado` e o resumo para o Admin ganharam
+o grupo "Atualizações do sistema (entram sozinhas)".
 
 ### Como atualizar (atualizações do sistema em segundo plano)
 
-O `dgclaw atualizar` padrão basta. A nova classificação vale já na próxima rodada da ronda. Enquanto ela não roda, o painel
-reclassifica sozinho o que a ronda anterior deixou como crítico e é só uma correção do kernel que já existe no apt, então o pop-up some
-na mesma hora. O Admin ganhou uma instrução nova sobre esse grupo. Se você personalizou as instruções dele, peça ao Admin para juntar
-o item 7 da seção "Ronda de segurança" do modelo novo ao seu arquivo, sem apagar o que você escreveu.
+O `dgclaw atualizar` padrão basta. A classificação nova vale a partir da próxima ronda, e a ronda roda às 07:00, 13:00 e 19:00. O
+aviso antigo sobre o kernel, se estiver na tela, some sozinho nessa ronda. Para não esperar, peça ao Admin para rodar a ronda agora
+(`sudo dgclaw seguranca rodar`). O Admin ganhou uma instrução nova sobre esse grupo. Se você personalizou as instruções dele, peça ao
+Admin para juntar o item 7 da seção "Ronda de segurança" do modelo novo ao seu arquivo, sem apagar o que você escreveu.
 
 **Correção: render de vídeo não esgota os processos do agente.** Um agente chegou a ficar mais de 30 minutos parado num
 render de vídeo porque o container tem um limite de processos (as threads contam), e o Chrome da Tela, o Claude Code e

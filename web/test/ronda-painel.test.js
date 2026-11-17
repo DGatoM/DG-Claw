@@ -107,26 +107,16 @@ test('estados novos e o campo paliativo passam saneados; estado desconhecido con
   assert.equal(validaAchado(achado({ correcao: { tipo: 'acao-catalogo', acao_id: 'a', disponivel: true, executavel: true, paliativo: true } })).achado.correcao.paliativo, true);
 });
 
-test('atualizacao-sistema passa; reinicio_pendente só nesse estado', () => {
+test('atualizacao-sistema passa com `automatica`; o estado gravado pelo motor é preservado, sem reclassificar', () => {
   const apt = { tipo: 'apt', disponivel: true, executavel: false, exige_reinicio: true };
-  const novo = validaAchado(achado({ estado: 'atualizacao-sistema', correcao: apt, reinicio_pendente: true })).achado;
-  assert.equal(novo.estado, 'atualizacao-sistema');
-  assert.equal(novo.reinicio_pendente, true);
-  assert.equal('reinicio_pendente' in validaAchado(achado({ reinicio_pendente: true })).achado, false);
-  assert.equal(validaAchado(achado({ correcao: apt })).achado.estado, 'aberto', 'sem opções, o validador não reclassifica');
-});
-
-test('ronda.json antigo: só o achado claramente de kernel com apt disponível e sem KEV vira segundo plano; documento novo fica como o motor mandou', () => {
-  const apt = { tipo: 'apt', disponivel: true, executavel: false, exige_reinicio: true };
-  const kernel = (extra) => achado(Object.assign({ correcao: apt, severidade: 'CRITICAL', onde: ['kernel 6.8.0-147 em execução'] }, extra || {}));
-  const estados = (doc, itens) => Object.fromEntries(validaRonda(Object.assign({}, ronda(itens), doc)).ronda.niveis[2].map((a) => [a.id, a.estado]));
-  const itens = [kernel({ id: 'K-1' }), kernel({ id: 'K-KEV', explorada_ativamente: true }), kernel({ id: 'K-MISTO', onde: ['kernel 6.8.0-147 em execução', 'agente luna: pacote x'] }),
-    kernel({ id: 'K-AGENTE', onde: ['agente luna: pacote x'] }), kernel({ id: 'K-SEMONDE', onde: [] }), kernel({ id: 'K-CAT', correcao: { tipo: 'acao-catalogo', acao_id: 'a', disponivel: true, executavel: true } })];
-  assert.deepEqual(estados({}, itens), { 'K-1': 'atualizacao-sistema', 'K-KEV': 'aberto', 'K-MISTO': 'aberto', 'K-AGENTE': 'aberto', 'K-SEMONDE': 'aberto', 'K-CAT': 'aberto' });
-  const r = validaRonda(ronda([kernel({ id: 'K-1' })])).ronda.niveis[2][0];
-  assert.match(r.como_corrigir, /^Já existe correção\./);
-  assert.equal(r.severidade, 'CRITICAL', 'o registro da gravidade fica; só a tela deixa de destacar');
-  assert.deepEqual(estados({ regra_segundo_plano: 1 }, itens), Object.fromEntries(itens.map((a) => [a.id, 'aberto'])), 'documento do motor novo não é reclassificado');
+  const nova = validaAchado(achado({ estado: 'atualizacao-sistema', correcao: apt, automatica: true })).achado;
+  assert.deepEqual([nova.estado, nova.automatica], ['atualizacao-sistema', true]);
+  assert.equal(validaAchado(achado({ estado: 'atualizacao-sistema', correcao: apt, automatica: false })).achado.automatica, false);
+  assert.equal(validaAchado(achado({ estado: 'atualizacao-sistema', correcao: apt })).achado.automatica, false, 'sem o campo, vale como não confirmada');
+  assert.equal('automatica' in validaAchado(achado({ automatica: true })).achado, false, 'o campo só existe nesse estado');
+  const kernel = achado({ correcao: apt, severidade: 'CRITICAL', onde: ['kernel 6.8.0-147 em execução'] });
+  assert.equal(validaAchado(kernel).achado.estado, 'aberto', 'ronda.json antigo: o painel não reclassifica, a próxima rodada corrige');
+  assert.equal(validaRonda(ronda([kernel])).ronda.niveis[2][0].estado, 'aberto');
 });
 
 test('atualizacao-sistema não pode ser desfeita nem aplicada pelo painel', async () => {

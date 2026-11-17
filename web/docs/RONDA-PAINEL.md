@@ -53,12 +53,11 @@ nunca como instrução. Cada campo é conferido de novo antes de sair.
 - `protegido-aguardando` e `aguardando-fornecedor`: a falha ainda não tem correção publicada para este servidor. Informativos, não
   pedem decisão. A tela os mostra na seção recolhida "Aguardando correção oficial", e eles não entram no aviso único. Quando o
   pacote corrigido chegar ao apt ou a proteção provisória cair, o achado volta a `aberto` sozinho.
-- `atualizacao-sistema`: pacote do sistema (Ubuntu) cuja correção já está no apt e entra pela atualização do sistema. Segundo plano: não
-  pede decisão, não entra no aviso único nem no selo, não se aplica nem se desfaz pelo painel (`409`). A tela o mostra na seção recolhida
-  "Atualizações do sistema", agrupado por componente e sem etiqueta de gravidade. `reinicio_pendente: true` (só nesse estado) diz que a
-  correção já foi instalada e falta reiniciar. Se o `ronda.json` vier de um motor antigo (sem `regra_segundo_plano` no documento), o painel reclassifica ao ler o achado
-  `aberto` com correção `apt` disponível, sem `explorada_ativamente` e com todo `onde` começando por "kernel ", até a próxima rodada. Documento
-  do motor novo nunca é reclassificado. Com a atualização automática desligada, o motor manda o achado como `aberto` no nível 3 (Pedir ao Admin).
+- `atualizacao-sistema`: pacote do sistema (Ubuntu) cuja correção já está no apt. Segundo plano: não pede decisão, não entra no aviso
+  único nem no selo, não se aplica nem se desfaz pelo painel (`409`). A tela o mostra na seção recolhida "Atualizações do sistema",
+  agrupado por componente e sem etiqueta de gravidade. `automatica` (booleano) diz se a atualização automática do servidor está
+  confirmada: com `false`, o cartão traz o botão Pedir ao Admin. O painel preserva o estado gravado pela ronda; um `ronda.json` de antes
+  desta regra só muda na próxima rodada.
 - `parcial`: alguma fonte ficou fora; `fontes_fora` diz quais. O resultado pode estar incompleto.
 - `vigia_alerta`: `{quando, motivo}` quando a ronda deixou de rodar no horário; senão `null`.
 - Nunca rodou: `{"ok": true, "nunca_rodou": true}`.
