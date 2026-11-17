@@ -13,13 +13,13 @@ já corrige pela atualização automática (por exemplo, a CVE-2024-52560, do `n
 malicioso). Agora, quando o `apt` confirma que a correção de todos os pacotes de uma falha do sistema (kernel, openssl e afins) já pode
 ser instalada, a ronda a coloca num estado de segundo plano, "Atualização do sistema". Essas falhas aparecem só na seção recolhida
 "Atualizações do sistema" da tela Segurança, agrupadas por componente ("Kernel Linux: 12 correções na fila da atualização do sistema")
-e sem cor de alerta, e não entram no aviso de risco nem no selo. Se a atualização automática do Ubuntu está confirmada (programa
-instalado, ligado, sem pacote bloqueado ou retido e com o temporizador do sistema ligado e ativo), o texto diz que a correção entra sozinha e o Admin
-não é avisado. Se não está, o texto diz isso, o cartão ganha o botão para pedir ao Admin atualizar, e o Admin recebe um recado uma vez.
+e sem cor de alerta, e não entram no aviso de risco nem no selo. O texto diz que a correção entra pelo canal normal de atualização
+do Ubuntu (sozinha, se a atualização automática estiver ligada, que é o padrão) e que, se não estiver, dá para pedir ao Admin atualizar
+o sistema pelo botão do cartão. O Admin recebe essas falhas em um recado, uma vez, e confere a atualização automática.
 A ronda confere a cada rodada, e a falha some sozinha quando o pacote é atualizado. Continuam em destaque as falhas que a CISA diz
 estar sendo exploradas (e, se a CISA não responder numa rodada, a ronda mantém a marca que já tinha; uma falha que vira explorada
 depois de avisada gera recado novo) e as que dependem de uma ação sua. O `dgclaw seguranca estado` e o resumo para o Admin ganharam
-o grupo "Atualizações do sistema (entram sozinhas)".
+o grupo "Atualizações do sistema (correção já no apt)".
 
 ### Como atualizar (atualizações do sistema em segundo plano)
 

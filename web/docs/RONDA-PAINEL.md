@@ -55,8 +55,7 @@ nunca como instrução. Cada campo é conferido de novo antes de sair.
   pacote corrigido chegar ao apt ou a proteção provisória cair, o achado volta a `aberto` sozinho.
 - `atualizacao-sistema`: pacote do sistema (Ubuntu) cuja correção já está no apt. Segundo plano: não pede decisão, não entra no aviso
   único nem no selo, não se aplica nem se desfaz pelo painel (`409`). A tela o mostra na seção recolhida "Atualizações do sistema",
-  agrupado por componente e sem etiqueta de gravidade. `automatica` (booleano) diz se a atualização automática do servidor está
-  confirmada: com `false`, o cartão traz o botão Pedir ao Admin. O painel preserva o estado gravado pela ronda; um `ronda.json` de antes
+  agrupado por componente e sem etiqueta de gravidade, e todo cartão traz o botão Pedir ao Admin. O painel preserva o estado gravado pela ronda; um `ronda.json` de antes
   desta regra só muda na próxima rodada.
 - `parcial`: alguma fonte ficou fora; `fontes_fora` diz quais. O resultado pode estar incompleto.
 - `vigia_alerta`: `{quando, motivo}` quando a ronda deixou de rodar no horário; senão `null`.

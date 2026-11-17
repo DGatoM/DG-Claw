@@ -180,27 +180,19 @@ Com ela, a falha vai para o estado **Atualização do sistema** (segundo plano):
 - aparece só na seção recolhida "Atualizações do sistema" da tela Segurança, agrupada por componente (por exemplo, "Kernel Linux: 12
   correções na fila da atualização do sistema"), sem etiqueta de gravidade e sem cor de alerta;
 - não entra no aviso "Seu ambiente está em risco", no selo nem na contagem de pontos em risco;
-- **atualização automática confirmada:** o texto diz "Já existe correção. Ela entra sozinha na atualização automática do Ubuntu; nada a
-  fazer agora." (no kernel, acrescenta que o kernel novo vale no próximo reinício). Fica fora do recado ao Admin;
-- **atualização automática não confirmada:** o texto diz que a atualização automática não está ligada e pede ao Admin para atualizar o
-  sistema (e reiniciar, no kernel), com o botão Pedir ao Admin no cartão. O achado entra no recado ao Admin uma vez, sem contar como
-  ponto em risco;
+- o cartão mostra o texto "Já existe correção pelo canal normal de atualização do Ubuntu. Com a atualização automática ligada (o padrão do
+  Ubuntu), ela entra sozinha; se não estiver, peça ao Admin para atualizar o sistema." (só no kernel em execução acrescenta que o kernel
+  novo vale no próximo reinício) e o botão Pedir ao Admin, sempre disponível;
+- o Admin recebe o achado no recado uma vez (regra normal de `avisado_em`), no grupo "ATUALIZAÇÕES DO SISTEMA", com a orientação de
+  conferir se a atualização automática do Ubuntu (unattended-upgrades) está ligada e, se não estiver, atualizar o sistema com o ok do dono.
+  A ronda não tenta provar que a atualização automática vai instalar a correção: quem confere é o Admin;
 - a ronda reavalia a cada rodada, e a falha some sozinha quando o pacote é atualizado;
-- no `ronda.json`, só o que não pede nada (automática confirmada e os "aguardando") vai para o fim da lista antes do corte de 80 achados;
-  o que precisa ser pedido ao Admin entra junto dos abertos. `dgclaw seguranca estado` conta `atualizacoes_sistema: {total, manuais}` e diz
-  quantas precisam ser pedidas ao Admin;
-
-A atualização automática só vale como confirmada quando as quatro condições são verdadeiras, todas lidas no próprio servidor, sem rede:
-o `unattended-upgrade` está instalado; `apt-config dump` mostra `APT::Periodic::Unattended-Upgrade` diferente de `"0"` e
-`APT::Periodic::Enable` diferente de `"0"`; a lista `Unattended-Upgrade::Package-Blacklist` está vazia (uma lista com itens poderia segurar
-justamente o pacote afetado); `systemctl is-enabled apt-daily-upgrade.timer` responde `enabled` e `systemctl is-active apt-daily-upgrade.timer` responde `active`. Além
-disso, se `apt-mark showhold` (uma consulta por rodada) lista algum pacote, binário ou metapacote de imagem da própria falha, aquela falha fica sem a
-confirmação. Qualquer erro ou ausência vale como não confirmada. Sem a CISA respondendo e sem marca guardada, a falha nem vai para segundo
-plano: fica aberta, como antes.
+- no `ronda.json`, a explorada (KEV) vem primeiro e o segundo plano (este estado e o "aguardando") vai para o fim da lista antes do corte de
+  80 achados; o recado é montado da lista completa, antes do corte. `dgclaw seguranca estado` conta `atualizacoes_sistema: {total}`.
 
 Continuam em destaque, pedindo decisão, as falhas que a CISA diz estar sendo exploradas (lista KEV) e as que dependem de uma ação do
 catálogo ou de atualizar o DG Claw. Se a CISA não responder numa rodada, a ronda mantém a marca "explorada" que já tinha guardada e só
-rebaixa quando a lista responde e a falha não consta mais. Um achado reapresentado de uma rodada anterior (fonte fora) que estava em segundo plano e entra na lista KEV volta a aberto, nível 2, com recado novo. Uma falha que vira KEV depois de já avisada gera um recado novo. Falha de
+rebaixa quando a lista responde e a falha não consta mais. Uma resposta da CISA com a lista vazia, ou com `count` diferente do tamanho da lista, conta como fonte fora. Um achado reapresentado de uma rodada anterior (qualquer caminho que reaproveita o registro) que estava em segundo plano e entra na lista KEV volta a aberto, nível 2, com recado novo. Uma falha que vira KEV depois de já avisada gera um recado novo. Falha de
 pacote que não é do sistema (npm, Python, um agente) segue as regras de sempre.
 
 ## Como desligar ou mudar os horários

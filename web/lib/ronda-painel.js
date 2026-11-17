@@ -125,7 +125,6 @@ function validaAchado(a) {
     primeira_vez_em: data(a.primeira_vez_em),
   };
   if (a.explorada_ativamente === true) achado.explorada_ativamente = true;
-  if (achado.estado === 'atualizacao-sistema') achado.automatica = a.automatica === true;
   if (paliativo) achado.paliativo = paliativo;
   return { achado };
 }

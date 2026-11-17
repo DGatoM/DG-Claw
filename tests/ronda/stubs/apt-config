@@ -1,4 +1,0 @@
-#!/usr/bin/env bash
-# apt-config de mentira: "apt-config dump" imprime $STUB_DIR/apt-config.txt; sem o arquivo, falha como um apt quebrado.
-[ -f "$STUB_DIR/apt-config.txt" ] || exit 1
-cat "$STUB_DIR/apt-config.txt"

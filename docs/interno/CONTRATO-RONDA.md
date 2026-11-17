@@ -163,24 +163,18 @@ já oferece, **confirmado para todos os pacotes afetados** (`correcao.tipo == "a
 binário, sem corte da lista; só o kernel em execução (`kernel_em_execucao`) se confere por algum metapacote de imagem da variante do `uname -r`:
 `generic` aceita `linux-(image-)generic` e `linux-(image-)virtual` e as séries `-hwe-*`, as outras variantes só o mesmo sufixo, nunca
 `linux-headers-*` nem `linux-tools-*`; pacote que só começa com "linux" confere os próprios binários), sem ação do catálogo e sem `explorada_ativamente`. Fica fora do aviso único, do selo e da contagem
-por nível (que, como em `aguardando_correcao`, ganha um campo próprio em `dgclaw seguranca estado`: `atualizacoes_sistema: {"total", "manuais"}` (manuais = `automatica` falso)).
+por nível (que, como em `aguardando_correcao`, ganha um campo próprio em `dgclaw seguranca estado`: `atualizacoes_sistema: {"total"}`).
 Vale para os níveis 2 e 3; `nivel` e `severidade` ficam como o motor calculou, só para registro, e a tela não mostra gravidade nem cor de
-alerta. Antes do corte de 80 achados, vão para o fim da lista só os `aguardando` e os de `automatica: true`. Não é desfazível nem aplicável pelo painel (`409`), e não é
+alerta. Na ordenação do `ronda.json`, a explorada (KEV) vem primeiro e o segundo plano (`aguardando` e este estado) vai para o fim, antes do corte de 80 achados; o recado sai da lista completa, antes do corte. Não é desfazível nem aplicável pelo painel (`409`), e não é
 "tratado": segue reavaliado a cada rodada e some quando o pacote é atualizado.
 
-O contrato traz o campo `automatica: true|false`:
-
-- `true` (atualização automática confirmada): `como_corrigir` é "Já existe correção. Ela entra sozinha na atualização automática do
-  Ubuntu; nada a fazer agora.", mais " O kernel novo passa a valer no próximo reinício do servidor; reinicie quando for conveniente." se
-  for kernel. Fica fora do recado ao Admin.
-- `false` (desligada ou não confirmada): "Já existe correção, mas a atualização automática deste servidor não está ligada. Peça ao Admin
-  para atualizar o sistema" (kernel: " e reiniciar o servidor no melhor horário") + ".", sem comando de apt. A tela mostra o botão
-  Pedir ao Admin no cartão, e o achado entra no recado ao Admin uma vez (regra de `avisado_em`), sem contar como ponto em risco.
-
-A atualização automática é "confirmada" só com as quatro condições: `unattended-upgrade` instalado; `apt-config dump` com
-`APT::Periodic::Unattended-Upgrade` diferente de `"0"` e `APT::Periodic::Enable` diferente de `"0"`; `Unattended-Upgrade::Package-Blacklist`
-vazia; e `systemctl is-enabled apt-daily-upgrade.timer` igual a `enabled` com `is-active` igual a `active`. Pacote da falha retido (`apt-mark showhold`) deixa `automatica` falso. Erro ou ausência vale como não confirmada. Sem a fonte KEV respondendo e sem marca guardada, o achado nem entra neste estado (fica `aberto`).
+`como_corrigir` é único: "Já existe correção pelo canal normal de atualização do Ubuntu. Com a atualização automática ligada (o padrão do
+Ubuntu), ela entra sozinha; se não estiver, peça ao Admin para atualizar o sistema.", e só quando algum afetado tem `kernel_em_execucao` leva
+mais " O kernel novo passa a valer no próximo reinício do servidor; reinicie quando for conveniente." (`correcao.exige_reinicio` também só
+vale para o kernel em execução). A tela traz sempre o botão Pedir ao Admin no cartão, e o achado entra no recado ao Admin uma vez (regra de
+`avisado_em`), sem contar como ponto em risco; no resumo ele aparece no grupo "ATUALIZAÇÕES DO SISTEMA", com a orientação de conferir o
+`unattended-upgrades` e atualizar com o ok do dono. A ronda não tenta provar que a atualização automática instalará a correção.
 
 **KEV.** O KEV continua `aberto`, em destaque. A marca KEV confirmada fica no registro do achado (`kev`); se a fonte KEV não respondeu na
 rodada, vale a guardada (registro antigo, só com `ultimo.explorada_ativamente`, migra para ela) e só se rebaixa quando a fonte responde e
-não lista mais. Achado que vira KEV depois de já avisado tem `avisado_em` zerado, e o Admin recebe um recado novo. O mesmo vale para o achado reapresentado do estado anterior (fonte fora) que estava em `atualizacao-sistema` e passa a constar na lista KEV: volta a `aberto`, nível 2, `explorada_ativamente`.
+não lista mais; resposta da CISA com a lista vazia, ou com `count` diferente do tamanho da lista, conta como fonte fora. Sem a fonte KEV respondendo e sem marca guardada, o achado nem entra em `atualizacao-sistema` (fica `aberto`). Achado que vira KEV depois de já avisado tem `avisado_em` zerado, e o Admin recebe um recado novo. O mesmo vale para o achado reapresentado do estado anterior (qualquer caminho que reaproveita `ultimo`, com a CISA respondendo) que estava em `atualizacao-sistema` e passa a constar na lista KEV: volta a `aberto`, nível 2, `explorada_ativamente`.

@@ -2,13 +2,7 @@
 echo "systemctl $*" >>"$STUB_DIR/chamadas.log"
 if [ "$1" = "is-active" ]; then
     u="${!#}"
-    [ -f "$STUB_DIR/inativo-$u" ] && { echo inactive; exit 3; }
-    echo active
-fi
-if [ "$1" = "is-enabled" ]; then
-    u="${!#}"
-    if [ -f "$STUB_DIR/is-enabled-$u" ]; then cat "$STUB_DIR/is-enabled-$u"; exit 0; fi
-    echo disabled; exit 1
+    [ -f "$STUB_DIR/inativo-$u" ] && exit 3
 fi
 if [ "$1" = "disable" ] && [ -f "$STUB_DIR/systemctl_disable_recusa" ]; then echo "Failed to disable unit" >&2; exit 1; fi
 if [ "$1" = "daemon-reload" ] && [ -f "$STUB_DIR/systemctl_reload_recusa" ]; then echo "Failed to reload" >&2; exit 1; fi

@@ -107,13 +107,9 @@ test('estados novos e o campo paliativo passam saneados; estado desconhecido con
   assert.equal(validaAchado(achado({ correcao: { tipo: 'acao-catalogo', acao_id: 'a', disponivel: true, executavel: true, paliativo: true } })).achado.correcao.paliativo, true);
 });
 
-test('atualizacao-sistema passa com `automatica`; o estado gravado pelo motor é preservado, sem reclassificar', () => {
+test('atualizacao-sistema passa; o estado gravado pelo motor é preservado, sem reclassificar', () => {
   const apt = { tipo: 'apt', disponivel: true, executavel: false, exige_reinicio: true };
-  const nova = validaAchado(achado({ estado: 'atualizacao-sistema', correcao: apt, automatica: true })).achado;
-  assert.deepEqual([nova.estado, nova.automatica], ['atualizacao-sistema', true]);
-  assert.equal(validaAchado(achado({ estado: 'atualizacao-sistema', correcao: apt, automatica: false })).achado.automatica, false);
-  assert.equal(validaAchado(achado({ estado: 'atualizacao-sistema', correcao: apt })).achado.automatica, false, 'sem o campo, vale como não confirmada');
-  assert.equal('automatica' in validaAchado(achado({ automatica: true })).achado, false, 'o campo só existe nesse estado');
+  assert.equal(validaAchado(achado({ estado: 'atualizacao-sistema', correcao: apt })).achado.estado, 'atualizacao-sistema');
   const kernel = achado({ correcao: apt, severidade: 'CRITICAL', onde: ['kernel 6.8.0-147 em execução'] });
   assert.equal(validaAchado(kernel).achado.estado, 'aberto', 'ronda.json antigo: o painel não reclassifica, a próxima rodada corrige');
   assert.equal(validaRonda(ronda([kernel])).ronda.niveis[2][0].estado, 'aberto');

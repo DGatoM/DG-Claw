@@ -165,7 +165,7 @@ test('seção Aguardando correção oficial: frase de topo, proteção provisór
 
 const atualizacao = (extra) => achado(Object.assign({
   id: 'KERNEL-1', estado: 'atualizacao-sistema', severidade: 'CRITICAL', componente: 'kernel Linux', correcao: { tipo: 'apt', disponivel: true, executavel: false, exige_reinicio: true },
-  como_corrigir: 'Já existe correção. Ela entra sozinha na atualização automática do Ubuntu; nada a fazer agora.',
+  como_corrigir: 'Já existe correção pelo canal normal de atualização do Ubuntu.',
 }, extra || {}));
 
 test('atualização do sistema: nunca é ponto em risco, sai das listas de decisão e não mostra gravidade', () => {
@@ -184,16 +184,14 @@ test('atualização do sistema: nunca é ponto em risco, sai das listas de decis
   assert.ok(!R.fatosHtml(atualizacao()).includes('Gravidade'));
 });
 
-test('seção Atualizações do sistema: uma linha por componente, texto calmo, Pedir ao Admin só sem automática, sem vermelho e tudo escapado', () => {
-  const sem = atualizacao({ id: 'KERNEL-2', automatica: false, como_corrigir: 'Já existe correção, mas a atualização automática deste servidor não está ligada. Peça ao Admin para atualizar o sistema e reiniciar o servidor no melhor horário.' });
-  const h = T.listaAtualizacoesHtml([atualizacao({ automatica: true }), sem, atualizacao({ id: 'SSL-1', componente: 'openssl', automatica: true })], AGORA);
+test('seção Atualizações do sistema: uma linha por componente, texto calmo, Pedir ao Admin em todo cartão, sem vermelho e tudo escapado', () => {
+  const h = T.listaAtualizacoesHtml([atualizacao(), atualizacao({ id: 'KERNEL-2' }), atualizacao({ id: 'SSL-1', componente: 'openssl' })], AGORA);
   assert.ok(h.includes(T.FRASE_ATUALIZACOES));
   assert.ok(h.includes('Kernel Linux: 2 correções na fila da atualização do sistema'));
   assert.ok(h.includes('Openssl: 1 correção na fila da atualização do sistema'));
-  assert.ok(h.includes('Já existe correção. Ela entra sozinha na atualização automática do Ubuntu; nada a fazer agora.'));
-  assert.equal((h.match(/data-rp="pedir-admin"/g) || []).length, 1, 'só o cartão com automatica false pede ao Admin');
-  assert.equal(R.podePedirAtualizacao(sem), true);
-  assert.equal(R.podePedirAtualizacao(atualizacao({ automatica: true })), false);
+  assert.equal((h.match(/data-rp="pedir-admin"/g) || []).length, 3, 'todo cartão pede ao Admin');
+  assert.equal(R.podePedirAtualizacao(atualizacao()), true);
+  assert.equal(R.podePedirAtualizacao(esperando()), false);
   assert.ok(!/rp-grav-|rp-n2|data-rp="(aplicar|corrigir|tirar-do-ar)"/.test(h), 'sem etiqueta de gravidade, sem cor de alerta, sem ação que aplica');
   assert.equal(T.tituloAtualizacoes(3), 'Atualizações do sistema (3)');
   assert.ok(T.listaAtualizacoesHtml([], AGORA).includes(T.VAZIO_ATUALIZACOES));

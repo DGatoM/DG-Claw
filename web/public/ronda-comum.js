@@ -148,8 +148,8 @@
   function aguardaCorrecao(a) { return !!a && (a.estado === 'protegido-aguardando' || a.estado === 'aguardando-fornecedor'); }
   /* Pacote do sistema que já tem correção no apt: entra pela atualização do Ubuntu. Segundo plano, nunca é ponto em risco. */
   function ehAtualizacaoSistema(a) { return !!a && a.estado === 'atualizacao-sistema'; }
-  /* Atualização automática não confirmada: a correção existe, mas depende do Admin atualizar. O pedido é o mesmo do nível 3. */
-  function podePedirAtualizacao(a) { return ehAtualizacaoSistema(a) && a.automatica === false; }
+  /* Atualização do sistema: o cartão sempre traz o Pedir ao Admin (a atualização automática pode não estar ligada). Mesmo pedido do nível 3. */
+  function podePedirAtualizacao(a) { return ehAtualizacaoSistema(a); }
   function segundoPlano(a) { return aguardaCorrecao(a) || ehAtualizacaoSistema(a); }
   function estadoRotulo(e) { return ROTULO_ESTADO[e] || 'Aberto'; }
 

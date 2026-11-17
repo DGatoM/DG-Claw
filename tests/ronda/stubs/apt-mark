@@ -1,5 +1,0 @@
-#!/usr/bin/env bash
-# apt-mark de mentira: "apt-mark showhold" imprime $STUB_DIR/apt-mark-hold.txt (vazio se não existir); "falha" no arquivo apt-mark-falha dá erro.
-[ -f "$STUB_DIR/apt-mark-falha" ] && exit 1
-[ -f "$STUB_DIR/apt-mark-hold.txt" ] && cat "$STUB_DIR/apt-mark-hold.txt"
-exit 0

@@ -33,7 +33,7 @@
 
   const FRASE_AGUARDANDO = 'Estas falhas ainda não têm correção publicada pelo fornecedor. Nada a fazer agora: a ronda confere a cada rodada e avisa quando a correção sair.';
   const VAZIO_AGUARDANDO = 'Nenhuma falha esperando a correção do fornecedor.';
-  const FRASE_ATUALIZACOES = 'Estas falhas já têm correção e não são alarme. Com a atualização automática do Ubuntu ligada, ela entra sozinha; se não estiver, o cartão traz o botão para pedir ao Admin.';
+  const FRASE_ATUALIZACOES = 'Estas falhas já têm correção pelo canal normal de atualização do Ubuntu e não são alarme. Com a atualização automática ligada (o padrão do Ubuntu), ela entra sozinha; se não estiver, use o botão para pedir ao Admin.';
   const VAZIO_ATUALIZACOES = 'Nenhuma atualização do sistema na fila.';
 
   /* ── avisos de segurança do DG Claw (boletins) ──────────────────────────── */
@@ -331,7 +331,7 @@
       { alvo: '#secAtualizacoes', titulo: 'Atualizações do sistema',
         oque: 'As falhas de pacotes do Ubuntu (o kernel Linux, por exemplo) que já têm correção pronta. Ficam numa linha por componente, como "Kernel Linux: 12 correções na fila da atualização do sistema". Toque na linha para ver cada falha.',
         como: 'A cada rodada a ronda pergunta ao apt deste servidor se a versão corrigida já pode ser instalada. Se pode para todos os pacotes da falha, ela não está sendo explorada por criminosos, ela entra aqui, e o número da linha é a quantidade de falhas desse componente nessa situação. Quando o pacote é atualizado, a falha some sozinha.',
-        porque: 'Com a atualização automática do Ubuntu ligada, a correção entra sozinha e você não precisa decidir nada. Se ela não estiver ligada (ou a ronda não conseguir confirmar), o cartão traz o botão Pedir ao Admin, que abre a conversa com o pedido já escrito. Por isso elas não entram no aviso de risco nem no selo, e ficam recolhidas aqui, à vista.' },
+        porque: 'Com a atualização automática do Ubuntu ligada (o padrão), a correção entra sozinha e você não precisa decidir nada. Se ela não estiver ligada, o botão Pedir ao Admin abre a conversa com o pedido já escrito. O Admin também recebe um recado sobre elas e confere isso. Por isso elas não entram no aviso de risco nem no selo, e ficam recolhidas aqui, à vista.' },
     ],
     tratadas: [
       { alvo: '#secTratadas', titulo: 'Já tratadas',
