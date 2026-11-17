@@ -270,7 +270,7 @@ function buildSocorro(CONFIG, serverDir) {
     const arqClaude = arquivoClaudeJson(ambiente());
     const falhaConfianca = confiarNasPastas(LIB, arqClaude, [SALA, WS]);
     if (falhaConfianca) {
-      console.error(`[socorro] nao consegui marcar ${SALA} e ${WS} como confiaveis em ${arqClaude}: ${falhaConfianca}. Se o claude abrir o dialogo de confianca o socorro nao responde.`);
+      console.error(`[socorro] nao consegui marcar ${SALA} e ${WS} como confiaveis no .claude.json do Claude do socorro: ${falhaConfianca}. Se o claude abrir o dialogo de confianca o socorro nao responde.`);
     }
 
     const minha = sessao; // se "encerrar" trocar a sessão no meio, os eventos tardios não vazam para a nova
