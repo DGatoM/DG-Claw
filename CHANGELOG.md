@@ -7,6 +7,19 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Correção: render de vídeo não esgota os processos do agente.** Um agente chegou a ficar mais de 30 minutos parado num
+render de vídeo porque o container tem um limite de processos (as threads contam) e o Chrome da Tela, o Claude Code e o
+Chromium novo que o render abria juntos passavam dele ("Resource temporarily unavailable" e "Target crashed"). Foram duas
+mudanças. O limite de processos de cada container de agente passou de 1024 para 4096 (a memória continua 2 GB). E o
+`renderizar.py` da skill `video-animado` agora usa o Chrome da Tela que já está aberto, num contexto só dele, e fecha só
+esse contexto no fim, sem derrubar a Tela. Se a Tela não estiver no ar ou a conexão falhar, ele abre o Chromium novo como
+antes e escreve no terminal qual caminho usou e por quê. Funciona igual no Claude e no Codex, porque os dois chamam o mesmo script.
+
+### Como atualizar (limite de processos)
+
+O limite novo vale quando o container do agente é recriado, e o `dgclaw atualizar` padrão já recria os agentes. Não há
+mais nada a fazer. Um agente que estava parado ganha o limite novo na próxima vez que for recriado.
+
 **Correção de segurança e de perda de dados: `dgclaw agente recriar` mostra o que se perde e pede `--forcar`.** Trocar o
 container de um agente (o que a atualização faz com a imagem nova) apaga o que alguém instalou direto dentro dele, fora
 da casa do agente, como o `tailscale` que um dono tinha instalado à mão. Isso acontecia sem aviso nenhum. Agora, antes
