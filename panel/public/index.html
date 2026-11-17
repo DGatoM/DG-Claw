@@ -17,6 +17,7 @@
   <link rel="stylesheet" href="{{BASE}}/css/socorro.css">
   <link rel="stylesheet" href="{{BASE}}/css/tela.css">
   <link rel="stylesheet" href="{{BASE}}/css/operacoes.css">
+  <link rel="stylesheet" href="{{BASE}}/css/integracoes.css">
   <link rel="stylesheet" href="{{BASE}}/css/sessoes.css">
   <link rel="stylesheet" href="{{BASE}}/css/leitura.css">
   <link rel="stylesheet" href="{{BASE}}/css/wm-status.css">
@@ -93,6 +94,7 @@
           <button type="button" class="grupo-cab" id="grp-ferramentas-b" aria-expanded="false" aria-controls="grp-ferramentas"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-package"/></svg></span><span class="grupo-nome">Ferramentas</span><span class="grupo-seta" aria-hidden="true"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-chevron-down"/></svg></span></button>
           <div class="grupo-itens" id="grp-ferramentas" role="group" aria-labelledby="grp-ferramentas-b"><div class="grupo-lista">
             <button class="tab" data-tab="skills"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-sparkle"/></svg></span>Skills</button>
+            <button class="tab" data-tab="integracoes"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-link"/></svg></span>Integrações</button>
             <button class="tab" data-tab="apps"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-layout"/></svg></span>Apps</button>
           </div></div>
         </div>
@@ -464,6 +466,30 @@
           <div id="skills-root"><span data-carregando="Carregando" data-tam="m"></span> Carregando...</div>
         </div>
 
+        <!-- INTEGRAÇÕES: o mapa em constelação. Desenhada por js/integracoes.js a partir de /api/integracoes
+             (lib/integracoes.js). Ver panel/docs/INTEGRACOES.md. -->
+        <div class="panel" id="panel-integracoes">
+          <div class="int-topo">
+            <div class="int-resumo" id="int-resumo"><div class="int-resumo-texto" id="int-resumo-texto">Lendo as integrações...</div></div>
+            <div class="op-alternar int-alternar" id="int-alternar" role="group" aria-label="O que o mapa mostra">
+              <button type="button" class="ativo" data-modo="real" aria-pressed="true"
+                      title="Mostra todos os sistemas, cada um na cor que ele tem de verdade.">Estado real</button>
+              <button type="button" data-modo="aula" aria-pressed="false"
+                      title="Mostra só os sistemas que estão funcionando. Serve para apresentar numa aula.">Modo aula</button>
+            </div>
+          </div>
+          <div class="int-aviso" id="int-aviso" role="status" hidden></div>
+          <div class="int-corpo">
+            <div class="cartao int-mapa-caixa" id="int-mapa-caixa">
+              <div class="section-title">Mapa das integrações</div>
+              <div id="int-agente" class="int-agente"></div>
+              <div id="int-mapa"></div>
+              <ul id="int-lista" class="int-lista"></ul>
+            </div>
+            <aside class="cartao int-cartao" id="int-cartao" aria-live="polite" hidden></aside>
+          </div>
+        </div>
+
         <!-- ROTINAS: a mesma lista do Status (renderSuasRotinas), em página própria, com recarga a cada 15 s. -->
         <div class="panel" id="panel-rotinas">
           <section class="cartao">
@@ -601,6 +627,7 @@
   <script src="{{BASE}}/js/arquivos.js"></script>
   <script src="{{BASE}}/js/cofre.js"></script>
   <script src="{{BASE}}/js/skills.js"></script>
+  <script src="{{BASE}}/js/integracoes.js"></script>
   <script src="{{BASE}}/js/socorro.js"></script>
   <script src="{{BASE}}/js/tela.js"></script>
   <script src="{{BASE}}/js/sessoes.js"></script>

@@ -376,6 +376,42 @@
       },
     ],
 
+    integracoes: [
+      tela(
+        'Em que sistemas ele está ligado',
+        'No meio está o agente, e cada bolinha ao redor é um sistema externo que ele já usou (WhatsApp, Instagram, banco, nota fiscal e outros). Uma linha reta liga cada um ao agente. Toque numa bolinha para ver o detalhe. Um sistema aparece aqui sozinho na primeira vez que o agente o usa.',
+        'Aqui você responde "o meu agente está conectado em quê, e está funcionando?" sem abrir cada sistema. Também serve de vitrine numa aula: dá para mostrar o agente ligado ao mundo de uma vez só.',
+      ),
+      {
+        chave: 'resumo',
+        alvo: '#int-resumo',
+        titulo: 'A frase-resumo',
+        corpo: 'Conta em quantos sistemas o agente está ligado e quantos estão com defeito. Os que você desligou no mapa não entram na conta de "ligado". Ao lado fica o alternador entre Estado real e Modo aula.',
+        porque: 'É a resposta rápida para "está tudo bem?". Se houver defeito, o número aparece aqui antes de você procurar a bolinha vermelha no desenho.',
+      },
+      {
+        chave: 'mapa',
+        alvo: '#int-mapa-caixa',
+        titulo: 'O mapa e as cores',
+        corpo: 'A cor vem do uso real, anotado pelos programas que falam com cada sistema, e não de um teste que o painel faz. Verde: a última vez que o agente usou deu certo. Amarelo: houve um problema que pode passar sozinho (sem internet, limite, resultado incerto) ou uma falha só, ainda não confirmada. Vermelho: duas falhas graves com pelo menos 2 minutos de diferença e nenhum sucesso depois, ou o WhatsApp avisando que desconectou o aparelho. Cinza: desligado por você, ou sem uso há mais de 7 dias. O ponto de luz anda pela linha quando o sistema funciona, e no vermelho para no meio. Em cada bolinha também está escrita a palavra do estado.',
+        porque: 'A cor nunca é chute: um sistema sem uso recente aparece cinza e nunca verde, porque você só pode confiar numa cor que veio de um uso de verdade. Vermelho exige duas falhas para um soluço da internet não assustar ninguém.',
+      },
+      {
+        chave: 'cartao',
+        alvo: '#int-cartao',
+        titulo: 'O cartão do sistema',
+        corpo: 'Mostra a última vez que o sistema funcionou, o último problema explicado em português, e quais skills usam aquele sistema. O botão desliga o sistema no mapa (a linha fica tracejada) ou liga de novo.',
+        porque: 'Quando algo fica vermelho, o cartão diz o que aconteceu e quando, para você saber o que pedir ao agente. Desligar no mapa só muda o desenho e a conta: não desconecta nada no sistema de verdade.',
+      },
+      {
+        chave: 'aula',
+        alvo: '#int-alternar',
+        titulo: 'Estado real e Modo aula',
+        corpo: 'O Estado real mostra todos os sistemas, cada um na cor que tem. O Modo aula mostra só os que estão em verde, para apresentar sem expor o que está com problema.',
+        porque: 'Numa apresentação você quer mostrar o que funciona. O Modo aula esconde os outros, mas nunca pinta de verde um sistema que não está verde.',
+      },
+    ],
+
     rotinas: [
       tela(
         'O que ele faz sozinho',
@@ -424,6 +460,7 @@
     { alvo: '#thoughts-present', aba: 'status', chave: 'pensamentos' },
     { alvo: '#goals-short', aba: 'status', chave: 'metas' },
     { alvo: '#home-rotinas', aba: 'status', chave: 'suas-rotinas' },
+    { alvo: '#int-mapa-caixa', aba: 'integracoes', chave: 'mapa' },
     { alvo: '#memory-list', aba: 'memory', chave: 'lista' },
     { alvo: '#identity-files', aba: 'identity', chave: 'arquivos' },
     { alvo: '#big-five', aba: 'personality', chave: 'bigfive' },

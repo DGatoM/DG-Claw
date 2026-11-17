@@ -75,3 +75,44 @@ Grava ou tira o `id` de `preferencias.json`. Resposta:
 ```
 
 Id fora do formato: HTTP 400 com `error` e `howToFix`.
+
+## A tela (aba Integrações)
+
+A aba fica no grupo Ferramentas do painel, com o ícone `link`. Ela é desenhada por
+`public/js/integracoes.js` e `public/css/integracoes.css`, e consome só a rota `GET /api/integracoes`
+(e as de ligar e desligar). Quem decide a cor é o servidor; a tela apenas desenha.
+
+- **Topo:** a frase-resumo ("Ligado em 6 sistemas · 1 com defeito", ou o convite quando ainda não há
+  nenhum sistema) e o alternador **Estado real** / **Modo aula**. O modo aula mostra só os nós em
+  verde e nunca pinta de verde o que não está. O botão Tutorial é o do cabeçalho do painel.
+- **O mapa:** a foto do agente no centro (sem foto, a inicial sobre o acento) e um nó por integração,
+  em constelação. Cada nó é um círculo com o ícone do sprite, o nome e, menor, a palavra do estado.
+  A ligação é uma linha reta do centro ao nó, de 1,5 px. Os nós ficam a distâncias um pouco
+  diferentes: o raio varia até 12% para cada lado por um hash do id (o desenho não muda a cada
+  visita) e os ângulos são distribuídos igualmente, a partir do topo, com um pequeno desvio também
+  por hash. Cabem 12 nós no primeiro anel; acima disso, o resto vai para um segundo anel.
+- **Cores (só tokens do design system):** verde `--cor-sucesso`, amarelo `--cor-aviso`, vermelho
+  `--cor-perigo`; desligado e sem uso recente usam `--cor-texto-2`. Desligado tem linha tracejada e
+  não tem pulso. Tema claro e escuro funcionam sem regra extra.
+- **O pulso:** um ponto com brilho leve anda pela reta. Verde: do nó ao centro e de volta, a cada
+  2,6 s. Amarelo: mais lento, 4 s. Vermelho: o ponto sai do nó, para no meio da linha e some, e a
+  linha pisca devagar. Cada nó tem uma defasagem própria. Sem pulso quando desligado ou sem uso
+  recente. O movimento pausa com a aba do navegador escondida e some com "reduzir movimento" (ficam
+  só a cor e a palavra).
+- **O cartão:** tocar num nó (ou Enter e Espaço com o teclado) abre ao lado, no computador, ou
+  embaixo, no celular: nome, palavra, "Última vez que funcionou", "Último problema" (a explicação em
+  português e quando), "Quais skills usam" e o botão **Desligar no mapa** / **Ligar no mapa**, que chama
+  `POST /api/integracoes/<id>/desligar` ou `/ligar` e recarrega.
+- **Celular (até 600 px):** o desenho some. Abaixo da foto do agente, os nós viram uma lista com a
+  bolinha colorida, o ícone, o nome e a palavra, sem rolagem para o lado e com alvos de toque de
+  44 px.
+- **Quando não dá para medir:** com `"medido": false` a tela mostra o motivo que a API mandou num
+  aviso, e nunca o mapa. Erro de rede mostra a causa e o que fazer.
+- **Atualização:** a tela se recarrega a cada 30 segundos enquanto está à vista, e só refaz o
+  desenho se algo mudou.
+- **Segurança:** todo texto da API entra por `textContent` ou `setAttribute`, nunca por HTML montado
+  com dado. A classe de cor sai de uma tabela do código indexada pelo `estado`, e o ícone, de uma
+  lista do código (nome fora dela vira `link`). O teste `panel/test-integracoes-tela.mjs` confere
+  o layout, as duas tabelas e a ausência de HTML montado.
+- **Tutorial:** o tour da página mais o "?" do mapa, do resumo e do cartão (em
+  `public/js/tutoriais.js`), cada passo dizendo o que é, como a cor é calculada e por que está ali.

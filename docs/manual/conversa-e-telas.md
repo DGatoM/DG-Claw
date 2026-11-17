@@ -182,6 +182,7 @@ Cada agente tem um painel em `/p/<slug>/` com abas. O colaborador convidado vê 
 | `aba:personality` | Os números que regulam o jeito dele e as metas | [agentes.md](agentes.md) |
 | `aba:apps` | O que o agente produziu sozinho, etapa por etapa | [../../panel/docs/ABA-APPS.md](../../panel/docs/ABA-APPS.md) |
 | `aba:skills` | Lista das skills do agente e onde cada uma fica | [agentes.md](agentes.md) |
+| `aba:integracoes` | O mapa dos sistemas externos em que o agente está ligado, com a cor do uso real de cada um | [../../panel/docs/INTEGRACOES.md](../../panel/docs/INTEGRACOES.md) |
 | `aba:rotinas` | Os compromissos que o agente marcou a pedido do dono | [memoria-e-rotinas.md](memoria-e-rotinas.md) |
 | `aba:arquivos` | A pasta do agente (aba Pasta): ver, baixar e enviar arquivos | [../../panel/docs/PASTA-E-ASSETS.md](../../panel/docs/PASTA-E-ASSETS.md) |
 | `aba:tela` | O navegador do agente, para o dono fazer logins | [agentes.md](agentes.md) |
