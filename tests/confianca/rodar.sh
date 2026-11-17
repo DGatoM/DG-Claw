@@ -32,10 +32,10 @@ igual "chave alheia sobrevive" 9 "$(chave "$J" numStartups)"
 igual "tema sobrevive" '"light"' "$(chave "$J" theme)"
 igual "confianca ja existente e o resto da pasta sobrevivem" '{"hasTrustDialogAccepted": true, "allowedTools": ["x"]}' "$(chave "$J" projects /ja)"
 igual "pasta existente ganha a marca sem perder o resto" '{"mcpServers": {}, "hasTrustDialogAccepted": true}' "$(chave "$J" projects /c)"
-igual "pasta nova marcada" true "$(chave "$J" projects /nova hasTrustDialogAccepted | tr 'A-Z' 'a-z')"
+igual "pasta nova marcada" true "$(chave "$J" projects /nova hasTrustDialogAccepted | tr '[:upper:]' '[:lower:]')"
 igual "pasta com espaco no nome marcada (caminho nunca vai dentro do codigo)" true "$(chave "$J" projects "/com espaco" hasTrustDialogAccepted)"
 igual "permissao do arquivo preservada" 640 "$(stat -c %a "$J")"
-igual "nenhum temporario sobra" ".claude.json" "$(ls -A "$TMP/h")"
+igual "nenhum temporario sobra (so o arquivo e a trava)" ".claude.json .claude.json.dgclaw-trava" "$(find "$TMP/h" -mindepth 1 -printf '%f\n' | sort | tr '\n' ' ' | sed 's/ $//')"
 SHA="$(sha256sum "$J")"; INO="$(stat -c %i "$J")"
 python3 -I "$HELPER" "$J" /c /nova >/dev/null 2>&1
 igual "nada mudou: o arquivo nao e reescrito" "$SHA" "$(sha256sum "$J")"
@@ -43,6 +43,19 @@ igual "nada mudou: mesmo inode (nao houve rename)" "$INO" "$(stat -c %i "$J")"
 python3 -I "$HELPER" --onboarding "$J" /onb >/dev/null 2>&1
 igual "--onboarding marca o projeto" true "$(chave "$J" projects /onb hasCompletedProjectOnboarding)"
 igual "--onboarding marca o arquivo" true "$(chave "$J" hasCompletedOnboarding)"
+
+# trava presa por outro escritor: espera, desiste com codigo 3 e nao grava; morto o dono, o sistema solta
+python3 -I -c 'import fcntl,os,sys,time; fd=os.open(sys.argv[1], os.O_RDWR|os.O_CREAT); fcntl.flock(fd, fcntl.LOCK_EX); open(sys.argv[2],"w").close(); time.sleep(30)' "$J.dgclaw-trava" "$TMP/presa" &
+DONO=$!
+for _ in $(seq 50); do [ -f "$TMP/presa" ] && break; sleep 0.1; done
+SHA="$(sha256sum "$J")"
+SAIDA="$(python3 -I "$HELPER" "$J" /ocupada 2>&1)"; RC=$?
+igual "trava ocupada: sai 3" 3 "$RC"
+igual "trava ocupada: nada gravado" "$SHA" "$(sha256sum "$J")"
+tem "trava ocupada: a mensagem explica" "ocupada por mais de 3 s" "$SAIDA"
+kill -9 "$DONO" 2>/dev/null; wait "$DONO" 2>/dev/null
+python3 -I "$HELPER" "$J" /depois >/dev/null 2>&1
+igual "dono da trava morto: o sistema solta e o proximo grava" true "$(chave "$J" projects /depois hasTrustDialogAccepted)"
 
 printf '%s' '{quebrado' > "$J"; SHA="$(sha256sum "$J")"
 SAIDA="$(python3 -I "$HELPER" "$J" /c 2>&1)"; RC=$?
@@ -59,12 +72,15 @@ python3 -I "$HELPER" >/dev/null 2>&1; igual "sem argumentos: sai 64" 64 "$?"
 
 echo "funcao confiar_pastas (launch.sh e crons)"
 CD="$TMP/cfgdir"; mkdir -p "$CD"
+# shellcheck source=scripts/_lib/confiar-pastas.sh disable=SC2030
 ( export CLAUDE_CONFIG_DIR="$CD"; . "$LIB"; confiar_pastas /ws /ws2 )
 igual "usa CLAUDE_CONFIG_DIR/.claude.json" "true true" "$(chave "$CD/.claude.json" projects /ws hasTrustDialogAccepted) $(chave "$CD/.claude.json" projects /ws2 hasTrustDialogAccepted)"
 HM="$TMP/home"; mkdir -p "$HM"
+# shellcheck source=scripts/_lib/confiar-pastas.sh disable=SC2030
 ( unset CLAUDE_CONFIG_DIR; export HOME="$HM"; . "$LIB"; confiar_pastas /ws )
 igual "sem CLAUDE_CONFIG_DIR usa \$HOME/.claude.json" true "$(chave "$HM/.claude.json" projects /ws hasTrustDialogAccepted)"
 printf '%s' '{x' > "$HM/.claude.json"
+# shellcheck source=scripts/_lib/confiar-pastas.sh disable=SC2031
 SAIDA="$( unset CLAUDE_CONFIG_DIR; export HOME="$HM"; . "$LIB"; confiar_pastas /ws 2>&1; echo "rc=$?" )"
 tem "arquivo corrompido: avisa sem derrubar (devolve 1)" "rc=1" "$SAIDA"
 tem "arquivo corrompido: o aviso explica" "nao consegui marcar /ws como confiaveis em $HM/.claude.json" "$SAIDA"

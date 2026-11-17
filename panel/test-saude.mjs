@@ -233,17 +233,21 @@ ok(fs.readdirSync(path.join(WS, '.dgclaw', 'socorro')).some((f) => f.endsWith('.
   const o = JSON.parse(fs.readFileSync(arq, 'utf8'));
   ok(o.numStartups === 4 && o.projects['/ja'].x === 1 && o.projects['/c'].allowed[0] === 1 && o.projects['/a'].hasTrustDialogAccepted === true && o.projects['/c'].hasTrustDialogAccepted === true, 'confiança: preserva chave alheia e o que já existia');
   ok((fs.statSync(arq).mode & 0o777) === 0o640, 'confiança: preserva o modo do arquivo');
-  ok(fs.readdirSync(path.dirname(arq)).join() === '.claude.json', 'confiança: nenhum temporário nem trava sobra');
+  ok(fs.readdirSync(path.dirname(arq)).sort().join() === '.claude.json,.claude.json.dgclaw-trava', 'confiança: nenhum temporário sobra');
   fs.writeFileSync(arq, '{"mcpServers":{"x":{"env":{"TOKEN": SEGREDO_FICTICIO_123456}}}}');
   const motivo = confiarNasPastas(LIBDIR, arq, ['/c']);
   ok(motivo && !/SEGREDO/.test(motivo) && /NAO foi alterado/.test(motivo), 'confiança: JSON inválido devolve motivo sem trecho do arquivo');
   ok(fs.readFileSync(arq, 'utf8').includes('SEGREDO_FICTICIO_123456'), 'confiança: JSON inválido NÃO é apagado nem reescrito');
-  fs.mkdirSync(`${arq}.dgclaw-trava`);
   fs.writeFileSync(arq, '{}');
-  const t0 = Date.now();
+  const marca = path.join(RAIZ, 'trust-unit-presa');
+  const { spawn: spawnDono } = require('child_process');
+  const dono = spawnDono('python3', ['-I', '-c', 'import fcntl,os,sys,time; fd=os.open(sys.argv[1], os.O_RDWR|os.O_CREAT); fcntl.flock(fd, fcntl.LOCK_EX); open(sys.argv[2],"w").close(); time.sleep(30)', `${arq}.dgclaw-trava`, marca], { stdio: 'ignore' });
+  for (let i = 0; i < 50 && !fs.existsSync(marca); i++) await new Promise((r) => setTimeout(r, 100));
   const ocupada = confiarNasPastas(LIBDIR, arq, ['/c']);
-  ok(ocupada && /ocupada/.test(ocupada) && Date.now() - t0 >= 2500 && fs.readFileSync(arq, 'utf8') === '{}', 'confiança: com a trava de outro escritor, espera e não grava');
-  fs.rmdirSync(`${arq}.dgclaw-trava`);
+  ok(ocupada && /ocupada/.test(ocupada) && fs.readFileSync(arq, 'utf8') === '{}', 'confiança: com a trava presa por outro escritor, desiste e não grava');
+  dono.kill('SIGKILL');
+  await new Promise((r) => dono.on('exit', r));
+  ok(confiarNasPastas(LIBDIR, arq, ['/c']) === null, 'confiança: morto o dono, o sistema solta a trava');
 }
 
 r = await chamar('POST', '/api/socorro/mensagem', { body: { texto: 'sim, pode' } });

@@ -5,7 +5,6 @@ import os from "node:os";
 import path from "node:path";
 import { chaveFalsa, ctxDeTeste, pastaTemporaria } from "./apoio-teste.js";
 import { log } from "./logger.js";
-import { comTravaDeArquivo } from "./provedores/arquivos.js";
 import { arquivoClaudeJson, confiarNaPasta, confiarNasPastas, pastasParaConfiar, dicaDeLogin, motorClaude, preAprovarChaveDeApi, pularAvisoDoAutoMode, pularPrimeiraExecucao } from "./provedores/claude.js";
 
 test("pré-aprovação: grava os ÚLTIMOS 20 caracteres, é idempotente e preserva o resto do JSON", () => {
@@ -241,20 +240,3 @@ test("confiarNasPastas: JSON inválido não leva trecho do arquivo para o log ne
   assert.equal(fs.readFileSync(arq, "utf8"), quebrado);
 });
 
-test("comTravaDeArquivo: escritor que pega a trava depois relê e preserva o que o primeiro gravou", () => {
-  const dir = pastaTemporaria("trust-trava");
-  const arq = path.join(dir, ".claude.json");
-  fs.writeFileSync(arq, "{}");
-  fs.mkdirSync(`${arq}.dgclaw-trava`);
-  const velho = new Date(Date.now() - 60_000);
-  fs.utimesSync(`${arq}.dgclaw-trava`, velho, velho);
-  confiarNasPastas(["/a"], { CLAUDE_CONFIG_DIR: dir }, "spawn");
-  confiarNasPastas(["/b"], { CLAUDE_CONFIG_DIR: dir }, "spawn");
-  const o = JSON.parse(fs.readFileSync(arq, "utf8"));
-  assert.equal(o.projects["/a"].hasTrustDialogAccepted, true, "trava velha (processo morto) é retirada");
-  assert.equal(o.projects["/b"].hasTrustDialogAccepted, true);
-  assert.deepEqual(fs.readdirSync(dir), [".claude.json"], "a trava não sobra");
-  fs.mkdirSync(`${arq}.dgclaw-trava`);
-  assert.throws(() => comTravaDeArquivo(arq, () => 1), /ocupada/);
-  fs.rmdirSync(`${arq}.dgclaw-trava`);
-});

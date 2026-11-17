@@ -8,7 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { log } from "../logger.js";
-import { comTravaDeArquivo, gravarJsonAtomico } from "./arquivos.js";
+import { gravarJsonAtomico } from "./arquivos.js";
 import { CANAL_TELEGRAM, limparCacheNeedsAuth } from "./canais.js";
 import { recusaDeChave, ErroDeMotor, type CtxMotor, type Motor, type Recusa } from "./motor.js";
 
@@ -89,20 +89,17 @@ export function pastasParaConfiar(cwd: string, args: readonly string[]): string[
 export function confiarNasPastas(pastas: readonly string[], env: Record<string, string>, area: string): void {
   const arquivo = arquivoClaudeJson(env);
   try {
-    const novas = comTravaDeArquivo(arquivo, () => {
-      const atual = lerClaudeJson(arquivo);
-      const projetos = ((atual as Record<string, Record<string, Record<string, unknown>>>).projects ??= {});
-      const novas: string[] = [];
-      for (const pasta of pastas) {
-        const proj = (projetos[pasta] ??= {});
-        if (proj.hasTrustDialogAccepted === true) continue;
-        proj.hasTrustDialogAccepted = true;
-        novas.push(pasta);
-      }
-      if (novas.length) gravarJsonAtomico(arquivo, atual);
-      return novas;
-    });
+    const atual = lerClaudeJson(arquivo);
+    const projetos = ((atual as Record<string, Record<string, Record<string, unknown>>>).projects ??= {});
+    const novas: string[] = [];
+    for (const pasta of pastas) {
+      const proj = (projetos[pasta] ??= {});
+      if (proj.hasTrustDialogAccepted === true) continue;
+      proj.hasTrustDialogAccepted = true;
+      novas.push(pasta);
+    }
     if (novas.length === 0) return;
+    gravarJsonAtomico(arquivo, atual);
     log.info(area, `pastas marcadas como confiáveis em ${arquivo}: ${novas.join(", ")}`);
   } catch (err) {
     log.aviso(
@@ -124,22 +121,19 @@ export function confiarNaPasta(cwd: string, env: Record<string, string>, area: s
 export function pularPrimeiraExecucao(cwd: string, env: Record<string, string>, area: string): void {
   const arquivo = arquivoClaudeJson(env);
   try {
-    const mudou = comTravaDeArquivo(arquivo, () => {
-      const atual = lerClaudeJson(arquivo);
-      let mudou = false;
-      if (atual.hasCompletedOnboarding !== true) { atual.hasCompletedOnboarding = true; mudou = true; }
-      if (atual.theme === undefined || atual.theme === null || atual.theme === "") { atual.theme = "dark"; mudou = true; }
-      const projetos = ((atual as Record<string, Record<string, Record<string, unknown>>>).projects ??= {});
-      const proj = (projetos[cwd] ??= {});
-      if (proj.hasCompletedProjectOnboarding !== true) { proj.hasCompletedProjectOnboarding = true; mudou = true; }
-      if (typeof proj.projectOnboardingSeenCount !== "number" || proj.projectOnboardingSeenCount < 1) {
-        proj.projectOnboardingSeenCount = 1;
-        mudou = true;
-      }
-      if (mudou) gravarJsonAtomico(arquivo, atual);
-      return mudou;
-    });
+    const atual = lerClaudeJson(arquivo);
+    let mudou = false;
+    if (atual.hasCompletedOnboarding !== true) { atual.hasCompletedOnboarding = true; mudou = true; }
+    if (atual.theme === undefined || atual.theme === null || atual.theme === "") { atual.theme = "dark"; mudou = true; }
+    const projetos = ((atual as Record<string, Record<string, Record<string, unknown>>>).projects ??= {});
+    const proj = (projetos[cwd] ??= {});
+    if (proj.hasCompletedProjectOnboarding !== true) { proj.hasCompletedProjectOnboarding = true; mudou = true; }
+    if (typeof proj.projectOnboardingSeenCount !== "number" || proj.projectOnboardingSeenCount < 1) {
+      proj.projectOnboardingSeenCount = 1;
+      mudou = true;
+    }
     if (!mudou) return;
+    gravarJsonAtomico(arquivo, atual);
     log.info(area, `primeira execução do Claude pulada para ${cwd} em ${arquivo}`);
   } catch (err) {
     log.aviso(
@@ -158,16 +152,13 @@ export function pularPrimeiraExecucao(cwd: string, env: Record<string, string>, 
 export function pularAvisoDoAutoMode(env: Record<string, string>, area: string): void {
   const arquivo = arquivoClaudeJson(env);
   try {
-    const mudou = comTravaDeArquivo(arquivo, () => {
-      const atual = lerClaudeJson(arquivo);
-      let mudou = false;
-      for (const chave of ["hasSeenAutoModeEntryWarning", "hasSeenAutoDefaultNotice"]) {
-        if (atual[chave] !== true) { atual[chave] = true; mudou = true; }
-      }
-      if (mudou) gravarJsonAtomico(arquivo, atual);
-      return mudou;
-    });
+    const atual = lerClaudeJson(arquivo);
+    let mudou = false;
+    for (const chave of ["hasSeenAutoModeEntryWarning", "hasSeenAutoDefaultNotice"]) {
+      if (atual[chave] !== true) { atual[chave] = true; mudou = true; }
+    }
     if (!mudou) return;
+    gravarJsonAtomico(arquivo, atual);
     log.info(area, `aviso do auto mode marcado como visto em ${arquivo}`);
   } catch (err) {
     log.aviso(
@@ -191,24 +182,22 @@ export function pularAvisoDoAutoMode(env: Record<string, string>, area: string):
 export function preAprovarChaveDeApi(chave: string, env: Record<string, string>): { mudou: boolean; arquivo: string } {
   const arquivo = arquivoClaudeJson(env);
   const sufixo = chave.slice(-20);
-  return comTravaDeArquivo(arquivo, () => {
-    const atual = lerClaudeJson(arquivo);
-    const resp = (atual.customApiKeyResponses && typeof atual.customApiKeyResponses === "object"
-      ? atual.customApiKeyResponses
-      : {}) as { approved?: unknown; rejected?: unknown };
-    const aprovadas = Array.isArray(resp.approved) ? (resp.approved as unknown[]) : [];
-    const rejeitadas = Array.isArray(resp.rejected) ? (resp.rejected as unknown[]) : [];
-    const jaAprovada = aprovadas.includes(sufixo);
-    const estavaRejeitada = rejeitadas.includes(sufixo);
-    if (jaAprovada && !estavaRejeitada) return { mudou: false, arquivo };
-    atual.customApiKeyResponses = {
-      ...resp,
-      approved: jaAprovada ? aprovadas : [...aprovadas, sufixo],
-      rejected: rejeitadas.filter((x) => x !== sufixo),
-    };
-    gravarJsonAtomico(arquivo, atual);
-    return { mudou: true, arquivo };
-  });
+  const atual = lerClaudeJson(arquivo);
+  const resp = (atual.customApiKeyResponses && typeof atual.customApiKeyResponses === "object"
+    ? atual.customApiKeyResponses
+    : {}) as { approved?: unknown; rejected?: unknown };
+  const aprovadas = Array.isArray(resp.approved) ? (resp.approved as unknown[]) : [];
+  const rejeitadas = Array.isArray(resp.rejected) ? (resp.rejected as unknown[]) : [];
+  const jaAprovada = aprovadas.includes(sufixo);
+  const estavaRejeitada = rejeitadas.includes(sufixo);
+  if (jaAprovada && !estavaRejeitada) return { mudou: false, arquivo };
+  atual.customApiKeyResponses = {
+    ...resp,
+    approved: jaAprovada ? aprovadas : [...aprovadas, sufixo],
+    rejected: rejeitadas.filter((x) => x !== sufixo),
+  };
+  gravarJsonAtomico(arquivo, atual);
+  return { mudou: true, arquivo };
 }
 
 /** mcp-config, extraArgs do descritor, identidade, modelo e canal: tudo o que vem depois de `--settings`. */

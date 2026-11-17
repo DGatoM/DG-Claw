@@ -18,34 +18,33 @@ pasta + os.replace; nao reescreve se nada mudou; cria o arquivo se ele nao exist
 e um JSON de objeto, explica o que houve e sai com codigo 2 SEM tocar no arquivo.
 Saidas: 0 ok (mudou ou nao), 2 arquivo ilegivel/invalido, 3 nao consegui gravar, 64 uso errado.
 """
+import fcntl
 import json
 import os
 import sys
 import tempfile
 import time
 
-TRAVA_VELHA_S = 30
+ESPERA_TRAVA_S = 3
 
 
 def pegar_trava(arquivo):
-    """Mesma trava do runner (comTravaDeArquivo): a pasta <arquivo>.dgclaw-trava, criada pelo mkdir de forma
-    atomica. Ler, alterar e gravar acontecem dentro dela, para um escritor do DG Claw nao apagar o que o outro
-    acabou de gravar. Trava com mais de 30 s e de processo morto e e retirada. Devolve o caminho ou None."""
-    trava = arquivo + ".dgclaw-trava"
+    """Trava dos escritores do DG Claw que passam por este helper (launch.sh, crons, socorro, doctor,
+    instalador): flock no arquivo <arquivo>.dgclaw-trava. Ler, alterar e gravar acontecem com ela presa, para
+    um escritor nao apagar o que o outro acabou de gravar. O sistema solta a trava quando o processo morre,
+    entao nunca ha trava velha para retirar. Devolve o descritor, ou None se ficou ocupada por mais de 3 s."""
     os.makedirs(os.path.dirname(os.path.abspath(arquivo)), exist_ok=True)
-    for _ in range(61):
+    fd = os.open(arquivo + ".dgclaw-trava", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    fim = time.monotonic() + ESPERA_TRAVA_S
+    while True:
         try:
-            os.mkdir(trava)
-            return trava
-        except FileExistsError:
-            try:
-                if time.time() - os.stat(trava).st_mtime > TRAVA_VELHA_S:
-                    os.rmdir(trava)
-                    continue
-            except OSError:
-                pass  # a trava sumiu entre o mkdir e o stat: tenta de novo
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return fd
+        except BlockingIOError:
+            if time.monotonic() >= fim:
+                os.close(fd)
+                return None
             time.sleep(0.05)
-    return None
 
 
 def main(argv):
@@ -65,7 +64,7 @@ def main(argv):
     try:
         trava = pegar_trava(arquivo)
     except OSError as e:
-        sys.stderr.write("confiar-pastas: nao consegui criar a trava ao lado de %s (%s). Confira a permissao da pasta.\n" % (arquivo, e))
+        sys.stderr.write("confiar-pastas: nao consegui abrir a trava %s.dgclaw-trava (%s). Confira a permissao da pasta.\n" % (arquivo, e))
         return 3
     if trava is None:
         sys.stderr.write(
@@ -76,10 +75,7 @@ def main(argv):
     try:
         return marcar(arquivo, pastas, onboarding)
     finally:
-        try:
-            os.rmdir(trava)
-        except OSError:
-            pass  # ja retirada como velha por outro processo
+        os.close(trava)  # fechar solta o flock
 
 
 def marcar(arquivo, pastas, onboarding):
