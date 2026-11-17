@@ -37,6 +37,14 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Registro de saude da integracao (docs/PLANO-INTEGRACOES-E-VIGIA.md). Nunca derruba o script.
+sys.path.insert(0, str(Path(__file__).resolve().parent / "_lib"))
+try:
+    from integracoes import registrar_silencioso
+except ImportError:  # modulo ausente: o monitor segue sem anotar o resultado
+    def registrar_silencioso(*_a, **_k):
+        print("[openrouter-credit-alert] AVISO: modulo de registro de integracoes ausente; segui sem anotar.", file=sys.stderr)
+
 
 def load_config_arg():
     """Se passado um config.sh como argv[1] e os DGCLAW_* nao estao no ambiente, sourceia."""
@@ -130,6 +138,11 @@ def main():
     try:
         bal, total, _used = fetch_balance(key)
     except Exception as e:
+        status = getattr(getattr(e, "response", None), "status_code", None)
+        if status in (401, 403):
+            registrar_silencioso("openrouter", "credencial_recusada")
+        elif status is None and type(e).__module__.startswith("requests"):
+            registrar_silencioso("openrouter", "rede")
         print(f"[openrouter-credit-alert] erro consultando saldo: {e}", file=sys.stderr)
         return  # erro de rede nao deve derrubar o timer; tenta de novo no proximo ciclo
 
@@ -142,6 +155,7 @@ def main():
         pass  # sem estado anterior (primeira execucao ou arquivo ilegivel): parte de "ok"
 
     print(f"saldo OpenRouter: ${bal:.2f} (de ${total:.0f}) — nivel {lvl}")
+    registrar_silencioso("openrouter", {"ok": "ok", "aviso": "vencendo", "critico": "sem_saldo"}[lvl])
 
     if lvl != prev_lvl:
         if lvl == "critico":

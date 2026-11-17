@@ -38,6 +38,29 @@ except ImportError:
 
 GRAPH = "https://graph.facebook.com/v21.0"
 
+# Registro de saude da integracao (docs/PLANO-INTEGRACOES-E-VIGIA.md). Nunca derruba o script.
+sys.path.insert(0, str(Path(__file__).resolve().parent / "_lib"))
+try:
+    from integracoes import registrar_silencioso
+except ImportError:  # pragma: no cover - modulo ausente: a publicacao segue sem registrar
+    def registrar_silencioso(*_a, **_k):
+        print("[integracoes] AVISO: modulo de registro ausente; segui sem anotar o resultado.", file=sys.stderr)
+
+
+def _credencial_recusada(resp):
+    """True na recusa confirmada de credencial: HTTP 401 ou erro 190 da Graph API."""
+    if resp.status_code == 401:
+        return True
+    try:
+        err = resp.json().get("error", {})
+        return isinstance(err, dict) and err.get("code") == 190
+    except (ValueError, AttributeError):
+        return False
+
+
+def _registrar_falha(resp):
+    registrar_silencioso("instagram", "credencial_recusada" if _credencial_recusada(resp) else "erro")
+
 
 def read_token(token_file):
     p = Path(token_file).expanduser()
@@ -80,6 +103,7 @@ def publish_image(account, image_url, caption, token, wait=2):
         timeout=60,
     )
     if r1.status_code != 200:
+        _registrar_falha(r1)
         print(_graph_error(r1), file=sys.stderr)
         sys.exit(1)
     creation_id = r1.json().get("id")
@@ -95,9 +119,11 @@ def publish_image(account, image_url, caption, token, wait=2):
         timeout=60,
     )
     if r2.status_code != 200:
+        _registrar_falha(r2)
         print(_graph_error(r2), file=sys.stderr)
         sys.exit(1)
     media_id = r2.json().get("id")
+    registrar_silencioso("instagram", "ok")
     out = {"ok": True, "creationId": creation_id, "mediaId": media_id}
 
     # Tenta resolver a permalink (best-effort; nao falha se nao vier)
@@ -128,10 +154,12 @@ def reply_comment(comment_id, message, token):
             timeout=60,
         )
     except requests.RequestException as e:
+        registrar_silencioso("instagram", "incerto")
         print(f"RESULTADO INCERTO: a chamada falhou no meio ({type(e).__name__}); o Instagram pode ter "
               "publicado a resposta. Confira na conta antes de tentar de novo.", file=sys.stderr)
         sys.exit(4)
     if r.status_code >= 500:
+        registrar_silencioso("instagram", "incerto")
         print(f"RESULTADO INCERTO: o Instagram respondeu HTTP {r.status_code}; pode ter publicado a resposta. "
               "Confira na conta antes de tentar de novo.", file=sys.stderr)
         sys.exit(4)
@@ -142,8 +170,13 @@ def reply_comment(comment_id, message, token):
             confirmada = isinstance(r.json().get("error"), dict) and 400 <= r.status_code < 500
         except (ValueError, AttributeError):
             confirmada = False
+        if not confirmada:
+            registrar_silencioso("instagram", "incerto")
+        else:
+            _registrar_falha(r)
         print(_graph_error(r), file=sys.stderr)
         sys.exit(1 if confirmada else 4)
+    registrar_silencioso("instagram", "ok")
     try:
         corpo = r.json()
         reply_id = corpo.get("id") if isinstance(corpo, dict) else None
@@ -200,6 +233,7 @@ def main():
         except SystemExit:
             raise
         except Exception as e:  # noqa: BLE001 - depois de iniciar o POST, falha inesperada = resultado desconhecido
+            registrar_silencioso("instagram", "incerto")
             print(f"RESULTADO INCERTO: erro inesperado ({type(e).__name__}: {e}); o Instagram pode ter publicado "
                   "a resposta. Confira na conta antes de tentar de novo.", file=sys.stderr)
             sys.exit(4)

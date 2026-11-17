@@ -26,6 +26,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { criarEntrada } from './lib/entrada.mjs';
 import { criarEntregaRunner } from './lib/entrega-runner.mjs';
+import { criarAnotadorIntegracao } from './lib/integracao.mjs';
 import { criarEnvioArquivo } from './lib/envio-arquivo.mjs';
 import { criarLids } from './lib/lids.mjs';
 import { motivoNumeroInvalido, normalizar, numeroDeJid } from './lib/numeros.mjs';
@@ -287,9 +288,16 @@ export async function iniciar(opcoes = {}) {
     estaEncerrando: () => encerrando,
     pendentes,
   });
-  const { entregar } = criarEntregaRunner({
+  const { entregar: entregarAoRunner } = criarEntregaRunner({
     opcoes, env, runnerUrl, tokenFile, runnerJson, esperasEntrega, dormir, estaEncerrando: () => encerrando,
   });
+  // Mensagem entregue ao agente = o WhatsApp esta funcionando de ponta a ponta: anota no mapa de integracoes.
+  const { anotar: anotarIntegracao } = criarAnotadorIntegracao({ registrar, env, opcoes });
+  async function entregar(envelope) {
+    const r = await entregarAoRunner(envelope);
+    if (r && r.ok) anotarIntegracao('ok', 'uso');
+    return r;
+  }
   const { aoReceber } = criarEntrada({
     opcoes, registrar, agora, lids, aprenderLid, estaPermitido, entregar, gravarAtomico,
     arqUltimo, dirUploads, downloadMediaMessage, pendentes,
@@ -398,6 +406,7 @@ export async function iniciar(opcoes = {}) {
         if (codigo === LOGGED_OUT) {
           registrar('o WhatsApp encerrou este aparelho (401). Pareie de novo com "dgclaw-agente canal whatsapp parear <numero-secundario>".');
           definirEstado('deslogado', 'o WhatsApp encerrou o aparelho; é preciso parear de novo');
+          anotarIntegracao('desconectado', 'canal');
           finalizar(0);
           return 'parar';
         }

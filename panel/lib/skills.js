@@ -15,7 +15,8 @@ const path = require('path');
 
 /** Pastas onde procurar: a do agente e as extras de DGCLAW_PANEL_SKILLS_DIR (separadas por virgula). */
 function pastasDeSkills(agentDir, extras) {
-  const lista = [path.join(agentDir, '.claude', 'skills')];
+  // `.agents/skills` e onde o Codex procura as skills (paridade com o Claude).
+  const lista = [path.join(agentDir, '.claude', 'skills'), path.join(agentDir, '.agents', 'skills')];
   for (const e of String(extras || '').split(',')) {
     const p = e.trim();
     if (p && !lista.includes(p)) lista.push(p);
@@ -27,6 +28,18 @@ function tiraAspas(v) {
   const t = v.trim();
   if (t.length >= 2 && ((t[0] === '"' && t.endsWith('"')) || (t[0] === "'" && t.endsWith("'")))) return t.slice(1, -1);
   return t;
+}
+
+const ID_INTEGRACAO = /^[a-z0-9][a-z0-9-]{0,31}$/;
+
+/** `integracoes: instagram, openai` (uma linha, separada por virgula) vira a lista de ids validos. */
+function lerIntegracoes(valor) {
+  const ids = [];
+  for (const parte of String(valor || '').split(',')) {
+    const id = parte.trim();
+    if (ID_INTEGRACAO.test(id) && !ids.includes(id)) ids.push(id);
+  }
+  return ids;
 }
 
 /** Devolve { name, description } do frontmatter, ou null se o arquivo nao abre com `---`. */
@@ -79,6 +92,7 @@ function listar(agentDir, extras) {
         else {
           if (fm.name) item.nome = fm.name;
           item.descricao = fm.description || '';
+          item.integracoes = lerIntegracoes(fm.integracoes);
           if (!item.descricao) item.erro = `O cabeçalho de ${arquivo} não tem "description".`;
         }
       } catch (e) {
@@ -90,4 +104,4 @@ function listar(agentDir, extras) {
   return { skills, pastas: infoPastas };
 }
 
-module.exports = { listar, pastasDeSkills, lerFrontmatter };
+module.exports = { listar, pastasDeSkills, lerFrontmatter, lerIntegracoes };

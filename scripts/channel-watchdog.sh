@@ -43,6 +43,16 @@ NOW=$(date +%s)
 
 log() { echo "$(date '+%Y-%m-%dT%H:%M:%S%z') $*" >> "$LOGF" 2>/dev/null || echo "aviso: nao consegui gravar em $LOGF; mensagem perdida: $*" >&2; }
 
+# Anota a mudanca de estado do canal no mapa de integracoes (docs/PLANO-INTEGRACOES-E-VIGIA.md).
+# So se o comando existir; falha dele nunca quebra o watchdog.
+registrar_integracao() { # $1 = fora_do_ar | ok
+    local bin="$SELF_DIR/../bin/dgclaw-integracao"
+    [ -x "$bin" ] || bin="$(command -v dgclaw-integracao 2>/dev/null || true)"
+    [ -n "$bin" ] || return 0
+    DGCLAW_WORKSPACE="$WS" "$bin" registrar telegram "$1" --origem canal >>"$LOGF" 2>&1 \
+        || log "nao consegui anotar telegram $1 no mapa de integracoes (veja a linha acima); o watchdog segue"
+}
+
 notify() { # avisa o dono; tenta notify-owner.sh do DG Claw, senao Bot API inline
     local msg="$1"
     local NO="$WS/.dgclaw/plugin/scripts/notify-owner.sh"
@@ -114,6 +124,7 @@ if bash "$SELF_DIR/channel-health.sh" "$CONFIG" >/dev/null 2>&1; then
     if [ "${prev%% *}" = "dead" ]; then
         notify "🐕 Watchdog: o canal do Telegram VOLTOU ao normal. As mensagens estao chegando de novo."
         log "recovered"
+        registrar_integracao ok
     fi
     echo alive > "$STATEF"; exit 0
 fi
@@ -140,9 +151,13 @@ sleep "${DGCLAW_CHANNEL_WATCHDOG_ESPERA_S:-12}"
 if bash "$SELF_DIR/channel-health.sh" "$CONFIG" >/dev/null 2>&1; then
     notify "🔧 Watchdog: o canal do Telegram tinha caido (poller morto) — reiniciei automatico e voltou. Se voce mandou msg e nao respondeu, reenvia."
     log "auto_restart_ok"
+    [ "$FALHAS" -gt 0 ] && registrar_integracao ok
     echo alive > "$STATEF"
 else
     FALHAS=$(( FALHAS + 1 ))
+    # Anota a cada rodada que falha: a segunda observacao (2 min depois) confirma o defeito e
+    # pinta o Telegram de vermelho no mapa; uma so ficaria amarelo para sempre.
+    registrar_integracao fora_do_ar
     CAUSA="$(causa_confianca)"
     [ -n "$CAUSA" ] && log "auto_restart_failed: $CAUSA"
     # Avisa na primeira falha e depois so como lembrete, nunca a cada rodada.

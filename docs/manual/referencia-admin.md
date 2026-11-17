@@ -344,6 +344,9 @@ sem o cofre, as chaves de API, a conta de IA, a Tela, as credenciais de canal, o
 | `GET /api/diary` | O diário do agente | Sem documento próprio |
 | `GET /api/cerebro` | Raio-X da memória: os arquivos que o agente lê, reunidos numa tela | [CEREBRO.md](../../panel/docs/CEREBRO.md) |
 | `GET /api/radiografia` | O texto "Como o seu agente funciona por dentro" (a radiografia), lido da cópia instalada | [RADIOGRAFIA.md](../RADIOGRAFIA.md) |
+| `GET /api/integracoes` | O mapa de integrações do agente: estado de cada sistema ligado (WhatsApp, Instagram, transcrição e outros), lido do registro que o comando `dgclaw-integracao` mantém | [INTEGRACOES.md](../../panel/docs/INTEGRACOES.md) |
+| `POST /api/integracoes/:id/desligar` | Desliga uma integração no mapa (preferência do dono, não mexe no sistema em si) | [INTEGRACOES.md](../../panel/docs/INTEGRACOES.md) |
+| `POST /api/integracoes/:id/ligar` | Desfaz o desligar | [INTEGRACOES.md](../../panel/docs/INTEGRACOES.md) |
 | `GET /api/operacoes` | Operações do sistema, em quadradinhos | [OPERACOES.md](../../panel/docs/OPERACOES.md) |
 | `GET /api/operations/crons` | Lista as rotinas fixas | Sem documento próprio |
 | `GET /api/operations/logs` | Lê os logs do agente | Sem documento próprio |

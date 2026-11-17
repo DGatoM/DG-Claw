@@ -1,0 +1,258 @@
+#!/usr/bin/env python3
+"""Testes do scripts/_lib/integracoes.py: formatos, aparo, limites, poda, estado e concorrencia."""
+import datetime
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
+
+AQUI = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, AQUI)
+import integracoes as I  # noqa: E402
+
+T0 = datetime.datetime(2026, 11, 17, 12, 0, 0, tzinfo=datetime.timezone.utc)
+
+
+def em(seg):
+    return T0 + datetime.timedelta(seconds=seg)
+
+
+def ev(seg, iid, resultado, origem="uso"):
+    return {"em": I._fmt(em(seg)), "id": iid, "resultado": resultado, "origem": origem}
+
+
+class Base(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = os.path.join(self.tmp.name, "integracoes")
+        self._antigo = os.environ.get("DGCLAW_INTEGRACOES_DIR")
+        os.environ["DGCLAW_INTEGRACOES_DIR"] = self.dir
+
+    def tearDown(self):
+        if self._antigo is None:
+            os.environ.pop("DGCLAW_INTEGRACOES_DIR", None)
+        else:
+            os.environ["DGCLAW_INTEGRACOES_DIR"] = self._antigo
+        self.tmp.cleanup()
+
+    def linhas(self):
+        with open(os.path.join(self.dir, "eventos.jsonl")) as f:
+            return [json.loads(x) for x in f if x.strip()]
+
+    def estado(self):
+        with open(os.path.join(self.dir, "estado.json")) as f:
+            return json.load(f)
+
+    def estado_de(self, iid):
+        return next(x for x in self.estado()["integracoes"] if x["id"] == iid)
+
+
+class TestEntradas(Base):
+    def test_formatos_de_id_recusados(self):
+        for ruim in ["", "A", "-a", "a b", "a/b", "a" * 33, "ação", "../x", None]:
+            with self.assertRaises(I.ErroUso, msg=repr(ruim)):
+                I.registrar(ruim, "ok", agora=T0)
+        self.assertFalse(os.path.exists(self.dir))
+
+    def test_ids_validos(self):
+        for bom in ["a", "0", "nota-fiscal", "a" * 32]:
+            I.registrar(bom, "erro", agora=T0)
+
+    def test_lista_fechada_de_resultados_e_origens(self):
+        with self.assertRaises(I.ErroUso):
+            I.registrar("instagram", "talvez", agora=T0)
+        with self.assertRaises(I.ErroUso):
+            I.registrar("instagram", "ok", origem="manual", agora=T0)
+        for r in I.RESULTADOS:
+            I.registrar("x", r, agora=T0)
+
+    def test_nunca_grava_texto_livre(self):
+        I.registrar("instagram", "erro", agora=T0)
+        self.assertEqual(set(self.linhas()[0]), {"em", "id", "resultado", "origem"})
+
+
+class TestGravacao(Base):
+    def test_aparo_de_ok_em_60_minutos(self):
+        self.assertEqual(I.registrar("groq", "ok", agora=em(0)), "gravado")
+        self.assertEqual(I.registrar("groq", "ok", agora=em(30 * 60)), "aparado")
+        self.assertEqual(len(self.linhas()), 1)
+        self.assertEqual(I.registrar("groq", "ok", agora=em(61 * 60)), "gravado")
+        self.assertEqual(len(self.linhas()), 2)
+
+    def test_aparo_e_por_integracao(self):
+        I.registrar("groq", "ok", agora=em(0))
+        self.assertEqual(I.registrar("openai", "ok", agora=em(10)), "gravado")
+
+    def test_falha_sempre_grava(self):
+        I.registrar("groq", "ok", agora=em(0))
+        for i in range(1, 4):
+            self.assertEqual(I.registrar("groq", "rede", agora=em(i)), "gravado")
+        self.assertEqual(len(self.linhas()), 4)
+
+    def test_limite_de_50_ids(self):
+        for i in range(50):
+            I.registrar(f"i{i}", "ok", agora=em(i))
+        with self.assertRaises(I.ErroGravacao) as c:
+            I.registrar("i50", "ok", agora=em(100))
+        self.assertIn("50", str(c.exception))
+        I.registrar("i3", "erro", agora=em(101))  # id que ja existe continua valendo
+
+    def test_poda_30_dias_e_5000_linhas(self):
+        os.makedirs(self.dir)
+        antigo = ev(-31 * 86400, "velho", "erro")
+        recentes = [ev(-3600 + i % 3000, "volume", "erro") for i in range(5100)]
+        with open(os.path.join(self.dir, "eventos.jsonl"), "w") as f:
+            for e in [antigo] + recentes:
+                f.write(json.dumps(e) + "\n")
+        I.registrar("novo", "erro", agora=T0)
+        linhas = self.linhas()
+        self.assertEqual(len(linhas), 5000)
+        self.assertNotIn("velho", {e["id"] for e in linhas})
+        self.assertEqual(linhas[-1]["id"], "novo")
+
+    def test_arquivos_e_modos(self):
+        I.registrar("groq", "ok", agora=T0)
+        self.assertEqual(os.stat(self.dir).st_mode & 0o777, 0o755)
+        for nome in ("eventos.jsonl", "estado.json"):
+            self.assertEqual(os.stat(os.path.join(self.dir, nome)).st_mode & 0o777, 0o644, nome)
+        self.assertEqual(sorted(os.listdir(self.dir)), [".trava", "estado.json", "eventos.jsonl"])
+
+    def test_gravacao_atomica_nao_deixa_temporario(self):
+        for i in range(5):
+            I.registrar("groq", "erro", agora=em(i))
+        self.assertFalse([n for n in os.listdir(self.dir) if n.startswith(".tmp-")])
+        self.assertEqual(self.estado()["versao"], 1)
+
+    def test_linha_estragada_e_ignorada(self):
+        os.makedirs(self.dir)
+        with open(os.path.join(self.dir, "eventos.jsonl"), "w") as f:
+            f.write("isto nao e json\n" + json.dumps(ev(-10, "groq", "ok")) + "\n" + '{"id":"x"}\n')
+        I.registrar("groq", "erro", agora=T0)
+        self.assertEqual(len(self.linhas()), 2)
+
+    def test_erro_de_gravacao_explica(self):
+        arq = os.path.join(self.tmp.name, "arquivo")
+        open(arq, "w").close()
+        os.environ["DGCLAW_INTEGRACOES_DIR"] = os.path.join(arq, "sub")
+        with self.assertRaises(I.ErroGravacao) as c:
+            I.registrar("groq", "ok", agora=T0)
+        self.assertIn("groq", str(c.exception))
+        self.assertIn("Confira", str(c.exception))
+
+    def test_registrar_silencioso_nao_derruba(self):
+        arq = os.path.join(self.tmp.name, "arquivo")
+        open(arq, "w").close()
+        os.environ["DGCLAW_INTEGRACOES_DIR"] = os.path.join(arq, "sub")
+        antigo, sys.stderr = sys.stderr, open(os.devnull, "w")
+        try:
+            I.registrar_silencioso("groq", "ok")
+            I.registrar_silencioso("ID RUIM", "ok")
+        finally:
+            sys.stderr.close()
+            sys.stderr = antigo
+
+    def test_concorrencia_dois_processos_sem_perder_linha(self):
+        codigo = (
+            "import sys; sys.path.insert(0, sys.argv[1]); import integracoes as I\n"
+            "for i in range(40): I.registrar(sys.argv[2], 'erro')\n"
+        )
+        env = dict(os.environ)
+        ps = [subprocess.Popen([sys.executable, "-I", "-c", codigo, AQUI, nome], env=env) for nome in ("aa", "bb", "cc")]
+        for p in ps:
+            self.assertEqual(p.wait(), 0)
+        linhas = self.linhas()
+        self.assertEqual(len(linhas), 120)
+        for nome in ("aa", "bb", "cc"):
+            self.assertEqual(sum(1 for e in linhas if e["id"] == nome), 40)
+
+
+class TestEstado(unittest.TestCase):
+    def calc(self, eventos, seg=0):
+        return {x["id"]: x for x in I.calcular_estado(eventos, em(seg))}
+
+    def test_verde_com_ok(self):
+        e = self.calc([ev(0, "a", "ok")])["a"]
+        self.assertEqual(e["estado"], "verde")
+        self.assertEqual(e["ultimoOk"], I._fmt(em(0)))
+        self.assertIsNone(e["ultimaFalha"])
+
+    def test_amarelo_para_ultimo_leve(self):
+        for r in ("rede", "limite", "incerto", "vencendo", "erro"):
+            self.assertEqual(self.calc([ev(0, "a", "ok"), ev(10, "a", r)], 20)["a"]["estado"], "amarelo", r)
+
+    def test_amarelo_para_falha_grave_unica(self):
+        for r in ("credencial_recusada", "sem_saldo", "fora_do_ar"):
+            self.assertEqual(self.calc([ev(0, "a", "ok"), ev(10, "a", r)], 20)["a"]["estado"], "amarelo", r)
+
+    def test_vermelho_com_duas_observacoes_a_120s(self):
+        e = self.calc([ev(0, "a", "credencial_recusada"), ev(120, "a", "sem_saldo")], 130)["a"]
+        self.assertEqual(e["estado"], "vermelho")
+
+    def test_nao_vermelho_com_duas_a_30s(self):
+        e = self.calc([ev(0, "a", "fora_do_ar"), ev(30, "a", "fora_do_ar")], 40)["a"]
+        self.assertEqual(e["estado"], "amarelo")
+
+    def test_desconectado_e_vermelho_direto(self):
+        self.assertEqual(self.calc([ev(0, "a", "desconectado", "canal")], 5)["a"]["estado"], "vermelho")
+
+    def test_ok_depois_volta_a_verde(self):
+        ev_ = [ev(0, "a", "credencial_recusada"), ev(200, "a", "credencial_recusada"), ev(300, "a", "ok")]
+        self.assertEqual(self.calc(ev_, 310)["a"]["estado"], "verde")
+        ev_ = [ev(0, "a", "desconectado"), ev(300, "a", "ok")]
+        self.assertEqual(self.calc(ev_, 310)["a"]["estado"], "verde")
+
+    def test_falha_antes_do_ok_nao_conta(self):
+        ev_ = [ev(0, "a", "fora_do_ar"), ev(10, "a", "ok"), ev(300, "a", "fora_do_ar")]
+        self.assertEqual(self.calc(ev_, 310)["a"]["estado"], "amarelo")
+
+    def test_vermelho_persiste_com_evento_leve_depois(self):
+        ev_ = [ev(0, "a", "sem_saldo"), ev(200, "a", "sem_saldo"), ev(300, "a", "rede")]
+        self.assertEqual(self.calc(ev_, 310)["a"]["estado"], "vermelho")
+
+    def test_sem_uso_recente_apos_7_dias(self):
+        e = self.calc([ev(0, "a", "ok")], 7 * 86400 + 1)["a"]
+        self.assertEqual(e["estado"], "sem_uso_recente")
+        self.assertEqual(self.calc([ev(0, "a", "ok")], 7 * 86400 - 1)["a"]["estado"], "verde")
+
+    def test_sai_do_estado_apos_30_dias(self):
+        self.assertNotIn("a", self.calc([ev(0, "a", "ok")], 30 * 86400 + 1))
+        self.assertIn("a", self.calc([ev(0, "a", "ok")], 30 * 86400 - 1))
+
+    def test_campos_de_falha_e_tentativa(self):
+        e = self.calc([ev(0, "a", "ok"), ev(10, "a", "limite", "canal"), ev(20, "a", "ok")], 30)["a"]
+        self.assertEqual(e["ultimaFalha"], I._fmt(em(10)))
+        self.assertEqual(e["ultimaFalhaResultado"], "limite")
+        self.assertEqual(e["ultimaTentativaReal"], I._fmt(em(20)))
+        self.assertEqual(e["ultimoResultado"], "ok")
+
+    def test_integracoes_independentes(self):
+        r = self.calc([ev(0, "a", "ok"), ev(5, "b", "desconectado")], 10)
+        self.assertEqual((r["a"]["estado"], r["b"]["estado"]), ("verde", "vermelho"))
+
+
+class TestCli(Base):
+    def rodar(self, *args):
+        return subprocess.run([os.path.join(AQUI, "..", "..", "bin", "dgclaw-integracao"), *args],
+                              capture_output=True, text=True, env=dict(os.environ))
+
+    def test_registrar_e_estado(self):
+        self.assertEqual(self.rodar("registrar", "instagram", "ok").returncode, 0)
+        r = self.rodar("estado")
+        self.assertEqual(r.returncode, 0)
+        self.assertEqual(json.loads(r.stdout)["integracoes"][0]["id"], "instagram")
+
+    def test_uso_errado_sai_2_em_portugues(self):
+        for args in [(), ("registrar",), ("registrar", "a"), ("registrar", "a", "xpto"), ("registrar", "A", "ok"),
+                     ("registrar", "a", "ok", "--origem"), ("voar",)]:
+            r = self.rodar(*args)
+            self.assertEqual(r.returncode, 2, args)
+            self.assertTrue(r.stderr.strip(), args)
+
+    def test_estado_sem_arquivo(self):
+        self.assertEqual(json.loads(self.rodar("estado").stdout)["integracoes"], [])
+
+
+if __name__ == "__main__":
+    unittest.main()
