@@ -224,22 +224,26 @@ ok(fs.readdirSync(path.join(WS, '.dgclaw', 'socorro')).some((f) => f.endsWith('.
   ok(cj.projects?.[WS]?.hasTrustDialogAccepted === true, 'socorro: a casa do agente (--add-dir) fica marcada como confiável');
   ok(cj.projects?.[path.join(WS, '.dgclaw', 'socorro', 'sala')]?.hasTrustDialogAccepted === true, 'socorro: a sala (cwd) fica marcada como confiável');
   const { confiarNasPastas } = require('./lib/socorro');
+  const LIBDIR = path.resolve('..', 'scripts', '_lib');
   const arq = path.join(RAIZ, 'trust-unit', '.claude.json');
   fs.mkdirSync(path.dirname(arq), { recursive: true });
   fs.writeFileSync(arq, JSON.stringify({ numStartups: 4, projects: { '/ja': { hasTrustDialogAccepted: true, x: 1 }, '/c': { allowed: [1] } } }), { mode: 0o640 });
   fs.chmodSync(arq, 0o640);
-  const m1 = confiarNasPastas(arq, ['/c', '/a', '/ja']);
+  ok(confiarNasPastas(LIBDIR, arq, ['/c', '/a', '/ja']) === null, 'confiança: o helper roda e não devolve motivo');
   const o = JSON.parse(fs.readFileSync(arq, 'utf8'));
-  ok(m1.join() === '/c,/a', 'confiança: devolve só as pastas que passaram a ser confiáveis');
-  ok(o.numStartups === 4 && o.projects['/ja'].x === 1 && o.projects['/c'].allowed[0] === 1 && o.projects['/a'].hasTrustDialogAccepted === true, 'confiança: preserva chave alheia e o que já existia');
+  ok(o.numStartups === 4 && o.projects['/ja'].x === 1 && o.projects['/c'].allowed[0] === 1 && o.projects['/a'].hasTrustDialogAccepted === true && o.projects['/c'].hasTrustDialogAccepted === true, 'confiança: preserva chave alheia e o que já existia');
   ok((fs.statSync(arq).mode & 0o777) === 0o640, 'confiança: preserva o modo do arquivo');
-  const bytes = fs.readFileSync(arq);
-  ok(confiarNasPastas(arq, ['/c', '/a']).length === 0 && fs.readFileSync(arq).equals(bytes), 'confiança: nada mudou, não regrava');
-  ok(fs.readdirSync(path.dirname(arq)).join() === '.claude.json', 'confiança: nenhum temporário sobra');
-  fs.writeFileSync(arq, '{quebrado');
-  let lancou = false;
-  try { confiarNasPastas(arq, ['/c']); } catch { lancou = true; }
-  ok(lancou && fs.readFileSync(arq, 'utf8') === '{quebrado', 'confiança: JSON inválido lança e NÃO é apagado nem reescrito');
+  ok(fs.readdirSync(path.dirname(arq)).join() === '.claude.json', 'confiança: nenhum temporário nem trava sobra');
+  fs.writeFileSync(arq, '{"mcpServers":{"x":{"env":{"TOKEN": SEGREDO_FICTICIO_123456}}}}');
+  const motivo = confiarNasPastas(LIBDIR, arq, ['/c']);
+  ok(motivo && !/SEGREDO/.test(motivo) && /NAO foi alterado/.test(motivo), 'confiança: JSON inválido devolve motivo sem trecho do arquivo');
+  ok(fs.readFileSync(arq, 'utf8').includes('SEGREDO_FICTICIO_123456'), 'confiança: JSON inválido NÃO é apagado nem reescrito');
+  fs.mkdirSync(`${arq}.dgclaw-trava`);
+  fs.writeFileSync(arq, '{}');
+  const t0 = Date.now();
+  const ocupada = confiarNasPastas(LIBDIR, arq, ['/c']);
+  ok(ocupada && /ocupada/.test(ocupada) && Date.now() - t0 >= 2500 && fs.readFileSync(arq, 'utf8') === '{}', 'confiança: com a trava de outro escritor, espera e não grava');
+  fs.rmdirSync(`${arq}.dgclaw-trava`);
 }
 
 r = await chamar('POST', '/api/socorro/mensagem', { body: { texto: 'sim, pode' } });

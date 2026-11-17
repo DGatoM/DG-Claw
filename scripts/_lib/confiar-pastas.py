@@ -22,6 +22,30 @@ import json
 import os
 import sys
 import tempfile
+import time
+
+TRAVA_VELHA_S = 30
+
+
+def pegar_trava(arquivo):
+    """Mesma trava do runner (comTravaDeArquivo): a pasta <arquivo>.dgclaw-trava, criada pelo mkdir de forma
+    atomica. Ler, alterar e gravar acontecem dentro dela, para um escritor do DG Claw nao apagar o que o outro
+    acabou de gravar. Trava com mais de 30 s e de processo morto e e retirada. Devolve o caminho ou None."""
+    trava = arquivo + ".dgclaw-trava"
+    os.makedirs(os.path.dirname(os.path.abspath(arquivo)), exist_ok=True)
+    for _ in range(61):
+        try:
+            os.mkdir(trava)
+            return trava
+        except FileExistsError:
+            try:
+                if time.time() - os.stat(trava).st_mtime > TRAVA_VELHA_S:
+                    os.rmdir(trava)
+                    continue
+            except OSError:
+                pass  # a trava sumiu entre o mkdir e o stat: tenta de novo
+            time.sleep(0.05)
+    return None
 
 
 def main(argv):
@@ -38,6 +62,27 @@ def main(argv):
         sys.stderr.write("confiar-pastas: nenhuma pasta informada, nada a marcar\n")
         return 64
 
+    try:
+        trava = pegar_trava(arquivo)
+    except OSError as e:
+        sys.stderr.write("confiar-pastas: nao consegui criar a trava ao lado de %s (%s). Confira a permissao da pasta.\n" % (arquivo, e))
+        return 3
+    if trava is None:
+        sys.stderr.write(
+            "confiar-pastas: a trava %s.dgclaw-trava ficou ocupada por mais de 3 s (outro escritor do DG Claw). "
+            "Nada foi alterado; rode de novo em instantes.\n" % arquivo
+        )
+        return 3
+    try:
+        return marcar(arquivo, pastas, onboarding)
+    finally:
+        try:
+            os.rmdir(trava)
+        except OSError:
+            pass  # ja retirada como velha por outro processo
+
+
+def marcar(arquivo, pastas, onboarding):
     dados = {}
     existe = os.path.exists(arquivo)
     if existe:
