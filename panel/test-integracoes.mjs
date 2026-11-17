@@ -113,6 +113,10 @@ try {
   ok(p.status === 400 && /howToFix|Use de 1/.test(JSON.stringify(await p.json())), 'id fora do formato no POST: 400 com orientação');
   const cross = await fetch(`${URL_}/api/integracoes/instagram/desligar`, { method: 'POST', headers: { cookie, 'sec-fetch-site': 'cross-site' } });
   ok(cross.status === 403, `POST vindo de outro site é recusado pela proteção de escrita (veio ${cross.status})`);
+  // o logo do centro do palco: o painel solto serve o logo padrão do DG Claw em /marca/logo
+  const logo = await fetch(`${URL_}/marca/logo`);
+  const corpoLogo = await logo.text();
+  ok(logo.status === 200 && /svg/.test(logo.headers.get('content-type') || '') && corpoLogo.includes('<svg'), `/marca/logo serve o logo padrão em SVG (veio ${logo.status})`);
 } finally {
   filho.kill();
   fs.rmSync(RAIZ, { recursive: true, force: true });

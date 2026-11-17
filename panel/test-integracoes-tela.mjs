@@ -74,6 +74,78 @@ ok(puro.visiveis([{ estado: 'amarelo' }, { estado: 'sem_uso_recente' }], true).l
 ok(puro.visiveis(dois, false).length === 3, 'estado real mostra tudo');
 ok(puro.quando('2026-11-17T12:00:00Z').length > 8 && puro.quando('lixo') === '' && puro.quando(null) === '', 'data legível; inválida vira vazio');
 
+console.log('\nO centro: foto do agente ou logo');
+// DOM de mentira, só o que a tela usa. Serve para ler o que ela desenha, sem navegador.
+class No {
+  constructor(tag) { this.tagName = tag; this.attrs = {}; this.filhos = []; this.pai = null; this.ouvintes = {}; this.style = {}; this.hidden = false; this.clientWidth = 900; this._texto = ''; }
+  setAttribute(k, v) { this.attrs[k] = String(v); }
+  getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; }
+  appendChild(f) { f.pai = this; this.filhos.push(f); return f; }
+  remove() { if (this.pai) this.pai.filhos = this.pai.filhos.filter((x) => x !== this); this.pai = null; }
+  addEventListener(ev, fn) { (this.ouvintes[ev] = this.ouvintes[ev] || []).push(fn); }
+  dispara(ev) { (this.ouvintes[ev] || []).forEach((fn) => fn({ stopPropagation() {}, key: '' })); }
+  set textContent(v) { this.filhos = []; this._texto = String(v); }
+  get textContent() { return this._texto + this.filhos.map((f) => f.textContent).join(''); }
+  getClientRects() { return [1]; }
+  querySelector() { return null; }
+  get isConnected() { return true; }
+  get ownerSVGElement() { return this; }
+  busca(fn, saida = []) { for (const f of this.filhos) { if (fn(f)) saida.push(f); f.busca(fn, saida); } return saida; }
+}
+function montaTela(foto) {
+  const ids = {};
+  for (const id of ['int-mapa', 'int-mapa-caixa', 'int-resumo-texto', 'int-aviso', 'int-cartao', 'int-resumo', 'int-alternar', 'panel-integracoes']) ids[id] = new No('div');
+  const doc = { hidden: false, createElementNS: (ns, tag) => new No(tag), createElement: (tag) => new No(tag),
+    createTextNode: (x) => { const n = new No('#text'); n._texto = x; return n; },
+    getElementById: (id) => ids[id] || null, querySelectorAll: () => [], addEventListener() {} };
+  const dados = { ok: true, medido: true, agente: { nome: 'Ana', slug: 'ana' }, integracoes: [
+    { id: 'whatsapp', nome: 'WhatsApp', icone: 'message', estado: 'verde', palavra: 'Funcionando', skills: [] },
+    { id: 'instagram', nome: 'Instagram', icone: 'camera', estado: 'vermelho', palavra: 'Com defeito', skills: [] },
+    { id: 'telegram', nome: 'Telegram', icone: 'send', estado: 'sem_uso_recente', palavra: 'Sem uso recente', skills: [] }] };
+  const win = { matchMedia: () => ({ matches: false }), requestAnimationFrame: () => 0, cancelAnimationFrame() {},
+    setInterval: () => 0, addEventListener() {}, API: { pedir: async () => ({ ok: true, status: 200, corpo: dados }) } };
+  new Function('window', 'document', 'performance', fonte)(win, doc, { now: () => 0 });
+  return { ids, tela: win.DGIntegracoes, dados };
+}
+const imagens = (raiz) => raiz.busca((n) => n.tagName === 'image');
+{
+  const { ids, tela } = montaTela();
+  await tela.carregar({ foto: '/assets/sprites/avatar.jpg' });
+  const [logo, foto] = imagens(ids['int-mapa']);
+  ok(foto && foto.getAttribute('href') === '/assets/sprites/avatar.jpg', 'com avatar, a foto do agente é desenhada no centro');
+  ok(logo && logo.getAttribute('href') === '/marca/logo' && logo.getAttribute('visibility') === 'hidden', 'com avatar, o logo fica escondido por baixo');
+  foto.dispara('error');
+  ok(imagens(ids['int-mapa']).length === 1 && logo.getAttribute('visibility') === 'visible', 'se a foto falhar ao carregar, entra o logo');
+  ok(/^\d+\.?\d*$/.test(ids['int-mapa-caixa'].style.height.replace('px', '')) , 'o palco recebe uma altura em px');
+}
+{
+  const { ids, tela } = montaTela();
+  await tela.carregar({ foto: '' });
+  const imgs = imagens(ids['int-mapa']);
+  ok(imgs.length === 1 && imgs[0].getAttribute('href') === '/marca/logo' && imgs[0].getAttribute('visibility') === null, 'sem avatar, o logo do DG Claw aparece no centro');
+  imgs[0].dispara('error');
+  ok(imagens(ids['int-mapa']).length === 0, 'se nem o logo carregar, sai a imagem e sobra a inicial do nome');
+}
+{
+  const { ids, tela } = montaTela();
+  await tela.carregar({ foto: 'https://exemplo.com/x.png' });
+  ok(imagens(ids['int-mapa']).length === 1, 'endereço de fora (não começa com uma barra) nunca vira foto');
+}
+{
+  const { ids, tela, dados } = montaTela();
+  await tela.carregar({ foto: '' });
+  const placas = ids['int-mapa'].busca((n) => n.tagName === 'g' && n.getAttribute('role') === 'button');
+  ok(placas.length === 3, 'uma placa por integração');
+  ok(placas.every((p) => /: (Funcionando|Com defeito|Sem uso recente)$/.test(p.getAttribute('aria-label'))), 'cada placa diz o estado por escrito');
+  ok(ids['int-mapa'].textContent.includes('Funcionando') && ids['int-mapa'].textContent.includes('Desligado'), 'a legenda lista os estados');
+  dados.medido = false; dados.motivo = 'sem leitura';
+  await tela.carregar();
+  ok(ids['int-resumo-texto'].textContent === 'Não foi possível medir as integrações agora.' && imagens(ids['int-mapa']).length === 0, 'medido:false mostra "não foi possível medir" e nenhum mapa');
+  dados.medido = true; dados.integracoes = [];
+  await tela.carregar();
+  ok(/^Ainda não usou nenhum sistema externo/.test(ids['int-resumo-texto'].textContent) && ids['int-mapa-caixa'].hidden === true, 'lista vazia mostra o convite e esconde o palco');
+}
+
 console.log('\nSegurança do arquivo');
 ok(!/innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval\(/.test(fonte), 'nenhum innerHTML, outerHTML, insertAdjacentHTML, write ou eval');
 ok(!/—|–/.test(fonte), 'sem travessão no arquivo');
@@ -82,6 +154,8 @@ ok(html.includes('data-tab="integracoes"') && html.includes('id="panel-integraco
 const css = fs.readFileSync(path.join(AQUI, 'public/css/integracoes.css'), 'utf-8');
 ok(!/#[0-9a-fA-F]{3,8}\b/.test(css), 'o CSS não tem cor escrita à mão (só tokens)');
 ok(/prefers-reduced-motion|reduzMovimento/.test(fonte), 'o pulso respeita "reduzir movimento"');
+ok(/box-shadow|gradient\(/.test(css.replace(/\/\*[\s\S]*?\*\//g, '').replace('radial-gradient(circle, var(--login-pontos)', '')) === false, 'o CSS não tem sombra nem gradiente (só a textura de pontinhos do login)');
+ok(/--login-fundo/.test(css) && /--login-pontos/.test(css), 'o palco usa o fundo e os pontinhos da tela de login');
 ok(/document\.hidden/.test(fonte), 'o pulso pausa com a aba do navegador escondida');
 
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTUDO CERTO');

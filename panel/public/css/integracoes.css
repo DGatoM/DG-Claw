@@ -1,10 +1,12 @@
-/* integracoes.css: a aba Integrações (mapa em constelação, lista do celular e cartão do nó).
+/* integracoes.css: a aba Integrações (o palco sóbrio, as placas e o cartão de detalhe).
  *
  * SÓ TOKENS --cor-* do design system: o tema claro e o escuro trocam sozinhos. A cor de cada
  * estado vem da classe .int-e-<estado>, que o integracoes.js escolhe por uma tabela do código.
  * Verde = sucesso, amarelo = aviso, vermelho = perigo; desligado e sem uso recente usam o neutro.
  *
- * NO CELULAR (até 600px) o SVG some e os nós viram uma lista; nada rola para o lado.
+ * Direção visual: fundo cinza azulado com a textura de pontinhos da tela de login, sem card em
+ * volta, placas chapadas (sem gradiente e sem glow). A forma de cada estado é desenhada pelo JS.
+ * NO CELULAR (até 600px) as placas ficam em duas colunas dentro do mesmo palco; nada rola para o lado.
  */
 
 #panel-integracoes { padding-bottom: 40px; }
@@ -12,13 +14,14 @@
 .int-e-verde { --int-cor: var(--cor-sucesso); }
 .int-e-amarelo { --int-cor: var(--cor-aviso); }
 .int-e-vermelho { --int-cor: var(--cor-perigo); }
-.int-e-desligado, .int-e-sem-uso { --int-cor: var(--cor-texto-2); }
+.int-e-desligado { --int-cor: var(--cor-texto-2); }
+.int-e-sem-uso { --int-cor: var(--cor-link); }
 
 /* ─── topo ──────────────────────────────────────────────────────────────── */
 .int-topo { display: flex; align-items: stretch; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-bottom: 16px; }
 .int-resumo { flex: 1; min-width: min(100%, 320px); display: flex; align-items: center; gap: 12px;
   background: var(--cor-superficie); border: 1px solid var(--cor-borda); border-radius: var(--raio);
-  padding: 14px 16px; box-shadow: var(--sombra); }
+  padding: 14px 16px; }
 .int-resumo-texto { flex: 1; min-width: 0; font-size: 17px; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; color: var(--cor-texto); }
 .int-alternar { align-self: center; }
 .int-alternar button { min-height: var(--alvo-toque, 32px); }
@@ -28,81 +31,80 @@
 .int-aviso-erro { background: var(--cor-perigo-fundo); border-color: var(--cor-perigo-borda); color: var(--cor-texto); }
 .int-aviso-info { background: var(--cor-info-fundo); border-color: var(--cor-info-borda); color: var(--cor-texto); }
 
-/* ─── mapa e cartão ─────────────────────────────────────────────────────── */
-.int-corpo { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
-.int-corpo:has(.int-cartao:not([hidden])) { grid-template-columns: minmax(0, 1fr) minmax(260px, 340px); }
-.int-mapa-caixa { min-width: 0; }
-.int-vazio { color: var(--cor-texto-2); font-size: 14px; margin: 8px 0; }
+/* ─── palco ─────────────────────────────────────────────────────────────── */
+.int-palco { position: relative; overflow: hidden; width: 100%; min-height: 120px; user-select: none;
+  background-color: var(--login-fundo); background-image: radial-gradient(circle, var(--login-pontos) 1px, transparent 1.4px);
+  background-size: 22px 22px; }
+.int-palco[hidden] { display: none; }
+.int-mapa { position: absolute; inset: 0; }
+.int-vazio { color: var(--cor-texto-2); font-size: 14px; margin: 0; padding: 20px; }
+.int-svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 
-.int-svg { display: block; width: 100%; max-width: 980px; margin: 0 auto; height: auto; max-height: 82vh; }
-.int-linha { stroke: var(--int-cor); stroke-width: 1.5; stroke-linecap: round; fill: none; }
-.int-linha.int-e-desligado { stroke-dasharray: 5 6; opacity: .75; }
-.int-linha.int-e-sem-uso { opacity: .6; }
+/* A cor de cada elemento vem de --int-cor (classe int-e-<estado>); o "furo" é a cor do fundo. */
+.int-gf { fill: var(--int-cor); }
+.int-gs { stroke: var(--int-cor); }
+.int-ff { fill: var(--cor-fundo); }
+.int-fs { stroke: var(--cor-fundo); }
+.int-nf { fill: none; }
+
+.int-linha { stroke: var(--int-cor); stroke-width: 1.3; fill: none; opacity: .75; }
+.int-linha-apagada { stroke: var(--cor-texto-2); opacity: .45; }
+.int-marca { stroke: var(--int-cor); stroke-width: 2; fill: none; }
 .int-pulso { fill: var(--int-cor); pointer-events: none; }
 
 .int-no { cursor: pointer; outline: none; }
-.int-no-circulo { fill: var(--cor-superficie); stroke: var(--int-cor); stroke-width: 1.5; }
-.int-no-icone { color: var(--int-cor); pointer-events: none; }
-.int-no:hover .int-no-circulo, .int-no.int-sel .int-no-circulo { stroke-width: 3; }
-.int-no:focus-visible .int-no-circulo { stroke: var(--cor-foco); stroke-width: 3; }
-.int-rotulo { fill: var(--cor-texto); font-size: 13px; font-weight: 600; pointer-events: none; }
-.int-palavra { fill: var(--cor-texto-2); font-size: 11px; pointer-events: none; }
-/* Halo na cor do fundo do cartão: segurança caso uma linha ou um ponto chegue perto do texto. */
-.int-rotulo, .int-palavra, .int-centro-nome { paint-order: stroke; stroke: var(--painel); stroke-width: 5px; stroke-linejoin: round; }
-.int-no.int-e-desligado .int-no-circulo, .int-no.int-e-sem-uso .int-no-circulo { opacity: .8; }
+.int-placa { fill: var(--cor-superficie); stroke: var(--cor-borda); stroke-width: 1; }
+.int-placa-vermelha { stroke: var(--int-cor); stroke-width: 2; }
+.int-placa-desligada { stroke-dasharray: 4 3; }
+.int-faixa { fill: var(--int-cor); }
+.int-no:hover .int-placa, .int-no.int-sel .int-placa { stroke: var(--int-cor); stroke-width: 2; }
+.int-foco { opacity: 0; fill: none; stroke: var(--cor-foco); stroke-width: 2; }
+.int-no:focus-visible .int-foco { opacity: 1; }
+.int-no-icone { color: var(--cor-texto); pointer-events: none; }
+.int-no.int-e-desligado .int-no-icone, .int-no.int-e-sem-uso .int-no-icone { color: var(--cor-texto-2); }
+.int-rotulo { fill: var(--cor-texto); font-weight: 600; pointer-events: none; }
+.int-palavra { fill: var(--int-cor); font-weight: 600; pointer-events: none; }
+.int-no.int-e-desligado .int-rotulo, .int-no.int-e-sem-uso .int-rotulo { fill: var(--cor-texto-2); }
 
-.int-centro-aro { fill: none; stroke: var(--cor-acento); stroke-width: 1.5; }
-.int-centro-fundo { fill: var(--cor-acento); }
-.int-centro-letra { fill: var(--cor-sobre-acento); font-size: 34px; font-weight: 700; }
-.int-centro-nome { fill: var(--cor-texto); font-size: 15px; font-weight: 600; }
+/* o centro: foto chapada com borda fina */
+.int-centro-fundo { fill: var(--cor-superficie); }
+.int-centro-aro { fill: none; stroke: var(--cor-acento); stroke-width: 2; }
+.int-centro-letra { fill: var(--cor-texto); font-size: 34px; font-weight: 700; }
+.int-centro-nome { fill: var(--cor-texto); font-size: 17px; font-weight: 600; }
+.int-centro-sub { fill: var(--cor-texto-2); font-size: 11.5px; }
+/* halo na cor do fundo: nenhuma linha atravessa o nome */
+.int-centro-nome, .int-centro-sub { paint-order: stroke; stroke: var(--login-fundo); stroke-width: 4px; stroke-linejoin: round; }
 
-/* ─── lista do celular (escondida no computador) ────────────────────────── */
-.int-agente { display: none; }
-.int-agente-foto, .int-agente-letra { width: 64px; height: 64px; border-radius: 50%; }
-.int-agente-foto { object-fit: cover; position: relative; z-index: 1; }
-.int-agente-letra { grid-area: 1 / 1; display: grid; place-items: center; background: var(--cor-acento);
-  color: var(--cor-sobre-acento); font-size: 28px; font-weight: 700; }
-.int-agente-foto { grid-area: 1 / 1; }
-.int-agente-nome { grid-column: 1; text-align: center; font-size: 15px; font-weight: 600; margin-top: 6px; overflow-wrap: anywhere; }
-.int-lista { display: none; list-style: none; margin: 0; padding: 0; }
-.int-item { all: unset; box-sizing: border-box; width: 100%; min-height: 44px; display: flex; align-items: center; gap: 10px;
-  padding: 8px 4px; cursor: pointer; border-bottom: 1px solid var(--cor-borda); }
-.int-lista li:last-child .int-item { border-bottom: 0; }
-.int-item:focus-visible { outline: 2px solid var(--cor-foco); outline-offset: -2px; border-radius: 8px; }
-.int-item.int-sel { background: var(--cor-fundo); border-radius: 8px; }
-.int-bolinha { width: 12px; height: 12px; border-radius: 50%; background: var(--int-cor); flex: 0 0 12px; }
-.int-item-icone { width: 20px; height: 20px; flex: 0 0 20px; color: var(--int-cor); }
-.int-item-nome { flex: 1; min-width: 0; font-size: 14.5px; font-weight: 600; color: var(--cor-texto); overflow-wrap: anywhere; }
-.int-item-palavra { font-size: 12.5px; color: var(--cor-texto-2); text-align: right; }
+.int-legenda { position: absolute; left: 12px; right: 12px; bottom: 10px; display: flex; flex-wrap: wrap; gap: 6px 8px;
+  justify-content: center; font-size: 12.5px; pointer-events: none; color: var(--cor-texto); }
+.int-legenda span { display: flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 6px;
+  background: var(--cor-superficie); border: 1px solid var(--cor-borda); white-space: nowrap; }
 
-/* ─── cartão ────────────────────────────────────────────────────────────── */
-.int-cartao { min-width: 0; }
-.int-cartao-cab { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
-.int-cartao-nome { flex: 1 1 100%; margin: 0; font-size: 17px; overflow-wrap: anywhere; }
-.int-selo { display: inline-flex; align-items: center; gap: 6px; min-height: 26px; padding: 0 10px; border-radius: 999px;
-  border: 1.5px solid var(--int-cor); font-size: 12.5px; font-weight: 600; color: var(--cor-texto); }
-.int-selo::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--int-cor); }
-.int-fechar { margin-left: auto; min-width: var(--alvo-toque, 32px); min-height: var(--alvo-toque, 32px); border: 1px solid var(--cor-borda);
-  background: transparent; border-radius: 50%; cursor: pointer; font-size: 18px; line-height: 1; color: var(--cor-texto-2); }
+/* ─── cartão de detalhe (chapado, dentro do palco) ──────────────────────── */
+.int-cartao { position: absolute; right: 14px; bottom: 62px; width: 310px; max-width: calc(100% - 28px); z-index: 5;
+  padding: 14px 16px; font-size: 13.5px; background: var(--cor-superficie); border: 1px solid var(--cor-borda);
+  border-radius: 10px; }
+.int-cartao[hidden] { display: none; }
+.int-cartao-cab { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 6px; }
+.int-cartao-nome { flex: 1 1 100%; margin: 0; padding-right: 64px; font-size: 17px; overflow-wrap: anywhere; }
+.int-selo { display: inline-flex; align-items: center; gap: 8px; font-weight: 650; color: var(--int-cor); }
+.int-cartao-cab .app-ajuda-secao, .int-fechar { position: absolute; top: 8px; }
+.int-cartao-cab .app-ajuda-secao { right: 44px; }
+.int-fechar { right: 8px; min-width: var(--alvo-toque, 32px); min-height: var(--alvo-toque, 32px); border: 0;
+  background: transparent; border-radius: 6px; cursor: pointer; font-size: 20px; line-height: 1; color: var(--cor-texto); }
 .int-dl { margin: 0; }
-.int-dl dt, .int-dl-rotulo { font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--cor-texto-2); margin-top: 12px; }
-.int-dl dd { margin: 3px 0 0; font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
-.int-skills { margin: 4px 0 0; padding-left: 18px; font-size: 14px; overflow-wrap: anywhere; }
-.int-skills-vazio { margin: 3px 0 0; font-size: 14px; color: var(--cor-texto-2); }
-.int-botao { margin-top: 16px; min-height: var(--alvo-toque, 32px); padding: 0 16px; border-radius: 10px; cursor: pointer;
+.int-dl dt, .int-dl-rotulo { font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--cor-texto-2); margin-top: 10px; }
+.int-dl dd { margin: 3px 0 0; font-size: 13.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.int-skills { margin: 4px 0 0; padding-left: 18px; font-size: 13.5px; overflow-wrap: anywhere; }
+.int-skills-vazio { margin: 3px 0 0; font-size: 13.5px; color: var(--cor-texto-2); }
+.int-botao { margin-top: 14px; min-height: var(--alvo-toque, 32px); padding: 0 16px; border-radius: 10px; cursor: pointer;
   border: 1px solid var(--botao2-borda); background: var(--botao2-fundo); color: var(--botao2-texto); font-size: 14px; }
 .int-botao:disabled { opacity: .6; cursor: wait; }
 .int-erro { margin: 10px 0 0; font-size: 13.5px; color: var(--cor-perigo); overflow-wrap: anywhere; }
 
-/* ─── celular ───────────────────────────────────────────────────────────── */
+/* ─── celular: as placas em duas colunas, o cartão sobre o palco ────────── */
 @media (max-width: 600px) {
-  .int-svg { display: none; }
-  .int-lista { display: block; }
-  .int-agente { display: grid; justify-items: center; margin: 4px 0 10px; }
-  .int-corpo, .int-corpo:has(.int-cartao:not([hidden])) { grid-template-columns: minmax(0, 1fr); }
+  .int-palco { border: 1px solid var(--cor-borda); border-radius: 24px; }
+  .int-cartao { left: 8px; right: 8px; width: auto; max-width: none; bottom: 78px; }
   .int-resumo-texto { font-size: 15.5px; }
-}
-/* Em tela larga com o mapa à vista, o cartão fica ao lado; no celular fica embaixo da lista. */
-@media (min-width: 601px) {
-  .int-cartao:not([hidden]) { position: sticky; top: 16px; }
 }

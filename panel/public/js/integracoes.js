@@ -1,5 +1,6 @@
-// integracoes.js: a aba Integrações. Um mapa em constelação: a foto do agente no centro e, ligado
-// por uma linha reta, cada sistema externo que ele já usou (WhatsApp, Instagram, banco...).
+// integracoes.js: a aba Integrações. Um palco sóbrio: a foto do agente no centro (o logo do DG Claw se
+// ele não tiver foto) e, ligada por uma linha reta, uma placa chapada para cada sistema externo que ele
+// já usou (WhatsApp, Instagram, banco...), com ícone, nome, estado escrito e uma forma própria por estado.
 //
 // DE ONDE VEM O DADO. De /api/integracoes (lib/integracoes.js), que lê o estado.json anotado pelos
 // programas que falam com cada sistema. QUEM DECIDE A COR É O SERVIDOR: esta tela só desenha. Se ela
@@ -9,8 +10,9 @@
 // dado). A classe de cor sai de uma tabela deste arquivo, indexada pelo `estado` já validado, e o
 // ícone sai de uma lista deste arquivo (nome desconhecido vira `link`).
 //
-// MOVIMENTO. O pulso é um ponto que anda pela reta. Ele para quando a aba do navegador fica
-// escondida e não existe com "reduzir movimento": nesse caso ficam só a cor e a palavra.
+// MOVIMENTO. As placas flutuam de leve e um pulso chapado anda pela reta. Tudo para quando a aba do
+// navegador fica escondida. Com "reduzir movimento" sobra só uma deriva mínima e o pulso não existe:
+// ficam a cor, a forma e a palavra do estado.
 //
 // As funções puras (layout, tabelas de cor e de ícone, frase-resumo) ficam em `DGIntegracoes.puro`
 // para o teste rodar sem navegador (panel/test-integracoes-tela.mjs).
@@ -146,10 +148,10 @@
   }
 
   // ── DOM ─────────────────────────────────────────────────────────────────────
-  const BASE = raiz.DGCLAW_BASE || '';
   const NS = 'http://www.w3.org/2000/svg';
+  const LOGO = '/marca/logo'; // o logo da marca: o do DG Claw, ou o personalizado quando o Web tem marca própria
 
-  const estadoTela = { dados: null, modoAula: false, selecionado: null, foto: '', animacao: [], raf: 0, timer: 0 };
+  const estadoTela = { dados: null, modoAula: false, selecionado: null, foto: '', nos: [], raf: 0, timer: 0, T: 5, ultimo: 0, larguraDesenhada: 0 };
 
   function h(tag, attrs, texto) {
     const e = document.createElement(tag);
@@ -157,18 +159,15 @@
     if (texto != null) e.textContent = texto;
     return e;
   }
-  function s(tag, attrs, texto) {
+  function s(tag, attrs, pai, texto) {
     const e = document.createElementNS(NS, tag);
     if (attrs) for (const k of Object.keys(attrs)) e.setAttribute(k, String(attrs[k]));
     if (texto != null) e.textContent = texto;
+    if (pai) pai.appendChild(e);
     return e;
   }
-  function iconeSvg(nome, atributos) {
-    const u = s('use');
-    u.setAttribute('href', '/ds/icones.svg#i-' + iconeSeguro(nome));
-    const a = Object.assign({ width: 24, height: 24 }, atributos || {});
-    const el = s('svg', Object.assign({ viewBox: '0 0 24 24', 'aria-hidden': 'true', focusable: 'false' }, a));
-    el.appendChild(u);
+  function iconeSvg(nome, atributos, pai) {
+    const el = s('use', Object.assign({ href: '/ds/icones.svg#i-' + iconeSeguro(nome) }, atributos || {}), pai);
     return el;
   }
   const el$ = (id) => document.getElementById(id);
@@ -178,149 +177,233 @@
     return typeof url === 'string' && url.charAt(0) === '/' && url.charAt(1) !== '/';
   }
 
-  // ── o mapa em SVG ───────────────────────────────────────────────────────────
+  // O desenho do estado: cada estado tem uma FORMA própria, para a cor não ser a única pista.
+  // verde = círculo com visto, amarelo = triângulo com "!", vermelho = losango com X,
+  // desligado = círculo tracejado com pausa, sem uso recente = círculo com relógio.
+  // A cor vem do CSS (classe int-e-<estado> no elemento de fora): aqui só a forma.
+  function glifo(estado, r, pai) {
+    const k = r / 10;
+    const g = s('g', null, pai);
+    const furo = { class: 'int-fs int-nf', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' };
+    if (estado === 'verde') {
+      s('circle', { r, class: 'int-gf' }, g);
+      s('path', Object.assign({ d: 'M' + (-4.6 * k) + ' ' + (0.4 * k) + 'L' + (-1.2 * k) + ' ' + (3.8 * k) + 'L' + (5 * k) + ' ' + (-3.6 * k), 'stroke-width': 2.2 * k }, furo), g);
+    } else if (estado === 'amarelo') {
+      s('path', { d: 'M0 ' + (-r * 1.15) + 'L' + (r * 1.1) + ' ' + (r * 0.85) + 'L' + (-r * 1.1) + ' ' + (r * 0.85) + 'Z', class: 'int-gf int-gs', 'stroke-width': k, 'stroke-linejoin': 'round' }, g);
+      s('path', { d: 'M0 ' + (-3.6 * k) + 'V' + (2 * k), class: 'int-fs', 'stroke-width': 2 * k, 'stroke-linecap': 'round' }, g);
+      s('circle', { cy: 4.6 * k, r: 1.2 * k, class: 'int-ff' }, g);
+    } else if (estado === 'vermelho') {
+      s('rect', { x: -r * 0.82, y: -r * 0.82, width: r * 1.64, height: r * 1.64, rx: r * 0.3, transform: 'rotate(45)', class: 'int-gf' }, g);
+      s('path', { d: 'M' + (-3 * k) + ' ' + (-3 * k) + 'L' + (3 * k) + ' ' + (3 * k) + 'M' + (3 * k) + ' ' + (-3 * k) + 'L' + (-3 * k) + ' ' + (3 * k), class: 'int-fs', 'stroke-width': 2.2 * k, 'stroke-linecap': 'round' }, g);
+    } else if (estado === 'desligado') {
+      s('circle', { r: r * 0.92, class: 'int-ff int-gs', 'stroke-width': 1.5 * k, 'stroke-dasharray': (2.4 * k) + ' ' + (2.2 * k) }, g);
+      s('path', { d: 'M' + (-2.2 * k) + ' ' + (-3 * k) + 'V' + (3 * k) + 'M' + (2.2 * k) + ' ' + (-3 * k) + 'V' + (3 * k), class: 'int-gs int-nf', 'stroke-width': 1.8 * k, 'stroke-linecap': 'round' }, g);
+    } else {
+      s('circle', { r: r * 0.92, class: 'int-ff int-gs', 'stroke-width': 1.4 * k }, g);
+      s('path', { d: 'M0 ' + (-4 * k) + 'V0L' + (3 * k) + ' ' + (2 * k), class: 'int-gs int-nf', 'stroke-width': 1.5 * k, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, g);
+    }
+    return g;
+  }
+  function glifoSolto(estado, lado) {
+    const e = estadoDe(estado) || ESTADO_DESCONHECIDO;
+    const svg = s('svg', { viewBox: '-12 -12 24 24', width: lado, height: lado, 'aria-hidden': 'true', focusable: 'false', class: 'int-e-' + e.cls });
+    glifo(estado, 9, svg);
+    return svg;
+  }
+
+  // ── o palco em SVG ──────────────────────────────────────────────────────────
+  const CELULAR_ATE = 600;
+  const JITTER = [0, -8, 6, -4, 8];
+
+  /**
+   * Onde cada placa fica quando está parada. `layout` dá o ângulo e a distância de cada uma (com
+   * variação por hash do id); aqui isso vira posição no palco. No computador, numa elipse em volta
+   * do agente; no celular, em duas colunas (esquerda e direita), cada placa na ordem do ângulo.
+   */
+  function posicoes(nos, L, movel, pw, ph) {
+    const dois = nos.some((n) => n.anel === 2);
+    const ref = (dois ? 1.7 : 1) * 1.12;
+    if (!movel) {
+      const rx = L.w / 2 - pw / 2 - 16, ry = L.hh - ph / 2 - 10;
+      return nos.map((n) => ({ bx: n.x / ref * rx, by: n.y / ref * ry }));
+    }
+    const colx = L.w / 2 - pw / 2 - 6;
+    const lado = (n) => (Math.cos(n.angulo) >= 0 ? 1 : -1);
+    return nos.map((n, i) => {
+      const dir = lado(n);
+      const col = nos.filter((m) => lado(m) === dir).sort((a, b) => Math.sin(a.angulo) - Math.sin(b.angulo));
+      const r = col.indexOf(n);
+      const folga = L.hh - 40;
+      const by = col.length > 1 ? (r / (col.length - 1) - 0.5) * 2 * folga : 0;
+      return { bx: dir * (colx + JITTER[r % JITTER.length] * dir), by: by + (dir > 0 ? 0 : L.hh * 0.08 * (col.length > 1 ? 1 : 0)) };
+    });
+  }
+
   function desenharMapa(destino, agente, lista) {
     parar();
-    estadoTela.animacao = [];
+    estadoTela.nos = [];
     destino.textContent = '';
-    // O raio base cresce com a largura disponível (com teto), para o mapa ocupar o cartão.
-    const largura = destino.clientWidth || 0;
-    const raioBase = largura ? Math.max(150, Math.min(235, largura / 2 - 150)) : 190;
-    const { nos, caixa } = layout(lista.map((i) => i.id), { raioBase });
+    const palco = el$('int-mapa-caixa');
+    const w = Math.max(280, (palco && palco.clientWidth) || destino.clientWidth || 900);
+    const movel = w <= CELULAR_ATE;
+    estadoTela.larguraDesenhada = w;
+    // No celular o agente encolhe e as placas dividem o resto da largura, duas colunas sem se tocar.
+    const rf = movel ? 34 : RAIO_FOTO;
+    const pw = movel ? Math.max(92, Math.min(122, Math.floor((w - 2 * rf - 32) / 2))) : 160, ph = movel ? 40 : 48;
+    const topo = movel ? 34 : 30, legenda = movel ? 84 : 56;
+    // No celular a altura vem das colunas: 64 px por fileira da coluna mais cheia.
+    const fileiras = Math.max(1, Math.ceil(lista.length / 2));
+    const alt = movel ? Math.max(560, topo + legenda + 26 + 2 * ((fileiras - 1) * 32 + 40)) : 640;
+    if (palco) palco.style.height = alt + 'px';
+    const hh = (alt - legenda - 26 - topo) / 2;
+    const L = { w, cx: w / 2, cy: topo + hh, hh };
+
+    const { nos } = layout(lista.map((i) => i.id), { raioBase: 1 });
+    const pos = posicoes(nos, L, movel, pw, ph);
     const porId = {};
     lista.forEach((i) => { porId[i.id] = i; });
-    estadoTela.larguraDesenhada = largura;
+
     const svg = s('svg', {
-      class: 'int-svg', viewBox: caixa.x + ' ' + caixa.y + ' ' + caixa.w + ' ' + caixa.h,
-      role: 'group', 'aria-label': 'Mapa das integrações de ' + aparar(agente.nome, 40),
+      class: 'int-svg', viewBox: '0 0 ' + w + ' ' + alt, role: 'group', 'aria-label': 'Mapa das integrações de ' + aparar(agente.nome, 40),
     });
-
-    const defs = s('defs');
-    const filtro = s('filter', { id: 'int-brilho', x: '-100%', y: '-100%', width: '300%', height: '300%' });
-    filtro.appendChild(s('feGaussianBlur', { stdDeviation: 2.2, result: 'b' }));
-    const merge = s('feMerge');
-    merge.appendChild(s('feMergeNode', { in: 'b' }));
-    merge.appendChild(s('feMergeNode', { in: 'SourceGraphic' }));
-    filtro.appendChild(merge);
-    defs.appendChild(filtro);
-    const clip = s('clipPath', { id: 'int-recorte-foto' });
-    clip.appendChild(s('circle', { cx: 0, cy: 0, r: RAIO_FOTO }));
-    defs.appendChild(clip);
-    svg.appendChild(defs);
-
-    const camadaLinhas = s('g', { class: 'int-linhas' });
-    const camadaPulsos = s('g', { class: 'int-pulsos', 'aria-hidden': 'true' });
-    const camadaNos = s('g', { class: 'int-nos' });
-    svg.appendChild(camadaLinhas);
-    svg.appendChild(camadaPulsos);
-    svg.appendChild(camadaNos);
-
+    const clip = s('clipPath', { id: 'int-recorte-foto' }, s('defs', null, svg));
+    s('circle', { r: rf, cx: 0, cy: 0 }, clip);
+    const camadaLinhas = s('g', null, svg);
+    const camadaPulsos = s('g', { 'aria-hidden': 'true' }, svg);
+    const camadaNos = s('g', null, svg);
     const animar = !reduzMovimento();
-    nos.forEach((pos) => {
-      const it = porId[pos.id];
+
+    const itens = nos.map((n, i) => ({ n, it: porId[n.id], bx: pos[i].bx, by: pos[i].by, z: fracao(n.id, 'z'), ph: fracao(n.id, 'p') * 7, f1: 0.3 + fracao(n.id, 'f1') * 0.2, f2: 0.27 + fracao(n.id, 'f2') * 0.2 }));
+    itens.sort((a, b) => a.z - b.z); // as de longe primeiro, as de perto por cima
+
+    itens.forEach((o) => {
+      const it = o.it;
       const e = estadoDe(it.estado) || ESTADO_DESCONHECIDO;
+      const estado = estadoDe(it.estado) ? it.estado : 'sem_uso_recente';
       const palavra = palavraDe(it);
       const nome = aparar(it.nome || it.id, 40);
+      const apagado = e.cls === 'desligado' || e.cls === 'sem-uso';
+      const vermelho = e.cls === 'vermelho';
+      const dash = { verde: '', amarelo: '7 5', vermelho: '3 4', desligado: '2 6', sem_uso_recente: '12 7' }[estado] || '';
 
-      // A linha vai da borda do círculo do agente à borda do círculo do nó, nunca ao centro.
-      const dx = Math.cos(pos.angulo), dy = Math.sin(pos.angulo);
-      const ini = { x: dx * (RAIO_FOTO + 4), y: dy * (RAIO_FOTO + 4) };
-      const fim = { x: pos.x - dx * RAIO_NO, y: pos.y - dy * RAIO_NO };
-      const linha = s('line', { x1: ini.x.toFixed(1), y1: ini.y.toFixed(1), x2: fim.x.toFixed(1), y2: fim.y.toFixed(1), class: 'int-linha int-e-' + e.cls });
-      camadaLinhas.appendChild(linha);
-
-      if (animar && e.pulso) {
-        const ponto = s('circle', { cx: fim.x.toFixed(1), cy: fim.y.toFixed(1), r: 3.4, class: 'int-pulso int-e-' + e.cls, filter: 'url(#int-brilho)', opacity: 0 });
-        camadaPulsos.appendChild(ponto);
-        estadoTela.animacao.push({
-          ponto, linha, fim, ini, tipo: e.pulso, dur: DURACAO[e.pulso],
-          fase: fracao(pos.id, 'fase') * DURACAO[e.pulso],
-        });
-      }
+      const linha = s('line', { class: 'int-linha int-e-' + e.cls + (apagado ? ' int-linha-apagada' : ''), 'stroke-linecap': 'round' }, camadaLinhas);
+      if (dash) linha.setAttribute('stroke-dasharray', dash);
+      let marca = null;
+      if (vermelho) marca = s('path', { d: 'M-4 -4L4 4M4 -4L-4 4', class: 'int-marca int-e-' + e.cls, 'stroke-linecap': 'round' }, camadaLinhas);
+      const ponto = e.pulso && animar ? s('rect', { x: -3.5, y: -3.5, width: 7, height: 7, class: 'int-pulso int-e-' + e.cls, opacity: 0 }, camadaPulsos) : null;
 
       const g = s('g', {
         class: 'int-no int-e-' + e.cls + (estadoTela.selecionado === it.id ? ' int-sel' : ''),
-        transform: 'translate(' + pos.x.toFixed(1) + ' ' + pos.y.toFixed(1) + ')',
         tabindex: 0, role: 'button', 'aria-label': nome + ': ' + palavra,
         'aria-pressed': estadoTela.selecionado === it.id ? 'true' : 'false',
-      });
-      g.appendChild(s('circle', { class: 'int-no-circulo', r: RAIO_NO }));
-      g.appendChild(iconeSvg(it.icone, { x: -12, y: -12, class: 'int-no-icone' }));
-      // Rótulo do lado de fora, no prolongamento da reta: nenhuma linha passa por ele.
-      const pos2 = {
-        cima: { x: 0, a: 'middle', yn: -(RAIO_NO + 24), yp: -(RAIO_NO + 9) },
-        baixo: { x: 0, a: 'middle', yn: RAIO_NO + 17, yp: RAIO_NO + 32 },
-        dir: { x: RAIO_NO + 10, a: 'start', yn: -2, yp: 13 },
-        esq: { x: -(RAIO_NO + 10), a: 'end', yn: -2, yp: 13 },
-      }[pos.lado];
-      g.appendChild(s('text', { class: 'int-rotulo', x: pos2.x, y: pos2.yn, 'text-anchor': pos2.a }, aparar(nome, 16)));
-      g.appendChild(s('text', { class: 'int-palavra', x: pos2.x, y: pos2.yp, 'text-anchor': pos2.a }, palavra));
+      }, camadaNos);
+      const corpo = s('g', null, g);
+      s('rect', { class: 'int-placa' + (vermelho ? ' int-placa-vermelha' : '') + (e.cls === 'desligado' ? ' int-placa-desligada' : ''), x: -pw / 2, y: -ph / 2, width: pw, height: ph, rx: 6 }, corpo);
+      const faixa = vermelho ? 6 : 4;
+      s('path', { class: 'int-faixa', d: 'M' + (-pw / 2) + ' ' + (-ph / 2 + 6) + 'a6 6 0 0 1 6 -6h' + faixa + 'v' + ph + 'h' + (-faixa) + 'a6 6 0 0 1 -6 -6z' }, corpo);
+      s('rect', { class: 'int-foco', x: -pw / 2 - 3, y: -ph / 2 - 3, width: pw + 6, height: ph + 6, rx: 8 }, corpo);
+      const ic = movel ? 17 : 20;
+      const svgIcone = s('svg', { viewBox: '0 0 24 24', x: -pw / 2 + (movel ? 12 : 14), y: -ic / 2, width: ic, height: ic, class: 'int-no-icone', 'aria-hidden': 'true', focusable: 'false' }, corpo);
+      iconeSvg(it.icone, null, svgIcone);
+      const tx = -pw / 2 + (movel ? 33 : 42);
+      s('text', { class: 'int-rotulo', x: tx, y: -2, 'font-size': movel ? 11 : 14 }, corpo, aparar(nome, 15));
+      s('text', { class: 'int-palavra', x: tx + (movel ? 12 : 15), y: movel ? 11 : 14, 'font-size': movel ? 9.5 : 11.5 }, corpo, aparar(palavra, 17));
+      const sel = s('g', { transform: 'translate(' + (tx + (movel ? 4.5 : 6)) + ' ' + (movel ? 7.5 : 10.5) + ')' }, corpo);
+      glifo(estado, movel ? 4.6 : 5.4, sel);
       const abrir = () => selecionar(it.id, g);
-      g.addEventListener('click', abrir);
+      g.addEventListener('click', (ev) => { ev.stopPropagation(); abrir(); });
       g.addEventListener('keydown', (ev) => {
         if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); abrir(); }
       });
-      camadaNos.appendChild(g);
+      estadoTela.nos.push({ o, g, linha, marca, ponto, estado, bx: o.bx, by: o.by });
     });
 
-    // O centro: a foto do agente, ou a inicial sobre o acento.
-    const centro = s('g', { class: 'int-centro' });
-    centro.appendChild(s('circle', { class: 'int-centro-aro', r: RAIO_FOTO + 4 }));
-    const inicial = s('g', { class: 'int-centro-inicial' });
-    inicial.appendChild(s('circle', { class: 'int-centro-fundo', r: RAIO_FOTO }));
+    // O centro: a foto do agente num círculo chapado com borda fina. Sem foto (ou se ela falhar),
+    // entra o logo da marca; se nem o logo carregar, a inicial do nome.
+    const centro = s('g', { class: 'int-centro' }, svg);
+    s('circle', { class: 'int-centro-fundo', r: rf }, centro);
     const letra = (String(agente.nome || '?').trim().charAt(0) || '?').toUpperCase();
-    inicial.appendChild(s('text', { class: 'int-centro-letra', y: 11, 'text-anchor': 'middle' }, letra));
-    centro.appendChild(inicial);
+    const inicial = s('text', { class: 'int-centro-letra', y: 11, 'text-anchor': 'middle', visibility: 'hidden' }, centro, letra);
+    const logo = s('image', { href: LOGO, x: -rf * 0.62, y: -rf * 0.62, width: rf * 1.24, height: rf * 1.24, class: 'int-centro-logo', preserveAspectRatio: 'xMidYMid meet' }, centro);
+    logo.addEventListener('error', () => { logo.remove(); inicial.setAttribute('visibility', 'visible'); });
     if (fotoValida(estadoTela.foto)) {
       const img = s('image', {
-        href: estadoTela.foto, x: -RAIO_FOTO, y: -RAIO_FOTO, width: RAIO_FOTO * 2, height: RAIO_FOTO * 2,
-        'clip-path': 'url(#int-recorte-foto)', preserveAspectRatio: 'xMidYMid slice',
-      });
-      img.addEventListener('error', () => img.remove());
-      centro.appendChild(img);
+        href: estadoTela.foto, x: -rf, y: -rf, width: rf * 2, height: rf * 2,
+        'clip-path': 'url(#int-recorte-foto)', preserveAspectRatio: 'xMidYMid slice', class: 'int-centro-foto',
+      }, centro);
+      logo.setAttribute('visibility', 'hidden'); // com foto, o logo só aparece se a foto falhar
+      img.addEventListener('error', () => { img.remove(); logo.setAttribute('visibility', 'visible'); });
     }
-    centro.appendChild(s('text', { class: 'int-centro-nome', y: RAIO_FOTO + 28, 'text-anchor': 'middle' }, aparar(agente.nome, 30)));
-    svg.appendChild(centro);
+    s('circle', { class: 'int-centro-aro', r: rf }, centro);
+    s('text', { class: 'int-centro-nome', y: rf + (movel ? 20 : 24), 'text-anchor': 'middle' }, centro, aparar(agente.nome, 30));
+    s('text', { class: 'int-centro-sub', y: rf + (movel ? 35 : 40), 'text-anchor': 'middle' }, centro, 'agente');
+    estadoTela.centro = centro;
+    estadoTela.L = L;
 
     destino.appendChild(svg);
+
+    // A legenda: o desenho de cada estado, escrito ao lado.
+    const leg = h('div', { class: 'int-legenda' });
+    Object.keys(ESTADOS).forEach((k) => {
+      const item = h('span');
+      item.appendChild(glifoSolto(k, 16));
+      item.appendChild(document.createTextNode(ESTADOS[k].palavra));
+      leg.appendChild(item);
+    });
+    destino.appendChild(leg);
+    quadro(performance.now(), true);
     iniciar();
   }
 
-  // ── o pulso ─────────────────────────────────────────────────────────────────
-  function quadro(agora) {
-    estadoTela.raf = 0;
-    if (document.hidden) return;
-    const a = estadoTela.animacao;
-    if (!a.length || !a[0].ponto.isConnected) return;
-    // Aba do painel escondida (ou mapa trocado pela lista no celular): sem trabalho.
-    if (a[0].ponto.ownerSVGElement && !a[0].ponto.ownerSVGElement.getClientRects().length) {
-      estadoTela.raf = raf(quadro);
-      return;
-    }
-    for (const p of a) {
-      const t = ((agora + p.fase) % p.dur) / p.dur; // 0..1 dentro da volta
-      // d: 0 na borda do nó, 1 na borda do agente.
-      const ponto = (d) => {
-        p.ponto.setAttribute('cx', (p.fim.x + (p.ini.x - p.fim.x) * d).toFixed(1));
-        p.ponto.setAttribute('cy', (p.fim.y + (p.ini.y - p.fim.y) * d).toFixed(1));
-      };
-      if (p.tipo === 'falha') {
-        // Sai do nó, para no meio da linha e some. A linha pisca devagar.
-        const k = Math.min(t / 0.6, 1);
-        ponto(0.5 * k);
-        p.ponto.setAttribute('opacity', t < 0.6 ? (1 - k * k).toFixed(2) : '0');
-        p.linha.setAttribute('stroke-opacity', (0.65 + 0.35 * Math.cos(t * Math.PI * 2)).toFixed(2));
-      } else {
-        // Vai do nó ao agente e volta.
-        ponto(t < 0.5 ? t * 2 : 2 - t * 2);
-        p.ponto.setAttribute('opacity', '1');
+  // ── o movimento ─────────────────────────────────────────────────────────────
+  // Flutuação leve de cada placa e o pulso, um quadradinho chapado que anda pela reta do agente
+  // até a placa. Verde calmo, amarelo lento e piscando, vermelho para no meio e some (na linha
+  // fica o X). Com "reduzir movimento" a flutuação cai ao mínimo e o pulso não existe.
+  function sinal(o, T) {
+    const dur = DURACAO[ESTADOS[o.estado].pulso];
+    const q = (((T * 1000) / dur + o.o.ph) % 1 + 1) % 1;
+    if (o.estado === 'amarelo') return { p: q < 0.5 ? q * q * 2 : 1 - (1 - q) * (1 - q) * 2, o: 0.55 + 0.45 * Math.abs(Math.sin(T * 6 + o.o.ph)) > 0.5 ? 1 : 0 };
+    if (o.estado === 'vermelho') return { p: Math.min(q * 1.45, 0.62), o: q < 0.5 ? 1 : 0 };
+    return { p: q, o: 1 };
+  }
+  function quadro(agora, soUmQuadro) {
+    if (!soUmQuadro) estadoTela.raf = 0;
+    if (document.hidden && !soUmQuadro) return;
+    const ns = estadoTela.nos;
+    if (!ns.length || !estadoTela.centro || !estadoTela.centro.isConnected) return;
+    const svg = estadoTela.centro.ownerSVGElement;
+    if (!soUmQuadro && svg && !svg.getClientRects().length) { estadoTela.raf = raf(quadro); return; } // aba do painel escondida
+    const dt = estadoTela.ultimo ? Math.min(0.05, (agora - estadoTela.ultimo) / 1000) : 0.016;
+    estadoTela.ultimo = agora;
+    const mov = reduzMovimento() ? 0 : 1;
+    estadoTela.T += dt * (0.28 + 0.72 * mov);
+    const T = estadoTela.T;
+    const amp = 1.3 + 4.7 * mov;
+    const { cx, cy } = estadoTela.L;
+    estadoTela.centro.setAttribute('transform', 'translate(' + cx + ' ' + (cy + Math.sin(T * 0.3) * amp * 0.3).toFixed(1) + ')');
+    for (const n of ns) {
+      const o = n.o;
+      const x = cx + n.bx + Math.sin(T * o.f1 + o.ph) * amp * (0.6 + 0.8 * o.z);
+      const y = cy + n.by + Math.cos(T * o.f2 + o.ph * 1.3) * amp * (0.6 + 0.8 * o.z);
+      const sc = 0.8 + 0.24 * o.z; // de perto: maior e opaco. De longe: menor e um pouco apagado
+      n.g.setAttribute('transform', 'translate(' + x.toFixed(1) + ' ' + y.toFixed(1) + ') scale(' + sc.toFixed(3) + ')');
+      n.g.setAttribute('opacity', (0.78 + 0.22 * o.z).toFixed(2));
+      n.linha.setAttribute('x1', cx); n.linha.setAttribute('y1', cy.toFixed(1));
+      n.linha.setAttribute('x2', x.toFixed(1)); n.linha.setAttribute('y2', y.toFixed(1));
+      const dx = x - cx, dy = y - cy;
+      if (n.marca) n.marca.setAttribute('transform', 'translate(' + (cx + dx * 0.64).toFixed(1) + ' ' + (cy + dy * 0.64).toFixed(1) + ')');
+      if (n.ponto) {
+        const sn = sinal(n, T);
+        n.ponto.setAttribute('transform', 'translate(' + (cx + dx * sn.p).toFixed(1) + ' ' + (cy + dy * sn.p).toFixed(1) + ') rotate(45)');
+        n.ponto.setAttribute('opacity', sn.o);
       }
     }
-    estadoTela.raf = raf(quadro);
+    if (!soUmQuadro) estadoTela.raf = raf(quadro);
   }
   function raf(fn) { return raiz.requestAnimationFrame(fn); }
   function iniciar() {
-    if (estadoTela.raf || !estadoTela.animacao.length || document.hidden) return;
+    if (estadoTela.raf || !estadoTela.nos.length || document.hidden) return;
+    estadoTela.ultimo = 0;
     estadoTela.raf = raf(quadro);
   }
   function parar() {
@@ -328,46 +411,10 @@
     estadoTela.raf = 0;
   }
   raiz.addEventListener('resize', () => {
-    const m = el$('int-mapa');
-    if (m && estadoTela.dados && m.clientWidth && Math.abs(m.clientWidth - estadoTela.larguraDesenhada) > 40) desenhar();
+    const palco = el$('int-mapa-caixa');
+    if (palco && estadoTela.dados && palco.clientWidth && Math.abs(palco.clientWidth - estadoTela.larguraDesenhada) > 40) desenhar();
   });
   document.addEventListener('visibilitychange', () => { if (document.hidden) parar(); else iniciar(); });
-
-  // ── a lista do celular ──
-  // No celular o SVG some; a foto e o nome do agente ficam no topo da lista.
-  function desenharAgenteMovel(destino, agente) {
-    destino.textContent = '';
-    const nome = aparar(agente.nome, 30);
-    let foto = null;
-    if (fotoValida(estadoTela.foto)) {
-      foto = h('img', { class: 'int-agente-foto', alt: '', src: estadoTela.foto });
-      foto.addEventListener('error', () => { foto.remove(); });
-      destino.appendChild(foto);
-    }
-    destino.appendChild(h('span', { class: 'int-agente-letra', 'aria-hidden': 'true' }, (String(agente.nome || '?').trim().charAt(0) || '?').toUpperCase()));
-    destino.appendChild(h('span', { class: 'int-agente-nome' }, nome));
-  }
-  function desenharLista(destino, lista) {
-    destino.textContent = '';
-    lista.forEach((it) => {
-      const e = estadoDe(it.estado) || ESTADO_DESCONHECIDO;
-      const palavra = palavraDe(it);
-      const nome = aparar(it.nome || it.id, 40);
-      const li = h('li');
-      const b = h('button', {
-        type: 'button', class: 'int-item int-e-' + e.cls + (estadoTela.selecionado === it.id ? ' int-sel' : ''),
-        'aria-label': nome + ': ' + palavra, 'aria-pressed': estadoTela.selecionado === it.id ? 'true' : 'false',
-      });
-      b.appendChild(h('span', { class: 'int-bolinha', 'aria-hidden': 'true' }));
-      const ic = iconeSvg(it.icone, { class: 'int-item-icone' });
-      b.appendChild(ic);
-      b.appendChild(h('span', { class: 'int-item-nome' }, nome));
-      b.appendChild(h('span', { class: 'int-item-palavra' }, palavra));
-      b.addEventListener('click', () => selecionar(it.id, b));
-      li.appendChild(b);
-      destino.appendChild(li);
-    });
-  }
 
   // ── o cartão do nó ──────────────────────────────────────────────────────────
   function linhaDoCartao(dl, rotulo, valor) {
@@ -384,12 +431,15 @@
     const e = estadoDe(it.estado) || ESTADO_DESCONHECIDO;
     caixa.hidden = false;
     caixa.textContent = '';
-    caixa.className = 'cartao int-cartao int-e-' + e.cls;
+    caixa.className = 'int-cartao int-e-' + e.cls;
 
     const cab = h('div', { class: 'int-cartao-cab' });
     const titulo = h('h3', { class: 'int-cartao-nome' }, aparar(it.nome || it.id, 60));
     cab.appendChild(titulo);
-    cab.appendChild(h('span', { class: 'int-selo int-e-' + e.cls }, palavraDe(it)));
+    const selo = h('span', { class: 'int-selo int-e-' + e.cls });
+    selo.appendChild(glifoSolto(it.estado, 20));
+    selo.appendChild(document.createTextNode(palavraDe(it)));
+    cab.appendChild(selo);
     const ajuda = h('button', { type: 'button', class: 'app-ajuda-secao', 'aria-label': 'O que é este cartão', title: 'O que é este cartão, e como a conta é feita' }, '?');
     ajuda.addEventListener('click', () => { if (raiz.DGTutoriais) raiz.DGTutoriais.abrir('integracoes', 'cartao'); });
     cab.appendChild(ajuda);
@@ -444,12 +494,8 @@
   function selecionar(id, origem) {
     estadoTela.selecionado = estadoTela.selecionado === id ? null : id;
     desenhar();
-    const caixa = el$('int-cartao');
-    if (estadoTela.selecionado && caixa && !caixa.hidden && caixa.scrollIntoView && raiz.matchMedia && raiz.matchMedia('(max-width: 600px)').matches) {
-      caixa.scrollIntoView({ block: 'nearest', behavior: reduzMovimento() ? 'auto' : 'smooth' });
-    }
     // O foco volta para o nó (o desenho foi refeito).
-    const candidatos = document.querySelectorAll('#panel-integracoes .int-no[aria-pressed="true"], #panel-integracoes .int-item[aria-pressed="true"]');
+    const candidatos = document.querySelectorAll('#panel-integracoes .int-no[aria-pressed="true"]');
     for (const novo of candidatos) {
       if (origem && novo.focus && (novo.getClientRects().length || novo.ownerSVGElement && novo.ownerSVGElement.getClientRects().length)) { novo.focus({ preventScroll: true }); break; }
     }
@@ -469,16 +515,15 @@
     const dados = estadoTela.dados;
     const resumo = el$('int-resumo-texto');
     const mapa = el$('int-mapa');
-    const lista = el$('int-lista');
     const caixa = el$('int-mapa-caixa');
-    if (!dados || !mapa || !lista) return;
+    if (!dados || !mapa) return;
 
     if (dados.medido === false) {
       // Nunca o mapa verde: só o motivo.
       resumo.textContent = 'Não foi possível medir as integrações agora.';
       mostrarAviso(aparar(dados.motivo || 'O painel não conseguiu ler o registro das integrações.', 400));
-      mapa.textContent = ''; lista.textContent = ''; parar();
-      if (el$('int-agente')) el$('int-agente').textContent = '';
+      mapa.textContent = ''; parar();
+      estadoTela.nos = [];
       if (caixa) caixa.hidden = true;
       desenharCartao();
       return;
@@ -489,18 +534,16 @@
     const vis = visiveis(todas, estadoTela.modoAula);
     if (!vis.some((i) => i.id === estadoTela.selecionado)) estadoTela.selecionado = null;
     if (caixa) caixa.hidden = !todas.length;
-    if (!todas.length) { mapa.textContent = ''; lista.textContent = ''; parar(); desenharCartao(); return; }
+    if (!todas.length) { mapa.textContent = ''; parar(); estadoTela.nos = []; desenharCartao(); return; }
     if (!vis.length) {
-      mapa.textContent = ''; lista.textContent = ''; parar();
+      mapa.textContent = ''; parar(); estadoTela.nos = [];
+      if (caixa) caixa.style.height = '';
       mapa.appendChild(h('p', { class: 'int-vazio' }, 'Nenhum sistema está funcionando agora, então o modo aula não tem o que mostrar.'));
       desenharCartao();
       return;
     }
     const agente = dados.agente || { nome: 'Agente', slug: '' };
     desenharMapa(mapa, agente, vis);
-    const movel = el$('int-agente');
-    if (movel) desenharAgenteMovel(movel, agente);
-    desenharLista(lista, vis);
     desenharCartao();
   }
 
