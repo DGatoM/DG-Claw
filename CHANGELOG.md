@@ -10,20 +10,22 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 **Correção: falha de pacote do sistema que já tem correção no apt deixa de aparecer como crítica.** Numa VPS Ubuntu recém
 instalada, o aviso "Seu ambiente está em risco" e a tela Segurança mostravam como crítica uma falha do kernel Linux que o Ubuntu
 já corrige pela atualização automática (por exemplo, a CVE-2024-52560, do `ntfs3`, que só acontece ao montar um disco NTFS
-malicioso). Agora a ronda coloca as falhas de pacotes do sistema (kernel, openssl e afins) cuja correção o `apt` já oferece num estado
-de segundo plano, "Atualização do sistema". Elas aparecem só na seção recolhida "Atualizações do sistema" da tela Segurança,
+malicioso). Agora, quando o `apt` confirma que a correção de todos os pacotes de uma falha do sistema (kernel, openssl e afins) já pode
+ser instalada, e a atualização automática do Ubuntu está ligada, a ronda a coloca num estado de segundo plano, "Atualização do
+sistema". Se a atualização automática estiver desligada (ou a ronda não conseguir saber), a falha fica no nível 3, sem pressa, fora do
+aviso de risco, com o texto do comando de atualizar e o botão de pedir ao Admin. As falhas em segundo plano aparecem só na seção recolhida "Atualizações do sistema" da tela Segurança,
 agrupadas por componente ("Kernel Linux: 12 correções na fila da atualização do sistema") e sem cor de alerta, e não entram no
-aviso de risco, no selo nem no recado ao Admin. O texto diz que a correção entra sozinha na atualização automática do Ubuntu
-(ou, se ela estiver desligada, que entra na próxima atualização do sistema). Quando a correção do kernel já foi instalada e falta só
-reiniciar, o cartão avisa que ela vale no próximo reinício. A ronda confere a cada rodada, e a falha some sozinha quando o pacote é
-atualizado. Continuam em destaque as falhas que a CISA diz estar sendo exploradas e as que dependem de uma ação sua. O
+aviso de risco, no selo nem no recado ao Admin. O texto diz que a correção entra sozinha na atualização automática do Ubuntu. Quando a correção do kernel já foi
+instalada (a ronda confere a imagem de kernel no dpkg) e falta só reiniciar, o cartão avisa que ela vale no próximo reinício. A ronda confere a cada rodada, e a falha some sozinha quando o pacote é
+atualizado. Continuam em destaque as falhas que a CISA diz estar sendo exploradas (e, se a CISA não responder numa rodada, a ronda mantém a marca que já
+tinha) e as que dependem de uma ação sua. O
 `dgclaw seguranca estado` e o resumo para o Admin ganharam o grupo "Atualizações do sistema (entram sozinhas)".
 
 ### Como atualizar (atualizações do sistema em segundo plano)
 
 O `dgclaw atualizar` padrão basta. A nova classificação vale já na próxima rodada da ronda. Enquanto ela não roda, o painel
-reclassifica sozinho o que a ronda anterior deixou como crítico e que é só uma atualização do sistema, então o pop-up some na
-mesma hora. O Admin ganhou uma instrução nova sobre esse grupo. Se você personalizou as instruções dele, peça ao Admin para juntar
+reclassifica sozinho o que a ronda anterior deixou como crítico e é só uma correção do kernel que já existe no apt, então o pop-up some
+na mesma hora. O Admin ganhou uma instrução nova sobre esse grupo. Se você personalizou as instruções dele, peça ao Admin para juntar
 o item 7 da seção "Ronda de segurança" do modelo novo ao seu arquivo, sem apagar o que você escreveu.
 
 **Correção: render de vídeo não esgota os processos do agente.** Um agente chegou a ficar mais de 30 minutos parado num

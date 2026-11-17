@@ -184,6 +184,14 @@ test('atualização do sistema: nunca é ponto em risco, sai das listas de decis
   assert.ok(!R.fatosHtml(atualizacao()).includes('Gravidade'));
 });
 
+test('correção no apt com atualização automática desligada: nível 3 aberto, com Pedir ao Admin e fora dos pontos em risco', () => {
+  const a = achado({ id: 'KERNEL-9', nivel: 3, severidade: 'CRITICAL', correcao: { tipo: 'apt', disponivel: true, executavel: false, exige_reinicio: true } });
+  assert.deepEqual(R.criticasEmAberto({ niveis: { 1: [], 2: [], 3: [a] } }, memoria(), AGORA, null), []);
+  const h = T.listaNivelHtml([a], 3, AGORA);
+  assert.ok(h.includes('KERNEL-9'));
+  assert.match(h, /data-rp="pedir-admin"/);
+});
+
 test('seção Atualizações do sistema: uma linha por componente, texto calmo, reinício pendente, sem vermelho e tudo escapado', () => {
   const h = T.listaAtualizacoesHtml([atualizacao(), atualizacao({ id: 'KERNEL-2', reinicio_pendente: true, como_corrigir: 'A correção já foi instalada e passa a valer no próximo reinício do servidor. Reinicie quando for conveniente.' }),
     atualizacao({ id: 'SSL-1', componente: 'openssl' })], AGORA);

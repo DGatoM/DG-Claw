@@ -62,7 +62,7 @@ const lista = (v, max) => (Array.isArray(v) ? v.slice(0, max) : []);
 const inteiro = (v, min, max) => (Number.isInteger(v) && v >= min && v <= max ? v : null);
 
 /** { achado } ou { id, motivo }. */
-function validaAchado(a) {
+function validaAchado(a, opcoes) {
   if (!a || typeof a !== 'object' || Array.isArray(a)) return { motivo: 'o item não é um objeto' };
   const id = idAchado(a.id);
   if (!id) return { motivo: 'id fora do formato' };
@@ -127,9 +127,11 @@ function validaAchado(a) {
   };
   if (a.explorada_ativamente === true) achado.explorada_ativamente = true;
   if (a.reinicio_pendente === true && achado.estado === 'atualizacao-sistema') achado.reinicio_pendente = true;
-  // ronda.json gravado por um motor antigo: pacote do sistema com correção no apt, sem exploração ativa, ainda vem como
-  // "aberto". O motor novo reclassifica na próxima rodada; até lá, a tela já o trata como segundo plano.
-  if (achado.estado === 'aberto' && correcao.tipo === 'apt' && correcao.disponivel && !achado.explorada_ativamente) {
+  // ronda.json de um motor antigo (sem `regra_segundo_plano` no documento): o achado só de kernel (todo `onde` começa com "kernel ",
+  // o formato do motor) com correção no apt e sem exploração ativa ainda vem como "aberto". O motor novo reclassifica na próxima
+  // rodada; até lá, a tela já o trata como segundo plano. Documento novo ou qualquer outro caso fica como o motor mandou.
+  if (opcoes && opcoes.reclassificaAntigo && achado.estado === 'aberto' && correcao.tipo === 'apt' && correcao.disponivel && !achado.explorada_ativamente
+    && achado.onde.length && achado.onde.every((o) => o.startsWith('kernel '))) {
     achado.estado = 'atualizacao-sistema';
     achado.como_corrigir = TEXTO_ATUALIZACAO_ANTIGA;
   }
@@ -170,7 +172,7 @@ function validaRonda(j, descarte) {
   const achados = [];
   const vistos = new Set();
   for (const item of j.achados.slice(0, 500)) {
-    const r = validaAchado(item);
+    const r = validaAchado(item, { reclassificaAntigo: !(Number.isInteger(j.regra_segundo_plano) && j.regra_segundo_plano >= 1) });
     if (r.achado && !vistos.has(r.achado.id)) { vistos.add(r.achado.id); achados.push(r.achado); } else if (descarte) descarte(r.id || (r.achado && r.achado.id), r.motivo || 'id repetido');
   }
   achados.sort((a, b) => a.nivel - b.nivel || PESO[a.severidade] - PESO[b.severidade]);

@@ -33,7 +33,7 @@
 
   const FRASE_AGUARDANDO = 'Estas falhas ainda não têm correção publicada pelo fornecedor. Nada a fazer agora: a ronda confere a cada rodada e avisa quando a correção sair.';
   const VAZIO_AGUARDANDO = 'Nenhuma falha esperando a correção do fornecedor.';
-  const FRASE_ATUALIZACOES = 'Estas falhas já têm correção. Ela entra sozinha na atualização automática do Ubuntu, ou na próxima atualização do sistema; nada a fazer agora.';
+  const FRASE_ATUALIZACOES = 'Estas falhas já têm correção. Ela entra sozinha na atualização automática do Ubuntu (ou, no kernel, no próximo reinício); nada a fazer agora.';
   const VAZIO_ATUALIZACOES = 'Nenhuma atualização do sistema na fila.';
 
   /* ── avisos de segurança do DG Claw (boletins) ──────────────────────────── */
@@ -330,8 +330,8 @@
     atualizacoes: [
       { alvo: '#secAtualizacoes', titulo: 'Atualizações do sistema',
         oque: 'As falhas de pacotes do Ubuntu (o kernel Linux, por exemplo) que já têm correção pronta. Ficam numa linha por componente, como "Kernel Linux: 12 correções na fila da atualização do sistema". Toque na linha para ver cada falha.',
-        como: 'A cada rodada a ronda pergunta ao apt deste servidor se a versão corrigida já pode ser instalada. Se pode, e a falha não está sendo explorada por criminosos, ela entra aqui, e o número da linha é a quantidade de falhas desse componente nessa situação. Quando o pacote é atualizado, a falha some sozinha. No kernel, se a correção já foi instalada e falta só reiniciar, o cartão avisa.',
-        porque: 'A correção entra sozinha pela atualização automática do Ubuntu (ou pela próxima atualização do sistema), então você não precisa decidir nada. Por isso elas não entram no aviso de risco nem no selo, e ficam recolhidas aqui, à vista.' },
+        como: 'A cada rodada a ronda pergunta ao apt deste servidor se a versão corrigida já pode ser instalada. Se pode para todos os pacotes da falha, ela não está sendo explorada por criminosos e a atualização automática do Ubuntu está ligada, ela entra aqui, e o número da linha é a quantidade de falhas desse componente nessa situação. Quando o pacote é atualizado, a falha some sozinha. No kernel, se a correção já foi instalada e falta só reiniciar, o cartão avisa.',
+        porque: 'A correção entra sozinha pela atualização automática do Ubuntu, então você não precisa decidir nada. Se a atualização automática estiver desligada, a falha aparece em "Para corrigir sem pressa", com o botão de pedir ao Admin. Por isso elas não entram no aviso de risco nem no selo, e ficam recolhidas aqui, à vista.' },
     ],
     tratadas: [
       { alvo: '#secTratadas', titulo: 'Já tratadas',

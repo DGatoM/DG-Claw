@@ -129,7 +129,9 @@ Quando o recado chegar:
 7. Falha de pacote do sistema (o kernel, o openssl e afins) que já tem correção no `apt` vem em "ATUALIZAÇÕES DO SISTEMA
    (entram sozinhas)" e fica, na tela Segurança, na seção recolhida "Atualizações do sistema". Não é alarme: a correção
    entra pela atualização automática do Ubuntu, ou no próximo reinício do servidor, no caso do kernel. Explique isso ao
-   dono com calma e não ofereça aplicar nada. Só a falha que a CISA diz estar sendo explorada continua em destaque.
+   dono com calma e não ofereça aplicar nada. Se a atualização automática do servidor estiver desligada, a falha vem em "PARA
+   CORRIGIR SEM PRESSA" (nível 3), com o comando `sudo apt-get update && sudo apt-get upgrade`: ofereça fazer a atualização com o
+   sim dele, sem alarme. Só a falha que a CISA diz estar sendo explorada continua em destaque.
 
 Se chegar o recado `ronda-de-seguranca-vigia`, a verificação automática falhou duas vezes seguidas: conte ao
 dono em palavras simples e rode `sudo dgclaw seguranca estado` para ver o motivo. Mais em

@@ -107,19 +107,26 @@ test('estados novos e o campo paliativo passam saneados; estado desconhecido con
   assert.equal(validaAchado(achado({ correcao: { tipo: 'acao-catalogo', acao_id: 'a', disponivel: true, executavel: true, paliativo: true } })).achado.correcao.paliativo, true);
 });
 
-test('atualizacao-sistema passa; reinicio_pendente só nesse estado; ronda antiga com apt disponível aberto é reclassificada, KEV não', () => {
+test('atualizacao-sistema passa; reinicio_pendente só nesse estado', () => {
   const apt = { tipo: 'apt', disponivel: true, executavel: false, exige_reinicio: true };
   const novo = validaAchado(achado({ estado: 'atualizacao-sistema', correcao: apt, reinicio_pendente: true })).achado;
   assert.equal(novo.estado, 'atualizacao-sistema');
   assert.equal(novo.reinicio_pendente, true);
   assert.equal('reinicio_pendente' in validaAchado(achado({ reinicio_pendente: true })).achado, false);
-  const antigo = validaAchado(achado({ correcao: apt, severidade: 'CRITICAL' })).achado;
-  assert.equal(antigo.estado, 'atualizacao-sistema');
-  assert.match(antigo.como_corrigir, /^Já existe correção\./);
-  assert.equal(antigo.severidade, 'CRITICAL', 'o registro da gravidade fica; só a tela deixa de destacar');
-  assert.equal(validaAchado(achado({ correcao: apt, explorada_ativamente: true })).achado.estado, 'aberto');
-  assert.equal(validaAchado(achado()).achado.estado, 'aberto', 'ação do catálogo continua aberta');
-  assert.equal(validaAchado(achado({ correcao: { tipo: 'apt', disponivel: false } })).achado.estado, 'aberto');
+  assert.equal(validaAchado(achado({ correcao: apt })).achado.estado, 'aberto', 'sem opções, o validador não reclassifica');
+});
+
+test('ronda.json antigo: só o achado claramente de kernel com apt disponível e sem KEV vira segundo plano; documento novo fica como o motor mandou', () => {
+  const apt = { tipo: 'apt', disponivel: true, executavel: false, exige_reinicio: true };
+  const kernel = (extra) => achado(Object.assign({ correcao: apt, severidade: 'CRITICAL', onde: ['kernel 6.8.0-147 em execução'] }, extra || {}));
+  const estados = (doc, itens) => Object.fromEntries(validaRonda(Object.assign({}, ronda(itens), doc)).ronda.niveis[2].map((a) => [a.id, a.estado]));
+  const itens = [kernel({ id: 'K-1' }), kernel({ id: 'K-KEV', explorada_ativamente: true }), kernel({ id: 'K-MISTO', onde: ['kernel 6.8.0-147 em execução', 'agente luna: pacote x'] }),
+    kernel({ id: 'K-AGENTE', onde: ['agente luna: pacote x'] }), kernel({ id: 'K-SEMONDE', onde: [] }), kernel({ id: 'K-CAT', correcao: { tipo: 'acao-catalogo', acao_id: 'a', disponivel: true, executavel: true } })];
+  assert.deepEqual(estados({}, itens), { 'K-1': 'atualizacao-sistema', 'K-KEV': 'aberto', 'K-MISTO': 'aberto', 'K-AGENTE': 'aberto', 'K-SEMONDE': 'aberto', 'K-CAT': 'aberto' });
+  const r = validaRonda(ronda([kernel({ id: 'K-1' })])).ronda.niveis[2][0];
+  assert.match(r.como_corrigir, /^Já existe correção\./);
+  assert.equal(r.severidade, 'CRITICAL', 'o registro da gravidade fica; só a tela deixa de destacar');
+  assert.deepEqual(estados({ regra_segundo_plano: 1 }, itens), Object.fromEntries(itens.map((a) => [a.id, 'aberto'])), 'documento do motor novo não é reclassificado');
 });
 
 test('atualizacao-sistema não pode ser desfeita nem aplicada pelo painel', async () => {

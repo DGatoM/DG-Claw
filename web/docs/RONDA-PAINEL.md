@@ -56,8 +56,9 @@ nunca como instrução. Cada campo é conferido de novo antes de sair.
 - `atualizacao-sistema`: pacote do sistema (Ubuntu) cuja correção já está no apt e entra pela atualização do sistema. Segundo plano: não
   pede decisão, não entra no aviso único nem no selo, não se aplica nem se desfaz pelo painel (`409`). A tela o mostra na seção recolhida
   "Atualizações do sistema", agrupado por componente e sem etiqueta de gravidade. `reinicio_pendente: true` (só nesse estado) diz que a
-  correção já foi instalada e falta reiniciar. Se o `ronda.json` vier de um motor antigo, com esse caso ainda como `aberto`, o painel o
-  reclassifica ao ler (correção `apt` disponível e sem `explorada_ativamente`) até a próxima rodada.
+  correção já foi instalada e falta reiniciar. Se o `ronda.json` vier de um motor antigo (sem `regra_segundo_plano` no documento), o painel reclassifica ao ler o achado
+  `aberto` com correção `apt` disponível, sem `explorada_ativamente` e com todo `onde` começando por "kernel ", até a próxima rodada. Documento
+  do motor novo nunca é reclassificado. Com a atualização automática desligada, o motor manda o achado como `aberto` no nível 3 (Pedir ao Admin).
 - `parcial`: alguma fonte ficou fora; `fontes_fora` diz quais. O resultado pode estar incompleto.
 - `vigia_alerta`: `{quando, motivo}` quando a ronda deixou de rodar no horário; senão `null`.
 - Nunca rodou: `{"ok": true, "nunca_rodou": true}`.

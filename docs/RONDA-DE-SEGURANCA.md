@@ -171,16 +171,30 @@ também conta. Se alguém voltar a configuração, a falha volta a pedir ação.
 ## Atualizações do sistema (segundo plano)
 
 Falha de um pacote do sistema (o kernel Linux, o openssl e afins, os pacotes Ubuntu do `dpkg`) que **já tem correção** no `apt` deste
-servidor não é alarme. A correção entra sozinha pela atualização automática do Ubuntu (`unattended-upgrades`), ou na próxima atualização
-do sistema. Por isso a ronda a coloca no estado **Atualização do sistema**:
+servidor nunca aparece como crítica nem em destaque. A ronda só conta como "do sistema" quando o apt confirma que **todos** os pacotes
+afetados têm versão corrigida disponível; sem essa confirmação (por exemplo, o `apt-cache` falhou), a falha segue as regras de sempre.
+O destino depende de a atualização automática estar ligada, o que a ronda lê na configuração efetiva (`apt-config dump`: o
+`unattended-upgrade` instalado, `APT::Periodic::Unattended-Upgrade` diferente de `"0"` e `APT::Periodic::Enable` diferente de `"0"`):
+
+- **Atualização automática ligada:** a correção entra sozinha pela atualização do Ubuntu. A falha vai para o estado **Atualização do
+  sistema**, descrito abaixo.
+- **Desligada, ou a ronda não conseguiu saber:** a correção depende de alguém atualizar. A falha fica `aberta`, no nível 3 (sem pressa,
+  fora do aviso de risco e do selo), com o texto "Já existe correção. Ela entra na próxima atualização do sistema (sudo apt-get update
+  && sudo apt-get upgrade), ou peça ao Admin." e o botão de pedir ao Admin.
+
+O estado **Atualização do sistema** (segundo plano) funciona assim:
 
 - aparece só na seção recolhida "Atualizações do sistema" da tela Segurança, agrupada por componente (por exemplo, "Kernel Linux: 12
   correções na fila da atualização do sistema"), sem etiqueta de gravidade e sem cor de alerta;
 - não entra no aviso "Seu ambiente está em risco", no selo, na contagem de pontos em risco nem no recado ao Admin;
-- o texto diz se a atualização automática está ligada ("entra sozinha na atualização automática do Ubuntu") ou não ("entra na próxima
-  atualização do sistema, ou peça ao Admin");
-- no kernel, se a correção já foi instalada e o servidor só precisa reiniciar (`/var/run/reboot-required`), o cartão avisa que ela passa a
-  valer no próximo reinício, como informação, sem pressa;
+- o texto diz "Já existe correção. Ela entra sozinha na atualização automática do Ubuntu; nada a fazer agora.";
+- no kernel, se existe uma imagem de kernel instalada (da mesma série e variante do kernel em execução) com a versão corrigida e o
+  servidor pede reinício (`/var/run/reboot-required`), o cartão avisa que a correção já foi instalada e vale no próximo reinício, como
+  informação, sem pressa. O arquivo `reboot-required` sozinho não basta, e esse caso fica no segundo plano mesmo com a atualização
+  automática desligada;
+- se a CISA (lista KEV) não responder numa rodada, a ronda mantém a marca "explorada" que já tinha guardado e só rebaixa quando a lista
+  responde e a falha não consta mais;
+- no `ronda.json`, o segundo plano vai para o fim da lista antes do corte de 80 achados, para nunca empurrar para fora uma falha que pede ação;
 - a ronda reavalia a cada rodada, e a falha some sozinha quando o pacote é atualizado.
 
 Continuam em destaque, pedindo decisão, as falhas que a CISA diz estar sendo exploradas (lista KEV) e as que dependem de uma ação do
