@@ -172,8 +172,9 @@ também conta. Se alguém voltar a configuração, a falha volta a pedir ação.
 
 Falha de um pacote do sistema (o kernel Linux, o openssl e afins, os pacotes Ubuntu do `dpkg`) que **já tem correção** no `apt` deste
 servidor nunca aparece como crítica nem em destaque. A ronda só trata a falha como "do sistema" quando o apt confirma que **todos** os
-pacotes afetados têm versão corrigida disponível (sem cortar a lista de binários e, no kernel, olhando só os metapacotes de imagem,
-não os de cabeçalhos ou ferramentas). Sem essa confirmação (por exemplo, o `apt-cache` falhou), a falha segue as regras de sempre.
+pacotes afetados têm versão corrigida disponível (sem cortar a lista de binários; só o kernel em execução se confere por metapacotes,
+e só pelos de imagem da mesma variante do `uname -r`, então um `linux-image-aws` não prova nada num kernel `generic`, e um
+`linux-headers-*` nunca prova; um pacote que só começa com "linux", como o `linuxptp`, confere os próprios binários). Sem essa confirmação (por exemplo, o `apt-cache` falhou), a falha segue as regras de sempre.
 Com ela, a falha vai para o estado **Atualização do sistema** (segundo plano):
 
 - aparece só na seção recolhida "Atualizações do sistema" da tela Segurança, agrupada por componente (por exemplo, "Kernel Linux: 12
@@ -185,17 +186,21 @@ Com ela, a falha vai para o estado **Atualização do sistema** (segundo plano):
   sistema (e reiniciar, no kernel), com o botão Pedir ao Admin no cartão. O achado entra no recado ao Admin uma vez, sem contar como
   ponto em risco;
 - a ronda reavalia a cada rodada, e a falha some sozinha quando o pacote é atualizado;
-- no `ronda.json`, o segundo plano vai para o fim da lista antes do corte de 80 achados, para nunca empurrar para fora uma falha que pede ação.
+- no `ronda.json`, só o que não pede nada (automática confirmada e os "aguardando") vai para o fim da lista antes do corte de 80 achados;
+  o que precisa ser pedido ao Admin entra junto dos abertos. `dgclaw seguranca estado` conta `atualizacoes_sistema: {total, manuais}` e diz
+  quantas precisam ser pedidas ao Admin;
 
 A atualização automática só vale como confirmada quando as quatro condições são verdadeiras, todas lidas no próprio servidor, sem rede:
 o `unattended-upgrade` está instalado; `apt-config dump` mostra `APT::Periodic::Unattended-Upgrade` diferente de `"0"` e
 `APT::Periodic::Enable` diferente de `"0"`; a lista `Unattended-Upgrade::Package-Blacklist` está vazia (uma lista com itens poderia segurar
-justamente o pacote afetado); e `systemctl is-enabled apt-daily-upgrade.timer` responde `enabled`. Qualquer erro ou ausência vale como não
-confirmada.
+justamente o pacote afetado); `systemctl is-enabled apt-daily-upgrade.timer` responde `enabled` e `systemctl is-active apt-daily-upgrade.timer` responde `active`. Além
+disso, se `apt-mark showhold` (uma consulta por rodada) lista algum pacote, binário ou metapacote de imagem da própria falha, aquela falha fica sem a
+confirmação. Qualquer erro ou ausência vale como não confirmada. Sem a CISA respondendo e sem marca guardada, a falha nem vai para segundo
+plano: fica aberta, como antes.
 
 Continuam em destaque, pedindo decisão, as falhas que a CISA diz estar sendo exploradas (lista KEV) e as que dependem de uma ação do
 catálogo ou de atualizar o DG Claw. Se a CISA não responder numa rodada, a ronda mantém a marca "explorada" que já tinha guardada e só
-rebaixa quando a lista responde e a falha não consta mais. Uma falha que vira KEV depois de já avisada gera um recado novo. Falha de
+rebaixa quando a lista responde e a falha não consta mais. Um achado reapresentado de uma rodada anterior (fonte fora) que estava em segundo plano e entra na lista KEV volta a aberto, nível 2, com recado novo. Uma falha que vira KEV depois de já avisada gera um recado novo. Falha de
 pacote que não é do sistema (npm, Python, um agente) segue as regras de sempre.
 
 ## Como desligar ou mudar os horários

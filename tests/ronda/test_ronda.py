@@ -1555,11 +1555,13 @@ class Paliativos(Base):
             self.assertEqual(S["recados"], [], "automática ligada: fora do recado")
             e = json.loads(self.ronda("estado", "--json").stdout)
             self.assertEqual(e["niveis"], {"1": 0, "2": 0, "3": 0})
-            self.assertEqual(e["atualizacoes_sistema"], {"total": 1})
+            self.assertEqual(e["atualizacoes_sistema"], {"total": 1, "manuais": 0})
             res = self.ronda("resumo", "--todos").stdout
             self.assertIn("ATUALIZAÇÕES DO SISTEMA (entram sozinhas)", res)
             self.assertNotIn("AÇÃO NECESSÁRIA", res)
-            self.assertIn("Atualizações do sistema na fila: 1", self.ronda("estado").stdout)
+            txt = self.ronda("estado").stdout
+            self.assertIn("Atualizações do sistema na fila: 1 falha(s)", txt)
+            self.assertIn("Nada a fazer agora", txt)
 
     def test_pacote_que_nao_e_kernel_nao_fala_de_reinicio(self):
         S["osv_paginas"][f"{ECO}|openssl|3.0.13-0ubuntu3.4"] = [["UBUNTU-CVE-2026-77777"]]
@@ -1576,12 +1578,18 @@ class Paliativos(Base):
         casos = {"unattended 0": lambda: self.liga_atualizacao_automatica("0"),
                  "Enable 0 com unattended 1": lambda: self.liga_atualizacao_automatica("1", enable="0"),
                  "timer masked": lambda: self.liga_atualizacao_automatica(timer="masked"),
+                 "timer enabled mas parado": lambda: (self.liga_atualizacao_automatica(), self.escreve(os.path.join(self.stub, "inativo-apt-daily-upgrade.timer"), "")),
+                 "pacote retido (apt-mark hold)": lambda: (self.liga_atualizacao_automatica(), self.escreve(os.path.join(self.stub, "apt-mark-hold.txt"), "linux-image-virtual\n")),
+                 "apt-mark falhou": lambda: (self.liga_atualizacao_automatica(), self.escreve(os.path.join(self.stub, "apt-mark-falha"), "")),
                  "blacklist com item": lambda: self.liga_atualizacao_automatica(blacklist=["linux-image-.*"]),
                  "apt-config falhou": lambda: (self.liga_atualizacao_automatica(), os.unlink(os.path.join(self.stub, "apt-config.txt"))),
                  "sem o unattended-upgrade": lambda: self.escreve(os.path.join(self.stub, "apt-config.txt"), 'APT::Periodic::Unattended-Upgrade "1";\n')}
         for nome, prepara in casos.items():
             S["recados"].clear()
             self.extra_env.pop("DGCLAW_RONDA_UNATTENDED_BIN", None)
+            for resto in ("inativo-apt-daily-upgrade.timer", "apt-mark-hold.txt", "apt-mark-falha"):
+                if os.path.exists(os.path.join(self.stub, resto)):
+                    os.unlink(os.path.join(self.stub, resto))
             self.prepara_kernel_com_correcao_no_apt("critical")
             prepara()
             # rodada nova a cada caso: o registro do caso anterior não pode mascarar o recado
@@ -1600,7 +1608,10 @@ class Paliativos(Base):
             self.assertEqual(len(S["recados"]), 1, f"{nome}: o recado sai uma vez só")
             e = json.loads(self.ronda("estado", "--json").stdout)
             self.assertEqual(e["niveis"], {"1": 0, "2": 0, "3": 0}, f"{nome}: não conta como ponto em risco")
-            self.assertEqual(e["atualizacoes_sistema"], {"total": 1}, nome)
+            self.assertEqual(e["atualizacoes_sistema"], {"total": 1, "manuais": 1}, nome)
+            txt = self.ronda("estado").stdout
+            self.assertIn("1 precisam ser pedidas ao Admin", txt, nome)
+            self.assertNotIn("Nada a fazer agora", txt.split("Atualizações do sistema na fila")[1].split("\n")[0], nome)
 
     def test_apt_sem_confirmacao_positiva_continua_aberto(self):
         self.vuln_kernel("6.8.0-149.149")   # sem o stub do apt-cache: "não deu para saber"
@@ -1662,6 +1673,87 @@ class Paliativos(Base):
         self.assertEqual(len(S["recados"]), 2, "passou a ser explorada: recado de novo")
         self.ronda("executar")
         self.assertEqual(len(S["recados"]), 2, "e só uma vez")
+
+    def test_kev_indisponivel_sem_marca_guardada_deixa_o_achado_aberto(self):
+        self.prepara_kernel_com_correcao_no_apt("critical")
+        self.liga_atualizacao_automatica()
+        S["fora"].add("kev")
+        self.ronda("executar", "--sem-avisar")
+        a = self.achado(self.ID)
+        self.assertEqual((a["estado"], a["nivel"]), ("aberto", 2), "sem saber se é explorada, não vai para segundo plano")
+        S["fora"].discard("kev")
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(self.ID)["estado"], "atualizacao-sistema", "com a CISA respondendo, vai")
+
+    def test_segundo_plano_reapresentado_que_entra_na_kev_volta_a_aberto_e_avisa(self):
+        self.prepara_kernel_com_correcao_no_apt("critical")
+        self.liga_atualizacao_automatica()
+        self.ronda("executar")
+        self.assertEqual(self.achado(self.ID)["estado"], "atualizacao-sistema")
+        self.assertEqual(S["recados"], [])
+        S["osv_paginas"].clear()       # o achado não é mais visto, e a fonte HN fora faz a ronda reapresentar o registro anterior
+        S["fora"].add("hn")
+        S["kev"] = [{"cveID": "CVE-2026-98432", "dateAdded": "2026-10-20"}]
+        self.ronda("executar")
+        a = self.achado(self.ID)
+        self.assertEqual((a["estado"], a["nivel"], a["explorada_ativamente"]), ("aberto", 2, True))
+        self.assertNotIn("automatica", a)
+        self.assertEqual(len(S["recados"]), 1)
+        self.assertIn(self.ID, S["recados"][0]["text"])
+        self.assertTrue(self.estado_do_registro()["achados"][self.ID]["kev"])
+
+    def test_pacote_retido_deixa_automatica_falsa_so_para_o_achado_dele(self):
+        S["osv_paginas"][f"{ECO}|openssl|3.0.13-0ubuntu3.4"] = [["UBUNTU-CVE-2026-77777"]]
+        S["osv_vulns"]["UBUNTU-CVE-2026-77777"] = reg_ubuntu("UBUNTU-CVE-2026-77777", "CVE-2026-77777", "openssl", "3.0.13-0ubuntu3.6", prio="critical")
+        self.escreve(os.path.join(self.stub, "apt_candidatos.txt"), "openssl\t3.0.13-0ubuntu3.6\n")
+        self.liga_atualizacao_automatica()
+        self.escreve(os.path.join(self.stub, "apt-mark-hold.txt"), "caddy\n")
+        self.ronda("executar", "--sem-avisar")
+        self.assertIs(self.achado("UBUNTU-CVE-2026-77777")["automatica"], True)
+        self.escreve(os.path.join(self.stub, "apt-mark-hold.txt"), "caddy\nopenssl\n")
+        self.ronda("executar", "--sem-avisar")
+        self.assertIs(self.achado("UBUNTU-CVE-2026-77777")["automatica"], False)
+
+    def test_pacote_que_so_comeca_com_linux_confere_os_proprios_binarios(self):
+        vid = "UBUNTU-CVE-2026-44445"
+        with open(os.path.join(self.stub, "dpkg.txt"), "a", encoding="utf-8") as f:
+            f.write("linuxptp\t3.1\tlinuxptp\t3.1\n")
+        S["osv_paginas"][f"{ECO}|linuxptp|3.1"] = [[vid]]
+        S["osv_vulns"][vid] = reg_ubuntu(vid, "CVE-2026-44445", "linuxptp", "3.2", prio="critical")
+        self.meta("6.8.0-149.149", nome="linux-image-generic")   # candidato de kernel que NÃO prova nada sobre o linuxptp
+        self.liga_atualizacao_automatica()
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(vid)["estado"], "aberto")
+        with open(os.path.join(self.stub, "apt_candidatos.txt"), "a", encoding="utf-8") as f:
+            f.write("linuxptp\t3.2\n")
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(vid)["estado"], "atualizacao-sistema")
+
+    def test_metapacote_de_outra_variante_de_kernel_nao_prova_a_imagem_em_execucao(self):
+        S["osv_paginas"][f"{ECO}|linux|6.8.0-147.153"] = [[self.ID]]
+        S["osv_vulns"][self.ID] = reg_ubuntu(self.ID, "CVE-2026-98432", "linux", "6.8.0-149.149", prio="critical")
+        self.liga_atualizacao_automatica()
+        self.meta("6.8.0-149.149", nome="linux-image-aws")   # o kernel em execução é o -generic
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(self.ID)["estado"], "aberto")
+        self.meta("6.8.0-149.149", nome="linux-image-virtual")   # virtual vale para o generic
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(self.ID)["estado"], "atualizacao-sistema")
+
+    def test_no_corte_de_80_a_atualizacao_manual_entra_junto_dos_abertos(self):
+        ids = [f"UBUNTU-CVE-2026-{60000 + n}" for n in range(80)]
+        S["osv_paginas"][f"{ECO}|openssl|3.0.13-0ubuntu3.4"] = [ids]
+        for n, vid in enumerate(ids):
+            S["osv_vulns"][vid] = reg_ubuntu(vid, f"CVE-2026-{60000 + n}", "openssl", "3.0.13-0ubuntu3.6", prio="critical")
+        self.escreve(os.path.join(self.stub, "apt_candidatos.txt"), "openssl\t3.0.13-0ubuntu3.6\n")
+        self.prepara_kernel_com_correcao_no_apt("high")
+        self.escreve(os.path.join(self.stub, "apt-mark-hold.txt"), "linux-image-virtual\n")   # só o kernel fica manual
+        self.liga_atualizacao_automatica()
+        self.ronda("executar", "--sem-avisar")
+        achados = self.json_ronda()["achados"]
+        self.assertEqual(len(achados), 80)
+        self.assertEqual(achados[0]["id"], self.ID, "a manual (HIGH) vem antes das 80 automáticas (CRITICAL)")
+        self.assertIs(achados[0]["automatica"], False)
 
     def test_dois_pacotes_afetados_so_um_corrigido_continua_aberto(self):
         vid = "UBUNTU-CVE-2026-66666"

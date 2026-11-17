@@ -2,7 +2,8 @@
 echo "systemctl $*" >>"$STUB_DIR/chamadas.log"
 if [ "$1" = "is-active" ]; then
     u="${!#}"
-    [ -f "$STUB_DIR/inativo-$u" ] && exit 3
+    [ -f "$STUB_DIR/inativo-$u" ] && { echo inactive; exit 3; }
+    echo active
 fi
 if [ "$1" = "is-enabled" ]; then
     u="${!#}"

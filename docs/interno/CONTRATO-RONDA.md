@@ -160,11 +160,12 @@ definitiva por `acao_do_catalogo`.
 
 **Estado `atualizacao-sistema` (segundo plano).** Falha só de pacotes Ubuntu (dpkg, kernel e afins) cuja correção o apt deste servidor
 já oferece, **confirmado para todos os pacotes afetados** (`correcao.tipo == "apt"`, `disponivel`; candidato do apt >= corrigida em cada
-binário, sem corte da lista; no kernel, em algum metapacote de imagem: `linux-image-*`, `linux-generic`, `linux-virtual` e afins, nunca
-`linux-headers-*` nem `linux-tools-*`), sem ação do catálogo e sem `explorada_ativamente`. Fica fora do aviso único, do selo e da contagem
-por nível (que, como em `aguardando_correcao`, ganha um campo próprio em `dgclaw seguranca estado`: `atualizacoes_sistema: {"total"}`).
+binário, sem corte da lista; só o kernel em execução (`kernel_em_execucao`) se confere por algum metapacote de imagem da variante do `uname -r`:
+`generic` aceita `linux-(image-)generic` e `linux-(image-)virtual` e as séries `-hwe-*`, as outras variantes só o mesmo sufixo, nunca
+`linux-headers-*` nem `linux-tools-*`; pacote que só começa com "linux" confere os próprios binários), sem ação do catálogo e sem `explorada_ativamente`. Fica fora do aviso único, do selo e da contagem
+por nível (que, como em `aguardando_correcao`, ganha um campo próprio em `dgclaw seguranca estado`: `atualizacoes_sistema: {"total", "manuais"}` (manuais = `automatica` falso)).
 Vale para os níveis 2 e 3; `nivel` e `severidade` ficam como o motor calculou, só para registro, e a tela não mostra gravidade nem cor de
-alerta. O segundo plano vai para o fim da lista antes do corte de 80 achados. Não é desfazível nem aplicável pelo painel (`409`), e não é
+alerta. Antes do corte de 80 achados, vão para o fim da lista só os `aguardando` e os de `automatica: true`. Não é desfazível nem aplicável pelo painel (`409`), e não é
 "tratado": segue reavaliado a cada rodada e some quando o pacote é atualizado.
 
 O contrato traz o campo `automatica: true|false`:
@@ -178,8 +179,8 @@ O contrato traz o campo `automatica: true|false`:
 
 A atualização automática é "confirmada" só com as quatro condições: `unattended-upgrade` instalado; `apt-config dump` com
 `APT::Periodic::Unattended-Upgrade` diferente de `"0"` e `APT::Periodic::Enable` diferente de `"0"`; `Unattended-Upgrade::Package-Blacklist`
-vazia; e `systemctl is-enabled apt-daily-upgrade.timer` igual a `enabled`. Erro ou ausência vale como não confirmada.
+vazia; e `systemctl is-enabled apt-daily-upgrade.timer` igual a `enabled` com `is-active` igual a `active`. Pacote da falha retido (`apt-mark showhold`) deixa `automatica` falso. Erro ou ausência vale como não confirmada. Sem a fonte KEV respondendo e sem marca guardada, o achado nem entra neste estado (fica `aberto`).
 
 **KEV.** O KEV continua `aberto`, em destaque. A marca KEV confirmada fica no registro do achado (`kev`); se a fonte KEV não respondeu na
 rodada, vale a guardada (registro antigo, só com `ultimo.explorada_ativamente`, migra para ela) e só se rebaixa quando a fonte responde e
-não lista mais. Achado que vira KEV depois de já avisado tem `avisado_em` zerado, e o Admin recebe um recado novo.
+não lista mais. Achado que vira KEV depois de já avisado tem `avisado_em` zerado, e o Admin recebe um recado novo. O mesmo vale para o achado reapresentado do estado anterior (fonte fora) que estava em `atualizacao-sistema` e passa a constar na lista KEV: volta a `aberto`, nível 2, `explorada_ativamente`.

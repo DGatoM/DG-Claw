@@ -2212,6 +2212,23 @@ def kev_guardado(reg):
     return None
 
 
+def promove_se_kev(aid, reg, kev, t0):
+    """Achado reapresentado do estado anterior (fonte fora ou cobertura incompleta) que estava em segundo plano, mas cujo id aparece
+    agora na lista KEV (CISA respondendo): volta a `aberto`, nível 2, explorado, e o recado sai de novo."""
+    ultimo = reg["ultimo"]
+    if ultimo.get("estado") != ESTADO_ATUALIZACAO:
+        return ultimo
+    ids = {x.upper() for x in ids_do_registro(aid, reg)} | {str(x).upper() for x in ultimo.get("aliases") or []}
+    cve = next((c for c in sorted(ids) if c in kev), None)
+    if not cve:
+        return ultimo
+    o = dict(ultimo, estado="aberto", nivel=2, explorada_ativamente=True,
+             como_corrigir="Esta falha está sendo explorada por criminosos e a correção já existe: peça ao Admin para atualizar o sistema agora.")
+    o.pop("automatica", None)
+    reg.update(kev={"cve": cve, "dateAdded": kev[cve].get("dateAdded")}, avisado_em=None, estado_contrato="aberto", ultimo=o)
+    return o
+
+
 def critico(a):
     """Crítico = KEV, ou CRITICAL/HIGH confirmado com versão casada (Ubuntu sem correção só se CRITICAL, exceto kernel em
     execução ou pacote exposto à rede, onde a prioridade high do Ubuntu já basta).
@@ -2281,6 +2298,12 @@ def binarios_para_apt(af):
     return af.get("binarios_apt") or af.get("binarios") or []
 
 
+def via_metapacote(af):
+    """Só o kernel em execução se confere pelos metapacotes. Pacote que apenas começa com "linux" (linuxptp, linux-firmware...)
+    tem os próprios binários para conferir."""
+    return bool(af.get("kernel_em_execucao"))
+
+
 def pacotes_para_apt(achados, inv):
     """Os nomes que valem a pena perguntar ao apt: metapacotes de kernel (achados de kernel) e binários (os outros)."""
     nomes = set()
@@ -2289,7 +2312,7 @@ def pacotes_para_apt(achados, inv):
             continue
         for af in a["afetados"]:
             if af.get("corrigida"):
-                nomes.update((inv.get("metapacotes_kernel") or []) if eh_kernel(af) else binarios_para_apt(af))
+                nomes.update((inv.get("metapacotes_kernel") or []) if via_metapacote(af) else binarios_para_apt(af))
     return nomes
 
 
@@ -2301,7 +2324,7 @@ def apt_instalavel(a, cand, inv):
         corrigida = af.get("corrigida")
         if not corrigida:
             continue
-        kernel = eh_kernel(af)
+        kernel = via_metapacote(af)
         nomes = (inv.get("metapacotes_kernel") or []) if kernel else binarios_para_apt(af)
         vers = [cand[n] for n in nomes if cand.get(n)]
         if kernel:
@@ -2314,12 +2337,26 @@ def apt_instalavel(a, cand, inv):
     return False
 
 
-RX_META_IMAGEM = re.compile(r"^(linux-image-.+|linux-(generic|virtual|lowlatency|aws|gcp|azure|oracle|kvm|oem|raspi|ibm|gke|gkeop|nvidia)(-hwe-[0-9.]+(-edge)?)?)$")
+RX_VARIANTE_KERNEL = re.compile(r"^\d+\.\d+\.\d+-\d+-(.+)$")
 
 
 def metapacotes_de_imagem(inv):
-    """Só os metapacotes que puxam a IMAGEM do kernel: o linux-headers-* e o linux-tools-* não provam que o kernel novo vem junto."""
-    return [n for n in (inv.get("metapacotes_kernel") or []) if RX_META_IMAGEM.match(n) and not re.search(r"headers|tools", n)]
+    """Só os metapacotes que puxam a IMAGEM do kernel em execução, na variante dele (o sufixo do `uname -r`). O `generic` aceita
+    linux-(image-)generic e linux-(image-)virtual (e as séries -hwe-*); as demais variantes (aws, gcp, azure...) só o mesmo sufixo.
+    linux-headers-* e linux-tools-* não provam que o kernel novo vem junto."""
+    m = RX_VARIANTE_KERNEL.match(inv.get("kernel") or "")
+    if not m:
+        return []
+    aceitos = {"generic", "virtual"} if m.group(1) == "generic" else {m.group(1)}
+    saida = []
+    for n in inv.get("metapacotes_kernel") or []:
+        if not n.startswith("linux-") or re.search(r"headers|tools", n):
+            continue
+        base = re.sub(r"^linux-(image-)?", "", n)
+        base = re.sub(r"(-hwe-[0-9.]+)?(-edge)?$", "", base)
+        if base in aceitos:
+            saida.append(n)
+    return saida
 
 
 def apt_todos_instalaveis(a, cand, inv):
@@ -2330,7 +2367,7 @@ def apt_todos_instalaveis(a, cand, inv):
         return False
     for af in a["afetados"]:
         corrigida = af["corrigida"]
-        if eh_kernel(af):
+        if via_metapacote(af):
             vers = [normaliza_meta(cand[n]) for n in metapacotes_de_imagem(inv) if cand.get(n)]
             if not any(cmp_dpkg(v, corrigida) >= 0 for v in vers):
                 return False
@@ -2839,14 +2876,16 @@ def atualizacao_automatica_confirmada():
     """True só quando as quatro condições valem, todas lidas localmente e sem rede: o unattended-upgrade está instalado;
     `apt-config dump` mostra APT::Periodic::Unattended-Upgrade diferente de "0", APT::Periodic::Enable diferente de "0" e nenhum
     item em Unattended-Upgrade::Package-Blacklist (uma lista não vazia pode segurar justamente o pacote afetado, então a ronda não
-    tenta casar padrão); e o apt-daily-upgrade.timer está `enabled` no systemd. Erro ou ausência: False (não confirmada)."""
+    tenta casar padrão); e o apt-daily-upgrade.timer está `enabled` e `active` no systemd. Erro ou ausência: False (não confirmada)."""
     if not os.path.exists(os.environ.get("DGCLAW_RONDA_UNATTENDED_BIN") or P("usr/bin/unattended-upgrade")):
         return False
     try:
         r = cmd([os.environ.get("DGCLAW_RONDA_APT_CONFIG") or "apt-config", "dump"], timeout=10)
         if r.returncode != 0:
             return False
-        t = cmd([os.environ.get("DGCLAW_RONDA_SYSTEMCTL") or "systemctl", "is-enabled", "apt-daily-upgrade.timer"], timeout=10)
+        sysctl = os.environ.get("DGCLAW_RONDA_SYSTEMCTL") or "systemctl"
+        t = cmd([sysctl, "is-enabled", "apt-daily-upgrade.timer"], timeout=10)
+        ativo = cmd([sysctl, "is-active", "apt-daily-upgrade.timer"], timeout=10)
     except ErroRonda:
         return False
     valores, blacklist = {}, False
@@ -2856,7 +2895,30 @@ def atualizacao_automatica_confirmada():
         else:
             valores[m.group(1)] = m.group(2)
     return (valores.get("APT::Periodic::Unattended-Upgrade", "0") != "0" and valores.get("APT::Periodic::Enable", "1") != "0"
-            and not blacklist and t.stdout.strip() == "enabled")
+            and not blacklist and t.stdout.strip() == "enabled" and ativo.stdout.strip() == "active")
+
+
+def apt_retidos():
+    """Pacotes retidos (`apt-mark showhold`, uma consulta por rodada), ou None se não deu para saber."""
+    try:
+        r = cmd([os.environ.get("DGCLAW_RONDA_APT_MARK") or "apt-mark", "showhold"], timeout=10)
+    except ErroRonda:
+        return None
+    return set(r.stdout.split()) if r.returncode == 0 else None
+
+
+def tem_pacote_retido(a, inv, retidos):
+    """True se algum pacote, binário ou metapacote de imagem do achado está retido (ou se não deu para saber): a atualização
+    automática não o atualizaria."""
+    if retidos is None:
+        return True
+    nomes = set()
+    for af in a["afetados"]:
+        nomes.add(af.get("pacote"))
+        nomes.update(binarios_para_apt(af))
+        if via_metapacote(af):
+            nomes.update(metapacotes_de_imagem(inv))
+    return bool(nomes & retidos)
 
 
 def e_atualizacao_de_sistema(a, ac, corr):
@@ -3148,7 +3210,8 @@ def conta_niveis(achados):
 
 def conta_atualizacoes(achados):
     """{'total': falhas com correção já no apt (segundo plano)}."""
-    return {"total": sum(1 for a in achados if a.get("estado") == ESTADO_ATUALIZACAO)}
+    fila = [a for a in achados if a.get("estado") == ESTADO_ATUALIZACAO]
+    return {"total": len(fila), "manuais": sum(1 for a in fila if a.get("automatica") is not True)}
 
 
 def conta_aguardando(achados):
@@ -3317,6 +3380,7 @@ def _rodada(cfg, sem_avisar):
             del reg_all[k]
         resultado, ja_nesta, vistos, omitidos_n3, aplicados_agora = [], [], set(), 0, []
         auto_ligada = atualizacao_automatica_confirmada()
+        retidos = apt_retidos() if auto_ligada else None
         kev_confirmado = status["CISA KEV"]["ok"] and not status["CISA KEV"].get("desligada")
         ordem = sorted(elegiveis, key=lambda x: (-ORDEM_SEV[x["severidade"]], x["id"]))
         for a in ordem:
@@ -3386,9 +3450,10 @@ def _rodada(cfg, sem_avisar):
                     estado = "protegido-aguardando"
                 elif not pal_oferta and not a.get("kev"):
                     estado = "aguardando-fornecedor"
-            if estado == "aberto" and e_atualizacao_de_sistema(a, ac, corr):
+            # sem a CISA respondendo e sem marca guardada, não dá para saber se a falha é explorada: fica aberta, como antes
+            if estado == "aberto" and (kev_confirmado or kev_antes) and e_atualizacao_de_sistema(a, ac, corr):
                 estado = ESTADO_ATUALIZACAO
-                a["automatica"] = auto_ligada
+                a["automatica"] = auto_ligada and not tem_pacote_retido(a, inv, retidos)
             if not (pal and pal["verificado"]):
                 reg.pop("paliativo_aplicado", None)   # alguém voltou a configuração: o que a ronda aplicou deixou de valer
             elif aplicado is None and reg.get("paliativo_aplicado") and isinstance(reg.get("aplicado"), dict):
@@ -3413,7 +3478,7 @@ def _rodada(cfg, sem_avisar):
                 continue
             sem_cobertura = origem_sem_cobertura(reg, incompletos)
             if (parcial_fontes or sem_cobertura) and reg.get("estado") in ("aberto", "agendado") and isinstance(reg.get("ultimo"), dict):
-                resultado.append(reg["ultimo"])
+                resultado.append(promove_se_kev(aid, reg, ctx["kev"] if kev_confirmado else {}, t0))
             elif sem_cobertura:
                 continue
             elif (reg.get("estado") in ("aberto", "agendado") and ctx["osv_por_pacote"] is not None
@@ -3446,8 +3511,8 @@ def _rodada(cfg, sem_avisar):
                 if reg.get("registro") and reg["estado"] in ESTADOS_TRATADOS:
                     item["registro"] = reg["registro"]
                 ja.append(item)
-        # o segundo plano vai para o fim: no corte de 80, ele nunca empurra para fora um achado que pede ação
-        resultado.sort(key=lambda o: (o["estado"] in ESTADOS_SEGUNDO_PLANO, o["nivel"], -ORDEM_SEV.get(o["severidade"], 0), o.get("publicado_em") or ""))
+        # vão para o fim o que não pede nada (aguardando e atualização automática confirmada): no corte de 80, nunca empurram para fora um achado que pede ação
+        resultado.sort(key=lambda o: (o["estado"] in ESTADOS_AGUARDANDO or (o["estado"] == ESTADO_ATUALIZACAO and o.get("automatica") is True), o["nivel"], -ORDEM_SEV.get(o["severidade"], 0), o.get("publicado_em") or ""))
         if len(resultado) > 80:
             omitidos_n3 += len(resultado) - 80
             resultado = resultado[:80]
@@ -4059,7 +4124,7 @@ def estado_cmd(como_json=False):
     est = ler_estado()
     t0 = agora()
     info = {"ronda_ligada": not ronda_desligada(), "aplicar_sozinha": aplicar_sozinha_ligado(), "horarios": horarios(), "proxima_em": iso(proxima_execucao(t0)),
-            "ultima_rodada": None, "parcial": None, "fontes_fora": [], "niveis": {"1": 0, "2": 0, "3": 0}, "aguardando_correcao": {"total": 0, "protegidos": 0}, "atualizacoes_sistema": {"total": 0, "reinicio": 0}, "ja_tratadas": 0, "ultimo_erro": limpa(est.get("ultimo_erro"), 300) or None,
+            "ultima_rodada": None, "parcial": None, "fontes_fora": [], "niveis": {"1": 0, "2": 0, "3": 0}, "aguardando_correcao": {"total": 0, "protegidos": 0}, "atualizacoes_sistema": {"total": 0, "manuais": 0}, "ja_tratadas": 0, "ultimo_erro": limpa(est.get("ultimo_erro"), 300) or None,
             "vigia_alerta": None, "inventario": None}
     if isinstance(r, dict) and r.get("rodada_em"):
         n = conta_niveis(r["achados"])
@@ -4083,8 +4148,12 @@ def estado_cmd(como_json=False):
         imprime(f"Achados: {n['1']} aplicado(s) sozinho (nível 1), {n['2']} pedem decisão (nível 2), {n['3']} para corrigir sem pressa (nível 3); {info['ja_tratadas']} já tratado(s).")
         if info["aguardando_correcao"]["total"]:
             imprime(f"Sem correção publicada para este servidor: {frase_aguardando(info['aguardando_correcao'])}. Nada a fazer agora; a ronda avisa quando a correção sair.")
-        if info["atualizacoes_sistema"]["total"]:
-            imprime(f"Atualizações do sistema na fila: {info['atualizacoes_sistema']['total']} falha(s) já com correção no apt, que entra pela atualização normal do sistema. Nada a fazer agora.")
+        at = info["atualizacoes_sistema"]
+        if at["manuais"]:
+            imprime(f"Atualizações do sistema na fila: {at['total']} falha(s) já com correção no apt. {at['manuais']} precisam ser pedidas ao Admin, "
+                    f"porque a atualização automática não está confirmada neste servidor; as outras entram sozinhas.")
+        elif at["total"]:
+            imprime(f"Atualizações do sistema na fila: {at['total']} falha(s) já com correção no apt, que entram sozinhas pela atualização automática. Nada a fazer agora.")
     imprime(f"Próxima rodada: {proxima_execucao(t0).strftime('%d/%m/%Y %H:%M')} (horários: {' '.join(info['horarios'])})")
     imprime(f"Aplicar sozinha o que for seguro: {'ligado' if info['aplicar_sozinha'] else 'DESLIGADO (DGCLAW_RONDA_APLICAR_SOZINHA=0)'}")
     if info["inventario"]:
