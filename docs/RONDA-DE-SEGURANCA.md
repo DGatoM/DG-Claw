@@ -148,8 +148,8 @@ versão corrigida já pode ser instalada. Se ainda não pode, a falha **não ass
 | **Aguardando correção do fornecedor** | não há correção nem proteção provisória conhecida | não |
 
 As duas ficam na seção recolhida "Aguardando correção oficial" da tela Segurança, só para informar. A ronda confere a cada
-rodada: quando o pacote corrigido aparece no apt, a falha volta para "Ação necessária" pedindo atualizar (e reiniciar, no kernel), e o Admin
-recebe o recado como de uma falha nova. Exceção: se a CISA diz que a falha está sendo explorada e não existe correção nem
+rodada: quando o pacote corrigido aparece no apt, a falha passa para "Atualizações do sistema" (veja abaixo), onde a correção entra sozinha
+pela atualização do Ubuntu. Exceção: se a CISA diz que a falha está sendo explorada e não existe correção nem
 proteção, ela continua em "Ação necessária", com a sugestão de considerar o botão de emergência.
 
 A **proteção provisória** é uma ação do catálogo marcada `"paliativo": true`, descrita em `seguranca/paliativos.json`. Se ela não
@@ -167,6 +167,24 @@ também conta. Se alguém voltar a configuração, a falha volta a pedir ação.
 3. Rode `tests/ronda/rodar.sh`: o catálogo é validado no carregamento. Um erro vira a fonte "Catálogo de paliativos" com falha na ronda,
    sem derrubar o resto.
 4. Para um tipo novo de verificação, acrescente a função em `VERIFICADORES` e os campos em `TIPOS_VERIFICA`, em `ronda.py`.
+
+## Atualizações do sistema (segundo plano)
+
+Falha de um pacote do sistema (o kernel Linux, o openssl e afins, os pacotes Ubuntu do `dpkg`) que **já tem correção** no `apt` deste
+servidor não é alarme. A correção entra sozinha pela atualização automática do Ubuntu (`unattended-upgrades`), ou na próxima atualização
+do sistema. Por isso a ronda a coloca no estado **Atualização do sistema**:
+
+- aparece só na seção recolhida "Atualizações do sistema" da tela Segurança, agrupada por componente (por exemplo, "Kernel Linux: 12
+  correções na fila da atualização do sistema"), sem etiqueta de gravidade e sem cor de alerta;
+- não entra no aviso "Seu ambiente está em risco", no selo, na contagem de pontos em risco nem no recado ao Admin;
+- o texto diz se a atualização automática está ligada ("entra sozinha na atualização automática do Ubuntu") ou não ("entra na próxima
+  atualização do sistema, ou peça ao Admin");
+- no kernel, se a correção já foi instalada e o servidor só precisa reiniciar (`/var/run/reboot-required`), o cartão avisa que ela passa a
+  valer no próximo reinício, como informação, sem pressa;
+- a ronda reavalia a cada rodada, e a falha some sozinha quando o pacote é atualizado.
+
+Continuam em destaque, pedindo decisão, as falhas que a CISA diz estar sendo exploradas (lista KEV) e as que dependem de uma ação do
+catálogo ou de atualizar o DG Claw. Falha de pacote que não é do sistema (npm, Python, um agente) segue as regras de sempre.
 
 ## Como desligar ou mudar os horários
 

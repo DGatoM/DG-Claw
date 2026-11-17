@@ -107,6 +107,32 @@ test('estados novos e o campo paliativo passam saneados; estado desconhecido con
   assert.equal(validaAchado(achado({ correcao: { tipo: 'acao-catalogo', acao_id: 'a', disponivel: true, executavel: true, paliativo: true } })).achado.correcao.paliativo, true);
 });
 
+test('atualizacao-sistema passa; reinicio_pendente só nesse estado; ronda antiga com apt disponível aberto é reclassificada, KEV não', () => {
+  const apt = { tipo: 'apt', disponivel: true, executavel: false, exige_reinicio: true };
+  const novo = validaAchado(achado({ estado: 'atualizacao-sistema', correcao: apt, reinicio_pendente: true })).achado;
+  assert.equal(novo.estado, 'atualizacao-sistema');
+  assert.equal(novo.reinicio_pendente, true);
+  assert.equal('reinicio_pendente' in validaAchado(achado({ reinicio_pendente: true })).achado, false);
+  const antigo = validaAchado(achado({ correcao: apt, severidade: 'CRITICAL' })).achado;
+  assert.equal(antigo.estado, 'atualizacao-sistema');
+  assert.match(antigo.como_corrigir, /^Já existe correção\./);
+  assert.equal(antigo.severidade, 'CRITICAL', 'o registro da gravidade fica; só a tela deixa de destacar');
+  assert.equal(validaAchado(achado({ correcao: apt, explorada_ativamente: true })).achado.estado, 'aberto');
+  assert.equal(validaAchado(achado()).achado.estado, 'aberto', 'ação do catálogo continua aberta');
+  assert.equal(validaAchado(achado({ correcao: { tipo: 'apt', disponivel: false } })).achado.estado, 'aberto');
+});
+
+test('atualizacao-sistema não pode ser desfeita nem aplicada pelo painel', async () => {
+  const w = await logado();
+  try {
+    gravaRonda(w, ronda([achado({ id: 'ATU-1', estado: 'atualizacao-sistema', correcao: { tipo: 'apt', disponivel: true } })]));
+    assert.equal((await w.c.post('/api/v1/seguranca/ronda/ATU-1/desfazer', { json: {} })).status, 409);
+    const ap = await w.c.post('/api/v1/seguranca/ronda/ATU-1/aplicar', { json: {} });
+    assert.equal(ap.status, 409);
+    assert.match(ap.json.erro, /entra pela atualização do sistema/);
+  } finally { await w.fechar(); }
+});
+
 test('validaRonda agrupa por nível, mais grave primeiro, e acusa os descartados', () => {
   const descartes = [];
   const r = validaRonda(ronda([
@@ -193,7 +219,7 @@ test('aplicar e agendar recusam correção não executável (409 explicando); co
   const w = await logado();
   try {
     gravaRonda(w, ronda([
-      achado({ id: 'USN-APT-1', correcao: { tipo: 'apt', disponivel: true, executavel: false } }),
+      achado({ id: 'USN-APT-1', explorada_ativamente: true, correcao: { tipo: 'apt', disponivel: true, executavel: false } }),
       achado({ id: 'GHSA-aaaa-bbbb-cccc' }),
     ]));
     const quando = new Date(Date.now() + 3600 * 1000).toISOString();

@@ -163,6 +163,41 @@ test('seção Aguardando correção oficial: frase de topo, proteção provisór
   assert.ok(!hostil.includes('<img') && !hostil.includes('<script>') && !hostil.includes('<i>ataque'));
 });
 
+const atualizacao = (extra) => achado(Object.assign({
+  id: 'KERNEL-1', estado: 'atualizacao-sistema', severidade: 'CRITICAL', componente: 'kernel Linux', correcao: { tipo: 'apt', disponivel: true, executavel: false, exige_reinicio: true },
+  como_corrigir: 'Já existe correção. Ela entra sozinha na atualização automática do Ubuntu; nada a fazer agora.',
+}, extra || {}));
+
+test('atualização do sistema: nunca é ponto em risco, sai das listas de decisão e não mostra gravidade', () => {
+  const ronda = { niveis: { 1: [], 2: [achado({ id: 'AAA-1' }), atualizacao()], 3: [atualizacao({ id: 'KERNEL-3', nivel: 3 })] } };
+  assert.deepEqual(R.criticasEmAberto(ronda, memoria(), AGORA, null).map((a) => a.id), ['AAA-1']);
+  assert.equal(R.segundoPlano(atualizacao()), true);
+  assert.equal(R.segundoPlano(esperando()), true);
+  assert.equal(R.segundoPlano(achado()), false);
+  assert.equal(R.aguardaCorrecao(atualizacao()), false, 'não é falha sem correção publicada');
+  assert.equal(R.estadoRotulo('atualizacao-sistema'), 'Atualização do sistema');
+  const h2 = T.listaNivelHtml(ronda.niveis[2], 2, AGORA);
+  assert.ok(h2.includes('AAA-1') && !h2.includes('KERNEL-1'));
+  assert.ok(T.listaNivelHtml(ronda.niveis[3], 3, AGORA).includes(T.VAZIO[3]));
+  assert.equal(R.podeAplicar(atualizacao()), false);
+  assert.equal(R.podePedirAoAdmin(atualizacao()), false);
+  assert.ok(!R.fatosHtml(atualizacao()).includes('Gravidade'));
+});
+
+test('seção Atualizações do sistema: uma linha por componente, texto calmo, reinício pendente, sem vermelho e tudo escapado', () => {
+  const h = T.listaAtualizacoesHtml([atualizacao(), atualizacao({ id: 'KERNEL-2', reinicio_pendente: true, como_corrigir: 'A correção já foi instalada e passa a valer no próximo reinício do servidor. Reinicie quando for conveniente.' }),
+    atualizacao({ id: 'SSL-1', componente: 'openssl' })], AGORA);
+  assert.ok(h.includes(T.FRASE_ATUALIZACOES));
+  assert.ok(h.includes('Kernel Linux: 2 correções na fila da atualização do sistema (1 já instalada, vale depois de reiniciar o servidor)'));
+  assert.ok(h.includes('Openssl: 1 correção na fila da atualização do sistema'));
+  assert.ok(h.includes('Já existe correção. Ela entra sozinha na atualização automática do Ubuntu; nada a fazer agora.'));
+  assert.match(h, /Reinício pendente/);
+  assert.ok(!/rp-grav-|rp-n2|data-rp=/.test(h), 'sem etiqueta de gravidade, sem cor de alerta, sem botão');
+  assert.equal(T.tituloAtualizacoes(3), 'Atualizações do sistema (3)');
+  assert.ok(T.listaAtualizacoesHtml([], AGORA).includes(T.VAZIO_ATUALIZACOES));
+  assert.ok(!T.listaAtualizacoesHtml([atualizacao({ nome_simples: '<img src=x onerror=1>', componente: '<script>x</script>' })], AGORA).includes('<img'));
+});
+
 test('oferta de paliativo no nível 2: botão de proteção provisória, sem aviso de reinício', () => {
   const a = achado({ correcao: { tipo: 'acao-catalogo', acao_id: 'sysctl-mptcp-off', exige_reinicio: false, disponivel: true, executavel: true, paliativo: true },
     paliativo: { id: 'm', descricao: 'd', efeito: 'Desliga o Multipath TCP.', verificado: false, verificado_em: null, acao_id: 'sysctl-mptcp-off' } });
@@ -276,7 +311,7 @@ test('tutorial: cada passo responde o que é / como é calculado / por que está
     }
   }
   assert.equal(T.passosPagina(null).length, Object.values(T.PASSOS).reduce((n, l) => n + l.length, 0));
-  for (const secao of ['topo', 'acao', 'sempressa', 'aplicado', 'emergencia', 'tratadas', 'inventario']) {
+  for (const secao of ['topo', 'acao', 'sempressa', 'atualizacoes', 'aplicado', 'emergencia', 'tratadas', 'inventario']) {
     assert.ok(html.includes(`data-secao="${secao}"`), `falta o ? da seção ${secao}`);
     assert.ok(T.PASSOS[secao], secao);
   }

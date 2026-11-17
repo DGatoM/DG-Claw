@@ -2200,7 +2200,9 @@ def tem_correcao(a):
 
 def critico(a):
     """Crítico = KEV, ou CRITICAL/HIGH confirmado com versão casada (Ubuntu sem correção só se CRITICAL, exceto kernel em
-    execução ou pacote exposto à rede, onde a prioridade high do Ubuntu já basta)."""
+    execução ou pacote exposto à rede, onde a prioridade high do Ubuntu já basta).
+    Esta função só diz o quanto a falha é grave. Quem decide se ela vai para o destaque é a rodada: falha de pacote do sistema
+    com correção pelo apt, que não é KEV, vira o estado `atualizacao-sistema` (segundo plano, fora do pop-up e do selo)."""
     if a.get("kev"):
         return True
     if a["severidade"] not in ("CRITICAL", "HIGH"):
@@ -2701,6 +2703,10 @@ def aplicar_acao(cfg, a_id, ac, por, exigir_saude_antes):
 ESTADOS_TRATADOS = ("aplicado-sozinho", "aplicado-pelo-dono", "mitigado")
 # Não são "tratados": o achado continua sendo reavaliado a cada rodada (a correção pode chegar ao apt, o paliativo pode ser desfeito).
 ESTADOS_AGUARDANDO = ("protegido-aguardando", "aguardando-fornecedor")
+# Pacote do sistema operacional que já tem correção no apt: entra sozinha pela atualização automática do Ubuntu (ou no próximo
+# reinício, no caso do kernel). Também fica reavaliado a cada rodada e some quando o pacote é atualizado. Não pede nada ao dono.
+ESTADO_ATUALIZACAO = "atualizacao-sistema"
+ESTADOS_SEGUNDO_PLANO = ESTADOS_AGUARDANDO + (ESTADO_ATUALIZACAO,)
 NIVEL3_FRASE = "Nova vulnerabilidade de impacto leve/médio. Sugestão: corrija o quanto antes; a correção já está pronta, é só dar o ok."
 
 
@@ -2780,6 +2786,45 @@ def resumo_curto(a, limite=200):
     return limpa(m.group(1) if m else r, limite)
 
 
+RX_UNATTENDED = re.compile(r'^\s*APT::Periodic::Unattended-Upgrade\s+"(\d+)"\s*;', re.M)
+
+
+def atualizacao_automatica_ligada():
+    """True: unattended-upgrades instalado e ligado em /etc/apt/apt.conf.d. False: desligado, ou não deu para saber (o texto é
+    o mesmo nos dois casos, sem alarme). Leitura local, sem rede."""
+    if not os.path.exists(os.environ.get("DGCLAW_RONDA_UNATTENDED_BIN") or P("usr/bin/unattended-upgrade")):
+        return False
+    pasta = os.environ.get("DGCLAW_RONDA_APT_CONF_D") or P("etc/apt/apt.conf.d")
+    ligado = False
+    try:
+        for nome in sorted(os.listdir(pasta)):
+            caminho = os.path.join(pasta, nome)
+            if not os.path.isfile(caminho):
+                continue
+            try:
+                with open(caminho, encoding="utf-8", errors="replace") as f:
+                    texto = re.sub(r"//.*", "", f.read())
+            except OSError:
+                continue
+            for m in RX_UNATTENDED.finditer(texto):
+                ligado = m.group(1) != "0"   # o último arquivo e a última linha valem, como no apt
+    except OSError:
+        return False
+    return ligado
+
+
+def reinicio_pendente():
+    return os.path.exists(os.environ.get("DGCLAW_RONDA_REBOOT_REQUIRED") or P("var/run/reboot-required"))
+
+
+def e_atualizacao_de_sistema(a, ac, corr):
+    """Falha só de pacotes Ubuntu (dpkg) cuja correção o apt deste servidor já oferece, sem ação do catálogo e sem exploração
+    ativa (KEV). A correção chega pelo canal normal do sistema; não é caso de decisão do dono."""
+    return (not a.get("kev") and not ac and bool(a["afetados"]) and corr["tipo"] == "apt" and corr["disponivel"]
+            and a.get("apt_instalavel") is not False
+            and all((af.get("eco") or "").startswith("Ubuntu") for af in a["afetados"]))
+
+
 def correcao_de(a, ac, boletim_ids):
     """`disponivel`: o fabricante já publicou a correção. `executavel`: o painel pode mandar o root aplicar sozinho,
     o que só vale para uma ação do catálogo (acao_do_achado recusa qualquer outra)."""
@@ -2831,6 +2876,12 @@ def texto_base_como_corrigir(a, corr, ac):
 
 def texto_como_corrigir(a, corr, ac, estado="aberto", pal=None):
     no_aviso = f" (O aviso cita a versão {corr['versao_no_aviso']}, que ainda não chegou ao apt deste servidor.)" if corr.get("versao_no_aviso") else ""
+    if estado == ESTADO_ATUALIZACAO:
+        if a.get("reinicio_pendente"):
+            return "A correção já foi instalada e passa a valer no próximo reinício do servidor. Reinicie quando for conveniente."
+        if a.get("atualizacao_automatica"):
+            return "Já existe correção. Ela entra sozinha na atualização automática do Ubuntu; nada a fazer agora."
+        return "Já existe correção. Ela entra na próxima atualização do sistema (sudo apt-get update && sudo apt-get upgrade), ou peça ao Admin."
     if estado == "protegido-aguardando":
         return (f"O fornecedor ainda não publicou a correção para este servidor. Enquanto isso, a proteção provisória está ativa: "
                 f"{pal['descricao']} (conferida em {data_br(pal['verificado_em'])}). Quando a correção sair, a ronda avisa para atualizar.{no_aviso}")
@@ -2877,6 +2928,8 @@ def contrato_achado(cfg, a, nivel, estado, reg, ac, corr, aplicado, pal=None):
          "aplicado": aplicado, "primeira_vez_em": reg["primeira_vez_em"]}
     if a.get("kev"):
         o["explorada_ativamente"] = True
+    if a.get("reinicio_pendente") and estado == ESTADO_ATUALIZACAO:
+        o["reinicio_pendente"] = True
     if pal:
         o["paliativo"] = paliativo_do_contrato(pal)
     return o
@@ -3045,9 +3098,15 @@ def conta_niveis(achados):
     """Conta só o que pede alguma coisa de alguém; os que aguardam a correção do fornecedor têm contagem própria."""
     n = {1: 0, 2: 0, 3: 0}
     for a in achados:
-        if a.get("estado") not in ESTADOS_AGUARDANDO:
+        if a.get("estado") not in ESTADOS_SEGUNDO_PLANO:
             n[a["nivel"]] = n.get(a["nivel"], 0) + 1
     return n
+
+
+def conta_atualizacoes(achados):
+    """{'total': falhas com correção já no apt, 'reinicio': quantas só passam a valer no próximo reinício}."""
+    fila = [a for a in achados if a.get("estado") == ESTADO_ATUALIZACAO]
+    return {"total": len(fila), "reinicio": sum(1 for a in fila if a.get("reinicio_pendente"))}
 
 
 def conta_aguardando(achados):
@@ -3215,6 +3274,7 @@ def _rodada(cfg, sem_avisar):
             reg_all.setdefault(k.upper(), reg_all[k])
             del reg_all[k]
         resultado, ja_nesta, vistos, omitidos_n3, aplicados_agora = [], [], set(), 0, []
+        auto_ligada, reinicio_agora = atualizacao_automatica_ligada(), reinicio_pendente()
         ordem = sorted(elegiveis, key=lambda x: (-ORDEM_SEV[x["severidade"]], x["id"]))
         for a in ordem:
             vistos.add(a["id"])
@@ -3271,11 +3331,15 @@ def _rodada(cfg, sem_avisar):
                     estado = "protegido-aguardando"
                 elif not pal_oferta and not a.get("kev"):
                     estado = "aguardando-fornecedor"
+            if estado == "aberto" and e_atualizacao_de_sistema(a, ac, corr):
+                estado = ESTADO_ATUALIZACAO
+                a["reinicio_pendente"] = reinicio_agora and any(eh_kernel(af) for af in a["afetados"])
+                a["atualizacao_automatica"] = auto_ligada
             if not (pal and pal["verificado"]):
                 reg.pop("paliativo_aplicado", None)   # alguém voltou a configuração: o que a ronda aplicou deixou de valer
             elif aplicado is None and reg.get("paliativo_aplicado") and isinstance(reg.get("aplicado"), dict):
                 aplicado = reg["aplicado"]
-            if estado == "aberto" and reg.get("estado_contrato") in ESTADOS_AGUARDANDO:
+            if estado == "aberto" and reg.get("estado_contrato") in ESTADOS_SEGUNDO_PLANO:
                 reg["avisado_em"] = None   # a correção chegou (ou a proteção caiu): ponto novo para o recado e para o aviso do painel
             reg["estado_contrato"] = estado
             o = contrato_achado(cfg, a, nivel, estado, reg, ac, corr, aplicado, pal)
@@ -3335,7 +3399,7 @@ def _rodada(cfg, sem_avisar):
         # a ronda lista só o que está de fato no resultado; o resto do registro fica quieto
         presentes = {o["id"] for o in resultado}
         novos = [o for o in resultado if o["nivel"] == 1 and o["id"] in aplicados_agora
-                 or (o["nivel"] in (2, 3) and o["estado"] not in ESTADOS_AGUARDANDO
+                 or (o["nivel"] in (2, 3) and o["estado"] not in ESTADOS_SEGUNDO_PLANO
                      and reg_all.get(o["id"], {}).get("avisado_em") is None and o["id"] in presentes)]
         # --- fontes e ronda.json
         fontes = [{"nome": n, "ok": s["ok"], "motivo": None if s["ok"] else limpa(s["detalhe"], 300)} for n, s in status.items() if not s.get("desligada")]
@@ -3383,7 +3447,7 @@ def _rodada(cfg, sem_avisar):
                             f"Sem ele a ronda não confirma nada. Tento de novo na próxima rodada.")
         elif n_ok * 2 < len(ativas):
             motivo_falha = f"Só {n_ok} de {len(ativas)} fontes responderam (menos da metade). Confira a conexão do servidor com a internet."
-        est["ultima_rodada"] = {"em": iso(t0), "parcial": parcial, "niveis": conta_niveis(resultado), "aguardando": conta_aguardando(resultado), "ja_tratadas": len(ja)}
+        est["ultima_rodada"] = {"em": iso(t0), "parcial": parcial, "niveis": conta_niveis(resultado), "aguardando": conta_aguardando(resultado), "atualizacoes_sistema": conta_atualizacoes(resultado), "ja_tratadas": len(ja)}
         if motivo_falha:
             est["ultimo_erro"] = motivo_falha
             doc["ultima_falha"] = {"em": iso(t0), "motivo": limpa(motivo_falha, 400)}
@@ -3885,8 +3949,10 @@ def resumo(todos=False, como_json=False):
         imprime("Nenhum achado novo nesta rodada.")
     cab = {1: "✅ APLICADO SOZINHO (nível 1)", 2: "🔴 AÇÃO NECESSÁRIA (nível 2)", 3: "🟡 PARA CORRIGIR SEM PRESSA (nível 3)"}
     espera = [a for a in limpos if a["estado"] in ESTADOS_AGUARDANDO]
-    grupos = [(f"== {cab[n]} ==", [a for a in limpos if a["nivel"] == n and a["estado"] not in ESTADOS_AGUARDANDO], n) for n in (1, 2, 3)]
+    fila = [a for a in limpos if a["estado"] == ESTADO_ATUALIZACAO]
+    grupos = [(f"== {cab[n]} ==", [a for a in limpos if a["nivel"] == n and a["estado"] not in ESTADOS_SEGUNDO_PLANO], n) for n in (1, 2, 3)]
     grupos.append(("== ⏳ AGUARDANDO CORREÇÃO OFICIAL (nada a fazer agora) ==", espera, 0))
+    grupos.append(("== 🔄 ATUALIZAÇÕES DO SISTEMA (entram sozinhas) ==", fila, -1))
     for titulo, grupo, nivel in grupos:
         if not grupo:
             continue
@@ -3896,6 +3962,8 @@ def resumo(todos=False, como_json=False):
             imprime(f"Frase para o dono: {NIVEL3_FRASE}")
         if nivel == 0:
             imprime("Estas falhas ainda não têm correção publicada pelo fornecedor. A ronda confere a cada rodada e avisa quando a correção sair.")
+        if nivel == -1:
+            imprime("Estas falhas já têm correção no apt deste servidor e ela entra pela atualização normal do sistema. Não é alarme: diga ao dono que não há nada a fazer agora.")
         for a in grupo:
             imprime()
             imprime(a["nome_simples"])
@@ -3933,12 +4001,12 @@ def estado_cmd(como_json=False):
     est = ler_estado()
     t0 = agora()
     info = {"ronda_ligada": not ronda_desligada(), "aplicar_sozinha": aplicar_sozinha_ligado(), "horarios": horarios(), "proxima_em": iso(proxima_execucao(t0)),
-            "ultima_rodada": None, "parcial": None, "fontes_fora": [], "niveis": {"1": 0, "2": 0, "3": 0}, "aguardando_correcao": {"total": 0, "protegidos": 0}, "ja_tratadas": 0, "ultimo_erro": limpa(est.get("ultimo_erro"), 300) or None,
+            "ultima_rodada": None, "parcial": None, "fontes_fora": [], "niveis": {"1": 0, "2": 0, "3": 0}, "aguardando_correcao": {"total": 0, "protegidos": 0}, "atualizacoes_sistema": {"total": 0, "reinicio": 0}, "ja_tratadas": 0, "ultimo_erro": limpa(est.get("ultimo_erro"), 300) or None,
             "vigia_alerta": None, "inventario": None}
     if isinstance(r, dict) and r.get("rodada_em"):
         n = conta_niveis(r["achados"])
         info.update(ultima_rodada=r["rodada_em"], parcial=r["parcial"], fontes_fora=[{"nome": limpa(f["nome"], 60), "motivo": limpa(f.get("motivo"), 200)} for f in r["fontes"] if not f["ok"]],
-                    niveis={str(k): v for k, v in n.items()}, aguardando_correcao=conta_aguardando(r["achados"]), ja_tratadas=len(r.get("ja_tratadas") or []), vigia_alerta=alerta_limpo(r.get("vigia_alerta")),
+                    niveis={str(k): v for k, v in n.items()}, aguardando_correcao=conta_aguardando(r["achados"]), atualizacoes_sistema=conta_atualizacoes(r["achados"]), ja_tratadas=len(r.get("ja_tratadas") or []), vigia_alerta=alerta_limpo(r.get("vigia_alerta")),
                     inventario={"componentes": r["inventario"]["componentes"], "servicos_externos": len(r["inventario"]["servicos_externos"]),
                                 "reinventariado_em": r["inventario"].get("reinventariado_em")})
     if como_json:
@@ -3957,6 +4025,8 @@ def estado_cmd(como_json=False):
         imprime(f"Achados: {n['1']} aplicado(s) sozinho (nível 1), {n['2']} pedem decisão (nível 2), {n['3']} para corrigir sem pressa (nível 3); {info['ja_tratadas']} já tratado(s).")
         if info["aguardando_correcao"]["total"]:
             imprime(f"Sem correção publicada para este servidor: {frase_aguardando(info['aguardando_correcao'])}. Nada a fazer agora; a ronda avisa quando a correção sair.")
+        if info["atualizacoes_sistema"]["total"]:
+            imprime(f"Atualizações do sistema na fila: {info['atualizacoes_sistema']['total']} falha(s) já com correção no apt, que entra pela atualização normal do sistema. Nada a fazer agora.")
     imprime(f"Próxima rodada: {proxima_execucao(t0).strftime('%d/%m/%Y %H:%M')} (horários: {' '.join(info['horarios'])})")
     imprime(f"Aplicar sozinha o que for seguro: {'ligado' if info['aplicar_sozinha'] else 'DESLIGADO (DGCLAW_RONDA_APLICAR_SOZINHA=0)'}")
     if info["inventario"]:

@@ -35,8 +35,10 @@ const RX_PROIBIDO_G = new RegExp(`[${INVISIVEIS}]`, 'g');
 const SEVERIDADES = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'desconhecida'];
 const PESO = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, desconhecida: 4 };
 const TIPOS_CORRECAO = ['acao-catalogo', 'atualizar-dgclaw', 'apt', 'nenhuma'];
-const ESTADOS = ['aberto', 'aplicado-sozinho', 'aplicado-pelo-dono', 'mitigado', 'agendado', 'protegido-aguardando', 'aguardando-fornecedor'];
+const ESTADOS = ['aberto', 'aplicado-sozinho', 'aplicado-pelo-dono', 'mitigado', 'agendado', 'protegido-aguardando', 'aguardando-fornecedor', 'atualizacao-sistema'];
 // Estados em que a falha está sem correção instalável: informativos, não pedem decisão. O painel só deixa desfazer o que já foi aplicado.
+// `atualizacao-sistema`: pacote do sistema com correção que entra pelo apt. Segundo plano, nunca desfazível.
+const TEXTO_ATUALIZACAO_ANTIGA = 'Já existe correção. Ela entra na próxima atualização do sistema (sudo apt-get update && sudo apt-get upgrade), ou peça ao Admin.';
 const ESTADOS_DESFAZIVEIS = ['aplicado-sozinho', 'protegido-aguardando'];
 
 const idAchado = (v) => (typeof v === 'string' && RX_ID_ACHADO.test(v) ? v.toUpperCase() : null);
@@ -123,6 +125,14 @@ function validaAchado(a) {
     aplicado,
     primeira_vez_em: data(a.primeira_vez_em),
   };
+  if (a.explorada_ativamente === true) achado.explorada_ativamente = true;
+  if (a.reinicio_pendente === true && achado.estado === 'atualizacao-sistema') achado.reinicio_pendente = true;
+  // ronda.json gravado por um motor antigo: pacote do sistema com correção no apt, sem exploração ativa, ainda vem como
+  // "aberto". O motor novo reclassifica na próxima rodada; até lá, a tela já o trata como segundo plano.
+  if (achado.estado === 'aberto' && correcao.tipo === 'apt' && correcao.disponivel && !achado.explorada_ativamente) {
+    achado.estado = 'atualizacao-sistema';
+    achado.como_corrigir = TEXTO_ATUALIZACAO_ANTIGA;
+  }
   if (paliativo) achado.paliativo = paliativo;
   return { achado };
 }
@@ -332,6 +342,9 @@ function criarRondaPainel(opcoes) {
         return H.erroJson(res, 409, `O achado ${id} não tem como ser desfeito: só dá para desfazer o que a ronda aplicou sozinha (ou a proteção provisória aplicada) e deixou o caminho de volta registrado.`);
       }
     } else {
+      if (a.estado === 'atualizacao-sistema') {
+        return H.erroJson(res, 409, `A correção do achado ${id} já existe e entra pela atualização do sistema (automática, ou com "sudo apt-get update && sudo apt-get upgrade"), então o painel não tem nada a aplicar nem a agendar. Se quiser adiantar, peça ao Admin.`);
+      }
       if (a.estado !== 'aberto' && !(a.estado === 'agendado' && tipo === 'aplicar')) {
         return H.erroJson(res, 409, `O achado ${id} já está como "${a.estado}", então não há nada a aplicar nem a agendar.`);
       }

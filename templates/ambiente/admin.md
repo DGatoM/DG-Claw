@@ -157,7 +157,7 @@ opcional e depende das variáveis `DGCLAW_SMTP_*` do `web.env`; sem ele, o texto
 ### Rondas dos agentes
 
 Quando o dono quiser que um agente faça uma ronda (rotina periódica de CRM, suporte, comentários ou dados), o guia é
-`/opt/dgclaw/app/docs/BOAS-PRATICAS-RONDAS.md`, e quem cria a rotina é o próprio agente. A ronda de segurança do servidor é outro assunto.
+`/opt/dgclaw/app/docs/BOAS-PRATICAS-RONDAS.md`, e quem cria a rotina é o próprio agente. A ronda de segurança do servidor é outro assunto. Nela, a falha de pacote do sistema que já tem correção no `apt` fica em segundo plano, na seção "Atualizações do sistema" da tela Segurança, e não é alarme: a correção entra pela atualização automática do Ubuntu.
 
 ### Face ID (o cadeado do painel)
 

@@ -33,7 +33,7 @@ Escreve: `seguranca/ronda/ronda.py` (motor). Lê: `web/lib/ronda-painel.js` (pai
                                        // disponivel: o fabricante já publicou a correção
                                        // executavel: true só para acao-catalogo válida no catálogo (o executor recusa o resto)
     "estado": "aberto",                // aberto | aplicado-sozinho | aplicado-pelo-dono | mitigado | agendado
-                                       // | protegido-aguardando | aguardando-fornecedor (veja "Sem correção instalável")
+                                       // | protegido-aguardando | aguardando-fornecedor | atualizacao-sistema (veja "Sem correção instalável")
     "aplicado": null,                  // {"em", "acao_id", "antes", "depois", "desfazer"} quando aplicado
     "primeira_vez_em": "2026-10-31T10:00:00Z"
   }],
@@ -137,8 +137,9 @@ segue como antes (a equipe do DG Claw avisa por boletim).
 
 Regras da rodada:
 
-1. correção instalável (apt `True`/`None`, ação do catálogo que não é paliativo, `atualizar-dgclaw`): `aberto`, como sempre. Se houver
-   paliativo verificado, o texto diz que a proteção provisória está ativa enquanto isso.
+1. correção instalável (ação do catálogo que não é paliativo, `atualizar-dgclaw`, ou apt de um achado KEV): `aberto`, como sempre. Se houver
+   paliativo verificado, o texto diz que a proteção provisória está ativa enquanto isso. Correção pelo apt (apt `True`/`None`) de um achado só de
+   pacotes Ubuntu, sem ação do catálogo e que não é KEV: `atualizacao-sistema` (veja abaixo).
 2. sem correção instalável e paliativo verificado: `protegido-aguardando`.
 3. sem correção instalável, paliativo casado e **não** verificado, com `acao_id`: `aberto`, com
    `correcao = {"tipo": "acao-catalogo", "acao_id", "exige_reinicio": false, "disponivel": true, "executavel": true, "paliativo": true}`
@@ -147,11 +148,22 @@ Regras da rodada:
 4. sem correção instalável e sem paliativo: `aguardando-fornecedor` (ou `aberto` se KEV).
 
 **Paliativo nunca é tratamento.** Aplicado (sozinho ou pelo dono), o registro interno fica `aberto` e o achado é reavaliado a
-cada rodada. Quando o pacote corrigido chega ao apt, volta a `aberto` pedindo atualizar (e reiniciar, no kernel), com `avisado_em`
-zerado: o Admin recebe o recado e o aviso do painel trata como ponto novo. Quando a proteção deixa de ser verificada (alguém voltou
+cada rodada. Quando o pacote corrigido chega ao apt, passa a `atualizacao-sistema` (sem recado), ou volta a `aberto` se for KEV. Sempre que
+um achado volta a `aberto`, `avisado_em` é zerado: o Admin recebe o recado e o aviso do painel trata como ponto novo. Quando a proteção deixa de ser verificada (alguém voltou
 o `sysctl`), volta a `aberto` com a oferta de Aplicar. A ação de catálogo com `"paliativo": true` não é devolvida como correção
 definitiva por `acao_do_catalogo`.
 
 `protegido-aguardando` e `aguardando-fornecedor` ficam fora do recado ao Admin (`novos`) e fora da contagem por nível de
 `dgclaw seguranca estado` (que mostra `aguardando_correcao: {"total", "protegidos"}` à parte). O pedido `desfazer` e a rota
 `POST /ronda/<id>/desfazer` aceitam `protegido-aguardando` com `aplicado.desfazer` preenchido.
+
+**Estado `atualizacao-sistema` (segundo plano).** Falha só de pacotes Ubuntu (dpkg, kernel e afins) cuja correção o apt deste servidor
+já oferece (`correcao.tipo == "apt"`, `disponivel`, `apt_instalavel` diferente de `False`), sem ação do catálogo e sem `explorada_ativamente`.
+A correção entra pela atualização automática do Ubuntu (ou no próximo reinício, no kernel), então o achado não pede nada ao dono:
+fica fora do aviso único, do selo, do recado ao Admin e da contagem por nível (que, como em `aguardando_correcao`, ganha um campo
+próprio em `dgclaw seguranca estado`: `atualizacoes_sistema: {"total", "reinicio"}`). Vale para os níveis 2 e 3, e `nivel` e `severidade`
+ficam como o motor calculou, só para registro; a tela não mostra gravidade nem cor de alerta. Não é desfazível nem aplicável pelo painel
+e não é "tratado": segue reavaliado a cada rodada e some quando o pacote é atualizado. `como_corrigir` é calmo, e muda conforme o
+`unattended-upgrades` esteja ligado (`APT::Periodic::Unattended-Upgrade "1"` em `/etc/apt/apt.conf.d`) ou não. Achado de kernel com
+`/var/run/reboot-required` presente traz `reinicio_pendente: true` e o texto "A correção já foi instalada e passa a valer no próximo reinício".
+O KEV continua `aberto`, em destaque.

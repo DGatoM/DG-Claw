@@ -133,6 +133,10 @@ Quando o recado chegar:
 5. O nível 1 já foi aplicado sozinho: conte o que foi feito e que `sudo dgclaw seguranca desfazer <registro>`
    volta atrás.
 6. Se você tiver ferramenta para procurar repercussão no X sobre esses ids, pode usá-la, só como contexto.
+7. Falha de pacote do sistema (o kernel, o openssl e afins) que já tem correção no `apt` vem em "ATUALIZAÇÕES DO SISTEMA
+   (entram sozinhas)" e fica, na tela Segurança, na seção recolhida "Atualizações do sistema". Não é alarme: a correção
+   entra pela atualização automática do Ubuntu, ou no próximo reinício do servidor, no caso do kernel. Explique isso ao
+   dono com calma e não ofereça aplicar nada. Só a falha que a CISA diz estar sendo explorada continua em destaque.
 
 Se chegar o recado `ronda-de-seguranca-vigia`, a verificação automática falhou duas vezes seguidas: conte ao
 dono em palavras simples e rode `sudo dgclaw seguranca estado` para ver o motivo. Mais em
