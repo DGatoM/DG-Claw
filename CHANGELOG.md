@@ -7,6 +7,11 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Correção: o cofre do agente aceita nomes terminados em `_INSTANCE`.** A Z-API identifica a conexão de WhatsApp por um
+ID de instância, e o nome de mercado dessa credencial é `ZAPI_INSTANCE`. O cofre recusava esse nome porque `_INSTANCE`
+não estava entre os sufixos aceitos, ao lado de `_ID` e `_SID`. Agora está, e o teste do cofre ganhou o caso. Nada muda
+para quem já usa o cofre: os nomes que entravam continuam entrando e os prefixos proibidos continuam recusados.
+
 **Correção: render de vídeo não esgota os processos do agente.** Um agente chegou a ficar mais de 30 minutos parado num
 render de vídeo porque o container tem um limite de processos (as threads contam), e o Chrome da Tela, o Claude Code e
 os Chromium novos que as tentativas de render abriam chegaram ao teto ("Resource temporarily unavailable" e "Target

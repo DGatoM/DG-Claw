@@ -43,7 +43,7 @@ const NOME_PERMITIDO = [
   // O segredo em si.
   /_API_KEY$/, /_API_TOKEN$/, /_TOKEN$/, /_SECRET$/, /_KEY$/, /_PASSWORD$/, /_WEBHOOK_URL$/,
   // A outra metade da credencial, e o endereço de onde ela vale.
-  /_ID$/, /_SID$/, /_USERNAME$/, /_USER$/, /_ACCOUNT$/, /_URL$/, /_DSN$/, /_ENDPOINT$/,
+  /_ID$/, /_SID$/, /_INSTANCE$/, /_USERNAME$/, /_USER$/, /_ACCOUNT$/, /_URL$/, /_DSN$/, /_ENDPOINT$/,
   /_REGION$/, /_BUCKET$/, /_PROJECT$/, /_ORG$/, /_VERSION$/, /_EMAIL$/,
   // Nome oficial de credencial que não termina em nenhum sufixo acima.
   /^GOOGLE_APPLICATION_CREDENTIALS$/,

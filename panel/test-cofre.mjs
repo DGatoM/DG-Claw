@@ -59,7 +59,7 @@ console.log('\nNomes que precisam ser ACEITOS');
 for (const nome of [
   'OPENAI_API_KEY', 'HOTMART_CLIENT_ID', 'KIWIFY_ACCOUNT_ID', 'META_APP_ID',
   'DATABASE_URL', 'TWILIO_ACCOUNT_SID', 'TELNYX_SIP_USERNAME', 'AWS_ACCESS_KEY_ID',
-  'MEU_SERVICO_ESQUISITO',
+  'ZAPI_INSTANCE', 'MEU_SERVICO_ESQUISITO',
 ]) {
   const r = cofre.guardar({ envName: nome, valor: `chave-de-teste-${nome.toLowerCase()}`, provedor: 'outro' });
   ok(r.ok === true, `${nome} aceito${r.erro ? ` (recusou: ${r.erro})` : ''}`);
