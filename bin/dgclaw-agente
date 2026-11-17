@@ -12,6 +12,7 @@
 #   dgclaw-agente canal whatsapp remover <numero>
 #   dgclaw-agente canal whatsapp ligar
 #   dgclaw-agente canal whatsapp desligar [--apagar]
+#   dgclaw-agente canal whatsapp retomar                      (libera os envios travados pelas travas contra banimento)
 #   dgclaw-agente canal status
 #
 # Variaveis de ambiente:
@@ -446,6 +447,19 @@ cmd_wa_desligar() {
   echo "WhatsApp desligado e dados apagados (conexao e lista de permitidos). Os arquivos recebidos em ~/uploads/whatsapp ficaram."
 }
 
+cmd_wa_retomar() {
+  # So o dono pede isto, no chat do DG Claw, depois de conferir o numero no celular (docs/CANAL-WHATSAPP.md).
+  # Quem libera e o proprio modulo de envio, pela mesma exclusao dos envios: nunca com um envio no ar.
+  local script out
+  achar_ponte
+  script="$(dirname "$PONTE")/enviar-zapi.mjs"
+  [ -f "$script" ] || die "nao achei $script; confira a instalacao do DG Claw (dgclaw atualizar)."
+  [ -d "$WADIR/envio" ] || { echo "Nao havia trava de envio ativa."; return 0; }
+  out="$(node "$script" retomar 2>&1)" || die "nao consegui liberar os envios: $out"
+  if printf '%s' "$out" | grep -q '"achou":true'; then echo "Envios liberados. As travas de ritmo continuam valendo."
+  else echo "Nao havia trava de envio ativa."; fi
+}
+
 status_whatsapp() {
   montar_systemctl
   local ativo="" l e m desde nb
@@ -465,6 +479,17 @@ status_whatsapp() {
   else
     echo "  estado: sem registro da ponte ainda"
   fi
+  local pf pm lk
+  for pf in "$WADIR/envio/PARADO" "$WADIR/zapi/PARADO" "$WADIR/envio/PENDENTE" "$WADIR/zapi/PENDENTE"; do
+    [ -f "$pf" ] || continue
+    case "$pf" in
+      */PENDENTE)
+        # Com a trava de exclusao segura por um processo vivo, e um envio normal no ar, nao problema.
+        lk="$(dirname "$pf")/envio.lock"
+        if [ -f "$lk" ] && kill -0 "$(cat "$lk" 2>/dev/null)" 2>/dev/null; then continue; fi
+        pm="um envio anterior ficou sem resultado conhecido";; *) pm="$(js 'return d.motivo' < "$pf")";; esac
+    echo "  ENVIOS TRAVADOS: ${pm:-sem motivo registrado}. O dono libera com: dgclaw-agente canal whatsapp retomar"
+  done
   ler_permitidos
   echo "  permitidos: $(lista_texto)"
 }
@@ -478,7 +503,7 @@ cmd_status() {
   status_whatsapp
 }
 
-[ "${1:-}" = "canal" ] || die "uso: dgclaw-agente canal telegram (token|conferir|parear|ligar|desligar) | canal whatsapp (parear|permitir|remover|ligar|desligar) | canal status"
+[ "${1:-}" = "canal" ] || die "uso: dgclaw-agente canal telegram (token|conferir|parear|ligar|desligar) | canal whatsapp (parear|permitir|remover|ligar|desligar|retomar) | canal status"
 shift
 case "${1:-}" in
   status) cmd_status ;;
@@ -500,7 +525,8 @@ case "${1:-}" in
       remover) shift; cmd_wa_remover "$@" ;;
       ligar) cmd_wa_ligar ;;
       desligar) shift; cmd_wa_desligar "$@" ;;
-      *) die "subcomando do WhatsApp desconhecido: '${1:-}'. Use parear, permitir, remover, ligar ou desligar." ;;
+      retomar) cmd_wa_retomar ;;
+      *) die "subcomando do WhatsApp desconhecido: '${1:-}'. Use parear, permitir, remover, ligar, desligar ou retomar." ;;
     esac ;;
   *) die "canal desconhecido: '${1:-}'. Use 'telegram', 'whatsapp' ou 'status'." ;;
 esac

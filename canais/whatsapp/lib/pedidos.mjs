@@ -5,7 +5,7 @@ import { motivoNumeroInvalido, normalizar } from './numeros.mjs';
 import { falha, motivoErro } from './util.mjs';
 
 /** `ligacao()` diz, na hora do pedido, se a ponte esta conectada e qual e o socket do Baileys. */
-export function criarPedidos({ lerPermitidos, estaPermitido, validarArquivo, montarEnvioArquivo, ligacao }) {
+export function criarPedidos({ lerPermitidos, estaPermitido, validarArquivo, montarEnvioArquivo, ligacao, envioSeguro }) {
   const jids = new Map();
 
   // Sem "para", so ha destino padrao quando a lista tem exatamente um numero. Com dois ou mais,
@@ -27,6 +27,7 @@ export function criarPedidos({ lerPermitidos, estaPermitido, validarArquivo, mon
   }
 
   async function tratarPedido(linha) {
+    const inicio = Date.now(); // o prazo conta do pedido recebido, nao de quando a fila chega a vez dele
     let p;
     try {
       p = JSON.parse(linha);
@@ -82,15 +83,36 @@ export function criarPedidos({ lerPermitidos, estaPermitido, validarArquivo, mon
       }
       if (!jid) return falha('SEM_WHATSAPP', `${numero} nao tem conta no WhatsApp; confira o numero`);
 
+      let conteudo;
       try {
-        const conteudo = p.acao === 'enviar'
+        conteudo = p.acao === 'enviar'
           ? { text: p.texto }
           : montarEnvioArquivo(arq.fd, p.caminho, p.legenda);
-        const r = await sock.sendMessage(jid, conteudo);
-        return { ok: true, para: numero, id: (r && r.key && r.key.id) || null };
       } catch (e) {
-        return falha('FALHA_ENVIO', `o WhatsApp recusou o envio para ${numero} (${motivoErro(e)}); tente de novo`);
+        return falha('FALHA_ENVIO', `nao consegui preparar o envio para ${numero} (${motivoErro(e)}); nada foi enviado`);
       }
+      // As travas contra banimento (ritmo, teto, texto repetido, trava no primeiro erro) ficam em
+      // envio-seguro.mjs. O erro do WhatsApp vira FALHA_ENVIO la dentro, junto com a trava.
+      const r = await envioSeguro.enviar({
+        para: numero,
+        texto: p.acao === 'enviar' ? p.texto : (p.legenda || ''),
+        // O socket e lido na hora de enviar: uma reconexao durante a espera troca o socket.
+        executar: () => ligacao().sock.sendMessage(jid, conteudo),
+        // Menor que o prazo do socket (75 s texto, 120 s arquivo): pedido que ficou velho na fila nao e enviado.
+        prazoMs: (p.acao === 'enviar' ? 65000 : 105000) - (Date.now() - inicio),
+        // A lista pode ter mudado durante a espera da fila: o dono removeu o numero, a mensagem nao sai.
+        conferir: () => {
+          if (!estaPermitido(numero)) return falha('FORA_DA_LISTA', `${numero} saiu da lista de permitidos enquanto o pedido esperava; nada foi enviado`);
+          // Queda durante a espera nao e erro de envio: nada saiu, nao trava, tente de novo.
+          const l = ligacao();
+          if (!l.conectado || !l.sock) return falha('DESCONECTADO', 'a conexao caiu enquanto o pedido esperava; nada foi enviado e nada foi travado. Tente de novo em instantes');
+          return null;
+        },
+      });
+      if (!r.ok) return r;
+      const ok = { ok: true, para: numero, id: (r.resultado && r.resultado.key && r.resultado.key.id) || null };
+      if (r.aviso) ok.aviso = r.aviso;
+      return ok;
     } finally {
       if (arq && arq.fd != null) fs.closeSync(arq.fd);
     }
