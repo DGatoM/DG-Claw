@@ -330,7 +330,7 @@
     atualizacoes: [
       { alvo: '#secAtualizacoes', titulo: 'Atualizações do sistema',
         oque: 'As falhas de pacotes do Ubuntu (o kernel Linux, por exemplo) que já têm correção pronta. Ficam numa linha por componente, como "Kernel Linux: 12 correções na fila da atualização do sistema". Toque na linha para ver cada falha.',
-        como: 'A cada rodada a ronda pergunta ao apt deste servidor se a versão corrigida já pode ser instalada. Se pode para todos os pacotes da falha, ela não está sendo explorada por criminosos, ela entra aqui, e o número da linha é a quantidade de falhas desse componente nessa situação. Quando o pacote é atualizado, a falha some sozinha.',
+        como: 'A cada rodada a ronda pergunta ao apt deste servidor se a versão corrigida já pode ser instalada. Se pode para todos os pacotes da falha, ela não constava no catálogo de falhas exploradas da CISA na última consulta válida, ela entra aqui, e o número da linha é a quantidade de falhas desse componente nessa situação. Quando o pacote é atualizado, a falha some sozinha.',
         porque: 'Com a atualização automática do Ubuntu ligada (o padrão), a correção entra sozinha e você não precisa decidir nada. Se ela não estiver ligada, o botão Pedir ao Admin abre a conversa com o pedido já escrito. O Admin também recebe um recado sobre elas e confere isso. Por isso elas não entram no aviso de risco nem no selo, e ficam recolhidas aqui, à vista.' },
     ],
     tratadas: [

@@ -193,7 +193,7 @@ Com ela, a falha vai para o estado **Atualização do sistema** (segundo plano):
 Continuam em destaque, pedindo decisão, as falhas que a CISA diz estar sendo exploradas (lista KEV) e as que dependem de uma ação do
 catálogo ou de atualizar o DG Claw. A ronda só rebaixa uma falha para "atualização do sistema" com a CISA respondendo nesta rodada e nenhum id da falha (nem os do registro anterior) no
 catálogo. Sem a resposta da CISA, o que já era atualização do sistema continua assim, sem recado novo, e o resto fica aberto, como antes. Uma resposta
-da CISA com a lista vazia, com `cveID` fora do formato, repetido, ou com `count` que não bate conta como fonte fora. Um achado reapresentado de uma
+da CISA com a lista vazia, com `cveID` fora do formato, repetido, sem `count` ou com `count` que não bate conta como fonte fora. Um achado reapresentado de uma
 rodada anterior que estava em segundo plano e tem id no catálogo volta a aberto, nível 2, com recado novo. Falha de
 pacote que não é do sistema (npm, Python, um agente) segue as regras de sempre.
 

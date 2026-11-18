@@ -86,7 +86,8 @@ class H(BaseHTTPRequestHandler):
         if p == "/kev.json":
             if "kev" in S["fora"]:
                 return self._out({}, 500)
-            return self._out({"vulnerabilities": S["kev"], **({"count": S["kev_count"]} if S.get("kev_count") is not None else {})})
+            contagem = len(S["kev"]) if S.get("kev_count") is None else S["kev_count"]
+            return self._out({"vulnerabilities": S["kev"], **({} if contagem == "omitir" else {"count": contagem})})
         if p == "/hn":
             if "hn" in S["fora"]:
                 return self._out({}, 500)
@@ -1733,13 +1734,68 @@ class Paliativos(Base):
         self.ronda("executar", "--sem-avisar")
         a = self.achado(usn)
         self.assertEqual((a["estado"], a["nivel"], a.get("explorada_ativamente")), ("aberto", 2, True))
+        self.assertIn("CVE-2026-98432", self.estado_do_registro()["achados"][usn]["ids_osv"], "os ids novos se unem aos guardados")
+        self.ronda("executar", "--sem-avisar")   # segunda redetecção sem alias
+        a = self.achado(usn)
+        self.assertEqual((a["estado"], a["nivel"], a.get("explorada_ativamente")), ("aberto", 2, True))
+
+    def test_une_ids_osv_respeita_o_teto_e_segura_as_cves_antigas(self):
+        antigos = [f"CVE-2026-{n:04d}" for n in range(40)]
+        novos = {f"GHSA-aaaa-bbbb-{n:04d}" for n in range(60)}
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("ronda_motor", RONDA)
+        ronda = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ronda)
+        uniao = ronda.une_ids_osv(antigos, novos)
+        self.assertEqual(len(uniao), 60)
+        self.assertTrue(all(c in uniao for c in antigos))
+        self.assertEqual(ronda.une_ids_osv(["CVE-2026-0001"], {"USN-1-1"}), ["CVE-2026-0001", "USN-1-1"])
+
+    def test_reincidencia_de_registro_corrigido_fica_aberta_ate_uma_consulta_valida_da_cisa(self):
+        S["osv_paginas"][f"{ECO}|openssl|3.0.13-0ubuntu3.4"] = [["UBUNTU-CVE-2026-77777"]]
+        S["osv_vulns"]["UBUNTU-CVE-2026-77777"] = reg_ubuntu("UBUNTU-CVE-2026-77777", "CVE-2026-77777", "openssl", "3.0.13-0ubuntu3.6", prio="critical")
+        self.escreve(os.path.join(self.stub, "apt_candidatos.txt"), "openssl\t3.0.13-0ubuntu3.6\n")
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado("UBUNTU-CVE-2026-77777")["estado"], "atualizacao-sistema")
+        with open(os.path.join(self.stub, "dpkg.txt"), encoding="utf-8") as f:
+            antigo = f.read()
+        self.escreve(os.path.join(self.stub, "dpkg.txt"), antigo.replace("3.0.13-0ubuntu3.4", "3.0.13-0ubuntu3.6"))
+        pagina = S["osv_paginas"].pop(f"{ECO}|openssl|3.0.13-0ubuntu3.4")
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.estado_do_registro()["achados"]["UBUNTU-CVE-2026-77777"]["estado"], "corrigido")
+        self.escreve(os.path.join(self.stub, "dpkg.txt"), antigo)   # reincidência, com a CISA fora
+        S["osv_paginas"][f"{ECO}|openssl|3.0.13-0ubuntu3.4"] = pagina
+        S["fora"].add("kev")
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado("UBUNTU-CVE-2026-77777")["estado"], "aberto", "sem a CISA, a reincidência não herda o segundo plano")
+        S["fora"].discard("kev")
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado("UBUNTU-CVE-2026-77777")["estado"], "atualizacao-sistema")
+
+    def test_so_os_ids_nomeados_no_recado_recebem_avisado_em(self):
+        ids = [f"UBUNTU-CVE-2026-{60000 + n}" for n in range(81)]
+        S["osv_paginas"][f"{ECO}|openssl|3.0.13-0ubuntu3.4"] = [ids]
+        for n, vid in enumerate(ids):
+            S["osv_vulns"][vid] = reg_ubuntu(vid, f"CVE-2026-{60000 + n}", "openssl", "3.0.13-0ubuntu3.6", prio="critical")
+        self.ronda("executar")   # sem apt-cache: 81 abertas de nível 2
+        mx = 15
+        avisados = [k for k, v in self.estado_do_registro()["achados"].items() if v.get("avisado_em")]
+        self.assertEqual(len(avisados), mx, "só os nomeados no recado")
+        no_json = {a["id"] for a in self.json_ronda()["achados"]}
+        self.assertTrue(set(avisados) <= no_json)
+        self.assertEqual(len(self.estado_do_registro()["ultimo_aviso"]["ids"]), mx)
+        S["recados"].clear()
+        self.ronda("executar")
+        avisados2 = [k for k, v in self.estado_do_registro()["achados"].items() if v.get("avisado_em")]
+        self.assertEqual(len(avisados2), 2 * mx, "os pendentes entram no recado da rodada seguinte")
 
     def test_catalogo_kev_com_entrada_invalida_ou_contagem_errada_falha_a_fonte(self):
         self.prepara_kernel_com_correcao_no_apt("critical")
         casos = [([{}], 1), ([{"cveID": "lixo"}], 1), ([{"cveID": 5}], None), ([{"cveID": "CVE-2024-1234\n"}], "1"),
                  ([{"cveID": " CVE-2024-1234"}], None), ([{"cveID": "cve-2024-1234"}], None), ([{"cveID": "CVE-２０２４-1234"}], None),
                  ([{"cveID": "CVE-2026-1111"}, {"cveID": "CVE-2026-1111"}], 2), ([{"cveID": "CVE-2026-1111"}], "1"),
-                 ([{"cveID": "CVE-2026-1111"}], True), ([{"cveID": "CVE-2026-1111"}], 2)]
+                 ([{"cveID": "CVE-2026-1111"}], True), ([{"cveID": "CVE-2026-1111"}], 2),
+                 ([{"cveID": "CVE-2026-1111"}], "omitir")]
         for lista, contagem in casos:
             S["kev"], S["kev_count"] = lista, contagem
             self.ronda("executar", "--sem-avisar")
@@ -1749,31 +1805,37 @@ class Paliativos(Base):
         self.ronda("executar", "--sem-avisar")
         self.assertTrue(next(f for f in self.json_ronda()["fontes"] if f["nome"] == "CISA KEV")["ok"])
 
-    def test_protegido_aguardando_que_entra_na_kev_informa_a_protecao_e_nao_sugere_tirar_do_ar(self):
+    def test_protegido_aguardando_com_cve_no_kev_continua_protegido_sem_recado_repetido(self):
         self.vuln_kernel(None)
         self.catalogo_mptcp()
         self.ronda("executar")
         self.assertEqual(self.achado(self.ID)["estado"], "protegido-aguardando")
         S["recados"].clear()
-        S["osv_paginas"].clear()
-        S["fora"].add("hn")
+        paginas = dict(S["osv_paginas"])
         S["kev"] = [{"cveID": "CVE-2026-98432", "dateAdded": "2026-10-20"}]
-        self.ronda("executar")
-        a = self.achado(self.ID)
-        self.assertEqual((a["estado"], a["nivel"], a["explorada_ativamente"]), ("aberto", 2, True))
-        self.assertIn("MPTCP desligado no kernel", a["como_corrigir"])
-        self.assertIn("estava ativa na última conferência", a["como_corrigir"])
-        self.assertIn("conferir e atualizar assim que a correção sair", a["como_corrigir"])
-        self.assertNotIn("Tirar do ar", a["como_corrigir"])
-        self.assertNotIn("não há correção", a["como_corrigir"])
+        for volta in (False, True, False):   # queda, retorno, queda
+            S["osv_paginas"].clear()
+            if not volta:
+                S["fora"].add("hn")
+            else:
+                S["fora"].discard("hn")
+                S["osv_paginas"].update(paginas)
+            self.ronda("executar")
+            a = self.achado(self.ID)
+            self.assertEqual(a["estado"], "protegido-aguardando", volta)
+            self.assertEqual(S["recados"], [], "sem recado repetido")
 
     def test_o_que_vai_no_recado_entra_no_ronda_json_mesmo_com_o_corte_de_80(self):
         ids = [f"UBUNTU-CVE-2026-{60000 + n}" for n in range(80)]
         S["osv_paginas"][f"{ECO}|openssl|3.0.13-0ubuntu3.4"] = [ids]
         for n, vid in enumerate(ids):
             S["osv_vulns"][vid] = reg_ubuntu(vid, f"CVE-2026-{60000 + n}", "openssl", "3.0.13-0ubuntu3.6", prio="critical")
-        self.ronda("executar")   # 80 abertas de nível 2, sem apt-cache; todas avisadas
+        self.ronda("executar", "--sem-avisar")   # 80 abertas de nível 2, sem apt-cache
         self.assertEqual(len(self.json_ronda()["achados"]), 80)
+        est = self.estado_do_registro()
+        for reg in est["achados"].values():
+            reg["avisado_em"] = AGORA   # todas já avisadas
+        self.escreve(self.p("var/lib/dgclaw/seguranca/estado.json"), est)
         S["recados"].clear()
         self.prepara_kernel_com_correcao_no_apt("high")   # uma atualização do sistema nova: vai para o fim da ordenação
         self.ronda("executar")

@@ -180,8 +180,9 @@ nesta rodada e nenhum id ligado a ele (id, key e aliases do achado, `ids_osv` do
 se algum constar, ele é KEV (aberto, nível 2, `explorada_ativamente`). Se a CISA não respondeu ok nesta rodada, o achado mantém a classificação
 anterior: o que já era `atualizacao-sistema` continua nela, sem novo recado, e qualquer outro caso (inclusive achado novo) fica `aberto`, como
 antes desta regra. Nada é guardado no registro sobre a marca KEV. Resposta da CISA com a lista vazia, com entrada de `cveID` fora do formato
-`CVE-AAAA-N` (ASCII, sem espaço nem quebra de linha) ou repetida, ou com `count` que não seja inteiro igual ao número de entradas válidas, conta como
+`CVE-AAAA-N` (ASCII, sem espaço nem quebra de linha) ou repetida, ou sem `count` (obrigatório) ou com `count` que não seja inteiro igual ao número de entradas válidas, conta como
 fonte fora. O achado reapresentado do estado anterior (qualquer caminho que reaproveita `ultimo`, com a CISA respondendo) que estava em segundo plano
-(`atualizacao-sistema`, `aguardando-fornecedor` ou `protegido-aguardando`) e tem algum id no catálogo volta a `aberto`, nível 2, `explorada_ativamente`,
-com `avisado_em` zerado; no `protegido-aguardando` o texto informa a proteção provisória que estava ativa e pede ao Admin para conferir e atualizar
-quando a correção sair. O recado desta rodada sempre está no `ronda.json` exibido, mesmo que a lista passe de 80 (no máximo pelo limite do recado).
+(`atualizacao-sistema` ou `aguardando-fornecedor`) e tem algum id no catálogo volta a `aberto`, nível 2, `explorada_ativamente`,
+com `avisado_em` zerado. O `protegido-aguardando` fica como está (o caminho normal da rodada também mantém a KEV com proteção ativa assim). O recado desta rodada sempre está no `ronda.json` exibido, mesmo que a lista passe de 80 (no máximo pelo limite do recado). Só os ids nomeados no recado (`novos[:max_ids_no_recado]`) recebem `avisado_em`; os demais seguem pendentes para as próximas rodadas. O `ids_osv` do registro
+une os ids novos aos guardados (teto de 60, mantendo as CVE antigas), e um registro `corrigido` que reincide recomeça do zero (sem `ids_osv`, `ultimo` nem
+`estado_contrato`), ficando aberto até uma consulta válida da CISA.
