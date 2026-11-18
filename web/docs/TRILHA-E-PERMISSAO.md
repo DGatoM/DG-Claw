@@ -48,6 +48,7 @@ ele segue como antes. Exige sessão e `Origin`, como as outras escritas.
 | 400 | `decisao` diferente de aprovar/negar | Corrigir o corpo. |
 | 409 | O agente não está esperando permissão (o pedido já foi resolvido), está esperando a resposta de uma pergunta de escolha (`E_PERGUNTA_NAO_PERMISSAO`: o `1` escolheria a primeira opção dela), o `tool_use_id` não é o do pedido atual (`PERMISSAO_DIFERENTE`) ou uma resposta de pergunta está sendo digitada (`RESPOSTA_EM_ANDAMENTO`) | Atualizar a conversa. Nada foi digitado. |
 | 501 | O runner do agente é antigo e não tem `POST /api/agents/<id>/permissao` | Atualizar o agente pelo Admin. Até lá, responder pelo terminal. |
+| 429 `MUITO_RAPIDO` | Negar cai num Esc, e o runner recusa dois Esc em menos de 3 s (um Parar ou outro Esc há pouco). Vem `espere_s` com os segundos que faltam. A decisão não foi enviada | Esperar `espere_s` e negar de novo. |
 | 502 | O runner recusou (`error` e `howToFix` dele vêm na mensagem) | Seguir o `howToFix`. |
 | 503 | Não consegui falar com o runner | Conferir se o serviço do agente está rodando e tentar de novo. Nada foi enviado. |
 
@@ -103,7 +104,7 @@ a mensagem (ela nunca seria lida, porque o agente só fica ocioso depois da resp
 
 Corpo: `{"tool_use_id":"<id da pergunta>","teclas":["2","\r","1"]}`, de 1 a 40 teclas, cada uma um texto não vazio de até
 2000 caracteres. Só Claude (Codex responde 501 `PERGUNTA_SO_CLAUDE`). Sucesso: `{success:true, data:{teclas:N}}`.
-Erros: 400 (`TOOL_USE_ID_INVALIDO`, `TECLAS_INVALIDAS`); 409 `NO_PTY`, `NAO_ESPERA_PERGUNTA`, `PERGUNTA_DIFERENTE` (nada
+Erros: 400 (`TOOL_USE_ID_INVALIDO`, `TECLAS_INVALIDAS`, inclusive um Esc misturado com outras teclas: o Esc só vale sozinho, como `["\u001b"]`); 409 `NO_PTY`, `NAO_ESPERA_PERGUNTA`, `PERGUNTA_DIFERENTE` (nada
 escrito), `PERGUNTA_JA_RESPONDIDA` (a mesma pergunta já recebeu teclas, mesmo que pela metade; nada escrito), `PERGUNTA_MUDOU` (parou no meio; o erro diz "tecla N de M") e `RESPOSTA_EM_ANDAMENTO` (uma resposta por vez por sessão;
 enquanto dura, `/permissao` e `/input` (com ou sem `submit`, com ou sem `injectWhenIdle`) também respondem 409, e o `terminal_input` do WebSocket é descartado com um aviso `{type:"error", code:"RESPOSTA_EM_ANDAMENTO"}`).
 Regra: a resposta pelo chat só vale se ninguém mexeu na pergunta pelo terminal. O runner conta toda escrita no PTY que não é da própria resposta

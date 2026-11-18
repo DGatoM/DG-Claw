@@ -220,6 +220,17 @@ test('permissao: runner antigo (sem a rota) => 501 dizendo isso; runner recusand
   } finally { await s.fechar(); }
 });
 
+test('permissao: trava de 3 s do Esc no runner (429 MUITO_RAPIDO) => 429 com espere_s, não 502', async () => {
+  const s = await cenario({ status: 'waiting_input', falhaPermissao: { status: 429, corpo: { success: false, error: 'Esc há pouco', howToFix: 'esperar', code: 'MUITO_RAPIDO', espereS: 1.7 } } });
+  try {
+    const r = await pede(s, 'negar');
+    assert.equal(r.status, 429);
+    assert.equal(r.json.codigo, 'MUITO_RAPIDO');
+    assert.equal(r.json.espere_s, 1.7);
+    assert.match(r.json.erro, /Espere 1\.7 s/);
+  } finally { await s.fechar(); }
+});
+
 test('permissao: runner fora do ar => 503 com o que fazer', async () => {
   const s = await cenario({ status: 'waiting_input' });
   try {
