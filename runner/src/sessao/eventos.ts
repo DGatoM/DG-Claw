@@ -18,6 +18,9 @@ export interface PayloadDeEvento {
   source?: string | null;
   error?: string | null;
   lastAssistantMessage?: string | null;
+  /** Presente só em evento disparado de DENTRO de um subagente (Agent tool). Não confundir com o `agentId` do DG Claw. */
+  subagentId?: string | null;
+  subagentType?: string | null;
 }
 
 export interface PayloadDeHook extends PayloadDeEvento {
@@ -47,6 +50,24 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       sessionId: payload.sessionId,
       previousSessionId: s.estado.sessionId ?? s.estado.previousSessionId ?? null,
     });
+  }
+
+  // Ferramenta de um subagente (em especial o que roda em segundo plano) não é atividade da sessão principal.
+  // O session_id é o mesmo, então sem este filtro cada PreToolUse dele cancelava o Stop já confirmado da
+  // principal: o status ficava em working e as mensagens do dono presas na fila de ocioso por ~25 min.
+  // A pergunta ao dono (AskUserQuestion) continua valendo, porque o turno só segue quando ele responde.
+  if (
+    payload.subagentId &&
+    (payload.event === "PreToolUse" || payload.event === "PostToolUse") &&
+    payload.toolName !== "AskUserQuestion"
+  ) {
+    log.debug(
+      s.a("hook"),
+      `evento de subagente ignorado (${payload.event} ${payload.toolName ?? ""}, subagente ${payload.subagentType ?? payload.subagentId}): não conta como atividade da sessão principal`,
+    );
+    s.hooksVivos = true;
+    if (!s.estado.hookActive) s.estado.hookActive = true;
+    return { ok: true };
   }
 
   if (["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "StopBloqueado", "StopFailure", "PreCompact"].includes(payload.event ?? "")) s.marcarAtividade();

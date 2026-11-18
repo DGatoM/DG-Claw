@@ -65,3 +65,10 @@ Checklist:
 - Elemento morph que não viaja: o nome em `data-morph` está diferente ou a tela não é vizinha.
 - Texto do título quebrando em muitas linhas: aumente o `width` no style da tela.
 - Quer outra transição entre duas telas específicas: mude só posição, tamanho e cor dos elementos morph nelas.
+
+## Comando pesado avulso
+
+Render, ffmpeg, script de numpy e transcrição rodam com `dgclaw-pesado -- <comando>`, que põe o comando num grupo
+próprio com teto de memória e de tempo (use `--mem 3G` ou `--timeout 900` se precisar de mais). Se estourar, morre só
+ele e o agente segue de pé. Em numpy, use `uint8` ou `float32` e processe em blocos, nunca `float64` da imagem inteira.
+O código de saída 137 quer dizer que bateu no teto de memória, e 124 que estourou o tempo.

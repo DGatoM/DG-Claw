@@ -55,3 +55,10 @@ Checklist:
 - [ ] Botões e links funcionam (âncoras `#id` existem)
 - [ ] `grep -n $'—\|–' arquivo.html` sem travessão dentro de frase
 - [ ] Arquivo único, abre com duplo clique
+
+## Comando pesado avulso
+
+Render, ffmpeg, script de numpy e transcrição rodam com `dgclaw-pesado -- <comando>`, que põe o comando num grupo
+próprio com teto de memória e de tempo (use `--mem 3G` ou `--timeout 900` se precisar de mais). Se estourar, morre só
+ele e o agente segue de pé. Em numpy, use `uint8` ou `float32` e processe em blocos, nunca `float64` da imagem inteira.
+O código de saída 137 quer dizer que bateu no teto de memória, e 124 que estourou o tempo.

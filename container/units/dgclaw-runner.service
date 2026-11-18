@@ -20,6 +20,9 @@ Environment=RUNNER_TOKEN_FILE=/run/dgclaw/segredos/runner.token
 Environment=RUNNER_MAX_SESSOES_EXTRAS=8
 Environment=CLAUDE_CONFIG_DIR=/home/agente/.claude
 Environment=CODEX_HOME=/home/agente/.codex
+# Se o kernel matar um filho por falta de memória (um render, um script de numpy), o systemd não derruba o
+# serviço inteiro: o padrão (stop) parava o runner e o painel ficava sem resposta. Com continue, morre só o filho.
+OOMPolicy=continue
 # O runner junta esta frase ao aviso de "ainda não fez login" que o dono vê.
 Environment="RUNNER_LOGIN_HINT=Abra o painel do agente e use o botão Entrar com a assinatura."
 # Cofre do agente (chaves de API). O "-" deixa a unidade subir mesmo sem o arquivo.

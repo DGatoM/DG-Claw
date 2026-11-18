@@ -4,7 +4,20 @@ Confere rolagem horizontal e erros de console, em desktop (1440) e celular (390)
 
 Uso: python3 conferir.py caminho/do/site.html [--saida /tmp/conferir-site]
 """
-import argparse, os, sys, pathlib
+import argparse, os, shutil, sys, pathlib
+
+def _autoembrulho():
+    # Reexecuta este script sob o dgclaw-pesado (cgroup próprio com teto de memória e de tempo):
+    # se a conferência estourar, morre só ele, e o que sobrar dele (Chrome headless) é recolhido.
+    if os.environ.get("DGCLAW_PESADO"):
+        return
+    exe = shutil.which("dgclaw-pesado")
+    if not exe:
+        return
+    args = [exe]
+    if not os.environ.get("DGCLAW_PESADO_TIMEOUT"):
+        args += ["--timeout", "600"]
+    os.execv(exe, args + ["--", sys.executable, *sys.argv])
 
 def main():
     ap = argparse.ArgumentParser()
@@ -53,4 +66,5 @@ def main():
     print("Sem rolagem horizontal e sem erros no console.")
 
 if __name__ == "__main__":
+    _autoembrulho()
     main()

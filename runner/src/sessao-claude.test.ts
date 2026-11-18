@@ -10,6 +10,7 @@ import {
 const amb = prepararAmbiente("sessao-claude");
 const { Sessao, nonceConfere } = await import("./sessao.js");
 const { gravarProvedorJson } = await import("./provedores/escolha.js");
+const { STOP_CONFIRM_MS } = await import("./sessao/constantes.js");
 
 const OAI = chaveFalsaOpenai();
 const ANT = chaveFalsa();
@@ -1015,6 +1016,60 @@ test("login expirado: reiniciar SEM renovar a credencial não conta recado e dei
   assert.equal(recados(), antes, "nenhum recado novo");
 });
 
+// --- subagente em segundo plano não prende a sessão principal -----------------
+const SUB = { subagentId: "aed936bbf25a96f73", subagentType: "general-purpose" };
+
+test("subagente: PreToolUse dele não cancela o Stop da principal, e a fila solta depois da janela", async () => {
+  const { s, hook } = await novaComRedeCurta(60_000);
+  hook("UserPromptSubmit");
+  hook("Stop");
+  assert.ok(s.stopPendente, "o Stop da principal agenda o idle");
+  const pendente = s.stopPendente;
+  hook("PreToolUse", { toolName: "Bash", toolUseId: "tu-sub", ...SUB });
+  hook("PostToolUse", { toolName: "Bash", ...SUB });
+  assert.equal(s.stopPendente, pendente, "o evento do subagente não cancela o Stop");
+  assert.equal(s.estado.status, "working", "o idle ainda não chegou, só a janela de confirmação");
+  assert.equal(s.ultimoToolUseId, null, "o id da ferramenta do subagente não é guardado");
+  const antes = lerLinhasJson(amb.logDosClis).filter((l) => l.modo === "prompt").length;
+  s.enfileirarQuandoOcioso("mensagem do dono presa na fila");
+  await esperarAte(() => s.estado.status === "idle", STOP_CONFIRM_MS + 6_000, "o Stop confirmar apesar do subagente");
+  await esperarAte(
+    () => lerLinhasJson(amb.logDosClis).filter((l) => l.modo === "prompt").length > antes,
+    12_000,
+    "a fila soltar o texto no CLI",
+  );
+});
+
+test("subagente: em idle, o PreToolUse dele não põe em working nem marca atividade", async () => {
+  const { s, hook } = await novaComRedeCurta(60_000);
+  assert.equal(s.estado.status, "idle");
+  const atividade = s.ultimaAtividade;
+  await dormir(20);
+  hook("PreToolUse", { toolName: "Bash", toolUseId: "tu-sub", ...SUB });
+  assert.equal(s.estado.status, "idle");
+  assert.equal(s.ultimaAtividade, atividade, "a atividade da principal não foi tocada");
+  assert.equal(s.estado.currentTool ?? null, null);
+});
+
+test("subagente: a pergunta ao dono (AskUserQuestion) continua valendo", async () => {
+  const { s, hook } = await novaComRedeCurta(60_000);
+  hook("UserPromptSubmit");
+  hook("PreToolUse", { toolName: "AskUserQuestion", toolUseId: "tu-q", ...SUB });
+  assert.equal(s.estado.status, "waiting_input");
+  assert.equal(s.estado.motivo, "pergunta");
+});
+
+test("sem subagentId o PreToolUse segue como antes (põe em working e cancela o Stop)", async () => {
+  const { s, hook } = await novaComRedeCurta(60_000);
+  hook("UserPromptSubmit");
+  hook("Stop");
+  assert.ok(s.stopPendente);
+  hook("PreToolUse", { toolName: "Bash", toolUseId: "tu-1" });
+  assert.equal(s.stopPendente, null, "a ferramenta da principal cancela o Stop");
+  assert.equal(s.estado.currentTool, "Bash");
+  assert.equal(s.ultimoToolUseId, "tu-1");
+});
+
 // --- hook: nunca segura o turno ---------------------------------------------
 test("runner-hook.mjs: stdin que nunca fecha não trava (termina em menos de 3s) e ainda manda o POST", async () => {
   const { spawn } = await import("node:child_process");
@@ -1046,7 +1101,16 @@ test("runner-hook.mjs: stdin que nunca fecha não trava (termina em menos de 3s)
     assert.equal(recebidos[0].corpo.toolName, null);
 
     await rodar(JSON.stringify({ cwd: "/x", session_id: "s1", tool_name: "Bash", source: "startup" }));
-    assert.deepEqual(recebidos[1].corpo, { agentId: "a1", nonce: "n1", event: "PreToolUse", cwd: "/x", sessionId: "s1", toolName: "Bash", toolUseId: null, source: "startup", error: null, lastAssistantMessage: null });
+    assert.deepEqual(recebidos[1].corpo, { agentId: "a1", nonce: "n1", event: "PreToolUse", cwd: "/x", sessionId: "s1", toolName: "Bash", toolUseId: null, subagentId: null, subagentType: null, source: "startup", error: null, lastAssistantMessage: null });
+
+    // Evento disparado de dentro de um subagente traz agent_id e agent_type; os campos longos são cortados.
+    await rodar(JSON.stringify({ session_id: "s1", tool_name: "Bash", agent_id: "aed936bbf25a96f73", agent_type: "general-purpose" }));
+    assert.equal(recebidos[2].corpo.subagentId, "aed936bbf25a96f73");
+    assert.equal(recebidos[2].corpo.subagentType, "general-purpose");
+    assert.equal(recebidos[2].corpo.agentId, "a1", "o agentId do DG Claw continua sendo o do argumento");
+    await rodar(JSON.stringify({ agent_id: "x".repeat(300), agent_type: 42 }));
+    assert.equal(recebidos[3].corpo.subagentId.length, 100);
+    assert.equal(recebidos[3].corpo.subagentType, null, "só texto vale");
   } finally {
     srv.close();
     fs.rmSync(dir, { recursive: true, force: true });
