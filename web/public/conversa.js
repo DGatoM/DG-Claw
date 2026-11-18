@@ -4833,7 +4833,11 @@ function abreMenuVoz(abre, devolveFoco) {
   else if (devolveFoco) btnVoz.focus();
 }
 if (btnVoz && menuVoz) {
-  btnVoz.onclick = () => abreMenuVoz(menuVoz.hidden);
+  btnVoz.onclick = ev => {
+    abreMenuVoz(menuVoz.hidden);
+    // pelo teclado (Enter/Espaço chegam com detail 0) o foco entra no quadro; Esc devolve ao Voz
+    if (!menuVoz.hidden && ev.detail === 0) { const b = menuVoz.querySelector('button'); if (b) b.focus(); }
+  };
   document.addEventListener('keydown', ev => {
     if (ev.key === 'Escape' && !menuVoz.hidden) { ev.stopPropagation(); abreMenuVoz(false, true); }
   });

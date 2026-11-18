@@ -31,7 +31,7 @@ test('btnVoz existe e aponta para o popover', () => {
 test('#menuVoz fica fora do header e começa vazio (o conversa.js põe ler e contínua nele)', () => {
   assert.ok(html.indexOf('id="menuVoz"') > html.indexOf('</header>'), '#menuVoz fica fora do header');
   assert.match(html, /<div id="menuVoz"[^>]*><\/div>/);
-  assert.match(css, /body:not\(\.voz-montada\) #tools > #btnLer/);
+  assert.match(css, /body:not\(\.voz-montada\) #btnVoz\{display:none\}/);
 });
 
 test('todo botão e link de #tools tem aria-label', () => {
