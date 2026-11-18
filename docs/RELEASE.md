@@ -23,13 +23,18 @@ A versão segue o [Versionamento Semântico](https://semver.org/lang/pt-BR/) (`X
 3. **Suba a versão.** `scripts/subir-versao.sh <patch|minor|major>`. O script grava o número novo em `VERSION`,
    em `runner/package.json`, `panel/package.json` e `runner/package-lock.json`, e no CHANGELOG move o conteúdo
    de `[Não lançado]` para `## [X.Y.Z] - AAAA-MM-DD`, deixando `[Não lançado]` vazio. Ele recusa se
-   `[Não lançado]` estiver vazio ou se a versão ou a tag já existirem. Não faz commit, tag nem push.
-4. **Commit e PR.** Abra um PR só com essa mudança, siga a revisão de [REVISAO-ADVERSARIAL.md](REVISAO-ADVERSARIAL.md)
-   e espere o ok do dono do projeto. Nenhum agente faz o merge sozinho.
-5. **Tag anotada no commit do merge**, depois do merge na `main`:
-   `git checkout main && git pull && git tag -a vX.Y.Z -m "DG Claw X.Y.Z"`.
+   `[Não lançado]` estiver vazio ou se a versão ou a tag já existirem. Recusa link simbólico e árvore suja. Grava tudo ou nada. Não faz commit, tag nem push.
+4. **Commit e PR.** Em uma branch `release/vX.Y.Z`, adicione só os cinco arquivos da release
+   (`git add VERSION CHANGELOG.md runner/package.json panel/package.json runner/package-lock.json`), confira
+   com `git diff --cached` e faça o commit. O script recusa rodar com a árvore ou o índice sujos (com
+   `--simular` só avisa). Abra o PR, siga a revisão de [REVISAO-ADVERSARIAL.md](REVISAO-ADVERSARIAL.md) e
+   espere o ok do dono do projeto. Nenhum agente faz o merge sozinho.
+5. **Tag anotada no SHA do merge aprovado**, não no HEAD da `main` (que pode ter andado depois do merge):
+   `SHA=$(gh pr view <n> --json mergeCommit -q .mergeCommit.oid)`, depois `git show $SHA:VERSION` (tem que
+   ser X.Y.Z) e `git tag -a vX.Y.Z $SHA -m "DG Claw X.Y.Z"`.
 6. **Publique a tag:** `git push origin vX.Y.Z`.
-7. **Release no GitHub:** `gh release create vX.Y.Z --title "DG Claw X.Y.Z" --notes-file <arquivo>`. As notas
+7. **Release no GitHub:** confira que a tag chegou (`git ls-remote origin refs/tags/vX.Y.Z` lista uma linha) e
+   rode `gh release create vX.Y.Z --verify-tag --title "DG Claw X.Y.Z" --notes-file <arquivo>`. As notas
    saem do CHANGELOG da versão, em português técnico, sem frase de efeito.
 
 O teste `tests/versao` confere que `VERSION`, as versões dos `package.json` do runner e do painel, o lock do
