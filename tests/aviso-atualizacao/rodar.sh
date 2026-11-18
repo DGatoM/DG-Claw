@@ -124,6 +124,8 @@ tem "recado manda simular e analisar antes" "dgclaw atualizar --simular" "$RECAD
 tem "recado manda gravar o parecer" "--parecer segura --commit" "$RECADO"
 tem "recado manda nao atualizar as cegas" "não atualize às cegas" "$RECADO"
 tem "recado cita as versoes" "v1-aaaaaaaaaaaa" "$RECADO"
+tem "versoes diferentes: o recado mostra so os numeros" "a instalada é v1-aaaaaaaaaaaa e a publicada é 1.1.0 (" "$RECADO"
+tem "versoes diferentes: o terminal mostra so os numeros" "v1-aaaaaaaaaaaa -> 1.1.0 (2 mudanças" "$OUT"
 nao_tem "credencial fora do log" "$SEGREDO_DO_TESTE" "$(cat "$LOG")"
 nao_tem "credencial fora do estado" "$SEGREDO_DO_TESTE" "$(cat "$ESTADO")"
 nao_tem "credencial fora do stdout e stderr" "$SEGREDO_DO_TESTE" "$OUT$ERR"
@@ -133,6 +135,18 @@ igual "avisado-admin.json 600" 600 "$(stat -c %a "$AVISADO")"
 roda
 igual "segunda rodada: sai 0" 0 "$RC"
 igual "segunda rodada: sem novo recado para o mesmo commit" 1 "$(recados)"
+
+echo "a frente, com o mesmo numero de versao: o commit curto aparece dos dois lados"
+raiz_nova 'DGCLAW_VERSAO=1.0.0'
+define "{compare: {status: 200, body: $(comparacao ahead 1 "$NOVO|Mudanca sem subir a versao")},
+         raw: {\"VERSION\": {body: \"1.0.0\n\"}}}"
+roda
+igual "sai 0" 0 "$RC"
+igual "disponivel" true "$(campo .disponivel)"
+RECADO="$(jq -r '.corpo | fromjson | .text' "$ADMINLOG")"
+tem "recado: numero e commit dos dois lados" "a instalada é 1.0.0 (${INSTALADO:0:7}) e a publicada é 1.0.0 (${NOVO:0:7})" "$RECADO"
+tem "terminal: numero e commit dos dois lados" "1.0.0 (${INSTALADO:0:7}) -> 1.0.0 (${NOVO:0:7})" "$OUT"
+tem "o log traz a mesma linha" "1.0.0 (${INSTALADO:0:7}) -> 1.0.0 (${NOVO:0:7})" "$(cat "$LOG")"
 
 echo "a frente, sem item novo no CHANGELOG (usa os commits)"
 raiz_nova

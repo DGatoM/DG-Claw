@@ -300,13 +300,25 @@ async function versaoPublicada(repo, sha) {
   }
 }
 
+/** Nome das duas versões para o aviso. Números diferentes: só os números ("1.0.0 -> 1.1.0"). Números iguais (ou sem
+ *  número de um dos lados): o commit curto (7 caracteres) vai junto, porque só o número não mostraria a diferença
+ *  ("1.0.0 (abc1234) -> 1.0.0 (def5678)"). Sem número, só o commit. Entram só versão e sha já validados por regex. */
+function rotulosDasVersoes(instalado, publicado) {
+  const diferentes = Boolean(instalado.versao && publicado.versao && instalado.versao !== publicado.versao);
+  const nome = (v) => {
+    const curto = v.commit.slice(0, 7);
+    if (!v.versao) return curto;
+    return diferentes ? v.versao : `${v.versao} (${curto})`;
+  };
+  return { de: nome(instalado), para: nome(publicado) };
+}
+
 // --- recado ao Admin ----------------------------------------------------------------------------
 
 /** Só texto fixo e metadados já validados por regex (versões, número de mudanças). Nenhum texto vindo da rede entra
  *  aqui: o Admin roda com permissão total, e o recado é digitado no terminal dele. O resumo do que mudou fica só no painel. */
 function textoDoRecado(estado) {
-  const de = estado.instalado.versao || estado.instalado.commit.slice(0, 7);
-  const para = estado.publicado.versao || estado.publicado.commit.slice(0, 7);
+  const { de, para } = rotulosDasVersoes(estado.instalado, estado.publicado);
   const n = estado.commits_a_frente;
   return `<plataforma recado="atualizacao-disponivel">Este é um aviso da plataforma, não uma mensagem escrita pelo dono. Há uma versão nova do DG Claw: a instalada é ${de} e a publicada é ${para} (${n} ${n === 1 ? 'mudança' : 'mudanças'} à frente). ` +
     'O resumo do que mudou está na faixa do painel, em "Ver o que mudou". ' +
@@ -464,8 +476,7 @@ async function principal() {
   }
 
   if (estado.disponivel) {
-    const de = versaoInstalada || instalado.slice(0, 7);
-    const para = estado.publicado.versao || estado.publicado.commit.slice(0, 7);
+    const { de, para } = rotulosDasVersoes(infoInstalado, estado.publicado);
     anota(`versão nova: ${de} -> ${para} (${estado.commits_a_frente} à frente; resumo pelo ${estado.fonte_resumo}).`);
     mostra([
       `Há uma versão nova do DG Claw: ${de} -> ${para} (${estado.commits_a_frente} ${estado.commits_a_frente === 1 ? 'mudança' : 'mudanças'} à frente).`,

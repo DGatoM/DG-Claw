@@ -24,8 +24,26 @@ test('esc cobre & < > " e aspa simples', () => {
 
 test('rótulo das versões: usa o número, ou os 7 primeiros do commit', () => {
   assert.equal(F.rotuloVersoes(estado()), 'v1-aaaaaaaaaaaa → 1.1.0');
-  assert.equal(F.rotuloVersoes(estado({ publicado: { commit: B, versao: null } })), 'v1-aaaaaaaaaaaa → bbbbbbb');
-  assert.equal(F.rotuloVersoes(estado({ instalado: null })), '? → 1.1.0');
+  assert.equal(F.rotuloVersoes(estado({ publicado: { commit: B, versao: null } })), 'v1-aaaaaaaaaaaa (aaaaaaa) → bbbbbbb');
+  assert.equal(F.rotuloVersoes(estado({ instalado: null })), '? → 1.1.0 (bbbbbbb)');
+});
+
+test('rótulo das versões: números diferentes mostram só os números, sem commit', () => {
+  const e = estado({ instalado: { commit: A, versao: '1.0.0' }, publicado: { commit: B, versao: '1.1.0' } });
+  assert.equal(F.rotuloVersoes(e), '1.0.0 → 1.1.0');
+});
+
+test('rótulo das versões: números iguais com commits diferentes mostram o commit dos dois lados', () => {
+  const e = estado({ instalado: { commit: A, versao: '1.0.0' }, publicado: { commit: B, versao: '1.0.0' } });
+  assert.equal(F.rotuloVersoes(e), '1.0.0 (aaaaaaa) → 1.0.0 (bbbbbbb)');
+  const sem = estado({ instalado: { commit: A, versao: null }, publicado: { commit: B, versao: null } });
+  assert.equal(F.rotuloVersoes(sem), 'aaaaaaa → bbbbbbb');
+});
+
+test('o commit no rótulo também sai escapado na faixa', () => {
+  const h = F.faixaHtml(estado({ instalado: { commit: '<b>' + A, versao: '1.0.0' }, publicado: { commit: B, versao: '1.0.0' } }));
+  assert.ok(h.includes('(&lt;b&gt;aaaa)'));
+  assert.ok(!h.includes('(<b>'));
 });
 
 test('a faixa tem uma linha com os três botões, o ? do tutorial e a lista fechada', () => {

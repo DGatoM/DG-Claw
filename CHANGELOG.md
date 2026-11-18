@@ -7,6 +7,13 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Correção no aviso de versão nova: o número agora sobe a cada release e, quando é igual, o aviso mostra o commit.** O
+`dgclaw atualizar` acompanha a ponta da `main`, e o arquivo `VERSION` ficava parado em 1.0.0, então o aviso dizia
+"1.0.0 -> 1.0.0" mesmo com mudanças novas. Duas mudanças. Cada release passa a subir o número da versão (há um script
+para isso, descrito em `docs/RELEASE.md`). E o aviso, no terminal, no recado ao Admin e na faixa do painel, mostra só os
+números quando eles são diferentes ("1.0.0 -> 1.1.0") e, quando são iguais, o commit curto dos dois lados ("1.0.0
+(abc1234) -> 1.0.0 (def5678)"). Sem número de versão, mostra só o commit, como antes.
+
 **Correção: render de vídeo não esgota os processos do agente.** Um agente chegou a ficar mais de 30 minutos parado num
 render de vídeo porque o container tem um limite de processos (as threads contam), e o Chrome da Tela, o Claude Code e
 os Chromium novos que as tentativas de render abriam chegaram ao teto ("Resource temporarily unavailable" e "Target
