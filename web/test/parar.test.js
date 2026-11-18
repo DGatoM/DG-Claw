@@ -277,3 +277,10 @@ test('parar: code fora da lista fechada vira "código desconhecido" e não é re
     assert.match(s.t.log.texto(), /código desconhecido/);
   } finally { await s.fechar(); }
 });
+
+test('parar: a tela diz "não sei se chegou" em erro de rede/corte e em 504 INCERTO', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'conversa.js'), 'utf8');
+  assert.match(js, /if \(!e\.status \|\| \(e\.status === 504 && e\.codigo === 'INCERTO'\)\) mostraErro\('Não sei se o pedido de parar chegou a '/);
+});

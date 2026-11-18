@@ -445,7 +445,9 @@ if (atividadeEl) {
       } catch (e) {
         const espere = e.dados && typeof e.dados.espere_s === 'number' ? e.dados.espere_s : null;
         if (e.status === 429 && espere !== null) esperaMs = Math.ceil(espere * 1000) + 100;
-        mostraErro('Não consegui parar ' + AGENTE.nome + ': ' + e.message);
+        // Sem status HTTP (rede, corte, prazo) ou 504 INCERTO: o Esc pode ter chegado; não diga que falhou.
+        if (!e.status || (e.status === 504 && e.codigo === 'INCERTO')) mostraErro('Não sei se o pedido de parar chegou a ' + AGENTE.nome + '. Olhe a conversa antes de apertar de novo.');
+        else mostraErro('Não consegui parar ' + AGENTE.nome + ': ' + e.message);
       } finally {
         // A trava de 3 s conta desde o clique; a espera do 429 conta desde a resposta.
         const atraso = esperaMs === 3000 ? Math.max(0, 3000 - (Date.now() - inicio)) : esperaMs;

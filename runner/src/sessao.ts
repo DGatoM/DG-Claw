@@ -125,6 +125,8 @@ export class Sessao extends EventEmitter {
   agora: () => number = () => Date.now();
   /** Quando o último Esc foi escrito no PTY (por /interromper ou pela permissão negada); 0 = nunca. */
   ultimoEscEm = 0;
+  /** Horário real e processo do PTY do último Esc escrito (de qualquer origem): só com ele o transcript prova uma interrupção. */
+  ultimoEscReal: { em: number; proc: unknown } | null = null;
   /**
    * A pergunta (processo + tool_use_id) cuja resposta já começou a ser digitada. Fica depois da trava cair:
    * a segunda aba que responde a mesma pergunta chega depois da última tecla e antes do PostToolUse, quando
@@ -536,7 +538,10 @@ export class Sessao extends EventEmitter {
     }
     this.marcarAtividade();
     // Todo Esc sozinho, venha de onde vier (Parar, negar permissão, cancelar pergunta), entra na trava de 3 s.
-    if (texto === ESC) this.ultimoEscEm = this.agora();
+    if (texto === ESC) {
+      this.ultimoEscEm = this.agora();
+      this.ultimoEscReal = { em: Date.now(), proc: this.proc };
+    }
     this.proc.write(texto);
   }
 

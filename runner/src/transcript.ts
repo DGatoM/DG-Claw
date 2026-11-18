@@ -151,6 +151,8 @@ export function turnoEncerradoNoTranscript(
   sessionId: string,
   desdeMs: number,
   configDir?: string | null,
+  /** Horário do último Esc escrito neste mesmo terminal (null se não houve): sem ele a mensagem de interrupção não vale. */
+  escEm: number | null = null,
 ): { encerrado: boolean; motivo: string } {
   const arquivo = acharArquivoDaSessao(sessionId, configDir);
   if (!arquivo) return { encerrado: false, motivo: `transcript da sessão ${sessionId} não encontrado` };
@@ -181,6 +183,10 @@ export function turnoEncerradoNoTranscript(
     const quando = o.timestamp ? Date.parse(o.timestamp) : NaN;
     if (!Number.isFinite(quando)) return { encerrado: false, motivo: `${rotulo} sem timestamp válido` };
     if (quando <= desdeMs) return { encerrado: false, motivo: `${rotulo} é anterior ao começo do turno atual` };
+    // A frase de interrupção sozinha não prova nada (o usuário pode digitá-la): só vale com um Esc nosso, deste terminal, logo antes.
+    if (!fimNormal && (escEm === null || quando < escEm - 2000)) {
+      return { encerrado: false, motivo: "a mensagem de interrupção não tem um Esc deste terminal antes dela" };
+    }
     return { encerrado: true, motivo: fimNormal ? `última linha é ${rotulo}` : "última linha é a interrupção do usuário" };
   }
   return { encerrado: false, motivo: "nenhuma linha JSON válida no fim do transcript" };

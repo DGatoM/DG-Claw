@@ -169,6 +169,7 @@ test("Stop perdido: interrupção do usuário ('[Request interrupted by user]') 
   for (const texto of [[{ type: "text", text: "[Request interrupted by user for tool use]" }], "[Request interrupted by user]"]) {
     const { s, hook, transcript } = await novaComRedeCurta(600);
     hook("UserPromptSubmit");
+    s.escrever("\u001b");
     transcript([[{ type: "assistant" }, 100], [INTERROMPIDO(texto), 200]]);
     s.enfileirarQuandoOcioso("mensagem presa na fila");
     await esperarAte(() => s.estado.status === "idle", 5_000, "o fim de turno por interrupção marcar idle");
@@ -185,9 +186,20 @@ test("Stop perdido: texto que só começa pelo prefixo de interrupção, ou inte
   await dormir(2_000);
   assert.equal(s.estado.status, "working");
 });
+test("Stop perdido: o marcador literal sem Esc, ou com Esc de outro processo, não encerra o turno", async () => {
+  const { s, hook, transcript } = await novaComRedeCurta(600);
+  hook("UserPromptSubmit");
+  transcript([[INTERROMPIDO("[Request interrupted by user]"), 200]]);
+  await dormir(2_000);
+  assert.equal(s.estado.status, "working", "sem nenhum Esc registrado");
+  s.ultimoEscReal = { em: Date.now(), proc: {} };
+  await dormir(2_000);
+  assert.equal(s.estado.status, "working", "Esc de um processo anterior");
+});
 test("Stop perdido: linhas 'null', número e lixo no fim do transcript não derrubam a leitura", async () => {
   const { s, hook, transcript, arquivo } = await novaComRedeCurta(600);
   hook("UserPromptSubmit");
+  s.escrever("\u001b");
   transcript([[INTERROMPIDO("[Request interrupted by user]"), 200]]);
   fs.appendFileSync(arquivo, "null\n7\n[1]\nisto não é json\n");
   await esperarAte(() => s.estado.status === "idle", 5_000, "o fim de turno ser reconhecido apesar das linhas estranhas");
