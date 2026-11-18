@@ -171,6 +171,53 @@ garantir_pular_aviso_bypass() {
     printf '%s\n' "$novo" | escrever_arquivo "$alvo" "${modo:-644}" "$quem"
 }
 
+# garantir_config_ytdlp <casa do agente> <uid:gid>
+# Poe no ~/.config/yt-dlp/config do agente as duas opcoes que fazem o download do YouTube funcionar:
+# ler os cookies do navegador da Tela (o perfil do Chrome da Tela, com o keyring "basictext" porque a
+# Tela abre o Chrome com --password-store=basic) e usar o node para o desafio de JavaScript.
+# Edita linha a linha, nunca reescreve o arquivo:
+# - arquivo ausente: nasce so com as duas linhas;
+# - arquivo existente: acrescenta so a linha que falta, no fim, sem mexer na ordem nem nas linhas alheias;
+# - ja tem a linha exata, ou a mesma opcao com outro valor (escolha da pessoa): nao toca nessa opcao;
+# - link simbolico no caminho: falha (nao grava como root fora da casa do agente).
+YTDLP_LINHAS=(
+    '--cookies-from-browser "chrome+basictext:/home/agente/.tela-chrome"'
+    '--js-runtimes node'
+)
+garantir_config_ytdlp() {
+    local h="$1" ug="$2" dir="$1/.config/yt-dlp" alvo="$1/.config/yt-dlp/config" linha opcao falta=() p
+    for p in "$h/.config" "$dir" "$alvo"; do
+        if [ -L "$p" ]; then
+            falha "$p e um link (aponta para $(realpath -m "$p")); nao gravo como root fora da casa do agente." \
+                  "troque-o por uma pasta ou arquivo de verdade (ls -la $(dirname "$p")) e rode de novo: dgclaw agente reparar"
+        fi
+    done
+    for linha in "${YTDLP_LINHAS[@]}"; do
+        opcao="${linha%% *}"
+        if [ -f "$alvo" ] && grep -Eq "^[[:space:]]*${opcao}([[:space:]]|=|\$)" "$alvo"; then continue; fi
+        falta+=("$linha")
+    done
+    if [ "${#falta[@]}" -eq 0 ]; then
+        ok "configuracao do yt-dlp do agente ja estava completa"
+        return 0
+    fi
+    if [ "$ENSAIO" = 1 ]; then
+        printf '   [ensaio] poria %s linha(s) em %s (sem apagar o que ja existe)\n' "${#falta[@]}" "$alvo"
+        return 0
+    fi
+    # .config pode ter sido criada pelo proprio agente; so ajusta dono se nasceu agora (vazia de dono certo).
+    [ -d "$h/.config" ] || criar_pasta 755 "$ug" "$h/.config"
+    [ -d "$dir" ] || criar_pasta 755 "$ug" "$dir"
+    {
+        if [ -s "$alvo" ]; then
+            cat "$alvo"
+            [ "$(tail -c1 "$alvo" | od -An -c | tr -d ' ')" = '\n' ] || printf '\n'
+        fi
+        printf '%s\n' "${falta[@]}"
+    } | escrever_arquivo "$alvo" 644 "$ug"
+    ok "configuracao do yt-dlp do agente em dia (${#falta[@]} linha(s) acrescentada(s) em $alvo)"
+}
+
 # garantir_gancho_runner <runner.json> <slug> <comando> <rotulo>
 # Poe <comando> em .config.promptHooks do runner.json, sem perder os outros itens nem o resto do
 # arquivo. Por que: agentes criados antes de um gancho existir nao o tem, e o `agente reparar` e o

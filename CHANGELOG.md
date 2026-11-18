@@ -7,6 +7,34 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Correção no download do YouTube: yt-dlp atualizado, cookies da Tela e teste de verdade na saúde.** O agente não conseguia
+baixar vídeo do YouTube por três motivos. O `yt-dlp` da imagem estava velho e sem o `yt-dlp-ejs`, que resolve o desafio de
+JavaScript do YouTube; o comando `yt-dlp` não estava no PATH do serviço do runner; e o YouTube responde "Sign in to confirm
+you're not a bot" para quem não está logado, e a Tela nunca tinha uma conta. Agora a imagem traz `yt-dlp[default]` 2026.10.26
+com `yt-dlp-ejs` 0.8.0 (o node da imagem roda o desafio) e um link em `/usr/local/bin/yt-dlp`, que funciona mesmo sem o PATH da
+imagem. O arquivo `~/.config/yt-dlp/config` do agente nasce com `--cookies-from-browser "chrome+basictext:/home/agente/.tela-chrome"`
+(o Chrome da Tela, aberto com `--password-store=basic`) e `--js-runtimes node`; o `dgclaw agente criar` o cria e o
+`dgclaw agente reparar` (que o atualizar roda) acrescenta só a linha que faltar, sem apagar, duplicar nem reordenar o que a
+pessoa já tenha no arquivo (se ela já escolheu outro valor para a mesma opção, ele fica como está). O diagnóstico ganhou o
+item `agente.<slug>.youtube`: um download real e pequeno (vídeo de 19 s, o formato menor, teto de 5 MB, pasta temporária que é
+apagada) feito dentro do container como o usuário agente. O resultado é guardado com horário em `youtube-saude.json`: o teste
+roda no máximo uma vez por dia (e de novo, a cada 5 minutos no máximo, só depois de uma falha, para quem acabou de entrar no
+YouTube conferir). Se o YouTube pedir login, o item vira "atenção" e diz para abrir a Tela e entrar em youtube.com; se o
+`yt-dlp` não existir ou der outro erro, mostra a última linha do erro, sem cookie nem token. A checagem roda no container e
+não depende do motor do agente: vale igual no Claude e no Codex. As instruções do agente (`templates/ambiente/agente.md`)
+passaram a dizer que o `yt-dlp` já lê os cookies da Tela e que, se o YouTube pedir login, ele deve pedir ao dono para entrar
+pela Tela, em vez de instalar outro `yt-dlp`.
+
+### Como atualizar (download do YouTube)
+
+1. **Reconstrua a imagem e atualize.** A versão nova do `yt-dlp` e o link do comando vêm na imagem dos agentes. O
+   `dgclaw atualizar` padrão já reconstrói a imagem e recria os agentes; depois disso o arquivo de configuração do `yt-dlp`
+   de cada agente é criado ou completado sozinho, sem tocar no que você já tenha nele.
+2. **Entre no YouTube pela Tela, uma vez por agente.** Abra a Tela do agente (menu do agente, grupo Conexões, "Navegador"),
+   entre em youtube.com com a sua conta e pronto: o `yt-dlp` passa a usar essa sessão. Sem isso o YouTube continua
+   recusando o download, e a tela de diagnóstico mostra o aviso "O YouTube pediu login". Quando a sessão cair, o mesmo
+   aviso volta e o caminho é o mesmo.
+
 **Correção: render de vídeo não esgota os processos do agente.** Um agente chegou a ficar mais de 30 minutos parado num
 render de vídeo porque o container tem um limite de processos (as threads contam), e o Chrome da Tela, o Claude Code e
 os Chromium novos que as tentativas de render abriam chegaram ao teto ("Resource temporarily unavailable" e "Target

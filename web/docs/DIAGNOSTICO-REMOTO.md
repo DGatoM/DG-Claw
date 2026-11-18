@@ -161,6 +161,7 @@ medi" e nunca é zero: `atualizacao_disponivel: null` é diferente de `false`.
 | `agente.<slug>.memoria.injecao` | Falhas das últimas 24 horas ao colocar a memória na conversa |
 | `agente.<slug>.memoria.working_memory` | Se a memória de trabalho existe, cabe no teto e foi remontada hoje |
 | `agente.<slug>.compactacao` | Estado da compactação automática da conversa |
+| `agente.<slug>.youtube` | Download real e pequeno do YouTube feito dentro do container (cookies da Tela). No máximo uma vez por dia; mostra o último resultado com horário. "Atenção" quando o YouTube pede login, quando o `yt-dlp` não existe ou dá outro erro |
 
 ## O que NUNCA sai na resposta
 

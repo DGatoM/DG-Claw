@@ -49,6 +49,8 @@ function criarDiagnostico(deps) {
   const ctx = {
     config, runner: runnerComPrazo, log,
     exec: U.comPrazo(deps.exec || U.execPadrao, () => prazoAtual.getStore()),
+    // Para o que não cabe no prazo de uma verificação (o teste do YouTube roda em segundo plano): sem o cancelamento da coleta.
+    execSolto: deps.exec || U.execPadrao,
     lerArquivo: deps.lerArquivo || lerSeguro,
     agora: deps.agora || (() => Date.now()),
     statfs: deps.statfs || ((p) => fs.promises.statfs(p)),
@@ -272,7 +274,10 @@ function criarDiagnostico(deps) {
     }
   }
 
-  return { responder, coletar };
+  /** Espera os testes em segundo plano (o do YouTube) que ainda estiverem rodando. Usado pelos testes. */
+  const aguardarSegundoPlano = () => Promise.all(ctx.youtube ? [...ctx.youtube.andando.values()] : []);
+
+  return { responder, coletar, aguardarSegundoPlano };
 }
 
 module.exports = { criarDiagnostico, BASE };

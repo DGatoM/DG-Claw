@@ -507,14 +507,16 @@ test('responder: cache de 20 s compartilhado entre pedidos simultâneos', async 
     return res;
   };
   await Promise.all([chamar(), chamar(), chamar()]);
-  const depoisDoPrimeiro = m.chamadas.length;
+  // O teste do YouTube tem cadência própria (uma vez por dia): fica fora desta contagem.
+  const contar = () => m.chamadas.filter((c) => !c.includes('sh')).length;
+  const depoisDoPrimeiro = contar();
   assert.ok(depoisDoPrimeiro > 0);
   agora += 10000;
   await chamar();
-  assert.equal(m.chamadas.length, depoisDoPrimeiro, 'dentro de 20 s usa o cache, e os três pedidos simultâneos dividiram uma coleta');
+  assert.equal(contar(), depoisDoPrimeiro, 'dentro de 20 s usa o cache, e os três pedidos simultâneos dividiram uma coleta');
   agora += 11000;
   await chamar();
-  assert.equal(m.chamadas.length, depoisDoPrimeiro * 2, 'passados 20 s coleta de novo');
+  assert.equal(contar(), depoisDoPrimeiro * 2, 'passados 20 s coleta de novo');
   m.casa.limpa();
 });
 

@@ -282,6 +282,7 @@ exigir_casa_sem_link() {
              "$h/.plataforma/dgchat" "$h/.claude" "$h/.codex" "$h/memory" \
              "$h/.dgclaw/config.sh" "$h/.dgclaw/panel/config.json" "$h/.dgclaw/logs/permissoes.log" \
              "$h/.dgclaw/tela" "$h/.dgclaw/tela/vnc.senha" \
+             "$h/.config" "$h/.config/yt-dlp" "$h/.config/yt-dlp/config" \
              "$h/.dgclaw/canal-desejado" "$h/.plataforma/dgchat.mcp.json" "$h/.plataforma/identidade.md" \
              "$h/.claude/settings.json" "$h/.claude/settings.local.json" \
              "$h/AGENT.md" "$h/CLAUDE.md" "$h/AGENTS.md" "$h/MEMORY.md"; do
@@ -672,6 +673,7 @@ montar_casa() {
     # .dgclaw e do agente e so dele (700): o dgclaw-agente grava canais.json ali dentro.
     criar_pasta 700 "$ug" "$h/.dgclaw"
     ok "casa do agente em $casa (dono: uid $C_UID_HOST, visto de fora)"
+    garantir_config_ytdlp "$h" "$ug"
 
     # settings.json nasce pronto e de dono root DO HOST (la dentro aparece como
     # "nobody"): arquivo que nao existe e lugar vago, e quem esta dentro pode ocupar
@@ -1537,6 +1539,9 @@ agente_reparar() {
     passo "Regravando a identidade do agente $slug"
     regravar_config_sh "$slug" "$obj" identidade
     ok "identidade.md regravado (vale na proxima sessao do agente)"
+    passo "Garantindo a configuracao do yt-dlp do agente $slug"
+    # O dono e o mesmo do config.sh que acabou de ser regravado (uid do agente); no ensaio ele pode nao existir.
+    garantir_config_ytdlp "$DG_CASAS/$slug/home" "$(stat -c '%u:%g' "$DG_CASAS/$slug/home/.dgclaw/config.sh" 2>/dev/null || echo 0:0)"
     passo "Refazendo a parte de dentro do agente $slug"
     esperar_systemd "$c"
     instalar_vida "$slug" || falha "a parte de dentro do agente $slug nao terminou." \
