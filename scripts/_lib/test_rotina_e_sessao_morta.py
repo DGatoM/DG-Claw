@@ -10,6 +10,7 @@ ignoradas. Aqui nada usa root, systemd nem sessao real: o inject.py vira um stub
 workspace e temporario.
 """
 import importlib.util
+import io
 import json
 import os
 import shutil
@@ -65,6 +66,49 @@ class ExecLineEUnit(unittest.TestCase):
         # oneshot nao aceita RestartForceExitStatus (systemd 255 recusa a unit)
         self.assertIn("Type=simple", svc)
         self.assertNotIn("oneshot", svc)
+
+    def _editar(self, respostas_show, rc_restart=0):
+        """Roda install_units em modo edit com um `run` falso: cada `systemctl show` devolve a
+        proxima resposta de `respostas_show` (rc, stdout). Devolve (comandos, stderr)."""
+        show = list(respostas_show)
+        comandos = []
+
+        def falso(cmd, check=True):
+            comandos.append(cmd[1])
+            if cmd[1] == "show":
+                rc, out = show.pop(0)
+                return subprocess.CompletedProcess(cmd, rc, out, "falhou" if rc else "")
+            if cmd[1] == "restart":
+                return subprocess.CompletedProcess(cmd, rc_restart, "", "start limit" if rc_restart else "")
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        with mock.patch.object(self.mod, "run", side_effect=falso), \
+                mock.patch("sys.stderr", new_callable=io.StringIO) as err:
+            self.mod.install_units(self.c, "retomar", "2030-01-01 09:05:00", None, "retome", "retomar",
+                                   edit=True)
+        return comandos, err.getvalue()
+
+    def test_edit_de_timer_ja_disparado_rearma(self):
+        # elapsed: proximo disparo vazio; depois do restart, aparece
+        cmds, err = self._editar([(0, "\n0\n"), (0, "Tue 2030-01-01 09:05:00 -03\n0\n")])
+        self.assertEqual(cmds, ["daemon-reload", "enable", "show", "restart", "show"])
+        self.assertEqual(err, "")
+
+    def test_edit_com_proximo_disparo_nao_reinicia(self):
+        cmds, err = self._editar([(0, "Tue 2030-01-01 09:05:00 -03\n0\n")])
+        self.assertEqual(cmds, ["daemon-reload", "enable", "show"])
+        self.assertEqual(err, "")
+
+    def test_edit_avisa_quando_restart_falha(self):
+        cmds, err = self._editar([(0, "\n0\n")], rc_restart=1)
+        self.assertEqual(cmds, ["daemon-reload", "enable", "show", "restart"])
+        self.assertIn("recusou rearmar", err)
+        self.assertIn("list-timers --all", err)
+
+    def test_edit_avisa_quando_nao_consegue_conferir(self):
+        cmds, err = self._editar([(1, "")])
+        self.assertEqual(cmds, ["daemon-reload", "enable", "show"])
+        self.assertIn("nao consegui confirmar", err)
 
 
 class PulsoLedger(unittest.TestCase):
