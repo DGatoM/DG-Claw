@@ -571,11 +571,11 @@ export class Sessao extends EventEmitter {
     if (!this.proc) {
       return { ok: false, status: 409, code: "NO_PTY", erro: `O agente ${this.slug} não tem terminal vivo agora.`, comoResolver: "chamar POST /api/agents/:id/resume antes" };
     }
-    log.info(this.a("entrada"), `permissão ${decisao === "aprovar" ? "aprovada" : "negada"} por API`);
     if (decisao === "negar") {
       const trava = this.travaDoEsc();
       if (trava) return trava;
     }
+    log.info(this.a("entrada"), `permissão ${decisao === "aprovar" ? "aprovada" : "negada"} por API`);
     this.escrever(decisao === "aprovar" ? "1" : ESC);
     return { ok: true };
   }
