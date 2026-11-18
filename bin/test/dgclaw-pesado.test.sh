@@ -73,6 +73,14 @@ neto3="$(cat "$tmpa/neto3.pid" 2>/dev/null)"
 sleep 0.3
 if [ "$rc" -eq 0 ] && [ -n "$neto3" ] && ! kill -0 "$neto3" 2>/dev/null; then ok "caminho com apóstrofo funciona e o neto morre"; else mal "apóstrofo: código $rc, neto '$neto3'"; fi
 
+echo "dgclaw-pesado: threads limitadas pelas CPUs"
+printf '100000 100000\n' > "$TMP/cpumax"
+v="$(DGCLAW_PESADO_CGROUP_CPUMAX_ARQ="$TMP/cpumax" OPENBLAS_NUM_THREADS=48 OMP_NUM_THREADS=abc MKL_NUM_THREADS="" "$PESADO" -- sh -c 'echo "$OPENBLAS_NUM_THREADS $OMP_NUM_THREADS $MKL_NUM_THREADS $NUMEXPR_NUM_THREADS"' 2>/dev/null)"
+[ "$v" = "1 1 1 1" ] && ok "cota de 1 CPU: 48, inválido e vazio viram 1" || mal "threads com 1 CPU: '$v'"
+printf 'max 100000\n' > "$TMP/cpumax"
+v="$(DGCLAW_PESADO_CGROUP_CPUMAX_ARQ="$TMP/cpumax" OMP_NUM_THREADS=1 "$PESADO" -- sh -c 'echo "$OMP_NUM_THREADS"' 2>/dev/null)"
+[ "$v" = "1" ] && ok "OMP_NUM_THREADS=1 fica 1 mesmo com várias CPUs" || mal "OMP 1: '$v'"
+
 echo "dgclaw-pesado: teto de memória padrão"
 # O systemd-run falso só imprime o teto escolhido; o caminho com gerente não roda aqui.
 mkdir -p "$TMP/run2/systemd" "$TMP/bin"

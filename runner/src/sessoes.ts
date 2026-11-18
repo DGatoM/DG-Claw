@@ -522,6 +522,10 @@ export class GerenteDeSessoes {
     const agora = Date.now();
     for (const s of this.mapaParalelas.values()) {
       if (!s.temPtyVivo() || s.estado.status !== "idle" || s.tamanhoDaFila() > 0) continue;
+      if (s.subagentesAtivos.size > 0) {
+        log.debug("sessoes", `não suspendo ${s.id}: ${s.subagentesAtivos.size} subagente(s) ainda em andamento`);
+        continue;
+      }
       const limite = (s.ociosoMinutos ?? 20) * 60_000;
       const parada = agora - s.ultimaAtividadeEm();
       if (parada <= limite) continue;

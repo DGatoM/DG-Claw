@@ -24,6 +24,8 @@ def _autoembrulho():
     else:
         opcoes = [o for o, ligada in (("-E", sys.flags.ignore_environment), ("-s", sys.flags.no_user_site),
                                       ("-P", getattr(sys.flags, "safe_path", False))) if ligada]
+    if sys.flags.no_site:
+        opcoes.append("-S")
     os.execv(exe, args + ["--", sys.executable, *opcoes, os.path.abspath(__file__), *sys.argv[1:]])
 
 def main():

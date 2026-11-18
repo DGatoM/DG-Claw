@@ -1075,6 +1075,33 @@ test("subagente em primeiro plano: depois da permissão ele segue, e o Stop da p
   await esperarAte(() => s.estado.status === "idle", STOP_CONFIRM_MS + 6_000, "o Stop da principal confirmar");
 });
 
+test("subagente ativo (sem SubagentStop) segura a suspensão do card ocioso; depois do SubagentStop ele é suspenso", async () => {
+  const { GerenteDeSessoes } = await import("./sessoes.js");
+  const { s, hook } = await novaComRedeCurta(60_000);
+  assert.equal(s.estado.status, "idle");
+  const suspensoes: string[] = [];
+  (s as unknown as { suspender: (m: string) => boolean }).suspender = (m) => { suspensoes.push(m); return true; };
+  const rodar = () => {
+    s.ultimaAtividade = Date.now() - 3 * 3_600_000;
+    (GerenteDeSessoes.prototype as unknown as { suspenderOciosas(this: unknown): void }).suspenderOciosas.call({ mapaParalelas: new Map([[s.id, s]]) });
+  };
+  hook("PreToolUse", { toolName: "Bash", toolUseId: "tu-sub3", ...SUB });
+  assert.ok(s.subagentesAtivos.has(SUB.subagentId));
+  rodar();
+  assert.equal(suspensoes.length, 0, "com subagente em andamento o card não é suspenso, mesmo além do limite");
+  hook("SubagentStop", { ...SUB });
+  assert.equal(s.subagentesAtivos.size, 0);
+  assert.equal(s.estado.status, "idle", "o SubagentStop não muda o status");
+  rodar();
+  assert.equal(suspensoes.length, 1, "sem subagente, o card ocioso é suspenso");
+});
+
+test("o settings do Claude registra o hook SubagentStop do runner", async () => {
+  const { s } = await novaComRedeCurta(60_000);
+  const settings = JSON.parse(fs.readFileSync(path.join(amb.estado, s.id, "runner-hooks", `${s.id}.settings.json`), "utf8"));
+  assert.match(settings.hooks.SubagentStop[0].hooks[0].command, /--event SubagentStop/);
+});
+
 test("subagente: a pergunta ao dono (AskUserQuestion) continua valendo", async () => {
   const { s, hook } = await novaComRedeCurta(60_000);
   hook("UserPromptSubmit");

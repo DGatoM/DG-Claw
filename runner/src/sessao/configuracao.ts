@@ -235,6 +235,8 @@ export function escreverSettings(s: Sessao, nonce: string): string | null {
       },
     };
     if (s.motor.provedor === "claude") {
+      // Só o Claude tem SubagentStop; é o que diz ao runner que o subagente terminou (ver subagentesAtivos).
+      (settings.hooks as Record<string, unknown>).SubagentStop = para("SubagentStop");
       const dono = statusLineDeOutroDono(s);
       if (dono) {
         log.aviso(

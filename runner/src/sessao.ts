@@ -135,6 +135,9 @@ export class Sessao extends EventEmitter {
   respostasDePergunta = 0;
   /** O tool_use_id do último PreToolUse (qualquer ferramenta), para o pendenteId da permissão. */
   ultimoToolUseId: string | null = null;
+  /** Subagentes (Agent tool) com ferramenta em curso: entram por um PreToolUse/PostToolUse com `agent_id` e saem no
+   *  SubagentStop. Enquanto houver algum, a sessão ociosa não é suspensa (suspender mataria o subagente). */
+  subagentesAtivos = new Set<string>();
   /** Quando o login expirou (ms). Presente só enquanto o estado for runner:login-expirado. */
   loginExpiradoEmMs: number | null = null;
   vigiaDoLoginExpirado: NodeJS.Timeout | null = null;

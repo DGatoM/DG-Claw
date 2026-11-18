@@ -81,14 +81,17 @@ export DGCLAW_PESADO=1
 cpus=$(nproc 2>/dev/null || echo 1)
 # O nproc do Ubuntu 24.04 não enxerga a cota de CPU do container (cpu.max): sem isto, 32 threads de numpy
 # num container de 1 CPU.
-read -r cota periodo < /sys/fs/cgroup/cpu.max 2>/dev/null || cota=max
+read -r cota periodo < "${DGCLAW_PESADO_CGROUP_CPUMAX_ARQ:-/sys/fs/cgroup/cpu.max}" 2>/dev/null || cota=max
 if [[ "${cota:-max}" =~ ^[0-9]+$ ]] && [[ "${periodo:-}" =~ ^[0-9]+$ ]] && [ "$periodo" -gt 0 ]; then
   cpus_cota=$(( (cota + periodo - 1) / periodo ))
   if [ "$cpus_cota" -ge 1 ] && [ "$cpus_cota" -lt "$cpus" ]; then cpus=$cpus_cota; fi
 fi
-export OMP_NUM_THREADS="${OMP_NUM_THREADS:-$cpus}" OPENBLAS_NUM_THREADS="${OPENBLAS_NUM_THREADS:-$cpus}" \
-       MKL_NUM_THREADS="${MKL_NUM_THREADS:-$cpus}" NUMEXPR_NUM_THREADS="${NUMEXPR_NUM_THREADS:-$cpus}" \
-       OPENCV_FOR_THREADS_NUM="${OPENCV_FOR_THREADS_NUM:-$cpus}"
+# Valor herdado maior que as CPUs, vazio ou inválido vira $cpus; inteiro positivo até $cpus fica.
+for var in OMP_NUM_THREADS OPENBLAS_NUM_THREADS MKL_NUM_THREADS NUMEXPR_NUM_THREADS OPENCV_FOR_THREADS_NUM; do
+  atual="${!var:-}"
+  if ! [[ "$atual" =~ ^[0-9]+$ ]] || [ "$((10#$atual))" -lt 1 ] || [ "$((10#$atual))" -gt "$cpus" ]; then atual="$cpus"; fi
+  export "$var=$((10#$atual))"
+done
 
 # Subir o próprio oom_score_adj é permitido sem root, e os filhos herdam.
 echo 800 > /proc/self/oom_score_adj 2>/dev/null || true

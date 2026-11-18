@@ -61,6 +61,9 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
   // A pergunta ao dono (AskUserQuestion) continua valendo, porque o turno só segue quando ele responde.
   // Com a sessão em waiting_input o filtro não vale: é o subagente em primeiro plano seguindo depois de uma
   // permissão (o de segundo plano não abre diálogo), e o caminho normal o devolve a working, como antes.
+  const eventoDeFerramenta = payload.event === "PreToolUse" || payload.event === "PostToolUse";
+  // Em qualquer status (inclusive waiting_input): o subagente está vivo e a suspensão não pode matá-lo.
+  if (payload.subagentId && eventoDeFerramenta) s.subagentesAtivos.add(payload.subagentId);
   if (
     payload.subagentId &&
     s.estado.status !== "waiting_input" &&
@@ -75,6 +78,14 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
     if (payload.event === "PreToolUse") s.ultimoToolUseId = payload.toolUseId ?? null;
     s.hooksVivos = true;
     if (!s.estado.hookActive) s.estado.hookActive = true;
+    return { ok: true };
+  }
+
+  // Fim de um subagente: só o tira do conjunto. O estado da principal é decidido pelo Stop dela, em qualquer status.
+  if (payload.event === "SubagentStop") {
+    if (payload.subagentId) s.subagentesAtivos.delete(payload.subagentId);
+    s.marcarAtividade();
+    s.hooksVivos = true;
     return { ok: true };
   }
 
