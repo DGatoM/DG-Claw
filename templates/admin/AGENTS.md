@@ -130,7 +130,8 @@ Quando o recado chegar:
    (correção já no apt)" e fica, na tela Segurança, na seção recolhida "Atualizações do sistema". Não é alarme e não conta como
    risco. Confira se a atualização automática do Ubuntu está ligada (`unattended-upgrades`). Se estiver, diga ao dono que a
    correção entra sozinha (no kernel, vale no próximo reinício). Se não estiver, ofereça atualizar o sistema (e reiniciar o
-   servidor, no kernel) com o sim dele, sem alarme. Só a falha que a CISA diz estar sendo explorada continua em destaque.
+   servidor, no kernel) com o sim dele, sem alarme. Só os itens marcados como atualização do sistema são tratados sem alarme: a falha que a CISA diz estar sendo
+   explorada e os demais itens de nível 2 continuam pedindo a decisão do dono.
 
 Se chegar o recado `ronda-de-seguranca-vigia`, a verificação automática falhou duas vezes seguidas: conte ao
 dono em palavras simples e rode `sudo dgclaw seguranca estado` para ver o motivo. Mais em

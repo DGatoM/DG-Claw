@@ -1743,6 +1743,23 @@ class Paliativos(Base):
         self.ronda("executar", "--sem-avisar")
         self.assertEqual(self.achado(self.ID)["estado"], "atualizacao-sistema")
 
+    def test_metapacote_hwe_com_til_e_abi_antigo_nao_prova_a_correcao(self):
+        S["osv_paginas"][f"{ECO}|linux|6.8.0-147.153"] = [[self.ID]]
+        S["osv_vulns"][self.ID] = reg_ubuntu(self.ID, "CVE-2026-98432", "linux", "6.8.0-149.149~24.04.2", prio="critical")
+        self.meta("6.8.0.148.148~24.04.13", nome="linux-image-generic-hwe-24.04")   # ABI 148 não cobre o 149, apesar do ~24.04.13
+        self.ronda("executar", "--sem-avisar")
+        self.assertNotEqual(self.achado(self.ID)["estado"], "atualizacao-sistema")
+        self.meta("6.8.0.150.150~24.04.1", nome="linux-image-generic-hwe-24.04")
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(self.ID)["estado"], "atualizacao-sistema")
+
+    def test_metapacote_com_sufixo_lts_prova_a_imagem(self):
+        S["osv_paginas"][f"{ECO}|linux|6.8.0-147.153"] = [[self.ID]]
+        S["osv_vulns"][self.ID] = reg_ubuntu(self.ID, "CVE-2026-98432", "linux", "6.8.0-149.149", prio="critical")
+        self.meta("6.8.0.149.149", nome="linux-image-virtual-lts-24.04")
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(self.ID)["estado"], "atualizacao-sistema")
+
     def test_metapacote_com_sufixo_da_serie_do_kernel_em_execucao_prova_a_imagem(self):
         S["osv_paginas"][f"{ECO}|linux|6.8.0-147.153"] = [[self.ID]]
         S["osv_vulns"][self.ID] = reg_ubuntu(self.ID, "CVE-2026-98432", "linux", "6.8.0-149.149", prio="critical")

@@ -2312,15 +2312,16 @@ def critico(a):
 
 # ---------------------------------------------------------------- o apt deste servidor tem a correção?
 
-RX_META_ANTIGO = re.compile(r"^(\d+\.\d+\.\d+)\.(\d+)\.(\d+)$")
+RX_META_ANTIGO = re.compile(r"^(\d+\.\d+\.\d+)\.(\d+)\.(\d+)(~[0-9A-Za-z.+~]+)?$")
 RX_APT_BLOCO = re.compile(r"^(\S.*):\s*$")
 LOTE_APT = 200
 
 
 def normaliza_meta(v):
-    """Metapacotes antigos usam '5.15.0.91.88' para o que o kernel chama de '5.15.0-91.88'."""
+    """Metapacotes usam '5.15.0.91.88' (ou '6.5.0.26.26~22.04.13', nos HWE) para o que o kernel chama de '5.15.0-91.88'
+    ('6.5.0-26.26~22.04.13')."""
     m = RX_META_ANTIGO.match(v or "")
-    return f"{m.group(1)}-{m.group(2)}.{m.group(3)}" if m else v
+    return f"{m.group(1)}-{m.group(2)}.{m.group(3)}{m.group(4) or ''}" if m else v
 
 
 def parse_apt_policy(texto):
@@ -2420,12 +2421,15 @@ def metapacotes_de_imagem(inv):
         if not n.startswith("linux-") or re.search(r"headers|tools", n):
             continue
         base = re.sub(r"^linux-(image-)?", "", n)
-        base = re.sub(r"(-hwe-[0-9.]+)?(-edge)?$", "", base)
+        base = re.sub(r"(-hwe-[0-9.]+|-lts-[0-9.]+)?(-edge)?$", "", base)   # linux-image-aws-lts-22.04 também puxa a imagem aws
         if serie and base.endswith("-" + serie):   # linux-image-generic-6.8: depende da imagem da série em execução
             base = base[:-len(serie) - 1]
         if base in aceitos:
             saida.append(n)
     return saida
+
+
+RX_VERSAO_IMAGEM = re.compile(r"^\d+\.\d+\.\d+-\d+")
 
 
 def sem_epoch(v):
@@ -2447,8 +2451,9 @@ def apt_todos_instalaveis(a, cand, inv):
         corrigida = af["corrigida"]
         if via_metapacote(af):
             serie = (re.findall(r"\d+", inv.get("kernel") or "") + ["", ""])[:2]
+            # só a versão no formato da imagem (com o ABI depois do hífen) e da mesma série do kernel em execução
             vers = [v for v in (normaliza_meta(cand[n]) for n in metapacotes_de_imagem(inv) if cand.get(n))
-                    if (re.findall(r"\d+", v) + ["", ""])[:2] == serie]
+                    if RX_VERSAO_IMAGEM.match(sem_epoch(v)) and (re.findall(r"\d+", v) + ["", ""])[:2] == serie]
             if not any(candidato_cobre(v, corrigida) for v in vers):
                 return False
             continue
