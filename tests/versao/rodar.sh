@@ -54,4 +54,17 @@ for par in "runner/package.json:$RUNNER" "panel/package.json:$PANEL" "runner/pac
     if [ "${par##*:}" = "$V" ]; then ok "${par%:*} = VERSION ($V)"; else mal "${par%:*} = ${par##*:}, diferente de VERSION ($V)"; fi
 done
 
+
+echo "a versao sobe em relacao a release anterior do CHANGELOG"
+ANT="$(sed -n 's/^## \[\([0-9][^]]*\)\].*/\1/p' "$REPO/CHANGELOG.md" | sed -n 2p)"
+if [ -z "$ANT" ]; then
+    ok "nao ha release anterior no CHANGELOG"
+elif [[ ! "$ANT" =~ $RX ]]; then
+    mal "CHANGELOG.md: segundo cabecalho lancado fora do formato X.Y.Z"
+elif [ "$ANT" != "$V" ] && [ "$(printf '%s\n%s\n' "$ANT" "$V" | sort -V | tail -n 1)" = "$V" ]; then
+    ok "VERSION ($V) e maior que a release anterior ($ANT)"
+else
+    mal "VERSION ($V) nao e maior que a release anterior do CHANGELOG ($ANT)"
+fi
+
 fim

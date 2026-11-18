@@ -93,6 +93,7 @@ ser de outro clone), e a tag local é conferida contra ele antes do push.
   OFICIAL=https://github.com/DGatoM/DG-Claw.git
   [ "$(git cat-file -t "refs/tags/v$VERSAO")" = tag ]                  # tag anotada, não leve
   [ "$(git rev-parse "refs/tags/v$VERSAO^{commit}")" = "$SHA" ]       # a tag local aponta para o SHA do merge
+  [ -s "$NOTAS" ]                                                 # o arquivo de notas existe e tem texto
   git push --no-follow-tags "$OFICIAL" "refs/tags/v$VERSAO:refs/tags/v$VERSAO"
   [ "$(git ls-remote "$OFICIAL" "refs/tags/v$VERSAO^{}" | cut -f1)" = "$SHA" ]   # a tag no repositório oficial também
   gh release create "v$VERSAO" -R DGatoM/DG-Claw --verify-tag --title "DG Claw $VERSAO" --notes-file "$NOTAS"
