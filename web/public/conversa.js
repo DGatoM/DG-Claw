@@ -4804,8 +4804,16 @@ entrada.addEventListener('keydown', ev => {
 
 /* Botão Voz: fica destacado quando ler OU contínua está ligado; o popover (#menuVoz) guarda os dois controles */
 const btnVoz = $('btnVoz'), menuVoz = $('menuVoz');
+/* Com o quadro fechado, o botão diz qual modo está ligado: a contínua (que reabre o microfone)
+   tem ícone próprio e o nome avisa que ele volta a gravar. */
 function pintaVoz() {
-  if (btnVoz) btnVoz.classList.toggle('on', !!(lerRespostas || continua));
+  if (!btnVoz) return;
+  btnVoz.classList.toggle('on', !!(lerRespostas || continua));
+  const u = btnVoz.querySelector('use');
+  if (u) u.setAttribute('href', '/ds/icones.svg#' + (continua ? 'i-repeat' : lerRespostas ? 'i-volume' : 'i-volume-off'));
+  const nome = continua ? 'Voz: conversa contínua ligada, o microfone volta a gravar depois de cada resposta'
+    : lerRespostas ? 'Voz: leitura em voz alta ligada' : 'Voz: leitura em voz alta e conversa contínua desligadas';
+  btnVoz.title = nome; btnVoz.setAttribute('aria-label', nome);
 }
 function posicionaMenuVoz() {
   // fixo, calculado: a faixa de ferramentas rola e cortaria um popover absoluto
