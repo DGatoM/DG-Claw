@@ -156,6 +156,7 @@ medi" e nunca é zero: `atualizacao_disponivel: null` é diferente de `false`.
 | `agente.<slug>.canal.painel` | Se a conversa pelo painel está alcançável |
 | `agente.<slug>.canal.telegram` | Telegram ligado ou desligado e se o canal está respondendo. Desligado é `ok` e não é defeito |
 | `agente.<slug>.canal.whatsapp` | WhatsApp ligado ou desligado, estado da conexão e se a ponte está de pé |
+| `agente.<slug>.limites` | Limites do container: processos (`pids.max`) e memória abaixo do que o DG Claw dá hoje, falta de memória (OOM no cgroup ou `oom-kill` no journal do runner nas últimas 24 h) e reinícios do runner. O aviso traz o valor lido e o `dgclaw agente reparar <slug>` |
 | `agente.<slug>.cron.<nome>` | Uma por rotina automática do agente (reflexão noturna, batimento, vigia, compactação e as próprias do agente): ligada, última execução, atraso |
 | `agente.<slug>.cron` | Aparece no lugar das anteriores quando nenhuma rotina foi encontrada ou não deu para listá-las |
 | `agente.<slug>.memoria.injecao` | Falhas das últimas 24 horas ao colocar a memória na conversa |

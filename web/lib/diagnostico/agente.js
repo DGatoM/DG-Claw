@@ -8,6 +8,7 @@ const { classificar, total } = require('./classificar');
 const { lerJsonSeguro } = require('./arquivos');
 const { analisaLogin, analisaSessao } = require('./sessao');
 const { conferirRotinas } = require('./cron');
+const { tarefaDeLimites } = require('./limites');
 const U = require('./util');
 
 const { R, conserta } = U;
@@ -371,7 +372,8 @@ function tarefasDoAgente(ctx, ag) {
     },
   };
 
-  return [container, sessao, login, saudeResposta, painel, telegram, whatsapp, rotinas, injecao, workingMemory, compactacao];
+  const limites = tarefaDeLimites(ctx, ag, container, naoRodando, PARADO);
+  return [container, limites, sessao, login, saudeResposta, painel, telegram, whatsapp, rotinas, injecao, workingMemory, compactacao];
 }
 
 module.exports = { tarefasDoAgente };

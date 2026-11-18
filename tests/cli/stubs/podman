@@ -28,7 +28,15 @@ case "${1:-}" in
         esac ;;
     create)
         dns=""
-        while [ $# -gt 0 ]; do [ "$1" = --name ] && nome="$2"; [ "$1" = --dns ] && dns="$dns $2"; shift; done
+        mem=0; cpus=0; pids=2048
+        while [ $# -gt 0 ]; do
+            [ "$1" = --name ] && nome="$2"; [ "$1" = --dns ] && dns="$dns $2"
+            [ "$1" = --memory ] && mem="$2"; [ "$1" = --cpus ] && cpus="$2"; [ "$1" = --pids-limit ] && pids="$2"
+            shift
+        done
+        # Limites do container: "<bytes> <quota> <periodo> <pids>", como o inspect devolve.
+        case "$mem" in *g) mem=$(( ${mem%g} * 1073741824 )) ;; *m) mem=$(( ${mem%m} * 1048576 )) ;; esac
+        echo "$mem $(awk -v c="$cpus" 'BEGIN { printf "%d", c * 100000 }') 100000 $pids" > "$est/lim-$nome"
         echo created > "$est/c-$nome"
         echo "[${dns# }]" > "$est/dns-$nome"
         # O container nasce com a imagem que estava "atual" na hora (para o `agente recriar` comparar).
@@ -84,6 +92,10 @@ case "${1:-}" in
                 [ -f "$est/inspect-falha-pos-kill" ] && [ -f "$est/kill-feito" ] && exit 125
             fi
         fi
+        if printf '%s ' "$@" | grep -q 'HostConfig.Memory'; then
+            [ -f "$est/inspect-limites-falha" ] && exit 125
+            cat "$est/lim-$nome" 2>/dev/null || echo "2147483648 100000 100000 1024"; exit 0
+        fi
         if printf '%s ' "$@" | grep -q '\.Mounts'; then
             if [ -f "$est/mounts-volume" ]; then echo "bind volume "; else echo "bind bind bind bind bind "; fi
             exit 0
@@ -103,6 +115,24 @@ case "${1:-}" in
         else
             cat "$est/c-$nome"
         fi ;;
+    update)
+        # update-sem-suporte: o podman antigo nao tem o comando; update-sem-swap: nao aceita --memory-swap.
+        [ -f "$est/update-sem-suporte" ] && { echo "Error: unknown command \"update\" for \"podman\"" >&2; exit 125; }
+        if [ -f "$est/update-sem-swap" ] && printf '%s ' "$@" | grep -q -- '--memory-swap'; then echo "Error: unknown flag: --memory-swap" >&2; exit 125; fi
+        nome="${*: -1}"; [ -f "$est/lim-$nome" ] || exit 1
+        read -r mem quota periodo pids < "$est/lim-$nome"
+        shift   # tira o "update"
+        while [ $# -gt 1 ]; do
+            # aceita --flag=valor e --flag valor
+            case "$1" in --*=*) set -- "${1%%=*}" "${1#*=}" "${@:2}" ;; esac
+            case "$1" in
+                --memory) v="$2"; case "$v" in *g) v=$(( ${v%g} * 1073741824 )) ;; *m) v=$(( ${v%m} * 1048576 )) ;; esac; mem="$v" ;;
+                --cpus) quota="$(awk -v c="$2" 'BEGIN { printf "%d", c * 100000 }')" ;;
+                --pids-limit) pids="$2" ;;
+            esac
+            shift 2
+        done
+        echo "$mem $quota $periodo $pids" > "$est/lim-$nome" ;;
     exec)
         # `sh -c '...systemctl is-enabled...' sh <unidades>`: "unidade estado"; estado/timer-desligado lista as desligadas.
         if printf '%s ' "$@" | grep -q 'is-enabled'; then

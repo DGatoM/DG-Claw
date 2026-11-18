@@ -43,6 +43,8 @@ APP_DIR="$(cd "$(dirname "$DGCLAW_BIN_REAL")/.." && pwd)"
 . "$APP_DIR/lib/dns-containers.sh"
 # shellcheck source=lib/colaborador.sh
 . "$APP_DIR/lib/colaborador.sh"
+# shellcheck source=lib/limites.sh
+. "$APP_DIR/lib/limites.sh"
 
 # Tempo maximo de espera (segundos) do systemd e do /api/saude de dentro do agente.
 # Variavel so para os testes nao esperarem um minuto de verdade.
@@ -894,6 +896,8 @@ criar_container() {
         fi
     else
         dns_containers_calcular
+        limites_calcular
+        info "limites do container $c: memoria $LIM_MEM_ARG, CPUs $LIM_CPUS_ARG, processos $LIMITE_PIDS (calculados pelo tamanho desta maquina)"
         if [ "${#DNS_CONTAINER_ARGS[@]}" -gt 0 ]; then
             info "o DNS deste servidor ($DNS_HOST_PRIVADOS) fica numa rede privada, que a cerca dos agentes bloqueia; o container $c usa DNS publico (1.1.1.1 e 8.8.8.8)."
         fi
@@ -909,7 +913,7 @@ criar_container() {
             "${DNS_CONTAINER_ARGS[@]}"
             --publish "127.0.0.1:$C_PORTA_RUNNER:4300"
             --publish "127.0.0.1:$C_PORTA_PAINEL:8300"
-            --memory 2g --cpus 1.0 --pids-limit 4096 --restart unless-stopped
+            --memory "$LIM_MEM_ARG" --cpus "$LIM_CPUS_ARG" --pids-limit "$LIMITE_PIDS" --restart unless-stopped
             # O podman copia as variaveis de proxy de quem roda o comando para dentro do
             # container. Um proxy local do host (127.0.0.1:...) nao existe la dentro, e todo
             # curl do agente falharia com "connection refused".
@@ -1526,6 +1530,9 @@ agente_reparar() {
         falha "o container $c nao esta ligado." "ligue com: dgclaw agente iniciar $slug"
     fi
     porta="$(printf '%s' "$obj" | jq -r '.runner | sub("^.*:"; "")')"
+    passo "Conferindo os limites de memoria, CPU e processos do container"
+    carregar_env_dgclaw
+    limites_ajustar_existente "$slug"
     passo "Garantindo o gancho do Modo foco no runner.json"
     garantir_gancho_foco "$DG_CASAS/$slug/runner/runner.json" "$slug"
     passo "Garantindo o gancho do aviso de novidades no runner.json"

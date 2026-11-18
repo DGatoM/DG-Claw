@@ -168,7 +168,7 @@ skill `skills/tela/SKILL.md` (`/dgclaw:tela`), e o `CLAUDE.md` do agente aponta 
 ## Memória
 
 O Chrome pesa. Com a Tela ligada, conte de 1 a 2 GB só para o navegador e as abas, além do runner,
-do painel e do Claude Code. O `--memory 2g` que o `dgclaw agente criar` aplica hoje pode apertar; para
+do painel e do Claude Code. O limite de memória que o `dgclaw agente criar` aplica (75% da RAM da máquina, no mínimo 2 GB) pode apertar numa VPS pequena; para
 um agente com Tela, 3 GB é um ponto de partida mais seguro (`podman update --memory 3g
 dgclaw-<slug>`). **Meça antes de padronizar:** `podman stats dgclaw-<slug>` com os sites reais abertos.
 As flags do Chrome já são econômicas: sem GPU, sem `/dev/shm`, no máximo 4 processos de renderização.
