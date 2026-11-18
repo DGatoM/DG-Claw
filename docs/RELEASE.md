@@ -73,14 +73,17 @@ nesse caso não crie a tag.
 
 ### 3. Publicar a tag e a release
 
-Também para no primeiro erro. Como o subshell do passo anterior não deixa variáveis para trás, o `SHA` é lido
-de novo, da própria tag.
+Também para no primeiro erro. O `SHA` esperado vem de novo do PR de release (e não da tag local, que pode
+ser de outro clone), e a tag local é conferida contra ele antes do push.
 
 ```bash
 (
   set -euo pipefail
   VERSAO=X.Y.Z
-  SHA="$(git rev-parse "v$VERSAO^{commit}")"
+  PR=<n>
+  SHA="$(gh pr view "$PR" --json mergeCommit,state -q 'select(.state=="MERGED").mergeCommit.oid')"
+  [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]
+  [ "$(git rev-parse "v$VERSAO^{commit}")" = "$SHA" ]   # a tag local aponta para o SHA do merge
   git push origin "v$VERSAO"
   [ "$(git ls-remote origin "refs/tags/v$VERSAO^{}" | cut -f1)" = "$SHA" ]   # a tag remota aponta para o SHA do merge
   gh release create "v$VERSAO" --verify-tag --title "DG Claw $VERSAO" --notes-file <arquivo>
