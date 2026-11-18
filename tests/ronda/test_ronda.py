@@ -2224,6 +2224,16 @@ class Paliativos(Base):
         sem = ronda.texto_promovido_por_kev({"correcao": {"tipo": "apt", "disponivel": True}})
         self.assertNotIn("reiniciar o servidor", sem)
 
+    def test_texto_promovido_por_kev_com_paliativo_nao_diz_que_a_correcao_existe(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("ronda_motor", RONDA)
+        ronda = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ronda)
+        t = ronda.texto_promovido_por_kev({"correcao": {"tipo": "acao-catalogo", "disponivel": True, "paliativo": True},
+                                           "como_corrigir": "Desligue o MPTCP enquanto a correção oficial não sai."})
+        self.assertNotIn("a correção já existe", t)
+        self.assertIn("só uma proteção provisória", t)
+
     def test_so_os_ids_nomeados_no_recado_recebem_avisado_em(self):
         ids = [f"UBUNTU-CVE-2026-{60000 + n}" for n in range(81)]
         S["osv_paginas"][f"{ECO}|openssl|3.0.13-0ubuntu3.4"] = [ids]

@@ -2260,6 +2260,9 @@ def ids_para_kev(a, reg):
 
 def texto_promovido_por_kev(ultimo):
     corr = ultimo.get("correcao") or {}
+    if corr.get("paliativo"):
+        return ("Esta falha está sendo explorada por criminosos e ainda não há correção oficial, só uma proteção provisória. "
+                + limpa(ultimo.get("como_corrigir") or "", 300))
     if corr.get("disponivel") and corr.get("tipo") == "apt":
         if corr.get("exige_reinicio"):
             return ("Esta falha está sendo explorada por criminosos e a correção já existe: peça ao Admin para atualizar o sistema agora "

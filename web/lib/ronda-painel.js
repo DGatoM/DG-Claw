@@ -335,7 +335,7 @@ function criarRondaPainel(opcoes) {
       }
     } else {
       if (a.estado === 'atualizacao-sistema') {
-        return H.erroJson(res, 409, `A correção do achado ${id} já existe e entra pela atualização do sistema (automática, ou com "sudo apt-get update && sudo apt-get upgrade"), então o painel não tem nada a aplicar nem a agendar. Se quiser adiantar, peça ao Admin.`);
+        return H.erroJson(res, 409, `A correção do achado ${id} já existe e entra pela atualização do sistema (automática), então o painel não tem nada a aplicar nem a agendar. Se quiser adiantar, peça ao Admin.`);
       }
       if (a.estado !== 'aberto' && !(a.estado === 'agendado' && tipo === 'aplicar')) {
         return H.erroJson(res, 409, `O achado ${id} já está como "${a.estado}", então não há nada a aplicar nem a agendar.`);
