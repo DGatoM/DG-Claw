@@ -818,7 +818,7 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     const enviadoEm = new Date().toISOString();
     const statusAntes = STATUS_CONHECIDOS.has(d.statusAntes) ? d.statusAntes : '?';
     log('info', `Parar ${agente.slug}: Esc enviado por ${quem} em ${enviadoEm} (estado antes: ${statusAntes}).`);
-    const mensagem = `Mandei um Esc para ${agente.nome} (o mesmo que apertar Esc no terminal). O turno dele para na hora, mas um comando que estava rodando pode continuar executando (no Codex isso acontece até com o comando que estava em primeiro plano). Confira antes de mexer nos mesmos arquivos.`;
+    const mensagem = `Mandei um Esc para ${agente.nome} (o mesmo que apertar Esc no terminal). Se ele estava no meio de um turno, o turno costuma parar em instantes; um comando que estava rodando pode continuar executando (no Codex, até o que estava em primeiro plano). Confira antes de mexer nos mesmos arquivos.`;
     return { status: 200, corpo: { ok: true, agente: agente.slug, enviado_em: enviadoEm, trabalhando: true, mensagem } };
   }
 

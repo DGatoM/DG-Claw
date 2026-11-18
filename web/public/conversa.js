@@ -440,7 +440,8 @@ if (atividadeEl) {
       let esperaMs = 3000;
       try {
         const d = await api(API + '/parar', { method: 'POST', body: {}, timeoutMs: 15000 });
-        mostraAviso(d.mensagem || ('Mandei um Esc para ' + AGENTE.nome + '.'));
+        if (d && d.ok === true) mostraAviso(d.mensagem || ('Mandei um Esc para ' + AGENTE.nome + '.'));
+        else mostraErro('A resposta do Parar de ' + AGENTE.nome + ' veio incompleta. Olhe a conversa antes de apertar de novo: dois Esc seguidos podem travar a sessão.');
       } catch (e) {
         const espere = e.dados && typeof e.dados.espere_s === 'number' ? e.dados.espere_s : null;
         if (e.status === 429 && espere !== null) esperaMs = Math.ceil(espere * 1000) + 100;
@@ -4968,7 +4969,7 @@ function passosTutorial() {
     },
     depois: () => { demoAtividade = false; pintaAtividade(); },
     oque: 'Um botão que aparece na faixa de atividade enquanto o agente está trabalhando.',
-    como: 'Ao tocar, ele manda um Esc para a sessão do agente, igual ao teclado do terminal. O turno do agente para na hora, mas um comando que estava rodando pode continuar executando. Espere 3 segundos entre um toque e outro.',
+    como: 'Ao tocar, ele manda um Esc para a sessão do agente, igual ao teclado do terminal. Se o agente estava no meio de um turno, o turno costuma parar em instantes, mas um comando que estava rodando pode continuar executando. Espere 3 segundos entre um toque e outro.',
     porque: 'Para cortar um trabalho que foi pelo caminho errado sem reiniciar o agente e sem perder a conversa.' });
   passos.push({ alvo: '#btnMenu', antes: fechaM, titulo: 'O botão do menu',
     oque: 'No celular, o botão de menu (as três linhas) abre o menu do agente. No computador ele não aparece, porque o menu já fica fixo à esquerda.',

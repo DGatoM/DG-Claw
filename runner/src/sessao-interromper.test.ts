@@ -13,7 +13,7 @@ const { Sessao } = await import("./sessao.js");
 const { GerenteDeSessoes } = await import("./sessoes.js");
 const { criarServidor } = await import("./servidor.js");
 const { lerDescritor } = await import("./config-runner.js");
-const { aoReceberDados } = await import("./sessao/terminal.js");
+const { aoReceberDados, confirmarInterrupcaoDoRollout, desarmarVigiaDaInterrupcao } = await import("./sessao/terminal.js");
 const { MascaraDeFluxo } = await import("./mascara.js");
 
 const servidores: Array<{ fechar(): void }> = [];
@@ -223,61 +223,111 @@ test("Parar e depois cancelar pergunta (Esc) em menos de 3 s: 429 antes de escre
   assert.equal(s.perguntaTentada, null, "a pergunta não foi marcada como respondida");
 });
 
+const desarmarVigia = (s: InstanceType<typeof Sessao>) => desarmarVigiaDaInterrupcao(s);
 const PROCESSA = (s: InstanceType<typeof Sessao>, texto: string, m = new MascaraDeFluxo([])) => aoReceberDados(s, texto, m);
 
-test("Claude: depois do Esc, o marcador 'Interrupted' (com ANSI) leva a idle e solta a mensagem enfileirada", async () => {
+/** Grava o transcript da sessão; `em` é o deslocamento em ms em relação a agora. */
+function transcriptDe(s: InstanceType<typeof Sessao>, linhas: Array<[Record<string, unknown>, number]>) {
+  s.estado.sessionId ??= `sess-int-${n}`;
+  const arquivo = path.join(amb.claudeDir, "projects", "proj-teste", `${s.estado.sessionId}.jsonl`);
+  fs.mkdirSync(path.dirname(arquivo), { recursive: true });
+  fs.writeFileSync(arquivo, linhas.map(([o, em]) => JSON.stringify({ ...o, timestamp: new Date(Date.now() + em).toISOString() })).join("\n") + "\n");
+}
+const INTERROMPIDO = { type: "user", message: { role: "user", content: [{ type: "text", text: "[Request interrupted by user]" }] } };
+const FALA = { type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "trabalhando" }] } };
+const TELA_CLAUDE = "\u001b[31m\u23bf  Interrupted\u001b[0m \u00b7 What should Claude do instead?";
+
+test("Claude: tela depois do Esc E transcript com a interrupção => idle e solta a mensagem enfileirada", async () => {
   const s = await nova();
   const { escritas } = falso(s);
   s.estado.status = "working";
   const m = new MascaraDeFluxo([]);
   assert.equal(s.interromper().ok, true);
   s.enfileirarQuandoOcioso("mensagem presa na fila");
-  assert.equal(s.estado.status, "working");
   assert.equal(escritas.some((t) => t.includes("mensagem presa")), false);
   PROCESSA(s, "\u001b[2K\u001b[1m\u001b[31mInter\u001b[0m", m);
-  assert.equal(s.estado.status, "working", "marcador ainda incompleto");
   PROCESSA(s, "\u001b[31mrupted\u001b[0m \u00b7 What should Claude do instead?", m);
-  assert.equal(s.estado.status, "idle");
+  assert.equal(s.estado.status, "working", "só a tela não basta");
+  transcriptDe(s, [[FALA, -50], [INTERROMPIDO, 50]]);
+  await esperarAte(() => s.estado.status === "idle", 3_000, "o transcript confirmar");
   assert.equal(s.estado.statusReason, "runner:interrompido");
   await esperarAte(() => escritas.some((t) => t.includes("mensagem presa na fila")), 3_000, "a mensagem da fila ser escrita");
   assert.equal(s.vigiaInterrupcao, null);
 });
 
-test("Claude: a palavra 'interrupted' solta (na resposta do agente) não basta", async () => {
+test("Claude: marcador na tela mas transcript sem interrupção => continua working", async () => {
+  const s = await nova();
+  falso(s);
+  s.estado.status = "working";
+  assert.equal(s.interromper().ok, true);
+  transcriptDe(s, [[INTERROMPIDO, -5000], [FALA, 50]]);
+  PROCESSA(s, TELA_CLAUDE);
+  await new Promise((r) => setTimeout(r, 900));
+  assert.equal(s.estado.status, "working");
+  // interrupção antiga (anterior ao Esc) também não vale
+  transcriptDe(s, [[INTERROMPIDO, -5000]]);
+  await new Promise((r) => setTimeout(r, 900));
+  assert.equal(s.estado.status, "working");
+  desarmarVigia(s);
+});
+
+test("Claude: a palavra 'interrupted' solta (na resposta do agente) não arma a prova", async () => {
   const s = await nova();
   falso(s);
   s.estado.status = "working";
   assert.equal(s.interromper().ok, true);
   PROCESSA(s, "o download foi interrupted pela rede");
-  assert.equal(s.estado.status, "working");
-  PROCESSA(s, "\u23bf  Interrupted \u00b7 What should Claude do instead?");
-  assert.equal(s.estado.status, "idle");
+  assert.equal(s.vigiaInterrupcao?.telaVista, false);
+  desarmarVigia(s);
 });
 
-test("Codex: 'Conversation interrupted' depois do Esc leva a idle; 'Interrupted' solto não basta", async () => {
+test("Claude: marcador seguido de mais de 4096 caracteres no mesmo bloco não é descartado", async () => {
   const s = await nova();
   falso(s);
+  s.estado.status = "working";
+  assert.equal(s.interromper().ok, true);
+  PROCESSA(s, TELA_CLAUDE + " ".repeat(6000) + "x");
+  assert.equal(s.vigiaInterrupcao?.telaVista, true);
+  transcriptDe(s, [[INTERROMPIDO, 50]]);
+  await esperarAte(() => s.estado.status === "idle", 3_000, "o transcript confirmar");
+});
+
+test("Codex: a tela sozinha não basta; turn_aborted do rollout depois do Esc leva a idle e solta a fila", async () => {
+  const s = await nova();
+  const { escritas } = falso(s);
   (s as unknown as { motor: unknown }).motor = { ...(s.motor as object), provedor: "codex" };
   s.estado.status = "working";
   assert.equal(s.interromper().ok, true);
-  PROCESSA(s, "Interrupted");
-  assert.equal(s.estado.status, "working");
   PROCESSA(s, "\u001b[1m■ Conversation interrupted - use /feedback if something went wrong\u001b[0m");
+  assert.equal(s.estado.status, "working");
+  assert.equal(confirmarInterrupcaoDoRollout(s, Date.now() - 60_000), false, "aborto anterior ao Esc não conta");
+  s.enfileirarQuandoOcioso("fila do codex");
+  assert.equal(confirmarInterrupcaoDoRollout(s, Date.now() + 10), true);
   assert.equal(s.estado.status, "idle");
   assert.equal(s.estado.statusReason, "runner:interrompido");
+  assert.equal(s.vigiaInterrupcao, null);
+  assert.equal(confirmarInterrupcaoDoRollout(s, Date.now() + 10), false, "sem Parar em curso, o Stop normal cuida");
+  void escritas;
+});
+
+test("rollout do Codex: turn_aborted e task_aborted saem marcados como abortados; task_complete não", async () => {
+  const { eventoDoRollout } = await import("./provedores/codex-rollout.js");
+  const r = (tipo: string) => ({ timestamp: new Date().toISOString(), type: "event_msg", payload: { type: tipo } });
+  assert.equal(eventoDoRollout(r("turn_aborted"))?.abortado, true);
+  assert.equal(eventoDoRollout(r("task_aborted"))?.abortado, true);
+  assert.equal(eventoDoRollout(r("task_complete"))?.abortado, undefined);
 });
 
 test("marcador que já estava na tela ANTES do Esc não conta", async () => {
   const s = await nova();
   falso(s);
   s.estado.status = "working";
-  PROCESSA(s, "Interrupted · What should Claude do instead?");
+  PROCESSA(s, TELA_CLAUDE);
   assert.equal(s.interromper().ok, true);
   PROCESSA(s, "trabalhando de novo...");
   assert.equal(s.estado.status, "working");
-  assert.ok(s.vigiaInterrupcao, "a vigia segue armada");
-  s.vigiaInterrupcao && clearTimeout(s.vigiaInterrupcao.timer);
-  s.vigiaInterrupcao = null;
+  assert.equal(s.vigiaInterrupcao?.telaVista, false);
+  desarmarVigia(s);
 });
 
 test("respondendo pergunta: 409 RESPOSTA_EM_ANDAMENTO e nada escrito", async () => {
@@ -325,6 +375,37 @@ test("rota POST /api/agents/:id/interromper: token obrigatório, corpo ignorado,
     assert.ok(de_novo.corpo.howToFix);
     assert.equal(escritas.length, 1);
   } finally {
+    (gerente.principal as unknown as { proc: unknown }).proc = null;
+    gerente.pararTodas("fim dos testes");
+    servidor.closeAllConnections?.();
+    servidor.close();
+  }
+});
+
+test("rota POST /pergunta: o 429 da trava do Esc preserva espereS na resposta", async () => {
+  const porta = await portaLivre();
+  const descritor = lerDescritor();
+  const gerente = new GerenteDeSessoes(descritor, porta);
+  const servidor: http.Server = criarServidor(gerente);
+  await new Promise<void>((ok) => servidor.listen(porta, "127.0.0.1", ok));
+  try {
+    const sess = gerente.principal;
+    falso(sess);
+    assert.equal(sess.interromper().ok, true);
+    sess.estado.status = "waiting_input";
+    sess.estado.motivo = "pergunta";
+    sess.estado.pendenteId = "tu9";
+    const r = await fetch(`http://127.0.0.1:${porta}/api/agents/${descritor.id}/pergunta`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ tool_use_id: "tu9", teclas: ["\u001b"] }),
+    });
+    const corpo = (await r.json()) as any;
+    assert.equal(r.status, 429);
+    assert.equal(corpo.code, "MUITO_RAPIDO");
+    assert.ok(corpo.espereS > 0);
+  } finally {
+    desarmarVigiaDaInterrupcao(gerente.principal);
     (gerente.principal as unknown as { proc: unknown }).proc = null;
     gerente.pararTodas("fim dos testes");
     servidor.closeAllConnections?.();

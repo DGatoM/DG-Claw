@@ -4,46 +4,84 @@ import { MascaraDeFluxo } from "../mascara.js";
 import { BUFFER_MAX, QUIETO_DE_BOOT_MS, SILENCIO_DA_MASCARA_MS } from "./constantes.js";
 import { cancelarQuietoDeBoot, cancelarStopPendente } from "./eventos.js";
 import { talvezSoltarFila } from "./fila.js";
+import { interrupcaoNoFimDoTranscript } from "../transcript.js";
 import { ehDialogoDeBypass, ehDialogoDeConfiancaDoClaude, pastaDoDialogoDeConfianca, semAnsi } from "./telas.js";
 
 const JANELA_DA_INTERRUPCAO_MS = 10_000;
 
 /**
- * Depois de um Esc do Parar o Claude não dispara o hook Stop, então o status ficaria em `working` e a fila de
- * mensagens ficaria presa. Aqui se arma uma vigia de 10 s: só o texto que chega do PTY DEPOIS do Esc (sem ANSI)
- * conta, e o marcador do CLI ("Interrupted" no Claude, "Conversation interrupted" no Codex) devolve o agente a idle.
+ * Depois de um Esc do Parar nenhum dos dois motores dispara um fim de turno que o runner use, então o status
+ * ficaria em `working` e a fila de mensagens presa. Uma vigia de 10 s procura a PROVA do motor:
+ *  - Claude: o marcador na tela depois do Esc E a última mensagem do transcript ser "[Request interrupted by
+ *    user...]" com timestamp posterior ao Esc. A tela sozinha não basta (um redesenho repete um "Interrupted" velho).
+ *  - Codex: o rollout registrar `turn_aborted`/`task_aborted` depois do Esc (ver confirmarInterrupcaoDoRollout).
+ * Sem a prova no prazo: log.aviso e o status fica como estava.
  */
 export function vigiarInterrupcao(s: Sessao): void {
   desarmarVigiaDaInterrupcao(s);
   const proc = s.proc;
   const timer = setTimeout(() => {
     if (s.vigiaInterrupcao?.timer !== timer) return;
-    s.vigiaInterrupcao = null;
+    desarmarVigiaDaInterrupcao(s);
     log.aviso(s.a("entrada"), `Esc enviado pelo Parar, mas não vi a confirmação da interrupção em ${JANELA_DA_INTERRUPCAO_MS / 1000} s; o status continua ${s.estado.status}`);
   }, JANELA_DA_INTERRUPCAO_MS);
   timer.unref();
-  s.vigiaInterrupcao = { proc, texto: "", timer };
+  s.vigiaInterrupcao = { proc, texto: "", timer, desdeMs: Date.now(), telaVista: false, poll: null };
 }
 
 export function desarmarVigiaDaInterrupcao(s: Sessao): void {
-  if (s.vigiaInterrupcao) clearTimeout(s.vigiaInterrupcao.timer);
+  if (s.vigiaInterrupcao) {
+    clearTimeout(s.vigiaInterrupcao.timer);
+    if (s.vigiaInterrupcao.poll) clearInterval(s.vigiaInterrupcao.poll);
+  }
   s.vigiaInterrupcao = null;
+}
+
+function concluirInterrupcao(s: Sessao, como: string): void {
+  desarmarVigiaDaInterrupcao(s);
+  if (s.estado.status !== "working") return;
+  cancelarStopPendente(s);
+  s.mudar({ status: "idle", hookLatched: true, currentTool: null, statusReason: "runner:interrompido" });
+  log.info(s.a("entrada"), `interrupção confirmada depois do Parar (${como}): o agente voltou a idle e a fila pode andar`);
+  talvezSoltarFila(s);
+}
+
+/** Codex: o rollout registrou o turno abortado. Só vale com um Parar em curso e o registro depois do Esc. */
+export function confirmarInterrupcaoDoRollout(s: Sessao, em: number): boolean {
+  const v = s.vigiaInterrupcao;
+  if (!v || v.proc !== s.proc || em < v.desdeMs) return false;
+  concluirInterrupcao(s, "rollout do Codex: turno abortado");
+  return true;
+}
+
+function tentarConfirmarPeloTranscript(s: Sessao): void {
+  const v = s.vigiaInterrupcao;
+  if (!v || !v.telaVista || v.proc !== s.proc) return;
+  const sessionId = s.estado.sessionId;
+  if (!sessionId) return;
+  const prova = interrupcaoNoFimDoTranscript(sessionId, v.desdeMs, s.estado.config.envExtra?.CLAUDE_CONFIG_DIR);
+  if (prova.interrompido) concluirInterrupcao(s, "tela e transcript do Claude");
+  else log.debug(s.a("entrada"), `marcador na tela depois do Parar, mas o transcript ainda não confirma: ${prova.motivo}`);
 }
 
 function olharInterrupcao(s: Sessao, dados: string): void {
   const v = s.vigiaInterrupcao;
   if (!v) return;
   if (v.proc !== s.proc) { desarmarVigiaDaInterrupcao(s); return; }
-  v.texto = (v.texto + semAnsi(dados)).slice(-4_096);
-  // Claude: a linha "Interrupted · What should Claude do instead?" (a palavra solta pode estar na própria resposta).
-  const marcador = s.motor.provedor === "codex" ? /conversation interrupted/i : /interrupted[^a-z]{0,20}what should/i;
-  if (!marcador.test(v.texto)) return;
-  desarmarVigiaDaInterrupcao(s);
-  if (s.estado.status !== "working") return;
-  cancelarStopPendente(s);
-  s.mudar({ status: "idle", hookLatched: true, currentTool: null, statusReason: "runner:interrompido" });
-  log.info(s.a("entrada"), "interrupção confirmada na tela depois do Parar: o agente voltou a idle e a fila pode andar");
-  talvezSoltarFila(s);
+  // No Codex a prova é o rollout; a tela não conta.
+  if (s.motor.provedor !== "claude") return;
+  // Procura no bloco inteiro mais a cauda do anterior; só depois limita o trecho guardado para o próximo bloco.
+  const visto = v.texto + semAnsi(dados);
+  v.texto = visto.slice(-4_096);
+  if (v.telaVista || !/interrupted[^a-z]{0,20}what should/i.test(visto)) return;
+  v.telaVista = true;
+  tentarConfirmarPeloTranscript(s);
+  // O transcript pode ser gravado um instante depois da tela: olha de novo até o fim do prazo.
+  if (s.vigiaInterrupcao && !s.vigiaInterrupcao.poll) {
+    const poll = setInterval(() => tentarConfirmarPeloTranscript(s), 400);
+    poll.unref();
+    s.vigiaInterrupcao.poll = poll;
+  }
 }
 
 export function aoReceberDados(s: Sessao, dados: string, mascara: MascaraDeFluxo): void {

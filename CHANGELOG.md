@@ -8,7 +8,7 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 ## [Não lançado]
 
 **Botão Parar na conversa.** Quando o agente está trabalhando, a faixa "está trabalhando" ganha o botão **Parar**, que faz o
-mesmo que apertar Esc no terminal: manda um Esc, e o turno dele para na hora (um comando que estava rodando pode continuar executando), sem reiniciar o agente e sem perder a conversa, e a
+mesmo que apertar Esc no terminal: manda um Esc, e se ele estava no meio de um turno, o turno costuma parar em instantes (um comando que estava rodando pode continuar executando; confira antes de mexer nos mesmos arquivos), sem reiniciar o agente e sem perder a conversa, e a
 próxima mensagem entra normalmente. Um comando que o agente deixou rodando em segundo plano pode continuar. Entre um toque e outro
 há uma espera de 3 segundos, porque dois Esc colados abrem o menu de voltar do terminal e travam a sessão. Funciona no
 Claude e no Codex. O botão é só do dono. Também há a rota

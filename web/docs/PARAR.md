@@ -3,11 +3,11 @@
 ## O que é
 
 O botão **Parar** aparece na faixa "está trabalhando" da conversa e faz o mesmo que apertar **Esc** no terminal do
-agente: o turno dele para na hora (um comando que estava rodando pode continuar executando), a sessão continua aberta e a conversa não se
+agente: se ele estava no meio de um turno, o turno costuma parar em instantes (um comando que estava rodando pode continuar executando), a sessão continua aberta e a conversa não se
 perde. A próxima mensagem entra normalmente. Não pede confirmação.
 
 O Parar manda um Esc e não garante o resultado: um comando que o agente deixou em segundo plano pode continuar
-rodando. O Parar corta só o que está em primeiro plano.
+rodando, e no Codex isso vale até para o que estava em primeiro plano. Confira antes de mexer nos mesmos arquivos.
 
 O botão só aparece quando o agente está trabalhando. Quando ele espera uma permissão ou a resposta de uma pergunta
 de escolha, a conversa já tem os botões próprios desses cartões.
@@ -30,7 +30,7 @@ de escolha, a conversa já tem os botões próprios desses cartões.
   "agente": "ana",
   "enviado_em": "2026-11-18T12:00:00.000Z",
   "trabalhando": true,
-  "mensagem": "Mandei um Esc para Ana (o mesmo que apertar Esc no terminal). O turno dele para na hora, mas um comando que estava rodando pode continuar executando (no Codex isso acontece até com o comando que estava em primeiro plano). Confira antes de mexer nos mesmos arquivos."
+  "mensagem": "Mandei um Esc para Ana (o mesmo que apertar Esc no terminal). Se ele estava no meio de um turno, o turno costuma parar em instantes; um comando que estava rodando pode continuar executando (no Codex, até o que estava em primeiro plano). Confira antes de mexer nos mesmos arquivos."
 }
 ```
 
@@ -78,12 +78,19 @@ Quando a sessão mostra a interrupção, o agente não retoma sozinho o que foi 
 
 ## Depois do Esc: o agente volta a ficar ocioso
 
-No Claude o Esc interrompe o turno, mas o hook `Stop` não dispara, e sem isso o runner ficaria em `working` e a próxima
+Depois do Esc o hook `Stop` não dispara, e sem isso o runner ficaria em `working` e a próxima
 mensagem do painel (que espera o agente ficar ocioso) ficaria presa na fila. Por isso, depois de um Esc do Parar, o
-runner olha por até 10 s o texto que chega do terminal **depois** do Esc (sem códigos de tela; o que já estava na tela
-antes não conta). Ao ver o marcador da interrupção ("Interrupted" no Claude, "Conversation interrupted" no Codex) com o
-estado ainda `working`, ele passa para `idle` (motivo `runner:interrompido`) e solta a fila. Se os 10 s passam sem o marcador, o estado fica como estava e o log do
-runner avisa que a confirmação não foi vista.
+runner procura por até 10 s a prova de que o turno foi cortado, e a tela sozinha não basta (um redesenho pode repetir um
+"Interrupted" antigo):
+
+- **Claude:** o marcador "Interrupted · What should Claude do instead?" aparece na tela **depois** do Esc (o que já estava na
+  tela antes não conta) **e** a última mensagem do transcript da sessão é "[Request interrupted by user...]" com horário
+  posterior ao Esc.
+- **Codex:** o rollout da sessão registra `turn_aborted` (ou `task_aborted`) depois do Esc. O texto "Conversation interrupted"
+  da tela não conta sozinho.
+
+Com a prova e o estado ainda `working`, o runner passa para `idle` (motivo `runner:interrompido`) e solta a fila. Sem a prova
+em 10 s, o estado fica como estava e o log do runner avisa que a confirmação não foi vista.
 
 ## Colaborador
 

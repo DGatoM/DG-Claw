@@ -29,7 +29,7 @@ test('parar: trabalhando => 200 com trabalhando e a mensagem de interrupção', 
     assert.match(r.json.mensagem, /Mandei um Esc para Ana/);
     assert.match(r.json.mensagem, /pode continuar executando/);
     assert.match(r.json.mensagem, /pode continuar/);
-    assert.doesNotMatch(r.json.mensagem, /foi interrompido/);
+    assert.doesNotMatch(r.json.mensagem, /foi interrompido|para na hora/);
     assert.equal(s.runner.rec.interrupcoes, 1);
   } finally { await s.fechar(); }
 });

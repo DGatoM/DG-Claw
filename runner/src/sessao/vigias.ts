@@ -2,6 +2,7 @@ import pty from "node-pty";
 import type { Sessao } from "../sessao.js";
 import { log } from "../logger.js";
 import { mascarar } from "../mascara.js";
+import { confirmarInterrupcaoDoRollout } from "./terminal.js";
 import { type EventoInterno, acharRolloutPorId, erroDeLoginDoCodex, descobrirRollout, vigiarRollout } from "../provedores/codex-rollout.js";
 import { codexHomeDe } from "../provedores/codex.js";
 import type { CtxMotor } from "../provedores/motor.js";
@@ -103,6 +104,8 @@ export function vigiarRolloutDoCodex(s: Sessao, esteProc: pty.IPty, ctx: CtxMoto
     },
     aoEvento: (e) => {
       if (s.proc !== esteProc) return;
+      // Esc do Parar: o rollout registrar o turno abortado DEPOIS do Esc é a prova de que o turno foi cortado.
+      if (e.abortado && confirmarInterrupcaoDoRollout(s, e.em)) return;
       aplicarEvento(s, { event: e.evento satisfies EventoInterno, toolName: e.ferramenta ?? null });
     },
     aoErroDeTurno: (erro) => {

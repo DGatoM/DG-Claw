@@ -122,7 +122,7 @@ export class Sessao extends EventEmitter {
   /** true enquanto responderPergunta digita: ninguém mais escreve tecla crua nem permissão nesse intervalo. */
   respondendoPergunta = false;
   /** Depois de um Esc do Parar: o texto que chegou do PTY desde então (sem ANSI), até achar o marcador de interrupção. */
-  vigiaInterrupcao: { proc: unknown; texto: string; timer: NodeJS.Timeout } | null = null;
+  vigiaInterrupcao: { proc: unknown; texto: string; timer: NodeJS.Timeout; desdeMs: number; telaVista: boolean; poll: NodeJS.Timeout | null } | null = null;
   /** Relógio da trava do Esc (trocável nos testes). */
   agora: () => number = () => Date.now();
   /** Quando o último Esc foi escrito no PTY (por /interromper ou pela permissão negada); 0 = nunca. */

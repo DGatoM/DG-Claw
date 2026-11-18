@@ -170,6 +170,48 @@ export function turnoEncerradoNoTranscript(
   return { encerrado: false, motivo: "nenhuma linha JSON válida no fim do transcript" };
 }
 
+/**
+ * A última mensagem (user/assistant) do transcript é a que o Claude Code grava quando o turno é interrompido
+ * ("[Request interrupted by user]" ou "... for tool use]"), com timestamp igual ou posterior a `desdeMs`? É a
+ * prova de que o Esc cortou o turno (a tela sozinha pode repetir um "Interrupted" velho num redesenho).
+ */
+export function interrupcaoNoFimDoTranscript(
+  sessionId: string,
+  desdeMs: number,
+  configDir?: string | null,
+): { interrompido: boolean; motivo: string } {
+  const arquivo = acharArquivoDaSessao(sessionId, configDir);
+  if (!arquivo) return { interrompido: false, motivo: `transcript da sessão ${sessionId} não encontrado` };
+  let cauda: string;
+  try {
+    cauda = lerCauda(arquivo);
+  } catch (err) {
+    log.aviso("conversa", `não consegui ler o fim de ${arquivo}: ${err instanceof Error ? err.message : err}`);
+    return { interrompido: false, motivo: "transcript ilegível" };
+  }
+  const linhas = cauda.split("\n");
+  for (let i = linhas.length - 1; i >= 0; i--) {
+    if (!linhas[i].trim()) continue;
+    let o: { type?: string; timestamp?: string; message?: { content?: unknown } };
+    try {
+      o = JSON.parse(linhas[i]);
+    } catch {
+      continue;
+    }
+    if (o.type !== "user" && o.type !== "assistant") continue;
+    const c = o.message?.content;
+    const texto = typeof c === "string" ? c : Array.isArray(c) ? c.map((b) => (b && typeof b === "object" && typeof (b as { text?: unknown }).text === "string" ? (b as { text: string }).text : "")).join("") : "";
+    if (o.type !== "user" || !texto.trimStart().startsWith("[Request interrupted by user")) {
+      return { interrompido: false, motivo: `última mensagem é ${o.type} sem a marca de interrupção` };
+    }
+    const quando = o.timestamp ? Date.parse(o.timestamp) : NaN;
+    if (!Number.isFinite(quando)) return { interrompido: false, motivo: "interrupção sem timestamp válido" };
+    if (quando < desdeMs) return { interrompido: false, motivo: "a interrupção do transcript é anterior ao Esc" };
+    return { interrompido: true, motivo: "transcript registra a interrupção" };
+  }
+  return { interrompido: false, motivo: "nenhuma mensagem no fim do transcript" };
+}
+
 /** O texto que o Claude Code mostra (e devolve em `claude -p`) quando o OAuth da conta morreu. */
 export const RX_LOGIN_EXPIRADO =
   /login expired|please run \/login|oauth session expired|could not be refreshed|failed to authenticate|invalid api key/i;
