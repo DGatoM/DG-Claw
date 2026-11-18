@@ -547,6 +547,9 @@ class DadoDeAgente(Base):
         S["fora"].add("hn")   # rodada parcial; o npm do agente não volta
         self.ronda("executar", "--sem-avisar")
         self.assertEqual(self.achado(usn)["estado"], "aberto", "o pacote do agente pode ter sido o descartado pelo teto")
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(usn)["estado"], "aberto", "segunda rodada parcial seguida: a marca de corte continua")
+        self.assertIs(self.registro_de(usn)["pacotes_cortados"], True)
 
     def test_achado_so_do_host_com_versao_nova_ainda_pode_ser_rebaixado_com_fonte_fora(self):
         vid = "UBUNTU-CVE-2026-88891"
@@ -2070,6 +2073,75 @@ class Paliativos(Base):
         self.ronda("executar", "--sem-avisar")
         self.assertEqual(self.achado(usn)["estado"], "aberto")
         self.assertIsNone(self.estado_do_registro()["achados"][usn]["avisado_em"])
+
+    def carrega_motor(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("ronda_motor", RONDA)
+        ronda = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ronda)
+        return ronda
+
+    def usn_openssl(self, usn, candidato):
+        S["osv_paginas"][f"{ECO}|openssl|3.0.13-0ubuntu3.4"] = [[usn]]
+        S["osv_vulns"][usn] = reg_ubuntu(usn, "CVE-2026-88893", "openssl", "3.0.13-0ubuntu3.6")
+        self.escreve(os.path.join(self.stub, "apt_candidatos.txt"), f"openssl\t{candidato}\n")
+
+    def test_binario_com_epoch_no_candidato_so_cobre_se_a_versao_sem_epoch_tambem_cobrir(self):
+        usn = "USN-7790-1"
+        self.usn_openssl(usn, "1:3.0.13-0ubuntu3.5")   # o epoch sozinho faria passar
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(usn)["estado"], "aberto", "o apt não oferece a correção de verdade")
+        self.usn_openssl(usn, "1:3.0.13-0ubuntu3.6")
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(usn)["estado"], "atualizacao-sistema")
+
+    def test_cve_so_no_cves_map_do_usn_alimenta_a_kev_e_o_ids_osv(self):
+        usn = "USN-7791-1"
+        self.escreve(os.path.join(self.stub, "apt_candidatos.txt"), "openssl\t3.0.13-0ubuntu3.6\n")
+        S["gh_commits"] = ["b" * 40]
+        S["gh_commit_files"]["b" * 40] = [f"osv/usn/{usn}.json"]
+        S["usn"][f"osv/usn/{usn}.json"] = {
+            "id": usn, "summary": "OpenSSL vulnerabilities", "details": "Falha no OpenSSL.", "published": "2026-10-28T00:00:00Z",
+            "affected": [{"package": {"ecosystem": ECO, "name": "openssl"}, "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "3.0.13-0ubuntu3.6"}]}],
+                          "ecosystem_specific": {"binaries": [{"binary_name": "openssl"}]},
+                          "database_specific": {"cves_map": {"cves": [{"id": "CVE-2026-88894", "severity": [{"type": "Ubuntu", "score": "high"}]}]}}}]}
+        S["kev"] = [{"cveID": "CVE-2026-88894", "dateAdded": "2026-10-20"}]
+        self.ronda("executar", "--sem-avisar")
+        a = self.achado(usn)
+        self.assertEqual((a["estado"], a["nivel"], a.get("explorada_ativamente")), ("aberto", 2, True))
+        self.assertIn("CVE-2026-88894", self.estado_do_registro()["achados"][usn]["ids_osv"])
+
+    def test_reabertura_por_acao_nova_no_catalogo_troca_o_texto_de_segundo_plano(self):
+        usn = "USN-7792-1"
+        self.usn_kernel(usn, ["CVE-2026-40004"])
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(usn)["estado"], "atualizacao-sistema")
+        self.acao_sysctl({"ids": ["CVE-2026-40004"]})
+        S["osv_paginas"].clear()
+        S["fora"].add("hn")
+        self.ronda("executar", "--sem-avisar")
+        a = self.achado(usn)
+        self.assertEqual(a["estado"], "aberto")
+        self.assertIn("ação no catálogo", a["como_corrigir"])
+        self.assertNotIn("atualização automática", a["como_corrigir"])
+
+    def test_recado_so_de_atualizacao_do_sistema_nao_pede_alerta(self):
+        ronda = self.carrega_motor()
+        t = ronda.texto_recado([{"id": "USN-1-1", "nivel": 3, "severidade": "HIGH", "estado": "atualizacao-sistema"}], False, 0)
+        self.assertIn("USN-1-1 (atualização do sistema, gravidade HIGH)", t)
+        self.assertIn("unattended-upgrades", t)
+        self.assertNotIn("AÇÃO NECESSÁRIA", t)
+        self.assertNotIn("Escreva o alerta", t)
+        self.assertIn("NUNCA execute comando", t)
+
+    def test_recado_misto_mantem_o_alerta_do_kev_e_marca_a_atualizacao(self):
+        ronda = self.carrega_motor()
+        t = ronda.texto_recado([{"id": "USN-2-1", "nivel": 2, "severidade": "HIGH", "estado": "aberto"},
+                                {"id": "USN-3-1", "nivel": 3, "severidade": "HIGH", "estado": "atualizacao-sistema"}], False, 0)
+        self.assertIn("USN-2-1 (nível 2, gravidade HIGH)", t)
+        self.assertIn("USN-3-1 (atualização do sistema, gravidade HIGH)", t)
+        self.assertIn("AÇÃO NECESSÁRIA", t)
+        self.assertIn("Os itens marcados como atualização do sistema não pedem decisão do dono", t)
 
     def test_texto_promovido_por_kev_fala_de_reinicio_so_quando_a_correcao_exige(self):
         import importlib.util
