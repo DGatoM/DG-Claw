@@ -45,10 +45,11 @@ import { enfileirarQuandoOcioso, talvezSoltarFila } from "./sessao/fila.js";
 import { encerrarIncidenteDeLogin, entregarRecadoDeLogin, marcarLoginExpirado, retomarAposLoginExpirado } from "./sessao/login.js";
 import { ESC } from "./sessao/telas.js";
 
-/** Intervalo mínimo entre dois Esc no mesmo PTY (dois em menos de ~1 s abrem o menu de voltar). */
-const TRAVA_ESC_MS = 3000;
 import { guardarEEmitir } from "./sessao/terminal.js";
 import type { AgentState } from "./tipos.js";
+
+/** Intervalo mínimo entre dois Esc no mesmo PTY (dois em menos de ~1 s abrem o menu de voltar). */
+const TRAVA_ESC_MS = 3000;
 
 export { QUIETO_PARA_OLHAR_TRANSCRIPT_MS } from "./sessao/constantes.js";
 export { ehDialogoDeBypass, nonceConfere, telaDeConfiancaDoCodex } from "./sessao/telas.js";
