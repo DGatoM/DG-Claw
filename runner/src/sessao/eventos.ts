@@ -5,6 +5,7 @@ import { RX_LOGIN_EXPIRADO } from "../transcript.js";
 import { spawn } from "./ciclo.js";
 import { STOP_CONFIRM_MS } from "./constantes.js";
 import { talvezSoltarFila } from "./fila.js";
+import { desarmarVigiaDaInterrupcao } from "./terminal.js";
 import { conferirLoginExpiradoNoTranscript, marcarLoginExpirado } from "./login.js";
 import { nonceConfere } from "./telas.js";
 
@@ -76,6 +77,7 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       }
       break;
     case "UserPromptSubmit":
+      desarmarVigiaDaInterrupcao(s);
       cancelarStopPendente(s);
       // Atividade nova: o aviso da trava (se sobrou de um Stop que se perdeu) não pode engolir o Stop que vem.
       s.stopBloqueadoAte = 0;

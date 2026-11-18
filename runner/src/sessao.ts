@@ -45,7 +45,7 @@ import { enfileirarQuandoOcioso, talvezSoltarFila } from "./sessao/fila.js";
 import { encerrarIncidenteDeLogin, entregarRecadoDeLogin, marcarLoginExpirado, retomarAposLoginExpirado } from "./sessao/login.js";
 import { ESC } from "./sessao/telas.js";
 
-import { guardarEEmitir, vigiarInterrupcao } from "./sessao/terminal.js";
+import { desarmarVigiaDaInterrupcao, guardarEEmitir, vigiarInterrupcao } from "./sessao/terminal.js";
 import type { AgentState } from "./tipos.js";
 
 /** Intervalo mínimo entre dois Esc no mesmo PTY (dois em menos de ~1 s abrem o menu de voltar). */
@@ -121,8 +121,8 @@ export class Sessao extends EventEmitter {
   readonly pausaTeclaPerguntaMs: number;
   /** true enquanto responderPergunta digita: ninguém mais escreve tecla crua nem permissão nesse intervalo. */
   respondendoPergunta = false;
-  /** Depois de um Esc do Parar: o texto que chegou do PTY desde então (sem ANSI), até achar o marcador de interrupção. */
-  vigiaInterrupcao: { proc: unknown; texto: string; timer: NodeJS.Timeout; desdeMs: number; telaVista: boolean; poll: NodeJS.Timeout | null } | null = null;
+  /** Depois de um Esc do Parar: espera o registro do motor que prova a interrupção (ver vigiarInterrupcao). */
+  vigiaInterrupcao: { proc: unknown; timer: NodeJS.Timeout; desdeMs: number; poll: NodeJS.Timeout | null; confirmada: boolean } | null = null;
   /** Relógio da trava do Esc (trocável nos testes). */
   agora: () => number = () => Date.now();
   /** Quando o último Esc foi escrito no PTY (por /interromper ou pela permissão negada); 0 = nunca. */
@@ -622,8 +622,9 @@ export class Sessao extends EventEmitter {
     const trava = this.travaDoEsc();
     if (trava) return trava;
     const statusAntes = this.estado.status;
+    const antesDoEsc = Date.now();
     this.escrever(ESC);
-    vigiarInterrupcao(this);
+    vigiarInterrupcao(this, antesDoEsc);
     log.info(this.a("entrada"), `Esc enviado por API (parar): status antes=${statusAntes}, provedor=${this.motor.provedor}`);
     return { ok: true, enviadoEm: new Date(this.ultimoEscEm).toISOString(), statusAntes, provedor: this.motor.provedor };
   }
@@ -726,6 +727,8 @@ export class Sessao extends EventEmitter {
     // O motivo só vale enquanto o status que o pediu vale: trocou de status sem dizer o motivo, ele cai.
     if (campos.status && campos.status !== this.estado.status && !("motivo" in campos)) campos = { ...campos, motivo: null };
     if (campos.status && campos.status !== this.estado.status && !("pendenteId" in campos)) campos = { ...campos, pendenteId: null };
+    // Um turno novo (qualquer volta a working vinda de outro estado) invalida a espera pela prova da interrupção.
+    if (campos.status === "working" && this.estado.status !== "working") desarmarVigiaDaInterrupcao(this);
     Object.assign(this.estado, campos, { updatedAt: Date.now() });
     if ("sessionId" in campos || "previousSessionId" in campos || "status" in campos) {
       gravarEstado(
@@ -743,7 +746,8 @@ export class Sessao extends EventEmitter {
     this.emit("estado", this.estado);
     if (campos.status === "idle") {
       entregarRecadoDeLogin(this);
-      talvezSoltarFila(this);
+      // Interrupção confirmada pelo Parar: a fila só sai depois do lote de eventos em curso (ver concluirInterrupcao).
+      if (!this.vigiaInterrupcao?.confirmada) talvezSoltarFila(this);
     }
   }
 

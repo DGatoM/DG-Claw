@@ -112,7 +112,7 @@ test('parar: sem terminal (NO_PTY) => 409; outro 409 => 409 com o motivo; erro d
   try {
     const r = await para(s);
     assert.equal(r.status, 409);
-    assert.match(r.json.erro, /respondendo pergunta/);
+    assert.match(r.json.erro, /resposta de uma pergunta/);
   } finally { await s.fechar(); }
   s = await cenario({ falhaInterromper: { status: 500, corpo: { success: false, error: 'quebrou' } } });
   try { assert.equal((await para(s)).status, 502); } finally { await s.fechar(); }
@@ -231,4 +231,22 @@ test('parar: a tela tira o botão do colaborador e o passo do tutorial só entra
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'conversa.js'), 'utf8');
   assert.match(js, /if \(COLAB\) for \(const id of \[[^\]]*'btnPararAgente'/);
   assert.match(js, /if \(!COLAB\) passos\.push\(\{ alvo: '#btnPararAgente'/);
+});
+
+test('parar: texto livre do runner (com credencial) não aparece no log nem na resposta; code estranho vira "código desconhecido"', async () => {
+  const s = await cenario({ falhaInterromper: { status: 500, corpo: { success: false, error: 'Authorization: Bearer xyz-segredo', howToFix: 'use a chave xyz-segredo', code: 'bobagem com espaço' } } });
+  try {
+    const r = await para(s);
+    assert.equal(r.status, 502);
+    assert.doesNotMatch(r.texto, /xyz-segredo|Bearer/);
+    assert.doesNotMatch(s.t.log.texto(), /xyz-segredo|Bearer/);
+    assert.match(s.t.log.texto(), /código desconhecido/);
+  } finally { await s.fechar(); }
+  const s2 = await cenario({ falhaInterromper: { status: 429, corpo: { success: false, error: 'Bearer xyz-segredo', code: 'MUITO_RAPIDO', espereS: 9999 } } });
+  try {
+    const r = await para(s2);
+    assert.equal(r.status, 429);
+    assert.equal(r.json.espere_s, null, 'espereS fora de 0 a 10 é descartado');
+    assert.doesNotMatch(r.texto, /xyz-segredo/);
+  } finally { await s2.fechar(); }
 });

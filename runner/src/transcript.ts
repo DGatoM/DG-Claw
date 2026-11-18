@@ -170,10 +170,14 @@ export function turnoEncerradoNoTranscript(
   return { encerrado: false, motivo: "nenhuma linha JSON válida no fim do transcript" };
 }
 
+/** Os dois textos exatos que o Claude Code grava quando o Esc interrompe o turno. */
+const TEXTOS_DE_INTERRUPCAO = ["[Request interrupted by user]", "[Request interrupted by user for tool use]"];
+
 /**
- * A última mensagem (user/assistant) do transcript é a que o Claude Code grava quando o turno é interrompido
- * ("[Request interrupted by user]" ou "... for tool use]"), com timestamp igual ou posterior a `desdeMs`? É a
- * prova de que o Esc cortou o turno (a tela sozinha pode repetir um "Interrupted" velho num redesenho).
+ * A última entrada user/assistant do transcript é um "user" cujo conteúdo é EXATAMENTE um dos textos de
+ * interrupção (string ou um único bloco de texto), com horário >= `desdeMs` (o instante medido antes do Esc)?
+ * É a prova de que o Esc cortou o turno. Registro que não é objeto (linha "null", número, array) e linha que não é JSON
+ * são ignorados.
  */
 export function interrupcaoNoFimDoTranscript(
   sessionId: string,
@@ -192,19 +196,24 @@ export function interrupcaoNoFimDoTranscript(
   const linhas = cauda.split("\n");
   for (let i = linhas.length - 1; i >= 0; i--) {
     if (!linhas[i].trim()) continue;
-    let o: { type?: string; timestamp?: string; message?: { content?: unknown } };
+    let o: unknown;
     try {
       o = JSON.parse(linhas[i]);
     } catch {
       continue;
     }
-    if (o.type !== "user" && o.type !== "assistant") continue;
-    const c = o.message?.content;
-    const texto = typeof c === "string" ? c : Array.isArray(c) ? c.map((b) => (b && typeof b === "object" && typeof (b as { text?: unknown }).text === "string" ? (b as { text: string }).text : "")).join("") : "";
-    if (o.type !== "user" || !texto.trimStart().startsWith("[Request interrupted by user")) {
-      return { interrompido: false, motivo: `última mensagem é ${o.type} sem a marca de interrupção` };
+    if (!o || typeof o !== "object" || Array.isArray(o)) continue;
+    const r = o as { type?: unknown; timestamp?: unknown; message?: unknown };
+    if (r.type !== "user" && r.type !== "assistant") continue;
+    const m = r.message && typeof r.message === "object" && !Array.isArray(r.message) ? (r.message as { content?: unknown }) : null;
+    const c = m?.content;
+    let texto: string | null = null;
+    if (typeof c === "string") texto = c;
+    else if (Array.isArray(c) && c.length === 1 && c[0] && typeof c[0] === "object" && typeof (c[0] as { text?: unknown }).text === "string") texto = (c[0] as { text: string }).text;
+    if (r.type !== "user" || texto === null || !TEXTOS_DE_INTERRUPCAO.includes(texto)) {
+      return { interrompido: false, motivo: `a última mensagem é ${String(r.type)} sem o texto exato de interrupção` };
     }
-    const quando = o.timestamp ? Date.parse(o.timestamp) : NaN;
+    const quando = typeof r.timestamp === "string" ? Date.parse(r.timestamp) : NaN;
     if (!Number.isFinite(quando)) return { interrompido: false, motivo: "interrupção sem timestamp válido" };
     if (quando < desdeMs) return { interrompido: false, motivo: "a interrupção do transcript é anterior ao Esc" };
     return { interrompido: true, motivo: "transcript registra a interrupção" };

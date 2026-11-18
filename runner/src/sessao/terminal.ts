@@ -8,16 +8,20 @@ import { interrupcaoNoFimDoTranscript } from "../transcript.js";
 import { ehDialogoDeBypass, ehDialogoDeConfiancaDoClaude, pastaDoDialogoDeConfianca, semAnsi } from "./telas.js";
 
 const JANELA_DA_INTERRUPCAO_MS = 10_000;
+const INTERVALO_DA_VIGIA_MS = 500;
 
 /**
  * Depois de um Esc do Parar nenhum dos dois motores dispara um fim de turno que o runner use, então o status
- * ficaria em `working` e a fila de mensagens presa. Uma vigia de 10 s procura a PROVA do motor:
- *  - Claude: o marcador na tela depois do Esc E a última mensagem do transcript ser "[Request interrupted by
- *    user...]" com timestamp posterior ao Esc. A tela sozinha não basta (um redesenho repete um "Interrupted" velho).
- *  - Codex: o rollout registrar `turn_aborted`/`task_aborted` depois do Esc (ver confirmarInterrupcaoDoRollout).
- * Sem a prova no prazo: log.aviso e o status fica como estava.
+ * ficaria em `working` e a fila de mensagens presa. Uma vigia de 10 s espera o REGISTRO do motor (a tela não conta):
+ *  - Claude: a última entrada user/assistant do transcript ser exatamente "[Request interrupted by user]" (ou "... for
+ *    tool use]"), com horário igual ou posterior ao Esc (conferido a cada 500 ms).
+ *  - Codex: o rollout registrar `turn_aborted`/`task_aborted` com horário igual ou posterior ao Esc
+ *    (ver confirmarInterrupcaoDoRollout).
+ * `desdeMs` é o horário medido ANTES de escrever o Esc. Um segundo Parar com a vigia armada não a troca: vale o
+ * horário do primeiro Esc. Sem a prova no prazo: log.aviso e o status fica como estava.
  */
-export function vigiarInterrupcao(s: Sessao): void {
+export function vigiarInterrupcao(s: Sessao, desdeMs: number): void {
+  if (s.vigiaInterrupcao && s.vigiaInterrupcao.proc === s.proc && !s.vigiaInterrupcao.confirmada) return;
   desarmarVigiaDaInterrupcao(s);
   const proc = s.proc;
   const timer = setTimeout(() => {
@@ -26,67 +30,73 @@ export function vigiarInterrupcao(s: Sessao): void {
     log.aviso(s.a("entrada"), `Esc enviado pelo Parar, mas não vi a confirmação da interrupção em ${JANELA_DA_INTERRUPCAO_MS / 1000} s; o status continua ${s.estado.status}`);
   }, JANELA_DA_INTERRUPCAO_MS);
   timer.unref();
-  s.vigiaInterrupcao = { proc, texto: "", timer, desdeMs: Date.now(), telaVista: false, poll: null };
+  const v = { proc, timer, desdeMs, poll: null as NodeJS.Timeout | null, confirmada: false };
+  s.vigiaInterrupcao = v;
+  if (s.motor.provedor === "claude") {
+    v.poll = setInterval(() => conferirTranscriptDaVigia(s, v), INTERVALO_DA_VIGIA_MS);
+    v.poll.unref();
+  }
 }
 
 export function desarmarVigiaDaInterrupcao(s: Sessao): void {
-  if (s.vigiaInterrupcao) {
-    clearTimeout(s.vigiaInterrupcao.timer);
-    if (s.vigiaInterrupcao.poll) clearInterval(s.vigiaInterrupcao.poll);
+  const v = s.vigiaInterrupcao;
+  if (v) {
+    clearTimeout(v.timer);
+    if (v.poll) clearInterval(v.poll);
   }
   s.vigiaInterrupcao = null;
 }
 
-function concluirInterrupcao(s: Sessao, como: string): void {
-  desarmarVigiaDaInterrupcao(s);
-  if (s.estado.status !== "working") return;
+/** Confirmou: vai a idle agora, mas a fila só é solta depois do lote de eventos em curso, e só se nada mudou. */
+function concluirInterrupcao(s: Sessao, v: NonNullable<Sessao["vigiaInterrupcao"]>, como: string): void {
+  clearTimeout(v.timer);
+  if (v.poll) clearInterval(v.poll);
+  v.confirmada = true;
+  if (s.estado.status !== "working") { desarmarVigiaDaInterrupcao(s); return; }
   cancelarStopPendente(s);
   s.mudar({ status: "idle", hookLatched: true, currentTool: null, statusReason: "runner:interrompido" });
-  log.info(s.a("entrada"), `interrupção confirmada depois do Parar (${como}): o agente voltou a idle e a fila pode andar`);
-  talvezSoltarFila(s);
+  log.info(s.a("entrada"), `interrupção confirmada pelo registro do motor (${como}): o agente voltou a idle`);
+  setImmediate(() => {
+    const mesma = s.vigiaInterrupcao === v && s.proc === v.proc && s.estado.status === "idle";
+    desarmarVigiaDaInterrupcao(s);
+    // Mudou algo no meio (um turno novo começou, o PTY trocou): o Stop/idle normal cuida da fila depois.
+    if (mesma) talvezSoltarFila(s);
+  });
+}
+
+function falhaDaVigia(s: Sessao, onde: string, err: unknown): void {
+  desarmarVigiaDaInterrupcao(s);
+  log.aviso(s.a("entrada"), `vigia da interrupção desarmada: falhou ao ${onde} (${err instanceof Error ? err.message : String(err)})`);
 }
 
 /** Codex: o rollout registrou o turno abortado. Só vale com um Parar em curso e o registro depois do Esc. */
 export function confirmarInterrupcaoDoRollout(s: Sessao, em: number): boolean {
-  const v = s.vigiaInterrupcao;
-  if (!v || v.proc !== s.proc || em < v.desdeMs) return false;
-  concluirInterrupcao(s, "rollout do Codex: turno abortado");
-  return true;
+  try {
+    const v = s.vigiaInterrupcao;
+    if (!v || v.confirmada || v.proc !== s.proc || !(em >= v.desdeMs)) return false;
+    concluirInterrupcao(s, v, "rollout do Codex: turno abortado");
+    return true;
+  } catch (err) {
+    falhaDaVigia(s, "confirmar pelo rollout", err);
+    return false;
+  }
 }
 
-function tentarConfirmarPeloTranscript(s: Sessao): void {
-  const v = s.vigiaInterrupcao;
-  if (!v || !v.telaVista || v.proc !== s.proc) return;
-  const sessionId = s.estado.sessionId;
-  if (!sessionId) return;
-  const prova = interrupcaoNoFimDoTranscript(sessionId, v.desdeMs, s.estado.config.envExtra?.CLAUDE_CONFIG_DIR);
-  if (prova.interrompido) concluirInterrupcao(s, "tela e transcript do Claude");
-  else log.debug(s.a("entrada"), `marcador na tela depois do Parar, mas o transcript ainda não confirma: ${prova.motivo}`);
-}
-
-function olharInterrupcao(s: Sessao, dados: string): void {
-  const v = s.vigiaInterrupcao;
-  if (!v) return;
-  if (v.proc !== s.proc) { desarmarVigiaDaInterrupcao(s); return; }
-  // No Codex a prova é o rollout; a tela não conta.
-  if (s.motor.provedor !== "claude") return;
-  // Procura no bloco inteiro mais a cauda do anterior; só depois limita o trecho guardado para o próximo bloco.
-  const visto = v.texto + semAnsi(dados);
-  v.texto = visto.slice(-4_096);
-  if (v.telaVista || !/interrupted[^a-z]{0,20}what should/i.test(visto)) return;
-  v.telaVista = true;
-  tentarConfirmarPeloTranscript(s);
-  // O transcript pode ser gravado um instante depois da tela: olha de novo até o fim do prazo.
-  if (s.vigiaInterrupcao && !s.vigiaInterrupcao.poll) {
-    const poll = setInterval(() => tentarConfirmarPeloTranscript(s), 400);
-    poll.unref();
-    s.vigiaInterrupcao.poll = poll;
+function conferirTranscriptDaVigia(s: Sessao, v: NonNullable<Sessao["vigiaInterrupcao"]>): void {
+  try {
+    if (s.vigiaInterrupcao !== v || v.confirmada) return;
+    if (v.proc !== s.proc) { desarmarVigiaDaInterrupcao(s); return; }
+    const sessionId = s.estado.sessionId;
+    if (!sessionId) return;
+    const prova = interrupcaoNoFimDoTranscript(sessionId, v.desdeMs, s.estado.config.envExtra?.CLAUDE_CONFIG_DIR);
+    if (prova.interrompido) concluirInterrupcao(s, v, "transcript do Claude");
+  } catch (err) {
+    falhaDaVigia(s, "ler o transcript", err);
   }
 }
 
 export function aoReceberDados(s: Sessao, dados: string, mascara: MascaraDeFluxo): void {
   s.ultimaSaidaEm = Date.now();
-  olharInterrupcao(s, dados);
   const visivel = mascara.passar(dados);
   if (visivel) guardarEEmitir(s, visivel);
   // O que a máscara reteve (possível começo de segredo) sai quando o CLI fica quieto.

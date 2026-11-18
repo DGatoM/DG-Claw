@@ -80,17 +80,21 @@ Quando a sessão mostra a interrupção, o agente não retoma sozinho o que foi 
 
 Depois do Esc o hook `Stop` não dispara, e sem isso o runner ficaria em `working` e a próxima
 mensagem do painel (que espera o agente ficar ocioso) ficaria presa na fila. Por isso, depois de um Esc do Parar, o
-runner procura por até 10 s a prova de que o turno foi cortado, e a tela sozinha não basta (um redesenho pode repetir um
-"Interrupted" antigo):
+runner espera por até 10 s o **registro do motor** que prova que o turno foi cortado. O texto da tela não conta (um
+redesenho pode repetir um "Interrupted" antigo):
 
-- **Claude:** o marcador "Interrupted · What should Claude do instead?" aparece na tela **depois** do Esc (o que já estava na
-  tela antes não conta) **e** a última mensagem do transcript da sessão é "[Request interrupted by user...]" com horário
-  posterior ao Esc.
-- **Codex:** o rollout da sessão registra `turn_aborted` (ou `task_aborted`) depois do Esc. O texto "Conversation interrupted"
-  da tela não conta sozinho.
+- **Claude:** a cada 500 ms o runner confere a cauda do transcript da sessão. A prova é a última entrada de usuário/agente ser
+  de usuário com o texto exato "[Request interrupted by user]" ou "[Request interrupted by user for tool use]", com
+  horário igual ou posterior ao instante medido antes de escrever o Esc. Qualquer outro texto, inclusive um que só comece
+  assim, não vale.
+- **Codex:** o rollout da sessão registra `turn_aborted` (ou `task_aborted`) com horário igual ou posterior ao mesmo instante.
 
-Com a prova e o estado ainda `working`, o runner passa para `idle` (motivo `runner:interrompido`) e solta a fila. Sem a prova
-em 10 s, o estado fica como estava e o log do runner avisa que a confirmação não foi vista.
+Com a prova, o runner passa o agente para `idle` (motivo `runner:interrompido`) e só então solta a fila, depois do lote de
+eventos em curso e só se nada mudou nesse meio tempo (ainda `idle`, mesmo terminal, mesma espera). A espera é desarmada
+quando começa um turno novo, quando o terminal muda ou ao fim dos 10 s (o log do runner avisa que a confirmação não foi vista e o estado
+fica como estava). Um segundo Parar com a espera ainda armada não a troca: vale o horário do primeiro Esc. Registro do
+transcript que não é um objeto (linha `null`, número, lista) ou que não é JSON é ignorado, e uma falha dentro da espera só
+gera aviso e a desarma.
 
 ## Colaborador
 
@@ -100,7 +104,7 @@ dá para saber de quem é o turno em curso.
 
 ## Registro
 
-Cada Parar entra no log do Web com o agente, quem apertou (`dono` ou `colaborador:<id> (<usuário>)`) e o horário medido pelo Web (não o que o runner informa). Texto vindo do runner entra no log sem quebras de linha nem caracteres de controle. Falhas entram como aviso ou erro, com o motivo.
+Cada Parar entra no log do Web com o agente, quem apertou (`dono` ou `colaborador:<id> (<usuário>)`) e o horário medido pelo Web (não o que o runner informa). O texto livre do runner (`error`, `howToFix`) nunca entra no log nem na resposta do Parar: só o status HTTP e um `code` de lista fechada. Falhas entram como aviso ou erro, com o motivo.
 
 ## Rota interna do runner
 

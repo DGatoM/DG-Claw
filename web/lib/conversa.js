@@ -791,23 +791,28 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
       return erro(501, msg, { codigo: 'RUNNER_ANTIGO' });
     }
     if (!r.ok) {
-      const motivo = motivoDoRunner(agente, r);
-      log('aviso', `Parar ${agente.slug} (por ${quem}) recusado pelo runner (HTTP ${r.status}): ${paraLog(motivo)}`);
-      if (r.status === 409 && c.code === 'NO_PTY') {
+      // Nada de texto livre do runner (error, howToFix) no log nem na resposta: só o status HTTP e um `code` de lista fechada.
+      const CONHECIDOS = ['NO_PTY', 'ESPERANDO_DECISAO', 'NAO_TRABALHANDO', 'MUITO_RAPIDO', 'RESPOSTA_EM_ANDAMENTO'];
+      const code = typeof c.code === 'string' && CONHECIDOS.includes(c.code) ? c.code : null;
+      const codeLog = code || (typeof c.code === 'string' && /^[A-Z_]{1,40}$/.test(c.code) ? c.code : 'código desconhecido');
+      log('aviso', `Parar ${agente.slug} (por ${quem}) recusado pelo runner (HTTP ${r.status}, ${codeLog}).`);
+      if (r.status === 409 && code === 'NO_PTY') {
         return erro(409, `${agente.nome} não tem sessão aberta agora, então não há o que parar.`, { codigo: 'NO_PTY' });
       }
-      if (r.status === 409 && c.code === 'NAO_TRABALHANDO') {
+      if (r.status === 409 && code === 'NAO_TRABALHANDO') {
         return erro(409, `${agente.nome} não está trabalhando agora, então não mandei nada.`, { codigo: 'NAO_TRABALHANDO' });
       }
-      if (r.status === 409 && c.code === 'ESPERANDO_DECISAO') {
+      if (r.status === 409 && code === 'ESPERANDO_DECISAO') {
         return erro(409, `${agente.nome} está esperando uma decisão sua. Responda no cartão da permissão ou da pergunta; o Parar não vale nesse momento.`, { codigo: 'ESPERANDO_DECISAO' });
       }
-      if (r.status === 429 && c.code === 'MUITO_RAPIDO') {
-        const espere = typeof c.espereS === 'number' ? c.espereS : null;
-        return erro(429, `Espere${espere !== null ? ` ${espere} s` : ' um pouco'} para apertar Parar de novo. ${motivo}`, { codigo: 'MUITO_RAPIDO', espere_s: espere });
+      if (r.status === 409 && code === 'RESPOSTA_EM_ANDAMENTO') {
+        return erro(409, `${agente.nome} está recebendo a resposta de uma pergunta. Espere alguns segundos e tente de novo.`, { codigo: 'RESPOSTA_EM_ANDAMENTO' });
       }
-      if (r.status === 409 || r.status === 429) return erro(r.status, `O runner de ${agente.nome} não aplicou o Parar: ${motivo}`, { codigo: typeof c.code === 'string' ? c.code : undefined });
-      return erro(502, `O runner de ${agente.nome} não aplicou o Parar: ${motivo}`);
+      if (r.status === 429 && code === 'MUITO_RAPIDO') {
+        const espere = typeof c.espereS === 'number' && Number.isFinite(c.espereS) && c.espereS >= 0 && c.espereS <= 10 ? c.espereS : null;
+        return erro(429, `Espere${espere !== null ? ` ${espere} s` : ' um pouco'} para apertar Parar de novo: dois Esc seguidos travam a sessão.`, { codigo: 'MUITO_RAPIDO', espere_s: espere });
+      }
+      return erro(502, `O runner de ${agente.nome} recusou o Parar (HTTP ${r.status}, ${codeLog}). Olhe o log do agente.`, { codigo: 'RECUSADO' });
     }
     // Só vale como entregue um 200 com success:true e data.enviado:true; qualquer outro 2xx é entrega incerta.
     const d = c.data && typeof c.data === 'object' ? c.data : null;
