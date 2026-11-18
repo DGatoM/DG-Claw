@@ -23,7 +23,7 @@ import { Conferidor } from "./provedores/conferido.js";
 import { LoginAssistido } from "./provedores/login.js";
 import { tratarRotasDeProvedor } from "./provedores/rotas.js";
 import { MOTIVO_SEM_MEDICAO, deStatusline, paraResposta } from "./uso.js";
-import { nonceConfere } from "./sessao/telas.js";
+import { ESC, nonceConfere } from "./sessao/telas.js";
 import { acharRolloutPorId, mensagensDoRollout } from "./provedores/codex-rollout.js";
 
 /** O estado de uma sessão como o painel e a API o veem. A paralela leva o campo
@@ -344,6 +344,15 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
             sessao.enfileirarQuandoOcioso(texto);
             json(res, { success: true, data: { enfileirado: true, acordando: true } }, 202);
             return;
+          }
+
+          // Um Esc sozinho, venha de onde vier, respeita a trava de 3 s (dois Esc colados abrem o menu de voltar).
+          if (texto === ESC) {
+            const trava = sessao.travaDoEsc();
+            if (trava) {
+              json(res, { success: false, error: trava.erro, howToFix: trava.comoResolver, code: trava.code, espereS: trava.espereS }, trava.status);
+              return;
+            }
           }
 
           if (quandoOcioso) {

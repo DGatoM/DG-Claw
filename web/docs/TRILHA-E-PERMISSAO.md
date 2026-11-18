@@ -48,6 +48,7 @@ ele segue como antes. Exige sessão e `Origin`, como as outras escritas.
 | 400 | `decisao` diferente de aprovar/negar | Corrigir o corpo. |
 | 409 | O agente não está esperando permissão (o pedido já foi resolvido), está esperando a resposta de uma pergunta de escolha (`E_PERGUNTA_NAO_PERMISSAO`: o `1` escolheria a primeira opção dela), o `tool_use_id` não é o do pedido atual (`PERMISSAO_DIFERENTE`) ou uma resposta de pergunta está sendo digitada (`RESPOSTA_EM_ANDAMENTO`) | Atualizar a conversa. Nada foi digitado. |
 | 501 | O runner do agente é antigo e não tem `POST /api/agents/<id>/permissao` | Atualizar o agente pelo Admin. Até lá, responder pelo terminal. |
+| 429 `MUITO_RAPIDO` | Negar cai num Esc, e o runner recusa dois Esc em menos de 3 s (um Parar ou outro Esc há pouco). Vem `espere_s` com os segundos que faltam. A decisão não foi enviada | Esperar `espere_s` e negar de novo. |
 | 502 | O runner recusou (`error` e `howToFix` dele vêm na mensagem) | Seguir o `howToFix`. |
 | 503 | Não consegui falar com o runner | Conferir se o serviço do agente está rodando e tentar de novo. Nada foi enviado. |
 

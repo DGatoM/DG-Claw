@@ -76,6 +76,7 @@ function criarRunnerFalso(opcoes) {
     if (rota === `/api/agents/${o.agenteId}/interromper` && req.method === 'POST') {
       if (o.semRotaInterromper) return json(404, { success: false, error: 'sem rota' });
       if (o.derrubaInterromper) { rec.interrupcoes += 1; req.socket.destroy(); return undefined; }
+      if (o.vazioInterromper) { rec.interrupcoes += 1; res.writeHead(204); res.end(); return undefined; }
       if (o.falhaInterromper) return json(o.falhaInterromper.status, o.falhaInterromper.corpo);
       rec.interrupcoes += 1;
       if (o.grandeInterromper) return json(200, { success: true, data: { enviado: true, statusAntes: o.status, enchimento: 'x'.repeat(40 * 1024) } });

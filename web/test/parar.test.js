@@ -34,15 +34,36 @@ test('parar: trabalhando => 200 com trabalhando e a mensagem de interrupção', 
   } finally { await s.fechar(); }
 });
 
-test('parar: sem corpo também vale, e o agente ocioso recebe o aviso de que o Esc não muda nada', async () => {
-  const s = await cenario({ status: 'idle' });
+test('parar: sem corpo também vale', async () => {
+  const s = await cenario({ status: 'working' });
   try {
     const r = await s.t.c.post('/api/v1/agents/ana/parar', {});
     assert.equal(r.status, 200, r.texto);
-    assert.equal(r.json.trabalhando, false);
-    assert.match(r.json.mensagem, /não estava trabalhando/);
-    assert.match(r.json.mensagem, /nada muda/);
+    assert.equal(r.json.trabalhando, true);
   } finally { await s.fechar(); }
+});
+
+test('parar: runner diz que não está trabalhando (409 NAO_TRABALHANDO) => 409 claro, sem ramo de sucesso', async () => {
+  const s = await cenario({ falhaInterromper: { status: 409, corpo: { success: false, error: 'ocioso', code: 'NAO_TRABALHANDO' } } });
+  try {
+    const r = await para(s);
+    assert.equal(r.status, 409);
+    assert.equal(r.json.codigo, 'NAO_TRABALHANDO');
+    assert.equal(r.json.erro, 'Ana não está trabalhando agora, então não mandei nada.');
+  } finally { await s.fechar(); }
+});
+
+test('parar: 2xx que não confirma o envio (204 vazio, success:false, sem enviado) => 504 INCERTO', async () => {
+  let s = await cenario({ vazioInterromper: true });
+  try {
+    const r = await para(s);
+    assert.equal(r.status, 504);
+    assert.equal(r.json.codigo, 'INCERTO');
+  } finally { await s.fechar(); }
+  s = await cenario({ falhaInterromper: { status: 200, corpo: { success: false, error: 'não deu' } } });
+  try { assert.equal((await para(s)).status, 504); } finally { await s.fechar(); }
+  s = await cenario({ falhaInterromper: { status: 200, corpo: { success: true, data: {} } } });
+  try { assert.equal((await para(s)).status, 504); } finally { await s.fechar(); }
 });
 
 test('parar: runner fora do ar => 503 dizendo que nada foi enviado', async () => {
@@ -187,7 +208,6 @@ test('parar: log sem quebra de linha nem controle; statusAntes desconhecido vira
   try {
     const r = await para(s);
     assert.equal(r.status, 200);
-    assert.equal(r.json.trabalhando, false);
     const linha = s.t.log.linhas.find((l) => l.includes('Parar ana: Esc enviado'));
     assert.ok(linha, s.t.log.texto());
     assert.match(linha, /estado antes: \?\)/);

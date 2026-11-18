@@ -34,8 +34,9 @@ de escolha, a conversa já tem os botões próprios desses cartões.
 }
 ```
 
-`trabalhando` é `false` quando o agente não estava trabalhando na hora do pedido. Nesse caso o Esc foi enviado, mas
-não muda nada, e a `mensagem` diz isso. `trabalhando` só é `true` quando o runner confirma o estado `working`.
+`trabalhando` é sempre `true` no sucesso: o runner só manda o Esc quando o agente está no estado `working`. Fora disso a
+resposta é 409 `NAO_TRABALHANDO` e nada é enviado. O sucesso só vale com HTTP 200, `success: true` e `data.enviado: true`; qualquer
+outra resposta 2xx é tratada como entrega incerta (504).
 
 ### Erros
 
@@ -47,6 +48,7 @@ Todo erro vem como `{"ok": false, "erro": "<motivo em português>", "codigo": "<
 | 403 | Origem do pedido não é a do painel, ou o pedido veio de um colaborador (`SO_O_DONO`) | Abrir o painel pelo endereço normal; o Parar é só do dono |
 | 405 | Método diferente de POST | Usar POST |
 | 409 `NO_PTY` | O agente não tem sessão aberta agora | Nada a parar. A próxima mensagem abre a sessão |
+| 409 `NAO_TRABALHANDO` | O agente não está no estado `working` (ocioso, abrindo, sem login). Nada foi enviado | Esperar o agente começar um trabalho |
 | 409 `ESPERANDO_DECISAO` | O agente espera uma permissão ou a resposta de uma pergunta: o Esc cairia no cartão | Responder no cartão da permissão ou da pergunta |
 | 409 `RESPOSTA_EM_ANDAMENTO` | O agente está recebendo a resposta de uma pergunta de escolha | Esperar alguns segundos e tentar de novo |
 | 429 `MUITO_RAPIDO` | Passaram menos de 3 s desde o último Esc na mesma sessão. O campo `espere_s` diz quantos segundos faltam | Esperar `espere_s` e apertar de novo |
@@ -60,7 +62,7 @@ Todo erro vem como `{"ok": false, "erro": "<motivo em português>", "codigo": "<
 
 O runner guarda, por sessão, a hora do último Esc e recusa outro antes de 3 s. O motivo: dois Esc em menos de cerca
 de 1 s abrem o menu de voltar (rewind) do Claude Code e travam a sessão. A trava vale para qualquer Esc escrito no terminal, venha de onde
-vier: Parar, negar uma permissão ou cancelar uma pergunta. Negar logo depois de Parar (ou o contrário) também dá 429. A tela reabilita o botão depois de 3 s.
+vier: Parar, negar uma permissão, cancelar uma pergunta ou um `/input` do runner com um Esc cru. Nos dois últimos a recusa vem antes de qualquer tecla ser escrita. Negar logo depois de Parar (ou o contrário) também dá 429. A tela reabilita o botão depois de 3 s.
 
 ## O que acontece em cada motor
 
@@ -73,6 +75,15 @@ vier: Parar, negar uma permissão ou cancelar uma pergunta. Negar logo depois de
   seguinte entrou normalmente e foi respondida.
 
 Quando a sessão mostra a interrupção, o agente não retoma sozinho o que foi cortado: espera a próxima mensagem.
+
+## Depois do Esc: o agente volta a ficar ocioso
+
+No Claude o Esc interrompe o turno, mas o hook `Stop` não dispara, e sem isso o runner ficaria em `working` e a próxima
+mensagem do painel (que espera o agente ficar ocioso) ficaria presa na fila. Por isso, depois de um Esc do Parar, o
+runner olha por até 10 s o texto que chega do terminal **depois** do Esc (sem códigos de tela; o que já estava na tela
+antes não conta). Ao ver o marcador da interrupção ("Interrupted" no Claude, "Conversation interrupted" no Codex) com o
+estado ainda `working`, ele passa para `idle` (motivo `runner:interrompido`) e solta a fila. Se os 10 s passam sem o marcador, o estado fica como estava e o log do
+runner avisa que a confirmação não foi vista.
 
 ## Colaborador
 

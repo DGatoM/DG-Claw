@@ -2,11 +2,52 @@ import type { Sessao } from "../sessao.js";
 import { log } from "../logger.js";
 import { MascaraDeFluxo } from "../mascara.js";
 import { BUFFER_MAX, QUIETO_DE_BOOT_MS, SILENCIO_DA_MASCARA_MS } from "./constantes.js";
-import { cancelarQuietoDeBoot } from "./eventos.js";
+import { cancelarQuietoDeBoot, cancelarStopPendente } from "./eventos.js";
+import { talvezSoltarFila } from "./fila.js";
 import { ehDialogoDeBypass, ehDialogoDeConfiancaDoClaude, pastaDoDialogoDeConfianca, semAnsi } from "./telas.js";
+
+const JANELA_DA_INTERRUPCAO_MS = 10_000;
+
+/**
+ * Depois de um Esc do Parar o Claude não dispara o hook Stop, então o status ficaria em `working` e a fila de
+ * mensagens ficaria presa. Aqui se arma uma vigia de 10 s: só o texto que chega do PTY DEPOIS do Esc (sem ANSI)
+ * conta, e o marcador do CLI ("Interrupted" no Claude, "Conversation interrupted" no Codex) devolve o agente a idle.
+ */
+export function vigiarInterrupcao(s: Sessao): void {
+  desarmarVigiaDaInterrupcao(s);
+  const proc = s.proc;
+  const timer = setTimeout(() => {
+    if (s.vigiaInterrupcao?.timer !== timer) return;
+    s.vigiaInterrupcao = null;
+    log.aviso(s.a("entrada"), `Esc enviado pelo Parar, mas não vi a confirmação da interrupção em ${JANELA_DA_INTERRUPCAO_MS / 1000} s; o status continua ${s.estado.status}`);
+  }, JANELA_DA_INTERRUPCAO_MS);
+  timer.unref();
+  s.vigiaInterrupcao = { proc, texto: "", timer };
+}
+
+export function desarmarVigiaDaInterrupcao(s: Sessao): void {
+  if (s.vigiaInterrupcao) clearTimeout(s.vigiaInterrupcao.timer);
+  s.vigiaInterrupcao = null;
+}
+
+function olharInterrupcao(s: Sessao, dados: string): void {
+  const v = s.vigiaInterrupcao;
+  if (!v) return;
+  if (v.proc !== s.proc) { desarmarVigiaDaInterrupcao(s); return; }
+  v.texto = (v.texto + semAnsi(dados)).slice(-4_096);
+  const marcador = s.motor.provedor === "codex" ? /conversation interrupted/i : /interrupted/i;
+  if (!marcador.test(v.texto)) return;
+  desarmarVigiaDaInterrupcao(s);
+  if (s.estado.status !== "working") return;
+  cancelarStopPendente(s);
+  s.mudar({ status: "idle", hookLatched: true, currentTool: null, statusReason: "runner:interrompido" });
+  log.info(s.a("entrada"), "interrupção confirmada na tela depois do Parar: o agente voltou a idle e a fila pode andar");
+  talvezSoltarFila(s);
+}
 
 export function aoReceberDados(s: Sessao, dados: string, mascara: MascaraDeFluxo): void {
   s.ultimaSaidaEm = Date.now();
+  olharInterrupcao(s, dados);
   const visivel = mascara.passar(dados);
   if (visivel) guardarEEmitir(s, visivel);
   // O que a máscara reteve (possível começo de segredo) sai quando o CLI fica quieto.

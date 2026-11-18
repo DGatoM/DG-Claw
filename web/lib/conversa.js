@@ -649,6 +649,10 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
         return erro(409, `A resposta desta pergunta de ${agente.nome} já foi enviada (por esta ou outra aba). Nada foi digitado agora.`,
           { howToFix: 'Atualize a conversa. Se o terminal ficou no meio da resposta, termine pela aba Sessões.', codigo: 'PERGUNTA_JA_RESPONDIDA' });
       }
+      if (r.status === 429 && r.corpo && r.corpo.code === 'MUITO_RAPIDO') {
+        const espere = typeof r.corpo.espereS === 'number' ? r.corpo.espereS : null;
+        return erro(429, `Espere${espere !== null ? ` ${espere} s` : ' um pouco'} para negar de novo: dois Esc seguidos travam a sessão. A decisão não foi enviada.`, { codigo: 'MUITO_RAPIDO', espere_s: espere });
+      }
       return erro(r.status === 409 ? 409 : 502, `O runner de ${agente.nome} não aplicou a decisão: ${motivo}`);
     }
     log('info', `Permissão de ${agente.slug}: ${decisao === 'aprovar' ? 'aprovada' : 'negada'} pela tela.`);
@@ -788,6 +792,9 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
       if (r.status === 409 && c.code === 'NO_PTY') {
         return erro(409, `${agente.nome} não tem sessão aberta agora, então não há o que parar.`, { codigo: 'NO_PTY' });
       }
+      if (r.status === 409 && c.code === 'NAO_TRABALHANDO') {
+        return erro(409, `${agente.nome} não está trabalhando agora, então não mandei nada.`, { codigo: 'NAO_TRABALHANDO' });
+      }
       if (r.status === 409 && c.code === 'ESPERANDO_DECISAO') {
         return erro(409, `${agente.nome} está esperando uma decisão sua. Responda no cartão da permissão ou da pergunta; o Parar não vale nesse momento.`, { codigo: 'ESPERANDO_DECISAO' });
       }
@@ -798,16 +805,17 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
       if (r.status === 409 || r.status === 429) return erro(r.status, `O runner de ${agente.nome} não aplicou o Parar: ${motivo}`, { codigo: typeof c.code === 'string' ? c.code : undefined });
       return erro(502, `O runner de ${agente.nome} não aplicou o Parar: ${motivo}`);
     }
+    // Só vale como entregue um 200 com success:true e data.enviado:true; qualquer outro 2xx é entrega incerta.
+    const d = c.data && typeof c.data === 'object' ? c.data : null;
+    if (r.status !== 200 || c.success !== true || !d || d.enviado !== true) {
+      return incerto(`o runner respondeu HTTP ${r.status} sem confirmar o envio`);
+    }
     // O horário e o estado são medidos/validados aqui: nada que o runner mande entra no log sem passar por este filtro.
-    const d = c.data && typeof c.data === 'object' ? c.data : {};
     const enviadoEm = new Date().toISOString();
     const statusAntes = STATUS_CONHECIDOS.has(d.statusAntes) ? d.statusAntes : '?';
-    const trabalhando = statusAntes === 'working';
     log('info', `Parar ${agente.slug}: Esc enviado por ${quem} em ${enviadoEm} (estado antes: ${statusAntes}).`);
-    const mensagem = trabalhando
-      ? `Mandei um Esc para ${agente.nome} (o mesmo que apertar Esc no terminal). O que está em primeiro plano costuma parar na hora; um comando que ele deixou rodando em segundo plano pode continuar.`
-      : `Mandei um Esc para ${agente.nome}, mas ele não estava trabalhando, então nada muda.`;
-    return { status: 200, corpo: { ok: true, agente: agente.slug, enviado_em: enviadoEm, trabalhando, mensagem } };
+    const mensagem = `Mandei um Esc para ${agente.nome} (o mesmo que apertar Esc no terminal). O que está em primeiro plano costuma parar na hora; um comando que ele deixou rodando em segundo plano pode continuar.`;
+    return { status: 200, corpo: { ok: true, agente: agente.slug, enviado_em: enviadoEm, trabalhando: true, mensagem } };
   }
 
   /** `ator` (opcional) é quem fala: { from } para o envelope e { colaborador:true } para travar o que é do dono. */

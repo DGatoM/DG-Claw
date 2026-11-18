@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import http from "node:http";
-import { abrirServidorDeHooks, portaLivre, prepararAmbiente } from "./apoio-teste.js";
+import { abrirServidorDeHooks, esperarAte, portaLivre, prepararAmbiente } from "./apoio-teste.js";
 
 const amb = prepararAmbiente("sessao-interromper");
 const TOKEN = "teste-" + "c".repeat(40);
@@ -13,6 +13,8 @@ const { Sessao } = await import("./sessao.js");
 const { GerenteDeSessoes } = await import("./sessoes.js");
 const { criarServidor } = await import("./servidor.js");
 const { lerDescritor } = await import("./config-runner.js");
+const { aoReceberDados } = await import("./sessao/terminal.js");
+const { MascaraDeFluxo } = await import("./mascara.js");
 
 const servidores: Array<{ fechar(): void }> = [];
 let n = 0;
@@ -37,6 +39,7 @@ function falso(s: InstanceType<typeof Sessao>) {
   const rel = { t: 1_000_000 };
   (s as unknown as { proc: unknown }).proc = { write: (t: string) => escritas.push(t), pid: 0 };
   s.agora = () => rel.t;
+  s.estado.status = "working";
   return { escritas, rel };
 }
 
@@ -150,6 +153,120 @@ test("esperando permissão ou pergunta: 409 ESPERANDO_DECISAO e nada escrito", a
     }
   }
   assert.deepEqual(escritas, []);
+});
+
+test("fora de working (idle, spawning): 409 NAO_TRABALHANDO e nada escrito", async () => {
+  const s = await nova();
+  const { escritas } = falso(s);
+  for (const st of ["idle", "spawning"] as const) {
+    s.estado.status = st;
+    const r = s.interromper();
+    assert.equal(r.ok, false);
+    if (!r.ok) {
+      assert.equal(r.status, 409);
+      assert.equal(r.code, "NAO_TRABALHANDO");
+      assert.match(r.erro, /nada foi enviado/);
+    }
+  }
+  assert.deepEqual(escritas, []);
+});
+
+test("Parar e depois /input com Esc cru em menos de 3 s: 429 sem escrever; passados 3 s, escreve", async () => {
+  const porta = await portaLivre();
+  const descritor = lerDescritor();
+  const gerente = new GerenteDeSessoes(descritor, porta);
+  const servidor: http.Server = criarServidor(gerente);
+  await new Promise<void>((ok) => servidor.listen(porta, "127.0.0.1", ok));
+  try {
+    const { escritas, rel } = falso(gerente.principal);
+    assert.equal(gerente.principal.interromper().ok, true);
+    const input = async (texto: string) => {
+      const r = await fetch(`http://127.0.0.1:${porta}/api/agents/${descritor.id}/input`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ text: texto, submit: false }),
+      });
+      return { status: r.status, corpo: (await r.json()) as any };
+    };
+    rel.t += 500;
+    const barrado = await input("\u001b");
+    assert.equal(barrado.status, 429);
+    assert.equal(barrado.corpo.code, "MUITO_RAPIDO");
+    assert.ok(barrado.corpo.espereS > 0);
+    assert.equal(escritas.length, 1);
+    rel.t += 3000;
+    assert.equal((await input("\u001b")).status, 200);
+    assert.equal(escritas.length, 2);
+  } finally {
+    (gerente.principal as unknown as { proc: unknown }).proc = null;
+    gerente.pararTodas("fim dos testes");
+    servidor.closeAllConnections?.();
+    servidor.close();
+  }
+});
+
+test("Parar e depois cancelar pergunta (Esc) em menos de 3 s: 429 antes de escrever qualquer tecla", async () => {
+  const s = await nova();
+  const { escritas, rel } = falso(s);
+  assert.equal(s.interromper().ok, true);
+  s.estado.status = "waiting_input";
+  s.estado.motivo = "pergunta";
+  s.estado.pendenteId = "tu1";
+  rel.t += 500;
+  const r = await s.responderPergunta("tu1", ["\u001b"]);
+  assert.equal(r.ok, false);
+  if (!r.ok) {
+    assert.equal(r.status, 429);
+    assert.equal(r.code, "MUITO_RAPIDO");
+  }
+  assert.equal(escritas.length, 1);
+  assert.equal(s.perguntaTentada, null, "a pergunta não foi marcada como respondida");
+});
+
+const PROCESSA = (s: InstanceType<typeof Sessao>, texto: string, m = new MascaraDeFluxo([])) => aoReceberDados(s, texto, m);
+
+test("Claude: depois do Esc, o marcador 'Interrupted' (com ANSI) leva a idle e solta a mensagem enfileirada", async () => {
+  const s = await nova();
+  const { escritas } = falso(s);
+  s.estado.status = "working";
+  const m = new MascaraDeFluxo([]);
+  assert.equal(s.interromper().ok, true);
+  s.enfileirarQuandoOcioso("mensagem presa na fila");
+  assert.equal(s.estado.status, "working");
+  assert.equal(escritas.some((t) => t.includes("mensagem presa")), false);
+  PROCESSA(s, "\u001b[2K\u001b[1m\u001b[31mInter\u001b[0m", m);
+  assert.equal(s.estado.status, "working", "marcador ainda incompleto");
+  PROCESSA(s, "\u001b[31mrupted\u001b[0m \u00b7 What should Claude do instead?", m);
+  assert.equal(s.estado.status, "idle");
+  assert.equal(s.estado.statusReason, "runner:interrompido");
+  await esperarAte(() => escritas.some((t) => t.includes("mensagem presa na fila")), 3_000, "a mensagem da fila ser escrita");
+  assert.equal(s.vigiaInterrupcao, null);
+});
+
+test("Codex: 'Conversation interrupted' depois do Esc leva a idle; 'Interrupted' solto não basta", async () => {
+  const s = await nova();
+  falso(s);
+  (s as unknown as { motor: unknown }).motor = { ...(s.motor as object), provedor: "codex" };
+  s.estado.status = "working";
+  assert.equal(s.interromper().ok, true);
+  PROCESSA(s, "Interrupted");
+  assert.equal(s.estado.status, "working");
+  PROCESSA(s, "\u001b[1m■ Conversation interrupted - use /feedback if something went wrong\u001b[0m");
+  assert.equal(s.estado.status, "idle");
+  assert.equal(s.estado.statusReason, "runner:interrompido");
+});
+
+test("marcador que já estava na tela ANTES do Esc não conta", async () => {
+  const s = await nova();
+  falso(s);
+  s.estado.status = "working";
+  PROCESSA(s, "Interrupted · What should Claude do instead?");
+  assert.equal(s.interromper().ok, true);
+  PROCESSA(s, "trabalhando de novo...");
+  assert.equal(s.estado.status, "working");
+  assert.ok(s.vigiaInterrupcao, "a vigia segue armada");
+  s.vigiaInterrupcao && clearTimeout(s.vigiaInterrupcao.timer);
+  s.vigiaInterrupcao = null;
 });
 
 test("respondendo pergunta: 409 RESPOSTA_EM_ANDAMENTO e nada escrito", async () => {
