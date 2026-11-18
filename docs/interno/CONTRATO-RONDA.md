@@ -175,6 +175,13 @@ vale para o kernel em execução). A tela traz sempre o botão Pedir ao Admin no
 `avisado_em`), sem contar como ponto em risco; no resumo ele aparece no grupo "ATUALIZAÇÕES DO SISTEMA", com a orientação de conferir o
 `unattended-upgrades` e atualizar com o ok do dono. A ronda não tenta provar que a atualização automática instalará a correção.
 
-**KEV.** O KEV continua `aberto`, em destaque. A marca KEV confirmada fica no registro do achado (`kev`); se a fonte KEV não respondeu na
-rodada, vale a guardada (registro antigo, só com `ultimo.explorada_ativamente`, migra para ela) e só se rebaixa quando a fonte responde e
-não lista mais; resposta da CISA com a lista vazia, com entrada sem `cveID` válido ou com `count` diferente do número de CVEs distintos conta como fonte fora; a marca guardada só é apagada quando a CVE que ela guarda não consta mais no catálogo validado. Sem a fonte KEV respondendo e sem marca guardada, o achado nem entra em `atualizacao-sistema` (fica `aberto`). Achado que vira KEV depois de já avisado tem `avisado_em` zerado, e o Admin recebe um recado novo. O mesmo vale para o achado reapresentado do estado anterior (qualquer caminho que reaproveita `ultimo`, com a CISA respondendo) que estava em segundo plano (`atualizacao-sistema`, `aguardando-fornecedor` ou `protegido-aguardando`) e passa a constar na lista KEV: volta a `aberto`, nível 2, `explorada_ativamente`.
+**KEV (sem memória).** O KEV continua `aberto`, em destaque. Um achado só vai para `atualizacao-sistema` se a fonte CISA KEV respondeu ok
+nesta rodada e nenhum id ligado a ele (id, key e aliases do achado, `ids_osv` do registro, id e aliases do `ultimo`) consta no catálogo;
+se algum constar, ele é KEV (aberto, nível 2, `explorada_ativamente`). Se a CISA não respondeu ok nesta rodada, o achado mantém a classificação
+anterior: o que já era `atualizacao-sistema` continua nela, sem novo recado, e qualquer outro caso (inclusive achado novo) fica `aberto`, como
+antes desta regra. Nada é guardado no registro sobre a marca KEV. Resposta da CISA com a lista vazia, com entrada de `cveID` fora do formato
+`CVE-AAAA-N` (ASCII, sem espaço nem quebra de linha) ou repetida, ou com `count` que não seja inteiro igual ao número de entradas válidas, conta como
+fonte fora. O achado reapresentado do estado anterior (qualquer caminho que reaproveita `ultimo`, com a CISA respondendo) que estava em segundo plano
+(`atualizacao-sistema`, `aguardando-fornecedor` ou `protegido-aguardando`) e tem algum id no catálogo volta a `aberto`, nível 2, `explorada_ativamente`,
+com `avisado_em` zerado; no `protegido-aguardando` o texto informa a proteção provisória que estava ativa e pede ao Admin para conferir e atualizar
+quando a correção sair. O recado desta rodada sempre está no `ronda.json` exibido, mesmo que a lista passe de 80 (no máximo pelo limite do recado).

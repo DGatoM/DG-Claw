@@ -17,8 +17,7 @@ e sem cor de alerta, e não entram no aviso de risco nem no selo. O texto diz qu
 do Ubuntu (sozinha, se a atualização automática estiver ligada, que é o padrão) e que, se não estiver, dá para pedir ao Admin atualizar
 o sistema pelo botão do cartão. O Admin recebe essas falhas em um recado, uma vez, e confere a atualização automática.
 A ronda confere a cada rodada, e a falha some sozinha quando o pacote é atualizado. Continuam em destaque as falhas que a CISA diz
-estar sendo exploradas (e, se a CISA não responder numa rodada, a ronda mantém a marca que já tinha; uma falha que vira explorada
-depois de avisada gera recado novo) e as que dependem de uma ação sua. O `dgclaw seguranca estado` e o resumo para o Admin ganharam
+estar sendo exploradas (a ronda só rebaixa uma falha com a CISA respondendo na rodada; sem a resposta, mantém o que já era) e as que dependem de uma ação sua. O `dgclaw seguranca estado` e o resumo para o Admin ganharam
 o grupo "Atualizações do sistema (correção já no apt)".
 
 ### Como atualizar (atualizações do sistema em segundo plano)

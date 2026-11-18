@@ -1751,7 +1751,7 @@ class GitHub:
         return dados, hd
 
 
-RX_CVE_KEV = re.compile(r"^CVE-\d{4}-\d{4,}$", re.I)
+RX_CVE_KEV = re.compile(r"CVE-\d{4}-\d{4,}", re.ASCII)
 
 
 def fonte_kev(cfg, inv, ctx):
@@ -1764,14 +1764,13 @@ def fonte_kev(cfg, inv, ctx):
     ids = set()
     for x in lista:
         cid = x.get("cveID") if isinstance(x, dict) else None
-        if not (isinstance(cid, str) and RX_CVE_KEV.match(cid)):
-            raise ErroRonda(f"O catálogo KEV da CISA ({onde}) trouxe uma entrada sem um cveID válido; a resposta está incompleta. A marca de explorada guardada foi mantida.")
+        if not (isinstance(cid, str) and RX_CVE_KEV.fullmatch(cid)) or cid.upper() in ids:
+            raise ErroRonda(f"O catálogo KEV da CISA ({onde}) trouxe uma entrada sem um cveID válido (ou repetida); a resposta está incompleta e a ronda não rebaixa nenhuma falha por causa dela.")
         ids.add(cid.upper())
     if not ids:
-        raise ErroRonda(f"O catálogo KEV da CISA ({onde}) veio com a lista 'vulnerabilities' vazia; a resposta está incompleta. A marca de explorada guardada foi mantida.")
-    contagem = d.get("count")
-    if isinstance(contagem, int) and contagem != len(ids):
-        raise ErroRonda(f"O catálogo KEV da CISA ({onde}) diz ter {contagem} itens mas veio com {len(ids)} CVEs distintos; a resposta está incompleta. A marca de explorada guardada foi mantida.")
+        raise ErroRonda(f"O catálogo KEV da CISA ({onde}) veio com a lista 'vulnerabilities' vazia; a resposta está incompleta e a ronda não rebaixa nenhuma falha por causa dela.")
+    if "count" in d and (type(d["count"]) is not int or d["count"] != len(ids)):
+        raise ErroRonda(f"O catálogo KEV da CISA ({onde}) diz ter {limpa(d['count'], 20)!r} itens mas veio com {len(ids)} CVEs válidos; a resposta está incompleta e a ronda não rebaixa nenhuma falha por causa dela.")
     ctx["kev"] = {x["cveID"].upper(): x for x in lista}
     return f"{len(ctx['kev'])} CVEs no catálogo de explorados"
 
@@ -2215,38 +2214,43 @@ def tem_correcao(a):
     return any(af.get("corrigida") for af in a["afetados"])
 
 
-def kev_guardado(reg):
-    """A marca KEV do registro anterior, ou None. Registro de antes desta marca só tem `ultimo.explorada_ativamente`: vira marca sem data."""
-    if not isinstance(reg, dict):
-        return None
-    if isinstance(reg.get("kev"), dict):
-        return reg["kev"]
-    ultimo = reg.get("ultimo")
-    if "kev" not in reg and isinstance(ultimo, dict) and ultimo.get("explorada_ativamente") is True:
-        return {"cve": None, "dateAdded": None}
-    return None
-
-
 TEXTO_KEV_SEM_CORRECAO = ("Esta falha está sendo explorada por criminosos, e não há correção instalável nem proteção provisória conhecida. "
                           "Considere o botão de emergência (Tirar do ar) ou fale com o Admin.")
 
 
+def ids_para_kev(a, reg):
+    """Todos os ids ligados ao achado, para conferir no catálogo KEV: o do achado atual (id, key, aliases), os do registro anterior
+    (`ids_osv`) e os do `ultimo`. Assim um USN redetectado sem o alias da CVE continua sendo reconhecido como explorado."""
+    ids = {str(a["id"]), str(a.get("key") or "")} | {str(x) for x in a.get("aliases") or []}
+    if isinstance(reg, dict):
+        ids |= ids_do_registro(a["id"], reg)
+        ultimo = reg.get("ultimo") if isinstance(reg.get("ultimo"), dict) else {}
+        ids |= {str(ultimo.get("id") or "")} | {str(x) for x in ultimo.get("aliases") or []}
+    return {x.upper() for x in equivalentes({i for i in ids if i})}
+
+
+def texto_promovido_por_kev(ultimo):
+    pal = ultimo.get("paliativo") if isinstance(ultimo.get("paliativo"), dict) else None
+    if ultimo.get("estado") == "protegido-aguardando" and pal:
+        quando = f" ({data_br(pal.get('verificado_em'))})" if pal.get("verificado_em") else ""
+        return (f"Esta falha está sendo explorada por criminosos. A proteção provisória ({limpa(pal.get('descricao'), 160)}) estava ativa na última "
+                f"conferência{quando}. Peça ao Admin para conferir e atualizar assim que a correção sair.")
+    if (ultimo.get("correcao") or {}).get("disponivel"):
+        return "Esta falha está sendo explorada por criminosos e a correção já existe: peça ao Admin para atualizar o sistema agora."
+    return TEXTO_KEV_SEM_CORRECAO
+
+
 def promove_se_kev(aid, reg, kev, t0):
     """Achado reapresentado do estado anterior (qualquer caminho que reaproveita `ultimo`) que estava em segundo plano
-    (atualização do sistema ou aguardando correção), mas cujo id aparece agora na lista KEV (CISA respondendo): volta a `aberto`,
-    nível 2, explorado, e o recado sai de novo."""
+    (atualização do sistema ou aguardando correção), mas com algum id ligado a ele na lista KEV (CISA respondendo): volta a
+    `aberto`, nível 2, explorado, e o recado sai de novo."""
     ultimo = reg["ultimo"]
     if ultimo.get("estado") not in ESTADOS_SEGUNDO_PLANO:
         return ultimo
-    ids = {x.upper() for x in ids_do_registro(aid, reg)} | {str(x).upper() for x in ultimo.get("aliases") or []}
-    cve = next((c for c in sorted(ids) if c in kev), None)
-    if not cve:
+    if not (ids_para_kev({"id": aid, "key": "", "aliases": []}, reg) & set(kev)):
         return ultimo
-    disponivel = bool((ultimo.get("correcao") or {}).get("disponivel"))
-    o = dict(ultimo, estado="aberto", nivel=2, explorada_ativamente=True,
-             como_corrigir=("Esta falha está sendo explorada por criminosos e a correção já existe: peça ao Admin para atualizar o sistema agora."
-                            if disponivel else TEXTO_KEV_SEM_CORRECAO))
-    reg.update(kev={"cve": cve, "dateAdded": kev[cve].get("dateAdded")}, avisado_em=None, estado_contrato="aberto", ultimo=o)
+    o = dict(ultimo, estado="aberto", nivel=2, explorada_ativamente=True, como_corrigir=texto_promovido_por_kev(ultimo))
+    reg.update(avisado_em=None, estado_contrato="aberto", ultimo=o)
     return o
 
 
@@ -3347,14 +3351,11 @@ def _rodada(cfg, sem_avisar):
         for a in ordem:
             vistos.add(a["id"])
             reg = reg_all.get(a["id"])
-            # Marca KEV guardada: se a CISA não respondeu nesta rodada, a falha explorada não pode virar "comum" por isso.
-            kev_antes = kev_guardado(reg)
-            if not a.get("kev") and kev_antes:
-                # a CVE guardada ainda no catálogo validado desta rodada: a falha segue explorada, mesmo redetectada sem o alias
-                if kev_confirmado and str(kev_antes.get("cve") or "").upper() not in ctx["kev"]:
-                    reg.pop("kev", None)
-                else:
-                    a["kev"] = kev_antes
+            # KEV sem memória: com a CISA respondendo, qualquer id ligado ao achado (atual, registro anterior, ultimo) no catálogo o torna explorado
+            if kev_confirmado and not a.get("kev"):
+                cve = next((c for c in sorted(ids_para_kev(a, reg)) if c in ctx["kev"]), None)
+                if cve:
+                    a["kev"] = {"cve": cve, "dateAdded": ctx["kev"][cve].get("dateAdded")}
             if reg and reg.get("estado") in ESTADOS_TRATADOS:
                 reg["visto_em"] = iso(t0)
                 continue
@@ -3371,10 +3372,6 @@ def _rodada(cfg, sem_avisar):
                 reg.update(estado="aberto", avisado_em=None, primeira_vez_em=iso(t0))
             reg["visto_em"] = iso(t0)
             reg["componente"] = limpa(a["componente"], 80)
-            if a.get("kev"):
-                if not kev_antes:
-                    reg["avisado_em"] = None   # passou a ser explorada depois de já avisada: ponto novo para o recado
-                reg["kev"] = a["kev"]
             if reg.get("estado") == "agendado":
                 estado = "agendado"
             a["apt_instalavel"] = apt_instalavel(a, ctx["apt"], inv)
@@ -3412,8 +3409,9 @@ def _rodada(cfg, sem_avisar):
                     estado = "protegido-aguardando"
                 elif not pal_oferta and not a.get("kev"):
                     estado = "aguardando-fornecedor"
-            # sem a CISA respondendo e sem marca guardada, não dá para saber se a falha é explorada: fica aberta, como antes
-            if estado == "aberto" and (kev_confirmado or kev_antes) and e_atualizacao_de_sistema(a, ac, corr):
+            # Só rebaixa com a CISA respondendo nesta rodada. Sem ela, mantém o que já era (atualização do sistema continua, sem novo
+            # recado) e qualquer outro caso fica aberto, como antes.
+            if estado == "aberto" and e_atualizacao_de_sistema(a, ac, corr) and (kev_confirmado or reg.get("estado_contrato") == ESTADO_ATUALIZACAO):
                 estado = ESTADO_ATUALIZACAO
             if not (pal and pal["verificado"]):
                 reg.pop("paliativo_aplicado", None)   # alguém voltou a configuração: o que a ronda aplicou deixou de valer
@@ -3479,8 +3477,11 @@ def _rodada(cfg, sem_avisar):
         novos = [o for o in resultado if o["nivel"] == 1 and o["id"] in aplicados_agora
                  or (o["nivel"] in (2, 3) and o["estado"] not in ESTADOS_AGUARDANDO and reg_all.get(o["id"], {}).get("avisado_em") is None)]
         if len(resultado) > 80:
-            omitidos_n3 += len(resultado) - 80
-            resultado = resultado[:80]
+            # o que vai no recado desta rodada tem que estar no ronda.json exibido, mesmo que passe de 80 (no máximo pelo limite do recado)
+            no_recado = {o["id"] for o in novos[:cfg["max_ids_no_recado"]]}
+            extra = [o for o in resultado[80:] if o["id"] in no_recado]
+            omitidos_n3 += len(resultado) - 80 - len(extra)
+            resultado = resultado[:80] + extra
         # --- fontes e ronda.json
         fontes = [{"nome": n, "ok": s["ok"], "motivo": None if s["ok"] else limpa(s["detalhe"], 300)} for n, s in status.items() if not s.get("desligada")]
         fontes.append({"nome": "Inventário local", "ok": not (inv.get("avisos") or incompletos), "motivo": motivo_inventario(inv)})

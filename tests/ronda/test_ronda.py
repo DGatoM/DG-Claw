@@ -1559,41 +1559,6 @@ class Paliativos(Base):
         self.ronda("executar", "--sem-avisar")
         self.assertEqual(self.achado(vid)["estado"], "atualizacao-sistema")
 
-    def test_registro_so_com_ultimo_explorada_migra_a_marca_kev(self):
-        self.kernel_vuln_explorada(prio="critical")
-        self.ronda("executar", "--sem-avisar")
-        est = self.estado_do_registro()
-        reg = est["achados"][self.ID]
-        self.assertTrue(reg.pop("kev"))
-        self.assertIs(reg["ultimo"]["explorada_ativamente"], True)
-        self.escreve(self.p("var/lib/dgclaw/seguranca/estado.json"), est)
-        S["fora"].add("kev")
-        self.ronda("executar", "--sem-avisar")
-        a = self.achado(self.ID)
-        self.assertEqual((a["estado"], a["nivel"], a.get("explorada_ativamente")), ("aberto", 2, True))
-
-    def test_achado_que_vira_kev_depois_de_avisado_gera_novo_recado(self):
-        self.kernel_vuln()
-        self.ronda("executar")
-        self.assertEqual(len(S["recados"]), 1)
-        self.ronda("executar")
-        self.assertEqual(len(S["recados"]), 1, "nada novo")
-        S["kev"] = [{"cveID": "CVE-2026-98432", "dateAdded": "2026-10-20"}]
-        self.ronda("executar")
-        self.assertEqual(len(S["recados"]), 2, "passou a ser explorada: recado de novo")
-        self.ronda("executar")
-        self.assertEqual(len(S["recados"]), 2, "e só uma vez")
-
-    def test_kev_indisponivel_sem_marca_guardada_deixa_o_achado_aberto(self):
-        self.prepara_kernel_com_correcao_no_apt("critical")
-        S["fora"].add("kev")
-        self.ronda("executar", "--sem-avisar")
-        a = self.achado(self.ID)
-        self.assertEqual((a["estado"], a["nivel"]), ("aberto", 2), "sem saber se é explorada, não vai para segundo plano")
-        S["fora"].discard("kev")
-        self.ronda("executar", "--sem-avisar")
-        self.assertEqual(self.achado(self.ID)["estado"], "atualizacao-sistema", "com a CISA respondendo, vai")
-
     def test_segundo_plano_reapresentado_que_entra_na_kev_volta_a_aberto_e_avisa(self):
         self.prepara_kernel_com_correcao_no_apt("critical")
         self.ronda("executar")
@@ -1607,7 +1572,6 @@ class Paliativos(Base):
         self.assertEqual((a["estado"], a["nivel"], a["explorada_ativamente"]), ("aberto", 2, True))
         self.assertEqual(len(S["recados"]), 1)
         self.assertIn(self.ID, S["recados"][0]["text"])
-        self.assertTrue(self.estado_do_registro()["achados"][self.ID]["kev"])
 
     def test_pacote_que_so_comeca_com_linux_confere_os_proprios_binarios(self):
         vid = "UBUNTU-CVE-2026-44445"
@@ -1672,22 +1636,6 @@ class Paliativos(Base):
         self.assertEqual(a["como_corrigir"], self.TEXTO_ATUALIZACAO)
         self.assertNotIn("exige_reinicio", a["correcao"])
 
-    def test_kev_vindo_de_catalogo_incompleto_conta_como_fonte_fora_e_mantem_a_marca(self):
-        self.kernel_vuln_explorada(prio="critical")
-        self.prepara_kernel_com_correcao_no_apt("critical")
-        S["kev"] = [{"cveID": "CVE-2026-98432", "dateAdded": "2026-10-20"}]
-        self.ronda("executar", "--sem-avisar")
-        self.assertEqual((self.achado(self.ID)["estado"], self.achado(self.ID)["nivel"]), ("aberto", 2))
-        for resposta in ([], None):
-            S["kev"] = resposta if resposta is not None else [{"cveID": "CVE-2026-1", "dateAdded": "2026-10-20"}]
-            S["kev_count"] = 7 if resposta is None else None   # catálogo diz ter 7 itens e traz 1
-            r = self.ronda("executar", "--sem-avisar")
-            kev = next(f for f in self.json_ronda()["fontes"] if f["nome"] == "CISA KEV")
-            self.assertFalse(kev["ok"])
-            self.assertIn("incompleta", kev["motivo"])
-            a = self.achado(self.ID)
-            self.assertEqual((a["estado"], a["nivel"], a.get("explorada_ativamente")), ("aberto", 2, True), "a marca guardada foi preservada")
-
     def test_reapresentado_com_todas_as_fontes_ok_tambem_e_promovido_pela_kev(self):
         self.prepara_kernel_com_correcao_no_apt("critical")
         self.ronda("executar")
@@ -1729,43 +1677,6 @@ class Paliativos(Base):
         self.assertIn("Tirar do ar", a["como_corrigir"])
         self.assertEqual(len(S["recados"]), 1)
 
-    def test_marca_kev_guardada_com_a_cve_ainda_no_catalogo_sobrevive_a_redeteccao_sem_alias(self):
-        usn = "USN-7777-1"
-        S["osv_paginas"][f"{ECO}|linux|6.8.0-147.153"] = [[usn]]
-        r = reg_ubuntu(usn, "CVE-2026-98432", "linux", "6.8.0-149.149", prio="critical")
-        r["aliases"] = []   # redetectado sem o alias: o motor não liga o USN ao CVE sozinho
-        S["osv_vulns"][usn] = r
-        self.meta("6.8.0-149.149")
-        self.ronda("executar", "--sem-avisar")
-        self.assertEqual(self.achado(usn)["estado"], "atualizacao-sistema")
-        est = self.estado_do_registro()
-        est["achados"][usn]["kev"] = {"cve": "CVE-2026-98432", "dateAdded": "2026-10-20"}
-        self.escreve(self.p("var/lib/dgclaw/seguranca/estado.json"), est)
-        S["kev"] = [{"cveID": "CVE-2026-98432", "dateAdded": "2026-10-20"}]
-        self.ronda("executar", "--sem-avisar")
-        a = self.achado(usn)
-        self.assertEqual((a["estado"], a["nivel"], a.get("explorada_ativamente")), ("aberto", 2, True))
-        S["kev"] = [{"cveID": "CVE-2000-0001", "dateAdded": "2020-01-01"}]   # catálogo ok e sem a CVE: só então rebaixa
-        self.ronda("executar", "--sem-avisar")
-        self.assertEqual(self.achado(usn)["estado"], "atualizacao-sistema")
-
-    def test_catalogo_kev_com_entrada_invalida_ou_contagem_de_distintos_divergente_falha_e_preserva_a_marca(self):
-        self.kernel_vuln_explorada(prio="critical")
-        self.ronda("executar", "--sem-avisar")
-        casos = [([{}], 1), ([{"cveID": "lixo"}], 1), ([{"cveID": 5}], None),
-                 ([{"cveID": "CVE-2026-1111"}, {"cveID": "CVE-2026-1111"}], 2),
-                 ([{"cveID": "CVE-2026-1111"}, {}], None)]
-        for lista, contagem in casos:
-            S["kev"], S["kev_count"] = lista, contagem
-            self.ronda("executar", "--sem-avisar")
-            kev = next(f for f in self.json_ronda()["fontes"] if f["nome"] == "CISA KEV")
-            self.assertFalse(kev["ok"], lista)
-            a = self.achado(self.ID)
-            self.assertEqual((a["estado"], a["nivel"]), ("aberto", 2), lista)
-        S["kev"], S["kev_count"] = [{"cveID": "CVE-2026-98432"}, {"cveID": "cve-2026-0001"}], 2
-        self.ronda("executar", "--sem-avisar")
-        self.assertTrue(next(f for f in self.json_ronda()["fontes"] if f["nome"] == "CISA KEV")["ok"])
-
     def test_pacote_aberto_que_nao_e_kernel_em_execucao_nao_fala_de_reinicio_no_texto_de_apt(self):
         vid = "UBUNTU-CVE-2026-44446"
         with open(os.path.join(self.stub, "dpkg.txt"), "a", encoding="utf-8") as f:
@@ -1778,6 +1689,99 @@ class Paliativos(Base):
         self.assertIn("sudo apt-get update && sudo apt-get upgrade", a["como_corrigir"])
         self.assertNotIn("reinicie", a["como_corrigir"])
         self.assertNotIn("exige_reinicio", a["correcao"])
+
+    def test_cisa_fora_mantem_a_atualizacao_do_sistema_sem_novo_recado(self):
+        self.prepara_kernel_com_correcao_no_apt("critical")
+        self.ronda("executar")
+        self.assertEqual(self.achado(self.ID)["estado"], "atualizacao-sistema")
+        self.assertEqual(len(S["recados"]), 1)
+        S["fora"].add("kev")
+        self.ronda("executar")
+        self.assertEqual(self.achado(self.ID)["estado"], "atualizacao-sistema", "sem a CISA, mantém a classificação anterior")
+        self.assertEqual(len(S["recados"]), 1, "sem recado novo")
+
+    def test_cisa_fora_e_achado_novo_fica_aberto(self):
+        self.prepara_kernel_com_correcao_no_apt("critical")
+        S["fora"].add("kev")
+        self.ronda("executar", "--sem-avisar")
+        a = self.achado(self.ID)
+        self.assertEqual((a["estado"], a["nivel"]), ("aberto", 2))
+        S["fora"].discard("kev")
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(self.ID)["estado"], "atualizacao-sistema", "com a CISA respondendo, rebaixa")
+
+    def test_queda_intermitente_da_cisa_nao_repete_recado(self):
+        self.prepara_kernel_com_correcao_no_apt("critical")
+        for fora in (False, True, False, True):
+            S["fora"].discard("kev")
+            if fora:
+                S["fora"].add("kev")
+            self.ronda("executar")
+            self.assertEqual(self.achado(self.ID)["estado"], "atualizacao-sistema")
+        self.assertEqual(len(S["recados"]), 1, "um recado só, apesar de a CISA ir e voltar")
+
+    def test_cve_so_no_registro_anterior_continua_reconhecida_como_explorada(self):
+        usn = "USN-7777-1"
+        S["osv_paginas"][f"{ECO}|linux|6.8.0-147.153"] = [[usn]]
+        S["osv_vulns"][usn] = reg_ubuntu(usn, "CVE-2026-98432", "linux", "6.8.0-149.149", prio="critical")
+        self.meta("6.8.0-149.149")
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(usn)["estado"], "atualizacao-sistema")
+        self.assertIn("CVE-2026-98432", self.estado_do_registro()["achados"][usn]["ids_osv"])
+        S["osv_vulns"][usn]["aliases"] = []   # redetectado sem o alias: a CVE só existe no registro anterior
+        S["kev"] = [{"cveID": "CVE-2026-98432", "dateAdded": "2026-10-20"}]
+        self.ronda("executar", "--sem-avisar")
+        a = self.achado(usn)
+        self.assertEqual((a["estado"], a["nivel"], a.get("explorada_ativamente")), ("aberto", 2, True))
+
+    def test_catalogo_kev_com_entrada_invalida_ou_contagem_errada_falha_a_fonte(self):
+        self.prepara_kernel_com_correcao_no_apt("critical")
+        casos = [([{}], 1), ([{"cveID": "lixo"}], 1), ([{"cveID": 5}], None), ([{"cveID": "CVE-2024-1234\n"}], "1"),
+                 ([{"cveID": " CVE-2024-1234"}], None), ([{"cveID": "cve-2024-1234"}], None), ([{"cveID": "CVE-２０２４-1234"}], None),
+                 ([{"cveID": "CVE-2026-1111"}, {"cveID": "CVE-2026-1111"}], 2), ([{"cveID": "CVE-2026-1111"}], "1"),
+                 ([{"cveID": "CVE-2026-1111"}], True), ([{"cveID": "CVE-2026-1111"}], 2)]
+        for lista, contagem in casos:
+            S["kev"], S["kev_count"] = lista, contagem
+            self.ronda("executar", "--sem-avisar")
+            kev = next(f for f in self.json_ronda()["fontes"] if f["nome"] == "CISA KEV")
+            self.assertFalse(kev["ok"], (lista, contagem))
+        S["kev"], S["kev_count"] = [{"cveID": "CVE-2026-1111"}, {"cveID": "CVE-2026-1112"}], 2
+        self.ronda("executar", "--sem-avisar")
+        self.assertTrue(next(f for f in self.json_ronda()["fontes"] if f["nome"] == "CISA KEV")["ok"])
+
+    def test_protegido_aguardando_que_entra_na_kev_informa_a_protecao_e_nao_sugere_tirar_do_ar(self):
+        self.vuln_kernel(None)
+        self.catalogo_mptcp()
+        self.ronda("executar")
+        self.assertEqual(self.achado(self.ID)["estado"], "protegido-aguardando")
+        S["recados"].clear()
+        S["osv_paginas"].clear()
+        S["fora"].add("hn")
+        S["kev"] = [{"cveID": "CVE-2026-98432", "dateAdded": "2026-10-20"}]
+        self.ronda("executar")
+        a = self.achado(self.ID)
+        self.assertEqual((a["estado"], a["nivel"], a["explorada_ativamente"]), ("aberto", 2, True))
+        self.assertIn("MPTCP desligado no kernel", a["como_corrigir"])
+        self.assertIn("estava ativa na última conferência", a["como_corrigir"])
+        self.assertIn("conferir e atualizar assim que a correção sair", a["como_corrigir"])
+        self.assertNotIn("Tirar do ar", a["como_corrigir"])
+        self.assertNotIn("não há correção", a["como_corrigir"])
+
+    def test_o_que_vai_no_recado_entra_no_ronda_json_mesmo_com_o_corte_de_80(self):
+        ids = [f"UBUNTU-CVE-2026-{60000 + n}" for n in range(80)]
+        S["osv_paginas"][f"{ECO}|openssl|3.0.13-0ubuntu3.4"] = [ids]
+        for n, vid in enumerate(ids):
+            S["osv_vulns"][vid] = reg_ubuntu(vid, f"CVE-2026-{60000 + n}", "openssl", "3.0.13-0ubuntu3.6", prio="critical")
+        self.ronda("executar")   # 80 abertas de nível 2, sem apt-cache; todas avisadas
+        self.assertEqual(len(self.json_ronda()["achados"]), 80)
+        S["recados"].clear()
+        self.prepara_kernel_com_correcao_no_apt("high")   # uma atualização do sistema nova: vai para o fim da ordenação
+        self.ronda("executar")
+        achados = self.json_ronda()["achados"]
+        self.assertEqual(len(achados), 81, "passa de 80 só pelo que vai no recado")
+        self.assertEqual(self.achado(self.ID)["estado"], "atualizacao-sistema")
+        self.assertIn(self.ID, S["recados"][0]["text"])
+        self.assertIn(self.ID, self.ronda("resumo").stdout)
 
     def test_dois_pacotes_afetados_so_um_corrigido_continua_aberto(self):
         vid = "UBUNTU-CVE-2026-66666"
@@ -1802,21 +1806,6 @@ class Paliativos(Base):
         a = self.achado(self.ID)
         self.assertEqual((a["estado"], a["nivel"], a["explorada_ativamente"]), ("aberto", 2, True))
         self.assertIn(self.ID, self.texto_recados())
-
-    def test_kev_que_nao_respondeu_nesta_rodada_mantem_a_marca_guardada(self):
-        self.kernel_vuln_explorada(prio="critical")
-        self.prepara_kernel_com_correcao_no_apt("critical")
-        S["kev"] = [{"cveID": "CVE-2026-98432", "dateAdded": "2026-10-20"}]
-        self.ronda("executar", "--sem-avisar")
-        self.assertEqual((self.achado(self.ID)["estado"], self.achado(self.ID)["nivel"]), ("aberto", 2))
-        S["fora"].add("kev")
-        self.ronda("executar", "--sem-avisar")
-        a = self.achado(self.ID)
-        self.assertEqual((a["estado"], a["nivel"], a.get("explorada_ativamente")), ("aberto", 2, True), "sem a CISA não dá para rebaixar")
-        S["fora"].discard("kev")
-        S["kev"] = [{"cveID": "CVE-2000-0001", "dateAdded": "2020-01-01"}]
-        self.ronda("executar", "--sem-avisar")
-        self.assertEqual(self.achado(self.ID)["estado"], "atualizacao-sistema", "com a CISA respondendo e sem listar, rebaixa")
 
     def test_pacote_de_agente_npm_com_correcao_nao_vira_atualizacao_do_sistema(self):
         S["osv_paginas"]["npm|express|4.17.1"] = [["GHSA-aaaa-bbbb-cccc"]]
