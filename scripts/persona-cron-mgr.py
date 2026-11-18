@@ -532,6 +532,15 @@ def install_units(c, name: str, calendar: str | None, every: str | None, poke: s
 
     run(["systemctl", "daemon-reload"])
     run(["systemctl", "enable", "--now", f"{base}.timer"])
+    # No `edit` o timer ja esta ativo, e `enable --now` nao mexe em timer ativo: o systemd seguia
+    # com o horario antigo (proximo disparo vazio) e a rotina remarcada nao rodava. O restart
+    # rearma o timer com o arquivo novo; na criacao e inofensivo.
+    run(["systemctl", "restart", f"{base}.timer"])
+    r = run(["systemctl", "show", f"{base}.timer", "-p", "NextElapseUSecRealtime",
+             "-p", "NextElapseUSecMonotonic", "--value"], check=False)
+    if r.returncode == 0 and not any(v.strip() not in ("", "0", "infinity", "n/a") for v in r.stdout.splitlines()):
+        log_err(f"o systemd nao mostra proximo disparo para {base}.timer depois de gravar a rotina. "
+                f"Confira com: systemctl list-timers --all {base}.timer")
 
 
 def remove_units(c, name: str):

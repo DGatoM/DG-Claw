@@ -7,6 +7,13 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Correção no sistema de rotinas próprias do agente: remarcar uma rotina que já tinha disparado.** Uma rotina de uma vez
+só, depois de disparar, fica no estado `elapsed` do systemd. Quando o agente a remarcava com `persona-cron-mgr edit`, o
+arquivo `.timer` recebia o horário novo, mas o `daemon-reload` seguido de `enable --now` não rearmava um timer que já
+estava ativo: o próximo disparo ficava vazio e a rotina remarcada não rodava, sem erro nenhum. Agora o comando reinicia o
+timer depois de gravar e confere se o systemd mostra o próximo disparo; se não mostrar, escreve no terminal o aviso com o
+comando para conferir. Na criação de uma rotina nova o reinício não muda nada.
+
 **Correção: render de vídeo não esgota os processos do agente.** Um agente chegou a ficar mais de 30 minutos parado num
 render de vídeo porque o container tem um limite de processos (as threads contam), e o Chrome da Tela, o Claude Code e
 os Chromium novos que as tentativas de render abriam chegaram ao teto ("Resource temporarily unavailable" e "Target
