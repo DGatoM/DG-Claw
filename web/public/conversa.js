@@ -4825,6 +4825,10 @@ function posicionaMenuVoz() {
   const esq = Math.max(8, Math.min(r.left, window.innerWidth - larg - 8));
   menuVoz.style.left = esq + 'px';
   menuVoz.style.top = (r.bottom + 6) + 'px';
+  // janela baixa: o quadro cabe no que sobra abaixo do botão e rola por dentro, para o controle
+  // da conversa contínua nunca ficar fora de alcance
+  menuVoz.style.maxHeight = Math.max(44, window.innerHeight - r.bottom - 14) + 'px';
+  menuVoz.style.overflowY = 'auto';
 }
 function abreMenuVoz(abre, devolveFoco) {
   if (!btnVoz || !menuVoz) return;

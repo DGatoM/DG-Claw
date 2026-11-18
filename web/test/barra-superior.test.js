@@ -77,3 +77,10 @@ test('o toque fora do quadro da Voz é tratado na captura e consumido (não reve
   assert.match(bloco, /caminho\.includes\(conversaEl\)/);
   assert.match(bloco, /n\.tagName === 'BUTTON' && !n\.classList\.contains\('mid'\)/);
 });
+
+test('em janela baixa o quadro da Voz limita a altura ao espaço visível e rola por dentro', () => {
+  const i = js.indexOf('function posicionaMenuVoz(');
+  const bloco = js.slice(i, js.indexOf('\n}', i));
+  assert.match(bloco, /menuVoz\.style\.maxHeight = .*window\.innerHeight - r\.bottom/);
+  assert.match(bloco, /menuVoz\.style\.overflowY = 'auto'/);
+});
