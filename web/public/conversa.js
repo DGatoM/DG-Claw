@@ -4842,17 +4842,19 @@ if (btnVoz && menuVoz) {
   document.addEventListener('keydown', ev => {
     if (ev.key === 'Escape' && !menuVoz.hidden) { ev.stopPropagation(); abreMenuVoz(false, true); }
   });
-  // captura na window (antes de qualquer tratador do document): o toque de fora fecha o quadro e é
-  // consumido, para não acionar o que está embaixo (revelar balão mascarado, abrir mídia). Os controles
-  // que param o microfone ou a fala (mic, X da gravação, parar) recebem o mesmo toque normalmente.
-  const PASSA_TOQUE = ['btnMic', 'btnAnexo', 'btnParar'].map(id => $(id)).filter(Boolean);
+  // captura na window (antes de qualquer tratador do document): o toque de fora fecha o quadro. Ele só é
+  // consumido quando cai na conversa (#chat), onde poderia revelar um balão mascarado ou abrir uma mídia;
+  // os controles (cabeçalho e barra de digitação) recebem o toque normalmente, e o "esconder de novo"
+  // ([data-sigx]) também passa, porque protege.
+  const conversaEl = $('chat');
   window.addEventListener('click', ev => {
     if (menuVoz.hidden) return;
     // composedPath: pintaLer/pintaContinua trocam o innerHTML e o span tocado já saiu do DOM
     const caminho = ev.composedPath();
     if (caminho.includes(menuVoz) || caminho.includes(btnVoz)) return;
     abreMenuVoz(false);
-    if (PASSA_TOQUE.some(b => caminho.includes(b))) return;
+    if (!conversaEl || !caminho.includes(conversaEl)) return;
+    if (caminho.some(n => n && n.hasAttribute && n.hasAttribute('data-sigx'))) return;
     ev.preventDefault(); ev.stopPropagation();
   }, true);
   window.addEventListener('resize', () => { if (!menuVoz.hidden) posicionaMenuVoz(); });
