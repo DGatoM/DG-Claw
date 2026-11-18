@@ -7,6 +7,13 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+- **Correção no aviso de versão nova: o número agora sobe a cada release e, quando é igual, o aviso mostra o commit.** O
+  `dgclaw atualizar` acompanha a ponta da `main`, e o arquivo `VERSION` ficava parado em 1.0.0, então o aviso dizia
+  "1.0.0 -> 1.0.0" mesmo com mudanças novas. Duas mudanças. Cada release passa a subir o número da versão (o
+  processo está em `docs/RELEASE.md`). E o aviso, no terminal, no recado ao Admin e na faixa do painel, mostra só os
+  números quando eles são diferentes ("1.0.0 -> 1.1.0") e, quando são iguais, o commit curto dos dois lados ("1.0.0
+  (abc1234) -> 1.0.0 (def5678)"). Sem número de versão, mostra só o commit, como antes.
+
 **Correção: card que nascia parado e agente que caía sozinho.** O serviço do runner, dentro do container, não tinha teto
 de tarefas próprio, e o systemd aplicava 15% do limite de processos que o container tinha no boot (153 com o limite
 antigo de 1024; subir o limite do container depois não mudava esse número). Ali dentro rodam o Claude principal, um
