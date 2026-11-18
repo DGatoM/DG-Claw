@@ -77,7 +77,7 @@ O script recusa mais de 60 s.
 ## Comando pesado avulso
 
 Render, ffmpeg, script de numpy e transcrição rodam com `dgclaw-pesado -- <comando>`, que põe o comando num grupo
-próprio com teto de memória e de tempo (use `--mem 3G` ou `--timeout 900` se precisar de mais). Se estourar, morre só
+próprio com teto de memória e de tempo (`--mem 1G` e `--timeout 900` são exemplos de ajuste; o teto de memória padrão já é calculado pela memória do container, então só suba se souber que cabe). Se estourar, morre só
 ele e o agente segue de pé. Em numpy, use `uint8` ou `float32` e processe em blocos, nunca `float64` da imagem inteira.
 O código de saída 137 quer dizer morto à força (quase sempre o teto de memória), e 124 que estourou o tempo.
 Quando o render usa o Chrome da Tela, a memória da página fica no Chrome da Tela e não entra no teto do `dgclaw-pesado`: o teto vale para o Chrome headless próprio, o ffmpeg e o Python.

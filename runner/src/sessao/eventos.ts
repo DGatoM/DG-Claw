@@ -72,6 +72,18 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
     if (payload.event === "PreToolUse") s.ultimoToolUseId = payload.toolUseId ?? null;
     s.hooksVivos = true;
     if (!s.estado.hookActive) s.estado.hookActive = true;
+    // Se a principal esperava uma permissão e o subagente voltou a usar ferramentas, a permissão foi resolvida e
+    // ele seguiu: devolve o status de antes (o Claude não manda hook da principal nesse caso).
+    if (s.estado.status === "waiting_input" && s.estado.motivo === "permissao" && s.statusAntesDaPermissao) {
+      const antes = s.statusAntesDaPermissao;
+      s.statusAntesDaPermissao = null;
+      if (antes === "idle") {
+        s.mudar({ status: "idle", hookLatched: true, currentTool: null, pendenteId: null, statusReason: "subagente seguiu depois da permissão" });
+        talvezSoltarFila(s);
+      } else {
+        s.mudar({ status: "working", hookLatched: false, pendenteId: null, statusReason: "subagente seguiu depois da permissão" });
+      }
+    }
     return { ok: true };
   }
 
@@ -156,6 +168,7 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       // "parou para pedir autorização". Se já estamos esperando a resposta de uma pergunta,
       // ela é que vale: não rebaixa para permissão.
       if (s.estado.status !== "waiting_input") {
+        s.statusAntesDaPermissao = s.estado.status === "idle" || s.estado.status === "working" ? s.estado.status : null;
         s.mudar({
           status: "waiting_input",
           motivo: "permissao",

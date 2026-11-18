@@ -1062,6 +1062,26 @@ test("subagente: a permissão pedida por ele aponta para a ferramenta dele, não
   assert.equal(s.estado.pendenteId, "tu-bash");
 });
 
+test("subagente: depois da permissão resolvida, o evento dele devolve idle e solta a fila", async () => {
+  const { s, hook } = await novaComRedeCurta(60_000);
+  hook("UserPromptSubmit");
+  hook("Stop");
+  await esperarAte(() => s.estado.status === "idle", STOP_CONFIRM_MS + 6_000, "o Stop confirmar");
+  hook("Notification");
+  assert.equal(s.estado.status, "waiting_input");
+  assert.equal(s.estado.motivo, "permissao");
+  const antes = lerLinhasJson(amb.logDosClis).filter((l) => l.modo === "prompt").length;
+  s.enfileirarQuandoOcioso("mensagem do dono presa na fila");
+  hook("PreToolUse", { toolName: "Bash", toolUseId: "tu-sub2", ...SUB });
+  assert.equal(s.estado.status, "idle", "a permissão foi resolvida e a principal estava ociosa");
+  assert.equal(s.estado.pendenteId ?? null, null);
+  await esperarAte(
+    () => lerLinhasJson(amb.logDosClis).filter((l) => l.modo === "prompt").length > antes,
+    12_000,
+    "a fila soltar o texto no CLI",
+  );
+});
+
 test("subagente: a pergunta ao dono (AskUserQuestion) continua valendo", async () => {
   const { s, hook } = await novaComRedeCurta(60_000);
   hook("UserPromptSubmit");

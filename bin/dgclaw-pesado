@@ -85,15 +85,16 @@ export OMP_NUM_THREADS="${OMP_NUM_THREADS:-$cpus}" OPENBLAS_NUM_THREADS="${OPENB
 echo 800 > /proc/self/oom_score_adj 2>/dev/null || true
 
 # "timeout -k 10": TERM no estouro e KILL 10 s depois se o comando teimar; sai com 124 no estouro.
-# O comando vai atrás de "env --" para que um comando começando com "-" nunca vire opção do nice ou do timeout
-# (o timeout não aceita "--" depois da duração).
-limite=()
-if [ -n "$tempo" ]; then limite=(timeout -k 10 "$tempo"); fi
+# O "--" do nice garante que um comando começado com "-" não vire opção dele; o timeout para de ler opções na
+# duração, então o que vem depois dela é sempre o comando, literal.
+prefixo=(nice -n 10 --)
+if [ -n "$tempo" ]; then prefixo+=(timeout -k 10 "$tempo"); fi
 inicio=$SECONDS
 
 pid=""
 unidade=""
 esperado=""
+cancelado=""
 
 # Recolhe o que sobrou do comando. Idempotente: roda no fim normal e no trap.
 recolher() {
@@ -107,6 +108,8 @@ recolher() {
       kill -KILL "$pid" 2>/dev/null || true
     fi
   elif [ -n "$pid" ]; then
+    # Também o próprio pid enquanto o wait não terminou: cobre a janela em que o grupo ainda não existe.
+    if [ -z "$esperado" ]; then kill -TERM "$pid" 2>/dev/null || true; fi
     kill -TERM -- "-$pid" 2>/dev/null || true
     local espera=0
     while [ "$espera" -lt 6 ] && kill -0 -- "-$pid" 2>/dev/null; do
@@ -114,6 +117,7 @@ recolher() {
       espera=$((espera + 1))
     done
     kill -KILL -- "-$pid" 2>/dev/null || true
+    if [ -z "$esperado" ]; then kill -KILL "$pid" 2>/dev/null || true; fi
   fi
 }
 
@@ -122,9 +126,14 @@ sinal() {
   recolher
   exit $((128 + $1))
 }
-trap 'sinal 15' TERM
-trap 'sinal 2' INT
-trap 'sinal 1' HUP
+# Sinal que chega antes de existir o pid do comando só é guardado; é tratado logo depois do "pid=$!".
+# shellcheck disable=SC2317  # chamada pelos traps abaixo
+recebido() {
+  if [ -z "$pid" ]; then cancelado="$1"; else sinal "$1"; fi
+}
+trap 'recebido 15' TERM
+trap 'recebido 2' INT
+trap 'recebido 1' HUP
 
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 if [ -S "$XDG_RUNTIME_DIR/systemd/private" ] && command -v systemd-run >/dev/null 2>&1; then
@@ -133,15 +142,16 @@ if [ -S "$XDG_RUNTIME_DIR/systemd/private" ] && command -v systemd-run >/dev/nul
   # para /dev/null, por isso o 0<&0 explícito.
   systemd-run --user --scope --quiet --collect --unit="$unidade" --description=dgclaw-pesado \
     -p MemoryMax="$mem" -p MemorySwapMax=0 \
-    -- nice -n 10 "${limite[@]}" env -- "$@" 0<&0 &
+    -- "${prefixo[@]}" "$@" 0<&0 &
   pid=$!
 else
   echo "dgclaw-pesado: sem gerente systemd do usuário ($XDG_RUNTIME_DIR/systemd/private não existe); rodando sem teto de memória próprio, só com nice, teto de tempo e prioridade de sacrifício no OOM. Para ligar o teto: loginctl enable-linger $(id -un) (como root)." >&2
   # Sem controle de jobs o filho em background não é líder de grupo: o setsid não precisa criar processo
   # novo, e o pid de $! passa a ser o id do grupo que o recolher mata.
-  setsid nice -n 10 "${limite[@]}" env -- "$@" 0<&0 &
+  setsid "${prefixo[@]}" "$@" 0<&0 &
   pid=$!
 fi
+if [ -n "$cancelado" ]; then sinal "$cancelado"; fi
 
 wait "$pid"
 codigo=$?

@@ -107,6 +107,9 @@ export class Sessao extends EventEmitter {
   stopPendente: NodeJS.Timeout | null = null;
   /** Até quando um Stop deve ser ignorado porque a trava de resposta devolveu o turno (evento StopBloqueado). */
   stopBloqueadoAte = 0;
+  /** O status que havia antes de um Notification de permissão virar waiting_input; o evento de um subagente que
+   *  segue depois da permissão o restaura (a principal não manda hook ao ser liberada). */
+  statusAntesDaPermissao: "idle" | "working" | null = null;
   /** A máscara de segredo do spawn atual e o relógio que a descarrega no silêncio. */
   mascaraAtual: MascaraDeFluxo | null = null;
   descargaDaMascara: NodeJS.Timeout | null = null;

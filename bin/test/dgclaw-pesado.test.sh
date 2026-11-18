@@ -17,7 +17,7 @@ FORA=""
 cleanup() {
     [ -z "$FORA" ] || kill "$FORA" 2>/dev/null
     local f
-    for f in "$TMP"/*.pid; do [ -f "$f" ] && kill "$(cat "$f")" 2>/dev/null; done
+    for f in "$TMP"/*.pid; do [ -f "$f" ] && kill "$(cat "$f")" 2>/dev/null; rm -f "$f"; done
     rm -rf "${TMP:?}"
 }
 trap cleanup EXIT
@@ -55,6 +55,24 @@ t0=$SECONDS
 "$PESADO" --timeout 1 -- sh -c 'trap "" TERM; sleep 30' 2>/dev/null; rc=$?
 [ "$rc" -eq 124 ] && ok "KILL depois do TERM ignorado ainda devolve 124 ($((SECONDS - t0)) s)" || mal "TERM ignorado: código $rc"
 
+echo "dgclaw-pesado: NOME=valor depois do separador não vira env"
+export SEGREDO_TESTE=xyz
+saida="$("$PESADO" -- SEGREDO_FALSO=abc 2>&1)"; rc=$?
+if [ "$rc" -ne 0 ] && [[ "$saida" != *xyz* ]]; then ok "NOME=valor não imprime o ambiente (código $rc)"; else mal "NOME=valor vazou o ambiente ou saiu 0 (código $rc)"; fi
+saida="$("$PESADO" --timeout 5 -- SEGREDO_FALSO=abc 2>&1)"; rc=$?
+if [ "$rc" -ne 0 ] && [[ "$saida" != *xyz* ]]; then ok "o mesmo com --timeout (código $rc)"; else mal "com --timeout vazou ou saiu 0 (código $rc)"; fi
+saida="$("$PESADO" -- --help 2>&1)"; rc=$?
+if [ "$rc" -eq 127 ] && [[ "$saida" != *Usage* ]] && [[ "$saida" != *Uso:* ]]; then ok "-- --help sai com 127 sem imprimir ajuda"; else mal "-- --help: código $rc"; fi
+unset SEGREDO_TESTE
+
+echo "dgclaw-pesado: TMPDIR com apóstrofo"
+mkdir -p "$TMP/it's"
+tmpa="$(TMPDIR="$TMP/it's" mktemp -d)"
+"$PESADO" -- sh -c 'sleep 300 & echo $! > "$1"; exit 0' _ "$tmpa/neto3.pid" 2>/dev/null; rc=$?
+neto3="$(cat "$tmpa/neto3.pid" 2>/dev/null)"
+sleep 0.3
+if [ "$rc" -eq 0 ] && [ -n "$neto3" ] && ! kill -0 "$neto3" 2>/dev/null; then ok "caminho com apóstrofo funciona e o neto morre"; else mal "apóstrofo: código $rc, neto '$neto3'"; fi
+
 echo "dgclaw-pesado: teto de memória padrão"
 # O systemd-run falso só imprime o teto escolhido; o caminho com gerente não roda aqui.
 mkdir -p "$TMP/run2/systemd" "$TMP/bin"
@@ -70,22 +88,22 @@ teto() { printf '%s\n' "$1" > "$TMP/memmax"; XDG_RUNTIME_DIR="$TMP/run2" PATH="$
 
 echo "dgclaw-pesado: recolhe o que sobrou"
 sleep 300 & FORA=$!
-"$PESADO" -- sh -c "sleep 300 & echo \$! > '$TMP/neto.pid'; exit 0" 2>/dev/null; rc=$?
+"$PESADO" -- sh -c 'sleep 300 & echo $! > "$1"; exit 0' _ "$TMP/neto.pid" 2>/dev/null; rc=$?
 neto="$(cat "$TMP/neto.pid" 2>/dev/null)"
 [ "$rc" -eq 0 ] && ok "comando que deixa neto sai com 0" || mal "código com neto: $rc"
 sleep 0.3
-if [ -n "$neto" ] && ! kill -0 "$neto" 2>/dev/null; then ok "o neto em segundo plano morreu ao fim"; else mal "o neto sobrou (pid $neto)"; fi
+if [ -n "$neto" ] && ! kill -0 "$neto" 2>/dev/null; then ok "o neto em segundo plano morreu ao fim"; rm -f "$TMP/neto.pid"; else mal "o neto sobrou (pid $neto)"; fi
 kill -0 "$FORA" 2>/dev/null && ok "um processo iniciado fora do invólucro continua vivo" || mal "o processo de fora morreu"
 
 echo "dgclaw-pesado: sinal no invólucro"
-"$PESADO" -- sh -c "sleep 300 & echo \$! > '$TMP/neto2.pid'; wait" 2>/dev/null &
+"$PESADO" -- sh -c 'sleep 300 & echo $! > "$1"; wait' _ "$TMP/neto2.pid" 2>/dev/null &
 inv=$!
 for _ in $(seq 1 20); do [ -s "$TMP/neto2.pid" ] && break; sleep 0.2; done
 kill -TERM "$inv"; wait "$inv" 2>/dev/null; rc=$?
 neto2="$(cat "$TMP/neto2.pid" 2>/dev/null)"
 sleep 0.3
 [ "$rc" -eq 143 ] && ok "TERM no invólucro sai com 143" || mal "código após TERM: $rc"
-if [ -n "$neto2" ] && ! kill -0 "$neto2" 2>/dev/null; then ok "TERM no invólucro também recolhe o comando e o neto"; else mal "sobrou processo após TERM (pid $neto2)"; fi
+if [ -n "$neto2" ] && ! kill -0 "$neto2" 2>/dev/null; then ok "TERM no invólucro também recolhe o comando e o neto"; rm -f "$TMP/neto2.pid"; else mal "sobrou processo após TERM (pid $neto2)"; fi
 
 echo
 if [ "$ruins" -eq 0 ]; then echo "dgclaw-pesado: tudo ok"; else echo "dgclaw-pesado: $ruins falha(s)"; exit 1; fi
