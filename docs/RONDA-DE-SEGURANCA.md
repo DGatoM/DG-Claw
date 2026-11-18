@@ -192,7 +192,7 @@ Com ela, a falha vai para o estado **Atualização do sistema** (segundo plano):
 
 Continuam em destaque, pedindo decisão, as falhas que a CISA diz estar sendo exploradas (lista KEV) e as que dependem de uma ação do
 catálogo ou de atualizar o DG Claw. Se a CISA não responder numa rodada, a ronda mantém a marca "explorada" que já tinha guardada e só
-rebaixa quando a lista responde e a falha não consta mais. Uma resposta da CISA com a lista vazia, ou com `count` diferente do tamanho da lista, conta como fonte fora. Um achado reapresentado de uma rodada anterior (qualquer caminho que reaproveita o registro) que estava em segundo plano e entra na lista KEV volta a aberto, nível 2, com recado novo. Uma falha que vira KEV depois de já avisada gera um recado novo. Falha de
+rebaixa quando a lista responde e a falha não consta mais. Uma resposta da CISA com a lista vazia, com alguma entrada sem `cveID` válido ou com `count` diferente do número de CVEs distintos conta como fonte fora. A marca guardada só é apagada se a CVE que ela guarda deixou de constar no catálogo validado. Um achado reapresentado de uma rodada anterior (qualquer caminho que reaproveita o registro) que estava em segundo plano (atualização do sistema ou aguardando correção) e entra na lista KEV volta a aberto, nível 2, com recado novo. Uma falha que vira KEV depois de já avisada gera um recado novo. Falha de
 pacote que não é do sistema (npm, Python, um agente) segue as regras de sempre.
 
 ## Como desligar ou mudar os horários

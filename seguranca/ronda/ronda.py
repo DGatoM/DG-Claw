@@ -1751,18 +1751,28 @@ class GitHub:
         return dados, hd
 
 
+RX_CVE_KEV = re.compile(r"^CVE-\d{4}-\d{4,}$", re.I)
+
+
 def fonte_kev(cfg, inv, ctx):
     url = os.environ.get("DGCLAW_RONDA_KEV_URL", KEV_URL)
     d = http_json(url, timeout=60)
     lista = d.get("vulnerabilities") if isinstance(d, dict) else None
     if not isinstance(lista, list):
         raise ErroRonda(f"O catálogo KEV da CISA ({url.split('?')[0]}) veio sem a lista 'vulnerabilities'; o formato pode ter mudado.")
-    if not lista:
-        raise ErroRonda(f"O catálogo KEV da CISA ({url.split('?')[0]}) veio com a lista 'vulnerabilities' vazia; a resposta está incompleta. A marca de explorada guardada foi mantida.")
+    onde = url.split("?")[0]
+    ids = set()
+    for x in lista:
+        cid = x.get("cveID") if isinstance(x, dict) else None
+        if not (isinstance(cid, str) and RX_CVE_KEV.match(cid)):
+            raise ErroRonda(f"O catálogo KEV da CISA ({onde}) trouxe uma entrada sem um cveID válido; a resposta está incompleta. A marca de explorada guardada foi mantida.")
+        ids.add(cid.upper())
+    if not ids:
+        raise ErroRonda(f"O catálogo KEV da CISA ({onde}) veio com a lista 'vulnerabilities' vazia; a resposta está incompleta. A marca de explorada guardada foi mantida.")
     contagem = d.get("count")
-    if isinstance(contagem, int) and contagem != len(lista):
-        raise ErroRonda(f"O catálogo KEV da CISA ({url.split('?')[0]}) diz ter {contagem} itens mas veio com {len(lista)}; a resposta está incompleta. A marca de explorada guardada foi mantida.")
-    ctx["kev"] = {x["cveID"].upper(): x for x in lista if isinstance(x, dict) and x.get("cveID")}
+    if isinstance(contagem, int) and contagem != len(ids):
+        raise ErroRonda(f"O catálogo KEV da CISA ({onde}) diz ter {contagem} itens mas veio com {len(ids)} CVEs distintos; a resposta está incompleta. A marca de explorada guardada foi mantida.")
+    ctx["kev"] = {x["cveID"].upper(): x for x in lista}
     return f"{len(ctx['kev'])} CVEs no catálogo de explorados"
 
 
@@ -2217,18 +2227,25 @@ def kev_guardado(reg):
     return None
 
 
+TEXTO_KEV_SEM_CORRECAO = ("Esta falha está sendo explorada por criminosos, e não há correção instalável nem proteção provisória conhecida. "
+                          "Considere o botão de emergência (Tirar do ar) ou fale com o Admin.")
+
+
 def promove_se_kev(aid, reg, kev, t0):
-    """Achado reapresentado do estado anterior (qualquer caminho que reaproveita `ultimo`) que estava em segundo plano, mas cujo id
-    aparece agora na lista KEV (CISA respondendo): volta a `aberto`, nível 2, explorado, e o recado sai de novo."""
+    """Achado reapresentado do estado anterior (qualquer caminho que reaproveita `ultimo`) que estava em segundo plano
+    (atualização do sistema ou aguardando correção), mas cujo id aparece agora na lista KEV (CISA respondendo): volta a `aberto`,
+    nível 2, explorado, e o recado sai de novo."""
     ultimo = reg["ultimo"]
-    if ultimo.get("estado") != ESTADO_ATUALIZACAO:
+    if ultimo.get("estado") not in ESTADOS_SEGUNDO_PLANO:
         return ultimo
     ids = {x.upper() for x in ids_do_registro(aid, reg)} | {str(x).upper() for x in ultimo.get("aliases") or []}
     cve = next((c for c in sorted(ids) if c in kev), None)
     if not cve:
         return ultimo
+    disponivel = bool((ultimo.get("correcao") or {}).get("disponivel"))
     o = dict(ultimo, estado="aberto", nivel=2, explorada_ativamente=True,
-             como_corrigir="Esta falha está sendo explorada por criminosos e a correção já existe: peça ao Admin para atualizar o sistema agora.")
+             como_corrigir=("Esta falha está sendo explorada por criminosos e a correção já existe: peça ao Admin para atualizar o sistema agora."
+                            if disponivel else TEXTO_KEV_SEM_CORRECAO))
     reg.update(kev={"cve": cve, "dateAdded": kev[cve].get("dateAdded")}, avisado_em=None, estado_contrato="aberto", ultimo=o)
     return o
 
@@ -2920,8 +2937,8 @@ def texto_base_como_corrigir(a, corr, ac):
     if t == "atualizar-dgclaw":
         return "A correção já saiu numa versão nova do DG Claw. Atualize: clique em Instalar na faixa de nova versão do painel ou peça ao Admin."
     if t == "apt":
-        kernel = any(eh_kernel(af) for af in a["afetados"])
-        return (f"Atualize o pacote do sistema{cd}: sudo apt-get update && sudo apt-get upgrade" + ("; depois reinicie o servidor para o kernel novo valer." if kernel else "."))
+        return (f"Atualize o pacote do sistema{cd}: sudo apt-get update && sudo apt-get upgrade"
+                + ("; depois reinicie o servidor para o kernel novo valer." if corr.get("exige_reinicio") else "."))
     if a["afetados"] and all(str(af.get("onde", "")).startswith("DG Claw") for af in a["afetados"]):
         return ("A falha está num pacote do próprio DG Claw" + cd.replace("versão corrigida", "o pacote já tem correção na origem") +
                 ". A correção chega numa versão nova do DG Claw, e a equipe avisa quando ela sair. Enquanto isso, mantenha o DG Claw atualizado.")
@@ -2947,8 +2964,7 @@ def texto_como_corrigir(a, corr, ac, estado="aberto", pal=None):
         return (f"Existe uma proteção provisória enquanto a correção oficial não sai: {pal['descricao']}. {pal['efeito']} "
                 f"Aplique pelo botão do painel ou com: sudo dgclaw seguranca aplicar {a['id']}.{no_aviso}")
     if estado == "aberto" and not corr["disponivel"] and a.get("kev"):
-        return ("Esta falha está sendo explorada por criminosos, e não há correção instalável nem proteção provisória conhecida. "
-                f"Considere o botão de emergência (Tirar do ar) ou fale com o Admin.{no_aviso}")
+        return TEXTO_KEV_SEM_CORRECAO + no_aviso
     t = texto_base_como_corrigir(a, corr, ac)
     if pal and pal["verificado"] and estado == "aberto":
         if any(eh_kernel(af) for af in a["afetados"]):
@@ -3334,7 +3350,8 @@ def _rodada(cfg, sem_avisar):
             # Marca KEV guardada: se a CISA não respondeu nesta rodada, a falha explorada não pode virar "comum" por isso.
             kev_antes = kev_guardado(reg)
             if not a.get("kev") and kev_antes:
-                if kev_confirmado:
+                # a CVE guardada ainda no catálogo validado desta rodada: a falha segue explorada, mesmo redetectada sem o alias
+                if kev_confirmado and str(kev_antes.get("cve") or "").upper() not in ctx["kev"]:
                     reg.pop("kev", None)
                 else:
                     a["kev"] = kev_antes
