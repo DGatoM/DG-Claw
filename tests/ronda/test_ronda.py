@@ -1733,6 +1733,16 @@ class Paliativos(Base):
         self.ronda("executar", "--sem-avisar")
         self.assertEqual(self.achado(self.ID)["estado"], "atualizacao-sistema")
 
+    def test_metapacote_com_sufixo_da_serie_do_kernel_em_execucao_prova_a_imagem(self):
+        S["osv_paginas"][f"{ECO}|linux|6.8.0-147.153"] = [[self.ID]]
+        S["osv_vulns"][self.ID] = reg_ubuntu(self.ID, "CVE-2026-98432", "linux", "6.8.0-149.149", prio="critical")
+        self.meta("6.8.0-149.149", nome="linux-image-generic-6.11")   # outra série: não vale
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(self.ID)["estado"], "aberto")
+        self.meta("6.8.0-149.149", nome="linux-image-generic-6.8")
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(self.ID)["estado"], "atualizacao-sistema")
+
     def test_correcao_no_apt_vira_segundo_plano_com_texto_unico_e_recado_ao_admin_uma_vez(self):
         for prio in ("high", "critical"):
             S["recados"].clear()
@@ -2021,6 +2031,24 @@ class Paliativos(Base):
         self.assertEqual(self.achado(usn)["estado"], "aberto")
         self.assertIs(self.estado_do_registro()["achados"][usn]["ids_incompletos"], True)
 
+    def test_marca_de_ids_incompletos_so_se_apaga_quando_a_fonte_traz_todos_os_ids_guardados(self):
+        usn = "USN-7783-1"
+        cves = [f"CVE-2026-{21000 + n}" for n in range(60)]
+        self.usn_kernel(usn, cves[:1])
+        self.ronda("executar", "--sem-avisar")
+        est = self.estado_do_registro()
+        est["achados"][usn]["ids_osv"] = list(cves)
+        est["achados"][usn].pop("ids_incompletos", None)
+        self.escreve(self.p("var/lib/dgclaw/seguranca/estado.json"), est)
+        S["kev"] = [{"cveID": "CVE-2026-29998", "dateAdded": "2026-10-20"}]
+        S["osv_vulns"][usn]["aliases"] = [cves[0]]   # um alias, que já estava guardado
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(usn)["estado"], "aberto")
+        self.assertIs(self.estado_do_registro()["achados"][usn]["ids_incompletos"], True)
+        S["osv_vulns"][usn]["aliases"] = cves + ["CVE-2026-29998"]
+        self.ronda("executar", "--sem-avisar")
+        self.assertIs(self.estado_do_registro()["achados"][usn]["ids_incompletos"], False)
+
     def test_usn_com_mais_de_mil_cves_nao_e_rebaixado_ja_na_primeira_rodada(self):
         usn = "USN-7781-1"
         self.usn_kernel(usn, [f"CVE-2026-{30000 + n}" for n in range(1001)])
@@ -2110,6 +2138,20 @@ class Paliativos(Base):
         a = self.achado(usn)
         self.assertEqual((a["estado"], a["nivel"], a.get("explorada_ativamente")), ("aberto", 2, True))
         self.assertIn("CVE-2026-88894", self.estado_do_registro()["achados"][usn]["ids_osv"])
+
+    def test_cve_so_no_cves_map_de_usn_que_chega_pelo_querybatch_do_osv_alimenta_a_kev(self):
+        usn = "USN-7793-1"
+        self.escreve(os.path.join(self.stub, "apt_candidatos.txt"), "openssl\t3.0.13-0ubuntu3.6\n")
+        S["osv_paginas"][f"{ECO}|openssl|3.0.13-0ubuntu3.4"] = [[usn]]
+        r = reg_ubuntu(usn, "CVE-2026-88895", "openssl", "3.0.13-0ubuntu3.6")
+        r["aliases"] = []
+        r["affected"][0]["database_specific"] = {"cves_map": {"cves": [{"id": "CVE-2026-88896", "severity": [{"type": "Ubuntu", "score": "high"}]}, {"id": "lixo"}]}}
+        S["osv_vulns"][usn] = r
+        S["kev"] = [{"cveID": "CVE-2026-88896", "dateAdded": "2026-10-20"}]
+        self.ronda("executar", "--sem-avisar")
+        a = self.achado(usn)
+        self.assertEqual((a["estado"], a["nivel"], a.get("explorada_ativamente")), ("aberto", 2, True))
+        self.assertIn("CVE-2026-88896", self.estado_do_registro()["achados"][usn]["ids_osv"])
 
     def test_reabertura_por_acao_nova_no_catalogo_troca_o_texto_de_segundo_plano(self):
         usn = "USN-7792-1"

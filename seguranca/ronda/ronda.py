@@ -1488,6 +1488,20 @@ def _so_prioridade(d):
     return p or None
 
 
+def cves_do_cves_map(af, teto=1000):
+    """CVEs (ids válidos, em maiúsculas, sem repetir) de `affected[].database_specific.cves_map.cves[]` de um registro OSV/USN."""
+    mapa = (af.get("database_specific") or {}).get("cves_map") if isinstance(af, dict) and isinstance(af.get("database_specific"), dict) else None
+    lista = mapa.get("cves") if isinstance(mapa, dict) else None
+    saida = []
+    for cv in lista if isinstance(lista, list) else []:
+        cid = str(cv.get("id") or "").upper() if isinstance(cv, dict) else ""
+        if RX_CVE_PURO.match(cid) and cid not in saida:
+            saida.append(cid)
+            if len(saida) >= teto:
+                break
+    return saida
+
+
 def reduz_registro_osv(d, eco, nomes):
     """Cópia mínima de um registro OSV, só com o que a ronda lê. Os registros UBUNTU-CVE do kernel listam centenas de pacotes de
     todos os releases, cada um com milhares de versões (megabytes por registro); guardados aos milhares, estouravam a memória
@@ -1516,6 +1530,9 @@ def reduz_registro_osv(d, eco, nomes):
             pr = _so_prioridade(af.get(chave))
             if pr:
                 novo[chave] = pr
+        ids_mapa = cves_do_cves_map(af)
+        if ids_mapa:
+            novo.setdefault("database_specific", {})["cves_map"] = {"cves": [{"id": i} for i in ids_mapa]}
         afetados.append(novo)
     out["affected"] = afetados
     return out
@@ -1608,6 +1625,11 @@ def achado_de_registro(d, vid, eco, nome, ver, grupo, fonte="OSV.dev"):
     aliases = list(d.get("aliases") or []) + list(d.get("upstream") or [])
     a = novo_achado(vid, aliases, d.get("summary") or (d.get("details") or "")[:120], sev, fonte, nome,
                     d.get("published"), f"https://osv.dev/vulnerability/{vid}", d.get("details") or "", sev_u, cv)
+    # CVEs do cves_map do pacote instalado entram nos aliases (KEV e ids_osv) depois da chave: a chave de agrupamento não muda
+    alvo = nome_pip(nome) if eco == "PyPI" else nome
+    do_mapa = {c for af in d.get("affected") or [] if (nome_pip((af.get("package") or {}).get("name", "")) if eco == "PyPI"
+               else (af.get("package") or {}).get("name", "")) == alvo for c in cves_do_cves_map(af)}
+    a["aliases"] = sorted(set(a["aliases"]) | do_mapa)
     corr = corrigida_para(d, eco, nome, ver)
     for onde in sorted(set(grupo["ondes"])):
         a["afetados"].append({"onde": onde, "pacote": nome, "versao": ver, "corrigida": corr, "eco": eco,
@@ -2096,10 +2118,8 @@ def casar_usn(n, eco, por_nome, ctx):
         alvos = {id(c): c for nm in [p.get("name")] + nomes_bin for c in por_nome.get(nm, [])}
         sev, cvss = "desconhecida", None
         cves_af = list(cves)
+        cves_af += [c for c in cves_do_cves_map(af) if c not in cves_af]
         for cv in ((af.get("database_specific") or {}).get("cves_map") or {}).get("cves") or []:
-            cid = str(cv.get("id") or "").upper() if isinstance(cv, dict) else ""
-            if re.match(r"^CVE-\d{4}-\d{4,}$", cid) and cid not in cves_af:
-                cves_af.append(cid)
             s = prio_ubuntu(cv)
             if s and ORDEM_SEV[s] > ORDEM_SEV[sev]:
                 sev = s
@@ -2390,11 +2410,14 @@ def metapacotes_de_imagem(inv):
         return []
     aceitos = {"generic", "virtual"} if m.group(1) == "generic" else {m.group(1)}
     saida = []
+    serie = ".".join((inv.get("kernel") or "").split(".")[:2])
     for n in inv.get("metapacotes_kernel") or []:
         if not n.startswith("linux-") or re.search(r"headers|tools", n):
             continue
         base = re.sub(r"^linux-(image-)?", "", n)
         base = re.sub(r"(-hwe-[0-9.]+)?(-edge)?$", "", base)
+        if serie and base.endswith("-" + serie):   # linux-image-generic-6.8: depende da imagem da série em execução
+            base = base[:-len(serie) - 1]
         if base in aceitos:
             saida.append(n)
     return saida
@@ -3501,9 +3524,11 @@ def _rodada(cfg, sem_avisar):
             coleta_parcial = rodada_parcial and (bool(faltando) or bool(reg.get("pacotes_cortados")))
             # a lista de ids precisa estar pronta antes da decisão. Registro legado que bateu o teto antigo (60, sem a chave) ou
             # com a marca só é considerado completo quando a fonte trouxe os aliases nesta rodada.
-            ids_unidos, cortou = une_ids_osv_com_corte(reg.get("ids_osv"), {a["id"].upper(), str(a["key"]).upper()} | {str(x).upper() for x in a["aliases"]})
+            ids_atuais = {a["id"].upper(), str(a["key"]).upper()} | {str(x).upper() for x in a["aliases"]}
+            ids_unidos, cortou = une_ids_osv_com_corte(reg.get("ids_osv"), ids_atuais)
+            # a marca anterior só se apaga quando a fonte trouxe de novo TODOS os ids já guardados
             ids_incompletos = cortou or bool((reg.get("ids_incompletos") or ("ids_incompletos" not in reg and len(reg.get("ids_osv") or []) >= 60))
-                                             and not a.get("aliases"))
+                                             and not {str(x).upper() for x in reg.get("ids_osv") or []} <= ids_atuais)
             if (estado == "aberto" and not coleta_parcial and not cat_erro and not ids_incompletos
                     and (kev_confirmado or reg.get("estado_contrato") == ESTADO_ATUALIZACAO)):
                 # `ac` só é procurado para achado crítico; qualquer ação do catálogo ligada ao achado, de qualquer severidade, veta
