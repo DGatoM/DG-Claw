@@ -25,12 +25,13 @@ profile de login, mas o runner roda como serviço do systemd, que não herda nen
 
 ### Como atualizar (teto de tarefas do runner)
 
-A unidade nova entra quando o container do agente é recriado, e o `dgclaw atualizar` padrão já recria. Para corrigir um
-agente vivo sem reiniciar nada: `podman exec <container> systemctl set-property dgclaw-runner.service TasksMax=2400`.
-Isso muda só a unidade (vale na hora e sobrevive ao reinício do container); um container antigo, criado com
-`--pids-limit 1024`, continua preso a esse limite até ser recriado. O `timeout` dos hooks entra nas sessões abertas por
-um runner já atualizado. O PATH novo entra quando o container é recriado (ou num agente vivo, criando
-`/usr/local/bin/<comando>` como link para `/opt/venv/bin/<comando>`).
+A unidade nova entra quando o container do agente é recriado, e o `dgclaw atualizar` padrão já recria. Para aliviar um
+agente vivo até a atualização, sem reiniciar nada: `podman exec <container> systemctl set-property --runtime
+dgclaw-runner.service TasksMax=2400` (vale na hora e some quando o container reinicia). Evite a forma persistente e links
+em `/usr/local/bin`: o inventário do `dgclaw agente recriar` os conta como alterações locais e a atualização para pedindo
+`--forcar`. Até lá, use os comandos do venv pelo caminho completo (`/opt/venv/bin/yt-dlp`). Um container antigo, criado
+com `--pids-limit 1024`, continua preso a esse limite até ser recriado. O `timeout` dos hooks entra nas sessões abertas
+por um runner já atualizado.
 
 **Correção: render de vídeo não esgota os processos do agente.** Um agente chegou a ficar mais de 30 minutos parado num
 render de vídeo porque o container tem um limite de processos (as threads contam), e o Chrome da Tela, o Claude Code e

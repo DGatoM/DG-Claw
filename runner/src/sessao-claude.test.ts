@@ -189,6 +189,7 @@ test("AskUserQuestion: PreToolUse vira waiting_input/pergunta, a resposta (PostT
   assert.equal(settings.hooks.PostToolUse[0].matcher, "AskUserQuestion", "só a ferramenta de pergunta dispara o PostToolUse");
   // Todo hook do runner tem teto: um node travado no arranque não pode segurar o turno pelo padrão longo do Claude.
   // A mensagem de falha leva só o evento e o timeout (o comando tem o nonce da sessão).
+  assert.equal(HOOK_TIMEOUT_S, 10, "o teto dos hooks do runner é 10 s (2,5 s do cinto + folga para a partida do node)");
   let conferidos = 0;
   for (const [ev, grupos] of Object.entries(settings.hooks as Record<string, { hooks: { command: string; timeout?: number }[] }[]>)) {
     for (const grupo of grupos) {
