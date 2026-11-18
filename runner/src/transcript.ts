@@ -129,6 +129,21 @@ function lerCauda(arquivo: string): string {
   }
 }
 
+/** Registros de metadados do transcript, sem conteúdo de conversa (conferidos em transcripts reais). */
+const TIPOS_DE_METADADOS = ["ai-title", "summary", "file-history-snapshot", "custom-title", "agent-name", "last-prompt", "mode", "permission-mode"];
+
+/** Os dois textos exatos que o Claude Code grava quando o Esc interrompe o turno. */
+const TEXTOS_DE_INTERRUPCAO = ["[Request interrupted by user]", "[Request interrupted by user for tool use]"];
+
+function ehMensagemDeInterrupcao(o: { type?: string; message?: { content?: unknown } }): boolean {
+  if (o.type !== "user" || !o.message || typeof o.message !== "object") return false;
+  const c = o.message.content;
+  if (typeof c === "string") return TEXTOS_DE_INTERRUPCAO.includes(c);
+  if (!Array.isArray(c) || c.length !== 1) return false;
+  const b = c[0] as { type?: unknown; text?: unknown } | null;
+  return !!b && typeof b === "object" && typeof b.text === "string" && TEXTOS_DE_INTERRUPCAO.includes(b.text);
+}
+
 /**
  * O turno acabou? O Claude Code grava `system/turn_duration` (logo depois de `stop_hook_summary`) ao
  * fim de todo turno. Lê só os últimos ~16 KB e olha a ÚLTIMA linha JSON válida: se for uma dessas e
@@ -139,6 +154,8 @@ export function turnoEncerradoNoTranscript(
   sessionId: string,
   desdeMs: number,
   configDir?: string | null,
+  /** Horário do último Esc escrito neste mesmo terminal (null se não houve): sem ele a mensagem de interrupção não vale. */
+  escEm: number | null = null,
 ): { encerrado: boolean; motivo: string } {
   const arquivo = acharArquivoDaSessao(sessionId, configDir);
   if (!arquivo) return { encerrado: false, motivo: `transcript da sessão ${sessionId} não encontrado` };
@@ -152,20 +169,31 @@ export function turnoEncerradoNoTranscript(
   const linhas = cauda.split("\n");
   for (let i = linhas.length - 1; i >= 0; i--) {
     if (!linhas[i].trim()) continue;
-    let o: { type?: string; subtype?: string; timestamp?: string };
+    let o: { type?: string; subtype?: string; timestamp?: string; message?: { content?: unknown } };
     try {
-      o = JSON.parse(linhas[i]);
+      const lido: unknown = JSON.parse(linhas[i]);
+      if (!lido || typeof lido !== "object" || Array.isArray(lido)) continue;
+      o = lido as typeof o;
     } catch {
       continue;
     }
     const rotulo = `${o.type ?? "?"}${o.subtype ? "/" + o.subtype : ""}`;
-    if (o.type !== "system" || (o.subtype !== "turn_duration" && o.subtype !== "stop_hook_summary")) {
+    const fimNormal = o.type === "system" && (o.subtype === "turn_duration" || o.subtype === "stop_hook_summary");
+    // Esc do Parar: o Claude Code grava uma mensagem de usuário com o texto exato de interrupção e não dispara o hook Stop.
+    // Só metadados conhecidos são pulados; qualquer outro registro depois do marcador (queue-operation, attachment, system,
+    // user, assistant...) impede a prova.
+    if (!fimNormal && typeof o.type === "string" && TIPOS_DE_METADADOS.includes(o.type)) continue;
+    if (!fimNormal && !ehMensagemDeInterrupcao(o)) {
       return { encerrado: false, motivo: `última linha é ${rotulo}` };
     }
     const quando = o.timestamp ? Date.parse(o.timestamp) : NaN;
     if (!Number.isFinite(quando)) return { encerrado: false, motivo: `${rotulo} sem timestamp válido` };
     if (quando <= desdeMs) return { encerrado: false, motivo: `${rotulo} é anterior ao começo do turno atual` };
-    return { encerrado: true, motivo: `última linha é ${rotulo}` };
+    // A frase de interrupção sozinha não prova nada (o usuário pode digitá-la): só vale com um Esc nosso, deste terminal, logo antes.
+    if (!fimNormal && (escEm === null || quando < escEm)) {
+      return { encerrado: false, motivo: "a mensagem de interrupção não tem um Esc deste terminal antes dela" };
+    }
+    return { encerrado: true, motivo: fimNormal ? `última linha é ${rotulo}` : "última linha é a interrupção do usuário" };
   }
   return { encerrado: false, motivo: "nenhuma linha JSON válida no fim do transcript" };
 }
@@ -209,7 +237,9 @@ export function loginExpiradoNoFimDoTranscript(
       message?: { model?: string; content?: unknown };
     };
     try {
-      o = JSON.parse(linhas[i]);
+      const lido: unknown = JSON.parse(linhas[i]);
+      if (!lido || typeof lido !== "object" || Array.isArray(lido)) continue;
+      o = lido as typeof o;
     } catch {
       continue;
     }

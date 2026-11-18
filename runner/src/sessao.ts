@@ -44,8 +44,12 @@ import { type PayloadDeHook, receberHook } from "./sessao/eventos.js";
 import { enfileirarQuandoOcioso, talvezSoltarFila } from "./sessao/fila.js";
 import { encerrarIncidenteDeLogin, entregarRecadoDeLogin, marcarLoginExpirado, retomarAposLoginExpirado } from "./sessao/login.js";
 import { ESC } from "./sessao/telas.js";
+
 import { guardarEEmitir } from "./sessao/terminal.js";
 import type { AgentState } from "./tipos.js";
+
+/** Intervalo mínimo entre dois Esc no mesmo PTY (dois em menos de ~1 s abrem o menu de voltar). */
+const TRAVA_ESC_MS = 3000;
 
 export { QUIETO_PARA_OLHAR_TRANSCRIPT_MS } from "./sessao/constantes.js";
 export { ehDialogoDeBypass, nonceConfere, telaDeConfiancaDoCodex } from "./sessao/telas.js";
@@ -117,6 +121,14 @@ export class Sessao extends EventEmitter {
   readonly pausaTeclaPerguntaMs: number;
   /** true enquanto responderPergunta digita: ninguém mais escreve tecla crua nem permissão nesse intervalo. */
   respondendoPergunta = false;
+  /** Relógio da trava do Esc (trocável nos testes). */
+  agora: () => number = () => Date.now();
+  /** Quando o último Esc foi escrito no PTY (por /interromper ou pela permissão negada); 0 = nunca. */
+  ultimoEscEm = 0;
+  /** O PTY que está compactando (liga no PreCompact, desliga no SessionStart source=compact, em idle ou na troca de processo). */
+  compactando: unknown = null;
+  /** O Esc pendente do turno (o PRIMEIRO, de qualquer origem; os seguintes não sobrescrevem): só com ele o transcript prova uma interrupção. Cai quando o turno termina ou outro começa. */
+  ultimoEscReal: { em: number; proc: unknown } | null = null;
   /**
    * A pergunta (processo + tool_use_id) cuja resposta já começou a ser digitada. Fica depois da trava cair:
    * a segunda aba que responde a mesma pergunta chega depois da última tecla e antes do PostToolUse, quando
@@ -527,6 +539,11 @@ export class Sessao extends EventEmitter {
       return;
     }
     this.marcarAtividade();
+    // Todo Esc sozinho, venha de onde vier (Parar, negar permissão, cancelar pergunta), entra na trava de 3 s.
+    if (texto === ESC) {
+      this.ultimoEscEm = this.agora();
+      if (!this.ultimoEscReal || this.ultimoEscReal.proc !== this.proc) this.ultimoEscReal = { em: Date.now(), proc: this.proc };
+    }
     this.proc.write(texto);
   }
 
@@ -541,7 +558,7 @@ export class Sessao extends EventEmitter {
   responderPermissao(
     decisao: "aprovar" | "negar",
     toolUseId?: string | null,
-  ): { ok: true } | { ok: false; status: number; erro: string; comoResolver: string; code: string } {
+  ): { ok: true } | { ok: false; status: number; erro: string; comoResolver: string; code: string; espereS?: number } {
     if (this.motor.provedor !== "claude") {
       return { ok: false, status: 501, code: "PERMISSAO_SO_CLAUDE", erro: `O provedor ${this.motor.provedor} não expõe o pedido de permissão ao runner.`, comoResolver: "responder pelo terminal do agente" };
     }
@@ -561,9 +578,62 @@ export class Sessao extends EventEmitter {
     if (!this.proc) {
       return { ok: false, status: 409, code: "NO_PTY", erro: `O agente ${this.slug} não tem terminal vivo agora.`, comoResolver: "chamar POST /api/agents/:id/resume antes" };
     }
+    if (decisao === "negar") {
+      const trava = this.travaDoEsc();
+      if (trava) return trava;
+    }
     log.info(this.a("entrada"), `permissão ${decisao === "aprovar" ? "aprovada" : "negada"} por API`);
     this.escrever(decisao === "aprovar" ? "1" : ESC);
     return { ok: true };
+  }
+
+  /** null se pode escrever um Esc agora; senão o 429 MUITO_RAPIDO (dois Esc em menos de ~1 s abrem o menu de voltar). */
+  travaDoEsc(): { ok: false; status: number; erro: string; comoResolver: string; code: string; espereS: number } | null {
+    const falta = this.ultimoEscEm + TRAVA_ESC_MS - this.agora();
+    if (!(this.ultimoEscEm > 0 && falta > 0)) return null;
+    const espereS = Math.round(falta / 100) / 10 || 0.1;
+    return {
+      ok: false,
+      status: 429,
+      code: "MUITO_RAPIDO",
+      espereS,
+      erro: `O Esc anterior foi há menos de ${TRAVA_ESC_MS / 1000} s. Dois Esc seguidos abrem o menu de voltar do terminal e travam a sessão.`,
+      comoResolver: `esperar ${espereS} s e tentar de novo`,
+    };
+  }
+
+  /**
+   * O botão Parar: escreve um único Esc no PTY, o mesmo que apertar Esc no terminal. Dois Esc em menos de
+   * ~1 s abrem o menu de voltar do Claude Code e travam a sessão; por isso a trava de 3 s, que também conta
+   * o Esc da permissão negada. Nada do pedido HTTP chega ao PTY. Sessão sem PTY não é acordada.
+   */
+  interromper():
+    | { ok: true; enviadoEm: string; statusAntes: string; provedor: string }
+    | { ok: false; status: number; erro: string; comoResolver: string; code: string; espereS?: number } {
+    if (!this.proc) {
+      return { ok: false, status: 409, code: "NO_PTY", erro: `O agente ${this.slug} não tem terminal vivo agora, então não há o que parar.`, comoResolver: "nada a fazer: o próximo envio de mensagem abre a sessão" };
+    }
+    if (this.respondendoPergunta) {
+      return { ok: false, status: 409, code: "RESPOSTA_EM_ANDAMENTO", erro: `O agente ${this.slug} está recebendo a resposta de uma pergunta de escolha.`, comoResolver: "esperar alguns segundos e tentar de novo" };
+    }
+    // Esperando permissão ou pergunta: o Esc cairia no cartão (negaria). Conferência síncrona, logo antes de escrever.
+    if (this.estado.status === "waiting_input") {
+      return { ok: false, status: 409, code: "ESPERANDO_DECISAO", erro: `O agente ${this.slug} está esperando uma decisão sua (permissão ou pergunta de escolha).`, comoResolver: "responda no cartão da permissão ou da pergunta" };
+    }
+    // Só se escreve o Esc com o agente trabalhando. Conferência síncrona, imediatamente antes da escrita.
+    if (this.estado.status !== "working") {
+      return { ok: false, status: 409, code: "NAO_TRABALHANDO", erro: `O agente ${this.slug} não está trabalhando agora (status=${this.estado.status}); nada foi enviado.`, comoResolver: "esperar o agente começar um trabalho e apertar Parar de novo" };
+    }
+    // Compactando (o PreCompact pôs working): um Esc cortaria a compactação.
+    if (this.compactando !== null && this.compactando === this.proc) {
+      return { ok: false, status: 409, code: "COMPACTANDO", erro: `O agente ${this.slug} está compactando a conversa; nada foi enviado.`, comoResolver: "esperar a compactação terminar e apertar Parar de novo" };
+    }
+    const trava = this.travaDoEsc();
+    if (trava) return trava;
+    const statusAntes = this.estado.status;
+    this.escrever(ESC);
+    log.info(this.a("entrada"), `Esc enviado por API (parar): status antes=${statusAntes}, provedor=${this.motor.provedor}`);
+    return { ok: true, enviadoEm: new Date(this.ultimoEscEm).toISOString(), statusAntes, provedor: this.motor.provedor };
   }
 
   /**
@@ -575,7 +645,7 @@ export class Sessao extends EventEmitter {
   async responderPergunta(
     toolUseId: string,
     teclas: string[],
-  ): Promise<{ ok: true; teclas: number } | { ok: false; status: number; erro: string; comoResolver: string; code: string }> {
+  ): Promise<{ ok: true; teclas: number } | { ok: false; status: number; erro: string; comoResolver: string; code: string; espereS?: number }> {
     if (this.motor.provedor !== "claude") {
       return { ok: false, status: 501, code: "PERGUNTA_SO_CLAUDE", erro: `O provedor ${this.motor.provedor} não expõe a pergunta de escolha ao runner.`, comoResolver: "responder pelo terminal do agente" };
     }
@@ -588,6 +658,16 @@ export class Sessao extends EventEmitter {
     }
     if (this.perguntaTentada && this.perguntaTentada.proc === proc && this.perguntaTentada.toolUseId === toolUseId) {
       return { ok: false, status: 409, code: "PERGUNTA_JA_RESPONDIDA", erro: "A resposta desta pergunta já foi enviada (por esta ou outra aba). Atualize a conversa; se o terminal ficou no meio, termine pela aba Sessões.", comoResolver: "atualizar a conversa; se o terminal ficou no meio, terminar pela aba Sessões" };
+    }
+    // Cancelar a pergunta é um Esc sozinho: a lista é exatamente [ESC], ou nenhum item contém ESC. A trava vale ANTES de
+    // escrever qualquer tecla e de marcar a pergunta como tentada.
+    const soEsc = teclas.length === 1 && teclas[0] === ESC;
+    if (!soEsc && teclas.some((t) => t.includes(ESC))) {
+      return { ok: false, status: 400, code: "TECLAS_INVALIDAS", erro: "Um Esc só vale sozinho: a lista de teclas precisa ser exatamente [Esc] ou nenhum item pode conter Esc. Nada foi digitado.", comoResolver: "mandar o Esc numa resposta própria, sem outras teclas" };
+    }
+    if (soEsc) {
+      const trava = this.travaDoEsc();
+      if (trava) return trava;
     }
     const mudou = (): { status: number; code: string; erro: string; comoResolver: string } | null => {
       if (this.proc !== proc) {
@@ -659,6 +739,9 @@ export class Sessao extends EventEmitter {
     // O motivo só vale enquanto o status que o pediu vale: trocou de status sem dizer o motivo, ele cai.
     if (campos.status && campos.status !== this.estado.status && !("motivo" in campos)) campos = { ...campos, motivo: null };
     if (campos.status && campos.status !== this.estado.status && !("pendenteId" in campos)) campos = { ...campos, pendenteId: null };
+    // O Esc pendente é do turno: acaba quando ele termina (idle) e quando outro começa (working vindo de outro estado).
+    if (campos.status === "idle" || (campos.status === "working" && this.estado.status !== "working")) this.ultimoEscReal = null;
+    if (campos.status === "idle") this.compactando = null;
     Object.assign(this.estado, campos, { updatedAt: Date.now() });
     if ("sessionId" in campos || "previousSessionId" in campos || "status" in campos) {
       gravarEstado(

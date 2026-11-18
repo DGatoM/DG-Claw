@@ -339,6 +339,19 @@ test("POST /api/sessoes cria uma sessão Codex sem mexer no runner.json; ela dor
   assert.deepEqual(Object.keys(msgs[0]).sort(), ["role", "text"]);
 });
 
+test("POST /input: Esc sozinho com submit padrão numa paralela dormindo => 400 ESC_SO_IMEDIATO e ela não acorda", async () => {
+  const c = await req("POST", "/api/sessoes", { id: "card-esc", provedor: "codex", auth: "assinatura", modelo: "gpt-5.5" });
+  assert.equal(c.status, 201, JSON.stringify(c.corpo));
+  for (const extra of [{}, { injectWhenIdle: true }, { submit: true }]) {
+    const r = await req("POST", "/api/agents/card-esc/input", { text: "\u001b", ...extra });
+    assert.equal(r.status, 400, JSON.stringify(r.corpo));
+    assert.equal(r.corpo.code, "ESC_SO_IMEDIATO");
+  }
+  assert.equal(gerente.porId("card-esc")!.temPtyVivo(), false, "a sessão não acordou");
+  assert.equal(gerente.porId("card-esc")!.tamanhoDaFila(), 0);
+  assert.equal((await req("DELETE", "/api/sessoes/card-esc")).status, 200, "limpa a sessão extra para não mexer nos outros testes");
+});
+
 test("POST /api/sessoes: erros em português, e o id não repete", async () => {
   const casos: Array<[Record<string, unknown>, number, string]> = [
     [{ auth: "assinatura" }, 400, "PROVEDOR_OBRIGATORIO"],
