@@ -195,7 +195,7 @@ catálogo ou de atualizar o DG Claw. A ronda só rebaixa uma falha para "atualiz
 catálogo. Sem a resposta da CISA, o que já era atualização do sistema continua assim, sem recado novo, e o resto fica aberto, como antes. Uma resposta
 da CISA com a lista vazia, com `cveID` fora do formato, repetido, sem `count` ou com `count` que não bate conta como fonte fora. Um achado reapresentado de uma
 rodada anterior que estava em segundo plano ou aberto sem ser explorado (nível 3) e tem id no catálogo volta a aberto, nível 2, com recado novo. Falha de
-pacote que não é do sistema (npm, Python, um agente) segue as regras de sempre.
+pacote que não é do sistema (npm, Python, um agente) segue as regras de sempre. Com alguma fonte ou inventário incompleto na rodada, uma falha que perdeu algum pacote guardado na rodada anterior também não é rebaixada.
 
 ## Como desligar ou mudar os horários
 

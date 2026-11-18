@@ -2230,11 +2230,15 @@ def ids_para_kev(a, reg):
 
 
 def texto_promovido_por_kev(ultimo):
-    if (ultimo.get("correcao") or {}).get("disponivel"):
-        if ultimo["correcao"].get("exige_reinicio"):
+    corr = ultimo.get("correcao") or {}
+    if corr.get("disponivel") and corr.get("tipo") == "apt":
+        if corr.get("exige_reinicio"):
             return ("Esta falha está sendo explorada por criminosos e a correção já existe: peça ao Admin para atualizar o sistema agora "
                     "e depois reiniciar o servidor para o kernel novo valer.")
         return "Esta falha está sendo explorada por criminosos e a correção já existe: peça ao Admin para atualizar o sistema agora."
+    if corr.get("disponivel"):
+        # correção de outro tipo (atualizar o DG Claw, ação do catálogo): a orientação anterior continua valendo
+        return "Esta falha está sendo explorada por criminosos e a correção já existe. " + limpa(ultimo.get("como_corrigir") or "", 300)
     return TEXTO_KEV_SEM_CORRECAO
 
 
@@ -3221,15 +3225,19 @@ def origem_sem_cobertura(reg, incompletos):
     return False
 
 
-def une_ids_osv(antigos, novos, teto=60):
-    """Une os ids novos aos já guardados (um USN redetectado sem alias não pode fazer o registro esquecer a CVE). Acima do teto, os CVE
-    antigos são os últimos a sair."""
+def une_ids_osv_com_corte(antigos, novos, teto=1000):
+    """Devolve (ids, cortou). Acima do teto, os CVE antigos são os últimos a sair."""
     todos = {str(x).upper() for x in antigos or []} | set(novos)
     if len(todos) <= teto:
-        return sorted(todos)
+        return sorted(todos), False
     cves = sorted(x for x in todos if x.startswith("CVE-"))
     resto = sorted(todos - set(cves))
-    return sorted((cves + resto)[:teto])
+    return sorted((cves + resto)[:teto]), True
+
+
+def une_ids_osv(antigos, novos, teto=1000):
+    """Une os ids novos aos já guardados (um USN redetectado sem alias não pode fazer o registro esquecer a CVE)."""
+    return une_ids_osv_com_corte(antigos, novos, teto)[0]
 
 
 def ids_do_registro(aid, reg):
@@ -3358,6 +3366,8 @@ def _rodada(cfg, sem_avisar):
         resultado, ja_nesta, vistos, omitidos_n3, aplicados_agora = [], [], set(), 0, []
         kev_confirmado = status["CISA KEV"]["ok"] and not status["CISA KEV"].get("desligada")
         incompletos = inv.get("cobertura_incompleta") or []
+        parcial_fontes = [n for n, s in status.items() if not s.get("desligada") and not s["ok"]]
+        rodada_parcial = bool(incompletos or inv.get("avisos") or parcial_fontes)
         ordem = sorted(elegiveis, key=lambda x: (-ORDEM_SEV[x["severidade"]], x["id"]))
         for a in ordem:
             vistos.add(a["id"])
@@ -3383,7 +3393,7 @@ def _rodada(cfg, sem_avisar):
                 reg = reg_all[a["id"]] = {"primeira_vez_em": iso(t0), "avisado_em": None, "estado": "aberto"}
             elif reg.get("estado") == "corrigido":
                 reg.update(estado="aberto", avisado_em=None, primeira_vez_em=iso(t0))
-                for velho in ("estado_contrato", "ultimo", "ids_osv"):
+                for velho in ("estado_contrato", "ultimo", "ids_osv", "ids_incompletos"):
                     reg.pop(velho, None)   # a reincidência recomeça: fica aberta até uma consulta válida da CISA
             reg["visto_em"] = iso(t0)
             reg["componente"] = limpa(a["componente"], 80)
@@ -3426,11 +3436,17 @@ def _rodada(cfg, sem_avisar):
                     estado = "aguardando-fornecedor"
             # Só rebaixa com a CISA respondendo nesta rodada. Sem ela, mantém o que já era (atualização do sistema continua, sem novo
             # recado) e qualquer outro caso fica aberto, como antes.
-            # com o inventário de algum componente do achado incompleto, os pacotes de agora podem ser só parte dos de antes: não rebaixa
-            # (a origem é conferida com o `ultimo` da rodada anterior, por isso antes de `reg["ultimo"] = o`)
-            coleta_parcial = isinstance(reg.get("ultimo"), dict) and origem_sem_cobertura(reg, incompletos)
-            if estado == "aberto" and not coleta_parcial and e_atualizacao_de_sistema(a, ac, corr) and (kev_confirmado or reg.get("estado_contrato") == ESTADO_ATUALIZACAO):
-                estado = ESTADO_ATUALIZACAO
+            # Rodada com alguma fonte ou inventário incompleto: se um pacote guardado na rodada anterior não voltou, o achado pode estar só
+            # parcialmente visível, e não rebaixa. A comparação é por (ecossistema, pacote), sem a versão.
+            atuais = {(af.get("eco"), af.get("pacote")) for af in a["afetados"] if af.get("eco") and af.get("pacote")}
+            faltando = [tuple(p[:3]) for p in reg.get("pacotes") or [] if isinstance(p, list) and len(p) >= 2 and (p[0], p[1]) not in atuais]
+            coleta_parcial = rodada_parcial and bool(faltando)
+            if (estado == "aberto" and not coleta_parcial and not cat_erro and not reg.get("ids_incompletos")
+                    and (kev_confirmado or reg.get("estado_contrato") == ESTADO_ATUALIZACAO)):
+                # `ac` só é procurado para achado crítico; a ação do catálogo vale para qualquer severidade
+                ac_rebaixa = ac if ac is not None else acao_do_catalogo(a, catalogo)
+                if e_atualizacao_de_sistema(a, ac_rebaixa, corr):
+                    estado = ESTADO_ATUALIZACAO
             if not (pal and pal["verificado"]):
                 reg.pop("paliativo_aplicado", None)   # alguém voltou a configuração: o que a ronda aplicou deixou de valer
             elif aplicado is None and reg.get("paliativo_aplicado") and isinstance(reg.get("aplicado"), dict):
@@ -3444,12 +3460,17 @@ def _rodada(cfg, sem_avisar):
             reg["ultimo"] = o
             pacotes = {(af.get("eco"), af.get("pacote"), str(af.get("versao") or "")) for af in a["afetados"] if af.get("eco") and af.get("pacote")}
             if coleta_parcial:
-                pacotes |= {tuple(x) for x in reg.get("pacotes") or []}   # o que a leitura incompleta não trouxe continua guardado
+                # o que a leitura incompleta não trouxe continua guardado (com a versão antiga) e não pode ser o cortado pelo limite
+                guardados = sorted(set(faltando))[:40]
+                pacotes = set(guardados) | set(sorted(pacotes)[:40 - len(guardados)])
             reg["pacotes"] = [list(x) for x in sorted(pacotes)[:40]]
-            reg["ids_osv"] = une_ids_osv(reg.get("ids_osv"), {a["id"].upper(), str(a["key"]).upper()} | {str(x).upper() for x in a["aliases"]})
+            reg["ids_osv"], cortou = une_ids_osv_com_corte(reg.get("ids_osv"), {a["id"].upper(), str(a["key"]).upper()} | {str(x).upper() for x in a["aliases"]})
+            if cortou:
+                reg["ids_incompletos"] = True
+            else:
+                reg.pop("ids_incompletos", None)
             resultado.append(o)
         kev_atual = ctx["kev"] if kev_confirmado else {}
-        parcial_fontes = [n for n, s in status.items() if not s.get("desligada") and not s["ok"]]
         # o que sumiu: corrigido; mas se uma fonte falhou nesta rodada, o sumiço pode ser só da fonte, e o achado segue na lista.
         # Vale igual para o inventário local: componente de um agente cuja coleta ficou incompleta pode ter sumido só da leitura.
         for aid, reg in list(reg_all.items()):

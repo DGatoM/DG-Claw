@@ -478,6 +478,67 @@ class DadoDeAgente(Base):
         self.assertTrue(any(x[1] == "foo-mcp" for x in pacotes), "o pacote do agente continua guardado")
         self.assertTrue(any(x[1] == "openssl" for x in pacotes))
 
+    def inventario_do_agente_falha(self):
+        self.escreve(self.casa(".claude.json"), json.dumps({"mcpServers": ["invalido"]}))
+        self.escreve(self.casa(".claude", "settings.json"), json.dumps({"enabledPlugins": [1], "mcpServers": ["invalido"]}))
+        self.escreve(self.casa(".claude", "plugins", "installed_plugins.json"), json.dumps({"plugins": ["x"]}))
+        self.ronda("inventariar")
+
+    def test_achado_misto_continua_sem_rebaixar_na_segunda_rodada_seguida_com_o_agente_incompleto(self):
+        vid = "UBUNTU-CVE-2026-88889"
+        r = reg_ubuntu(vid, "CVE-2026-88889", "openssl", "3.0.13-0ubuntu3.6", prio="critical")
+        r["affected"].append({"package": {"ecosystem": "npm", "name": "foo-mcp"}, "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "1.0.1"}]}]})
+        S["osv_paginas"][f"{ECO}|openssl|3.0.13-0ubuntu3.4"] = [[vid]]
+        S["osv_paginas"]["npm|foo-mcp|1.0.0"] = [[vid]]
+        S["osv_vulns"][vid] = r
+        self.escreve(os.path.join(self.stub, "apt_candidatos.txt"), "openssl\t3.0.13-0ubuntu3.6\n")
+        self.agente_com_mcp("x", "foo-mcp@1.0.0")
+        self.ronda("executar", "--sem-avisar")
+        self.inventario_do_agente_falha()
+        for rodada in (2, 3):
+            self.ronda("executar", "--sem-avisar")
+            self.assertEqual(self.achado(vid)["estado"], "aberto", f"rodada {rodada}: o agente segue sem leitura")
+            self.assertTrue(any(x[1] == "foo-mcp" for x in self.registro_de(vid)["pacotes"]), f"rodada {rodada}")
+
+    def test_pacote_npm_guardado_impede_o_rebaixamento_quando_o_osv_cai(self):
+        usn = "USN-9998-1"
+        r = reg_ubuntu(usn, "CVE-2026-88890", "openssl", "3.0.13-0ubuntu3.6")
+        r["affected"].append({"package": {"ecosystem": "npm", "name": "foo-mcp"}, "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "1.0.1"}]}]})
+        S["osv_paginas"][f"{ECO}|openssl|3.0.13-0ubuntu3.4"] = [[usn]]
+        S["osv_paginas"]["npm|foo-mcp|1.0.0"] = [[usn]]
+        S["osv_vulns"][usn] = r
+        self.escreve(os.path.join(self.stub, "apt_candidatos.txt"), "openssl\t3.0.13-0ubuntu3.6\n")
+        self.agente_com_mcp("x", "foo-mcp@1.0.0")
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(usn)["estado"], "aberto")
+        S["fora"].add("osv")
+        S["gh_commits"] = ["a" * 40]
+        S["gh_commit_files"]["a" * 40] = [f"osv/usn/{usn}.json"]
+        S["usn"][f"osv/usn/{usn}.json"] = {
+            "id": usn, "summary": "OpenSSL vulnerabilities", "details": "Falha no OpenSSL.", "published": "2026-10-28T00:00:00Z", "upstream": ["CVE-2026-88890"],
+            "affected": [{"package": {"ecosystem": ECO, "name": "openssl"}, "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "3.0.13-0ubuntu3.6"}]}],
+                          "ecosystem_specific": {"binaries": [{"binary_name": "openssl"}]},
+                          "database_specific": {"cves_map": {"cves": [{"id": "CVE-2026-88890", "severity": [{"type": "Ubuntu", "score": "high"}]}]}}}]}
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(usn)["estado"], "aberto", "a parte npm sumiu só porque o OSV caiu")
+        self.assertTrue(any(x[1] == "foo-mcp" for x in self.registro_de(usn)["pacotes"]))
+
+    def test_achado_so_do_host_com_versao_nova_ainda_pode_ser_rebaixado_com_fonte_fora(self):
+        vid = "UBUNTU-CVE-2026-88891"
+        S["osv_paginas"][f"{ECO}|openssl|3.0.13-0ubuntu3.4"] = [[vid]]
+        S["osv_vulns"][vid] = reg_ubuntu(vid, "CVE-2026-88891", "openssl", "3.0.13-0ubuntu3.7", prio="critical")
+        self.escreve(os.path.join(self.stub, "apt_candidatos.txt"), "openssl\t3.0.13-0ubuntu3.7\n")
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(vid)["estado"], "atualizacao-sistema")
+        with open(os.path.join(self.stub, "dpkg.txt"), encoding="utf-8") as f:
+            txt = f.read()
+        self.escreve(os.path.join(self.stub, "dpkg.txt"), txt.replace("3.0.13-0ubuntu3.4", "3.0.13-0ubuntu3.5"))
+        S["osv_paginas"][f"{ECO}|openssl|3.0.13-0ubuntu3.5"] = [[vid]]
+        S["fora"].add("hn")   # uma fonte fora deixa a rodada parcial
+        self.ronda("executar", "--sem-avisar")
+        a = self.achado(vid)
+        self.assertEqual(a["estado"], "atualizacao-sistema", "a versão do mesmo pacote mudou: a comparação é sem a versão")
+
     def test_pacote_e_versao_fora_do_formato_nao_entram(self):
         self.agente_com_mcp("x", "Foo_Mcp;id@1.0.0")
         inv = self.ronda("inventariar")
@@ -1792,7 +1853,7 @@ class Paliativos(Base):
         spec = importlib.util.spec_from_file_location("ronda_motor", RONDA)
         ronda = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(ronda)
-        uniao = ronda.une_ids_osv(antigos, novos)
+        uniao = ronda.une_ids_osv(antigos, novos, teto=60)
         self.assertEqual(len(uniao), 60)
         self.assertTrue(all(c in uniao for c in antigos))
         self.assertEqual(ronda.une_ids_osv(["CVE-2026-0001"], {"USN-1-1"}), ["CVE-2026-0001", "USN-1-1"])
@@ -1866,14 +1927,57 @@ class Paliativos(Base):
         self.assertEqual(estados[0], ("atualizacao-sistema", 2, None), "a CVE antiga não torna a reincidência explorada")
         self.assertEqual(estados[0], estados[1], "entradas idênticas, mesmo estado")
 
+    def test_usn_com_mais_de_60_cves_nao_perde_a_cve_do_kev(self):
+        usn = "USN-7778-1"
+        cves = [f"CVE-2026-{10000 + n}" for n in range(61)]
+        r = reg_ubuntu(usn, cves[0], "linux", "6.8.0-149.149", prio="critical")
+        r["aliases"] = list(cves)
+        S["osv_paginas"][f"{ECO}|linux|6.8.0-147.153"] = [[usn]]
+        S["osv_vulns"][usn] = r
+        self.meta("6.8.0-149.149")
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(usn)["estado"], "atualizacao-sistema")
+        S["osv_vulns"][usn]["aliases"] = []
+        S["kev"] = [{"cveID": max(cves), "dateAdded": "2026-10-20"}]
+        self.ronda("executar", "--sem-avisar")
+        a = self.achado(usn)
+        self.assertEqual((a["estado"], a["nivel"], a.get("explorada_ativamente")), ("aberto", 2, True))
+
+    def test_texto_promovido_por_kev_de_correcao_que_nao_e_apt_mantem_a_orientacao(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("ronda_motor", RONDA)
+        ronda = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ronda)
+        t = ronda.texto_promovido_por_kev({"correcao": {"tipo": "atualizar-dgclaw", "disponivel": True},
+                                           "como_corrigir": "Peça ao Admin para atualizar o DG Claw."})
+        self.assertIn("atualizar o DG Claw", t)
+        self.assertNotIn("atualizar o sistema", t)
+        self.assertNotIn("apt", t)
+
+    def test_catalogo_ilegivel_nao_rebaixa_para_atualizacao_do_sistema(self):
+        self.escreve(self.p("opt/dgclaw/app/seguranca/acoes-permitidas.json"), "{ isto não é json")
+        self.prepara_kernel_com_correcao_no_apt("critical")
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(self.ID)["estado"], "aberto", "sem ler o catálogo não dá para provar que não há ação")
+
+    def test_achado_medium_com_acao_no_catalogo_nao_vira_atualizacao_do_sistema(self):
+        self.escreve(self.p("opt/dgclaw/app/seguranca/acoes-permitidas.json"), {"versao": 1, "acoes": [
+            {"id": "sysctl-x", "tipo": "sysctl", "descricao": "Ajustar um parâmetro do kernel", "chave": "net.mptcp.enabled", "valor": "0",
+             "casa": {"ids": ["CVE-2026-98432"]}, "exige_reinicio": False}]})
+        self.prepara_kernel_com_correcao_no_apt("medium")
+        self.ronda("executar", "--sem-avisar")
+        a = self.achado(self.ID)
+        self.assertIsNotNone(a)
+        self.assertNotEqual(a["estado"], "atualizacao-sistema")
+
     def test_texto_promovido_por_kev_fala_de_reinicio_so_quando_a_correcao_exige(self):
         import importlib.util
         spec = importlib.util.spec_from_file_location("ronda_motor", RONDA)
         ronda = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(ronda)
-        com = ronda.texto_promovido_por_kev({"correcao": {"disponivel": True, "exige_reinicio": True}})
+        com = ronda.texto_promovido_por_kev({"correcao": {"tipo": "apt", "disponivel": True, "exige_reinicio": True}})
         self.assertIn("atualizar o sistema agora e depois reiniciar o servidor para o kernel novo valer.", com)
-        sem = ronda.texto_promovido_por_kev({"correcao": {"disponivel": True}})
+        sem = ronda.texto_promovido_por_kev({"correcao": {"tipo": "apt", "disponivel": True}})
         self.assertNotIn("reiniciar o servidor", sem)
 
     def test_so_os_ids_nomeados_no_recado_recebem_avisado_em(self):
