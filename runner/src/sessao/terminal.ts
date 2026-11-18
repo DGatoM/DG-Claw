@@ -9,6 +9,7 @@ import { ehDialogoDeBypass, ehDialogoDeConfiancaDoClaude, pastaDoDialogoDeConfia
 
 const JANELA_DA_INTERRUPCAO_MS = 10_000;
 const INTERVALO_DA_VIGIA_MS = 500;
+const SILENCIO_DO_MOTOR_ANTES_DA_FILA_MS = 1_000;
 
 /**
  * Depois de um Esc do Parar nenhum dos dois motores dispara um fim de turno que o runner use, então o status
@@ -21,21 +22,30 @@ const INTERVALO_DA_VIGIA_MS = 500;
  * horário do primeiro Esc. Sem a prova no prazo: log.aviso e o status fica como estava.
  */
 export function vigiarInterrupcao(s: Sessao, desdeMs: number): void {
-  if (s.vigiaInterrupcao && s.vigiaInterrupcao.proc === s.proc && !s.vigiaInterrupcao.confirmada) return;
+  const atual = s.vigiaInterrupcao;
+  if (atual && atual.proc === s.proc && !atual.confirmada) {
+    // Segundo Parar: o horário do primeiro Esc continua sendo o limite inferior da prova, mas o prazo de 10 s conta do Esc novo.
+    armarPrazoDaVigia(s, atual);
+    return;
+  }
   desarmarVigiaDaInterrupcao(s);
-  const proc = s.proc;
-  const timer = setTimeout(() => {
-    if (s.vigiaInterrupcao?.timer !== timer) return;
-    desarmarVigiaDaInterrupcao(s);
-    log.aviso(s.a("entrada"), `Esc enviado pelo Parar, mas não vi a confirmação da interrupção em ${JANELA_DA_INTERRUPCAO_MS / 1000} s; o status continua ${s.estado.status}`);
-  }, JANELA_DA_INTERRUPCAO_MS);
-  timer.unref();
-  const v = { proc, timer, desdeMs, poll: null as NodeJS.Timeout | null, confirmada: false };
+  const v = { proc: s.proc, timer: null as unknown as NodeJS.Timeout, desdeMs, poll: null as NodeJS.Timeout | null, confirmada: false };
   s.vigiaInterrupcao = v;
+  armarPrazoDaVigia(s, v);
   if (s.motor.provedor === "claude") {
     v.poll = setInterval(() => conferirTranscriptDaVigia(s, v), INTERVALO_DA_VIGIA_MS);
     v.poll.unref();
   }
+}
+
+function armarPrazoDaVigia(s: Sessao, v: NonNullable<Sessao["vigiaInterrupcao"]>): void {
+  clearTimeout(v.timer);
+  v.timer = setTimeout(() => {
+    if (s.vigiaInterrupcao !== v) return;
+    desarmarVigiaDaInterrupcao(s);
+    log.aviso(s.a("entrada"), `Esc enviado pelo Parar, mas não vi a confirmação da interrupção em ${JANELA_DA_INTERRUPCAO_MS / 1000} s; o status continua ${s.estado.status}`);
+  }, JANELA_DA_INTERRUPCAO_MS);
+  v.timer.unref();
 }
 
 export function desarmarVigiaDaInterrupcao(s: Sessao): void {
@@ -56,12 +66,20 @@ function concluirInterrupcao(s: Sessao, v: NonNullable<Sessao["vigiaInterrupcao"
   cancelarStopPendente(s);
   s.mudar({ status: "idle", hookLatched: true, currentTool: null, statusReason: "runner:interrompido" });
   log.info(s.a("entrada"), `interrupção confirmada pelo registro do motor (${como}): o agente voltou a idle`);
-  setImmediate(() => {
-    const mesma = s.vigiaInterrupcao === v && s.proc === v.proc && s.estado.status === "idle";
-    desarmarVigiaDaInterrupcao(s);
-    // Mudou algo no meio (um turno novo começou, o PTY trocou): o Stop/idle normal cuida da fila depois.
-    if (mesma) talvezSoltarFila(s);
-  });
+  // A fila só sai depois de 1 s sem nenhum evento novo do motor (hook ou rollout): um turno novo no lote seguinte
+  // reinicia a espera ou desarma a vigia. No fim, reconfere status idle, mesmo PTY e mesma vigia.
+  const esperar = (vistos: number): void => {
+    const t = setTimeout(() => {
+      if (s.vigiaInterrupcao !== v) return;
+      if (s.eventosDoMotor !== vistos) { esperar(s.eventosDoMotor); return; }
+      const mesma = s.proc === v.proc && s.estado.status === "idle";
+      desarmarVigiaDaInterrupcao(s);
+      // Mudou algo no meio (um turno novo começou, o PTY trocou): o Stop/idle normal cuida da fila depois.
+      if (mesma) talvezSoltarFila(s);
+    }, SILENCIO_DO_MOTOR_ANTES_DA_FILA_MS);
+    t.unref();
+  };
+  esperar(s.eventosDoMotor);
 }
 
 function falhaDaVigia(s: Sessao, onde: string, err: unknown): void {

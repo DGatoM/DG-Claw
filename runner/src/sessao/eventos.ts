@@ -38,6 +38,7 @@ export function receberHook(s: Sessao, payload: PayloadDeHook): { ok: boolean; m
 
 /** O efeito de um evento de status já autenticado (vindo do hook ou do rollout do Codex). */
 export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolean; motivo?: string } {
+  s.eventosDoMotor += 1;
   // O session_id do evento é a fonte mais confiável que existe: vem do próprio
   // CLI. É assim que o runner descobre quando o agente trocou de sessão por
   // dentro (um `/resume` digitado no TUI), caso em que o id que guardamos

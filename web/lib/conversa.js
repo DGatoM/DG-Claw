@@ -760,7 +760,6 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
   }
 
   /** Texto vindo do runner que entra no log: sem caracteres de controle nem quebra de linha, e curto. */
-  const paraLog = (t) => String(t === undefined || t === null ? '' : t).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').slice(0, 300);
   const STATUS_CONHECIDOS = new Set(['spawning', 'working', 'waiting_input', 'idle', 'completed', 'errored', 'stopped', 'resumable']);
 
   /**
@@ -769,15 +768,16 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
    * Devolve { status, corpo } com motivo e o que fazer em toda falha.
    */
   async function parar(agente, quem) {
+    // Nada do texto do cliente HTTP (r.erro, que pode trazer a URL do runner) entra no log nem na resposta.
     const incerto = (porque) => {
-      log('erro', `Parar ${agente.slug} (por ${quem}): não sei se o pedido chegou: ${paraLog(porque)}`);
-      return erro(504, `Não sei se o pedido de parar chegou ao runner de ${agente.nome} (${paraLog(porque)}). Olhe a conversa antes de apertar de novo: dois Esc seguidos podem travar a sessão.`, { codigo: 'INCERTO' });
+      log('erro', `Parar ${agente.slug} (por ${quem}): não sei se o pedido chegou (${porque}).`);
+      return erro(504, `Não sei se o pedido de parar chegou ao runner de ${agente.nome} (${porque}). Olhe a conversa antes de apertar de novo: dois Esc seguidos podem travar a sessão.`, { codigo: 'INCERTO' });
     };
     const r = await runner.pedir(agente, 'POST', `/api/agents/${encodeURIComponent(agente.agente_id)}/interromper`, null, 10000, { maxBytes: 16 * 1024, prazoMs: 10000 });
     if (r.erro) {
-      if (!r.antesDoEnvio) return incerto(r.erro);
-      log('erro', `Parar ${agente.slug} (por ${quem}): ${paraLog(r.erro)}`);
-      return erro(503, `${r.erro} O pedido de parar não foi enviado. Tente de novo.`, { codigo: 'RUNNER_FORA' });
+      if (!r.antesDoEnvio) return incerto('a conexão caiu, a resposta foi cortada ou passou do prazo');
+      log('erro', `Parar ${agente.slug} (por ${quem}): não consegui falar com o runner; o pedido não foi enviado.`);
+      return erro(503, `Não consegui falar com o runner de ${agente.nome}. O pedido de parar não foi enviado. Tente de novo.`, { codigo: 'RUNNER_FORA' });
     }
     const c = r.corpo && typeof r.corpo === 'object' ? r.corpo : {};
     if (r.status === 404) {
@@ -794,7 +794,7 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
       // Nada de texto livre do runner (error, howToFix) no log nem na resposta: só o status HTTP e um `code` de lista fechada.
       const CONHECIDOS = ['NO_PTY', 'ESPERANDO_DECISAO', 'NAO_TRABALHANDO', 'MUITO_RAPIDO', 'RESPOSTA_EM_ANDAMENTO'];
       const code = typeof c.code === 'string' && CONHECIDOS.includes(c.code) ? c.code : null;
-      const codeLog = code || (typeof c.code === 'string' && /^[A-Z_]{1,40}$/.test(c.code) ? c.code : 'código desconhecido');
+      const codeLog = code || 'código desconhecido';
       log('aviso', `Parar ${agente.slug} (por ${quem}) recusado pelo runner (HTTP ${r.status}, ${codeLog}).`);
       if (r.status === 409 && code === 'NO_PTY') {
         return erro(409, `${agente.nome} não tem sessão aberta agora, então não há o que parar.`, { codigo: 'NO_PTY' });

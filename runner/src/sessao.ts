@@ -121,6 +121,8 @@ export class Sessao extends EventEmitter {
   readonly pausaTeclaPerguntaMs: number;
   /** true enquanto responderPergunta digita: ninguém mais escreve tecla crua nem permissão nesse intervalo. */
   respondendoPergunta = false;
+  /** Quantos eventos do motor (hook ou rollout) já chegaram; a soltura da fila depois do Parar espera que parem de chegar. */
+  eventosDoMotor = 0;
   /** Depois de um Esc do Parar: espera o registro do motor que prova a interrupção (ver vigiarInterrupcao). */
   vigiaInterrupcao: { proc: unknown; timer: NodeJS.Timeout; desdeMs: number; poll: NodeJS.Timeout | null; confirmada: boolean } | null = null;
   /** Relógio da trava do Esc (trocável nos testes). */

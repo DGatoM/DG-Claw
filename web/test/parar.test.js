@@ -250,3 +250,30 @@ test('parar: texto livre do runner (com credencial) não aparece no log nem na r
     assert.doesNotMatch(r.texto, /xyz-segredo/);
   } finally { await s2.fechar(); }
 });
+
+test('parar: URL do runner com usuário:senha fora do ar não vaza no log nem na resposta', async () => {
+  const runner = criarRunnerFalso({ agenteId: 'ana1' });
+  const porta = await runner.ouvir();
+  const agentes = [{ slug: 'ana', nome: 'Ana', tipo: 'agente', runner: `http://usuario:sup3rsenha@127.0.0.1:${porta}`, agente_id: 'ana1', chat_id: 'c_ana', provedor: 'claude', modelo: 'sonnet', transcripts_dir: pastaTemp('tr'), home_host: pastaTemp('home') }];
+  const t = await subirWeb({ agentes, opcoesServidor: { tickSseMs: 60 } });
+  try {
+    await t.login();
+    await runner.fechar();
+    const r = await t.c.post('/api/v1/agents/ana/parar', { json: {} });
+    assert.ok([503, 504].includes(r.status), r.texto);
+    assert.doesNotMatch(r.texto, /sup3rsenha|usuario:/);
+    assert.doesNotMatch(t.log.texto(), /sup3rsenha|usuario:/);
+    assert.match(t.log.texto(), /Parar ana/);
+  } finally { await t.fechar(); }
+});
+
+test('parar: code fora da lista fechada vira "código desconhecido" e não é repassado', async () => {
+  const s = await cenario({ falhaInterromper: { status: 500, corpo: { success: false, code: 'SEGREDO_INTERNO' } } });
+  try {
+    const r = await para(s);
+    assert.equal(r.status, 502);
+    assert.doesNotMatch(r.texto, /SEGREDO_INTERNO/);
+    assert.doesNotMatch(s.t.log.texto(), /SEGREDO_INTERNO/);
+    assert.match(s.t.log.texto(), /código desconhecido/);
+  } finally { await s.fechar(); }
+});

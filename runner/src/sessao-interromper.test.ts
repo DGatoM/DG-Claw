@@ -309,12 +309,14 @@ test("segundo Parar com a vigia armada não troca a vigia: vale o horário do pr
   assert.equal(s.interromper().ok, true);
   const v = s.vigiaInterrupcao!;
   const desde = v.desdeMs;
+  const timerAntes = v.timer;
   await new Promise((r) => setTimeout(r, 20));
   rel.t += 3500;
   assert.equal(s.interromper().ok, true);
   assert.equal(escritas.length, 2);
   assert.equal(s.vigiaInterrupcao, v);
   assert.equal(s.vigiaInterrupcao!.desdeMs, desde);
+  assert.notEqual(s.vigiaInterrupcao!.timer, timerAntes, "o prazo de 10 s foi renovado a partir do Esc novo");
   desarmarVigia(s);
 });
 
@@ -342,9 +344,10 @@ test("Codex: lote com aborto seguido de início de turno NÃO solta a fila", asy
   assert.equal(s.interromper().ok, true);
   s.enfileirarQuandoOcioso("não pode sair");
   assert.equal(confirmarInterrupcaoDoRollout(s, Date.now() + 10), true);
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(escritas.some((t) => t.includes("não pode sair")), false, "ainda dentro do silêncio de 1 s");
   aplicarEvento(s, { event: "UserPromptSubmit" } as never);
-  await new Promise((r) => setImmediate(r));
-  await new Promise((r) => setTimeout(r, 50));
+  await new Promise((r) => setTimeout(r, 1300));
   assert.equal(s.estado.status, "working");
   assert.equal(escritas.some((t) => t.includes("não pode sair")), false);
   assert.equal(s.vigiaInterrupcao, null);

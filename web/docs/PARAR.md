@@ -89,10 +89,11 @@ redesenho pode repetir um "Interrupted" antigo):
   assim, não vale.
 - **Codex:** o rollout da sessão registra `turn_aborted` (ou `task_aborted`) com horário igual ou posterior ao mesmo instante.
 
-Com a prova, o runner passa o agente para `idle` (motivo `runner:interrompido`) e só então solta a fila, depois do lote de
-eventos em curso e só se nada mudou nesse meio tempo (ainda `idle`, mesmo terminal, mesma espera). A espera é desarmada
+Com a prova, o runner passa o agente para `idle` (motivo `runner:interrompido`) e só solta a fila depois de 1 s sem nenhum
+evento novo do motor (chegou evento: a espera recomeça), e só se nada mudou nesse meio tempo (ainda `idle`, mesmo terminal,
+mesma espera). A espera é desarmada
 quando começa um turno novo, quando o terminal muda ou ao fim dos 10 s (o log do runner avisa que a confirmação não foi vista e o estado
-fica como estava). Um segundo Parar com a espera ainda armada não a troca: vale o horário do primeiro Esc. Registro do
+fica como estava). Um segundo Parar com a espera ainda armada não a troca: o horário do primeiro Esc continua sendo o limite inferior da prova, e o prazo de 10 s passa a contar do Esc novo. Registro do
 transcript que não é um objeto (linha `null`, número, lista) ou que não é JSON é ignorado, e uma falha dentro da espera só
 gera aviso e a desarma.
 
