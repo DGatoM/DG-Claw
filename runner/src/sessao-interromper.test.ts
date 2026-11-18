@@ -243,6 +243,17 @@ test("Claude: depois do Esc, o marcador 'Interrupted' (com ANSI) leva a idle e s
   assert.equal(s.vigiaInterrupcao, null);
 });
 
+test("Claude: a palavra 'interrupted' solta (na resposta do agente) não basta", async () => {
+  const s = await nova();
+  falso(s);
+  s.estado.status = "working";
+  assert.equal(s.interromper().ok, true);
+  PROCESSA(s, "o download foi interrupted pela rede");
+  assert.equal(s.estado.status, "working");
+  PROCESSA(s, "\u23bf  Interrupted \u00b7 What should Claude do instead?");
+  assert.equal(s.estado.status, "idle");
+});
+
 test("Codex: 'Conversation interrupted' depois do Esc leva a idle; 'Interrupted' solto não basta", async () => {
   const s = await nova();
   falso(s);

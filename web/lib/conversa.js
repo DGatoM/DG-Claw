@@ -719,6 +719,10 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
         return erro(409, `A pergunta de ${agente.nome} já recebeu teclas pelo terminal desde que abriu; a resposta pelo chat poderia cair na etapa errada. Nada foi enviado.`,
           { howToFix: 'Termine a resposta pelo terminal, na aba Sessões.', codigo: 'PERGUNTA_JA_MEXIDA' });
       }
+      if (r.status === 429 && r.corpo && r.corpo.code === 'MUITO_RAPIDO') {
+        const espere = typeof r.corpo.espereS === 'number' ? r.corpo.espereS : null;
+        return erro(429, `Espere${espere !== null ? ` ${espere} s` : ' um pouco'} para cancelar a pergunta. ${motivo}`, { codigo: 'MUITO_RAPIDO', espere_s: espere });
+      }
       return erro(r.status === 409 ? 409 : 502, `O runner de ${agente.nome} não aplicou a resposta: ${motivo}`);
     }
     const tamanhoTexto = c.cancelar === true ? 0 : c.respostas.reduce((t, r) => t + (typeof r.texto === 'string' ? r.texto.length : 0), 0);

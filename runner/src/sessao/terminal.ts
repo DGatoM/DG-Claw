@@ -35,7 +35,8 @@ function olharInterrupcao(s: Sessao, dados: string): void {
   if (!v) return;
   if (v.proc !== s.proc) { desarmarVigiaDaInterrupcao(s); return; }
   v.texto = (v.texto + semAnsi(dados)).slice(-4_096);
-  const marcador = s.motor.provedor === "codex" ? /conversation interrupted/i : /interrupted/i;
+  // Claude: a linha "Interrupted · What should Claude do instead?" (a palavra solta pode estar na própria resposta).
+  const marcador = s.motor.provedor === "codex" ? /conversation interrupted/i : /interrupted[^a-z]{0,20}what should/i;
   if (!marcador.test(v.texto)) return;
   desarmarVigiaDaInterrupcao(s);
   if (s.estado.status !== "working") return;
