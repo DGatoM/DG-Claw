@@ -66,3 +66,11 @@ test('clique fora usa composedPath; ler e contínua nascem em #tools e o convers
   assert.ok(html.indexOf('<script src="/conversa.js">') > html.indexOf('<script src="/sigilo.js">'), 'o conversa.js move depois do sigilo.js');
   assert.match(js, /menuVoz\.append\(btnLer, btnContinua\)/);
 });
+
+test('o toque fora do quadro da Voz é tratado na captura e consumido (não revela balão mascarado)', () => {
+  const i = js.indexOf('// captura: o toque de fora fecha o quadro');
+  assert.ok(i > 0);
+  const bloco = js.slice(i, js.indexOf('}, true);', i) + 9);
+  assert.match(bloco, /ev\.preventDefault\(\); ev\.stopPropagation\(\);/);
+  assert.match(bloco, /}, true\);$/);
+});

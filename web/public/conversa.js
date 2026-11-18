@@ -4842,11 +4842,16 @@ if (btnVoz && menuVoz) {
   document.addEventListener('keydown', ev => {
     if (ev.key === 'Escape' && !menuVoz.hidden) { ev.stopPropagation(); abreMenuVoz(false, true); }
   });
+  // captura: o toque de fora fecha o quadro e é consumido, para não acionar o que está embaixo
+  // (por exemplo, revelar um balão mascarado pelo modo escondido)
   document.addEventListener('click', ev => {
+    if (menuVoz.hidden) return;
     // composedPath: pintaLer/pintaContinua trocam o innerHTML e o span tocado já saiu do DOM
     const caminho = ev.composedPath();
-    if (!menuVoz.hidden && !caminho.includes(menuVoz) && !caminho.includes(btnVoz)) abreMenuVoz(false);
-  });
+    if (caminho.includes(menuVoz) || caminho.includes(btnVoz)) return;
+    ev.preventDefault(); ev.stopPropagation();
+    abreMenuVoz(false);
+  }, true);
   window.addEventListener('resize', () => { if (!menuVoz.hidden) posicionaMenuVoz(); });
 }
 
