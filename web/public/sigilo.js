@@ -429,7 +429,7 @@
       const l = btn.querySelector('.lbl'); if (l) l.textContent = ligado ? 'escondido' : 'mostrando';
       // sem texto em tela larga: o estado também aparece no ícone, no title e no aria-label
       const u = btn.querySelector('use'); if (u) u.setAttribute('href', '/ds/icones.svg#' + (ligado ? 'i-eye-off' : 'i-eye'));
-      const nome = ligado ? 'Dados escondidos: toque para mostrar' : 'Dados à mostra: toque para esconder';
+      const nome = ligado ? 'Modo escondido ligado: toque para desligar' : 'Modo escondido desligado: toque para ligar';
       btn.title = nome; btn.setAttribute('aria-label', nome);
     }
     function pintaAviso() {
