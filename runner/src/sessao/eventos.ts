@@ -66,6 +66,7 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       // dias assim (02/09 a 11/09/2026) com o /api/saude dizendo ok. Se o compact
       // foi o automático no meio de um turno, o PreToolUse seguinte cancela.
       if (payload.source === "compact") {
+        s.compactando = null;
         log.info(s.a("hook"), "fim do compact (SessionStart source=compact): volto para idle depois da janela quieta");
         agendarStop(s);
       }
@@ -145,6 +146,7 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       // devolve o agente para idle é o SessionStart source=compact, lá em cima.
       cancelarStopPendente(s);
       s.compactsIniciados += 1;
+      s.compactando = s.proc;
       s.mudar({ status: "working", hookLatched: false, statusReason: "hook:PreCompact" });
       break;
     case "Stop":

@@ -125,6 +125,8 @@ export class Sessao extends EventEmitter {
   agora: () => number = () => Date.now();
   /** Quando o último Esc foi escrito no PTY (por /interromper ou pela permissão negada); 0 = nunca. */
   ultimoEscEm = 0;
+  /** O PTY que está compactando (liga no PreCompact, desliga no SessionStart source=compact, em idle ou na troca de processo). */
+  compactando: unknown = null;
   /** O Esc pendente do turno (o PRIMEIRO, de qualquer origem; os seguintes não sobrescrevem): só com ele o transcript prova uma interrupção. Cai quando o turno termina ou outro começa. */
   ultimoEscReal: { em: number; proc: unknown } | null = null;
   /**
@@ -623,7 +625,7 @@ export class Sessao extends EventEmitter {
       return { ok: false, status: 409, code: "NAO_TRABALHANDO", erro: `O agente ${this.slug} não está trabalhando agora (status=${this.estado.status}); nada foi enviado.`, comoResolver: "esperar o agente começar um trabalho e apertar Parar de novo" };
     }
     // Compactando (o PreCompact pôs working): um Esc cortaria a compactação.
-    if (this.estado.statusReason === "hook:PreCompact") {
+    if (this.compactando !== null && this.compactando === this.proc) {
       return { ok: false, status: 409, code: "COMPACTANDO", erro: `O agente ${this.slug} está compactando a conversa; nada foi enviado.`, comoResolver: "esperar a compactação terminar e apertar Parar de novo" };
     }
     const trava = this.travaDoEsc();
@@ -739,6 +741,7 @@ export class Sessao extends EventEmitter {
     if (campos.status && campos.status !== this.estado.status && !("pendenteId" in campos)) campos = { ...campos, pendenteId: null };
     // O Esc pendente é do turno: acaba quando ele termina (idle) e quando outro começa (working vindo de outro estado).
     if (campos.status === "idle" || (campos.status === "working" && this.estado.status !== "working")) this.ultimoEscReal = null;
+    if (campos.status === "idle") this.compactando = null;
     Object.assign(this.estado, campos, { updatedAt: Date.now() });
     if ("sessionId" in campos || "previousSessionId" in campos || "status" in campos) {
       gravarEstado(

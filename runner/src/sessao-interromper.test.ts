@@ -13,6 +13,7 @@ const { Sessao } = await import("./sessao.js");
 const { GerenteDeSessoes } = await import("./sessoes.js");
 const { criarServidor } = await import("./servidor.js");
 const { lerDescritor } = await import("./config-runner.js");
+const { aplicarEvento } = await import("./sessao/eventos.js");
 
 const servidores: Array<{ fechar(): void }> = [];
 let n = 0;
@@ -243,7 +244,7 @@ test("cancelar pergunta: um Esc só vale sozinho; [Esc, outra tecla] dá 400 TEC
 test("compactando (PreCompact): 409 COMPACTANDO e nada escrito", async () => {
   const s = await nova();
   const { escritas } = falso(s);
-  s.estado.statusReason = "hook:PreCompact";
+  aplicarEvento(s, { event: "PreCompact" } as never);
   const r = s.interromper();
   assert.equal(r.ok, false);
   if (!r.ok) {
@@ -251,6 +252,13 @@ test("compactando (PreCompact): 409 COMPACTANDO e nada escrito", async () => {
     assert.equal(r.code, "COMPACTANDO");
   }
   assert.deepEqual(escritas, []);
+  // Fim da compactação (SessionStart source=compact) e um turno novo: o Parar volta a valer.
+  aplicarEvento(s, { event: "SessionStart", source: "compact" } as never);
+  aplicarEvento(s, { event: "PreToolUse", toolName: "Bash" } as never);
+  s.agora = () => 9_000_000;
+  const depois = s.interromper();
+  assert.equal(depois.ok, true);
+  assert.deepEqual(escritas, ["\u001b"]);
 });
 
 test("cancelar pergunta: item que CONTÉM Esc (\"\\u001b1\", \"a\\u001b\") dá 400 TECLAS_INVALIDAS sem escrever nem marcar a pergunta", async () => {

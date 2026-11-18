@@ -129,6 +129,9 @@ function lerCauda(arquivo: string): string {
   }
 }
 
+/** Registros de metadados do transcript, sem conteúdo de conversa (conferidos em transcripts reais). */
+const TIPOS_DE_METADADOS = ["ai-title", "summary", "file-history-snapshot", "custom-title", "agent-name", "last-prompt", "mode", "permission-mode"];
+
 /** Os dois textos exatos que o Claude Code grava quando o Esc interrompe o turno. */
 const TEXTOS_DE_INTERRUPCAO = ["[Request interrupted by user]", "[Request interrupted by user for tool use]"];
 
@@ -177,8 +180,9 @@ export function turnoEncerradoNoTranscript(
     const rotulo = `${o.type ?? "?"}${o.subtype ? "/" + o.subtype : ""}`;
     const fimNormal = o.type === "system" && (o.subtype === "turn_duration" || o.subtype === "stop_hook_summary");
     // Esc do Parar: o Claude Code grava uma mensagem de usuário com o texto exato de interrupção e não dispara o hook Stop.
-    // Só user/assistant contam como "o que veio por último" (ai-title, summary, file-history-snapshot e afins são pulados).
-    if (!fimNormal && o.type !== "user" && o.type !== "assistant") continue;
+    // Só metadados conhecidos são pulados; qualquer outro registro depois do marcador (queue-operation, attachment, system,
+    // user, assistant...) impede a prova.
+    if (!fimNormal && typeof o.type === "string" && TIPOS_DE_METADADOS.includes(o.type)) continue;
     if (!fimNormal && !ehMensagemDeInterrupcao(o)) {
       return { encerrado: false, motivo: `última linha é ${rotulo}` };
     }

@@ -243,6 +243,17 @@ test("Stop perdido: marcador com o mesmo horário do Esc vale, e entradas ai-tit
   fs.writeFileSync(arquivo, [linha(INTERROMPIDO("[Request interrupted by user]"), em), linha({ type: "ai-title", aiTitle: "titulo" }, em + 50), linha({ type: "file-history-snapshot" }, em + 60)].join("\n") + "\n");
   await esperarAte(() => s.estado.status === "idle", 5_000, "o marcador no mesmo ms valer apesar dos tipos extras depois");
 });
+test("Stop perdido: queue-operation (ou qualquer registro não metadado) depois do marcador impede a prova", async () => {
+  const { s, hook, arquivo } = await novaComRedeCurta(600);
+  hook("UserPromptSubmit");
+  await dormir(20);
+  s.escrever("\u001b");
+  const em = s.ultimoEscReal!.em;
+  const linha = (o: Record<string, unknown>, ms: number) => JSON.stringify({ ...o, timestamp: new Date(ms).toISOString() });
+  fs.writeFileSync(arquivo, [linha(INTERROMPIDO("[Request interrupted by user]"), em + 10), linha({ type: "queue-operation", operation: "enqueue" }, em + 20)].join("\n") + "\n");
+  await dormir(2_000);
+  assert.equal(s.estado.status, "working");
+});
 test("Stop perdido: user/assistant DEPOIS do marcador, mesmo com ai-title no meio, não encerram", async () => {
   const { s, hook, arquivo } = await novaComRedeCurta(600);
   hook("UserPromptSubmit");
