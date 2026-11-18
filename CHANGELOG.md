@@ -7,6 +7,31 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Correção: card que nascia parado e agente que caía sozinho.** O serviço do runner, dentro do container, não tinha teto
+de tarefas próprio, e o systemd aplicava 15% do limite de processos que o container tinha no boot (153 com o limite
+antigo de 1024; subir o limite do container depois não mudava esse número). Ali dentro rodam o Claude principal, um
+Claude por card, os hooks, os MCPs e os renders headless, e as threads contam. Num agente em produção o teto foi batido
+várias vezes: o Claude principal abortou no meio de um trabalho (o painel ficou em "retomável", com mensagem presa na
+fila), o bash respondia "fork: retry" e o hook do runner travava no arranque, antes de armar o próprio timer. Como o
+settings dos hooks não tinha `timeout`, o Claude esperava esse hook travado pelo padrão dele, e o pedido do card ficava
+escrito na caixa sem virar turno. Foram duas mudanças. O `dgclaw-runner.service` passa a declarar `TasksMax=2400`, e
+todo hook do runner no settings ganha `timeout` de 10 s. O handler saudável termina em até 2,5 s, e a folga cobre a
+partida do node numa máquina carregada; se mesmo assim o teto encerrar um hook, o Claude registra o erro e segue o turno.
+
+**Correção: comandos do venv da imagem sumiam do agente.** A imagem põe `/opt/venv/bin` no PATH pelo `ENV` e pelo
+profile de login, mas o runner roda como serviço do systemd, que não herda nenhum dos dois. O agente não achava o
+`yt-dlp` (e o que mais vive no venv), e o setup-check das skills dizia "ausente" com ele instalado. O
+`dgclaw-runner.service` agora declara o PATH, com o venv e `~/.local/bin` no fim, para não trocar o `python3` do sistema.
+
+### Como atualizar (teto de tarefas do runner)
+
+A unidade nova entra quando o container do agente é recriado, e o `dgclaw atualizar` padrão já recria. Para corrigir um
+agente vivo sem reiniciar nada: `podman exec <container> systemctl set-property dgclaw-runner.service TasksMax=2400`.
+Isso muda só a unidade (vale na hora e sobrevive ao reinício do container); um container antigo, criado com
+`--pids-limit 1024`, continua preso a esse limite até ser recriado. O `timeout` dos hooks entra nas sessões abertas por
+um runner já atualizado. O PATH novo entra quando o container é recriado (ou num agente vivo, criando
+`/usr/local/bin/<comando>` como link para `/opt/venv/bin/<comando>`).
+
 **Correção: render de vídeo não esgota os processos do agente.** Um agente chegou a ficar mais de 30 minutos parado num
 render de vídeo porque o container tem um limite de processos (as threads contam), e o Chrome da Tela, o Claude Code e
 os Chromium novos que as tentativas de render abriam chegaram ao teto ("Resource temporarily unavailable" e "Target

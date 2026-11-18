@@ -10,6 +10,7 @@ import {
 const amb = prepararAmbiente("sessao-claude");
 const { Sessao, nonceConfere } = await import("./sessao.js");
 const { gravarProvedorJson } = await import("./provedores/escolha.js");
+const { HOOK_TIMEOUT_S } = await import("./sessao/configuracao.js");
 
 const OAI = chaveFalsaOpenai();
 const ANT = chaveFalsa();
@@ -186,6 +187,22 @@ test("AskUserQuestion: PreToolUse vira waiting_input/pergunta, a resposta (PostT
   const { s, hook } = await novaComRedeCurta(60_000);
   const settings = JSON.parse(fs.readFileSync(path.join(amb.estado, s.id, "runner-hooks", `${s.id}.settings.json`), "utf8"));
   assert.equal(settings.hooks.PostToolUse[0].matcher, "AskUserQuestion", "só a ferramenta de pergunta dispara o PostToolUse");
+  // Todo hook do runner tem teto: um node travado no arranque não pode segurar o turno pelo padrão longo do Claude.
+  // A mensagem de falha leva só o evento e o timeout (o comando tem o nonce da sessão).
+  let conferidos = 0;
+  for (const [ev, grupos] of Object.entries(settings.hooks as Record<string, { hooks: { command: string; timeout?: number }[] }[]>)) {
+    for (const grupo of grupos) {
+      for (const h of grupo.hooks) {
+        if (h.command.includes("runner-hook.mjs")) {
+          assert.equal(h.timeout, HOOK_TIMEOUT_S, `hook ${ev} do runner com timeout ${String(h.timeout)}`);
+          conferidos++;
+        } else if (h.command.includes("trava-resposta.mjs")) {
+          assert.equal(h.timeout, 10, `trava-resposta com timeout ${String(h.timeout)}`);
+        }
+      }
+    }
+  }
+  assert.equal(conferidos, 8, "os oito eventos do runner têm teto");
   hook("UserPromptSubmit");
   hook("PreToolUse", { toolName: "AskUserQuestion" });
   assert.equal(s.estado.status, "waiting_input");
