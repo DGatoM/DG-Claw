@@ -40,6 +40,14 @@ test('rótulo das versões: números iguais com commits diferentes mostram o com
   assert.equal(F.rotuloVersoes(sem), 'aaaaaaa → bbbbbbb');
 });
 
+test('rótulo das versões: commits com o mesmo começo ganham mais caracteres, até distinguir', () => {
+  const x = '0'.repeat(10) + 'a' + '1'.repeat(29), y = '0'.repeat(10) + 'b' + '1'.repeat(29);
+  const e = estado({ instalado: { commit: x, versao: '1.0.0' }, publicado: { commit: y, versao: '1.0.0' } });
+  assert.equal(F.rotuloVersoes(e), `1.0.0 (${x.slice(0, 11)}) → 1.0.0 (${y.slice(0, 11)})`);
+  const [de, para] = F.rotuloVersoes(e).split(' → ');
+  assert.notEqual(de, para);
+});
+
 test('o commit no rótulo também sai escapado na faixa', () => {
   const h = F.faixaHtml(estado({ instalado: { commit: '<b>' + A, versao: '1.0.0' }, publicado: { commit: B, versao: '1.0.0' } }));
   assert.ok(h.includes('(&lt;b&gt;aaaa)'));

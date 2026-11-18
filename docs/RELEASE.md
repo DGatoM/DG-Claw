@@ -23,13 +23,14 @@ e falando com a pessoa dona do DG Claw (o `tests/changelog` confere). Se algo ex
 atualização, a subseção `### Como atualizar` tem que estar lá.
 
 Numa branch `release/vX.Y.Z`, a partir da `main` atualizada e com a árvore limpa, troque o número em cinco
-arquivos. Nos comandos, `X.Y.Z` é a versão nova:
+arquivos. Nos comandos, `X.Y.Z` é a versão nova. Cada edição usa um temporário criado ao lado do arquivo
+(nada de nome fixo em `/tmp`) e só troca o arquivo se o `jq` terminou bem:
 
 ```bash
 printf '%s\n' "X.Y.Z" > VERSION
-jq --indent 2 --arg v "X.Y.Z" '.version = $v' runner/package.json > /tmp/runner-package.json && mv /tmp/runner-package.json runner/package.json
-jq --indent 2 --arg v "X.Y.Z" '.version = $v' panel/package.json > /tmp/panel-package.json && mv /tmp/panel-package.json panel/package.json
-jq --indent 2 --arg v "X.Y.Z" '.version = $v | .packages[""].version = $v' runner/package-lock.json > /tmp/runner-lock.json && mv /tmp/runner-lock.json runner/package-lock.json
+t="$(mktemp runner/.versao.XXXXXX)" && jq --indent 2 --arg v "X.Y.Z" '.version = $v' runner/package.json >"$t" && mv "$t" runner/package.json
+t="$(mktemp panel/.versao.XXXXXX)" && jq --indent 2 --arg v "X.Y.Z" '.version = $v' panel/package.json >"$t" && mv "$t" panel/package.json
+t="$(mktemp runner/.versao.XXXXXX)" && jq --indent 2 --arg v "X.Y.Z" '.version = $v | .packages[""].version = $v' runner/package-lock.json >"$t" && mv "$t" runner/package-lock.json
 ```
 
 No `CHANGELOG.md`, troque a linha `## [Não lançado]` por três linhas: `## [Não lançado]`, uma linha vazia e
@@ -50,26 +51,40 @@ projeto. Nenhum agente faz o merge sozinho.
 
 ### 2. Depois do merge: a tag no SHA do merge
 
-A tag vai no commit do merge aprovado, não no HEAD da `main` (que pode ter andado depois do merge):
+A tag vai no commit do merge aprovado, não no HEAD da `main` (que pode ter andado depois do merge). O bloco
+roda num subshell com `set -euo pipefail`: para na primeira conferência que falhar, sem fechar o terminal, e
+nesse caso não crie a tag.
 
 ```bash
-SHA="$(gh pr view <n> --json mergeCommit,state -q 'select(.state=="MERGED").mergeCommit.oid')"
-[[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || echo "PARE: o PR não está mergeado ou o SHA não veio"
-git fetch origin
-git merge-base --is-ancestor "$SHA" origin/main && echo "está na main"
-git cat-file -t "$SHA"            # tem que dizer: commit
-git show "$SHA":VERSION           # tem que ser X.Y.Z
-git tag -a vX.Y.Z "$SHA" -m "DG Claw X.Y.Z"
+(
+  set -euo pipefail
+  VERSAO=X.Y.Z
+  PR=<n>
+  SHA="$(gh pr view "$PR" --json mergeCommit,state -q 'select(.state=="MERGED").mergeCommit.oid')"
+  [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]                       # o PR está mergeado e o SHA veio
+  git fetch origin
+  git merge-base --is-ancestor "$SHA" origin/main      # o merge está na main
+  [ "$(git cat-file -t "$SHA")" = commit ]
+  [ "$(git show "$SHA":VERSION)" = "$VERSAO" ]         # o commit tem a versão certa
+  git tag -a "v$VERSAO" "$SHA" -m "DG Claw $VERSAO"
+  echo "tag v$VERSAO criada em $SHA"
+)
 ```
-
-Se qualquer conferência falhar, pare e não crie a tag.
 
 ### 3. Publicar a tag e a release
 
+Também para no primeiro erro. Como o subshell do passo anterior não deixa variáveis para trás, o `SHA` é lido
+de novo, da própria tag.
+
 ```bash
-git push origin vX.Y.Z
-git ls-remote origin 'refs/tags/vX.Y.Z^{}'     # tem que ser igual a "$SHA"
-gh release create vX.Y.Z --verify-tag --title "DG Claw X.Y.Z" --notes-file <arquivo>
+(
+  set -euo pipefail
+  VERSAO=X.Y.Z
+  SHA="$(git rev-parse "v$VERSAO^{commit}")"
+  git push origin "v$VERSAO"
+  [ "$(git ls-remote origin "refs/tags/v$VERSAO^{}" | cut -f1)" = "$SHA" ]   # a tag remota aponta para o SHA do merge
+  gh release create "v$VERSAO" --verify-tag --title "DG Claw $VERSAO" --notes-file <arquivo>
+)
 ```
 
 As notas saem do CHANGELOG da versão, em português técnico, sem frase de efeito.
@@ -82,7 +97,7 @@ runner e o primeiro cabeçalho lançado do CHANGELOG dizem o mesmo número. O `p
 
 Hoje a tag é **anotada** (`git tag -a`). Quando a conferência de tag assinada (PR #130, com o
 `docs/ASSINATURA.md`) entrar na `main`, a tag passa a ser assinada com a chave SSH do projeto
-(`git tag -s vX.Y.Z "$SHA" -m "DG Claw X.Y.Z"`), e **sem a chave não se publica**: não crie a tag de outro
+(no mesmo bloco do passo 2, a linha da tag vira `git tag -s "v$VERSAO" "$SHA" -m "DG Claw $VERSAO"`), e **sem a chave não se publica**: não crie a tag de outro
 jeito para contornar. Até lá, siga o passo 2 como está.
 
 ## Por que o aviso às vezes mostra o commit

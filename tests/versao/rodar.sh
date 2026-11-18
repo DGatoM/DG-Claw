@@ -34,7 +34,7 @@ valida() {
 }
 
 echo "versoes no formato X.Y.Z"
-V="$(tr -d '[:space:]' <"$REPO/VERSION")"
+V="$(<"$REPO/VERSION")"   # o $(...) tira so o fim de linha; espaco dentro do valor reprova pela regex
 valida VERSION "conteudo" "$V"
 RUNNER="$(jq -r '.version // ""' "$REPO/runner/package.json")" || { mal "runner/package.json: nao consegui ler o JSON"; fim; exit $?; }
 valida runner/package.json version "$RUNNER"

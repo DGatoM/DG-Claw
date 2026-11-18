@@ -305,8 +305,11 @@ async function versaoPublicada(repo, sha) {
  *  ("1.0.0 (abc1234) -> 1.0.0 (def5678)"). Sem número, só o commit. Entram só versão e sha já validados por regex. */
 function rotulosDasVersoes(instalado, publicado) {
   const diferentes = Boolean(instalado.versao && publicado.versao && instalado.versao !== publicado.versao);
+  // 7 caracteres; se os dois commits começam igual, aumenta (até 40) para o rótulo distinguir, nos dois lados.
+  let tam = 7;
+  while (tam < 40 && instalado.commit !== publicado.commit && instalado.commit.slice(0, tam) === publicado.commit.slice(0, tam)) tam++;
   const nome = (v) => {
-    const curto = v.commit.slice(0, 7);
+    const curto = v.commit.slice(0, tam);
     if (!v.versao) return curto;
     return diferentes ? v.versao : `${v.versao} (${curto})`;
   };

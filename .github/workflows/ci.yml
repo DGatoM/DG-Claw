@@ -87,7 +87,7 @@ jobs:
         # Troca para o espelho padrão dos runners do GitHub e instala sem os pacotes recomendados.
         run: |
           command -v ffmpeg >/dev/null && exit 0
-          sudo sed -i -E 's#https?://[a-z0-9.-]*archive\.ubuntu\.com/ubuntu#http://azure.archive.ubuntu.com/ubuntu#g' \
+          sudo sed -i -E 's#(https?)://[a-z0-9.-]*archive\.ubuntu\.com/ubuntu#\1://azure.archive.ubuntu.com/ubuntu#g' \
             /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list 2>/dev/null || true
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends ffmpeg
@@ -149,7 +149,7 @@ jobs:
         # Troca para o espelho padrão dos runners do GitHub e instala sem os pacotes recomendados.
         run: |
           command -v ffmpeg >/dev/null && exit 0
-          sudo sed -i -E 's#https?://[a-z0-9.-]*archive\.ubuntu\.com/ubuntu#http://azure.archive.ubuntu.com/ubuntu#g' \
+          sudo sed -i -E 's#(https?)://[a-z0-9.-]*archive\.ubuntu\.com/ubuntu#\1://azure.archive.ubuntu.com/ubuntu#g' \
             /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list 2>/dev/null || true
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends ffmpeg

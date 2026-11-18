@@ -22,9 +22,9 @@
 
   /* Números diferentes: só os números ("1.0.0 → 1.1.0"). Números iguais ou ausentes de um lado: o commit curto
      (7 caracteres) vai junto ("1.0.0 (abc1234) → 1.0.0 (def5678)"); sem número, só o commit. */
-  function nomeDaVersao(v, comCommit) {
+  function nomeDaVersao(v, comCommit, tam) {
     if (!v || typeof v !== 'object') return '?';
-    const curto = typeof v.commit === 'string' ? v.commit.slice(0, 7) : '';
+    const curto = typeof v.commit === 'string' ? v.commit.slice(0, tam) : '';
     if (typeof v.versao === 'string' && v.versao) return comCommit && curto ? v.versao + ' (' + curto + ')' : v.versao;
     return curto || '?';
   }
@@ -33,7 +33,11 @@
     const i = estado && estado.instalado, p = estado && estado.publicado;
     const num = v => v && typeof v.versao === 'string' && v.versao;
     const comCommit = !(num(i) && num(p) && i.versao !== p.versao);
-    return nomeDaVersao(i, comCommit) + ' → ' + nomeDaVersao(p, comCommit);
+    /* 7 caracteres; se os dois commits começam igual, aumenta (até 40) para o rótulo distinguir, nos dois lados. */
+    let tam = 7;
+    const ci = i && typeof i.commit === 'string' ? i.commit : '', cp = p && typeof p.commit === 'string' ? p.commit : '';
+    while (tam < 40 && ci && cp && ci !== cp && ci.slice(0, tam) === cp.slice(0, tam)) tam++;
+    return nomeDaVersao(i, comCommit, tam) + ' → ' + nomeDaVersao(p, comCommit, tam);
   }
 
   function novidadesHtml(lista) {

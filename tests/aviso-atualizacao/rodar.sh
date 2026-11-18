@@ -136,7 +136,7 @@ roda
 igual "segunda rodada: sai 0" 0 "$RC"
 igual "segunda rodada: sem novo recado para o mesmo commit" 1 "$(recados)"
 
-echo "a frente, com o mesmo numero de versao: o commit curto aparece dos dois lados"
+echo "a frente, com o mesmo numero de versao: o commit aparece dos dois lados (aqui so o ultimo caractere difere, entao o rotulo usa os 40)"
 raiz_nova 'DGCLAW_VERSAO=1.0.0'
 define "{compare: {status: 200, body: $(comparacao ahead 1 "$NOVO|Mudanca sem subir a versao")},
          raw: {\"VERSION\": {body: \"1.0.0\n\"}}}"
@@ -144,9 +144,20 @@ roda
 igual "sai 0" 0 "$RC"
 igual "disponivel" true "$(campo .disponivel)"
 RECADO="$(jq -r '.corpo | fromjson | .text' "$ADMINLOG")"
-tem "recado: numero e commit dos dois lados" "a instalada é 1.0.0 (${INSTALADO:0:7}) e a publicada é 1.0.0 (${NOVO:0:7})" "$RECADO"
-tem "terminal: numero e commit dos dois lados" "1.0.0 (${INSTALADO:0:7}) -> 1.0.0 (${NOVO:0:7})" "$OUT"
-tem "o log traz a mesma linha" "1.0.0 (${INSTALADO:0:7}) -> 1.0.0 (${NOVO:0:7})" "$(cat "$LOG")"
+tem "recado: numero e commit dos dois lados" "a instalada é 1.0.0 (${INSTALADO}) e a publicada é 1.0.0 (${NOVO})" "$RECADO"
+tem "terminal: numero e commit dos dois lados" "1.0.0 (${INSTALADO}) -> 1.0.0 (${NOVO})" "$OUT"
+tem "o log traz a mesma linha" "1.0.0 (${INSTALADO}) -> 1.0.0 (${NOVO})" "$(cat "$LOG")"
+
+echo "versoes iguais e commits com o mesmo comeco de 7 caracteres: o rotulo ainda distingue"
+IGUAL_A="0000000$(printf 'a%.0s' $(seq 1 33))"
+IGUAL_B="0000000$(printf 'b%.0s' $(seq 1 33))"
+raiz_nova "DGCLAW_VERSAO=1.0.0" "DGCLAW_COMMIT=$IGUAL_A"
+define "{compare: {status: 200, body: $(comparacao ahead 1 "$IGUAL_B|Mudanca")},
+         raw: {\"VERSION\": {body: \"1.0.0\n\"}}}"
+roda
+igual "sai 0" 0 "$RC"
+tem "terminal: os dois lados com 8 caracteres" "1.0.0 (0000000a) -> 1.0.0 (0000000b)" "$OUT"
+nao_tem "terminal: nao repete o mesmo rotulo" "1.0.0 (0000000) -> 1.0.0 (0000000)" "$OUT"
 
 echo "a frente, sem item novo no CHANGELOG (usa os commits)"
 raiz_nova
