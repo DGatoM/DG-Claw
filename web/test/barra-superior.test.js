@@ -58,7 +58,11 @@ test('o JS não deixa btnVoz fora de sincronia e trata Esc', () => {
   assert.match(js, /addEventListener\('wheel'[\s\S]*passive: false/);
 });
 
-test('clique fora usa composedPath e o sigilo.js vai versionado', () => {
+test('clique fora usa composedPath; sigilo.js na URL do pré-cache, com a classe aplicada antes dele', () => {
   assert.match(js, /ev\.composedPath\(\)/);
-  assert.ok(html.includes('/sigilo.js?v='));
+  // a URL tem que ser a mesma do ESTATICOS do sw.js, senão a cópia guardada não serve sem rede
+  assert.ok(html.includes('<script src="/sigilo.js"></script>'));
+  const cedo = html.indexOf("localStorage.getItem('dgclaw:sigilo')"), mod = html.indexOf('<script src="/sigilo.js">');
+  assert.ok(cedo > 0 && cedo < mod, 'a classe sigilo entra antes do sigilo.js (falha fechada)');
+  assert.ok(html.indexOf('<script src="/conversa.js">') > mod, 'o histórico só é pintado depois');
 });

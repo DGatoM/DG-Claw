@@ -198,7 +198,11 @@ if (navigator.standalone === true ||
 <script src="/onboarding.js"></script>
 <script src="/campo-cofre.js"></script>
 <script src="/barra.js"></script>
-<script src="/sigilo.js?v=2"></script>
+<!-- Falha fechada do modo escondido: a classe entra antes de qualquer mensagem ser pintada, lendo o
+     mesmo estado que o sigilo.js guarda. Se o sigilo.js não carregar, o sigilo.css continua cobrindo. -->
+<script>try { if (localStorage.getItem('dgclaw:sigilo') === '1') document.body.classList.add('sigilo'); }
+catch (e) { console.warn('modo escondido: não consegui ler o estado guardado antes da carga:', e.message); }</script>
+<script src="/sigilo.js"></script>
 <script src="/lembretes-faixa.js"></script>
 <script src="/atualizacao-faixa.js"></script>
 <script src="/ronda-comum.js"></script>
