@@ -488,7 +488,8 @@ def exec_line(c, poke: str) -> str:
     )
 
 
-def install_units(c, name: str, calendar: str | None, every: str | None, poke: str, desc: str):
+def install_units(c, name: str, calendar: str | None, every: str | None, poke: str, desc: str,
+                  edit: bool = False):
     base = unit_base(c["slug"], name)
     Path(c["unit_dir"]).mkdir(parents=True, exist_ok=True)
     svc = Path(c["unit_dir"]) / f"{base}.service"
@@ -532,15 +533,44 @@ def install_units(c, name: str, calendar: str | None, every: str | None, poke: s
 
     run(["systemctl", "daemon-reload"])
     run(["systemctl", "enable", "--now", f"{base}.timer"])
-    # No `edit` o timer ja esta ativo, e `enable --now` nao mexe em timer ativo: o systemd seguia
-    # com o horario antigo (proximo disparo vazio) e a rotina remarcada nao rodava. O restart
-    # rearma o timer com o arquivo novo; na criacao e inofensivo.
-    run(["systemctl", "restart", f"{base}.timer"])
+    if edit:
+        rearmar_se_preciso(base)
+
+
+def tem_proximo_disparo(base: str):
+    """True/False conforme o systemd mostra (ou nao) o proximo disparo do timer; None se nao deu
+    para perguntar (systemctl show falhou). None nunca vira False: nao medido nao e "sem disparo"."""
     r = run(["systemctl", "show", f"{base}.timer", "-p", "NextElapseUSecRealtime",
              "-p", "NextElapseUSecMonotonic", "--value"], check=False)
-    if r.returncode == 0 and not any(v.strip() not in ("", "0", "infinity", "n/a") for v in r.stdout.splitlines()):
-        log_err(f"o systemd nao mostra proximo disparo para {base}.timer depois de gravar a rotina. "
-                f"Confira com: systemctl list-timers --all {base}.timer")
+    if r.returncode != 0:
+        return None
+    return any(v.strip() not in ("", "0", "infinity", "n/a") for v in r.stdout.splitlines())
+
+
+def rearmar_se_preciso(base: str):
+    """
+    Remarcar uma rotina de uma vez so que ja disparou (estado `elapsed`) deixava o timer sem
+    proximo disparo: `daemon-reload` + `enable --now` nao rearmam um timer que ja esta ativo, e a
+    rotina remarcada nao rodava, sem erro nenhum. So reinicia quando o systemd nao mostra o proximo
+    disparo, para nao gastar o limite de partidas do timer a cada edicao. Nada aqui aborta: as
+    unidades ja estao gravadas, e o manifesto precisa ser gravado em seguida para ficar coerente.
+    """
+    conferir = f"systemctl list-timers --all {base}.timer"
+    tem = tem_proximo_disparo(base)
+    if tem is False:
+        r = run(["systemctl", "restart", f"{base}.timer"], check=False)
+        if r.returncode != 0:
+            log_err(f"a rotina foi gravada, mas o systemd recusou rearmar {base}.timer "
+                    f"({(r.stderr or r.stdout).strip() or 'sem mensagem'}). Ela pode nao disparar no "
+                    f"horario novo. Confira com: {conferir}")
+            return
+        tem = tem_proximo_disparo(base)
+    if tem is None:
+        log_err(f"a rotina foi gravada, mas nao consegui confirmar o proximo disparo de {base}.timer "
+                f"(systemctl show falhou). Confira com: {conferir}")
+    elif tem is False:
+        log_err(f"a rotina foi gravada, mas o systemd nao mostra proximo disparo para {base}.timer. "
+                f"Confira com: {conferir}")
 
 
 def remove_units(c, name: str):
@@ -632,7 +662,7 @@ def cmd_create(c, a, edit=False):
             if n >= c["cap"]:
                 die(f"cap atingido: {n}/{c['cap']} crons self. Remova um antes (persona-cron-mgr remove).")
 
-        install_units(c, a.name, a.calendar, a.every, a.poke, desc)
+        install_units(c, a.name, a.calendar, a.every, a.poke, desc, edit=edit)
         data["crons"][a.name] = entry
         write_manifest(c, data)
 
