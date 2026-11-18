@@ -104,7 +104,7 @@ a mensagem (ela nunca seria lida, porque o agente só fica ocioso depois da resp
 
 Corpo: `{"tool_use_id":"<id da pergunta>","teclas":["2","\r","1"]}`, de 1 a 40 teclas, cada uma um texto não vazio de até
 2000 caracteres. Só Claude (Codex responde 501 `PERGUNTA_SO_CLAUDE`). Sucesso: `{success:true, data:{teclas:N}}`.
-Erros: 400 (`TOOL_USE_ID_INVALIDO`, `TECLAS_INVALIDAS`); 409 `NO_PTY`, `NAO_ESPERA_PERGUNTA`, `PERGUNTA_DIFERENTE` (nada
+Erros: 400 (`TOOL_USE_ID_INVALIDO`, `TECLAS_INVALIDAS`, inclusive um Esc misturado com outras teclas: o Esc só vale sozinho, como `["\u001b"]`); 409 `NO_PTY`, `NAO_ESPERA_PERGUNTA`, `PERGUNTA_DIFERENTE` (nada
 escrito), `PERGUNTA_JA_RESPONDIDA` (a mesma pergunta já recebeu teclas, mesmo que pela metade; nada escrito), `PERGUNTA_MUDOU` (parou no meio; o erro diz "tecla N de M") e `RESPOSTA_EM_ANDAMENTO` (uma resposta por vez por sessão;
 enquanto dura, `/permissao` e `/input` (com ou sem `submit`, com ou sem `injectWhenIdle`) também respondem 409, e o `terminal_input` do WebSocket é descartado com um aviso `{type:"error", code:"RESPOSTA_EM_ANDAMENTO"}`).
 Regra: a resposta pelo chat só vale se ninguém mexeu na pergunta pelo terminal. O runner conta toda escrita no PTY que não é da própria resposta

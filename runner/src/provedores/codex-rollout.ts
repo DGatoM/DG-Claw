@@ -164,8 +164,6 @@ export interface EventoDoRollout {
   evento: EventoInterno;
   em: number;
   ferramenta?: string;
-  /** `task_aborted`/`turn_aborted`: o turno foi cortado (Esc), não terminou sozinho. */
-  abortado?: boolean;
 }
 
 /** Uma linha do rollout vira, ou não, um evento de status. `task_started` é o RECIBO do
@@ -178,8 +176,7 @@ export function eventoDoRollout(registro: unknown): EventoDoRollout | null {
   const tipo = r.payload?.type ?? "";
   if (r.type === "event_msg") {
     if (tipo === "task_started") return { evento: "UserPromptSubmit", em };
-    if (tipo === "task_aborted" || tipo === "turn_aborted") return { evento: "Stop", em, abortado: true };
-    if (tipo === "task_complete") return { evento: "Stop", em };
+    if (tipo === "task_complete" || tipo === "task_aborted" || tipo === "turn_aborted") return { evento: "Stop", em };
   }
   if (r.type === "response_item" && (tipo === "function_call" || tipo === "custom_tool_call")) {
     return { evento: "PreToolUse", em, ferramenta: typeof r.payload?.name === "string" ? r.payload.name : undefined };

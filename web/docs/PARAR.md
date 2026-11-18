@@ -78,24 +78,16 @@ Quando a sessão mostra a interrupção, o agente não retoma sozinho o que foi 
 
 ## Depois do Esc: o agente volta a ficar ocioso
 
-Depois do Esc o hook `Stop` não dispara, e sem isso o runner ficaria em `working` e a próxima
-mensagem do painel (que espera o agente ficar ocioso) ficaria presa na fila. Por isso, depois de um Esc do Parar, o
-runner espera por até 10 s o **registro do motor** que prova que o turno foi cortado. O texto da tela não conta (um
-redesenho pode repetir um "Interrupted" antigo):
+Depois do Esc o hook `Stop` do Claude não dispara. A volta ao ocioso (e a soltura da fila de mensagens) usa a detecção
+normal de fim de turno do runner:
 
-- **Claude:** a cada 500 ms o runner confere a cauda do transcript da sessão. A prova é a última entrada de usuário/agente ser
-  de usuário com o texto exato "[Request interrupted by user]" ou "[Request interrupted by user for tool use]", com
-  horário igual ou posterior ao instante medido antes de escrever o Esc. Qualquer outro texto, inclusive um que só comece
+- **Claude:** com o terminal quieto, o runner olha o fim do transcript da sessão. A última entrada ser uma mensagem de
+  usuário com o texto exato "[Request interrupted by user]" ou "[Request interrupted by user for tool use]" (e posterior ao
+  começo do turno) vale como fim de turno, igual ao `turn_duration`. Qualquer outro texto, inclusive um que só comece
   assim, não vale.
-- **Codex:** o rollout da sessão registra `turn_aborted` (ou `task_aborted`) com horário igual ou posterior ao mesmo instante.
+- **Codex:** o rollout registra `turn_aborted` (ou `task_aborted`), tratado como o `task_complete`.
 
-Com a prova, o runner passa o agente para `idle` (motivo `runner:interrompido`) e só solta a fila depois de 1 s sem nenhum
-evento novo do motor (chegou evento: a espera recomeça), e só se nada mudou nesse meio tempo (ainda `idle`, mesmo terminal,
-mesma espera). A espera é desarmada
-quando começa um turno novo, quando o terminal muda ou ao fim dos 10 s (o log do runner avisa que a confirmação não foi vista e o estado
-fica como estava). Um segundo Parar com a espera ainda armada não a troca: o horário do primeiro Esc continua sendo o limite inferior da prova, e o prazo de 10 s passa a contar do Esc novo. Registro do
-transcript que não é um objeto (linha `null`, número, lista) ou que não é JSON é ignorado, e uma falha dentro da espera só
-gera aviso e a desarma.
+Registro do transcript que não é um objeto (linha `null`, número, lista) ou que não é JSON é ignorado.
 
 ## Colaborador
 

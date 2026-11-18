@@ -5,7 +5,6 @@ import { RX_LOGIN_EXPIRADO } from "../transcript.js";
 import { spawn } from "./ciclo.js";
 import { STOP_CONFIRM_MS } from "./constantes.js";
 import { talvezSoltarFila } from "./fila.js";
-import { desarmarVigiaDaInterrupcao } from "./terminal.js";
 import { conferirLoginExpiradoNoTranscript, marcarLoginExpirado } from "./login.js";
 import { nonceConfere } from "./telas.js";
 
@@ -38,7 +37,6 @@ export function receberHook(s: Sessao, payload: PayloadDeHook): { ok: boolean; m
 
 /** O efeito de um evento de status já autenticado (vindo do hook ou do rollout do Codex). */
 export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolean; motivo?: string } {
-  s.eventosDoMotor += 1;
   // O session_id do evento é a fonte mais confiável que existe: vem do próprio
   // CLI. É assim que o runner descobre quando o agente trocou de sessão por
   // dentro (um `/resume` digitado no TUI), caso em que o id que guardamos
@@ -78,7 +76,6 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       }
       break;
     case "UserPromptSubmit":
-      desarmarVigiaDaInterrupcao(s);
       cancelarStopPendente(s);
       // Atividade nova: o aviso da trava (se sobrou de um Stop que se perdeu) não pode engolir o Stop que vem.
       s.stopBloqueadoAte = 0;
