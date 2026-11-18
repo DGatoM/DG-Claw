@@ -4,6 +4,9 @@ export const BUFFER_MAX = 200 * 1024;
 /** O Stop dispara no fim de TODO turno, inclusive intermediário. Só vira
  *  "concluído" depois de tanto tempo quieto. Mesmo valor do Bunker. */
 export const STOP_CONFIRM_MS = 6_000;
+/** Há quanto tempo um subagente pode estar sem sinal e ainda segurar a suspensão do card: um SubagentStop perdido
+ *  não pode manter o card acordado para sempre. */
+export const SUBAGENTE_SEM_SINAL_MAX_MS = 2 * 60 * 60_000;
 /** Rede de segurança do Stop perdido (17/10/2026: 33 min "working" com a fila presa). O silêncio do
  *  terminal só é o GATILHO para olhar o transcript; a prova de que o turno acabou é a última linha dele
  *  ser `system/turn_duration`. Silêncio sozinho não prova nada: medido no Claude Code real, um `sleep 50`

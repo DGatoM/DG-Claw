@@ -30,9 +30,12 @@ Environment=CODEX_HOME=/home/agente/.codex
 # serviço inteiro: o padrão (stop) parava o runner e o painel ficava sem resposta. Com continue, morre só o filho.
 OOMPolicy=continue
 # Os scopes do dgclaw-pesado ficam no gerente do usuário e sobrevivem a um SIGKILL ou restart do runner. O
-# ExecStopPost roda mesmo quando o processo principal morre por SIGKILL, e com o runner parado os Claude que
-# pediram esses renders já foram encerrados. O "-" ignora falha (sem gerente do usuário não há scope a parar).
-ExecStopPost=-/bin/sh -c 'XDG_RUNTIME_DIR=/run/user/1001 /usr/bin/systemctl --user stop "dgclaw-pesado-*.scope"'
+# runner e tudo o que ele abre usam o prefixo abaixo, e só esses scopes param aqui (um render de cron, que não é
+# do runner, usa o prefixo padrão e não é tocado). O ExecStopPost roda mesmo quando o processo principal morre por
+# SIGKILL, e com o runner parado os Claude que pediram esses renders já foram encerrados. O "-" ignora falha
+# (sem gerente do usuário não há scope a parar).
+Environment=DGCLAW_PESADO_PREFIXO=dgclaw-pesado-runner
+ExecStopPost=-/bin/sh -c 'XDG_RUNTIME_DIR=/run/user/1001 /usr/bin/systemctl --user stop "dgclaw-pesado-runner-*.scope"'
 # O runner junta esta frase ao aviso de "ainda não fez login" que o dono vê.
 Environment="RUNNER_LOGIN_HINT=Abra o painel do agente e use o botão Entrar com a assinatura."
 # Cofre do agente (chaves de API). O "-" deixa a unidade subir mesmo sem o arquivo.

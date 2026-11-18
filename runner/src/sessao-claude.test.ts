@@ -1096,10 +1096,30 @@ test("subagente ativo (sem SubagentStop) segura a suspensão do card ocioso; dep
   assert.equal(suspensoes.length, 1, "sem subagente, o card ocioso é suspenso");
 });
 
-test("o settings do Claude registra o hook SubagentStop do runner", async () => {
+test("SubagentStart sozinho já segura a suspensão; subagente sem sinal há mais de 2 h não segura", async () => {
+  const { GerenteDeSessoes } = await import("./sessoes.js");
+  const { s, hook } = await novaComRedeCurta(60_000);
+  const suspensoes: string[] = [];
+  (s as unknown as { suspender: (m: string) => boolean }).suspender = (m) => { suspensoes.push(m); return true; };
+  const rodar = () => {
+    s.ultimaAtividade = Date.now() - 3 * 3_600_000;
+    (GerenteDeSessoes.prototype as unknown as { suspenderOciosas(this: unknown): void }).suspenderOciosas.call({ mapaParalelas: new Map([[s.id, s]]) });
+  };
+  hook("SubagentStart", { ...SUB });
+  assert.ok(s.subagentesAtivos.has(SUB.subagentId), "o SubagentStart registra o subagente");
+  rodar();
+  assert.equal(suspensoes.length, 0, "sem nenhum PreToolUse, o SubagentStart já segura a suspensão");
+  s.subagentesAtivos.set(SUB.subagentId, Date.now() - 2 * 3_600_000 - 60_000);
+  rodar();
+  assert.equal(suspensoes.length, 1, "um SubagentStop perdido não segura o card para sempre");
+  assert.equal(s.subagentesAtivos.size, 0, "a entrada velha é apagada");
+});
+
+test("o settings do Claude registra os hooks SubagentStart e SubagentStop do runner", async () => {
   const { s } = await novaComRedeCurta(60_000);
   const settings = JSON.parse(fs.readFileSync(path.join(amb.estado, s.id, "runner-hooks", `${s.id}.settings.json`), "utf8"));
   assert.match(settings.hooks.SubagentStop[0].hooks[0].command, /--event SubagentStop/);
+  assert.match(settings.hooks.SubagentStart[0].hooks[0].command, /--event SubagentStart/);
 });
 
 test("subagente: a pergunta ao dono (AskUserQuestion) continua valendo", async () => {

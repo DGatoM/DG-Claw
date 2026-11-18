@@ -63,7 +63,7 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
   // permissão (o de segundo plano não abre diálogo), e o caminho normal o devolve a working, como antes.
   const eventoDeFerramenta = payload.event === "PreToolUse" || payload.event === "PostToolUse";
   // Em qualquer status (inclusive waiting_input): o subagente está vivo e a suspensão não pode matá-lo.
-  if (payload.subagentId && eventoDeFerramenta) s.subagentesAtivos.add(payload.subagentId);
+  if (payload.subagentId && eventoDeFerramenta) s.subagentesAtivos.set(payload.subagentId, Date.now());
   if (
     payload.subagentId &&
     s.estado.status !== "waiting_input" &&
@@ -81,9 +81,12 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
     return { ok: true };
   }
 
-  // Fim de um subagente: só o tira do conjunto. O estado da principal é decidido pelo Stop dela, em qualquer status.
-  if (payload.event === "SubagentStop") {
-    if (payload.subagentId) s.subagentesAtivos.delete(payload.subagentId);
+  // Começo e fim de um subagente: só mexem no rastreio. O estado da principal é decidido pelo Stop dela, em qualquer status.
+  if (payload.event === "SubagentStart" || payload.event === "SubagentStop") {
+    if (payload.subagentId) {
+      if (payload.event === "SubagentStart") s.subagentesAtivos.set(payload.subagentId, Date.now());
+      else s.subagentesAtivos.delete(payload.subagentId);
+    }
     s.marcarAtividade();
     s.hooksVivos = true;
     return { ok: true };

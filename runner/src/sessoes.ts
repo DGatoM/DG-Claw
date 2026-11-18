@@ -28,6 +28,7 @@ import { gravarProvedorJson, provedorDoVocabulario } from "./provedores/escolha.
 import { calcularCapacidade, descreverMemoria, type Capacidade } from "./capacidade.js";
 import { Sessao } from "./sessao.js";
 import { log } from "./logger.js";
+import { SUBAGENTE_SEM_SINAL_MAX_MS } from "./sessao/constantes.js";
 
 const NOTA_INTERVALO_MS = 30 * 60_000;
 const LACO_PADRAO_MS = 60_000;
@@ -522,6 +523,9 @@ export class GerenteDeSessoes {
     const agora = Date.now();
     for (const s of this.mapaParalelas.values()) {
       if (!s.temPtyVivo() || s.estado.status !== "idle" || s.tamanhoDaFila() > 0) continue;
+      for (const [id, sinal] of s.subagentesAtivos) {
+        if (agora - sinal > SUBAGENTE_SEM_SINAL_MAX_MS) s.subagentesAtivos.delete(id);
+      }
       if (s.subagentesAtivos.size > 0) {
         log.debug("sessoes", `não suspendo ${s.id}: ${s.subagentesAtivos.size} subagente(s) ainda em andamento`);
         continue;

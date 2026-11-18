@@ -77,8 +77,15 @@ if [ -n "$tempo" ] && [ "$((10#$tempo))" -eq 0 ]; then tempo=""; fi
 
 if [ -n "${DGCLAW_PESADO:-}" ]; then exec -- "$@"; fi
 export DGCLAW_PESADO=1
+# Prefixo da unidade do scope: quem chama (o runner) o define para poder parar só os seus scopes.
+prefixo_unidade="${DGCLAW_PESADO_PREFIXO:-dgclaw-pesado}"
+if ! [[ "$prefixo_unidade" =~ ^[a-z0-9-]{1,40}$ ]]; then
+  echo "dgclaw-pesado: DGCLAW_PESADO_PREFIXO inválido: '$prefixo_unidade' (use de 1 a 40 letras minúsculas, números ou hífen)" >&2
+  exit 2
+fi
 
-cpus=$(nproc 2>/dev/null || echo 1)
+# O nproc do GNU obedece OMP_NUM_THREADS e OMP_THREAD_LIMIT: sem tirá-los, um valor herdado alto viraria o "número de CPUs".
+cpus=$(env -u OMP_NUM_THREADS -u OMP_THREAD_LIMIT nproc 2>/dev/null || echo 1)
 # O nproc do Ubuntu 24.04 não enxerga a cota de CPU do container (cpu.max): sem isto, 32 threads de numpy
 # num container de 1 CPU.
 read -r cota periodo < "${DGCLAW_PESADO_CGROUP_CPUMAX_ARQ:-/sys/fs/cgroup/cpu.max}" 2>/dev/null || cota=max
@@ -152,7 +159,7 @@ trap 'recebido 1' HUP
 
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 if [ -S "$XDG_RUNTIME_DIR/systemd/private" ] && command -v systemd-run >/dev/null 2>&1; then
-  unidade="dgclaw-pesado-$$-$RANDOM"
+  unidade="${prefixo_unidade}-$$-$RANDOM"
   # Em segundo plano para poder recolher o scope inteiro depois. Sem controle de jobs o "&" joga o stdin
   # para /dev/null, por isso o 0<&0 explícito.
   systemd-run --user --scope --quiet --collect --unit="$unidade" --description=dgclaw-pesado \

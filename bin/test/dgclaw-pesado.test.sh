@@ -81,6 +81,12 @@ printf 'max 100000\n' > "$TMP/cpumax"
 v="$(DGCLAW_PESADO_CGROUP_CPUMAX_ARQ="$TMP/cpumax" OMP_NUM_THREADS=1 "$PESADO" -- sh -c 'echo "$OMP_NUM_THREADS"' 2>/dev/null)"
 [ "$v" = "1" ] && ok "OMP_NUM_THREADS=1 fica 1 mesmo com várias CPUs" || mal "OMP 1: '$v'"
 
+echo "dgclaw-pesado: nproc não obedece OMP_NUM_THREADS herdado"
+real="$(env -u OMP_NUM_THREADS nproc)"
+printf 'max 100000\n' > "$TMP/cpumax"
+v="$(DGCLAW_PESADO_CGROUP_CPUMAX_ARQ="$TMP/cpumax" OMP_NUM_THREADS=48 MKL_NUM_THREADS=48 "$PESADO" -- sh -c 'echo "$OMP_NUM_THREADS $MKL_NUM_THREADS"' 2>/dev/null)"
+[ "$v" = "$real $real" ] && ok "OMP e MKL herdados com 48 ficam em $real (CPUs reais)" || mal "threads: '$v' (esperado '$real $real')"
+
 echo "dgclaw-pesado: teto de memória padrão"
 # O systemd-run falso só imprime o teto escolhido; o caminho com gerente não roda aqui.
 mkdir -p "$TMP/run2/systemd" "$TMP/bin"
@@ -94,6 +100,13 @@ teto() { printf '%s\n' "$1" > "$TMP/memmax"; XDG_RUNTIME_DIR="$TMP/run2" PATH="$
 [ "$(teto 17179869184)" = "MemoryMax=2500M" ] && ok "container grande -> limitado a 2500M" || mal "16 GiB: $(teto 17179869184)"
 [ "$(XDG_RUNTIME_DIR="$TMP/run2" PATH="$TMP/bin:$PATH" "$PESADO" --mem 1G -- true 2>/dev/null)" = "MemoryMax=1G" ] && ok "--mem manda sobre o padrão" || mal "--mem 1G"
 [ "$(XDG_RUNTIME_DIR="$TMP/run2" PATH="$TMP/bin:$PATH" "$PESADO" --mem 400m -- true 2>/dev/null)" = "MemoryMax=400M" ] && ok "sufixo minúsculo vira maiúsculo (o systemd só aceita 400M)" || mal "--mem 400m"
+
+echo "dgclaw-pesado: prefixo da unidade do scope"
+printf '#!/bin/sh\nfor a in "$@"; do case "$a" in --unit=*) echo "$a";; esac; done\nexit 0\n' > "$TMP/bin/systemd-run"
+unid() { XDG_RUNTIME_DIR="$TMP/run2" PATH="$TMP/bin:$PATH" "$PESADO" -- true 2>/dev/null; }
+[[ "$(unid)" == --unit=dgclaw-pesado-[0-9]*-[0-9]* ]] && ok "prefixo padrão: dgclaw-pesado-" || mal "prefixo padrão: $(unid)"
+[[ "$(DGCLAW_PESADO_PREFIXO=dgclaw-pesado-runner unid)" == --unit=dgclaw-pesado-runner-[0-9]*-[0-9]* ]] && ok "prefixo do ambiente é usado" || mal "prefixo do ambiente: $(DGCLAW_PESADO_PREFIXO=dgclaw-pesado-runner unid)"
+DGCLAW_PESADO_PREFIXO='Ruim/x' "$PESADO" -- true 2>/dev/null; [ $? -eq 2 ] && ok "prefixo inválido sai com 2" || mal "prefixo inválido"
 
 echo "dgclaw-pesado: recolhe o que sobrou"
 sleep 300 & FORA=$!
