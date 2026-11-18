@@ -780,12 +780,14 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
       return erro(503, `Não consegui falar com o runner de ${agente.nome}. O pedido de parar não foi enviado. Tente de novo.`, { codigo: 'RUNNER_FORA' });
     }
     const c = r.corpo && typeof r.corpo === 'object' ? r.corpo : {};
-    if (r.status === 404) {
-      if (c.code === 'AGENTE_DE_OUTRO_RUNNER') {
-        const msg = `O runner registrado para ${agente.nome} não serve este agente. Confira o registro do agente: peça ao Admin para reparar o agente.`;
-        log('erro', `Parar ${agente.slug} (por ${quem}): o runner respondeu AGENTE_DE_OUTRO_RUNNER.`);
-        return erro(502, msg, { codigo: 'AGENTE_DE_OUTRO_RUNNER' });
-      }
+    // Diagnóstico só com o formato conhecido do runner: corpo JSON success:false e code de lista fechada. Tudo o mais
+    // (404 sem corpo, 500 com code, HTML de proxy) deixa em aberto se o Esc foi escrito: entrega incerta.
+    if (r.status === 404 && c.success === false && c.code === 'AGENTE_DE_OUTRO_RUNNER') {
+      const msg = `O runner registrado para ${agente.nome} não serve este agente. Confira o registro do agente: peça ao Admin para reparar o agente.`;
+      log('erro', `Parar ${agente.slug} (por ${quem}): o runner respondeu AGENTE_DE_OUTRO_RUNNER.`);
+      return erro(502, msg, { codigo: 'AGENTE_DE_OUTRO_RUNNER' });
+    }
+    if (r.status === 404 && c.success === false && c.code === 'ROTA_INEXISTENTE') {
       const msg = `O runner de ${agente.nome} é de uma versão antiga e não tem a rota de parar (POST /api/agents/${agente.agente_id}/interromper). Atualize o agente pelo Admin.`;
       log('erro', `Parar ${agente.slug} (por ${quem}): ${msg}`);
       return erro(501, msg, { codigo: 'RUNNER_ANTIGO' });
@@ -815,7 +817,7 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
         const espere = typeof c.espereS === 'number' && Number.isFinite(c.espereS) && c.espereS >= 0 && c.espereS <= 10 ? c.espereS : null;
         return erro(429, `Espere${espere !== null ? ` ${espere} s` : ' um pouco'} para apertar Parar de novo: dois Esc seguidos travam a sessão.`, { codigo: 'MUITO_RAPIDO', espere_s: espere });
       }
-      return erro(502, `O runner de ${agente.nome} recusou o Parar (HTTP ${r.status}, ${codeLog}). Olhe o log do agente.`, { codigo: 'RECUSADO' });
+      return incerto(`HTTP ${r.status}, ${codeLog} fora do status esperado`);
     }
     // Só vale como entregue um 200 com success:true e data.enviado:true; qualquer outro 2xx é entrega incerta.
     const d = c.data && typeof c.data === 'object' ? c.data : null;

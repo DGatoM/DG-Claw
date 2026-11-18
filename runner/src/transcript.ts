@@ -177,6 +177,8 @@ export function turnoEncerradoNoTranscript(
     const rotulo = `${o.type ?? "?"}${o.subtype ? "/" + o.subtype : ""}`;
     const fimNormal = o.type === "system" && (o.subtype === "turn_duration" || o.subtype === "stop_hook_summary");
     // Esc do Parar: o Claude Code grava uma mensagem de usuário com o texto exato de interrupção e não dispara o hook Stop.
+    // Só user/assistant contam como "o que veio por último" (ai-title, summary, file-history-snapshot e afins são pulados).
+    if (!fimNormal && o.type !== "user" && o.type !== "assistant") continue;
     if (!fimNormal && !ehMensagemDeInterrupcao(o)) {
       return { encerrado: false, motivo: `última linha é ${rotulo}` };
     }
@@ -184,7 +186,7 @@ export function turnoEncerradoNoTranscript(
     if (!Number.isFinite(quando)) return { encerrado: false, motivo: `${rotulo} sem timestamp válido` };
     if (quando <= desdeMs) return { encerrado: false, motivo: `${rotulo} é anterior ao começo do turno atual` };
     // A frase de interrupção sozinha não prova nada (o usuário pode digitá-la): só vale com um Esc nosso, deste terminal, logo antes.
-    if (!fimNormal && (escEm === null || quando <= escEm)) {
+    if (!fimNormal && (escEm === null || quando < escEm)) {
       return { encerrado: false, motivo: "a mensagem de interrupção não tem um Esc deste terminal antes dela" };
     }
     return { encerrado: true, motivo: fimNormal ? `última linha é ${rotulo}` : "última linha é a interrupção do usuário" };
