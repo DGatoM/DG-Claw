@@ -751,6 +751,50 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     return { status: 202, corpo: { ok: true, agente: agente.slug, sessao: dados.sessao || null, modo: dados.modo || null } };
   }
 
+  /**
+   * O botão Parar: pede ao runner um Esc na sessão do agente (o mesmo que apertar Esc no terminal). Sem corpo:
+   * nada do pedido chega ao terminal. `quem` é a identidade de quem apertou, só para o registro.
+   * Devolve { status, corpo } com motivo e o que fazer em toda falha.
+   */
+  async function parar(agente, quem) {
+    const r = await runner.pedir(agente, 'POST', `/api/agents/${encodeURIComponent(agente.agente_id)}/interromper`, null, 10000);
+    if (r.erro) {
+      if (!r.antesDoEnvio) {
+        log('erro', `Parar ${agente.slug} (por ${quem}): não sei se o pedido chegou: ${r.erro}`);
+        return erro(504, `Não sei se o pedido de parar chegou ao runner de ${agente.nome} (${r.erro}). Olhe a conversa antes de apertar de novo: dois Esc seguidos podem travar a sessão.`, { codigo: 'INCERTO' });
+      }
+      log('erro', `Parar ${agente.slug} (por ${quem}): ${r.erro}`);
+      return erro(503, `${r.erro} O pedido de parar não foi enviado. Tente de novo.`, { codigo: 'RUNNER_FORA' });
+    }
+    if (r.status === 404) {
+      const msg = `O runner de ${agente.nome} é de uma versão antiga e não tem a rota de parar (POST /api/agents/${agente.agente_id}/interromper). Atualize o agente pelo Admin.`;
+      log('erro', `Parar ${agente.slug} (por ${quem}): ${msg}`);
+      return erro(501, msg, { codigo: 'RUNNER_ANTIGO' });
+    }
+    const c = r.corpo && typeof r.corpo === 'object' ? r.corpo : {};
+    if (!r.ok) {
+      const motivo = motivoDoRunner(agente, r);
+      log('aviso', `Parar ${agente.slug} (por ${quem}) recusado pelo runner (HTTP ${r.status}): ${motivo}`);
+      if (r.status === 409 && c.code === 'NO_PTY') {
+        return erro(409, `${agente.nome} não tem sessão aberta agora, então não há o que parar.`, { codigo: 'NO_PTY' });
+      }
+      if (r.status === 429 && c.code === 'MUITO_RAPIDO') {
+        const espere = typeof c.espereS === 'number' ? c.espereS : null;
+        return erro(429, `Espere${espere !== null ? ` ${espere} s` : ' um pouco'} para apertar Parar de novo. ${motivo}`, { codigo: 'MUITO_RAPIDO', espere_s: espere });
+      }
+      if (r.status === 409 || r.status === 429) return erro(r.status, `O runner de ${agente.nome} não aplicou o Parar: ${motivo}`, { codigo: typeof c.code === 'string' ? c.code : undefined });
+      return erro(502, `O runner de ${agente.nome} não aplicou o Parar: ${motivo}`);
+    }
+    const d = c.data && typeof c.data === 'object' ? c.data : {};
+    const enviadoEm = typeof d.enviadoEm === 'string' ? d.enviadoEm : new Date().toISOString();
+    const trabalhando = d.statusAntes === 'working';
+    log('info', `Parar ${agente.slug}: Esc enviado por ${quem} em ${enviadoEm} (estado antes: ${d.statusAntes || '?'}).`);
+    const mensagem = trabalhando
+      ? `Pedi para ${agente.nome} parar (é o mesmo que apertar Esc no terminal). O que estava em andamento foi interrompido; comandos que ele deixou rodando em segundo plano continuam.`
+      : `${agente.nome} não estava trabalhando quando você apertou Parar. O Esc foi enviado, mas não muda nada.`;
+    return { status: 200, corpo: { ok: true, agente: agente.slug, enviado_em: enviadoEm, trabalhando, mensagem } };
+  }
+
   /** `ator` (opcional) é quem fala: { from } para o envelope e { colaborador:true } para travar o que é do dono. */
   async function enviar(agente, req, ator) {
     const ehColab = !!(ator && ator.colaborador);
@@ -851,7 +895,7 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
   }
 
   return {
-    montarEnvelope, validaControle, autoriaDaPendencia, estado, thread, threadCompartilhada, atividade, rotuloProvedor, ultimaMensagemTs, umaVez, enviar, comando, comandos, entregar, permissao, responderPergunta, reiniciar,
+    montarEnvelope, validaControle, autoriaDaPendencia, estado, thread, threadCompartilhada, atividade, rotuloProvedor, ultimaMensagemTs, umaVez, enviar, comando, comandos, entregar, permissao, responderPergunta, reiniciar, parar,
     RX_CLIENTE_ID,
   };
 }

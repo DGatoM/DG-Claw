@@ -308,6 +308,7 @@ const atividadeEl = $('atividade');
 const atvNomeEl = atividadeEl && atividadeEl.querySelector('.atv-nome');
 const atvSepEl = atividadeEl && atividadeEl.querySelector('.atv-sep');
 const atvAcaoEl = atividadeEl && atividadeEl.querySelector('.atv-acao');
+const atvPararEl = $('btnPararAgente');
 window.atividadeFoto = null;
 let atvDeslocaMs = 0;          // relógio do servidor menos o do aparelho
 let atvDetalheAte = 0;         // até quando o toque mostra o detalhe no lugar do texto
@@ -380,8 +381,10 @@ function pintaAtividade() {
     // observador de rolagem (acima) mantém quem estava no fim no fim e quem lia lá em cima parado
     atividadeEl.hidden = !mostra;
   }
-  if (!mostra) { atvBase = null; return; }
+  if (!mostra) { atvBase = null; if (atvPararEl) atvPararEl.hidden = true; return; }
   const f = atvFrase(est);
+  // Parar só quando está trabalhando de verdade: com permissão ou pergunta abertas já há botões próprios
+  if (atvPararEl) atvPararEl.hidden = !(est.estado === 'trabalhando' && est.alerta !== 'permissao' && est.alerta !== 'pergunta');
   atividadeEl.className = f.classe;
   atividadeEl.title = f.titulo;
   if (Date.now() < atvDetalheAte) {
@@ -426,6 +429,26 @@ if (atividadeEl) {
     pintaAtividade();
     setTimeout(pintaAtividade, 4100);
   });
+  /* Botão Parar: um Esc na sessão do agente (POST /parar). Sem confirmação; reabilita depois de 3 s (a trava do runner). */
+  if (atvPararEl) {
+    atvPararEl.addEventListener('click', async ev => {
+      ev.stopPropagation();         // não abre o detalhe da faixa nem as mídias
+      if (atvPararEl.disabled || demoAtividade) return;
+      atvPararEl.disabled = true;
+      const reabilita = setTimeout(() => { atvPararEl.disabled = false; }, 3000);
+      try {
+        const d = await api(API + '/parar', { method: 'POST', body: {}, timeoutMs: 15000 });
+        mostraAviso(d.mensagem || ('Pedi para ' + AGENTE.nome + ' parar.'));
+      } catch (e) {
+        const espere = e.dados && typeof e.dados.espere_s === 'number' ? e.dados.espere_s : null;
+        if (e.status === 429 && espere !== null) {
+          clearTimeout(reabilita);
+          setTimeout(() => { atvPararEl.disabled = false; }, Math.ceil(espere * 1000) + 100);
+        }
+        mostraErro('Não consegui parar ' + AGENTE.nome + ': ' + e.message);
+      }
+    });
+  }
   /* "há 3 min" anda sozinho, sem evento: um timer local. */
   setInterval(() => {
     if (document.visibilityState !== 'visible' || !window.atividadeFoto) return;
@@ -4929,6 +4952,21 @@ function passosTutorial() {
     oque: 'Uma faixa que aparece sozinha quando o agente está trabalhando. O que você vê agora é só um exemplo.',
     como: 'Ela mostra o que ele está fazendo naquele momento. Fica amarela se ele estiver esperando uma autorização sua, e cinza se a conexão com ele cair ("sem sinal").',
     porque: 'Alguns pedidos demoram. Com a faixa você sabe que o agente não travou, e sabe quando precisa agir.' });
+  passos.push({ alvo: '#btnPararAgente', titulo: 'O botão Parar',
+    antes: () => {
+      demoAtividade = true;
+      const el = $('atividade');
+      el.hidden = false;
+      el.className = '';
+      el.querySelector('.atv-nome').textContent = nome + ' está trabalhando';
+      el.querySelector('.atv-sep').hidden = false;
+      el.querySelector('.atv-acao').textContent = 'lendo um arquivo (exemplo)';
+      $('btnPararAgente').hidden = false;
+    },
+    depois: () => { demoAtividade = false; pintaAtividade(); },
+    oque: 'Um botão que aparece na faixa de atividade enquanto o agente está trabalhando.',
+    como: 'Ao tocar, ele manda um Esc para a sessão do agente, igual ao teclado do terminal. O que está em primeiro plano é interrompido e o que foi para segundo plano continua. Espere 3 segundos entre um toque e outro.',
+    porque: 'Para cortar um trabalho que foi pelo caminho errado sem reiniciar o agente e sem perder a conversa.' });
   passos.push({ alvo: '#btnMenu', antes: fechaM, titulo: 'O botão do menu',
     oque: 'No celular, o botão de menu (as três linhas) abre o menu do agente. No computador ele não aparece, porque o menu já fica fixo à esquerda.',
     como: 'Toque nele quando quiser trocar de agente, abrir uma página do painel ou sair. Toque fora do menu, no X ou na tecla Esc para fechar.',

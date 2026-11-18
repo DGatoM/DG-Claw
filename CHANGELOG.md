@@ -7,6 +7,20 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Botão Parar na conversa.** Quando o agente está trabalhando, a faixa "está trabalhando" ganha o botão **Parar**, que faz o
+mesmo que apertar Esc no terminal: interrompe o que estava em andamento, sem reiniciar o agente e sem perder a conversa, e a
+próxima mensagem entra normalmente. Comandos que o agente deixou rodando em segundo plano continuam. Entre um toque e outro
+há uma espera de 3 segundos, porque dois Esc colados abrem o menu de voltar do terminal e travam a sessão. Funciona no
+Claude e no Codex. O colaborador só consegue parar um trabalho que ele mesmo pediu. Também há a rota
+`POST /api/v1/agents/<slug>/parar` e o guia `web/docs/PARAR.md`.
+
+### Como atualizar (botão Parar)
+
+O botão precisa do serviço novo dentro do container de cada agente. O `dgclaw atualizar` padrão já reconstrói a imagem e
+recria os agentes, então não há mais nada a fazer: peça ao Admin, no chat, "atualiza o DG Claw". Enquanto um agente ainda
+estiver com o serviço antigo, o botão avisa "Atualize o agente pelo Admin" em vez de falhar em silêncio. A explicação do
+botão para os agentes e para o Admin entra sozinha nas instruções que o DG Claw monta a cada atualização.
+
 **Correção: render de vídeo não esgota os processos do agente.** Um agente chegou a ficar mais de 30 minutos parado num
 render de vídeo porque o container tem um limite de processos (as threads contam), e o Chrome da Tela, o Claude Code e
 os Chromium novos que as tentativas de render abriam chegaram ao teto ("Resource temporarily unavailable" e "Target

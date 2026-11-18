@@ -62,6 +62,13 @@ Mais em [../../web/docs/ESTADO-DOS-AGENTES.md](../../web/docs/ESTADO-DOS-AGENTES
 **Limites.** Isso depende do motor: no Claude funciona; no Codex o pedido de permissão e a pergunta de escolha ainda não funcionam (veja [provedores.md](provedores.md)).
 **Se der erro.** Cartão que não aparece: o selo "precisa de você" no menu mostra que o agente está esperando. Mais em [../../web/docs/TRILHA-E-PERMISSAO.md](../../web/docs/TRILHA-E-PERMISSAO.md).
 
+### Parar o agente
+
+**O que é.** Quando o agente está trabalhando, a faixa "está trabalhando" ganha o botão **Parar**. Ele faz o mesmo que apertar Esc no terminal: interrompe o que estava em andamento, sem reiniciar o agente e sem perder a conversa. Não pede confirmação.
+**Precisa de.** Nada. O colaborador só consegue parar um trabalho que ele mesmo pediu.
+**Limites.** Comandos que o agente deixou rodando em segundo plano continuam. Entre um toque e outro é preciso esperar 3 segundos, porque dois Esc colados travam a sessão. Funciona no Claude e no Codex.
+**Se der erro.** A tela mostra o motivo. Se disser que o agente não tem sessão aberta, não há o que parar. Se disser que o serviço do agente é antigo, peça ao Admin para atualizar. Mais em [../../web/docs/PARAR.md](../../web/docs/PARAR.md).
+
 ### Mídias, links e arquivos (Compartilhados)
 
 **O que é.** Tocar na foto ou no nome do agente abre a lista de tudo o que foi trocado na conversa, em abas de mídias, links e arquivos.
