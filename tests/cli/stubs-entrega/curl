@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+[ -f "${STUB_ESTADO:?}/runner-mudo" ] && exit 7
+exit 0

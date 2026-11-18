@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# dgclaw de mentira: so o que o smoke chama (cofre listar --json e agente reparar).
+est="${STUB_ESTADO:?}"
+echo "dgclaw $*" >> "${STUB_LOG:?}"
+if [ "$1 $2 $4" = "agente cofre listar" ]; then
+    cat "$est/cofre.json"; exit 0
+fi
+if [ "$1 $2" = "agente reparar" ]; then
+    [ -f "$est/reparar-falha" ] && { echo "erro simulado do reparar" >&2; exit 1; }
+    echo "reparado"; exit 0
+fi
+exit 0

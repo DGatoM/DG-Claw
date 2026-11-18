@@ -7,6 +7,14 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+- **Novo: checklist de entrega de cliente e smoke test da VPS.** O `docs/ENTREGA-CLIENTE.md` reúne, para a equipe
+  que entrega uma VPS pronta, os doze passos a conferir antes de passar o servidor ao cliente (versão do Ubuntu,
+  limites do container e do runner, cofre, YouTube, render sem sobra de Chrome, ffmpeg, login pelo celular e outros),
+  cada um com o comando e o resultado esperado. O `scripts/smoke-entrega.sh <agente>` roda no servidor, como root, e
+  automatiza o que dá, imprimindo OK, AVISO ou FALHA com a causa e o que fazer. Ele nunca mostra o valor das chaves do
+  cofre, só os nomes. O que não dá para automatizar sai como lista "conferir à mão". Não muda o comportamento de quem
+  já usa o DG Claw.
+
 ## [1.1.0] - 2026-11-18
 
 - **Correção no aviso de versão nova: o número agora sobe a cada release e, quando é igual, o aviso mostra o commit.** O
