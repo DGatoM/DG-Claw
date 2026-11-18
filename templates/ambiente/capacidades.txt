@@ -20,3 +20,4 @@ docs/ANONIMIZAR.md
 web/docs/CADEADO.md
 docs/BOAS-PRATICAS-RONDAS.md
 docs/manual/README.md
+panel/docs/INTEGRACOES.md

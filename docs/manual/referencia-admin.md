@@ -252,6 +252,7 @@ Servidas pelo DG Claw Web. Quem: Dono, salvo o que a coluna disser. Colab só pa
 | Rota | Para que serve | Quem | Detalhe |
 | --- | --- | --- | --- |
 | `/api/v1/atualizacao` | Diz se há versão nova e o resumo do que mudou; `/descansar` (POST com o commit publicado) dispensa a faixa até sair outra | Dono. Caixa recebe 403 | [ATUALIZACAO.md](../../web/docs/ATUALIZACAO.md) |
+| `/api/v1/integracoes` | Integrações com defeito: a faixa vermelha, `/lembrar` (adia 1 hora), `/silenciar` e `/reativar` (POST com agente e integração), `/automatico` (POST: o Admin chamado sozinho, desligado de fábrica) | Só o dono: colaborador e caixa recebem 403 | [INTEGRACOES.md](../../web/docs/INTEGRACOES.md) |
 | `/api/v1/seguranca` | Avisos de segurança do DG Claw: `/boletins`, e por id `/adiar` e `/dispensar` | Dono. Caixa recebe 403 | [SEGURANCA-BOLETINS.md](../../web/docs/SEGURANCA-BOLETINS.md) |
 | `/api/v1/seguranca/ronda` | Resultado da ronda e os pedidos de aplicar, agendar e desfazer (`/ronda/:id/aplicar`) | Dono | [RONDA-PAINEL.md](../../web/docs/RONDA-PAINEL.md) |
 | `/api/v1/seguranca/emergencia` | Estado do botão de emergência e os pedidos `preparar`, `cortar` e `religar` | Dono | [RONDA-PAINEL.md](../../web/docs/RONDA-PAINEL.md) |
@@ -283,6 +284,7 @@ Rotas públicas, sem login, porque a tela de entrada também usa o nome, o logo 
 | `/manifest.webmanifest` | Nome e ícones do app instalado |
 | `GET /marca/favicon` | Favicon da marca, no painel de cada agente |
 | `GET /marca/icone-app` | Ícone do app instalado, no painel de cada agente |
+| `GET /marca/logo` | Logo da marca, no painel de cada agente (centro da aba Integrações quando o agente não tem foto) |
 
 ## Rotas do painel de cada agente
 
@@ -344,6 +346,9 @@ sem o cofre, as chaves de API, a conta de IA, a Tela, as credenciais de canal, o
 | `GET /api/diary` | O diário do agente | Sem documento próprio |
 | `GET /api/cerebro` | Raio-X da memória: os arquivos que o agente lê, reunidos numa tela | [CEREBRO.md](../../panel/docs/CEREBRO.md) |
 | `GET /api/radiografia` | O texto "Como o seu agente funciona por dentro" (a radiografia), lido da cópia instalada | [RADIOGRAFIA.md](../RADIOGRAFIA.md) |
+| `GET /api/integracoes` | O mapa de integrações do agente: estado de cada sistema ligado (WhatsApp, Instagram, transcrição e outros), lido do registro que o comando `dgclaw-integracao` mantém | [INTEGRACOES.md](../../panel/docs/INTEGRACOES.md) |
+| `POST /api/integracoes/:id/desligar` | Desliga uma integração no mapa (preferência do dono, não mexe no sistema em si) | [INTEGRACOES.md](../../panel/docs/INTEGRACOES.md) |
+| `POST /api/integracoes/:id/ligar` | Desfaz o desligar | [INTEGRACOES.md](../../panel/docs/INTEGRACOES.md) |
 | `GET /api/operacoes` | Operações do sistema, em quadradinhos | [OPERACOES.md](../../panel/docs/OPERACOES.md) |
 | `GET /api/operations/crons` | Lista as rotinas fixas | Sem documento próprio |
 | `GET /api/operations/logs` | Lê os logs do agente | Sem documento próprio |

@@ -29,6 +29,18 @@
     3: 'Nada para corrigir sem pressa.',
   };
 
+  const AVISO_AUTO_ADMIN = 'Ligado, o DG Claw chama o Admin sozinho quando uma integração cair. O Admin tem acesso total ao servidor, e um agente consegue registrar uma falha que não aconteceu: com isso ele faria o Admin olhar uma integração que está boa. O pedido tem texto fixo, só pede para investigar e propor, e há limites (um por defeito, um a cada 6 horas por integração, cinco por dia). Nada é aplicado sem o seu ok.';
+
+  /* O que a seção mostra e quais botões oferece, para cada estado do interruptor (ui: confirmando = aviso aberto). */
+  function autoAdminEstadoTexto(ligado) {
+    return ligado ? 'Ligado: o DG Claw chama o Admin sozinho quando uma integração cair.' : 'Desligado: o Admin só é chamado quando você pede, pelo botão da faixa de integrações.';
+  }
+  function autoAdminBotoes(ligado, confirmando) {
+    if (ligado) return [{ acao: 'auto-desligar', rotulo: 'Desligar', classe: 'rp-btn' }];
+    if (confirmando) return [{ acao: 'auto-confirmar', rotulo: 'Entendi o risco, ligar', classe: 'rp-btn rp-perigo' }, { acao: 'auto-cancelar', rotulo: 'Cancelar', classe: 'rp-btn' }];
+    return [{ acao: 'auto-ligar', rotulo: 'Ligar', classe: 'rp-btn rp-pri' }];
+  }
+
   const VAZIO_BOLETINS = 'Nenhum aviso de segurança pendente.';
 
   const FRASE_AGUARDANDO = 'Estas falhas ainda não têm correção publicada pelo fornecedor. Nada a fazer agora: a ronda confere a cada rodada e avisa quando a correção sair.';
@@ -237,6 +249,12 @@
 
   /* ── tutorial ───────────────────────────────────────────────────────────── */
   const PASSOS = {
+    autoadmin: [
+      { alvo: '#secAutoAdmin', titulo: 'Chamar o Admin sozinho',
+        oque: 'Um interruptor que decide se o DG Claw chama o Admin por conta própria quando uma integração de um agente cai (chave recusada, saldo acabado, sistema fora do ar ou conexão caída).',
+        como: 'Desligado de fábrica. Ligado, quando uma integração fica com defeito o Web escreve um pedido com texto fixo e o entrega ao Admin: investigar e propor, sem aplicar nada antes do seu ok. Há limites: um pedido por defeito, um a cada 6 horas por integração e cinco por dia. Para ligar, a tela mostra o risco e pede a sua confirmação.',
+        porque: 'Quem decide é você. O Admin tem acesso total ao servidor e um agente consegue registrar uma falha que não aconteceu, então ligar troca um pouco de segurança por rapidez. Desligar é imediato.' },
+    ],
     boletins: [
       { alvo: '#secBoletins', titulo: 'Avisos de segurança do DG Claw',
         oque: 'Os avisos sobre falhas em ferramentas que o seu sistema usa, conferidos e aprovados pela equipe do DG Claw. Cada um mostra a data, a gravidade, o link da fonte oficial e o que muda quando você corrige.',
@@ -303,11 +321,11 @@
 
   function passosPagina(doc) {
     const tem = sel => !doc || !!doc.querySelector(sel);
-    return [].concat(PASSOS.topo, PASSOS.boletins, PASSOS.aplicado, PASSOS.acao, PASSOS.sempressa, PASSOS.aguardando, PASSOS.emergencia, PASSOS.tratadas, PASSOS.inventario).filter(p => tem(p.alvo));
+    return [].concat(PASSOS.topo, PASSOS.autoadmin, PASSOS.boletins, PASSOS.aplicado, PASSOS.acao, PASSOS.sempressa, PASSOS.aguardando, PASSOS.emergencia, PASSOS.tratadas, PASSOS.inventario).filter(p => tem(p.alvo));
   }
 
   if (!raiz.document) {
-    return { cardBoletimHtml, listaBoletinsHtml, cardAplicadoHtml, cardAcaoHtml, cardSemPressaHtml, cardAguardandoHtml, listaAguardandoHtml, tituloAguardando, listaNivelHtml, tratadasHtml, inventarioHtml, planoHtml, emergenciaHtml, fraseConfere, passosPagina, PASSOS, VAZIO, VAZIO_BOLETINS, VAZIO_AGUARDANDO, FRASE_AGUARDANDO, TEXTO_EMERGENCIA };
+    return { cardBoletimHtml, listaBoletinsHtml, cardAplicadoHtml, cardAcaoHtml, cardSemPressaHtml, cardAguardandoHtml, listaAguardandoHtml, tituloAguardando, listaNivelHtml, tratadasHtml, inventarioHtml, planoHtml, emergenciaHtml, fraseConfere, autoAdminEstadoTexto, autoAdminBotoes, AVISO_AUTO_ADMIN, passosPagina, PASSOS, VAZIO, VAZIO_BOLETINS, VAZIO_AGUARDANDO, FRASE_AGUARDANDO, TEXTO_EMERGENCIA };
   }
 
   /* ── Parte com DOM ─────────────────────────────────────────────────────── */
@@ -381,6 +399,58 @@
     if (e.ok) est.emergencia = e.json;
     else { est.emergencia = null; est.erro = est.erro || e.erro; }
     pintaTopo(); pintaBoletins(); pintaNiveis(); pintaEmergencia();
+  }
+
+  /* ── chamar o Admin sozinho ─────────────────────────────────────────────── */
+  const auto = { ligado: null, suspenso: false, erro: null, confirmando: false };
+  const TEXTO_SUSPENSO = 'O pedido automático está suspenso: o arquivo de incidentes estava ilegível; confira incidentes.json.corrompido. Mexa no interruptor abaixo para retomar.';
+
+  function pintaAutoAdmin() {
+    const estado = $('autoAdminEstado'); const aviso = $('autoAdminAviso'); const acoes = $('autoAdminAcoes');
+    if (!estado) return;
+    acoes.textContent = '';
+    const susp = $('autoAdminSuspenso');
+    if (susp) { susp.textContent = auto.suspenso ? TEXTO_SUSPENSO : ''; susp.hidden = !auto.suspenso; }
+    if (auto.ligado === null) {
+      estado.textContent = auto.erro || 'Conferindo…';
+      aviso.hidden = true;
+      return;
+    }
+    estado.textContent = autoAdminEstadoTexto(auto.ligado);
+    aviso.textContent = AVISO_AUTO_ADMIN;
+    aviso.hidden = !auto.confirmando;
+    for (const b of autoAdminBotoes(auto.ligado, auto.confirmando)) {
+      const e = document.createElement('button');
+      e.type = 'button'; e.className = b.classe; e.dataset.rp = b.acao; e.textContent = b.rotulo;
+      acoes.appendChild(e);
+    }
+  }
+
+  function msgAuto(texto, tipo) {
+    const p = $('autoAdminMsg');
+    if (!p) return;
+    p.textContent = texto || '';
+    p.className = 'rp-msg' + (tipo ? ' ' + tipo : '');
+    p.hidden = !texto;
+  }
+
+  async function carregaAutoAdmin() {
+    const r = await R.chama(buscar, 'GET', '/api/v1/integracoes');
+    if (r.ok && r.json && r.json.automatico && typeof r.json.automatico.ligado === 'boolean') { auto.ligado = r.json.automatico.ligado; auto.suspenso = r.json.automatico.suspenso === true; auto.erro = null; }
+    else { auto.ligado = null; auto.erro = 'Não consegui ler o estado do Admin automático. ' + (r.erro || ''); }
+    pintaAutoAdmin();
+  }
+
+  async function mudaAutoAdmin(ligado) {
+    msgAuto('', '');
+    const corpo = ligado ? { ligado: true, entendoORisco: true } : { ligado: false };
+    const r = await R.chama(buscar, 'POST', '/api/v1/integracoes/automatico', corpo);
+    if (!r.ok) { msgAuto('Não consegui mudar: ' + r.erro, 'erro'); return; }
+    auto.ligado = !!(r.json && r.json.automatico && r.json.automatico.ligado);
+    auto.suspenso = false;   // mexer no interruptor retoma o pedido automático
+    auto.confirmando = false;
+    pintaAutoAdmin();
+    msgAuto(auto.ligado ? 'Ligado.' : 'Desligado.', 'ok');
   }
 
   function achadoDe(card) {
@@ -516,6 +586,10 @@
     if (!bt || bt.disabled) return;
     const k = bt.dataset.rp;
     if (k === 'ajuda') { ev.preventDefault(); ajudaSecao(bt.dataset.secao); return; }
+    if (k === 'auto-ligar') { auto.confirmando = true; msgAuto('', ''); pintaAutoAdmin(); return; }
+    if (k === 'auto-cancelar') { auto.confirmando = false; pintaAutoAdmin(); return; }
+    if (k === 'auto-confirmar') { mudaAutoAdmin(true); return; }
+    if (k === 'auto-desligar') { mudaAutoAdmin(false); return; }
     if (k === 'simular') { est.ui = Object.assign({}, est.ui, { verPlano: !est.ui.verPlano }); pintaEmergencia(); return; }
     if (k === 'preparar') { prepararEmergencia(bt.dataset.acao); return; }
     if (k === 'cancelar-emergencia') { est.ui = { fase: 'ocioso' }; msgEmergencia('', ''); pintaEmergencia(); return; }
@@ -543,6 +617,7 @@
     document.addEventListener('click', aoClicar);
     document.addEventListener('input', aoDigitar);
     carrega();
+    carregaAutoAdmin();
     setInterval(carrega, POLL_MS);
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') carrega(); });
     if (location.hash === '#emergencia') setTimeout(irParaEmergencia, 600);
@@ -551,5 +626,5 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', inicia);
   else inicia();
 
-  return { cardAplicadoHtml, cardAcaoHtml, cardSemPressaHtml, cardAguardandoHtml, listaAguardandoHtml, tituloAguardando, listaNivelHtml, tratadasHtml, inventarioHtml, planoHtml, emergenciaHtml, fraseConfere, passosPagina, PASSOS, VAZIO, VAZIO_BOLETINS, VAZIO_AGUARDANDO, FRASE_AGUARDANDO, TEXTO_EMERGENCIA, tutorial, carrega };
+  return { cardAplicadoHtml, cardAcaoHtml, cardSemPressaHtml, cardAguardandoHtml, listaAguardandoHtml, tituloAguardando, listaNivelHtml, tratadasHtml, inventarioHtml, planoHtml, emergenciaHtml, fraseConfere, autoAdminEstadoTexto, autoAdminBotoes, AVISO_AUTO_ADMIN, passosPagina, PASSOS, VAZIO, VAZIO_BOLETINS, VAZIO_AGUARDANDO, FRASE_AGUARDANDO, TEXTO_EMERGENCIA, tutorial, carrega };
 });
