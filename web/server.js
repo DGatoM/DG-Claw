@@ -851,6 +851,11 @@ function criarServidor(opcoes) {
       return res.end(fs.readFileSync(path.join(__dirname, 'docs', 'TRILHA-E-PERMISSAO.md'), 'utf8'));
     }
 
+    if (p === '/api/v1/parar/docs.md' && m === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store' });
+      return res.end(fs.readFileSync(path.join(__dirname, 'docs', 'PARAR.md'), 'utf8'));
+    }
+
     let mm = /^\/api\/v1\/agents\/([^/]+)(?:\/([a-z-]+))?$/.exec(p);
     if (mm) {
       if (falhaDoRegistro(req, res, true)) return undefined;
@@ -907,6 +912,19 @@ function criarServidor(opcoes) {
         const r = await conversa.reiniciar(agente);
         return H.enviaJson(res, r.status, r.corpo);
       }
+      if (acao === 'parar' && m === 'POST') {
+        // O corpo não é usado: o runner recebe um Esc fixo. Só se lê (com limite pequeno) para validar o JSON e drenar.
+        try { await H.lerJson(req, 1024); } catch (e) { return H.erroJson(res, e.status || 400, e.message); }
+        const quem = sessao.papel === 'colaborador' ? `colaborador:${sessao.colaborador_id} (${sessao.usuario})` : 'dono';
+        // Só o dono para o agente: a autoria por turno não enxerga o que veio por Telegram ou canal.
+        if (sessao.papel === 'colaborador') {
+          log('aviso', `Parar ${agente.slug}: ${quem} barrado, só o dono pode parar.`);
+          return H.erroJson(res, 403, 'Só o dono do DG Claw pode parar o agente.', { codigo: 'SO_O_DONO' });
+        }
+        if (!sessaoAindaVale(req, sessao)) return recusaSessaoVelha(res, sessao);
+        const r = await conversa.parar(agente, quem);
+        return H.enviaJson(res, r.status, r.corpo);
+      }
       if (acao === 'lido' && m === 'POST') {
         let corpo;
         try { corpo = await H.lerJson(req, 1024); } catch (e) { return H.erroJson(res, e.status || 400, e.message); }
@@ -934,7 +952,7 @@ function criarServidor(opcoes) {
       if (acao === 'upload' && m === 'POST') return upload(req, res, agente, sessao);
       if (acao === 'comandos' && m === 'GET') return H.enviaJson(res, 200, Object.assign({ ok: true, agente: agente.slug }, await comandos.catalogo(agente)));
       if (acao === 'comando' && m === 'POST') return comandoPost(req, res, agente, sessao);
-      return H.erroJson(res, ['messages', 'stream', 'wait', 'send', 'upload', 'permissao', 'pergunta', 'reiniciar', 'lido', 'nao-lido', 'vendo', 'comandos', 'comando', ''].includes(acao) ? 405 : 404, `Não existe ${m} ${p}.`);
+      return H.erroJson(res, ['messages', 'stream', 'wait', 'send', 'upload', 'permissao', 'pergunta', 'reiniciar', 'parar', 'lido', 'nao-lido', 'vendo', 'comandos', 'comando', ''].includes(acao) ? 405 : 404, `Não existe ${m} ${p}.`);
     }
 
     mm = /^\/api\/v1\/media\/([0-9a-f]{16})\/visual$/.exec(p);

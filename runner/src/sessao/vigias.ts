@@ -35,6 +35,7 @@ export function vigiarStopPerdido(s: Sessao, esteProc: pty.IPty): void {
       s.estado.sessionId,
       s.turnoComecouEm,
       s.estado.config.envExtra?.CLAUDE_CONFIG_DIR,
+      s.ultimoEscReal && s.ultimoEscReal.proc === s.proc ? s.ultimoEscReal.em : null,
     );
     if (!prova.encerrado) {
       log.debug(s.a("estado"), `terminal mudo há ${Math.round(quietoHa / 1000)}s, mas o transcript diz que o turno segue: ${prova.motivo}`);
