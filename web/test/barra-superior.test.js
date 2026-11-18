@@ -68,9 +68,11 @@ test('clique fora usa composedPath; ler e contínua nascem em #tools e o convers
 });
 
 test('o toque fora do quadro da Voz é tratado na captura e consumido (não revela balão mascarado)', () => {
-  const i = js.indexOf('// captura: o toque de fora fecha o quadro');
+  const i = js.indexOf('// captura na window (antes de qualquer tratador do document)');
   assert.ok(i > 0);
   const bloco = js.slice(i, js.indexOf('}, true);', i) + 9);
   assert.match(bloco, /ev\.preventDefault\(\); ev\.stopPropagation\(\);/);
   assert.match(bloco, /}, true\);$/);
+  assert.match(bloco, /window\.addEventListener\('click'/);
+  assert.match(bloco, /PASSA_TOQUE\.some/);
 });
