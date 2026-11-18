@@ -41,6 +41,10 @@ class H(http.server.BaseHTTPRequestHandler):
             return self._resp(200, {"success": True, "data": c["sessoes"]})
         if metodo == "POST" and caminho == "/api/sessoes":
             return self._resp(201, {"success": True, "data": {"id": c.get("novo_id", "card-novo")}})
+        # O "abrir" confere o primeiro turno em GET /api/agents/<id>: o card novo ja aparece trabalhando.
+        m = re.fullmatch(r"/api/agents/([^/]+)", caminho)
+        if metodo == "GET" and m:
+            return self._resp(200, {"success": True, "data": {"id": m.group(1), "status": "working", "turnosAceitos": 1}})
         m = re.fullmatch(r"/api/agents/([^/]+)/conversation", caminho)
         if metodo == "GET" and m:
             return self._resp(200, {"success": True, "data": c.get("conversa", {}).get(m.group(1), [])})
